@@ -1,6 +1,6 @@
 {
   "kind": "same-number",
-  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: ASK면 NO_AUTO|NUMBER_BARE|NOT_OPEN|PRICE_JUMP(V3 D-V3-57부터 CLAIMS 없음), IGNORE면 null|PRICE_NOT_SURE, AUTO_FIX면 null }. in = { heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
+  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: ASK면 NO_AUTO|NUMBER_BARE|NOT_OPEN|PRICE_JUMP(V3 D-V3-57부터 CLAIMS 없음), IGNORE면 null|PRICE_NOT_SURE, AUTO_FIX면 null|NOT_RECENT; ASK에 MAYBE_OTHER(D-V3-59) }. in = { recent(고쳐 말함인가 — D-V3-59), heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
   "cases": [
     {
       "id": "G-VSN-V3-01",
@@ -25,7 +25,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -55,7 +56,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -86,7 +88,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -116,7 +119,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -149,7 +153,8 @@
           "status": "SOLD",
           "liveClaims": 1
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -182,7 +187,8 @@
           "status": "SOLD",
           "liveClaims": 1
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -214,7 +220,8 @@
           "status": "SOLD",
           "liveClaims": 1
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -246,7 +253,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -276,7 +284,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -309,7 +318,8 @@
           "status": "SOLD",
           "liveClaims": 1
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -341,7 +351,8 @@
           "status": "READY",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -373,7 +384,8 @@
           "status": "CLOSED",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -405,7 +417,8 @@
           "status": "HOLD",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -437,7 +450,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": false
+        "auto": false,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -469,7 +483,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": false
+        "auto": false,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -499,7 +514,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -530,7 +546,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -563,7 +580,8 @@
           "status": "OPEN",
           "liveClaims": 2
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -596,7 +614,8 @@
           "status": "SOLD",
           "liveClaims": 1
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -630,7 +649,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -660,7 +680,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -691,7 +712,8 @@
           "status": "READY",
           "liveClaims": 3
         },
-        "auto": false
+        "auto": false,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -723,7 +745,8 @@
           "status": "CLOSED",
           "liveClaims": 2
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -755,7 +778,8 @@
           "status": "SOLD",
           "liveClaims": 1
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -787,7 +811,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -819,7 +844,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -850,7 +876,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -883,7 +910,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -916,7 +944,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -949,7 +978,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -982,7 +1012,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -1015,7 +1046,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -1047,7 +1079,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1080,7 +1113,8 @@
           "status": "READY",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -1112,7 +1146,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -1143,7 +1178,8 @@
           "status": "SOLD",
           "liveClaims": 1
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1177,7 +1213,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1209,7 +1246,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": false
+        "auto": false,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -1242,7 +1280,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1275,7 +1314,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": false
+        "auto": false,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -1306,7 +1346,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "IGNORE",
@@ -1336,7 +1377,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1369,7 +1411,8 @@
           "status": "SOLD",
           "liveClaims": 1
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1402,7 +1445,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -1434,7 +1478,8 @@
           "status": "SOLD",
           "liveClaims": 2
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1467,7 +1512,8 @@
           "status": "OPEN",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1500,7 +1546,8 @@
           "status": "CLOSED",
           "liveClaims": 0
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "ASK",
@@ -1532,7 +1579,8 @@
           "status": "SOLD",
           "liveClaims": 1
         },
-        "auto": true
+        "auto": true,
+        "recent": true
       },
       "out": {
         "action": "AUTO_FIX",
@@ -1542,6 +1590,204 @@
         "reason": null
       },
       "note": "R-10 재출력 필요 표시"
+    },
+    {
+      "id": "G-VSN-V3-49",
+      "title": "나중에 같은 번호 — 찜 없으면 바꾸고 안내 (D-V3-59)",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 50000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 30000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true,
+        "recent": false
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 50000
+        },
+        "reason": "NOT_RECENT"
+      },
+      "note": "NOT_RECENT → 화면이 '아까 것이 다른 번호였으면…' 안내"
+    },
+    {
+      "id": "G-VSN-V3-50",
+      "title": "나중에 같은 번호 — 찜 있으면 덮어쓰지 않음",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 50000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 30000,
+          "status": "SOLD",
+          "liveClaims": 2
+        },
+        "auto": true,
+        "recent": false
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 50000
+        },
+        "reason": "MAYBE_OTHER"
+      },
+      "note": "다른 화분일 수 있음 → 카드 '65번이 이미 있어요 (30,000원, 찜 2개)'"
+    },
+    {
+      "id": "G-VSN-V3-51",
+      "title": "고쳐 말함 안이면 찜 있어도 바로 (D-V3-57 그대로)",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 50000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 30000,
+          "status": "SOLD",
+          "liveClaims": 2
+        },
+        "auto": true,
+        "recent": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 50000
+        },
+        "reason": null
+      }
+    },
+    {
+      "id": "G-VSN-V3-52",
+      "title": "나중에 같은 값이면 무시",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 30000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 30000,
+          "status": "SOLD",
+          "liveClaims": 2
+        },
+        "auto": true,
+        "recent": false
+      },
+      "out": {
+        "action": "IGNORE",
+        "changes": {},
+        "reason": null
+      }
+    },
+    {
+      "id": "G-VSN-V3-53",
+      "title": "나중에 사전 품종만 다름 + 찜 → 덮어쓰지 않음",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": null,
+          "priceSure": false,
+          "name": "핑크프릴",
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 30000,
+          "status": "SOLD",
+          "liveClaims": 1
+        },
+        "auto": true,
+        "recent": false
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "name": "핑크프릴"
+        },
+        "reason": "MAYBE_OTHER"
+      }
+    },
+    {
+      "id": "G-VSN-V3-54",
+      "title": "나중이어도 300만 원 넘음은 PRICE_JUMP가 먼저",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 5000000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "",
+          "price": 30000,
+          "status": "SOLD",
+          "liveClaims": 1
+        },
+        "auto": true,
+        "recent": false
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 5000000
+        },
+        "reason": "PRICE_JUMP"
+      }
     }
   ]
 }
