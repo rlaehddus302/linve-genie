@@ -8,7 +8,7 @@ export const EXTENSION_ROUTE = {
   BOTH: '공식 연결·확장 둘 다로 받는 중',
 } as const
 
-export const EXTENSION_INTRO = `유튜브 공식 연결이 안 될 때를 위한 보조 방법이에요. PC 크롬에 ${SERVICE_NAME} 확장을 깔고 아래 코드를 넣으면, 확장이 내 유튜브 라이브 채팅을 읽어 보내요. 감사 채팅은 아래 "확장으로 감사 채팅 올리기"를 켠 경우에만 확장으로도 올려요.`
+export const EXTENSION_INTRO = `유튜브 공식 연결이 안 될 때를 위한 보조 방법이에요. PC 크롬에 ${SERVICE_NAME} 확장을 깔고 아래 코드를 넣으면, 확장이 내 유튜브 라이브 채팅을 읽어 보내요. 감사 채팅은 아래 "확장으로 감사 채팅 올리기"를 켠 경우에만 확장으로도 올려요. 틱톡도 같은 확장으로 받아요 — 틱톡 서버 연결이 막혔을 때 같은 크롬에서 내 틱톡 방송 화면을 열어 두면, 확장이 틱톡 댓글을 대신 읽어 보내요.`
 
 // ── 확장으로 감사 채팅 올리기 (AC11~AC17, D-X1-17~24) ──
 export const EXTENSION_THANKS_TITLE = '확장으로 감사 채팅 올리기'

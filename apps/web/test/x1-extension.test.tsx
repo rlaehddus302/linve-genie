@@ -139,6 +139,12 @@ describe('설정 — 확장 연결 (AC-X1-08)', () => {
     expect(await screen.findByText('보조자 계정으로는 할 수 없어요.')).toBeTruthy()
   })
 
+  it('U-TTX-02: 확장 칸 설명에 틱톡 대비책(내 틱톡 방송 화면을 열어 두면 대신 받음)이 있다', async () => {
+    render(<Settings />)
+    await screen.findByRole('button', { name: '확장 연결' })
+    expect(screen.getByText(/틱톡도 같은 확장으로 받아요/).textContent).toContain('내 틱톡 방송 화면을 열어 두면, 확장이 틱톡 댓글을 대신 읽어 보내요.')
+  })
+
   it('영어 상태값을 보이지 않는다', async () => {
     view = receiving({ state: 'UNREADABLE', message: '유튜브 화면이 바뀌어 채팅을 읽지 못해요', manual: '주문은 손으로 넣어 주세요', dropped: 3 })
     const { container } = render(<Settings />)
