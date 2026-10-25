@@ -48,8 +48,10 @@ describe('조각 소비 — 사례 표 R54~R68', () => {
     ['R62 중간 결과 "92번 빅뱅 60"은 기다림', '92번 빅뱅 60', false, []],
     ['R62 이어 "92번 빅뱅 60만 원" → 600,000원', '92번 빅뱅 60만 원', false, [{ no: 92, name: '빅뱅', price: 600_000 }]],
     ['R63 "92번 빅뱅 6만 자" → 60,000원(적힌 대로)', '92번 빅뱅 6만 자', false, [{ no: 92, name: '빅뱅', price: 60_000 }]],
-    ['R64 품종 없음 "92번 60"', '92번 60', true, []],
-    ['R64 군말만 "92번 저거 60"', '92번 저거 60', true, []],
+    // D-V3-63: 품종 없는 "N번 수"도 조각 끝 + 최종이면 가격 단위로 확정 (처음 기대 "확정 아님"을 바꿈), 중간 결과면 기다림
+    ['R64 품종 없음 "92번 60"(최종)', '92번 60', true, [{ no: 92, name: null, price: 60_000 }]],
+    ['R64 군말만 "92번 저거 60"(최종)', '92번 저거 60', true, [{ no: 92, name: null, price: 60_000 }]],
+    ['R64 중간 결과 "92번 60"', '92번 60', false, []],
   ] as const)('%s', (_t, text, final, want) => {
     expect(picks(text, { final, priceUnit: 'THOUSAND' })).toEqual(want)
   })
@@ -62,6 +64,37 @@ describe('조각 소비 — 사례 표 R54~R68', () => {
     const spaced = '92번 빅뱅 60 만 원'.split(' ')
     for (let k = 1; k <= spaced.length; k++) {
       for (const p of seg(spaced.slice(0, k).join(' '), { final: k === spaced.length, priceUnit: 'THOUSAND' }).picks) expect(p.price, spaced.slice(0, k).join(' ')).toBe(600_000)
+    }
+  })
+
+  it.each([
+    ['R69 "육십팔번 이십오"(만원, 최종) → 68번 · 250,000원', '육십팔번 이십오', true, [{ no: 68, name: null, price: 250_000 }]],
+    ['R70 중간 결과 "육십팔번 이십오" → 기다림', '육십팔번 이십오', false, []],
+    ['R70 이어 "육십팔번 이십오만 원" → 250,000원', '육십팔번 이십오만 원', false, [{ no: 68, name: null, price: 250_000 }]],
+    ['R71 뒤 단위 낱말 "68번 25 개" → 가격 아님', '68번 25 개', true, []],
+    ['뒤 단위 낱말 "68번 25 마리"·"68번 9 cm"', '68번 25 마리', true, []],
+    ['R72 수 뒤 군말만 "68번 이십오 자 요거" → 250,000원', '68번 이십오 자 요거', true, [{ no: 68, name: null, price: 250_000 }]],
+    ['R73 한 자리 수 "68번 3" → 번호 비움', '68번 3', true, []],
+    ['한 글자 한글 수 "68번 오" → 번호 비움', '68번 오', true, []],
+    ['수 뒤에 다른 낱말 "68번 25 뿌리" → 조각 끝 아님', '68번 25 뿌리', true, []],
+  ] as const)('D-V3-63 %s', (_t, text, final, want) => {
+    expect(picks(text, { final, priceUnit: 'TEN_THOUSAND' })).toEqual(want)
+  })
+
+  it('D-V3-63 만원 단위 300만 원 초과 "68번 400"(최종) → 4,000,000원은 막힘(카드 "가격 확인 필요"), 딱 300 = 3,000,000원은 바로', () => {
+    const over = seg('68번 400', { priceUnit: 'TEN_THOUSAND' }).picks
+    expect(over.map((p) => [p.no, p.price, p.blocked !== null])).toEqual([[68, 4_000_000, true]])
+    const edge = seg('68번 300', { priceUnit: 'TEN_THOUSAND' }).picks
+    expect(edge.map((p) => [p.no, p.price, p.blocked])).toEqual([[68, 3_000_000, null]])
+  })
+
+  it('D-V3-63 낱말 하나씩 늘려 넣기: 품종 없는 "N번 수"는 어느 중간 결과에서도 고르지 않는다', () => {
+    for (const text of ['육십팔번 이십오', '68번 25', '자 92번 저거 60', '92번 60 자']) {
+      const tokens = text.split(' ')
+      for (let k = 1; k <= tokens.length; k++) {
+        const quick = seg(tokens.slice(0, k).join(' '), { final: false, priceUnit: 'TEN_THOUSAND' }).picks.filter((p) => p.priceFrom === 'quick' && p.name === null)
+        expect(quick, tokens.slice(0, k).join(' ')).toEqual([])
+      }
     }
   })
 
@@ -78,8 +111,11 @@ describe('조각 소비 — 사례 표 R54~R68', () => {
     expect(r.picks.map((p) => [p.no, p.price])).toEqual([[3, 10_000]])
     expect(r.others).toEqual([15])
   })
-  it('위험 사례: 끊어 말한 번호 "15번 1 5번 만 원" → 고르지 않는다(번호 비움)', () => {
-    expect(picks('15번 1 5번 만 원')).toEqual([])
+  // D-V3-54: `1 5번`은 앞 수와 합쳐 15번 — 같은 번호 되풀이라 15번 · 10,000원 하나 (처음 기대 "고르지 않음"을 바꿈). 자리가 겹치면 비움
+  it('"15번 1 5번 만 원" → 15번 · 10,000원, 겹치는 "오 13번 만 원"·"50 13번 만 원" → 고르지 않음', () => {
+    expect(picks('15번 1 5번 만 원')).toEqual([{ no: 15, name: null, price: 10_000 }])
+    expect(picks('오 13번 만 원')).toEqual([])
+    expect(picks('50 13번 만 원')).toEqual([])
   })
 })
 
@@ -88,7 +124,7 @@ describe('조각 소비 — 성질', () => {
     '15번', '16번', '93번', '97번', '108번', '15 번', '일육팔번', '170', '1', '5번', '만 원', '23만 원', '10만원', '7만 원까지', '만오천', '60', '6만', '605만 원', '라울', '청개구리', '빅뱅',
     '자', '요거', '갑니다', '아니', '아니고요', '다시', '말고', '취소', '가격이', '보여', '9cm', '지영님', '달래요', '그런가요',
   ] as const
-  it('고른 값: 번호 1..999 · 가격 100원 이상 · 300만 원 넘으면 막힘 표시 · 조각이 겹치지 않고 차례대로 · 원 가격이면 조각 안에 원 토큰, 빠른 꼴은 품종 있음', () => {
+  it('고른 값: 번호 1..999 · 가격 100원 이상 · 300만 원 넘으면 막힘 표시 · 조각이 겹치지 않고 차례대로 · 원 가격이면 조각 안에 원 토큰, 품종 없는 빠른 꼴은 최종만', () => {
     fc.assert(
       fc.property(fc.array(fc.constantFrom(...VOCAB), { minLength: 1, maxLength: 14 }), fc.boolean(), fc.constantFrom<'WON' | 'THOUSAND'>('WON', 'THOUSAND'), (parts, final, priceUnit) => {
         const r = readSegments(parts.join(' '), { dictionary: DICT, final, priceUnit })
@@ -107,7 +143,8 @@ describe('조각 소비 — 성질', () => {
           // 번호는 N번 표시, 아니면 가격 앞의 '번' 없는 번호(R-17 3, `170 25만 원` — D-V3-25 자리 겹침)
           if (p.numberFrom === 'marker') expect(piece.some((t) => /번/.test(t)), `번호 없는 조각: ${piece.join(' ')}`).toBe(true)
           else expect(piece.findIndex((t) => /^[0-9일이삼사오육칠팔구십백천]+$/.test(t))).toBeLessThan(piece.findIndex((t) => /원/.test(t)))
-          if (p.priceFrom === 'quick') expect(p.name, '품종 없는 빠른 꼴').not.toBeNull()
+          // D-V3-63: 품종 없는 빠른 꼴은 최종일 때만 (D-V3-48 품종 있는 꼴은 수가 글 끝이 아니면 중간 결과도)
+          if (p.priceFrom === 'quick' && p.name === null) expect(final, `중간 결과에서 품종 없는 빠른 꼴: ${piece.join(' ')}`).toBe(true)
         }
         // 중간 결과에서 가격 뒤 번호 꼴은 짝짓지 않는다: 원 토큰보다 번호가 뒤에만 있는 조각은 final일 때만
         if (!final) for (const p of r.picks) {

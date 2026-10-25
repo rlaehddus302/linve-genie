@@ -105,14 +105,15 @@ describe('AC-V3-63 — 품종 추측은 군말·막는 낱말·정정·칸 이�
   })
 })
 
-describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33)', () => {
-  // R-22 입력·결과는 스펙 문장 그대로 쓴다 (numberFrom·NUMBER_BARE·PRICE_JUMP — D-V3-32·33)
+describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33·47·55·57·59)', () => {
+  // R-22 입력·결과는 스펙 문장 그대로 쓴다 (numberFrom·recent — D-V3-32·59). V3 D-V3-57부터 찜(CLAIMS)·3배·1/3 묻기는 없다
   type SpecNumberFrom = 'MARKER' | 'BARE'
-  type SpecReason = 'NO_AUTO' | 'NUMBER_BARE' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'PRICE_JUMP' | 'CLAIMS'
+  type SpecReason = 'NO_AUTO' | 'NUMBER_BARE' | 'NOT_OPEN' | 'PRICE_NOT_SURE' | 'PRICE_JUMP' | 'MAYBE_OTHER' | 'NOT_RECENT'
   interface SpecInput {
     readonly heard: { readonly price: number | null; readonly priceSure: boolean; readonly name: string | null; readonly nameFrom: NameFrom | null; readonly numberFrom: SpecNumberFrom }
     readonly product: { readonly name: string; readonly price: number; readonly status: SameNumberStatus; readonly liveClaims: number }
     readonly auto: boolean
+    readonly recent?: boolean
   }
   interface SpecDecision {
     readonly action: 'IGNORE' | 'AUTO_FIX' | 'ASK'
@@ -126,14 +127,13 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33)', () =>
   const FROMS: readonly (NameFrom | null)[] = ['DICTIONARY', 'GUESS', null]
   const STATUSES: readonly SameNumberStatus[] = ['READY', 'OPEN', 'SOLD', 'HOLD', 'CLOSED']
   const NUMBER_FROMS: readonly SpecNumberFrom[] = ['MARKER', 'BARE']
-  /** 상품 가격 × 들은 가격 (PRICE_JUMP 경계: 딱 3배·3배+1·딱 1/3·1/3 밑·딱 300만·300만+1) */
+  const RECENTS: readonly (boolean | undefined)[] = [true, false, undefined] // 없으면 참으로 본다
+  /** 상품 가격 × 들은 가격 (3배·1/3은 이제 경계가 아님, 300만 원만 — D-V3-55·57) */
   const PRICE_PAIRS: readonly (readonly [number, number | null])[] = [
     [100_000, null],
     [100_000, 100_000],
     [100_000, 120_000],
-    [100_000, 300_000],
     [100_000, 300_001],
-    [300_000, 100_000],
     [300_000, 99_999],
     [1_500_000, 3_000_000],
     [1_500_000, 3_000_001],
@@ -148,70 +148,66 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33)', () =>
           for (const numberFrom of NUMBER_FROMS)
             for (const productName of PRODUCT_NAMES)
               for (const status of STATUSES)
-                for (const liveClaims of [0, 1])
+                for (const liveClaims of [0, 2])
                   for (const auto of [true, false])
-                    all.push({ heard: { price, priceSure, name, nameFrom: name === null ? null : nameFrom, numberFrom }, product: { name: productName, price: productPrice, status, liveClaims }, auto })
-
-  const jump = (now: number, next: number): boolean => next > now * 3 || next * 3 < now || next > 3_000_000
+                    for (const recent of RECENTS)
+                      all.push({ heard: { price, priceSure, name, nameFrom: name === null ? null : nameFrom, numberFrom }, product: { name: productName, price: productPrice, status, liveClaims }, auto, ...(recent === undefined ? {} : { recent }) })
 
   /** R-22 문장 그대로 옮긴 기대 */
   function oracle(input: SpecInput): SpecDecision {
     const { heard, product } = input
+    const recent = input.recent !== false
     const changes: { price?: number; name?: string } = {}
-    // 1. 가격은 원까지 확정된(priceSure) 것만 바꿀 칸 — 아니면 묻지도 않고 뺀다 (D-V3-47)
+    // 1. 가격은 원까지 확정된(priceSure) 것만 (D-V3-47), 품종은 사전 이름일 때만 (D-V3-31)
     const unsurePrice = heard.price !== null && heard.price !== product.price && !heard.priceSure
     if (heard.price !== null && heard.price !== product.price && heard.priceSure) changes.price = heard.price
-    // 1. 품종은 사전 이름일 때만 (D-V3-31 — 추측은 채우지도 바꾸지도 않는다)
     if (heard.nameFrom === 'DICTIONARY' && heard.name !== null && compact(heard.name) !== compact(product.name)) changes.name = heard.name
-    // 2. 바꿀 칸이 없으면 IGNORE — 확정 안 된 다른 가격을 뺀 것이면 까닭 PRICE_NOT_SURE(기록용)
+    // 2.
     if (Object.keys(changes).length === 0) return { action: 'IGNORE', changes: {}, reason: unsurePrice ? 'PRICE_NOT_SURE' : null }
+    // 3.
     const ask = (reason: SpecReason): SpecDecision => ({ action: 'ASK', changes, reason })
     if (!input.auto) return ask('NO_AUTO')
     if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
     if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
-    if (changes.price !== undefined && jump(product.price, changes.price)) return ask('PRICE_JUMP')
-    const fillOnly = changes.price === undefined && compact(product.name) === ''
-    if (product.liveClaims > 0 && !fillOnly) return ask('CLAIMS')
-    return { action: 'AUTO_FIX', changes, reason: null }
+    if (changes.price !== undefined && changes.price > 3_000_000) return ask('PRICE_JUMP')
+    if (!recent && product.liveClaims > 0) return ask('MAYBE_OTHER')
+    return { action: 'AUTO_FIX', changes, reason: recent ? null : 'NOT_RECENT' }
   }
 
   it(`조합 ${all.length}개가 R-22 문장과 같다`, () => {
-    expect(all.length).toBe(10 * 2 * 4 * 3 * 2 * 2 * 5 * 2 * 2) // 가격 짝 10 × priceSure × 품종 4 × nameFrom 3 × numberFrom 2 × 상품 품종 2 × 상태 5 × 찜 2 × auto 2
+    expect(all.length).toBe(8 * 2 * 4 * 3 * 2 * 2 * 5 * 2 * 2 * 3)
     const wrong = all.map((input) => ({ input, got: decide(input), want: oracle(input) })).filter(({ got, want }) => JSON.stringify(got) !== JSON.stringify(want))
     expect(wrong.length, JSON.stringify(wrong.slice(0, 3))).toBe(0)
   })
 
-  it('늘 지키는 것: 바꿀 칸 없으면 IGNORE · 확정 안 된 가격은 묻지도 바꾸지도 않음(D-V3-47) · 찜+가격 바뀜·BARE·3배 초과/1/3 미만/300만 초과·READY/HOLD/CLOSED는 AUTO_FIX 아님 · GUESS는 품종을 건드리지 않음', () => {
+  it('늘 지키는 것: BARE·자동 등록 끔·판매 중 아님·300만 원 초과는 절대 바로 고치지 않음 · 고쳐 말함 아님 + 찜 있음은 덮어쓰지 않음 · GUESS는 품종을 건드리지 않음 · 확정 안 된 가격은 바꾸지 않음 · CLAIMS는 나오지 않음', () => {
     for (const input of all) {
       const got = decide(input)
       const { heard, product } = input
-      const priceDiffers = heard.price !== null && heard.price !== product.price
-      const priceChange = priceDiffers && heard.priceSure
-      const nameChange = heard.nameFrom === 'DICTIONARY' && heard.name !== null && compact(heard.name) !== compact(product.name)
-      if (!priceChange && !nameChange) expect(got).toEqual({ action: 'IGNORE', changes: {}, reason: priceDiffers ? 'PRICE_NOT_SURE' : null })
-      if (!heard.priceSure) expect(got.changes.price).toBeUndefined()
-      if (!heard.priceSure && !nameChange) expect(got.action).toBe('IGNORE')
-      if (product.liveClaims > 0 && got.changes.price !== undefined) expect(got.action).not.toBe('AUTO_FIX')
-      if (heard.numberFrom === 'BARE') expect(got.action).not.toBe('AUTO_FIX')
+      if (heard.numberFrom === 'BARE' || !input.auto || !['OPEN', 'SOLD'].includes(product.status)) expect(got.action).not.toBe('AUTO_FIX')
+      if (got.changes.price !== undefined && got.changes.price > 3_000_000) expect(got.action).not.toBe('AUTO_FIX')
+      if (input.recent === false && product.liveClaims > 0) expect(got.action).not.toBe('AUTO_FIX')
       if (heard.nameFrom !== 'DICTIONARY') expect(got.changes.name).toBeUndefined()
-      if (heard.price !== null && priceChange && jump(product.price, heard.price)) expect(got.action).not.toBe('AUTO_FIX')
-      if (['READY', 'HOLD', 'CLOSED'].includes(product.status)) expect(got.action).not.toBe('AUTO_FIX')
-      if (got.action === 'AUTO_FIX') expect(got.reason).toBeNull()
-      else if (got.action === 'IGNORE') expect([null, 'PRICE_NOT_SURE']).toContain(got.reason)
-      else expect(got.reason).not.toBeNull()
-      expect(got.reason).not.toBe(got.action === 'ASK' ? 'PRICE_NOT_SURE' : '')
+      if (!heard.priceSure) expect(got.changes.price).toBeUndefined()
+      expect(got.reason).not.toBe('CLAIMS')
+      if (got.action === 'ASK') expect(['NO_AUTO', 'NUMBER_BARE', 'NOT_OPEN', 'PRICE_JUMP', 'MAYBE_OTHER']).toContain(got.reason)
+      if (got.action === 'AUTO_FIX') expect([null, 'NOT_RECENT']).toContain(got.reason)
+      if (got.action === 'IGNORE') expect([null, 'PRICE_NOT_SURE']).toContain(got.reason)
       expect(Object.keys(got).sort()).toEqual(['action', 'changes', 'reason'])
     }
   })
 
   it.each([
-    ['R45 38번 · 설비 · 650,000원에 추측 + 6,050,000원', { price: 6_050_000, priceSure: true, name: '나왔네', nameFrom: 'GUESS', numberFrom: 'MARKER' }, { name: '설비', price: 650_000 }, { action: 'ASK', changes: { price: 6_050_000 }, reason: 'PRICE_JUMP' }],
-    ['R47 딱 3배는 받음', { price: 300_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: 'bts', price: 100_000 }, { action: 'AUTO_FIX', changes: { price: 300_000 }, reason: null }],
-    ['R48 번 없이 들은 다른 가격', { price: 120_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'BARE' }, { name: 'bts', price: 100_000 }, { action: 'ASK', changes: { price: 120_000 }, reason: 'NUMBER_BARE' }],
-    ['번 없이 들은 같은 말은 무시', { price: 100_000, priceSure: true, name: 'bts', nameFrom: 'GUESS', numberFrom: 'BARE' }, { name: 'bts', price: 100_000 }, { action: 'IGNORE', changes: {}, reason: null }],
-    ['빈 품종에 추측 → 무시 (D-V3-31)', { price: 100_000, priceSure: true, name: 'bts', nameFrom: 'GUESS', numberFrom: 'MARKER' }, { name: '', price: 100_000 }, { action: 'IGNORE', changes: {}, reason: null }],
-  ] as const)('%s', (_title, heard, product, want) => {
-    expect(decide({ heard, product: { ...product, status: 'OPEN', liveClaims: 0 }, auto: true })).toEqual(want)
+    ['R45 300만 원 넘는 올림은 묻기', { price: 6_050_000, priceSure: true, name: '나왔네', nameFrom: 'GUESS', numberFrom: 'MARKER' }, { name: '설비', price: 650_000, liveClaims: 0 }, true, { action: 'ASK', changes: { price: 6_050_000 }, reason: 'PRICE_JUMP' }],
+    ['D-V3-55 62번 1/3 미만 내림도 바로 고침', { price: 20_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: '', price: 100_000, liveClaims: 0 }, true, { action: 'AUTO_FIX', changes: { price: 20_000 }, reason: null }],
+    ['D-V3-57 찜 있어도 고쳐 말함이면 바로 고침', { price: 120_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: 'bts', price: 100_000, liveClaims: 3 }, true, { action: 'AUTO_FIX', changes: { price: 120_000 }, reason: null }],
+    ['D-V3-57 3배 넘는 올림(300만 원 안)도 바로 고침', { price: 300_001, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: 'bts', price: 100_000, liveClaims: 0 }, true, { action: 'AUTO_FIX', changes: { price: 300_001 }, reason: null }],
+    ['D-V3-59 고쳐 말함 아님 + 찜 0 → 바로 바꿈 NOT_RECENT', { price: 50_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: '', price: 30_000, liveClaims: 0 }, false, { action: 'AUTO_FIX', changes: { price: 50_000 }, reason: 'NOT_RECENT' }],
+    ['D-V3-59 고쳐 말함 아님 + 찜 있음 → MAYBE_OTHER', { price: 50_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'MARKER' }, { name: '', price: 30_000, liveClaims: 2 }, false, { action: 'ASK', changes: { price: 50_000 }, reason: 'MAYBE_OTHER' }],
+    ['R48 번 없이 들은 다른 가격', { price: 120_000, priceSure: true, name: null, nameFrom: null, numberFrom: 'BARE' }, { name: 'bts', price: 100_000, liveClaims: 0 }, true, { action: 'ASK', changes: { price: 120_000 }, reason: 'NUMBER_BARE' }],
+    ['빈 품종에 추측 → 무시 (D-V3-31)', { price: 100_000, priceSure: true, name: 'bts', nameFrom: 'GUESS', numberFrom: 'MARKER' }, { name: '', price: 100_000, liveClaims: 0 }, true, { action: 'IGNORE', changes: {}, reason: null }],
+  ] as const)('%s', (_title, heard, product, recent, want) => {
+    expect(decide({ heard, product: { ...product, status: 'OPEN' }, auto: true, recent })).toEqual(want)
   })
 
   it('넘긴 값을 바꾸지 않는다', () => {
@@ -222,29 +218,27 @@ describe('AC-V3-61 — decideSameNumber 모든 조합 (R-22, D-V3-31~33)', () =>
     }
   })
 
-  it('decideForExisting도 같은 규칙: 찜·번 없는 번호·가격 크게 바뀜이면 바로 고치지 않고, 추측은 품종을 건드리지 않는다', () => {
+  it('decideForExisting도 같은 규칙: 번 없는 번호·끔·판매 중 아님·300만 원 초과·(고쳐 말함 아님 + 찜)은 바로 고치지 않고, 추측은 품종을 건드리지 않는다', () => {
     fc.assert(
       fc.property(
         fc.constantFrom('', '핑크프릴'),
         fc.constantFrom(0, 1, 3),
-        fc.constantFrom(null, 100_000, 120_000, 300_000, 300_001, 33_333, 3_000_001),
+        fc.constantFrom(null, 100_000, 20_000, 300_001, 3_000_001),
         fc.constantFrom(null, '핑크프릴', 'bts'),
         fc.boolean(),
         fc.boolean(),
         fc.constantFrom<SameNumberStatus>('READY', 'OPEN', 'SOLD', 'HOLD', 'CLOSED'),
         fc.constantFrom<'marker' | 'bare'>('marker', 'bare'),
-        (name, claimCount, price, heardName, guessed, auto, status, numberFrom) => {
-          const got = decideForExisting({ no: 108, name, price: 100_000, claimCount }, { name: heardName, price, nameNeedsCheck: guessed, numberFrom }, { auto, status })
+        fc.boolean(),
+        (name, claimCount, price, heardName, guessed, auto, status, numberFrom, recent) => {
+          const got = decideForExisting({ no: 108, name, price: 100_000, claimCount }, { name: heardName, price, nameNeedsCheck: guessed, numberFrom }, { auto, status, recent })
           if (got.kind === 'AUTO_FIX' || got.kind === 'FILL_NAME') {
             expect(['OPEN', 'SOLD']).toContain(status)
             expect(auto).toBe(true)
             expect(numberFrom).toBe('marker')
+            expect(recent || claimCount === 0).toBe(true)
           }
-          if (got.kind === 'AUTO_FIX') {
-            expect(claimCount === 0 || got.price === null).toBe(true)
-            if (got.price !== null) expect(jump(100_000, got.price)).toBe(false)
-          }
-          if (got.kind === 'FILL_NAME') expect([claimCount > 0, name, guessed]).toEqual([true, '', false])
+          if (got.kind === 'AUTO_FIX' && got.price !== null) expect(got.price).toBeLessThanOrEqual(3_000_000)
           if (guessed && got.kind !== 'IGNORE') expect(got.name).toBeNull()
         },
       ),

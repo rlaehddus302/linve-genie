@@ -38,6 +38,27 @@ function beonValues(tokens: readonly string[]): number[] {
     const first = val(tokens[i - 2] as string)
     return first === 0 ? null : first * 100 + val(tokens[i - 1] as string) * 10 + val(third.charAt(0))
   }
+  // 앞 수와 합치기 (D-V3-54): X 앞 토큰이 수 토큰이면 숫자 한 개 둘은 두 자리, 자리가 내려가면 더함(왼쪽으로 이어), 겹치면 그 표시는 값 없음
+  const numberToken = (t: string | undefined): number | null => {
+    if (t === undefined || t === '이') return null
+    if (/^[0-9]{1,4}$/.test(t)) return Number(t)
+    return /^[일이삼사오육칠팔구십백천]+$/.test(t) ? parseKoreanNumber(t) : null
+  }
+  const low = (n: number): number => (n === 0 ? -1 : String(n).length - String(n).replace(/0+$/, '').length)
+  const high = (n: number): number => String(n).length - 1
+  const merged = (xIndex: number, x: string, v: number): number | null => {
+    const p = numberToken(tokens[xIndex - 1])
+    if (p === null) return v
+    if (/^[0-9]$/.test(tokens[xIndex - 1] as string) && /^[0-9]$/.test(x)) return p * 10 + v
+    let sum = v
+    for (let k = xIndex - 1; k >= 0; k--) {
+      const left = numberToken(tokens[k])
+      if (left === null) break
+      if (low(left) <= high(sum)) return k === xIndex - 1 ? null : sum
+      sum += left
+    }
+    return sum
+  }
   tokens.forEach((token, i) => {
     const t3 = triple(i)
     if (t3 !== null) {
@@ -47,13 +68,15 @@ function beonValues(tokens: readonly string[]): number[] {
     for (const form of formsOf(token)) {
       if (form.length >= 2 && form.endsWith('번')) {
         const v = xValue(form.slice(0, -1))
-        if (v !== null) values.push(v)
+        const m = v === null ? null : merged(i, form.slice(0, -1), v)
+        if (m !== null) values.push(m)
       }
     }
     const next = tokens[i + 1]
     if (next !== undefined && formsOf(next).includes('번')) {
       const v = xValue(token)
-      if (v !== null) values.push(v)
+      const m = v === null ? null : merged(i, token, v)
+      if (m !== null) values.push(m)
     }
   })
   return values
@@ -152,13 +175,16 @@ describe('AC-V3-60 — 무작위 문장을 낱말 하나씩 늘려 넣기', () =
     ['108번 10만원 아니 12만원', 2, 108, 100_000],
     ['21번 핑크문 만원 취소', 3, 21, 10_000],
     ['174 28만 원', 3, 174, 280_000],
+    // D-V3-54: 앞 수와 합치기 — 글 끝 맨 수(`1`·`이십`)는 기다리고(D-V3-26), `5번`·`오번`이 오면 15·25번 (처음 기대 "확정 없음"을 바꿈)
+    ['25만 원 1 5번', 4, 15, 250_000],
+    ['25만 원 이십 오번', 4, 25, 250_000],
   ])('"%s" → 처음 확정 k=%i, %i번 · %i원 (사례 표)', (text, k, no, price) => {
     expect(feedWords(text).firstK).toBe(k)
     const ready = read(text.split(' ').slice(0, k).join(' '), k === text.split(' ').length).ready
     expect([ready?.no, ready?.price]).toEqual([no, price])
   })
 
-  it.each(['택배는 이삼 일 걸리고 만 원이에요', '삼광색금 3강 25만 원', '15번 라울 174 28만 원', '백 육십팔 라울 만원', '15번 핑크프릴 만오천', '189번 빅뱅금 139번 50만 원', '25만 원 1 5번', '25만 원 이십 오번', '자 9cm에 이거 25만 원 170', '요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자', '38번 605만 원까지', '25만 원 170', '100 5만 원', '이백 오만 원', '택배는 이 삼 일 걸리고 만 원이에요'])('"%s" → 어느 k에서도 확정 없음', (text) => {
+  it.each(['택배는 이삼 일 걸리고 만 원이에요', '삼광색금 3강 25만 원', '15번 라울 174 28만 원', '백 육십팔 라울 만원', '15번 핑크프릴 만오천', '189번 빅뱅금 139번 50만 원', '자 9cm에 이거 25만 원 170', '요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자', '38번 605만 원까지', '25만 원 170', '100 5만 원', '이백 오만 원', '택배는 이 삼 일 걸리고 만 원이에요'])('"%s" → 어느 k에서도 확정 없음', (text) => {
     expect(feedWords(text).firstK).toBeNull()
   })
 })
