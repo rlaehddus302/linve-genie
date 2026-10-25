@@ -5,6 +5,7 @@ export { systemTikTokClock, type TikTokClock } from './clock.ts'
 export {
   chatEventFields,
   createCommentFilter,
+  createExtensionCommentFilter,
   decimalId,
   int64Value,
   TIKTOK_COMMENT_MEMORY,
@@ -15,6 +16,10 @@ export {
   type TikTokCommentOutcome,
   type TikTokCommentRecord,
   type TikTokDropCode,
+  type TikTokExtensionDropCode,
+  type TikTokExtensionFilter,
+  type TikTokExtensionItem,
+  type TikTokExtensionOutcome,
   type TikTokRawComment,
 } from './comment.ts'
 export {

@@ -251,3 +251,21 @@ describe('AC-QS1-15 기록하지 않는 것', () => {
     }
   })
 })
+
+describe('TE-TTX-004 E2E 기동만 코드 넣기 주소 한도를 넓힌다 (운영 기본값은 그대로)', () => {
+  it('extensionCodeLimits로 넓히면 한 주소 30번도 400 — 넓히지 않은 서버는 21번째 429 그대로', async () => {
+    const wide = await world({ overrides: { extensionCodeLimits: { ipMaxAttempts: 1_000_000 } } })
+    for (let i = 0; i < 30; i += 1) expect((await enter(wide, A, WRONG)).status).toBe(400)
+    const plain = await world()
+    for (let i = 0; i < IP_MAX_ATTEMPTS; i += 1) expect((await enter(plain, A, WRONG)).status).toBe(400)
+    expect((await enter(plain, A, WRONG)).body).toMatchObject({ error: { code: 'EXT_CODE_LIMITED' } })
+  })
+
+  it('E2E 기동(src/e2e.ts)이 코드 넣기 주소 한도를 넓힌다 — 운영 기동(src/main.ts)은 넓히지 않는다', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const e2e = await readFile(new URL('../src/e2e.ts', import.meta.url), 'utf8')
+    const main = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8')
+    expect(e2e).toContain('extensionCodeLimits: { ipMaxAttempts: 1_000_000 }')
+    expect(main).not.toContain('extensionCodeLimits')
+  })
+})

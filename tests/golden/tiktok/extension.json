@@ -1,0 +1,622 @@
+{
+  "kind": "extension",
+  "about": "크롬 확장이 보낸 틱톡 댓글 묶음 하나(items) → 항목마다 공통 댓글 레코드 또는 버림 (PLT-02, TTX, D-TTX-04·05·06·14). 직접 연결의 거르개(comment.json)와 같은 규칙이고 다른 점은 둘: 항목 키가 확장 모양(commentId·userId·uniqueId·nickname·text, 그 밖 owner·postedAt은 받아도 쓰지 않음)이고, 쓴 사람 아이디(uniqueId)가 없으면 NO_AUTHOR로 버린다. 사례마다 target(그 판매자의 틱톡 연결 아이디)으로 새 거르개를 만들고 items를 순서대로 넣어 out[i]와 깊은 같음으로 비교한다. receivedAt = 서버가 그 묶음을 받은 시각(묶음 안 모두 같음). 버림 코드(이 순서로 검사): BAD_COMMENT_ID·BAD_USER_ID·NO_AUTHOR·NO_TEXT·TEXT_TOO_LONG·DUPLICATE. 레코드 → chat은 chat.json 그대로. 서버 시험이 읽는다 — README '틱톡 골든'.",
+  "cases": [
+    {
+      "id": "G-TTK-TTX-01",
+      "title": "확장 댓글 하나 → 공통 레코드 일곱 칸",
+      "refs": [
+        "PLT-02",
+        "D-TTX-06"
+      ],
+      "note": "직접 연결 레코드와 같은 모양. receivedAt = 서버가 그 묶음을 받은 시각(사례의 receivedAt), owner = 아이디가 연결 아이디와 같은가 → buyer_a ≠ seller_kim → false",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000101",
+          "userId": "7101000000000000101",
+          "uniqueId": "buyer_a",
+          "nickname": "홍길동",
+          "text": "15"
+        }
+      ],
+      "out": [
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000101",
+            "userId": "7101000000000000101",
+            "nickname": "홍길동",
+            "text": "15",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-02",
+      "title": "묶음 안 세 댓글은 보낸 순서 그대로, 받은 시각은 모두 같다",
+      "refs": [
+        "PLT-02",
+        "D-TTX-06",
+        "D-TTX-08",
+        "D-N2b-2-02"
+      ],
+      "note": "묶음 하나 = 한 번에 받음 → 세 레코드의 receivedAt 같음. 순서는 items 순서(판정은 서버가 기록한 순서 seq)",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000102",
+          "userId": "7101000000000000102",
+          "uniqueId": "buyer_b",
+          "nickname": "김철수",
+          "text": "16"
+        },
+        {
+          "commentId": "7301000000000000103",
+          "userId": "7101000000000000103",
+          "uniqueId": "buyer_c",
+          "nickname": "이영희",
+          "text": "16번"
+        },
+        {
+          "commentId": "7301000000000000104",
+          "userId": "7101000000000000102",
+          "uniqueId": "buyer_b",
+          "nickname": "김철수",
+          "text": "17"
+        }
+      ],
+      "out": [
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000102",
+            "userId": "7101000000000000102",
+            "nickname": "김철수",
+            "text": "16",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        },
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000103",
+            "userId": "7101000000000000103",
+            "nickname": "이영희",
+            "text": "16번",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        },
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000104",
+            "userId": "7101000000000000102",
+            "nickname": "김철수",
+            "text": "17",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-03",
+      "title": "방송자 본인 댓글 — 아이디를 다듬고 ASCII 소문자로 바꿔 연결 아이디와 같으면 owner",
+      "refs": [
+        "PLT-02",
+        "D-TTX-14",
+        "D-N2b-1-03"
+      ],
+      "note": "\" Seller_Kim\" → trim \"Seller_Kim\" → 소문자 \"seller_kim\" = target → owner true. 확장이 보낸 owner:false는 쓰지 않는다. 닉네임은 그대로 \"김사장\"",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000105",
+          "userId": "7101000000000000900",
+          "uniqueId": " Seller_Kim",
+          "nickname": "김사장",
+          "text": "15번 마감이요",
+          "owner": false
+        }
+      ],
+      "out": [
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000105",
+            "userId": "7101000000000000900",
+            "nickname": "김사장",
+            "text": "15번 마감이요",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-04",
+      "title": "확장이 owner:true를 보내도 아이디가 다르면 시청자",
+      "refs": [
+        "PLT-02",
+        "D-TTX-14"
+      ],
+      "note": "buyer_d ≠ seller_kim → owner false. 위조한 owner 표시로 시청자 댓글을 방송자 글로 만들어 찜을 지우지 못한다",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000106",
+          "userId": "7101000000000000106",
+          "uniqueId": "buyer_d",
+          "nickname": "박민수",
+          "text": "18",
+          "owner": true
+        }
+      ],
+      "out": [
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000106",
+            "userId": "7101000000000000106",
+            "nickname": "박민수",
+            "text": "18",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-05",
+      "title": "확장이 보낸 시각은 쓰지 않는다",
+      "refs": [
+        "PLT-02",
+        "D-TTX-06",
+        "D-N2b-2-02"
+      ],
+      "note": "postedAt \"2026-10-26T10:00:00.000Z\"(한 시간 앞)을 보내도 receivedAt = 서버가 받은 시각 2026-10-26T11:00:05.000Z",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:05.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000107",
+          "userId": "7101000000000000107",
+          "uniqueId": "buyer_e",
+          "nickname": "최지우",
+          "text": "19",
+          "postedAt": "2026-10-26T10:00:00.000Z"
+        }
+      ],
+      "out": [
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000107",
+            "userId": "7101000000000000107",
+            "nickname": "최지우",
+            "text": "19",
+            "receivedAt": "2026-10-26T11:00:05.000Z",
+            "owner": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-06",
+      "title": "댓글 ID가 없거나 모양이 틀리면 BAD_COMMENT_ID",
+      "refs": [
+        "PLT-02",
+        "D-TTX-04",
+        "D-N2b-1-03"
+      ],
+      "note": "없음 → BAD_COMMENT_ID. \"0123\"(앞자리 0) → BAD_COMMENT_ID. \"tt-1\"(글자 섞임) → BAD_COMMENT_ID. 2^53을 넘는 JSON 숫자(읽는 순간 double — 안전 정수가 아님) → BAD_COMMENT_ID",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "userId": "7101000000000000108",
+          "uniqueId": "buyer_f",
+          "nickname": "정하나",
+          "text": "20"
+        },
+        {
+          "commentId": "0123",
+          "userId": "7101000000000000108",
+          "uniqueId": "buyer_f",
+          "nickname": "정하나",
+          "text": "20"
+        },
+        {
+          "commentId": "tt-1",
+          "userId": "7101000000000000108",
+          "uniqueId": "buyer_f",
+          "nickname": "정하나",
+          "text": "20"
+        },
+        {
+          "commentId": 7301000000000000000,
+          "userId": "7101000000000000108",
+          "uniqueId": "buyer_f",
+          "nickname": "정하나",
+          "text": "20"
+        }
+      ],
+      "out": [
+        {
+          "drop": "BAD_COMMENT_ID"
+        },
+        {
+          "drop": "BAD_COMMENT_ID"
+        },
+        {
+          "drop": "BAD_COMMENT_ID"
+        },
+        {
+          "drop": "BAD_COMMENT_ID"
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-07",
+      "title": "숫자 사용자 ID가 없거나 틀리면 BAD_USER_ID — 아이디로 대신하지 않는다",
+      "refs": [
+        "PLT-02",
+        "D-TTX-04",
+        "D-N2b-1-03"
+      ],
+      "note": "없음 → BAD_USER_ID(uniqueId buyer_g가 있어도 구매자 키로 쓰지 않음). \"buyer_g\"(글자) → BAD_USER_ID. 사용자 ID와 아이디가 둘 다 틀리면 앞 검사(BAD_USER_ID)가 먼저",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000109",
+          "uniqueId": "buyer_g",
+          "nickname": "한별",
+          "text": "21"
+        },
+        {
+          "commentId": "7301000000000000110",
+          "userId": "buyer_g",
+          "uniqueId": "buyer_g",
+          "nickname": "한별",
+          "text": "21"
+        },
+        {
+          "commentId": "7301000000000000111",
+          "userId": "",
+          "text": "21"
+        }
+      ],
+      "out": [
+        {
+          "drop": "BAD_USER_ID"
+        },
+        {
+          "drop": "BAD_USER_ID"
+        },
+        {
+          "drop": "BAD_USER_ID"
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-08",
+      "title": "쓴 사람 아이디를 못 읽으면 NO_AUTHOR — 방송자 글인지 모르면 넣지 않는다",
+      "refs": [
+        "PLT-02",
+        "D-TTX-04",
+        "D-TTX-14"
+      ],
+      "note": "없음·빈 글(\"  \" 다듬으면 빈 글)·글이 아님(숫자 12345) → NO_AUTHOR. 검사 순서상 사용자 ID 다음, 본문 앞이라 본문이 비어도 NO_AUTHOR",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000112",
+          "userId": "7101000000000000112",
+          "nickname": "윤아",
+          "text": "22"
+        },
+        {
+          "commentId": "7301000000000000113",
+          "userId": "7101000000000000112",
+          "uniqueId": "  ",
+          "nickname": "윤아",
+          "text": "22"
+        },
+        {
+          "commentId": "7301000000000000114",
+          "userId": "7101000000000000112",
+          "uniqueId": 12345,
+          "nickname": "윤아",
+          "text": ""
+        }
+      ],
+      "out": [
+        {
+          "drop": "NO_AUTHOR"
+        },
+        {
+          "drop": "NO_AUTHOR"
+        },
+        {
+          "drop": "NO_AUTHOR"
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-09",
+      "title": "본문이 비면 NO_TEXT, 500자(코드 포인트) 넘으면 TEXT_TOO_LONG, 500자는 그대로",
+      "refs": [
+        "PLT-02",
+        "D-TTX-06",
+        "D-N2b-1-03"
+      ],
+      "note": "\"   \" → 다듬으면 빈 글 → NO_TEXT. 본문 없음 → NO_TEXT. \"가\"×501 → TEXT_TOO_LONG(자르지 않음). \"가\"×500 → 레코드, 본문 그대로",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000115",
+          "userId": "7101000000000000115",
+          "uniqueId": "buyer_h",
+          "nickname": "서연",
+          "text": "   "
+        },
+        {
+          "commentId": "7301000000000000116",
+          "userId": "7101000000000000115",
+          "uniqueId": "buyer_h",
+          "nickname": "서연"
+        },
+        {
+          "commentId": "7301000000000000117",
+          "userId": "7101000000000000115",
+          "uniqueId": "buyer_h",
+          "nickname": "서연",
+          "text": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가"
+        },
+        {
+          "commentId": "7301000000000000118",
+          "userId": "7101000000000000115",
+          "uniqueId": "buyer_h",
+          "nickname": "서연",
+          "text": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가"
+        }
+      ],
+      "out": [
+        {
+          "drop": "NO_TEXT"
+        },
+        {
+          "drop": "NO_TEXT"
+        },
+        {
+          "drop": "TEXT_TOO_LONG"
+        },
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000118",
+            "userId": "7101000000000000115",
+            "nickname": "서연",
+            "text": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-10",
+      "title": "같은 묶음 안 같은 댓글 ID는 한 번만, 버린 댓글의 ID는 기억하지 않는다",
+      "refs": [
+        "PLT-02",
+        "D-TTX-05"
+      ],
+      "note": "1번 ...119 레코드 → 2번 같은 ID → DUPLICATE. 3번 ...120 본문 빈 글 → NO_TEXT(기억 안 함) → 4번 같은 ...120 본문 \"24\" → 레코드",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000119",
+          "userId": "7101000000000000119",
+          "uniqueId": "buyer_i",
+          "nickname": "도윤",
+          "text": "23"
+        },
+        {
+          "commentId": "7301000000000000119",
+          "userId": "7101000000000000119",
+          "uniqueId": "buyer_i",
+          "nickname": "도윤",
+          "text": "23"
+        },
+        {
+          "commentId": "7301000000000000120",
+          "userId": "7101000000000000119",
+          "uniqueId": "buyer_i",
+          "nickname": "도윤",
+          "text": " "
+        },
+        {
+          "commentId": "7301000000000000120",
+          "userId": "7101000000000000119",
+          "uniqueId": "buyer_i",
+          "nickname": "도윤",
+          "text": "24"
+        }
+      ],
+      "out": [
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000119",
+            "userId": "7101000000000000119",
+            "nickname": "도윤",
+            "text": "23",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        },
+        {
+          "drop": "DUPLICATE"
+        },
+        {
+          "drop": "NO_TEXT"
+        },
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000120",
+            "userId": "7101000000000000119",
+            "nickname": "도윤",
+            "text": "24",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-11",
+      "title": "닉네임: 비면 다듬은 아이디(대소문자 그대로), 64자(코드 포인트)까지 자름, 태그 글자는 레코드에 그대로",
+      "refs": [
+        "PLT-02",
+        "D-TTX-06",
+        "D-N2b-1-03"
+      ],
+      "note": "닉네임 \"\" → 아이디 \" Buyer_J \" 다듬어 \"Buyer_J\"(소문자로 바꾸지 않음). \"다\"×70 → 앞 64자. \"<b>홍</b>\"는 레코드 그대로 — 이름 정리(D-Y05)는 chat으로 적을 때(chat.json)",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "7301000000000000121",
+          "userId": "7101000000000000121",
+          "uniqueId": " Buyer_J ",
+          "nickname": "",
+          "text": "25"
+        },
+        {
+          "commentId": "7301000000000000122",
+          "userId": "7101000000000000122",
+          "uniqueId": "buyer_k",
+          "nickname": "다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다",
+          "text": "26"
+        },
+        {
+          "commentId": "7301000000000000123",
+          "userId": "7101000000000000123",
+          "uniqueId": "buyer_l",
+          "nickname": "<b>홍</b>",
+          "text": "27"
+        }
+      ],
+      "out": [
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000121",
+            "userId": "7101000000000000121",
+            "nickname": "Buyer_J",
+            "text": "25",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        },
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000122",
+            "userId": "7101000000000000122",
+            "nickname": "다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다다",
+            "text": "26",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        },
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "7301000000000000123",
+            "userId": "7101000000000000123",
+            "nickname": "<b>홍</b>",
+            "text": "27",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-12",
+      "title": "본문은 다듬지 않고 그대로, 2^53을 넘는 ID도 글자 그대로",
+      "refs": [
+        "PLT-02",
+        "D-TTX-06",
+        "D-N2b-1-03"
+      ],
+      "note": "\" 15번 \" → 본문 그대로(파서가 읽는다). 사용자 ID \"9223372036854775807\"(64비트 최댓값)은 문자열 그대로 — 숫자로 바꾸면 끝자리가 바뀌어 다른 구매자가 한 사람이 된다",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        {
+          "commentId": "9223372036854775806",
+          "userId": "9223372036854775807",
+          "uniqueId": "buyer_m",
+          "nickname": "하준",
+          "text": " 15번 "
+        }
+      ],
+      "out": [
+        {
+          "record": {
+            "platform": "TIKTOK",
+            "commentId": "9223372036854775806",
+            "userId": "9223372036854775807",
+            "nickname": "하준",
+            "text": " 15번 ",
+            "receivedAt": "2026-10-26T11:00:00.000Z",
+            "owner": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "G-TTK-TTX-13",
+      "title": "항목이 객체가 아니면 BAD_COMMENT_ID",
+      "refs": [
+        "PLT-02",
+        "D-TTX-06"
+      ],
+      "note": "글 \"15\"·null·목록 [] → 빈 값으로 보고 첫 검사(댓글 ID)에서 버림",
+      "target": "seller_kim",
+      "receivedAt": "2026-10-26T11:00:00.000Z",
+      "items": [
+        "15",
+        null,
+        []
+      ],
+      "out": [
+        {
+          "drop": "BAD_COMMENT_ID"
+        },
+        {
+          "drop": "BAD_COMMENT_ID"
+        },
+        {
+          "drop": "BAD_COMMENT_ID"
+        }
+      ]
+    }
+  ]
+}

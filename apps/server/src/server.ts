@@ -37,6 +37,7 @@ import { SellerLocks } from './seller-locks.ts'
 import { routeThanks } from './thanks-route.ts'
 import { libraryWebcast, type TikTokAttemptLimiter, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
 import { TikTokLive } from './tiktok-live/live.ts'
+import { TikTokExtension } from './tiktok-live/extension.ts'
 import { PasteService } from './tiktok-live/paste-service.ts'
 import { tiktokLinkCounts } from './tiktok-live/store.ts'
 import { instagramDmCounts } from './ops-store.ts'
@@ -125,6 +126,8 @@ export interface ServerOptions {
   readonly trustedProxies?: number
   /** 로그인 경로 속도 제한 (시험에서 줄인다 — 운영은 기본값, AC-I3-66·67) */
   readonly loginLimits?: LoginLimitOptions
+  /** 확장 코드 넣기(/ext/connect)의 주소마다 한도 (E2E 기동만 넓힌다 — 운영은 기본값 10분 20번, D-QS1-06) */
+  readonly extensionCodeLimits?: LoginLimitOptions
   /** 비밀번호 확인 함수 (시험이 호출 수·동시 수를 잰다) */
   readonly passwordVerifier?: (password: string, stored: string) => Promise<boolean>
   /** 화면 빌드 폴더 — 같은 출처로 함께 낸다 (LIVEJJIM_WEB_DIR, AC-I3-70). 그 폴더에 index.html이 없으면 만들지 않는다 */
@@ -237,6 +240,8 @@ export interface LivejjimServer {
   readonly social: SocialLogin
   /** 크롬 확장으로 채팅 읽기 (X1) */
   readonly extension: ExtensionService
+  /** 크롬 확장으로 틱톡 댓글 읽기 (TTX) */
+  readonly tiktokExtension: TikTokExtension
   /** AI 확인 필요 제안 (A1 — 키가 없으면 규칙 제안만) */
   readonly assist: AssistService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
@@ -566,7 +571,21 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
   // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
-  const extension = new ExtensionService({ db, service, timer, log, thanks: extensionThanks, publish: (sellerId, view) => hub.publishExtension(sellerId, { ...view }) })
+  // 크롬 확장으로 틱톡 댓글 읽기 (TTX — 직접 연결의 대비책, 같은 '채팅' 이벤트·같은 틱톡 연결 조건)
+  const tiktokExtension = new TikTokExtension({ db, writer, clock, log, live: tiktokLive })
+  const extension = new ExtensionService({
+    db,
+    service,
+    timer,
+    log,
+    thanks: extensionThanks,
+    publish: (sellerId, view) => {
+      hub.publishExtension(sellerId, { ...view })
+      // 확장 연결이 생기거나 끊기면 틱톡 칸의 막혔을 때 안내(D-TTX-17)가 바뀔 수 있다
+      void tiktokExtension.tokenChanged(sellerId)
+    },
+    onDisconnected: (sellerId) => tiktokExtension.disconnected(sellerId),
+  })
   const social = new SocialLogin({
     db,
     masterKey,
@@ -606,7 +625,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       extension,
       assist,
     },
-    extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress }) as unknown as Hono,
+    extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress, tiktok: tiktokExtension, ...(options.extensionCodeLimits === undefined ? {} : { codeLimits: options.extensionCodeLimits }) }) as unknown as Hono,
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
     ready: async () => {
@@ -645,6 +664,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     parcels,
     social,
     extension,
+    tiktokExtension,
     assist,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
@@ -654,6 +674,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       parcels.start()
       // 끝나지 않은 실제 회차의 이어진 틱톡 연결을 이어받는다 (NFR-03, AC-N2b-2-35)
       void tiktokLive.resume()
+      // 확장 틱톡 상태의 "조용함"·"읽지 못함" 예약을 다시 건다 (RA-TTX-03)
+      void tiktokExtension.resume()
     },
     stop,
     close: () => {
@@ -663,6 +685,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       tiktokLive.close()
       deposits.close()
       extension.close()
+      tiktokExtension.close()
       hub.closeAll()
       backups.stop()
       void stop()

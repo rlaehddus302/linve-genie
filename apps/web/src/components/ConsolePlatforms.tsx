@@ -33,6 +33,7 @@ import {
   failedDmCount,
   failedDmMessage,
   tiktokBlocker,
+  tiktokDirectMessage,
   tiktokNeedsPaste,
   tiktokReconnectable,
   tiktokUnseenSaveFailed,
@@ -328,7 +329,7 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
 
 /** 틱톡 댓글이 들어오지 않는다 (알림 줄·주 단추) */
 export function tiktokTrouble(live: ConsolePlatforms): boolean {
-  return live.enabled && live.ttLink?.state === 'LINKED' && tiktokNeedsPaste(live.ttLink.collection)
+  return live.enabled && live.ttLink?.state === 'LINKED' && tiktokNeedsPaste(live.ttLink.collection, live.ttLink.extension ?? null)
 }
 
 // ── 알림 띠 맨 앞 항목 (고정 영역에 줄을 더하지 않는다) ─────────────────
@@ -674,6 +675,10 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hide
   const writable = !ended && !sealed
   const linked = ttLink !== null && ttLink.state === 'LINKED'
   const collection = ttLink?.collection ?? null
+  // 크롬 확장 쪽 받는 길·경고 (TTX D-TTX-09) — 상태가 한 번도 없던 회차는 줄 없이 지금 화면 그대로
+  const extension = linked && ttLink.extension != null && ttLink.extension.state !== 'NONE' ? ttLink.extension : null
+  // 확장 상태가 없던 회차(NONE)에만 서버가 주는 안내 한 줄 (D-TTX-17 — AC-TTX-20 "지금 화면 그대로"의 예외)
+  const extensionHint = linked ? (ttLink.extension?.hint ?? null) : null
   const reason = live.platforms?.find((item) => item.platform === 'TIKTOK')?.reasons.ready
 
   const link = () =>
@@ -710,9 +715,18 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hide
           {ttLink.tiktokId !== null ? <p>이은 틱톡 아이디: @{ttLink.tiktokId}</p> : null}
           {collection !== null ? (
             <>
-              <p>
-                <strong>{collection.message}</strong>
-              </p>
+              {tiktokDirectMessage(collection, extension) !== null ? (
+                <p>
+                  <strong>{tiktokDirectMessage(collection, extension)}</strong>
+                </p>
+              ) : null}
+              {extension?.route != null ? (
+                <p className="tiktok-route" role="status" aria-label="틱톡 댓글 받는 길">
+                  {extension.route}
+                </p>
+              ) : null}
+              {extensionHint !== null && extensionHint !== '' ? <p className="tiktok-hint">{extensionHint}</p> : null}
+              {extension?.warning != null ? <p className="warning">{extension.warning}</p> : null}
               {collection.missed && collection.missedMessage !== null ? <p className="warning">{collection.missedMessage}</p> : null}
               {!sealed && tiktokUnseenSaveFailed(collection) > 0 ? (
                 <div className="row">
@@ -733,12 +747,11 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hide
             </>
           ) : null}
           {!sealed ? (
+            // 단추 자리는 늘 붙여넣기 → 다시 연결 → 끊기 (U-TTX-04 — 방송 중 손에 익은 자리에 "끊기"가 오지 않게, 강조만 바뀐다)
             <div className="row">
-              {trouble ? (
-                <button type="button" className="button button-primary" onClick={onPaste}>
-                  댓글 붙여넣기
-                </button>
-              ) : null}
+              <button type="button" className={trouble ? 'button button-primary' : 'button'} onClick={onPaste}>
+                댓글 붙여넣기
+              </button>
               {writable && tiktokReconnectable(collection) ? (
                 <button type="button" className="button" disabled={action.busy} onClick={() => void reconnect()}>
                   다시 연결
@@ -755,11 +768,6 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hide
               >
                 끊기
               </button>
-              {!trouble ? (
-                <button type="button" className="button" onClick={onPaste}>
-                  댓글 붙여넣기
-                </button>
-              ) : null}
             </div>
           ) : null}
         </div>

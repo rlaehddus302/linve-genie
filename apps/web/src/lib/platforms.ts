@@ -2,7 +2,7 @@
 // - 플랫폼 이름은 키 접두어 하나로 정한다(서버 platformOfKey와 같다): `ig:` 인스타그램 · `tt:` 틱톡 · `sms:` 문자 · 그 밖 유튜브.
 // - 서버가 응답에 문장을 주는 곳(수집 상태·오류)은 서버 문장을 그대로 쓴다. 여기 문장은 서버가 응답으로 주지 않는 자리
 //   (조회 결과만으로 정하는 안내·확인 창·화면 문장)이고 acceptance의 따옴표 문장과 글자가 같다.
-import type { Buyer, ChatMessage, InstagramDmRow, TikTokCollection, TikTokSettings } from '../api/types.ts'
+import type { Buyer, ChatMessage, InstagramDmRow, TikTokCollection, TikTokExtensionView, TikTokSettings } from '../api/types.ts'
 
 export type KeyPlatform = 'YOUTUBE' | 'INSTAGRAM' | 'TIKTOK' | 'SMS'
 
@@ -87,13 +87,29 @@ export function tiktokUnseenSaveFailed(collection: TikTokCollection | null): num
  *   댓글이 다시 들어오므로 "들어오지 않아요. 붙여 넣어 주세요"를 띄우지 않는다 — 그 말대로 이미 들어온 댓글을 붙여 넣으면
  *   같은 시청자가 틱톡·문자 두 구매자로 찜한다(SA-N2b-2-006·TE-N2b-2-004·UX-N2b-2-02).
  *   그때 칸에는 서버의 `missedMessage`가 경고로 남는다(끄는 단추 없음).
+ * - 크롬 확장으로 받는 중(`extension.active`, TTX)이면 저장 실패 말고는 띄우지 않는다.
  */
-export function tiktokNeedsPaste(collection: TikTokCollection | null): boolean {
+export function tiktokNeedsPaste(collection: TikTokCollection | null, extension: TikTokExtensionView | null = null): boolean {
   if (collection === null || collection.state === 'FINISHED') return false
   if (tiktokUnseenSaveFailed(collection) > 0) return true
+  // 크롬 확장으로 받는 중이면 직접 연결 막힘·멈춤·끊긴 동안 빠짐 때문에는 띄우지 않는다 (AC-TTX-21, D-TTX-09) —
+  // 댓글이 확장으로 잘 들어오는데 붙여 넣으라고 하면 같은 찜이 두 번 생긴다. 확장이 조용해지면(서버가 active를 끈다) 다시 지금 조건대로
+  if (extension?.active === true) return false
   if (collection.missed && collection.state !== 'CONNECTED') return true
   if (collection.state === 'STOPPED' || collection.state === 'OFF') return true
   return collection.state === 'RETRYING' && (collection.reason === 'BLOCKED' || collection.reason === 'SIGN_FAILED')
+}
+
+/**
+ * 틱톡 칸 굵은 줄(직접 연결 상태 문장, 서버 문장 그대로). 크롬 확장으로 받는 중(`extension.active`)이면 보이지 않는다 (U-TTX-01·RA-TTX-02):
+ * 직접 연결이 막혀 다시 시도하는 동안의 문장은 "그동안 댓글을 직접 넣어 주세요"인데, 바로 아래 받는 길 줄은 "확장으로 받는 중"이다.
+ * 판매자가 그 말대로 붙여 넣으면 붙여넣기 구매자는 틱톡 구매자와 잇지 않으므로 같은 시청자가 두 구매자로 찜한다(D-TTX-09가 막으려던 사고).
+ * 화면 문구 표에 이 경우의 문장이 없어 새 문장을 만들지 않고 받는 길 줄 하나만 남긴다 — 문장은 spec-keeper에 올림(dev-notes).
+ */
+export function tiktokDirectMessage(collection: TikTokCollection | null, extension: TikTokExtensionView | null = null): string | null {
+  if (collection === null) return null
+  if (extension?.active === true) return null
+  return collection.message
 }
 
 // ── 인스타그램 ───────────────────────────────────────────────────────

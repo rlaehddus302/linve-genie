@@ -731,6 +731,31 @@ export interface TikTokCollection {
   readonly skipped: number
 }
 
+/**
+ * 크롬 확장으로 받는 틱톡 (TTX D-TTX-09) — 연결 보기의 `extension`. 화면에는 `route`·`warning` 글자만 쓰고 `state`는 보이지 않는다.
+ * `state` NONE = 이 회차에 확장 상태가 한 번도 없음(받는 길 줄 없이 지금 화면 그대로).
+ */
+export interface TikTokExtensionView {
+  readonly state: 'NONE' | 'RECEIVING' | 'STANDBY' | 'STALE' | 'HIDDEN' | 'UNREADABLE' | 'ELSEWHERE'
+  /** "확장으로 받는 중" — 이 동안 직접 연결 막힘·멈춤·끊긴 동안 빠짐 때문의 붙여넣기 알림 띠를 띄우지 않는다 */
+  readonly active: boolean
+  /** 받는 길 한 줄 (서버 문장 그대로) — 없으면 null */
+  readonly route: string | null
+  /** 확장 경고 문장 (서버 문장 그대로) — 없으면 null */
+  readonly warning: string | null
+  /**
+   * 직접 연결이 막혔고(BLOCKED·SIGN_FAILED 다시 시도·멈춤) 확장을 이었지만 이 회차 확장 상태가 없을 때의 안내 한 줄
+   * (D-TTX-17, 서버 문장 그대로 — 경고가 아니다). 없으면 null, 예전 서버면 없음
+   */
+  readonly hint?: string | null
+  readonly screen: 'OWN' | 'OTHER' | 'ELSEWHERE' | null
+  readonly hidden: boolean
+  readonly statusAt: string | null
+  readonly recorded: number
+  readonly standby: number
+  readonly unread: number
+}
+
 /** 회차의 틱톡 연결 (GET /api/broadcasts/:id/tiktok) */
 export interface TikTokLinkView {
   readonly broadcast: string
@@ -740,6 +765,8 @@ export interface TikTokLinkView {
   readonly actor: { readonly kind: string; readonly loginId: string | null } | null
   readonly tiktokId: string | null
   readonly collection: TikTokCollection | null
+  /** 크롬 확장 쪽 (TTX) — 연결이 없으면 null, 예전 서버면 없음 */
+  readonly extension?: TikTokExtensionView | null
 }
 
 /** 틱톡 위험 고지 (판은 화면에 보이지 않는 값) */

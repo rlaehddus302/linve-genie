@@ -5,5 +5,5 @@
     "lib": ["ES2024"],
     "types": ["node"]
   },
-  "include": ["*.ts", "test/**/*.node.test.ts", "src/manifest.ts"]
+  "include": ["*.ts", "test/**/*.node.test.ts", "src/manifest.ts", "src/tiktok-selectors.ts"]
 }

@@ -23,7 +23,7 @@
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01. O3 보강: 옵션 글·수량 — `product-options.json`·`packing-options.json`, D-O3-01~D-O3-04). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
 | `printer/*.json` | 프린터 작업 바이트·기기 이름으로 고르기·프로필 표·바로 연결할 수 없는 브라우저의 까닭 (LABEL_RULES L-7·L-12, N1 — D-N1-01·09). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/printer` 단위 테스트가 읽는다 — 아래 "프린터 골든" |
 | `voice/*.json` | 음성 문자찜 문장 하나 → 문자찜 아님 또는 주문·뒤 4자리·이름·받은 시각·문제 (DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08·12). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/voice` 단위 테스트가 읽는다 — 아래 "음성 문자찜 골든" |
-| `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04), 공통 댓글 레코드 → `chat` 다섯 칸·댓글 붙여넣기 줄 읽기 (N2b-2, D-N2b-2-03·07). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
+| `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04), 공통 댓글 레코드 → `chat` 다섯 칸·댓글 붙여넣기 줄 읽기 (N2b-2, D-N2b-2-03·07), 크롬 확장이 보낸 틱톡 댓글 묶음 → 공통 댓글 레코드 (TTX, D-TTX-04~06·14 — `extension.json`). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
 | `parcel/*.json` | 택배 — 배송지 여섯 칸 다듬기·검사, 묶음을 접수 목록에서 고를 수 있는지, 택배 크기 읽기 (PARCEL_RULES PC-2·PC-4·PC-6, T1, D-T1-03·D-T1-05, FB1 D-FB1-05). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "택배 골든" |
 | `waybill/*.json` | 운송장 — 송장번호 Code 128 부호값·받는 분 연락처 가리기·송장번호 글 (PARCEL_RULES PC-7, T1, D-T1-10). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/documents` 단위 시험이 읽는다 — 아래 "운송장 골든" |
 | `assist/*.json` | 확인 필요 항목의 제안 — 규칙 제안(비슷한 선택지로 바꿔 다시 읽기·같은 이름 상품 가르기)·AI 응답 검사·AI로 보내는 글 가리기·AI 호출 고르기 (SPEC CMT-06, DOMAIN_RULES R-20 10, A1 — D-A1-02~D-A1-06). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "AI 제안 골든" |
@@ -317,7 +317,7 @@ expect:
 틱톡 연결 모듈(`apps/server/src/tiktok/**`)의 두 해석기를 고정한다: 판매자가 넣은 **틱톡 아이디·방송 주소 한 줄 → 연결할 아이디**, **웹캐스트 댓글 → 공통 댓글 레코드(또는 버림)**. N2b-2가 둘을 더한다: **공통 댓글 레코드 → 서버가 기록하는 `chat`의 다섯 칸**(`chat.json`), **댓글 붙여넣기 한 번 → 줄마다 닉네임·댓글 또는 오류**(`paste.json`). 연결·다시 연결·상태 문장은 시계에 기대므로 골든이 아니라 수용 기준(`harness/sprints/N2b-1/acceptance.md`)의 통합 시험으로 본다.
 
 - **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. `apps/server`의 시험이 이 폴더의 모든 `*.json`을 읽어 틱톡 모듈의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
-- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `target`·`comment`·`chat`·`paste`(뒤 둘은 N2b-2 — 서버 시험이 알기 전까지는 읽기 오류로 실패한다). 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `target`·`comment`·`chat`·`paste`(뒤 둘은 N2b-2)·`extension`(TTX — 서버 시험이 알기 전까지는 읽기 오류로 실패한다. 서버 시험의 파일 이름 목록·사례 수 합계는 dev-server가 고친다 — AC-TTX-90). 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
 - **사례 공통 키**: `id`(`G-TTK-` + 스프린트 + `-` + 두 자리 이상 숫자, 예 `G-TTK-N2b-1-01`, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
 
 | `kind` | 사례 키 | `out` |
@@ -326,6 +326,7 @@ expect:
 | `comment` | `target`(연결한 아이디 — `target` 해석이 돌려준 모양), `events`(1개 이상: `{ "receivedAt", "raw" }`) | `events`와 같은 길이의 목록. 항목마다 `{ "record": 레코드 }` 또는 `{ "drop": 코드 }` |
 | `chat` | `in`(공통 댓글 레코드 — 정확히 일곱 키, `comment` 사례의 `record`와 같은 모양) | `{ "id", "ch", "nick", "text", "owner" }` — 정확히 다섯 키. `id` = `tt:` + `commentId`, `ch` = `tt:` + `userId`, `nick` = 수집 경로 이름 정리(D-Y05), `text`·`owner` 그대로(D-N2b-2-03). 서버가 붙이는 `b`·`type`·`at`은 비교하지 않고, `publishedAt`은 없어야 한다 |
 | `paste` | `in`(문자열 — 판매자가 붙여 넣은 글 그대로) | 성공 `{ "rows": [...] }` — 빈 줄이 아닌 줄마다 `{ "line", "nickname", "text" }` 또는 `{ "line", "error" }`(`line` = 원래 줄 번호, 1부터. 오류: `NO_NICKNAME`·`PHONE_NUMBER`·`NO_TEXT`·`TEXT_TOO_LONG`), 전체 거절 `{ "error": "TOO_LONG" \| "TOO_MANY_LINES" }`. 규칙은 D-N2b-2-07과 파일의 `about`. 댓글의 번호 해석·구매자 묶기는 이 골든 밖이다(파서 골든·G-ENG-N2b-2-02) |
+| `extension` | `target`(그 판매자의 틱톡 연결 아이디 — `target` 해석이 돌려준 모양), `receivedAt`(서버가 그 묶음을 받은 시각, `comment`와 같은 모양), `items`(1개 이상 — 확장이 보낸 묶음의 항목 그대로. 항목이 객체면 키는 `commentId`·`userId`·`uniqueId`·`nickname`·`text`·`owner`·`postedAt`만 쓸 수 있고 모두 선택, 값은 아무 JSON 값. 객체가 아닌 항목도 버림 사례로 적을 수 있다) | `items`와 같은 길이의 목록. 항목마다 `{ "record": 레코드 }`(`comment`와 같은 일곱 키) 또는 `{ "drop": 코드 }`. 버림 코드(이 순서로 검사): `BAD_COMMENT_ID`·`BAD_USER_ID`·`NO_AUTHOR`(쓴 사람 아이디가 글이 아니거나 다듬으면 빈 글)·`NO_TEXT`·`TEXT_TOO_LONG`·`DUPLICATE`. 버린 항목의 ID는 기억하지 않는다. `owner`는 확장이 보낸 값이 아니라 아이디 = `target`(다듬고 ASCII 소문자)으로 정하고, `postedAt`은 쓰지 않는다(D-TTX-06·14) |
 
 - `comment` 사례는 사례마다 `target`으로 **새 거르개**(중복 기억이 빈 것)를 만들고 `events`를 순서대로 넣는다. `receivedAt`은 오프셋 `Z`가 붙은 ISO 8601(밀리초까지) — 시험이 `new Date(receivedAt)`로 바꿔 넘긴다. `raw`는 라이브러리 `chat` 이벤트에서 꺼낸 값을 흉내 낸 객체로, 키는 `msgId`·`userId`·`uniqueId`·`nickname`·`comment`·`createTime`만 쓸 수 있다(모두 선택, 값은 아무 JSON 값 — 틀린 형식이 버림 사례다). 키가 없는 것과 `null`은 둘 다 "값 없음"이다.
 - 레코드 = 정확히 일곱 키 `{ "platform": "TIKTOK", "commentId", "userId", "nickname", "text", "receivedAt", "owner" }`. `commentId`·`userId`는 0으로 시작하지 않는 양의 10진 문자열(1~32자리), `receivedAt`은 `toISOString()` 모양(UTC, 밀리초), `owner`는 불리언.

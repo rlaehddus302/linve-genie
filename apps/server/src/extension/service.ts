@@ -137,13 +137,21 @@ export interface ExtensionDeps {
   readonly publish: (sellerId: string, view: ExtensionView) => void
   /** 감사 올리기 (X1 AC11~AC17) */
   readonly thanks: ExtensionThanks
+  /** 확장 연결을 끊었을 때 더 할 일 (TTX — 틱톡 확장 상태 비우기). 실패해도 끊기는 그대로 */
+  readonly onDisconnected?: (sellerId: string) => Promise<void>
 }
+
+/** 속도 제한을 따로 세는 줄 (TTX D-TTX-08 — 틱톡 확장 요청은 유튜브와 서로 밀어내지 않는다) */
+export type ExtensionLane = 'youtube' | 'tiktok'
 
 /** 확장 토큰이 가리키는 판매자 */
 export interface ExtensionCaller {
   readonly sellerId: string
   readonly tokenId: string
 }
+
+/** 속도 제한 수를 세는 열쇠: 유튜브는 토큰 ID 그대로(기존과 같음), 틱톡은 따로 */
+const laneKey = (tokenId: string, lane: ExtensionLane): string => (lane === 'youtube' ? tokenId : `${tokenId}#tiktok`)
 
 const codeHash = (code: string) => createHash('sha256').update(`ext-code:${code}`, 'utf8').digest('base64url')
 const isoOrNull = (date: Date | null | undefined) => (date === null || date === undefined ? null : date.toISOString())
@@ -208,7 +216,9 @@ export class ExtensionService {
     const revoked = await revokeActive(this.#deps.db, sellerId, 'DISCONNECTED', new Date(this.#now()))
     if (revoked !== null) {
       this.#usage.delete(revoked)
+      this.#usage.delete(laneKey(revoked, 'tiktok'))
       await clearStatus(this.#deps.db, sellerId)
+      await this.#deps.onDisconnected?.(sellerId)
     }
     this.#notify(sellerId)
     return revoked !== null
@@ -249,23 +259,24 @@ export class ExtensionService {
   // ── 속도 제한 (AC5) ─────────────────────────────────────────────────────
 
   /** 이 요청을 받아도 되는지 (요청 1개·메시지 n개를 센다). 안 되면 다시 보낼 때까지 기다릴 밀리초 */
-  admit(tokenId: string, messages: number): { ok: true } | { ok: false; retryAfterMs: number } {
+  admit(tokenId: string, messages: number, lane: ExtensionLane = 'youtube'): { ok: true } | { ok: false; retryAfterMs: number } {
     const now = this.#now()
-    const usage = this.#usage.get(tokenId) ?? { requests: [], messages: [] }
+    const key = laneKey(tokenId, lane)
+    const usage = this.#usage.get(key) ?? { requests: [], messages: [] }
     usage.requests = usage.requests.filter((at) => at > now - 1000)
     usage.messages = usage.messages.filter((entry) => entry.at > now - 60_000)
     if (usage.requests.length >= REQUESTS_PER_SECOND) {
-      this.#usage.set(tokenId, usage)
+      this.#usage.set(key, usage)
       return { ok: false, retryAfterMs: Math.max(1, (usage.requests[0] as number) + 1000 - now) }
     }
     const sent = usage.messages.reduce((sum, entry) => sum + entry.n, 0)
     if (messages > 0 && sent + messages > MESSAGES_PER_MINUTE) {
-      this.#usage.set(tokenId, usage)
+      this.#usage.set(key, usage)
       return { ok: false, retryAfterMs: Math.max(1, (usage.messages[0]?.at ?? now) + 60_000 - now) }
     }
     usage.requests.push(now)
     if (messages > 0) usage.messages.push({ at: now, n: messages })
-    this.#usage.set(tokenId, usage)
+    this.#usage.set(key, usage)
     // 오래 쓰지 않은 토큰의 수는 버린다 (메모리 상한)
     if (this.#usage.size > 10_000) for (const [key, value] of this.#usage) if (value.requests.every((at) => at <= now - 60_000)) this.#usage.delete(key)
     return { ok: true }

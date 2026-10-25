@@ -5,11 +5,14 @@
 // - 감사 올리기(선택, AC11~AC17): content script(poster.ts)의 가져가기·결과를 /ext/thanks/*로 넘긴다. 글은 서버가 만든 것만.
 // - 팝업 전용 메시지(연결·지우기·회차)는 확장 페이지에서 온 것만, 채팅·상태·감사는 유튜브 채팅 페이지에서 온 것만 받는다(RA-X1-04).
 // - 상태: content script가 10초마다(또 탭이 숨거나 보일 때) 보내는 상태를 /ext/status로 넘기고, 아이콘 배지를 바꾼다.
+// - 틱톡(TTX): 틱톡 화면이 보낸 것은 tiktok-hub.ts(TikTokLane)가 맡는다 — 대기열·세션 키·상태가 유튜브와 따로, 토큰은 같다(D-TTX-01·08).
 // - 출력하지 않는다(console 없음) — 닉네임·본문·토큰이 어디에도 찍히지 않게(AC9).
 import { createApi, type Api, type Fetch } from './api.ts'
 import type { ChromeLike, MessageSender } from './chrome.ts'
 import { Outbox, type OutboxEvent, type OutboxSnapshot, type Timers } from './outbox.ts'
 import { isLiveChatPage, type ChatMessage } from './reader.ts'
+import { TikTokLane, TT_PAGE_TYPES, type TikTokPageMessage, type TikTokView } from './tiktok-hub.ts'
+import { isTikTokPage } from './tiktok-reader.ts'
 import { WORDS } from './words.ts'
 
 export const TOKEN_KEY = 'token'
@@ -60,6 +63,8 @@ export interface HubView {
   readonly hidden: boolean
   /** 감사 올리기 경고 (채널 주인 아님·멈춤) — 없으면 null */
   readonly thanks: string | null
+  /** 틱톡 줄 (TTX) — 틱톡 화면을 본 적이 없거나 연결 전이면 null */
+  readonly tiktok: TikTokView | null
 }
 
 export interface BroadcastChoice {
@@ -103,8 +108,9 @@ export class Hub {
   #serverMessage: string | null = null
   #failing: string | null = null
   #disconnected = false
+  readonly #tiktok: TikTokLane
 
-  constructor(chrome: ChromeLike, origin: string, fetcher?: Fetch, timers: Timers = browserTimers) {
+  constructor(chrome: ChromeLike, origin: string, fetcher?: Fetch, timers: Timers = browserTimers, now: () => number = () => Date.now()) {
     this.#chrome = chrome
     this.#api = createApi(origin, () => this.#token, fetcher)
     this.#outbox = new Outbox(
@@ -113,6 +119,15 @@ export class Hub {
       (event) => this.#onOutbox(event),
       (snapshot) => this.#save(snapshot),
     )
+    this.#tiktok = new TikTokLane({
+      api: this.#api,
+      timers,
+      session: chrome.storage.session,
+      now,
+      connected: () => this.#token !== null,
+      changed: () => void this.#badge(),
+      lost: () => this.#lost(),
+    })
     this.#loaded = this.#load()
   }
 
@@ -120,6 +135,7 @@ export class Hub {
     const stored = await this.#chrome.storage.local.get([TOKEN_KEY])
     const token = stored[TOKEN_KEY]
     this.#token = typeof token === 'string' && token !== '' ? token : null
+    await this.#tiktok.load(this.#token !== null)
     const session = await this.#chrome.storage.session.get([QUEUE_KEY]).catch(() => ({}) as Record<string, unknown>)
     const saved = session[QUEUE_KEY]
     if (this.#token === null) {
@@ -140,6 +156,12 @@ export class Hub {
   /** 시험용: 세션 쓰기가 끝날 때까지 */
   async saved(): Promise<void> {
     await this.#persist
+    await this.#tiktok.saved()
+  }
+
+  /** 틱톡 몫 (시험용) */
+  get tiktok(): TikTokLane {
+    return this.#tiktok
   }
 
   get outbox(): Outbox {
@@ -154,6 +176,7 @@ export class Hub {
     await this.#loaded
     if (!isRecord(message) || typeof message['type'] !== 'string') return undefined
     if (sender !== undefined && !this.#allowed(message['type'], sender)) return undefined
+    if (TT_PAGE_TYPES.has(message['type'])) return this.#tiktok.handle(message as TikTokPageMessage, sender?.tab?.id ?? null)
     const m = message as PageMessage | PopupMessage
     switch (m.type) {
       case 'chats':
@@ -186,6 +209,7 @@ export class Hub {
     const url = sender.url ?? ''
     if (POPUP_TYPES.has(type)) return url.startsWith(`chrome-extension://${this.#chrome.runtime.id}/`)
     if (PAGE_TYPES.has(type)) return sender.tab !== undefined && isLiveChatPage(url)
+    if (TT_PAGE_TYPES.has(type)) return sender.tab !== undefined && isTikTokPage(url)
     return false
   }
 
@@ -221,15 +245,17 @@ export class Hub {
       light = 'ok'
     }
     if (connected && this.#thanks !== null && light === 'ok') light = 'warn'
-    return { connected, video: this.#video, message, light, notBound, dropped: this.#outbox.dropped, hidden: this.#hidden, thanks: connected ? this.#thanks : null }
+    return { connected, video: this.#video, message, light, notBound, dropped: this.#outbox.dropped, hidden: this.#hidden, thanks: connected ? this.#thanks : null, tiktok: this.#tiktok.view() }
   }
 
   async #badge(): Promise<void> {
     const view = this.view()
-    const badge = badgeFor(view.light)
+    // 유튜브 채팅 창이 없고 틱톡 화면만 있으면 틱톡 줄로 배지를 정한다
+    const shown = view.connected && view.video === null && view.tiktok !== null ? view.tiktok : view
+    const badge = badgeFor(shown.light)
     await this.#chrome.action.setBadgeText({ text: badge.text })
     await this.#chrome.action.setBadgeBackgroundColor({ color: badge.color })
-    await this.#chrome.action.setTitle({ title: `라이브지니 — ${view.message}` })
+    await this.#chrome.action.setTitle({ title: `라이브지니 — ${shown.message}` })
   }
 
   async #status(m: Extract<PageMessage, { type: 'status' }>): Promise<HubView> {
@@ -289,6 +315,7 @@ export class Hub {
     this.#outbox.stop()
     this.#bound.clear()
     this.#thanks = null
+    await this.#tiktok.stop()
     await this.#persist
     await this.#chrome.storage.local.remove([TOKEN_KEY])
     await this.#chrome.storage.session.remove([QUEUE_KEY]).catch(() => undefined)
@@ -307,6 +334,8 @@ export class Hub {
     this.#ended.clear()
     await this.#chrome.storage.local.set({ [TOKEN_KEY]: token })
     this.#outbox.resume()
+    this.#tiktok.resume()
+    await this.#tiktok.afterConnect()
     if (this.#video !== null) await this.#checkBound(this.#video)
     await this.#badge()
     return { ok: true, message: WORDS.CONNECTED, view: this.view() }

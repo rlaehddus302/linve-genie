@@ -1079,6 +1079,19 @@ export const tiktokLinks = pgTable(
     saveFailedSeen: integer('save_failed_seen').notNull().default(0),
     /** 엔진 입력 검사에 걸려 기록하지 않은 댓글 수 (D-N2b-2-17) — notRecorded와 따로 */
     skipped: integer('skipped').notNull().default(0),
+    /**
+     * 크롬 확장으로 받은 틱톡 (TTX, D-TTX-07·09): 확장 경로로 기록한 댓글 수 · 직접 연결이 받는 중이라 기록하지 않고 대기로 센 댓글 수,
+     * 마지막 확장 상태(10초마다 — 받은 시각·화면 OWN/OTHER/ELSEWHERE·탭 뒤로 감·읽은 수·읽지 못한 수·읽지 못함만 이어진 첫 시각).
+     * 상태가 한 번도 오지 않았으면 ext_status_at이 없다. 끊기(확장 연결 끊기)면 상태 칸을 비운다
+     */
+    extRecorded: integer('ext_recorded').notNull().default(0),
+    extStandby: integer('ext_standby').notNull().default(0),
+    extStatusAt: timestamptz('ext_status_at'),
+    extScreen: text('ext_screen'),
+    extHidden: boolean('ext_hidden').notNull().default(false),
+    extRead: integer('ext_read').notNull().default(0),
+    extUnread: integer('ext_unread').notNull().default(0),
+    extUnreadSince: timestamptz('ext_unread_since'),
     createdAt: timestamptz('created_at').notNull(),
   },
   (t) => [

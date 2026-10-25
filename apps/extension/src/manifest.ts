@@ -2,6 +2,9 @@
 // - MV3. host 권한은 https://www.youtube.com/* 과 라이브지니 주소 하나. 그 밖의 권한은 storage 하나.
 // - content script는 live_chat 페이지(팝아웃·시청 페이지 안 iframe — all_frames)만, live_chat_replay는 빼고.
 // - 페이지 쪽 스크립트(world MAIN)는 채널 ID·게시 시각만 붙여 주는 작은 다리(page-bridge.ts).
+// - 틱톡(TTX D-TTX-02): host 권한에 https://www.tiktok.com/* 를 더하고(세 개), 틱톡 content script는 www.tiktok.com 전체에 넣는다
+//   (한 화면 앱이라 — 내 방송 주소일 때만 관찰). 틱톡에는 페이지 쪽 스크립트가 없다. 그 밖의 권한은 그대로.
+import { TIKTOK_MATCH } from './tiktok-selectors.ts'
 
 const CHAT_MATCHES = ['https://www.youtube.com/live_chat*']
 const CHAT_EXCLUDES = ['https://www.youtube.com/live_chat_replay*']
@@ -21,16 +24,17 @@ export function buildManifest(origin: string, version: string): Record<string, u
     manifest_version: 3,
     name: '라이브지니 채팅 받기',
     short_name: '라이브지니',
-    description: '내 유튜브 라이브 채팅을 읽어 라이브지니로 보내요. 설정에서 켠 경우에만 라이브지니가 만든 감사 글을 내 채팅에 올려요.',
+    description: '내 유튜브·틱톡 라이브 채팅을 읽어 라이브지니로 보내요. 설정에서 켠 경우에만 라이브지니가 만든 감사 글을 내 유튜브 채팅에 올려요.',
     version,
     minimum_chrome_version: '111',
     permissions: ['storage'],
-    host_permissions: ['https://www.youtube.com/*', originPattern(origin)],
+    host_permissions: ['https://www.youtube.com/*', TIKTOK_MATCH, originPattern(origin)],
     background: { service_worker: 'background.js' },
     action: { default_popup: 'popup.html', default_title: '라이브지니' },
     content_scripts: [
       { matches: CHAT_MATCHES, exclude_matches: CHAT_EXCLUDES, js: ['page.js'], run_at: 'document_start', all_frames: true, world: 'MAIN' },
       { matches: CHAT_MATCHES, exclude_matches: CHAT_EXCLUDES, js: ['content.js'], run_at: 'document_idle', all_frames: true },
+      { matches: [TIKTOK_MATCH], js: ['tiktok-content.js'], run_at: 'document_idle' },
     ],
   }
 }

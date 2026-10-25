@@ -2605,6 +2605,22 @@ html:has(.save-bar) {
   margin: 0;
 }
 
+/* 틱톡 칸 받는 길 한 줄 (TTX D-TTX-09) — 글자가 상태를 말하고, 앞의 점은 꾸밈 */
+.tiktok-route {
+  margin: 0;
+  font-weight: 700;
+  color: #1b5e20;
+}
+
+.tiktok-route::before {
+  content: "● ";
+}
+
+/* 직접 연결이 막혔을 때 확장으로 받는 길 안내 한 줄 (D-TTX-17) — 경고가 아닌 보통 글 */
+.tiktok-hint {
+  margin: 0;
+}
+
 /* 알림 띠 맨 앞의 플랫폼 줄 (틱톡 알림 줄·인스타그램 알림·붙여넣기 결과) — 고정 영역에 줄을 더하지 않는다(UX-04 35%) */
 .alert-lead-button {
   max-inline-size: 100%;

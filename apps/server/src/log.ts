@@ -50,6 +50,12 @@ export type LogCode =
   | 'EXT_SAVE_FAILED'
   | 'EXT_POST_PAUSED'
   | 'EXT_NOTIFY_FAILED'
+  | 'TTX_SAVE_FAILED'
+  | 'TTX_COUNT_FAILED'
+  | 'TTX_CLEAR_FAILED'
+  | 'TTX_EXT_DROPPED'
+  | 'TTX_REFRESH_FAILED'
+  | 'TTX_RESUME_FAILED'
   // Y1 유튜브 (AC-Y1-70): 종류·HTTP 상태·구글 오류 이유·판매자·범위만 남긴다
   | 'YOUTUBE_CONNECT_FAILED'
   | 'YOUTUBE_REFRESH_FAILED'
@@ -154,6 +160,12 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   EXT_SAVE_FAILED: '확장에서 받은 채팅을 저장하지 못했어요(확장이 다시 보내요)',
   EXT_POST_PAUSED: '확장 감사 올리기가 연달아 실패해 그 회차에서 멈췄어요',
   EXT_NOTIFY_FAILED: '확장 상태를 화면에 알리지 못했어요',
+  TTX_SAVE_FAILED: '확장에서 받은 틱톡 댓글을 저장하지 못했어요(확장이 다시 보내요)',
+  TTX_COUNT_FAILED: '확장 틱톡 댓글은 기록했지만 수를 세지 못했어요',
+  TTX_CLEAR_FAILED: '확장 연결을 끊은 뒤 틱톡 확장 상태를 비우지 못했어요',
+  TTX_EXT_DROPPED: '확장이 틱톡 댓글을 버렸다고 알려 와 저장하지 못한 수에 더했어요',
+  TTX_REFRESH_FAILED: '확장 연결이 바뀐 뒤 틱톡 칸을 다시 알리지 못했어요',
+  TTX_RESUME_FAILED: '서버가 다시 켜진 뒤 틱톡 확장 상태 확인을 다시 걸지 못했어요',
   YOUTUBE_CONNECT_FAILED: '유튜브 연결을 마치지 못했어요',
   YOUTUBE_REFRESH_FAILED: '유튜브 접근 토큰을 새로 고치지 못했어요',
   YOUTUBE_RECONNECT_NEEDED: '유튜브 연결을 다시 해야 해요',

@@ -23,6 +23,9 @@ export interface TikTokCommentRecord {
 /** 버림 코드 (이 순서로 검사, 처음 걸린 것) */
 export type TikTokDropCode = 'BAD_COMMENT_ID' | 'BAD_USER_ID' | 'NO_TEXT' | 'TEXT_TOO_LONG' | 'DUPLICATE'
 
+/** 크롬 확장 경로의 버림 코드 — 직접 연결의 것에 쓴 사람 아이디 없음(NO_AUTHOR) 하나를 더한다 (TTX, D-TTX-06·14) */
+export type TikTokExtensionDropCode = TikTokDropCode | 'NO_AUTHOR'
+
 export type TikTokCommentOutcome = { readonly record: TikTokCommentRecord } | { readonly drop: TikTokDropCode }
 
 /**
@@ -106,6 +109,56 @@ export interface TikTokCommentFilter {
  * 검사 순서: 댓글 ID → 사용자 ID → 본문 → 중복. 기억에 넣는 것은 내보낸 레코드의 ID뿐이다.
  */
 export function createCommentFilter(target: string, memory: number = TIKTOK_COMMENT_MEMORY): TikTokCommentFilter {
+  // requireAuthor = false라 NO_AUTHOR는 나오지 않는다 — 버림 코드는 TikTokDropCode뿐
+  return filterOf(target, memory, false) as unknown as TikTokCommentFilter
+}
+
+/**
+ * 크롬 확장이 보낸 묶음 항목 하나 (골든 extension.json의 items — TTX, D-TTX-04). 모두 선택이고 아무 값이나 올 수 있다.
+ * owner·postedAt은 받아도 쓰지 않는다 — 방송자인지는 쓴 사람 아이디로 서버가 정하고(D-TTX-14), 시각은 서버가 받은 시각이다(D-TTX-06)
+ */
+export interface TikTokExtensionItem {
+  readonly commentId?: unknown
+  readonly userId?: unknown
+  readonly uniqueId?: unknown
+  readonly nickname?: unknown
+  readonly text?: unknown
+  readonly owner?: unknown
+  readonly postedAt?: unknown
+}
+
+export type TikTokExtensionOutcome = { readonly record: TikTokCommentRecord } | { readonly drop: TikTokExtensionDropCode }
+
+/** 확장 묶음 거르개 (묶음 하나마다 새로 만든다 — 묶음 사이의 중복은 서버 기록이 (회차, tt: ID)로 막는다, D-TTX-05) */
+export interface TikTokExtensionFilter {
+  accept(item: unknown, receivedAt: Date): TikTokExtensionOutcome
+  counts(): TikTokCommentCounts
+}
+
+/**
+ * 확장 경로 거르개 (골든 tests/golden/tiktok/extension.json, D-TTX-06): 직접 연결과 같은 거르개에 항목 키만 확장 모양으로 바꿔 넣고,
+ * 검사 순서 BAD_COMMENT_ID → BAD_USER_ID → NO_AUTHOR → NO_TEXT → TEXT_TOO_LONG → DUPLICATE. 레코드 모양·owner·닉네임 규칙이 같다
+ */
+export function createExtensionCommentFilter(target: string, memory: number = TIKTOK_COMMENT_MEMORY): TikTokExtensionFilter {
+  const inner = filterOf(target, memory, true)
+  return {
+    accept(input, receivedAt) {
+      const item: TikTokExtensionItem = typeof input === 'object' && input !== null && !Array.isArray(input) ? (input as TikTokExtensionItem) : {}
+      // 확장 항목 → 직접 연결의 raw 모양 (owner·postedAt은 넘기지 않는다)
+      return inner.accept({ msgId: item.commentId, userId: item.userId, uniqueId: item.uniqueId, nickname: item.nickname, comment: item.text }, receivedAt)
+    },
+    counts: () => inner.counts(),
+  }
+}
+
+/** 같은 거르개 (직접 연결 · 확장 경로). 확장 경로만 NO_AUTHOR가 나온다 */
+interface AnyCommentFilter {
+  accept(raw: unknown, receivedAt: Date): TikTokExtensionOutcome
+  counts(): TikTokCommentCounts
+  readonly memorySize: number
+}
+
+function filterOf(target: string, memory: number, requireAuthor: boolean): AnyCommentFilter {
   const limit = Math.max(1, Math.floor(memory))
   const seen = new Set<string>()
   const ring: string[] = []
@@ -126,7 +179,7 @@ export function createCommentFilter(target: string, memory: number = TIKTOK_COMM
     seen.add(id)
   }
 
-  const drop = (code: TikTokDropCode): TikTokCommentOutcome => {
+  const drop = (code: TikTokExtensionDropCode): TikTokExtensionOutcome => {
     if (code === 'DUPLICATE') duplicates += 1
     else dropped += 1
     return Object.freeze({ drop: code })
@@ -139,6 +192,8 @@ export function createCommentFilter(target: string, memory: number = TIKTOK_COMM
       if (commentId === null) return drop('BAD_COMMENT_ID')
       const userId = decimalId(raw.userId)
       if (userId === null) return drop('BAD_USER_ID')
+      // 확장 경로: 쓴 사람 아이디가 없으면 방송자 글인지 알 수 없다 — 넣지 않는다 (D-TTX-14)
+      if (requireAuthor && trimmed(raw.uniqueId) === '') return drop('NO_AUTHOR')
       const text = raw.comment
       if (typeof text !== 'string' || text.trim() === '') return drop('NO_TEXT')
       if (longerThan(text, TIKTOK_TEXT_MAX)) return drop('TEXT_TOO_LONG')

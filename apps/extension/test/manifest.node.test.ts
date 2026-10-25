@@ -16,21 +16,35 @@ describe('AC-X1-07: 매니페스트', () => {
     permissions: string[]
     host_permissions: string[]
     optional_permissions?: unknown
-    content_scripts: { matches: string[]; exclude_matches: string[]; all_frames: boolean; world?: string }[]
+    content_scripts: { matches: string[]; exclude_matches?: string[]; all_frames?: boolean; world?: string; js: string[]; run_at: string }[]
   }
+  const youtubeScripts = manifest.content_scripts.filter((script) => script.matches.some((match) => match.startsWith('https://www.youtube.com/')))
 
-  it('MV3, host 권한은 유튜브와 라이브지니 주소 하나, 권한은 storage(·alarms) 안', () => {
+  it('AC-TTX-09: MV3, host 권한은 정확히 유튜브·틱톡·라이브지니 주소 하나, 권한은 storage(·alarms) 안', () => {
     expect(manifest.manifest_version).toBe(3)
-    expect(manifest.host_permissions).toEqual(['https://www.youtube.com/*', 'https://app.livegenie.kr/*'])
+    expect(manifest.host_permissions).toEqual(['https://www.youtube.com/*', 'https://www.tiktok.com/*', 'https://app.livegenie.kr/*'])
     for (const permission of manifest.permissions) expect(['storage', 'alarms']).toContain(permission)
     expect(manifest.optional_permissions).toBeUndefined()
     const text = JSON.stringify(manifest)
     for (const banned of ['tabs', 'webRequest', '<all_urls>', 'cookies', 'scripting', 'debugger']) expect(text).not.toContain(`"${banned}"`)
   })
 
-  it('AC-X1-05: content script는 live_chat만, live_chat_replay는 뺀다', () => {
-    expect(manifest.content_scripts.length).toBeGreaterThan(0)
-    for (const script of manifest.content_scripts) {
+  it('AC-TTX-09: 유튜브 content script 두 항목은 BASE와 같다', () => {
+    const CHAT = { matches: ['https://www.youtube.com/live_chat*'], exclude_matches: ['https://www.youtube.com/live_chat_replay*'], all_frames: true }
+    expect(youtubeScripts).toEqual([
+      { ...CHAT, js: ['page.js'], run_at: 'document_start', world: 'MAIN' },
+      { ...CHAT, js: ['content.js'], run_at: 'document_idle' },
+    ])
+  })
+
+  it('AC-TTX-09: 틱톡 content script는 www.tiktok.com 전체 하나 (페이지 쪽 스크립트 없음)', () => {
+    const tiktok = manifest.content_scripts.filter((script) => !youtubeScripts.includes(script))
+    expect(tiktok).toEqual([{ matches: ['https://www.tiktok.com/*'], js: ['tiktok-content.js'], run_at: 'document_idle' }])
+  })
+
+  it('AC-X1-05: 유튜브 content script는 live_chat만, live_chat_replay는 뺀다', () => {
+    expect(youtubeScripts.length).toBe(2)
+    for (const script of youtubeScripts) {
       expect(script.matches).toEqual(['https://www.youtube.com/live_chat*'])
       expect(script.exclude_matches).toEqual(['https://www.youtube.com/live_chat_replay*'])
       expect(script.all_frames).toBe(true)
@@ -64,6 +78,72 @@ describe('AC-X1-33: 배포 빌드', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('틱톡 소스 검사 (TTX)', () => {
+  const files = readdirSync(SRC).filter((name) => /\.(ts|html)$/.test(name))
+  const sources = files.map((name) => ({ name, text: readFileSync(join(SRC, name), 'utf8') }))
+  const tiktokFiles = sources.filter(({ name }) => name.startsWith('tiktok-'))
+
+  it('AC-TTX-01: 틱톡 선택자·요소 데이터 이름은 tiktok-selectors.ts 한 파일에만, 첫머리 주석에 "가짜 페이지 기준 — 실물 확인 필요(HG-TTX)"', async () => {
+    const selectors = sources.find(({ name }) => name === 'tiktok-selectors.ts')
+    expect(selectors?.text.split('\n')[0]).toContain('가짜 페이지 기준 — 실물 확인 필요(HG-TTX)')
+    const module = (await import('../src/tiktok-selectors.ts')) as Record<string, unknown>
+    const names = Object.entries(module)
+      .filter(([key]) => key.startsWith('TT_'))
+      .flatMap(([, value]) => (Array.isArray(value) ? value : [value]))
+      .filter((value): value is string => typeof value === 'string')
+    expect(names.length).toBeGreaterThan(5)
+    for (const { name, text } of sources) {
+      if (name === 'tiktok-selectors.ts') continue
+      for (const shape of names) expect(`${name}: ${shape}: ${String(text.includes(shape))}`).toBe(`${name}: ${shape}: false`)
+      // 틱톡 쪽 이름 모양(.tt-·data-*-id)도 다른 파일에 직접 쓰지 않는다
+      expect(`${name}: ${String(/['"`]\.tt-|data-(comment|user|unique)-id/.test(text))}`).toBe(`${name}: false`)
+    }
+  })
+
+  it('AC-TTX-01: 가짜 틱톡 페이지도 선택자 파일의 이름만 쓴다', async () => {
+    const module = (await import('../src/tiktok-selectors.ts')) as Record<string, unknown>
+    const known = new Set(
+      Object.entries(module)
+        .filter(([key]) => key.startsWith('TT_'))
+        .flatMap(([, value]) => (Array.isArray(value) ? value : [value]))
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.replace(/^\./, '')),
+    )
+    const html = readFileSync(fileURLToPath(new URL('./fixtures/tiktok-live.html', import.meta.url)), 'utf8')
+    const classes = [...html.matchAll(/class="([^"]+)"/g)].flatMap((match) => (match[1] ?? '').split(/\s+/))
+    const attrs = [...html.matchAll(/\s(data-[a-z-]+)=/g)].map((match) => match[1] ?? '')
+    expect(classes.length).toBeGreaterThan(0)
+    for (const name of [...classes, ...attrs]) expect(`${name}: ${String(known.has(name))}`).toBe(`${name}: true`)
+    const helper = readFileSync(fileURLToPath(new URL('./fake-tiktok.ts', import.meta.url)), 'utf8')
+    expect(/['"`]\.?tt-|data-(comment|user|unique)-id/.test(helper)).toBe(false)
+  })
+
+  it('AC-TTX-08: 틱톡 쪽에는 요청 가로채기·틱톡 요청·쿠키·누르기·입력·이벤트 보내기가 없다', () => {
+    expect(tiktokFiles.map(({ name }) => name).sort()).toEqual(['tiktok-content.ts', 'tiktok-hub.ts', 'tiktok-outbox.ts', 'tiktok-reader.ts', 'tiktok-selectors.ts', 'tiktok-watch.ts'])
+    const banned = [
+      /\bfetch\b/,
+      /XMLHttpRequest/,
+      /WebSocket/,
+      /sendBeacon/,
+      /EventSource/,
+      /document\.cookie/,
+      /chrome\.cookies/,
+      /\.click\(/,
+      /dispatchEvent/,
+      /execCommand/,
+      /\.value\s*=/,
+      /new\s+(MouseEvent|KeyboardEvent|PointerEvent|InputEvent|Event|CustomEvent)\b/,
+      /\.(prototype)\b/,
+      /world:\s*['"]MAIN/,
+    ]
+    for (const { name, text } of tiktokFiles) for (const pattern of banned) expect(`${name}: ${String(pattern)}: ${String(pattern.test(text))}`).toBe(`${name}: ${String(pattern)}: false`)
+    // 확장의 요청은 api.ts 한 곳 — 라이브지니 주소로만 (틱톡 주소로 부르지 않는다)
+    const api = sources.find(({ name }) => name === 'api.ts')?.text ?? ''
+    expect(api).not.toMatch(/tiktok/i)
+    for (const { name, text } of sources) expect(`${name}: ${String(/https:\/\/www\.tiktok\.com\/(?!\*)/.test(text) && /\.call\(|fetch\(/.test(text) && name !== 'tiktok-reader.ts')}`).toBe(`${name}: false`)
   })
 })
 

@@ -252,13 +252,16 @@ describe('AC-FB1-16 택배 크기 코드와 옛 값 옮기기 (D-FB1-05)', () =>
     await makeReady(world, seller, 'UC_A')
     expect((await bookOk(world, seller, [{ buyer: 'UC_A' }]))[0]).toMatchObject({ ok: true })
     const pg = world.database.pglite as PGlite
-    // BASE(0018까지)의 모양으로 되돌린다: 옛 낱말, 기본값 소, carrier_name 없음, 0019 적용 기록 없음
+    // BASE(0018까지)의 모양으로 되돌린다: 옛 낱말, 기본값 소, carrier_name 없음, 0019 적용 기록 없음.
+    // 0019 뒤의 마이그레이션(0020 TTX — 틱톡 연결의 확장 칸)도 되돌린다 — 다시 열면 0019부터 차례로 다시 적용된다
     await pg.exec(`
       update parcel_settings set box = '중' where seller_id = '${seller.sellerId}';
       update parcels set box = '대' where seller_id = '${seller.sellerId}';
       alter table parcel_settings alter column box set default '소';
       alter table parcel_settings drop column carrier_name;
-      delete from drizzle.__drizzle_migrations where id = (select max(id) from drizzle.__drizzle_migrations);`)
+      alter table tiktok_links drop column ext_recorded, drop column ext_standby, drop column ext_status_at, drop column ext_screen,
+        drop column ext_hidden, drop column ext_read, drop column ext_unread, drop column ext_unread_since;
+      delete from drizzle.__drizzle_migrations where created_at >= 1794355200000;`)
     const reopened = await openPglite(pg)
     expect((await pg.query<{ box: string }>('select box from parcel_settings')).rows).toEqual([{ box: '100' }])
     expect((await pg.query<{ box: string }>('select box from parcels')).rows).toEqual([{ box: '120' }])
