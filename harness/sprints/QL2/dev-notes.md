@@ -39,7 +39,12 @@
 - `apps/web/test/pl1b-packing.test.tsx` NO_PRINT_DEVICE_WAITING
 
 ### E2E에서 바뀔 줄 (test-e2e 몫 — 내가 고치지 않음)
-- `tests/e2e/mob1/station.spec.ts` 12줄 `PILING` 옛 문장
+- E2E 실행(오프셋 3000, mob1·qs1·nav·wiz·aiy1·a1·lnd1 211 통과 / i1·s06·s06b·fb1 198 통과)에서 이번 결정 때문에 깨진 줄 — 모두 기대 문장·동작이 바뀐 곳:
+  - `tests/e2e/mob1/station.spec.ts` 12줄 `PILING` 옛 문장(250줄 시험) — D-QL2-09 ①
+  - `tests/e2e/a1/screen.spec.ts` 137줄 근처 옛 `ASSIST_NOTICE` — D-QL2-05 ②
+  - `tests/e2e/i1/attacks.spec.ts` 177~178줄 "빼기"를 바로 누르면 빠짐 → 이제 창 "라벨 빼기"의 "1 빼기"까지 — D-QL2-09 ③
+  - `tests/e2e/i1/screens.spec.ts` 91줄·113줄 "출력 멈춤 · 출력을 멈췄어요." → "출력 멈춤 · '출력 멈추기'를 눌러 멈췄어요. 눌러서 '다시 시작'을 골라 주세요." — D-QL2-09 ②
+- `tests/e2e/s06/pwa.spec.ts` 78줄(AC-S06-51 새 버전)은 폴더 실행에서 한 번 실패, 그 파일만 다시 돌리면 통과 — 문자찜 화면이라 이번 변경과 무관한 흔들림으로 봄
 - 포장 화면 출력 기기 없음 문장을 글자로 찾는 줄이 있으면 새 문장
 
 ### 한 화면 하나 — 위 줄 "다시 연결"
