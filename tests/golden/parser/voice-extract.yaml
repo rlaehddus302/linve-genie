@@ -271,3 +271,16 @@ cases:
   - { in: "15번 100 5만 원", out: { no: 15, confidence: LOW } }         # 번호 표시가 있어 떼지 않음 → 가격 비움, 번호는 15번
   - { in: "택배는 이 삼 일 걸리고 만 원이에요", out: { price: 10000, confidence: LOW } }   # D-V3-27: 띄어 쓴 한글 한 글자 셋은 '번' 없으면 번호 아님(231번 아님). 줄 [만, 원이에요] 10,000
   - { in: "이 삼 일번 라울 만원", out: { no: 231, name: 라울, price: 10000, confidence: HIGH } }  # '번'이 붙으면 자리 읽기 + 번 = 231번
+---
+# V3 적대 판정(f3bc723c, D-V3-29): 원 가격 줄의 단위 뒤 띄어 쓴 숫자. R-14는 '2천500'·'1만 500'을 애매로 막지만(줄임말과 글자 그대로가 갈림),
+# 원 가격 줄은 한자어로 바꿔 자리를 드러낸 뒤 읽는다. 바꾼 뒤 만·천·백 바로 뒤에 한글 일의 자리 하나가 오면 R-14 D-032로 여전히 안 읽힘 → 비움.
+suite: voice-extract
+settings:
+  dictionary: [라울]
+cases:
+  - { in: "15번 라울 5천 500원", out: { no: 15, name: 라울, price: 5500, confidence: HIGH } }        # R-14 '5천 500원' null → '오천'+'오백원' = 오천오백원 5,500
+  - { in: "15번 라울 1만 500원", out: { no: 15, name: 라울, price: 10500, confidence: HIGH } }       # '일만'+'오백원' = 10,500
+  - { in: "15번 라울 2만 5천 500원", out: { no: 15, name: 라울, price: 25500, confidence: HIGH } }   # '이만오천오백원' 25,500
+  - { in: "15번 라울 5천 50원", out: { no: 15, name: 라울, price: 5050, confidence: HIGH } }         # '오천오십원' 5,050
+  - { in: "15번 라울 1만 5원", out: { no: 15, name: 라울, confidence: LOW } }                        # '일만오원' — 만 바로 뒤 일의 자리(D-032) → 비움
+  - { in: "15번 라울 2천 5원", out: { no: 15, name: 라울, confidence: LOW } }                        # '이천오원' — 천 바로 뒤 일의 자리(D-032) → 비움
