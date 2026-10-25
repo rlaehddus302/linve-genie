@@ -166,3 +166,9 @@
 | instant.ts `otherNumberMessage` | `otherNumberMessage` (같은 글) |
 | controller.ts `#readRegistration(...).ready !== null` | `readSure(...).sure` (또는 지금처럼 readRegistration) |
 | target.ts 밖에서 쓰던 조사 붙이기가 있다면 | `withObject`·`withRo` |
+
+### dev-device 추가 8 — E2E R48 "108 12만 원 자"
+- 원인: 원 가격 줄을 통째로 읽을 때 숫자를 한자어로 바꿔 붙이면 `108`+`12만` → `백팔십이만`(1,820,000원)이 R-14로 읽혀 버렸다. 자리 겹침 검사는 앞 수를 떼는 단계에만 있었다.
+- 고침: 한자어로 붙여 읽기 전에 이웃한 두 토큰마다 자리 겹침(D-V3-25)을 보고, 겹치면 붙여 읽지 않는다. 결과: 108(번 없음, numberFrom bare) · 120,000원.
+- 단위만인 토큰(`백`·`천`·`만원`)은 계수가 없다고 본다(`2 천 5 백 원` = 2,500원 그대로).
+- 골든 불일치 0, adversarial/v3 100개 통과.

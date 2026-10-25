@@ -134,3 +134,17 @@ describe('AC-V3-09 어떤 문자열에도 예외 없음', () => {
     expect(readSure('15번 라울 삼십 오만', { dictionary: DICT }).sure).toBe(false)
   })
 })
+
+describe('E2E R48 — 자리가 겹치는 앞 수는 붙여 읽지 않는다 (D-V3-25)', () => {
+  it('"108 12만 원 자" → 108번(번 없음) · 120,000원', () => {
+    expect(readRegistration('108 12만 원 자', { dictionary: DICT, final: true }).ready).toEqual({ no: 108, price: 120000, name: null, nameNeedsCheck: false, numberFrom: 'bare' })
+    expect(chunk('108 12만 원 자')).toMatchObject({ no: 108, price: 120000 })
+    expect(extractVoice('170 25만 원')).toMatchObject({ no: 170, price: 250000 })
+    // 겹치지 않으면 그대로 합친다
+    expect(extractVoice('15번 30 5만 원')).toMatchObject({ no: 15, price: 350000 })
+    expect(extractVoice('15번 삼십 오만 원')).toMatchObject({ no: 15, price: 350000 })
+    expect(extractVoice('15번 2 만원').price).toBe(20000)
+    // 단위만인 토큰(천·백)은 계수가 없어 겹침이 아니다
+    expect(extractVoice('15번 2 천 5 백 원').price).toBe(2500)
+  })
+})

@@ -329,6 +329,11 @@ function readLine(parts: readonly string[]): number | null {
   if (value === null && parts.length >= 2) {
     const converted = parts.map(tokenToSino)
     if (converted.some((text) => text === null)) return null
+    // 앞 수와 뒤 토큰의 자리가 겹치면 붙여 읽지 않는다 — `108 12만` → `백팔십이만`(182만)으로 잘못 읽히지 않게 (D-V3-25)
+    for (let i = 0; i + 1 < parts.length; i++) {
+      const left = parseKoreanNumber(parts[i] as string)
+      if (left !== null && placesOverlap(left, parts[i + 1] as string)) return null
+    }
     value = parseAmount(converted.join(''), WON_UNIT)
   }
   return value !== null && value >= 100 ? value : null
@@ -430,6 +435,8 @@ function isBareDigitCandidate(tokens: readonly string[], reading: DigitReading):
 function leadingCoefficient(token: string): number | null {
   const digits = /^[0-9]+/.exec(token)
   if (digits !== null) return Number(digits[0])
+  // 단위만인 토큰(`백`·`천`·`만원`)은 계수가 없다 — 앞 수가 그 단위의 계수다 (`5 백` = 오백)
+  if ([...token].every((char) => '십백천만원'.includes(char))) return null
   const head = token.split(/[만천원]/)[0] ?? ''
   return head === '' ? null : parseKoreanNumber(head)
 }
