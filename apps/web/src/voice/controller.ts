@@ -70,7 +70,6 @@ import {
   LOG_INSTANT,
   LOG_INSTANT_DONE,
   LOG_MERGED,
-  LOG_OTHER_NUMBER,
   LOG_PENDING,
   LOG_TOUCHED,
   LOG_UNDONE,
@@ -1467,10 +1466,10 @@ export class VoiceController {
     const first = registered[0]
     if (first !== undefined && v3 !== null) {
       const others = v3.heardNumbers.filter((no) => !this.#instantNos.has(no))
+      // 큰 글자 칸 4초 + 음성 기록 (D-V3-45 — [알겠어요] 알림이 아니다), 등록은 그대로
       if (others.length > 0) {
-        const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'notice', registrationId: '', no: first, message: otherNumberMessage(first, others), changes: {}, stage: 'ask', before: null, undoUntil: null, error: null }
-        work.offers = [offer, ...work.offers]
-        return { action: 'discard', reason: LOG_OTHER_NUMBER, readout: null }
+        const message = otherNumberMessage(first, others)
+        return { action: 'discard', reason: message, readout: message }
       }
     }
     const no = reading.no

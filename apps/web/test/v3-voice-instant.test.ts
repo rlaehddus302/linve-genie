@@ -303,18 +303,18 @@ describe('바로 등록 V3 수용 사례', () => {
     expect(off.voice.cardInfo(card?.id ?? '')?.ask).toBe('가격을 말해 주세요')
   })
 
-  it('R26: 등록 뒤 같은 덩어리에서 다른 번호가 들리면 알림만 ("알겠어요"까지)', async () => {
+  it('R26: 등록 뒤 같은 덩어리에서 다른 번호가 들리면 큰 글자 칸 4초 + 음성 기록 (D-V3-45), 등록은 그대로', async () => {
     const h = await ready()
     say('189번 빅뱅금 50만 원', false)
     say('189번 빅뱅금 50만 원 139번')
-    at(3000)
+    at(1800)
+    const text = '189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.'
     expect(reg(h).map((item) => item.no)).toEqual([189])
-    const notice = h.voice.getSnapshot().offers.find((offer) => offer.kind === 'notice')
-    expect(notice?.message).toBe('189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')
-    at(20_000)
-    expect(h.voice.getSnapshot().offers.some((offer) => offer.kind === 'notice')).toBe(true)
-    h.voice.seenNotice(notice?.id ?? '')
+    expect(h.voice.getSnapshot().readout?.text).toBe(text)
+    expect(h.voice.getSnapshot().log[0]?.reason).toBe(text)
     expect(h.voice.getSnapshot().offers).toEqual([])
+    at(1800 + 4000)
+    expect(h.voice.getSnapshot().readout).toBeNull()
   })
 
   it('R18: "108번 10만원 아니 12만원" — 10만원에서 등록, 등록이 끝난 뒤 덩어리 결과로 바로 고침', async () => {

@@ -18,7 +18,6 @@ export const LOG_AUTO_FIX = '이미 등록된 번호라 들린 값으로 고쳤�
 export const LOG_ASK = '이미 등록된 번호라 고칠지 물었어요'
 export const LOG_MERGED = '같은 번호 카드가 열려 있어 그 카드에 합쳤어요'
 export const LOG_TOUCHED = '고치는 중인 카드라 바꾸지 않았어요'
-export const LOG_OTHER_NUMBER = '등록한 번호와 다른 번호가 들렸어요'
 export const LOG_UNDONE = '취소가 들려 등록을 되돌렸어요'
 /** 고치지 못했을 때 (D-V3-07 — V2 문장) */
 export const AUTO_FIX_FAILED = '고치지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.'
