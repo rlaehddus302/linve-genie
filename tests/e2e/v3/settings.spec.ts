@@ -27,6 +27,8 @@ import {
   voiceCards,
   QUIET_MS,
   SETTINGS_KEY,
+  voiceHeard,
+  withoutVoiceHeard,
 } from './support.ts'
 
 const BROADCAST_1 = '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요'
@@ -223,7 +225,7 @@ test('AC-V3-44: 휴대폰 폭 375 — 알림·가격 못 들은 번호 카드가
   await expect(notices(page).getByRole('listitem').first()).toBeVisible()
 })
 
-test('AC-V3-46: 바로 등록·고치기 요청 본문엔 번호·품종·가격(과 요청 표시)만 — 받아쓴 글 없음', async ({ page }) => {
+test('AC-V3-46 (D-V3-73): 바로 등록·고치기 요청 본문엔 번호·품종·가격(과 요청 표시·voiceLog)뿐 — 받아쓴 글은 voiceLog.heard 한 줄에만', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
   await sayChunk(page, BROADCAST_1)
@@ -232,9 +234,27 @@ test('AC-V3-46: 바로 등록·고치기 요청 본문엔 번호·품종·가격
   await expect.poll(() => productWrites(writes).length).toBe(2)
   for (const w of writes.filter((x) => x.type.startsWith('product.'))) {
     expect(Object.keys(w.body).sort()).toEqual(expect.arrayContaining(['b', 'no', 'requestId', 'type']))
-    for (const key of Object.keys(w.body)) expect(['b', 'no', 'name', 'price', 'requestId', 'type']).toContain(key)
-    const raw = JSON.stringify(w.body)
+    for (const key of Object.keys(w.body)) expect(['b', 'no', 'name', 'price', 'requestId', 'type', 'voiceLog', 'applyTo']).toContain(key)
+    const raw = withoutVoiceHeard(JSON.stringify(w.body))
     for (const word of ['요한이', '원까지', '안토', '봐주세요', '12만']) expect(raw).not.toContain(word)
+  }
+})
+
+test('AC-V3-46·70 (D-V3-73·66): voiceLog.heard는 가려져 있다 — 8자리 이상 숫자와 끝자리 뒤 4자리는 ****', async ({ page }) => {
+  await setupV3(page)
+  const writes = recordWrites(page)
+  // 등록한 조각(번호 앞 말 포함) 안에 넣는다 — heard는 그 조각 글
+  await sayChunk(page, '전화 01012345678 끝자리 1234 김민지님 15번 핑크프릴 만오천 원')
+  await expect.poll(() => productWrites(writes).filter((w) => w[0] === 'product.register').length).toBe(1)
+  const all = writes.filter((w) => w.type.startsWith('product.')).map((w) => voiceHeard(JSON.stringify(w.body)))
+  expect(all.some((h) => h !== null)).toBe(true)
+  for (const heard of all) {
+    if (heard === null) continue
+    expect(heard).not.toContain('1234')
+    expect(heard).not.toContain('01012345678')
+    expect(heard).not.toContain('5678')
+    expect(heard).toContain('****')
+    expect(heard.length).toBeLessThanOrEqual(300)
   }
 })
 

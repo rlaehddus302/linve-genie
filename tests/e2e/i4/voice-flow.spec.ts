@@ -21,6 +21,7 @@ import {
   openExtras,
   openVoiceLog,
   voiceLogItems,
+  withoutVoiceHeard,
 } from './support.ts'
 
 test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실제 범위·요청 맞대기, 끈 뒤 빠른 입력·찾기·되돌리기', async ({ page }) => {
@@ -140,7 +141,8 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   for (const word of ['안녕하세요', '5 13번', '만오천', '핑크푸릴', '칠천', '만원']) {
     for (const r of requests) {
       expect(decodeURIComponent(r.url)).not.toContain(word)
-      expect(r.body).not.toContain(word)
+      // D-V3-73: voiceLog.heard 한 줄(가린 들은 말)만 예외 — 그 밖의 칸에 받아쓴 글이 없다
+      expect(withoutVoiceHeard(r.body)).not.toContain(word)
     }
   }
 

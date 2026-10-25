@@ -235,3 +235,32 @@ export function recordVoiceChunk(page: Page): string[] {
   })
   return out
 }
+
+/**
+ * 요청 본문에서 `voiceLog.heard` 한 줄만 뺀 글 (D-V3-73: 서버로 가는 받아쓴 글의 예외는 음성으로 상품을 바꾼 요청의 그 한 줄뿐 — 가린 글).
+ * 그 밖의 칸·주소에 받아쓴 글이 없는지 볼 때 쓴다. JSON이 아니면 그대로.
+ */
+export function withoutVoiceHeard(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>
+    const log = parsed['voiceLog']
+    if (typeof log === 'object' && log !== null && 'heard' in log) {
+      const { heard: _heard, ...rest } = log as Record<string, unknown>
+      return JSON.stringify({ ...parsed, voiceLog: rest })
+    }
+    return body
+  } catch {
+    return body
+  }
+}
+
+/** 요청 본문의 `voiceLog.heard` (없으면 null) */
+export function voiceHeard(body: string): string | null {
+  try {
+    const log = (JSON.parse(body) as Record<string, unknown>)['voiceLog']
+    if (typeof log === 'object' && log !== null && typeof (log as Record<string, unknown>)['heard'] === 'string') return (log as Record<string, string>)['heard'] ?? null
+    return null
+  } catch {
+    return null
+  }
+}

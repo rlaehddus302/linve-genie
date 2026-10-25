@@ -7,6 +7,8 @@ import {
   claimOne,
   installFakeSpeech,
   notices,
+  openLog,
+  speak,
   productWrites,
   readout,
   recordWrites,
@@ -245,4 +247,100 @@ test('AC-V3-55 (D-V3-68): 판매자 채팅 품종 읽기가 없다 — 판매자
   await loginNewSeller(page)
   const res = await page.request.get('/api/voice/seller-names')
   expect(res.status()).toBe(404)
+})
+
+test.describe('AC-V3-74 (d) 가격 단위 자동 (D-V3-70)', () => {
+  for (const [id, sentence, expected, k] of [
+    ['R85', '150번 180', [150, '', 180000], 0],
+    ['R86', '육십팔번 이십오', [68, '', 250000], 0],
+    ['R87', '148번 라울 280 갑니다 자', [148, '라울', 280000], 5],
+  ] as const) {
+    test(`${id}: 자동 단위 방송 "${sentence}" → ${String(expected[0])}번 ${String(expected[2])}원`, async ({ page }) => {
+      await setupV3(page, { sellerSettings: { 'price.unit': 'AUTO' } })
+      const writes = recordWrites(page)
+      if (k === 0) {
+        // 품종 없는 빠른 꼴은 최종·덩어리 끝에서
+        await sayChunk(page, sentence)
+        await expect.poll(() => productWrites(writes)).toEqual([['product.register', ...expected]])
+      } else {
+        await sayWords(page, sentence, {
+          afterEach: async (i) => {
+            if (i === k) await expect.poll(() => productWrites(writes)).toEqual([['product.register', ...expected]])
+          },
+        })
+        await page.clock.runFor(QUIET_MS + 100)
+        await settle(page)
+        expect(productWrites(writes)).toEqual([['product.register', ...expected]])
+      }
+    })
+  }
+})
+
+test.describe('AC-V3-75 중간 결과 안정 (D-V3-71, 천원 단위)', () => {
+  test('R89: 중간 결과 "148번 280"이 1,200ms 바뀌지 않음 → 1,000ms 때 148번 280,000원, 기록 "중간 글로 등록"', async ({ page }) => {
+    await setupV3(page)
+    const writes = recordWrites(page)
+    await speak(page, '148번 280', { final: false })
+    await page.clock.runFor(999)
+    await settle(page)
+    expect(productWrites(writes)).toEqual([])
+    await page.clock.runFor(1)
+    await expect.poll(() => productWrites(writes)).toEqual([['product.register', 148, '', 280000]])
+    await page.clock.runFor(200)
+    await page.clock.runFor(QUIET_MS + 100)
+    const dlg = await openLog(page)
+    await expect(dlg.getByRole('list', { name: '음성 기록 목록' })).toContainText('중간 글로 등록')
+  })
+
+  test('R90: "148번 280"(0ms) → "148번 280만"(500ms) → 그대로 → 1,500ms 때 2,800,000원 하나(280,000원 쓰기 없음)', async ({ page }) => {
+    await setupV3(page)
+    const writes = recordWrites(page)
+    await speak(page, '148번 280', { final: false })
+    await page.clock.runFor(500)
+    await speak(page, '148번 280만', { final: false })
+    await page.clock.runFor(999)
+    await settle(page)
+    expect(productWrites(writes)).toEqual([])
+    await page.clock.runFor(1)
+    await expect.poll(() => productWrites(writes)).toEqual([['product.register', 148, '', 2800000]])
+    await page.clock.runFor(QUIET_MS + 100)
+    await settle(page)
+    expect(productWrites(writes)).toEqual([['product.register', 148, '', 2800000]])
+  })
+
+  test('R91: 중간 "148번 280"이 800ms뿐이고 최종에서 가격이 사라지면 148번 등록 없음', async ({ page }) => {
+    await setupV3(page)
+    const writes = recordWrites(page)
+    await speak(page, '148번 280', { final: false })
+    await page.clock.runFor(800)
+    await speak(page, '148번 자 회장님들 자국 8번 캡처 떠 주시고요 132번')
+    await page.clock.runFor(QUIET_MS + 100)
+    await settle(page)
+    expect(productWrites(writes).filter((w) => w[1] === 148)).toEqual([])
+  })
+
+  test('R92: 중간 "148번 280"이 1,200ms — 그 사이 창이 열려 미뤄짐 — 최종에서 가격이 사라져도 창이 닫힐 때 중간 후보로 148번 280,000원', async ({ page }) => {
+    await setupV3(page)
+    const writes = recordWrites(page)
+    const dlg = await openLog(page)
+    await speak(page, '148번 280', { final: false })
+    await page.clock.runFor(1200)
+    await speak(page, '148번 자 회장님들 자국 8번 캡처 떠 주시고요 132번')
+    await page.clock.runFor(QUIET_MS + 100)
+    await settle(page)
+    expect(productWrites(writes).filter((w) => w[1] === 148)).toEqual([])
+    await page.keyboard.press('Escape')
+    await expect(dlg).toHaveCount(0)
+    await expect.poll(() => productWrites(writes).filter((w) => w[1] === 148)).toEqual([['product.register', 148, '', 280000]])
+  })
+
+  test('R93: R89 뒤 같은 덩어리 최종 "148번 30만 원" → 300,000원으로 고침', async ({ page }) => {
+    await setupV3(page)
+    const writes = recordWrites(page)
+    await speak(page, '148번 280', { final: false })
+    await page.clock.runFor(1000)
+    await expect.poll(() => productWrites(writes)).toEqual([['product.register', 148, '', 280000]])
+    await speak(page, '148번 30만 원')
+    await expect.poll(() => productWrites(writes)).toEqual([['product.register', 148, '', 280000], ['product.update', 148, 300000]])
+  })
 })

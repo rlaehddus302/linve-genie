@@ -21,6 +21,7 @@ import {
   voiceRegion,
   openVoiceLog,
   voiceLogItems,
+  withoutVoiceHeard,
 } from './support.ts'
 
 test.describe('I4 음성 켜기·끄기', () => {
@@ -293,7 +294,8 @@ test.describe('I4 음성 켜기·끄기', () => {
       expect(logs.join('\n')).not.toContain(word)
       for (const r of requests) {
         expect(decodeURIComponent(r.url)).not.toContain(word)
-        expect(r.body).not.toContain(word)
+        // D-V3-73: voiceLog.heard 한 줄(가린 들은 말)만 예외
+        expect(withoutVoiceHeard(r.body)).not.toContain(word)
       }
     }
     // 등록 쓰기는 번호·품종·가격뿐

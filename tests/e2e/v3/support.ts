@@ -21,12 +21,17 @@ export interface V3Setup {
 /** 새 판매자 → 리허설 방송 콘솔 → (상품 미리 등록) → 음성 켜기 → 이력 2초 기다림 지남 → 시계 멈춤 */
 export async function setupV3(
   page: Page,
-  opts: { width?: number; settings?: unknown; consent?: boolean; before?: (s: V3Setup) => Promise<void> } = {},
+  opts: { width?: number; settings?: unknown; consent?: boolean; before?: (s: V3Setup) => Promise<void>; sellerSettings?: Record<string, unknown> } = {},
 ): Promise<V3Setup> {
   await installFakeSpeech(page, { consent: opts.consent ?? true, autoRegister: true, ...(opts.settings === undefined ? {} : { settings: opts.settings }) })
   await page.setViewportSize({ width: opts.width ?? 1440, height: 900 })
   await page.clock.install()
   await loginNewSeller(page)
+  if (opts.sellerSettings !== undefined) {
+    // 판매 규칙은 다음 방송부터 — 방송을 만들기 전에 바꾼다
+    const res = await page.request.patch('/api/settings', { data: { settings: opts.sellerSettings }, headers: { Origin: new URL(page.url()).origin } })
+    expect(res.ok(), await res.text()).toBe(true)
+  }
   const date = uniqueDate()
   const b = await openNewBroadcast(page, { date, rehearsal: true })
   if (opts.before !== undefined) await opts.before({ b, date })
