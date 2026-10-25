@@ -28,6 +28,12 @@ function Band({ session, route, navigate }: { readonly session: VoiceSession; re
       <p className="voice-band-line">
         <strong>음성 듣는 중</strong> · <span>{view.title}</span> · <span>{BAND_SENT}</span>
       </p>
+      {/* 바로 등록·고침 안내 (AC-V3-58 b) — 들은 글·품종은 글자로만 */}
+      {view.readout !== null ? (
+        <p className="voice-band-readout" role="status">
+          {view.readout}
+        </p>
+      ) : null}
       <div className="voice-band-actions">
         {undo !== null && Date.now() <= undo.until ? (
           <button type="button" className="button" onClick={() => void session.undoOutside()}>

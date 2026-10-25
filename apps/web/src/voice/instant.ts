@@ -112,5 +112,8 @@ export const RENUMBER_FAILED = '번호를 옮기지 못했어요. 인터넷 연�
 /** 기다리는 번호 (D-V3-67) */
 export const missedPriceNote = (no: number): string => `${String(no)}번 가격을 못 들었어요`
 export const TAKEN_MARK = '이어 받음'
-export const LOG_TAKEN = '기다리던 번호에 다음 가격을 이어 받아 등록했어요'
+export const LOG_TAKEN = '이어 받음'
+/** "가격을 못 들었어요" 카드의 가격 칸 (D-V3-67) */
+export const MISSED_PRICE_LABEL = '가격'
+export const MISSED_PRICE_PROBLEM = '가격을 확인해 주세요. 숫자로 적으면 그 방송 가격 단위로 들어가요.'
 export const LOG_INTERIM = '중간 글로 등록'

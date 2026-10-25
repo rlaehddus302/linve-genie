@@ -58,8 +58,10 @@ export interface VoiceSessionView {
   readonly broadcastId: string
   readonly title: string
   readonly on: boolean
-  /** 확인할 카드 수 (상품·문자찜 카드) */
+  /** 확인할 카드 수 (상품·문자찜 카드·묻기 카드) */
   readonly cards: number
+  /** 큰 글자 칸 안내 ("108번 100,000원 등록했어요" 등), 없으면 null */
+  readonly readout: string | null
   readonly undo: OutsideUndo | null
 }
 
@@ -94,7 +96,7 @@ export class VoiceSession {
       // 받지 못하면 콘솔 밖 처리는 빈 상품 보드로 (다시 붙으면 따라잡는다)
     })
     this.controller = new VoiceController(this.#proxy())
-    this.#view = { broadcastId, title, on: false, cards: 0, undo: null }
+    this.#view = { broadcastId, title, on: false, cards: 0, undo: null, readout: null }
     this.controller.subscribe(() => this.#onVoice())
     this.#store.subscribe(() => this.#onStore())
   }
@@ -186,8 +188,11 @@ export class VoiceSession {
 
   #emit(): void {
     const snapshot = this.controller.getSnapshot()
-    const cards = snapshot.cards.length + snapshot.sms.filter((entry) => !entry.hidden && entry.card.status === 'OPEN').length
-    this.#view = { broadcastId: this.broadcastId, title: this.#title, on: snapshot.phase === 'on' || snapshot.phase === 'loading', cards, undo: this.#undo }
+    // 묻기 카드(고칠까요·이미 있어요)도 확인할 카드다 (AC-V3-58 c)
+    const asks = snapshot.offers.filter((offer) => offer.stage === 'ask').length
+    const cards = snapshot.cards.length + snapshot.sms.filter((entry) => !entry.hidden && entry.card.status === 'OPEN').length + asks
+    const readout = snapshot.readout !== null && snapshot.readout.until > Date.now() ? snapshot.readout.text : null
+    this.#view = { broadcastId: this.broadcastId, title: this.#title, on: snapshot.phase === 'on' || snapshot.phase === 'loading', cards, undo: this.#undo, readout }
     for (const listener of [...this.#listeners]) listener()
   }
 

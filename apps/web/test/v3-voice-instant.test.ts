@@ -309,7 +309,7 @@ describe('바로 등록 V3 수용 사례', () => {
     const text = '139번으로 등록했는데 189번도 들렸어요. 맞는지 확인해 주세요.'
     expect(h.voice.getSnapshot().log[0]?.reason).toBe(text)
     // 등록 안내 4초 뒤 차례로 (D-V3-61)
-    expect(h.voice.getSnapshot().readout?.text).toBe('139번 500,000원 등록했어요')
+    expect(h.voice.getSnapshot().readout?.text).toBe('139번 빅뱅금 500,000원 등록했어요')
     at(2000 + 4000)
     expect(h.voice.getSnapshot().readout?.text).toBe(text)
   })
@@ -683,6 +683,36 @@ describe('기다리는 번호 (D-V3-67)', () => {
     const card = cards(h).find((item) => item.no === 15)
     expect(card).toBeDefined()
     expect(h.voice.getSnapshot().notes.get(card?.id ?? '')).toBe('15번 가격을 못 들었어요')
+  })
+
+  it('둘째 덩어리의 원 가격은 조용한 시간 전에 그 자리에서 이어 받는다, 품종도 사전 이름이면 함께 (TE-V3-014)', async () => {
+    const h = await ready()
+    say('15번')
+    at(2000)
+    expect(h.registered).toEqual([])
+    say('엘레강스', false)
+    say('엘레강스 이만원')
+    expect(reg(h)).toEqual([{ no: 15, name: '엘레강스', price: 20000, source: 'instant' }])
+    expect(h.voice.getSnapshot().log[0]?.reason).toBe('이어 받음')
+  })
+
+  it('"가격을 못 들었어요" 카드는 가격 칸에 적어 등록한다 (TE-V3-014)', async () => {
+    const h = await ready({ priceUnit: 'THOUSAND' })
+    say('15번')
+    at(2000)
+    say('16번 2만 원')
+    at(5000)
+    const card = cards(h).find((item) => item.no === 15)
+    expect(h.voice.cardInfo(card?.id ?? '')?.missed).toBe(true)
+    expect(h.voice.submitMissed(card?.id ?? '', '15')).toBeNull()
+    expect(reg(h).at(-1)).toEqual({ no: 15, name: '', price: 15000, source: 'click' })
+  })
+
+  it('60초는 그 번호를 들은 때부터 센다 (TE-V3-014)', async () => {
+    const h = await ready()
+    say('15번')
+    at(61_000)
+    expect(cards(h).map((card) => card.no)).toEqual([15])
   })
 
   it('60초가 지나면 덩어리가 없어도 카드', async () => {

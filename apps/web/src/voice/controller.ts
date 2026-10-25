@@ -11,7 +11,7 @@
 // V1 음성 문자찜 (ORD-08 AC9, VOC-01·04, D-V1-03~09, AC-V1-20~28): 문자찜 문장(R-21)은 상품 카드 대신 문자찜 카드가 된다. 손대지 않은 카드는
 // 기다림(그 기기 설정, 기본 3초) 뒤 콘솔이 넘긴 쓰기(host.writeSms — 손 입력과 같은 `sms` 이벤트)로 넣는다. 넣은·닫은 카드도 10초 동안은
 // 같은 말 막기(D-V1-06)를 위해 들고 있다. 열린 카드 수 규칙은 상품 카드와 함께 센다(addVoiceCard).
-import { formatWon, type PriceUnit } from '@livejjim/core'
+import { formatWon, parseAmount, type PriceUnit } from '@livejjim/core'
 import { ARCHIVE_KEY, archiveBroadcasts, readArchive } from './archive-store.ts'
 import { isHomeScreenApp } from './standalone.ts'
 import type {
@@ -82,6 +82,7 @@ import {
   REASON_NOT_OPEN,
   claimsKeptNote,
   LOG_TAKEN,
+  MISSED_PRICE_PROBLEM,
   LOG_INTERIM,
   TAKEN_MARK,
   missedPriceNote,
@@ -295,6 +296,8 @@ export interface CardInfo {
   readonly candidates: readonly VarietyCandidate[]
   /** "품종·가격을 말해 주세요" 등, 없으면 null */
   readonly ask: string | null
+  /** "15번 가격을 못 들었어요" 카드 — 가격 칸 하나·[등록]·[닫기] (D-V3-67) */
+  readonly missed?: true
 }
 
 /** "들은 말" 칸 (모으는 글 + 지금 중간 결과) */
@@ -785,6 +788,8 @@ export class VoiceController {
   readonly #rejected = new Set<number>()
   /** 창이 열려 미룬 바로 등록 카드 (창이 닫히면 등록, AC-V3-43 a) */
   readonly #dueCards = new Set<string>()
+  /** 창이 열려 미룬 중간 후보 (D-V3-71) */
+  readonly #dueInterim: { readonly candidate: InterimCandidate; readonly text: string }[] = []
   /** 지금 모으는 덩어리 도중 바로 등록 설정이 꺼진 적이 있다 (D-V2-22와 같은 원칙) */
   #phraseInstantOff = false
   /** 보낸 바로 등록 (번호 → 보낸 값) */
@@ -957,6 +962,7 @@ export class VoiceController {
     if (this.#interimTimer !== null) clearTimeout(this.#interimTimer)
     this.#interimTimer = null
     this.#dueCards.clear()
+    this.#dueInterim.length = 0
     this.#phraseInstantOff = false
     this.#set({ phase: 'off', stateLabel: null, interim: null, tooSoon: false, cards, sms, hearing: null, paused: new Map() })
   }
@@ -1234,7 +1240,10 @@ export class VoiceController {
     // V3 바로 등록 (D-V3-01·05·08·10·13·19·21): 덩어리 끝에 바로 등록한 번호·이미 있는 번호·합치기·확정 읽기를 먼저 본다
     const noAuto = chunk.noAutoConfirm === true || this.#phraseInstantOff || !this.#snapshot.instant
     // 켬이면 조각 읽기로 덩어리를 앞에서부터 소비한다 (D-V3-46) — 조각이 없으면 옛 판단
-    const segmentsDone = v3 !== null && !noAuto && !this.#host.dialogOpen() ? this.#segmentsChunk(work, module, chunk) : null
+    const dialogNow = this.#host.dialogOpen()
+    // 창이 열린 동안 끝난 덩어리: 1초 넘게 보였던 중간 후보는 창이 닫히면 등록 (D-V3-71·AC-V3-43 a)
+    if (v3 !== null && !noAuto && dialogNow) this.#deferInterim(module, chunk.text)
+    const segmentsDone = v3 !== null && !noAuto && !dialogNow ? this.#segmentsChunk(work, module, chunk) : null
     const instantDone = segmentsDone ?? (v3 === null ? null : this.#instantChunk(work, module, chunk, reading, action, v3, noAuto))
     const handledNos = new Set(this.#instantNos.keys())
     this.#pickDone.clear()
@@ -1408,7 +1417,8 @@ export class VoiceController {
     } catch {
       return null
     }
-    this.#waiting = step.waiting
+    // 기다림은 그 번호를 들은 때부터 센다 (덩어리 끝이 아니라 덩어리 처음)
+    this.#waiting = step.waiting !== null && step.waiting.no !== this.#waiting?.no && Number.isFinite(chunk.startedAt) ? { ...step.waiting, since: Math.min(step.waiting.since, chunk.startedAt) } : step.waiting
     if (step.card !== null) this.#missedCard(work, module, step.card)
     const take = step.take
     if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return null
@@ -1418,14 +1428,49 @@ export class VoiceController {
     return { action: 'create', reason: LOG_TAKEN, readout: done.readout === null ? null : `${done.readout} · ${TAKEN_MARK}` }
   }
 
+  #takeWaiting(work: CardWork, module: VoiceModule, text: string, final: boolean): void {
+    if (typeof module.stepWaiting !== 'function') return
+    const rr = this.#readRegistration(module, text, final)
+    if (rr === null || rr.extraction.no !== null || rr.heardNumbers.length > 0 || !rr.priceSure || rr.extraction.price === null) return
+    let step: ReturnType<VoiceModule['stepWaiting']>
+    try {
+      step = module.stepWaiting({ waiting: this.#waiting, now: this.#host.now(), piece: { markerNo: null, wonPrice: rr.extraction.price, paired: false }, exists: (no) => this.#existingOf(no) !== null })
+    } catch {
+      return
+    }
+    this.#waiting = step.waiting
+    if (step.card !== null) this.#missedCard(work, module, step.card)
+    const take = step.take
+    if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return
+    this.#instantNos.set(take.no, 'register')
+    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: rr.extraction.name, nameNeedsCheck: false, numberFrom: 'marker' }, text)
+    const now = this.#host.now()
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: take.no, name: rr.extraction.name, price: take.price, candidates: [] }, action: 'create', reason: LOG_TAKEN }))
+    if (done.readout !== null) work.readout = { text: `${done.readout} · ${TAKEN_MARK}`, discarded: false, until: now + READOUT_MS }
+  }
+
   /** "15번 가격을 못 들었어요" 카드 (D-V3-67) — 가격을 적어 [등록]하거나 [닫기]. 같은 번호 카드가 있으면 그대로 */
   #missedCard(work: CardWork, module: VoiceModule, no: number): void {
     if (this.#existingOf(no) !== null || work.cards.some((card) => isOpen(card) && card.no === no)) return
     const id = `voice-${String(this.#nextCard++)}`
     const card: SuggestionCard = { id, no, name: null, price: null, confidence: 'LOW', text: '', createdAt: this.#host.now(), status: 'OPEN', touched: false, autoConfirmAt: null }
     work.notes = new Map(work.notes).set(id, missedPriceNote(no))
-    work.info = new Map(work.info).set(id, { candidates: [], ask: null })
+    work.info = new Map(work.info).set(id, { candidates: [], ask: null, missed: true })
     this.#place(work, module, card)
+  }
+
+  /**
+   * "가격을 못 들었어요" 카드의 [등록]: 적은 가격을 그 방송 가격 단위로 읽어 빠른 입력과 같은 등록 경로로. 읽지 못하면 문장을 돌려준다
+   */
+  submitMissed(id: string, text: string): string | null {
+    const card = this.#find(id)
+    if (card === undefined || card.no === null) return null
+    const unit = this.#host.priceUnit?.() ?? 'THOUSAND'
+    const price = parseAmount(text.trim(), { 'price.unit': unit })
+    if (price === null || price < 100) return MISSED_PRICE_PROBLEM
+    this.take(id)
+    this.#host.register({ ...card, price, touched: true }, { no: card.no, name: '', price }, 'click')
+    return null
   }
 
   /** 60초가 지난 기다리는 번호를 카드로 (덩어리가 오지 않아도) */
@@ -1635,7 +1680,10 @@ export class VoiceController {
     if (settings === null) return
     // 덩어리 도중 끄면 그 덩어리는 바로 등록하지 않는다 (다시 켜도)
     if (!on && this.#module !== null && this.#phrase !== null && this.#module.nextTickAt(this.#phrase) !== null) this.#phraseInstantOff = true
-    if (!on) this.#dueCards.clear()
+    if (!on) {
+      this.#dueCards.clear()
+      this.#dueInterim.length = 0
+    }
     this.#set({ instant: on })
     this.#writeSettings(settings)
   }
@@ -1664,11 +1712,18 @@ export class VoiceController {
     if (!this.#instantOn() || this.#phraseInstantOff || this.#waitingHistory() || this.#snapshot.phase !== 'on') return
     const text = this.#chunkText(module)
     if (text === '' || text.includes('문자찜')) return
-    if (this.#host.dialogOpen()) return
+    if (this.#host.dialogOpen()) {
+      // 창이 열린 동안에도 중간 후보는 센다 — 창이 닫히면 등록 (D-V3-71·AC-V3-43 a)
+      const shownInterim = this.#phrase === null ? '' : module.heardText(this.#phrase).interim
+      if (shownInterim.trim() !== '') this.#trackInterim(work, module, text)
+      return
+    }
     this.#heardNow = text
     const interim = this.#phrase === null ? '' : module.heardText(this.#phrase).interim
     const seg = this.#readSegments(module, text, interim.trim() === '')
     if (seg !== null) this.#runPicks(work, module, seg, text, false)
+    // 기다리는 번호가 있고 이 글에 번호 없이 원 가격이 들리면 그 자리에서 이어 받는다 (D-V3-67, 조용한 시간 전)
+    if (seg !== null && seg.picks.length === 0 && this.#waiting !== null) this.#takeWaiting(work, module, text, interim.trim() === '')
     // 중간 결과의 빠른 꼴이 1초 동안 같으면 바로 (D-V3-71)
     if (interim.trim() !== '') this.#trackInterim(work, module, text)
     else this.#interimShown = null
@@ -1689,7 +1744,7 @@ export class VoiceController {
     const step = module.trackInterim(this.#interimSeen, candidate, this.#host.now())
     this.#interimSeen = step.seen
     if (step.stable !== null) {
-      this.#interimPick(work, module, step.stable, text)
+      if (!this.#host.dialogOpen()) this.#interimPick(work, module, step.stable, text)
       return
     }
     // 1,000ms 뒤 같은 후보가 아직 보이면 등록
@@ -1810,12 +1865,14 @@ export class VoiceController {
     const to = read.to
     const notice = (message: string): InstantDone => ({ action: 'discard', reason: message, readout: message })
     const source = this.#existingOf(from)
-    if (source === null || source === 'closed' || (source.status !== undefined && source.status !== 'OPEN')) return notice(renumberNotOpen(from))
+    if (source === null || source === 'closed') return notice(renumberNotOpen(from))
     if (source.pending === true || source.key === '') {
       this.#setPending(from, { renumberTo: to })
       return { action: 'discard', reason: LOG_PENDING, readout: null }
     }
+    // 찜이 먼저 (찜이 있으면 다 팔린 상품도 "찜이 있어" 문장, TE-V3-017)
     if (source.claimCount > 0) return notice(renumberClaims(from))
+    if (source.status !== undefined && source.status !== 'OPEN') return notice(renumberNotOpen(from))
     if (this.#existingOf(to) !== null) return notice(renumberTaken(to))
     void this.#runRenumber(from, to)
     return { action: 'edit', reason: renumberDone(from, to), readout: null }
@@ -2282,10 +2339,25 @@ export class VoiceController {
     this.#set(this.#workPatch(work))
   }
 
+  /** 창이 열린 동안 끝난 덩어리의 중간 후보를 미뤄 둔다 */
+  #deferInterim(module: VoiceModule, text: string): void {
+    const seen = this.#interimSeen
+    this.#interimSeen = []
+    this.#interimShown = null
+    if (typeof module.interimFallback !== 'function' || seen.length === 0) return
+    const final = this.#readSegments(module, text, true)
+    const fallback = module.interimFallback(seen, final?.picks ?? [], [])
+    if (fallback !== null) this.#dueInterim.push({ candidate: fallback, text })
+  }
+
   /** 창이 닫힌 뒤: 창 때문에 미룬 바로 등록 카드를 등록한다 (AC-V3-43 a) */
   #runDue(): void {
-    if (this.#dueCards.size === 0 || this.#host.dialogOpen() || !this.#instantOn() || this.#snapshot.phase !== 'on') return
+    if ((this.#dueCards.size === 0 && this.#dueInterim.length === 0) || this.#host.dialogOpen() || !this.#instantOn() || this.#snapshot.phase !== 'on') return
     const work = this.#emptyWork()
+    const module = this.#module
+    for (const item of this.#dueInterim.splice(0)) {
+      if (module !== null && this.#existingOf(item.candidate.no) === null && !this.#rejected.has(item.candidate.no)) this.#interimPick(work, module, item.candidate, item.text)
+    }
     for (const id of [...this.#dueCards]) {
       this.#dueCards.delete(id)
       const card = work.cards.find((item) => item.id === id && isOpen(item))
@@ -3271,7 +3343,7 @@ export class VoiceController {
     const ripeSms = this.#ripeSms()
     const ripe = ripeCard === 'now' || ripeSms === 'now' ? 'now' : ripeCard ?? ripeSms
     // 창이 열려 미룬 바로 등록이 있으면 창이 닫혔는지 자주 본다 (어떤 창이 닫혀도, AC-V3-43 a)
-    const deferred = ripe === 'deferred' || this.#dueCards.size > 0
+    const deferred = ripe === 'deferred' || this.#dueCards.size > 0 || this.#dueInterim.length > 0
     const delay = ripe === 'now' ? 0 : deferred ? Math.min(wake ?? DEFERRED_POLL_MS, DEFERRED_POLL_MS) : wake
     if (delay === null) return
     this.#timer = setTimeout(() => {

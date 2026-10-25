@@ -53,7 +53,7 @@ import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
 import { SERVICE_NAME } from '../brand.ts'
-import { INSTANT_CONSENT_LINE, INSTANT_HELP, INSTANT_LABEL, MAYBE_OTHER_FIX, MAYBE_OTHER_RENUMBER } from '../voice/instant.ts'
+import { INSTANT_CONSENT_LINE, INSTANT_HELP, INSTANT_LABEL, MAYBE_OTHER_FIX, MAYBE_OTHER_RENUMBER, MISSED_PRICE_LABEL } from '../voice/instant.ts'
 import { ARCHIVE_CLEAR, ARCHIVE_CLEARED, ARCHIVE_DOWNLOAD_ALL, ARCHIVE_DOWNLOAD_ONE, ARCHIVE_LABEL, VOICE_ARCHIVE_NOTICE, clearArchive, downloadJson } from '../voice/archive-store.ts'
 import { getVoiceSession } from '../voice/session.ts'
 
@@ -580,29 +580,33 @@ function VoiceCard({ card, described, badge, countdown, paused, info, note, offe
           </p>
         ) : null}
       </div>
-      <div className="voice-card-actions">
-        <button type="button" className="button button-primary" aria-label={`${short} 등록`} onClick={() => onRegister(card.id)}>
-          등록
-        </button>
-        <button
-          type="button"
-          className="button"
-          aria-label={`${short} 고치기`}
-          aria-expanded={form !== null}
-          aria-controls={form !== null ? formId : undefined}
-          onClick={() => (form === null ? voice.openForm(card.id) : voice.closeForm(card.id))}
-        >
-          고치기
-        </button>
-        <button type="button" className="button" aria-label={`${short} 닫기`} onClick={() => voice.close(card.id)}>
-          닫기
-        </button>
-        {countdown !== null ? (
-          <button type="button" className="button" aria-label={`${short} 자동 등록 멈추기`} onClick={() => voice.stopAuto(card.id)}>
-            자동 등록 멈추기
+      {info?.missed === true ? (
+        <MissedPriceForm cardId={card.id} short={short} voice={voice} />
+      ) : (
+        <div className="voice-card-actions">
+          <button type="button" className="button button-primary" aria-label={`${short} 등록`} onClick={() => onRegister(card.id)}>
+            등록
           </button>
-        ) : null}
-      </div>
+          <button
+            type="button"
+            className="button"
+            aria-label={`${short} 고치기`}
+            aria-expanded={form !== null}
+            aria-controls={form !== null ? formId : undefined}
+            onClick={() => (form === null ? voice.openForm(card.id) : voice.closeForm(card.id))}
+          >
+            고치기
+          </button>
+          <button type="button" className="button" aria-label={`${short} 닫기`} onClick={() => voice.close(card.id)}>
+            닫기
+          </button>
+          {countdown !== null ? (
+            <button type="button" className="button" aria-label={`${short} 자동 등록 멈추기`} onClick={() => voice.stopAuto(card.id)}>
+              자동 등록 멈추기
+            </button>
+          ) : null}
+        </div>
+      )}
       {form !== null ? <CardFormView id={formId} cardId={card.id} short={short} form={form} voice={voice} onSubmit={onSubmitForm} /> : null}
     </li>
   )
@@ -953,6 +957,47 @@ function ArchiveButtons({ voice }: { readonly voice: VoiceController }) {
       {note !== null ? (
         <p className="hint" role="status">
           {note}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** "15번 가격을 못 들었어요" 카드 (D-V3-67): 가격 칸 하나(그 방송 가격 단위)·[등록]·[닫기] — 커서를 빼앗지 않는다 */
+function MissedPriceForm({ cardId, short, voice }: { readonly cardId: string; readonly short: string; readonly voice: VoiceController }) {
+  const [text, setText] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  const inputId = useId()
+  const submit = () => setProblem(voice.submitMissed(cardId, text))
+  return (
+    <div className="voice-card-actions voice-missed">
+      <label className="field" htmlFor={inputId}>
+        <span>{MISSED_PRICE_LABEL}</span>
+      </label>
+      <input
+        id={inputId}
+        className="input"
+        inputMode="numeric"
+        autoComplete="off"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            submit()
+          }
+        }}
+      />
+      <button type="button" className="button button-primary" aria-label={`${short} 등록`} onClick={submit}>
+        등록
+      </button>
+      <button type="button" className="button" aria-label={`${short} 닫기`} onClick={() => voice.close(cardId)}>
+        닫기
+      </button>
+      {problem !== null ? (
+        <p className="field-error" role="alert">
+          {problem}
         </p>
       ) : null}
     </div>
