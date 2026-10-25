@@ -311,3 +311,36 @@ describe('R94~R96 (D-V3-72, 천원 단위)', () => {
     expect(stepWaiting({ waiting: null, now: 0, piece: { markerNo: 113, wonPrice: null, paired: false }, exists: () => false }).waiting).toEqual({ no: 113, since: 0 })
   })
 })
+
+describe('TE-V3-013 번호보다 먼저 말한 품종', () => {
+  it('"자 상강 색금 자 요 아이 자 28만 원 174번 …" → 174번 삼광색금 280,000원, "빅뱅 금 139번 얘 50만 원" → 빅뱅금', () => {
+    expect(seg('자 파이텐트까지 나오는 상강색 게임 잘 들었어요 자 상강 색금 자 요 아이 자 28만 원 174번 자 174 자 이거 28만 원 자 3강색은 요 아이 28마리까지').picks).toMatchObject([
+      { no: 174, price: 280000, name: '삼광색금' },
+    ])
+    expect(seg('어 자 요거 지금 189번인데 뿌리가 있습니다 뿌리 있는데 컵이 너무 잘 들었어요 빅뱅 금 139번 얘 50만 원 들어요').picks).toMatchObject([{ no: 139, price: 500000, name: '빅뱅금' }])
+    expect(seg('빅뱅 금 139번 얘 50만 원').picks).toMatchObject([{ no: 139, name: '빅뱅금' }])
+  })
+  it('다른 N번 앞의 품종은 쓰지 않는다', () => {
+    expect(seg('라울 15번 16번 2만 원').picks).toMatchObject([{ no: 16, name: null }])
+    expect(seg('15번 라울 7만 원 16번 2만 원').picks).toMatchObject([
+      { no: 15, name: '라울' },
+      { no: 16, name: null },
+    ])
+  })
+})
+
+describe('D-V3-73 남은 조각에서는 번 없는 번호를 쓰지 않는다', () => {
+  it('R6 실제 방송 5 → 3번 하나만 (뒤의 170은 번호 아님)', () => {
+    const r = seg('자 9cm에 자 9cm에 3번 자 3강 세금 뿌리 다 남았고요 얘는 자 25만 원 170 자 요런 색금 예쁘게 나왔습니다 이거 25만 원 3강 세금 170 자 이 703강 세금이 자 25만 원까지', { final: true })
+    expect(r.picks.map((p) => [p.no, p.price])).toEqual([[3, 250000]])
+  })
+  it('R39 "25만 원 1 5번"·R40 "25만 원 이십 오번" → 덩어리 끝에 15·25번 250,000원', () => {
+    expect(seg('25만 원 1 5번').picks).toEqual([])
+    expect(seg('25만 원 1 5번', { final: true }).picks).toMatchObject([{ no: 15, price: 250000 }])
+    expect(seg('25만 원 이십 오번', { final: true }).picks).toMatchObject([{ no: 25, price: 250000 }])
+  })
+  it('처음 조각의 번 없는 번호는 그대로 (일육팔 삼광색금 이십오만 원)', () => {
+    expect(seg('일육팔 삼광색금 이십오만 원').picks).toMatchObject([{ no: 168, numberFrom: 'bare' }])
+    expect(seg('15번 만 원 168 2만 원').picks.map((p) => p.no)).toEqual([15])
+  })
+})

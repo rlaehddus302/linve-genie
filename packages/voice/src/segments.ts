@@ -129,7 +129,8 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
       const segMarkers = markers.filter((marker) => marker.start >= s)
       const segLines = lines.filter((line) => line.start >= s)
       if (segMarkers.length === 0) {
-        // '번' 없는 번호는 조각에 'N번'이 하나도 없을 때만 (D-V3-23·26·34도 조각 안에서)
+        // '번' 없는 번호는 조각에 'N번'이 하나도 없을 때만 (D-V3-23·26·34도 조각 안에서), 그리고 조각 소비 뒤 남은 조각에서는 쓰지 않는다 (D-V3-73 — 'N번'만)
+        if (picks.length > 0) break
         const rest = tokens.slice(s).join(' ')
         const ready = readRegistration(rest, options).ready
         const firstLine = segLines[0]
@@ -144,7 +145,13 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         const m = before[before.length - 1] as (typeof before)[number]
         for (const other of before) if (other.value !== m.value) dropped.push(other.value)
         if (m.split || line.value === null || m.value > maxNumber || correctionBetween(m.start, line.end)) break
-        const reading = analyzeSentence(tokens.slice(m.start, line.end + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
+        // 품종은 조각 범위(앞 조각이 소비된 끝 또는 앞 'N번' 뒤 ~ 이 원 가격) 안에서 찾는다 — 번호보다 먼저 말한 품종도(TE-V3-013), 다른 'N번' 앞의 품종은 쓰지 않는다
+        // 앞 'N번' 바로 뒤(군말 건너)의 품종은 그 앞 번호의 것이다(`93번 청개구리 97번 23만 원`)
+        const previous = before[before.length - 2]
+        const ownedByPrevious = previous === undefined ? null : nameWindowEnd(tokens, skipFillers(tokens, previous.last + 1), options)
+        const lo = previous === undefined ? s : ownedByPrevious === null ? previous.last + 1 : ownedByPrevious.end + 1
+        const reading = analyzeSentence(tokens.slice(lo, line.end + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
+        // 흔한 말 별칭(`녹음` → 녹금)은 'N번'과 원 가격 사이에서만 (D-V3-54)
         const name = reading.reading.extraction.name ?? commonAliasIn(tokens.slice(m.last + 1, line.start), options)
         pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: null, bigChange: isBigChange(null, line.value) })
         continue
