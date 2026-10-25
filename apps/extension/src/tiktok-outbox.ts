@@ -8,6 +8,9 @@
 // - 화면을 떠나면(dropTab) 그 탭의 아직 보내지 않은 댓글을 버린다(D-TTX-02).
 // - 넘침·화면 떠남으로 버린 수는 서버에 아직 알리지 않은 수로 따로 센다(D-TTX-16) → 다음 틱톡 상태의 `dropped`.
 //   서버가 받으면(200) 보낸 만큼 빼고, 못 받으면 남겨 다음 상태에 더한다. 409로 거절한 묶음·끊기·standby는 세지 않는다.
+// - 날아가는 묶음(보냈고 답을 기다림)이 떠남·넘침으로 빠지면 다시 보내지 않되 그 자리에서 세지 않고 답으로 정한다(D-TTX-21 (1)):
+//   200·409·400 → 세지 않음(서버가 저장했거나 받지 않기로 정함), 429·5xx·닿지 못함 → 그때 뺀 수만큼 센다.
+// - 세션 저장소에는 아직 떼어 두지 않은 수만 둔다 — 워커가 상태 알림 도중 멈추면 그 수는 되살리지 않는다(D-TTX-21 (2), 두 번 세면 이중 찜).
 import type { Api } from './api.ts'
 import type { Timers } from './outbox.ts'
 import type { TikTokItem } from './tiktok-reader.ts'
@@ -42,7 +45,7 @@ export interface TikTokHeld {
 export interface TikTokOutboxSnapshot {
   readonly items: readonly TikTokHeld[]
   readonly dropped: number
-  /** 서버에 아직 알리지 않은 버린 수 (알리는 중인 것 포함 — 워커가 그사이 멈춰도 잃지 않게) */
+  /** 서버에 아직 알리지 않았고 상태에 떼어 두지도 않은 버린 수 (알리는 중인 수는 넣지 않는다 — D-TTX-21 (2)) */
   readonly unreported?: number
 }
 
@@ -66,6 +69,10 @@ export class TikTokOutbox {
   #dropped = 0
   #unreported = 0
   #reporting = 0
+  /** 지금 날아가는 묶음 (답을 기다림) */
+  #flying: ReadonlySet<TikTokHeld> | null = null
+  /** 날아가는 묶음 중 떠남·넘침으로 대기열에서 뺀 수 — 답이 429·5xx·닿지 못함이면 그때 서버에 알릴 수로 센다 */
+  #flyingGone = 0
   /** stop()마다 늘린다 — 끊기 전에 떼어 둔 수가 끊은 뒤 되돌아오지 않게 */
   #epoch = 0
 
@@ -77,7 +84,7 @@ export class TikTokOutbox {
   }
 
   snapshot(): TikTokOutboxSnapshot {
-    return { items: [...this.#queue], dropped: this.#dropped, unreported: this.#unreported + this.#reporting }
+    return { items: [...this.#queue], dropped: this.#dropped, unreported: this.#unreported }
   }
 
   get size(): number {
@@ -99,6 +106,7 @@ export class TikTokOutbox {
     const count = Math.min(this.#unreported, TT_DROPPED_REPORT_MAX)
     this.#unreported -= count
     this.#reporting += count
+    if (count > 0) this.#changed()
     return { count, epoch: this.#epoch }
   }
 
@@ -107,7 +115,7 @@ export class TikTokOutbox {
     if (report.epoch !== this.#epoch || report.count === 0) return
     this.#reporting = Math.max(0, this.#reporting - report.count)
     if (!accepted) this.#unreported += report.count
-    else this.#changed()
+    this.#changed()
   }
 
   /** 워커가 다시 떴을 때: 보관해 둔 것을 앞에 두고 이어 보낸다 */
@@ -135,13 +143,17 @@ export class TikTokOutbox {
 
   /** 그 탭이 내 방송 화면을 떠났다: 아직 보내지 않은 그 탭의 댓글을 버린다 */
   dropTab(tab: number | null): void {
-    const before = this.#queue.length
-    this.#queue = this.#queue.filter((held) => held.tab !== tab)
-    const gone = before - this.#queue.length
-    if (gone > 0) {
-      this.#unreported += gone
-      this.#changed()
-    }
+    let gone = 0
+    let flying = 0
+    this.#queue = this.#queue.filter((held) => {
+      if (held.tab !== tab) return true
+      if (this.#flying?.has(held) === true) flying += 1
+      else gone += 1
+      return false
+    })
+    this.#flyingGone += flying
+    this.#unreported += gone
+    if (gone + flying > 0) this.#changed()
   }
 
   /** 끊겼을 때·연결을 지울 때: 모두 버리고 멈춘다 */
@@ -151,6 +163,8 @@ export class TikTokOutbox {
     this.#dropped = 0
     this.#unreported = 0
     this.#reporting = 0
+    this.#flying = null
+    this.#flyingGone = 0
     this.#epoch += 1
     if (this.#timer !== null) this.#timers.clear(this.#timer)
     this.#timer = null
@@ -165,11 +179,15 @@ export class TikTokOutbox {
 
   #trim(): void {
     const over = this.#queue.length - TT_HOLD_MAX
-    if (over > 0) {
-      this.#queue.splice(0, over)
-      this.#dropped += over
-      this.#unreported += over
+    if (over <= 0) return
+    let gone = 0
+    for (const held of this.#queue.splice(0, over)) {
+      if (this.#flying?.has(held) === true) this.#flyingGone += 1
+      else gone += 1
     }
+    // 팝업 "놓친 틱톡 댓글"의 누적 수는 대기열에서 뺀 그대로 센다(D-TTX-08) — 서버에 알릴 수만 답으로 정한다(D-TTX-21 (1))
+    this.#dropped += over
+    this.#unreported += gone
   }
 
   #changed(): void {
@@ -200,9 +218,23 @@ export class TikTokOutbox {
       if (batch.length >= TT_BATCH_MAX) break
     }
     this.#sending = true
+    const epoch = this.#epoch
+    this.#flying = new Set(batch)
+    this.#flyingGone = 0
     const result = await this.#api.call('POST', TT_CHATS_PATH, { pageId: first.pageId, items: batch.map((held) => held.item) })
     this.#sending = false
+    // 그사이 끊었으면(stop) 그 묶음의 뺀 수는 끊기와 함께 지워졌다 — 되살리지 않는다
+    const same = epoch === this.#epoch
+    if (same) this.#flying = null
+    const flyingGone = same ? this.#flyingGone : 0
+    if (same) this.#flyingGone = 0
     if (this.#stopped) return
+    // 떠남·넘침으로 뺀 날아가던 댓글은 다시 보내지 않는다 — 서버가 받지 못했으면(429·5xx·닿지 못함) 여기서 센다
+    const countGone = () => {
+      if (flyingGone === 0) return
+      this.#unreported += flyingGone
+      this.#changed()
+    }
     const drop = () => {
       const sent = new Set(batch)
       this.#queue = this.#queue.filter((held) => !sent.has(held))
@@ -220,12 +252,14 @@ export class TikTokOutbox {
       drop()
       this.#onEvent({ kind: 'blocked', code: result.code })
     } else if (result.status === 429) {
+      countGone()
       this.#retry(result.retryAfterMs ?? 1000, result.message)
       return
     } else if (result.status >= 400 && result.status < 500 && result.status !== 408) {
       // 고쳐도 받지 않는 묶음 (모양이 틀림 등) — 버린다
       drop()
     } else {
+      countGone()
       this.#backoff = Math.min(BACKOFF_MAX_MS, this.#backoff === 0 ? 1000 : this.#backoff * 2)
       this.#retry(this.#backoff, result.message)
       return
