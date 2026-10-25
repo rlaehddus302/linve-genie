@@ -769,3 +769,44 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
       beonValues.length === 0 && no !== null && bareChosen !== undefined && bundles.wonLineEnds.length > 0 && (bundles.wonLineEnds[0] as number) < (bareChosen.tokens[0] as number),
   }
 }
+
+// ── V3 조각 읽기용 (D-V3-46) ─────────────────────────────────────────────
+
+/** 번호 표시 하나 (`N번`·`N 번`·자리 읽기 + 번) — 토큰 위치와 값 */
+export interface NumberMarker {
+  readonly start: number
+  readonly last: number
+  readonly value: number
+}
+
+/** 덩어리 토큰의 번호 표시 목록 (앞에서부터). 끊어 말한 번호(D-I4-01)인 표시는 split 참 */
+export function listNumberMarkers(tokens: readonly string[]): (NumberMarker & { readonly split: boolean })[] {
+  const forms = tokens.map(readingForms)
+  const digits = findDigitReadings(tokens, forms).filter((reading) => reading.beon)
+  const digitTokens = new Set(digits.flatMap((reading) => reading.tokens))
+  const out: (NumberMarker & { split: boolean })[] = digits.map((reading) => ({ start: reading.tokens[0] as number, last: reading.tokens[reading.tokens.length - 1] as number, value: reading.value, split: false }))
+  for (let i = 0; i < tokens.length; i++) {
+    if (digitTokens.has(i)) continue
+    const previous = i > 0 ? tokens[i - 1] : undefined
+    const attached = (forms[i] ?? []).find((form) => form.length >= 2 && form.endsWith(BEON) && numberValue(form.slice(0, -BEON.length)) !== null)
+    if (attached !== undefined) {
+      const x = attached.slice(0, -BEON.length)
+      out.push({ start: i, last: i, value: numberValue(x) as number, split: isSplitNumber(previous, x) })
+      continue
+    }
+    const token = tokens[i] as string
+    if (!digitTokens.has(i + 1) && (forms[i + 1] ?? []).includes(BEON) && numberValue(token) !== null) {
+      out.push({ start: i, last: i + 1, value: numberValue(token) as number, split: isSplitNumber(previous, token) })
+      i++
+    }
+  }
+  return out.sort((a, b) => a.start - b.start)
+}
+
+/** 원 가격 줄 목록 (토큰 위치·값, 애매하면 value null). 번호 표시·자리 읽기 토큰에서 멈춘다. bareNumbers = '번' 없는 번호로 앞 수를 뗄 수 있나 */
+export function listWonLines(tokens: readonly string[], options: { readonly maxNumber?: number; readonly bareNumbers?: boolean } = {}): { readonly start: number; readonly end: number; readonly value: number | null }[] {
+  const forms = tokens.map(readingForms)
+  const digits = findDigitReadings(tokens, forms)
+  const marked = new Set<number>([...listNumberMarkers(tokens).flatMap((marker) => [marker.start, marker.last]), ...digits.flatMap((reading) => reading.tokens)])
+  return findWonLines(tokens, forms, (i) => marked.has(i), resolveMaxNumber(options), options.bareNumbers === true)
+}

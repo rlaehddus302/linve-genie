@@ -14,6 +14,7 @@ import {
   mergeSameNumberCards,
   prepareVoiceDictionary,
   readChunk,
+  readSellerNote,
   readRegistration,
   readyToRegister,
   touchCard,
@@ -23,13 +24,13 @@ import {
 } from '../src/index.ts'
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/voice-register/', import.meta.url))
-/** V3 고정값 (README "음성 바로 등록 골든": 파일 2 · 사례 80 — variety-guess 42 · same-number 38, D-V3-22 (c)) */
-const EXPECTED_FILES = 2
-const EXPECTED_CASES = 80
+/** V3 고정값 (README "음성 바로 등록 골든": 파일 3 · 사례 105 — variety-guess 42 · same-number 41 · seller-note 22, D-V3-22 (c)) */
+const EXPECTED_FILES = 3
+const EXPECTED_CASES = 105
 
 const FILE_KEYS = new Set(['kind', 'about', 'cases'])
 const CASE_KEYS = new Set(['id', 'title', 'refs', 'note', 'in', 'out'])
-const ID_PATTERN = /^G-(VGS|VSN)-[A-Z0-9]+-[0-9]{2}$/
+const ID_PATTERN = /^G-(VGS|VSN|VSL)-[A-Z0-9]+-[0-9]{2}$/
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const fail = (where: string, message: string): never => {
   throw new Error(`${where}: ${message}`)
@@ -44,7 +45,7 @@ const NAME_FROM = ['DICTIONARY', 'GUESS', null]
 
 interface Loaded {
   readonly id: string
-  readonly kind: 'variety-guess' | 'same-number'
+  readonly kind: 'variety-guess' | 'same-number' | 'seller-note'
   readonly input: Record<string, unknown>
   readonly out: unknown
 }
@@ -60,7 +61,7 @@ function load(): Loaded[] {
     const root = doc as Record<string, unknown>
     for (const key of Object.keys(root)) if (!FILE_KEYS.has(key)) fail(file, `모르는 키 ${key}`)
     const kind = root.kind
-    if (kind !== 'variety-guess' && kind !== 'same-number') return fail(file, `모르는 kind ${String(kind)}`)
+    if (kind !== 'variety-guess' && kind !== 'same-number' && kind !== 'seller-note') return fail(file, `모르는 kind ${String(kind)}`)
     if (!Array.isArray(root.cases)) fail(file, 'cases가 배열이 아니다')
     for (const item of root.cases as unknown[]) {
       if (!isObject(item)) fail(file, '사례가 객체가 아니다')
@@ -71,7 +72,15 @@ function load(): Loaded[] {
       if (ids.has(id)) fail(file, `겹친 id ${id}`)
       ids.add(id)
       if (!Array.isArray(c.refs) || c.refs.length === 0) fail(id, 'refs')
-      if (kind === 'variety-guess') {
+      if (kind === 'seller-note') {
+        const input = onlyKeys(id, c.in, ['text', 'maxNumber'])
+        if (typeof input.text !== 'string') fail(id, 'text')
+        if (c.out !== null) {
+          const out = onlyKeys(id, c.out, ['no', 'name', 'price'])
+          if (typeof out.no !== 'number' || typeof out.name !== 'string' || typeof out.price !== 'number') fail(id, 'out')
+        }
+        cases.push({ id, kind, input, out: c.out })
+      } else if (kind === 'variety-guess') {
         const input = onlyKeys(id, c.in, ['text', 'maxNumber'])
         if (typeof input.text !== 'string') fail(id, 'text')
         const out = onlyKeys(id, c.out, ['guess'])
@@ -100,7 +109,10 @@ function load(): Loaded[] {
 describe('골든 voice-register (R-17 7·R-22)', () => {
   const cases = load()
   it.each(cases.map((item) => [item.id, item] as const))('%s', (_, item) => {
-    if (item.kind === 'variety-guess') {
+    if (item.kind === 'seller-note') {
+      const maxNumber = item.input.maxNumber
+      expect(readSellerNote(item.input.text, typeof maxNumber === 'number' ? { maxNumber } : {})).toEqual(item.out)
+    } else if (item.kind === 'variety-guess') {
       const maxNumber = item.input.maxNumber
       expect({ guess: guessVariety(item.input.text, typeof maxNumber === 'number' ? { maxNumber } : {}) }).toEqual(item.out)
     } else {

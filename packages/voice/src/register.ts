@@ -188,19 +188,20 @@ export const AUTO_FIX_PRICE_RATIO = 3
 export function decideSameNumber(input: SameNumberInput): SameNumberDecision {
   const { heard, product } = input
   const changes: { price?: number; name?: string } = {}
-  if (heard.price !== null && heard.price !== product.price) changes.price = heard.price
+  // D-V3-47: '원'까지 확정되지 않은 가격(priceSure 거짓)은 바꿀 칸이 아니다 — 묻지도 않는다
+  const unsurePrice = heard.price !== null && heard.price !== product.price && !heard.priceSure
+  if (heard.price !== null && heard.price !== product.price && heard.priceSure) changes.price = heard.price
   let fillOnly = false
   // 추측(GUESS)은 이미 있는 상품의 품종을 채우지도 바꾸지도 않는다 (D-V3-31) — 사전 이름만
   if (heard.nameFrom === 'DICTIONARY' && heard.name !== null && compactName(heard.name) !== '' && compactName(heard.name) !== compactName(product.name)) {
     changes.name = heard.name
     fillOnly = compactName(product.name) === ''
   }
-  if (changes.price === undefined && changes.name === undefined) return { action: 'IGNORE', changes: {}, reason: null }
+  if (changes.price === undefined && changes.name === undefined) return { action: 'IGNORE', changes: {}, reason: unsurePrice ? 'PRICE_NOT_SURE' : null }
   const ask = (reason: SameNumberReason): SameNumberDecision => ({ action: 'ASK', changes, reason })
   if (!input.auto) return ask('NO_AUTO')
   if (heard.numberFrom === 'BARE') return ask('NUMBER_BARE')
   if (product.status !== 'OPEN' && product.status !== 'SOLD') return ask('NOT_OPEN')
-  if (changes.price !== undefined && !heard.priceSure) return ask('PRICE_NOT_SURE')
   if (
     changes.price !== undefined &&
     (changes.price > product.price * AUTO_FIX_PRICE_RATIO || changes.price * AUTO_FIX_PRICE_RATIO < product.price || changes.price > AUTO_REGISTER_PRICE_MAX)

@@ -248,3 +248,25 @@
 - **스펙과 다른 점 (spec-keeper 확인 요청)**: SPEC YT-10 AC7은 "채팅 탭이 뒤로 가면 … 보인다"이고, AC-X1-18 단위 시험은 숨는 즉시 경고를 기대했다. 이제는 30초 이어질 때만 경고한다(오케스트레이터 지시, 실방송 흔들림). `apps/extension/test/hub.test.ts`의 AC-X1-18 시험을 "30초 이어지면"으로 바꿨다. D-X1-11에 숨김 기다림 30초와 "여러 프레임을 합쳐 정함"을 넣어 주세요.
 - **남은 것**: 서버 hidden은 확장이 기다림을 거쳐 보낸 값을 그대로 쓴다(서버 쪽 기다림 없음 — 열을 더해야 해서 미룸). 5분 넘게 뒤에 있는 탭만 남으면 보고가 1분에 한 번이라 콘솔이 HIDDEN ↔ STALE로 바뀔 수 있다(둘 다 경고). 실제 크롬에서 frameId·숨김 전환은 아직 직접 확인하지 못했다(가짜 크롬 API로 시험).
 - 시험: `apps/extension/test/hub.test.ts` "X1 상태 흔들림" 5개(고치기 전 코드에서 4개 실패 확인), `apps/server/test/x1-extension.test.ts` "X1 상태 흔들림" 1개.
+
+### dev-device 추가 14 — D-V3-46~49 (spec 9633223a), 실방송 8차
+**화면이 한 덩어리에서 여러 번 등록하는 API** — `readSegments(text, { dictionary, maxNumber, final, priceUnit })` → `{ tokens, picks, others, tail, rest }`
+- `picks[]` = `{ no, price, name, numberFrom: 'marker'|'bare', priceFrom: 'won'|'quick', start, end, blocked }`. 앞에서부터 조각마다 하나다.
+  - 화면은 결과가 올 때마다(중간 결과 포함) 덩어리 글 전체로 부른다. 아직 처리하지 않은 pick마다 한 번 바로 등록하거나, 이미 있는 번호면 R-22를 탄다.
+  - `blocked: 'PRICE_TOO_HIGH'`면 카드만 만든다.
+  - 같은 글 앞부분은 늘 같은 pick을 낸다. 그래서 `${no}@${start}`나 지금처럼 덩어리 안 번호로 거르면 된다.
+- `others` = 버렸거나 짝을 못 찾은 다른 'N번'이다(고른 번호와 다른 값). 덩어리 끝에 "N번으로 등록했는데 M번도 들렸어요" 알림에 쓴다(`otherNumberMessage`).
+- `tail` = 고른 뒤 남은 조각이 정정·취소로 시작하고 'N번'이 없으면 `{ kind: 'correction'|'cancel', no, text }`. 정정이면 `readChunk(text)` 결과로 그 번호에 R-22를 적용하고, 취소면 되돌린다.
+  - 실방송 8차 반영: 정정 표시 바로 뒤(군말 건너)에 원 가격 줄이나 사전 품종이 와야 정정으로 본다. "55번 … 만 원 아니 가격이 좀 있는 거부터…"는 정정이 아니고, "55번 만 원 아니 만오천 원"은 정정이다.
+- `priceUnit`은 그 방송 판매 규칙의 `price.unit`이다. "N번 사전품종 수" 꼴(D-V3-48)에 쓴다.
+  - 수 토큰이 중간 결과 글의 마지막이면 기다린다.
+  - "가격 뒤 번호"(`… 10만 원 108번`)는 `final: true`일 때만 짝짓는다.
+- 기존 `readyToRegister`·`readRegistration`·`readSure`는 덩어리 전체를 한 번 읽는 옛 판단으로 그대로 둔다. 바로 등록 판단은 `readSegments`로 바꿔 주세요.
+
+**그 밖**
+- D-V3-47: `decideSameNumber`는 `priceSure` 거짓인 가격을 바꿀 칸에서 뺀다. 바꿀 칸이 없으면 `IGNORE`/`PRICE_NOT_SURE`(가격이 달랐을 때), 같으면 null이다. 골든 same-number 41 통과.
+- R-23 `readSellerNote(text, { maxNumber })` → `{ no, name, price } | null`(src/seller-note.ts). 서버가 주인 배지 채팅에 쓴다. 골든 seller-note 22 통과, 무작위 1,000개 예외 없음.
+- voice-register 사례 수 단언: 파일 3 · 사례 105.
+- 단위 시험: packages/voice/test/v3-segments.test.ts(R54~R64, 실제 방송 2·3·4·6, 일육팔, 실방송 8차, 조각 경계 `end` 단언).
+- **위험(실방송 8차)**: "84번 누르셨네요"처럼 시청자 찜을 말하는 'N번'이 섞이면, 원 가격 바로 앞의 가장 뒤 'N번'이 짝이 된다. 이 사례에서는 85번 · 10,000원이 맞게 됐지만, 판매자가 가격을 말한 뒤 시청자 번호를 읽고 다시 가격을 말하면 시청자 번호로 등록될 수 있다. 스펙대로 두고 84번은 알림에 나온다.
+- 적대 v3 `guess-same-number` 두 시험(AC-V3-61 조합 모델)은 D-V3-47 전 모델이라 실패한다(priceSure 거짓 + 가격 다름 → 옛 기대 ASK, 골든·스펙은 IGNORE/PRICE_NOT_SURE) — test-domain 몫.
