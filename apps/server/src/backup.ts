@@ -53,7 +53,6 @@ import {
   depositRequests,
   assistCache,
   assistCalls,
-  sellerNames,
   voiceLog,
   assistSettings,
   depositSources,
@@ -1744,8 +1743,6 @@ export const RESTORE_KEPT_TABLES = [
   extPostSettings,
   assistSettings,
   assistCalls,
-  // V3 판매자 품종 사전(R-23): 채팅에서 배운 판매자 설정 같은 기억이라 그대로 둔다 — 파일에 없다
-  sellerNames,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const

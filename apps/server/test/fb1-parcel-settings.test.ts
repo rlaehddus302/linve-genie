@@ -255,13 +255,13 @@ describe('AC-FB1-16 택배 크기 코드와 옛 값 옮기기 (D-FB1-05)', () =>
     expect((await bookOk(world, seller, [{ buyer: 'UC_A' }]))[0]).toMatchObject({ ok: true })
     const pg = world.database.pglite as PGlite
     // BASE(0018까지)의 모양으로 되돌린다: 옛 낱말, 기본값 소, carrier_name 없음, 0019 적용 기록 없음
-    // (V3에서 0020 seller_names·0021 voice_log가 뒤에 생겨 0019 기록만 지우던 것을 0019 이후 기록 모두와 0020·0021 표를 지우는 것으로 바꿈 — 되돌린 모양은 그대로 0018까지)
+    // (V3에서 0020 seller_names·0021 voice_log가 뒤에 생겨 0019 기록만 지우던 것을 0019 이후 기록 모두와 0020·0021 표를 지우는 것으로 바꿈 — 되돌린 모양은 그대로 0018까지. 0022가 seller_names를 지운 뒤라 if exists)
     await pg.exec(`
       update parcel_settings set box = '중' where seller_id = '${seller.sellerId}';
       update parcels set box = '대' where seller_id = '${seller.sellerId}';
       alter table parcel_settings alter column box set default '소';
       alter table parcel_settings drop column carrier_name;
-      drop table seller_names;
+      drop table if exists seller_names;
       drop table voice_log;
       delete from drizzle.__drizzle_migrations where created_at >= ${String(MIGRATION_0019_WHEN)};`)
     const reopened = await openPglite(pg)

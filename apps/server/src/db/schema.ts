@@ -1907,26 +1907,6 @@ export const assistCalls = pgTable(
 )
 
 /**
- * 판매자 품종 사전 (V3 R-23, D-V3-49): 판매자가 주인 배지 채팅에 쓴 "93번🍀[청개구리] ₩70,000"에서 배운 품종 이름.
- * (판매자, 이름) 하나에 한 줄 — 같은 이름을 다시 배우면 줄을 늘리지 않고 마지막으로 본 시각만 고친다. 판매자마다 2,000줄까지(넘으면 오래 안 본 것부터 지운다).
- * 이벤트 로그 밖의 기억이다(채팅 이벤트가 먼저 기록되고, 그 뒤에 읽어 넣는다). 손님 글·닉네임은 두지 않는다
- */
-export const sellerNames = pgTable(
-  'seller_names',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    sellerId: text('seller_id')
-      .notNull()
-      .references(() => sellers.id),
-    /** R-23로 읽은 품종 (2~20글자 한글·로마자·공백, 앞뒤 공백 없음·연속 공백 한 칸) */
-    name: text('name').notNull(),
-    learnedAt: timestamptz('learned_at').notNull(),
-    seenAt: timestamptz('seen_at').notNull(),
-  },
-  (t) => [unique('seller_names_uq').on(t.sellerId, t.name), index('seller_names_seen_idx').on(t.sellerId, t.seenAt)],
-)
-
-/**
  * 음성 등록·고침 기록 (V3 R-25, D-V3-65, AC-V3-70): 음성(화면이 기록 칸을 실어 보낸 상품 등록·고치기·번호 바꾸기·판매 종료)과
  * 일어난 일을 한 줄씩 남긴다(출처 voice — 판매자 채팅 읽기는 D-V3-68로 없앰). 판정 엔진 이벤트와 별개인 서버 기록이고, 같은 기록 트랜잭션에서 상품 명령(이벤트)보다 먼저 넣는다.
  * (판매자, 요청 번호, 한 일) 하나에 한 줄 — 같은 요청을 다시 보내도 늘지 않는다. 들은 말은 가린 한 줄(300글자까지, 제어 문자 없음)만.
@@ -2048,7 +2028,6 @@ export const schema = {
   assistSettings,
   assistCache,
   assistCalls,
-  sellerNames,
   voiceLog,
 }
 
