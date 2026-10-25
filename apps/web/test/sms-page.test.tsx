@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
-import { SmsPage } from '../src/components/SmsPage.tsx'
+import { RESEND_RECEIVED_NOTE, SmsPage, lateReceivedWords } from '../src/components/SmsPage.tsx'
+import { kstTime } from '../src/lib/kst.ts'
 import { chat, register, sms } from './engine.ts'
 import { EngineServer, PHONE_SENTENCE } from './engine-server.ts'
 import { DATE, FakeEventSource, apiError, flush } from './support.ts'
@@ -574,4 +575,51 @@ describe('보내는 동안 잠금·성공 응답 바로 비우기 (D-SMS-01, AC-
     expect(engine.posts.filter((post) => post.type === 'sms')).toHaveLength(1)
     await waitFor(() => expect(screen.getByRole('region', { name: '넣은 결과' }).textContent).toContain('15번 · 홍길동'))
   }, 10_000)
+})
+
+describe('받은 시각을 비운 문자찜을 연결이 돌아와 저절로 보냄 (RA-MOB2-02, D-MOB2-07, SPEC ORD-08 AC6)', () => {
+  const reconnect = () => {
+    for (const stream of FakeEventSource.instances) if (!stream.closed) stream.emit('ready', { scopes: [] })
+  }
+
+  it('실패 줄에 "받은 시각을 비워 두면 다시 보낸 때가…", 저절로 보낸 결과 카드에 처음 누른 시각과 함께 늦게 들어갔다는 안내 — 본문에는 받은 시각을 넣지 않는다(서버가 도착 시각)', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2')])
+    await open()
+    reconnect() // 첫 연결
+    type(numberField(), '15')
+    engine.down = true
+    const pressed = Date.now()
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    expect(await screen.findByText(/저장하지 못했어요/, {}, { timeout: 6000 })).toBeDefined()
+    expect(screen.getByText(RESEND_RECEIVED_NOTE)).toBeDefined()
+    engine.down = false
+    reconnect() // 다시 이어짐
+    const result = await screen.findByRole('region', { name: '넣은 결과' }, { timeout: 6000 })
+    await waitFor(() => expect(result.textContent).toContain('연결이 돌아와 보냈어요: 15번 · 문자찜 · 1등'))
+    const words = within(result).getByText(/처음 누른/).textContent ?? ''
+    // 처음 누른 시각(초까지)
+    expect([lateReceivedWords(pressed), lateReceivedWords(pressed + 1000)]).toContain(words)
+    expect(engine.posts).toHaveLength(1)
+    expect(engine.posts[0]).not.toHaveProperty('received')
+  }, 15_000)
+
+  it('받은 시각을 적었으면 실패 줄·결과 카드에 그 안내가 없다', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2')])
+    await open()
+    reconnect()
+    type(numberField(), '15')
+    // 지금보다 1분 이른 시각 (늦은 시각 확인 창이 뜨지 않게)
+    const earlier = kstTime(Date.now() - 60_000)
+    type(field('받은 시각'), earlier)
+    engine.down = true
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    expect(await screen.findByText(/저장하지 못했어요/, {}, { timeout: 6000 })).toBeDefined()
+    expect(screen.queryByText(RESEND_RECEIVED_NOTE)).toBeNull()
+    engine.down = false
+    reconnect()
+    const result = await screen.findByRole('region', { name: '넣은 결과' }, { timeout: 6000 })
+    await waitFor(() => expect(result.textContent).toContain('연결이 돌아와 보냈어요: 15번'))
+    expect(within(result).queryByText(/처음 누른/)).toBeNull()
+    expect(engine.posts[0]).toMatchObject({ received: earlier })
+  }, 15_000)
 })

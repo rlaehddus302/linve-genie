@@ -22,7 +22,7 @@ import { PENDING_TIMED_OUT_TAIL, claimOptionWords, claimWord, formatWon, isOptio
 import { usePendingNow } from '../lib/use-pending-now.ts'
 import { AUTO_RESEND_NOTE, RESENT_PREFIX } from '../lib/resend-board.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
-import { broadcastWords, kstStamp } from '../lib/kst.ts'
+import { broadcastWords, kstStamp, kstTime } from '../lib/kst.ts'
 import { RECEIVED_HELP, RECEIVED_INVALID, readReceived, receivedWords } from '../lib/received.ts'
 import type { Navigate } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
@@ -340,6 +340,11 @@ interface SentResult {
   readonly buyer: string | null
   /** 연결이 돌아와 저절로 다시 보낸 문자찜 (D-MOB2-07 — 결과 카드 앞에 "연결이 돌아와 보냈어요: ") */
   readonly auto: boolean
+  /**
+   * 받은 시각을 비운 채 저절로 다시 보냈으면 처음 누른 때(밀리초). 비운 받은 시각은 서버가 도착 시각으로 적으므로(SPEC ORD-08 AC6)
+   * 처음 누른 때보다 늦게 들어갔다고 알린다 (RA-MOB2-02)
+   */
+  readonly firstAt: number | null
 }
 
 interface SmsFormProps {
@@ -414,9 +419,16 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   }
   const optionsMissing = optionMode && product !== undefined && product.hasOptions && variantTextOf(product, effectivePicks) === null
 
+  /** 처음 누른 때 — 칸 내용이 같으면 그대로 (RA-MOB2-02) */
+  const pressRef = useRef<{ readonly key: string; readonly at: number } | null>(null)
+
   const send = async (auto = false) => {
     if (api === undefined || number === null) return
     const at = Date.now()
+    // 같은 칸 내용으로 처음 누른 때 (다시 보내기·저절로 다시 보내기에서도 처음 것 — RA-MOB2-02)
+    const pressKey = JSON.stringify([no, received, phone, memo, buyer, picks, qtyText])
+    if (pressRef.current?.key !== pressKey) pressRef.current = { key: pressKey, at }
+    const firstAt = pressRef.current.at
     const current = readReceived(received, at)
     const event = {
       type: 'sms',
@@ -432,6 +444,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
     const written = await sender.send(event)
     // 실패면 칸은 친 그대로 (AC-SMS-04)
     if (written === null) return
+    pressRef.current = null
     setResult({
       seq: written.seq,
       no: number,
@@ -440,6 +453,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
       phoneLast4: typeof written.phoneLast4 === 'string' ? written.phoneLast4 : normalized === null ? null : phoneLast4(normalized),
       buyer: typeof written.buyer === 'string' ? written.buyer : null,
       auto,
+      firstAt: auto && current.kind === 'empty' ? firstAt : null,
     })
     // 성공 응답 바로 칸을 모두 비우고 번호 칸으로 — 따라잡기를 기다리지 않는다 (전화번호 원문을 남기지 않는다, AC-S06-13·81, AC-SMS-02)
     setNo('')
@@ -647,6 +661,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
           {/* 다시 보내기: 칸은 그대로라 같은 내용 → 같은 요청 번호 (한 번만 기록) */}
           {serverError !== null ? <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer', 'qty', 'options']} /> : null}
           {serverError?.retryable === true && board !== undefined ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
+          {serverError?.retryable === true && read.kind === 'empty' ? <p className="hint">{RESEND_RECEIVED_NOTE}</p> : null}
           <div className="row">
             <button type="submit" className="button button-primary sms-submit" disabled={disabled || number === null || sender.busy || optionsMissing || qtyProblem !== null}>
               {label}
@@ -796,6 +811,14 @@ export function claimTone(status: ClaimStatus): 'success' | 'warning' | 'info' {
  * "같은 사람 하나 더"는 응답의 buyer로 채운다(null이면 버튼이 없다).
  * 번호 칸 바로 위에 둔다 — 보낸 뒤 칸이 비고 번호 칸으로 가도 결과가 첫 화면에 보인다(UX-S06-002).
  */
+/** 받은 시각을 비운 채 실패했을 때 (RA-MOB2-02): 다시 보낸 때가 받은 시각이 된다 */
+export const RESEND_RECEIVED_NOTE = '받은 시각을 비워 두면 다시 보낸 때가 받은 시각이 돼요. 선착순이 걸리면 문자를 받은 시각을 적어 주세요.'
+
+/** 받은 시각을 비운 채 저절로 다시 보낸 결과 (RA-MOB2-02) */
+export function lateReceivedWords(firstAt: number): string {
+  return `받은 시각이 처음 누른 ${kstTime(firstAt)}이 아니라 연결이 돌아와 보낸 때로 들어갔어요. 문자가 더 일찍 왔으면 이 찜을 취소하고 받은 시각을 적어 다시 넣어 주세요.`
+}
+
 function ResultCard({
   api,
   result,
@@ -823,6 +846,11 @@ function ResultCard({
         </strong>
         {suffix !== null ? <span>{suffix}</span> : null}
       </p>
+      {result.firstAt !== null ? (
+        <p className="warning" data-tone="warning">
+          {lateReceivedWords(result.firstAt)}
+        </p>
+      ) : null}
       <div className="row">
         {caught && claim !== undefined && isActive(claim) ? (
           <button type="button" className="button" onClick={() => openClaimAction(api, claim, 'host.cancel')}>
