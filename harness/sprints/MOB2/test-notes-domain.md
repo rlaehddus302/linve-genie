@@ -41,3 +41,19 @@
 - TD-MOB2-001: 고쳐짐(`98019ed5`) — `resend-board.test.ts` 통과.
 - SA-MOB2-04: 웹 단위 시험 `mob2-screens`·`sms-page`·`console-flows`·`mob2-register-resend`를 두 번 더 돌려 두 번 모두 70/70. 흔들림 없음.
 - MOB2 적대 시험 전체: 76/76 통과(`TZ=Asia/Seoul`).
+
+## 수정 라운드 3 (test-domain)
+- AC-MOB2-34 (D-MOB2-15): 새 `pending-seen-property.test.ts` — 화면 판단을 처음 받은 시각 `seen`으로 잰 길을 견준다.
+  - 속성(세 공개 길, 시드 고정): `seen` ≥ at, 지금 ≤ T에서 "시간 지남"이면 T 공개에서 반드시 `EXPIRED`. `seen` = at·지금 = T이면 같음. 낱말·알림 수·보류 찜 창 나눔도 같은 판단.
+  - 속성(RA-MOB2-04): 휴대폰 시계 차이 Δ −5분~+5분(±90초 포함). 어떤 Δ에서도 시간 지남 ⇒ `EXPIRED`, 바로 받았으면 Δ와 상관없이 같음.
+  - 고정: AC-MOB2-35 시작 조건(시계 +90초, W=30 — 받자마자 보류, 30초 정각 보류, 30초+1ms 시간 지남, 다음 바뀜 시각). `seen` 기록에 그 찜이 없으면 하루 뒤에도 시간 지남 아님·다음 바뀜 없음. `seen` 없는 자료는 at.
+  - `nextPendingFlip` = 아직 안 바뀐 것 중 가장 이른 `seen` + W×1000 + 1(속성).
+  - 실제 `ClaimSeen.note`: 처음 값 유지, 새 목록에 처음 든 찜만 그때 시각, 새 기록(새로고침)은 다시 잼, 날짜·리허설별 따로. note 길 속성(받은 시각 ≥ 모든 at)도 엔진보다 먼저 시간 지남 없음.
+  - 기존 `pending-window-property.test.ts`(`seen` 없는 자료 = at 기준)는 그대로 둔다 — 대체 길(저장소를 거치지 않은 자료) 회귀.
+- D-MOB2-14 (SA-MOB2-03·TE-MOB2-006·RA-MOB2-06): 새 `register-resend-server.test.ts` — 결정이 기대는 서버 성질을 실제 서버 + PGlite로 확인.
+  - (가) 다른 기기가 먼저 등록 → 다시 보낸 등록 `changed:false`, 15번 청보석 20,000원·판정 그대로, 같은 요청 번호 또 보내도 같음(서버 다시 켬 포함).
+  - (나) 응답만 잃은 자기 등록 → 다른 기기 등록 `changed:false`, 다시 보내면 `changed:true`·같은 seq·기록 1(서버 다시 켬 포함).
+  - (다) 두 인스턴스 동시 6회 → 상품 하나, `changed:true` 정확히 하나, 내용 = 이긴 쪽 본문, 1등 1·대기 1.
+  - 화면 쪽 처리(창 없음·한 줄 안내)는 웹 단위 시험(`mob2-register-resend.test.tsx`)·E2E 몫.
+- 결과: MOB2 적대 시험 89/89, 새 두 파일 3번 반복 13/13씩. typecheck·eslint 통과.
+- 남은 지적: 없음(도메인 쪽).
