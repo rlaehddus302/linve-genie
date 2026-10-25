@@ -916,7 +916,7 @@
     },
     {
       "id": "G-VSN-V3-28",
-      "title": "[D-V3-57] 3배 넘음 — 묻기 (D-V3-33)",
+      "title": "[D-V3-57] 3배 넘게 올림 — 바로 고침(처음엔 묻기 D-V3-33)",
       "refs": [
         "VOC-04",
         "PRD-06",
@@ -1021,7 +1021,7 @@
     },
     {
       "id": "G-VSN-V3-31",
-      "title": "[D-V3-64] 실방송 3차 — 605만 원(육십오만의 오기) 자동 고침 막기",
+      "title": "[D-V3-64] 실방송 3차 — 605만 원(육십오만의 오기)도 바로 고침, 기록에 크게 바뀜",
       "refs": [
         "VOC-04",
         "PRD-06",
@@ -1056,7 +1056,7 @@
     },
     {
       "id": "G-VSN-V3-32",
-      "title": "[D-V3-64] 3배 안이어도 3,000,000원 넘으면 묻기",
+      "title": "[D-V3-64] 300만 원 넘어도 바로 고침, 기록에 크게 바뀜",
       "refs": [
         "VOC-04",
         "PRD-06",
@@ -1131,7 +1131,7 @@
         "PRD-06",
         "R-22"
       ],
-      "note": "(원 없는 가격은 먼저 뺀다) NO_AUTO → NUMBER_BARE → NOT_OPEN → PRICE_JUMP → CLAIMS",
+      "note": "(원 없는 가격은 먼저 뺀다) 차례: NO_AUTO → NUMBER_BARE → NOT_OPEN → (otherDevice·나중+찜) MAYBE_OTHER — PRICE_JUMP(D-V3-64)·CLAIMS(D-V3-57)는 없앰",
       "in": {
         "heard": {
           "price": 120000,
@@ -1193,7 +1193,7 @@
     },
     {
       "id": "G-VSN-V3-36",
-      "title": "[D-V3-57] 차례: 큰 변화가 찜보다 먼저",
+      "title": "[D-V3-57] 찜 있는 상품 4배 올림 — 바로 고침",
       "refs": [
         "VOC-04",
         "PRD-06",
@@ -1811,7 +1811,7 @@
     },
     {
       "id": "G-VSN-V3-54",
-      "title": "[D-V3-64] 나중이어도 300만 원 넘음은 PRICE_JUMP가 먼저",
+      "title": "[D-V3-64] 나중 + 찜 있음 + 300만 원 넘음 — MAYBE_OTHER (PRICE_JUMP 없음)",
       "refs": [
         "VOC-04",
         "PRD-06",
