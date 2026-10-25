@@ -175,7 +175,8 @@ test.describe('I5 사파리 깨뜨리기 @webkit', () => {
     await safariSay(page, '15번 핑크프릴 만오천원', { final: false, endSoon: true })
     await page.clock.runFor(3000) // 끝남 + 이력 기다림
     await expect(card(page, C15)).toBeVisible()
-    const box = (await openExtras(page)).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
+    // V3 교체(D-V3-01·D-V3-22 b): 자동 등록 설정은 "번호와 가격이 들리면 바로 등록" — 끝에서 넘긴 덩어리는 바로 등록하지 않는다 (AC-V3-43 d)
+    const box = (await openExtras(page)).getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' })
     await box.check()
     await expect(box).toBeChecked()
     await page.clock.runFor(30_000)

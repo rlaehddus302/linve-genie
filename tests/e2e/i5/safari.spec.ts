@@ -117,17 +117,17 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
     void date
   })
 
-  test('AC-I5-04: 같은 문장이 보통 최종 결과로 오면 5초 뒤 자동 등록된다 (사파리) @webkit', async ({ page }) => {
-    await installSafariSpeech(page, { consent: true, settings: AUTO_ON })
+  // V3 교체(D-V3-01·D-V3-22 b): 5초 뒤 자동 확정 → 번호와 가격이 들리는 순간 바로 등록(기본 켬)
+  test('AC-I5-04 → AC-V3-20: 같은 문장이 보통 최종 결과로 오면 기다림 없이 바로 등록된다 (사파리) @webkit', async ({ page }) => {
+    await installSafariSpeech(page, { consent: true, autoRegister: true })
     await clockConsole(page)
     await turnOnVoice(page)
     await pauseClock(page)
+    await page.clock.runFor(2500) // 음성을 켠 직후 판매 이력을 받는 2초 (AC-V3-43 b)
     await safariSay(page, '15번 핑크프릴 만오천원')
-    await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
-    await expect(card(page, C15).getByText(/초 뒤 자동 등록/)).toBeVisible()
-    await page.clock.runFor(5100)
     await expect(boardItem(page, 15)).toBeVisible()
     await expect(card(page, C15)).toHaveCount(0)
+    await expect(page.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
   })
 
   test('AC-I5-11 (a)(b): 홈 화면 앱이면 한 줄 안내 — 막지 않고, 권한 거부로 멈춘 뒤에도 보인다 @webkit', async ({ page }) => {
@@ -218,8 +218,14 @@ test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
       await safariSay(page, `${String(no)}번 핑크프릴 ${word}`)
       await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
       const short = `${String(no)}번 핑크프릴 ${String(no)},000원`
-      await cardButton(page, short, '자동 등록 멈추기').click()
+      // V3 교체(D-V3-01·D-V3-22 b): 자동 확정 기다림이 없어 "자동 등록 멈추기"도 없다 (준비 단계에서 바로 등록 끔 — D-V3-22 a).
+      // 멈추기가 하던 "손댄 카드" 만들기(열린 카드 3장 규칙에서 닫히지 않음)는 고치기 칸을 열었다 닫아서 한다
+      await expect(card(page, short)).toBeVisible()
       await expect(cardButton(page, short, '자동 등록 멈추기')).toHaveCount(0)
+      await cardButton(page, short, '고치기').click()
+      await expect(page.getByRole('group', { name: `${short} 고치기 칸` })).toBeVisible()
+      await cardButton(page, short, '고치기').click()
+      await expect(page.getByRole('group', { name: `${short} 고치기 칸` })).toHaveCount(0)
     }
     await safariSay(page, '19번 핑크프릴 만구천원')
     await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)

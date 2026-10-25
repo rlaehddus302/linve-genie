@@ -46,8 +46,9 @@ test.describe('I4 흐름 깨뜨리기', () => {
     expect(regs).toEqual([15000, 7000])
   })
 
-  test('서버가 등록을 거절하면 카드를 손댄 카드로 되살리고 오류를 보인다(자동 확정도 다시 하지 않는다)', async ({ page }) => {
-    await installFakeSpeech(page, { consent: true, settings: { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3 } })
+  // V3 교체(D-V3-01·D-V3-22 b): 자동 확정 카드 → 바로 등록. 거절되면 카드를 손댄 카드로 되살리고 다시 보내지 않는다
+  test('서버가 바로 등록을 거절하면 카드를 손댄 카드로 되살리고 오류를 보인다(바로 등록도 다시 하지 않는다)', async ({ page }) => {
+    await installFakeSpeech(page, { consent: true, autoRegister: true })
     await page.setViewportSize({ width: 1440, height: 900 })
     await login(page)
     const date = uniqueDate()
@@ -65,8 +66,6 @@ test.describe('I4 흐름 깨뜨리기', () => {
     })
     await speak(page, '15번 핑크프릴 만오천 원')
     const c = card(page, '15번 핑크프릴 15,000원')
-    await expect(c.getByText(/초 뒤 자동 등록/)).toBeVisible()
-    await cardButton(page, '15번 핑크프릴 15,000원', '등록').click()
     await expect(page.getByText('입력을 확인해 주세요.').first()).toBeVisible()
     await expect(c).toBeVisible()
     await expect(c.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
@@ -74,6 +73,7 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await page.waitForFunction((end) => Date.now() >= end, since + 3500)
     expect(rejected).toBe(1)
     await expect(c).toBeVisible()
+    void date
   })
 
   test('음성 기록은 최근 덩어리 50개만 (D-V2-08 — "들린 말 기록" 20개를 대신함)', async ({ page }) => {
@@ -220,8 +220,9 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await context.close()
   })
 
-  test('자동 확정 카드와 같은 번호의 빠른 입력 등록이 응답을 기다리는 중이면, 차례에서 번호가 생겨 창 없이 카드로 돌아온다', async ({ page }) => {
-    await installFakeSpeech(page, { consent: true, settings: { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3 } })
+  // V3 교체(D-V3-01·D-V3-18·D-V3-22 b): 자동 확정 카드 → 바로 등록. 차례에서 번호가 생기면 창 없이 그 순간의 상품으로 R-22(찜 없음 → 들은 대로 고침)
+  test('바로 등록과 같은 번호의 빠른 입력 등록이 응답을 기다리는 중이면, 차례에서 번호가 생겨 창 없이 같은 번호 규칙(R-22)으로 끝난다', async ({ page }) => {
+    await installFakeSpeech(page, { consent: true, autoRegister: true })
     await page.setViewportSize({ width: 1440, height: 900 })
     await login(page)
     const date = uniqueDate()
@@ -239,22 +240,21 @@ test.describe('I4 흐름 깨뜨리기', () => {
       }
       await route.continue()
     })
-    await speak(page, '15번 라울 만원')
-    const c = card(page, '15번 라울 10,000원')
-    await expect(c.getByText(/초 뒤 자동 등록/)).toBeVisible()
     const input = page.getByLabel('빠른 입력')
     await input.fill('15 핑크프릴 20')
     await input.press('Enter')
     await expect.poll(() => held).toBe(1)
-    // 자동 확정 시각이 지나 카드가 등록 경로로 넘어간다 (차례는 앞 등록 뒤)
-    await expect(c).toHaveCount(0, { timeout: 6000 })
+    await speak(page, '15번 라울 만원')
     release()
-    await expect(boardItem(page, 15)).toContainText('20,000원')
-    await expect(c).toBeVisible()
-    await expect(c.getByText('15번이 이미 있어요. 고칠까요?')).toBeVisible()
+    await expect(page.getByRole('list', { name: '방금 등록한 상품 고치기' }).getByText(/^15번을 고쳤어요: /)).toBeVisible()
+    await expect(boardItem(page, 15)).toContainText('라울')
+    await expect(boardItem(page, 15)).toContainText('10,000원')
     await expect(page.getByRole('dialog')).toHaveCount(0)
-    const regs = (await history(page, date, true)).filter((e) => e.type === 'product.register')
-    expect(regs).toHaveLength(1)
+    await expect(cardList(page)).toHaveCount(0)
+    // 상품은 하나 (등록되지 않은 음성 등록 시도는 이력에 남을 수 있다 — 입력 우선 기록)
+    const res = await page.request.get(`/api/days/${date}?rehearsal=true`)
+    const view = (await res.json()) as { products: { no: number }[] }
+    expect(view.products.filter((p) => p.no === 15)).toHaveLength(1)
   })
 
   test('TE-I4-001: 저절로 끝나 다시 시작할 때 상태가 "음성: 다시 시작 중"을 거친다 (AC-I4-12) — 지금은 한 번도 그려지지 않는다', async ({ page }) => {

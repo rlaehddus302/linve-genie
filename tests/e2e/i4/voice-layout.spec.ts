@@ -179,8 +179,10 @@ test.describe('I4 배치·쉬운 말', () => {
     await expect(card(page, '번호 없음 핑크프릴 10,000원')).toBeVisible()
     await speak(page, '17번 라울')
     const extras = await openExtras(page)
-    await extras.getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' }).check()
-    await extras.getByLabel('기다리는 시간(초)').fill('abc')
+    // V3 교체(D-V3-01·D-V3-22 b): 자동 확정 체크·"기다리는 시간(초)"이 바로 등록 체크로 바뀌었다 — 틀린 값 오류는 조용한 시간 칸으로 본다
+    await extras.getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' }).check()
+    await extras.getByLabel('말이 끝났다고 볼 때까지(초)').fill('abc')
+    await expect(extras.getByRole('alert')).toBeVisible()
     const log = await openVoiceLog(page)
     seen.push(await log.innerText())
     await page.keyboard.press('Escape')

@@ -48,7 +48,9 @@ test('S5 AC-V2-23·24: 자동 확정 켬 — 열린 카드에 3초 뒤 "아니 �
   await sayAt(page, [['15번 핑크문 만오천원', 0]])
   await page.clock.runFor(1800)
   const c = card(page, '15번 핑크문 15,000원')
-  await expect(c.getByText(/초 뒤 자동 등록/)).toBeVisible()
+  // V3 교체(D-V3-01·D-V3-22 b): 자동 확정 기다림(카운트다운)이 없어졌다 — 카드는 그대로, 저절로 등록되지 않음은 아래 그대로 본다
+  await expect(c).toBeVisible()
+  await expect(c.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
   // 3000: 정정 말(중간 결과 → 최종)
   await page.clock.runFor(1200)
   await sayAt(page, [['아니 만', 0, false], ['아니 만팔천', 500]])

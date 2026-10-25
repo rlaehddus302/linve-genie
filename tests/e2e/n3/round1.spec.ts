@@ -190,7 +190,7 @@ test.describe('음성 — 이력을 받는 동안 말한 문장 (수정 라운�
 })
 
 test.describe('음성 — 이력을 받는 동안 미룬 문장과 자동 등록 설정 (TE-N3-004)', () => {
-  test('TE-N3-004: 자동 등록을 끈 채 말한 문장은, 이력을 기다리는 사이 자동 등록을 켜도 자동 등록 카드가 되지 않는다 (AC-I4-31 "설정을 끈 채 만든 카드", D-I4-05)', async ({ page }) => {
+  test('TE-V3-009 (스펙 확인 필요) TE-N3-004: 자동 등록을 끈 채 말한 문장은, 이력을 기다리는 사이 자동 등록을 켜도 자동 등록 카드가 되지 않는다 (AC-I4-31 "설정을 끈 채 만든 카드", D-I4-05)', async ({ page }) => {
     // 시계를 멈춰 2초 기다림이 끝나지 않게 한다 — 이력 응답은 붙잡아 두었다가 자동 등록을 켠 뒤 놓아준다
     await installFakeSpeech(page, { consent: true, settings: { 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5 } })
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -209,7 +209,8 @@ test.describe('음성 — 이력을 받는 동안 미룬 문장과 자동 등록
     await page.clock.pauseAt(now + 500)
     await expect.poll(() => waiting.length).toBe(1)
     await speak(page, '15번 라울 만원') // 자동 등록이 꺼진 채 말함
-    const box = (await openExtras(page)).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' })
+    // V3 교체(D-V3-01·D-V3-22 b): 자동 등록 설정은 "번호와 가격이 들리면 바로 등록"(옛 키는 읽지 않음 — 준비 단계에서 끔, D-V3-22 a)
+    const box = (await openExtras(page)).getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' })
     await box.check()
     open = true
     for (const r of waiting.splice(0)) await r.fallback()

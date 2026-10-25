@@ -72,18 +72,19 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await ask.getByRole('button', { name: '아니요' }).click()
   await expect(ask).toHaveCount(0)
   await expect(input).toHaveValue('')
-  // ⑦ 자동 확정 켬(5초) → 자동 등록 → Ctrl+Z
-  await (await openExtras(page)).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' }).check()
+  // ⑦ V3 교체(D-V3-01·D-V3-22 b): 자동 확정(5초 기다림)이 "번호와 가격이 들리면 바로 등록"이 됐다 — 켬 → 기다림 없이 등록 → Ctrl+Z
+  await (await openExtras(page)).getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' }).check()
   await input.focus()
   await speak(page, '18번 블루엘프 칠천 원')
-  await expect(card(page, '18번 블루엘프 7,000원').getByText(/초 뒤 자동 등록/)).toBeVisible()
-  await expect(boardItem(page, 18)).toBeVisible({ timeout: 10_000 })
+  await expect(boardItem(page, 18)).toBeVisible()
+  await expect(page.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
   await page.keyboard.press('Control+z')
   await expect(page.getByText('18번 등록을 되돌렸어요(판매 종료)')).toBeVisible()
-  // ⑧ 5초 전에 음성 끄기 → 기다림이 지나도 등록 없음 → 등록 누르기
-  await speak(page, '19번 라울 만원')
+  // ⑧ (D-V3-02: '원'이 없으면 카드) 음성 끄기 → 기다려도 등록 없음 → 등록 누르기
+  await speak(page, '19번 라울 만')
   const c19 = card(page, '19번 라울 10,000원')
-  await expect(c19.getByText(/초 뒤 자동 등록/)).toBeVisible()
+  await expect(c19).toBeVisible()
+  await expect(c19.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
   const since = await page.evaluate(() => Date.now())
   await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
   await untilElapsed(page, since, 6000)

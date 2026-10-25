@@ -13,6 +13,11 @@ export interface FakeSpeechOptions {
   readonly settings?: unknown
   /** localStorage 읽기·쓰기가 예외 */
   readonly blockStorage?: boolean
+  /**
+   * V3 바로 등록(voice.autoRegister, 기본 켬 — D-V3-16)을 그대로 둔다. 기본(undefined)은 그 기기 설정을 꺼 둔다:
+   * D-V3-22 (a) — V3 전 음성 시험은 카드·Enter·고치기를 보므로 준비 단계에서 끈다(기대 글은 그대로). V3 시험(tests/e2e/v3)만 true.
+   */
+  readonly autoRegister?: boolean
 }
 
 /** 페이지를 열기 전에 부른다 (컨텍스트 또는 페이지) */
@@ -41,7 +46,14 @@ export async function installFakeSpeech(target: Page | BrowserContext, options: 
         })
       } else {
         if (opts.consent === true) window.localStorage.setItem('livejjim.voiceConsent', 'yes')
-        if (opts.settings !== undefined) window.localStorage.setItem('livejjim.voiceSettings', JSON.stringify(opts.settings))
+        const key = 'livejjim.voiceSettings'
+        const plain = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+        // D-V3-22 (a): 준비 단계에서 바로 등록을 꺼 둔다 — 시험이 넣은 설정에 키가 없을 때만 더하고, 넣은 설정이 없으면 저장값이 없을 때만 쓴다(새로 고침에도 판매자가 바꾼 값을 덮지 않게)
+        const off = opts.autoRegister !== true
+        if (opts.settings !== undefined) {
+          const value = off && plain(opts.settings) && !('voice.autoRegister' in opts.settings) ? { ...opts.settings, 'voice.autoRegister': false } : opts.settings
+          window.localStorage.setItem(key, JSON.stringify(value))
+        } else if (off && window.localStorage.getItem(key) === null) window.localStorage.setItem(key, JSON.stringify({ 'voice.autoRegister': false }))
       }
     } catch {
       // 첫 페이지(about:blank)는 저장소가 없다
