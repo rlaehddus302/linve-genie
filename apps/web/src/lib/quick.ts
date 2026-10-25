@@ -174,6 +174,8 @@ export function unitLine(unit: SaleSettings['price.unit']): string {
   // 모르는 값은 없다(코어 checkSettings가 스냅샷을 거른다) — 그래도 천원으로 추측해 보이지 않게 셋을 따로 (SA-FB1-02)
   if (unit === 'WON') return '가격 단위: 원 — 10000은 10,000원, 2만은 20,000원'
   if (unit === 'TEN_THOUSAND') return '가격 단위: 만원 — 15는 150,000원, 5천은 5,000원'
+  // D-V3-70: 두 자리 이하는 만원, 세 자리는 천원, 1000 이상은 원 그대로
+  if (unit === 'AUTO') return '가격 단위: 자동 — 25는 250,000원, 180은 180,000원, 15000은 15,000원'
   return '가격 단위: 천원 — 10은 10,000원, 2만은 20,000원'
 }
 
