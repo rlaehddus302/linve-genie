@@ -957,7 +957,7 @@ sprints:
       - "사용자 확인 필요: 사업자등록번호·통신판매업 신고번호·대표자·주소·문의 이메일 값 (D-LND1-04)"
       - "정책 페이지 본문 '[미정]' 채우기·정적 판 (PRIVACY-POLICY-GAPS)"
     specIds: [SYS-01, SYS-05, UX-01, UX-04, UX-07]
-    status: doing
+    status: done
 
   - id: QL2
     phase: 6
@@ -978,7 +978,7 @@ sprints:
       - "사용자 확인 필요: 인스타(메타)·틱톡 댓글을 AI로 보내도 되는지 (SA-QL-07·RA-R1-04 — AIY1 carryOver 그대로)"
       - "MOB2: 휴대폰 확인 창 아래쪽(엄지), 다른 앱으로 넘어갈 때 5초 대기 조치·'보내고 떠나기', 아이폰 빠른 입력 예시 글·금액 줄바꿈 (D-QL2-09 넘김)"
     specIds: [UX-01, UX-04, LBL-06, LBL-08, CMT-06, SYS-05, DAT-04]
-    status: doing
+    status: done
 
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
