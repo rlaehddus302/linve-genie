@@ -21,7 +21,7 @@ export interface V3Setup {
 /** 새 판매자 → 리허설 방송 콘솔 → (상품 미리 등록) → 음성 켜기 → 이력 2초 기다림 지남 → 시계 멈춤 */
 export async function setupV3(
   page: Page,
-  opts: { width?: number; settings?: unknown; consent?: boolean; before?: (s: V3Setup) => Promise<void>; sellerSettings?: Record<string, unknown> } = {},
+  opts: { width?: number; settings?: unknown; consent?: boolean; before?: (s: V3Setup) => Promise<void>; sellerSettings?: Record<string, unknown>; rehearsal?: boolean } = {},
 ): Promise<V3Setup> {
   await installFakeSpeech(page, { consent: opts.consent ?? true, autoRegister: true, ...(opts.settings === undefined ? {} : { settings: opts.settings }) })
   await page.setViewportSize({ width: opts.width ?? 1440, height: 900 })
@@ -33,7 +33,7 @@ export async function setupV3(
     expect(res.ok(), await res.text()).toBe(true)
   }
   const date = uniqueDate()
-  const b = await openNewBroadcast(page, { date, rehearsal: true })
+  const b = await openNewBroadcast(page, { date, rehearsal: opts.rehearsal ?? true })
   if (opts.before !== undefined) await opts.before({ b, date })
   await turnOnVoice(page)
   const now = await page.evaluate(() => Date.now())
@@ -130,9 +130,9 @@ export async function instantBox(page: Page) {
 }
 
 /** API로 상품 등록 (음성 켜기 전 준비) */
-export async function registerProduct(page: Page, b: string, no: number, name: string, price: number): Promise<void> {
+export async function registerProduct(page: Page, b: string, no: number, name: string, price: number, extra: Record<string, unknown> = {}): Promise<void> {
   const res = await page.request.post('/api/events', {
-    data: { requestId: crypto.randomUUID(), type: 'product.register', b, no, name, price },
+    data: { requestId: crypto.randomUUID(), type: 'product.register', b, no, name, price, ...extra },
     headers: { Origin: new URL(page.url()).origin },
   })
   expect(res.status(), await res.text()).toBeLessThan(300)

@@ -240,20 +240,18 @@ test('AC-V3-46 (D-V3-73): 바로 등록·고치기 요청 본문엔 번호·품�
   }
 })
 
-test('AC-V3-46·70 (D-V3-73·66): voiceLog.heard는 가려져 있다 — 8자리 이상 숫자와 끝자리 뒤 4자리는 ****', async ({ page }) => {
+test('AC-V3-46·70 (D-V3-73·66·75): voiceLog.heard는 그 조각 글이고 끝자리 뒤 4자리는 ****', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  // 등록한 조각(번호 앞 말 포함) 안에 넣는다 — heard는 그 조각 글
-  await sayChunk(page, '전화 01012345678 끝자리 1234 김민지님 15번 핑크프릴 만오천 원')
+  // heard는 그 일을 만든 조각 글뿐(D-V3-75) — 가릴 말을 번호와 가격 사이에 둔다
+  await sayChunk(page, '15번 핑크프릴 끝자리 1234 김민지님 만오천 원')
   await expect.poll(() => productWrites(writes).filter((w) => w[0] === 'product.register').length).toBe(1)
   const all = writes.filter((w) => w.type.startsWith('product.')).map((w) => voiceHeard(JSON.stringify(w.body)))
   expect(all.some((h) => h !== null)).toBe(true)
   for (const heard of all) {
     if (heard === null) continue
     expect(heard).not.toContain('1234')
-    expect(heard).not.toContain('01012345678')
-    expect(heard).not.toContain('5678')
-    expect(heard).toContain('****')
+    expect(heard).toContain('끝자리 ****')
     expect(heard.length).toBeLessThanOrEqual(300)
   }
 })
