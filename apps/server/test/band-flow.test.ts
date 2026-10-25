@@ -70,7 +70,7 @@ describe('AC-BND1-20·21 밴드 목록·내 글 목록', () => {
 })
 
 describe('AC-BND1-22·33 잇기 → 기준선 → 새 댓글이 chat으로', () => {
-  it('이을 때 있던 댓글은 기준선, 그 뒤 댓글은 10초 안에 chat (접수순 판정 — 1번 1등 = band:UKEY)', async () => {
+  it('이을 때 있던 댓글은 기준선, 그 뒤 댓글은 10초 안에 chat (접수순 판정 — "1번이요" 1등 = band:UKEY_A, "1번 2개요"는 언급만)', async () => {
     const w = await world()
     const { seller, userKey, bandKey } = await bandSeller(w)
     const postKey = w.fake.addPost({ bandKey, authorUserKey: userKey, content: '오늘 공구\n1번 핑크' })
@@ -81,14 +81,20 @@ describe('AC-BND1-22·33 잇기 → 기준선 → 새 댓글이 chat으로', () 
     expect(linked.status, linked.text).toBe(200)
     expect(linked.body.link).toMatchObject({ state: 'READING', message: '밴드 댓글을 읽고 있어요.', baseline: 3, baselineMessage: '이을 때 이미 달려 있던 댓글 3개는 넣지 않았어요.', received: 0, post: { firstLine: '오늘 공구' } })
     expect(await chats(w, seller.sellerId)).toEqual([])
-    guestComment(w, postKey, '1번 2개요', { userKey: 'UKEY_A', name: '김다육' })
+    guestComment(w, postKey, '1번이요', { userKey: 'UKEY_A', name: '김다육' })
+    // "1번 2개요"는 파서 골든대로 언급만 — 찜이 없다 (AC-BND1-33)
+    guestComment(w, postKey, '1번 2개요', { userKey: 'UKEY_B', name: '이선인' })
     await tick(w, BAND_TIMING.fastMs)
     const recorded = await chats(w, seller.sellerId)
-    expect(recorded.map((chat) => ({ ch: chat.ch, nick: chat.nick, text: chat.text }))).toEqual([{ ch: 'band:UKEY_A', nick: '김다육', text: '1번 2개요' }])
+    expect(recorded.map((chat) => ({ ch: chat.ch, nick: chat.nick, text: chat.text }))).toEqual([
+      { ch: 'band:UKEY_A', nick: '김다육', text: '1번이요' },
+      { ch: 'band:UKEY_B', nick: '이선인', text: '1번 2개요' },
+    ])
     expect(recorded[0]?.id).toMatch(new RegExp(`^band:${postKey}:`))
     const view = await bandView(w, seller, b)
-    expect(view).toMatchObject({ state: 'READING', received: 1 })
+    expect(view).toMatchObject({ state: 'READING', received: 2 })
     const board = await client(w, seller.cookie).get(`/api/days/2026-10-19`)
-    expect(JSON.stringify(board.body)).toContain('band:UKEY_A')
+    const product = (board.body.products as { key: string; winners: string[] }[]).find((item) => item.key === `${b}/1`)
+    expect(product?.winners).toEqual(['band:UKEY_A'])
   })
 })

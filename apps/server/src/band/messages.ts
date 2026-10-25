@@ -24,6 +24,8 @@ export const BAND_MESSAGES = Object.freeze({
   NOT_MY_POST: '내가 쓴 글만 이을 수 있어요.',
   TOO_MANY_COMMENTS: '댓글이 1,000개 넘는 글은 이을 수 없어요. 새 글을 올려 이어 주세요.',
   NOT_LINKED: '이어진 밴드 글이 없어요.',
+  // 잇기 중 밴드 일시 실패 (503 UNAVAILABLE — 연결 없음, D-BND1-19)
+  LINK_UNAVAILABLE: '밴드 글을 읽지 못해 잇지 못했어요. 잠시 뒤 다시 눌러 주세요.',
   // 연결 상태 (AC-BND1-50)
   READING: '밴드 댓글을 읽고 있어요.',
   RETRYING: '밴드 댓글을 읽지 못해 다시 시도하고 있어요.',
@@ -36,6 +38,8 @@ export const BAND_MESSAGES = Object.freeze({
   FINISHED_DISCONNECTED: '밴드 연결을 끊어서 밴드 글 연결을 끝냈어요.',
   FINISHED_RESTORED: '복구해서 밴드 글 연결을 끝냈어요. 다시 이어 주세요.',
   // 알림 (AC-BND1-41)
+  // 막다른 경우 (AC-BND1-30, D-BND1-16) — 닿는 읽기가 성공할 때까지 한 번만
+  NOTICE_STUCK: '밴드 댓글이 너무 많이 한꺼번에 달려 차례대로 읽지 못하고 있어요. 밴드 글에서 직접 확인해 주세요.',
   NOTICE_ERASED: '밴드에서 지우거나 고친 댓글이 있었어요. 글은 보관 기간이 지나 지웠어요.',
   // 돌아오기 결과 (AC-BND1-12)
   CALLBACK_CONNECTED: '밴드를 연결했어요.',

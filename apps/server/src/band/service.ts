@@ -42,6 +42,7 @@ import {
   bandLinkCounts,
   bandLinkTextsExpired,
   bandNoticeSummary,
+  bandStuckNoticed,
   bumpBandSkips,
   dropBandAccount,
   eraseOldBandTexts,
@@ -98,10 +99,9 @@ export interface BandTiming {
   readonly sellerRateMaxMs: number
   /** 이만큼 넘게 읽지 못하다가 다시 읽어 새 댓글을 넣으면 늦게 읽음 알림 */
   readonly lateMs: number
-  /** 빠른 읽기 한 번의 쪽 수 · 전체 읽기의 댓글 수 상한 */
-  readonly fastPages: number
+  /** 한 번 읽기(빠른·전체)의 댓글 수 상한 — 넘으면(fullMax + 1번째) 멈춘다 (D-BND1-16·18) */
   readonly fullMax: number
-  /** 전체 읽기 쪽 수 상한의 여유 (상한 = ⌈fullMax ÷ 본 쪽 크기⌉ + 이것. 쪽이 모두 비면 쪽 크기 20으로 본다) */
+  /** 읽기 쪽 수 상한의 여유 (상한 = ⌈fullMax ÷ 본 쪽 크기⌉ + 이것. 쪽이 모두 비면 쪽 크기 20으로 본다 — 빠른·전체 읽기 같음) */
   readonly fullSparePages: number
   /** 글 목록 "더 보기" 쪽 수 상한 */
   readonly postPages: number
@@ -117,7 +117,6 @@ export const BAND_TIMING: BandTiming = Object.freeze({
   sellerRateFirstMs: 30_000,
   sellerRateMaxMs: 300_000,
   lateMs: 60_000,
-  fastPages: 5,
   fullMax: 1_000,
   fullSparePages: 10,
   postPages: 5,
@@ -168,7 +167,7 @@ export interface BandAccountView {
 
 export interface BandNoticeView {
   readonly id: number
-  readonly kind: 'DELETED' | 'EDITED' | 'LATE'
+  readonly kind: 'DELETED' | 'EDITED' | 'LATE' | 'STUCK'
   readonly message: string
   readonly at: string
   /** 판매자가 "확인했어요"로 본 것인지 */
@@ -210,7 +209,7 @@ export interface BandLinkView {
     /** 확인한 마지막 번호 */
     readonly seenUpTo: number
     readonly unseen: number
-    /** 확인하지 않은 지운·고친 댓글 알림 수 (알림 띠) */
+    /** 확인하지 않은 지운·고친 댓글 알림 수 (예전 알림 띠 — 지금 띠는 unseen을 쓴다, D-BND1-17) */
     readonly unseenEdits: number
   }
 }
@@ -314,7 +313,11 @@ interface Cursor {
   readonly expiresAt: number
 }
 
-/** 읽기 결과 (오래된 것부터의 차례) */
+/**
+ * 읽기 결과 (items = 오래된 것부터의 차례).
+ * full: complete = 마지막 쪽까지 1,000개 안에서 끝남, overflow = 1,000개를 넘어 멈춤(items = 오래된 앞 1,000개).
+ * fast: complete = 본 댓글이 있는 쪽이나 마지막 쪽에 닿음. 닿지 못하면 items는 비어 있다(기록 0 — D-BND1-16)
+ */
 type ReadResult = { readonly ok: true; readonly items: readonly unknown[]; readonly complete: boolean; readonly overflow: boolean } | { readonly ok: false; readonly failure: BandFailure }
 
 /** 다시 시도 시간표 (failures = 1부터) */
@@ -322,18 +325,17 @@ function retryWait(timing: BandTiming, failures: number): number {
   return timing.retryMs[failures - 1] ?? timing.retryEveryMs
 }
 
-/** 전체 읽기의 쪽 수 상한 — 본 가장 큰 쪽 크기로 1,000개를 담을 쪽 수 + 여유 (쪽이 모두 비었으면 20개 쪽으로 본다) */
+/** 읽기의 쪽 수 상한 — 본 가장 큰 쪽 크기로 1,000개를 담을 쪽 수 + 여유 (쪽이 모두 비었으면 20개 쪽으로 본다) */
 function fullPageLimit(timing: BandTiming, widest: number): number {
   return Math.ceil(timing.fullMax / (widest > 0 ? widest : 20)) + timing.fullSparePages
 }
 
-/** 알린 고친 글 해시들 (공백으로 나눠 한 칸에 — 해시는 base64url이라 공백이 없다) */
-const EDITED_KEEP = 200
+/** 알린 고친 글 해시들 (공백으로 나눠 한 칸에 — 해시는 base64url이라 공백이 없다). 상한 없이 모두 기억한다 (D-BND1-18) */
 function editedHashes(value: string | null): string[] {
   return value === null || value === '' ? [] : value.split(' ')
 }
 function joinEditedHashes(hashes: readonly string[]): string {
-  return hashes.slice(-EDITED_KEEP).join(' ')
+  return hashes.join(' ')
 }
 
 export class BandService {
@@ -559,7 +561,9 @@ export class BandService {
   }
 
   /** 실패 → 판매자에게 보낼 거절 (이 문서의 문장과 코드만 — 밴드가 준 message는 되돌려 보내지 않는다) */
-  async #failureOutcome(sellerId: string, failure: BandFailure): Promise<BandOutcome> {
+  async #failureOutcome(sellerId: string, failure: BandFailure, linking = false): Promise<BandOutcome> {
+    // 잇기 중의 일시 실패(호출 한도 포함 — RETRYING으로 나뉘는 것)는 연결이 없으니 한 문장 (AC-BND1-22, D-BND1-19)
+    if (linking && failure.kind !== 'RECONNECT' && failure.kind !== 'NO_ACCESS') return fail(503, 'UNAVAILABLE', BAND_MESSAGES.LINK_UNAVAILABLE)
     switch (failure.kind) {
       case 'RECONNECT':
         await this.#reconnectNeeded(sellerId)
@@ -716,6 +720,7 @@ export class BandService {
 
   #noticeMessage(row: BandNoticeRow, expired: boolean): string {
     if (row.kind === 'LATE') return bandLateMessage(row.minutes ?? 1, row.count ?? 0)
+    if (row.kind === 'STUCK') return BAND_MESSAGES.NOTICE_STUCK
     if (row.erased || expired) return BAND_MESSAGES.NOTICE_ERASED
     const nick = row.nick ?? '시청자'
     const before = clipWithEllipsis(row.beforeText ?? '', BAND_NOTICE_TEXT_MAX)
@@ -862,14 +867,14 @@ export class BandService {
     const fetched = await this.#reads.run(sellerId, async (): Promise<Fetched> => {
       // (2) 글 상세 — 작성자가 판매자인지
       const detail = await client.api('post', got.token, { band_key: bandKey, post_key: postKey }, sellerId)
-      if (!detail.ok) return { ok: false, outcome: await this.#failureOutcome(sellerId, detail.failure) }
+      if (!detail.ok) return { ok: false, outcome: await this.#failureOutcome(sellerId, detail.failure, true) }
       const post = detail.data['post']
       if (!isObj(post) || authorUserKey(post) !== got.account.userKey) return { ok: false, outcome: fail(409, 'NOT_MY_POST', BAND_MESSAGES.NOT_MY_POST) }
       // (3) 댓글을 오래된 순으로 끝까지 — 그때 있던 댓글은 모두 기준선
       const read = await this.#readComments(sellerId, got.token, bandKey, postKey, 'full')
-      if (!read.ok) return { ok: false, outcome: await this.#failureOutcome(sellerId, read.failure) }
+      if (!read.ok) return { ok: false, outcome: await this.#failureOutcome(sellerId, read.failure, true) }
       if (read.overflow) return { ok: false, outcome: fail(409, 'TOO_MANY_COMMENTS', BAND_MESSAGES.TOO_MANY_COMMENTS) }
-      if (!read.complete) return { ok: false, outcome: fail(503, 'UNAVAILABLE', BAND_MESSAGES.RETRYING) }
+      if (!read.complete) return { ok: false, outcome: fail(503, 'UNAVAILABLE', BAND_MESSAGES.LINK_UNAVAILABLE) }
       return { ok: true, post, items: read.items }
     })
     if (!fetched.ok) return fetched.outcome
@@ -1033,12 +1038,20 @@ export class BandService {
     })
   }
 
-  /** 한 번 읽고 다음 읽기를 건다 */
+  /**
+   * 한 번 읽고 다음 읽기를 건다 (D-BND1-16).
+   * - 빠른 읽기는 본 댓글(또는 목록 끝)에 닿았을 때만 기록한다. 못 닿으면 기록 0(로그 BAND_FAST_UNREACHED)이고 같은 차례에 전체 읽기를 한다(그 차례를 60초 차례로 셈).
+   * - 전체 읽기가 끝까지 되지 않으면(1,000개 넘음·쪽 수 상한·고리) 같은 차례에 빠른 읽기를 한 번 더 한다 — 그마저 못 닿으면 막다른 경우: 기록 0, 알림 한 번.
+   * - 늦게 읽음 알림과 마지막으로 읽은 시각은 차례가 끝날 때 한 번 (닿은 읽기가 있었을 때만 읽은 시각을 바꾼다)
+   */
   async #cycle(entry: Entry): Promise<void> {
     const { sellerId, linkId } = entry
     const db = this.#o.db
     const link = await findBandLink(db, sellerId, linkId)
     if (link === null || !BAND_ACTIVE_STATES.includes(link.state)) return this.#retire(sellerId, linkId)
+    // 끝난 회차에 연결이 남았으면 바로 끝낸다 — 기록이 거절되어 쉬지 않고 다시 읽는 고리가 없게 (RA-BND1-04)
+    const broadcast = await findBroadcast(db, sellerId, link.broadcastId)
+    if (broadcast === null || broadcast.endedAt !== null) return this.#finishEnded(entry, link)
     // 유튜브가 이어졌으면 멈춘다 (D-BND1-12 — 유튜브 방송 후 요약이 band:를 거르지 않는다)
     if (await youtubeEverLinked(db, sellerId, link.broadcastId)) {
       await setBandLinkState(db, sellerId, linkId, BAND_ACTIVE_STATES, { state: 'YOUTUBE_LINKED', retryAt: null })
@@ -1055,31 +1068,87 @@ export class BandService {
     const client = this.#client as BandClient
     const paused = client.appPauseRemaining()
     if (paused > 0) return this.#rateWait(entry, link, paused)
-    const full = link.state === 'READING' && this.#clock.now() - entry.lastFullAt >= this.#timing.fullMs
-    if (full) entry.lastFullAt = this.#clock.now()
-    const read = await this.#readComments(sellerId, got.token, link.bandKey, link.postKey, full ? 'full' : 'fast', linkId, entry.abort.signal)
-    if (entry.closed) return
-    if (!read.ok) return this.#failed(entry, link, read.failure)
-    const done = await this.#ingest(entry, link, got.account, read, full)
-    if (!done || entry.closed) return
-    // 전체 읽기가 1,000개에서 멈췄으면 그 뒤의 새 댓글은 그 읽기에 없다 — 같은 차례에 빠른 읽기를 한 번 더 한다(새 댓글이 한 차례 늦지 않게)
-    if (full && read.overflow) {
-      const extra = await this.#readComments(sellerId, got.token, link.bandKey, link.postKey, 'fast', linkId, entry.abort.signal)
+    const read = (mode: 'fast' | 'full') => this.#readComments(sellerId, got.token, link.bandKey, link.postKey, mode, linkId, entry.abort.signal)
+    let recorded = 0
+    let reached = false
+    let needFull = link.state === 'READING' && this.#clock.now() - entry.lastFullAt >= this.#timing.fullMs
+    if (!needFull) {
+      const fast = await read('fast')
       if (entry.closed) return
-      if (!extra.ok) return this.#failed(entry, link, extra.failure)
-      const fresh = (await findBandLink(db, sellerId, linkId)) ?? link
-      if (!(await this.#ingest(entry, fresh, got.account, extra, false)) || entry.closed) return
+      if (!fast.ok) return this.#failed(entry, link, fast.failure)
+      if (fast.complete) {
+        const count = await this.#ingest(entry, link, got.account, fast, false)
+        if (count === null || entry.closed) return
+        recorded += count
+        reached = true
+      } else {
+        this.#o.log({ level: 'warn', code: 'BAND_FAST_UNREACHED', seller: sellerId })
+        needFull = true
+      }
     }
+    if (needFull) {
+      entry.lastFullAt = this.#clock.now()
+      const full = await read('full')
+      if (entry.closed) return
+      if (!full.ok) return this.#failed(entry, link, full.failure)
+      const count = await this.#ingest(entry, link, got.account, full, true)
+      if (count === null || entry.closed) return
+      recorded += count
+      if (full.complete) reached = true
+      else {
+        // 끝까지 되지 않은 전체 읽기 뒤의 새 댓글은 그 읽기에 없다 — 같은 차례에 빠른 읽기를 한 번 더 (새 댓글이 한 차례 늦지 않게)
+        const extra = await read('fast')
+        if (entry.closed) return
+        if (!extra.ok) return this.#failed(entry, link, extra.failure)
+        if (extra.complete) {
+          const more = await this.#ingest(entry, link, got.account, extra, false)
+          if (more === null || entry.closed) return
+          recorded += more
+          reached = true
+        } else {
+          this.#o.log({ level: 'warn', code: 'BAND_FAST_UNREACHED', seller: sellerId })
+        }
+      }
+    }
+    await this.#endCycle(entry, link, recorded, reached)
+    if (entry.closed) return
     entry.rateMs = 0
     entry.failures = 0
     this.#schedule(entry, this.#timing.fastMs)
   }
 
+  /** 차례 끝: 늦게 읽음 알림(AC-BND1-54)·막다른 경우 알림(AC-BND1-30, 닿을 때까지 한 번)·READING·읽은 시각(닿았을 때만) */
+  async #endCycle(entry: Entry, link: BandLinkRow, recorded: number, reached: boolean): Promise<void> {
+    const { sellerId, linkId } = entry
+    const db = this.#o.db
+    const now = this.#now()
+    const last = link.lastReadAt?.getTime() ?? null
+    const gap = last === null ? 0 : now.getTime() - last
+    if (recorded > 0 && gap > this.#timing.lateMs) {
+      await insertBandNotice(db, { sellerId, linkId, kind: 'LATE', minutes: Math.max(1, Math.ceil(gap / 60_000)), count: recorded, now })
+    }
+    if (!reached && !(await bandStuckNoticed(db, sellerId, linkId, link.lastReadAt))) {
+      await insertBandNotice(db, { sellerId, linkId, kind: 'STUCK', now })
+      this.#o.log({ level: 'warn', code: 'BAND_STUCK', seller: sellerId })
+    }
+    await setBandLinkState(db, sellerId, linkId, BAND_ACTIVE_STATES, { state: 'READING', failures: 0, retryAt: null, rateLimited: false, ...(reached ? { lastReadAt: now } : {}) })
+    entry.failures = 0
+    this.#publishLink(sellerId, link.broadcastId)
+  }
+
+  /** 끝난 회차의 연결: FINISHED(회차 끝)로 끝내고 그 글에 더 요청하지 않는다 (RA-BND1-04) */
+  async #finishEnded(entry: Entry, link: BandLinkRow): Promise<void> {
+    const done = await finishBandLinks(this.#o.db, entry.sellerId, 'ENDED', this.#now(), { linkId: entry.linkId })
+    this.#o.log({ level: 'warn', code: 'BAND_ENDED_STOPPED', seller: entry.sellerId, count: done.length })
+    this.#retire(entry.sellerId, entry.linkId)
+    this.#publishLink(entry.sellerId, link.broadcastId)
+  }
+
   /**
-   * 댓글 목록 읽기 (D-BND1-08). fast = 최신순, 본 댓글이 나온 쪽에서 멈춤, 5쪽까지. full = 오래된 순 처음부터 끝까지, 1,000개까지(넘으면 overflow).
-   * 다음 쪽은 next_params의 값 가운데 토큰·밴드 키·글 키를 버리고 우리 값으로 채운다. 같은 after가 다시 나오면 그 읽기를 끝낸다(고리).
-   * full의 쪽 수에도 상한이 있다(⌈1,000 ÷ 본 가장 큰 쪽 크기⌉ + 여유 — 빈 쪽에 늘 새 after가 와도 끝난다, TD-BND1-002). 넘으면 '끝까지 되지 않음'.
-   * 돌려주는 items는 오래된 것부터의 차례다
+   * 댓글 목록 읽기 (D-BND1-08·16). fast = 최신순, 본 댓글이 나온 쪽(또는 마지막 쪽)에 닿으면 끝. full = 오래된 순 처음부터 끝까지.
+   * 두 읽기 모두 상한이 같다: 읽은 항목이 1,000개를 넘으면 멈춤(full은 overflow — 오래된 앞 1,000개), 쪽 수 ⌈1,000 ÷ 본 가장 큰 쪽 크기⌉ + 여유(TD-BND1-002),
+   * 같은 after가 다시 나오면 고리(BAND_PAGING_LOOP). 이렇게 멈춘 full은 '끝까지 되지 않음', fast는 '닿지 못함'(items 없음 — 기록 0).
+   * 다음 쪽은 next_params의 값 가운데 토큰·밴드 키·글 키를 버리고 우리 값으로 채운다. 돌려주는 items는 오래된 것부터의 차례다
    */
   async #readComments(sellerId: string, token: string, bandKey: string, postKey: string, mode: 'fast' | 'full', linkId?: number, signal?: AbortSignal): Promise<ReadResult> {
     const client = this.#client as BandClient
@@ -1087,6 +1156,7 @@ export class BandService {
     const afters = new Set<string>()
     let params: Readonly<Record<string, string>> = {}
     let widest = 0
+    const unreached: ReadResult = { ok: true, items: [], complete: false, overflow: false }
     for (let page = 1; ; page += 1) {
       const result = await client.api('comments', token, { ...params, band_key: bandKey, post_key: postKey, sort: mode === 'full' ? '+created_at' : '-created_at' }, sellerId, signal)
       if (!result.ok) return result
@@ -1094,32 +1164,30 @@ export class BandService {
       if (!Array.isArray(items)) return { ok: false, failure: { kind: 'RETRY', code: 'SHAPE' } }
       collected.push(...items)
       widest = Math.max(widest, items.length)
-      if (mode === 'full' && collected.length > this.#timing.fullMax) return { ok: true, items: collected.slice(0, this.#timing.fullMax), complete: false, overflow: true }
+      if (collected.length > this.#timing.fullMax) return mode === 'full' ? { ok: true, items: collected.slice(0, this.#timing.fullMax), complete: false, overflow: true } : unreached
       if (mode === 'fast' && linkId !== undefined) {
         const keys = items.map((item) => (isObj(item) ? item['comment_key'] : undefined)).filter((key): key is string => typeof key === 'string')
-        if ((await seenBandKeys(this.#o.db, sellerId, linkId, keys)).size > 0) break
+        if ((await seenBandKeys(this.#o.db, sellerId, linkId, keys)).size > 0) return { ok: true, items: collected.reverse(), complete: true, overflow: false }
       }
       const paging = result.data['paging']
       const next = pagingParams(isObj(paging) ? paging['next_params'] : undefined)
-      if (next === null) return { ok: true, items: mode === 'full' ? collected : collected.reverse(), complete: mode === 'full', overflow: false }
+      if (next === null) return { ok: true, items: mode === 'full' ? collected : collected.reverse(), complete: true, overflow: false }
       const after = next['after'] ?? JSON.stringify(next)
       if (afters.has(after)) {
         this.#o.log({ level: 'warn', code: 'BAND_PAGING_LOOP', seller: sellerId })
-        return { ok: true, items: mode === 'full' ? collected : collected.reverse(), complete: false, overflow: false }
+        return mode === 'full' ? { ok: true, items: collected, complete: false, overflow: false } : unreached
       }
       afters.add(after)
-      if (mode === 'fast' && page >= this.#timing.fastPages) break
-      if (mode === 'full' && page >= fullPageLimit(this.#timing, widest)) {
+      if (page >= fullPageLimit(this.#timing, widest)) {
         this.#o.log({ level: 'warn', code: 'BAND_PAGING_LIMIT', seller: sellerId, count: page })
-        return { ok: true, items: collected, complete: false, overflow: false }
+        return mode === 'full' ? { ok: true, items: collected, complete: false, overflow: false } : unreached
       }
       params = next
     }
-    return { ok: true, items: collected.reverse(), complete: false, overflow: false }
   }
 
-  /** 읽은 목록 → 기록·본 댓글 표·수·지운/고친 댓글·늦게 읽음 알림. false면 다음 읽기를 이미 정했다(실패·멈춤) */
-  async #ingest(entry: Entry, link: BandLinkRow, account: BandAccountRow, read: Extract<ReadResult, { ok: true }>, full: boolean): Promise<boolean> {
+  /** 읽은 목록 → 기록·본 댓글 표·수·지운/고친 댓글(끝까지 된 전체 읽기만). 기록한 수 · null이면 다음 읽기를 이미 정했다(실패·멈춤) */
+  async #ingest(entry: Entry, link: BandLinkRow, account: BandAccountRow, read: Extract<ReadResult, { ok: true }>, full: boolean): Promise<number | null> {
     const { sellerId, linkId } = entry
     const db = this.#o.db
     const keys = read.items.map((item) => (isObj(item) ? item['comment_key'] : undefined)).filter((key): key is string => typeof key === 'string')
@@ -1136,14 +1204,16 @@ export class BandService {
       },
     })
     if (recorded.kind === 'rejected') {
-      // 끊기·회차 끝·유튜브 잇기 뒤 — 다음 읽기에서 상태를 본다
-      this.#schedule(entry, 0)
-      return false
+      // 끊기·유튜브 잇기 뒤면 연결 상태가 이미 바뀌었다 — 다음 읽기에서 본다. 연결이 그대로인데 거절되면 회차 끝(엔진) — 바로 끝낸다 (RA-BND1-04)
+      const now = await findBandLink(db, sellerId, linkId)
+      if (now !== null && BAND_ACTIVE_STATES.includes(now.state) && !(await youtubeEverLinked(db, sellerId, link.broadcastId))) await this.#finishEnded(entry, link)
+      else this.#schedule(entry, 0)
+      return null
     }
     if (recorded.kind === 'save_failed') {
       this.#o.log({ level: 'error', code: 'BAND_SAVE_FAILED', seller: sellerId, count: batch.record.length })
       await this.#retryLater(entry, 'SAVE')
-      return false
+      return null
     }
     const kept = new Set([...recorded.recorded, ...recorded.existing])
     const now = this.#now()
@@ -1164,16 +1234,7 @@ export class BandService {
     await bumpBandSkips(db, sellerId, linkId, add, keyless)
     if (recorded.skipped.length > 0) this.#o.log({ level: 'warn', code: 'BAND_SKIPPED', seller: sellerId, count: recorded.skipped.length })
     if (full && read.complete) await this.#edits(sellerId, linkId, read.items)
-    // 오래 못 읽다가 다시 읽어 새 댓글을 넣음 (AC-BND1-54)
-    const last = link.lastReadAt?.getTime() ?? null
-    const gap = last === null ? 0 : now.getTime() - last
-    if (recorded.recorded.length > 0 && gap > this.#timing.lateMs) {
-      await insertBandNotice(db, { sellerId, linkId, kind: 'LATE', minutes: Math.max(1, Math.ceil(gap / 60_000)), count: recorded.recorded.length, now })
-    }
-    await setBandLinkState(db, sellerId, linkId, BAND_ACTIVE_STATES, { state: 'READING', failures: 0, retryAt: null, rateLimited: false, lastReadAt: now })
-    entry.failures = 0
-    this.#publishLink(sellerId, link.broadcastId)
-    return true
+    return recorded.recorded.length
   }
 
   /** 끝까지 된 전체 읽기에서만: 기록한 댓글이 없으면 지운 댓글, 바꾼 본문이 다르면 고친 댓글 (D-BND1-09) */

@@ -112,6 +112,42 @@ describe('AC-BND1-40 지운 댓글·고친 댓글 — 끝까지 읽은 목록에
     expect((await noticesOf(w, seller, b)).total).toBe(0)
     expect((await chats(w, seller.sellerId)).map((chat) => chat.text)).toContain('마지막')
   })
+
+  it('처음 글과 알린 고친 글을 모두 기억한다: A→B→C→B→A로 고치면 알림 2개(B·C) (D-BND1-18)', async () => {
+    const w = await world()
+    const { seller, postKey, b } = await opened(w)
+    const key = guestComment(w, postKey, 'A', { name: '김다육' })
+    await tick(w, 10_000)
+    const totals: number[] = []
+    for (const text of ['B', 'C', 'B', 'A']) {
+      w.fake.editComment(postKey, key, text)
+      await fullRead(w)
+      totals.push((await noticesOf(w, seller, b)).total)
+    }
+    expect(totals).toEqual([1, 2, 2, 2])
+    expect((await noticesOf(w, seller, b)).items.map((item) => item.message)).toEqual([
+      "밴드에서 고친 댓글이에요 — 김다육: 'A' → 'C'. 찜은 처음 글대로예요.",
+      "밴드에서 고친 댓글이에요 — 김다육: 'A' → 'B'. 찜은 처음 글대로예요.",
+    ])
+  })
+
+  it('300번 서로 다른 글로 고친 뒤 첫 고친 글로 돌아가도 알림이 늘지 않는다 — 상한 없음 (D-BND1-18)', async () => {
+    // 매 차례를 전체 읽기로 (60초를 300번 돌지 않게)
+    const w = await world({ timing: { fullMs: 10_000 } })
+    const { seller, postKey, b } = await opened(w)
+    const key = guestComment(w, postKey, '처음 글')
+    await tick(w, 10_000)
+    for (let i = 1; i <= 300; i += 1) {
+      w.fake.editComment(postKey, key, `고친 글 ${String(i)}`)
+      await tick(w, 10_000)
+    }
+    expect((await noticesOf(w, seller, b)).total).toBe(300)
+    for (const back of ['고친 글 1', '고친 글 150', '처음 글']) {
+      w.fake.editComment(postKey, key, back)
+      await tick(w, 10_000)
+      expect((await noticesOf(w, seller, b)).total).toBe(300)
+    }
+  }, 120_000)
 })
 
 describe('AC-BND1-41 알림 쌓기·확인', () => {
@@ -228,6 +264,42 @@ describe('AC-BND1-52 다시 시도 시간표', () => {
     await tick(w, 10_000)
     const view = await bandView(w, seller, b)
     expect(Date.parse(view.retryAt as string) - w.bclock.now()).toBe(10_000)
+  })
+
+  it('5xx가 10·20·40·80·160초 동안 나는 사이 새 댓글 150개 → 회복 읽기 뒤 chat 150개, seq 순서 = 작성 시각 순서, 늦게 읽음 알림 N=150 (RA-BND1-03)', async () => {
+    const w = await world()
+    const { seller, postKey, b } = await opened(w)
+    await tick(w, 10_000)
+    const t = w.bclock.now()
+    w.fake.fail('comments', { http: 503 }, 5)
+    // 실패 차례마다 새 댓글이 작성 시각 차례대로 달린다 (30개씩 5번 — 실패 뒤 기다림 10·20·40·80·160초)
+    let n = 0
+    const waits: number[] = []
+    let at = w.bclock.now() + 10_000
+    for (let round = 0; round < 5; round += 1) {
+      for (let i = 0; i < 30; i += 1, n += 1) guestComment(w, postKey, `${String(n)}번`, { createdAt: t + n })
+      await w.bclock.advance(at - w.bclock.now())
+      const view = await bandView(w, seller, b)
+      expect(view.state).toBe('RETRYING')
+      waits.push(Date.parse(view.retryAt as string) - w.bclock.now())
+      at = Date.parse(view.retryAt as string)
+    }
+    expect(waits).toEqual([10_000, 20_000, 40_000, 80_000, 160_000])
+    expect(await chats(w, seller.sellerId)).toEqual([])
+    // 회복 읽기 (다시 시도는 빠른 읽기 — 150개: 쪽 크기 20 → 8쪽째 끝)
+    await w.bclock.advance(at - w.bclock.now())
+    const recorded = await chats(w, seller.sellerId)
+    expect(recorded.map((chat) => chat.text)).toEqual(Array.from({ length: 150 }, (_, i) => `${String(i)}번`))
+    const seqs = recorded.map((chat) => chat.seq)
+    expect(seqs).toEqual([...seqs].sort((x, y) => x - y))
+    expect(recorded[0]?.seq).toBe(Math.min(...seqs))
+    expect(new Set(recorded.map((chat) => chat.id)).size).toBe(150)
+    const notices = await noticesOf(w, seller, b)
+    expect(notices.items).toEqual([expect.objectContaining({ kind: 'LATE', message: expect.stringContaining('그 사이 달린 댓글 150개를 지금 넣었어요.') as unknown })])
+    expect(await bandView(w, seller, b)).toMatchObject({ state: 'READING', received: 150 })
+    // 다음 읽기에서 두 번 넣지 않는다
+    await tick(w, 70_000)
+    expect(await chats(w, seller.sellerId)).toHaveLength(150)
   })
 })
 

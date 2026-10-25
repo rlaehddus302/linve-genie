@@ -1,5 +1,5 @@
 // 밴드 계정·연결 시작 표·글 연결·본 댓글 표·알림 저장 (BND1). 모든 쿼리에 판매자 ID 조건을 건다(SYS-02).
-import { and, asc, desc, eq, inArray, isNull, lte, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { accounts, bandAccounts, bandLinks, bandNotices, bandOauthStates, bandSeen, broadcasts, events, scopes, youtubeLinks } from '../db/schema.ts'
 
@@ -409,7 +409,7 @@ export async function markBandSeen(db: Db, sellerId: string, id: number, patch: 
 
 // ── 알림 ───────────────────────────────────────────────────────────────
 
-export type BandNoticeKind = 'DELETED' | 'EDITED' | 'LATE'
+export type BandNoticeKind = 'DELETED' | 'EDITED' | 'LATE' | 'STUCK'
 
 export interface BandNoticeRow {
   readonly id: number
@@ -442,6 +442,16 @@ export async function insertBandNotice(
     })
     .returning({ id: bandNotices.id })
   return inserted[0]?.id as number
+}
+
+/** 막다른 경우 알림(STUCK)이 since(마지막으로 끝까지 닿은 읽기) 뒤에 이미 있는지 — 닿는 읽기가 성공할 때까지 한 번만 (AC-BND1-30) */
+export async function bandStuckNoticed(db: Db, sellerId: string, linkId: number, since: Date | null): Promise<boolean> {
+  const rows = await db
+    .select({ id: bandNotices.id })
+    .from(bandNotices)
+    .where(and(eq(bandNotices.sellerId, sellerId), eq(bandNotices.linkId, linkId), eq(bandNotices.kind, 'STUCK'), ...(since === null ? [] : [gt(bandNotices.createdAt, since)])))
+    .limit(1)
+  return rows.length > 0
 }
 
 /** 최근 알림 (새것 먼저) · 전체 수 · 확인하지 않은 수(번호가 seen보다 큰 것 — 종류별) */

@@ -105,20 +105,27 @@ describe('TD-BND1-002 전체 읽기의 쪽 수 상한', () => {
     expect((await bandView(w, shop.seller, b)).baseline).toBe(120)
   })
 
-  it('이은 뒤 60초 전체 읽기도 상한에서 끝나고 다음 빠른 읽기가 이어진다', async () => {
+  it('이은 뒤 끝나지 않는 쪽 넘기기: 빠른·전체 읽기 모두 쪽 수 상한에서 끝나고(한 읽기 ≤ 60쪽) 막다른 경우 알림 한 번, 풀리면 이어 읽는다 (D-BND1-16)', async () => {
     const w = await world()
     const { seller, postKey, b } = await opened(w)
     let n = 0
     w.fake.pagingOverride = (op, next) => (op === 'comments' ? { ...(next ?? {}), after: `y${String((n += 1))}` } : next)
-    const before = w.fake.calls('comments').length
-    await tick(w, BAND_TIMING.fullMs)
+    const limit = Math.ceil(BAND_TIMING.fullMax / 20) + BAND_TIMING.fullSparePages
+    for (let round = 0; round < 3; round += 1) {
+      const before = w.fake.calls('comments').length
+      await tick(w, 10_000)
+      const sorts = w.fake.calls('comments').slice(before).map((call) => call.query['sort'])
+      // 빠른(닿지 못함) → 같은 차례 전체(끝까지 되지 않음) → 빠른 한 번 더(닿지 못함) — 읽기마다 상한 쪽 수
+      expect(sorts).toEqual([...Array<string>(limit).fill('-created_at'), ...Array<string>(limit).fill('+created_at'), ...Array<string>(limit).fill('-created_at')])
+    }
+    const stuck = (await bandView(w, seller, b)).notices as { total: number; items: { kind: string }[] }
+    expect(stuck.items.map((item) => item.kind)).toEqual(['STUCK'])
     w.fake.pagingOverride = null
-    const full = w.fake.calls('comments').slice(before).filter((call) => call.query['sort'] === '+created_at')
-    expect(full.length).toBeLessThanOrEqual(Math.ceil(BAND_TIMING.fullMax / 20) + BAND_TIMING.fullSparePages)
     guestComment(w, postKey, '1번')
     await tick(w, 10_000)
     expect((await chats(w, seller.sellerId)).map((chat) => chat.text)).toContain('1번')
     expect((await bandView(w, seller, b)).state).toBe('READING')
+    expect(((await bandView(w, seller, b)).notices as { total: number }).total).toBe(1)
   })
 })
 

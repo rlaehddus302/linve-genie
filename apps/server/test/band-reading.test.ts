@@ -94,10 +94,14 @@ describe('AC-BND1-22 잇기 — 받지 않는 경우 (아무것도 바꾸지 않
     const b = await realBroadcast(w, seller)
     w.fake.fail('post', { resultCode: 60102 })
     expect((await linkBand(w, seller, b, bandKey, postKey)).body.error).toEqual({ code: 'NO_ACCESS', message: '이 밴드 글을 읽을 수 없어요. 글이 지워졌거나 밴드 권한이 바뀌었을 수 있어요.' })
+    // 잇기 중 일시 실패·호출 한도는 연결 없이 한 문장 (D-BND1-19 — "다시 시도하고 있어요"는 저절로 다시 하는 것처럼 읽힌다)
+    const unavailable = { code: 'UNAVAILABLE', message: '밴드 글을 읽지 못해 잇지 못했어요. 잠시 뒤 다시 눌러 주세요.' }
     w.fake.fail('comments', { http: 503 })
-    expect((await linkBand(w, seller, b, bandKey, postKey)).body.error).toEqual({ code: 'UNAVAILABLE', message: '밴드 댓글을 읽지 못해 다시 시도하고 있어요.' })
+    expect((await linkBand(w, seller, b, bandKey, postKey)).body.error).toEqual(unavailable)
     w.fake.fail('comments', { resultCode: 1003 })
-    expect((await linkBand(w, seller, b, bandKey, postKey)).body.error).toEqual({ code: 'RATE_LIMITED', message: '밴드가 잠시 쉬어 달라고 해서 30초 뒤에 다시 읽어요.' })
+    expect((await linkBand(w, seller, b, bandKey, postKey)).body.error).toEqual(unavailable)
+    w.fake.fail('post', { http: 500 })
+    expect((await linkBand(w, seller, b, bandKey, postKey)).body.error).toEqual(unavailable)
     expect(await linkCount(w)).toBe(0)
     w.fake.revoke(userKey)
     expect((await linkBand(w, seller, b, bandKey, postKey)).body.error).toEqual({ code: 'RECONNECT_NEEDED', message: '밴드 연결이 풀렸어요. 설정에서 밴드를 다시 연결해 주세요.' })
@@ -209,6 +213,26 @@ describe('AC-BND1-23 끊기·회차 끝·서버 다시 시작', () => {
     await w1.database.close()
     w = null
   })
+
+  it('끝난 회차에 이어진 연결이 남아 기록이 회차 끝으로 거절되면 바로 FINISHED(회차 끝) — 그 뒤 요청 0, 다시 읽는 고리 없음 (RA-BND1-04)', async () => {
+    const w = await world()
+    const { seller, postKey, b } = await opened(w)
+    expect((await client(w, seller.cookie).post(`/api/broadcasts/${b}/end`, { requestId: rid('end') })).status).toBe(200)
+    // 어떤 까닭으로든 연결이 남았다고 친다: 연결 행을 READING으로 되돌리고(회차 표의 끝 시각도 지움 — 엔진에는 끝이 기록돼 있다) 다시 켠다
+    await sql(w, `update band_links set state = 'READING', finish_reason = null, finished_at = null where seller_id = $1`, [seller.sellerId])
+    await sql(w, `update broadcasts set ended_at = null where id = $1`, [b])
+    guestComment(w, postKey, '1번')
+    expect(await w.server.band.resume()).toBe(1)
+    await tick(w, 0)
+    expect(await bandView(w, seller, b)).toMatchObject({ state: 'FINISHED', finishReason: 'ENDED', message: '방송을 끝내서 밴드 댓글을 그만 받았어요.' })
+    expect(w.logs.some((log) => log.code === 'BAND_ENDED_STOPPED')).toBe(true)
+    const after = w.fake.requests.length
+    guestComment(w, postKey, '2번')
+    await tick(w, 600_000)
+    expect(w.fake.requests.length).toBe(after)
+    expect(w.bclock.pendingTimers).toBeLessThanOrEqual(1) // 보관 기간 지우기 타이머만
+    expect(await chats(w, seller.sellerId)).toEqual([])
+  })
 })
 
 describe('AC-BND1-24 유튜브와 한 회차에 함께 잇지 않는다', () => {
@@ -256,23 +280,112 @@ describe('AC-BND1-30 빠른 읽기 — 10초마다', () => {
     const tokens = new Set(w.fake.callsOfUser(userKey).map((call) => call.token))
     for (const token of tokens) expect(w.fake.maxInflight.get(token as string) ?? 0).toBeLessThanOrEqual(1)
   })
+
+  it('기준선 0개 글에 새 댓글 1,001개가 한 번에: 빠른 읽기 기록 0(BAND_FAST_UNREACHED) → 같은 차례 전체 읽기 오래된 1,000개 → 빠른 읽기 한 번 더 마지막 1개 (D-BND1-16)', async () => {
+    const w = await world()
+    const { seller, postKey, b } = await opened(w)
+    const t = w.bclock.now()
+    for (let i = 0; i < 1001; i += 1) guestComment(w, postKey, `${String(i)}번`, { createdAt: t + i })
+    const before = w.fake.calls('comments').length
+    await tick(w, 10_000)
+    const sorts = w.fake.calls('comments').slice(before).map((call) => call.query['sort'])
+    // 빠른 51쪽(1,001번째에서 멈춤) → 전체 51쪽(1,000개를 넘어 멈춤) → 빠른 1쪽(본 댓글이 있는 쪽)
+    expect(sorts).toEqual([...Array<string>(51).fill('-created_at'), ...Array<string>(51).fill('+created_at'), '-created_at'])
+    expect(w.logs.filter((log) => log.code === 'BAND_FAST_UNREACHED')).toHaveLength(1)
+    const recorded = await chats(w, seller.sellerId)
+    expect(recorded.map((chat) => chat.text)).toEqual(Array.from({ length: 1001 }, (_, i) => `${String(i)}번`))
+    const seqs = recorded.map((chat) => chat.seq)
+    expect(seqs).toEqual([...seqs].sort((x, y) => x - y))
+    expect(new Set(recorded.map((chat) => chat.id)).size).toBe(1001)
+    const view = await bandView(w, seller, b)
+    expect(view).toMatchObject({ state: 'READING', received: 1001, lastReadAt: new Date(w.bclock.now()).toISOString() })
+    expect((view.notices as { total: number }).total).toBe(0)
+    // 그 차례를 60초 차례로 셈 — 다음 50초 동안 전체 읽기 없음, 두 번 넣지 않음
+    const mark = w.fake.calls('comments').length
+    await tick(w, 50_000)
+    expect(w.fake.calls('comments').slice(mark).every((call) => call.query['sort'] === '-created_at')).toBe(true)
+    expect(await chats(w, seller.sellerId)).toHaveLength(1001)
+  })
+
+  it('막다른 경우: 기준선 990 + 기록 20(글 1,010개)에 새 댓글 1,001개 → 그 차례 chat 0·알림 1, 다음 두 차례도 알림 1 그대로 (D-BND1-16)', async () => {
+    const w = await world()
+    const { seller, userKey, bandKey } = await bandSeller(w)
+    const postKey = w.fake.addPost({ bandKey, authorUserKey: userKey })
+    for (let i = 0; i < 990; i += 1) w.fake.addComment(postKey, { content: '예전', userKey: 'OLD', createdAt: i + 1 })
+    const b = await realBroadcast(w, seller)
+    expect((await linkBand(w, seller, b, bandKey, postKey)).status).toBe(200)
+    const t = w.bclock.now()
+    for (let i = 0; i < 20; i += 1) guestComment(w, postKey, `앞 ${String(i)}`, { createdAt: t + i })
+    await tick(w, 10_000)
+    expect(await chats(w, seller.sellerId)).toHaveLength(20)
+    const readAt = (await bandView(w, seller, b)).lastReadAt
+    for (let i = 0; i < 1001; i += 1) guestComment(w, postKey, `뒤 ${String(i)}`, { createdAt: t + 100 + i })
+    const stuck = '밴드 댓글이 너무 많이 한꺼번에 달려 차례대로 읽지 못하고 있어요. 밴드 글에서 직접 확인해 주세요.'
+    for (let round = 0; round < 3; round += 1) {
+      const before = w.fake.calls('comments').length
+      await tick(w, 10_000)
+      // 다음 차례에 다시 읽는다 (빠른 → 전체 → 빠른)
+      expect(w.fake.calls('comments').length).toBeGreaterThan(before)
+      expect(await chats(w, seller.sellerId)).toHaveLength(20)
+      const view = await bandView(w, seller, b)
+      const notices = view.notices as { total: number; unseen: number; items: { kind: string; message: string }[] }
+      expect(notices).toMatchObject({ total: 1, unseen: 1 })
+      expect(notices.items[0]).toMatchObject({ kind: 'STUCK', message: stuck })
+      // 닿지 못한 읽기는 마지막으로 읽은 시각을 바꾸지 않는다
+      expect(view).toMatchObject({ state: 'READING', lastReadAt: readAt })
+    }
+    expect(w.logs.filter((log) => log.code === 'BAND_STUCK')).toHaveLength(1)
+  })
 })
 
 describe('AC-BND1-31 전체 읽기 — 60초마다', () => {
-  it('빠른 읽기 5쪽(100개)을 넘는 130개: 빠른 읽기 100개, 다음 전체 읽기 30개 — 빠짐·두 번 0', async () => {
+  it('새 댓글 130개가 한 번에(쪽 크기 20 → 7쪽째에 본 댓글): 빠른 읽기 한 번이 130개를 작성 시각 순으로, 다음 전체 읽기 새 기록 0 (D-BND1-16)', async () => {
     const w = await world()
-    const { seller, postKey } = await opened(w)
+    const { seller, postKey } = await opened(w, { comments: 5 })
     const t = w.bclock.now()
     for (let i = 0; i < 130; i += 1) guestComment(w, postKey, `${String(i)}번`, { createdAt: t + i })
+    const before = w.fake.calls('comments').length
     await tick(w, 10_000)
-    expect(await chats(w, seller.sellerId)).toHaveLength(100)
+    const fast = w.fake.calls('comments').slice(before)
+    expect(fast).toHaveLength(7)
+    expect(fast.every((call) => call.query['sort'] === '-created_at')).toBe(true)
+    const first = await chats(w, seller.sellerId)
+    expect(first.map((chat) => chat.text)).toEqual(Array.from({ length: 130 }, (_, i) => `${String(i)}번`))
+    const seqs = first.map((chat) => chat.seq)
+    expect(seqs).toEqual([...seqs].sort((x, y) => x - y))
+    expect(first[0]?.seq).toBe(Math.min(...seqs))
     await tick(w, 50_000)
     const all = await chats(w, seller.sellerId)
-    expect(all).toHaveLength(130)
+    expect(all).toEqual(first)
     expect(new Set(all.map((chat) => chat.id)).size).toBe(130)
-    const full = w.fake.calls('comments').filter((call) => call.query['sort'] === '+created_at')
-    expect(full.length).toBeGreaterThan(1)
+    expect(w.fake.calls('comments').filter((call) => call.query['sort'] === '+created_at').length).toBeGreaterThan(1)
   })
+
+  it('글 1,000개(쪽 크기 20, 마지막 쪽 50)는 끝까지 된 읽기(지움을 본다) · 1,001개는 끝까지 되지 않음(지움을 보지 않는다) (D-BND1-18)', async () => {
+    for (const total of [1000, 1001]) {
+      const w = await world()
+      const { seller, userKey, bandKey } = await bandSeller(w)
+      const postKey = w.fake.addPost({ bandKey, authorUserKey: userKey })
+      for (let i = 0; i < 997; i += 1) w.fake.addComment(postKey, { content: '예전', userKey: 'OLD', createdAt: i + 1 })
+      const b = await realBroadcast(w, seller)
+      expect((await linkBand(w, seller, b, bandKey, postKey)).status).toBe(200)
+      const gone = guestComment(w, postKey, '1번')
+      for (let i = 1; i < total - 997; i += 1) guestComment(w, postKey, `${String(i)}번 더`)
+      await tick(w, 10_000)
+      expect(await chats(w, seller.sellerId)).toHaveLength(total - 997)
+      w.fake.dropComment(postKey, gone)
+      // 지운 뒤 글은 total - 1개 — 다시 하나 더해 total개로 둔다
+      guestComment(w, postKey, '채움')
+      const before = w.fake.calls('comments').filter((call) => call.query['sort'] === '+created_at').length
+      await tick(w, 50_000)
+      const fulls = w.fake.calls('comments').filter((call) => call.query['sort'] === '+created_at').length - before
+      expect(fulls).toBe(total === 1000 ? 50 : 51)
+      const notices = (await bandView(w, seller, b)).notices as { total: number; items: { kind: string }[] }
+      expect(notices.items.filter((item) => item.kind === 'DELETED')).toHaveLength(total === 1000 ? 1 : 0)
+      if (total === 1000) await w.close() // 마지막 것은 afterEach가 닫는다
+    }
+  })
+
 })
 
 describe('AC-BND1-32 쪽 넘기기 — 밴드가 준 값을 그대로 따르지 않는다', () => {
@@ -297,8 +410,11 @@ describe('AC-BND1-32 쪽 넘기기 — 밴드가 준 값을 그대로 따르지 
     w.fake.pagingOverride = (_op, next) => (next === null ? null : { ...next, after: '2' })
     const before = w.fake.calls('comments').length
     await tick(w, 10_000)
-    expect(w.fake.calls('comments').length - before).toBe(2)
+    // 고리: 빠른 읽기 2쪽에서 끝(닿지 못함 — 기록 0) → 같은 차례 전체 읽기 2쪽(끝까지 되지 않음) → 빠른 읽기 한 번 더 2쪽 (D-BND1-16)
+    expect(w.fake.calls('comments').slice(before).map((call) => call.query['sort'])).toEqual(['-created_at', '-created_at', '+created_at', '+created_at', '-created_at', '-created_at'])
     expect(w.logs.some((log) => log.code === 'BAND_PAGING_LOOP')).toBe(true)
+    expect(w.logs.some((log) => log.code === 'BAND_FAST_UNREACHED')).toBe(true)
+    expect((await chats(w, seller.sellerId)).filter((chat) => chat.text.startsWith('고리'))).toEqual([])
     // 객체가 아님 → 마지막 쪽
     w.fake.pagingOverride = (_op, next) => (next === null ? null : 'after=4')
     const before2 = w.fake.calls('comments').length
@@ -339,8 +455,9 @@ describe('AC-BND1-33 기록 = 골든 규칙 + 수집 경로', () => {
     const day = (await client(w, seller.cookie).get(`/api/days/${DATE}`)).body
     const buyers = (day.buyers as { id: string }[]).map((buyer) => buyer.id)
     expect(buyers).toEqual(expect.arrayContaining(['band:UKEY_A', 'band:UKEY_B']))
-    const claims = JSON.stringify(day.claims ?? day.products)
-    expect(claims).toContain('band:UKEY_A')
+    // 승자를 단언한다 (이름만이 아니라): 1등 = 먼저 단 A, 2등 = 같은 이름 다른 user_key인 B
+    const product = (day.products as { key: string; winners: string[] }[]).find((item) => item.key === `${b}/1`)
+    expect(product?.winners).toEqual(['band:UKEY_A', 'band:UKEY_B'])
     const ig = await recordPlatformChats(w.server.writer, { sellerId: seller.sellerId, date: DATE, b, chats: [{ id: 'ig:c1', ch: 'ig:IG_A', nick: '인스타 손님', text: '1번', owner: false }], guard: async () => true })
     expect(ig.kind).toBe('ok')
     expect((await writeEvent(w, seller, { type: 'buyer.merge', from: 'ig:IG_A', into: 'band:UKEY_A', reason: '같은 사람' }, DATE)).status).toBe(200)

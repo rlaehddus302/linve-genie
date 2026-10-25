@@ -1232,7 +1232,7 @@ export const bandSeen = pgTable(
     textHash: text('text_hash'),
     nick: text('nick'),
     text: text('text'),
-    /** 지운 댓글 알림을 냈는지 · 알린 고친 본문의 해시들(공백으로 나눔, 최근 200개 — TD-BND1-001) */
+    /** 지운 댓글 알림을 냈는지 · 알린 고친 본문의 해시들(공백으로 나눔, 상한 없이 모두 — TD-BND1-001, D-BND1-18) */
     deletedNoticed: boolean('deleted_noticed').notNull().default(false),
     editedHash: text('edited_hash'),
     createdAt: timestamptz('created_at').notNull(),
@@ -1241,7 +1241,7 @@ export const bandSeen = pgTable(
 )
 
 /**
- * 밴드 글 연결의 알림 (D-BND1-09·10): DELETED 지운 댓글 · EDITED 고친 댓글 · LATE 오래 못 읽다가 다시 읽음. 번호 순으로 쌓는다.
+ * 밴드 글 연결의 알림 (D-BND1-09·10): DELETED 지운 댓글 · EDITED 고친 댓글 · LATE 오래 못 읽다가 다시 읽음 · STUCK 막다른 경우(차례대로 읽지 못함, AC-BND1-30). 번호 순으로 쌓는다.
  * 손님 글·닉네임은 보관 기간이 지나면 지운다(erased — 문장이 바뀐다)
  */
 export const bandNotices = pgTable(
