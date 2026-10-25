@@ -6,7 +6,7 @@
 //    POST /ext/connect { code } → { token } · GET /ext/broadcasts?v= · POST /ext/bind { v, broadcast } · POST /ext/chats { v, messages[] } · POST /ext/status
 //    감사 올리기(X1 AC11~AC17): POST /ext/thanks/take { v, meIsOwner, owner } · POST /ext/thanks/result { ids, result }
 //    판매자 화면: POST /api/extension/thanks { enabled, agreed } · POST /api/extension/thanks/resume { broadcast }
-//    틱톡 읽기(TTX, D-TTX-01~14 — 유튜브 /chats와 따로): GET /ext/tiktok · POST /ext/tiktok/chats { pageId, items[] } · POST /ext/tiktok/status { screen, hidden, read, unread }
+//    틱톡 읽기(TTX, D-TTX-01~14 — 유튜브 /chats와 따로): GET /ext/tiktok · POST /ext/tiktok/chats { pageId, items[] } · POST /ext/tiktok/status { screen, hidden, read, unread, dropped? }
 //    속도 제한은 유튜브와 따로 센다(토큰마다 초당 5요청·분당 600댓글). 계약은 harness/sprints/TTX/dev-notes.md "dev-server".
 // 받은 값(토큰·닉네임·본문)은 응답·로그에 되돌려 보내지 않는다.
 import { Hono, type Context } from 'hono'
@@ -18,7 +18,7 @@ import { IpLimiter, clientAddress, ipKey } from '../login-limit.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import type { Clock } from '../time.ts'
 import { activeToken } from './store.ts'
-import { EXT_TIKTOK_BATCH_MAX, EXT_TIKTOK_COUNT_MAX, EXT_TIKTOK_MESSAGES, EXT_TIKTOK_SCREENS, type ExtTiktokInfo, type ExtTiktokScreen, type TikTokExtension } from '../tiktok-live/extension.ts'
+import { EXT_TIKTOK_BATCH_MAX, EXT_TIKTOK_COUNT_MAX, EXT_TIKTOK_DROPPED_MAX, EXT_TIKTOK_MESSAGES, EXT_TIKTOK_SCREENS, type ExtTiktokInfo, type ExtTiktokScreen, type TikTokExtension } from '../tiktok-live/extension.ts'
 import { BATCH_MAX, EXTENSION_MESSAGES, type ExtensionCaller, type ExtensionService, type IncomingChat } from './service.ts'
 import { EXT_THANKS_MESSAGES, type ThanksResult } from './thanks.ts'
 
@@ -337,20 +337,24 @@ function registerTiktokExtRoutes(app: Hono<ExtEnv>, tiktok: TikTokExtension): vo
 
   app.post('/tiktok/status', async (c) => {
     const input = body(c)
-    const extra = onlyKeys(input, ['screen', 'hidden', 'read', 'unread'])
+    const extra = onlyKeys(input, ['screen', 'hidden', 'read', 'unread', 'dropped'])
     if (extra !== null) return extra
     const screen = own(input, 'screen')
     const hidden = own(input, 'hidden')
     const read = own(input, 'read') ?? 0
     const unread = own(input, 'unread') ?? 0
+    // 확장이 버린 댓글 수 (D-TTX-16) — 보내지 않으면 0
+    const sentDropped = own(input, 'dropped')
+    const dropped = sentDropped === undefined ? 0 : sentDropped
     const problems: FieldProblem[] = []
     if (typeof screen !== 'string' || !(EXT_TIKTOK_SCREENS as readonly string[]).includes(screen)) problems.push({ field: 'screen', message: '화면 종류가 올바르지 않아요.' })
     if (typeof hidden !== 'boolean') problems.push({ field: 'hidden', message: '틱톡 화면이 보이는지 알려 주세요.' })
     for (const [field, value] of [['read', read], ['unread', unread]] as const) {
       if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > EXT_TIKTOK_COUNT_MAX) problems.push({ field, message: '수는 0 이상의 정수로 보내 주세요.' })
     }
+    if (typeof dropped !== 'number' || !Number.isSafeInteger(dropped) || dropped < 0 || dropped > EXT_TIKTOK_DROPPED_MAX) problems.push({ field: 'dropped', message: `버린 댓글 수는 0부터 ${EXT_TIKTOK_DROPPED_MAX.toLocaleString('en-US')}까지의 정수로 보내 주세요.` })
     if (problems.length > 0) return invalid(problems)
-    const info = await tiktok.status(caller(c).sellerId, { screen: screen as ExtTiktokScreen, hidden: hidden as boolean, read: read as number, unread: unread as number })
+    const info = await tiktok.status(caller(c).sellerId, { screen: screen as ExtTiktokScreen, hidden: hidden as boolean, read: read as number, unread: unread as number, dropped: dropped as number })
     return c.json(tiktokInfo(info))
   })
 }

@@ -8,6 +8,9 @@
 // - 저장이 확정되기 전에는 "받음"을 답하지 않는다. 저장 실패는 500 — 확장이 같은 순서로 다시 보낸다(같은 묶음을 다시 보내도 한 번만).
 // - 상태 (D-TTX-09): 확장이 10초마다 보내는 틱톡 상태를 그 연결에 둔다. 연결 보기의 extension 칸이 받는 길 한 줄·경고·수를 계산한다.
 // - 로그에는 코드와 수만 — 닉네임·본문·틱톡 아이디·토큰을 남기지 않는다(D-TTX-13).
+// - 확장이 버린 댓글 (D-TTX-16): 상태의 dropped(0~10,000)를 그 판매자의 이어진 연결의 saveFailed에 더한다 → 저장 실패 알림.
+//   다시 보내는 중인 실패(TTX_SAVE_FAILED·429)는 세지 않는다 — 다시 보내기가 성공하면 붙여 넣은 댓글과 겹쳐 이중 찜이 된다.
+// - 막혔을 때 안내 (D-TTX-17): 확장을 이은 판매자 + 직접 연결 막힘·멈춤 + 이 회차 확장 상태 없음이면 hint 한 줄.
 import { getBroadcast } from '@livejjim/core'
 import { SERVICE_NAME } from '../brand.ts'
 import type { Db } from '../db/database.ts'
@@ -20,10 +23,12 @@ import { tiktokChatFields } from './chat.ts'
 import type { TikTokLive } from './live.ts'
 import {
   bumpTiktokCounter,
+  addTiktokExtDropped,
   bumpTiktokExtCounter,
   clearTiktokExtStatus,
   findTiktokId,
   findTiktokLink,
+  linkedTiktokExtStatuses,
   sellerOpenTiktokLink,
   writeTiktokExtStatus,
   type TiktokLinkRow,
@@ -37,6 +42,8 @@ export const EXT_TIKTOK_STALE_MS = 30_000
 export const EXT_TIKTOK_UNREADABLE_MS = 60_000
 /** 상태 수가 담을 수 있는 가장 큰 값 */
 export const EXT_TIKTOK_COUNT_MAX = 1_000_000_000
+/** 상태 하나에 실을 수 있는 버린 댓글 수 상한 (D-TTX-16 — 넘으면 400) */
+export const EXT_TIKTOK_DROPPED_MAX = 10_000
 /** 같은 묶음 안 경합(다른 쪽이 같은 메시지를 먼저 기록)일 때 다시 쓰는 수 */
 const DUPLICATE_RETRIES = 3
 
@@ -49,11 +56,14 @@ export const EXT_TIKTOK_ROUTES = {
 
 /** 콘솔 틱톡 칸 확장 경고 */
 export const EXT_TIKTOK_WARNINGS = {
-  STALE: '확장에서 틱톡 댓글이 오지 않아요',
+  STALE: '확장에서 틱톡 댓글이 오지 않아요. 크롬에서 내 틱톡 방송 화면을 다시 열어 주세요.',
   HIDDEN: '틱톡 방송 화면을 앞으로 꺼내 두세요',
-  UNREADABLE: '틱톡 화면이 바뀌어 댓글을 읽지 못해요',
+  UNREADABLE: '틱톡 화면이 바뀌어 댓글을 읽지 못해요. 댓글을 직접 붙여 넣어 주세요.',
   ELSEWHERE: '확장이 내 틱톡 방송 화면에 있지 않아요. 내 방송 화면을 열어 주세요.',
 } as const
+
+/** 직접 연결이 막혔을 때 확장을 이은 판매자에게 보이는 안내 한 줄 (D-TTX-17 — 경고 모양 아님) */
+export const EXT_TIKTOK_HINT = 'PC 크롬에서 내 틱톡 방송 화면을 열어 두면 확장이 댓글을 대신 받아요.'
 
 /** 확장 팝업 틱톡 줄 (서버 응답의 message — 확장이 글자 그대로 보여도 된다) */
 export const EXT_TIKTOK_MESSAGES = {
@@ -88,6 +98,8 @@ export interface TikTokExtensionView {
   readonly route: string | null
   /** 확장 경고 문장 (EXT_TIKTOK_WARNINGS 중 하나) — 직접 연결이 받는 중이면 null */
   readonly warning: string | null
+  /** 막혔을 때 확장 안내 한 줄 (EXT_TIKTOK_HINT) — 이 회차 확장 상태가 없고(NONE) 부르는 쪽이 조건을 맞췄을 때만 (D-TTX-17) */
+  readonly hint: string | null
   readonly screen: ExtTiktokScreen | null
   readonly hidden: boolean
   /** 마지막 확장 상태 시각 (UTC ISO) */
@@ -102,12 +114,19 @@ const asScreen = (value: string | null): ExtTiktokScreen | null => (value !== nu
 
 /**
  * 연결 기록 + 직접 연결 상태 → extension 칸 (순수 함수 — 지금 시각은 부르는 쪽이 넘긴다).
- * directConnected = 직접 연결이 받는 중, open = 그 연결이 이어져 있고 운영자 스위치·동의가 맞음(D-TTX-06 조건)
+ * directConnected = 직접 연결이 받는 중, open = 그 연결이 이어져 있고 운영자 스위치·동의가 맞음(D-TTX-06 조건),
+ * hintable = 확장을 이은 판매자이고 직접 연결이 막힘·멈춤(D-TTX-17 조건 — 부르는 쪽이 판단한다)
  */
-export function extensionViewOf(row: Pick<TiktokLinkRow, 'extRecorded' | 'extStandby' | 'extStatusAt' | 'extScreen' | 'extHidden' | 'extUnread' | 'extUnreadSince'>, directConnected: boolean, open: boolean, now: number): TikTokExtensionView {
+export function extensionViewOf(
+  row: Pick<TiktokLinkRow, 'extRecorded' | 'extStandby' | 'extStatusAt' | 'extScreen' | 'extHidden' | 'extUnread' | 'extUnreadSince'>,
+  directConnected: boolean,
+  open: boolean,
+  now: number,
+  hintable = false,
+): TikTokExtensionView {
   const counts = { recorded: row.extRecorded, standby: row.extStandby, unread: row.extUnread }
   const screen = asScreen(row.extScreen)
-  if (row.extStatusAt === null) return { state: 'NONE', active: false, route: null, warning: null, screen: null, hidden: false, statusAt: null, ...counts }
+  if (row.extStatusAt === null) return { state: 'NONE', active: false, route: null, warning: null, hint: hintable && !directConnected ? EXT_TIKTOK_HINT : null, screen: null, hidden: false, statusAt: null, ...counts }
   const statusAt = row.extStatusAt.toISOString()
   // 겹치면 조용함 > 다른 화면 > 뒤로 감 > 읽지 못함
   let health: Exclude<ExtTiktokState, 'STANDBY' | 'NONE'>
@@ -116,7 +135,7 @@ export function extensionViewOf(row: Pick<TiktokLinkRow, 'extRecorded' | 'extSta
   else if (row.extHidden) health = 'HIDDEN'
   else if (row.extUnreadSince !== null && now - row.extUnreadSince.getTime() >= EXT_TIKTOK_UNREADABLE_MS) health = 'UNREADABLE'
   else health = 'RECEIVING'
-  const base = { screen, hidden: row.extHidden, statusAt, ...counts }
+  const base = { hint: null, screen, hidden: row.extHidden, statusAt, ...counts }
   if (directConnected) {
     // 직접 연결 우선 (D-TTX-07): 확장이 30초 안에 상태를 보냈으면 "확장은 대기 중"
     const fresh = health !== 'STALE'
@@ -127,7 +146,7 @@ export function extensionViewOf(row: Pick<TiktokLinkRow, 'extRecorded' | 'extSta
 }
 
 /** 받는 길을 정하는 칸만 (바뀌었을 때만 알린다) */
-const viewKey = (view: TikTokExtensionView | null): string => (view === null ? 'null' : JSON.stringify([view.state, view.active, view.route, view.warning]))
+const viewKey = (view: TikTokExtensionView | null): string => (view === null ? 'null' : JSON.stringify([view.state, view.active, view.route, view.warning, view.hint]))
 
 /** 확장에게 알려 주는 지금 상태 (GET /ext/tiktok · POST /ext/tiktok/status 응답) */
 export interface ExtTiktokInfo {
@@ -152,6 +171,8 @@ export interface ExtTiktokStatusInput {
   readonly hidden: boolean
   readonly read: number
   readonly unread: number
+  /** 지난번 서버가 받아 적은 뒤 확장이 새로 버린 댓글 수 (D-TTX-16, 0~EXT_TIKTOK_DROPPED_MAX) */
+  readonly dropped: number
 }
 
 export interface TikTokExtensionDeps {
@@ -183,6 +204,8 @@ export class TikTokExtension {
   readonly #checks = new Map<string, () => void>()
   /** 판매자마다 마지막으로 알린 extension 칸 */
   readonly #published = new Map<string, string>()
+  /** 판매자마다 연결 보기를 계산하는 중인지 · 그동안 들어온 다음 요청 (RA-TTX-06 — 묶음·상태가 몰려도 한 번에 하나만 계산) */
+  readonly #refreshing = new Map<string, { b: string; force: boolean } | null>()
   #closed = false
 
   constructor(deps: TikTokExtensionDeps) {
@@ -317,6 +340,9 @@ export class TikTokExtension {
     const conditions = await this.#conditions(sellerId)
     const { link } = conditions
     if (link !== null) {
+      // 확장이 버린 댓글 → 이어진 그 연결의 저장 실패 수 (D-TTX-16). 이어진 연결이 없으면 더하지 않는다
+      const added = input.dropped > 0 && (await addTiktokExtDropped(this.#deps.db, sellerId, link.id, input.dropped))
+      if (added) this.#deps.log({ level: 'warn', code: 'TTX_EXT_DROPPED', seller: sellerId, count: input.dropped })
       const now = this.#now()
       // 읽지 못함만 이어진 첫 시각 (유튜브 확장 상태와 같은 규칙): 수가 줄면(확장이 다시 뜸) 새로 센다
       const reset = link.extStatusAt === null || input.read < link.extRead || input.unread < link.extUnread
@@ -327,11 +353,40 @@ export class TikTokExtension {
       else unreadSince = link.extUnreadSince
       const status = { statusAt: new Date(now), screen: input.screen, hidden: input.hidden, read: input.read, unread: input.unread, unreadSince }
       if (await writeTiktokExtStatus(this.#deps.db, sellerId, link.id, status)) {
-        this.#refresh(sellerId, link.broadcastId)
+        this.#refresh(sellerId, link.broadcastId, added)
         this.#schedule(sellerId, link.broadcastId, status.statusAt.getTime(), unreadSince?.getTime() ?? null)
-      }
+      } else if (added) this.#refresh(sellerId, link.broadcastId, true)
     }
     return this.#info(conditions)
+  }
+
+  /** 확장 연결(토큰)이 생기거나 끊겼다: 이어진 연결의 안내 한 줄(D-TTX-17)이 바뀌었을 수 있다 */
+  async tokenChanged(sellerId: string): Promise<void> {
+    try {
+      const link = await sellerOpenTiktokLink(this.#deps.db, sellerId)
+      if (link !== null) this.#refresh(sellerId, link.broadcastId)
+    } catch (error) {
+      this.#deps.log({ level: 'warn', code: 'TTX_REFRESH_FAILED', seller: sellerId, errorKind: errorKind(error) })
+    }
+  }
+
+  /**
+   * 서버가 다시 켜지면 "조용함"·"읽지 못함" 예약을 다시 건다 (RA-TTX-03): 이어진 연결 중 확장 상태가 있는 것마다.
+   * 이미 지난 때는 보기를 읽을 때 그대로 계산되므로 예약하지 않는다(#schedule이 거른다)
+   */
+  async resume(): Promise<number> {
+    let scheduled = 0
+    try {
+      for (const link of await linkedTiktokExtStatuses(this.#deps.db)) {
+        if (this.#closed) break
+        if (link.extStatusAt === null) continue
+        this.#schedule(link.sellerId, link.broadcastId, link.extStatusAt.getTime(), link.extUnreadSince?.getTime() ?? null)
+        if (this.#checks.has(link.sellerId)) scheduled += 1
+      }
+    } catch (error) {
+      this.#deps.log({ level: 'warn', code: 'TTX_RESUME_FAILED', errorKind: errorKind(error) })
+    }
+    return scheduled
   }
 
   /** 확장 연결을 끊었다 (끊기): 이어진 연결의 확장 상태를 비운다 — 판매자가 끊은 것을 "오지 않아요"로 알리지 않는다 */
@@ -367,18 +422,32 @@ export class TikTokExtension {
     })
   }
 
-  /** extension 칸이 바뀌었으면 연결 보기를 알린다 (SSE event: tiktok, kind LINK) */
-  #refresh(sellerId: string, b: string): void {
+  /**
+   * extension 칸이 바뀌었으면 연결 보기를 알린다 (SSE event: tiktok, kind LINK). force = 다른 칸(저장 실패 수)이 바뀌어 꼭 알린다.
+   * 같은 판매자의 계산이 진행 중이면 기다렸다가 한 번만 다시 계산한다 (RA-TTX-06)
+   */
+  #refresh(sellerId: string, b: string, force = false): void {
     if (this.#closed) return
+    if (this.#refreshing.has(sellerId)) {
+      const pending = this.#refreshing.get(sellerId) ?? null
+      this.#refreshing.set(sellerId, { b, force: force || (pending?.force ?? false) })
+      return
+    }
+    this.#refreshing.set(sellerId, null)
     void this.#deps.live
       .view(sellerId, b)
       .then((view) => {
         const key = `${b}:${viewKey(view?.extension ?? null)}`
-        if (this.#published.get(sellerId) === key) return
+        if (!force && this.#published.get(sellerId) === key) return
         this.#published.set(sellerId, key)
         this.#deps.live.publishLink(sellerId, b)
       })
       .catch(() => undefined)
+      .finally(() => {
+        const next = this.#refreshing.get(sellerId) ?? null
+        this.#refreshing.delete(sellerId)
+        if (next !== null) this.#refresh(sellerId, next.b, next.force)
+      })
   }
 
   close(): void {

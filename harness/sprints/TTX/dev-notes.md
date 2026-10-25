@@ -98,3 +98,29 @@
 - U-TTX-02(1): 직접 연결이 다시 시도 중·멈춤이고 확장 상태가 없던 회차(NONE)에 "크롬에서 내 틱톡 방송 화면을 열면 확장이 대신 받아요" 한 줄 — AC-TTX-20 "확장 상태가 한 번도 없던 회차는 지금 화면 그대로"와 부딪혀 만들지 않았다. 웹은 판매자가 확장을 이었는지(연결 여부)를 틱톡 보기에서 알지 못하므로, 넣는다면 조건도 정해야 한다.
 - U-TTX-02(2): 연결 직후 팝업 틱톡 줄 — 지금은 틱톡 화면을 본 적 없으면 줄이 없다. 무조건 "내 틱톡 방송 화면을 열면 댓글을 보내요."를 보이면 유튜브만 쓰는 판매자도 보게 된다(틱톡 아이디를 알려면 연결 직후 `/ext/tiktok`을 한 번 물어야 함). 조건을 정해 주면 만든다.
 - RA-TTX-01(b)(c): 확장 상태에 마지막 보내기 성공 시각·실패 중·버린 수·대기열 크기를 싣고 서버 active 조건에 넣기, 확장 저장 실패(`TTX_SAVE_FAILED`)·넘침·dropTab으로 버린 수를 콘솔 알림으로 올리기 — 새 화면 문구와 서버(dev-server) 변경이 필요하다. (a)만 고쳤다.
+
+## dev-server 수정 라운드 2 (D-TTX-16·17·18, RA-TTX-03·06)
+
+### 바뀐 것
+- `POST /ext/tiktok/status`에 `dropped`(생략하면 0)를 받는다. 0~10,000 정수가 아니면 400 `INVALID_INPUT`(`null`·글자·소수·음수·10,001 포함). 이때 수도 상태도 바꾸지 않는다.
+- 그 판매자의 이어진(LINKED) 연결이 있으면 `saveFailed`에 더한다(`addTiktokExtDropped`, 판매자·연결·LINKED 조건). 이어진 연결이 없으면 어디에도 더하지 않는다. 더하면 extension 칸이 그대로여도 연결 보기를 실시간으로 알린다(SSE `tiktok` LINK). 로그 `TTX_EXT_DROPPED`에는 수만 남긴다. `TTX_SAVE_FAILED`(500)·429는 지금처럼 세지 않는다.
+- 연결 보기 `link.extension.hint`(글 또는 `null`): "PC 크롬에서 내 틱톡 방송 화면을 열어 두면 확장이 댓글을 대신 받아요." 아래가 모두 맞을 때만 보인다.
+  - 끊지 않은 확장 토큰이 있음
+  - 직접 연결이 `RETRYING`(사유 `BLOCKED`·`SIGN_FAILED`) 또는 `STOPPED`
+  - 이 회차 확장 상태 `NONE`
+  - 확장 토큰이 생기거나 끊기거나 다시 만들어지면 연결 보기를 다시 알린다.
+- `EXT_TIKTOK_WARNINGS`의 STALE·UNREADABLE를 D-TTX-18 문장으로 바꿨다.
+- RA-TTX-03: 서버가 켜질 때 `tiktokExtension.resume()`가 확장 상태가 있는 이어진 연결마다 "조용함"·"읽지 못함" 예약을 다시 건다.
+- RA-TTX-06: 같은 판매자의 연결 보기 계산을 한 번에 하나로 모은다. 계산 중에 들어온 요청은 끝난 뒤 한 번만 다시 계산한다. 조건 조회(`#conditions`)는 그대로 둔다.
+
+### 확장(dev-web)에게
+- 상태 본문에 `dropped`를 실어 보낸다. 200을 받으면 보낸 만큼 뺀다. 400이면 서버가 받지 않은 것이다. 상한 10,000을 넘으면 나눠 보낸다.
+- `GET /ext/tiktok`의 `tiktokId`는 지금도 준다. D-TTX-17 팝업 줄은 이 값으로 정한다.
+
+### 콘솔(dev-web)에게
+- `link.extension.hint`는 글자 그대로, 경고 모양이 아니게 보인다.
+- `apps/web/test/n2b2-platforms.test.tsx:643-645`의 경고 문장 픽스처는 옛 문장이다(웹 몫).
+
+### 시험에게
+- 서버 단위 시험: `apps/server/test/ttx-fix2-dropped-hint.test.ts`(12개).
+- E2E `tests/e2e/ttx/support.ts:20-22`의 STALE·UNREADABLE 문장이 옛 글자다. D-TTX-18 문장으로 바꿔야 한다(test-e2e 몫).

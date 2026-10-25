@@ -1,5 +1,5 @@
 // 틱톡 연결·동의·아이디·붙여넣기 요청 저장 (D-N2b-2-04·05·08). 모든 쿼리에 판매자 ID 조건을 건다(SYS-02).
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { accounts, broadcasts, chatRaw, events, pasteRequests, scopes, tiktokAccounts, tiktokConsents, tiktokLinks } from '../db/schema.ts'
 
@@ -223,6 +223,28 @@ export async function bumpTiktokExtCounter(db: Db, sellerId: string, linkId: num
     .update(tiktokLinks)
     .set(set)
     .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId)))
+}
+
+/**
+ * 확장이 버린 틱톡 댓글 수를 그 판매자의 이어진(LINKED) 그 연결의 저장 실패 수에 더한다 (D-TTX-16).
+ * 다른 판매자의 연결·끝난 연결은 바꾸지 않는다. 더했으면 true
+ */
+export async function addTiktokExtDropped(db: Db, sellerId: string, linkId: number, by: number): Promise<boolean> {
+  if (!Number.isSafeInteger(by) || by <= 0) return false
+  const rows = await db
+    .update(tiktokLinks)
+    .set({ saveFailed: sql`least(${tiktokLinks.saveFailed}::bigint + ${by}, 2147483647)::int` })
+    .where(and(eq(tiktokLinks.sellerId, sellerId), eq(tiktokLinks.id, linkId), eq(tiktokLinks.state, 'LINKED')))
+    .returning({ id: tiktokLinks.id })
+  return rows.length > 0
+}
+
+/** 서버가 다시 켜질 때 확장 상태 예약을 다시 걸 연결: 이어진(LINKED) 연결 중 확장 상태가 있는 것 (RA-TTX-03) */
+export async function linkedTiktokExtStatuses(db: Db): Promise<TiktokLinkRow[]> {
+  const rows = await linkQuery(db)
+    .where(and(eq(tiktokLinks.state, 'LINKED'), isNotNull(tiktokLinks.extStatusAt)))
+    .orderBy(asc(tiktokLinks.id))
+  return rows.map(asRow)
 }
 
 export interface TiktokExtStatus {

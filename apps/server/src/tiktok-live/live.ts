@@ -54,6 +54,7 @@ import {
   type TiktokLinkRow,
 } from './store.ts'
 import { findRequest, insertRequest } from '../instagram/store.ts'
+import { activeToken } from '../extension/store.ts'
 
 /** 라이브러리 2.1.0이 스스로 읽는 환경 변수 — 하나라도 비어 있지 않으면 틱톡을 끈 것으로 본다 (D-N2b-2-06) */
 export const TIKTOK_LIBRARY_ENV_NAMES = ['SIGN_API_URL', 'SIGN_API_KEY', 'WHITELIST_AUTHENTICATED_SESSION_ID_HOST'] as const
@@ -342,7 +343,10 @@ export class TikTokLive {
     }
     // 확장 쪽: 이어진 연결이고 운영자 스위치·동의가 맞을 때만 "확장으로 받는 중"이 될 수 있다 (D-TTX-06). 상태가 없으면 동의를 묻지 않는다
     const open = link.state === 'LINKED' && link.extStatusAt !== null && this.operatorOn && (await this.#consentIn(db, sellerId))
-    const extension = extensionViewOf(link, link.state === 'LINKED' && status?.state === 'CONNECTED', open, this.#options.clock.now())
+    // 막혔을 때 확장 안내 (D-TTX-17): 이 회차 확장 상태가 없고, 직접 연결이 막힘·서명 실패로 다시 시도 중이거나 멈췄고, 확장을 이은 판매자
+    const blocked = status !== null && ((status.state === 'RETRYING' && (status.reason === 'BLOCKED' || status.reason === 'SIGN_FAILED')) || status.state === 'STOPPED')
+    const hintable = link.state === 'LINKED' && link.extStatusAt === null && blocked && (await activeToken(db, sellerId)) !== null
+    const extension = extensionViewOf(link, link.state === 'LINKED' && status?.state === 'CONNECTED', open, this.#options.clock.now(), hintable)
     return {
       broadcast: broadcastId,
       platform: 'TIKTOK',

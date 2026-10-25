@@ -577,7 +577,11 @@ export function createServer(options: ServerOptions): LivejjimServer {
     timer,
     log,
     thanks: extensionThanks,
-    publish: (sellerId, view) => hub.publishExtension(sellerId, { ...view }),
+    publish: (sellerId, view) => {
+      hub.publishExtension(sellerId, { ...view })
+      // 확장 연결이 생기거나 끊기면 틱톡 칸의 막혔을 때 안내(D-TTX-17)가 바뀔 수 있다
+      void tiktokExtension.tokenChanged(sellerId)
+    },
     onDisconnected: (sellerId) => tiktokExtension.disconnected(sellerId),
   })
   const social = new SocialLogin({
@@ -668,6 +672,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       parcels.start()
       // 끝나지 않은 실제 회차의 이어진 틱톡 연결을 이어받는다 (NFR-03, AC-N2b-2-35)
       void tiktokLive.resume()
+      // 확장 틱톡 상태의 "조용함"·"읽지 못함" 예약을 다시 건다 (RA-TTX-03)
+      void tiktokExtension.resume()
     },
     stop,
     close: () => {
