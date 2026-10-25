@@ -11,9 +11,9 @@ import { stockLeftWords } from '../lib/stock.ts'
 import { ALERT_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
 import { consoleLabels, useConsoleApi } from './console-context.ts'
 import { boardLabelWords } from './LabelParts.tsx'
-import { currentSummaryParts, currentSummaryWords } from '../lib/current-summary.ts'
+import { SUMMARY_LIMIT, SUMMARY_SHORT_LIMIT, currentSummaryParts, currentSummaryWords } from '../lib/current-summary.ts'
 import { CautionMark, WinnerNames, useCaution } from './caution.tsx'
-import { CAUTION_WORD } from '../lib/customers.ts'
+import { CAUTION_SHORT, CAUTION_WORD } from '../lib/customers.ts'
 
 /** 1등 표시 이름 (재고 2 이상이면 여럿). 없으면 "아직 없음". 옵션 상품은 1등이 변형마다라 "변형별" (D-O2-12) */
 function useWinnerNames(product: Product): string {
@@ -167,29 +167,55 @@ function SummaryText({ product }: { readonly product: Product }) {
   // 1등 중 입금 늦음 주의 손님이 있으면 1등 글 뒤에 꼬리표 하나 (요약 줄에 다 들어가지 않으면 "주의" — SummaryFit)
   const flagged = !product.hasOptions && product.winners.some((id) => caution(id))
   if (!flagged) return <>{currentSummaryWords(input)}</>
-  const [head, tail] = currentSummaryParts(input)
-  return <SummaryFit key={`${head}|${tail}`} head={head} tail={tail} />
+  const bare = currentSummaryWords(input)
+  // 꼬리표를 넣어도 줄 수가 꼬리표 없을 때와 같은 첫 꼴 (D-CRM1-07 → "주의" → D-QL2-11 (3) 1등 6글자 → 이름·1등 6글자)
+  const plain = currentSummaryParts(input)
+  const winnerShort = currentSummaryParts(input, SUMMARY_LIMIT, SUMMARY_SHORT_LIMIT)
+  const bothShort = currentSummaryParts(input, SUMMARY_SHORT_LIMIT)
+  const choices: readonly SummaryChoice[] = [
+    { head: plain[0], tail: plain[1], short: false },
+    { head: plain[0], tail: plain[1], short: true },
+    { head: winnerShort[0], tail: winnerShort[1], short: true },
+    { head: bothShort[0], tail: bothShort[1], short: true },
+  ]
+  return <SummaryFit key={choices.map((c) => c.head + c.tail).join('|')} bare={bare} choices={choices} />
+}
+
+interface SummaryChoice {
+  readonly head: string
+  readonly tail: string
+  /** 꼬리표를 "주의" 한 낱말로 */
+  readonly short: boolean
 }
 
 /**
- * 요약 줄의 꼬리표 (D-CRM1-07, AC-CRM1-20): "입금 늦음 주의"를 넣어도 줄 수(높이)가 꼬리표 없을 때와 같으면 그대로, 늘면 "주의" 한 낱말.
- * 고정 영역 높이 규칙(D-QL2-11·D-QL2-14)을 넘지 않게. 잴 때만 보이지 않는 두 벌(꼬리표 없음·긴 꼬리표)을 줄 안에 두고 그림 전에 재고 뺀다
- * — 다 그린 줄의 글자에는 두 벌이 남지 않는다. 폭이 바뀌면 다시 잰다. 글이 바뀌면 부르는 쪽이 key로 새로 만든다.
+ * 요약 줄의 꼬리표 (D-CRM1-07, AC-CRM1-20): 꼬리표를 넣어도 줄 수(높이)가 꼬리표 없을 때와 같은 첫 꼴을 쓴다 —
+ * "입금 늦음 주의" → "주의" → 1등 글 6글자 + "…"(D-QL2-11 (3)) → 이름·1등 6글자. 넷 다 늘면 마지막 꼴(가장 짧다).
+ * 고정 영역 높이 규칙(D-QL2-11·D-QL2-14)을 넘지 않게. 잴 때만 보이지 않는 벌들을 줄 안에 두고 그림 전에 재고 뺀다
+ * — 다 그린 줄의 글자에는 남지 않는다. 폭이 바뀌면 다시 잰다. 글이 바뀌면 부르는 쪽이 key로 새로 만든다.
+ * 꼬리표는 요약 줄 안에서 inline(styles.css) — 테두리·안 여백이 줄 높이를 늘리지 않는다(TE-CRM1-002).
  */
-function SummaryFit({ head, tail }: { readonly head: string; readonly tail: string }) {
+function SummaryFit({ bare, choices }: { readonly bare: string; readonly choices: readonly SummaryChoice[] }) {
   const box = useRef<HTMLSpanElement>(null)
-  const [fit, setFit] = useState<{ readonly measuring: boolean; readonly short: boolean; readonly width: number }>({ measuring: true, short: false, width: -1 })
+  const [fit, setFit] = useState<{ readonly measuring: boolean; readonly pick: number; readonly width: number }>({ measuring: true, pick: 0, width: -1 })
   useLayoutEffect(() => {
     if (!fit.measuring) return
     const element = box.current
     if (element === null) return
-    const bare = element.querySelector<HTMLElement>('[data-fit="bare"]')
-    const long = element.querySelector<HTMLElement>('[data-fit="long"]')
-    const a = bare?.getBoundingClientRect().height ?? 0
-    const b = long?.getBoundingClientRect().height ?? 0
+    const height = (name: string) => element.querySelector<HTMLElement>(`[data-fit="${name}"]`)?.getBoundingClientRect().height ?? 0
+    const base = height('bare')
+    let pick = choices.length - 1
+    if (base > 0) {
+      for (let i = 0; i < choices.length; i++) {
+        if (height(String(i)) <= base + 0.5) {
+          pick = i
+          break
+        }
+      }
+    } else pick = 0 // 잴 수 없는 곳(화면 밖·시험 환경)은 긴 꼬리표 그대로
     const width = element.parentElement?.getBoundingClientRect().width ?? 0
-    setFit({ measuring: false, short: a > 0 && b > a, width })
-  }, [fit.measuring])
+    setFit({ measuring: false, pick, width })
+  }, [fit.measuring, choices])
   useEffect(() => {
     const line = box.current?.parentElement
     if (line === null || line === undefined || typeof ResizeObserver !== 'function') return
@@ -200,20 +226,21 @@ function SummaryFit({ head, tail }: { readonly head: string; readonly tail: stri
     observer.observe(line)
     return () => observer.disconnect()
   }, [])
+  const chosen = choices[fit.pick] ?? choices[0]
+  if (chosen === undefined) return <>{bare}</>
   return (
     <span ref={box}>
-      {head} <CautionMark short={fit.short} />
-      {tail}
+      {chosen.head} <CautionMark short={chosen.short} />
+      {chosen.tail}
       {fit.measuring ? (
         <span className="summary-measure" aria-hidden="true">
-          <span data-fit="bare">
-            {head}
-            {tail}
-          </span>
-          <span data-fit="long">
-            {head} <span className="tag tag-caution caution-mark">{CAUTION_WORD}</span>
-            {tail}
-          </span>
+          <span data-fit="bare">{bare}</span>
+          {choices.map((choice, index) => (
+            <span key={index} data-fit={String(index)}>
+              {choice.head} <span className="tag tag-caution caution-mark">{choice.short ? CAUTION_SHORT : CAUTION_WORD}</span>
+              {choice.tail}
+            </span>
+          ))}
         </span>
       ) : null}
     </span>

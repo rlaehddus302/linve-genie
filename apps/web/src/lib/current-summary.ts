@@ -32,10 +32,13 @@ export function currentSummaryWords(input: SummaryInput | undefined, max: number
   return `${head}${tail}`
 }
 
+/** 줄이 넘칠 때 쓰는 짧은 꼴의 글자 수 (D-QL2-11 (3) "이름·1등 6글자 + …") */
+export const SUMMARY_SHORT_LIMIT = 6
+
 /**
  * 요약 문장을 1등 글 바로 뒤에서 둘로 (CRM1 D-CRM1-07 — 1등 뒤 "입금 늦음 주의" 꼬리표 자리): ["15번 핑크프릴 · 판매 중 · 1등 홍길동", " · 대기 0명"].
- * 두 조각을 이으면 currentSummaryWords와 같다.
+ * 두 조각을 이으면 currentSummaryWords와 같다. winnersMax는 1등 글만 따로 더 줄일 때(꼬리표가 줄을 늘릴 때, TE-CRM1-002).
  */
-export function currentSummaryParts(input: SummaryInput, max: number = SUMMARY_LIMIT): readonly [string, string] {
-  return [`${String(input.no)}번 ${clipWords(input.name, max)} · ${PRODUCT_STATUS_WORD[input.status]} · 1등 ${clipWords(input.winners, max)}`, ` · 대기 ${String(input.waiting)}명`]
+export function currentSummaryParts(input: SummaryInput, max: number = SUMMARY_LIMIT, winnersMax: number = max): readonly [string, string] {
+  return [`${String(input.no)}번 ${clipWords(input.name, max)} · ${PRODUCT_STATUS_WORD[input.status]} · 1등 ${clipWords(input.winners, winnersMax)}`, ` · 대기 ${String(input.waiting)}명`]
 }
