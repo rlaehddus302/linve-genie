@@ -170,6 +170,48 @@ test.describe('AC-QL2-06·41 세는 알림이 있을 때 — 판매자 멈춤 �
     })
   }
 
+  for (const [label, viewport] of [['375×812', PHONE], ['412×915', ANDROID]] as const) {
+    test(`AC-QL2-44 ${label} 글자 150%: "알림 2 펼치기" → 각 항목 폭 ≥ 띠 폭의 90%, 한 줄에 하나씩 위아래로 — 글자 잘림 0·가로 넘침 0, 접으면 한 줄`, async ({ page, browser }) => {
+      const { w, dev } = await sixWorld(browser, page, viewport, true)
+      try {
+        const strip = alerts(w.main)
+        // 띠 = 알림 목록과 펼치기 단추를 함께 담은 줄 (알림 영역의 부모)
+        const bar = strip.locator('xpath=..')
+        const foldedHeight = (await bar.boundingBox())!.height
+        await w.main.getByRole('button', { name: '알림 2 펼치기', exact: true }).click()
+        const close = w.main.getByRole('button', { name: '알림 2 접기', exact: true })
+        await expect(close).toHaveAttribute('aria-expanded', 'true')
+        const barBox = (await bar.boundingBox())!
+        const items = await strip.getByRole('button').all()
+        expect(items.length, '펼친 항목 수 (보류 찜·출력 멈춤·출력 기기 끊김)').toBe(3)
+        const boxes = []
+        for (const item of items) {
+          await expect(item).toBeVisible()
+          await expectNoClip(item, `${label} 펼친 항목`)
+          const box = (await item.boundingBox())!
+          expect(box.width, `${label} 항목 폭 ${String(Math.round(box.width))} / 띠 폭 ${String(Math.round(barBox.width))}`).toBeGreaterThanOrEqual(barBox.width * 0.9)
+          boxes.push(box)
+        }
+        for (let i = 1; i < boxes.length; i += 1) {
+          const a = boxes[i - 1]!
+          const b = boxes[i]!
+          // 위아래로 하나씩: 가로 범위가 겹치고, 다음 항목은 앞 항목 아래
+          expect(Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x), `${label} 항목 ${String(i)}·${String(i + 1)} 가로 범위 겹침`).toBeGreaterThan(0)
+          expect(b.y, `${label} 항목 ${String(i + 1)}이 ${String(i)} 아래`).toBeGreaterThanOrEqual(a.y + a.height - 0.5)
+        }
+        await expectNoClip(close, `${label} 접기 단추`)
+        await expectNoOverflow(w.main, `${label} 150% 띠 펼침(전체 폭)`)
+        // 접으면 지금처럼 한 줄
+        await close.click()
+        await expect(w.main.getByRole('button', { name: '알림 2 펼치기', exact: true })).toHaveAttribute('aria-expanded', 'false')
+        expect((await bar.boundingBox())!.height, `${label} 접은 띠 높이`).toBeLessThanOrEqual(foldedHeight + 0.5)
+      } finally {
+        await dev.context.close()
+        await w.context.close()
+      }
+    })
+  }
+
   test('AC-QL2-08 1440×900 PC: 같은 알림 — 펼치기 단추 없음, 모든 항목 문장이 그대로 보이고 Alt+1은 출력 멈춤부터(보류 찜보다 앞)', async ({ page, browser }) => {
     const { w, dev } = await sixWorld(browser, page, PC, false)
     try {

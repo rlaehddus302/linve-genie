@@ -3,12 +3,27 @@
 // "보인다(첫 화면)"는 공통 전제의 뜻(support.ts expectFirstScreen) — 아래 메뉴 막대에 가리지 않음.
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { postJson, uniqueDate } from '../s05/support.ts'
-import { registerApi, smsApi } from '../s06/support.ts'
+import { registerApi, smsApi, viewerClaim, writeEvent } from '../s06/support.ts'
 import { IPHONE_UA } from '../mob1/support.ts'
-import { ANDROID, PC, PHONE, alerts, baseUrlOf, broadcastApi, endBroadcastApi, expectBig, expectFirstScreen, expectNoOverflow, expectOrder, freshSeller, setLabelsApi } from './support.ts'
+import { ANDROID, PC, PHONE, alerts, baseUrlOf, barHeight, broadcastApi, endBroadcastApi, expectBig, expectFirstScreen, expectNoClip, expectNoOverflow, expectOrder, freshSeller, setLabelsApi } from './support.ts'
 
 const IPHONE = { width: 393, height: 852 } as const
 const HACKER = '<b>해커</b>'
+/** 휴대폰 고정 영역 맨 끝의 현재 상품 한 줄 요약 (D-QL2-11 (1)) */
+const summary = (page: Page) => page.getByRole('status', { name: '현재 상품 요약' })
+/** D-QL2-11 (1): 이름·1등은 낱자(Array.from) 10글자를 넘으면 앞 10글자 + "…" */
+const clip10 = (text: string): string => {
+  const chars = Array.from(text)
+  return chars.length > 10 ? `${chars.slice(0, 10).join('')}…` : text
+}
+/** 리허설 채팅 닉네임 그대로의 요약 — AC-QL2-01 글자 그대로 */
+const REHEARSAL_SUMMARY = `15번 핑크프릴 · 판매 중 · 1등 ${HACKER} · 대기 0명`
+
+/** 수량을 정해 API로 상품 등록 */
+async function registerStock(page: Page, b: string, no: number, name: string, price: number, stock: number): Promise<void> {
+  const res = await writeEvent(page, { type: 'product.register', b, no, name, price, stock })
+  expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
+}
 
 interface Options {
   readonly viewport: { readonly width: number; readonly height: number }
@@ -21,6 +36,8 @@ interface Options {
  * AC-QL2-01 Given: 진행 중 방송, 세는 알림 둘(출력 멈춤 1·보류 찜 1 — 접힌 띠), 15번 "핑크프릴" 10,000원을 마지막에 등록하고 1등 `<b>해커</b>`.
  * 음성 꺼짐(기본), 되돌리기 대기 없음(API 등록), 고치기 칸 닫힘. 충돌은 실제 방송에서 채팅 없이 만들 수 없어 "예: 충돌 1" 대신 출력 멈춤(판매자)을 쓴다.
  * 라벨 켬 + 출력 기기 없음이라 띠 끝에 출력 기기 없음 항목(세지 않음)도 붙는다 — 실제 방송 하루의 흔한 모양.
+ * AC-QL2-01 Then이 1등이 있는데 "판매 중"이므로 15번은 수량 2로 등록한다(수량 1이면 1등이 생기는 순간 판매 완료 — R 규칙).
+ * 1등: 리허설은 채팅 닉네임 `<b>해커</b>` 그대로, 실제 방송은 채팅 없이 넣을 수 있는 문자찜(메모 `<b>해커</b>`)이라 구매자 이름이 카드의 "1등: …" 값 그대로다.
  */
 async function consoleWorld(browser: Browser, page: Page, options: Options): Promise<{ dev: Page; close: () => Promise<void>; b: string }> {
   await page.goto('/')
@@ -37,8 +54,9 @@ async function consoleWorld(browser: Browser, page: Page, options: Options): Pro
   await smsApi(dev, { b, no: 16, memo: '갑' })
   // 보류 찜 (등록 안 한 번호)
   await smsApi(dev, { b, no: 40, memo: '병' })
-  await registerApi(dev, b, 15, '핑크프릴', 10000)
-  await smsApi(dev, { b, no: 15, memo: HACKER })
+  await registerStock(dev, b, 15, '핑크프릴', 10000, 2)
+  if (options.rehearsal === true) await viewerClaim(dev, b, HACKER, '15', 'sim_ql2_hacker')
+  else await smsApi(dev, { b, no: 15, memo: HACKER })
   await dev.goto(`/broadcasts/${encodeURIComponent(b)}`)
   await expect(dev.getByLabel('빠른 입력')).toBeVisible()
   if (options.big) await expectBig(dev)
@@ -65,40 +83,170 @@ async function expectCurrentOnFirstScreen(dev: Page, where: string): Promise<voi
   expect(await current.locator('b, script').count(), `${where} 이름이 HTML로 해석됨`).toBe(0)
 }
 
-test.describe('AC-QL2-01 첫 화면에 현재 상품 번호·이름·1등', () => {
+/**
+ * D-QL2-11 (1)(4): 요약 줄 글자 그대로 + 보인다 + 글자 잘림 0 + `b` 요소 0, 600px 스크롤해도 보인다(고정 영역).
+ * 기대 문장은 스펙의 틀 "{번호}번 {이름} · {상태} · 1등 {1등} · 대기 {n}명" — {1등}은 카드의 "1등: …" 값을 10글자로 자른 것.
+ */
+async function expectSummaryOnFirstScreen(dev: Page, where: string, rehearsal: boolean): Promise<void> {
+  const line = summary(dev)
+  const winner = (await dev.getByRole('region', { name: '현재 상품' }).getByText(/^1등: /).innerText()).replace(/^1등: /, '').trim()
+  expect(winner, `${where} 카드의 1등`).toContain(HACKER)
+  const expected = rehearsal ? REHEARSAL_SUMMARY : `15번 핑크프릴 · 판매 중 · 1등 ${clip10(winner)} · 대기 0명`
+  await expect(line).toHaveText(expected)
+  expect(await line.locator('b, script').count(), `${where} 요약 닉네임이 HTML로 해석됨`).toBe(0)
+  await expectFirstScreen(dev, line, `${where} 요약 줄`)
+  await expectNoClip(line, `${where} 요약 줄`)
+  // 600px 아래로 스크롤해도 보인다 (고정 영역)
+  await dev.evaluate(() => window.scrollTo(0, 600))
+  const bar = await barHeight(dev)
+  const vh = dev.viewportSize()!.height
+  const r = await line.evaluate((el) => {
+    const b = el.getBoundingClientRect()
+    const hit = document.elementFromPoint(b.left + Math.min(b.width / 2, 8), b.top + b.height / 2)
+    return { top: b.top, bottom: b.bottom, covered: hit === null || !(hit === el || el.contains(hit)), y: window.scrollY }
+  })
+  const text = `${where} 스크롤 ${String(r.y)} 뒤 요약 줄: 위 ${String(Math.round(r.top))} · 아래 ${String(Math.round(r.bottom))} · 막대 위 끝 ${String(Math.round(vh - bar))}`
+  expect(r.top, text).toBeGreaterThanOrEqual(0)
+  expect(r.bottom, text).toBeLessThanOrEqual(vh - bar + 0.5)
+  expect(r.covered, `${text} 덮임`).toBe(false)
+  await dev.evaluate(() => window.scrollTo(0, 0))
+}
+
+test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100%는 요약 줄과 카드 (D-QL2-11 (4))', () => {
   for (const [label, viewport] of [['375×812', PHONE], ['412×915', ANDROID]] as const) {
-    for (const big of [true, false]) {
-      test(`${label} 글자 ${big ? '150%' : '100%'}: 실제 방송 진행 중 — "15번"·"핑크프릴"·"1등: <b>해커</b>"가 아래 막대에 가리지 않고 보인다`, async ({ page, browser }) => {
-        const w = await consoleWorld(browser, page, { viewport, big })
+    for (const rehearsal of [false, true]) {
+      // QL2 D-QL2-11 (4): 150%의 "보인다" 대상은 요약 줄
+      test(`${label} 글자 150%: ${rehearsal ? '리허설' : '실제'} 방송 — 요약 줄 "15번 핑크프릴 · 판매 중 · 1등 … · 대기 0명"이 아래 막대에 가리지 않고 보이고, 600px 스크롤해도 보인다`, async ({ page, browser }) => {
+        const w = await consoleWorld(browser, page, { viewport, big: true, rehearsal })
         try {
-          await expectCurrentOnFirstScreen(w.dev, `${label} ${big ? '150%' : '100%'}`)
+          if (rehearsal) {
+            const panel = w.dev.getByRole('region', { name: '리허설 조작판' })
+            await expect(panel).toBeVisible()
+            await expectOrder([['현재 상품', w.dev.getByRole('region', { name: '현재 상품' })], ['리허설 조작판', panel]], `${label} 리허설`)
+          }
+          await expectSummaryOnFirstScreen(w.dev, `${label} 150%${rehearsal ? ' 리허설' : ''}`, rehearsal)
+        } finally {
+          await w.close()
+        }
+      })
+      test(`${label} 글자 100%: ${rehearsal ? '리허설' : '실제'} 방송 — 요약 줄과 카드의 "15번"·"핑크프릴"·"1등: <b>해커</b>"가 보인다`, async ({ page, browser }) => {
+        const w = await consoleWorld(browser, page, { viewport, big: false, rehearsal })
+        try {
+          await expectSummaryOnFirstScreen(w.dev, `${label} 100%${rehearsal ? ' 리허설' : ''}`, rehearsal)
+          await expectCurrentOnFirstScreen(w.dev, `${label} 100%${rehearsal ? ' 리허설' : ''}`)
         } finally {
           await w.close()
         }
       })
     }
-    test(`${label} 글자 150%: 리허설 방송 — 같은 기준, 리허설 조작판은 현재 상품 아래`, async ({ page, browser }) => {
-      const w = await consoleWorld(browser, page, { viewport, big: true, rehearsal: true })
-      try {
-        const panel = w.dev.getByRole('region', { name: '리허설 조작판' })
-        await expect(panel).toBeVisible()
-        await expectOrder([['현재 상품', w.dev.getByRole('region', { name: '현재 상품' })], ['리허설 조작판', panel]], `${label} 리허설`)
-        await expectCurrentOnFirstScreen(w.dev, `${label} 150% 리허설`)
-      } finally {
-        await w.close()
-      }
-    })
   }
 
-  test('393×852 WebKit 글자 100%: 같은 기준 @webkit', async ({ page, browser }) => {
+  test('393×852 WebKit 글자 100%: 요약 줄과 카드가 보인다, 가로 넘침 0 @webkit', async ({ page, browser }) => {
     const w = await consoleWorld(browser, page, { viewport: IPHONE, big: false, userAgent: IPHONE_UA })
     try {
-      await expectCurrentOnFirstScreen(w.dev, '393 WebKit')
+      await expectSummaryOnFirstScreen(w.dev, '393 WebKit 100%', false)
+      await expectCurrentOnFirstScreen(w.dev, '393 WebKit 100%')
       await expectNoOverflow(w.dev, '393 WebKit 콘솔')
     } finally {
       await w.close()
     }
   })
+
+  test('393×852 WebKit 글자 150%: 요약 줄이 보인다, 가로 넘침 0 @webkit', async ({ page, browser }) => {
+    const w = await consoleWorld(browser, page, { viewport: IPHONE, big: true, userAgent: IPHONE_UA })
+    try {
+      await expectSummaryOnFirstScreen(w.dev, '393 WebKit 150%', false)
+      await expectNoOverflow(w.dev, '393 WebKit 150% 콘솔')
+    } finally {
+      await w.close()
+    }
+  })
+
+  test('375×812 요약 문장: 현재 상품 없음 → "현재 상품: 아직 없어요", 1등 없음 → "1등 아직 없음", 판매 완료 상태 낱말, 12글자 이름은 앞 10글자 + "…"(카드는 전체)', async ({ page, browser }) => {
+    await page.goto('/')
+    const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PHONE, touch: true, big: false })
+    try {
+      const b = await broadcastApi(dev, uniqueDate())
+      await dev.goto(`/broadcasts/${encodeURIComponent(b)}`)
+      await expect(dev.getByLabel('빠른 입력')).toBeVisible()
+      await expect(summary(dev)).toHaveText('현재 상품: 아직 없어요')
+      await registerApi(dev, b, 15, '핑크프릴', 10000)
+      await expect(summary(dev)).toHaveText('15번 핑크프릴 · 판매 중 · 1등 아직 없음 · 대기 0명')
+      // 수량 1에 1등 → 판매 완료 (요약의 1등은 카드 값 그대로)
+      await smsApi(dev, { b, no: 15, memo: '갑' })
+      const current = dev.getByRole('region', { name: '현재 상품' })
+      await expect(current.getByText('판매 완료', { exact: true })).toBeVisible()
+      const winner = (await current.getByText(/^1등: /).innerText()).replace(/^1등: /, '').trim()
+      expect(winner).not.toBe('아직 없음')
+      await expect(summary(dev)).toHaveText(`15번 핑크프릴 · 판매 완료 · 1등 ${clip10(winner)} · 대기 0명`)
+      // 12글자 이름
+      const long = '가나다라마바사아자차카타'
+      await registerApi(dev, b, 18, long, 3000)
+      await expect(summary(dev)).toHaveText('18번 가나다라마바사아자차… · 판매 중 · 1등 아직 없음 · 대기 0명')
+      await expect(current.getByText(long, { exact: true })).toBeVisible()
+      await expectFirstScreen(dev, summary(dev), '375 100% 12글자 요약')
+    } finally {
+      await context.close()
+    }
+  })
+
+  test('1440×900 PC: 요약 줄이 없다, 현재 상품은 왼쪽 열 카드', async ({ page, browser }) => {
+    const w = await consoleWorld(browser, page, { viewport: PC, big: false })
+    try {
+      await expect(summary(w.dev)).toHaveCount(0)
+      await expect(w.dev.getByRole('region', { name: '현재 상품' }).getByText('15번', { exact: true })).toBeVisible()
+    } finally {
+      await w.close()
+    }
+  })
+
+  test('375×812 끝난 방송: 요약 줄이 없다', async ({ page, browser }) => {
+    const w = await consoleWorld(browser, page, { viewport: PHONE, big: false })
+    try {
+      await endBroadcastApi(w.dev, w.b)
+      await w.dev.reload()
+      await expect(w.dev.getByText('끝난 방송이에요', { exact: true })).toBeVisible()
+      await expect(summary(w.dev)).toHaveCount(0)
+    } finally {
+      await w.close()
+    }
+  })
+})
+
+test.describe('AC-QL2-01b 빈 "등록하면" 줄 (D-QL2-11 (2))', () => {
+  for (const big of [false, true]) {
+    test(`375×812 글자 ${big ? '150%' : '100%'}: 빈 칸이면 "등록하면" 줄 자리 없음(빠른 입력 줄 아래 끝과 다음 요소 사이 빈 줄 없음), 치면 "등록하면: 15번 핑크프릴 10,000원"이 보인다`, async ({ page, browser }) => {
+      await page.goto('/')
+      const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PHONE, touch: true, big })
+      try {
+        const b = await broadcastApi(dev, uniqueDate())
+        await dev.goto(`/broadcasts/${encodeURIComponent(b)}`)
+        const input = dev.getByLabel('빠른 입력')
+        await expect(input).toBeVisible()
+        if (big) await expectBig(dev)
+        // 빈 글이라 이름으로 찾을 수 없다 — 자리 클래스(p.quick-will-register, fb1 시험과 같음)
+        const line = dev.locator('main .quick-will-register')
+        await expect(line).toHaveCount(1)
+        await expect(line).toHaveText('')
+        expect(await line.evaluate((el) => el.getBoundingClientRect().height), '빈 "등록하면" 줄 높이').toBe(0)
+        // 빠른 입력 줄(.console-sticky-quick) 아래 끝 ~ 요약 줄 위 끝 사이에 빈 줄 자리가 없다 (되돌리기 대기 없음)
+        const quick = (await dev.locator('main .console-sticky-quick').boundingBox())!
+        const s = (await summary(dev).boundingBox())!
+        const gap = s.y - (quick.y + quick.height)
+        await input.fill('15 핑크프릴 10000')
+        await expect(line).toHaveText('등록하면: 15번 핑크프릴 10,000원')
+        await expect(line).toBeVisible()
+        // 빈 때의 틈은 "등록하면" 한 줄 높이보다 작다 (빈 줄 자리 없음)
+        const shown = (await line.boundingBox())!
+        expect(gap, `빈 칸일 때 빠른 입력 줄 아래 끝 → 요약 줄 ${String(gap)}px, "등록하면" 줄 ${String(shown.height)}px`).toBeLessThan(shown.height)
+        await input.fill('')
+        await expect(line).toHaveText('')
+        expect(await line.evaluate((el) => el.getBoundingClientRect().height)).toBe(0)
+      } finally {
+        await context.close()
+      }
+    })
+  }
 })
 
 test.describe('AC-QL2-02 차례', () => {

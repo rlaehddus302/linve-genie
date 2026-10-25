@@ -79,7 +79,7 @@ test.describe('AC-QL2-10 출력 기기가 아닌 기기에도 "다시 연결" @p
 })
 
 test.describe('AC-QL2-11 오류 상자의 "다시 연결" @printer', () => {
-  test('한 번 연결에 성공한 뒤 끊김 + 전원 꺼짐 → 프린터 칸 "다시 연결" 실패 → 오류 상자 안(해볼 일 아래) "다시 연결" 하나, 프린터 칸 단추는 사라짐 → 전원 켜고 누르면 연결됨', async ({ page }) => {
+  test('한 번 연결에 성공한 뒤 끊김 + 전원 꺼짐 → 프린터 칸 "다시 연결" 실패 → 오류 상자 안(해볼 일 아래) "다시 연결" 하나, 프린터 칸 단추는 사라짐 → 전원 켜고 누르면 고르기 창 한 번(수 +1) 뒤 연결됨', async ({ page }) => {
     await loginNewSeller(page)
     await openLabels(page)
     await setFakeB1(page, { getDevices: true })
@@ -98,11 +98,12 @@ test.describe('AC-QL2-11 오류 상자의 "다시 연결" @printer', () => {
     await expect(allReconnect(page)).toHaveCount(1)
 
     await setFakeB1(page, { powered: true })
+    const asked = (await fakeB1State(page))!.requests
     await boxRetry.click()
     await expect(stateLine(page, '연결됨')).toBeVisible({ timeout: 20_000 })
     expect((await fakeB1State(page))!.connected).toBe(true)
-    // 고르기 창 수: acceptance는 "그대로"지만 L-7 (4)·D-QS1-01 (4)는 기억한 기기로 이은 시도가 실패하면 기억을 지운다 — 서로 어긋나
-    // 스펙 확인 필요(TE-QL2-002)로 올리고 여기서는 세지 않는다
+    // QL2 D-QL2-12 (3): L-7 (4) — 기억한 기기로 이은 시도가 실패하면 기억을 지우므로 고르기 창이 한 번 더 뜬다(수 +1)
+    expect((await fakeB1State(page))!.requests, '오류 상자 "다시 연결" 고르기 창 수').toBe(asked + 1)
   })
 
   test('한 번도 연결에 성공하지 못한 기기(첫 연결 실패) → 오류 상자 "다시 연결" → 고르기 창이 뜬다 (AC-FB1-40 그대로)', async ({ page }) => {
