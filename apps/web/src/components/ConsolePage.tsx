@@ -32,7 +32,7 @@ import { useKeepAboveBar } from '../lib/above-bar.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
-import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, type VoiceController, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceHost, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
+import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, type VoiceController, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceHost, type VoiceLogInput, type VoiceSmsWrite, type VoiceSnapshot, type VoiceWriteOptions } from '../voice/controller.ts'
 import { fetchPastNames } from '../voice/history.ts'
 import { loadVoice } from '../voice/load.ts'
 import { VOICE_OFF_AFTER_RELOAD, acquireVoiceSession, forgetVoiceOn, getVoiceSession, microphoneGranted, readVoiceOn, voiceOtherBroadcast } from '../voice/session.ts'
@@ -105,6 +105,8 @@ interface RegRequest {
   readonly onTransient?: () => void
   /** 등록이 저장됨 (음성 카드 — 방금 등록한 상품으로 기억한다, D-V2-06 3) */
   readonly onDone?: (key: string) => void
+  /** 음성으로 한 등록의 기록 한 줄 (R-25 — 서버가 상품 이벤트 전에 남긴다) */
+  readonly voiceLog?: VoiceLogInput
   /** 개수 칸이 1이 아니었으면 그 개수 (옵션 없는 상품만 — AC-ORD11-01) */
   readonly stock?: number
 }
@@ -114,6 +116,8 @@ interface RegHooks {
   readonly onExists?: (product: Product) => void
   readonly onFailed?: () => void
   readonly onDone?: (key: string) => void
+  /** 음성으로 한 등록의 기록 한 줄 (R-25 — 서버가 상품 이벤트 전에 남긴다) */
+  readonly voiceLog?: VoiceLogInput
   /** 잠깐의 오류로 보내지 못했다 ("다시 보내기"가 남는다) */
   readonly onTransient?: () => void
   readonly extra?: OptionPayload
@@ -122,6 +126,11 @@ interface RegHooks {
 }
 
 /** 창이 열려 있다 (콘솔 창·음성 안내 창·떠날지 묻는 창) */
+/** 서버가 voiceLog 칸을 모른다고 거절했다 (옛 서버 — 표에 없는 필드) */
+function rejectsVoiceLog(error: unknown): boolean {
+  return isApiError(error) && error.status === 400 && (error.problems.some((problem) => problem.field === 'voiceLog') || JSON.stringify(error.details).includes('voiceLog'))
+}
+
 function anyDialogOpen(): boolean {
   return document.querySelector('[role="dialog"]') !== null
 }
@@ -337,9 +346,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     register: (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => void
     focusQuick: () => void
     writeSms: (write: VoiceSmsWrite, received: string | null, requestId: string) => Promise<SmsWriteOutcome>
-    fixRecent: (id: string, changes: { readonly name?: string; readonly price?: number }, options?: { readonly newOnly?: boolean }) => Promise<RecentFixOutcome>
+    fixRecent: (id: string, changes: { readonly name?: string; readonly price?: number }, options?: VoiceWriteOptions) => Promise<RecentFixOutcome>
     openProduct: (id: string) => void
-    renumber: (from: number, to: number) => Promise<boolean>
+    renumber: (from: number, to: number, options?: VoiceWriteOptions) => Promise<boolean>
     undoRecent: (id: string) => boolean
   }>({
     register: () => {},
@@ -403,7 +412,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       writeLearned: (list) => writeLearned(list),
       fixRecent: (id, changes, options) => voiceActions.current.fixRecent(id, changes, options),
       openProduct: (id) => voiceActions.current.openProduct(id),
-      renumber: (from, to) => voiceActions.current.renumber(from, to),
+      renumber: (from, to, options) => voiceActions.current.renumber(from, to, options),
       undoRecent: (id) => voiceActions.current.undoRecent(id),
       // ── V3 바로 등록: 그 번호 상품과 1등+대기 수 (상품 보드 데이터) ──
       existingProduct: (no) => {
@@ -503,6 +512,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       try {
         result = await withRetry(() => post<WriteResult>(path, { requestId, ...event }))
       } catch (error) {
+        // 음성 기록 칸(voiceLog, R-25)을 모르는 옛 서버면 그 칸 없이 한 번 더 — 등록·고치기가 막히지 않게
+        if (event.voiceLog !== undefined && rejectsVoiceLog(error)) {
+          const { voiceLog: _dropped, ...plain } = event
+          return await write(requestId, plain, wait)
+        }
         followFailure(error)
         throw error
       }
@@ -712,10 +726,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   )
 
   const undoRegistration = useCallback(
-    async (no: number): Promise<'undone' | 'blocked'> => {
+    async (no: number, voiceLog?: VoiceLogInput): Promise<'undone' | 'blocked'> => {
       const product = findProduct(no)
       if (product !== undefined && (productSlots(product).winners.length > 0 || productSlots(product).waitlist.length > 0)) return 'blocked'
-      const result = await write(newRequestId(), { type: 'product.close', b, no })
+      const result = await write(newRequestId(), { type: 'product.close', b, no, ...(voiceLog === undefined ? {} : { voiceLog }) })
       // 되돌린 번호는 음성을 끌 때까지 바로 등록하지 않는다 (V3 D-V3-10)
       if (result.changed) voiceRef.current?.rejectNumber(no)
       return result.changed ? 'undone' : 'blocked'
@@ -758,6 +772,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           ...(request.stock === undefined ? {} : { stock: request.stock }),
           ...(extra === undefined || extra.options.length === 0 ? {} : { options: extra.options, stocks: extra.stocks }),
           ...(extra === undefined || extra.aliases.length === 0 ? {} : { aliases: extra.aliases }),
+          ...(request.voiceLog === undefined ? {} : { voiceLog: request.voiceLog }),
         })
         remove()
         const key = productKey(b, request.no)
@@ -779,7 +794,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         setSelected(key)
         setQuickError(null)
         voiceRef.current?.noteRegistered()
-        const undoItem = queue.addRegistration({ no: request.no, product: key, undo: () => undoRegistration(request.no) })
+        // 음성 등록을 되돌리면 그 등록의 요청 번호를 기록에 싣는다 (R-25 UNDO)
+        const undoLog = request.voiceLog === undefined ? undefined : { ...request.voiceLog, undo: request.requestId }
+        const undoItem = queue.addRegistration({ no: request.no, product: key, undo: () => undoRegistration(request.no, undoLog) })
         regUndo.current.set(key, undoItem.id)
         request.onDone?.(key)
       } catch (error) {
@@ -825,7 +842,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => {
       const { no, name, price } = registration
       dropAttached(no)
+      const voiceLog = voice?.voiceLogFor(card.text) ?? null
       enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
+        ...(voiceLog === null ? {} : { voiceLog }),
         ...(source === 'auto' ? { onExists: (product: Product) => voice?.restore(card, { note: editQuestion(product.no, product.status === 'CLOSED') }) } : {}),
         // 바로 등록인데 차례에서 그 번호가 생겼다 — 이미 있는 번호 규칙(무시·자동 고침·묻기)대로, 창은 띄우지 않는다 (V3)
         // 바로 등록이 잠깐의 오류로 실패하면 "다시 보내기"와 함께 그 말의 카드도 돌려놓는다 (AC-V3-39, TE-V3-008)
@@ -880,7 +899,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
    * 손 고치기 창(PRD-01 — 누구에게 적용할지 묻는 안내 그대로)을 연다.
    */
   const fixRecentProduct = useCallback(
-    async (key: string, changes: { readonly name?: string; readonly price?: number }, options: { readonly newOnly?: boolean } = {}): Promise<RecentFixOutcome> => {
+    async (key: string, changes: { readonly name?: string; readonly price?: number }, options: VoiceWriteOptions = {}): Promise<RecentFixOutcome> => {
       const product = (store.getSnapshot().data ?? latest.current.data).products.get(key)
       if (product === undefined) return { kind: 'failed', message: '그 상품을 찾지 못했어요. 상품 목록에서 확인해 주세요.' }
       const slots = productSlots(product)
@@ -895,7 +914,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       if (changes.price !== undefined) before.price = product.price
       try {
         const newOnly = options.newOnly === true && changes.price !== undefined && claimed
-        await write(newRequestId(), { type: 'product.update', b, no: product.no, ...changes, ...(newOnly ? { applyTo: 'NEW_ONLY' } : {}) })
+        await write(options.requestId ?? newRequestId(), { type: 'product.update', b, no: product.no, ...changes, ...(newOnly ? { applyTo: 'NEW_ONLY' } : {}), ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) })
         return { kind: 'fixed', before }
       } catch (error) {
         if (!isApiError(error) || error.network) return { kind: 'failed', message: OFFER_FIX_FAILED }
@@ -920,9 +939,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     // [아까 것을 다른 번호로] — 그 상품 자세히(손 고치기, R-10 안내 그대로)
     openProduct: (key) => openDialog({ kind: 'product', key }),
     // 음성 번호 옮기기 — 손 고치기와 같은 product.renumber (R-10·D-V3-58)
-    renumber: async (from, to) => {
+    renumber: async (from, to, options = {}) => {
       try {
-        const result = await write(newRequestId(), { type: 'product.renumber', b, from, to })
+        const result = await write(options.requestId ?? newRequestId(), { type: 'product.renumber', b, from, to, ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) })
         return result.changed
       } catch {
         return false

@@ -4,7 +4,7 @@
 // - 그 기기에 남기는 것은 켠 방송 ID 하나뿐(VOICE_ON_KEY) — 끄기·방송 끝·로그아웃 때 지운다. 인식 글은 남기지 않는다.
 // - 이 파일은 음성 패키지를 불러오지 않는다(음성 코드는 컨트롤러가 "음성 켜기" 때 불러온다, AC-I4-04).
 import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
-import { newRequestId, post, withQuery } from '../api/client.ts'
+import { isApiError, newRequestId, post, withQuery } from '../api/client.ts'
 import type { WriteResult } from '../api/types.ts'
 import { ConsoleStore } from '../lib/console-store.ts'
 import { productKey, productSlots } from '../lib/derive.ts'
@@ -47,6 +47,9 @@ export interface OutsideUndo {
   readonly key: string
   readonly no: number
   readonly until: number
+  /** 그 등록의 요청 번호와 들은 말 (되돌리기 기록, R-25) */
+  readonly requestId: string
+  readonly heard: string
 }
 
 /** 띠가 보는 모습 */
@@ -149,7 +152,8 @@ export class VoiceSession {
       if (slots.winners.length + slots.waitlist.length > 0) return
     }
     try {
-      await this.#write({ type: 'product.close', b: this.broadcastId, no: undo.no })
+      const voiceLog = this.controller.voiceLogFor(undo.heard, undo.requestId)
+      await this.#write({ type: 'product.close', b: this.broadcastId, no: undo.no, ...(voiceLog === null ? {} : { voiceLog }) })
       this.controller.rejectNumber(undo.no)
     } catch {
       // 되돌리지 못했으면 상품 목록에서 고친다
@@ -194,11 +198,20 @@ export class VoiceSession {
     this.#emit()
   }
 
-  async #write(event: Readonly<Record<string, unknown>>): Promise<WriteResult> {
+  async #write(event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> {
     const broadcast = this.#store.getSnapshot().broadcast
     const scoped = typeof event.b !== 'string'
     const path = withQuery('/api/events', scoped && broadcast !== null ? { date: broadcast.date, rehearsal: broadcast.rehearsal } : {})
-    return await post<WriteResult>(path, { requestId: newRequestId(), ...event })
+    try {
+      return await post<WriteResult>(path, { requestId, ...event })
+    } catch (error) {
+      // 음성 기록 칸(voiceLog, R-25)을 모르는 옛 서버면 그 칸 없이 한 번 더
+      if (event.voiceLog !== undefined && isApiError(error) && error.status === 400 && JSON.stringify(error).includes('voiceLog')) {
+        const { voiceLog: _dropped, ...plain } = event
+        return await post<WriteResult>(path, { requestId, ...plain })
+      }
+      throw error
+    }
   }
 
   #data() {
@@ -292,9 +305,11 @@ export class VoiceSession {
       if (changes.name !== undefined) before.name = product.name
       if (changes.price !== undefined) before.price = product.price
       try {
-        // 콘솔 밖은 창이 없다 — 찜이 있으면 새 찜부터만 새 가격 (NEW_ONLY, D-V3-57). options.newOnly는 콘솔과 같은 뜻
-        void options
-        await this.#write({ type: 'product.update', b: this.broadcastId, no: product.no, ...changes, ...(changes.price !== undefined && claimed ? { applyTo: 'NEW_ONLY' } : {}) })
+        // 콘솔 밖은 창이 없다 — 찜이 있으면 새 찜부터만 새 가격 (NEW_ONLY, D-V3-57)
+        await this.#write(
+          { type: 'product.update', b: this.broadcastId, no: product.no, ...changes, ...(changes.price !== undefined && claimed ? { applyTo: 'NEW_ONLY' } : {}), ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) },
+          options.requestId,
+        )
         return { kind: 'fixed', before }
       } catch {
         return { kind: 'failed', message: OFFER_FIX_FAILED }
@@ -304,9 +319,9 @@ export class VoiceSession {
       void this.undoOutside()
       return this.#undo !== null
     },
-    renumber: async (from, to) => {
+    renumber: async (from, to, options = {}) => {
       try {
-        return (await this.#write({ type: 'product.renumber', b: this.broadcastId, from, to })).changed
+        return (await this.#write({ type: 'product.renumber', b: this.broadcastId, from, to, ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) }, options.requestId)).changed
       } catch {
         return false
       }
@@ -315,15 +330,17 @@ export class VoiceSession {
 
   async #registerOutside(card: SuggestionCard, registration: CardRegistration): Promise<void> {
     const { no, name, price } = registration
+    const voiceLog = this.controller.voiceLogFor(card.text)
+    const requestId = newRequestId()
     try {
-      const result = await this.#write({ type: 'product.register', b: this.broadcastId, no, name, price })
+      const result = await this.#write({ type: 'product.register', b: this.broadcastId, no, name, price, ...(voiceLog === null ? {} : { voiceLog }) }, requestId)
       const key = productKey(this.broadcastId, no)
       if (!result.changed) {
         this.controller.instantExists(card)
         return
       }
       this.controller.noteVoiceRegistered({ id: key, no, name, price })
-      this.#setUndo({ key, no, until: Date.now() + OUTSIDE_UNDO_MS })
+      this.#setUndo({ key, no, until: Date.now() + OUTSIDE_UNDO_MS, requestId, heard: voiceLog?.heard ?? '' })
     } catch {
       // 등록하지 못했으면 카드로 남긴다 (콘솔에서 다시 등록)
       this.controller.restore(card, { touched: true })

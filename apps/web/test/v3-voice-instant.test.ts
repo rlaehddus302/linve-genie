@@ -45,6 +45,7 @@ interface Harness {
   dialog: boolean
   readonly undone: string[]
   readonly moves: [number, number][]
+  readonly fixOptions: unknown[]
 }
 
 function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: 'WON' | 'THOUSAND' } = {}): Harness {
@@ -57,6 +58,7 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
     dialog: false,
     undone: [] as string[],
     moves: [] as [number, number][],
+    fixOptions: [] as unknown[],
   }
   const host: VoiceHost = {
     load: async () => voiceModule,
@@ -77,8 +79,9 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
       state.registered.push({ card, ...registration, source })
     },
     focusQuick: () => {},
-    fixRecent: async (id, changes) => {
+    fixRecent: async (id, changes, options) => {
       state.fixes.push({ id, changes })
+      state.fixOptions.push(options ?? {})
       const product = [...state.board.values()].find((item) => item.key === id)
       return state.fixResult ?? { kind: 'fixed', before: { ...(changes.price !== undefined ? { price: product?.price ?? 0 } : {}), ...(changes.name !== undefined ? { name: product?.name ?? '' } : {}) } }
     },
@@ -558,6 +561,21 @@ describe('추측 품종은 등록에 쓰지 않는다 (D-V3-37)', () => {
     h.voice.chooseCandidate(card?.id ?? '', 'bts')
     expect(cards(h)[0]?.name).toBe('bts')
     expect(cards(h)[0]?.touched).toBe(true)
+  })
+})
+
+describe('음성 기록 한 줄 (R-25, D-V3-65)', () => {
+  it('바로 고침 쓰기에 가린 들은 말 한 줄을 싣고, 되돌리기에는 그 요청 번호를 싣는다', async () => {
+    const h = await ready()
+    h.board.set(108, product(108, 'bts', 100000))
+    say('108번 12만 원 끝자리 1234')
+    await settle()
+    expect(h.fixOptions[0]).toMatchObject({ newOnly: true, voiceLog: { heard: '108번 12만 원 끝자리 ****', source: 'voice' } })
+    const requestId = (h.fixOptions[0] as { requestId: string }).requestId
+    expect(typeof requestId).toBe('string')
+    const offer = h.voice.getSnapshot().offers[0]
+    await h.voice.revertOffer(offer?.id ?? '')
+    expect(h.fixOptions[1]).toMatchObject({ voiceLog: { undo: requestId } })
   })
 })
 
