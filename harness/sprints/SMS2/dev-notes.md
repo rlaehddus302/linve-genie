@@ -26,3 +26,8 @@
 
 - 실제 아이폰 단축어의 "현재 날짜"·"날짜 형식 ISO 8601" 메뉴 이름, MacroDroid의 밀리초 시스템 시간 마법의 글자 이름, 실제 지연 — 실물 시험 몫.
 - 문자 자동 수집 방식 선택(운영 기능화) — 사용자 결정 대기(D-SMS2-01).
+
+## dev-web (할 일 없음)
+
+- 수용 기준 범위(D-SMS2-01)대로 `apps/web/**`는 고치지 않았다. 시험 화면은 서버가 만드는 HTML(`apps/server/src/try/sms-test.ts`)이고, 웹 앱·Playwright 설정(`apps/web/playwright.config.ts`)도 그대로다.
+- e2e 쪽: `tests/e2e/sms2/**`는 기존 설정으로 돈다(`CI=1 E2E_PORT_OFFSET=4400 pnpm exec playwright test --config apps/web/playwright.config.ts tests/e2e/sms2`). 서버 시험 화면을 열 때 웹 앱 화면이나 웹 쪽 이름(aria-label)에 기대지 말고 위 dev-server의 화면 구조(`.group`·`.card`·`.btn`·`form button.btn.danger`)를 쓴다. 설정에 새 프로젝트(WebKit 393×852 등)가 필요하면 시험 파일 안에서 `test.use({ viewport })`로 맞춘다.
