@@ -40,6 +40,8 @@ interface WordsModule {
   deviceLostShortMessage(name: string): string
   stationLeadText(input: StationInput): string | null
   stationLeadShortText(input: StationInput): string | null
+  readonly NO_STATION_PILING: string // QL3R2 D-QL3R2-03
+  readonly NO_STATION_SHORT: string // QL3R2 D-QL3R2-03
 }
 interface DeviceModule {
   readonly DEVICE_NAME_MAX: number
@@ -159,6 +161,11 @@ describe('TD-QL3R1 출력 기기 끊김 짧은 문장 (D-QL3R1-04)', () => {
         const short = words.stationLeadShortText(station)
         const lost = station.queue?.device ?? null
         const isLost = lost !== null && long === words.deviceLostMessage(lost.name) && !lost.live
+        // QL3R2 D-QL3R2-03: 출력 기기 없음 + 대기 라벨도 짧은 줄 — 긴 문장이 NO_STATION_PILING일 때만, 정확히 그 짧은 문장
+        if (long === words.NO_STATION_PILING) {
+          expect(short).toBe('라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요') // QL3R2 D-QL3R2-03
+          return
+        }
         if (!isLost) {
           expect(short).toBeNull()
           return
@@ -221,17 +228,17 @@ describe('TD-QL3R1 출력 기기 끊김 짧은 문장 (D-QL3R1-04)', () => {
         expect(injected(host), name).toBe(0)
         const long = buttons(host).find((b) => b.textContent === text)
         const short = buttons(host).find((b) => b.textContent === shortText)
-        expect(long, `${name} 긴 줄`).toBeDefined()
         if (expanded) {
+          expect(long, `${name} 긴 줄`).toBeDefined() // QL3R2 D-QL3R2-02: 긴 줄은 펼친 띠·PC에만
           expect(short, `${name} 펼친 띠엔 짧은 줄 없음`).toBeUndefined()
           continue
         }
+        expect(long, `${name} 접힌 띠엔 긴 줄 없음`).toBeUndefined() // QL3R2 D-QL3R2-02 (1) 이중 표시 없음
         expect(short, `${name} 접힌 띠의 짧은 줄`).toBeDefined()
         // 짧은 줄은 "알림" 영역 밖(접힌 한 줄 높이·항목 수가 BASE와 같게 — AC-MOB1-13)
         expect(host.querySelector('section[aria-label="알림"]')?.textContent?.includes(shortText ?? '')).toBe(false)
         react.act(() => short?.click())
-        react.act(() => long?.click())
-        expect(pressed, name).toBe(2)
+        expect(pressed, name).toBe(1) // QL3R2 D-QL3R2-02: 접힌 띠에는 짧은 줄 하나뿐
         for (const root of mounted.splice(0)) root.unmount()
         document.body.innerHTML = ''
       }
