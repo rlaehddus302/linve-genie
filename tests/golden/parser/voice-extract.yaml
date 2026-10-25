@@ -340,3 +340,10 @@ cases:
   - { in: "1 이십 오번 라울 만원", out: { name: 라울, confidence: LOW } }                    # 이십 + 오 = 25, 그 앞 1(일) vs 25(십) 겹침 → 번호·가격 비움(25번 아님)
   - { in: "0 삼번 라울 만원", out: { no: 3, name: 라울, price: 10000, confidence: HIGH } }      # 0은 수 토큰이 아님 → 합치지 않음 → 3번
   - { in: "0 5번 라울 만원", out: { no: 5, name: 라울, price: 10000, confidence: HIGH } }       # 0 토큰은 무시 — D-I4-01 검사('05')에도 쓰지 않음 → 5번
+---
+# V3 D-V3-72: 토큰 끝 문장 부호에 '…'(U+2026)
+suite: voice-extract
+settings:
+  dictionary: [라울]
+cases:
+  - { in: "15번 라울 만원…", out: { no: 15, name: 라울, price: 10000, confidence: HIGH } }   # '만원…' → '…'를 지우면 '만원'
