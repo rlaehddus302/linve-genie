@@ -1,6 +1,6 @@
 # BND1 test-domain 메모
 
-시험 위치: `tests/adversarial/bnd1/` (두 파일, 20개 시험 — 실패 3개는 아래 지적)
+시험 위치: `tests/adversarial/bnd1/` (세 파일, 25개 시험 — 2회차 기준 모두 통과)
 
 - `comment-property.test.ts` (순수 함수, 모두 통과 — 회귀로 둔다)
   - `bandBatch`를 손으로 쓴 모형과 대조(fast-check 400번): 기록 차례 = 작성 시각 오름차순(같으면 읽은 차례), 이미 본 키 빠짐, 같은 읽기 안 두 번째부터 DUPLICATE, 입력을 바꾸지 않음, chat 다섯 키·owner false·band: 키
@@ -16,3 +16,18 @@
   - **실패 TD-BND1-003** 늦어진 빠른 읽기가 답을 기다리는 동안 끊고 다른 회차에 이으면 기준선 읽기와 겹쳐 같은 토큰 동시 요청 2 (`unlink`·`#retire`가 진행 중인 읽기를 기다리지 않음)
 
 돌린 명령: `pnpm exec vitest run --config vitest.adversarial.config.ts tests/adversarial/bnd1` (전체 verify는 돌리지 않음)
+
+## 2회차 (감사 2회차 고침 확인 — ab0bbaa2·6a1cbc46 뒤)
+
+- TD-BND1-001·002·003 모두 녹색. 001·002는 새 결정대로 **더 엄하게** 바꿨다(기대를 지우지 않음).
+  - TD-BND1-001: A→B→C→B→A(처음 글로 돌아감)까지 — 알림 2개(B·C) (D-BND1-18). 300번 고침은 서버 시험에 있다.
+  - TD-BND1-002: 잇기의 기준선 읽기 요청 ≤ ⌈1000÷20⌉+10 = 60 (예전 느슨한 100에서), 끝까지 되지 않은 읽기로는 잇지 않음 — 503 `UNAVAILABLE` "밴드 글을 읽지 못해 잇지 못했어요. 잠시 뒤 다시 눌러 주세요."(D-BND1-19), 연결 `NONE`.
+- 새 파일 `fast-read-attacks.test.ts` (D-BND1-16, RA-BND1-03·04):
+  - fast-check 모형(10번, 다른 씨앗으로 40번 더 돌려 통과): 쪽 크기 5·10·20·50 × 기준선 0~30 × 몰림 0~260개 × 쪽 중간 5xx(0~3번, 0~4쪽 뒤) × 10초 차례 1~7번(60초 차례 경계를 넘나듦) → 회복 뒤 모든 댓글이 정확히 한 번, seq 순서 = 작성 시각 순서, `READING`, STUCK 알림 0.
+  - 1,000개 경계: 기준선 0 + 새 1,000개 → 빠른 읽기 한 번(50쪽)에 1,000개 차례대로, `BAND_FAST_UNREACHED` 없음. 기준선 5 + 새 1,000개(빠른 읽기는 본 댓글 쪽 직전에 1,000개를 넘음) → 같은 차례 전체 읽기 + 빠른 읽기 한 번 더로 1,000개 모두 차례대로, STUCK 0.
+  - 끝나지 않는 쪽 넘기기(이은 뒤): 한 차례 요청 ≤ 3×60, 기록 0, STUCK 알림 한 번(세 차례 뒤에도)·문장 확인·`notices.unseen`에 듦(D-BND1-17), 회복하면 25개 차례대로, 닿은 뒤 다시 막히면 알림 하나 더.
+  - 빠른 읽기가 밴드 답을 기다리는 동안 회차 끝 → 늦은 답의 댓글 기록 0, 연결 `FINISHED`, 그 뒤 다섯 차례 요청 0, 남은 타이머 0.
+- 민감도: `apps/server/src/band/service.ts`를 잠깐 a4aa8ffb 판으로 돌려 돌렸더니 새·강화 시험 5개가 실패(모형 반례 `[50,7,[{n:4,…},{n:257,steps:2,…}]]` — 5쪽 상한으로 뒤 seq). 곧바로 되돌렸다(제품 코드 변경 없음).
+- 지적으로 남기지 않은 관찰(설계대로): 한 글의 댓글이 1,000개를 넘으면 전체 읽기는 늘 오래된 1,000개만 보므로, 그 뒤 한 차례에 1,000개 넘게 몰리면 영원히 막다른 경우가 된다 — D-BND1-16의 막다른 경우 알림이 이를 판매자에게 알린다.
+
+돌린 명령: `TZ=Asia/Seoul pnpm exec vitest run --config vitest.adversarial.config.ts tests/adversarial/bnd1` (25개 통과, 약 13초), `pnpm exec tsc -p tsconfig.json --noEmit`, `pnpm exec eslint tests/adversarial/bnd1`

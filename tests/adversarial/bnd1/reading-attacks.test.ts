@@ -2,7 +2,7 @@
 // - 접두어·휴대폰 번호 모양 user_key·판매자와 대소문자만 다른 손님 → 늘 band: 구매자, 합치기 막히지 않음 (D-BND1-02·05, D-079)
 // - 한 묶음 안 시각이 뒤섞인 50개 → seq = 작성 시각 순, 다음 읽기에서 찾은 이른 댓글은 뒤(1등 그대로) (D-BND1-06)
 // - 쪽 경계에 같은 댓글 키 두 번 → chat 하나·DUPLICATE 1 (늘지 않음) (D-BND1-07)
-// - 같은 댓글을 여러 번 고침(A→B→C→B) → 고친 글마다 알림 하나 (AC-BND1-40 "같은 고친 글이 다시 보여도 다시 알리지 않음")
+// - 같은 댓글을 여러 번 고침(A→B→C→B→A) → 고친 글마다 알림 하나, 처음 글로 돌아가도 없음 (AC-BND1-40, D-BND1-18)
 // - 쪽 넘기기가 끝나지 않는 응답(빈 쪽 + 늘 새 after) → 읽기가 끝나야 한다 (AC-BND1-32·D-BND1-08)
 // - 끊고 바로 다른 회차에 이을 때 늦은 읽기와 겹침 (AC-BND1-30 "한 판매자의 읽기는 겹치지 않는다")
 import { afterEach, describe, expect, it } from 'vitest'
@@ -117,7 +117,7 @@ describe('TD-BND1 두 번 넣지 않기 — 쪽 경계', () => {
 })
 
 describe('TD-BND1 고친 댓글 — 같은 고친 글이 다시 보여도 다시 알리지 않는다 (AC-BND1-40)', () => {
-  it('TD-BND1-001: A→B→C→B로 고치면 고친 글 B·C 알림 둘 — B가 다시 보여도 세 번째 알림이 없다', async () => {
+  it('TD-BND1-001: A→B→C→B→A로 고치면 고친 글 B·C 알림 둘 — B나 처음 글 A가 다시 보여도 알림이 늘지 않는다 (D-BND1-18)', async () => {
     const w = await world()
     const { seller, postKey, b } = await opened(w)
     const key = guestComment(w, postKey, '1번 주세요', { name: '김다육' })
@@ -127,6 +127,10 @@ describe('TD-BND1 고친 댓글 — 같은 고친 글이 다시 보여도 다시
     w.fake.editComment(postKey, key, '3번이요')
     await fullRead(w)
     w.fake.editComment(postKey, key, '2번으로 바꿀게요')
+    await fullRead(w)
+    // 처음 글로 돌아감 — 처음 글도 기억하므로 고친 댓글이 아니다
+    w.fake.editComment(postKey, key, '1번 주세요')
+    await fullRead(w)
     await fullRead(w)
     const notices = await noticesOf(w, seller, b)
     expect(notices.items.filter((item) => item.kind === 'EDITED').map((item) => item.message)).toEqual([
@@ -171,8 +175,13 @@ describe('TD-BND1 쪽 넘기기가 끝나지 않는 응답', () => {
     w.fake.pagingOverride = (_op, _next) => null
     await pending.catch(() => undefined)
     expect(settled).toBe('done')
-    // 1,000개 상한이 있는 읽기라면 쪽 수도 그만큼에서 끝나야 한다 (쪽 크기 20 → 50쪽, 넉넉히 100)
-    expect(calls).toBeLessThanOrEqual(100)
+    // 쪽 수 상한 ⌈1000 ÷ 쪽 크기⌉ + 10 (AC-BND1-31, 쪽이 모두 비면 쪽 크기 20으로 봄 → 60)
+    expect(calls).toBeLessThanOrEqual(Math.ceil(1_000 / 20) + 10)
+    // 끝까지 되지 않은 기준선 읽기로는 잇지 않는다 — 503 UNAVAILABLE 잇기 일시 실패 문장(D-BND1-19), 연결 없음
+    const answer = await pending
+    expect(answer.status, answer.text).toBe(503)
+    expect(answer.body.error).toEqual({ code: 'UNAVAILABLE', message: '밴드 글을 읽지 못해 잇지 못했어요. 잠시 뒤 다시 눌러 주세요.' })
+    expect((await bandView(w, shop.seller, b)).state).toBe('NONE')
   }, 30_000)
 })
 
