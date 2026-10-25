@@ -3935,3 +3935,53 @@ select.input {
 .login-help p {
   margin: 0;
 }
+
+/* ── 네이버 밴드 (BND1, AC-BND1-70~77) ───────────────────────────
+ * 글 첫 줄·밴드 이름·알림 글은 손님·판매자가 쓴 글이라 길 수 있다 — 375px·글자 150%에서도 줄을 바꿔 가로로 넘치지 않는다.
+ * 확인하지 않은 알림은 색만이 아니라 글자 "새 알림"으로 구분한다. */
+.band-panel .band-post-line,
+.band-picked,
+.band-post-first,
+.band-notice {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.band-notices-title {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.band-notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #c4c7c5;
+  border-radius: 0.5rem;
+}
+
+.band-notice-new {
+  border: 2px solid #b06000;
+  background-color: #fef7e0;
+}
+
+.tag-new {
+  border-color: #b06000;
+  background-color: #ffffff;
+  color: #5f3200;
+  font-weight: 700;
+}
+
+.band-choices {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.band-post-choice {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.band-post-choice > * {
+  max-inline-size: 100%;
+}

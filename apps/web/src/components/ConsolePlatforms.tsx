@@ -11,12 +11,16 @@
 //   댓글 수는 알림마다 오지 않으므로 새 채팅이 들어오면 모아서 한 번 다시 받는다.
 // - MOB1 D-MOB1-09(AC-MOB1-15): 휴대폰 폭에서는 쓸 수 없는 칸("준비되지 않았어요"·"연결 안 함"·틱톡 막힘 문장 + "설정으로"뿐)을 그리지 않는다 —
 //   이 방송에 이었거나 이을 수 있는 칸, 알림·오류가 있는 칸, 다시 연결할 칸은 그대로. PC 폭과 리허설 한 줄은 그대로.
+// - BND1 (AC-BND1-71~74): 틱톡 칸 뒤에 "밴드" 칸(ConsoleBand.tsx). 연결 보기는 GET /api/broadcasts/:id/band + SSE `band` LINK.
+//   알림 띠: "밴드 댓글이 들어오지 않아요."(다시 시도 60초 넘음·다시 연결 필요·읽을 수 없음·유튜브 이은 회차) · "밴드에서 지우거나 고친 댓글이 {N}개 있어요." + "확인했어요".
+//   리허설 회차는 위 한 줄 그대로("리허설 방송에는 라이브를 이을 수 없어요.") — 밴드 요청도 보내지 않는다.
 // 서버 문장(수집 상태·오류·알림)은 고치지 않고 그대로 보인다. 아이디·라이브 ID는 글자로만 보인다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, withRetry, withQuery, type ApiError } from '../api/client.ts'
-import type { BroadcastLive, InstagramConnection, InstagramDmRow, InstagramLinkView, InstagramLive, PlatformCapability, TikTokLinkView, TikTokSettings } from '../api/types.ts'
+import type { BandLinkView, BroadcastLive, InstagramConnection, InstagramDmRow, InstagramLinkView, InstagramLive, PlatformCapability, TikTokLinkView, TikTokSettings } from '../api/types.ts'
 import type { ConsoleStore } from '../lib/console-store.ts'
 import type { AlertLead } from './AlertStrip.tsx'
+import { BAND_NOT_COMING, BAND_SEEN, bandEditsMessage, bandLinkOpen, bandNotComing, bandRetryAlertAt, bandSeenUpTo, bandUnseenEdits } from '../lib/band.ts'
 import { kstClockWords } from '../lib/kst.ts'
 import { groupDigits } from '../lib/money.ts'
 import {
@@ -39,6 +43,7 @@ import {
 } from '../lib/platforms.ts'
 import { routePath, type Navigate, type SettingsSection } from '../lib/router.ts'
 import { useWide } from '../lib/use-wide.ts'
+import { BAND_NOTICES_ID, BAND_PANEL_ID, BandPanel } from './ConsoleBand.tsx'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 
@@ -72,14 +77,26 @@ export interface ConsolePlatforms {
   readonly tiktok: TikTokSettings | null
   readonly tiktokError: ApiError | null
   readonly ttLink: TikTokLinkView | null
+  /** 회차의 밴드 글 연결 (BND1) */
+  readonly bandLink: BandLinkView | null
+  readonly bandError: ApiError | null
+  /** 밴드 댓글이 들어오지 않는다 (알림 띠 — 다시 시도 60초는 시계로 다시 본다) */
+  readonly bandNotComing: boolean
   readonly dmFailed: number
   readonly notices: readonly PlatformNotice[]
-  /** 인스타그램·틱톡이 이어져 있다 (채팅 줄 플랫폼 글자) */
+  /** 인스타그램·틱톡·밴드가 이어져 있다 (채팅 줄 플랫폼 글자) */
   readonly otherLinked: boolean
-  /** 이어진 인스타그램·틱톡 수 (유튜브는 콘솔이 더한다) */
+  /** 이어진 인스타그램·틱톡·밴드 수 (유튜브는 콘솔이 더한다) */
   readonly linkedCount: number
   setIgLink(view: InstagramLinkView): void
   setTtLink(view: TikTokLinkView): void
+  bandStamp(): number
+  acceptBandLink(view: BandLinkView, stamp: number): void
+  reloadBandLink(): Promise<void>
+  /** 밴드 알림 "확인했어요" (AC-BND1-74) — upTo = 화면이 본 마지막 알림 번호 */
+  ackBandNotices(upTo: number): Promise<void>
+  readonly bandSeenBusy: boolean
+  readonly bandSeenError: ApiError | null
   /** 쓰기를 보내기 직전에 받아 둔다 (응답을 넣을 때 그사이 더 새 상태가 왔는지 본다) */
   igStamp(): number
   ttStamp(): number
@@ -103,6 +120,14 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
   const [tiktok, setTiktok] = useState<TikTokSettings | null>(null)
   const [tiktokError, setTiktokError] = useState<ApiError | null>(null)
   const [ttLink, setTtLinkState] = useState<TikTokLinkView | null>(null)
+  const [bandLink, setBandLinkState] = useState<BandLinkView | null>(null)
+  const [bandError, setBandError] = useState<ApiError | null>(null)
+  const [bandSeenBusy, setBandSeenBusy] = useState(false)
+  const [bandSeenError, setBandSeenError] = useState<ApiError | null>(null)
+  const bandSeenSending = useRef(false)
+  const bandVersion = useRef(0)
+  // 다시 시도 중인 채 60초가 넘는 때를 다시 보려고 (그때 한 번 그린다)
+  const [clock, setClock] = useState(() => Date.now())
   const [dms, setDms] = useState<readonly InstagramDmRow[]>([])
   const [notices, setNotices] = useState<readonly PlatformNotice[]>([])
   const [ttSeenBusy, setTtSeenBusy] = useState(false)
@@ -153,6 +178,33 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
       // 다음 알림·다시 붙을 때 다시 받는다
     }
   }, [base])
+
+  const setBandLink = useCallback((view: BandLinkView) => {
+    bandVersion.current++
+    setBandLinkState(view)
+    setBandError(null)
+  }, [])
+  const reloadBandLink = useCallback(async () => {
+    const mine = ++bandVersion.current
+    try {
+      const { link } = await get<{ link: BandLinkView }>(`${base}/band`)
+      if (alive.current && mine === bandVersion.current) {
+        setBandLinkState(link)
+        setBandError(null)
+      }
+    } catch (error) {
+      if (alive.current && mine === bandVersion.current && isApiError(error)) setBandError(error)
+    }
+  }, [base])
+  const bandStamp = useCallback(() => bandVersion.current, [])
+  const acceptBandLink = useCallback(
+    (view: BandLinkView, stamp: number) => {
+      if (!alive.current) return
+      if (stamp === bandVersion.current) setBandLink(view)
+      else void reloadBandLink()
+    },
+    [setBandLink, reloadBandLink],
+  )
 
   const igStamp = useCallback(() => igVersion.current, [])
   const ttStamp = useCallback(() => ttVersion.current, [])
@@ -211,8 +263,8 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
         // 이유 문장이 없으면 화면의 기본 문장을 쓴다
       }
     }
-    await Promise.all([loadPlatforms(), loadInstagram(), loadTiktok(), reloadIgLink(), reloadTtLink(), reloadDms()])
-  }, [reloadDms, reloadIgLink, reloadTtLink])
+    await Promise.all([loadPlatforms(), loadInstagram(), loadTiktok(), reloadIgLink(), reloadTtLink(), reloadBandLink(), reloadDms()])
+  }, [reloadDms, reloadIgLink, reloadTtLink, reloadBandLink])
 
   useEffect(() => {
     if (enabled) void reload()
@@ -224,6 +276,13 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
     const off = store.onPlatform((data) => {
       if (data.type === 'tiktok') {
         if (data.event.kind === 'LINK' && data.event.broadcast === broadcastId) setTtLink(data.event.link)
+        return
+      }
+      if (data.type === 'band') {
+        // 계정이 바뀌면(연결·풀림·끊기) 이 회차의 이을 수 있는지도 바뀐다 — 연결 보기를 다시 받는다
+        if (data.event.kind === 'LINK') {
+          if (data.event.broadcast === broadcastId) setBandLink(data.event.link)
+        } else void reloadBandLink()
         return
       }
       const event = data.event
@@ -254,10 +313,50 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
       off()
       offReconnect()
     }
-  }, [store, enabled, broadcastId, date, reload, reloadDms, setIgLink, setTtLink])
+  }, [store, enabled, broadcastId, date, reload, reloadDms, setIgLink, setTtLink, setBandLink, reloadBandLink])
 
   const igOpen = igLink !== null && igLink.state !== 'NONE'
   const ttOpen = ttLink !== null && ttLink.state === 'LINKED'
+  const bandOpen = bandLinkOpen(bandLink)
+
+  // 다시 시도 중이면 60초가 되는 때 한 번 다시 본다 (알림 띠 "밴드 댓글이 들어오지 않아요.")
+  const retryAlertAt = enabled ? bandRetryAlertAt(bandLink) : null
+  useEffect(() => {
+    if (retryAlertAt === null) return
+    const wait = retryAlertAt - Date.now()
+    if (wait <= 0) {
+      setClock(Date.now())
+      return
+    }
+    const timer = setTimeout(() => setClock(Date.now()), wait)
+    return () => clearTimeout(timer)
+  }, [retryAlertAt])
+
+  // 밴드 알림 확인 (AC-BND1-74): 서버는 그 번호까지 확인으로 적는다 — 같은 upTo를 다시 보내도 같다(자동 다시 보내기 안전)
+  const ackBandNotices = useCallback(
+    async (upTo: number) => {
+      if (bandSeenSending.current) return
+      bandSeenSending.current = true
+      setBandSeenBusy(true)
+      setBandSeenError(null)
+      const stamp = bandVersion.current
+      try {
+        const { link } = await withRetry(() => post<{ link: BandLinkView }>(`${base}/band/notices-seen`, { upTo }))
+        acceptBandLink(link, stamp)
+      } catch (error) {
+        if (!isApiError(error)) throw error
+        if (alive.current) setBandSeenError(error)
+      } finally {
+        bandSeenSending.current = false
+        if (alive.current) setBandSeenBusy(false)
+      }
+    },
+    [base, acceptBandLink],
+  )
+  const bandUnseen = bandLink === null ? 0 : bandLink.notices.unseen
+  useEffect(() => {
+    if (bandUnseen === 0) setBandSeenError(null)
+  }, [bandUnseen])
 
   // 새 채팅이 들어오면 받은 댓글 수를 다시 받는다 (모아서 한 번)
   useEffect(() => {
@@ -308,11 +407,20 @@ export function useConsolePlatforms({ store, broadcastId, date, rehearsal, lastM
     tiktok,
     tiktokError,
     ttLink,
+    bandLink: enabled ? bandLink : null,
+    bandError,
+    bandNotComing: enabled && bandNotComing(bandLink, Math.max(clock, Date.now())),
     dmFailed: enabled ? failedDmCount(dms, broadcastId) : 0,
     notices: enabled ? notices : [],
-    otherLinked: enabled && (igOpen || ttOpen),
-    linkedCount: enabled ? (igOpen ? 1 : 0) + (ttOpen ? 1 : 0) : 0,
+    otherLinked: enabled && (igOpen || ttOpen || bandOpen),
+    linkedCount: enabled ? (igOpen ? 1 : 0) + (ttOpen ? 1 : 0) + (bandOpen ? 1 : 0) : 0,
     setIgLink,
+    bandStamp,
+    acceptBandLink,
+    reloadBandLink,
+    ackBandNotices,
+    bandSeenBusy,
+    bandSeenError,
     setTtLink,
     igStamp,
     ttStamp,
@@ -341,6 +449,14 @@ function showInstagramNotices(): void {
   document.getElementById(INSTAGRAM_NOTICES_ID)?.focus()
 }
 
+function showBandPanel(): void {
+  document.getElementById(BAND_PANEL_ID)?.focus()
+}
+
+function showBandNotices(): void {
+  ;(document.getElementById(BAND_NOTICES_ID) ?? document.getElementById(BAND_PANEL_ID))?.focus()
+}
+
 /**
  * 알림 띠 맨 앞에 붙일 플랫폼 줄 (AC-N2b-2-60·62·63, UX-04): 붙여넣기 결과(10초) · 틱톡 알림 줄 · 인스타그램 알림(가장 최근 것).
  * 휴대폰에서는 띠와 함께 한 줄로 접히고 긴 문장은 말줄임이다(전문은 단추 이름·"펼치기"·인스타그램 칸).
@@ -356,6 +472,18 @@ export function platformLeads({ live, sealed, onPaste, pasteNote }: { readonly l
         ? { label: TIKTOK_SAVE_FAILED_SEEN, onClick: () => void live.ackTtSaveFailed(collection.saveFailed), busy: live.ttSeenBusy }
         : undefined
     leads.push({ key: 'tiktok', text: TIKTOK_PASTE_ALERT, onClick: onPaste, ...(action !== undefined ? { action } : {}) })
+  }
+  // 밴드 (AC-BND1-73): 들어오지 않음(상태 문장은 밴드 칸에) · 확인하지 않은 지운·고친 댓글 + "확인했어요". 끝난 연결은 띄우지 않는다
+  if (live.bandNotComing) leads.push({ key: 'band', text: BAND_NOT_COMING, onClick: showBandPanel })
+  const edits = bandUnseenEdits(live.bandLink)
+  const upTo = bandSeenUpTo(live.bandLink)
+  if (edits > 0) {
+    leads.push({
+      key: 'band-notices',
+      text: bandEditsMessage(edits),
+      onClick: showBandNotices,
+      ...(!sealed && upTo !== null ? { action: { label: BAND_SEEN, onClick: () => void live.ackBandNotices(upTo), busy: live.bandSeenBusy } } : {}),
+    })
   }
   const notice = live.notices.at(-1)
   if (notice !== undefined) leads.push({ key: 'instagram', text: notice.message, onClick: showInstagramNotices, soft: true })
@@ -432,6 +560,7 @@ function LivePanels(props: PlatformPanelsProps) {
     <>
       <InstagramPanel {...props} hideIdle={!wide} />
       <TikTokPanel {...props} hideIdle={!wide} />
+      <BandPanel live={props.live} broadcastId={props.broadcastId} navigate={props.navigate} ended={props.ended} sealed={props.sealed} hideIdle={!wide} />
     </>
   )
 }
