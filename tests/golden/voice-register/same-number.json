@@ -1,6 +1,6 @@
 {
   "kind": "same-number",
-  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: null|NO_AUTO|NOT_OPEN|PRICE_NOT_SURE|CLAIMS }. in = { heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
+  "about": "음성 같은 번호 (VOC-04·PRD-06, DOMAIN_RULES R-22, V3 — D-V3-06). 들은 번호의 상품이 그 방송에 이미 있을 때 → { action: IGNORE|AUTO_FIX|ASK, changes: { price?, name? }, reason: null|NO_AUTO|NUMBER_BARE|NOT_OPEN|PRICE_NOT_SURE|PRICE_JUMP|CLAIMS }. in = { heard: { price, priceSure, name, nameFrom: DICTIONARY|GUESS|null, numberFrom: MARKER|BARE }, product: { name ('' = 품종 미입력), price, status: READY|OPEN|SOLD|HOLD|CLOSED, liveClaims }, auto }. packages/voice 단위 시험이 읽는다 — README '음성 바로 등록 골든'.",
   "cases": [
     {
       "id": "G-VSN-V3-01",
@@ -16,7 +16,8 @@
           "price": 100000,
           "priceSure": true,
           "name": "bts",
-          "nameFrom": "GUESS"
+          "nameFrom": "GUESS",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -45,7 +46,8 @@
           "price": 100000,
           "priceSure": true,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "",
@@ -63,19 +65,20 @@
     },
     {
       "id": "G-VSN-V3-03",
-      "title": "빈 품종을 추측으로 채움",
+      "title": "빈 품종도 추측으로는 채우지 않음 (D-V3-31)",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "찜 없음·판매 중",
+      "note": "추측(GUESS)은 이미 있는 상품의 품종을 바꾸지 않는다 — 바꿀 칸 없음",
       "in": {
         "heard": {
           "price": 100000,
           "priceSure": true,
           "name": "bts",
-          "nameFrom": "GUESS"
+          "nameFrom": "GUESS",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "",
@@ -86,10 +89,8 @@
         "auto": true
       },
       "out": {
-        "action": "AUTO_FIX",
-        "changes": {
-          "name": "bts"
-        },
+        "action": "IGNORE",
+        "changes": {},
         "reason": null
       }
     },
@@ -106,7 +107,8 @@
           "price": 120000,
           "priceSure": true,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -138,7 +140,8 @@
           "price": 120000,
           "priceSure": true,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -170,7 +173,8 @@
           "price": 100000,
           "priceSure": true,
           "name": "핑크프릴",
-          "nameFrom": "DICTIONARY"
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "",
@@ -190,7 +194,7 @@
     },
     {
       "id": "G-VSN-V3-07",
-      "title": "찜이 있으면 추측으로는 채우지 않고 묻기",
+      "title": "찜이 있어도 없어도 추측은 채우지 않음",
       "refs": [
         "VOC-04",
         "PRD-06",
@@ -201,7 +205,8 @@
           "price": 100000,
           "priceSure": true,
           "name": "bts",
-          "nameFrom": "GUESS"
+          "nameFrom": "GUESS",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "",
@@ -212,12 +217,11 @@
         "auto": true
       },
       "out": {
-        "action": "ASK",
-        "changes": {
-          "name": "bts"
-        },
-        "reason": "CLAIMS"
-      }
+        "action": "IGNORE",
+        "changes": {},
+        "reason": null
+      },
+      "note": "D-V3-31"
     },
     {
       "id": "G-VSN-V3-08",
@@ -233,7 +237,8 @@
           "price": 100000,
           "priceSure": true,
           "name": "요한",
-          "nameFrom": "GUESS"
+          "nameFrom": "GUESS",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -262,7 +267,8 @@
           "price": 100000,
           "priceSure": true,
           "name": "핑크프릴",
-          "nameFrom": "DICTIONARY"
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -294,7 +300,8 @@
           "price": 100000,
           "priceSure": true,
           "name": "핑크프릴",
-          "nameFrom": "DICTIONARY"
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -325,7 +332,8 @@
           "price": 120000,
           "priceSure": true,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -356,7 +364,8 @@
           "price": 120000,
           "priceSure": true,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -387,7 +396,8 @@
           "price": 100000,
           "priceSure": true,
           "name": "핑크프릴",
-          "nameFrom": "DICTIONARY"
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "",
@@ -418,7 +428,8 @@
           "price": 120000,
           "priceSure": true,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -449,7 +460,8 @@
           "price": 100000,
           "priceSure": true,
           "name": "bts",
-          "nameFrom": "GUESS"
+          "nameFrom": "GUESS",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -478,7 +490,8 @@
           "price": null,
           "priceSure": false,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -508,7 +521,8 @@
           "price": 120000,
           "priceSure": true,
           "name": "핑크 프릴",
-          "nameFrom": "DICTIONARY"
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "핑크프릴",
@@ -528,19 +542,20 @@
     },
     {
       "id": "G-VSN-V3-18",
-      "title": "가격·품종 둘 다 — 찜(대기)이 있으면 전체를 묻기",
+      "title": "추측 품종은 빼고 가격만 — 찜(대기)이 있으면 묻기",
       "refs": [
         "VOC-04",
         "PRD-06",
         "R-22"
       ],
-      "note": "대기 찜도 셈(liveClaims 2)",
+      "note": "품종 bts는 추측이라 바꿀 칸이 아님. 대기 찜도 셈",
       "in": {
         "heard": {
           "price": 120000,
           "priceSure": true,
           "name": "bts",
-          "nameFrom": "GUESS"
+          "nameFrom": "GUESS",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "",
@@ -553,8 +568,7 @@
       "out": {
         "action": "ASK",
         "changes": {
-          "price": 120000,
-          "name": "bts"
+          "price": 120000
         },
         "reason": "CLAIMS"
       }
@@ -573,7 +587,8 @@
           "price": 120000,
           "priceSure": true,
           "name": "핑크프릴",
-          "nameFrom": "DICTIONARY"
+          "nameFrom": "DICTIONARY",
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "",
@@ -606,7 +621,8 @@
           "price": 18000,
           "priceSure": false,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "핑크문",
@@ -637,7 +653,8 @@
           "price": 15000,
           "priceSure": false,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "핑크문",
@@ -667,7 +684,8 @@
           "price": 120000,
           "priceSure": true,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -698,7 +716,8 @@
           "price": 120000,
           "priceSure": true,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -729,7 +748,8 @@
           "price": 120000,
           "priceSure": false,
           "name": null,
-          "nameFrom": null
+          "nameFrom": null,
+          "numberFrom": "MARKER"
         },
         "product": {
           "name": "bts",
@@ -745,6 +765,461 @@
           "price": 120000
         },
         "reason": "PRICE_NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSN-V3-25",
+      "title": "'번' 없는 번호로 들은 다른 가격 — 묻기 (D-V3-32)",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "바로 고침은 N번으로 말했을 때만",
+      "in": {
+        "heard": {
+          "price": 120000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "BARE"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 120000
+        },
+        "reason": "NUMBER_BARE"
+      }
+    },
+    {
+      "id": "G-VSN-V3-26",
+      "title": "'번' 없는 번호로 들은 같은 값 — 무시",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 100000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "BARE"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "IGNORE",
+        "changes": {},
+        "reason": null
+      }
+    },
+    {
+      "id": "G-VSN-V3-27",
+      "title": "딱 3배는 바로 고침",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "300000 > 100000×3? 아니다",
+      "in": {
+        "heard": {
+          "price": 300000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 300000
+        },
+        "reason": null
+      }
+    },
+    {
+      "id": "G-VSN-V3-28",
+      "title": "3배 넘음 — 묻기 (D-V3-33)",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "300001 > 300000",
+      "in": {
+        "heard": {
+          "price": 300001,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 300001
+        },
+        "reason": "PRICE_JUMP"
+      }
+    },
+    {
+      "id": "G-VSN-V3-29",
+      "title": "1/3 이상은 바로 고침",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "34000×3 = 102000 ≥ 100000",
+      "in": {
+        "heard": {
+          "price": 34000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 34000
+        },
+        "reason": null
+      }
+    },
+    {
+      "id": "G-VSN-V3-30",
+      "title": "1/3 미만 — 묻기",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "33333×3 = 99999 < 100000",
+      "in": {
+        "heard": {
+          "price": 33333,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 33333
+        },
+        "reason": "PRICE_JUMP"
+      }
+    },
+    {
+      "id": "G-VSN-V3-31",
+      "title": "실방송 3차 — 605만 원(육십오만의 오기) 자동 고침 막기",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "6050000 > 650000×3, 3,000,000 넘음",
+      "in": {
+        "heard": {
+          "price": 6050000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "설비",
+          "price": 650000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 6050000
+        },
+        "reason": "PRICE_JUMP"
+      }
+    },
+    {
+      "id": "G-VSN-V3-32",
+      "title": "3배 안이어도 3,000,000원 넘으면 묻기",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "3000001 ≤ 4500000이지만 상한 넘음",
+      "in": {
+        "heard": {
+          "price": 3000001,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 1500000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 3000001
+        },
+        "reason": "PRICE_JUMP"
+      }
+    },
+    {
+      "id": "G-VSN-V3-33",
+      "title": "딱 3,000,000원은 받음",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 3000000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 1500000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 3000000
+        },
+        "reason": null
+      }
+    },
+    {
+      "id": "G-VSN-V3-34",
+      "title": "차례: 번호 없이 들음이 상태보다 먼저",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "NO_AUTO → NUMBER_BARE → NOT_OPEN → PRICE_NOT_SURE → PRICE_JUMP → CLAIMS",
+      "in": {
+        "heard": {
+          "price": 120000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "BARE"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "READY",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 120000
+        },
+        "reason": "NUMBER_BARE"
+      }
+    },
+    {
+      "id": "G-VSN-V3-35",
+      "title": "차례: 원 없는 가격이 큰 변화보다 먼저",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 400000,
+          "priceSure": false,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 400000
+        },
+        "reason": "PRICE_NOT_SURE"
+      }
+    },
+    {
+      "id": "G-VSN-V3-36",
+      "title": "차례: 큰 변화가 찜보다 먼저",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 400000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "SOLD",
+          "liveClaims": 1
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 400000
+        },
+        "reason": "PRICE_JUMP"
+      }
+    },
+    {
+      "id": "G-VSN-V3-37",
+      "title": "추측으로 품종을 바꾸려 해도 가격만",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "note": "품종은 추측이라 바뀌지 않음",
+      "in": {
+        "heard": {
+          "price": 120000,
+          "priceSure": true,
+          "name": "요한",
+          "nameFrom": "GUESS",
+          "numberFrom": "MARKER"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": true
+      },
+      "out": {
+        "action": "AUTO_FIX",
+        "changes": {
+          "price": 120000
+        },
+        "reason": null
+      }
+    },
+    {
+      "id": "G-VSN-V3-38",
+      "title": "자동 등록을 끈 덩어리가 먼저",
+      "refs": [
+        "VOC-04",
+        "PRD-06",
+        "R-22"
+      ],
+      "in": {
+        "heard": {
+          "price": 120000,
+          "priceSure": true,
+          "name": null,
+          "nameFrom": null,
+          "numberFrom": "BARE"
+        },
+        "product": {
+          "name": "bts",
+          "price": 100000,
+          "status": "OPEN",
+          "liveClaims": 0
+        },
+        "auto": false
+      },
+      "out": {
+        "action": "ASK",
+        "changes": {
+          "price": 120000
+        },
+        "reason": "NO_AUTO"
       }
     }
   ]
