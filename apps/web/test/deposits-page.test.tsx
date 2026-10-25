@@ -56,7 +56,7 @@ afterEach(() => {
 })
 
 const main = () => screen.getByRole('main')
-const card = (no: number) => screen.getByRole('listitem', { name: `입금 #${String(no)}` })
+const card = (no: number) => screen.getByRole('listitem', { name: `입금 번호 ${String(no)}` }) // MOB2 D-MOB2-05
 const dialog = () => screen.getByRole('dialog')
 
 describe('주소·메뉴·실시간 (AC-N3-40)', () => {
@@ -77,7 +77,7 @@ describe('주소·메뉴·실시간 (AC-N3-40)', () => {
     expect(menuLink.getAttribute('aria-current')).toBe('page')
     expect(menuLink.getAttribute('href')).toBe('/deposits')
     expect(screen.getByRole('tab', { name: '확인 필요 2' }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.getAllByRole('listitem').filter((item) => item.getAttribute('aria-label')?.startsWith('입금 #'))).toHaveLength(2)
+    expect(screen.getAllByRole('listitem').filter((item) => item.getAttribute('aria-label')?.startsWith('입금 번호 '))).toHaveLength(2) // MOB2 D-MOB2-05
     // 다른 기기가 #2를 확정함
     api.deposits[1] = { ...(api.deposits[1] as DepositView), status: 'APPLIED' }
     stream.emit('deposit', { deposits: [2], review: 1, sources: [] })
@@ -85,7 +85,7 @@ describe('주소·메뉴·실시간 (AC-N3-40)', () => {
     // 열어 둔 목록의 수가 바로 바뀐다 (AC-NAV-05), "더보기" 이름은 그대로
     expect(within(within(menuNav()).getByRole('list')).getByRole('link', { name: '입금 확인 1' })).toBeDefined()
     expect(more.textContent).toBe('더보기')
-    await waitFor(() => expect(screen.queryByRole('listitem', { name: '입금 #2' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('listitem', { name: '입금 번호 2' })).toBeNull()) // MOB2 D-MOB2-05
     expect(card(1)).toBeDefined()
   })
 
@@ -142,13 +142,13 @@ describe('확인 필요 목록 (AC-N3-41·49·50)', () => {
     expect(seven.textContent).toContain('<script>alert(1)</script>')
     expect(document.querySelector('main script')).toBeNull()
     expect(seven.textContent).toContain('금액은 맞는데 이름이 달라요')
-    const radios = within(within(seven).getByRole('radiogroup', { name: '입금 #7 묶음' })).getAllByRole('radio') as HTMLInputElement[]
+    const radios = within(within(seven).getByRole('radiogroup', { name: '입금 번호 7 묶음' })).getAllByRole('radio') as HTMLInputElement[] // MOB2 D-MOB2-05
     expect(radios.map((radio) => radio.checked)).toEqual([true])
     expect(seven.textContent).toContain('다육이맘 · 2026년 10월 18일 묶음 · 남은 금액 14,000원 · 미입금 → 입금 완료')
     expect((within(seven).getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(false)
     const nine = card(9)
     expect(nine.textContent).toContain('=1+2')
-    expect(nine.textContent).toContain('같은 입금이 두 번 들어왔을 수 있어요 (입금 #7과 같아요)')
+    expect(nine.textContent).toContain('같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 7과 같아요)') // MOB2 D-MOB2-05
     expect(nine.textContent).toContain('입금 완료 → 과입금(환불 필요 14,000원)')
     expect(nine.textContent).toContain('입금 시각이 이 묶음의 판매보다 먼저예요.')
     // 미리 고른 묶음이 없으면 확정은 누를 수 없다 — 고르면 누를 수 있다
@@ -161,12 +161,12 @@ describe('확인 필요 목록 (AC-N3-41·49·50)', () => {
     for (const word of ['REVIEW', 'AUTO_APPLIED', 'POPBILL', 'FAKE', 'NAME_MISMATCH', 'POSSIBLE_DUPLICATE', 'NO_MATCH', 'requestId', 'tid']) expect(text).not.toContain(word)
   })
 
-  it('PC(48rem 이상): 열 머리가 있는 표 — 한 줄 = 입금 하나 ("입금 #7")', async () => {
+  it('PC(48rem 이상): 열 머리가 있는 표 — 한 줄 = 입금 하나 ("입금 번호 7")', async () => { // MOB2 D-MOB2-05
     wide()
     await open([deposit(7)])
     const table = screen.getByRole('table', { name: '확인 필요 입금' })
     expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['고르기', '번호', '입금 시각', '입금자명', '금액', '원천', '사유와 묶음', '처리'])
-    const row = within(table).getByRole('row', { name: '입금 #7' })
+    const row = within(table).getByRole('row', { name: '입금 번호 7' }) // MOB2 D-MOB2-05
     expect(row.textContent).toContain('#7')
     expect(row.textContent).toContain('10/18 21:03:15')
     expect(within(row).getByRole('button', { name: '확정' })).toBeDefined()
@@ -175,8 +175,8 @@ describe('확인 필요 목록 (AC-N3-41·49·50)', () => {
   it('주 버튼(채운 색)은 많아야 하나 — 고른 줄이 있으면 "선택한 입금 확정 (N건)"만', async () => {
     await open([deposit(1), deposit(2)])
     expect(main().querySelectorAll('.button-primary')).toHaveLength(0)
-    fireEvent.click(within(card(1)).getByRole('checkbox', { name: '입금 #1 고르기' }))
-    fireEvent.click(within(card(2)).getByRole('checkbox', { name: '입금 #2 고르기' }))
+    fireEvent.click(within(card(1)).getByRole('checkbox', { name: '입금 번호 1 고르기' })) // MOB2 D-MOB2-05
+    fireEvent.click(within(card(2)).getByRole('checkbox', { name: '입금 번호 2 고르기' })) // MOB2 D-MOB2-05
     const group = screen.getByRole('group', { name: '선택한 입금' })
     expect(within(group).getByRole('button', { name: '선택한 입금 확정 (2건)' }).className).toContain('button-primary')
     expect(within(group).getByRole('button', { name: '선택한 입금 무시 (2건)' })).toBeDefined()
@@ -200,8 +200,8 @@ describe('확정 창 (AC-N3-42)', () => {
     expect(sent[0]?.body).toMatchObject({ date: D_DATE, buyer: 'UC_A', remaining: 14000, remember: true })
     expect(typeof sent[0]?.body?.requestId).toBe('string')
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(screen.getByRole('status').textContent).toContain('입금 #5: 다육이맘 · 2026년 10월 18일(일) 묶음에 적었어요.')
-    expect(screen.queryByRole('listitem', { name: '입금 #5' })).toBeNull()
+    expect(screen.getByRole('status').textContent).toContain('입금 번호 5: 다육이맘 · 2026년 10월 18일(일) 묶음에 적었어요.') // MOB2 D-MOB2-05
+    expect(screen.queryByRole('listitem', { name: '입금 번호 5' })).toBeNull() // MOB2 D-MOB2-05
   })
 
   it('기억 고르기를 끄면 remember: false, 이름 후보에 있거나 문자 구매자면(canRemember 거짓) 고르기가 없다', async () => {
@@ -251,10 +251,10 @@ describe('확정 창 (AC-N3-42)', () => {
 
   it('한꺼번에: 고른 줄마다 한 줄 → 항목마다 결과 (거절 항목의 문장), 묶음을 고르지 않은 줄이 있으면 확정할 수 없다', async () => {
     await open([deposit(1), deposit(2), deposit(3, { review: { reason: 'NO_MATCH', twin: null, suggestions: [], preselect: null } })])
-    for (const no of [1, 2, 3]) fireEvent.click(within(card(no)).getByRole('checkbox', { name: `입금 #${String(no)} 고르기` }))
+    for (const no of [1, 2, 3]) fireEvent.click(within(card(no)).getByRole('checkbox', { name: `입금 번호 ${String(no)} 고르기` })) // MOB2 D-MOB2-05
     expect((screen.getByRole('button', { name: '선택한 입금 확정 (3건)' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(main().textContent).toContain('묶음을 고르지 않은 입금이 있어요(입금 #3). 묶음을 고른 뒤 확정해 주세요.')
-    fireEvent.click(within(card(3)).getByRole('checkbox', { name: '입금 #3 고르기' }))
+    expect(main().textContent).toContain('묶음을 고르지 않은 입금이 있어요(입금 번호 3). 묶음을 고른 뒤 확정해 주세요.') // MOB2 D-MOB2-05
+    fireEvent.click(within(card(3)).getByRole('checkbox', { name: '입금 번호 3 고르기' })) // MOB2 D-MOB2-05
     api.failFor.set(1, apiError(409, 'BUNDLE_CHANGED', '묶음 금액이 바뀌었어요. 다시 확인해 주세요.'))
     fireEvent.click(screen.getByRole('button', { name: '선택한 입금 확정 (2건)' }))
     const dlg = dialog()
@@ -270,12 +270,12 @@ describe('확정 창 (AC-N3-42)', () => {
     ])
     const status = screen.getByRole('status')
     expect(status.textContent).toContain('입금 1건을 확정했어요. 1건은 확정하지 못했어요.')
-    expect(status.textContent).toContain('입금 #1: 묶음 금액이 바뀌었어요. 다시 확인해 주세요.')
+    expect(status.textContent).toContain('입금 번호 1: 묶음 금액이 바뀌었어요. 다시 확인해 주세요.') // MOB2 D-MOB2-05
   })
 
   it('한꺼번에 무시: 확인 창 뒤 보낸다', async () => {
     await open([deposit(1), deposit(2)])
-    for (const no of [1, 2]) fireEvent.click(within(card(no)).getByRole('checkbox', { name: `입금 #${String(no)} 고르기` }))
+    for (const no of [1, 2]) fireEvent.click(within(card(no)).getByRole('checkbox', { name: `입금 번호 ${String(no)} 고르기` })) // MOB2 D-MOB2-05
     fireEvent.click(screen.getByRole('button', { name: '선택한 입금 무시 (2건)' }))
     fireEvent.click(within(dialog()).getByRole('button', { name: '2건 무시' }))
     await flush(10)
@@ -291,7 +291,7 @@ describe('확정 창 (AC-N3-42)', () => {
     fireEvent.click(within(card(4)).getByRole('button', { name: '무시' }))
     await flush(10)
     expect(api.server.callsTo('POST', /^\/api\/deposits\/4\/ignore$/)).toHaveLength(1)
-    expect(screen.getByRole('status').textContent).toContain('입금 #4: 무시했어요. "무시함"에서 다시 확인 필요로 옮길 수 있어요.')
+    expect(screen.getByRole('status').textContent).toContain('입금 번호 4: 무시했어요. "무시함"에서 다시 확인 필요로 옮길 수 있어요.') // MOB2 D-MOB2-05
   })
 })
 
@@ -345,8 +345,8 @@ describe('자동 확인됨·확인함·무시함 (AC-N3-44)', () => {
     await flush(10)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(api.server.callsTo('POST', /^\/api\/deposits\/1\/revert$/)).toHaveLength(2)
-    expect(screen.getByRole('status').textContent).toContain('입금 #1: 되돌렸어요.')
-    expect(screen.queryByRole('listitem', { name: '입금 #1' })).toBeNull()
+    expect(screen.getByRole('status').textContent).toContain('입금 번호 1: 되돌렸어요.') // MOB2 D-MOB2-05
+    expect(screen.queryByRole('listitem', { name: '입금 번호 1' })).toBeNull() // MOB2 D-MOB2-05
   })
 
   it('무시함: 줄마다 "다시 확인 필요로"', async () => {
@@ -370,8 +370,8 @@ describe('자동 확인됨·확인함·무시함 (AC-N3-44)', () => {
     const history = within(dialog()).getByRole('region', { name: '처리 기록' })
     expect(within(history).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       '10/18 21:05:00받음입금 자동 확인',
-      '10/18 21:05:01자동 확인입금 자동 확인다육이맘 · 2026년 10월 18일 묶음정산 기록 12번',
-      '10/18 21:10:00되돌리기shop1다육이맘 · 2026년 10월 18일 묶음정산 기록 13번',
+      '10/18 21:05:01자동 확인입금 자동 확인다육이맘 · 2026년 10월 18일 묶음', // MOB2 D-MOB2-05
+      '10/18 21:10:00되돌리기shop1다육이맘 · 2026년 10월 18일 묶음', // MOB2 D-MOB2-05
     ])
   })
 })

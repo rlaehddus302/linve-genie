@@ -12,7 +12,7 @@
 // - 입금 확인(N3, AC-N3-47·48): 입금 확인이 적은 입금 기록은 "자동 입금 확인 · 김영희 · 10/18 21:03"(판매자 확정은 "입금 내역으로 확인 · …"),
 // - T1(AC-T1-65, PC-3·PC-8): 실제 범위의 묶음 줄·자세히에 "택배: 배송 중 · 9000-0000-0001"(있을 때), 자세히에 "배송지" 칸(ParcelParts.AddressSection).
 //   리허설 범위에는 배송지·택배가 없다.
-//   되돌림 환불은 "입금 확인 되돌림 · 입금 #12" — 서버의 입금 연결(범위 seq)로 붙이고 메모 글을 읽지 않는다. 아직 되돌리지 않은 입금 확인 기록에는
+//   되돌림 환불은 "입금 확인 되돌림 · 입금 번호 12" — 서버의 입금 연결(범위 seq)로 붙이고 메모 글을 읽지 않는다. 아직 되돌리지 않은 입금 확인 기록에는
 //   "입금 확인 되돌리기"(입금 확인 화면과 같은 확인 창). 리허설 범위는 "리허설 묶음은 입금 확인에 쓰지 않아요."이고 연결·되돌리기가 없다.
 import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
 import { useMemo, useRef, useState, type MouseEvent } from 'react'
@@ -33,7 +33,7 @@ import { receiptSignature, useClosingSignature, usePackingList } from '../lib/us
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { PAYMENT_WORD, SHIPPING_WORD, paymentWord, recordKindWord, signedWon } from '../lib/words.ts'
-import { depositLinkWords } from '../lib/deposit-words.ts'
+import { depositLinkWords, storedMemoWords } from '../lib/deposit-words.ts'
 import { RevertDialog, type RevertTarget } from './deposit-parts.tsx'
 import { ErrorNote } from './ErrorNote.tsx'
 import { DownloadButton } from './downloads.tsx'
@@ -634,8 +634,9 @@ function SettlementDetail({ data, names, settlement, command, sync, onBack, mark
                     ` · ${depositLinkWords(link)}`
                   ) : (
                     <>
-                      {record.reason !== null ? ` · ${record.reason}` : ''}
-                      {record.memo !== null ? ` · ${record.memo}` : ''}
+                      {/* 저장된 "입금 #12"는 보일 때만 "입금 번호 12"로 (D-MOB2-05 ②) */}
+                      {record.reason !== null ? ` · ${storedMemoWords(record.reason)}` : ''}
+                      {record.memo !== null ? ` · ${storedMemoWords(record.memo)}` : ''}
                     </>
                   )}
                   {` · 기록한 때 ${kstShort(record.at)}`}

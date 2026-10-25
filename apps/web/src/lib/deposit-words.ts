@@ -17,6 +17,18 @@ export const SOURCE_KIND_WORD: Readonly<Record<SourceKind, string>> = {
   FAKE: '시험용 입금',
 }
 
+/** 입금 이름 "입금 번호 12" (D-MOB2-05 — "#"은 판매자가 모르는 말) */
+export const depositLabel = (no: number): string => `입금 번호 ${String(no)}`
+
+/**
+ * 저장된 메모·사유 글을 보일 때만 바꿔 읽는다 (D-MOB2-05 ②): 정확히 "입금 #{숫자}"가 낱말 경계로 있을 때만
+ * "입금 번호 {숫자}"로. 기록 자체(이벤트·백업·서버가 새로 적는 메모)는 그대로다.
+ * "#12 국민"·"입금#12"·"입금 #12번"은 그대로 둔다(판매자가 손으로 쓴 글일 수 있다).
+ */
+export function storedMemoWords(text: string): string {
+  return text.replace(/(^|[^\p{L}\p{N}_#])입금 #(\d+)(?![\p{L}\p{N}_])/gu, (_match, before: string, no: string) => `${before}입금 번호 ${no}`)
+}
+
 /** 원천 표시: 종류 낱말, 판매자가 붙인 표시 이름이 다르면 함께 ("계좌조회 · 국민 1234") */
 export function sourceWords(source: { readonly kind: SourceKind; readonly label: string }): string {
   const kind = SOURCE_KIND_WORD[source.kind] ?? ''
@@ -28,7 +40,7 @@ export function sourceWords(source: { readonly kind: SourceKind; readonly label:
 export function reasonWords(reason: ReviewReason, twin: number | null): string {
   switch (reason) {
     case 'POSSIBLE_DUPLICATE':
-      return twin === null ? '같은 입금이 두 번 들어왔을 수 있어요' : `같은 입금이 두 번 들어왔을 수 있어요 (입금 #${String(twin)}과 같아요)`
+      return twin === null ? '같은 입금이 두 번 들어왔을 수 있어요' : `같은 입금이 두 번 들어왔을 수 있어요 (${depositLabel(twin)}과 같아요)`
     case 'SAME_NAME':
       return '같은 이름의 구매자가 여럿이에요'
     case 'MULTIPLE':
@@ -89,11 +101,11 @@ export function confirmLine(bundle: BundleView, amount: number): string {
 }
 
 /**
- * 정산 기록의 입금 연결 (AC-N3-47): 입금 확인으로 적은 입금은 "자동 입금 확인 · 김영희 · 10/18 21:03 · 입금 #12"
- * (판매자 확정은 "입금 내역으로 확인 · …", 되돌린 것은 끝에 " · 되돌림"), 되돌림 환불은 "입금 확인 되돌림 · 입금 #12"
+ * 정산 기록의 입금 연결 (AC-N3-47, D-MOB2-05): 입금 확인으로 적은 입금은 "자동 입금 확인 · 김영희 · 10/18 21:03 · 입금 번호 12"
+ * (판매자 확정은 "입금 내역으로 확인 · …", 되돌린 것은 끝에 " · 되돌림"), 되돌림 환불은 "입금 확인 되돌림 · 입금 번호 12"
  */
 export function depositLinkWords(link: DepositLinkView): string {
-  const label = `입금 #${String(link.deposit.no)}`
+  const label = depositLabel(link.deposit.no)
   if (link.kind === 'refund') return `입금 확인 되돌림 · ${label}`
   const how = link.auto ? '자동 입금 확인' : '입금 내역으로 확인'
   return `${how} · ${depositName(link.deposit.name)} · ${depositTime(link.deposit.at, link.deposit.precision)} · ${label}${link.reverted ? ' · 되돌림' : ''}`
