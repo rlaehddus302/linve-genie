@@ -1,5 +1,5 @@
 // QL3R1 쉬운 낱말 (AC-QL3R1-40·41·46·47·48·50·90, D-QL3R1-06·07·08, U-QL3-06·07, SA-QL3-01) — test-e2e.
-// 입금 "받은 곳"·붙여넣기 안내·정산 "손님 n명"·상품 자세히 "상품 바꾸기"·찜 목록 위 설명·/privacy 보관 문장.
+// 입금 "받은 곳"·붙여넣기 안내·정산 "손님 n명"·상품 자세히 "상품 관리"·찜 목록 위 설명·/privacy 보관 문장.
 // 봉인 문장(AC-QL3R1-45)은 tests/e2e/i3/seal.spec.ts 단언을 새 문장으로 바꿨다.
 import { expect, test, type Page } from '@playwright/test'
 import { uniqueDate } from '../s05/support.ts'
@@ -147,14 +147,15 @@ test.describe('AC-QL3R1-46 정산 요약 "손님 n명", 빈 목록·거르기 �
   }
 })
 
-test.describe('AC-QL3R1-47·48 상품 자세히 "상품 바꾸기"·찜 목록 위 한 줄 설명', () => {
+// QL3R1 D-QL3R1-10: 칸 이름은 "상품 관리"
+test.describe('AC-QL3R1-47·48 상품 자세히 "상품 관리"·찜 목록 위 한 줄 설명', () => {
   const cases: readonly (readonly [Device, boolean])[] = [
     [D375, true],
     [D412, true],
     [D1440, false],
   ]
   for (const [device, big] of cases) {
-    test(`${device.label} 글자 ${big ? '150%' : '100%'}: 칸 제목·이름 "상품 바꾸기"(안 단추 그대로), 찜 목록 바로 위 설명 한 줄(16px 이상·가로 넘침 0), 찜 줄 단추 이름 그대로`, async ({ page, browser }) => {
+    test(`${device.label} 글자 ${big ? '150%' : '100%'}: 칸 제목·이름 "상품 관리"(안 단추 그대로, 화면 어디에도 "상품 명령"·"상품 바꾸기" 없음), 찜 목록 바로 위 설명 한 줄(16px 이상·가로 넘침 0), 찜 줄 단추 이름 그대로`, async ({ page, browser }) => {
       const s = await sellerOn(browser, page, device, big)
       try {
         const { b } = await productOneWorld(s.dev, { extra: 1 })
@@ -162,11 +163,19 @@ test.describe('AC-QL3R1-47·48 상품 자세히 "상품 바꾸기"·찜 목록 �
         await boardCard(s.dev, 1).click()
         const dlg = s.dev.getByRole('dialog', { name: '1번 자세히' })
         await expect(dlg).toBeVisible()
-        // AC-47
-        const change = dlg.getByRole('region', { name: '상품 바꾸기', exact: true })
+        // AC-47 — QL3R1 D-QL3R1-10: "상품 바꾸기"에서 "상품 관리"로(MOB2 D-MOB2-05와 같은 이름)
+        const change = dlg.getByRole('region', { name: '상품 관리', exact: true })
         await expect(change).toHaveCount(1)
-        await expect(change.getByRole('heading', { name: '상품 바꾸기', exact: true })).toBeVisible()
-        await expect(dlg).not.toContainText('상품 명령')
+        await expect(change.getByRole('heading', { level: 3, name: '상품 관리', exact: true })).toBeVisible()
+        // 같은 이름의 칸이 화면에 하나뿐(겹친 이름 없음)
+        await expect(s.dev.getByRole('region', { name: '상품 관리', exact: true })).toHaveCount(1)
+        // 화면 어디에도 옛 이름이 없다(창 안·창 밖 모두, 접근성 이름 포함)
+        for (const old of ['상품 명령', '상품 바꾸기']) {
+          await expect(s.dev.locator('body')).not.toContainText(old)
+          await expect(s.dev.getByRole('region', { name: old })).toHaveCount(0)
+          await expect(s.dev.getByRole('heading', { name: old })).toHaveCount(0)
+          await expect(s.dev.locator(`[aria-label*="${old}"]`)).toHaveCount(0)
+        }
         await expect(change.getByRole('button', { name: '일시 중지', exact: true })).toBeVisible()
         await expect(change.getByRole('button', { name: /고치기/ }).first()).toBeVisible()
         // AC-48
@@ -191,7 +200,7 @@ test.describe('AC-QL3R1-47·48 상품 자세히 "상품 바꾸기"·찜 목록 �
     })
   }
 
-  test('393×852 WebKit 글자 150%: 찜 목록 위 설명 한 줄이 16px 이상·가로 넘침 0, "상품 바꾸기" @webkit', async ({ page, browser }) => {
+  test('393×852 WebKit 글자 150%: 찜 목록 위 설명 한 줄이 16px 이상·가로 넘침 0, "상품 관리" @webkit', async ({ page, browser }) => {
     const s = await sellerOn(browser, page, D393, true)
     try {
       const { b } = await productOneWorld(s.dev, { extra: 1 })
@@ -203,7 +212,9 @@ test.describe('AC-QL3R1-47·48 상품 자세히 "상품 바꾸기"·찜 목록 �
       const m = await help.evaluate((el) => ({ size: parseFloat(getComputedStyle(el).fontSize), sw: el.scrollWidth, cw: el.clientWidth }))
       expect(m.size).toBeGreaterThanOrEqual(16)
       expect(m.sw).toBeLessThanOrEqual(m.cw + 1)
-      await expect(dlg.getByRole('region', { name: '상품 바꾸기', exact: true })).toHaveCount(1)
+      // QL3R1 D-QL3R1-10
+      await expect(dlg.getByRole('region', { name: '상품 관리', exact: true })).toHaveCount(1)
+      for (const old of ['상품 명령', '상품 바꾸기']) await expect(s.dev.locator('body')).not.toContainText(old)
       await expectNoOverflow(s.dev, '393 WebKit 150% 상품 자세히')
     } finally {
       await s.close()
