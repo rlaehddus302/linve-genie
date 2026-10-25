@@ -258,7 +258,9 @@ describe('AC-FB1-16 택배 크기 코드와 옛 값 옮기기 (D-FB1-05)', () =>
       update parcels set box = '대' where seller_id = '${seller.sellerId}';
       alter table parcel_settings alter column box set default '소';
       alter table parcel_settings drop column carrier_name;
-      delete from drizzle.__drizzle_migrations where id = (select max(id) from drizzle.__drizzle_migrations);`)
+      -- 0019 뒤의 마이그레이션(BND1 0020 밴드 표)도 되돌린다 — 0019부터 다시 적용된다 (바꾼 기존 시험, BND1 dev-notes)
+      drop table band_notices; drop table band_seen; drop table band_links; drop table band_oauth_states; drop table band_accounts;
+      delete from drizzle.__drizzle_migrations where created_at >= 1794355200000;`)
     const reopened = await openPglite(pg)
     expect((await pg.query<{ box: string }>('select box from parcel_settings')).rows).toEqual([{ box: '100' }])
     expect((await pg.query<{ box: string }>('select box from parcels')).rows).toEqual([{ box: '120' }])

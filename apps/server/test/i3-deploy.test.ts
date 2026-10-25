@@ -299,8 +299,8 @@ describe('AC-I3-81 운영 상태 /ops/status', () => {
     expect(ok.status).toBe(200)
     expect(ok.headers.get('cache-control')).toBe('no-store')
     const body = (await ok.json()) as Record<string, unknown>
-    // N2b-2(AC-N2b-2-70)가 인스타 DM 행 수·틱톡 연결 수를 더했다 (바꾼 기존 시험, dev-notes)
-    expect(Object.keys(body).sort()).toEqual(['collectors', 'db', 'failedEvents24h', 'instagramDm', 'loginRejected', 'outbox', 'quota', 'realtimeConnections', 'startedAt', 'tiktok', 'version', 'workers'])
+    // N2b-2(AC-N2b-2-70)가 인스타 DM 행 수·틱톡 연결 수를, BND1(AC-BND1-64)이 밴드 글 연결 수·호출 한도 쉼을 더했다 (바꾼 기존 시험, dev-notes)
+    expect(Object.keys(body).sort()).toEqual(['band', 'collectors', 'db', 'failedEvents24h', 'instagramDm', 'loginRejected', 'outbox', 'quota', 'realtimeConnections', 'startedAt', 'tiktok', 'version', 'workers'])
     expect(body).toMatchObject({ db: 'ok', quota: null, realtimeConnections: 0, loginRejected: { ip: 0, busy: 0 }, version: '0.0.0' })
     expect(body.workers).toEqual({
       collector: { lastSuccessAt: null, consecutiveFailures: 0 },
