@@ -183,6 +183,8 @@ export interface ReviewItem extends IsoTimes<ReviewInfo> {
   readonly phoneLast4: string | null
   /** 제안 (A1 CMT-06, R-20 10 — 판정이 아니다). 없으면 null. 옛 서버는 키가 없다 */
   readonly suggestion?: ReviewSuggestion | null
+  /** AI 제외 이유 (AIY1 D-AIY1-04): 유튜브에서 온 채팅 줄이면 'YOUTUBE_POLICY', 아니면 null. 옛 서버는 키가 없다 */
+  readonly excluded?: 'YOUTUBE_POLICY' | null
 }
 
 /** 확인 필요 항목의 제안 (A1 dev-notes "화면·시험에게") — RULE = 비슷한 글자로 찾음, AI = AI가 읽음 */

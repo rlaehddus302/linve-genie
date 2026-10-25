@@ -5,7 +5,7 @@ import { get, withQuery } from '../api/client.ts'
 import type { CancelRequest, Claim, HistoryItem, Product } from '../api/types.ts'
 import { claimOptionWords, claimOptionsField, claimWord, conflictUnits, orphanPending, successionUnits, variantOf, variantOptionsField } from '../lib/derive.ts'
 import { kstTime } from '../lib/kst.ts'
-import { ORIGIN_WORD, REJECT_REASON_WORD } from '../lib/words.ts'
+import { ORIGIN_WORD, REJECT_REASON_WORD, agoWord, pendingMeaning } from '../lib/words.ts'
 import { openReopenAction, openReasonAction } from './actions.ts'
 import { productLabel, useConsoleApi, type ConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
@@ -363,6 +363,7 @@ export function PendingDialog({ onClose, now: fixedNow }: { readonly onClose: ()
     .slice(0, 20)
   return (
     <Modal title="보류 찜" onClose={onClose} wide>
+      <p>{pendingMeaning(api.settingsOf(api.b)?.['claim.preOpenWindowSec'] ?? 30)}</p>
       {groups.length === 0 ? <p>상품이 없는 번호의 보류 찜이 없어요.</p> : null}
       <ul className="plain-list stack-tight">
         {groups.map((group) => {
@@ -376,7 +377,7 @@ export function PendingDialog({ onClose, now: fixedNow }: { readonly onClose: ()
           return (
             <li key={group.product} className="row">
               <span>
-                {label} 보류 찜 {group.claims.length}개 · 가장 오래된 찜 {age}초 전
+                {label} 보류 찜 {group.claims.length}개 · 가장 오래된 찜 {agoWord(age)}
               </span>
               {expires ? <span className="tag tag-alert">지금 등록하면 만료돼요</span> : null}
               {group.broadcast === api.b ? (

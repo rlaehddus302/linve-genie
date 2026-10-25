@@ -10,10 +10,12 @@
 // 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면 프린터 상태와 메뉴 "라벨"을 만들지 않는다(L-13 9) — "설정"을 비롯한 다른 메뉴는 그대로다.
 // 이 기기가 출력 기기이고 끊김으로 멈췄으면 프린터 상태 옆에 보통 버튼 "다시 연결" — 한 번 누르면 마지막으로 쓴 연결 방법으로 그 누름 안에서 다시 잇는다
 // (D-WIZ-01, AC-WIZ-04). 다른 기기·그 방법이 없는 브라우저·손으로 푸는 멈춤이면 버튼 없이 상태를 눌러 라벨 화면으로 간다. 저절로 다시 잇지 않는다.
+// 화면 안에 프린터 칸·출력 멈춤 띠가 떠 있으면(라벨 화면·마법사 4/5·"출력 멈춤" 창) 그쪽이 "다시 연결"을 맡아 위 줄 버튼은 숨는다 (QL2 D-QL2-03 (c)).
 // 라벨 켬/끔을 바꾸는 "설정"은 메뉴 항목 하나다(I3 AC-I3-44 — N4a의 위 줄 "설정" 링크는 합치며 메뉴 항목으로 모았다, D-N4a-07).
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { PRINT_ACTION, printerStatusWord } from '../lib/print-words.ts'
+import { useReconnectOwned } from '../lib/reconnect-owner.ts'
 import { barLabel, menuAll, menuLayout, type MenuItem } from '../lib/menu.ts'
 import { menuOf, routePath, type MenuKey, type Navigate, type Route } from '../lib/router.ts'
 import { useWide } from '../lib/use-wide.ts'
@@ -190,10 +192,12 @@ function PrinterStatus({ onOpen }: { readonly onOpen: (event: MouseEvent<HTMLAnc
   const [busy, setBusy] = useState(false)
   /** 이 버튼으로 다시 이으려다 실패했다 — 그 오류 문장은 이 버튼 옆에만 보인다(라벨 화면 멈춤 띠의 같은 문장과 겹치지 않게) */
   const [mineError, setMineError] = useState<unknown>(null)
+  // 화면 안 프린터 칸·출력 멈춤 띠가 "다시 연결"을 맡으면 위 줄은 숨는다 — 한 화면 하나 (QL2 D-QL2-03 (c))
+  const owned = useReconnectOwned()
   if (api === null) return null
   const queue = print.overview?.queue ?? null
   const paused = queue?.pause != null
-  const canReconnect = queue?.pause?.reason === 'DISCONNECTED' && api.station.isMine(queue) && api.station.canReconnect
+  const canReconnect = !owned && queue?.pause?.reason === 'DISCONNECTED' && api.station.isMine(queue) && api.station.canReconnect
   const reconnect = async () => {
     if (busy) return
     setBusy(true)

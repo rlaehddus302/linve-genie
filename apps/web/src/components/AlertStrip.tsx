@@ -5,6 +5,8 @@
 // 빨간 "출력 멈춤"을 가리지 않게). 플랫폼 줄은 그대로 맨 앞. Alt+1 순서와 알림 수에는 넣지 않는다.
 // 휴대폰에서는 한 줄로 접히고("알림 5 펼치기") 펼친 동안만 늘어난다. 접은 동안에도 알림 항목은 그대로 있다(한 줄에 들어가는 것만 보인다) —
 // 펼치기 버튼은 "알림" 영역 밖에 둔다(영역의 글자는 PC와 같다).
+// QL2 D-QL2-02: 띠에 항목이 하나라도 있으면 펼치기 단추가 늘 있다 — 세는 알림이 0이면 "알림 펼치기"/"알림 접기".
+// 펼친 동안 모든 항목은 문장 전체(줄바꿈), 접힌 동안 한 줄·말줄임. 높이는 글자 크기를 따른다(styles.css).
 import type { AlertCounts } from '../lib/derive.ts'
 import { PRINT_ALERT_WORD } from '../lib/print-words.ts'
 import { ALERT_WORD } from '../lib/words.ts'
@@ -49,6 +51,12 @@ export interface AlertLead {
   readonly uncounted?: boolean
   /** 그 줄 옆의 작은 단추 (틱톡 저장 실패 "확인했어요" — D-N2b-2-16) */
   readonly action?: { readonly label: string; readonly onClick: () => void; readonly busy?: boolean }
+}
+
+/** 휴대폰 펼치기 단추 이름 (QL2 D-QL2-02 (1)): 세는 알림 n ≥ 1이면 "알림 n 펼치기"/"알림 n 접기", 0이면 "알림 펼치기"/"알림 접기" */
+export function alertToggleWord(total: number, expanded: boolean): string {
+  const count = total > 0 ? ` ${String(total)}` : ''
+  return expanded ? `알림${count} 접기` : `알림${count} 펼치기`
 }
 
 export interface AlertStripProps {
@@ -113,7 +121,7 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
             {shown.map((item) => (
               <li key={item.kind}>
                 <button type="button" className={item.kind === 'pending' ? 'button alert-item alert-soft' : 'button alert-item'} onClick={() => onOpen(item.kind)}>
-                  {item.text ?? `${item.word} ${String(item.count)}`}
+                  <span className="alert-item-text">{item.text ?? `${item.word} ${String(item.count)}`}</span>
                 </button>
               </li>
             ))}
@@ -121,9 +129,9 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
           </ul>
         )}
       </section>
-      {total > 0 && onToggle !== undefined ? (
+      {(shown.length > 0 || leads.length > 0) && onToggle !== undefined ? (
         <button type="button" className="button alert-toggle" aria-expanded={expanded} aria-controls="alerts" onClick={onToggle}>
-          {expanded ? `알림 ${String(total)} 접기` : `알림 ${String(total)} 펼치기`}
+          {alertToggleWord(total, expanded)}
         </button>
       ) : null}
     </div>

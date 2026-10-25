@@ -89,7 +89,16 @@ export interface StationSnapshot {
   readonly wake: 'on' | 'unsupported' | 'off'
   /** 라벨 글꼴을 불러오지 못했다 (출력하지 않고 기다린다) */
   readonly fontError: boolean
+  /**
+   * 저절로 다시 잇기 (QL2 D-QL2-04, L-11 8): 이어지는 동안(다음 시도를 기다리거나 하는 중) `trying` — attempt = 그 시도의 차례(1~total),
+   * 60초 안에 다시 끊겨 남은 횟수로 이어지면 그 차례부터. 마지막 시도까지 실패해 그쳤으면 `gaveUp`. 그 밖(판매자가 누름·이어짐·연결 끊기·
+   * 다른 연결 방법·출력 기기에서 내려옴·라벨 기능 끔·출력 기기가 아님)은 null
+   */
+  readonly autoReconnect: AutoReconnectState
 }
+
+/** 저절로 다시 잇기의 화면 상태 (QL2 D-QL2-04) */
+export type AutoReconnectState = { readonly kind: 'trying'; readonly attempt: number; readonly total: number } | { readonly kind: 'gaveUp' } | null
 
 export type BecomeOutcome =
   | { readonly kind: 'ok'; readonly backlog: boolean; readonly waiting: number }
@@ -359,6 +368,7 @@ export class PrinterStation {
       lastError: null,
       wake: 'off',
       fontError: false,
+      autoReconnect: null,
     }
   }
 
@@ -416,8 +426,8 @@ export class PrinterStation {
     const queue = snapshot.overview?.queue ?? null
     if (queue === null) return
     const mine = this.isMine(queue)
-    // 출력 기기에서 내려옴·라벨 기능 꺼짐: 저절로 다시 잇기를 그친다 (D-QS1-02 (4))
-    if ((this.#autoTimer !== undefined || this.#autoInFlight !== null) && !this.#autoAllowed()) this.#stopAuto()
+    // 출력 기기에서 내려옴·라벨 기능 꺼짐: 저절로 다시 잇기를 그친다 (D-QS1-02 (4)) — 그친 뒤 문장도 지운다 (QL2 D-QL2-04 (3))
+    if ((this.#autoTimer !== undefined || this.#autoInFlight !== null || this.#snapshot.autoReconnect !== null) && !this.#autoAllowed()) this.#stopAuto()
     if (mine !== this.#mine) {
       this.#mine = mine
       if (!mine) {
@@ -712,6 +722,7 @@ export class PrinterStation {
     this.#set({ connection: state })
     if (state === 'CONNECTED') {
       this.#autoBlocked = false
+      this.#setAuto(null)
       // 저절로 다시 이어졌다: 60초 동안 끊기지 않으면 횟수를 새로 센다.
       // 타이머는 끊김/연결 중에서 처음 이어졌을 때만 건다 — 출력 한 장마다 오는
       // PRINTING → CONNECTED로 다시 걸면 자주 찍는 방송에서 횟수가 영영 새로 세어지지 않는다 (TD-QS1-001)
@@ -751,7 +762,12 @@ export class PrinterStation {
   #scheduleAuto(): void {
     if (this.#autoTimer !== undefined || this.#autoInFlight !== null || this.#stopped) return
     const delay = AUTO_RECONNECT_DELAYS_MS[this.#autoUsed]
-    if (delay === undefined) return
+    if (delay === undefined) {
+      // 다 썼다 — 그쳤다 (QL2 D-QL2-04 (2))
+      this.#setAuto({ kind: 'gaveUp' })
+      return
+    }
+    this.#setAuto({ kind: 'trying', attempt: this.#autoUsed + 1, total: AUTO_RECONNECT_DELAYS_MS.length })
     const series = this.#autoSeries
     this.#autoTimer = this.#timer.setTimeout(() => {
       this.#autoTimer = undefined
@@ -761,8 +777,14 @@ export class PrinterStation {
 
   async #autoAttempt(series: number): Promise<void> {
     const adapter = this.#adapter
-    if (!this.#autoAllowed() || this.#autoBlocked || adapter === null || !isRememberingAdapter(adapter)) return
-    if (adapter.state !== 'DISCONNECTED' || this.#snapshot.connecting) return
+    if (!this.#autoAllowed() || this.#autoBlocked || adapter === null || !isRememberingAdapter(adapter)) {
+      this.#setAuto(null)
+      return
+    }
+    if (adapter.state !== 'DISCONNECTED' || this.#snapshot.connecting) {
+      this.#setAuto(null)
+      return
+    }
     this.#autoUsed++
     this.#autoAttempts++
     // 시도하는 동안은 지금의 "연결 중" (새 문장 없음, D-QS1-05). 저절로 잇기의 실패는 오류 상자를 띄우지 않는다(판매자 동작이 아니다)
@@ -777,11 +799,19 @@ export class PrinterStation {
       this.#set({ connecting: false, connection: adapter.state })
     }
     if (result.ok) {
-      this.#set({ connectError: null, lastError: null })
+      this.#set({ connectError: null, lastError: null, autoReconnect: null })
       return
     }
     if (series !== this.#autoSeries || this.#adapter !== adapter) return
     this.#scheduleAuto()
+  }
+
+  /** 저절로 다시 잇기 화면 상태를 바꾼다 (같은 값이면 알리지 않는다) */
+  #setAuto(next: AutoReconnectState): void {
+    const now = this.#snapshot.autoReconnect
+    if (now === next) return
+    if (now !== null && next !== null && now.kind === next.kind && (now.kind === 'gaveUp' || (next.kind === 'trying' && now.attempt === next.attempt))) return
+    this.#set({ autoReconnect: next })
   }
 
   /** 저절로 다시 잇기를 그친다 (기다리던 시도는 일어나지 않는다) */
@@ -791,6 +821,7 @@ export class PrinterStation {
       this.#timer.clearTimeout(this.#autoTimer)
       this.#autoTimer = undefined
     }
+    this.#setAuto(null)
   }
 
   #armStable(): void {

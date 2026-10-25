@@ -29,8 +29,8 @@ export const PACKING_PRINT_LABEL = '포장 라벨 출력'
 /** 이미 기다리는 중이라는 서버 거절 코드 (I1) */
 export const PRINT_IN_PROGRESS = 'PRINT_IN_PROGRESS'
 
-/** 출력 기기가 없을 때 (U-PL1B-02) */
-export const NO_PRINT_DEVICE_WAITING = `출력 기기가 아직 없어 기다리는 중이에요. 라벨 화면에서 '${PRINT_ACTION.thisDevice}'을 눌러 주세요.`
+/** 출력 기기가 없을 때 (U-PL1B-02 → QL2 D-QL2-09 ①: 프린터 연결이 먼저) */
+export const NO_PRINT_DEVICE_WAITING = `출력 기기가 아직 없어 기다리는 중이에요. 라벨 화면에서 프린터를 연결한 뒤 '${PRINT_ACTION.thisDevice}'을 눌러 주세요.`
 /** 이미 기다리는 중 + 출력 기기가 있을 때 할 일 */
 export const IN_PROGRESS_WITH_DEVICE = '출력 기기에서 곧 출력돼요. 라벨 화면에서 출력 대기열을 볼 수 있어요.'
 export const LABELS_SCREEN_LINK = '라벨 화면으로'

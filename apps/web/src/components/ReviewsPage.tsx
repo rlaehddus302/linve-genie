@@ -31,7 +31,7 @@ import {
   type LineOutcome,
   type ReviewPick,
 } from '../lib/options.ts'
-import { ASSIST_OFFER, ASSIST_READING, suggestionView, useAssistOnOpen, type SuggestionView } from '../lib/assist.ts'
+import { ASSIST_OFFER, ASSIST_READING, ASSIST_YOUTUBE_EXCLUDED, showsYoutubeExcluded, suggestionView, useAssistOnOpen, type SuggestionView } from '../lib/assist.ts'
 import { reviewsPath, useReviews } from '../lib/reviews.ts'
 import { routePath, type Navigate, type ReviewsRoute } from '../lib/router.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
@@ -96,6 +96,7 @@ export function ReviewsPage({ route, navigate }: ReviewsPageProps) {
         </p>
       ) : null}
       {view === null && reviews.error === null ? <p role="status">불러오는 중…</p> : null}
+      {view !== null && showsYoutubeExcluded(assist.on, view.reviews) ? <p className="hint">{ASSIST_YOUTUBE_EXCLUDED}</p> : null}
       {view !== null && queue !== null ? <ReviewList view={view} queue={queue} rehearsal={route.rehearsal} reload={reviews.reload} /> : null}
       {assist.offer && view !== null && view.reviews.length > 0 ? (
         <p>

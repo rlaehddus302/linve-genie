@@ -229,3 +229,13 @@ export function recordKindWord(kind: 'payment' | 'refund' | 'adjust' | 'shipping
 export function signedWon(amount: number): string {
   return amount < 0 ? `−${formatWon(-amount)}` : formatWon(amount)
 }
+
+/** 지난 시간 낱말 (QL2 D-QL2-09 ④, 순수 함수): 60초 미만 "N초 전", 60초 이상 "N분 전"(내림 — 383초 → "6분 전") */
+export function agoWord(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds))
+  return whole < 60 ? `${String(whole)}초 전` : `${String(Math.floor(whole / 60))}분 전`
+}
+
+/** 보류 찜 창 맨 위 한 줄 (QL2 D-QL2-09 ④ — R-5의 뜻, W = 지금 방송의 claim.preOpenWindowSec) */
+export const pendingMeaning = (windowSec: number): string =>
+  `보류 찜은 아직 등록하지 않은 번호로 들어온 찜이에요. 찜이 들어오고 ${String(windowSec)}초 안에 그 번호를 등록하면 판정에 들어가고, 늦으면 만료돼요.`

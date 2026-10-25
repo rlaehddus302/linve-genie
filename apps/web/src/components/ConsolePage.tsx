@@ -21,7 +21,7 @@ import { COUNT_PROBLEM, DEFAULT_COUNT, readCount } from '../lib/stock.ts'
 import { SALE_MODE_WORD } from '../lib/words.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
-import { LABELS_OFF_NOTE, stationLeadText } from '../lib/print-words.ts'
+import { LABELS_OFF_NOTE, pauseAlertMessage, stationLeadText } from '../lib/print-words.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import { ReadOnlyContext } from '../lib/read-only.ts'
 import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSettings, type QuickDecision } from '../lib/quick.ts'
@@ -542,9 +542,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   const labels = labelState.labels
   const print = usePrintState()
   const queueSummary = print.overview?.queue ?? null
-  // 꺼져 있으면 "출력 멈춤"은 알림 띠·Alt+1 순서에서 빠진다 — 버릴 라벨은 남는다 (AC-N4a-14·16)
+  // 꺼져 있으면 "출력 멈춤"은 알림 띠·Alt+1 순서에서 빠진다 — 버릴 라벨은 남는다 (AC-N4a-14·16). 판매자 멈춤은 까닭·할 일 문장(QL2 D-QL2-09 ②)
   const printAlerts: PrintAlerts = useMemo(
-    () => ({ pause: labelsOn === true ? (queueSummary?.pause?.message ?? null) : null, discard: queueSummary?.discard ?? 0 }),
+    () => ({ pause: labelsOn === true && queueSummary !== null && queueSummary.pause !== null ? pauseAlertMessage(queueSummary.pause, queueSummary.waiting) : null, discard: queueSummary?.discard ?? 0 }),
     [queueSummary, labelsOn],
   )
   const printAlertsRef = useRef(printAlerts)
@@ -1198,6 +1198,64 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       <VoiceLive voice={voice} snapshot={voiceSnapshot} badge={enterBadge} onSubmitForm={submitCardForm} onRegister={registerCardClick} />
     ) : null
 
+  // 행동 줄 (방송 목록·상품 목록 가져오기·방송 끝내기 / 끝난 방송: "끝난 방송이에요"·영수증 보내기 / 음성 켜기).
+  // PC는 제목 옆, 휴대폰은 현재 상품 아래 (QL2 D-QL2-01 (1) — 안의 차례·문장·확인 창 그대로)
+  const actions = (
+    <div className="row console-actions">
+      <a
+        className="button"
+        href={routePath({ name: 'home' })}
+        onClick={(event) => {
+          event.preventDefault()
+          navigate({ name: 'home' })
+        }}
+      >
+        방송 목록
+      </a>
+      {ended || sealed ? (
+        <>
+          <p className="ended-note" role="status">
+            끝난 방송이에요
+          </p>
+          {/* 끝난 방송의 할 일 하나 — 영수증 보내기 (N4b AC-N4b-30, D-N4b-04). 방송 중에는 없다 */}
+          <a
+            className="button button-primary"
+            href={routePath({ name: 'receipts', id: b })}
+            onClick={(event) => {
+              event.preventDefault()
+              navigate({ name: 'receipts', id: b })
+            }}
+          >
+            영수증 보내기
+          </a>
+        </>
+      ) : (
+        <>
+          {/* 상품 목록 가져오기 (I2 AC-I2-52) — 끝난 방송에는 없다 */}
+          <button type="button" className="button" onClick={() => openDialog({ kind: 'import' })}>
+            상품 목록 가져오기
+          </button>
+          <button type="button" className="button" onClick={endBroadcast}>
+            방송 끝내기
+          </button>
+        </>
+      )}
+      {/* 끝난 방송·봉인 날짜에는 "음성 켜기"가 없다 — 켜져 있던 음성의 끄기는 음성 칸에 남는다 (MOB1 D-MOB1-09, AC-MOB1-17) */}
+      {voice !== null && !sealed && !ended ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
+    </div>
+  )
+  const rehearsalPanel = broadcast.rehearsal ? (
+    <RehearsalPanel
+      broadcastId={b}
+      generator={snapshot.generator}
+      onGenerator={(status) => store.setGenerator(status)}
+      onWritten={(result) => void store.sync(result.seq)}
+      onOpenBroadcast={(id) => navigate({ name: 'console', id })}
+      primary={fix === null && asks.length === 0 && !ended && !sealed}
+    />
+  ) : null
+  const currentProduct = <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />
+
   return (
     <ConsoleContext.Provider value={api}>
       <YoutubeContext.Provider value={yt}>
@@ -1215,48 +1273,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             {/* 옵션 방송은 판매 방식을 늘 보인다 — 방송 중에는 바꾸지 않는다 (D-O2-02) */}
             {optionMode ? <span className="tag tag-mode">{SALE_MODE_WORD.OPTIONS}</span> : null}
           </h1>
-          <div className="row console-actions">
-            <a
-              className="button"
-              href={routePath({ name: 'home' })}
-              onClick={(event) => {
-                event.preventDefault()
-                navigate({ name: 'home' })
-              }}
-            >
-              방송 목록
-            </a>
-            {ended || sealed ? (
-              <>
-                <p className="ended-note" role="status">
-                  끝난 방송이에요
-                </p>
-                {/* 끝난 방송의 할 일 하나 — 영수증 보내기 (N4b AC-N4b-30, D-N4b-04). 방송 중에는 없다 */}
-                <a
-                  className="button button-primary"
-                  href={routePath({ name: 'receipts', id: b })}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    navigate({ name: 'receipts', id: b })
-                  }}
-                >
-                  영수증 보내기
-                </a>
-              </>
-            ) : (
-              <>
-                {/* 상품 목록 가져오기 (I2 AC-I2-52) — 끝난 방송에는 없다 */}
-                <button type="button" className="button" onClick={() => openDialog({ kind: 'import' })}>
-                  상품 목록 가져오기
-                </button>
-                <button type="button" className="button" onClick={endBroadcast}>
-                  방송 끝내기
-                </button>
-              </>
-            )}
-            {/* 끝난 방송·봉인 날짜에는 "음성 켜기"가 없다 — 켜져 있던 음성의 끄기는 음성 칸에 남는다 (MOB1 D-MOB1-09, AC-MOB1-17) */}
-            {voice !== null && !sealed && !ended ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
-          </div>
+          {wide ? actions : null}
         </div>
         {endError !== null ? <ErrorNote error={endError} /> : null}
         {sealed ? <SealedNotice /> : null}
@@ -1349,22 +1366,17 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           {wide ? voiceLive : null}
         </div>
         {wide || ended || sealed ? null : <QuickUnitLine value={quickText} />}
+        {/* 휴대폰: 고정 영역·단위 줄 다음 현재 상품 → 행동 줄 → 음성 칸 → 리허설 조작판 (QL2 D-QL2-01 (1)) — 큰 글씨 첫 화면에 지금 상품과 1등 */}
+        {wide ? null : currentProduct}
+        {wide ? null : <div className="console-head console-head-actions">{actions}</div>}
         {wide ? null : voiceLive}
         {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
         {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}
+        {wide ? null : rehearsalPanel}
         <div className="console-grid">
           <div className="console-side">
-            {broadcast.rehearsal ? (
-              <RehearsalPanel
-                broadcastId={b}
-                generator={snapshot.generator}
-                onGenerator={(status) => store.setGenerator(status)}
-                onWritten={(result) => void store.sync(result.seq)}
-                onOpenBroadcast={(id) => navigate({ name: 'console', id })}
-                primary={fix === null && asks.length === 0 && !ended && !sealed}
-              />
-            ) : null}
-            <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />
+            {wide ? rehearsalPanel : null}
+            {wide ? currentProduct : null}
             <MultiPlatformNotice count={live.linkedCount + (youtubeLinked ? 1 : 0)} />
             <YoutubePanel
               navigate={navigate}

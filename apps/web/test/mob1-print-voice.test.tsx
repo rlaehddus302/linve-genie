@@ -39,7 +39,8 @@ describe('콘솔 알림 띠 맨 끝 출력 기기 항목 (AC-MOB1-13, D-MOB1-14)
   it('라벨 켜짐·실제 방송·끝나지 않음·다른 기기가 끊김이면 끊김 문장, 출력 기기가 없고 대기가 있으면 쌓이는 중 문장', () => {
     expect(stationLeadText(base)).toBe(deviceLostMessage('안드로이드 폰'))
     expect(stationLeadText({ ...base, queue: queue({ device: null, waiting: 1 }) })).toBe(NO_STATION_PILING)
-    expect(NO_STATION_PILING).toBe("출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 '이 기기에서 출력'을 눌러 주세요.")
+    // QL2 D-QL2-09 ① — 프린터 연결을 먼저 말한다
+    expect(NO_STATION_PILING).toBe("출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 프린터를 연결한 뒤 '이 기기에서 출력'을 눌러 주세요.")
   })
 
   it('연결됨·대기 없음·이 기기가 출력 기기·라벨 꺼짐·모름·리허설·끝난 방송·요약 모름이면 없다', () => {

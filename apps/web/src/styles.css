@@ -2059,15 +2059,56 @@ html:has(.save-bar) {
     align-items: flex-start;
   }
 
+  /* 접힌 한 줄의 높이는 글자를 따른다 (QL2 D-QL2-02 (3)): 버튼 높이 = 2.75rem(44px 이상)과 글 한 줄(1.25rem) + 위아래 여백(1rem)·테두리 중 큰 것 —
+   * 모두 글자 크기(rem) 단위라 100%에서는 지금처럼 44px(고정 영역 35% 셈 그대로), 150%에서도 버튼 글자가 위아래로 잘리지 않는다 */
   .alert-bar .alerts {
     flex: 1 1 auto;
     min-width: 0;
-    max-height: 2.75rem;
+    max-height: max(2.75rem, calc(1.25rem + 1rem + 4px));
     overflow: hidden;
+    /* 접힌 한 줄의 긴 문장(줄을 바꾸지 않음)이 띠·콘솔 폭을 넓히지 않게 — 띠의 폭은 화면 폭에서 정해진다(가로 넘침 0) */
+    contain: inline-size;
   }
 
   .alert-bar-open .alerts {
     max-height: none;
+  }
+
+  .alert-bar .alerts-list > li {
+    min-width: 0;
+    max-inline-size: 100%;
+  }
+
+  .alert-bar .alert-item,
+  .alert-bar .alert-lead-button {
+    max-inline-size: 100%;
+    line-height: 1.25;
+  }
+
+  /* 접힌 동안: 한 줄·말줄임 (QL2 D-QL2-02 (3)) — 글은 버튼 안 칸(overflow: hidden, min-width: 0)에서 줄어 버튼·화면 밖으로 나가지 않는다(가로 넘침 없음).
+   * 줄 수 제한(line-clamp)은 숨은 둘째 줄의 글자 상자가 버튼 상자 밖에 남아(Range.getClientRects) 쓰지 않는다 — 줄을 바꾸지 않는 한 줄(text-wrap-mode)로.
+   * text-wrap-mode를 모르는 옛 브라우저는 줄을 바꾸되 한 줄 높이(max-block-size)에서 잘린다 */
+  .alert-bar:not(.alert-bar-open) .alert-item-text {
+    display: block;
+    min-width: 0;
+    max-block-size: 1.25em;
+    text-wrap-mode: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 펼친 동안: 문장 전체, 버튼 안에서 줄바꿈 (QL2 D-QL2-02 (2)) */
+  .alert-bar-open .alert-item,
+  .alert-bar-open .alert-lead-button {
+    text-align: start;
+    justify-content: flex-start;
+    white-space: normal;
+  }
+
+  .alert-bar-open .alert-item-text,
+  .alert-bar-open .alert-lead-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   /* 띠 맨 앞의 긴 문장(플랫폼 줄)에 밀려 "알림 N 펼치기"가 여러 줄로 눌리지 않게 */
@@ -2507,20 +2548,30 @@ html:has(.save-bar) {
     justify-content: flex-start;
   }
 
-  /* 한 줄로 자르고 말줄임 (줄바꿈 금지 대신 줄 수 제한 — 375px 가로 넘침 없음) */
-  .alert-bar:not(.alert-bar-open) .alert-lead-text,
-  .alert-bar:not(.alert-bar-open) .alert-lead-note {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 1;
-    line-clamp: 1;
+  /* 한 줄로 자르고 말줄임 (375px 가로 넘침 없음 — 칸 안 overflow: hidden). 줄 수 제한(line-clamp) 대신 줄을 바꾸지 않는 한 줄 —
+   * 숨은 둘째 줄의 글자 상자가 버튼 상자 밖에 남지 않게 (QL2 D-QL2-02 (3)). 옛 브라우저는 한 줄 높이에서 잘린다 */
+  .alert-bar:not(.alert-bar-open) .alert-lead-text {
+    display: block;
+    min-width: 0;
+    max-block-size: 1.25em;
+    text-wrap-mode: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .alert-bar:not(.alert-bar-open) .alert-lead-note {
+    display: block;
+    min-width: 0;
+    text-wrap-mode: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 높이는 글자를 따른다: 한 줄 높이 2.5rem, 접힌 띠 한 줄(.alerts)과 같은 상한 */
+  .alert-bar:not(.alert-bar-open) .alert-lead-note {
     line-height: 2.5rem;
     min-height: 0;
-    max-block-size: 2.75rem;
+    max-block-size: max(2.75rem, calc(1.25rem + 1rem + 4px));
   }
 }
 

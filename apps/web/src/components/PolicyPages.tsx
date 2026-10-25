@@ -31,6 +31,8 @@ export const AI_ASSIST_WHAT =
   '판매자가 설정에서 AI 제안을 켠 경우에만, 확인 필요 댓글의 글(닉네임·전화번호를 뺀 것)과 그 방송의 상품 이름·옵션이 AI 회사 Anthropic(미국)으로 보내져 주문 제안을 만드는 데 쓰여요.'
 export const AI_ASSIST_STORE = '서비스는 보낸 글을 따로 저장하지 않아요. 만든 제안(상품 번호·옵션·수량)만 보관해요.'
 export const AI_ASSIST_OFF = '판매자는 설정 → AI 제안 → "끄기"로 언제든 끌 수 있어요. 끄면 그때부터 보내지 않아요.'
+/** 14번 본문 끝 (QL2 D-QL2-05 ③ — D-AIY1-05 ③을 이 페이지 말투로) */
+export const AI_ASSIST_YOUTUBE = '유튜브에서 받은 채팅 글은 보내지 않아요.'
 export const TAX_NOTE = '구매 내역 확인서는 세금계산서·현금영수증 같은 세법상 증빙이 아니에요'
 
 function Outside({ href, children }: { readonly href: string; readonly children: ReactNode }) {
@@ -94,7 +96,7 @@ export function PrivacyPage() {
       </Section>
       <Section title="6. 처리 위탁">
         <p>서버 운영(호스팅): [미정]</p>
-        <p>AI 제안(판매자가 켠 경우만): Anthropic(미국) — 13번을 보세요. [검토 필요]</p>
+        <p>AI 제안(판매자가 켠 경우만): Anthropic(미국) — 14번 'AI 제안(선택)'을 보세요. [검토 필요]</p>
       </Section>
       <Section title="7. 쿠키">
         <p>로그인 쿠키만 써요. 광고·분석 쿠키는 쓰지 않아요.</p>
@@ -135,6 +137,7 @@ export function PrivacyPage() {
           <li>{AI_ASSIST_WHAT}</li>
           <li>{AI_ASSIST_STORE}</li>
           <li>{AI_ASSIST_OFF}</li>
+          <li>{AI_ASSIST_YOUTUBE}</li>
         </ul>
       </Section>
       <Section title="15. 시행일">

@@ -16,14 +16,15 @@ import { dateWords, kstToday } from '../lib/kst.ts'
 import { labelEnv } from '../lib/label-env.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, renderJob, renderProduct, waitingA4Name } from '../lib/label-render.ts'
-import { CONNECT_TIPS_TITLE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
+import { KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
 import type { PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { LabelSettings } from './LabelSettings.tsx'
 import { LabelsOffNote } from './LabelsOff.tsx'
 import { Modal } from './Modal.tsx'
-import { DiscardList, PausePanel, QueueList, usePrintAction } from './PrintParts.tsx'
+import { useOwnReconnect } from '../lib/reconnect-owner.ts'
+import { ConnectTipsList, DiscardList, PausePanel, QueueList, usePrintAction } from './PrintParts.tsx'
 import { FONT_ERROR, useLabelsEnabled, usePrintApi, usePrintState, useScopeLabels, useStationState } from './print-context.tsx'
 
 /** 연결 방법 단추 글 (AC-I1-21) */
@@ -163,16 +164,7 @@ export function PrinterErrorView({
   return (
     <div className="error-note stack-tight" role="alert">
       <p>{error.message}</p>
-      {tips.length > 0 ? (
-        <div className="stack-tight">
-          <p className="field-label">{CONNECT_TIPS_TITLE}</p>
-          <ol className="connect-tips" aria-label={CONNECT_TIPS_TITLE}>
-            {tips.map((tip) => (
-              <li key={tip}>{tip}</li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
+      <ConnectTipsList tips={tips} />
       {onRetry !== undefined ? (
         <div className="row">
           <button type="button" className={primary ? 'button button-primary' : 'button'} onClick={onRetry}>
@@ -203,6 +195,8 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
   const station = useStationState()
   /** 테스트 결과 "또렷하게 보이나요?"의 답 — "예" 뒤에는 "이 기기에서 출력"이 다음 할 일이다 */
   const [answer, setAnswer] = useState<'yes' | 'no' | null>(null)
+  // 프린터 칸이 떠 있는 화면(라벨 화면·마법사 4/5)은 "다시 연결"을 화면 안에서 맡는다 — 위 줄 버튼은 숨는다 (QL2 D-QL2-03 (c))
+  useOwnReconnect()
   // 연결이 끊기면 테스트 결과의 답도 지난 일이다 (다시 연결한 직후의 다음 할 일은 테스트 인쇄)
   const linked = station?.connection === 'CONNECTED' || station?.connection === 'PRINTING'
   useEffect(() => {
@@ -229,8 +223,13 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
   const lastMethod = station.method
   // 이 기기가 이미 출력 기기면 프린터 단계에 주 버튼이 없다 (AC-N4a-21)
   const primary = stepPrimary && !mine
+  // 한 화면에 이 기기의 프린터를 다시 잇는 "다시 연결"은 하나 (QL2 D-QL2-03 (c)) — 먼저 오는 것: 출력 멈춤 띠(라벨 화면, 이 기기가 출력 기기·끊김) →
+  // 연결 오류 상자 → 프린터 칸 단추. 셋 모두 station.reconnect() — 기억한 기기가 있으면 고르기 창 없이 (D-QL2-03 (a)(b), D-QS1-01)
+  const bandReconnect = !inWizard && mine && queue?.pause?.reason === 'DISCONNECTED' && api.station.canReconnect
   // 연결 실패 상자의 "다시 연결"이 보이면 그것이 지금 할 일 — 연결 방법 버튼은 보통 버튼 (D-FB1-18 (b))
-  const retryShown = station.connectError !== null && !connected && lastMethod !== null && methods.includes(lastMethod)
+  const retryShown = !bandReconnect && station.connectError !== null && !connected && lastMethod !== null && methods.includes(lastMethod)
+  // 출력 기기인지와 상관없이: 이어져 있지 않고, 잇는 중이 아니며, 이 기기에서 쓴 연결 방법을 지금 쓸 수 있으면 연결 방법 줄 위에 "다시 연결" (D-QL2-03 (a))
+  const cardReconnect = !bandReconnect && !retryShown && !connected && !station.connecting && api.station.canReconnect
   const testAnswered = answer === 'yes' && station.testPrinted
   return (
     <section id={PRINTER_ID} className="card stack" aria-labelledby={titleId}>
@@ -254,10 +253,17 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
             이 기기의 프린터: <strong>{CONNECTION_STATE_NAMES[station.connection]}</strong>
             {connected && lastMethod !== null ? ` (${lastMethod === 'test' ? '시험용 프린터' : lastMethod === 'bluetooth' ? '블루투스' : 'USB 선'})` : ''}
           </p>
+          {cardReconnect ? (
+            <div className="row">
+              <button type="button" className={stepPrimary ? 'button button-primary' : 'button'} onClick={() => void api.station.reconnect()}>
+                {PRINT_ACTION.reconnect}
+              </button>
+            </div>
+          ) : null}
           {!connected ? (
             <div className="row" role="group" aria-label="연결 방법">
               {methods.map((method) => (
-                <button key={method} type="button" className={primary && !retryShown && method === methods[0] ? 'button button-primary' : 'button'} disabled={station.connecting} onClick={() => connect(method)}>
+                <button key={method} type="button" className={primary && !retryShown && !cardReconnect && method === methods[0] ? 'button button-primary' : 'button'} disabled={station.connecting} onClick={() => connect(method)}>
                   {METHOD_WORD[method]}
                 </button>
               ))}
@@ -269,7 +275,7 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
             <p role="status">{lastMethod === 'test' ? '연결하는 중…' : '연결하는 중… 브라우저 창에서 프린터(B1)를 골라 주세요.'}</p>
           ) : null}
           {station.connectError !== null && !connected ? (
-            <PrinterErrorView error={station.connectError} serial={station.methods.includes('serial')} primary={stepPrimary} {...(retryShown && lastMethod !== null ? { onRetry: () => connect(lastMethod) } : {})} />
+            <PrinterErrorView error={station.connectError} serial={station.methods.includes('serial')} primary={stepPrimary} {...(retryShown ? { onRetry: () => void api.station.reconnect() } : {})} />
           ) : null}
           {connected ? <ConnectedPrinter answer={answer} onAnswer={setAnswer} primary={primary && !testAnswered} /> : null}
           {connected && !mine ? <BecomeDevice primary={primary && testAnswered} /> : null}

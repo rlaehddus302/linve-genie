@@ -142,11 +142,12 @@ function CurrentBody({ product, onOpen }: { readonly product: Product; readonly 
       <p className="current-number">{product.no}번</p>
       <div className="stack-tight">
         <p className="current-name">{nameOf(product)}</p>
+        {/* 1등은 이름 바로 아래 — 큰 글씨에서 "몇 번·무엇·누가"가 한눈에 (QL2 D-QL2-01 (2)) */}
+        <p>1등: {winners}</p>
         <p>{formatWon(product.price)}</p>
         <p>
           <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span>
         </p>
-        <p>1등: {winners}</p>
         <p>대기 {waitCount(product)}명</p>
         {stockLeftWords(product) !== null ? <p className="stock-left">{stockLeftWords(product)}</p> : null}
         {product.hasOptions ? <p>{variantTotals(product)}</p> : null}

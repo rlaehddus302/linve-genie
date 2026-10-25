@@ -5,6 +5,7 @@
 // - 기기 이름·인쇄 농도·연결 방법은 그 기기(브라우저)에 남는다(localStorage).
 // - 저장소를 쓸 수 없는 브라우저(사생활 보호 모드 등)는 이 페이지 동안만 기억한다.
 import { WIDE_QUERY } from './use-wide.ts'
+import { isIphone } from './print-words.ts'
 
 const DEVICE_ID_KEY = 'livejjim.deviceId'
 const DEVICE_NAME_KEY = 'livejjim.deviceName'
@@ -115,6 +116,14 @@ function userAgent(): string {
   }
 }
 
+function touchPoints(): number {
+  try {
+    return navigator.maxTouchPoints
+  } catch {
+    return 0
+  }
+}
+
 /** 휴대폰처럼 보이는 기기인지 (기본 기기 이름) */
 export function looksLikePhone(): boolean {
   return /Android|iPhone|iPad|Mobile/i.test(userAgent()) || narrowScreen()
@@ -129,14 +138,16 @@ export interface DefaultNameInput {
   readonly narrow: boolean
   /** 지금 출력 기기가 다른 기기면 그 이름 (없거나 이 기기면 null) */
   readonly otherStation: string | null
+  /** 터치 지점 수 (navigator.maxTouchPoints — 터치 맥 = 아이패드 판별, QL2 D-QL2-07). 없으면 0 */
+  readonly touchPoints?: number
 }
 
 /**
- * 판매자가 이름을 정하지 않았을 때의 기기 이름 (순수 함수): 아이폰·아이패드 "아이폰", 안드로이드 "안드로이드 폰", 그 밖의 휴대폰 "휴대폰", 아니면 "PC".
+ * 판매자가 이름을 정하지 않았을 때의 기기 이름 (순수 함수): 아이폰·아이패드(터치 맥 포함 — isIphone) "아이폰", 안드로이드 "안드로이드 폰", 그 밖의 휴대폰 "휴대폰", 아니면 "PC".
  * 다른 출력 기기의 이름이 같으면 뒤에 " 2" — 두 기기가 같은 이름으로 보이지 않게. 결과는 늘 cleanDeviceName을 지난다(1~20자)
  */
-export function defaultDeviceName({ userAgent: agent, narrow, otherStation }: DefaultNameInput): string {
-  const base = /iPhone|iPad/i.test(agent)
+export function defaultDeviceName({ userAgent: agent, narrow, otherStation, touchPoints = 0 }: DefaultNameInput): string {
+  const base = isIphone(agent, touchPoints)
     ? DEFAULT_DEVICE_NAMES.iphone
     : /Android/i.test(agent)
       ? DEFAULT_DEVICE_NAMES.android
@@ -154,7 +165,7 @@ export function storedDeviceName(): string | null {
 
 /** 기기 이름: 이 기기에서 정한 이름, 없으면 기본 이름(defaultDeviceName — 다른 출력 기기의 이름과 겹치면 " 2") */
 export function savedDeviceName(otherStation: string | null = null): string {
-  return storedDeviceName() ?? defaultDeviceName({ userAgent: userAgent(), narrow: narrowScreen(), otherStation })
+  return storedDeviceName() ?? defaultDeviceName({ userAgent: userAgent(), narrow: narrowScreen(), otherStation, touchPoints: touchPoints() })
 }
 
 export function saveDeviceName(name: string): void {
