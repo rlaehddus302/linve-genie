@@ -112,20 +112,33 @@ const codePoints = (text: string): number => {
 }
 
 /**
- * 화면 가리기(D-V3-56 maskArchiveText)의 그물 — 화면이 이미 가렸으면 바뀌지 않는다. 화면 규칙보다 덜 가리지 않게, 같거나 더 넓게:
- * - 숫자 8자리 이상(공백·`-`이 끼어도) → `****`
- * - 한글 숫자 낱자(공·영·일·이·삼·사·오·육·륙·칠·팔·구) 8개 이상 이어 말한 전화번호(공백·`-`이 끼어도) → `****` (D-V3-75, RA-V3-004 — dev-device 가리기와 같은 규칙)
- * - 끝자리 낱말(끝자리·끝 자리·끝번호·끝 번호·뒷번호·뒷 번호·뒷자리·뒷 자리, 끝말이 붙어도) 바로 뒤 숫자 4개 또는 한글 숫자 낱자 4개 → `****`
+ * 화면 가리기(D-V3-56·66·75 — packages/voice maskArchiveText)의 그물. 서버는 음성 패키지를 부르지 않으므로(AC-I4-04 경계) 같은 규칙을 여기 둔다.
+ * 1~3은 dev-device 규칙 그대로(harness/sprints/V3/dev-notes.md "dev-device 추가 24"), 4는 서버가 더 넓게 거는 그물이다 — 화면보다 덜 가리지 않는다.
+ * 1. 숫자가 공백·`-`을 사이에 두고 8개 이상 이어짐 → `****`
+ * 2. 자리 글자(숫자·공·영·일~구)로만 된 토큰이 공백을 사이에 두고 이어져 자리가 8개 이상 → `****` (앞뒤에 다른 한글 음절이 붙은 토큰은 아님)
+ * 3. 끝자리 낱말(끝자리·뒷번호·뒷자리·끝번호·끝 자리·뒷 번호) + 끝말(R-17 2, 없어도) + 자리 글자 4개(사이 공백 허용) → `****`
+ *    — 뒤에 숫자가 이어지거나, 공백·끝으로 끝나는 한글 자리 글자 토큰이 이어지면(`일이삼사오` 다섯 자리) 가리지 않는다. `5678이요`의 `이요`는 끝말이라 가린다
+ * 4. 서버만: 자리 글자(숫자·한글, 륙 포함 — 섞여도)가 공백·`-`을 사이에 두고 8개 이상(낱말 경계를 보지 않음), `끝 번호`·`뒷 자리`처럼 띄어 쓴 끝자리 낱말.
+ *    2와 4를 1보다 먼저 건다 — 숫자 쪽만 먼저 가려 "영일영 ****"처럼 앞자리가 남지 않게(TD-V3-010)
  */
-const LONG_DIGITS = /[0-9](?:[\s-]*[0-9]){7,}/g
-const KOREAN_DIGIT = '[공영일이삼사오육륙칠팔구]'
-const LONG_KOREAN_DIGITS = new RegExp(`${KOREAN_DIGIT}(?:[\\s-]*${KOREAN_DIGIT}){7,}`, 'g')
-const LAST4_WORD = '(?:끝\\s*자리|끝\\s*번호|뒷\\s*번호|뒷\\s*자리)'
-const LAST4 = new RegExp(`(${LAST4_WORD}[가-힣]{0,3})(\\s*)[0-9]{4}(?![0-9])`, 'g')
-const LAST4_KOREAN = new RegExp(`(${LAST4_WORD}(?:이에요|입니다|이요|예요|은|는|이|가|을|를|도|만|요)?)(\\s*)${KOREAN_DIGIT}(?:\\s*${KOREAN_DIGIT}){3}`, 'g')
+const MASK = '****'
+/** R-17 2 끝말 (packages/voice ENDINGS와 같은 목록 — 바꾸면 함께 바꾼다) */
+const ENDINGS = ['이에요', '예요', '에요', '입니다', '이요', '이고', '이랑', '하고', '짜리', '에는', '은', '는', '이', '가', '을', '를', '에', '엔', '도', '요', '랑', '까지', '인데']
+const ENDING_PATTERN = [...ENDINGS].sort((a, b) => b.length - a.length).join('|')
+const DIGIT_CHAR = '[0-9공영일이삼사오육칠팔구]'
+const DIGIT_RUN = `${DIGIT_CHAR}+`
+const DIGIT_RUNS = new RegExp(`(?<![가-힣])${DIGIT_RUN}(?:\\s+${DIGIT_RUN})*(?![가-힣])`, 'g')
+const LAST4_WORDS = ['끝자리', '뒷번호', '뒷자리', '끝번호', '끝 자리', '뒷 번호', '끝 번호', '뒷 자리']
+const LAST4_RULES = LAST4_WORDS.map(
+  (word) => new RegExp(`(${word.replace(/ /g, '\\s*')}(?:${ENDING_PATTERN})?)(\\s*)(?:${DIGIT_CHAR}\\s*){3}${DIGIT_CHAR}(?![0-9])(?![공영일이삼사오육칠팔구]+(?:\\s|$))`, 'g'),
+)
+const ANY_DIGIT = '[0-9공영일이삼사오육륙칠팔구]'
+const LONG_MIXED_DIGITS = new RegExp(`${ANY_DIGIT}(?:[\\s-]*${ANY_DIGIT}){7,}`, 'g')
 export function maskHeard(text: string): string {
-  const keep = (_match: string, lead: string, space: string): string => `${lead}${space}****`
-  return text.replace(LONG_DIGITS, '****').replace(LONG_KOREAN_DIGITS, '****').replace(LAST4, keep).replace(LAST4_KOREAN, keep)
+  let out = text.replace(DIGIT_RUNS, (run) => (run.replace(/\s/g, '').length >= 8 ? MASK : run)).replace(LONG_MIXED_DIGITS, MASK)
+  out = out.replace(/[0-9](?:[\s-]*[0-9])*/g, (run) => (run.replace(/[^0-9]/g, '').length >= 8 ? MASK : run))
+  for (const rule of LAST4_RULES) out = out.replace(rule, (_match, lead: string, space: string) => `${lead}${space}${MASK}`)
+  return out
 }
 
 /** 저장할 들은 말: 짝 없는 서로게이트·제어 문자 빼기(줄바꿈·탭 → 공백), 앞뒤 공백 지우기, 한 번 더 가리기, 300글자까지 */
