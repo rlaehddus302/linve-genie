@@ -33,6 +33,7 @@ import {
   failedDmCount,
   failedDmMessage,
   tiktokBlocker,
+  tiktokDirectMessage,
   tiktokNeedsPaste,
   tiktokReconnectable,
   tiktokUnseenSaveFailed,
@@ -712,9 +713,11 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hide
           {ttLink.tiktokId !== null ? <p>이은 틱톡 아이디: @{ttLink.tiktokId}</p> : null}
           {collection !== null ? (
             <>
-              <p>
-                <strong>{collection.message}</strong>
-              </p>
+              {tiktokDirectMessage(collection, extension) !== null ? (
+                <p>
+                  <strong>{tiktokDirectMessage(collection, extension)}</strong>
+                </p>
+              ) : null}
               {extension?.route != null ? (
                 <p className="tiktok-route" role="status" aria-label="틱톡 댓글 받는 길">
                   {extension.route}

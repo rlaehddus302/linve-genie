@@ -22,6 +22,7 @@ import {
   pasteGroupMessage,
   platformOfKey,
   tiktokBlocker,
+  tiktokDirectMessage,
   tiktokNeedsPaste,
   tiktokReconnectable,
   tiktokUnseenSaveFailed,
@@ -724,6 +725,30 @@ describe('TTX: 확장으로 받는 중의 붙여넣기 알림 (AC-TTX-21)', () =
     expect(screen.getByRole('button', { name: TIKTOK_PASTE_ALERT })).toBeDefined()
     expect(within(ttPanel()).getByText(EXT_WARNING.STALE)).toBeDefined()
     expect(within(ttPanel()).getByRole('button', { name: '댓글 붙여넣기' }).className).toContain('button-primary')
+  })
+
+  it('U-TTX-01·RA-TTX-02: 확장으로 받는 중이면 직접 연결의 "그동안 댓글을 직접 넣어 주세요" 문장을 보이지 않는다 — 조용해지면 다시 보인다', async () => {
+    const SIGN = '틱톡 연결 준비에 실패해 다시 시도하는 중이에요. 그동안 댓글을 직접 넣어 주세요.'
+    const BLOCK = '틱톡이 연결을 막아 다시 시도하는 중이에요. 그동안 댓글을 직접 넣어 주세요.'
+    const GAVE_UP = '틱톡에 다시 연결하지 못했어요. 다시 연결을 누르거나 댓글을 직접 넣어 주세요.'
+    ttLink = ttWithExt({ state: 'RETRYING', reason: 'SIGN_FAILED', message: SIGN }, ttExt())
+    await openConsole()
+    expect(within(ttPanel()).queryByText(SIGN)).toBeNull()
+    expect(ttPanel().textContent).not.toContain('직접 넣어 주세요')
+    expect(within(ttPanel()).getByRole('status', { name: '틱톡 댓글 받는 길' }).textContent).toBe(ROUTE.EXTENSION)
+    for (const [state, reason, message] of [['RETRYING', 'BLOCKED', BLOCK], ['STOPPED', 'GAVE_UP', GAVE_UP]] as const) {
+      act(() => FakeEventSource.last.emit('tiktok', { kind: 'LINK', broadcast: 'b1', link: ttWithExt({ state, reason, message }, ttExt()) }))
+      expect(within(ttPanel()).queryByText(message)).toBeNull()
+      expect(ttPanel().textContent).not.toContain('직접 넣어 주세요')
+    }
+    // 확장이 조용해지면(active 꺼짐) 직접 연결 문장이 돌아온다
+    act(() => FakeEventSource.last.emit('tiktok', { kind: 'LINK', broadcast: 'b1', link: ttWithExt({ state: 'RETRYING', reason: 'SIGN_FAILED', message: SIGN }, ttExt({ state: 'STALE', active: false, route: null, warning: EXT_WARNING.STALE })) }))
+    expect(within(ttPanel()).getByText(SIGN)).toBeDefined()
+    // 확장 상태가 없던 회차는 지금 화면 그대로
+    expect(tiktokDirectMessage(ttCollection({ state: 'RETRYING', reason: 'SIGN_FAILED', message: SIGN }), null)).toBe(SIGN)
+    expect(tiktokDirectMessage(ttCollection({ state: 'RETRYING', reason: 'SIGN_FAILED', message: SIGN }), ttExt({ state: 'NONE', active: false, route: null }))).toBe(SIGN)
+    expect(tiktokDirectMessage(ttCollection({ state: 'RETRYING', reason: 'SIGN_FAILED', message: SIGN }), ttExt())).toBeNull()
+    expect(tiktokDirectMessage(null, ttExt())).toBeNull()
   })
 
   it('판단 함수: active면 저장 실패만 센다', () => {

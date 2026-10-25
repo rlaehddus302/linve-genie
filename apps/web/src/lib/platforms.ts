@@ -100,6 +100,18 @@ export function tiktokNeedsPaste(collection: TikTokCollection | null, extension:
   return collection.state === 'RETRYING' && (collection.reason === 'BLOCKED' || collection.reason === 'SIGN_FAILED')
 }
 
+/**
+ * 틱톡 칸 굵은 줄(직접 연결 상태 문장, 서버 문장 그대로). 크롬 확장으로 받는 중(`extension.active`)이면 보이지 않는다 (U-TTX-01·RA-TTX-02):
+ * 직접 연결이 막혀 다시 시도하는 동안의 문장은 "그동안 댓글을 직접 넣어 주세요"인데, 바로 아래 받는 길 줄은 "확장으로 받는 중"이다.
+ * 판매자가 그 말대로 붙여 넣으면 붙여넣기 구매자는 틱톡 구매자와 잇지 않으므로 같은 시청자가 두 구매자로 찜한다(D-TTX-09가 막으려던 사고).
+ * 화면 문구 표에 이 경우의 문장이 없어 새 문장을 만들지 않고 받는 길 줄 하나만 남긴다 — 문장은 spec-keeper에 올림(dev-notes).
+ */
+export function tiktokDirectMessage(collection: TikTokCollection | null, extension: TikTokExtensionView | null = null): string | null {
+  if (collection === null) return null
+  if (extension?.active === true) return null
+  return collection.message
+}
+
 // ── 인스타그램 ───────────────────────────────────────────────────────
 
 export const INSTAGRAM_NOT_CONFIGURED = '인스타그램 연동이 아직 준비되지 않았어요. 운영자에게 문의해 주세요.'
