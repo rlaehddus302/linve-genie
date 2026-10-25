@@ -359,3 +359,17 @@ describe('TD-V3-008·009 (적대 성질에서 찾음)', () => {
     expect(seg('174 이만원이에요 15번').picks).toMatchObject([{ no: 174, price: 20000 }])
   })
 })
+
+describe('TD-V3-009·010 남은 부분', () => {
+  it('"15번 삼광색금 만오천말고 25만"(최종, 천원) → pick 없음', () => {
+    expect(seg('15번 삼광색금 만오천말고 25만', { priceUnit: 'THOUSAND', final: true }).picks).toEqual([])
+  })
+  it('"영일영 1234 5678" → **** (한글 자리 글자와 숫자가 섞여 8자리 이상)', async () => {
+    const { maskArchiveText } = await import('../src/index.ts')
+    expect(maskArchiveText('영일영 1234 5678')).toBe('****')
+    expect(maskArchiveText('번호 공일공 1234 오육칠팔 이에요')).toBe('번호 **** 이에요')
+    expect(maskArchiveText('010-1234-5678')).toBe('****')
+    expect(maskArchiveText('공일공-1234-5678 주세요')).toBe('**** 주세요')
+    expect(maskArchiveText('끝 번호 1234')).toBe('끝 번호 ****')
+  })
+})

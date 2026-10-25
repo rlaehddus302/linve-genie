@@ -62,7 +62,7 @@ function nameWindowEnd(tokens: readonly string[], k: number, options: SegmentOpt
   let found: { end: number; name: string } | null = null
   for (let j = k; j < tokens.length && j < k + 4; j++) {
     const piece = tokens.slice(k, j + 1)
-    if (piece.some((token) => isWindowFiller(token) || /[0-9]/.test(token))) break
+    if (piece.some((token) => isWindowFiller(token) || /[0-9]/.test(token) || isCorrectionToken(token) || isCancelToken(token))) break
     const reading = readSentence(piece.join(' '), { dictionary: options.dictionary ?? [] })
     if (reading.extraction.name !== null && reading.nameWindow !== null && reading.nameWindow.startsWith(piece[0] as string)) found = { end: j, name: reading.extraction.name }
     else if (found === null && piece.length === 1) {
@@ -167,6 +167,8 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         if (correctionBetween(m.last + 1, k)) continue
         const name = nameWindowEnd(tokens, k, options)
         const q = name === null ? k : name.end + 1
+        // 정정 표시·취소 낱말(붙은 꼴 `만오천말고` 포함)이 번호와 수 사이에 끼면 빠른 꼴이 아니다 (TD-V3-009)
+        if (correctionBetween(m.last + 1, q)) continue
         // 수에 붙은 판매 말투는 뗀다 (`180입니다`·`180까지요` — D-V3-69, AC-V3-73)
         const rawNumber = tokens[q]
         const attachedTail = rawNumber === undefined ? undefined : NUMBER_TAILS.find((tail) => rawNumber.length > tail.length && rawNumber.endsWith(tail) && QUICK_NUMBER.test(rawNumber.slice(0, -tail.length)))

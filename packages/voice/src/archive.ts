@@ -22,11 +22,14 @@ const ENDING_PATTERN = [...ENDINGS].sort((a, b) => b.length - a.length).join('|'
 
 /** 자리 글자 (숫자·한글 자리 글자 공·영·일~구, D-V3-75) */
 const DIGIT_CHAR = '[0-9공영일이삼사오육칠팔구]'
+/** 섞인 자리 글자 8개 이상 (공백·`-` 사이 허용, 서버 maskHeard와 같다) */
+const LONG_MIXED_DIGITS = /[0-9공영일이삼사오육륙칠팔구](?:[\s-]*[0-9공영일이삼사오육륙칠팔구]){7,}/g
+
 /** 자리 글자로만 된 토큰 */
 const DIGIT_RUN = `${DIGIT_CHAR}+`
 
 /** 문자찜 끝자리 낱말 (R-21 4) — 바로 뒤 숫자 4개를 가린다 */
-const LAST4_WORDS = ['끝자리', '뒷번호', '뒷자리', '끝번호', '끝 자리', '뒷 번호']
+const LAST4_WORDS = ['끝자리', '뒷번호', '뒷자리', '끝번호', '끝 자리', '뒷 번호', '끝 번호', '뒷 자리']
 
 /**
  * 남기기 전 가리기: 숫자 8자리 이상(공백·`-`이 끼어도, D-V2-20과 같은 판단) → `****`,
@@ -34,9 +37,12 @@ const LAST4_WORDS = ['끝자리', '뒷번호', '뒷자리', '끝번호', '끝 �
  */
 export function maskArchiveText(text: unknown): string {
   if (typeof text !== 'string') return ''
-  let out = maskLongDigits(text).split(MASKED_DIGITS).join(ARCHIVE_MASK)
-  // 한글 자리 글자(공·영·일~구, 숫자 섞여도)만으로 된 토큰이 공백을 사이에 두고 이어져 자리가 8개 이상이면 전부 (D-V3-75 — "공일공 일이삼사 오육칠팔")
-  out = out.replace(new RegExp(`(?<![가-힣])${DIGIT_RUN}(?:\\s+${DIGIT_RUN})*(?![가-힣])`, 'g'), (run) => (run.replace(/\s/g, '').length >= 8 ? ARCHIVE_MASK : run))
+  // 자리 글자(숫자·한글 공·영·일~구)로만 된 토큰이 공백을 사이에 두고 이어져 자리가 8개 이상이면 전부 (D-V3-75 — "공일공 일이삼사 오육칠팔", 섞인 "영일영 1234 5678" — TD-V3-010).
+  // 숫자만 가리기(maskLongDigits)보다 먼저 한다 — 숫자 쪽이 먼저 가려지면 한글 자리 글자가 남는다
+  let out = text.replace(new RegExp(`(?<![가-힣])${DIGIT_RUN}(?:\\s+${DIGIT_RUN})*(?![가-힣])`, 'g'), (run) => (run.replace(/\s/g, '').length >= 8 ? ARCHIVE_MASK : run))
+  // 자리 글자(륙 포함)가 공백·`-`을 사이에 두고 8개 이상 이어지면 전부 (서버 maskHeard와 같은 그물 — "공일공-1234-5678")
+  out = out.replace(LONG_MIXED_DIGITS, ARCHIVE_MASK)
+  out = maskLongDigits(out).split(MASKED_DIGITS).join(ARCHIVE_MASK)
   for (const word of LAST4_WORDS) {
     const escaped = word.replace(/ /g, '\\s*')
     // 낱말에 끝말이 붙어도(`끝자리는`·`뒷번호가`, R-21 4 읽는 모양 — TD-V3-006) 바로 뒤 자리 4개(숫자 또는 한글 자리 글자, 사이 공백 허용 — D-V3-75)를 가린다. 뒤 끝말(`1234요`)은 그대로 둔다
