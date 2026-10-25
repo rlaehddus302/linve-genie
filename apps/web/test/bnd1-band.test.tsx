@@ -723,6 +723,60 @@ describe('알림 띠 — 밴드 줄은 휴대폰에서도 문장 끝까지 (U-BN
     expect(screen.getByRole('button', { name: '알림 1 펼치기' })).toBeDefined()
   })
 
+  describe('D-BND1-21 (TE-BND1-005): 휴대폰 접힌 띠의 밴드 줄 둘은 한 줄(누르는 곳 하나)', () => {
+    const both = (onPanel: () => void, onNotices: () => void, onSeen: () => void) => [
+      { key: 'band', text: BAND_NOT_COMING, onClick: onPanel, full: true },
+      { key: 'band-notices', text: bandNoticesMessage(1), onClick: onNotices, full: true, action: { label: '확인했어요', onClick: onSeen } },
+    ]
+    const fullButtons = () => [...(screen.getByRole('region', { name: '알림' }).querySelector('ul.alerts-full') as HTMLElement).querySelectorAll('button')].filter((b) => !b.className.includes('alert-lead-action'))
+
+    it('접힌 휴대폰 띠: 누르는 곳 1개 안에 두 문장이 글자 그대로 따로 1개씩, 누르면 첫 줄(밴드 칸)로 — "확인했어요"는 숨긴 채 남는다', () => {
+      const onPanel = vi.fn()
+      const onNotices = vi.fn()
+      render(<AlertStrip leads={both(onPanel, onNotices, () => {})} counts={COUNTS} onOpen={() => {}} onToggle={() => {}} />)
+      const buttons = fullButtons()
+      expect(buttons).toHaveLength(1)
+      expect(screen.getAllByText(BAND_NOT_COMING, { exact: true })).toHaveLength(1)
+      expect(screen.getAllByText(bandNoticesMessage(1), { exact: true })).toHaveLength(1)
+      const parts = [...(buttons[0] as HTMLElement).querySelectorAll('span.alert-lead-text')].map((el) => el.textContent)
+      expect(parts).toEqual([BAND_NOT_COMING, bandNoticesMessage(1)])
+      expect(screen.getByRole('region', { name: '알림' }).querySelectorAll('ul.alerts-full > li')).toHaveLength(1)
+      ;(buttons[0] as HTMLElement).click()
+      expect(onPanel).toHaveBeenCalledTimes(1)
+      expect(onNotices).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: '확인했어요' }).className).toContain('alert-lead-action')
+      // 알림 수는 줄 둘 그대로 센다
+      expect(screen.getByRole('button', { name: '알림 2 펼치기' })).toBeDefined()
+    })
+
+    it('펼친 띠: 두 줄 따로, 각 줄 누르는 곳·"확인했어요"', () => {
+      const onNotices = vi.fn()
+      const onSeen = vi.fn()
+      render(<AlertStrip leads={both(() => {}, onNotices, onSeen)} counts={COUNTS} onOpen={() => {}} expanded onToggle={() => {}} />)
+      expect(fullButtons()).toHaveLength(2)
+      screen.getByRole('button', { name: bandNoticesMessage(1) }).click()
+      expect(onNotices).toHaveBeenCalledTimes(1)
+      screen.getByRole('button', { name: '확인했어요' }).click()
+      expect(onSeen).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('button', { name: BAND_NOT_COMING })).toBeDefined()
+    })
+
+    it('PC(48rem 이상): 접혀 있어도 두 줄 따로', () => {
+      wideScreen()
+      render(<AlertStrip leads={both(() => {}, () => {}, () => {})} counts={COUNTS} onOpen={() => {}} onToggle={() => {}} />)
+      expect(fullButtons()).toHaveLength(2)
+      expect(screen.getByRole('button', { name: BAND_NOT_COMING })).toBeDefined()
+      expect(screen.getByRole('button', { name: bandNoticesMessage(1) })).toBeDefined()
+    })
+
+    it('밴드 줄이 하나뿐이면 묶지 않는다 (지금 그대로)', () => {
+      render(<AlertStrip leads={both(() => {}, () => {}, () => {}).slice(1)} counts={COUNTS} onOpen={() => {}} onToggle={() => {}} />)
+      expect(fullButtons()).toHaveLength(1)
+      expect(screen.getByRole('region', { name: '알림' }).querySelector('.alert-lead-merged')).toBeNull()
+      expect(screen.getByRole('button', { name: bandNoticesMessage(1) })).toBeDefined()
+    })
+  })
+
   it('밴드 줄이 없으면 지금 띠 그대로 (목록 하나, 나눠 그리지 않음)', () => {
     render(<AlertStrip leads={[{ key: 'tiktok', text: '틱톡 댓글을 붙여 넣어 주세요.', onClick: () => {} }]} counts={COUNTS} onOpen={() => {}} onToggle={() => {}} />)
     const region = screen.getByRole('region', { name: '알림' })
