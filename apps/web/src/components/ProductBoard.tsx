@@ -137,7 +137,7 @@ export function CurrentProduct({ product, onOpen }: { readonly product: Product 
 }
 
 /**
- * 휴대폰 고정 영역 맨 끝의 현재 상품 한 줄 요약 (QL2 D-QL2-11 (1), AC-QL2-01) — 스크롤해도 늘 보인다. 누르는 기능은 없다(카드가 그대로 있다).
+ * 휴대폰 고정 영역 맨 위(알림 띠 위)의 현재 상품 한 줄 요약 (QL2 D-QL2-11 (1)·D-QL2-14 (1), AC-QL2-01) — 스크롤해도 늘 보인다. 누르는 기능은 없다(카드가 그대로 있다).
  * 값은 카드와 같다(1등·대기). 100% 글자 고정 영역 35%는 요약이 든 채로 지켜져(측정, dev-notes) 6글자 줄이기(D-QL2-11 (3))는 쓰지 않는다
  */
 export function CurrentSummary({ product }: { readonly product: Product | undefined }) {

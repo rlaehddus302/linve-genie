@@ -1286,6 +1286,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         {endError !== null ? <ErrorNote error={endError} /> : null}
         {sealed ? <SealedNotice /> : null}
         <div className={voiceLive !== null && wide ? 'console-sticky console-sticky-voice' : 'console-sticky'}>
+          {/* 휴대폰만: 고정 영역 맨 위(제목·리허설 띠 바로 아래, 알림 띠 위)에 현재 상품 한 줄 요약 — 아래가 늘어나도(알림 펼침·되돌리기 대기·리허설·큰 글씨)
+              제목 밑에 남고 스크롤해도 늘 보인다. 누르는 기능이 없어 Tab 차례는 그대로. PC·끝난 방송에는 없다 (QL2 D-QL2-11 (1)·D-QL2-14 (1)) */}
+          {wide || ended || sealed ? null : <CurrentSummary product={current} />}
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
@@ -1370,8 +1373,6 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
                 {labelsNote.text}
               </p>
             ) : null}
-            {/* 휴대폰만: 고정 영역 맨 끝에 현재 상품 한 줄 요약 — 스크롤해도 늘 보인다. PC·끝난 방송에는 없다 (QL2 D-QL2-11 (1)) */}
-            {wide || ended || sealed ? null : <CurrentSummary product={current} />}
           </div>
           {wide ? voiceLive : null}
         </div>

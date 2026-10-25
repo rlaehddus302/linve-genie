@@ -2036,7 +2036,7 @@ html:has(.save-bar) {
     display: none;
   }
 
-  /* 휴대폰 고정 영역 맨 끝의 현재 상품 한 줄 요약 (QL2 D-QL2-11 (1)) — 줄바꿈은 되고(글자 잘림 0), 글자 16px 이상 */
+  /* 휴대폰 고정 영역 맨 위의 현재 상품 한 줄 요약 (QL2 D-QL2-11 (1)·D-QL2-14 (1)) — 줄바꿈은 되고(글자 잘림 0), 글자 16px 이상 */
   .current-summary {
     margin: 0;
     font-size: 1rem;
