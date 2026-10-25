@@ -83,11 +83,17 @@ function hasSplitMarker(text: string): boolean {
   const tokens = tokenize(text)
   if (tokens === null) return false
   const forms = tokens.map(readingForms)
+  // V3 자리 읽기 ⓑ + 번 (D-V3-11): 이어진 토큰 정확히 셋이 저마다 자리 글자 하나이고 셋째가 `X번`이면(`1 1 5번` = 115번) 끊어 말한 번호 검사를 하지 않는다
+  const DIGIT = /^([0-9]|[공일이삼사오육칠팔구])$/
+  const isDigit = (t: string | undefined) => t !== undefined && DIGIT.test(t)
+  const digitReadingBeon = (i: number, form: string): boolean =>
+    form.length === 2 && isDigit(form.charAt(0)) && isDigit(tokens[i - 1]) && isDigit(tokens[i - 2]) && !isDigit(tokens[i - 3]) && !isDigit(tokens[i + 1]) && !/^[0공]$/.test(tokens[i - 2] as string)
   return tokens.some((token, i) => {
     const previous = i > 0 ? tokens[i - 1] : undefined
     if (previous === undefined) return false
     const attached = (forms[i] ?? []).some((form) => {
       if (form.length < 2 || !form.endsWith(BEON)) return false
+      if (digitReadingBeon(i, form.slice(0, -1) + BEON)) return false
       const x = form.slice(0, -1)
       return markerValue(x) !== null && parseKoreanNumber(previous + x) !== null
     })

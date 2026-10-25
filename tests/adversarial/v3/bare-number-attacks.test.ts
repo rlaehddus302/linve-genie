@@ -125,9 +125,18 @@ describe('AC-V3-62 — 단위가 뒤에 오는 수·한 글자 한글 수는 번
     ['일육팔은 25만 원', 168],
     ['일육팔이 25만 원', 168],
     ['일육팔요 25만 원', 168],
-    ['일 육 팔 bts 25만 원', 168],
+    ['1 6 8 bts 25만 원', 168],
   ])('자리 읽기 + 허용 끝말 "%s" → %i번 확정 (TD-V3-001 회귀 짝)', (text, no) => {
     expect(readyToRegister(text, { dictionary: DICT })?.no).toBe(no)
+  })
+
+  // D-V3-27: 띄어 쓴 한글 한 글자 셋은 '번'이 붙을 때만 번호다 (`일 육 팔`·`이 삼 일` = 번호 아님, `이 삼 일번` = 231번)
+  it.each(['일 육 팔 bts 25만 원', '택배는 이 삼 일 걸리고 만 원이에요'])('D-V3-27: "%s" → 번호 없음, 바로 등록 없음', (text) => {
+    expect(read(text).no).toBeNull()
+    expect(readyToRegister(text, { dictionary: DICT, final: true })).toBeNull()
+  })
+  it('D-V3-27: "이 삼 일번 만 원" → 231번', () => {
+    expect(read('이 삼 일번 만 원').no).toBe(231)
   })
 })
 

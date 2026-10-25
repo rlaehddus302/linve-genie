@@ -9,7 +9,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 
 const DICT = prepareVoiceDictionary()
-const read = (text: string) => readRegistration(text, { dictionary: DICT })
+const read = (text: string, final = false) => readRegistration(text, { dictionary: DICT, final })
 
 const ENDINGS = ['이에요', '예요', '에요', '입니다', '이요', '이고', '이랑', '하고', '짜리', '에는', '은', '는', '이', '가', '을', '를', '에', '엔', '도', '요', '랑', '까지', '인데']
 const tokensOf = (text: string): string[] => text.trim().split(/\s+/).map((t) => t.replace(/[.,?!~]+$/, '')).filter((t) => t !== '')
@@ -57,9 +57,9 @@ function hasNumberSource(tokens: readonly string[], no: number): boolean {
 const hasCorrection = (tokens: readonly string[]) => tokens.some((t) => CORRECTION_MARKERS.includes(t) || CANCEL_WORDS.includes(t) || t.endsWith('말고'))
 
 /** 확정 읽기의 성질 (R-17 8) — 확정이면 그 순간 글에 '원' 토큰·번호·정정 없음 */
-function checkPrefix(prefix: string): void {
+function checkPrefix(prefix: string, final: boolean): void {
   const tokens = tokensOf(prefix)
-  const reading = read(prefix)
+  const reading = read(prefix, final)
   const distinctBeon = new Set(beonValues(tokens))
   if (distinctBeon.size >= 2) expect(reading.ready, `서로 다른 N번 ${[...distinctBeon].join('·')}: ${prefix}`).toBeNull()
   if (reading.ready === null) return
@@ -73,6 +73,13 @@ function checkPrefix(prefix: string): void {
   expect(Number.isSafeInteger(reading.ready.price)).toBe(true)
   expect(reading.priceSure).toBe(true)
   expect(reading.correction).toBe(false)
+  // D-V3-26: 중간 결과에서 '번' 없는 번호의 후보 토큰이 글의 마지막 토큰이면 확정이 아니다 ('N번'은 글 끝이어도 바로)
+  if (!final && !beonValues(tokens).includes(reading.ready.no)) {
+    const last = tokens[tokens.length - 1] as string
+    // 한글 한 글자는 '번' 없이 번호가 되지 않는다(D-V3-23·27) — 숫자 한 개는 `1 6 8`의 끝일 수 있다
+    const lastIsNumber = /^[0-9]$/.test(last) || [last, ...['은', '는', '이', '가', '요'].filter((e) => last.length > e.length && last.endsWith(e)).map((e) => last.slice(0, -e.length))].some((f) => /^[공일이삼사오육칠팔구]{3}$/.test(f) || (/^([0-9]{1,4}|[일이삼사오육칠팔구십백천]{2,})$/.test(f) && parseKoreanNumber(f) === reading.ready?.no))
+    expect(lastIsNumber, `중간 결과 끝의 '번' 없는 수로 확정: ${prefix}`).toBe(false)
+  }
 }
 
 /** 낱말 하나씩 늘려 넣은 결과(k = 1..n)마다 검사하고, 처음 확정된 k의 등록을 센다(화면 흉내: 덩어리에 많아야 한 번) */
@@ -82,8 +89,10 @@ function feedWords(text: string): { firstK: number | null; registrations: number
   let registrations = 0
   for (let k = 1; k <= tokens.length; k++) {
     const prefix = tokens.slice(0, k).join(' ')
-    checkPrefix(prefix)
-    if (firstK === null && read(prefix).ready !== null) {
+    // 사례 표의 중간 결과 꼴: 결과 k < n은 중간 결과, 결과 n은 최종 결과 (D-V3-26)
+    const final = k === tokens.length
+    checkPrefix(prefix, final)
+    if (firstK === null && read(prefix, final).ready !== null) {
       firstK = k
       registrations++
     }
@@ -119,13 +128,14 @@ describe('AC-V3-60 — 무작위 문장을 낱말 하나씩 늘려 넣기', () =
     ['170 25만 원', 3, 170, 250_000],
     ['108번 10만원 아니 12만원', 2, 108, 100_000],
     ['21번 핑크문 만원 취소', 3, 21, 10_000],
+    ['174 28만 원', 3, 174, 280_000],
   ])('"%s" → 처음 확정 k=%i, %i번 · %i원 (사례 표)', (text, k, no, price) => {
     expect(feedWords(text).firstK).toBe(k)
-    const ready = read(text.split(' ').slice(0, k).join(' ')).ready
+    const ready = read(text.split(' ').slice(0, k).join(' '), k === text.split(' ').length).ready
     expect([ready?.no, ready?.price]).toEqual([no, price])
   })
 
-  it.each(['택배는 이삼 일 걸리고 만 원이에요', '삼광색금 3강 25만 원', '15번 라울 174 28만 원', '백 육십팔 라울 만원', '15번 핑크프릴 만오천', '189번 빅뱅금 139번 50만 원'])('"%s" → 어느 k에서도 확정 없음', (text) => {
+  it.each(['택배는 이삼 일 걸리고 만 원이에요', '삼광색금 3강 25만 원', '15번 라울 174 28만 원', '백 육십팔 라울 만원', '15번 핑크프릴 만오천', '189번 빅뱅금 139번 50만 원', '25만 원 1 5번', '25만 원 이십 오번', '100 5만 원', '이백 오만 원', '택배는 이 삼 일 걸리고 만 원이에요'])('"%s" → 어느 k에서도 확정 없음', (text) => {
     expect(feedWords(text).firstK).toBeNull()
   })
 })
