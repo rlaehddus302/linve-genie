@@ -154,6 +154,8 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         if (q === tokens.length - 1 && !final) continue // 중간 결과 끝의 수는 기다린다(60 → 60만)
         // 품종 없는 꼴은 덩어리가 끝났을 때만(D-V3-63 — 뒤에 무엇이 올지 모른다)
         if (name === null && !final) continue
+        // 품종 없는 꼴에서 숫자 한 개·한글 한 글자 수는 가격이 아니다(D-V3-63 — `68번 3`은 D-V3-54로 번호도 비움)
+        if (name === null && [...numberToken].length === 1) continue
         // 한글 수만 된 토큰(`이십오`)은 숫자로 바꿔 단위를 적용한다(만원 단위 `이십오` = 250,000원 — 숫자 `25`와 같게, D-V3-63)
         const sino = /^[일이삼사오육칠팔구십백천]+$/.test(numberToken) ? parseKoreanNumber(numberToken) : null
         const price = parseAmount(sino === null ? numberToken : String(sino), { 'price.unit': unit })

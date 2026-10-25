@@ -217,3 +217,25 @@ describe('AC-V3-66 음성 인식 기록 가리기·내려받기 형식', () => {
     expect(pruneArchive([{ at: 0 }, { at: 10 }], VOICE_ARCHIVE_KEEP_MS + 5)).toEqual([{ at: 10 }])
   })
 })
+
+describe('R69~R73 품종 없는 빠른 꼴 (D-V3-63, 만원 단위)', () => {
+  const ten: SegmentOptions = { priceUnit: 'TEN_THOUSAND' }
+  it('R69 "육십팔번 이십오"(최종) → 68번 · 품종 미입력 · 250,000원', () => {
+    expect(seg('육십팔번 이십오', { ...ten, final: true }).picks).toMatchObject([{ no: 68, name: null, price: 250000, priceFrom: 'quick' }])
+  })
+  it('R70 중간 결과 "육십팔번 이십오"는 없음, 최종 "육십팔번 이십오만 원"은 원 가격 250,000원 하나', () => {
+    expect(seg('육십팔번 이십오', ten).picks).toEqual([])
+    expect(seg('육십팔번 이십오만 원', ten).picks).toMatchObject([{ no: 68, price: 250000, priceFrom: 'won' }])
+  })
+  it('R71 "68번 25 개"(최종) → 없음', () => {
+    expect(seg('68번 25 개', { ...ten, final: true }).picks).toEqual([])
+  })
+  it('R72 "68번 이십오 자 요거"(최종) → 68번 · 250,000원', () => {
+    expect(seg('68번 이십오 자 요거', { ...ten, final: true }).picks).toMatchObject([{ no: 68, price: 250000 }])
+  })
+  it('R73 "68번 3"(최종) → 없음, 번호도 비움', () => {
+    expect(seg('68번 3', { ...ten, final: true }).picks).toEqual([])
+    expect(seg('68번 삼', { ...ten, final: true }).picks).toEqual([])
+    expect(extractVoice('68번 3', { dictionary: DICT }).no).toBeNull()
+  })
+})
