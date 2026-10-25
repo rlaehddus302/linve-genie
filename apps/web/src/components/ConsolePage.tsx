@@ -31,7 +31,7 @@ import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { keepAboveBar, useKeepAboveBar } from '../lib/above-bar.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
-import { ResendBoard } from '../lib/resend-board.ts'
+import { ResendBoard, existsOnResendWords } from '../lib/resend-board.ts'
 import { captureVacated, vacatedLine, type VacatedBefore } from '../lib/vacated.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
@@ -299,6 +299,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       n: (note?.n ?? 0) + 1,
     }))
   }, [])
+  /** 저절로 다시 보내려던 빠른 입력 등록의 번호가 이미 있어 보내지 않았다는 안내 (D-MOB2-10) */
+  const [resendNote, setResendNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
   /** 새 번호 등록이 아닌 길에서 붙인 옵션을 뗀다 (붙어 있었으면 안내) */
   const dropAttached = useCallback(
     (no: number) => {
@@ -733,8 +735,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         if (existing !== undefined) {
           remove()
           // 저절로 다시 보내려는데 그 번호가 벌써 있다(판매자가 같은 번호를 새로 쳐 등록했거나 다른 기기): 옛 줄은 보내지 않고 내린다.
-          // 판매자가 누르지 않았으니 "고칠까요?" 창도 띄우지 않는다 — 상품 카드에 지금 모양이 보인다(RA-MOB2-01)
-          if (auto) return
+          // 판매자가 누르지 않았으니 "고칠까요?" 창도 띄우지 않고 한 줄로 알린다 — 붙인 옵션이 있었으면 넣지 않았다는 안내도(D-MOB2-10, RA-MOB2-01)
+          if (auto) {
+            setResendNote((note) => ({ text: existsOnResendWords(request.no), n: (note?.n ?? 0) + 1 }))
+            if (request.extra !== undefined) noteDroppedOptions(request.no)
+            return
+          }
           exists(existing)
           return
         }
@@ -1028,6 +1034,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             setAttached(null)
           }
           setOptionNote(null)
+          setResendNote(null)
           if (!inChain) {
             enqueueRegistration(line, decision.no, decision.name, decision.price, fromFix, hooks)
             return undefined
@@ -1411,6 +1418,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
             {optionNote !== null ? (
               <p key={optionNote.n} className="notice" role="status" data-tone="warning">
                 {optionNote.text}
+              </p>
+            ) : null}
+            {resendNote !== null ? (
+              <p key={resendNote.n} className="notice" role="status">
+                {resendNote.text}
               </p>
             ) : null}
             {undoNote !== null ? (
