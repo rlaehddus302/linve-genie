@@ -64,6 +64,15 @@ test.describe('모든 손님 375px', () => {
     await region.getByRole('button', { name: /^더 보기/ }).click()
     await expect(customerRows(page)).toHaveCount(25)
     expect((await rowNames(page)).slice(-3)).toEqual(['손님20', '손님21', '손님22'])
+    // 입금 완료 구매가 없는 줄은 "아직 입금 완료된 구매 없음" 한 줄 (D-CRM1-16 (5)) — "누적 0원 · 0번"·"마지막 구매 구매 없음"이 아니다
+    for (const name of ['손님20', '손님21', '손님22']) {
+      const none = customerRows(page).filter({ hasText: name })
+      await expect(none).toContainText('아직 입금 완료된 구매 없음')
+      await expect(none).not.toContainText('누적 0원')
+      await expect(none).not.toContainText('마지막 구매')
+      await expect(none).toContainText('미입금 1번') // 15일 전 미입금 2,000원 — 기다리는 날이 지났다
+    }
+    await expect(customerRows(page).filter({ hasText: '손님19' })).not.toContainText('아직 입금 완료된 구매 없음')
     // 미입금 많은 순 (같으면 누적 큰 순 → 이름)
     await sort.getByRole('button', { name: '미입금 많은 순' }).click()
     await expect.poll(async () => (await rowNames(page)).slice(0, 4)).toEqual(['손님20', '손님21', '손님22', '손님19'])
@@ -82,6 +91,10 @@ test.describe('모든 손님 375px', () => {
     await expect(region.getByRole('status').filter({ hasText: '손님 1명' })).toBeVisible()
     expect(await rowNames(page)).toEqual(['새이름'])
     await search.fill('2323')
+    await expect(region.getByRole('status').filter({ hasText: '손님 1명' })).toBeVisible()
+    await expect(customerRows(page).first()).toContainText('문자 · 끝자리 2323')
+    // 숫자만이면 끝자리 4개 안에 들어 있어도 나온다 (D-CRM1-15: "23" → 끝자리 2323, 2424는 아님)
+    await search.fill('23')
     await expect(region.getByRole('status').filter({ hasText: '손님 1명' })).toBeVisible()
     await expect(customerRows(page).first()).toContainText('문자 · 끝자리 2323')
     await search.fill('')
@@ -145,6 +158,11 @@ test('AC-CRM1-29 1280px: "모든 손님"·구매자 목록은 표, 꼬리표 글
   await expect(list).toBeVisible()
   await expect(list.getByRole('columnheader')).toHaveText(['이름', '종류', '표시', '누적 구매', '구매 횟수', '마지막 구매', '미입금'])
   await expect(list.locator('tbody tr').filter({ hasText: '큰손' })).toContainText('단골')
+  // 입금 완료 구매가 없는 줄: 누적·횟수·마지막 구매 칸 자리에 한 줄 (D-CRM1-16 (5))
+  const lateRow = list.locator('tbody tr').filter({ hasText: '늦은손' })
+  await expect(lateRow).toContainText('아직 입금 완료된 구매 없음')
+  await expect(lateRow).not.toContainText('0원')
+  await expect(lateRow.locator('td')).toHaveCount(5)
   const recent = page.getByRole('region', { name: '모든 손님' }).getByRole('group', { name: '정렬' }).getByRole('button', { name: '최근 산 순' })
   await recent.focus()
   await page.keyboard.press('Enter')

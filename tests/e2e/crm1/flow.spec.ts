@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test'
 import { customerDateKo, customerRows, eventCount, kstDate, loginNewSeller, payAll, smsSale, won, writeEvent, youtubeSale } from './support.ts'
 
 test.describe('손님 기록 한 흐름', () => {
-  test('AC-CRM1-03·15·21·23: 채널로 세 날짜 + 합친 문자 손님의 전화번호로 한 날짜 → 4번·75,000원, 메모는 다른 날짜·모든 손님에서 같다, 빈 글이면 지움, 이벤트 0', async ({ page }) => {
+  test('AC-CRM1-03·15·21·23: 채널로 세 날짜 + 합친 문자 손님의 전화번호로 한 날짜 → 4번·75,000원, 메모는 다른 날짜·모든 손님에서 같다, 빈 글이면 "메모를 지울까요?"(그대로 두기·지우기), 이벤트 0', async ({ page }) => {
     test.setTimeout(180_000)
     await loginNewSeller(page)
     const [d1, d2, d3, d4] = [kstDate(20), kstDate(15), kstDate(10), kstDate(6)] as const
@@ -55,16 +55,38 @@ test.describe('손님 기록 한 흐름', () => {
     await expect(memoBox).toHaveText(memoText)
     expect(await memoBox.evaluate((el) => (el as HTMLElement).innerText)).toBe(memoText)
 
-    // 모든 손님 → UC_A 자세히에서 같은 메모 → 빈 글로 저장 = 지움
+    // 모든 손님 → UC_A 자세히에서 같은 메모 → 빈 글로 저장하면 먼저 묻는다
     await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '모든 손님' }).click()
     const list = page.getByRole('region', { name: '모든 손님' })
     await expect(list).toBeVisible()
     await customerRows(page).filter({ hasText: '다육이맘' }).getByRole('link').first().click()
     const detail = page.getByRole('region', { name: '손님 자세히' })
     await expect(detail.locator('.memo-text')).toHaveText(memoText)
-    await detail.getByLabel('메모 — 유튜브 · 다육이맘').fill('')
-    await detail.getByRole('button', { name: '메모 저장 — 유튜브 · 다육이맘' }).click()
+    const memoField = detail.getByLabel('메모 — 유튜브 · 다육이맘')
+    const memoSave = detail.getByRole('button', { name: '메모 저장 — 유튜브 · 다육이맘' })
+    const memoPuts: string[] = []
+    page.on('request', (rq) => {
+      if (rq.method() === 'PUT' && rq.url().includes('/memo')) memoPuts.push(rq.postData() ?? '')
+    })
+    // 빈 글로 저장하면 먼저 묻는다 (D-CRM1-16 (1)) — "그대로 두기"면 저장하지 않고 칸에 저장된 글이 돌아온다
+    await memoField.fill('')
+    await memoSave.click()
+    const ask = page.getByRole('dialog', { name: '메모를 지울까요?' })
+    await expect(ask).toBeVisible()
+    await expect(ask.getByRole('button', { name: '지우기' })).toBeVisible()
+    await ask.getByRole('button', { name: '그대로 두기' }).click()
+    await expect(ask).toHaveCount(0)
+    await expect(memoField).toHaveValue(memoText)
+    await expect(detail.locator('.memo-text')).toHaveText(memoText)
+    expect(memoPuts).toEqual([])
+    // 다시 비우고 "지우기" → 지움
+    await memoField.fill('')
+    await memoSave.click()
+    await expect(ask).toBeVisible()
+    await ask.getByRole('button', { name: '지우기' }).click()
+    await expect(ask).toHaveCount(0)
     await expect(detail.getByRole('status').filter({ hasText: '메모를 지웠어요.' })).toBeVisible()
+    expect(memoPuts).toHaveLength(1)
     await expect(detail.locator('.memo-text')).toHaveCount(0)
     await page.goto(`/buyers?date=${d2}&buyer=${encodeURIComponent(ch)}`)
     await expect(page.getByRole('region', { name: '손님 기록' }).getByText('메모 없음').first()).toBeVisible()
@@ -102,7 +124,13 @@ test.describe('손님 기록 한 흐름', () => {
     await expect(lines.nth(0)).toContainText(customerDateKo(d3))
     await expect(lines.nth(0)).toContainText('그날 이름 라울맘(새이름)')
     await expect(lines.nth(0)).toContainText(`상품 합계 ${won(5_000)}`)
+    // 입금 낱말 (D-CRM1-13): d3은 기다리는 날 3일이 지난 미입금 → "미입금으로 셈" 하나(같은 줄에 "미입금"이 두 번 나오지 않는다)
+    await expect(lines.nth(0)).toContainText('미입금으로 셈')
+    expect(((await lines.nth(0).innerText()).match(/미입금/g) ?? []).length).toBe(1)
+    await expect(lines.nth(0)).not.toContainText('입금 기다리는 중')
     await expect(lines.nth(1)).toContainText(customerDateKo(d2))
+    await expect(lines.nth(1)).toContainText('입금 완료')
+    await expect(lines.nth(1)).not.toContainText('미입금')
     await expect(lines.nth(2)).toContainText(customerDateKo(d1))
     // 차단 버튼 없음, 가장 최근 날짜 구매자 화면으로 가는 길
     await expect(detail.getByRole('button', { name: /차단/ })).toHaveCount(0)

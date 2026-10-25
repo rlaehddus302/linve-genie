@@ -33,6 +33,9 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1280, height: 900 
     await expect(count).toHaveValue('3')
     await expect(amount).toHaveValue(/^100,?000$/)
     await expect(wait).toHaveValue('3')
+    // 설명은 규칙 "이상" 그대로 (D-CRM1-05·D-CRM1-16 (4)) — "넘은"을 쓰지 않는다
+    await expect(box.getByText('단골 = 이 횟수 이상 샀거나 이 금액 이상 산 손님. 입금 늦음 주의 = 미입금이 한 번이라도 있는 손님.', { exact: true })).toBeVisible()
+    await expect(box).not.toContainText('넘은')
 
     const cases: { field: typeof count; value: string; message: string; back: string }[] = [
       { field: count, value: '1', message: COUNT_BAD, back: '3' },
@@ -50,8 +53,11 @@ for (const viewport of [{ width: 375, height: 812 }, { width: 1280, height: 900 
       // 칸 아래 문장 = 그 칸의 설명으로 이어진다
       await expect(c.field).toHaveAttribute('aria-invalid', 'true')
       expect(await serverSettings(page)).toEqual({ regularCount: 3, regularAmount: 100_000, waitDays: 3 })
-      // 다음 경우 전에 칸을 저장값으로 되돌리고 화면을 새로 연다 (남은 거절 문장이 다음 경우를 거짓 통과시키지 않게)
+      // 거절된 칸 값을 고치면 그 칸의 문장과 aria-invalid가 바로 사라진다 (D-CRM1-16 (3), TE-CRM1-006) — 새로 열지 않고
       await c.field.fill(c.back)
+      await expect(box.getByText(c.message), `${c.value} → 고친 뒤 문장`).toHaveCount(0)
+      await expect(c.field).not.toHaveAttribute('aria-invalid', 'true')
+      // 다음 경우 전에 화면을 새로 연다 (남은 상태가 다음 경우를 거짓 통과시키지 않게)
       await page.goto('/settings')
       await expect(box.getByText(c.message)).toHaveCount(0)
     }

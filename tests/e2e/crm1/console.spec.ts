@@ -1,6 +1,6 @@
 // CRM1 방송 콘솔 1등 옆 "입금 늦음 주의" (test-e2e) — AC-CRM1-18·19·20. 기대값은 acceptance.md·D-CRM1-07 그대로:
 // 실제 방송, 확정 1등의 지금의 구매자가 입금 늦음 주의이면 현재 상품 카드·휴대폰 요약 줄·상품 자세히의 1등 이름 뒤에 작은 꼬리표.
-// 1등이 바뀌면 5초 안에, 다시 받기는 10초에 한 번까지. 받지 못하면 꼬리표 없이 그대로(오류 띠 없음). 이벤트를 하나도 쓰지 않는다.
+// 1등이 바뀌면 5초 안에, 다시 받기는 콘솔을 열 때와 1등이 바뀔 때만·받기 사이 4초 이상(D-CRM1-14). 받지 못하면 꼬리표 없이 그대로(오류 띠 없음). 이벤트를 하나도 쓰지 않는다.
 import { test, expect, type Page } from '@playwright/test'
 import { bigText, broadcast, chat, customerSettings, history, kstDate, loginNewSeller, scopeView, writeEvent, youtubeSale } from './support.ts'
 
@@ -42,7 +42,7 @@ test.describe('콘솔 꼬리표', () => {
     await chat(page, w.b, w.ch, '비손님', '15')
     const card = current(page)
     await expect(card.getByText(/^1등: /)).toContainText('비손님')
-    // 1등이 바뀐 때부터 5초 안 (D-CRM1-07). 꼬리표 받기가 "10초에 한 번" 간격을 콘솔을 열 때 받은 것부터 세면 이 경우 늦는다
+    // 1등이 바뀐 때부터 5초 안 (D-CRM1-07·14). 받기 간격(4초)을 콘솔을 열 때 받은 것부터 세면 이 경우 늦을 수 있다(TE-CRM1-001)
     await expect(card.locator('.caution-mark')).toBeVisible({ timeout: 5_000 })
   })
 
@@ -125,23 +125,56 @@ test.describe('콘솔 꼬리표', () => {
     expect(asked).toEqual([])
   })
 
-  test('AC-CRM1-19: 1등이 잇달아 바뀌어 다시 받을 때 10초에 한 번을 넘지 않는다', async ({ page }) => {
+  test('AC-CRM1-19 (D-CRM1-14): 1등이 3초 간격으로 잇달아 바뀌어도 바뀔 때마다 5초 안에 꼬리표, 받기 사이 4초 이상, 1등이 그대로면 다시 받지 않는다', async ({ page }) => {
     test.setTimeout(150_000)
     const w = await cautionWorld(page)
-    for (const no of [17, 18, 19, 20]) await registerStock(page, w.b, no, `상품${String(no)}`, 5_000, 2)
+    const t = String(Date.now())
+    const chans = [0, 1, 2, 3, 4].map((i) => `UC_q${t}${String(i)}`)
+    // 가짜 응답(바로 옴): 이미 찜을 보낸 손님만 "입금 늦음 주의" — 1등이 된 뒤 다시 받아야만 꼬리표가 보인다
+    const sent: string[] = []
     const times: number[] = []
-    page.on('request', (r) => {
-      if (customersPath.test(new URL(r.url()).pathname) && r.method() === 'GET') times.push(Date.now())
+    await page.route(customersPath, async (route) => {
+      if (route.request().method() === 'GET') times.push(Date.now())
+      const customers = sent.map((buyer) => ({ buyer, purchaseDays: 0, purchaseTotal: 0, lastPurchase: null, unpaidDays: 1, lastUnpaid: kstDate(10), cancels: 0, regular: false, caution: true }))
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ today: kstDate(0), customers }) })
     })
     await openConsole(page, w.b)
-    const t = String(Date.now())
-    for (const no of [15, 16, 17, 18, 19, 20]) {
-      await chat(page, w.b, `UC_x${t}${String(no)}`, `손님${String(no)}`, String(no))
-      await expect(page.getByRole('region', { name: '상품 보드' }).getByRole('button', { name: new RegExp(`^${String(no)}번 `) })).toContainText(`손님${String(no)}`)
+    expect(times).toHaveLength(1)
+    const card = current(page)
+    let prev = 0
+    for (const [i, ch] of chans.entries()) {
+      const no = 30 + i
+      await registerStock(page, w.b, no, `상품${String(no)}`, 5_000, 1) // 마지막에 등록한 것이 현재 상품
+      await expect(card).toContainText(`상품${String(no)}`)
+      // 3초 간격 (시나리오의 간격 — 상태를 기다리는 것이 아니다)
+      if (prev > 0) await expect.poll(() => Date.now() - prev, { intervals: [100] }).toBeGreaterThanOrEqual(3_000)
+      sent.push(ch)
+      await chat(page, w.b, ch, `빠른손님${String(i)}`, String(no))
+      const changed = Date.now()
+      prev = changed
+      await expect(card.getByText(/^1등: /)).toContainText(`빠른손님${String(i)}`)
+      await expect(card.locator('.caution-mark'), `${String(i + 1)}번째 1등`).toBeVisible({ timeout: 6_000 })
+      expect(Date.now() - changed, `${String(i + 1)}번째 1등이 바뀐 뒤 꼬리표까지`).toBeLessThanOrEqual(5_000)
     }
-    // 바뀐 것은 간격이 차면 한 번 받는다 — 여는 때 1번 + 바뀐 뒤 1번 이상
-    await expect.poll(() => times.length, { timeout: 25_000 }).toBeGreaterThanOrEqual(2)
-    for (let i = 2; i < times.length; i++) expect(times[i]! - times[i - 1]!, `받기 간격 ${String(i)}`).toBeGreaterThanOrEqual(9_500)
+    // 받기 사이 4초 이상 (연 때 받은 것 뒤 첫 받기는 바로 — 간격에 세지 않는다)
+    for (let i = 2; i < times.length; i++) expect(times[i]! - times[i - 1]!, `받기 간격 ${String(i)}`).toBeGreaterThanOrEqual(3_990)
+    // 1등이 바뀔 때만 받는다: 5번 바뀜 + 연 때 1번을 넘지 않는다
+    expect(times.length).toBeLessThanOrEqual(1 + chans.length)
+
+    // 1등이 그대로인 범위 변경(상품 등록·인사 채팅·대기 찜)은 다시 받지 않는다 — 간격이 찬 뒤에 보내 잘못 받으면 곧바로 받게 한다
+    const last = times[times.length - 1]!
+    await expect.poll(() => Date.now() - last, { intervals: [200] }).toBeGreaterThan(4_500)
+    const quiet = times.length
+    await registerStock(page, w.b, 90, '조용한상품', 5_000, 1)
+    await chat(page, w.b, `UC_hi${t}`, '인사손님', '안녕하세요')
+    await chat(page, w.b, `UC_wait${t}`, '대기손님', '34') // 34번은 이미 1등 있음(수량 1) → 대기
+    await expect(card).toContainText('조용한상품')
+    await expect.poll(async () => (await scopeView(page, w.date, false)).products.find((p) => p.no === 34)?.waitlist.length ?? 0).toBe(1)
+    // 이어서 1등을 바꾸면 정확히 한 번 더 받는다 (앞의 변경이 받기를 불렀다면 여기서 둘이 된다)
+    sent.push(`UC_end${t}`)
+    await chat(page, w.b, `UC_end${t}`, '끝손님', '90')
+    await expect(card.locator('.caution-mark')).toBeVisible({ timeout: 6_000 })
+    expect(times.length - quiet, '1등이 그대로인 변경 뒤 받기 수').toBe(1)
   })
 })
 
