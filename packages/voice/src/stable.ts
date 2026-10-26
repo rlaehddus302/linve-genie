@@ -30,6 +30,8 @@ export interface StableStep {
 
 const words = (text: unknown): string[] => (typeof text === 'string' ? text.split(/\s+/).filter((word) => word !== '') : [])
 const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+/** 수 낱말: 숫자·쉼표·점·한글 수·단위로만 된 낱말 (`300`·`5만`·`이십`·`2,000`) */
+const isAmountWord = (word: string): boolean => /^[0-9,.일이삼사오육칠팔구십백천만]+$/.test(word)
 
 function validState(state: StableState | null | undefined): StableState {
   if (state === null || state === undefined || !Array.isArray(state.tokens) || !Array.isArray(state.since) || state.tokens.length !== state.since.length) return STABLE_EMPTY
@@ -59,7 +61,9 @@ export function stepStable(input: StableState | null | undefined, text: unknown,
     let taken = state.taken
     if (taken > 0 && same === 0 && tokens.length > 0) taken = 0
     // 마지막 낱말은 아직 자라는 중일 수 있어 넘기지 않는다 (`50` → `50만` — 굳은 줄 알고 넘기면 가격이 갈린다)
-    const count = Math.min(stableCount(since, now), Math.max(0, tokens.length - 1))
+    let count = Math.min(stableCount(since, now), Math.max(0, tokens.length - 1))
+    // 끝이 수 낱말이면 뒤 낱말과 함께 읽어야 한다 (`300` + `5번` = 305번, `5만` + `원까지`) — 수 낱말은 뒤 낱말이 굳을 때 함께 넘긴다
+    while (count > state.taken && isAmountWord(tokens[count - 1] as string)) count--
     let confirm: string | null = null
     if (count > taken) {
       confirm = tokens.slice(taken, count).join(' ')

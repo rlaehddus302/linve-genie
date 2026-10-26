@@ -46,6 +46,15 @@ describe('stepStable', () => {
     expect(s.state.taken).toBe(3)
     expect(s.interim).toBe('자 요')
   })
+  it('끝이 수 낱말이면 뒤 낱말과 함께 넘긴다 (실방송 "300 5번도" = 305번, "5만 원까지")', () => {
+    const a = run([[0, '자 300 5번도 다'], [1_000, '자 300 5번도 다']])
+    expect(a.confirmed).toEqual(['자 300 5번도'])
+    const b = run([[0, '자 300 5번도'], [1_000, '자 300 5번도']])
+    expect(b.confirmed).toEqual(['자'])
+    expect(b.interim).toBe('300 5번도')
+    const c = run([[0, '312번 자 5만 원까지'], [1_000, '312번 자 5만 원까지']])
+    expect(c.confirmed).toEqual(['312번 자'])
+  })
   it('nextAt = 아직 안 넘긴 낱말(마지막 빼고)이 가장 먼저 굳는 시각', () => {
     expect(stepStable(STABLE_EMPTY, '312번 자 수박금', 100).nextAt).toBe(100 + STABLE_MS)
     expect(stepStable(STABLE_EMPTY, '312번', 100).nextAt).toBeNull()
