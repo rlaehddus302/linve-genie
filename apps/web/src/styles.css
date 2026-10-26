@@ -4413,15 +4413,27 @@ select.input {
   visibility: hidden;
 }
 
-/* (d) 큰 글씨 되돌리기 띠 한 항목 = 한 덩어리: 문장 줄 아래에 남은 시간과 단추를 한 줄로(단추 44px 이상 그대로) */
+/* (d) 큰 글씨 되돌리기 띠 한 항목 = 한 덩어리: 문장 줄 아래에 남은 시간과 단추를 한 줄로(단추 44px 이상 그대로)
+ * 합치기(D-QL3R1-12와 함께): 휴대폰 보통 글씨는 두 칸 한 줄(grid, 위 48rem 미만 규칙) 그대로. 큰 글씨(줄 폭 ≤ 17rem)에서는 두 칸이면
+ * 글 칸이 단추 폭만큼 좁아져 문장이 네댓 줄(375 150%에서 177px)이 되어 50%를 넘으므로, 이 (d) 모양으로 돌린다 —
+ * 글 묶음(.undo-text)은 상자만 없애(display: contents) 문장은 한 줄 전체, 남은 시간과 단추는 그 아래 한 줄. DOM·문장·차례는 그대로 */
 @container (max-width: 17rem) {
   .undo-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     padding-block: 2px;
     row-gap: 2px;
   }
 
+  .undo-item > .undo-text {
+    display: contents;
+  }
+
   .undo-item > [role='status'],
-  .undo-item > [role='alert'] {
+  .undo-item > [role='alert'],
+  .undo-item > .undo-text > [role='status'],
+  .undo-item > .undo-text > [role='alert'] {
     flex: 1 1 100%;
     line-height: 1.375;
   }
