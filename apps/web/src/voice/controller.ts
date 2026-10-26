@@ -12,7 +12,7 @@
 // 기다림(그 기기 설정, 기본 3초) 뒤 콘솔이 넘긴 쓰기(host.writeSms — 손 입력과 같은 `sms` 이벤트)로 넣는다. 넣은·닫은 카드도 10초 동안은
 // 같은 말 막기(D-V1-06)를 위해 들고 있다. 열린 카드 수 규칙은 상품 카드와 함께 센다(addVoiceCard).
 import { formatWon, parseAmount, type PriceUnit } from '@livejjim/core'
-import { ARCHIVE_KEY, archiveBroadcasts, readArchive } from './archive-store.ts'
+import { ARCHIVE_KEY, archiveBroadcasts, archiveGaps, readArchive, type ArchiveGap } from './archive-store.ts'
 import { isHomeScreenApp } from './standalone.ts'
 import type {
   ChunkFields,
@@ -43,8 +43,10 @@ import type {
   SmsReading,
   SmsVoiceSettings,
   SmsWrite,
+  OnDeviceStatus,
   SpeechEngine,
   SpeechError,
+  SpeechGap,
   SpeechResult,
   SpeechState,
   SuggestionCard,
@@ -576,6 +578,8 @@ export interface VoiceHost {
   smsAutoAllowed?(): boolean
   /** 음성 인식 기록 한 덩어리를 이 기기에 남긴다 (설정이 켜져 있을 때, D-V3-56) */
   archiveChunk?(chunk: VoiceArchiveChunk): void
+  /** 음성 인식 끊김 한 줄("인식 끊김 0.8초 (network)")을 이 기기에 남긴다 (기록 모아 두기가 켜져 있을 때 — 들은 글 없음) */
+  archiveGap?(gap: ArchiveGap): void
   /** 판매자가 "음성 끄기"를 눌렀다 (켠 방송 ID를 지운다, D-V3-52) */
   voiceOff?(): void
   /** 그 상품을 손으로 고치는 창을 연다 (D-V3-59 [아까 것을 다른 번호로]) */
@@ -650,6 +654,8 @@ const DEFERRED_POLL_MS = 250
  * 그 사이 최종 결과가 오면(다시 듣고 있다) 바로 "듣는 중"으로 바꾼다.
  */
 export const RESTART_LABEL_MS = 1000
+/** 탭 메모리에 두는 최근 인식 끊김 수 (V3 실방송 보강) */
+export const RECOGNITION_GAPS_KEPT = 50
 /**
  * 켠 직후 판매 이력(D-I4-06)을 받는 동안 온 최종 문장은 이력을 받을 때까지(켠 때부터 최대 이만큼) 카드 만들기를 미룬다 —
  * 켜자마자 말한 지난 판매 품종도 이력 사전으로 알아듣게. 들린 말 기록에는 바로 남고, 미룬 문장은 온 차례대로 카드가 된다.
@@ -791,6 +797,10 @@ export class VoiceController {
   readonly #chunkActs = new Set<VoiceArchiveChunk['action']>()
   /** 이 덩어리의 중간 결과 글 (기록 모아 두기, D-V3-56) */
   #chunkInterims: readonly string[] = []
+  /** 최근 인식 끊김 (탭 메모리, 최근 RECOGNITION_GAPS_KEPT개 — 시간·까닭만) */
+  #gaps: readonly SpeechGap[] = []
+  /** 기기 안 인식(processLocally) 확인 결과 — 확인만 하고 쓰지 않는다. 확인 전 null */
+  #onDevice: OnDeviceStatus | null = null
   /** 지금 처리 중인 들은 말 (R-25 기록 한 줄 — 가려서 보낸다) */
   #heardNow = ''
   /** 접힌 "가격 못 들은 번호" (R80) */
@@ -940,8 +950,44 @@ export class VoiceController {
     engine.onResult((result) => this.#onResult(result))
     engine.onError((error) => this.#onError(error))
     engine.onState((state) => this.#onState(state))
+    // 인식 끊김 재기 (V3 실방송 보강) — 앞 판 음성 모듈에는 없을 수 있다
+    if (typeof engine.onGap === 'function') engine.onGap((gap) => this.#onGap(module, gap))
+    // 기기 안 인식은 확인만 한다(엔진을 바꾸지 않는다) — 인식 객체·마이크를 열지 않는 정적 확인
+    if (typeof engine.onDeviceStatus === 'function') {
+      void engine.onDeviceStatus().then(
+        (status) => {
+          this.#onDevice = status
+        },
+        () => {
+          this.#onDevice = 'unsupported'
+        },
+      )
+    }
     this.#engine = engine
     return engine
+  }
+
+  /** 인식이 끊겼다 다시 들었다: 탭 메모리에 두고, 기록 모아 두기가 켜져 있으면 한 줄 남긴다 */
+  #onGap(module: VoiceModule, gap: SpeechGap): void {
+    if (this.#disposed) return
+    this.#gaps = [...this.#gaps.slice(-(RECOGNITION_GAPS_KEPT - 1)), gap]
+    if (this.#snapshot.phase !== 'on' || !this.#snapshot.archive || this.#host.archiveGap === undefined) return
+    try {
+      const text = typeof module.formatSpeechGap === 'function' ? module.formatSpeechGap(gap) : `인식 끊김 ${(Math.round(gap.ms / 100) / 10).toFixed(1)}초 (${gap.reason})`
+      this.#host.archiveGap({ at: gap.to, ms: gap.ms, reason: gap.reason, text })
+    } catch {
+      // 남기지 못하면 이번 줄은 없다
+    }
+  }
+
+  /** 최근 인식 끊김 (오래된 것부터) — 시간·까닭만 */
+  recognitionGaps(): readonly SpeechGap[] {
+    return this.#gaps
+  }
+
+  /** 기기 안 인식 확인 결과 (확인 전·음성을 켜기 전 null). 확인만 하고 쓰지 않는다 */
+  onDeviceRecognition(): OnDeviceStatus | null {
+    return this.#onDevice
   }
 
   #start(): void {
@@ -1237,7 +1283,14 @@ export class VoiceController {
     const module = this.#module
     if (module === null || typeof module.createArchiveExport !== 'function') return null
     const broadcasts = await archiveBroadcasts(broadcastId)
-    return module.createArchiveExport(broadcasts, this.#host.now())
+    const out = module.createArchiveExport(broadcasts, this.#host.now())
+    // 인식 끊김 줄은 방송마다 gaps로 붙인다 (덩어리 형식은 그대로) — 끊김만 있는 방송은 덩어리 없이
+    const gaps = await archiveGaps(broadcastId, this.#host.now())
+    if (gaps.size === 0) return out
+    const listed = out.broadcasts.map((item) => ({ ...item, gaps: gaps.get(item.broadcastId)?.gaps ?? [] }))
+    const known = new Set(out.broadcasts.map((item) => item.broadcastId))
+    const only = [...gaps].filter(([id]) => !known.has(id)).map(([id, group]) => ({ broadcastId: id, title: group.title, date: group.date, chunks: [], gaps: group.gaps }))
+    return { ...out, broadcasts: [...listed, ...only] }
   }
 
   /** 덩어리 하나: 읽기(readChunk) → 할 일 고르기(chooseAction) → 실행, 기록·결과 한 줄 (D-V2-04~08) */

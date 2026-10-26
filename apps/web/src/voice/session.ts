@@ -11,7 +11,7 @@ import { ConsoleStore } from '../lib/console-store.ts'
 import { productKey, productSlots } from '../lib/derive.ts'
 import { OFFER_FIX_FAILED, VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from './controller.ts'
 import { deviceId } from '../lib/device.ts'
-import { addArchiveChunk } from './archive-store.ts'
+import { addArchiveChunk, addArchiveGap } from './archive-store.ts'
 import { fetchPastNames } from './history.ts'
 import { loadVoice } from './load.ts'
 import { readConsent, readLearned, readSettings, readSmsSettings, writeConsent, writeLearned, writeSettings, writeSmsSettings } from './storage.ts'
@@ -308,6 +308,11 @@ export class VoiceSession {
       archiveChunk: (chunk) => {
         const broadcast = this.#store.getSnapshot().broadcast
         void addArchiveChunk({ broadcastId: this.broadcastId, title: this.#title, date: broadcast?.date ?? '', chunk })
+      },
+      // 인식 끊김 한 줄 (시간·까닭만 — 같은 설정, 같은 기기)
+      archiveGap: (gap) => {
+        const broadcast = this.#store.getSnapshot().broadcast
+        void addArchiveGap({ broadcastId: this.broadcastId, title: this.#title, date: broadcast?.date ?? '', gap })
       },
     }
     return host
