@@ -73,6 +73,43 @@ function nameWindowEnd(tokens: readonly string[], k: number, options: SegmentOpt
   return found
 }
 
+/** 한 글자 다른 이름 맞추기에 쓰는 이름 길이 하한 (음절) */
+export const ONE_SYLLABLE_MIN = 3
+
+/** 사전 이름 (공백 뺀 모양 → 이름, 별칭 아님) */
+function dictionaryNames(options: SegmentOptions): { readonly key: string; readonly name: string }[] {
+  const dictionary = options.dictionary
+  if (dictionary instanceof VarietyDictionary) return dictionary.entries.filter((entry) => entry.alias !== true).map((entry) => ({ key: entry.key, name: entry.name }))
+  return Array.isArray(dictionary) ? dictionary.filter((item): item is string => typeof item === 'string').map((name) => ({ key: name.split(' ').join(''), name })) : []
+}
+
+const isHangulWord = (text: string): boolean => /^[가-힣]+$/.test(text)
+
+/**
+ * 한 글자 다른 사전 이름 (실방송 V3: "야래양"·"야래학" = 야래향 — 크롬이 향/양/학을 헷갈린다): 'N번'과 원 가격 사이 토큰(그대로 또는 끝말 뗀 모양)이
+ * 한글 3음절 이상이고, 같은 길이의 사전 이름과 음절 하나만 다르면 그 이름. 그런 이름이 정확히 하나일 때만(둘 이상이면 비움).
+ */
+export function oneSyllableName(tokens: readonly string[], options: SegmentOptions): string | null {
+  const names = dictionaryNames(options).filter((item) => isHangulWord(item.key) && [...item.key].length >= ONE_SYLLABLE_MIN)
+  const found = new Set<string>()
+  for (const token of tokens) {
+    if (isWindowFiller(token)) continue
+    for (const form of readingForms(token)) {
+      if (!isHangulWord(form)) continue
+      const chars = [...form]
+      if (chars.length < ONE_SYLLABLE_MIN) continue
+      for (const item of names) {
+        const key = [...item.key]
+        if (key.length !== chars.length) continue
+        let differ = 0
+        for (let i = 0; i < key.length && differ < 2; i++) if (key[i] !== chars[i]) differ++
+        if (differ === 1) found.add(item.name)
+      }
+    }
+  }
+  return found.size === 1 ? ([...found][0] as string) : null
+}
+
 /** 흔한 말 별칭(D-V3-54)의 이름이 넘긴 사전에 있는가 */
 function dictionaryHas(options: SegmentOptions, name: string): boolean {
   const dictionary = options.dictionary
@@ -152,8 +189,9 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         const ownedByPrevious = previous === undefined ? null : nameWindowEnd(tokens, skipFillers(tokens, previous.last + 1), options)
         const lo = previous === undefined ? s : ownedByPrevious === null ? previous.last + 1 : ownedByPrevious.end + 1
         const reading = analyzeSentence(tokens.slice(lo, line.end + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
-        // 흔한 말 별칭(`녹음` → 녹금)은 'N번'과 원 가격 사이에서만 (D-V3-54)
-        const name = reading.reading.extraction.name ?? commonAliasIn(tokens.slice(m.last + 1, line.start), options)
+        // 흔한 말 별칭(`녹음` → 녹금)·한 글자 다른 이름(`야래양` → 야래향)은 'N번'과 원 가격 사이에서만 (D-V3-54)
+        const slot = tokens.slice(m.last + 1, line.start)
+        const name = reading.reading.extraction.name ?? commonAliasIn(slot, options) ?? oneSyllableName(slot, options)
         pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: null, bigChange: isBigChange(null, line.value) })
         continue
       }
