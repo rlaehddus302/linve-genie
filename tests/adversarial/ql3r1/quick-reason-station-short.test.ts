@@ -163,7 +163,7 @@ describe('TD-QL3R1 출력 기기 끊김 짧은 문장 (D-QL3R1-04)', () => {
         const isLost = lost !== null && long === words.deviceLostMessage(lost.name) && !lost.live
         // QL3R2 D-QL3R2-03: 출력 기기 없음 + 대기 라벨도 짧은 줄 — 긴 문장이 NO_STATION_PILING일 때만, 정확히 그 짧은 문장
         if (long === words.NO_STATION_PILING) {
-          expect(short).toBe('라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요') // QL3R2 D-QL3R2-03
+          expect(short).toBe('라벨이 안 나가요 · 프린터를 연결해 주세요') // QL3R2 D-QL3R2-03 → MOB2 D-MOB2-17
           return
         }
         if (!isLost) {
