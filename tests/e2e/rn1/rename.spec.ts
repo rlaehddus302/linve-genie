@@ -30,7 +30,7 @@ async function loggedOutScreens(page: Page): Promise<void> {
     await held
     await route.continue()
   })
-  await page.goto('/')
+  await page.goto('/login') // LND1 D-LND1-01 (아래가 로그인 화면을 본다)
   await expect(page.getByText('불러오는 중…')).toBeVisible()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(NEW_NAME)
   expect(await page.title()).toBe(NEW_NAME)

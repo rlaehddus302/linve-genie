@@ -8,7 +8,7 @@
 // - 자세히의 포장 라벨(AC-I1-35): 쪽마다 미리 보기·출력·그림 파일·PDF·재출력 필요. 리허설 범위는 라벨이 없다(AC-I1-36).
 // - I2: 목록 위 "전원 확인서 PDF (n명)"·"판매대장 엑셀"(실제 범위 — 리허설이면 안내 한 줄), 실제 범위의 줄·자세히에 포장·배송 상태 말(송장번호),
 //   자세히의 "구매 내역 확인서"(미리 보기·PDF·공유/저장) (AC-I2-13·14·22·33).
-// - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 봉인돼요"(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 입금·배송비·할인/추가·환불이 잠긴다 (AC-I3-40·41).
+// - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 부터 잠겨요"(QL3R1 D-QL3R1-07)(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 입금·배송비·할인/추가·환불이 잠긴다 (AC-I3-40·41).
 // - 입금 확인(N3, AC-N3-47·48): 입금 확인이 적은 입금 기록은 "자동 입금 확인 · 김영희 · 10/18 21:03"(판매자 확정은 "입금 내역으로 확인 · …"),
 // - T1(AC-T1-65, PC-3·PC-8): 실제 범위의 묶음 줄·자세히에 "택배: 배송 중 · 9000-0000-0001"(있을 때), 자세히에 "배송지" 칸(ParcelParts.AddressSection).
 //   리허설 범위에는 배송지·택배가 없다.
@@ -181,7 +181,7 @@ function ReadySettlements({ route, navigate, store, snapshot, data }: ReadyProps
         </>
       ) : selected === undefined ? (
         <div className="stack-tight">
-          <p>그 구매자의 정산 묶음이 없어요.</p>
+          <p>그 구매자의 정산이 없어요.</p>
           <button type="button" className="button" onClick={() => open(undefined)}>
             정산 목록으로
           </button>
@@ -299,7 +299,7 @@ function SettlementList({ data, names, marks, onOpen }: { readonly data: ScopeDa
     <section className="stack" aria-label="정산 목록">
       <section className="card stack-tight settlement-summary" aria-label="정산 요약">
         <p>
-          묶음 {summary.count}개 · {statusLine}
+          손님 {summary.count}명 · {statusLine}
         </p>
         <dl className="facts">
           <div>
@@ -333,7 +333,7 @@ function SettlementList({ data, names, marks, onOpen }: { readonly data: ScopeDa
           <input id="settlement-search" className="input" type="search" autoComplete="off" value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
       </div>
-      {list.length === 0 ? <p>{all.length === 0 ? '그날 정산할 묶음이 없어요.' : '맞는 묶음이 없어요.'}</p> : null}
+      {list.length === 0 ? <p>{all.length === 0 ? '그날 정산할 손님이 없어요.' : '맞는 손님이 없어요.'}</p> : null}
       {wide ? <SettlementTable data={data} names={names} list={list} marks={marks} onOpen={onOpen} /> : <SettlementCards data={data} names={names} list={list} marks={marks} onOpen={onOpen} />}
     </section>
   )

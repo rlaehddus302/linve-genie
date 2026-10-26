@@ -24,10 +24,12 @@
 | `printer/*.json` | 프린터 작업 바이트·기기 이름으로 고르기·프로필 표·바로 연결할 수 없는 브라우저의 까닭 (LABEL_RULES L-7·L-12, N1 — D-N1-01·09). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/printer` 단위 테스트가 읽는다 — 아래 "프린터 골든" |
 | `voice/*.json` | 음성 문자찜 문장 하나 → 문자찜 아님 또는 주문·뒤 4자리·이름·받은 시각·문제 (DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08·12). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/voice` 단위 테스트가 읽는다 — 아래 "음성 문자찜 골든" |
 | `voice-register/*.json` | 음성 바로 등록 (V3 — D-V3-06·D-V3-09): 사전 밖 품종 추측(`variety-guess.json`, DOMAIN_RULES R-17 7)과 이미 있는 번호를 들었을 때 무시·바로 고침·묻기(`same-number.json`, R-22). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/voice` 단위 테스트가 읽는다 — 아래 "음성 바로 등록 골든" |
-| `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04), 공통 댓글 레코드 → `chat` 다섯 칸·댓글 붙여넣기 줄 읽기 (N2b-2, D-N2b-2-03·07). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
+| `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04), 공통 댓글 레코드 → `chat` 다섯 칸·댓글 붙여넣기 줄 읽기 (N2b-2, D-N2b-2-03·07), 크롬 확장이 보낸 틱톡 댓글 묶음 → 공통 댓글 레코드 (TTX, D-TTX-04~06·14 — `extension.json`). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
+| `band/*.json` | 네이버 밴드 글 댓글 한 개 → `chat` 다섯 칸 또는 건너뜀, 한 번 읽은 댓글 목록 → 새로 기록할 차례·건너뜀 (PLT-04, BND1, D-BND1-03~07). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "밴드 골든" |
 | `parcel/*.json` | 택배 — 배송지 여섯 칸 다듬기·검사, 묶음을 접수 목록에서 고를 수 있는지, 택배 크기 읽기 (PARCEL_RULES PC-2·PC-4·PC-6, T1, D-T1-03·D-T1-05, FB1 D-FB1-05). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "택배 골든" |
 | `waybill/*.json` | 운송장 — 송장번호 Code 128 부호값·받는 분 연락처 가리기·송장번호 글 (PARCEL_RULES PC-7, T1, D-T1-10). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/documents` 단위 시험이 읽는다 — 아래 "운송장 골든" |
 | `assist/*.json` | 확인 필요 항목의 제안 — 규칙 제안(비슷한 선택지로 바꿔 다시 읽기·같은 이름 상품 가르기)·AI 응답 검사·AI로 보내는 글 가리기·AI 호출 고르기 (SPEC CMT-06, DOMAIN_RULES R-20 10, A1 — D-A1-02~D-A1-06). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "AI 제안 골든" |
+| `regulars/*.json` | 손님 기록 요약 — 표지로 모은 기록 묶음 → 구매 날 수·누적 구매 금액·마지막 구매일·미입금 날 수·마지막 미입금·취소 수·단골·입금 늦음 주의 (SPEC BUY-06, CRM1 — D-CRM1-03~D-CRM1-05). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "손님 기록 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
 
@@ -318,7 +320,7 @@ expect:
 틱톡 연결 모듈(`apps/server/src/tiktok/**`)의 두 해석기를 고정한다: 판매자가 넣은 **틱톡 아이디·방송 주소 한 줄 → 연결할 아이디**, **웹캐스트 댓글 → 공통 댓글 레코드(또는 버림)**. N2b-2가 둘을 더한다: **공통 댓글 레코드 → 서버가 기록하는 `chat`의 다섯 칸**(`chat.json`), **댓글 붙여넣기 한 번 → 줄마다 닉네임·댓글 또는 오류**(`paste.json`). 연결·다시 연결·상태 문장은 시계에 기대므로 골든이 아니라 수용 기준(`harness/sprints/N2b-1/acceptance.md`)의 통합 시험으로 본다.
 
 - **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. `apps/server`의 시험이 이 폴더의 모든 `*.json`을 읽어 틱톡 모듈의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
-- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `target`·`comment`·`chat`·`paste`(뒤 둘은 N2b-2 — 서버 시험이 알기 전까지는 읽기 오류로 실패한다). 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `target`·`comment`·`chat`·`paste`(뒤 둘은 N2b-2)·`extension`(TTX — 서버 시험이 알기 전까지는 읽기 오류로 실패한다. 서버 시험의 파일 이름 목록·사례 수 합계는 dev-server가 고친다 — AC-TTX-90). 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
 - **사례 공통 키**: `id`(`G-TTK-` + 스프린트 + `-` + 두 자리 이상 숫자, 예 `G-TTK-N2b-1-01`, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
 
 | `kind` | 사례 키 | `out` |
@@ -327,11 +329,30 @@ expect:
 | `comment` | `target`(연결한 아이디 — `target` 해석이 돌려준 모양), `events`(1개 이상: `{ "receivedAt", "raw" }`) | `events`와 같은 길이의 목록. 항목마다 `{ "record": 레코드 }` 또는 `{ "drop": 코드 }` |
 | `chat` | `in`(공통 댓글 레코드 — 정확히 일곱 키, `comment` 사례의 `record`와 같은 모양) | `{ "id", "ch", "nick", "text", "owner" }` — 정확히 다섯 키. `id` = `tt:` + `commentId`, `ch` = `tt:` + `userId`, `nick` = 수집 경로 이름 정리(D-Y05), `text`·`owner` 그대로(D-N2b-2-03). 서버가 붙이는 `b`·`type`·`at`은 비교하지 않고, `publishedAt`은 없어야 한다 |
 | `paste` | `in`(문자열 — 판매자가 붙여 넣은 글 그대로) | 성공 `{ "rows": [...] }` — 빈 줄이 아닌 줄마다 `{ "line", "nickname", "text" }` 또는 `{ "line", "error" }`(`line` = 원래 줄 번호, 1부터. 오류: `NO_NICKNAME`·`PHONE_NUMBER`·`NO_TEXT`·`TEXT_TOO_LONG`), 전체 거절 `{ "error": "TOO_LONG" \| "TOO_MANY_LINES" }`. 규칙은 D-N2b-2-07과 파일의 `about`. 댓글의 번호 해석·구매자 묶기는 이 골든 밖이다(파서 골든·G-ENG-N2b-2-02) |
+| `extension` | `target`(그 판매자의 틱톡 연결 아이디 — `target` 해석이 돌려준 모양), `receivedAt`(서버가 그 묶음을 받은 시각, `comment`와 같은 모양), `items`(1개 이상 — 확장이 보낸 묶음의 항목 그대로. 항목이 객체면 키는 `commentId`·`userId`·`uniqueId`·`nickname`·`text`·`owner`·`postedAt`만 쓸 수 있고 모두 선택, 값은 아무 JSON 값. 객체가 아닌 항목도 버림 사례로 적을 수 있다) | `items`와 같은 길이의 목록. 항목마다 `{ "record": 레코드 }`(`comment`와 같은 일곱 키) 또는 `{ "drop": 코드 }`. 버림 코드(이 순서로 검사): `BAD_COMMENT_ID`·`BAD_USER_ID`·`NO_AUTHOR`(쓴 사람 아이디가 글이 아니거나 다듬으면 빈 글)·`NO_TEXT`·`TEXT_TOO_LONG`·`DUPLICATE`. 버린 항목의 ID는 기억하지 않는다. `owner`는 확장이 보낸 값이 아니라 아이디 = `target`(다듬고 ASCII 소문자)으로 정하고, `postedAt`은 쓰지 않는다(D-TTX-06·14) |
 
 - `comment` 사례는 사례마다 `target`으로 **새 거르개**(중복 기억이 빈 것)를 만들고 `events`를 순서대로 넣는다. `receivedAt`은 오프셋 `Z`가 붙은 ISO 8601(밀리초까지) — 시험이 `new Date(receivedAt)`로 바꿔 넘긴다. `raw`는 라이브러리 `chat` 이벤트에서 꺼낸 값을 흉내 낸 객체로, 키는 `msgId`·`userId`·`uniqueId`·`nickname`·`comment`·`createTime`만 쓸 수 있다(모두 선택, 값은 아무 JSON 값 — 틀린 형식이 버림 사례다). 키가 없는 것과 `null`은 둘 다 "값 없음"이다.
 - 레코드 = 정확히 일곱 키 `{ "platform": "TIKTOK", "commentId", "userId", "nickname", "text", "receivedAt", "owner" }`. `commentId`·`userId`는 0으로 시작하지 않는 양의 10진 문자열(1~32자리), `receivedAt`은 `toISOString()` 모양(UTC, 밀리초), `owner`는 불리언.
 - 버림 코드(이 순서로 검사, 처음 걸린 것): `BAD_COMMENT_ID`·`BAD_USER_ID`·`NO_TEXT`·`TEXT_TOO_LONG`·`DUPLICATE`. 버린 댓글의 ID는 중복 기억에 넣지 않는다.
 - JSON 숫자는 읽는 순간 double이 된다 — 2^53을 넘는 숫자 ID가 안전 정수가 아니어서 버려지는 것도 골든이 고정한다(G-TTK-N2b-1-44). `bigint`와 라이브러리의 64비트 정수 객체는 JSON으로 적을 수 없어 서버 단위 시험(AC-N2b-1-21)이 본다. 2,000자를 넘는 `target` 입력도 단위 시험이 본다.
+
+## 밴드 골든 (`band/*.json`, BND1 — D-BND1-03~07)
+
+밴드 Open API 댓글 목록(`GET /v2/band/post/comments`)의 항목을 서버가 `chat`으로 바꾸는 규칙과, 한 번 읽은 목록에서 새로 기록할 댓글과 차례를 고정한다. 읽는 간격·다시 시도·지운 댓글·고친 댓글 알림은 시계와 상태에 기대므로 골든이 아니라 수용 기준(`harness/sprints/BND1/acceptance.md`)의 통합 시험으로 본다.
+
+- **누가 읽나**: 코어 골든 러너는 `*.yaml`만 읽어 이 폴더를 건너뛴다. `apps/server` 시험이 이 폴더의 모든 `*.json`을 읽어 밴드 모듈의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 파일 수와 사례 수 합계를 고정값으로 단언한다(BND1: 파일 2 · 사례 43 = comment 36 · batch 7).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `comment`·`batch`. 모르는 키·모르는 `kind`는 읽기 오류다.
+- **사례 공통 키**: `id`(`G-BND-` + 스프린트 + `-` + 두 자리 이상 숫자, 예 `G-BND-BND1-01`, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `in`, `out`.
+- `in`의 `item`·`items[i]`는 공식 문서 응답 모양을 흉내 낸 객체 그대로다(모르는 키는 무시 — 밴드가 칸을 더해도 깨지지 않게). 값의 형식이 틀린 것이 건너뜀 사례다.
+
+| `kind` | `in` | `out` |
+|---|---|---|
+| `comment` | `{ "sellerUserKey", "postKey", "item" }` | `{ "chat": { "id", "ch", "nick", "text", "owner" } }` 또는 `{ "skip": 코드 }` — 정확히 한 키. 코드(이 순서로 검사, 처음 걸린 것): `BAD_COMMENT_KEY`·`NO_AUTHOR`·`SELLER`·`BAD_TIME`·`NO_TEXT`·`TEXT_TOO_LONG` |
+| `batch` | `{ "sellerUserKey", "postKey", "known": [댓글 키], "items": [항목 — 오래된 것부터 읽은 차례] }` | `{ "record": [chat 다섯 칸 — 기록할 차례], "skip": [{ "key": 댓글 키 또는 null, "code" }] — 입력 차례 }`. `known`에 있는 키는 둘 어디에도 없다. 같은 읽기 안의 두 번째부터는 `DUPLICATE` |
+
+- `chat`: `id` = `band:` + `postKey` + `:` + `comment_key`(256자까지), `ch` = `band:` + `author.user_key`(256자까지), `nick` = 수집 경로 이름 정리(D-Y05), `text` = D-BND1-04로 바꾼 본문(500 코드 포인트까지, 자르지 않음), `owner` = 늘 `false`. `publishedAt`은 없어야 한다(밴드 회차는 접수순만 — D-BND1-06). 서버가 붙이는 `b`·`type`·`at`은 비교하지 않는다.
+- `created_at`은 양의 안전 정수(밀리초)여야 한다 — 아니면 `BAD_TIME`. 기록 차례 = `created_at` 오름차순, 같으면 입력 차례(안정 정렬).
+- 손 계산: 글 키 `AABhEEQG08e1Fc227z2fRCwv`(24자) → 메시지 ID 머리 `band:` 5 + 24 + `:` 1 = 30자, 댓글 키 226자까지 통과(G-BND-BND1-10·11). 시각 `1793012400000` = 2026-10-26T11:00:00Z.
 
 ## 입금 골든 (`deposit/*.json`, N3 — D-N3-01)
 
@@ -446,3 +467,13 @@ expect:
 | `plan` | 없음 | `in` = `{ enabled, hasKey, usedToday, dailyLimit, globalUsed, globalLimit, batchMax, items }` — `items` = 한 방송의 확인 필요 항목 `{ id, origin: "chat"\|"sms", reason, no(정수 또는 null), rule(규칙 제안이 있는지), cached(같은 캐시 키의 AI 결과가 있는지), text, youtube? }`(원래 순위 순). `youtube`(AIY1, 선택, 없으면 `false`) = 유튜브에서 온 줄 — `true`면 보내지 않고 같은 글 묶기·묶음 수에서도 자리를 차지하지 않는다(D-AIY1-01·03). 실제 값은 서버가 기록의 출처로 정한다(경로를 모르면 `true`, D-AIY1-02) | `{ "send": [id …] }` — AI로 보낼 항목, 그 순서. 빈 목록이면 호출하지 않는다 |
 
 - `rule`의 "비슷함"·다시 읽기·사유 표, `validate`의 형식, `redact`의 순서, `plan`의 거르기·같은 글 묶기·상한은 DOMAIN_RULES R-20 10과 DECISIONS D-A1-02~D-A1-06이 정답이다. 캐시 키 계산·하루 사용량 세기(KST 날짜)·잠금·방송 고르기는 서버가 함수를 부르기 전·후에 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다.
+
+## 손님 기록 골든 (`regulars/*.json`, CRM1 — D-CRM1-03~D-CRM1-05)
+
+손님 기록 요약(SPEC BUY-06)의 순수 함수 하나를 고정한다. 판정 엔진이 아니라 서버의 규칙이라 엔진 골든(YAML)과 따로 둔다. 표지로 기록 묶음을 모으는 일(D-CRM1-02 — 지난 구매와 같은 표지·한 번만 따라가기), 묶음마다 `cancels`·`noPay`를 세는 일(코어 조회 결과의 찜 상태·사유)은 함수를 부르기 전에 서버가 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수(1)와 사례 수 합계(13)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` = `summary`. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다.
+- **사례 키**: `id`(`G-CRM-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `today`(`YYYY-MM-DD` — 서버가 부를 때는 서버 시각의 KST 날짜), `settings` `{ regularCount, regularAmount, waitDays }`(`regularAmount`는 정수 원 또는 `null` = 금액 기준 안 씀), `bundles`(0개 이상 `{ date, buyer, items, subtotal, payment, cancels, noPay }` — `payment` ∈ `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID`, 나머지 수는 0 이상 정수), `out`.
+- **`out`** = `{ "purchaseDays", "purchaseTotal", "lastPurchase", "unpaidDays", "lastUnpaid", "cancels", "regular", "caution" }` — 날짜는 `YYYY-MM-DD` 또는 `null`, 금액은 정수 원. 정확히 같음.
+- 결과는 실행 환경의 시간대와 상관없어야 한다(날짜 더하기는 달력 날짜 — 서버 시험도 `TZ`를 바꿔 돌린다). 묶음 순서가 바뀌어도 결과가 같아야 한다.

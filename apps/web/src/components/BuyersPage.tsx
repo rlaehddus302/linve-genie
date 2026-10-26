@@ -9,7 +9,9 @@
 // - 떼어 내기(바로)·차단(사유, 5초 뒤 — 콘솔과 같은 조치).
 // - 전화번호는 뒤 4자리만(원문은 저장하지 않는다, D-073).
 // - 실제 범위의 자세히에는 "지난 구매"(채널 ID·전화번호 키로 이은 다른 날짜의 묶음 — 누르면 그 날짜의 정산 자세히, I2 AC-I2-41).
-// - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 봉인돼요"(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 합치기·떼어 내기·차단이 잠긴다 (AC-I3-40·41).
+// - CRM1 (D-CRM1-06·D-CRM1-08): 맨 위 "날짜별 · 모든 손님" 고르기. 실제 날짜 목록 줄에 꼬리표("단골"·"입금 늦음 주의"), 정렬 "누적 큰 순",
+//   거르기 "모두·단골만·입금 늦음 주의만", 자세히 "지난 구매" 위에 "손님 기록" 칸(메모). 리허설 날짜에는 하나도 없다. 값은 서버 손님 기록 조회 그대로.
+// - I3: 봉인 예정 날짜면 "이 날짜 기록은 … 부터 잠겨요"(QL3R1 D-QL3R1-07)(7일 전부터 경고 상자), 봉인한 날짜는 볼 수만 있다 — 합치기·떼어 내기·차단이 잠긴다 (AC-I3-40·41).
 import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { Buyer, Claim } from '../api/types.ts'
 import {
@@ -28,6 +30,10 @@ import {
   splitProductKey,
   type BuyerSort,
 } from '../lib/buyers.ts'
+import { CUSTOMER_LOAD_FAILED, FILTER_WORD, byCumulative, passesFilter, useDayCustomers, type CustomerFilter, type DayCustomer, type DayCustomers } from '../lib/customers.ts'
+import { kstToday } from '../lib/kst.ts'
+import { AllCustomers, customersRoute, forgetCustomerList } from './AllCustomers.tsx'
+import { CustomerRecord, CustomerTags } from './CustomerParts.tsx'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { claimOptionWords, claimWord, formatWon, productSlots, type BuyerNames } from '../lib/derive.ts'
 import { buyerQuantity, saleLine } from '../lib/sale-line.ts'
@@ -66,7 +72,51 @@ export const BACK_TO_MERGE = '합치기로 돌아가기'
 /** "문자찜(확인 필요)" 구매자 자세히의 안내 한 줄 (D-V1-22) */
 export const UNKNOWN_SMS_GUIDE = '누구의 문자인지 찾아 합쳐 주세요.'
 
+/** 구매자 화면 맨 위 "날짜별 · 모든 손님" 고르기 (D-CRM1-06) */
+function ViewSwitch({ route, navigate }: { readonly route: ScopeRoute; readonly navigate: Navigate }) {
+  const customers = route.view === 'customers'
+  return (
+    <div className="row" role="group" aria-label="보기">
+      <button
+        type="button"
+        className="button"
+        aria-pressed={!customers}
+        onClick={() => {
+          if (customers) navigate({ name: 'buyers', ...(route.date === undefined ? {} : { date: route.date }), rehearsal: false })
+        }}
+      >
+        날짜별
+      </button>
+      <button
+        type="button"
+        className="button"
+        aria-pressed={customers && route.customer === undefined}
+        onClick={() => {
+          if (customers && route.customer === undefined) return
+          forgetCustomerList()
+          navigate(customersRoute(route, 'total', 'all'))
+        }}
+      >
+        모든 손님
+      </button>
+    </div>
+  )
+}
+
 export function BuyersPage({ route, navigate }: { readonly route: ScopeRoute; readonly navigate: Navigate }) {
+  if (route.view === 'customers') {
+    return (
+      <main className="page page-wide buyers-page">
+        <h1>구매자</h1>
+        <ViewSwitch route={route} navigate={navigate} />
+        <AllCustomers route={route} navigate={navigate} />
+      </main>
+    )
+  }
+  return <DayBuyersPage route={route} navigate={navigate} />
+}
+
+function DayBuyersPage({ route, navigate }: { readonly route: ScopeRoute; readonly navigate: Navigate }) {
   const choice = useScopeChoice(route, navigate)
   const scope = choice.scope
   const key = scope === null ? null : `${scope.date}|${String(scope.rehearsal)}`
@@ -76,6 +126,7 @@ export function BuyersPage({ route, navigate }: { readonly route: ScopeRoute; re
   return (
     <main className="page page-wide buyers-page">
       <h1>구매자</h1>
+      <ViewSwitch route={route} navigate={navigate} />
       <div className="row scope-row">
         <ScopePicker route={route} navigate={navigate} days={choice.days} error={choice.error} onRetry={choice.retry} />
         {route.rehearsal ? <span className="tag tag-rehearsal">리허설</span> : null}
@@ -119,6 +170,8 @@ interface MergeTarget {
 
 function ReadyBuyers({ route, navigate, store, snapshot, data, queue }: ReadyProps) {
   const host = useHostActions({ store, data, queue, date: data.date, rehearsal: data.rehearsal, b: '', ended: false, sealed: snapshot.sealed })
+  // 손님 기록 꼬리표·누적 (실제 날짜만 — 리허설은 부르지 않는다, AC-CRM1-06). 범위가 바뀌면 다시 받되 2초에 한 번까지
+  const customers = useDayCustomers(data.date, !data.rehearsal, String(data.seq), 2000)
   const [notice, setNotice] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
   const base: ScopeRoute = { name: 'buyers', date: data.date, rehearsal: data.rehearsal }
@@ -208,7 +261,7 @@ function ReadyBuyers({ route, navigate, store, snapshot, data, queue }: ReadyPro
         </p>
       ) : null}
       {route.buyer === undefined ? (
-        <BuyerList api={host.api} onOpen={open} />
+        <BuyerList api={host.api} customers={customers} onOpen={open} />
       ) : selected === undefined ? (
         <div className="stack-tight">
           <p>그 구매자를 찾지 못했어요.</p>
@@ -229,6 +282,7 @@ function ReadyBuyers({ route, navigate, store, snapshot, data, queue }: ReadyPro
           onSettlement={(buyer) => navigate({ name: 'settlements', date: data.date, rehearsal: data.rehearsal, buyer })}
           onPast={(date, buyer) => navigate({ name: 'settlements', date, rehearsal: false, buyer })}
           onUnmerged={() => setNotice(UNMERGED_NOTICE)}
+          today={customers.view?.today ?? null}
         />
       )}
       {/* 사유·확인 창(찜 취소·차단)이 열리면 그 창만 — 아래 창이 포커스를 가져가지 않게 */}
@@ -252,12 +306,13 @@ interface BuyerRow {
   readonly extra?: string
 }
 
-function marks(buyer: Buyer, counts: ReadonlyMap<string, number>, extra: string | undefined) {
+function marks(buyer: Buyer, counts: ReadonlyMap<string, number>, extra: string | undefined, customer: DayCustomer | undefined) {
   return (
     <>
       {distinguishWords(buyer, counts).map((word) => (
         <span key={word}>{word}</span>
       ))}
+      <CustomerTags summary={customer} />
       {buyer.blocked ? <span className="tag tag-alert">차단</span> : null}
       {buyer.merged.length > 0 ? <span>합친 구매자 {buyer.merged.length}명</span> : null}
       {extra !== undefined ? <span>{extra}</span> : null}
@@ -271,7 +326,17 @@ function payTag(api: ConsoleApi, buyer: Buyer) {
 }
 
 /** 휴대폰: 카드 목록 (AC-S06-20 그대로) */
-function BuyerCards({ api, label, rows, counts, onOpen }: { readonly api: ConsoleApi; readonly label: string; readonly rows: readonly BuyerRow[]; readonly counts: ReadonlyMap<string, number>; readonly onOpen: (id: string) => void }) {
+interface RowsProps {
+  readonly api: ConsoleApi
+  readonly label: string
+  readonly rows: readonly BuyerRow[]
+  readonly counts: ReadonlyMap<string, number>
+  /** 손님 기록 꼬리표 (지금의 구매자 ID → 기록, 리허설·실패면 빈 목록) */
+  readonly customers: ReadonlyMap<string, DayCustomer>
+  readonly onOpen: (id: string) => void
+}
+
+function BuyerCards({ api, label, rows, counts, customers, onOpen }: RowsProps) {
   return (
     <ul className="plain-list stack-tight" aria-label={label}>
       {rows.map(({ buyer, extra }) => (
@@ -283,7 +348,7 @@ function BuyerCards({ api, label, rows, counts, onOpen }: { readonly api: Consol
               {buyerQuantity(api.data, buyer)}개 · {formatWon(buyer.subtotal)}
             </span>
             {payTag(api, buyer)}
-            {marks(buyer, counts, extra)}
+            {marks(buyer, counts, extra, customers.get(buyer.id))}
           </a>
         </li>
       ))}
@@ -292,7 +357,7 @@ function BuyerCards({ api, label, rows, counts, onOpen }: { readonly api: Consol
 }
 
 /** PC: 열 머리가 있는 표 — 한 줄 = 한 구매자, 금액 열은 오른쪽, 이름 칸의 링크로 자세히 (AC-S06b-21) */
-function BuyerTable({ api, label, rows, counts, onOpen }: { readonly api: ConsoleApi; readonly label: string; readonly rows: readonly BuyerRow[]; readonly counts: ReadonlyMap<string, number>; readonly onOpen: (id: string) => void }) {
+function BuyerTable({ api, label, rows, counts, customers, onOpen }: RowsProps) {
   return (
     <div className="table-scroll">
       <table className="list-table" aria-label={label}>
@@ -323,7 +388,7 @@ function BuyerTable({ api, label, rows, counts, onOpen }: { readonly api: Consol
               <td className="num">{formatWon(buyer.subtotal)}</td>
               <td>{payTag(api, buyer)}</td>
               <td>
-                <span className="cell-marks">{marks(buyer, counts, extra)}</span>
+                <span className="cell-marks">{marks(buyer, counts, extra, customers.get(buyer.id))}</span>
               </td>
             </tr>
           ))}
@@ -333,14 +398,29 @@ function BuyerTable({ api, label, rows, counts, onOpen }: { readonly api: Consol
   )
 }
 
-function BuyerList({ api, onOpen }: { readonly api: ConsoleApi; readonly onOpen: (id: string | undefined) => void }) {
+/** 구매자 목록의 정렬: 이름 순·합계 큰 순(그날) + 누적 큰 순(손님 기록, 실제 날짜만) */
+type ListSort = BuyerSort | 'cumulative'
+
+const LIST_FILTERS: readonly CustomerFilter[] = ['all', 'regular', 'caution']
+
+function BuyerList({ api, customers, onOpen }: { readonly api: ConsoleApi; readonly customers: DayCustomers; readonly onOpen: (id: string | undefined) => void }) {
   const wide = useWide()
   const [all, setAll] = useState(false)
-  const [sort, setSort] = useState<BuyerSort>('name')
+  const [sort, setSort] = useState<ListSort>('name')
+  const [filter, setFilter] = useState<CustomerFilter>('all')
   const [query, setQuery] = useState('')
   const [shown, setShown] = useState(PAGE)
   const counts = useMemo(() => sameNameCounts(api.data.buyers), [api.data.buyers])
-  const list = useMemo(() => buyerList(api.data.buyers, { all, sort }), [api.data.buyers, all, sort])
+  // 손님 기록을 받은 실제 날짜만 누적 정렬·거르기를 쓴다 (리허설·못 받음이면 지금 그대로)
+  const records = !api.data.rehearsal && customers.view !== null
+  const useSort: ListSort = records || sort !== 'cumulative' ? sort : 'name'
+  const useFilter: CustomerFilter = records ? filter : 'all'
+  const list = useMemo(() => {
+    const base = buyerList(api.data.buyers, { all, sort: useSort === 'cumulative' ? 'name' : useSort })
+    const kept = useFilter === 'all' ? base : base.filter((buyer) => passesFilter(customers.map.get(buyer.id), useFilter))
+    return useSort === 'cumulative' ? [...kept].sort(byCumulative(customers.map)) : kept
+  }, [api.data.buyers, all, useSort, useFilter, customers.map])
+  const tags = api.data.rehearsal ? EMPTY_CUSTOMERS : customers.map
   const hits = useMemo(() => searchBuyers(api.data.buyers, query, 100), [api.data.buyers, query])
   const total = list.reduce((sum, buyer) => sum + buyer.subtotal, 0)
   const searching = query.trim() !== ''
@@ -370,8 +450,40 @@ function BuyerList({ api, onOpen }: { readonly api: ConsoleApi; readonly onOpen:
           <button type="button" className="button" aria-pressed={sort === 'total'} onClick={() => setSort('total')}>
             합계 큰 순
           </button>
+          {records ? (
+            <button type="button" className="button" aria-pressed={sort === 'cumulative'} onClick={() => setSort('cumulative')}>
+              누적 큰 순
+            </button>
+          ) : null}
         </div>
+        {records ? (
+          <div className="row" role="group" aria-label="거르기">
+            {LIST_FILTERS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                className="button"
+                aria-pressed={filter === value}
+                onClick={() => {
+                  setFilter(value)
+                  setShown(PAGE)
+                }}
+              >
+                {FILTER_WORD[value]}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
+      {/* 손님 기록을 받지 못하면(없는 날짜 밖) 목록은 그대로 두고 한 줄로 알린다 */}
+      {!api.data.rehearsal && customers.error !== null && customers.error.status !== 404 && customers.view === null ? (
+        <p className="hint row">
+          <span>{CUSTOMER_LOAD_FAILED}</span>
+          <button type="button" className="button" onClick={customers.retry}>
+            다시 불러오기
+          </button>
+        </p>
+      ) : null}
       {searching ? (
         <>
           <p role="status">찾은 구매자 {hits.length}명</p>
@@ -380,6 +492,7 @@ function BuyerList({ api, onOpen }: { readonly api: ConsoleApi; readonly onOpen:
             api={api}
             label="찾은 구매자"
             counts={counts}
+            customers={tags}
             onOpen={onOpen}
             rows={hits.map((hit) => ({
               buyer: hit.current,
@@ -392,8 +505,8 @@ function BuyerList({ api, onOpen }: { readonly api: ConsoleApi; readonly onOpen:
           <p className="summary-line" role="status">
             구매자 {list.length}명 · 합계 {formatWon(total)}
           </p>
-          {list.length === 0 ? <p>{all ? '그날 기록된 구매자가 없어요.' : '그날 1등 찜이 있는 구매자가 없어요.'}</p> : null}
-          <Rows api={api} label="구매자" counts={counts} onOpen={onOpen} rows={list.slice(0, shown).map((buyer) => ({ buyer }))} />
+          {list.length === 0 ? <p>{useFilter !== 'all' ? '고른 조건에 맞는 구매자가 없어요.' : all ? '그날 기록된 구매자가 없어요.' : '그날 1등 찜이 있는 구매자가 없어요.'}</p> : null}
+          <Rows api={api} label="구매자" counts={counts} customers={tags} onOpen={onOpen} rows={list.slice(0, shown).map((buyer) => ({ buyer }))} />
           {list.length > shown ? (
             <button type="button" className="button" onClick={() => setShown((n) => n + PAGE)}>
               더 보기 ({list.length - shown}명 더)
@@ -404,6 +517,8 @@ function BuyerList({ api, onOpen }: { readonly api: ConsoleApi; readonly onOpen:
     </section>
   )
 }
+
+const EMPTY_CUSTOMERS: ReadonlyMap<string, DayCustomer> = new Map()
 
 // ── 자세히 (AC-S06-22, AC-S06b-24) ─────────────────────────────────────
 
@@ -416,9 +531,11 @@ interface DetailProps {
   readonly onSettlement: (buyer: string) => void
   /** 지난 구매 항목 → 그 날짜의 정산 자세히 */
   readonly onPast: (date: string, buyer: string) => void
+  /** 손님 기록 날짜 문장의 올해 기준 (서버 KST 날짜 — 아직 모르면 null) */
+  readonly today: string | null
 }
 
-function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, onPast }: DetailProps) {
+function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, onPast, today }: DetailProps) {
   const [unmerging, setUnmerging] = useState<string | null>(null)
   const names = api.names
   const current = buyer.mergedInto === null ? buyer : (api.data.buyers.get(buyer.current) ?? buyer)
@@ -578,6 +695,8 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
           정산 자세히
         </button>
       </section>
+
+      {api.data.rehearsal ? null : <CustomerRecord date={api.data.date} buyer={current.id} today={today ?? kstToday()} refreshKey={`${current.merged.join(',')}|${settlement?.payment ?? ''}|${String(settlement?.received ?? 0)}|${String(current.subtotal)}`} />}
 
       {api.data.rehearsal ? null : <PastPurchases date={api.data.date} buyer={current.id} refreshKey={current.merged.join(',')} onOpen={onPast} />}
 

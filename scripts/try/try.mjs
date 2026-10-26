@@ -52,14 +52,16 @@ const args = process.argv.slice(2)
 let wanted = DEFAULT_PORT
 let realYoutube = false
 let realLoginWanted = false
+let realTiktok = false
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port' && /^\d{2,5}$/.test(args[i + 1] ?? '')) {
     wanted = Number(args[i + 1])
     i++
   } else if (args[i] === '--real-youtube') realYoutube = true
   else if (args[i] === '--real-login') realLoginWanted = true
+  else if (args[i] === '--real-tiktok') realTiktok = true
   else if (args[i] === '--') continue
-  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube 또는 pnpm try --real-login (함께 써도 돼요)')
+  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube 또는 pnpm try --real-login 또는 pnpm try --real-tiktok (함께 써도 돼요)')
 }
 // 실제 유튜브 시험: 운영자가 만든 구글 OAuth 클라이언트 값을 저장소 밖에 커밋되지 않는 .env.youtube.local에서 읽는다(대화·로그에 남기지 않음)
 let realGoogle = null
@@ -148,6 +150,7 @@ const { FakeLlm } = await server('assist/fake-llm.ts')
 const { createSelfSignedCertificate, lanAddresses } = await server('try/self-signed-cert.ts')
 const { createSmsTestBox, createSmsTestHttpServer, makeSmsTestToken, SMS_TEST_PATH } = await server('try/sms-test.ts')
 const { createPhoneRelay, phoneYoutubeNotice } = await server('try/phone-relay.ts')
+const { readTikTokSettings } = await server('tiktok/settings.ts')
 
 /** 같은 와이파이에서 이 컴퓨터를 찾는 주소들 (와이파이 먼저, 윈도우의 가상·VPN 연결은 뒤로). 첫 주소를 휴대폰 주소로 알린다 */
 const lans = lanAddresses(networkInterfaces())
@@ -200,6 +203,8 @@ const livejjim = createServer({
   // --real-login: 실제 공급자 고정 주소(https)·값이 있는 공급자만. 돌아오는 주소는 서버가 appOrigin(http://localhost:<포트>)으로 만든다
   socialLogin: realLogin === null ? oauth.setup({ authBase: appOrigin, apiBase: `http://127.0.0.1:${String(port)}` }) : { providers: realLogin },
   assist: llm.setup({ base: `http://127.0.0.1:${String(port)}` }),
+  // --real-tiktok: 틱톡 라이브 베타를 켠다(읽기 전용 — 로그인·쿠키 없이 채팅만 받는다, D-904). 서명 키는 환경 변수에 있을 때만 쓴다
+  ...(realTiktok ? { tiktok: { settings: readTikTokSettings({ LIVEJJIM_TIKTOK_BETA: 'on', LIVEJJIM_TIKTOK_SIGN_API_KEY: process.env['LIVEJJIM_TIKTOK_SIGN_API_KEY'] }) } } : {}),
 })
 
 const PASSWORD_LETTERS = 'abcdefghjkmnpqrstuvwxyz23456789'

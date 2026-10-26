@@ -440,6 +440,18 @@ export async function eventsAfter(db: Db, sellerId: string, scopeId: string, seq
   return rows.map(withRaw)
 }
 
+/** 범위의 (after, upto] 이벤트 중 앞에서 limit개, seq 순 (채팅은 따로 둔 본문·이름을 합친 본문) — 긴 기록을 나눠 읽을 때 */
+export async function eventsBetween(db: Db, sellerId: string, scopeId: string, after: number, upto: number, limit: number): Promise<EventRow[]> {
+  const rows = await db
+    .select({ ...eventColumns, ...rawColumns })
+    .from(events)
+    .leftJoin(chatRaw, rawJoin)
+    .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), gt(events.seq, after), lte(events.seq, upto)))
+    .orderBy(asc(events.seq))
+    .limit(limit)
+  return rows.map(withRaw)
+}
+
 /** 범위의 그 seq 이벤트 (없으면 null) */
 export async function eventAtSeq(db: Db, sellerId: string, scopeId: string, seq: number): Promise<EventRow | null> {
   const rows = await db
@@ -605,6 +617,17 @@ export async function latestSnapshot(db: Db, sellerId: string, scopeId: string, 
     .select({ seq: snapshots.seq, format: snapshots.format, state: snapshots.state, attention: snapshots.attention })
     .from(snapshots)
     .where(and(eq(snapshots.sellerId, sellerId), eq(snapshots.scopeId, scopeId), eq(snapshots.format, format)))
+    .orderBy(desc(snapshots.seq))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+/** 형식이 같고 seq가 before보다 작은 마지막 스냅샷 */
+export async function snapshotBefore(db: Db, sellerId: string, scopeId: string, format: number, before: number): Promise<SnapshotRow | null> {
+  const rows = await db
+    .select({ seq: snapshots.seq, format: snapshots.format, state: snapshots.state, attention: snapshots.attention })
+    .from(snapshots)
+    .where(and(eq(snapshots.sellerId, sellerId), eq(snapshots.scopeId, scopeId), eq(snapshots.format, format), lt(snapshots.seq, before)))
     .orderBy(desc(snapshots.seq))
     .limit(1)
   return rows[0] ?? null

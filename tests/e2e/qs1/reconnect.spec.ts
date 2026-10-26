@@ -276,8 +276,9 @@ test.describe('AC-QS1-44 출력 기기가 아니면 저절로 잇지 않음 @pri
     expect(await autoAttempts(page)).toBe(0)
     expect(await autoWaiting(page)).toBe(false)
     expect((await fakeB1State(page))!.connectAttempts).toBe(1)
-    // AC-QS1-44 "화면은 끊김과 '다시 연결'"의 '다시 연결'은 출력 기기가 아닌 기기에는 지금 화면에 없다(연결 방법 단추만) — 스펙 확인 필요(TE-QS1-001), 여기서는 보지 않는다
+    // AC-QS1-44 "화면은 끊김과 '다시 연결'" — 출력 기기가 아닌 기기에도 프린터 칸에 "다시 연결" (TE-QS1-001 → QL2 D-QL2-03 (a)로 정함)
     await expect(stateLine(page, '끊김')).toBeVisible()
+    await expect(printer(page).getByRole('button', { name: '다시 연결', exact: true })).toBeVisible() // QL2 D-QL2-03
   })
 
   test('시험용 프린터로 연결만 하고 끊김 → 시도 0', async ({ page }) => {

@@ -4,8 +4,10 @@
 //   `/packing` 포장 모드 — 고른 날짜(실제 범위만)·연 구매자는 검색값(`?date=2026-10-18&buyer=UC_A`) (I2 AC-I2-35)
 //   `/settings` 설정 · `/settings/youtube` 설정의 유튜브 칸(구글에서 돌아오면 `?youtube=<결과>` — 화면이 보인 뒤 지운다)
 //   `/settings/instagram`·`/settings/tiktok` 설정의 인스타그램·틱톡 칸 — 인스타그램에서 돌아온 `?instagram=<결과>`(경로 `/`여도)는 인스타그램 칸으로 (N2b-2)
+//   `/settings/band` 설정의 네이버 밴드 칸 — 밴드에서 돌아온 `?band=<결과>`는 그 칸에서 한 번 보이고 지운다 (BND1)
 //   `/settings/assist` 설정의 AI 제안 칸 (A1 — 확인 필요 화면의 "설정에서 AI 제안을 켤 수 있어요." 링크)
 //   `/settings/labels` 설정의 라벨 칸 (PL1B U-PL1B-06 — "라벨 쓰지 않음 — 설정에서 켤 수 있어요."의 "설정" 링크)
+//   `/login` 로그인 화면(LND1 D-LND1-01 — 메뉴에 없는 화면. 로그아웃 상태의 `/`는 소개 화면, 로그인하면 `/`로 바꿔 간다)
 //   `/start` 시작 마법사 · `/privacy` 개인정보처리방침(초안) · `/terms` 이용약관(초안) — 둘은 로그인 없이 열린다
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
@@ -34,9 +36,16 @@ export interface ScopeRoute {
   readonly into?: string
   /** 합치기 막힘에서 연 상품 자세히 (상품 키 `<방송>/<번호>`) */
   readonly product?: string
+  /** 구매자 화면의 "모든 손님" 보기 (CRM1 D-CRM1-06) — 날짜별 보기는 적지 않는다 */
+  readonly view?: 'customers'
+  /** "모든 손님"에서 연 손님 (서버가 만든 불투명 손님 ID — 전화번호·표지가 아니다) */
+  readonly customer?: string
+  /** "모든 손님"의 정렬·거르기 (기본 total·all은 적지 않는다). 찾는 말은 주소에 넣지 않는다 */
+  readonly sort?: string
+  readonly filter?: string
 }
 
-const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product'] as const
+const SCOPE_PARAMS = ['buyer', 'merge', 'into', 'product', 'customer', 'sort', 'filter'] as const
 
 /** 요금 화면 (휴대폰 결제 창이 돌아오면 그 결제 ID) */
 export interface BillingRoute {
@@ -47,7 +56,7 @@ export interface BillingRoute {
 /** 결제 ID 모양 (서버가 만든 영문·숫자 — 넉넉히 영문·숫자·'_'·'-' 1~64자) */
 const PAYMENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
-export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'parcel' | 'extension' | 'assist' | 'labels'
+export type SettingsSection = 'youtube' | 'instagram' | 'tiktok' | 'band' | 'parcel' | 'extension' | 'assist' | 'labels'
 
 /** 입금 확인 화면의 목록 (N3) */
 export const DEPOSIT_TABS = ['review', 'done', 'ignored', 'paste', 'sources'] as const
@@ -80,6 +89,8 @@ export interface SettingsRoute {
   readonly youtubeResult?: string
   /** 인스타그램에서 돌아온 결과 코드 (`?instagram=` — 서버의 돌아오는 경로가 `/`여도 설정의 인스타그램 칸으로, N2b-2) */
   readonly instagramResult?: string
+  /** 밴드에서 돌아온 결과 코드 (`/settings/band?band=` — BND1 AC-BND1-12·70) */
+  readonly bandResult?: string
 }
 
 export interface StartRoute {
@@ -99,6 +110,7 @@ export interface ReviewsRoute {
 
 export type Route =
   | { readonly name: 'home' }
+  | { readonly name: 'login' }
   | ReviewsRoute
   | { readonly name: 'console'; readonly id: string; /** 열 때 그 번호 상품 자세히를 연다 (정산 화면 [상품 보기], AC-V3-71) */ readonly product?: number }
   | { readonly name: 'receipts'; readonly id: string }
@@ -114,8 +126,8 @@ export type Route =
   | { readonly name: 'terms' }
   | DepositsRoute
 
-/** 로그인 없이 여는 화면 (AC-I3-77) */
-export const isPublicRoute = (route: Route): boolean => route.name === 'privacy' || route.name === 'terms'
+/** 로그인 없이 여는 화면 (AC-I3-77, LND1 D-LND1-01 — 로그인 화면 `/login`도) */
+export const isPublicRoute = (route: Route): boolean => route.name === 'privacy' || route.name === 'terms' || route.name === 'login'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -131,6 +143,7 @@ function scopeRoute(name: ScopeRouteName, search: string): ScopeRoute {
     const value = params.get(key)
     if (value !== null && value !== '') out[key] = value
   }
+  if (name === 'buyers' && params.get('view') === 'customers') out.view = 'customers'
   return out
 }
 
@@ -175,11 +188,16 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/settings/youtube') return { name: 'settings', section: 'youtube', ...result }
   if (path === '/settings/instagram') return { name: 'settings', section: 'instagram' }
   if (path === '/settings/tiktok') return { name: 'settings', section: 'tiktok' }
+  if (path === '/settings/band') {
+    const band = new URLSearchParams(search).get('band')
+    return band !== null && band !== '' ? { name: 'settings', section: 'band', bandResult: band } : { name: 'settings', section: 'band' }
+  }
   if (path === '/settings/parcel') return { name: 'settings', section: 'parcel' }
   if (path === '/settings/extension') return { name: 'settings', section: 'extension' }
   if (path === '/settings/assist') return { name: 'settings', section: 'assist' }
   if (path === '/settings/labels') return { name: 'settings', section: 'labels' }
   if (path === '/start') return { name: 'start', ...result }
+  if (path === '/login') return { name: 'login' }
   if (path === '/privacy') return { name: 'privacy' }
   if (path === '/terms') return { name: 'terms' }
   if (path === '/sms') return { name: 'sms' }
@@ -211,6 +229,8 @@ export function routePath(route: Route): string {
   switch (route.name) {
     case 'home':
       return '/'
+    case 'login':
+      return '/login'
     case 'console':
       return `/broadcasts/${encodeURIComponent(route.id)}${route.product === undefined ? '' : `?product=${String(route.product)}`}`
     case 'receipts':
@@ -224,6 +244,7 @@ export function routePath(route: Route): string {
     case 'settings': {
       const base = route.section === undefined ? '/settings' : `/settings/${route.section}`
       if (route.instagramResult !== undefined) return `${base}?${new URLSearchParams({ instagram: route.instagramResult }).toString()}`
+      if (route.bandResult !== undefined) return `${base}?${new URLSearchParams({ band: route.bandResult }).toString()}`
       return route.youtubeResult === undefined ? base : `${base}?${new URLSearchParams({ youtube: route.youtubeResult }).toString()}`
     }
     case 'start':
@@ -239,6 +260,7 @@ export function routePath(route: Route): string {
       const params = new URLSearchParams()
       if (route.date !== undefined) params.set('date', route.date)
       if (route.rehearsal) params.set('rehearsal', 'true')
+      if (route.view === 'customers') params.set('view', 'customers')
       for (const key of SCOPE_PARAMS) {
         const value = route[key]
         if (value !== undefined) params.set(key, value)
@@ -268,7 +290,7 @@ export function routePath(route: Route): string {
 /** 메뉴 항목 (AC-S06-01, AC-I1-20, AC-I3-44, I2 AC-I2-35, AC-N3-40, AC-N5-50): 지금 화면이 어느 메뉴에 속하는지 */
 export type MenuKey = 'broadcasts' | 'sms' | 'buyers' | 'settlements' | 'deposits' | 'packing' | 'labels' | 'settings' | 'billing' | 'parcels'
 
-/** 메뉴에 없는 화면(시작 마법사·정책 페이지)은 null */
+/** 메뉴에 없는 화면(시작 마법사·정책 페이지·로그인 화면)은 null */
 export function menuOf(route: Route): MenuKey | null {
   switch (route.name) {
     case 'home':
@@ -295,6 +317,7 @@ export function menuOf(route: Route): MenuKey | null {
     case 'settings':
       return 'settings'
     case 'start':
+    case 'login':
     case 'privacy':
     case 'terms':
       return null

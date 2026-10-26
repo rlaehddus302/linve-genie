@@ -23,6 +23,8 @@ export const PARCEL_WHAT = '수집하는 항목: 받는 분, 연락처, 주소(�
 export const PARCEL_WHY = '목적: 그 주문을 택배로 보내는 데(택배 접수·운송장·배송 조회)만 써요.'
 export const PARCEL_SHARE = '제공: 판매자가 택배 접수를 하면 그 주문의 받는 분·연락처·주소·배송 메모를 판매자가 고른 택배사에 보내요.'
 export const PARCEL_KEEP = '보관: 주문 날짜로부터 30일이 지나면 지워요. 송장번호·택배사·배송 상태는 판매 기록으로 남아요.'
+/** 네이버 밴드 연결 때 처리하는 정보 (BND1 AC-BND1-78, D-BND1-14) */
+export const BAND_ITEM = '네이버 밴드를 연결하면: 밴드 이름, 내가 쓴 글 목록, 이은 글의 댓글(작성자 이름·작성자 구분 값·글·작성 시각). 밴드에 글이나 댓글을 쓰지 않아요. [검토 필요]'
 /** 간편 로그인 연결 정보 (L1 AC-L1-13, D-L1-05) — 공급자 토큰·이메일 원문은 저장하지 않는다 */
 export const SOCIAL_LOGIN_ITEM = '간편 로그인을 연결하면: 공급자 계정 번호, 가린 이메일(예: se***@gmail.com)'
 /** AI 제안(선택) 문단 (A1 AC-A1-23, D-A1-06) */
@@ -31,6 +33,8 @@ export const AI_ASSIST_WHAT =
   '판매자가 설정에서 AI 제안을 켠 경우에만, 확인 필요 댓글의 글(닉네임·전화번호를 뺀 것)과 그 방송의 상품 이름·옵션이 AI 회사 Anthropic(미국)으로 보내져 주문 제안을 만드는 데 쓰여요.'
 export const AI_ASSIST_STORE = '서비스는 보낸 글을 따로 저장하지 않아요. 만든 제안(상품 번호·옵션·수량)만 보관해요.'
 export const AI_ASSIST_OFF = '판매자는 설정 → AI 제안 → "끄기"로 언제든 끌 수 있어요. 끄면 그때부터 보내지 않아요.'
+/** 14번 본문 끝 (QL2 D-QL2-05 ③ — D-AIY1-05 ③을 이 페이지 말투로) */
+export const AI_ASSIST_YOUTUBE = '유튜브에서 받은 채팅 글은 보내지 않아요.'
 export const TAX_NOTE = '구매 내역 확인서는 세금계산서·현금영수증 같은 세법상 증빙이 아니에요'
 
 function Outside({ href, children }: { readonly href: string; readonly children: ReactNode }) {
@@ -63,6 +67,7 @@ export function PrivacyPage() {
           <li>판매자·보조자 계정: 아이디, 비밀번호(알아볼 수 없게 바꾼 값만 저장), 가게 이름, 보조자 이름</li>
           <li>유튜브 연결 정보: 연결한 채널의 이름과 채널 번호, 구글 인증 정보(암호로 바꿔 보관)</li>
           <li>시청자 정보: 판매자의 방송 채팅에 쓴 시청자의 유튜브 채널 번호·표시 이름·채팅 내용</li>
+          <li>{BAND_ITEM}</li>
           <li>문자찜 구매자 정보: 판매자가 적은 이름·메모. 휴대폰 번호 원문은 저장하지 않아요(알아볼 수 없게 바꾼 값과 뒤 4자리만 저장해요).</li>
           <li>정산 기록: 판매·입금·배송비·할인·환불 기록</li>
           <li>택배 배송지: 구매자나 판매자가 적은 받는 분·연락처·주소·배송 메모(암호로 바꿔 보관 — 13번 참고)</li>
@@ -75,7 +80,7 @@ export function PrivacyPage() {
       </Section>
       <Section title="3. 보관 기간">
         <ul>
-          <li>유튜브 채팅 내용과 시청자 이름은 방송 날짜부터 30일 뒤에 지워요.</li>
+          <li>유튜브에서 받은 채팅 글과 채팅만 한 시청자의 이름은 방송 날짜부터 30일 뒤에 지워요. 찜이 정해진 손님의 이름은 판매 장부(확인서·정산·포장)에 남아요.</li>
           <li>판매 장부(판매·정산 기록)는 판매자가 계정을 해지할 때까지 남아요.</li>
           <li>백업은 30일 동안 보관하고 그 뒤 지워요.</li>
         </ul>
@@ -94,7 +99,7 @@ export function PrivacyPage() {
       </Section>
       <Section title="6. 처리 위탁">
         <p>서버 운영(호스팅): [미정]</p>
-        <p>AI 제안(판매자가 켠 경우만): Anthropic(미국) — 13번을 보세요. [검토 필요]</p>
+        <p>AI 제안(판매자가 켠 경우만): Anthropic(미국) — 14번 'AI 제안(선택)'을 보세요. [검토 필요]</p>
       </Section>
       <Section title="7. 쿠키">
         <p>로그인 쿠키만 써요. 광고·분석 쿠키는 쓰지 않아요.</p>
@@ -135,6 +140,7 @@ export function PrivacyPage() {
           <li>{AI_ASSIST_WHAT}</li>
           <li>{AI_ASSIST_STORE}</li>
           <li>{AI_ASSIST_OFF}</li>
+          <li>{AI_ASSIST_YOUTUBE}</li>
         </ul>
       </Section>
       <Section title="15. 시행일">

@@ -24,7 +24,7 @@ test.describe('정산', () => {
     await page.goto(`/settlements?date=${date}&rehearsal=true`)
     await expect(page.getByText('리허설 — 실제 정산이 아니에요')).toBeVisible()
     const summary = page.getByRole('region', { name: '정산 요약' })
-    await expect(summary).toContainText('묶음 2개 · 미입금 2 · 부분 입금 0 · 입금 완료 0 · 과입금 0')
+    await expect(summary).toContainText('손님 2명 · 미입금 2 · 부분 입금 0 · 입금 완료 0 · 과입금 0') // QL3R1 D-QL3R1-07
     await expect(summary).toContainText('38,000원') // 최종 합 14,000 + 24,000
     // PC(48rem 이상)는 표 (AC-S06b-21 — 교체: 열 이름·상품 수·상품 합계·배송비·조정·최종 금액·받은 금액·입금 상태)
     const list = page.getByRole('table', { name: '정산 묶음' })
@@ -84,7 +84,7 @@ test.describe('정산', () => {
     expect(s.received).toBe(14000)
     expect(s.payment).toBe('PAID')
     await detail.getByRole('button', { name: '정산 목록으로' }).click()
-    await expect(summary).toContainText('묶음 2개 · 미입금 1 · 부분 입금 0 · 입금 완료 1 · 과입금 0')
+    await expect(summary).toContainText('손님 2명 · 미입금 1 · 부분 입금 0 · 입금 완료 1 · 과입금 0') // QL3R1 D-QL3R1-07
     // 기본 정렬: 미입금 먼저
     await expect(list.getByRole('link').first()).toContainText('라마바')
     // 거르기

@@ -55,6 +55,10 @@ import {
   assistCalls,
   voiceLog,
   assistSettings,
+  customerArchiveDays,
+  customerArchiveRows,
+  customerMemos,
+  customerSettings,
   depositSources,
   deposits,
   events,
@@ -99,6 +103,11 @@ import {
   snapshots,
   tiktokAccounts,
   tiktokConsents,
+  bandAccounts,
+  bandOauthStates,
+  bandLinks,
+  bandSeen,
+  bandNotices,
   tiktokLinks,
   youtubeCollectors,
   youtubeConnections,
@@ -120,8 +129,21 @@ import { startSettings, stateFromLedger } from './sealed-state.ts'
 import { readLedger, type Ledger } from './youtube/seal.ts'
 import { iso, kstDate, type Clock } from './time.ts'
 import { VOICE_LOG_HEARD_MAX, VOICE_LOG_KINDS, VOICE_LOG_SOURCES } from './voice-log.ts'
-import { eventDigest, splitChatRaw } from './writer.ts'
+import { eventDigest, splitChatRaw, type ChatSource } from './writer.ts'
+import { BAND_PREFIX, INSTAGRAM_PREFIX, TIKTOK_PREFIX } from './platform.ts'
+import { BAND_RESTORED_REASON } from './band/store.ts'
 import { SERVICE_NAME } from './brand.ts'
+
+/**
+ * 복구·가져오기에서 채팅 이벤트의 출처 (DAT-04, D-QL2-08). 파일엔 출처 칸이 없어 메시지 ID 접두어로 되살린다(platform.ts와 같은 접두어).
+ * 리허설 범위 = rehearsal, `ig:`·`tt:`·`band:`(BND1)로 시작 = other, 그 밖(접두어 없음·ID 없음·알 수 없음) = youtube — 모르면 AI에 보내지 않고 봉인 대상으로 본다.
+ * 크롬 확장(extension)으로 받은 줄은 youtube로 되살아난다(AI·봉인에서 같은 대우).
+ */
+export function restoredChatSource(rehearsal: boolean, messageId: unknown): ChatSource {
+  if (rehearsal) return 'rehearsal'
+  if (typeof messageId === 'string' && (messageId.startsWith(INSTAGRAM_PREFIX) || messageId.startsWith(TIKTOK_PREFIX) || messageId.startsWith(BAND_PREFIX))) return 'other'
+  return 'youtube'
+}
 
 export const BACKUP_FORMAT = 'livejjim-seller-backup'
 /** 형식 번호 (2 = 칸 차례가 정해진 스트림 형식·이어 계산하는 요약값, RA-I2-005 · 3 = 범위마다 봉인 칸, PL1A D-PL1-01). 만드는 파일은 늘 3 */
@@ -1676,6 +1698,8 @@ export const RESTORE_REPLACED_TABLES = [
   liveRequests,
   tiktokLinks,
   pasteRequests,
+  // BND1 본 댓글 표: 연결마다의 기준선·기록한 댓글 — 파일에 없고 지운다(복구는 밴드 글 연결을 모두 끝낸다 — 다시 이으면 새 기준선, D-BND1-14)
+  bandSeen,
   printAttempts,
   printJobs,
   printLabels,
@@ -1717,6 +1741,12 @@ export const RESTORE_KEPT_TABLES = [
   igOauthStates,
   tiktokAccounts,
   tiktokConsents,
+  // BND1 밴드 계정 연결(토큰)·연결 시작 표는 계정 쪽이라 그대로 둔다. 밴드 글 연결·알림은 회차를 외래 키로 잇지 않아 남고,
+  // 복구가 열린 연결을 FINISHED(RESTORED)로 끝낸다 (D-BND1-14, AC-BND1-04) — 파일에 없다
+  bandAccounts,
+  bandOauthStates,
+  bandLinks,
+  bandNotices,
   printQueues,
   labelSwitches,
   billingGrants,
@@ -1743,6 +1773,14 @@ export const RESTORE_KEPT_TABLES = [
   extPostSettings,
   assistSettings,
   assistCalls,
+  // CRM1 설정 "손님 관리"·손님 메모: 판매자 설정과 표지(채널 ID·전화번호 키)에 붙은 메모라 파일에 없고 복구·가져오기가 지우지 않는다(D-CRM1-08 —
+  // 표지 기준이라 복구 뒤에도 같은 손님에 맞는다. 백업 파일에 메모를 넣을지는 사용자 확인 필요)
+  customerSettings,
+  customerMemos,
+  // CRM1 손님 기록 보관(D-CRM1-12): 봉인 전에 남긴 취소 수·'입금 안 함'(표지 포함)이라 파일에 없고(D-CRM1-10) 복구·가져오기가 지우지 않는다 —
+  // 봉인한 날짜의 행은 그 뒤 복구로 바뀌지 않는다(AC-CRM1-33 (4)). 날짜로 잇고 범위를 참조하지 않는다
+  customerArchiveDays,
+  customerArchiveRows,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
@@ -1815,6 +1853,11 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
       for (const table of RESTORE_REPLACED_TABLES) await tx.delete(table).where(eq(table.sellerId, sellerId))
       // 출력 대기열 줄은 남긴다(라벨 기능 켬/끔·출력 기기) — 지운 작업을 기다리는 출력 중·멈춤 상태만 지운다 (D-I2-14)
       await tx.update(printQueues).set({ releasing: false, paused: null, backlog: false, rev: sql`${printQueues.rev} + 1`, updatedAt: now }).where(eq(printQueues.sellerId, sellerId))
+      // 열린 밴드 글 연결은 모두 끝낸다 — 복구로 이벤트가 바뀌어 본 댓글 표와 어긋난다 (D-BND1-14, AC-BND1-04). 토큰(계정 연결)은 둔다
+      await tx
+        .update(bandLinks)
+        .set({ state: 'FINISHED', finishReason: BAND_RESTORED_REASON, finishedAt: now, retryAt: null })
+        .where(and(eq(bandLinks.sellerId, sellerId), ne(bandLinks.state, 'FINISHED')))
       await tx
         .update(sellers)
         .set({ name: summary.shop.name.trim(), shop: shopJson(summary.shop), settings: JSON.stringify(summary.settings) })
@@ -1843,7 +1886,10 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
           // 채팅의 본문·이름은 chat_raw에 따로 둔다 (Y1, AC-Y1-60 — 기록 경로와 같은 모양). 실제 범위의 채팅 = 유튜브 채팅(봉인 대상, AC-Y1-61)
           const split = event.type === 'chat' ? splitChatRaw(body) : null
           const stored = split === null ? event.body : JSON.stringify(split.body)
-          if (event.type === 'chat' && !scope.rehearsal) scope.youtubeChat = true
+          // 채팅 출처 (D-QL2-08): 파일엔 출처 칸이 없다 — 리허설 범위면 rehearsal, 메시지 ID가 ig:·tt:로 시작하면 other, 그 밖(접두어 없음·ID 없음)은 youtube(안전 쪽)
+          const chatSource = event.type === 'chat' ? restoredChatSource(scope.rehearsal, body.id) : null
+          // 범위의 유튜브 채팅 표시(봉인 대상)는 기록 경로(writer.ts maybeYoutubeChat)와 같은 규칙
+          if (chatSource !== null && !scope.rehearsal && chatSource !== 'other' && chatSource !== 'rehearsal') scope.youtubeChat = true
           await eventRows.push({
             sellerId,
             scopeId: scope.id,
@@ -1861,7 +1907,7 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
             changed,
             failed: event.failed,
             digest: eventDigest(scope.id, event.seq, event.type, stored, event.failed, split?.raw ?? null),
-            chatSource: event.type === 'chat' ? (scope.rehearsal ? 'rehearsal' : 'youtube') : null,
+            chatSource,
             raw: split !== null,
           })
           if (split !== null) await chatRawRows.push({ sellerId, scopeId: scope.id, seq: event.seq, nick: split.raw.nick, text: split.raw.text })

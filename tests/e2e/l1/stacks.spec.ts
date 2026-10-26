@@ -5,7 +5,7 @@ import { MSG, decideOnFakePage, fakeUser, linkFromSettings, loginNewSeller, logo
 
 test.describe('AC-L1-30 공급자 하나만 켠 서버 @social-one', () => {
   test('로그인 화면엔 "또는"과 구글 버튼 하나 · 꺼진 공급자의 시작은 404 · 설정엔 구글 줄만 · 구글 연결·로그인', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await expect(page.getByRole('button', { name: '구글로 계속하기' })).toBeVisible()
     await expect(page.getByText('또는', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: /로 계속하기$/ })).toHaveCount(1)
@@ -37,7 +37,7 @@ test.describe('AC-L1-30 공급자 하나만 켠 서버 @social-one', () => {
 
 test.describe('AC-L1-20·22 공급자를 하나도 켜지 않은 기존 기동 (L1 전과 같다)', () => {
   test('로그인 화면에 "또는"·간편 로그인 버튼 없음 · /api/auth/** 404 · client-config에 loginProviders 없음 · 설정에 "로그인 방법" 칸 없음', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await expect(page.getByLabel('아이디')).toBeFocused()
     await expect(page.getByRole('link', { name: '개인정보처리방침' })).toBeVisible()
     // client-config 응답(로그인 화면이 부르는 것)이 온 뒤에 없음을 본다

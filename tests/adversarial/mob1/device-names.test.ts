@@ -175,7 +175,8 @@ describe('AC-MOB1-89 기본 기기 이름 (D-MOB1-13)', () => {
     expect(names.sort()).toEqual(['PC', '아이폰', '안드로이드 폰', '휴대폰'].sort())
     const allowed = new Set([...names, ...names.map((n) => `${n} 2`)])
     const baseOf = (ua: string, narrow: boolean): string =>
-      /iPhone|iPad/i.test(ua) ? '아이폰' : /Android/i.test(ua) ? '안드로이드 폰' : /Mobile/i.test(ua) || narrow ? '휴대폰' : 'PC'
+      // QL2 D-QL2-07·LABEL_RULES L-309: iPhone·iPad·iPod(대소문자 구분) → 아이폰. touchPoints를 넘기지 않아 0이므로 Macintosh 조건은 결과가 같다
+      /iPhone|iPad|iPod/.test(ua) ? '아이폰' : /Android/i.test(ua) ? '안드로이드 폰' : /Mobile/i.test(ua) || narrow ? '휴대폰' : 'PC'
     const other = fc.oneof(
       fc.constant<'same' | 'padded' | 'none' | 'second'>('same'),
       fc.constant<'same' | 'padded' | 'none' | 'second'>('padded'),

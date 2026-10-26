@@ -75,7 +75,7 @@ afterEach(() => {
   setTopLevelNavigation(null)
 })
 
-async function openLogin(path = '/') {
+async function openLogin(path = '/login' /* LND1 D-LND1-01 */) {
   window.history.replaceState(null, '', path)
   render(<App />)
   await screen.findByRole('button', { name: '로그인' })
@@ -188,7 +188,8 @@ describe('돌아온 결과 문장 (AC-L1-21)', () => {
     expect(window.location.search).toBe('')
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '아이디' }))
     cleanup()
-    await openLogin(`/${window.location.search}`)
+    // LND1 D-LND1-01: 새로고침한 `/`는 소개 화면이라 지운 주소를 로그인 화면(`/login`)에서 다시 연다
+    await openLogin(`/login${window.location.search}`)
     expect(screen.queryByRole('alert')).toBeNull()
   })
 

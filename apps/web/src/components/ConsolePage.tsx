@@ -9,7 +9,7 @@
 // Alt+P는 창을 열지 않고 "라벨 쓰지 않음 — 설정에서 켤 수 있어요."를 알린다(빠른 입력칸 포커스 그대로). 버릴 라벨은 남는다.
 import { DEFAULT_SETTINGS, type SaleSettings } from '@livejjim/core'
 import type { CardRegistration, SmsProductView, SmsReadOptions, SuggestionCard } from '@livejjim/voice'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { ChatMessage, Product, WriteResult } from '../api/types.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
@@ -21,14 +21,14 @@ import { COUNT_PROBLEM, DEFAULT_COUNT, readCount } from '../lib/stock.ts'
 import { SALE_MODE_WORD } from '../lib/words.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { dateWords } from '../lib/kst.ts'
-import { LABELS_OFF_NOTE, stationLeadText } from '../lib/print-words.ts'
+import { LABELS_OFF_NOTE, pauseAlertMessage, stationLeadShortText, stationLeadText } from '../lib/print-words.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import { ReadOnlyContext } from '../lib/read-only.ts'
 import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSettings, type QuickDecision } from '../lib/quick.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
-import { useKeepAboveBar } from '../lib/above-bar.ts'
+import { keepAboveBar, useKeepAboveBar } from '../lib/above-bar.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
@@ -51,12 +51,13 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { ImportDialog } from './ImportDialog.tsx'
 import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
-import { ProductBoard, CurrentProduct, FocusBanner } from './ProductBoard.tsx'
+import { ProductBoard, CurrentProduct, CurrentSummary, FocusBanner } from './ProductBoard.tsx'
 import { EditOptionsHost } from './ProductOptions.tsx'
 import { OptionDialog } from './OptionDialog.tsx'
 import { useLabelsEnabled, usePrintApi, usePrintState, useScopeLabels } from './print-context.tsx'
 import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
+import { CautionContext, useConsoleCaution } from './caution.tsx'
 import { useScreenWake } from '../voice/wake.ts'
 import { QuickInput, QuickUnitLine, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
@@ -190,7 +191,7 @@ export function ConsolePage(props: ConsolePageProps) {
   if (snapshot.phase === 'error' && snapshot.error !== null) {
     return (
       <main className="page">
-        <h1>콘솔을 열지 못했어요</h1>
+        <h1>방송 화면을 열지 못했어요</h1>
         <ErrorNote error={snapshot.error} onRetry={() => window.location.reload()} retryLabel="다시 열기" />
       </main>
     )
@@ -330,6 +331,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   /** 상품 키 → 등록 되돌리기 항목 (음성 "취소" → 되돌릴까요 카드, D-V2-06 3) */
   const regUndo = useRef(new Map<string, number>())
   const [alertsOpen, setAlertsOpen] = useState(false)
+  // 알림 띠를 펼치거나 접은 그 그리기 안에서(칠하기 전) 묶음을 막대 위로 올린다 — 다음 그리기(useKeepAboveBar의 크기 관찰)까지 미루면
+  // 펼친 목록이 한 번 제자리에 그려진 뒤 화면이 뛰어 올라가, 그 사이에 잰 항목 위치가 서로 겹쳐 보인다(SA-QL2-01). 그 뒤의 관찰은 올릴 거리 0
+  useLayoutEffect(() => {
+    const box = quickBoxRef.current
+    if (box !== null && box.contains(box.ownerDocument.activeElement)) keepAboveBar(box, quickRef.current)
+  }, [alertsOpen])
   const wide = useWide()
   const wideRef = useRef(wide)
   wideRef.current = wide
@@ -612,22 +619,25 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   const labels = labelState.labels
   const print = usePrintState()
   const queueSummary = print.overview?.queue ?? null
-  // 꺼져 있으면 "출력 멈춤"은 알림 띠·Alt+1 순서에서 빠진다 — 버릴 라벨은 남는다 (AC-N4a-14·16)
+  // 꺼져 있으면 "출력 멈춤"은 알림 띠·Alt+1 순서에서 빠진다 — 버릴 라벨은 남는다 (AC-N4a-14·16). 판매자 멈춤은 까닭·할 일 문장(QL2 D-QL2-09 ②)
   const printAlerts: PrintAlerts = useMemo(
-    () => ({ pause: labelsOn === true ? (queueSummary?.pause?.message ?? null) : null, discard: queueSummary?.discard ?? 0 }),
+    () => ({ pause: labelsOn === true && queueSummary !== null && queueSummary.pause !== null ? pauseAlertMessage(queueSummary.pause, queueSummary.waiting) : null, discard: queueSummary?.discard ?? 0 }),
     [queueSummary, labelsOn],
   )
   const printAlertsRef = useRef(printAlerts)
   printAlertsRef.current = printAlerts
   // 출력 기기 끊김·출력 기기 없음 항목 (MOB1 D-MOB1-08, AC-MOB1-13): 알림 띠 맨 앞(플랫폼 줄 다음), Alt+1 순서·알림 수에는 넣지 않는다
   const printApi = usePrintApi()
-  const stationText = stationLeadText({
+  const stationInput = {
     labelsOn,
     rehearsal: broadcast.rehearsal,
     ended: ended || sealed,
     queue: queueSummary,
     mine: printApi !== null && queueSummary !== null && printApi.station.isMine(queueSummary),
-  })
+  }
+  const stationText = stationLeadText(stationInput)
+  // 휴대폰 접힌 띠에서만 쓰는 끊김 짧은 문장 (QL3R1 D-QL3R1-04)
+  const stationShort = stationLeadShortText(stationInput)
   /** 되돌릴 것이 없는 Ctrl+Z에 음성 문자찜 결과 카드가 열려 있다는 알림 (잠시 보인다, D-V1-22) */
   const [undoNote, setUndoNote] = useState<{ readonly text: string; readonly n: number } | null>(null)
   useEffect(() => {
@@ -671,6 +681,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
     }),
     [b, broadcast.date, broadcast.rehearsal, ended, sealed, data, names, labels, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, writeOnly, fillQuick, optionMode],
   )
+
+  // 1등 옆 "입금 늦음 주의" (CRM1 D-CRM1-07): 실제 방송만, 판매자 전용 조회 — 받지 못하면 꼬리표 없이 그대로(오류 띠 없음)
+  const caution = useConsoleCaution(data, broadcast.date, broadcast.rehearsal)
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────
 
@@ -1307,14 +1320,96 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       <VoiceLive voice={voice} snapshot={voiceSnapshot} badge={enterBadge} onSubmitForm={submitCardForm} onRegister={registerCardClick} />
     ) : null
 
+  // 행동 줄 (방송 목록·상품 목록 가져오기·방송 끝내기 / 끝난 방송: "끝난 방송이에요"·영수증 보내기 / 음성 켜기).
+  // PC는 제목 옆, 휴대폰은 채팅 아래 (QL3R1 D-QL3R1-03 — 안의 차례·문장·확인 창 그대로)
+  const actions = (
+    <div className="row console-actions">
+      <a
+        className="button"
+        href={routePath({ name: 'home' })}
+        onClick={(event) => {
+          event.preventDefault()
+          navigate({ name: 'home' })
+        }}
+      >
+        방송 목록
+      </a>
+      {ended || sealed ? (
+        <>
+          <p className="ended-note" role="status">
+            끝난 방송이에요
+          </p>
+          {/* 끝난 방송의 할 일 하나 — 영수증 보내기 (N4b AC-N4b-30, D-N4b-04). 방송 중에는 없다 */}
+          <a
+            className="button button-primary"
+            href={routePath({ name: 'receipts', id: b })}
+            onClick={(event) => {
+              event.preventDefault()
+              navigate({ name: 'receipts', id: b })
+            }}
+          >
+            영수증 보내기
+          </a>
+        </>
+      ) : (
+        <>
+          {/* 상품 목록 가져오기 (I2 AC-I2-52) — 끝난 방송에는 없다 */}
+          <button type="button" className="button" onClick={() => openDialog({ kind: 'import' })}>
+            상품 목록 가져오기
+          </button>
+          <button type="button" className="button" onClick={endBroadcast}>
+            방송 끝내기
+          </button>
+        </>
+      )}
+      {/* 끝난 방송·봉인 날짜에는 "음성 켜기"가 없다 — 켜져 있던 음성의 끄기는 음성 칸에 남는다 (MOB1 D-MOB1-09, AC-MOB1-17) */}
+      {voice !== null && !sealed && !ended ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
+    </div>
+  )
+  const rehearsalPanel = broadcast.rehearsal ? (
+    <RehearsalPanel
+      broadcastId={b}
+      generator={snapshot.generator}
+      onGenerator={(status) => store.setGenerator(status)}
+      onWritten={(result) => void store.sync(result.seq)}
+      onOpenBroadcast={(id) => navigate({ name: 'console', id })}
+      primary={fix === null && asks.length === 0 && !ended && !sealed}
+    />
+  ) : null
+  const currentProduct = <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />
+  // 상품 보드·채팅 — PC는 칸 격자 안, 휴대폰은 음성 칸 바로 아래·행동 줄 위 (QL3R1 D-QL3R1-03)
+  const board = (
+    <ProductBoard
+      onOpen={(key) => {
+        setSelected(key)
+        openDialog({ kind: 'product', key })
+      }}
+    />
+  )
+  const chat = (
+    <ChatPanel
+      messages={snapshot.messages}
+      older={snapshot.olderMessages}
+      loadingOlder={snapshot.loadingOlder}
+      onLoadOlder={() => void store.loadOlder()}
+      convertNotes={convertNotes}
+      sealedMessage={snapshot.sealedMessage}
+      {...(optionMode ? { onReview: () => navigate({ name: 'reviews', broadcast: b, rehearsal: broadcast.rehearsal }) } : {})}
+      platformTags={platformTags}
+    />
+  )
+
   return (
     <ConsoleContext.Provider value={api}>
+      <CautionContext.Provider value={caution}>
       <YoutubeContext.Provider value={yt}>
       <ReadOnlyContext.Provider value={sealed}>
       <main className={broadcast.rehearsal ? 'console console-rehearsal' : 'console'}>
         {broadcast.rehearsal ? (
+          // 휴대폰(48rem 미만)은 한 줄 "리허설 · 실제 판매 아님", PC는 옛 문장 — 폭에 맞는 하나만 보이고 읽힌다(숨긴 쪽 display:none) (QL2 D-QL2-13 (1))
           <p className="rehearsal-banner" role="note">
-            리허설 중 — 실제 판매가 아니에요
+            <span className="rehearsal-banner-wide">리허설 중 — 실제 판매가 아니에요</span>
+            <span className="rehearsal-banner-short">리허설 · 실제 판매 아님</span>
           </p>
         ) : null}
         <div ref={headRef} className="console-head">
@@ -1324,48 +1419,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
             {/* 옵션 방송은 판매 방식을 늘 보인다 — 방송 중에는 바꾸지 않는다 (D-O2-02) */}
             {optionMode ? <span className="tag tag-mode">{SALE_MODE_WORD.OPTIONS}</span> : null}
           </h1>
-          <div className="row console-actions">
-            <a
-              className="button"
-              href={routePath({ name: 'home' })}
-              onClick={(event) => {
-                event.preventDefault()
-                navigate({ name: 'home' })
-              }}
-            >
-              방송 목록
-            </a>
-            {ended || sealed ? (
-              <>
-                <p className="ended-note" role="status">
-                  끝난 방송이에요
-                </p>
-                {/* 끝난 방송의 할 일 하나 — 영수증 보내기 (N4b AC-N4b-30, D-N4b-04). 방송 중에는 없다 */}
-                <a
-                  className="button button-primary"
-                  href={routePath({ name: 'receipts', id: b })}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    navigate({ name: 'receipts', id: b })
-                  }}
-                >
-                  영수증 보내기
-                </a>
-              </>
-            ) : (
-              <>
-                {/* 상품 목록 가져오기 (I2 AC-I2-52) — 끝난 방송에는 없다 */}
-                <button type="button" className="button" onClick={() => openDialog({ kind: 'import' })}>
-                  상품 목록 가져오기
-                </button>
-                <button type="button" className="button" onClick={endBroadcast}>
-                  방송 끝내기
-                </button>
-              </>
-            )}
-            {/* 끝난 방송·봉인 날짜에는 "음성 켜기"가 없다 — 켜져 있던 음성의 끄기는 음성 칸에 남는다 (MOB1 D-MOB1-09, AC-MOB1-17) */}
-            {voice !== null && !sealed && !ended ? <VoiceToggle voice={voice} snapshot={voiceSnapshot} ready={settings !== null} /> : null}
-          </div>
+          {wide ? actions : null}
         </div>
         {endError !== null ? <ErrorNote error={endError} /> : null}
         {sealed ? <SealedNotice /> : null}
@@ -1384,6 +1438,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           </p>
         ) : null}
         <div className={voiceLive !== null && wide ? 'console-sticky console-sticky-voice' : 'console-sticky'}>
+          {/* 휴대폰만: 고정 영역 맨 위(제목·리허설 띠 바로 아래, 알림 띠 위)에 현재 상품 한 줄 요약 — 아래가 늘어나도(알림 펼침·되돌리기 대기·리허설·큰 글씨)
+              제목 밑에 남고 스크롤해도 늘 보인다. 누르는 기능이 없어 Tab 차례는 그대로. PC·끝난 방송에는 없다 (QL2 D-QL2-11 (1)·D-QL2-14 (1)) */}
+          {wide || ended || sealed ? null : <CurrentSummary product={current} />}
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
@@ -1393,7 +1450,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
             <AlertStrip
               leads={[
                 ...platformLeads({ live, sealed, onPaste: openPaste, pasteNote }),
-                ...(stationText === null ? [] : [{ key: 'print-station', text: stationText, soft: true, uncounted: true, onClick: () => navigate({ name: 'labels' }) }]),
+                ...(stationText === null ? [] : [{ key: 'print-station', text: stationText, ...(stationShort === null ? {} : { shortText: stationShort }), soft: true, uncounted: true, onClick: () => navigate({ name: 'labels' }) }]),
               ]}
               counts={counts}
               print={printAlerts}
@@ -1472,22 +1529,20 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           {wide ? voiceLive : null}
         </div>
         {wide || ended || sealed ? null : <QuickUnitLine value={quickText} />}
+        {/* 휴대폰 차례 (QL3R1 D-QL3R1-03 — D-QL2-01 (1)을 대신함): 고정 영역·단위 줄 → 현재 상품 → 음성 칸 → 상품 보드 → 채팅 → 행동 줄 → 리허설 조작판
+            → 여러 플랫폼 안내 → 유튜브 칸 → 인스타그램·틱톡 칸. 방송 중 자주 보는 보드·채팅을 엄지 가까이, 드물게 누르는 "방송 끝내기"는 그 아래. PC는 그대로 */}
+        {wide ? null : currentProduct}
         {wide ? null : voiceLive}
         {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
         {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}
+        {wide ? null : board}
+        {wide ? null : chat}
+        {wide ? null : <div className="console-head console-head-actions">{actions}</div>}
+        {wide ? null : rehearsalPanel}
         <div className="console-grid">
           <div className="console-side">
-            {broadcast.rehearsal ? (
-              <RehearsalPanel
-                broadcastId={b}
-                generator={snapshot.generator}
-                onGenerator={(status) => store.setGenerator(status)}
-                onWritten={(result) => void store.sync(result.seq)}
-                onOpenBroadcast={(id) => navigate({ name: 'console', id })}
-                primary={fix === null && asks.length === 0 && !ended && !sealed}
-              />
-            ) : null}
-            <CurrentProduct product={current} onOpen={(key) => openDialog({ kind: 'product', key })} />
+            {wide ? rehearsalPanel : null}
+            {wide ? currentProduct : null}
             <MultiPlatformNotice count={live.linkedCount + (youtubeLinked ? 1 : 0)} />
             <YoutubePanel
               navigate={navigate}
@@ -1499,22 +1554,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
             />
             <PlatformPanels live={live} broadcastId={b} navigate={navigate} ended={ended} sealed={sealed} onPaste={openPaste} />
           </div>
-          <ProductBoard
-            onOpen={(key) => {
-              setSelected(key)
-              openDialog({ kind: 'product', key })
-            }}
-          />
-          <ChatPanel
-            messages={snapshot.messages}
-            older={snapshot.olderMessages}
-            loadingOlder={snapshot.loadingOlder}
-            onLoadOlder={() => void store.loadOlder()}
-            convertNotes={convertNotes}
-            sealedMessage={snapshot.sealedMessage}
-            {...(optionMode ? { onReview: () => navigate({ name: 'reviews', broadcast: b, rehearsal: broadcast.rehearsal }) } : {})}
-            platformTags={platformTags}
-          />
+          {wide ? board : null}
+          {wide ? chat : null}
         </div>
         {/* 단축키 줄은 PC 폭만 (MOB1 D-MOB1-09, AC-MOB1-15) — 휴대폰에는 키보드 단축키가 없다 */}
         {wide ? <p className="shortcuts">{shortcutsWord(labelsOn === true)}</p> : null}
@@ -1568,6 +1609,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       ) : null}
       </ReadOnlyContext.Provider>
       </YoutubeContext.Provider>
+      </CautionContext.Provider>
     </ConsoleContext.Provider>
   )
 }

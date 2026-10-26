@@ -55,12 +55,25 @@ async function openMerge(page: Page, day: Day, opened: string, pickQuery: string
   return { detail, dlg }
 }
 
+/** 빠른 사유를 누르면 그 사유로 바로 보낸다(D-QL3R1-05·13, AC-QL3R1-64): 사유 창은 닫히고 상품 자세히는 남으며, 그 찜 줄은 "보내기 전" + 누를 수 없는 "찜 취소하기", 되돌리기 띠에 "… 뒤 보내요: …번 {그 사람} 취소" */
+async function quickReasonSent(page: Page, product: ReturnType<Page['getByRole']>, row: ReturnType<Page['getByRole']>, who: RegExp) {
+  await expect(page.getByRole('dialog')).toHaveCount(1) // QL3R1 D-QL3R1-05 — 사유 창 0개, 남은 창은 상품 자세히 하나
+  await expect(product).toBeVisible() // QL3R1 D-QL3R1-05
+  await expect(row).toContainText('보내기 전') // QL3R1 D-QL3R1-05
+  await expect(row.getByRole('button', { name: '찜 취소하기' })).toHaveCount(1) // QL3R1 D-QL3R1-05
+  await expect(row.getByRole('button', { name: '찜 취소하기' })).toBeDisabled() // QL3R1 D-QL3R1-05
+  const bar = page.getByRole('region', { name: '보내기 전 조치' })
+  await expect(bar.getByRole('status').filter({ hasText: new RegExp(`초 뒤 보내요: .*번 ${who.source} 취소$`) })).toBeVisible() // QL3R1 D-QL3R1-05
+}
+
 /** 상품 자세히에서 그 사람 1등 찜을 사유 1번으로 취소하고(5초 대기 — E2E 기동 값), 보낼 때까지 */
 async function cancelIn(page: Page, day: Day, product: ReturnType<Page['getByRole']>, who: RegExp, count: number) {
-  await product.getByRole('listitem').filter({ hasText: who }).getByRole('button', { name: '찜 취소하기' }).click()
+  const row = product.getByRole('listitem').filter({ hasText: who })
+  await row.getByRole('button', { name: '찜 취소하기' }).click()
   const reason = page.getByRole('dialog').last()
+  await expect(reason.getByRole('button', { name: /^1 / })).toBeVisible()
   await reason.getByRole('button', { name: /^1 / }).click()
-  await reason.getByRole('button', { name: '찜 취소하기' }).click()
+  await quickReasonSent(page, product, row, who) // QL3R1 D-QL3R1-05
   await expect.poll(async () => (await history(page, day.date, true)).filter((e) => e.type === 'host.cancel').length, { timeout: 15_000 }).toBe(count)
 }
 
@@ -176,10 +189,13 @@ test.describe('합치기 미리 보기 (AC-S06b-33·34)', () => {
       await expect(dlg.getByRole('alert')).toContainText(/19번에 두 사람 모두 1등이에요/)
       await dlg.getByRole('alert').getByRole('button', { name: /19번 자세히$/ }).click()
       const product = mobile.getByRole('dialog', { name: /19번 자세히$/ })
-      await product.getByRole('listitem').filter({ hasText: /홍길동/ }).getByRole('button', { name: '찜 취소하기' }).click()
+      const row = product.getByRole('listitem').filter({ hasText: /홍길동/ })
+      await row.getByRole('button', { name: '찜 취소하기' }).click()
       const reason = mobile.getByRole('dialog').last()
+      await expect(reason.getByRole('button', { name: /^1 / })).toBeVisible()
       await reason.getByRole('button', { name: /^1 / }).click()
-      await reason.getByRole('button', { name: '찜 취소하기' }).click()
+      await quickReasonSent(mobile, product, row, /홍길동/) // QL3R1 D-QL3R1-05
+      expect((await history(page, day.date, true)).filter((e) => e.type === 'host.cancel'), '대기 중엔 아직 보내지 않음').toHaveLength(1) // QL3R1 D-QL3R1-05
       // 대기 중에 돌아가려 하면 떠나기 확인
       await product.getByRole('button', { name: '합치기로 돌아가기' }).click()
       const leave = mobile.getByRole('dialog', { name: '다른 화면으로 갈까요?' })

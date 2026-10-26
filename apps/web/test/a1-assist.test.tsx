@@ -491,7 +491,8 @@ describe('설정의 "AI 제안" 칸 (AC-A1-22)', () => {
     await openSettings()
     const region = await screen.findByRole('region', { name: 'AI 제안' })
     expect(within(region).getByText(ASSIST_NOTICE)).toBeDefined()
-    expect(ASSIST_NOTICE).toBe('확인 필요 댓글의 글이 AI 회사(Anthropic, 미국)로 보내져 읽혀요. 닉네임·전화번호는 빼고 보내요. 언제든 끌 수 있어요.')
+    // QL2 D-QL2-05 ② — 유튜브 채팅은 보내지 않는다는 문장을 더함
+    expect(ASSIST_NOTICE).toBe('확인 필요 댓글의 글이 AI 회사(Anthropic, 미국)로 보내져 읽혀요. 유튜브 채팅은 보내지 않아요. 닉네임·전화번호는 빼고 보내요. 언제든 끌 수 있어요.')
     const toggle = within(region).getByRole('switch', { name: 'AI 제안 받기' }) as HTMLButtonElement
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     // 보이는 글은 누르면 될 일, 상태는 따로 (D-A1-18)

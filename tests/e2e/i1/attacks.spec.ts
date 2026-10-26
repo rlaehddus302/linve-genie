@@ -175,6 +175,7 @@ test('AC-I1-24·11: 대기열 "빼기"·"모두 빼기"(확인 창, 1) — 출�
   const list = region(page, '출력 대기열').getByRole('list', { name: '대기 작업' })
   await expect(list.getByRole('listitem')).toHaveCount(3)
   await list.getByRole('listitem').first().getByRole('button', { name: '빼기' }).click()
+  await page.getByRole('dialog', { name: '라벨 빼기' }).getByRole('button', { name: '1 빼기' }).click() // QL2 D-QL2-09 (확인 창 "1 빼기"까지)
   await expect(list.getByRole('listitem')).toHaveCount(2)
   await region(page, '출력 대기열').getByRole('button', { name: '모두 빼기' }).click()
   const dlg = page.getByRole('dialog', { name: '모두 빼기' })

@@ -50,6 +50,12 @@ export type LogCode =
   | 'EXT_SAVE_FAILED'
   | 'EXT_POST_PAUSED'
   | 'EXT_NOTIFY_FAILED'
+  | 'TTX_SAVE_FAILED'
+  | 'TTX_COUNT_FAILED'
+  | 'TTX_CLEAR_FAILED'
+  | 'TTX_EXT_DROPPED'
+  | 'TTX_REFRESH_FAILED'
+  | 'TTX_RESUME_FAILED'
   // Y1 유튜브 (AC-Y1-70): 종류·HTTP 상태·구글 오류 이유·판매자·범위만 남긴다
   | 'YOUTUBE_CONNECT_FAILED'
   | 'YOUTUBE_REFRESH_FAILED'
@@ -98,6 +104,10 @@ export type LogCode =
   | 'AMOUNT_MISSING'
   // PL1A (D-PL1-04): 30일 봉인 날짜의 장부를 읽지 못해 문서를 만들지 않음 — 코드·날짜만 (장부 글·구매자 이름 없음)
   | 'LEDGER_UNREADABLE'
+  // CRM1 손님 기록 보관 (D-CRM1-12): 판매자 ID·날짜·개수·오류 종류만 (표지·이름·숫자 내용은 남기지 않는다)
+  | 'CUSTOMER_ARCHIVED'
+  | 'CUSTOMER_ARCHIVE_FAILED'
+  | 'CUSTOMER_ARCHIVE_UNREADABLE'
   // N5 요금 (결제 ID·사업자 정보·조회 원문·비밀값은 남기지 않는다)
   | 'BILLING_FAILED'
   | 'PAYMENT_LOOKUP_FAILED'
@@ -112,6 +122,25 @@ export type LogCode =
   | 'TIKTOK_RESUME_FAILED'
   // 인스타그램 설정 주소가 https가 아님 (D-N2b-2-10)
   | 'INSTAGRAM_CONFIG_INSECURE'
+  // BND1 밴드 (D-BND1-14): 정해진 코드·(요청 이름_결과 코드)·HTTP 상태·판매자 ID·개수만. 토큰·코드·주소·user_key·밴드/글 키·손님 이름·댓글은 남기지 않는다
+  | 'BAND_CONFIG_INVALID'
+  | 'BAND_API_FAILED'
+  | 'BAND_CONNECT_FAILED'
+  | 'BAND_TOKEN_UNREADABLE'
+  | 'BAND_RECONNECT_NEEDED'
+  | 'BAND_YOUTUBE_LINKED'
+  | 'BAND_READ_FAILED'
+  | 'BAND_PAGING_LOOP'
+  | 'BAND_PAGING_LIMIT'
+  | 'BAND_FAST_UNREACHED'
+  | 'BAND_STUCK'
+  | 'BAND_ENDED_STOPPED'
+  | 'BAND_RECORD_REJECTED'
+  | 'BAND_RETRY_STATE_FAILED'
+  | 'BAND_SAVE_FAILED'
+  | 'BAND_SKIPPED'
+  | 'BAND_RESUME_FAILED'
+  | 'BAND_ERASE_FAILED'
   | 'DEPOSIT_FETCH_FAILED'
   | 'DEPOSIT_SAVE_FAILED'
   | 'DEPOSIT_ROW_SAVE_RETRY'
@@ -156,6 +185,12 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   EXT_SAVE_FAILED: '확장에서 받은 채팅을 저장하지 못했어요(확장이 다시 보내요)',
   EXT_POST_PAUSED: '확장 감사 올리기가 연달아 실패해 그 회차에서 멈췄어요',
   EXT_NOTIFY_FAILED: '확장 상태를 화면에 알리지 못했어요',
+  TTX_SAVE_FAILED: '확장에서 받은 틱톡 댓글을 저장하지 못했어요(확장이 다시 보내요)',
+  TTX_COUNT_FAILED: '확장 틱톡 댓글은 기록했지만 수를 세지 못했어요',
+  TTX_CLEAR_FAILED: '확장 연결을 끊은 뒤 틱톡 확장 상태를 비우지 못했어요',
+  TTX_EXT_DROPPED: '확장이 틱톡 댓글을 버렸다고 알려 와 저장하지 못한 수에 더했어요',
+  TTX_REFRESH_FAILED: '확장 연결이 바뀐 뒤 틱톡 칸을 다시 알리지 못했어요',
+  TTX_RESUME_FAILED: '서버가 다시 켜진 뒤 틱톡 확장 상태 확인을 다시 걸지 못했어요',
   YOUTUBE_CONNECT_FAILED: '유튜브 연결을 마치지 못했어요',
   YOUTUBE_REFRESH_FAILED: '유튜브 접근 토큰을 새로 고치지 못했어요',
   YOUTUBE_RECONNECT_NEEDED: '유튜브 연결을 다시 해야 해요',
@@ -198,6 +233,9 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   BACKUP_PRUNE_FAILED: '오래된 백업을 지우지 못했어요(다음 확인 때 다시 해요)',
   AMOUNT_MISSING: '확정 찜에 찜 금액이 없어 그 결과(요약 댓글·라벨·포장·봉인 장부)를 만들지 않았어요',
   LEDGER_UNREADABLE: '30일이 지나 봉인한 날짜의 장부를 읽지 못해 그 날짜의 문서를 만들지 않았어요(지난 구매에서는 그 날짜만 뺌)',
+  CUSTOMER_ARCHIVED: '봉인 전 손님 기록(취소 수·입금 안 함)을 보관했어요',
+  CUSTOMER_ARCHIVE_FAILED: '봉인 전 손님 기록을 보관하지 못했어요(다음 차례에 다시 해요)',
+  CUSTOMER_ARCHIVE_UNREADABLE: '봉인 날짜의 손님 기록 보관 행을 읽지 못해 그 행만 뺐어요(장부 숫자는 그대로)',
   DOCUMENT_WORK_FAILED: '파일 작업 워커가 일을 끝내지 못했어요(시간·메모리 상한·끊긴 요청 등 — 서버 판정은 그대로)',
   BILLING_FAILED: '요금 정보를 읽지 못했어요',
   PAYMENT_LOOKUP_FAILED: '결제를 조회하지 못했어요(주문은 그대로)',
@@ -210,6 +248,24 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   TIKTOK_SKIPPED: '틱톡 댓글이 입력 검사를 통과하지 못해 기록하지 않았어요(수만 셈)',
   TIKTOK_RESUME_FAILED: '서버를 다시 켠 뒤 틱톡 연결을 이어받지 못했어요',
   INSTAGRAM_CONFIG_INSECURE: '인스타그램 주소 설정이 https가 아니라 인스타그램 연동을 끈 것으로 봤어요',
+  BAND_CONFIG_INVALID: '밴드 주소 설정이 https가 아니거나 형식이 틀려 밴드 연동을 끈 것으로 봤어요',
+  BAND_API_FAILED: '밴드 요청이 실패했어요',
+  BAND_CONNECT_FAILED: '밴드 계정 연결을 마치지 못했어요',
+  BAND_TOKEN_UNREADABLE: '밴드 토큰을 풀지 못해 연결을 다시 연결 필요로 바꿨어요',
+  BAND_RECONNECT_NEEDED: '밴드 연결이 풀려 그 판매자의 밴드 읽기를 멈췄어요',
+  BAND_YOUTUBE_LINKED: '유튜브를 이은 회차라 밴드 읽기를 멈췄어요',
+  BAND_READ_FAILED: '밴드 댓글 읽기 중 오류가 생겨 다시 시도해요',
+  BAND_PAGING_LOOP: '밴드 쪽 넘기기가 같은 쪽을 다시 가리켜 그 읽기를 끝냈어요',
+  BAND_PAGING_LIMIT: '밴드 쪽 넘기기가 쪽 수 상한에 닿아 그 읽기를 끝냈어요',
+  BAND_FAST_UNREACHED: '밴드 빠른 읽기가 본 댓글까지 닿지 못해 기록하지 않았어요',
+  BAND_STUCK: '밴드 댓글이 한꺼번에 너무 많이 달려 차례대로 읽지 못하고 있어요',
+  BAND_ENDED_STOPPED: '끝난 방송에 남은 밴드 글 연결을 끝냈어요',
+  BAND_RECORD_REJECTED: '밴드 댓글 기록이 거절되어 다시 시도해요',
+  BAND_RETRY_STATE_FAILED: '밴드 다시 시도 상태를 저장하지 못했어요(다음 읽기는 예약함)',
+  BAND_SAVE_FAILED: '밴드 댓글을 기록하지 못해 다시 시도해요',
+  BAND_SKIPPED: '입력 검사를 통과하지 못한 밴드 댓글을 기록하지 않았어요',
+  BAND_RESUME_FAILED: '서버를 다시 켤 때 밴드 읽기를 이어받지 못했어요',
+  BAND_ERASE_FAILED: '보관 기간이 지난 밴드 알림 글을 지우지 못했어요(다음에 다시 해요)',
   DEPOSIT_FETCH_FAILED: '입금 원천에서 받아 오지 못했어요(다음 주기에 다시 함)',
   DEPOSIT_SAVE_FAILED: '받은 입금을 저장하지 못했어요(다음 주기에 다시 함)',
   DEPOSIT_ROW_SAVE_RETRY: '받은 입금을 한 번에 저장하지 못해 한 줄씩 다시 저장해요',

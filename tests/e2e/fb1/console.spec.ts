@@ -229,7 +229,7 @@ test.describe('AC-FB1-02 만원 방송 (D-FB1-11)', () => {
 /** "등록하면" 줄(role=status, 늘 있음)과 단위 줄의 자리 (회차 2 D-FB1-15·D-FB1-18 (a)) */
 const LINE_OF = { 1440: THOUSAND_LINE, 375: THOUSAND_LINE } as const
 for (const width of [1440, 375] as const) {
-  test(`AC-FB1-02 ${String(width)}px 자리: 단위 줄은 화면에 하나(${width === 1440 ? '고정 영역 안' : '고정 영역 밖 바로 아래'}), "등록하면" 줄은 늘 있고 빈 글·한 줄 높이, 쳤다 지워도 빠른 입력칸과 그 아래 첫 요소 위치가 그대로`, async ({ page }) => {
+  test(`AC-FB1-02 ${String(width)}px 자리: 단위 줄은 화면에 하나(${width === 1440 ? '고정 영역 안' : '고정 영역 밖 바로 아래'}), "등록하면" 줄은 늘 있고 빈 글·${width === 1440 ? '한 줄 높이, 쳤다 지워도 빠른 입력칸과 그 아래 첫 요소 위치가 그대로' : '휴대폰 빈 줄은 높이 0(QL2 D-QL2-11 (2)), 지우면 그 아래 첫 요소 위치가 처음 그대로'}`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 375 ? 812 : 900 })
     await loginNewSeller(page)
     await openRealBroadcast(page)
@@ -284,22 +284,39 @@ for (const width of [1440, 375] as const) {
       return { input: r0.top, below: best }
     })
     const before = await firstBelow()
-    const lineBefore = (await line.boundingBox())!
-    await input.fill('15 엘레강스 10')
-    await expect(line).toHaveText('등록하면: 15번 엘레강스 10,000원')
-    const during = await firstBelow()
-    expect(during).toEqual(before)
-    const lineDuring = (await line.boundingBox())!
-    expect(lineDuring.height).toBe(lineBefore.height)
-    expect(lineDuring.y).toBe(lineBefore.y)
-    // 긴 품종도 한 줄 (끝이 잘림)
-    await input.fill(`15 ${'엘레강스하월화세덤'.repeat(8)} 10`)
-    await expect(line).toContainText('등록하면: 15번 ')
-    expect((await line.boundingBox())!.height).toBe(lineBefore.height)
-    expect(await firstBelow()).toEqual(before)
-    await input.fill('')
-    await expect(line).toHaveText('')
-    expect(await firstBelow()).toEqual(before)
+    if (width === 375) {
+      // QL2 D-QL2-11 (2): 휴대폰 빈 "등록하면" 줄은 자리를 차지하지 않는다(높이 0) — 미리 보기가 생기면 아래가 한 줄만큼 내려가는 것은 받아들인다
+      expect((await line.evaluate((el) => el.getBoundingClientRect().height))).toBe(0)
+      await input.fill('15 엘레강스 10')
+      await expect(line).toHaveText('등록하면: 15번 엘레강스 10,000원')
+      await expect(line).toBeVisible()
+      const lineDuring = (await line.boundingBox())!
+      // 긴 품종도 한 줄 (끝이 잘림)
+      await input.fill(`15 ${'엘레강스하월화세덤'.repeat(8)} 10`)
+      await expect(line).toContainText('등록하면: 15번 ')
+      expect((await line.boundingBox())!.height).toBe(lineDuring.height)
+      await input.fill('')
+      await expect(line).toHaveText('')
+      expect((await line.evaluate((el) => el.getBoundingClientRect().height))).toBe(0)
+      expect(await firstBelow()).toEqual(before)
+    } else {
+      const lineBefore = (await line.boundingBox())!
+      await input.fill('15 엘레강스 10')
+      await expect(line).toHaveText('등록하면: 15번 엘레강스 10,000원')
+      const during = await firstBelow()
+      expect(during).toEqual(before)
+      const lineDuring = (await line.boundingBox())!
+      expect(lineDuring.height).toBe(lineBefore.height)
+      expect(lineDuring.y).toBe(lineBefore.y)
+      // 긴 품종도 한 줄 (끝이 잘림)
+      await input.fill(`15 ${'엘레강스하월화세덤'.repeat(8)} 10`)
+      await expect(line).toContainText('등록하면: 15번 ')
+      expect((await line.boundingBox())!.height).toBe(lineBefore.height)
+      expect(await firstBelow()).toEqual(before)
+      await input.fill('')
+      await expect(line).toHaveText('')
+      expect(await firstBelow()).toEqual(before)
+    }
     if (width === 375) {
       const h = await sticky.evaluate((el) => el.getBoundingClientRect().height)
       expect(h).toBeLessThanOrEqual(812 * 0.35)

@@ -23,7 +23,10 @@ export const SUGGESTION_SOURCE_WORD: Readonly<Record<ReviewSuggestion['source'],
 /** 설정 칸 */
 export const ASSIST_TITLE = 'AI 제안'
 export const ASSIST_SWITCH = 'AI 제안 받기'
-export const ASSIST_NOTICE = '확인 필요 댓글의 글이 AI 회사(Anthropic, 미국)로 보내져 읽혀요. 닉네임·전화번호는 빼고 보내요. 언제든 끌 수 있어요.'
+/** 설정 고지 (A1 → QL2 D-QL2-05 ②: 유튜브 채팅은 보내지 않음) — 이미 켠 판매자에게 다시 동의를 받지 않는다 */
+export const ASSIST_NOTICE = '확인 필요 댓글의 글이 AI 회사(Anthropic, 미국)로 보내져 읽혀요. 유튜브 채팅은 보내지 않아요. 닉네임·전화번호는 빼고 보내요. 언제든 끌 수 있어요.'
+/** 확인 필요 화면 목록 위 한 줄 (QL2 D-QL2-05 ①): AI 제안이 켜져 있고 보이는 항목 가운데 유튜브로 뺀 것이 있을 때만 */
+export const ASSIST_YOUTUBE_EXCLUDED = '유튜브 채팅은 AI에 보내지 않아요. 규칙 제안만 보여 드려요.'
 export const ASSIST_CONSENT = '위 내용을 읽었고 동의해요'
 export const ASSIST_UNAVAILABLE = '지금은 쓸 수 없어요.'
 export const ASSIST_ON = (used: number, limit: number): string => `켜져 있어요 · 오늘 ${String(used)}번 썼어요 (하루 ${String(limit)}번까지)`
@@ -77,9 +80,16 @@ export interface AssistOnOpen {
   readonly notice: string | null
   /** 목록 아래 "설정에서 AI 제안을 켤 수 있어요." (꺼져 있고 쓸 수 있다) */
   readonly offer: boolean
+  /** AI 제안이 켜져 있다 (키 있음·동의함 — 설정을 읽어 안 값, 모르면 false). 유튜브 제외 한 줄에 쓴다 (QL2 D-QL2-05 ①) */
+  readonly on: boolean
 }
 
-const QUIET: AssistOnOpen = { reading: false, notice: null, offer: false }
+const QUIET: AssistOnOpen = { reading: false, notice: null, offer: false, on: false }
+
+/** 확인 필요 목록 위 "유튜브 채팅은 AI에 보내지 않아요…"를 보이나 (QL2 D-QL2-05 ①, 순수 함수) */
+export function showsYoutubeExcluded(on: boolean, items: readonly { readonly excluded?: string | null }[]): boolean {
+  return on && items.some((item) => item.excluded === 'YOUTUBE_POLICY')
+}
 
 /** 확인 필요 화면을 열 때 AI 제안 받기를 한 번 (AC-A1-21) */
 export function useAssistOnOpen(query: ReviewsQuery, reload: () => Promise<unknown>): AssistOnOpen {
@@ -154,8 +164,8 @@ export function useAssistOnOpen(query: ReviewsQuery, reload: () => Promise<unkno
     void run(key, { rehearsal: query.rehearsal, ...(query.broadcast === undefined ? {} : { broadcast: query.broadcast }) })
   }, [key, query.rehearsal, query.broadcast, run])
 
-  if (result !== null && result.key === key) return result.view
-  return { ...QUIET, reading: enabled === true }
+  if (result !== null && result.key === key) return { ...result.view, on: enabled === true }
+  return { ...QUIET, reading: enabled === true, on: enabled === true }
 }
 
 export type AssistSettingsState =

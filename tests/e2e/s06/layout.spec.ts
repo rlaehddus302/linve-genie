@@ -1,6 +1,7 @@
 // 휴대폰 고정 영역·끊김 안내 (AC-S06-61), 채팅 밀도 (AC-S06-62), 버튼 명암 (AC-S06-64) — test-e2e.
 import { test, expect, type Page } from '@playwright/test'
 import { boardItem, login, openNewBroadcast, postJson, registerApi, sendViewerChat, smsApi, uniqueDate, viewerClaim, writeEvent } from './support.ts'
+import { pendingWord } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
 
 /** 화면 위·아래에 고정된 영역(position fixed·sticky, 가장 바깥 것)의 보이는 높이 합 */
 async function fixedHeight(page: Page): Promise<{ total: number; parts: string[] }> {
@@ -44,7 +45,7 @@ test.describe('고정 영역·밀도·명암', () => {
     // 보류 찜
     await smsApi(page, { b, no: 40, memo: '병' })
     const strip = page.getByRole('region', { name: '알림' })
-    await expect(strip.getByRole('button', { name: /^보류 찜 \d+$/ })).toBeVisible()
+    await expect(strip.getByRole('button', { name: new RegExp(`^${pendingWord(page)} \\d+$`) })).toBeVisible() // QL3R2 D-QL3R2-02
     await expect(strip.getByRole('button', { name: /^취소 요청 \d+$/ })).toBeVisible()
     // 되돌리기 대기 (빠른 입력 등록)
     const input = page.getByLabel('빠른 입력')

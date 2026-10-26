@@ -495,7 +495,7 @@ describe('배송지 칸 (AC-T1-65)', () => {
     })
     render(<AddressSection date={D} buyer="UC_A" version="1" />)
     expect(await screen.findByText('배송지가 없어요')).toBeDefined()
-    expect(screen.getByText('구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요.')).toBeDefined()
+    expect(screen.getByText("구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요. 링크는 방송을 끝낸 뒤 '영수증 보내기'에서 만들어요.")).toBeDefined() // QL3R2 D-QL3R2-04
     fireEvent.click(screen.getByRole('button', { name: '배송지 적기' }))
     const dialog = screen.getByRole('dialog', { name: '배송지 적기' })
     for (const label of ['받는 분', '연락처', '주소', '상세 주소', '우편번호(몰라도 돼요)', '배송 메모']) expect(within(dialog).getByLabelText(label)).toBeDefined()

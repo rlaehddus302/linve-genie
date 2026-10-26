@@ -28,7 +28,7 @@ export function sourceWords(source: { readonly kind: SourceKind; readonly label:
 export function reasonWords(reason: ReviewReason, twin: number | null): string {
   switch (reason) {
     case 'POSSIBLE_DUPLICATE':
-      return twin === null ? '같은 입금이 두 번 들어왔을 수 있어요' : `같은 입금이 두 번 들어왔을 수 있어요 (입금 #${String(twin)}과 같아요)`
+      return twin === null ? '같은 입금이 두 번 들어왔을 수 있어요' : `같은 입금이 두 번 들어왔을 수 있어요 (입금 #${String(twin)}도 같은 입금이에요)`
     case 'SAME_NAME':
       return '같은 이름의 구매자가 여럿이에요'
     case 'MULTIPLE':
@@ -108,7 +108,7 @@ export const PASTE_STATE_WORD: Readonly<Record<PasteRowState, string>> = {
   NEW: '새 입금',
   EXISTING: '이미 있는 입금',
   OLD: '오래된 입금',
-  FUTURE: '시각이 앞으로인 입금',
+  FUTURE: '시각이 지금보다 늦은 입금',
 }
 
 export const UNREADABLE_WORD: Readonly<Record<UnreadableWhy, string>> = {

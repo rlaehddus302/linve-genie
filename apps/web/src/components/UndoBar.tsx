@@ -74,8 +74,9 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
       case 'open':
         return (
           <>
-            <span role="status">{item.no}번을 등록했어요</span>
-            <span className="countdown">남은 시간 {left}초</span>
+            <span className="undo-text">
+              <span role="status">{item.no}번을 등록했어요</span> <span className="countdown">남은 시간 {left}초</span>
+            </span>
             <button type="button" className="button" aria-label={`${String(item.no)}번 등록 되돌리기`} onClick={() => queue.undo(item.id)}>
               되돌리기
             </button>
@@ -86,7 +87,9 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
       default:
         return (
           <>
-            <span role="status">{item.message ?? ''}</span>
+            <span className="undo-text">
+              <span role="status">{item.message ?? ''}</span>
+            </span>
             <button type="button" className="button" onClick={() => queue.dismiss(item.id)}>
               확인
             </button>
@@ -98,10 +101,12 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
     case 'waiting':
       return (
         <>
-          <span role="status" className="tag-waiting-text">
-            {secondsWord(queue.delayMs)} 뒤 보내요: {item.label}
+          <span className="undo-text">
+            <span role="status" className="tag-waiting-text">
+              {secondsWord(queue.delayMs)} 뒤 보내요: {item.label}
+            </span>{' '}
+            <span className="countdown">남은 시간 {left}초</span>
           </span>
-          <span className="countdown">남은 시간 {left}초</span>
           <button type="button" className="button" aria-label={`${item.label} 되돌리기`} onClick={() => queue.undo(item.id)}>
             되돌리기
           </button>
@@ -115,8 +120,10 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
     case 'notApplied':
       return (
         <>
-          <span role="status">
-            {item.label} — {NOT_APPLIED_MESSAGE}
+          <span className="undo-text">
+            <span role="status">
+              {item.label} — {NOT_APPLIED_MESSAGE}
+            </span>
           </span>
           <button type="button" className="button" onClick={() => queue.dismiss(item.id)}>
             확인
@@ -128,9 +135,11 @@ function UndoLine({ item, queue, now }: { readonly item: UndoItem; readonly queu
     case 'failed':
       return (
         <>
-          <span role="alert">
-            {item.label} — {item.error?.retryable === true ? `저장하지 못했어요. ${item.error.code === 'SAVE_FAILED' ? '' : item.error.message}` : (item.error?.message ?? '보내지 못했어요.')}
-            {item.error?.problems.map((problem) => ` ${problem.message}${problem.hint !== undefined ? ` ${problem.hint}` : ''}`).join('')}
+          <span className="undo-text">
+            <span role="alert">
+              {item.label} — {item.error?.retryable === true ? `저장하지 못했어요. ${item.error.code === 'SAVE_FAILED' ? '' : item.error.message}` : (item.error?.message ?? '보내지 못했어요.')}
+              {item.error?.problems.map((problem) => ` ${problem.message}${problem.hint !== undefined ? ` ${problem.hint}` : ''}`).join('')}
+            </span>
           </span>
           {item.reopenLabel !== null ? (
             <button type="button" className="button" aria-label={`${item.label} ${item.reopenLabel}`} onClick={() => queue.reopen(item.id)}>

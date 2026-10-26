@@ -37,8 +37,14 @@ import { SellerLocks } from './seller-locks.ts'
 import { routeThanks } from './thanks-route.ts'
 import { libraryWebcast, type TikTokAttemptLimiter, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
 import { TikTokLive } from './tiktok-live/live.ts'
+import { TikTokExtension } from './tiktok-live/extension.ts'
 import { PasteService } from './tiktok-live/paste-service.ts'
+import { CustomerArchiver } from './customers/archive.ts'
+import { CustomerService } from './customers/service.ts'
 import { tiktokLinkCounts } from './tiktok-live/store.ts'
+import { BandService, type BandClock, type BandHooks, type BandTiming } from './band/service.ts'
+import type { BandSettings } from './band/config.ts'
+import { recordPlatformChats } from './platform-record.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { ParcelService, type ParcelOptions } from './parcel/service.ts'
@@ -125,6 +131,8 @@ export interface ServerOptions {
   readonly trustedProxies?: number
   /** 로그인 경로 속도 제한 (시험에서 줄인다 — 운영은 기본값, AC-I3-66·67) */
   readonly loginLimits?: LoginLimitOptions
+  /** 확장 코드 넣기(/ext/connect)의 주소마다 한도 (E2E 기동만 넓힌다 — 운영은 기본값 10분 20번, D-QS1-06) */
+  readonly extensionCodeLimits?: LoginLimitOptions
   /** 비밀번호 확인 함수 (시험이 호출 수·동시 수를 잰다) */
   readonly passwordVerifier?: (password: string, stored: string) => Promise<boolean>
   /** 화면 빌드 폴더 — 같은 출처로 함께 낸다 (LIVEJJIM_WEB_DIR, AC-I3-70). 그 폴더에 index.html이 없으면 만들지 않는다 */
@@ -158,7 +166,18 @@ export interface ServerOptions {
    * noticeVersion = 지금 고지 판(시험만 바꾼다)
    */
   /** 서버 시작 때 남길 설정 경고 (값 없이 코드만 — 운영 설정 읽기가 정한다) */
-  readonly startupWarnings?: readonly ('INSTAGRAM_CONFIG_INSECURE' | 'PARCEL_CARRIER_NOT_READY')[]
+  readonly startupWarnings?: readonly ('INSTAGRAM_CONFIG_INSECURE' | 'PARCEL_CARRIER_NOT_READY' | 'BAND_CONFIG_INVALID')[]
+  /**
+   * 밴드 글 댓글 (BND1). settings = readBandConfig(process.env)(없으면 NOT_CONFIGURED — 밴드로 나가는 요청 없음).
+   * clock·timing·fetch·hooks는 시험·E2E만 (가짜 시계·짧은 간격·저장 실패 주입)
+   */
+  readonly band?: {
+    readonly settings?: BandSettings | null
+    readonly clock?: BandClock
+    readonly timing?: Partial<BandTiming>
+    readonly fetch?: typeof fetch
+    readonly hooks?: BandHooks
+  }
   readonly tiktok?: {
     readonly settings?: TikTokSettings
     readonly libraryEnv?: readonly string[]
@@ -221,6 +240,8 @@ export interface LivejjimServer {
   readonly tiktok: TikTokLive
   /** 댓글 붙여넣기 (N2b-2) */
   readonly paste: PasteService
+  /** 밴드 계정·글 연결·댓글 읽기 (BND1) */
+  readonly band: BandService
   /** 정산 마무리 (I2) */
   readonly closing: ClosingService
   /** 구매자 확인서 공유 링크 (N4b) */
@@ -237,8 +258,14 @@ export interface LivejjimServer {
   readonly social: SocialLogin
   /** 크롬 확장으로 채팅 읽기 (X1) */
   readonly extension: ExtensionService
+  /** 크롬 확장으로 틱톡 댓글 읽기 (TTX) */
+  readonly tiktokExtension: TikTokExtension
   /** AI 확인 필요 제안 (A1 — 키가 없으면 규칙 제안만) */
   readonly assist: AssistService
+  /** 손님 기록·메모·설정 "손님 관리" (CRM1 — 판매자 계정만, 엔진 이벤트를 쓰지 않는다) */
+  readonly customers: CustomerService
+  /** 손님 기록 보관 차례 (CRM1 D-CRM1-12 — 서버 시작 때와 1시간마다, 봉인 전 취소 수·'입금 안 함'을 남긴다) */
+  readonly customerArchiver: CustomerArchiver
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -346,6 +373,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   let instagram: InstagramModule | null = null
   let tiktok: TikTokLive | null = null
+  let band: BandService | null = null
   /** 라이브 연결 판매자 잠금 — 모든 플랫폼 공통 (D-N2b-2-01) */
   const liveLocks = new SellerLocks()
   const hub = new StreamHub({
@@ -387,7 +415,9 @@ export function createServer(options: ServerOptions): LivejjimServer {
       await routeThanks(tx, ctx)
       const billed = await billing.txHook(tx, ctx)
       const ended = await (tiktok as TikTokLive).txHook(tx, ctx)
-      const after = [billed, printed, dm, ended].filter((fn): fn is () => void => fn !== null)
+      // 회차를 끝내면 밴드 글 연결 FINISHED(ENDED) — 같은 트랜잭션, 커밋 뒤 읽기를 멈춘다 (BND1 AC-BND1-23)
+      const bandEnded = await (band as BandService).txHook(tx, ctx)
+      const after = [billed, printed, dm, ended, bandEnded].filter((fn): fn is () => void => fn !== null)
       if (after.length === 0) return null
       return () => {
         for (const fn of after) fn()
@@ -440,6 +470,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const work = options.work ?? sharedWorkPools()
   const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
+  const customers = new CustomerService({ db, writer, clock, log, masterKey })
+  const customerArchiver = new CustomerArchiver({ db, writer, timer, log, facts: customers.factsDeps() })
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
@@ -520,6 +552,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       // 인스타 DM 행은 유튜브 발송함 수와 따로 상태별로, 틱톡은 이어진 연결 수와 이 서버 연결 객체의 상태별 수 (판매자 정보 없이, AC-N2b-2-70)
       instagramDm: await counts(() => instagramDmCounts(db, dayStart, new Date(dayStart.getTime() + 24 * 60 * 60 * 1000))),
       tiktok: { operator: (tiktok as TikTokLive).operatorOn, links: await counts(() => tiktokLinkCounts(db)), connections: (tiktok as TikTokLive).stateCounts() },
+      // 밴드 글 연결 수(상태별)·앱 전체 호출 한도 쉼 (판매자 정보 없이, AC-BND1-64)
+      band: await counts(() => (band as BandService).opsStatus()),
       loginRejected: auth.loginRejections,
     }
   }
@@ -555,6 +589,24 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(tiktokOptions.noticeVersion === undefined ? {} : { noticeVersion: tiktokOptions.noticeVersion }),
   })
   const tiktokLive = tiktok
+  const bandOptions = options.band ?? {}
+  band = new BandService({
+    db,
+    clock,
+    log,
+    masterKey,
+    appOrigin: options.appOrigin,
+    settings: bandOptions.settings ?? null,
+    locks: liveLocks,
+    record: (job) => recordPlatformChats(writer, job),
+    readState: async (sellerId, date) => (await writer.read(sellerId, date, false)).state,
+    publish: (sellerId, data) => hub.publishBand(sellerId, data),
+    ...(bandOptions.clock === undefined ? {} : { bandClock: bandOptions.clock }),
+    ...(bandOptions.timing === undefined ? {} : { timing: bandOptions.timing }),
+    ...(bandOptions.fetch === undefined ? {} : { fetch: bandOptions.fetch }),
+    ...(bandOptions.hooks === undefined ? {} : { hooks: bandOptions.hooks }),
+  })
+  const bandService = band
   const paste = new PasteService({ db, writer })
   const deposits = new DepositService({
     db,
@@ -567,7 +619,21 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
   // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
-  const extension = new ExtensionService({ db, service, timer, log, thanks: extensionThanks, publish: (sellerId, view) => hub.publishExtension(sellerId, { ...view }) })
+  // 크롬 확장으로 틱톡 댓글 읽기 (TTX — 직접 연결의 대비책, 같은 '채팅' 이벤트·같은 틱톡 연결 조건)
+  const tiktokExtension = new TikTokExtension({ db, writer, clock, log, live: tiktokLive })
+  const extension = new ExtensionService({
+    db,
+    service,
+    timer,
+    log,
+    thanks: extensionThanks,
+    publish: (sellerId, view) => {
+      hub.publishExtension(sellerId, { ...view })
+      // 확장 연결이 생기거나 끊기면 틱톡 칸의 막혔을 때 안내(D-TTX-17)가 바뀔 수 있다
+      void tiktokExtension.tokenChanged(sellerId)
+    },
+    onDisconnected: (sellerId) => tiktokExtension.disconnected(sellerId),
+  })
   const social = new SocialLogin({
     db,
     masterKey,
@@ -595,6 +661,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       billing,
       instagram: instagramModule,
       tiktok: { db, live: tiktokLive, paste },
+      band: bandService,
       deposits,
       parcels: { service: parcels, db },
       appOrigin: options.appOrigin,
@@ -606,8 +673,9 @@ export function createServer(options: ServerOptions): LivejjimServer {
       social,
       extension,
       assist,
+      customers,
     },
-    extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress }) as unknown as Hono,
+    extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress, tiktok: tiktokExtension, ...(options.extensionCodeLimits === undefined ? {} : { codeLimits: options.extensionCodeLimits }) }) as unknown as Hono,
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
     ready: async () => {
@@ -622,7 +690,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
   deposits.start()
   const stop = async () => {
-    await Promise.all([youtube?.stop(), sealer.stop(), parcels.stop()])
+    await Promise.all([youtube?.stop(), sealer.stop(), customerArchiver.stop(), parcels.stop()])
   }
   return {
     app,
@@ -638,6 +706,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     instagram: instagramModule,
     tiktok: tiktokLive,
     paste,
+    band: bandService,
     closing,
     receiptLinks,
     backups,
@@ -646,15 +715,23 @@ export function createServer(options: ServerOptions): LivejjimServer {
     parcels,
     social,
     extension,
+    tiktokExtension,
     assist,
+    customers,
+    customerArchiver,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
       sealer.start()
+      customerArchiver.start()
       // 택배 배송 조회(30분마다)·배송지 30일 정리 (T1 PC-8·PC-3)
       parcels.start()
       // 끝나지 않은 실제 회차의 이어진 틱톡 연결을 이어받는다 (NFR-03, AC-N2b-2-35)
       void tiktokLive.resume()
+      // 확장 틱톡 상태의 "조용함"·"읽지 못함" 예약을 다시 건다 (RA-TTX-03)
+      void tiktokExtension.resume()
+      // 끝나지 않은 실제 회차의 밴드 글 연결을 다시 읽는다 · 보관 기간 지난 밴드 알림 글 지우기 (BND1 AC-BND1-23·41)
+      void bandService.resume()
     },
     stop,
     close: () => {
@@ -662,8 +739,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
       printService.close()
       instagramModule.close()
       tiktokLive.close()
+      bandService.close()
       deposits.close()
       extension.close()
+      tiktokExtension.close()
       hub.closeAll()
       backups.stop()
       void stop()

@@ -1,7 +1,8 @@
 // 현재 상품·상품 보드 (AC-S05-14, SPEC §7 화면 2, PRD-04, D-088, AC-I1-30). 값은 서버 조회(코어 조회 함수 결과) 그대로이고 낱말로만 바꾼다.
+// CRM1 D-CRM1-07: 실제 방송의 1등이 "입금 늦음 주의" 손님이면 카드·보드·요약 줄·변형 줄의 이름 뒤에 작은 꼬리표(caution.tsx) — 판정은 그대로.
 // 라벨 상태 낱말은 서버의 출력 기록(라벨 키마다 — 라벨 대기·출력 중·라벨 출력됨·재출력 필요·출력 안 함)이다. 리허설은 보이지 않는다.
 import { FOCUS_GRACE_SEC } from '@livejjim/core'
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Product } from '../api/types.ts'
 import { boardProducts, cancelRequestCount, formatWon, productSlots } from '../lib/derive.ts'
@@ -10,6 +11,9 @@ import { stockLeftWords } from '../lib/stock.ts'
 import { ALERT_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
 import { consoleLabels, useConsoleApi } from './console-context.ts'
 import { boardLabelWords } from './LabelParts.tsx'
+import { SUMMARY_LIMIT, SUMMARY_SHORT_LIMIT, currentSummaryParts, currentSummaryWords } from '../lib/current-summary.ts'
+import { CautionMark, WinnerNames, useCaution } from './caution.tsx'
+import { CAUTION_SHORT, CAUTION_WORD } from '../lib/customers.ts'
 
 /** 1등 표시 이름 (재고 2 이상이면 여럿). 없으면 "아직 없음". 옵션 상품은 1등이 변형마다라 "변형별" (D-O2-12) */
 function useWinnerNames(product: Product): string {
@@ -17,6 +21,14 @@ function useWinnerNames(product: Product): string {
   if (product.hasOptions) return '변형별'
   if (product.winners.length === 0) return '아직 없음'
   return product.winners.map((id) => api.names.name(id)).join(', ')
+}
+
+/** 1등 이름들 + 주의 꼬리표 (옵션 상품은 "변형별", 없으면 "아직 없음" — 글자는 useWinnerNames와 같다) */
+function Winners({ product }: { readonly product: Product }) {
+  const api = useConsoleApi()
+  if (product.hasOptions) return <>변형별</>
+  if (product.winners.length === 0) return <>아직 없음</>
+  return <WinnerNames ids={product.winners} nameOf={(id) => api.names.name(id)} />
 }
 
 /** 옵션 상품의 모은 값: "변형 3개 · 남은 1" */
@@ -113,11 +125,12 @@ const nameOf = (product: Product): string => (product.name.trim() === '' ? '품�
 
 /** 상품 한 줄 요약: 번호·품종·가격·상태·1등·대기 수 (번호 찾기 미리 보기) */
 export function ProductSummary({ product }: { readonly product: Product }) {
-  const winners = useWinnerNames(product)
   return (
     <p className="summary">
       <strong>{product.no}번</strong> <span>{nameOf(product)}</span> <span>{formatWon(product.price)}</span>{' '}
-      <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span> <span>1등 {winners}</span>{' '}
+      <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span> <span>
+        1등 <Winners product={product} />
+      </span>{' '}
       <span>대기 {waitCount(product)}명</span>
       {stockLeftWords(product) !== null ? <span> {stockLeftWords(product)}</span> : null}
       {product.hasOptions ? <span> {variantTotals(product)}</span> : null}
@@ -135,18 +148,148 @@ export function CurrentProduct({ product, onOpen }: { readonly product: Product 
   )
 }
 
-function CurrentBody({ product, onOpen }: { readonly product: Product; readonly onOpen: (key: string) => void }) {
+/**
+ * 휴대폰 고정 영역 맨 위(알림 띠 위)의 현재 상품 한 줄 요약 (QL2 D-QL2-11 (1)·D-QL2-14 (1), AC-QL2-01) — 스크롤해도 늘 보인다. 누르는 기능은 없다(카드가 그대로 있다).
+ * 값은 카드와 같다(1등·대기). 100% 글자 고정 영역 35%는 요약이 든 채로 지켜져(측정, dev-notes) 6글자 줄이기(D-QL2-11 (3))는 쓰지 않는다
+ */
+export function CurrentSummary({ product }: { readonly product: Product | undefined }) {
+  return product === undefined ? <SummaryLine text={currentSummaryWords(undefined)} /> : <CurrentProductSummary product={product} />
+}
+
+function CurrentProductSummary({ product }: { readonly product: Product }) {
   const winners = useWinnerNames(product)
+  const caution = useCaution()
+  const input = { no: product.no, name: nameOf(product), status: product.status, winners, waiting: waitCount(product) }
+  // 1등 중 입금 늦음 주의 손님이 있으면 1등 글 뒤에 꼬리표 하나 (요약 줄에 다 들어가지 않으면 "주의" — SummaryFit)
+  const flagged = !product.hasOptions && product.winners.some((id) => caution(id))
+  const bare = currentSummaryWords(input)
+  if (!flagged) return <SummaryLine text={bare} />
+  // 꼬리표를 넣어도 줄 수가 꼬리표 없을 때와 같은 첫 꼴 (D-CRM1-07 → "주의" → D-QL2-11 (3) 1등 6글자 → 이름·1등 6글자)
+  const plain = currentSummaryParts(input)
+  const winnerShort = currentSummaryParts(input, SUMMARY_LIMIT, SUMMARY_SHORT_LIMIT)
+  const bothShort = currentSummaryParts(input, SUMMARY_SHORT_LIMIT)
+  const choices: readonly SummaryChoice[] = [
+    { head: plain[0], tail: plain[1], short: false },
+    { head: plain[0], tail: plain[1], short: true },
+    { head: winnerShort[0], tail: winnerShort[1], short: true },
+    { head: bothShort[0], tail: bothShort[1], short: true },
+  ]
+  // title은 꼬리표를 넣은 문장 전체 (QL3R1 D-QL3R1-02 ⓒ — 한 줄 말줄임이어도 전체를 읽게)
+  return (
+    <SummaryLine text={`${plain[0]} ${CAUTION_WORD}${plain[1]}`}>
+      <SummaryFit key={choices.map((c) => c.head + c.tail).join('|')} bare={bare} choices={choices} />
+    </SummaryLine>
+  )
+}
+
+/** 요약 한 줄 — 휴대폰 큰 글씨에서는 한 줄 말줄임이라 문장 전체를 title에도 둔다 (QL3R1 D-QL3R1-02 ⓒ). 꼬리표가 없으면 글로만 넣는다(CRM1 D-CRM1-07) */
+function SummaryLine({ text, children }: { readonly text: string; readonly children?: ReactNode }) {
+  return (
+    <p className="current-summary" role="status" aria-live="polite" aria-label="현재 상품 요약" title={text}>
+      {children ?? text}
+    </p>
+  )
+}
+
+interface SummaryChoice {
+  readonly head: string
+  readonly tail: string
+  /** 꼬리표를 "주의" 한 낱말로 */
+  readonly short: boolean
+}
+
+/**
+ * 요약 줄의 꼬리표 (D-CRM1-07, AC-CRM1-20): 꼬리표를 넣어도 줄 수(높이)가 꼬리표 없을 때와 같은 첫 꼴을 쓴다 —
+ * "입금 늦음 주의" → "주의" → 1등 글 6글자 + "…"(D-QL2-11 (3)) → 이름·1등 6글자. 넷 다 늘면 마지막 꼴(가장 짧다).
+ * 고정 영역 높이 규칙(D-QL2-11·D-QL2-14)을 넘지 않게. 잴 때만 보이지 않는 벌들을 줄 안에 두고 그림 전에 재고 뺀다
+ * — 다 그린 줄의 글자에는 남지 않는다. 폭이 바뀌면 다시 잰다. 글이 바뀌면 부르는 쪽이 key로 새로 만든다.
+ * 꼬리표는 요약 줄 안에서 inline(styles.css) — 테두리·안 여백이 줄 높이를 늘리지 않는다(TE-CRM1-002).
+ */
+function SummaryFit({ bare, choices }: { readonly bare: string; readonly choices: readonly SummaryChoice[] }) {
+  const box = useRef<HTMLSpanElement>(null)
+  const [fit, setFit] = useState<{ readonly measuring: boolean; readonly pick: number; readonly width: number }>({ measuring: true, pick: 0, width: -1 })
+  useLayoutEffect(() => {
+    if (!fit.measuring) return
+    const element = box.current
+    if (element === null) return
+    const height = (name: string) => element.querySelector<HTMLElement>(`[data-fit="${name}"]`)?.getBoundingClientRect().height ?? 0
+    const base = height('bare')
+    let pick = choices.length - 1
+    const line = element.parentElement
+    const style = line === null ? null : getComputedStyle(line)
+    // 휴대폰 큰 글씨의 한 줄 말줄임(QL3R1 D-QL3R1-02 ⓒ)에서는 줄 수가 늘 1이라 높이로 고를 수 없다 —
+    // 꼬리표 끝이 말줄임("…") 앞, 줄 폭 안에 드는 첫 꼴을 쓴다(D-CRM1-07 "들어가지 않으면 '주의'"). 넷 다 넘으면 마지막 꼴(가장 짧다)
+    const oneLine = style !== null && style.textOverflow === 'ellipsis' && (style.whiteSpace === 'nowrap' || style.getPropertyValue('text-wrap-mode') === 'nowrap')
+    if (oneLine && line !== null && line.clientWidth > 0) {
+      const room = line.clientWidth - parseFloat(style.fontSize)
+      const tagEnd = (name: string) => {
+        const span = element.querySelector<HTMLElement>(`[data-fit="${name}"]`)
+        const mark = span?.querySelector<HTMLElement>('.caution-mark')
+        if (span === null || span === undefined || mark === null || mark === undefined) return Infinity
+        return mark.getBoundingClientRect().right - span.getBoundingClientRect().left
+      }
+      for (let i = 0; i < choices.length; i++) {
+        if (tagEnd(String(i)) <= room + 0.5) {
+          pick = i
+          break
+        }
+      }
+    } else if (base > 0) {
+      for (let i = 0; i < choices.length; i++) {
+        if (height(String(i)) <= base + 0.5) {
+          pick = i
+          break
+        }
+      }
+    } else pick = 0 // 잴 수 없는 곳(화면 밖·시험 환경)은 긴 꼬리표 그대로
+    const width = element.parentElement?.getBoundingClientRect().width ?? 0
+    setFit({ measuring: false, pick, width })
+  }, [fit.measuring, choices])
+  useEffect(() => {
+    const line = box.current?.parentElement
+    if (line === null || line === undefined || typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(() => {
+      const width = line.getBoundingClientRect().width
+      setFit((current) => (current.measuring || Math.abs(current.width - width) < 0.5 ? current : { ...current, measuring: true }))
+    })
+    observer.observe(line)
+    return () => observer.disconnect()
+  }, [])
+  const chosen = choices[fit.pick] ?? choices[0]
+  if (chosen === undefined) return <>{bare}</>
+  return (
+    <span ref={box}>
+      {chosen.head} <CautionMark short={chosen.short} />
+      {chosen.tail}
+      {fit.measuring ? (
+        <span className="summary-measure" aria-hidden="true">
+          <span data-fit="bare">{bare}</span>
+          {choices.map((choice, index) => (
+            <span key={index} data-fit={String(index)}>
+              {choice.head} <span className="tag tag-caution caution-mark">{choice.short ? CAUTION_SHORT : CAUTION_WORD}</span>
+              {choice.tail}
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+function CurrentBody({ product, onOpen }: { readonly product: Product; readonly onOpen: (key: string) => void }) {
   return (
     <div className="current-body">
       <p className="current-number">{product.no}번</p>
       <div className="stack-tight">
         <p className="current-name">{nameOf(product)}</p>
+        {/* 1등은 이름 바로 아래 — 큰 글씨에서 "몇 번·무엇·누가"가 한눈에 (QL2 D-QL2-01 (2)) */}
+        <p>
+          1등: <Winners product={product} />
+        </p>
         <p>{formatWon(product.price)}</p>
         <p>
           <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span>
         </p>
-        <p>1등: {winners}</p>
         <p>대기 {waitCount(product)}명</p>
         {stockLeftWords(product) !== null ? <p className="stock-left">{stockLeftWords(product)}</p> : null}
         {product.hasOptions ? <p>{variantTotals(product)}</p> : null}
@@ -177,7 +320,6 @@ export function ProductBoard({ onOpen }: { readonly onOpen: (key: string) => voi
 
 const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly product: Product; readonly onOpen: (key: string) => void }) {
   const api = useConsoleApi()
-  const winners = useWinnerNames(product)
   const requests = cancelRequestCount(api.data, product)
   const labels = boardLabelWords(consoleLabels(api), api.data.claims, product)
   const waiting = api.waiting.products.has(product.key)
@@ -189,7 +331,9 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
         <span className="board-name">{nameOf(product)}</span>
         <span>{formatWon(product.price)}</span>
         <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span>
-        <span>1등 {winners}</span>
+        <span>
+          1등 <Winners product={product} />
+        </span>
         <span>대기 {waitCount(product)}</span>
         {stockLeftWords(product) !== null ? <span>{stockLeftWords(product)}</span> : null}
         {product.hasOptions ? <span>{variantTotals(product)}</span> : null}
@@ -224,17 +368,36 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
  */
 export function VariantLines({ product }: { readonly product: Product }) {
   const api = useConsoleApi()
+  const caution = useCaution()
   return (
     <ul className="plain-list variant-lines" aria-label={`변형 — ${String(product.no)}번`}>
       {product.variants.map((variant) => {
         const winners = variant.winnerClaims
           .map((id) => api.data.claims.get(id))
           .filter((claim) => claim !== undefined)
-          .map((claim) => `${api.names.name(claim.currentBuyer)}${claim.qty > 1 ? ` ×${String(claim.qty)}` : ''}`)
+          .map((claim) => ({ id: claim.currentBuyer, text: `${api.names.name(claim.currentBuyer)}${claim.qty > 1 ? ` ×${String(claim.qty)}` : ''}` }))
         return (
           <li key={variant.key} className="variant-line">
             <strong>{variant.text}</strong> <span className={`tag status-${variant.status}`}>{PRODUCT_STATUS_WORD[variant.status]}</span>{' '}
-            <span>1등 {winners.length === 0 ? '아직 없음' : winners.join(', ')}</span> <span>대기 {variant.waitlist.length}</span> <span>남은 {variant.remaining}</span>
+            <span>
+              1등{' '}
+              {winners.length === 0
+                ? '아직 없음'
+                : !winners.some((winner) => caution(winner.id))
+                  ? winners.map((winner) => winner.text).join(', ')
+                  : winners.map((winner, index) => (
+                    <span key={`${winner.id}-${String(index)}`}>
+                      {index > 0 ? ', ' : ''}
+                      {winner.text}
+                      {caution(winner.id) ? (
+                        <>
+                          {' '}
+                          <CautionMark />
+                        </>
+                      ) : null}
+                    </span>
+                  ))}
+            </span> <span>대기 {variant.waitlist.length}</span> <span>남은 {variant.remaining}</span>
             {variant.conflict ? <span className="tag tag-alert">{ALERT_WORD.conflict}</span> : null}
             {variant.awaitingSuccession ? <span className="tag tag-alert">{ALERT_WORD.succession}</span> : null}
           </li>

@@ -2,6 +2,7 @@
 // - 번호·품종·가격·재고·상태, 1등(들), 대기 목록, 그 번호의 보류·충돌 찜, 라벨(1등마다 미리 보기·상태·이력·출력·내보내기 — 리허설은 없음),
 //   취소 요청, 가격·품종 변경 이력, 조치 기록.
 // - 상품 명령(일시 중지·다시 판매·공개·판매 종료·고치기)은 바로 보낸다. 찜 조치(host.*)는 5초 뒤에 보낸다.
+import { CautionMark, useCaution } from './caution.tsx'
 import { useEffect, useMemo, useState } from 'react'
 import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/client.ts'
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
@@ -18,6 +19,9 @@ import { ProductLabels } from './LabelParts.tsx'
 import { FocusButton } from './ProductBoard.tsx'
 import { Modal } from './Modal.tsx'
 import { ProductVoiceLog } from './VoiceLogView.tsx'
+
+/** 찜 목록 위 한 줄 설명 (QL3R1 D-QL3R1-07 (4)) */
+export const CLAIM_BUTTONS_HELP = '찜 취소: 손님이 안 사기로 했을 때 · 무효: 장난이나 잘못 들어온 찜 · 확인(잠금): 늦게 온 찜이 이 1등을 저절로 밀어내지 않게'
 
 export function ProductDetail({ productKey, onClose, onEdit }: { readonly productKey: string; readonly onClose: () => void; readonly onEdit: (product: Product) => void }) {
   const api = useConsoleApi()
@@ -48,6 +52,8 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
   const winners = product.hasOptions ? product.variants.flatMap((variant) => claimsOf(variant.winnerClaims)) : claimsOf(product.winnerClaims)
   const waitlist = claimsOf(product.waitlistClaims)
   const open = claims.filter((claim) => claim.status === 'PENDING' || claim.status === 'CONFLICT')
+  // 찜 줄 단추(찜 취소하기·무효로 하기)가 있는 찜 — 1등·대기·보류·충돌
+  const activeClaims = claims.filter((claim) => claim.status === 'CONFIRMED' || claim.status === 'WAITLISTED' || claim.status === 'PENDING' || claim.status === 'CONFLICT').length
   const ended = claims.filter((claim) => claim.status === 'CANCELLED' || claim.status === 'REJECTED' || claim.status === 'DUPLICATE').sort((a, b) => b.seq - a.seq)
   const requests = [...api.data.cancelRequests.values()].filter((request) => request.product === product.key)
 
@@ -115,6 +121,8 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
       </dl>
       <ProductVoiceLog b={product.broadcast} no={product.no} />
 
+      {/* 찜 줄 단추 셋의 차이 한 줄 (QL3R1 D-QL3R1-07 (4)) — 단추 이름은 되돌리기 띠·기록 문장과 짝이라 그대로 두고 설명만. 누르는 곳이 아니라 Tab 차례는 그대로 */}
+      {activeClaims > 0 ? <p className="hint claim-help">{CLAIM_BUTTONS_HELP}</p> : null}
       {/* 찜이 먼저: 창의 "닫기"(처음 포커스)에서 Tab 한 번이면 1등 찜의 "찜 취소하기" (AC-S06-63) */}
       {product.hasOptions ? (
         product.variants.map((variant) => {
@@ -147,8 +155,9 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         nameOf={(claim) => api.names.name(claim.currentBuyer)}
       />
 
-      <section aria-label="상품 명령" className="stack-tight">
-        <h3 className="sub-title">상품 명령</h3>
+      {/* QL3R1 D-QL3R1-10: 상품 칸 이름은 "상품 관리" 하나로 */}
+      <section aria-label="상품 관리" className="stack-tight">
+        <h3 className="sub-title">상품 관리</h3>
         <div className="row">
           {selling ? (
             <button type="button" className="button" disabled={busy} onClick={() => void run({ type: 'product.hold', ...base })}>
@@ -321,10 +330,18 @@ function ClaimRow({ claim, product, full }: { readonly claim: Claim; readonly pr
   const blocked = self?.blocked === true
   const waiting = api.waiting.claims.has(claim.id)
   const pick = claimOptionsField(claim)
+  // 1등 목록의 "입금 늦음 주의" (CRM1 D-CRM1-07 — 실제 방송만, 판정은 그대로)
+  const caution = useCaution()
   return (
     <li className="claim-row">
       <p>
         <strong>{name}</strong>
+        {claim.status === 'CONFIRMED' && caution(claim.currentBuyer) ? (
+          <>
+            {' '}
+            <CautionMark />
+          </>
+        ) : null}
         {claim.variant !== null || claim.qty > 1 ? <span className="claim-option">{claimOptionWords(claim)}</span> : null} <span className="tag">{claimWord(api.data, claim)}</span>{' '}
         <span>{ORIGIN_WORD[claim.origin]}</span>{' '}
         <span>{kstTime(claim.rankTime)}</span>

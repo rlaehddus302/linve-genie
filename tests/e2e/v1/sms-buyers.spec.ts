@@ -162,8 +162,7 @@ test.describe('V1 구매자', () => {
     const dlg = page.getByRole('dialog').last()
     await expect(dlg).toBeVisible()
     await page.keyboard.press('1')
-    await expect(dlg.getByRole('button', { name: '찜 취소하기' })).toBeFocused()
-    await page.keyboard.press('Enter')
+    await expect(dlg).toHaveCount(0) // QL3R1 D-QL3R1-05: 빠른 사유를 누르면 그 사유로 바로 5초 대기(창 닫힘)
     await expect(smsResults(page, C165)).toContainText('취소됨', { timeout: 15_000 })
     const view = await scopeView(page, date, true)
     const p = view.products.find((x) => x.no === 165)!

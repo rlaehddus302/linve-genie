@@ -71,10 +71,10 @@
 ### 2-2. `youtube.readonly`
 
 **English**
-> We request youtube.readonly when the seller connects their YouTube channel. We use it to (1) read the seller's channel name and channel ID (channels.list, mine=true) to show which channel is connected and to make sure one channel belongs to one seller account, (2) list the seller's own live broadcasts (liveBroadcasts.list, mine=true) so the seller can pick today's stream, (3) check whether a scheduled stream has started (videos.list), and (4) read the live chat messages of that stream (liveChatMessages.streamList / liveChatMessages.list) to detect orders such as "15". Live chat text and viewer display names are deleted (sealed) 30 days after the broadcast date; only the seller's sales ledger remains. This is the narrowest scope that allows reading the seller's own broadcasts and live chat. Sellers who never enable thank-you messages grant only this read-only scope.
+> We request youtube.readonly when the seller connects their YouTube channel. We use it to (1) read the seller's channel name and channel ID (channels.list, mine=true) to show which channel is connected and to make sure one channel belongs to one seller account, (2) list the seller's own live broadcasts (liveBroadcasts.list, mine=true) so the seller can pick today's stream, (3) check whether a scheduled stream has started (videos.list), and (4) read the live chat messages of that stream (liveChatMessages.streamList / liveChatMessages.list) to detect orders such as "15". Live chat messages, and the display names of viewers who only chatted, are deleted (sealed) 30 days after the broadcast date. The display names of buyers whose orders were confirmed are kept in the seller's sales ledger (receipts, settlement, packing). This is the narrowest scope that allows reading the seller's own broadcasts and live chat. Sellers who never enable thank-you messages grant only this read-only scope.
 
 **한국어**
-> 판매자가 유튜브 채널을 연결할 때 이 권한을 받습니다. (1) 연결한 채널 이름·번호를 보여 주고 채널 하나가 판매자 한 명에게만 묶이게 하려고, (2) 판매자 본인의 라이브 목록에서 오늘 방송을 고르려고, (3) 예정 방송이 시작했는지 보려고, (4) 그 방송 채팅을 읽어 "15" 같은 주문을 찾으려고 씁니다. 채팅 글과 시청자 이름은 방송 날짜부터 30일 뒤에 지우고 판매 장부만 남깁니다. 본인 방송·채팅을 읽을 수 있는 가장 좁은 권한이며, 감사 메시지를 켜지 않는 판매자는 이 읽기 권한만 줍니다.
+> 판매자가 유튜브 채널을 연결할 때 이 권한을 받습니다. (1) 연결한 채널 이름·번호를 보여 주고 채널 하나가 판매자 한 명에게만 묶이게 하려고, (2) 판매자 본인의 라이브 목록에서 오늘 방송을 고르려고, (3) 예정 방송이 시작했는지 보려고, (4) 그 방송 채팅을 읽어 "15" 같은 주문을 찾으려고 씁니다. 채팅 글과 채팅만 한 시청자의 이름은 방송 날짜부터 30일 뒤에 지웁니다. 찜이 정해진 손님의 이름은 판매 장부(확인서·정산·포장)에 남습니다. 본인 방송·채팅을 읽을 수 있는 가장 좁은 권한이며, 감사 메시지를 켜지 않는 판매자는 이 읽기 권한만 줍니다.
 
 ### 2-3. `youtube.force-ssl`
 
@@ -96,7 +96,7 @@
 
 **English**
 > - Storage: OAuth refresh/access tokens are encrypted at rest with AES-256-GCM using a server master key kept separately from backups. Tokens and chat text are never written to logs.
-> - Retention: Live chat text and viewer display names are deleted 30 days after the broadcast date (scheduled hourly job). Database backups are kept for 30 days. [확인 필요 — 백업에도 봉인 전 원문이 최대 30일 더 남는 점을 방침에 적었는지]
+> - Retention: Live chat messages, and the display names of viewers who only chatted, are deleted 30 days after the broadcast date (scheduled hourly job). Display names of buyers whose orders were confirmed stay in the seller's sales ledger. Database backups are kept for 30 days. [확인 필요 — 백업에도 봉인 전 원문이 최대 30일 더 남는 점을 방침에 적었는지]
 > - Sharing: We do not sell Google user data or use it for advertising. We do not transfer YouTube data to third parties. Chat messages received from YouTube (official API or our Chrome extension) are never sent to our optional AI suggestion feature; the server filters them by source before any AI request (D-AIY1-01).
 > - Revocation: Sellers can disconnect in Settings → YouTube → "Disconnect" (we call Google's revoke endpoint and delete tokens) or at https://myaccount.google.com/permissions.
 > - Hosting: [확인 필요 — 서버 업체·지역]
@@ -195,7 +195,7 @@
 | 쓰는 API·이유 | (0절 표의 호출과 이유를 영어로 — channels.list, liveBroadcasts.list, videos.list, liveChatMessages.streamList/list, liveChatMessages.insert, commentThreads.insert/list) |
 | 필요한 하루 할당량과 계산 | One seller's 2-hour stream: reading chat with streamList reconnects or list polling (5 units per call, at most one call every 2–5 seconds) is about [확인 필요 — HG-3 실측] units, worst case ≈ 7,200 units with 5-second polling; thank-you messages (20 units each, batched) ≈ 1,000 units for 50 orders; one summary comment 50 units. Average ≈ [확인 필요] units per stream. With N sellers streaming on the same day we need about N × [확인 필요] units. We request [확인 필요] units/day. |
 | 할당량을 아끼는 방법 | Streaming endpoint first; never poll faster than the server-provided interval or 2 seconds; stop reading 10 minutes after the stream ends; batch thank-you messages when quota is low and pause posting at 5% remaining; per-seller daily budget; every call is metered before sending. |
-| 데이터 보관 | Live chat text and viewer names are deleted 30 days after the broadcast date; tokens encrypted; no data sold or used for ads. (2-5 그대로, [확인 필요] 줄 포함) |
+| 데이터 보관 | Live chat messages and the names of viewers who only chatted are deleted 30 days after the broadcast date; confirmed buyers' names stay in the sales ledger; tokens encrypted; no data sold or used for ads. (2-5 그대로, [확인 필요] 줄 포함) |
 | 사용자 동의·끄기 | Read access at connection; posting only after explicit, per-target consent; disconnect revokes tokens. |
 | 화면 자료 | 시연 영상 링크(3절), 스크린샷: 연결 화면·동의 창·콘솔·설정 끄기 |
 | 개인정보처리방침·약관 주소 | https://<도메인>/privacy, https://<도메인>/terms |

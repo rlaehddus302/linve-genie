@@ -19,6 +19,8 @@ it('index.html의 #root에 앱이 뜨고, 로그인하지 않았으면 로그인
   vi.stubGlobal('WebSocket', WebSocket)
   vi.stubGlobal('EventSource', EventSource)
 
+  // LND1 D-LND1-01: 로그아웃 상태의 로그인 화면은 `/login` (`/`는 소개 화면)
+  window.history.replaceState(null, '', '/login')
   // 실제 index.html 본문을 그대로 옮긴다(스크립트 태그는 빼고). #root 이름이 어긋나면 여기서 드러난다.
   const page = new DOMParser().parseFromString(indexHtml, 'text/html')
   for (const script of page.body.querySelectorAll('script')) script.remove()

@@ -4,13 +4,22 @@ import { useState } from 'react'
 import { ApiError, isApiError } from '../api/client.ts'
 import type { JobView } from '../api/print-types.ts'
 import { kstHm } from '../lib/kst.ts'
+import { useOwnReconnect } from '../lib/reconnect-owner.ts'
 import {
+  AUTO_RECONNECT_GAVE_UP,
+  CONNECT_TIPS_TITLE,
   KIND_WORD,
   PRINT_ACTION,
   REASON_WORD,
+  CANCEL_JOB_TITLE,
+  autoReconnectingMessage,
   backlogMessage,
   buyerWord,
+  cancelJobQuestion,
+  connectTips,
   discardWord,
+  isAndroid,
+  isWindows,
   jobNameWord,
   jobNumberWord,
   labelOptionWords,
@@ -57,6 +66,21 @@ export function usePrintAction(): { readonly busy: boolean; readonly error: ApiE
   }
 }
 
+/** 해볼 일 목록 (L-7 ①~⑤ 중 그 기기에 맞는 줄, 제목 "해볼 일") — 연결 오류 상자와 저절로 다시 잇기가 그친 멈춤 띠가 같이 쓴다 (QL2 D-QL2-04 (2)) */
+export function ConnectTipsList({ tips }: { readonly tips: readonly string[] }) {
+  if (tips.length === 0) return null
+  return (
+    <div className="stack-tight">
+      <p className="field-label">{CONNECT_TIPS_TITLE}</p>
+      <ol className="connect-tips" aria-label={CONNECT_TIPS_TITLE}>
+        {tips.map((tip) => (
+          <li key={tip}>{tip}</li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
 /**
  * 멈춤 띠 (AC-I1-09·24): 멈춘 까닭 문장과 할 일 — 끊김이면 출력 기기에서 "다시 연결"(다른 기기는 그 기기에서 하라는 문장),
  * 손으로 푸는 멈춤이면 "다시 시작", 쌓인 라벨이면 "출력 시작".
@@ -68,6 +92,8 @@ export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () 
   const action = usePrintAction()
   const [reconnecting, setReconnecting] = useState(false)
   const queue = print.overview?.queue ?? null
+  // 이 기기의 끊김 멈춤 띠가 보이면 이 띠가 "다시 연결"을 맡는다 — 위 줄 버튼은 숨는다 (QL2 D-QL2-03 (c))
+  useOwnReconnect(queue?.pause?.reason === 'DISCONNECTED' && api !== null && api.station.isMine(queue))
   if (queue === null || queue.pause === null || api === null) return null
   const pause = queue.pause
   const mine = api.station.isMine(queue)
@@ -85,9 +111,19 @@ export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () 
       {pause.reason === 'DISCONNECTED' ? (
         mine ? (
           api.station.canReconnect ? (
-            <button type="button" className="button button-primary" data-key="1" disabled={reconnecting || station?.connecting === true} onClick={() => void reconnect()}>
-              {PRINT_ACTION.reconnect}
-            </button>
+            <>
+              {/* 저절로 다시 잇는 동안·그친 뒤 (QL2 D-QL2-04) — 까닭 문장 바로 아래, 출력 기기 자신에게만 */}
+              {station?.autoReconnect?.kind === 'trying' ? <p role="status">{autoReconnectingMessage(station.autoReconnect.attempt, station.autoReconnect.total)}</p> : null}
+              {station?.autoReconnect?.kind === 'gaveUp' ? (
+                <>
+                  <p>{AUTO_RECONNECT_GAVE_UP}</p>
+                  <ConnectTipsList tips={connectTips({ windows: isWindows(), serial: station.methods.includes('serial'), android: isAndroid() })} />
+                </>
+              ) : null}
+              <button type="button" className="button button-primary" data-key="1" disabled={reconnecting || station?.connecting === true} onClick={() => void reconnect()}>
+                {PRINT_ACTION.reconnect}
+              </button>
+            </>
           ) : (
             <div className="stack-tight">
               <p>프린터 연결 방법을 골라 다시 연결해 주세요.</p>
@@ -138,14 +174,24 @@ export function JobLine({ job }: { readonly job: JobView }) {
   )
 }
 
-/** 출력 중·대기 작업 (대기 작업마다 "빼기", 확인 뒤 "모두 빼기") */
+/** "빼기" 확인 창 본문의 그 작업 이름: 번호·품종(·옵션) — "15번 핑크프릴", 포장은 "포장 1/2쪽" (QL2 D-QL2-09 ③) */
+export function cancelJobWhat(job: JobView): string {
+  const name = jobNameWord(job)
+  return `${jobNumberWord(job)}${name !== '' ? ` ${name}` : ''}${job.kind === 'product' ? labelOptionWords(job.data) : ''}`
+}
+
+/** 출력 중·대기 작업 (대기 작업마다 "빼기" — 확인 창 "라벨 빼기" 뒤에만 보낸다(QL2 D-QL2-09 ③), 확인 뒤 "모두 빼기") */
 export function QueueList() {
   const print = usePrintState()
   const action = usePrintAction()
   const [confirmAll, setConfirmAll] = useState(false)
+  /** 확인을 묻는 작업 (날짜|번호) */
+  const [confirmJob, setConfirmJob] = useState<string | null>(null)
   const overview = print.overview
   if (overview === null) return print.phase === 'error' && print.error !== null ? <ErrorNote error={print.error} /> : <p role="status">불러오는 중…</p>
   const waiting = overview.jobs.filter((job) => job.status === 'WAITING')
+  // 창이 열린 사이 그 작업이 출력되거나 빠지면 창을 보이지 않는다(대기 작업만 뺄 수 있다)
+  const asked = confirmJob === null ? undefined : waiting.find((job) => `${job.date}|${job.id}` === confirmJob)
   return (
     <div className="stack-tight">
       <p>
@@ -157,7 +203,15 @@ export function QueueList() {
           <li key={`${job.date}|${job.id}`} className="job-row">
             <JobLine job={job} />
             {job.status === 'WAITING' ? (
-              <button type="button" className="button button-small" disabled={action.busy} onClick={() => void action.run('/api/print/jobs/cancel', { date: job.date, id: job.id })}>
+              <button
+                type="button"
+                className="button button-small"
+                disabled={action.busy}
+                onClick={() => {
+                  action.clear()
+                  setConfirmJob(`${job.date}|${job.id}`)
+                }}
+              >
                 빼기
               </button>
             ) : null}
@@ -169,7 +223,31 @@ export function QueueList() {
           모두 빼기
         </button>
       ) : null}
-      {action.error !== null ? <ErrorNote error={action.error} /> : null}
+      {action.error !== null && asked === undefined ? <ErrorNote error={action.error} /> : null}
+      {asked !== undefined ? (
+        <Modal
+          title={CANCEL_JOB_TITLE}
+          onClose={() => setConfirmJob(null)}
+          actions={
+            <button
+              type="button"
+              className="button button-danger"
+              data-key="1"
+              disabled={action.busy}
+              onClick={() => {
+                void action.run('/api/print/jobs/cancel', { date: asked.date, id: asked.id }).then((ok) => {
+                  if (ok) setConfirmJob(null)
+                })
+              }}
+            >
+              1 빼기
+            </button>
+          }
+        >
+          <p>{cancelJobQuestion(cancelJobWhat(asked))}</p>
+          {action.error !== null ? <ErrorNote error={action.error} /> : null}
+        </Modal>
+      ) : null}
       {confirmAll ? (
         <Modal
           title="모두 빼기"

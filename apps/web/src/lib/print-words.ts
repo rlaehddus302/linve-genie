@@ -47,6 +47,21 @@ export const NO_WINNER_LABEL = '1등이 없어 출력할 라벨이 없어요.'
 /** 라벨 기능을 끈 판매자의 라벨 자리 안내 (L-13 9, D-N4a-05) — 라벨 화면·상품 자세히·정산 자세히·Alt+P */
 export const LABELS_OFF_NOTE = '라벨 쓰지 않음 — 설정에서 켤 수 있어요.'
 
+/**
+ * 콘솔 알림 띠 "출력 멈춤 · …"의 뒤 문장 (QL2 D-QL2-09 ②, 순수 함수): 판매자 멈춤(SELLER)만 까닭·할 일을 쓴다 —
+ * 쌓인 라벨 멈춤이면 "쌓인 라벨 n장이 기다려요. 눌러서 '출력 시작'을 골라 주세요.", 판매자가 멈췄으면 "'출력 멈추기'를 눌러 멈췄어요. 눌러서 '다시 시작'을 골라 주세요."
+ * 끊김·프린터 오류·라벨 오류는 서버의 까닭 문장(L-8) 그대로. 라벨 화면 멈춤 띠의 문장은 바뀌지 않는다
+ */
+export function pauseAlertMessage(pause: Pick<NonNullable<QueueSummary['pause']>, 'reason' | 'message' | 'backlog'>, waiting: number): string {
+  if (pause.reason !== 'SELLER') return pause.message
+  if (pause.backlog) return `쌓인 라벨 ${String(waiting)}장이 기다려요. 눌러서 '${PRINT_ACTION.start}'을 골라 주세요.`
+  return `'${PRINT_ACTION.pause}'를 눌러 멈췄어요. 눌러서 '${PRINT_ACTION.restart}'을 골라 주세요.`
+}
+
+/** 라벨 대기열 "빼기" 확인 창 (QL2 D-QL2-09 ③) */
+export const CANCEL_JOB_TITLE = '라벨 빼기'
+export const cancelJobQuestion = (what: string): string => `${what} 라벨을 뺄까요? 뺀 라벨은 출력하지 않아요(기록은 남아요).`
+
 /** 쌓인 라벨 안내 (L-11 10) */
 export function backlogMessage(count: number): string {
   return `대기 중인 라벨 ${String(count)}장이 있어요. 출력 시작을 누르면 먼저 들어온 것부터 출력해요.`
@@ -54,8 +69,16 @@ export function backlogMessage(count: number): string {
 
 /** 다른 기기에서 보는 출력 기기 안내 (AC-I1-23 → MOB1 D-MOB1-08, L-11 10): 이름을 괄호에 넣어 조사가 늘 "기기" 뒤 — 받침과 상관없다 */
 export const deviceLostMessage = (name: string): string => `출력 기기('${name}')가 연결되어 있지 않아요. 그 기기에서 ${SERVICE_NAME}를 열고 화면을 켜 두세요.`
-/** 출력 기기가 없고 대기 라벨이 쌓일 때 콘솔 알림 띠 맨 앞 항목 (D-MOB1-08, AC-MOB1-13) */
-export const NO_STATION_PILING = "출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 '이 기기에서 출력'을 눌러 주세요."
+/** 짧은 문장의 기기 이름 낱자 수 상한 (QL3R1 D-QL3R1-04 (1)) — 넘으면 앞 10낱자 + "…" */
+export const DEVICE_SHORT_NAME_MAX = 10
+/** 휴대폰 접힌 알림 띠의 출력 기기 끊김 짧은 문장 (QL3R1 D-QL3R1-04 (1)) — 펼친 띠·PC·라벨 화면은 deviceLostMessage 그대로 */
+export function deviceLostShortMessage(name: string): string {
+  const letters = Array.from(name)
+  const shown = letters.length > DEVICE_SHORT_NAME_MAX ? `${letters.slice(0, DEVICE_SHORT_NAME_MAX).join('')}…` : name
+  return `라벨이 안 나가요 · '${shown}' 화면을 켜 주세요`
+}
+/** 출력 기기가 없고 대기 라벨이 쌓일 때 콘솔 알림 띠 맨 앞 항목 (D-MOB1-08 → QL2 D-QL2-09 ①: 없는 단추를 먼저 누르라고 하지 않는다 — 프린터 연결이 먼저) */
+export const NO_STATION_PILING = "출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 프린터를 연결한 뒤 '이 기기에서 출력'을 눌러 주세요."
 export interface StationLeadInput {
   /** 라벨 기능 켬(true)·끔(false)·모름(null) */
   readonly labelsOn: boolean | null
@@ -77,8 +100,24 @@ export function stationLeadText({ labelsOn, rehearsal, ended, queue, mine }: Sta
   if (queue.device === null) return queue.waiting > 0 ? NO_STATION_PILING : null
   return queue.device.live ? null : deviceLostMessage(queue.device.name)
 }
+/** 출력 기기가 없고 대기 라벨이 쌓일 때 휴대폰 접힌 띠의 짧은 문장 (QL3R2 D-QL3R2-03) — 펼친 띠·PC·라벨 화면은 NO_STATION_PILING 그대로 */
+export const NO_STATION_SHORT = '라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요'
+/**
+ * stationLeadText의 휴대폰 접힌 띠 짧은 문장 (QL3R1 D-QL3R1-04 · QL3R2 D-QL3R2-03): 출력 기기 끊김이면 deviceLostShortMessage,
+ * 출력 기기가 없고 대기 라벨이 있으면 NO_STATION_SHORT. 그 밖(정상·대기 0·리허설·끝남·이 기기·라벨 끔)은 null — stationLeadText가 null인 때와 같다
+ */
+export function stationLeadShortText(input: StationLeadInput): string | null {
+  const { labelsOn, rehearsal, ended, queue, mine } = input
+  if (labelsOn !== true || rehearsal || ended || mine || queue === null) return null
+  if (queue.device === null) return queue.waiting > 0 ? NO_STATION_SHORT : null
+  return queue.device.live ? null : deviceLostShortMessage(queue.device.name)
+}
 export const reconnectThereMessage = (name: string): string => `출력 기기 '${name}'에서 다시 연결해 주세요.`
-export const replaceQuestion = (name: string): string => `지금은 '${name}'에서 출력하고 있어요. 이 기기로 바꿀까요?`
+/** 출력 기기 자신의 멈춤 띠: 저절로 다시 잇는 동안 (QL2 D-QL2-04 (1), L-11 8) — n = 기다리거나 하는 중인 시도의 차례 */
+export const autoReconnectingMessage = (attempt: number, total: number): string => `프린터에 다시 잇고 있어요. (${String(attempt)}/${String(total)})`
+/** 출력 기기 자신의 멈춤 띠: 저절로 다시 잇기가 그친 뒤 (QL2 D-QL2-04 (2)) — 아래에 해볼 일 목록과 "다시 연결" */
+export const AUTO_RECONNECT_GAVE_UP = "저절로 다시 잇지 못했어요. 아래를 해 본 뒤 '다시 연결'을 눌러 주세요."
+export const replaceQuestion = (name: string): string => `지금은 다른 기기 '${name}'에서 출력하고 있어요. 이 기기로 바꿀까요?`
 
 /** 라벨의 구매자 표시 (유튜브 닉네임, 문자찜은 `문자찜`) */
 export function buyerWord(buyer: LabelBuyer): string {
@@ -198,9 +237,21 @@ export function isAndroid(userAgent: string = typeof navigator === 'undefined' ?
   return userAgent.includes('Android')
 }
 
-/** 이 브라우저가 아이폰·아이패드인가 (MOB1 D-MOB1-11) */
-export function isIphone(userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
-  return /iPhone|iPad/.test(userAgent)
+/** 이 브라우저의 터치 지점 수 (없으면 0) */
+function touchPointCount(): number {
+  try {
+    return typeof navigator === 'undefined' ? 0 : navigator.maxTouchPoints
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * 이 브라우저가 아이폰·아이패드인가 (MOB1 D-MOB1-11 → QL2 D-QL2-07, 순수 함수 — 기본값은 navigator).
+ * 사용자 에이전트에 iPhone·iPad·iPod이 있거나, Macintosh이면서 터치 지점이 2개 이상(터치 맥 = iPadOS 사파리). 터치 없는 맥은 PC
+ */
+export function isIphone(userAgent: string = typeof navigator === 'undefined' ? '' : navigator.userAgent, touchPoints: number = touchPointCount()): boolean {
+  return /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && touchPoints > 1)
 }
 
 /** 아이폰에서 시험용 프린터 바로 아래 한 줄 (D-MOB1-11, AC-MOB1-20) */

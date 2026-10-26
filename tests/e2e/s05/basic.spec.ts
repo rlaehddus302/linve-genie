@@ -5,7 +5,7 @@ import { logoutFully } from '../menu.ts'
 
 test.describe('AC-S05-01 로그인', () => {
   test('로그인 화면 — 가입 없음, 틀린 비밀번호 문장, 아이디 남음, 로그아웃', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01
     await expect(page.getByLabel('아이디')).toBeVisible()
     await expect(page.getByLabel('비밀번호')).toHaveAttribute('type', 'password')
     await expect(page.getByText(/가입/)).toHaveCount(0)

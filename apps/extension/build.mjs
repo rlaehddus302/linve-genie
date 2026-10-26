@@ -29,7 +29,7 @@ const originPlugin = {
 
 rmSync(out, { recursive: true, force: true })
 mkdirSync(out, { recursive: true })
-for (const entry of ['background', 'content', 'page', 'popup']) {
+for (const entry of ['background', 'content', 'page', 'popup', 'tiktok-content']) {
   const bundle = await rolldown({ input: join(here, 'src', `${entry}.ts`), plugins: [originPlugin], platform: 'browser' })
   await bundle.write({ file: join(out, `${entry}.js`), format: 'iife', minify: false, sourcemap: false })
   await bundle.close()

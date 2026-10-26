@@ -82,7 +82,7 @@ describe('남겨 둔 "고칠까요?"는 지금 상태로 다시 본다 (AC-S06-6
 })
 
 describe('키보드: 번호 Enter → 1등 찜 "찜 취소하기" → 숫자 키 사유 → 보내기 (AC-S06-63)', () => {
-  it('상품 자세히의 "닫기"에서 Tab 한 번이면 1등 찜의 "찜 취소하기", 사유 창에서 숫자 1 → 보내기 버튼으로', async () => {
+  it('상품 자세히의 "닫기"에서 Tab 한 번이면 1등 찜의 "찜 취소하기", 사유 창에서 숫자 1 → 그 사유로 바로 5초 대기 (QL3R1 D-QL3R1-05)', async () => {
     setup([register(15, '핑크프릴', 10000), chat('m1', 'UC_hong1234', '홍길동', '15')])
     const { quick } = await openConsole()
     enter(quick, '15')
@@ -103,9 +103,8 @@ describe('키보드: 번호 Enter → 1등 찜 "찜 취소하기" → 숫자 키
       '4 입금 안 함',
     ])
     fireEvent.keyDown(reasonClose, { key: '1' })
-    const submit = within(reason).getByRole('button', { name: '찜 취소하기' })
-    expect(document.activeElement).toBe(submit)
-    fireEvent.click(submit)
+    // 찜 취소 창은 빠른 사유를 고르면 바로 보낸다 — 창이 닫히고 되돌리기 띠에 5초 대기 (QL3R1 D-QL3R1-05)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '15번 홍길동 취소' })).toBeNull())
     expect(await screen.findByText(/뒤 보내요: 15번 홍길동 취소/)).toBeDefined()
     await waitFor(() => expect(engine.posts.some((post) => post.type === 'host.cancel' && post.reason === '시청자 요청')).toBe(true))
   })
@@ -166,7 +165,7 @@ describe('끝난 방송·알림 띠·조치 기록 (AC-S06-61·66·70)', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     const region = screen.getByRole('region', { name: '알림' })
     expect(region.contains(toggle)).toBe(false)
-    expect(region.textContent).toBe('보류 찜 2')
+    expect(region.textContent).toBe('보류 2') // QL3R2 D-QL3R2-02 — 접힌 휴대폰 띠는 "보류 n"
     fireEvent.click(toggle)
     expect(screen.getByRole('button', { name: '알림 2 접기' }).getAttribute('aria-expanded')).toBe('true')
   })
@@ -267,8 +266,7 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
     fireEvent.click(within(detail).getByRole('button', { name: '찜 취소하기' }))
     const reason = await screen.findByRole('dialog', { name: '15번 홍길동 취소' })
-    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' }))
-    fireEvent.click(within(reason).getByRole('button', { name: '찜 취소하기' }))
+    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' })) // 고르면 바로 보낸다 (QL3R1 D-QL3R1-05)
     await screen.findByText('0.4초 뒤 보내요: 15번 홍길동 취소')
     const menu = screen.getByRole('navigation', { name: '메뉴' })
     expect(within(menu).getByRole('link', { name: '방송' }).getAttribute('aria-current')).toBe('page')
@@ -300,8 +298,7 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
     fireEvent.click(within(detail).getByRole('button', { name: '찜 취소하기' }))
     const reason = await screen.findByRole('dialog', { name: '15번 홍길동 취소' })
-    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' }))
-    fireEvent.click(within(reason).getByRole('button', { name: '찜 취소하기' }))
+    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' })) // 찜 취소 창은 고르면 바로 보낸다 (QL3R1 D-QL3R1-05)
     await screen.findByText(/뒤 보내요: 15번 홍길동 취소/)
   }
 
@@ -395,8 +392,7 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
     fireEvent.click(within(detail).getByRole('button', { name: '찜 취소하기' }))
     const reason = await screen.findByRole('dialog', { name: '15번 홍길동 취소' })
-    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' }))
-    fireEvent.click(within(reason).getByRole('button', { name: '찜 취소하기' }))
+    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' })) // 찜 취소 창은 고르면 바로 보낸다 (QL3R1 D-QL3R1-05)
     await screen.findByText(/뒤 보내요: 15번 홍길동 취소/)
     return length
   }
@@ -447,8 +443,7 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     const detail = await screen.findByRole('dialog', { name: '15번 자세히' })
     fireEvent.click(within(detail).getByRole('button', { name: '찜 취소하기' }))
     const reason = await screen.findByRole('dialog', { name: '15번 홍길동 취소' })
-    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' }))
-    fireEvent.click(within(reason).getByRole('button', { name: '찜 취소하기' }))
+    fireEvent.click(within(reason).getByRole('button', { name: '2 장난 찜' })) // 찜 취소 창은 고르면 바로 보낸다 (QL3R1 D-QL3R1-05)
     await screen.findByText(/뒤 보내요: 15번 홍길동 취소/)
     expect(window.history.length).toBe(length)
     expect((window.history.state as { livejjimGuard?: boolean } | null)?.livejjimGuard).not.toBe(true)
@@ -508,6 +503,9 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     act(() => {
       window.dispatchEvent(new Event('online'))
     })
-    expect(await screen.findByRole('button', { name: '로그인' })).toBeDefined()
+    // 처음 연 `/`에서 로그인하지 않은 사람 — 소개 화면이고 "로그인이 풀렸어요"가 아니다 (D-LND1-02, TE-LND1-001)
+    expect(await screen.findByRole('heading', { name: '판매자의 하루' })).toBeDefined()
+    expect(screen.queryByText('인터넷 연결이 없어요. 연결되면 다시 불러와요.')).toBeNull()
+    expect(screen.queryByText('로그인이 풀렸어요. 다시 로그인해 주세요.')).toBeNull()
   })
 })

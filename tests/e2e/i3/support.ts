@@ -50,7 +50,7 @@ export async function sealNow(request: APIRequestContext, loginId: string, date:
 }
 
 /** 로그인 화면에서 그 계정으로 로그인 (마법사가 열리든 아니든 로그아웃 버튼까지) */
-export async function loginAs(page: Page, account: { loginId: string; password: string }, path = '/'): Promise<void> {
+export async function loginAs(page: Page, account: { loginId: string; password: string }, path = '/login'): Promise<void> { // LND1 D-LND1-01
   await page.goto(path)
   await page.getByLabel('아이디').fill(account.loginId)
   await page.getByLabel('비밀번호').fill(account.password)

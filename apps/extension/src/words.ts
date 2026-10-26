@@ -13,3 +13,17 @@ export const WORDS = {
   DROPPED: '놓친 채팅이 있어요. 놓친 주문은 손으로 넣어 주세요.',
   LIVE_CHAT_TIP: '채팅 창 위의 "인기 채팅"을 "실시간 채팅"으로 바꿔 두세요. 인기 채팅에서는 일부 채팅이 보이지 않아요.',
 } as const
+
+// 팝업 틱톡 줄 (TTX acceptance "화면 문구" — 서버 EXT_TIKTOK_MESSAGES와 글자가 같다). 영어 코드는 화면에 쓰지 않는다.
+export const TT_WORDS = {
+  RECORDING: '틱톡 댓글을 라이브지니로 보내고 있어요.',
+  STANDBY: '서버 연결로 받고 있어 확장은 기다려요.',
+  NOT_OWN_LIVE: '지금 화면은 내 틱톡 방송이 아니에요. 댓글을 보내지 않아요.',
+  NO_TIKTOK_ID: '라이브지니 설정에서 내 틱톡 아이디를 먼저 넣어 주세요.',
+  NOT_LINKED: '라이브지니 콘솔에서 방송을 틱톡에 먼저 이어 주세요.',
+  NO_CONSENT: '틱톡 연결이 꺼져 있어요. 라이브지니 설정에서 안내를 읽고 켜 주세요.',
+  PLATFORM_NOT_READY: '지금은 틱톡 연결을 쓸 수 없어요. 댓글을 직접 넣어 주세요.',
+  OVERFLOW: '놓친 틱톡 댓글이 있어요. 라이브지니에서 댓글을 붙여 넣어 주세요.',
+  ELSEWHERE_PAGE: '내 틱톡 방송 화면을 열면 댓글을 보내요.',
+  HIDDEN: '틱톡 방송 화면을 앞으로 꺼내 두세요',
+} as const

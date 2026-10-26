@@ -31,6 +31,8 @@ import type { ReceiptLinkService } from './receipt-links.ts'
 import type { TikTokLive } from './tiktok-live/live.ts'
 import type { PasteService } from './tiktok-live/paste-service.ts'
 import { registerTiktokRoutes } from './tiktok-live/routes.ts'
+import type { BandService } from './band/service.ts'
+import { isBandPublicPath, registerBandRoutes } from './band-routes.ts'
 import type { Db } from './db/database.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import { WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
@@ -49,6 +51,8 @@ import { isSocialPath, registerSocialRoutes, socialPublicPaths } from './social/
 import type { SocialLogin } from './social/service.ts'
 import { registerAssistRoutes } from './assist/routes.ts'
 import type { AssistService } from './assist/service.ts'
+import { registerCustomerRoutes } from './customers/api.ts'
+import type { CustomerService } from './customers/service.ts'
 
 /** 요청 본문 상한 (AC-S04-34) */
 export const BODY_LIMIT_BYTES = 64 * 1024
@@ -89,6 +93,8 @@ export interface ApiDeps {
   readonly trustedProxies?: number
   /** 틱톡 연결·붙여넣기 (N2b-2). instagram과 함께 준다 — 회차 연결 조회가 플랫폼마다 */
   readonly tiktok?: { readonly db: Db; readonly live: TikTokLive; readonly paste: PasteService }
+  /** 밴드 계정·글 연결 (BND1). instagram·tiktok과 함께 준다 — 플랫폼 능력·회차 연결 조회가 플랫폼마다. 없으면 /api/band 경로가 없다 */
+  readonly band?: BandService
   /** 택배 자동 접수 (T1). 없으면 /api/parcels 경로가 없고 정산 묶음·포장 모드에 parcel이 없다 */
   readonly parcels?: { readonly service: ParcelService; readonly db: Db }
   /** 간편 로그인 (L1). 없거나 켜진 공급자가 없으면 /api/auth/**는 404이고 client-config에 loginProviders가 없다 */
@@ -97,6 +103,8 @@ export interface ApiDeps {
   readonly extension?: ExtensionService
   /** AI 확인 필요 제안 (A1). 없으면 /api/assist/** 경로가 없다 */
   readonly assist?: AssistService
+  /** 손님 기록·메모·설정 "손님 관리" (CRM1). 없으면 /api/customers·/api/customer-settings·/api/days/:date/customer(s) 경로가 없다 */
+  readonly customers?: CustomerService
 }
 
 /** TCP 연결 주소 (@hono/node-server가 넘기는 요청 정보). 프로세스 안 요청(시험의 app.request)은 env로 넣을 수 있고, 없으면 null */
@@ -263,7 +271,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // 세션 (로그인·헬스체크 밖 전부 — 가져오기 두 경로는 위에서 이미 봤다)
   api.use(async (c, next) => {
-    if (publicPaths.has(`${c.req.method} ${c.req.path}`) || isWebhook(c)) return next()
+    // 밴드 돌아오는 주소(GET /api/band/callback/<표>)는 경로의 표와 쿠키 세션으로만 처리한다 (BND1 D-BND1-11)
+    if (publicPaths.has(`${c.req.method} ${c.req.path}`) || isWebhook(c) || isBandPublicPath(c.req.method, c.req.path)) return next()
     if (!sessionChecked.has(c.req.raw)) {
       const refused = await checkSession(c)
       // 로그인 화면의 간편 로그인 버튼 (L1): 공급자가 켜진 서버는 로그인 전 client-config에 켜진 공급자 이름만 답한다 (꺼진 서버는 지금처럼 401)
@@ -918,6 +927,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // ── 유튜브 (Y1) ──────────────────────────────────────────────────────
   registerYoutubeRoutes(api, { service, auth, youtube: deps.youtube ?? null, sealer: deps.sealer ?? null })
   if (deps.assist !== undefined) registerAssistRoutes(api, deps.assist)
+  // ── 손님 기록 (CRM1 — 판매자 계정만: 보조자 허용 목록 밖이라 403) ──
+  if (deps.customers !== undefined) registerCustomerRoutes(api, deps.customers)
   if (social !== null) registerSocialRoutes(api, social, (c) => clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0))
 
   // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────
@@ -927,8 +938,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // 플랫폼 능력 조회의 YOUTUBE.ready = 유튜브 연동 설정(Y1)이 있는지. 유튜브 잇기 자체는 /api/youtube 경로(Y1)가 맡는다
   // 틱톡(N2b-2): 설정·연결 보기·다시 연결·붙여넣기. 잇기·끊기는 플랫폼 공통 경로(/broadcasts/:id/live/link·unlink, platform TIKTOK)
   if (deps.instagram !== undefined && deps.tiktok !== undefined) {
-    registerLiveRoutes(api, deps.instagram, auth, { db: deps.tiktok.db, tiktok: deps.tiktok.live, youtubeReady: deps.youtube !== undefined && deps.youtube !== null })
+    registerLiveRoutes(api, deps.instagram, auth, { db: deps.tiktok.db, tiktok: deps.tiktok.live, youtubeReady: deps.youtube !== undefined && deps.youtube !== null, ...(deps.band === undefined ? {} : { band: deps.band }) })
     registerTiktokRoutes(api, deps.tiktok.live, deps.tiktok.paste)
+    if (deps.band !== undefined) registerBandRoutes(api, deps.band, auth)
   }
   // ── 요금 (N5, BILLING_RULES) — 켜져 있을 때만 ───────────────────────────
   if (billing !== null) registerBillingRoutes(api, billing)

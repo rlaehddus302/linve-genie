@@ -1,6 +1,6 @@
 // PWA (AC-S06-50~52, UX-07, D-093) — test-e2e. 서비스 워커는 막지 않는다.
 import { test, expect, type Page } from '@playwright/test'
-import { login } from './support.ts'
+import { login, openNewBroadcast, uniqueDate } from './support.ts'
 
 async function controlled(page: Page): Promise<void> {
   await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration()) !== undefined, null, { timeout: 15_000 })
@@ -78,7 +78,20 @@ test.describe('PWA', () => {
   test('AC-S06-51: 새 버전은 기다렸다가 안내 — 저절로 다시 열지 않고 치던 입력이 남는다, "지금 새로고침"으로 바뀜', async ({ page }) => {
     await login(page)
     await controlled(page)
+    // 방송이 없으면 /sms가 입력 칸을 막는다(SmsPage: 고른 방송 없음 → 막힌 칸). 앞 시험이 만든 방송에 기대지 않도록
+    // 이 시험만의 방송(겹치지 않는 날짜)을 만들고 그 방송을 골라 입력 칸이 열린 상태에서 메모를 친다.
+    // openSms는 고를 때의 조회 응답을 기다리는데, 이 방송이 이미 기본으로 골라져 있으면(빈 서버에서 단독 실행) 다시 조회하지 않아
+    // 영영 기다린다 — 그래서 응답 대신 화면 상태(고른 방송 제목·입력 칸 열림)로 기다린다.
+    const title = `새버전-${crypto.randomUUID().slice(0, 8)}`
+    await openNewBroadcast(page, { date: uniqueDate(), rehearsal: false, title })
     await page.goto('/sms')
+    const region = page.getByRole('region', { name: '고른 방송' })
+    await region.getByRole('button', { name: /^방송 (바꾸기|고르기)$/ }).click()
+    const dlg = page.getByRole('dialog', { name: '방송 고르기' })
+    await dlg.getByRole('button', { name: new RegExp(`^${title} ·`) }).click()
+    await expect(dlg).toHaveCount(0)
+    await expect(region).toContainText(title)
+    await expect(page.getByLabel('메모', { exact: true })).toBeEnabled()
     await page.getByLabel('메모', { exact: true }).fill('치던 메모')
     // 새 버전 흉내: 같은 범위에 스크립트 주소를 바꿔 다시 등록 (Playwright는 서비스 워커 스크립트 요청을 가로채지 못한다)
     await page.evaluate(async () => {

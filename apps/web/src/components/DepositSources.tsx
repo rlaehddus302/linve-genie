@@ -71,7 +71,7 @@ export function SourcesTab() {
     <div className="stack sources-tab">
       <section className="card stack" aria-labelledby={titleId}>
         <h2 id={titleId} className="section-title">
-          입금 내역 원천
+          입금 받는 곳
         </h2>
         {sources.error !== null ? <ErrorNote error={sources.error} onRetry={() => void sources.reload()} retryLabel="다시 불러오기" /> : null}
         {sources.view === null ? (
@@ -79,9 +79,9 @@ export function SourcesTab() {
             <p role="status">불러오는 중…</p>
           ) : null
         ) : sources.view.sources.length === 0 ? (
-          <p>아직 원천이 없어요. 붙여넣기로 넣거나 계좌를 연결해 주세요.</p>
+          <p>아직 입금 받는 곳이 없어요. 붙여넣기로 넣거나 계좌를 연결해 주세요.</p>
         ) : (
-          <ul className="plain-list stack-tight" aria-label="원천">
+          <ul className="plain-list stack-tight" aria-label="입금 받는 곳">
             {sources.view.sources.map((source) => (
               <SourceItem key={source.id} source={source} onChanged={() => void sources.reload()} />
             ))}
@@ -120,7 +120,7 @@ function SourceItem({ source, onChanged }: { readonly source: SourceView; readon
   }
   const kind = SOURCE_KIND_WORD[source.kind] ?? ''
   return (
-    <li className="claim-row source-item" aria-label={`원천 ${source.label}`}>
+    <li className="claim-row source-item" aria-label={`입금 받는 곳 ${source.label}`}>
       <p>
         <strong>{source.label}</strong>
         {source.label.trim() === kind ? '' : ` · ${kind}`}
@@ -302,10 +302,10 @@ function AddFake({ onAdded }: { readonly onAdded: () => void }) {
   }
   return (
     <div className="stack-tight">
-      <p className="hint">시험 모드 서버예요. 시험용 입금 원천은 실제 계좌가 아니에요.</p>
+      <p className="hint">시험 모드 서버예요. 시험용 입금 받는 곳은 실제 계좌가 아니에요.</p>
       <div>
         <button type="button" className="button" disabled={busy} onClick={() => void add()}>
-          시험용 입금 원천 추가
+          시험용 입금 받는 곳 추가
         </button>
       </div>
       {error !== null ? <ErrorNote error={error} /> : null}

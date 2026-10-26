@@ -82,7 +82,7 @@ test.describe('S05 지적 정리', () => {
   })
 
   test('AC-S06-66: 보류 찜 창 첫 그림부터 경과 초, 끝난 방송 글자는 상태, 로그인 칸 커서, 리허설 조작판 첫 화면·"시드" 없음', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/login') // LND1 D-LND1-01 (첫 화면 커서 — 로그인 화면 주소)
     await expect(page.getByLabel('아이디')).toBeFocused()
     await login(page)
     await page.setViewportSize({ width: 1440, height: 900 })

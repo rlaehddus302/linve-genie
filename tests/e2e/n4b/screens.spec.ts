@@ -56,7 +56,7 @@ test.describe('AC-N4b-30 끝난 콘솔의 "영수증 보내기"', () => {
     const live = await openNewBroadcast(page, { date: uniqueDate(), rehearsal: false, title: '2부' })
     await page.goto(receiptsPath(live))
     await expect(page.getByText('방송을 끝낸 뒤 보낼 수 있어요.')).toBeVisible()
-    await expect(page.getByRole('link', { name: '콘솔로 돌아가기' })).toBeVisible()
+    await expect(page.getByRole('link', { name: '방송 화면으로 돌아가기' })).toBeVisible() // QL3R2 D-QL3R2-04
     await expect(page.getByRole('list', { name: '구매자' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '링크 전부 만들기' })).toHaveCount(0)
   })
@@ -325,7 +325,7 @@ test.describe('AC-N4b-42 리허설·보조자', () => {
       helper.on('request', (r) => {
         if (/receipt-(buyers|links)/.test(r.url())) asked.push(r.url())
       })
-      await helper.goto('/')
+      await helper.goto('/login') // LND1 D-LND1-01
       await helper.getByLabel('아이디').fill(assistant.loginId)
       await helper.getByLabel('비밀번호').fill(password)
       await helper.getByRole('button', { name: '로그인' }).click()

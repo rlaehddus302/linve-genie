@@ -1,0 +1,149 @@
+# CRM1 dev-notes
+
+## dev-server (손님 기록·메모·설정 "손님 관리")
+
+### 만든 것
+- `apps/server/src/customers/summary.ts` — 요약 순수 함수 `customerSummary(today, settings, bundles)` (골든 G-CRM-001~013), `addDays`(달력 날짜, TZ 무관), `isNoPayReason`(공백 모두 뺀 글 = `입금안함`), `isUnpaid`·`isPurchase`.
+- `apps/server/src/customers/facts.ts` — 날짜(실제 범위)마다 재료: 구매자(표지 `c:<채팅 키>`·`p:<전화번호 키>`), 지금의 구매자 묶음(items·subtotal·payment·cancels·noPay·record). 캐시 키 = (판매자, 범위 ID, 범위 seq, 봉인 여부) — D-CRM1-11.
+  - `noPay`: 사유는 엔진 상태에 없어서, 그 범위에 '입금 안 함' 후보 조치(host.cancel·host.reject·host.assign replaceTo=CANCEL)가 있을 때만 이벤트 기록을 코어 `applyEvent`로 처음부터 다시 적용해 그 조치 앞뒤로 CONFIRMED → 취소·무효가 된 찜을 찾는다(판정 복제 아님 — 코어 상태 비교).
+  - `cancels`: 가격 스냅샷이 있는(= 1등이었던) 찜 중 지금 `CANCELLED` 또는 `REJECTED(BY_HOST)`.
+  - 기록 묶음 = items ≥ 1 또는 입금·환불 기록 있음 또는 cancels ≥ 1.
+- `apps/server/src/customers/service.ts`·`api.ts`·`rules.ts` — 경로·검사. `server.ts`·`api.ts`에 연결(`LivejjimServer.customers`).
+- DB: `customer_settings`(판매자마다 한 줄), `customer_memos`(덧붙이기, 표지마다 마지막 줄이 보임). 마이그레이션 `0020_crm1_customers.sql`. 복구·가져오기는 그대로 둔다(`RESTORE_KEPT_TABLES`) — 백업 파일엔 없다.
+- 시험: `apps/server/test/crm1-golden.test.ts`(AC-01·02), `crm1-records.test.ts`(AC-03~12·16·18·30 일부), `crm1-memo-access.test.ts`(AC-21~23·25~27), 성능 `crm1-customers.perf.test.ts`(AC-31, 게이트 밖 — 90일×200명 p95 2초, 이 기계에서 한 번 통과 12초).
+- 기존 시험 손봄(약화 아님, 주석 남김): `commands.test.ts` 표 수 69 → 71, `fb1-parcel-settings.test.ts` "마지막 마이그레이션 기록 지우기" → "0019(저널 when) 이후 기록 지우기 + 0020 표 지우기"(0020이 생겨 0019가 마지막이 아니게 됨).
+
+### API (판매자 계정만 — 보조자 403 `ASSISTANT_FORBIDDEN`, 로그인 없음 401, 다른 판매자 404, 모두 `Cache-Control: no-store`, 엔진 이벤트·발송함 안 씀)
+
+| 경로 | 뜻 |
+|---|---|
+| `GET /api/customer-settings` | `{ settings: { regularCount, regularAmount, waitDays } }` (기본 3·100000·3) |
+| `PUT /api/customer-settings` | 본문 `{ regularCount, regularAmount, waitDays }` 셋 다(금액 비우기 = `null`). 정수(JSON 숫자)만. 틀리면 400 `INVALID_INPUT` `problems[{ field, message }]` — 문장은 D-CRM1-05 그대로. 모르는 키 400 `UNKNOWN_FIELD`. 응답 `{ settings }` |
+| `GET /api/days/:date/customers` | 그날 지금의 구매자마다 `{ date, today, settings, customers: [{ buyer, purchaseDays, purchaseTotal, lastPurchase, unpaidDays, lastUnpaid, cancels, regular, caution }] }` (buyer 순). 구매자 목록 꼬리표·"누적 큰 순"·거르기와 **콘솔 1등 옆 "입금 늦음 주의"**가 이 하나를 쓴다. `?rehearsal=true`·리허설만 있는 날짜·없는 날짜 = 404 |
+| `GET /api/days/:date/customer?buyer=` | 자세히 "손님 기록" 칸: `{ date, buyer(지금의 구매자로 푼 값), summary, members: [{ buyer, name, platform, kindLabel, phoneLast4, customer, memo }] }`. `members` = 묶음 구성원(지금의 구매자 → 합친 순서). `customer` = 불투명 손님 ID(32자 hex) — **null이면 전화번호 없는 문자 손님**: 메모 칸 대신 "전화번호 없는 문자 손님은 다른 날과 이어지지 않아 메모를 남길 수 없어요." `memo` = `{ text, savedAt(UTC ISO) }` 또는 null |
+| `GET /api/customers?sort=total\|recent\|unpaid&filter=all\|regular\|caution&q=&offset=0` | "모든 손님": `{ today, settings, customers: CustomerRow[20], count, more, next(다음 offset 또는 null) }`. 틀린 값 400. `q` 40자까지, 번호 모양이면 400(D-079 ⑥ 문장 + hint) |
+| `GET /api/customers/:id?before=YYYY-MM-DD` | 손님 자세히 `{ customer: CustomerRow, memo, days: [{ date, buyer, name, subtotal, payment, unpaid }], more, next(다음 before 날짜) }` — 날짜 최근부터 20개. 모르는 ID 404 |
+| `PUT /api/customers/:id/memo` | 본문 `{ text }`. 바로 저장(5초 대기 아님). `\r\n`→`\n`, 앞뒤 공백 뺌, 빈 글 = 지움. 응답 `{ memo: { text, savedAt } \| null }`. 거절 400 `problems[{ field: 'text', message }]`: "메모는 200자까지 적을 수 있어요." · D-079 ⑥ 문장 · "메모에 쓸 수 없는 글자가 있어요. 빼고 적어 주세요."(줄 나눔 밖 제어 글자·탭·짝 없는 서로게이트) · "메모는 글자로 보내 주세요." |
+
+`CustomerRow` = `{ id, name(가장 최근 실제 날짜의 표시 이름), platform('YOUTUBE'|'INSTAGRAM'|'TIKTOK'|null), kindLabel("유튜브"·"인스타그램"·"틱톡"·"문자 · 끝자리 1234"), phoneLast4, blocked(가장 최근 날짜의 그 구매자 차단), latestDate, latestBuyer(그 날짜 구매자 ID — D-CRM1-09 "가장 최근 날짜(…)의 구매자 화면에서 차단할 수 있어요" 길), …요약 8칸 }`.
+
+정렬: `total` = 누적 큰 순 → 이름 → ID / `recent` = 마지막 구매일 늦은 순(없으면 맨 뒤) → 이름 → ID / `unpaid` = 미입금 많은 순 → 누적 큰 순 → 이름 → ID. 이름 비교는 코드 포인트 순(한글 가나다와 같음). 찾기 = 날짜마다의 표시 이름·이름 이력(대소문자 무시) 또는 끝자리 숫자.
+
+### dev-web에게
+- 구매자 목록 "누적 큰 순"(같으면 이름 → 구매자 ID)·거르기는 `GET /api/days/:date/customers`의 `purchaseTotal`·`regular`·`caution`으로 화면에서 정렬·거른다(서버는 buyer 순으로만 준다). 리허설 날짜는 이 경로를 부르지 않는다(404).
+- 콘솔: 실제 방송만, 1등의 지금의 구매자 `buyer`가 `caution: true`면 꼬리표. 단골은 콘솔에 안 쓴다. 실패(4xx·5xx·네트워크)면 꼬리표 없이 그대로, 오류 띠 없음. 다시 받기 10초에 한 번까지(D-CRM1-07).
+- 날짜 문장("10월 15일(목)", 올해가 아니면 연도)·"N월 N일(요일) 저장"은 화면이 KST로 만든다(`savedAt`은 UTC ISO). 기준 연도는 응답의 `today`(서버 KST 날짜)로 보면 화면 기기 시계와 상관없다.
+- `payment`는 `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID` 그대로 오니 지금 정산 화면의 낱말로 바꿔 보인다(영어 노출 금지).
+- 메모 칸 아래 "연락처·주소는 적지 마세요."는 화면 문구. 메모·이름은 늘 글자로(이스케이프).
+- 설정 "손님 관리" 저장은 저장 막대 하나(D-FB1-06) — 이 칸만 바뀌었으면 `PUT /api/customer-settings` 하나. 금액 칸을 비우면 `regularAmount: null`. "10.5"처럼 정수가 아닌 글은 화면에서 숫자로 바꾸지 말고 그대로(문자열) 보내도 서버가 거절 문장을 준다.
+
+### test-domain에게 (tests/adversarial/crm1)
+- 모형 대조 기준: 표지 = `c:<채팅 구매자 키>`·`p:<전화번호 키>`(서버 안), 기록 = 그날 묶음 + 구성원 표지로 다른 실제 날짜의 그 표지 구매자의 지금의 구매자 묶음(한 번, 같은 (날짜, 묶음) 한 번), 기록 묶음만. 캐시 무효화 키는 범위 seq — 입금·취소·설정·시계 변경을 끼워도 처음부터 센 값과 같아야 한다.
+- 시험용 진입점: `world.server.customers`(CustomerService), 날짜 재료를 새로 만든 횟수 `factsBuildCount()`(`src/customers/facts.ts`).
+- 봉인 날짜: 봉인 장부엔 끝난 찜·조치 사유가 없어 그 날짜의 `cancels`·`noPay`(사유 (나))는 0, 구매·(가) 미입금은 장부의 정산 묶음으로 센다("봉인 장부 기준", D-CRM1-02). 모형도 그렇게 맞춰 주세요.
+
+### test-e2e에게
+- 위 API 그대로. 시계는 E2E 서버의 주입 시계가 오늘 날짜를 정한다.
+
+### 범위 밖·주의 (disputesWithSpec 없음)
+- 봉인 날짜의 취소·'입금 안 함' 취소 횟수는 0(장부에 없는 값을 지어내지 않음). spec-keeper가 다르게 원하면 봉인 장부 형식(youtube/seal.ts — 금지 경로)을 바꿔야 하므로 맥북 쪽 작업이 된다.
+- 메모 글은 평문으로 저장한다(번호는 거절). 암호화·보관 기간은 "사용자 확인 필요"(DECISIONS).
+
+## dev-web (구매자 화면 꼬리표·손님 기록·모든 손님·메모·설정 "손님 관리"·콘솔 주의 꼬리표)
+
+### 만든 것
+- `apps/web/src/lib/customers.ts` — 서버 응답 타입, 낱말(`customerDate` 올해면 "10월 15일(목)"·아니면 "2025년 12월 29일(월)", 기준 연도 = 응답 `today`), `memoSavedWords`(UTC → KST "10월 26일(월) 저장"), `summaryLines`, 정렬 `byCumulative`(누적 → 이름 `localeCompare('ko')` → ID), 거르기 `passesFilter`, 받기 훅 `useDayCustomers(date, enabled, refresh, minGapMs)`(refresh가 바뀌면 다시 받되 minGap에 한 번, 실패면 받은 값 그대로).
+- `components/CustomerParts.tsx` — `CustomerTags`("단골" `.tag-regular`·"입금 늦음 주의" `.tag-caution`·"차단"), `CustomerRecord`(구매자 자세히 "손님 기록" 칸, `GET /api/days/:date/customer?buyer=`, 404면 칸 없음), `MemoEditor`(바로 저장 `PUT /api/customers/:id/memo`, 200자 넘으면 보내지 않고 "메모는 200자까지 적을 수 있어요.", 서버 거절 문장은 칸 아래, 저장하지 않은 글은 떠나기 확인).
+- `components/AllCustomers.tsx` — "모든 손님" 목록·손님 자세히.
+- `components/CustomerSettings.tsx` — 설정 "손님 관리" 칸(저장 막대 단계 `customers`, 칸 이름 `손님 관리` — `lib/save-bar.ts`의 `SAVE_BLOCKS`·`SAVE_STEPS` 끝에 더함, 택배 다음 차례). 숫자(쉼표 묶음 허용)는 정수로, 아닌 글("10.5"·빈 칸)은 글 그대로 보내 서버 문장을 받는다. 금액 칸을 비우면 `null`. 보조자 화면엔 칸이 없다.
+- `components/caution.tsx` — 콘솔 `CautionContext`·`useConsoleCaution`(실제 방송만, 1등 집합 `winnersKey`가 바뀌면 다시 받기 — 10초에 한 번, 첫 변화는 바로), `CautionMark`(누를 수 없는 `span`, 보이는 글 "입금 늦음 주의"/"주의"는 `aria-hidden`, 읽기 프로그램엔 `.sr-only` "입금 늦음 주의 손님"), `WinnerNames`.
+- 콘솔: `ProductBoard.tsx`(현재 상품 카드 "1등: …", 상품 보드 줄, 번호 찾기 요약, 변형 줄, 휴대폰 요약 줄), `ProductDetail.tsx`(1등 목록 줄 — `CONFIRMED`만), `ConsolePage.tsx`(Provider 하나·훅 하나만). 주의 손님이 없으면 1등 글은 예전처럼 한 덩어리 글(기존 시험·E2E 글자 그대로).
+- 휴대폰 요약 줄(`SummaryFit`): 긴 꼬리표를 넣어 줄 높이가 꼬리표 없을 때보다 커지면 "주의" 한 낱말. 잴 때만 줄 안에 보이지 않는 두 벌(`.summary-measure`, `aria-hidden`)을 두고 그림 전에 재고 뺀다 — 다 그린 뒤 DOM 글자엔 남지 않는다. 폭이 바뀌면(ResizeObserver) 다시 잰다. **"주의"도 한 줄을 늘리는 경우(꼬리표 없는 줄이 거의 꽉 찬 경우)는 그대로 "주의"로 둔다** — D-CRM1-07이 준 줄임은 "주의"까지라서. test-e2e가 AC-CRM1-20 측정에서 높이가 늘면 알려 주세요(그때는 1등 글 자르기 6글자 꼴 D-QL2-11 (3)을 꼬리표 있을 때만 쓰는 쪽을 검토).
+- 주소(`lib/router.ts`): `/buyers?view=customers[&sort=recent|unpaid][&filter=regular|caution][&customer=<32자 ID>]` — 기본 `total`·`all`은 적지 않는다. 찾는 말은 주소에 넣지 않는다(끝자리 숫자일 수 있어서). 날짜 `date`는 그대로 남겨 "날짜별"로 돌아갈 때 쓴다.
+- 스타일: `.tag-regular`(초록)·`.tag-caution`(갈색 글·노란 바탕, 굵게), `.memo-text`(`white-space: break-spaces` — 375px 규칙 시험이 `pre-wrap`을 막아서), `.memo-input`, `.summary-measure`, `.current-summary { position: relative }`.
+- 단위 시험 `apps/web/test/crm1-customers.test.tsx`(17건): 낱말·정렬·거르기·주소, 설정 저장 막대(PUT 본문·거절 문장), 구매자 목록 꼬리표·누적 큰 순·거르기·실패·리허설, 자세히 손님 기록·메모(이스케이프·저장·200자·이벤트 안 씀), 모든 손님(20줄·더 보기·정렬 주소·자세히 날짜 줄·차단 길), 콘솔 꼬리표(글·읽기 글, 10초 간격·실패·리허설). 웹 단위 시험 전체 105파일 1620건 통과, `tsc`·`eslint` 통과. 전체 `pnpm verify`는 규칙대로 돌리지 않았다.
+
+### 화면 계약 (test-e2e에게 — 역할·이름)
+- 구매자 화면 맨 위 `group "보기"`: 버튼 "날짜별"·"모든 손님"(`aria-pressed`).
+- 날짜별 목록(실제 날짜만): `group "정렬"`에 "이름 순"·"합계 큰 순"·"누적 큰 순", `group "거르기"`에 "모두"·"단골만"·"입금 늦음 주의만"(모두 `aria-pressed`). 목록 `list "구매자"`(휴대폰) / `table "구매자"`(48rem 이상) — 꼬리표는 줄 안 글자 "단골"·"입금 늦음 주의"·"차단". 손님 기록을 못 받으면(404 밖) 누적 정렬·거르기 없이 "손님 기록을 불러오지 못했어요." + "다시 불러오기". 리허설은 손님 기록 조회를 아예 부르지 않는다.
+- 구매자 자세히: `region "손님 기록"`(지난 구매 `region "지난 구매"` 위). 메모 칸마다 제목 `heading "메모 · 유튜브 · 다육이맘"`/"메모 · 문자 · 끝자리 1234", 글 칸 이름 "메모 — {같은 이름}", 버튼 이름 "메모 저장 — {같은 이름}"(보이는 글 "메모 저장"), 저장 뒤 `status` "메모를 저장했어요."/"메모를 지웠어요.", 저장 날짜 "10월 ○일(○) 저장". 전화번호 없는 문자 손님은 글 칸 없이 "전화번호 없는 문자 손님은 다른 날과 이어지지 않아 메모를 남길 수 없어요.".
+- 모든 손님: `region "모든 손님"`, 찾기 칸 이름 "손님 찾기"(0.3초 뒤 묻는다), `group "정렬"`("누적 큰 순"·"최근 산 순"·"미입금 많은 순"), `group "거르기"`, `status` "손님 n명", 목록 `list "손님"`/`table "손님"`, "더 보기 (n명 더)". 손님 자세히 `region "손님 자세히"`: 버튼 "모든 손님 목록으로", 링크 "가장 최근 날짜(10월 22일)의 구매자 화면에서 차단할 수 있어요", `region "날짜별 기록"`의 링크(날짜·"그날 이름 …"·"상품 합계 …"·입금 낱말·미입금 날 "미입금" — 입금 상태가 미입금인 미입금 날은 "미입금" 한 번만).
+- 뒤로 가기: 손님 자세히 → 목록은 같은 정렬·거르기(주소)·찾는 말·불러온 줄(화면 기억)·스크롤 자리. 돌아오면 받아 둔 줄을 바로 보이고 같은 줄 수만큼 뒤에서 새로 받아 바꾼다(차단 꼬리표 반영).
+- 콘솔: 꼬리표 요소 `.caution-mark`(누를 수 없음), 보이는 글 "입금 늦음 주의"(요약 줄은 넘치면 "주의"), 읽기 글 "입금 늦음 주의 손님". 가짜 500이면 꼬리표 없음·오류 띠 없음. 다시 받기는 1등 집합이 바뀔 때만, 10초에 한 번까지.
+
+### 다음 영역에게
+- **test-e2e**: 위 계약으로. 콘솔 꼬리표는 이벤트를 쓰지 않으니 "꼬리표 끈 같은 시나리오"는 `/api/days/:date/customers`를 가짜 500으로 막은 쪽과 비교하면 된다. 설정 칸 제목은 `heading "손님 관리"`, 칸 이름 "단골 횟수"·"단골 금액"·"입금 기다리는 날".
+- **ux**: 날짜별 목록 도구 막대에 정렬 3·거르기 3 단추가 더해져 휴대폰에서 두세 줄로 감싼다(가로 스크롤 없음). 손님 자세히의 차단 길은 링크 모양(버튼 아님 — D-CRM1-09 "차단 버튼 없음").
+- **dev-server**: 구매자 자세히 응답(`/api/days/:date/customer`)에 `today`가 없어 화면은 같은 날짜의 `/customers` 응답 `today`를 쓴다(아직 없으면 기기 KST 날짜). 넣어 주면 그쪽을 쓰게 바꾸겠다(필수 아님).
+
+## dev-server 수정 라운드 (TD-CRM1-001 · RA-CRM1-01 · RA-CRM1-02)
+- **TD-CRM1-001**: `facts.ts` `phoneKeys`가 문자찜 본문의 phoneKey를 판매자 키로 다시 만든 `last4KeyText(날짜, 실제, 끝자리)`·`newBuyerKeyText(날짜, 실제, 끝자리, ref)` 키와 비교해 같으면 뺀다 → 음성 "끝자리만"·"새 손님으로 넣기" 문자 구매자는 표지 없음("모든 손님"에 없음, `customer: null`). 이벤트 본문 형식은 그대로라 이미 쌓인 기록에도 맞다. `CustomerDeps`에 `masterKey`가 생겼다(`server.ts`에서 넘김). 지난 구매(`past.ts`)는 그 키가 날짜를 담아 다른 날짜와 맞지 않으므로 그대로 둔다.
+- **RA-CRM1-01**: 날짜 재료 캐시 자리 = (판매자, 범위 ID), seq·봉인 여부는 값에 — 방송 중 seq가 바뀌면 같은 자리를 덮어쓴다. 상한은 자리 4000개와 크기(구매자+묶음 수 합 40만) 둘 다. 시험 진입점 `factsCacheStats()`.
+- **RA-CRM1-02**: '입금 안 함' 찾기를 범위마다 이어 센다(어디까지 후보를 봤는지·다시 적용했는지·찾은 ID). 이어 갈 상태는 최근 16범위만 메모리에 두고, 없으면 첫 새 후보보다 앞선 스냅샷(`store.ts` `snapshotBefore`, `runtime.ts` `usableSnapshot` 내보냄)에서 시작한다. 이벤트는 500개씩 나눠 읽고(`eventsBetween`) 나눌 때마다 이벤트 루프에 양보한다. 같은 재료를 동시에 세우는 조회는 한 약속을 함께 쓰고, 같은 범위의 '입금 안 함' 찾기는 차례로 돈다. 시험 진입점 `noPayReplayCount()`·`forgetNoPayStates()`.
+- 시험: `apps/server/test/crm1-cache.test.ts`(4건). 작업 풀로 넘기기는 하지 않았다(재료가 코어 상태 Map이라 넘기는 비용이 크다 — 양보·이어 세기·스냅샷 시작으로 대신).
+- **dev-web에게(선택)**: `BuyersPage.tsx`의 `useDayCustomers(..., 2000)` 2초 간격은 이제 서버 캐시를 쌓지 않지만, 방송 날짜엔 매번 그 범위 재료를 다시 세운다(구매자 수에 비례). 콘솔처럼 10초로 늘리면 더 가볍다.
+
+## dev-web 수정 라운드 (TE-CRM1-001~004 · U-CRM1-01)
+- **TE-CRM1-001**: `useDayCustomers`는 날짜를 열 때(날짜 바뀜·다시 불러오기 포함) 받은 것을 10초 간격에 세지 않는다 — 연 뒤 첫 변화는 바로, 그다음부터 10초에 한 번. `useConsoleCaution`은 방송 자료(1등)가 온 뒤에야 연다(자료 없이 받은 것이 연 때 받기가 되면 자료 도착이 첫 변화로 세져 그 뒤 1등 변화가 다시 밀린다). 1등이 10초 안에 잇달아 바뀌면 둘째 변화부터는 여전히 최대 10초 늦을 수 있다 — D-CRM1-07의 "5초 안에"와 "10초에 한 번까지"가 함께 지켜지지 않는 경우라 spec-keeper 판단 몫(test-notes-e2e의 spec 지적과 같음).
+- **TE-CRM1-002**: 요약 줄 안 꼬리표는 `display: inline`(테두리·안 여백이 줄 높이를 늘리지 않음), 글자 1rem·줄 간격 요약 줄 그대로. `SummaryFit`은 꼬리표 없을 때보다 높이가 늘지 않는 첫 꼴을 고른다: "입금 늦음 주의" → "주의" → 1등 글 6글자 + "…"(D-QL2-11 (3)) → 이름·1등 6글자. 넷 다 늘면 마지막 꼴. `currentSummaryParts(input, max, winnersMax)` 셋째 인자 더함, `SUMMARY_SHORT_LIMIT = 6`. E2E 375·393·412·430 × 100·150% 통과.
+- **TE-CRM1-003**: (dev-server 영역, 최소 변경) `GET /api/customers/:id` 응답에 `today`(서버 KST)를 더했다 — `service.ts` `customer()`, 서버 시험 `crm1-memo-access.test.ts` 단언 하나. 화면 올해 기준 = 응답 `today` → 목록 `today` → 기기 KST 오늘.
+- **TE-CRM1-004**: 메모 칸 key에서 `savedAt`을 뺐다. 다시 받은 메모는 "저장된 메모" 자리에 바로 보이고, 글 칸은 저장하지 않은 글이 없을 때만 따라간다. 쓰는 중이면 친 글을 그대로 두고 status "다른 기기에서 이 손님 메모를 바꿨어요. 위에 보이는 것이 지금 저장된 메모예요. 쓰던 글을 남기려면 "메모 저장"을 눌러 주세요."
+- **U-CRM1-01 (spec-keeper 확인 필요 — D-CRM1-06 낱말)**: 손님 자세히 "날짜별 기록"에서 미입금으로 센 날은 "미입금으로 셈"(입금 상태가 미입금이면 그 낱말 대신 이것 하나, 일부 입금 등이면 입금 낱말 + 이것), 세지 않은 입금 안 된 날(기다리는 날 안, 상품 합계 > 0)은 "입금 기다리는 중". D-CRM1-06 글자 그대로는 "입금 상태 낱말·미입금 날이면 '미입금'"이라 같은 "미입금"이 두 뜻으로 색만 다르게 보였다(UX-04). 판매자가 노쇼로 오해하지 않는 쪽으로 AUTO로 정했으니 D-CRM1-06에 낱말을 올려 주세요. `lib/customers.ts` `dayLineTags`·`UNPAID_COUNTED_WORD`·`PAY_WAITING_WORD`.
+- 시험: `apps/web/test/crm1-customers.test.tsx` 21건(콘솔 간격 기대를 D-CRM1-07에 맞게 바로잡음 + 자료 오기 전·주소로 바로 연 손님 자세히·날짜 줄 꼬리표·메모 다른 기기 시험 더함). 웹 단위 전체 105파일 통과(KST 시험 셋은 TZ가 KST가 아닌 환경에서만 뜻이 있어 TZ=America/New_York로 확인). E2E `tests/e2e/crm1` 31건 모두 통과. 전체 `pnpm verify`는 규칙대로 돌리지 않았다.
+
+## dev-server 수정 라운드 2 (SA-CRM1-02 · RA-CRM1-03)
+
+### SA-CRM1-02 — FIXED: 봉인 뒤 노쇼 기록 보관 행 (D-CRM1-12, AC-CRM1-33)
+- 표 둘(마이그레이션 `0021_crm1_customer_archive.sql`): `customer_archive_days`(판매자·날짜마다 한 줄 — 마지막으로 적은 범위 seq, `frozen`), `customer_archive_rows`(그날 기록 묶음마다 한 행 — 뿌리 구매자 ID, 구성원 JSON `[{ id, marker, display, phoneLast4 }]`, 취소 수, '입금 안 함' 찜 수). 품목·금액·입금은 적지 않는다(장부에 있다). 범위가 아니라 날짜로 잇고 범위를 참조하지 않는다.
+- 차례 `apps/server/src/customers/archive.ts` `CustomerArchiver`: 서버 시작 때와 1시간마다(`CUSTOMER_ARCHIVE_EVERY_MS`). 봉인 안 된 실제 날짜 중 날짜 < 오늘(KST)이고 범위 seq가 마지막으로 적은 seq와 다를 때만 그 날짜 행을 통째로 바꿔 적는다. 쓰기는 봉인과 같은 범위 줄(`writer.serial`)·범위 잠금 안에서 범위가 아직 봉인 전인지 다시 보고 한다. 봉인된 날짜 줄은 `frozen`으로 굳혀 그 뒤 차례·복구로 바꾸지 않는다.
+- 셈 `facts.ts mergeArchive`: 봉인 날짜 = 장부 묶음(구매·(가)) + 보관 행의 취소 수·(나). 같은 뿌리면 같은 묶음, 장부에 없는 뿌리면 품목 0·상품 합계 0·`UNPAID` 묶음(`archived`). 장부에 없는 구성원도 그 묶음 아래 구매자로 넣어 표지로 잇는다. 보관 행이 없는 봉인 날짜는 장부만으로 센다.
+- 장부에 없는 구매자의 그날 자세히(`GET /api/days/<봉인 날짜>/customer?buyer=`)는 404 그대로다. 그 날짜 구매자 목록 꼬리표(`/customers`)에도 넣지 않는다.
+- 복구·가져오기: 두 표는 `RESTORE_KEPT_TABLES`에 있다. 백업 파일에 들어가지 않고 복구가 지우지도 않는다.
+- 로그: `CUSTOMER_ARCHIVED`(개수), `CUSTOMER_ARCHIVE_FAILED`(판매자 ID·날짜·오류 종류), `CUSTOMER_ARCHIVE_UNREADABLE`(날짜)만 남긴다. 표지·이름·숫자 내용은 남기지 않는다.
+- 단위 시험 `apps/server/test/crm1-archive.test.ts`(7개): AC-33 (1)(2)는 봉인 전과 같은 숫자인지, (3)은 차례가 돌지 않은 날짜, (4)는 굳힘, (5)는 로그·복구 분류·보조자 403을 본다. seq가 바뀐 날짜만 다시 적는지, 판매자끼리 섞이지 않는지, 시작·멈춤도 본다.
+- 기존 시험에 함께 적은 것(약화 아님)
+  - `commands.test.ts`: 표 수 71→73.
+  - `fb1-parcel-settings.test.ts`: 되돌리기에서 새 표 둘도 지운다.
+  - `crm1-records.test.ts`: 날짜 줄 `toEqual`에 `openable: true`를 더했다.
+
+### dev-web에게 (API 추가 — 화면 몫)
+- `GET /api/customers/:id`의 `days[]` 줄에 **`openable: boolean`**이 생겼다. false면 봉인 날짜의 보관 행으로만 남은 줄이다(장부에 없는 구매자). D-CRM1-12에 따라 "줄은 보이되 누르는 것이 아니다". 링크(`<a>`) 대신 누를 수 없는 줄로 그려 달라. 그 줄은 `subtotal: 0`·`payment: 'UNPAID'`·`unpaid: true`라서 `dayLineTags`가 "미입금으로 셈"을 그린다.
+
+### test-domain에게 (AC-CRM1-30·33)
+- 모형은 봉인 날짜를 "장부 + 그 날짜의 마지막 보관 행"으로 센다. 서버에서 차례를 돌리는 곳은 `world.server.customerArchiver.runOnce()`이고, `{ written, frozen, failed }`를 돌려준다. 차례는 날짜 < 오늘(서버 시계 KST)인 봉인 전 날짜만 적는다.
+- 차례를 돈 날짜와 돌지 않은 날짜를 섞어 달라. 차례 뒤에 그 날짜를 바꾸고 차례 없이 봉인하면, 봉인 날짜는 "마지막으로 적은 보관 행"으로 센다(그 뒤 변경은 빠진다 — D-CRM1-12에서 받아들인 한계).
+- 표: `customer_archive_days`(seller_id, date, seq, frozen), `customer_archive_rows`(seller_id, date, root, members, cancels, no_pay).
+
+### test-e2e에게 (AC-CRM1-33 봉인 날짜 노쇼)
+- 새 시험 경로 **`POST /_e2e/customer-archive` `{}`**는 보관 차례를 바로 한 번 돌린다. 순서는 다음과 같다.
+  1. `/_e2e/dates { kind: 'youtube', date: 오늘 − 31일 }`로 그 날짜 방송을 만든다.
+  2. 그 날짜에 UC_N 1등을 사유 "입금 안 함"으로 취소한다.
+  3. `/_e2e/customer-archive`를 부른다.
+  4. `/_e2e/seal { date }`를 부른다.
+  5. "모든 손님"에 UC_N 줄이 있고 미입금 1번·취소 1번·"입금 늦음 주의"인지 본다. 손님 자세히의 그 날짜 줄은 누를 수 없어야 한다(화면은 dev-web 몫). 그날 `/customer?buyer=UC_N`은 404여야 한다.
+- 3을 빼면 "차례가 돌지 않은 봉인 날짜"가 되어 UC_N 줄이 없다(AC-33 (3)).
+
+### RA-CRM1-03 — FIXED: 성능 사례 (게이트 밖, `pnpm perf`)
+- `crm1-customers.perf.test.ts`에 두 번째 사례를 더했다. 재는 것은 셋이다.
+  - (1) 손님 기록 캐시와 범위 상태를 버린 뒤의 첫 "모든 손님" 조회(서버를 막 켠 뒤와 같은 상태). 시험용 `forgetCustomerCaches()`로 캐시를 버린다.
+  - (2) 셋째 날마다 1등 셋을 '입금 안 함'으로 취소한 날짜. '입금 안 함' 찾기가 이벤트를 다시 적용하는 경로를 탄다.
+  - (3) 마지막 날짜에 채팅 300개를 넣으면서 10개마다 구매자 화면 꼬리표를 동시에 받는 경우. 판정·저장 p95(NFR-01 300ms), 꼬리표 p95, 메모리 늘어난 양을 잰다.
+- 결과(Mac mini, 90일 × 200명, 한 번 실행)
+  - 차가운 첫 조회 1,030ms(상한 2초)
+  - 판정 p95 6ms
+  - 꼬리표 p95 15ms
+  - 힙 증가 약 41MB
+- 첫 사례(데운 캐시)도 같은 실행에서 통과했다.
+
+## dev-web 수정 라운드 2 (SA-CRM1-02 화면 · TE-CRM1-005 · TE-CRM1-006 · U-CRM1-02~04)
+
+- **AC-CRM1-33 (1) 누를 수 없는 날짜 줄**: 손님 자세히 날짜 줄이 `openable: false`면 링크가 아니라 `div.list-link.day-line-static`로 그린다. 낱말은 그대로(`dayLineTags`, 보관 행 줄은 금액 0·미입금 → "미입금으로 셈") + 안내 "30일이 지나 그날 자세히는 볼 수 없어요". 줄 안에 `link`가 없다.
+- **TE-CRM1-005 (D-CRM1-14)**: `components/caution.tsx` `CAUTION_GAP_MS` 10,000 → 4,000. 다시 받는 조건(콘솔을 열 때·1등이 바뀔 때만)은 그대로.
+- **U-CRM1-02 (D-CRM1-16 (1), AC-21)**: 저장된 메모가 있고 빈 글로 "메모 저장"을 누르면 `dialog "메모를 지울까요?"`, 버튼 `지우기`(누르면 저장 → "메모를 지웠어요.")·`그대로 두기`(창의 닫기 버튼, 처음 포커스, Esc와 같음 — 저장하지 않고 칸에 저장된 글을 되돌림). 저장된 메모가 없을 때 빈 글 저장은 묻지 않는다.
+- **TE-CRM1-006 (D-CRM1-16 (3), AC-11)**: 거절된 칸 값을 고치면 그 칸의 거절 문장(`role=alert`)과 `aria-invalid`가 바로 사라진다. 다른 칸 문장은 남는다. 다시 저장하면 다시 검사.
+- **U-CRM1-03 (D-CRM1-16 (4))**: 설정 설명 "단골 = 이 횟수 이상 샀거나 이 금액 이상 산 손님. 입금 늦음 주의 = 미입금이 한 번이라도 있는 손님."
+- **U-CRM1-04 (D-CRM1-16 (5), AC-16)**: "모든 손님" 카드·표에서 입금 완료 구매가 없는 줄은 누적·횟수·마지막 구매 대신 "아직 입금 완료된 구매 없음" 한 줄(표는 세 칸을 합친 한 칸). "구매 없음" 낱말을 만들던 `lastWords`의 빈 경우는 더 이상 쓰지 않는다.
+- **SA-CRM1-03 (D-CRM1-13)**: 코드 낱말은 스펙과 같아 바꿀 것 없음 — 주석에 결정 번호만 달았다.
+- **TE-CRM1-003·004**: 지난 라운드(400abec7·989c77c5)에서 고침, 이번 E2E에서 통과.
+- **test-e2e 인계**: `tests/e2e/crm1/flow.spec.ts:66-67`의 "빈 글 저장 = 바로 지움"은 D-CRM1-16 (1)로 스펙이 바뀌어 지금 실패한다 — 창의 `지우기`를 누른 뒤 "메모를 지웠어요."를 보고, `그대로 두기` 경우(칸에 저장된 글이 돌아오고 서버 메모 그대로)를 더해 주세요.
+- U-CRM1-05~07은 이번에 하지 않았다(spec 판정: 이번 스프린트 아님).

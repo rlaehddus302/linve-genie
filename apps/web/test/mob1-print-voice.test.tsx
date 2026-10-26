@@ -39,7 +39,8 @@ describe('콘솔 알림 띠 맨 끝 출력 기기 항목 (AC-MOB1-13, D-MOB1-14)
   it('라벨 켜짐·실제 방송·끝나지 않음·다른 기기가 끊김이면 끊김 문장, 출력 기기가 없고 대기가 있으면 쌓이는 중 문장', () => {
     expect(stationLeadText(base)).toBe(deviceLostMessage('안드로이드 폰'))
     expect(stationLeadText({ ...base, queue: queue({ device: null, waiting: 1 }) })).toBe(NO_STATION_PILING)
-    expect(NO_STATION_PILING).toBe("출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 '이 기기에서 출력'을 눌러 주세요.")
+    // QL2 D-QL2-09 ① — 프린터 연결을 먼저 말한다
+    expect(NO_STATION_PILING).toBe("출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 프린터를 연결한 뒤 '이 기기에서 출력'을 눌러 주세요.")
   })
 
   it('연결됨·대기 없음·이 기기가 출력 기기·라벨 꺼짐·모름·리허설·끝난 방송·요약 모름이면 없다', () => {
@@ -60,7 +61,7 @@ describe('콘솔 알림 띠 맨 끝 출력 기기 항목 (AC-MOB1-13, D-MOB1-14)
     render(<AlertStrip leads={[{ key: 'print-station', text, soft: true, uncounted: true, onClick }]} counts={{ ...COUNTS, pending: 2 }} onOpen={() => {}} onToggle={() => {}} />)
     const region = screen.getByRole('region', { name: '알림' })
     const buttons = within(region).getAllByRole('button')
-    expect(buttons.map((b) => b.textContent)).toEqual(['보류 찜 2', text])
+    expect(buttons.map((b) => b.textContent)).toEqual(['보류 2', text]) // QL3R2 D-QL3R2-02 — 접힌 휴대폰 띠는 "보류 n"
     const last = buttons[buttons.length - 1] as HTMLElement
     expect(last.className).toContain('alert-soft')
     expect(region.querySelector('b, script')).toBeNull()
@@ -88,7 +89,7 @@ describe('콘솔 알림 띠 맨 끝 출력 기기 항목 (AC-MOB1-13, D-MOB1-14)
     const words = within(region).getAllByRole('button').map((b) => b.textContent)
     expect(words[0]).toBe('틱톡 알림 줄')
     expect(words[words.length - 1]).toBe(text)
-    expect(words.slice(1, -1)).toEqual(['충돌 1', '출력 멈춤 · 프린터가 꺼졌어요.', '버릴 라벨 2', '보류 찜 3', '확인 필요 1', '감사 실패 1'])
+    expect(words.slice(1, -1)).toEqual(['충돌 1', '출력 멈춤 · 프린터가 꺼졌어요.', '버릴 라벨 2', '보류 3', '확인 필요 1', '감사 실패 1']) // QL3R2 D-QL3R2-02 — 접힌 휴대폰 띠는 "보류 n"
   })
 
   it('플랫폼 줄 없이 "출력 멈춤"과 함께면 접힌 한 줄의 첫 항목이 "출력 멈춤 · …", 다른 알림이 없으면 출력 기기 항목이 첫 항목', () => {
