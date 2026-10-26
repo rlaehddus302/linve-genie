@@ -1,13 +1,16 @@
 // 앞 말 맥락의 품종 (사용자 요구 V3: "최근 1분 맥락 파악해서 종자가 뭔지 알아낼 수 있을까? 바이칼, 바이칼녹금이라고 했는데 그냥 녹금으로 등록했더라").
 // 등록할 번호 앞에 들린 말(앞 상품의 번호·가격 뒤 ~ 이 번호 앞, 1분 안)에서 사전 품종을 세어 이름만 고른다 — 번호·가격은 건드리지 않는다.
 // 사전 밖 낱말은 쓰지 않는다(D-V3-37 — 추측은 등록 품종이 아니다). 순수 함수: 넘긴 값만 보고 예외를 던지지 않는다.
-import { readSentence, tokenize, type ExtractOptions } from './extract.ts'
+import { readSentence, readingForms, tokenize, type ExtractOptions } from './extract.ts'
 import { isWindowFiller } from './words.ts'
 
 /** 이름 없이 맥락만으로 고를 때 필요한 들린 횟수 (품은 이름을 더한 점수) */
 export const CONTEXT_VARIETY_MIN = 2
 
 const compact = (name: string): string => name.split(' ').join('')
+
+/** 맞춘 창이 첫 토큰(그대로 또는 끝말 뗀 모양 — `바이칼녹금이에요`)에서 시작하는가 */
+const startsAtFirst = (window: string | null, first: string): boolean => window !== null && readingForms(first).some((form) => window.startsWith(form) || form.startsWith(window))
 
 /** 글 하나에서 사전 품종을 앞에서부터 (창 1~4토큰, 다른 이름이 되는 가장 긴 맞춤, 군말·숫자에서 끊김) */
 export function varietiesIn(text: unknown, options: ExtractOptions = {}): string[] {
@@ -23,7 +26,7 @@ export function varietiesIn(text: unknown, options: ExtractOptions = {}): string
         if (piece.some((token) => isWindowFiller(token) || /[0-9]/.test(token))) break
         const reading = readSentence(piece.join(' '), { dictionary: options.dictionary ?? [] })
         // 더 긴 창은 다른(더 긴) 이름일 때만 — 같은 이름을 되풀이한 `몰디브 몰디브`는 두 번으로 센다
-        if (reading.extraction.name !== null && reading.nameWindow !== null && reading.nameWindow.startsWith(piece[0] as string) && reading.extraction.name !== best?.name) best = { end: j, name: reading.extraction.name }
+        if (reading.extraction.name !== null && startsAtFirst(reading.nameWindow, piece[0] as string) && reading.extraction.name !== best?.name) best = { end: j, name: reading.extraction.name }
       }
       if (best === null) k++
       else {

@@ -19,6 +19,9 @@ describe('varietiesIn', () => {
   it('글에서 사전 품종을 앞에서부터', () => {
     expect(varietiesIn('바이칼 바이칼녹금 이거 예쁘죠 녹금', { dictionary: DICT })).toEqual(['바이칼녹금', '녹금'])
     expect(varietiesIn('자 요 아이 예쁘죠', { dictionary: DICT })).toEqual([])
+    // 끝말 붙은 낱말·같은 이름 되풀이는 따로 센다
+    expect(varietiesIn('자 다음은 바이칼녹금 바이칼녹금이에요', { dictionary: DICT })).toEqual(['바이칼녹금', '바이칼녹금'])
+    expect(varietiesIn('몰디브 몰디브', { dictionary: DICT })).toEqual(['몰디브', '몰디브'])
     expect(varietiesIn(42 as unknown as string, { dictionary: DICT })).toEqual([])
   })
 })
