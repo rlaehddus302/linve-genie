@@ -6,16 +6,16 @@ const DICT = prepareVoiceDictionary()
 const nameOf = (text: string, dictionary = DICT) => readSegments(text, { dictionary, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.price, p.name])
 
 const RECEIPT_NAMES = [
-  'BTS', 'SP', 'SP녹금', '가시꽃', '넘버원', '녹금', '녹금의 제왕', '레다', '로라클론', '로제수박', '로제스타수박', '리마인드', '립스틱금', '립스틱색금', '몰디브',
+  'BTS', 'SP', 'SP녹금', '가시꽃', '넘버원', '녹금', '녹금의 제왕', '녹색금', '레다', '로라클론', '로제수박', '로제스타수박', '리마인드', '립스틱금', '립스틱색금', '몰디브',
   '보카치노', '불꽃수박금', '빅뱅', '삼광색금', '소쇄원 녹금', '수박금', '야래향', '오스카', '인디안바손', '찐녹금', '창금', '창녹금', '창버건디', '창색금', '청개구리',
   '청개구리금', '청사과', '컬러풀', '콜리', '팔색조', '퍼플', '풀잎사랑', '하이원', '호반금', '황소',
 ]
 
 describe('영수증 품종 이름', () => {
-  it('모두 사전 이름이다 (녹색금은 녹금의 별칭 그대로)', () => {
+  it('모두 사전 이름이다 (녹색금은 따로 이름, 녹금 별칭 아님 — D-V3-92)', () => {
     const names = new Set(DEFAULT_VARIETIES.map((item) => item.name))
     for (const name of RECEIPT_NAMES) expect(names.has(name), name).toBe(true)
-    expect(DEFAULT_VARIETIES.find((item) => item.name === '녹금')?.aliases).toContain('녹색금')
+    expect(DEFAULT_VARIETIES.find((item) => item.name === '녹금')?.aliases).not.toContain('녹색금')
   })
   it.each(RECEIPT_NAMES)("'10번 %s 5만 원' → 그 이름", (name) => {
     expect(nameOf(`10번 ${name} 5만 원`)).toEqual([[10, 50_000, name]])
