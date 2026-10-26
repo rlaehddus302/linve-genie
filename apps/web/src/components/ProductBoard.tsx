@@ -215,7 +215,26 @@ function SummaryFit({ bare, choices }: { readonly bare: string; readonly choices
     const height = (name: string) => element.querySelector<HTMLElement>(`[data-fit="${name}"]`)?.getBoundingClientRect().height ?? 0
     const base = height('bare')
     let pick = choices.length - 1
-    if (base > 0) {
+    const line = element.parentElement
+    const style = line === null ? null : getComputedStyle(line)
+    // 휴대폰 큰 글씨의 한 줄 말줄임(QL3R1 D-QL3R1-02 ⓒ)에서는 줄 수가 늘 1이라 높이로 고를 수 없다 —
+    // 꼬리표 끝이 말줄임("…") 앞, 줄 폭 안에 드는 첫 꼴을 쓴다(D-CRM1-07 "들어가지 않으면 '주의'"). 넷 다 넘으면 마지막 꼴(가장 짧다)
+    const oneLine = style !== null && style.textOverflow === 'ellipsis' && (style.whiteSpace === 'nowrap' || style.getPropertyValue('text-wrap-mode') === 'nowrap')
+    if (oneLine && line !== null && line.clientWidth > 0) {
+      const room = line.clientWidth - parseFloat(style.fontSize)
+      const tagEnd = (name: string) => {
+        const span = element.querySelector<HTMLElement>(`[data-fit="${name}"]`)
+        const mark = span?.querySelector<HTMLElement>('.caution-mark')
+        if (span === null || span === undefined || mark === null || mark === undefined) return Infinity
+        return mark.getBoundingClientRect().right - span.getBoundingClientRect().left
+      }
+      for (let i = 0; i < choices.length; i++) {
+        if (tagEnd(String(i)) <= room + 0.5) {
+          pick = i
+          break
+        }
+      }
+    } else if (base > 0) {
       for (let i = 0; i < choices.length; i++) {
         if (height(String(i)) <= base + 0.5) {
           pick = i
