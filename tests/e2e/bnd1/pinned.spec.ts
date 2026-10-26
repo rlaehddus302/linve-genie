@@ -6,7 +6,7 @@
 // TE-BND1-005: 고치기 전 375×812 100%에서 접힌 띠가 줄 셋(밴드 둘 + 다른 알림 한 줄, 각 44px)으로 148px — 고정 영역 294px > 284px.
 //   기준은 낮추지 않는다(AC-BND1-76). 고침 모양은 D-BND1-21(접힌 띠의 밴드 줄 둘을 한 줄로) — 아래 AC-BND1-73 시험이 그 모양을 단언한다.
 import { expect, test, type Page } from '@playwright/test'
-import { bigText, expectBig } from '../mob1/support.ts'
+import { bigText, expectBig, setLabelsApi } from '../mob1/support.ts'
 import { expectFirstScreen, expectNoClip } from '../ql2/support.ts'
 import {
   READ_WAIT,
@@ -48,6 +48,8 @@ async function pinnedHeight(page: Page): Promise<{ total: number; parts: string[
 /** 밴드 글을 이은 실제 방송 → 손님 찜 → 그 댓글 지움(알림 1) → 토큰 풀림(다시 연결 필요) — 띠 줄 둘이 함께 */
 async function bothBandLines(page: Page, percent: 100 | 150): Promise<void> {
   const w = await bandWorld(page, { baseline: 0, oneBand: true })
+  // 라벨 꺼짐 — 출력 기기 없음 + 라벨 대기 짧은 줄(QL3R2 D-QL3R2-03, 그때 기준은 40%)이 끼지 않게. 이 시험은 밴드 띠 줄 둘만 잰다(기준 35% 그대로)
+  await setLabelsApi(page, false)
   const { b } = await linkedBroadcast(page, w)
   const guest = await bandUser(page.request, '높이손님')
   const key = await bandComment(page.request, w.post, { content: '1번이요', name: '높이손님', userKey: guest })
@@ -97,7 +99,32 @@ async function measure(page: Page, where: string, limit: number | null): Promise
   console.log(`[SA-BND1-02] ${text}`)
   if (limit !== null) expect(total, text).toBeLessThanOrEqual(limit)
   await expectFirstScreen(page, summary(page), `${where} 현재 상품 요약 줄`)
-  await expectNoClip(summary(page), `${where} 현재 상품 요약 줄`)
+  await expectSummaryNoClip(page, `${where} 현재 상품 요약 줄`)
+}
+
+/**
+ * 요약 줄 잘림 0 — 위아래·글자 줄은 그대로 재고, 옆은 휴대폰 큰 글씨의 한 줄 말줄임(QL3R1 D-QL3R1-02 ⓒ)만 허용한다:
+ * 넘치면 끝이 "…"(text-overflow: ellipsis)이고 title이 문장 전체여야 한다(말줄임 없이 옆이 잘리면 실패)
+ */
+async function expectSummaryNoClip(page: Page, where: string): Promise<void> {
+  const r = await summary(page).evaluate((el) => {
+    const box = el.getBoundingClientRect()
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const lines = [...range.getClientRects()].filter((x) => x.width > 0 && x.height > 0).map((x) => ({ top: x.top, bottom: x.bottom }))
+    const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim()
+    return { sh: el.scrollHeight, ch: el.clientHeight, sw: el.scrollWidth, cw: el.clientWidth, top: box.top, bottom: box.bottom, lines, text, title: el.getAttribute('title'), overflow: getComputedStyle(el).textOverflow }
+  })
+  const name = `${where} "${r.text}"`
+  expect(r.sh, `${name} 위아래 잘림 (scrollHeight ${String(r.sh)} > clientHeight ${String(r.ch)})`).toBeLessThanOrEqual(r.ch + 1)
+  if (r.sw > r.cw + 1) {
+    expect(r.overflow, `${name} 옆으로 넘치면 끝이 "…" (scrollWidth ${String(r.sw)} > clientWidth ${String(r.cw)})`).toBe('ellipsis')
+    expect(r.title, `${name} 말줄임이면 title이 문장 전체`).toBe(r.text)
+  }
+  for (const line of r.lines) {
+    expect(line.top, `${name} 글자 줄 위 끝 ${String(line.top)} < 상자 ${String(r.top)}`).toBeGreaterThanOrEqual(r.top - 0.5)
+    expect(line.bottom, `${name} 글자 줄 아래 끝 ${String(line.bottom)} > 상자 ${String(r.bottom)}`).toBeLessThanOrEqual(r.bottom + 0.5)
+  }
 }
 
 test.describe('SA-BND1-02 밴드 알림 띠 줄 둘이 뜬 동안 휴대폰 고정 영역 @multi', () => {

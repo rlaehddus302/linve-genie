@@ -225,8 +225,18 @@ for (const big of [false, true]) {
       if (tagged.sticky !== bare.sticky) problems.push(`${where} 고정 영역 ${String(bare.sticky)} → ${String(tagged.sticky)}`)
       if (tagged.line !== bare.line) problems.push(`${where} 요약 줄 ${String(bare.line)} → ${String(tagged.line)}`)
       if (tagged.overflow > 0) problems.push(`${where} 가로 넘침 ${String(tagged.overflow)}`)
-      const clipped = await summaryLine(page).evaluate((el) => el.scrollWidth > el.clientWidth + 1)
-      if (clipped) problems.push(`${where} 요약 줄 잘림`)
+      // 옆 넘침은 휴대폰 큰 글씨의 한 줄 말줄임(QL3R1 D-QL3R1-02 ⓒ)만 허용 — 끝이 "…"·title에 꼬리표 든 문장 전체(꼬리표는 현재 상품 카드에 그대로).
+      // 넘치지 않으면 꼬리표가 줄 안에 다 보인다(D-CRM1-07)
+      const clip = await summaryLine(page).evaluate((el) => {
+        const mark = el.querySelector('.caution-mark')
+        const end = mark === null ? Infinity : mark.getBoundingClientRect().right
+        const s = getComputedStyle(el)
+        const right = el.getBoundingClientRect().right - parseFloat(s.paddingRight)
+        return { over: el.scrollWidth > el.clientWidth + 1, ellipsis: s.textOverflow === 'ellipsis', title: el.getAttribute('title') ?? '', markShown: end <= right + 0.5 }
+      })
+      if (clip.over && !clip.ellipsis) problems.push(`${where} 요약 줄 잘림`)
+      if (clip.over && !clip.title.includes('입금 늦음 주의')) problems.push(`${where} 말줄임인데 title에 꼬리표 든 문장이 없음`)
+      if (!clip.over && !clip.markShown) problems.push(`${where} 요약 줄 꼬리표가 줄 밖`)
     }
     expect(problems).toEqual([])
   })

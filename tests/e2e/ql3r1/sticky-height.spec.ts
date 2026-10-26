@@ -2,7 +2,8 @@
 // 실제 방송, 알림 접힘·보류 찜 1·출력 기기 정상(라벨 꺼짐 — 출력 기기 줄 없음)·되돌리기 대기 없음(API로 넣음), 600px 내림.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { uniqueDate } from '../s05/support.ts'
-import { smsApi } from '../s06/support.ts'
+import { scopeView, smsApi } from '../s06/support.ts'
+import { payAll } from '../crm1/support.ts'
 import { broadcastApi, expectNoOverflow, setLabelsApi } from '../ql2/support.ts'
 import { expectNoDevWords } from '../mob1/support.ts'
 import { D1440, D375, D393, D412, clipOf, lineCount, openConsole, registerStock, sellerOn, type Device } from './support.ts'
@@ -14,10 +15,16 @@ const summary = (page: Page) => page.getByRole('status', { name: '현재 상품 
 const sticky = (page: Page) => page.locator('main .console-sticky')
 
 async function world(dev: Page): Promise<string> {
-  const b = await broadcastApi(dev, uniqueDate())
+  const date = uniqueDate()
+  const b = await broadcastApi(dev, date)
   await setLabelsApi(dev, false)
   await registerStock(dev, b, 15, LONG_NAME, 10000, 2)
   await smsApi(dev, { b, no: 15, memo: WINNER })
+  // 1등 묶음은 입금 완료로 — 시험 날짜(2005년)는 입금 기다리는 날이 지나 미입금이면 CRM1 "입금 늦음 주의" 꼬리표(D-CRM1-04·07)가
+  // 요약 줄에 붙는다. 이 시험은 꼬리표 없는 요약 문장을 재므로 꼬리표 조건을 만들지 않는다(꼬리표 + 한 줄 말줄임은 crm1/console.spec)
+  const winnerClaim = (await scopeView(dev, date, false)).claims.filter((c) => c.no === 15).sort((x, y) => x.seq - y.seq)[0]
+  if (winnerClaim === undefined) throw new Error('15번 찜 없음')
+  await payAll(dev, date, winnerClaim.currentBuyer)
   // 보류 찜 1 (등록 안 한 번호)
   await smsApi(dev, { b, no: 40, memo: '병' })
   return b
