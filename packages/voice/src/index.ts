@@ -347,7 +347,7 @@ export { INTERIM_STABLE_MS, interimCandidate, interimFallback, trackInterim, typ
 // V3 빠진 0 되살리기 (실방송 "36번" = 306번)
 export { DROPPED_ZERO_NEAR, DROPPED_ZERO_RECENT, bareNumberFits, fixDroppedZero, type DroppedZeroFix, type DroppedZeroInput, type DroppedZeroProduct } from './number-context.ts'
 // V3 번호 없이 가격만 고쳐 말함 (실방송 "55만 원" 뒤 "50만 원")
-export { PRICE_ONLY_FIX_MS, priceOnlyFix, type PriceOnlyFix, type PriceOnlyInput } from './price-only.ts'
+export { NAME_ONLY_FILL_MS, PRICE_ONLY_FIX_MS, nameOnlyFill, priceOnlyFix, type NameOnlyInput, type PriceOnlyFix, type PriceOnlyInput } from './price-only.ts'
 // V3 굳은 중간 글 (사용자 결정: 1초 넘게 그대로인 낱말은 최종처럼)
 export { STABLE_EMPTY, STABLE_MS, finishStable, stepStable, type StableState, type StableStep } from './stable.ts'
 // V3 앞 말 맥락의 품종 (사용자 요구: 바이칼녹금이라고 했는데 녹금으로)

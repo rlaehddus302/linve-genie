@@ -53,6 +53,12 @@ describe("'번' 없는 수가 번호가 아닌 때", () => {
       expect(readRegistration(text, { dictionary: DICT, final: true, maxNumber: 999 }).heardNumbers).toEqual([])
     }
   })
+  it('실방송 "자 적상화 색상아 이거거 30 자 요 아이 30만 원" — 30번이 아니다 (군말 자·요·아이를 건너 가격 되풀이)', () => {
+    expect(pick('자 적상화 색상아 이거거 30 자 요 아이 30만 원')).toEqual([])
+    expect(pick('353번 자 요 아이는 30만 원')).toEqual([[353, 300_000, null, 'marker']])
+    // 군말이 아닌 낱말이 셋 이상 끼면 되풀이로 보지 않는다
+    expect(pick('자 30 정말 너무 예쁜 30만 원')).toEqual([[30, 300_000, null, 'bare']])
+  })
   it('bareNumberFits: 최근 음성 등록 2개가 모두 ±20 밖이면 맞지 않는다', () => {
     expect(bareNumberFits(50, [312, 349])).toBe(false)
     expect(bareNumberFits(25, [343, 349])).toBe(false)

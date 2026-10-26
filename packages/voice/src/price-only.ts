@@ -28,6 +28,43 @@ export interface PriceOnlyFix {
   readonly auto: boolean
 }
 
+/** 등록 뒤 품종만 들림을 받는 시간 (밀리초) — 실방송 "346번 … 10 5만 원" 다음 결과에 "황소개구리" */
+export const NAME_ONLY_FILL_MS = 15_000
+
+export interface NameOnlyInput {
+  /** 이 조각에서 맞춘 사전 품종 (앞에서부터, 겹쳐도 됨) */
+  readonly names: readonly string[]
+  readonly heardNumbers: readonly number[]
+  readonly wonPrices: readonly number[]
+  readonly lastRegistered: { readonly no: number; readonly at: number } | null
+  readonly lastHeardNo: number | null
+  /** 그 상품 (없거나 판매 종료면 null) */
+  readonly product: { readonly name: string } | null
+  readonly now: number
+}
+
+/**
+ * 품종만 들린 조각을 방금 음성 등록한 상품의 빈 품종 채우기로 볼지 (아니면 null):
+ * 번호·원 가격 없음 · 사전 품종이 한 가지(여러 번이어도 같은 이름) · 마지막 등록 뒤 15초 안 · 그 뒤 다른 번호 없음 · 상품 품종이 비어 있음(덮어쓰지 않는다).
+ */
+export function nameOnlyFill(input: NameOnlyInput): { readonly no: number; readonly name: string } | null {
+  try {
+    if (!Array.isArray(input.heardNumbers) || input.heardNumbers.length > 0) return null
+    if (!Array.isArray(input.wonPrices) || input.wonPrices.length > 0) return null
+    const names = [...new Set(Array.isArray(input.names) ? input.names.filter((name) => typeof name === 'string' && name.trim() !== '') : [])]
+    if (names.length !== 1) return null
+    const last = input.lastRegistered
+    if (last === null || !isNo(last.no) || !isTime(last.at) || !isTime(input.now)) return null
+    if (input.now < last.at || input.now - last.at > NAME_ONLY_FILL_MS) return null
+    if (input.lastHeardNo !== last.no) return null
+    const product = input.product
+    if (product === null || product.name.trim() !== '') return null
+    return { no: last.no, name: names[0] as string }
+  } catch {
+    return null
+  }
+}
+
 const isNo = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
 const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 

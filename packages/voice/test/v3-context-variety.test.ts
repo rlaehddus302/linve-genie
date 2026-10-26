@@ -42,6 +42,14 @@ describe('varietyFromContext', () => {
     expect(ctx(null, ['몰디브 몰디브 청사과 청사과'])).toBeNull()
     expect(ctx(null, ['몰디브 몰디브 몰디브 청사과 청사과'])).toBe('몰디브')
   })
+  it('번호도 가격도 없는 덩어리(between)에서 따로 들린 이름은 한 번으로도 (실방송 황소개구리·에스텔색금)', () => {
+    expect(varietyFromContext({ name: null, context: [], between: ['자 황소개구리 보세요'], dictionary: DICT })).toBe('황소개구리')
+    expect(varietyFromContext({ name: null, context: [], between: ['에스텔 색금이에요'], dictionary: DICT })).toBe('에스텔색금')
+    // 앞 상품 가격 뒤의 말(context)은 한 번이면 쓰지 않는다
+    expect(varietyFromContext({ name: null, context: ['황소개구리 예쁘죠'], between: [], dictionary: DICT })).toBeNull()
+    // 둘이 같은 점수면 비운다
+    expect(varietyFromContext({ name: null, context: [], between: ['황소개구리 몽고리색금'], dictionary: DICT })).toBeNull()
+  })
   it('깨진 입력에 던지지 않는다', () => {
     expect(varietyFromContext({ name: null, context: null as unknown as string[] })).toBeNull()
     expect(varietyFromContext({ name: '녹금', context: [1 as unknown as string] })).toBe('녹금')

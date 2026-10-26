@@ -1,6 +1,6 @@
 // 실방송 V3 (306번 방송): 가격만 고쳐 말함 · `원`/`번` 뒤 끝말 · 사전 이름
 import { describe, expect, it } from 'vitest'
-import { PRICE_ONLY_FIX_MS, prepareVoiceDictionary, priceOnlyFix, readRegistration, readSegments, type PriceOnlyInput } from '../src/index.ts'
+import { NAME_ONLY_FILL_MS, PRICE_ONLY_FIX_MS, nameOnlyFill, prepareVoiceDictionary, priceOnlyFix, readRegistration, readSegments, type NameOnlyInput, type PriceOnlyInput } from '../src/index.ts'
 
 const DICT = prepareVoiceDictionary()
 const pick = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.price, p.name])
@@ -46,6 +46,25 @@ describe('priceOnlyFix — "309번 … 55만 원" 등록 뒤 "50만 원"', () =>
       const r = readRegistration(text, { dictionary: DICT, final: true, maxNumber: 999 })
       expect(priceOnlyFix({ ...base, wonPrices: r.wonPrices, heardNumbers: r.heardNumbers, correction: r.correction })).toEqual({ no: 309, price: 500_000, auto: true })
     }
+  })
+})
+
+describe('nameOnlyFill — 등록 뒤 다음 결과에 품종만 (실방송 "346번 … 10 5만 원" 뒤 "황소개구리")', () => {
+  const base: NameOnlyInput = { names: ['황소개구리'], heardNumbers: [], wonPrices: [], lastRegistered: { no: 346, at: 0 }, lastHeardNo: 346, product: { name: '' }, now: 4_000 }
+  it('빈 품종을 채운다 · 15초 경계', () => {
+    expect(nameOnlyFill(base)).toEqual({ no: 346, name: '황소개구리' })
+    expect(nameOnlyFill({ ...base, names: ['황소개구리', '황소개구리'] })).toEqual({ no: 346, name: '황소개구리' })
+    expect(nameOnlyFill({ ...base, now: NAME_ONLY_FILL_MS })?.no).toBe(346)
+    expect(nameOnlyFill({ ...base, now: NAME_ONLY_FILL_MS + 1 })).toBeNull()
+  })
+  it('덮어쓰지 않고, 이름이 둘이거나 번호·가격이 들렸거나 다른 번호가 끼면 아니다', () => {
+    expect(nameOnlyFill({ ...base, product: { name: '청개구리' } })).toBeNull()
+    expect(nameOnlyFill({ ...base, names: ['황소개구리', '몽고리색금'] })).toBeNull()
+    expect(nameOnlyFill({ ...base, names: [] })).toBeNull()
+    expect(nameOnlyFill({ ...base, heardNumbers: [347] })).toBeNull()
+    expect(nameOnlyFill({ ...base, wonPrices: [150_000] })).toBeNull()
+    expect(nameOnlyFill({ ...base, lastHeardNo: 347 })).toBeNull()
+    expect(nameOnlyFill({ ...base, product: null })).toBeNull()
   })
 })
 

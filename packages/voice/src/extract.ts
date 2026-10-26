@@ -523,13 +523,17 @@ export const PRICE_ASK_PREFIX = '얼마'
 const PRICE_ASK_REACH = 3
 const afterPriceAsk = (tokens: readonly string[], i: number): boolean => tokens.slice(Math.max(0, i - PRICE_ASK_REACH), i).some((token) => token.startsWith(PRICE_ASK_PREFIX))
 
-/** 바로 뒤 3토큰 안에 그 수를 계수로 한 금액 토큰(`25만`·`25만원`·`이십오만`·`5천`)이 있는가 — '번' 없는 수가 가격을 되풀이한 것 */
+/** 바로 뒤(군말 빼고 3토큰 안)에 그 수를 계수로 한 금액 토큰(`25만`·`25만원`·`이십오만`·`5천`)이 있는가 — '번' 없는 수가 가격을 되풀이한 것 */
 const PRICE_REPEAT_REACH = 3
+/** 가격 되풀이 사이에 끼어도 세지 않는 군말 (실방송 "30 자 요 아이 30만 원") */
+const PRICE_REPEAT_FILLERS: ReadonlySet<string> = new Set(['자', '요', '아이', '아이는', '아이도', '요거', '요거는', '요건', '이거', '이거는', '이건', '얘', '얘는', '애', '애는', '어', '음', '네', '예', '그', '좀', '막', '또', '뭐'])
 function repeatsPrice(tokens: readonly string[], i: number, value: number): boolean {
-  for (let j = i + 1; j < tokens.length && j <= i + PRICE_REPEAT_REACH; j++) {
+  let others = 0
+  for (let j = i + 1; j < tokens.length && j <= i + 8; j++) {
     const token = tokens[j] as string
-    if (!/[만천]/.test(token)) continue
-    if (leadingCoefficient(token) === value) return true
+    if (PRICE_REPEAT_FILLERS.has(token)) continue
+    if (/[만천]/.test(token) && leadingCoefficient(token) === value) return true
+    if (++others >= PRICE_REPEAT_REACH) return false
   }
   return false
 }

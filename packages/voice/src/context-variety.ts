@@ -47,15 +47,25 @@ export function varietiesIn(text: unknown, options: ExtractOptions = {}): string
 /**
  * 맥락 품종:
  * - name이 있으면: 맥락에 그 이름을 품은 더 긴 사전 이름(`녹금` ⊂ `바이칼녹금`)이 들렸으면 그것(가장 많이 들린 것, 같으면 긴 것). 없으면 name 그대로.
- * - name이 없으면: 점수(그 이름 횟수 + 그 이름이 품은 다른 이름 횟수)가 2 이상인 가장 높은 이름. 같은 점수에 서로 품지 않는 이름이 둘이면 null(애매).
+ * - name이 없으면: 점수(그 이름 횟수 + 그 이름이 품은 다른 이름 횟수, between 글의 이름은 한 번에 2점)가 2 이상인 가장 높은 이름. 같은 점수에 서로 품지 않는 이름이 둘이면 null(애매).
  */
-export function varietyFromContext(input: { readonly name: string | null; readonly context: readonly string[]; readonly dictionary?: ExtractOptions['dictionary'] }): string | null {
+export function varietyFromContext(input: {
+  readonly name: string | null
+  readonly context: readonly string[]
+  /** 앞 상품 조각 밖에서 따로 들린 글 (번호도 가격도 없는 덩어리) — 여기 든 이름은 한 번으로도 2점(앞 상품 말이 아니다) */
+  readonly between?: readonly string[]
+  readonly dictionary?: ExtractOptions['dictionary']
+}): string | null {
   try {
     const name = typeof input.name === 'string' && input.name.trim() !== '' ? input.name : null
     const counts = new Map<string, number>()
-    for (const text of Array.isArray(input.context) ? input.context : []) {
-      for (const found of varietiesIn(text, { dictionary: input.dictionary ?? [] })) counts.set(found, (counts.get(found) ?? 0) + 1)
+    const add = (texts: unknown, weight: number): void => {
+      for (const text of Array.isArray(texts) ? texts : []) {
+        for (const found of varietiesIn(text, { dictionary: input.dictionary ?? [] })) counts.set(found, (counts.get(found) ?? 0) + weight)
+      }
     }
+    add(input.context, 1)
+    add(input.between, CONTEXT_VARIETY_MIN)
     const names = [...counts.keys()]
     const contains = (a: string, b: string): boolean => a !== b && compact(a).includes(compact(b))
     const longer = (a: string, b: string): number => compact(b).length - compact(a).length
