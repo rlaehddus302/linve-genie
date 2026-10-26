@@ -7,11 +7,15 @@
 // 펼치기 버튼은 "알림" 영역 밖에 둔다(영역의 글자는 PC와 같다).
 // QL2 D-QL2-02: 띠에 항목이 하나라도 있으면 펼치기 단추가 늘 있다 — 세는 알림이 0이면 "알림 펼치기"/"알림 접기".
 // 펼친 동안 모든 항목은 문장 전체(줄바꿈), 접힌 동안 한 줄·말줄임. 높이는 글자 크기를 따른다(styles.css).
+// MOB2 D-MOB2-02: 접힌 동안 띠 상자(.alerts) 안에 상자 전체가 들어가지 않는 항목은 보이지 않게 한다(data-overflow → visibility: hidden,
+// 보조 기술에도 숨김) — 반쯤 잘린 칩을 잘못 누르지 않게. 첫 항목은 늘 보인다. 남은 수는 "알림 n 펼치기"가 말한다.
 // QL3R1 D-QL3R1-04: 출력 기기 끊김 줄은 접힌 휴대폰 띠에서 짧은 문장("라벨이 안 나가요 · 'PC' 화면을 켜 주세요")으로 띠 아래 자기 줄 — 말줄임 없이 줄바꿈.
 // QL3R2 D-QL3R2-02 (1): 접힌 휴대폰 띠에서는 짧은 문장이 있는 항목을 "알림" 영역 안에서 그리지 않는다(화면·화면 읽기 모두 없음) —
 // 경고는 짧은 줄 하나로만. 펼친 띠·PC는 영역 안 긴 문장 하나(짧은 줄 없음). D-QL3R2-03: 출력 기기 없음에도 짧은 줄.
 // QL3R2 D-QL3R2-02 (2): 접힌 휴대폰 띠의 보류 단추 글은 "보류 n"(보이는 글 = 단추 이름), 펼친 띠·PC는 "보류 찜 n".
 // 휴대폰·PC는 useWide로 한 모양만 그린다(숨긴 사본을 두지 않는다 — use-wide.ts).
+// 합치기(D-QL3R1-10 (1)): 짧은 줄은 칩이 아니라 띠 아래 자기 줄이라 D-MOB2-02의 숨김 대상(.alerts-list > li)이 아니다.
+import { useLayoutEffect, useRef } from 'react'
 import type { AlertCounts } from '../lib/derive.ts'
 import { PRINT_ALERT_WORD } from '../lib/print-words.ts'
 import { useWide } from '../lib/use-wide.ts'
@@ -23,6 +27,8 @@ export type AlertKind = 'conflict' | 'cancelRequests' | 'succession' | 'printPau
 export const THANKS_FAILED_WORD = '감사 실패'
 /** 접힌 휴대폰 띠의 보류 단추 낱말 (QL3R2 D-QL3R2-02 (2)) — 펼친 띠·PC·보류 찜 창은 ALERT_WORD.pending("보류 찜") */
 export const PENDING_SHORT_WORD = '보류'
+/** 접힌 휴대폰 띠의 승계 칩 글 (D-MOB2-16 (1), "보류 n"과 같은 꼴 — 보이는 글 = 단추 이름). 펼친 띠·PC·창은 "승계 결정 필요" 그대로 */
+export const SUCCESSION_SHORT_WORD = '승계'
 
 /** 출력 알림 (판매자의 출력 기록): 멈춘 까닭 문장(멈추지 않았으면 null)·버릴 라벨 장 수 */
 export interface PrintAlerts {
@@ -95,14 +101,51 @@ export interface AlertStripProps {
   readonly onToggle?: () => void
 }
 
+/** 접힌 띠에서 상자 밖으로 나간 항목 표시 (밖이면 data-overflow) — 띠 상자와 1px까지 차이는 안으로 본다 */
+// 합치기(BND1): 끝까지 보일 줄 목록(.alerts-full — U-BND1-01, 줄바꿈·잘림 없음)은 숨김 대상이 아니다 — 나머지 칩 목록만 본다
+export function markOverflow(strip: HTMLElement, expanded: boolean): void {
+  const items = [...strip.querySelectorAll<HTMLElement>(':scope > .alerts-list:not(.alerts-full) > li')]
+  if (expanded) {
+    for (const item of items) item.removeAttribute('data-overflow')
+    return
+  }
+  const box = strip.getBoundingClientRect()
+  items.forEach((item, index) => {
+    const r = item.getBoundingClientRect()
+    const inside = r.top >= box.top - 1 && r.bottom <= box.bottom + 1 && r.left >= box.left - 1 && r.right <= box.right + 1
+    // 첫 항목은 늘 보인다 (말줄임으로 띠 폭 안에 든다)
+    if (index === 0 || inside) item.removeAttribute('data-overflow')
+    else item.setAttribute('data-overflow', 'true')
+  })
+}
+
+function useOverflowMarks(expanded: boolean) {
+  const ref = useRef<HTMLElement>(null)
+  // 그릴 때마다(항목·글이 바뀜) 다시 본다 — 표시는 보이기만 바꿔(자리는 그대로) 다시 그리지 않는다
+  useLayoutEffect(() => {
+    if (ref.current !== null) markOverflow(ref.current, expanded)
+  })
+  // 화면 폭·글자 크기가 바뀌면 다시 본다
+  useLayoutEffect(() => {
+    const strip = ref.current
+    if (strip === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => markOverflow(strip, expanded))
+    observer.observe(strip)
+    for (const list of strip.querySelectorAll(':scope > .alerts-list')) observer.observe(list)
+    return () => observer.disconnect()
+  }, [expanded])
+  return ref
+}
+
 export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanksFailed = 0, reviews = 0, onOpen, expanded = false, onToggle }: AlertStripProps) {
   const wide = useWide()
+  const stripRef = useOverflowMarks(expanded)
   // 접힌 휴대폰 띠 (48rem 미만 + 접힘) — 짧은 줄·"보류 n"은 이때만 (D-QL3R1-04·D-QL3R2-02)
   const folded = !wide && !expanded
   const items: { kind: AlertKind; word: string; count: number; text?: string }[] = [
     { kind: 'conflict', word: ALERT_WORD.conflict, count: counts.conflict },
     { kind: 'cancelRequests', word: ALERT_WORD.cancelRequest, count: counts.cancelRequest },
-    { kind: 'succession', word: ALERT_WORD.succession, count: counts.succession },
+    { kind: 'succession', word: folded ? SUCCESSION_SHORT_WORD : ALERT_WORD.succession, count: counts.succession },
     { kind: 'printPause', word: PRINT_ALERT_WORD.paused, count: print.pause === null ? 0 : 1, text: `${PRINT_ALERT_WORD.paused} · ${print.pause ?? ''}` },
     { kind: 'discard', word: PRINT_ALERT_WORD.discard, count: print.discard },
     { kind: 'pending', word: folded ? PENDING_SHORT_WORD : ALERT_WORD.pending, count: counts.pending },
@@ -165,7 +208,7 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
   )
   return (
     <div className={`alert-bar${expanded ? ' alert-bar-open' : ''}${full.length > 0 ? ' alert-bar-split' : ''}`}>
-      <section id="alerts" className={full.length > 0 ? 'alerts alerts-split' : 'alerts'} aria-label="알림">
+      <section ref={stripRef} id="alerts" className={full.length > 0 ? 'alerts alerts-split' : 'alerts'} aria-label="알림">
         {full.length > 0 ? <ul className="alerts-list alerts-full">{merged ? renderMerged() : full.map(renderLead)}</ul> : null}
         {shown.length === 0 && leads.length === 0 ? (
           <p className="alerts-none">알림 없음</p>

@@ -1017,7 +1017,7 @@ export class Service {
     if (!isInt(perSecond, GENERATOR_RATE_MIN, GENERATOR_RATE_MAX)) problems.push({ field: 'perSecond', message: '초당 개수는 1부터 50까지의 정수로 적어 주세요.' })
     if (seed !== undefined && seed !== null && !isInt(seed, 0, GENERATOR_SEED_MAX)) problems.push({ field: 'seed', message: '시드는 0부터 2,147,483,647까지의 정수로 적어 주세요.' })
     if (requestId !== undefined && (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(requestId))) {
-      problems.push({ field: 'requestId', message: "요청 번호는 영문·숫자·'_'·'-'로 된 1~64자여야 해요." })
+      problems.push({ field: 'requestId', message: '화면을 새로고침한 뒤 다시 해 주세요.' })
     }
     if (problems.length > 0) return { ok: false, rejection: invalidInput(problems) }
     return { ok: true, total: total as number, perSecond: perSecond as number, seed: typeof seed === 'number' ? seed : null, requestId: typeof requestId === 'string' ? requestId : null }

@@ -49,6 +49,8 @@ export class EngineServer {
   failNext: Reply | null = null
   /** 쓰기가 서버에 닿지 않는다 (네트워크 오류) */
   down = false
+  /** 쓰기는 서버에 닿아 기록되지만 응답을 잃는다 (네트워크 오류로 보임 — 같은 요청 번호는 한 번만 기록, MOB2 D-MOB2-14) */
+  loseReply = false
 
   constructor(events: readonly Record<string, unknown>[] = [], options: EngineServerOptions = {}) {
     const first = run([], options.settings ?? {})
@@ -112,6 +114,11 @@ export class EngineServer {
 
   #post(body: Record<string, unknown>): Reply {
     if (this.down) return { network: true }
+    const reply = this.#handle(body)
+    return this.loseReply ? { network: true } : reply
+  }
+
+  #handle(body: Record<string, unknown>): Reply {
     // voiceLog(R-25)는 엔진 필드가 아니다 — 실제 서버처럼 떼고 따로 남긴다
     const { requestId, voiceLog, ...input } = body
     if (voiceLog !== undefined) this.voiceLogs.push(voiceLog)

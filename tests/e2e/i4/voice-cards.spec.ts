@@ -322,16 +322,27 @@ test.describe('I4 제안 카드', () => {
     void board
   })
 
-  test('AC-I4-21: 오프라인 중 카드 등록 → "다시 보내기" → 한 번만 기록, Ctrl+Z는 판매 종료', async ({ page, context }) => {
+  // MOB2 D-MOB2-07·14: 카드 등록은 빠른 입력과 같은 등록 경로(D-I4-03)라, 연결이 돌아오면 누르지 않아도 처음 요청 번호로 한 번 저절로 다시 보낸다
+  test('AC-I4-21: 오프라인 중 카드 등록 → "다시 보내기"로 남음 → 연결이 돌아오면 저절로 같은 요청 번호로 한 번만 기록, Ctrl+Z는 판매 종료', async ({ page, context }) => { // MOB2 D-MOB2-07
     const { date } = await setup(page)
+    const requests = recordRequests(page) // MOB2 D-MOB2-07
+    const requestIds = () => registers(requests).map((r) => String((JSON.parse(r.body) as Record<string, unknown>)['requestId'])) // MOB2 D-MOB2-07
     await speak(page, '15번 핑크프릴 만오천 원')
     await context.setOffline(true)
     await cardButton(page, '15번 핑크프릴 15,000원', '등록').click()
     const retry = page.getByRole('button', { name: /다시 보내기/ }).first()
     await expect(retry).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('연결이 돌아오면 저절로 다시 보내요.', { exact: false }).first()).toBeVisible() // MOB2 D-MOB2-16
+    const first = requestIds() // MOB2 D-MOB2-07
+    expect(first.length, '끊김 중 보낸 등록 요청').toBeGreaterThan(0) // MOB2 D-MOB2-07
+    expect(new Set(first).size, '끊김 중 재시도도 같은 요청 번호').toBe(1) // MOB2 D-MOB2-07
+    const before = first.length // MOB2 D-MOB2-07
     await context.setOffline(false)
-    await retry.click()
+    await expect(page.getByText('실시간 연결이 끊겼어요. 다시 연결하는 중이에요.')).toHaveCount(0, { timeout: 20_000 }) // MOB2 D-MOB2-07
     await expect(boardItem(page, 15)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('연결이 돌아와 보냈어요: 15번을 등록했어요')).toBeVisible() // MOB2 D-MOB2-07
+    await expect(retry, '누르지 않아도 실패 줄이 사라진다').toHaveCount(0) // MOB2 D-MOB2-07
+    expect(requestIds().slice(before), '돌아온 뒤 등록 요청 — 처음 요청 번호 그대로 한 번').toEqual([first[0]]) // MOB2 D-MOB2-07·14
     await page.keyboard.press('Control+z')
     await expect(page.getByText('15번 등록을 되돌렸어요(판매 종료)')).toBeVisible()
     const events = await history(page, date, true)

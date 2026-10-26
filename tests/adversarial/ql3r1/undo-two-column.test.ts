@@ -44,6 +44,10 @@ const document = (globalThis as unknown as { document: { body: HostNode; createE
 
 const load = async <T>(path: string): Promise<T> => (await import(/* @vite-ignore */ path)) as T
 const NOT_APPLIED = '적용되지 않았어요. 지금 상태를 확인해 주세요.'
+// MOB2 합치기: 저장 실패(다시 보낼 수 있음) 문장 끝에 붙는 자동 다시 보내기 안내 (D-MOB2-07·D-MOB2-16, resend-board.ts AUTO_RESEND_NOTE)
+const AUTO_RESEND_NOTE = "연결이 돌아오면 저절로 다시 보내요. 바로 보내려면 '다시 보내기'를 눌러도 돼요."
+// MOB2 합치기: 등록 되돌리기 대기 시간 — 남은 시간 상한(U-MOB2-07)이 queue.registerUndoMs를 읽는다 (undo-queue.ts REGISTER_UNDO_MS)
+const REGISTER_UNDO_MS = 5000
 
 const mounted: Root[] = []
 afterEach(() => {
@@ -164,7 +168,9 @@ function model(s: Spec, delayMs: number): LineModel {
       if (s.reopenLabel !== null) buttons.push({ text: s.reopenLabel, name: `${s.label} ${s.reopenLabel}`, call: 'reopen' })
       if (e?.transient === true) buttons.push({ text: '다시 보내기', name: null, call: 'resend' })
       buttons.push(ok)
-      return { role: 'alert', sentence: `${s.label} — ${head}${tail}`, countdown: false, buttons }
+      // MOB2 D-MOB2-07·16: 다시 보낼 수 있는 저장 실패는 끝에 자동 다시 보내기 안내 (단추·차례는 그대로)
+      const note = e?.retryable === true ? ` ${AUTO_RESEND_NOTE}` : ''
+      return { role: 'alert', sentence: `${s.label} — ${head}${tail}${note}`, countdown: false, buttons }
     }
   }
 }
@@ -176,6 +182,7 @@ async function draw(specs: readonly Spec[], delayMs: number) {
   const calls: string[] = []
   const queue = {
     delayMs,
+    registerUndoMs: REGISTER_UNDO_MS,
     undo: (id: number) => calls.push(`undo:${String(id)}`),
     dismiss: (id: number) => calls.push(`dismiss:${String(id)}`),
     reopen: (id: number) => calls.push(`reopen:${String(id)}`),

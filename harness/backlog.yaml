@@ -1127,6 +1127,30 @@ sprints:
     specIds: [VOC-02, VOC-03, VOC-04, PRD-06]
     status: in_progress
 
+  - id: MOB2
+    phase: 6
+    title: 휴대폰 화면 남은 문제 — 150% 고정 영역·빠른 입력칸, 1등 취소 결과, 개발 용어, 시간이 지난 보류 찜, 연결이 돌아오면 다시 보내기
+    dependsOn: [MOB1, QL2]
+    devs: ["web", "server"]
+    tests: ["domain", "e2e"]
+    uxReview: true
+    goal: >
+      MOB1·QL2 품질 채점에서 넘긴 휴대폰 화면 지적 여섯 고치기만(구조 개편 없음, 판정·정산·골든 변경 없음):
+      휴대폰 글자 150% 콘솔 고정 영역 ≤ 화면 높이 50%·접힌 알림 칩은 상자 전체가 보이거나 숨김(D-MOB2-02),
+      375·393 WebKit·412 × 150% × 실제·리허설 스크롤 0에서 빠른 입력칸이 막대 위(D-MOB2-03),
+      1등 찜 취소·무효·취소 승인 뒤 되돌리기 띠에 결과 한 줄 10초 "15번 새 1등: …"/"… 대기 없음 · 판매 중" 등(D-MOB2-04),
+      "상품 명령"→"상품 관리"·"입금 #12"→"입금 번호 12"(저장된 글은 보일 때만)·처리 기록 seq 빼기·서버 오류 문장의 요청 번호·ID(D-MOB2-05),
+      시간이 지난 보류 찜 "보류 · 시간 지남"·알림 수에서 뺌(D-MOB2-06), 연결이 돌아오면 기록되지 않은 게 확실한 실패를 같은 요청 번호로 한 번 저절로 다시 보냄(D-MOB2-07).
+      순서 server(오류 문장 몇 줄) → web. 수용 기준: harness/sprints/MOB2/acceptance.md(AC-MOB2-01~05·10~16·20~25·30~34·40~47·80·81·90), D-MOB2-01~D-MOB2-08.
+      금지: apps/server/src/youtube/**, 웹의 유튜브 이름 파일, tests/e2e/y1·i3, QL3 몫 Modal.tsx·print.ts·apps/server/src/backup.ts.
+    carryOver:
+      - "맥북 쪽 유튜브 작업으로 넘김: 콘솔 유튜브 칸 '이은 유튜브 방송: 영상 {videoId}'를 쉬운 말로(ConsoleYoutube.tsx — 제안 '이은 유튜브 방송이 있어요.' 또는 방송 제목, D-MOB2-05)"
+      - "그대로 넘김(구조 개편): 마법사 '폰 몇 대' 질문, 콘솔 탭, 돌아오기 카드, 휴대폰 확인 창 아래쪽(엄지), 다른 앱으로 넘어갈 때 5초 대기 조치·'보내고 떠나기', 아이폰 빠른 입력 예시 글·금액 줄바꿈 (MOB1·QL2 carryOver, D-MOB2-08)"
+      - "맥북 쪽 유튜브 작업으로 넘김: apps/server/src/youtube/routes.ts의 INVALID_REQUEST_ID 오류 문장에서 '요청 번호'·'ID'를 빼고 '새로고침한 뒤 다시 해 주세요'로(AC-MOB2-90, D-MOB2-05)"
+      - "다음 휴대폰 스프린트 후보: 오래된 상품의 1등을 취소하면 '현재 상품'이 그 상품으로 바뀜(U-MOB2-05)"
+    specIds: [UX-01, UX-03, UX-04, UX-06, NFR-03]
+    status: done
+
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
   - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"

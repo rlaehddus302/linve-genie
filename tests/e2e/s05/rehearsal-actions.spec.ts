@@ -132,7 +132,9 @@ test('AC-S05-34·41: 1등 취소 — 사유 필수, 되돌리면 이력에 없�
   const reason2 = page.getByRole('dialog', { name: '18번 홍길동 취소' })
   await reason2.getByLabel('사유').fill('번호 착오')
   await reason2.getByLabel('사유').press('Enter')
-  await expect(bar).toContainText(/보냈어요: 18번 홍길동 취소/, { timeout: 15_000 })
+  // MOB2 D-MOB2-04: 1등 찜을 비운 조치는 "보냈어요" 대신 결과 한 줄 — 대기 없음·재고 1이라 다시 판매 중
+  await expect(bar.getByRole('status').filter({ hasText: '1등 자리가' })).toHaveText('18번 1등 자리가 비었어요 · 대기 없음 · 판매 중', { timeout: 15_000 })
+  await expect(bar).not.toContainText('보냈어요: 18번 홍길동 취소')
   await expect(boardItem(page, 18)).not.toContainText('홍길동')
   const cancels = (await history(page, date, true)).filter((e) => e.type === 'host.cancel')
   expect(cancels).toHaveLength(1)

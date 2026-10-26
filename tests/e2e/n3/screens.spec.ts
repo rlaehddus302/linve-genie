@@ -46,7 +46,7 @@ test.describe('입금 확인 화면 경계', () => {
     // 묶음 찾기에도 없다
     await page.goto('/deposits')
     await depositRow(page, d!.no).getByRole('button', { name: '다른 묶음 지정' }).click()
-    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 #${String(d!.no)}` })
+    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 번호 ${String(d!.no)}` }) // MOB2 D-MOB2-05
     await search.getByLabel('찾을 말 (구매자 이름·닉네임·메모·전화번호 뒤 4자리)').fill(name)
     await expect(search.getByRole('status').filter({ hasText: '찾는 중' })).toHaveCount(0)
     await expect(search.getByRole('list', { name: '찾은 묶음' }).getByRole('button')).toHaveCount(0)
@@ -64,7 +64,7 @@ test.describe('입금 확인 화면 경계', () => {
     const row = depositRow(page, d!.no)
     await expect(row).toBeVisible()
     await row.getByRole('button', { name: '다른 묶음 지정' }).click()
-    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 #${String(d!.no)}` })
+    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 번호 ${String(d!.no)}` }) // MOB2 D-MOB2-05
     await search.getByLabel('찾을 말 (구매자 이름·닉네임·메모·전화번호 뒤 4자리)').fill(name)
     const found = search.getByRole('list', { name: '찾은 묶음' }).getByRole('listitem')
     await expect(found).toHaveCount(1)
@@ -73,7 +73,7 @@ test.describe('입금 확인 화면 경계', () => {
     const dlg = page.getByRole('dialog', { name: '입금 확정' })
     await expect(dlg).toContainText('입금 시각이 이 묶음의 판매보다 먼저예요.')
     await dlg.getByRole('button', { name: '확정' }).click()
-    await expect(page.getByRole('status').filter({ hasText: `입금 #${String(d!.no)}` })).toContainText('입금 시각이 이 묶음의 판매보다 먼저예요.')
+    await expect(page.getByRole('status').filter({ hasText: `입금 번호 ${String(d!.no)}` })).toContainText('입금 시각이 이 묶음의 판매보다 먼저예요.') // MOB2 D-MOB2-05
   })
 
   test('되돌리기 창 문장: "{구매자} · M월 D일 묶음에 적은 N원 입금을 되돌려요. …" (AC-N3-44)', async ({ page }) => {

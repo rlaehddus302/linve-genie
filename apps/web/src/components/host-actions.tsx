@@ -1,6 +1,6 @@
 // 콘솔 밖 화면(문자찜 입력·구매자)의 방송자 조치 (AC-S06-14·15·22, D-083): 찜 취소·차단은 콘솔과 같이 사유 창 → 5초 뒤 보냄,
 // 되돌리기 띠, 화면을 떠나면 보내지 않음(떠나기 전에 묻는다). 콘솔의 조치 함수(actions.ts)를 그대로 쓰도록 같은 모양(ConsoleApi)을 만든다.
-import { useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { WriteResult } from '../api/types.ts'
 import type { ConsoleStore } from '../lib/console-store.ts'
@@ -8,6 +8,8 @@ import { BuyerNames } from '../lib/derive.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
+import { ResendBoard } from '../lib/resend-board.ts'
+import { captureVacated, vacatedLine, type VacatedBefore } from '../lib/vacated.ts'
 import { ConfirmDialog, ReasonDialog } from './ActionDialogs.tsx'
 import type { ConsoleApi, Dialog, HostActionInput } from './console-context.ts'
 
@@ -43,6 +45,19 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended, 
   const [dialogs, setDialogs] = useState<Dialog[]>([])
 
   useLeaveGuard(queue)
+
+  // 연결이 돌아오면 저절로 한 번 다시 보낼 실패 (D-MOB2-07): 방송자 조치 → 문자찜 차례
+  const resend = useMemo(() => new ResendBoard(), [])
+  useEffect(() => {
+    const offHost = resend.addHost(async () => {
+      await queue.resendRetryable()
+    })
+    const offReconnect = store.onReconnect(() => void resend.flush())
+    return () => {
+      offHost()
+      offReconnect()
+    }
+  }, [resend, queue, store])
 
   const openDialog = useCallback((dialog: Dialog) => setDialogs((stack) => [...stack, dialog]), [])
   const closeTop = useCallback(() => setDialogs((stack) => stack.slice(0, -1)), [])
@@ -90,12 +105,27 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended, 
     (input: HostActionInput) => {
       if (sealed) return
       const reopen = input.reopen
+      let before: VacatedBefore | null = null
+      let captured = false
       queue.add({
         label: input.label,
         ...(input.message === undefined ? {} : { meta: input.message }),
         claims: input.claims ?? [],
         products: input.products ?? [],
-        send: (requestId) => post<WriteResult>(pathFor(input.event), { requestId, ...input.event }),
+        send: (requestId) => {
+          // 1등 찜을 비우는 조치면 보내기 직전 모양을 잡아 둔다 (D-MOB2-04 결과 한 줄 — 콘솔과 같음)
+          // 처음 보낼 때 한 번만 — 응답을 잃고 다시 보내거나 연결이 돌아와 저절로 보낼 때 다시 잡으면 이미 바뀐 모양이라 결과 줄을 잃는다(TE-MOB2-001)
+          if (!captured) {
+            captured = true
+            before = captureVacated(store.getSnapshot().data, input.event, input.claims ?? [])
+          }
+          return post<WriteResult>(pathFor(input.event), { requestId, ...input.event })
+        },
+        outcome: async (result) => {
+          if (before === null) return null
+          await store.sync(result.seq)
+          return vacatedLine(before, store.getSnapshot().data)
+        },
         onResult: (result) => {
           void store.sync(result.seq)
           input.onResult?.(result)
@@ -146,8 +176,9 @@ export function useHostActions({ store, data, queue, date, rehearsal, b, ended, 
       write,
       fillQuick: () => {},
       select: () => {},
+      resend,
     }),
-    [b, date, rehearsal, ended, sealed, data, names, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, write],
+    [b, date, rehearsal, ended, sealed, data, names, waiting, queue.delayMs, settingsOf, openDialog, closeTop, closeAll, queueHost, command, write, resend],
   )
 
   const top = dialogs.at(-1)

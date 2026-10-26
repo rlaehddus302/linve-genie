@@ -162,3 +162,34 @@ describe('PC 메뉴 (AC-S06-01, AC-I1-20, AC-I3-44, AC-N4a-10·13·18, AC-N3-40,
     expect(screen.queryByRole('link', { name: /출력 기기|프린터|출력 멈춤/ })).toBeNull()
   })
 })
+
+describe('아이폰 홈 화면 추가 안내와 휴대폰 콘솔 (U-MOB2-01, D-MOB2-03·AC-MOB2-05)', () => {
+  const SAFARI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+
+  async function draw(route: Route, wide: boolean) {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(SAFARI)
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: wide && query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const pwa = await import('../src/pwa/pwa.ts')
+    const { TopBar } = await import('../src/components/TopBar.tsx')
+    pwa.startPwa({ serviceWorker: false })
+    render(<TopBar shopName="구피 가게" onLogout={() => {}} route={route} navigate={() => {}} />)
+  }
+
+  it('휴대폰 라이브 콘솔에서는 안내를 그리지 않는다 — 고정 영역을 밀지 않게', async () => {
+    await draw({ name: 'console', id: 'b1' }, false)
+    expect(screen.queryByText(/홈 화면에 추가/)).toBeNull()
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
+  it('휴대폰 방송 목록(첫 화면)에서는 그대로 보이고 "닫기"가 있다', async () => {
+    await draw({ name: 'home' }, false)
+    expect(screen.getByRole('note').textContent).toContain("사파리 아래 공유 버튼 → '홈 화면에 추가'를 눌러 주세요.")
+    expect(screen.getByRole('button', { name: '앱 설치 안내 닫기' })).toBeDefined()
+  })
+
+  it('넓은 화면(아이패드 사파리)의 콘솔은 그대로', async () => {
+    await draw({ name: 'console', id: 'b1' }, true)
+    expect(screen.getByRole('note').textContent).toContain('홈 화면에 추가')
+  })
+})

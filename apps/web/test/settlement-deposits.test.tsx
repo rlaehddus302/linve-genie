@@ -80,7 +80,7 @@ describe('정산 자세히의 입금 연결 (AC-N3-47)', () => {
   it('입금 확인이 적은 입금은 입금 정보를 보이고 "입금 확인 되돌리기"가 있다 — 연결은 서버의 seq로(메모 글을 읽지 않는다)', async () => {
     await open()
     const [payment] = records()
-    expect(payment?.textContent).toBe('입금 14,000원 · 자동 입금 확인 · 김영희 · 10/19 21:03 · 입금 #3 · 기록한 때 10/19 10:00입금 확인 되돌리기')
+    expect(payment?.textContent).toBe('입금 14,000원 · 자동 입금 확인 · 김영희 · 10/19 21:03 · 입금 번호 3 · 기록한 때 10/19 10:00입금 확인 되돌리기') // MOB2 D-MOB2-05
     expect(within(payment as HTMLElement).getByRole('button', { name: '입금 확인 되돌리기' })).toBeDefined()
     // 손으로 같은 메모를 적은 입금은 연결이 없다 (메모 그대로, 되돌리기 없음)
     fireEvent.click(screen.getByRole('button', { name: '정산 목록으로' }))
@@ -88,11 +88,11 @@ describe('정산 자세히의 입금 연결 (AC-N3-47)', () => {
     fireEvent.click(within(screen.getByRole('list', { name: '정산 묶음' })).getAllByRole('link').find((item) => item.textContent?.startsWith('다라')) as HTMLElement)
     await flush()
     const [manual] = records()
-    expect(manual?.textContent).toBe('입금 11,000원 · 자동 입금 확인 · 입금 #3 · 기록한 때 10/19 10:00')
+    expect(manual?.textContent).toBe('입금 11,000원 · 자동 입금 확인 · 입금 번호 3 · 기록한 때 10/19 10:00') // MOB2 D-MOB2-05
     expect(within(manual as HTMLElement).queryByRole('button')).toBeNull()
   })
 
-  it('"입금 확인 되돌리기"는 같은 확인 창을 거쳐 보내고, 되돌림 환불은 "입금 확인 되돌림 · 입금 #3" — 되돌린 입금에는 버튼이 없다', async () => {
+  it('"입금 확인 되돌리기"는 같은 확인 창을 거쳐 보내고, 되돌림 환불은 "입금 확인 되돌림 · 입금 번호 3" — 되돌린 입금에는 버튼이 없다', async () => { // MOB2 D-MOB2-05
     await open()
     fireEvent.click(screen.getByRole('button', { name: '입금 확인 되돌리기' }))
     const dialog = screen.getByRole('dialog')
@@ -101,8 +101,8 @@ describe('정산 자세히의 입금 연결 (AC-N3-47)', () => {
     await flush(20)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(records().map((item) => item.textContent)).toEqual([
-      '입금 14,000원 · 자동 입금 확인 · 김영희 · 10/19 21:03 · 입금 #3 · 되돌림 · 기록한 때 10/19 10:00',
-      '환불 14,000원 · 입금 확인 되돌림 · 입금 #3 · 기록한 때 10/19 10:00',
+      '입금 14,000원 · 자동 입금 확인 · 김영희 · 10/19 21:03 · 입금 번호 3 · 되돌림 · 기록한 때 10/19 10:00', // MOB2 D-MOB2-05
+      '환불 14,000원 · 입금 확인 되돌림 · 입금 번호 3 · 기록한 때 10/19 10:00', // MOB2 D-MOB2-05
     ])
     expect(screen.queryByRole('button', { name: '입금 확인 되돌리기' })).toBeNull()
     expect(screen.getByText('입금 확인을 되돌렸어요. 같은 금액의 환불 기록을 적었어요.').getAttribute('data-tone')).toBe('success')
@@ -124,7 +124,7 @@ describe('리허설 (AC-N3-48)', () => {
     await open({ name: 'settlements', date: DATE, rehearsal: true, buyer: 'c1' })
     expect(screen.getByText(REHEARSAL_DEPOSITS).textContent).toBe('리허설 묶음은 입금 확인에 쓰지 않아요.')
     const [payment] = records()
-    expect(payment?.textContent).toBe('입금 14,000원 · 자동 입금 확인 · 입금 #3 · 기록한 때 10/19 10:00')
+    expect(payment?.textContent).toBe('입금 14,000원 · 자동 입금 확인 · 입금 번호 3 · 기록한 때 10/19 10:00') // MOB2 D-MOB2-05
     expect(screen.queryByRole('button', { name: '입금 확인 되돌리기' })).toBeNull()
   })
 })

@@ -1,4 +1,5 @@
 // 콘솔 안의 화면 조각이 같이 쓰는 값과 동작
+import type { ResendBoard } from '../lib/resend-board.ts'
 import type { SaleSettings } from '@livejjim/core'
 import { createContext, useContext } from 'react'
 import type { ApiError } from '../api/client.ts'
@@ -6,6 +7,7 @@ import type { LabelView } from '../api/print-types.ts'
 import type { WriteResult } from '../api/types.ts'
 import type { BuyerNames } from '../lib/derive.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
+import type { SuccessionPick } from '../lib/undo-queue.ts'
 
 /** 열린 창 (위에 쌓인다) */
 export type Dialog =
@@ -23,7 +25,8 @@ export type Dialog =
     }
   | { readonly kind: 'conflict' }
   | { readonly kind: 'cancelRequests' }
-  | { readonly kind: 'succession' }
+  /** pick: 결과 줄 "1등 고르기"로 열면 그 단위를 먼저 (D-MOB2-16 (1)) */
+  | { readonly kind: 'succession'; readonly pick?: SuccessionPick }
   | { readonly kind: 'pending' }
   | { readonly kind: 'attention' }
   | { readonly kind: 'reason'; readonly spec: ReasonSpec }
@@ -113,6 +116,8 @@ export interface HostActionInput {
 }
 
 export interface ConsoleApi {
+  /** 연결이 돌아오면 저절로 한 번 다시 보낼 실패 목록 (D-MOB2-07 — 콘솔·문자찜 화면). 없으면 저절로 보내지 않는다 */
+  readonly resend?: ResendBoard
   readonly b: string
   readonly date: string
   readonly rehearsal: boolean
@@ -120,6 +125,11 @@ export interface ConsoleApi {
   /** 30일이 지나 봉인한 날짜 — 볼 수만 있다 (쓰기는 보내지 않는다, AC-I3-41) */
   readonly sealed: boolean
   readonly data: ScopeData
+  /**
+   * 그리기와 상관없는 지금 자료 (창이 닫힌 뒤 저절로 다시 보내기 직전에 상품의 지금 상태를 본다 — RA-MOB2-01).
+   * 없으면 그 확인을 건너뛴다
+   */
+  readonly latest?: () => ScopeData
   readonly names: BuyerNames
   /** 라벨 키 → 서버의 라벨 상태 (실제 범위만 — 리허설·콘솔 밖 화면은 없다, AC-I1-30) */
   readonly labels?: ReadonlyMap<string, LabelView>

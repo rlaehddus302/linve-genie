@@ -15,6 +15,11 @@ export interface Sender {
   send(event: Readonly<Record<string, unknown>>): Promise<WriteResult | null>
   /** 마지막으로 보내지 못한 것을 같은 요청 번호로 다시 */
   resend(): Promise<WriteResult | null>
+  /**
+   * 보내지 못해 남겨 둔 요청 번호를 바뀐 내용(event)에 그대로 잇는다 — 다음에 그 내용을 보내면 같은 요청 번호 (D-MOB2-09:
+   * 비운 받은 시각을 처음 누른 시각으로 채워 다시 보내도 서버가 처음 것을 기록했으면 처음 기록·응답을 돌려준다). 남긴 것이 없으면 false
+   */
+  carry(event: Readonly<Record<string, unknown>>): boolean
   clearError(): void
 }
 
@@ -57,16 +62,32 @@ export function useSender(command: (event: Readonly<Record<string, unknown>>, re
     error,
     send: run,
     resend: async () => (pending.current === null ? null : run(pending.current.event)),
+    carry: (event) => {
+      if (pending.current === null) return false
+      pending.current = { key: JSON.stringify(event), requestId: pending.current.requestId, event }
+      return true
+    },
     clearError: () => setError(null),
   }
 }
 
-/** 쓰기 오류 (AC-S06-82) */
-export function WriteError({ error, onRetry, omitFields = [] }: { readonly error: ApiError; readonly onRetry?: () => void; readonly omitFields?: readonly string[] }) {
+/**
+ * 저절로 다시 보낼 실패의 문장 (MOB2 D-MOB2-18): 아래에 AUTO_RESEND_NOTE가 함께 보이므로 "눌러 주세요"를 빼고 저장 못 함·연결 확인만.
+ * 누르기는 AUTO_RESEND_NOTE가 "눌러도 돼요"로 말한다
+ */
+export function autoResendFailWords(error: ApiError): string {
+  return error.network ? '저장하지 못했어요. 인터넷 연결을 확인해 주세요.' : '저장하지 못했어요.'
+}
+
+/**
+ * 쓰기 오류 (AC-S06-82). autoResend: 이 실패가 저절로 다시 보낼 목록에 있고 AUTO_RESEND_NOTE가 함께 보일 때만 true (MOB2 D-MOB2-18) —
+ * 그 밖(저절로 보내지 않는 실패·다른 화면)은 지금 문장 그대로
+ */
+export function WriteError({ error, onRetry, omitFields = [], autoResend = false }: { readonly error: ApiError; readonly onRetry?: () => void; readonly omitFields?: readonly string[]; readonly autoResend?: boolean }) {
   if (error.retryable) {
     return (
       <div className="error-note" role="alert" data-tone="danger">
-        <p>저장하지 못했어요. {error.network ? '인터넷 연결을 확인하고 ' : ''}"다시 보내기"를 눌러 주세요.</p>
+        <p>{autoResend ? autoResendFailWords(error) : <>저장하지 못했어요. {error.network ? '인터넷 연결을 확인하고 ' : ''}&quot;다시 보내기&quot;를 눌러 주세요.</>}</p>
         {onRetry !== undefined ? (
           <button type="button" className="button" onClick={onRetry}>
             다시 보내기

@@ -33,7 +33,7 @@ const FIELD_MESSAGES: Readonly<Record<string, string>> = {
   last4: '끝자리는 숫자 네 개로 적어 주세요.',
   newBuyer: '새 손님으로 넣기는 끝자리와 함께 보내 주세요.',
   voice: '음성으로 넣었는지는 예로만 적을 수 있어요.',
-  requestId: "요청 번호는 영문·숫자·'_'·'-'로 된 1~64자여야 해요.",
+  requestId: '화면을 새로고침한 뒤 다시 해 주세요.',
   // O2 (D-O2-14): 확인 필요 항목 바로잡기·지우기
   item: '확인 필요 항목을 골라 주세요.',
 }

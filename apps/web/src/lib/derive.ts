@@ -184,9 +184,82 @@ export function claimOptionsField(claim: Pick<Claim, 'options'>): { readonly opt
   return { options: Object.fromEntries(claim.options.map(([name, label]) => [name, label])) }
 }
 
-/** 찜의 지금 상태 낱말 (1등 · 대기 n번 · 보류 · 충돌 · …) */
-export function claimWord(data: ScopeData, claim: Claim): string {
+/**
+ * 찜의 지금 상태 낱말 (1등 · 대기 n번 · 보류 · 충돌 · …). 지금 시각 `now`(밀리초)를 주면 시간이 지난 보류 찜은
+ * "보류 · 시간 지남"(D-MOB2-06 — 판정은 그대로, 화면 낱말만)
+ */
+export function claimWord(data: ScopeData, claim: Claim, now?: number): string {
+  if (now !== undefined && isPendingTimedOut(data, claim, now)) return PENDING_TIMED_OUT_WORD
   return claimStatusWord(claim.status, claim.reason, waitPosition(data, claim))
+}
+
+// ── 시간이 지난 보류 찜 (D-MOB2-06, UX-04 — R-5 판정은 그대로) ─────────────
+
+/** 시간이 지난 보류 찜의 낱말 */
+export const PENDING_TIMED_OUT_WORD = '보류 · 시간 지남'
+/** 문자찜 결과 카드 문장 끝 (시간이 지난 보류 찜) */
+export const PENDING_TIMED_OUT_TAIL = ' — 지금 등록해도 판정되지 않아요. 판매를 시작한 뒤 문자찜을 다시 넣어 주세요' // D-MOB2-16 (3)
+/** 방송 설정이 없을 때의 보류 찜 유효 시간(초) — 서버 기본값과 같다 */
+const DEFAULT_PRE_OPEN_WINDOW_SEC = 30
+
+/**
+ * 순수 판단: 찜이 들어온 시각 `atMs`, 지금(또는 공개 시각) `nowMs`, 유효 시간 `windowSec`(초)에서 시간이 지났는가.
+ * R-5 2(`at ≥ T − W`면 판정에 들어감, 경계 포함)의 반대 — `nowMs − atMs > windowSec × 1000`(밀리초로 비교). 경계 정각은 아직 유효.
+ */
+export function pendingWindowPassed(atMs: number, nowMs: number, windowSec: number): boolean {
+  return nowMs - atMs > windowSec * 1000
+}
+
+/** 그 방송의 보류 찜 유효 시간(초) — 방송 설정 스냅샷의 claim.preOpenWindowSec */
+export function preOpenWindowSec(data: Pick<ScopeData, 'broadcasts'>, b: string): number {
+  const value = data.broadcasts.get(b)?.settings['claim.preOpenWindowSec']
+  return typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_PRE_OPEN_WINDOW_SEC
+}
+
+/**
+ * 시간 지남을 잴 때의 시작 시각(밀리초): 이 탭이 그 찜을 처음 받은 시각(D-MOB2-15 — 둘 다 이 기기 시계라 시계 차이가 없다).
+ * 자료에 처음 받은 시각 기록이 없으면(저장소를 거치지 않은 자료) 찜의 at. 기록은 있는데 그 찜이 없으면 null(아직 모름 — 시간 지남 아님)
+ */
+export function pendingStart(data: Pick<ScopeData, 'seen'>, claim: Pick<Claim, 'id' | 'at'>): number | null {
+  if (data.seen !== undefined) return data.seen.get(claim.id) ?? null
+  const at = Date.parse(claim.at)
+  return Number.isFinite(at) ? at : null
+}
+
+/**
+ * 시간이 지난 보류 찜인가: 상태 `PENDING`, 그 번호의 상품이 아직 판매 중이 아님(없음·`READY`),
+ * (지금 − 이 탭이 그 찜을 처음 받은 시각) > 그 방송의 유효 시간 (D-MOB2-06·D-MOB2-15)
+ */
+export function isPendingTimedOut(
+  data: Pick<ScopeData, 'broadcasts' | 'products' | 'seen'>,
+  claim: Pick<Claim, 'id' | 'status' | 'at' | 'product' | 'broadcast'>,
+  now: number,
+): boolean {
+  if (claim.status !== 'PENDING') return false
+  const product = data.products.get(claim.product)
+  if (product !== undefined && product.status !== 'READY') return false
+  const start = pendingStart(data, claim)
+  if (start === null) return false
+  return pendingWindowPassed(start, now, preOpenWindowSec(data, claim.broadcast))
+}
+
+/**
+ * 다음에 보류 찜 하나가 "시간 지남"으로 바뀌는 시각(밀리초) — 없으면 null. 화면은 이때 한 번 다시 그린다(1초마다 그리지 않는다).
+ * 시간이 지나는 순간은 처음 받은 시각(pendingStart) + W×1000 + 1ms(경계 정각은 아직 유효).
+ */
+export function nextPendingFlip(data: Pick<ScopeData, 'broadcasts' | 'products' | 'pending' | 'claims' | 'seen'>, now: number): number | null {
+  let best: number | null = null
+  for (const slot of data.pending.values()) {
+    for (const id of slot.claims) {
+      const claim = data.claims.get(id)
+      if (claim === undefined || claim.status !== 'PENDING') continue
+      const start = pendingStart(data, claim)
+      if (start === null) continue
+      const flip = start + preOpenWindowSec(data, claim.broadcast) * 1000 + 1
+      if (flip > now && (best === null || flip < best)) best = flip
+    }
+  }
+  return best
 }
 
 const requestIndexCache = new WeakMap<ScopeData['cancelRequests'], ReadonlyMap<string, number>>()
@@ -279,7 +352,11 @@ export interface AlertCounts {
   readonly attention: number
 }
 
-export function alertCounts(data: ScopeData): AlertCounts {
+/**
+ * 알림 수. 지금 시각 `now`(밀리초)를 받아 "보류 찜"은 시간이 지나지 않은 보류 찜만 센다(D-MOB2-06, 경계 정각은 셈 —
+ * 1ms 넘기면 빠짐). `now`를 주지 않으면 시간을 보지 않고 모두 센다(지난 날짜 범위처럼 시계가 뜻이 없는 곳)
+ */
+export function alertCounts(data: ScopeData, now?: number): AlertCounts {
   let conflict = 0
   let succession = 0
   for (const product of data.products.values()) {
@@ -287,19 +364,51 @@ export function alertCounts(data: ScopeData): AlertCounts {
     succession += successionUnits(product).length
   }
   let pending = 0
-  for (const slot of data.pending.values()) if (!data.products.has(slot.product)) pending += slot.claims.length
+  for (const slot of data.pending.values()) {
+    if (data.products.has(slot.product)) continue
+    if (now === undefined) {
+      pending += slot.claims.length
+      continue
+    }
+    for (const id of slot.claims) {
+      const claim = data.claims.get(id)
+      if (claim === undefined || !isPendingTimedOut(data, claim, now)) pending++
+    }
+  }
   return { conflict, cancelRequest: data.cancelRequests.size, succession, pending, attention: data.attention.length }
 }
 
+/** 보류 찜 묶음 하나 (번호마다) */
+export interface PendingGroup {
+  readonly product: string
+  readonly broadcast: string
+  readonly no: number
+  readonly claims: Claim[]
+}
+
 /** 상품이 아직 없는 번호의 보류 찜 묶음 */
-export function orphanPending(data: ScopeData): { product: string; broadcast: string; no: number; claims: Claim[] }[] {
-  const out: { product: string; broadcast: string; no: number; claims: Claim[] }[] = []
+export function orphanPending(data: ScopeData): PendingGroup[] {
+  const out: PendingGroup[] = []
   for (const slot of data.pending.values()) {
     if (data.products.has(slot.product)) continue
     const claims = slot.claims.map((id) => data.claims.get(id)).filter((claim): claim is Claim => claim !== undefined)
     out.push({ product: slot.product, broadcast: slot.broadcast, no: slot.no, claims })
   }
   return out.sort((a, b) => a.no - b.no)
+}
+
+/**
+ * 보류 찜 창의 두 목록 (D-MOB2-06): `live` = 시간이 지나지 않은 찜이 하나라도 있는 번호(묶음 그대로),
+ * `timedOut` = 시간이 지난 찜만 남은 번호(번호마다 그 수 — "번호 넣기" 없음)
+ */
+export function splitPending(data: ScopeData, now: number): { live: PendingGroup[]; timedOut: PendingGroup[] } {
+  const live: PendingGroup[] = []
+  const timedOut: PendingGroup[] = []
+  for (const group of orphanPending(data)) {
+    if (group.claims.length > 0 && group.claims.every((claim) => isPendingTimedOut(data, claim, now))) timedOut.push(group)
+    else live.push(group)
+  }
+  return { live, timedOut }
 }
 
 /** 금액 표시 — 코어 formatWon 모양 */

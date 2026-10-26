@@ -34,9 +34,19 @@ export interface ScopeData {
   readonly attention: readonly Attention[]
   /** 정산 기록 seq → 입금 연결 (입금 확인이 적은 입금·되돌림 기록, AC-N3-32·47) */
   readonly depositLinks: ReadonlyMap<number, DepositLinkView>
+  /**
+   * 찜 ID → 이 탭이 그 찜을 처음 받은 시각(밀리초, D-MOB2-15). 저장소(ConsoleStore)가 붙인다(lib/claim-seen.ts).
+   * 없으면(저장소를 거치지 않은 자료 — 시험 등) 시간 지남 판단은 찜의 at으로 잰다
+   */
+  readonly seen?: SeenAt
 }
 
-type MapLists = Omit<ScopeData, 'date' | 'rehearsal' | 'seq' | 'attention' | 'depositLinks'>
+/** 찜을 이 탭이 처음 받은 시각 찾기 (D-MOB2-15) */
+export interface SeenAt {
+  get(claimId: string): number | undefined
+}
+
+type MapLists = Omit<ScopeData, 'date' | 'rehearsal' | 'seq' | 'attention' | 'depositLinks' | 'seen'>
 type ListName = keyof MapLists
 
 /** 정산 묶음 키 (구매자, 날짜) */

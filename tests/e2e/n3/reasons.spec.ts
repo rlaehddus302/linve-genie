@@ -29,11 +29,11 @@ test.describe('확인 필요 사유', () => {
     await page.goto('/deposits')
     const row = depositRow(page, d!.no)
     await expect(row).toContainText('같은 이름의 구매자가 여럿이에요')
-    const radios = row.getByRole('radiogroup', { name: `입금 #${String(d!.no)} 묶음` }).getByRole('radio')
+    const radios = row.getByRole('radiogroup', { name: `입금 번호 ${String(d!.no)} 묶음` }).getByRole('radio') // MOB2 D-MOB2-05
     await expect(radios).toHaveCount(2)
     await expect(radios.nth(0)).not.toBeChecked()
     await expect(radios.nth(1)).not.toBeChecked()
-    const confirm = row.getByRole('group', { name: `입금 #${String(d!.no)} 처리` }).getByRole('button', { name: '확정' })
+    const confirm = row.getByRole('group', { name: `입금 번호 ${String(d!.no)} 처리` }).getByRole('button', { name: '확정' }) // MOB2 D-MOB2-05
     await expect(confirm).toBeDisabled()
     // 날짜가 늦은 묶음이 먼저 (DP-5 후보 제안 순서)
     const later = a.date > b.date ? a : b
@@ -90,7 +90,7 @@ test.describe('다른 묶음 지정 찾기', () => {
     const [d] = await deposit(page, src, [{ key: uniq('ph'), at: kstIso(5_000), amount: 3_330, name: uniq('모르는') }])
     await page.goto('/deposits')
     await depositRow(page, d!.no).getByRole('button', { name: '다른 묶음 지정' }).click()
-    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 #${String(d!.no)}` })
+    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 번호 ${String(d!.no)}` }) // MOB2 D-MOB2-05
     await search.getByLabel(SEARCH).fill(last4)
     const found = search.getByRole('list', { name: '찾은 묶음' }).getByRole('button').filter({ hasText: name })
     await expect(found).toHaveCount(2)
@@ -116,8 +116,8 @@ test.describe('한꺼번에·시간대·붙여넣기 한계', () => {
       { key: uniq('v'), at, amount: s2.remaining - 20, name: n2 },
     ])
     await page.goto('/deposits')
-    await depositRow(page, d1!.no).getByRole('checkbox', { name: `입금 #${String(d1!.no)} 고르기` }).check()
-    await depositRow(page, d2!.no).getByRole('checkbox', { name: `입금 #${String(d2!.no)} 고르기` }).check()
+    await depositRow(page, d1!.no).getByRole('checkbox', { name: `입금 번호 ${String(d1!.no)} 고르기` }).check() // MOB2 D-MOB2-05
+    await depositRow(page, d2!.no).getByRole('checkbox', { name: `입금 번호 ${String(d2!.no)} 고르기` }).check() // MOB2 D-MOB2-05
     await page.getByRole('group', { name: '선택한 입금' }).getByRole('button', { name: '선택한 입금 확정 (2건)' }).click()
     const dlg = page.getByRole('dialog', { name: '선택한 입금 확정 (2건)' })
     await expect(dlg).toBeVisible()
@@ -125,7 +125,7 @@ test.describe('한꺼번에·시간대·붙여넣기 한계', () => {
     await dlg.getByRole('button', { name: '2건 확정' }).click()
     await expect(dlg).toHaveCount(0)
     const notice = page.getByRole('status').filter({ hasText: '입금 1건을 확정했어요. 1건은 확정하지 못했어요.' })
-    await expect(notice).toContainText(`입금 #${String(d2!.no)}: 묶음 금액이 바뀌었어요. 다시 확인해 주세요.`)
+    await expect(notice).toContainText(`입금 번호 ${String(d2!.no)}: 묶음 금액이 바뀌었어요. 다시 확인해 주세요.`) // MOB2 D-MOB2-05
     expect((await depositOne(page, d1!.no)).status).toBe('APPLIED')
     expect((await depositOne(page, d2!.no)).status).toBe('REVIEW')
     // 거절된 줄은 새 제안(바뀐 남은 금액)으로

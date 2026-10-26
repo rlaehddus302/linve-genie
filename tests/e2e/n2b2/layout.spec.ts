@@ -1,5 +1,5 @@
 // N2b-2 E2E — 휴대폰 고정 영역·누르는 곳·쉬운 말 (AC-N2b-2-60·62·68, UX-04, NFR-08). 여러 플랫폼 묶음(@multi).
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   PASTE_ALERT,
   boardItem,
@@ -23,6 +23,33 @@ import {
 import { pendingWord } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
 
 /** 화면 위·아래에 고정된 영역(position fixed·sticky, 가장 바깥 것)의 보이는 높이 합 (S06 layout.spec과 같은 셈) */
+/**
+ * MOB2 D-MOB2-02 (합친 뒤): 접힌 휴대폰 띠에서는 상자 전체가 띠 안에 드는 항목만 보이고, 들어가지 않는 항목은 숨는다
+ * (data-overflow → visibility: hidden, 보조 기술에도 숨김, 남은 수는 "알림 n 펼치기"). 첫 항목은 늘 보인다.
+ * 그래서 함께 있는 띠 항목은 "보임" 대신: 띠 안에 하나 있고, 보이면 상자 전체가 띠 안·숨으면 넘침 표시로 숨김.
+ */
+async function expectInFoldedStrip(item: Locator, what: string, timeout?: number): Promise<void> {
+  await expect(item, `${what} 띠 안에 하나`).toHaveCount(1, timeout === undefined ? {} : { timeout })
+  const state = await item.evaluate((el) => {
+    const li = el.closest('li')
+    const section = el.closest('section')
+    if (li === null || section === null) return { li: false, hidden: false, inside: false }
+    const box = section.getBoundingClientRect()
+    const r = li.getBoundingClientRect()
+    return {
+      li: true,
+      hidden: li.getAttribute('data-overflow') === 'true' && getComputedStyle(li).visibility === 'hidden',
+      inside: r.top >= box.top - 1 && r.bottom <= box.bottom + 1 && r.left >= box.left - 1 && r.right <= box.right + 1,
+    }
+  })
+  expect(state.li, `${what} 띠 항목(li) 안`).toBe(true)
+  if (state.hidden) await expect(item, `${what} 숨은 항목은 보이지 않음`).toBeHidden()
+  else {
+    expect(state.inside, `${what} 보이는 항목은 상자 전체가 띠 안 (${JSON.stringify(state)})`).toBe(true)
+    await expect(item, `${what} 보임`).toBeVisible()
+  }
+}
+
 async function fixedHeight(page: Page): Promise<{ total: number; parts: string[] }> {
   return await page.evaluate(() => {
     const vh = window.innerHeight
@@ -92,15 +119,18 @@ test.describe('N2b-2 휴대폰 고정 영역 @multi', () => {
     await tt(page.request, 'block', { uniqueId: tiktokId, times: 1 })
     // 막힘을 실제로 쓴 뒤(끊김 직후의 '끊긴 동안' 알림이 아니라) — 가짜 웹캐스트의 막힘 대기열이 다음 시험에 남지 않게
     await expect(consoleTiktok(page).getByText('틱톡이 연결을 막아 다시 시도하는 중이에요. 그동안 댓글을 직접 넣어 주세요.')).toBeVisible({ timeout: CONNECT_WAIT })
-    await expect(page.getByRole('button', { name: PASTE_ALERT })).toBeVisible({ timeout: CONNECT_WAIT })
+    // MOB2 D-MOB2-02: 틱톡 알림 줄은 띠 안에 있다 — 앞 항목(붙여넣기 결과 등)에 밀려 접힌 띠 한 줄에 안 들면 숨김(펼치면 보임)
+    const pasteAlert = strip.getByRole('button', { name: PASTE_ALERT, includeHidden: true })
+    await expectInFoldedStrip(pasteAlert, '틱톡 알림 줄', CONNECT_WAIT)
     // 되돌리기 대기 (빠른 입력 등록)
     const input = page.getByLabel('빠른 입력')
     await input.fill('20 새상품 10000')
     await input.press('Enter')
     await expect(boardItem(page, 20)).toBeVisible()
-    await expect(page.getByText('찜 1개를 넣었어요.')).toBeVisible()
-    // 새 단추는 44px 이상 (AC-N2b-2-68)
-    for (const button of [page.getByRole('button', { name: PASTE_ALERT }), page.getByRole('button', { name: '인스타그램 알림 닫기' })]) {
+    // 붙여넣기 결과 문장도 띠 안 (10초 보인다 — MOB2 D-MOB2-02 접힌 띠 규칙대로 보이거나 숨김)
+    await expectInFoldedStrip(strip.getByText('찜 1개를 넣었어요.'), '붙여넣기 결과')
+    // 새 단추는 44px 이상 (AC-N2b-2-68) — 접힌 띠에서 숨은 틱톡 알림 줄도 자리(상자)는 그대로라 같은 단추를 잰다
+    for (const button of [pasteAlert, page.getByRole('button', { name: '인스타그램 알림 닫기' })]) {
       const box = await button.boundingBox()
       expect(box!.height, await button.innerText()).toBeGreaterThanOrEqual(44)
       expect(box!.width, await button.innerText()).toBeGreaterThanOrEqual(44)

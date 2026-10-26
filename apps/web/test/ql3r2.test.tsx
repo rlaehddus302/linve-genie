@@ -158,7 +158,7 @@ describe('입금 붙여넣기 화면 (D-QL3R2-01·05)', () => {
 describe('쉬운 낱말 (D-QL3R2-04)', () => {
   it('늦은 입금·같은 입금 두 번·구매자 확인서 링크 문장', () => {
     expect(PASTE_STATE_WORD.FUTURE).toBe('시각이 지금보다 늦은 입금')
-    expect(reasonWords('POSSIBLE_DUPLICATE', 2)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 #2도 같은 입금이에요)')
+    expect(reasonWords('POSSIBLE_DUPLICATE', 2)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 2도 같은 입금이에요)') // D-QL3R1-10 (3): MOB2 "입금 번호 n"과 합친 문장
     expect(reasonWords('POSSIBLE_DUPLICATE', 2)).not.toContain('#2과')
     expect(BUYER_CAN_WRITE).toBe("구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요. 링크는 방송을 끝낸 뒤 '영수증 보내기'에서 만들어요.")
   })
@@ -179,7 +179,7 @@ describe('출력 기기 없음 짧은 줄 (D-QL3R2-03, AC-QL3R2-14)', () => {
   const queue = { rev: 1, device, pause: null, waiting: 2, printing: 0, discard: 0, labelsEnabled: true }
 
   it('stationLeadShortText — 끊김·없음+대기·없음+대기 0·정상·리허설·끝남·이 기기', () => {
-    expect(NO_STATION_SHORT).toBe('라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요')
+    expect(NO_STATION_SHORT).toBe('라벨이 안 나가요 · 프린터를 연결해 주세요') // MOB2 D-MOB2-17
     expect(stationLeadShortText({ ...base, queue })).toBe(deviceLostShortMessage('PC 2'))
     expect(stationLeadShortText({ ...base, queue: { ...queue, device: null } })).toBe(NO_STATION_SHORT)
     expect(stationLeadText({ ...base, queue: { ...queue, device: null } })).toBe(NO_STATION_PILING)

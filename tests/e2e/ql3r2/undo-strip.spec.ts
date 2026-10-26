@@ -194,7 +194,7 @@ test.describe('AC-QL3R2-30 숫자 키를 누르고 있어 반복된 입력은 �
       // 보통 한 번
       await s.dev.keyboard.press('2')
       await expect(dlg).toHaveCount(0)
-      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^보냈어요: 1번.* 취소$/ })).toBeVisible({ timeout: DELAY + 10_000 })
+      await expect(undoBar(s.dev).getByRole('status').filter({ hasText: /^1번 새 1등: 문자찜\(대기손님\)$/ })).toBeVisible({ timeout: DELAY + 10_000 }) // 합친 뒤 MOB2 D-MOB2-04: 1등 자리를 비운 조치가 적용되면 "보냈어요" 줄 대신 결과 한 줄
       const cancels = (await history(s.dev, date, false)).filter((e) => e.type === 'host.cancel')
       expect(cancels).toHaveLength(1)
       expect(cancels[0]!.reason).toBe('장난 찜')

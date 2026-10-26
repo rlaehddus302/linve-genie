@@ -420,8 +420,9 @@ test.describe('AC-NAV-07: 콘솔 고정 영역', () => {
       await sendViewerChat(phone, b, '셋째', '7 취소', 'sim_third_0004')
       await smsApi(phone, { b, no: 40, memo: '병' })
       const strip = phone.getByRole('region', { name: '알림' })
-      await expect(strip.getByRole('button', { name: new RegExp(`^${pendingWord(phone)} \\d+$`) })).toBeVisible() // QL3R2 D-QL3R2-02
-      await expect(strip.getByRole('button', { name: /^취소 요청 \d+$/ })).toBeVisible()
+      // MOB2 D-MOB2-02: 접힌 띠에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 항목이 있는지·차례는 숨은 칩도 센다
+      await expect(strip.getByRole('button', { name: new RegExp(`^${pendingWord(phone)} \\d+$`), includeHidden: true })).toHaveCount(1) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
+      await expect(strip.getByRole('button', { name: /^취소 요청 \d+$/, includeHidden: true })).toHaveCount(1)
       const input = phone.getByLabel('빠른 입력')
       await input.fill('20 새상품 10000')
       await input.press('Enter')

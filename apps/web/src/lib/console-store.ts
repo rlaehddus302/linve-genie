@@ -15,6 +15,7 @@ import type { BroadcastItem, Changes, ChatMessage, FullView, GeneratorStatus, Me
 import { PLATFORM_STREAM_TYPES, parsePlatformEvent, parseYoutubeEvent, type PlatformStreamEvent } from './live-events.ts'
 import { streamUrl } from './device.ts'
 import { applyChanges, fromFull, type ScopeData } from './scope-data.ts'
+import { TAB_CLAIM_SEEN, type ClaimSeen } from './claim-seen.ts'
 import { sharedStream, type EventSourceLike } from './stream.ts'
 
 /** 처음 열 때 받는 최근 메시지 수 (그날 전체를 받지 않는다) */
@@ -88,6 +89,8 @@ export interface ConsoleStoreOptions {
   readonly messages?: boolean
   readonly openStream?: (url: string) => EventSourceLike
   readonly timer?: { set(fn: () => void, ms: number): unknown; clear(handle: unknown): void }
+  /** 찜을 처음 받은 시각 기록 (D-MOB2-15, 기본: 이 탭 하나의 기록) */
+  readonly seen?: ClaimSeen
 }
 
 const EMPTY: ConsoleSnapshot = {
@@ -174,6 +177,8 @@ export class ConsoleStore {
   /** 받은 ready 수 (두 번째부터 다시 붙은 것) */
   #readyCount = 0
 
+  readonly #seen: ClaimSeen
+
   constructor(options: ConsoleStoreOptions) {
     if ((options.broadcastId === undefined) === (options.scope === undefined)) throw new Error('방송 또는 범위 하나로 연다')
     this.broadcastId = options.broadcastId ?? null
@@ -181,6 +186,7 @@ export class ConsoleStore {
     this.#withMessages = options.messages ?? options.broadcastId !== undefined
     // 기본: 페이지의 실시간 연결 하나를 함께 쓴다 (출력 기록과 같은 연결, lib/stream.ts)
     this.#openStream = options.openStream ?? (() => sharedStream(streamUrl).open())
+    this.#seen = options.seen ?? TAB_CLAIM_SEEN
     this.#timer = options.timer ?? { set: (fn, ms) => setTimeout(fn, ms), clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>) }
   }
 
@@ -211,6 +217,8 @@ export class ConsoleStore {
 
   #set(patch: Partial<ConsoleSnapshot>): void {
     if (this.#stopped) return
+    // 자료에 처음 들어온 찜의 받은 시각을 남기고 붙인다 (전체 조회·증분 둘 다, D-MOB2-15)
+    if (patch.data !== undefined && patch.data !== null) patch = { ...patch, data: this.#seen.note(patch.data, Date.now()) }
     this.#snapshot = { ...this.#snapshot, ...patch }
     for (const listener of this.#listeners) listener()
   }

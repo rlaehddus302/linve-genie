@@ -74,7 +74,8 @@ for (const [label, viewport] of [['375×812', PHONE], ['412×915', ANDROID]] as 
       const input = dev.getByLabel('빠른 입력')
       await expect(input).toBeVisible()
       await expect(alerts(dev).getByRole('button', { name: /^출력 멈춤 · / })).toHaveCount(1)
-      await expect(alerts(dev).getByRole('button', { name: new RegExp(`^${pendingWord(dev)} \\d+$`) })).toHaveCount(1) // QL3R2 D-QL3R2-02
+      // MOB2 D-MOB2-02: 접힌 띠에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 항목이 있는지·차례는 숨은 칩도 센다
+      await expect(alerts(dev).getByRole('button', { name: new RegExp(`^${pendingWord(dev)} \\d+$`), includeHidden: true })).toHaveCount(1) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
       await expectNoOverflow(dev, '콘솔(띠 접음)')
       // 빠른 입력 줄: 세로로 쌓임 — 입력칸 폭 ≥ 화면 60%, 입력칸·"개수" 칸이 화면 안
       const ib = (await input.boundingBox())!

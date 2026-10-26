@@ -18,9 +18,11 @@ import { qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
 import { reviewsPath } from '../lib/reviews.ts'
 import { activeClaimOf, distinguishWords, isActive, sameNameCounts, searchBuyers } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
-import { claimOptionWords, claimWord, formatWon, isOptionBroadcast, productKey } from '../lib/derive.ts'
+import { PENDING_TIMED_OUT_TAIL, claimOptionWords, claimWord, formatWon, isOptionBroadcast, isPendingTimedOut, productKey } from '../lib/derive.ts'
+import { usePendingNow } from '../lib/use-pending-now.ts'
+import { AUTO_RESEND_NOTE, RESENT_PREFIX } from '../lib/resend-board.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
-import { broadcastWords, kstStamp } from '../lib/kst.ts'
+import { broadcastWords, kstStamp, kstTime } from '../lib/kst.ts'
 import { RECEIVED_HELP, RECEIVED_INVALID, readReceived, receivedWords } from '../lib/received.ts'
 import type { Navigate } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
@@ -324,6 +326,9 @@ function ProductPreview({ api, no }: { readonly api: ConsoleApi; readonly no: nu
   )
 }
 
+/** 문자찜 넣기 실패의 저절로 다시 보내기 항목 (화면에 칸이 하나라 하나) */
+const SMS_RESEND_KEY = 'sms:form'
+
 interface SentResult {
   readonly seq: number
   readonly no: number
@@ -333,6 +338,8 @@ interface SentResult {
   readonly phoneLast4: string | null
   /** 쓰기 응답의 buyer: 그 문자찜이 정한 구매자 자신 (정하지 못했으면 null, D-099) */
   readonly buyer: string | null
+  /** 연결이 돌아와 저절로 다시 보낸 문자찜 (D-MOB2-07 — 결과 카드 앞에 "연결이 돌아와 보냈어요: ") */
+  readonly auto: boolean
 }
 
 interface SmsFormProps {
@@ -407,31 +414,55 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   }
   const optionsMissing = optionMode && product !== undefined && product.hasOptions && variantTextOf(product, effectivePicks) === null
 
-  const send = async () => {
-    if (api === undefined || number === null) return
-    const at = Date.now()
-    const current = readReceived(received, at)
-    const event = {
+  /** 처음 누른 때 — 칸 내용이 같으면 그대로 (RA-MOB2-02, D-MOB2-09) */
+  const pressRef = useRef<{ readonly key: string; readonly at: number } | null>(null)
+  const receivedRef = useRef(received)
+  receivedRef.current = received
+  /** 받은 시각을 비운 채 실패해 칸에 채워 넣은 처음 누른 시각 `HH:MM:SS` (D-MOB2-09) */
+  const [filled, setFilled] = useState<string | null>(null)
+
+  /** 보낼 쓰기 (받은 시각은 읽은 값 — 비우면 넣지 않는다, ORD-08 AC6) */
+  const eventOf = (receivedValue: string | null): Readonly<Record<string, unknown>> | null => {
+    if (api === undefined || number === null) return null
+    return {
       type: 'sms',
       b: api.b,
       no: number,
-      ...(current.kind === 'ok' ? { received: current.value } : {}),
+      ...(receivedValue !== null ? { received: receivedValue } : {}),
       ...(buyer === null && phone.trim() !== '' ? { phone: phone.trim() } : {}),
       ...(memo.trim() === '' ? {} : { memo: memo.trim() }),
       ...(buyer === null ? {} : { buyer }),
       ...(optionMode ? { qty: qty ?? 1 } : {}),
       ...(optionMode && product !== undefined && product.hasOptions ? { options: { ...effectivePicks } } : {}),
     }
+  }
+  const eventOfRef = useRef(eventOf)
+  eventOfRef.current = eventOf
+
+  const send = async (auto = false) => {
+    if (api === undefined || number === null) return
+    const at = Date.now()
+    // 받은 시각은 ref에서 — 실패한 순간 채운 값이 다시 그리기 전에 눌린 "다시 보내기"에도 실리게 (D-MOB2-09)
+    const receivedText = receivedRef.current
+    // 같은 칸 내용으로 처음 누른 때 (다시 보내기·저절로 다시 보내기에서도 처음 것 — RA-MOB2-02)
+    const pressKey = JSON.stringify([no, receivedText, phone, memo, buyer, picks, qtyText])
+    if (pressRef.current?.key !== pressKey) pressRef.current = { key: pressKey, at }
+    const current = readReceived(receivedText, at)
+    const event = eventOf(current.kind === 'ok' ? current.value : null)
+    if (event === null) return
     const written = await sender.send(event)
     // 실패면 칸은 친 그대로 (AC-SMS-04)
     if (written === null) return
+    pressRef.current = null
+    setFilled(null)
     setResult({
       seq: written.seq,
       no: number,
       b: api.b,
-      receivedText: received,
+      receivedText,
       phoneLast4: typeof written.phoneLast4 === 'string' ? written.phoneLast4 : normalized === null ? null : phoneLast4(normalized),
       buyer: typeof written.buyer === 'string' ? written.buyer : null,
+      auto,
     })
     // 성공 응답 바로 칸을 모두 비우고 번호 칸으로 — 따라잡기를 기다리지 않는다 (전화번호 원문을 남기지 않는다, AC-S06-13·81, AC-SMS-02)
     setNo('')
@@ -477,6 +508,61 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   }
 
   const serverError = sender.error
+
+  // 연결이 돌아오면 저절로 한 번 (D-MOB2-07): 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(D-MOB2-14)이고, 칸 내용이 실패한 때와 같을 때만.
+  // 판매자가 번호·전화번호·메모·받은 시각·구매자(옵션·수량) 중 하나라도 바꿨으면 새로 보내는 것으로 보고 보내지 않는다
+  const fieldsKey = JSON.stringify([no, received, phone, memo, buyer, picks, qtyText])
+  const fieldsRef = useRef(fieldsKey)
+  fieldsRef.current = fieldsKey
+  /** 저절로 다시 보낼 때 견줄 칸 내용 — 실패한 때(받은 시각을 채웠으면 채운 뒤, D-MOB2-09) */
+  const failedKeyRef = useRef(fieldsKey)
+  const sendRef = useRef(send)
+  sendRef.current = send
+  const board = api?.resend
+  /** 화면에 보이는 "저절로 보냄" 판단용 — 그 실패와 견줄 칸 내용 (failedKeyRef와 같은 값, 바뀌면 다시 그린다) */
+  const [failedFields, setFailedFields] = useState<{ readonly error: ApiError; readonly key: string } | null>(null)
+  useEffect(() => {
+    if (board === undefined) return
+    if (serverError === null || !serverError.retryable) {
+      board.remove(SMS_RESEND_KEY)
+      return
+    }
+    failedKeyRef.current = fieldsRef.current
+    setFailedFields({ error: serverError, key: fieldsRef.current })
+    board.add(SMS_RESEND_KEY, 'sms', async () => {
+      if (fieldsRef.current !== failedKeyRef.current) return
+      await sendRef.current(true)
+    })
+  }, [board, serverError])
+  useEffect(() => () => board?.remove(SMS_RESEND_KEY), [board])
+
+  // 받은 시각을 비운 채 저절로 다시 보낼 실패로 끝나면 칸에 처음 "넣기"를 누른 시각을 채운다 (D-MOB2-09, RA-MOB2-02).
+  // 다시 보내기(저절로·직접)는 이 값으로, 요청 번호는 처음 것 그대로 — 서버가 처음 것을 이미 기록했으면 처음 기록을 돌려준다.
+  // 저절로 다시 보내기는 채운 뒤의 칸과 견준다 — 판매자가 칸을 지우거나 고치면 보내지 않는다
+  useEffect(() => {
+    if (serverError === null || !serverError.retryable) return
+    const press = pressRef.current
+    if (press === null || receivedRef.current.trim() !== '') return
+    const text = kstTime(press.at)
+    const filledRead = readReceived(text, Date.now())
+    if (filledRead.kind !== 'ok') return
+    const event = eventOfRef.current(filledRead.value)
+    if (event === null) return
+    sender.carry(event)
+    const [fieldNo, , ...rest] = JSON.parse(fieldsRef.current) as unknown[]
+    failedKeyRef.current = JSON.stringify([fieldNo, text, ...rest])
+    setFailedFields({ error: serverError, key: failedKeyRef.current })
+    receivedRef.current = text
+    setReceived(text)
+    setFilled(text)
+    // sender는 그리는 때마다 새 묶음이지만 carry는 같은 요청 번호 자리를 쓴다
+  }, [serverError])
+
+  // 저절로 다시 보낼 실패이고 칸이 실패한 때 그대로일 때만 "저절로 다시 보내요" 안내와 짧은 실패 문장 (D-MOB2-07·D-MOB2-18).
+  // 막 실패한 첫 그림(아직 견줄 값을 적기 전)은 보내는 동안 칸이 잠겨 있었으므로 그대로로 본다. 칸을 바꿨으면 옛 문장 그대로(AC-MOB2-43)
+  const autoResendShown =
+    serverError !== null && serverError.retryable && board !== undefined && (failedFields === null || failedFields.error !== serverError || failedFields.key === fieldsKey)
+
   return (
     <section className="sms-form card" aria-label="문자찜 넣기">
       {result !== null && api !== undefined ? <ResultCard key={result.seq} api={api} result={result} onSame={fillSame} locked={locked} /> : null}
@@ -536,7 +622,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
               disabled={disabled}
               readOnly={locked}
               aria-invalid={receivedProblem !== null}
-              aria-describedby={`${receivedId}-help ${receivedId}-error`}
+              aria-describedby={`${receivedId}-help ${receivedId}-filled ${receivedId}-error`}
               onChange={(event) => {
                 if (!locked) setReceived(event.target.value)
               }}
@@ -545,6 +631,11 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
           <p id={`${receivedId}-help`} className="hint">
             {read.kind === 'ok' ? `${receivedWords(read)}에 받은 문자` : RECEIVED_HELP}
           </p>
+          {filled !== null && received === filled ? (
+            <p id={`${receivedId}-filled`} className="hint" role="status">
+              {filledReceivedWords(filled)}
+            </p>
+          ) : null}
           <FieldNote id={`${receivedId}-error`} message={receivedProblem ?? serverProblem(serverError, 'received')} />
         </div>
 
@@ -614,7 +705,10 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
         {/* 보내기 막대: 화면 아래에 붙어 있어 칸을 채우는 동안 늘 보인다. 보내는 중·저장 실패도 여기 (UX-S06-002) */}
         <div className="sms-submit-bar">
           {/* 다시 보내기: 칸은 그대로라 같은 내용 → 같은 요청 번호 (한 번만 기록) */}
-          {serverError !== null ? <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer', 'qty', 'options']} /> : null}
+          {serverError !== null ? (
+            <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer', 'qty', 'options']} autoResend={autoResendShown} />
+          ) : null}
+          {autoResendShown ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
           <div className="row">
             <button type="submit" className="button button-primary sms-submit" disabled={disabled || number === null || sender.busy || optionsMissing || qtyProblem !== null}>
               {label}
@@ -764,6 +858,11 @@ export function claimTone(status: ClaimStatus): 'success' | 'warning' | 'info' {
  * "같은 사람 하나 더"는 응답의 buyer로 채운다(null이면 버튼이 없다).
  * 번호 칸 바로 위에 둔다 — 보낸 뒤 칸이 비고 번호 칸으로 가도 결과가 첫 화면에 보인다(UX-S06-002).
  */
+/** 받은 시각을 비운 채 실패해 처음 누른 시각을 채워 둔 때 (D-MOB2-09, RA-MOB2-02) */
+export function filledReceivedWords(time: string): string {
+  return `받은 시각을 비워 두셔서 처음 누른 시각(${time})을 넣어 두었어요. 다시 보내도 이 시각으로 들어가요.`
+}
+
 function ResultCard({
   api,
   result,
@@ -779,12 +878,16 @@ function ResultCard({
   const { claim, caught, missing } = useSmsClaim(api, result)
   const who = result.buyer ?? claim?.buyer ?? null
   const reviewed = useSentToReview(api, result, missing)
-  const { body, tone } = smsResultWords(api, result, claim, caught, reviewed)
+  const now = usePendingNow(api.data)
+  const { body, tone } = smsResultWords(api, result, claim, caught, reviewed, now)
   const suffix = smsLast4Suffix(body, result.phoneLast4)
   return (
     <section className="sms-result" aria-label="넣은 결과" data-tone={tone}>
       <p role="status">
-        <strong>{body}</strong>
+        <strong>
+          {result.auto ? RESENT_PREFIX : ''}
+          {body}
+        </strong>
         {suffix !== null ? <span>{suffix}</span> : null}
       </p>
       <div className="row">
@@ -841,11 +944,14 @@ export function smsResultWords(
   claim: Claim | undefined,
   caught: boolean,
   reviewed: boolean,
+  now?: number,
 ): { readonly body: string; readonly tone: 'success' | 'warning' | 'info' } {
   if (!caught) return { body: `${String(result.no)}번 · 넣었어요 · 상태 확인 중…`, tone: 'info' }
   if (claim !== undefined) {
+    // 시간이 지난 보류 찜: 낱말 "보류 · 시간 지남"과 문장 끝 " — 지금 등록해도 판정되지 않아요" (D-MOB2-06, now를 준 화면만)
+    const timedOut = now !== undefined && isPendingTimedOut(api.data, claim, now)
     return {
-      body: `${String(claim.no)}번${claimOptionWords(claim)} · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim)} · 받은 시각 ${kstStamp(claim.rankTime, claim.rankMinute)}`,
+      body: `${String(claim.no)}번${claimOptionWords(claim)} · ${api.names.name(claim.currentBuyer)} · ${claimWord(api.data, claim, now)} · 받은 시각 ${kstStamp(claim.rankTime, claim.rankMinute)}${timedOut ? PENDING_TIMED_OUT_TAIL : ''}`,
       tone: claimTone(claim.status),
     }
   }
@@ -854,7 +960,7 @@ export function smsResultWords(
   return {
     body:
       holder !== undefined
-        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, holder)})`
+        ? `${String(result.no)}번 · 이미 찜한 구매자라 새 찜이 생기지 않았어요(지금 ${claimWord(api.data, holder, now)})`
         : `${String(result.no)}번 · 새 찜이 생기지 않았어요. 지금 상태를 확인해 주세요.`,
     tone: 'warning',
   }
@@ -862,6 +968,7 @@ export function smsResultWords(
 
 /** 최근 넣은 문자찜 10개 (AC-S06-15) */
 function RecentSms({ api }: { readonly api: ConsoleApi }) {
+  const now = usePendingNow(api.data)
   const recent = useMemo(() => {
     const out: Claim[] = []
     for (const claim of api.data.claims.values()) if (claim.origin === 'sms' && claim.broadcast === api.b) out.push(claim)
@@ -880,7 +987,7 @@ function RecentSms({ api }: { readonly api: ConsoleApi }) {
               <p>
                 <strong>{claim.no}번</strong> {name}
                 {claimOptionWords(claim)} · {api.names.name(claim.currentBuyer)} · {kstStamp(claim.rankTime, claim.rankMinute)} ·{' '}
-                <span className="tag">{claimWord(api.data, claim)}</span>
+                <span className="tag">{claimWord(api.data, claim, now)}</span>
                 {api.waiting.claims.has(claim.id) ? <span className="tag tag-waiting">보내기 전</span> : null}
               </p>
               {isActive(claim) ? (

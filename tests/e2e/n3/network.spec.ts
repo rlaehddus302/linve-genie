@@ -33,11 +33,11 @@ test.describe('응답을 잃은 처리', () => {
     const [d] = await deposit(page, src, [{ key: uniq('n'), at: kstIso(5_000), amount: sale.remaining - 700, name }])
     await page.goto('/deposits')
     const ids = await dropFirstResponse(page, /\/api\/deposits\/\d+\/confirm$/)
-    await depositRow(page, d!.no).getByRole('group', { name: `입금 #${String(d!.no)} 처리` }).getByRole('button', { name: '확정' }).click()
+    await depositRow(page, d!.no).getByRole('group', { name: `입금 번호 ${String(d!.no)} 처리` }).getByRole('button', { name: '확정' }).click() // MOB2 D-MOB2-05
     const dlg = page.getByRole('dialog', { name: '입금 확정' })
     await dlg.getByRole('button', { name: '확정' }).click()
     await expect(dlg).toHaveCount(0, { timeout: 20_000 })
-    await expect(page.getByRole('status').filter({ hasText: `입금 #${String(d!.no)}` })).toContainText('묶음에 적었어요.')
+    await expect(page.getByRole('status').filter({ hasText: `입금 번호 ${String(d!.no)}` })).toContainText('묶음에 적었어요.') // MOB2 D-MOB2-05
     expect(ids.length).toBeGreaterThanOrEqual(2)
     expect(new Set(ids).size).toBe(1)
     expect((await depositOne(page, d!.no)).status).toBe('APPLIED')

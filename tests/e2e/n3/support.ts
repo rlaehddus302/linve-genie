@@ -133,7 +133,7 @@ export async function reviewCount(page: Page): Promise<number> {
 /** 입금 목록 줄(PC 표의 row, 휴대폰 카드의 listitem) */
 export function depositRow(page: Page, no: number, list: '확인 필요 입금' | '자동 확인됨·확인함 입금' | '무시한 입금' = '확인 필요 입금') {
   const container = page.getByRole('table', { name: list }).or(page.getByRole('list', { name: list }))
-  return container.getByRole('row', { name: `입금 #${String(no)}`, exact: true }).or(container.getByRole('listitem').filter({ has: page.getByText(`입금 #${String(no)}`, { exact: true }) }))
+  return container.getByRole('row', { name: `입금 번호 ${String(no)}`, exact: true }).or(container.getByRole('listitem').filter({ has: page.getByText(`입금 번호 ${String(no)}`, { exact: true }) })) // MOB2 D-MOB2-05
 }
 
 export function depositTab(page: Page, name: RegExp) {
