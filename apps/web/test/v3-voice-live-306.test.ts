@@ -189,6 +189,47 @@ describe('빠진 0 되살리기 (실방송 "36번" = 306번)', () => {
 })
 
 describe('가격만 고쳐 말함 (실방송 309번 55만 원 → 50만 원)', () => {
+  it('실방송 10:14: 번호 앞에 말한 다음 상품 가격은 앞 상품을 고치지 않고 다음 번호로 — 327번 200,000원 그대로, 389번 50,000원', async () => {
+    const h = await ready()
+    say('327번 자 쇼콜라 20만 원')
+    at(3_000)
+    finishAll(h)
+    await settle()
+    at(30_000)
+    say('요거 요거 이렇게 5만 원')
+    at(35_000)
+    await settle()
+    say('389번 자 요 아이 5만 원')
+    at(38_000)
+    finishAll(h)
+    await settle()
+    at(48_000)
+    say('어 자 30만 원이에요')
+    at(52_000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(reg(h).map((item) => [item[0], item[1]])).toEqual([
+      [327, 200_000],
+      [389, 50_000],
+    ])
+    expect(h.voice.getSnapshot().offers).toEqual([])
+  })
+
+  it('번호 없이 먼저 들린 가격은 15초 안에 가격 없이 들린 "N번"의 가격 — 15초가 지나면 버린다', async () => {
+    const h = await ready()
+    say('요거 요거 이렇게 5만 원')
+    at(3_000)
+    say('389번 자 요 아이')
+    at(6_000)
+    expect(reg(h)).toEqual([[389, 50_000, '']])
+    const g = await ready()
+    say('요거 요거 이렇게 5만 원')
+    at(18_500)
+    say('390번 자 요 아이')
+    at(22_000)
+    expect(g.registered).toEqual([])
+  })
+
   it('등록 30초 안·그 사이 다른 번호 없음·찜 0 → 바로 고침', async () => {
     const h = await ready()
     say('자 사용 잘 다녀오세요 자 309번이고요 자 선키스트 백금입니다 자 요 아이 뭐 얼마 얼마가 나셨죠 55만 원')
@@ -197,7 +238,7 @@ describe('가격만 고쳐 말함 (실방송 309번 55만 원 → 50만 원)', (
     finishAll(h)
     await settle()
     at(8_000)
-    say('아 50만 원')
+    say('아니 50만 원')
     at(11_000)
     await settle()
     expect(h.fixes).toEqual([{ id: 'b1:309', changes: { price: 500_000 } }])
@@ -209,7 +250,7 @@ describe('가격만 고쳐 말함 (실방송 309번 55만 원 → 50만 원)', (
     at(3_000)
     finishAll(h, 2)
     await settle()
-    say('50만 원')
+    say('아니 50만 원')
     at(6_000)
     await settle()
     expect(h.fixes).toEqual([])
@@ -222,7 +263,7 @@ describe('가격만 고쳐 말함 (실방송 309번 55만 원 → 50만 원)', (
     at(3_000)
     finishAll(h)
     at(34_000)
-    say('50만 원')
+    say('아니 50만 원')
     at(37_000)
     await settle()
     expect(h.fixes).toEqual([])
@@ -232,7 +273,7 @@ describe('가격만 고쳐 말함 (실방송 309번 55만 원 → 50만 원)', (
     finishAll(g)
     say('310번은 이따가 볼게요')
     at(6_000)
-    say('50만 원')
+    say('아니 50만 원')
     at(9_000)
     await settle()
     expect(g.fixes).toEqual([])
@@ -254,7 +295,7 @@ describe('굳은 중간 글 (사용자 결정 — 최종이 늦어도 1초 지�
 
   it('최종 없이 이어지는 말 안의 가격만 고쳐 말함도 1초 굳으면 고친다', async () => {
     const h = await ready()
-    const words = '309번 55만 원 자 요 아이 아 50만 원 자 그대로 보내 드릴게요 자'.split(' ')
+    const words = '309번 55만 원 자 요 아이 아니 50만 원 자 그대로 보내 드릴게요 자'.split(' ')
     // 앞 낱말 셋만 먼저 — 바로 등록되고 콘솔이 마친다
     let t = monologue(words, 0, 300, 4)
     expect(reg(h)).toEqual([[309, 550_000, '']])

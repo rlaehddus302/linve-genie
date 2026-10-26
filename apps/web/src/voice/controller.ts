@@ -271,6 +271,8 @@ export interface CardForm {
 
 /** 덩어리를 읽은 결과 한 줄을 보이는 시간 (D-V2-07) */
 export const READOUT_MS = 4000
+/** 번호 없이 들린 가격이 다음 'N번'을 기다리는 시간 (밀리초, 실방송 10:14) */
+export const PENDING_PRICE_MS = 15_000
 /** 맨 위 큰 칸의 접근 이름 — 화면에 제목은 없다 (D-V2-07·D-V2-21) */
 export const HEARD_TITLE = '지금 들리는 말'
 /** 큰 칸이 비었을 때 (D-V2-21) */
@@ -822,6 +824,8 @@ export class VoiceController {
   readonly #priceHeard = new Map<number, readonly HeardPrice[]>()
   /** 덩어리 차례 (조각 이름 — 같은 조각을 다시 읽은 것은 한 번) */
   #chunkSeq = 0
+  /** 번호 없이 들린 '원' 가격 (실방송 10:14 — 다음 상품 가격을 번호보다 먼저 말함). 15초 안에 가격 없는 'N번'이 오면 그 번호의 가격 */
+  #pendingPrice: { readonly price: number; readonly at: number } | null = null
   /** 차례를 기다리는 큰 글자 칸 안내 (D-V3-61) */
   /** 음성으로 등록·고친 번호와 시각 (D-V3-59 고쳐 말함) */
   /** 번호마다 마지막으로 음성으로 등록·고친 시각 (D-V3-59, TD-V3-005) */
@@ -1012,6 +1016,7 @@ export class VoiceController {
     this.#interimNos = []
     this.#lastHeardNo = null
     this.#contextTexts = []
+    this.#pendingPrice = null
     this.#dueCards.clear()
     this.#dueInterim.length = 0
     this.#phraseInstantOff = false
@@ -1218,7 +1223,8 @@ export class VoiceController {
       fix = module.priceOnlyFix({
         wonPrices: rr.wonPrices,
         heardNumbers: rr.heardNumbers,
-        correction: rr.correction,
+        // 정정 낱말이 있어야 고침 (실방송 10:14 — 번호 앞에 다음 상품 가격을 말한다)
+        correction: typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(rest),
         lastRegistered: last,
         lastHeardNo: this.#lastHeardNo,
         waiting: this.#waiting !== null,
@@ -1237,7 +1243,7 @@ export class VoiceController {
     if (existing.pending === true) {
       this.#setPending(fix.no, { after: { heard, auto } })
       done = { action: 'discard', reason: LOG_PENDING, readout: null }
-    } else done = this.#applyExisting(work, module, fix.no, existing, heard, auto, false, { gate: false })
+    } else done = this.#applyExisting(work, module, fix.no, existing, heard, auto, false)
     const now = this.#host.now()
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text: rest }], read: { no: fix.no, name: null, price: fix.price, candidates: [] }, action: done.action, reason: done.reason }))
     if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
@@ -1726,7 +1732,17 @@ export class VoiceController {
     // 기다림은 그 번호를 들은 때부터 센다 (덩어리 끝이 아니라 덩어리 처음)
     this.#waiting = step.waiting !== null && step.waiting.no !== this.#waiting?.no && Number.isFinite(chunk.startedAt) ? { ...step.waiting, since: Math.min(step.waiting.since, chunk.startedAt) } : step.waiting
     if (step.card !== null) this.#missedCard(work, module, step.card)
-    const take = step.take
+    let take = step.take
+    const now = this.#host.now()
+    const pending = this.#pendingPrice !== null && now - this.#pendingPrice.at <= PENDING_PRICE_MS && now >= this.#pendingPrice.at ? this.#pendingPrice : null
+    if (take === null && pending !== null && !piece.paired && piece.markerNo !== null && piece.wonPrice === null && this.#waiting?.no === piece.markerNo) {
+      // 앞에 번호 없이 들린 가격 + 가격 없는 'N번' → 그 번호의 가격 (기다리는 번호는 끝)
+      take = { no: piece.markerNo, price: pending.price }
+      this.#waiting = null
+    }
+    // 번호가 들리면 앞의 번호 없는 가격은 끝난다. 번호 없이 '원' 가격만 들리고(정정 낱말 없음) 받을 번호가 없으면 다음 번호를 15초 기다린다
+    if (piece.markerNo !== null) this.#pendingPrice = null
+    else if (piece.wonPrice !== null && step.take === null && !(typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(chunk.text))) this.#pendingPrice = { price: piece.wonPrice, at: now }
     if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return null
     this.#instantNos.set(take.no, 'register')
     // 기다리던 번호의 품종: 이 덩어리 품종, 없으면 번호를 들은 덩어리·앞 말 맥락 (사용자 요구 — 다른 결과에 들린 품종도)
