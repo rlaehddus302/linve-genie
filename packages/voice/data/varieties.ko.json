@@ -1358,7 +1358,8 @@
   {
    "name": "창녹금",
    "aliases": [
-    "창록금"
+    "창록금",
+    "창높금"
    ]
   },
   {
@@ -1505,7 +1506,8 @@
    "name": "녹금",
    "aliases": [
     "녹색금",
-    "록금"
+    "록금",
+    "높금"
    ],
    "commonAliases": [
     "녹음"
@@ -1630,6 +1632,171 @@
   {
    "name": "백야금",
    "aliases": []
+  },
+  {
+   "name": "BTS",
+   "aliases": [
+    "비티에스",
+    "bts"
+   ]
+  },
+  {
+   "name": "SP",
+   "aliases": [
+    "에스피",
+    "sp"
+   ],
+   "exactOnly": true
+  },
+  {
+   "name": "SP녹금",
+   "aliases": [
+    "에스피녹금",
+    "에스피녹음",
+    "sp녹금",
+    "sp녹음",
+    "SP녹음"
+   ]
+  },
+  {
+   "name": "가시꽃",
+   "aliases": []
+  },
+  {
+   "name": "넘버원",
+   "aliases": [
+    "넘바원"
+   ]
+  },
+  {
+   "name": "녹금의 제왕",
+   "aliases": [
+    "녹금에 제왕",
+    "녹음의 제왕",
+    "녹음에 제왕",
+    "높금의 제왕"
+   ]
+  },
+  {
+   "name": "레다",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "로라클론",
+   "aliases": [
+    "로라크론"
+   ]
+  },
+  {
+   "name": "로제수박",
+   "aliases": []
+  },
+  {
+   "name": "리마인드",
+   "aliases": []
+  },
+  {
+   "name": "립스틱색금",
+   "aliases": [
+    "립스틱세금"
+   ]
+  },
+  {
+   "name": "보카치노",
+   "aliases": [
+    "보까치노"
+   ]
+  },
+  {
+   "name": "불꽃수박금",
+   "aliases": [
+    "불꽃수박끔"
+   ]
+  },
+  {
+   "name": "소쇄원 녹금",
+   "aliases": [
+    "소세원 녹금",
+    "소쇄원 녹음",
+    "소쇄원 높금",
+    "소세원 녹음"
+   ]
+  },
+  {
+   "name": "오스카",
+   "aliases": []
+  },
+  {
+   "name": "인디안바손",
+   "aliases": [
+    "인디언바손",
+    "인디안바순"
+   ]
+  },
+  {
+   "name": "찐녹금",
+   "aliases": [
+    "찐높금",
+    "찐녹음",
+    "찐록금"
+   ]
+  },
+  {
+   "name": "창금",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "창버건디",
+   "aliases": [
+    "창버간디"
+   ]
+  },
+  {
+   "name": "창색금",
+   "aliases": [
+    "창세금"
+   ]
+  },
+  {
+   "name": "청개구리금",
+   "aliases": []
+  },
+  {
+   "name": "컬러풀",
+   "aliases": []
+  },
+  {
+   "name": "콜리",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "팔색조",
+   "aliases": []
+  },
+  {
+   "name": "퍼플",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "풀잎사랑",
+   "aliases": []
+  },
+  {
+   "name": "하이원",
+   "aliases": []
+  },
+  {
+   "name": "호반금",
+   "aliases": []
+  },
+  {
+   "name": "황소",
+   "aliases": [],
+   "exactOnly": true
   }
  ]
 }

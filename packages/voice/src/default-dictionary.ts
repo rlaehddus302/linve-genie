@@ -32,5 +32,13 @@ export const DEFAULT_COMMON_ALIASES: ReadonlyMap<string, string> = new Map(
   (data.varieties as { name: string; commonAliases?: string[] }[]).flatMap((item) => (item.commonAliases ?? []).map((heard) => [heard, item.name] as const)),
 )
 
+/**
+ * 적은 모양으로만 맞추는 이름 (실방송 영수증의 짧은 이름 — 콜리·퍼플·창금·황소): 한 자모 다른 흔한 낱말(콜라·퍼즐·창극·황수)이
+ * 비슷함으로 이 이름이 되지 않게 한다. 이름·별칭과 공백만 다른 모양은 그대로 맞는다.
+ */
+export const DEFAULT_EXACT_ONLY: ReadonlySet<string> = new Set(
+  (data.varieties as { name: string; exactOnly?: boolean }[]).filter((item) => item.exactOnly === true).map((item) => item.name),
+)
+
 /** 방송 말 막는 낱말 (D-V2-02) — 품종 이름·별칭·배운 별칭이 될 수 없다 */
 export const STOP_WORDS: readonly string[] = Object.freeze([...data.stopWords])
