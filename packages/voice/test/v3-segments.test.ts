@@ -373,3 +373,21 @@ describe('TD-V3-009·010 남은 부분', () => {
     expect(maskArchiveText('끝 번호 1234')).toBe('끝 번호 ****')
   })
 })
+
+describe('TD-V3-011 한글 N번에서 품종 창이 멈춘다', () => {
+  const quick = (text: string) => seg(text, { priceUnit: 'THOUSAND', final: true }).picks.map((p) => [p.no, p.price])
+  it.each([
+    ['8번 라울 십오번 25만', '8번 라울 15번 25만'],
+    ['108번 삼광색금 십오번 60', '108번 삼광색금 15번 60'],
+    ['189번인데 삼광색금 십오번 5만', '189번인데 삼광색금 15번 5만'],
+    ['7번 라울 삼백육번 12만', '7번 라울 306번 12만'],
+  ])('"%s" → "%s"와 같다', (text, digits) => {
+    const want = quick(digits)
+    expect(want.length).toBeGreaterThan(0)
+    expect(quick(text)).toEqual(want)
+    expect(want[0]?.[0]).not.toBe(Number(digits.split('번')[0]))
+  })
+  it('"8번 라울 25만"은 그대로 8번 (품종 빠른 꼴 회귀)', () => {
+    expect(quick('8번 라울 25만')).toEqual([[8, 250000]])
+  })
+})
