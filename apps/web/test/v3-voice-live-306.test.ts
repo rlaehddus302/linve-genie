@@ -473,3 +473,66 @@ describe('같은 번호 가격 고침 문턱 (실방송 333번: 35만 원을 33�
     expect(h.fixes).toEqual([{ id: 'b1:333', changes: { price: 330_000 } }])
   })
 })
+
+describe('정정 낱말이 든 같은 번호 가격 (TD-V3-012·013, D-V3-83 (가))', () => {
+  /** 65번 30,000원을 음성으로 등록하고 마친 뒤 30초 */
+  async function registered65(): Promise<Harness> {
+    const h = await ready()
+    say('65번 3만 원')
+    at(2_000)
+    finishAll(h)
+    await settle()
+    at(30_000)
+    return h
+  }
+  const fixedCards = (h: Harness, no: number) => h.voice.getSnapshot().offers.filter((offer) => offer.kind === 'offer' && offer.stage !== 'ask' && offer.no === no)
+
+  it.each(['65번 아니 5만 원', '65번 다시 5만 원', '65번 아니요 5만 원', '아니 65번 5만 원', '잘못 말했어요 65번 5만 원', '다시 65번 5만 원'])(
+    '"%s"(최종만) → 65번을 50,000원으로 바로 고침 하나, 새 등록 없음',
+    async (text) => {
+      const h = await registered65()
+      say(text)
+      await settle()
+      at(36_000)
+      await settle()
+      expect(reg(h)).toEqual([[65, 30_000, '']])
+      expect(h.fixes).toEqual([{ id: 'b1:65', changes: { price: 50_000 } }])
+      expect(fixedCards(h, 65)).toHaveLength(1)
+    },
+  )
+
+  it('"65번 말고 5만 원"은 애매해 이 길로 바로 고치지 않는다 (덩어리 끝의 옛 판단 그대로)', async () => {
+    const h = await registered65()
+    say('65번 말고 5만 원')
+    await settle()
+    expect(h.fixes).toEqual([])
+  })
+
+  it('정정 낱말이 있어도 없는 번호는 새로 등록하지 않는다 ("66번 아니 5만 원")', async () => {
+    const h = await registered65()
+    say('66번 아니 5만 원')
+    at(36_000)
+    await settle()
+    expect(reg(h)).toEqual([[65, 30_000, '']])
+    expect(h.fixes).toEqual([])
+  })
+
+  it('낱말 하나씩 "65번 6만 원 말고 7만 원" → 고침 쓰기 하나(70,000원), 되돌리기 전 값은 고치기 전 가격', async () => {
+    const h = await ready()
+    h.board.set(65, { key: 'b1:65', name: '', price: 60_000, claimCount: 0, closed: false, status: 'OPEN' })
+    const words = '65번 6만 원 말고 7만 원'.split(' ')
+    let t = 0
+    for (let i = 1; i <= words.length; i++) {
+      at(t)
+      say(words.slice(0, i).join(' '), false)
+      t += 200
+    }
+    at(t)
+    say(words.join(' '))
+    await settle()
+    at(t + 5_000)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:65', changes: { price: 70_000 } }])
+    expect(fixedCards(h, 65)).toHaveLength(1)
+  })
+})
