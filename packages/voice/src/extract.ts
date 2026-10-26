@@ -672,6 +672,10 @@ export function windowForms(token: string): string[] {
   return [...forms, ...extra.filter((form) => !forms.includes(form))]
 }
 
+/** 무늬·빛깔 이야기의 `금` — 조사 이·은·을·도가 붙은 따로 선 토큰 (R-17 5 꾸밈말에서 빼는 꼴과 같다) */
+const GEUM = '금'
+const PATTERN_GEUM: ReadonlySet<string> = new Set(['이', '은', '을', '도'].map((particle) => GEUM + particle))
+
 /** 창의 글(공백 없이 이은 것, 마지막 토큰은 읽는 모양마다 — 앞 토큰은 그대로·숫자 하나 바꾼 모양) 전부 */
 export function windowTexts(tokens: readonly string[], forms: readonly (readonly string[])[], excluded: (i: number) => boolean): Set<string> {
   const texts = new Set<string>()
@@ -687,7 +691,9 @@ export function windowTexts(tokens: readonly string[], forms: readonly (readonly
     for (let start = segmentStart; start < i; start++) {
       let prefixes = ['']
       for (let end = start; end < i && end < start + WINDOW_MAX_TOKENS; end++) {
-        for (const prefix of prefixes) for (const form of forms[end] ?? []) texts.add(prefix + form)
+        // 따로 선 `금이`·`금은`·`금을`·`금도`(무늬 이야기 "라울 금이 선명하게")는 앞 토큰과 이을 때 조사 뗀 `금`으로 읽지 않는다 — `…금` 사전 이름(라울금)에 맞지 않게(R-17 5, D-V3-91). 붙여 쓴 `라울금이`는 그대로 라울금
+        const skipGeum = end > start && PATTERN_GEUM.has(tokens[end] as string)
+        for (const prefix of prefixes) for (const form of forms[end] ?? []) if (!(skipGeum && form === GEUM)) texts.add(prefix + form)
         prefixes = prefixes.flatMap((prefix) => variants(end).map((variant) => prefix + variant))
       }
     }
