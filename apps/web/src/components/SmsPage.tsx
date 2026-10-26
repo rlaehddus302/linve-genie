@@ -519,6 +519,8 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   const sendRef = useRef(send)
   sendRef.current = send
   const board = api?.resend
+  /** 화면에 보이는 "저절로 보냄" 판단용 — 그 실패와 견줄 칸 내용 (failedKeyRef와 같은 값, 바뀌면 다시 그린다) */
+  const [failedFields, setFailedFields] = useState<{ readonly error: ApiError; readonly key: string } | null>(null)
   useEffect(() => {
     if (board === undefined) return
     if (serverError === null || !serverError.retryable) {
@@ -526,6 +528,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
       return
     }
     failedKeyRef.current = fieldsRef.current
+    setFailedFields({ error: serverError, key: fieldsRef.current })
     board.add(SMS_RESEND_KEY, 'sms', async () => {
       if (fieldsRef.current !== failedKeyRef.current) return
       await sendRef.current(true)
@@ -548,11 +551,17 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
     sender.carry(event)
     const [fieldNo, , ...rest] = JSON.parse(fieldsRef.current) as unknown[]
     failedKeyRef.current = JSON.stringify([fieldNo, text, ...rest])
+    setFailedFields({ error: serverError, key: failedKeyRef.current })
     receivedRef.current = text
     setReceived(text)
     setFilled(text)
     // sender는 그리는 때마다 새 묶음이지만 carry는 같은 요청 번호 자리를 쓴다
   }, [serverError])
+
+  // 저절로 다시 보낼 실패이고 칸이 실패한 때 그대로일 때만 "저절로 다시 보내요" 안내와 짧은 실패 문장 (D-MOB2-07·D-MOB2-18).
+  // 막 실패한 첫 그림(아직 견줄 값을 적기 전)은 보내는 동안 칸이 잠겨 있었으므로 그대로로 본다. 칸을 바꿨으면 옛 문장 그대로(AC-MOB2-43)
+  const autoResendShown =
+    serverError !== null && serverError.retryable && board !== undefined && (failedFields === null || failedFields.error !== serverError || failedFields.key === fieldsKey)
 
   return (
     <section className="sms-form card" aria-label="문자찜 넣기">
@@ -696,8 +705,10 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
         {/* 보내기 막대: 화면 아래에 붙어 있어 칸을 채우는 동안 늘 보인다. 보내는 중·저장 실패도 여기 (UX-S06-002) */}
         <div className="sms-submit-bar">
           {/* 다시 보내기: 칸은 그대로라 같은 내용 → 같은 요청 번호 (한 번만 기록) */}
-          {serverError !== null ? <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer', 'qty', 'options']} /> : null}
-          {serverError?.retryable === true && board !== undefined ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
+          {serverError !== null ? (
+            <WriteError error={serverError} onRetry={() => void send()} omitFields={['no', 'received', 'phone', 'memo', 'buyer', 'qty', 'options']} autoResend={autoResendShown} />
+          ) : null}
+          {autoResendShown ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
           <div className="row">
             <button type="submit" className="button button-primary sms-submit" disabled={disabled || number === null || sender.busy || optionsMissing || qtyProblem !== null}>
               {label}

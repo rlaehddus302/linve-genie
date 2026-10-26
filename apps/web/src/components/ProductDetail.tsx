@@ -16,6 +16,7 @@ import { ORIGIN_WORD, PRODUCT_STATUS_WORD, actionWord, actorWord } from '../lib/
 import { openBlockAction, openClaimAction } from './actions.ts'
 import { consoleLabels, productLabel, useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { WriteError } from './forms.tsx'
 import { ProductLabels } from './LabelParts.tsx'
 import { FocusButton } from './ProductBoard.tsx'
 import { Modal } from './Modal.tsx'
@@ -125,6 +126,8 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
     setSkipped(false)
   }
 
+  /** 이 실패가 저절로 다시 보낼 목록에 있어 AUTO_RESEND_NOTE가 함께 보이는가 (D-MOB2-07·D-MOB2-18) */
+  const autoResendShown = error?.retryable === true && api.resend !== undefined && api.resend.has(boardKey)
   const selling = product.status === 'OPEN' || product.status === 'SOLD'
   // 옵션 상품은 1등·대기가 변형에 있다 (D-O1-01) — 변형을 합쳐 본다 (S05 판매 종료 규칙)
   const slots = productSlots(product)
@@ -277,8 +280,10 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         ) : null}
         {!selling && !product.conflict ? <p className="hint">직접 배정은 판매 중일 때만 할 수 있어요.</p> : null}
         {busy ? <p role="status">{resending ? RESENDING_WORD : '보내는 중…'}</p> : null}
-        {error !== null ? <ErrorNote error={error} {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
-        {error?.retryable === true && api.resend !== undefined && api.resend.has(boardKey) ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
+        {/* 저절로 다시 보낼 실패면 "다시 시도해/눌러 주세요"를 빼고 아래 안내가 누르기를 말한다 (D-MOB2-18) — 그 밖은 서버 문장 그대로 */}
+        {error !== null && autoResendShown ? <WriteError error={error} autoResend {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
+        {error !== null && !autoResendShown ? <ErrorNote error={error} {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
+        {autoResendShown ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
         {error !== null ? (
           <button type="button" className="button" onClick={dismiss}>
             확인

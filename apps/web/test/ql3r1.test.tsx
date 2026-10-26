@@ -158,7 +158,7 @@ describe('출력 기기 끊김 짧은 줄 (D-QL3R1-04, AC-QL3R1-25·26)', () => 
     expect(stationLeadText({ ...base, queue })).toBe(deviceLostMessage('PC'))
     expect(stationLeadShortText({ ...base, queue })).toBe("라벨이 안 나가요 · 'PC' 화면을 켜 주세요")
     expect(stationLeadShortText({ ...base, queue: { ...queue, device: { ...device, live: true } } })).toBeNull()
-    expect(stationLeadShortText({ ...base, queue: { ...queue, device: null, waiting: 3 } })).toBe('라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요') // QL3R2 D-QL3R2-03
+    expect(stationLeadShortText({ ...base, queue: { ...queue, device: null, waiting: 3 } })).toBe('라벨이 안 나가요 · 프린터를 연결해 주세요') // QL3R2 D-QL3R2-03 · MOB2 D-MOB2-17
     expect(stationLeadShortText({ ...base, mine: true, queue })).toBeNull()
     expect(stationLeadShortText({ ...base, rehearsal: true, queue })).toBeNull()
   })

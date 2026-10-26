@@ -666,7 +666,9 @@ function MergeDialog({ api, opened, otherId, intoId, onClose, onSwap, onDone, on
   const fromId = intoId === opened.id ? otherId : opened.id
   const preview = useMergePreview({ date: api.date, rehearsal: api.rehearsal, seq: api.data.seq }, fromId, intoId)
   const view = preview.view?.preview ?? null
-  const words = view === null ? null : mergeWords(api.data, api.names, view, (b, no) => productLabel(api, b, no))
+  // 중복 찜 낱말도 다른 화면과 같은 지금 시각으로 (D-MOB2-15, RA-MOB2-07)
+  const now = usePendingNow(api.data)
+  const words = view === null ? null : mergeWords(api.data, api.names, view, (b, no) => productLabel(api, b, no), now)
   const from = api.data.buyers.get(fromId)
   const targetId = view?.target ?? api.data.buyers.get(intoId)?.current ?? intoId
   const target = api.data.buyers.get(targetId)

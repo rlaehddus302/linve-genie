@@ -179,7 +179,7 @@ describe('출력 기기 없음 짧은 줄 (D-QL3R2-03, AC-QL3R2-14)', () => {
   const queue = { rev: 1, device, pause: null, waiting: 2, printing: 0, discard: 0, labelsEnabled: true }
 
   it('stationLeadShortText — 끊김·없음+대기·없음+대기 0·정상·리허설·끝남·이 기기', () => {
-    expect(NO_STATION_SHORT).toBe('라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요')
+    expect(NO_STATION_SHORT).toBe('라벨이 안 나가요 · 프린터를 연결해 주세요') // MOB2 D-MOB2-17
     expect(stationLeadShortText({ ...base, queue })).toBe(deviceLostShortMessage('PC 2'))
     expect(stationLeadShortText({ ...base, queue: { ...queue, device: null } })).toBe(NO_STATION_SHORT)
     expect(stationLeadText({ ...base, queue: { ...queue, device: null } })).toBe(NO_STATION_PILING)
