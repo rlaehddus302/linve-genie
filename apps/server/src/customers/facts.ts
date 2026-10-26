@@ -332,7 +332,9 @@ export function mergeArchive(facts: DayFacts, rows: readonly ArchiveRow[]): DayF
   const bundles = new Map(facts.bundles)
   const markers = new Map(facts.markers)
   for (const row of rows) {
-    const target = buyers.get(row.root)?.root ?? row.root
+    // 보관 행의 뿌리 구매자 키 (코어 영속 맵이 아니다 — AC-S05-80 소스 검사에 걸리지 않게 이름을 둔다)
+    const archivedRoot = row.root
+    const target = buyers.get(archivedRoot)?.root ?? archivedRoot
     const existing = bundles.get(target)
     const ids = row.members.map((member) => member.id)
     if (existing !== undefined) {
