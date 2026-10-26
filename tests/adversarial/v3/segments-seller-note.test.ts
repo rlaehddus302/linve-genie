@@ -130,8 +130,11 @@ describe('조각 소비 — 사례 표 R54~R68', () => {
   it('가격 뒤 번호 꼴("10만 원 108번")은 덩어리 끝(final)에서만 짝짓는다 (D-V3-46, 실제 방송 2)', () => {
     expect(picks('10만 원 108번', { final: false })).toEqual([])
     expect(picks('10만 원 108번', { final: true })).toEqual([{ no: 108, name: null, price: 100_000 }])
+    // BTS는 영수증으로 사전 품종(be4400ab) — 품종 칸은 BTS, 사전 밖 낱말(ufo)이면 빈칸
     expect(picks('자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { final: false })).toEqual([])
-    expect(picks('자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { final: true })).toEqual([{ no: 108, name: null, price: 100_000 }])
+    expect(picks('자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { final: true })).toEqual([{ no: 108, name: 'BTS', price: 100_000 }])
+    expect(picks('자 ufo는 자 ufo 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { final: false })).toEqual([])
+    expect(picks('자 ufo는 자 ufo 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { final: true })).toEqual([{ no: 108, name: null, price: 100_000 }])
   })
 
   // 시청자 번호 섞임 위험: 판매자가 시청자 말을 읽으면 그 번호가 원 가격 바로 앞 N번이 되어 짝지어진다(스펙대로). 앞 번호는 알림(others)으로 반드시 남아야 한다.

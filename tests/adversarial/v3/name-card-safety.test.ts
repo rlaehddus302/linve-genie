@@ -36,13 +36,23 @@ describe('D-V3-37 — 바로 등록 품종은 사전 이름 또는 빈칸뿐', (
   })
 
   it.each([
-    ['R49 실방송 4차', '자 컬러풀 약간 자 컬러풀 이거 네 10만 원 75번입니다', 75, 100_000],
-    ['실제 방송 2 (bts 두 번)', '자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', 108, 100_000],
-    ['실제 방송 1', '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요', 108, 100_000],
+    // 컬러풀·BTS는 영수증으로 사전 품종이 되어(be4400ab) 이 줄들은 사전 밖 낱말(우주선·ufo)로 같은 꼴을 본다 — 사전 이름은 아래 시험
+    ['R49 실방송 4차 꼴 (사전 밖 우주선)', '자 우주선 약간 자 우주선 이거 네 10만 원 75번입니다', 75, 100_000],
+    ['실제 방송 2 꼴 (사전 밖 ufo 두 번)', '자 ufo는 자 ufo 요거 그대로 보냅니다 요 아이 자 10만 원 108번', 108, 100_000],
+    ['실제 방송 1 꼴 (사전 밖 ufo)', '네 108번 ufo 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요', 108, 100_000],
     ['붙어·한번·생활과', '46번 붙어 한번 생활과 붙어 생활과 야량 5만 원', 46, 50_000],
   ])('%s → 품종 미입력으로 등록', (_title, text, no, price) => {
     const ready = readRegistration(text, { dictionary: DICT, final: true }).ready
     expect(ready).toEqual({ no, price, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
+  })
+
+  it.each([
+    ['R49 실방송 4차', '자 컬러풀 약간 자 컬러풀 이거 네 10만 원 75번입니다', 75, 100_000, '컬러풀'],
+    ['실제 방송 2 (bts 두 번)', '자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', 108, 100_000, 'BTS'],
+    ['실제 방송 1', '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요', 108, 100_000, 'BTS'],
+  ])('%s → 사전 품종(영수증)으로 등록', (_title, text, no, price, name) => {
+    const ready = readRegistration(text, { dictionary: DICT, final: true }).ready
+    expect(ready).toEqual({ no, price, name, nameNeedsCheck: false, numberFrom: 'marker' })
   })
 })
 
