@@ -194,6 +194,20 @@ function isSplitNumber(previous: string | undefined, x: string): boolean {
 }
 
 /**
+ * `번` 바로 뒤에만 더 받는 끝말 (실방송 V3: "309번이고요"). R-17 2 끝말 목록(ENDINGS)은 그대로 두고 붙여 쓴 번호 표시에서만 더 뗀다.
+ * `번으로`·`번부터`(옮기기·범위 말)는 넣지 않는다.
+ */
+export const BEON_EXTRA_ENDINGS: readonly string[] = Object.freeze(['이고요', '이구요'])
+
+/** 번호 표시를 찾을 읽는 모양: 읽는 모양 + 토큰 그대로에서 `번` 뒤 더 받는 끝말을 뗀 모양 */
+function markerForms(forms: readonly string[]): readonly string[] {
+  const token = forms[0]
+  if (token === undefined) return forms
+  const extra = BEON_EXTRA_ENDINGS.filter((ending) => token.endsWith(BEON + ending)).map((ending) => token.slice(0, -ending.length))
+  return extra.length === 0 ? forms : [...forms, ...extra.filter((form) => !forms.includes(form))]
+}
+
+/**
  * 번호 표시 찾기 (R-17 3). R-21 7(V1)도 같은 코드를 쓴다: `skip`이 참인 토큰(맡은 토큰)은 표시 토큰이 될 수 없다.
  * 끊어 말한 번호 검사의 앞 토큰은 맡은 토큰이어도 그대로 본다(R-21 7).
  */
@@ -226,7 +240,7 @@ export function findNumberMarkers(
   tokens.forEach((token, i) => {
     if (skip(i)) return
     // 붙여 씀: 읽는 모양 하나가 `X번` (앞 토큰 = 표시 토큰의 앞 토큰)
-    for (const form of forms[i] ?? []) {
+    for (const form of markerForms(forms[i] ?? [])) {
       if (form.length < 2 || !form.endsWith(BEON)) continue
       const x = form.slice(0, -BEON.length)
       if (numberValue(x) === null) continue
@@ -399,9 +413,23 @@ interface WonLine {
   readonly value: number | null
 }
 
+/**
+ * `원` 바로 뒤에만 더 받는 끝말 (실방송 V3: "5만 원으로"·"5만 원부터"·"5만 원이고요"). R-17 2 끝말 목록(ENDINGS)은 그대로 두고
+ * 원 가격 줄의 `원` 토큰에서만 한 번 더 뗀다 — 다른 토큰의 읽는 모양·품종 창은 바뀌지 않는다.
+ */
+export const WON_EXTRA_ENDINGS: readonly string[] = Object.freeze(['으로', '부터', '이고요', '이구요'])
+
 /** 토큰의 읽는 모양 가운데 `원`으로 끝나고 `원` 앞 글이 비었거나 금액 글자뿐인 첫 모양 */
 function wonForm(forms: readonly string[]): string | null {
-  return forms.find((form) => form.endsWith(WON) && isAmountText(form.slice(0, -WON.length))) ?? null
+  const isWon = (form: string): boolean => form.endsWith(WON) && isAmountText(form.slice(0, -WON.length))
+  const found = forms.find(isWon)
+  if (found !== undefined) return found
+  const token = forms[0]
+  if (token === undefined) return null
+  for (const ending of WON_EXTRA_ENDINGS) {
+    if (token.length > ending.length && token.endsWith(ending) && isWon(token.slice(0, -ending.length))) return token.slice(0, -ending.length)
+  }
+  return null
 }
 
 /** 줄 글을 읽은 값: 공백으로 이어 R-14, 안 되면(토큰 둘 이상) 숫자를 한자어로 바꿔 붙여 R-14. 100원 미만·안 읽힘은 null */
@@ -881,7 +909,7 @@ export function listNumberMarkers(tokens: readonly string[], punct: readonly boo
   const isSplitByMerge = (marker: NumberMarker): boolean => bySplit.has(marker.start)
   for (let i = 0; i < tokens.length; i++) {
     if (digitTokens.has(i)) continue
-    const attached = (forms[i] ?? []).find((form) => form.length >= 2 && form.endsWith(BEON) && numberValue(form.slice(0, -BEON.length)) !== null)
+    const attached = markerForms(forms[i] ?? []).find((form) => form.length >= 2 && form.endsWith(BEON) && numberValue(form.slice(0, -BEON.length)) !== null)
     if (attached !== undefined) {
       take(i, attached.slice(0, -BEON.length), i)
       continue

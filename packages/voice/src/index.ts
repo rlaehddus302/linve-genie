@@ -346,3 +346,5 @@ export { WAITING_MS, stepWaiting, waitingExpired, type WaitingNumber, type Waiti
 export { INTERIM_STABLE_MS, interimCandidate, interimFallback, trackInterim, type InterimCandidate, type InterimSeen } from './interim.ts'
 // V3 빠진 0 되살리기 (실방송 "36번" = 306번)
 export { DROPPED_ZERO_NEAR, DROPPED_ZERO_RECENT, fixDroppedZero, type DroppedZeroFix, type DroppedZeroInput, type DroppedZeroProduct } from './number-context.ts'
+// V3 번호 없이 가격만 고쳐 말함 (실방송 "55만 원" 뒤 "50만 원")
+export { PRICE_ONLY_FIX_MS, priceOnlyFix, type PriceOnlyFix, type PriceOnlyInput } from './price-only.ts'
