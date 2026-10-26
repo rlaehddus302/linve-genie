@@ -8,10 +8,17 @@ import {
   PLANNED_RESTART_AFTER_MS,
   START_RETRY_MAX,
   START_RETRY_MS,
+  STALL_BACKOFF_AFTER,
+  STALL_MIN_MS,
+  STALL_MS,
+  END_WAIT_MS,
   createWebSpeechEngine,
+  formatSpeechDiagnostic,
   formatSpeechGap,
+  readStallMs,
   type RecognitionLike,
   type RecognitionResultEventLike,
+  type SpeechDiagnostic,
   type SpeechError,
   type SpeechGap,
   type SpeechResult,
@@ -31,6 +38,9 @@ class FakeRecognition implements RecognitionLike {
   onstart: RecognitionLike['onstart'] = null
   onaudiostart: RecognitionLike['onaudiostart'] = null
   onaudioend: RecognitionLike['onaudioend'] = null
+  onspeechend: RecognitionLike['onspeechend'] = null
+  /** true면 start()에서 onstart를 알리지 않는다 (시작 알림 없는 브라우저) */
+  static silentStart = false
   starts = 0
   stops = 0
   aborts = 0
@@ -43,6 +53,8 @@ class FakeRecognition implements RecognitionLike {
     const error = FakeRecognition.throwOnStart.shift()
     if (error !== undefined) throw error
     this.starts++
+    // 크롬처럼 시작을 알린다 (소리 받기 시작은 시험이 audioStart()로)
+    if (!FakeRecognition.silentStart) this.onstart?.()
   }
 
   stop(): void {
@@ -68,6 +80,10 @@ class FakeRecognition implements RecognitionLike {
     this.onaudioend?.()
   }
 
+  speechEnd(): void {
+    this.onspeechend?.()
+  }
+
   end(): void {
     this.onend?.()
   }
@@ -85,9 +101,10 @@ function invalidState(): Error {
   return error
 }
 
-function setup(options: { readonly overlap?: boolean; readonly plannedRestart?: boolean; readonly scope?: object } = {}) {
+function setup(options: { readonly overlap?: boolean; readonly plannedRestart?: boolean; readonly scope?: object; readonly stallRestart?: boolean; readonly stallMs?: number } = {}) {
   FakeRecognition.instances = []
   FakeRecognition.throwOnStart = []
+  FakeRecognition.silentStart = false
   let now = T0
   const pending: { at: number; run: () => void; id: number }[] = []
   let nextId = 1
@@ -108,11 +125,16 @@ function setup(options: { readonly overlap?: boolean; readonly plannedRestart?: 
     timers,
     ...(options.overlap === undefined ? {} : { overlap: options.overlap }),
     ...(options.plannedRestart === undefined ? {} : { plannedRestart: options.plannedRestart }),
+    // 멈춤 지킴이는 그 시험(아래 '멈춤 지킴이')에서만 켠다 — 다른 시험은 결과 없이 시계를 오래 넘긴다
+    stallRestart: options.stallRestart ?? false,
+    ...(options.stallMs === undefined ? {} : { stallMs: options.stallMs }),
   })
   const results: SpeechResult[] = []
   const errors: SpeechError[] = []
   const states: SpeechState[] = []
   const gaps: SpeechGap[] = []
+  const diagnostics: SpeechDiagnostic[] = []
+  engine.onDiagnostic((d) => diagnostics.push(d))
   engine.onResult((r) => results.push(r))
   engine.onError((e) => errors.push(e))
   engine.onState((s) => states.push(s))
@@ -123,6 +145,7 @@ function setup(options: { readonly overlap?: boolean; readonly plannedRestart?: 
     errors,
     states,
     gaps,
+    diagnostics,
     timersPending: () => pending.length,
     /** 시계를 앞으로 (그 사이 걸린 타이머를 차례로 부른다) */
     advance: (ms: number) => {
@@ -419,5 +442,196 @@ describe('기기 안 인식 확인 (processLocally — 확인만)', () => {
       }
     }
     expect(await setup({ scope: { SpeechRecognition: Odd } }).engine.onDeviceStatus()).toBe('unsupported')
+  })
+})
+
+describe('멈춤 지킴이 (실방송: 듣는 중인 채 결과 없이 약 10초 귀 막힘)', () => {
+  it(`기본 ${STALL_MS}ms(최소 ${STALL_MIN_MS}ms) — 설정값 고르기`, () => {
+    expect(STALL_MS).toBe(2_000)
+    expect(readStallMs(undefined)).toBe(STALL_MS)
+    expect(readStallMs('1500')).toBe(STALL_MS)
+    expect(readStallMs(1.5)).toBe(STALL_MS)
+    expect(readStallMs(500)).toBe(STALL_MIN_MS)
+    expect(readStallMs(1_500)).toBe(1_500)
+    expect(readStallMs(8_000)).toBe(8_000)
+  })
+
+  it(`소리를 받는 객체에서 ${STALL_MS}ms 동안 결과가 없으면 abort하고 같은 순간 새 객체 start() — 한도에 안 셈·"다시 시작 중" 없음, 진단 줄`, () => {
+    const t = setup({ stallRestart: true })
+    t.engine.start()
+    const first = t.current()
+    first.audioStart()
+    t.advance(1_500)
+    first.results(0, [['15번', false]])
+    t.advance(STALL_MS - 1)
+    expect(first.aborts).toBe(0)
+    t.advance(1)
+    expect(first.aborts).toBe(1)
+    expect(FakeRecognition.instances).toHaveLength(2)
+    expect(t.current().starts).toBe(1)
+    expect(t.diagnostics).toEqual([{ kind: 'stall', at: T0 + 1_500 + STALL_MS, ms: STALL_MS, cause: 'no-result', streak: 1 }])
+    expect(formatSpeechDiagnostic(t.diagnostics[0]!)).toBe('인식 멈춤 2.0초 → 다시 켬')
+    expect(t.states).toEqual(['LISTENING'])
+    expect(t.errors).toEqual([])
+    // 옛 객체의 aborted·끝은 새 객체를 건드리지 않는다
+    first.error('aborted')
+    first.end()
+    expect(FakeRecognition.instances).toHaveLength(2)
+    // 다시 연 뒤 첫 결과까지 (시작 알림은 start()와 같은 순간)
+    t.advance(120)
+    t.current().audioStart()
+    t.advance(780)
+    t.current().results(0, [['16번 만 원', true]])
+    expect(t.diagnostics.at(-1)).toEqual({ kind: 'first-result', at: T0 + 1_500 + STALL_MS + 900, ms: 900, startMs: 0, after: 'stall' })
+    expect(formatSpeechDiagnostic(t.diagnostics.at(-1)!)).toBe('다시 켠 뒤 시작 0.0초 · 첫 결과 0.9초 (stall)')
+    expect(t.gaps.at(-1)).toMatchObject({ reason: 'stall', ms: 120 })
+  })
+
+  it('결과(중간 결과 포함)가 계속 오면 다시 열지 않는다', () => {
+    const t = setup({ stallRestart: true })
+    t.engine.start()
+    t.current().audioStart()
+    for (let i = 0; i < 20; i++) {
+      t.advance(STALL_MS - 100)
+      t.current().results(0, [[`말 ${i}`, false]])
+    }
+    expect(FakeRecognition.instances).toHaveLength(1)
+    expect(t.diagnostics).toEqual([])
+  })
+
+  it(`결과 없는 다시 열기가 ${STALL_BACKOFF_AFTER}번 이어지면 기다림을 두 배로, 결과가 오면 돌아간다 · 아무리 이어져도 멈추지 않는다`, () => {
+    const t = setup({ stallRestart: true })
+    t.engine.start()
+    t.current().audioStart()
+    t.advance(STALL_MS * STALL_BACKOFF_AFTER)
+    expect(FakeRecognition.instances).toHaveLength(1 + STALL_BACKOFF_AFTER)
+    t.advance(STALL_MS * 2 - 1)
+    expect(FakeRecognition.instances).toHaveLength(1 + STALL_BACKOFF_AFTER)
+    t.advance(1)
+    expect(FakeRecognition.instances).toHaveLength(2 + STALL_BACKOFF_AFTER)
+    t.advance(STALL_MS * 2 * 30)
+    expect(t.errors).toEqual([])
+    expect(t.engine.getState()).toBe('LISTENING')
+    t.current().results(0, [['15번', true]])
+    const count = FakeRecognition.instances.length
+    t.advance(STALL_MS)
+    expect(FakeRecognition.instances).toHaveLength(count + 1)
+    expect(t.diagnostics.filter((d) => d.kind === 'stall').at(-1)).toMatchObject({ streak: 1 })
+  })
+
+  it('시작 알림(onstart·onaudiostart)이 없는 객체에는 걸지 않는다 (가짜·다른 브라우저)', () => {
+    const t = setup({ stallRestart: true })
+    FakeRecognition.silentStart = true
+    t.engine.start()
+    t.advance(STALL_MS * 10)
+    expect(FakeRecognition.instances).toHaveLength(1)
+  })
+
+  it('멈춰 닫은 객체에서 늦게 온 결과는 버리지 않는다 — 한 번 진단, 남은 중간 결과는 그 끝에서 넘김', () => {
+    const t = setup({ stallRestart: true })
+    t.engine.start()
+    const first = t.current()
+    first.audioStart()
+    t.advance(STALL_MS)
+    expect(FakeRecognition.instances).toHaveLength(2)
+    t.advance(400)
+    first.results(0, [['15번 만 원', true]])
+    first.results(1, [['16번', false]])
+    first.end()
+    expect(t.results).toEqual([
+      { text: '15번 만 원', final: true },
+      { text: '16번', final: false },
+      { text: '16번', final: true, flushedAtEnd: true },
+    ])
+    expect(t.diagnostics.filter((d) => d.kind === 'late-result')).toEqual([{ kind: 'late-result', at: T0 + STALL_MS + 400, ms: 400 }])
+    expect(formatSpeechDiagnostic(t.diagnostics.find((d) => d.kind === 'late-result')!)).toBe('멈춘 인식에서 늦은 결과 0.4초 뒤')
+  })
+
+  it(`소리 받기 멈춤 뒤 ${END_WAIT_MS}ms 안에 끝이 없으면 다시 연다 · 끝이 오면 보통 다시 열기`, () => {
+    const t = setup({ stallRestart: true, stallMs: 8_000 })
+    t.engine.start()
+    const first = t.current()
+    first.audioStart()
+    t.advance(1_000)
+    first.audioEnd()
+    t.advance(END_WAIT_MS - 1)
+    expect(FakeRecognition.instances).toHaveLength(1)
+    t.advance(1)
+    expect(FakeRecognition.instances).toHaveLength(2)
+    expect(t.diagnostics[0]).toMatchObject({ kind: 'stall', cause: 'audio-end' })
+    expect(formatSpeechDiagnostic(t.diagnostics[0]!)).toBe('인식 멈춤 3.0초 → 다시 켬 (audio-end)')
+    const second = t.current()
+    second.audioStart()
+    t.advance(1_000)
+    second.audioEnd()
+    t.advance(500)
+    second.end()
+    expect(FakeRecognition.instances).toHaveLength(3)
+    t.advance(END_WAIT_MS * 2)
+    expect(FakeRecognition.instances).toHaveLength(3)
+  })
+
+  it(`말 끝 뒤 ${END_WAIT_MS}ms 안에 결과도 끝도 없으면 다시 연다 · 결과가 오면 거둔다`, () => {
+    const t = setup({ stallRestart: true, stallMs: 8_000 })
+    t.engine.start()
+    t.current().audioStart()
+    t.current().speechEnd()
+    t.advance(500)
+    t.current().results(0, [['15번', true]])
+    t.advance(END_WAIT_MS * 2)
+    expect(FakeRecognition.instances).toHaveLength(1)
+    t.current().speechEnd()
+    t.advance(END_WAIT_MS)
+    expect(FakeRecognition.instances).toHaveLength(2)
+    expect(t.diagnostics[0]).toMatchObject({ kind: 'stall', cause: 'speech-end' })
+  })
+
+  it(`stallMs ${STALL_MIN_MS}: 1초 결과 없으면 다시 열고, 다시 열기는 그 시간에 한 번까지`, () => {
+    const t = setup({ stallRestart: true, stallMs: STALL_MIN_MS })
+    t.engine.start()
+    t.current().audioStart()
+    t.advance(STALL_MIN_MS)
+    expect(FakeRecognition.instances).toHaveLength(2)
+    // 새 객체가 곧바로 결과를 내고 또 멈춰도 앞 다시 열기에서 STALL_MIN_MS 안에는 다시 열지 않는다
+    t.advance(100)
+    t.current().results(0, [['15번', false]])
+    t.advance(STALL_MIN_MS - 1)
+    expect(FakeRecognition.instances).toHaveLength(2)
+    t.advance(1)
+    expect(FakeRecognition.instances).toHaveLength(3)
+  })
+
+  it('다시 연 객체 start()가 InvalidStateError면 50ms 뒤 다시 · 판매자가 끄면 지킴이도 멈춘다', () => {
+    const t = setup({ stallRestart: true })
+    t.engine.start()
+    t.current().audioStart()
+    FakeRecognition.throwOnStart = [invalidState()]
+    t.advance(STALL_MS)
+    expect(FakeRecognition.instances).toHaveLength(2)
+    t.advance(START_RETRY_MS)
+    expect(FakeRecognition.instances).toHaveLength(3)
+    expect(t.current().starts).toBe(1)
+    t.engine.stop()
+    expect(t.timersPending()).toBe(0)
+    t.advance(STALL_MS * 5)
+    expect(FakeRecognition.instances).toHaveLength(3)
+  })
+
+  it('기본은 켬, 모든 끝남 세기(홈 화면 앱)면 끔', () => {
+    FakeRecognition.instances = []
+    FakeRecognition.silentStart = false
+    let now = T0
+    const pending: (() => void)[] = []
+    const timers = { set: (run: () => void) => pending.push(run), clear: () => {} }
+    const on = createWebSpeechEngine({ now: () => now, scope: { SpeechRecognition: FakeRecognition }, timers })
+    on.start()
+    expect(pending).toHaveLength(1)
+    on.stop()
+    pending.length = 0
+    now += 1
+    const home = createWebSpeechEngine({ now: () => now, scope: { SpeechRecognition: FakeRecognition }, timers, countAllEnds: true })
+    home.start()
+    expect(pending).toHaveLength(0)
+    home.stop()
   })
 })
