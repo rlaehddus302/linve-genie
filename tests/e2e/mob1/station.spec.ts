@@ -120,10 +120,11 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
       await expect(alerts(w.main).getByRole('button', { name: '보류 1', exact: true })).toHaveCount(1) // QL3R2 D-QL3R2-02
       await expect(w.main.getByRole('button', { name: '알림 1 펼치기', exact: true })).toBeVisible()
       // 보류가 첫 항목, 출력 기기 항목은 접힌 동안 "알림" 영역 밖 짧은 줄 // MOB1 D-MOB1-14 · QL3R2 D-QL3R2-02
-      const buttons = alerts(w.main).getByRole('button')
+      // MOB2 D-MOB2-02: 접힌 띠에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 항목이 있는지·차례는 숨은 칩도 센다
+      const buttons = alerts(w.main).getByRole('button', { includeHidden: true }) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
       await expect(buttons.first()).toHaveAccessibleName('보류 1') // QL3R2 D-QL3R2-02
       await expect(buttons).toHaveCount(1) // QL3R2 D-QL3R2-02
-      await expect(stationItem(w.main, lost(name))).toHaveCount(0) // QL3R2 D-QL3R2-02
+      await expect(alerts(w.main).getByRole('button', { name: lost(name), exact: true, includeHidden: true })).toHaveCount(0) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02
       await expect(item).toBeVisible() // QL3R2 D-QL3R2-02
       // 접힌 띠는 한 줄 (첫 항목 보류 찜이 띠 안 — 출력 기기 항목은 그 뒤라 잘려 안 보일 수 있다) // MOB1 D-MOB1-14
       const strip = (await alerts(w.main).boundingBox())!
@@ -194,18 +195,19 @@ test.describe('AC-MOB1-12·13 출력 기기 끊김 — 라벨 화면·콘솔 알
         await w.main.goto(`/broadcasts/${encodeURIComponent(b)}`)
         await expect(w.main.getByLabel('빠른 입력')).toBeVisible()
         await station.context.setOffline(true)
-        const item = stationItem(w.main, lost('안드로이드 폰'))
+        // MOB2 D-MOB2-02: 접힌 띠에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 항목이 있는지·차례는 숨은 칩도 센다
+        const item = alerts(w.main).getByRole('button', { name: lost('안드로이드 폰'), exact: true, includeHidden: true }) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
         const folded = viewport === PHONE // QL3R2 D-QL3R2-02: 접힌 휴대폰 띠는 출력 기기 항목을 짧은 줄 하나로만
         if (folded) await expect(foldedShortRow(w.main, shortLostText('안드로이드 폰'))).toHaveCount(1, { timeout: 30_000 }) // QL3R2 D-QL3R2-02
         await expect(item).toHaveCount(folded ? 0 : 1, { timeout: 30_000 }) // QL3R2 D-QL3R2-02
-        const buttons = alerts(w.main).getByRole('button')
+        const buttons = alerts(w.main).getByRole('button', { includeHidden: true }) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
         await expect(buttons.filter({ hasText: /^출력 멈춤 · / })).toHaveCount(1)
         await expect(buttons.filter({ hasText: new RegExp(`^${pendingWord(w.main)} 1$`) })).toHaveCount(1) // QL3R2 D-QL3R2-02
         // 순서: 출력 멈춤 → 보류 찜 → 출력 기기 항목 (플랫폼 줄이 없는 기본 서버)
         await expect(buttons).toHaveCount(folded ? 2 : 3) // QL3R2 D-QL3R2-02
         await expect(buttons.nth(0)).toHaveAccessibleName(/^출력 멈춤 · /)
-        await expect(buttons.nth(1)).toHaveAccessibleName(`${pendingWord(w.main)} 1`) // QL3R2 D-QL3R2-02
-        if (!folded) await expect(buttons.nth(2)).toHaveAccessibleName(lost('안드로이드 폰')) // QL3R2 D-QL3R2-02
+        await expect(buttons.nth(1)).toHaveText(`${pendingWord(w.main)} 1`) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02: 숨은 칩은 접근성 이름이 비므로 글자로 본다
+        if (!folded) await expect(buttons.nth(2)).toHaveText(lost('안드로이드 폰')) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02: 숨은 칩은 접근성 이름이 비므로 글자로 본다
         if (viewport === PHONE) {
           // 접힌 한 줄: 첫 항목 "출력 멈춤 · …"이 띠 안에 보인다 (알림 수에 출력 기기 항목은 들지 않는다 — 출력 멈춤·보류 찜 2)
           const toggle = w.main.getByRole('button', { name: '알림 2 펼치기', exact: true })

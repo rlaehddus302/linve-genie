@@ -588,7 +588,7 @@ describe('알림 창 (AC-S05-30·32·33)', () => {
     ]
     model.claims = [claim('k2', 'c2', 'WAITLISTED'), claim('k3', 'c3', 'WAITLISTED')]
     const { quick } = await openConsole()
-    fireEvent.click(within(screen.getByRole('region', { name: '알림' })).getByRole('button', { name: '승계 결정 필요 1' }))
+    fireEvent.click(within(screen.getByRole('region', { name: '알림' })).getByRole('button', { name: '승계 1' })) // MOB2 D-MOB2-16 (1): 접힌 휴대폰 띠(jsdom 기본 좁은 화면)의 승계 칩은 "승계 n"
     const dialog = await screen.findByRole('dialog', { name: '승계 결정 — 15번 핑크프릴' })
     expect(within(dialog).getByRole('button', { name: '1 김철수 1등으로' })).toBeDefined()
     fireEvent.click(within(dialog).getByRole('button', { name: '다시 판매(대기자 정리)' }))

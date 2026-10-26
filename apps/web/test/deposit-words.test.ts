@@ -43,7 +43,7 @@ describe('DP-8 낱말 (AC-N3-41·50)', () => {
   it('상태·원천·사유 문장은 규칙서 그대로', () => {
     expect(Object.values(DEPOSIT_STATUS_WORD)).toEqual(['확인 필요', '자동 확인됨', '확인함', '무시함'])
     expect(SOURCE_KIND_WORD).toEqual({ POPBILL: '계좌조회', PASTE: '붙여넣기', FAKE: '시험용 입금' })
-    expect(reasonWords('POSSIBLE_DUPLICATE', 7)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 #7도 같은 입금이에요)') // QL3R2 D-QL3R2-04
+    expect(reasonWords('POSSIBLE_DUPLICATE', 7)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 7도 같은 입금이에요)') // MOB2 D-MOB2-05 + QL3R2 D-QL3R2-04 (D-QL3R1-10 (3))
     expect(reasonWords('SAME_NAME', null)).toBe('같은 이름의 구매자가 여럿이에요')
     expect(reasonWords('MULTIPLE', null)).toBe('금액과 이름이 맞는 묶음이 여럿이에요')
     expect(reasonWords('NAME_MISMATCH', null)).toBe('금액은 맞는데 이름이 달라요')
@@ -104,10 +104,10 @@ describe('DP-8 낱말 (AC-N3-41·50)', () => {
       deposit: { no: 12, name: '김영희', at: '2026-10-18T12:03:00.000Z', precision: 'minute', amount: 14000, source: '국민 1234', sourceKind: 'POPBILL' },
       ...patch,
     })
-    expect(depositLinkWords(link())).toBe('자동 입금 확인 · 김영희 · 10/18 21:03 · 입금 #12')
-    expect(depositLinkWords(link({ auto: false }))).toBe('입금 내역으로 확인 · 김영희 · 10/18 21:03 · 입금 #12')
-    expect(depositLinkWords(link({ reverted: true }))).toBe('자동 입금 확인 · 김영희 · 10/18 21:03 · 입금 #12 · 되돌림')
-    expect(depositLinkWords(link({ kind: 'refund' }))).toBe('입금 확인 되돌림 · 입금 #12')
+    expect(depositLinkWords(link())).toBe('자동 입금 확인 · 김영희 · 10/18 21:03 · 입금 번호 12') // MOB2 D-MOB2-05
+    expect(depositLinkWords(link({ auto: false }))).toBe('입금 내역으로 확인 · 김영희 · 10/18 21:03 · 입금 번호 12') // MOB2 D-MOB2-05
+    expect(depositLinkWords(link({ reverted: true }))).toBe('자동 입금 확인 · 김영희 · 10/18 21:03 · 입금 번호 12 · 되돌림') // MOB2 D-MOB2-05
+    expect(depositLinkWords(link({ kind: 'refund' }))).toBe('입금 확인 되돌림 · 입금 번호 12') // MOB2 D-MOB2-05
   })
 
   it('처리 기록의 낱말과 "누가" — 자동은 "입금 자동 확인", 범위 이력의 actor deposit도 같은 낱말', () => {

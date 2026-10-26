@@ -100,8 +100,11 @@ export function stationLeadText({ labelsOn, rehearsal, ended, queue, mine }: Sta
   if (queue.device === null) return queue.waiting > 0 ? NO_STATION_PILING : null
   return queue.device.live ? null : deviceLostMessage(queue.device.name)
 }
-/** 출력 기기가 없고 대기 라벨이 쌓일 때 휴대폰 접힌 띠의 짧은 문장 (QL3R2 D-QL3R2-03) — 펼친 띠·PC·라벨 화면은 NO_STATION_PILING 그대로 */
-export const NO_STATION_SHORT = '라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요'
+/**
+ * 출력 기기가 없고 대기 라벨이 쌓일 때 휴대폰 접힌 띠의 짧은 문장 (QL3R2 D-QL3R2-03) — 펼친 띠·PC·라벨 화면은 NO_STATION_PILING 그대로.
+ * MOB2 D-MOB2-17: 글자 150% 휴대폰(글 폭 323px)에서도 두 줄 이하가 되게 짧게. 누르면 라벨 화면으로 가는 것은 그대로
+ */
+export const NO_STATION_SHORT = '라벨이 안 나가요 · 프린터를 연결해 주세요'
 /**
  * stationLeadText의 휴대폰 접힌 띠 짧은 문장 (QL3R1 D-QL3R1-04 · QL3R2 D-QL3R2-03): 출력 기기 끊김이면 deviceLostShortMessage,
  * 출력 기기가 없고 대기 라벨이 있으면 NO_STATION_SHORT. 그 밖(정상·대기 0·리허설·끝남·이 기기·라벨 끔)은 null — stationLeadText가 null인 때와 같다

@@ -5,9 +5,9 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
-import { chat, register } from './engine.ts'
+import { T0, chat, register } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
-import { FakeEventSource, flush } from './support.ts'
+import { FakeEventSource, fixtureClock, flush } from './support.ts'
 
 beforeEach(() => {
   vi.stubGlobal('EventSource', FakeEventSource)
@@ -15,9 +15,11 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/')
   const engine = new EngineServer([register(15, '핑크프릴', 10000), chat('m1', 'c1', '가', '15'), chat('m2', 'c2', '나', '20'), chat('m3', 'c3', '다', '21')])
   vi.stubGlobal('fetch', engine.server.fetch)
+  fixtureClock(T0) // MOB2 D-MOB2-06 — 보류 찜이 막 들어온 방송(알림 띠에 보류 찜 2)
 })
 
 afterEach(() => {
+  vi.useRealTimers() // MOB2 D-MOB2-06
   cleanup()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()

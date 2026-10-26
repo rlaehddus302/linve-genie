@@ -4,9 +4,9 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
-import { chat, register } from './engine.ts'
+import { T0, chat, register } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
-import { FakeEventSource, flush } from './support.ts'
+import { FakeEventSource, fixtureClock, flush } from './support.ts'
 
 function rect(top: number, bottom: number): DOMRect {
   return { top, bottom, left: 0, right: 375, width: 375, height: bottom - top, x: 0, y: top, toJSON: () => ({}) } as DOMRect
@@ -20,6 +20,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/')
   const engine = new EngineServer([register(15, '핑크프릴', 10000), chat('m1', 'c1', '가', '20'), chat('m2', 'c2', '나', '21')])
   vi.stubGlobal('fetch', engine.server.fetch)
+  fixtureClock(T0) // MOB2 D-MOB2-06 — 보류 찜이 막 들어온 방송(알림 띠에 보류 찜 2)
   // 아래에 붙은 메뉴 막대(위 끝 733) · 고정 영역은 위에서 231 · 빠른 입력 묶음 아래 끝 1000 · 입력칸 위 끝 600
   const bar = document.createElement('nav')
   bar.className = 'menu'
@@ -38,6 +39,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers() // MOB2 D-MOB2-06
   cleanup()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()

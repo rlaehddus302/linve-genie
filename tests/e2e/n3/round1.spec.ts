@@ -26,8 +26,8 @@ test.describe('묶음 찾기 범위 (수정 라운드 1)', () => {
     expect(d!.status).toBe('REVIEW')
 
     await page.goto('/deposits')
-    await depositRow(page, d!.no).getByRole('group', { name: `입금 #${String(d!.no)} 처리` }).getByRole('button', { name: '다른 묶음 지정' }).click()
-    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 #${String(d!.no)}` })
+    await depositRow(page, d!.no).getByRole('group', { name: `입금 번호 ${String(d!.no)} 처리` }).getByRole('button', { name: '다른 묶음 지정' }).click() // MOB2 D-MOB2-05
+    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 번호 ${String(d!.no)}` }) // MOB2 D-MOB2-05
     const dateSelect = search.getByLabel('날짜')
     await expect(dateSelect.locator('option:checked')).toHaveText('입금 날짜 앞뒤 (60일 전 ~ 30일 뒤)')
     await search.getByLabel('찾을 말 (구매자 이름·닉네임·메모·전화번호 뒤 4자리)').fill(name)

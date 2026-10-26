@@ -47,8 +47,8 @@ test('확정하며 입금자명 기억 → 같은 이름의 다음 입금이 그
   expect(d1!.status).toBe('REVIEW')
 
   await page.goto('/deposits')
-  await depositRow(page, d1!.no).getByRole('group', { name: `입금 #${String(d1!.no)} 처리` }).getByRole('button', { name: '다른 묶음 지정' }).click()
-  const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 #${String(d1!.no)}` })
+  await depositRow(page, d1!.no).getByRole('group', { name: `입금 번호 ${String(d1!.no)} 처리` }).getByRole('button', { name: '다른 묶음 지정' }).click() // MOB2 D-MOB2-05
+  const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 번호 ${String(d1!.no)}` }) // MOB2 D-MOB2-05
   await search.getByLabel('찾을 말 (구매자 이름·닉네임·메모·전화번호 뒤 4자리)').fill(target.display)
   const found = search.getByRole('list', { name: '찾은 묶음' }).getByRole('button').filter({ hasText: target.display })
   await expect(found).toHaveCount(1)

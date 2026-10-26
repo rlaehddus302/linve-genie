@@ -58,7 +58,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     await expect(dlg).toContainText(`${won(sale.remaining)} 입금을 되돌려요. 같은 금액의 환불 기록이 남고 이 입금은 확인 필요로 돌아가요.`)
     await dlg.getByRole('button', { name: '되돌리기' }).click()
     await expect(dlg).toHaveCount(0)
-    await expect(detail).toContainText(`입금 확인 되돌림 · 입금 #${String(d!.no)}`)
+    await expect(detail).toContainText(`입금 확인 되돌림 · 입금 번호 ${String(d!.no)}`) // MOB2 D-MOB2-05
     await expect(detail.getByRole('button', { name: '입금 확인 되돌리기' })).toHaveCount(0)
     await expect(detail).toContainText('미입금')
     expect((await depositOne(page, d!.no)).status).toBe('REVIEW')
@@ -69,7 +69,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     await openReview(page)
     const row = depositRow(page, d!.no)
     await expect(row).toContainText('맞는 묶음이 하나 있어요. 확인해 주세요')
-    await expect(row.getByRole('radiogroup', { name: `입금 #${String(d!.no)} 묶음` }).getByRole('radio').first()).toBeChecked()
+    await expect(row.getByRole('radiogroup', { name: `입금 번호 ${String(d!.no)} 묶음` }).getByRole('radio').first()).toBeChecked() // MOB2 D-MOB2-05
   })
 
   test('확인 필요 사유 문장·제안·빈 이름·이스케이프, 한 건 확정(부분 입금)·무시·다시 확인 필요로 (AC-N3-41·42·44)', async ({ page }) => {
@@ -96,7 +96,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     const rowB = depositRow(page, dB!.no)
     await expect(rowB).toContainText('이름은 맞는데 금액이 달라요')
     await expect(rowB).toContainText(nameB)
-    const radioB = rowB.getByRole('radiogroup', { name: `입금 #${String(dB!.no)} 묶음` }).getByRole('radio')
+    const radioB = rowB.getByRole('radiogroup', { name: `입금 번호 ${String(dB!.no)} 묶음` }).getByRole('radio') // MOB2 D-MOB2-05
     await expect(radioB).toHaveCount(1)
     await expect(radioB).toBeChecked() // 제안이 정확히 하나 → 미리 고름
     await expect(rowB.getByRole('radiogroup')).toContainText(`${longNoDow(saleB.date)} 묶음 · 남은 금액 ${won(saleB.remaining)} · 미입금 → 부분 입금`)
@@ -110,12 +110,12 @@ test.describe('입금 확인 끝까지 흐름', () => {
     // 원천 낱말
     await expect(rowB).toContainText('시험용 입금')
     // 제안이 없으면 확정은 잠김
-    await expect(depositRow(page, dEmpty!.no).getByRole('group', { name: `입금 #${String(dEmpty!.no)} 처리` }).getByRole('button', { name: '확정' })).toBeDisabled()
+    await expect(depositRow(page, dEmpty!.no).getByRole('group', { name: `입금 번호 ${String(dEmpty!.no)} 처리` }).getByRole('button', { name: '확정' })).toBeDisabled() // MOB2 D-MOB2-05
     // 아무것도 고르지 않은 화면의 주 버튼은 많아야 하나
     expect((await primaryOutsideDialogs(page)).length).toBeLessThanOrEqual(1)
 
     // 한 건 확정 → 창
-    await rowB.getByRole('group', { name: `입금 #${String(dB!.no)} 처리` }).getByRole('button', { name: '확정' }).click()
+    await rowB.getByRole('group', { name: `입금 번호 ${String(dB!.no)} 처리` }).getByRole('button', { name: '확정' }).click() // MOB2 D-MOB2-05
     const dlg = page.getByRole('dialog', { name: '입금 확정' })
     await expect(dlg.getByRole('list', { name: '확정할 입금' })).toContainText(`${longNoDow(saleB.date)} 묶음 · ${won(saleB.remaining - 4000)} 입금 · 미입금 → 부분 입금`)
     // 문자 구매자 → 기억 고르기 없음 (D-N3-03)
@@ -132,7 +132,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
 
     // 무시 → 무시함 → 다시 확인 필요로
     await openReview(page)
-    await depositRow(page, dC!.no).getByRole('group', { name: `입금 #${String(dC!.no)} 처리` }).getByRole('button', { name: '무시' }).click()
+    await depositRow(page, dC!.no).getByRole('group', { name: `입금 번호 ${String(dC!.no)} 처리` }).getByRole('button', { name: '무시' }).click() // MOB2 D-MOB2-05
     await expect(depositRow(page, dC!.no)).toHaveCount(0)
     await depositTab(page, /^무시함/).click()
     await expect(page).toHaveURL(/tab=ignored/)
@@ -146,7 +146,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     expect(page.url()).not.toContain(String(saleC.remaining))
   })
 
-  test('같은 입금 두 번 → "같은 입금이 두 번 들어왔을 수 있어요 (입금 #N과 같아요)", 자동으로 적지 않음 (DP-5 1, AC-N3-41)', async ({ page }) => {
+  test('같은 입금 두 번 → "같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 N도 같은 입금이에요)", 자동으로 적지 않음 (DP-5 1, AC-N3-41)', async ({ page }) => { // MOB2 D-MOB2-05
     await login(page)
     const name = uniq('이중입금')
     const sale = await smsSale(page, { memo: name })
@@ -158,7 +158,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     const [second] = await deposit(page, src2, [{ key: uniq('a'), at, amount: sale.remaining, name }])
     expect(second!.status).toBe('REVIEW')
     await openReview(page)
-    await expect(depositRow(page, second!.no)).toContainText(`같은 입금이 두 번 들어왔을 수 있어요 (입금 #${String(first!.no)}도 같은 입금이에요)`) // QL3R2 D-QL3R2-04
+    await expect(depositRow(page, second!.no)).toContainText(`같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 ${String(first!.no)}도 같은 입금이에요)`) // MOB2 D-MOB2-05 + QL3R2 D-QL3R2-04 (D-QL3R1-10 (3))
     // 묶음은 과입금이 아니다
     const s = (await scopeView(page, sale.date, false)).settlements.find((x) => x.buyer === sale.buyer)!
     expect(s.received).toBe(sale.remaining)
@@ -173,8 +173,8 @@ test.describe('입금 확인 끝까지 흐름', () => {
     const src = await fakeSource(page)
     const [d] = await deposit(page, src, [{ key: uniq('o'), at: kstIso(5_000), amount: 7000, name: uniq('엉뚱') }])
     await openReview(page)
-    await depositRow(page, d!.no).getByRole('group', { name: `입금 #${String(d!.no)} 처리` }).getByRole('button', { name: '다른 묶음 지정' }).click()
-    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 #${String(d!.no)}` })
+    await depositRow(page, d!.no).getByRole('group', { name: `입금 번호 ${String(d!.no)} 처리` }).getByRole('button', { name: '다른 묶음 지정' }).click() // MOB2 D-MOB2-05
+    const search = page.getByRole('dialog', { name: `다른 묶음 지정 · 입금 번호 ${String(d!.no)}` }) // MOB2 D-MOB2-05
     await search.getByLabel('찾을 말 (구매자 이름·닉네임·메모·전화번호 뒤 4자리)').fill(name)
     // 날짜 고르기는 연도·요일까지
     await expect(search.getByLabel('날짜').locator('option', { hasText: dateLongKo(sale.date) })).toHaveCount(1)
@@ -199,7 +199,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     const src = await fakeSource(page)
     const [d] = await deposit(page, src, [{ key: uniq('m'), at: kstIso(5_000), amount: sale.remaining - 1000, name }])
     await openReview(page)
-    await depositRow(page, d!.no).getByRole('group', { name: `입금 #${String(d!.no)} 처리` }).getByRole('button', { name: '확정' }).click()
+    await depositRow(page, d!.no).getByRole('group', { name: `입금 번호 ${String(d!.no)} 처리` }).getByRole('button', { name: '확정' }).click() // MOB2 D-MOB2-05
     const dlg = page.getByRole('dialog', { name: '입금 확정' })
     await expect(dlg).toBeVisible()
     expect((await writeEvent(page, { type: 'settlement.payment', buyer: sale.buyer, date: sale.date, amount: 500 }, { date: sale.date, rehearsal: false })).status).toBeLessThan(300)
@@ -228,8 +228,8 @@ test.describe('입금 확인 끝까지 흐름', () => {
     const before = await reviewCount(page)
     await expect(menu(page).getByRole('link', { name: `입금 확인 ${String(before)}` })).toBeVisible()
     await expect(depositTab(page, /^확인 필요/)).toHaveText(new RegExp(`확인 필요 ${String(before)}`))
-    await depositRow(page, d1!.no).getByRole('checkbox', { name: `입금 #${String(d1!.no)} 고르기` }).check()
-    await depositRow(page, d2!.no).getByRole('checkbox', { name: `입금 #${String(d2!.no)} 고르기` }).check()
+    await depositRow(page, d1!.no).getByRole('checkbox', { name: `입금 번호 ${String(d1!.no)} 고르기` }).check() // MOB2 D-MOB2-05
+    await depositRow(page, d2!.no).getByRole('checkbox', { name: `입금 번호 ${String(d2!.no)} 고르기` }).check() // MOB2 D-MOB2-05
     const sel = page.getByRole('group', { name: '선택한 입금' })
     expect(await primaryOutsideDialogs(page)).toEqual(['선택한 입금 확정 (2건)'])
     await sel.getByRole('button', { name: '선택한 입금 확정 (2건)' }).click()
@@ -260,7 +260,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     await expect(row).toHaveCount(0)
     await page.goto('/deposits')
     await depositRow(page, d!.no).getByRole('button', { name: '자세히' }).click()
-    const detail = page.getByRole('dialog', { name: `입금 #${String(d!.no)}` })
+    const detail = page.getByRole('dialog', { name: `입금 번호 ${String(d!.no)}` }) // MOB2 D-MOB2-05
     const records = detail.getByRole('region', { name: '처리 기록' })
     await expect(records).toContainText('입금 자동 확인')
     const text = (await records.innerText()).replace(/\s+/g, ' ')

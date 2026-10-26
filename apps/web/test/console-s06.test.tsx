@@ -5,9 +5,9 @@ import { App } from '../src/App.tsx'
 import { onUnauthorized } from '../src/api/client.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
 import { RehearsalPanel } from '../src/components/RehearsalPanel.tsx'
-import { chat, register, viewOf } from './engine.ts'
+import { T0, chat, register, viewOf } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
-import { DATE, FakeEventSource, apiError, flush } from './support.ts'
+import { DATE, FakeEventSource, apiError, fixtureClock, flush } from './support.ts'
 
 let engine: EngineServer
 
@@ -23,6 +23,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers() // MOB2 D-MOB2-06
   cleanup()
   vi.unstubAllGlobals()
   onUnauthorized(null)
@@ -160,6 +161,7 @@ describe('끝난 방송·알림 띠·조치 기록 (AC-S06-61·66·70)', () => {
 
   it('휴대폰 알림 띠 접기: "알림 n 펼치기"(알림 영역 밖, aria-expanded) — 알림 영역의 글자는 그대로', async () => {
     setup([register(15, '핑크프릴', 10000), chat('m1', 'c1', '가', '20'), chat('m2', 'c2', '나', '21')])
+    fixtureClock(T0) // MOB2 D-MOB2-06 — 보류 찜이 막 들어온 방송(알림 띠에 보류 찜 2)
     await openConsole()
     const toggle = screen.getByRole('button', { name: '알림 2 펼치기' })
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
@@ -316,7 +318,7 @@ describe('앱: 떠나기 전 확인·인터넷 없음 (AC-S06-01, D-083, D-093)'
     fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
     expect(window.location.pathname).toBe('/broadcasts/b1')
     await waitFor(() => expect(cancels()).toHaveLength(1))
-    expect(await screen.findByText('보냈어요: 15번 홍길동 취소')).toBeDefined()
+    expect(await screen.findByText('15번 1등 자리가 비었어요 · 대기 없음 · 판매 중')).toBeDefined() // MOB2 D-MOB2-04 — 1등 찜 취소는 결과 한 줄
   })
 
   it('UX-S06-001: 창을 연 채 대기 시간이 지나도 "보내지 않고 떠나기"면 보내지 않는다', async () => {

@@ -1,6 +1,7 @@
 // 두 기기·실시간·끊김 (AC-S05-62·63·64 작은 규모, AC-S05-73, test-e2e).
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { boardItem, day, history, login, openNewBroadcast, register, uniqueDate } from './support.ts'
+import { onlineWithWritesBlocked } from '../mob2/support.ts'
 
 async function device(browser: Browser, baseURL: string, width: number, height: number): Promise<Page> {
   const ctx = await browser.newContext({ baseURL, viewport: { width, height }, locale: 'ko-KR', timezoneId: 'Asia/Seoul', ...(width < 500 ? { isMobile: true, hasTouch: true } : {}) })
@@ -77,7 +78,11 @@ test('AC-S05-63: 오프라인 중 친 등록 → "저장하지 못했어요" →
   await input.fill('9 오프라인 9000')
   await input.press('Enter')
   await expect(page.getByText(/저장하지 못했어요/)).toBeVisible({ timeout: 15_000 })
-  await page.context().setOffline(false)
+  // MOB2 D-MOB2-07: 연결이 돌아오면 저절로 한 번 다시 보낸다 — "다시 보내기"를 직접 누르는 길을 보려고 돌아올 때 쓰기를 막아 둔다(저절로 보낸 것도 실패), 누르기 전에 푼다
+  const held = await onlineWithWritesBlocked(page, async () => {
+    await expect(page.getByRole('button', { name: '다시 보내기' })).toBeVisible({ timeout: 30_000 })
+  })
+  await held.release()
   await page.getByRole('button', { name: '다시 보내기' }).click()
   await expect(boardItem(page, 9)).toBeVisible()
   const regs = (await history(page, date, false)).filter((e) => e.type === 'product.register')

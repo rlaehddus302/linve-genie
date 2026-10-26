@@ -332,7 +332,7 @@ describe('TD-QL3R2 접힌 휴대폰 띠 이중 표시 없음·보류 n·출력 �
     const words = await load<WordsModule>(WORDS_MODULE)
     const base: StationInput = { labelsOn: true, rehearsal: false, ended: false, mine: false, queue: { device: null, waiting: 2, printing: 0, paused: null } }
     expect(words.stationLeadText(base)).toBe(words.NO_STATION_PILING)
-    expect(words.stationLeadShortText(base)).toBe('라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요')
+    expect(words.stationLeadShortText(base)).toBe('라벨이 안 나가요 · 프린터를 연결해 주세요') // MOB2 D-MOB2-17
     const empty: StationInput = { ...base, queue: { device: null, waiting: 0, printing: 0, paused: null } }
     expect(words.stationLeadShortText(empty)).toBeNull()
     expect(words.stationLeadText(empty)).toBeNull()

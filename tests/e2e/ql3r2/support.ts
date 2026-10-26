@@ -20,7 +20,7 @@ export const shortLost = (name: string): string => `라벨이 안 나가요 · '
 /** 출력 기기 없음 + 대기 라벨 — 긴 문장 (펼친 띠·PC) */
 export const NO_STATION_LONG = "출력 기기가 아직 없어 라벨이 쌓이고 있어요. 출력할 기기의 라벨 화면에서 프린터를 연결한 뒤 '이 기기에서 출력'을 눌러 주세요."
 /** 출력 기기 없음 + 대기 라벨 — 짧은 줄 (AC-QL3R2-14) */
-export const NO_STATION_SHORT = '라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요'
+export const NO_STATION_SHORT = '라벨이 안 나가요 · 프린터를 연결해 주세요' // MOB2 D-MOB2-17
 
 export const toggle = (page: Page): Locator => page.getByRole('button', { name: /^알림( \d+)? (펼치기|접기)$/ })
 export const summary = (page: Page): Locator => page.getByRole('status', { name: '현재 상품 요약' })

@@ -27,8 +27,8 @@ async function autoDeposit(dev: Page): Promise<number> {
   return d!.no
 }
 
-test.describe('AC-QL3R1-40 입금 칸 이름 "받은 곳" (값·"입금 #n"은 그대로)', () => {
-  test('1440×900 PC 표의 열 이름 "받은 곳"·값 "시험용 입금"·줄 이름 "입금 #n", 입금 자세히의 칸 "받은 곳" — "원천" 낱말 없음', async ({ page, browser }) => {
+test.describe('AC-QL3R1-40 입금 칸 이름 "받은 곳" (값은 그대로, 입금 이름은 MOB2 "입금 번호 n")', () => {
+  test('1440×900 PC 표의 열 이름 "받은 곳"·값 "시험용 입금"·줄 이름 "입금 번호 n", 입금 자세히의 칸 "받은 곳" — "원천" 낱말 없음', async ({ page, browser }) => {
     const s = await sellerOn(browser, page, D1440, false)
     try {
       const no = await autoDeposit(s.dev)
@@ -40,10 +40,11 @@ test.describe('AC-QL3R1-40 입금 칸 이름 "받은 곳" (값·"입금 #n"은 �
       const row = depositRow(s.dev, no, '자동 확인됨·확인함 입금')
       await expect(row).toHaveCount(1)
       await expect(row).toContainText('시험용 입금')
-      await expect(row).toContainText(`#${String(no)}`)
+      await expect(row.locator('.deposit-no')).toHaveText(String(no)) // MOB2 D-MOB2-05·12 (D-QL3R1-10 (3))
+      await expect(row).not.toContainText('#') // MOB2 D-MOB2-05·12 (D-QL3R1-10 (3))
       await expect(s.dev.getByRole('tabpanel')).not.toContainText('원천')
-      await row.getByRole('group', { name: `입금 #${String(no)} 처리` }).getByRole('button', { name: '자세히' }).click()
-      const dlg = s.dev.getByRole('dialog', { name: `입금 #${String(no)}`, exact: true })
+      await row.getByRole('group', { name: `입금 번호 ${String(no)} 처리` }).getByRole('button', { name: '자세히' }).click() // MOB2 D-MOB2-05·12 (D-QL3R1-10 (3))
+      const dlg = s.dev.getByRole('dialog', { name: `입금 번호 ${String(no)}`, exact: true }) // MOB2 D-MOB2-05·12 (D-QL3R1-10 (3))
       await expect(dlg).toBeVisible()
       const term = dlg.locator('dt', { hasText: /^받은 곳$/ })
       await expect(term).toHaveCount(1)
@@ -54,14 +55,14 @@ test.describe('AC-QL3R1-40 입금 칸 이름 "받은 곳" (값·"입금 #n"은 �
     }
   })
 
-  test('375×812 글자 150% 휴대폰 카드: 칸 이름 "받은 곳"·값 "시험용 입금"·카드 이름 "입금 #n", 가로 넘침 0', async ({ page, browser }) => {
+  test('375×812 글자 150% 휴대폰 카드: 칸 이름 "받은 곳"·값 "시험용 입금"·카드 이름 "입금 번호 n", 가로 넘침 0', async ({ page, browser }) => {
     const s = await sellerOn(browser, page, D375, true)
     try {
       const no = await autoDeposit(s.dev)
       await s.dev.goto('/deposits?tab=done')
       const card = depositRow(s.dev, no, '자동 확인됨·확인함 입금')
       await expect(card).toBeVisible()
-      await expect(card.getByText(`입금 #${String(no)}`, { exact: true })).toBeVisible()
+      await expect(card.getByText(`입금 번호 ${String(no)}`, { exact: true })).toBeVisible() // MOB2 D-MOB2-05·12 (D-QL3R1-10 (3))
       const term = card.locator('dt', { hasText: /^받은 곳$/ })
       await expect(term).toBeVisible()
       await expect(term.locator('xpath=following-sibling::dd[1]')).toHaveText('시험용 입금')

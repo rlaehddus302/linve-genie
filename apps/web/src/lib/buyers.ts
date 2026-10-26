@@ -176,8 +176,9 @@ const UNKNOWN_BUYER = '구매자를 찾지 못했어요. 화면을 새로 불러
 /**
  * 서버가 계산한 합치기 미리 보기(코어 previewMerge, AC-S06b-33)를 낱말로만 바꾼다. 막는 조건·남는 찜은 화면이 정하지 않는다(R-11은 엔진 하나, D-100).
  * 중복 문장의 대기 순번·상태 낱말은 그 찜 ID로 범위 조회에서 찾는다. productLabel은 "15번"(다른 방송이면 "2부 15번").
+ * now(usePendingNow): 시간이 지난 보류 찜을 다른 화면처럼 "보류 · 시간 지남"으로 (D-MOB2-15, RA-MOB2-07)
  */
-export function mergeWords(data: ScopeData, names: BuyerNames, preview: MergePreview, productLabel: (broadcast: string, no: number) => string): MergeWords {
+export function mergeWords(data: ScopeData, names: BuyerNames, preview: MergePreview, productLabel: (broadcast: string, no: number) => string, now?: number): MergeWords {
   const fromName = names.name(preview.from)
   const blocks: MergeBlockLine[] = []
   switch (preview.blocked) {
@@ -210,7 +211,7 @@ export function mergeWords(data: ScopeData, names: BuyerNames, preview: MergePre
   const duplicates = preview.duplicates.map((item) => {
     const { broadcast, no } = splitProductKey(item.product)
     const claim = data.claims.get(item.claim)
-    const word = claim === undefined ? claimStatusWord(item.status, null, null) : claimWord(data, claim)
+    const word = claim === undefined ? claimStatusWord(item.status, null, null) : claimWord(data, claim, now)
     return { claim: item.claim, text: `${productLabel(broadcast, no)}: ${names.name(item.buyer)}의 ${word} 찜이 중복으로 정리돼요` }
   })
   return {

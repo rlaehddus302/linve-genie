@@ -82,7 +82,8 @@ async function consoleWorld(browser: Browser, page: Page, options: Options): Pro
   if (options.big) await expectBig(dev)
   const strip = alerts(dev)
   await expect(strip.getByRole('button', { name: /^출력 멈춤 · / })).toHaveCount(1)
-  await expect(strip.getByRole('button', { name: `${pendingWord(dev)} 1`, exact: true })).toHaveCount(1) // QL3R2 D-QL3R2-02
+  // MOB2 D-MOB2-02: 접힌 띠에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 준비 확인은 숨은 칩도 센다(항목이 있는지만 본다)
+  await expect(strip.getByRole('button', { name: `${pendingWord(dev)} 1`, exact: true, includeHidden: true })).toHaveCount(1) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
   if (options.viewport.width < 768) await expect(dev.getByRole('button', { name: '알림 2 펼치기', exact: true })).toHaveAttribute('aria-expanded', 'false')
   const current = dev.getByRole('region', { name: '현재 상품' })
   await expect(current.getByText('15번', { exact: true })).toBeVisible()

@@ -73,7 +73,9 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
           {wide || assistant ? <LogoutButton onLogout={onLogout} assistant={assistant} className="button" /> : null}
         </div>
       </header>
-      <IosInstallHint />
+      {/* 휴대폰 라이브 콘솔에서는 띄우지 않는다: 위 고정 영역을 밀어 스크롤 0에서 빠른 입력칸이 아래 메뉴에 가려진다(U-MOB2-01, D-MOB2-03).
+          방송 목록 등 다른 화면에서는 그대로 보이고, 거기서 닫으면 이 기기에서 다시 보이지 않는다 */}
+      {wide || route.name !== 'console' ? <IosInstallHint /> : null}
     </>
   )
 }

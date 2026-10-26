@@ -25,6 +25,7 @@ test('AC-S05-41: 방송자 조치는 5초 뒤에 보낸다 @prod-delay', async (
   const elapsed = Date.now() - t0
   expect(elapsed).toBeGreaterThanOrEqual(4_900)
   expect(elapsed).toBeLessThan(7_000)
-  await expect(bar).toContainText('보냈어요: 15번 홍길동 취소')
+  // MOB2 D-MOB2-04: 1등 찜을 비운 조치는 "보냈어요" 대신 결과 한 줄 — 대기 없음·재고 1이라 다시 판매 중
+  await expect(bar.getByRole('status').filter({ hasText: '1등 자리가' })).toHaveText('15번 1등 자리가 비었어요 · 대기 없음 · 판매 중')
   expect((await history(page, date, true)).filter((e) => e.type === 'host.cancel')).toHaveLength(1)
 })

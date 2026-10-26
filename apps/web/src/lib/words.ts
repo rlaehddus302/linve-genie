@@ -239,3 +239,46 @@ export function agoWord(seconds: number): string {
 /** 보류 찜 창 맨 위 한 줄 (QL2 D-QL2-09 ④ — R-5의 뜻, W = 지금 방송의 claim.preOpenWindowSec) */
 export const pendingMeaning = (windowSec: number): string =>
   `보류 찜은 아직 등록하지 않은 번호로 들어온 찜이에요. 찜이 들어오고 ${String(windowSec)}초 안에 그 번호를 등록하면 판정에 들어가고, 늦으면 만료돼요.`
+
+// ── 1등 자리를 비운 조치의 결과 한 줄 (D-MOB2-04, UX-06 — 판정은 엔진 결과를 읽기만) ─────────
+
+/** 결과를 볼 단위 하나(옵션 없는 상품 자체 또는 그 변형)의 조치 전·뒤 모양 */
+export interface VacatedUnitView {
+  readonly winnerClaims: readonly string[]
+  readonly waitlistClaims: readonly string[]
+  readonly awaitingSuccession: boolean
+}
+
+export interface VacatedOutcomeInput {
+  /** "15번" 또는 옵션 상품이면 "15번 빨강" (번호 뒤에 그 찜의 옵션 글) */
+  readonly label: string
+  readonly before: VacatedUnitView
+  readonly after: VacatedUnitView
+  /** 조치 뒤 상품의 상태 (D-088 화면 낱말로 바꾼다) */
+  readonly afterStatus: ProductStatus
+  /** 조치 전 대기 찜 중 조치 뒤 `REJECTED(WAITLIST_CLEARED)`가 된 것이 있는가 (`REOPEN`) */
+  readonly waitlistCleared: boolean
+  /** 찜 ID → 그 찜 구매자의 이름 표기 */
+  readonly nameOfClaim: (claim: string) => string
+}
+
+export type VacatedOutcomeKind = 'winner' | 'ask' | 'cleared' | 'empty'
+
+/**
+ * 결과 문장 (D-MOB2-04): ⓐ 새 1등이 생김 → "15번 새 1등: 김철수"(여럿이면 ", ") ⓑ 승계 결정 필요 →
+ * "15번 1등 자리가 비었어요 · 대기 2명 — 누구를 1등으로 할지 골라 주세요" ⓒ 대기를 비움 →
+ * "15번 1등 자리가 비었어요 · 대기를 비웠어요 · 판매 중" ⓓ 그 밖 → "15번 1등 자리가 비었어요 · 대기 없음 · 판매 중".
+ * 새 1등 = 조치 뒤 1등 찜 중 조치 전 1등이 아니던 찜(충돌이 풀려 1등이 된 찜도). 이름은 자르지 않는다.
+ */
+export function vacatedOutcome(input: VacatedOutcomeInput): { readonly kind: VacatedOutcomeKind; readonly text: string } {
+  const before = new Set(input.before.winnerClaims)
+  const fresh = input.after.winnerClaims.filter((id) => !before.has(id))
+  if (fresh.length > 0) return { kind: 'winner', text: `${input.label} 새 1등: ${fresh.map(input.nameOfClaim).join(', ')}` }
+  const empty = `${input.label} 1등 자리가 비었어요`
+  if (input.after.awaitingSuccession) {
+    return { kind: 'ask', text: `${empty} · 대기 ${String(input.after.waitlistClaims.length)}명 — 누구를 1등으로 할지 골라 주세요` }
+  }
+  const status = PRODUCT_STATUS_WORD[input.afterStatus]
+  if (input.waitlistCleared) return { kind: 'cleared', text: `${empty} · 대기를 비웠어요 · ${status}` }
+  return { kind: 'empty', text: `${empty} · 대기 없음 · ${status}` }
+}

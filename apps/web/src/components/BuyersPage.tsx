@@ -36,6 +36,7 @@ import { AllCustomers, customersRoute, forgetCustomerList } from './AllCustomers
 import { CustomerRecord, CustomerTags } from './CustomerParts.tsx'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { claimOptionWords, claimWord, formatWon, productSlots, type BuyerNames } from '../lib/derive.ts'
+import { usePendingNow } from '../lib/use-pending-now.ts'
 import { buyerQuantity, saleLine } from '../lib/sale-line.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { PREVIEW_FAILED, PREVIEW_LOADING, PREVIEW_REFRESHING, useMergePreview } from '../lib/merge-preview.ts'
@@ -537,6 +538,8 @@ interface DetailProps {
 
 function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, onPast, today }: DetailProps) {
   const [unmerging, setUnmerging] = useState<string | null>(null)
+  // 찜 낱말 "보류" / "보류 · 시간 지남"은 콘솔과 같은 판단 (D-MOB2-15)
+  const now = usePendingNow(api.data)
   const names = api.names
   const current = buyer.mergedInto === null ? buyer : (api.data.buyers.get(buyer.current) ?? buyer)
   const claims = useMemo(() => claimsOf(api.data, current.id), [api.data, current.id])
@@ -675,7 +678,7 @@ function BuyerDetail({ api, buyer, onOpen, onMerge, onUnmerged, onSettlement, on
             {others.map((claim) => (
               <li key={claim.id}>
                 {productLabel(api, claim.broadcast, claim.no)}
-                {claimOptionWords(claim)} {claimWord(api.data, claim)}
+                {claimOptionWords(claim)} {claimWord(api.data, claim, now)}
               </li>
             ))}
           </ul>
@@ -782,7 +785,9 @@ function MergeDialog({ api, opened, otherId, intoId, onClose, onSwap, onDone, on
   const fromId = intoId === opened.id ? otherId : opened.id
   const preview = useMergePreview({ date: api.date, rehearsal: api.rehearsal, seq: api.data.seq }, fromId, intoId)
   const view = preview.view?.preview ?? null
-  const words = view === null ? null : mergeWords(api.data, api.names, view, (b, no) => productLabel(api, b, no))
+  // 중복 찜 낱말도 다른 화면과 같은 지금 시각으로 (D-MOB2-15, RA-MOB2-07)
+  const now = usePendingNow(api.data)
+  const words = view === null ? null : mergeWords(api.data, api.names, view, (b, no) => productLabel(api, b, no), now)
   const from = api.data.buyers.get(fromId)
   const targetId = view?.target ?? api.data.buyers.get(intoId)?.current ?? intoId
   const target = api.data.buyers.get(targetId)

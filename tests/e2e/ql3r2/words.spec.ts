@@ -106,7 +106,7 @@ function kstMinute(minutes: number): string {
   return `${k.slice(0, 10)} ${k.slice(11, 16)}`
 }
 
-test.describe('AC-QL3R2-22 "시각이 지금보다 늦은 입금"·"입금 #n도 같은 입금이에요"', () => {
+test.describe('AC-QL3R2-22 "시각이 지금보다 늦은 입금"·"입금 번호 n도 같은 입금이에요"', () => {
   for (const [device, big] of both) {
     test(`${device.label} 글자 ${big ? '150%' : '100%'}: 늦은 시각 2줄 + 새 입금 1줄 → 미리 보기 "시각이 지금보다 늦은 입금" 2줄, 넣으면 "…, 시각이 지금보다 늦은 입금 2건은 넣지 않았어요. 은행 글의 날짜·시각을 확인해 주세요.", "앞으로인" 없음`, async ({ page, browser }) => {
       const s = await sellerOn(browser, page, device, big)
@@ -143,7 +143,7 @@ test.describe('AC-QL3R2-22 "시각이 지금보다 늦은 입금"·"입금 #n도
     })
   }
 
-  test('1440×900: 같은 입금이 두 번 → 확인 필요 줄 "같은 입금이 두 번 들어왔을 수 있어요 (입금 #n도 같은 입금이에요)", "#n과" 없음', async ({ page, browser }) => {
+  test('1440×900: 같은 입금이 두 번 → 확인 필요 줄 "같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 n도 같은 입금이에요)", "#n과" 없음', async ({ page, browser }) => {
     const s = await sellerOn(browser, page, D1440, false)
     try {
       const name = uniq('이중입금')
@@ -157,9 +157,10 @@ test.describe('AC-QL3R2-22 "시각이 지금보다 늦은 입금"·"입금 #n도
       expect(second!.status).toBe('REVIEW')
       await s.dev.goto('/deposits')
       const row = depositRow(s.dev, second!.no)
-      await expect(row).toContainText(`같은 입금이 두 번 들어왔을 수 있어요 (입금 #${String(first!.no)}도 같은 입금이에요)`)
+      await expect(row).toContainText(`같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 ${String(first!.no)}도 같은 입금이에요)`) // MOB2 D-MOB2-05 (D-QL3R1-10 (3))
       await expect(row).not.toContainText(`#${String(first!.no)}과`)
       expect(await bodyText(s.dev)).not.toMatch(/#\d+과 같아요/)
+      expect(await bodyText(s.dev)).not.toMatch(/입금 번호 \d+[과와] 같아요/) // MOB2 D-MOB2-05 (D-QL3R1-10 (3))
     } finally {
       await s.close()
     }

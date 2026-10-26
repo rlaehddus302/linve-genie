@@ -18,7 +18,7 @@ export const WEBHOOK_PATH = '/api/billing/webhook'
 
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 const invalidRequestId = () =>
-  apiError(400, 'INVALID_REQUEST_ID', '요청 번호가 없거나 형식이 올바르지 않아요.', [{ field: 'requestId', message: "요청 번호는 영문·숫자·'_'·'-'로 된 1~64자여야 해요." }])
+  apiError(400, 'INVALID_REQUEST_ID', '보내는 중 문제가 생겼어요. 화면을 새로고침한 뒤 다시 해 주세요.', [{ field: 'requestId', message: '화면을 새로고침한 뒤 다시 해 주세요.' }])
 const invalid = (field: string, message: string) => apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field, message }])
 
 function outcome<T>(c: Context<Env>, result: BillingOutcome<T>): Response {

@@ -1,6 +1,6 @@
 // 입금 확인 화면이 함께 쓰는 조각 (N3, AC-N3-41·44·49·50).
 // - 입금 목록 받기: 상태별 목록(GET /api/deposits?status=), 이어 받기, 알림 판이 바뀌면 조금 뒤 다시 받기(알림이 몰려도 한 번).
-// - 입금 목록 모양: PC(48rem 이상)는 열 머리가 있는 표, 휴대폰은 입금마다 카드 한 묶음(D-101). 줄·카드의 이름은 "입금 #12".
+// - 입금 목록 모양: PC(48rem 이상)는 열 머리가 있는 표, 휴대폰은 입금마다 카드 한 묶음(D-101). 줄·카드의 이름은 "입금 번호 12"(D-MOB2-05).
 // - 처리 하나 보내기: 누를 때 만든 요청 번호로 보내고, 네트워크 오류면 같은 요청 번호로 다시 보낸다(서버는 같은 요청 번호를 한 번만 처리한다).
 // - 입금 하나 자세히(처리 기록)·되돌리기 확인 창.
 // 입금자명은 신뢰할 수 없는 글이다 — React 기본 이스케이프로만 그린다(NFR-06).
@@ -12,6 +12,7 @@ import {
   DEPOSIT_STATUS_WORD,
   depositActionWord,
   depositActorWord,
+  depositLabel,
   depositName,
   depositTime,
   revertQuestion,
@@ -32,7 +33,8 @@ export const RELOAD_DELAY_MS = 150
 /** 범위 기록(change) 뒤 다시 받기까지 — 방송 중 채팅마다 확인 필요 목록을 다시 계산하지 않게 길게 */
 export const SLOW_RELOAD_DELAY_MS = 1000
 
-export const depositLabel = (no: number): string => `입금 #${String(no)}`
+// 입금 이름 "입금 번호 12" (D-MOB2-05) — 문장 함수는 deposit-words에 두고 여기서 그대로 내보낸다
+export { depositLabel }
 
 /** 화면 위 안내 (성공·주의) */
 export interface Notice {
@@ -284,7 +286,7 @@ export function DepositRows({ label, deposits, columns, lead }: DepositRowsProps
             {deposits.map((deposit) => (
               <tr key={deposit.no} aria-label={depositLabel(deposit.no)}>
                 {lead !== undefined ? <td>{lead.cell(deposit)}</td> : null}
-                <td className="deposit-no">#{deposit.no}</td>
+                <td className="deposit-no">{deposit.no}</td>
                 {columns.map((column) => (
                   <td key={column.head} className={column.num === true ? 'num' : undefined}>
                     {column.cell(deposit)}
@@ -418,7 +420,7 @@ export function DepositDetailDialog({ no, onClose }: { readonly no: number; read
                   <span>{depositActionWord(action.action)}</span>
                   <span>{depositActorWord(action.actor)}</span>
                   {action.date !== null && action.buyerName !== null ? <span>{appliedWords({ buyerName: action.buyerName, date: action.date })}</span> : null}
-                  {action.seq !== null ? <span>정산 기록 {action.seq}번</span> : null}
+                  {/* 정산 기록 번호(범위 seq)는 보이지 않는다 — 같은 줄의 반영한 묶음이 어느 정산인지 말한다 (D-MOB2-05) */}
                 </li>
               ))}
             </ol>

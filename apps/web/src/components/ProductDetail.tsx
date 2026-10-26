@@ -1,11 +1,13 @@
 // 상품 자세히 (AC-S05-15·34·35, PRD-02, PRD-04, R-2, R-8, R-9, R-10, ORD-12, D-083, D-088, AC-I1-31·36).
 // - 번호·품종·가격·재고·상태, 1등(들), 대기 목록, 그 번호의 보류·충돌 찜, 라벨(1등마다 미리 보기·상태·이력·출력·내보내기 — 리허설은 없음),
 //   취소 요청, 가격·품종 변경 이력, 조치 기록.
-// - 상품 명령(일시 중지·다시 판매·공개·판매 종료·고치기)은 바로 보낸다. 찜 조치(host.*)는 5초 뒤에 보낸다.
+// - 상품 관리(일시 중지·다시 판매·공개·판매 종료·고치기)은 바로 보낸다. 찜 조치(host.*)는 5초 뒤에 보낸다.
 import { CautionMark, useCaution } from './caution.tsx'
 import { useEffect, useMemo, useState } from 'react'
 import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/client.ts'
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
+import { usePendingNow } from '../lib/use-pending-now.ts'
+import { AUTO_RESEND_NOTE, RESENDING_WORD, STATUS_CHANGED_NOTE } from '../lib/resend-board.ts'
 import { claimOptionWords, claimOptionsField, claimWord, formatWon, productSlots } from '../lib/derive.ts'
 import { optionSummary } from '../lib/options.ts'
 import { stockLeftWords } from '../lib/stock.ts'
@@ -15,9 +17,15 @@ import { ORIGIN_WORD, PRODUCT_STATUS_WORD, actionWord, actorWord } from '../lib/
 import { openBlockAction, openClaimAction } from './actions.ts'
 import { consoleLabels, productLabel, useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
+import { WriteError } from './forms.tsx'
 import { ProductLabels } from './LabelParts.tsx'
 import { FocusButton } from './ProductBoard.tsx'
 import { Modal } from './Modal.tsx'
+
+/** 판매 중(OPEN)·다 팔림(SOLD)은 찜에 따라 저절로 오가므로 한 무리로 본다 */
+function statusGroup(status: Product['status']): string {
+  return status === 'OPEN' || status === 'SOLD' ? 'selling' : status
+}
 
 /** 찜 목록 위 한 줄 설명 (QL3R1 D-QL3R1-07 (4)) */
 export const CLAIM_BUTTONS_HELP = '찜 취소: 손님이 안 사기로 했을 때 · 무효: 장난이나 잘못 들어온 찜 · 확인(잠금): 늦게 온 찜이 이 1등을 저절로 밀어내지 않게'
@@ -37,6 +45,8 @@ export function ProductDetail({ productKey, onClose, onEdit }: { readonly produc
 
 function DetailBody({ product, onClose, onEdit }: { readonly product: Product; readonly onClose: () => void; readonly onEdit: (product: Product) => void }) {
   const api = useConsoleApi()
+  // 찜 낱말 "보류" / "보류 · 시간 지남"은 다른 화면과 같은 판단 (D-MOB2-15)
+  const now = usePendingNow(api.data)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const title = productLabel(api, product.broadcast, product.no)
@@ -59,22 +69,66 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
   /** 실패한 명령 (잠시 뒤 다시 시도하면 되는 실패면 같은 요청 번호로 "다시 보내기") */
   const [failed, setFailed] = useState<{ event: Readonly<Record<string, unknown>>; requestId: string } | null>(null)
 
-  const run = async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()) => {
-    if (busy) return
+  /** 다시 보내는 중인가 (연결이 돌아와 저절로, D-MOB2-07) */
+  const [resending, setResending] = useState(false)
+  /** 저절로 보내려다 상품 상태가 바뀌어 보내지 않았다 (RA-MOB2-01) */
+  const [skipped, setSkipped] = useState(false)
+
+  // 한 상품의 상품 관리 명령은 저절로 다시 보낼 항목이 하나뿐이다(RA-MOB2-01): 새로 보내면(성공·실패 모두) 옛 실패를 내린다.
+  // 요청 번호마다 남기면, 판매자가 직접 다시 눌러 처리한 뒤에도 옛 "일시 중지"가 늦게 가 15번을 몰래 멈춘다
+  const boardKey = `command:${product.key}`
+
+  // 창이 닫혀도 남는 한 번 보내기 — 창이 닫혀 있으면 결과는 상품 카드 상태로 보인다(React는 닫힌 창의 상태 바꾸기를 무시한다, AC-MOB2-42)
+  const attempt = async (event: Readonly<Record<string, unknown>>, requestId: string, auto: boolean, statusAtFail?: Product['status']): Promise<void> => {
+    const board = api.resend
+    board?.remove(boardKey)
+    if (auto && statusAtFail !== undefined && api.latest !== undefined) {
+      // 저절로 보내기 직전: 그사이 상품 상태가 바뀌었으면(판매자가 직접 처리·다른 기기) 옛 명령을 보내지 않는다
+      const now = api.latest().products.get(product.key)
+      if (now === undefined || statusGroup(now.status) !== statusGroup(statusAtFail)) {
+        setError(null)
+        setFailed(null)
+        setSkipped(true)
+        return
+      }
+    }
     setBusy(true)
+    setResending(auto)
     setError(null)
     setFailed(null)
+    setSkipped(false)
     try {
       await api.command(event, requestId)
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       setError(caught)
       if (caught.transient) setFailed({ event, requestId })
+      // 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(D-MOB2-14): 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07)
+      if (caught.retryable) {
+        const at = (api.latest?.() ?? api.data).products.get(product.key)?.status ?? product.status
+        board?.add(boardKey, 'command', () => attempt(event, requestId, true, at))
+      }
     } finally {
       setBusy(false)
+      setResending(false)
     }
   }
 
+  const run = async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()) => {
+    if (busy) return
+    await attempt(event, requestId, false)
+  }
+
+  /** 판매자가 실패 안내를 "확인"으로 닫았다: 저절로 보내지 않는다 (D-MOB2-07 — 되돌리기 띠의 "확인"과 같은 말. "닫기"는 창 닫기와 이름이 겹친다) */
+  const dismiss = () => {
+    api.resend?.remove(boardKey)
+    setError(null)
+    setFailed(null)
+    setSkipped(false)
+  }
+
+  /** 이 실패가 저절로 다시 보낼 목록에 있어 AUTO_RESEND_NOTE가 함께 보이는가 (D-MOB2-07·D-MOB2-18) */
+  const autoResendShown = error?.retryable === true && api.resend !== undefined && api.resend.has(boardKey)
   const selling = product.status === 'OPEN' || product.status === 'SOLD'
   // 옵션 상품은 1등·대기가 변형에 있다 (D-O1-01) — 변형을 합쳐 본다 (S05 판매 종료 규칙)
   const slots = productSlots(product)
@@ -226,8 +280,17 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
           </p>
         ) : null}
         {!selling && !product.conflict ? <p className="hint">직접 배정은 판매 중일 때만 할 수 있어요.</p> : null}
-        {busy ? <p role="status">보내는 중…</p> : null}
-        {error !== null ? <ErrorNote error={error} {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
+        {busy ? <p role="status">{resending ? RESENDING_WORD : '보내는 중…'}</p> : null}
+        {/* 저절로 다시 보낼 실패면 "다시 시도해/눌러 주세요"를 빼고 아래 안내가 누르기를 말한다 (D-MOB2-18) — 그 밖은 서버 문장 그대로 */}
+        {error !== null && autoResendShown ? <WriteError error={error} autoResend {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
+        {error !== null && !autoResendShown ? <ErrorNote error={error} {...(failed === null ? {} : { onRetry: () => void run(failed.event, failed.requestId) })} /> : null}
+        {autoResendShown ? <p className="hint">{AUTO_RESEND_NOTE}</p> : null}
+        {error !== null ? (
+          <button type="button" className="button" onClick={dismiss}>
+            확인
+          </button>
+        ) : null}
+        {skipped ? <p role="status">{STATUS_CHANGED_NOTE}</p> : null}
       </section>
 
       {requests.length > 0 ? (
@@ -268,7 +331,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
           <ul className="plain-list">
             {ended.slice(0, 50).map((claim) => (
               <li key={claim.id}>
-                {api.names.name(claim.currentBuyer)} · {claimWord(api.data, claim)} · {ORIGIN_WORD[claim.origin]}
+                {api.names.name(claim.currentBuyer)} · {claimWord(api.data, claim, now)} · {ORIGIN_WORD[claim.origin]}
               </li>
             ))}
           </ul>
@@ -330,6 +393,8 @@ function ClaimRow({ claim, product, full }: { readonly claim: Claim; readonly pr
   const pick = claimOptionsField(claim)
   // 1등 목록의 "입금 늦음 주의" (CRM1 D-CRM1-07 — 실제 방송만, 판정은 그대로)
   const caution = useCaution()
+  // 시간이 지난 보류 찜은 "보류 · 시간 지남" (D-MOB2-06 — 공개 전(READY) 상품의 보류 찜도 같은 규칙)
+  const now = usePendingNow(api.data)
   return (
     <li className="claim-row">
       <p>
@@ -340,7 +405,7 @@ function ClaimRow({ claim, product, full }: { readonly claim: Claim; readonly pr
             <CautionMark />
           </>
         ) : null}
-        {claim.variant !== null || claim.qty > 1 ? <span className="claim-option">{claimOptionWords(claim)}</span> : null} <span className="tag">{claimWord(api.data, claim)}</span>{' '}
+        {claim.variant !== null || claim.qty > 1 ? <span className="claim-option">{claimOptionWords(claim)}</span> : null} <span className="tag">{claimWord(api.data, claim, now)}</span>{' '}
         <span>{ORIGIN_WORD[claim.origin]}</span>{' '}
         <span>{kstTime(claim.rankTime)}</span>
         {claim.locked ? <span className="tag">잠금</span> : null}

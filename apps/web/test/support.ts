@@ -278,3 +278,12 @@ export const youtubeNotConfigured: Reply = { status: 503, body: { error: { code:
 export function fullText(text: string): (content: string, element: Element | null) => boolean {
   return (_content, element) => element !== null && element.textContent === text && !Array.from(element.children).some((child) => child.textContent === text)
 }
+
+/**
+ * MOB2 D-MOB2-06: 화면 시계를 시험 엔진의 찜 시각(engine.ts T0 부근)에 맞춘다 — 그 고정 시각의 보류 찜이 실제 오늘 시각과 견줘
+ * "시간 지남"으로 알림 수에서 빠지지 않게(시험의 뜻은 보류 찜이 막 들어온 방송). Date만 바꾸고 흐르게 둔다(타이머는 진짜).
+ * 끝나면 vi.useRealTimers()
+ */
+export function fixtureClock(now: number): void {
+  vi.useFakeTimers({ toFake: ['Date'], now, shouldAdvanceTime: true })
+}

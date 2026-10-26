@@ -58,7 +58,7 @@ async function expectFolded(v: View): Promise<void> {
 }
 
 test.describe('AC-QL3R2-14 출력 기기 없음 + 라벨 대기: 접힌 휴대폰 띠는 짧은 줄', () => {
-  test('375·412 × 글자 100%·150%: 대기 0장이면 줄 없음 → 2장이 되면 "라벨이 안 나가요 · 라벨 화면에서 프린터를 연결해 주세요"가 자기 줄에 다 보이고 긴 문장 0번, 펼치면 긴 문장 그대로·짧은 줄 없음, 누르면 /labels / PC 1440은 긴 문장', async ({ page, browser }) => {
+  test('375·412 × 글자 100%·150%: 대기 0장이면 줄 없음 → 2장이 되면 "라벨이 안 나가요 · 프린터를 연결해 주세요"가 자기 줄에 다 보이고 긴 문장 0번, 펼치면 긴 문장 그대로·짧은 줄 없음, 누르면 /labels / PC 1440은 긴 문장', async ({ page, browser }) => { // MOB2 D-MOB2-17
     const s = await sellerOn(browser, page, D1440, false)
     const views: View[] = []
     try {

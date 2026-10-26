@@ -5,6 +5,7 @@ import {
   history, login, openNewBroadcast, openSms, postJson, registerApi, scopeView, smsApi, smsField, smsUi, uniqueDate, viewerClaim, writeEvent,
   kstTimeAgo,
 } from './support.ts'
+import { onlineWithWritesBlocked } from '../mob2/support.ts'
 
 function uniq(prefix: string): string {
   return `${prefix}${String(Math.floor(Math.random() * 1e6))}`
@@ -339,7 +340,11 @@ test.describe('문자찜 입력', () => {
     await page.getByRole('button', { name: '77번에 문자찜 넣기' }).click()
     await expect(page.getByText(/저장하지 못했어요/)).toBeVisible({ timeout: 30_000 })
     await expect(smsField(page, '번호')).toHaveValue('77')
-    await context.setOffline(false)
+    // MOB2 D-MOB2-07: 연결이 돌아오면 저절로 한 번 다시 보낸다 — "다시 보내기"를 직접 누르는 길을 보려고 돌아올 때 쓰기를 막아 둔다(저절로 보낸 것도 실패), 누르기 전에 푼다
+    const held = await onlineWithWritesBlocked(page, async () => {
+      await expect(page.getByRole('button', { name: '다시 보내기' })).toBeVisible({ timeout: 30_000 })
+    })
+    await held.release()
     await page.getByRole('button', { name: '다시 보내기' }).click()
     const result = page.getByRole('region', { name: '넣은 결과' })
     await expect(result).toContainText('77번 · 문자찜(오프) · 보류')

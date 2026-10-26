@@ -99,6 +99,8 @@ test.describe('AC-QL2-05·40 세는 알림 0이어도 펼치기 — 출력 기�
 async function sixWorld(browser: Browser, page: Page, viewport: { width: number; height: number }, big: boolean): Promise<{ w: World; dev: { page: Page; context: BrowserContext } }> {
   const w = await world(browser, page, viewport, big)
   const dev = await station(browser, w, '안드로이드 폰')
+  const set = await w.main.request.patch('/api/settings', { data: { settings: { 'claim.preOpenWindowSec': 300 } }, headers: { Origin: baseUrlOf(page) } }) // MOB2 D-MOB2-16: 보류 찜 뒤 출력 기기 끊김을 30초까지 기다리는 동안 그 찜이 "시간 지남"으로 빠지지 않게
+  expect(set.status(), await set.text()).toBe(200) // MOB2 D-MOB2-16
   const b = await broadcastApi(w.main, uniqueDate())
   await smsApi(w.main, { b, no: 40, memo: '보류' })
   // 출력 기기에서 "출력 멈추기" (판매자 멈춤)
@@ -109,12 +111,13 @@ async function sixWorld(browser: Browser, page: Page, viewport: { width: number;
   await expect(w.main.getByLabel('빠른 입력')).toBeVisible()
   if (big) await expectBig(w.main)
   const strip = alerts(w.main)
-  await expect(strip.getByRole('button', { name: `${pendingWord(w.main)} 1`, exact: true })).toHaveCount(1) // QL3R2 D-QL3R2-02
-  await expect(strip.getByRole('button', { name: SELLER_PAUSE_ALERT, exact: true })).toHaveCount(1)
+  // MOB2 D-MOB2-02: 접힌 띠에서 상자에 다 들지 않는 칩은 숨겨지고 접근성 트리에서도 빠진다 — 준비 확인은 숨은 칩도 센다(항목이 있는지만 본다)
+  await expect(strip.getByRole('button', { name: `${pendingWord(w.main)} 1`, exact: true, includeHidden: true })).toHaveCount(1) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
+  await expect(strip.getByRole('button', { name: SELLER_PAUSE_ALERT, exact: true, includeHidden: true })).toHaveCount(1) // MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
   // 접힌 휴대폰 띠: 끊김은 "알림" 영역 밖 짧은 줄 하나로만 // QL3R2 D-QL3R2-02
   const folded = viewport.width < 768 // QL3R2 D-QL3R2-02
   if (folded) await expect(foldedShortRow(w.main, shortLostText('안드로이드 폰'))).toHaveCount(1, { timeout: 30_000 }) // QL3R2 D-QL3R2-02
-  await expect(strip.getByRole('button', { name: stationLost('안드로이드 폰'), exact: true })).toHaveCount(folded ? 0 : 1, { timeout: 30_000 }) // QL3R2 D-QL3R2-02
+  await expect(strip.getByRole('button', { name: stationLost('안드로이드 폰'), exact: true, includeHidden: true })).toHaveCount(folded ? 0 : 1, { timeout: 30_000 }) // QL3R2 D-QL3R2-02 · MOB2 D-MOB2-02 (D-MOB2-11 준비 줄)
   return { w, dev }
 }
 
