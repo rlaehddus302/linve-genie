@@ -7,6 +7,7 @@ import { VarietyDictionary, type DictionaryEntry } from './dictionary.ts'
 import { isWindowFiller, looksLikePredicate } from './words.ts'
 import { DEFAULT_COMMON_ALIASES, DEFAULT_EXACT_ONLY } from './default-dictionary.ts'
 import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compareSimilarity, isCandidate, jamoKey, jamoOf, type Similarity } from './jamo.ts'
+import { isPastPriceLine } from './past-price.ts'
 
 export type Confidence = 'HIGH' | 'LOW'
 
@@ -618,9 +619,11 @@ function findPrice(
   isMarker: (i: number) => boolean,
   options: { readonly maxNumber: number; readonly bareNumbers: boolean },
 ): PriceReading {
-  const lines = findWonLines(tokens, forms, isMarker, options.maxNumber, options.bareNumbers)
+  const allLines = findWonLines(tokens, forms, isMarker, options.maxNumber, options.bareNumbers)
   const inLine = new Set<number>()
-  for (const line of lines) for (let j = line.start; j <= line.end; j++) inLine.add(j)
+  // 지난 일로 말한 가격(`120만 원까지 팔아 본 적 있어요`)은 가격으로 쓰지 않는다 — 토큰은 줄로 남겨 묶음·품종 창이 되지 않게
+  for (const line of allLines) for (let j = line.start; j <= line.end; j++) inLine.add(j)
+  const lines = allLines.filter((line) => !isPastPriceLine(tokens, line.end))
   // '번' 없는 번호는 원 가격 줄 다음, 가격 묶음 전에 잡는다 — `백육십팔`이 168원 묶음이 되지 않게
   const bareNumbers = options.bareNumbers ? findBareNumbers(tokens, (i) => isMarker(i) || inLine.has(i), options.maxNumber) : { values: new Map<number, number>(), split: false }
   const bare = bareNumbers.values
@@ -986,12 +989,14 @@ export function listNumberMarkers(tokens: readonly string[], punct: readonly boo
 /** 원 가격 줄 목록 (토큰 위치·값, 애매하면 value null). 번호 표시·자리 읽기 토큰에서 멈춘다. bareNumbers = '번' 없는 번호로 앞 수를 뗄 수 있나 */
 export function listWonLines(
   tokens: readonly string[],
-  options: { readonly maxNumber?: number; readonly bareNumbers?: boolean; readonly punct?: readonly boolean[] } = {},
+  options: { readonly maxNumber?: number; readonly bareNumbers?: boolean; readonly punct?: readonly boolean[]; readonly final?: boolean } = {},
 ): { readonly start: number; readonly end: number; readonly value: number | null }[] {
   const forms = tokens.map(readingForms)
   const digits = findDigitReadings(tokens, forms)
   const marked = new Set<number>()
   for (const marker of listNumberMarkers(tokens, options.punct ?? [])) for (let j = marker.start; j <= marker.last; j++) marked.add(j)
   for (const reading of digits) for (const j of reading.tokens) marked.add(j)
-  return findWonLines(tokens, forms, (i) => marked.has(i), resolveMaxNumber(options), options.bareNumbers === true)
+  // 지난 일로 말한 가격(`120만 원까지 팔아 본 적 있어요`)은 줄에서 뺀다 — 번호에 붙이지도, 있는 가격을 고치지도 않는다
+  const final = options.final !== false
+  return findWonLines(tokens, forms, (i) => marked.has(i), resolveMaxNumber(options), options.bareNumbers === true).filter((line) => !isPastPriceLine(tokens, line.end, final))
 }
