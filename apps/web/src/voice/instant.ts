@@ -19,6 +19,8 @@ export const LOG_ASK = '이미 등록된 번호라 고칠지 물었어요'
 export const LOG_MERGED = '같은 번호 카드가 열려 있어 그 카드에 합쳤어요'
 export const LOG_TOUCHED = '고치는 중인 카드라 바꾸지 않았어요'
 export const LOG_UNDONE = '취소가 들려 등록을 되돌렸어요'
+/** 빠진 0을 되살린 번호 (실방송 "36번" = 306번) — 큰 글자 칸·기록 끝에 붙인다 */
+export const droppedZeroNote = (heard: number, fixed: number): string => `${String(heard)}번으로 들려 ${String(fixed)}번으로 봤어요`
 /** 고치지 못했을 때 (D-V3-07 — V2 문장) */
 export const AUTO_FIX_FAILED = '고치지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.'
 /** 묻기 카드의 까닭 줄 (D-V3-06) */
