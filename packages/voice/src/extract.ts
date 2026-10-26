@@ -523,17 +523,13 @@ export const PRICE_ASK_PREFIX = '얼마'
 const PRICE_ASK_REACH = 3
 const afterPriceAsk = (tokens: readonly string[], i: number): boolean => tokens.slice(Math.max(0, i - PRICE_ASK_REACH), i).some((token) => token.startsWith(PRICE_ASK_PREFIX))
 
-/** 바로 뒤(군말 빼고 3토큰 안)에 그 수를 계수로 한 금액 토큰(`25만`·`25만원`·`이십오만`·`5천`)이 있는가 — '번' 없는 수가 가격을 되풀이한 것 */
-const PRICE_REPEAT_REACH = 3
-/** 가격 되풀이 사이에 끼어도 세지 않는 군말 (실방송 "30 자 요 아이 30만 원") */
-const PRICE_REPEAT_FILLERS: ReadonlySet<string> = new Set(['자', '요', '아이', '아이는', '아이도', '요거', '요거는', '요건', '이거', '이거는', '이건', '얘', '얘는', '애', '애는', '어', '음', '네', '예', '그', '좀', '막', '또', '뭐'])
+/** 같은 조각 뒤쪽(사이에 다른 수 없이)에 그 수를 계수로 한 금액 토큰(`25만`·`25만원`·`이십오만`·`5천`)이 있는가 — '번' 없는 수가 가격을 되풀이한 것 */
 function repeatsPrice(tokens: readonly string[], i: number, value: number): boolean {
-  let others = 0
-  for (let j = i + 1; j < tokens.length && j <= i + 8; j++) {
+  // 같은 조각 안에서 뒤로 끝까지 본다 — 사이에 다른 수(숫자로 시작하는 토큰·'N번')가 오면 멈춘다 (실방송 "15 응 이모 … 자 15만 원")
+  for (let j = i + 1; j < tokens.length; j++) {
     const token = tokens[j] as string
-    if (PRICE_REPEAT_FILLERS.has(token)) continue
     if (/[만천]/.test(token) && leadingCoefficient(token) === value) return true
-    if (++others >= PRICE_REPEAT_REACH) return false
+    if (/^[0-9]/.test(token) || readingForms(token).some((form) => form.endsWith(BEON) && form.length > 1)) return false
   }
   return false
 }
