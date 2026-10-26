@@ -344,3 +344,5 @@ export { readRenumber, type Renumber } from './renumber.ts'
 export { WAITING_MS, stepWaiting, waitingExpired, type WaitingNumber, type WaitingPiece, type WaitingResult } from './waiting.ts'
 // V3 중간 결과 안정 (R-17 8, D-V3-71)
 export { INTERIM_STABLE_MS, interimCandidate, interimFallback, trackInterim, type InterimCandidate, type InterimSeen } from './interim.ts'
+// V3 빠진 0 되살리기 (실방송 "36번" = 306번)
+export { DROPPED_ZERO_NEAR, DROPPED_ZERO_RECENT, fixDroppedZero, type DroppedZeroFix, type DroppedZeroInput, type DroppedZeroProduct } from './number-context.ts'
