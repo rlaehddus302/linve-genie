@@ -493,7 +493,7 @@ const CASES: Readonly<Record<string, { category: string; loaded?: number; errors
         doc: 2,
         label: 'product-import',
         issues: [
-          ['settings.unit', 'WON / THOUSAND / TEN_THOUSAND 중 하나여야 한다'], // FB1 D-FB1-11
+          ['settings.unit', 'WON / THOUSAND / TEN_THOUSAND / AUTO 중 하나여야 한다'], // FB1 D-FB1-11, V3 D-V3-70
           ['settings.maxNumber', '1 이상 9999 이하 정수'],
           ['settings.existing', '1 이상 정수 목록이어야 한다'],
         ],

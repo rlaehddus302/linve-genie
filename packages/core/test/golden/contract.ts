@@ -200,7 +200,7 @@ export const SETTING_CHECKS: Readonly<Record<string, ValueCheck>> = {
   'cancel.succession': oneOf(['AUTO', 'ASK', 'REOPEN']),
   'contention.policy': oneOf(['ARRIVAL', 'RECEIVED_TIME']),
   'contention.sameMinuteTieBreaker': oneOf(['YOUTUBE', 'SMS', 'HOST']),
-  'price.unit': oneOf(['WON', 'THOUSAND', 'TEN_THOUSAND']), // FB1 D-FB1-11
+  'price.unit': oneOf(['WON', 'THOUSAND', 'TEN_THOUSAND', 'AUTO']), // FB1 D-FB1-11, V3 D-V3-70
   'shipping.baseFee': intRange(0, 1_000_000),
   'shipping.freeThreshold': intRangeOrNull(0, 100_000_000),
   'settlement.groupBy': oneOf(['DATE', 'MANUAL']),

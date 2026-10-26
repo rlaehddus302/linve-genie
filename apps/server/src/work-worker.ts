@@ -46,9 +46,12 @@ const handlers: Readonly<Record<WorkKind, Handler>> = {
   ledgerXlsx: async (_input, chunks) => {
     const { ledgerToXlsx } = await import('@livejjim/documents')
     const list = chunks as readonly LedgerChunk[]
+    // 음성 기록 시트 (V3 R-25, D-V3-65): 음성 기록 줄이 하나라도 있으면 날짜 순으로 이어 붙여 넘긴다 — 없으면 시트를 더하지 않는다(전과 같은 파일)
+    const voiced = list.some((chunk) => (chunk.voiceLog?.length ?? 0) > 0)
     return ledgerToXlsx(
       list.flatMap((chunk) => chunk.rows),
       list.some((chunk) => chunk.options),
+      voiced ? { voiceLog: list.flatMap((chunk) => chunk.voiceLog ?? []) } : {},
     )
   },
   /** 운송장 PDF (T1 PC-7 — 문서 패키지 renderWaybillsPdf, 같은 내장 글꼴). 답 = { pdf(없으면 null), outcomes(준 순서대로 만들었는지·오류 코드) } */

@@ -35,9 +35,10 @@ import { ResendBoard, existsOnResendWords } from '../lib/resend-board.ts'
 import { captureVacated, vacatedLine, type VacatedBefore } from '../lib/vacated.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
-import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, VoiceController, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceSmsWrite, type VoiceSnapshot } from '../voice/controller.ts'
+import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, type VoiceController, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceHost, type VoiceLogInput, type VoiceSmsWrite, type VoiceSnapshot, type VoiceWriteOptions } from '../voice/controller.ts'
 import { fetchPastNames } from '../voice/history.ts'
 import { loadVoice } from '../voice/load.ts'
+import { VOICE_OFF_AFTER_RELOAD, rejectsUnknownVoiceLog, acquireVoiceSession, forgetVoiceOn, getVoiceSession, microphoneGranted, readVoiceOn, voiceOtherBroadcast } from '../voice/session.ts'
 import { readConsent, readLearned, readSettings, readSmsSettings, writeConsent, writeLearned, writeSettings, writeSmsSettings } from '../voice/storage.ts'
 import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } from './ActionDialogs.tsx'
 import { AttentionDialog, CancelRequestDialog, ConflictDialog, PendingDialog, SuccessionDialog } from './AlertDialogs.tsx'
@@ -74,6 +75,8 @@ export interface ConsolePageProps {
   readonly shopName?: string
   readonly onLogout?: () => void
   readonly navigate: Navigate
+  /** 열 때 그 번호 상품 자세히를 연다 (정산 화면 [상품 보기], AC-V3-71) */
+  readonly openProduct?: number
 }
 
 const NO_ITEMS: readonly UndoItem[] = []
@@ -104,8 +107,12 @@ interface RegRequest {
   readonly onExists?: (product: Product) => void
   /** 다시 보내기로 고칠 수 없는 실패·기록되지 않음 (음성 카드는 카드를 되살린다) */
   readonly onFailed?: () => void
+  /** 잠깐의 오류 ("다시 보내기"가 남는다 — 바로 등록은 카드도 돌려놓는다, AC-V3-39) */
+  readonly onTransient?: () => void
   /** 등록이 저장됨 (음성 카드 — 방금 등록한 상품으로 기억한다, D-V2-06 3) */
   readonly onDone?: (key: string) => void
+  /** 음성으로 한 등록의 기록 한 줄 (R-25 — 서버가 상품 이벤트 전에 남긴다) */
+  readonly voiceLog?: VoiceLogInput
   /** 개수 칸이 1이 아니었으면 그 개수 (옵션 없는 상품만 — AC-ORD11-01) */
   readonly stock?: number
 }
@@ -115,6 +122,10 @@ interface RegHooks {
   readonly onExists?: (product: Product) => void
   readonly onFailed?: () => void
   readonly onDone?: (key: string) => void
+  /** 음성으로 한 등록의 기록 한 줄 (R-25 — 서버가 상품 이벤트 전에 남긴다) */
+  readonly voiceLog?: VoiceLogInput
+  /** 잠깐의 오류로 보내지 못했다 ("다시 보내기"가 남는다) */
+  readonly onTransient?: () => void
   readonly extra?: OptionPayload
   readonly draftOf?: OptionDraft
   readonly stock?: number
@@ -214,7 +225,7 @@ function isTextField(element: Element | null): element is HTMLInputElement | HTM
   return element instanceof HTMLInputElement && !['button', 'checkbox', 'radio', 'submit', 'reset'].includes(element.type)
 }
 
-function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps) {
+function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }: ConsoleProps) {
   const { data, broadcast } = snapshot
   const b = broadcastId
   const view = data.broadcasts.get(b)
@@ -356,7 +367,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     register: (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => void
     focusQuick: () => void
     writeSms: (write: VoiceSmsWrite, received: string | null, requestId: string) => Promise<SmsWriteOutcome>
-    fixRecent: (id: string, changes: { readonly name?: string; readonly price?: number }) => Promise<RecentFixOutcome>
+    fixRecent: (id: string, changes: { readonly name?: string; readonly price?: number }, options?: VoiceWriteOptions) => Promise<RecentFixOutcome>
+    openProduct: (id: string) => void
+    renumber: (from: number, to: number, options?: VoiceWriteOptions) => Promise<boolean | 'claimed'>
     undoRecent: (id: string) => boolean
   }>({
     register: () => {},
@@ -364,16 +377,23 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     writeSms: async () => ({ kind: 'failed', message: SMS_SEND_FAILED }),
     fixRecent: async () => ({ kind: 'failed', message: OFFER_FIX_FAILED }),
     undoRecent: () => false,
+    openProduct: () => {},
+    renumber: async () => false,
   })
   const [voice, setVoice] = useState<VoiceController | null>(null)
   // 등록 성공을 음성 칸에 알린다 (지원 안 함 안내를 내림, D-I5-15) — 등록 경로가 음성 컨트롤러를 의존하지 않게 ref로
   const voiceRef = useRef<VoiceController | null>(null)
   voiceRef.current = voice
+  // 다른 방송에서 듣는 중인 음성 (D-V3-52 — 이 콘솔은 안내만), 새로 고침 뒤 다시 켜지 못한 안내
+  const [otherVoice, setOtherVoice] = useState<{ readonly id: string; readonly title: string } | null>(null)
+  const [voiceOffNotice, setVoiceOffNotice] = useState(false)
   useEffect(() => {
-    const controller = new VoiceController({
+    const host: VoiceHost = {
       load: loadVoice,
       now: () => Date.now(),
       maxNumber: () => latest.current.data.broadcasts.get(b)?.settings['claim.maxNumber'] ?? DEFAULT_SETTINGS['claim.maxNumber'],
+      // "N번 품종 수"의 수는 그 방송 가격 단위로 (D-V3-48)
+      priceUnit: () => latest.current.data.broadcasts.get(b)?.settings['price.unit'] ?? DEFAULT_SETTINGS['price.unit'],
       currentNames: () => currentNamesRef.current,
       products: () => {
         const numbers = new Map<number, boolean>()
@@ -411,11 +431,46 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       // ── V2 ──
       readLearned,
       writeLearned: (list) => writeLearned(list),
-      fixRecent: (id, changes) => voiceActions.current.fixRecent(id, changes),
+      fixRecent: (id, changes, options) => voiceActions.current.fixRecent(id, changes, options),
+      openProduct: (id) => voiceActions.current.openProduct(id),
+      renumber: (from, to, options) => voiceActions.current.renumber(from, to, options),
       undoRecent: (id) => voiceActions.current.undoRecent(id),
-    })
+      // ── V3 바로 등록: 그 번호 상품과 1등+대기 수 (상품 보드 데이터) ──
+      existingProduct: (no) => {
+        const current = store.getSnapshot().data ?? latest.current.data
+        const product = current.products.get(productKey(b, no))
+        if (product === undefined) return null
+        const slots = productSlots(product)
+        return { key: product.key, name: product.name, price: product.price, claimCount: slots.winners.length + slots.waitlist.length, closed: product.status === 'CLOSED', status: product.status }
+      },
+    }
+    // 켠 음성은 앱 전체가 들고 있다 — 콘솔을 떠나도 끄지 않는다 (D-V3-52)
+    const session = acquireVoiceSession(b, latest.current.broadcast.title)
+    if (session === null) {
+      const other = getVoiceSession()
+      setOtherVoice(other === null ? null : { id: other.broadcastId, title: other.title })
+      setVoice(null)
+      return
+    }
+    setOtherVoice(null)
+    session.attach(host, latest.current.broadcast.title)
+    const controller = session.controller
     setVoice(controller)
-    return () => controller.dispose()
+    // 새로 고침·탭 닫기 뒤: 그 방송이 끝나지 않았고 마이크 권한이 이미 허락돼 있으면 저절로 다시 켠다, 아니면 안내 (D-V3-52)
+    let cancelled = false
+    if (readVoiceOn() === b && controller.getSnapshot().phase === 'off') {
+      if (latest.current.broadcast.ended) forgetVoiceOn()
+      else
+        void microphoneGranted().then((granted) => {
+          if (cancelled) return
+          if (granted && readConsent()) void controller.turnOn()
+          else setVoiceOffNotice(true)
+        })
+    }
+    return () => {
+      cancelled = true
+      session.detach(host)
+    }
   }, [b, store, broadcast.date, broadcast.rehearsal])
   const voiceSnapshot = useSyncExternalStore(voice?.subscribe ?? noSubscribe, voice?.getSnapshot ?? idleVoice)
   // 음성이 듣는 동안 화면 꺼짐 막기 (MOB1 D-MOB1-07, AC-MOB1-10) — 출력 기기의 막기와 따로
@@ -469,6 +524,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     },
     [store],
   )
+  // 정산 화면 [상품 보기]로 왔으면 그 상품 자세히를 한 번 연다 (AC-V3-71)
+  const openedProduct = useRef(false)
+  useEffect(() => {
+    if (openProduct === undefined || openedProduct.current) return
+    const key = productKey(b, openProduct)
+    if (!data.products.has(key)) return
+    openedProduct.current = true
+    openDialog({ kind: 'product', key })
+  }, [openProduct, data.products, b, openDialog])
+
 
   /** 쓰기 하나: 같은 요청 번호로 재시도 → 응답 seq까지 따라잡기 */
   const write = useCallback(
@@ -481,6 +546,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       try {
         result = await withRetry(() => post<WriteResult>(path, { requestId, ...event }))
       } catch (error) {
+        // 음성 기록 칸(voiceLog, R-25)을 모르는 옛 서버면 그 칸 없이 한 번 더 — 등록·고치기가 막히지 않게
+        if (event.voiceLog !== undefined && rejectsUnknownVoiceLog(error)) {
+          const { voiceLog: _dropped, ...plain } = event
+          return await write(requestId, plain, wait)
+        }
         followFailure(error)
         throw error
       }
@@ -711,10 +781,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
   )
 
   const undoRegistration = useCallback(
-    async (no: number): Promise<'undone' | 'blocked'> => {
+    async (no: number, voiceLog?: VoiceLogInput): Promise<'undone' | 'blocked'> => {
       const product = findProduct(no)
       if (product !== undefined && (productSlots(product).winners.length > 0 || productSlots(product).waitlist.length > 0)) return 'blocked'
-      const result = await write(newRequestId(), { type: 'product.close', b, no })
+      const result = await write(newRequestId(), { type: 'product.close', b, no, ...(voiceLog === undefined ? {} : { voiceLog }) })
+      // 되돌린 번호는 음성을 끌 때까지 바로 등록하지 않는다 (V3 D-V3-10)
+      if (result.changed) voiceRef.current?.rejectNumber(no)
       return result.changed ? 'undone' : 'blocked'
     },
     [b, findProduct, write],
@@ -760,6 +832,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           ...(request.stock === undefined ? {} : { stock: request.stock }),
           ...(extra === undefined || extra.options.length === 0 ? {} : { options: extra.options, stocks: extra.stocks }),
           ...(extra === undefined || extra.aliases.length === 0 ? {} : { aliases: extra.aliases }),
+          ...(request.voiceLog === undefined ? {} : { voiceLog: request.voiceLog }),
         })
         remove()
         const key = productKey(b, request.no)
@@ -788,13 +861,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         setSelected(key)
         setQuickError(null)
         voiceRef.current?.noteRegistered()
-        const undoItem = queue.addRegistration({ no: request.no, product: key, undo: () => undoRegistration(request.no), auto })
+        // 음성 등록을 되돌리면 그 등록의 요청 번호를 기록에 싣는다 (R-25 UNDO)
+        const undoLog = request.voiceLog === undefined ? undefined : { ...request.voiceLog, undo: request.requestId }
+        const undoItem = queue.addRegistration({ no: request.no, product: key, undo: () => undoRegistration(request.no, undoLog), auto })
         regUndo.current.set(key, undoItem.id)
         request.onDone?.(key)
       } catch (error) {
         if (!isApiError(error)) throw error
         if (error.transient) {
           setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'failed', error, auto: false } : item)))
+          request.onTransient?.()
           // 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(응답만 잃은 경우 포함): 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07·14)
           if (error.retryable) {
             resendBoard.add(`register:${String(id)}`, 'register', () => {
@@ -843,10 +919,19 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     (card: SuggestionCard, registration: CardRegistration, source: RegisterSource) => {
       const { no, name, price } = registration
       dropAttached(no)
+      const voiceLog = voice?.voiceLogFor(card.text) ?? null
       enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
+        ...(voiceLog === null ? {} : { voiceLog }),
         ...(source === 'auto' ? { onExists: (product: Product) => voice?.restore(card, { note: editQuestion(product.no, product.status === 'CLOSED') }) } : {}),
+        // 바로 등록인데 차례에서 그 번호가 생겼다 — 이미 있는 번호 규칙(무시·자동 고침·묻기)대로, 창은 띄우지 않는다 (V3)
+        // 바로 등록이 잠깐의 오류로 실패하면 "다시 보내기"와 함께 그 말의 카드도 돌려놓는다 (AC-V3-39, TE-V3-008)
+        ...(source === 'instant' ? { onExists: () => voice?.instantExists(card), onTransient: () => voice?.restore(card, { touched: true }) } : {}),
         onFailed: () => voice?.restore(card, { touched: true }),
-        onDone: (key) => voice?.noteVoiceRegistered({ id: key, no, name, price }),
+        onDone: (key) => {
+          // "다시 보내기"로 등록됐으면 돌려놓은 카드는 뺀다
+          if (source === 'instant') voice?.take(card.id)
+          voice?.noteVoiceRegistered({ id: key, no, name, price })
+        },
       })
       if (source === 'click') focusQuick()
     },
@@ -891,11 +976,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
    * 손 고치기 창(PRD-01 — 누구에게 적용할지 묻는 안내 그대로)을 연다.
    */
   const fixRecentProduct = useCallback(
-    async (key: string, changes: { readonly name?: string; readonly price?: number }): Promise<RecentFixOutcome> => {
+    async (key: string, changes: { readonly name?: string; readonly price?: number }, options: VoiceWriteOptions = {}): Promise<RecentFixOutcome> => {
       const product = (store.getSnapshot().data ?? latest.current.data).products.get(key)
       if (product === undefined) return { kind: 'failed', message: '그 상품을 찾지 못했어요. 상품 목록에서 확인해 주세요.' }
       const slots = productSlots(product)
-      if (changes.price !== undefined && changes.price !== product.price && slots.winners.length + slots.waitlist.length > 0) {
+      const claimed = slots.winners.length + slots.waitlist.length > 0
+      // 음성 바로 고침·[새 가격으로 바꾸기]는 창 없이 새 찜부터만 새 가격 (NEW_ONLY — 확정 찜 가격은 그대로, D-V3-57·59)
+      if (options.newOnly !== true && options.applyTo === undefined && changes.price !== undefined && changes.price !== product.price && claimed) {
         openDialog({ kind: 'edit', product: product.key, name: changes.name ?? product.name, price: changes.price, line: null })
         return { kind: 'dialog' }
       }
@@ -903,7 +990,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
       if (changes.name !== undefined) before.name = product.name
       if (changes.price !== undefined) before.price = product.price
       try {
-        await write(newRequestId(), { type: 'product.update', b, no: product.no, ...changes })
+        const applyTo = changes.price === undefined || !claimed ? undefined : (options.applyTo ?? (options.newOnly === true ? 'NEW_ONLY' : undefined))
+        await write(options.requestId ?? newRequestId(), { type: 'product.update', b, no: product.no, ...changes, ...(applyTo === undefined ? {} : { applyTo }), ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) })
         return { kind: 'fixed', before }
       } catch (error) {
         if (!isApiError(error) || error.network) return { kind: 'failed', message: OFFER_FIX_FAILED }
@@ -919,7 +1007,25 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
     },
     [queue],
   )
-  voiceActions.current = { register: registerVoiceCard, focusQuick, writeSms: writeVoiceSms, fixRecent: fixRecentProduct, undoRecent: undoRecentProduct }
+  voiceActions.current = {
+    register: registerVoiceCard,
+    focusQuick,
+    writeSms: writeVoiceSms,
+    fixRecent: fixRecentProduct,
+    undoRecent: undoRecentProduct,
+    // [아까 것을 다른 번호로] — 그 상품 자세히(손 고치기, R-10 안내 그대로)
+    openProduct: (key) => openDialog({ kind: 'product', key }),
+    // 음성 번호 옮기기 — 손 고치기와 같은 product.renumber (R-10·D-V3-58)
+    renumber: async (from, to, options = {}) => {
+      try {
+        const result = await write(options.requestId ?? newRequestId(), { type: 'product.renumber', b, from, to, ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) })
+        return result.changed
+      } catch (error) {
+        // 서버가 찜이 있는 상품이라 막았다 (RA-V3-001)
+        return isApiError(error) && error.code === 'VOICE_RENUMBER_CLAIMED' ? 'claimed' : false
+      }
+    },
+  }
 
   /** 카드 고치기 칸의 Enter: 빠른 입력 고치기 칸과 같은 해석 (decideFixForm — 그 방송의 price.unit) */
   const submitCardForm = useCallback(
@@ -939,7 +1045,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
           dropAttached(no)
           // 고치기 칸에 적은 품종이 들은 말과 다르면 배운다 (D-V2-10)
           voice.learnFrom(card, name)
+          // 음성 카드를 손으로 고쳐 등록해도 그 카드의 조각 글을 기록에 (SA-V3-001)
+          const voiceLog = voice.voiceLogFor(card.text)
           enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
+            ...(voiceLog === null ? {} : { voiceLog }),
             onFailed: () => voice.restore({ ...card, no, name: name === '' ? null : name, price }, { touched: true }),
             onDone: (key) => voice.noteVoiceRegistered({ id: key, no, name, price }),
           })
@@ -1374,6 +1483,20 @@ function Console({ store, snapshot, queue, broadcastId, navigate }: ConsoleProps
         </div>
         {endError !== null ? <ErrorNote error={endError} /> : null}
         {sealed ? <SealedNotice /> : null}
+        {otherVoice !== null ? (
+          // 다른 방송에서 듣는 중 (D-V3-52)
+          <div className="notice row" role="status">
+            <p>{voiceOtherBroadcast(otherVoice.title)}</p>
+            <button type="button" className="button" onClick={() => navigate({ name: 'console', id: otherVoice.id })}>
+              그 방송으로 가기
+            </button>
+          </div>
+        ) : null}
+        {voiceOffNotice && voiceSnapshot.phase === 'off' && !ended && !sealed ? (
+          <p className="notice" role="status">
+            {VOICE_OFF_AFTER_RELOAD}
+          </p>
+        ) : null}
         <div className={voiceLive !== null && wide ? 'console-sticky console-sticky-voice' : 'console-sticky'}>
           {/* 휴대폰만: 고정 영역 맨 위(제목·리허설 띠 바로 아래, 알림 띠 위)에 현재 상품 한 줄 요약 — 아래가 늘어나도(알림 펼침·되돌리기 대기·리허설·큰 글씨)
               제목 밑에 남고 스크롤해도 늘 보인다. 누르는 기능이 없어 Tab 차례는 그대로. PC·끝난 방송에는 없다 (QL2 D-QL2-11 (1)·D-QL2-14 (1)) */}

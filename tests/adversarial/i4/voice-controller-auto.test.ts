@@ -104,8 +104,8 @@ describe('TD-I4-001 자동 확정 시각이 같은 카드 둘 — 하나만 제�
     recognition.sayAll('15번 핑크프릴 만오천 원', '16번 라울 오천 원')
     await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     await vi.advanceTimersByTimeAsync(500)
-    // 번호 없는 카드(품종·가격만 — 확인 필요, 자동 확정 없음)가 맨 앞
-    recognition.sayAll('블루엘프 칠천 원')
+    // 자동 확정 없는 카드가 맨 앞 — D-V3-41로 번호 없는 결과는 카드가 아니므로 번호만 있는 카드("가격을 말하면 바로 등록돼요")로
+    recognition.sayAll('17번 블루엘프')
     await quiet() // 조용한 시간 1.8초가 지나야 카드가 된다 (AC-V2-32, D-V2-03)
     expect(voice.getSnapshot().cards).toHaveLength(3)
     await vi.advanceTimersByTimeAsync(4_499)

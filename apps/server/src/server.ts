@@ -456,6 +456,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     viewCaches,
     generatorSpeed,
     onGenerator: (sellerId, payload) => hub.publishGenerator(sellerId, payload),
+    log,
     billing,
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
   })

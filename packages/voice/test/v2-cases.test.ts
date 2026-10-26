@@ -91,6 +91,7 @@ describe('이어 붙이기 S2·S3·S16·S17·S21 (AC-V2-11·13·18)', () => {
     const first = simulate([{ text: '십오번', at: 0 }], 1800)
     expect(first.cards.map(view)).toEqual([{ no: 15, name: null, price: null }])
     const action = first.actions[0]?.action
+    // AC-V2-18 문구 — 바로 등록 끔이면 V2 그대로 (V3 D-V3-44)
     expect(action?.kind === 'create' && action.ask).toBe('품종·가격을 말해 주세요')
     const run = simulate(
       [
@@ -316,7 +317,8 @@ describe('등록 뒤 정정의 나머지 (AC-V2-27 device 쪽)', () => {
 })
 
 describe('이어 채우기 경계 (AC-V2-19·20)', () => {
-  it('두 번째 결과가 12000이면 채우지 않고 번호 없는 새 카드', () => {
+  // V3(D-V3-41): 번호 없는 결과는 새 카드를 만들지 않는다 — 채우지도 않고 버린다
+  it('두 번째 결과가 12000이면 채우지 않고 번호 없는 결과는 버림', () => {
     const run = simulate(
       [
         { text: '십오번', at: 0 },
@@ -324,17 +326,15 @@ describe('이어 채우기 경계 (AC-V2-19·20)', () => {
       ],
       13800,
     )
-    expect(run.cards.map(view)).toEqual([
-      { no: null, name: '엘레강스', price: 20000 },
-      { no: 15, name: null, price: null },
-    ])
+    expect(run.cards.map(view)).toEqual([{ no: 15, name: null, price: null }])
   })
 
   it('손댄 카드는 채우지 않는다', () => {
     const base = simulate([{ text: '십오번', at: 0 }], 1800).cards[0] as SuggestionCard
     const touched: SuggestionCard = { ...base, touched: true }
     const action = chooseAction(readChunk('엘레강스 이만원', { dictionary: DICT }), { cards: [touched], now: 5800, chunkStartedAt: 4000 })
-    expect(action.kind).toBe('create')
+    // V3(D-V3-41): 채우지 않고, 번호가 없으니 새 카드도 없다
+    expect(action.kind).toBe('discard')
   })
 
   it('이미 가격 15,000원이 있는 카드에 "이만원" → 바꾸지 않고 까닭 "이미 있는 값과 달라 쓰지 않았어요"', () => {

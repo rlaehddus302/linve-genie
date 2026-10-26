@@ -199,9 +199,9 @@ describe('AC-I4-03 채점', () => {
     expect([blankHigh.filledWrong, blankHigh.confidentWrong]).toEqual([false, false])
   })
 
-  it('카드 = isCardWorthy (번호가 있거나 품종·가격이 둘 다)', () => {
+  it('카드 = isCardWorthy (V3 D-V3-41: 번호가 있을 때만)', () => {
     expect(scoreSample(sample({}), got({ no: 3 })).cardWorthy).toBe(true)
-    expect(scoreSample(sample({}), got({ name: '라울', price: 100 })).cardWorthy).toBe(true)
+    expect(scoreSample(sample({}), got({ name: '라울', price: 100 })).cardWorthy).toBe(false)
     expect(scoreSample(sample({}), got({ name: '라울' })).cardWorthy).toBe(false)
   })
 
@@ -249,7 +249,7 @@ describe('AC-I4-03 예시 표본 (packages/voice/samples/accuracy-example.csv)',
       ['맞음', '맞음', '맞음', true, true], // 04 방울복랑 금(품는 이름) 이만 원
       ['빈칸', '빈칸', '맞음', false, false], // 05 "1, 9번" 끊어 말한 번호 → 번호·가격 비움, 카드 없음
       ['빈칸', '빈칸', '맞음', false, false], // 06 이 십 번 → 끊어 말한 번호
-      ['맞음', '맞음', '맞음', false, true], // 07 이번(번호 아님) — 기대 번호 빈칸, 품종·가격 카드
+      ['맞음', '맞음', '맞음', false, false], // 07 이번(번호 아님) — 기대 번호 빈칸. V3(D-V3-41): 번호 없는 결과는 카드 없음
       ['맞음', '맞음', '채점 안 함', false, false], // 08 한 번 더 — 잡담
       ['맞음', '빈칸', '맞음', false, true], // 09 숫자만 있는 가격 10000은 가격 아님
       ['맞음', '빈칸', '맞음', false, true], // 10 두 가격(만 원·오천 원) → 비움
@@ -267,7 +267,7 @@ describe('AC-I4-03 예시 표본 (packages/voice/samples/accuracy-example.csv)',
     expect(scored.map((item) => [item.no, item.price, item.name, item.extraction.confidence === 'HIGH', item.cardWorthy])).toEqual(want)
   })
 
-  it('요약 수 (손으로 센 값): 표본 20, 번호 17, 가격 14, 둘 다 13, 품종 17/18, 틀린 값을 채움 3, 확실한데 틀림 3, 카드 16', () => {
+  it('요약 수 (손으로 센 값): 표본 20, 번호 17, 가격 14, 둘 다 13, 품종 17/18, 틀린 값을 채움 3, 확실한데 틀림 3, 카드 15', () => {
     expect(summarizeAccuracy(scored)).toEqual({
       samples: 20,
       noCorrect: 17,
@@ -277,7 +277,7 @@ describe('AC-I4-03 예시 표본 (packages/voice/samples/accuracy-example.csv)',
       nameScored: 18,
       filledWrong: 3, // 15·16·18
       confidentWrong: 3, // 15·16·19
-      cardWorthy: 16, // 05·06·08·12 빼고
+      cardWorthy: 15, // 05·06·07·08·12 빼고 (07은 V3 D-V3-41 — 번호 없는 결과는 카드 없음)
     })
   })
 })
@@ -296,7 +296,7 @@ describe('AC-I4-03 보고서', () => {
       '- 품종 맞음: 17/18 (94.4%)',
       '- 틀린 값을 채움: 3',
       '- 확실한데 틀림: 3',
-      '- 카드가 만들어진 표본: 16',
+      '- 카드가 만들어진 표본: 15',
     ]) {
       expect(report.split('\n')).toContain(line)
     }

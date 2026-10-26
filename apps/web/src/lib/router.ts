@@ -112,7 +112,7 @@ export type Route =
   | { readonly name: 'home' }
   | { readonly name: 'login' }
   | ReviewsRoute
-  | { readonly name: 'console'; readonly id: string }
+  | { readonly name: 'console'; readonly id: string; /** 열 때 그 번호 상품 자세히를 연다 (정산 화면 [상품 보기], AC-V3-71) */ readonly product?: number }
   | { readonly name: 'receipts'; readonly id: string }
   | { readonly name: 'sms' }
   | { readonly name: 'labels' }
@@ -162,7 +162,8 @@ export function parseRoute(pathname: string, search = ''): Route {
   const m = /^\/broadcasts\/([^/]+)\/?$/.exec(pathname)
   if (m?.[1] !== undefined) {
     try {
-      return { name: 'console', id: decodeURIComponent(m[1]) }
+      const product = Number(new URLSearchParams(search).get('product'))
+      return { name: 'console', id: decodeURIComponent(m[1]), ...(Number.isSafeInteger(product) && product >= 1 ? { product } : {}) }
     } catch {
       return { name: 'home' }
     }
@@ -231,7 +232,7 @@ export function routePath(route: Route): string {
     case 'login':
       return '/login'
     case 'console':
-      return `/broadcasts/${encodeURIComponent(route.id)}`
+      return `/broadcasts/${encodeURIComponent(route.id)}${route.product === undefined ? '' : `?product=${String(route.product)}`}`
     case 'receipts':
       return `/broadcasts/${encodeURIComponent(route.id)}/receipts`
     case 'sms':

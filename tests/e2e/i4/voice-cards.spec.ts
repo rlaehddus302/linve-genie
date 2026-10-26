@@ -42,11 +42,12 @@ test.describe('I4 제안 카드', () => {
   test('AC-I4-20: 카드 글·원래 문장·"확인 필요"·접근 이름, 잡담·끊어 말한 번호·"만원"만은 카드 없음, 새 카드가 맨 앞', async ({ page }) => {
     await setup(page)
     await speak(page, '안녕하세요 여러분')
-    await speak(page, '십 오번 라울 오천 원')
+    // V3 교체(D-V3-54): "십 오번"은 이제 앞 수와 합쳐 15번이 된다 — 끊어 말해 비우는 꼴은 자리가 겹치는 "5 13번"(AC-V3-65)
+    await speak(page, '5 13번 라울 오천 원')
     await speak(page, '만원')
     // 받아쓴 말은 [음성 기록]에 남는다 (D-V2-08·D-V2-21 — 덩어리로 묶여 보인다)
     const log = await openVoiceLog(page)
-    for (const text of ['안녕하세요 여러분', '십 오번 라울 오천 원', '만원']) await expect(log).toContainText(text)
+    for (const text of ['안녕하세요 여러분', '5 13번 라울 오천 원', '만원']) await expect(log).toContainText(text)
     await page.keyboard.press('Escape')
     await expect(log).toHaveCount(0)
     await expect(cardList(page)).toHaveCount(0)
@@ -62,9 +63,10 @@ test.describe('I4 제안 카드', () => {
     for (const short of ['15번 핑크프릴 15,000원', '16번 핑크프릴 10,000원']) {
       for (const action of ['등록', '고치기', '닫기'] as const) await expect(cardButton(page, short, action)).toHaveCount(1)
     }
-    await speak(page, '핑크프릴 만오천 원')
+    // D-V3-41: 번호 없는 결과는 카드가 되지 않는다 — 세 번째 카드는 번호 있는 말로
+    await speak(page, '18번 핑크프릴 만오천 원')
     await speak(page, '17번 라울')
-    await expect(card(page, '번호 없음 핑크프릴 15,000원')).toBeVisible()
+    await expect(card(page, '18번 핑크프릴 15,000원')).toBeVisible()
     await expect(card(page, '17번 라울 가격 없음')).toBeVisible()
     // 손대지 않은 카드는 3장까지 — 가장 오래된 15번이 닫혔다
     await expect(cardList(page).getByRole('listitem')).toHaveCount(3)
@@ -192,12 +194,9 @@ test.describe('I4 제안 카드', () => {
 
   test('AC-I4-22: 번호 없는 카드·가격 없는 카드는 등록하지 않고 그 칸에 커서와 문장', async ({ page }) => {
     const { date } = await setup(page)
+    // V3 교체(D-V3-41, AC-V3-51): 번호 없는 결과는 카드가 되지 않는다(기록만) — 번호 없는 카드의 "등록" 단계는 없어졌다
     await speak(page, '핑크프릴 만오천 원')
-    await cardButton(page, '번호 없음 핑크프릴 15,000원', '등록').click()
-    const form = page.getByRole('group', { name: '번호 없음 핑크프릴 15,000원 고치기 칸' })
-    await expect(form).toBeVisible()
-    await expect(form.getByLabel('번호')).toBeFocused()
-    await expect(form.getByRole('alert')).toHaveText('번호가 없어요. 번호를 넣어 주세요.')
+    await expect(cardList(page)).toHaveCount(0)
     await speak(page, '17번 라울')
     await cardButton(page, '17번 라울 가격 없음', '등록').click()
     const form2 = page.getByRole('group', { name: '17번 라울 가격 없음 고치기 칸' })
@@ -214,13 +213,14 @@ test.describe('I4 제안 카드', () => {
     expect(closed.status).toBeLessThan(300)
     await expect(boardItem(page, 16)).toBeVisible()
     const before = (await history(page, date, true)).length
+    // V3 교체(D-V3-06·D-V3-22 b): 판매 중인 같은 번호는 카드 없이 R-22 — 설정 끔이면 묻기(까닭 줄 없음, 사례 R30). 그대로 두기면 쓰기 없음
     await speak(page, '15번 라울 만원')
-    await cardButton(page, '15번 라울 10,000원', '등록').click()
-    const dlg = page.getByRole('dialog', { name: '15번이 이미 있어요. 고칠까요?' })
-    await expect(dlg).toBeVisible()
+    const ask = page.getByRole('list', { name: '방금 등록한 상품 고치기' }).getByRole('listitem', { name: '15번을 고칠까요? 품종 핑크프릴 → 라울', exact: true })
+    await expect(ask).toBeVisible()
     await expect(card(page, '15번 라울 10,000원')).toHaveCount(0)
-    await dlg.getByRole('button', { name: '아니요' }).click()
-    await expect(dlg).toHaveCount(0)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await ask.getByRole('button', { name: '그대로 두기' }).click()
+    await expect(ask).toHaveCount(0)
     await expect(page.getByLabel('빠른 입력')).toHaveValue('')
     expect((await history(page, date, true)).length).toBe(before)
     await speak(page, '16번 핑크프릴 만오천 원')

@@ -21,6 +21,7 @@ import {
   openExtras,
   openVoiceLog,
   voiceLogItems,
+  withoutVoiceHeard,
 } from './support.ts'
 
 test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실제 범위·요청 맞대기, 끈 뒤 빠른 입력·찾기·되돌리기', async ({ page }) => {
@@ -44,9 +45,10 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await expect(boardItem(page, 15)).toBeVisible()
   await expect(cardList(page)).toHaveCount(0)
   // ③ 끊어 말한 번호 → 카드 없음
-  await speak(page, '십 오번 라울 오천 원')
+  // V3 교체(D-V3-54): "십 오번"은 앞 수와 합쳐 15번 — 끊어 말해 비우는 꼴은 자리가 겹치는 "5 13번"(AC-V3-65)
+  await speak(page, '5 13번 라울 오천 원')
   await openVoiceLog(page)
-  await expect(voiceLogItems(page).first()).toContainText('십 오번 라울 오천 원')
+  await expect(voiceLogItems(page).first()).toContainText('5 13번 라울 오천 원')
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: '음성 기록' })).toHaveCount(0)
   await expect(cardList(page)).toHaveCount(0)
@@ -56,34 +58,42 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   await expect(c16.getByText('확인 필요')).toBeVisible()
   await cardButton(page, '16번 핑크프릴 10,000원', '등록').click()
   await expect(boardItem(page, 16)).toBeVisible()
-  // ⑤ 번호 없음 → 고치기 칸 번호 17 → Enter
+  // ⑤ V3 교체(D-V3-41): 번호 없는 말은 카드가 되지 않으므로, 빈 칸 채우기는 번호만 카드(가격 없음)로 — 고치기 칸 가격 15(=15,000원) → Enter
   await speak(page, '핑크프릴 만오천 원')
-  await cardButton(page, '번호 없음 핑크프릴 15,000원', '고치기').click()
-  const form = page.getByRole('group', { name: '번호 없음 핑크프릴 15,000원 고치기 칸' })
-  await expect(form.getByLabel('번호')).toBeFocused()
-  await form.getByLabel('번호').fill('17')
-  await form.getByLabel('번호').press('Enter')
+  await expect(card(page, '번호 없음 핑크프릴 15,000원')).toHaveCount(0)
+  await speak(page, '17번 핑크프릴')
+  await cardButton(page, '17번 핑크프릴 가격 없음', '고치기').click()
+  const form = page.getByRole('group', { name: '17번 핑크프릴 가격 없음 고치기 칸' })
+  await expect(form.getByLabel('가격')).toBeFocused()
+  await form.getByLabel('가격').fill('15')
+  await form.getByLabel('가격').press('Enter')
   await expect(boardItem(page, 17)).toBeVisible()
-  // ⑥ 이미 있는 번호 → "고칠까요?"에서 바꾸지 않고 닫기
+  // ⑥ 이미 있는 번호 → V3 교체(D-V3-06·D-V3-22 b): 카드·창 없이 R-22 묻기(설정 끔), "그대로 두기"로 바꾸지 않음
   await speak(page, '15번 라울 만원')
-  await cardButton(page, '15번 라울 10,000원', '등록').click()
-  const ask = page.getByRole('dialog', { name: '15번이 이미 있어요. 고칠까요?' })
+  // 덩어리가 끝날 때까지(조용한 시간) — 설정은 말한 때를 따르므로(D-V3-35) 다음 덩어리 전에 끝낸다
+  await expect(page.getByRole('region', { name: '지금 들리는 말', exact: true })).not.toContainText('듣는 중…')
+  const ask = page.getByRole('list', { name: '방금 등록한 상품 고치기' }).getByRole('listitem', { name: /^15번을 고칠까요\? / })
   await expect(ask).toBeVisible()
-  await ask.getByRole('button', { name: '아니요' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await ask.getByRole('button', { name: '그대로 두기' }).click()
   await expect(ask).toHaveCount(0)
   await expect(input).toHaveValue('')
-  // ⑦ 자동 확정 켬(5초) → 자동 등록 → Ctrl+Z
-  await (await openExtras(page)).getByRole('checkbox', { name: '확실한 카드는 자동으로 등록' }).check()
+  // ⑦ V3 교체(D-V3-01·D-V3-22 b): 자동 확정(5초 기다림)이 "번호와 가격이 들리면 바로 등록"이 됐다 — 켬 → 기다림 없이 등록 → Ctrl+Z
+  await (await openExtras(page)).getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' }).check()
   await input.focus()
   await speak(page, '18번 블루엘프 칠천 원')
-  await expect(card(page, '18번 블루엘프 7,000원').getByText(/초 뒤 자동 등록/)).toBeVisible()
-  await expect(boardItem(page, 18)).toBeVisible({ timeout: 10_000 })
+  await expect(boardItem(page, 18)).toBeVisible()
+  await expect(page.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
   await page.keyboard.press('Control+z')
   await expect(page.getByText('18번 등록을 되돌렸어요(판매 종료)')).toBeVisible()
-  // ⑧ 5초 전에 음성 끄기 → 기다림이 지나도 등록 없음 → 등록 누르기
-  await speak(page, '19번 라울 만원')
+  // ⑧ (D-V3-02·44: 바로 등록을 끄면 '원'이 없는 말은 카드) 음성 끄기 → 기다려도 등록 없음 → 등록 누르기
+  await expect(page.getByRole('region', { name: '지금 들리는 말', exact: true })).not.toContainText('듣는 중…')
+  await (await openExtras(page)).getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' }).uncheck()
+  await input.focus()
+  await speak(page, '19번 라울 만')
   const c19 = card(page, '19번 라울 10,000원')
-  await expect(c19.getByText(/초 뒤 자동 등록/)).toBeVisible()
+  await expect(c19).toBeVisible()
+  await expect(c19.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
   const since = await page.evaluate(() => Date.now())
   await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
   await untilElapsed(page, since, 6000)
@@ -128,10 +138,11 @@ test('AC-I4-90: 음성 등록 끝까지(①~⑧) — 보드·범위 이력·실�
   // 실제 범위(같은 날짜)에는 아무것도 없다
   expect(await history(page, date, false)).toEqual([])
   // 인식 문장은 어느 요청에도 없다
-  for (const word of ['안녕하세요', '십 오번', '만오천', '핑크푸릴', '칠천', '만원']) {
+  for (const word of ['안녕하세요', '5 13번', '만오천', '핑크푸릴', '칠천', '만원']) {
     for (const r of requests) {
       expect(decodeURIComponent(r.url)).not.toContain(word)
-      expect(r.body).not.toContain(word)
+      // D-V3-73: voiceLog.heard 한 줄(가린 들은 말)만 예외 — 그 밖의 칸에 받아쓴 글이 없다
+      expect(withoutVoiceHeard(r.body)).not.toContain(word)
     }
   }
 

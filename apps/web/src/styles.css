@@ -1548,15 +1548,6 @@ html:has(.save-bar) {
   text-align: left;
 }
 
-.voice-interim {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
-  line-clamp: 1;
-  overflow: hidden;
-  color: #3c4043;
-}
-
 .voice-error {
   color: #a50e0e;
   font-weight: 700;
@@ -4339,6 +4330,61 @@ select.input {
 
 .band-post-choice > * {
   max-inline-size: 100%;
+}
+
+/* 콘솔 밖 음성 띠 (D-V3-52) — 화면 위에 붙는다(휴대폰 아래 메뉴와 겹치지 않게) */
+.voice-band {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #e8f0fe;
+  border-bottom: 1px solid #a8c7fa;
+  font-size: 1rem;
+}
+
+.voice-band-line {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.voice-band-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.voice-band-actions .button {
+  min-height: 44px;
+}
+
+/* 음성 기록 (R-25, D-V3-65) */
+.voice-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.voice-log-entry p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.voice-log-flagged {
+  background: #fff8e1;
+  border-left: 4px solid #f9a825;
+  padding-left: 0.5rem;
+}
+
+.voice-check-band {
+  background: #fff3c4;
 }
 
 /* ── MOB2 D-MOB2-02·03: 휴대폰 글자 150% 콘솔 고정 영역 ≤ 화면 높이 50%, 스크롤 0에서도 빠른 입력칸이 아래 막대 위 ───────

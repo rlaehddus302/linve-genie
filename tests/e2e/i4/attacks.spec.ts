@@ -46,8 +46,9 @@ test.describe('I4 흐름 깨뜨리기', () => {
     expect(regs).toEqual([15000, 7000])
   })
 
-  test('서버가 등록을 거절하면 카드를 손댄 카드로 되살리고 오류를 보인다(자동 확정도 다시 하지 않는다)', async ({ page }) => {
-    await installFakeSpeech(page, { consent: true, settings: { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3 } })
+  // V3 교체(D-V3-01·D-V3-22 b): 자동 확정 카드 → 바로 등록. 거절되면 카드를 손댄 카드로 되살리고 다시 보내지 않는다
+  test('서버가 바로 등록을 거절하면 카드를 손댄 카드로 되살리고 오류를 보인다(바로 등록도 다시 하지 않는다)', async ({ page }) => {
+    await installFakeSpeech(page, { consent: true, autoRegister: true })
     await page.setViewportSize({ width: 1440, height: 900 })
     await login(page)
     const date = uniqueDate()
@@ -65,8 +66,6 @@ test.describe('I4 흐름 깨뜨리기', () => {
     })
     await speak(page, '15번 핑크프릴 만오천 원')
     const c = card(page, '15번 핑크프릴 15,000원')
-    await expect(c.getByText(/초 뒤 자동 등록/)).toBeVisible()
-    await cardButton(page, '15번 핑크프릴 15,000원', '등록').click()
     await expect(page.getByText('입력을 확인해 주세요.').first()).toBeVisible()
     await expect(c).toBeVisible()
     await expect(c.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
@@ -74,6 +73,7 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await page.waitForFunction((end) => Date.now() >= end, since + 3500)
     expect(rejected).toBe(1)
     await expect(c).toBeVisible()
+    void date
   })
 
   test('음성 기록은 최근 덩어리 50개만 (D-V2-08 — "들린 말 기록" 20개를 대신함)', async ({ page }) => {
@@ -130,7 +130,8 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await expect(page.getByRole('dialog', { name: '음성 기록' })).not.toContainText('늦게 온 문장이에요')
   })
 
-  test('음성이 켜진 채 다른 방송 콘솔로 바로 가면 인식이 멈추고 새 콘솔은 꺼진 상태', async ({ page }) => {
+  // V3 교체(D-V3-52, AC-V3-58 (f)): 음성은 켠 방송에 묶여 켜진 채이고, 다른 방송 콘솔은 안내와 [그 방송으로 가기] — 그 콘솔엔 음성 등록이 생기지 않는다
+  test('음성이 켜진 채 다른 방송 콘솔로 바로 가면 인식은 켠 방송에 남고 새 콘솔엔 안내만, 음성 카드·등록 없음', async ({ page }) => {
     const { b } = await setup(page)
     await speak(page, '15번 라울 만원')
     const other = await (async () => {
@@ -144,13 +145,16 @@ test.describe('I4 흐름 깨뜨리기', () => {
       dispatchEvent(new PopStateEvent('popstate'))
     }, other)
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
+    await expect(page.getByText(/^음성은 '.+' 방송에서 듣는 중이에요\. 여기서 쓰려면 그 방송에서 끄고 여기서 켜 주세요\.$/)).toBeVisible()
+    await expect(page.getByRole('button', { name: '그 방송으로 가기' }).or(page.getByRole('link', { name: '그 방송으로 가기' }))).toBeVisible()
     await expect(cardList(page)).toHaveCount(0)
     const after = await page.evaluate(() => (window as unknown as { __speech: { stops: number; aborts: number } }).__speech)
-    expect(after.stops + after.aborts).toBeGreaterThan(before.stops + before.aborts)
-    // 지난 인식 객체의 늦은 결과는 새 콘솔에 카드를 만들지 않는다
+    expect(after.stops + after.aborts).toBe(before.stops + before.aborts)
+    // 들은 말은 켠 방송(A)의 것 — 이 콘솔(B)엔 카드도 상품도 생기지 않는다
     await speak(page, '16번 라울 만원')
+    await expect(page.getByText(/^음성은 '.+' 방송에서 듣는 중이에요/)).toBeVisible()
     await expect(cardList(page)).toHaveCount(0)
+    await expect(boardItem(page, 16)).toHaveCount(0)
     void b
   })
 
@@ -193,8 +197,8 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await turnOnVoice(page)
     await speak(page, '60번 라울 만원')
     await expect(card(page, '60번 라울 10,000원')).toHaveCount(0)
-    await expect(cardList(page).getByRole('listitem')).toHaveCount(1)
-    await expect(cardList(page).getByRole('listitem').first()).toHaveAccessibleName(/^번호 없음 라울 10,000원 카드$/)
+    // D-V3-41: 범위 밖 번호는 번호가 아니라 번호 없는 결과 — 카드 없음(옛 기대: 번호 없음 카드)
+    await expect(cardList(page)).toHaveCount(0)
     await speak(page, '45번 라울 만원')
     await expect(card(page, '45번 라울 10,000원')).toBeVisible()
   })
@@ -209,7 +213,9 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await turnOnVoice(page)
     const long = '자 여러분 이번에 보여드릴 상품은요 정말 오랜만에 들어온 아주아주예쁜핑크빛으로물든다육이인데요 '.repeat(3)
     await speak(page, long, { final: false })
-    await expect(voiceRegion(page).getByText(/^들리는 말:/)).toBeVisible()
+    // V3 교체(D-V3-50): "들리는 말:" 줄 대신 맨 위 큰 칸
+    await expect(page.getByRole('region', { name: '지금 들리는 말', exact: true })).toContainText('아주아주예쁜핑크빛으로물든다육이인데요')
+    await expect(page.getByText(/^들리는 말:/)).toHaveCount(0)
     let width = await page.evaluate(() => document.documentElement.scrollWidth)
     expect(width).toBeLessThanOrEqual(375)
     await speak(page, `15번 핑크프릴 만오천 원 ${long}`)
@@ -220,8 +226,9 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await context.close()
   })
 
-  test('자동 확정 카드와 같은 번호의 빠른 입력 등록이 응답을 기다리는 중이면, 차례에서 번호가 생겨 창 없이 카드로 돌아온다', async ({ page }) => {
-    await installFakeSpeech(page, { consent: true, settings: { 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3 } })
+  // V3 교체(D-V3-01·D-V3-18·D-V3-22 b): 자동 확정 카드 → 바로 등록. 차례에서 번호가 생기면 창 없이 그 순간의 상품으로 R-22(찜 없음 → 들은 대로 고침)
+  test('바로 등록과 같은 번호의 빠른 입력 등록이 응답을 기다리는 중이면, 차례에서 번호가 생겨 창 없이 같은 번호 규칙(R-22)으로 끝난다', async ({ page }) => {
+    await installFakeSpeech(page, { consent: true, autoRegister: true })
     await page.setViewportSize({ width: 1440, height: 900 })
     await login(page)
     const date = uniqueDate()
@@ -239,22 +246,21 @@ test.describe('I4 흐름 깨뜨리기', () => {
       }
       await route.continue()
     })
-    await speak(page, '15번 라울 만원')
-    const c = card(page, '15번 라울 10,000원')
-    await expect(c.getByText(/초 뒤 자동 등록/)).toBeVisible()
     const input = page.getByLabel('빠른 입력')
     await input.fill('15 핑크프릴 20')
     await input.press('Enter')
     await expect.poll(() => held).toBe(1)
-    // 자동 확정 시각이 지나 카드가 등록 경로로 넘어간다 (차례는 앞 등록 뒤)
-    await expect(c).toHaveCount(0, { timeout: 6000 })
+    await speak(page, '15번 라울 만원')
     release()
-    await expect(boardItem(page, 15)).toContainText('20,000원')
-    await expect(c).toBeVisible()
-    await expect(c.getByText('15번이 이미 있어요. 고칠까요?')).toBeVisible()
+    await expect(page.getByRole('list', { name: '방금 등록한 상품 고치기' }).getByText(/^15번을 고쳤어요: /)).toBeVisible()
+    await expect(boardItem(page, 15)).toContainText('라울')
+    await expect(boardItem(page, 15)).toContainText('10,000원')
     await expect(page.getByRole('dialog')).toHaveCount(0)
-    const regs = (await history(page, date, true)).filter((e) => e.type === 'product.register')
-    expect(regs).toHaveLength(1)
+    await expect(cardList(page)).toHaveCount(0)
+    // 상품은 하나 (등록되지 않은 음성 등록 시도는 이력에 남을 수 있다 — 입력 우선 기록)
+    const res = await page.request.get(`/api/days/${date}?rehearsal=true`)
+    const view = (await res.json()) as { products: { no: number }[] }
+    expect(view.products.filter((p) => p.no === 15)).toHaveLength(1)
   })
 
   test('TE-I4-001: 저절로 끝나 다시 시작할 때 상태가 "음성: 다시 시작 중"을 거친다 (AC-I4-12) — 지금은 한 번도 그려지지 않는다', async ({ page }) => {

@@ -21,6 +21,7 @@ import { WriteError } from './forms.tsx'
 import { ProductLabels } from './LabelParts.tsx'
 import { FocusButton } from './ProductBoard.tsx'
 import { Modal } from './Modal.tsx'
+import { ProductVoiceLog } from './VoiceLogView.tsx'
 
 /** 판매 중(OPEN)·다 팔림(SOLD)은 찜에 따라 저절로 오가므로 한 무리로 본다 */
 function statusGroup(status: Product['status']): string {
@@ -172,6 +173,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
           </dd>
         </div>
       </dl>
+      <ProductVoiceLog b={product.broadcast} no={product.no} />
 
       {/* 찜 줄 단추 셋의 차이 한 줄 (QL3R1 D-QL3R1-07 (4)) — 단추 이름은 되돌리기 띠·기록 문장과 짝이라 그대로 두고 설명만. 누르는 곳이 아니라 Tab 차례는 그대로 */}
       {activeClaims > 0 ? <p className="hint claim-help">{CLAIM_BUTTONS_HELP}</p> : null}

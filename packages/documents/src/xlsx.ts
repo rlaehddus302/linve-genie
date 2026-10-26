@@ -7,6 +7,7 @@ import ExcelJS from 'exceljs'
 import { SERVICE_NAME } from './brand.ts'
 import { LEDGER_SHEET_NAME, hasOptionColumns, ledgerColumns, ledgerRowValuesWith, type LedgerRow } from './ledger.ts'
 import { stripXlsxForbidden } from './text.ts'
+import { VOICE_LEDGER_COLUMNS, VOICE_LEDGER_SHEET_NAME, voiceLedgerRowValues, type VoiceLedgerRow } from './voice-ledger.ts'
 
 const PLAIN = { numbers: new Set([3, 5]), money: new Set([5]), widths: [12, 14, 10, 22, 12, 24, 10, 20, 10, 10, 10] }
 const WITH_OPTIONS = { numbers: new Set([3, 6, 7, 8]), money: new Set([7, 8]), widths: [12, 14, 10, 22, 16, 8, 12, 12, 24, 10, 20, 10, 10, 10] }
@@ -15,7 +16,11 @@ const WITH_OPTIONS = { numbers: new Set([3, 6, 7, 8]), money: new Set([7, 8]), w
  * 행 → .xlsx 바이트. options = 옵션 칸을 둘지(buildLedger 결과의 options — 날짜마다 따로 만든 행을 이어 붙였으면 그중 하나라도 옵션이면 true).
  * 넘기지 않으면 행 중 하나라도 옵션 칸이 있으면 둔다
  */
-export async function ledgerToXlsx(rows: readonly LedgerRow[], options: boolean = rows.some(hasOptionColumns)): Promise<Uint8Array> {
+export async function ledgerToXlsx(
+  rows: readonly LedgerRow[],
+  options: boolean = rows.some(hasOptionColumns),
+  extra: { readonly voiceLog?: readonly VoiceLedgerRow[] | null } = {},
+): Promise<Uint8Array> {
   const layout = options ? WITH_OPTIONS : PLAIN
   const workbook = new ExcelJS.Workbook()
   workbook.creator = SERVICE_NAME
@@ -41,6 +46,30 @@ export async function ledgerToXlsx(rows: readonly LedgerRow[], options: boolean 
       const text = stripXlsxForbidden(String(value))
       if (text !== '') cell.value = text
     })
+  }
+  // V3 (R-25, D-V3-65, AC-V3-71): 음성 기록을 넘기면 "음성 기록" 시트를 더한다 — 기존 시트·열은 그대로
+  if (Array.isArray(extra.voiceLog)) {
+    const voice = workbook.addWorksheet(VOICE_LEDGER_SHEET_NAME, { views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }] })
+    ;[18, 10, 12, 14, 14, 12, 8, 50, 20].forEach((width, i) => {
+      voice.getColumn(i + 1).width = width
+    })
+    voice.addRow([...VOICE_LEDGER_COLUMNS]).font = { bold: true }
+    for (const entry of extra.voiceLog) {
+      const added = voice.addRow([])
+      voiceLedgerRowValues(entry).forEach((value, i) => {
+        if (value === '') return
+        const cell = added.getCell(i + 1)
+        if (typeof value === 'number') {
+          cell.value = value
+          // 전·후 칸(4·5열)의 수는 가격(번호 옮기기 제외)
+          if ((i === 3 || i === 4) && entry.action !== 'RENUMBER') cell.numFmt = '#,##0'
+          return
+        }
+        // 글 값은 글 칸으로만 — 들은 말·품종이 `=`로 시작해도 수식이 되지 않는다
+        const text = stripXlsxForbidden(String(value))
+        if (text !== '') cell.value = text
+      })
+    }
   }
   const buffer = await workbook.xlsx.writeBuffer()
   const bytes = buffer as unknown as ArrayBuffer | Uint8Array

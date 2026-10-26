@@ -64,24 +64,37 @@ function readNumeral(s: string): { intDigits: string; fracDigits: string } | nul
   return { intDigits, fracDigits }
 }
 
-/** 단위 없는 숫자가 1000 미만일 때 곱하는 10의 거듭제곱 (R-14 3): 원 0, 천원 3(D-007), 만원 4(D-FB1-11) */
-const SMALL_NUMBER_EXPONENT: Readonly<Record<PriceUnit, number>> = Object.freeze({ WON: 0, THOUSAND: 3, TEN_THOUSAND: 4 })
+/**
+ * 단위 없는 숫자가 1000 미만일 때 곱하는 10의 거듭제곱 (R-14 3): 원 0, 천원 3(D-007), 만원 4(D-FB1-11).
+ * 자동(AUTO, D-V3-70)은 정수부 자릿수로 정한다: 1~2자리 4(만원), 3자리 3(천원).
+ * 정수부가 1000 이상이면 어느 단위든 0(원 그대로).
+ */
+type SmallExponent = (intDigits: string) => number
 
-/** 설정의 price.unit → 곱하는 지수. 모르는 값은 null(추측하지 않는다 — 10배 틀린 가격보다 읽지 못함이 안전하다). */
-function smallNumberExponent(unit: unknown): number | null {
+const fixedExponent = (exponent: number): SmallExponent => (intDigits) => (Number(intDigits) < 1000 ? exponent : 0)
+
+/** readNumeral이 앞 0을 막으므로 자릿수 = 값의 자릿수다(`0`만 예외로 1자리). */
+const autoExponent: SmallExponent = (intDigits) => (intDigits.length <= 2 ? 4 : intDigits.length === 3 ? 3 : 0)
+
+const SMALL_NUMBER_EXPONENT: Readonly<Record<PriceUnit, SmallExponent>> = Object.freeze({
+  WON: fixedExponent(0),
+  THOUSAND: fixedExponent(3),
+  TEN_THOUSAND: fixedExponent(4),
+  AUTO: autoExponent,
+})
+
+/** 설정의 price.unit → 곱하는 지수 규칙. 모르는 값은 null(추측하지 않는다 — 10배 틀린 가격보다 읽지 못함이 안전하다). */
+function smallNumberExponent(unit: unknown): SmallExponent | null {
   return isPriceUnit(unit) ? SMALL_NUMBER_EXPONENT[unit] : null
 }
 
-function parseNumeral(s: string, smallExponent: number): number | null {
+function parseNumeral(s: string, smallExponent: SmallExponent): number | null {
   const numeral = readNumeral(s)
   if (numeral === null) return null
   const { intDigits, fracDigits } = numeral
   // Number.MAX_SAFE_INTEGER는 16자리. 그보다 긴 정수부는 볼 필요 없이 범위 밖이다.
   if (intDigits.length > 16) return null
-  const int = Number(intDigits)
-  // 값이 1000 미만이면 단위만큼 곱한다(천원 D-007, 만원 D-FB1-11). 정수부가 1000 미만이면 값도 1000 미만이다.
-  const exponent = int < 1000 ? smallExponent : 0
-  return scaleDecimal(intDigits, fracDigits, exponent)
+  return scaleDecimal(intDigits, fracDigits, smallExponent(intDigits))
 }
 
 // ── 한글 단위 형식 (R-14 4) ──────────────────────────────────────────────
@@ -218,7 +231,7 @@ export function parseAmount(text: string, settings: SettingsOverride = {}): numb
   if (won) s = s.slice(0, s.endsWith(` ${WON}`) ? -2 : -1)
   if (s === '' || s.includes(WON)) return null
   if (isNumeralShape(s)) {
-    if (won) return parseNumeral(s, 0)
+    if (won) return parseNumeral(s, SMALL_NUMBER_EXPONENT.WON)
     return smallExponent === null ? null : parseNumeral(s, smallExponent)
   }
   // 한글 단위가 있으면 단위 설정을 무시한다

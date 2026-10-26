@@ -65,6 +65,73 @@ export function videoIdOf(chatHref: string, topHref: string | null): string | nu
   return videoOf(chatHref) ?? videoOf(topHref)
 }
 
+/** base64(URL용 포함) → 글자(바이트 하나 = 글자 하나). 못 풀면 null */
+function unbase64(text: string): string | null {
+  const clean = text.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '')
+  if (clean.length < 4 || !/^[A-Za-z0-9+/]+$/.test(clean)) return null
+  try {
+    return atob(clean + '='.repeat((4 - (clean.length % 4)) % 4))
+  } catch {
+    return null
+  }
+}
+
+const NESTED_RE = /[A-Za-z0-9_\-+/]{16,}={0,2}/g
+/** 프로토콜 버퍼의 11자 글자 칸(칸 1·2, 길이 11 — 영상 ID 자리)에 든 값들 */
+function videoFields(layer: string): string[] {
+  const out: string[] = []
+  for (let i = 0; i + 13 <= layer.length; i++) {
+    const tag = layer.charCodeAt(i)
+    if ((tag === 0x0a || tag === 0x12) && layer.charCodeAt(i + 1) === 0x0b) {
+      const value = layer.slice(i + 2, i + 13)
+      if (VIDEO_RE.test(value)) out.push(value)
+    }
+  }
+  return out
+}
+
+/**
+ * 채팅 iframe 주소의 continuation이 이 영상 것인가 (RA-V3-010).
+ * continuation은 base64 안에 base64가 든 프로토콜 버퍼이고 안쪽에 영상 ID가 글자로 들어 있다.
+ * true = 이 영상 ID가 들어 있음, false = 다른 영상 ID 자리만 있음(다른 영상 채팅), null = 풀지 못함·영상 ID 자리 없음.
+ */
+export function continuationMatches(chatHref: string, video: string): boolean | null {
+  const url = parse(chatHref)
+  const token = url?.searchParams.get('continuation') ?? null
+  if (token === null || token === '') return null
+  const layers: string[] = []
+  let frontier = [token]
+  for (let depth = 0; depth < 3 && frontier.length > 0; depth++) {
+    const next: string[] = []
+    for (const item of frontier.slice(0, 40)) {
+      const decoded = unbase64(item)
+      if (decoded === null) continue
+      layers.push(decoded)
+      // 안쪽 base64 앞에 길이 바이트가 base64 글자로 붙어 있을 수 있다 — 앞 글자를 0~3개 떼어 본다
+      for (const found of decoded.match(NESTED_RE) ?? []) for (let cut = 0; cut < 4 && found.length - cut >= 16; cut++) next.push(found.slice(cut))
+    }
+    frontier = next
+  }
+  if (layers.some((layer) => layer.includes(video))) return true
+  const others = layers.flatMap(videoFields)
+  return others.length > 0 ? false : null
+}
+
+/**
+ * 채팅 프레임의 영상 ID: 채팅 주소의 v=가 먼저. 없으면(시청 페이지 안 iframe) 바깥 주소들(차례대로)에서 꺼내되,
+ * continuation이 다른 영상 것이면(SPA로 다른 영상으로 옮긴 직후의 옛 채팅 프레임) 쓰지 않는다 (RA-V3-010).
+ */
+export function frameVideoOf(chatHref: string, outer: readonly (string | null)[]): string | null {
+  const own = videoOf(chatHref)
+  if (own !== null) return own
+  for (const href of outer) {
+    const candidate = videoOf(href)
+    if (candidate === null) continue
+    return continuationMatches(chatHref, candidate) === false ? null : candidate
+  }
+  return null
+}
+
 /** 본문 글자: 글자는 그대로, 이모지 그림은 대체 글자(alt)로 */
 function textOf(node: Node): string {
   let out = ''

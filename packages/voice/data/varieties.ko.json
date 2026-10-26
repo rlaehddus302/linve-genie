@@ -47,7 +47,14 @@
   "사랑",
   "최고",
   "대박",
-  "고마워요"
+  "고마워요",
+  "요아이",
+  "유아이",
+  "ui",
+  "요거",
+  "그대로",
+  "보냅니다",
+  "이렇게"
  ],
  "varieties": [
   {
@@ -1336,6 +1343,214 @@
   },
   {
    "name": "블루크로스",
+   "aliases": []
+  },
+  {
+   "name": "삼광색금",
+   "aliases": [
+    "삼강색금",
+    "삼강세금",
+    "상강색금",
+    "상관세금",
+    "삼광세금"
+   ]
+  },
+  {
+   "name": "창녹금",
+   "aliases": [
+    "창록금"
+   ]
+  },
+  {
+   "name": "빅뱅금",
+   "aliases": [
+    "빅벵금"
+   ]
+  },
+  {
+   "name": "홍옥금",
+   "aliases": []
+  },
+  {
+   "name": "정야금",
+   "aliases": []
+  },
+  {
+   "name": "연봉금",
+   "aliases": []
+  },
+  {
+   "name": "칠복수금",
+   "aliases": []
+  },
+  {
+   "name": "염자금",
+   "aliases": []
+  },
+  {
+   "name": "화월금",
+   "aliases": []
+  },
+  {
+   "name": "흑법사금",
+   "aliases": []
+  },
+  {
+   "name": "미니마금",
+   "aliases": []
+  },
+  {
+   "name": "청솔금",
+   "aliases": []
+  },
+  {
+   "name": "우주목금",
+   "aliases": []
+  },
+  {
+   "name": "화제금",
+   "aliases": []
+  },
+  {
+   "name": "백미인금",
+   "aliases": []
+  },
+  {
+   "name": "월동자금",
+   "aliases": []
+  },
+  {
+   "name": "사해파금",
+   "aliases": []
+  },
+  {
+   "name": "립스틱금",
+   "aliases": []
+  },
+  {
+   "name": "오로라금",
+   "aliases": []
+  },
+  {
+   "name": "천대전송금",
+   "aliases": []
+  },
+  {
+   "name": "축전금",
+   "aliases": []
+  },
+  {
+   "name": "레드베리금",
+   "aliases": []
+  },
+  {
+   "name": "블루버드금",
+   "aliases": []
+  },
+  {
+   "name": "선셋금",
+   "aliases": [
+    "썬셋금"
+   ]
+  },
+  {
+   "name": "홍희금",
+   "aliases": []
+  },
+  {
+   "name": "백봉금",
+   "aliases": []
+  },
+  {
+   "name": "황려금",
+   "aliases": []
+  },
+  {
+   "name": "라울금",
+   "aliases": []
+  },
+  {
+   "name": "프리티금",
+   "aliases": []
+  },
+  {
+   "name": "화이트그리니금",
+   "aliases": []
+  },
+  {
+   "name": "룬데리금",
+   "aliases": []
+  },
+  {
+   "name": "벨루스금",
+   "aliases": []
+  },
+  {
+   "name": "녹귀란금",
+   "aliases": []
+  },
+  {
+   "name": "홍채각금",
+   "aliases": []
+  },
+  {
+   "name": "만손금",
+   "aliases": []
+  },
+  {
+   "name": "백설공주금",
+   "aliases": []
+  },
+  {
+   "name": "녹금",
+   "aliases": [
+    "녹색금",
+    "록금"
+   ],
+   "commonAliases": [
+    "녹음"
+   ]
+  },
+  {
+   "name": "빅뱅",
+   "aliases": []
+  },
+  {
+   "name": "청개구리",
+   "aliases": []
+  },
+  {
+   "name": "청수박",
+   "aliases": []
+  },
+  {
+   "name": "로제스타수박",
+   "aliases": [
+    "로제스타"
+   ]
+  },
+  {
+   "name": "청옥금",
+   "aliases": []
+  },
+  {
+   "name": "홍학금",
+   "aliases": []
+  },
+  {
+   "name": "은하수금",
+   "aliases": []
+  },
+  {
+   "name": "설국금",
+   "aliases": []
+  },
+  {
+   "name": "월광금",
+   "aliases": []
+  },
+  {
+   "name": "백야금",
    "aliases": []
   }
  ]

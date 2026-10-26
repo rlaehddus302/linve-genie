@@ -151,16 +151,18 @@ describe('사전 순서·배운 별칭 (AC-V2-09·10)', () => {
   })
 
   it('200개를 넘으면 가장 오래 안 쓴 것부터 지운다 (쓰면 새로 셈)', () => {
+    // V3(D-V3-38): 숫자가 든 글·2글자 이하는 배우지 않으므로 들은 말을 한글 음절로 만든다 (`들은말${i}` → `들은말` + 음절 + `롬`)
+    const heardOf = (i: number): string => `들은말${String.fromCodePoint(0xac00 + i * 28)}롬`
     let list: LearnedAlias[] = []
-    for (let i = 0; i < LEARNED_ALIAS_MAX; i++) list = learnAlias(list, { heard: `들은말${String(i)}`, name: '라울', at: i })
+    for (let i = 0; i < LEARNED_ALIAS_MAX; i++) list = learnAlias(list, { heard: heardOf(i), name: '라울', at: i })
     expect(list).toHaveLength(200)
-    list = touchLearnedAlias(list, '들은말0', 1000)
-    list = learnAlias(list, { heard: '새말', name: '라울', at: 1001 })
+    list = touchLearnedAlias(list, heardOf(0), 1000)
+    list = learnAlias(list, { heard: '새로운말', name: '라울', at: 1001 })
     expect(list).toHaveLength(200)
     const heards = list.map((item) => item.heard)
-    expect(heards).toContain('들은말0')
-    expect(heards).not.toContain('들은말1')
-    expect(heards).toContain('새말')
+    expect(heards).toContain(heardOf(0))
+    expect(heards).not.toContain(heardOf(1))
+    expect(heards).toContain('새로운말')
   })
 
   it('저장소 값 읽기: 모양이 틀린 것은 버린다', () => {

@@ -11,9 +11,10 @@ describe('새 번호면 끊기 (D-V2-16, AC-V2-36)', () => {
     expect(openCards(r.cards).map(view)).toEqual([{ no: 27, name: '라울', price: 30_000 }, { no: 26, name: '엘레강스', price: 10_000 }])
     expect(openCards(r.cards)[0]?.confidence).toBe('LOW')
   })
-  it('S23: 번호 없는 "핑크문 만원" 뒤 "16번 루비 이만원"(1000) → 끊어서 카드 둘', () => {
+  // D-V3-41: 번호 없는 결과는 카드를 만들지 않는다(기록만) — S23의 번호 없는 카드는 없어지고, 끊긴 뒤 16번 카드 하나만 남는다
+  it('S23: 번호 없는 "핑크문 만원" 뒤 "16번 루비 이만원"(1000) → 끊어서 16번 카드 하나 (번호 없는 카드 없음, D-V3-41)', () => {
     const r = simulate([{ text: '핑크문 만원', at: 0 }, { text: '16번 루비 이만원', at: 1000 }], 4000)
-    expect(openCards(r.cards).map(view)).toEqual([{ no: 16, name: '루비', price: 20_000 }, { no: null, name: '핑크문', price: 10_000 }]) // 새 카드가 맨 앞
+    expect(openCards(r.cards).map(view)).toEqual([{ no: 16, name: '루비', price: 20_000 }])
   })
   it('S13 그대로: "22번 라울 만원" + "아니 아니 23번"(1000) → 끊지 않고 23번 한 장', () => {
     const r = simulate([{ text: '22번 라울 만원', at: 0 }, { text: '아니 아니 23번', at: 1000 }], 4000)

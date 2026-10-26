@@ -297,8 +297,9 @@ test.describe('AC-FB1-01·05~08 설정 문구', () => {
   test('가격 단위 셋(원·천원·만원 차례)·처음 천원·단위 안내, 배송비 안내, 판매 규칙 상세 설정 접힘(▼/▲), 여러 번호 예시, 같은 1분 새 낱말, 저장값 그대로', async ({ page }) => {
     await openSettings(page)
     const unit = rules(page).getByRole('radiogroup', { name: '가격 단위' })
-    await expect(unit.getByRole('radio')).toHaveCount(3)
-    for (const [i, word] of [UNIT_WORDS.WON, UNIT_WORDS.THOUSAND, UNIT_WORDS.TEN_THOUSAND].entries()) await expect(unit.getByRole('radio').nth(i)).toHaveAccessibleName(word)
+    // V3 D-V3-70 (AC-V3-74 b): 넷째 "자동"이 더해졌다 — 앞 세 칸의 차례·이름은 그대로
+    await expect(unit.getByRole('radio')).toHaveCount(4)
+    for (const [i, word] of [UNIT_WORDS.WON, UNIT_WORDS.THOUSAND, UNIT_WORDS.TEN_THOUSAND, '자동 (25 → 250,000원, 180 → 180,000원)'].entries()) await expect(unit.getByRole('radio').nth(i)).toHaveAccessibleName(word)
     await expect(unit.getByRole('radio', { name: UNIT_WORDS.THOUSAND })).toBeChecked()
     await expect(rules(page).getByText(UNIT_HINT, { exact: true })).toBeVisible()
     await expect(page.getByText(OLD_UNIT_HINT, { exact: false })).toHaveCount(0)

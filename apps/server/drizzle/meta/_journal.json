@@ -169,6 +169,27 @@
       "when": 1794700800000,
       "tag": "0023_crm1_customer_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794787200000,
+      "tag": "0024_v3_seller_names",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794873600000,
+      "tag": "0025_v3_voice_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794960000000,
+      "tag": "0026_v3_drop_seller_names",
+      "breakpoints": true
     }
   ]
 }

@@ -69,9 +69,12 @@ export interface CreateCardInput {
   readonly flushedAtEnd?: boolean
 }
 
-/** 카드를 만들 만한 결과인가: 번호가 있거나 품종·가격이 둘 다 있을 때만 (인사·잡담엔 카드 없음, D-204) */
+/**
+ * 카드를 만들 만한 결과인가: 번호가 있을 때만 (V3 D-V3-41 사용자 요구 — "번호 없음 70,000원 등록할까요?" 카드는 만들지 않는다).
+ * 품종·가격만 있는 결과, 번호가 둘 이상이라 비운 결과(no = null)는 카드 없음. 인사·잡담도 카드 없음(D-204).
+ */
 export function isCardWorthy(extraction: VoiceExtraction): boolean {
-  return extraction.no !== null || (extraction.name !== null && extraction.price !== null)
+  return extraction.no !== null
 }
 
 /**

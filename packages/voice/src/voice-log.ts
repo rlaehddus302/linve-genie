@@ -18,7 +18,16 @@ export const VOICE_LOG_REASONS = Object.freeze({
   noTarget: '고칠 카드가 없어요',
   tooLong: '문장이 너무 길어요',
   stopped: '음성을 껐어요',
+  /** V3 D-V3-41: 번호 없는 결과는 카드 없이 기록만 */
+  noNumber: '번호를 못 들었어요',
+  /** V3 D-V3-41·34: '번' 없는 번호가 원 가격 뒤 */
+  numberAfterPrice: '번호가 가격 뒤에 들렸어요',
+  /** V3 D-V3-44: 켬에서 번호만·원 없는 가격의 결과를 덩어리 끝에 버림 */
+  noPrice: '가격을 못 들었어요',
 } as const)
+
+/** V3 D-V3-41·05: 서로 다른 번호가 둘 이상 — "번호가 여럿 들렸어요: 189·139" */
+export const manyNumbersReason = (numbers: readonly number[]): string => `번호가 여럿 들렸어요: ${numbers.map(String).join('·')}`
 
 export type VoiceLogAction = 'create' | 'fill' | 'edit' | 'close' | 'offer' | 'sms' | 'discard'
 

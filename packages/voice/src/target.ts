@@ -6,7 +6,7 @@ import type { VarietyCandidate } from './candidates.ts'
 import type { ChunkField, ChunkReading } from './correction.ts'
 import type { Confidence, VoiceExtraction } from './extract.ts'
 import { resolveVoiceSettings, type VoiceSettings } from './settings.ts'
-import { VOICE_LOG_REASONS } from './voice-log.ts'
+import { VOICE_LOG_REASONS, manyNumbersReason } from './voice-log.ts'
 
 /** 이어 채우기: 맨 앞 카드를 만든 때부터 덩어리 모으기 시작까지 (D-V2-04) */
 export const FILL_WINDOW_MS = 10_000
@@ -15,6 +15,7 @@ export const RECENT_WINDOW_MS = 60_000
 /** 고칠까요 카드로 고친 뒤 되돌리기 시간 (D-V2-06 3) */
 export const OFFER_UNDO_MS = 10_000
 
+/** 번호만 있는 카드 (V2 D-V2-04 — V3 D-V3-44: 바로 등록이 꺼졌을 때만 이런 카드가 생긴다) */
 export const ASK_NAME_PRICE = '품종·가격을 말해 주세요'
 export const ASK_PRICE = '가격을 말해 주세요'
 export const NUMBER_FIX_MESSAGE = '번호는 상품 목록에서 고쳐 주세요'
@@ -44,6 +45,10 @@ export interface TargetContext {
   readonly chunkStartedAt?: number
   /** 덩어리 글이 300글자를 넘었는가 (R-17 1 — "문장이 너무 길어요") */
   readonly tooLong?: boolean
+  /** 같은 덩어리의 V3 읽기 (readRegistration) — 번호 둘·가격 뒤 '번' 없는 번호를 버리는 데 쓴다(D-V3-41). 생략하면 그 검사 없음 */
+  readonly registration?: { readonly heardNumbers: readonly number[]; readonly blocked: string | null; readonly priceSure?: boolean; readonly wonPrices?: readonly number[] } | null
+  /** 바로 등록이 켜져 있는가 (V3 D-V3-44). 생략 = 끔 = V2 할 일·문구 그대로 */
+  readonly autoRegister?: boolean
 }
 
 export interface ChunkFields {
@@ -79,12 +84,17 @@ export type VoiceAction =
   | { readonly kind: 'offer'; readonly registrationId: string; readonly changes: { readonly name?: string; readonly price?: number }; readonly message: string }
   | { readonly kind: 'offerNumber'; readonly registrationId: string; readonly message: string }
   | { readonly kind: 'offerUndo'; readonly registrationId: string; readonly canUndo: boolean; readonly message: string }
-  | { readonly kind: 'discard'; readonly reason: string | null; readonly cancelled: boolean }
+  /**
+   * 버림. V3 D-V3-44: 바로 등록이 켜져 있을 때 번호는 확정인데 '원' 가격이 없는 결과는 화면 카드 대신 이것 — `remembered`에 그 결과(보이지 않는 기억)를 담고
+   * 까닭은 "가격을 못 들었어요". 덩어리 안에서는 확정 읽기(readRegistration)가 원 가격을 기다려 바로 등록하고, 덩어리 끝의 이 할 일은 버림으로 기록한다.
+   * (새 kind를 만들지 않은 것은 화면의 할 일 표를 깨지 않으려는 것 — 화면은 지금처럼 버림으로 기록하면 된다)
+   */
+  | { readonly kind: 'discard'; readonly reason: string | null; readonly cancelled: boolean; readonly remembered?: VoiceExtraction }
 
 const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const discard = (reason: string | null, cancelled = false): VoiceAction => ({ kind: 'discard', reason, cancelled })
 
-/** 카드 안내: 번호만 있으면 "품종·가격을 말해 주세요", 가격만 없으면 "가격을 말해 주세요" (D-V2-04) */
+/** 카드 안내: 번호만 있으면 "품종·가격을 말해 주세요", 가격만 없으면 "가격을 말해 주세요" (D-V2-04 — V3 D-V3-44로 다시 V2 문구) */
 export function askFor(fields: { readonly name: string | null; readonly price: number | null }): string | null {
   if (fields.price !== null) return null
   return fields.name === null ? ASK_NAME_PRICE : ASK_PRICE
@@ -102,11 +112,22 @@ export function withRo(word: string): string {
 
 const productLabel = (r: RecentRegistration): string => `${String(r.no)}번${r.name === '' ? '' : ` ${r.name}`}`
 
-/** 목적격 조사: 받침 있으면 "을", 없으면 "를" (한글이 아니면 "을") */
-const withObject = (word: string): string => {
-  const last = word.codePointAt(word.length - 1) ?? 0
-  return `${word}${last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 === 0 ? '를' : '을'}`
+/** 로마자 글자 이름·숫자 읽기의 끝 받침 (L 엘·M 엠·N 엔·R 알, 0 영·1 일·3 삼·6 육·7 칠·8 팔) — `bts` → 에스(받침 없음) */
+const LATIN_BATCHIM = new Set([...'lmnr'])
+const DIGIT_BATCHIM = new Set([...'013678'])
+
+/** 끝 글자에 받침이 있는가 (한글은 종성, 로마자·숫자는 읽는 소리로) */
+function endsWithBatchim(word: string): boolean {
+  const lastChar = [...word].pop() ?? ''
+  const last = lastChar.codePointAt(0) ?? 0
+  if (last >= 0xac00 && last <= 0xd7a3) return (last - 0xac00) % 28 !== 0
+  if (/[0-9]/.test(lastChar)) return DIGIT_BATCHIM.has(lastChar)
+  if (/[a-zA-Z]/.test(lastChar)) return LATIN_BATCHIM.has(lastChar.toLowerCase())
+  return true
 }
+
+/** 목적격 조사: 받침 있으면 "을", 없으면 "를" (`bts` → "bts를", `핑크문` → "핑크문을") */
+export const withObject = (word: string): string => `${word}${endsWithBatchim(word) ? '을' : '를'}`
 
 /** "방금 등록한 15번 핑크문을 18,000원으로 고칠까요?" (품종·가격 둘 다면 "루비 · 18,000원으로") */
 export function offerMessage(r: RecentRegistration, changes: { readonly name?: string; readonly price?: number }): string {
@@ -223,20 +244,44 @@ function tryFill(reading: ChunkReading, context: TargetContext, startedAt: numbe
  * 정정 덩어리: (1) 첫 조각에 번호 → 새 카드(취소면 버림) (2) 맨 앞 열린 카드 고침·닫기 (3) 60초 안 등록 상품의 고칠까요·되돌릴까요 카드
  * (4) 대상이 없으면 "고칠 카드가 없어요", 대상은 있는데 칸이 없으면 "번호와 가격이 안 들렸어요".
  */
+/** 번호 없는·확정 안 된 번호 결과의 까닭 (D-V3-41) — 카드 없이 기록만 */
+function numberDiscard(reading: ChunkReading, context: TargetContext): VoiceAction | null {
+  const heard = context.registration?.heardNumbers ?? []
+  if (reading.no === null && heard.length >= 2) return discard(manyNumbersReason(heard))
+  if (reading.no !== null && context.registration?.blocked === 'BARE_NUMBER_AFTER_PRICE') return discard(VOICE_LOG_REASONS.numberAfterPrice)
+  return null
+}
+
+/** 켬(D-V3-44)에서 새 카드 대신: '원' 가격이 없으면 기억(보이지 않음), 원 가격이 있으면 카드 그대로(정정 덩어리·300만 원 넘음 등) */
+function createOrRemember(reading: ChunkReading, context: TargetContext): VoiceAction {
+  if (context.autoRegister === true) {
+    // 정정 덩어리로 만든 새 카드(D-V2-14)는 가격이 둘이라 확정이 비어도, 덮은 가격이 '원'으로 들렸으면 카드로 남긴다(TD-V3-003)
+    const wonPrice =
+      reading.price !== null && (context.registration?.priceSure === true || (reading.correction && (context.registration?.wonPrices ?? []).includes(reading.price)))
+    if (!wonPrice) return { kind: 'discard', reason: VOICE_LOG_REASONS.noPrice, cancelled: false, remembered: { no: reading.no, name: reading.name, price: reading.price, confidence: reading.confidence } }
+  }
+  return createAction(reading)
+}
+
 export function chooseAction(reading: ChunkReading, context: TargetContext): VoiceAction {
   try {
+    const createAction = (r: ChunkReading): VoiceAction => createOrRemember(r, context)
+    const blockedNumber = numberDiscard(reading, context)
     if (context.tooLong === true) return discard(VOICE_LOG_REASONS.tooLong)
     const now = isTime(context.now) ? context.now : 0
     const startedAt = isTime(context.chunkStartedAt) ? context.chunkStartedAt : now
     if (!reading.correction) {
-      if (reading.no !== null) return createAction(reading)
-      const fill = tryFill(reading, context, startedAt)
+      if (reading.no !== null) return blockedNumber ?? createAction(reading)
+      // 켬이면 덩어리 사이 이어 채우기 없음 (D-V3-44)
+      const fill = context.autoRegister === true ? null : tryFill(reading, context, startedAt)
       if (fill !== null) return fill
       if (isCardWorthy(reading)) return createAction(reading)
-      return discard(VOICE_LOG_REASONS.noFields)
+      // 번호 없는 결과는 카드 없이 기록만 (D-V3-41)
+      if (blockedNumber !== null) return blockedNumber
+      return discard(reading.name !== null || reading.price !== null ? VOICE_LOG_REASONS.noNumber : VOICE_LOG_REASONS.noFields)
     }
     // (1) 덩어리 안 정정: 첫 조각(표시 앞)에 번호가 있으면 덮은 결과로 새 카드, 취소면 버림
-    if (reading.leadNumber) return reading.cancel ? discard(null, true) : createAction(reading)
+    if (reading.leadNumber) return reading.cancel ? discard(null, true) : (blockedNumber ?? createAction(reading))
     const card = frontOpenCard(context.cards)
     // (2) 맨 앞 열린 카드
     if (card !== null) {
@@ -263,7 +308,7 @@ export function chooseAction(reading: ChunkReading, context: TargetContext): Voi
       return { kind: 'offer', registrationId: recent.id, changes, message: offerMessage(recent, changes) }
     }
     // 고칠 대상이 없는데 번호까지 들린 말(`아니 16번 핑크문 만원`)은 새 카드로 — 판매자가 한 말을 버리지 않는다
-    if (reading.no !== null && !reading.cancel) return createAction(reading)
+    if (reading.no !== null && !reading.cancel) return blockedNumber ?? createAction(reading)
     return discard(VOICE_LOG_REASONS.noTarget)
   } catch {
     return discard(VOICE_LOG_REASONS.noFields)

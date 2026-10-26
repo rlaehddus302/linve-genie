@@ -29,3 +29,4 @@ export async function fetchPastNames(current: { readonly date: string; readonly 
     return { date, names }
   })
 }
+

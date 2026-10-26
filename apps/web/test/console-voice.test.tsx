@@ -59,6 +59,8 @@ beforeEach(() => {
   FakeEventSource.reset()
   FakeRecognition.all.length = 0
   window.localStorage.clear()
+  // 이 시험들은 카드 확인 동작을 본다 — V3 "번호와 가격이 들리면 바로 등록"(기본 켬)을 끈 기기로 시작한다 (바로 등록은 v3-voice-instant 시험)
+  window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoRegister': false }))
   window.history.replaceState(null, '', '/')
 })
 
@@ -182,19 +184,19 @@ describe('켜기 전·안내 창 (AC-I4-10·11)', () => {
 })
 
 describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
-  it('중간 결과는 "들리는 말:" 한 줄, 최종은 카드 + 기록, 문장은 글자로만', async () => {
+  // D-V3-50: "들리는 말:" 작은 줄은 없고 큰 칸("지금 들리는 말") 하나에만 보인다
+  it('중간 결과는 큰 칸에만(작은 "들리는 말:" 줄 없음), 최종은 카드 + 기록, 문장은 글자로만', async () => {
     setup()
     await openConsole()
     await turnOnVoice()
     FakeRecognition.say('15번 핑크', false)
-    expect(screen.getByText('들리는 말: 15번 핑크')).toBeDefined()
+    expect(screen.queryByText(/들리는 말:/)).toBeNull()
+    expect(screen.getByRole('region', { name: '지금 들리는 말' }).textContent).toContain('15번 핑크')
     FakeRecognition.say('<img src=x onerror=alert(1)>15번 라울 만원')
     await quiet()
     expect(screen.queryByText(/들리는 말:/)).toBeNull()
-    // 붙여 쓴 "…>15번"은 번호 표시가 아니다(R-17) — 품종·가격 카드, "확인 필요"
-    const card = screen.getByRole('listitem', { name: '번호 없음 라울 10,000원 카드' })
-    expect(card.textContent).toContain('들은 말: <img src=x onerror=alert(1)>15번 라울 만원')
-    expect(within(card).getByText('확인 필요')).toBeDefined()
+    // 붙여 쓴 "…>15번"은 번호 표시가 아니다(R-17) — 번호 없는 말은 카드 없이 기록에만 (D-V3-41)
+    expect(screen.queryByRole('listitem', { name: '번호 없음 라울 10,000원 카드' })).toBeNull()
     expect(document.querySelector('img')).toBeNull()
     // 최종 결과의 기록은 [음성 기록] 창 하나 (D-V2-21 — "들린 말 기록" 목록은 없다)
     expect(screen.queryByText('들린 말 기록')).toBeNull()
@@ -237,7 +239,8 @@ describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
     pressEnter(quick)
     await flush()
     expect(registers()).toHaveLength(1)
-  })
+    // 조용한 시간 두 번(1.85초씩) + 1초 기다림 — 기본 5초 시험 시간에 붙어 있어 넉넉히
+  }, 10_000)
 
   it('빠른 입력칸에 글자가 있으면 Enter는 빠른 입력이다(카드는 그대로)', async () => {
     setup()
@@ -267,40 +270,31 @@ describe('자막·카드·Enter 등록 (AC-I4-13·20·21)', () => {
 })
 
 describe('번호·가격 없음, 이미 있는 번호, 고치기 (AC-I4-22·23)', () => {
-  it('이미 있는 번호 → 빠른 입력과 같은 "고칠까요?"(카드 값), 아니요면 쓰기 없음', async () => {
+  // D-V3-06 (AC-V3-41·47 R30): 이미 있는 번호를 다르게 들으면 카드 대신 묻기 카드 — 바로 등록을 끈 기기는 까닭 줄 없이 묻기만
+  it('이미 있는 번호 → 카드 없이 묻기 카드 "15번을 고칠까요?", 그대로 두기면 쓰기 없음 (D-V3-06)', async () => {
     setup([register(15, '핑크프릴', 10000)])
     await openConsole()
     await turnOnVoice()
     FakeRecognition.say('15번 라울 만원')
     await quiet()
-    fireEvent.click(screen.getByRole('button', { name: '15번 라울 10,000원 등록' }))
-    const dialog = await screen.findByRole('dialog', { name: '15번이 이미 있어요. 고칠까요?' })
-    expect(dialog.textContent).toContain('라울')
+    const offer = await screen.findByRole('listitem', { name: '15번을 고칠까요? 품종 핑크프릴 → 라울' })
     expect(screen.queryByRole('listitem', { name: '15번 라울 10,000원 카드' })).toBeNull()
-    fireEvent.click(within(dialog).getByRole('button', { name: '아니요' }))
+    fireEvent.click(within(offer).getByRole('button', { name: '그대로 두기' }))
     await flush()
     expect(engine.posts).toEqual([])
   })
 
-  it('번호 없는 카드의 Enter → 고치기 칸(번호 칸 커서·문장) → 17 Enter로 등록', async () => {
+  // D-V3-41 (AC-V3-47): 번호 없는 말은 카드가 없다 — Enter는 빠른 입력 그대로
+  // 이 파일은 바로 등록 끔 — "70,000원 · 번호를 못 들었어요"는 켬에서만 (D-V3-61 b)
+  it('번호 없는 말 → 카드 없음, 바로 등록 끔이면 큰 글자 칸 알림도 없음, 쓰기 없음 (D-V3-41·61)', async () => {
     setup()
-    const { quick } = await openConsole()
+    await openConsole()
     await turnOnVoice()
     FakeRecognition.say('핑크프릴 만오천 원')
     await quiet()
-    await sleep(1050)
-    quick.focus()
-    pressEnter(quick)
-    const form = await screen.findByRole('group', { name: '번호 없음 핑크프릴 15,000원 고치기 칸' })
-    expect(within(form).getByText('번호가 없어요. 번호를 넣어 주세요.')).toBeDefined()
-    const no = within(form).getByLabelText('번호') as HTMLInputElement
-    await waitFor(() => expect(document.activeElement).toBe(no))
-    expect(no.inputMode).toBe('numeric')
-    expect((within(form).getByLabelText('가격') as HTMLInputElement).inputMode).toBe('numeric')
+    expect(screen.queryByRole('listitem', { name: '번호 없음 핑크프릴 15,000원 카드' })).toBeNull()
+    expect(screen.queryByText(/번호를 못 들었어요/)).toBeNull()
     expect(registers()).toEqual([])
-    fireEvent.change(no, { target: { value: '17' } })
-    pressEnter(no)
-    await waitFor(() => expect(registers()).toEqual([[17, '핑크프릴', 15000]]))
   })
 
   it('고치기 칸의 가격은 그 방송 단위(천원): "10" = 10,000원, 틀리면 빠른 입력과 같은 문장', async () => {
@@ -358,35 +352,36 @@ describe('끄기·설정 (AC-I4-14·30)', () => {
     await waitFor(() => expect(registers()).toEqual([[15, '핑크프릴', 15000]]))
   })
 
-  it('자동 확정 설정: 기본 꺼짐·5초, 켜면 안내 문장, 기기에 남는다', async () => {
+  // D-V3-01·D-V3-16 (AC-V3-40·47): 옛 "확실한 카드는 자동으로 등록"·"기다리는 시간(초)"은 빠지고 "번호와 가격이 들리면 바로 등록"(기본 켬)이 대신한다
+  it('바로 등록 설정: 처음 체크됨·도움말, 기다리는 시간 칸 없음, 끄면 기기에 남는다 — 옛 꺼짐 저장값이어도 켬 (D-V3-16)', async () => {
     setup()
+    window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5, 'voice.quietMs': 2500 }))
     await openConsole()
     await turnOnVoice()
-    const box = screen.getByLabelText('확실한 카드는 자동으로 등록') as HTMLInputElement
-    const seconds = screen.getByLabelText('기다리는 시간(초)') as HTMLInputElement
-    expect([box.checked, seconds.value]).toEqual([false, '5'])
+    const box = screen.getByLabelText('번호와 가격이 들리면 바로 등록') as HTMLInputElement
+    expect(box.checked).toBe(true)
+    expect(screen.getByText("'○○번'과 '○○원'이 들리면 그 자리에서 등록해요. 같은 번호를 다시 말하면 새로 만들지 않고, 찜이 없는 상품은 들은 대로 고쳐요. 등록 뒤 5초 안에 되돌릴 수 있어요.")).toBeDefined()
+    expect(screen.queryByLabelText('기다리는 시간(초)')).toBeNull()
+    expect(screen.queryByLabelText('확실한 카드는 자동으로 등록')).toBeNull()
+    expect((screen.getByLabelText('말이 끝났다고 볼 때까지(초)') as HTMLInputElement).value).toBe('2.5')
     fireEvent.click(box)
-    expect(screen.getByText('번호·품종·가격이 모두 확실한 카드만, 손대지 않으면 정한 시간 뒤 등록해요. 등록 뒤 5초 안에 되돌릴 수 있어요.')).toBeDefined()
-    fireEvent.change(seconds, { target: { value: '31' } })
-    expect(screen.getByText('자동 확정 기다림은 3초부터 30초까지의 정수로 적어 주세요')).toBeDefined()
-    fireEvent.change(seconds, { target: { value: '8' } })
-    expect(JSON.parse(window.localStorage.getItem(VOICE_SETTINGS_KEY) ?? 'null')).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 8 })
+    expect(JSON.parse(window.localStorage.getItem(VOICE_SETTINGS_KEY) ?? 'null')).toMatchObject({ 'voice.autoRegister': false, 'voice.quietMs': 2500 })
   })
 
-  it('자동 확정: 남은 초와 "자동 등록 멈추기"가 보이고 정한 시간 뒤 등록', async () => {
+  // D-V3-01 (AC-V3-26·47): 카드에는 자동 확정 기다림이 없다 — 옛 자동 확정 저장값이 있어도 남은 초가 없고 누르면 등록
+  it('바로 등록을 끈 기기: 옛 자동 확정 저장값이 있어도 카드에 남은 초가 없고, "등록"으로 등록된다 (D-V3-01)', async () => {
     setup()
-    window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3 }))
+    window.localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3, 'voice.autoRegister': false }))
     await openConsole()
     await turnOnVoice()
     FakeRecognition.say('15번 핑크프릴 만오천 원')
     await quiet()
     const card = screen.getByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })
-    expect(within(card).getByText('3초 뒤 자동 등록')).toBeDefined()
-    expect(within(card).getByRole('button', { name: '15번 핑크프릴 15,000원 자동 등록 멈추기' })).toBeDefined()
+    expect(within(card).queryByText('3초 뒤 자동 등록')).toBeNull()
     await sleep(3100)
+    expect(registers()).toEqual([])
+    fireEvent.click(within(card).getByRole('button', { name: /^15번 핑크프릴 15,000원 등록/ }))
     await waitFor(() => expect(registers()).toEqual([[15, '핑크프릴', 15000]]))
-    expect(await screen.findByText('15번을 등록했어요')).toBeDefined()
-    // 조용한 시간(1.8초) + 기다림 3초 — 기본 5초 시험 시간을 넘는다
   }, 10_000)
 })
 
@@ -410,4 +405,22 @@ describe('판매 이력 사전 (AC-I4-40)', () => {
     await turnOnVoice()
     expect(await screen.findByText('지난 판매 품종을 불러오지 못했어요. 기본 품종 사전으로 알아들어요.')).toBeDefined()
   })
+})
+
+describe('바로 등록 (V3 — 기본 켬)', () => {
+  it('번호와 가격이 들리면 조용한 시간 없이 빠른 입력과 같은 등록(되돌리기 띠), 카드 없음 — 같은 말을 다시 해도 한 번', async () => {
+    setup()
+    window.localStorage.removeItem(VOICE_SETTINGS_KEY)
+    await openConsole()
+    await turnOnVoice()
+    FakeRecognition.say('15번 핑크프릴 만오천 원')
+    await waitFor(() => expect(registers()).toEqual([[15, '핑크프릴', 15000]]))
+    expect(await screen.findByText('15번을 등록했어요')).toBeDefined()
+    expect(screen.queryByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })).toBeNull()
+    await quiet()
+    FakeRecognition.say('15번 핑크프릴 만오천 원')
+    await quiet()
+    expect(registers()).toEqual([[15, '핑크프릴', 15000]])
+    expect(screen.queryByRole('listitem', { name: '15번 핑크프릴 15,000원 카드' })).toBeNull()
+  }, 10_000)
 })

@@ -16,14 +16,17 @@ const BY_CLAIM = ['b', 'no', 'buyer', 'reason']
 const PRODUCT_OPTIONS = ['aliases', 'options', 'stocks']
 /** 찜을 가리키는 방송자 조치의 변형 고르기 (R-19 "찜을 가리키는 방송자 조치", D-O1-02) */
 const PICK = ['options']
+/** 음성 기록 칸 (V3 R-25) — 엔진 필드가 아니다 */
+export const VOICE_LOG_FIELD = 'voiceLog'
 
 export const API_EVENTS: Readonly<Record<string, ApiEventSpec>> = {
-  'product.register': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'status', ...PRODUCT_OPTIONS] },
+  // voiceLog (V3 R-25, D-V3-65): 음성으로 한 쓰기의 기록 칸 { heard, source?, undo?, device? } — 엔진 필드가 아니고 서버가 음성 기록 줄로만 쓴다 (판매 종료는 등록 되돌리기만)
+  'product.register': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'status', ...PRODUCT_OPTIONS, VOICE_LOG_FIELD] },
   'product.open': { broadcast: true, fields: BY_PRODUCT },
   'product.hold': { broadcast: true, fields: BY_PRODUCT },
-  'product.close': { broadcast: true, fields: BY_PRODUCT },
-  'product.update': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'applyTo', ...PRODUCT_OPTIONS] },
-  'product.renumber': { broadcast: true, fields: ['b', 'from', 'to'] },
+  'product.close': { broadcast: true, fields: [...BY_PRODUCT, VOICE_LOG_FIELD] },
+  'product.update': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'applyTo', ...PRODUCT_OPTIONS, VOICE_LOG_FIELD] },
+  'product.renumber': { broadcast: true, fields: ['b', 'from', 'to', VOICE_LOG_FIELD] },
   // O2: 지금 상품 정하기 (옵션 방송만, 화면은 5초 대기 없이 바로 보낸다 — D-O2-10)
   'product.focus': { broadcast: true, fields: BY_PRODUCT },
   // last4 (V1): 음성 문자찜의 뒤 4자리 — phone처럼 엔진 필드가 아니고 서버가 지정 구매자 또는 키·뒤 4자리로 바꾼다 (AC-V1-10)

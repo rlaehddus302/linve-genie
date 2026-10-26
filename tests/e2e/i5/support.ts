@@ -22,6 +22,8 @@ export interface SafariSpeechOptions {
   readonly standalone?: boolean
   /** 두 생성자를 모두 지운다 (지원 안 함) */
   readonly unsupported?: boolean
+  /** V3 바로 등록을 그대로 둔다 (기본은 꺼 둔다 — D-V3-22 (a), i4/support.ts installFakeSpeech와 같다) */
+  readonly autoRegister?: boolean
 }
 
 export async function installSafariSpeech(target: Page | BrowserContext, options: SafariSpeechOptions = {}): Promise<void> {
@@ -42,7 +44,14 @@ export async function installSafariSpeech(target: Page | BrowserContext, options
     ;(window as unknown as { __speech: typeof state }).__speech = state
     try {
       if (opts.consent === true) window.localStorage.setItem('livejjim.voiceConsent', 'yes')
-      if (opts.settings !== undefined) window.localStorage.setItem('livejjim.voiceSettings', JSON.stringify(opts.settings))
+      const key = 'livejjim.voiceSettings'
+      const plain = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+      // D-V3-22 (a): 준비 단계에서 바로 등록을 꺼 둔다 (기대 글은 그대로)
+      const off = opts.autoRegister !== true
+      if (opts.settings !== undefined) {
+        const value = off && plain(opts.settings) && !('voice.autoRegister' in opts.settings) ? { ...opts.settings, 'voice.autoRegister': false } : opts.settings
+        window.localStorage.setItem(key, JSON.stringify(value))
+      } else if (off && window.localStorage.getItem(key) === null) window.localStorage.setItem(key, JSON.stringify({ 'voice.autoRegister': false }))
     } catch {
       // 첫 페이지(about:blank)는 저장소가 없다
     }

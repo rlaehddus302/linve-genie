@@ -24,5 +24,13 @@ export const DEFAULT_VARIETIES: readonly VarietySource[] = Object.freeze(data.va
 /** 기본 사전 이름만 (지금까지의 모양 — 별칭 없음) */
 export const DEFAULT_DICTIONARY: readonly string[] = Object.freeze(DEFAULT_VARIETIES.map((item) => item.name))
 
+/**
+ * 흔한 말 별칭 (D-V3-54 — `녹음` → 녹금): 흔한 낱말과 같아 사전 별칭으로 늘 맞추면 잡담이 품종이 된다.
+ * 'N번' 조각 안에서만 품종으로 맞춘다(segments.ts). 사전(별칭·겹침 검사)에는 넣지 않는다. 들은 말 → 이름
+ */
+export const DEFAULT_COMMON_ALIASES: ReadonlyMap<string, string> = new Map(
+  (data.varieties as { name: string; commonAliases?: string[] }[]).flatMap((item) => (item.commonAliases ?? []).map((heard) => [heard, item.name] as const)),
+)
+
 /** 방송 말 막는 낱말 (D-V2-02) — 품종 이름·별칭·배운 별칭이 될 수 없다 */
 export const STOP_WORDS: readonly string[] = Object.freeze([...data.stopWords])

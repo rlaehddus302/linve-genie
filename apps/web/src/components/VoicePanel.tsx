@@ -53,22 +53,28 @@ import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
 import { SERVICE_NAME } from '../brand.ts'
+import { INSTANT_CONSENT_LINE, INSTANT_HELP, INSTANT_LABEL, MAYBE_OTHER_FIX, MAYBE_OTHER_RENUMBER, MISSED_PRICE_LABEL } from '../voice/instant.ts'
+import { ARCHIVE_CLEAR, ARCHIVE_CLEARED, ARCHIVE_DOWNLOAD_ALL, ARCHIVE_DOWNLOAD_ONE, ARCHIVE_LABEL, VOICE_ARCHIVE_NOTICE, clearArchive, downloadJson } from '../voice/archive-store.ts'
+import { getVoiceSession } from '../voice/session.ts'
 
 /** 안내 창 마지막 줄 (MOB1 D-MOB1-07, AC-MOB1-11) */
 export const CONSENT_OTHER_DEVICE = '방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.'
 /** 안내 창 문장 (D-I4-04, AC-I4-11 — 외부 전송 문장은 D-I5-06, 마이크 줄은 D-I5-11로 바꿈) */
 export const CONSENT_TITLE = '음성으로 상품 등록'
+/** 바로 등록을 끈 기기의 첫 줄 (I4 그대로, D-V3-36) */
+export const CONSENT_FIRST_CARD = '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.'
+/** 바로 등록을 켠 기기의 첫 줄 (D-V3-36) */
+export const CONSENT_FIRST_INSTANT = '번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.'
+/** 바로 등록을 켠 기기의 안내 창 (D-V3-36: 첫 줄 · 바로 등록 줄 · 나머지 그대로) */
 export const CONSENT_LINES: readonly string[] = [
-  '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.',
+  CONSENT_FIRST_INSTANT,
+  INSTANT_CONSENT_LINE,
   `음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. ${SERVICE_NAME}는 음성을 녹음하거나 저장하지 않아요.`,
   // D-I5-11: 크롬·사파리 모두에 맞게 "브라우저가"
   '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.',
   // MOB1 D-MOB1-07: 방송 앱과 마이크가 겹치지 않게
   CONSENT_OTHER_DEVICE,
 ]
-export const AUTO_CONFIRM_LABEL = '확실한 카드는 자동으로 등록'
-export const AUTO_CONFIRM_HELP = '번호·품종·가격이 모두 확실한 카드만, 손대지 않으면 정한 시간 뒤 등록해요. 등록 뒤 5초 안에 되돌릴 수 있어요.'
-export const SECONDS_LABEL = '기다리는 시간(초)'
 /** 문자찜 설정 안내 (VOC-04 문자찜 카드) */
 /** 후보 단추 키 안내 (U-V2-05, PC 폭) */
 export const CANDIDATE_KEYS_HINT = '입력칸 밖에서 1·2·3 키로도 골라요'
@@ -92,7 +98,13 @@ export function VoiceToggle({ voice, snapshot, ready }: { readonly voice: VoiceC
 }
 
 /** 처음 켤 때의 안내 창 (외부 전송 고지·권한 안내). 처음 포커스는 "닫기" */
+/** 안내 창 줄: 바로 등록을 끈 기기(또는 V3가 아닌 화면)는 I4 첫 줄이고 바로 등록 줄이 없다 (D-V3-36) */
+export function consentLines(instant: boolean): readonly string[] {
+  return instant ? CONSENT_LINES : [CONSENT_FIRST_CARD, ...CONSENT_LINES.slice(2)]
+}
+
 export function VoiceConsentDialog({ voice }: { readonly voice: VoiceController }) {
+  const lines = consentLines(voice.getSnapshot().instant && voice.instantScreen())
   return (
     <Modal
       title={CONSENT_TITLE}
@@ -104,7 +116,7 @@ export function VoiceConsentDialog({ voice }: { readonly voice: VoiceController 
       }
     >
       <div className="stack-tight">
-        {CONSENT_LINES.map((line) => (
+        {lines.map((line) => (
           <p key={line}>{line}</p>
         ))}
       </div>
@@ -209,7 +221,7 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
         </div>
       ) : null}
       {on ? <HeardNow snapshot={snapshot} /> : null}
-      {on && snapshot.interim !== null ? <p className="voice-interim">들리는 말: {snapshot.interim}</p> : null}
+      {/* D-V3-50: "들리는 말:" 작은 줄은 없다 — 맨 위 큰 칸 하나만 */}
       {snapshot.error !== null ? (
         snapshot.unsupported ? (
           // 지원 안 함은 잘못이 아니라 안내 — 안내 색·"닫기" (D-I5-15)
@@ -274,6 +286,10 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
             <OfferView key={offer.id} offer={offer} voice={voice} />
           ))}
         </ul>
+      ) : null}
+      {snapshot.missedFolded > 0 ? (
+        // 가격 못 들은 번호 카드가 3장을 넘어 접힌 수 (D-V3-67 R80)
+        <p className="hint" role="status">{`가격 못 들은 번호 ${String(snapshot.missedFolded)}개 더`}</p>
       ) : null}
       {items.length > 0 ? (
         <ul ref={listRef} className="plain-list voice-cards" aria-label="음성 카드">
@@ -349,7 +365,18 @@ function HeardNow({ snapshot }: { readonly snapshot: VoiceSnapshot }) {
 function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voice: VoiceController }) {
   const busy = offer.stage === 'busy'
   let actions: ReactNode
-  if (offer.kind === 'offer' && offer.stage !== 'fixed') {
+  if (offer.kind === 'offer' && offer.stage !== 'fixed' && offer.maybeOther === true) {
+    actions = (
+      <>
+        <button type="button" className="button button-primary" disabled={busy} onClick={() => void voice.fixOffer(offer.id)}>
+          {MAYBE_OTHER_FIX}
+        </button>
+        <button type="button" className="button" disabled={busy} onClick={() => voice.renumberOffer(offer.id)}>
+          {MAYBE_OTHER_RENUMBER}
+        </button>
+      </>
+    )
+  } else if (offer.kind === 'offer' && offer.stage !== 'fixed') {
     actions = (
       <>
         <button type="button" className="button button-primary" disabled={busy} onClick={() => void voice.fixOffer(offer.id)}>
@@ -395,6 +422,7 @@ function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voic
         <p className="voice-card-text" role="status">
           <strong>{offer.message}</strong>
         </p>
+        {offer.note !== undefined ? <p className="hint">{offer.note}</p> : null}
         {offer.error !== null ? (
           <p className="field-error" role="alert">
             {offer.error}
@@ -521,13 +549,13 @@ function VoiceCard({ card, described, badge, countdown, paused, info, note, offe
         <p className="voice-card-text">
           <strong>{described}</strong>
           {low || flushed ? <span className="tag tag-waiting">확인 필요</span> : null}
-          {card.name === null ? <span className="tag tag-waiting">{NAME_CHECK}</span> : null}
+          {card.name === null || card.nameNeedsCheck === true ? <span className="tag tag-waiting">{NAME_CHECK}</span> : null}
           {badge ? <span className="tag tag-order">{ENTER_BADGE}</span> : null}
         </p>
         <p className="voice-card-heard">들은 말: {card.text}</p>
         {info !== null && info.ask !== null ? <p className="voice-card-ask">{info.ask}</p> : null}
         {flushed ? <p className="voice-card-why">{FLUSHED_CARD_NOTE}</p> : null}
-        {card.name === null && info !== null && info.candidates.length > 0 ? (
+        {(card.name === null || card.nameNeedsCheck === true) && info !== null && info.candidates.length > 0 ? (
           <div className="voice-candidates" role="group" aria-label={`${short} 품종 후보`}>
             <span className="voice-candidates-ask">혹시 이 품종인가요? 누르면 채워져요</span>
             <div className="voice-candidates-list">
@@ -553,29 +581,33 @@ function VoiceCard({ card, described, badge, countdown, paused, info, note, offe
           </p>
         ) : null}
       </div>
-      <div className="voice-card-actions">
-        <button type="button" className="button button-primary" aria-label={`${short} 등록`} onClick={() => onRegister(card.id)}>
-          등록
-        </button>
-        <button
-          type="button"
-          className="button"
-          aria-label={`${short} 고치기`}
-          aria-expanded={form !== null}
-          aria-controls={form !== null ? formId : undefined}
-          onClick={() => (form === null ? voice.openForm(card.id) : voice.closeForm(card.id))}
-        >
-          고치기
-        </button>
-        <button type="button" className="button" aria-label={`${short} 닫기`} onClick={() => voice.close(card.id)}>
-          닫기
-        </button>
-        {countdown !== null ? (
-          <button type="button" className="button" aria-label={`${short} 자동 등록 멈추기`} onClick={() => voice.stopAuto(card.id)}>
-            자동 등록 멈추기
+      {info?.missed === true ? (
+        <MissedPriceForm cardId={card.id} short={short} voice={voice} />
+      ) : (
+        <div className="voice-card-actions">
+          <button type="button" className="button button-primary" aria-label={`${short} 등록`} onClick={() => onRegister(card.id)}>
+            등록
           </button>
-        ) : null}
-      </div>
+          <button
+            type="button"
+            className="button"
+            aria-label={`${short} 고치기`}
+            aria-expanded={form !== null}
+            aria-controls={form !== null ? formId : undefined}
+            onClick={() => (form === null ? voice.openForm(card.id) : voice.closeForm(card.id))}
+          >
+            고치기
+          </button>
+          <button type="button" className="button" aria-label={`${short} 닫기`} onClick={() => voice.close(card.id)}>
+            닫기
+          </button>
+          {countdown !== null ? (
+            <button type="button" className="button" aria-label={`${short} 자동 등록 멈추기`} onClick={() => voice.stopAuto(card.id)}>
+              자동 등록 멈추기
+            </button>
+          ) : null}
+        </div>
+      )}
       {form !== null ? <CardFormView id={formId} cardId={card.id} short={short} form={form} voice={voice} onSubmit={onSubmitForm} /> : null}
     </li>
   )
@@ -806,6 +838,12 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
   const smsSettings = snapshot.smsSettings
   const smsWords = voice.smsWords()
   const [logOpen, setLogOpen] = useState(false)
+  // 음성 기록 창이 닫힌 뒤(화면에서 빠진 뒤) 창 때문에 미룬 바로 등록을 다시 본다 (AC-V3-43 a, TE-V3-006)
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (wasOpen.current && !logOpen) voice.refresh()
+    wasOpen.current = logOpen
+  }, [logOpen, voice])
   const [open, setOpen] = useState(false)
   if (!on && !snapshot.everOn) return null
   return (
@@ -838,20 +876,18 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
       ) : null}
       {on && settings !== null ? (
         <div className="voice-settings">
+          {/* D-V3-16: 옛 "자동 확정"·"기다리는 시간(초)"은 없다 — 바로 등록 하나 */}
           <label className="choice">
-            <input type="checkbox" checked={settings['voice.autoConfirm']} onChange={(event) => voice.setAutoConfirm(event.target.checked)} />
-            <span>{AUTO_CONFIRM_LABEL}</span>
+            <input type="checkbox" checked={snapshot.instant} onChange={(event) => voice.setInstant(event.target.checked)} />
+            <span>{INSTANT_LABEL}</span>
           </label>
-          <label className="voice-seconds">
-            <span>{SECONDS_LABEL}</span>
-            <input className="input" inputMode="numeric" autoComplete="off" value={snapshot.secondsText} onChange={(event) => voice.setSeconds(event.target.value)} />
+          <p className="hint">{INSTANT_HELP}</p>
+          <label className="choice">
+            <input type="checkbox" checked={snapshot.archive} onChange={(event) => voice.setArchive(event.target.checked)} />
+            <span>{ARCHIVE_LABEL}</span>
           </label>
-          {snapshot.settingsProblem !== null ? (
-            <p className="field-error" role="alert">
-              {snapshot.settingsProblem}
-            </p>
-          ) : null}
-          {settings['voice.autoConfirm'] ? <p className="hint">{AUTO_CONFIRM_HELP}</p> : null}
+          {snapshot.archive ? <p className="hint">{VOICE_ARCHIVE_NOTICE}</p> : null}
+          <ArchiveButtons voice={voice} />
           <label className="voice-seconds">
             <span>{QUIET_LABEL}</span>
             <input className="input" inputMode="decimal" autoComplete="off" value={snapshot.quietText} onChange={(event) => voice.setQuietSeconds(event.target.value)} />
@@ -869,5 +905,82 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
       </details>
       {logOpen ? <VoiceLogDialog voice={voice} snapshot={snapshot} onClose={() => setLogOpen(false)} /> : null}
     </section>
+  )
+}
+
+/** 음성 인식 기록 [내려받기]·[기록 지우기] (D-V3-56) — 서버로 보내지 않고 이 기기 파일로 */
+function ArchiveButtons({ voice }: { readonly voice: VoiceController }) {
+  const [note, setNote] = useState<string | null>(null)
+  const broadcastId = getVoiceSession()?.broadcastId
+  const download = async (one: boolean) => {
+    const value = await voice.exportArchive(one ? broadcastId : undefined)
+    if (value !== null) downloadJson(`음성-인식-기록${one && broadcastId !== undefined ? `-${broadcastId}` : ''}.json`, value)
+  }
+  return (
+    <div className="row">
+      {broadcastId !== undefined ? (
+        <button type="button" className="button" onClick={() => void download(true)}>
+          {ARCHIVE_DOWNLOAD_ONE}
+        </button>
+      ) : null}
+      <button type="button" className="button" onClick={() => void download(false)}>
+        {ARCHIVE_DOWNLOAD_ALL}
+      </button>
+      <button
+        type="button"
+        className="button"
+        onClick={() => {
+          void clearArchive().then(() => setNote(ARCHIVE_CLEARED))
+        }}
+      >
+        {ARCHIVE_CLEAR}
+      </button>
+      {note !== null ? (
+        <p className="hint" role="status">
+          {note}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** "15번 가격을 못 들었어요" 카드 (D-V3-67): 가격 칸 하나(그 방송 가격 단위)·[등록]·[닫기] — 커서를 빼앗지 않는다 */
+function MissedPriceForm({ cardId, short, voice }: { readonly cardId: string; readonly short: string; readonly voice: VoiceController }) {
+  const [text, setText] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  const inputId = useId()
+  const submit = () => setProblem(voice.submitMissed(cardId, text))
+  return (
+    <div className="voice-card-actions voice-missed">
+      <label className="field" htmlFor={inputId}>
+        <span>{MISSED_PRICE_LABEL}</span>
+      </label>
+      <input
+        id={inputId}
+        className="input"
+        inputMode="numeric"
+        autoComplete="off"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            submit()
+          }
+        }}
+      />
+      <button type="button" className="button button-primary" aria-label={`${short} 등록`} onClick={submit}>
+        등록
+      </button>
+      <button type="button" className="button" aria-label={`${short} 닫기`} onClick={() => voice.close(cardId)}>
+        닫기
+      </button>
+      {problem !== null ? (
+        <p className="field-error" role="alert">
+          {problem}
+        </p>
+      ) : null}
+    </div>
   )
 }

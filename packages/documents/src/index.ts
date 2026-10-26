@@ -65,6 +65,18 @@ export {
   type LedgerScope,
 } from './ledger.ts'
 export { ledgerToXlsx } from './xlsx.ts'
+export {
+  VOICE_LEDGER_ACTION_WORDS,
+  VOICE_LEDGER_COLUMNS,
+  VOICE_LEDGER_MARK_WORDS,
+  VOICE_LEDGER_SHEET_NAME,
+  VOICE_LEDGER_SOURCE_WORDS,
+  voiceLedgerRowValues,
+  type VoiceLedgerAction,
+  type VoiceLedgerMark,
+  type VoiceLedgerRow,
+  type VoiceLedgerSource,
+} from './voice-ledger.ts'
 export { NO_NAME, compareCodePoints, optionText, printedName, stripInvisible, stripXlsxForbidden } from './text.ts'
 export { formatKoreanDate, formatKstDateTime, formatKstLedgerTime } from './kst.ts'
 export {

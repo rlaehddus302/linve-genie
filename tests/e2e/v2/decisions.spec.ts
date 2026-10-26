@@ -9,7 +9,9 @@ for (const choice of ['고치기', '그대로 두기'] as const) {
     await setupV2(page, { settings: AUTO_ON })
     await sayAt(page, [['15번 핑크문 만이천원', 0]])
     await page.clock.runFor(1800)
-    await expect(card(page, '15번 핑크문 12,000원').getByText(/초 뒤 자동 등록/)).toBeVisible()
+    // V3 교체(D-V3-01·D-V3-22 b): 자동 확정 기다림(카운트다운)이 없어졌다 — 저절로 등록되지 않음은 아래 그대로 본다
+    await expect(card(page, '15번 핑크문 12,000원')).toBeVisible()
+    await expect(card(page, '15번 핑크문 12,000원').getByText(/초 뒤 자동 등록/)).toHaveCount(0)
     await page.clock.runFor(1000)
     await sayAt(page, [['만오천 말고 만팔천', 0]])
     await page.clock.runFor(1800)

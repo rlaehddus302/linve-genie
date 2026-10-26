@@ -1,6 +1,6 @@
 // V2 등록 뒤 고치기·되돌리기와 음성 기록 보기 (AC-V2-26·27·28·29·30). 기대 문장은 acceptance 글자 그대로.
 import { test, expect, type Page } from '@playwright/test'
-import { boardItem, card, cardButton, expectNoCards, offerList, openLog, recordRequests, sayAt, setupV2 } from './support.ts'
+import { boardItem, card, cardButton, expectNoCards, offerList, openLog, recordRequests, sayAt, setupV2, withoutVoiceHeard } from './support.ts'
 
 async function registerS1(page: Page) {
   await sayAt(page, [['15번 핑크문 만오천원', 0]])
@@ -97,7 +97,8 @@ test('AC-V2-28·29·30: S2·S9·S18 뒤 음성 기록 3개(새것부터), 서버
   for (const word of ['엘레강스 이만원', '십오번', '선버스', '너무 예쁘죠']) {
     for (const r of requests) {
       expect(decodeURIComponent(r.url)).not.toContain(word)
-      expect(r.body).not.toContain(word)
+      // D-V3-73: voiceLog.heard 한 줄(가린 들은 말)만 예외 — 그 밖의 칸에 받아쓴 글이 없다
+      expect(withoutVoiceHeard(r.body)).not.toContain(word)
     }
     for (const l of logs) expect(l).not.toContain(word)
   }

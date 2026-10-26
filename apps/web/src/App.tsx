@@ -26,6 +26,9 @@ import { BillingConfigProvider, useBillingConfigState } from './components/billi
 import { BillingPage } from './components/BillingPage.tsx'
 import { BuyersPage } from './components/BuyersPage.tsx'
 import { ConsolePage } from './components/ConsolePage.tsx'
+import { VoiceBand } from './components/VoiceBand.tsx'
+import { logoutVoice } from './voice/session.ts'
+import { clearArchiveForLogout, setArchiveSeller } from './voice/archive-store.ts'
 import { DepositProvider } from './components/deposit-context.tsx'
 import { DepositsPage } from './components/DepositsPage.tsx'
 import { ErrorNote } from './components/ErrorNote.tsx'
@@ -168,6 +171,10 @@ export function App() {
 
   const logout = useCallback(async () => {
     setLogoutError(null)
+    // 로그아웃하면 음성도 끄고 켠 방송 ID를 지운다 (D-V3-52)
+    logoutVoice()
+    // 그 판매자의 음성 인식 기록도 지운다 (RA-V3-008)
+    void clearArchiveForLogout()
     try {
       await post('/api/logout', {})
       setLeftInTab(true)
@@ -392,10 +399,13 @@ export function App() {
     return <LoginPage expired={session.expired} onLoggedIn={loggedIn} onHome={route.name === 'login' ? () => go({ name: 'home' }) : undefined} />
   }
   const me = session.me
+  // 음성 인식 기록은 판매자마다 따로 (RA-V3-008)
+  setArchiveSeller(me.loginId)
   const assistant = isAssistant(me)
   const shell = (
     <>
       <TopBar shopName={me.seller.name} assistant={assistant} onLogout={() => void logout()} route={route} navigate={navigate} />
+      {assistant ? null : <VoiceBand route={route} navigate={navigate} />}
       {assistant ? null : <RefusalReset screen={routePath(route)} />}
       {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
       {homeNotice !== null ? (
@@ -486,7 +496,7 @@ interface ScreenProps {
 function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
   switch (route.name) {
     case 'console':
-      return <ConsolePage key={route.id} broadcastId={route.id} navigate={navigate} />
+      return <ConsolePage key={route.id} broadcastId={route.id} navigate={navigate} {...(route.product === undefined ? {} : { openProduct: route.product })} />
     case 'receipts':
       return <ReceiptsPage key={route.id} broadcastId={route.id} navigate={navigate} shopName={me.seller.name} />
     case 'sms':

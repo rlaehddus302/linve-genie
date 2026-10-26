@@ -27,7 +27,7 @@ function run(...args: string[]) {
 //  a: 15번·핑크프릴·15,000 HIGH — 셋 다 맞음
 //  b: 기대 번호 빈칸인데 뽑음(16) → 번호 틀림 → 틀린 값을 채움. LOW(가격 없음) → 확실한데 틀림 아님. 가격 빈칸·빈칸 → 맞음
 //  c: 17번 라울 만원 HIGH, 기대 품종 블루엘프 → 품종만 틀림 → 확실한데 틀림(번호·가격은 맞음 → 틀린 값을 채움 아님)
-//  d: 끊어 말한 번호 `1 8번` → 번호·가격 빈칸, 품종 라울 맞음, 카드 없음
+//  d: `1 8번` — V3 D-V3-54 앞 수와 합치기로 18번(숫자 한 개 둘 → 두 자리) → 번호·가격·품종 맞음, 카드 있음 (I4 때는 끊어 말한 번호로 빈칸·카드 없음)
 //  e: 잡담 — 기대 모두 빈칸, 품종 채점 안 함, 카드 없음
 //  f: 따옴표 안 줄바꿈·쉼표·"" 가 든 문장 `19번 라울, "진짜" 만원` → 19·라울·10,000 HIGH 맞음
 const SAMPLE = [
@@ -60,23 +60,23 @@ describe('AC-I4-03 요약 수 손 계산', () => {
       ['맞음', '맞음', '맞음'],
       ['틀림', '맞음', '채점 안 함'],
       ['맞음', '맞음', '틀림'],
-      ['빈칸', '빈칸', '맞음'],
+      ['맞음', '맞음', '맞음'], // d: D-V3-54
       ['맞음', '맞음', '채점 안 함'],
       ['맞음', '맞음', '맞음'],
     ])
     expect(summarizeAccuracy(scored)).toEqual({
       samples: 6,
-      noCorrect: 4,
-      priceCorrect: 5,
-      bothCorrect: 4,
+      noCorrect: 5,
+      priceCorrect: 6,
+      bothCorrect: 5,
       nameCorrect: 3,
       nameScored: 4,
       filledWrong: 1,
       confidentWrong: 1,
-      cardWorthy: 4,
+      cardWorthy: 5,
     })
     const report = renderAccuracyReport(scored, summarizeAccuracy(scored), { sampleFile: 'x.csv', maxNumber: 999, historyNames: 0 })
-    expect(report).toContain('- 번호 맞음: 4/6 (66.7%)')
+    expect(report).toContain('- 번호 맞음: 5/6 (83.3%)')
     expect(report).toContain('- 품종 맞음: 3/4 (75.0%)')
     expect(report).not.toMatch(/HIGH|LOW|null|undefined|NaN/)
   })

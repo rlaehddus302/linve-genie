@@ -298,7 +298,8 @@ describe('설정 문구 (AC-FB1-01·05~08)', () => {
     const rules = section('판매 규칙')
     const unit = within(rules).getByRole('radiogroup', { name: '가격 단위' })
     // FB1 D-FB1-11 (5): 원·천원·만원 (D-FB1-01의 두 낱말 대체)
-    expect(within(unit).getAllByRole('radio').map((radio) => radio.parentElement?.textContent)).toEqual(['원 (15000 → 15,000원)', '천원 (15 → 15,000원)', '만원 (15 → 150,000원)'])
+    // D-V3-70: 넷째 단추 "자동"
+    expect(within(unit).getAllByRole('radio').map((radio) => radio.parentElement?.textContent)).toEqual(['원 (15000 → 15,000원)', '천원 (15 → 15,000원)', '만원 (15 → 150,000원)', '자동 (25 → 250,000원, 180 → 180,000원)'])
     expect((within(unit).getByRole('radio', { name: '천원 (15 → 15,000원)' }) as HTMLInputElement).checked).toBe(true)
     expect(within(unit).getByText("'2만'·'15000원'처럼 단위를 붙여 적으면 이 설정과 상관없이 적힌 대로 들어가요.")).toBeDefined()
     expect(within(section('배송비')).getByText('배송비는 그날 첫 방송을 시작할 때의 값으로 정산해요. 오늘 방송을 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.')).toBeDefined()

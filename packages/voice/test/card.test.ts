@@ -42,23 +42,24 @@ const deepFreeze = <T>(value: T): T => {
 
 describe('음성 설정 (D-204): 자동 확정 기본 꺼짐, 기다림 기본 5초(정수 3~30)', () => {
   it('기본값', () => {
-    expect(DEFAULT_VOICE_SETTINGS).toEqual({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5 })
+    // V3(AC-V3-07, D-V3-16): 바로 등록 voice.autoRegister 기본 켬이 더해짐 — 옛 두 키의 기본은 그대로
+    expect(DEFAULT_VOICE_SETTINGS).toEqual({ 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5, 'voice.autoRegister': true })
     expect(resolveVoiceSettings()).toEqual(DEFAULT_VOICE_SETTINGS)
-    expect(resolveVoiceSettings({ 'voice.autoConfirm': true })).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5 })
+    expect(resolveVoiceSettings({ 'voice.autoConfirm': true })).toEqual({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 5, 'voice.autoRegister': true })
   })
 
   it('검사: 범위 밖·정수 아님·모르는 키·객체 아님을 문제로 돌려준다', () => {
     expect(checkVoiceSettings({})).toEqual([])
     expect(checkVoiceSettings({ 'voice.autoConfirm': true, 'voice.autoConfirmSec': 3 })).toEqual([])
     expect(checkVoiceSettings({ 'voice.autoConfirmSec': 30 })).toEqual([])
-    for (const sec of [2, 31, 5.5, Number.NaN, '5', null]) {
-      expect(checkVoiceSettings({ 'voice.autoConfirmSec': sec }).map((p) => p.key)).toEqual(['voice.autoConfirmSec'])
-    }
-    expect(checkVoiceSettings({ 'voice.autoConfirm': 'true' }).map((p) => p.key)).toEqual(['voice.autoConfirm'])
+    // V3(D-V3-16, AC-V3-07 — SA-V3-009): 옛 키 voice.autoConfirm·autoConfirmSec는 읽지 않으므로 틀린 값이어도 문제를 내지 않는다(처음 기대를 바꿈)
+    for (const sec of [2, 31, 5.5, Number.NaN, '5', null]) expect(checkVoiceSettings({ 'voice.autoConfirmSec': sec })).toEqual([])
+    expect(checkVoiceSettings({ 'voice.autoConfirm': 'true' })).toEqual([])
+    expect(checkVoiceSettings({ 'voice.autoRegister': 'true' }).map((p) => p.key)).toEqual(['voice.autoRegister'])
     expect(checkVoiceSettings({ 'voice.autoconfirm': true }).map((p) => p.key)).toEqual(['voice.autoconfirm'])
     for (const bad of [null, [], 'on', 5]) expect(checkVoiceSettings(bad)).toEqual([{ key: null, message: expect.any(String) }])
     // 문장에 영어 상태값·키 이름이 없다
-    for (const problem of checkVoiceSettings({ 'voice.autoConfirmSec': 99, 'voice.autoConfirm': 1, x: 1 })) expect(problem.message).not.toMatch(/[A-Za-z]/)
+    for (const problem of checkVoiceSettings({ 'voice.autoRegister': 99, 'voice.quietMs': 1, x: 1 })) expect(problem.message).not.toMatch(/[A-Za-z]/)
   })
 
   it('검사를 통과하지 못한 값은 쓰지 않는다 — 잘못된 설정으로 자동 확정이 켜지거나 기다림이 줄지 않는다', () => {
@@ -67,14 +68,16 @@ describe('음성 설정 (D-204): 자동 확정 기본 꺼짐, 기다림 기본 5
 })
 
 describe('AC-P2-10 카드 만들기·확정·고치기·닫기', () => {
-  it('번호가 있거나 품종·가격이 둘 다 있을 때만 카드', () => {
+  // V3(D-V3-41 사용자 요구): 번호 없는 카드("번호 없음 70,000원 등록할까요?")는 만들지 않는다 — 품종·가격만 있으면 카드 없음
+  it('번호가 있을 때만 카드', () => {
     const make = (text: string): SuggestionCard | null =>
       createCard({ id: 'c', extraction: extractVoice(text, { dictionary: ['핑크프릴'] }), text, createdAt: T0 })
     expect(make('안녕하세요')).toBe(null)
     expect(make('만원')).toBe(null)
     expect(make('핑크프릴')).toBe(null)
     expect(make('15번')).not.toBe(null)
-    expect(make('핑크프릴 만원')).not.toBe(null)
+    expect(make('핑크프릴 만원')).toBe(null)
+    expect(make('15번 16번 핑크프릴 만원')).toBe(null) // 번호가 둘이라 비운 결과
   })
 
   it('카드는 번호·품종·가격·신뢰도·원래 문장·만든 시각·상태·손댐·자동 확정 시각을 가진다 — JSON으로 옮길 수 있는 값만', () => {
@@ -103,7 +106,8 @@ describe('AC-P2-10 카드 만들기·확정·고치기·닫기', () => {
 
   it('확정할 수 없는 이유는 각각 다르다: 번호 없음·가격 없음·이미 있는 번호(고칠까요?)·범위 밖·열린 카드 아님', () => {
     const reasons = [
-      confirmCard(card({ ...LOW, no: null }), { existingNumbers: [] }),
+      // 번호 없는 카드는 만들 수 없지만(D-V3-41), 판매자가 고치기 칸에서 번호를 지운 카드는 있을 수 있다
+      confirmCard({ ...card(LOW), no: null }, { existingNumbers: [] }),
       confirmCard(card({ ...LOW, price: null }), { existingNumbers: [] }),
       confirmCard(card(), { existingNumbers: [15] }),
       confirmCard(card(), { existingNumbers: new Set([15]) }),
