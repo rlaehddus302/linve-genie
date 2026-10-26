@@ -68,3 +68,18 @@ export function fixDroppedZero(input: DroppedZeroInput): DroppedZeroFix | null {
     return null
   }
 }
+
+/**
+ * '번' 없는 번호가 앞 번호 흐름에 맞는가 (실방송 V3: 312…349를 팔다 "얼마 드릴까 50 … 10만 원" → 50번, "너무예쁜데 25 자 25만 원" → 25번).
+ * 최근 음성 등록 2개 이상이 있고 가장 최근 2개가 모두 그 번호에서 ±20 밖이면 맞지 않는다(false). 맥락이 모자라면 맞는다고 본다(true — 지금 규칙 그대로).
+ */
+export function bareNumberFits(no: number, recent: readonly number[]): boolean {
+  try {
+    if (!isNo(no)) return false
+    const list = Array.isArray(recent) ? recent.filter(isNo) : []
+    if (list.length < DROPPED_ZERO_RECENT) return true
+    return list.slice(-DROPPED_ZERO_RECENT).some((item) => Math.abs(item - no) <= DROPPED_ZERO_NEAR)
+  } catch {
+    return true
+  }
+}
