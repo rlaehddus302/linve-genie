@@ -22,14 +22,24 @@ describe('TD-FB1 0019 옛 낱말 옮기기 (AC-FB1-16)', () => {
     // 새 DB를 만든 뒤 BASE(0018까지)의 모양으로 되돌린다: 기본값 '소', carrier_name 없음, 0019 적용 기록 없음 — 그 위에 옛 행을 넣고 0019를 다시 적용.
     // 0019 뒤의 마이그레이션(CRM1 0020 — 손님 표 둘)도 적용 전으로 되돌린다 (CRM1: "마지막 기록 하나 지우기"는 0020이 생겨 0019가 아니게 됨 —
     // "0019(저널 when) 이후 기록 지우기"로 교체. 약화 아님: 같은 0019를 다시 적용하는 같은 시험)
+    // 합치기(TTX 0020·BND1 0021·CRM1 0022·0023): 0019 뒤 마이그레이션이 만든 칸·표를 모두 되돌려야 다시 적용된다
     const world = await newWorld()
     const pg = world.database.pglite
     if (pg === null || pg === undefined) throw new Error('PGlite가 아니다')
     await pg.exec(`
       alter table parcel_settings alter column box set default '소';
       alter table parcel_settings drop column carrier_name;
+      drop table customer_archive_rows;
+      drop table customer_archive_days;
       drop table customer_memos;
       drop table customer_settings;
+      drop table band_notices;
+      drop table band_seen;
+      drop table band_links;
+      drop table band_oauth_states;
+      drop table band_accounts;
+      alter table tiktok_links drop column ext_recorded, drop column ext_standby, drop column ext_status_at, drop column ext_screen,
+        drop column ext_hidden, drop column ext_read, drop column ext_unread, drop column ext_unread_since;
       delete from drizzle.__drizzle_migrations where created_at >= ${String(MIGRATION_0019_WHEN)};`)
     {
       const words = Object.keys(MOVE)
