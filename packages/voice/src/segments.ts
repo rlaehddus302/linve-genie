@@ -169,7 +169,7 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
     const unit: PriceUnit = options.priceUnit ?? 'WON'
     const punct = punctuatedTokens(text)
     const markers = listNumberMarkers(tokens, punct)
-    const lines = listWonLines(tokens, { maxNumber, punct })
+    const lines = listWonLines(tokens, { maxNumber, punct, final })
     const markerAt = new Set<number>()
     for (const marker of markers) for (let i = marker.start; i <= marker.last; i++) markerAt.add(i)
     const picks: SegmentPick[] = []
