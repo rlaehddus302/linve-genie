@@ -7,6 +7,7 @@ import { isBigChange, readRegistration, type ReadyBlock, type RegistrationOption
 import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
 import { VarietyDictionary } from './dictionary.ts'
 import { CANCEL_WORDS, CORRECTION_MARKERS, isWindowFiller } from './words.ts'
+import { hasPriceCorrection } from './price-gate.ts'
 
 export interface SegmentOptions extends RegistrationOptions {
   /** 그 방송의 판매 규칙 price.unit — "N번 품종 수" 꼴(D-V3-48)의 수를 읽는 단위. 생략 = WON */
@@ -272,5 +273,47 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
     return { tokens, picks, others, tail, rest: restTokens.join(' ') }
   } catch {
     return EMPTY
+  }
+}
+
+/** 정정 낱말로 고친 같은 번호 가격 (readMarkerCorrection) */
+export interface MarkerCorrection {
+  readonly no: number
+  readonly price: number
+  /** 그 말 조각 (기록·카드에 남길 글) */
+  readonly text: string
+}
+
+/**
+ * 정정 낱말이 든 "N번 … 원 가격" 조각 (TD-V3-013, D-V3-83 (가)): 조각 읽기는 정정 낱말이 'N번'과 원 가격 사이에 끼면 고르지 않는다(D-V3-51 —
+ * 새 등록으로는 쓰지 않는다). 그 번호가 이미 있는 상품이면 이 조각은 그 상품의 가격 고침이다 — "65번 아니 5만 원"·"65번 다시 5만 원"·
+ * "아니 65번 5만 원"·"잘못 말했어요 15번 7만 원". 고르는 값: 'N번'이 한 번호뿐(같은 번호 되풀이는 하나)이고, 정정 낱말이 있고, 취소 낱말이 없고,
+ * 'N번' 뒤·첫 정정 낱말 뒤의 마지막 원 가격 줄. 'N번' 바로 뒤(군말 건너)가 `…말고`면 고르지 않는다("15번 말고 7만 원" — 번호를 고친 말일 수 있어 애매).
+ * 순수 함수: 어떤 입력에도 예외를 던지지 않는다.
+ */
+export function readMarkerCorrection(text: unknown, options: SegmentOptions = {}): MarkerCorrection | null {
+  try {
+    const tokens = tokenize(text)
+    if (tokens === null || tokens.length === 0) return null
+    if (tokens.some(isCancelToken)) return null
+    const maxNumber = maxNumberOf(options)
+    const punct = punctuatedTokens(text)
+    const markers = listNumberMarkers(tokens, punct)
+    if (markers.length === 0 || new Set(markers.map((marker) => marker.value)).size !== 1) return null
+    const m = markers[0] as (typeof markers)[number]
+    if (markers.some((marker) => marker.split) || m.value > maxNumber) return null
+    const c = tokens.findIndex((token) => hasPriceCorrection(token))
+    if (c < 0) return null
+    // 'N번' 바로 뒤 군말(정정 표시는 군말로 건너지 않는다) 다음이 `…말고`면 애매
+    let k = m.last + 1
+    while (k < tokens.length && isWindowFiller(tokens[k] as string) && !isCorrectionToken(tokens[k] as string)) k++
+    if (tokens[k]?.endsWith(MALGO) === true) return null
+    const from = Math.max(c, (markers[markers.length - 1] as (typeof markers)[number]).last)
+    const lines = listWonLines(tokens, { maxNumber, punct }).filter((line) => line.start > from)
+    const line = lines[lines.length - 1]
+    if (line === undefined || line.value === null) return null
+    return { no: m.value, price: line.value, text: tokens.join(' ') }
+  } catch {
+    return null
   }
 }

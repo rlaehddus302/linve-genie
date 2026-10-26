@@ -371,7 +371,7 @@ export { STABLE_EMPTY, STABLE_MS, finishStable, stepStable, type StableState, ty
 // V3 앞 말 맥락의 품종 (사용자 요구: 바이칼녹금이라고 했는데 녹금으로)
 export { CONTEXT_VARIETY_MIN, varietiesIn, varietyFromContext } from './context-variety.ts'
 // V3 한 글자 다른 사전 이름 (야래양·야래학 → 야래향) · 값을 묻는 말 뒤의 수는 번호가 아님
-export { ONE_SYLLABLE_MIN, oneSyllableName } from './segments.ts'
+export { ONE_SYLLABLE_MIN, oneSyllableName, readMarkerCorrection, type MarkerCorrection } from './segments.ts'
 export { PRICE_ASK_PREFIX } from './extract.ts'
 // V3 같은 번호 가격 고침 문턱 (실방송 333번 35만 → 33만 → 30만)
 export { PRICE_GATE_MS, PRICE_GATE_WORDS, gateSamePrice, hasPriceCorrection, type HeardPrice, type PriceGateInput, type PriceGateResult } from './price-gate.ts'
