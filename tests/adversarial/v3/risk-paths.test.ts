@@ -208,7 +208,8 @@ describe('RA-V3-003 가격 되돌리기는 입금 전 찜도 원래 가격으로
     const h = await harness()
     h.board.set(38, { key: 'b1:38', name: '라울', price: 100_000, claimCount: 0, closed: false, status: 'OPEN' })
     await at(0)
-    h.say('38번 라울 50만 원')
+    // 같은 번호 가격 고침 문턱(price-gate.ts — 결정 변경): 다른 가격은 정정 낱말이 있어야 바로 고친다
+    h.say('38번 라울 잘못 말했어요 50만 원')
     await at(2000)
     expect(h.fixes.map((f) => [f.id, f.changes])).toEqual([['b1:38', { price: 500_000 }]])
     const offer = h.voice.getSnapshot().offers.find((item) => item.stage === 'fixed')
