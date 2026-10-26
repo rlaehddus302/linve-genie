@@ -91,15 +91,14 @@ export class VoiceSession {
   readonly #lastDevice = new Map<number, string>()
   #deviceTimer: ReturnType<typeof setTimeout> | null = null
   #ended = false
+  #storeOpened = false
 
   constructor(broadcastId: string, title: string) {
     this.broadcastId = broadcastId
     this.#title = title
-    // 콘솔 밖에서도 상품 보드를 보도록 그 방송 자료를 따로 연다 (채팅 메시지는 받지 않는다)
+    // 콘솔 밖에서도 상품 보드를 보도록 그 방송 자료를 따로 연다 (채팅 메시지는 받지 않는다).
+    // 음성을 켤 때 연다 — 꺼진 채 콘솔만 열면 콘솔 자료 하나로 충분하다 (전체 조회·실시간 연결을 겹쳐 열지 않는다, AC-S05-64)
     this.#store = new ConsoleStore({ broadcastId, messages: false })
-    this.#store.start().catch(() => {
-      // 받지 못하면 콘솔 밖 처리는 빈 상품 보드로 (다시 붙으면 따라잡는다)
-    })
     this.controller = new VoiceController(this.#proxy())
     this.#view = { broadcastId, title, on: false, cards: 0, undo: null, readout: null }
     this.controller.subscribe(() => this.#onVoice())
@@ -169,9 +168,19 @@ export class VoiceSession {
     }
   }
 
+  /** 그 방송 자료를 연다 (한 번만) — 받기 전에는 콘솔 밖 바로 등록을 하지 않는다 (RA-V3-006) */
+  #openStore(): void {
+    if (this.#storeOpened || this.#ended) return
+    this.#storeOpened = true
+    this.#store.start().catch(() => {
+      // 받지 못하면 콘솔 밖 처리는 빈 상품 보드로 (다시 붙으면 따라잡는다)
+    })
+  }
+
   #onVoice(): void {
     const snapshot = this.controller.getSnapshot()
     const on = snapshot.phase === 'on' || snapshot.phase === 'loading'
+    if (on) this.#openStore()
     if (on && !this.#wasOn) writeVoiceOn(this.broadcastId)
     this.#wasOn = on
     // 콘솔 밖에서 꺼졌으면(띠의 [끄기]·엔진 멈춤) 끝낸다
