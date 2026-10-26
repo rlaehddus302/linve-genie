@@ -1,6 +1,7 @@
 // V3 적대 시험 (test-domain, R-17 3 앞 수와 합치기·뒤 한 자리 수 D-V3-54, 흔한 말 별칭 D-V3-54, R-24 readRenumber D-V3-58, 음성 기록 가리기 D-V3-56):
 // 노리는 것: 오십 삼번을 13번으로·63번을 60번으로, 겹친 앞 수를 뒤쪽 조각만 번호로, 앞 수를 가격으로, 대화 속 '녹음'이 녹금이 됨,
 // 값이 섞인 말·다른 낱말이 붙은 말을 번호 옮기기로 읽음, 전화번호·끝자리가 기기 기록에 남음.
+// D-V3-91(꾸밈말 창·금·색금)·D-V3-92(녹색금은 녹금과 다른 이름): 녹금·녹색금이 함께 들려도 한쪽으로 정함, 무늬 이야기 '금이'가 붙음, 꾸밈말이 번호·가격을 바꿈.
 import { extractVoice, maskArchiveText, prepareVoiceDictionary, readRenumber, readSegments } from '@livejjim/voice'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
@@ -104,7 +105,9 @@ describe('D-V3-54 흔한 말 별칭(녹음 → 녹금)은 N번 조각 안에서�
     ['녹음 89번 3만 원', [[89, null, 30_000]]],
     ['지금 녹음 중이에요 89번 3만 원', [[89, null, 30_000]]],
     ['89번 3만 원 녹음 90번 2만 원', [[89, null, 30_000], [90, null, 20_000]]],
-    ['89번 녹색금 3만 원', [[89, '녹금', 30_000]]], // 흔한 말이 아닌 별칭은 그대로
+    ['89번 록금 3만 원', [[89, '녹금', 30_000]]], // 흔한 말이 아닌 별칭은 그대로
+    ['89번 높금 3만 원', [[89, '녹금', 30_000]]], // 흔한 말이 아닌 별칭은 그대로
+    ['89번 녹색금 3만 원', [[89, '녹색금', 30_000]]], // D-V3-92: 녹색금은 녹금의 별칭이 아니라 다른 이름
   ])('"%s"', (text, want) => {
     expect(picks(text)).toEqual(want)
   })
@@ -229,5 +232,103 @@ describe('음성 기록 가리기 (maskArchiveText, D-V3-56·R-21 4)', () => {
       { numRuns: 500 },
     )
     for (const x of [null, undefined, 3, {}, []]) expect(maskArchiveText(x)).toBe('')
+  })
+})
+
+describe('D-V3-92 녹색금·바이칼녹색금은 녹금·바이칼녹금과 다른 이름', () => {
+  const picks = (text: string) => readSegments(text, { dictionary: DICT, final: true }).picks.map((p) => [p.no, p.name, p.price])
+  it.each([
+    ['430번 녹색금 5만 원', [[430, '녹색금', 50_000]]],
+    ['녹색금 5만 원짜리 430번', [[430, '녹색금', 50_000]]], // 실제 판매자 말 순서
+    ['89번 녹색금이에요 3만 원', [[89, '녹색금', 30_000]]],
+    ['89번 녹색금짜리 3만 원', [[89, '녹색금', 30_000]]],
+    ['89번 녹 색금 3만 원', [[89, '녹색금', 30_000]]], // 공백만 다름
+    ['5번 바이칼녹색금 5만 원', [[5, '바이칼녹색금', 50_000]]],
+    ['5번 바이칼 녹색금 5만 원', [[5, '바이칼녹색금', 50_000]]],
+    ['5번 바이칼 록금 5만 원', [[5, '바이칼녹금', 50_000]]], // 바이칼녹금의 별칭은 그대로
+    ['89번 녹색금 3만 원 90번 녹금 2만 원', [[89, '녹색금', 30_000], [90, '녹금', 20_000]]], // 조각마다 따로
+    ['89번 녹금 3만 원 90번 녹색금 2만 원', [[89, '녹금', 30_000], [90, '녹색금', 20_000]]],
+  ])('"%s"', (text, want) => {
+    expect(picks(text)).toEqual(want)
+  })
+
+  // 한 조각에 두 이름이 함께 들리면 어느 쪽인지 모른다 → 품종 비움, 번호·가격은 그대로
+  it.each([
+    '89번 녹금 녹색금 3만 원', // 실방송 7차 11번 모양
+    '89번 녹색금 녹금 3만 원',
+    '89번 높금 녹색금 3만 원', // 별칭으로 들린 녹금
+    '89번 록금 녹색금 3만 원',
+    '89번 녹금이랑 녹색금 3만 원',
+    '5번 바이칼 녹금 바이칼 녹색금 3만 원',
+  ])('함께 들림 "%s" → 89·5번 · 3만 원 · 품종 비움', (text) => {
+    const got = picks(text)
+    expect(got).toHaveLength(1)
+    expect(got[0]?.[1]).toBeNull()
+    expect(got[0]?.[2]).toBe(30_000)
+    expect([89, 5]).toContain(got[0]?.[0])
+    const r = extractVoice(text, { dictionary: DICT })
+    expect(r.name).toBeNull()
+    expect(r.confidence).not.toBe('HIGH')
+  })
+
+  it('녹색금에 꾸밈말 — 이미 금으로 끝나면 뒤 금을 붙이지 않음, 앞 창은 붙임', () => {
+    expect(picks('89번 녹색금 금이에요 3만 원')).toEqual([[89, '녹색금', 30_000]])
+    expect(picks('89번 녹색금 색금 3만 원')).toEqual([[89, '녹색금', 30_000]])
+    expect(picks('89번 녹금 색금 3만 원')).toEqual([[89, '녹금', 30_000]]) // 녹금+색금 → 녹색금으로 바뀌지 않음
+    expect(picks('89번 창 녹색금 3만 원')).toEqual([[89, '창녹색금', 30_000]])
+    expect(picks('89번 창 녹금 3만 원')).toEqual([[89, '창녹금', 30_000]]) // 사전 이름 창녹금
+  })
+})
+
+describe('D-V3-91 꾸밈말 — 기본 사전에서도 무늬 이야기 금은 붙이지 않음', () => {
+  // 기본 사전엔 '라울금'이 따로 있다. 바로 옆 '금'에 조사 이·은·을·도가 붙으면 무늬 이야기(R-17 5 꾸밈말의 예 그대로) → 라울
+  it.each([
+    '15번 라울 금이 선명하게 나왔어요 5만 원', // R-17 5의 예문 그대로
+    '15번 라울 금은 다 있어요 5만 원',
+    '15번 라울 금을 보세요 5만 원',
+    '15번 라울 금도 예뻐요 5만 원',
+  ])('"%s" → 라울', (text) => {
+    expect(extractVoice(text, { dictionary: DICT })).toMatchObject({ no: 15, name: '라울', price: 50_000 })
+  })
+  it.each([
+    ['15번 버건디 금이 선명하게 5만 원', '버건디'],
+    ['15번 라울 자 금이에요 5만 원', '라울'], // 군말이 끼면
+    ['15번 라울 5만 원 금이에요', '라울'], // 가격이 끼면
+    ['15번 라울 색감 5만 원', '라울'], // 라울색금은 사전에 없음 → 오류 모양은 쓰지 않음
+    ['15번 버건디 금이래요 5만 원', '버건디금'],
+    ['15번 창 버건디 5만 원', '창버건디'],
+  ])('"%s" → %s', (text, name) => {
+    expect(extractVoice(text, { dictionary: DICT })).toMatchObject({ no: 15, name, price: 50_000 })
+  })
+  it('두 이름이 갈려 비운 것을 꾸밈말로 살리지 않음', () => {
+    expect(extractVoice('15번 버건디 금 라울 금 5만 원', { dictionary: DICT }).name).toBeNull()
+  })
+
+  it('성질: 꾸밈말·녹금/녹색금을 어떻게 섞어도 번호·가격은 꾸밈말 없는 말과 같다', () => {
+    const BASES = ['버건디', '청개구리', '몰디브', '라울', '녹금', '녹색금', '바이칼녹금', '바이칼 녹색금', '녹금 녹색금']
+    const BEFORE = ['', '창 ', '창']
+    const AFTER = ['', ' 금', '금', ' 금이에요', ' 금이래요', ' 색금', ' 색급', ' 세금', ' 금이 선명하게', ' 금은 다 있어요', '짜리']
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 999 }),
+        fc.integer({ min: 1, max: 99 }),
+        fc.constantFrom(...BASES),
+        fc.constantFrom(...BEFORE),
+        fc.constantFrom(...AFTER),
+        fc.boolean(),
+        (no, man, base, before, after, numberFirst) => {
+          const say = (name: string) => (numberFirst ? `${String(no)}번 ${name} ${String(man)}만 원` : `${name} ${String(man)}만 원짜리 ${String(no)}번`)
+          const plain = extractVoice(say(base), { dictionary: DICT })
+          const decorated = extractVoice(say(`${before}${base}${after}`), { dictionary: DICT })
+          expect({ no: decorated.no, price: decorated.price }, say(`${before}${base}${after}`)).toEqual({ no: plain.no, price: plain.price })
+          expect(decorated.no).toBe(no)
+          expect(decorated.price).toBe(man * 10_000)
+          // 붙인 이름이 나와도 들린 사전 이름·꾸밈말 글자뿐 (잡담 글자가 품종 칸에 들어가지 않음)
+          if (decorated.name !== null) expect(decorated.name).toMatch(/^[가-힣]+$/)
+          if (decorated.name !== null) expect(decorated.name).not.toMatch(/선명|있어요|이에요|이래요|짜리/)
+        },
+      ),
+      { numRuns: 400 },
+    )
   })
 })
