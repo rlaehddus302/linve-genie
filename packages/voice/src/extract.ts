@@ -56,6 +56,8 @@ export const ENDINGS: readonly string[] = Object.freeze([
   '인데',
 ])
 const ENDINGS_SHORT_FIRST: readonly string[] = [...ENDINGS].sort((a, b) => a.length - b.length)
+/** 읽는 모양에만 더 떼는 끝말 (`이고요`·`이구요` — 말끝 "~이고요") */
+export const FORM_EXTRA_ENDINGS: readonly string[] = Object.freeze(['이고요', '이구요'])
 /** 토큰 끝에서 지우는 문장 부호 (R-17 1 — V3: 유니코드 늘임표 `…`도, TD-V3-007) */
 const TRAILING_PUNCTUATION = new Set(['.', ',', '?', '!', '~', '…'])
 /** 한자어 수사 글자 (R-17 3) */
@@ -119,6 +121,13 @@ export function readingForms(token: string): string[] {
   const forms = [token]
   for (const ending of ENDINGS_SHORT_FIRST) {
     if (token.length > ending.length && token.endsWith(ending)) forms.push(token.slice(0, -ending.length))
+  }
+  // 실방송 V3: "색금이고요"·"309번이고요" — R-17 2 목록(ENDINGS, 가리기·서버가 같은 목록을 씀)은 그대로 두고 읽는 모양에만 더한다
+  for (const ending of FORM_EXTRA_ENDINGS) {
+    if (token.length > ending.length && token.endsWith(ending)) {
+      const form = token.slice(0, -ending.length)
+      if (!forms.includes(form)) forms.push(form)
+    }
   }
   return forms
 }
@@ -194,6 +203,20 @@ function isSplitNumber(previous: string | undefined, x: string): boolean {
 }
 
 /**
+ * `번` 바로 뒤에만 더 받는 끝말 (실방송 V3: "309번이고요"). R-17 2 끝말 목록(ENDINGS)은 그대로 두고 붙여 쓴 번호 표시에서만 더 뗀다.
+ * `번으로`·`번부터`(옮기기·범위 말)는 넣지 않는다.
+ */
+export const BEON_EXTRA_ENDINGS: readonly string[] = Object.freeze(['이고요', '이구요'])
+
+/** 번호 표시를 찾을 읽는 모양: 읽는 모양 + 토큰 그대로에서 `번` 뒤 더 받는 끝말을 뗀 모양 */
+function markerForms(forms: readonly string[]): readonly string[] {
+  const token = forms[0]
+  if (token === undefined) return forms
+  const extra = BEON_EXTRA_ENDINGS.filter((ending) => token.endsWith(BEON + ending)).map((ending) => token.slice(0, -ending.length))
+  return extra.length === 0 ? forms : [...forms, ...extra.filter((form) => !forms.includes(form))]
+}
+
+/**
  * 번호 표시 찾기 (R-17 3). R-21 7(V1)도 같은 코드를 쓴다: `skip`이 참인 토큰(맡은 토큰)은 표시 토큰이 될 수 없다.
  * 끊어 말한 번호 검사의 앞 토큰은 맡은 토큰이어도 그대로 본다(R-21 7).
  */
@@ -226,7 +249,7 @@ export function findNumberMarkers(
   tokens.forEach((token, i) => {
     if (skip(i)) return
     // 붙여 씀: 읽는 모양 하나가 `X번` (앞 토큰 = 표시 토큰의 앞 토큰)
-    for (const form of forms[i] ?? []) {
+    for (const form of markerForms(forms[i] ?? [])) {
       if (form.length < 2 || !form.endsWith(BEON)) continue
       const x = form.slice(0, -BEON.length)
       if (numberValue(x) === null) continue
@@ -399,9 +422,23 @@ interface WonLine {
   readonly value: number | null
 }
 
+/**
+ * `원` 바로 뒤에만 더 받는 끝말 (실방송 V3: "5만 원으로"·"5만 원부터"·"5만 원이고요"). R-17 2 끝말 목록(ENDINGS)은 그대로 두고
+ * 원 가격 줄의 `원` 토큰에서만 한 번 더 뗀다 — 다른 토큰의 읽는 모양·품종 창은 바뀌지 않는다.
+ */
+export const WON_EXTRA_ENDINGS: readonly string[] = Object.freeze(['으로', '부터', '이고요', '이구요'])
+
 /** 토큰의 읽는 모양 가운데 `원`으로 끝나고 `원` 앞 글이 비었거나 금액 글자뿐인 첫 모양 */
 function wonForm(forms: readonly string[]): string | null {
-  return forms.find((form) => form.endsWith(WON) && isAmountText(form.slice(0, -WON.length))) ?? null
+  const isWon = (form: string): boolean => form.endsWith(WON) && isAmountText(form.slice(0, -WON.length))
+  const found = forms.find(isWon)
+  if (found !== undefined) return found
+  const token = forms[0]
+  if (token === undefined) return null
+  for (const ending of WON_EXTRA_ENDINGS) {
+    if (token.length > ending.length && token.endsWith(ending) && isWon(token.slice(0, -ending.length))) return token.slice(0, -ending.length)
+  }
+  return null
 }
 
 /** 줄 글을 읽은 값: 공백으로 이어 R-14, 안 되면(토큰 둘 이상) 숫자를 한자어로 바꿔 붙여 R-14. 100원 미만·안 읽힘은 null */
@@ -480,6 +517,23 @@ const BARE_NUMBER_ENDINGS: readonly string[] = ['은', '는', '이', '가', '요
 
 const isUnitToken = (token: string | undefined): boolean => token !== undefined && readingForms(token).some((form) => BARE_NUMBER_UNITS.includes(form) || BARE_NUMBER_UNITS.includes(form.toLowerCase()))
 
+/** 값을 묻는 말 (실방송 V3: "요거 얼마 드릴까 50" — 50은 번호가 아니라 가격을 생각하는 말). 이 낱말로 시작하는 토큰이 */
+export const PRICE_ASK_PREFIX = '얼마'
+/** 바로 앞 몇 토큰 안에 있으면 '번' 없는 번호 후보가 아니다 */
+const PRICE_ASK_REACH = 3
+const afterPriceAsk = (tokens: readonly string[], i: number): boolean => tokens.slice(Math.max(0, i - PRICE_ASK_REACH), i).some((token) => token.startsWith(PRICE_ASK_PREFIX))
+
+/** 같은 조각 뒤쪽(사이에 다른 수 없이)에 그 수를 계수로 한 금액 토큰(`25만`·`25만원`·`이십오만`·`5천`)이 있는가 — '번' 없는 수가 가격을 되풀이한 것 */
+function repeatsPrice(tokens: readonly string[], i: number, value: number): boolean {
+  // 같은 조각 안에서 뒤로 끝까지 본다 — 사이에 다른 수(숫자로 시작하는 토큰·'N번')가 오면 멈춘다 (실방송 "15 응 이모 … 자 15만 원")
+  for (let j = i + 1; j < tokens.length; j++) {
+    const token = tokens[j] as string
+    if (/[만천]/.test(token) && leadingCoefficient(token) === value) return true
+    if (/^[0-9]/.test(token) || readingForms(token).some((form) => form.endsWith(BEON) && form.length > 1)) return false
+  }
+  return false
+}
+
 export interface BareNumbers {
   /** 후보 토큰 위치 → 값 */
   readonly values: ReadonlyMap<number, number>
@@ -487,28 +541,36 @@ export interface BareNumbers {
   readonly split: boolean
 }
 
-/** '번' 없는 번호 후보 (R-17 3, D-V3-23): 따로 선 수 낱말(끝말 은·는·이·가·요 허용)이고 바로 다음 토큰이 단위 낱말이 아닌 것 */
+/** '번' 없는 번호 후보 (R-17 3, D-V3-23): 따로 선 수 낱말(끝말 은·는·이·가·요 허용)이고 바로 다음 토큰이 단위 낱말이 아니고 바로 앞 3토큰 안에 `얼마…`가 없는 것 */
 export function findBareNumbers(tokens: readonly string[], blocked: (i: number) => boolean, maxNumber: number): BareNumbers {
   const values = new Map<number, number>()
   let split = false
+  let repeated = false
   tokens.forEach((token, i) => {
-    if (blocked(i) || isUnitToken(tokens[i + 1])) return
+    if (blocked(i) || isUnitToken(tokens[i + 1]) || afterPriceAsk(tokens, i)) return
     for (const form of [token, ...BARE_NUMBER_ENDINGS.filter((ending) => token.length > ending.length && token.endsWith(ending)).map((ending) => token.slice(0, -ending.length))]) {
       const value = plainNumberValue(form, maxNumber)
       if (value === null) continue
+      // 가격을 두 번 말한 것 (실방송 V3: "너무예쁜데 25 자 25만 원" — 25는 번호가 아니다)
+      if (repeatsPrice(tokens, i, value)) {
+        repeated = true
+        return
+      }
       values.set(i, value)
       const previous = tokens[i - 1]
       if (previous !== undefined && parseKoreanNumber(previous + form) !== null) split = true
       return
     }
   })
+  // 가격 되풀이로 뺀 수가 있는데 다른 수가 남으면 애매하다 (`25 1 25만 원` — 1번으로 정하지 않는다)
+  if (repeated && values.size > 0) split = true
   return { values, split }
 }
 
 /** 자리 읽기('번' 없음)가 번호 후보 조건(R-17 3)에 맞는가 */
 function isBareDigitCandidate(tokens: readonly string[], reading: DigitReading): boolean {
   const last = reading.tokens[reading.tokens.length - 1] as number
-  if (isUnitToken(tokens[last + 1])) return false
+  if (isUnitToken(tokens[last + 1]) || afterPriceAsk(tokens, reading.tokens[0] as number)) return false
   if (reading.tokens.length !== 1) return true
   const token = tokens[last] as string
   return isThreeHangulDigits(token) || BARE_NUMBER_ENDINGS.some((ending) => token.endsWith(ending) && isThreeHangulDigits(token.slice(0, -ending.length)))
@@ -881,7 +943,7 @@ export function listNumberMarkers(tokens: readonly string[], punct: readonly boo
   const isSplitByMerge = (marker: NumberMarker): boolean => bySplit.has(marker.start)
   for (let i = 0; i < tokens.length; i++) {
     if (digitTokens.has(i)) continue
-    const attached = (forms[i] ?? []).find((form) => form.length >= 2 && form.endsWith(BEON) && numberValue(form.slice(0, -BEON.length)) !== null)
+    const attached = markerForms(forms[i] ?? []).find((form) => form.length >= 2 && form.endsWith(BEON) && numberValue(form.slice(0, -BEON.length)) !== null)
     if (attached !== undefined) {
       take(i, attached.slice(0, -BEON.length), i)
       continue

@@ -257,8 +257,26 @@ export {
   type SpeechState,
 } from './speech.ts'
 export {
+  OVERLAP_PLANNED_RESTART,
+  PLANNED_END_WAIT_MS,
+  PLANNED_RESTART_AFTER_MS,
+  START_RETRY_MAX,
+  START_RETRY_MS,
   WebSpeechEngine,
   createWebSpeechEngine,
+  formatSpeechGap,
+  formatSpeechDiagnostic,
+  readStallMs,
+  END_WAIT_MS,
+  STALL_BACKOFF_AFTER,
+  STALL_MIN_MS,
+  STALL_MS,
+  type SpeechDiagnostic,
+  type SpeechStallCause,
+  type OnDeviceStatus,
+  type SpeechGap,
+  type SpeechGapReason,
+  type SpeechTimers,
   type RecognitionConstructor,
   type RecognitionErrorEventLike,
   type RecognitionLike,
@@ -344,3 +362,16 @@ export { readRenumber, type Renumber } from './renumber.ts'
 export { WAITING_MS, stepWaiting, waitingExpired, type WaitingNumber, type WaitingPiece, type WaitingResult } from './waiting.ts'
 // V3 중간 결과 안정 (R-17 8, D-V3-71)
 export { INTERIM_STABLE_MS, interimCandidate, interimFallback, trackInterim, type InterimCandidate, type InterimSeen } from './interim.ts'
+// V3 빠진 0 되살리기 (실방송 "36번" = 306번)
+export { DROPPED_ZERO_NEAR, DROPPED_ZERO_RECENT, bareNumberFits, fixDroppedZero, type DroppedZeroFix, type DroppedZeroInput, type DroppedZeroProduct } from './number-context.ts'
+// V3 번호 없이 가격만 고쳐 말함 (실방송 "55만 원" 뒤 "50만 원")
+export { NAME_ONLY_FILL_MS, PRICE_ONLY_FIX_MS, nameOnlyFill, priceOnlyFix, type NameOnlyInput, type PriceOnlyFix, type PriceOnlyInput } from './price-only.ts'
+// V3 굳은 중간 글 (사용자 결정: 1초 넘게 그대로인 낱말은 최종처럼)
+export { STABLE_EMPTY, STABLE_MS, finishStable, stepStable, type StableState, type StableStep } from './stable.ts'
+// V3 앞 말 맥락의 품종 (사용자 요구: 바이칼녹금이라고 했는데 녹금으로)
+export { CONTEXT_VARIETY_MIN, varietiesIn, varietyFromContext } from './context-variety.ts'
+// V3 한 글자 다른 사전 이름 (야래양·야래학 → 야래향) · 값을 묻는 말 뒤의 수는 번호가 아님
+export { ONE_SYLLABLE_MIN, oneSyllableName } from './segments.ts'
+export { PRICE_ASK_PREFIX } from './extract.ts'
+// V3 같은 번호 가격 고침 문턱 (실방송 333번 35만 → 33만 → 30만)
+export { PRICE_GATE_MS, PRICE_GATE_WORDS, gateSamePrice, hasPriceCorrection, type HeardPrice, type PriceGateInput, type PriceGateResult } from './price-gate.ts'
