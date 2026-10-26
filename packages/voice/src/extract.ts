@@ -528,7 +528,7 @@ function repeatsPrice(tokens: readonly string[], i: number, value: number): bool
   // 같은 조각 안에서 뒤로 끝까지 본다 — 사이에 다른 수(숫자로 시작하는 토큰·'N번')가 오면 멈춘다 (실방송 "15 응 이모 … 자 15만 원")
   for (let j = i + 1; j < tokens.length; j++) {
     const token = tokens[j] as string
-    if (/[만천]/.test(token) && leadingCoefficient(token) === value) return true
+    if (/[만천]/.test(token) && priceCoefficient(token) === value) return true
     if (/^[0-9]/.test(token) || readingForms(token).some((form) => form.endsWith(BEON) && form.length > 1)) return false
   }
   return false
@@ -584,6 +584,17 @@ function leadingCoefficient(token: string): number | null {
   if ([...token].every((char) => '십백천만원'.includes(char))) return null
   const head = token.split(/[만천원]/)[0] ?? ''
   return head === '' ? null : parseKoreanNumber(head)
+}
+
+/**
+ * 가격 되풀이(repeatsPrice)에서 보는 금액 토큰의 계수: leadingCoefficient와 같되, 단위 글자만인 한글 금액(`십만`·`백만원`)은
+ * 만 앞의 단위 글자를 수로 읽는다(`십만` → 10, `백만` → 100) — "10 자 십만 원"을 "10 자 10만 원"과 같게 (TD-V3-014).
+ * 단위 하나만인 토큰(`만`·`천`·`만원`)은 여전히 계수 없음.
+ */
+function priceCoefficient(token: string): number | null {
+  const unitOnly = /^([십백천]+)만원?$/.exec(token)
+  if (unitOnly !== null) return parseKoreanNumber(unitOnly[1] as string)
+  return leadingCoefficient(token)
 }
 
 /**
