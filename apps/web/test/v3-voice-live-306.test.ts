@@ -289,3 +289,39 @@ describe('굳은 중간 글 (사용자 결정 — 최종이 늦어도 1초 지�
     expect(h.voice.getSnapshot().interim).toBe('정말')
   })
 })
+
+describe('앞 말 맥락의 품종 (사용자 요구: 바이칼녹금이라고 했는데 녹금으로)', () => {
+  it('앞 덩어리에 "바이칼녹금"이 들렸으면 "312번 녹금 5만 원"은 바이칼녹금으로', async () => {
+    const h = await ready()
+    say('자 바이칼 바이칼녹금 이거 봐 주세요')
+    at(3_000)
+    say('312번 녹금 5만 원')
+    expect(reg(h)).toEqual([[312, 50_000, '바이칼녹금']])
+  })
+
+  it('이름 없이 등록할 때는 앞 말에 두 번 이상 들린 사전 이름만, 앞 상품의 품종은 넘어오지 않는다', async () => {
+    const h = await ready()
+    say('304번 몰디브 2만 원')
+    at(3_000)
+    say('305번 2만 원')
+    expect(reg(h).at(-1)).toEqual([305, 20_000, ''])
+    at(6_000)
+    say('자 다음은 바이칼녹금 바이칼녹금이에요')
+    at(9_000)
+    say('306번 5만 원')
+    expect(reg(h).at(-1)).toEqual([306, 50_000, '바이칼녹금'])
+    at(12_000)
+    say('자 청사과 예쁘죠')
+    at(15_000)
+    say('307번 5만 원')
+    expect(reg(h).at(-1)).toEqual([307, 50_000, ''])
+  })
+
+  it('1분이 지난 말은 보지 않는다', async () => {
+    const h = await ready()
+    say('바이칼녹금 바이칼녹금')
+    at(62_500)
+    say('312번 5만 원')
+    expect(reg(h)).toEqual([[312, 50_000, '']])
+  })
+})

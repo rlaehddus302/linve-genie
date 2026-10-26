@@ -812,6 +812,8 @@ export class VoiceController {
   #lastHeardNo: number | null = null
   /** 이 덩어리에서 빠진 0을 되살린 원래 번호 (36 → 306의 36) */
   readonly #zeroRaw = new Set<number>()
+  /** 앞 덩어리들의 말 (앞 상품 번호·가격 뒤 ~ 지금, 60초) — 등록 품종을 맥락으로 고를 때 (음성 패키지 varietyFromContext) */
+  #contextTexts: { readonly text: string; readonly at: number }[] = []
   /** 차례를 기다리는 큰 글자 칸 안내 (D-V3-61) */
   /** 음성으로 등록·고친 번호와 시각 (D-V3-59 고쳐 말함) */
   /** 번호마다 마지막으로 음성으로 등록·고친 시각 (D-V3-59, TD-V3-005) */
@@ -1001,6 +1003,7 @@ export class VoiceController {
     this.#clearStable()
     this.#interimNos = []
     this.#lastHeardNo = null
+    this.#contextTexts = []
     this.#dueCards.clear()
     this.#dueInterim.length = 0
     this.#phraseInstantOff = false
@@ -1241,6 +1244,29 @@ export class VoiceController {
     return this.#priceOnly(work, module, rest, `price@${String(start)}`)
   }
 
+  /** 앞 덩어리 말로 품종 고르기 (이름만 — 사전 이름만, 애매하면 그대로) */
+  #contextName(module: VoiceModule, name: string | null): string | null {
+    if (typeof module.varietyFromContext !== 'function') return name
+    const now = this.#host.now()
+    const context = this.#contextTexts.filter((item) => now - item.at <= 60_000).map((item) => item.text)
+    if (context.length === 0) return name
+    try {
+      return module.varietyFromContext({ name, context, dictionary: this.#prepared(module) })
+    } catch {
+      return name
+    }
+  }
+
+  /** 덩어리가 끝났을 때 맥락 말을 고친다: 등록한 덩어리는 마지막 조각 뒤 말만, 번호만 들린 덩어리는 비움, 번호 없는 덩어리는 더함 */
+  #noteContext(module: VoiceModule, text: string, picked: boolean, otherNumber: boolean, now: number): void {
+    const fresh = this.#contextTexts.filter((item) => now - item.at <= 60_000)
+    if (picked) {
+      const rest = this.#readSegments(module, text, true)?.rest ?? ''
+      this.#contextTexts = rest.trim() === '' ? [] : [{ text: rest, at: now }]
+    } else if (otherNumber) this.#contextTexts = []
+    else this.#contextTexts = [...fresh, { text, at: now }].slice(-10)
+  }
+
   #clearPhraseTimer(): void {
     if (this.#phraseTimer !== null) clearTimeout(this.#phraseTimer)
     this.#phraseTimer = null
@@ -1445,6 +1471,7 @@ export class VoiceController {
     const unhandled = (v3?.heardNumbers ?? []).filter((no) => !handledNos.has(no) && !this.#zeroRaw.has(no))
     const lastUnhandled = unhandled.at(-1)
     if (lastUnhandled !== undefined) this.#lastHeardNo = lastUnhandled
+    this.#noteContext(module, chunk.text, handledNos.size > 0, unhandled.length > 0, now)
     this.#zeroRaw.clear()
     this.#pickDone.clear()
     this.#instantNos = new Map()
@@ -2065,7 +2092,9 @@ export class VoiceController {
       let done: InstantDone
       if (existing === null) {
         this.#instantNos.set(pick.no, 'register')
-        done = this.#registerInstant(work, { no: pick.no, price: pick.price, name: pick.name, nameNeedsCheck: false, numberFrom: pick.numberFrom }, text)
+        // 덩어리 첫 조각의 품종은 앞 덩어리 말(1분 안)도 본다 — "바이칼녹금 … / 312번 녹금 5만 원" → 바이칼녹금 (이름만)
+        const name = raw === seg.picks[0] ? this.#contextName(module, pick.name) : pick.name
+        done = this.#registerInstant(work, { no: pick.no, price: pick.price, name, nameNeedsCheck: false, numberFrom: pick.numberFrom }, text)
       } else if (existing.pending === true) {
         // 보내는 중인 번호 — 등록이 끝난 뒤 같은 번호 판단 (D-V3-19)
         this.#setPending(pick.no, { after: { heard, auto: true } })
