@@ -549,19 +549,25 @@ export interface BareNumbers {
 export function findBareNumbers(tokens: readonly string[], blocked: (i: number) => boolean, maxNumber: number): BareNumbers {
   const values = new Map<number, number>()
   let split = false
+  let repeated = false
   tokens.forEach((token, i) => {
     if (blocked(i) || isUnitToken(tokens[i + 1]) || afterPriceAsk(tokens, i)) return
     for (const form of [token, ...BARE_NUMBER_ENDINGS.filter((ending) => token.length > ending.length && token.endsWith(ending)).map((ending) => token.slice(0, -ending.length))]) {
       const value = plainNumberValue(form, maxNumber)
       if (value === null) continue
       // 가격을 두 번 말한 것 (실방송 V3: "너무예쁜데 25 자 25만 원" — 25는 번호가 아니다)
-      if (repeatsPrice(tokens, i, value)) return
+      if (repeatsPrice(tokens, i, value)) {
+        repeated = true
+        return
+      }
       values.set(i, value)
       const previous = tokens[i - 1]
       if (previous !== undefined && parseKoreanNumber(previous + form) !== null) split = true
       return
     }
   })
+  // 가격 되풀이로 뺀 수가 있는데 다른 수가 남으면 애매하다 (`25 1 25만 원` — 1번으로 정하지 않는다)
+  if (repeated && values.size > 0) split = true
   return { values, split }
 }
 
