@@ -119,6 +119,20 @@ function dictionaryHas(options: SegmentOptions, name: string): boolean {
   return Array.isArray(dictionary) && dictionary.some((item) => typeof item === 'string' && item.split(' ').join('') === name.split(' ').join(''))
 }
 
+/** 이어진 토큰 1~4개(군말 없이, 마지막 토큰은 그대로 또는 끝말 뗀 모양)를 공백 없이 이은 글이 사전 이름·별칭과 같은 곳이 있는가 */
+function hearsDictionaryName(tokens: readonly string[], options: SegmentOptions): boolean {
+  for (let start = 0; start < tokens.length; start++) {
+    let head = ''
+    for (let end = start; end < tokens.length && end < start + 4; end++) {
+      const token = tokens[end] as string
+      if (isWindowFiller(token)) break
+      for (const form of readingForms(token)) if (dictionaryHas(options, head + form)) return true
+      head += token
+    }
+  }
+  return false
+}
+
 /** 조각 안 흔한 말 별칭(`녹음` → 녹금): 토큰(그대로 또는 끝말 뗀 모양)이 별칭이면 그 이름 */
 function commonAliasIn(tokens: readonly string[], options: SegmentOptions): string | null {
   for (const token of tokens) {
@@ -195,7 +209,10 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         const reading = analyzeSentence(tokens.slice(lo, line.end + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
         // 흔한 말 별칭(`녹음` → 녹금)·한 글자 다른 이름(`야래양` → 야래향)은 'N번'과 원 가격 사이에서만 (D-V3-54)
         const slot = tokens.slice(m.last + 1, line.start)
-        const name = reading.reading.extraction.name ?? commonAliasIn(slot, options) ?? oneSyllableName(slot, options)
+        // 조각 범위에서 사전 이름(공백만 다른 맞춤)을 들었는데 이름이 비었으면 두 이름이 갈린 것 — 흔한 말 별칭·한 글자 다른 이름으로 채우지 않는다
+        // (R-17 8 "사전 이름도 흔한 말 별칭도 못 찾았으면", D-V3-92 `89번 녹금 녹색금` → 비움 — 녹색금이 창색금과 한 글자 다르다)
+        const heardName = reading.reading.extraction.name === null && hearsDictionaryName(tokens.slice(lo, line.end + 1), options)
+        const name = reading.reading.extraction.name ?? (heardName ? null : (commonAliasIn(slot, options) ?? oneSyllableName(slot, options)))
         pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: null, bigChange: isBigChange(null, line.value) })
         continue
       }

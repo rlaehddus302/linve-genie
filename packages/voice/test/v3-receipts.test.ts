@@ -75,3 +75,29 @@ describe("이름 끝 '색급'은 '색금'으로", () => {
     expect(nameOf('180번 상관 세금 자 요 아이 자 3강색급 35만 원')).toEqual([[180, 350_000, '삼광색금']])
   })
 })
+
+describe('녹색금은 녹금과 다른 이름 (D-V3-92)', () => {
+  it('녹색금·바이칼녹색금은 따로 이름이고 녹금·바이칼녹금의 별칭이 아니다', () => {
+    const names = new Set(DEFAULT_VARIETIES.map((item) => item.name))
+    expect(names.has('녹색금')).toBe(true)
+    expect(names.has('바이칼녹색금')).toBe(true)
+    expect(DEFAULT_VARIETIES.find((item) => item.name === '바이칼녹금')?.aliases).not.toContain('바이칼 녹색금')
+  })
+  it('말한 이름 그대로', () => {
+    expect(nameOf('430번 녹색금 5만 원')).toEqual([[430, 50_000, '녹색금']])
+    expect(nameOf('89번 녹금 7만 원')).toEqual([[89, 70_000, '녹금']])
+    expect(nameOf('5번 바이칼 녹색금 5만 원')).toEqual([[5, 50_000, '바이칼녹색금']])
+    expect(nameOf('5번 바이칼녹금 5만 원')).toEqual([[5, 50_000, '바이칼녹금']])
+  })
+  it('한 조각에 녹금·녹색금이 함께 들리면 품종을 비운다 — 한 글자 다른 이름(녹색금 ↔ 창색금)으로 채우지 않는다', () => {
+    expect(nameOf('89번 녹금 녹색금 7만 원')).toEqual([[89, 70_000, null]])
+    expect(nameOf('89번 녹색금 녹금 7만 원')).toEqual([[89, 70_000, null]])
+    expect(nameOf('89번 록금 녹색금 7만 원')).toEqual([[89, 70_000, null]])
+    expect(nameOf('녹금 녹색금 89번 7만 원')).toEqual([[89, 70_000, null]])
+    expect(nameOf('5번 바이칼 녹금 바이칼 녹색금 5만 원')).toEqual([[5, 50_000, null]])
+  })
+  it('사전 이름을 못 들었을 때만 한 글자 다른 이름·흔한 말 별칭으로 채운다 (그대로)', () => {
+    expect(nameOf('89번 야래양 7만 원')).toEqual([[89, 70_000, '야래향']])
+    expect(nameOf('89번 녹음 7만 원')).toEqual([[89, 70_000, '녹금']])
+  })
+})
