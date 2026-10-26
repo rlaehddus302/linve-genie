@@ -350,3 +350,5 @@ export { DROPPED_ZERO_NEAR, DROPPED_ZERO_RECENT, fixDroppedZero, type DroppedZer
 export { PRICE_ONLY_FIX_MS, priceOnlyFix, type PriceOnlyFix, type PriceOnlyInput } from './price-only.ts'
 // V3 굳은 중간 글 (사용자 결정: 1초 넘게 그대로인 낱말은 최종처럼)
 export { STABLE_EMPTY, STABLE_MS, finishStable, stepStable, type StableState, type StableStep } from './stable.ts'
+// V3 앞 말 맥락의 품종 (사용자 요구: 바이칼녹금이라고 했는데 녹금으로)
+export { CONTEXT_VARIETY_MIN, varietiesIn, varietyFromContext } from './context-variety.ts'
