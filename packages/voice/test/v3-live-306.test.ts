@@ -1,15 +1,15 @@
 // 실방송 V3 (306번 방송): 가격만 고쳐 말함 · `원`/`번` 뒤 끝말 · 사전 이름
 import { describe, expect, it } from 'vitest'
-import { NAME_ONLY_FILL_MS, PRICE_ONLY_FIX_MS, nameOnlyFill, prepareVoiceDictionary, priceOnlyFix, readRegistration, readSegments, type NameOnlyInput, type PriceOnlyInput } from '../src/index.ts'
+import { NAME_ONLY_FILL_MS, PRICE_ONLY_FIX_MS, hasPriceCorrection, nameOnlyFill, prepareVoiceDictionary, priceOnlyFix, readRegistration, readSegments, type NameOnlyInput, type PriceOnlyInput } from '../src/index.ts'
 
 const DICT = prepareVoiceDictionary()
 const pick = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.price, p.name])
 
-describe('priceOnlyFix — "309번 … 55만 원" 등록 뒤 "50만 원"', () => {
+describe('priceOnlyFix — "309번 … 55만 원" 등록 뒤 "아니 50만 원" (정정 낱말이 있을 때만, 실방송 10:14)', () => {
   const base: PriceOnlyInput = {
     wonPrices: [500_000],
     heardNumbers: [],
-    correction: false,
+    correction: true,
     lastRegistered: { no: 309, at: 1_000 },
     lastHeardNo: 309,
     waiting: false,
@@ -33,19 +33,22 @@ describe('priceOnlyFix — "309번 … 55만 원" 등록 뒤 "50만 원"', () =>
     expect(priceOnlyFix({ ...base, heardNumbers: [310] })).toBeNull()
     expect(priceOnlyFix({ ...base, waiting: true })).toBeNull()
   })
-  it('가격이 같거나·원 가격이 둘이거나 없거나·정정 낱말이 있거나·상품이 없으면 아니다', () => {
+  it('가격이 같거나·원 가격이 둘이거나 없거나·정정 낱말이 없거나·상품이 없으면 아니다', () => {
     expect(priceOnlyFix({ ...base, product: { price: 500_000, claimCount: 0 } })).toBeNull()
     expect(priceOnlyFix({ ...base, wonPrices: [500_000, 450_000] })).toBeNull()
     expect(priceOnlyFix({ ...base, wonPrices: [] })).toBeNull()
-    expect(priceOnlyFix({ ...base, correction: true })).toBeNull()
+    expect(priceOnlyFix({ ...base, correction: false })).toBeNull()
     expect(priceOnlyFix({ ...base, product: null })).toBeNull()
     expect(priceOnlyFix({ ...base, lastRegistered: null })).toBeNull()
   })
-  it('실방송 글: "50만 원"·"아 50만 원"·"50만 원이요"는 번호 없이 원 가격 하나', () => {
-    for (const text of ['50만 원', '아 50만 원', '50만 원이요', '50만 원으로']) {
+  it('정정 낱말이 있는 글만 고침: "아니 50만 원"·"55만 원 말고 50만 원"은 고치고, "50만 원"·"아 50만 원"·실방송 "요거 요거 이렇게 5만 원"은 아니다', () => {
+    const fix = (text: string) => {
       const r = readRegistration(text, { dictionary: DICT, final: true, maxNumber: 999 })
-      expect(priceOnlyFix({ ...base, wonPrices: r.wonPrices, heardNumbers: r.heardNumbers, correction: r.correction })).toEqual({ no: 309, price: 500_000, auto: true })
+      return priceOnlyFix({ ...base, wonPrices: r.wonPrices, heardNumbers: r.heardNumbers, correction: hasPriceCorrection(text) })
     }
+    expect(fix('아니 50만 원')).toEqual({ no: 309, price: 500_000, auto: true })
+    expect(fix('아니고 50만 원이요')).toEqual({ no: 309, price: 500_000, auto: true })
+    for (const text of ['50만 원', '아 50만 원', '50만 원이요', '요거 요거 이렇게 5만 원', '어 자 30만 원이에요']) expect(fix(text)).toBeNull()
   })
 })
 

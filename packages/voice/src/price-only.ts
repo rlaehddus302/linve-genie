@@ -8,7 +8,7 @@ export interface PriceOnlyInput {
   readonly wonPrices: readonly number[]
   /** 이 조각에서 들린 번호 (하나라도 있으면 가격만 고쳐 말함이 아니다) */
   readonly heardNumbers: readonly number[]
-  /** 정정·취소 낱말이 있는가 (있으면 다른 규칙이 받는다) */
+  /** 정정 낱말(아니·아니고·말고·정정·잘못·다시 …)이 있는가 — 있어야만 고친다 (실방송 10:14) */
   readonly correction: boolean
   /** 이 콘솔이 마지막으로 음성으로 새로 등록한 번호와 시각 */
   readonly lastRegistered: { readonly no: number; readonly at: number } | null
@@ -70,7 +70,7 @@ const isTime = (value: unknown): value is number => typeof value === 'number' &&
 
 /**
  * 가격만 들린 조각을 마지막 음성 등록 상품의 가격 고침으로 볼지 (아니면 null):
- * 번호 없음 · '원' 가격 정확히 하나 · 정정·취소 낱말 없음 · 기다리는 번호 없음 ·
+ * 번호 없음 · '원' 가격 정확히 하나 · 정정 낱말 있음(없으면 다음 상품 가격일 수 있다) · 기다리는 번호 없음 ·
  * 마지막 등록 뒤 30초 안 · 그 뒤 다른 번호가 들리지 않음(마지막으로 들린 번호 = 마지막 등록 번호) · 상품이 판매 중이고 가격이 다름.
  * 찜이 없으면 auto(바로 고침, 되돌리기), 찜이 있으면 묻기.
  */
@@ -79,7 +79,8 @@ export function priceOnlyFix(input: PriceOnlyInput): PriceOnlyFix | null {
     if (!Array.isArray(input.heardNumbers) || input.heardNumbers.length > 0) return null
     if (!Array.isArray(input.wonPrices) || input.wonPrices.length !== 1) return null
     const price = input.wonPrices[0]
-    if (!isNo(price) || input.correction || input.waiting) return null
+    // 실방송 10:14: 판매자는 다음 상품 가격을 번호보다 먼저 말한다 — 정정 낱말이 있을 때만 고침이다
+    if (!isNo(price) || input.correction !== true || input.waiting) return null
     const last = input.lastRegistered
     if (last === null || !isNo(last.no) || !isTime(last.at) || !isTime(input.now)) return null
     if (input.now < last.at || input.now - last.at > PRICE_ONLY_FIX_MS) return null
