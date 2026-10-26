@@ -52,6 +52,7 @@ class FakeRecognition {
 
 function harness(settings: unknown, patch: Partial<VoiceHost> = {}) {
   const gaps: ArchiveGap[] = []
+  const written: unknown[] = []
   const host: VoiceHost = {
     load: async () => voiceModule,
     now: () => Date.now(),
@@ -63,7 +64,9 @@ function harness(settings: unknown, patch: Partial<VoiceHost> = {}) {
     readConsent: () => true,
     writeConsent: () => {},
     readSettings: () => settings,
-    writeSettings: () => {},
+    writeSettings: (value) => {
+      written.push(value)
+    },
     register: () => {},
     focusQuick: () => {},
     archiveGap: (gap) => {
@@ -71,7 +74,7 @@ function harness(settings: unknown, patch: Partial<VoiceHost> = {}) {
     },
     ...patch,
   }
-  return { voice: new VoiceController(host), gaps }
+  return { voice: new VoiceController(host), gaps, written }
 }
 
 async function settle(): Promise<void> {
@@ -93,7 +96,8 @@ afterEach(() => {
 
 describe('인식 끊김 기록', () => {
   it('network로 끝나 0.8초 뒤 다시 들으면 탭 메모리와 기록에 "인식 끊김 0.8초 (network)" — 들은 글은 없다', async () => {
-    const h = harness({ 'voice.archive': true })
+    // 이 시험은 결과 없이 5초를 넘긴다 — 멈춤 지킴이는 길게
+    const h = harness({ 'voice.archive': true, 'voice.stallMs': 60_000 })
     await h.voice.turnOn()
     await settle()
     const first = FakeRecognition.last
@@ -125,10 +129,11 @@ describe('인식 끊김 기록', () => {
   })
 
   it('쉬는 틈 다시 열기는 "다시 시작 중"을 보이지 않고 planned 끊김으로 남는다', async () => {
-    const h = harness({ 'voice.archive': true })
+    const h = harness({ 'voice.archive': true, 'voice.stallMs': 60_000 })
     await h.voice.turnOn()
     await settle()
     const first = FakeRecognition.last
+    first.onaudiostart?.()
     vi.advanceTimersByTime(voiceModule.PLANNED_RESTART_AFTER_MS)
     first.say('15번 라울 만 원')
     expect(first.stops).toBe(1)
@@ -161,6 +166,43 @@ describe('기기 안 인식 (확인만)', () => {
     await h.voice.turnOn()
     await settle()
     expect(h.voice.onDeviceRecognition()).toBe('unsupported')
+    h.voice.dispose()
+  })
+})
+
+describe('멈춤 지킴이 (듣는 중인 채 결과 없음)', () => {
+  it('소리를 받는 중 2초 결과가 없으면 abort하고 같은 순간 새 객체 — "듣는 중" 그대로, 기록에 멈춤·첫 결과 줄', async () => {
+    const h = harness({ 'voice.archive': true })
+    await h.voice.turnOn()
+    await settle()
+    const first = FakeRecognition.last
+    first.onaudiostart?.()
+    vi.advanceTimersByTime(voiceModule.STALL_MS)
+    expect(first.aborts).toBe(1)
+    expect(FakeRecognition.all).toHaveLength(2)
+    expect(FakeRecognition.last.starts).toBe(1)
+    expect(h.voice.getSnapshot().stateLabel).toBe('음성: 듣는 중')
+    expect(h.voice.getSnapshot().error).toBeNull()
+    vi.advanceTimersByTime(200)
+    FakeRecognition.last.onaudiostart?.()
+    vi.advanceTimersByTime(700)
+    FakeRecognition.last.say('15번 라울 만 원')
+    expect(h.gaps.map((g) => g.text)).toEqual(['인식 멈춤 2.0초 → 다시 켬', '인식 끊김 0.2초 (stall)', '다시 켠 뒤 시작 0.2초 · 첫 결과 0.9초 (stall)'])
+    expect(h.voice.recognitionDiagnostics().map((d) => d.kind)).toEqual(['stall', 'first-result'])
+    h.voice.dispose()
+  })
+
+  it('그 기기 저장값 voice.stallMs(1초보다 짧으면 1초)로 바꾸고, 설정을 쓸 때 그 값을 지우지 않는다', async () => {
+    const h = harness({ 'voice.stallMs': 400 })
+    await h.voice.turnOn()
+    await settle()
+    FakeRecognition.last.onaudiostart?.()
+    vi.advanceTimersByTime(999)
+    expect(FakeRecognition.all).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(FakeRecognition.all).toHaveLength(2)
+    h.voice.setArchive(false)
+    expect(h.written.at(-1)).toMatchObject({ 'voice.stallMs': 1_000 })
     h.voice.dispose()
   })
 })

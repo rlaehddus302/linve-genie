@@ -44,6 +44,7 @@ import type {
   SmsVoiceSettings,
   SmsWrite,
   OnDeviceStatus,
+  SpeechDiagnostic,
   SpeechEngine,
   SpeechError,
   SpeechGap,
@@ -578,7 +579,10 @@ export interface VoiceHost {
   smsAutoAllowed?(): boolean
   /** 음성 인식 기록 한 덩어리를 이 기기에 남긴다 (설정이 켜져 있을 때, D-V3-56) */
   archiveChunk?(chunk: VoiceArchiveChunk): void
-  /** 음성 인식 끊김 한 줄("인식 끊김 0.8초 (network)")을 이 기기에 남긴다 (기록 모아 두기가 켜져 있을 때 — 들은 글 없음) */
+  /**
+   * 음성 인식 끊김·멈춤 한 줄("인식 끊김 0.8초 (network)" · "인식 멈춤 2.0초 → 다시 켬" · "다시 켠 뒤 시작 0.1초 · 첫 결과 0.9초 (stall)")을
+   * 이 기기에 남긴다 (기록 모아 두기가 켜져 있을 때 — 들은 글 없음)
+   */
   archiveGap?(gap: ArchiveGap): void
   /** 판매자가 "음성 끄기"를 눌렀다 (켠 방송 ID를 지운다, D-V3-52) */
   voiceOff?(): void
@@ -656,6 +660,8 @@ const DEFERRED_POLL_MS = 250
 export const RESTART_LABEL_MS = 1000
 /** 탭 메모리에 두는 최근 인식 끊김 수 (V3 실방송 보강) */
 export const RECOGNITION_GAPS_KEPT = 50
+/** 멈춤 지킴이 시간 저장 키 (같은 음성 설정 저장값 안, 밀리초 — 화면 칸 없음) */
+export const STALL_KEY = 'voice.stallMs'
 /**
  * 켠 직후 판매 이력(D-I4-06)을 받는 동안 온 최종 문장은 이력을 받을 때까지(켠 때부터 최대 이만큼) 카드 만들기를 미룬다 —
  * 켜자마자 말한 지난 판매 품종도 이력 사전으로 알아듣게. 들린 말 기록에는 바로 남고, 미룬 문장은 온 차례대로 카드가 된다.
@@ -801,6 +807,10 @@ export class VoiceController {
   #gaps: readonly SpeechGap[] = []
   /** 기기 안 인식(processLocally) 확인 결과 — 확인만 하고 쓰지 않는다. 확인 전 null */
   #onDevice: OnDeviceStatus | null = null
+  /** 최근 인식 진단(멈춤 다시 열기·다시 켠 뒤 첫 결과·늦은 결과) (탭 메모리, 최근 RECOGNITION_GAPS_KEPT개) */
+  #diagnostics: readonly SpeechDiagnostic[] = []
+  /** 멈춤 지킴이 시간 (그 기기 저장값 voice.stallMs — 화면 칸 없음, 조정용). 엔진을 만들 때 읽는다. null = 기본 */
+  #stallMs: number | null = null
   /** 지금 처리 중인 들은 말 (R-25 기록 한 줄 — 가려서 보낸다) */
   #heardNow = ''
   /** 접힌 "가격 못 들은 번호" (R80) */
@@ -864,6 +874,7 @@ export class VoiceController {
       const settings = module.resolveVoiceSettings(stored)
       // 조용한 시간은 같은 저장값의 `voice.quietMs` (범위 밖·모르는 값은 1800, D-V2-09)
       const quietMs = module.resolveQuietMs(stored)
+      this.#stallMs = this.#readStall(module, stored)
       this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null, instant: readInstant(stored), archive: readArchive(stored) })
     }
     if (this.#phrase === null) this.#phrase = module.createPhraseState({ quietMs: this.#snapshot.quietMs })
@@ -946,12 +957,15 @@ export class VoiceController {
   #ensureEngine(module: VoiceModule): SpeechEngine {
     if (this.#engine !== null) return this.#engine
     // 홈 화면 앱은 저절로 끝난 것을 모두 센다 — 권한 창이 끝없이 뜨지 않게 1분에 6번째면 멈춘다 (D-I5-18, UA 아님)
-    const engine = module.createWebSpeechEngine({ now: () => this.#host.now(), countAllEnds: isHomeScreenApp() })
+    // 멈춤 지킴이 시간: 그 기기 저장값 voice.stallMs (없으면 기본 2초, 1초보다 짧게는 안 됨)
+    this.#stallMs = this.#readStall(module, this.#host.readSettings())
+    const engine = module.createWebSpeechEngine({ now: () => this.#host.now(), countAllEnds: isHomeScreenApp(), ...(this.#stallMs === null ? {} : { stallMs: this.#stallMs }) })
     engine.onResult((result) => this.#onResult(result))
     engine.onError((error) => this.#onError(error))
     engine.onState((state) => this.#onState(state))
     // 인식 끊김 재기 (V3 실방송 보강) — 앞 판 음성 모듈에는 없을 수 있다
     if (typeof engine.onGap === 'function') engine.onGap((gap) => this.#onGap(module, gap))
+    if (typeof engine.onDiagnostic === 'function') engine.onDiagnostic((diagnostic) => this.#onDiagnostic(module, diagnostic))
     // 기기 안 인식은 확인만 한다(엔진을 바꾸지 않는다) — 인식 객체·마이크를 열지 않는 정적 확인
     if (typeof engine.onDeviceStatus === 'function') {
       void engine.onDeviceStatus().then(
@@ -978,6 +992,30 @@ export class VoiceController {
     } catch {
       // 남기지 못하면 이번 줄은 없다
     }
+  }
+
+  /** 저장값의 멈춤 지킴이 시간 (숫자가 없으면 null = 엔진 기본) */
+  #readStall(module: VoiceModule, stored: unknown): number | null {
+    const raw = typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? (stored as Record<string, unknown>)[STALL_KEY] : undefined
+    return typeof raw === 'number' && Number.isSafeInteger(raw) && typeof module.readStallMs === 'function' ? module.readStallMs(raw) : null
+  }
+
+  /** 멈춤 다시 열기·다시 켠 뒤 첫 결과·늦은 결과: 탭 메모리에 두고, 기록 모아 두기가 켜져 있으면 한 줄 남긴다 */
+  #onDiagnostic(module: VoiceModule, diagnostic: SpeechDiagnostic): void {
+    if (this.#disposed) return
+    this.#diagnostics = [...this.#diagnostics.slice(-(RECOGNITION_GAPS_KEPT - 1)), diagnostic]
+    if (this.#snapshot.phase !== 'on' || !this.#snapshot.archive || this.#host.archiveGap === undefined || typeof module.formatSpeechDiagnostic !== 'function') return
+    try {
+      const reason = diagnostic.kind === 'stall' ? 'stall' : diagnostic.kind
+      this.#host.archiveGap({ at: diagnostic.at, ms: diagnostic.ms, reason, text: module.formatSpeechDiagnostic(diagnostic) })
+    } catch {
+      // 남기지 못하면 이번 줄은 없다
+    }
+  }
+
+  /** 최근 인식 진단 (오래된 것부터) — 시간·까닭만 */
+  recognitionDiagnostics(): readonly SpeechDiagnostic[] {
+    return this.#diagnostics
   }
 
   /** 최근 인식 끊김 (오래된 것부터) — 시간·까닭만 */
@@ -2800,7 +2838,9 @@ export class VoiceController {
     const base: VoiceSettings & { readonly 'voice.quietMs'?: number } = quietMs === 1800 ? (plain as VoiceSettings) : { ...(plain as VoiceSettings), 'voice.quietMs': quietMs }
     // 바로 등록은 끈 때만 남긴다 (기본 켬, V3). 기록 모아 두기는 그 기기 기본(연습 켬·운영 끔)과 다를 때만 (D-V3-56)
     const instant = this.#snapshot.instant ? base : { ...base, [INSTANT_KEY]: false }
-    const value = this.#snapshot.archive === readArchive(null) ? instant : { ...instant, [ARCHIVE_KEY]: this.#snapshot.archive }
+    const archived = this.#snapshot.archive === readArchive(null) ? instant : { ...instant, [ARCHIVE_KEY]: this.#snapshot.archive }
+    // 멈춤 지킴이 시간(조정용 저장값)은 있던 값을 그대로 둔다
+    const value = this.#stallMs === null ? archived : { ...archived, [STALL_KEY]: this.#stallMs }
     this.#host.writeSettings(value)
   }
 
