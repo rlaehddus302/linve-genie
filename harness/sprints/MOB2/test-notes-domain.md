@@ -57,3 +57,13 @@
   - 화면 쪽 처리(창 없음·한 줄 안내)는 웹 단위 시험(`mob2-register-resend.test.tsx`)·E2E 몫.
 - 결과: MOB2 적대 시험 89/89, 새 두 파일 3번 반복 13/13씩. typecheck·eslint 통과.
 - 남은 지적: 없음(도메인 쪽).
+
+## 수정 라운드 4 (test-domain)
+- 새 `round4-words.test.ts` — 개발 고침 `0c1fa5b3` 확인(5건, 모두 통과).
+  - RA-MOB2-07: 실제 엔진 `previewMerge`가 낸 보류 찜 중복을 `mergeWords(…, now)`로 바꾼 글 = `claimWord(data, claim, now)`, 시간 지남 ⇔ `isPendingTimedOut`(처음 받은 시각 기준, W초 정각 ±1ms 포함) 속성(시드 고정, 두 쪽 모두 20번 넘게 지나감). 고정: 30초+1ms 뒤 "보류 · 시간 지남", 30초 안 "보류".
+  - D-MOB2-18 (SA-MOB2-07): `WriteError autoResend` — 네트워크 실패 "저장하지 못했어요. 인터넷 연결을 확인해 주세요.", 저장 실패 "저장하지 못했어요.", "눌러 주세요"·"다시 시도해 주세요" 0개, "다시 보내기" 단추·자세히 그대로, 바뀐 것은 첫 문장뿐. autoResend 없음·false면 옛 문장. 저절로 보내지 않는 실패(409·PROCESSING_FAILED·400)는 autoResend를 줘도 그린 결과가 똑같다.
+  - D-MOB2-17 (TE-MOB2-007): `NO_STATION_SHORT` = 결정 문장, `stationLeadShortText`가 출력 기기 없음·대기 있음에서 그 문장, 대기 0이면 없음, 끊김 문장은 그대로.
+  - 줄 수(150% 두 줄 이하)·고정 영역 높이는 글꼴 폭이 필요해 E2E(test-e2e) 몫으로 둔다.
+  - 문자찜 화면 판단(`autoResendShown`)은 소스로 대조: 받은 시각을 채운 경우도 `failedKeyRef`와 같은 키를 적어 저절로 보내는 조건과 화면 안내가 같은 값을 본다.
+- 결과: MOB2 적대 시험 94/94. typecheck·eslint 통과.
+- 남은 지적: 없음(도메인 쪽).
