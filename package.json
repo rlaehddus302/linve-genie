@@ -16,7 +16,8 @@
     "e2e": "node scripts/verify/stage.mjs e2e",
     "coverage": "node scripts/verify/stage.mjs coverage",
     "perf": "node scripts/verify/stage.mjs perf",
-    "try": "node scripts/try/try.mjs"
+    "try": "node scripts/try/try.mjs",
+    "replay": "node scripts/replay/cli.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
