@@ -6,7 +6,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test'
 import { history, uniqueDate } from '../s05/support.ts'
 import { openSms, scopeView, smsField, writeEvent } from '../s06/support.ts'
 import { PHONE, broadcastApi, freshSeller } from '../mob1/support.ts'
-import { AUTO_RESEND_NOTE, LOST_NOTICE, RESENT_PREFIX, filledReceived, kstClock, kstTodayAt, openSmsSole, otherDevice, watchBodies } from './support.ts'
+import { AUTO_RESEND_NOTE, LOST_NOTICE, RESENT_PREFIX, expectAutoFail, filledReceived, kstClock, kstTodayAt, openSmsSole, otherDevice, watchBodies } from './support.ts'
 
 async function seller(browser: Browser, baseURL: string): Promise<{ page: Page; close: () => Promise<void> }> {
   const { page, context } = await freshSeller(browser, baseURL, { viewport: PHONE, touch: true })
@@ -53,6 +53,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       await s.page.getByRole('button', { name: '15번에 문자찜 넣기' }).click()
       await expect(failed(s.page)).toBeVisible({ timeout: 30_000 })
       await expect(s.page.getByText(AUTO_RESEND_NOTE, { exact: true })).toBeVisible()
+      await expectAutoFail(s.page.getByRole('region', { name: '문자찜 넣기' }), true) // MOB2 D-MOB2-18
       // 칸에 처음 누른 시각, 칸 아래 안내 (D-MOB2-09)
       await expect(smsField(s.page, '받은 시각')).toHaveValue('20:01:05')
       await expect(s.page.getByText(filledReceived('20:01:05'), { exact: true })).toBeVisible()
@@ -71,6 +72,8 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       expect(manual.map((x) => x['received']), '직접 다시 보내기의 받은 시각').toEqual(manual.map(() => '20:01:05'))
       expect(new Set(manual.map((x) => x['requestId'])), '직접 다시 보내기도 처음 요청 번호').toEqual(new Set([id]))
       await expect(smsField(s.page, '받은 시각')).toHaveValue('20:01:05')
+      // 받은 시각을 화면이 채운 것은 판매자가 칸을 바꾼 것이 아니다 — 직접 다시 보낸 뒤에도 저절로 보낼 문장 그대로 (D-MOB2-09·D-MOB2-18)
+      await expectAutoFail(s.page.getByRole('region', { name: '문자찜 넣기' }), true) // MOB2 D-MOB2-18
 
       // 20:01:45 돌아옴 → 저절로
       await s.page.clock.setFixedTime(kstTodayAt('20:01:45'))

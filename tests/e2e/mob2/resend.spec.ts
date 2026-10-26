@@ -5,7 +5,7 @@ import { expect, test, type Browser, type Page, type Request, type Route } from 
 import { boardItem, day, history, uniqueDate } from '../s05/support.ts'
 import { smsApi, smsField, writeEvent } from '../s06/support.ts'
 import { PC, PHONE, broadcastApi, freshSeller } from '../mob1/support.ts'
-import { AUTO_RESEND_NOTE, LOST_NOTICE, PRESS_RESEND, RESENT_PREFIX, autoFailedLine, blockWrites, droppedOptions, existsOnResend, isWrite, manualFailedLine, openSmsSole, otherDevice, vacatedEmpty } from './support.ts'
+import { AUTO_RESEND_NOTE, LOST_NOTICE, PRESS_RESEND, RESENT_PREFIX, autoFailedLine, blockWrites, expectAutoFail, expectManualFail, droppedOptions, existsOnResend, isWrite, manualFailedLine, openSmsSole, otherDevice, vacatedEmpty } from './support.ts'
 
 interface Sent {
   readonly requestId: string
@@ -495,6 +495,7 @@ test.describe('AC-MOB2-42 상품 관리', () => {
         await manage.getByRole('button', { name: '일시 중지' }).click()
         await expect(manage.getByText(AUTO_RESEND_NOTE, { exact: true })).toBeVisible({ timeout: 20_000 })
         await expect(manage.getByRole('button', { name: '다시 보내기' })).toBeVisible()
+        await expectAutoFail(manage, true) // MOB2 D-MOB2-18
         const holds = sent.filter((x) => x.type === 'product.hold')
         const id = holds[0]!.requestId
         if (!open) {
@@ -539,6 +540,7 @@ test.describe('AC-MOB2-43 문자찜', () => {
       await s.page.getByRole('button', { name: '15번에 문자찜 넣기' }).click()
       await expect(s.page.getByText(/저장하지 못했어요/)).toBeVisible({ timeout: 30_000 })
       await expect(s.page.getByText(AUTO_RESEND_NOTE, { exact: true })).toBeVisible()
+      await expectAutoFail(s.page.getByRole('region', { name: '문자찜 넣기' }), true) // MOB2 D-MOB2-18
       await expect(smsField(s.page, '번호')).toHaveValue('15')
       const id = sent.find((x) => x.type === 'sms')!.requestId
       const before = sent.length
@@ -566,18 +568,80 @@ test.describe('AC-MOB2-43 문자찜', () => {
         await s.page.getByRole('button', { name: '15번에 문자찜 넣기' }).click()
         await expect(s.page.getByText(/저장하지 못했어요/)).toBeVisible({ timeout: 30_000 })
         const field = smsField(s.page, change)
+        await expectAutoFail(s.page.getByRole('region', { name: '문자찜 넣기' }), true) // MOB2 D-MOB2-18
         await field.fill(change === '번호' ? '16' : change === '메모' ? '바꿈' : change === '전화번호' ? '010-1234-5678' : '20:01')
+        // 칸을 바꾸면 저절로 보내지 않으므로 옛 문장 그대로·안내 없음 (D-MOB2-18 "칸을 바꾼 문자찜 실패는 지금 문장 그대로")
+        await expectManualFail(s.page.getByRole('region', { name: '문자찜 넣기' }), true) // MOB2 D-MOB2-18
         const before = sent.length
         await comeBack(s.page)
         await expect.poll(() => sent.slice(before).filter((x) => x.type === 'sms').length, { timeout: 6_000, intervals: [500, 1000, 1500, 3000] }).toBe(0)
         await expect(s.page.getByText(/저장하지 못했어요/)).toBeVisible()
         await expect(s.page.getByRole('button', { name: '다시 보내기' })).toBeVisible()
+        await expectManualFail(s.page.getByRole('region', { name: '문자찜 넣기' }), true) // MOB2 D-MOB2-18
         expect((await history(s.page, date, false)).filter((e) => e.type === 'sms')).toHaveLength(0)
       } finally {
         await s.close()
       }
     })
   }
+})
+
+// D-MOB2-18 (SA-MOB2-07): 네트워크가 아닌 다시 보낼 실패(503 SAVE_FAILED)도 저절로 보낼 목록에 들면 "저장하지 못했어요."만 — "눌러 주세요"·"다시 시도해 주세요" 없음, "다시 보내기" 있음
+test.describe('AC-MOB2-40 D-MOB2-18 저절로 보낼 저장 실패(SAVE_FAILED) 문장', () => { // MOB2 D-MOB2-18
+  const saveFailed = async (page: Page): Promise<void> => {
+    await page.route('**/api/events**', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'SAVE_FAILED', message: '저장하지 못했어요. 잠시 뒤 다시 보내 주세요.' } }) })
+    })
+  }
+
+  test('상품 관리 "일시 중지"가 503 SAVE_FAILED → "저장하지 못했어요."·안내·"다시 보내기", 서버 문장 "다시 시도해 주세요" 없음 → 막기를 풀고 "다시 보내기" 한 번이면 일시 중지', async ({ browser, baseURL }) => {
+    const s = await seller(browser, baseURL!, PHONE)
+    try {
+      const date = uniqueDate()
+      const b = await broadcastApi(s.page, date, false)
+      const reg = await writeEvent(s.page, { type: 'product.register', b, no: 15, name: '핑크프릴', price: 10000 })
+      expect(reg.status).toBeLessThan(300)
+      await openConsole(s.page, b)
+      await boardItem(s.page, 15).click()
+      const manage = s.page.getByRole('dialog', { name: '15번 자세히' }).getByRole('region', { name: '상품 관리' })
+      await saveFailed(s.page)
+      await manage.getByRole('button', { name: '일시 중지' }).click()
+      await expect(manage.getByText(AUTO_RESEND_NOTE, { exact: true })).toBeVisible({ timeout: 30_000 })
+      await expectAutoFail(manage, false)
+      await s.page.unrouteAll({ behavior: 'ignoreErrors' })
+      await manage.getByRole('button', { name: '다시 보내기' }).click()
+      await expect(boardItem(s.page, 15)).toContainText('일시 중지', { timeout: 10_000 })
+      expect((await history(s.page, date, false)).filter((e) => e.type === 'product.hold')).toHaveLength(1)
+    } finally {
+      await s.page.unrouteAll({ behavior: 'ignoreErrors' })
+      await s.close()
+    }
+  })
+
+  test('문자찜 "15번에 문자찜 넣기"가 503 SAVE_FAILED → "저장하지 못했어요."·안내·"다시 보내기", "눌러 주세요" 없음 → 메모를 바꾸면 옛 문장 그대로·안내 없음', async ({ browser, baseURL }) => {
+    const s = await seller(browser, baseURL!, PHONE)
+    try {
+      const date = uniqueDate()
+      const title = `저장${String(Math.floor(Math.random() * 1e6))}`
+      const b = await broadcastApi(s.page, date, false, title)
+      const reg = await writeEvent(s.page, { type: 'product.register', b, no: 15, name: '핑크프릴', price: 10000 })
+      expect(reg.status).toBeLessThan(300)
+      await openSmsSole(s.page, title)
+      const form = s.page.getByRole('region', { name: '문자찜 넣기' })
+      await smsField(s.page, '번호').fill('15')
+      await smsField(s.page, '메모').fill('저장')
+      await saveFailed(s.page)
+      await s.page.getByRole('button', { name: '15번에 문자찜 넣기' }).click()
+      await expect(form.getByText(AUTO_RESEND_NOTE, { exact: true })).toBeVisible({ timeout: 30_000 })
+      await expectAutoFail(form, false)
+      await smsField(s.page, '메모').fill('바꿈')
+      await expectManualFail(form, false)
+    } finally {
+      await s.page.unrouteAll({ behavior: 'ignoreErrors' })
+      await s.close()
+    }
+  })
 })
 
 test.describe('AC-MOB2-44 저절로 보내지 않는 실패', () => {

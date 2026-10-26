@@ -1,6 +1,6 @@
 // MOB2 E2E 공용 도우미 (test-e2e) — 휴대폰 화면 남은 문제 (harness/sprints/MOB2/acceptance.md).
 // 기대 문장은 acceptance.md·DECISIONS D-MOB2-01~08의 따옴표 문장에서 정했다(구현을 보고 정하지 않음).
-import { expect, request, type Page, type Request, type Route } from '@playwright/test'
+import { expect, request, type Locator, type Page, type Request, type Route } from '@playwright/test'
 
 /** 연결이 돌아와 저절로 보낸 것의 앞말 (D-MOB2-07, AC-MOB2-40) */
 export const RESENT_PREFIX = '연결이 돌아와 보냈어요: '
@@ -12,6 +12,36 @@ export const autoFailedLine = (line: string): string => `저장하지 못했어�
 export const manualFailedLine = (line: string): string => `저장하지 못했어요. 다시 보내기를 눌러 주세요: ${line}`
 /** 옛 "누르라"는 문장 — 저절로 보낼 실패에는 없어야 한다 (D-MOB2-16 (2)) */
 export const PRESS_RESEND = /다시 보내기를 눌러 주세요/
+/** 문자찜·상품 관리에서 저절로 다시 보낼 실패의 문장 — 네트워크면 연결 확인, 그 밖(SAVE_FAILED 등)은 짧게. "눌러 주세요" 없음 (D-MOB2-18, AC-MOB2-40) */ // MOB2 D-MOB2-18
+export const autoFailSentence = (network: boolean): string => (network ? '저장하지 못했어요. 인터넷 연결을 확인해 주세요.' : '저장하지 못했어요.') // MOB2 D-MOB2-18
+/** 문자찜·상품 관리에서 저절로 보내지 않는 다시 보낼 실패의 문장 — 이 스프린트 전 문장 그대로 (D-MOB2-18 "칸을 바꾼 문자찜 실패는 지금 문장 그대로") */ // MOB2 D-MOB2-18
+export const manualFailSentence = (network: boolean): string => `저장하지 못했어요. ${network ? '인터넷 연결을 확인하고 ' : ''}"다시 보내기"를 눌러 주세요.` // MOB2 D-MOB2-18
+
+/** 실패 안내(role="alert")의 첫 문장 */
+function failAlert(scope: Locator): Locator {
+  return scope.getByRole('alert').filter({ hasText: '저장하지 못했어요' })
+}
+
+/**
+ * 문자찜·상품 관리에서 저절로 다시 보낼 실패 (D-MOB2-18, AC-MOB2-40): 첫 문장은 autoFailSentence, 그 범위에 "눌러 주세요"·"다시 시도해 주세요"가 든 문장 0개,
+ * "다시 보내기" 단추와 저절로 보낸다는 안내는 있다.
+ */
+export async function expectAutoFail(scope: Locator, network: boolean): Promise<void> { // MOB2 D-MOB2-18
+  await expect(failAlert(scope)).toHaveCount(1)
+  await expect(failAlert(scope).locator('p').first()).toHaveText(autoFailSentence(network))
+  await expect(scope.getByText(/눌러 주세요/)).toHaveCount(0)
+  await expect(scope.getByText(/다시 시도해 주세요/)).toHaveCount(0)
+  await expect(scope.getByRole('button', { name: '다시 보내기' })).toBeVisible()
+  await expect(scope.getByText(AUTO_RESEND_NOTE, { exact: true })).toBeVisible()
+}
+
+/** 저절로 보내지 않는 다시 보낼 실패 (칸을 바꾼 문자찜 등): 옛 문장 그대로, 저절로 보낸다는 안내 없음, "다시 보내기"는 있다 (D-MOB2-18·AC-MOB2-43) */
+export async function expectManualFail(scope: Locator, network: boolean): Promise<void> { // MOB2 D-MOB2-18
+  await expect(failAlert(scope)).toHaveCount(1)
+  await expect(failAlert(scope).locator('p').first()).toHaveText(manualFailSentence(network))
+  await expect(scope.getByText(AUTO_RESEND_NOTE, { exact: true })).toHaveCount(0)
+  await expect(scope.getByRole('button', { name: '다시 보내기' })).toBeVisible()
+}
 /** 실시간 연결이 끊긴 안내 (돌아옴 = 이 안내가 사라짐 — F 공통 Given) */
 export const LOST_NOTICE = '실시간 연결이 끊겼어요. 다시 연결하는 중이에요.'
 /** 시간이 지난 보류 찜 (D-MOB2-06, AC-MOB2-30) */
