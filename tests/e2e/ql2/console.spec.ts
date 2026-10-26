@@ -3,7 +3,8 @@
 // "보인다(첫 화면)"는 공통 전제의 뜻(support.ts expectFirstScreen) — 아래 메뉴 막대에 가리지 않음.
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test'
 import { postJson, uniqueDate } from '../s05/support.ts'
-import { registerApi, smsApi, viewerClaim, writeEvent } from '../s06/support.ts'
+import { registerApi, scopeView, smsApi, viewerClaim, writeEvent } from '../s06/support.ts'
+import { payAll } from '../crm1/support.ts'
 import { IPHONE_UA, pendingWord } from '../mob1/support.ts' // QL3R2 D-QL3R2-02
 import { ANDROID, PC, PHONE, alerts, baseUrlOf, barHeight, broadcastApi, endBroadcastApi, expectBig, expectFirstScreen, expectNoClip, expectNoOverflow, expectOrder, freshSeller, setLabelsApi } from './support.ts'
 
@@ -23,6 +24,16 @@ const REHEARSAL_SUMMARY = `15번 핑크프릴 · 판매 중 · 1등 ${HACKER} ·
 const REHEARSAL_WIDE = '리허설 중 — 실제 판매가 아니에요'
 const REHEARSAL_SHORT = '리허설 · 실제 판매 아님'
 const band = (page: Page) => page.getByRole('note').filter({ hasText: '실제 판매' })
+
+/**
+ * 실제 방송 번호 no의 1등 묶음을 입금 완료로 — 시험 날짜(2005년)는 입금 기다리는 날이 지나 미입금이면 CRM1 "입금 늦음 주의" 꼬리표
+ * (D-CRM1-04·07)가 요약 줄·카드 1등 뒤에 붙는다. 이 시험들은 꼬리표 없는 요약 문장을 재므로 꼬리표 조건을 만들지 않는다(꼬리표는 crm1/console.spec)
+ */
+async function payWinner(dev: Page, date: string, no: number): Promise<void> {
+  const claim = (await scopeView(dev, date, false)).claims.filter((c) => c.no === no).sort((x, y) => x.seq - y.seq)[0]
+  if (claim === undefined) throw new Error(`${String(no)}번 찜 없음`)
+  await payAll(dev, date, claim.currentBuyer)
+}
 
 /** 수량을 정해 API로 상품 등록 */
 async function registerStock(page: Page, b: string, no: number, name: string, price: number, stock: number): Promise<void> {
@@ -53,7 +64,8 @@ async function consoleWorld(browser: Browser, page: Page, options: Options): Pro
     ...(options.userAgent === undefined ? {} : { userAgent: options.userAgent }),
   })
   await setLabelsApi(dev, true)
-  const b = await broadcastApi(dev, uniqueDate(), options.rehearsal === true)
+  const date = uniqueDate()
+  const b = await broadcastApi(dev, date, options.rehearsal === true)
   expect((await postJson(dev, '/api/print/pause', {})).status).toBeLessThan(300)
   await registerApi(dev, b, 16, '청보석', 20000)
   await smsApi(dev, { b, no: 16, memo: '갑' })
@@ -61,7 +73,10 @@ async function consoleWorld(browser: Browser, page: Page, options: Options): Pro
   await smsApi(dev, { b, no: 40, memo: '병' })
   await registerStock(dev, b, 15, '핑크프릴', 10000, 2)
   if (options.rehearsal === true) await viewerClaim(dev, b, HACKER, '15', 'sim_ql2_hacker')
-  else await smsApi(dev, { b, no: 15, memo: HACKER })
+  else {
+    await smsApi(dev, { b, no: 15, memo: HACKER })
+    await payWinner(dev, date, 15)
+  }
   await dev.goto(`/broadcasts/${encodeURIComponent(b)}`)
   await expect(dev.getByLabel('빠른 입력')).toBeVisible()
   if (options.big) await expectBig(dev)
@@ -235,7 +250,8 @@ test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100
     await page.goto('/')
     const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PHONE, touch: true, big: false })
     try {
-      const b = await broadcastApi(dev, uniqueDate())
+      const date = uniqueDate()
+      const b = await broadcastApi(dev, date)
       await dev.goto(`/broadcasts/${encodeURIComponent(b)}`)
       await expect(dev.getByLabel('빠른 입력')).toBeVisible()
       await expect(summary(dev)).toHaveText('현재 상품: 아직 없어요')
@@ -243,6 +259,10 @@ test.describe('AC-QL2-01 첫 화면에 현재 상품 — 150%는 요약 줄, 100
       await expect(summary(dev)).toHaveText('15번 핑크프릴 · 판매 중 · 1등 아직 없음 · 대기 0명')
       // 수량 1에 1등 → 판매 완료 (요약의 1등은 카드 값 그대로)
       await smsApi(dev, { b, no: 15, memo: '갑' })
+      // 1등을 입금 완료로 하고 콘솔을 다시 연다(꼬리표는 열 때·1등이 바뀔 때 받는다 — D-CRM1-14)
+      await payWinner(dev, date, 15)
+      await dev.goto(`/broadcasts/${encodeURIComponent(b)}`)
+      await expect(dev.getByLabel('빠른 입력')).toBeVisible()
       const current = dev.getByRole('region', { name: '현재 상품' })
       await expect(current.getByText('판매 완료', { exact: true })).toBeVisible()
       const winner = (await current.getByText(/^1등: /).innerText()).replace(/^1등: /, '').trim()
