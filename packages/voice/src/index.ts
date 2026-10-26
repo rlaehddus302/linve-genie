@@ -257,8 +257,18 @@ export {
   type SpeechState,
 } from './speech.ts'
 export {
+  OVERLAP_PLANNED_RESTART,
+  PLANNED_END_WAIT_MS,
+  PLANNED_RESTART_AFTER_MS,
+  START_RETRY_MAX,
+  START_RETRY_MS,
   WebSpeechEngine,
   createWebSpeechEngine,
+  formatSpeechGap,
+  type OnDeviceStatus,
+  type SpeechGap,
+  type SpeechGapReason,
+  type SpeechTimers,
   type RecognitionConstructor,
   type RecognitionErrorEventLike,
   type RecognitionLike,
