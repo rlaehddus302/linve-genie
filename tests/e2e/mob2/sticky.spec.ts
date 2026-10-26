@@ -8,7 +8,8 @@
 // 측정값은 시험 출력(console.log)에 남긴다.
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test'
 import { uniqueDate } from '../s05/support.ts'
-import { kstTimeAgo, smsApi, viewerClaim, writeEvent } from '../s06/support.ts'
+import { kstTimeAgo, scopeView, smsApi, viewerClaim, writeEvent } from '../s06/support.ts'
+import { payAll } from '../crm1/support.ts'
 import { ANDROID, IPHONE_UA, PHONE, alerts, broadcastApi, expectBig, expectNoOverflow, foldedShortRow, freshSeller, pendingWord, setLabelsApi } from '../mob1/support.ts'
 import { NO_STATION_SHORT } from '../ql3r2/support.ts'
 import { barHeight, expectNoClip } from '../ql2/support.ts'
@@ -36,6 +37,16 @@ interface World {
   readonly close: () => Promise<void>
 }
 
+/**
+ * MOB2 합치기(CRM1): 실제 방송 번호 no의 1등 묶음을 입금 완료로 — 시험 날짜는 입금 기다리는 날이 지나 미입금이면 "입금 늦음 주의" 꼬리표
+ * (D-CRM1-04·07)가 요약 줄 1등 뒤에 붙는다. 이 시험은 꼬리표 없는 고정 영역을 잰다(꼬리표는 crm1 시험, ql2·ql3r1 시험과 같은 처리)
+ */
+async function payWinner(page: Page, date: string, no: number): Promise<void> {
+  const claim = (await scopeView(page, date, false)).claims.filter((c) => c.no === no).sort((x, y) => x.seq - y.seq)[0]
+  if (claim === undefined) throw new Error(`${String(no)}번 찜 없음`)
+  await payAll(page, date, claim.currentBuyer)
+}
+
 async function world(browser: Browser, baseURL: string, d: Device, opts: { big: boolean; rehearsal: boolean; title?: string }): Promise<World> {
   const { page, context } = await freshSeller(browser, baseURL, {
     viewport: d.viewport,
@@ -46,7 +57,8 @@ async function world(browser: Browser, baseURL: string, d: Device, opts: { big: 
   await setLabelsApi(page, true)
   const set = await page.request.patch('/api/settings', { data: { settings: { 'contention.policy': 'RECEIVED_TIME', 'claim.preOpenWindowSec': 300 } }, headers: { Origin: baseURL } })
   expect(set.status(), await set.text()).toBe(200)
-  const b = await broadcastApi(page, uniqueDate(), opts.rehearsal, opts.title)
+  const date = uniqueDate()
+  const b = await broadcastApi(page, date, opts.rehearsal, opts.title)
   const reg = async (no: number, name: string, stock = 1) => {
     const res = await writeEvent(page, { type: 'product.register', b, no, name, price: 10000, stock })
     expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
@@ -62,10 +74,15 @@ async function world(browser: Browser, baseURL: string, d: Device, opts: { big: 
   // 되돌리기 대기를 만들 1등 (17번)
   await reg(17, '청보석')
   await smsApi(page, { b, no: 17, memo: '정' })
+  // 17번 자세히를 연 뒤 요약 줄은 17번 — 그 1등(정)도 꼬리표 조건을 만들지 않는다(실제 방송만, payWinner 설명)
+  if (!opts.rehearsal) await payWinner(page, date, 17)
   // 현재 상품 = 마지막에 등록한 15번 (재고 2 — 1등이 있어도 판매 중)
   await reg(15, '핑크프릴', 2)
   if (opts.rehearsal) await viewerClaim(page, b, HACKER, '15', `sim_mob2_hacker_${String(Math.floor(Math.random() * 1e6))}`)
-  else await smsApi(page, { b, no: 15, memo: HACKER })
+  else {
+    await smsApi(page, { b, no: 15, memo: HACKER })
+    await payWinner(page, date, 15)
+  }
   await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
   await expect(page.getByLabel('빠른 입력')).toBeVisible()
   if (opts.big) await expectBig(page)
