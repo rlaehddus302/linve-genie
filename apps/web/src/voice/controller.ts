@@ -33,6 +33,7 @@ import type {
   SegmentPick,
   SegmentReading,
   StableState,
+  HeardPrice,
   WaitingNumber,
   VoiceArchiveChunk,
   InterimCandidate,
@@ -98,6 +99,9 @@ import {
   maybeOtherMessage,
   notRecentReadout,
   REASON_BARE_NUMBER,
+  REASON_PRICE_ONCE,
+  LOG_FIX_CANDIDATE,
+  LOG_BARE_OFF_RUN,
   alreadyReadout,
   askMessage,
   fixedMessage,
@@ -813,7 +817,11 @@ export class VoiceController {
   /** 이 덩어리에서 빠진 0을 되살린 원래 번호 (36 → 306의 36) */
   readonly #zeroRaw = new Set<number>()
   /** 앞 덩어리들의 말 (앞 상품 번호·가격 뒤 ~ 지금, 60초) — 등록 품종을 맥락으로 고를 때 (음성 패키지 varietyFromContext) */
-  #contextTexts: { readonly text: string; readonly at: number }[] = []
+  #contextTexts: { readonly text: string; readonly at: number; readonly between: boolean }[] = []
+  /** 번호마다 들은 다른 가격 (같은 번호 가격 고침 문턱 — 음성 패키지 gateSamePrice) */
+  readonly #priceHeard = new Map<number, readonly HeardPrice[]>()
+  /** 덩어리 차례 (조각 이름 — 같은 조각을 다시 읽은 것은 한 번) */
+  #chunkSeq = 0
   /** 차례를 기다리는 큰 글자 칸 안내 (D-V3-61) */
   /** 음성으로 등록·고친 번호와 시각 (D-V3-59 고쳐 말함) */
   /** 번호마다 마지막으로 음성으로 등록·고친 시각 (D-V3-59, TD-V3-005) */
@@ -1229,7 +1237,7 @@ export class VoiceController {
     if (existing.pending === true) {
       this.#setPending(fix.no, { after: { heard, auto } })
       done = { action: 'discard', reason: LOG_PENDING, readout: null }
-    } else done = this.#applyExisting(work, module, fix.no, existing, heard, auto, false)
+    } else done = this.#applyExisting(work, module, fix.no, existing, heard, auto, false, { gate: false })
     const now = this.#host.now()
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text: rest }], read: { no: fix.no, name: null, price: fix.price, candidates: [] }, action: done.action, reason: done.reason }))
     if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
@@ -1248,23 +1256,90 @@ export class VoiceController {
   #contextName(module: VoiceModule, name: string | null): string | null {
     if (typeof module.varietyFromContext !== 'function') return name
     const now = this.#host.now()
-    const context = this.#contextTexts.filter((item) => now - item.at <= 60_000).map((item) => item.text)
-    if (context.length === 0) return name
+    const fresh = this.#contextTexts.filter((item) => now - item.at <= 60_000)
+    if (fresh.length === 0) return name
+    const context = fresh.filter((item) => !item.between).map((item) => item.text)
+    const between = fresh.filter((item) => item.between).map((item) => item.text)
     try {
-      return module.varietyFromContext({ name, context, dictionary: this.#prepared(module) })
+      return module.varietyFromContext({ name, context, between, dictionary: this.#prepared(module) })
     } catch {
       return name
     }
   }
 
-  /** 덩어리가 끝났을 때 맥락 말을 고친다: 등록한 덩어리는 마지막 조각 뒤 말만, 번호만 들린 덩어리는 비움, 번호 없는 덩어리는 더함 */
+  /**
+   * 덩어리가 끝났을 때 맥락 말을 고친다: 등록한 덩어리는 마지막 조각 뒤 말만(앞 상품 말일 수 있어 약하게),
+   * 번호만 들린 덩어리는 그 글 하나(기다리는 번호의 말 — 따로 든 이름), 번호 없는 덩어리는 따로 든 이름으로 더함
+   */
   #noteContext(module: VoiceModule, text: string, picked: boolean, otherNumber: boolean, now: number): void {
     const fresh = this.#contextTexts.filter((item) => now - item.at <= 60_000)
     if (picked) {
       const rest = this.#readSegments(module, text, true)?.rest ?? ''
-      this.#contextTexts = rest.trim() === '' ? [] : [{ text: rest, at: now }]
-    } else if (otherNumber) this.#contextTexts = []
-    else this.#contextTexts = [...fresh, { text, at: now }].slice(-10)
+      this.#contextTexts = rest.trim() === '' ? [] : [{ text: rest, at: now, between: false }]
+    } else if (otherNumber) this.#contextTexts = [{ text, at: now, between: true }]
+    else {
+      const rr = this.#readRegistration(module, text, true)
+      const between = rr !== null && rr.heardNumbers.length === 0
+      this.#contextTexts = [...fresh, { text, at: now, between }].slice(-10)
+    }
+  }
+
+  /** 품종만 들린 덩어리를 방금 음성 등록한 상품의 빈 품종 채우기로 (음성 패키지 nameOnlyFill) — 덩어리 끝에만 */
+  #nameOnly(work: CardWork, module: VoiceModule, text: string, key: string): InstantDone | null {
+    if (typeof module.nameOnlyFill !== 'function' || typeof module.varietiesIn !== 'function' || text.trim() === '' || this.#pickDone.has(key)) return null
+    const rr = this.#readRegistration(module, text, true)
+    if (rr === null) return null
+    const last = this.#voiceRegistered.at(-1) ?? null
+    const found = last === null ? null : this.#existingOf(last.no)
+    const existing = found === null || found === 'closed' ? null : found
+    let fill: ReturnType<VoiceModule['nameOnlyFill']>
+    try {
+      fill = module.nameOnlyFill({
+        names: module.varietiesIn(text, { dictionary: this.#prepared(module) }),
+        heardNumbers: rr.heardNumbers,
+        wonPrices: rr.heardPrices,
+        lastRegistered: last,
+        lastHeardNo: this.#lastHeardNo,
+        product: existing === null ? null : { name: existing.name },
+        now: this.#host.now(),
+      })
+    } catch {
+      fill = null
+    }
+    if (fill === null || existing === null || existing.pending === true) return null
+    this.#pickDone.add(key)
+    this.#heardNow = text
+    const heard: ExistingHeard = { name: fill.name, price: null, nameNeedsCheck: false, priceSure: true, numberFrom: 'marker' }
+    const done = this.#applyExisting(work, module, fill.no, existing, heard, !this.#rejected.has(fill.no) && this.#snapshot.instant, false, { gate: false })
+    const now = this.#host.now()
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: fill.no, name: fill.name, price: null, candidates: [] }, action: done.action, reason: done.reason }))
+    if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
+    return done
+  }
+
+  /** '번' 없는 수가 최근 음성 등록 번호 흐름 밖인가 (음성 패키지 bareNumberFits) */
+  #bareOffRun(module: VoiceModule, no: number): boolean {
+    if (typeof module.bareNumberFits !== 'function') return false
+    const now = this.#host.now()
+    try {
+      return !module.bareNumberFits(no, this.#contextNos.filter((item) => now - item.at <= 600_000).map((item) => item.no))
+    } catch {
+      return false
+    }
+  }
+
+  /** 같은 번호 가격 고침 문턱 한 걸음 — 바로 고쳐도 되면 참. 지금 가격이 다시 들리면 후보를 지운다 */
+  #priceGate(module: VoiceModule, no: number, current: number, price: number, fragment: string): boolean {
+    if (typeof module.gateSamePrice !== 'function') return true
+    try {
+      const correction = typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(this.#heardNow)
+      const step = module.gateSamePrice({ current, price, fragment, correction, history: this.#priceHeard.get(no) ?? [], now: this.#host.now() })
+      if (step.history.length === 0) this.#priceHeard.delete(no)
+      else this.#priceHeard.set(no, step.history)
+      return step.apply || price === current
+    } catch {
+      return true
+    }
   }
 
   #clearPhraseTimer(): void {
@@ -1473,6 +1548,7 @@ export class VoiceController {
     if (lastUnhandled !== undefined) this.#lastHeardNo = lastUnhandled
     this.#noteContext(module, chunk.text, handledNos.size > 0, unhandled.length > 0, now)
     this.#zeroRaw.clear()
+    this.#chunkSeq++
     this.#pickDone.clear()
     this.#instantNos = new Map()
     if (this.#phrase === null || module.nextTickAt(this.#phrase) === null) this.#phraseInstantOff = false
@@ -1653,7 +1729,9 @@ export class VoiceController {
     const take = step.take
     if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return null
     this.#instantNos.set(take.no, 'register')
-    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: null, nameNeedsCheck: false, numberFrom: 'marker' }, chunk.text)
+    // 기다리던 번호의 품종: 이 덩어리 품종, 없으면 번호를 들은 덩어리·앞 말 맥락 (사용자 요구 — 다른 결과에 들린 품종도)
+    const takeName = this.#contextName(module, reading.name)
+    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: takeName, nameNeedsCheck: false, numberFrom: 'marker' }, chunk.text)
     this.#instantNos = new Map()
     return { action: 'create', reason: LOG_TAKEN, readout: done.readout === null ? null : `${done.readout} · ${TAKEN_MARK}` }
   }
@@ -1673,7 +1751,7 @@ export class VoiceController {
     const take = step.take
     if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return
     this.#instantNos.set(take.no, 'register')
-    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: rr.extraction.name, nameNeedsCheck: false, numberFrom: 'marker' }, text)
+    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: this.#contextName(module, rr.extraction.name), nameNeedsCheck: false, numberFrom: 'marker' }, text)
     const now = this.#host.now()
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: take.no, name: rr.extraction.name, price: take.price, candidates: [] }, action: 'create', reason: LOG_TAKEN }))
     if (done.readout !== null) work.readout = { text: `${done.readout} · ${TAKEN_MARK}`, discarded: false, until: now + READOUT_MS }
@@ -2044,6 +2122,12 @@ export class VoiceController {
       const fixedNo = this.#droppedZero(module, raw)
       const pick: SegmentPick = fixedNo === null ? raw : { ...raw, no: fixedNo }
       const zeroNote = fixedNo === null ? null : droppedZeroNote(raw.no, fixedNo)
+      // '번' 없는 수가 앞 번호 흐름(최근 음성 등록 2개)에서 멀면 번호가 아니다 (실방송 "얼마 드릴까 50"·"25 자 25만 원")
+      if (pick.numberFrom === 'bare' && this.#bareOffRun(module, pick.no)) {
+        this.#pickDone.add(key)
+        work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text: whole }], read: { no: pick.no, name: pick.name, price: pick.price, candidates: [] }, action: 'discard', reason: LOG_BARE_OFF_RUN }))
+        continue
+      }
       if (fixedNo !== null) this.#zeroRaw.add(raw.no)
       this.#lastHeardNo = pick.no
       // 기록·카드에 남기는 들은 말은 그 일을 만든 조각 글만 (RA-V3-004·SA-V3-001)
@@ -2101,7 +2185,7 @@ export class VoiceController {
         done = { action: 'discard', reason: LOG_PENDING, readout: null }
       } else {
         if (!this.#instantNos.has(pick.no)) this.#instantNos.set(pick.no, 'existing')
-        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false)
+        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false, { fragment: `${String(this.#chunkSeq)}:${key}` })
       }
       const read = { no: pick.no, name: pick.name, price: pick.price, candidates: [] }
       const reason = zeroNote === null ? done.reason : done.reason === null ? zeroNote : `${done.reason} · ${zeroNote}`
@@ -2256,10 +2340,13 @@ export class VoiceController {
         if (seg.picks.length === 0) return { action: 'create', reason: LOG_INTERIM, readout: work.readout?.text ?? null }
       }
     }
-    if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text) ?? this.#priceOnlyRest(work, module, seg, chunk.text)
+    if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text) ?? this.#priceOnlyRest(work, module, seg, chunk.text) ?? this.#nameOnly(work, module, chunk.text, 'name@0')
     this.#runPicks(work, module, seg, chunk.text, true)
     const fixedPrice = this.#priceOnlyRest(work, module, seg, chunk.text)
     if (fixedPrice !== null) return fixedPrice
+    const restStart = (seg.picks.at(-1)?.end ?? -1) + 1
+    const filled = seg.rest.trim() === '' ? null : this.#nameOnly(work, module, seg.rest, `name@${String(restStart)}`)
+    if (filled !== null) return filled
     // 등록 직후 같은 덩어리의 "아니 61번" (R-24 ⓒ)
     if (seg.rest.trim() !== '') {
       const moved = this.#renumberChunk(work, module, seg.rest)
@@ -2472,7 +2559,16 @@ export class VoiceController {
   }
 
   /** 이미 있는 번호 (R-22, D-V3-06·07): 무시 · 바로 고침(되돌리기 10초) · 묻기 카드 + 까닭 줄. quiet = 같은 덩어리 끝처럼 무시를 조용히 */
-  #applyExisting(work: CardWork, module: VoiceModule, no: number, existing: ExistingView & { readonly pending?: true }, heard: ExistingHeard, auto: boolean, quiet: boolean): InstantDone {
+  #applyExisting(
+    work: CardWork,
+    module: VoiceModule,
+    no: number,
+    existing: ExistingView & { readonly pending?: true },
+    heard: ExistingHeard,
+    auto: boolean,
+    quiet: boolean,
+    options: { readonly gate?: boolean; readonly fragment?: string } = {},
+  ): InstantDone {
     const status = existing.status ?? 'OPEN'
     // 고쳐 말함 (D-V3-59): 같은 덩어리이거나, 이 콘솔이 그 번호를 음성으로 등록·고친 지 60초 안이고 그 사이 다른 번호를 음성으로 등록하지 않음
     // 다른 기기가 마지막으로 등록·고친 번호면 고쳐 말함이 아니다 — 바로 고치지 않고 묻는다 (D-V3-76)
@@ -2499,6 +2595,15 @@ export class VoiceController {
       decision = { action: 'IGNORE', changes: {}, reason: null }
     }
     const ignore: InstantDone = { action: 'discard', reason: LOG_ALREADY, readout: quiet ? null : alreadyReadout(no) }
+    // 같은 번호 가격 고침 문턱 (실방송 333번): 정정 낱말이 있거나 같은 새 가격을 다른 조각에서 60초 안에 두 번 들어야 바로 고친다
+    const gated = options.gate !== false && heard.price !== null && heard.priceSure !== false && !this.#priceGate(module, no, existing.price, heard.price, options.fragment ?? String(this.#chunkSeq))
+    if (gated && decision.action === 'AUTO_FIX' && decision.changes.price !== undefined) {
+      const candidate = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price })
+      if (existing.pending === true || existing.key === '') return { action: 'discard', reason: LOG_PENDING, readout: null }
+      this.#chunkActs.add('ASKED')
+      this.#ask(work, no, existing, candidate, REASON_PRICE_ONCE)
+      return { action: 'offer', reason: LOG_FIX_CANDIDATE, readout: null }
+    }
     this.#chunkActs.add(decision.action === 'IGNORE' ? 'IGNORED' : decision.action === 'ASK' ? 'ASKED' : 'FIXED')
     if (decision.action === 'IGNORE') return ignore
     const changes = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price ?? null })
@@ -2517,7 +2622,8 @@ export class VoiceController {
       return { action: 'offer', reason: LOG_ASK, readout: askMessage(no, existing, changes) }
     }
     const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no, message: fixingMessage(no, existing, changes), changes, stage: 'busy', before: null, undoUntil: null, error: null }
-    work.offers = [offer, ...work.offers]
+    // 고침 후보로 물었던 같은 상품의 묻기 카드는 바로 고침으로 바뀌었으니 내린다
+    work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key && item.note === REASON_PRICE_ONCE))]
     void this.#autoFix(offer.id, existing.key, no, existing, changes, decision.reason === 'NOT_RECENT')
     return { action: 'edit', reason: LOG_AUTO_FIX, readout: null }
   }
@@ -2613,7 +2719,7 @@ export class VoiceController {
       return
     }
     const work = this.#emptyWork()
-    const done = this.#applyExisting(work, module, card.no, existing, { name: card.name, price: card.price, nameNeedsCheck: card.nameNeedsCheck === true, priceSure: true }, !this.#rejected.has(card.no), true)
+    const done = this.#applyExisting(work, module, card.no, existing, { name: card.name, price: card.price, nameNeedsCheck: card.nameNeedsCheck === true, priceSure: true }, !this.#rejected.has(card.no), true, { gate: false })
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text: card.text }], read: { no: card.no, name: card.name, price: card.price, candidates: [] }, action: done.action, reason: done.reason }))
     if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: this.#host.now() + READOUT_MS }
     this.#set(this.#workPatch(work))

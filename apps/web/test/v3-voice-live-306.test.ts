@@ -299,7 +299,7 @@ describe('앞 말 맥락의 품종 (사용자 요구: 바이칼녹금이라고 �
     expect(reg(h)).toEqual([[312, 50_000, '바이칼녹금']])
   })
 
-  it('이름 없이 등록할 때는 앞 말에 두 번 이상 들린 사전 이름만, 앞 상품의 품종은 넘어오지 않는다', async () => {
+  it('이름 없이 등록할 때는 앞 말의 사전 이름을 쓰되, 앞 상품의 품종은 넘어오지 않는다', async () => {
     const h = await ready()
     say('304번 몰디브 2만 원')
     at(3_000)
@@ -311,10 +311,11 @@ describe('앞 말 맥락의 품종 (사용자 요구: 바이칼녹금이라고 �
     say('306번 5만 원')
     expect(reg(h).at(-1)).toEqual([306, 50_000, '바이칼녹금'])
     at(12_000)
+    // 번호 없는 덩어리에서 따로 든 이름은 한 번으로도 다음 번호의 것 (실방송 황소개구리·에스텔색금 — 사용자 요구)
     say('자 청사과 예쁘죠')
     at(15_000)
     say('307번 5만 원')
-    expect(reg(h).at(-1)).toEqual([307, 50_000, ''])
+    expect(reg(h).at(-1)).toEqual([307, 50_000, '청사과'])
   })
 
   it('1분이 지난 말은 보지 않는다', async () => {
@@ -323,5 +324,97 @@ describe('앞 말 맥락의 품종 (사용자 요구: 바이칼녹금이라고 �
     at(62_500)
     say('312번 5만 원')
     expect(reg(h)).toEqual([[312, 50_000, '']])
+  })
+
+  it('실방송 황소개구리: 번호 앞 따로 든 이름(한 번)도, 등록 뒤 다음 결과의 이름도 그 상품으로', async () => {
+    const h = await ready()
+    say('자 황소개구리 보세요')
+    at(3_000)
+    say('346번 자 요 아이 10 5만 원')
+    expect(reg(h)).toEqual([[346, 150_000, '황소개구리']])
+    const g = await ready()
+    say('359번 자 요 아이는 50만 원')
+    expect(reg(g)).toEqual([[359, 500_000, '']])
+    finishAll(g)
+    at(2_000)
+    say('에스텔 색금이에요')
+    at(5_000)
+    await settle()
+    expect(g.fixes).toEqual([{ id: 'b1:359', changes: { name: '에스텔색금' } }])
+  })
+
+  it('실방송 적상화: "적상화 … 30 자 요 아이 30만 원"은 30번이 아니고, 다음 "353번 … 30만 원"이 적상화로', async () => {
+    const h = await ready()
+    say('자 적상화 색상아 이거거 30 자 요 아이 30만 원')
+    at(3_000)
+    expect(h.registered).toEqual([])
+    expect(h.voice.getSnapshot().cards).toEqual([])
+    at(11_000)
+    say('353번 자 요 아이는 30만 원')
+    expect(reg(h)).toEqual([[353, 300_000, '적상화']])
+  })
+
+  it('번호만 들은 덩어리의 품종은 기다리던 번호가 가격을 받을 때 함께', async () => {
+    const h = await ready()
+    say('360번 황소개구리')
+    at(3_000)
+    say('자 요 아이는 15만 원')
+    at(6_000)
+    expect(reg(h)).toEqual([[360, 150_000, '황소개구리']])
+  })
+})
+
+describe("번호 흐름 밖의 '번' 없는 수 · 가격 되풀이 (실방송 50번·25번·13번)", () => {
+  it('3xx를 팔던 중 "얼마 드릴까 50 … 10만 원"·"너무예쁜데 25 자 25만 원"·"13 자 13만원"은 등록·카드·기다리는 번호 없음', async () => {
+    const h = await ready()
+    say('343번 2만 원')
+    at(3_000)
+    say('349번 2만 원')
+    at(6_000)
+    finishAll(h)
+    for (const [i, text] of ['자 요거 요거는 뭐야 색금이네요 색금 색금 자 요거 얼마 드릴까 50 자 요거 일단 5cm로 해 가지고 10만 원', '자 요거 5.5cm요 너무예쁜데 25 자 25만 원', '13 자 13만원', '자 51 10만 원'].entries()) {
+      at(9_000 + i * 3_000)
+      say(text)
+    }
+    at(30_000)
+    expect(h.registered.map((item) => item.no)).toEqual([343, 349])
+    expect(h.voice.getSnapshot().cards).toEqual([])
+  })
+})
+
+describe('같은 번호 가격 고침 문턱 (실방송 333번: 35만 원을 33만·30만으로 고쳤다)', () => {
+  it('35만 원 등록 뒤 "33만 원"·"30만 원"을 한 번씩 들으면 고치지 않고 묻기만 — 가격은 350,000원 그대로', async () => {
+    const h = await ready()
+    say('자 요거는 6.43cm 정도 얘는 30원 자 35만 원 얘는 금발이 너무 잘 나왔죠 자 몽골이 색금입니다 몽골이 색금 333번')
+    at(3_000)
+    expect(reg(h)).toEqual([[333, 350_000, '몽고리색금']])
+    finishAll(h)
+    await settle()
+    at(5_000)
+    say('333번 자 요 아이는 33만 원')
+    at(8_000)
+    await settle()
+    at(17_000)
+    say('333번 자 요 아이는 30만 원')
+    at(20_000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(h.board.get(333)?.price).toBe(350_000)
+    const asks = h.voice.getSnapshot().offers.filter((offer) => offer.kind === 'offer' && offer.stage === 'ask' && offer.no === 333)
+    expect(asks.length).toBeGreaterThan(0)
+    expect(h.voice.getSnapshot().log.some((entry) => (entry.reason ?? '').startsWith('고침 후보'))).toBe(true)
+  })
+
+  it('정정 낱말이 있거나 다른 조각에서 같은 새 가격을 두 번 들으면 고친다', async () => {
+    const h = await ready()
+    h.board.set(333, { key: 'b1:333', name: '', price: 350_000, claimCount: 0, closed: false, status: 'OPEN' })
+    say('333번 33만 원')
+    at(3_000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    say('333번 33만 원')
+    at(6_000)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:333', changes: { price: 330_000 } }])
   })
 })

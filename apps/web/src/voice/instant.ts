@@ -28,6 +28,12 @@ export const REASON_CLAIMS = '찜이 있는 상품이라 저절로 고치지 않
 export const REASON_NOT_OPEN = '판매 중이 아닌 상품이라 저절로 고치지 않았어요.'
 export const REASON_PRICE_NOT_SURE = "가격 끝에 '원'이 들리지 않아 저절로 고치지 않았어요."
 export const REASON_BARE_NUMBER = "번호를 '번' 없이 들어 저절로 고치지 않았어요."
+/** 같은 번호 가격 고침 문턱 (실방송 333번): 다른 가격을 한 번만 들었을 때 — 묻기 카드 까닭 줄 */
+export const REASON_PRICE_ONCE = '다른 가격이 한 번만 들려 저절로 고치지 않았어요.'
+/** 음성 기록 까닭 — 고침 후보(고치지 않음) */
+export const LOG_FIX_CANDIDATE = '고침 후보: 다른 가격이 한 번만 들려 그대로 두고 물었어요'
+/** 음성 기록 까닭 — 번호 흐름 밖의 '번' 없는 수 */
+export const LOG_BARE_OFF_RUN = "앞 번호들과 멀어 '번' 없는 수를 번호로 쓰지 않았어요"
 
 /** 저장값에서 바로 등록 켬/끔 (없거나 모르는 값은 켬, 옛 `voice.autoConfirm`은 읽지 않는다 — D-V3-16) */
 export function readInstant(stored: unknown): boolean {
