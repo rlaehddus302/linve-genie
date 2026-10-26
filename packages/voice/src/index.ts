@@ -348,3 +348,5 @@ export { INTERIM_STABLE_MS, interimCandidate, interimFallback, trackInterim, typ
 export { DROPPED_ZERO_NEAR, DROPPED_ZERO_RECENT, fixDroppedZero, type DroppedZeroFix, type DroppedZeroInput, type DroppedZeroProduct } from './number-context.ts'
 // V3 번호 없이 가격만 고쳐 말함 (실방송 "55만 원" 뒤 "50만 원")
 export { PRICE_ONLY_FIX_MS, priceOnlyFix, type PriceOnlyFix, type PriceOnlyInput } from './price-only.ts'
+// V3 굳은 중간 글 (사용자 결정: 1초 넘게 그대로인 낱말은 최종처럼)
+export { STABLE_EMPTY, STABLE_MS, finishStable, stepStable, type StableState, type StableStep } from './stable.ts'
