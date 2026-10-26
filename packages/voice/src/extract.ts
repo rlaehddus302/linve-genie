@@ -6,7 +6,7 @@ import { normalizeText, parseAmount, parseKoreanNumber } from '@livejjim/core'
 import { VarietyDictionary, type DictionaryEntry } from './dictionary.ts'
 import { isWindowFiller, looksLikePredicate } from './words.ts'
 import { DEFAULT_COMMON_ALIASES, DEFAULT_EXACT_ONLY } from './default-dictionary.ts'
-import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compareSimilarity, isCandidate, jamoKey, jamoOf, type Similarity } from './jamo.ts'
+import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compact, compareSimilarity, isCandidate, jamoKey, jamoOf, type Similarity } from './jamo.ts'
 
 export type Confidence = 'HIGH' | 'LOW'
 
@@ -775,6 +775,111 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
   return { name: container.name, exact: top.similarity.distance === 0, window: top.windows.get(container.key) ?? null }
 }
 
+// ── 5-1. 꾸밈말 붙은 품종 (실방송 금화다육: "창 버건디" → 창버건디, "청개구리 금입니다" → 청개구리금, "립스틱 색감" → 립스틱색금) ──
+
+/** 품종 바로 앞에 붙는 꾸밈말 (따로 선 토큰이면 그 글자 그대로만) */
+export const AFFIX_PREFIX = '창'
+/** 품종 바로 뒤에 붙는 꾸밈말 — 들린 모양 → 붙일 글. 받아쓰기 오류 모양(`색급`·`세금`·`색감`)은 붙인 이름이 사전에 있을 때만 쓴다(`몰디브 색급` → 몰디브 그대로) */
+const AFFIX_SUFFIXES: readonly { readonly heard: string; readonly add: string; readonly dictionaryOnly: boolean }[] = [
+  { heard: '색금', add: '색금', dictionaryOnly: false },
+  { heard: '금', add: '금', dictionaryOnly: false },
+  { heard: '색급', add: '색금', dictionaryOnly: true },
+  { heard: '세금', add: '색금', dictionaryOnly: true },
+  { heard: '색감', add: '색금', dictionaryOnly: true },
+]
+/**
+ * 따로 선 뒤 꾸밈말 토큰에 붙어도 되는 말끝 (이름을 말하는 꼴만 — `금이래요`·`금입니다`).
+ * `금이`·`금은`·`금을`·`금도`·`색감이`처럼 무늬·빛깔을 말하는 조사는 넣지 않는다(`라울 금이 선명하게` → 라울 그대로).
+ */
+const AFFIX_TOKEN_ENDINGS: readonly string[] = ['', '이에요', '에요', '입니다', '이요', '이고', '이고요', '이구요', '이래요', '이라고', '이라고요', '인데', '인데요', '이죠', '짜리', '요', '까지']
+
+/** 따로 선 토큰이 뒤 꾸밈말인가 — 맞으면 그 꾸밈말 */
+function suffixToken(token: string): (typeof AFFIX_SUFFIXES)[number] | null {
+  for (const suffix of AFFIX_SUFFIXES) {
+    if (AFFIX_TOKEN_ENDINGS.some((ending) => token === suffix.heard + ending)) return suffix
+  }
+  return null
+}
+
+/** 공백만 다른 사전 항목 (이름·별칭) */
+function exactEntries(text: string, dictionary: VarietyDictionary): readonly DictionaryEntry[] {
+  return dictionary.byJamo.get(jamoKey(jamoOf(text))) ?? []
+}
+
+/**
+ * 맞춘 품종(공백만 다른 맞춤일 때만 — 비슷함 맞춤이면 match 그대로)에 바로 붙은 꾸밈말을 붙인 이름. 붙일 게 없으면 match 그대로.
+ * 맞춘 품종이 없고 공백만 다른 창도 없으면(붙여 말한 `창버건디`·`청개구리금이에요`) 어느 사전 이름에든 붙은 꾸밈말을 본다.
+ * - 앞: 품종 창 바로 앞의 따로 선 토큰이 `창`이거나 창 첫 토큰이 `창`으로 시작하면 `창` + 이름 (이름이 이미 `창`으로 시작하면 아님)
+ * - 뒤: 창 마지막 토큰(그대로·끝말 뗀 모양) 끝에 붙었거나, 창 마지막 토큰이 끝말 없이 끝나고 바로 다음 토큰이 꾸밈말이면 이름 + 꾸밈말 (이름이 이미 `금`으로 끝나면 아님)
+ * - 붙인 이름이 사전 이름·별칭과 공백만 다르면 사전 이름을 쓴다. 받아쓰기 오류 모양은 사전에 있을 때만.
+ * - 번호·가격 토큰과 군말 토큰(excluded)은 꾸밈말로 보지 않는다. 문장 안에서 붙인 이름이 서로 다르게 둘 이상이면 match 그대로.
+ */
+function composeAffix(
+  tokens: readonly string[],
+  forms: readonly (readonly string[])[],
+  excluded: (i: number) => boolean,
+  dictionary: VarietyDictionary,
+  windows: ReadonlySet<string>,
+  match: VarietyMatch,
+): VarietyMatch {
+  if (match.name !== null && !match.exact) return match
+  // 이름이 없을 때(붙여 말한 `창버건디`·`청개구리금이에요`)는 공백만 다른 맞춤이 하나도 없었을 때만 — 둘이 갈려 비운 것(`라울 버건디`)은 그대로 둔다
+  if (match.name === null && [...windows].some((text) => exactEntries(text, dictionary).length > 0)) return match
+  const fixed = match.name
+  /** 공백만 다른 맞춤의 이름 (맞춘 품종이 있으면 그 이름만) */
+  const baseOf = (text: string): string | null => {
+    if (text === '') return null
+    const entry = exactEntries(text, dictionary).find((item) => fixed === null || item.name === fixed)
+    return entry === undefined ? null : entry.name
+  }
+  const composed = new Map<string, string>()
+  const settle = (base: string, prefix: boolean, suffix: (typeof AFFIX_SUFFIXES)[number] | null, window: string): void => {
+    const baseKey = compact(base)
+    const usePrefix = prefix && !baseKey.startsWith(AFFIX_PREFIX)
+    const useSuffix = suffix !== null && !baseKey.endsWith('금') ? suffix : null
+    if (!usePrefix && useSuffix === null) return
+    const text = (usePrefix ? AFFIX_PREFIX : '') + baseKey + (useSuffix?.add ?? '')
+    const found = exactEntries(text, dictionary)[0]
+    if (found !== undefined) {
+      if (!composed.has(found.name)) composed.set(found.name, window)
+      return
+    }
+    if (useSuffix?.dictionaryOnly === true) return
+    if (!composed.has(text)) composed.set(text, window)
+  }
+  for (let start = 0; start < tokens.length; start++) {
+    if (excluded(start)) continue
+    // 창 바로 앞의 따로 선 `창`
+    const lead = start > 0 && !excluded(start - 1) && tokens[start - 1] === AFFIX_PREFIX ? AFFIX_PREFIX : ''
+    let head = ''
+    for (let end = start; end < tokens.length && end < start + WINDOW_MAX_TOKENS && !excluded(end); end++) {
+      for (const form of forms[end] ?? []) {
+        const text = head + form
+        // 창 첫 토큰에 붙은 `창` (`창버건디`)
+        const cores = text.length > AFFIX_PREFIX.length && text.startsWith(AFFIX_PREFIX) ? [{ core: text, attached: false }, { core: text.slice(AFFIX_PREFIX.length), attached: true }] : [{ core: text, attached: false }]
+        for (const { core, attached } of cores) {
+          const prefix = lead !== '' || attached
+          // 창 마지막 토큰 안에 붙은 뒤 꾸밈말 (`청개구리금이에요` → 청개구리금). 토큰 하나 전부가 꾸밈말이면 아래 따로 선 꾸밈말 규칙만 본다
+          for (const suffix of AFFIX_SUFFIXES) {
+            if (form.length <= suffix.heard.length || !core.endsWith(suffix.heard)) continue
+            const base = baseOf(core.slice(0, -suffix.heard.length))
+            if (base !== null) settle(base, prefix, suffix, lead + text)
+          }
+          const base = baseOf(core)
+          if (base === null) continue
+          // 다음 토큰이 따로 선 뒤 꾸밈말 — 창 마지막 토큰이 끝말 없이 끝났을 때만 (`버건디에요 금` 아님)
+          const next = end + 1 < tokens.length && !excluded(end + 1) && form === tokens[end] ? suffixToken(tokens[end + 1] as string) : null
+          settle(base, prefix, next, lead + text + (next === null ? '' : (tokens[end + 1] as string)))
+        }
+      }
+      head += tokens[end] as string
+    }
+  }
+  if (composed.size !== 1) return match
+  const [name, window] = [...composed.entries()][0] as [string, string]
+  return { name, exact: true, window }
+}
+
 // ── 추출 ─────────────────────────────────────────────────────────────────
 
 function resolveMaxNumber(options: unknown): number {
@@ -904,8 +1009,10 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
   // 가격을 비워도 묶음 토큰은 품종 창에서 뺀다 (R-17 4·5)
   const excluded = (i: number): boolean => isMarker(i) || bundles.tokens.has(i) || bundles.bare.has(i)
   // 군말 토큰(`자`·`요`·`얘는`·`요거` 등)은 품종 창에서 뺀다 — 군말이 끼거나 군말로 시작한 창이 사전 이름에 맞지 않게(실방송: `자`+`보…` → 자보)
-  const windows = windowTexts(tokens, tokens.map(windowForms), (i) => excluded(i) || isWindowFiller(tokens[i] as string))
-  const variety = findVariety(windows, dictionary)
+  const windowFormList = tokens.map(windowForms)
+  const windowExcluded = (i: number): boolean => excluded(i) || isWindowFiller(tokens[i] as string)
+  const windows = windowTexts(tokens, windowFormList, windowExcluded)
+  const variety = composeAffix(tokens, windowFormList, windowExcluded, dictionary, windows, findVariety(windows, dictionary))
 
   const confidence: Confidence = no !== null && price !== null && variety.name !== null && variety.exact ? 'HIGH' : 'LOW'
   const reading: SentenceReading = {
