@@ -1,6 +1,6 @@
 // AC-V3-52·53 덩어리 조각 소비 (R-17 8, D-V3-46·48) — 사례 R54~R64, 실방송 8차, 실제 방송 1~6.
 import { describe, expect, it } from 'vitest'
-import { extractVoice, prepareVoiceDictionary, readSegments, type SegmentOptions } from '../src/index.ts'
+import { extractVoice, prepareVoiceDictionary, readMarkerCorrection, readSegments, type SegmentOptions } from '../src/index.ts'
 
 const DICT = prepareVoiceDictionary()
 const seg = (text: string, options: SegmentOptions = {}) => readSegments(text, { dictionary: DICT, ...options })
@@ -371,5 +371,57 @@ describe('TD-V3-009·010 남은 부분', () => {
     expect(maskArchiveText('010-1234-5678')).toBe('****')
     expect(maskArchiveText('공일공-1234-5678 주세요')).toBe('**** 주세요')
     expect(maskArchiveText('끝 번호 1234')).toBe('끝 번호 ****')
+  })
+})
+
+describe('TD-V3-011 한글 N번에서 품종 창이 멈춘다', () => {
+  const quick = (text: string) => seg(text, { priceUnit: 'THOUSAND', final: true }).picks.map((p) => [p.no, p.price])
+  it.each([
+    ['8번 라울 십오번 25만', '8번 라울 15번 25만'],
+    ['108번 삼광색금 십오번 60', '108번 삼광색금 15번 60'],
+    ['189번인데 삼광색금 십오번 5만', '189번인데 삼광색금 15번 5만'],
+    ['7번 라울 삼백육번 12만', '7번 라울 306번 12만'],
+  ])('"%s" → "%s"와 같다', (text, digits) => {
+    const want = quick(digits)
+    expect(want.length).toBeGreaterThan(0)
+    expect(quick(text)).toEqual(want)
+    expect(want[0]?.[0]).not.toBe(Number(digits.split('번')[0]))
+  })
+  it('"8번 라울 25만"은 그대로 8번 (품종 빠른 꼴 회귀)', () => {
+    expect(quick('8번 라울 25만')).toEqual([[8, 250000]])
+  })
+})
+
+describe('readMarkerCorrection — 정정 낱말이 든 "N번 … 원 가격" (TD-V3-013)', () => {
+  const read = (text: string) => readMarkerCorrection(text, { dictionary: DICT })
+  it.each([
+    ['65번 아니 5만 원', 65, 50_000],
+    ['65번 다시 5만 원', 65, 50_000],
+    ['65번 아니요 오만 원', 65, 50_000],
+    ['아니 65번 5만 원', 65, 50_000],
+    ['잘못 말했어요 15번 7만 원', 15, 70_000],
+    ['다시 15번 7만 원', 15, 70_000],
+    ['15번 정정 7만 원', 15, 70_000],
+    ['65번 아니 5만 원 아니 6만 원', 65, 60_000],
+    ['65번 아니 65번 5만 원', 65, 50_000],
+  ])('"%s" → %i번 %i원', (text, no, price) => {
+    expect(read(text)).toMatchObject({ no, price })
+  })
+  it.each([
+    '65번 5만 원', // 정정 낱말 없음
+    '65번 말고 5만 원', // 번호를 고친 말일 수 있다
+    '65번 자 말고 5만 원',
+    '65번 취소 아니 5만 원', // 취소
+    '65번 아니 61번', // 번호 옮기기
+    '65번 아니 61번 5만 원', // 번호 둘
+    '65번 아니', // 가격 없음
+    '5만 원 아니 65번', // 정정 뒤 가격 없음
+    '아니 5만 원', // 번호 없음 (가격만 고침 길)
+    '',
+  ])('"%s" → 없음', (text) => {
+    expect(read(text)).toBeNull()
+  })
+  it('어떤 입력에도 던지지 않는다', () => {
+    for (const value of [null, undefined, 3, {}, '번번번', '아니 '.repeat(500)]) expect(() => readMarkerCorrection(value as never)).not.toThrow()
   })
 })

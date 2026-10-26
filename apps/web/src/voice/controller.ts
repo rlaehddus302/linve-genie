@@ -1342,6 +1342,45 @@ export class VoiceController {
     return this.#priceOnly(work, module, rest, `price@${String(start)}`)
   }
 
+  /**
+   * 정정 낱말이 든 "N번 … 원 가격" (음성 패키지 readMarkerCorrection, TD-V3-013): "65번 아니 5만 원"·"65번 다시 5만 원"은 조각 읽기가 고르지 않아(정정 낱말)
+   * 아무 일 없이 사라졌다. 이미 있는 상품이면 그 번호 가격 고침으로 같은 번호 규칙(R-22 + 정정 낱말이라 문턱 통과, D-V3-83 (가))에 넘긴다 — 없는 번호는 새로 등록하지 않는다.
+   * 마지막 조각 뒤 남은 글(조각이 없으면 글 전체)로, 그 첫 토큰 위치로 한 번만
+   */
+  #markerCorrection(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string): InstantDone | null {
+    if (typeof module.readMarkerCorrection !== 'function') return null
+    const rest = seg.picks.length === 0 ? whole : seg.rest
+    const start = seg.picks.length === 0 ? 0 : (seg.picks.at(-1)?.end ?? -1) + 1
+    const key = `mark@${String(start)}`
+    if (rest.trim() === '') return null
+    // 이미 이 글로 고쳤다(최종 결과가 왔을 때) — 덩어리 끝에 다른 길(옛 판단)로 또 고치지 않게 처리한 것으로 돌려준다
+    if (this.#pickDone.has(key)) return { action: 'discard', reason: LOG_INSTANT_DONE, readout: null }
+    let read: ReturnType<VoiceModule['readMarkerCorrection']>
+    try {
+      read = module.readMarkerCorrection(rest, { maxNumber: this.#host.maxNumber() })
+    } catch {
+      read = null
+    }
+    if (read === null) return null
+    const found = this.#existingOf(read.no)
+    if (found === null || found === 'closed') return null
+    this.#pickDone.add(key)
+    this.#lastHeardNo = read.no
+    if (!this.#instantNos.has(read.no)) this.#instantNos.set(read.no, 'existing')
+    const auto = !this.#rejected.has(read.no) && !this.#phraseInstantOff && this.#snapshot.instant
+    const heard: ExistingHeard = { name: null, price: read.price, nameNeedsCheck: false, priceSure: true, numberFrom: 'marker' }
+    this.#heardNow = read.text
+    let done: InstantDone
+    if (found.pending === true) {
+      this.#setPending(read.no, { after: { heard, auto } })
+      done = { action: 'discard', reason: LOG_PENDING, readout: null }
+    } else done = this.#applyExisting(work, module, read.no, found, heard, auto, false, { fragment: `${String(this.#chunkSeq)}:${key}`, correction: true })
+    const now = this.#host.now()
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text: read.text }], read: { no: read.no, name: null, price: read.price, candidates: [] }, action: done.action, reason: done.reason }))
+    if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
+    return done
+  }
+
   /** 앞 덩어리 말로 품종 고르기 (이름만 — 사전 이름만, 애매하면 그대로) */
   #contextName(module: VoiceModule, name: string | null): string | null {
     if (typeof module.varietyFromContext !== 'function') return name
@@ -1419,10 +1458,10 @@ export class VoiceController {
   }
 
   /** 같은 번호 가격 고침 문턱 한 걸음 — 바로 고쳐도 되면 참. 지금 가격이 다시 들리면 후보를 지운다 */
-  #priceGate(module: VoiceModule, no: number, current: number, price: number, fragment: string): boolean {
+  #priceGate(module: VoiceModule, no: number, current: number, price: number, fragment: string, said = false): boolean {
     if (typeof module.gateSamePrice !== 'function') return true
     try {
-      const correction = typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(this.#heardNow)
+      const correction = said || (typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(this.#heardNow))
       const step = module.gateSamePrice({ current, price, fragment, correction, history: this.#priceHeard.get(no) ?? [], now: this.#host.now() })
       if (step.history.length === 0) this.#priceHeard.delete(no)
       else this.#priceHeard.set(no, step.history)
@@ -2150,6 +2189,8 @@ export class VoiceController {
     if (seg !== null) this.#runPicks(work, module, seg, text, false)
     // 번호 없이 가격만 고쳐 말함 (최종·굳은 글만): 마지막 조각 뒤 남은 글, 또는 조각이 없는 글
     if (seg !== null && interim.trim() === '') this.#priceOnlyRest(work, module, seg, text)
+    // 정정 낱말이 든 "65번 아니 5만 원" (최종·굳은 글만, TD-V3-013)
+    if (seg !== null && interim.trim() === '') this.#markerCorrection(work, module, seg, text)
     // 기다리는 번호가 있고 이 글에 번호 없이 원 가격이 들리면 그 자리에서 이어 받는다 (D-V3-67, 조용한 시간 전)
     if (seg !== null && seg.picks.length === 0 && this.#waiting !== null) this.#takeWaiting(work, module, text, interim.trim() === '')
     // 중간 결과의 빠른 꼴이 1초 동안 같으면 바로 (D-V3-71)
@@ -2292,7 +2333,11 @@ export class VoiceController {
         done = { action: 'discard', reason: LOG_PENDING, readout: null }
       } else {
         if (!this.#instantNos.has(pick.no)) this.#instantNos.set(pick.no, 'existing')
-        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false, { fragment: `${String(this.#chunkSeq)}:${key}` })
+        // 정정 낱말은 조각 어디에 있어도 센다 — 'N번' 앞이어도("아니 65번 5만 원"·"다시 15번 7만 원", TD-V3-013 AUTO). 조각 = 앞 조각 끝 뒤 ~ 이 조각 끝
+        const index = seg.picks.indexOf(raw)
+        const from = index > 0 ? (seg.picks[index - 1]?.end ?? -1) + 1 : 0
+        const said = pick.start >= 0 && seg.tokens.length > pick.end && typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(seg.tokens.slice(from, pick.end + 1).join(' '))
+        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false, { fragment: `${String(this.#chunkSeq)}:${key}`, correction: said })
       }
       const read = { no: pick.no, name: pick.name, price: pick.price, candidates: [] }
       const reason = zeroNote === null ? done.reason : done.reason === null ? zeroNote : `${done.reason} · ${zeroNote}`
@@ -2447,9 +2492,9 @@ export class VoiceController {
         if (seg.picks.length === 0) return { action: 'create', reason: LOG_INTERIM, readout: work.readout?.text ?? null }
       }
     }
-    if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text) ?? this.#priceOnlyRest(work, module, seg, chunk.text) ?? this.#nameOnly(work, module, chunk.text, 'name@0')
+    if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text) ?? this.#priceOnlyRest(work, module, seg, chunk.text) ?? this.#markerCorrection(work, module, seg, chunk.text) ?? this.#nameOnly(work, module, chunk.text, 'name@0')
     this.#runPicks(work, module, seg, chunk.text, true)
-    const fixedPrice = this.#priceOnlyRest(work, module, seg, chunk.text)
+    const fixedPrice = this.#priceOnlyRest(work, module, seg, chunk.text) ?? this.#markerCorrection(work, module, seg, chunk.text)
     if (fixedPrice !== null) return fixedPrice
     const restStart = (seg.picks.at(-1)?.end ?? -1) + 1
     const filled = seg.rest.trim() === '' ? null : this.#nameOnly(work, module, seg.rest, `name@${String(restStart)}`)
@@ -2464,7 +2509,9 @@ export class VoiceController {
       const text = this.#undoInstant(work, tail.no)
       return { action: 'close', reason: LOG_UNDONE, readout: text }
     }
-    if (tail !== null && tail.kind === 'correction') {
+    // 남은 글을 이미 가격만 고쳐 말함으로 고쳤으면(최종 결과가 왔을 때 #tryInstant) 꼬리 정정으로 또 고치지 않는다 — 정정 한 번에 쓰기 하나 (TD-V3-012)
+    const restFixed = this.#pickDone.has(`price@${String(restStart)}`)
+    if (tail !== null && tail.kind === 'correction' && !restFixed) {
       let reading: ChunkReading | null
       try {
         reading = module.readChunk(tail.text, { dictionary: this.#prepared(module), maxNumber: this.#host.maxNumber() })
@@ -2674,7 +2721,7 @@ export class VoiceController {
     heard: ExistingHeard,
     auto: boolean,
     quiet: boolean,
-    options: { readonly gate?: boolean; readonly fragment?: string } = {},
+    options: { readonly gate?: boolean; readonly fragment?: string; readonly correction?: boolean } = {},
   ): InstantDone {
     const status = existing.status ?? 'OPEN'
     // 고쳐 말함 (D-V3-59): 같은 덩어리이거나, 이 콘솔이 그 번호를 음성으로 등록·고친 지 60초 안이고 그 사이 다른 번호를 음성으로 등록하지 않음
@@ -2703,7 +2750,7 @@ export class VoiceController {
     }
     const ignore: InstantDone = { action: 'discard', reason: LOG_ALREADY, readout: quiet ? null : alreadyReadout(no) }
     // 같은 번호 가격 고침 문턱 (실방송 333번): 정정 낱말이 있거나 같은 새 가격을 다른 조각에서 60초 안에 두 번 들어야 바로 고친다
-    const gated = options.gate !== false && heard.price !== null && heard.priceSure !== false && !this.#priceGate(module, no, existing.price, heard.price, options.fragment ?? String(this.#chunkSeq))
+    const gated = options.gate !== false && heard.price !== null && heard.priceSure !== false && !this.#priceGate(module, no, existing.price, heard.price, options.fragment ?? String(this.#chunkSeq), options.correction === true)
     if (gated && decision.action === 'AUTO_FIX' && decision.changes.price !== undefined) {
       const candidate = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price })
       if (existing.pending === true || existing.key === '') return { action: 'discard', reason: LOG_PENDING, readout: null }

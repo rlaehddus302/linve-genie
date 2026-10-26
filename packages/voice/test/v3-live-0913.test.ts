@@ -82,3 +82,17 @@ describe("'번' 없는 수가 번호가 아닌 때", () => {
     expect(bareNumberFits(50, [349, 45])).toBe(true)
   })
 })
+
+describe('TD-V3-014 단위 글자만인 한글 금액도 가격 되풀이 (십만 = 10의 만)', () => {
+  it.each(['10 자 십만 원', '10 요 아이 십만원', '100 자 백만 원'])('"%s" → 번호 없음', (text) => {
+    const s = readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 })
+    expect(s.picks).toEqual([])
+    expect(readRegistration(text, { dictionary: DICT, final: true, maxNumber: 999 }).heardNumbers).toEqual([])
+  })
+  it.each([
+    ['11 자 십만 원', 11, 100_000],
+    ['20 자 백만 원', 20, 1_000_000],
+  ])('앞자리 다름 "%s" → %i번', (text, no, price) => {
+    expect(pick(text).map((p) => [p[0], p[1]])).toEqual([[no, price]])
+  })
+})

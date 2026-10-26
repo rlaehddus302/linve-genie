@@ -131,14 +131,14 @@ const DICT = prepareVoiceDictionary()
 const read = (text: string) => readRegistration(text, { dictionary: DICT })
 
 describe('실제 방송 문장 → 바로 등록 (기본 사전)', () => {
-  it('1. 108번 bts 10만 원까지 → 108 · 100,000원 · 추측 bts는 한 번만 나와 품종 없음(실방송 3차 — 추측은 두 번 이상 나올 때만)', () => {
+  it('1. 108번 bts 10만 원까지 → 108 · 100,000원 · BTS(영수증 품종 — 사전에 BTS·bts·비티에스)', () => {
     const text = '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요'
-    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
+    expect(readyToRegister(text, { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: 'BTS', nameNeedsCheck: false, numberFrom: 'marker' })
   })
-  it('2. 10만 원 108번(끝) → 108 · 100,000원 · 품종 미입력, 후보 bts(두 번 나온 낱말)', () => {
+  it('2. 10만 원 108번(끝) → 108 · 100,000원 · BTS(사전 이름), 후보 bts(두 번 나온 낱말)', () => {
     const r = readyToRegister('자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { dictionary: DICT })
-    // D-V3-37: 추측(bts)은 등록 품종이 아니고 후보 단추용 guess로만
-    expect(r).toEqual({ no: 108, price: 100000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
+    // 영수증 품종 BTS가 사전에 들어가 등록 품종은 사전 맞춤 BTS — 추측(guess)은 그대로 후보 단추용
+    expect(r).toEqual({ no: 108, price: 100000, name: 'BTS', nameNeedsCheck: false, numberFrom: 'marker' })
     expect(readRegistration('자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번', { dictionary: DICT }).guess).toBe('bts')
   })
   it('3. 180번 … 30 5만 원 → 180 · 350,000원 · 삼광색금', () => {
@@ -181,7 +181,7 @@ describe('확정 읽기 (R-17 8) — 중간 결과', () => {
     expect(readyToRegister('108번 bts 10만', { dictionary: DICT })).toBeNull()
     expect(readyToRegister('108번 30 5만', { dictionary: DICT })).toBeNull()
     expect(readyToRegister('bts 10만 원', { dictionary: DICT })).toBeNull()
-    expect(readyToRegister('108번 bts 10만 원', { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
+    expect(readyToRegister('108번 bts 10만 원', { dictionary: DICT })).toEqual({ no: 108, price: 100000, name: 'BTS', nameNeedsCheck: false, numberFrom: 'marker' })
   })
   it('원 없는 가격(묶음)만으로는 확정이 아니다', () => {
     const r = read('15번 라울 만오천')
@@ -263,7 +263,7 @@ describe("'번' 없는 번호 (V3 사용자 추가 요구: 'N번' > '번' 없는
     expect(ready('168 삼광색금 25만 원')).toEqual({ no: 168, price: 250000, name: '삼광색금', nameNeedsCheck: false, numberFrom: 'bare' })
     expect(ready('일육팔은 25만 원')).toMatchObject({ no: 168, price: 250000 })
     expect(ready('168은 25만 원')).toMatchObject({ no: 168, price: 250000 })
-    expect(ready('108 bts 10만 원')).toEqual({ no: 108, price: 100000, name: null, nameNeedsCheck: false, numberFrom: 'bare' })
+    expect(ready('108 bts 10만 원')).toEqual({ no: 108, price: 100000, name: 'BTS', nameNeedsCheck: false, numberFrom: 'bare' })
   })
   it('단위가 붙거나 한글이 붙은 수는 번호가 아니다', () => {
     // 실방송 3차: 원 가격 줄 뒤에 온 '번' 없는 번호는 다음 상품 번호일 수 있어 카드만 (D-V3-23 사례 — 스펙 판정 대기)
@@ -322,7 +322,7 @@ describe('실방송 3차 위험 사례 (판매자 안전)', () => {
   })
   it('말끝 모양 낱말은 두 번 나와도 추측으로 쓰지 않는다', () => {
     expect(readRegistration('15번 나왔네 자 나왔네 만 원', { dictionary: DICT }).safeGuess).toBeNull()
-    expect(readRegistration('15번 bts 자 bts 만 원', { dictionary: DICT }).safeGuess).toBe('bts')
+    expect(readRegistration('15번 ufo 자 ufo 만 원', { dictionary: DICT }).safeGuess).toBe('ufo') // 사전 밖 낱말(bts는 사전 품종 BTS)
   })
   // D-V3-64(사용자 "가격차이 커도 고칠건 자동으로 고쳐야지"): 가격 크기로 막지 않고 크게 바뀜 표시만 — 처음 기대(막음)를 바꿈
   it('b) "605만 원" → 바로 등록, 크게 바뀜 표시', () => {

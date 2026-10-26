@@ -96,14 +96,83 @@ describe('AC-V3-62 — 단위가 뒤에 오는 수·한 글자 한글 수는 번
     )
   })
 
-  it('번 없는 수 하나 + 원 가격 → 그 번호로 확정 (R31~R36 꼴)', () => {
+  // 가격 되풀이(실방송 10:05 15번, extract.ts repeatsPrice — 결정 변경, 약화 아님): '번' 없는 수가 같은 조각 뒤쪽(사이에 다른 수 없이) 만/천 금액의 앞자리와 같으면
+  // 가격을 두 번 말한 것이라 번호가 아니다(`25 자 25만 원`). 그래서 이 성질은 앞자리가 다른 경우만 보고, 같은 경우는 아래 성질이 본다.
+  const PRICES = [['25만 원', 25], ['35만 원까지', 35], ['만원', null]] as const
+  it('번 없는 수 하나 + 원 가격(앞자리가 다른 수) → 그 번호로 확정 (R31~R36 꼴)', () => {
     fc.assert(
-      fc.property(bareNumber, words(3), fc.constantFrom('25만 원', '35만 원까지', '만원'), (n, mid, price) => {
+      fc.property(bareNumber, words(3), fc.constantFrom(...PRICES), (n, mid, [price, lead]) => {
+        fc.pre(n.value !== lead)
         const text = [n.text, '자', ...mid, price].join(' ')
         expect(readyToRegister(text, { dictionary: DICT })?.no).toBe(n.value)
       }),
       { numRuns: 300 },
     )
+  })
+
+  /** 가격 앞자리 꼴: 숫자(`25만`) 또는 한글(`이십오만`), 붙인 `원`·띄운 `원`. 단위 글자만인 한글(`십만`)은 TD-V3-014가 따로 본다 */
+  const leadPrice = (value: number) => {
+    const sino = numberToSino(value) as string
+    const forms = [`${String(value)}만 원`, `${String(value)}만원`, `${String(value)}천 원`]
+    if (![...sino].every((char) => '십백천'.includes(char))) forms.push(`${sino}만 원`)
+    return fc.constantFrom(...forms)
+  }
+
+  it('가격 되풀이: 번 없는 수 N + 군말 아무거나 + N이 앞자리인 만/천 금액 → 번호 아님(바로 등록 없음, 번호 칸 비움)', () => {
+    fc.assert(
+      fc.property(bareNumber.filter((n) => n.value <= 99), words(4), (n, mid) => {
+        fc.assert(
+          fc.property(leadPrice(n.value), (price) => {
+            const text = [n.text, ...mid, price].join(' ')
+            expect(read(text).no, text).toBeNull()
+            expect(readyToRegister(text, { dictionary: DICT, final: true }), text).toBeNull()
+          }),
+          { numRuns: 4 },
+        )
+      }),
+      { numRuns: 200 },
+    )
+  })
+
+  it('가격 앞자리가 다른 수: 번 없는 수 N + 군말 + M만 원(M ≠ N) → N번 그대로 (31 … 30만 원 → 31번)', () => {
+    fc.assert(
+      fc.property(bareNumber, words(4), fc.integer({ min: 1, max: 99 }), (n, mid, m) => {
+        fc.pre(m !== n.value)
+        const text = [n.text, '자', ...mid, `${String(m)}만 원`].join(' ')
+        const ready = readyToRegister(text, { dictionary: DICT, final: true })
+        expect(ready?.no, text).toBe(n.value)
+        expect(ready?.price, text).toBe(m * 10_000)
+      }),
+      { numRuns: 300 },
+    )
+  })
+
+  it.each([
+    ['31 자 30만 원', 31, 300_000],
+    ['31 자 요 아이 라울 30만 원', 31, 300_000],
+    ['삼십일 자 30만 원', 31, 300_000],
+  ])('앞자리 다름 "%s" → %i번 %i원', (text, no, price) => {
+    expect(readyToRegister(text, { dictionary: DICT, final: true })).toMatchObject({ no, price, numberFrom: 'bare' })
+  })
+
+  it.each(['25 자 25만 원', '이십오 자 요 아이 25만 원', '15 응 이모 자 15만 원', '너무예쁜데 25 자 25만 원', '30 자 요 아이 30만 원', '13 13만 원'])('가격 되풀이 "%s" → 번호 없음', (text) => {
+    expect(read(text).no).toBeNull()
+    expect(readyToRegister(text, { dictionary: DICT, final: true })).toBeNull()
+  })
+
+  // TD-V3-014: 가격 되풀이의 앞자리를 읽는 leadingCoefficient가 단위 글자만인 한글 금액(`십만`)은 계수 없음으로 보아, "10 자 십만 원"의 10이
+  // 되풀이로 빠지지 않고 10번 · 100,000원으로 바로 등록된다(같은 꼴 "20 자 이십만 원"·"10 자 10만 원"은 번호 없음).
+  it.each([
+    ['10 자 십만 원', '10 자 10만 원'],
+    ['10 요 아이 십만원', '10 요 아이 10만원'],
+  ])('TD-V3-014: "%s" → 번호 없음("%s"와 같이)', (text, sameAs) => {
+    expect(readyToRegister(sameAs, { dictionary: DICT, final: true })).toBeNull()
+    expect(readyToRegister(text, { dictionary: DICT, final: true })).toBeNull()
+  })
+
+  // 사이에 다른 수가 있으면 되풀이를 끝까지 보지 않는다 — 되풀이로 뺀 수가 있는데 다른 수가 남으면 애매(d1aa4a45)
+  it.each(['25 1 25만 원', '25 자 3 자 25만 원'])('"%s" → 번호를 정하지 않는다', (text) => {
+    expect(readyToRegister(text, { dictionary: DICT, final: true })).toBeNull()
   })
 
   // TD-V3-001: 자리 읽기(일육팔·일 육 팔)의 '번' 없는 번호 후보에 R-17 3의 후보 조건(끝말은 은·는·이·가·요만, 다음 토큰이 단위 낱말이면 아님)이 빠졌다.

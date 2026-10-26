@@ -7,6 +7,7 @@ import { isBigChange, readRegistration, type ReadyBlock, type RegistrationOption
 import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
 import { VarietyDictionary } from './dictionary.ts'
 import { CANCEL_WORDS, CORRECTION_MARKERS, isWindowFiller } from './words.ts'
+import { hasPriceCorrection } from './price-gate.ts'
 
 export interface SegmentOptions extends RegistrationOptions {
   /** 그 방송의 판매 규칙 price.unit — "N번 품종 수" 꼴(D-V3-48)의 수를 읽는 단위. 생략 = WON */
@@ -58,11 +59,12 @@ function maxNumberOf(options: SegmentOptions): number {
 }
 
 /** 사전 이름이 tokens[k..]의 앞 1~4토큰 창과 맞으면 그 창의 마지막 위치 (가장 긴 것), 아니면 -1 */
-function nameWindowEnd(tokens: readonly string[], k: number, options: SegmentOptions): { end: number; name: string } | null {
+// 'N번' 표시 토큰(한글로 적힌 `십오번` 포함)에서도 멈춘다 — 숫자 꼴(`15번`)과 같게 (TD-V3-011)
+function nameWindowEnd(tokens: readonly string[], k: number, options: SegmentOptions, markerAt: ReadonlySet<number> = new Set()): { end: number; name: string } | null {
   let found: { end: number; name: string } | null = null
   for (let j = k; j < tokens.length && j < k + 4; j++) {
     const piece = tokens.slice(k, j + 1)
-    if (piece.some((token) => isWindowFiller(token) || /[0-9]/.test(token) || isCorrectionToken(token) || isCancelToken(token))) break
+    if (markerAt.has(j) || piece.some((token) => isWindowFiller(token) || /[0-9]/.test(token) || isCorrectionToken(token) || isCancelToken(token))) break
     const reading = readSentence(piece.join(' '), { dictionary: options.dictionary ?? [] })
     if (reading.extraction.name !== null && reading.nameWindow !== null && reading.nameWindow.startsWith(piece[0] as string)) found = { end: j, name: reading.extraction.name }
     else if (found === null && piece.length === 1) {
@@ -154,6 +156,8 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
     const punct = punctuatedTokens(text)
     const markers = listNumberMarkers(tokens, punct)
     const lines = listWonLines(tokens, { maxNumber, punct })
+    const markerAt = new Set<number>()
+    for (const marker of markers) for (let i = marker.start; i <= marker.last; i++) markerAt.add(i)
     const picks: SegmentPick[] = []
     const dropped: number[] = []
     let s = 0
@@ -186,7 +190,7 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         // 품종은 조각 범위(앞 조각이 소비된 끝 또는 앞 'N번' 뒤 ~ 이 원 가격) 안에서 찾는다 — 번호보다 먼저 말한 품종도(TE-V3-013), 다른 'N번' 앞의 품종은 쓰지 않는다
         // 앞 'N번' 바로 뒤(군말 건너)의 품종은 그 앞 번호의 것이다(`93번 청개구리 97번 23만 원`)
         const previous = before[before.length - 2]
-        const ownedByPrevious = previous === undefined ? null : nameWindowEnd(tokens, skipFillers(tokens, previous.last + 1), options)
+        const ownedByPrevious = previous === undefined ? null : nameWindowEnd(tokens, skipFillers(tokens, previous.last + 1), options, markerAt)
         const lo = previous === undefined ? s : ownedByPrevious === null ? previous.last + 1 : ownedByPrevious.end + 1
         const reading = analyzeSentence(tokens.slice(lo, line.end + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
         // 흔한 말 별칭(`녹음` → 녹금)·한 글자 다른 이름(`야래양` → 야래향)은 'N번'과 원 가격 사이에서만 (D-V3-54)
@@ -203,7 +207,7 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         const k = skipFillers(tokens, m.last + 1)
         // 정정 표시·취소 낱말이 끼면 빠른 꼴이 아니다 (TD-V3-009 — `15번 다시 180`·`15번 취소 백육십팔`)
         if (correctionBetween(m.last + 1, k)) continue
-        const name = nameWindowEnd(tokens, k, options)
+        const name = nameWindowEnd(tokens, k, options, markerAt)
         const q = name === null ? k : name.end + 1
         // 정정 표시·취소 낱말(붙은 꼴 `만오천말고` 포함)이 번호와 수 사이에 끼면 빠른 꼴이 아니다 (TD-V3-009)
         if (correctionBetween(m.last + 1, q)) continue
@@ -263,11 +267,53 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
         // 대화 속 '아니'와 가리기: 정정 표시 바로 뒤(군말 건너)에 원 가격 줄이나 사전 품종이 와야 정정이다
         const k = skipFillers(tokens, s + 1)
         const priceNext = lines.some((item) => item.start === k && item.value !== null)
-        if (priceNext || nameWindowEnd(tokens, k, options) !== null) tail = { kind: 'correction', no: last.no, text: restTokens.join(' ') }
+        if (priceNext || nameWindowEnd(tokens, k, options, markerAt) !== null) tail = { kind: 'correction', no: last.no, text: restTokens.join(' ') }
       }
     }
     return { tokens, picks, others, tail, rest: restTokens.join(' ') }
   } catch {
     return EMPTY
+  }
+}
+
+/** 정정 낱말로 고친 같은 번호 가격 (readMarkerCorrection) */
+export interface MarkerCorrection {
+  readonly no: number
+  readonly price: number
+  /** 그 말 조각 (기록·카드에 남길 글) */
+  readonly text: string
+}
+
+/**
+ * 정정 낱말이 든 "N번 … 원 가격" 조각 (TD-V3-013, D-V3-83 (가)): 조각 읽기는 정정 낱말이 'N번'과 원 가격 사이에 끼면 고르지 않는다(D-V3-51 —
+ * 새 등록으로는 쓰지 않는다). 그 번호가 이미 있는 상품이면 이 조각은 그 상품의 가격 고침이다 — "65번 아니 5만 원"·"65번 다시 5만 원"·
+ * "아니 65번 5만 원"·"잘못 말했어요 15번 7만 원". 고르는 값: 'N번'이 한 번호뿐(같은 번호 되풀이는 하나)이고, 정정 낱말이 있고, 취소 낱말이 없고,
+ * 'N번' 뒤·첫 정정 낱말 뒤의 마지막 원 가격 줄. 'N번' 바로 뒤(군말 건너)가 `…말고`면 고르지 않는다("15번 말고 7만 원" — 번호를 고친 말일 수 있어 애매).
+ * 순수 함수: 어떤 입력에도 예외를 던지지 않는다.
+ */
+export function readMarkerCorrection(text: unknown, options: SegmentOptions = {}): MarkerCorrection | null {
+  try {
+    const tokens = tokenize(text)
+    if (tokens === null || tokens.length === 0) return null
+    if (tokens.some(isCancelToken)) return null
+    const maxNumber = maxNumberOf(options)
+    const punct = punctuatedTokens(text)
+    const markers = listNumberMarkers(tokens, punct)
+    if (markers.length === 0 || new Set(markers.map((marker) => marker.value)).size !== 1) return null
+    const m = markers[0] as (typeof markers)[number]
+    if (markers.some((marker) => marker.split) || m.value > maxNumber) return null
+    const c = tokens.findIndex((token) => hasPriceCorrection(token))
+    if (c < 0) return null
+    // 'N번' 바로 뒤 군말(정정 표시는 군말로 건너지 않는다) 다음이 `…말고`면 애매
+    let k = m.last + 1
+    while (k < tokens.length && isWindowFiller(tokens[k] as string) && !isCorrectionToken(tokens[k] as string)) k++
+    if (tokens[k]?.endsWith(MALGO) === true) return null
+    const from = Math.max(c, (markers[markers.length - 1] as (typeof markers)[number]).last)
+    const lines = listWonLines(tokens, { maxNumber, punct }).filter((line) => line.start > from)
+    const line = lines[lines.length - 1]
+    if (line === undefined || line.value === null) return null
+    return { no: m.value, price: line.value, text: tokens.join(' ') }
+  } catch {
+    return null
   }
 }

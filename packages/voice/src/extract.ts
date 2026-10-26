@@ -5,7 +5,7 @@
 import { normalizeText, parseAmount, parseKoreanNumber } from '@livejjim/core'
 import { VarietyDictionary, type DictionaryEntry } from './dictionary.ts'
 import { isWindowFiller, looksLikePredicate } from './words.ts'
-import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
+import { DEFAULT_COMMON_ALIASES, DEFAULT_EXACT_ONLY } from './default-dictionary.ts'
 import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compareSimilarity, isCandidate, jamoKey, jamoOf, type Similarity } from './jamo.ts'
 
 export type Confidence = 'HIGH' | 'LOW'
@@ -528,7 +528,7 @@ function repeatsPrice(tokens: readonly string[], i: number, value: number): bool
   // 같은 조각 안에서 뒤로 끝까지 본다 — 사이에 다른 수(숫자로 시작하는 토큰·'N번')가 오면 멈춘다 (실방송 "15 응 이모 … 자 15만 원")
   for (let j = i + 1; j < tokens.length; j++) {
     const token = tokens[j] as string
-    if (/[만천]/.test(token) && leadingCoefficient(token) === value) return true
+    if (/[만천]/.test(token) && priceCoefficient(token) === value) return true
     if (/^[0-9]/.test(token) || readingForms(token).some((form) => form.endsWith(BEON) && form.length > 1)) return false
   }
   return false
@@ -584,6 +584,17 @@ function leadingCoefficient(token: string): number | null {
   if ([...token].every((char) => '십백천만원'.includes(char))) return null
   const head = token.split(/[만천원]/)[0] ?? ''
   return head === '' ? null : parseKoreanNumber(head)
+}
+
+/**
+ * 가격 되풀이(repeatsPrice)에서 보는 금액 토큰의 계수: leadingCoefficient와 같되, 단위 글자만인 한글 금액(`십만`·`백만원`)은
+ * 만 앞의 단위 글자를 수로 읽는다(`십만` → 10, `백만` → 100) — "10 자 십만 원"을 "10 자 10만 원"과 같게 (TD-V3-014).
+ * 단위 하나만인 토큰(`만`·`천`·`만원`)은 여전히 계수 없음.
+ */
+function priceCoefficient(token: string): number | null {
+  const unitOnly = /^([십백천]+)만원?$/.exec(token)
+  if (unitOnly !== null) return parseKoreanNumber(unitOnly[1] as string)
+  return leadingCoefficient(token)
 }
 
 /**
@@ -706,6 +717,9 @@ export interface VarietyMatch {
   readonly window: string | null
 }
 
+const SAEKGEUP = '색급'
+const SAEKGEUM = '색금'
+
 export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDictionary): VarietyMatch {
   const top: { similarity: Similarity | null; readonly entries: Map<string, DictionaryEntry>; readonly windows: Map<string, string> } = { similarity: null, entries: new Map(), windows: new Map() }
   const consider = (similarity: Similarity, entry: DictionaryEntry, text: string): void => {
@@ -724,6 +738,11 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
   for (const text of texts) {
     const jamo = jamoOf(text)
     for (const entry of dictionary.byJamo.get(jamoKey(jamo)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
+    // 크롬이 이름 끝 '색금'을 '색급'으로 자주 적는다 — 끝의 '색급'은 '색금'으로도 맞춘다(같은 이름으로 봄). 사전에 그 이름이 없으면 그대로(`몰디브 색급` → 몰디브)
+    if (text.length > SAEKGEUP.length && text.endsWith(SAEKGEUP)) {
+      const fixed = jamoOf(text.slice(0, -SAEKGEUP.length) + SAEKGEUM)
+      for (const entry of dictionary.byJamo.get(jamoKey(fixed)) ?? []) consider({ distance: 0, length: fixed.length }, entry, text)
+    }
   }
   if (top.similarity === null) {
     for (const text of texts) {
@@ -739,6 +758,8 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
         if (top.similarity !== null && compareSimilarity({ distance: Math.abs(jamo.length - length), length: longer }, top.similarity) < 0) continue
         const limit = Math.floor(longer / 5)
         for (const entry of dictionary.byLength.get(length) ?? []) {
+          // 적은 모양으로만 맞추는 짧은 이름(콜리·퍼플·창금·황소)은 비슷함으로 맞추지 않는다
+          if (DEFAULT_EXACT_ONLY.has(entry.name)) continue
           const similarity = { distance: distance(entry, limit), length: longer }
           if (isCandidate(similarity)) consider(similarity, entry, text)
         }
@@ -748,7 +769,8 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
   if (top.similarity === null) return { name: null, exact: false, window: null }
   const entries = [...top.entries.values()]
   // 가장 높은 유사도의 이름이 여럿이면 나머지를 모두 품는(공백 뺀 글자로 부분 문자열) 이름만
-  const container = entries.find((entry) => entries.every((other) => entry.key.includes(other.key)))
+  // 같은 이름의 다른 모양(이름·별칭 — `상관세금`·`삼강색급`이 모두 삼광색금)만 맞았으면 그 이름이다
+  const container = entries.find((entry) => entries.every((other) => other.name === entry.name || entry.key.includes(other.key)))
   if (container === undefined) return { name: null, exact: false, window: null }
   return { name: container.name, exact: top.similarity.distance === 0, window: top.windows.get(container.key) ?? null }
 }
