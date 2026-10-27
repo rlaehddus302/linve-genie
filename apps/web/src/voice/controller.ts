@@ -103,6 +103,8 @@ import {
   notRecentReadout,
   REASON_BARE_NUMBER,
   REASON_PRICE_ONCE,
+  interimFinalNote,
+  LOG_INTERIM_FINAL,
   LOG_FIX_CANDIDATE,
   LOG_BARE_OFF_RUN,
   alreadyReadout,
@@ -832,6 +834,10 @@ export class VoiceController {
   #lastInterim = ''
   /** 중간 결과에 보인 번호와 시각 (빠진 0 되살리기의 증거, 20초) */
   #interimNos: { readonly no: number; readonly at: number }[] = []
+  /** 지금 크롬 결과의 중간 글(굳은 글·중간 결과 안정 포함)에서 번호와 짝지어 들은 확정 가격 — 최종 결과가 오면 비운다 (R-17 8, D-V3-103) */
+  #resultPrices = new Map<number, number>()
+  /** 최종 결과를 읽는 동안만: 그 결과의 중간 글에서 들은 번호별 가격 */
+  #finalPrices: ReadonlyMap<number, number> | null = null
   /** 음성으로 새로 등록한 번호와 시각 (빠진 0 되살리기의 맥락, 10분 · 최근 20개) */
   #contextNos: { readonly no: number; readonly at: number }[] = []
   /** 마지막으로 들린 번호 (가격만 고쳐 말함 — 그 사이 다른 번호가 들렸는지) */
@@ -1111,6 +1117,7 @@ export class VoiceController {
     this.#interimTimer = null
     this.#clearStable()
     this.#interimNos = []
+    this.#resultPrices = new Map()
     this.#lastHeardNo = null
     this.#contextTexts = []
     this.#confirmMark = null
@@ -1198,8 +1205,15 @@ export class VoiceController {
     const step = module.feed(this.#phrase, { text: finalText, final: true, at: this.#host.now(), flushedAtEnd: result.flushedAtEnd === true })
     this.#phrase = step.state
     const work = this.#startWork(module)
-    this.#runOutputs(work, module, step.out)
-    this.#tryInstant(work, module)
+    // 이 결과의 중간 글 가격과 최종 글 가격을 맞대 본다 (D-V3-103) — 다음 결과는 처음부터
+    this.#finalPrices = this.#resultPrices
+    this.#resultPrices = new Map()
+    try {
+      this.#runOutputs(work, module, step.out)
+      this.#tryInstant(work, module)
+    } finally {
+      this.#finalPrices = null
+    }
     this.#set({ ...label, interim: null, heard, ...this.#finishWork(work, module) })
   }
 
@@ -1244,6 +1258,8 @@ export class VoiceController {
     if (this.#phrase === null || text.trim() === '') return
     const heard = pushHeard(this.#snapshot.heard, { id: this.#nextHeard++, text })
     this.#confirmMark = { run: this.#stableRun, at: this.#host.now() }
+    // 굳은 중간 글도 이 결과의 중간 글 가격이다 (D-V3-103)
+    this.#noteResultPrices(module, text)
     const step = module.feed(this.#phrase, { text, final: true, at: this.#host.now() })
     this.#phrase = step.state
     const work = this.#startWork(module)
@@ -2258,6 +2274,7 @@ export class VoiceController {
     this.#heardNow = text
     const interim = this.#phrase === null ? '' : module.heardText(this.#phrase).interim
     const seg = this.#readSegments(module, text, interim.trim() === '')
+    if (interim.trim() !== '') this.#noteResultPrices(module, interim)
     if (seg !== null) this.#runPicks(work, module, seg, text, false)
     // 글 끝 가격이 `원까지`·`원에`라 뒤 낱말을 기다리는 조각(지난 일 가격일 수 있다): 없는 번호의 새 등록만 바로 (R1 — `108번 … 10만 원까지` 때 등록),
     // 있는 상품의 가격은 뒤 낱말을 듣고 고친다 (실방송 468번 "120만 원까지 팔아 본 적 있어요")
@@ -2317,11 +2334,20 @@ export class VoiceController {
 
   /** 중간 글 후보 하나를 조각처럼 처리 (바로 등록·같은 번호 R-22), 기록 "중간 글로 등록" */
   #interimPick(work: CardWork, module: VoiceModule, item: InterimCandidate, text: string): void {
+    if (this.#finalPrices === null && item.price !== null) this.#resultPrices.set(item.no, item.price)
     if (this.#instantNos.has(item.no)) return
     const pick: SegmentPick = { no: item.no, price: item.price, name: item.name, numberFrom: 'marker', priceFrom: 'quick', start: -1, end: -1, blocked: null, bigChange: false }
     const before = work.log
     this.#runPicks(work, module, { tokens: [], picks: [pick], others: [], tail: null, rest: '' }, text, false)
     if (work.log !== before && work.log[0] !== undefined) work.log = [{ ...work.log[0], reason: LOG_INTERIM }, ...work.log.slice(1)]
+  }
+
+  /** 지금 결과의 중간 글에서 번호와 짝지은 확정 가격을 적는다 (D-V3-103) — 같은 번호는 가장 나중 값 */
+  #noteResultPrices(module: VoiceModule, interim: string): void {
+    const seg = this.#readSegments(module, interim, false)
+    if (seg === null) return
+    // 원까지 들린 가격만 (빠른 꼴 "63번 5"는 "5만 원"으로 자라는 중일 수 있다)
+    for (const pick of [...seg.picks, ...(seg.held ?? [])]) if (pick.price !== null && pick.priceFrom === 'won') this.#resultPrices.set(pick.no, pick.price)
   }
 
   /** 조각 읽기 (D-V3-46·48): 덩어리 글 → 조각마다 등록 값. final = 최종 결과만 든 글 */
@@ -2342,6 +2368,25 @@ export class VoiceController {
   #runPicks(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, chunkEnd: boolean, newOnly = false): void {
     for (const raw of seg.picks) {
       const key = `${String(raw.no)}@${String(raw.start)}`
+      // 중간·최종 가격 다름 (R-17 8, D-V3-103 — 실방송 경성 63번 중간 "11만 원" → 최종 "만 원"): 이 결과로는 바로 등록·바로 고침을 하지 않는다.
+      // 중간 글로 이미 다룬 조각(같은 자리)이어도 본다 — 최종 글이 그 가격을 바꿔 쓴 것
+      const said = this.#finalPrices?.get(raw.no)
+      if (said !== undefined && raw.price !== null && said !== raw.price && !newOnly && !this.#rejected.has(raw.no)) {
+        this.#pickDone.add(key)
+        const existing = this.#existingOf(raw.no)
+        const now = this.#host.now()
+        const text = raw.start >= 0 && raw.end >= raw.start && seg.tokens.length > raw.end ? seg.tokens.slice(raw.start, raw.end + 1).join(' ') : whole
+        this.#heardNow = text
+        const note = interimFinalNote(said, raw.price)
+        if (existing === null) this.#pickCard(work, module, raw, text, note)
+        else if (existing !== 'closed' && existing.pending !== true) {
+          if (!this.#instantNos.has(raw.no)) this.#instantNos.set(raw.no, 'existing')
+          this.#chunkActs.add('ASKED')
+          this.#ask(work, raw.no, existing, { price: raw.price }, note)
+        }
+        work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: raw.no, name: raw.name, price: raw.price, candidates: [] }, action: 'offer', reason: LOG_INTERIM_FINAL }))
+        continue
+      }
       if (this.#pickDone.has(key)) continue
       // 빠진 0 되살리기 (실방송 "36번" = 306번): 앞 번호 맥락이 뚜렷할 때만 X0Y로
       const fixedNo = this.#droppedZero(module, raw)

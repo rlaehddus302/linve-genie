@@ -30,6 +30,10 @@ export const REASON_PRICE_NOT_SURE = "가격 끝에 '원'이 들리지 않아 �
 export const REASON_BARE_NUMBER = "번호를 '번' 없이 들어 저절로 고치지 않았어요."
 /** 같은 번호 가격 고침 문턱 (실방송 333번): 다른 가격을 한 번만 들었을 때 — 묻기 카드 까닭 줄 */
 export const REASON_PRICE_ONCE = '다른 가격이 한 번만 들려 저절로 고치지 않았어요.'
+/** 중간·최종 가격 다름 (R-17 8, D-V3-103 — 실방송 경성 63번): 같은 크롬 결과의 중간 글과 최종 글 가격이 다를 때 — 묻기·제안 카드 까닭 줄 */
+export const interimFinalNote = (interim: number, final: number): string => `듣는 중엔 ${formatWon(interim)}, 마지막엔 ${formatWon(final)}으로 들렸어요.`
+/** 음성 기록 까닭 — 중간·최종 가격 다름 */
+export const LOG_INTERIM_FINAL = '중간·최종 가격이 달라 바로 하지 않고 물었어요'
 /** 음성 기록 까닭 — 고침 후보(고치지 않음) */
 export const LOG_FIX_CANDIDATE = '고침 후보: 다른 가격이 한 번만 들려 그대로 두고 물었어요'
 /** 음성 기록 까닭 — 번호 흐름 밖의 '번' 없는 수 */
