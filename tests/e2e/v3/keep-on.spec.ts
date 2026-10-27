@@ -52,18 +52,19 @@ test.describe('AC-V3-58 켠 음성 유지 (D-V3-52)', () => {
     await expect(band(page)).toHaveCount(0)
   })
 
-  test('TE-V3-015 (b) 설정 화면에서 R1을 말하면 켠 방송에 108번 100,000원 바로 등록, 띠에 "108번 100,000원 등록했어요"와 되돌리기(누르면 되돌림)', async ({ page }) => {
+  // R1의 bts = 사전 이름 BTS (D-V3-86, 수용 기준 표 R1) — 띠 문장도 큰 글자 칸과 같은 "108번 BTS 100,000원 등록했어요"
+  test('TE-V3-015 (b) (D-V3-86): 설정 화면에서 R1을 말하면 켠 방송에 108번 BTS 100,000원 바로 등록, 띠에 "108번 BTS 100,000원 등록했어요"와 되돌리기(누르면 되돌림)', async ({ page }) => {
     await setupV3(page)
     await menuLink(page, '설정').click()
     await expect(band(page)).toBeVisible()
     const writes = recordWrites(page)
     await sayChunk(page, BROADCAST_1)
-    await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
-    await expect(band(page)).toContainText('108번 100,000원 등록했어요')
+    await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'BTS', 100000]])
+    await expect(band(page)).toContainText('108번 BTS 100,000원 등록했어요')
     const undo = band(page).getByRole('button', { name: /되돌리기/ })
     await expect(undo).toBeVisible()
     await undo.click()
-    await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000], ['product.close', 108]])
+    await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'BTS', 100000], ['product.close', 108]])
   })
 
   test('TE-V3-016 (c) 설정 화면에서 묻기 카드가 생기면 띠에 "확인할 카드 1장 · 보기"(누르면 콘솔, 카드가 있다), 콘솔 밖 문자찜은 저절로 넣지 않는다', async ({ page }) => {
@@ -334,13 +335,25 @@ test.describe('AC-V3-75 중간 결과 안정 (D-V3-71, 천원 단위)', () => {
     await expect.poll(() => productWrites(writes).filter((w) => w[1] === 148)).toEqual([['product.register', 148, '', 280000]])
   })
 
-  test('R93: R89 뒤 같은 덩어리 최종 "148번 30만 원" → 300,000원으로 고침', async ({ page }) => {
+  // R93 (수용 기준 표, D-V3-83): 다른 가격을 한 번만 들으면 고치지 않고 묻기 카드·쓰기 0이고, "300,000원으로 고침"은 같은 말을 다른 조각에서
+  // 60초 안에 한 번 더 들었을 때다. 같은 크롬 결과의 중간 글(280)과 최종 글(30만 원) 가격이 달라도 그 결과로는 바로 고치지 않는다(D-V3-103, AC-V3-94 (1)).
+  test('R93 (D-V3-83·103): R89 뒤 같은 덩어리 최종 "148번 30만 원" → 280,000원 그대로·묻기 카드, 다른 조각에서 한 번 더 들으면 300,000원으로 고침', async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
     await speak(page, '148번 280', { final: false })
     await page.clock.runFor(1000)
     await expect.poll(() => productWrites(writes)).toEqual([['product.register', 148, '', 280000]])
     await speak(page, '148번 30만 원')
+    const ask = notices(page).getByRole('listitem', { name: '148번을 고칠까요? 가격 280,000원 → 300,000원', exact: true })
+    await page.clock.runFor(QUIET_MS + 100)
+    await expect(ask).toBeVisible()
+    await settle(page)
+    expect(productWrites(writes)).toEqual([['product.register', 148, '', 280000]])
+    await expect(boardItem(page, 148)).toContainText('280,000원')
+    await page.clock.runFor(1000)
+    await sayChunk(page, '148번 30만 원')
     await expect.poll(() => productWrites(writes)).toEqual([['product.register', 148, '', 280000], ['product.update', 148, 300000]])
+    await expect(boardItem(page, 148)).toContainText('300,000원')
+    await expect(ask).toHaveCount(0)
   })
 })

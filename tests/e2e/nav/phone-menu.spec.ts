@@ -321,7 +321,11 @@ test.describe('AC-NAV-06: 목록 항목도 같은 메뉴 링크', () => {
       expect(hrefs[0]).toMatch(/^\/deposits(\?|$)/)
       expect(hrefs[1]).toMatch(/^\/packing(\?|$)/)
       expect(hrefs.at(-1)).toBe('/settings')
-      if (hrefs.length === 4) expect(hrefs[2]).toBe('/labels')
+      // AC-T1-60·AC-NAV-09: "택배"(/parcels)는 "설정" 바로 앞 — 목록은 LIST_ON(라벨 켬) 또는 LIST_OFF(라벨 끔, 같은 계정을 쓰는 다른 시험이 끌 수 있다).
+      // 옛 기대 "4개면 셋째가 /labels"는 택배가 더해지기 전(목록 넷 = 라벨 켬)이라, 라벨 끔 + 택배인 넷에서 틀렸다
+      expect(hrefs.at(-2)).toMatch(/^\/parcels(\?|$)/)
+      expect([LIST_ON.length, LIST_OFF.length]).toContain(hrefs.length)
+      if (hrefs.length === LIST_ON.length) expect(hrefs[2]).toBe('/labels')
       await closeMore(phone)
       await phone.evaluate(() => { (window as unknown as { __sameDocument: string }).__sameDocument = 'yes' })
       for (const [name, heading, url] of [['입금 확인', '입금 확인', /\/deposits/], ['포장', '포장', /\/packing/], ['라벨', '라벨', /\/labels$/], ['설정', '설정', /\/settings$/]] as const) {

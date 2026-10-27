@@ -10,6 +10,7 @@ import {
   recordAllBodies,
   recordWrites,
   sayChunk,
+  sayFirstOfTwo,
   sayWords,
   settle,
   setupV3,
@@ -47,7 +48,8 @@ async function expectRegisteredAt(page: Page, writes: Write[], sentence: string,
   await expect(voiceCards(page)).toHaveCount(0)
 }
 
-test('AC-V3-20 R1: 실제 방송 1 — 결과 7(원까지)에서 조용한 시간 전에 108번 품종 미입력 100,000원 등록 하나(bts 한 번 → 추측 없음, D-V3-30), 5초 되돌리기 띠·큰 글자 칸, 카드 없음', async ({ page }) => {
+// 수용 기준 표 R1·R3: bts는 영수증 품종으로 기본 사전에 들어가 사전 이름 BTS로 맞는다(D-V3-86 — 처음 기대 "품종 미입력"은 bts가 사전 밖일 때)
+test('AC-V3-20 R1 (D-V3-86): 실제 방송 1 — 결과 7(원까지)에서 조용한 시간 전에 108번 BTS 100,000원 등록 하나(bts = 사전 이름 BTS), 5초 되돌리기 띠·큰 글자 칸, 카드 없음', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
   await sayWords(page, BROADCAST_1, {
@@ -57,8 +59,8 @@ test('AC-V3-20 R1: 실제 방송 1 — 결과 7(원까지)에서 조용한 시�
         expect(productWrites(writes)).toEqual([])
       }
       if (k === 7) {
-        await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
-        await expect(readout(page)).toHaveText('108번 100,000원 등록했어요')
+        await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'BTS', 100000]])
+        await expect(readout(page)).toHaveText('108번 BTS 100,000원 등록했어요')
         await expect(undoBar(page).getByRole('button', { name: '108번 등록 되돌리기' })).toBeVisible()
       }
     },
@@ -68,7 +70,7 @@ test('AC-V3-20 R1: 실제 방송 1 — 결과 7(원까지)에서 조용한 시�
   await page.clock.runFor(QUIET_MS + 100)
   await expect(boardItem(page, 108)).toContainText('100,000원')
   await settle(page)
-  expect(productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
+  expect(productWrites(writes)).toEqual([['product.register', 108, 'BTS', 100000]])
   await expect(voiceCards(page)).toHaveCount(0)
 })
 
@@ -105,10 +107,10 @@ test('AC-V3-21 R2: 108번이 있으면 실제 방송 2 — 쓰기 0, 카드 0, "
   await expect(page.getByRole('dialog', { name: '108번을 고칠까요?' })).toHaveCount(0)
 })
 
-test('AC-V3-22 R3: 108번 없음 + 실제 방송 2 → 결과 13(108번)에서 108번 품종 미입력 100,000원 (bts는 사전 밖, D-V3-37)', async ({ page }) => {
+test('AC-V3-22 R3 (D-V3-86): 108번 없음 + 실제 방송 2 → 결과 13(108번)에서 108번 BTS 100,000원 (bts = 사전 이름 BTS)', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await expectRegisteredAt(page, writes, BROADCAST_2, 13, [108, '', 100000])
+  await expectRegisteredAt(page, writes, BROADCAST_2, 13, [108, 'BTS', 100000])
 })
 
 test('TE-V3-001 AC-V3-22 R4: 실제 방송 3 → 결과 11에서 180번 삼광색금 350,000원, 끝의 "30 5만 원" 뒤에도 고치기 없음', async ({ page }) => {
@@ -355,20 +357,24 @@ test('AC-V3-29 R28 (설정 끔, D-V3-37): "15번 <b>bts</b> <b>bts</b> 만오천
   expect(productWrites(writes)).toEqual([])
 })
 
-test('AC-V3-29 R49 (D-V3-37): 사전 밖 낱말을 되풀이해도 바로 등록 품종은 비고, 시험 동안 요청 본문의 name은 사전 이름이거나 ""뿐', async ({ page }) => {
+// R49의 컬러풀은 영수증 품종으로 기본 사전에 들어갔다(D-V3-86, SPEC "영수증 품종·맞추기 보강") — 실방송 문장은 75번 컬러풀이고 사전 밖 낱말 "약간"은
+// 쓰지 않는다. 사전 밖 낱말을 되풀이하는 성질(D-V3-37)은 사전 밖 낱말 ufo로 본다(R16·R17과 같은 바꿈). 같은 번호 가격 고침은 두 번 들음(D-V3-83).
+test('AC-V3-29 R49 (D-V3-37·86): 사전 밖 낱말을 되풀이해도 바로 등록 품종은 비고, 시험 동안 요청 본문의 name은 사전 이름이거나 ""뿐', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
   await sayChunk(page, '자 컬러풀 이렇게 약간 컬러풀 하죠 네 10만 원 75번입니다')
   await expect(boardItem(page, 75)).toBeVisible()
-  expect(productWrites(writes)).toEqual([['product.register', 75, '', 100000]])
+  expect(productWrites(writes)).toEqual([['product.register', 75, '컬러풀', 100000]])
   await page.clock.runFor(6000)
-  await sayChunk(page, '108번 bts bts 10만 원')
+  await sayChunk(page, '108번 ufo ufo 10만 원')
   await expect(boardItem(page, 108)).toBeVisible()
   await page.clock.runFor(6000)
-  await sayChunk(page, '108번 bts bts 12만 원')
+  await sayFirstOfTwo(page, '108번 ufo ufo 12만 원', '108번을 고칠까요? 가격 100,000원 → 120,000원')
+  await sayChunk(page, '108번 ufo ufo 12만 원')
   await expect(boardItem(page, 108)).toContainText('120,000원')
+  expect(productWrites(writes).filter((w) => w[1] === 108)).toEqual([['product.register', 108, '', 100000], ['product.update', 108, 120000]])
   for (const w of writes.filter((x) => x.type.startsWith('product.'))) {
-    if ('name' in w.body) expect(['', '핑크프릴']).toContain(w.body['name'])
+    if ('name' in w.body) expect(['', '핑크프릴', '컬러풀']).toContain(w.body['name'])
   }
 })
 

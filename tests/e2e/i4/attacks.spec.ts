@@ -227,7 +227,7 @@ test.describe('I4 흐름 깨뜨리기', () => {
   })
 
   // V3 교체(D-V3-01·D-V3-18·D-V3-22 b): 자동 확정 카드 → 바로 등록. 차례에서 번호가 생기면 창 없이 그 순간의 상품으로 R-22(찜 없음 → 들은 대로 고침)
-  test('바로 등록과 같은 번호의 빠른 입력 등록이 응답을 기다리는 중이면, 차례에서 번호가 생겨 창 없이 같은 번호 규칙(R-22)으로 끝난다', async ({ page }) => {
+  test('바로 등록과 같은 번호의 빠른 입력 등록이 응답을 기다리는 중이면, 차례에서 번호가 생겨 창 없이 같은 번호 규칙(R-22·가격 고침 문턱 D-V3-83)으로 끝난다', async ({ page }) => {
     await installFakeSpeech(page, { consent: true, autoRegister: true })
     await page.setViewportSize({ width: 1440, height: 900 })
     await login(page)
@@ -252,7 +252,18 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await expect.poll(() => held).toBe(1)
     await speak(page, '15번 라울 만원')
     release()
-    await expect(page.getByRole('list', { name: '방금 등록한 상품 고치기' }).getByText(/^15번을 고쳤어요: /)).toBeVisible()
+    // 가격 고침 문턱 (D-V3-83, R-22 4): 다른 가격을 정정 낱말 없이 한 번만 들으면 바로 고치지 않고 묻기 카드(까닭 줄)이고,
+    // 가격과 품종이 함께 바뀌면 둘 다 묻는다. 같은 말을 다른 조각에서 한 번 더 들으면 그때 바로 고친다
+    const notes = page.getByRole('list', { name: '방금 등록한 상품 고치기' })
+    const ask = notes.getByRole('listitem').filter({ hasText: /^15번을 고칠까요\?/ })
+    await expect(ask).toHaveCount(1)
+    await expect(ask).toContainText('다른 가격이 한 번만 들려 저절로 고치지 않았어요.')
+    await expect(boardItem(page, 15)).toContainText('핑크프릴')
+    await expect(boardItem(page, 15)).toContainText('20,000원')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await speak(page, '15번 라울 만원')
+    await expect(notes.getByText(/^15번을 고쳤어요: /)).toBeVisible()
+    await expect(ask).toHaveCount(0)
     await expect(boardItem(page, 15)).toContainText('라울')
     await expect(boardItem(page, 15)).toContainText('10,000원')
     await expect(page.getByRole('dialog')).toHaveCount(0)
