@@ -268,16 +268,56 @@ test('AC-V3-35 R18: "108번 10만원 아니 12만원" 한 덩어리 → 등록(1
   ])
 })
 
-test('AC-V3-35 R19 (D-V3-86): R1 등록 뒤 다음 덩어리 "아니 12만원" → V2 묻기 카드 "방금 등록한 108번 BTS를 …"만, 누르기 전 쓰기 0', async ({ page }) => {
+// R19·R19b (D-V3-109, D-V3-84 (ㄱ), 수용 기준 표 R19·R19b): 번호 없이 정정 낱말로 가격만 고쳐 말한 다음 덩어리는 할 일을 **하나만** 낸다.
+// (ㄱ)이 맞으면(찜 0·마지막 음성 새 등록 뒤 30초 안·그 뒤 다른 번호 없음) 바로 고침 + 10초 되돌리기, V2 "방금 등록한 …" 카드는 만들지 않는다.
+// 30초가 지나면 (ㄱ)이 아니므로 V2 묻기 카드만(D-V3-13·D-V2-06 (3)). R1의 bts는 사전 이름 BTS(D-V3-86). 시간은 가짜 시계로 넘긴다.
+const R1_SAID = '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요'
+const V2_ASK = '방금 등록한 108번 BTS를 120,000원으로 고칠까요?'
+
+test('AC-V3-35 R19 (D-V3-109·84 ㄱ·86): R1 등록(찜 0) 뒤 30초 안 다음 덩어리 "아니 12만원" → 108번 120,000원 바로 고침 1번·10초 되돌리기, 묻기 카드 0(V2 "방금 등록한 …" 카드도 0)', async ({ page }) => {
   await setupV3(page)
-  await sayChunk(page, '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요')
+  await sayChunk(page, R1_SAID)
   await expect(boardItem(page, 108)).toBeVisible()
   const writes = recordWrites(page)
   await page.clock.runFor(1000)
   await sayChunk(page, '아니 12만원')
-  // R1의 bts는 사전 이름 BTS로 등록되므로(D-V3-86) V2 문장은 "방금 등록한 108번 BTS를 …" (수용 기준 표 R19, D-V2-06 3)
-  await expect(notice(page, '방금 등록한 108번 BTS를 120,000원으로 고칠까요?')).toBeVisible()
+  const fixed = notice(page, FIXED)
+  await expect(fixed).toBeVisible()
+  await expect(fixed.getByRole('button', { name: '되돌리기' })).toBeVisible()
+  await expect(boardItem(page, 108)).toContainText('120,000원')
+  await expect.poll(() => productWrites(writes)).toEqual([['product.update', 108, 120000]])
+  // 하나의 할 일만 (D-V3-109): V2 묻기 카드·R-22 묻기 카드·음성 카드 모두 없다
+  await page.clock.runFor(QUIET_MS + 100)
   await settle(page)
+  await expect(notice(page, V2_ASK)).toHaveCount(0)
+  await expect(notice(page, ASK)).toHaveCount(0)
+  await expect(notices(page).getByRole('listitem').filter({ hasText: '고칠까요' })).toHaveCount(0)
+  await expect(voiceCards(page)).toHaveCount(0)
+  expect(productWrites(writes)).toEqual([['product.update', 108, 120000]])
+  // 10초 되돌리기 (R19 "10초 되돌리기", 고친 응답부터 — 위에서 이미 1,900ms 넘김)
+  await page.clock.runFor(10000 - (QUIET_MS + 100) + 300)
+  await expect(notices(page).getByRole('button', { name: '되돌리기' })).toHaveCount(0)
+  await expect(boardItem(page, 108)).toContainText('120,000원')
+  expect(productWrites(writes)).toEqual([['product.update', 108, 120000]])
+})
+
+test('AC-V3-35 R19b (D-V3-109·13·84 ㄱ): R1 등록 31초 뒤 다음 덩어리 "아니 12만원" → V2 "방금 등록한 108번 BTS를 120,000원으로 고칠까요?" 카드 하나, 누르기 전 쓰기 0', async ({ page }) => {
+  await setupV3(page)
+  await sayChunk(page, R1_SAID)
+  await expect(boardItem(page, 108)).toBeVisible()
+  const writes = recordWrites(page)
+  // 마지막 음성 새 등록 뒤 30초(PRICE_ONLY_FIX_MS)를 넘김 — 가짜 시계로 31초
+  await page.clock.runFor(31000)
+  await sayChunk(page, '아니 12만원')
+  const ask = notice(page, V2_ASK)
+  await expect(ask).toBeVisible()
+  await expect(ask).toHaveCount(1)
+  await page.clock.runFor(QUIET_MS + 100)
+  await settle(page)
+  // V2 묻기만: 바로 고침 알림·R-22 묻기 카드 없음, 쓰기 0
+  await expect(notice(page, FIXED)).toHaveCount(0)
+  await expect(notice(page, ASK)).toHaveCount(0)
+  await expect(notices(page).getByRole('listitem').filter({ hasText: '고칠까요' })).toHaveCount(1)
   expect(productWrites(writes)).toEqual([])
   await expect(boardItem(page, 108)).toContainText('100,000원')
 })
