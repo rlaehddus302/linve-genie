@@ -26,6 +26,10 @@ export interface PriceGateInput {
   /** 이 번호에서 전에 들은 다른 가격 */
   readonly history: readonly HeardPrice[]
   readonly now: number
+  /** 고쳐 말함인가 (R-22 3 `recent`, D-V3-59). 생략 = 참 */
+  readonly recent?: boolean
+  /** 이번 고침에 품종(채우기·바꾸기)도 드는가. 생략 = 거짓 */
+  readonly nameChange?: boolean
 }
 
 export interface PriceGateResult {
@@ -56,7 +60,9 @@ export function gateSamePrice(input: PriceGateInput): PriceGateResult {
     const history = (Array.isArray(input.history) ? input.history : []).filter((item) => isInt(item.price) && Number.isFinite(item.at) && now - item.at <= PRICE_GATE_MS && now >= item.at)
     if (!isInt(input.price) || !isInt(input.current)) return { apply: false, history }
     if (input.price === input.current) return { apply: false, history: [] }
-    if (input.correction) return { apply: true, history: [] }
+    // D-V3-106: 고쳐 말함이 아니고(오래전 상품) 품종도 함께 바뀌면 정정 낱말을 보지 않는다 — (나) 두 번 들음만
+    // (실방송 경성 1번: 몇 시간 뒤 "1번 … 퍼플이 아니에요 … 퍼플 2만 원까지"가 청사과 330,000원을 퍼플 20,000원으로 고치던 것)
+    if (input.correction && !(input.recent === false && input.nameChange === true)) return { apply: true, history: [] }
     if (history.some((item) => item.price === input.price && item.fragment !== input.fragment)) return { apply: true, history: [] }
     const kept = history.filter((item) => !(item.fragment === input.fragment && item.price === input.price))
     return { apply: false, history: [...kept, { price: input.price, fragment: input.fragment, at: now }].slice(-10) }
