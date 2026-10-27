@@ -729,7 +729,11 @@ export interface VarietyMatch {
 const SAEKGEUP = '색급'
 const SAEKGEUM = '색금'
 
-export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDictionary): VarietyMatch {
+/**
+ * texts = 창 글 전부. exactOnly = 정확한 맞춤(유사도 1)에만 쓰는 창 글(품종 창 마지막 토큰의 끝 `입니다요`를 뗀 모양, D-V3-98) —
+ * 유사도 0.8 맞추기·끝 `색급` 고치기에는 쓰지 않는다
+ */
+export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDictionary, exactOnly: ReadonlySet<string> = new Set()): VarietyMatch {
   const top: { similarity: Similarity | null; readonly entries: Map<string, DictionaryEntry>; readonly windows: Map<string, string> } = { similarity: null, entries: new Map(), windows: new Map() }
   const consider = (similarity: Similarity, entry: DictionaryEntry, text: string): void => {
     const order = top.similarity === null ? 1 : compareSimilarity(similarity, top.similarity)
@@ -752,6 +756,10 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
       const fixed = jamoOf(text.slice(0, -SAEKGEUP.length) + SAEKGEUM)
       for (const entry of dictionary.byJamo.get(jamoKey(fixed)) ?? []) consider({ distance: 0, length: fixed.length }, entry, text)
     }
+  }
+  for (const text of exactOnly) {
+    const jamo = jamoOf(text)
+    for (const entry of dictionary.byJamo.get(jamoKey(jamo)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
   }
   if (top.similarity === null) {
     for (const text of texts) {
@@ -782,6 +790,43 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
   const container = entries.find((entry) => entries.every((other) => other.name === entry.name || entry.key.includes(other.key)))
   if (container === undefined) return { name: null, exact: false, window: null }
   return { name: container.name, exact: top.similarity.distance === 0, window: top.windows.get(container.key) ?? null }
+}
+
+/** 품종 창 마지막 토큰에서만 더 떼는 두 겹 끝말 (R-17 2 (d), D-V3-98 — 판매자 말버릇 "보카 치노입니다요") */
+export const WINDOW_DOUBLE_ENDING = '입니다요'
+
+/** 토큰마다 끝 `입니다요`를 뗀 모양 (남는 글자가 있을 때만, 없으면 빈 목록) — 정확한 맞춤에만 쓴다 */
+function doubleEndingForms(tokens: readonly string[]): string[][] {
+  return tokens.map((token) => (token.length > WINDOW_DOUBLE_ENDING.length && token.endsWith(WINDOW_DOUBLE_ENDING) ? [token.slice(0, -WINDOW_DOUBLE_ENDING.length)] : []))
+}
+
+/**
+ * 앞 이름과 겹친 `금` (R-17 5, D-V3-97 — "로제 수박금"): 고른 이름 N이 공백만 다른 맞춤이고 `금`·`색금`으로 끝나며,
+ * N의 창 바로 앞 토큰 P(창에서 빠진 토큰이면 해당 없음)를 N에서 끝 `금`·`색금`을 뗀 글 앞에 붙인 글이 사전 이름·별칭과 공백만 다르면 비운다.
+ * N의 창 글이 여러 자리에서 나오면 어느 한 자리라도 걸리면 비운다.
+ */
+function overlapsPreviousName(
+  tokens: readonly string[],
+  forms: readonly (readonly string[])[],
+  excluded: (i: number) => boolean,
+  dictionary: VarietyDictionary,
+  match: VarietyMatch,
+): boolean {
+  if (match.name === null || !match.exact || match.window === null) return false
+  const key = compact(match.name)
+  const bases = [SAEKGEUM, GEUM].filter((end) => key.length > end.length && key.endsWith(end)).map((end) => key.slice(0, -end.length))
+  if (bases.length === 0) return false
+  for (let start = 1; start < tokens.length; start++) {
+    if (excluded(start) || excluded(start - 1)) continue
+    const lead = tokens[start - 1] as string
+    if (!bases.some((base) => exactEntries(lead + base, dictionary).length > 0)) continue
+    let head = ''
+    for (let end = start; end < tokens.length && end < start + WINDOW_MAX_TOKENS && !excluded(end); end++) {
+      if ((forms[end] ?? []).some((form) => head + form === match.window)) return true
+      head += tokens[end] as string
+    }
+  }
+  return false
 }
 
 // ── 5-1. 꾸밈말 붙은 품종 (실방송 금화다육: "창 버건디" → 창버건디, "청개구리 금입니다" → 청개구리금, "립스틱 색감" → 립스틱색금) ──
@@ -981,12 +1026,18 @@ function firstSpan(indices: Iterable<number>): { first: number; last: number } |
 }
 
 /** R-17 한 문장 읽기 (extractVoice와 같은 계산, 창·정확도까지) */
-export function readSentence(text: unknown, options: ExtractOptions = {}): SentenceReading {
-  return analyzeSentence(text, options).reading
+export function readSentence(text: unknown, options: ExtractOptions = {}, internal: SentenceInternal = {}): SentenceReading {
+  return analyzeSentence(text, options, internal).reading
+}
+
+/** 안쪽 읽기 설정 (공개 옵션 아님) */
+export interface SentenceInternal {
+  /** 품종 창 마지막 토큰의 끝 `입니다요`를 뗀 모양을 정확한 맞춤에 쓰나 (D-V3-98). 생략 = 쓴다. 맥락 점수(R-17 8 1b)는 false */
+  readonly doubleEnding?: boolean
 }
 
 /** R-17 1~6 읽기 + V3 속 결과 */
-export function analyzeSentence(text: unknown, options: ExtractOptions = {}): SentenceAnalysis {
+export function analyzeSentence(text: unknown, options: ExtractOptions = {}, internal: SentenceInternal = {}): SentenceAnalysis {
   const tokens = tokenize(text)
   if (tokens === null || tokens.length === 0) return EMPTY_ANALYSIS
   const maxNumber = resolveMaxNumber(options)
@@ -1021,7 +1072,14 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
   const windowFormList = tokens.map(windowForms)
   const windowExcluded = (i: number): boolean => excluded(i) || isWindowFiller(tokens[i] as string)
   const windows = windowTexts(tokens, windowFormList, windowExcluded)
-  const variety = composeAffix(tokens, windowFormList, windowExcluded, dictionary, windows, findVariety(windows, dictionary))
+  // 품종 창 마지막 토큰의 끝 `입니다요`를 뗀 모양은 정확한 맞춤에만 (D-V3-98) — 맥락 점수(R-17 8 1b)를 셀 때는 쓰지 않는다
+  const extraForms = internal.doubleEnding === false ? tokens.map(() => []) : doubleEndingForms(tokens)
+  const found = findVariety(windows, dictionary, windowTexts(tokens, extraForms, windowExcluded))
+  // 앞 이름과 겹친 `금`(D-V3-97)이면 비우고 꾸밈말은 보지 않는다
+  const overlapForms = windowFormList.map((list, i) => [...list, ...(extraForms[i] ?? [])])
+  const variety = overlapsPreviousName(tokens, overlapForms, windowExcluded, dictionary, found)
+    ? { name: null, exact: false, window: null }
+    : composeAffix(tokens, windowFormList, windowExcluded, dictionary, windows, found)
 
   const confidence: Confidence = no !== null && price !== null && variety.name !== null && variety.exact ? 'HIGH' : 'LOW'
   const reading: SentenceReading = {

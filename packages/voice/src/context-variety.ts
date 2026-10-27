@@ -25,7 +25,8 @@ export function varietiesIn(text: unknown, options: ExtractOptions = {}): string
       for (let j = k; j < tokens.length && j < k + 4; j++) {
         const piece = tokens.slice(k, j + 1)
         if (piece.some((token) => isWindowFiller(token) || /[0-9]/.test(token))) break
-        const reading = readSentence(piece.join(' '), { dictionary: options.dictionary ?? [] })
+        // 끝 `입니다요`를 뗀 모양은 맥락 점수에 쓰지 않는다 (R-17 2 (d), D-V3-98)
+        const reading = readSentence(piece.join(' '), { dictionary: options.dictionary ?? [] }, { doubleEnding: false })
         // 더 긴 창은 다른(더 긴) 이름일 때만 — 같은 이름을 되풀이한 `몰디브 몰디브`는 두 번으로 센다
         if (reading.extraction.name !== null && startsAtFirst(reading.nameWindow, piece[0] as string) && reading.extraction.name !== bestName) {
           bestEnd = j
