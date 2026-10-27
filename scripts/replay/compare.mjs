@@ -83,7 +83,22 @@ export function condense(lines) {
 }
 
 // ── 이력 ─────────────────────────────────────────────────────
-const right = (v, truth) => v !== null && v !== undefined && normName(v.name) === normName(truth.variety) && v.price === truth.price
+/**
+ * 같은 품종으로 본다: 이름이 같거나, 꾸밈말 `금`·`색금`만 다르거나, 한쪽 이름이 다른 쪽 이름으로 시작(짧은 쪽 두 글자 이상).
+ * 판매자 말과 정산서 표기가 달라도(`황소개구리`↔`황소`, `청개구리금`↔`청개구리`) 무엇인지 알 수 있으면 맞음 — 사용자 결정(10-27).
+ * 앞이 다른 이름(`찐녹금`↔`녹금`)과 한 글자 바탕(`녹색금`↔`녹금`, `창색금`↔`창금`)은 다른 품종으로 둔다.
+ */
+export function sameVariety(a, b) {
+  const x = normName(a)
+  const y = normName(b)
+  if (x === y) return true
+  if (x === '' || y === '') return false
+  const bare = (s) => s.replace(/(색금|금)$/, '')
+  if (bare(x).length >= 2 && bare(x) === bare(y)) return true
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x]
+  return short.length >= 2 && long.startsWith(short)
+}
+const right = (v, truth) => v !== null && v !== undefined && sameVariety(v.name, truth.variety) && v.price === truth.price
 
 /**
  * 번호 하나의 이력: 그 번호에 닿은 음성 기록 줄(번호 = no, 옮겨 온 번호 = toNo)을 시각순으로, 단계마다 그 뒤 값.
@@ -118,16 +133,19 @@ export function classify(truth, product, steps) {
   if (finalOk) cls = right(first, truth) && states.every((v) => right(v, truth)) ? 'OK_FIRST' : 'OK_AFTER_FIX'
   else cls = everRight ? 'BROKEN_BY_FIX' : 'WRONG'
   const why = []
+  // 이름까지 똑같은지(옛 깐깐한 점수, 참고)
+  const strict = finalOk && normName(product.name) === normName(truth.variety)
+  if (finalOk && !strict) why.push('SAME_VARIETY_OTHER_NAME')
   if (!finalOk) {
     const got = normName(product.name)
     const want = normName(truth.variety)
     // 빈 품종은 어느 이름에도 '들어 있어' 비슷함으로 보이므로 따로 센다
     // 정산서는 무늬 꾸밈말을 자주 빼고 적는다(`풀잎사랑 금`이라 말하고 `풀잎사랑`). 점수는 그대로 틀림, 까닭만 따로 센다
     const affixOnly = (a, b) => a !== '' && b !== '' && (a === `${b}금` || a === `${b}색금`)
-    if (got !== want) why.push(got === '' ? 'NO_VARIETY' : affixOnly(got, want) || affixOnly(want, got) ? 'WRONG_VARIETY(금만다름)' : got.includes(want) || want.includes(got) ? 'WRONG_VARIETY(비슷함)' : 'WRONG_VARIETY')
+    if (!sameVariety(got, want)) why.push(got === '' ? 'NO_VARIETY' : affixOnly(got, want) || affixOnly(want, got) ? 'WRONG_VARIETY(금만다름)' : got.includes(want) || want.includes(got) ? 'WRONG_VARIETY(비슷함)' : 'WRONG_VARIETY')
     if (product.price !== truth.price) why.push('WRONG_PRICE')
   }
-  return { cls, detail: why.join(' ') }
+  return { cls, detail: why.join(' '), strict }
 }
 
 const won = (n) => (typeof n === 'number' ? `${n.toLocaleString('ko-KR')}원` : '-')
@@ -215,8 +233,8 @@ export function compare(o) {
     correct: counts.OK_FIRST + counts.OK_AFTER_FIX,
     accuracy: scored === 0 ? null : Math.round(((counts.OK_FIRST + counts.OK_AFTER_FIX) / scored) * 1000) / 1000,
     detailCounts,
-    // 품종이 꾸밈말 `금`만 달라 틀린 것(가격은 맞음)을 맞음으로 쳤을 때 — 정산서 표기 차이를 걷어 낸 참고값
-    correctIgnoringAffix: counts.OK_FIRST + counts.OK_AFTER_FIX + rows.filter((r) => r.detail === 'WRONG_VARIETY(금만다름)').length,
+    // 이름까지 정산서와 똑같은 것만 센 옛 깐깐한 점수 — 참고값
+    correctStrict: rows.filter((r) => r.strict === true).length,
     numberSuspect: rows.filter((r) => r.numberSuspect.length > 0).length,
     timeToRegister: ttrs.length === 0 ? null : { n: ttrs.length, median: ttrs[Math.floor(ttrs.length / 2)], max: ttrs.at(-1) },
     items: rows.map((r) => ({ no: r.no, cls: r.cls, detail: r.detail, ttr: r.timeToRegisterSec, steps: r.steps.length })),
@@ -231,7 +249,7 @@ export function compare(o) {
   if (truth !== null) {
     md.push('## 점수', '', '| 나눔 | 개수 |', '|---|---|')
     for (const [k, v] of Object.entries(counts)) md.push(`| ${k} | ${v} |`)
-    md.push(`| 맞음(합) | ${score.correct}/${scored} |`, `| 참고: 금만 다른 것도 맞음으로 | ${score.correctIgnoringAffix}/${scored} |`, '')
+    md.push(`| 맞음(합) | ${score.correct}/${scored} |`, `| 참고: 이름까지 똑같은 것만 | ${score.correctStrict}/${scored} |`, '')
     if (outOfRange > 0) md.push(`일부 구간 녹음이라 그 구간에서 말하지도 등록하지도 않은 정답 ${outOfRange}개는 세지 않았어요 (OUT_OF_RANGE).`, '')
     if (Object.keys(detailCounts).length > 0) md.push(`틀린 까닭: ${Object.entries(detailCounts).map(([k, v]) => `${k} ${v}`).join(', ')}`, '')
     if (score.timeToRegister !== null) md.push(`처음 말한 때부터 등록까지: 중앙값 ${score.timeToRegister.median}초, 가장 긴 것 ${score.timeToRegister.max}초 (${score.timeToRegister.n}개)`, '')
