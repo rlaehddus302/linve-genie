@@ -119,7 +119,10 @@ export function classify(truth, product, steps) {
   else cls = everRight ? 'BROKEN_BY_FIX' : 'WRONG'
   const why = []
   if (!finalOk) {
-    if (normName(product.name) !== normName(truth.variety)) why.push(normName(product.name).includes(normName(truth.variety)) || normName(truth.variety).includes(normName(product.name)) ? 'WRONG_VARIETY(비슷함)' : 'WRONG_VARIETY')
+    const got = normName(product.name)
+    const want = normName(truth.variety)
+    // 빈 품종은 어느 이름에도 '들어 있어' 비슷함으로 보이므로 따로 센다
+    if (got !== want) why.push(got === '' ? 'NO_VARIETY' : got.includes(want) || want.includes(got) ? 'WRONG_VARIETY(비슷함)' : 'WRONG_VARIETY')
     if (product.price !== truth.price) why.push('WRONG_PRICE')
   }
   return { cls, detail: why.join(' ') }
