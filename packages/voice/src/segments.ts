@@ -8,6 +8,7 @@ import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
 import { VarietyDictionary } from './dictionary.ts'
 import { CANCEL_WORDS, CORRECTION_MARKERS, isWindowFiller } from './words.ts'
 import { hasPriceCorrection } from './price-gate.ts'
+import { isPastPriceLine } from './past-price.ts'
 
 export interface SegmentOptions extends RegistrationOptions {
   /** 그 방송의 판매 규칙 price.unit — "N번 품종 수" 꼴(D-V3-48)의 수를 읽는 단위. 생략 = WON */
@@ -44,6 +45,11 @@ export interface SegmentReading {
   readonly tail: { readonly kind: 'correction' | 'cancel'; readonly no: number; readonly text: string } | null
   /** 마지막으로 소비한 뒤 남은 글 */
   readonly rest: string
+  /**
+   * 중간 결과에서 가격 뒤 낱말을 기다리느라 picks에서 뺀 조각 (글 끝이 `원까지`·`원에` — 지난 일 가격 `120만 원까지 팔아 본 적` 일 수 있다).
+   * 없는 번호의 새 등록은 이것으로 바로 해도 된다(R1 — `108번 … 10만 원까지` 때 등록), 있는 상품의 가격은 이것으로 고치지 않는다. 최종 결과면 늘 빈 목록. 옛 모양에는 없다
+   */
+  readonly held?: readonly SegmentPick[]
 }
 
 const EMPTY: SegmentReading = Object.freeze({ tokens: Object.freeze([]), picks: Object.freeze([]), others: Object.freeze([]), tail: null, rest: '' })
@@ -169,128 +175,149 @@ export function readSegments(text: unknown, options: SegmentOptions = {}): Segme
     const unit: PriceUnit = options.priceUnit ?? 'WON'
     const punct = punctuatedTokens(text)
     const markers = listNumberMarkers(tokens, punct)
-    const lines = listWonLines(tokens, { maxNumber, punct, final })
-    const markerAt = new Set<number>()
-    for (const marker of markers) for (let i = marker.start; i <= marker.last; i++) markerAt.add(i)
-    const picks: SegmentPick[] = []
-    const dropped: number[] = []
-    let s = 0
-    const pick = (value: SegmentPick): void => {
-      picks.push(value)
-      s = value.end + 1
-    }
-    const correctionBetween = (from: number, to: number): boolean => tokens.slice(from, to + 1).some((token) => isCorrectionToken(token) || isCancelToken(token))
-    for (let guard = 0; guard < tokens.length && s < tokens.length; guard++) {
-      const segMarkers = markers.filter((marker) => marker.start >= s)
-      const segLines = lines.filter((line) => line.start >= s)
-      // '번' 없는 번호는 첫 조각에서, 첫 원 가격 줄 앞에 'N번'이 없을 때만 그 줄까지의 글로 본다 (D-V3-23·73).
-      // 줄 뒤의 말은 보지 않는다 — 뒤에 낱말이 붙어도 이미 고른 값이 바뀌지 않게
-      const firstLine = segLines[0]
-      if (picks.length === 0 && firstLine !== undefined && !segMarkers.some((marker) => marker.start < firstLine.start)) {
-        const ready = readRegistration(tokens.slice(s, firstLine.end + 1).join(' '), options).ready
-        if (ready !== null && ready.numberFrom === 'bare') {
-          pick({ no: ready.no, price: ready.price, name: ready.name, numberFrom: 'bare', priceFrom: 'won', start: s, end: firstLine.end, blocked: null, bigChange: isBigChange(null, ready.price) })
-          continue
-        }
-      }
-      if (segMarkers.length === 0) break
-      // 1. 짝: 앞에 'N번'이 있는 첫 원 가격 줄 R과 그 앞 가장 뒤의 'N번' M
-      const line = segLines.find((item) => segMarkers.some((marker) => marker.last < item.start))
-      if (line !== undefined) {
-        const before = segMarkers.filter((marker) => marker.last < line.start)
-        const m = before[before.length - 1] as (typeof before)[number]
-        for (const other of before) if (other.value !== m.value) dropped.push(other.value)
-        if (m.split || line.value === null || m.value > maxNumber || correctionBetween(m.start, line.end)) break
-        // 품종은 조각 범위(앞 조각이 소비된 끝 또는 앞 'N번' 뒤 ~ 이 원 가격) 안에서 찾는다 — 번호보다 먼저 말한 품종도(TE-V3-013), 다른 'N번' 앞의 품종은 쓰지 않는다
-        // 앞 'N번' 바로 뒤(군말 건너)의 품종은 그 앞 번호의 것이다(`93번 청개구리 97번 23만 원`)
-        const previous = before[before.length - 2]
-        const ownedByPrevious = previous === undefined ? null : nameWindowEnd(tokens, skipFillers(tokens, previous.last + 1), options, markerAt)
-        const lo = previous === undefined ? s : ownedByPrevious === null ? previous.last + 1 : ownedByPrevious.end + 1
-        const reading = analyzeSentence(tokens.slice(lo, line.end + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
-        // 흔한 말 별칭(`녹음` → 녹금)·한 글자 다른 이름(`야래양` → 야래향)은 'N번'과 원 가격 사이에서만 (D-V3-54)
-        const slot = tokens.slice(m.last + 1, line.start)
-        // 조각 범위에서 사전 이름(공백만 다른 맞춤)을 들었는데 이름이 비었으면 두 이름이 갈린 것 — 흔한 말 별칭·한 글자 다른 이름으로 채우지 않는다
-        // (R-17 8 "사전 이름도 흔한 말 별칭도 못 찾았으면", D-V3-92 `89번 녹금 녹색금` → 비움 — 녹색금이 창색금과 한 글자 다르다)
-        const heardName = reading.reading.extraction.name === null && hearsDictionaryName(tokens.slice(lo, line.end + 1), options)
-        const name = reading.reading.extraction.name ?? (heardName ? null : (commonAliasIn(slot, options) ?? oneSyllableName(slot, options)))
-        pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: null, bigChange: isBigChange(null, line.value) })
-        continue
-      }
-      // 2. "N번 품종 수" (D-V3-48): 표시 → (군말) 사전 품종 → 수 → 조각 끝
-      let quick: SegmentPick | null = null
-      for (const m of segMarkers) {
-        if (m.split || m.value > maxNumber) continue
-        // D-V3-63: 품종 없이도 — 'N번' 바로 뒤(군말만 사이) 수가 조각 끝이면 (품종이 있으면 그 뒤 수)
-        const k = skipFillers(tokens, m.last + 1)
-        // 정정 표시·취소 낱말이 끼면 빠른 꼴이 아니다 (TD-V3-009 — `15번 다시 180`·`15번 취소 백육십팔`)
-        if (correctionBetween(m.last + 1, k)) continue
-        const name = nameWindowEnd(tokens, k, options, markerAt)
-        const q = name === null ? k : name.end + 1
-        // 정정 표시·취소 낱말(붙은 꼴 `만오천말고` 포함)이 번호와 수 사이에 끼면 빠른 꼴이 아니다 (TD-V3-009)
-        if (correctionBetween(m.last + 1, q)) continue
-        // 수에 붙은 판매 말투는 뗀다 (`180입니다`·`180까지요` — D-V3-69, AC-V3-73)
-        const rawNumber = tokens[q]
-        const attachedTail = rawNumber === undefined ? undefined : NUMBER_TAILS.find((tail) => rawNumber.length > tail.length && rawNumber.endsWith(tail) && QUICK_NUMBER.test(rawNumber.slice(0, -tail.length)))
-        const numberToken = rawNumber !== undefined && attachedTail !== undefined ? rawNumber.slice(0, -attachedTail.length) : rawNumber
-        if (numberToken === undefined || !QUICK_NUMBER.test(numberToken)) continue
-        const next = markers.find((marker) => marker.start > q)
-        const stop = next === undefined ? tokens.length : next.start
-        // 뒤에 군말·판매 말투, 또는 같은 수를 다시 말한 것(`113번 45에 드려볼게요 자 45~` — 중복)만 오면 조각 끝
-        const sameNumber = (token: string): boolean => token === numberToken || NUMBER_TAILS.some((tail) => token === numberToken + tail)
-        if (tokens.slice(q + 1, stop).some((token) => !isWindowFiller(token) && !isSaleTail(token) && !sameNumber(token))) continue
-        // 수 뒤에 정정·취소 낱말이 오면 빠른 꼴이 아니다 (TD-V3-009 — `174번 170 다시 170`)
-        if (correctionBetween(q + 1, stop - 1)) continue
-        if (q === tokens.length - 1 && !final) continue // 중간 결과 끝의 수는 기다린다(60 → 60만)
-        // 품종 없는 꼴은 덩어리가 끝났을 때만(D-V3-63 — 뒤에 무엇이 올지 모른다)
-        if (name === null && !final) continue
-        // 품종 없는 꼴에서 숫자 한 개·한글 한 글자 수는 가격이 아니다(D-V3-63 — `68번 3`은 D-V3-54로 번호도 비움)
-        if (name === null && [...numberToken].length === 1) continue
-        // 한글 수만 된 토큰(`이십오`)은 숫자로 바꿔 단위를 적용한다(만원 단위 `이십오` = 250,000원 — 숫자 `25`와 같게, D-V3-63)
-        const sino = /^[일이삼사오육칠팔구십백천]+$/.test(numberToken) ? parseKoreanNumber(numberToken) : null
-        const price = parseAmount(sino === null ? numberToken : String(sino), { 'price.unit': unit })
-        if (price === null || price < 100) continue
-        quick = { no: m.value, price, name: name?.name ?? null, numberFrom: 'marker', priceFrom: 'quick', start: m.start, end: stop - 1, blocked: null, bigChange: isBigChange(null, price) }
-        break
-      }
-      if (quick !== null) {
-        pick(quick)
-        continue
-      }
-      // 3. 가격 뒤 번호 (덩어리 끝에서만): 뒤에 'N번'이 있는 가장 뒤의 원 가격 줄과 그 뒤 첫 'N번'
-      if (final) {
-        const after = segLines.filter((item) => item.value !== null && segMarkers.some((marker) => marker.start > item.end))
-        const r = after[after.length - 1]
-        if (r !== undefined && r.value !== null) {
-          const m = segMarkers.find((marker) => marker.start > r.end) as (typeof segMarkers)[number]
-          if (!m.split && m.value <= maxNumber && !correctionBetween(s, m.last)) {
-            const reading = analyzeSentence(tokens.slice(s, m.last + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
-            pick({ no: m.value, price: r.value, name: reading.reading.extraction.name, numberFrom: 'marker', priceFrom: 'won', start: s, end: m.last, blocked: null, bigChange: isBigChange(null, r.value) })
-            continue
-          }
-        }
-      }
-      break
-    }
-    const picked = new Set(picks.map((item) => item.no))
-    const leftover = markers.filter((marker) => marker.start >= s).map((marker) => marker.value)
-    const others = [...new Set([...dropped, ...leftover])].filter((value) => !picked.has(value))
-    const restTokens = tokens.slice(s)
-    let tail: SegmentReading['tail'] = null
-    const last = picks[picks.length - 1]
-    const first = restTokens[0]
-    if (last !== undefined && first !== undefined && !markers.some((marker) => marker.start >= s)) {
-      if (isCancelToken(first)) tail = { kind: 'cancel', no: last.no, text: restTokens.join(' ') }
-      else if (isCorrectionToken(first)) {
-        // 대화 속 '아니'와 가리기: 정정 표시 바로 뒤(군말 건너)에 원 가격 줄이나 사전 품종이 와야 정정이다
-        const k = skipFillers(tokens, s + 1)
-        const priceNext = lines.some((item) => item.start === k && item.value !== null)
-        if (priceNext || nameWindowEnd(tokens, k, options, markerAt) !== null) tail = { kind: 'correction', no: last.no, text: restTokens.join(' ') }
-      }
-    }
-    return { tokens, picks, others, tail, rest: restTokens.join(' ') }
+    // 중간 결과: 글 끝 가격이 지난 일 가격일지 몰라 기다리는 줄은 picks에서 빼고, 그 줄로 고를 조각은 held로 따로 (R1·실방송 468번)
+    const allLines = listWonLines(tokens, { maxNumber, punct, final: true })
+    const lines = final ? allLines : allLines.filter((line) => !isPastPriceLine(tokens, line.end, false))
+    const reading = readPicks(tokens, options, final, maxNumber, unit, markers, lines)
+    // held는 글 끝 토큰이 그 가격 줄 끝일 때만(`10만 원까지`) — 뒤에 경험담 꼴 앞부분(`팔`·`팔아`)이 이미 들렸으면 새 등록도 기다린다
+    const last = tokens.length - 1
+    if (lines.length === allLines.length || lines.some((line) => line.end === last) || !allLines.some((line) => line.end === last)) return reading
+    const heldLines = allLines.filter((line) => lines.includes(line) || line.end === last)
+    const done = new Set(reading.picks.map((item) => `${String(item.no)}@${String(item.start)}`))
+    const held = readPicks(tokens, options, final, maxNumber, unit, markers, heldLines).picks.filter((item) => !done.has(`${String(item.no)}@${String(item.start)}`))
+    return held.length === 0 ? reading : { ...reading, held }
   } catch {
     return EMPTY
   }
+}
+
+function readPicks(
+  tokens: readonly string[],
+  options: SegmentOptions,
+  final: boolean,
+  maxNumber: number,
+  unit: PriceUnit,
+  markers: ReturnType<typeof listNumberMarkers>,
+  lines: ReturnType<typeof listWonLines>,
+): SegmentReading {
+  const markerAt = new Set<number>()
+  for (const marker of markers) for (let i = marker.start; i <= marker.last; i++) markerAt.add(i)
+  const picks: SegmentPick[] = []
+  const dropped: number[] = []
+  let s = 0
+  const pick = (value: SegmentPick): void => {
+    picks.push(value)
+    s = value.end + 1
+  }
+  const correctionBetween = (from: number, to: number): boolean => tokens.slice(from, to + 1).some((token) => isCorrectionToken(token) || isCancelToken(token))
+  for (let guard = 0; guard < tokens.length && s < tokens.length; guard++) {
+    const segMarkers = markers.filter((marker) => marker.start >= s)
+    const segLines = lines.filter((line) => line.start >= s)
+    // '번' 없는 번호는 첫 조각에서, 첫 원 가격 줄 앞에 'N번'이 없을 때만 그 줄까지의 글로 본다 (D-V3-23·73).
+    // 줄 뒤의 말은 보지 않는다 — 뒤에 낱말이 붙어도 이미 고른 값이 바뀌지 않게
+    const firstLine = segLines[0]
+    if (picks.length === 0 && firstLine !== undefined && !segMarkers.some((marker) => marker.start < firstLine.start)) {
+      const ready = readRegistration(tokens.slice(s, firstLine.end + 1).join(' '), options).ready
+      if (ready !== null && ready.numberFrom === 'bare') {
+        pick({ no: ready.no, price: ready.price, name: ready.name, numberFrom: 'bare', priceFrom: 'won', start: s, end: firstLine.end, blocked: null, bigChange: isBigChange(null, ready.price) })
+        continue
+      }
+    }
+    if (segMarkers.length === 0) break
+    // 1. 짝: 앞에 'N번'이 있는 첫 원 가격 줄 R과 그 앞 가장 뒤의 'N번' M
+    const line = segLines.find((item) => segMarkers.some((marker) => marker.last < item.start))
+    if (line !== undefined) {
+      const before = segMarkers.filter((marker) => marker.last < line.start)
+      const m = before[before.length - 1] as (typeof before)[number]
+      for (const other of before) if (other.value !== m.value) dropped.push(other.value)
+      if (m.split || line.value === null || m.value > maxNumber || correctionBetween(m.start, line.end)) break
+      // 품종은 조각 범위(앞 조각이 소비된 끝 또는 앞 'N번' 뒤 ~ 이 원 가격) 안에서 찾는다 — 번호보다 먼저 말한 품종도(TE-V3-013), 다른 'N번' 앞의 품종은 쓰지 않는다
+      // 앞 'N번' 바로 뒤(군말 건너)의 품종은 그 앞 번호의 것이다(`93번 청개구리 97번 23만 원`)
+      const previous = before[before.length - 2]
+      const ownedByPrevious = previous === undefined ? null : nameWindowEnd(tokens, skipFillers(tokens, previous.last + 1), options, markerAt)
+      const lo = previous === undefined ? s : ownedByPrevious === null ? previous.last + 1 : ownedByPrevious.end + 1
+      const reading = analyzeSentence(tokens.slice(lo, line.end + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
+      // 흔한 말 별칭(`녹음` → 녹금)·한 글자 다른 이름(`야래양` → 야래향)은 'N번'과 원 가격 사이에서만 (D-V3-54)
+      const slot = tokens.slice(m.last + 1, line.start)
+      // 조각 범위에서 사전 이름(공백만 다른 맞춤)을 들었는데 이름이 비었으면 두 이름이 갈린 것 — 흔한 말 별칭·한 글자 다른 이름으로 채우지 않는다
+      // (R-17 8 "사전 이름도 흔한 말 별칭도 못 찾았으면", D-V3-92 `89번 녹금 녹색금` → 비움 — 녹색금이 창색금과 한 글자 다르다)
+      const heardName = reading.reading.extraction.name === null && hearsDictionaryName(tokens.slice(lo, line.end + 1), options)
+      const name = reading.reading.extraction.name ?? (heardName ? null : (commonAliasIn(slot, options) ?? oneSyllableName(slot, options)))
+      pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: null, bigChange: isBigChange(null, line.value) })
+      continue
+    }
+    // 2. "N번 품종 수" (D-V3-48): 표시 → (군말) 사전 품종 → 수 → 조각 끝
+    let quick: SegmentPick | null = null
+    for (const m of segMarkers) {
+      if (m.split || m.value > maxNumber) continue
+      // D-V3-63: 품종 없이도 — 'N번' 바로 뒤(군말만 사이) 수가 조각 끝이면 (품종이 있으면 그 뒤 수)
+      const k = skipFillers(tokens, m.last + 1)
+      // 정정 표시·취소 낱말이 끼면 빠른 꼴이 아니다 (TD-V3-009 — `15번 다시 180`·`15번 취소 백육십팔`)
+      if (correctionBetween(m.last + 1, k)) continue
+      const name = nameWindowEnd(tokens, k, options, markerAt)
+      const q = name === null ? k : name.end + 1
+      // 정정 표시·취소 낱말(붙은 꼴 `만오천말고` 포함)이 번호와 수 사이에 끼면 빠른 꼴이 아니다 (TD-V3-009)
+      if (correctionBetween(m.last + 1, q)) continue
+      // 수에 붙은 판매 말투는 뗀다 (`180입니다`·`180까지요` — D-V3-69, AC-V3-73)
+      const rawNumber = tokens[q]
+      const attachedTail = rawNumber === undefined ? undefined : NUMBER_TAILS.find((tail) => rawNumber.length > tail.length && rawNumber.endsWith(tail) && QUICK_NUMBER.test(rawNumber.slice(0, -tail.length)))
+      const numberToken = rawNumber !== undefined && attachedTail !== undefined ? rawNumber.slice(0, -attachedTail.length) : rawNumber
+      if (numberToken === undefined || !QUICK_NUMBER.test(numberToken)) continue
+      const next = markers.find((marker) => marker.start > q)
+      const stop = next === undefined ? tokens.length : next.start
+      // 뒤에 군말·판매 말투, 또는 같은 수를 다시 말한 것(`113번 45에 드려볼게요 자 45~` — 중복)만 오면 조각 끝
+      const sameNumber = (token: string): boolean => token === numberToken || NUMBER_TAILS.some((tail) => token === numberToken + tail)
+      if (tokens.slice(q + 1, stop).some((token) => !isWindowFiller(token) && !isSaleTail(token) && !sameNumber(token))) continue
+      // 수 뒤에 정정·취소 낱말이 오면 빠른 꼴이 아니다 (TD-V3-009 — `174번 170 다시 170`)
+      if (correctionBetween(q + 1, stop - 1)) continue
+      if (q === tokens.length - 1 && !final) continue // 중간 결과 끝의 수는 기다린다(60 → 60만)
+      // 품종 없는 꼴은 덩어리가 끝났을 때만(D-V3-63 — 뒤에 무엇이 올지 모른다)
+      if (name === null && !final) continue
+      // 품종 없는 꼴에서 숫자 한 개·한글 한 글자 수는 가격이 아니다(D-V3-63 — `68번 3`은 D-V3-54로 번호도 비움)
+      if (name === null && [...numberToken].length === 1) continue
+      // 한글 수만 된 토큰(`이십오`)은 숫자로 바꿔 단위를 적용한다(만원 단위 `이십오` = 250,000원 — 숫자 `25`와 같게, D-V3-63)
+      const sino = /^[일이삼사오육칠팔구십백천]+$/.test(numberToken) ? parseKoreanNumber(numberToken) : null
+      const price = parseAmount(sino === null ? numberToken : String(sino), { 'price.unit': unit })
+      if (price === null || price < 100) continue
+      quick = { no: m.value, price, name: name?.name ?? null, numberFrom: 'marker', priceFrom: 'quick', start: m.start, end: stop - 1, blocked: null, bigChange: isBigChange(null, price) }
+      break
+    }
+    if (quick !== null) {
+      pick(quick)
+      continue
+    }
+    // 3. 가격 뒤 번호 (덩어리 끝에서만): 뒤에 'N번'이 있는 가장 뒤의 원 가격 줄과 그 뒤 첫 'N번'
+    if (final) {
+      const after = segLines.filter((item) => item.value !== null && segMarkers.some((marker) => marker.start > item.end))
+      const r = after[after.length - 1]
+      if (r !== undefined && r.value !== null) {
+        const m = segMarkers.find((marker) => marker.start > r.end) as (typeof segMarkers)[number]
+        if (!m.split && m.value <= maxNumber && !correctionBetween(s, m.last)) {
+          const reading = analyzeSentence(tokens.slice(s, m.last + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
+          pick({ no: m.value, price: r.value, name: reading.reading.extraction.name, numberFrom: 'marker', priceFrom: 'won', start: s, end: m.last, blocked: null, bigChange: isBigChange(null, r.value) })
+          continue
+        }
+      }
+    }
+    break
+  }
+  const picked = new Set(picks.map((item) => item.no))
+  const leftover = markers.filter((marker) => marker.start >= s).map((marker) => marker.value)
+  const others = [...new Set([...dropped, ...leftover])].filter((value) => !picked.has(value))
+  const restTokens = tokens.slice(s)
+  let tail: SegmentReading['tail'] = null
+  const last = picks[picks.length - 1]
+  const first = restTokens[0]
+  if (last !== undefined && first !== undefined && !markers.some((marker) => marker.start >= s)) {
+    if (isCancelToken(first)) tail = { kind: 'cancel', no: last.no, text: restTokens.join(' ') }
+    else if (isCorrectionToken(first)) {
+      // 대화 속 '아니'와 가리기: 정정 표시 바로 뒤(군말 건너)에 원 가격 줄이나 사전 품종이 와야 정정이다
+      const k = skipFillers(tokens, s + 1)
+      const priceNext = lines.some((item) => item.start === k && item.value !== null)
+      if (priceNext || nameWindowEnd(tokens, k, options, markerAt) !== null) tail = { kind: 'correction', no: last.no, text: restTokens.join(' ') }
+    }
+  }
+  return { tokens, picks, others, tail, rest: restTokens.join(' ') }
 }
 
 /** 정정 낱말로 고친 같은 번호 가격 (readMarkerCorrection) */

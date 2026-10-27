@@ -95,6 +95,19 @@ describe('지난 일·경험을 말하는 꼴', () => {
     expect(pick('15번 5만 원까지 팔', false)).toEqual([])
     expect(pick('15번 5만 원까지 팔아 볼게요', false)).toEqual([[15, 50_000]])
   })
+  it('기다리느라 뺀 조각은 held로 따로 — 글 끝이 그 가격 줄 끝일 때만 (R1 "108번 … 10만 원까지" 새 등록용)', () => {
+    const held = (text: string, final = false) => (readSegments(text, { ...OPTIONS, ...(final ? { final: true } : {}) }).held ?? []).map((p) => [p.no, p.price])
+    expect(pick('네 108번 ufo 어 요한이 10만 원까지', false)).toEqual([])
+    expect(held('네 108번 ufo 어 요한이 10만 원까지')).toEqual([[108, 100_000]])
+    expect(held('15번 5만 원에')).toEqual([[15, 50_000]])
+    expect(held(`${LIVE_HEAD} 자 120만 원까지`)).toEqual([[468, 1_200_000]])
+    // 경험담 꼴 앞부분이 이미 들렸으면 held도 없다
+    expect(held('15번 5만 원까지 팔')).toEqual([])
+    expect(held(`${LIVE_HEAD} 자 120만 원까지 팔아`)).toEqual([])
+    // 최종 결과·기다릴 것 없는 글은 held가 없다
+    expect(readSegments('15번 5만 원까지', { ...OPTIONS, final: true }).held).toBeUndefined()
+    expect(readSegments('15번 5만 원', OPTIONS).held).toBeUndefined()
+  })
   it('isPastPriceLine: 줄 끝 토큰 위치로 본다 · 이상한 입력은 거짓', () => {
     const tokens = tokenize('120만 원까지 팔아 본 적 있어요') as string[]
     const lines = listWonLines(tokens, { maxNumber: 999, final: true })
