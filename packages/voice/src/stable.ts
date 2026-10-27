@@ -3,6 +3,9 @@
 // 중간 결과의 앞 낱말들이 1,000ms 넘게 그대로면(마지막 낱말 빼고) 그 앞부분은 최종 결과처럼 받는다(같은 조각 읽기·기다리는 번호·가격 고침·번호 옮기기 모두).
 // 순수 함수: 시계를 읽지 않고(now를 받는다) 넘긴 상태를 바꾸지 않는다.
 
+import { listWonLines, punctuatedTokens, tokenize } from './extract.ts'
+import { isPastPriceLine } from './past-price.ts'
+
 /** 낱말이 이만큼 그대로면 굳은 것으로 본다 (밀리초) — 1,000ms면 굳음, 999ms면 아직 */
 export const STABLE_MS = 1_000
 
@@ -32,6 +35,31 @@ const words = (text: unknown): string[] => (typeof text === 'string' ? text.spli
 const isTime = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 /** 수 낱말: 숫자·쉼표·점·한글 수·단위로만 된 낱말 (`300`·`5만`·`이십`·`2,000`) */
 const isAmountWord = (word: string): boolean => /^[0-9,.일이삼사오육칠팔구십백천만]+$/.test(word)
+
+/**
+ * 아직 모르는 원 가격 줄 (R-17 8 글 끝 `원까지`·`원에`, D-V3-94 (ㄹ)): 지금 중간 글 전체를 중간 결과로 읽어
+ * 경험담 꼴 앞부분만 들렸거나 뒤가 빈(군말만 온) `원까지`·`원에` 줄이 있으면 그 `원` 낱말의 자리(from 이상 중 가장 앞), 없으면 null.
+ * 넘긴 글은 최종처럼 읽혀 `원까지`가 가격이 되므로 그 낱말부터는 정해질 때까지 넘기지 않는다.
+ */
+function unknownWonWord(words: readonly string[], from: number): number | null {
+  const text = words.join(' ')
+  const tokens = tokenize(text)
+  if (tokens === null || tokens.length === 0) return null
+  // 토큰 → 낱말 자리 (끝 문장 부호만 있는 낱말은 토큰이 되지 않는다)
+  const wordOf: number[] = []
+  words.forEach((word, i) => {
+    if ((tokenize(word) ?? []).length > 0) wordOf.push(i)
+  })
+  if (wordOf.length !== tokens.length) return null
+  let found: number | null = null
+  for (const line of listWonLines(tokens, { punct: punctuatedTokens(text), final: true })) {
+    if (!isPastPriceLine(tokens, line.end, false)) continue
+    const at = wordOf[line.end]
+    if (at === undefined || at < from) continue
+    if (found === null || at < found) found = at
+  }
+  return found
+}
 
 function validState(state: StableState | null | undefined): StableState {
   if (state === null || state === undefined || !Array.isArray(state.tokens) || !Array.isArray(state.since) || state.tokens.length !== state.since.length) return STABLE_EMPTY
@@ -64,12 +92,21 @@ export function stepStable(input: StableState | null | undefined, text: unknown,
     let count = Math.min(stableCount(since, now), Math.max(0, tokens.length - 1))
     // 끝이 수 낱말이면 뒤 낱말과 함께 읽어야 한다 (`300` + `5번` = 305번, `5만` + `원까지`) — 수 낱말은 뒤 낱말이 굳을 때 함께 넘긴다
     while (count > state.taken && isAmountWord(tokens[count - 1] as string)) count--
+    // 아직 모르는 `원까지`·`원에` 줄은 그 `원` 낱말부터 남긴다 (그 앞 수 낱말도 함께) — 경험담 꼴이나 다른 말이 와서 정해지면 넘긴다 (D-V3-94)
+    if (count > taken) {
+      const hold = unknownWonWord(tokens, taken)
+      if (hold !== null && hold < count) {
+        count = hold
+        while (count > taken && isAmountWord(tokens[count - 1] as string)) count--
+      }
+    }
     let confirm: string | null = null
     if (count > taken) {
       confirm = tokens.slice(taken, count).join(' ')
       taken = count
     }
-    const waiting = since.slice(taken, Math.max(taken, tokens.length - 1)).filter(isTime)
+    // 이미 굳었는데 남긴 낱말(수 낱말·아직 모르는 원 가격 줄)은 시간으로는 바뀌지 않는다 — 새 중간 글을 기다린다 (지난 시각으로 타이머를 거듭 걸지 않게)
+    const waiting = since.slice(taken, Math.max(taken, tokens.length - 1)).filter((at) => isTime(at) && at + STABLE_MS > now)
     const nextAt = waiting.length === 0 ? null : Math.min(...waiting) + STABLE_MS
     return { state: { tokens, since, taken }, confirm, interim: tokens.slice(taken).join(' '), nextAt }
   } catch {
