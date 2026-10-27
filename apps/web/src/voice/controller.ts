@@ -1355,7 +1355,10 @@ export class VoiceController {
    * 그 상품을 같은 번호 규칙으로 — 찜 0이면 바로 고침(되돌리기), 찜이 있으면 묻기. key로 한 번만
    */
   #priceOnly(work: CardWork, module: VoiceModule, rest: string, key: string): InstantDone | null {
-    if (typeof module.priceOnlyFix !== 'function' || rest.trim() === '' || this.#pickDone.has(key)) return null
+    if (typeof module.priceOnlyFix !== 'function' || rest.trim() === '') return null
+    // 이미 이 글로 같은 번호 규칙을 했다(최종 결과가 왔을 때) — 덩어리 끝에 V2 "방금 등록한 …을 고칠까요?" 카드를 또 내지 않게 처리한 것으로 돌려준다
+    // (D-V3-109: 번호 없는 정정 덩어리는 할 일 하나 — (ㄱ)이 맞으면 R-22만)
+    if (this.#pickDone.has(key)) return { action: 'discard', reason: LOG_INSTANT_DONE, readout: null }
     const rr = this.#readRegistration(module, rest, true)
     if (rr === null) return null
     const last = this.#voiceRegistered.at(-1) ?? null

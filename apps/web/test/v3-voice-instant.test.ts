@@ -499,6 +499,37 @@ describe('바로 등록 V3 수용 사례', () => {
     expect(h.registered).toHaveLength(1)
   })
 
+  // D-V3-109: 번호 없는 정정 덩어리는 할 일 하나 — 가격만 고쳐 말함(D-V3-84 ㄱ)이 맞으면 바로 고침만, 아니면 V2 묻기 카드만
+  it('R19 (D-V3-109): 등록 30초 안 다음 덩어리 "아니 12만원" → 바로 고침 하나·10초 되돌리기, V2 "방금 등록한 …" 카드 0', async () => {
+    const h = await ready()
+    say('108번 BTS 10만 원')
+    finish(h)
+    at(5000)
+    say('아니 12만원')
+    at(9000)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:108', changes: { price: 120000 } }])
+    const offers = h.voice.getSnapshot().offers
+    expect(offers.map((offer) => [offer.kind, offer.stage, offer.message])).toEqual([['offer', 'fixed', '108번을 고쳤어요: 가격 100,000원 → 120,000원']])
+    // 10초 되돌리기 (D-V3-07)
+    expect(offers[0]?.undoUntil ?? 0).toBeGreaterThan(Date.now())
+    expect(offers[0]?.before).toEqual({ price: 100000 })
+    expect(cards(h)).toEqual([])
+  })
+
+  it('R19b (D-V3-109): 등록 31초 뒤 "아니 12만원" → V2 "방금 등록한 108번 BTS를 120,000원으로 고칠까요?" 카드 하나, 쓰기 0', async () => {
+    const h = await ready()
+    say('108번 BTS 10만 원')
+    finish(h)
+    at(31_000)
+    say('아니 12만원')
+    at(35_000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    const offers = h.voice.getSnapshot().offers
+    expect(offers.map((offer) => [offer.stage, offer.message])).toEqual([['ask', '방금 등록한 108번 BTS를 120,000원으로 고칠까요?']])
+  })
+
   it('R20: 바로 등록한 덩어리 끝에 취소 → 그 등록을 되돌리고, 같은 말은 카드만 (껐다 켜면 다시 바로)', async () => {
     const h = await ready()
     say('21번 핑크문 만원', false)
