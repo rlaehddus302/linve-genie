@@ -853,6 +853,10 @@ export class VoiceController {
   readonly #priceHeard = new Map<number, readonly HeardPrice[]>()
   /** 덩어리 차례 (조각 이름 — 같은 조각을 다시 읽은 것은 한 번) */
   #chunkSeq = 0
+  /** 이 덩어리에서 가격 고침 문턱에 넘긴 번호·새 가격·조각 (D-V3-94 ㄷ — 15초·300글자로 끊기면 다음 덩어리 첫 조각이 이어 받는다) */
+  #gateSeen: { readonly no: number; readonly price: number; readonly fragment: string }[] = []
+  /** 15초(max)·300글자(long)로 끊긴 바로 앞 덩어리의 #gateSeen — seq 덩어리의 첫 조각에서만 쓴다 */
+  #gateCarry: { readonly seq: number; readonly items: readonly { readonly no: number; readonly price: number; readonly fragment: string }[] } | null = null
   /** 번호 없이 들린 '원' 가격 (실방송 10:14 — 다음 상품 가격을 번호보다 먼저 말함). 15초 안에 가격 없는 'N번'이 오면 그 번호의 가격 */
   #pendingPrice: { readonly price: number; readonly at: number } | null = null
   /** 차례를 기다리는 큰 글자 칸 안내 (D-V3-61) */
@@ -1494,6 +1498,7 @@ export class VoiceController {
     if (typeof module.gateSamePrice !== 'function') return true
     try {
       const correction = said || (typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(this.#heardNow))
+      if (price !== current) this.#gateSeen.push({ no, price, fragment })
       const step = module.gateSamePrice({ current, price, fragment, correction, history: this.#priceHeard.get(no) ?? [], now: this.#host.now() })
       if (step.history.length === 0) this.#priceHeard.delete(no)
       else this.#priceHeard.set(no, step.history)
@@ -1501,6 +1506,17 @@ export class VoiceController {
     } catch {
       return true
     }
+  }
+
+  /**
+   * 가격 고침 문턱의 조각 이름 (D-V3-94 ㄷ·R-22 4 나): 바로 앞 덩어리가 15초·300글자로 끊겼고 이것이 이 덩어리의 첫 조각이면
+   * 앞 덩어리에서 같은 번호·같은 새 가격을 들은 조각을 이어 받는다 — 경계에 걸린 한 말이 두 번으로 세어지지 않게
+   */
+  #gateFragment(no: number, price: number | null, key: string, first: boolean): string {
+    const own = `${String(this.#chunkSeq)}:${key}`
+    const carry = this.#gateCarry
+    if (!first || price === null || carry === null || carry.seq !== this.#chunkSeq) return own
+    return carry.items.findLast((item) => item.no === no && item.price === price)?.fragment ?? own
   }
 
   #clearPhraseTimer(): void {
@@ -1719,6 +1735,9 @@ export class VoiceController {
     const contextBefore = handledNos.size === 0 && unhandled.length > 0 ? this.#contextTexts : null
     this.#noteContext(module, chunk, handledNos.size > 0, unhandled.length > 0, now)
     this.#zeroRaw.clear()
+    // 15초·300글자 끊김은 판매자가 쉰 것이 아니다 — 다음 덩어리 첫 조각이 이 덩어리의 같은 번호·같은 새 가격을 이어 받는다 (D-V3-94 ㄷ)
+    this.#gateCarry = chunk.end === 'max' || chunk.end === 'long' ? { seq: this.#chunkSeq + 1, items: this.#gateSeen } : null
+    this.#gateSeen = []
     this.#chunkSeq++
     this.#pickDone.clear()
     this.#instantNos = new Map()
@@ -2387,7 +2406,9 @@ export class VoiceController {
         const index = seg.picks.indexOf(raw)
         const from = index > 0 ? (seg.picks[index - 1]?.end ?? -1) + 1 : 0
         const said = pick.start >= 0 && seg.tokens.length > pick.end && typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(seg.tokens.slice(from, pick.end + 1).join(' '))
-        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false, { fragment: `${String(this.#chunkSeq)}:${key}`, correction: said })
+        // 덩어리 첫 조각 = 조각 읽기의 첫 조각, 또는 이 덩어리에서 아직 다룬 번호가 없을 때의 중간 후보(start -1)
+        const first = raw.start < 0 ? this.#instantNos.size === 1 : index === 0
+        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false, { fragment: this.#gateFragment(pick.no, pick.price, key, first), correction: said })
       }
       const read = { no: pick.no, name: pick.name, price: pick.price, candidates: [] }
       const reason = zeroNote === null ? done.reason : done.reason === null ? zeroNote : `${done.reason} · ${zeroNote}`
