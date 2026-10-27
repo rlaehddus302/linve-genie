@@ -2187,6 +2187,9 @@ export class VoiceController {
     const interim = this.#phrase === null ? '' : module.heardText(this.#phrase).interim
     const seg = this.#readSegments(module, text, interim.trim() === '')
     if (seg !== null) this.#runPicks(work, module, seg, text, false)
+    // 글 끝 가격이 `원까지`·`원에`라 뒤 낱말을 기다리는 조각(지난 일 가격일 수 있다): 없는 번호의 새 등록만 바로 (R1 — `108번 … 10만 원까지` 때 등록),
+    // 있는 상품의 가격은 뒤 낱말을 듣고 고친다 (실방송 468번 "120만 원까지 팔아 본 적 있어요")
+    if (seg !== null && seg.held !== undefined && seg.held.length > 0) this.#runPicks(work, module, { ...seg, picks: seg.held }, text, false, true)
     // 번호 없이 가격만 고쳐 말함 (최종·굳은 글만): 마지막 조각 뒤 남은 글, 또는 조각이 없는 글
     if (seg !== null && interim.trim() === '') this.#priceOnlyRest(work, module, seg, text)
     // 정정 낱말이 든 "65번 아니 5만 원" (최종·굳은 글만, TD-V3-013)
@@ -2262,13 +2265,15 @@ export class VoiceController {
    * 아직 처리하지 않은 조각마다 한 번 (`${no}@${start}`로 거름): 없는 번호면 바로 등록, 이미 있는 번호면 R-22, 300만 원 넘으면 카드(덩어리 끝에서만).
    * 같은 덩어리에서 이미 등록한 번호를 다른 가격으로 다시 말하면 R-22(보내는 중이면 등록 뒤, D-V3-19)
    */
-  #runPicks(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, chunkEnd: boolean): void {
+  #runPicks(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, chunkEnd: boolean, newOnly = false): void {
     for (const raw of seg.picks) {
       const key = `${String(raw.no)}@${String(raw.start)}`
       if (this.#pickDone.has(key)) continue
       // 빠진 0 되살리기 (실방송 "36번" = 306번): 앞 번호 맥락이 뚜렷할 때만 X0Y로
       const fixedNo = this.#droppedZero(module, raw)
       const pick: SegmentPick = fixedNo === null ? raw : { ...raw, no: fixedNo }
+      // newOnly(기다리는 가격 조각): 없는 번호의 새 등록만 — 있는·판매 종료·거절·고치는 중인 번호는 손대지 않고 뒤 낱말을 기다린다
+      if (newOnly && (this.#existingOf(pick.no) !== null || this.#rejected.has(pick.no) || this.#instantNos.has(pick.no))) continue
       const zeroNote = fixedNo === null ? null : droppedZeroNote(raw.no, fixedNo)
       // '번' 없는 수가 앞 번호 흐름(최근 음성 등록 2개)에서 멀면 번호가 아니다 (실방송 "얼마 드릴까 50"·"25 자 25만 원")
       if (pick.numberFrom === 'bare' && this.#bareOffRun(module, pick.no)) {

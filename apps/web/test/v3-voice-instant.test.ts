@@ -159,6 +159,30 @@ describe('바로 등록 (V3)', () => {
     expect(h.voice.getSnapshot().log[0]?.reason).not.toBeNull()
   })
 
+  it('있는 상품은 중간 결과 끝 "원까지"로 고치지 않고 뒤 낱말을 기다린다 — 지난 일 가격(실방송 468번)이면 고치지도 묻지도 않는다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    const head = '자 468번은 이제 앞으로 핀이 들어오셨습니다 자 제가 팔색조 세금을 자 120만 원까지'
+    say(head, false)
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers).toEqual([])
+    say(`${head} 팔아 본 적`, false)
+    say(`${head} 팔아 본 적 있어요`)
+    at(5000)
+    expect(h.registered).toEqual([])
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers).toEqual([])
+    expect(cards(h)).toEqual([])
+  })
+
+  it('없는 번호도 중간 결과 끝 "원까지" 뒤에 지난 일 꼴이 이어지면 그때는 등록하지 않는다', async () => {
+    const h = await ready()
+    say('자 470번 120만 원까지 팔', false)
+    say('자 470번 120만 원까지 팔아 본 적 있어요')
+    at(5000)
+    expect(h.registered).toEqual([])
+  })
+
   it('보낸 등록이 아직 목록에 없어도 다음 덩어리에서 같은 번호를 다시 등록하지 않는다', async () => {
     const h = await ready()
     say('108번 ufo 10만 원')
