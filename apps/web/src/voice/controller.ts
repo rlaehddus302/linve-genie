@@ -1422,7 +1422,12 @@ export class VoiceController {
     if (found.pending === true) {
       this.#setPending(read.no, { after: { heard, auto } })
       done = { action: 'discard', reason: LOG_PENDING, readout: null }
-    } else done = this.#applyExisting(work, module, read.no, found, heard, auto, false, { fragment: `${String(this.#chunkSeq)}:${key}`, correction: true })
+    } else {
+      // 이 말에 사전 품종이 들려 그 상품 품종과 다르면(채우기 포함) 품종도 바뀌는 말로 본다 — 오래전 상품이면 정정 낱말로 바로 고치지 않는다 (D-V3-106)
+      const said = this.#readRegistration(module, read.text, true)?.extraction.name ?? null
+      const nameChange = said !== null && said.replace(/\s+/g, '') !== '' && said.replace(/\s+/g, '') !== found.name.replace(/\s+/g, '')
+      done = this.#applyExisting(work, module, read.no, found, heard, auto, false, { fragment: `${String(this.#chunkSeq)}:${key}`, correction: true, nameChange })
+    }
     const now = this.#host.now()
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text: read.text }], read: { no: read.no, name: null, price: read.price, candidates: [] }, action: done.action, reason: done.reason }))
     if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
@@ -1519,12 +1524,13 @@ export class VoiceController {
   }
 
   /** 같은 번호 가격 고침 문턱 한 걸음 — 바로 고쳐도 되면 참. 지금 가격이 다시 들리면 후보를 지운다 */
-  #priceGate(module: VoiceModule, no: number, current: number, price: number, fragment: string, said = false): boolean {
+  #priceGate(module: VoiceModule, no: number, current: number, price: number, fragment: string, said = false, recent = true, nameChange = false): boolean {
     if (typeof module.gateSamePrice !== 'function') return true
     try {
       const correction = said || (typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(this.#heardNow))
       if (price !== current) this.#gateSeen.push({ no, price, fragment })
-      const step = module.gateSamePrice({ current, price, fragment, correction, history: this.#priceHeard.get(no) ?? [], now: this.#host.now() })
+      // 오래전 상품에 품종도 함께 바뀌면 정정 낱말로 바로 고치지 않는다 (R-22 4 가, D-V3-106)
+      const step = module.gateSamePrice({ current, price, fragment, correction, history: this.#priceHeard.get(no) ?? [], now: this.#host.now(), recent, nameChange })
       if (step.history.length === 0) this.#priceHeard.delete(no)
       else this.#priceHeard.set(no, step.history)
       return step.apply || price === current
@@ -2897,7 +2903,7 @@ export class VoiceController {
     heard: ExistingHeard,
     auto: boolean,
     quiet: boolean,
-    options: { readonly gate?: boolean; readonly fragment?: string; readonly correction?: boolean } = {},
+    options: { readonly gate?: boolean; readonly fragment?: string; readonly correction?: boolean; readonly nameChange?: boolean } = {},
   ): InstantDone {
     const status = existing.status ?? 'OPEN'
     // 고쳐 말함 (D-V3-59): 같은 덩어리이거나, 이 콘솔이 그 번호를 음성으로 등록·고친 지 60초 안이고 그 사이 다른 번호를 음성으로 등록하지 않음
@@ -2926,7 +2932,7 @@ export class VoiceController {
     }
     const ignore: InstantDone = { action: 'discard', reason: LOG_ALREADY, readout: quiet ? null : alreadyReadout(no) }
     // 같은 번호 가격 고침 문턱 (실방송 333번): 정정 낱말이 있거나 같은 새 가격을 다른 조각에서 60초 안에 두 번 들어야 바로 고친다
-    const gated = options.gate !== false && heard.price !== null && heard.priceSure !== false && !this.#priceGate(module, no, existing.price, heard.price, options.fragment ?? String(this.#chunkSeq), options.correction === true)
+    const gated = options.gate !== false && heard.price !== null && heard.priceSure !== false && !this.#priceGate(module, no, existing.price, heard.price, options.fragment ?? String(this.#chunkSeq), options.correction === true, recent, decision.changes.name !== undefined || options.nameChange === true)
     if (gated && decision.action === 'AUTO_FIX' && decision.changes.price !== undefined) {
       const candidate = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price })
       if (existing.pending === true || existing.key === '') return { action: 'discard', reason: LOG_PENDING, readout: null }
