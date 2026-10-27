@@ -501,8 +501,17 @@ interface PendingInstant {
   readonly price: number
   readonly key: string | null
   readonly at: number
+  /** 등록을 들은 덩어리 (가격 고침 문턱의 조각 이름 — 그 번호가 이미 있어 등록하지 못했을 때, D-V3-83) */
+  readonly fragment?: string
   /** 등록이 끝나면 적용할 같은 번호 판단 (D-V3-19) */
-  readonly after?: { readonly heard: ExistingHeard; readonly auto: boolean }
+  readonly after?: {
+    readonly heard: ExistingHeard
+    readonly auto: boolean
+    /** 가격 고침 문턱의 조각 이름 (들은 때의 조각 — 등록이 끝난 때의 덩어리가 아니다, D-V3-83) */
+    readonly fragment?: string
+    /** 바로 고치지 않고 이 까닭 줄로 묻는다 (중간·최종 가격 다름, D-V3-103) */
+    readonly askNote?: string
+  }
   /** 등록이 끝나면 되돌린다 (덩어리 안 취소, D-V3-21) */
   readonly cancel?: boolean
   /** 등록이 끝나면 이 번호로 옮긴다 (등록 직후 "아니 61번", R-24) */
@@ -1542,6 +1551,19 @@ export class VoiceController {
   }
 
   /**
+   * 바로 고치지 않을 때(묻기)도 들은 다른 가격을 문턱 기록에 한 번으로 적는다 (D-V3-83 — "한 번 들음"으로 센다).
+   * 같은 조각·같은 가격은 한 번. 지금 가격과 같으면 적지 않는다
+   */
+  #notePriceHeard(no: number, current: number, price: number, fragment: string): void {
+    if (price === current) return
+    const now = this.#host.now()
+    this.#gateSeen.push({ no, price, fragment })
+    const keep = this.#module?.PRICE_GATE_MS ?? 60_000
+    const history = (this.#priceHeard.get(no) ?? []).filter((item) => now - item.at <= keep && now >= item.at && !(item.fragment === fragment && item.price === price))
+    this.#priceHeard.set(no, [...history, { price, fragment, at: now }].slice(-10))
+  }
+
+  /**
    * 가격 고침 문턱의 조각 이름 (D-V3-94 ㄷ·R-22 4 나): 바로 앞 덩어리가 15초·300글자로 끊겼고 이것이 이 덩어리의 첫 조각이면
    * 앞 덩어리에서 같은 번호·같은 새 가격을 들은 조각을 이어 받는다 — 경계에 걸린 한 말이 두 번으로 세어지지 않게
    */
@@ -2437,8 +2459,14 @@ export class VoiceController {
         const note = interimFinalNote(said, raw.price)
         // 이 덩어리에서 다룬 번호로 적는다 — 덩어리 끝에 최종 글 가격으로 다시 등록·고치지 않게
         if (!this.#instantNos.has(raw.no)) this.#instantNos.set(raw.no, 'existing')
+        // 이 최종 글 가격도 가격 고침 문턱의 한 번 들음이다 — 다른 조각에서 같은 가격을 한 번 더 들으면 바로 고친다 (D-V3-83, R93)
+        const fragment = `${String(this.#chunkSeq)}:${key}`
         if (existing === null) this.#pickCard(work, module, raw, text, note)
-        else if (existing !== 'closed' && existing.pending !== true) {
+        else if (existing !== 'closed' && existing.pending === true) {
+          // 바로 등록이 아직 보내는 중 — 등록이 끝나면 그 가격 그대로 두고 묻는다 (조용히 버리지 않는다)
+          this.#setPending(raw.no, { after: { heard: { name: null, price: raw.price, nameNeedsCheck: false, priceSure: true }, auto: false, fragment, askNote: note } })
+        } else if (existing !== 'closed') {
+          this.#notePriceHeard(raw.no, existing.price, raw.price, fragment)
           this.#chunkActs.add('ASKED')
           this.#ask(work, raw.no, existing, { price: raw.price }, note)
         }
@@ -2811,7 +2839,16 @@ export class VoiceController {
 
   #setPending(no: number, patch: Partial<PendingInstant>): void {
     const pending = this.#pending.get(no)
-    if (pending !== undefined) this.#pending.set(no, { ...pending, ...patch })
+    if (pending === undefined) return
+    let next = patch
+    const after = patch.after
+    if (after !== undefined) {
+      // 묻기로 정해 둔 것(중간·최종 가격 다름)은 같은 결과를 다시 읽은 바로 고침이 덮지 않는다 (D-V3-103 — 모르면 묻기)
+      const kept = pending.after?.askNote !== undefined && after.askNote === undefined ? pending.after : null
+      // 문턱의 조각은 들은 때의 덩어리 (D-V3-83)
+      next = { ...patch, after: kept ?? (after.fragment === undefined ? { ...after, fragment: String(this.#chunkSeq) } : after) }
+    }
+    this.#pending.set(no, { ...pending, ...next })
   }
 
   /** 덩어리 안 취소: 그 바로 등록을 5초 되돌리기로 되돌린다 (D-V3-21). 아직 보내는 중이면 등록이 끝나는 대로 */
@@ -2889,7 +2926,7 @@ export class VoiceController {
     // 확인이 필요한 품종(추측·사전 밖)은 보지 않은 등록에 쓰지 않는다 (D-V3-37)
     const name = card.nameNeedsCheck === true ? '' : (card.name ?? '')
     const registration: CardRegistration = { no, name, price }
-    this.#pending.set(no, { cardId: card.id, name: registration.name, price, key: null, at: this.#host.now() })
+    this.#pending.set(no, { cardId: card.id, name: registration.name, price, key: null, at: this.#host.now(), fragment: String(this.#chunkSeq) })
     this.#host.register(card, registration, 'instant')
     this.#touchVoice(no, 'register')
     this.#chunkActs.add('REGISTERED')
@@ -2960,8 +2997,9 @@ export class VoiceController {
       return { action: 'offer', reason: LOG_ASK, readout: askMessage(no, existing, changes) }
     }
     const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no, message: fixingMessage(no, existing, changes), changes, stage: 'busy', before: null, undoUntil: null, error: null }
-    // 고침 후보로 물었던 같은 상품의 묻기 카드는 바로 고침으로 바뀌었으니 내린다
-    work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key && item.note === REASON_PRICE_ONCE))]
+    // 고침 후보로 물었던 같은 상품의 묻기 카드는 바로 고침으로 바뀌었으니 내린다 — 같은 가격을 물은 카드(중간·최종 가격 다름 등, D-V3-103)도
+    const asked = (item: VoiceOffer): boolean => item.note === REASON_PRICE_ONCE || (changes.price !== undefined && item.maybeOther !== true && item.changes.price === changes.price)
+    work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key && asked(item)))]
     void this.#autoFix(offer.id, existing.key, no, existing, changes, decision.reason === 'NOT_RECENT')
     return { action: 'edit', reason: LOG_AUTO_FIX, readout: null }
   }
@@ -3046,18 +3084,23 @@ export class VoiceController {
     this.#set({ readout: { text: notRecent ? notRecentReadout(no, existing, changes) : fixed, discarded: false, until } })
   }
 
-  /** 음성 등록이 차례에서 "이미 있는 번호"로 끝났다 (다른 기기 등, D-V3-18) — 창 없이 그 순간의 상품으로 R-22 */
+  /**
+   * 음성 등록이 차례에서 "이미 있는 번호"로 끝났다 (다른 기기·빠른 입력 등, D-V3-18) — 창 없이 그 순간의 상품으로 R-22.
+   * 가격 고침 문턱도 거친다 (D-V3-83, R-22 4) — 등록하려던 말은 그 번호의 다른 가격을 한 번 들은 것이라 바로 고치지 않고 묻는다
+   */
   instantExists(card: SuggestionCard): void {
     const module = this.#module
     if (this.#disposed || module === null || card.no === null) return
-    if (this.#pending.get(card.no)?.cardId === card.id) this.#pending.delete(card.no)
+    const sent = this.#pending.get(card.no)
+    const fragment = sent?.cardId === card.id ? sent.fragment : undefined
+    if (sent?.cardId === card.id) this.#pending.delete(card.no)
     const existing = this.#existingOf(card.no)
     if (existing === null || existing === 'closed') {
       this.restore(card, { touched: true })
       return
     }
     const work = this.#emptyWork()
-    const done = this.#applyExisting(work, module, card.no, existing, { name: card.name, price: card.price, nameNeedsCheck: card.nameNeedsCheck === true, priceSure: true }, !this.#rejected.has(card.no), true, { gate: false })
+    const done = this.#applyExisting(work, module, card.no, existing, { name: card.name, price: card.price, nameNeedsCheck: card.nameNeedsCheck === true, priceSure: true }, !this.#rejected.has(card.no), true, { fragment: fragment ?? `exists:${card.id}` })
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text: card.text }], read: { no: card.no, name: card.name, price: card.price, candidates: [] }, action: done.action, reason: done.reason }))
     if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: this.#host.now() + READOUT_MS }
     this.#set(this.#workPatch(work))
@@ -3095,7 +3138,22 @@ export class VoiceController {
     const existing: ExistingView = found ?? { key, name: pending.name, price: pending.price, claimCount: 0, closed: false }
     if (existing.closed) return
     const work = this.#emptyWork()
-    const done = this.#applyExisting(work, module, no, { ...existing, key }, after.heard, after.auto, true)
+    const target: ExistingView = { ...existing, key }
+    const askNote = after.askNote
+    if (askNote !== undefined) {
+      // 중간·최종 가격 다름 (D-V3-103): 등록한 가격 그대로 두고 묻는다 — 들은 가격은 문턱의 한 번 들음 (D-V3-83)
+      const price = after.heard.price
+      if (price !== null && price !== target.price) {
+        this.#notePriceHeard(no, target.price, price, after.fragment ?? String(this.#chunkSeq))
+        this.#chunkActs.add('ASKED')
+        // 기록은 들은 때 이미 남겼다 ("중간·최종 가격이 달라 … 물었어요")
+        this.#ask(work, no, target, { price }, askNote)
+        this.#set(this.#workPatch(work))
+      }
+      return
+    }
+    // 들은 때의 조각으로 문턱을 센다 — 같은 말이 등록이 끝난 뒤의 다른 덩어리로 세어져 두 번이 되지 않게 (D-V3-83)
+    const done = this.#applyExisting(work, module, no, target, after.heard, after.auto, true, after.fragment === undefined ? {} : { fragment: after.fragment })
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [], read: null, action: done.action, reason: done.reason }))
     if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: this.#host.now() + READOUT_MS }
     this.#set(this.#workPatch(work))

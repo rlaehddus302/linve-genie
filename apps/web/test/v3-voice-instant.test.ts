@@ -3,7 +3,7 @@ import * as voiceModule from '@livejjim/voice'
 import type { SuggestionCard, VoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from '../src/voice/controller.ts'
-import { askMessage, fixedMessage, otherNumberMessage, readInstant, registeredReadout } from '../src/voice/instant.ts'
+import { askMessage, fixedMessage, otherNumberMessage, readInstant, REASON_PRICE_ONCE, registeredReadout } from '../src/voice/instant.ts'
 
 const T0 = Date.UTC(2026, 9, 25, 1, 0, 0)
 
@@ -788,6 +788,53 @@ describe('중간 결과 안정 (D-V3-71)', () => {
     at(5000)
     expect(h.registered).toHaveLength(1)
   })
+
+  it('R-22·D-V3-83: 바로 등록이 차례에서 "이미 있는 번호"(빠른 입력이 먼저)로 끝나면 가격·품종 함께 묻기 카드·쓰기 0, 다른 조각에서 한 번 더 들으면 고친다', async () => {
+    const h = await ready()
+    say('15번 라울 만 원', false)
+    expect(reg(h)).toEqual([{ no: 15, name: '라울', price: 10000, source: 'instant' }])
+    const sent = h.registered[0]
+    if (sent === undefined) throw new Error('보낸 등록이 없다')
+    say('15번 라울 만 원')
+    h.board.set(15, product(15, '핑크프릴', 20000))
+    h.voice.instantExists(sent.card)
+    at(4000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    const asks = h.voice.getSnapshot().offers.filter((offer) => offer.stage === 'ask')
+    expect(asks.map((offer) => [offer.changes, offer.note])).toEqual([[{ name: '라울', price: 10000 }, REASON_PRICE_ONCE]])
+    at(6000)
+    say('15번 라울 만 원')
+    at(10_000)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:15', changes: { name: '라울', price: 10000 } }])
+    expect(h.voice.getSnapshot().offers.filter((offer) => offer.stage === 'ask')).toEqual([])
+  })
+
+  // R93 (D-V3-83·103): 같은 결과의 최종 글 가격이 중간 글과 다르면 묻기 카드·쓰기 0이고, 그 가격은 문턱의 한 번 들음 — 다른 조각에서 한 번 더 들으면 고친다
+  for (const when of ['최종 글 전에', '최종 글 뒤에'] as const) {
+    it(`R93: 중간 "148번 280"으로 등록, 최종 "148번 30만 원"은 묻기 카드 — 등록이 ${when} 끝나도 같다, 다른 조각에서 한 번 더 들으면 300,000원`, async () => {
+      const h = await ready({ priceUnit: 'THOUSAND' })
+      say('148번 280', false)
+      at(1000)
+      expect(reg(h).map((item) => [item.no, item.price])).toEqual([[148, 280000]])
+      if (when === '최종 글 전에') finish(h, 0)
+      say('148번 30만 원')
+      await settle()
+      if (when === '최종 글 뒤에') finish(h, 0)
+      at(4000)
+      await settle()
+      expect(h.fixes).toEqual([])
+      const asks = h.voice.getSnapshot().offers.filter((offer) => offer.stage === 'ask')
+      expect(asks.map((offer) => [offer.message, offer.note])).toEqual([['148번을 고칠까요? 가격 280,000원 → 300,000원', '듣는 중엔 280,000원, 마지막엔 300,000원으로 들렸어요.']])
+      at(6000)
+      say('148번 30만 원')
+      at(10_000)
+      await settle()
+      expect(h.fixes).toEqual([{ id: 'b1:148', changes: { price: 300000 } }])
+      expect(h.voice.getSnapshot().offers.filter((offer) => offer.stage === 'ask')).toEqual([])
+    })
+  }
 
   it('1초 안에 바뀌면 다시 센다', async () => {
     const h = await ready({ priceUnit: 'THOUSAND' })
