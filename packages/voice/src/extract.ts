@@ -524,6 +524,17 @@ export const PRICE_ASK_PREFIX = '얼마'
 const PRICE_ASK_REACH = 3
 const afterPriceAsk = (tokens: readonly string[], i: number): boolean => tokens.slice(Math.max(0, i - PRICE_ASK_REACH), i).some((token) => token.startsWith(PRICE_ASK_PREFIX))
 
+/** 지난 일을 가리키는 말 (R-17 3, D-V3-104 — 실방송 경성 "아까 30 자 … 32만 원 … 2번"): 바로 앞 토큰(군말만 사이)의 읽는 모양이 이것이면 '번' 없는 번호 후보가 아니다 */
+export const PAST_REFERENCE_WORDS: readonly string[] = Object.freeze(['아까', '전에', '예전에', '저번에', '지난번에'])
+function afterPastReference(tokens: readonly string[], i: number): boolean {
+  for (let j = i - 1; j >= 0; j--) {
+    const token = tokens[j] as string
+    if (readingForms(token).some((form) => PAST_REFERENCE_WORDS.includes(form))) return true
+    if (!isWindowFiller(token)) return false
+  }
+  return false
+}
+
 /** 같은 조각 뒤쪽(사이에 다른 수 없이)에 그 수를 계수로 한 금액 토큰(`25만`·`25만원`·`이십오만`·`5천`)이 있는가 — '번' 없는 수가 가격을 되풀이한 것 */
 function repeatsPrice(tokens: readonly string[], i: number, value: number): boolean {
   // 같은 조각 안에서 뒤로 끝까지 본다 — 사이에 다른 수(숫자로 시작하는 토큰·'N번')가 오면 멈춘다 (실방송 "15 응 이모 … 자 15만 원")
@@ -548,7 +559,7 @@ export function findBareNumbers(tokens: readonly string[], blocked: (i: number) 
   let split = false
   let repeated = false
   tokens.forEach((token, i) => {
-    if (blocked(i) || isUnitToken(tokens[i + 1]) || afterPriceAsk(tokens, i)) return
+    if (blocked(i) || isUnitToken(tokens[i + 1]) || afterPriceAsk(tokens, i) || afterPastReference(tokens, i)) return
     for (const form of [token, ...BARE_NUMBER_ENDINGS.filter((ending) => token.length > ending.length && token.endsWith(ending)).map((ending) => token.slice(0, -ending.length))]) {
       const value = plainNumberValue(form, maxNumber)
       if (value === null) continue
@@ -571,7 +582,7 @@ export function findBareNumbers(tokens: readonly string[], blocked: (i: number) 
 /** 자리 읽기('번' 없음)가 번호 후보 조건(R-17 3)에 맞는가 */
 function isBareDigitCandidate(tokens: readonly string[], reading: DigitReading): boolean {
   const last = reading.tokens[reading.tokens.length - 1] as number
-  if (isUnitToken(tokens[last + 1]) || afterPriceAsk(tokens, reading.tokens[0] as number)) return false
+  if (isUnitToken(tokens[last + 1]) || afterPriceAsk(tokens, reading.tokens[0] as number) || afterPastReference(tokens, reading.tokens[0] as number)) return false
   if (reading.tokens.length !== 1) return true
   const token = tokens[last] as string
   return isThreeHangulDigits(token) || BARE_NUMBER_ENDINGS.some((ending) => token.endsWith(ending) && isThreeHangulDigits(token.slice(0, -ending.length)))
