@@ -92,11 +92,13 @@ function dictionaryNames(options: SegmentOptions): { readonly key: string; reado
 }
 
 const isHangulWord = (text: string): boolean => /^[가-힣]+$/.test(text)
+/** 한 글자 다른 이름에서 그대로 모양을 쓰지 않는 조사 끝 글자 (R-17 8 1a, D-V3-100 — `아리가`는 아리엘이 아니다) */
+const PARTICLE_END_CHARS: readonly string[] = Object.freeze([...'가이은는을를도만랑와과에엔의'])
 
 /**
  * 한 글자 다른 사전 이름 (실방송 V3: "야래양"·"야래학" = 야래향 — 크롬이 향/양/학을 헷갈린다): 'N번'과 원 가격 사이 토큰(그대로 또는 끝말 뗀 모양)이
  * 한글 3음절 이상이고, 같은 길이의 사전 이름과 음절 하나만 다르면 그 이름. 그런 이름이 정확히 하나일 때만(둘 이상이면 비움).
- * skipPredicateRaw = 참이면 그대로 모양이 풀이말 끝 글자(R-17 7)로 끝날 때 그 그대로 모양은 쓰지 않는다(D-V3-96 — 조각 읽기는 늘 참).
+ * skipPredicateRaw = 참이면 그대로 모양이 풀이말 끝 글자(R-17 7, D-V3-96)나 조사 글자(D-V3-100)로 끝날 때 그 그대로 모양은 쓰지 않는다(조각 읽기는 늘 참).
  * 생략 = 거짓(낱말 하나를 바로 맞춰 보는 옛 쓰임 그대로).
  */
 export function oneSyllableName(tokens: readonly string[], options: SegmentOptions, skipPredicateRaw = false): string | null {
@@ -107,7 +109,7 @@ export function oneSyllableName(tokens: readonly string[], options: SegmentOptio
     for (const form of readingForms(token)) {
       if (!isHangulWord(form)) continue
       // 그대로 모양이 풀이말 끝 글자로 끝나면 쓰지 않는다 — `수박요`는 수박금이 아니다(D-V3-96). 끝말 뗀 모양(`야래양이` → `야래양`)은 그대로 본다
-      if (skipPredicateRaw && form === token && looksLikePredicate(form)) continue
+      if (skipPredicateRaw && form === token && (looksLikePredicate(form) || PARTICLE_END_CHARS.some((char) => form.endsWith(char)))) continue
       const chars = [...form]
       if (chars.length < ONE_SYLLABLE_MIN) continue
       for (const item of names) {
