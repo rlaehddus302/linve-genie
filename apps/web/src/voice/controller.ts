@@ -1382,10 +1382,10 @@ export class VoiceController {
   }
 
   /** 앞 덩어리 말로 품종 고르기 (이름만 — 사전 이름만, 애매하면 그대로) */
-  #contextName(module: VoiceModule, name: string | null): string | null {
+  #contextName(module: VoiceModule, name: string | null, texts: readonly { readonly text: string; readonly at: number; readonly between: boolean }[] = this.#contextTexts): string | null {
     if (typeof module.varietyFromContext !== 'function') return name
     const now = this.#host.now()
-    const fresh = this.#contextTexts.filter((item) => now - item.at <= 60_000)
+    const fresh = texts.filter((item) => now - item.at <= 60_000)
     if (fresh.length === 0) return name
     const context = fresh.filter((item) => !item.between).map((item) => item.text)
     const between = fresh.filter((item) => item.between).map((item) => item.text)
@@ -1682,6 +1682,9 @@ export class VoiceController {
     const unhandled = (v3?.heardNumbers ?? []).filter((no) => !handledNos.has(no) && !this.#zeroRaw.has(no))
     const lastUnhandled = unhandled.at(-1)
     if (lastUnhandled !== undefined) this.#lastHeardNo = lastUnhandled
+    // 이 덩어리로 맥락을 고치기 전의 맥락 — 이 덩어리에서 기다리는 번호를 이어 받아 등록하면(번호 없는 가격 6a) 그 품종은 앞 말 맥락으로 (R-17 8 1b)
+    // (번호만 든 덩어리는 맥락을 그 글 하나로 비운다 — 그때만 넘긴다)
+    const contextBefore = handledNos.size === 0 && unhandled.length > 0 ? this.#contextTexts : null
     this.#noteContext(module, chunk.text, handledNos.size > 0, unhandled.length > 0, now)
     this.#zeroRaw.clear()
     this.#chunkSeq++
@@ -1689,7 +1692,7 @@ export class VoiceController {
     this.#instantNos = new Map()
     if (this.#phrase === null || module.nextTickAt(this.#phrase) === null) this.#phraseInstantOff = false
     // 기다리는 번호 (D-V3-67): 번호만 들린 조각은 다음 원 가격을 60초 기다리고, 놓치면 "15번 가격을 못 들었어요" 카드
-    const waited = v3 !== null && !noAuto ? this.#stepWaiting(work, module, chunk, reading, v3, handledNos) : null
+    const waited = v3 !== null && !noAuto ? this.#stepWaiting(work, module, chunk, reading, v3, handledNos, contextBefore) : null
     if (waited !== null) {
       const read = { no: reading.no, name: reading.name, price: reading.price, candidates: reading.candidates }
       work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: chunk.pieces, read, action: waited.action, reason: waited.reason }))
@@ -1842,7 +1845,15 @@ export class VoiceController {
    * 기다리는 번호 한 걸음 (D-V3-67, 음성 패키지 stepWaiting): 이어 받으면 그 번호로 바로 등록("이어 받음"),
    * 다른 'N번'이 먼저 오거나 60초가 지나면 가격 입력 카드. 이어 받아 처리했으면 기록할 것, 아니면 null
    */
-  #stepWaiting(work: CardWork, module: VoiceModule, chunk: PhraseChunk, reading: ChunkReading, v3: RegistrationReading, handled: ReadonlySet<number>): InstantDone | null {
+  #stepWaiting(
+    work: CardWork,
+    module: VoiceModule,
+    chunk: PhraseChunk,
+    reading: ChunkReading,
+    v3: RegistrationReading,
+    handled: ReadonlySet<number>,
+    contextBefore: readonly { readonly text: string; readonly at: number; readonly between: boolean }[] | null,
+  ): InstantDone | null {
     if (typeof module.stepWaiting !== 'function' || !this.#snapshot.instant || chunk.text.includes('문자찜')) return null
     const last = [...handled].at(-1)
     const piece =
@@ -1876,7 +1887,9 @@ export class VoiceController {
     if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return null
     this.#instantNos.set(take.no, 'register')
     // 기다리던 번호의 품종: 이 덩어리 품종, 없으면 번호를 들은 덩어리·앞 말 맥락 (사용자 요구 — 다른 결과에 들린 품종도)
-    const takeName = this.#contextName(module, reading.name)
+    // 번호만 든 이 덩어리가 앞 맥락을 비웠어도(R-17 8 1b — 등록 안 된 덩어리일 때의 규칙) 이 덩어리로 등록하면 비우기 전 맥락 + 이 덩어리 글로 고른다
+    // (실방송 금화다육 251번 "3만 원에 … BTS … 나왔는데요" 다음 "251번" — 이어 받은 등록이 품종 없이 되던 것)
+    const takeName = this.#contextName(module, reading.name, contextBefore === null ? undefined : [...contextBefore, ...this.#contextTexts])
     const done = this.#registerInstant(work, { no: take.no, price: take.price, name: takeName, nameNeedsCheck: false, numberFrom: 'marker' }, chunk.text)
     this.#instantNos = new Map()
     return { action: 'create', reason: LOG_TAKEN, readout: done.readout === null ? null : `${done.readout} · ${TAKEN_MARK}` }
