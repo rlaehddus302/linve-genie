@@ -55,3 +55,16 @@ describe('varietyFromContext', () => {
     expect(varietyFromContext({ name: '녹금', context: [1 as unknown as string] })).toBe('녹금')
   })
 })
+
+describe('잎 모양 말 `환엽`은 품종이 아니다 (실방송 경성다육 44·55번 — 창금·창녹금이 환엽으로 채워짐)', () => {
+  it('기본 사전에 환엽이 없다', () => {
+    expect(DICT.entries.some((entry) => entry.key === '환엽')).toBe(false)
+  })
+  it('앞 말의 "환엽에·환엽의"가 맥락 품종이 되지 않는다', () => {
+    expect(varietiesIn('자 그리고 얘도 완벽한 색감이죠 넓어 환엽에 안쪽에 밑단에부터', { dictionary: DICT })).toEqual([])
+    expect(ctx(null, ['넓어 환엽에 안쪽에', '이렇게 환엽의 나오면서', '환엽이고 진하게'])).toBeNull()
+  })
+  it('같은 조각 안에서도 품종 칸을 비운다', () => {
+    expect(pick('44번 환엽에 38만 원')).toEqual([[44, 380_000, null]])
+  })
+})
