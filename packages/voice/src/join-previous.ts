@@ -48,12 +48,23 @@ function firstMarker(text: string): number | null {
   return null
 }
 
-/** 앞 결과의 마지막 토큰(군말 건너뜀)이 숫자 1~4자리면 그 글, 아니면 null */
-function lastDigits(text: string): string | null {
+/**
+ * 앞 결과의 마지막 토큰(군말 건너뜀): 숫자 1~4자리 T면 { tail: T, marker: false },
+ * 번호 표시 `T번`(붙여 쓴 꼴·띄어 쓴 `T 번`, D-V3-107)이면 { tail: T, marker: true }, 아니면 null
+ */
+function lastTail(text: string): { readonly tail: string; readonly marker: boolean } | null {
   const tokens = text.trim().split(/\s+/).map(stripPunctuation).filter((token) => token !== '')
   for (let i = tokens.length - 1; i >= 0; i--) {
     const token = tokens[i] as string
-    if (DIGITS.test(token)) return token
+    if (DIGITS.test(token)) return { tail: token, marker: false }
+    for (const form of readingForms(token)) {
+      const m = MARKER.exec(form)
+      if (m !== null) return { tail: m[1] as string, marker: true }
+      if (form === '번') {
+        const before = tokens[i - 1]
+        return before !== undefined && DIGITS.test(before) ? { tail: before, marker: true } : null
+      }
+    }
     if (!isWindowFiller(token)) return null
   }
   return null
@@ -61,6 +72,7 @@ function lastDigits(text: string): string | null {
 
 /**
  * 새 결과 첫 'N번'이 앞 결과 끝 수 T와 이어질 수 있는가 (R-17 8 7):
+ * 앞 결과 끝이 `T번`이면 ⓐ만 (D-V3-107).
  * ⓐ T가 N보다 길고 T의 끝자리들이 N과 같다(`159`·`59번` → 159) 또는 ⓑ T와 N을 이은 수 ≤ maxNumber(`23`·`1번` → 231). 아니면 null
  */
 export function joinPrevious(input: JoinPreviousInput): JoinPrevious | null {
@@ -70,10 +82,13 @@ export function joinPrevious(input: JoinPreviousInput): JoinPrevious | null {
     if (now < previousAt || now - previousAt > JOIN_PREV_MS) return null
     const heard = firstMarker(typeof input.text === 'string' ? input.text : '')
     if (heard === null || heard < 1) return null
-    const tail = lastDigits(previous)
-    if (tail === null) return null
+    const last = lastTail(previous)
+    if (last === null) return null
+    const { tail } = last
     const n = String(heard)
     if (tail.length > n.length && tail.endsWith(n) && Number(tail) >= 1) return { heard, joined: Number(tail) }
+    // ⓑ 이어 붙이기는 번호 표시에 쓰지 않는다 — `23번` 뒤 `1번`은 번호를 다 말한 것 (D-V3-107)
+    if (last.marker) return null
     const joined = Number(tail + n)
     if (Number.isSafeInteger(joined) && joined >= 1 && joined <= input.maxNumber && joined !== heard) return { heard, joined }
     return null
