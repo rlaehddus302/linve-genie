@@ -2464,6 +2464,20 @@ export class VoiceController {
         if (!this.#instantNos.has(raw.no)) this.#instantNos.set(raw.no, 'existing')
         // 이 최종 글 가격도 가격 고침 문턱의 한 번 들음이다 — 다른 조각에서 같은 가격을 한 번 더 들으면 바로 고친다 (D-V3-83, R93)
         const fragment = `${String(this.#chunkSeq)}:${key}`
+        // 최종 글 가격이 지금 상품 가격과 같으면 이미 맞게 등록된 것 — 중간 글만 달랐다. 바꿀 것이 없으니 카드도 쓰기도 없다
+        // (실방송 재생 "333번을 고칠까요? 가격 330,000원 → 330,000원")
+        if (existing !== null && existing !== 'closed' && existing.pending !== true && existing.price === raw.price) {
+          // 이 결과의 중간 글 가격으로 물었던 카드("다른 가격이 한 번만 들려…")는 최종 글이 지금 가격을 다시 말했으니 내리고, 문턱의 한 번 들음에서도 뺀다
+          work.offers = work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key && item.note === REASON_PRICE_ONCE && item.changes.price === said))
+          const heardBefore = this.#priceHeard.get(raw.no)
+          if (heardBefore !== undefined) {
+            const left = heardBefore.filter((item) => item.price !== said)
+            if (left.length === 0) this.#priceHeard.delete(raw.no)
+            else this.#priceHeard.set(raw.no, left)
+          }
+          work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: raw.no, name: raw.name, price: raw.price, candidates: [] }, action: 'discard', reason: LOG_ALREADY }))
+          continue
+        }
         if (existing === null) this.#pickCard(work, module, raw, text, note)
         else if (existing !== 'closed' && existing.pending === true) {
           // 바로 등록이 아직 보내는 중 — 등록이 끝나면 그 가격 그대로 두고 묻는다 (조용히 버리지 않는다)
@@ -2977,6 +2991,7 @@ export class VoiceController {
     const gated = options.gate !== false && heard.price !== null && heard.priceSure !== false && !this.#priceGate(module, no, existing.price, heard.price, options.fragment ?? String(this.#chunkSeq), options.correction === true, recent, decision.changes.name !== undefined || options.nameChange === true)
     if (gated && decision.action === 'AUTO_FIX' && decision.changes.price !== undefined) {
       const candidate = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price })
+      if (Object.keys(candidate).length === 0) return ignore
       if (existing.pending === true || existing.key === '') return { action: 'discard', reason: LOG_PENDING, readout: null }
       this.#chunkActs.add('ASKED')
       this.#ask(work, no, existing, candidate, REASON_PRICE_ONCE)
@@ -3026,7 +3041,10 @@ export class VoiceController {
   }
 
   /** 묻기 카드 (같은 상품·같은 고칠 값의 묻기는 하나만, AC-V3-31) */
-  #ask(work: CardWork, no: number, existing: ExistingView, changes: InstantChanges, note: string | undefined): void {
+  #ask(work: CardWork, no: number, existing: ExistingView, asked: InstantChanges, note: string | undefined): void {
+    // 지금과 같은 값은 묻지 않는다 — 바꿀 것이 없으면 카드 없음 ("가격 330,000원 → 330,000원"을 띄우지 않는다)
+    const changes = pickChanges(existing, { name: asked.name ?? null, price: asked.price ?? null })
+    if (Object.keys(changes).length === 0) return
     const message = askMessage(no, existing, changes)
     const same = (item: VoiceOffer): boolean => item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key
     const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no, message, changes, stage: 'ask', before: null, undoUntil: null, error: null, voiceHeard: this.#heardNow, ...(note === undefined ? {} : { note }) }
