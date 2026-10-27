@@ -349,8 +349,8 @@ cases:
   - { in: "15번 라울 만원…", out: { no: 15, name: 라울, price: 10000, confidence: HIGH } }   # '만원…' → '…'를 지우면 '만원'
 ---
 # V3 실방송 보강 (2026-10-26·27, D-V3-82·D-V3-87): '번' 없는 수가 가격 되풀이·값 묻는 말 뒤면 번호가 아님, 자리마다 더 떼는 말끝, 끝 '색급'.
-# 화면 맥락 규칙(빠진 0 D-V3-81·번호 흐름 밖·가격 고침 문턱 D-V3-83·가격만 고쳐 말함 D-V3-84·맥락 품종 D-V3-85·굳은 중간 글 D-V3-80)은 R-17 1~5 밖이라
-# 이 suite가 아니라 packages/voice 단위 시험(v3-dropped-zero·v3-price-gate·v3-live-306·v3-context-variety·v3-stable)과 수용 기준 AC-V3-76~83이 고정한다.
+# 화면 맥락 규칙(빠진 0 D-V3-81·번호 흐름 밖·가격 고침 문턱 D-V3-83·가격만 고쳐 말함 D-V3-84·맥락 품종 D-V3-85·같은 크롬 결과에서 갈린 덩어리의 맥락 D-V3-93·굳은 중간 글 D-V3-80)은 R-17 1~5 밖이라
+# 이 suite가 아니라 packages/voice 단위 시험(v3-dropped-zero·v3-price-gate·v3-live-306·v3-context-variety·v3-stable)과 수용 기준 AC-V3-76~83·85가 고정한다(D-V3-93은 apps/web v3-voice-live-251).
 suite: voice-extract
 settings:
   dictionary: [라울, 삼광색금, 몰디브]
