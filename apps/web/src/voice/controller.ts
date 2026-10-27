@@ -1950,6 +1950,14 @@ export class VoiceController {
     if (typeof module.stepWaiting !== 'function') return
     const rr = this.#readRegistration(module, text, final)
     if (rr === null || rr.extraction.no !== null || rr.heardNumbers.length > 0 || !rr.priceSure || rr.extraction.price === null) return
+    // 그사이 다른 'N번'이 들렸으면(이 덩어리에서 다룬 번호, 기다림 뒤 중간 결과에 보인 번호) 이어 받지 않고 카드 (R-17 8 6 "다른 N번이 먼저 오면")
+    // 실방송 경성다육 "… 얘는 5만 원 그러니까 29번 5만 원": 29번을 먼저 등록한 뒤 굳은 앞 글 "… 5만 원"을 기다리던 19번이 받던 것
+    const waiting = this.#waiting
+    if (waiting !== null && ([...this.#instantNos.keys()].some((no) => no !== waiting.no) || this.#interimNos.some((item) => item.no !== waiting.no && item.at >= waiting.since))) {
+      this.#waiting = null
+      this.#missedCard(work, module, waiting.no)
+      return
+    }
     let step: ReturnType<VoiceModule['stepWaiting']>
     try {
       step = module.stepWaiting({ waiting: this.#waiting, now: this.#host.now(), piece: { markerNo: null, wonPrice: rr.extraction.price, paired: false }, exists: (no) => this.#existingOf(no) !== null })
@@ -2259,7 +2267,9 @@ export class VoiceController {
     // 정정 낱말이 든 "65번 아니 5만 원" (최종·굳은 글만, TD-V3-013)
     if (seg !== null && interim.trim() === '') this.#markerCorrection(work, module, seg, text)
     // 기다리는 번호가 있고 이 글에 번호 없이 원 가격이 들리면 그 자리에서 이어 받는다 (D-V3-67, 조용한 시간 전)
-    if (seg !== null && seg.picks.length === 0 && this.#waiting !== null) this.#takeWaiting(work, module, text, interim.trim() === '')
+    // 최종·굳은 글만 (R-17 8 6 "조각"이 끝난 것): 중간 결과 끝의 가격은 바로 뒤에 다른 'N번'이 이어질 수 있다
+    // (실방송 경성다육 "… 얘는 5만 원 그러니까 29번 5만 원" — 중간 결과 "… 5만 원"을 기다리던 19번이 받아 19번이 5만 원으로 등록되던 것)
+    if (seg !== null && seg.picks.length === 0 && this.#waiting !== null && interim.trim() === '') this.#takeWaiting(work, module, text, true)
     // 중간 결과의 빠른 꼴이 1초 동안 같으면 바로 (D-V3-71)
     if (interim.trim() !== '') this.#trackInterim(work, module, text)
     else this.#interimShown = null
