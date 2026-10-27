@@ -122,7 +122,9 @@ export function classify(truth, product, steps) {
     const got = normName(product.name)
     const want = normName(truth.variety)
     // 빈 품종은 어느 이름에도 '들어 있어' 비슷함으로 보이므로 따로 센다
-    if (got !== want) why.push(got === '' ? 'NO_VARIETY' : got.includes(want) || want.includes(got) ? 'WRONG_VARIETY(비슷함)' : 'WRONG_VARIETY')
+    // 정산서는 무늬 꾸밈말을 자주 빼고 적는다(`풀잎사랑 금`이라 말하고 `풀잎사랑`). 점수는 그대로 틀림, 까닭만 따로 센다
+    const affixOnly = (a, b) => a !== '' && b !== '' && (a === `${b}금` || a === `${b}색금`)
+    if (got !== want) why.push(got === '' ? 'NO_VARIETY' : affixOnly(got, want) || affixOnly(want, got) ? 'WRONG_VARIETY(금만다름)' : got.includes(want) || want.includes(got) ? 'WRONG_VARIETY(비슷함)' : 'WRONG_VARIETY')
     if (product.price !== truth.price) why.push('WRONG_PRICE')
   }
   return { cls, detail: why.join(' ') }
@@ -213,6 +215,8 @@ export function compare(o) {
     correct: counts.OK_FIRST + counts.OK_AFTER_FIX,
     accuracy: scored === 0 ? null : Math.round(((counts.OK_FIRST + counts.OK_AFTER_FIX) / scored) * 1000) / 1000,
     detailCounts,
+    // 품종이 꾸밈말 `금`만 달라 틀린 것(가격은 맞음)을 맞음으로 쳤을 때 — 정산서 표기 차이를 걷어 낸 참고값
+    correctIgnoringAffix: counts.OK_FIRST + counts.OK_AFTER_FIX + rows.filter((r) => r.detail === 'WRONG_VARIETY(금만다름)').length,
     numberSuspect: rows.filter((r) => r.numberSuspect.length > 0).length,
     timeToRegister: ttrs.length === 0 ? null : { n: ttrs.length, median: ttrs[Math.floor(ttrs.length / 2)], max: ttrs.at(-1) },
     items: rows.map((r) => ({ no: r.no, cls: r.cls, detail: r.detail, ttr: r.timeToRegisterSec, steps: r.steps.length })),
@@ -227,7 +231,7 @@ export function compare(o) {
   if (truth !== null) {
     md.push('## 점수', '', '| 나눔 | 개수 |', '|---|---|')
     for (const [k, v] of Object.entries(counts)) md.push(`| ${k} | ${v} |`)
-    md.push(`| 맞음(합) | ${score.correct}/${scored} |`, '')
+    md.push(`| 맞음(합) | ${score.correct}/${scored} |`, `| 참고: 금만 다른 것도 맞음으로 | ${score.correctIgnoringAffix}/${scored} |`, '')
     if (outOfRange > 0) md.push(`일부 구간 녹음이라 그 구간에서 말하지도 등록하지도 않은 정답 ${outOfRange}개는 세지 않았어요 (OUT_OF_RANGE).`, '')
     if (Object.keys(detailCounts).length > 0) md.push(`틀린 까닭: ${Object.entries(detailCounts).map(([k, v]) => `${k} ${v}`).join(', ')}`, '')
     if (score.timeToRegister !== null) md.push(`처음 말한 때부터 등록까지: 중앙값 ${score.timeToRegister.median}초, 가장 긴 것 ${score.timeToRegister.max}초 (${score.timeToRegister.n}개)`, '')
