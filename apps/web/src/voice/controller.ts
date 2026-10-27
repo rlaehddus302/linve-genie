@@ -838,6 +838,10 @@ export class VoiceController {
   #resultPrices = new Map<number, number>()
   /** 최종 결과를 읽는 동안만: 그 결과의 중간 글에서 들은 번호별 가격 */
   #finalPrices: ReadonlyMap<number, number> | null = null
+  /** 바로 앞 크롬 결과(최종)의 글과 끝난 시각 (R-17 8 7, D-V3-102) */
+  #prevResult: { readonly text: string; readonly at: number } | null = null
+  /** 지금 크롬 결과의 첫 'N번'이 앞 결과 끝 수와 이어질 수 있으면 그 번호들 */
+  #join: { readonly heard: number; readonly joined: number } | null = null
   /** 음성으로 새로 등록한 번호와 시각 (빠진 0 되살리기의 맥락, 10분 · 최근 20개) */
   #contextNos: { readonly no: number; readonly at: number }[] = []
   /** 마지막으로 들린 번호 (가격만 고쳐 말함 — 그 사이 다른 번호가 들렸는지) */
@@ -1118,6 +1122,8 @@ export class VoiceController {
     this.#clearStable()
     this.#interimNos = []
     this.#resultPrices = new Map()
+    this.#prevResult = null
+    this.#join = null
     this.#lastHeardNo = null
     this.#contextTexts = []
     this.#confirmMark = null
@@ -1180,6 +1186,7 @@ export class VoiceController {
     if (settings !== null && !settings['voice.autoConfirm']) this.#phraseAutoOff = true
     // 덩어리 도중 한 번이라도 바로 등록이 꺼져 있었으면 그 덩어리는 카드만·같은 번호는 묻기 (D-V3-35)
     if (!this.#snapshot.instant) this.#phraseInstantOff = true
+    if (module !== null) this.#join = this.#joinOf(module, result.text)
     if (!result.final) {
       // 중간 결과도 조용한 시간을 다시 센다 (D-V2-03, 사례 S17) — 말하는 동안 자동 등록을 멈춘다 (D-V2-06)
       if (module !== null && settings !== null && this.#phrase !== null) {
@@ -1213,6 +1220,8 @@ export class VoiceController {
       this.#tryInstant(work, module)
     } finally {
       this.#finalPrices = null
+      this.#join = null
+      this.#prevResult = { text: result.text, at: this.#host.now() }
     }
     this.#set({ ...label, interim: null, heard, ...this.#finishWork(work, module) })
   }
@@ -2342,6 +2351,16 @@ export class VoiceController {
     if (work.log !== before && work.log[0] !== undefined) work.log = [{ ...work.log[0], reason: LOG_INTERIM }, ...work.log.slice(1)]
   }
 
+  /** 지금 결과의 첫 'N번'이 바로 앞 결과 끝 수와 이어질 수 있는가 (음성 패키지 joinPrevious, R-17 8 7) */
+  #joinOf(module: VoiceModule, text: string): { readonly heard: number; readonly joined: number } | null {
+    if (typeof module.joinPrevious !== 'function' || this.#prevResult === null) return null
+    try {
+      return module.joinPrevious({ previous: this.#prevResult.text, previousAt: this.#prevResult.at, text, now: this.#host.now(), maxNumber: this.#host.maxNumber() })
+    } catch {
+      return null
+    }
+  }
+
   /** 지금 결과의 중간 글에서 번호와 짝지은 확정 가격을 적는다 (D-V3-103) — 같은 번호는 가장 나중 값 */
   #noteResultPrices(module: VoiceModule, interim: string): void {
     const seg = this.#readSegments(module, interim, false)
@@ -2368,6 +2387,36 @@ export class VoiceController {
   #runPicks(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, chunkEnd: boolean, newOnly = false): void {
     for (const raw of seg.picks) {
       const key = `${String(raw.no)}@${String(raw.start)}`
+      // 앞 결과와 이어질 수 있는 번호 (R-17 8 7, D-V3-102 — 실방송 경성 "… 3만 원 159" 다음 결과 "59번 …"): 바로 등록·바로 고치지 않고 묻는다
+      const join = this.#join
+      if (join !== null && raw.no === join.heard && raw.price !== null && !newOnly && !this.#pickDone.has(key)) {
+        this.#pickDone.add(key)
+        if (!this.#instantNos.has(raw.no)) this.#instantNos.set(raw.no, 'existing')
+        const now = this.#host.now()
+        const text = raw.start >= 0 && raw.end >= raw.start && seg.tokens.length > raw.end ? seg.tokens.slice(raw.start, raw.end + 1).join(' ') : whole
+        this.#heardNow = text
+        const joinedNow = this.#existingOf(join.joined)
+        // 이은 번호 상품이 이미 같은 가격이면 같은 말 되풀이 — 아무것도 하지 않는다
+        const repeat = joinedNow !== null && joinedNow !== 'closed' && joinedNow.price === raw.price
+        const existing = this.#existingOf(raw.no)
+        let action: 'discard' | 'offer' = 'discard'
+        if (!repeat && existing === null) {
+          this.#pickCard(work, module, { ...raw, no: join.joined }, text, module.joinPreviousNote(join.heard, join.joined))
+          action = 'offer'
+        } else if (!repeat && existing !== null && existing !== 'closed' && existing.pending !== true) {
+          const changes = pickChanges(existing, { name: raw.name, price: raw.price })
+          if (Object.keys(changes).length > 0 && existing.key !== '') {
+            // 다른 번호를 잘못 들었을 수 있다 — 덮어쓰지 않고 카드 한 장 (R-22 ASK/MAYBE_OTHER)
+            this.#chunkActs.add('ASKED')
+            const message = maybeOtherMessage(raw.no, existing.price, existing.claimCount)
+            const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no: raw.no, message, changes, stage: 'ask', before: null, undoUntil: null, error: null, maybeOther: true, voiceHeard: text }
+            work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key))]
+            action = 'offer'
+          }
+        }
+        work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: raw.no, name: raw.name, price: raw.price, candidates: [] }, action, reason: module.joinPreviousNote(join.heard, join.joined) }))
+        continue
+      }
       // 중간·최종 가격 다름 (R-17 8, D-V3-103 — 실방송 경성 63번 중간 "11만 원" → 최종 "만 원"): 이 결과로는 바로 등록·바로 고침을 하지 않는다.
       // 중간 글로 이미 다룬 조각(같은 자리)이어도 본다 — 최종 글이 그 가격을 바꿔 쓴 것
       const said = this.#finalPrices?.get(raw.no)
@@ -2378,9 +2427,10 @@ export class VoiceController {
         const text = raw.start >= 0 && raw.end >= raw.start && seg.tokens.length > raw.end ? seg.tokens.slice(raw.start, raw.end + 1).join(' ') : whole
         this.#heardNow = text
         const note = interimFinalNote(said, raw.price)
+        // 이 덩어리에서 다룬 번호로 적는다 — 덩어리 끝에 최종 글 가격으로 다시 등록·고치지 않게
+        if (!this.#instantNos.has(raw.no)) this.#instantNos.set(raw.no, 'existing')
         if (existing === null) this.#pickCard(work, module, raw, text, note)
         else if (existing !== 'closed' && existing.pending !== true) {
-          if (!this.#instantNos.has(raw.no)) this.#instantNos.set(raw.no, 'existing')
           this.#chunkActs.add('ASKED')
           this.#ask(work, raw.no, existing, { price: raw.price }, note)
         }
