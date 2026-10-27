@@ -1186,7 +1186,9 @@ export class VoiceController {
     if (settings !== null && !settings['voice.autoConfirm']) this.#phraseAutoOff = true
     // 덩어리 도중 한 번이라도 바로 등록이 꺼져 있었으면 그 덩어리는 카드만·같은 번호는 묻기 (D-V3-35)
     if (!this.#snapshot.instant) this.#phraseInstantOff = true
-    if (module !== null) this.#join = this.#joinOf(module, result.text)
+    // 앞 결과와 이어질 수 있는 번호 (R-17 8 7): 그 인식 객체의 아직 최종이 아닌 첫 자리(lead) 글로만 본다.
+    // 크롬이 한 결과를 여러 자리로 갈라 낼 때 뒤 자리 글("유아는 3만 원까지"·"2번인데")은 판단을 만들지도 지우지도 않는다 — 최종 결과가 오면 비운다
+    if (module !== null && result.lead !== false) this.#join = this.#joinOf(module, result.text)
     if (!result.final) {
       // 중간 결과도 조용한 시간을 다시 센다 (D-V2-03, 사례 S17) — 말하는 동안 자동 등록을 멈춘다 (D-V2-06)
       if (module !== null && settings !== null && this.#phrase !== null) {
@@ -2395,7 +2397,7 @@ export class VoiceController {
       const key = `${String(raw.no)}@${String(raw.start)}`
       // 앞 결과와 이어질 수 있는 번호 (R-17 8 7, D-V3-102 — 실방송 경성 "… 3만 원 159" 다음 결과 "59번 …"): 바로 등록·바로 고치지 않고 묻는다
       const join = this.#join
-      if (join !== null && raw.no === join.heard && raw.price !== null && !newOnly && !this.#pickDone.has(key)) {
+      if (join !== null && raw.no === join.heard && raw.price !== null && !this.#pickDone.has(key)) {
         this.#pickDone.add(key)
         if (!this.#instantNos.has(raw.no)) this.#instantNos.set(raw.no, 'existing')
         const now = this.#host.now()

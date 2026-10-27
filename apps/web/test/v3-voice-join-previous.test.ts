@@ -205,3 +205,88 @@ describe('AC-V3-93 앞 결과와 이어질 수 있는 번호는 묻는다 (D-V3-
     expect(asks(h)).toEqual([])
   })
 })
+
+describe('AC-V3-96 앞 결과 끝이 번호 표시여도 ⓐ (D-V3-107)', () => {
+  it('(1) 결과 "자 이 아이 159번" 뒤 1초에 "59번 3만 원" → 등록 0, 제안 카드(159번, 30,000원)', async () => {
+    const h = await ready()
+    const rec = FakeRecognition.last
+    at(1_000)
+    rec.final('자 이 아이 159번')
+    await settle()
+    at(2_000)
+    rec.final('59번 3만 원')
+    await settle()
+    at(70_000)
+    await settle()
+    expect(reg(h)).toEqual([])
+    expect(openCards(h)).toContainEqual([159, 30_000])
+    expect(openCards(h).some(([no]) => no === 59)).toBe(false)
+  })
+
+  it('(3) "23번" 뒤 "1번 2만 원" → 해당 없음, 1번 바로 등록', async () => {
+    const h = await ready()
+    const rec = FakeRecognition.last
+    at(1_000)
+    rec.final('자 요거 23번')
+    await settle()
+    at(2_000)
+    rec.final('1번 2만 원')
+    await settle()
+    at(10_000)
+    await settle()
+    expect(reg(h)).toEqual([[1, 20_000]])
+  })
+
+  it('(5) 159번 30,000원이 이미 있고 "자 이 아이 159번" 뒤 "59번 3만 원" → 아무것도 안 함', async () => {
+    const h = await ready()
+    h.board.set(159, { key: 'b1:159', name: '', price: 30_000, claimCount: 0, closed: false, status: 'OPEN' })
+    const rec = FakeRecognition.last
+    at(1_000)
+    rec.final('자 이 아이 159번')
+    await settle()
+    at(2_000)
+    rec.final('59번 3만 원')
+    await settle()
+    at(10_000)
+    await settle()
+    expect(reg(h)).toEqual([])
+    expect(openCards(h)).toEqual([])
+    expect(asks(h)).toEqual([])
+  })
+
+  it('글 끝 "원까지"로 기다리는 조각(새 등록만 바로 하는 길)도 같다: "자 이 아이 159번" 뒤 중간 "59번 3만 원까지" → 등록 0, 159번 카드', async () => {
+    const h = await ready()
+    const rec = FakeRecognition.last
+    at(1_000)
+    rec.final('자 이 아이 159번')
+    await settle()
+    at(2_000)
+    rec.interim('59번 3만 원까지')
+    await settle()
+    at(2_300)
+    await settle()
+    expect(reg(h)).toEqual([])
+    expect(openCards(h)).toContainEqual([159, 30_000])
+  })
+
+  it('크롬이 한 결과를 여러 자리로 갈라 낸 뒤 자리 "2번인데"는 새 결과 처음이 아니다 — 앞 결과 끝 "30"과 잇지 않는다 (실방송 경성 2번)', async () => {
+    const h = await ready()
+    const rec = FakeRecognition.last
+    at(1_000)
+    rec.final('아까 30 자')
+    await settle()
+    at(2_000)
+    rec.interim('32만 원까지가 봅니다 요거')
+    at(2_200)
+    rec.interim('32만 원까지가 봅니다 요거', '2번인데')
+    await settle()
+    at(3_000)
+    rec.final('32만 원까지가 봅니다 요거 2번인데 자 2번 자 32만 원까지')
+    await settle()
+    at(10_000)
+    await settle()
+    expect(h.voice.getSnapshot().log.some((entry) => (entry.reason ?? '').includes('302번'))).toBe(false)
+    expect(openCards(h).some(([no]) => no === 302)).toBe(false)
+  })
+})
+
