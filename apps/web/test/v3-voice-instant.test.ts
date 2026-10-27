@@ -183,6 +183,98 @@ describe('바로 등록 (V3)', () => {
     expect(h.registered).toEqual([])
   })
 
+  // D-V3-94 (ㄷ)·R-22 4 (나)·사례 R123: 15초(PHRASE_MAX_MS)로 끊긴 덩어리의 남은 중간 결과가 다음 덩어리 첫 최종 결과로 다시 읽혀도 한 번
+  it('R123: 15초로 끊긴 덩어리 끝 중간 결과 "468번 6만 원"이 다음 덩어리 첫 최종이 되면 한 번으로 세어 고치지 않고 묻는다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    for (let ms = 0; ms <= 14000; ms += 1000) {
+      at(ms)
+      say('자 이 아이 색 보세요')
+    }
+    at(14500)
+    say('468번 6만 원', false)
+    await settle()
+    expect(h.fixes).toEqual([])
+    at(15000)
+    await settle()
+    // 앞 덩어리가 15초로 끊겼다
+    expect(h.voice.getSnapshot().log.length).toBeGreaterThan(0)
+    at(15300)
+    say('468번 6만 원')
+    await settle()
+    at(20000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(h.registered).toEqual([])
+    const asks = h.voice.getSnapshot().offers.filter((item) => item.stage === 'ask')
+    expect(asks).toHaveLength(1)
+    expect(asks[0]?.message).toBe('468번을 고칠까요? 가격 50,000원 → 60,000원')
+    expect(asks[0]?.note).toBe('다른 가격이 한 번만 들려 저절로 고치지 않았어요.')
+  })
+
+  it('R123: 300글자로 끊긴 덩어리 다음 첫 조각의 같은 번호·같은 새 가격도 한 번으로 센다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    const filler = '자 이 아이 색 보세요 '.repeat(22).trim()
+    say(`${filler} 468번 6만 원`)
+    await settle()
+    expect(h.fixes).toEqual([])
+    at(500)
+    // 300글자를 넘기게 되는 결과 앞에서 끊긴다 — 그 첫 조각이 같은 번호·같은 새 가격
+    say('468번 6만 원 이 아이 색 정말 예뻐요 잎이 통통하고 색이 고와요')
+    await settle()
+    at(6000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers.filter((item) => item.stage === 'ask')).toHaveLength(1)
+  })
+
+  // 실방송 금화다육 468번 경로 (D-V3-94): 15초 덩어리 끝 중간 결과의 "… 120만 원"이 다음 덩어리 첫 최종으로 다시 읽혀 두 번으로 세어져 고침이 나갔다
+  it('R123: 실방송 468번 — 15초 경계에 걸린 "468번은 … 120만 원"은 한 번이라 1,200,000원으로 고치지 않고 묻는다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    for (let ms = 0; ms <= 13000; ms += 1000) {
+      at(ms)
+      say('자 이 아이 색 보세요')
+    }
+    // 앞 덩어리가 15초로 끊길 때 남아 있던 중간 결과 — 다음 덩어리의 첫 최종 결과로 같은 글이 다시 온다
+    const tail = '자 468번은 이제 앞으로 핀이 들어오셨습니다 자 제가 팔색조 세금을 자 120만 원'
+    at(14500)
+    say(tail, false)
+    await settle()
+    at(15000)
+    await settle()
+    at(15300)
+    say(tail)
+    await settle()
+    at(22000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    const asks = h.voice.getSnapshot().offers.filter((item) => item.stage === 'ask')
+    expect(asks).toHaveLength(1)
+    expect(asks[0]?.message).toBe('468번을 고칠까요? 가격 50,000원 → 1,200,000원, 품종 없음 → 팔색조')
+    expect(asks[0]?.note).toBe('다른 가격이 한 번만 들려 저절로 고치지 않았어요.')
+  })
+
+  it('R123: 15초 경계 다음 덩어리라도 첫 조각이 아닌 곳에서 같은 새 가격을 또 들으면 두 번이라 바로 고친다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    for (let ms = 0; ms <= 14000; ms += 1000) {
+      at(ms)
+      say('자 이 아이 색 보세요')
+    }
+    at(14500)
+    say('468번 6만 원', false)
+    at(15000)
+    await settle()
+    at(15300)
+    say('468번 6만 원 예쁘죠 468번 6만 원')
+    await settle()
+    at(20000)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:468', changes: { price: 60000 } }])
+  })
+
   it('보낸 등록이 아직 목록에 없어도 다음 덩어리에서 같은 번호를 다시 등록하지 않는다', async () => {
     const h = await ready()
     say('108번 ufo 10만 원')
