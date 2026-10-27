@@ -16,7 +16,7 @@
 //   기다림을 두 배로 늦춘다(진짜 조용함에서 너무 자주 열지 않게). 멈춤 다시 열기는 그 시간에 한 번까지. STALL_MS는 선택값 stallMs(설정 voice.stallMs)로 바꾼다. 소리 받기 멈춤(onaudioend) 뒤 END_WAIT_MS 안에 끝(onend)이 없거나,
 //   말 끝(onspeechend) 뒤 END_WAIT_MS 안에 결과·끝이 없어도 같은 다시 열기를 한다. 멈춰 닫은 객체에서 늦게 온 결과는 버리지 않고 받는다
 //   (크롬이 모아 뒀다 줄 수 있다). 기록: onDiagnostic(멈춤 · 다시 켠 뒤 첫 결과까지 · 늦은 결과).
-import { BaseSpeechEngine, Listeners, RestartLimiter, type SpeechErrorKind } from './speech.ts'
+import { BaseSpeechEngine, Listeners, RestartLimiter, withSlot, type SpeechErrorKind } from './speech.ts'
 
 /** 인식 결과 하나 (SpeechRecognitionResult 중 쓰는 부분) */
 export interface RecognitionResultLike {
@@ -229,10 +229,14 @@ interface Session {
   stalledAt: number | null
   /** onstart(없으면 onaudiostart)를 받은 시각 */
   startedAt: number | null
+  /** 연 차례 (결과 자리 slot의 앞부분) */
+  readonly seq: number
 }
 
 export class WebSpeechEngine extends BaseSpeechEngine {
   readonly kind = 'web-speech' as const
+  /** 연 인식 객체 수 (결과 자리 slot) */
+  private sessionSeq = 0
   private readonly scope: object | undefined
   private readonly limiter: RestartLimiter
   private readonly now: () => number
@@ -460,6 +464,7 @@ export class WebSpeechEngine extends BaseSpeechEngine {
         reopenedFor: byUser ? null : (reopenedFor ?? 'end'),
         stalledAt: null,
         startedAt: null,
+        seq: ++this.sessionSeq,
       }
       recognition.onresult = (event) => this.handleResult(session, event)
       recognition.onerror = (event) => this.handleError(session, event)
@@ -550,6 +555,9 @@ export class WebSpeechEngine extends BaseSpeechEngine {
       if (session !== this.session) return
     }
     const from = Number.isSafeInteger(event.resultIndex) && event.resultIndex >= 0 ? event.resultIndex : 0
+    // 아직 최종이 되지 않은 첫 자리 (결과 자리 lead — D-V3-102·108)
+    let lead = 0
+    while (lead < results.length && (results[lead]?.isFinal === true || session.reported.has(lead))) lead++
     let finalHeard = false
     for (let i = from; i < results.length; i++) {
       const result = results[i]
@@ -569,7 +577,7 @@ export class WebSpeechEngine extends BaseSpeechEngine {
         this.limiter.reset()
         finalHeard = true
       }
-      this.emitResult({ text, final })
+      this.emitResult(withSlot({ text, final }, `${String(session.seq)}:${String(i)}`, final ? true : i <= lead))
     }
     // 쉬는 틈 다시 열기: 소리를 받는 오래 연 객체에서 최종 결과가 왔고 남은 중간 결과가 없다(판매자가 쉼)
     if (finalHeard && this.plannedRestart && this.wanted && session === this.session && session.live && session.pending === null && !session.planned) {
@@ -654,7 +662,7 @@ export class WebSpeechEngine extends BaseSpeechEngine {
     session.pending = null
     if (this.wanted && pending !== null && !session.reported.has(pending.index)) {
       session.reported.add(pending.index)
-      this.emitResult({ text: pending.text, final: true, flushedAtEnd: true })
+      this.emitResult(withSlot({ text: pending.text, final: true, flushedAtEnd: true }, `${String(session.seq)}:${String(pending.index)}`, true))
     }
   }
 
@@ -687,7 +695,7 @@ export class WebSpeechEngine extends BaseSpeechEngine {
     if (pending !== null && !session.reported.has(pending.index)) {
       session.reported.add(pending.index)
       this.limiter.reset()
-      this.emitResult({ text: pending.text, final: true, flushedAtEnd: true })
+      this.emitResult(withSlot({ text: pending.text, final: true, flushedAtEnd: true }, `${String(session.seq)}:${String(pending.index)}`, true))
       // 듣는 쪽이 넘긴 결과를 받다가 stop()했으면 다시 시작하지 않는다
       if (!this.wanted || this.session !== null) return
     }
