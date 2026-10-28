@@ -18,6 +18,8 @@ export interface DictionaryEntry {
   readonly ids: Int32Array
   /** 별칭 항목이면 true — key·jamo는 별칭 모양, name은 가리키는 이름. 별칭은 공백 뺀 모양이 같을 때만 맞춘다(D-V2-01) */
   readonly alias?: boolean
+  /** 공백 뺀 모양이 같을 때만 맞추는 이름 항목 (판매 영수증 거래명, D-V3-116) — 0.8·한 글자 다른 이름 맞추기에 쓰지 않는다 */
+  readonly exactOnly?: boolean
 }
 
 /** 그 기기에서 배운 별칭: 들은 말(공백 뺀 품종 창 글) → 판매자가 고른 품종 (D-V2-10) */
@@ -35,6 +37,7 @@ interface SourceForm {
   readonly form: string
   readonly name: string
   readonly alias: boolean
+  readonly exactOnly?: boolean
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -53,7 +56,7 @@ function sourceForms(items: readonly unknown[]): SourceForm[] {
       out.push({ form: item.heard, name: item.name, alias: true })
       continue
     }
-    out.push({ form: item.name, name: item.name, alias: false })
+    out.push({ form: item.name, name: item.name, alias: false, ...(item.exactOnly === true ? { exactOnly: true } : {}) })
     if (Array.isArray(item.aliases)) for (const alias of item.aliases) if (typeof alias === 'string') out.push({ form: alias, name: item.name, alias: true })
   }
   return out
@@ -131,7 +134,7 @@ export class VarietyDictionary {
       if (codePointLength(key) < 2 || codePointLength(compact(name)) < 2 || seen.has(key)) continue
       seen.add(key)
       const jamo = jamoOf(form)
-      const entry: DictionaryEntry = { name, key, jamo: Object.freeze(jamo), ids: Int32Array.from(jamo, idOf), ...(source.alias ? { alias: true } : {}) }
+      const entry: DictionaryEntry = { name, key, jamo: Object.freeze(jamo), ids: Int32Array.from(jamo, idOf), ...(source.alias ? { alias: true } : {}), ...(source.exactOnly === true ? { exactOnly: true } : {}) }
       ;(source.alias ? aliases : entries).push(Object.freeze(entry))
     }
     this.symbols = symbols
@@ -175,14 +178,39 @@ export function prepareDictionary(names: readonly unknown[]): VarietyDictionary 
  * 음성 사전 (D-V2-10): 배운 별칭 → 판매 이력 → 기본 사전(별칭 포함). 같은 공백 뺀 모양이면 앞의 것.
  * 판매 이력은 최근 것 먼저 — 부르는 쪽이 정렬해 넘긴다(D-I4-06). 배운 별칭은 최근에 쓴 것 먼저 넣는다.
  */
-export function prepareVoiceDictionary(input: { readonly learned?: readonly LearnedAlias[]; readonly history?: readonly string[]; readonly base?: readonly VarietySource[] } = {}): VarietyDictionary {
+export function prepareVoiceDictionary(
+  input: {
+    readonly learned?: readonly LearnedAlias[]
+    readonly history?: readonly string[]
+    readonly base?: readonly VarietySource[]
+    /**
+     * 판매 이력 가운데 **이번 방송에 생긴 상품 이름**(지난 판매 이력엔 없는 것). 기본 사전의 적은 모양으로만 맞추는 이름(영수증 거래명, exactOnly)과
+     * 공백 뺀 모양이 같으면 그 이름은 이력 자리에서도 exactOnly 그대로다(D-V3-116 (마) — 자동 등록 한 번으로 제한이 풀려 방송 내내 번지지 않게).
+     * 생략 = 없음(이력 이름은 모두 지금처럼 — AC-V3-100 (j))
+     */
+    readonly current?: readonly string[]
+  } = {},
+): VarietyDictionary {
   const learned = Array.isArray(input.learned) ? [...input.learned].sort((a, b) => (b.usedAt ?? 0) - (a.usedAt ?? 0)) : []
-  const history = Array.isArray(input.history) ? input.history : []
   const base = Array.isArray(input.base) ? input.base : DEFAULT_VARIETIES
+  const history = keepExactOnly(Array.isArray(input.history) ? input.history : [], Array.isArray(input.current) ? input.current : [], base)
   // 배운 별칭은 사전 이름·별칭을 가리지 않는다 — 같은 모양이면 사전이 이김 (D-V2-17)
   const known = new VarietyDictionary([...history, ...base])
   const kept = learned.filter((item) => !(isRecord(item) && typeof item.heard === 'string' && known.byKey.has(compact(normalizeText(item.heard)))))
   return new VarietyDictionary([...kept, ...history, ...base])
+}
+
+/** 판매 이력 이름 중 이번 방송 이름이면서 기본 사전 exactOnly 이름과 같은 것을 exactOnly 묶음으로 (D-V3-116 (마)). 나머지는 그대로 */
+function keepExactOnly(history: readonly unknown[], current: readonly unknown[], base: readonly VarietySource[]): readonly unknown[] {
+  const keyOf = (text: unknown): string | null => (typeof text === 'string' ? compact(normalizeText(text)) : null)
+  const currentKeys = new Set(current.map(keyOf).filter((key): key is string => key !== null))
+  if (currentKeys.size === 0) return history
+  const exact = new Set(base.filter((item) => isRecord(item) && item.exactOnly === true && typeof item.name === 'string').map((item) => compact(normalizeText(item.name))))
+  if (exact.size === 0) return history
+  return history.map((item) => {
+    const key = keyOf(item)
+    return key !== null && currentKeys.has(key) && exact.has(key) ? { name: item as string, exactOnly: true } : item
+  })
 }
 
 // ── 배운 별칭 (D-V2-10) ─────────────────────────────────────────────────

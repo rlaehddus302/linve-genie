@@ -4,7 +4,7 @@
 import { parseAmount, parseKoreanNumber, type PriceUnit } from '@livejjim/core'
 import { analyzeSentence, listNumberMarkers, listWonLines, punctuatedTokens, readSentence, readingForms, tokenize } from './extract.ts'
 import { isBigChange, readRegistration, type ReadyBlock, type RegistrationOptions } from './register.ts'
-import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
+import { DEFAULT_COMMON_ALIASES, DEFAULT_EXACT_ONLY } from './default-dictionary.ts'
 import { VarietyDictionary } from './dictionary.ts'
 import { CANCEL_WORDS, CORRECTION_MARKERS, isWindowFiller, looksLikePredicate } from './words.ts'
 import { hasPriceCorrection } from './price-gate.ts'
@@ -90,11 +90,12 @@ function nameWindowEnd(tokens: readonly string[], k: number, options: SegmentOpt
 /** 한 글자 다른 이름 맞추기에 쓰는 이름 길이 하한 (음절) */
 export const ONE_SYLLABLE_MIN = 3
 
-/** 사전 이름 (공백 뺀 모양 → 이름, 별칭 아님) */
+/** 사전 이름 (공백 뺀 모양 → 이름, 별칭 아님). 적은 모양으로만 맞추는 이름(exactOnly — D-V3-86 짧은 이름·D-V3-116 영수증 거래명)은 빼고 */
 function dictionaryNames(options: SegmentOptions): { readonly key: string; readonly name: string }[] {
   const dictionary = options.dictionary
-  if (dictionary instanceof VarietyDictionary) return dictionary.entries.filter((entry) => entry.alias !== true).map((entry) => ({ key: entry.key, name: entry.name }))
-  return Array.isArray(dictionary) ? dictionary.filter((item): item is string => typeof item === 'string').map((name) => ({ key: name.split(' ').join(''), name })) : []
+  if (dictionary instanceof VarietyDictionary)
+    return dictionary.entries.filter((entry) => entry.alias !== true && entry.exactOnly !== true && !DEFAULT_EXACT_ONLY.has(entry.name)).map((entry) => ({ key: entry.key, name: entry.name }))
+  return Array.isArray(dictionary) ? dictionary.filter((item): item is string => typeof item === 'string' && !DEFAULT_EXACT_ONLY.has(item)).map((name) => ({ key: name.split(' ').join(''), name })) : []
 }
 
 const isHangulWord = (text: string): boolean => /^[가-힣]+$/.test(text)
