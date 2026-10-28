@@ -221,15 +221,16 @@ export class Api {
   }
 }
 
-/** 로그인 → 방송 만들기 → 값 단위 AUTO → 마법사 닫기. 방송 ID와 날짜를 돌려준다 */
+/** 로그인 → 마법사 닫기 → 값 단위 AUTO → 방송 만들기. 방송 ID와 날짜를 돌려준다 */
 export async function prepareBroadcast(server, title, log) {
   const api = new Api(server.origin)
   await api.login(server.password)
   await api.call('PUT', '/api/wizard', { status: 'DONE' }).catch((error) => log?.('마법사 닫기 실패(무시)', String(error)))
+  // 방송 값 단위는 만들 때 정해진다 — AUTO를 먼저 둔다(뒤에 바꾸면 다음 방송부터라 기본 천 원 단위로 돌았다)
+  await api.call('PATCH', '/api/settings', { settings: { 'price.unit': 'AUTO' } })
   const created = await api.call('POST', '/api/broadcasts', { requestId: randomUUID(), title, rehearsal: false })
   const b = created?.result?.b ?? created?.broadcast?.id ?? created?.b ?? created?.id
   if (typeof b !== 'string') throw new Error(`방송 ID를 찾지 못했어요: ${JSON.stringify(created).slice(0, 300)}`)
-  await api.call('PATCH', '/api/settings', { settings: { 'price.unit': 'AUTO' } })
   const list = await api.call('GET', '/api/broadcasts')
   const date = list.broadcasts.find((x) => x.id === b)?.date
   if (typeof date !== 'string') throw new Error('방송 날짜를 찾지 못했어요')
