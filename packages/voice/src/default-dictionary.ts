@@ -8,7 +8,8 @@
 // - 판매자 제공 판매 영수증 거래명 (D-V3-115, AC-V3-100): 데이터 끝에 이어 붙인 이름들(`황소` 다음부터). 두 번 이상 나온 거래명 후보
 //   (이름·횟수만 — 닉네임·사람 이름·시트 이름은 쓰지 않았다)에서 막는 낱말과 같거나 R-17 0.8로 맞는 것, 지금 이름·별칭과 공백 뺀 모양
 //   (로마자는 대소문자 무시)이 같은 것, 잎 모양·빛깔·크기 같은 흔한 말 하나뿐인 것(D-V3-95), 화분·크기·도구 같은 일반 낱말, 사람 이름·
-//   닉네임일 수 있는 것, 글자가 깨진 것은 뺐다. 별칭 없이 이름으로만, 공백 뺀 2글자 이름은 exactOnly(D-V3-86).
+//   닉네임일 수 있는 것, 글자가 깨진 것은 뺐다. 별칭 없이 이름으로만. 데이터에 `receipt: true`로 가른다.
+//   영수증 이름은 길이와 상관없이 모두 exactOnly(D-V3-116) — 공백만 다른 창일 때만 맞추고 0.8·한 글자 다른 이름 맞추기에 쓰지 않는다.
 //   재생 비교로 상품 품종을 틀리게·비게 만든 이름 4개도 뺐다(D-V3-115 (나)·(라) — 빛깔 말 하나뿐인 이름, 한 글자 다른 흔한 낱말과 맞은 이름,
 //   맥락의 더 긴 이름으로 넓혀진 이름, 앞 상품 말로 맥락에서 이긴 이름).
 //
@@ -20,9 +21,15 @@ import data from '../data/varieties.ko.json' with { type: 'json' }
 export interface VarietySource {
   readonly name: string
   readonly aliases?: readonly string[]
+  /**
+   * 이 이름(항목)은 공백만 다른 모양으로만 맞춘다 — R-17 0.8 맞추기·한 글자 다른 이름 맞추기에 쓰지 않는다 (D-V3-116 판매 영수증 거래명).
+   * 같은 이름이 판매 이력에도 있으면 이력 항목이 앞서 그 항목은 지금처럼 맞춘다
+   */
+  readonly exactOnly?: boolean
 }
 
-const freezeSource = (item: { name: string; aliases?: string[] }): VarietySource => Object.freeze({ name: item.name, aliases: Object.freeze([...(item.aliases ?? [])]) })
+const freezeSource = (item: { name: string; aliases?: string[]; exactOnly?: boolean; receipt?: boolean }): VarietySource =>
+  Object.freeze({ name: item.name, aliases: Object.freeze([...(item.aliases ?? [])]), ...(item.receipt === true && item.exactOnly === true ? { exactOnly: true } : {}) })
 
 /** 기본 품종(이름·별칭) — 데이터 파일 순서 그대로 */
 export const DEFAULT_VARIETIES: readonly VarietySource[] = Object.freeze(data.varieties.map(freezeSource))
@@ -39,11 +46,12 @@ export const DEFAULT_COMMON_ALIASES: ReadonlyMap<string, string> = new Map(
 )
 
 /**
- * 적은 모양으로만 맞추는 이름 (실방송 영수증의 짧은 이름 — 콜리·퍼플·창금·황소): 한 자모 다른 흔한 낱말(콜라·퍼즐·창극·황수)이
- * 비슷함으로 이 이름이 되지 않게 한다. 이름·별칭과 공백만 다른 모양은 그대로 맞는다.
+ * 적은 모양으로만 맞추는 이름 (손으로 고른 실방송 영수증의 짧은 이름 — 콜리·퍼플·창금·황소): 한 자모 다른 흔한 낱말(콜라·퍼즐·창극·황수)이
+ * 비슷함으로 이 이름이 되지 않게 한다. 이름·별칭과 공백만 다른 모양은 그대로 맞는다. 이름으로 가르므로 판매 이력의 같은 이름에도 걸린다(지금 그대로).
+ * 판매 영수증 거래명(`receipt`, D-V3-116)은 여기 넣지 않고 항목마다(VarietySource.exactOnly) 건다 — 판매 이력의 같은 이름은 지금처럼 맞춘다
  */
 export const DEFAULT_EXACT_ONLY: ReadonlySet<string> = new Set(
-  (data.varieties as { name: string; exactOnly?: boolean }[]).filter((item) => item.exactOnly === true).map((item) => item.name),
+  (data.varieties as { name: string; exactOnly?: boolean; receipt?: boolean }[]).filter((item) => item.exactOnly === true && item.receipt !== true).map((item) => item.name),
 )
 
 /** 방송 말 막는 낱말 (D-V2-02) — 품종 이름·별칭·배운 별칭이 될 수 없다 */

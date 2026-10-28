@@ -786,8 +786,8 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
         if (top.similarity !== null && compareSimilarity({ distance: Math.abs(jamo.length - length), length: longer }, top.similarity) < 0) continue
         const limit = Math.floor(longer / 5)
         for (const entry of dictionary.byLength.get(length) ?? []) {
-          // 적은 모양으로만 맞추는 짧은 이름(콜리·퍼플·창금·황소)은 비슷함으로 맞추지 않는다
-          if (DEFAULT_EXACT_ONLY.has(entry.name)) continue
+          // 적은 모양으로만 맞추는 짧은 이름(콜리·퍼플·창금·황소)·판매 영수증 거래명(항목 표시, D-V3-116)은 비슷함으로 맞추지 않는다
+          if (entry.exactOnly === true || DEFAULT_EXACT_ONLY.has(entry.name)) continue
           const similarity = { distance: distance(entry, limit), length: longer }
           if (isCandidate(similarity)) consider(similarity, entry, text)
         }

@@ -18,6 +18,8 @@ export interface DictionaryEntry {
   readonly ids: Int32Array
   /** 별칭 항목이면 true — key·jamo는 별칭 모양, name은 가리키는 이름. 별칭은 공백 뺀 모양이 같을 때만 맞춘다(D-V2-01) */
   readonly alias?: boolean
+  /** 공백 뺀 모양이 같을 때만 맞추는 이름 항목 (판매 영수증 거래명, D-V3-116) — 0.8·한 글자 다른 이름 맞추기에 쓰지 않는다 */
+  readonly exactOnly?: boolean
 }
 
 /** 그 기기에서 배운 별칭: 들은 말(공백 뺀 품종 창 글) → 판매자가 고른 품종 (D-V2-10) */
@@ -35,6 +37,7 @@ interface SourceForm {
   readonly form: string
   readonly name: string
   readonly alias: boolean
+  readonly exactOnly?: boolean
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -53,7 +56,7 @@ function sourceForms(items: readonly unknown[]): SourceForm[] {
       out.push({ form: item.heard, name: item.name, alias: true })
       continue
     }
-    out.push({ form: item.name, name: item.name, alias: false })
+    out.push({ form: item.name, name: item.name, alias: false, ...(item.exactOnly === true ? { exactOnly: true } : {}) })
     if (Array.isArray(item.aliases)) for (const alias of item.aliases) if (typeof alias === 'string') out.push({ form: alias, name: item.name, alias: true })
   }
   return out
@@ -131,7 +134,7 @@ export class VarietyDictionary {
       if (codePointLength(key) < 2 || codePointLength(compact(name)) < 2 || seen.has(key)) continue
       seen.add(key)
       const jamo = jamoOf(form)
-      const entry: DictionaryEntry = { name, key, jamo: Object.freeze(jamo), ids: Int32Array.from(jamo, idOf), ...(source.alias ? { alias: true } : {}) }
+      const entry: DictionaryEntry = { name, key, jamo: Object.freeze(jamo), ids: Int32Array.from(jamo, idOf), ...(source.alias ? { alias: true } : {}), ...(source.exactOnly === true ? { exactOnly: true } : {}) }
       ;(source.alias ? aliases : entries).push(Object.freeze(entry))
     }
     this.symbols = symbols

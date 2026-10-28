@@ -1,12 +1,13 @@
 // AC-V3-100 (a)~(d) 판매자 제공 판매 영수증 거래명 사전 (R-17 5, D-V3-115). 성능 (e)는 receipt-dictionary.perf.test.ts(pnpm perf).
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { compact, DEFAULT_VARIETIES, prepareVoiceDictionary, readSegments, varietyFromContext } from '../src/index.ts'
+import { compact, DEFAULT_VARIETIES, extractVoice, prepareVoiceDictionary, readSegments, varietyFromContext } from '../src/index.ts'
 
 interface Entry {
   readonly name: string
   readonly aliases: readonly string[]
   readonly exactOnly?: boolean
+  readonly receipt?: boolean
 }
 const file = JSON.parse(readFileSync(new URL('../data/varieties.ko.json', import.meta.url), 'utf8')) as { varieties: Entry[] }
 // 영수증 거래명은 데이터 끝에 이어 붙였다 — 그 앞 마지막 이름은 실방송 3회 영수증의 '황소'
@@ -16,9 +17,11 @@ const DICT = prepareVoiceDictionary()
 const nameOf = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => p.name)
 
 describe('AC-V3-100 영수증 거래명 사전 (D-V3-115)', () => {
-  it('(a) 거른 이름 677개(681개에서 재생 점수를 떨어뜨린 4개를 뺌 — D-V3-115 (나)·(라))를 별칭 없이 이름으로, 출처 표기는 판매자 제공 판매 영수증 거래명', () => {
+  it('(a) 거른 이름 678개(681개에서 재생 점수를 떨어뜨린 3개를 뺌 — D-V3-115 (나)·(라), 창무지는 D-V3-116으로 다시 넣음)를 별칭 없이 이름으로, 출처 표기는 판매자 제공 판매 영수증 거래명', () => {
     expect(start).toBeGreaterThan(0)
-    expect(added).toHaveLength(677)
+    expect(added).toHaveLength(678)
+    for (const item of added) expect(item.receipt, item.name).toBe(true)
+    for (const item of file.varieties.slice(0, start)) expect(item.receipt, item.name).toBeUndefined()
     for (const item of added) expect(item.aliases, item.name).toEqual([])
     for (const name of ['SP색금', '슈빌', '보스실생', '퍼플마리아 금', '환엽마리아', '몰디브색금', '녹금철화']) expect(added.map((item) => item.name)).toContain(name)
     expect(readFileSync(new URL('../src/default-dictionary.ts', import.meta.url), 'utf8')).toContain('판매자 제공 판매 영수증 거래명')
@@ -33,19 +36,47 @@ describe('AC-V3-100 영수증 거래명 사전 (D-V3-115)', () => {
       expect(names.has(word), word).toBe(false)
   })
 
-  it('(c) 이번에 더한 공백 뺀 2글자 이름은 모두 exactOnly — 한 자모 다른 말로는 맞지 않는다', () => {
-    const two = added.filter((item) => [...compact(item.name)].length === 2)
-    expect(two.length).toBeGreaterThan(0)
-    for (const item of two) expect(item.exactOnly, item.name).toBe(true)
-    for (const item of added.filter((entry) => [...compact(entry.name)].length > 2)) expect(item.exactOnly, item.name).toBeUndefined()
+  // D-V3-116: 처음 기대 "3글자 이상은 exactOnly 아님"을 바꿈 — (c)는 (g)에 든다
+  it('(c)·(g) 이번에 더한 영수증 이름은 길이와 상관없이 모두 exactOnly, 손으로 고른 이름의 exactOnly 표시는 그대로(콜리·퍼플·창금·황소·레다·SP)', () => {
+    for (const item of added) expect(item.exactOnly, item.name).toBe(true)
+    const hand = file.varieties.slice(0, start).filter((item) => item.exactOnly === true).map((item) => item.name)
+    expect(hand.sort()).toEqual(['SP', '레다', '창금', '콜리', '퍼플', '황소'].sort())
+    for (const item of DEFAULT_VARIETIES.slice(start)) expect(item.exactOnly, item.name).toBe(true)
+    for (const item of DEFAULT_VARIETIES.slice(0, start)) expect(item.exactOnly, item.name).toBeUndefined()
     expect(nameOf('10번 슈빌 5만 원')).toEqual(['슈빌'])
     // 슈빌 ↔ 슈발(한 자모 차이)은 맞추지 않는다
     expect(nameOf('10번 슈발 5만 원')).toEqual([null])
   })
 
-  it('긴 거래명은 들린 대로 맞는다', () => {
+  it('긴 거래명은 들린 대로(공백만 다른 모양) 맞고, 한 자모 다른 모양으로는 맞지 않는다 (D-V3-116)', () => {
     expect(nameOf('10번 퍼플마리아 금 5만 원')).toEqual(['퍼플마리아 금'])
+    expect(nameOf('10번 퍼플 마리아금 5만 원')).toEqual(['퍼플마리아 금'])
     expect(nameOf('10번 환엽마리아 5만 원')).toEqual(['환엽마리아'])
+    expect(nameOf('10번 환엽마리야 5만 원')).toEqual([null])
+  })
+
+  describe('(h)~(j) 사전 [창무지(영수증 이름, exactOnly), 라울]', () => {
+    const receipt = prepareVoiceDictionary({ base: [{ name: '창무지', exactOnly: true }, { name: '라울' }] })
+    const seg = (text: string, dictionary = receipt) => readSegments(text, { dictionary, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.name, p.price])
+    it('(h) "15번 근무지 5만 원" → 품종 빈 칸(한 글자 다른 이름에 영수증 이름을 쓰지 않음), 공백만 다른 모양·끝말 뗀 모양은 창무지', () => {
+      expect(seg('15번 근무지 5만 원')).toEqual([[15, null, 50_000]])
+      expect(seg('15번 창무지 5만 원')).toEqual([[15, '창무지', 50_000]])
+      expect(seg('15번 창 무지 5만 원')).toEqual([[15, '창무지', 50_000]])
+      expect(seg('15번 창무지이 5만 원')).toEqual([[15, '창무지', 50_000]])
+      // 손으로 고른 이름은 한 글자 다른 이름 그대로 (라울은 3음절이 아니라 해당 없음 — 영수증 이름만 바뀐다)
+      expect(seg('15번 라울 5만 원')).toEqual([[15, '라울', 50_000]])
+    })
+    it('(i) 같은 사전에서 창무지가 exactOnly가 아니면(손으로 고른 이름처럼) "15번 근무지 5만 원" → 창무지 — 지금 1a 그대로', () => {
+      const hand = prepareVoiceDictionary({ base: [{ name: '창무지' }, { name: '라울' }] })
+      expect(seg('15번 근무지 5만 원', hand)).toEqual([[15, '창무지', 50_000]])
+    })
+    it('(j) R-17 extract "15번 창무치 5만 원" → 품종 빈 칸(0.8 후보 아님), 판매 이력에 창무지가 있으면 창무지(이력은 그대로)', () => {
+      expect(extractVoice('15번 창무치 5만 원', { dictionary: receipt }).name).toBeNull()
+      const withHistory = prepareVoiceDictionary({ history: ['창무지'], base: [{ name: '창무지', exactOnly: true }, { name: '라울' }] })
+      expect(extractVoice('15번 창무치 5만 원', { dictionary: withHistory }).name).toBe('창무지')
+      const hand = prepareVoiceDictionary({ base: [{ name: '창무지' }, { name: '라울' }] })
+      expect(extractVoice('15번 창무치 5만 원', { dictionary: hand }).name).toBe('창무지')
+    })
   })
 })
 
@@ -67,12 +98,10 @@ describe('재생 점수를 떨어뜨린 영수증 이름은 뺀다 (D-V3-115 (�
     const withSp = prepareVoiceDictionary({ base: [...DEFAULT_VARIETIES, { name: 'SP찐녹금', aliases: [] }] })
     expect(varietyFromContext({ name: '찐녹금', context, dictionary: withSp })).toBe('SP찐녹금')
   })
-  it('한 글자 다른 흔한 낱말이 영수증 이름이 되지 않는다', () => {
-    expect(names.has('창무지')).toBe(false)
+  it('한 글자 다른 흔한 낱말이 영수증 이름이 되지 않는다 — 창무지는 exactOnly로 다시 넣음 (D-V3-116)', () => {
+    expect(names.has('창무지')).toBe(true)
     expect(nameOf('42번 사과 근무지 10만 원')).toEqual([null])
-    // 있으면 한 글자 다른 이름(3음절 이상, R-17 8 1a)으로 맞는다 — 뺀 까닭
-    const withIt = prepareVoiceDictionary({ base: [...DEFAULT_VARIETIES, { name: '창무지', aliases: [] }] })
-    expect(readSegments('42번 사과 근무지 10만 원', { dictionary: withIt, final: true, maxNumber: 999 }).picks.map((p) => p.name)).toEqual(['창무지'])
+    expect(nameOf('42번 창무지 10만 원')).toEqual(['창무지'])
   })
   it('앞 상품 이름(번호 없이 가격과 함께 말함)이 맥락에서 따로 든 이름을 이기지 않는다', () => {
     expect(names.has('매직킹')).toBe(false)
