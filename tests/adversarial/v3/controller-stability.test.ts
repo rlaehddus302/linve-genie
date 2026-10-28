@@ -46,7 +46,7 @@ interface Controller {
   getSnapshot(): { offers: readonly { stage: string; no?: number; note?: string; changes?: { price?: number; name?: string } }[] }
 }
 
-async function harness(priceUnit: 'WON' | 'THOUSAND' = 'THOUSAND') {
+async function harness(priceUnit: 'WON' | 'THOUSAND' | 'AUTO' = 'THOUSAND') {
   const { VoiceController } = (await import(/* @vite-ignore */ CONTROLLER_MODULE)) as { VoiceController: new (host: unknown) => Controller }
   const board = new Map<number, View>()
   const registered: { no: number; name: string; price: number }[] = []
@@ -124,20 +124,23 @@ afterEach(() => {
 })
 
 describe('AC-V3-60 (d) 등록된 pick은 뒤 말로 취소되지 않는다 (D-V3-79)', () => {
+  // 스펙 바뀜 (D-V3-112, acceptance.md 표 R97 — spec faaee7f9, DOMAIN_RULES R-17 8 v0.1.43): 천원 단위에서 원 없는 빠른 꼴 1~2자리 수("60")는
+  // 확정이 아니라 카드다. 그래서 R97은 자동 단위(AUTO — 1~2자리 = 만원, R-15)로 옮겼고 기대는 "15번 · 라울 · 600,000원 등록 하나".
+  // R98은 "R97 뒤 같은 덩어리"라 같은 자동 단위·같은 등록(600,000원)에서 본다(고침 값 70,000원은 "7만 원" — 단위를 붙인 말이라 그대로).
   it('R97: 중간 "15번 라울 60 자"에 등록 → 최종 "… 자 뿌리 다 살아 있어요" — 쓰기 하나 그대로, 되돌림·고침·두 번째 쓰기 없음', async () => {
-    const h = await harness()
+    const h = await harness('AUTO')
     for (const t of ['15번', '15번 라울', '15번 라울 60', '15번 라울 60 자']) {
       h.recognition.say(t, false)
       await advance(200)
     }
-    expect(h.registered).toEqual([{ no: 15, name: '라울', price: 60_000 }])
+    expect(h.registered).toEqual([{ no: 15, name: '라울', price: 600_000 }])
     for (const t of ['15번 라울 60 자 뿌리', '15번 라울 60 자 뿌리 다 살아 있어요']) {
       h.recognition.say(t, false)
       await advance(200)
     }
     h.recognition.say('15번 라울 60 자 뿌리 다 살아 있어요', true)
     await advance(3000)
-    expect(h.registered).toEqual([{ no: 15, name: '라울', price: 60_000 }])
+    expect(h.registered).toEqual([{ no: 15, name: '라울', price: 600_000 }])
     expect(h.fixes).toEqual([])
     expect(h.undone).toEqual([])
   })
@@ -148,9 +151,9 @@ describe('AC-V3-60 (d) 등록된 pick은 뒤 말로 취소되지 않는다 (D-V3
     ['정정 낱말', '15번 라울 60 자 뿌리 다 살아 있어요 15번 아니 7만 원'],
     ['같은 새 가격 두 조각', '15번 라울 60 자 뿌리 다 살아 있어요 15번 7만 원 15번 7만 원'],
   ])('R98 (%s): R97 뒤 같은 덩어리 "15번 7만 원" → 고침 하나(70,000원), 등록은 그대로 하나', async (_title, text) => {
-    const h = await harness()
+    const h = await harness('AUTO')
     await speak(h, text)
-    expect(h.registered).toEqual([{ no: 15, name: '라울', price: 60_000 }])
+    expect(h.registered).toEqual([{ no: 15, name: '라울', price: 600_000 }])
     expect(h.fixes.map((f) => f.changes)).toEqual([{ price: 70_000 }])
     expect(h.undone).toEqual([])
   })
@@ -211,9 +214,9 @@ describe('AC-V3-60 (d) 등록된 pick은 뒤 말로 취소되지 않는다 (D-V3
   })
 
   it('R98 (한 번만): R97 뒤 같은 덩어리 "15번 7만 원" 한 번 → 고치지 않고 고침 후보 묻기 하나, 등록은 그대로 하나', async () => {
-    const h = await harness()
+    const h = await harness('AUTO')
     await speak(h, '15번 라울 60 자 뿌리 다 살아 있어요 15번 7만 원')
-    expect(h.registered).toEqual([{ no: 15, name: '라울', price: 60_000 }])
+    expect(h.registered).toEqual([{ no: 15, name: '라울', price: 600_000 }])
     expect(h.fixes).toEqual([])
     expect(h.undone).toEqual([])
     const asks = h.voice.getSnapshot().offers.filter((o) => o.stage === 'ask' && o.no === 15)
