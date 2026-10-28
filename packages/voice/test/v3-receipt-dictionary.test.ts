@@ -17,9 +17,9 @@ const DICT = prepareVoiceDictionary()
 const nameOf = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => p.name)
 
 describe('AC-V3-100 영수증 거래명 사전 (D-V3-115)', () => {
-  it('(a) 거른 이름 678개(681개에서 재생 점수를 떨어뜨린 3개를 뺌 — D-V3-115 (나)·(라), 창무지는 D-V3-116으로 다시 넣음)를 별칭 없이 이름으로, 출처 표기는 판매자 제공 판매 영수증 거래명', () => {
+  it('(a) 거른 이름 677개(681개에서 재생 점수를 떨어뜨린 4개를 뺌 — D-V3-115 (나)·(라), 창무지는 D-V3-116으로 다시 넣음)를 별칭 없이 이름으로, 출처 표기는 판매자 제공 판매 영수증 거래명', () => {
     expect(start).toBeGreaterThan(0)
-    expect(added).toHaveLength(678)
+    expect(added).toHaveLength(677)
     for (const item of added) expect(item.receipt, item.name).toBe(true)
     for (const item of file.varieties.slice(0, start)) expect(item.receipt, item.name).toBeUndefined()
     for (const item of added) expect(item.aliases, item.name).toEqual([])
@@ -89,6 +89,20 @@ describe('재생 점수를 떨어뜨린 영수증 이름은 뺀다 (D-V3-115 (�
     // 찐녹이 이름이면 창금과 같은 점수로 갈려 빈 칸이 된다(뺀 까닭)
     const withColor = prepareVoiceDictionary({ base: [...DEFAULT_VARIETIES, { name: '찐녹', aliases: [] }] })
     expect(varietyFromContext({ name: null, context, dictionary: withColor })).toBeNull()
+  })
+  it('무늬 빛깔을 말하는 흔한 말(백금 — 흰 무늬)은 없다 — 설명으로 말한 것이 맥락 품종이 되고, 상품 이름이 되면 판매 이력처럼 0.8로 `색금`에 맞아 번져 나간다 (D-V3-115 (나))', () => {
+    expect(names.has('백금')).toBe(false)
+    // 설명으로 말한 "백금"이 번호 없는 따로 든 글이면 맥락 품종이 되던 것
+    expect(varietyFromContext({ name: null, context: [], between: ['안쪽을 보시면 백금 약간 줄무늬가 선명해요'], dictionary: DICT })).toBeNull()
+    const withWord = prepareVoiceDictionary({ base: [...DEFAULT_VARIETIES, { name: '백금', exactOnly: true }] })
+    expect(varietyFromContext({ name: null, context: [], between: ['안쪽을 보시면 백금 약간 줄무늬가 선명해요'], dictionary: withWord })).toBe('백금')
+    // 이 방송 상품 이름(판매 이력 자리)에 백금이 들면 0.8로 `색금`에 맞는다 — 이력은 지금 그대로(D-V3-116 (다))라 데이터에서 뺀다
+    const text = '색금 잘 들었어요 자 25만원까지 143번'
+    expect(readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.name])).toEqual([[143, null]])
+    const asHistory = prepareVoiceDictionary({ history: ['백금'] })
+    expect(readSegments(text, { dictionary: asHistory, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.name])).toEqual([[143, '백금']])
+    // 백금이 든 긴 영수증 이름은 그대로
+    expect(names.has('쿠스백금')).toBe(true)
   })
   it('번호 옆에서 들린 이름이 앞 말의 영수증 이름(앞에 SP가 붙은 것)으로 넓혀지지 않는다', () => {
     expect(names.has('SP찐녹금')).toBe(false)
