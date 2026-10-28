@@ -423,11 +423,19 @@ test.describe('AC-V3-72 기다리는 번호 (D-V3-67)', () => {
 // ── AC-V3-73 R94~R96 ──────────────────────────────────────────────────
 
 test.describe('AC-V3-73 판매 말투 (D-V3-72, 천원)', () => {
-  for (const sentence of ['113번 45에 드려볼게요 자 45~', '113번 45 드려 보겠습니다']) {
-    test(`"${sentence}"(최종) → 113번 45,000원`, async ({ page }) => {
+  // 표 R94·R95 기대는 D-V3-112로 바뀜(faaee7f9): 말투·되풀이로 읽은 값 45,000원은 천원 단위 1~2자리라 확정 아님 → 쓰기 0, 제안 카드·안내, [등록]하면 그 값
+  for (const [id, sentence] of [['R94', '113번 45에 드려볼게요 자 45~'], ['R95', '113번 45 드려 보겠습니다']] as const) {
+    test(`${id} (D-V3-112): "${sentence}"(최종) → 쓰기 0, 카드 113번 45,000원 + "45,000원으로 들렸어요. 가격을 확인해 주세요", [등록]하면 45,000원`, async ({ page }) => {
       await setupV3(page)
       const writes = recordWrites(page)
       await sayChunk(page, sentence)
+      const offer = card(page, '113번 품종 미입력 45,000원')
+      await expect(offer).toBeVisible()
+      await expect(offer.getByText('45,000원으로 들렸어요. 가격을 확인해 주세요')).toBeVisible()
+      await settle(page)
+      expect(productWrites(writes)).toEqual([])
+      await expect(boardItem(page, 113)).toHaveCount(0)
+      await cardButton(page, '113번 품종 미입력 45,000원', '등록').click()
       await registers(writes, [['product.register', 113, '', 45000]])
     })
   }
@@ -439,6 +447,25 @@ test.describe('AC-V3-73 판매 말투 (D-V3-72, 천원)', () => {
     await settle(page)
     expect(productWrites(writes)).toEqual([])
   })
+})
+
+// ── R97 등록된 pick은 뒤 글로 취소되지 않음 (D-V3-79, 자동 단위로 옮김 — faaee7f9) ──────────────
+
+test('R97 (자동 단위, D-V3-79): 중간 "15번 라울 60 자"에서 등록 뒤 최종 "15번 라울 60 자 뿌리 다 살아 있어요" → 15번 라울 600,000원 하나, 취소·두 번째 쓰기 없음', async ({ page }) => {
+  await setupV3(page, { sellerSettings: { 'price.unit': 'AUTO' } })
+  const writes = recordWrites(page)
+  await sayWords(page, '15번 라울 60 자 뿌리 다 살아 있어요', {
+    afterEach: async (k) => {
+      // `자`(결과 4) 때 등록 — 표 R97 "`자` 때"
+      if (k === 4) await registers(writes, [['product.register', 15, '라울', 600000]])
+    },
+  })
+  await page.clock.runFor(QUIET_MS + 100)
+  await page.clock.runFor(5000)
+  await settle(page)
+  expect(productWrites(writes)).toEqual([['product.register', 15, '라울', 600000]])
+  await expect(boardItem(page, 15)).toContainText('600,000원')
+  await expect(voiceCards(page)).toHaveCount(0)
 })
 
 // ── AC-V3-74 (b)(c) 가격 단위 자동 ─────────────────────────────────────────
