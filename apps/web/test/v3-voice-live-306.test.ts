@@ -41,6 +41,8 @@ interface Harness {
   readonly board: Map<number, ExistingView>
 }
 
+const NO_NAMES: readonly string[] = []
+
 function harness(): Harness {
   const state = { registered: [] as Harness['registered'], fixes: [] as Harness['fixes'], board: new Map<number, ExistingView>() }
   const host: VoiceHost = {
@@ -50,7 +52,8 @@ function harness(): Harness {
     priceUnit: () => 'THOUSAND',
     deviceId: () => 'this-device',
     lastVoiceDevice: () => null,
-    currentNames: () => [],
+    // 화면처럼 같은 목록을 돌려준다(ConsolePage useMemo) — 부를 때마다 새 목록이면 사전을 매번 다시 만든다(사전이 커져 300글자 시험이 5초를 넘음, D-V3-115)
+    currentNames: () => NO_NAMES,
     products: () => new Map([...state.board].map(([no, item]) => [no, item.closed])),
     fetchHistory: async () => [],
     dialogOpen: () => false,
