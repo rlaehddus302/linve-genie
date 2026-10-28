@@ -8,6 +8,7 @@ import { loginNewSeller } from '../i3/support.ts'
 import {
   boardItem,
   card,
+  cardButton,
   installFakeSpeech,
   openExtras,
   openNewBroadcast,
@@ -125,10 +126,18 @@ test.describe('AC-V3-52 조각 소비 (D-V3-46)', () => {
 // ── AC-V3-53 빠른 꼴·가격 단위 R61~R64·R69~R73 ─────────────────────────────
 
 test.describe('AC-V3-53 빠른 꼴 (D-V3-48·63)', () => {
-  test('R61 (천원): "92번 빅뱅 60"(최종) → 덩어리 끝에 92번 빅뱅 60,000원', async ({ page }) => {
+  // 표 R61 기대는 D-V3-112(AC-V3-98 (2))로 바뀜: 천원 단위의 1~2자리 빠른 꼴은 확정 아님 → 쓰기 0, 제안 카드(읽은 값 60,000원·안내), [등록]하면 그 값
+  test('R61 (천원, D-V3-112): "92번 빅뱅 60"(최종) → 쓰기 0, 카드 92번 빅뱅 60,000원 + "60,000원으로 들렸어요. 가격을 확인해 주세요", [등록]하면 60,000원', async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
     await sayChunk(page, '92번 빅뱅 60')
+    const offer = card(page, '92번 빅뱅 60,000원')
+    await expect(offer).toBeVisible()
+    await expect(offer.getByText('60,000원으로 들렸어요. 가격을 확인해 주세요')).toBeVisible()
+    await settle(page)
+    expect(productWrites(writes)).toEqual([])
+    await expect(boardItem(page, 92)).toHaveCount(0)
+    await cardButton(page, '92번 빅뱅 60,000원', '등록').click()
     await registers(writes, [['product.register', 92, '빅뱅', 60000]])
   })
 
@@ -154,11 +163,18 @@ test.describe('AC-V3-53 빠른 꼴 (D-V3-48·63)', () => {
     })
   })
 
+  // 표 R64 기대는 D-V3-112(AC-V3-98 (2))로 바뀜: 품종 없는 빠른 꼴(D-V3-63)도 천원 단위 1~2자리면 카드
   for (const sentence of ['92번 60', '92번 저거 60']) {
-    test(`R64 (천원): "${sentence}"(최종) → 덩어리 끝 92번 품종 미입력 60,000원`, async ({ page }) => {
+    test(`R64 (천원, D-V3-112): "${sentence}"(최종) → 쓰기 0, 카드 92번 품종 미입력 60,000원 + 안내, [등록]하면 60,000원`, async ({ page }) => {
       await setupV3(page)
       const writes = recordWrites(page)
       await sayChunk(page, sentence)
+      const offer = card(page, '92번 품종 미입력 60,000원')
+      await expect(offer).toBeVisible()
+      await expect(offer.getByText('60,000원으로 들렸어요. 가격을 확인해 주세요')).toBeVisible()
+      await settle(page)
+      expect(productWrites(writes)).toEqual([])
+      await cardButton(page, '92번 품종 미입력 60,000원', '등록').click()
       await registers(writes, [['product.register', 92, '', 60000]])
     })
   }
