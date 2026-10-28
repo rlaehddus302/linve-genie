@@ -1,7 +1,7 @@
 // AC-V3-98·99 확정 아닌 조각 (R-17 8, D-V3-112 천원 단위 작은 빠른 꼴 · D-V3-113 번호가 붙은 가격) — 조각 읽기 단위.
 // 카드·묻기(화면)는 apps/web 시험에서 본다.
 import { describe, expect, it } from 'vitest'
-import { interimCandidate, isSmallQuickNumber, numberInPriceNote, prepareVoiceDictionary, readRegistration, readSegments, type SegmentOptions } from '../src/index.ts'
+import { interimCandidate, isSmallQuickNumber, numberInPriceNote, numberInPriceOf, prepareVoiceDictionary, readRegistration, readSegments, type SegmentOptions } from '../src/index.ts'
 
 const DICT = prepareVoiceDictionary()
 const seg = (text: string, options: SegmentOptions = {}) => readSegments(text, { dictionary: DICT, final: true, ...options })
@@ -103,6 +103,22 @@ describe('AC-V3-99 번호가 붙은 가격은 확정 아님 (D-V3-113)', () => {
     expect(r.blocked).toBe('NUMBER_IN_PRICE')
     expect(readRegistration('15번 150만 원', { dictionary: DICT, final: true }).ready).toMatchObject({ no: 15, price: 1500000 })
     expect(readRegistration('227번 2000만 원', { dictionary: DICT, final: true }).ready).toMatchObject({ no: 227, price: 20000000 })
+  })
+  it('(9) "227번 2270만 원" → 확정 아님, 남은 수 0이라 뒤 가격 없는 안내 (D-V3-114 (1))', () => {
+    expect(one('227번 2270만 원')).toMatchObject({ no: 227, price: 22700000, check: { kind: 'NUMBER_IN_PRICE', note: '2270만 원으로 들렸어요. 227번 가격을 확인해 주세요' } })
+  })
+  it('(10)·(11) 다른 덩어리에서 짝지은 번호와 가격도 같은 검사 (D-V3-114 (3)) — 가격을 들은 글로', () => {
+    expect(numberInPriceOf(227, '2275만 원', 22750000)).toBe(NOTE)
+    expect(numberInPriceOf(227, '자 2275만 원이고요', 22750000, { maxNumber: 999 })).toBe(NOTE)
+    expect(numberInPriceOf(227, '2270만 원', 22700000)).toBe('2270만 원으로 들렸어요. 227번 가격을 확인해 주세요')
+    // 그 값의 줄이 아니면 보지 않는다
+    expect(numberInPriceOf(227, '2275만 원', 50000)).toBeNull()
+  })
+  it('(12) 기다리는 번호 "15번" 뒤 "150만 원" → 해당 없음 (300만 원 넘지 않음), 한글 계수도 해당 없음', () => {
+    expect(numberInPriceOf(15, '150만 원', 1500000)).toBeNull()
+    expect(numberInPriceOf(227, '이천이백칠십오만 원', 22750000)).toBeNull()
+    expect(numberInPriceOf(227, '2000만 원', 20000000)).toBeNull()
+    for (const bad of [null, undefined, 42, '', '   ']) expect(numberInPriceOf(227, bad, 22750000)).toBeNull()
   })
   it('안내 글: 쉼표 계수·나머지 0', () => {
     expect(numberInPriceNote(227, ['2275만', '원'], 22750000)).toBe(NOTE)

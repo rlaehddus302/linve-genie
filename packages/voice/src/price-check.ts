@@ -1,6 +1,7 @@
 // 확정 아닌 조각 (DOMAIN_RULES R-17 8, D-V3-112·113): 번호와 가격은 짝지었지만 바로 등록·바로 고치지 않고 카드·묻기로 보낼 까닭과 안내 글.
 // 순수 함수: 시계·난수를 쓰지 않고 어떤 입력에도 예외를 던지지 않는다.
 import { formatWon, parseKoreanNumber, type PriceUnit } from '@livejjim/core'
+import { listWonLines, punctuatedTokens, tokenize } from './extract.ts'
 
 /** 크게 바뀜 선 (R-25 — register.ts AUTO_REGISTER_PRICE_MAX와 같은 값, 서로 불러오지 않게 따로 둔다) */
 const BIG_PRICE = 3_000_000
@@ -57,4 +58,25 @@ export function numberInPriceNote(no: number, lineTokens: readonly string[], val
   // 나머지가 0이면(`2270만` ← 227) 뒤 가격을 지어내지 않는다 — 가격만 확인해 달라고 한다
   if (left === 0) return `${heard}으로 들렸어요. ${head}번 가격을 확인해 주세요`
   return `${heard}으로 들렸어요. ${head}번 ${String(left)}만 원인지 확인해 주세요`
+}
+
+/**
+ * 다른 덩어리에서 짝지은 번호와 가격 (D-V3-114 (3)): 기다리는 번호가 다음 덩어리의 원 가격을 이어 받을 때(D-V3-67),
+ * 번호 없는 가격 기억이 뒤 'N번'과 짝지어질 때(D-V3-84 (ㄴ)). 가격을 들은 글(priceText)에서 그 값의 원 가격 줄을 찾아
+ * 번호가 붙은 가격(D-V3-113)이면 안내 글, 아니면 null. 어떤 입력에도 예외를 던지지 않는다.
+ */
+export function numberInPriceOf(no: number, priceText: unknown, price: number, options: { readonly maxNumber?: number } = {}): string | null {
+  try {
+    const tokens = tokenize(priceText)
+    if (tokens === null || tokens.length === 0) return null
+    const lines = listWonLines(tokens, { punct: punctuatedTokens(priceText), ...(options.maxNumber === undefined ? {} : { maxNumber: options.maxNumber }) })
+    for (const line of lines) {
+      if (line.value !== price) continue
+      const note = numberInPriceNote(no, tokens.slice(line.start, line.end + 1), line.value)
+      if (note !== null) return note
+    }
+    return null
+  } catch {
+    return null
+  }
 }
