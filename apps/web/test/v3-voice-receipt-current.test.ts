@@ -215,3 +215,13 @@ describe('AC-V3-100 (k)·(l) 이번 방송 상품 이름과 영수증 거래명 
     expect(named(h)).toEqual([[16, '몽블랑크', 50_000]])
   })
 })
+
+describe('이번 방송 이름이 지난 판매 이력에 있는지는 로마자 대소문자를 무시한다 (D-V3-116 (마), D-V3-120)', () => {
+  it('지난 이력 SP창금 · 이번 방송 sp창금 → 같은 이름이라 0.8 맞춤 그대로 "16번 sp창굼 5만 원" → sp창금 (만든 이름)', async () => {
+    const h = await ready({ past: [{ date: '2026-10-20', names: ['SP창금'] }] })
+    h.board.set(15, product(15, 'sp창금', 50_000))
+    say('16번 sp창굼 5만 원')
+    at(3000)
+    expect(named(h)).toEqual([[16, 'sp창금', 50_000]])
+  })
+})

@@ -3419,8 +3419,9 @@ export class VoiceController {
     if (cached !== null && cached.names === names && cached.past === past && cached.learned === learned) return cached.prepared
     const history = historyNames(names, past, module.normalizeDictionary)
     // 이번 방송에 생긴 상품 이름(지난 판매 이력엔 없는 것): 영수증 거래명과 같으면 이력 자리에서도 적은 모양으로만 맞춘다 (D-V3-116 (마))
-    const pastKeys = new Set(module.normalizeDictionary(past.flatMap((day) => day.names)).map((name) => name.split(' ').join('')))
-    const current = module.normalizeDictionary(names).filter((name) => !pastKeys.has(name.split(' ').join('')))
+    // 같은 이름인지는 사전과 같은 키(공백 빼고 로마자 대소문자 무시, D-V3-120)로 — 지난 'SP창금'과 이번 'sp창금'은 같은 이름
+    const pastKeys = new Set(module.normalizeDictionary(past.flatMap((day) => day.names)).map(module.exactKey))
+    const current = module.normalizeDictionary(names).filter((name) => !pastKeys.has(module.exactKey(name)))
     // 배운 별칭 → 판매 이력 → 기본 사전(데이터 사전·별칭) (D-V2-10)
     const prepared = module.prepareVoiceDictionary({ learned, history, current })
     this.#dictionary = { names, past, learned, prepared }

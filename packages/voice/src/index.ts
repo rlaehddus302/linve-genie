@@ -195,7 +195,7 @@ export {
   type VoiceLogPiece,
   type VoiceLogRead,
 } from './voice-log.ts'
-export { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, compact, editDistance, jamoOf, isCandidate, compareSimilarity, type Similarity } from './jamo.ts'
+export { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, compact, editDistance, exactKey, jamoOf, isCandidate, compareSimilarity, type Similarity } from './jamo.ts'
 export {
   AUTO_CONFIRM_SEC_MAX,
   AUTO_CONFIRM_SEC_MIN,
