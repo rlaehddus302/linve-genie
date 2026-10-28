@@ -30,6 +30,7 @@ import type {
   ExistingHeard,
   ReadyRegistration,
   RegistrationReading,
+  SegmentCheck,
   SegmentPick,
   SegmentReading,
   StableState,
@@ -767,6 +768,9 @@ export function pruneSms(entries: readonly SmsEntry[], now: number): readonly Sm
   }
   return changed ? out : entries
 }
+
+/** 확정 아닌 조각의 카드 가격 칸 (D-V3-112 = 읽은 값, D-V3-113 번호가 붙은 가격 = 비움). 확정 조각은 읽은 값 */
+const checkedCardPrice = (pick: SegmentPick): number | null => (pick.check?.kind === 'NUMBER_IN_PRICE' ? null : pick.price)
 
 export class VoiceController {
   readonly #host: VoiceHost
@@ -2348,7 +2352,7 @@ export class VoiceController {
     const interim = this.#phrase === null ? '' : module.heardText(this.#phrase).interim
     const seg = this.#readSegments(module, text, interim.trim() === '')
     if (interim.trim() !== '') this.#noteResultPrices(module, interim)
-    if (seg !== null) this.#runPicks(work, module, seg, text, false)
+    if (seg !== null) this.#runPicks(work, module, seg, text, false, false, interim.trim() === '')
     // 글 끝 가격이 `원까지`·`원에`라 뒤 낱말을 기다리는 조각(지난 일 가격일 수 있다): 없는 번호의 새 등록만 바로 (R1 — `108번 … 10만 원까지` 때 등록),
     // 있는 상품의 가격은 뒤 낱말을 듣고 고친다 (실방송 468번 "120만 원까지 팔아 본 적 있어요")
     if (seg !== null && seg.held !== undefined && seg.held.length > 0) this.#runPicks(work, module, { ...seg, picks: seg.held }, text, false, true)
@@ -2448,7 +2452,8 @@ export class VoiceController {
    * 아직 처리하지 않은 조각마다 한 번 (`${no}@${start}`로 거름): 없는 번호면 바로 등록, 이미 있는 번호면 R-22, 300만 원 넘으면 카드(덩어리 끝에서만).
    * 같은 덩어리에서 이미 등록한 번호를 다른 가격으로 다시 말하면 R-22(보내는 중이면 등록 뒤, D-V3-19)
    */
-  #runPicks(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, chunkEnd: boolean, newOnly = false): void {
+  // finalText = 최종 결과만 든 글(중간 결과 없음) — 확정 아닌 조각(D-V3-112·113)은 이때만 카드·묻기로 다룬다 (중간 결과면 기다린다)
+  #runPicks(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, chunkEnd: boolean, newOnly = false, finalText = chunkEnd): void {
     for (const raw of seg.picks) {
       const key = `${String(raw.no)}@${String(raw.start)}`
       // 앞 결과와 이어질 수 있는 번호 (R-17 8 7, D-V3-102 — 실방송 경성 "… 3만 원 159" 다음 결과 "59번 …"): 바로 등록·바로 고치지 않고 묻는다
@@ -2548,7 +2553,7 @@ export class VoiceController {
             const done = this.#applyExisting(work, module, pick.no, found, { name: pick.name, price: pick.price, nameNeedsCheck: false, priceSure: true, numberFrom: pick.numberFrom }, false, false)
             work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text }], read: { no: pick.no, name: pick.name, price: pick.price, candidates: [] }, action: done.action, reason: done.reason }))
             if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: this.#host.now() + READOUT_MS }
-          } else this.#pickCard(work, module, pick, text, null)
+          } else this.#pickCard(work, module, pick, text, pick.check?.note ?? null, checkedCardPrice(pick))
         }
         continue
       }
@@ -2572,8 +2577,18 @@ export class VoiceController {
             const done = this.#applyExisting(work, module, pick.no, view, { name: pick.name, price: pick.price, nameNeedsCheck: false, priceSure: true, numberFrom: pick.numberFrom }, true, false)
             work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text }], read: { no: pick.no, name: pick.name, price: pick.price, candidates: [] }, action: done.action, reason: done.reason }))
             if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: this.#host.now() + READOUT_MS }
-          } else this.#pickCard(work, module, pick, text, null)
+          } else this.#pickCard(work, module, pick, text, pick.check?.note ?? null, checkedCardPrice(pick))
         }
+        continue
+      }
+      // 확정 아닌 조각 (R-17 8, D-V3-112 천원 단위 작은 빠른 꼴 · D-V3-113 번호가 붙은 가격): 바로 등록·바로 고치지 않는다 —
+      // 없는 번호면 제안 카드, 있는 번호면 R-22 묻기(안내 글). 중간 결과에서는 기다린다(같은 자리를 최종 글이 바꿔 쓸 수 있다)
+      const check = pick.check ?? null
+      if (check !== null) {
+        if (!finalText) continue
+        this.#pickDone.add(key)
+        if (!this.#instantNos.has(pick.no)) this.#instantNos.set(pick.no, 'existing')
+        this.#checkedPick(work, module, pick, check, existing, text)
         continue
       }
       this.#pickDone.add(key)
@@ -2722,18 +2737,42 @@ export class VoiceController {
     return found !== null && found.claimCount > 0
   }
 
-  /** 조각 하나를 카드로 (300만 원 넘음·거절한 번호·판매 종료) */
-  #pickCard(work: CardWork, module: VoiceModule, pick: SegmentPick, text: string, note: string | null): void {
+  /** 조각 하나를 카드로 (거절한 번호·판매 종료·확정 아닌 조각). price = 가격 칸 (null = 비움 — 번호가 붙은 가격, D-V3-113) */
+  #pickCard(work: CardWork, module: VoiceModule, pick: SegmentPick, text: string, note: string | null, price: number | null = pick.price): void {
     const id = `voice-${String(this.#nextCard++)}`
-    const card: SuggestionCard = { id, no: pick.no, name: pick.name, price: pick.price, confidence: 'HIGH', text, createdAt: this.#host.now(), status: 'OPEN', touched: false, autoConfirmAt: null }
+    const card: SuggestionCard = { id, no: pick.no, name: pick.name, price, confidence: 'HIGH', text, createdAt: this.#host.now(), status: 'OPEN', touched: false, autoConfirmAt: null }
     const open = work.cards.find((item) => isOpen(item) && item.no === pick.no)
     if (open !== undefined) {
-      if (!open.touched) work.cards = module.replaceCard(work.cards, { ...open, name: pick.name ?? open.name, price: pick.price, text })
+      if (!open.touched) work.cards = module.replaceCard(work.cards, { ...open, name: pick.name ?? open.name, price: price ?? open.price, text })
       return
     }
     if (note !== null) work.notes = new Map(work.notes).set(id, note)
     work.info = new Map(work.info).set(id, { candidates: [], ask: null })
     this.#place(work, module, card)
+  }
+
+  /**
+   * 확정 아닌 조각 하나 (R-17 8, D-V3-112·113): 없는 번호면 제안 카드(안내 글, 번호가 붙은 가격은 가격 칸 비움),
+   * 보내는 중인 번호면 등록이 끝난 뒤 묻기, 있는 번호면 R-22 묻기(고침 0). 바꿀 것이 없으면(같은 가격·이름) 아무것도 하지 않는다
+   */
+  #checkedPick(work: CardWork, module: VoiceModule, pick: SegmentPick, check: SegmentCheck, existing: (ExistingView & { readonly pending?: true }) | null, text: string): void {
+    let action: 'offer' | 'discard' = 'offer'
+    let reason = check.note
+    if (existing === null) this.#pickCard(work, module, pick, text, check.note, checkedCardPrice(pick))
+    else if (existing.pending === true) {
+      // 바로 등록이 아직 보내는 중 — 등록이 끝나면 그 가격 그대로 두고 묻는다 (조용히 버리지 않는다)
+      this.#setPending(pick.no, { after: { heard: { name: null, price: pick.price, nameNeedsCheck: false, priceSure: true }, auto: false, askNote: check.note } })
+    } else {
+      const changes = pickChanges(existing, { name: pick.name, price: pick.price })
+      if (Object.keys(changes).length === 0) {
+        action = 'discard'
+        reason = LOG_ALREADY
+      } else {
+        this.#chunkActs.add('ASKED')
+        this.#ask(work, pick.no, existing, changes, changes.price === undefined ? undefined : check.note)
+      }
+    }
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text }], read: { no: pick.no, name: pick.name, price: pick.price, candidates: [] }, action, reason }))
   }
 
   /**

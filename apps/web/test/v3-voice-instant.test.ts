@@ -451,10 +451,14 @@ describe('바로 등록 V3 수용 사례', () => {
     ])
   })
 
-  it('D-V3-48: 천원 단위 방송의 "92번 빅뱅 60"(최종 결과)은 60,000원으로 바로 등록', async () => {
+  // D-V3-112: 천원 단위 1~2자리 수는 확정 아님 — 처음 기대 "바로 60,000원 등록"을 바꿈(표 R61). 카드(60,000원)와 안내
+  it('D-V3-48·112: 천원 단위 방송의 "92번 빅뱅 60"(최종 결과)은 바로 등록하지 않고 카드(60,000원, 안내 "60,000원으로 들렸어요. 가격을 확인해 주세요")', async () => {
     const h = await ready({ priceUnit: 'THOUSAND' })
     say('92번 빅뱅 60')
-    expect(reg(h).map((item) => [item.no, item.name, item.price])).toEqual([[92, '빅뱅', 60000]])
+    at(3000)
+    expect(reg(h)).toEqual([])
+    expect(cards(h).map((card) => [card.no, card.name, card.price])).toEqual([[92, '빅뱅', 60000]])
+    expect(h.voice.getSnapshot().notes.get(cards(h)[0]?.id ?? '')).toBe('60,000원으로 들렸어요. 가격을 확인해 주세요')
   })
 
   it('번호 없는 말은 카드 없이 "번호를 못 들었어요", 끔이면 번호만 있는 카드에 "가격을 말해 주세요" (D-V3-41·44)', async () => {
