@@ -6,7 +6,7 @@ import { normalizeText, parseAmount, parseKoreanNumber } from '@livejjim/core'
 import { VarietyDictionary, type DictionaryEntry } from './dictionary.ts'
 import { isWindowFiller, looksLikePredicate } from './words.ts'
 import { DEFAULT_COMMON_ALIASES, DEFAULT_EXACT_ONLY } from './default-dictionary.ts'
-import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compact, compareSimilarity, isCandidate, jamoKey, jamoOf, type Similarity } from './jamo.ts'
+import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compact, compareSimilarity, exactJamoKey, isCandidate, jamoOf, type Similarity } from './jamo.ts'
 import { isPastPriceLine } from './past-price.ts'
 
 export type Confidence = 'HIGH' | 'LOW'
@@ -761,16 +761,17 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
   // 유사도 1(공백만 다름)이 하나라도 있으면 그보다 높은 유사도는 없다 — 거리 계산을 건너뛴다
   for (const text of texts) {
     const jamo = jamoOf(text)
-    for (const entry of dictionary.byJamo.get(jamoKey(jamo)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
+    for (const entry of dictionary.byJamo.get(exactJamoKey(text)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
     // 크롬이 이름 끝 '색금'을 '색급'으로 자주 적는다 — 끝의 '색급'은 '색금'으로도 맞춘다(같은 이름으로 봄). 사전에 그 이름이 없으면 그대로(`몰디브 색급` → 몰디브)
     if (text.length > SAEKGEUP.length && text.endsWith(SAEKGEUP)) {
-      const fixed = jamoOf(text.slice(0, -SAEKGEUP.length) + SAEKGEUM)
-      for (const entry of dictionary.byJamo.get(jamoKey(fixed)) ?? []) consider({ distance: 0, length: fixed.length }, entry, text)
+      const fixedText = text.slice(0, -SAEKGEUP.length) + SAEKGEUM
+      const fixed = jamoOf(fixedText)
+      for (const entry of dictionary.byJamo.get(exactJamoKey(fixedText)) ?? []) consider({ distance: 0, length: fixed.length }, entry, text)
     }
   }
   for (const text of exactOnly) {
     const jamo = jamoOf(text)
-    for (const entry of dictionary.byJamo.get(jamoKey(jamo)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
+    for (const entry of dictionary.byJamo.get(exactJamoKey(text)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
   }
   if (top.similarity === null) {
     for (const text of texts) {
@@ -868,7 +869,7 @@ function suffixToken(token: string): (typeof AFFIX_SUFFIXES)[number] | null {
 
 /** 공백만 다른 사전 항목 (이름·별칭) */
 function exactEntries(text: string, dictionary: VarietyDictionary): readonly DictionaryEntry[] {
-  return dictionary.byJamo.get(jamoKey(jamoOf(text))) ?? []
+  return dictionary.byJamo.get(exactJamoKey(text)) ?? []
 }
 
 /**

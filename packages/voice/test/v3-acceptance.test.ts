@@ -51,15 +51,15 @@ describe('AC-V3-06 mergeIntoCard', () => {
     expect(r.card.nameNeedsCheck).toBe(false)
   })
   it('(c) 사전 품종 카드 + 추측 → 그대로', () => {
-    // 사전 밖 낱말(bts는 영수증 품종 BTS로 사전에 들어가 ufo로 바꿈)
-    const text = '15번 ufo 자 ufo 만오천'
-    expect(reg(text).guess).toBe('ufo')
+    // 사전 밖 낱말(bts는 영수증 품종 BTS, ufo는 대소문자 무시로 영수증 품종 UFO가 되어 — D-V3-120 — zeta로 바꿈)
+    const text = '15번 zeta 자 zeta 만오천'
+    expect(reg(text).guess).toBe('zeta')
     const r = mergeIntoCard(card('핑크프릴', 15000), chunk(text), reg(text))
     expect(r.card.name).toBe('핑크프릴')
     expect(r.changed).toBe(false)
   })
   it('(c2) 빈 품종 카드 + 추측 → 그대로 비움 (D-V3-37 — 추측은 후보 단추로만)', () => {
-    const text = '15번 ufo 자 ufo 만오천'
+    const text = '15번 zeta 자 zeta 만오천'
     const r = mergeIntoCard(card(null, 15000), chunk(text), reg(text))
     expect(r.card.name).toBeNull()
     expect(r.changed).toBe(false)
@@ -181,11 +181,11 @@ describe('AC-V3-50 배운 별칭은 흔한 말을 배우지 않는다 (D-V3-38)'
 
 describe('D-V3-37 추측은 등록·합치기에 쓰지 않는다', () => {
   it('확정 읽기 name은 사전 맞춤뿐, 추측은 guess로', () => {
-    // 사전 밖 낱말 ufo (bts는 영수증 품종 BTS로 사전에 들어감)
-    const r = readRegistration('15번 ufo 자 ufo 만오천 원', { dictionary: DICT })
+    // 사전 밖 낱말 zeta (bts는 영수증 품종 BTS, ufo는 대소문자 무시로 영수증 품종 UFO — D-V3-120)
+    const r = readRegistration('15번 zeta 자 zeta 만오천 원', { dictionary: DICT })
     expect(r.ready).toEqual({ no: 15, price: 15000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
-    expect(r.guess).toBe('ufo')
-    expect(readSure('15번 ufo 자 ufo 만오천 원', { dictionary: DICT })).toMatchObject({ sure: true, name: null, guess: 'ufo' })
+    expect(r.guess).toBe('zeta')
+    expect(readSure('15번 zeta 자 zeta 만오천 원', { dictionary: DICT })).toMatchObject({ sure: true, name: null, guess: 'zeta' })
   })
   it('mergeSameNumberCards는 추측 품종 카드의 품종을 옮기지 않는다', () => {
     const newer = card(null, 15000, { id: 'b' })

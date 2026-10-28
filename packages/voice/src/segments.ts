@@ -6,6 +6,7 @@ import { analyzeSentence, listNumberMarkers, listWonLines, punctuatedTokens, rea
 import { isBigChange, readRegistration, type ReadyBlock, type RegistrationOptions } from './register.ts'
 import { DEFAULT_COMMON_ALIASES, DEFAULT_EXACT_ONLY } from './default-dictionary.ts'
 import { VarietyDictionary } from './dictionary.ts'
+import { exactKey } from './jamo.ts'
 import { CANCEL_WORDS, CORRECTION_MARKERS, isWindowFiller, looksLikePredicate } from './words.ts'
 import { hasPriceCorrection } from './price-gate.ts'
 import { isPastPriceLine } from './past-price.ts'
@@ -134,8 +135,8 @@ export function oneSyllableName(tokens: readonly string[], options: SegmentOptio
 /** 흔한 말 별칭(D-V3-54)의 이름이 넘긴 사전에 있는가 */
 function dictionaryHas(options: SegmentOptions, name: string): boolean {
   const dictionary = options.dictionary
-  if (dictionary instanceof VarietyDictionary) return dictionary.byKey.has(name.split(' ').join(''))
-  return Array.isArray(dictionary) && dictionary.some((item) => typeof item === 'string' && item.split(' ').join('') === name.split(' ').join(''))
+  if (dictionary instanceof VarietyDictionary) return dictionary.byKey.has(exactKey(name))
+  return Array.isArray(dictionary) && dictionary.some((item) => typeof item === 'string' && exactKey(item) === exactKey(name))
 }
 
 /** 이어진 토큰 1~4개(군말 없이, 마지막 토큰은 그대로 또는 끝말 뗀 모양)를 공백 없이 이은 글이 사전 이름·별칭과 같은 곳이 있는가 */

@@ -108,6 +108,34 @@ describe('(k)·(l) 이번 방송 상품 이름이 영수증 거래명이면 이�
   })
 })
 
+describe('AC-V3-100 (m) 공백만 다른 맞춤은 로마자 대소문자를 무시한다 (D-V3-120)', () => {
+  const read = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.name, p.price])
+  it("'sp 창금'·'sp창금' → SP창금, 'sp 색금' → SP색금, 섞인 꼴 'Sp 녹금'·'sP녹금' → SP녹금 — 결과는 사전 이름(대문자) 그대로", () => {
+    expect(read('sp 창금 30만 원 12번')).toEqual([[12, 'SP창금', 300_000]])
+    expect(read('12번 sp창금 30만 원')).toEqual([[12, 'SP창금', 300_000]])
+    expect(extractVoice('12번 sp창금', { dictionary: DICT }).name).toBe('SP창금')
+    expect(read('12번 sp 색금 30만 원')).toEqual([[12, 'SP색금', 300_000]])
+    expect(read('12번 Sp 녹금 30만 원')).toEqual([[12, 'SP녹금', 300_000]])
+    expect(read('12번 sP녹금 30만 원')).toEqual([[12, 'SP녹금', 300_000]])
+  })
+  it("기존 'SP 창금'은 그대로, 'sp' 혼자는 지금처럼 SP, 소문자 'bts' → BTS", () => {
+    expect(read('12번 SP 창금 30만 원')).toEqual([[12, 'SP창금', 300_000]])
+    expect(read('12번 sp 30만 원')).toEqual([[12, 'SP', 300_000]])
+    expect(read('12번 Sp 30만 원')).toEqual([[12, 'SP', 300_000]])
+    expect(read('12번 bts 30만 원')).toEqual([[12, 'BTS', 300_000]])
+  })
+  it('0.8·한 글자 다른 맞춤은 넓히지 않는다 — 대소문자만 다르고 한 자모 다른 꼴은 영수증 이름이 아니다', () => {
+    // SP창금은 영수증 이름(exactOnly): 대소문자 무시로도 '창곰'처럼 한 자모 다르면 맞지 않는다
+    expect(read('12번 sp 창곰 30만 원')).toEqual([[12, 'SP', 300_000]])
+    // 판매 이력 이름(0.8 후보)의 거리는 원래 글로 잰다 — 대소문자 꼴이 같아도 거리 계산은 그대로
+    // 이번 방송 이름이 대소문자만 달라도 영수증 이름이면 exactOnly 그대로 (D-V3-116 (마))
+    const now = prepareVoiceDictionary({ history: ['sp창금'], current: ['sp창금'] })
+    expect(extractVoice('12번 sp창곰 30만 원', { dictionary: now }).name).toBeNull()
+    const history = prepareVoiceDictionary({ history: ['ABC녹금'] })
+    expect(extractVoice('12번 abc녹금 30만 원', { dictionary: history }).name).toBe('ABC녹금')
+  })
+})
+
 describe('재생 점수를 떨어뜨린 영수증 이름은 뺀다 (D-V3-115 (라) — 만든 문장)', () => {
   const names = new Set(file.varieties.map((item) => item.name))
   it('빛깔을 말하는 흔한 말 하나뿐인 이름(찐녹)은 없다 — 맥락 품종이 동점으로 비지 않는다 (D-V3-115 (나))', () => {

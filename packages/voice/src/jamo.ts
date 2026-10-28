@@ -13,6 +13,21 @@ export function jamoOf(text: string): number[] {
   return out
 }
 
+/** 로마자 대문자를 소문자로 (공백만 다른 맞춤의 키에만 — D-V3-120. 0.8·한 글자 다른 맞춤의 거리는 그대로 원래 글로 잰다) */
+export function foldLatin(text: string): string {
+  return text.replace(/[A-Z]/g, (char) => char.toLowerCase())
+}
+
+/** 공백만 다른 맞춤의 키: 공백 뺀 글, 로마자 대소문자 무시 (D-V3-120 — 크롬이 "에스피"를 `sp`로 적어도 `SP창금`) */
+export function exactKey(text: string): string {
+  return foldLatin(compact(text))
+}
+
+/** 공백만 다른 맞춤의 자모 키 (exactKey의 자모 — byJamo) */
+export function exactJamoKey(text: string): string {
+  return jamoKey(jamoOf(exactKey(text)))
+}
+
 /** 자모 목록을 맵 키로 (같은 자모 = 유사도 1) */
 export function jamoKey(jamo: readonly number[]): string {
   return jamo.join(',')
