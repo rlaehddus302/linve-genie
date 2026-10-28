@@ -80,6 +80,34 @@ describe('AC-V3-100 영수증 거래명 사전 (D-V3-115)', () => {
   })
 })
 
+describe('(k)·(l) 이번 방송 상품 이름이 영수증 거래명이면 이력 자리에서도 exactOnly (D-V3-116 (마))', () => {
+  const base = [{ name: '창무지', exactOnly: true }, { name: '라울' }, { name: '청사과' }]
+  const read = (text: string, dictionary: ReturnType<typeof prepareVoiceDictionary>) => readSegments(text, { dictionary, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.name, p.price])
+  it('(k) 이번 방송에 창무지가 생긴 뒤: "16번 창무치"·"16번 근무지" → 빈 칸, "16번 창무지" → 창무지', () => {
+    const now = prepareVoiceDictionary({ history: ['창무지'], current: ['창무지'], base })
+    expect(extractVoice('16번 창무치 5만 원', { dictionary: now }).name).toBeNull()
+    expect(read('16번 창무치 5만 원', now)).toEqual([[16, null, 50_000]])
+    expect(read('16번 근무지 5만 원', now)).toEqual([[16, null, 50_000]])
+    expect(read('16번 창무지 5만 원', now)).toEqual([[16, '창무지', 50_000]])
+    expect(read('16번 창 무지 5만 원', now)).toEqual([[16, '창무지', 50_000]])
+  })
+  it('(j) 지난 방송 판매 이력의 창무지는 지금 그대로 — 0.8·한 글자 다른 이름 (current에 없음)', () => {
+    const past = prepareVoiceDictionary({ history: ['창무지'], base })
+    expect(extractVoice('16번 창무치 5만 원', { dictionary: past }).name).toBe('창무지')
+    expect(read('16번 근무지 5만 원', past)).toEqual([[16, '창무지', 50_000]])
+  })
+  it('(l) 영수증 거래명이 아닌 이름(손으로 고른 기본 사전 이름·사전 밖 이름)이 이번 방송 이름이면 지금처럼 0.8 후보', () => {
+    const now = prepareVoiceDictionary({ history: ['청사과', '몽블랑크'], current: ['청사과', '몽블랑크'], base })
+    expect(extractVoice('16번 청사가 5만 원', { dictionary: now }).name).toBe('청사과')
+    expect(extractVoice('16번 몽블랑코 5만 원', { dictionary: now }).name).toBe('몽블랑크')
+  })
+  it('기본 사전 그대로 — 이번 방송에 생긴 영수증 이름(창무지)도 적은 모양으로만', () => {
+    const now = prepareVoiceDictionary({ history: ['창무지'], current: ['창무지'] })
+    expect(extractVoice('16번 창무치 5만 원', { dictionary: now }).name).toBeNull()
+    expect(extractVoice('16번 창무지 5만 원', { dictionary: now }).name).toBe('창무지')
+  })
+})
+
 describe('재생 점수를 떨어뜨린 영수증 이름은 뺀다 (D-V3-115 (라) — 만든 문장)', () => {
   const names = new Set(file.varieties.map((item) => item.name))
   it('빛깔을 말하는 흔한 말 하나뿐인 이름(찐녹)은 없다 — 맥락 품종이 동점으로 비지 않는다 (D-V3-115 (나))', () => {
