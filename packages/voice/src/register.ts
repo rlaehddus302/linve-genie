@@ -9,7 +9,8 @@ import { closeCard, editCard, type SuggestionCard } from './card.ts'
 import type { ChunkReading } from './correction.ts'
 import { CANCEL_WORDS, CORRECTION_MARKERS, GUESS_WORD_MAX, isFiller, looksLikePredicate } from './words.ts'
 export { GUESS_FILLERS, GUESS_WORD_MAX, PREDICATE_END_CHARS, isCommonWord, looksLikePredicate } from './words.ts'
-import { ENDINGS, analyzeSentence, readingForms, type ExtractOptions, type SentenceAnalysis, type VoiceExtraction } from './extract.ts'
+import { ENDINGS, analyzeSentence, listWonLines, readingForms, type ExtractOptions, type SentenceAnalysis, type VoiceExtraction } from './extract.ts'
+import { numberInPriceNote } from './price-check.ts'
 
 // ── 품종 추측 (R-17 7, D-V3-09) ──────────────────────────────────────────
 
@@ -71,8 +72,11 @@ export interface ReadyRegistration {
   readonly numberFrom: 'marker' | 'bare'
 }
 
-/** 바로 등록하지 않는 까닭 (카드만 — 화면 문구는 화면이 정한다) */
-export type ReadyBlock = 'PRICE_TOO_HIGH' | 'BARE_NUMBER_AFTER_PRICE'
+/**
+ * 바로 등록하지 않는 까닭 (카드만 — 화면 문구는 화면이 정한다).
+ * NUMBER_IN_PRICE = 번호 숫자가 만 계수 앞에 붙은 300만 원 넘는 가격 (R-17 8, D-V3-113 — `227번 2275만 원`)
+ */
+export type ReadyBlock = 'PRICE_TOO_HIGH' | 'BARE_NUMBER_AFTER_PRICE' | 'NUMBER_IN_PRICE'
 
 /** 덩어리 하나를 V3로 읽은 결과 (화면 카드·기록용) */
 export interface RegistrationReading {
@@ -142,13 +146,23 @@ export function readRegistration(text: unknown, options: RegistrationOptions = {
     ? null
     : analysis.bareNumberAfterPrice
         ? 'BARE_NUMBER_AFTER_PRICE'
-        : null
+        : numberInPrice(analysis, extraction, options)
+          ? 'NUMBER_IN_PRICE'
+          : null
   const ready: ReadyRegistration | null =
     sure && blocked === null && numberFrom !== null
       ? // D-V3-37: 등록 품종은 사전 맞춤(name)뿐 — 추측은 카드 후보 단추(guess)로만
         { no: extraction.no as number, price: extraction.price as number, name: extraction.name, nameNeedsCheck: false, numberFrom }
       : null
   return { extraction, guess, safeGuess, numberFrom, blocked, priceSure, correction, heardNumbers: analysis.heardNumbers, heardPrices: analysis.heardPrices, wonPrices: analysis.wonPrices, ready }
+}
+
+/** 가격을 낸 원 가격 줄이 번호가 붙은 가격인가 (D-V3-113) */
+function numberInPrice(analysis: SentenceAnalysis, extraction: VoiceExtraction, options: RegistrationOptions): boolean {
+  const { no, price } = extraction
+  if (no === null || price === null) return false
+  const lines = listWonLines(analysis.tokens, options.maxNumber === undefined ? {} : { maxNumber: options.maxNumber })
+  return lines.some((line) => line.value === price && numberInPriceNote(no, analysis.tokens.slice(line.start, line.end + 1), line.value) !== null)
 }
 
 /**

@@ -9,6 +9,7 @@ import { VarietyDictionary } from './dictionary.ts'
 import { CANCEL_WORDS, CORRECTION_MARKERS, isWindowFiller, looksLikePredicate } from './words.ts'
 import { hasPriceCorrection } from './price-gate.ts'
 import { isPastPriceLine } from './past-price.ts'
+import { isSmallQuickNumber, numberInPriceNote, smallQuickNote, type SegmentCheck } from './price-check.ts'
 
 export interface SegmentOptions extends RegistrationOptions {
   /** 그 방송의 판매 규칙 price.unit — "N번 품종 수" 꼴(D-V3-48)의 수를 읽는 단위. 생략 = WON */
@@ -32,6 +33,11 @@ export interface SegmentPick {
   readonly blocked: ReadyBlock | null
   /** 크게 바뀜 (R-25, D-V3-64): 등록 가격 > 3,000,000원 — 막지 않고 기록에 표시 */
   readonly bigChange: boolean
+  /**
+   * 확정 아님 (R-17 8, D-V3-112·113): 있으면 바로 등록·바로 고치지 않는다 — 없는 번호면 제안 카드, 있는 번호면 R-22 묻기(안내 note).
+   * 천원 단위 작은 빠른 꼴(SMALL_QUICK)·번호가 붙은 가격(NUMBER_IN_PRICE). 생략·null = 확정. 중간 결과에서 기다리는 것은 화면이 정한다
+   */
+  readonly check?: SegmentCheck | null
 }
 
 export interface SegmentReading {
@@ -171,6 +177,12 @@ const skipFillers = (tokens: readonly string[], from: number): number => {
   return k
 }
 
+/** 번호가 붙은 가격이면 check를 더할 조각 (D-V3-113 — 번호·가격 차례는 보지 않는다), 아니면 빈 것 */
+function numberInPriceCheck(no: number, tokens: readonly string[], line: { readonly start: number; readonly end: number; readonly value: number | null }): { check?: SegmentCheck } {
+  const note = numberInPriceNote(no, tokens.slice(line.start, line.end + 1), line.value)
+  return note === null ? {} : { check: { kind: 'NUMBER_IN_PRICE', note } }
+}
+
 /** 덩어리 글 → 조각마다 등록 값 (R-17 8 조각, D-V3-46·48) */
 export function readSegments(text: unknown, options: SegmentOptions = {}): SegmentReading {
   try {
@@ -223,10 +235,20 @@ function readPicks(
     // 줄 뒤의 말은 보지 않는다 — 뒤에 낱말이 붙어도 이미 고른 값이 바뀌지 않게
     const firstLine = segLines[0]
     if (picks.length === 0 && firstLine !== undefined && !segMarkers.some((marker) => marker.start < firstLine.start)) {
-      const ready = readRegistration(tokens.slice(s, firstLine.end + 1).join(' '), options).ready
+      const registration = readRegistration(tokens.slice(s, firstLine.end + 1).join(' '), options)
+      const ready = registration.ready
       if (ready !== null && ready.numberFrom === 'bare') {
         pick({ no: ready.no, price: ready.price, name: ready.name, numberFrom: 'bare', priceFrom: 'won', start: s, end: firstLine.end, blocked: null, bigChange: isBigChange(null, ready.price) })
         continue
+      }
+      // 번호가 붙은 가격(D-V3-113 — `227 2275만 원`)은 확정 아님으로 고른다 (화면이 카드·묻기로)
+      const { no, price, name } = registration.extraction
+      if (registration.blocked === 'NUMBER_IN_PRICE' && registration.numberFrom === 'bare' && no !== null && price !== null) {
+        const note = numberInPriceNote(no, tokens.slice(firstLine.start, firstLine.end + 1), price)
+        if (note !== null) {
+          pick({ no, price, name, numberFrom: 'bare', priceFrom: 'won', start: s, end: firstLine.end, blocked: null, bigChange: isBigChange(null, price), check: { kind: 'NUMBER_IN_PRICE', note } })
+          continue
+        }
       }
     }
     if (segMarkers.length === 0) break
@@ -249,7 +271,7 @@ function readPicks(
       // (R-17 8 "사전 이름도 흔한 말 별칭도 못 찾았으면", D-V3-92 `89번 녹금 녹색금` → 비움 — 녹색금이 창색금과 한 글자 다르다)
       const heardName = reading.reading.extraction.name === null && hearsDictionaryName(tokens.slice(lo, line.end + 1), options)
       const name = reading.reading.extraction.name ?? (heardName ? null : (commonAliasIn(slot, options) ?? oneSyllableName(slot, options, true)))
-      pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: null, bigChange: isBigChange(null, line.value) })
+      pick({ no: m.value, price: line.value, name, numberFrom: 'marker', priceFrom: 'won', start: m.start, end: line.end, blocked: null, bigChange: isBigChange(null, line.value), ...numberInPriceCheck(m.value, tokens, line) })
       continue
     }
     // 2. "N번 품종 수" (D-V3-48): 표시 → (군말) 사전 품종 → 수 → 조각 끝
@@ -285,7 +307,20 @@ function readPicks(
       const sino = /^[일이삼사오육칠팔구십백천]+$/.test(numberToken) ? parseKoreanNumber(numberToken) : null
       const price = parseAmount(sino === null ? numberToken : String(sino), { 'price.unit': unit })
       if (price === null || price < 100) continue
-      quick = { no: m.value, price, name: name?.name ?? null, numberFrom: 'marker', priceFrom: 'quick', start: m.start, end: stop - 1, blocked: null, bigChange: isBigChange(null, price) }
+      // 천원 단위의 1~2자리 수는 확정 아님 (D-V3-112 — 판매자마다 만원·천원 습관이 달라 10배 틀린 가격이 바로 들어갈 수 있다)
+      const small = isSmallQuickNumber(numberToken, unit)
+      quick = {
+        no: m.value,
+        price,
+        name: name?.name ?? null,
+        numberFrom: 'marker',
+        priceFrom: 'quick',
+        start: m.start,
+        end: stop - 1,
+        blocked: null,
+        bigChange: isBigChange(null, price),
+        ...(small ? { check: { kind: 'SMALL_QUICK', note: smallQuickNote(price) } } : {}),
+      }
       break
     }
     if (quick !== null) {
@@ -300,7 +335,7 @@ function readPicks(
         const m = segMarkers.find((marker) => marker.start > r.end) as (typeof segMarkers)[number]
         if (!m.split && m.value <= maxNumber && !correctionBetween(s, m.last)) {
           const reading = analyzeSentence(tokens.slice(s, m.last + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
-          pick({ no: m.value, price: r.value, name: reading.reading.extraction.name, numberFrom: 'marker', priceFrom: 'won', start: s, end: m.last, blocked: null, bigChange: isBigChange(null, r.value) })
+          pick({ no: m.value, price: r.value, name: reading.reading.extraction.name, numberFrom: 'marker', priceFrom: 'won', start: s, end: m.last, blocked: null, bigChange: isBigChange(null, r.value), ...numberInPriceCheck(m.value, tokens, r) })
           continue
         }
       }

@@ -50,8 +50,15 @@ describe('AC-V3-52 조각 소비 (R54~R60)', () => {
 
 describe('AC-V3-53 "N번 품종 수" (R61~R64, D-V3-48)', () => {
   const thousand: SegmentOptions = { priceUnit: 'THOUSAND' }
-  it('R61 천원 단위 "92번 빅뱅 60"(최종) → 92번 빅뱅 60,000원', () => {
-    expect(seg('92번 빅뱅 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, name: '빅뱅', price: 60000, priceFrom: 'quick' }])
+  // D-V3-112: 천원 단위 1~2자리 수는 확정 아님 — 처음 기대 "바로 60,000원"을 바꿈(표 R61). 값은 그대로 읽고 check로 카드·묻기
+  it('R61 천원 단위 "92번 빅뱅 60"(최종) → 92번 빅뱅 60,000원, 확정 아님(카드 안내 "60,000원으로 들렸어요. 가격을 확인해 주세요")', () => {
+    expect(seg('92번 빅뱅 60', { ...thousand, final: true }).picks).toMatchObject([
+      { no: 92, name: '빅뱅', price: 60000, priceFrom: 'quick', check: { kind: 'SMALL_QUICK', note: '60,000원으로 들렸어요. 가격을 확인해 주세요' } },
+    ])
+    // 자동·만원 단위는 그대로 바로 600,000원
+    expect(seg('92번 빅뱅 60', { priceUnit: 'AUTO', final: true }).picks).toMatchObject([{ no: 92, price: 600000 }])
+    expect(seg('92번 빅뱅 60', { priceUnit: 'AUTO', final: true }).picks[0]?.check ?? null).toBeNull()
+    expect(seg('92번 빅뱅 60', { priceUnit: 'TEN_THOUSAND', final: true }).picks[0]?.check ?? null).toBeNull()
   })
   it('R62 중간 결과 "92번 빅뱅 60"은 기다리고, 최종 "92번 빅뱅 60만 원"은 600,000원', () => {
     expect(seg('92번 빅뱅 60', thousand).picks).toEqual([])
@@ -63,8 +70,10 @@ describe('AC-V3-53 "N번 품종 수" (R61~R64, D-V3-48)', () => {
   // D-V3-63: 품종 없이도 'N번' 바로 뒤 수가 조각 끝이고 final이면 확정 (R64 처음 기대 "확정 아님"을 바꿈)
   it('품종 없는 빠른 꼴: final일 때만, 뒤에 단위 낱말이면 아님', () => {
     const tenThousand: SegmentOptions = { priceUnit: 'TEN_THOUSAND' }
-    expect(seg('92번 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000, name: null, priceFrom: 'quick' }])
-    expect(seg('92번 저거 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000 }])
+    // D-V3-112: 천원 단위 1~2자리라 확정 아님 — 표 R64 앞 기대 "바로 60,000원"을 바꿈
+    expect(seg('92번 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000, name: null, priceFrom: 'quick', check: { kind: 'SMALL_QUICK' } }])
+    expect(seg('92번 저거 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000, check: { kind: 'SMALL_QUICK' } }])
+    expect(seg('92번 60', { ...tenThousand, final: true }).picks[0]?.check ?? null).toBeNull()
     expect(seg('육십팔번 이십오', { ...tenThousand, final: true }).picks).toMatchObject([{ no: 68, price: 250000, name: null }])
     expect(seg('육십팔번 이십오', tenThousand).picks).toEqual([])
     expect(seg('68번 이십오 자 요거', { ...tenThousand, final: true }).picks).toMatchObject([{ no: 68, price: 250000 }])

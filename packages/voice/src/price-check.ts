@@ -1,0 +1,60 @@
+// 확정 아닌 조각 (DOMAIN_RULES R-17 8, D-V3-112·113): 번호와 가격은 짝지었지만 바로 등록·바로 고치지 않고 카드·묻기로 보낼 까닭과 안내 글.
+// 순수 함수: 시계·난수를 쓰지 않고 어떤 입력에도 예외를 던지지 않는다.
+import { formatWon, parseKoreanNumber, type PriceUnit } from '@livejjim/core'
+
+/** 크게 바뀜 선 (R-25 — register.ts AUTO_REGISTER_PRICE_MAX와 같은 값, 서로 불러오지 않게 따로 둔다) */
+const BIG_PRICE = 3_000_000
+
+/**
+ * 확정 아닌 까닭 (화면은 이 조각을 바로 등록하지 않는다 — 없는 번호면 제안 카드, 있는 번호면 R-22 묻기)
+ * - SMALL_QUICK: 천원 단위 방송의 원 없는 빠른 꼴 수가 1~2자리 (D-V3-112) — 카드 가격 칸 = 읽은 값
+ * - NUMBER_IN_PRICE: 번호 숫자가 만 계수 앞에 붙은 300만 원 넘는 가격 (D-V3-113) — 카드 가격 칸 비움
+ */
+export interface SegmentCheck {
+  readonly kind: 'SMALL_QUICK' | 'NUMBER_IN_PRICE'
+  /** 카드·묻기에 보일 안내 글 */
+  readonly note: string
+}
+
+/** 천원 단위 작은 빠른 꼴 안내 (D-V3-112): "17,000원으로 들렸어요. 가격을 확인해 주세요" */
+export const smallQuickNote = (price: number): string => `${formatWon(price)}으로 들렸어요. 가격을 확인해 주세요`
+
+/**
+ * D-V3-112: 빠른 꼴 수 토큰(판매 말투 뗀 것)이 천원 단위에서 1~2자리 수인가.
+ * 수 = 숫자(쉼표·소수점 꼴 포함, 정수부를 본다) 또는 `천`·`만` 없는 한글 수의 R-15 값. 단위 낱말이 붙은 말(`6만`·`5천`)은 아니다.
+ */
+export function isSmallQuickNumber(numberToken: string, unit: PriceUnit): boolean {
+  if (unit !== 'THOUSAND') return false
+  if (/^[0-9][0-9,]*(\.[0-9]+)?$/.test(numberToken)) {
+    const whole = (numberToken.split('.')[0] as string).split(',').join('')
+    const value = Number(whole)
+    return Number.isSafeInteger(value) && value >= 0 && value <= 99
+  }
+  if (/^[일이삼사오육칠팔구십백]+$/.test(numberToken)) {
+    const value = parseKoreanNumber(numberToken)
+    return value !== null && value >= 0 && value <= 99
+  }
+  return false
+}
+
+/**
+ * D-V3-113 번호가 붙은 가격: 원 가격 줄 글(토큰을 공백 없이 이은 것)의 만 계수가 숫자이고, 번호 no의 숫자로 시작하면서 더 길고,
+ * 읽은 값이 3,000,000원을 넘으면 안내 글, 아니면 null. 한글 계수(`이천이백칠십오만`)는 보지 않는다.
+ * 안내: "2275만 원으로 들렸어요. 227번 5만 원인지 확인해 주세요" (뒤 가격 = 만 계수에서 번호 숫자를 뗀 나머지 + 만 — 안내 글뿐)
+ */
+export function numberInPriceNote(no: number, lineTokens: readonly string[], value: number | null): string | null {
+  if (value === null || !Number.isSafeInteger(value) || value <= BIG_PRICE) return null
+  if (!Number.isSafeInteger(no) || no < 1) return null
+  const joined = lineTokens.join('')
+  const match = /^([0-9][0-9,]*)만/.exec(joined)
+  if (match === null) return null
+  const coefficient = (match[1] as string).split(',').join('')
+  const head = String(no)
+  if (!/^[0-9]+$/.test(coefficient) || coefficient.length <= head.length || !coefficient.startsWith(head)) return null
+  const restOfLine = value - Number(coefficient) * 10_000
+  const heard = restOfLine > 0 && Number.isSafeInteger(restOfLine) ? `${coefficient}만 ${formatWon(restOfLine)}` : `${coefficient}만 원`
+  const left = Number(coefficient.slice(head.length))
+  // 나머지가 0이면(`2270만` ← 227) 뒤 가격을 지어내지 않는다 — 가격만 확인해 달라고 한다
+  if (left === 0) return `${heard}으로 들렸어요. ${head}번 가격을 확인해 주세요`
+  return `${heard}으로 들렸어요. ${head}번 ${String(left)}만 원인지 확인해 주세요`
+}
