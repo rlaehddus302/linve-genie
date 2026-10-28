@@ -9,7 +9,7 @@ import { FolderBackupStorage, backupDigest, checkBackupBytes, createBackupBytes,
 import { randomIds } from '../src/ids.ts'
 import { kst } from './i2-support.ts'
 import { client, createBroadcast, dumpAllTables, fakeClock, rid, writeEvent } from './support.ts'
-import { ADDRESS, D, SENDER, attempts, bookOk, dayRows, expect200, makeReady, packAll, parcelApi, parcelSeller, parcelWorld, pay, rowOf, sell } from './t1-support.ts'
+import { ADDRESS, D, SENDER, attempts, bookOk, dayRows, expect200, expectNoSecret, makeReady, packAll, parcelApi, parcelSeller, parcelWorld, pay, rowOf, sell } from './t1-support.ts'
 
 const BAD = { name: '홍길동', phone: 'abc', address: '', detail: '', zip: '12', memo: '' }
 
@@ -42,7 +42,7 @@ describe('AC-T1-02 배송지 저장은 암호문뿐', () => {
     const api = parcelApi(world, seller.cookie)
     await expect200(api.putAddress('UC_A', { ...ADDRESS, phone: '01012345678' }))
     const dump = await dumpAllTables(world.database)
-    for (const text of ['홍길동', '01012345678', '010-1234-5678', '세종대로', '101동', '문 앞에', SENDER.address, '031-123-4567', '0311234567', '다육이네']) expect(dump, text).not.toContain(text)
+    for (const text of ['홍길동', '01012345678', '010-1234-5678', '세종대로', '101동', '문 앞에', SENDER.address, '031-123-4567', '0311234567', '다육이네']) expectNoSecret(dump, text)
     const columns = await world.database.pglite?.query<{ column_name: string }>(`select column_name from information_schema.columns where table_name = 'parcel_addresses' order by ordinal_position`)
     expect(columns?.rows.map((row) => row.column_name)).toEqual(['id', 'seller_id', 'date', 'buyer', 'sealed', 'source', 'confirmed', 'confirmed_by', 'updated_at', 'updated_by'])
     // 암호문을 B의 행으로 옮긴다 → 풀리지 않고 배송지 없음
@@ -273,7 +273,7 @@ describe('AC-T1-06 백업·전체 기록·복구', () => {
     expect(sealedValues).toHaveLength(3)
     const bytes = await createBackupBytes(world.database.db, seller.sellerId, world.clock.now())
     const text = gunzipSync(bytes).toString('utf8')
-    for (const value of ['홍길동', '01012345678', '세종대로', '101동', '문 앞에', '04524', ...sealedValues.map((value) => value.split('.')[2] as string)]) expect(text, value).not.toContain(value)
+    for (const value of ['홍길동', '01012345678', '세종대로', '101동', '문 앞에', '04524', ...sealedValues.map((value) => value.split('.')[2] as string)]) expectNoSecret(text, value)
     // 접수 기록은 (날짜, 구매자, 택배사, 송장번호, 상태, 시각)만 — 접수한 것·취소한 것 모두 (SA-T1-01, D-T1-07)
     const file = JSON.parse(text) as BackupFile
     const invoiceA = (await attempts(world, seller.sellerId, 'UC_A'))[0]?.invoice as string
@@ -356,7 +356,7 @@ describe('AC-T1-23 설정 "택배"', () => {
     const saved = await expect200(api.putSettings({ carrier: 'FAKE', customerNo: 'CUST-998877', sender: SENDER, box: '중' }))
     expect(saved.body.settings).toMatchObject({ carrier: 'FAKE', customerNoLast4: '8877', sender: { ...SENDER, phone: '0311234567' }, box: '100' }) // FB1 D-FB1-05 옛 낱말 중 → 100
     const dump = await dumpAllTables(world.database)
-    for (const value of ['CUST-998877', '998877', '다육이네', '효원로', '0311234567']) expect(dump, value).not.toContain(value)
+    for (const value of ['CUST-998877', '998877', '다육이네', '효원로', '0311234567']) expectNoSecret(dump, value)
     // 고객 번호를 적지 않으면 그대로, 빈 글이면 지운다
     expect((await expect200(api.putSettings({ box: '대' }))).body.settings).toMatchObject({ customerNoLast4: '8877', box: '120' }) // FB1 D-FB1-05 옛 낱말 대 → 120
     expect((await expect200(api.putSettings({ customerNo: '' }))).body.settings).toMatchObject({ customerNoLast4: null })

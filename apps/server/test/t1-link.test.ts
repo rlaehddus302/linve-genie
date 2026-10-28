@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { linkApi, openLink, tokenOf } from './n4b-support.ts'
 import { ORIGIN, client, rid, type Seller, type TestServer } from './support.ts'
-import { ADDRESS, D, bookOk, expect200, makeReady, parcelApi, parcelSeller, parcelWorld, sell, type ParcelWorld } from './t1-support.ts'
+import { ADDRESS, D, bookOk, expect200, expectNoSecret, makeReady, parcelApi, parcelSeller, parcelWorld, sell, type ParcelWorld } from './t1-support.ts'
 
 async function linkFor(world: TestServer, seller: Seller, buyer: string, date = D): Promise<string> {
   const created = await linkApi(world, seller.cookie).create(date, buyer)
@@ -83,7 +83,7 @@ describe('AC-T1-11 구매자가 적기', () => {
     const page = await openLink(world, `/r/${token}`)
     expect(page.text).toContain('배송지를 받았어요')
     expect(page.text).toContain('받는 분 홍길동 · 연락처 끝 5678')
-    for (const hidden of ['세종대로', '101동', '문 앞에', '01012345678', '010-1234-5678', '04524']) expect(page.text, hidden).not.toContain(hidden)
+    for (const hidden of ['세종대로', '101동', '문 앞에', '01012345678', '010-1234-5678', '04524']) expectNoSecret(page.text, hidden)
     const bundle = await expect200(parcelApi(world, seller.cookie).bundle('UC_A'))
     expect(bundle.body.bundle).toMatchObject({ address: { source: 'BUYER', confirmed: false, name: '홍길동' } })
     const edit = await openLink(world, `/r/${token}?edit=1`)
