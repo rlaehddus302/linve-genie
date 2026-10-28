@@ -872,6 +872,10 @@ export class VoiceController {
   readonly #priceHeard = new Map<number, readonly HeardPrice[]>()
   /** 덩어리 차례 (조각 이름 — 같은 조각을 다시 읽은 것은 한 번) */
   #chunkSeq = 0
+  /** 크롬 결과 차례: 최종 결과를 하나 받을 때마다 하나 늘린다 — 그 사이의 중간 결과·굳은 글·그 최종 글은 같은 크롬 결과다 (#rereadFragment) */
+  #resultEpoch = 0
+  /** 가격 고침 문턱 조각 이름 → 처음 들은 크롬 결과 차례 (최근 100개) */
+  readonly #fragmentEpoch = new Map<string, number>()
   /** 이 덩어리에서 가격 고침 문턱에 넘긴 번호·새 가격·조각 (D-V3-94 ㄷ — 15초·300글자로 끊기면 다음 덩어리 첫 조각이 이어 받는다) */
   #gateSeen: { readonly no: number; readonly price: number; readonly fragment: string }[] = []
   /** 15초(max)·300글자(long)로 끊긴 바로 앞 덩어리의 #gateSeen — seq 덩어리의 첫 조각에서만 쓴다 */
@@ -1233,6 +1237,7 @@ export class VoiceController {
       this.#finalPrices = null
       this.#join = null
       this.#prevResult = { text: result.text, at: this.#host.now() }
+      this.#resultEpoch++
     }
     this.#set({ ...label, interim: null, heard, ...this.#finishWork(work, module) })
   }
@@ -1352,9 +1357,10 @@ export class VoiceController {
 
   /**
    * 번호 없이 가격만 고쳐 말함 (음성 패키지 priceOnlyFix, 실방송 "309번 … 55만 원" 뒤 "50만 원"): 마지막 음성 등록 30초 안·그 뒤 다른 번호 없음·원 가격 하나면
-   * 그 상품을 같은 번호 규칙으로 — 찜 0이면 바로 고침(되돌리기), 찜이 있으면 묻기. key로 한 번만
+   * 그 상품을 같은 번호 규칙으로 — 찜 0이면 바로 고침(되돌리기), 찜이 있으면 묻기. key로 한 번만.
+   * heardAt = 그 글을 들은 시각(덩어리 끝에서 다시 읽을 때). 마지막 음성 등록이 그 뒤면 등록 "뒤"에 한 말이 아니다 — 고치지 않는다 (D-V3-84 (ㄱ) "마지막 음성 새 등록 뒤")
    */
-  #priceOnly(work: CardWork, module: VoiceModule, rest: string, key: string): InstantDone | null {
+  #priceOnly(work: CardWork, module: VoiceModule, rest: string, key: string, heardAt?: number): InstantDone | null {
     if (typeof module.priceOnlyFix !== 'function' || rest.trim() === '') return null
     // 이미 이 글로 같은 번호 규칙을 했다(최종 결과가 왔을 때) — 덩어리 끝에 V2 "방금 등록한 …을 고칠까요?" 카드를 또 내지 않게 처리한 것으로 돌려준다
     // (D-V3-109: 번호 없는 정정 덩어리는 할 일 하나 — (ㄱ)이 맞으면 R-22만)
@@ -1362,6 +1368,9 @@ export class VoiceController {
     const rr = this.#readRegistration(module, rest, true)
     if (rr === null) return null
     const last = this.#voiceRegistered.at(-1) ?? null
+    // 실방송 재생 경성 45번: 번호 없이 지난 가격(8만 원)과 정정 낱말이 든 최종 글 뒤에 "45번 7만 원"으로 등록했고, 다음 결과가 앞 덩어리를 끊자
+    // 덩어리 끝에서 그 앞 글을 다시 읽어 방금 등록한 45번을 80,000원으로 고쳤다 — 등록보다 먼저 한 말은 그 상품의 가격만 고쳐 말함이 아니다
+    if (last !== null && heardAt !== undefined && Number.isFinite(heardAt) && last.at > heardAt) return null
     const found = last === null ? null : this.#existingOf(last.no)
     const existing = found === null || found === 'closed' ? null : found
     let fix: ReturnType<VoiceModule['priceOnlyFix']>
@@ -1396,12 +1405,12 @@ export class VoiceController {
     return done
   }
 
-  /** 조각 읽기에서 마지막 조각 뒤 남은 글(조각이 없으면 글 전체)을 가격만 고쳐 말함으로 본다 — 남은 글의 첫 토큰 위치로 한 번만 */
-  #priceOnlyRest(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string): InstantDone | null {
+  /** 조각 읽기에서 마지막 조각 뒤 남은 글(조각이 없으면 글 전체)을 가격만 고쳐 말함으로 본다 — 남은 글의 첫 토큰 위치로 한 번만. heardAt은 #priceOnly */
+  #priceOnlyRest(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, heardAt?: number): InstantDone | null {
     const rest = seg.picks.length === 0 ? whole : seg.rest
     if (rest.trim() === '') return null
     const start = seg.picks.length === 0 ? 0 : (seg.picks.at(-1)?.end ?? -1) + 1
-    return this.#priceOnly(work, module, rest, `price@${String(start)}`)
+    return this.#priceOnly(work, module, rest, `price@${String(start)}`, heardAt)
   }
 
   /**
@@ -1575,6 +1584,28 @@ export class VoiceController {
     const carry = this.#gateCarry
     if (!first || price === null || carry === null || carry.seq !== this.#chunkSeq) return own
     return carry.items.findLast((item) => item.no === no && item.price === price)?.fragment ?? own
+  }
+
+  /**
+   * 같은 말을 다시 읽음 (R-22 4 (나) "같은 조각을 다시 읽은 것은 한 번", D-V3-83): 이 덩어리에서 그 번호·같은 새 가격을 다른 조각 이름으로 이미 들었는데
+   * 그것이 지금과 **같은 크롬 결과**(그 사이 최종 결과가 없음)이고 지금 덩어리 글에 그 번호·그 가격 조각이 하나뿐이면, 크롬이 중간 결과를 고쳐 써
+   * 조각 자리가 옮겨진 같은 말이다 — 앞 조각 이름을 이어 받아 한 번으로 센다.
+   * (실방송 경성 63번: 110,000원 등록 뒤 한 번 말한 "63번 … 만 원"이 중간 결과 두 모양(자리 둘로 갈림 → 한 자리로 합침)으로 두 번 읽혀 10,000원으로 바로 고쳐지던 것)
+   * 다른 크롬 결과에서 다시 들렸거나(판매자가 다시 말함) 글에 그 조각이 둘 이상이면 그대로 두 조각이다
+   */
+  #rereadFragment(no: number, price: number | null, fragment: string, repeats: number): string {
+    const epoch = this.#resultEpoch
+    let picked = fragment
+    const prefix = `${String(this.#chunkSeq)}:`
+    if (price !== null && repeats < 2 && fragment.startsWith(prefix)) {
+      const earlier = (this.#priceHeard.get(no) ?? []).findLast((item) => item.price === price && item.fragment !== fragment && item.fragment.startsWith(prefix) && this.#fragmentEpoch.get(item.fragment) === epoch)
+      if (earlier !== undefined) picked = earlier.fragment
+    }
+    if (!this.#fragmentEpoch.has(picked)) {
+      this.#fragmentEpoch.set(picked, epoch)
+      if (this.#fragmentEpoch.size > 100) this.#fragmentEpoch.delete(this.#fragmentEpoch.keys().next().value as string)
+    }
+    return picked
   }
 
   #clearPhraseTimer(): void {
@@ -2566,7 +2597,8 @@ export class VoiceController {
         const said = pick.start >= 0 && seg.tokens.length > pick.end && typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(seg.tokens.slice(from, pick.end + 1).join(' '))
         // 덩어리 첫 조각 = 조각 읽기의 첫 조각, 또는 이 덩어리에서 아직 다룬 번호가 없을 때의 중간 후보(start -1)
         const first = raw.start < 0 ? this.#instantNos.size === 1 : index === 0
-        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false, { fragment: this.#gateFragment(pick.no, pick.price, key, first), correction: said })
+        const repeats = seg.picks.filter((item) => item.no === raw.no && item.price === raw.price).length
+        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false, { fragment: this.#rereadFragment(pick.no, pick.price, this.#gateFragment(pick.no, pick.price, key, first), repeats), correction: said })
       }
       const read = { no: pick.no, name: pick.name, price: pick.price, candidates: [] }
       const reason = zeroNote === null ? done.reason : done.reason === null ? zeroNote : `${done.reason} · ${zeroNote}`
@@ -2710,6 +2742,11 @@ export class VoiceController {
   #segmentsChunk(work: CardWork, module: VoiceModule, chunk: PhraseChunk): InstantDone | null {
     const seg = this.#readSegments(module, chunk.text, true)
     if (seg === null || chunk.text.includes('문자찜')) return null
+    // 남은 글(덩어리 끝)을 들은 시각 = 마지막 조각 시각. 이 덩어리 끝 읽기 전에 그보다 늦게 한 음성 등록은 그 글 "뒤"의 등록이다 (#priceOnly).
+    // 이 덩어리 끝에서 새로 한 등록(남은 글보다 앞 말)은 그대로 받는다
+    const lastPiece = chunk.pieces.at(-1)?.at
+    const regBefore = this.#voiceRegistered.at(-1) ?? null
+    const restAt = (): number | undefined => (lastPiece !== undefined && regBefore !== null && this.#voiceRegistered.at(-1) === regBefore ? lastPiece : undefined)
     // 최종 글에서 그 번호의 가격이 사라졌으면 1초 넘게 보였던 중간 후보로 (D-V3-71 (ㄴ))
     const seen = this.#interimSeen
     this.#interimSeen = []
@@ -2721,9 +2758,9 @@ export class VoiceController {
         if (seg.picks.length === 0) return { action: 'create', reason: LOG_INTERIM, readout: work.readout?.text ?? null }
       }
     }
-    if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text) ?? this.#priceOnlyRest(work, module, seg, chunk.text) ?? this.#markerCorrection(work, module, seg, chunk.text) ?? this.#nameOnly(work, module, chunk.text, 'name@0')
+    if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text) ?? this.#priceOnlyRest(work, module, seg, chunk.text, restAt()) ?? this.#markerCorrection(work, module, seg, chunk.text) ?? this.#nameOnly(work, module, chunk.text, 'name@0')
     this.#runPicks(work, module, seg, chunk.text, true)
-    const fixedPrice = this.#priceOnlyRest(work, module, seg, chunk.text) ?? this.#markerCorrection(work, module, seg, chunk.text)
+    const fixedPrice = this.#priceOnlyRest(work, module, seg, chunk.text, restAt()) ?? this.#markerCorrection(work, module, seg, chunk.text)
     if (fixedPrice !== null) return fixedPrice
     const restStart = (seg.picks.at(-1)?.end ?? -1) + 1
     const filled = seg.rest.trim() === '' ? null : this.#nameOnly(work, module, seg.rest, `name@${String(restStart)}`)
