@@ -11,6 +11,10 @@ import { DROPPED_ZERO_NEAR, fixDroppedZero, hasPriceCorrection, prepareVoiceDict
 import fc from 'fast-check'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// 화면처럼 같은 상품 이름 목록을 돌려준다(ConsolePage useMemo — 상품이 바뀔 때만 새 목록). 부를 때마다 새 목록이면 컨트롤러가 사전을
+// 매번 다시 만든다(#prepared는 목록이 같을 때만 다시 씀) — 사전이 1,082개로 커진 뒤(D-V3-115) 시험이 느려진 틀 문제. 단언은 그대로.
+const NO_NAMES: readonly string[] = []
+
 const CONTROLLER_MODULE = '../../../apps/web/src/voice/controller.ts'
 const T0 = Date.UTC(2026, 9, 27, 1, 0, 0)
 const DICT = prepareVoiceDictionary()
@@ -63,7 +67,7 @@ async function harness(priceUnit: 'WON' | 'THOUSAND' = 'WON') {
     now: () => Date.now(),
     maxNumber: () => 999,
     priceUnit: () => priceUnit,
-    currentNames: () => [],
+    currentNames: () => NO_NAMES,
     products: () => new Map([...board].map(([no, p]) => [no, p.closed])),
     fetchHistory: async () => [],
     dialogOpen: () => false,
@@ -349,8 +353,20 @@ describe('짧은 이름은 적은 모양으로만 (exactOnly) · 이름 끝 색�
     ['창색급', '창색금'],
     ['3강색급', '삼광색금'],
     ['상관세금', '삼광색금'],
-    ['몰디브 색급', '몰디브'],
+    // 스펙 바뀜 (D-V3-115·116, DOMAIN_RULES R-17 5 꾸밈말 '받아쓰기 오류 모양'·v0.1.46): 기본 사전에 판매 영수증 거래명 '몰디브색금'이 들어왔다.
+    // 붙인 '…색금'이 사전에 있으면 그 이름이므로 이제 '몰디브색금'(처음 기대 '몰디브'는 몰디브색금이 없던 사전 — AC-V3-84 (a)의 전제). 사전 밖 쪽은 아래 만든 이름으로 지킨다.
+    ['몰디브 색급', '몰디브색금'],
   ])('이름 끝 색급: "15번 %s 만원" → %s', (word, name) => {
     expect(nameOf(`15번 ${word} 만원`)).toBe(name)
+  })
+
+  // 이 사례가 지키던 것(R-17 5 꾸밈말 — 오류 모양 '색급'은 붙인 이름이 사전에 있을 때만 '색금'으로 붙임, D-V3-87 끝 색급도 사전에 없으면 아무것도 안 함):
+  // 기본 사전 + 판매 이력에만 있는 만든 이름 '달빛여울'(기본 사전에 '달빛여울색금' 없음)로 본다. 사전 밖 '달빛여울색금'을 지어내지 않고 들린 사전 이름 그대로.
+  it.each([
+    ['달빛여울 색급', '달빛여울'],
+    ['달빛여울 색금', '달빛여울색금'],
+  ])('사전 밖 X색금: "15번 %s 만원" → %s (붙인 오류 모양은 사전에 있을 때만)', (word, name) => {
+    const dictionary = prepareVoiceDictionary({ history: ['달빛여울'] })
+    expect(readRegistration(`15번 ${word} 만원`, { dictionary, final: true }).ready?.name).toBe(name)
   })
 })
