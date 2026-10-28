@@ -377,9 +377,11 @@ function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voic
       </>
     )
   } else if (offer.kind === 'offer' && offer.stage !== 'fixed') {
+    // 고칠 값 칸이 빈 묻기(D-V3-114 (2)): 값을 적어야 [고치기]가 눌린다
+    const blank = offer.priceEntry !== undefined && offer.priceEntry.trim() === ''
     actions = (
       <>
-        <button type="button" className="button button-primary" disabled={busy} onClick={() => void voice.fixOffer(offer.id)}>
+        <button type="button" className="button button-primary" disabled={busy || blank} onClick={() => void voice.fixOffer(offer.id)}>
           고치기
         </button>
         <button type="button" className="button" disabled={busy} onClick={() => voice.dismissOffer(offer.id)}>
@@ -423,6 +425,24 @@ function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voic
           <strong>{offer.message}</strong>
         </p>
         {offer.note !== undefined ? <p className="hint">{offer.note}</p> : null}
+        {offer.priceEntry !== undefined && offer.stage !== 'fixed' ? (
+          <label className="field">
+            <span>고칠 가격</span>
+            <input
+              className="input"
+              inputMode="numeric"
+              autoComplete="off"
+              value={offer.priceEntry}
+              disabled={busy}
+              onChange={(event) => voice.setOfferPrice(offer.id, event.target.value)}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.key !== 'Enter') return
+                event.preventDefault()
+                void voice.fixOffer(offer.id)
+              }}
+            />
+          </label>
+        ) : null}
         {offer.error !== null ? (
           <p className="field-error" role="alert">
             {offer.error}

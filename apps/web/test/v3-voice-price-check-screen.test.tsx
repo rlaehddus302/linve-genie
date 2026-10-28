@@ -1,9 +1,10 @@
 // AC-V3-98 (9)·(10) 화면: 천원 단위 작은 빠른 꼴(D-V3-112)의 카드 안내·가격 칸 고쳐 등록, 손 빠른 입력은 그대로.
-// AC-V3-99 (1) 화면: 번호가 붙은 가격(D-V3-113)은 가격 칸이 빈 카드. 실제 코어로 도는 가짜 서버 + 가짜 인식 객체.
+// AC-V3-99 (1)·(7) 화면: 번호가 붙은 가격(D-V3-113)은 가격 칸이 빈 카드, 있는 번호면 고칠 값 칸이 빈 고칠까요 카드(D-V3-114 (2)). 실제 코어로 도는 가짜 서버 + 가짜 인식 객체.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
+import { register } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
 import { FakeEventSource, flush } from './support.ts'
 
@@ -88,6 +89,7 @@ async function turnOnVoice(firstTime = true) {
 const sleep = (ms: number) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
 /** 조용한 시간(기본 1.8초)이 지나야 최종 결과를 한 덩어리로 읽는다 (D-V2-03, AC-V2-32 — 기대 글은 그대로) */
 const quiet = () => sleep(1850)
+const updates = () => engine.posts.filter((post) => post.type === 'product.update').map((post) => [post.no, post.name, post.price])
 const registers = () => engine.posts.filter((post) => post.type === 'product.register').map((post) => [post.no, post.name, post.price])
 const pressEnter = (input: HTMLElement) => fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -141,4 +143,38 @@ describe('AC-V3-99 화면 (D-V3-113)', () => {
     expect(within(card).getByText('2275만 원으로 들렸어요. 227번 5만 원인지 확인해 주세요')).toBeDefined()
     expect(registers()).toEqual([])
   }, 15_000)
+
+  it('(7) 227번(50,000원)이 있으면 고칠까요 카드: 지금 가격만 보이고 고칠 값 칸은 비어 [고치기]가 눌리지 않음, 값을 넣으면 그 값으로 고침', async () => {
+    setup([register(227, '', 50000)])
+    await openConsole()
+    await turnOnVoice()
+    FakeRecognition.say('자 2275만 원 자 227번이고요')
+    await quiet()
+    const offer = await screen.findByRole('listitem', { name: '227번을 고칠까요? 지금 가격 50,000원' })
+    expect(within(offer).getByText('2275만 원으로 들렸어요. 227번 5만 원인지 확인해 주세요')).toBeDefined()
+    const field = within(offer).getByLabelText('고칠 가격') as HTMLInputElement
+    expect(field.value).toBe('')
+    const fix = within(offer).getByRole('button', { name: '고치기' }) as HTMLButtonElement
+    expect(fix.disabled).toBe(true)
+    expect(offer.textContent).not.toContain('22,750,000')
+    fireEvent.change(field, { target: { value: '60' } })
+    await waitFor(() => expect((within(offer).getByRole('button', { name: '고치기' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(within(offer).getByRole('button', { name: '고치기' }))
+    await waitFor(() => expect(updates()).toEqual([[227, undefined, 60000]]))
+    expect(registers()).toEqual([])
+  }, 20_000)
+
+  it('(7) [그대로 두기]면 쓰기 0', async () => {
+    setup([register(227, '', 50000)])
+    await openConsole()
+    await turnOnVoice()
+    FakeRecognition.say('자 2275만 원 자 227번이고요')
+    await quiet()
+    const offer = await screen.findByRole('listitem', { name: '227번을 고칠까요? 지금 가격 50,000원' })
+    fireEvent.click(within(offer).getByRole('button', { name: '그대로 두기' }))
+    await waitFor(() => expect(screen.queryByRole('listitem', { name: '227번을 고칠까요? 지금 가격 50,000원' })).toBeNull())
+    await flush(10)
+    expect(updates()).toEqual([])
+    expect(registers()).toEqual([])
+  }, 20_000)
 })

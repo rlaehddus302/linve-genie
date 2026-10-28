@@ -110,6 +110,7 @@ import {
   LOG_BARE_OFF_RUN,
   alreadyReadout,
   askMessage,
+  askPriceMessage,
   fixedMessage,
   fixingMessage,
   otherNumberMessage,
@@ -360,6 +361,11 @@ export interface VoiceOffer {
   readonly cardNameCheck?: boolean
   readonly message: string
   readonly changes: { readonly name?: string; readonly price?: number }
+  /**
+   * 고칠 가격을 판매자가 적는 묻기 카드 (D-V3-114 (2) — 번호가 붙은 가격): 적은 글(처음엔 빈 칸). 있으면 changes는 비어 있고,
+   * [고치기]는 적은 값을 그 방송 가격 단위로 읽어 고친다 — 비었거나 읽지 못하면 쓰지 않는다
+   */
+  readonly priceEntry?: string
   /** ask = 묻는 중, busy = 보내는 중, fixed = 고침(되돌리기 보임) */
   readonly stage: 'ask' | 'busy' | 'fixed'
   /** 고친 앞 값 (되돌리기) */
@@ -512,6 +518,8 @@ interface PendingInstant {
     readonly fragment?: string
     /** 바로 고치지 않고 이 까닭 줄로 묻는다 (중간·최종 가격 다름, D-V3-103) */
     readonly askNote?: string
+    /** 묻기 카드의 고칠 값 칸을 비운다 (번호가 붙은 가격, D-V3-114 (2)) */
+    readonly askBlank?: true
   }
   /** 등록이 끝나면 되돌린다 (덩어리 안 취소, D-V3-21) */
   readonly cancel?: boolean
@@ -885,7 +893,7 @@ export class VoiceController {
   /** 15초(max)·300글자(long)로 끊긴 바로 앞 덩어리의 #gateSeen — seq 덩어리의 첫 조각에서만 쓴다 */
   #gateCarry: { readonly seq: number; readonly items: readonly { readonly no: number; readonly price: number; readonly fragment: string }[] } | null = null
   /** 번호 없이 들린 '원' 가격 (실방송 10:14 — 다음 상품 가격을 번호보다 먼저 말함). 15초 안에 가격 없는 'N번'이 오면 그 번호의 가격 */
-  #pendingPrice: { readonly price: number; readonly at: number } | null = null
+  #pendingPrice: { readonly price: number; readonly at: number; readonly text: string } | null = null
   /** 차례를 기다리는 큰 글자 칸 안내 (D-V3-61) */
   /** 음성으로 등록·고친 번호와 시각 (D-V3-59 고쳐 말함) */
   /** 번호마다 마지막으로 음성으로 등록·고친 시각 (D-V3-59, TD-V3-005) */
@@ -2018,17 +2026,23 @@ export class VoiceController {
     this.#waiting = step.waiting !== null && step.waiting.no !== this.#waiting?.no && Number.isFinite(chunk.startedAt) ? { ...step.waiting, since: Math.min(step.waiting.since, chunk.startedAt) } : step.waiting
     if (step.card !== null) this.#missedCard(work, module, step.card)
     let take = step.take
+    // 가격을 들은 글 — 번호가 붙은 가격 검사(D-V3-114 (3))에 쓴다
+    let priceText = chunk.text
     const now = this.#host.now()
     const pending = this.#pendingPrice !== null && now - this.#pendingPrice.at <= PENDING_PRICE_MS && now >= this.#pendingPrice.at ? this.#pendingPrice : null
     if (take === null && pending !== null && !piece.paired && piece.markerNo !== null && piece.wonPrice === null && this.#waiting?.no === piece.markerNo) {
       // 앞에 번호 없이 들린 가격 + 가격 없는 'N번' → 그 번호의 가격 (기다리는 번호는 끝)
       take = { no: piece.markerNo, price: pending.price }
+      priceText = pending.text
       this.#waiting = null
     }
     // 번호가 들리면 앞의 번호 없는 가격은 끝난다. 번호 없이 '원' 가격만 들리고(정정 낱말 없음) 받을 번호가 없으면 다음 번호를 15초 기다린다
     if (piece.markerNo !== null) this.#pendingPrice = null
-    else if (piece.wonPrice !== null && step.take === null && !(typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(chunk.text))) this.#pendingPrice = { price: piece.wonPrice, at: now }
+    else if (piece.wonPrice !== null && step.take === null && !(typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(chunk.text))) this.#pendingPrice = { price: piece.wonPrice, at: now, text: chunk.text }
     if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return null
+    // 번호가 붙은 가격(D-V3-113)이면 다른 덩어리에서 짝지어도 바로 등록하지 않고 같은 카드 (D-V3-114 (3))
+    const joined = this.#numberInPriceCard(work, module, take, priceText, chunk.text)
+    if (joined !== null) return { action: 'offer', reason: joined, readout: null }
     this.#instantNos.set(take.no, 'register')
     // 기다리던 번호의 품종: 이 덩어리 품종, 없으면 번호를 들은 덩어리·앞 말 맥락 (사용자 요구 — 다른 결과에 들린 품종도)
     // 번호만 든 이 덩어리가 앞 맥락을 비웠어도(R-17 8 1b — 등록 안 된 덩어리일 때의 규칙) 이 덩어리로 등록하면 비우기 전 맥락 + 이 덩어리 글로 고른다
@@ -2061,11 +2075,36 @@ export class VoiceController {
     if (step.card !== null) this.#missedCard(work, module, step.card)
     const take = step.take
     if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return
+    // 번호가 붙은 가격(D-V3-113)이면 바로 등록하지 않고 같은 카드 (D-V3-114 (3))
+    const joined = this.#numberInPriceCard(work, module, take, text, text)
+    if (joined !== null) {
+      work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text }], read: { no: take.no, name: rr.extraction.name, price: take.price, candidates: [] }, action: 'offer', reason: joined }))
+      return
+    }
     this.#instantNos.set(take.no, 'register')
     const done = this.#registerInstant(work, { no: take.no, price: take.price, name: this.#contextName(module, rr.extraction.name), nameNeedsCheck: false, numberFrom: 'marker' }, text)
     const now = this.#host.now()
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: take.no, name: rr.extraction.name, price: take.price, candidates: [] }, action: 'create', reason: LOG_TAKEN }))
     if (done.readout !== null) work.readout = { text: `${done.readout} · ${TAKEN_MARK}`, discarded: false, until: now + READOUT_MS }
+  }
+
+  /**
+   * 다른 덩어리에서 짝지은 번호와 가격(기다리는 번호 D-V3-67·번호 없는 가격 기억 D-V3-84 (ㄴ))이 번호가 붙은 가격이면
+   * 가격 칸이 빈 제안 카드를 놓고 안내 글을 돌려준다, 아니면 null (D-V3-114 (3))
+   */
+  #numberInPriceCard(work: CardWork, module: VoiceModule, take: { readonly no: number; readonly price: number }, priceText: string, text: string): string | null {
+    if (typeof module.numberInPriceOf !== 'function') return null
+    let note: string | null
+    try {
+      note = module.numberInPriceOf(take.no, priceText, take.price, { maxNumber: this.#host.maxNumber() })
+    } catch {
+      note = null
+    }
+    if (note === null) return null
+    this.#instantNos.set(take.no, 'existing')
+    const pick: SegmentPick = { no: take.no, price: take.price, name: null, numberFrom: 'marker', priceFrom: 'won', start: -1, end: -1, blocked: null, bigChange: true, check: { kind: 'NUMBER_IN_PRICE', note } }
+    this.#pickCard(work, module, pick, text, note, null)
+    return note
   }
 
   /** "15번 가격을 못 들었어요" 카드 (D-V3-67) — 가격을 적어 [등록]하거나 [닫기]. 같은 번호 카드가 있으면 그대로 */
@@ -2761,7 +2800,11 @@ export class VoiceController {
     if (existing === null) this.#pickCard(work, module, pick, text, check.note, checkedCardPrice(pick))
     else if (existing.pending === true) {
       // 바로 등록이 아직 보내는 중 — 등록이 끝나면 그 가격 그대로 두고 묻는다 (조용히 버리지 않는다)
-      this.#setPending(pick.no, { after: { heard: { name: null, price: pick.price, nameNeedsCheck: false, priceSure: true }, auto: false, askNote: check.note } })
+      this.#setPending(pick.no, { after: { heard: { name: null, price: pick.price, nameNeedsCheck: false, priceSure: true }, auto: false, askNote: check.note, ...(check.kind === 'NUMBER_IN_PRICE' ? { askBlank: true as const } : {}) } })
+    } else if (check.kind === 'NUMBER_IN_PRICE') {
+      // 들린 가격은 틀렸을 가능성이 커 고칠 값으로 채우지 않는다 — 지금 가격만 보이고 칸은 비움, 들린 가격은 안내 글에만 (D-V3-114 (2))
+      this.#chunkActs.add('ASKED')
+      this.#askPrice(work, pick.no, existing, check.note)
     } else {
       const changes = pickChanges(existing, { name: pick.name, price: pick.price })
       if (Object.keys(changes).length === 0) {
@@ -3127,6 +3170,13 @@ export class VoiceController {
     work.offers = [offer, ...work.offers.filter((item) => !same(item))]
   }
 
+  /** 고칠 값 칸이 빈 묻기 카드 (D-V3-114 (2)) — 같은 상품의 묻기는 하나만 */
+  #askPrice(work: CardWork, no: number, existing: ExistingView, note: string): void {
+    const same = (item: VoiceOffer): boolean => item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key
+    const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no, message: askPriceMessage(no, existing), changes: {}, priceEntry: '', stage: 'ask', before: null, undoUntil: null, error: null, voiceHeard: this.#heardNow, note }
+    work.offers = [offer, ...work.offers.filter((item) => !same(item))]
+  }
+
   /** 바로 고침: 보내기 직전에 상품을 다시 보고(찜·판매 중) 손 고치기와 같은 상품 고치기, 고친 뒤 [되돌리기] (D-V3-07) */
   async #autoFix(offerId: string, key: string, no: number, existing: ExistingView, changes: InstantChanges, notRecent = false): Promise<void> {
     const requestId = this.#requestId()
@@ -3240,7 +3290,11 @@ export class VoiceController {
     if (askNote !== undefined) {
       // 중간·최종 가격 다름 (D-V3-103): 등록한 가격 그대로 두고 묻는다 — 들은 가격은 문턱의 한 번 들음 (D-V3-83)
       const price = after.heard.price
-      if (price !== null && price !== target.price) {
+      if (after.askBlank === true) {
+        this.#chunkActs.add('ASKED')
+        this.#askPrice(work, no, target, askNote)
+        this.#set(this.#workPatch(work))
+      } else if (price !== null && price !== target.price) {
         this.#notePriceHeard(no, target.price, price, after.fragment ?? String(this.#chunkSeq))
         this.#chunkActs.add('ASKED')
         // 기록은 들은 때 이미 남겼다 ("중간·최종 가격이 달라 … 물었어요")
@@ -3747,10 +3801,30 @@ export class VoiceController {
   }
 
   /** [고치기]: 손 고치기와 같은 상품 고치기, 고친 뒤 10초 [되돌리기] */
-  async fixOffer(id: string): Promise<void> {
+  /** 고칠 값 칸이 빈 묻기 카드(D-V3-114 (2))의 칸에 적는다 */
+  setOfferPrice(id: string, text: string): void {
     const offer = this.#findOffer(id)
+    if (offer === undefined || offer.priceEntry === undefined || offer.stage !== 'ask') return
+    this.#replaceOffer(id, { priceEntry: text, error: null })
+  }
+
+  async fixOffer(id: string): Promise<void> {
+    const found = this.#findOffer(id)
     const fix = this.#host.fixRecent
-    if (offer === undefined || offer.kind !== 'offer' || offer.stage !== 'ask' || fix === undefined) return
+    if (found === undefined || found.kind !== 'offer' || found.stage !== 'ask' || fix === undefined) return
+    let offer = found
+    if (found.priceEntry !== undefined) {
+      // 적은 값이 있어야 고친다 — 비었거나 읽지 못하면 쓰지 않는다 (D-V3-114 (2))
+      const text = found.priceEntry.trim()
+      if (text === '') return
+      const price = parseAmount(text, { 'price.unit': this.#host.priceUnit?.() ?? 'THOUSAND' })
+      if (price === null || price < 100) {
+        this.#replaceOffer(id, { error: MISSED_PRICE_PROBLEM })
+        return
+      }
+      offer = { ...found, changes: { price } }
+      this.#replaceOffer(id, { changes: offer.changes })
+    }
     this.#replaceOffer(id, { stage: 'busy', error: null })
     const fixRequest = this.#requestId()
     let outcome: RecentFixOutcome

@@ -308,7 +308,8 @@ describe('AC-V3-99 번호가 붙은 가격은 묻는다 (D-V3-113)', () => {
     expect(reg(h)).toEqual([{ no: 227, name: '', price: 2270000, source: 'instant' }])
   })
 
-  it('(7) 227번(50,000원, 찜 0)이 있고 "자 2275만 원 자 227번이고요" → 고침 0, 고칠까요 카드(안내)', async () => {
+  // D-V3-114 (2): 들린 가격을 고칠 값으로 채우지 않는다 — 지금 가격만 보이고 고칠 값 칸은 비움(처음 구현 "고칠 값 22,750,000원"을 바꿈)
+  it('(7) 227번(50,000원, 찜 0)이 있고 "자 2275만 원 자 227번이고요" → 고침 0, 고칠까요 카드(지금 가격, 고칠 값 칸 비움, 안내) — 값을 넣어야 고친다', async () => {
     const h = await ready()
     h.board.set(227, product(227, '', 50000))
     say('자 2275만 원 자 227번이고요')
@@ -316,7 +317,87 @@ describe('AC-V3-99 번호가 붙은 가격은 묻는다 (D-V3-113)', () => {
     await settle()
     expect(reg(h)).toEqual([])
     expect(h.fixes).toEqual([])
-    expect(asks(h).map((offer) => [offer.no, offer.changes, offer.note])).toEqual([[227, { price: 22750000 }, NOTE]])
+    expect(asks(h).map((offer) => [offer.no, offer.message, offer.changes, offer.priceEntry, offer.note])).toEqual([[227, '227번을 고칠까요? 지금 가격 50,000원', {}, '', NOTE]])
+    const id = asks(h)[0]?.id ?? ''
+    // 빈 칸이면 [고치기]를 눌러도 쓰기 0
+    await h.voice.fixOffer(id)
+    await settle()
+    expect(h.fixes).toEqual([])
+    // 읽지 못하는 값(100원 미만)도 쓰기 0, 문장
+    h.voice.setOfferPrice(id, '5')
+    await h.voice.fixOffer(id)
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(asks(h)[0]?.error).toBe('가격을 확인해 주세요. 숫자로 적으면 그 방송 가격 단위로 들어가요.')
+    // 적은 값으로 고친다
+    h.voice.setOfferPrice(id, '6만')
+    await h.voice.fixOffer(id)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:227', changes: { price: 60000 } }])
+  })
+
+  it('(7) [그대로 두기]면 쓰기 0', async () => {
+    const h = await ready()
+    h.board.set(227, product(227, '', 50000))
+    say('227번 2275만 원')
+    at(3000)
+    await settle()
+    const offer = asks(h)[0]
+    expect(offer?.priceEntry).toBe('')
+    h.voice.dismissOffer(offer?.id ?? '')
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(asks(h)).toEqual([])
+  })
+
+  it('(9) "227번 2270만 원" → 카드(가격 칸 비움, 안내 "2270만 원으로 들렸어요. 227번 가격을 확인해 주세요") — 남은 수 0 (D-V3-114 (1))', async () => {
+    const h = await ready()
+    say('227번 2270만 원')
+    at(3000)
+    expect(reg(h)).toEqual([])
+    expect(shown(h)).toEqual([[227, null, null]])
+    expect(noteOf(h, cards(h)[0])).toBe('2270만 원으로 들렸어요. 227번 가격을 확인해 주세요')
+  })
+
+  it('(10) 기다리는 번호: "227번"(가격 없음) 뒤 다음 덩어리 "2275만 원" → 쓰기 0, (1)과 같은 카드 (D-V3-114 (3))', async () => {
+    const h = await ready()
+    say('227번')
+    at(3000)
+    say('2275만 원')
+    at(6000)
+    await settle()
+    expect(reg(h)).toEqual([])
+    expect(shown(h)).toEqual([[227, null, null]])
+    expect(noteOf(h, cards(h)[0])).toBe(NOTE)
+  })
+
+  it('(11) 번호 없는 가격 기억: "2275만 원" 뒤 15초 안 다음 덩어리 "227번" → 쓰기 0, (1)과 같은 카드 (D-V3-114 (3))', async () => {
+    const h = await ready()
+    say('2275만 원')
+    at(3000)
+    say('227번')
+    at(6000)
+    await settle()
+    expect(reg(h)).toEqual([])
+    expect(shown(h)).toEqual([[227, null, null]])
+    expect(noteOf(h, cards(h)[0])).toBe(NOTE)
+  })
+
+  it('(12) 기다리는 번호 "15번" 뒤 "150만 원" → 지금처럼 바로 1,500,000원 · 번호 없는 가격 "150만 원" 뒤 "15번"도', async () => {
+    const h = await ready()
+    say('15번')
+    at(3000)
+    say('150만 원')
+    at(6000)
+    await settle()
+    expect(reg(h).map((item) => [item.no, item.price])).toEqual([[15, 1500000]])
+    const later = await ready()
+    say('150만 원')
+    at(3000)
+    say('15번')
+    at(6000)
+    await settle()
+    expect(reg(later).map((item) => [item.no, item.price])).toEqual([[15, 1500000]])
   })
 
   it('(8) "227번 이천이백칠십오만 원" → 해당 없음(한글 계수), 바로 22,750,000원', async () => {

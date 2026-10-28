@@ -81,6 +81,11 @@ export function askMessage(no: number, current: { readonly name: string; readonl
   return `${String(no)}번을 고칠까요? ${changeWords(current, changes)}`
 }
 
+/** 고칠 값 칸이 빈 묻기 카드 (D-V3-114 (2) — 번호가 붙은 가격): "227번을 고칠까요? 지금 가격 50,000원" */
+export function askPriceMessage(no: number, current: { readonly price: number }): string {
+  return `${String(no)}번을 고칠까요? 지금 가격 ${formatWon(current.price)}`
+}
+
 /** 바로 등록 뒤 큰 글자 칸: "108번 100,000원 등록했어요", 사전 이름이 있으면 "180번 삼광색금 350,000원 등록했어요" (D-V3-37) */
 export function registeredReadout(no: number, name: string | null, price: number): string {
   const shown = name === null || name === '' ? '' : ` ${name}`
