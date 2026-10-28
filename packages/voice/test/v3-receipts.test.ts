@@ -63,7 +63,10 @@ describe("이름 끝 '색급'은 '색금'으로", () => {
     expect(nameOf('18번 삼광 색급 5만 원')).toEqual([[18, 50_000, '삼광색금']])
   })
   it("'X색금'이 있으면 X보다 X색금, 없으면 X", () => {
-    expect(nameOf('17번 몰디브 색급 5만 원')).toEqual([[17, 50_000, '몰디브']])
+    // D-V3-115: 기본 사전에 영수증 거래명 '몰디브색금'이 들어 기본 사전으로도 X색금 (처음 기대 '몰디브'는 X색금이 없던 사전 — 아래 사전으로)
+    expect(nameOf('17번 몰디브 색급 5만 원')).toEqual([[17, 50_000, '몰디브색금']])
+    const withoutSaekgeum = prepareVoiceDictionary({ base: [{ name: '몰디브' }] })
+    expect(nameOf('17번 몰디브 색급 5만 원', withoutSaekgeum)).toEqual([[17, 50_000, '몰디브']])
     const withSaekgeum = prepareVoiceDictionary({ base: [{ name: '몰디브' }, { name: '몰디브색금' }] })
     expect(nameOf('17번 몰디브 색급 5만 원', withSaekgeum)).toEqual([[17, 50_000, '몰디브색금']])
     expect(nameOf('17번 몰디브 5만 원', withSaekgeum)).toEqual([[17, 50_000, '몰디브']])
