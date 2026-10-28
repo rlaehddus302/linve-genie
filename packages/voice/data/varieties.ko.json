@@ -2276,11 +2276,6 @@
    "exactOnly": true
   },
   {
-   "name": "찐녹",
-   "aliases": [],
-   "exactOnly": true
-  },
-  {
    "name": "보석마리아",
    "aliases": []
   },
@@ -2926,10 +2921,6 @@
    "aliases": []
   },
   {
-   "name": "매직킹",
-   "aliases": []
-  },
-  {
    "name": "파콜",
    "aliases": [],
    "exactOnly": true
@@ -3284,10 +3275,6 @@
    "aliases": []
   },
   {
-   "name": "SP찐녹금",
-   "aliases": []
-  },
-  {
    "name": "홍자금",
    "aliases": []
   },
@@ -3391,10 +3378,6 @@
   },
   {
    "name": "꽃바람",
-   "aliases": []
-  },
-  {
-   "name": "창무지",
    "aliases": []
   },
   {

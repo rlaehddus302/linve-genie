@@ -1,7 +1,7 @@
 // AC-V3-100 (a)~(d) 판매자 제공 판매 영수증 거래명 사전 (R-17 5, D-V3-115). 성능 (e)는 receipt-dictionary.perf.test.ts(pnpm perf).
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { compact, DEFAULT_VARIETIES, prepareVoiceDictionary, readSegments } from '../src/index.ts'
+import { compact, DEFAULT_VARIETIES, prepareVoiceDictionary, readSegments, varietyFromContext } from '../src/index.ts'
 
 interface Entry {
   readonly name: string
@@ -16,9 +16,9 @@ const DICT = prepareVoiceDictionary()
 const nameOf = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => p.name)
 
 describe('AC-V3-100 영수증 거래명 사전 (D-V3-115)', () => {
-  it('(a) 거른 이름 681개를 별칭 없이 이름으로, 출처 표기는 판매자 제공 판매 영수증 거래명', () => {
+  it('(a) 거른 이름 677개(681개에서 재생 점수를 떨어뜨린 4개를 뺌 — D-V3-115 (나)·(라))를 별칭 없이 이름으로, 출처 표기는 판매자 제공 판매 영수증 거래명', () => {
     expect(start).toBeGreaterThan(0)
-    expect(added).toHaveLength(681)
+    expect(added).toHaveLength(677)
     for (const item of added) expect(item.aliases, item.name).toEqual([])
     for (const name of ['SP색금', '슈빌', '보스실생', '퍼플마리아 금', '환엽마리아', '몰디브색금', '녹금철화']) expect(added.map((item) => item.name)).toContain(name)
     expect(readFileSync(new URL('../src/default-dictionary.ts', import.meta.url), 'utf8')).toContain('판매자 제공 판매 영수증 거래명')
@@ -46,5 +46,44 @@ describe('AC-V3-100 영수증 거래명 사전 (D-V3-115)', () => {
   it('긴 거래명은 들린 대로 맞는다', () => {
     expect(nameOf('10번 퍼플마리아 금 5만 원')).toEqual(['퍼플마리아 금'])
     expect(nameOf('10번 환엽마리아 5만 원')).toEqual(['환엽마리아'])
+  })
+})
+
+describe('재생 점수를 떨어뜨린 영수증 이름은 뺀다 (D-V3-115 (라) — 만든 문장)', () => {
+  const names = new Set(file.varieties.map((item) => item.name))
+  it('빛깔을 말하는 흔한 말 하나뿐인 이름(찐녹)은 없다 — 맥락 품종이 동점으로 비지 않는다 (D-V3-115 (나))', () => {
+    expect(names.has('찐녹')).toBe(false)
+    const context = ['요거 창금 보세요', '창금이에요 예쁘죠', '찐녹에 가까운 물듬 찐녹에 가까운 컬러']
+    expect(varietyFromContext({ name: null, context, dictionary: DICT })).toBe('창금')
+    // 찐녹이 이름이면 창금과 같은 점수로 갈려 빈 칸이 된다(뺀 까닭)
+    const withColor = prepareVoiceDictionary({ base: [...DEFAULT_VARIETIES, { name: '찐녹', aliases: [] }] })
+    expect(varietyFromContext({ name: null, context, dictionary: withColor })).toBeNull()
+  })
+  it('번호 옆에서 들린 이름이 앞 말의 영수증 이름(앞에 SP가 붙은 것)으로 넓혀지지 않는다', () => {
+    expect(names.has('SP찐녹금')).toBe(false)
+    const context = ['자 SP 찐녹금 보세요', '요아이는 진해요']
+    expect(varietyFromContext({ name: '찐녹금', context, dictionary: DICT })).toBe('찐녹금')
+    // 있으면 맥락의 더 긴 이름으로 넓혀진다(품는 이름 규칙 — 뺀 까닭)
+    const withSp = prepareVoiceDictionary({ base: [...DEFAULT_VARIETIES, { name: 'SP찐녹금', aliases: [] }] })
+    expect(varietyFromContext({ name: '찐녹금', context, dictionary: withSp })).toBe('SP찐녹금')
+  })
+  it('한 글자 다른 흔한 낱말이 영수증 이름이 되지 않는다', () => {
+    expect(names.has('창무지')).toBe(false)
+    expect(nameOf('42번 사과 근무지 10만 원')).toEqual([null])
+    // 있으면 한 글자 다른 이름(3음절 이상, R-17 8 1a)으로 맞는다 — 뺀 까닭
+    const withIt = prepareVoiceDictionary({ base: [...DEFAULT_VARIETIES, { name: '창무지', aliases: [] }] })
+    expect(readSegments('42번 사과 근무지 10만 원', { dictionary: withIt, final: true, maxNumber: 999 }).picks.map((p) => p.name)).toEqual(['창무지'])
+  })
+  it('앞 상품 이름(번호 없이 가격과 함께 말함)이 맥락에서 따로 든 이름을 이기지 않는다', () => {
+    expect(names.has('매직킹')).toBe(false)
+    const context = ['매직킹은 5만까지', '자 매직킹 이렇게 5만 원 그리고 옵니다']
+    expect(varietyFromContext({ name: null, context, between: ['소쇄원 녹금 보세요'], dictionary: DICT })).toBe('소쇄원 녹금')
+    // 있으면 앞 상품 이름이 두 번 세어져 이긴다 — 뺀 까닭
+    const withIt = prepareVoiceDictionary({ base: [...DEFAULT_VARIETIES, { name: '매직킹', aliases: [] }] })
+    expect(varietyFromContext({ name: null, context: [...context, '매직킹 매직킹'], between: ['소쇄원 녹금 보세요'], dictionary: withIt })).toBe('매직킹')
+  })
+  it('얻은 것은 그대로 — 2글자 영수증 이름은 똑같이 들리면 맞는다', () => {
+    expect(nameOf('10번 불꽃 5만 원')).toEqual(['불꽃'])
+    expect(nameOf('10번 로제 5만 원')).toEqual(['로제'])
   })
 })
