@@ -1746,7 +1746,9 @@
   },
   {
    "name": "창금",
-   "aliases": [],
+   "aliases": [
+    "창근"
+   ],
    "exactOnly": true
   },
   {
