@@ -25,7 +25,8 @@ import {
 // 가격 고침 문턱 (D-V3-83, AC-V3-79, 수용 기준 표 머리 "실방송 보강 뒤 읽는 법" (2)): 이미 있는 상품의 가격을 바로 고치는 사례
 // (R13·R14·R45·R47, AC-V3-30·31·67·68 (c))의 기대는 같은 말을 **다른 조각**에서 60초 안에 한 번 더 들었을 때다. 첫 번은 묻기 카드
 // "{N}번을 고칠까요? …" + 까닭 줄·쓰기 0(R107), 두 번째에 바로 고치고 그 묻기 카드는 내린다(R108). 아래 시험은 첫 번을 sayFirstOfTwo로 말한다.
-// 품종 bts는 사전 이름 BTS가 되었다(D-V3-86) — 사전 밖 낱말 사례(R16·R17)는 ufo로.
+// 품종 bts는 사전 이름 BTS가 되었다(D-V3-86) — 사전 밖 낱말 사례(R16·R17)는 ufo로 했다가,
+// ufo도 대소문자 무시로 영수증 품종 UFO가 되어(D-V3-120) zeta로 바꿈.
 
 const FIXED = '108번을 고쳤어요: 가격 100,000원 → 120,000원'
 const ASK = '108번을 고칠까요? 가격 100,000원 → 120,000원'
@@ -189,10 +190,10 @@ test('AC-V3-32 R15 (D-V3-57·59): 방금 음성 등록한 108번(품종 미입�
   await expect.poll(() => productWrites(writes)).toEqual([['product.update', 108, '핑크프릴']])
 })
 
-test('AC-V3-32 R16: 품종 미입력·1등 있는 108번에 "108번 ufo ufo 10만 원" → 쓰기 0, 카드 0, 이미 등록됨 (추측은 있는 상품 품종을 채우지 않음, D-V3-31 · 사전 밖 낱말 ufo D-V3-86)', async ({ page }) => {
+test('AC-V3-32 R16: 품종 미입력·1등 있는 108번에 "108번 zeta zeta 10만 원" → 쓰기 0, 카드 0, 이미 등록됨 (추측은 있는 상품 품종을 채우지 않음, D-V3-31 · 사전 밖 낱말 zeta D-V3-86·120)', async ({ page }) => {
   await with108(page, { name: '', claim: true })
   const writes = recordWrites(page)
-  await sayWords(page, '108번 ufo ufo 10만 원')
+  await sayWords(page, '108번 zeta zeta 10만 원')
   await expect(readout(page)).toHaveText('108번은 이미 등록됐어요')
   await page.clock.runFor(QUIET_MS + 100)
   await settle(page)
@@ -237,10 +238,10 @@ test('TE-V3-010 AC-V3-24 R48: 100,000원 108번에 "108 12만 원 자"(번 없�
   await expect(boardItem(page, 108)).toContainText('100,000원')
 })
 
-test('AC-V3-32 R17: 핑크프릴 108번에 "108번 ufo 10만 원" → 쓰기 0, 카드 0, 기록 "이미 등록됨" (사전 밖 낱말 ufo, D-V3-86)', async ({ page }) => {
+test('AC-V3-32 R17: 핑크프릴 108번에 "108번 zeta 10만 원" → 쓰기 0, 카드 0, 기록 "이미 등록됨" (사전 밖 낱말 zeta, D-V3-86·120)', async ({ page }) => {
   await with108(page, { name: '핑크프릴' })
   const writes = recordWrites(page)
-  await sayWords(page, '108번 ufo 10만 원')
+  await sayWords(page, '108번 zeta 10만 원')
   await expect(readout(page)).toHaveText('108번은 이미 등록됐어요')
   await page.clock.runFor(QUIET_MS + 100)
   await settle(page)

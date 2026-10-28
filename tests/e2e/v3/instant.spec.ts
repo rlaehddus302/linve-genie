@@ -358,7 +358,7 @@ test('AC-V3-29 R28 (설정 끔, D-V3-37): "15번 <b>bts</b> <b>bts</b> 만오천
 })
 
 // R49의 컬러풀은 영수증 품종으로 기본 사전에 들어갔다(D-V3-86, SPEC "영수증 품종·맞추기 보강") — 실방송 문장은 75번 컬러풀이고 사전 밖 낱말 "약간"은
-// 쓰지 않는다. 사전 밖 낱말을 되풀이하는 성질(D-V3-37)은 사전 밖 낱말 ufo로 본다(R16·R17과 같은 바꿈). 같은 번호 가격 고침은 두 번 들음(D-V3-83).
+// 쓰지 않는다. 사전 밖 낱말을 되풀이하는 성질(D-V3-37)은 사전 밖 낱말 zeta로 본다(R16·R17과 같은 바꿈 — ufo는 대소문자 무시로 영수증 품종 UFO가 되어 D-V3-120으로 zeta). 같은 번호 가격 고침은 두 번 들음(D-V3-83).
 test('AC-V3-29 R49 (D-V3-37·86): 사전 밖 낱말을 되풀이해도 바로 등록 품종은 비고, 시험 동안 요청 본문의 name은 사전 이름이거나 ""뿐', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
@@ -366,11 +366,11 @@ test('AC-V3-29 R49 (D-V3-37·86): 사전 밖 낱말을 되풀이해도 바로 �
   await expect(boardItem(page, 75)).toBeVisible()
   expect(productWrites(writes)).toEqual([['product.register', 75, '컬러풀', 100000]])
   await page.clock.runFor(6000)
-  await sayChunk(page, '108번 ufo ufo 10만 원')
+  await sayChunk(page, '108번 zeta zeta 10만 원')
   await expect(boardItem(page, 108)).toBeVisible()
   await page.clock.runFor(6000)
-  await sayFirstOfTwo(page, '108번 ufo ufo 12만 원', '108번을 고칠까요? 가격 100,000원 → 120,000원')
-  await sayChunk(page, '108번 ufo ufo 12만 원')
+  await sayFirstOfTwo(page, '108번 zeta zeta 12만 원', '108번을 고칠까요? 가격 100,000원 → 120,000원')
+  await sayChunk(page, '108번 zeta zeta 12만 원')
   await expect(boardItem(page, 108)).toContainText('120,000원')
   expect(productWrites(writes).filter((w) => w[1] === 108)).toEqual([['product.register', 108, '', 100000], ['product.update', 108, 120000]])
   for (const w of writes.filter((x) => x.type.startsWith('product.'))) {
