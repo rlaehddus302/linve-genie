@@ -163,3 +163,23 @@ export function recordAllBodies(page: Page): string[] {
   })
   return out
 }
+
+/** 가격 고침 문턱의 까닭 줄 (D-V3-83, R-22 4 — 사례 R107) */
+export const REASON_PRICE_ONCE = '다른 가격이 한 번만 들려 저절로 고치지 않았어요.'
+
+/**
+ * 가격 고침 문턱 (D-V3-83, AC-V3-79, 수용 기준 표 머리 "실방송 보강 뒤 읽는 법" (2)): 이미 있는 상품의 다른 가격을 정정 낱말 없이
+ * **한 번만** 들으면 바로 고치지 않고 묻기 카드(까닭 줄 REASON_PRICE_ONCE)이고 쓰기 0이다(R107). 같은 말을 다른 조각에서 60초 안에
+ * 한 번 더 들으면 바로 고친다(R108). 이 도우미는 첫 번을 한 덩어리로 말하고 그 묻기 카드·쓰기 0을 확인한 뒤 1초 흘린다.
+ * ask = 묻기 카드 이름 (예: "108번을 고칠까요? 가격 100,000원 → 120,000원")
+ */
+export async function sayFirstOfTwo(page: Page, sentence: string, ask: string, writes?: readonly Write[]): Promise<void> {
+  const before = writes === undefined ? 0 : productWrites(writes).length
+  await sayChunk(page, sentence)
+  const card = notice(page, ask)
+  await expect(card).toBeVisible()
+  await expect(card).toContainText(REASON_PRICE_ONCE)
+  await settle(page)
+  if (writes !== undefined) expect(productWrites(writes)).toHaveLength(before)
+  await page.clock.runFor(1000)
+}

@@ -351,9 +351,11 @@ const extractDocs = parseAllDocuments(readFileSync(EXTRACT_GOLDEN, 'utf8')).map(
 const extractCases = extractDocs.flatMap((doc) => doc.cases.map((item) => ({ ...item, dictionary: doc.settings?.dictionary ?? [], maxNumber: doc.settings?.maxNumber })))
 
 // V3(D-V3-22 (c)·D-V3-24 (3)): 골든이 81 → 180사례로 늘어 정확한 값으로 교체 (골든이 늘어서 하는 교체 — 약화 아님)
+// V3(D-V3-80~89 실방송 보강 16사례·D-V3-91 꾸밈말 17사례): 180 → 196 → 213 (골든이 늘어서 하는 교체 — 약화 아님)
+// V3(D-V3-94 지난 일로 말한 가격 15사례): 213 → 228 (골든이 늘어서 하는 교체 — 약화 아님)
 describe('AC-V1-02 문장 → 상품 카드 또는 문자찜 카드 (readVoiceSentence)', () => {
-  it('voice-extract.yaml 180사례는 문자찜 문장이 아니고, 입구의 결과가 골든 out과 같다 (R-17 그대로)', () => {
-    expect(extractCases).toHaveLength(180)
+  it('voice-extract.yaml 228사례는 문자찜 문장이 아니고, 입구의 결과가 골든 out과 같다 (R-17 그대로)', () => {
+    expect(extractCases).toHaveLength(228)
     for (const item of extractCases) {
       expect(readSmsSentence(item.in)).toBeNull()
       const extract = { dictionary: item.dictionary, ...(item.maxNumber === undefined ? {} : { maxNumber: item.maxNumber }) }

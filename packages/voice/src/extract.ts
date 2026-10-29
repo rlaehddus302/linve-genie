@@ -5,8 +5,9 @@
 import { normalizeText, parseAmount, parseKoreanNumber } from '@livejjim/core'
 import { VarietyDictionary, type DictionaryEntry } from './dictionary.ts'
 import { isWindowFiller, looksLikePredicate } from './words.ts'
-import { DEFAULT_COMMON_ALIASES } from './default-dictionary.ts'
-import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compareSimilarity, isCandidate, jamoKey, jamoOf, type Similarity } from './jamo.ts'
+import { DEFAULT_COMMON_ALIASES, DEFAULT_EXACT_ONLY } from './default-dictionary.ts'
+import { BIT_PATTERN_MAX, JamoPattern, bitParallelDistance, candidateLengthRange, compact, compareSimilarity, exactJamoKey, isCandidate, jamoOf, type Similarity } from './jamo.ts'
+import { isPastPriceLine } from './past-price.ts'
 
 export type Confidence = 'HIGH' | 'LOW'
 
@@ -56,6 +57,8 @@ export const ENDINGS: readonly string[] = Object.freeze([
   '인데',
 ])
 const ENDINGS_SHORT_FIRST: readonly string[] = [...ENDINGS].sort((a, b) => a.length - b.length)
+/** 읽는 모양에만 더 떼는 끝말 (`이고요`·`이구요` — 말끝 "~이고요") */
+export const FORM_EXTRA_ENDINGS: readonly string[] = Object.freeze(['이고요', '이구요'])
 /** 토큰 끝에서 지우는 문장 부호 (R-17 1 — V3: 유니코드 늘임표 `…`도, TD-V3-007) */
 const TRAILING_PUNCTUATION = new Set(['.', ',', '?', '!', '~', '…'])
 /** 한자어 수사 글자 (R-17 3) */
@@ -119,6 +122,13 @@ export function readingForms(token: string): string[] {
   const forms = [token]
   for (const ending of ENDINGS_SHORT_FIRST) {
     if (token.length > ending.length && token.endsWith(ending)) forms.push(token.slice(0, -ending.length))
+  }
+  // 실방송 V3: "색금이고요"·"309번이고요" — R-17 2 목록(ENDINGS, 가리기·서버가 같은 목록을 씀)은 그대로 두고 읽는 모양에만 더한다
+  for (const ending of FORM_EXTRA_ENDINGS) {
+    if (token.length > ending.length && token.endsWith(ending)) {
+      const form = token.slice(0, -ending.length)
+      if (!forms.includes(form)) forms.push(form)
+    }
   }
   return forms
 }
@@ -194,6 +204,20 @@ function isSplitNumber(previous: string | undefined, x: string): boolean {
 }
 
 /**
+ * `번` 바로 뒤에만 더 받는 끝말 (실방송 V3: "309번이고요"). R-17 2 끝말 목록(ENDINGS)은 그대로 두고 붙여 쓴 번호 표시에서만 더 뗀다.
+ * `번으로`·`번부터`(옮기기·범위 말)는 넣지 않는다.
+ */
+export const BEON_EXTRA_ENDINGS: readonly string[] = Object.freeze(['이고요', '이구요'])
+
+/** 번호 표시를 찾을 읽는 모양: 읽는 모양 + 토큰 그대로에서 `번` 뒤 더 받는 끝말을 뗀 모양 */
+function markerForms(forms: readonly string[]): readonly string[] {
+  const token = forms[0]
+  if (token === undefined) return forms
+  const extra = BEON_EXTRA_ENDINGS.filter((ending) => token.endsWith(BEON + ending)).map((ending) => token.slice(0, -ending.length))
+  return extra.length === 0 ? forms : [...forms, ...extra.filter((form) => !forms.includes(form))]
+}
+
+/**
  * 번호 표시 찾기 (R-17 3). R-21 7(V1)도 같은 코드를 쓴다: `skip`이 참인 토큰(맡은 토큰)은 표시 토큰이 될 수 없다.
  * 끊어 말한 번호 검사의 앞 토큰은 맡은 토큰이어도 그대로 본다(R-21 7).
  */
@@ -226,7 +250,7 @@ export function findNumberMarkers(
   tokens.forEach((token, i) => {
     if (skip(i)) return
     // 붙여 씀: 읽는 모양 하나가 `X번` (앞 토큰 = 표시 토큰의 앞 토큰)
-    for (const form of forms[i] ?? []) {
+    for (const form of markerForms(forms[i] ?? [])) {
       if (form.length < 2 || !form.endsWith(BEON)) continue
       const x = form.slice(0, -BEON.length)
       if (numberValue(x) === null) continue
@@ -399,9 +423,23 @@ interface WonLine {
   readonly value: number | null
 }
 
+/**
+ * `원` 바로 뒤에만 더 받는 끝말 (실방송 V3: "5만 원으로"·"5만 원부터"·"5만 원이고요"). R-17 2 끝말 목록(ENDINGS)은 그대로 두고
+ * 원 가격 줄의 `원` 토큰에서만 한 번 더 뗀다 — 다른 토큰의 읽는 모양·품종 창은 바뀌지 않는다.
+ */
+export const WON_EXTRA_ENDINGS: readonly string[] = Object.freeze(['으로', '부터', '이고요', '이구요'])
+
 /** 토큰의 읽는 모양 가운데 `원`으로 끝나고 `원` 앞 글이 비었거나 금액 글자뿐인 첫 모양 */
 function wonForm(forms: readonly string[]): string | null {
-  return forms.find((form) => form.endsWith(WON) && isAmountText(form.slice(0, -WON.length))) ?? null
+  const isWon = (form: string): boolean => form.endsWith(WON) && isAmountText(form.slice(0, -WON.length))
+  const found = forms.find(isWon)
+  if (found !== undefined) return found
+  const token = forms[0]
+  if (token === undefined) return null
+  for (const ending of WON_EXTRA_ENDINGS) {
+    if (token.length > ending.length && token.endsWith(ending) && isWon(token.slice(0, -ending.length))) return token.slice(0, -ending.length)
+  }
+  return null
 }
 
 /** 줄 글을 읽은 값: 공백으로 이어 R-14, 안 되면(토큰 둘 이상) 숫자를 한자어로 바꿔 붙여 R-14. 100원 미만·안 읽힘은 null */
@@ -480,6 +518,34 @@ const BARE_NUMBER_ENDINGS: readonly string[] = ['은', '는', '이', '가', '요
 
 const isUnitToken = (token: string | undefined): boolean => token !== undefined && readingForms(token).some((form) => BARE_NUMBER_UNITS.includes(form) || BARE_NUMBER_UNITS.includes(form.toLowerCase()))
 
+/** 값을 묻는 말 (실방송 V3: "요거 얼마 드릴까 50" — 50은 번호가 아니라 가격을 생각하는 말). 이 낱말로 시작하는 토큰이 */
+export const PRICE_ASK_PREFIX = '얼마'
+/** 바로 앞 몇 토큰 안에 있으면 '번' 없는 번호 후보가 아니다 */
+const PRICE_ASK_REACH = 3
+const afterPriceAsk = (tokens: readonly string[], i: number): boolean => tokens.slice(Math.max(0, i - PRICE_ASK_REACH), i).some((token) => token.startsWith(PRICE_ASK_PREFIX))
+
+/** 지난 일을 가리키는 말 (R-17 3, D-V3-104 — 실방송 경성 "아까 30 자 … 32만 원 … 2번"): 바로 앞 토큰(군말만 사이)의 읽는 모양이 이것이면 '번' 없는 번호 후보가 아니다 */
+export const PAST_REFERENCE_WORDS: readonly string[] = Object.freeze(['아까', '전에', '예전에', '저번에', '지난번에'])
+function afterPastReference(tokens: readonly string[], i: number): boolean {
+  for (let j = i - 1; j >= 0; j--) {
+    const token = tokens[j] as string
+    if (readingForms(token).some((form) => PAST_REFERENCE_WORDS.includes(form))) return true
+    if (!isWindowFiller(token)) return false
+  }
+  return false
+}
+
+/** 같은 조각 뒤쪽(사이에 다른 수 없이)에 그 수를 계수로 한 금액 토큰(`25만`·`25만원`·`이십오만`·`5천`)이 있는가 — '번' 없는 수가 가격을 되풀이한 것 */
+function repeatsPrice(tokens: readonly string[], i: number, value: number): boolean {
+  // 같은 조각 안에서 뒤로 끝까지 본다 — 사이에 다른 수(숫자로 시작하는 토큰·'N번')가 오면 멈춘다 (실방송 "15 응 이모 … 자 15만 원")
+  for (let j = i + 1; j < tokens.length; j++) {
+    const token = tokens[j] as string
+    if (/[만천]/.test(token) && priceCoefficient(token) === value) return true
+    if (/^[0-9]/.test(token) || readingForms(token).some((form) => form.endsWith(BEON) && form.length > 1)) return false
+  }
+  return false
+}
+
 export interface BareNumbers {
   /** 후보 토큰 위치 → 값 */
   readonly values: ReadonlyMap<number, number>
@@ -487,28 +553,36 @@ export interface BareNumbers {
   readonly split: boolean
 }
 
-/** '번' 없는 번호 후보 (R-17 3, D-V3-23): 따로 선 수 낱말(끝말 은·는·이·가·요 허용)이고 바로 다음 토큰이 단위 낱말이 아닌 것 */
+/** '번' 없는 번호 후보 (R-17 3, D-V3-23): 따로 선 수 낱말(끝말 은·는·이·가·요 허용)이고 바로 다음 토큰이 단위 낱말이 아니고 바로 앞 3토큰 안에 `얼마…`가 없는 것 */
 export function findBareNumbers(tokens: readonly string[], blocked: (i: number) => boolean, maxNumber: number): BareNumbers {
   const values = new Map<number, number>()
   let split = false
+  let repeated = false
   tokens.forEach((token, i) => {
-    if (blocked(i) || isUnitToken(tokens[i + 1])) return
+    if (blocked(i) || isUnitToken(tokens[i + 1]) || afterPriceAsk(tokens, i) || afterPastReference(tokens, i)) return
     for (const form of [token, ...BARE_NUMBER_ENDINGS.filter((ending) => token.length > ending.length && token.endsWith(ending)).map((ending) => token.slice(0, -ending.length))]) {
       const value = plainNumberValue(form, maxNumber)
       if (value === null) continue
+      // 가격을 두 번 말한 것 (실방송 V3: "너무예쁜데 25 자 25만 원" — 25는 번호가 아니다)
+      if (repeatsPrice(tokens, i, value)) {
+        repeated = true
+        return
+      }
       values.set(i, value)
       const previous = tokens[i - 1]
       if (previous !== undefined && parseKoreanNumber(previous + form) !== null) split = true
       return
     }
   })
+  // 가격 되풀이로 뺀 수가 있는데 다른 수가 남으면 애매하다 (`25 1 25만 원` — 1번으로 정하지 않는다)
+  if (repeated && values.size > 0) split = true
   return { values, split }
 }
 
 /** 자리 읽기('번' 없음)가 번호 후보 조건(R-17 3)에 맞는가 */
 function isBareDigitCandidate(tokens: readonly string[], reading: DigitReading): boolean {
   const last = reading.tokens[reading.tokens.length - 1] as number
-  if (isUnitToken(tokens[last + 1])) return false
+  if (isUnitToken(tokens[last + 1]) || afterPriceAsk(tokens, reading.tokens[0] as number) || afterPastReference(tokens, reading.tokens[0] as number)) return false
   if (reading.tokens.length !== 1) return true
   const token = tokens[last] as string
   return isThreeHangulDigits(token) || BARE_NUMBER_ENDINGS.some((ending) => token.endsWith(ending) && isThreeHangulDigits(token.slice(0, -ending.length)))
@@ -522,6 +596,17 @@ function leadingCoefficient(token: string): number | null {
   if ([...token].every((char) => '십백천만원'.includes(char))) return null
   const head = token.split(/[만천원]/)[0] ?? ''
   return head === '' ? null : parseKoreanNumber(head)
+}
+
+/**
+ * 가격 되풀이(repeatsPrice)에서 보는 금액 토큰의 계수: leadingCoefficient와 같되, 단위 글자만인 한글 금액(`십만`·`백만원`)은
+ * 만 앞의 단위 글자를 수로 읽는다(`십만` → 10, `백만` → 100) — "10 자 십만 원"을 "10 자 10만 원"과 같게 (TD-V3-014).
+ * 단위 하나만인 토큰(`만`·`천`·`만원`)은 여전히 계수 없음.
+ */
+function priceCoefficient(token: string): number | null {
+  const unitOnly = /^([십백천]+)만원?$/.exec(token)
+  if (unitOnly !== null) return parseKoreanNumber(unitOnly[1] as string)
+  return leadingCoefficient(token)
 }
 
 /**
@@ -545,9 +630,11 @@ function findPrice(
   isMarker: (i: number) => boolean,
   options: { readonly maxNumber: number; readonly bareNumbers: boolean },
 ): PriceReading {
-  const lines = findWonLines(tokens, forms, isMarker, options.maxNumber, options.bareNumbers)
+  const allLines = findWonLines(tokens, forms, isMarker, options.maxNumber, options.bareNumbers)
   const inLine = new Set<number>()
-  for (const line of lines) for (let j = line.start; j <= line.end; j++) inLine.add(j)
+  // 지난 일로 말한 가격(`120만 원까지 팔아 본 적 있어요`)은 가격으로 쓰지 않는다 — 토큰은 줄로 남겨 묶음·품종 창이 되지 않게
+  for (const line of allLines) for (let j = line.start; j <= line.end; j++) inLine.add(j)
+  const lines = allLines.filter((line) => !isPastPriceLine(tokens, line.end))
   // '번' 없는 번호는 원 가격 줄 다음, 가격 묶음 전에 잡는다 — `백육십팔`이 168원 묶음이 되지 않게
   const bareNumbers = options.bareNumbers ? findBareNumbers(tokens, (i) => isMarker(i) || inLine.has(i), options.maxNumber) : { values: new Map<number, number>(), split: false }
   const bare = bareNumbers.values
@@ -599,6 +686,10 @@ export function windowForms(token: string): string[] {
   return [...forms, ...extra.filter((form) => !forms.includes(form))]
 }
 
+/** 무늬·빛깔 이야기의 `금` — 조사 이·은·을·도가 붙은 따로 선 토큰 (R-17 5 꾸밈말에서 빼는 꼴과 같다) */
+const GEUM = '금'
+const PATTERN_GEUM: ReadonlySet<string> = new Set(['이', '은', '을', '도'].map((particle) => GEUM + particle))
+
 /** 창의 글(공백 없이 이은 것, 마지막 토큰은 읽는 모양마다 — 앞 토큰은 그대로·숫자 하나 바꾼 모양) 전부 */
 export function windowTexts(tokens: readonly string[], forms: readonly (readonly string[])[], excluded: (i: number) => boolean): Set<string> {
   const texts = new Set<string>()
@@ -614,7 +705,9 @@ export function windowTexts(tokens: readonly string[], forms: readonly (readonly
     for (let start = segmentStart; start < i; start++) {
       let prefixes = ['']
       for (let end = start; end < i && end < start + WINDOW_MAX_TOKENS; end++) {
-        for (const prefix of prefixes) for (const form of forms[end] ?? []) texts.add(prefix + form)
+        // 따로 선 `금이`·`금은`·`금을`·`금도`(무늬 이야기 "라울 금이 선명하게")는 앞 토큰과 이을 때 조사 뗀 `금`으로 읽지 않는다 — `…금` 사전 이름(라울금)에 맞지 않게(R-17 5, D-V3-91). 붙여 쓴 `라울금이`는 그대로 라울금
+        const skipGeum = end > start && PATTERN_GEUM.has(tokens[end] as string)
+        for (const prefix of prefixes) for (const form of forms[end] ?? []) if (!(skipGeum && form === GEUM)) texts.add(prefix + form)
         prefixes = prefixes.flatMap((prefix) => variants(end).map((variant) => prefix + variant))
       }
     }
@@ -644,7 +737,14 @@ export interface VarietyMatch {
   readonly window: string | null
 }
 
-export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDictionary): VarietyMatch {
+const SAEKGEUP = '색급'
+const SAEKGEUM = '색금'
+
+/**
+ * texts = 창 글 전부. exactOnly = 정확한 맞춤(유사도 1)에만 쓰는 창 글(품종 창 마지막 토큰의 끝 `입니다요`를 뗀 모양, D-V3-98) —
+ * 유사도 0.8 맞추기·끝 `색급` 고치기에는 쓰지 않는다
+ */
+export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDictionary, exactOnly: ReadonlySet<string> = new Set()): VarietyMatch {
   const top: { similarity: Similarity | null; readonly entries: Map<string, DictionaryEntry>; readonly windows: Map<string, string> } = { similarity: null, entries: new Map(), windows: new Map() }
   const consider = (similarity: Similarity, entry: DictionaryEntry, text: string): void => {
     const order = top.similarity === null ? 1 : compareSimilarity(similarity, top.similarity)
@@ -661,7 +761,17 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
   // 유사도 1(공백만 다름)이 하나라도 있으면 그보다 높은 유사도는 없다 — 거리 계산을 건너뛴다
   for (const text of texts) {
     const jamo = jamoOf(text)
-    for (const entry of dictionary.byJamo.get(jamoKey(jamo)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
+    for (const entry of dictionary.byJamo.get(exactJamoKey(text)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
+    // 크롬이 이름 끝 '색금'을 '색급'으로 자주 적는다 — 끝의 '색급'은 '색금'으로도 맞춘다(같은 이름으로 봄). 사전에 그 이름이 없으면 그대로(`몰디브 색급` → 몰디브)
+    if (text.length > SAEKGEUP.length && text.endsWith(SAEKGEUP)) {
+      const fixedText = text.slice(0, -SAEKGEUP.length) + SAEKGEUM
+      const fixed = jamoOf(fixedText)
+      for (const entry of dictionary.byJamo.get(exactJamoKey(fixedText)) ?? []) consider({ distance: 0, length: fixed.length }, entry, text)
+    }
+  }
+  for (const text of exactOnly) {
+    const jamo = jamoOf(text)
+    for (const entry of dictionary.byJamo.get(exactJamoKey(text)) ?? []) consider({ distance: 0, length: jamo.length }, entry, text)
   }
   if (top.similarity === null) {
     for (const text of texts) {
@@ -677,6 +787,8 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
         if (top.similarity !== null && compareSimilarity({ distance: Math.abs(jamo.length - length), length: longer }, top.similarity) < 0) continue
         const limit = Math.floor(longer / 5)
         for (const entry of dictionary.byLength.get(length) ?? []) {
+          // 적은 모양으로만 맞추는 짧은 이름(콜리·퍼플·창금·황소)·판매 영수증 거래명(항목 표시, D-V3-116)은 비슷함으로 맞추지 않는다
+          if (entry.exactOnly === true || DEFAULT_EXACT_ONLY.has(entry.name)) continue
           const similarity = { distance: distance(entry, limit), length: longer }
           if (isCandidate(similarity)) consider(similarity, entry, text)
         }
@@ -686,9 +798,152 @@ export function findVariety(texts: ReadonlySet<string>, dictionary: VarietyDicti
   if (top.similarity === null) return { name: null, exact: false, window: null }
   const entries = [...top.entries.values()]
   // 가장 높은 유사도의 이름이 여럿이면 나머지를 모두 품는(공백 뺀 글자로 부분 문자열) 이름만
-  const container = entries.find((entry) => entries.every((other) => entry.key.includes(other.key)))
+  // 같은 이름의 다른 모양(이름·별칭 — `상관세금`·`삼강색급`이 모두 삼광색금)만 맞았으면 그 이름이다
+  const container = entries.find((entry) => entries.every((other) => other.name === entry.name || entry.key.includes(other.key)))
   if (container === undefined) return { name: null, exact: false, window: null }
   return { name: container.name, exact: top.similarity.distance === 0, window: top.windows.get(container.key) ?? null }
+}
+
+/** 품종 창 마지막 토큰에서만 더 떼는 두 겹 끝말 (R-17 2 (d), D-V3-98 — 판매자 말버릇 "보카 치노입니다요") */
+export const WINDOW_DOUBLE_ENDING = '입니다요'
+
+/** 토큰마다 끝 `입니다요`를 뗀 모양 (남는 글자가 있을 때만, 없으면 빈 목록) — 정확한 맞춤에만 쓴다 */
+function doubleEndingForms(tokens: readonly string[]): string[][] {
+  return tokens.map((token) => (token.length > WINDOW_DOUBLE_ENDING.length && token.endsWith(WINDOW_DOUBLE_ENDING) ? [token.slice(0, -WINDOW_DOUBLE_ENDING.length)] : []))
+}
+
+/**
+ * 앞 이름과 겹친 `금` (R-17 5, D-V3-97 — "로제 수박금"): 고른 이름 N이 공백만 다른 맞춤이고 `금`·`색금`으로 끝나며,
+ * N의 창 바로 앞 토큰 P(창에서 빠진 토큰이면 해당 없음)를 N에서 끝 `금`·`색금`을 뗀 글 앞에 붙인 글이 사전 이름·별칭과 공백만 다르면 비운다.
+ * N의 창 글이 여러 자리에서 나오면 어느 한 자리라도 걸리면 비운다.
+ */
+function overlapsPreviousName(
+  tokens: readonly string[],
+  forms: readonly (readonly string[])[],
+  excluded: (i: number) => boolean,
+  dictionary: VarietyDictionary,
+  match: VarietyMatch,
+): boolean {
+  if (match.name === null || !match.exact || match.window === null) return false
+  const key = compact(match.name)
+  const bases = [SAEKGEUM, GEUM].filter((end) => key.length > end.length && key.endsWith(end)).map((end) => key.slice(0, -end.length))
+  if (bases.length === 0) return false
+  for (let start = 1; start < tokens.length; start++) {
+    if (excluded(start) || excluded(start - 1)) continue
+    const lead = tokens[start - 1] as string
+    if (!bases.some((base) => exactEntries(lead + base, dictionary).length > 0)) continue
+    let head = ''
+    for (let end = start; end < tokens.length && end < start + WINDOW_MAX_TOKENS && !excluded(end); end++) {
+      if ((forms[end] ?? []).some((form) => head + form === match.window)) return true
+      head += tokens[end] as string
+    }
+  }
+  return false
+}
+
+// ── 5-1. 꾸밈말 붙은 품종 (실방송 금화다육: "창 버건디" → 창버건디, "청개구리 금입니다" → 청개구리금, "립스틱 색감" → 립스틱색금) ──
+
+/** 품종 바로 앞에 붙는 꾸밈말 (따로 선 토큰이면 그 글자 그대로만) */
+export const AFFIX_PREFIX = '창'
+/** 품종 바로 뒤에 붙는 꾸밈말 — 들린 모양 → 붙일 글. 받아쓰기 오류 모양(`색급`·`세금`·`색감`)은 붙인 이름이 사전에 있을 때만 쓴다(`몰디브 색급` → 몰디브 그대로) */
+const AFFIX_SUFFIXES: readonly { readonly heard: string; readonly add: string; readonly dictionaryOnly: boolean }[] = [
+  { heard: '색금', add: '색금', dictionaryOnly: false },
+  { heard: '금', add: '금', dictionaryOnly: false },
+  { heard: '색급', add: '색금', dictionaryOnly: true },
+  { heard: '세금', add: '색금', dictionaryOnly: true },
+  { heard: '색감', add: '색금', dictionaryOnly: true },
+]
+/**
+ * 따로 선 뒤 꾸밈말 토큰에 붙어도 되는 말끝 (이름을 말하는 꼴만 — `금이래요`·`금입니다`).
+ * `금이`·`금은`·`금을`·`금도`·`색감이`처럼 무늬·빛깔을 말하는 조사는 넣지 않는다(`라울 금이 선명하게` → 라울 그대로).
+ */
+const AFFIX_TOKEN_ENDINGS: readonly string[] = ['', '이에요', '에요', '입니다', '이요', '이고', '이고요', '이구요', '이래요', '이라고', '이라고요', '인데', '인데요', '이죠', '짜리', '요', '까지']
+
+/** 따로 선 토큰이 뒤 꾸밈말인가 — 맞으면 그 꾸밈말 */
+function suffixToken(token: string): (typeof AFFIX_SUFFIXES)[number] | null {
+  for (const suffix of AFFIX_SUFFIXES) {
+    if (AFFIX_TOKEN_ENDINGS.some((ending) => token === suffix.heard + ending)) return suffix
+  }
+  return null
+}
+
+/** 공백만 다른 사전 항목 (이름·별칭) */
+function exactEntries(text: string, dictionary: VarietyDictionary): readonly DictionaryEntry[] {
+  return dictionary.byJamo.get(exactJamoKey(text)) ?? []
+}
+
+/**
+ * 맞춘 품종(공백만 다른 맞춤일 때만 — 비슷함 맞춤이면 match 그대로)에 바로 붙은 꾸밈말을 붙인 이름. 붙일 게 없으면 match 그대로.
+ * 맞춘 품종이 없고 공백만 다른 창도 없으면(붙여 말한 `창버건디`·`청개구리금이에요`) 어느 사전 이름에든 붙은 꾸밈말을 본다.
+ * - 앞: 품종 창 바로 앞의 따로 선 토큰이 `창`이거나 창 첫 토큰이 `창`으로 시작하면 `창` + 이름 (이름이 이미 `창`으로 시작하면 아님)
+ * - 뒤: 창 마지막 토큰(그대로·끝말 뗀 모양) 끝에 붙었거나, 창 마지막 토큰이 끝말 없이 끝나고 바로 다음 토큰이 꾸밈말이면 이름 + 꾸밈말 (이름이 이미 `금`으로 끝나면 아님)
+ * - 붙인 이름이 사전 이름·별칭과 공백만 다르면 사전 이름을 쓴다. 받아쓰기 오류 모양은 사전에 있을 때만.
+ * - 번호·가격 토큰과 군말 토큰(excluded)은 꾸밈말로 보지 않는다. 문장 안에서 붙인 이름이 서로 다르게 둘 이상이면 match 그대로.
+ */
+function composeAffix(
+  tokens: readonly string[],
+  forms: readonly (readonly string[])[],
+  excluded: (i: number) => boolean,
+  dictionary: VarietyDictionary,
+  windows: ReadonlySet<string>,
+  match: VarietyMatch,
+): VarietyMatch {
+  if (match.name !== null && !match.exact) return match
+  // 이름이 없을 때(붙여 말한 `창버건디`·`청개구리금이에요`)는 공백만 다른 맞춤이 하나도 없었을 때만 — 둘이 갈려 비운 것(`라울 버건디`)은 그대로 둔다
+  if (match.name === null && [...windows].some((text) => exactEntries(text, dictionary).length > 0)) return match
+  const fixed = match.name
+  /** 공백만 다른 맞춤의 이름 (맞춘 품종이 있으면 그 이름만) */
+  const baseOf = (text: string): string | null => {
+    if (text === '') return null
+    const entry = exactEntries(text, dictionary).find((item) => fixed === null || item.name === fixed)
+    return entry === undefined ? null : entry.name
+  }
+  const composed = new Map<string, string>()
+  const settle = (base: string, prefix: boolean, suffix: (typeof AFFIX_SUFFIXES)[number] | null, window: string): void => {
+    const baseKey = compact(base)
+    const usePrefix = prefix && !baseKey.startsWith(AFFIX_PREFIX)
+    const useSuffix = suffix !== null && !baseKey.endsWith('금') ? suffix : null
+    if (!usePrefix && useSuffix === null) return
+    const text = (usePrefix ? AFFIX_PREFIX : '') + baseKey + (useSuffix?.add ?? '')
+    const found = exactEntries(text, dictionary)[0]
+    if (found !== undefined) {
+      if (!composed.has(found.name)) composed.set(found.name, window)
+      return
+    }
+    if (useSuffix?.dictionaryOnly === true) return
+    if (!composed.has(text)) composed.set(text, window)
+  }
+  for (let start = 0; start < tokens.length; start++) {
+    if (excluded(start)) continue
+    // 창 바로 앞의 따로 선 `창`
+    const lead = start > 0 && !excluded(start - 1) && tokens[start - 1] === AFFIX_PREFIX ? AFFIX_PREFIX : ''
+    let head = ''
+    for (let end = start; end < tokens.length && end < start + WINDOW_MAX_TOKENS && !excluded(end); end++) {
+      for (const form of forms[end] ?? []) {
+        const text = head + form
+        // 창 첫 토큰에 붙은 `창` (`창버건디`)
+        const cores = text.length > AFFIX_PREFIX.length && text.startsWith(AFFIX_PREFIX) ? [{ core: text, attached: false }, { core: text.slice(AFFIX_PREFIX.length), attached: true }] : [{ core: text, attached: false }]
+        for (const { core, attached } of cores) {
+          const prefix = lead !== '' || attached
+          // 창 마지막 토큰 안에 붙은 뒤 꾸밈말 (`청개구리금이에요` → 청개구리금). 토큰 하나 전부가 꾸밈말이면 아래 따로 선 꾸밈말 규칙만 본다
+          for (const suffix of AFFIX_SUFFIXES) {
+            if (form.length <= suffix.heard.length || !core.endsWith(suffix.heard)) continue
+            const base = baseOf(core.slice(0, -suffix.heard.length))
+            if (base !== null) settle(base, prefix, suffix, lead + text)
+          }
+          const base = baseOf(core)
+          if (base === null) continue
+          // 다음 토큰이 따로 선 뒤 꾸밈말 — 창 마지막 토큰이 끝말 없이 끝났을 때만 (`버건디에요 금` 아님)
+          const next = end + 1 < tokens.length && !excluded(end + 1) && form === tokens[end] ? suffixToken(tokens[end + 1] as string) : null
+          settle(base, prefix, next, lead + text + (next === null ? '' : (tokens[end + 1] as string)))
+        }
+      }
+      head += tokens[end] as string
+    }
+  }
+  if (composed.size !== 1) return match
+  const [name, window] = [...composed.entries()][0] as [string, string]
+  return { name, exact: true, window }
 }
 
 // ── 추출 ─────────────────────────────────────────────────────────────────
@@ -783,12 +1038,18 @@ function firstSpan(indices: Iterable<number>): { first: number; last: number } |
 }
 
 /** R-17 한 문장 읽기 (extractVoice와 같은 계산, 창·정확도까지) */
-export function readSentence(text: unknown, options: ExtractOptions = {}): SentenceReading {
-  return analyzeSentence(text, options).reading
+export function readSentence(text: unknown, options: ExtractOptions = {}, internal: SentenceInternal = {}): SentenceReading {
+  return analyzeSentence(text, options, internal).reading
+}
+
+/** 안쪽 읽기 설정 (공개 옵션 아님) */
+export interface SentenceInternal {
+  /** 품종 창 마지막 토큰의 끝 `입니다요`를 뗀 모양을 정확한 맞춤에 쓰나 (D-V3-98). 생략 = 쓴다. 맥락 점수(R-17 8 1b)는 false */
+  readonly doubleEnding?: boolean
 }
 
 /** R-17 1~6 읽기 + V3 속 결과 */
-export function analyzeSentence(text: unknown, options: ExtractOptions = {}): SentenceAnalysis {
+export function analyzeSentence(text: unknown, options: ExtractOptions = {}, internal: SentenceInternal = {}): SentenceAnalysis {
   const tokens = tokenize(text)
   if (tokens === null || tokens.length === 0) return EMPTY_ANALYSIS
   const maxNumber = resolveMaxNumber(options)
@@ -820,8 +1081,17 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}): Se
   // 가격을 비워도 묶음 토큰은 품종 창에서 뺀다 (R-17 4·5)
   const excluded = (i: number): boolean => isMarker(i) || bundles.tokens.has(i) || bundles.bare.has(i)
   // 군말 토큰(`자`·`요`·`얘는`·`요거` 등)은 품종 창에서 뺀다 — 군말이 끼거나 군말로 시작한 창이 사전 이름에 맞지 않게(실방송: `자`+`보…` → 자보)
-  const windows = windowTexts(tokens, tokens.map(windowForms), (i) => excluded(i) || isWindowFiller(tokens[i] as string))
-  const variety = findVariety(windows, dictionary)
+  const windowFormList = tokens.map(windowForms)
+  const windowExcluded = (i: number): boolean => excluded(i) || isWindowFiller(tokens[i] as string)
+  const windows = windowTexts(tokens, windowFormList, windowExcluded)
+  // 품종 창 마지막 토큰의 끝 `입니다요`를 뗀 모양은 정확한 맞춤에만 (D-V3-98) — 맥락 점수(R-17 8 1b)를 셀 때는 쓰지 않는다
+  const extraForms = internal.doubleEnding === false ? tokens.map(() => []) : doubleEndingForms(tokens)
+  const found = findVariety(windows, dictionary, windowTexts(tokens, extraForms, windowExcluded))
+  // 앞 이름과 겹친 `금`(D-V3-97)이면 비우고 꾸밈말은 보지 않는다
+  const overlapForms = windowFormList.map((list, i) => [...list, ...(extraForms[i] ?? [])])
+  const variety = overlapsPreviousName(tokens, overlapForms, windowExcluded, dictionary, found)
+    ? { name: null, exact: false, window: null }
+    : composeAffix(tokens, windowFormList, windowExcluded, dictionary, windows, found)
 
   const confidence: Confidence = no !== null && price !== null && variety.name !== null && variety.exact ? 'HIGH' : 'LOW'
   const reading: SentenceReading = {
@@ -881,7 +1151,7 @@ export function listNumberMarkers(tokens: readonly string[], punct: readonly boo
   const isSplitByMerge = (marker: NumberMarker): boolean => bySplit.has(marker.start)
   for (let i = 0; i < tokens.length; i++) {
     if (digitTokens.has(i)) continue
-    const attached = (forms[i] ?? []).find((form) => form.length >= 2 && form.endsWith(BEON) && numberValue(form.slice(0, -BEON.length)) !== null)
+    const attached = markerForms(forms[i] ?? []).find((form) => form.length >= 2 && form.endsWith(BEON) && numberValue(form.slice(0, -BEON.length)) !== null)
     if (attached !== undefined) {
       take(i, attached.slice(0, -BEON.length), i)
       continue
@@ -902,12 +1172,14 @@ export function listNumberMarkers(tokens: readonly string[], punct: readonly boo
 /** 원 가격 줄 목록 (토큰 위치·값, 애매하면 value null). 번호 표시·자리 읽기 토큰에서 멈춘다. bareNumbers = '번' 없는 번호로 앞 수를 뗄 수 있나 */
 export function listWonLines(
   tokens: readonly string[],
-  options: { readonly maxNumber?: number; readonly bareNumbers?: boolean; readonly punct?: readonly boolean[] } = {},
+  options: { readonly maxNumber?: number; readonly bareNumbers?: boolean; readonly punct?: readonly boolean[]; readonly final?: boolean } = {},
 ): { readonly start: number; readonly end: number; readonly value: number | null }[] {
   const forms = tokens.map(readingForms)
   const digits = findDigitReadings(tokens, forms)
   const marked = new Set<number>()
   for (const marker of listNumberMarkers(tokens, options.punct ?? [])) for (let j = marker.start; j <= marker.last; j++) marked.add(j)
   for (const reading of digits) for (const j of reading.tokens) marked.add(j)
-  return findWonLines(tokens, forms, (i) => marked.has(i), resolveMaxNumber(options), options.bareNumbers === true)
+  // 지난 일로 말한 가격(`120만 원까지 팔아 본 적 있어요`)은 줄에서 뺀다 — 번호에 붙이지도, 있는 가격을 고치지도 않는다
+  const final = options.final !== false
+  return findWonLines(tokens, forms, (i) => marked.has(i), resolveMaxNumber(options), options.bareNumbers === true).filter((line) => !isPastPriceLine(tokens, line.end, final))
 }

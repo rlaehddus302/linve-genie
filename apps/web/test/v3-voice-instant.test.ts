@@ -3,7 +3,7 @@ import * as voiceModule from '@livejjim/voice'
 import type { SuggestionCard, VoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from '../src/voice/controller.ts'
-import { askMessage, fixedMessage, otherNumberMessage, readInstant, registeredReadout } from '../src/voice/instant.ts'
+import { askMessage, fixedMessage, otherNumberMessage, readInstant, REASON_PRICE_ONCE, registeredReadout } from '../src/voice/instant.ts'
 
 const T0 = Date.UTC(2026, 9, 25, 1, 0, 0)
 
@@ -143,27 +143,144 @@ async function ready(options: Parameters<typeof harness>[0] = {}): Promise<Harne
   return h
 }
 
+// D-V3-120: 사전 밖 낱말 예시는 zeta — ufo는 대소문자를 무시한 사전 맞춤으로 영수증 품종 UFO가 된다
 describe('바로 등록 (V3)', () => {
   it('중간 결과에서 번호와 가격이 들린 순간 조용한 시간 없이 등록한다 — 카드 없음', async () => {
     const h = await ready()
-    say('네 108번 bts 어 요한이 10만 원까지', false)
+    say('네 108번 zeta 어 요한이 10만 원까지', false)
     // 실방송 3차(dev-notes 추가 5): 한 번만 나온 추측 낱말은 품종으로 쓰지 않는다 — 품종 미입력
     expect(reg(h)).toEqual([{ no: 108, name: '', price: 100000, source: 'instant' }])
     expect(cards(h)).toEqual([])
     // 같은 덩어리에서 더 들어와도 다시 등록하지 않는다
-    say('네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요', false)
-    say('네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요')
+    say('네 108번 zeta 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요', false)
+    say('네 108번 zeta 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요')
     at(5000)
     expect(h.registered).toHaveLength(1)
     expect(cards(h)).toEqual([])
     expect(h.voice.getSnapshot().log[0]?.reason).not.toBeNull()
   })
 
+  it('있는 상품은 중간 결과 끝 "원까지"로 고치지 않고 뒤 낱말을 기다린다 — 지난 일 가격(실방송 468번)이면 고치지도 묻지도 않는다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    const head = '자 468번은 이제 앞으로 핀이 들어오셨습니다 자 제가 팔색조 세금을 자 120만 원까지'
+    say(head, false)
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers).toEqual([])
+    say(`${head} 팔아 본 적`, false)
+    say(`${head} 팔아 본 적 있어요`)
+    at(5000)
+    expect(h.registered).toEqual([])
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers).toEqual([])
+    expect(cards(h)).toEqual([])
+  })
+
+  it('없는 번호도 중간 결과 끝 "원까지" 뒤에 지난 일 꼴이 이어지면 그때는 등록하지 않는다', async () => {
+    const h = await ready()
+    say('자 470번 120만 원까지 팔', false)
+    say('자 470번 120만 원까지 팔아 본 적 있어요')
+    at(5000)
+    expect(h.registered).toEqual([])
+  })
+
+  // D-V3-94 (ㄷ)·R-22 4 (나)·사례 R123: 15초(PHRASE_MAX_MS)로 끊긴 덩어리의 남은 중간 결과가 다음 덩어리 첫 최종 결과로 다시 읽혀도 한 번
+  it('R123: 15초로 끊긴 덩어리 끝 중간 결과 "468번 6만 원"이 다음 덩어리 첫 최종이 되면 한 번으로 세어 고치지 않고 묻는다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    for (let ms = 0; ms <= 14000; ms += 1000) {
+      at(ms)
+      say('자 이 아이 색 보세요')
+    }
+    at(14500)
+    say('468번 6만 원', false)
+    await settle()
+    expect(h.fixes).toEqual([])
+    at(15000)
+    await settle()
+    // 앞 덩어리가 15초로 끊겼다
+    expect(h.voice.getSnapshot().log.length).toBeGreaterThan(0)
+    at(15300)
+    say('468번 6만 원')
+    await settle()
+    at(20000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(h.registered).toEqual([])
+    const asks = h.voice.getSnapshot().offers.filter((item) => item.stage === 'ask')
+    expect(asks).toHaveLength(1)
+    expect(asks[0]?.message).toBe('468번을 고칠까요? 가격 50,000원 → 60,000원')
+    expect(asks[0]?.note).toBe('다른 가격이 한 번만 들려 저절로 고치지 않았어요.')
+  })
+
+  it('R123: 300글자로 끊긴 덩어리 다음 첫 조각의 같은 번호·같은 새 가격도 한 번으로 센다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    const filler = '자 이 아이 색 보세요 '.repeat(22).trim()
+    say(`${filler} 468번 6만 원`)
+    await settle()
+    expect(h.fixes).toEqual([])
+    at(500)
+    // 300글자를 넘기게 되는 결과 앞에서 끊긴다 — 그 첫 조각이 같은 번호·같은 새 가격
+    say('468번 6만 원 이 아이 색 정말 예뻐요 잎이 통통하고 색이 고와요')
+    await settle()
+    at(6000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers.filter((item) => item.stage === 'ask')).toHaveLength(1)
+  })
+
+  // 실방송 금화다육 468번 경로 (D-V3-94): 15초 덩어리 끝 중간 결과의 "… 120만 원"이 다음 덩어리 첫 최종으로 다시 읽혀 두 번으로 세어져 고침이 나갔다
+  it('R123: 실방송 468번 — 15초 경계에 걸린 "468번은 … 120만 원"은 한 번이라 1,200,000원으로 고치지 않고 묻는다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    for (let ms = 0; ms <= 13000; ms += 1000) {
+      at(ms)
+      say('자 이 아이 색 보세요')
+    }
+    // 앞 덩어리가 15초로 끊길 때 남아 있던 중간 결과 — 다음 덩어리의 첫 최종 결과로 같은 글이 다시 온다
+    const tail = '자 468번은 이제 앞으로 핀이 들어오셨습니다 자 제가 팔색조 세금을 자 120만 원'
+    at(14500)
+    say(tail, false)
+    await settle()
+    at(15000)
+    await settle()
+    at(15300)
+    say(tail)
+    await settle()
+    at(22000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    const asks = h.voice.getSnapshot().offers.filter((item) => item.stage === 'ask')
+    expect(asks).toHaveLength(1)
+    expect(asks[0]?.message).toBe('468번을 고칠까요? 가격 50,000원 → 1,200,000원, 품종 없음 → 팔색조')
+    expect(asks[0]?.note).toBe('다른 가격이 한 번만 들려 저절로 고치지 않았어요.')
+  })
+
+  it('R123: 15초 경계 다음 덩어리라도 첫 조각이 아닌 곳에서 같은 새 가격을 또 들으면 두 번이라 바로 고친다', async () => {
+    const h = await ready()
+    h.board.set(468, product(468, '', 50000))
+    for (let ms = 0; ms <= 14000; ms += 1000) {
+      at(ms)
+      say('자 이 아이 색 보세요')
+    }
+    at(14500)
+    say('468번 6만 원', false)
+    at(15000)
+    await settle()
+    at(15300)
+    say('468번 6만 원 예쁘죠 468번 6만 원')
+    await settle()
+    at(20000)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:468', changes: { price: 60000 } }])
+  })
+
   it('보낸 등록이 아직 목록에 없어도 다음 덩어리에서 같은 번호를 다시 등록하지 않는다', async () => {
     const h = await ready()
-    say('108번 bts 10만 원')
+    say('108번 zeta 10만 원')
     at(3000)
-    say('자 bts 그대로 보냅니다 10만 원 108번')
+    say('자 zeta 그대로 보냅니다 10만 원 108번')
     at(6000)
     expect(h.registered).toHaveLength(1)
     expect(cards(h)).toEqual([])
@@ -171,8 +288,8 @@ describe('바로 등록 (V3)', () => {
 
   it('이미 등록된 번호를 같은 값으로 다시 말하면 카드 없이 기록에만 "이미 등록됨"', async () => {
     const h = await ready()
-    h.board.set(108, product(108, 'bts', 100000))
-    say('자 bts 그대로 보냅니다 요 아이 자 10만 원 108번')
+    h.board.set(108, product(108, 'zeta', 100000))
+    say('자 zeta 그대로 보냅니다 요 아이 자 10만 원 108번')
     at(3000)
     expect(h.registered).toEqual([])
     expect(cards(h)).toEqual([])
@@ -182,12 +299,21 @@ describe('바로 등록 (V3)', () => {
 
   it('찜이 없는 이미 있는 번호의 가격이 다르게 들리면 바로 고치고 알림 + 되돌리기', async () => {
     const h = await ready()
-    h.board.set(108, product(108, 'bts', 100000))
+    h.board.set(108, product(108, 'zeta', 100000))
+    // 실방송 333번 (가격 고침 문턱): 다른 가격은 정정 낱말이 있거나 다른 조각에서 두 번 들려야 바로 고친다 — 한 번이면 고침 후보(묻기)
     say('108번 12만 원')
     await settle()
     at(3000)
     await settle()
+    expect(h.fixes).toEqual([])
+    expect(h.voice.getSnapshot().offers[0]?.stage).toBe('ask')
+    say('108번 12만 원')
+    await settle()
+    at(6000)
+    await settle()
     expect(h.fixes).toEqual([{ id: 'b1:108', changes: { price: 120000 } }])
+    // 고침 후보 묻기 카드는 내려간다
+    expect(h.voice.getSnapshot().offers.filter((item) => item.stage === 'ask')).toEqual([])
     const offer = h.voice.getSnapshot().offers[0]
     expect(offer?.stage).toBe('fixed')
     expect(offer?.message).toBe('108번을 고쳤어요: 가격 100,000원 → 120,000원')
@@ -200,7 +326,7 @@ describe('바로 등록 (V3)', () => {
 
   it('찜이 있는 상품은 결정이 ASK면 고칠까요 카드만 띄우고 바꾸지 않는다', async () => {
     const h = await ready()
-    h.board.set(108, product(108, 'bts', 100000, 2))
+    h.board.set(108, product(108, 'zeta', 100000, 2))
     say('108번 12만 원')
     at(3000)
     await settle()
@@ -261,7 +387,7 @@ describe('바로 등록 (V3)', () => {
     const h = await ready()
     h.voice.setInstant(false)
     expect(h.written.at(-1)).toMatchObject({ 'voice.autoRegister': false })
-    say('108번 bts 10만 원')
+    say('108번 zeta 10만 원')
     at(3000)
     expect(h.registered).toEqual([])
     expect(cards(h).map((card) => card.no)).toEqual([108])
@@ -276,14 +402,14 @@ describe('바로 등록 (V3)', () => {
 
   it('상품 보드를 넘기지 않는 화면은 바로 등록하지 않는다', async () => {
     const h = await ready({ noBoard: true })
-    say('108번 bts 10만 원')
+    say('108번 zeta 10만 원')
     at(3000)
     expect(h.registered).toEqual([])
   })
 
   it('등록하지 못해 돌아온 바로 등록은 카드가 되고, 같은 번호를 다시 보낼 수 있다', async () => {
     const h = await ready()
-    say('108번 bts 10만 원')
+    say('108번 zeta 10만 원')
     at(3000)
     const sent = h.registered[0]
     expect(sent).toBeDefined()
@@ -326,10 +452,14 @@ describe('바로 등록 V3 수용 사례', () => {
     ])
   })
 
-  it('D-V3-48: 천원 단위 방송의 "92번 빅뱅 60"(최종 결과)은 60,000원으로 바로 등록', async () => {
+  // D-V3-112: 천원 단위 1~2자리 수는 확정 아님 — 처음 기대 "바로 60,000원 등록"을 바꿈(표 R61). 카드(60,000원)와 안내
+  it('D-V3-48·112: 천원 단위 방송의 "92번 빅뱅 60"(최종 결과)은 바로 등록하지 않고 카드(60,000원, 안내 "60,000원으로 들렸어요. 가격을 확인해 주세요")', async () => {
     const h = await ready({ priceUnit: 'THOUSAND' })
     say('92번 빅뱅 60')
-    expect(reg(h).map((item) => [item.no, item.name, item.price])).toEqual([[92, '빅뱅', 60000]])
+    at(3000)
+    expect(reg(h)).toEqual([])
+    expect(cards(h).map((card) => [card.no, card.name, card.price])).toEqual([[92, '빅뱅', 60000]])
+    expect(h.voice.getSnapshot().notes.get(cards(h)[0]?.id ?? '')).toBe('60,000원으로 들렸어요. 가격을 확인해 주세요')
   })
 
   it('번호 없는 말은 카드 없이 "번호를 못 들었어요", 끔이면 번호만 있는 카드에 "가격을 말해 주세요" (D-V3-41·44)', async () => {
@@ -374,6 +504,37 @@ describe('바로 등록 V3 수용 사례', () => {
     expect(h.registered).toHaveLength(1)
   })
 
+  // D-V3-109: 번호 없는 정정 덩어리는 할 일 하나 — 가격만 고쳐 말함(D-V3-84 ㄱ)이 맞으면 바로 고침만, 아니면 V2 묻기 카드만
+  it('R19 (D-V3-109): 등록 30초 안 다음 덩어리 "아니 12만원" → 바로 고침 하나·10초 되돌리기, V2 "방금 등록한 …" 카드 0', async () => {
+    const h = await ready()
+    say('108번 BTS 10만 원')
+    finish(h)
+    at(5000)
+    say('아니 12만원')
+    at(9000)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:108', changes: { price: 120000 } }])
+    const offers = h.voice.getSnapshot().offers
+    expect(offers.map((offer) => [offer.kind, offer.stage, offer.message])).toEqual([['offer', 'fixed', '108번을 고쳤어요: 가격 100,000원 → 120,000원']])
+    // 10초 되돌리기 (D-V3-07)
+    expect(offers[0]?.undoUntil ?? 0).toBeGreaterThan(Date.now())
+    expect(offers[0]?.before).toEqual({ price: 100000 })
+    expect(cards(h)).toEqual([])
+  })
+
+  it('R19b (D-V3-109): 등록 31초 뒤 "아니 12만원" → V2 "방금 등록한 108번 BTS를 120,000원으로 고칠까요?" 카드 하나, 쓰기 0', async () => {
+    const h = await ready()
+    say('108번 BTS 10만 원')
+    finish(h)
+    at(31_000)
+    say('아니 12만원')
+    at(35_000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    const offers = h.voice.getSnapshot().offers
+    expect(offers.map((offer) => [offer.stage, offer.message])).toEqual([['ask', '방금 등록한 108번 BTS를 120,000원으로 고칠까요?']])
+  })
+
   it('R20: 바로 등록한 덩어리 끝에 취소 → 그 등록을 되돌리고, 같은 말은 카드만 (껐다 켜면 다시 바로)', async () => {
     const h = await ready()
     say('21번 핑크문 만원', false)
@@ -404,7 +565,8 @@ describe('바로 등록 V3 수용 사례', () => {
     expect(cards(h)).toEqual([])
     say('15번 만오천 원')
     at(9000)
-    expect(reg(h)).toEqual([{ no: 15, name: '', price: 15000, source: 'instant' }])
+    // 사용자 요구(1분 맥락): 같은 번호를 바로 앞 덩어리에서 품종과 함께 들었으면 그 품종 — 다른 결과에 들린 번호·품종·가격을 잇는다
+    expect(reg(h)).toEqual([{ no: 15, name: '핑크문', price: 15000, source: 'instant' }])
     const off = await ready({ settings: { 'voice.autoRegister': false } })
     say('15번 핑크프릴 만오천')
     at(3000)
@@ -428,7 +590,7 @@ describe('바로 등록 V3 수용 사례', () => {
   it('창이 닫히면 따로 알리지 않아도 곧 등록 (AC-V3-43 a, TE-V3-006)', async () => {
     const h = await ready()
     h.dialog = true
-    say('네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요')
+    say('네 108번 zeta 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요')
     at(3000)
     expect(h.registered).toEqual([])
     h.dialog = false
@@ -439,7 +601,7 @@ describe('바로 등록 V3 수용 사례', () => {
   it('창이 열린 동안은 미루고 창이 닫히면 등록 (AC-V3-43 a)', async () => {
     const h = await ready()
     h.dialog = true
-    say('108번 bts 10만 원')
+    say('108번 zeta 10만 원')
     at(3000)
     expect(h.registered).toEqual([])
     h.dialog = false
@@ -451,13 +613,13 @@ describe('바로 등록 V3 수용 사례', () => {
   // D-V3-59: 이 콘솔이 방금 등록한 번호가 아니고 찜이 있으면 다른 화분일 수 있다는 카드 — 그대로 두면 거절한 번호(묻기만)
   it('찜 있는 상품을 다시 들으면 "108번이 이미 있어요" 카드, 그대로 두면 그 번호는 묻기만 (까닭 줄 없음)', async () => {
     const h = await ready()
-    h.board.set(108, { ...product(108, 'bts', 100000, 1), status: 'OPEN' })
+    h.board.set(108, { ...product(108, 'zeta', 100000, 1), status: 'OPEN' })
     say('108번 12만 원')
     at(3000)
     const offer = h.voice.getSnapshot().offers[0]
     expect(offer?.message).toBe('108번이 이미 있어요 (100,000원, 찜 1개)')
     h.voice.dismissOffer(offer?.id ?? '')
-    h.board.set(108, product(108, 'bts', 100000, 0))
+    h.board.set(108, product(108, 'zeta', 100000, 0))
     say('108번 12만 원')
     at(6000)
     const again = h.voice.getSnapshot().offers[0]
@@ -492,6 +654,9 @@ describe('중간 결과 끝의 번 없는 번호 (D-V3-26)·막음 (실방송 3�
   it('이미 있는 상품(찜 0)을 N번 + 원으로 다시 들으면 3배가 넘어도 바로 고치고, 고쳐 말함이 아니면 안내 (D-V3-57·59)', async () => {
     const h = await ready()
     h.board.set(38, product(38, '라울', 100000))
+    // 실방송 333번 (가격 고침 문턱): 다른 가격은 정정 낱말이 있거나 다른 조각에서 두 번 들려야 바로 고친다 — 한 번이면 고침 후보(묻기)
+    say('38번 라울 50만 원')
+    at(3000)
     say('38번 라울 50만 원')
     await settle()
     expect(h.fixes).toEqual([{ id: 'b1:38', changes: { price: 500000 } }])
@@ -517,7 +682,8 @@ describe('중간 결과 끝의 번 없는 번호 (D-V3-26)·막음 (실방송 3�
     finish(h)
     h.board.set(70, { ...product(70, '라울', 30000, 1), status: 'OPEN' })
     at(2500)
-    say('70번 5만 원')
+    // 실방송 333번 (가격 고침 문턱): 다른 가격은 정정 낱말이 있거나 다른 조각에서 두 번 들려야 바로 고친다 — 한 번이면 고침 후보(묻기)
+    say('70번 5만 원 70번 5만 원')
     await settle()
     expect(h.fixes).toEqual([{ id: 'b1:70', changes: { price: 50000 } }])
     const offer = h.voice.getSnapshot().offers[0]
@@ -530,9 +696,9 @@ describe('덩어리 내내 켜져 있어야 바로 (D-V3-35)', () => {
   it('끈 채 말하고 조용한 시간 안에 켜면 그 덩어리는 카드만, 다음 덩어리부터 바로', async () => {
     const h = await ready()
     h.voice.setInstant(false)
-    say('108번 bts 10만 원', false)
+    say('108번 zeta 10만 원', false)
     h.voice.setInstant(true)
-    say('108번 bts 10만 원')
+    say('108번 zeta 10만 원')
     at(3000)
     expect(h.registered).toEqual([])
     expect(cards(h).map((card) => card.no)).toEqual([108])
@@ -542,10 +708,10 @@ describe('덩어리 내내 켜져 있어야 바로 (D-V3-35)', () => {
 
   it('켠 채 말하다 도중에 끄면 바로 등록하지 않는다', async () => {
     const h = await ready()
-    say('108번 bts', false)
+    say('108번 zeta', false)
     h.voice.setInstant(false)
     h.voice.setInstant(true)
-    say('108번 bts 10만 원')
+    say('108번 zeta 10만 원')
     at(3000)
     expect(h.registered).toEqual([])
   })
@@ -554,20 +720,20 @@ describe('덩어리 내내 켜져 있어야 바로 (D-V3-35)', () => {
 describe('추측 품종은 등록에 쓰지 않는다 (D-V3-37)', () => {
   it('바로 등록은 품종 미입력, 큰 글자 칸 "15번 10,000원 등록했어요"', async () => {
     const h = await ready()
-    say('15번 bts 자 bts 만 원')
+    say('15번 zeta 자 zeta 만 원')
     expect(reg(h)).toEqual([{ no: 15, name: '', price: 10000, source: 'instant' }])
     expect(h.voice.getSnapshot().readout?.text).toBe('15번 10,000원 등록했어요')
   })
 
   it('카드 품종 칸은 비우고 추측은 후보 단추 — 누르면 채우고 손댄 카드 (바로 등록 끔)', async () => {
     const h = await ready({ settings: { 'voice.autoRegister': false } })
-    say('15번 bts 자 bts 만오천')
+    say('15번 zeta 자 zeta 만오천')
     at(3000)
     const card = cards(h)[0]
     expect(card?.name).toBeNull()
-    expect(h.voice.cardInfo(card?.id ?? '')?.candidates.map((item) => item.name)).toContain('bts')
-    h.voice.chooseCandidate(card?.id ?? '', 'bts')
-    expect(cards(h)[0]?.name).toBe('bts')
+    expect(h.voice.cardInfo(card?.id ?? '')?.candidates.map((item) => item.name)).toContain('zeta')
+    h.voice.chooseCandidate(card?.id ?? '', 'zeta')
+    expect(cards(h)[0]?.name).toBe('zeta')
     expect(cards(h)[0]?.touched).toBe(true)
   })
 })
@@ -575,7 +741,10 @@ describe('추측 품종은 등록에 쓰지 않는다 (D-V3-37)', () => {
 describe('음성 기록 한 줄 (R-25, D-V3-65)', () => {
   it('바로 고침 쓰기에 가린 들은 말 한 줄을 싣고, 되돌리기에는 그 요청 번호를 싣는다', async () => {
     const h = await ready()
-    h.board.set(108, product(108, 'bts', 100000))
+    h.board.set(108, product(108, 'zeta', 100000))
+    // 실방송 333번 (가격 고침 문턱): 다른 가격은 정정 낱말이 있거나 다른 조각에서 두 번 들려야 바로 고친다 — 한 번이면 고침 후보(묻기)
+    say('108번 12만 원')
+    at(3000)
     say('108번 12만 원 끝자리 1234')
     await settle()
     // RA-V3-004: 들은 말은 그 일을 만든 조각 글만 (뒤의 끝자리 말은 싣지 않는다)
@@ -613,12 +782,13 @@ describe('고쳐 말함 (D-V3-59, TD-V3-005)', () => {
     finish(h)
     h.board.set(71, product(71, '녹금', 20000))
     at(2500)
-    say('71번 2만 5천 원')
+    // 실방송 333번 (가격 고침 문턱): 다른 가격은 정정 낱말이 있거나 다른 조각에서 두 번 들려야 바로 고친다 — 한 번이면 고침 후보(묻기)
+    say('71번 2만 5천 원 71번 2만 5천 원')
     await settle()
     expect(h.fixes.map((fix) => fix.id)).toEqual(['b1:71'])
     h.board.set(70, product(70, '라울', 30000, 1))
     at(5000)
-    say('70번 4만 원')
+    say('70번 4만 원 70번 4만 원')
     await settle()
     // 찜이 있어도 고쳐 말함이면 바로 고친다 (MAYBE_OTHER 카드 아님)
     expect(h.fixes.map((fix) => fix.id)).toEqual(['b1:71', 'b1:70'])
@@ -654,6 +824,53 @@ describe('중간 결과 안정 (D-V3-71)', () => {
     at(5000)
     expect(h.registered).toHaveLength(1)
   })
+
+  it('R-22·D-V3-83: 바로 등록이 차례에서 "이미 있는 번호"(빠른 입력이 먼저)로 끝나면 가격·품종 함께 묻기 카드·쓰기 0, 다른 조각에서 한 번 더 들으면 고친다', async () => {
+    const h = await ready()
+    say('15번 라울 만 원', false)
+    expect(reg(h)).toEqual([{ no: 15, name: '라울', price: 10000, source: 'instant' }])
+    const sent = h.registered[0]
+    if (sent === undefined) throw new Error('보낸 등록이 없다')
+    say('15번 라울 만 원')
+    h.board.set(15, product(15, '핑크프릴', 20000))
+    h.voice.instantExists(sent.card)
+    at(4000)
+    await settle()
+    expect(h.fixes).toEqual([])
+    const asks = h.voice.getSnapshot().offers.filter((offer) => offer.stage === 'ask')
+    expect(asks.map((offer) => [offer.changes, offer.note])).toEqual([[{ name: '라울', price: 10000 }, REASON_PRICE_ONCE]])
+    at(6000)
+    say('15번 라울 만 원')
+    at(10_000)
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:15', changes: { name: '라울', price: 10000 } }])
+    expect(h.voice.getSnapshot().offers.filter((offer) => offer.stage === 'ask')).toEqual([])
+  })
+
+  // R93 (D-V3-83·103): 같은 결과의 최종 글 가격이 중간 글과 다르면 묻기 카드·쓰기 0이고, 그 가격은 문턱의 한 번 들음 — 다른 조각에서 한 번 더 들으면 고친다
+  for (const when of ['최종 글 전에', '최종 글 뒤에'] as const) {
+    it(`R93: 중간 "148번 280"으로 등록, 최종 "148번 30만 원"은 묻기 카드 — 등록이 ${when} 끝나도 같다, 다른 조각에서 한 번 더 들으면 300,000원`, async () => {
+      const h = await ready({ priceUnit: 'THOUSAND' })
+      say('148번 280', false)
+      at(1000)
+      expect(reg(h).map((item) => [item.no, item.price])).toEqual([[148, 280000]])
+      if (when === '최종 글 전에') finish(h, 0)
+      say('148번 30만 원')
+      await settle()
+      if (when === '최종 글 뒤에') finish(h, 0)
+      at(4000)
+      await settle()
+      expect(h.fixes).toEqual([])
+      const asks = h.voice.getSnapshot().offers.filter((offer) => offer.stage === 'ask')
+      expect(asks.map((offer) => [offer.message, offer.note])).toEqual([['148번을 고칠까요? 가격 280,000원 → 300,000원', '듣는 중엔 280,000원, 마지막엔 300,000원으로 들렸어요.']])
+      at(6000)
+      say('148번 30만 원')
+      at(10_000)
+      await settle()
+      expect(h.fixes).toEqual([{ id: 'b1:148', changes: { price: 300000 } }])
+      expect(h.voice.getSnapshot().offers.filter((offer) => offer.stage === 'ask')).toEqual([])
+    })
+  }
 
   it('1초 안에 바뀌면 다시 센다', async () => {
     const h = await ready({ priceUnit: 'THOUSAND' })
@@ -773,7 +990,7 @@ describe('위험 감사 RA-V3-001·007', () => {
 
   it('다른 기기가 마지막으로 등록한 번호를 다른 가격으로 들으면 바로 고치지 않고 "이미 있어요" (D-V3-76)', async () => {
     const h = await ready({ lastDevice: new Map([[108, 'phone-device']]) })
-    h.board.set(108, product(108, 'bts', 100000))
+    h.board.set(108, product(108, 'zeta', 100000))
     say('108번 12만 원')
     await settle()
     expect(h.fixes).toEqual([])
@@ -819,9 +1036,9 @@ describe('바로 등록 문장', () => {
   })
 
   it('알림 문장 (D-V3-17)', () => {
-    expect(fixedMessage(108, { name: 'bts', price: 100000 }, { price: 120000 })).toBe('108번을 고쳤어요: 가격 100,000원 → 120,000원')
+    expect(fixedMessage(108, { name: 'zeta', price: 100000 }, { price: 120000 })).toBe('108번을 고쳤어요: 가격 100,000원 → 120,000원')
     expect(fixedMessage(108, { name: '', price: 100000 }, { name: '핑크프릴' })).toBe('108번을 고쳤어요: 품종 없음 → 핑크프릴')
-    expect(askMessage(108, { name: 'bts', price: 100000 }, { price: 120000 })).toBe('108번을 고칠까요? 가격 100,000원 → 120,000원')
+    expect(askMessage(108, { name: 'zeta', price: 100000 }, { price: 120000 })).toBe('108번을 고칠까요? 가격 100,000원 → 120,000원')
     expect(registeredReadout(108, '', 100000)).toBe('108번 100,000원 등록했어요')
     expect(registeredReadout(180, '삼광색금', 350000)).toBe('180번 삼광색금 350,000원 등록했어요')
     expect(otherNumberMessage(189, [139])).toBe('189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')

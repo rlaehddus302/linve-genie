@@ -51,14 +51,15 @@ describe('AC-V3-06 mergeIntoCard', () => {
     expect(r.card.nameNeedsCheck).toBe(false)
   })
   it('(c) 사전 품종 카드 + 추측 → 그대로', () => {
-    const text = '15번 bts 자 bts 만오천'
-    expect(reg(text).guess).toBe('bts')
+    // 사전 밖 낱말(bts는 영수증 품종 BTS, ufo는 대소문자 무시로 영수증 품종 UFO가 되어 — D-V3-120 — zeta로 바꿈)
+    const text = '15번 zeta 자 zeta 만오천'
+    expect(reg(text).guess).toBe('zeta')
     const r = mergeIntoCard(card('핑크프릴', 15000), chunk(text), reg(text))
     expect(r.card.name).toBe('핑크프릴')
     expect(r.changed).toBe(false)
   })
   it('(c2) 빈 품종 카드 + 추측 → 그대로 비움 (D-V3-37 — 추측은 후보 단추로만)', () => {
-    const text = '15번 bts 자 bts 만오천'
+    const text = '15번 zeta 자 zeta 만오천'
     const r = mergeIntoCard(card(null, 15000), chunk(text), reg(text))
     expect(r.card.name).toBeNull()
     expect(r.changed).toBe(false)
@@ -180,10 +181,11 @@ describe('AC-V3-50 배운 별칭은 흔한 말을 배우지 않는다 (D-V3-38)'
 
 describe('D-V3-37 추측은 등록·합치기에 쓰지 않는다', () => {
   it('확정 읽기 name은 사전 맞춤뿐, 추측은 guess로', () => {
-    const r = readRegistration('15번 bts 자 bts 만오천 원', { dictionary: DICT })
+    // 사전 밖 낱말 zeta (bts는 영수증 품종 BTS, ufo는 대소문자 무시로 영수증 품종 UFO — D-V3-120)
+    const r = readRegistration('15번 zeta 자 zeta 만오천 원', { dictionary: DICT })
     expect(r.ready).toEqual({ no: 15, price: 15000, name: null, nameNeedsCheck: false, numberFrom: 'marker' })
-    expect(r.guess).toBe('bts')
-    expect(readSure('15번 bts 자 bts 만오천 원', { dictionary: DICT })).toMatchObject({ sure: true, name: null, guess: 'bts' })
+    expect(r.guess).toBe('zeta')
+    expect(readSure('15번 zeta 자 zeta 만오천 원', { dictionary: DICT })).toMatchObject({ sure: true, name: null, guess: 'zeta' })
   })
   it('mergeSameNumberCards는 추측 품종 카드의 품종을 옮기지 않는다', () => {
     const newer = card(null, 15000, { id: 'b' })
@@ -277,7 +279,7 @@ describe('TD-V3-003 켬에서 원 없는 정정 덩어리는 카드 없음', () 
 describe('실방송 7차 품종 (사전 추가 — 사용자 확인 필요)', () => {
   it.each([
     ['89번 녹금 7만 원', '녹금'],
-    ['89번 녹색금 7만 원', '녹금'],
+    ['89번 녹색금 7만 원', '녹색금'],
     ['89번 록금 7만 원', '녹금'],
     ['92번 빅뱅 6만 원', '빅뱅'],
     ['92번 빅뱅금 6만 원', '빅뱅금'],

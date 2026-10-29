@@ -1,6 +1,6 @@
 // QL3R2 웹 단위 시험 — .csv 아닌 파일(D-QL3R2-01), 접힌 띠 "보류 n"·이중 표시(D-QL3R2-02), 출력 기기 없음 짧은 줄(D-QL3R2-03),
 // 쉬운 낱말(D-QL3R2-04), 머리 줄 없음 휴대폰 안내(D-QL3R2-05), 숫자 키 반복 무시(D-QL3R2-06).
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
@@ -236,6 +236,15 @@ describe('접힌 휴대폰 띠 (D-QL3R2-02 (1)(2))', () => {
     render(<AlertStrip leads={[one]} counts={counts} onOpen={() => undefined} />)
     expect(screen.getAllByRole('button', { name: deviceLostMessage('PC') })).toHaveLength(1)
     expect(screen.queryByText(/라벨이 안 나가요/)).toBeNull()
+  })
+
+  it('알림이 출력 기기 짧은 줄 하나뿐이면 "알림" 영역은 비지 않고 "알림 없음" (AC-S05-73, D-QL3R1-04)', () => {
+    const zero = { conflict: 0, cancelRequest: 0, succession: 0, pending: 0, attention: 0 } as AlertCounts
+    const none = { key: 'print-station', text: NO_STATION_PILING, shortText: NO_STATION_SHORT, soft: true, uncounted: true, onClick: vi.fn() }
+    render(<AlertStrip leads={[none]} counts={zero} onOpen={() => undefined} expanded={false} onToggle={() => undefined} />)
+    expect(within(screen.getByRole('region', { name: '알림' })).getByText('알림 없음')).toBeDefined()
+    expect(screen.getAllByRole('button', { name: NO_STATION_SHORT })).toHaveLength(1)
+    expect(screen.queryByText(NO_STATION_PILING)).toBeNull()
   })
 
   it('출력 기기 없음 짧은 줄도 같다, 기기 이름의 태그는 글자로만', () => {

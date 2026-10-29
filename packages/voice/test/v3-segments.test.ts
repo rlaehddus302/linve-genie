@@ -1,6 +1,6 @@
 // AC-V3-52·53 덩어리 조각 소비 (R-17 8, D-V3-46·48) — 사례 R54~R64, 실방송 8차, 실제 방송 1~6.
 import { describe, expect, it } from 'vitest'
-import { extractVoice, prepareVoiceDictionary, readSegments, type SegmentOptions } from '../src/index.ts'
+import { extractVoice, prepareVoiceDictionary, readMarkerCorrection, readSegments, type SegmentOptions } from '../src/index.ts'
 
 const DICT = prepareVoiceDictionary()
 const seg = (text: string, options: SegmentOptions = {}) => readSegments(text, { dictionary: DICT, ...options })
@@ -50,8 +50,15 @@ describe('AC-V3-52 조각 소비 (R54~R60)', () => {
 
 describe('AC-V3-53 "N번 품종 수" (R61~R64, D-V3-48)', () => {
   const thousand: SegmentOptions = { priceUnit: 'THOUSAND' }
-  it('R61 천원 단위 "92번 빅뱅 60"(최종) → 92번 빅뱅 60,000원', () => {
-    expect(seg('92번 빅뱅 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, name: '빅뱅', price: 60000, priceFrom: 'quick' }])
+  // D-V3-112: 천원 단위 1~2자리 수는 확정 아님 — 처음 기대 "바로 60,000원"을 바꿈(표 R61). 값은 그대로 읽고 check로 카드·묻기
+  it('R61 천원 단위 "92번 빅뱅 60"(최종) → 92번 빅뱅 60,000원, 확정 아님(카드 안내 "60,000원으로 들렸어요. 가격을 확인해 주세요")', () => {
+    expect(seg('92번 빅뱅 60', { ...thousand, final: true }).picks).toMatchObject([
+      { no: 92, name: '빅뱅', price: 60000, priceFrom: 'quick', check: { kind: 'SMALL_QUICK', note: '60,000원으로 들렸어요. 가격을 확인해 주세요' } },
+    ])
+    // 자동·만원 단위는 그대로 바로 600,000원
+    expect(seg('92번 빅뱅 60', { priceUnit: 'AUTO', final: true }).picks).toMatchObject([{ no: 92, price: 600000 }])
+    expect(seg('92번 빅뱅 60', { priceUnit: 'AUTO', final: true }).picks[0]?.check ?? null).toBeNull()
+    expect(seg('92번 빅뱅 60', { priceUnit: 'TEN_THOUSAND', final: true }).picks[0]?.check ?? null).toBeNull()
   })
   it('R62 중간 결과 "92번 빅뱅 60"은 기다리고, 최종 "92번 빅뱅 60만 원"은 600,000원', () => {
     expect(seg('92번 빅뱅 60', thousand).picks).toEqual([])
@@ -63,8 +70,10 @@ describe('AC-V3-53 "N번 품종 수" (R61~R64, D-V3-48)', () => {
   // D-V3-63: 품종 없이도 'N번' 바로 뒤 수가 조각 끝이고 final이면 확정 (R64 처음 기대 "확정 아님"을 바꿈)
   it('품종 없는 빠른 꼴: final일 때만, 뒤에 단위 낱말이면 아님', () => {
     const tenThousand: SegmentOptions = { priceUnit: 'TEN_THOUSAND' }
-    expect(seg('92번 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000, name: null, priceFrom: 'quick' }])
-    expect(seg('92번 저거 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000 }])
+    // D-V3-112: 천원 단위 1~2자리라 확정 아님 — 표 R64 앞 기대 "바로 60,000원"을 바꿈
+    expect(seg('92번 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000, name: null, priceFrom: 'quick', check: { kind: 'SMALL_QUICK' } }])
+    expect(seg('92번 저거 60', { ...thousand, final: true }).picks).toMatchObject([{ no: 92, price: 60000, check: { kind: 'SMALL_QUICK' } }])
+    expect(seg('92번 60', { ...tenThousand, final: true }).picks[0]?.check ?? null).toBeNull()
     expect(seg('육십팔번 이십오', { ...tenThousand, final: true }).picks).toMatchObject([{ no: 68, price: 250000, name: null }])
     expect(seg('육십팔번 이십오', tenThousand).picks).toEqual([])
     expect(seg('68번 이십오 자 요거', { ...tenThousand, final: true }).picks).toMatchObject([{ no: 68, price: 250000 }])
@@ -371,5 +380,57 @@ describe('TD-V3-009·010 남은 부분', () => {
     expect(maskArchiveText('010-1234-5678')).toBe('****')
     expect(maskArchiveText('공일공-1234-5678 주세요')).toBe('**** 주세요')
     expect(maskArchiveText('끝 번호 1234')).toBe('끝 번호 ****')
+  })
+})
+
+describe('TD-V3-011 한글 N번에서 품종 창이 멈춘다', () => {
+  const quick = (text: string) => seg(text, { priceUnit: 'THOUSAND', final: true }).picks.map((p) => [p.no, p.price])
+  it.each([
+    ['8번 라울 십오번 25만', '8번 라울 15번 25만'],
+    ['108번 삼광색금 십오번 60', '108번 삼광색금 15번 60'],
+    ['189번인데 삼광색금 십오번 5만', '189번인데 삼광색금 15번 5만'],
+    ['7번 라울 삼백육번 12만', '7번 라울 306번 12만'],
+  ])('"%s" → "%s"와 같다', (text, digits) => {
+    const want = quick(digits)
+    expect(want.length).toBeGreaterThan(0)
+    expect(quick(text)).toEqual(want)
+    expect(want[0]?.[0]).not.toBe(Number(digits.split('번')[0]))
+  })
+  it('"8번 라울 25만"은 그대로 8번 (품종 빠른 꼴 회귀)', () => {
+    expect(quick('8번 라울 25만')).toEqual([[8, 250000]])
+  })
+})
+
+describe('readMarkerCorrection — 정정 낱말이 든 "N번 … 원 가격" (TD-V3-013)', () => {
+  const read = (text: string) => readMarkerCorrection(text, { dictionary: DICT })
+  it.each([
+    ['65번 아니 5만 원', 65, 50_000],
+    ['65번 다시 5만 원', 65, 50_000],
+    ['65번 아니요 오만 원', 65, 50_000],
+    ['아니 65번 5만 원', 65, 50_000],
+    ['잘못 말했어요 15번 7만 원', 15, 70_000],
+    ['다시 15번 7만 원', 15, 70_000],
+    ['15번 정정 7만 원', 15, 70_000],
+    ['65번 아니 5만 원 아니 6만 원', 65, 60_000],
+    ['65번 아니 65번 5만 원', 65, 50_000],
+  ])('"%s" → %i번 %i원', (text, no, price) => {
+    expect(read(text)).toMatchObject({ no, price })
+  })
+  it.each([
+    '65번 5만 원', // 정정 낱말 없음
+    '65번 말고 5만 원', // 번호를 고친 말일 수 있다
+    '65번 자 말고 5만 원',
+    '65번 취소 아니 5만 원', // 취소
+    '65번 아니 61번', // 번호 옮기기
+    '65번 아니 61번 5만 원', // 번호 둘
+    '65번 아니', // 가격 없음
+    '5만 원 아니 65번', // 정정 뒤 가격 없음
+    '아니 5만 원', // 번호 없음 (가격만 고침 길)
+    '',
+  ])('"%s" → 없음', (text) => {
+    expect(read(text)).toBeNull()
+  })
+  it('어떤 입력에도 던지지 않는다', () => {
+    for (const value of [null, undefined, 3, {}, '번번번', '아니 '.repeat(500)]) expect(() => readMarkerCorrection(value as never)).not.toThrow()
   })
 })

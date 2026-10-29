@@ -8,6 +8,7 @@ import { loginNewSeller } from '../i3/support.ts'
 import {
   boardItem,
   card,
+  cardButton,
   installFakeSpeech,
   openExtras,
   openNewBroadcast,
@@ -24,6 +25,7 @@ import {
   recordWrites,
   registerProduct,
   sayChunk,
+  sayFirstOfTwo,
   sayWords,
   settle,
   setupV3,
@@ -124,10 +126,18 @@ test.describe('AC-V3-52 조각 소비 (D-V3-46)', () => {
 // ── AC-V3-53 빠른 꼴·가격 단위 R61~R64·R69~R73 ─────────────────────────────
 
 test.describe('AC-V3-53 빠른 꼴 (D-V3-48·63)', () => {
-  test('R61 (천원): "92번 빅뱅 60"(최종) → 덩어리 끝에 92번 빅뱅 60,000원', async ({ page }) => {
+  // 표 R61 기대는 D-V3-112(AC-V3-98 (2))로 바뀜: 천원 단위의 1~2자리 빠른 꼴은 확정 아님 → 쓰기 0, 제안 카드(읽은 값 60,000원·안내), [등록]하면 그 값
+  test('R61 (천원, D-V3-112): "92번 빅뱅 60"(최종) → 쓰기 0, 카드 92번 빅뱅 60,000원 + "60,000원으로 들렸어요. 가격을 확인해 주세요", [등록]하면 60,000원', async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
     await sayChunk(page, '92번 빅뱅 60')
+    const offer = card(page, '92번 빅뱅 60,000원')
+    await expect(offer).toBeVisible()
+    await expect(offer.getByText('60,000원으로 들렸어요. 가격을 확인해 주세요')).toBeVisible()
+    await settle(page)
+    expect(productWrites(writes)).toEqual([])
+    await expect(boardItem(page, 92)).toHaveCount(0)
+    await cardButton(page, '92번 빅뱅 60,000원', '등록').click()
     await registers(writes, [['product.register', 92, '빅뱅', 60000]])
   })
 
@@ -153,11 +163,18 @@ test.describe('AC-V3-53 빠른 꼴 (D-V3-48·63)', () => {
     })
   })
 
+  // 표 R64 기대는 D-V3-112(AC-V3-98 (2))로 바뀜: 품종 없는 빠른 꼴(D-V3-63)도 천원 단위 1~2자리면 카드
   for (const sentence of ['92번 60', '92번 저거 60']) {
-    test(`R64 (천원): "${sentence}"(최종) → 덩어리 끝 92번 품종 미입력 60,000원`, async ({ page }) => {
+    test(`R64 (천원, D-V3-112): "${sentence}"(최종) → 쓰기 0, 카드 92번 품종 미입력 60,000원 + 안내, [등록]하면 60,000원`, async ({ page }) => {
       await setupV3(page)
       const writes = recordWrites(page)
       await sayChunk(page, sentence)
+      const offer = card(page, '92번 품종 미입력 60,000원')
+      await expect(offer).toBeVisible()
+      await expect(offer.getByText('60,000원으로 들렸어요. 가격을 확인해 주세요')).toBeVisible()
+      await settle(page)
+      expect(productWrites(writes)).toEqual([])
+      await cardButton(page, '92번 품종 미입력 60,000원', '등록').click()
       await registers(writes, [['product.register', 92, '', 60000]])
     })
   }
@@ -281,24 +298,27 @@ test.describe('AC-V3-65 (D-V3-54)', () => {
 
 // ── AC-V3-67 같은 번호 고침 화면 ───────────────────────────────────────────
 
-test.describe('AC-V3-67 (D-V3-55·57·64)', () => {
-  test('방금 음성 등록한 62번 100,000원에 "62번 2만 원" → 바로 고침 20,000원(내림도 바로)', async ({ page }) => {
+// 가격 고침 문턱 (D-V3-83, 수용 기준 표 머리 (2)): AC-V3-67 화면 예의 "바로 고침"은 같은 말을 다른 조각에서 한 번 더 들었을 때 — 첫 번은 묻기 카드·쓰기 0
+test.describe('AC-V3-67 (D-V3-55·57·64·83)', () => {
+  test('방금 음성 등록한 62번 100,000원에 "62번 2만 원"(다른 조각에서 두 번) → 바로 고침 20,000원(내림도 바로)', async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
     await sayChunk(page, '62번 10만 원')
     await expect(boardItem(page, 62)).toBeVisible()
     await page.clock.runFor(1000)
+    await sayFirstOfTwo(page, '62번 2만 원', '62번을 고칠까요? 가격 100,000원 → 20,000원', writes)
     await sayChunk(page, '62번 2만 원')
     await expect(notices(page).getByRole('listitem', { name: /^62번을 고쳤어요: (가격 )?100,000원 → 20,000원/ })).toBeVisible()
     await registers(writes, [['product.register', 62, '', 100000], ['product.update', 62, 20000]])
   })
 
-  test('"62번 500만 원" → 바로 고침 5,000,000원, 정산 화면 기록에 "크게 바뀜"', async ({ page }) => {
+  test('"62번 500만 원"(다른 조각에서 두 번) → 바로 고침 5,000,000원, 정산 화면 기록에 "크게 바뀜"', async ({ page }) => {
     const { date } = await setupV3(page)
     const writes = recordWrites(page)
     await sayChunk(page, '62번 10만 원')
     await expect(boardItem(page, 62)).toBeVisible()
     await page.clock.runFor(1000)
+    await sayFirstOfTwo(page, '62번 500만 원', '62번을 고칠까요? 가격 100,000원 → 5,000,000원', writes)
     await sayChunk(page, '62번 500만 원')
     await registers(writes, [['product.register', 62, '', 100000], ['product.update', 62, 5000000]])
     await page.clock.resume()
@@ -403,11 +423,19 @@ test.describe('AC-V3-72 기다리는 번호 (D-V3-67)', () => {
 // ── AC-V3-73 R94~R96 ──────────────────────────────────────────────────
 
 test.describe('AC-V3-73 판매 말투 (D-V3-72, 천원)', () => {
-  for (const sentence of ['113번 45에 드려볼게요 자 45~', '113번 45 드려 보겠습니다']) {
-    test(`"${sentence}"(최종) → 113번 45,000원`, async ({ page }) => {
+  // 표 R94·R95 기대는 D-V3-112로 바뀜(faaee7f9): 말투·되풀이로 읽은 값 45,000원은 천원 단위 1~2자리라 확정 아님 → 쓰기 0, 제안 카드·안내, [등록]하면 그 값
+  for (const [id, sentence] of [['R94', '113번 45에 드려볼게요 자 45~'], ['R95', '113번 45 드려 보겠습니다']] as const) {
+    test(`${id} (D-V3-112): "${sentence}"(최종) → 쓰기 0, 카드 113번 45,000원 + "45,000원으로 들렸어요. 가격을 확인해 주세요", [등록]하면 45,000원`, async ({ page }) => {
       await setupV3(page)
       const writes = recordWrites(page)
       await sayChunk(page, sentence)
+      const offer = card(page, '113번 품종 미입력 45,000원')
+      await expect(offer).toBeVisible()
+      await expect(offer.getByText('45,000원으로 들렸어요. 가격을 확인해 주세요')).toBeVisible()
+      await settle(page)
+      expect(productWrites(writes)).toEqual([])
+      await expect(boardItem(page, 113)).toHaveCount(0)
+      await cardButton(page, '113번 품종 미입력 45,000원', '등록').click()
       await registers(writes, [['product.register', 113, '', 45000]])
     })
   }
@@ -419,6 +447,25 @@ test.describe('AC-V3-73 판매 말투 (D-V3-72, 천원)', () => {
     await settle(page)
     expect(productWrites(writes)).toEqual([])
   })
+})
+
+// ── R97 등록된 pick은 뒤 글로 취소되지 않음 (D-V3-79, 자동 단위로 옮김 — faaee7f9) ──────────────
+
+test('R97 (자동 단위, D-V3-79): 중간 "15번 라울 60 자"에서 등록 뒤 최종 "15번 라울 60 자 뿌리 다 살아 있어요" → 15번 라울 600,000원 하나, 취소·두 번째 쓰기 없음', async ({ page }) => {
+  await setupV3(page, { sellerSettings: { 'price.unit': 'AUTO' } })
+  const writes = recordWrites(page)
+  await sayWords(page, '15번 라울 60 자 뿌리 다 살아 있어요', {
+    afterEach: async (k) => {
+      // `자`(결과 4) 때 등록 — 표 R97 "`자` 때"
+      if (k === 4) await registers(writes, [['product.register', 15, '라울', 600000]])
+    },
+  })
+  await page.clock.runFor(QUIET_MS + 100)
+  await page.clock.runFor(5000)
+  await settle(page)
+  expect(productWrites(writes)).toEqual([['product.register', 15, '라울', 600000]])
+  await expect(boardItem(page, 15)).toContainText('600,000원')
+  await expect(voiceCards(page)).toHaveCount(0)
 })
 
 // ── AC-V3-74 (b)(c) 가격 단위 자동 ─────────────────────────────────────────
@@ -457,13 +504,15 @@ test.describe('AC-V3-74 (D-V3-70)', () => {
 
 // ── AC-V3-71 정산 화면·상품 자세히·판매대장 ─────────────────────────────────
 
-test('AC-V3-71: 정산 화면 접힌 칸 "음성으로 등록·고친 기록 N건"(시각순·들은 말·[상품 보기] → 상품 자세히), 판매대장 .xlsx "음성 기록" 시트', async ({ page }) => {
+test('AC-V3-71 (D-V3-83 두 번 들음): 정산 화면 접힌 칸 "음성으로 등록·고친 기록 N건"(시각순·들은 말·[상품 보기] → 상품 자세히), 판매대장 .xlsx "음성 기록" 시트', async ({ page }) => {
   const { b, date } = await setupV3(page, { rehearsal: false })
   await sayChunk(page, '62번 10만 원')
   await expect(boardItem(page, 62)).toBeVisible()
   // 정산 문서가 보이도록 손님 하나(문자찜)
   await smsApi(page, { b, no: 62, phone: '010-7000-6262' })
   await page.clock.runFor(1000)
+  // 가격 고침은 같은 말을 다른 조각에서 두 번 들었을 때 (D-V3-83) — 묻기 카드만인 첫 번은 쓰기가 아니라 기록 건수에 들지 않는다
+  await sayFirstOfTwo(page, '62번 2만 원', '62번을 고칠까요? 가격 100,000원 → 20,000원')
   await sayChunk(page, '62번 2만 원')
   await expect(boardItem(page, 62)).toContainText('20,000원')
   // 콘솔 상품 자세히에 그 상품 기록
@@ -548,7 +597,7 @@ test('RA-V3-002: 콘솔 밖 띠의 되돌리기는 그 상품의 직전 등록�
   expect(writes.filter((w) => w.type === 'product.close').map((w) => w.body['no'])).toEqual([16])
 })
 
-test('RA-V3-003: 찜이 있는 상품의 음성 고침을 [되돌리기]하면 가격 적용 범위 UNPAID_CLAIMS(입금 전 찜도 원래 가격)', async ({ page }) => {
+test('RA-V3-003 (D-V3-83 두 번 들음): 찜이 있는 상품의 음성 고침을 [되돌리기]하면 가격 적용 범위 UNPAID_CLAIMS(입금 전 찜도 원래 가격)', async ({ page }) => {
   const { b } = await setupV3(page)
   await sayChunk(page, '108번 10만 원')
   await expect(boardItem(page, 108)).toBeVisible()
@@ -556,6 +605,7 @@ test('RA-V3-003: 찜이 있는 상품의 음성 고침을 [되돌리기]하면 �
   await expect(boardItem(page, 108)).toContainText('찜손님')
   await page.clock.runFor(1000)
   const writes = recordWrites(page)
+  await sayFirstOfTwo(page, '108번 12만 원', '108번을 고칠까요? 가격 100,000원 → 120,000원', writes)
   await sayChunk(page, '108번 12만 원')
   const fixed = notice(page, '108번을 고쳤어요: 가격 100,000원 → 120,000원')
   await expect(fixed).toBeVisible()
@@ -603,22 +653,35 @@ async function archiveChunks(page: Page): Promise<{ db: string; broadcastId: str
 }
 
 test.describe('AC-V3-66 음성 인식 기록 모아 두기', () => {
-  test('(a) 연습 주소에선 처음부터 켜져 있고 안내 문장, (b) R1·R2·R13 → 그 방송 덩어리 3개가 새로 고침 뒤에도 남고 서버로 가지 않는다', async ({ page }) => {
+  // (b)의 "덩어리 3개"는 굳은 중간 글(D-V3-80) 전의 셈이다: 1초 넘게 그대로인 앞 낱말("네", R2의 "자 bts는 … 요")은 최종처럼 먼저 넘어가고,
+  // 다음 결과 첫 조각의 번호가 모은 글(번호 없음)과 다르면 먼저 끊으므로(D-V2-16) 사례 표 꼴(결과 사이 200ms)로 말한 R1·R2는 덩어리 둘씩으로
+  // 갈린다(같은 크롬 결과에서 갈린 덩어리 — D-V3-93). 그래서 덩어리 수 대신 그 방송 기록 글을 차례로 이으면 세 말이 빠짐·겹침 없이 그대로인지 보고,
+  // 새로 고친 뒤에도 같은 기록이 남는지 본다.
+  test('(a) 연습 주소에선 처음부터 켜져 있고 안내 문장, (b) R1·R2·R13 → 그 방송 덩어리 기록(세 말 그대로, D-V3-80 굳은 글로 갈린 덩어리 포함)이 새로 고침 뒤에도 남고 서버로 가지 않는다', async ({ page }) => {
     const bodies = recordAllBodies(page)
     const { b } = await setupV3(page)
     const extras = await openExtras(page)
     await expect(extras.getByRole('checkbox', { name: '음성 인식 기록 모아 두기' })).toBeChecked()
     await expect(extras.getByText('판매자 목소리를 글로 바꾼 것이 이 기기에 남아요. 시청자 이름이 들어갈 수 있어요.')).toBeVisible()
-    await sayChunk(page, '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요')
+    const said = [
+      '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요',
+      '자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번',
+      '108번 12만 원',
+    ]
+    await sayChunk(page, said[0]!)
     await page.clock.runFor(6000)
-    await sayChunk(page, '자 bts는 자 bts 요거 그대로 보냅니다 요 아이 자 10만 원 108번')
+    await sayChunk(page, said[1]!)
     await page.clock.runFor(6000)
-    await sayChunk(page, '108번 12만 원')
-    await expect.poll(async () => (await archiveChunks(page)).filter((c) => c.broadcastId === b).length).toBe(3)
+    await sayChunk(page, said[2]!)
+    const texts = async (): Promise<string[]> =>
+      (await archiveChunks(page)).filter((c) => c.broadcastId === b).map((c) => String((JSON.parse(c.text) as { chunk?: { text?: unknown } }).chunk?.text ?? ''))
+    await expect.poll(async () => (await texts()).join(' ')).toBe(said.join(' '))
+    const before = await texts()
+    expect(before.length).toBeGreaterThanOrEqual(3)
     await page.clock.resume()
     await page.reload()
     await expect(page.getByLabel('빠른 입력')).toBeVisible()
-    expect((await archiveChunks(page)).filter((c) => c.broadcastId === b)).toHaveLength(3)
+    expect(await texts()).toEqual(before)
     for (const body of bodies) {
       const raw = body.slice(body.indexOf(' ') + 1)
       expect(withoutVoiceHeard(raw)).not.toContain('요한이')

@@ -25,7 +25,8 @@ export interface InterimSeen extends InterimCandidate {
 export function interimCandidate(text: unknown, options: SegmentOptions = {}): InterimCandidate | null {
   const asFinal = readSegments(text, { ...options, final: true })
   const last = asFinal.picks[asFinal.picks.length - 1]
-  if (last === undefined || last.priceFrom !== 'quick') return null
+  // 확정 아닌 조각(천원 단위 작은 수, D-V3-112)은 중간 결과로 등록하지 않는다 — 최종 결과에서 카드·묻기로
+  if (last === undefined || last.priceFrom !== 'quick' || (last.check ?? null) !== null) return null
   const asInterim = readSegments(text, { ...options, final: false })
   if (asInterim.picks.some((pick) => pick.no === last.no && pick.price === last.price && pick.start === last.start)) return null
   return { no: last.no, price: last.price, name: last.name }

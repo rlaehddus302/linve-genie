@@ -210,7 +210,8 @@ export function AlertStrip({ leads = [], counts, print = NO_PRINT_ALERTS, thanks
     <div className={`alert-bar${expanded ? ' alert-bar-open' : ''}${full.length > 0 ? ' alert-bar-split' : ''}`}>
       <section ref={stripRef} id="alerts" className={full.length > 0 ? 'alerts alerts-split' : 'alerts'} aria-label="알림">
         {full.length > 0 ? <ul className="alerts-list alerts-full">{merged ? renderMerged() : full.map(renderLead)}</ul> : null}
-        {shown.length === 0 && leads.length === 0 ? (
+        {/* 영역 안에 그릴 것이 없으면 "알림 없음" — 접힌 휴대폰에서 출력 기기 짧은 줄만 있을 때도(그 줄은 띠 아래에, 세지 않는 항목) 영역이 비지 않게 (AC-S05-73, D-QL3R1-04·D-QL3R2-02 (1)) */}
+        {full.length === 0 && rest === 0 ? (
           <p className="alerts-none">알림 없음</p>
         ) : rest === 0 ? null : (
           <ul className="alerts-list alerts-rest">

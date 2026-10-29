@@ -12,7 +12,7 @@
 // 기다림(그 기기 설정, 기본 3초) 뒤 콘솔이 넘긴 쓰기(host.writeSms — 손 입력과 같은 `sms` 이벤트)로 넣는다. 넣은·닫은 카드도 10초 동안은
 // 같은 말 막기(D-V1-06)를 위해 들고 있다. 열린 카드 수 규칙은 상품 카드와 함께 센다(addVoiceCard).
 import { formatWon, parseAmount, type PriceUnit } from '@livejjim/core'
-import { ARCHIVE_KEY, archiveBroadcasts, readArchive } from './archive-store.ts'
+import { ARCHIVE_KEY, archiveBroadcasts, archiveGaps, readArchive, type ArchiveGap } from './archive-store.ts'
 import { isHomeScreenApp } from './standalone.ts'
 import type {
   ChunkFields,
@@ -30,8 +30,11 @@ import type {
   ExistingHeard,
   ReadyRegistration,
   RegistrationReading,
+  SegmentCheck,
   SegmentPick,
   SegmentReading,
+  StableState,
+  HeardPrice,
   WaitingNumber,
   VoiceArchiveChunk,
   InterimCandidate,
@@ -43,8 +46,11 @@ import type {
   SmsReading,
   SmsVoiceSettings,
   SmsWrite,
+  OnDeviceStatus,
+  SpeechDiagnostic,
   SpeechEngine,
   SpeechError,
+  SpeechGap,
   SpeechResult,
   SpeechState,
   SuggestionCard,
@@ -79,6 +85,7 @@ import {
   LOG_PENDING,
   LOG_TOUCHED,
   LOG_UNDONE,
+  droppedZeroNote,
   REASON_NOT_OPEN,
   claimsKeptNote,
   LOG_TAKEN,
@@ -96,8 +103,14 @@ import {
   maybeOtherMessage,
   notRecentReadout,
   REASON_BARE_NUMBER,
+  REASON_PRICE_ONCE,
+  interimFinalNote,
+  LOG_INTERIM_FINAL,
+  LOG_FIX_CANDIDATE,
+  LOG_BARE_OFF_RUN,
   alreadyReadout,
   askMessage,
+  askPriceMessage,
   fixedMessage,
   fixingMessage,
   otherNumberMessage,
@@ -265,6 +278,8 @@ export interface CardForm {
 
 /** 덩어리를 읽은 결과 한 줄을 보이는 시간 (D-V2-07) */
 export const READOUT_MS = 4000
+/** 번호 없이 들린 가격이 다음 'N번'을 기다리는 시간 (밀리초, 실방송 10:14) */
+export const PENDING_PRICE_MS = 15_000
 /** 맨 위 큰 칸의 접근 이름 — 화면에 제목은 없다 (D-V2-07·D-V2-21) */
 export const HEARD_TITLE = '지금 들리는 말'
 /** 큰 칸이 비었을 때 (D-V2-21) */
@@ -346,6 +361,11 @@ export interface VoiceOffer {
   readonly cardNameCheck?: boolean
   readonly message: string
   readonly changes: { readonly name?: string; readonly price?: number }
+  /**
+   * 고칠 가격을 판매자가 적는 묻기 카드 (D-V3-114 (2) — 번호가 붙은 가격): 적은 글(처음엔 빈 칸). 있으면 changes는 비어 있고,
+   * [고치기]는 적은 값을 그 방송 가격 단위로 읽어 고친다 — 비었거나 읽지 못하면 쓰지 않는다
+   */
+  readonly priceEntry?: string
   /** ask = 묻는 중, busy = 보내는 중, fixed = 고침(되돌리기 보임) */
   readonly stage: 'ask' | 'busy' | 'fixed'
   /** 고친 앞 값 (되돌리기) */
@@ -488,8 +508,19 @@ interface PendingInstant {
   readonly price: number
   readonly key: string | null
   readonly at: number
+  /** 등록을 들은 덩어리 (가격 고침 문턱의 조각 이름 — 그 번호가 이미 있어 등록하지 못했을 때, D-V3-83) */
+  readonly fragment?: string
   /** 등록이 끝나면 적용할 같은 번호 판단 (D-V3-19) */
-  readonly after?: { readonly heard: ExistingHeard; readonly auto: boolean }
+  readonly after?: {
+    readonly heard: ExistingHeard
+    readonly auto: boolean
+    /** 가격 고침 문턱의 조각 이름 (들은 때의 조각 — 등록이 끝난 때의 덩어리가 아니다, D-V3-83) */
+    readonly fragment?: string
+    /** 바로 고치지 않고 이 까닭 줄로 묻는다 (중간·최종 가격 다름, D-V3-103) */
+    readonly askNote?: string
+    /** 묻기 카드의 고칠 값 칸을 비운다 (번호가 붙은 가격, D-V3-114 (2)) */
+    readonly askBlank?: true
+  }
   /** 등록이 끝나면 되돌린다 (덩어리 안 취소, D-V3-21) */
   readonly cancel?: boolean
   /** 등록이 끝나면 이 번호로 옮긴다 (등록 직후 "아니 61번", R-24) */
@@ -576,6 +607,11 @@ export interface VoiceHost {
   smsAutoAllowed?(): boolean
   /** 음성 인식 기록 한 덩어리를 이 기기에 남긴다 (설정이 켜져 있을 때, D-V3-56) */
   archiveChunk?(chunk: VoiceArchiveChunk): void
+  /**
+   * 음성 인식 끊김·멈춤 한 줄("인식 끊김 0.8초 (network)" · "인식 멈춤 2.0초 → 다시 켬" · "다시 켠 뒤 시작 0.1초 · 첫 결과 0.9초 (stall)")을
+   * 이 기기에 남긴다 (기록 모아 두기가 켜져 있을 때 — 들은 글 없음)
+   */
+  archiveGap?(gap: ArchiveGap): void
   /** 판매자가 "음성 끄기"를 눌렀다 (켠 방송 ID를 지운다, D-V3-52) */
   voiceOff?(): void
   /** 그 상품을 손으로 고치는 창을 연다 (D-V3-59 [아까 것을 다른 번호로]) */
@@ -650,6 +686,10 @@ const DEFERRED_POLL_MS = 250
  * 그 사이 최종 결과가 오면(다시 듣고 있다) 바로 "듣는 중"으로 바꾼다.
  */
 export const RESTART_LABEL_MS = 1000
+/** 탭 메모리에 두는 최근 인식 끊김 수 (V3 실방송 보강) */
+export const RECOGNITION_GAPS_KEPT = 50
+/** 멈춤 지킴이 시간 저장 키 (같은 음성 설정 저장값 안, 밀리초 — 화면 칸 없음) */
+export const STALL_KEY = 'voice.stallMs'
 /**
  * 켠 직후 판매 이력(D-I4-06)을 받는 동안 온 최종 문장은 이력을 받을 때까지(켠 때부터 최대 이만큼) 카드 만들기를 미룬다 —
  * 켜자마자 말한 지난 판매 품종도 이력 사전으로 알아듣게. 들린 말 기록에는 바로 남고, 미룬 문장은 온 차례대로 카드가 된다.
@@ -737,6 +777,9 @@ export function pruneSms(entries: readonly SmsEntry[], now: number): readonly Sm
   return changed ? out : entries
 }
 
+/** 확정 아닌 조각의 카드 가격 칸 (D-V3-112 = 읽은 값, D-V3-113 번호가 붙은 가격 = 비움). 확정 조각은 읽은 값 */
+const checkedCardPrice = (pick: SegmentPick): number | null => (pick.check?.kind === 'NUMBER_IN_PRICE' ? null : pick.price)
+
 export class VoiceController {
   readonly #host: VoiceHost
   #snapshot: VoiceSnapshot
@@ -791,12 +834,66 @@ export class VoiceController {
   readonly #chunkActs = new Set<VoiceArchiveChunk['action']>()
   /** 이 덩어리의 중간 결과 글 (기록 모아 두기, D-V3-56) */
   #chunkInterims: readonly string[] = []
+  /** 최근 인식 끊김 (탭 메모리, 최근 RECOGNITION_GAPS_KEPT개 — 시간·까닭만) */
+  #gaps: readonly SpeechGap[] = []
+  /** 기기 안 인식(processLocally) 확인 결과 — 확인만 하고 쓰지 않는다. 확인 전 null */
+  #onDevice: OnDeviceStatus | null = null
+  /** 최근 인식 진단(멈춤 다시 열기·다시 켠 뒤 첫 결과·늦은 결과) (탭 메모리, 최근 RECOGNITION_GAPS_KEPT개) */
+  #diagnostics: readonly SpeechDiagnostic[] = []
+  /** 멈춤 지킴이 시간 (그 기기 저장값 voice.stallMs — 화면 칸 없음, 조정용). 엔진을 만들 때 읽는다. null = 기본 */
+  #stallMs: number | null = null
   /** 지금 처리 중인 들은 말 (R-25 기록 한 줄 — 가려서 보낸다) */
   #heardNow = ''
   /** 접힌 "가격 못 들은 번호" (R80) */
   #folded: readonly number[] = []
   /** 기다리는 번호 (D-V3-67) — 하나만, 음성을 끄면 버린다 */
   #waiting: WaitingNumber | null = null
+  /** 굳은 중간 글 (사용자 결정 — 1초 넘게 그대로인 앞 낱말은 최종처럼, 음성 패키지 stepStable) */
+  #stable: StableState | null = null
+  #stableTimer: ReturnType<typeof setTimeout> | null = null
+  /** 마지막 중간 결과 글 (굳음을 타이머로 다시 볼 때) */
+  #lastInterim = ''
+  /** 중간 결과에 보인 번호와 시각 (빠진 0 되살리기의 증거, 20초) */
+  #interimNos: { readonly no: number; readonly at: number }[] = []
+  /** 지금 크롬 결과의 중간 글(굳은 글·중간 결과 안정 포함)에서 번호와 짝지어 들은 확정 가격 — 최종 결과가 오면 비운다 (R-17 8, D-V3-103) */
+  #resultPrices = new Map<number, number>()
+  /** 최종 결과를 읽는 동안만: 그 결과의 중간 글에서 들은 번호별 가격 */
+  #finalPrices: ReadonlyMap<number, number> | null = null
+  /** 바로 앞 크롬 결과(최종)의 글과 끝난 시각 (R-17 8 7, D-V3-102) */
+  #prevResult: { readonly text: string; readonly at: number } | null = null
+  /** 지금 크롬 결과의 첫 'N번'이 앞 결과 끝 수와 이어질 수 있으면 그 번호들 */
+  #join: { readonly heard: number; readonly joined: number } | null = null
+  /** 음성으로 새로 등록한 번호와 시각 (빠진 0 되살리기의 맥락, 10분 · 최근 20개) */
+  #contextNos: { readonly no: number; readonly at: number }[] = []
+  /** 마지막으로 들린 번호 (가격만 고쳐 말함 — 그 사이 다른 번호가 들렸는지) */
+  #lastHeardNo: number | null = null
+  /** 이 덩어리에서 빠진 0을 되살린 원래 번호 (36 → 306의 36) */
+  readonly #zeroRaw = new Set<number>()
+  /** 앞 덩어리들의 말 (앞 상품 번호·가격 뒤 ~ 지금, 60초) — 등록 품종을 맥락으로 고를 때 (음성 패키지 varietyFromContext) */
+  #contextTexts: { readonly text: string; readonly at: number; readonly between: boolean }[] = []
+  /**
+   * 같은 크롬 결과에서 갈린 덩어리 (D-V3-93): 크롬 결과 하나(굳은 글 상태가 처음부터 다시 세기 전까지)마다 차례 번호,
+   * 마지막으로 굳어 넘긴 글(어느 결과·시각), 그 결과의 남은 글을 최종으로 받은 것(어느 결과·시각),
+   * 바로 앞 덩어리가 그 굳은 앞부분으로 끝난 번호 없는 덩어리였으면 그 맥락 글
+   */
+  #stableRun = 0
+  #confirmMark: { readonly run: number; readonly at: number } | null = null
+  #remainderMark: { readonly run: number; readonly at: number } | null = null
+  #splitHead: { readonly run: number; readonly seq: number; readonly item: { readonly text: string; readonly at: number; readonly between: boolean } } | null = null
+  /** 번호마다 들은 다른 가격 (같은 번호 가격 고침 문턱 — 음성 패키지 gateSamePrice) */
+  readonly #priceHeard = new Map<number, readonly HeardPrice[]>()
+  /** 덩어리 차례 (조각 이름 — 같은 조각을 다시 읽은 것은 한 번) */
+  #chunkSeq = 0
+  /** 크롬 결과 차례: 최종 결과를 하나 받을 때마다 하나 늘린다 — 그 사이의 중간 결과·굳은 글·그 최종 글은 같은 크롬 결과다 (#rereadFragment) */
+  #resultEpoch = 0
+  /** 가격 고침 문턱 조각 이름 → 처음 들은 크롬 결과 차례 (최근 100개) */
+  readonly #fragmentEpoch = new Map<string, number>()
+  /** 이 덩어리에서 가격 고침 문턱에 넘긴 번호·새 가격·조각 (D-V3-94 ㄷ — 15초·300글자로 끊기면 다음 덩어리 첫 조각이 이어 받는다) */
+  #gateSeen: { readonly no: number; readonly price: number; readonly fragment: string }[] = []
+  /** 15초(max)·300글자(long)로 끊긴 바로 앞 덩어리의 #gateSeen — seq 덩어리의 첫 조각에서만 쓴다 */
+  #gateCarry: { readonly seq: number; readonly items: readonly { readonly no: number; readonly price: number; readonly fragment: string }[] } | null = null
+  /** 번호 없이 들린 '원' 가격 (실방송 10:14 — 다음 상품 가격을 번호보다 먼저 말함). 15초 안에 가격 없는 'N번'이 오면 그 번호의 가격 */
+  #pendingPrice: { readonly price: number; readonly at: number; readonly text: string } | null = null
   /** 차례를 기다리는 큰 글자 칸 안내 (D-V3-61) */
   /** 음성으로 등록·고친 번호와 시각 (D-V3-59 고쳐 말함) */
   /** 번호마다 마지막으로 음성으로 등록·고친 시각 (D-V3-59, TD-V3-005) */
@@ -854,6 +951,7 @@ export class VoiceController {
       const settings = module.resolveVoiceSettings(stored)
       // 조용한 시간은 같은 저장값의 `voice.quietMs` (범위 밖·모르는 값은 1800, D-V2-09)
       const quietMs = module.resolveQuietMs(stored)
+      this.#stallMs = this.#readStall(module, stored)
       this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null, instant: readInstant(stored), archive: readArchive(stored) })
     }
     if (this.#phrase === null) this.#phrase = module.createPhraseState({ quietMs: this.#snapshot.quietMs })
@@ -924,6 +1022,7 @@ export class VoiceController {
     this.#releaseRestart()
     this.#dropHeld()
     if (this.#interimTimer !== null) clearTimeout(this.#interimTimer)
+    this.#clearStable()
     this.#engine?.stop()
     this.#listeners.clear()
   }
@@ -936,12 +1035,75 @@ export class VoiceController {
   #ensureEngine(module: VoiceModule): SpeechEngine {
     if (this.#engine !== null) return this.#engine
     // 홈 화면 앱은 저절로 끝난 것을 모두 센다 — 권한 창이 끝없이 뜨지 않게 1분에 6번째면 멈춘다 (D-I5-18, UA 아님)
-    const engine = module.createWebSpeechEngine({ now: () => this.#host.now(), countAllEnds: isHomeScreenApp() })
+    // 멈춤 지킴이 시간: 그 기기 저장값 voice.stallMs (없으면 기본 2초, 1초보다 짧게는 안 됨)
+    this.#stallMs = this.#readStall(module, this.#host.readSettings())
+    const engine = module.createWebSpeechEngine({ now: () => this.#host.now(), countAllEnds: isHomeScreenApp(), ...(this.#stallMs === null ? {} : { stallMs: this.#stallMs }) })
     engine.onResult((result) => this.#onResult(result))
     engine.onError((error) => this.#onError(error))
     engine.onState((state) => this.#onState(state))
+    // 인식 끊김 재기 (V3 실방송 보강) — 앞 판 음성 모듈에는 없을 수 있다
+    if (typeof engine.onGap === 'function') engine.onGap((gap) => this.#onGap(module, gap))
+    if (typeof engine.onDiagnostic === 'function') engine.onDiagnostic((diagnostic) => this.#onDiagnostic(module, diagnostic))
+    // 기기 안 인식은 확인만 한다(엔진을 바꾸지 않는다) — 인식 객체·마이크를 열지 않는 정적 확인
+    if (typeof engine.onDeviceStatus === 'function') {
+      void engine.onDeviceStatus().then(
+        (status) => {
+          this.#onDevice = status
+        },
+        () => {
+          this.#onDevice = 'unsupported'
+        },
+      )
+    }
     this.#engine = engine
     return engine
+  }
+
+  /** 인식이 끊겼다 다시 들었다: 탭 메모리에 두고, 기록 모아 두기가 켜져 있으면 한 줄 남긴다 */
+  #onGap(module: VoiceModule, gap: SpeechGap): void {
+    if (this.#disposed) return
+    this.#gaps = [...this.#gaps.slice(-(RECOGNITION_GAPS_KEPT - 1)), gap]
+    if (this.#snapshot.phase !== 'on' || !this.#snapshot.archive || this.#host.archiveGap === undefined) return
+    try {
+      const text = typeof module.formatSpeechGap === 'function' ? module.formatSpeechGap(gap) : `인식 끊김 ${(Math.round(gap.ms / 100) / 10).toFixed(1)}초 (${gap.reason})`
+      this.#host.archiveGap({ at: gap.to, ms: gap.ms, reason: gap.reason, text })
+    } catch {
+      // 남기지 못하면 이번 줄은 없다
+    }
+  }
+
+  /** 저장값의 멈춤 지킴이 시간 (숫자가 없으면 null = 엔진 기본) */
+  #readStall(module: VoiceModule, stored: unknown): number | null {
+    const raw = typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? (stored as Record<string, unknown>)[STALL_KEY] : undefined
+    return typeof raw === 'number' && Number.isSafeInteger(raw) && typeof module.readStallMs === 'function' ? module.readStallMs(raw) : null
+  }
+
+  /** 멈춤 다시 열기·다시 켠 뒤 첫 결과·늦은 결과: 탭 메모리에 두고, 기록 모아 두기가 켜져 있으면 한 줄 남긴다 */
+  #onDiagnostic(module: VoiceModule, diagnostic: SpeechDiagnostic): void {
+    if (this.#disposed) return
+    this.#diagnostics = [...this.#diagnostics.slice(-(RECOGNITION_GAPS_KEPT - 1)), diagnostic]
+    if (this.#snapshot.phase !== 'on' || !this.#snapshot.archive || this.#host.archiveGap === undefined || typeof module.formatSpeechDiagnostic !== 'function') return
+    try {
+      const reason = diagnostic.kind === 'stall' ? 'stall' : diagnostic.kind
+      this.#host.archiveGap({ at: diagnostic.at, ms: diagnostic.ms, reason, text: module.formatSpeechDiagnostic(diagnostic) })
+    } catch {
+      // 남기지 못하면 이번 줄은 없다
+    }
+  }
+
+  /** 최근 인식 진단 (오래된 것부터) — 시간·까닭만 */
+  recognitionDiagnostics(): readonly SpeechDiagnostic[] {
+    return this.#diagnostics
+  }
+
+  /** 최근 인식 끊김 (오래된 것부터) — 시간·까닭만 */
+  recognitionGaps(): readonly SpeechGap[] {
+    return this.#gaps
+  }
+
+  /** 기기 안 인식 확인 결과 (확인 전·음성을 켜기 전 null). 확인만 하고 쓰지 않는다 */
+  onDeviceRecognition(): OnDeviceStatus | null {
+    return this.#onDevice
   }
 
   #start(): void {
@@ -982,6 +1144,17 @@ export class VoiceController {
     this.#interimShown = null
     if (this.#interimTimer !== null) clearTimeout(this.#interimTimer)
     this.#interimTimer = null
+    this.#clearStable()
+    this.#interimNos = []
+    this.#resultPrices = new Map()
+    this.#prevResult = null
+    this.#join = null
+    this.#lastHeardNo = null
+    this.#contextTexts = []
+    this.#confirmMark = null
+    this.#remainderMark = null
+    this.#splitHead = null
+    this.#pendingPrice = null
     this.#dueCards.clear()
     this.#dueInterim.length = 0
     this.#phraseInstantOff = false
@@ -1038,34 +1211,413 @@ export class VoiceController {
     if (settings !== null && !settings['voice.autoConfirm']) this.#phraseAutoOff = true
     // 덩어리 도중 한 번이라도 바로 등록이 꺼져 있었으면 그 덩어리는 카드만·같은 번호는 묻기 (D-V3-35)
     if (!this.#snapshot.instant) this.#phraseInstantOff = true
+    // 앞 결과와 이어질 수 있는 번호 (R-17 8 7): 그 인식 객체의 아직 최종이 아닌 첫 자리(lead) 글로만 본다.
+    // 크롬이 한 결과를 여러 자리로 갈라 낼 때 뒤 자리 글("유아는 3만 원까지"·"2번인데")은 판단을 만들지도 지우지도 않는다 — 최종 결과가 오면 비운다
+    if (module !== null && result.lead !== false) this.#join = this.#joinOf(module, result.text)
     if (!result.final) {
       // 중간 결과도 조용한 시간을 다시 센다 (D-V2-03, 사례 S17) — 말하는 동안 자동 등록을 멈춘다 (D-V2-06)
       if (module !== null && settings !== null && this.#phrase !== null) {
-        const step = module.feed(this.#phrase, { text: result.text, final: false, at: this.#host.now() })
-        this.#phrase = step.state
-        const work = this.#startWork(module)
-        this.#runOutputs(work, module, step.out)
-        this.#tryInstant(work, module)
-        if (this.#snapshot.archive && this.#chunkInterims.length < 50) this.#chunkInterims = [...this.#chunkInterims, result.text]
-        this.#set({ interim: result.text, ...this.#finishWork(work, module) })
+        this.#noteInterimNumbers(module, result.text)
+        this.#interimResult(module, result.text, false)
         return
       }
       this.#set({ interim: result.text })
       return
     }
-    const heard = pushHeard(this.#snapshot.heard, { id: this.#nextHeard++, text: result.text })
+    // 굳어서 이미 넘긴 앞 낱말은 떼고 남은 글만 최종으로 (사용자 결정 — 넘긴 글로 한 등록은 되돌리지 않는다)
+    // 굳은 글로 앞부분을 먼저 넘긴 결과의 남은 글이면 그 결과 차례를 적는다 (D-V3-93)
+    const splitRun = this.#stable !== null && this.#stable.taken > 0 ? this.#stableRun : null
+    const finalText = module === null ? result.text : this.#finishStable(module, result.text)
+    this.#remainderMark = splitRun !== null && finalText.trim() !== '' ? { run: splitRun, at: this.#host.now() } : null
+    const heard = finalText === '' ? this.#snapshot.heard : pushHeard(this.#snapshot.heard, { id: this.#nextHeard++, text: finalText })
     const label = this.#listeningAgain()
     if (module === null || settings === null || this.#phrase === null) {
       this.#set({ ...label, interim: null, heard })
       return
     }
     // 최종 결과는 곧바로 카드로 만들지 않고 모은다 (D-V2-03) — 조용한 시간이 지나면 한 덩어리로 읽는다
-    const step = module.feed(this.#phrase, { text: result.text, final: true, at: this.#host.now(), flushedAtEnd: result.flushedAtEnd === true })
+    const step = module.feed(this.#phrase, { text: finalText, final: true, at: this.#host.now(), flushedAtEnd: result.flushedAtEnd === true })
+    this.#phrase = step.state
+    const work = this.#startWork(module)
+    // 이 결과의 중간 글 가격과 최종 글 가격을 맞대 본다 (D-V3-103) — 다음 결과는 처음부터
+    this.#finalPrices = this.#resultPrices
+    this.#resultPrices = new Map()
+    try {
+      this.#runOutputs(work, module, step.out)
+      this.#tryInstant(work, module)
+    } finally {
+      this.#finalPrices = null
+      this.#join = null
+      this.#prevResult = { text: result.text, at: this.#host.now() }
+      this.#resultEpoch++
+    }
+    this.#set({ ...label, interim: null, heard, ...this.#finishWork(work, module) })
+  }
+
+  /**
+   * 중간 결과 하나 (또는 타이머로 같은 글을 다시 봄): 1초 넘게 그대로인 앞 낱말은 최종처럼 먼저 넘기고(#confirmed), 남은 글만 중간 결과로.
+   * fromTimer면 새로 굳은 것이 없을 때 아무것도 하지 않는다(조용한 시간을 늘리지 않게)
+   */
+  #interimResult(module: VoiceModule, text: string, fromTimer: boolean): void {
+    if (this.#phrase === null) return
+    this.#lastInterim = text
+    let rest = text
+    if (typeof module.stepStable === 'function') {
+      let stable: ReturnType<VoiceModule['stepStable']> | null
+      const before = this.#stable
+      try {
+        stable = module.stepStable(this.#stable, text, this.#host.now())
+      } catch {
+        stable = null
+      }
+      if (stable !== null) {
+        // 새 크롬 결과 (처음이거나 첫 낱말부터 달라짐 — 굳은 글 상태가 처음부터 센다)
+        if (before === null || before.tokens.length === 0 || before.tokens[0] !== stable.state.tokens[0] || stable.state.taken < before.taken) this.#stableRun++
+        this.#stable = stable.state
+        this.#armStable(stable.nextAt)
+        if (stable.confirm !== null) this.#confirmed(module, stable.confirm)
+        else if (fromTimer) return
+        rest = stable.interim
+      }
+    }
+    if (this.#phrase === null) return
+    const step = module.feed(this.#phrase, { text: rest, final: false, at: this.#host.now() })
     this.#phrase = step.state
     const work = this.#startWork(module)
     this.#runOutputs(work, module, step.out)
     this.#tryInstant(work, module)
-    this.#set({ ...label, interim: null, heard, ...this.#finishWork(work, module) })
+    if (!fromTimer && this.#snapshot.archive && this.#chunkInterims.length < 50) this.#chunkInterims = [...this.#chunkInterims, text]
+    this.#set({ interim: rest === '' ? null : rest, ...this.#finishWork(work, module) })
+  }
+
+  /** 굳은 앞 낱말을 최종 결과처럼 (같은 모으기·조각 읽기·기다리는 번호·가격 고침) */
+  #confirmed(module: VoiceModule, text: string): void {
+    if (this.#phrase === null || text.trim() === '') return
+    const heard = pushHeard(this.#snapshot.heard, { id: this.#nextHeard++, text })
+    this.#confirmMark = { run: this.#stableRun, at: this.#host.now() }
+    // 굳은 중간 글도 이 결과의 중간 글 가격이다 (D-V3-103)
+    this.#noteResultPrices(module, text)
+    const step = module.feed(this.#phrase, { text, final: true, at: this.#host.now() })
+    this.#phrase = step.state
+    const work = this.#startWork(module)
+    this.#runOutputs(work, module, step.out)
+    this.#tryInstant(work, module)
+    this.#set({ heard, ...this.#finishWork(work, module) })
+  }
+
+  /** 최종 결과: 넘긴 앞 낱말 수만큼 뗀 글 (굳은 글 상태는 처음으로) */
+  #finishStable(module: VoiceModule, text: string): string {
+    const stable = this.#stable
+    this.#clearStable()
+    if (stable === null || typeof module.finishStable !== 'function') return text
+    try {
+      return module.finishStable(stable, text).text
+    } catch {
+      return text
+    }
+  }
+
+  #armStable(at: number | null): void {
+    if (this.#stableTimer !== null) clearTimeout(this.#stableTimer)
+    this.#stableTimer = null
+    if (at === null || this.#disposed) return
+    this.#stableTimer = setTimeout(() => {
+      this.#stableTimer = null
+      const module = this.#module
+      if (this.#disposed || module === null || this.#snapshot.phase !== 'on' || this.#lastInterim === '' || this.#stable === null) return
+      this.#interimResult(module, this.#lastInterim, true)
+    }, Math.max(0, at - this.#host.now()))
+  }
+
+  #clearStable(): void {
+    if (this.#stableTimer !== null) clearTimeout(this.#stableTimer)
+    this.#stableTimer = null
+    this.#stable = null
+    this.#lastInterim = ''
+  }
+
+  /** 중간 결과에 보인 번호를 적는다 (20초) — 크롬이 최종에서 "306번"을 "36번"으로 바꿔 적는 일 */
+  #noteInterimNumbers(module: VoiceModule, text: string): void {
+    const now = this.#host.now()
+    const rr = this.#readRegistration(module, text, false)
+    const fresh = this.#interimNos.filter((item) => now - item.at <= 20_000)
+    const nos = rr === null ? [] : rr.heardNumbers.filter((no) => !fresh.some((item) => item.no === no))
+    this.#interimNos = [...fresh, ...nos.map((no) => ({ no, at: now }))].slice(-20)
+  }
+
+  /** 빠진 0 되살리기 (음성 패키지 fixDroppedZero): 두 자리 XY를 앞 번호 맥락으로 X0Y로. 거절한 번호로는 바꾸지 않는다 */
+  #droppedZero(module: VoiceModule, pick: SegmentPick): number | null {
+    if (typeof module.fixDroppedZero !== 'function') return null
+    const now = this.#host.now()
+    try {
+      const fix = module.fixDroppedZero({
+        no: pick.no,
+        price: pick.price,
+        recent: this.#contextNos.filter((item) => now - item.at <= 600_000).map((item) => item.no),
+        heardBefore: [...this.#interimNos.filter((item) => now - item.at <= 20_000).map((item) => item.no), ...(this.#waiting === null ? [] : [this.#waiting.no])],
+        maxNumber: this.#host.maxNumber(),
+        product: (no) => {
+          const found = this.#existingOf(no)
+          return found === null ? null : found === 'closed' ? 'closed' : { price: found.price }
+        },
+      })
+      return fix === null || this.#rejected.has(fix.no) ? null : fix.no
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 번호 없이 가격만 고쳐 말함 (음성 패키지 priceOnlyFix, 실방송 "309번 … 55만 원" 뒤 "50만 원"): 마지막 음성 등록 30초 안·그 뒤 다른 번호 없음·원 가격 하나면
+   * 그 상품을 같은 번호 규칙으로 — 찜 0이면 바로 고침(되돌리기), 찜이 있으면 묻기. key로 한 번만.
+   * heardAt = 그 글을 들은 시각(덩어리 끝에서 다시 읽을 때). 마지막 음성 등록이 그 뒤면 등록 "뒤"에 한 말이 아니다 — 고치지 않는다 (D-V3-84 (ㄱ) "마지막 음성 새 등록 뒤")
+   */
+  #priceOnly(work: CardWork, module: VoiceModule, rest: string, key: string, heardAt?: number): InstantDone | null {
+    if (typeof module.priceOnlyFix !== 'function' || rest.trim() === '') return null
+    // 이미 이 글로 같은 번호 규칙을 했다(최종 결과가 왔을 때) — 덩어리 끝에 V2 "방금 등록한 …을 고칠까요?" 카드를 또 내지 않게 처리한 것으로 돌려준다
+    // (D-V3-109: 번호 없는 정정 덩어리는 할 일 하나 — (ㄱ)이 맞으면 R-22만)
+    if (this.#pickDone.has(key)) return { action: 'discard', reason: LOG_INSTANT_DONE, readout: null }
+    const rr = this.#readRegistration(module, rest, true)
+    if (rr === null) return null
+    const last = this.#voiceRegistered.at(-1) ?? null
+    // 실방송 재생 경성 45번: 번호 없이 지난 가격(8만 원)과 정정 낱말이 든 최종 글 뒤에 "45번 7만 원"으로 등록했고, 다음 결과가 앞 덩어리를 끊자
+    // 덩어리 끝에서 그 앞 글을 다시 읽어 방금 등록한 45번을 80,000원으로 고쳤다 — 등록보다 먼저 한 말은 그 상품의 가격만 고쳐 말함이 아니다
+    if (last !== null && heardAt !== undefined && Number.isFinite(heardAt) && last.at > heardAt) return null
+    const found = last === null ? null : this.#existingOf(last.no)
+    const existing = found === null || found === 'closed' ? null : found
+    let fix: ReturnType<VoiceModule['priceOnlyFix']>
+    try {
+      fix = module.priceOnlyFix({
+        wonPrices: rr.wonPrices,
+        heardNumbers: rr.heardNumbers,
+        // 정정 낱말이 있어야 고침 (실방송 10:14 — 번호 앞에 다음 상품 가격을 말한다)
+        correction: typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(rest),
+        lastRegistered: last,
+        lastHeardNo: this.#lastHeardNo,
+        waiting: this.#waiting !== null,
+        product: existing === null ? null : { price: existing.price, claimCount: existing.claimCount },
+        now: this.#host.now(),
+      })
+    } catch {
+      fix = null
+    }
+    if (fix === null || existing === null) return null
+    this.#pickDone.add(key)
+    const auto = fix.auto && !this.#rejected.has(fix.no) && !this.#phraseInstantOff && this.#snapshot.instant
+    const heard: ExistingHeard = { name: null, price: fix.price, nameNeedsCheck: false, priceSure: true, numberFrom: 'marker' }
+    this.#heardNow = rest
+    let done: InstantDone
+    if (existing.pending === true) {
+      this.#setPending(fix.no, { after: { heard, auto } })
+      done = { action: 'discard', reason: LOG_PENDING, readout: null }
+    } else done = this.#applyExisting(work, module, fix.no, existing, heard, auto, false)
+    const now = this.#host.now()
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text: rest }], read: { no: fix.no, name: null, price: fix.price, candidates: [] }, action: done.action, reason: done.reason }))
+    if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
+    return done
+  }
+
+  /** 조각 읽기에서 마지막 조각 뒤 남은 글(조각이 없으면 글 전체)을 가격만 고쳐 말함으로 본다 — 남은 글의 첫 토큰 위치로 한 번만. heardAt은 #priceOnly */
+  #priceOnlyRest(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, heardAt?: number): InstantDone | null {
+    const rest = seg.picks.length === 0 ? whole : seg.rest
+    if (rest.trim() === '') return null
+    const start = seg.picks.length === 0 ? 0 : (seg.picks.at(-1)?.end ?? -1) + 1
+    return this.#priceOnly(work, module, rest, `price@${String(start)}`, heardAt)
+  }
+
+  /**
+   * 정정 낱말이 든 "N번 … 원 가격" (음성 패키지 readMarkerCorrection, TD-V3-013): "65번 아니 5만 원"·"65번 다시 5만 원"은 조각 읽기가 고르지 않아(정정 낱말)
+   * 아무 일 없이 사라졌다. 이미 있는 상품이면 그 번호 가격 고침으로 같은 번호 규칙(R-22 + 정정 낱말이라 문턱 통과, D-V3-83 (가))에 넘긴다 — 없는 번호는 새로 등록하지 않는다.
+   * 마지막 조각 뒤 남은 글(조각이 없으면 글 전체)로, 그 첫 토큰 위치로 한 번만
+   */
+  #markerCorrection(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string): InstantDone | null {
+    if (typeof module.readMarkerCorrection !== 'function') return null
+    const rest = seg.picks.length === 0 ? whole : seg.rest
+    const start = seg.picks.length === 0 ? 0 : (seg.picks.at(-1)?.end ?? -1) + 1
+    const key = `mark@${String(start)}`
+    if (rest.trim() === '') return null
+    // 이미 이 글로 고쳤다(최종 결과가 왔을 때) — 덩어리 끝에 다른 길(옛 판단)로 또 고치지 않게 처리한 것으로 돌려준다
+    if (this.#pickDone.has(key)) return { action: 'discard', reason: LOG_INSTANT_DONE, readout: null }
+    let read: ReturnType<VoiceModule['readMarkerCorrection']>
+    try {
+      read = module.readMarkerCorrection(rest, { maxNumber: this.#host.maxNumber() })
+    } catch {
+      read = null
+    }
+    if (read === null) return null
+    const found = this.#existingOf(read.no)
+    if (found === null || found === 'closed') return null
+    this.#pickDone.add(key)
+    this.#lastHeardNo = read.no
+    if (!this.#instantNos.has(read.no)) this.#instantNos.set(read.no, 'existing')
+    const auto = !this.#rejected.has(read.no) && !this.#phraseInstantOff && this.#snapshot.instant
+    const heard: ExistingHeard = { name: null, price: read.price, nameNeedsCheck: false, priceSure: true, numberFrom: 'marker' }
+    this.#heardNow = read.text
+    let done: InstantDone
+    if (found.pending === true) {
+      this.#setPending(read.no, { after: { heard, auto } })
+      done = { action: 'discard', reason: LOG_PENDING, readout: null }
+    } else {
+      // 이 말에 사전 품종이 들려 그 상품 품종과 다르면(채우기 포함) 품종도 바뀌는 말로 본다 — 오래전 상품이면 정정 낱말로 바로 고치지 않는다 (D-V3-106)
+      const said = this.#readRegistration(module, read.text, true)?.extraction.name ?? null
+      const nameChange = said !== null && said.replace(/\s+/g, '') !== '' && said.replace(/\s+/g, '') !== found.name.replace(/\s+/g, '')
+      done = this.#applyExisting(work, module, read.no, found, heard, auto, false, { fragment: `${String(this.#chunkSeq)}:${key}`, correction: true, nameChange })
+    }
+    const now = this.#host.now()
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text: read.text }], read: { no: read.no, name: null, price: read.price, candidates: [] }, action: done.action, reason: done.reason }))
+    if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
+    return done
+  }
+
+  /** 앞 덩어리 말로 품종 고르기 (이름만 — 사전 이름만, 애매하면 그대로) */
+  #contextName(module: VoiceModule, name: string | null, texts: readonly { readonly text: string; readonly at: number; readonly between: boolean }[] = this.#contextTexts): string | null {
+    if (typeof module.varietyFromContext !== 'function') return name
+    const now = this.#host.now()
+    const fresh = texts.filter((item) => now - item.at <= 60_000)
+    if (fresh.length === 0) return name
+    const context = fresh.filter((item) => !item.between).map((item) => item.text)
+    const between = fresh.filter((item) => item.between).map((item) => item.text)
+    try {
+      return module.varietyFromContext({ name, context, between, dictionary: this.#prepared(module) })
+    } catch {
+      return name
+    }
+  }
+
+  /**
+   * 덩어리가 끝났을 때 맥락 말을 고친다: 등록한 덩어리는 마지막 조각 뒤 말만(앞 상품 말일 수 있어 약하게),
+   * 번호만 들린 덩어리는 그 글 하나(기다리는 번호의 말 — 따로 든 이름), 번호 없는 덩어리는 따로 든 이름으로 더함
+   */
+  #noteContext(module: VoiceModule, chunk: PhraseChunk, picked: boolean, otherNumber: boolean, now: number): void {
+    const text = chunk.text
+    const fresh = this.#contextTexts.filter((item) => now - item.at <= 60_000)
+    const head = this.#splitHead
+    this.#splitHead = null
+    if (picked) {
+      const rest = this.#readSegments(module, text, true)?.rest ?? ''
+      this.#contextTexts = rest.trim() === '' ? [] : [{ text: rest, at: now, between: false }]
+    } else if (otherNumber) {
+      // 같은 크롬 결과에서 갈린 덩어리 (D-V3-93): 이 덩어리가 그 결과의 남은 글 하나이고 바로 앞 덩어리가 그 굳은 앞부분으로 끝난 번호 없는 덩어리면 함께 남긴다
+      const only = chunk.pieces.length === 1 ? chunk.pieces[0] : undefined
+      const mark = this.#remainderMark
+      const keep = head !== null && only !== undefined && mark !== null && mark.at === only.at && mark.run === head.run && head.seq === this.#chunkSeq - 1 ? head.item : null
+      this.#contextTexts = [...(keep === null ? [] : [keep]), { text, at: now, between: true }]
+    } else {
+      const rr = this.#readRegistration(module, text, true)
+      const between = rr !== null && rr.heardNumbers.length === 0
+      const item = { text, at: now, between }
+      this.#contextTexts = [...fresh, item].slice(-10)
+      // 굳어 넘긴 앞부분으로 끝난 번호 없는 덩어리 — 다음 덩어리가 그 결과의 남은 글이면 쓴다
+      const last = chunk.pieces.at(-1)
+      const mark = this.#confirmMark
+      if (between && last !== undefined && mark !== null && mark.at === last.at) this.#splitHead = { run: mark.run, seq: this.#chunkSeq, item }
+    }
+  }
+
+  /** 품종만 들린 덩어리를 방금 음성 등록한 상품의 빈 품종 채우기로 (음성 패키지 nameOnlyFill) — 덩어리 끝에만 */
+  #nameOnly(work: CardWork, module: VoiceModule, text: string, key: string): InstantDone | null {
+    if (typeof module.nameOnlyFill !== 'function' || typeof module.varietiesIn !== 'function' || text.trim() === '' || this.#pickDone.has(key)) return null
+    const rr = this.#readRegistration(module, text, true)
+    if (rr === null) return null
+    const last = this.#voiceRegistered.at(-1) ?? null
+    const found = last === null ? null : this.#existingOf(last.no)
+    const existing = found === null || found === 'closed' ? null : found
+    let fill: ReturnType<VoiceModule['nameOnlyFill']>
+    try {
+      fill = module.nameOnlyFill({
+        names: module.varietiesIn(text, { dictionary: this.#prepared(module) }),
+        heardNumbers: rr.heardNumbers,
+        wonPrices: rr.heardPrices,
+        lastRegistered: last,
+        lastHeardNo: this.#lastHeardNo,
+        product: existing === null ? null : { name: existing.name },
+        now: this.#host.now(),
+      })
+    } catch {
+      fill = null
+    }
+    if (fill === null || existing === null || existing.pending === true) return null
+    this.#pickDone.add(key)
+    this.#heardNow = text
+    const heard: ExistingHeard = { name: fill.name, price: null, nameNeedsCheck: false, priceSure: true, numberFrom: 'marker' }
+    const done = this.#applyExisting(work, module, fill.no, existing, heard, !this.#rejected.has(fill.no) && this.#snapshot.instant, false, { gate: false })
+    const now = this.#host.now()
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: fill.no, name: fill.name, price: null, candidates: [] }, action: done.action, reason: done.reason }))
+    if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
+    return done
+  }
+
+  /** '번' 없는 수가 최근 음성 등록 번호 흐름 밖인가 (음성 패키지 bareNumberFits) */
+  #bareOffRun(module: VoiceModule, no: number): boolean {
+    if (typeof module.bareNumberFits !== 'function') return false
+    const now = this.#host.now()
+    try {
+      return !module.bareNumberFits(no, this.#contextNos.filter((item) => now - item.at <= 600_000).map((item) => item.no))
+    } catch {
+      return false
+    }
+  }
+
+  /** 같은 번호 가격 고침 문턱 한 걸음 — 바로 고쳐도 되면 참. 지금 가격이 다시 들리면 후보를 지운다 */
+  #priceGate(module: VoiceModule, no: number, current: number, price: number, fragment: string, said = false, recent = true, nameChange = false): boolean {
+    if (typeof module.gateSamePrice !== 'function') return true
+    try {
+      const correction = said || (typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(this.#heardNow))
+      if (price !== current) this.#gateSeen.push({ no, price, fragment })
+      // 오래전 상품에 품종도 함께 바뀌면 정정 낱말로 바로 고치지 않는다 (R-22 4 가, D-V3-106)
+      const step = module.gateSamePrice({ current, price, fragment, correction, history: this.#priceHeard.get(no) ?? [], now: this.#host.now(), recent, nameChange })
+      if (step.history.length === 0) this.#priceHeard.delete(no)
+      else this.#priceHeard.set(no, step.history)
+      return step.apply || price === current
+    } catch {
+      return true
+    }
+  }
+
+  /**
+   * 바로 고치지 않을 때(묻기)도 들은 다른 가격을 문턱 기록에 한 번으로 적는다 (D-V3-83 — "한 번 들음"으로 센다).
+   * 같은 조각·같은 가격은 한 번. 지금 가격과 같으면 적지 않는다
+   */
+  #notePriceHeard(no: number, current: number, price: number, fragment: string): void {
+    if (price === current) return
+    const now = this.#host.now()
+    this.#gateSeen.push({ no, price, fragment })
+    const keep = this.#module?.PRICE_GATE_MS ?? 60_000
+    const history = (this.#priceHeard.get(no) ?? []).filter((item) => now - item.at <= keep && now >= item.at && !(item.fragment === fragment && item.price === price))
+    this.#priceHeard.set(no, [...history, { price, fragment, at: now }].slice(-10))
+  }
+
+  /**
+   * 가격 고침 문턱의 조각 이름 (D-V3-94 ㄷ·R-22 4 나): 바로 앞 덩어리가 15초·300글자로 끊겼고 이것이 이 덩어리의 첫 조각이면
+   * 앞 덩어리에서 같은 번호·같은 새 가격을 들은 조각을 이어 받는다 — 경계에 걸린 한 말이 두 번으로 세어지지 않게
+   */
+  #gateFragment(no: number, price: number | null, key: string, first: boolean): string {
+    const own = `${String(this.#chunkSeq)}:${key}`
+    const carry = this.#gateCarry
+    if (!first || price === null || carry === null || carry.seq !== this.#chunkSeq) return own
+    return carry.items.findLast((item) => item.no === no && item.price === price)?.fragment ?? own
+  }
+
+  /**
+   * 같은 말을 다시 읽음 (R-22 4 (나) "같은 조각을 다시 읽은 것은 한 번", D-V3-83): 이 덩어리에서 그 번호·같은 새 가격을 다른 조각 이름으로 이미 들었는데
+   * 그것이 지금과 **같은 크롬 결과**(그 사이 최종 결과가 없음)이고 지금 덩어리 글에 그 번호·그 가격 조각이 하나뿐이면, 크롬이 중간 결과를 고쳐 써
+   * 조각 자리가 옮겨진 같은 말이다 — 앞 조각 이름을 이어 받아 한 번으로 센다.
+   * (실방송 경성 63번: 110,000원 등록 뒤 한 번 말한 "63번 … 만 원"이 중간 결과 두 모양(자리 둘로 갈림 → 한 자리로 합침)으로 두 번 읽혀 10,000원으로 바로 고쳐지던 것)
+   * 다른 크롬 결과에서 다시 들렸거나(판매자가 다시 말함) 글에 그 조각이 둘 이상이면 그대로 두 조각이다
+   */
+  #rereadFragment(no: number, price: number | null, fragment: string, repeats: number): string {
+    const epoch = this.#resultEpoch
+    let picked = fragment
+    const prefix = `${String(this.#chunkSeq)}:`
+    if (price !== null && repeats < 2 && fragment.startsWith(prefix)) {
+      const earlier = (this.#priceHeard.get(no) ?? []).findLast((item) => item.price === price && item.fragment !== fragment && item.fragment.startsWith(prefix) && this.#fragmentEpoch.get(item.fragment) === epoch)
+      if (earlier !== undefined) picked = earlier.fragment
+    }
+    if (!this.#fragmentEpoch.has(picked)) {
+      this.#fragmentEpoch.set(picked, epoch)
+      if (this.#fragmentEpoch.size > 100) this.#fragmentEpoch.delete(this.#fragmentEpoch.keys().next().value as string)
+    }
+    return picked
   }
 
   #clearPhraseTimer(): void {
@@ -1237,7 +1789,14 @@ export class VoiceController {
     const module = this.#module
     if (module === null || typeof module.createArchiveExport !== 'function') return null
     const broadcasts = await archiveBroadcasts(broadcastId)
-    return module.createArchiveExport(broadcasts, this.#host.now())
+    const out = module.createArchiveExport(broadcasts, this.#host.now())
+    // 인식 끊김 줄은 방송마다 gaps로 붙인다 (덩어리 형식은 그대로) — 끊김만 있는 방송은 덩어리 없이
+    const gaps = await archiveGaps(broadcastId, this.#host.now())
+    if (gaps.size === 0) return out
+    const listed = out.broadcasts.map((item) => ({ ...item, gaps: gaps.get(item.broadcastId)?.gaps ?? [] }))
+    const known = new Set(out.broadcasts.map((item) => item.broadcastId))
+    const only = [...gaps].filter(([id]) => !known.has(id)).map(([id, group]) => ({ broadcastId: id, title: group.title, date: group.date, chunks: [], gaps: group.gaps }))
+    return { ...out, broadcasts: [...listed, ...only] }
   }
 
   /** 덩어리 하나: 읽기(readChunk) → 할 일 고르기(chooseAction) → 실행, 기록·결과 한 줄 (D-V2-04~08) */
@@ -1267,11 +1826,25 @@ export class VoiceController {
     const segmentsDone = v3 !== null && !noAuto && !dialogNow ? this.#segmentsChunk(work, module, chunk) : null
     const instantDone = segmentsDone ?? (v3 === null ? null : this.#instantChunk(work, module, chunk, reading, action, v3, noAuto))
     const handledNos = new Set(this.#instantNos.keys())
+    // 가격만 고쳐 말함은 그 사이 다른 번호가 들리면 하지 않는다 — 처리하지 못한 번호(번호만 들린 조각 등)도 들린 번호다
+    // (조각으로 처리한 번호는 #runPicks가 이미 적었다. 빠진 0을 되살린 원래 번호는 처리한 번호로 본다)
+    const unhandled = (v3?.heardNumbers ?? []).filter((no) => !handledNos.has(no) && !this.#zeroRaw.has(no))
+    const lastUnhandled = unhandled.at(-1)
+    if (lastUnhandled !== undefined) this.#lastHeardNo = lastUnhandled
+    // 이 덩어리로 맥락을 고치기 전의 맥락 — 이 덩어리에서 기다리는 번호를 이어 받아 등록하면(번호 없는 가격 6a) 그 품종은 앞 말 맥락으로 (R-17 8 1b)
+    // (번호만 든 덩어리는 맥락을 그 글 하나로 비운다 — 그때만 넘긴다)
+    const contextBefore = handledNos.size === 0 && unhandled.length > 0 ? this.#contextTexts : null
+    this.#noteContext(module, chunk, handledNos.size > 0, unhandled.length > 0, now)
+    this.#zeroRaw.clear()
+    // 15초·300글자 끊김은 판매자가 쉰 것이 아니다 — 다음 덩어리 첫 조각이 이 덩어리의 같은 번호·같은 새 가격을 이어 받는다 (D-V3-94 ㄷ)
+    this.#gateCarry = chunk.end === 'max' || chunk.end === 'long' ? { seq: this.#chunkSeq + 1, items: this.#gateSeen } : null
+    this.#gateSeen = []
+    this.#chunkSeq++
     this.#pickDone.clear()
     this.#instantNos = new Map()
     if (this.#phrase === null || module.nextTickAt(this.#phrase) === null) this.#phraseInstantOff = false
     // 기다리는 번호 (D-V3-67): 번호만 들린 조각은 다음 원 가격을 60초 기다리고, 놓치면 "15번 가격을 못 들었어요" 카드
-    const waited = v3 !== null && !noAuto ? this.#stepWaiting(work, module, chunk, reading, v3, handledNos) : null
+    const waited = v3 !== null && !noAuto ? this.#stepWaiting(work, module, chunk, reading, v3, handledNos, contextBefore) : null
     if (waited !== null) {
       const read = { no: reading.no, name: reading.name, price: reading.price, candidates: reading.candidates }
       work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: chunk.pieces, read, action: waited.action, reason: waited.reason }))
@@ -1424,7 +1997,15 @@ export class VoiceController {
    * 기다리는 번호 한 걸음 (D-V3-67, 음성 패키지 stepWaiting): 이어 받으면 그 번호로 바로 등록("이어 받음"),
    * 다른 'N번'이 먼저 오거나 60초가 지나면 가격 입력 카드. 이어 받아 처리했으면 기록할 것, 아니면 null
    */
-  #stepWaiting(work: CardWork, module: VoiceModule, chunk: PhraseChunk, reading: ChunkReading, v3: RegistrationReading, handled: ReadonlySet<number>): InstantDone | null {
+  #stepWaiting(
+    work: CardWork,
+    module: VoiceModule,
+    chunk: PhraseChunk,
+    reading: ChunkReading,
+    v3: RegistrationReading,
+    handled: ReadonlySet<number>,
+    contextBefore: readonly { readonly text: string; readonly at: number; readonly between: boolean }[] | null,
+  ): InstantDone | null {
     if (typeof module.stepWaiting !== 'function' || !this.#snapshot.instant || chunk.text.includes('문자찜')) return null
     const last = [...handled].at(-1)
     const piece =
@@ -1444,10 +2025,30 @@ export class VoiceController {
     // 기다림은 그 번호를 들은 때부터 센다 (덩어리 끝이 아니라 덩어리 처음)
     this.#waiting = step.waiting !== null && step.waiting.no !== this.#waiting?.no && Number.isFinite(chunk.startedAt) ? { ...step.waiting, since: Math.min(step.waiting.since, chunk.startedAt) } : step.waiting
     if (step.card !== null) this.#missedCard(work, module, step.card)
-    const take = step.take
+    let take = step.take
+    // 가격을 들은 글 — 번호가 붙은 가격 검사(D-V3-114 (3))에 쓴다
+    let priceText = chunk.text
+    const now = this.#host.now()
+    const pending = this.#pendingPrice !== null && now - this.#pendingPrice.at <= PENDING_PRICE_MS && now >= this.#pendingPrice.at ? this.#pendingPrice : null
+    if (take === null && pending !== null && !piece.paired && piece.markerNo !== null && piece.wonPrice === null && this.#waiting?.no === piece.markerNo) {
+      // 앞에 번호 없이 들린 가격 + 가격 없는 'N번' → 그 번호의 가격 (기다리는 번호는 끝)
+      take = { no: piece.markerNo, price: pending.price }
+      priceText = pending.text
+      this.#waiting = null
+    }
+    // 번호가 들리면 앞의 번호 없는 가격은 끝난다. 번호 없이 '원' 가격만 들리고(정정 낱말 없음) 받을 번호가 없으면 다음 번호를 15초 기다린다
+    if (piece.markerNo !== null) this.#pendingPrice = null
+    else if (piece.wonPrice !== null && step.take === null && !(typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(chunk.text))) this.#pendingPrice = { price: piece.wonPrice, at: now, text: chunk.text }
     if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return null
+    // 번호가 붙은 가격(D-V3-113)이면 다른 덩어리에서 짝지어도 바로 등록하지 않고 같은 카드 (D-V3-114 (3))
+    const joined = this.#numberInPriceCard(work, module, take, priceText, chunk.text)
+    if (joined !== null) return { action: 'offer', reason: joined, readout: null }
     this.#instantNos.set(take.no, 'register')
-    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: null, nameNeedsCheck: false, numberFrom: 'marker' }, chunk.text)
+    // 기다리던 번호의 품종: 이 덩어리 품종, 없으면 번호를 들은 덩어리·앞 말 맥락 (사용자 요구 — 다른 결과에 들린 품종도)
+    // 번호만 든 이 덩어리가 앞 맥락을 비웠어도(R-17 8 1b — 등록 안 된 덩어리일 때의 규칙) 이 덩어리로 등록하면 비우기 전 맥락 + 이 덩어리 글로 고른다
+    // (실방송 금화다육 251번 "3만 원에 … BTS … 나왔는데요" 다음 "251번" — 이어 받은 등록이 품종 없이 되던 것)
+    const takeName = this.#contextName(module, reading.name, contextBefore === null ? undefined : [...contextBefore, ...this.#contextTexts.filter((item) => !contextBefore.includes(item))])
+    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: takeName, nameNeedsCheck: false, numberFrom: 'marker' }, chunk.text)
     this.#instantNos = new Map()
     return { action: 'create', reason: LOG_TAKEN, readout: done.readout === null ? null : `${done.readout} · ${TAKEN_MARK}` }
   }
@@ -1456,6 +2057,14 @@ export class VoiceController {
     if (typeof module.stepWaiting !== 'function') return
     const rr = this.#readRegistration(module, text, final)
     if (rr === null || rr.extraction.no !== null || rr.heardNumbers.length > 0 || !rr.priceSure || rr.extraction.price === null) return
+    // 그사이 다른 'N번'이 들렸으면(이 덩어리에서 다룬 번호, 기다림 뒤 중간 결과에 보인 번호) 이어 받지 않고 카드 (R-17 8 6 "다른 N번이 먼저 오면")
+    // 실방송 경성다육 "… 얘는 5만 원 그러니까 29번 5만 원": 29번을 먼저 등록한 뒤 굳은 앞 글 "… 5만 원"을 기다리던 19번이 받던 것
+    const waiting = this.#waiting
+    if (waiting !== null && ([...this.#instantNos.keys()].some((no) => no !== waiting.no) || this.#interimNos.some((item) => item.no !== waiting.no && item.at >= waiting.since))) {
+      this.#waiting = null
+      this.#missedCard(work, module, waiting.no)
+      return
+    }
     let step: ReturnType<VoiceModule['stepWaiting']>
     try {
       step = module.stepWaiting({ waiting: this.#waiting, now: this.#host.now(), piece: { markerNo: null, wonPrice: rr.extraction.price, paired: false }, exists: (no) => this.#existingOf(no) !== null })
@@ -1466,11 +2075,36 @@ export class VoiceController {
     if (step.card !== null) this.#missedCard(work, module, step.card)
     const take = step.take
     if (take === null || this.#rejected.has(take.no) || this.#existingOf(take.no) !== null) return
+    // 번호가 붙은 가격(D-V3-113)이면 바로 등록하지 않고 같은 카드 (D-V3-114 (3))
+    const joined = this.#numberInPriceCard(work, module, take, text, text)
+    if (joined !== null) {
+      work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text }], read: { no: take.no, name: rr.extraction.name, price: take.price, candidates: [] }, action: 'offer', reason: joined }))
+      return
+    }
     this.#instantNos.set(take.no, 'register')
-    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: rr.extraction.name, nameNeedsCheck: false, numberFrom: 'marker' }, text)
+    const done = this.#registerInstant(work, { no: take.no, price: take.price, name: this.#contextName(module, rr.extraction.name), nameNeedsCheck: false, numberFrom: 'marker' }, text)
     const now = this.#host.now()
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: take.no, name: rr.extraction.name, price: take.price, candidates: [] }, action: 'create', reason: LOG_TAKEN }))
     if (done.readout !== null) work.readout = { text: `${done.readout} · ${TAKEN_MARK}`, discarded: false, until: now + READOUT_MS }
+  }
+
+  /**
+   * 다른 덩어리에서 짝지은 번호와 가격(기다리는 번호 D-V3-67·번호 없는 가격 기억 D-V3-84 (ㄴ))이 번호가 붙은 가격이면
+   * 가격 칸이 빈 제안 카드를 놓고 안내 글을 돌려준다, 아니면 null (D-V3-114 (3))
+   */
+  #numberInPriceCard(work: CardWork, module: VoiceModule, take: { readonly no: number; readonly price: number }, priceText: string, text: string): string | null {
+    if (typeof module.numberInPriceOf !== 'function') return null
+    let note: string | null
+    try {
+      note = module.numberInPriceOf(take.no, priceText, take.price, { maxNumber: this.#host.maxNumber() })
+    } catch {
+      note = null
+    }
+    if (note === null) return null
+    this.#instantNos.set(take.no, 'existing')
+    const pick: SegmentPick = { no: take.no, price: take.price, name: null, numberFrom: 'marker', priceFrom: 'won', start: -1, end: -1, blocked: null, bigChange: true, check: { kind: 'NUMBER_IN_PRICE', note } }
+    this.#pickCard(work, module, pick, text, note, null)
+    return note
   }
 
   /** "15번 가격을 못 들었어요" 카드 (D-V3-67) — 가격을 적어 [등록]하거나 [닫기]. 같은 번호 카드가 있으면 그대로 */
@@ -1756,9 +2390,19 @@ export class VoiceController {
     this.#heardNow = text
     const interim = this.#phrase === null ? '' : module.heardText(this.#phrase).interim
     const seg = this.#readSegments(module, text, interim.trim() === '')
-    if (seg !== null) this.#runPicks(work, module, seg, text, false)
+    if (interim.trim() !== '') this.#noteResultPrices(module, interim)
+    if (seg !== null) this.#runPicks(work, module, seg, text, false, false, interim.trim() === '')
+    // 글 끝 가격이 `원까지`·`원에`라 뒤 낱말을 기다리는 조각(지난 일 가격일 수 있다): 없는 번호의 새 등록만 바로 (R1 — `108번 … 10만 원까지` 때 등록),
+    // 있는 상품의 가격은 뒤 낱말을 듣고 고친다 (실방송 468번 "120만 원까지 팔아 본 적 있어요")
+    if (seg !== null && seg.held !== undefined && seg.held.length > 0) this.#runPicks(work, module, { ...seg, picks: seg.held }, text, false, true)
+    // 번호 없이 가격만 고쳐 말함 (최종·굳은 글만): 마지막 조각 뒤 남은 글, 또는 조각이 없는 글
+    if (seg !== null && interim.trim() === '') this.#priceOnlyRest(work, module, seg, text)
+    // 정정 낱말이 든 "65번 아니 5만 원" (최종·굳은 글만, TD-V3-013)
+    if (seg !== null && interim.trim() === '') this.#markerCorrection(work, module, seg, text)
     // 기다리는 번호가 있고 이 글에 번호 없이 원 가격이 들리면 그 자리에서 이어 받는다 (D-V3-67, 조용한 시간 전)
-    if (seg !== null && seg.picks.length === 0 && this.#waiting !== null) this.#takeWaiting(work, module, text, interim.trim() === '')
+    // 최종·굳은 글만 (R-17 8 6 "조각"이 끝난 것): 중간 결과 끝의 가격은 바로 뒤에 다른 'N번'이 이어질 수 있다
+    // (실방송 경성다육 "… 얘는 5만 원 그러니까 29번 5만 원" — 중간 결과 "… 5만 원"을 기다리던 19번이 받아 19번이 5만 원으로 등록되던 것)
+    if (seg !== null && seg.picks.length === 0 && this.#waiting !== null && interim.trim() === '') this.#takeWaiting(work, module, text, true)
     // 중간 결과의 빠른 꼴이 1초 동안 같으면 바로 (D-V3-71)
     if (interim.trim() !== '') this.#trackInterim(work, module, text)
     else this.#interimShown = null
@@ -1806,11 +2450,30 @@ export class VoiceController {
 
   /** 중간 글 후보 하나를 조각처럼 처리 (바로 등록·같은 번호 R-22), 기록 "중간 글로 등록" */
   #interimPick(work: CardWork, module: VoiceModule, item: InterimCandidate, text: string): void {
+    if (this.#finalPrices === null && item.price !== null) this.#resultPrices.set(item.no, item.price)
     if (this.#instantNos.has(item.no)) return
     const pick: SegmentPick = { no: item.no, price: item.price, name: item.name, numberFrom: 'marker', priceFrom: 'quick', start: -1, end: -1, blocked: null, bigChange: false }
     const before = work.log
     this.#runPicks(work, module, { tokens: [], picks: [pick], others: [], tail: null, rest: '' }, text, false)
     if (work.log !== before && work.log[0] !== undefined) work.log = [{ ...work.log[0], reason: LOG_INTERIM }, ...work.log.slice(1)]
+  }
+
+  /** 지금 결과의 첫 'N번'이 바로 앞 결과 끝 수와 이어질 수 있는가 (음성 패키지 joinPrevious, R-17 8 7) */
+  #joinOf(module: VoiceModule, text: string): { readonly heard: number; readonly joined: number } | null {
+    if (typeof module.joinPrevious !== 'function' || this.#prevResult === null) return null
+    try {
+      return module.joinPrevious({ previous: this.#prevResult.text, previousAt: this.#prevResult.at, text, now: this.#host.now(), maxNumber: this.#host.maxNumber() })
+    } catch {
+      return null
+    }
+  }
+
+  /** 지금 결과의 중간 글에서 번호와 짝지은 확정 가격을 적는다 (D-V3-103) — 같은 번호는 가장 나중 값 */
+  #noteResultPrices(module: VoiceModule, interim: string): void {
+    const seg = this.#readSegments(module, interim, false)
+    if (seg === null) return
+    // 원까지 들린 가격만 (빠른 꼴 "63번 5"는 "5만 원"으로 자라는 중일 수 있다)
+    for (const pick of [...seg.picks, ...(seg.held ?? [])]) if (pick.price !== null && pick.priceFrom === 'won') this.#resultPrices.set(pick.no, pick.price)
   }
 
   /** 조각 읽기 (D-V3-46·48): 덩어리 글 → 조각마다 등록 값. final = 최종 결과만 든 글 */
@@ -1828,10 +2491,95 @@ export class VoiceController {
    * 아직 처리하지 않은 조각마다 한 번 (`${no}@${start}`로 거름): 없는 번호면 바로 등록, 이미 있는 번호면 R-22, 300만 원 넘으면 카드(덩어리 끝에서만).
    * 같은 덩어리에서 이미 등록한 번호를 다른 가격으로 다시 말하면 R-22(보내는 중이면 등록 뒤, D-V3-19)
    */
-  #runPicks(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, chunkEnd: boolean): void {
-    for (const pick of seg.picks) {
-      const key = `${String(pick.no)}@${String(pick.start)}`
+  // finalText = 최종 결과만 든 글(중간 결과 없음) — 확정 아닌 조각(D-V3-112·113)은 이때만 카드·묻기로 다룬다 (중간 결과면 기다린다)
+  #runPicks(work: CardWork, module: VoiceModule, seg: SegmentReading, whole: string, chunkEnd: boolean, newOnly = false, finalText = chunkEnd): void {
+    for (const raw of seg.picks) {
+      const key = `${String(raw.no)}@${String(raw.start)}`
+      // 앞 결과와 이어질 수 있는 번호 (R-17 8 7, D-V3-102 — 실방송 경성 "… 3만 원 159" 다음 결과 "59번 …"): 바로 등록·바로 고치지 않고 묻는다
+      const join = this.#join
+      if (join !== null && raw.no === join.heard && raw.price !== null && !this.#pickDone.has(key)) {
+        this.#pickDone.add(key)
+        if (!this.#instantNos.has(raw.no)) this.#instantNos.set(raw.no, 'existing')
+        const now = this.#host.now()
+        const text = raw.start >= 0 && raw.end >= raw.start && seg.tokens.length > raw.end ? seg.tokens.slice(raw.start, raw.end + 1).join(' ') : whole
+        this.#heardNow = text
+        const joinedNow = this.#existingOf(join.joined)
+        // 이은 번호 상품이 이미 같은 가격이면 같은 말 되풀이 — 아무것도 하지 않는다
+        const repeat = joinedNow !== null && joinedNow !== 'closed' && joinedNow.price === raw.price
+        const existing = this.#existingOf(raw.no)
+        let action: 'discard' | 'offer' = 'discard'
+        if (!repeat && existing === null) {
+          this.#pickCard(work, module, { ...raw, no: join.joined }, text, module.joinPreviousNote(join.heard, join.joined))
+          action = 'offer'
+        } else if (!repeat && existing !== null && existing !== 'closed' && existing.pending !== true) {
+          const changes = pickChanges(existing, { name: raw.name, price: raw.price })
+          if (Object.keys(changes).length > 0 && existing.key !== '') {
+            // 다른 번호를 잘못 들었을 수 있다 — 덮어쓰지 않고 카드 한 장 (R-22 ASK/MAYBE_OTHER)
+            this.#chunkActs.add('ASKED')
+            const message = maybeOtherMessage(raw.no, existing.price, existing.claimCount)
+            const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no: raw.no, message, changes, stage: 'ask', before: null, undoUntil: null, error: null, maybeOther: true, voiceHeard: text }
+            work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key))]
+            action = 'offer'
+          }
+        }
+        work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: raw.no, name: raw.name, price: raw.price, candidates: [] }, action, reason: module.joinPreviousNote(join.heard, join.joined) }))
+        continue
+      }
+      // 중간·최종 가격 다름 (R-17 8, D-V3-103 — 실방송 경성 63번 중간 "11만 원" → 최종 "만 원"): 이 결과로는 바로 등록·바로 고침을 하지 않는다.
+      // 중간 글로 이미 다룬 조각(같은 자리)이어도 본다 — 최종 글이 그 가격을 바꿔 쓴 것
+      const said = this.#finalPrices?.get(raw.no)
+      if (said !== undefined && raw.price !== null && said !== raw.price && !newOnly && !this.#rejected.has(raw.no)) {
+        this.#pickDone.add(key)
+        const existing = this.#existingOf(raw.no)
+        const now = this.#host.now()
+        const text = raw.start >= 0 && raw.end >= raw.start && seg.tokens.length > raw.end ? seg.tokens.slice(raw.start, raw.end + 1).join(' ') : whole
+        this.#heardNow = text
+        const note = interimFinalNote(said, raw.price)
+        // 이 덩어리에서 다룬 번호로 적는다 — 덩어리 끝에 최종 글 가격으로 다시 등록·고치지 않게
+        if (!this.#instantNos.has(raw.no)) this.#instantNos.set(raw.no, 'existing')
+        // 이 최종 글 가격도 가격 고침 문턱의 한 번 들음이다 — 다른 조각에서 같은 가격을 한 번 더 들으면 바로 고친다 (D-V3-83, R93)
+        const fragment = `${String(this.#chunkSeq)}:${key}`
+        // 최종 글 가격이 지금 상품 가격과 같으면 이미 맞게 등록된 것 — 중간 글만 달랐다. 바꿀 것이 없으니 카드도 쓰기도 없다
+        // (실방송 재생 "333번을 고칠까요? 가격 330,000원 → 330,000원")
+        if (existing !== null && existing !== 'closed' && existing.pending !== true && existing.price === raw.price) {
+          // 이 결과의 중간 글 가격으로 물었던 카드("다른 가격이 한 번만 들려…")는 최종 글이 지금 가격을 다시 말했으니 내리고, 문턱의 한 번 들음에서도 뺀다
+          work.offers = work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key && item.note === REASON_PRICE_ONCE && item.changes.price === said))
+          const heardBefore = this.#priceHeard.get(raw.no)
+          if (heardBefore !== undefined) {
+            const left = heardBefore.filter((item) => item.price !== said)
+            if (left.length === 0) this.#priceHeard.delete(raw.no)
+            else this.#priceHeard.set(raw.no, left)
+          }
+          work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: raw.no, name: raw.name, price: raw.price, candidates: [] }, action: 'discard', reason: LOG_ALREADY }))
+          continue
+        }
+        if (existing === null) this.#pickCard(work, module, raw, text, note)
+        else if (existing !== 'closed' && existing.pending === true) {
+          // 바로 등록이 아직 보내는 중 — 등록이 끝나면 그 가격 그대로 두고 묻는다 (조용히 버리지 않는다)
+          this.#setPending(raw.no, { after: { heard: { name: null, price: raw.price, nameNeedsCheck: false, priceSure: true }, auto: false, fragment, askNote: note } })
+        } else if (existing !== 'closed') {
+          this.#notePriceHeard(raw.no, existing.price, raw.price, fragment)
+          this.#chunkActs.add('ASKED')
+          this.#ask(work, raw.no, existing, { price: raw.price }, note)
+        }
+        work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: raw.no, name: raw.name, price: raw.price, candidates: [] }, action: 'offer', reason: LOG_INTERIM_FINAL }))
+        continue
+      }
       if (this.#pickDone.has(key)) continue
+      // 빠진 0 되살리기 (실방송 "36번" = 306번): 앞 번호 맥락이 뚜렷할 때만 X0Y로
+      const fixedNo = this.#droppedZero(module, raw)
+      const pick: SegmentPick = fixedNo === null ? raw : { ...raw, no: fixedNo }
+      // newOnly(기다리는 가격 조각): 없는 번호의 새 등록만 — 있는·판매 종료·거절·고치는 중인 번호는 손대지 않고 뒤 낱말을 기다린다
+      if (newOnly && (this.#existingOf(pick.no) !== null || this.#rejected.has(pick.no) || this.#instantNos.has(pick.no))) continue
+      const zeroNote = fixedNo === null ? null : droppedZeroNote(raw.no, fixedNo)
+      // '번' 없는 수가 앞 번호 흐름(최근 음성 등록 2개)에서 멀면 번호가 아니다 (실방송 "얼마 드릴까 50"·"25 자 25만 원")
+      if (pick.numberFrom === 'bare' && this.#bareOffRun(module, pick.no)) {
+        this.#pickDone.add(key)
+        work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text: whole }], read: { no: pick.no, name: pick.name, price: pick.price, candidates: [] }, action: 'discard', reason: LOG_BARE_OFF_RUN }))
+        continue
+      }
+      if (fixedNo !== null) this.#zeroRaw.add(raw.no)
+      this.#lastHeardNo = pick.no
       // 기록·카드에 남기는 들은 말은 그 일을 만든 조각 글만 (RA-V3-004·SA-V3-001)
       const text = pick.start >= 0 && pick.end >= pick.start && seg.tokens.length > pick.end ? seg.tokens.slice(pick.start, pick.end + 1).join(' ') : whole
       this.#heardNow = text
@@ -1844,7 +2592,7 @@ export class VoiceController {
             const done = this.#applyExisting(work, module, pick.no, found, { name: pick.name, price: pick.price, nameNeedsCheck: false, priceSure: true, numberFrom: pick.numberFrom }, false, false)
             work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text }], read: { no: pick.no, name: pick.name, price: pick.price, candidates: [] }, action: done.action, reason: done.reason }))
             if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: this.#host.now() + READOUT_MS }
-          } else this.#pickCard(work, module, pick, text, null)
+          } else this.#pickCard(work, module, pick, text, pick.check?.note ?? null, checkedCardPrice(pick))
         }
         continue
       }
@@ -1868,8 +2616,18 @@ export class VoiceController {
             const done = this.#applyExisting(work, module, pick.no, view, { name: pick.name, price: pick.price, nameNeedsCheck: false, priceSure: true, numberFrom: pick.numberFrom }, true, false)
             work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text }], read: { no: pick.no, name: pick.name, price: pick.price, candidates: [] }, action: done.action, reason: done.reason }))
             if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: this.#host.now() + READOUT_MS }
-          } else this.#pickCard(work, module, pick, text, null)
+          } else this.#pickCard(work, module, pick, text, pick.check?.note ?? null, checkedCardPrice(pick))
         }
+        continue
+      }
+      // 확정 아닌 조각 (R-17 8, D-V3-112 천원 단위 작은 빠른 꼴 · D-V3-113 번호가 붙은 가격): 바로 등록·바로 고치지 않는다 —
+      // 없는 번호면 제안 카드, 있는 번호면 R-22 묻기(안내 글). 중간 결과에서는 기다린다(같은 자리를 최종 글이 바꿔 쓸 수 있다)
+      const check = pick.check ?? null
+      if (check !== null) {
+        if (!finalText) continue
+        this.#pickDone.add(key)
+        if (!this.#instantNos.has(pick.no)) this.#instantNos.set(pick.no, 'existing')
+        this.#checkedPick(work, module, pick, check, existing, text)
         continue
       }
       this.#pickDone.add(key)
@@ -1878,18 +2636,29 @@ export class VoiceController {
       let done: InstantDone
       if (existing === null) {
         this.#instantNos.set(pick.no, 'register')
-        done = this.#registerInstant(work, { no: pick.no, price: pick.price, name: pick.name, nameNeedsCheck: false, numberFrom: pick.numberFrom }, text)
+        // 덩어리 첫 조각의 품종은 앞 덩어리 말(1분 안)도 본다 — "바이칼녹금 … / 312번 녹금 5만 원" → 바이칼녹금 (이름만)
+        const name = raw === seg.picks[0] ? this.#contextName(module, pick.name) : pick.name
+        done = this.#registerInstant(work, { no: pick.no, price: pick.price, name, nameNeedsCheck: false, numberFrom: pick.numberFrom }, text)
       } else if (existing.pending === true) {
         // 보내는 중인 번호 — 등록이 끝난 뒤 같은 번호 판단 (D-V3-19)
         this.#setPending(pick.no, { after: { heard, auto: true } })
         done = { action: 'discard', reason: LOG_PENDING, readout: null }
       } else {
         if (!this.#instantNos.has(pick.no)) this.#instantNos.set(pick.no, 'existing')
-        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false)
+        // 정정 낱말은 조각 어디에 있어도 센다 — 'N번' 앞이어도("아니 65번 5만 원"·"다시 15번 7만 원", TD-V3-013 AUTO). 조각 = 앞 조각 끝 뒤 ~ 이 조각 끝
+        const index = seg.picks.indexOf(raw)
+        const from = index > 0 ? (seg.picks[index - 1]?.end ?? -1) + 1 : 0
+        const said = pick.start >= 0 && seg.tokens.length > pick.end && typeof module.hasPriceCorrection === 'function' && module.hasPriceCorrection(seg.tokens.slice(from, pick.end + 1).join(' '))
+        // 덩어리 첫 조각 = 조각 읽기의 첫 조각, 또는 이 덩어리에서 아직 다룬 번호가 없을 때의 중간 후보(start -1)
+        const first = raw.start < 0 ? this.#instantNos.size === 1 : index === 0
+        const repeats = seg.picks.filter((item) => item.no === raw.no && item.price === raw.price).length
+        done = this.#applyExisting(work, module, pick.no, existing, heard, true, false, { fragment: this.#rereadFragment(pick.no, pick.price, this.#gateFragment(pick.no, pick.price, key, first), repeats), correction: said })
       }
       const read = { no: pick.no, name: pick.name, price: pick.price, candidates: [] }
-      work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read, action: done.action, reason: done.reason }))
-      if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: now + READOUT_MS }
+      const reason = zeroNote === null ? done.reason : done.reason === null ? zeroNote : `${done.reason} · ${zeroNote}`
+      work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read, action: done.action, reason }))
+      const readout = zeroNote === null ? done.readout : done.readout === null ? zeroNote : `${done.readout} · ${zeroNote}`
+      if (readout !== null) work.readout = { text: readout, discarded: false, until: now + READOUT_MS }
     }
   }
 
@@ -2007,13 +2776,13 @@ export class VoiceController {
     return found !== null && found.claimCount > 0
   }
 
-  /** 조각 하나를 카드로 (300만 원 넘음·거절한 번호·판매 종료) */
-  #pickCard(work: CardWork, module: VoiceModule, pick: SegmentPick, text: string, note: string | null): void {
+  /** 조각 하나를 카드로 (거절한 번호·판매 종료·확정 아닌 조각). price = 가격 칸 (null = 비움 — 번호가 붙은 가격, D-V3-113) */
+  #pickCard(work: CardWork, module: VoiceModule, pick: SegmentPick, text: string, note: string | null, price: number | null = pick.price): void {
     const id = `voice-${String(this.#nextCard++)}`
-    const card: SuggestionCard = { id, no: pick.no, name: pick.name, price: pick.price, confidence: 'HIGH', text, createdAt: this.#host.now(), status: 'OPEN', touched: false, autoConfirmAt: null }
+    const card: SuggestionCard = { id, no: pick.no, name: pick.name, price, confidence: 'HIGH', text, createdAt: this.#host.now(), status: 'OPEN', touched: false, autoConfirmAt: null }
     const open = work.cards.find((item) => isOpen(item) && item.no === pick.no)
     if (open !== undefined) {
-      if (!open.touched) work.cards = module.replaceCard(work.cards, { ...open, name: pick.name ?? open.name, price: pick.price, text })
+      if (!open.touched) work.cards = module.replaceCard(work.cards, { ...open, name: pick.name ?? open.name, price: price ?? open.price, text })
       return
     }
     if (note !== null) work.notes = new Map(work.notes).set(id, note)
@@ -2022,11 +2791,44 @@ export class VoiceController {
   }
 
   /**
+   * 확정 아닌 조각 하나 (R-17 8, D-V3-112·113): 없는 번호면 제안 카드(안내 글, 번호가 붙은 가격은 가격 칸 비움),
+   * 보내는 중인 번호면 등록이 끝난 뒤 묻기, 있는 번호면 R-22 묻기(고침 0). 바꿀 것이 없으면(같은 가격·이름) 아무것도 하지 않는다
+   */
+  #checkedPick(work: CardWork, module: VoiceModule, pick: SegmentPick, check: SegmentCheck, existing: (ExistingView & { readonly pending?: true }) | null, text: string): void {
+    let action: 'offer' | 'discard' = 'offer'
+    let reason = check.note
+    if (existing === null) this.#pickCard(work, module, pick, text, check.note, checkedCardPrice(pick))
+    else if (existing.pending === true) {
+      // 바로 등록이 아직 보내는 중 — 등록이 끝나면 그 가격 그대로 두고 묻는다 (조용히 버리지 않는다)
+      this.#setPending(pick.no, { after: { heard: { name: null, price: pick.price, nameNeedsCheck: false, priceSure: true }, auto: false, askNote: check.note, ...(check.kind === 'NUMBER_IN_PRICE' ? { askBlank: true as const } : {}) } })
+    } else if (check.kind === 'NUMBER_IN_PRICE') {
+      // 들린 가격은 틀렸을 가능성이 커 고칠 값으로 채우지 않는다 — 지금 가격만 보이고 칸은 비움, 들린 가격은 안내 글에만 (D-V3-114 (2))
+      this.#chunkActs.add('ASKED')
+      this.#askPrice(work, pick.no, existing, check.note)
+    } else {
+      const changes = pickChanges(existing, { name: pick.name, price: pick.price })
+      if (Object.keys(changes).length === 0) {
+        action = 'discard'
+        reason = LOG_ALREADY
+      } else {
+        this.#chunkActs.add('ASKED')
+        this.#ask(work, pick.no, existing, changes, changes.price === undefined ? undefined : check.note)
+      }
+    }
+    work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text }], read: { no: pick.no, name: pick.name, price: pick.price, candidates: [] }, action, reason }))
+  }
+
+  /**
    * 덩어리 끝 (조각 읽기): 남은 조각 처리 · 꼬리(정정 → 그 번호 R-22, 취소 → 되돌림) · 버린 다른 번호 4초 안내(D-V3-46). 조각이 없으면 null(옛 판단)
    */
   #segmentsChunk(work: CardWork, module: VoiceModule, chunk: PhraseChunk): InstantDone | null {
     const seg = this.#readSegments(module, chunk.text, true)
     if (seg === null || chunk.text.includes('문자찜')) return null
+    // 남은 글(덩어리 끝)을 들은 시각 = 마지막 조각 시각. 이 덩어리 끝 읽기 전에 그보다 늦게 한 음성 등록은 그 글 "뒤"의 등록이다 (#priceOnly).
+    // 이 덩어리 끝에서 새로 한 등록(남은 글보다 앞 말)은 그대로 받는다
+    const lastPiece = chunk.pieces.at(-1)?.at
+    const regBefore = this.#voiceRegistered.at(-1) ?? null
+    const restAt = (): number | undefined => (lastPiece !== undefined && regBefore !== null && this.#voiceRegistered.at(-1) === regBefore ? lastPiece : undefined)
     // 최종 글에서 그 번호의 가격이 사라졌으면 1초 넘게 보였던 중간 후보로 (D-V3-71 (ㄴ))
     const seen = this.#interimSeen
     this.#interimSeen = []
@@ -2038,8 +2840,13 @@ export class VoiceController {
         if (seg.picks.length === 0) return { action: 'create', reason: LOG_INTERIM, readout: work.readout?.text ?? null }
       }
     }
-    if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text)
+    if (seg.picks.length === 0) return this.#renumberChunk(work, module, chunk.text) ?? this.#priceOnlyRest(work, module, seg, chunk.text, restAt()) ?? this.#markerCorrection(work, module, seg, chunk.text) ?? this.#nameOnly(work, module, chunk.text, 'name@0')
     this.#runPicks(work, module, seg, chunk.text, true)
+    const fixedPrice = this.#priceOnlyRest(work, module, seg, chunk.text, restAt()) ?? this.#markerCorrection(work, module, seg, chunk.text)
+    if (fixedPrice !== null) return fixedPrice
+    const restStart = (seg.picks.at(-1)?.end ?? -1) + 1
+    const filled = seg.rest.trim() === '' ? null : this.#nameOnly(work, module, seg.rest, `name@${String(restStart)}`)
+    if (filled !== null) return filled
     // 등록 직후 같은 덩어리의 "아니 61번" (R-24 ⓒ)
     if (seg.rest.trim() !== '') {
       const moved = this.#renumberChunk(work, module, seg.rest)
@@ -2050,7 +2857,9 @@ export class VoiceController {
       const text = this.#undoInstant(work, tail.no)
       return { action: 'close', reason: LOG_UNDONE, readout: text }
     }
-    if (tail !== null && tail.kind === 'correction') {
+    // 남은 글을 이미 가격만 고쳐 말함으로 고쳤으면(최종 결과가 왔을 때 #tryInstant) 꼬리 정정으로 또 고치지 않는다 — 정정 한 번에 쓰기 하나 (TD-V3-012)
+    const restFixed = this.#pickDone.has(`price@${String(restStart)}`)
+    if (tail !== null && tail.kind === 'correction' && !restFixed) {
       let reading: ChunkReading | null
       try {
         reading = module.readChunk(tail.text, { dictionary: this.#prepared(module), maxNumber: this.#host.maxNumber() })
@@ -2166,7 +2975,16 @@ export class VoiceController {
 
   #setPending(no: number, patch: Partial<PendingInstant>): void {
     const pending = this.#pending.get(no)
-    if (pending !== undefined) this.#pending.set(no, { ...pending, ...patch })
+    if (pending === undefined) return
+    let next = patch
+    const after = patch.after
+    if (after !== undefined) {
+      // 묻기로 정해 둔 것(중간·최종 가격 다름)은 같은 결과를 다시 읽은 바로 고침이 덮지 않는다 (D-V3-103 — 모르면 묻기)
+      const kept = pending.after?.askNote !== undefined && after.askNote === undefined ? pending.after : null
+      // 문턱의 조각은 들은 때의 덩어리 (D-V3-83)
+      next = { ...patch, after: kept ?? (after.fragment === undefined ? { ...after, fragment: String(this.#chunkSeq) } : after) }
+    }
+    this.#pending.set(no, { ...pending, ...next })
   }
 
   /** 덩어리 안 취소: 그 바로 등록을 5초 되돌리기로 되돌린다 (D-V3-21). 아직 보내는 중이면 등록이 끝나는 대로 */
@@ -2244,7 +3062,7 @@ export class VoiceController {
     // 확인이 필요한 품종(추측·사전 밖)은 보지 않은 등록에 쓰지 않는다 (D-V3-37)
     const name = card.nameNeedsCheck === true ? '' : (card.name ?? '')
     const registration: CardRegistration = { no, name, price }
-    this.#pending.set(no, { cardId: card.id, name: registration.name, price, key: null, at: this.#host.now() })
+    this.#pending.set(no, { cardId: card.id, name: registration.name, price, key: null, at: this.#host.now(), fragment: String(this.#chunkSeq) })
     this.#host.register(card, registration, 'instant')
     this.#touchVoice(no, 'register')
     this.#chunkActs.add('REGISTERED')
@@ -2252,7 +3070,16 @@ export class VoiceController {
   }
 
   /** 이미 있는 번호 (R-22, D-V3-06·07): 무시 · 바로 고침(되돌리기 10초) · 묻기 카드 + 까닭 줄. quiet = 같은 덩어리 끝처럼 무시를 조용히 */
-  #applyExisting(work: CardWork, module: VoiceModule, no: number, existing: ExistingView & { readonly pending?: true }, heard: ExistingHeard, auto: boolean, quiet: boolean): InstantDone {
+  #applyExisting(
+    work: CardWork,
+    module: VoiceModule,
+    no: number,
+    existing: ExistingView & { readonly pending?: true },
+    heard: ExistingHeard,
+    auto: boolean,
+    quiet: boolean,
+    options: { readonly gate?: boolean; readonly fragment?: string; readonly correction?: boolean; readonly nameChange?: boolean } = {},
+  ): InstantDone {
     const status = existing.status ?? 'OPEN'
     // 고쳐 말함 (D-V3-59): 같은 덩어리이거나, 이 콘솔이 그 번호를 음성으로 등록·고친 지 60초 안이고 그 사이 다른 번호를 음성으로 등록하지 않음
     // 다른 기기가 마지막으로 등록·고친 번호면 고쳐 말함이 아니다 — 바로 고치지 않고 묻는다 (D-V3-76)
@@ -2279,6 +3106,16 @@ export class VoiceController {
       decision = { action: 'IGNORE', changes: {}, reason: null }
     }
     const ignore: InstantDone = { action: 'discard', reason: LOG_ALREADY, readout: quiet ? null : alreadyReadout(no) }
+    // 같은 번호 가격 고침 문턱 (실방송 333번): 정정 낱말이 있거나 같은 새 가격을 다른 조각에서 60초 안에 두 번 들어야 바로 고친다
+    const gated = options.gate !== false && heard.price !== null && heard.priceSure !== false && !this.#priceGate(module, no, existing.price, heard.price, options.fragment ?? String(this.#chunkSeq), options.correction === true, recent, decision.changes.name !== undefined || options.nameChange === true)
+    if (gated && decision.action === 'AUTO_FIX' && decision.changes.price !== undefined) {
+      const candidate = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price })
+      if (Object.keys(candidate).length === 0) return ignore
+      if (existing.pending === true || existing.key === '') return { action: 'discard', reason: LOG_PENDING, readout: null }
+      this.#chunkActs.add('ASKED')
+      this.#ask(work, no, existing, candidate, REASON_PRICE_ONCE)
+      return { action: 'offer', reason: LOG_FIX_CANDIDATE, readout: null }
+    }
     this.#chunkActs.add(decision.action === 'IGNORE' ? 'IGNORED' : decision.action === 'ASK' ? 'ASKED' : 'FIXED')
     if (decision.action === 'IGNORE') return ignore
     const changes = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price ?? null })
@@ -2297,7 +3134,9 @@ export class VoiceController {
       return { action: 'offer', reason: LOG_ASK, readout: askMessage(no, existing, changes) }
     }
     const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no, message: fixingMessage(no, existing, changes), changes, stage: 'busy', before: null, undoUntil: null, error: null }
-    work.offers = [offer, ...work.offers]
+    // 고침 후보로 물었던 같은 상품의 묻기 카드는 바로 고침으로 바뀌었으니 내린다 — 같은 가격을 물은 카드(중간·최종 가격 다름 등, D-V3-103)도
+    const asked = (item: VoiceOffer): boolean => item.note === REASON_PRICE_ONCE || (changes.price !== undefined && item.maybeOther !== true && item.changes.price === changes.price)
+    work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key && asked(item)))]
     void this.#autoFix(offer.id, existing.key, no, existing, changes, decision.reason === 'NOT_RECENT')
     return { action: 'edit', reason: LOG_AUTO_FIX, readout: null }
   }
@@ -2317,13 +3156,24 @@ export class VoiceController {
     this.#voiceTouched.set(no, now)
     for (const [key, at] of this.#voiceTouched) if (now - at > 60_000) this.#voiceTouched.delete(key)
     if (kind === 'register') this.#voiceRegistered = [...this.#voiceRegistered.filter((item) => now - item.at <= 60_000), { no, at: now }].slice(-50)
+    if (kind === 'register') this.#contextNos = [...this.#contextNos.filter((item) => now - item.at <= 600_000 && item.no !== no), { no, at: now }].slice(-20)
   }
 
   /** 묻기 카드 (같은 상품·같은 고칠 값의 묻기는 하나만, AC-V3-31) */
-  #ask(work: CardWork, no: number, existing: ExistingView, changes: InstantChanges, note: string | undefined): void {
+  #ask(work: CardWork, no: number, existing: ExistingView, asked: InstantChanges, note: string | undefined): void {
+    // 지금과 같은 값은 묻지 않는다 — 바꿀 것이 없으면 카드 없음 ("가격 330,000원 → 330,000원"을 띄우지 않는다)
+    const changes = pickChanges(existing, { name: asked.name ?? null, price: asked.price ?? null })
+    if (Object.keys(changes).length === 0) return
     const message = askMessage(no, existing, changes)
     const same = (item: VoiceOffer): boolean => item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key
     const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no, message, changes, stage: 'ask', before: null, undoUntil: null, error: null, voiceHeard: this.#heardNow, ...(note === undefined ? {} : { note }) }
+    work.offers = [offer, ...work.offers.filter((item) => !same(item))]
+  }
+
+  /** 고칠 값 칸이 빈 묻기 카드 (D-V3-114 (2)) — 같은 상품의 묻기는 하나만 */
+  #askPrice(work: CardWork, no: number, existing: ExistingView, note: string): void {
+    const same = (item: VoiceOffer): boolean => item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key
+    const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no, message: askPriceMessage(no, existing), changes: {}, priceEntry: '', stage: 'ask', before: null, undoUntil: null, error: null, voiceHeard: this.#heardNow, note }
     work.offers = [offer, ...work.offers.filter((item) => !same(item))]
   }
 
@@ -2381,18 +3231,23 @@ export class VoiceController {
     this.#set({ readout: { text: notRecent ? notRecentReadout(no, existing, changes) : fixed, discarded: false, until } })
   }
 
-  /** 음성 등록이 차례에서 "이미 있는 번호"로 끝났다 (다른 기기 등, D-V3-18) — 창 없이 그 순간의 상품으로 R-22 */
+  /**
+   * 음성 등록이 차례에서 "이미 있는 번호"로 끝났다 (다른 기기·빠른 입력 등, D-V3-18) — 창 없이 그 순간의 상품으로 R-22.
+   * 가격 고침 문턱도 거친다 (D-V3-83, R-22 4) — 등록하려던 말은 그 번호의 다른 가격을 한 번 들은 것이라 바로 고치지 않고 묻는다
+   */
   instantExists(card: SuggestionCard): void {
     const module = this.#module
     if (this.#disposed || module === null || card.no === null) return
-    if (this.#pending.get(card.no)?.cardId === card.id) this.#pending.delete(card.no)
+    const sent = this.#pending.get(card.no)
+    const fragment = sent?.cardId === card.id ? sent.fragment : undefined
+    if (sent?.cardId === card.id) this.#pending.delete(card.no)
     const existing = this.#existingOf(card.no)
     if (existing === null || existing === 'closed') {
       this.restore(card, { touched: true })
       return
     }
     const work = this.#emptyWork()
-    const done = this.#applyExisting(work, module, card.no, existing, { name: card.name, price: card.price, nameNeedsCheck: card.nameNeedsCheck === true, priceSure: true }, !this.#rejected.has(card.no), true)
+    const done = this.#applyExisting(work, module, card.no, existing, { name: card.name, price: card.price, nameNeedsCheck: card.nameNeedsCheck === true, priceSure: true }, !this.#rejected.has(card.no), true, { fragment: fragment ?? `exists:${card.id}` })
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text: card.text }], read: { no: card.no, name: card.name, price: card.price, candidates: [] }, action: done.action, reason: done.reason }))
     if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: this.#host.now() + READOUT_MS }
     this.#set(this.#workPatch(work))
@@ -2430,7 +3285,26 @@ export class VoiceController {
     const existing: ExistingView = found ?? { key, name: pending.name, price: pending.price, claimCount: 0, closed: false }
     if (existing.closed) return
     const work = this.#emptyWork()
-    const done = this.#applyExisting(work, module, no, { ...existing, key }, after.heard, after.auto, true)
+    const target: ExistingView = { ...existing, key }
+    const askNote = after.askNote
+    if (askNote !== undefined) {
+      // 중간·최종 가격 다름 (D-V3-103): 등록한 가격 그대로 두고 묻는다 — 들은 가격은 문턱의 한 번 들음 (D-V3-83)
+      const price = after.heard.price
+      if (after.askBlank === true) {
+        this.#chunkActs.add('ASKED')
+        this.#askPrice(work, no, target, askNote)
+        this.#set(this.#workPatch(work))
+      } else if (price !== null && price !== target.price) {
+        this.#notePriceHeard(no, target.price, price, after.fragment ?? String(this.#chunkSeq))
+        this.#chunkActs.add('ASKED')
+        // 기록은 들은 때 이미 남겼다 ("중간·최종 가격이 달라 … 물었어요")
+        this.#ask(work, no, target, { price }, askNote)
+        this.#set(this.#workPatch(work))
+      }
+      return
+    }
+    // 들은 때의 조각으로 문턱을 센다 — 같은 말이 등록이 끝난 뒤의 다른 덩어리로 세어져 두 번이 되지 않게 (D-V3-83)
+    const done = this.#applyExisting(work, module, no, target, after.heard, after.auto, true, after.fragment === undefined ? {} : { fragment: after.fragment })
     work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [], read: null, action: done.action, reason: done.reason }))
     if (done.readout !== null) work.readout = { text: done.readout, discarded: false, until: this.#host.now() + READOUT_MS }
     this.#set(this.#workPatch(work))
@@ -2544,8 +3418,12 @@ export class VoiceController {
     const learned = this.#learned
     if (cached !== null && cached.names === names && cached.past === past && cached.learned === learned) return cached.prepared
     const history = historyNames(names, past, module.normalizeDictionary)
+    // 이번 방송에 생긴 상품 이름(지난 판매 이력엔 없는 것): 영수증 거래명과 같으면 이력 자리에서도 적은 모양으로만 맞춘다 (D-V3-116 (마))
+    // 같은 이름인지는 사전과 같은 키(공백 빼고 로마자 대소문자 무시, D-V3-120)로 — 지난 'SP창금'과 이번 'sp창금'은 같은 이름
+    const pastKeys = new Set(module.normalizeDictionary(past.flatMap((day) => day.names)).map(module.exactKey))
+    const current = module.normalizeDictionary(names).filter((name) => !pastKeys.has(module.exactKey(name)))
     // 배운 별칭 → 판매 이력 → 기본 사전(데이터 사전·별칭) (D-V2-10)
-    const prepared = module.prepareVoiceDictionary({ learned, history })
+    const prepared = module.prepareVoiceDictionary({ learned, history, current })
     this.#dictionary = { names, past, learned, prepared }
     return prepared
   }
@@ -2747,7 +3625,9 @@ export class VoiceController {
     const base: VoiceSettings & { readonly 'voice.quietMs'?: number } = quietMs === 1800 ? (plain as VoiceSettings) : { ...(plain as VoiceSettings), 'voice.quietMs': quietMs }
     // 바로 등록은 끈 때만 남긴다 (기본 켬, V3). 기록 모아 두기는 그 기기 기본(연습 켬·운영 끔)과 다를 때만 (D-V3-56)
     const instant = this.#snapshot.instant ? base : { ...base, [INSTANT_KEY]: false }
-    const value = this.#snapshot.archive === readArchive(null) ? instant : { ...instant, [ARCHIVE_KEY]: this.#snapshot.archive }
+    const archived = this.#snapshot.archive === readArchive(null) ? instant : { ...instant, [ARCHIVE_KEY]: this.#snapshot.archive }
+    // 멈춤 지킴이 시간(조정용 저장값)은 있던 값을 그대로 둔다
+    const value = this.#stallMs === null ? archived : { ...archived, [STALL_KEY]: this.#stallMs }
     this.#host.writeSettings(value)
   }
 
@@ -2925,10 +3805,30 @@ export class VoiceController {
   }
 
   /** [고치기]: 손 고치기와 같은 상품 고치기, 고친 뒤 10초 [되돌리기] */
-  async fixOffer(id: string): Promise<void> {
+  /** 고칠 값 칸이 빈 묻기 카드(D-V3-114 (2))의 칸에 적는다 */
+  setOfferPrice(id: string, text: string): void {
     const offer = this.#findOffer(id)
+    if (offer === undefined || offer.priceEntry === undefined || offer.stage !== 'ask') return
+    this.#replaceOffer(id, { priceEntry: text, error: null })
+  }
+
+  async fixOffer(id: string): Promise<void> {
+    const found = this.#findOffer(id)
     const fix = this.#host.fixRecent
-    if (offer === undefined || offer.kind !== 'offer' || offer.stage !== 'ask' || fix === undefined) return
+    if (found === undefined || found.kind !== 'offer' || found.stage !== 'ask' || fix === undefined) return
+    let offer = found
+    if (found.priceEntry !== undefined) {
+      // 적은 값이 있어야 고친다 — 비었거나 읽지 못하면 쓰지 않는다 (D-V3-114 (2))
+      const text = found.priceEntry.trim()
+      if (text === '') return
+      const price = parseAmount(text, { 'price.unit': this.#host.priceUnit?.() ?? 'THOUSAND' })
+      if (price === null || price < 100) {
+        this.#replaceOffer(id, { error: MISSED_PRICE_PROBLEM })
+        return
+      }
+      offer = { ...found, changes: { price } }
+      this.#replaceOffer(id, { changes: offer.changes })
+    }
     this.#replaceOffer(id, { stage: 'busy', error: null })
     const fixRequest = this.#requestId()
     let outcome: RecentFixOutcome

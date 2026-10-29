@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { linkApi, openLink, tokenOf } from './n4b-support.ts'
 import { ORIGIN, client, dumpAllTables, login, rid, type Seller, type TestServer } from './support.ts'
-import { ADDRESS, D, SENDER, bookOk, expect200, makeReady, parcelApi, parcelSeller, parcelWorld, sell } from './t1-support.ts'
+import { ADDRESS, D, SENDER, bookOk, expect200, expectNoSecret, makeReady, parcelApi, parcelSeller, parcelWorld, sell } from './t1-support.ts'
 
 async function assistantOf(world: TestServer, seller: Seller): Promise<string> {
   const created = await client(world, seller.cookie).post('/api/assistants', { name: '엄마' })
@@ -126,10 +126,12 @@ describe('AC-T1-08 로그·감사 메시지·발송함에 배송지 없음', () 
       .split('\n')
       .filter((line) => /^(events|outbox|parcel_requests|packing_records|parcels|chat_raw|receipt_link_requests):/.test(line))
       .join('\n')
-    const secrets = ['홍길동', '김주소', '박응답', '01012345678', '010-1234-5678', '9876', '세종대로', '해운대구', '202동', '303호', '문 앞에', '04524', '받은 주소', '[주소거절]', '[응답없음]', token, 'CUST-12345', SENDER.address]
+    // 거절된 연락처(010-9876-5432x)는 모든 꼴로 본다 — 네 자리 '9876'만 보면 무작위 UUID(예: '…-272aac987677')와 우연히 겹친다
+    const rejectedPhone = ['010-9876-5432', '01098765432', '9876-5432', '98765432']
+    const secrets = ['홍길동', '김주소', '박응답', '01012345678', '010-1234-5678', ...rejectedPhone, '세종대로', '해운대구', '202동', '303호', '문 앞에', '04524', '받은 주소', '[주소거절]', '[응답없음]', token, 'CUST-12345', '12345', SENDER.address]
     for (const secret of secrets) {
-      expect(logs, `로그: ${secret}`).not.toContain(secret)
-      expect(tables, `표: ${secret}`).not.toContain(secret)
+      expectNoSecret(logs, secret, `로그: ${secret}`)
+      expectNoSecret(tables, secret, `표: ${secret}`)
     }
     // 로그에 송장번호도 남기지 않는다
     expect(logs).not.toContain(results[0]?.invoice as string)

@@ -18,6 +18,7 @@ import {
   readout,
   recordWrites,
   sayChunk,
+  sayFirstOfTwo,
   sayWords,
   settle,
   setupV3,
@@ -58,27 +59,29 @@ test('AC-V3-40: 음성 설정에 "번호와 가격이 들리면 바로 등록"(�
   await expect(await instantBox(page)).toBeChecked()
 })
 
-test('AC-V3-40: 옛 저장값 {autoConfirm:false, autoConfirmSec:5, quietMs:2500} → 켜진 채 시작, 조용한 시간 2.5초', async ({ page }) => {
+// bts = 사전 이름 BTS (D-V3-86 — 수용 기준 표 R1·R3, 실제 방송 1·2의 품종은 BTS)
+test('AC-V3-40 (D-V3-86): 옛 저장값 {autoConfirm:false, autoConfirmSec:5, quietMs:2500} → 켜진 채 시작, 조용한 시간 2.5초', async ({ page }) => {
   await setupV3(page, { settings: { 'voice.autoConfirm': false, 'voice.autoConfirmSec': 5, 'voice.quietMs': 2500 } })
   await expect(await instantBox(page)).toBeChecked()
   await expect(await quietField(page)).toHaveValue('2.5')
   const writes = recordWrites(page)
   await sayWords(page, '108번 bts 10만 원')
-  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
+  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'BTS', 100000]])
 })
 
-test('AC-V3-41 R30: 설정 끔 — 실제 방송 1은 카드 "108번 품종 미입력 100,000원"만(쓰기 0, D-V3-30), 등록 뒤 방송 2는 무시(카드 없음), "108번 12만 원"은 까닭 줄 없는 묻기', async ({ page }) => {
+test('AC-V3-41 R30 (D-V3-86): 설정 끔 — 실제 방송 1은 카드 "108번 BTS 100,000원"만(쓰기 0, D-V3-30), 등록 뒤 방송 2는 무시(카드 없음), "108번 12만 원"은 까닭 줄 없는 묻기', async ({ page }) => {
   await setupV3(page, { settings: { 'voice.autoRegister': false } })
   const writes = recordWrites(page)
   await sayChunk(page, BROADCAST_1)
-  const c = card(page, '108번 품종 미입력 100,000원')
+  // R30의 처음 기대 "품종 미입력"은 bts가 사전 밖일 때 — 이제 사전 이름 BTS (D-V3-86)
+  const c = card(page, '108번 BTS 100,000원')
   await expect(c).toBeVisible()
   await expect(voiceCards(page)).toHaveCount(1)
   await settle(page)
   expect(productWrites(writes)).toEqual([])
-  await cardButton(page, '108번 품종 미입력 100,000원', '등록').click()
+  await cardButton(page, '108번 BTS 100,000원', '등록').click()
   await expect(boardItem(page, 108)).toBeVisible()
-  expect(productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
+  expect(productWrites(writes)).toEqual([['product.register', 108, 'BTS', 100000]])
   await page.clock.runFor(6000)
   await sayChunk(page, BROADCAST_2)
   await expect(voiceCards(page)).toHaveCount(0)
@@ -124,7 +127,7 @@ test('AC-V3-42 (D-V3-36): 저장소에 바로 등록 끔이면 I4 첫 줄 그대
   await expect(dlg).not.toContainText(FIRST_ON)
 })
 
-test('AC-V3-43 (e) (D-V3-35): 끈 채 R1을 말하고 판매 이력 2초 기다림 도중 켜면 쓰기 0·카드 하나, 다음 덩어리부터 바로 등록', async ({ page }) => {
+test('AC-V3-43 (e) (D-V3-35·86): 끈 채 R1을 말하고 판매 이력 2초 기다림 도중 켜면 쓰기 0·카드 하나, 다음 덩어리부터 바로 등록', async ({ page }) => {
   await installFakeSpeech(page, { consent: true, autoRegister: true, settings: { 'voice.autoRegister': false } })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.clock.install()
@@ -146,7 +149,7 @@ test('AC-V3-43 (e) (D-V3-35): 끈 채 R1을 말하고 판매 이력 2초 기다�
   open = true
   for (const r of waiting.splice(0)) await r.fallback()
   await page.clock.runFor(QUIET_MS + 100)
-  await expect(card(page, '108번 품종 미입력 100,000원')).toBeVisible()
+  await expect(card(page, '108번 BTS 100,000원')).toBeVisible()
   await expect(voiceCards(page)).toHaveCount(1)
   await page.clock.runFor(10_000)
   await settle(page)
@@ -157,7 +160,7 @@ test('AC-V3-43 (e) (D-V3-35): 끈 채 R1을 말하고 판매 이력 2초 기다�
   await expect.poll(() => productWrites(writes)).toEqual([['product.register', 15, '핑크문', 10000]])
 })
 
-test('TE-V3-006 AC-V3-43 (a): 창(음성 기록)이 열린 동안 R1 → 쓰기 0, 창을 닫으면 그때 등록 하나', async ({ page }) => {
+test('TE-V3-006 AC-V3-43 (a) (D-V3-86): 창(음성 기록)이 열린 동안 R1 → 쓰기 0, 창을 닫으면 그때 등록 하나(108번 BTS)', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
   await openLog(page)
@@ -166,7 +169,7 @@ test('TE-V3-006 AC-V3-43 (a): 창(음성 기록)이 열린 동안 R1 → 쓰기 
   expect(productWrites(writes)).toEqual([])
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: '음성 기록' })).toHaveCount(0)
-  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
+  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'BTS', 100000]])
   await expect(voiceCards(page)).toHaveCount(0)
 })
 
@@ -203,6 +206,9 @@ test('AC-V3-44: 휴대폰 폭 375 — 알림·가격 못 들은 번호 카드가
   await page.clock.runFor(2000)
   await expect(readout(page)).toHaveText('189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')
   await page.clock.runFor(6000)
+  // 가격 고침은 같은 말을 다른 조각에서 두 번 들었을 때 (D-V3-83) — 첫 번의 묻기 카드도 375px 안에 든다
+  await sayFirstOfTwo(page, '189번 60만 원', '189번을 고칠까요? 가격 500,000원 → 600,000원')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
   await sayChunk(page, '189번 60만 원')
   await expect(notice(page, '189번을 고쳤어요: 가격 500,000원 → 600,000원')).toBeVisible()
   await page.clock.runFor(1000)
@@ -225,11 +231,13 @@ test('AC-V3-44: 휴대폰 폭 375 — 알림·가격 못 들은 번호 카드가
   await expect(notices(page).getByRole('listitem').first()).toBeVisible()
 })
 
-test('AC-V3-46 (D-V3-73): 바로 등록·고치기 요청 본문엔 번호·품종·가격(과 요청 표시·voiceLog)뿐 — 받아쓴 글은 voiceLog.heard 한 줄에만', async ({ page }) => {
+test('AC-V3-46 (D-V3-73·83): 바로 등록·고치기 요청 본문엔 번호·품종·가격(과 요청 표시·voiceLog)뿐 — 받아쓴 글은 voiceLog.heard 한 줄에만', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
   await sayChunk(page, BROADCAST_1)
   await page.clock.runFor(6000)
+  // 가격 고침 문턱 (D-V3-83): 같은 새 가격을 다른 조각에서 두 번 들어야 고치기 요청이 나간다
+  await sayFirstOfTwo(page, '108번 12만 원', '108번을 고칠까요? 가격 100,000원 → 120,000원')
   await sayChunk(page, '108번 12만 원')
   await expect.poll(() => productWrites(writes).length).toBe(2)
   for (const w of writes.filter((x) => x.type.startsWith('product.'))) {

@@ -43,10 +43,12 @@ const mismatches = (core: GoldenCore): string[] =>
 describe('AC-P2-08 러너가 voice-extract를 안다', () => {
   // I4(AC-I4-95): 끊어 말한 번호 12사례(D-I4-01)가 더해져 69 → 81 (골든이 늘어서 하는 교체 — 약화 아님, harness/sprints/I4/dev-notes.md)
   // V3(D-V3-22 (c)): 원 가격 줄·자리 읽기·'번' 없는 번호·실제 방송 사례가 더해져 81 → 180 (골든이 늘어서 하는 교체 — 약화 아님)
-  it('실제 추출기로 voice-extract 180사례가 모두 통과하고 파일은 parser/voice-extract.yaml', () => {
+  // V3(D-V3-80~89 실방송 보강 16사례·D-V3-91 꾸밈말 17사례): 180 → 196 → 213 (골든이 늘어서 하는 교체 — 약화 아님)
+  // V3(D-V3-94 지난 일로 말한 가격 15사례, AC-V3-86 (a)): 213 → 228 (골든이 늘어서 하는 교체 — 약화 아님)
+  it('실제 추출기로 voice-extract 228사례가 모두 통과하고 파일은 parser/voice-extract.yaml', () => {
     const { items, readErrors } = voiceItems(realCore)
     expect(readErrors).toBe(0)
-    expect(items).toHaveLength(180)
+    expect(items).toHaveLength(228)
     expect(items.every((item) => item.status === 'pass' && item.file === VOICE_FILE)).toBe(true)
   })
 

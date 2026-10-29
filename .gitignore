@@ -26,3 +26,6 @@ node_modules/
 .turbo/
 playwright-report/
 test-results/
+
+# 실방송 재생 시험 자료(소리·정산서·영수증 — 개인정보, 커밋 금지)
+/.live-replay/

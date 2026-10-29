@@ -685,15 +685,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 // V3 D-V3-70(spec bad7b4d3): parser/amount.yaml AUTO 20사례·quick-input.yaml AUTO 5사례 — +0·+25·+0·+25 = 파일 39 · 파서 756 · 엔진 159 · 통과 915
 //   (D-V3-22 합계 숫자만 바꿈, 교체 — 약화 아님).
 // V3 D-V3-72(spec 902dcfcc): parser/voice-extract.yaml 179 → 180사례 — +0·+1·+0·+1 = 파일 39 · 파서 757 · 엔진 159 · 통과 916 (교체 — 약화 아님).
+// V3 D-V3-80~89·D-V3-91·D-V3-94(spec f4a919e4까지): parser/voice-extract.yaml 180 → 196 → 213 → 228사례(+16·+17·+15) — +0·+48·+0·+48
+//   = 파일 39 · 파서 805 · 엔진 159 · 통과 964 (실제 골든 결과, 앞 두 번은 이 합계를 바꾸지 않고 지나갔다 — 교체 — 약화 아님).
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 + FB1 + V3 합계)', () => {
-  it('파일 39 · 파서 757 · 엔진 159 · 통과 916, 나머지 0', () => {
+  it('파일 39 · 파서 805 · 엔진 159 · 통과 964, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 39,
-      parserCases: 757,
+      parserCases: 805,
       scenarios: 159,
-      pass: 916,
+      pass: 964,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

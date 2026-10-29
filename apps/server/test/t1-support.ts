@@ -12,6 +12,25 @@ export const ADDRESS = { name: '홍길동', phone: '010-1234-5678', address: '�
 /** 시험 보내는 사람 */
 export const SENDER = { name: '다육이네', phone: '031-123-4567', address: '경기도 수원시 팔달구 효원로 1', detail: '1층', zip: '16490' }
 
+/**
+ * 비밀값이 글에 남지 않았는지 본다. 숫자·기호로만 된 값(전화번호·우편번호·고객 번호 숫자)은 앞뒤가 영문·숫자가 아닌
+ * 곳에 따로 선 것만 본다 — 무작위 UUID·16진 id·암호문(예: 'scp_…-272aac987677')의 글자 사이에 우연히 같은 숫자가
+ * 들어 있는 것은 새어 나간 것이 아니다. 값이 JSON 문자열·한글 옆·'-'·공백 옆에 그대로 있으면 잡는다.
+ * 한글이 섞인 값·토큰은 그대로 포함 검사한다. 숫자 값은 다섯 자리 이상이어야 한다.
+ */
+export function expectNoSecret(text: string, secret: string, label = secret): void {
+  if (secret.length === 0) throw new Error('빈 비밀값은 볼 수 없다')
+  if (!/^[0-9+\- ]+$/.test(secret)) {
+    expect(text, label).not.toContain(secret)
+    return
+  }
+  // 네 자리 이하 숫자는 UUID 한 마디('-9876-')와 통째로 같을 수 있어 비밀값으로 쓰지 않는다 — 더 긴 꼴로 본다
+  if (secret.replace(/[^0-9]/g, '').length < 5) throw new Error(`숫자 비밀값이 너무 짧다: ${secret.length}자`)
+  const escaped = secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const found = new RegExp(`(?<![0-9A-Za-z])${escaped}(?![0-9A-Za-z])`).exec(text)
+  expect(found === null ? null : text.slice(Math.max(0, found.index - 40), found.index + secret.length + 40), label).toBeNull()
+}
+
 export interface ParcelWorld extends TestServer {
   readonly carrier: FakeCarrier
 }

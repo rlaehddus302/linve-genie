@@ -80,22 +80,24 @@ describe('AC-V3-63 — 품종 추측은 군말·막는 낱말·정정·칸 이�
     )
   })
 
+  // 영수증으로 BTS가 사전 품종이 되어(be4400ab) 추측 길은 사전 밖 낱말 zeta로 본다 — 사전 이름 BTS·컬러풀은 아래 시험
+  // 예전 낱말 ufo는 대소문자 무시로 영수증 품종 UFO와 맞게 되어(D-V3-120) 사전에 없는 zeta로 바꿈 — 시험 뜻(사전 밖 되풀이 낱말 → 추측, 한 번 → 비움)은 그대로
   // D-V3-30: 추측은 두 번 이상 나온 후보 낱말 가운데 처음 것 — 군말을 지나 되풀이한 품종을 고른다
   it.each([
-    ['15번 UI는 bts 자 bts 만원', 'bts'],
-    ['15번 요 아이는 bts 요 아이는 bts는 만원', 'bts'],
-    ['15번 유 아이 bts 유 아이 bts 만원', 'bts'],
-    ['15번 이거요 그거는 저것도 bts 이거 bts요 만원', 'bts'],
-    ['15번 얘가 걔는 bts 얘는 bts 만원', 'bts'],
+    ['15번 UI는 zeta 자 zeta 만원', 'zeta'],
+    ['15번 요 아이는 zeta 요 아이는 zeta는 만원', 'zeta'],
+    ['15번 유 아이 zeta 유 아이 zeta 만원', 'zeta'],
+    ['15번 이거요 그거는 저것도 zeta 이거 zeta요 만원', 'zeta'],
+    ['15번 얘가 걔는 zeta 얘는 zeta 만원', 'zeta'],
   ])('"%s" → 군말을 지나 %s', (text, guess) => {
     expect(guessVariety(text)).toBe(guess)
   })
 
   // D-V3-30: 한 번만 나온 사전 밖 낱말·풀이말 끝 모양은 추측이 아니다 (실제 방송 1·실방송 3차 R44)
   it.each([
-    '네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요',
-    '15번 UI는 bts 만원',
-    '15번 품종은 bts 만원',
+    '네 108번 zeta 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요',
+    '15번 UI는 zeta 만원',
+    '15번 품종은 zeta 만원',
     '요 아이는 65만 원까지 자 색감이 이렇게 예쁘게 나왔네요 자 60 어 자',
     '15번 나왔네요 자 나왔네요 만원',
     '15번 예쁘고 예쁘고 만원',
@@ -104,6 +106,28 @@ describe('AC-V3-63 — 품종 추측은 군말·막는 낱말·정정·칸 이�
     expect(guessVariety(text)).toBeNull()
     const ready = readRegistration(text, { dictionary: DICT, final: true }).ready
     if (ready !== null) expect(ready.name).toBeNull()
+  })
+})
+
+
+describe('영수증 품종(실방송 3회) — BTS·컬러풀은 이제 사전 이름', () => {
+  it.each([
+    ['15번 bts 만원', 'BTS'],
+    ['15번 BTS 만원', 'BTS'],
+    ['15번 UI는 bts 만원', 'BTS'],
+    ['15번 품종은 bts 만원', 'BTS'],
+    ['네 108번 bts 어 요한이 10만 원까지 안토 일단 색감 안쪽 봐주세요', 'BTS'],
+    ['15번 컬러풀 만원', '컬러풀'],
+  ])('"%s" → 바로 등록 품종 %s(사전 이름 그대로, 확인 필요 아님), 추측 아님', (text, name) => {
+    const ready = readRegistration(text, { dictionary: DICT, final: true }).ready
+    expect(ready?.name).toBe(name)
+    expect(ready?.nameNeedsCheck).toBe(false)
+  })
+
+  it.each(['15번 UI는 zeta 만원', '15번 품종은 우주선 만원'])('사전 밖 한 번 낱말 "%s" → 품종 비움 (BTS로 바뀌지 않음)', (text) => {
+    const ready = readRegistration(text, { dictionary: DICT, final: true }).ready
+    expect(ready).not.toBeNull()
+    expect(ready?.name).toBeNull()
   })
 })
 

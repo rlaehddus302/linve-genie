@@ -41,7 +41,22 @@ describe('AC-P2-07 추출 — 빨리 거르기의 정확성', () => {
         }
       }
       const container = names.find((a) => names.every((b) => a.key.includes(b.key)))
-      expect(extractVoice(text, { dictionary: small }).name, text).toBe(container?.name ?? null)
+      // 꾸밈말 붙은 품종 (실방송 금화다육): 공백만 다른 맞춤인 이름의 창이 끝말 없이 끝나고 바로 다음 토큰이 '금' + 이름 말끝이면 이름 + 금
+      const composed = new Set<string>()
+      if (container !== undefined && best !== null && best.d === 0 && !container.key.endsWith('금')) {
+        const target = jamoOf(container.key).join(',')
+        for (let s = 0; s < tokens.length; s++) {
+          for (let e = s; e < Math.min(tokens.length, s + 4); e++) {
+            if (jamoOf(tokens.slice(s, e + 1).join('')).join(',') !== target) continue
+            if (['금', '금이에요', '금에요', '금입니다', '금이요', '금이고', '금이고요', '금이구요', '금이래요', '금이라고', '금이라고요', '금인데', '금인데요', '금이죠', '금짜리', '금요', '금까지'].includes(tokens[e + 1] ?? '')) {
+              const word = container.key + '금'
+              composed.add(entries.find((entry) => entry.key === word)?.name ?? word)
+            }
+          }
+        }
+      }
+      const expected = composed.size === 1 ? [...composed][0] : (container?.name ?? null)
+      expect(extractVoice(text, { dictionary: small }).name, text).toBe(expected)
     }
   })
 })

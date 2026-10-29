@@ -5,6 +5,10 @@ import * as voiceModule from '@livejjim/voice'
 import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// 화면처럼 같은 상품 이름 목록을 돌려준다(ConsolePage useMemo — 상품이 바뀔 때만 새 목록). 부를 때마다 새 목록이면 컨트롤러가 사전을
+// 매번 다시 만든다(#prepared는 목록이 같을 때만 다시 씀) — 사전이 1,082개로 커진 뒤(D-V3-115) 시험이 느려진 틀 문제. 단언은 그대로.
+const NO_NAMES: readonly string[] = []
+
 const CONTROLLER_MODULE = '../../../apps/web/src/voice/controller.ts'
 const T0 = Date.UTC(2026, 9, 20, 1, 0, 0)
 
@@ -52,7 +56,7 @@ async function start(settings: unknown, dialog: { open: boolean } = { open: fals
     load: async () => voiceModule,
     now: () => Date.now(),
     maxNumber: overrides.maxNumber ?? (() => 999),
-    currentNames: () => [] as readonly string[],
+    currentNames: () => NO_NAMES,
     products: overrides.products ?? (() => new Map<number, boolean>()),
     fetchHistory: async () => [],
     dialogOpen: () => dialog.open,

@@ -4,6 +4,10 @@
 import * as voiceModule from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// 화면처럼 같은 상품 이름 목록을 돌려준다(ConsolePage useMemo — 상품이 바뀔 때만 새 목록). 부를 때마다 새 목록이면 컨트롤러가 사전을
+// 매번 다시 만든다(#prepared는 목록이 같을 때만 다시 씀) — 사전이 1,082개로 커진 뒤(D-V3-115) 시험이 느려진 틀 문제. 단언은 그대로.
+const NO_NAMES: readonly string[] = []
+
 const CONTROLLER_MODULE = '../../../apps/web/src/voice/controller.ts'
 const T0 = Date.UTC(2026, 9, 25, 1, 0, 0)
 
@@ -52,7 +56,7 @@ async function harness() {
     now: () => Date.now(),
     maxNumber: () => 999,
     priceUnit: () => 'WON',
-    currentNames: () => [],
+    currentNames: () => NO_NAMES,
     products: () => new Map([...board].map(([no, p]) => [no, p.closed])),
     fetchHistory: async () => [],
     dialogOpen: () => false,
@@ -107,12 +111,45 @@ afterEach(() => {
 })
 
 describe('R-22 recent 경계 (D-V3-59)', () => {
-  it('65번을 음성으로 등록한 지 59.9초 → 찜이 있어도 고쳐 말함 → 바로 고침', async () => {
+  // 같은 번호 가격 고침 문턱(실방송 333번, price-gate.ts — 결정 변경, 약화 아님): 다른 가격은 정정 낱말이 있거나 같은 새 가격을 다른 조각에서 60초 안에 두 번
+  // 들어야 바로 고친다. 그래서 고쳐 말함 경계는 정정 낱말을 넣은 말로 보고, 한 번만 들린 다른 가격은 경계 안이어도 고침 후보(묻기)로 본다.
+  it('65번을 음성으로 등록한 지 59.9초 → 찜이 있어도 고쳐 말함("65번 잘못 말했어요 5만 원") → 바로 고침', async () => {
     const h = await harness()
     await at(0)
     h.say('65번 3만 원')
     await at(2000)
     h.land(2)
+    await at(59_900)
+    h.say('65번 잘못 말했어요 5만 원')
+    await settle()
+    expect(h.fixes).toEqual([{ id: 'b1:65', changes: { price: 50_000 } }])
+  })
+
+  it('65번 등록 59.9초: 정정 낱말 없이 한 번만 "65번 5만 원" → 고치지 않고 고침 후보 묻기(다른 가격이 한 번만 들려…)', async () => {
+    const h = await harness()
+    await at(0)
+    h.say('65번 3만 원')
+    await at(2000)
+    h.land(2)
+    await at(59_900)
+    h.say('65번 5만 원')
+    await settle()
+    expect(h.fixes).toEqual([])
+    const ask = h.voice.getSnapshot().offers.find((o) => o.stage === 'ask')
+    expect(ask?.message).toContain('50,000원')
+    expect((ask as { note?: string } | undefined)?.note).toBe('다른 가격이 한 번만 들려 저절로 고치지 않았어요.')
+  })
+
+  it('65번 등록 뒤 50초·59.9초에 같은 새 가격 "65번 5만 원"을 두 번(다른 조각) → 둘째에서 바로 고침 하나', async () => {
+    const h = await harness()
+    await at(0)
+    h.say('65번 3만 원')
+    await at(2000)
+    h.land(2)
+    await at(50_000)
+    h.say('65번 5만 원')
+    await settle()
+    expect(h.fixes).toEqual([])
     await at(59_900)
     h.say('65번 5만 원')
     await settle()
@@ -158,16 +195,34 @@ describe('R-22 recent 경계 (D-V3-59)', () => {
     h.say('65번 3만 원')
     await at(2000)
     h.land(2)
-    h.say('61번 2만 원')
+    h.say('61번 잘못 말했어요 2만 원')
     await at(4000)
     expect(h.fixes).toEqual([{ id: 'b1:61', changes: { price: 20_000 } }])
     await at(6000)
-    h.say('65번 5만 원')
+    h.say('65번 잘못 말했어요 5만 원')
     await settle()
     expect(h.registered.map((r) => r.no)).toEqual([65])
     expect(h.fixes).toEqual([
       { id: 'b1:61', changes: { price: 20_000 } },
       { id: 'b1:65', changes: { price: 50_000 } },
     ])
+  })
+
+
+  // TD-V3-013: 새 문턱은 정정 낱말이 있어야 바로 고치는데, 가장 흔한 꼴 "65번 아니 5만 원"·"65번 다시 5만 원"이 최종 결과로만 오면(중간 결과 없이)
+  // 조각 읽기가 정정 낱말 때문에 pick을 버리고(TD-V3-009), 번호가 들려 가격만 고침도 아니라 고침도 묻기 카드도 없이 사라진다.
+  // 판매자는 고쳤다고 믿고 넘어간다. 바로 고침이 맞지만(정정 낱말), 적어도 묻기 카드는 떠야 한다.
+  it.each(['65번 아니 5만 원', '65번 다시 5만 원'])('TD-V3-013: 65번 등록 30초 뒤 "%s"(최종만, 찜 0) → 고침 또는 고침 묻기 — 아무 일 없이 사라지지 않는다', async (text) => {
+    const h = await harness()
+    await at(0)
+    h.say('65번 3만 원')
+    await at(2000)
+    h.land(0)
+    await at(30_000)
+    h.say(text)
+    await settle()
+    const fixed = h.fixes.some((f) => f.id === 'b1:65' && f.changes.price === 50_000)
+    const asked = h.voice.getSnapshot().offers.some((o) => o.stage === 'ask' && o.message.includes('50,000원'))
+    expect(fixed || asked, JSON.stringify({ fixes: h.fixes, offers: h.voice.getSnapshot().offers })).toBe(true)
   })
 })

@@ -48,6 +48,20 @@ export interface SpeechResult {
    * 그런 결과에만 true로 붙고 보통 결과에는 없다(없음 = 거짓). 이 문장으로 만든 카드는 자동 확정하지 않는다.
    */
   readonly flushedAtEnd?: boolean
+  /**
+   * 결과 자리 (R-17 8, D-V3-103·108): 같은 인식 객체의 같은 결과 위치면 같은 값(`객체 차례:위치`). 웹 음성 엔진만 붙인다(없을 수 있다).
+   * 셀 수 없는 속성으로 붙인다 — 결과 모양 비교(시험)를 바꾸지 않는다
+   */
+  readonly slot?: string
+  /** 이 결과가 그 인식 객체의 아직 최종이 되지 않은 첫 자리인가 (크롬이 한 결과를 여러 자리로 갈라 낼 때 뒤 자리는 거짓). 없음 = 참 */
+  readonly lead?: boolean
+}
+
+/** 결과에 자리(slot·lead)를 셀 수 없는 속성으로 붙인다 */
+export function withSlot<T extends SpeechResult>(result: T, slot: string, lead: boolean): T {
+  Object.defineProperty(result, 'slot', { value: slot, enumerable: false })
+  Object.defineProperty(result, 'lead', { value: lead, enumerable: false })
+  return result
 }
 
 export interface SpeechError {
