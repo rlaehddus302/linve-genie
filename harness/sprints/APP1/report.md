@@ -23,13 +23,17 @@
 
 동일 출처 `localhost:9790`에서 로그인 → 리허설 생성 → 15번 핑크프릴 20,000원 등록 → 합성 시청자 채팅으로 1등 판정 → 새로고침 후 보존 → 종료 후 음성/빠른입력 제거 → 영수증 합계(기본 배송비 포함24,000원)를 직접 확인했다. 브라우저 warning/error0. 별도로 사용자 실행용 Cohere 일꾼과 서버를 열어 두었으며, 실제 마이크/유튜브/B1을 검증한 것으로 보지 않는다.
 
+추가 실제 브라우저 관통 검증에서 Blob AudioWorklet 로딩의 AbortError(PCM0)를 발견했다(TE-APP1-013). PCM 계산을 보존한 동일 출처 JS 자산으로 바꾸고, 엄격한 CSP와 켜기 전 지연 로딩을 유지했다. 기존 보안 포함 @served6/6·일반 PCM/지연 로딩3/3·단위/빌드19/19 통과. 최초 AbortError가 CSP 때문에 발생했다고 단정하지 않는다.
+
+최신 서버로 재시작한 뒤 **실제 브라우저→실제 Cohere→서버 등록→DB 확인**까지 통과했다. 375px Chromium의 합성 WAV 장치1회 → native48kHz AudioContext → 제품 Worklet → PCM45틀(크기 오류0) → Cohere `15번 핑크프릴 2만 원.` → 등록POST1/HTTP200 → DB15번·핑크프릴·20,000원1건. 끄기 뒤 트랙 ended/소켓 closed, CSP 위반0. 총5,600ms는 합성 음성 재생을 포함한 단일 실행 시간이다. 실제 사용자 마이크와 모의 인식 결과 주입은 사용하지 않았다. 최신 사용자용 서버와 Cohere 일꾼은 계속 실행 중이다.
+
 ## 추적성
 
 - Python VAD·20초 분할·프로토콜·흐름 종료·한도·로그/파일 흔적: `packages/voice/transcriber/tests` 50개 및 `packages/voice/test/transcriber.test.ts`.
 - PCM·ready 이전/재연결 중 버림·1/2/4/8초 재연결·여섯 번째 중단: `packages/voice/test/pcm16.test.ts`, `livegenie.test.ts`.
 - 기기 세션·Origin·판매자/방송·다른 기기 거절·일꾼 인증: `apps/server/test/app1-*`와 전체 적대 시험.
 - 375px 실제 AudioContext/AudioWorklet PCM→서버 읽기→HTTP, 일꾼 없음→빠른 입력 유지: `tests/e2e/app1/server-voice.spec.ts`.
-- 기존 Chrome·Safari·문자찜·이력·설정·모바일 회귀: `test-notes-e2e.md`의 AC 대응표. 시험자가 보고한 TE-APP1-001~012는 모두 해결 후 재확인했다.
+- 기존 Chrome·Safari·문자찜·이력·설정·모바일 회귀: `test-notes-e2e.md`의 AC 대응표. 시험자가 보고한 TE-APP1-001~013은 모두 해결 후 재확인했다.
 - 최종 캡처 취소 위험은 APP1b `audit-risk.md`의 RA-APP1b-001로 추적한다. 늦은 getUserMedia/worklet 완료·offline·인증 종료 뒤 마이크가 살아나지 않는다.
 
 ## 게이트
