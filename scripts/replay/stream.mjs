@@ -174,7 +174,7 @@ const idleTooLong = () => {
   return performance.now() - lastChange > drainIdleMs
 }
 silence()
-let sentBytes = endByte - startByte + 10 * CHUNK_BYTES
+const sentBytes = endByte - startByte + 10 * CHUNK_BYTES
 // 끝 표시로 쓸 말: 이미 받은 결과 중 1초 이상인 첫 것 (아직 없으면 생길 때까지 기다린다)
 let source
 while ((source = results.find((result) => result.endMs - result.startMs >= 1_000)) === undefined && !exited && !idleTooLong()) await pause()
@@ -191,7 +191,6 @@ if (source !== undefined) {
     worker.sendBinary(Buffer.concat([header, pcm.subarray(offset, Math.min(offset + CHUNK_BYTES, pcm.length))]))
     await new Promise((resolve) => setTimeout(resolve, CHUNK_MS / speed))
   }
-  sentBytes += pcm.length
   silence()
 }
 let drained = false
