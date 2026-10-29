@@ -1,5 +1,6 @@
 // I4 흐름 깨뜨리기 (test-e2e 라운드 0). 통과한 공격은 회귀로 남기고, 재현한 버그는 지적 ID(TE-I4-xxx)를 붙인다.
 import { test, expect, type Page } from '@playwright/test'
+import { syncReadingClock, waitReadingHeard } from '../app1/support.ts'
 import {
   boardItem,
   card,
@@ -81,12 +82,15 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await setup(page)
     const now = await page.evaluate(() => Date.now())
     await page.clock.pauseAt(now + 1000)
-    // 숫자 없는 잡담 51덩어리 — 덩어리마다 조용한 시간(1.8초)을 넘긴다
+    // 숫자 없는 잡담 51덩어리 — 덩어리마다 조용한 시간(1.8초)을 넘긴다. 실제 서버 ACK 시각 오차까지 떨어뜨린다.
     const lines = Array.from({ length: 51 }, (_, i) => `잡담 이야기예요 ${String.fromCharCode(0xac00 + i * 28)}${String.fromCharCode(0xac00 + i * 28)}`)
     for (const line of lines) {
+      await syncReadingClock(page)
       await speak(page, line)
-      await page.clock.runFor(1900)
+      await waitReadingHeard(page, line)
+      await page.clock.runFor(2500)
     }
+    await syncReadingClock(page)
     await openVoiceLog(page)
     const items = voiceLogItems(page)
     await expect(items).toHaveCount(50)
@@ -122,6 +126,7 @@ test.describe('I4 흐름 깨뜨리기', () => {
   test('"음성 끄기" 직후 늦게 온 중간·최종 결과는 기록에도 남지 않는다', async ({ page }) => {
     await setup(page)
     await speak(page, '첫 문장이에요')
+    await waitReadingHeard(page, '첫 문장이에요')
     await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
     await speak(page, '늦게 온 문장이에요')
     await openVoiceLog(page)
@@ -212,7 +217,7 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await turnOnVoice(page)
     const long = '자 여러분 이번에 보여드릴 상품은요 정말 오랜만에 들어온 아주아주예쁜핑크빛으로물든다육이인데요 '.repeat(3)
-    await speak(page, long, { final: false })
+    await speak(page, long) // APP1: 모바일에는 중간 자막이 없으므로 같은 긴 최종 글로 배치를 검증한다.
     // V3 교체(D-V3-50): "들리는 말:" 줄 대신 맨 위 큰 칸
     await expect(page.getByRole('region', { name: '지금 들리는 말', exact: true })).toContainText('아주아주예쁜핑크빛으로물든다육이인데요')
     await expect(page.getByText(/^들리는 말:/)).toHaveCount(0)
@@ -298,7 +303,7 @@ test.describe('I4 흐름 깨뜨리기', () => {
     let fail = true
     let aborted = 0
     let passed = 0
-    await page.route((url) => /^\/assets\/src-[^/]*\.js$/.test(url.pathname), async (route) => {
+    await page.route((url) => /^\/assets\/transport-[^/]*\.js$/.test(url.pathname), async (route) => {
       if (!fail) passed++
       if (fail) {
         aborted++

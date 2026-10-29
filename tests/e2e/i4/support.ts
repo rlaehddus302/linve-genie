@@ -1,6 +1,7 @@
 // I4 E2E 공용 도우미 (test-e2e): 가짜 음성 인식(시험 계약 — acceptance.md "가짜 음성 인식"), 음성 칸 선택자.
 // 화면은 "음성 켜기"를 누를 때 globalThis에서 SpeechRecognition·webkitSpeechRecognition을 찾는다. 시험은 페이지를 열기 전에 addInitScript로 바꾼다.
 import { expect, type BrowserContext, type Page } from '@playwright/test'
+import { installPcmMicrophone, pcmState, sayPcm, usesPcm } from '../app1/support.ts'
 
 export * from '../s06/support.ts'
 
@@ -22,6 +23,7 @@ export interface FakeSpeechOptions {
 
 /** 페이지를 열기 전에 부른다 (컨텍스트 또는 페이지) */
 export async function installFakeSpeech(target: Page | BrowserContext, options: FakeSpeechOptions = {}): Promise<void> {
+  await installPcmMicrophone(target, options)
   await target.addInitScript((opts: FakeSpeechOptions) => {
     interface Rec {
       lang: string
@@ -45,7 +47,9 @@ export async function installFakeSpeech(target: Page | BrowserContext, options: 
           },
         })
       } else {
-        if (opts.consent === true) window.localStorage.setItem('livejjim.voiceConsent', 'yes')
+        // APP1b: 옛 브라우저 인식 사례는 PC의 명시적 크롬 선택으로 서버 읽기를 검증한다.
+        window.localStorage.setItem('livejjim.voiceEngine', 'chrome')
+        if (opts.consent === true) window.localStorage.setItem('livejjim.voiceConsent.server.v1', 'yes')
         const key = 'livejjim.voiceSettings'
         const plain = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
         // D-V3-22 (a): 준비 단계에서 바로 등록을 꺼 둔다 — 시험이 넣은 설정에 키가 없을 때만 더하고, 넣은 설정이 없으면 저장값이 없을 때만 쓴다(새로 고침에도 판매자가 바꾼 값을 덮지 않게)
@@ -129,6 +133,11 @@ export async function speechCounts(page: Page): Promise<SpeechCounts> {
  */
 export async function speak(page: Page, text: string | readonly string[], options: { final?: boolean; instance?: number } = {}): Promise<void> {
   const texts = typeof text === 'string' ? [text] : [...text]
+  if (await usesPcm(page)) {
+    if (options.final === false) return // 아직 최종 글을 내지 않은 실제 소리 흐름. APP1에는 중간 글이 없다.
+    for (const phrase of texts) await sayPcm(page, phrase)
+    return
+  }
   await page.evaluate(({ texts, final, instance }) => {
     const s = (window as unknown as { __speech: { instances: { onresult: ((e: unknown) => void) | null; results: { isFinal: boolean; length: number; 0: { transcript: string } }[] }[] } }).__speech
     const rec = instance === undefined ? s.instances.at(-1) : s.instances[instance]
@@ -212,7 +221,13 @@ export async function turnOnVoice(page: Page, options: { consent?: boolean } = {
     await expect(dlg).toBeVisible()
     await dlg.getByRole('button', { name: '음성 켜기', exact: true }).click()
   }
-  await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible()
+  try { await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible() }
+  catch (cause) { throw new Error(`음성 시작 실패: ${JSON.stringify(await pcmState(page))}`, { cause }) }
+  // APP1b의 읽기 준비 응답과 Chrome 캡처 시작은 비동기다. 오류/결과는 실제 인식 객체가 시작된 뒤 넣는다.
+  if ((await pcmState(page))?.chrome === true) await expect.poll(() => page.evaluate(() => {
+    const last = (window as unknown as { __speech: { instances: { started: boolean; stopped: boolean }[] } }).__speech.instances.at(-1)
+    return last?.started === true && !last.stopped
+  })).toBe(true)
 }
 
 /** 서버로 간 쓰기·조회 요청을 모은다 (주소·본문) */
@@ -231,7 +246,7 @@ export function recordVoiceChunk(page: Page): string[] {
   const out: string[] = []
   page.on('request', (request) => {
     const url = new URL(request.url())
-    if (/^\/assets\/src-[^/]*\.js$/.test(url.pathname)) out.push(url.pathname)
+    if (/^\/assets\/transport-[^/]*\.js$/.test(url.pathname)) out.push(url.pathname)
   })
   return out
 }

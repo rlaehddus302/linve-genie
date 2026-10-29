@@ -1,10 +1,10 @@
 // V1 흐름 깨뜨리기 — 두 기기·연결 끊김·응답 잃음·Enter·빠른 연속 문장 (test-e2e).
 // 기대값은 acceptance(AC-V1-10 같은 요청 번호, AC-V1-22 보내지 못함, D-V1-06)와 dev-notes "정한 것"에서 정했다.
 import { test, expect } from '@playwright/test'
+import { pcmCounts } from '../app1/support.ts'
 import {
   board,
   boardItem,
-  heardCard,
   history,
   installSmsSpeech,
   login,
@@ -19,7 +19,6 @@ import {
   smsResults,
   smsWrites,
   speak,
-  turnOnVoice,
 } from './support.ts'
 
 // 품종 '핑크프릴'로 등록 — 카드 이름에 품종(D-V1-21)
@@ -28,8 +27,7 @@ const C166 = '166번 핑크프릴 · 손님 확인 필요 · 문자찜'
 const REPEATED = '같은 말을 다른 기기에서 방금 넣었어요.'
 
 test.describe('V1 깨뜨리기', () => {
-  test('AC-V1-31: 두 기기(PC + 휴대폰 375px)가 같은 말을 거의 함께 넣으면 한 번만 — 늦은 쪽은 "같은 말을 다른 기기에서 방금 넣었어요."와 "닫기"만, 본문 voice: true', async ({ browser }) => {
-    test.setTimeout(120_000)
+  test('AC-V1-31 → APP1-32: 둘째 375px 음성 거절·첫 문자찜만 반영, 다른 기기의 같은 voice HTTP는 409 VOICE_REPEATED', async ({ browser }) => {
     const pcCtx = await browser.newContext()
     const phoneCtx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true })
     const pc = await pcCtx.newPage()
@@ -41,43 +39,27 @@ test.describe('V1 깨뜨리기', () => {
       await login(phone)
       await phone.goto(`/broadcasts/${encodeURIComponent(b)}`)
       await expect(boardItem(phone, 166)).toBeVisible()
-      await turnOnVoice(phone)
       const pcRequests = recordRequests(pc)
       const phoneRequests = recordRequests(phone)
+      await phone.getByRole('button', { name: '음성 켜기', exact: true }).click()
+      await expect(phone.getByRole('region', { name: '음성 등록' })).toContainText('음성은 다른 기기에서 듣는 중이에요.')
+      expect((await pcmCounts(phone)).sockets).toBe(1)
+      expect((await pcmCounts(phone)).starts).toBe(0)
 
-      // 끝자리 있는 말: PC가 먼저 넣고 휴대폰은 3초 뒤 저절로 → 서버가 같은 음성 쓰기로 거절(D-V1-13)
-      await speak(pc, '165번 문자찜 끝자리 1234')
-      await speak(phone, '165번 문자찜 끝자리 1234')
-      await smsButton(pc, C165, '지금 넣기').click()
-      await expect(smsResults(pc, C165)).toHaveText(/^165번 · 문자찜 · 1등 · /)
-      await expect(boardItem(phone, 165)).toContainText(/1등|문자찜/)
-      const late165 = heardCard(phone, '165번 문자찜 끝자리 1234')
-      await expect(late165.getByRole('alert')).toHaveText(REPEATED, { timeout: 15_000 })
-      await expect(late165).toHaveAccessibleName('문자찜 · 넣지 않았어요 카드')
-      await expect(late165.getByRole('button')).toHaveText(['닫기'])
-
-      // 끝자리 없는 같은 말을 두 곳이 거의 함께 (둘 다 3초 뒤 저절로) → 166번 문자찜은 하나(1등만, 대기 없음)
-      await speak(pc, '166번 문자찜')
-      await speak(phone, '166번 문자찜')
-      const outcomes = [pc, phone].map((p) => ({ reason: heardCard(p, '166번 문자찜').getByRole('alert'), result: smsResults(p, C166) }))
-      for (const o of outcomes) await expect(o.reason.or(o.result)).toBeVisible({ timeout: 15_000 })
-      const reasons = await Promise.all(outcomes.map((o) => o.reason.count()))
-      expect(reasons.reduce((a, n) => a + n, 0)).toBe(1)
-      const late = outcomes[reasons[0] === 1 ? 0 : 1]!
-      const early = outcomes[reasons[0] === 1 ? 1 : 0]!
-      await expect(late.reason).toHaveText(REPEATED)
-      await expect(early.result).toHaveText(/^166번 · 문자찜\(확인 필요\).* · 1등 · /)
-      const latePage = reasons[0] === 1 ? pc : phone
-      await expect(heardCard(latePage, '166번 문자찜').getByRole('button')).toHaveText(['닫기'])
-
-      // 쓰기는 모두 voice: true, 늦은 쪽도 저절로 다시 보내지 않는다
-      const sent = [...smsWrites(pcRequests), ...smsWrites(phoneRequests)]
-      for (const w of sent) expect(w['voice']).toBe(true)
-      const before = sent.length
-      await heardCard(latePage, '166번 문자찜').getByRole('button', { name: /닫기$/ }).click()
-      await expect(heardCard(latePage, '166번 문자찜')).toHaveCount(0)
-      expect(smsWrites(pcRequests).length + smsWrites(phoneRequests).length).toBe(before)
-
+      for (const [no, text, short] of [[165, '165번 문자찜 끝자리 1234', C165], [166, '166번 문자찜', C166]] as const) {
+        await speak(pc, text)
+        await smsButton(pc, short, '지금 넣기').click()
+        await expect(smsResults(pc, short)).toHaveText(no === 165 ? /^165번 · 문자찜 · 1등 · / : /^166번 · 문자찜\(확인 필요\).* · 1등 · /)
+        await expect(boardItem(phone, no)).toContainText(/1등|문자찜/)
+        const original = smsWrites(pcRequests).at(-1)!
+        expect(original['voice']).toBe(true)
+        // 읽기 소유권과 별개로 기존 HTTP 중복 방어도 보존한다. 다른 인증 기기의 새 요청 번호다.
+        const duplicate = await phone.request.post('/api/events', { data: { ...original, requestId: crypto.randomUUID() }, headers: { Origin: new URL(phone.url()).origin } })
+        expect(duplicate.status()).toBe(409)
+        expect(await duplicate.json()).toMatchObject({ error: { code: 'VOICE_REPEATED', message: REPEATED } })
+      }
+      expect(smsWrites(pcRequests)).toHaveLength(2)
+      expect(smsWrites(phoneRequests)).toHaveLength(0)
       const view = await scopeView(pc, date, false)
       for (const no of [165, 166]) {
         expect(view.claims.filter((x) => x.no === no), String(no)).toHaveLength(1)
@@ -103,7 +85,7 @@ test.describe('V1 깨뜨리기', () => {
     await expect(card.getByRole('alert')).toBeVisible({ timeout: 15_000 })
     await expect(card.getByRole('button')).toHaveText(['넣지 않기', '넣기']) // D-V1-20
     const tried = smsWrites(requests).length
-    expect(tried).toBeGreaterThanOrEqual(1)
+    expect(tried).toBe(0) // APP1b: 연결 상실 뒤 자동 효과를 실행하지 않으므로 HTTP도 보내지 않는다.
     await context.setOffline(false)
     // 저절로 다시 보내지 않는다 (보내지 못함은 손댄 카드)
     await expect(card.getByText(/초 뒤 넣어요$/)).toHaveCount(0)

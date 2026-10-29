@@ -328,6 +328,8 @@ test.describe('I4 제안 카드', () => {
     const requests = recordRequests(page) // MOB2 D-MOB2-07
     const requestIds = () => registers(requests).map((r) => String((JSON.parse(r.body) as Record<string, unknown>)['requestId'])) // MOB2 D-MOB2-07
     await speak(page, '15번 핑크프릴 만오천 원')
+    // APP1b: 서버가 읽어 보낸 카드를 받은 뒤 끊는다. 전송 중이던 글을 버린 경우와 구분한다.
+    await expect(cardButton(page, '15번 핑크프릴 15,000원', '등록')).toBeVisible()
     await context.setOffline(true)
     await cardButton(page, '15번 핑크프릴 15,000원', '등록').click()
     const retry = page.getByRole('button', { name: /다시 보내기/ }).first()

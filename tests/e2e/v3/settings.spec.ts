@@ -1,5 +1,6 @@
 // V3 설정·안내·미룸·여러 기기·휴대폰 폭 (AC-V3-38·40~46·49). 문장은 D-V3-17 글자 그대로.
-import { test, expect, type Route } from '@playwright/test'
+import { test, expect } from '@playwright/test'
+import { historyProbe, pcmCounts } from '../app1/support.ts'
 import { loginNewSeller } from '../i3/support.ts'
 import {
   boardItem,
@@ -131,23 +132,19 @@ test('AC-V3-43 (e) (D-V3-35·86): 끈 채 R1을 말하고 판매 이력 2초 기
   await installFakeSpeech(page, { consent: true, autoRegister: true, settings: { 'voice.autoRegister': false } })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.clock.install()
-  await loginNewSeller(page)
-  const waiting: Route[] = []
-  let open = false
-  await page.route((url) => url.pathname === '/api/days', async (route: Route) => {
-    if (open) return route.fallback()
-    waiting.push(route)
-  })
+  const seller = await loginNewSeller(page)
+  await historyProbe(page, { loginId: seller.loginId, delayMs: 3000, reset: true })
   await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
   await turnOnVoice(page)
   const now = await page.evaluate(() => Date.now())
   await page.clock.pauseAt(now + 500)
-  await expect.poll(() => waiting.length).toBe(1)
+  await expect.poll(async () => (await historyProbe(page, { loginId: seller.loginId })).pending).toBeGreaterThan(0)
   const writes = recordWrites(page)
   await sayWords(page, BROADCAST_1) // 끈 채 말함
   await (await instantBox(page)).check()
-  open = true
-  for (const r of waiting.splice(0)) await r.fallback()
+  await historyProbe(page, { loginId: seller.loginId, delayMs: 0 })
+  await expect.poll(async () => (await historyProbe(page, { loginId: seller.loginId })).pending).toBe(0)
+  expect((await historyProbe(page, { loginId: seller.loginId })).completed).toBeGreaterThan(0)
   await page.clock.runFor(QUIET_MS + 100)
   await expect(card(page, '108번 BTS 100,000원')).toBeVisible()
   await expect(voiceCards(page)).toHaveCount(1)
@@ -273,7 +270,7 @@ test('AC-V3-49: "문자찜"이 든 결과는 바로 등록하지 않는다', asy
   await expect(readout(page).filter({ hasText: '등록했어요' })).toHaveCount(0)
 })
 
-test('AC-V3-38 R29: 같은 판매자 두 페이지(PC·휴대폰 폭)가 R1을 같이 들음 → 108번 하나, 늦은 페이지엔 창 없음·기록 "이미 등록됨"', async ({ page, context }) => {
+test('AC-V3-38 R29 → APP1-32/APP1b: 둘째 휴대폰 음성은 OTHER_DEVICE, 첫 기기 등록 하나·양쪽 반영·임의 고침 없음·손 입력 유지', async ({ page, context }) => {
   const { b, date } = await setupV3(page)
   const phone = await context.newPage()
   await installFakeSpeech(phone, { consent: true, autoRegister: true })
@@ -281,43 +278,30 @@ test('AC-V3-38 R29: 같은 판매자 두 페이지(PC·휴대폰 폭)가 R1을 �
   await phone.clock.install()
   await phone.goto(`/broadcasts/${encodeURIComponent(b)}`)
   await expect(phone.getByLabel('빠른 입력')).toBeVisible()
-  await turnOnVoice(phone)
-  const t = await phone.evaluate(() => Date.now())
-  await phone.clock.pauseAt(t + 1000)
-  await phone.clock.runFor(2500)
   const pcWrites = recordWrites(page)
   const phoneWrites = recordWrites(phone)
-  const tokens = BROADCAST_1.split(' ')
-  for (let k = 1; k <= tokens.length; k += 1) {
-    const text = tokens.slice(0, k).join(' ')
-    const final = k === tokens.length
-    await speak(page, text, { final })
-    await speak(phone, text, { final })
-    await page.clock.runFor(200)
-    await phone.clock.runFor(200)
-  }
-  await page.clock.runFor(QUIET_MS)
-  await phone.clock.runFor(QUIET_MS)
+  await phone.getByRole('button', { name: '음성 켜기', exact: true }).click()
+  await expect(phone.getByRole('region', { name: '음성 등록' })).toContainText('음성은 다른 기기에서 듣는 중이에요.')
+  await phone.clock.runFor(10_000)
+  expect((await pcmCounts(phone)).sockets).toBe(1)
+  expect((await pcmCounts(phone)).starts).toBe(0)
+  await sayChunk(page, BROADCAST_1)
   await expect(boardItem(page, 108)).toBeVisible()
   await expect(boardItem(phone, 108)).toBeVisible()
   const products = (await scopeView(page, date, true)).products.filter((p) => p.no === 108)
   expect(products).toHaveLength(1)
-  const registers = [...productWrites(pcWrites), ...productWrites(phoneWrites)].filter((w) => w[0] === 'product.register')
-  expect(registers.length).toBeGreaterThanOrEqual(1)
-  expect(registers.every((w) => w[1] === 108)).toBe(true)
-  // 고치기 쓰기 없음, 창 없음
-  expect([...productWrites(pcWrites), ...productWrites(phoneWrites)].filter((w) => w[0] !== 'product.register')).toEqual([])
+  expect(productWrites(pcWrites)).toEqual([['product.register', 108, 'BTS', 100000]])
+  expect(productWrites(phoneWrites)).toEqual([])
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(phone.getByRole('dialog')).toHaveCount(0)
   await expect(voiceCards(page)).toHaveCount(0)
   await expect(voiceCards(phone)).toHaveCount(0)
-  // 늦은 페이지 = 등록 쓰기가 성공하지 않은 쪽. 둘 중 하나의 기록엔 "이미 등록됨"
-  const logs: string[] = []
-  for (const p of [page, phone]) {
-    const dlg = await openLog(p)
-    logs.push(await dlg.innerText())
-    await p.keyboard.press('Escape')
-  }
-  expect(logs.some((l) => l.includes('이미 등록됨'))).toBe(true)
+  // 거절된 기기의 손 입력은 계속 쓰며 양쪽 화면에 반영된다.
+  await phone.getByLabel('빠른 입력').fill('15 핑크프릴 10')
+  await phone.getByLabel('빠른 입력').press('Enter')
+  await expect(boardItem(phone, 15)).toContainText('10,000')
+  await expect(boardItem(page, 15)).toBeVisible()
+  expect(productWrites(phoneWrites)).toEqual([['product.register', 15, '핑크프릴', 10000]])
+  expect([...productWrites(pcWrites), ...productWrites(phoneWrites)].filter((w) => w[0] !== 'product.register')).toEqual([])
   await phone.close()
 })

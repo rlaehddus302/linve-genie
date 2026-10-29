@@ -1,3 +1,4 @@
+import { historyProbe } from '../app1/support.ts'
 // I4 음성 켜기·끄기 (AC-I4-10~14) — test-e2e. 가짜 SpeechRecognition(addInitScript)로 실제 브라우저에서 확인한다.
 import { test, expect } from '@playwright/test'
 import {
@@ -44,12 +45,14 @@ test.describe('I4 음성 켜기·끄기', () => {
     expect(chunks).toEqual([])
     expect(requests.filter((r) => new URL(r.url).pathname === '/api/days' && r.method === 'GET')).toEqual([])
 
-    // 처음: 안내 창 → 켜기 → 이력 조회 1번, 음성 조각 1번
+    // 처음: 안내 창 → 켜기 → 서버 이력 조회 1번, 음성 조각 1번
+    await historyProbe(page, { fail: false, reset: true })
     await turnOnVoice(page, { consent: true })
     expect(chunks.length).toBeGreaterThanOrEqual(1)
     counts = await speechCounts(page)
     expect(counts.instances).toBe(1)
-    await expect.poll(() => requests.filter((r) => new URL(r.url).pathname === '/api/days' && r.method === 'GET').length).toBe(1)
+    await expect.poll(async () => (await historyProbe(page)).calls.filter((date) => date === null).length).toBe(1)
+    expect(requests.filter((r) => new URL(r.url).pathname === '/api/days' && r.method === 'GET')).toEqual([])
 
     // 새로 고침 → 꺼짐
     await page.reload()
@@ -153,7 +156,7 @@ test.describe('I4 음성 켜기·끄기', () => {
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
     // D-I5-03: 지원 안 함 문장 교체 (I5)
-    await expect(page.getByRole('alert').filter({ hasText: '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.' })).toBeVisible()
+    await expect(page.getByRole('alert').filter({ hasText: '이 기기에서는 음성이 어려워요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.' })).toBeVisible()
     await expect(page.getByRole('dialog', { name: '음성으로 상품 등록' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '음성 끄기' })).toHaveCount(0)

@@ -7,12 +7,9 @@ import { uniqueDate } from '../s05/support.ts'
 import { ANDROID, ANDROID_UA, baseUrlOf, broadcastApi, freshSeller, hideScreen, installFakeWake, setLabelsApi, showScreen, wakeCounts, type FakeWakeOptions } from './support.ts'
 
 const CONSENT_LINES = [
-  // V3 (D-V3-36·D-V3-17, AC-V3-42): 처음 켤 때는 바로 등록이 켜져 있다(기본 켬) — 첫 줄이 바뀌고 바로 등록 줄이 붙는다. 나머지 줄(D-I5-11)은 그대로
-  '번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.',
-  '번호와 가격이 들리면 바로 등록돼요. 음성 설정에서 끌 수 있어요.',
-  '음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.',
-  '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.',
-  '방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.',
+  '음성 듣기를 켜면 이 기기 마이크 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.',
+  '와이파이에서 쓰세요. 휴대폰 데이터로는 1시간에 약 120MB를 써요.',
+  '방송 동안 충전기를 꽂아 두세요.',
 ]
 
 async function voiceConsole(page: Page): Promise<void> {
@@ -163,7 +160,7 @@ test.describe('AC-MOB1-10 음성이 켜진 동안 화면 꺼짐 막기', () => {
 })
 
 test.describe('AC-MOB1-11 안내 창 한 줄', () => {
-  test('음성을 처음 켤 때 "음성으로 상품 등록" 창 — 지금 세 줄 그대로 + 마지막 줄 "방송하는 폰이 아닌 다른 기기…"', async ({ page, browser }) => {
+  test('음성을 처음 켤 때 "음성으로 상품 등록" 창 — APP1 새 고지 세 줄 그대로', async ({ page, browser }) => {
     // 처음 켜는 기기 그대로(저장값 없음 = 바로 등록 켬, D-V3-16·D-V3-36)
     const { dev, close } = await seller(browser, page, {}, false, true)
     try {

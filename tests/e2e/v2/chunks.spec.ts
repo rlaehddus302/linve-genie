@@ -109,8 +109,13 @@ test('S9 AC-V2-07·09: "선버스" → 품종 확인 필요 + 후보 "선버스�
   await expect(chosen).toBeVisible()
   await cardButton(page, '19번 선버스트 8,000원', '등록').click()
   await expect(boardItem(page, 19)).toBeVisible()
-  const learned = await page.evaluate((k) => window.localStorage.getItem(k), 'livejjim.voiceLearnedAliases')
-  expect(learned).toContain('선버스트')
+  // APP1b: 배운 이름은 판매자 계정에 남고, 일반 기기 저장소에는 원문 별칭을 남기지 않는다.
+  await expect.poll(async () => {
+    const response = await page.request.get('/api/voice/aliases')
+    expect(response.ok()).toBe(true)
+    return (await response.json() as { aliases: { name: string }[] }).aliases.map((alias) => alias.name)
+  }).toContain('선버스트')
+  expect(await page.evaluate((k) => window.localStorage.getItem(k), 'livejjim.voiceLearnedAliases')).toBeNull()
   // 새로 고침 뒤
   await page.clock.resume()
   await page.reload()
@@ -169,9 +174,9 @@ test('AC-V2-16: 저장값이 범위 밖(9000)이면 1.8초로 읽음', async ({ 
 })
 
 for (const [label, width, min] of [['PC', 1440, 28], ['휴대폰 375', 375, 22]] as const) {
-  test(`AC-V2-17 ${label}: 맨 위 큰 칸에 모은 글·중간 결과, 글자 ${String(min)}px 이상, <b>는 글자로, 읽은 뒤 결과 줄`, async ({ page }) => {
+  test(`AC-V2-17 ${label}: 맨 위 큰 칸에 모은 글·${width === 375 ? 'LG 최종 조각' : '중간 결과'}, 글자 ${String(min)}px 이상, <b>는 글자로, 읽은 뒤 결과 줄`, async ({ page }) => {
     await setupV2(page, { width })
-    await sayAt(page, [['십오번', 0], ['<b>엘레강스</b>', 300, false]])
+    await sayAt(page, [['십오번', 0], ['<b>엘레강스</b>', 300, width === 375]])
     const box = heardBox(page)
     await expect(box).toContainText('십오번')
     await expect(box).toContainText('<b>엘레강스</b>')

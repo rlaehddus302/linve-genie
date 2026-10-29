@@ -1,310 +1,181 @@
-// I5 아이폰(사파리) 음성 — webkit-iphone 묶음(@webkit, iPhone 15·393px·터치) — test-e2e.
-// 사파리 흉내 가짜 인식(support.ts installSafariSpeech)과 page.clock으로 본다. 실제 아이폰은 HG-4.
-import { test, expect, type Page } from '@playwright/test'
+// APP1/APP1b 이행 (D-APP1b-05): Safari Web Speech의 폐기된 end/재시작 대신 실제 PCM 중계의 같은 판매자 결과를 검증한다.
+// 옛 AC의 카드·등록·거부·복구·배치 단언을 유지한다. 세부 대응은 APP1/test-notes-e2e.md.
+import { test, expect } from '@playwright/test'
+import { haltPcm, historyProbe, LG_FAILED, microphoneError, pcmCounts } from '../app1/support.ts'
 import {
-  AUTO_ON,
-  CONSENT_SENT,
-  MSG,
-  OLD_SENT,
-  SENT,
-  SENT_SHORT,
-  STANDALONE,
-  boardItem,
-  card,
-  cardButton,
-  cardList,
-  clockConsole,
-  expectAlert,
-  expectNoMessage,
-  installSafariSpeech,
-  login,
-  openNewBroadcast,
-  pauseClock,
-  recordRequests,
-  recordVoiceChunk,
-  register,
-  safariCounts,
-  safariEndNow,
-  safariError,
-  safariSay,
-  turnOnVoice,
-  uniqueDate,
-  voiceRegion,
-  voiceStatus,
+  LG_CHARGE, LG_CONSENT, LG_DATA, MSG, OLD_SENT, SENT, SENT_SHORT, STANDALONE,
+  boardItem, card, cardButton, cardList, clockConsole, expectAlert, installSafariSpeech, login,
+  openNewBroadcast, pauseClock, recordRequests, recordVoiceChunk, register, safariSay, turnOnVoice,
+  uniqueDate, voiceRegion, voiceStatus,
 } from './support.ts'
 
 const C15 = '15번 핑크프릴 15,000원'
+const writes = (requests: {method:string;body:string}[]) => requests.filter((r) => r.method === 'POST' && r.body.includes('"product.register"'))
 
-/** 빠른 입력이 그대로 등록된다 */
-async function quickStillWorks(page: Page, no: number): Promise<void> {
-  await register(page, `${String(no)} 핑크프릴 10`, no)
-}
-
-test.describe('I5 아이폰(사파리) 음성 @webkit', () => {
-  test('AC-I5-20: 조용할 때 3초마다 끊겨도 120초 동안 멈추지 않고, 그 뒤 최종 결과로 카드·등록 @webkit', async ({ page }) => {
+test.describe('I5 아이폰 → APP1 실제 서버 음성 @webkit', () => {
+  test.afterEach(async ({ page }) => { await historyProbe(page, { fail: false, delayMs: 0, reset: true }) })
+  test('AC-I5-20 → APP1-38: 조용한 120초 동안 같은 연결을 유지하고 그 뒤 최종 글로 카드·등록 @webkit', async ({ page }) => {
     await installSafariSpeech(page, { consent: true })
-    await clockConsole(page)
-    await turnOnVoice(page)
-    await pauseClock(page)
+    await clockConsole(page); await turnOnVoice(page); await pauseClock(page)
     for (let i = 0; i < 40; i++) {
       await page.clock.runFor(3000)
       await expect(voiceRegion(page).getByRole('alert')).toHaveCount(0)
-      await expect(voiceStatus(page)).toHaveText(/^음성: (듣는 중|다시 시작 중)$/)
-      await expect(voiceRegion(page).getByRole('button', { name: '음성 끄기' })).toBeVisible()
+      await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
     }
-    expect((await safariCounts(page)).constructed).toBeGreaterThan(40)
+    expect((await pcmCounts(page)).sockets).toBe(1)
     await safariSay(page, '15번 핑크프릴 만오천원')
-    await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
     await expect(card(page, C15)).toBeVisible()
     await cardButton(page, C15, '등록').click()
-    await expect(boardItem(page, 15)).toBeVisible()
+    await expect(boardItem(page, 15)).toContainText('15,000')
   })
-
-  for (const [label, run, message] of [
-    ['(a) 처음 켤 때 not-allowed → 권한 거부', async (page: Page) => { await safariError(page, 'not-allowed') }, MSG.PERMISSION_DENIED],
-    ['(b) 처음 켤 때 service-not-allowed → Siri 꺼짐', async (page: Page) => { await safariError(page, 'service-not-allowed') }, MSG.SERVICE_OFF],
-    ['(c) 저절로 끝나 다시 연 객체에서 not-allowed → 다시 켜지지 않음', async (page: Page) => {
-      await safariEndNow(page)
-      await expect.poll(async () => (await safariCounts(page)).constructed).toBe(2)
-      await safariError(page, 'not-allowed')
-    }, MSG.RESTART_BLOCKED],
-    ['(d) 연 지 0초에 끝나기 6번 → 자꾸 끊김', async (page: Page) => {
-      for (let i = 0; i < 6; i++) await safariEndNow(page)
-      expect((await safariCounts(page)).constructed).toBe(6)
-    }, MSG.KEEPS_STOPPING],
+  for (const [label, error, message] of [
+    ['a 권한 거부', 'NotAllowedError', MSG.PERMISSION_DENIED],
+    ['b 마이크 없음', 'NotFoundError', '마이크를 찾지 못했어요. 마이크 연결을 확인해 주세요.'],
   ] as const) {
-    test(`AC-I5-21·28 ${label} @webkit`, async ({ page }) => {
-      await installSafariSpeech(page, { consent: true })
-      await clockConsole(page)
-      // SA-I5-03: 시계를 켜기 전에 멈춘다. 켠 뒤에 멈추면 그사이(부하에서 3초 넘게) 조용함 끝남이 와서 "처음 켤 때"의 객체가 아니라
-      // 다시 연 객체에 오류가 가고(→ RESTART_BLOCKED), (b)가 SERVICE_OFF 대신 다른 문장을 보여 가끔 실패했다
-      await pauseClock(page)
-      await turnOnVoice(page)
-      expect((await safariCounts(page)).constructed).toBe(1)
-      await run(page)
-      // AC-I5-28: 여러 줄 문장은 줄마다 따로, 위에서 아래로 그 차례로 (expectAlert가 본다), 393px에서 가로 스크롤 없음
+    test(`AC-I5-21·28 ${label} → APP1-42: 오류 뒤 자동 재시도 없음·빠른 입력·다시 켜기 @webkit`, async ({ page }) => {
+      await installSafariSpeech(page, { consent: true }); await clockConsole(page); await pauseClock(page)
+      await microphoneError(page, error)
+      await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
       await expectAlert(page, message)
-      const scroll = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }))
-      expect(scroll.sw).toBeLessThanOrEqual(scroll.iw)
-      await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
-      await expect(page.getByRole('button', { name: '음성 끄기' })).toHaveCount(0)
-      await quickStillWorks(page, 21)
-      // 다시 누를 수 있다 — 새 인식 객체로 듣는 중, 문장이 사라진다
-      const before = (await safariCounts(page)).constructed
-      await turnOnVoice(page)
-      expect((await safariCounts(page)).constructed).toBe(before + 1)
-      await expectNoMessage(page, message)
+      const count = (await pcmCounts(page)).sockets
+      await page.clock.runFor(10_000)
+      expect((await pcmCounts(page)).sockets).toBe(count)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await register(page, '21 핑크프릴 10', 21)
+      await microphoneError(page, null)
+      await page.getByRole('button', { name: /^(음성 켜기|다시 켜기)$/ }).first().click()
+      await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
+      await expect(voiceRegion(page).getByRole('alert')).toHaveCount(0)
     })
   }
-
-  test('AC-I5-22: 최종 표시 없이 끝난 문장은 카드 한 장, 30초 지나도 자동 등록하지 않고 "등록"으로만 @webkit', async ({ page }) => {
-    await installSafariSpeech(page, { consent: true, settings: AUTO_ON })
-    const { date } = await clockConsole(page)
+  test('AC-I5-21 c → APP1-33: 듣는 중 세션 종료는 AUTH·재시도 없음, 읽은 카드로 자동 쓰기 없음 @webkit', async ({ page }) => {
+    await installSafariSpeech(page, { consent: true }); await clockConsole(page); await turnOnVoice(page); await pauseClock(page)
     const requests = recordRequests(page)
-    await turnOnVoice(page)
-    await pauseClock(page)
+    await page.evaluate(async () => { await fetch('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }) })
+    await expect(voiceRegion(page)).toContainText('로그인이 끝나 음성 듣기를 멈췄어요. 다시 로그인해 주세요.')
+    const count = (await pcmCounts(page)).sockets
+    await page.clock.runFor(10_000)
+    expect((await pcmCounts(page)).sockets).toBe(count)
+    expect(writes(requests)).toEqual([])
+  })
+  test('AC-I5-21 d → APP1-31: 60초 안에 여섯 번째 끊김은 멈춤·다시 켜기·빠른 입력 @webkit', async ({ page }) => {
+    await installSafariSpeech(page, { consent: true }); await clockConsole(page); await turnOnVoice(page); await pauseClock(page)
+    await haltPcm(page)
+    expect((await pcmCounts(page)).sockets).toBe(6)
+    await register(page, '21 핑크프릴 10', 21)
+    await page.getByRole('button', { name: '다시 켜기', exact: true }).first().click()
+    await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
+    await expect(page.getByText(LG_FAILED, { exact: true })).toHaveCount(0)
+  })
+  test('AC-I5-22 → APP1-36: 늦은 최종 글은 카드 한 장, 30초 뒤에도 수동 등록만 @webkit', async ({ page }) => {
+    await installSafariSpeech(page, { consent: true, autoRegister: true }); await clockConsole(page); await turnOnVoice(page); await pauseClock(page)
+    const requests = recordRequests(page)
     await safariSay(page, '15번 핑크프릴 만오천원', { final: false, endSoon: true })
     await page.clock.runFor(30_000)
     await expect(card(page, C15)).toHaveCount(1)
     await expect(cardList(page).getByRole('listitem')).toHaveCount(1)
     await expect(card(page, C15).getByText(/자동 등록/)).toHaveCount(0)
-    await expect(cardButton(page, C15, '자동 등록 멈추기')).toHaveCount(0)
-    expect(requests.filter((r) => r.method === 'POST' && r.body.includes('"product.register"'))).toEqual([])
+    expect(writes(requests)).toEqual([])
     await cardButton(page, C15, '등록').click()
-    await expect(boardItem(page, 15)).toBeVisible()
     await expect(boardItem(page, 15)).toContainText('핑크프릴')
     await expect(boardItem(page, 15)).toContainText('15,000')
-    void date
   })
-
-  // V3 교체(D-V3-01·D-V3-22 b): 5초 뒤 자동 확정 → 번호와 가격이 들리는 순간 바로 등록(기본 켬)
-  test('AC-I5-04 → AC-V3-20: 같은 문장이 보통 최종 결과로 오면 기다림 없이 바로 등록된다 (사파리) @webkit', async ({ page }) => {
-    await installSafariSpeech(page, { consent: true, autoRegister: true })
-    await clockConsole(page)
-    await turnOnVoice(page)
-    await pauseClock(page)
-    await page.clock.runFor(2500) // 음성을 켠 직후 판매 이력을 받는 2초 (AC-V3-43 b)
+  test('AC-I5-04 → APP1b-04: 같은 최종 글은 서버 읽기 후 기다림 없이 바로 등록 @webkit', async ({ page }) => {
+    await installSafariSpeech(page, { consent: true, autoRegister: true }); await clockConsole(page); await turnOnVoice(page); await pauseClock(page)
+    await page.clock.runFor(2500)
     await safariSay(page, '15번 핑크프릴 만오천원')
     await expect(boardItem(page, 15)).toBeVisible()
     await expect(card(page, C15)).toHaveCount(0)
     await expect(page.getByText(/초 뒤 자동 등록/)).toHaveCount(0)
   })
-
-  test('AC-I5-11 (a)(b): 홈 화면 앱이면 한 줄 안내 — 막지 않고, 권한 거부로 멈춘 뒤에도 보인다 @webkit', async ({ page }) => {
-    await installSafariSpeech(page, { consent: true, standalone: true })
-    await clockConsole(page)
-    await turnOnVoice(page)
-    await pauseClock(page)
-    await expect(voiceRegion(page).getByText(STANDALONE, { exact: true })).toBeVisible()
-    await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
-    await safariError(page, 'not-allowed')
-    await expectAlert(page, MSG.PERMISSION_DENIED)
-    await expect(voiceRegion(page).getByText(STANDALONE, { exact: true })).toBeVisible()
-  })
-
-  test('AC-I5-11 (c): 홈 화면 앱이 아니면 그 줄이 없다 @webkit', async ({ page }) => {
-    await installSafariSpeech(page, { consent: true })
-    await clockConsole(page)
-    await turnOnVoice(page)
-    // D-I5-16: 393px는 짧은 고지
-    await expect(voiceRegion(page).getByText(SENT_SHORT, { exact: true })).toBeVisible()
-    await expect(page.getByText(STANDALONE)).toHaveCount(0)
-    await safariError(page, 'not-allowed')
-    await expectAlert(page, MSG.PERMISSION_DENIED)
-    await expect(page.getByText(STANDALONE)).toHaveCount(0)
-  })
-
-  test('AC-I5-14: 다시 켜지지 않음으로 멈춘 뒤 "음성 켜기" — 창 없이 새 인식 객체, 문장 사라짐, 카드는 남는다 @webkit', async ({ page }) => {
-    await installSafariSpeech(page, { consent: true })
-    await clockConsole(page)
-    await turnOnVoice(page)
-    await pauseClock(page)
-    await safariSay(page, '15번 핑크프릴 만오천원')
-    await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
+  for (const standalone of [true, false]) {
+    test(`AC-I5-11 ${standalone ? 'a·b' : 'c'} → APP1-37·38: 홈 화면 여부 ${standalone}도 같은 서버 고지와 연결 @webkit`, async ({ page }) => {
+      await installSafariSpeech(page, { consent: true, standalone }); await clockConsole(page); await turnOnVoice(page); await pauseClock(page)
+      await expect(voiceRegion(page).getByText(SENT_SHORT, { exact: true })).toBeVisible()
+      await expect(page.getByText(STANDALONE)).toHaveCount(0)
+      await page.clock.runFor(60_000)
+      await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
+      expect((await pcmCounts(page)).sockets).toBe(1)
+    })
+  }
+  test('AC-I5-14 → APP1-31: 다시 켜기 뒤 대기 카드는 남고 동의창 없이 수동 등록 @webkit', async ({ page }) => {
+    await installSafariSpeech(page, { consent: true }); await clockConsole(page); await turnOnVoice(page); await pauseClock(page)
+    await safariSay(page, '15번 핑크프릴 만오천원'); await expect(card(page, C15)).toBeVisible()
+    await haltPcm(page)
     await expect(card(page, C15)).toBeVisible()
-    await page.clock.runFor(200) // 최종 뒤 곧 끝남 → 엔진이 다시 연다
-    await expect.poll(async () => (await safariCounts(page)).constructed).toBe(2)
-    await safariError(page, 'not-allowed')
-    await expectAlert(page, MSG.RESTART_BLOCKED)
-    await expect(card(page, C15)).toBeVisible()
-    await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
+    await page.getByRole('button', { name: '다시 켜기', exact: true }).first().click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
-    expect((await safariCounts(page)).constructed).toBe(3)
-    await expectNoMessage(page, MSG.RESTART_BLOCKED)
     await expect(card(page, C15)).toBeVisible()
+    await cardButton(page, C15, '등록').click(); await expect(boardItem(page, 15)).toBeVisible()
   })
-
-  test('AC-I5-12: 처음 켤 때 창의 외부 전송 문장(애플 포함), 켜진 동안 고지 한 줄, 옛 문장은 없다 @webkit', async ({ page }) => {
-    await installSafariSpeech(page)
-    await clockConsole(page)
+  test('AC-I5-12 → APP1-37: 처음 동의 세 줄과 켜진 동안 서버 고지, 옛 Apple 고지 없음 @webkit', async ({ page }) => {
+    await installSafariSpeech(page); await clockConsole(page)
     await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
     const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
-    await expect(dlg).toContainText(CONSENT_SENT)
-    await expect(page.getByText(OLD_SENT)).toHaveCount(0)
+    await expect(dlg.locator('p')).toHaveText([LG_CONSENT, LG_DATA, LG_CHARGE])
+    await expect(dlg.getByRole('button', { name: '닫기' })).toBeFocused()
     await dlg.getByRole('button', { name: '음성 켜기', exact: true }).click()
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
-    // D-I5-16: 폭 768px 미만(393)은 짧은 고지, 긴 문장은 없다
     await expect(voiceRegion(page).getByText(SENT_SHORT, { exact: true })).toBeVisible()
-    await expect(page.getByText(SENT)).toHaveCount(0)
-    await expect(page.getByText(OLD_SENT)).toHaveCount(0)
-    expect(await page.evaluate(() => localStorage.getItem('livejjim.voiceConsent'))).toBe('yes')
+    await expect(page.getByText(SENT)).toHaveCount(0); await expect(page.getByText(OLD_SENT)).toHaveCount(0)
+    expect(await page.evaluate(() => localStorage.getItem('livejjim.voiceConsent.server.v1'))).toBe('yes')
   })
-
-  test('AC-I5-10: 지원 안 하는 기기 — 창·확인 기록·인식 객체·마이크·이력 조회 없이 알림, 손 입력 그대로 @webkit', async ({ page }) => {
-    await installSafariSpeech(page, { unsupported: true })
-    await login(page)
-    await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
-    const requests = recordRequests(page)
+  test('AC-I5-10 → APP1-41: 캡처 미지원은 동의·마이크·읽기 연결 없이 안내, 손 입력 유지 @webkit', async ({ page }) => {
+    await installSafariSpeech(page, { unsupported: true }); await login(page); await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
-    await expectAlert(page, MSG.UNSUPPORTED)
+    await expectAlert(page, '이 기기에서는 음성이 어려워요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.')
     await expect(page.getByRole('dialog')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
-    expect(await page.evaluate(() => localStorage.getItem('livejjim.voiceConsent'))).toBeNull()
-    const counts = await safariCounts(page)
-    expect(counts.constructed).toBe(0)
-    expect(counts.getUserMedia).toBe(0)
+    expect((await pcmCounts(page)).sockets).toBe(0); expect((await pcmCounts(page)).starts).toBe(0)
+    expect(await page.evaluate(() => localStorage.getItem('livejjim.voiceConsent.server.v1'))).toBeNull()
     await register(page, '15 핑크프릴 10', 15)
-    expect(requests.filter((r) => new URL(r.url).pathname === '/api/days' && r.method === 'GET')).toEqual([])
   })
-
-  test('AC-I5-23: 393px — 가로 스크롤 없음, 버튼·고지·상태·빠른 입력·맨 앞 카드 버튼을 누를 수 있다, 빈 칸 Enter는 등록 안 함, 끄면 카드는 남는다 @webkit', async ({ page }) => {
-    await installSafariSpeech(page, { consent: true, settings: AUTO_ON })
-    await clockConsole(page)
+  test('AC-I5-23 → APP1b-14: 393px 카드 4장·고지·버튼·Enter 비활성·끄기 뒤 카드 보존 @webkit', async ({ page }) => {
+    await installSafariSpeech(page, { consent: true }); await clockConsole(page); await turnOnVoice(page); await pauseClock(page)
     const requests = recordRequests(page)
-    await turnOnVoice(page)
-    await pauseClock(page)
-    for (const [no, word] of [[16, '만육천원'], [17, '만칠천원'], [18, '만팔천원']] as const) {
-      await safariSay(page, `${String(no)}번 핑크프릴 ${word}`)
-      await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
-      const short = `${String(no)}번 핑크프릴 ${String(no)},000원`
-      // V3 교체(D-V3-01·D-V3-22 b): 자동 확정 기다림이 없어 "자동 등록 멈추기"도 없다 (준비 단계에서 바로 등록 끔 — D-V3-22 a).
-      // 멈추기가 하던 "손댄 카드" 만들기(열린 카드 3장 규칙에서 닫히지 않음)는 고치기 칸을 열었다 닫아서 한다
-      await expect(card(page, short)).toBeVisible()
-      await expect(cardButton(page, short, '자동 등록 멈추기')).toHaveCount(0)
-      await cardButton(page, short, '고치기').click()
-      await expect(page.getByRole('group', { name: `${short} 고치기 칸` })).toBeVisible()
-      await cardButton(page, short, '고치기').click()
-      await expect(page.getByRole('group', { name: `${short} 고치기 칸` })).toHaveCount(0)
+    for (const [no, word] of [[16, '만육천원'], [17, '만칠천원'], [18, '만팔천원'], [19, '만구천원']] as const) {
+      await safariSay(page, `${no}번 핑크프릴 ${word}`)
+      const short = `${no}번 핑크프릴 ${no},000원`
+      await expect(card(page, short)).toBeAttached()
+      if (no !== 19) {
+        // 옛 시험과 같이 앞 세 장을 손댄 카드로 만들어 자동 닫힘(손대지 않은 카드 3장)을 피한다.
+        await expect(cardButton(page, short, '자동 등록 멈추기')).toHaveCount(0)
+        await cardButton(page, short, '고치기').click()
+        await expect(page.getByRole('group', { name: `${short} 고치기 칸` })).toBeVisible()
+        await cardButton(page, short, '고치기').click()
+        await expect(page.getByRole('group', { name: `${short} 고치기 칸` })).toHaveCount(0)
+      }
     }
-    await safariSay(page, '19번 핑크프릴 만구천원')
-    await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
     await expect(cardList(page).getByRole('listitem')).toHaveCount(4)
-    const scroll = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }))
-    expect(scroll.sw).toBeLessThanOrEqual(scroll.iw)
-    expect(scroll.iw).toBe(393)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     const front = '19번 핑크프릴 19,000원'
-    for (const target of [
-      voiceRegion(page).getByRole('button', { name: '음성 끄기' }),
-      voiceRegion(page).getByText(SENT_SHORT, { exact: true }), // D-I5-16
-      voiceStatus(page),
-      page.getByLabel('빠른 입력'),
-      cardButton(page, front, '등록'),
-      cardButton(page, front, '닫기'),
-    ]) {
-      await target.scrollIntoViewIfNeeded()
-      await expect(target).toBeInViewport()
+    for (const target of [voiceRegion(page).getByRole('button', { name: '음성 끄기' }), voiceRegion(page).getByText(SENT_SHORT, { exact: true }), voiceStatus(page), page.getByLabel('빠른 입력'), cardButton(page, front, '등록'), cardButton(page, front, '닫기')]) {
+      await target.scrollIntoViewIfNeeded(); await expect(target).toBeInViewport()
     }
-    // 빈 빠른 입력칸 Enter — 폭 768px 미만이라 카드를 등록하지 않는다
-    const input = page.getByLabel('빠른 입력')
-    await input.fill('')
-    await input.press('Enter')
-    await expect(cardList(page).getByRole('listitem')).toHaveCount(4)
-    expect(requests.filter((r) => r.method === 'POST' && r.body.includes('"product.register"'))).toEqual([])
-    // 맨 앞 카드 "닫기"를 누를 수 있다
-    await cardButton(page, front, '닫기').click()
-    await expect(card(page, front)).toHaveCount(0)
-    // 끄면 인식을 멈추고 카드는 남는다
+    await page.getByLabel('빠른 입력').fill(''); await page.getByLabel('빠른 입력').press('Enter')
+    await expect(cardList(page).getByRole('listitem')).toHaveCount(4); expect(writes(requests)).toEqual([])
+    await cardButton(page, front, '닫기').click(); await expect(card(page, front)).toHaveCount(0)
     await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
     await expect(cardList(page).getByRole('listitem')).toHaveCount(3)
-    const stopped = await page.evaluate(() => {
-      const s = (window as unknown as { __speech: { stops: number; aborts: number } }).__speech
-      return s.stops + s.aborts
-    })
-    expect(stopped).toBeGreaterThanOrEqual(1)
+    expect((await pcmCounts(page)).stops).toBeGreaterThanOrEqual(1)
   })
-
-  test('AC-I5-24: 음성을 켜지 않으면 인식 객체·마이크·음성 조각 요청이 없다 @webkit', async ({ page }) => {
-    await installSafariSpeech(page)
-    const chunks = recordVoiceChunk(page)
-    await login(page)
-    await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
-    await register(page, '15 핑크프릴 10', 15)
-    const counts = await safariCounts(page)
-    expect(counts.constructed).toBe(0)
-    expect(counts.getUserMedia).toBe(0)
-    expect(chunks).toEqual([])
+  test('AC-I5-24 → APP1-40: 켜지 않으면 마이크·읽기 소켓·음성 조각 없음 @webkit', async ({ page }) => {
+    await installSafariSpeech(page); const chunks = recordVoiceChunk(page)
+    await login(page); await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true }); await register(page, '15 핑크프릴 10', 15)
+    expect((await pcmCounts(page)).sockets).toBe(0); expect((await pcmCounts(page)).starts).toBe(0); expect(chunks).toEqual([])
   })
-
-  test.describe('이력 기다림 (서비스 워커 막음 — WebKit의 page.route)', () => {
-    test.use({ serviceWorkers: 'block' })
-
-    test('AC-I5-22 깨뜨리기: 판매 이력을 기다리는 동안 끝에서 넘긴 문장도 자동 등록하지 않는다 @webkit', async ({ page }) => {
-      await installSafariSpeech(page, { consent: true, settings: AUTO_ON })
-      await clockConsole(page)
-      // 이력 조회를 붙잡아 둔다 — 넘긴 문장이 "미룬 문장"(이력 기다림) 길로 간다
-      // (WebKit은 서비스 워커가 페이지를 맡으면 page.route가 요청을 못 잡는다 — 이 묶음만 서비스 워커를 막는다)
-      let release: () => void = () => {}
-      const held = new Promise<void>((resolve) => { release = resolve })
-      await page.route((url) => url.pathname === '/api/days', async (route) => {
-        await held
-        await route.continue()
-      })
-      const requests = recordRequests(page)
-      // 시계를 먼저 멈춘다 — 이력 기다림(켠 때부터 2초)이 시험의 실제 시간에 닳지 않게
-      await pauseClock(page)
-      await turnOnVoice(page)
-      await safariSay(page, '15번 핑크프릴 만오천원', { final: false, endSoon: true })
-      await page.clock.runFor(200)
-      await expect(card(page, C15)).toHaveCount(0)
-      await page.clock.runFor(2000)
-      await expect(card(page, C15)).toBeVisible()
-      release()
-      await page.clock.runFor(30_000)
-      await expect(card(page, C15)).toBeVisible()
-      await expect(card(page, C15).getByText(/자동 등록/)).toHaveCount(0)
-      expect(requests.filter((r) => r.method === 'POST' && r.body.includes('"product.register"'))).toEqual([])
-    })
+  test('AC-I5-22 이력 기다림 → APP1b-11: 서버 이력이 느려도 늦은 최종 글은 수동 카드만 @webkit', async ({ page }) => {
+    await installSafariSpeech(page, { consent: true, autoRegister: true }); await clockConsole(page)
+    await historyProbe(page, { delayMs: 3000, reset: true })
+    await turnOnVoice(page); await pauseClock(page)
+    const requests = recordRequests(page)
+    await expect.poll(async () => (await historyProbe(page)).pending).toBeGreaterThan(0)
+    await safariSay(page, '15번 핑크프릴 만오천원', { final: false, endSoon: true })
+    await expect(card(page, C15)).toBeVisible()
+    await expect.poll(async () => (await historyProbe(page)).completed).toBeGreaterThan(0)
+    await expect.poll(async () => (await historyProbe(page)).pending).toBe(0)
+    await page.clock.runFor(30_000)
+    await expect(card(page, C15)).toBeVisible(); expect(writes(requests)).toEqual([])
+    await cardButton(page, C15, '등록').click(); await expect(boardItem(page, 15)).toBeVisible()
   })
 })

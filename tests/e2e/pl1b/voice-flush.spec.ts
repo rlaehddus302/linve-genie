@@ -1,6 +1,6 @@
 // PL1B 끝에서 넘긴 문자찜 카드 (SPEC VOC-04, D-I5-20 — 동작 변경 없음, 시험만) — test-e2e, 아이폰 크기 WebKit 묶음(@webkit).
-// AC-PL1B-26: 사파리 흉내 가짜 인식(I5 AC-I5-20 모양 — 최종 표시 없이 끝남), 문자찜 듣기 켬(기본), 15번 상품.
-// 중간 결과 "15번 문자찜 끝자리 1234" 뒤 최종 없이 끝남 → 카드는 보이고 10초 동안 저절로 넣지 않는다, "넣기"로만 15번 끝자리 1234 문자찜.
+// AC-PL1B-26 → APP1-36/APP1b-04: 합성 PCM·실제 서버 WS·모의 worker, 문자찜 듣기 켬(기본), 15번 상품.
+// 10초 넘게 늦은 "15번 문자찜 끝자리 1234" 최종 글 → 카드는 보이고 10초 동안 저절로 넣지 않는다, "넣기"로만 15번 끝자리 1234 문자찜.
 // 시각은 page.clock으로 멈추고 당긴다(waitForTimeout 없음).
 import { expect, test } from '@playwright/test'
 import { installSafariSpeech, login, noHorizontalScroll, openNewBroadcast, pauseClock, recordRequests, registerApi, safariSay, turnOnVoice, uniqueDate } from '../i5/support.ts'
@@ -9,7 +9,7 @@ import { smsButton, smsCard, smsEvents, smsListenBox, smsWrites } from '../v1/su
 const C15 = '15번 핑크프릴 · 끝자리 1234 · 문자찜'
 
 test.describe('PL1B 사파리 끝 넘김 문자찜 @webkit', () => {
-  test('AC-PL1B-26: 최종 없이 끝난 "15번 문자찜 끝자리 1234" → 카드만, 10초 동안 문자찜 0건·"초 뒤 넣어요" 없음 → "넣기"로 15번 끝자리 1234 하나, 393px 가로 넘침 없음 @webkit', async ({ page }) => {
+  test('AC-PL1B-26: APP1에서 10초 넘게 늦은 "15번 문자찜 끝자리 1234" → 카드만, 10초 동안 문자찜 0건·"초 뒤 넣어요" 없음 → "넣기"로 15번 끝자리 1234 하나, 393px 가로 넘침 없음 @webkit', async ({ page }) => {
     await installSafariSpeech(page, { consent: true })
     await page.clock.install()
     await login(page)

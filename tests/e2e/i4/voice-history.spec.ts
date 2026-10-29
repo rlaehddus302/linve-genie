@@ -3,6 +3,7 @@
 // 지금 범위로 하고 오늘 바로 앞 12일에 지난 범위를 만든다 — "가장 늦은 10개"가 이 시험의 날짜가 된다. 미래 날짜는 쓰지 않는다(다른 시험의 방송 목록 순서를 흔들지 않게).
 // 사전 정리 확인은 다른 시험이 쓰지 않는 이름(레티지아)으로 한다 — 이력 이름은 같은 서버의 뒤 시험 사전에도 들어간다.
 import { test, expect, type Page } from '@playwright/test'
+import { historyProbe } from '../app1/support.ts'
 import { card, installFakeSpeech, login, todayKst, uniqueDate, postJson, recordRequests, register, registerApi, speak, turnOnVoice, voiceRegion } from './support.ts'
 
 /** 늦은 날짜 먼저: 1번째 ~ 12번째 (기본 사전에 없고 서로 닮지 않은 이름) */
@@ -23,6 +24,7 @@ async function createBroadcast(page: Page, date: string, rehearsal: boolean): Pr
 }
 
 test.describe('I4 판매 이력 사전', () => {
+  test.afterEach(async ({ page }) => { await historyProbe(page, { fail: false, delayMs: 0, reset: true }) })
   test('AC-I4-40: 켤 때 한 번, 지금 범위를 뺀 실제 범위 중 늦은 10개만 — 10번째 품종은 알아듣고 11·12번째·리허설은 아니다, 지금 범위 새 품종은 다음 문장부터', async ({ page }) => {
     await installFakeSpeech(page, { consent: true })
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -44,23 +46,17 @@ test.describe('I4 판매 이력 사전', () => {
     const cb = await createBroadcast(page, currentDate, false)
     await registerApi(page, cb, 1, CURRENT_NAME, 10000)
     const requests = recordRequests(page)
-    // 이력 응답을 다 받은 뒤에 말한다 — 요청이 나간 것만 보고 말하면 마지막 날짜의 응답(상품 이름)이 오기 전에 카드가 만들어져
-    // 그 품종을 모르는 카드가 된다(서버가 바쁘면 날짜 조회 열 개가 수백 ms에 걸쳐 끝난다)
-    const finished = new Set<string>()
-    page.on('requestfinished', (request) => finished.add(request.url()))
+    // APP1b: 이력 조회는 서버 읽기 어댑터가 한다. 브라우저 요청 대신 같은 DB 어댑터의 실제 호출을 관측한다.
+    await historyProbe(page, { fail: false, reset: true })
     await page.goto(`/broadcasts/${encodeURIComponent(cb)}`)
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
-    expect(requests.filter((r) => /\/api\/days(\/|$|\?)/.test(new URL(r.url).pathname) && new URL(r.url).pathname === '/api/days')).toEqual([])
-
+    expect((await historyProbe(page)).calls).toEqual([])
     await turnOnVoice(page)
-    const pastCalls = () => requests.filter((r) => r.method === 'GET' && /^\/api\/days\/\d{4}-\d{2}-\d{2}$/.test(new URL(r.url).pathname) && new URL(r.url).searchParams.get('rehearsal') === null && new URL(r.url).pathname !== `/api/days/${currentDate}`)
-    await expect.poll(() => pastCalls().length).toBe(10)
-    await expect.poll(() => pastCalls().every((r) => finished.has(r.url))).toBe(true)
-    // 받은 응답을 화면이 사전에 넣을 틈 (응답 처리는 페이지의 다음 작업들에서 끝난다)
-    await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 50)))
-    const fetched = pastCalls().map((r) => new URL(r.url).pathname.slice('/api/days/'.length)).sort()
+    await expect.poll(async () => (await historyProbe(page)).calls.filter((date) => date !== null).length).toBe(10)
+    const fetched = (await historyProbe(page)).calls.filter((date) => date !== null).sort()
     expect(fetched).toEqual(Array.from({ length: 10 }, (_, i) => addDays(start, 2 + i)).sort())
-    expect(requests.filter((r) => r.method === 'GET' && new URL(r.url).pathname === '/api/days')).toHaveLength(1)
+    expect((await historyProbe(page)).calls.filter((date) => date === null)).toHaveLength(1)
+    expect(requests.filter((r) => r.method === 'GET' && new URL(r.url).pathname === '/api/days')).toHaveLength(0)
 
     // 사전 결과 (이력이 들어온 뒤의 문장)
     await speak(page, '21번 펭귄얼음 만원')
@@ -81,13 +77,13 @@ test.describe('I4 판매 이력 사전', () => {
     await speak(page, '31번 수달조개 만원')
     await expect(card(page, '31번 수달조개 10,000원')).toBeVisible()
 
-    // 끄고 다시 켜도 다시 받지 않는다
+    // 새 읽기 연결은 서버에서 같은 범위를 다시 검증한다. 기기에서 이력 요청을 보내지 않는다.
     await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
     await turnOnVoice(page)
     await speak(page, '32번 펭귄얼음 만원')
     await expect(card(page, '32번 펭귄얼음 10,000원')).toBeVisible()
-    expect(pastCalls()).toHaveLength(10)
-    expect(requests.filter((r) => r.method === 'GET' && new URL(r.url).pathname === '/api/days')).toHaveLength(1)
+    expect((await historyProbe(page)).calls.filter((date) => date !== null)).toHaveLength(20)
+    expect(requests.filter((r) => r.method === 'GET' && new URL(r.url).pathname === '/api/days')).toHaveLength(0)
   })
 
   test('AC-I4-40: 조회가 실패하면 안내하고 지금 범위 + 기본 사전으로 계속', async ({ page }) => {
@@ -95,7 +91,7 @@ test.describe('I4 판매 이력 사전', () => {
     await login(page)
     const cb = await createBroadcast(page, uniqueDate(), true)
     await registerApi(page, cb, 1, CURRENT_NAME, 10000)
-    await page.route((url) => url.pathname === '/api/days', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: '서버 오류' } }) }))
+    await historyProbe(page, { fail: true, reset: true })
     await page.goto(`/broadcasts/${encodeURIComponent(cb)}`)
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
     await turnOnVoice(page)

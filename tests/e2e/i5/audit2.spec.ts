@@ -1,11 +1,14 @@
 // I5 감사 뒤 수용 기준 (test-e2e): AC-I5-25·26(D-I5-09·10, SA-I5-01·02), AC-I5-27~33(감사 2 — D-I5-11~18).
-// @webkit = webkit-iphone 묶음(사파리 흉내 가짜, iPhone 15·393px), 태그 없음 = 기본 chromium 묶음(I4 크롬 흉내 가짜).
+// @webkit = webkit-iphone 묶음(합성 PCM·실제 WS·모의 worker, iPhone 15·393px), 태그 없음 = 기본 chromium 묶음(I4 크롬 흉내 가짜).
 // 기대값은 acceptance.md·DECISIONS의 따옴표 문장 그대로다. 시각은 page.clock(멈춘 채 runFor로만 흐름).
 import { test, expect, type Page } from '@playwright/test'
+import { haltPcm, microphoneError, pcmCounts } from '../app1/support.ts'
 import {
   CONSENT_MIC,
+  LG_CONSENT,
+  LG_DATA,
+  LG_CHARGE,
   CONSENT_SENT,
-  FINAL_END_MS,
   FLUSHED_NOTE,
   MSG,
   OLD_CONSENT_MIC,
@@ -18,8 +21,6 @@ import {
   cardButton,
   cardList,
   clockConsole,
-  expectAlert,
-  firstLine,
   flushedClosed,
   installFakeSpeech,
   installSafariSpeech,
@@ -48,23 +49,15 @@ function registerPosts(requests: { method: string; body: string }[]): unknown[] 
 }
 
 /**
- * 사파리처럼 말한다: 연 지 2.1초에 말이 들리고(조용함 끝 전) 곧 끝난다 → 엔진이 새 인식 객체를 연다.
- * 연 지 2초가 넘어 끝나므로 빨리 끝남으로 세지 않는다(D-I5-01). final false면 최종 표시 없이 끝남(끝에서 넘김, D-I5-02).
+ * D-APP1b-05: 같은 문장을 실제 받아쓰기 흐름으로 보낸다. final=false인 옛 확인 카드는 10초 넘게 늦은 결과로 대체한다.
+ * 결과마다 소켓을 새로 열지 않으며 자동 등록 금지·카드 배치 기대는 그대로다.
  */
 async function sayLikeSafari(page: Page, text: string, final = true): Promise<void> {
-  const before = (await safariCounts(page)).constructed
-  // 지금 인식 객체가 연 지 2.1초가 되게 한다 — 앞 문장 뒤 조용한 시간(1.8초)을 넘겼으면 그만큼은 이미 지났다
-  const age = await page.evaluate(() => {
-    const s = (window as unknown as { __speech?: { instances: { startedAt: number }[] } }).__speech
-    const last = s?.instances.at(-1)
-    return last === undefined ? 0 : Date.now() - last.startedAt
-  })
-  await page.clock.runFor(Math.max(0, 2100 - age))
+  const before = (await pcmCounts(page)).sockets
   await safariSay(page, text, final ? {} : { final: false, endSoon: true })
-  await page.clock.runFor(FINAL_END_MS + 100)
-  // 조용한 시간(D-V2-03, 1.8초) 뒤 카드가 나온다 (AC-V2-32 — 기대 카드 글 그대로)
-  if (final) await page.clock.runFor(1800)
-  await expect.poll(async () => (await safariCounts(page)).constructed).toBe(before + 1)
+  await page.clock.runFor(1800)
+  expect((await pcmCounts(page)).sockets).toBe(before)
+
 }
 
 /** 음성 칸 상태 글자가 바뀔 때마다 모은다 (그려진 글자 모두 — "한 번도 그려지지 않음"을 보려고) */
@@ -309,7 +302,7 @@ test.describe('I5 감사 — 휴대폰에서 새 카드 보이게 내림 393×56
     await expect(boardItem(page, 19)).toBeAttached()
   })
 
-  test('AC-I5-26: 홈 화면 앱 한 줄은 카드 목록 아래에 있다 @webkit', async ({ page }) => {
+  test('AC-I5-26 → APP1-37: 홈 화면 앱도 서버 고지와 카드 목록, 옛 사파리 경고는 없음 @webkit', async ({ page }) => {
     await installSafariSpeech(page, { consent: true, standalone: true })
     await clockConsole(page)
     await pauseClock(page)
@@ -317,11 +310,9 @@ test.describe('I5 감사 — 휴대폰에서 새 카드 보이게 내림 393×56
     await sayLikeSafari(page, '16번 라울 만원')
     await sayLikeSafari(page, '17번 블루엘프 칠천원')
     await expect(cardList(page).getByRole('listitem')).toHaveCount(2)
-    const line = voiceRegion(page).getByText(STANDALONE, { exact: true })
-    await expect(line).toBeAttached()
-    const list = await cardList(page).boundingBox()
-    const box = await line.boundingBox()
-    expect(box!.y).toBeGreaterThanOrEqual(list!.y + list!.height - 0.5)
+    await expect(page.getByText(STANDALONE)).toHaveCount(0)
+    await expect(voiceRegion(page).getByText(SENT_SHORT, { exact: true })).toBeVisible()
+    await noHorizontalScroll(page)
   })
 })
 
@@ -347,8 +338,8 @@ test('AC-I5-26 PC 폭(1280): 카드가 고정 영역에 있어 내리지 않는�
 async function consentLine(page: Page): Promise<void> {
   await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
   const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
-  await expect(dlg.getByText(CONSENT_MIC, { exact: true })).toBeVisible()
-  await expect(dlg).toContainText(CONSENT_SENT)
+  if (test.info().project.name.includes('webkit')) await expect(dlg.locator('p')).toHaveText([LG_CONSENT, LG_DATA, LG_CHARGE])
+  else { await expect(dlg.getByText(CONSENT_MIC, { exact: true })).toBeVisible(); await expect(dlg).toContainText(CONSENT_SENT) }
   await expect(page.getByText(OLD_CONSENT_MIC)).toHaveCount(0)
   await dlg.getByRole('button', { name: '음성 켜기', exact: true }).click()
   await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
@@ -366,7 +357,7 @@ test('AC-I5-27 크로미움: 첫 안내 창의 권한 줄은 "브라우저가 �
   await consentLine(page)
 })
 
-test('AC-I5-27: 첫 안내 창의 권한 줄은 "브라우저가 마이크 사용을 물으면", "크롬이…"는 없다 @webkit', async ({ page }) => {
+test('AC-I5-27 → APP1-37: LG 첫 동의 세 줄, 옛 권한 문장 없음·다시 켜기 때 동의 유지 @webkit', async ({ page }) => {
   await installSafariSpeech(page)
   await login(page)
   await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
@@ -376,32 +367,32 @@ test('AC-I5-27: 첫 안내 창의 권한 줄은 "브라우저가 마이크 사�
 // ── AC-I5-29 ────────────────────────────────────────────────────────────
 
 test.describe('I5 감사 2 — 다시 시작 중 깜빡임 @webkit', () => {
-  test('AC-I5-29 (a): 연 지 3초 조용함 끝남은 "다시 시작 중"을 한 번도 그리지 않는다 @webkit', async ({ page }) => {
+  test('AC-I5-29 (a) → APP1-38: 18초 조용함은 연결을 다시 열지 않고 "다시 시작 중"을 한 번도 그리지 않는다 @webkit', async ({ page }) => {
     await installSafariSpeech(page, { consent: true })
     await clockConsole(page)
     await recordStatusTexts(page)
     await pauseClock(page)
     await turnOnVoice(page)
     for (let i = 0; i < 6; i++) await page.clock.runFor(3000)
-    await expect.poll(async () => (await safariCounts(page)).constructed).toBeGreaterThanOrEqual(7)
+    expect((await pcmCounts(page)).sockets).toBe(1)
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
-    expect(await statusTexts(page)).not.toContain('음성: 다시 시작 중')
+    expect(await statusTexts(page)).not.toContain('다시 잇는 중')
     await expect(voiceRegion(page).getByRole('alert')).toHaveCount(0)
   })
 
-  test('AC-I5-29 (b): 연 지 0초 끝남(빨리 끝남)은 "다시 시작 중"이 그려진 뒤 "듣는 중" @webkit', async ({ page }) => {
+  test('AC-I5-29 (b) → APP1-31: 연결 직후 소켓 끊김은 "다시 잇는 중"이 그려진 뒤 "듣는 중" @webkit', async ({ page }) => {
     await installSafariSpeech(page, { consent: true })
     await clockConsole(page)
     await pauseClock(page)
     await turnOnVoice(page)
     await safariEndNow(page)
-    await expect(voiceStatus(page)).toHaveText('음성: 다시 시작 중')
+    await expect(voiceStatus(page)).toHaveText('다시 잇는 중')
     await page.clock.runFor(1500)
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
     expect((await safariCounts(page)).constructed).toBe(2)
   })
 
-  test('AC-I5-29 (c): 연 지 3초에 network 뒤 끝남은 "다시 시작 중"이 그려진 뒤 "듣는 중" @webkit', async ({ page }) => {
+  test('AC-I5-29 (c) → APP1-31: 연결 후 3초에 소켓 끊김은 "다시 잇는 중"이 그려진 뒤 "듣는 중" @webkit', async ({ page }) => {
     await installSafariSpeech(page, { consent: true, silenceMs: 600_000 })
     await clockConsole(page)
     await pauseClock(page)
@@ -409,7 +400,7 @@ test.describe('I5 감사 2 — 다시 시작 중 깜빡임 @webkit', () => {
     await page.clock.runFor(3000)
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
     await safariError(page, 'network')
-    await expect(voiceStatus(page)).toHaveText('음성: 다시 시작 중')
+    await expect(voiceStatus(page)).toHaveText('다시 잇는 중')
     await page.clock.runFor(1500)
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
     expect((await safariCounts(page)).constructed).toBe(2)
@@ -482,8 +473,8 @@ test('AC-I5-30: 지원 안 함 안내는 안내 색·"닫기"·빠른 입력 등
   await unsupportedGuide(page, async (other, url) => {
     await installSafariSpeech(other, { consent: true })
     await other.goto(url) // 같은 기기(로그인 그대로)의 같은 방송
-    await turnOnVoice(other)
-    await safariError(other, 'not-allowed')
+    await microphoneError(other, 'NotAllowedError')
+    await other.getByRole('button', { name: '음성 켜기', exact: true }).click()
   })
 })
 
@@ -530,32 +521,22 @@ test.describe('I5 감사 2 — 다시 시작 한도 @webkit', () => {
     await clockConsole(page)
     await pauseClock(page)
     await turnOnVoice(page)
-    for (let i = 1; i <= 6; i++) {
-      await page.clock.runFor(3000)
-      await safariError(page, 'network')
-      if (i < 6) {
-        await expect.poll(async () => (await safariCounts(page)).constructed).toBe(i + 1)
-        await expect(voiceRegion(page).getByRole('alert')).toHaveCount(0)
-      }
-    }
-    await expectAlert(page, MSG.CONNECTION_FAILED)
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: '음성 끄기' })).toHaveCount(0)
-    expect((await safariCounts(page)).constructed).toBe(6)
-    await expect(page.getByText(firstLine(MSG.KEEPS_STOPPING))).toHaveCount(0)
+    await haltPcm(page)
+    expect((await pcmCounts(page)).sockets).toBe(6)
+    await expect(page.getByRole('button', { name: '다시 켜기', exact: true }).first()).toBeVisible()
     await register(page, '21 핑크프릴 10', 21)
   })
 
-  test('AC-I5-33 (a): 홈 화면 앱은 조용함 끝남도 세어 60초에 6번째에서 멈춘다 — 끊김 문장과 홈 화면 앱 줄 @webkit', async ({ page }) => {
+  test('AC-I5-33 (a) → APP1-38: 홈 화면 앱도 60초 조용함은 연결 하나로 계속 듣는다 @webkit', async ({ page }) => {
     await installSafariSpeech(page, { consent: true, standalone: true })
     await clockConsole(page)
     await pauseClock(page)
     await turnOnVoice(page)
     for (let i = 0; i < 20; i++) await page.clock.runFor(3000)
-    await expectAlert(page, MSG.KEEPS_STOPPING)
-    await expect(voiceRegion(page).getByText(STANDALONE, { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
-    expect((await safariCounts(page)).constructed).toBe(6)
+    await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
+    await expect(voiceRegion(page).getByRole('alert')).toHaveCount(0)
+    await expect(page.getByText(STANDALONE)).toHaveCount(0)
+    expect((await pcmCounts(page)).sockets).toBe(1)
   })
 
   test('AC-I5-33 (b): 홈 화면 앱이 아니면 같은 60초에도 오류 없이 듣는다 @webkit', async ({ page }) => {
@@ -564,7 +545,7 @@ test.describe('I5 감사 2 — 다시 시작 한도 @webkit', () => {
     await pauseClock(page)
     await turnOnVoice(page)
     for (let i = 0; i < 20; i++) await page.clock.runFor(3000)
-    await expect.poll(async () => (await safariCounts(page)).constructed).toBeGreaterThanOrEqual(21)
+    expect((await pcmCounts(page)).sockets).toBe(1)
     await expect(voiceRegion(page).getByRole('alert')).toHaveCount(0)
     await expect(voiceRegion(page).getByRole('button', { name: '음성 끄기' })).toBeVisible()
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')

@@ -1,6 +1,7 @@
 // V1 음성 문자찜 카드 — 설정·기본 흐름·넣지 않기·지금 넣기·손대기·같은 말 (AC-V1-20·21·22·24) — test-e2e.
 // 기대값은 acceptance.md 문장에서 손으로 정했다. 시각은 page.clock으로 멈추고 당긴다.
 import { test, expect } from '@playwright/test'
+import { syncReadingClock } from '../app1/support.ts'
 import {
   boardItem,
   cardList,
@@ -121,6 +122,8 @@ test.describe('V1 문자찜 카드', () => {
     // 서버의 기기 사이 같은 말 검사(D-V1-13)는 서버 도착 시각(실제 시계)으로 10초를 센다 — 브라우저 시계만 당기면 서버에겐 "방금"이라
     // VOICE_REPEATED가 난다. 실제 방송에선 두 시계가 함께 간다: 서버 쪽도 10초가 지날 때까지 기다린다(E2E 서버에 시계 손잡이가 없다).
     await expect.poll(() => Date.now() - firstSentAt, { timeout: 15_000, intervals: [250] }).toBeGreaterThan(10_500)
+    // APP1b 읽기 시계도 멈춘 브라우저 시각에 맞춘다. HTTP 중복 방어의 실제10초 대기는 위에서 그대로 검증한다.
+    await syncReadingClock(page)
     await speak(page, '165번 문자찜 끝자리 1234')
     await expect(smsCard(page, C165)).toHaveCount(2)
     await page.clock.runFor(3000)
