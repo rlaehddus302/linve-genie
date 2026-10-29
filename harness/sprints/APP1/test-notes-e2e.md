@@ -74,6 +74,7 @@
 | i4/voice-layout `I4-51 개발용어 없음` | I4-51 → APP1b 비동기 캡처 | 동의/오류재시작 직접 클릭 뒤 서버 LISTENING 및 실제 Chrome capture 시작을 기다림 | 동의·카드·설정·입력오류·음성오류 전체 문장에서 영어상태/개발용어 없음 |
 | i4/voice-onoff `I4-11 새 페이지도 창 없이` | I4-11 → D-APP1-04/APP1b 공용1 | 첫 페이지 명시OFF+실제WS닫힘 뒤 같은 context 새 페이지 켜기 | 첫 동의 정확문장·닫기/Esc/포커스·동의 영속성·새페이지 동의0/실제LISTENING·Chrome 인식설정 |
 | mob1/hide `방송을 다른 기기에서 끝내면` | MOB1-17 → APP1-44/APP1b-16 | 구 음성끄기 잔존 대신 ENDED 자동OFF | 빠른입력1초제거·치던글/늦은쓰기0·캡처/소켓종료·10초뒤 재연결0·음성켜기없음; 같은파일 끝난상품 손고치기 시험 그대로 |
+| n3/round1 `이력2초 안/끝내없음/설정전환` 3개 | N3 라운드1·I4-40·TE-V3-009 → APP1b-11 | browser /api/days route gate → 서버 실제 historyObserver hold/release·held 관측 | 지난품종 정확카드/원문기록, 응답미도착2초fallback 두카드순서, 끈채말한후옵션켜도10초 자동등록0 |
 
 ### 이력 세션 수명 해석
 
@@ -146,3 +147,8 @@
 - I4-51 비동기 캡처 준비 이행 뒤 **1/1 통과(시험5.9초)**. 최초 동의와 오류3종 반복 재시작의 문구/개발용어 금지 단언은 모두 그대로다. `work/e2e-followup-language.log`.
 
 - TE-APP1-012 수정 후 최신 선택 **9/9 통과(1.1분)**. PC 8행/변환·옵션 버튼44px, 375px·1440px 음성카드 고정영역, 375/412px 글자150% 빠른입력/되돌리기, I4-51 전체문구, 동의새페이지, ENDED 종료를 함께 검증했다. PC 선택/켜기를 공용 row로 배치하여 기존 크기/이름을 유지한다. `work/e2e-followup-final.log` 및 `work/e2e-followup-final-results`. TE-APP1-012를 resolvedIds에 추가, 현재 열린 제품 지적0. 변경 E2E typecheck/lint 및 diff 공백 검사 통과.
+
+### N3 과거 이력 대기 시험 이행
+
+- 전체 진단의 실패7~9는 서버 읽기로 이전된 이력을 브라우저 `/api/days` route에서 기다려 발생했다. E2E 전용 공급자 observer에 hold/release를 추가하여 실제 DB 읽기를 통제한다. 기대 사전/카드/쓰기 결과를 가짜로 주입하지 않는다. hold:false는 진행 중인 대기를 해제하고, held는 실제 대기 수를 반환한다. 시험 뒤에는 해제/초기화해 다음 시험에 남기지 않는다.
+- 기존 세 사례 그대로 **3/3 통과(19.6초)**: 2초 안 도착한 과거 임의 한글품종 읽기+원문기록, 응답 없이 기본사전으로 두카드 생성+순서, OFF 발화 후 이력대기 중 ON 전환에도10초 자동쓰기0. 발화가 서버에 소비된 뒤 gate를 푸는 준비 관측만 추가했다. 결과 `work/e2e-n3-history-results`, 로그 `work/e2e-n3-history.log`. 변경 시험 tsc/lint/diff 공백 검사 통과.

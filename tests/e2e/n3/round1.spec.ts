@@ -9,9 +9,11 @@ import { card, installFakeSpeech, openExtras, openNewBroadcast, openVoiceLog, re
 import { closeMore, expectPhoneBar, fakeReviewCount, moreButton, moreLinks, openMore } from '../menu.ts'
 import { cleanupPrint } from '../i1/support.ts'
 import { loginNewSeller } from '../i3/support.ts'
+import { historyProbe, waitReadingHeard } from '../app1/support.ts'
 
 // 출력 기록은 판매자 단위 — 판매(1등)가 만든 라벨 작업을 남기면 뒤 시험(N4a 등)의 출력 기기가 쌓인 라벨로 멈춘다 (i1 support "시험끼리 출력 기록이 섞이지 않게")
 test.afterEach(async ({ page }) => {
+  await historyProbe(page, { hold: false, delayMs: 0, fail: false, reset: true })
   await cleanupPrint(page)
 })
 
@@ -133,19 +135,14 @@ test.describe('음성 — 이력을 받는 동안 말한 문장 (수정 라운�
     return b
   }
 
-  /** 지난 범위 조회(/api/days 목록)를 붙잡아 두는 문 — release를 부르면 그때 보낸다 */
-  async function holdHistory(page: Page): Promise<{ held: () => number; release: () => void }> {
-    const waiting: Route[] = []
-    let open = false
-    await page.route((url) => url.pathname === '/api/days', async (route: Route) => {
-      if (open) return route.fallback()
-      waiting.push(route)
-    })
+  /** APP1b: 서버의 실제 이력 공급자만 붙잡는다. 해제 뒤 같은 DB 읽기를 진행한다. */
+  async function holdHistory(page: Page): Promise<{ held: () => Promise<number>; release: () => Promise<void> }> {
+    await historyProbe(page, { hold: true, delayMs: 0, fail: false, reset: true })
     return {
-      held: () => waiting.length,
-      release: () => {
-        open = true
-        for (const r of waiting.splice(0)) void r.fallback()
+      held: async () => (await historyProbe(page)).held,
+      release: async () => {
+        await historyProbe(page, { hold: false })
+        await expect.poll(async () => (await historyProbe(page)).pending).toBe(0)
       },
     }
   }
@@ -159,9 +156,10 @@ test.describe('음성 — 이력을 받는 동안 말한 문장 (수정 라운�
     await turnOnVoice(page)
     await expect.poll(() => gate.held()).toBe(1)
     await speak(page, `41번 ${pastName} 만원`)
+    await waitReadingHeard(page, `41번 ${pastName} 만원`)
     // 이력을 받기 전엔 카드가 없다(미룸) — 받으면(기다림 2초 안) 이력 사전으로
     await expect(page.getByRole('list', { name: '음성 카드' }).getByRole('listitem')).toHaveCount(0)
-    gate.release()
+    await gate.release()
     await expect(card(page, `41번 ${pastName} 10,000원`)).toBeVisible()
     await expect(card(page, '41번 품종 미입력 10,000원')).toHaveCount(0)
     // 음성 기록에도 남는다 (D-V2-21 — "들린 말 기록" 대신)
@@ -183,9 +181,9 @@ test.describe('음성 — 이력을 받는 동안 말한 문장 (수정 라운�
     await expect(card(page, '42번 핑크프릴 10,000원')).toBeVisible()
     const order = await page.getByRole('list', { name: '음성 카드' }).getByRole('listitem').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')))
     expect(order.slice(0, 2)).toEqual(['43번 라울 5,000원 카드', '42번 핑크프릴 10,000원 카드'])
-    expect(gate.held()).toBe(1)
+    expect(await gate.held()).toBe(1)
     await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
-    gate.release()
+    await gate.release()
   })
 })
 
@@ -196,24 +194,20 @@ test.describe('음성 — 이력을 받는 동안 미룬 문장과 자동 등록
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.clock.install()
     await login(page)
-    const waiting: Route[] = []
-    let open = false
-    await page.route((url) => url.pathname === '/api/days', async (route: Route) => {
-      if (open) return route.fallback()
-      waiting.push(route)
-    })
+    await historyProbe(page, { hold: true, delayMs: 0, fail: false, reset: true })
     const date = uniqueDate()
     await openNewBroadcast(page, { date, rehearsal: true })
     await turnOnVoice(page)
     const now = await page.evaluate(() => Date.now())
     await page.clock.pauseAt(now + 500)
-    await expect.poll(() => waiting.length).toBe(1)
+    await expect.poll(async () => (await historyProbe(page)).held).toBe(1)
     await speak(page, '15번 라울 만원') // 자동 등록이 꺼진 채 말함
+    await waitReadingHeard(page, '15번 라울 만원')
     // V3 교체(D-V3-01·D-V3-22 b): 자동 등록 설정은 "번호와 가격이 들리면 바로 등록"(옛 키는 읽지 않음 — 준비 단계에서 끔, D-V3-22 a)
     const box = (await openExtras(page)).getByRole('checkbox', { name: '번호와 가격이 들리면 바로 등록' })
     await box.check()
-    open = true
-    for (const r of waiting.splice(0)) await r.fallback()
+    await historyProbe(page, { hold: false })
+    await expect.poll(async () => (await historyProbe(page)).pending).toBe(0)
     await page.clock.runFor(1800) // 조용한 시간(D-V2-03) 뒤 카드가 나온다 (AC-V2-32)
     const c = card(page, '15번 라울 10,000원')
     await expect(c).toBeVisible()

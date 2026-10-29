@@ -199,13 +199,13 @@ export async function microphoneError(page: Page, name: 'NotAllowedError' | 'Not
 }
 
 /** 서버 이력 어댑터의 관측/실패 주입. 운영 서버에는 이 경로가 없다. */
-export async function historyProbe(page: Page, options?: { fail?: boolean; delayMs?: number; reset?: boolean; loginId?: string }): Promise<{ fail: boolean; delayMs: number; calls: (string | null)[]; pending: number; completed: number }> {
+export async function historyProbe(page: Page, options?: { fail?: boolean; delayMs?: number; hold?: boolean; reset?: boolean; loginId?: string }): Promise<{ fail: boolean; delayMs: number; hold: boolean; held: number; calls: (string | null)[]; pending: number; completed: number }> {
   const server = e2eServerUrl(test.info().project.name)
   const response = options === undefined
     ? await page.request.get(`${server}/_e2e/voice/history?loginId=e2e-shop`)
     : await page.request.post(`${server}/_e2e/voice/history`, { data: { loginId: 'e2e-shop', ...options } })
   expect(response.status(), await response.text()).toBe(200)
-  return await response.json() as { fail: boolean; delayMs: number; calls: (string | null)[]; pending: number; completed: number }
+  return await response.json() as { fail: boolean; delayMs: number; hold: boolean; held: number; calls: (string | null)[]; pending: number; completed: number }
 }
 
 /** 실제 기기 소켓을 끊고 APP1의 1·2·4·8·8초 재시도 간격으로 다시 붙인다. */
