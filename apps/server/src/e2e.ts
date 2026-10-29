@@ -231,8 +231,13 @@ function daysBefore(date: string, days: number): string {
  *   오늘보다 앞선 봉인 전 실제 날짜를 적고, 봉인된 날짜 줄은 굳힌다 — /_e2e/seal 앞에 부르면 "차례가 돈 봉인 날짜", 부르지 않으면 "돌지 않은 봉인 날짜"
  * 그 밖의 요청은 서버 앱으로 그대로 (요청 정보 env도 — 로그인 IP 한도)
  */
-interface E2eVoiceHistoryState { fail: boolean; delayMs: number; calls: (string | null)[]; pending: number; completed: number }
-const emptyVoiceHistory = (): E2eVoiceHistoryState => ({ fail: false, delayMs: 0, calls: [], pending: 0, completed: 0 })
+interface E2eVoiceHistoryState { fail: boolean; delayMs: number; hold: boolean; calls: (string | null)[]; pending: number; completed: number; waiters: Set<() => void> }
+const emptyVoiceHistory = (): E2eVoiceHistoryState => ({ fail: false, delayMs: 0, hold: false, calls: [], pending: 0, completed: 0, waiters: new Set() })
+const voiceHistoryView = ({ waiters, ...state }: E2eVoiceHistoryState) => ({ ...state, held: waiters.size })
+function releaseVoiceHistory(state: E2eVoiceHistoryState): void {
+  for (const release of state.waiters) release()
+  state.waiters.clear()
+}
 type E2eVoiceHistory = Map<string, E2eVoiceHistoryState>
 export function e2eControl(
   server: LivejjimServer,
@@ -303,16 +308,20 @@ export function e2eControl(
     control.get('/_e2e/voice/history', async (c) => {
       const seller = await sellerOf({ loginId: c.req.query('loginId') })
       if (seller === null) return c.json({ error: 'seller' }, 400)
-      return c.json(voiceHistory.get(seller) ?? emptyVoiceHistory())
+      return c.json(voiceHistoryView(voiceHistory.get(seller) ?? emptyVoiceHistory()))
     })
     control.post('/_e2e/voice/history', async (c) => {
       const body = await read(c.req.raw)
       const seller = await sellerOf(body)
-      if (seller === null || (body.fail !== undefined && typeof body.fail !== 'boolean') || (body.delayMs !== undefined && (typeof body.delayMs !== 'number' || !Number.isInteger(body.delayMs) || body.delayMs < 0 || body.delayMs > 30_000))) return c.json({ error: 'input' }, 400)
-      const old = voiceHistory.get(seller) ?? emptyVoiceHistory()
-      const state = { fail: typeof body.fail === 'boolean' ? body.fail : old.fail, delayMs: typeof body.delayMs === 'number' ? body.delayMs : old.delayMs, calls: body.reset === true ? [] : old.calls, pending: old.pending, completed: body.reset === true ? 0 : old.completed }
+      if (seller === null || (body.fail !== undefined && typeof body.fail !== 'boolean') || (body.hold !== undefined && typeof body.hold !== 'boolean') || (body.delayMs !== undefined && (typeof body.delayMs !== 'number' || !Number.isInteger(body.delayMs) || body.delayMs < 0 || body.delayMs > 30_000))) return c.json({ error: 'input' }, 400)
+      const state = voiceHistory.get(seller) ?? emptyVoiceHistory()
+      if (typeof body.fail === 'boolean') state.fail = body.fail
+      if (typeof body.delayMs === 'number') state.delayMs = body.delayMs
+      if (typeof body.hold === 'boolean') state.hold = body.hold
+      if (body.reset === true) { state.calls = []; state.completed = 0 }
       voiceHistory.set(seller, state)
-      return c.json(state)
+      if (!state.hold) releaseVoiceHistory(state)
+      return c.json(voiceHistoryView(state))
     })
   }
   if (webcast !== undefined && webcast !== null) registerTiktokControl(control, webcast, read)
@@ -628,6 +637,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
       if (phase === 'complete') { state.pending = Math.max(0, state.pending - 1); state.completed++; return }
       state.pending++
       state.calls.push(date)
+      if (state.hold) await new Promise<void>((resolve) => state.waiters.add(resolve))
       if (state.delayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, state.delayMs))
       if (state.fail) throw new Error('시험 이력 저장소 연결 실패')
     },
@@ -735,6 +745,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         })
       }),
     close: async () => {
+      for (const state of voiceHistory.values()) { state.fail = true; releaseVoiceHistory(state) }
       server.close()
       await server.stop()
       await fakeGoogle?.close()
