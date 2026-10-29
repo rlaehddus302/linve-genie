@@ -112,12 +112,25 @@ const cleanup = () => {
   }
   if (!exited) child.kill('SIGTERM')
 }
-process.on('SIGINT', () => {
-  cleanup()
-  process.exit(130)
-})
+// 어떻게 끝나든(오류·SIGTERM·Ctrl+C) 일꾼을 남기지 않는다 — 일꾼은 서버가 없어도 끝없이 다시 붙으려 해 고아로 남으면 모델 메모리를 쥔다.
+process.on('exit', cleanup)
+for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) {
+  process.on(signal, () => {
+    cleanup()
+    process.exit(code)
+  })
+}
 
-const worker = await Promise.race([hello, new Promise((_, reject) => setTimeout(() => reject(new Error('일꾼이 3분 안에 붙지 않았어요')), 180_000))])
+// 모델 불러오기는 다른 측정과 겹치면 몇 분 넘게 걸린다 — 10분 기다리고, 일꾼이 먼저 끝나면 바로 멈춘다.
+const workerExited = new Promise((_, reject) => child.on('exit', () => reject(new Error('일꾼이 붙기 전에 끝났어요 (run.log를 보세요)'))))
+const worker = await Promise.race([
+  hello,
+  workerExited,
+  new Promise((_, reject) => setTimeout(() => reject(new Error('일꾼이 10분 안에 붙지 않았어요')), 600_000).unref()),
+]).catch((error) => {
+  log(error.message)
+  process.exit(1)
+})
 log('일꾼이 붙었어요 — 흐름을 열고 소리를 흘려요')
 worker.sendText(JSON.stringify({ type: 'open', stream: STREAM }))
 
