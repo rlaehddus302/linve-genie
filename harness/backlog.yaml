@@ -1170,10 +1170,13 @@ sprints:
       '다시 잇는 중'·'듣기 멈춤' 큰 빨간 글과 빠른 입력, 음성이 안 되는 기기 문장(D-APP-18).
       측정: 실방송 재생 시험 — 녹음 소리를 실시간 속도로 흘려 넣어 경성·금화 점수와 말 끝→글 지연 p50·p95(목표 1.5초) 기록(VOC-07 AC5, 게이트 밖).
       순서 device → server → web. 수용 기준: harness/sprints/APP1/acceptance.md(스프린트 시작 때 spec-keeper가 SPEC VOC-06 AC1~AC8·VOC-07 AC1~AC6에서 작성), D-APP-01·D-APP-03~D-APP-15·D-APP-18.
+    note: >
+      자동 구현·통합 검증 범위 완료. pnpm verify 7/7·pnpm perf·두 BASE 보호 게이트 통과.
+      HG-APP1·HG-APP2 및 AC-APP1b-03 실방송 전후 재생 측정은 미확인으로 남음; 모든 수용 기준 통과·실방송 운용 검증 완료를 뜻하지 않음.
     carryOver:
-      - "사람 확인 HG-APP1: 맥 미니 설치·모델 내려받기·상시 켜 두기, 실제 방송 같은 공간 ②폰 지연·정확도 (사용자 확인 표)"
+      - "사람 확인 HG-APP1: 이 맥의 Cohere 모델 설치·실제 로컬 연결은 완료. 상시 운영 장치/호스팅, 실제 방송 공간·휴대폰 마이크·망·다중 흐름·장시간 운용은 미확인. 느린 처리6,506ms 표본도 보존하며 실방송 지연1.5초·p95·정확도는 미확인"
     specIds: [VOC-01, VOC-05, VOC-06, VOC-07]
-    status: doing
+    status: done
 
   - id: APP1b
     phase: 7
@@ -1190,8 +1193,13 @@ sprints:
       web: 기기 추출 코드·품종 사전을 번들에서 빼고 서버 읽은 결과로 큰 글자 칸·카드·바로 등록 요청·되돌리기(설정 '바로 등록'은 기기 적용, 10초 늦은 글은 기기 시각). 크롬 받아쓰기 길도 서버 읽기로.
       측정: 재생 시험(scripts/replay)을 서버 읽기로 돌려 경성·금화·바로 등록 수가 이전과 같음을 보고에 전후로 남김(APP-05 AC2, 게이트 밖). 다르면 이전을 멈추고 사용자 확인 표.
       순서 server → web. 수용 기준: harness/sprints/APP1b/acceptance.md(SPEC APP-05 AC1~AC8에서 작성), D-APP-20·D-APP-21·D-APP-03.
+    note: >
+      자동 구현·통합 검증 범위 완료. pnpm verify 7/7·pnpm perf·두 BASE 보호 게이트 통과.
+      HG-APP1·HG-APP2 및 AC-APP1b-03 실방송 전후 재생 측정은 미확인으로 남음; 모든 수용 기준 통과·실방송 운용 검증 완료를 뜻하지 않음.
+    carryOver:
+      - "AC-APP1b-03: 경성·금화 원자료/truth/transcript 부재로 동일 입력 전후 점수·바로 등록 수 미확인. 자료 확보 후 비교하며, 불일치 시 D-APP-21에 따라 이전 중단·수정."
     specIds: [APP-05, VOC-02, VOC-03, VOC-04, VOC-06]
-    status: doing
+    status: done
 
   - id: APP2
     phase: 7
@@ -1211,11 +1219,14 @@ sprints:
       시험: domain — 프린터 골든 바이트 동일(APP-03 AC1·AC3), 조각 형식(APP-02 AC3). e2e — 웹 쪽(페이지 숨김 흉내·모의 프린터·모의 받아쓰기 서버)과 앱 화면 단위·에뮬레이터·시뮬레이터로 가능한 범위.
       EAS 계정·스토어 계정(애플 연 $99·구글 $25)·시뮬레이터용 Xcode·안드로이드 SDK·실기기는 사람 확인(D-APP-17·D-APP-19) — 없으면 로컬 개발 빌드·안드로이드 APK 로컬 빌드까지 하고 보고.
       순서 device → web. 수용 기준: harness/sprints/APP2/acceptance.md(SPEC APP-01~APP-04 AC에서 작성), D-APP-19·D-APP-20·D-APP-11·D-APP-12·D-APP-16(돌아오기)·D-APP-17.
+    note: >
+      자동 구현·통합 검증 범위 완료. pnpm verify 7/7·pnpm perf·두 BASE 보호 게이트 통과.
+      HG-APP1·HG-APP2 및 AC-APP1b-03 실방송 전후 재생 측정은 미확인으로 남음; 모든 수용 기준 통과·실방송 운용 검증 완료를 뜻하지 않음.
     carryOver:
-      - "사람 확인 HG-APP2: EAS·스토어 계정, 실제 안드로이드·아이폰 설치, 앱 전환·화면 꺼짐 중 듣기, 아이폰 B1 30장, 배터리·데이터 (사용자 확인 표)"
+      - "사람 확인 HG-APP2: Expo iOS/Android export는 완료. Xcode 전체·Android SDK·서명 환경·실기기가 없어 설치 가능한 서명 앱/APK 및 실제 설치는 미확인. EAS·스토어 계정, 앱 전환·화면 꺼짐 중 듣기, 아이폰 B1 30장, 배터리·데이터 확인 필요"
       - "열린 문제: 나머지 화면(정산·택배·판매대장·가게 설정)을 앱 화면으로 옮기는 차례, PC 웹을 Expo web으로 합칠지(D-APP-19)"
     specIds: [APP-01, APP-02, APP-03, APP-04, APP-05, LBL-06, NFR-05, NFR-09]
-    status: doing
+    status: done
 
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
