@@ -29,3 +29,8 @@ test-results/
 
 # 실방송 재생 시험 자료(소리·정산서·영수증 — 개인정보, 커밋 금지)
 /.live-replay/
+
+# Expo 앱 로컬 결과물 (apps/mobile — 네이티브 폴더는 EAS가 클라우드에서 만든다)
+/apps/*/.expo/
+/apps/mobile/android/
+/apps/mobile/ios/
