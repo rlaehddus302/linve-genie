@@ -156,3 +156,14 @@
 - 전체 진단의 실패10(`o4/attacks` TE-O4-ATK-4, 옵션 L 2개 미리보기/출력 bitmap 비교)은 이미 수정한 canonical 서버 미리보기의 이전 빌드 결과였다. 최신 빈 서버에서 기존 시험 그대로 **1/1 통과(6.7초)**. 출력 대기/이력 옵션·수량, M 취소 시 버릴 라벨, L 2개 픽셀 일치를 모두 보존했다. 로그 `work/e2e-option-label.log`, 결과 `work/e2e-option-label-results`. 추가 코드 변경 없음.
 
 - RA-APP2-004 성능 보완과 단일키 조회의 await 전 상태 고정까지 포함한 최신 빌드에서 라벨 회귀 **4/4 통과(35.7초)**: 상품 미리보기/실제 시험 프린터/PNG 픽셀, 25장 A4 두 쪽, 포장 묶음 변경, 옵션·수량/취소 라벨을 기존 시험 그대로 확인했다. 별도 빈 서버 `E2E_ONLY=chromium E2E_PORT_OFFSET=30000`; 로그 `work/e2e-label-final.log`, 결과 `work/e2e-label-final-results`. 전체 진단의 기존 서버와 빌드는 변경하지 않았다.
+
+- 전체 진단의 실패11(`s06/layout` TE-S06-004, PC 1440×900 채팅 8행 기대7)은 TE-APP1-012와 같은 이전 빌드의 밀도 회귀다. 최신 빈 서버에서 기존 시험·≥8 단언 그대로 **1/1 통과(11초)**. 로그 `work/e2e-s06-density.log`, 결과 `work/e2e-s06-density-results`. 새 제품·시험 수정 없음.
+
+### 실제 서버 AudioWorklet 로딩 경계
+
+- **TE-APP1-013** (major / spec, CONFIRMED, area=web, file=`apps/web/src/voice/transport.ts`, specRef=`AC-APP1-30·34 / AC-APP1b-04`): 실제 연습 서버에서 Chromium 합성 WAV 장치의 getUserMedia와 AudioContext(48kHz, running)는 성공했지만 `audioWorklet.addModule(blobURL)`이 `AbortError: Unable to load a worklet's module.`로 실패했다. PCM0/등록POST0, 트랙·WS 종료, 화면은 마이크 없음 문장이다. 실제 사용자 마이크는 사용하지 않았고 일꾼은 로컬 Cohere였다. 실패 단계 관측은 원본 API 호출/예외를 보존한다. CSP console/violation 이벤트는0이므로 CSP가 직접 원인이라고 단정하지 않는다. 이전 근거 `work/real-asr-browser-before-fix.json`.
+- 개발 담당이 같은 PCM 본문을 독립 JS 자산으로 옮겨 같은 출처에서 읽도록 수정했다. 기존 `script-src 'self'`/`worker-src 'self'` 정책과 음성 켜기 전 지연 로딩은 유지한다. 최신 `?url`/해당 자산만 inline 제외 구성에서 독립 `@served` **6/6 통과(10.3초)**: 새 실제 AudioWorklet→16kHz PCM→WS→서버 읽기→등록POST1/DB1→트랙·흐름 종료 및 CSP0, 기존 I3/LND1 보안5개. `tests/e2e/app1/served-voice.spec.ts` 추가, 기존 보안 단언은 수정하지 않았다. 모의 일꾼의 말끝은 실제 VAD 계약대로 0.4초 쉼 이전 표본 위치다.
+- 위 실행은 `work/served-voice.playwright.config.mts`의 별도 빌드 `work/e2e-served-voice-web`만 사용하여 진행 중인 전체 진단의 shared served-web을 보존했다. 로그 `work/e2e-served-voice.log`, 결과 `work/e2e-served-voice-results`. TE-APP1-013의 운영 묶음 로딩 회귀는 해결 확인됐으며, 실제 Cohere 브라우저 관통 결과는 별도 후속 기록한다.
+
+- 일반 Chromium 최신 회귀 **3/3 통과(9.8초)**: 기존 실제 PCM→등록→끄기, 일꾼 없음의 안내·손입력, 누르기 전 캡처/이력/음성 자산0 및 새로고침·다른 화면 후 OFF. 원형 시험을 바꾸지 않았다. `work/e2e-worklet-regression.log`, `work/e2e-worklet-regression-results`. 신규 E2E typecheck/lint 및 diff 공백 검사 통과.
+- 실제 브라우저→로컬 Cohere→저장 관통 smoke **통과(5,600ms)**: 375px Chromium의 합성 WAV 파일 장치만 사용, native getUserMedia1→48kHz AudioContext→동일출처 AudioWorklet→PCM45틀(잘못된 크기0)→실제 Cohere 최종 글 `15번 핑크프릴 2만 원.`(말끝3,392ms)→등록POST1/HTTP200→DB15번·핑크프릴·20,000원1건. 끄기 뒤 모든 트랙 ended/WS closed, CSP 위반0. 모의 일꾼/인식 글 주입0, 실제 사용자 마이크0, 새 연습 리허설만 생성했다. 자격정보는 환경변수로만 전달했고 결과·화면에 저장하지 않았다. `work/real-asr-browser-result.json`, `outputs/livegenie-cohere-browser.jpg`를 직접 확인했다. TE-APP1-013을 resolvedIds에 추가, 현재 열린 제품 지적0. 이 합성 입력 1건은 실제 iPhone·실사용 음성 정확도·실제 BLE 프린터 하드웨어 검증을 대신하지 않는다.
