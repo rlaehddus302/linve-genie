@@ -13,7 +13,8 @@ export const SPEECH_STATE_LABELS: Readonly<Record<SpeechState, string>> = Object
   HALTED: '멈춤',
 })
 
-export type SpeechErrorKind =
+/** 모든 엔진이 같은 문장(SPEECH_ERROR_MESSAGES)을 쓰는 까닭 */
+export type BasicSpeechErrorKind =
   | 'UNSUPPORTED'
   | 'PERMISSION_DENIED'
   | 'SERVICE_OFF'
@@ -22,17 +23,17 @@ export type SpeechErrorKind =
   | 'CONNECTION_FAILED'
   | 'KEEPS_STOPPING'
   | 'OTHER'
-  // 라이브지니 받아쓰기 (VOC-06·VOC-07, D-APP1-03): 서버가 닫는 까닭 OTHER_DEVICE·BUSY·NO_WORKER·AUTH
-  | 'OTHER_DEVICE'
-  | 'TRANSCRIBE_BUSY'
-  | 'TRANSCRIBE_OFF'
-  | 'LOGIN_ENDED'
+
+/** 라이브지니 받아쓰기만의 까닭 (VOC-06·VOC-07, D-APP1-03): 서버가 닫는 까닭 OTHER_DEVICE·BUSY·NO_WORKER·AUTH. 문장은 livegenie.ts의 LIVEGENIE_ERROR_MESSAGES */
+export type LiveGenieErrorKind = 'OTHER_DEVICE' | 'TRANSCRIBE_BUSY' | 'TRANSCRIBE_OFF' | 'LOGIN_ENDED'
+
+export type SpeechErrorKind = BasicSpeechErrorKind | LiveGenieErrorKind
 
 /**
  * 오류 문장 (D-205 표, I5에서 D-I5-03으로 바꿈 — 영어 상태값·개발 용어 없음, UX-01·UX-03).
  * 기기 이름(UA)으로 가르지 않고 모든 기기에 맞는 한 문장을 쓴다(D-036).
  */
-export const SPEECH_ERROR_MESSAGES: Readonly<Record<SpeechErrorKind, string>> = Object.freeze({
+export const SPEECH_ERROR_MESSAGES: Readonly<Record<BasicSpeechErrorKind, string>> = Object.freeze({
   UNSUPPORTED: '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.',
   // D-I5-12·D-I5-13: 여러 줄 문장은 \n으로 나눈다(첫 줄 = 무슨 일, 다음 줄 = 할 일). 화면은 줄마다 따로 보인다
   PERMISSION_DENIED: '마이크 사용이 막혀 있어요.\n· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.\n· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.',
@@ -42,11 +43,6 @@ export const SPEECH_ERROR_MESSAGES: Readonly<Record<SpeechErrorKind, string>> = 
   CONNECTION_FAILED: '음성 인식 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.',
   KEEPS_STOPPING: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.',
   OTHER: '음성 인식이 멈췄어요. 다시 켜 주세요.',
-  // 라이브지니 받아쓰기 거절·멈춤 문장 (acceptance "약속" 표, VOC-07 동시 처리, D-APP1-03) — 글자 그대로
-  OTHER_DEVICE: '음성은 다른 기기에서 듣는 중이에요.',
-  TRANSCRIBE_BUSY: '지금 받아쓰기가 바빠요. 상품은 빠른 입력으로 넣어 주세요.',
-  TRANSCRIBE_OFF: '받아쓰기 서버가 꺼져 있어요. 상품은 빠른 입력으로 넣어 주세요.',
-  LOGIN_ENDED: '로그인이 끝나 음성 듣기를 멈췄어요. 다시 로그인해 주세요.',
 })
 
 /** 인식 결과. 중간 결과(final: false)는 자막용, 추출은 최종 결과만 한다 */
@@ -84,7 +80,7 @@ export interface SpeechError {
   readonly message: string
 }
 
-export const speechError = (kind: SpeechErrorKind): SpeechError => ({ kind, message: SPEECH_ERROR_MESSAGES[kind] })
+export const speechError = (kind: BasicSpeechErrorKind): SpeechError => ({ kind, message: SPEECH_ERROR_MESSAGES[kind] })
 
 export interface SpeechEngine {
   readonly kind: SpeechEngineKind
@@ -206,7 +202,7 @@ export abstract class BaseSpeechEngine implements SpeechEngine {
   }
 
   /** 오류로 멈춘다: 오류를 알리고 상태를 멈춤으로 */
-  protected halt(kind: SpeechErrorKind): void {
+  protected halt(kind: BasicSpeechErrorKind): void {
     this.errors.emit(speechError(kind))
     this.setState('HALTED')
   }

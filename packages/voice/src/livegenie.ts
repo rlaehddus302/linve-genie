@@ -10,7 +10,7 @@
 //  - OTHER_DEVICE·AUTH = 언제든 멈춤(다시 잇지 않음). ENDED = 음성 끔(새 문장 없음, D-V3-52).
 //  - 끊긴 동안 넣은 소리는 보내지 않고 버린다. 다시 이은 흐름의 시각은 그 흐름의 첫 소리부터 다시 잰다.
 // 말 끝 시각 = 그 흐름(연결)에서 보낸 첫 소리를 잡은 기기 시각 + 결과의 endMs. 처리 시각이 말 끝보다 10,000ms 넘게 뒤면 늦은 글(isLateSpeech).
-import { BaseSpeechEngine, Listeners, RestartLimiter, type SpeechResult, type SpeechState } from './speech.ts'
+import { BaseSpeechEngine, Listeners, RestartLimiter, type LiveGenieErrorKind, type SpeechResult, type SpeechState } from './speech.ts'
 import type { RelayConnect, RelayConnection, RelayHandlers } from './cloud.ts'
 import type { SpeechTimers } from './web-speech.ts'
 import { PCM_BYTES_PER_MS } from './pcm16.ts'
@@ -50,6 +50,13 @@ export const LIVEGENIE_LISTENING_TEXT = '듣는 중…'
 export const LIVEGENIE_CONNECTION_FAILED_MESSAGE = '듣기 멈춤 · 받아쓰기 서버에 연결하지 못했어요. 상품은 빠른 입력으로 넣어 주세요.'
 /** 음성이 안 되는 기기 (D-APP-18) — 까닭 종류는 UNSUPPORTED, PC·크롬으로 보내는 말 없음 */
 export const LIVEGENIE_UNSUPPORTED_MESSAGE = '이 기기에서는 음성이 어려워요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.'
+/** 라이브지니 받아쓰기 거절·멈춤 문장 (acceptance "약속" 표, VOC-07 동시 처리, D-APP1-03) — 글자 그대로 */
+export const LIVEGENIE_ERROR_MESSAGES: Readonly<Record<LiveGenieErrorKind, string>> = Object.freeze({
+  OTHER_DEVICE: '음성은 다른 기기에서 듣는 중이에요.',
+  TRANSCRIBE_BUSY: '지금 받아쓰기가 바빠요. 상품은 빠른 입력으로 넣어 주세요.',
+  TRANSCRIBE_OFF: '받아쓰기 서버가 꺼져 있어요. 상품은 빠른 입력으로 넣어 주세요.',
+  LOGIN_ENDED: '로그인이 끝나 음성 듣기를 멈췄어요. 다시 로그인해 주세요.',
+})
 /** 첫 안내 창 세 줄 (D-APP-08·D-APP-11) — 글자 그대로 */
 export const LIVEGENIE_CONSENT_LINES: readonly string[] = Object.freeze([
   '음성 듣기를 켜면 이 기기 마이크 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.',
@@ -374,10 +381,11 @@ export class LiveGenieSpeechEngine extends BaseSpeechEngine {
     }, delay)
   }
 
-  private haltWith(kind: 'OTHER_DEVICE' | 'LOGIN_ENDED' | 'TRANSCRIBE_BUSY' | 'TRANSCRIBE_OFF'): void {
+  private haltWith(kind: LiveGenieErrorKind): void {
     this.wanted = false
     this.cancelTimer()
-    this.halt(kind)
+    this.emitError({ kind, message: LIVEGENIE_ERROR_MESSAGES[kind] })
+    this.setState('HALTED')
   }
 
   private errorsEmit(kind: 'CONNECTION_FAILED' | 'UNSUPPORTED', message: string): void {

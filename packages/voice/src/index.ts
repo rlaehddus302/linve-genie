@@ -253,6 +253,8 @@ export {
   type SpeechEngineKind,
   type SpeechError,
   type SpeechErrorKind,
+  type BasicSpeechErrorKind,
+  type LiveGenieErrorKind,
   type SpeechResult,
   type SpeechState,
 } from './speech.ts'
@@ -304,6 +306,7 @@ export {
   LIVEGENIE_CLOSE_REASONS,
   LIVEGENIE_CONNECTION_FAILED_MESSAGE,
   LIVEGENIE_CONSENT_LINES,
+  LIVEGENIE_ERROR_MESSAGES,
   LIVEGENIE_LISTENING_TEXT,
   LIVEGENIE_NOTICE,
   LIVEGENIE_STATE_LABELS,
