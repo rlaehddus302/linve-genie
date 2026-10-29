@@ -66,6 +66,22 @@ pnpm replay all     <방송> [record 옵션]                                   #
 - 이벤트 사이가 `--max-step`(기본 10초)보다 길면 10초는 그대로 돌리고 나머지는 한 번에 건너뛴다(그 사이 타이머는 한 번만 돈다).
 - 녹음 중 크롬이 다시 켜진 자리에서는 앞 인식 객체에 끝(end)을 대신 내 화면이 새 객체를 열게 한다.
 
+## stream — 라이브지니 받아쓰기 일꾼 재생 측정 (APP1, VOC-07 AC5, 게이트 밖)
+
+```
+node scripts/replay/stream.mjs <방송> [--from 초] [--duration 초] [--speed 1] [--model cohere|whisper] [--python <파이썬>]
+```
+
+- 녹음 wav를 100ms(3,200바이트) 조각으로 `--speed`배 속도로 흘려 넣는다. 진짜 파이썬 일꾼(`packages/voice/transcriber`)을 띄우고,
+  일꾼은 이 스크립트가 127.0.0.1에 연 측정용 서버(일꾼 약속 그대로 — 토큰 머리글·hello·open·흐름 번호 4바이트 + PCM)로 먼저 붙는다.
+- 파이썬은 `--python` 또는 `LIVEJJIM_PYTHON`(기본 `.live-replay/work/asr/.venv-cohere/bin/python` — `requirements.txt` 꾸러미가 든 가상 환경).
+- `--speed 1`일 때만 지연을 잰다: 말 끝(조각 끝 표본) → 글 도착 p50·p95. 기기가 100ms 조각을 모으는 기다림은 들고, 망 지연은 들지 않는다.
+  점수(경성·금화)는 조각 나누기·글이 속도와 상관없으므로 `--speed 6` 같은 빠른 속도로 전체를 돌려 잰다.
+- 결과 `runs/stream-<모델>-<시각>/`: `asr.json`(from-whisper 모양, 받아쓴 글 — 개인정보라 콘솔에 찍지 않음), `latency.json`(숫자만), `run.log`(일꾼 로그 — 셈만).
+- 채점: `node scripts/replay/from-whisper.mjs <asr.json> <방송> <이름> --interim 0` → `node scripts/replay/cli.mjs replay <방송> --run <이름>` (`score.json`의 `OK_FIRST + OK_AFTER_FIX`가 점수).
+  `--interim 0`: 라이브지니 받아쓰기는 중간 결과가 없다.
+- 지금은 라이브지니 서버의 기기 음성 웹소켓(`/api/voice/stream`)을 거치지 않는다(측정용 서버가 서버 자리) — 서버 중계를 거친 지연은 HG-APP1에서 실기기로 본다.
+
 ## 도는 차례 (loop)
 
 1. 방송마다 **record를 한 번** (실제 소리, 실시간). 밤새 돌려도 된다 — 무인 실행용이다.
