@@ -11,6 +11,11 @@ import { randomBytes } from 'node:crypto'
 import { containsPhoneRun, currentBuyerOf, getProduct, listBroadcasts, listEffects, listProducts, type EngineState } from '@livejjim/core'
 import {
   computePackingText,
+  renderProductLabel,
+  renderPackingLabels,
+  renderTestLabel,
+  type LabelBitmap,
+  type LabelError,
   defaultTemplate,
   splitGraphemes,
   templateToJson,
@@ -21,6 +26,8 @@ import {
   type PackingLabelData,
   type ProductLabelData,
 } from '@livejjim/label'
+import { createNodeRenderEnv } from '@livejjim/label/node'
+import { kstDate } from './time.ts'
 import type { Db } from './db/database.ts'
 import type { FieldProblem } from './errors.ts'
 import { contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productLabelBuyer, productLabelData, type ClaimIndex } from './label-data.ts'
@@ -306,6 +313,8 @@ export type ClaimOutcome =
   | { readonly kind: 'labels_off' }
   | { readonly kind: 'none'; readonly reason: 'PAUSED' | 'BUSY' | 'EMPTY' }
   | { readonly kind: 'job'; readonly job: ClaimedJob }
+
+export type BitmapOutcome = { readonly kind: 'ok'; readonly image: LabelBitmap } | { readonly kind: 'not_found' } | { readonly kind: 'error'; readonly error: LabelError }
 
 export type ResultInput = { readonly ok: true } | { readonly ok: false; readonly code: string; readonly item: string | null }
 
@@ -973,6 +982,8 @@ export class PrintService {
           touched.jobs.push(job.id)
           return { kind: 'none' as const, reason: 'PAUSED' as const }
         }
+        const template = await this.#template(tx, sellerId, kind)
+        const claimedTemplate = kind === 'packing' && job.perPage !== null && template.kind === 'packing' ? { ...template, perPage: job.perPage } : template
         const token = randomBytes(18).toString('base64url')
         await updateJob(tx, sellerId, job.id, { status: 'PRINTING' })
         await insertAttempt(tx, {
@@ -982,12 +993,12 @@ export class PrintService {
           deviceId,
           deviceName: queue.deviceName ?? '',
           data: JSON.stringify(data),
+          template: JSON.stringify(claimedTemplate),
           contentKey,
           startedAt: now,
         })
         await updateQueue(tx, sellerId, {}, now)
         touched.jobs.push(job.id)
-        const template = await this.#template(tx, sellerId, kind)
         return {
           kind: 'job' as const,
           job: {
@@ -997,7 +1008,7 @@ export class PrintService {
             reason: job.reason,
             attempt: token,
             data,
-            template: kind === 'packing' && job.perPage !== null && template.kind === 'packing' ? { ...template, perPage: job.perPage } : template,
+            template: claimedTemplate,
             page: job.page,
             pages: job.pages,
             label: labelRef(label),
@@ -1008,6 +1019,35 @@ export class PrintService {
       if (outcome.kind !== 'retry') return outcome
     }
     return { kind: 'none', reason: 'BUSY' }
+  }
+
+  /** APP-03: 시도와 출력 기기를 검사하고 받기 시점 데이터·템플릿으로 그린다. */
+  async jobBitmap(sellerId: string, deviceId: string, token: string, jobId: string): Promise<BitmapOutcome> {
+    return this.#db.transaction(async (tx) => {
+      const queue = await lockQueue(tx, sellerId, this.#now())
+      const attempt = await findAttempt(tx, sellerId, token, true)
+      if (queue.deviceId !== deviceId || attempt === null || attempt.deviceId !== deviceId || attempt.result !== null || attempt.template === null) return { kind: 'not_found' }
+      const [row] = await jobsWithLabels(tx, sellerId, [attempt.jobRef])
+      if (row === undefined || row.job.jobId !== jobId || row.job.status !== 'PRINTING') return { kind: 'not_found' }
+      const template: unknown = JSON.parse(attempt.template)
+      const data: unknown = JSON.parse(attempt.data)
+      const env = createNodeRenderEnv()
+      if (row.job.kind === 'product') {
+        const rendered = renderProductLabel(env, template, data)
+        return rendered.ok ? { kind: 'ok', image: rendered.image } : { kind: 'error', error: rendered.error }
+      }
+      const rendered = renderPackingLabels(env, template, data)
+      if (!rendered.ok) return { kind: 'error', error: rendered.error }
+      const page = rendered.pages[(row.job.page ?? 1) - 1]
+      return page === undefined ? { kind: 'not_found' } : { kind: 'ok', image: page.image }
+    })
+  }
+
+  /** 연결 시험도 같은 글꼴·같은 렌더러를 쓴다. */
+  async testBitmap(sellerId: string): Promise<BitmapOutcome> {
+    const template = await this.#template(this.#db, sellerId, 'product')
+    const rendered = renderTestLabel(createNodeRenderEnv(), { shopName: template.shopName, date: kstDate(this.#now().getTime()), size: template.size })
+    return rendered.ok ? { kind: 'ok', image: rendered.image } : { kind: 'error', error: rendered.error }
   }
 
   /**

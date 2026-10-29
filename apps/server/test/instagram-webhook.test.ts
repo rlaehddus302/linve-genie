@@ -14,7 +14,7 @@ async function world(options: Parameters<typeof igWorld>[0] = {}): Promise<IgWor
   return ig
 }
 
-const post = (w: IgWorld, body: string | Uint8Array, headers: Record<string, string>) => w.server.app.request('/webhooks/instagram', { method: 'POST', headers, body })
+const post = (w: IgWorld, body: string | Uint8Array, headers: Record<string, string>) => w.server.app.request('/webhooks/instagram', { method: 'POST', headers, body: typeof body === 'string' ? body : new Uint8Array(body) })
 
 /** 기록된 로그를 코어로 다시 재생한 상태 (INV-4) */
 async function replay(w: IgWorld, sellerId: string, date = '2026-10-19'): Promise<EngineState> {

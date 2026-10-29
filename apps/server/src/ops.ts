@@ -10,6 +10,7 @@ import type { LogRecord, LogSink } from './log.ts'
 import type { Clock } from './time.ts'
 
 export const ALERT_CODES = [
+  'TRANSCRIBE_NO_WORKER',
   'WORKER_FAILING',
   'ENGINE_FAILED',
   'OUTBOX_UNCONFIRMED',

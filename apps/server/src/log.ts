@@ -34,6 +34,7 @@ export interface LogRecord {
 }
 
 export type LogCode =
+  | 'TRANSCRIBE_NO_WORKER'
   | 'ENGINE_FAILED'
   | 'REPLAY_SKIPPED'
   | 'SAVE_FAILED'
@@ -171,6 +172,7 @@ export type LogCode =
 export type LogSink = (record: LogRecord) => void
 
 const MESSAGES: Readonly<Record<LogCode, string>> = {
+  TRANSCRIBE_NO_WORKER: '받아쓰기 서버가 연결되어 있지 않아요',
   ENGINE_FAILED: '엔진이 처리하지 못한 입력을 실패로 표시하고 건너뛰었어요',
   REPLAY_SKIPPED: '다시 불러오는 중 처리하지 못한 입력을 건너뛰었어요',
   SAVE_FAILED: '저장하지 못했어요',

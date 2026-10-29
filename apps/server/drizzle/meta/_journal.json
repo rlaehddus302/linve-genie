@@ -190,6 +190,20 @@
       "when": 1794960000000,
       "tag": "0026_v3_drop_seller_names",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794960000001,
+      "tag": "0027_app1b_voice_aliases",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794960000002,
+      "tag": "0028_app2_print_template",
+      "breakpoints": true
     }
   ]
 }

@@ -69,5 +69,5 @@ export function fileResponse(bytes: Uint8Array, type: string, fileName: string, 
   headers.set('Cache-Control', 'no-store')
   headers.set('X-Content-Type-Options', 'nosniff')
   headers.set('Content-Length', String(bytes.byteLength))
-  return new Response(bytes, { status: 200, headers })
+  return new Response(new Uint8Array(bytes), { status: 200, headers })
 }

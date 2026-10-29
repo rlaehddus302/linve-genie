@@ -54,6 +54,7 @@ import {
   assistCache,
   assistCalls,
   voiceLog,
+  voiceAliases,
   assistSettings,
   customerArchiveDays,
   customerArchiveRows,
@@ -1728,6 +1729,8 @@ export const RESTORE_REPLACED_TABLES = [
  *   복구한 날짜는 재생 무결성 검사의 요금 대조가 다를 수 있다(지운 출력 기록의 라벨 장 등) — 원장은 그대로 두고 검사 결과로 알린다.
  */
 export const RESTORE_KEPT_TABLES = [
+  // APP1b: 판매 범위 복구는 계정에 명시적으로 배운 별칭을 지우지 않는다.
+  voiceAliases,
   sellers,
   accounts,
   sessions,

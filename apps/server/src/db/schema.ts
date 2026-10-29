@@ -735,6 +735,8 @@ export const printAttempts = pgTable(
     deviceName: text('device_name').notNull(),
     /** 이 시도에 준 라벨 데이터 JSON (L-3·L-4 칸만) */
     data: text('data').notNull(),
+    /** 받기 시점의 템플릿 — 앱도 웹에 준 것과 같은 점을 출력한다(APP-03). */
+    template: text('template'),
     contentKey: text('content_key').notNull(),
     /** DONE 또는 오류 코드 (결과가 아직 없으면 null) */
     result: text('result'),
@@ -2203,7 +2205,14 @@ export const voiceLog = pgTable(
   (t) => [unique('voice_log_uq').on(t.sellerId, t.requestId, t.kind), index('voice_log_date_idx').on(t.sellerId, t.date, t.at), index('voice_log_broadcast_idx').on(t.sellerId, t.broadcastId, t.at)],
 )
 
+/** APP1b: 계정에 명시적으로 배운 품종 별칭만 둔다(인식 원문·세션은 저장하지 않음). */
+export const voiceAliases = pgTable('voice_aliases', {
+  sellerId: text('seller_id').primaryKey().references(() => sellers.id),
+  aliases: text('aliases').notNull().default('[]'),
+})
+
 export const schema = {
+  voiceAliases,
   sellers,
   accounts,
   loginLimits,

@@ -7,6 +7,7 @@ import type { Duplex } from 'node:stream'
 import { getRequestListener, RequestError } from '@hono/node-server'
 import type { Hono } from 'hono'
 import { SECURITY_HEADERS, defaultLogError, safeLogger, type ErrorLogger } from './app.ts'
+import { attachVoiceRelay } from './voice/relay.ts'
 import { describeError, errorResponse, JSON_CONTENT_TYPE } from './errors.ts'
 
 export interface NodeServerOptions {
@@ -28,6 +29,7 @@ export function createNodeServer(options: NodeServerOptions): Server {
   // 그런 요청은 @hono/node-server가 RequestError로 넘기고, 위 errorHandler가 JSON 400으로 답한다.
   const server = createServer({ requireHostHeader: false }, listener)
   server.on('clientError', handleClientError)
+  attachVoiceRelay(server, options.app)
   return server
 }
 

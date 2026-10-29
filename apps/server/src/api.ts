@@ -24,6 +24,7 @@ import { LOGIN_BUSY_MESSAGE, LOGIN_RATE_LIMITED_MESSAGE, clientAddress } from '.
 import { unknownFieldProblems } from './messages.ts'
 import { ASSISTANT_EVENT_TYPES, ASSISTANT_FORBIDDEN_MESSAGE, assistantMayCall } from './roles.ts'
 import { DEVICE_ID_RE, type PrintService } from './print.ts'
+import { registerVoiceAliasRoutes, type VoiceAliases } from './voice/aliases.ts'
 import { registerPrintRoutes } from './print-api.ts'
 import type { InstagramModule } from './instagram/index.ts'
 import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.ts'
@@ -65,6 +66,7 @@ const IMPORT_REGISTER_PATH = /^\/api\/broadcasts\/[^/]+\/import$/
 const HISTORY_LIMIT_MAX = 500
 
 export interface ApiDeps {
+  readonly voiceAliases?: VoiceAliases
   readonly service: Service
   /** 정산 마무리 (I2 — 가게 설정·확인서·판매대장·포장·지난 구매·가져오기·백업·내려받기) */
   readonly closing: ClosingService
@@ -933,6 +935,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────
   if (deps.print !== undefined) registerPrintRoutes(api, deps.print)
+  if (deps.voiceAliases !== undefined) registerVoiceAliasRoutes(api, deps.voiceAliases)
 
   // ── 플랫폼 공통 라이브 연결·인스타그램 (N2) ────────────────────────────
   // 플랫폼 능력 조회의 YOUTUBE.ready = 유튜브 연동 설정(Y1)이 있는지. 유튜브 잇기 자체는 /api/youtube 경로(Y1)가 맡는다

@@ -275,6 +275,8 @@ describe('AC-FB1-16 택배 크기 코드와 옛 값 옮기기 (D-FB1-05)', () =>
       drop table customer_settings;
       drop table if exists seller_names;
       drop table voice_log;
+      drop table voice_aliases;
+      alter table print_attempts drop column template;
       delete from drizzle.__drizzle_migrations where created_at >= ${String(MIGRATION_0019_WHEN)};`)
     const reopened = await openPglite(pg)
     expect((await pg.query<{ box: string }>('select box from parcel_settings')).rows).toEqual([{ box: '100' }])

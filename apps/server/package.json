@@ -28,10 +28,14 @@
     "exceljs": "4.4.0",
     "hono": "4.13.13",
     "postgres": "3.4.9",
-    "tiktok-live-connector": "2.1.0"
+    "tiktok-live-connector": "2.1.0",
+    "ws": "8.22.0",
+    "@livejjim/voice": "workspace:*",
+    "@livejjim/voice-session": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
+    "@types/ws": "8.18.1",
     "jpeg-js": "0.4.4",
     "vitest": "5.0.5"
   }

@@ -176,6 +176,8 @@ const fill: FillOptions | undefined =
 const started = Date.now()
 const e2e = await startE2eServer({
   appOrigin: origin,
+  // 이 명령은 localhost의 일회성 시험 DB 전용이다. 실제 운영 기동에는 이 값이 없다.
+  transcribeWorkerToken: 'livejjim-e2e-transcribe-worker',
   ...(fill === undefined ? {} : { fill }),
   ...(hostDelay === undefined ? {} : { hostActionDelayMs: hostDelay }),
   ...(chatSpeed === undefined ? {} : { generatorSpeed: chatSpeed }),

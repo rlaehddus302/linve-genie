@@ -41,6 +41,7 @@ import { FAKE_FAILURES, FAKE_TRACK_STATUSES, FakeCarrier, type FakeFailure, type
 import { FakeWebcast, readTikTokSettings, type FakeAccountState, type TikTokFailureKind } from './tiktok/index.ts'
 import { generateMasterKey, type PasswordCost } from './secrets.ts'
 import { createServer, type LivejjimServer } from './server.ts'
+import { registerVoiceRelay } from './voice/relay.ts'
 import { findAccountByLogin } from './store.ts'
 import { kstDate, systemClock, type Clock } from './time.ts'
 import type { Draft } from './writer.ts'
@@ -139,6 +140,8 @@ export async function fillScope(server: LivejjimServer, sellerId: string, option
 export interface E2eOptions {
   /** 화면 주소 (상태를 바꾸는 요청의 Origin, 기본 http://localhost:5173) */
   readonly appOrigin?: string
+  /** E2E에서만 쓰는 모의 받아쓰기 일꾼 인증값. 운영 설정과 공유하지 않는다. */
+  readonly transcribeWorkerToken?: string
   /** 채우기 (없으면 채우지 않는다) */
   readonly fill?: FillOptions
   /** 화면의 방송자 조치 대기 시간 (밀리초, 0~5000, 기본 5000) */
@@ -228,6 +231,8 @@ function daysBefore(date: string, days: number): string {
  *   오늘보다 앞선 봉인 전 실제 날짜를 적고, 봉인된 날짜 줄은 굳힌다 — /_e2e/seal 앞에 부르면 "차례가 돈 봉인 날짜", 부르지 않으면 "돌지 않은 봉인 날짜"
  * 그 밖의 요청은 서버 앱으로 그대로 (요청 정보 env도 — 로그인 IP 한도)
  */
+interface E2eVoiceHistoryState { fail: boolean; delayMs: number; calls: (string | null)[] }
+type E2eVoiceHistory = Map<string, E2eVoiceHistoryState>
 export function e2eControl(
   server: LivejjimServer,
   database: Database,
@@ -236,6 +241,7 @@ export function e2eControl(
   webcast?: FakeWebcast | null,
   carrier?: FakeCarrier | null,
   band?: FakeBand | null,
+  voiceHistory?: E2eVoiceHistory,
 ): Hono {
   const control = new Hono()
   const read = async (request: Request): Promise<Record<string, unknown>> => {
@@ -292,6 +298,22 @@ export function e2eControl(
     return c.json({ sealed: scopeId === null ? false : await server.sealer.seal(sellerId, scopeId, date) })
   })
   control.post('/_e2e/customer-archive', async (c) => c.json(await server.customerArchiver.runOnce()))
+  if (voiceHistory !== undefined) {
+    control.get('/_e2e/voice/history', async (c) => {
+      const seller = await sellerOf({ loginId: c.req.query('loginId') })
+      if (seller === null) return c.json({ error: 'seller' }, 400)
+      return c.json(voiceHistory.get(seller) ?? { fail: false, delayMs: 0, calls: [] })
+    })
+    control.post('/_e2e/voice/history', async (c) => {
+      const body = await read(c.req.raw)
+      const seller = await sellerOf(body)
+      if (seller === null || (body.fail !== undefined && typeof body.fail !== 'boolean') || (body.delayMs !== undefined && (typeof body.delayMs !== 'number' || !Number.isInteger(body.delayMs) || body.delayMs < 0 || body.delayMs > 30_000))) return c.json({ error: 'input' }, 400)
+      const old = voiceHistory.get(seller) ?? { fail: false, delayMs: 0, calls: [] }
+      const state = { fail: typeof body.fail === 'boolean' ? body.fail : old.fail, delayMs: typeof body.delayMs === 'number' ? body.delayMs : old.delayMs, calls: body.reset === true ? [] : old.calls }
+      voiceHistory.set(seller, state)
+      return c.json(state)
+    })
+  }
   if (webcast !== undefined && webcast !== null) registerTiktokControl(control, webcast, read)
   if (carrier !== undefined && carrier !== null) registerParcelControl(control, server, carrier, read)
   if (band !== undefined && band !== null) registerBandControl(control, band, read)
@@ -594,10 +616,19 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
           redirectUris: Object.fromEntries(socialProviders.map((provider) => [provider, `${appOrigin}/api/auth/${provider}/callback`])),
         })
   const fakeLlm = options.assist === undefined ? null : await FakeLlm.start(options.assist.port === undefined ? {} : { port: options.assist.port })
+  const voiceHistory: E2eVoiceHistory = new Map()
   const server = createServer({
     database,
     masterKey,
     appOrigin,
+    voiceHistoryObserver: async (sellerId, date) => {
+      let state = voiceHistory.get(sellerId)
+      if (state === undefined) { state = { fail: false, delayMs: 0, calls: [] }; voiceHistory.set(sellerId, state) }
+      state.calls.push(date)
+      if (state.delayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, state.delayMs))
+      if (state.fail) throw new Error('시험 이력 저장소 연결 실패')
+    },
+    ...(options.transcribeWorkerToken === undefined ? {} : { transcribeWorkerToken: options.transcribeWorkerToken }),
     ...(fakeMeta === null ? {} : { instagram: fakeMeta.settings({ redirectUri: `${appOrigin}/api/instagram/callback` }) }),
     log: () => {},
     backupStorage: new FolderBackupStorage(backupDir),
@@ -667,7 +698,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   else if (fakeCarrier !== null) server.parcels.start()
   // 밴드 보관 기간 지우기·이어받기 (유튜브를 켜지 않은 기동도)
   if (fakeBand !== null && fakeGoogle === null) void server.band.resume()
-  const http = createNodeServer({ app: e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier, fakeBand) })
+  const app = e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier, fakeBand, voiceHistory)
+  registerVoiceRelay(app, server.voice)
+  const http = createNodeServer({ app })
   return {
     server,
     database,

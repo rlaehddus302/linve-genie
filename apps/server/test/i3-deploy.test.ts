@@ -300,7 +300,8 @@ describe('AC-I3-81 운영 상태 /ops/status', () => {
     expect(ok.headers.get('cache-control')).toBe('no-store')
     const body = (await ok.json()) as Record<string, unknown>
     // N2b-2(AC-N2b-2-70)가 인스타 DM 행 수·틱톡 연결 수를, BND1(AC-BND1-64)이 밴드 글 연결 수·호출 한도 쉼을 더했다 (바꾼 기존 시험, dev-notes)
-    expect(Object.keys(body).sort()).toEqual(['band', 'collectors', 'db', 'failedEvents24h', 'instagramDm', 'loginRejected', 'outbox', 'quota', 'realtimeConnections', 'startedAt', 'tiktok', 'version', 'workers'])
+    expect(Object.keys(body).sort()).toEqual(['band', 'collectors', 'db', 'failedEvents24h', 'instagramDm', 'loginRejected', 'outbox', 'quota', 'realtimeConnections', 'startedAt', 'tiktok', 'transcribe', 'version', 'workers'])
+    expect(body.transcribe).toEqual({ workers: 0, streams: 0, p95Ms: null })
     expect(body).toMatchObject({ db: 'ok', quota: null, realtimeConnections: 0, loginRejected: { ip: 0, busy: 0 }, version: '0.0.0' })
     expect(body.workers).toEqual({
       collector: { lastSuccessAt: null, consecutiveFailures: 0 },
@@ -364,7 +365,7 @@ describe('AC-I3-82 경보 기록', () => {
       process.stderr.write = original
     }
     expect(written).toEqual(['{"level":"alert","code":"BACKUP_FAILED","count":1}\n'])
-    expect([...ALERT_CODES].sort()).toEqual(['BACKUP_FAILED', 'COLLECTOR_STOPPED', 'DB_UNAVAILABLE', 'ENGINE_FAILED', 'OUTBOX_GAVE_UP', 'OUTBOX_UNCONFIRMED', 'QUOTA_EXCEEDED', 'SEAL_FAILED', 'WORKER_FAILING'])
+    expect([...ALERT_CODES].sort()).toEqual(['BACKUP_FAILED', 'COLLECTOR_STOPPED', 'DB_UNAVAILABLE', 'ENGINE_FAILED', 'OUTBOX_GAVE_UP', 'OUTBOX_UNCONFIRMED', 'QUOTA_EXCEEDED', 'SEAL_FAILED', 'TRANSCRIBE_NO_WORKER', 'WORKER_FAILING'])
   })
 
   it('처리 실패 표시(ENGINE_FAILED)는 경보 — 같은 판매자는 10분에 한 번, 그 사이 수는 다음 경보의 count, 다른 판매자는 따로', async () => {

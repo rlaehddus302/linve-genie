@@ -80,6 +80,7 @@ export class Auth {
   readonly #ips: IpLimiter
   readonly #gate: VerifyGate
   readonly #verify: (password: string, stored: string) => Promise<boolean>
+  readonly #sessionEnd = new Set<(hash: string) => void>()
   #attempts = 0
   /** 서버 시작 뒤 로그인 제한으로 거절한 수 (운영 상태, AC-I3-81) */
   readonly #rejected = { ip: 0, busy: 0 }
@@ -191,8 +192,14 @@ export class Auth {
     return (await findSession(this.#options.db, sessionHash, new Date(this.#options.clock.now()))) !== null
   }
 
+  onSessionEnd(listener: (hash: string) => void): () => void {
+    this.#sessionEnd.add(listener)
+    return () => { this.#sessionEnd.delete(listener) }
+  }
+
   async logout(session: Pick<SessionRow, 'tokenHash' | 'sellerId'>): Promise<void> {
     await deleteSession(this.#options.db, session)
+    for (const listener of this.#sessionEnd) listener(session.tokenHash)
   }
 
   /** 판매자가 보조자를 만든다 (아이디·비밀번호는 서버가 만든다 — 비밀번호는 결과에만, AC-I3-60) */

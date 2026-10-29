@@ -346,7 +346,7 @@ const ADDRESS_PATH_RE = /^\/r\/([A-Za-z0-9_-]{43})\/address$/
 function htmlResponse(status: number, body: Uint8Array | string): Response {
   const headers = new Headers(RECEIPT_PAGE_HEADERS)
   headers.set('Content-Type', 'text/html; charset=utf-8')
-  return new Response(body, { status, headers })
+  return new Response(typeof body === 'string' ? body : new Uint8Array(body), { status, headers })
 }
 
 /** 본문을 최대 `max` 바이트까지만 읽는다. 넘으면 그 자리에서 읽기를 취소하고 null (읽다 끊겨도 null) */
@@ -410,7 +410,7 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     const disposition = contentDisposition(fileName, fallback)
     headers.set('Content-Disposition', file === 'receipt.jpg' ? disposition.replace(/^attachment/, 'inline') : disposition)
     headers.set('Content-Length', String(bytes.byteLength))
-    return new Response(bytes, { status: 200, headers })
+    return new Response(new Uint8Array(bytes), { status: 200, headers })
   }
 
   /** 그 링크 쪽의 배송지 칸 (택배 기능이 없으면 null) */

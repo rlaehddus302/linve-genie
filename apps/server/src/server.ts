@@ -8,6 +8,9 @@
 // N3: 입금 확인(DepositService — 원천·받아 오기 주기·자동 확인·확인 필요)을 기록 경로와 실시간 알림(deposit)에 잇는다.
 //   deposits.testMode(가짜 원천·시험용 입금 넣기)는 E2E 기동만 켠다 — 운영 기동은 production.ts가 늘 끈다(D-N3-12).
 // N4a: 라벨 기능 켬/끔 알림(labels)을 허브에 잇는다.
+import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
+import { VoiceAliases } from './voice/aliases.ts'
+import { VoiceRelay, registerVoiceRelay } from './voice/relay.ts'
 import { readFileSync } from 'node:fs'
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
@@ -88,6 +91,9 @@ export const SERVER_VERSION: string = (() => {
 })()
 
 export interface ServerOptions {
+  /** 이력 저장소 관측/장애 시험 포트. 운영 기동은 제공하지 않는다. */
+  readonly voiceHistoryObserver?: VoiceHistoryObserver
+  readonly transcribeWorkerToken?: string
   readonly database: Pick<Database, 'db'>
   /** 서버 마스터 키 (32바이트 또는 그 base64). 형식이 틀리면 만들지 않는다 */
   readonly masterKey: Buffer | string
@@ -223,6 +229,7 @@ export interface ServerOptions {
 }
 
 export interface LivejjimServer {
+  readonly voice: VoiceRelay
   readonly app: Hono
   readonly service: Service
   readonly writer: ScopeWriter
@@ -360,6 +367,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.loginLimits === undefined ? {} : { loginLimits: options.loginLimits }),
     ...(options.passwordVerifier === undefined ? {} : { verify: options.passwordVerifier }),
   })
+  const voiceAliases = new VoiceAliases(db)
+  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, clock, log, reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
   let print: PrintService | null = null
   let writerRef: ScopeWriter | null = null
   const billing = new BillingService({
@@ -403,6 +412,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     onCommit: (sellerId, date, rehearsal, records) => {
       hub.publish(sellerId, records.map((record) => ({ date, rehearsal, seq: record.seq, type: record.type })))
       youtube?.onCommit(sellerId, rehearsal, records)
+      for (const record of records) if (record.changed && record.event.type === 'broadcast.end') voice.endBroadcast(sellerId, record.event.b)
+      voice.refreshSeller(sellerId)
       // 마지막 조회 뒤 10분이 지난 범위의 보기 캐시를 비운다 (커밋 뒤 — 항목이 많아야 33개, AC-S06b-12)
       viewCaches.sweep()
     },
@@ -541,6 +552,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     }
     return {
       version: SERVER_VERSION,
+      transcribe: voice.status(),
       startedAt,
       db: dbOk ? 'ok' : 'unavailable',
       workers: health.view(),
@@ -658,6 +670,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       auth,
       hub,
       print: printService,
+      voiceAliases,
       billing,
       instagram: instagramModule,
       tiktok: { db, live: tiktokLive, paste },
@@ -687,6 +700,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     webhooks: createWebhookApp(instagramModule),
     receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer }),
   })
+  registerVoiceRelay(app, voice)
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
   deposits.start()
   const stop = async () => {
@@ -694,6 +708,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   }
   return {
     app,
+    voice,
     service,
     writer,
     hub,
@@ -735,6 +750,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     stop,
     close: () => {
+      voice.close()
       service.generators.closeAll()
       printService.close()
       instagramModule.close()

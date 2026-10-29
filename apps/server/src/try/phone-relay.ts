@@ -17,6 +17,7 @@
 // - hop-by-hop 머리글(connection·keep-alive·transfer-encoding·upgrade·te·trailer·proxy-*·connection에 적힌 이름)은 양쪽 다 옮기지 않는다(TD-MOB1-003).
 // 주소 바꾸기 규칙은 순수 함수(입력 글 → 바꾼 글)로 나눠 두고, 중계 처리기는 그것을 쓴다.
 import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from 'node:http'
+import type { Duplex } from 'node:stream'
 
 /** 휴대폰 주소 아래 가짜 구글 연습 전용 경로 앞부분 */
 export const FAKE_GOOGLE_PREFIX = '/_try/google' as const
@@ -394,5 +395,48 @@ export function createPhoneRelay(options: PhoneRelayOptions): (req: IncomingMess
     })
     req.pipe(upstream)
     res.on('close', () => upstream.destroy())
+  }
+}
+
+/** APP1: 휴대폰 HTTPS의 음성 경로 하나만 안쪽 서버로 넘긴다. 일꾼·임의 경로는 넘기지 않는다. */
+export function createPhoneVoiceUpgrade(options: PhoneRelayOptions): (req: IncomingMessage, socket: Duplex, head: Buffer) => void {
+  const origins = new Set(options.httpsOrigins)
+  return (req, socket, head) => {
+    const target = req.url ?? ''
+    const origin = req.headers.origin
+    if (!target.startsWith('/api/voice/stream?') || origin === undefined || !origins.has(origin)) {
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
+      return
+    }
+    const headers: Record<string, string> = { connection: 'Upgrade', upgrade: 'websocket', origin: options.appOrigin }
+    for (const name of ['cookie', 'sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol']) {
+      const value = req.headers[name]
+      if (typeof value === 'string') headers[name] = value
+    }
+    const upstream = httpRequest({ hostname: options.innerHost ?? '127.0.0.1', port: options.port, path: target, method: 'GET', headers })
+    upstream.on('upgrade', (response, inner, innerHead) => {
+      inner.setTimeout(0)
+      const lines = ['HTTP/1.1 101 Switching Protocols', 'Connection: Upgrade', 'Upgrade: websocket']
+      for (const name of ['sec-websocket-accept', 'sec-websocket-protocol']) {
+        const value = response.headers[name]
+        if (typeof value === 'string') lines.push(`${name}: ${value}`)
+      }
+      socket.write(`${lines.join('\r\n')}\r\n\r\n`)
+      if (innerHead.length) socket.write(innerHead)
+      if (head.length) inner.write(head)
+      inner.on('error', () => socket.destroy())
+      socket.on('error', () => inner.destroy())
+      inner.on('close', () => socket.destroy())
+      socket.on('close', () => inner.destroy())
+      socket.pipe(inner).pipe(socket)
+    })
+    upstream.on('response', (response) => {
+      response.resume()
+      socket.end(`HTTP/1.1 ${response.statusCode === 401 ? 401 : 403} Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
+    })
+    upstream.on('error', () => socket.destroy())
+    upstream.setTimeout(10_000, () => upstream.destroy())
+    socket.on('close', () => upstream.destroy())
+    upstream.end()
   }
 }

@@ -149,7 +149,11 @@ const { FakeOAuth } = await server('social/fake-oauth.ts')
 const { FakeLlm } = await server('assist/fake-llm.ts')
 const { createSelfSignedCertificate, lanAddresses } = await server('try/self-signed-cert.ts')
 const { createSmsTestBox, createSmsTestHttpServer, makeSmsTestToken, SMS_TEST_PATH } = await server('try/sms-test.ts')
-const { createPhoneRelay, phoneYoutubeNotice } = await server('try/phone-relay.ts')
+const { createPhoneRelay, createPhoneVoiceUpgrade, phoneYoutubeNotice } = await server('try/phone-relay.ts')
+const { ensureWorkerToken } = await server('try/worker-token.ts')
+const { registerVoiceRelay } = await server('voice/relay.ts')
+const workerTokenPath = join(CACHE, `voice-worker-${String(port)}.token`)
+const transcribeWorkerToken = ensureWorkerToken(workerTokenPath)
 const { readTikTokSettings } = await server('tiktok/settings.ts')
 
 /** 같은 와이파이에서 이 컴퓨터를 찾는 주소들 (와이파이 먼저, 윈도우의 가상·VPN 연결은 뒤로). 첫 주소를 휴대폰 주소로 알린다 */
@@ -173,6 +177,7 @@ const llm = new FakeLlm({ practice: true, basePath: '/_try/llm' })
 
 const livejjim = createServer({
   database,
+  transcribeWorkerToken,
   masterKey,
   appOrigin,
   log: () => {},
@@ -261,6 +266,7 @@ async function tryRoute(request) {
 const app = {
   fetch: (request, env) => (new URL(request.url).pathname.startsWith('/_try/') ? tryRoute(request) : livejjim.app.fetch(request, env)),
 }
+registerVoiceRelay(app, livejjim.voice)
 const http = createNodeServer({ app })
 await new Promise((resolve, reject) => {
   http.once('error', reject)
@@ -297,7 +303,9 @@ if (lan !== null) {
     // 휴대폰 주소들과, 이 컴퓨터에서 https로 여는 주소(사파리에서 로그인이 안 될 때) 모두 화면 주소로 바꿔 넘긴다
     const httpsOrigins = new Set([...lans.map((ip) => `https://${ip}:${String(phonePort)}`), `https://localhost:${String(phonePort)}`])
     // 중계 규칙(Origin·Location·간편 로그인·유튜브 연결)은 apps/server/src/try/phone-relay.ts (MOB1 D-MOB1-06)
-    phone = createHttpsServer({ key, cert }, createPhoneRelay({ port, appOrigin, httpsOrigins, fakeGoogle: realGoogle === null ? { port: fake.port } : null, realYoutube: realGoogle !== null }))
+    const phoneOptions = { port, appOrigin, httpsOrigins, fakeGoogle: realGoogle === null ? { port: fake.port } : null, realYoutube: realGoogle !== null }
+    phone = createHttpsServer({ key, cert }, createPhoneRelay(phoneOptions))
+    phone.on('upgrade', createPhoneVoiceUpgrade(phoneOptions))
     await new Promise((resolve, reject) => {
       phone.once('error', reject)
       phone.listen(phonePort, '0.0.0.0', resolve)
@@ -337,6 +345,8 @@ say(`    아이디   : ${LOGIN_ID}`)
 say(`    비밀번호 : ${password}`)
 say('    (비밀번호는 켤 때마다 바뀌어요. 이 창에만 보여요.)')
 say('')
+say(` 받아쓰기 일꾼 연결 파일: --token-file ${workerTokenPath}`)
+say(` 받아쓰기 일꾼 주소: ws://127.0.0.1:${String(port)}/api/voice/worker`)
 say(` 2) 연습용 시청자 채팅     : ${appOrigin}/_try/chat`)
 say('    (가짜 유튜브 "연습 라이브"에 시청자 채팅을 넣어요)')
 say('')

@@ -58,6 +58,23 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     return 'bad'
   }
 
+  // 앱은 서버가 만든 점을 그대로 보낸다. 다른 판매자·기기·끝난 시도는 조회 불가.
+  const bitmapResponse = (value: Awaited<ReturnType<PrintService['jobBitmap']>>): Response => {
+    if (value.kind === 'not_found') return notFound()
+    if (value.kind === 'error') return apiError(422, 'LABEL_INVALID', value.error.message, [], { renderError: value.error })
+    return new Response(JSON.stringify({ width: value.image.width, height: value.image.height, data: Buffer.from(value.image.data).toString('base64') }), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    })
+  }
+  api.get('/print/jobs/:id/bitmap', async (c) => {
+    const device = c.req.query('device')
+    const attempt = c.req.query('attempt')
+    if (device === undefined || !DEVICE_ID_RE.test(device)) return badDevice()
+    if (attempt === undefined || !/^[A-Za-z0-9_-]{8,64}$/.test(attempt)) return invalid([{ field: 'attempt', message: '시도 표를 확인해 주세요.' }])
+    return bitmapResponse(await print.jobBitmap(sellerOf(c), device, attempt, c.req.param('id')))
+  })
+  api.get('/print/test-bitmap', async (c) => bitmapResponse(await print.testBitmap(sellerOf(c))))
+
   // ── 라벨 기능 켬/끔 (N4a, RCP-01, L-13 1·2) — 판매 규칙 설정(/api/settings)과 따로 ──
   api.get('/settings/labels', async (c) => c.json(await print.labelSettings(sellerOf(c))))
   api.put('/settings/labels', async (c) => {

@@ -85,6 +85,7 @@ export function productionServerOptions(
       masterKey: masterKey.key,
       appOrigin: origin.origin,
       testPrinter: false,
+      ...((env['LIVEJJIM_TRANSCRIBE_WORKER_TOKEN'] ?? '').trim() === '' ? {} : { transcribeWorkerToken: env['LIVEJJIM_TRANSCRIBE_WORKER_TOKEN']!.trim() }),
       instagram: instagram.settings,
       ...(warnings.length === 0 ? {} : { startupWarnings: warnings }),
       tiktok: { settings: readTikTokSettings(env), libraryEnv },
