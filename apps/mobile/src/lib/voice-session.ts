@@ -61,7 +61,7 @@ export interface VoiceSessionOptions {
   /** 등록 되돌리기 (product.close) */
   readonly undoRegister: (broadcastId: string, no: number) => Promise<void>
   readonly deviceId?: string
-  readonly effect?: (broadcastId: string, method: string, args: readonly unknown[], session: VoiceSession) => Promise<unknown>
+  readonly effect?: (broadcastId: string, method: string, args: readonly unknown[], session: VoiceSession, writeCheck?: (firstAttempt: boolean) => string | null) => Promise<unknown>
   readonly ticket?: (broadcastId: string) => Promise<{ wsUrl: string; token?: string; origin?: string }>
   readonly now?: () => number
   readonly timer?: Timer
@@ -481,7 +481,14 @@ export class VoiceSession {
         case 'voiceOff': if (!this.#controlOnly) await this.turnOff(); break
         case 'focusQuick': break
         case 'openProduct': this.showProduct(String(args[0])); break
-        default: value = await this.#options.effect?.(b, message.method, args, this)
+        default: value = await this.#options.effect?.(b, message.method, args, this, (firstAttempt) => {
+          if (born !== this.#generation || connection !== this.#connection || (message.automatic === true && (!this.#view.on || !this.#readyForCommands || this.#view.state.kind !== 'listening'))) return '음성 연결이 바뀌어 보내지 않았어요. 확인하고 다시 눌러 주세요.'
+          if (firstAttempt && message.automatic === true && message.source !== 'chrome') {
+            const end = message.spokenEndAt
+            if (typeof end !== 'number' || !Number.isFinite(end) || this.#now() - end > LATE_MS || end > this.#now() || (message.method === 'register' && args[2] === 'instant' && !this.#view.instant)) return '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.'
+          }
+          return null
+        })
       }
     } catch (error) {
       const problem = error instanceof Error ? error.message : '처리하지 못했어요. 다시 확인해 주세요.'

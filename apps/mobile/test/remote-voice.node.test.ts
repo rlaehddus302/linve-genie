@@ -4,7 +4,7 @@ import { toWire } from '@livejjim/voice-session/wire'
 import { VoiceSession } from '../src/lib/voice-session.ts'
 import { FakeNativeAudio } from '../src/native/audio.ts'
 import { configureVoiceStorage, readVoicePreferences } from '../src/lib/voice-preferences.ts'
-import { flush, FakeServer } from './support.ts'
+import { flush, FakeServer, product } from './support.ts'
 import { createVoiceEffects } from '../src/lib/voice-effects.ts'
 import { fetchJobBitmap, fetchTestBitmap, parseBitmap } from '../src/api/labels.ts'
 import { fetchVoiceTicket } from '../src/api/voice.ts'
@@ -29,6 +29,36 @@ async function setup() {
 }
 afterEach(async () => { for (const session of sessions.splice(0)) { await session.turnOff(); session.dispose() } vi.useRealTimers() })
 describe('모바일 전체 서버 음성 세션', () => {
+  it.each([['register', false], ['writeSms', false], ['fixRecent', false], ['register', true]] as const)('RA-APP1b-002: %s 조회 대기 후 연결 중단=%s이면 최초 HTTP 직전에 유효성을 재검사한다', async (method, disconnect) => {
+    let now = 30000
+    let release!: () => void
+    const delayed = new Promise<void>((resolve) => { release = resolve })
+    const server = new FakeServer(); server.install()
+    server.on('GET', /^\/api\/days\//, async () => {
+      await delayed
+      return { body: { broadcasts: [{ id: 'b1', settings: {} }], products: [product(15, { key: 'p1', name: '', price: 20000 })] } }
+    })
+    const effect = createVoiceEffects(async () => {
+      if (method === 'register') await delayed
+      return { date: '2026-10-29', rehearsal: false }
+    })
+    configureVoiceStorage({ getItem: async () => null, setItem: async () => undefined })
+    const audio = new RemoteAudio()
+    const session = new VoiceSession({ audio, effect, now: () => now, ticket: async () => ({ wsUrl: 'ws://localhost/api/voice/stream' }), register: async () => undefined, undoRegister: async () => undefined })
+    sessions.push(session)
+    await session.turnOn('b1', '방송'); await session.acceptConsent(); audio.message({ type: 'ready' })
+    audio.message({ type: 'voice.state', snapshot: toWire({ cards: [], forms: new Map(), instant: true, error: null }), display: toWire({}) })
+    const args = method === 'register' ? [{ id: 'c1', no: 15 }, { no: 15, name: '', price: 20000 }, 'instant'] : method === 'writeSms' ? [{ no: 15, memo: null, buyer: 'buyer1' }, null, 'same-sms-request'] : ['p1', { name: '핑크프릴' }, {}]
+    audio.message({ type: 'voice.effect', id: 991, method, automatic: true, source: 'livegenie', spokenEndAt: 29000, args: toWire(args) })
+    await flush(); now += disconnect ? 2000 : 12000
+    if (disconnect) audio.setState({ kind: 'reconnecting', attempt: 1 })
+    release(); await flush(30)
+    const note = disconnect ? '음성 연결이 바뀌어 보내지 않았어요. 확인하고 다시 눌러 주세요.' : '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.'
+    expect(server.callsTo('POST', /^\/api\/events/)).toHaveLength(0)
+    expect(audio.sent).toContainEqual(expect.objectContaining({ op: 'effectResult', id: 991, value: { kind: 'failed', message: note } }))
+    if (method === 'register' && !disconnect) expect(audio.sent).toContainEqual(expect.objectContaining({ method: 'restore', args: [args[0], { touched: true, note }] }))
+  })
+
   it('마이크를 켜기 전에 바꾼 바로 등록 설정을 저장하고 첫 연결·새 앱에서도 복원한다', async () => {
     let stored = JSON.stringify({ consent: true, settings: { 'voice.autoConfirm': true, 'voice.autoRegister': true } })
     configureVoiceStorage({ getItem: async () => stored, setItem: async (_key, value) => { stored = value } })

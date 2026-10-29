@@ -6,17 +6,24 @@ import { productSlots } from './derive.ts'
 import type { VoiceSession } from './voice-session.ts'
 
 type Scope = { date: string; rehearsal: boolean }
+class VoiceWriteBlocked extends Error {}
 export function createVoiceEffects(scopeOf: (b: string) => Promise<Scope>) {
   const undoable = new Map<string, { b: string; no: number; until: number }>()
-  return async (b: string, method: string, args: readonly unknown[], session: VoiceSession): Promise<unknown> => {
+  return async (b: string, method: string, args: readonly unknown[], session: VoiceSession, writeCheck?: (firstAttempt: boolean) => string | null): Promise<unknown> => {
     const operation = session.operationKey()
     const scope = await scopeOf(b)
-    const write = async (event: Record<string, unknown>, requestId = newRequestId()): Promise<WriteResult> => withRetry(() => {
-      if (!session.isOperationCurrent(operation, b)) throw new Error('음성 듣기를 꺼서 보내지 않았어요.')
-      return post<WriteResult>(withQuery('/api/events', typeof event.b === 'string' ? {} : { date: scope.date, rehearsal: scope.rehearsal }), { ...event, requestId })
-    })
+    const write = async (event: Record<string, unknown>, requestId = newRequestId()): Promise<WriteResult> => {
+      let firstAttempt = true
+      return withRetry(() => {
+        if (!session.isOperationCurrent(operation, b)) throw new VoiceWriteBlocked('음성 듣기를 꺼서 보내지 않았어요.')
+        const blocked = writeCheck?.(firstAttempt)
+        if (blocked) throw new VoiceWriteBlocked(blocked)
+        firstAttempt = false
+        return post<WriteResult>(withQuery('/api/events', typeof event.b === 'string' ? {} : { date: scope.date, rehearsal: scope.rehearsal }), { ...event, requestId })
+      })
+    }
     const full = (): Promise<FullView> => get<FullView>(withQuery(`/api/days/${scope.date}`, { rehearsal: scope.rehearsal }))
-    const failed = (error: unknown) => ({ kind: 'failed', message: isApiError(error) ? error.message : '보내지 못했어요. 연결을 확인하고 다시 눌러 주세요.' })
+    const failed = (error: unknown) => ({ kind: 'failed', message: isApiError(error) || error instanceof VoiceWriteBlocked ? error.message : '보내지 못했어요. 연결을 확인하고 다시 눌러 주세요.' })
     if (method === 'register') {
       const [card, registration, source, voiceLog] = args as [Parameters<VoiceHost['register']>[0], Parameters<VoiceHost['register']>[1], Parameters<VoiceHost['register']>[2], unknown]
       try {
@@ -35,7 +42,7 @@ export function createVoiceEffects(scopeOf: (b: string) => Promise<Scope>) {
         }
       } catch (error) {
         if (isApiError(error) && error.code === 'PRODUCT_EXISTS' && source === 'instant') session.command('instantExists', [card])
-        else session.command('restore', [card, { touched: true, note: isApiError(error) ? error.message : '등록하지 못했어요. 확인하고 다시 눌러 주세요.' }])
+        else session.command('restore', [card, { touched: true, note: isApiError(error) || error instanceof VoiceWriteBlocked ? error.message : '등록하지 못했어요. 확인하고 다시 눌러 주세요.' }])
         return failed(error)
       }
       return { kind: 'registered' }
