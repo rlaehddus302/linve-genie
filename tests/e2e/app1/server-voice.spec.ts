@@ -28,7 +28,7 @@ async function worker() {
   return {
     frames, closed,
     result(stream: number, text: string) {
-      const endMs = (frames.get(stream) ?? 0) * 100
+      const endMs = Math.max(0, (frames.get(stream) ?? 0) * 100 - 400)
       socket.send(JSON.stringify({ type: 'result', stream, text, startMs: Math.max(0, endMs - 1000), endMs, procMs: 15 }))
     },
     close: () => socket.terminate(),
