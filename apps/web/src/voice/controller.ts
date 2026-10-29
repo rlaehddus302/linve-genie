@@ -2424,6 +2424,9 @@ export class VoiceController {
    * 미룸(AC-V3-43): 이력을 받는 동안·창이 열린 동안·덩어리 도중 설정을 끈 덩어리·문자찜 말·거절한 번호는 여기서 하지 않는다(덩어리 끝에 본다)
    */
   #tryInstant(work: CardWork, module: VoiceModule): void {
+    // 한 결과가 앞 덩어리를 끝내고 남은 글을 이어 읽을 수 있다. 앞 덩어리의 안내를
+    // 먼저 기존 4초 표시 차례에 넣어, 뒤 조각의 "이미 등록됐어요"가 덮지 않게 한다.
+    if (work.readout !== null && work.readout !== this.#snapshot.readout) this.#set({ readout: work.readout })
     if (!this.#instantOn() || this.#phraseInstantOff || this.#waitingHistory() || this.#snapshot.phase !== 'on') return
     const text = this.#chunkText(module)
     if (text === '' || text.includes('문자찜')) return

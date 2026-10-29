@@ -21,6 +21,29 @@ beforeEach(() => { vi.useFakeTimers({ now: T0 }) })
 afterEach(() => { vi.useRealTimers() })
 
 describe('APP1b server reading session', () => {
+  it('preserves the other-number notice after an early interim registration in the long R7 utterance', async () => {
+    const messages: VoiceServerMessage[] = []
+    let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null
+    const session = createReadingSession({ host: { ...data(), existingProduct: (no) => no === 139 ? product : null }, device: 'test', mode: 'chrome', send: (message) => {
+      messages.push(message)
+      if (message.type === 'voice.effect' && message.method === 'register') {
+        const [, registration] = fromWire(message.args) as [unknown, { name: string; price: number }]
+        product = { key: 'broadcast:139', ...registration, claimCount: 0, closed: false }
+      }
+    } })
+    session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { 'voice.autoRegister': true } } }); await settle()
+    const tokens = '어 자 요거 지금 189번인데 뿌리가 있습니다 뿌리 있는데 컵이 너무 잘 들었어요 빅뱅 금 139번 얘 50만 원 들어요'.split(' ')
+    for (let i = 1; i <= tokens.length; i++) {
+      if (i > 1) await vi.advanceTimersByTimeAsync(200)
+      session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: tokens.slice(0, i).join(' '), final: i === tokens.length, slot: '1:0', lead: true } })
+      if (i === 19) { session.onMessage({ type: 'voice.session', op: 'command', method: 'noteVoiceRegistered', args: [{ id: 'broadcast:139', no: 139, name: '빅뱅금', price: 500000 }] }); await settle() }
+    }
+    await vi.advanceTimersByTimeAsync(1900 + 2500)
+    const latest = messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)!
+    expect(fromWire(latest.snapshot)).toMatchObject({ readout: { text: '139번으로 등록했는데 189번도 들렸어요. 맞는지 확인해 주세요.' } })
+    expect(messages.filter((message) => message.type === 'voice.effect' && message.method === 'register')).toHaveLength(1)
+    session.close()
+  })
   it.each(['ack', 'failed', 'timeout'] as const)('waits for the matching client registration before a following automatic price correction (%s)', async (outcome) => {
     const messages: VoiceServerMessage[] = []
     let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null

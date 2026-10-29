@@ -15,7 +15,7 @@ import { SERVICE_NAME } from '../brand.ts'
 import { supportsVoiceCapture } from './capabilities.ts'
 let transportFailures = 0
 
-export type VoiceControllerPort = Pick<VoiceController, keyof VoiceController>
+export type VoiceControllerPort = Pick<VoiceController, keyof VoiceController> & { readonly captureEngine?: () => 'chrome' | 'livegenie' }
 export const VOICE_ENGINE_KEY = 'livejjim.voiceEngine'
 export const REMOTE_NOTICE = `음성은 ${SERVICE_NAME} 받아쓰기 서버로 보내져요.`
 export const REMOTE_CONSENT = [
@@ -41,7 +41,8 @@ const mapValue = <T>(value: unknown, key: string, fallback: T): T => value insta
 const safeSettings = (value: unknown) => isRecord(value) ? Object.fromEntries(Object.entries(value).filter(([key, item]) => ['voice.autoConfirm', 'voice.autoConfirmSec', 'voice.autoRegister', 'voice.quietMs', 'voice.archive', 'voice.stallMs', 'voice.smsListen', 'voice.smsAutoSec'].includes(key) && (typeof item === 'boolean' || (typeof item === 'number' && Number.isFinite(item))))) : {}
 
 export function createRemoteVoiceController(host: VoiceHost, broadcastId: string): VoiceControllerPort {
-  let snapshot: VoiceSnapshot = { ...VOICE_IDLE, instant: true }
+  const storedInstant = () => { const stored = host.readSettings(); return !isRecord(stored) || stored['voice.autoRegister'] !== false }
+  let snapshot: VoiceSnapshot = { ...VOICE_IDLE, instant: storedInstant() }
   let display: Display = {}
   const listeners = new Set<() => void>()
   const masked = new Map<string, VoiceLogInput>()
@@ -290,11 +291,12 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   const local = {
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener) } },
     getSnapshot: () => snapshot,
+    captureEngine: () => chromeMode ? 'chrome' as const : 'livegenie' as const,
     async turnOn() {
       if (disposed || snapshot.phase !== 'off') return
       if (!supportsVoiceCapture(readVoiceEngine())) { set({ unsupported: true, error: '이 기기에서는 음성이 어려워요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.' }); return }
       if (stopping) { restartRequested = true; return }
-      if (!host.readConsent()) { set({ phase: 'consent' }); return }
+      if (!host.readConsent()) { set({ phase: 'consent', instant: storedInstant() }); return }
       await start()
     },
     toggle() { if (snapshot.phase === 'on' || snapshot.phase === 'loading') local.turnOff(); else void local.turnOn() },

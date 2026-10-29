@@ -35,6 +35,13 @@ function chrome() {
 }
 
 describe('server reading thin facade', () => {
+  it('uses the stored immediate-registration choice for the first consent before connecting', async () => {
+    const { remote } = fixture({ readConsent: () => false, readSettings: () => ({ 'voice.autoRegister': false }) })
+    expect(remote.getSnapshot().instant).toBe(false)
+    await remote.turnOn()
+    expect(remote.getSnapshot()).toMatchObject({ phase: 'consent', instant: false })
+    remote.dispose()
+  })
   it('checks microphone support before consent without constructing or opening it', async () => {
     const create = vi.fn()
     expect(supportsVoiceCapture('chrome', { SpeechRecognition: create })).toBe(true)

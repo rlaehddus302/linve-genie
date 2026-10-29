@@ -35,6 +35,7 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
   let mute: GainNode | null = null
   let chromeEngine: ReturnType<typeof createWebSpeechEngine> | null = null
   let startingCapture = false
+  let captureGeneration = 0
   const engine = createLiveGenieEngine({
     now: Date.now,
     isSupported: () => options.capture === false || (options.chrome ? createWebSpeechEngine({ now: Date.now }).isSupported() : canCaptureAudio()),
@@ -63,9 +64,14 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
       }
     },
   })
-  engine.onState((state) => { if (state === 'RESTARTING' || state === 'HALTED') options.onConnectionLost?.(); if (state === 'HALTED' || state === 'OFF') stopCapture(); options.onState(state) })
+  engine.onState((state) => {
+    if (state === 'RESTARTING' || state === 'HALTED') options.onConnectionLost?.()
+    if (state === 'HALTED' || state === 'OFF') wanted = false
+    if (state === 'RESTARTING' || state === 'HALTED' || state === 'OFF') stopCapture()
+    options.onState(state)
+  })
   engine.onError(options.onError)
-  engine.onClosing((reason) => { if (reason === 'ENDED' || reason === 'AUTH' || reason === 'OTHER_DEVICE') stopCapture() })
+  engine.onClosing((reason) => { if (reason === 'ENDED' || reason === 'AUTH' || reason === 'OTHER_DEVICE') { wanted = false; stopCapture() } })
 
   async function startCapture(): Promise<void> {
     if (!wanted || startingCapture || media !== null || chromeEngine !== null) return
@@ -83,33 +89,38 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
       return
     }
     startingCapture = true
+    const born = captureGeneration
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false })
-      if (!wanted) { for (const track of stream.getTracks()) track.stop(); return }
+      if (!wanted || born !== captureGeneration) { for (const track of stream.getTracks()) track.stop(); return }
       media = stream
-      context = new AudioContext()
+      const activeContext = new AudioContext()
+      context = activeContext
       const url = URL.createObjectURL(new Blob([PCM_WORKLET_SOURCE], { type: 'text/javascript' }))
-      try { await context.audioWorklet.addModule(url) } finally { URL.revokeObjectURL(url) }
-      if (!wanted || context === null) return
-      node = new AudioWorkletNode(context, 'livegenie-pcm')
-      source = context.createMediaStreamSource(stream)
-      mute = context.createGain()
+      try { await activeContext.audioWorklet.addModule(url) } finally { URL.revokeObjectURL(url) }
+      if (!wanted || born !== captureGeneration || context !== activeContext) return
+      node = new AudioWorkletNode(activeContext, 'livegenie-pcm')
+      source = activeContext.createMediaStreamSource(stream)
+      mute = activeContext.createGain()
       mute.gain.value = 0
       node.port.onmessage = (event: MessageEvent<unknown>) => {
-        if (!wanted || !(event.data instanceof ArrayBuffer) || !engine.isStreaming()) return
+        if (!wanted || born !== captureGeneration || !(event.data instanceof ArrayBuffer) || !engine.isStreaming()) return
         const at = Date.now() - 100
         if (!captureSent) { captureSent = true; send({ type: 'voice.session', op: 'capture', at }) }
         engine.sendAudio(event.data, at)
       }
-      source.connect(node).connect(mute).connect(context.destination)
-      await context.resume()
+      source.connect(node).connect(mute).connect(activeContext.destination)
+      await activeContext.resume()
     } catch (error) {
+      if (!wanted || born !== captureGeneration) return
       stopCapture()
       options.onError(speechError(error instanceof DOMException && error.name === 'NotAllowedError' ? 'PERMISSION_DENIED' : 'NO_MICROPHONE'))
       engine.stop()
-    } finally { startingCapture = false }
+    } finally { if (born === captureGeneration) startingCapture = false }
   }
   function stopCapture(): void {
+    captureGeneration++
+    startingCapture = false
     chromeEngine?.stop(); chromeEngine = null
     if (node !== null) { node.port.onmessage = null; node.disconnect(); node = null }
     source?.disconnect(); source = null
@@ -123,11 +134,17 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
     if (socket?.readyState !== WebSocket.OPEN) return false
     socket.send(JSON.stringify(message)); return true
   }
+  function offline(): void {
+    if (!wanted) return
+    stopCapture()
+    options.onConnectionLost?.()
+    socket?.close()
+  }
   return {
     isSupported: () => engine.isSupported(),
-    start(): void { wanted = true; engine.start() },
-    stop(): void { wanted = false; stopCapture(); engine.stop() },
-    pauseCapture: stopCapture,
+    start(): void { wanted = true; window.addEventListener('offline', offline); engine.start() },
+    stop(): void { wanted = false; window.removeEventListener('offline', offline); stopCapture(); engine.stop() },
+    pauseCapture(): void { wanted = false; stopCapture() },
     send,
   }
 }
