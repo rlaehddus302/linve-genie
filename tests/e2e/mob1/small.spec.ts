@@ -45,16 +45,22 @@ test.describe('AC-MOB1-22 PC "찜으로 바꾸기" 44px', () => {
       for (let i = 1; i <= 20; i++) await sendViewerChat(pc, b, `시청자${String(i)}`, lines[i % lines.length]!)
       const list = pc.getByRole('list', { name: '채팅 메시지' })
       await expect(list.getByRole('listitem').filter({ hasText: '시청자20' })).toBeVisible()
-      const visible = await list.evaluate((ol) => {
+      const layout = await list.evaluate((ol) => {
         const box = ol.getBoundingClientRect()
         const top = Math.max(box.top, 0)
         const bottom = Math.min(box.bottom, window.innerHeight)
-        return [...ol.querySelectorAll('li')].filter((li) => {
+        const rows = [...ol.querySelectorAll('li')].map((li) => {
           const r = li.getBoundingClientRect()
-          return r.top >= top - 1 && r.bottom <= bottom + 1
-        }).length
+          return { top: r.top, bottom: r.bottom, height: r.height, visible: r.top >= top - 1 && r.bottom <= bottom + 1 }
+        })
+        const blocks = ['.console-head', '.console-sticky', '.console-grid', '.chat'].map((selector) => {
+          const r = document.querySelector(selector)?.getBoundingClientRect()
+          return { selector, top: r?.top, bottom: r?.bottom, height: r?.height }
+        })
+        return { visible: rows.filter((row) => row.visible).length, viewport: window.innerHeight, list: { top, bottom, height: box.height }, blocks, rows }
       })
-      expect(visible, '채팅 칸에 보이는 언급').toBeGreaterThanOrEqual(8)
+      await test.info().attach('chat-geometry.json', { body: JSON.stringify(layout, null, 2), contentType: 'application/json' })
+      expect(layout.visible, '채팅 칸에 보이는 언급').toBeGreaterThanOrEqual(8)
       const buttons = await list.getByRole('button', { name: '찜으로 바꾸기' }).all()
       expect(buttons.length).toBeGreaterThan(0)
       for (const button of buttons) {

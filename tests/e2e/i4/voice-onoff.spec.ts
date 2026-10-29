@@ -1,4 +1,4 @@
-import { historyProbe } from '../app1/support.ts'
+import { historyProbe, pcmCounts } from '../app1/support.ts'
 // I4 음성 켜기·끄기 (AC-I4-10~14) — test-e2e. 가짜 SpeechRecognition(addInitScript)로 실제 브라우저에서 확인한다.
 import { test, expect } from '@playwright/test'
 import {
@@ -127,12 +127,14 @@ test.describe('I4 음성 켜기·끄기', () => {
     await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible()
     await expect(dlg).toHaveCount(0)
 
-    // 같은 기기(컨텍스트)의 새 페이지도 창 없이
+    // APP1 D-APP1-04: 새 페이지는 새 device다. 동의는 같은 컨텍스트에 남되 한 흐름만 켠다.
+    await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
+    await expect.poll(async () => (await pcmCounts(page)).openSockets).toBe(0)
+    // 같은 기기 저장소(컨텍스트)의 새 페이지도 창 없이
     const page2 = await context.newPage()
     await page2.goto(page.url())
     await expect(page2.getByLabel('빠른 입력')).toBeFocused()
-    await page2.getByRole('button', { name: '음성 켜기', exact: true }).click()
-    await expect(voiceRegion(page2).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible()
+    await turnOnVoice(page2)
     await expect(page2.getByRole('dialog', { name: '음성으로 상품 등록' })).toHaveCount(0)
     await context.close()
   })

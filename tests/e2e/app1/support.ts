@@ -169,11 +169,11 @@ export async function waitReadingHeard(page: Page, text: string): Promise<void> 
 export async function pcmState(page: Page) {
   return page.evaluate(() => {
     const state = (window as unknown as {__pcm?: {marker:number;starts:number;stops:number;sockets:WebSocket[];captureAt:number;readyAt:number;lastContextAt:number;sessionOn:boolean;binarySent:number;pulses:number;stage:string}}).__pcm
-    return state === undefined ? null : { microphone: String(navigator.mediaDevices.getUserMedia).slice(0, 80), audio: window.AudioContext.name, stage: state.stage, binarySent: state.binarySent, pulses: state.pulses, marker: state.marker, starts: state.starts, stops: state.stops, sockets: state.sockets.length, captureAt: state.captureAt, readyAt: state.readyAt, now: Date.now(), lastContextAt: state.lastContextAt, sessionOn: state.sessionOn, chrome: state.sockets.at(-1)?.url.includes('mode=chrome') ?? true }
+    return state === undefined ? null : { microphone: String(navigator.mediaDevices.getUserMedia).slice(0, 80), audio: window.AudioContext.name, stage: state.stage, binarySent: state.binarySent, pulses: state.pulses, marker: state.marker, starts: state.starts, stops: state.stops, sockets: state.sockets.length, openSockets: state.sockets.filter((socket) => socket.readyState !== WebSocket.CLOSED).length, captureAt: state.captureAt, readyAt: state.readyAt, now: Date.now(), lastContextAt: state.lastContextAt, sessionOn: state.sessionOn, chrome: state.sockets.at(-1)?.url.includes('mode=chrome') ?? true }
   })
 }
 export async function usesPcm(page: Page): Promise<boolean> { const state = await pcmState(page); return state !== null && state.sockets > 0 && !state.chrome }
-export async function pcmCounts(page: Page) { const state = await pcmState(page); return { starts: state?.starts ?? 0, stops: state?.stops ?? 0, sockets: state?.sockets ?? 0, streams: active?.streams.size ?? 0 } }
+export async function pcmCounts(page: Page) { const state = await pcmState(page); return { starts: state?.starts ?? 0, stops: state?.stops ?? 0, sockets: state?.sockets ?? 0, openSockets: state?.openSockets ?? 0, streams: active?.streams.size ?? 0 } }
 export async function sayPcm(page: Page, text: string, options: { late?: boolean } = {}): Promise<void> {
   await expect.poll(async () => (await pcmState(page))?.sessionOn).toBe(true)
   // 제품은 ready 전에 잡힌 100ms PCM을 버린다. 시험 캡처도 실제 한 틀 분량의 시간이 지난 뒤 보낸다.

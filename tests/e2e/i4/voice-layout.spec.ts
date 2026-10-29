@@ -15,6 +15,7 @@ import {
   speak,
   speechError,
   turnOnVoice,
+  waitForVoiceReady,
   uniqueDate,
   viewerClaim,
   voiceRegion,
@@ -172,6 +173,7 @@ test.describe('I4 배치·쉬운 말', () => {
     const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
     seen.push(await dlg.innerText())
     await dlg.getByRole('button', { name: '음성 켜기', exact: true }).click()
+    await waitForVoiceReady(page)
     // V2는 말을 조용한 시간(1.8초)만큼 모아 읽는다(D-V2-03·D-V2-16) — 카드마다 나온 것을 보고 다음 말을 한다
     await speak(page, '15번 핑크프릴 만오천 원')
     await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
@@ -204,7 +206,7 @@ test.describe('I4 배치·쉬운 말', () => {
       await speechError(page, err)
       await expect(voiceRegion(page).locator('.voice-error')).toBeVisible()
       seen.push(await voiceRegion(page).innerText())
-      await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
+      await turnOnVoice(page)
       await expect(voiceRegion(page).getByRole('button', { name: '음성 끄기' })).toBeVisible()
     }
     const bad = seen.filter((t) => WORDS.test(t))

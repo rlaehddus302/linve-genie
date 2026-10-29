@@ -221,6 +221,11 @@ export async function turnOnVoice(page: Page, options: { consent?: boolean } = {
     await expect(dlg).toBeVisible()
     await dlg.getByRole('button', { name: '음성 켜기', exact: true }).click()
   }
+  await waitForVoiceReady(page)
+}
+
+/** 동의 창을 직접 조작한 시험도 서버 읽기와 실제 캡처가 준비된 뒤 결과를 넣는다. */
+export async function waitForVoiceReady(page: Page): Promise<void> {
   try { await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible() }
   catch (cause) { throw new Error(`음성 시작 실패: ${JSON.stringify(await pcmState(page))}`, { cause }) }
   // APP1b의 읽기 준비 응답과 Chrome 캡처 시작은 비동기다. 오류/결과는 실제 인식 객체가 시작된 뒤 넣는다.

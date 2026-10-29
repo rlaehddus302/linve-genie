@@ -71,6 +71,9 @@
 | v3/settings `판매 이력 2초 기다림…` | V3-43 e → APP1b 이력 | 새 판매자의 서버 공급자 지연/pending/completed | 끈 채 읽은 덩어리는 옵션을 켜도 자동 등록 0, 이력 완료 뒤에도 카드, 다음 덩어리만 바로 등록 |
 | v3/settings `R29 둘째 휴대폰 음성…` | V3-38 R29 → APP1-32/APP1b 한 흐름 | 오케스트레이터/spec_final 명시 판정: 두 음성 동시 읽기 대신 둘째 OTHER_DEVICE | 첫 등록 정확히 1, 양쪽 보드, 임의 고침/중복 쓰기 0, 둘째 손 입력 유지. 같은 요청 ID 멱등성은 기존 실제 HTTP/오프라인 시험으로 유지 |
 | pl1b/voice-flush `10초 넘게 늦은…` | PL1B-26 → APP1-36/APP1b-04 | 같은 문자찜 원문을 늦은 최종 글로 | 카드·10초 자동 문자찜 0·수동 넣기 정확히1·끝자리/상품·393px 배치 |
+| i4/voice-layout `I4-51 개발용어 없음` | I4-51 → APP1b 비동기 캡처 | 동의/오류재시작 직접 클릭 뒤 서버 LISTENING 및 실제 Chrome capture 시작을 기다림 | 동의·카드·설정·입력오류·음성오류 전체 문장에서 영어상태/개발용어 없음 |
+| i4/voice-onoff `I4-11 새 페이지도 창 없이` | I4-11 → D-APP1-04/APP1b 공용1 | 첫 페이지 명시OFF+실제WS닫힘 뒤 같은 context 새 페이지 켜기 | 첫 동의 정확문장·닫기/Esc/포커스·동의 영속성·새페이지 동의0/실제LISTENING·Chrome 인식설정 |
+| mob1/hide `방송을 다른 기기에서 끝내면` | MOB1-17 → APP1-44/APP1b-16 | 구 음성끄기 잔존 대신 ENDED 자동OFF | 빠른입력1초제거·치던글/늦은쓰기0·캡처/소켓종료·10초뒤 재연결0·음성켜기없음; 같은파일 끝난상품 손고치기 시험 그대로 |
 
 ### 이력 세션 수명 해석
 
@@ -124,3 +127,22 @@
 - 마지막 최신 선택20개: **20/20 통과(36.6초)**. 앞 선택에서 남은5개(Chrome 권한 재시작, V1 offlineSMS, Chrome Band 고지, R7 다른번호 안내, 저장 OFF 동의)를 모두 해결 확인했고, Chrome ON 동의 및 I5 PC7개·MOB1 화면잠금/동의7개도 통과했다. V1 offline 시험은 `context.setOffline(true)`만 쓰는 기존 경계 그대로이며 fixture에서 추가 WS close로 통과시키지 않았다.
 - 이 역할에서 등록한 제품 지적 `TE-APP1-001`~`TE-APP1-010`은 모두 `resolvedIds`다. 미해결 제품 지적은 없다. 전체 `pnpm verify`는 오케스트레이터가 최신 소스에서 최종 실행한다. 위 개별 결과는 서로 중복되는 회귀 선택이므로 합쳐서 고유 시험 총수로 세지 않는다.
 - 마지막 공용 fixture 수정은 Chrome 실제 인식 객체의 `started && !stopped` 확인 후 오류/결과를 주입하는 준비 경계다. 결과/카드/상품 상태는 수정하지 않는다. E2E 타입 검사와 변경 파일 lint, `git diff --check`가 통과했다.
+
+### 전체 검증 후 추가 재검토
+
+- 라벨 canonical bitmap 변경 재검증: `E2E_ONLY=chromium E2E_PORT_OFFSET=30000`, `i1/files.spec.ts` 전체 2개와 `i1/screens.spec.ts` AC-I1-35 포장 1개가 **3/3 통과(31.5초)**. 미리보기/실제 시험 프린터/PNG 픽셀 일치, 개인정보 없는 파일명·PDF 정보, 25장 A4 2쪽, 포장 묶음 변경 시 재출력 단언을 그대로 유지했다. 절대 경로 결과 `work/e2e-label-recheck-results`, 로그 `work/e2e-label-recheck.log`.
+- 새 지적 **TE-APP1-011** (major / logic, CONFIRMED, area=web, file=`packages/voice-session/src/server.ts`): 빠른 입력 15번 핑크프릴 20,000원 등록의 응답을 보류한 동안 음성 "15번 라울 만원"을 읽고 응답을 풀면, 첫 발화는 가격 고침 묻기로 끝난다. 같은 최종 글을 다시 읽으면 고침이 진행돼야 하나 "고치는 중"에서 멈추고 상품이 바뀌지 않는다. 기존 `i4/attacks.spec.ts:235`가 전체 실행과 별도 빈 서버에서 같은 line270으로 실패했다. fixture/기대값 변경 없음.
+- 원인: 서버 어댑터의 `registering`은 자기 등록의 `noteVoiceRegistered`를 기다리지만 기기 등록 큐에서 기존 상품을 발견하면 `instantExists(card)`만 돌아온다. 이 경로에서 대기가 정리되지 않아 이후 `fixRecent`가 30초 기다린다. 실패 trace 실제 HTTP는 손 입력 `product.register` 200 한 건뿐이며 `product.update`는 0건이다. 등록 실패/timeout의 대기 수명 정리도 개발 담당에게 함께 전달했다.
+- TE-APP1-011 상태: 수정 후 독립 E2E 재검증 통과, resolvedIds에 추가. 독립 재현 로그 `work/e2e-voice-collision.log`, 결과 `work/e2e-voice-collision-results`. 전체 7개 게이트의 최종 결과는 부모 오케스트레이터가 별도 확정한다.
+
+- 수정 뒤 최신 독립 선택 **3/3 통과(6.7초)**: I4 손입력/음성 같은 번호 충돌, R66 등록 뒤 즉시 정정, R7 다른 번호 안내. 기존 시험 코드·기대값을 바꾸지 않았다. `instantExists`는 서버가 보낸 원본 카드와 실제 상품을 검증한 뒤 해당 등록 대기를 끝내며, restore/timeout에서도 대기 항목을 정리한다. 재검증 로그 `work/e2e-voice-collision-fixed.log`, 결과 `work/e2e-voice-collision-fixed-results`. 현재 TE-APP1-001~011의 미해결 지적은 0개다.
+
+### 추가 네 사례 재검토
+
+- 전체 검증에서 지적된 I4-51 언어/동의 새페이지/MOB1 방송종료/PC채팅8행은 별도 빈 서버에서 4/4 동일 실패했다(`work/e2e-followup-four.log`). 앞 세 건은 위 대응표처럼 폐기된 동기 초기화·동시 흐름·종료 음성 잔존 전제만 이전한다. spec_final이 I4 동의/MOB1 종료 이행을 UPHOLD했고, 직접 근거는 D-APP1-04·D-APP1-03·AC-APP1-44·APP1b-16이다. 같은 브라우저 저장소의 새 페이지에도 메모리 device 표지는 새로 생기므로 동시 두 흐름을 가정하지 않는다.
+- 동의 새페이지/방송종료는 이행 뒤 2/2 통과했다. I4-51은 최초 동의뿐 아니라 오류 반복 재시작에도 실제 캡처 준비를 기다리는 공용 helper를 적용해 재검증한다. 시험 정답과 문장 검사는 바꾸지 않는다.
+- **TE-APP1-012** (major / ux, CONFIRMED, area=web, file=`apps/web/src/components/VoicePanel.tsx`): 1440×900 음성 꺼진 콘솔에서 새 엔진 선택/켜기 두 행 때문에 `.console-head` 높이96px, 채팅목록 y524.98px가 되어 언급20개 중 완전히 보이는 행이7개다. AC-MOB1-22/S06-62는 ≥8개이며 모든 변환 버튼 ≥44px를 유지해야 한다. 빈 서버 두 번 재현했고 `mob1/small.spec.ts`에 읽기전용 `chat-geometry.json` 첨부를 추가해 상단/목록/행 좌표를 기록했다. 기존 수치 기대는 그대로다. 개발 담당에 전달했고 수정 후 재검증 예정이다.
+
+- I4-51 비동기 캡처 준비 이행 뒤 **1/1 통과(시험5.9초)**. 최초 동의와 오류3종 반복 재시작의 문구/개발용어 금지 단언은 모두 그대로다. `work/e2e-followup-language.log`.
+
+- TE-APP1-012 수정 후 최신 선택 **9/9 통과(1.1분)**. PC 8행/변환·옵션 버튼44px, 375px·1440px 음성카드 고정영역, 375/412px 글자150% 빠른입력/되돌리기, I4-51 전체문구, 동의새페이지, ENDED 종료를 함께 검증했다. PC 선택/켜기를 공용 row로 배치하여 기존 크기/이름을 유지한다. `work/e2e-followup-final.log` 및 `work/e2e-followup-final-results`. TE-APP1-012를 resolvedIds에 추가, 현재 열린 제품 지적0. 변경 E2E typecheck/lint 및 diff 공백 검사 통과.

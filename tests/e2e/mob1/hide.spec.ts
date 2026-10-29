@@ -2,7 +2,8 @@
 // 기본 E2E 서버: 인스타그램 서버 준비 안 됨 · 틱톡 막힘. @multi 묶음: 인스타그램 준비됨(연결 안 함) · 틱톡 운영자 켬.
 import { expect, test, type Page } from '@playwright/test'
 import { e2eDate, loginAs } from '../i3/support.ts'
-import { installFakeSpeech, turnOnVoice, voiceRegion } from '../i4/support.ts'
+import { installFakeSpeech, speechCounts, turnOnVoice, voiceRegion } from '../i4/support.ts'
+import { pcmCounts } from '../app1/support.ts'
 import { consoleInstagram, consoleTiktok, enableTiktokApi, newTiktokId, ttLive } from '../n2b2/support.ts'
 import { boardItem, history, uniqueDate } from '../s05/support.ts'
 import { registerApi, smsApi } from '../s06/support.ts'
@@ -195,11 +196,12 @@ test.describe('AC-MOB1-17 끝난 방송 콘솔', () => {
     }
   })
 
-  test('진행 중 방송을 다른 기기에서 끝내면 1초 안에 빠른 입력 줄이 사라지고 치던 글은 보내지 않는다 — 켜져 있던 음성은 "음성 끄기"가 남는다', async ({ page, browser }) => {
+  test('AC-MOB1-17 → APP1 ENDED: 다른 기기에서 방송을 끝내면 1초 안에 빠른 입력 줄이 사라지고 치던 글은 보내지 않는다 — 음성도 꺼지고 다시 잇지 않는다', async ({ page, browser }) => {
     await page.goto('/')
     const { page: dev, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PC })
     try {
       await installFakeSpeech(dev, { consent: true })
+      await dev.clock.install()
       const date = uniqueDate()
       const b = await broadcastApi(dev, date)
       await dev.goto(`/broadcasts/${encodeURIComponent(b)}`)
@@ -213,14 +215,22 @@ test.describe('AC-MOB1-17 끝난 방송 콘솔', () => {
       await expect(dev.getByText('끝난 방송이에요')).toBeVisible()
       await expect(input).toHaveCount(0, { timeout: 1_000 })
       await expectNoQuickRow(dev, '끝난 뒤')
-      await expect(voiceRegion(dev).getByRole('button', { name: '음성 끄기', exact: true })).toBeVisible()
+      // APP1 ENDED·APP1b-16: 서버가 방송 종료와 함께 캡처/읽기 흐름을 끝낸다.
+      await expect(voiceRegion(dev)).toHaveCount(0)
+      await expect.poll(async () => (await pcmCounts(dev)).openSockets).toBe(0)
+      await expect.poll(async () => { const counts = await speechCounts(dev); return counts.stops + counts.aborts }).toBeGreaterThan(0)
       await expect(dev.getByRole('button', { name: '음성 켜기', exact: true })).toHaveCount(0)
       await dev.keyboard.press('Enter')
       // 보내지 않았다 (치던 글은 버림)
       expect((await history(dev, date, false)).filter((e) => e.type === 'product.register')).toEqual([])
       await expect(boardItem(dev, 5)).toHaveCount(0)
-      // 음성을 끄면 "음성 켜기"도 없다
-      await voiceRegion(dev).getByRole('button', { name: '음성 끄기', exact: true }).click()
+      // 종료는 재시도 대상이 아니다. 새 연결/캡처와 늦은 쓰기가 없어야 한다.
+      const connections = (await pcmCounts(dev)).sockets
+      const starts = (await speechCounts(dev)).starts
+      await dev.clock.runFor(10_000)
+      expect((await pcmCounts(dev)).sockets).toBe(connections)
+      expect((await speechCounts(dev)).starts).toBe(starts)
+      expect((await history(dev, date, false)).filter((e) => e.type === 'product.register')).toEqual([])
       await expect(voiceRegion(dev)).toHaveCount(0)
       await expect(dev.getByRole('button', { name: '음성 켜기', exact: true })).toHaveCount(0)
     } finally {
