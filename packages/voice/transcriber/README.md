@@ -15,7 +15,7 @@
 
 ## 설치 (맥 미니에서 한 번)
 
-파이썬 3.10 이상(확인한 판 3.12). 꾸러미 판은 `requirements.txt`에 고정했다.
+파이썬 3.12 이상(확인한 판 3.12). 꾸러미 판은 `requirements.txt`에 고정했다. Cohere 소리 전처리에 필요한 `librosa`도 함께 설치한다.
 
 ```
 cd packages/voice/transcriber
