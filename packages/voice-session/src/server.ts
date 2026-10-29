@@ -54,6 +54,16 @@ export function createReadingSession(options: ReadingSessionOptions) {
   let nextEffect = 1
   const undoable = new Map<string, number>()
   const pending = new Map<number, { resolve: (value: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
+  // DB의 등록 반영은 기기의 상품 목록 반영보다 빠를 수 있다. 같은 등록의 고침은
+  // 기존 HTTP 경로가 목록까지 따라잡았다는 noteVoiceRegistered 뒤에 보낸다.
+  const registering = new Map<number, {
+    cardId: string
+    name: string
+    price: number
+    done: Promise<boolean>
+    finish: (confirmed: boolean) => void
+    timer: ReturnType<typeof setTimeout>
+  }>()
   const now = () => wallNow() + clockOffset
   let nextTimer = 1
   const scheduled = new Map<number, { at: number; run: () => void; timer: ReturnType<typeof setTimeout> }>()
@@ -115,12 +125,24 @@ export function createReadingSession(options: ReadingSessionOptions) {
     writeSettings: (value) => { settings = value; void effect('writeSettings', [value]) },
     readSmsSettings: () => smsSettings,
     writeSmsSettings: (value) => { smsSettings = value; void effect('writeSmsSettings', [value]) },
-    register: (card, registration, source) => { void effect('register', [card, registration, source, controller.voiceLogFor(card.text)]) },
+    register: (card, registration, source) => {
+      const old = registering.get(registration.no)
+      if (old !== undefined) { clearTimeout(old.timer); old.finish(false) }
+      let finish: (confirmed: boolean) => void = () => {}
+      const done = new Promise<boolean>((resolve) => { finish = resolve })
+      const timer = setTimeout(() => finish(false), 30_000)
+      registering.set(registration.no, { cardId: card.id, name: registration.name, price: registration.price, done, finish, timer })
+      void effect('register', [card, registration, source, controller.voiceLogFor(card.text)])
+    },
     focusQuick: () => { void effect('focusQuick', []) },
     newRequestId: () => globalThis.crypto.randomUUID(),
     smsAutoAllowed: () => smsAutoAllowed,
     writeSms: async (...args) => (await effect('writeSms', args, true) as Awaited<ReturnType<NonNullable<VoiceHost['writeSms']>>>) ?? { kind: 'failed', message: '문자찜을 넣지 못했어요. 연결을 확인해 주세요.' },
-    fixRecent: async (...args) => (await effect('fixRecent', args, true) as Awaited<ReturnType<NonNullable<VoiceHost['fixRecent']>>>) ?? { kind: 'failed', message: '고치지 못했어요. 연결을 확인해 주세요.' },
+    fixRecent: async (...args) => {
+      const waiting = [...registering].find(([no]) => options.host.existingProduct?.(no)?.key === args[0])?.[1]
+      if (waiting !== undefined && !await waiting.done) return { kind: 'failed', message: '등록한 상품을 확인하지 못했어요. 연결을 확인한 뒤 다시 고쳐 주세요.' }
+      return (await effect('fixRecent', args, true) as Awaited<ReturnType<NonNullable<VoiceHost['fixRecent']>>>) ?? { kind: 'failed', message: '고치지 못했어요. 연결을 확인해 주세요.' }
+    },
     renumber: async (...args) => (await effect('renumber', args, true) as boolean | 'claimed' | null) ?? false,
     undoRecent: (id) => {
       if ((undoable.get(id) ?? 0) < now()) return false
@@ -223,9 +245,19 @@ export function createReadingSession(options: ReadingSessionOptions) {
     } else if (value.op === 'command' && typeof value.method === 'string' && VOICE_COMMANDS.some((method) => method === value.method) && Array.isArray(value.args) && value.args.length <= 4) {
       if (!initialized) return
       if (value.method === 'noteVoiceRegistered' && isRecord(value.args[0]) && typeof value.args[0].id === 'string') {
+        const entry = value.args[0]
+        const waiting = registering.get(Number(entry.no))
+        if (waiting !== undefined) {
+          if (waiting.name !== entry.name || waiting.price !== entry.price || options.host.existingProduct?.(Number(entry.no))?.key !== entry.id) return
+          clearTimeout(waiting.timer); registering.delete(Number(entry.no)); waiting.finish(true)
+        }
         undoable.set(value.args[0].id, now() + 5000)
         const end = numberEnds.get(Number(value.args[0].no))
         if (end !== undefined) registrationEnds.set(value.args[0].id, end)
+      }
+      if (value.method === 'restore' && isRecord(value.args[0])) {
+        const waiting = registering.get(Number(value.args[0].no))
+        if (waiting !== undefined && waiting.cardId === value.args[0].id) { clearTimeout(waiting.timer); waiting.finish(false) }
       }
       const method = value.method as (typeof VOICE_COMMANDS)[number]
       if (method === 'submitForm') {
@@ -261,6 +293,8 @@ export function createReadingSession(options: ReadingSessionOptions) {
       for (const id of [...scheduled.keys()]) timers.clear(id)
       for (const item of pending.values()) { clearTimeout(item.timer); item.resolve(null) }
       pending.clear()
+      for (const item of registering.values()) { clearTimeout(item.timer); item.finish(false) }
+      registering.clear()
       undoable.clear()
     },
   }

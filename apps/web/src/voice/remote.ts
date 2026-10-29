@@ -1,7 +1,7 @@
 // APP1b: 화면은 서버 읽기 상태를 그리며 쓰기 효과만 기존 API 경로로 넘긴다.
 // 추출·사전·판정 모듈은 불러오지 않는다. controller.ts의 공개 인터페이스는 그대로다.
 import type { SuggestionCard, SmsCard, SpeechGap, SpeechDiagnostic, OnDeviceStatus, SpeechState } from '@livejjim/voice'
-import { VOICE_IDLE, type VoiceController, type VoiceHost, type VoiceSnapshot, type SmsEntry, type SmsWords, type VoiceLogInput, type VoiceLogLine } from './controller.ts'
+import { RESTART_LABEL_MS, VOICE_IDLE, type VoiceController, type VoiceHost, type VoiceSnapshot, type SmsEntry, type SmsWords, type VoiceLogInput, type VoiceLogLine } from './controller.ts'
 import { post } from '../api/client.ts'
 import { decideVoiceEnter, enterReady, nextFront } from '../lib/voice.ts'
 import { archiveBroadcasts, archiveGaps, readArchive } from './archive-store.ts'
@@ -12,6 +12,7 @@ import type { VoiceModule } from './load.ts'
 import { VOICE_CHUNK_PLACEHOLDER } from './chunk.ts'
 import { retryAddress } from './load.ts'
 import { SERVICE_NAME } from '../brand.ts'
+import { supportsVoiceCapture } from './capabilities.ts'
 let transportFailures = 0
 
 export type VoiceControllerPort = Pick<VoiceController, keyof VoiceController>
@@ -69,6 +70,11 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   let effectPending = 0
   let connecting = false
   let chromeMode = false
+  let restartTimer: ReturnType<typeof setTimeout> | null = null
+  let restartRequested = false
+  const interruptedSms = new Set<string>()
+  const localSettings: Record<string, boolean | number | undefined> = {}
+  const localSmsSettings: Record<string, boolean | number> = {}
   const restartingLabel = () => chromeMode ? '음성: 다시 시작 중' : '다시 잇는 중'
   const haltedLabel = () => chromeMode ? '음성: 멈춤' : '듣기 멈춤'
   const commandQueue: { method: VoiceCommand; args: readonly unknown[] }[] = []
@@ -81,14 +87,26 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   const device = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
   const emit = () => { for (const listener of [...listeners]) listener() }
   const set = (patch: Partial<VoiceSnapshot>) => { snapshot = { ...snapshot, ...patch, now: host.now() }; emit() }
+  const releaseRestart = () => { if (restartTimer !== null) clearTimeout(restartTimer); restartTimer = null }
+  const withLocalSettings = (settings: Parameters<VoiceHost['writeSettings']>[0]) => {
+    const next: typeof settings & Record<string, unknown> = { ...settings, ...localSettings }
+    for (const [key, value] of Object.entries(next)) if (value === undefined) delete next[key]
+    return next
+  }
+  const saveSettings = (patch: typeof localSettings) => {
+    Object.assign(localSettings, patch)
+    if (snapshot.settings !== null) host.writeSettings(withLocalSettings({ ...snapshot.settings, ...safeSettings(host.readSettings()) }))
+  }
+  const stopSms = (entry: SmsEntry): SmsEntry => interruptedSms.has(entry.card.id) && entry.card.status === 'OPEN' && !entry.sending ? { ...entry, card: { ...entry.card, autoAt: null, touched: true }, error: entry.error ?? '연결이 끊겨 문자찜을 넣지 못했어요. 연결을 확인한 뒤 넣기를 눌러 주세요.' } : entry
   const context = () => ({ now: host.now(), dialogOpen: host.dialogOpen(), smsAutoAllowed: host.smsAutoAllowed?.() ?? true })
   const send = (message: VoiceClientMessage) => transport?.send(message) ?? false
   const command = (method: VoiceCommand, args: readonly unknown[]) => {
+    if (['smsSend', 'smsChoose', 'smsNewBuyer', 'smsSkip', 'smsDismiss'].includes(method)) interruptedSms.delete(String(args[0]))
     if (['editForm', 'openForm', 'chooseCandidate', 'fixCardOffer', 'submitMissed'].includes(method) && display.confirmations instanceof Map) display.confirmations.delete(String(args[0]))
     if (!readyForCommands) {
       if (['refresh', 'noteRegistered', 'turnOff'].includes(method) || resumeToken === null) return
       commandQueue.push({ method, args })
-      if (!connecting && transport === null && snapshot.phase === 'off') void start(true)
+      if (!connecting && ((transport === null && snapshot.phase === 'off') || transportState === 'HALTED')) void start(true)
       return
     }
     send({ type: 'voice.session', op: 'context', context: context() })
@@ -101,6 +119,7 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   }
   const stop = () => {
     generation++
+    releaseRestart()
     readyForCommands = false
     if (idleTimer !== null) clearTimeout(idleTimer)
     idleTimer = null
@@ -139,8 +158,8 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
         case 'openProduct': host.openProduct?.(String(args[0])); break
         case 'focusQuick': host.focusQuick(); break
         case 'writeConsent': host.writeConsent(); break
-        case 'writeSettings': host.writeSettings(args[0] as Parameters<VoiceHost['writeSettings']>[0]); break
-        case 'writeSmsSettings': host.writeSmsSettings?.(args[0] as Parameters<NonNullable<VoiceHost['writeSmsSettings']>>[0]); break
+        case 'writeSettings': host.writeSettings(withLocalSettings(args[0] as Parameters<VoiceHost['writeSettings']>[0])); break
+        case 'writeSmsSettings': host.writeSmsSettings?.({ ...args[0] as Parameters<NonNullable<VoiceHost['writeSmsSettings']>>[0], ...localSmsSettings }); break
         case 'archiveChunk': host.archiveChunk?.(args[0] as Parameters<NonNullable<VoiceHost['archiveChunk']>>[0]); break
         case 'archiveGap': host.archiveGap?.(args[0] as Parameters<NonNullable<VoiceHost['archiveGap']>>[0]); break
         case 'voiceOff': host.voiceOff?.(); break
@@ -185,13 +204,22 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
         onState: (state) => {
           if (disposed || born !== generation) return
           transportState = state
-          if (state !== 'LISTENING') readyForCommands = false
           if (commandsOnly || stopping) return
-          if (state === 'LISTENING') { transportError = null; set({ phase: 'on', stateLabel: '음성: 듣는 중', error: null }) }
-          if (state === 'RESTARTING') set({ phase: 'on', stateLabel: restartingLabel() })
-          if (state === 'HALTED') set({ phase: 'on', stateLabel: haltedLabel() })
+          if (state === 'LISTENING') { transportError = null; set({ phase: 'on', stateLabel: restartTimer === null ? '음성: 듣는 중' : restartingLabel(), error: null }) }
+          if (state === 'RESTARTING') {
+            releaseRestart()
+            if (chromeMode) restartTimer = setTimeout(() => { restartTimer = null; if (!disposed && born === generation && transportState === 'LISTENING' && !stopping) set({ stateLabel: '음성: 듣는 중' }) }, RESTART_LABEL_MS)
+            set({ phase: 'on', stateLabel: restartingLabel() })
+          }
+          if (state === 'HALTED') set({ phase: chromeMode ? 'off' : 'on', stateLabel: chromeMode ? null : haltedLabel() })
         },
-        onError: (error) => { if (!disposed && born === generation) { transportError = error.message; transportState = 'HALTED'; set({ phase: commandsOnly ? 'off' : 'on', stateLabel: haltedLabel(), error: error.message, unsupported: error.kind === 'UNSUPPORTED' }) } },
+        onError: (error) => { if (!disposed && born === generation) { transportError = error.message; transportState = 'HALTED'; if (chromeMode && !commandsOnly) local.turnOff(); set({ phase: commandsOnly || chromeMode ? 'off' : 'on', stateLabel: chromeMode ? null : haltedLabel(), error: error.message, unsupported: error.kind === 'UNSUPPORTED' }) } },
+        onConnectionLost: () => {
+          if (disposed || born !== generation || stopping) return
+          readyForCommands = false
+          for (const entry of snapshot.sms) if (entry.card.status === 'OPEN' && !entry.sending) interruptedSms.add(entry.card.id)
+          set({ sms: snapshot.sms.map(stopSms), cards: snapshot.cards.map((card) => ({ ...card, autoConfirmAt: null })) })
+        },
         onGap: (gap, text) => { gaps = [...gaps.slice(-79), gap]; if (snapshot.archive) host.archiveGap?.({ at: gap.to, ms: gap.ms, reason: gap.reason, text }); emit() },
         onDiagnostic: (diagnostic, text) => { diagnostics = [...diagnostics.slice(-79), diagnostic]; if (snapshot.archive) host.archiveGap?.({ at: diagnostic.at, ms: diagnostic.ms, reason: diagnostic.kind, text }); emit() },
         onDeviceStatus: (status) => { onDevice = status; emit() },
@@ -227,13 +255,13 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
               if (text === offer.priceEntry) pendingOfferPrices.delete(offer.id)
               return text === undefined ? offer : { ...offer, priceEntry: text }
             })
-            snapshot = { ...state, cards, front, tooSoon: state.tooSoon || tooSoon,
+            snapshot = { ...state, cards, sms: state.sms.map(stopSms), front, tooSoon: state.tooSoon || tooSoon,
               ...pendingTexts, forms, offers,
               ...((controlOnly || stopping) ? { phase: 'off', stateLabel: null } : {}),
               instant: pendingInstant ?? state.instant, archive: pendingArchive ?? state.archive,
               settings: state.settings === null ? null : { ...state.settings, ...(pendingAuto === null ? {} : { 'voice.autoConfirm': pendingAuto }) },
               smsSettings: state.smsSettings === null ? null : { ...state.smsSettings, ...(pendingSmsListen === null ? {} : { 'voice.smsListen': pendingSmsListen }) },
-              ...(transportState === 'RESTARTING' ? { stateLabel: restartingLabel() } : transportState === 'HALTED' || transportError !== null ? { stateLabel: haltedLabel() } : {}),
+              ...((transportState === 'RESTARTING' || restartTimer !== null) ? { stateLabel: restartingLabel() } : transportState === 'HALTED' || transportError !== null ? { stateLabel: chromeMode ? null : haltedLabel(), ...(chromeMode ? { phase: 'off' } : {}) } : {}),
               ...(transportError === null ? {} : { error: transportError }),
               ...(value.resumeToken === '' ? { error: '대기 내용이 많아 다시 연결할 수 없어요. 음성을 끄기 전에 남은 카드와 문자찜을 확인해 주세요.' } : {}),
             }
@@ -242,7 +270,7 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
             if (masked.size > 300) for (const key of [...masked.keys()].slice(0, masked.size - 300)) masked.delete(key)
             emit()
             for (const item of commandQueue.splice(0)) command(item.method, item.args)
-            if (stopping && state.phase === 'off') { stopping = false; stop() }
+            if (stopping && state.phase === 'off') { stopping = false; stop(); if (restartRequested) { restartRequested = false; void start() } }
             else scheduleIdle()
           } else if (value.type === 'voice.error' && typeof value.message === 'string') {
             if (value.code === 'RESUME_INVALID') { resumeToken = null; commandQueue.length = 0; stop(); set({ phase: 'off', stateLabel: null, error: value.message }) }
@@ -264,6 +292,8 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
     getSnapshot: () => snapshot,
     async turnOn() {
       if (disposed || snapshot.phase !== 'off') return
+      if (!supportsVoiceCapture(readVoiceEngine())) { set({ unsupported: true, error: '이 기기에서는 음성이 어려워요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.' }); return }
+      if (stopping) { restartRequested = true; return }
       if (!host.readConsent()) { set({ phase: 'consent' }); return }
       await start()
     },
@@ -272,6 +302,7 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
     declineConsent() { if (snapshot.phase === 'consent') { set({ phase: 'off' }); host.focusQuick() } },
     turnOff() {
       stopping = true
+      releaseRestart()
       transport?.pauseCapture?.()
       const sent = readyForCommands && send({ type: 'voice.session', op: 'command', method: 'turnOff', args: [] })
       if (!sent) { stopping = false; stop() }
@@ -290,15 +321,15 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
     keyCandidateCard: () => typeof display.keyCandidateCard === 'string' ? display.keyCandidateCard : null,
     smsEscTarget: () => typeof display.smsEscTarget === 'string' ? display.smsEscTarget : null,
     smsResultShown: () => display.smsResultShown === true,
-    smsCountdown: (entry: SmsEntry) => mapValue<string | null>(display.countdowns, entry.card.id, null),
+    smsCountdown: (entry: SmsEntry) => entry.card.autoAt === null || interruptedSms.has(entry.card.id) ? null : mapValue<string | null>(display.countdowns, entry.card.id, null),
     logLines: () => Array.isArray(display.logLines) ? display.logLines as readonly VoiceLogLine[] : [],
     recognitionDiagnostics: () => diagnostics,
     recognitionGaps: () => gaps,
     onDeviceRecognition: () => onDevice,
-    setInstant(on: boolean) { pendingInstant = on; set({ instant: on }); command('setInstant', [on]) },
-    setArchive(on: boolean) { pendingArchive = on; set({ archive: on }); command('setArchive', [on]) },
-    setAutoConfirm(on: boolean) { pendingAuto = on; if (snapshot.settings !== null) set({ settings: { ...snapshot.settings, 'voice.autoConfirm': on } }); command('setAutoConfirm', [on]) },
-    setSmsListen(on: boolean) { pendingSmsListen = on; if (snapshot.smsSettings !== null) set({ smsSettings: { ...snapshot.smsSettings, 'voice.smsListen': on } }); command('setSmsListen', [on]) },
+    setInstant(on: boolean) { saveSettings({ 'voice.autoRegister': on ? undefined : false }); pendingInstant = on; set({ instant: on }); command('setInstant', [on]) },
+    setArchive(on: boolean) { saveSettings({ 'voice.archive': on }); pendingArchive = on; set({ archive: on }); command('setArchive', [on]) },
+    setAutoConfirm(on: boolean) { saveSettings({ 'voice.autoConfirm': on }); pendingAuto = on; if (snapshot.settings !== null) set({ settings: { ...snapshot.settings, 'voice.autoConfirm': on } }); command('setAutoConfirm', [on]) },
+    setSmsListen(on: boolean) { localSmsSettings['voice.smsListen'] = on; pendingSmsListen = on; if (snapshot.smsSettings !== null) { const smsSettings = { ...snapshot.smsSettings, ...localSmsSettings }; host.writeSmsSettings?.(smsSettings); set({ smsSettings }) } command('setSmsListen', [on]) },
     setSeconds(text: string) { pendingTexts.secondsText = text; set({ secondsText: text }); command('setSeconds', [text]) },
     setQuietSeconds(text: string) { pendingTexts.quietText = text; set({ quietText: text }); command('setQuietSeconds', [text]) },
     setSmsSeconds(text: string) { pendingTexts.smsSecondsText = text; set({ smsSecondsText: text }); command('setSmsSeconds', [text]) },

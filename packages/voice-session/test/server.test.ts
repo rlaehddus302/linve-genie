@@ -3,7 +3,7 @@ import * as voice from '@livejjim/voice'
 import { BaseSpeechEngine, type SpeechResult } from '../../voice/src/speech.ts'
 import { VoiceController, type VoiceHost } from '../../../apps/web/src/voice/controller.ts'
 import { createReadingSession, type ReadingHost } from '../src/server.ts'
-import { fromWire, isVoiceClientMessage, toWire, type VoiceServerMessage, type VoiceStateMessage } from '../src/wire.ts'
+import { fromWire, isVoiceClientMessage, toWire, type VoiceEffectMessage, type VoiceServerMessage, type VoiceStateMessage } from '../src/wire.ts'
 import { openResume } from '../src/resume.ts'
 
 const T0 = Date.UTC(2026, 9, 29, 3)
@@ -21,6 +21,57 @@ beforeEach(() => { vi.useFakeTimers({ now: T0 }) })
 afterEach(() => { vi.useRealTimers() })
 
 describe('APP1b server reading session', () => {
+  it.each(['ack', 'failed', 'timeout'] as const)('waits for the matching client registration before a following automatic price correction (%s)', async (outcome) => {
+    const messages: VoiceServerMessage[] = []
+    let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null
+    const session = createReadingSession({ host: { ...data(), existingProduct: (no) => no === 55 ? product : null }, device: 'test', mode: 'chrome', send: (message) => {
+      messages.push(message)
+      if (message.type === 'voice.effect' && message.method === 'register') {
+        const [, registration] = fromWire(message.args) as [unknown, { name: string; price: number }]
+        product = { key: 'broadcast:55', ...registration, claimCount: 0, closed: false }
+      }
+    } })
+    session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { 'voice.autoRegister': true } } }); await settle()
+    const tokens = '55번 만 원 아니 만오천 원'.split(' ')
+    for (let i = 1; i <= tokens.length; i++) {
+      if (i > 1) await vi.advanceTimersByTimeAsync(200)
+      session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: tokens.slice(0, i).join(' '), final: i === tokens.length, slot: '1:0', lead: true } })
+    }
+    await vi.advanceTimersByTimeAsync(1900)
+    const registration = messages.find((message) => message.type === 'voice.effect' && message.method === 'register')
+    expect(registration).toBeDefined()
+    const fixes = () => messages.filter((message): message is VoiceEffectMessage => message.type === 'voice.effect' && message.method === 'fixRecent')
+    expect(fixes()).toHaveLength(0)
+    session.onMessage({ type: 'voice.session', op: 'command', method: 'noteVoiceRegistered', args: [{ id: 'wrong:55', no: 55, name: '', price: 10000 }] }); await settle()
+    expect(fixes()).toHaveLength(0)
+    if (outcome === 'ack') {
+      session.onMessage({ type: 'voice.session', op: 'command', method: 'noteVoiceRegistered', args: [{ id: 'broadcast:55', no: 55, name: '', price: 10000 }] }); await settle()
+      expect(fixes()).toHaveLength(1)
+      expect(fromWire(fixes()[0]!.args)).toEqual(['broadcast:55', { price: 15000 }, expect.objectContaining({ newOnly: true })])
+    } else {
+      if (outcome === 'timeout') await vi.advanceTimersByTimeAsync(30_000)
+      else if (registration?.type === 'voice.effect') {
+        const [card] = fromWire(registration.args) as unknown[]
+        session.onMessage({ type: 'voice.session', op: 'command', method: 'restore', args: [card, { touched: true }] }); await settle()
+      }
+      expect(fixes()).toHaveLength(0)
+      const latest = messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)!
+      expect(fromWire(latest.snapshot)).toMatchObject({ offers: [expect.objectContaining({ stage: 'ask', error: expect.stringContaining('등록한 상품을 확인하지 못했어요') })] })
+    }
+    session.close()
+  })
+  it('flushes an accepted unfinished phrase into the final off-state log and ignores late capture', async () => {
+    const messages: VoiceServerMessage[] = []
+    const session = createReadingSession({ host: data(), device: 'test', mode: 'chrome', send: (message) => messages.push(message) })
+    session.onMessage({ type: 'voice.session', op: 'hello', context: context() }); await settle()
+    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '첫 문장이에요', final: true } })
+    session.onMessage({ type: 'voice.session', op: 'command', method: 'turnOff', args: [] }); await settle()
+    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '늦게 온 문장이에요', final: true } })
+    const latest = messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)!
+    expect(fromWire(latest.snapshot)).toMatchObject({ phase: 'off', log: [{ pieces: [{ text: '첫 문장이에요' }] }] })
+    expect(fromWire(latest.display)).toMatchObject({ logLines: [{ pieces: ['첫 문장이에요'] }] })
+    session.close()
+  })
   it('resumes cards, edited forms and SMS while off, with no automatic writes and the same SMS retry request', async () => {
     const messages: VoiceServerMessage[] = []
     const options = { host: { ...data(), smsReadOptions: () => ({ maxNumber: 999 }), smsProduct: () => ({ state: 'OPEN' as const, waitlistFull: false }) }, device: 'device', accountId: 'seller', broadcastId: 'broadcast', mode: 'chrome' as const, send: (message: VoiceServerMessage) => messages.push(message) }

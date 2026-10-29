@@ -19,6 +19,7 @@ export interface VoiceTransportOptions {
   readonly onGap?: (gap: SpeechGap, text: string) => void
   readonly onDiagnostic?: (diagnostic: SpeechDiagnostic, text: string) => void
   readonly onDeviceStatus?: (status: OnDeviceStatus) => void
+  readonly onConnectionLost?: () => void
   readonly stallMs?: number
 }
 
@@ -62,7 +63,7 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
       }
     },
   })
-  engine.onState((state) => { if (state === 'HALTED' || state === 'OFF') stopCapture(); options.onState(state) })
+  engine.onState((state) => { if (state === 'RESTARTING' || state === 'HALTED') options.onConnectionLost?.(); if (state === 'HALTED' || state === 'OFF') stopCapture(); options.onState(state) })
   engine.onError(options.onError)
   engine.onClosing((reason) => { if (reason === 'ENDED' || reason === 'AUTH' || reason === 'OTHER_DEVICE') stopCapture() })
 
