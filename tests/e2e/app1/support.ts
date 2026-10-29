@@ -188,7 +188,8 @@ export async function sayPcm(page: Page, text: string, options: { late?: boolean
   await syncReadingClock(page)
   const state = (await pcmState(page))!
   const entry = [...active!.streams].find(([, value]) => value.marker === state.marker)!
-  const endMs = Math.max(0, Math.floor(state.now - state.captureAt - (options.late ? 11_000 : 0)))
+  // 정상 최종 글은 실제 VAD의 400ms 쉼 앞이 말끝이다. 늦음 주입은 기존 11초를 유지한다.
+  const endMs = Math.max(0, Math.floor(state.now - state.captureAt - (options.late ? 11_000 : 400)))
   active!.socket.send(JSON.stringify({ type: 'result', stream: entry[0], text, startMs: Math.max(0, endMs - 100), endMs, procMs: 15 }))
 }
 export async function closePcmConnection(page: Page): Promise<void> {
