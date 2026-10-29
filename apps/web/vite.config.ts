@@ -41,7 +41,9 @@ export function lazyChunks(bundle: Readonly<Record<string, { readonly type: stri
     eager.add(fileName)
     for (const imported of bundle[fileName]?.imports ?? []) queue.push(imported)
   }
-  return new Set(chunks.map(([fileName]) => fileName).filter((fileName) => !eager.has(fileName)))
+  // URL로 읽는 PCM 작업 파일도 음성을 켤 때만 받는다(D-I4-09). Vite는 이 JS를 chunk가 아닌 asset으로 낸다.
+  const worklets = Object.entries(bundle).filter(([fileName, output]) => output.type === 'asset' && /(?:^|\/)pcm-worklet-[^/]+\.js$/.test(fileName)).map(([fileName]) => fileName)
+  return new Set([...chunks.map(([fileName]) => fileName).filter((fileName) => !eager.has(fileName)), ...worklets])
 }
 
 function realPath(path: string): string {
@@ -54,6 +56,7 @@ function realPath(path: string): string {
 
 /** 음성 패키지 진입 파일 (그 동적 import가 만드는 조각을 찾는다) */
 const VOICE_ENTRY = realPath(fileURLToPath(new URL('./src/voice/transport.ts', import.meta.url)))
+const PCM_WORKLET_ENTRY = realPath(fileURLToPath(new URL('./src/voice/pcm-worklet.js', import.meta.url)))
 
 /** chunk에서 target 파일을 부르는 상대 주소 (같은 폴더면 "./파일") */
 export function chunkRelative(from: string, target: string): string {
@@ -124,6 +127,8 @@ function serviceWorker(): Plugin {
 
 export default defineConfig({
   plugins: [react(), voiceChunkAddress(), serviceWorker()],
+  // AudioWorklet은 같은 출처의 독립 JS로 읽는다. 그 외 자산은 Vite 기본 크기 기준을 유지한다.
+  build: { assetsInlineLimit: (file) => realPath(file) === PCM_WORKLET_ENTRY ? false : undefined },
   server: { proxy },
   preview: { proxy },
 })

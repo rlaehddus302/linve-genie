@@ -1,4 +1,4 @@
-import { PCM_WORKLET_SOURCE } from './pcm-worklet.ts'
+import pcmWorkletUrl from './pcm-worklet.js?url'
 // APP1: 마이크·연결만 기기에서 실행한다. 품종 사전이나 상품 추출을 불러오지 않는다.
 import { createLiveGenieEngine, voiceStreamUrl, canCaptureAudio } from '../../../../packages/voice/src/livegenie.ts'
 import { createWebSpeechEngine, formatSpeechDiagnostic, formatSpeechGap, type SpeechGap, type SpeechDiagnostic, type OnDeviceStatus } from '../../../../packages/voice/src/web-speech.ts'
@@ -96,8 +96,7 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
       media = stream
       const activeContext = new AudioContext()
       context = activeContext
-      const url = URL.createObjectURL(new Blob([PCM_WORKLET_SOURCE], { type: 'text/javascript' }))
-      try { await activeContext.audioWorklet.addModule(url) } finally { URL.revokeObjectURL(url) }
+      await activeContext.audioWorklet.addModule(pcmWorkletUrl)
       if (!wanted || born !== captureGeneration || context !== activeContext) return
       node = new AudioWorkletNode(activeContext, 'livegenie-pcm')
       source = activeContext.createMediaStreamSource(stream)

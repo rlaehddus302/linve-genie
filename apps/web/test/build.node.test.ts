@@ -200,6 +200,19 @@ describe('vite build', () => {
     expect(eager.split(address).length - 1).toBeGreaterThanOrEqual(2)
   })
 
+  it('PCM 작업 모듈은 같은 출처의 독립 JS 파일이며 음성을 켜기 전 미리 받지 않는다', () => {
+    const worklets = builtFiles().filter((file) => /^assets\/pcm-worklet-[^/]+\.js$/.test(file))
+    expect(worklets).toHaveLength(1)
+    const file = worklets[0]!
+    expect(read(file)).toContain("registerProcessor('livegenie-pcm'")
+    const voice = lazyScripts().find((script) => read(script).includes('음성 인식이 자꾸 끊겨요.'))!
+    expect(read(voice)).toContain(`/${file}`)
+    expect(read(voice)).not.toContain('registerProcessor')
+    expect(read('index.html')).not.toContain(file)
+    const shell = JSON.parse(/\(self, (\{.*\})\);/.exec(read('sw.js'))?.[1] ?? 'null') as { files: string[] }
+    expect(shell.files).not.toContain(`/${file}`)
+  })
+
   it('운영용 빌드다 (React 개발 모드 코드가 들어가지 않는다)', () => {
     const js = builtFiles().filter((f) => f.endsWith('.js')).map(read).join('\n')
     // S05 화면(로그인·콘솔)이 들어 있다 (S00의 "준비 중이에요." 첫 화면을 바꿨다)

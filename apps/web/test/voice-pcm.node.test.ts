@@ -1,7 +1,9 @@
 // @vitest-environment node
 import vm from 'node:vm'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { PCM_WORKLET_SOURCE } from '../src/voice/pcm-worklet.ts'
+
+const PCM_WORKLET_SOURCE = readFileSync(new URL('../src/voice/pcm-worklet.js', import.meta.url), 'utf8')
 
 describe('microphone PCM worklet', () => {
   it.each([44100, 48000])('resamples stereo %s Hz input into mono 16 kHz 100 ms PCM16 frames', (sampleRate) => {

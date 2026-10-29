@@ -1,6 +1,5 @@
 /** AudioWorklet의 128표본 틀을 16kHz/모노/PCM16 3,200바이트 조각으로 바꾼다. */
-export const PCM_WORKLET_SOURCE = `
-class LiveGeniePcm extends AudioWorkletProcessor {
+class LiveGeniePcm extends globalThis.AudioWorkletProcessor {
   constructor() { super(); this.samples = []; this.position = 0; this.frame = new Int16Array(1600); this.used = 0; }
   process(inputs) {
     const channels = inputs[0];
@@ -9,7 +8,7 @@ class LiveGeniePcm extends AudioWorkletProcessor {
       let sample = 0; for (const channel of channels) sample += channel[n] || 0;
       this.samples.push(sample / channels.length);
     }
-    const step = sampleRate / 16000;
+    const step = globalThis.sampleRate / 16000;
     while (this.position + 1 < this.samples.length) {
       const left = Math.floor(this.position), fraction = this.position - left;
       const sample = Math.max(-1, Math.min(1, this.samples[left] * (1 - fraction) + this.samples[left + 1] * fraction));
@@ -25,6 +24,5 @@ class LiveGeniePcm extends AudioWorkletProcessor {
     return true;
   }
 }
-registerProcessor('livegenie-pcm', LiveGeniePcm);
-`
+globalThis.registerProcessor('livegenie-pcm', LiveGeniePcm);
 
