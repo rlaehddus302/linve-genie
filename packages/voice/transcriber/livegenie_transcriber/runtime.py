@@ -149,12 +149,17 @@ def load_transcriber(config: Config) -> Callable[[bytes], str]:
             return str(text or "")
 
     else:
-        from transformers import pipeline
+        from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
-        recognizer = _cached_first(
-            lambda local: pipeline(
-                "automatic-speech-recognition", model=config.model_id, torch_dtype=dtype, device=device, model_kwargs={"local_files_only": local}
-            )
+        # 로딩 전용 옵션을 pipeline에 넘기면 transformers 5에서 generate까지
+        # 전달된다. 모델/전처리기를 먼저 읽어 캐시 우선 정책을 이 경계에만 둔다.
+        processor = _cached_first(lambda local: AutoProcessor.from_pretrained(config.model_id, local_files_only=local))
+        model = _cached_first(
+            lambda local: AutoModelForSpeechSeq2Seq.from_pretrained(config.model_id, dtype=dtype, local_files_only=local)
+        )
+        recognizer = pipeline(
+            "automatic-speech-recognition", model=model, tokenizer=processor.tokenizer,
+            feature_extractor=processor.feature_extractor, dtype=dtype, device=device,
         )
 
         def transcribe(pcm: bytes) -> str:
