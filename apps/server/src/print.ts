@@ -1060,14 +1060,15 @@ export class PrintService {
     if (!Number.isSafeInteger(version)) return { kind: 'not_found' }
     const runtime = await this.#options.writer.read(sellerId, date)
     if (runtime.seq === 0 || runtime.scopeId === null) return { kind: 'not_found' }
-    const claims = claimIndex(runtime, runtime.state)
+    const state = runtime.state
+    const claims = claimIndex(runtime, state)
     const info = isWinnerOf(claims, claim, version)
     if (info === null) return { kind: 'not_found' }
     // 한 장마다 날짜 전체의 라벨·출력 이력을 다시 만들지 않고 이 키만 읽는다.
     const row = await findLabel(this.#db, sellerId, runtime.scopeId, key)
     if (row !== null && (row.kind !== 'product' || row.voidedAt !== null || row.claim !== claim || row.version !== version)) return { kind: 'not_found' }
-    const buyer = row === null ? productLabelBuyer(runtime.state, info) : parseBuyer(row.buyer)
-    const data = productLabelData(runtime.state, claims, { claim, version, buyer }, this.#amountMissing)
+    const buyer = row === null ? productLabelBuyer(state, info) : parseBuyer(row.buyer)
+    const data = productLabelData(state, claims, { claim, version, buyer }, this.#amountMissing)
     return data === null ? { kind: 'not_found' } : this.#preview(sellerId, 'product', data)
   }
 

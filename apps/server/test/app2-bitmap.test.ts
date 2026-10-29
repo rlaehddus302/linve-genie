@@ -21,6 +21,34 @@ async function claimedLabel() {
 }
 
 describe('APP2 서버 라벨 그림', () => {
+  it('라벨 조회 중 상품이 바뀌어도 한 응답의 품종과 찜 금액은 같은 상태에서 읽는다', async () => {
+    const { world, seller, api, job } = await claimedLabel()
+    const path = `/api/print/preview/product?${new URLSearchParams({ date: DAY, ref: job.label.key })}`
+    const first = renderProductLabel(createNodeRenderEnv(), job.template, job.data)
+    const next = renderProductLabel(createNodeRenderEnv(), job.template, { ...job.data, name: '핑크프릴 금', price: 15000 })
+    if (!first.ok || !next.ok) throw new Error('기준 그림을 만들지 못했다')
+    await settled(world)
+    const entered = Promise.withResolvers<void>()
+    const gate = Promise.withResolvers<void>()
+    const findLabel = printStore.findLabel
+    const lookup = vi.spyOn(printStore, 'findLabel').mockImplementationOnce(async (...args) => {
+      const row = await findLabel(...args)
+      entered.resolve()
+      await gate.promise
+      return row
+    })
+    const pending = api.api.get(path)
+    try {
+      await entered.promise
+      await expectOk(writeEvent(world, seller, { type: 'product.update', b: job.label.broadcast!, no: 15, name: '핑크프릴 금', price: 15000, applyTo: 'UNPAID_CLAIMS' }))
+      gate.resolve()
+      const oldView = await expectOk(pending)
+      const newView = await expectOk(api.api.get(path))
+      expect((oldView.body.images as Record<string, unknown>[])[0]?.data === Buffer.from(first.image.data).toString('base64')).toBe(true)
+      expect((newView.body.images as Record<string, unknown>[])[0]?.data === Buffer.from(next.image.data).toString('base64')).toBe(true)
+    } finally { gate.resolve(); lookup.mockRestore(); await pending }
+  })
+
   it('단일 키 미리보기는 날짜 전체 라벨·출력 이력을 읽지 않고 처음 이름·현재 품종·찜 금액을 보존한다', async () => {
     const { world, seller, api, job } = await claimedLabel()
     const b = job.label.broadcast!
