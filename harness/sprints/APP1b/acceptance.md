@@ -19,8 +19,8 @@
 
 ### JSON 봉투 (공용 타입 `packages/voice-session/src/wire.ts`)
 
-- 기기 → 서버는 `type: "voice.session"`이며 op가 `hello`/`context`일 때 `context: { now, dialogOpen, smsAutoAllowed, settings?, smsSettings?, consent?, learned? }`, `capture`일 때 첫 PCM 기기 시각 `at`, `command`일 때 허용 목록 `method`와 검증된 `args`, `effectResult`일 때 해당 흐름의 `id`와 `value`, `chromeResult`일 때 `result: { text, final, slot?, lead?, flushedAtEnd? }`다. `learned`는 최초 계정 병합의 입력이며 계정 값을 임의로 대체하지 않는다.
-- 서버 → 기기는 `type: "voice.state"`의 `snapshot`과 `display`(카드/문자찜 설명·남은 초·기록·마스킹된 음성로그), 또는 `type: "voice.effect"`의 `id`, `method`, `args`, 선택적 `spokenEndAt`다. snapshot의 Map/Set은 `$map`/`$set` 값으로 왕복하며 prototype/함수는 보내거나 복원하지 않는다.
+- 기기 → 서버는 `type: "voice.session"`이며 op가 `hello`/`context`일 때 `context: { now, dialogOpen, smsAutoAllowed, settings?, smsSettings?, consent?, learned?, resumeToken?, listening? }`, `capture`일 때 첫 PCM 기기 시각 `at`, `command`일 때 허용 목록 `method`와 검증된 `args`, `effectResult`일 때 해당 흐름의 `id`와 `value`, `chromeResult`일 때 `result: { text, final, slot?, lead?, flushedAtEnd? }`다. `learned`는 최초 계정 병합의 입력이며 계정 값을 임의로 대체하지 않는다. `resumeToken`/`listening:false`는 아래 대기 화면 복원 계약(D-APP1b-08)을 따른다.
+- 서버 → 기기는 `type: "voice.state"`의 `sessionId`, `sessionReady`, `resumeToken`, `snapshot`과 `display`(카드/문자찜 설명·남은 초·기록·마스킹된 음성로그), 또는 `type: "voice.effect"`의 `sessionId`, `id`, `method`, `args`, 선택적 `spokenEndAt`, `automatic`, `source`다. snapshot의 Map/Set은 `$map`/`$set` 값으로 왕복하며 prototype/함수는 보내거나 복원하지 않는다. `voice.error`의 `code: "RESUME_INVALID"`는 실패한 복원 연결을 정리하고 표시 중인 대기 항목을 보존해야 한다는 신호다.
 - 비동기 쓰기는 `effectResult`로 회신하고 상품 등록 성공은 `noteVoiceRegistered` 명령으로 기존 controller에 알린다. 허용 목록에 있더라도 인자의 타입·길이·범위를 검사한다. 다른 세션의 효과 ID·미발급 ID·이미 끝난 효과의 응답은 상태를 바꾸지 않는다.
 - 이 봉투는 전송 형식이며 판단의 정답은 기존 스펙·골든이다. 기기별 효과 응답 도착 순서·통신 지연 때문에 기존 카드/정정/문자찜 의미가 바뀌지 않는지 차등 시험으로 확인한다.
 
@@ -58,6 +58,14 @@
 ### 오프라인 수동 카드 회귀
 
 **AC-APP1b-22** [web] (AC-I4-21·D-I4-03·D-MOB2-07·14·D-APP1b-07): Given 서버에서 읽은 유효 카드가 보인 뒤 오프라인이 된다. When 판매자가 [등록]을 누른다. Then 서버가 검증한 변경 없는 DTO로 기존 HTTP 등록을 시도하고 [다시 보내기] 및 "연결이 돌아오면 저절로 다시 보내요."를 표시한다. 끊김 중 재시도와 복귀 뒤 자동 한 번은 모두 최초 요청 번호를 쓴다. 등록 기록은 하나이며 Ctrl+Z는 기존 판매 종료 하나다. 카드/폼 수정 뒤 옛 DTO 사용, 복귀 시 새 서버 효과 중복 실행, 로컬 음성 추출 fallback은 금지다. 확인: 기존 `i4/voice-cards.spec.ts` 오프라인 시험·응답만 잃음/다른 기기 같은 번호 회귀.
+
+### 끄기·다시 연결 대기 화면 회귀 (D-APP1b-08, 웹·앱 공통)
+
+| ID | 영역·근거 | Given / When / Then | 확인 |
+|---|---|---|---|
+| AC-APP1b-23 | [server][web] D-I4-04·D-APP1b-08 | Given 카드·수정 중 폼·문자찜·고침 제안이 남아 있다. When 음성 끄기 후 같은 방송에서 다시 켜기 또는 수동 조작. Then 대기 항목과 편집값이 보존되고, 복원 자체의 자동 등록·자동 문자찜·PCM 재생은 없다. 응답을 잃은 문자찜의 명시 재시도는 같은 요청 번호다. | 서버 차등·웹/앱 통합 |
+| AC-APP1b-24 | [server][web] D-APP1b-08 | Given 음성이 꺼진 상태의 남은 항목. When 폼·문자찜·고침을 조작. Then 마이크·Chrome 인식기 없이 인증된 임시 읽기 세션으로 처리하고 명령/효과가 끝나면 연결·타이머를 닫는다. 처음 음성을 켜지 않은 화면에는 연결이 없다. | 웹/앱 상태·실제 WS 통합 |
+| AC-APP1b-25 | [server][web] D-APP1b-08 | Given 다른 판매자/방송/기기의 복원표, 변조·잘림·3시간 초과 또는 서버 재시작. When 복원. Then 거절, 새 쓰기 없음, 마이크/소켓/타이머 종료, 남은 항목과 오류 표시, 실패한 표/대기 명령 제거 후 명시 다시 켜기 가능. Given 발급 크기 한도 초과. Then 끄기 전 남은 항목 확인 안내, 가짜 복원 성공 없음. | 서명·크기 단위·클라이언트 회귀 |
 
 ## 완료 판단
 
