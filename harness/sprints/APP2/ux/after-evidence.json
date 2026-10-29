@@ -1,0 +1,1292 @@
+{
+  "mode": "Expo web renderer, actual isolated E2E server; no physical native verification",
+  "pageErrors": [],
+  "api": [
+    {
+      "method": "GET",
+      "path": "/api/me",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/login",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/login",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/broadcasts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/print",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/broadcasts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/broadcasts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/print/labels",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/events",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/changes",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/changes",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/events",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/changes",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/changes",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/events",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/changes",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/changes",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/events",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/changes",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/changes",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/packing",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/days/2026-10-30/packing",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/packing",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/days/2026-10-30/packing",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30/packing",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/labels",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/broadcasts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/print",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/days/2026-10-30",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/print/labels",
+      "status": 200
+    }
+  ],
+  "screens": [
+    {
+      "name": "01-login-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "로그인",
+          "x": 12,
+          "y": 232,
+          "width": 351,
+          "height": 52
+        },
+        {
+          "label": "간편 로그인(카카오·네이버·구글) — 웹으로 열기",
+          "x": 12,
+          "y": 352.8125,
+          "width": 351,
+          "height": 70
+        }
+      ],
+      "text": "라이브지니\n아이디\n비밀번호\n로그인\n계정은 운영자가 만들어 드려요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.\n간편 로그인(카카오·네이버·구글) — 웹으로 열기"
+    },
+    {
+      "name": "02-login-error-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "로그인",
+          "x": 12,
+          "y": 327.609375,
+          "width": 351,
+          "height": 52
+        },
+        {
+          "label": "간편 로그인(카카오·네이버·구글) — 웹으로 열기",
+          "x": 12,
+          "y": 448.421875,
+          "width": 351,
+          "height": 70
+        }
+      ],
+      "text": "라이브지니\n아이디\n비밀번호\n아이디나 비밀번호가 맞지 않아요.\n아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.\n로그인\n계정은 운영자가 만들어 드려요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.\n간편 로그인(카카오·네이버·구글) — 웹으로 열기"
+    },
+    {
+      "name": "03-home-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "새 방송 시작",
+          "x": 12,
+          "y": 84.40625,
+          "width": 126.15625,
+          "height": 52
+        },
+        {
+          "label": "리허설 해 보기",
+          "x": 146.15625,
+          "y": 84.40625,
+          "width": 141.71875,
+          "height": 52
+        },
+        {
+          "label": "포장",
+          "x": 12,
+          "y": 264.5,
+          "width": 71.140625,
+          "height": 52
+        },
+        {
+          "label": "라벨·프린터",
+          "x": 91.140625,
+          "y": 264.5,
+          "width": 123.59375,
+          "height": 52
+        },
+        {
+          "label": "설정",
+          "x": 222.734375,
+          "y": 264.5,
+          "width": 71.140625,
+          "height": 52
+        },
+        {
+          "label": "정산 — 웹으로 열기",
+          "x": 12,
+          "y": 424.3125,
+          "width": 59.140625,
+          "height": 44
+        },
+        {
+          "label": "구매자 — 웹으로 열기",
+          "x": 79.140625,
+          "y": 424.3125,
+          "width": 74.71875,
+          "height": 44
+        },
+        {
+          "label": "택배 — 웹으로 열기",
+          "x": 161.859375,
+          "y": 424.3125,
+          "width": 59.140625,
+          "height": 44
+        },
+        {
+          "label": "판매대장·영수증 — 웹으로 열기",
+          "x": 12,
+          "y": 476.3125,
+          "width": 142.734375,
+          "height": 44
+        },
+        {
+          "label": "가게·설정 전체 — 웹으로 열기",
+          "x": 162.734375,
+          "y": 476.3125,
+          "width": 131.3125,
+          "height": 44
+        },
+        {
+          "label": "문자찜 입력(전체) — 웹으로 열기",
+          "x": 12,
+          "y": 528.3125,
+          "width": 155.625,
+          "height": 44
+        }
+      ],
+      "text": "방송 목록\n시험 가게 사장님\n새 방송 시작\n리허설 해 보기\n진행 중인 방송\n진행 중인 방송이 없어요.\n할 일\n포장\n라벨·프린터\n설정\n웹으로 열기\n아래 화면은 기기 브라우저에서 열려요. 로그인이 필요할 수 있어요.\n정산\n구매자\n택배\n판매대장·영수증\n가게·설정 전체\n문자찜 입력(전체)"
+    },
+    {
+      "name": "04-console-empty-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 12,
+          "width": 79.84375,
+          "height": 44
+        },
+        {
+          "label": "음성 켜기",
+          "x": 24,
+          "y": 153.09375,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "보내기",
+          "x": 24,
+          "y": 378.90625,
+          "width": 86.71875,
+          "height": 52
+        },
+        {
+          "label": "문자찜 넣기",
+          "x": 24,
+          "y": 711.1875,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "방송 끝내기",
+          "x": 12,
+          "y": 787.1875,
+          "width": 351,
+          "height": 52
+        }
+      ],
+      "text": "← 목록\nUX 검토 — 시험 방송\n알림 없음\n음성\n음성 켜기\n빠른 입력\n가격 단위: 천원 — 10은 10,000원, 2만은 20,000원\n보내기\n현재 상품\n아직 등록한 상품이 없어요. 빠른 입력칸에 \"15 핑크프릴 10000\"처럼 적어 주세요.\n문자찜\n번호\n전화번호 (선택)\n문자찜 넣기\n방송 끝내기"
+    },
+    {
+      "name": "05-product-registered-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 12,
+          "width": 79.84375,
+          "height": 44
+        },
+        {
+          "label": "음성 켜기",
+          "x": 24,
+          "y": 153.09375,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "보내기",
+          "x": 24,
+          "y": 378.90625,
+          "width": 86.71875,
+          "height": 52
+        },
+        {
+          "label": "15번 등록 되돌리기",
+          "x": 118.71875,
+          "y": 378.90625,
+          "width": 177.515625,
+          "height": 52
+        },
+        {
+          "label": "일시 중지 — 15번",
+          "x": 24,
+          "y": 653.3125,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "판매 종료 — 15번",
+          "x": 126.4375,
+          "y": 653.3125,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "상품 자세히 — 15번",
+          "x": 12,
+          "y": 790.3125,
+          "width": 351,
+          "height": 62
+        },
+        {
+          "label": "문자찜 넣기",
+          "x": 24,
+          "y": 997.40625,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "방송 끝내기",
+          "x": 12,
+          "y": 1073.40625,
+          "width": 351,
+          "height": 52
+        }
+      ],
+      "text": "← 목록\nUX 검토 — 시험 방송\n알림 없음\n음성\n음성 켜기\n빠른 입력\n가격 단위: 천원 — 10은 10,000원, 2만은 20,000원\n보내기\n15번 등록 되돌리기\n현재 상품\n15번 핑크프릴\n20,000원\n판매 중\n15번 핑크프릴 20,000원 · 판매 중 · 1등 아직 없음 · 대기 0명\n아직 찜이 없어요.\n일시 중지\n판매 종료\n상품 보드\n판매 중\n15번 핑크프릴 20,000원 · 판매 중 · 1등 아직 없음 · 대기 0명\n문자찜\n번호\n전화번호 (선택)\n문자찜 넣기\n방송 끝내기"
+    },
+    {
+      "name": "06-console-claim-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": -508,
+          "width": 79.84375,
+          "height": 44
+        },
+        {
+          "label": "음성 켜기",
+          "x": 24,
+          "y": -311.703125,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "보내기",
+          "x": 24,
+          "y": -85.890625,
+          "width": 86.71875,
+          "height": 52
+        },
+        {
+          "label": "16번 등록 되돌리기",
+          "x": 118.71875,
+          "y": -85.890625,
+          "width": 177.875,
+          "height": 52
+        },
+        {
+          "label": "판매 종료 — 16번",
+          "x": 24,
+          "y": 192.203125,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "상품 자세히 — 16번",
+          "x": 12,
+          "y": 329.203125,
+          "width": 351,
+          "height": 62
+        },
+        {
+          "label": "상품 자세히 — 15번",
+          "x": 12,
+          "y": 433.203125,
+          "width": 351,
+          "height": 62
+        },
+        {
+          "label": "문자찜 넣기",
+          "x": 24,
+          "y": 640.296875,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "방송 끝내기",
+          "x": 12,
+          "y": 773.5,
+          "width": 351,
+          "height": 52
+        }
+      ],
+      "text": "← 목록\nUX 검토 — 시험 방송\n알림 없음\n라벨이 안 나가요 · 프린터를 연결해 주세요\n음성\n음성 켜기\n빠른 입력\n가격 단위: 천원 — 10은 10,000원, 2만은 20,000원\n보내기\n16번 등록 되돌리기\n현재 상품\n16번 핑크프릴\n20,000원\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n1등\n문자찜\n판매 종료\n상품 보드\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n판매 종료\n15번 핑크프릴 20,000원 · 판매 종료 · 1등 아직 없음 · 대기 0명\n문자찜\n번호\n전화번호 (선택)\n문자찜 넣기\n16번 문자찜을 넣었어요 · 뒤 4자리 5678.\n방송 끝내기"
+    },
+    {
+      "name": "07-voice-consent-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 12,
+          "width": 79.84375,
+          "height": 44
+        },
+        {
+          "label": "알겠어요, 켤게요",
+          "x": 24,
+          "y": 388.859375,
+          "width": 158.828125,
+          "height": 52
+        },
+        {
+          "label": "안 켤래요",
+          "x": 190.828125,
+          "y": 388.859375,
+          "width": 106.4375,
+          "height": 52
+        },
+        {
+          "label": "보내기",
+          "x": 24,
+          "y": 614.671875,
+          "width": 86.71875,
+          "height": 52
+        },
+        {
+          "label": "16번 등록 되돌리기",
+          "x": 118.71875,
+          "y": 614.671875,
+          "width": 177.875,
+          "height": 52
+        },
+        {
+          "label": "판매 종료 — 16번",
+          "x": 24,
+          "y": 892.765625,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "상품 자세히 — 16번",
+          "x": 12,
+          "y": 1029.765625,
+          "width": 351,
+          "height": 62
+        },
+        {
+          "label": "상품 자세히 — 15번",
+          "x": 12,
+          "y": 1133.765625,
+          "width": 351,
+          "height": 62
+        },
+        {
+          "label": "문자찜 넣기",
+          "x": 24,
+          "y": 1340.859375,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "방송 끝내기",
+          "x": 12,
+          "y": 1474.0625,
+          "width": 351,
+          "height": 52
+        }
+      ],
+      "text": "← 목록\nUX 검토 — 시험 방송\n알림 없음\n라벨이 안 나가요 · 프린터를 연결해 주세요\n음성\n음성 듣기를 켜면 이 기기 마이크 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.\n와이파이에서 쓰세요. 휴대폰 데이터로는 1시간에 약 120MB를 써요.\n방송 동안 충전기를 꽂아 두세요.\n알겠어요, 켤게요\n안 켤래요\n빠른 입력\n가격 단위: 천원 — 10은 10,000원, 2만은 20,000원\n보내기\n16번 등록 되돌리기\n현재 상품\n16번 핑크프릴\n20,000원\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n1등\n문자찜\n판매 종료\n상품 보드\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n판매 종료\n15번 핑크프릴 20,000원 · 판매 종료 · 1등 아직 없음 · 대기 0명\n문자찜\n번호\n전화번호 (선택)\n문자찜 넣기\n16번 문자찜을 넣었어요 · 뒤 4자리 5678.\n방송 끝내기"
+    },
+    {
+      "name": "08-voice-unavailable-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 12,
+          "width": 79.84375,
+          "height": 44
+        },
+        {
+          "label": "다시 켜기",
+          "x": 24,
+          "y": 338.703125,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "보내기",
+          "x": 24,
+          "y": 564.515625,
+          "width": 86.71875,
+          "height": 52
+        },
+        {
+          "label": "16번 등록 되돌리기",
+          "x": 118.71875,
+          "y": 564.515625,
+          "width": 177.875,
+          "height": 52
+        },
+        {
+          "label": "판매 종료 — 16번",
+          "x": 24,
+          "y": 842.609375,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "상품 자세히 — 16번",
+          "x": 12,
+          "y": 979.609375,
+          "width": 351,
+          "height": 62
+        },
+        {
+          "label": "상품 자세히 — 15번",
+          "x": 12,
+          "y": 1083.609375,
+          "width": 351,
+          "height": 62
+        },
+        {
+          "label": "문자찜 넣기",
+          "x": 24,
+          "y": 1290.703125,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "방송 끝내기",
+          "x": 12,
+          "y": 1423.90625,
+          "width": 351,
+          "height": 52
+        }
+      ],
+      "text": "← 목록\nUX 검토 — 시험 방송\n알림 없음\n라벨이 안 나가요 · 프린터를 연결해 주세요\n음성\n듣기 멈춤\n이 빌드에서는 마이크를 쓸 수 없어요. 네이티브 앱 설치를 확인해 주세요.\n다시 켜기\n빠른 입력\n가격 단위: 천원 — 10은 10,000원, 2만은 20,000원\n보내기\n16번 등록 되돌리기\n현재 상품\n16번 핑크프릴\n20,000원\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n1등\n문자찜\n판매 종료\n상품 보드\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n판매 종료\n15번 핑크프릴 20,000원 · 판매 종료 · 1등 아직 없음 · 대기 0명\n문자찜\n번호\n전화번호 (선택)\n문자찜 넣기\n16번 문자찜을 넣었어요 · 뒤 4자리 5678.\n방송 끝내기"
+    },
+    {
+      "name": "09-labels-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 50,
+          "width": 351,
+          "height": 44
+        },
+        {
+          "label": "블루투스로 연결",
+          "x": 24,
+          "y": 187,
+          "width": 153.140625,
+          "height": 52
+        },
+        {
+          "label": "인쇄 농도 1",
+          "x": 98.84375,
+          "y": 247,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "인쇄 농도 2",
+          "x": 150.84375,
+          "y": 247,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "인쇄 농도 3",
+          "x": 202.84375,
+          "y": 247,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "인쇄 농도 4",
+          "x": 254.84375,
+          "y": 247,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "인쇄 농도 5",
+          "x": 306.84375,
+          "y": 247,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "이 기기에서 출력",
+          "x": 24,
+          "y": 483.09375,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "출력 멈추기",
+          "x": 24,
+          "y": 666.28125,
+          "width": 122,
+          "height": 52
+        }
+      ],
+      "text": "라벨\n← 목록\n프린터\n끊김\n블루투스로 연결\n인쇄 농도\n1\n2\n3\n4\n5\n출력 기기\n출력 기기 없음\n기기 이름\n이 기기에서 출력\n대기열\n대기 1장 · 출력 중 0장 · 버릴 라벨 0장 · 이 앱에서 찍은 0장\n출력 멈추기"
+    },
+    {
+      "name": "10-labels-unavailable-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 50,
+          "width": 351,
+          "height": 44
+        },
+        {
+          "label": "다시 연결",
+          "x": 24,
+          "y": 187,
+          "width": 106.4375,
+          "height": 52
+        },
+        {
+          "label": "인쇄 농도 1",
+          "x": 98.84375,
+          "y": 354.609375,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "인쇄 농도 2",
+          "x": 150.84375,
+          "y": 354.609375,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "인쇄 농도 3",
+          "x": 202.84375,
+          "y": 354.609375,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "인쇄 농도 4",
+          "x": 254.84375,
+          "y": 354.609375,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "인쇄 농도 5",
+          "x": 306.84375,
+          "y": 354.609375,
+          "width": 44,
+          "height": 44
+        },
+        {
+          "label": "이 기기에서 출력",
+          "x": 24,
+          "y": 590.703125,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "출력 멈추기",
+          "x": 24,
+          "y": 773.890625,
+          "width": 122,
+          "height": 52
+        }
+      ],
+      "text": "라벨\n← 목록\n프린터\n끊김\n다시 연결\n이 브라우저에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 NIIMBOT 앱에서 인쇄해 주세요.\n인쇄 농도\n1\n2\n3\n4\n5\n출력 기기\n출력 기기 없음\n기기 이름\n이 기기에서 출력\n대기열\n대기 1장 · 출력 중 0장 · 버릴 라벨 0장 · 이 앱에서 찍은 0장\n출력 멈추기"
+    },
+    {
+      "name": "11-packing-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 50,
+          "width": 351,
+          "height": 44
+        },
+        {
+          "label": "날짜 10월 30일",
+          "x": 12,
+          "y": 106,
+          "width": 107.234375,
+          "height": 44
+        },
+        {
+          "label": "포장할 것",
+          "x": 12,
+          "y": 162,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "포장 완료",
+          "x": 114.4375,
+          "y": 162,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "배송 완료",
+          "x": 216.875,
+          "y": 162,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "전체",
+          "x": 12,
+          "y": 214,
+          "width": 59.140625,
+          "height": 44
+        },
+        {
+          "label": "포장 열기 — 문자찜",
+          "x": 95.1875,
+          "y": 270,
+          "width": 209.09375,
+          "height": 44
+        }
+      ],
+      "text": "포장\n← 목록\n10월 30일\n포장할 것\n포장 완료\n배송 완료\n전체\n포장 대기\n문자찜 · 상품 1개 · 미입금"
+    },
+    {
+      "name": "11c-packing-empty-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 18,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 50,
+          "width": 351,
+          "height": 44
+        },
+        {
+          "label": "날짜 10월 30일",
+          "x": 12,
+          "y": 106,
+          "width": 107.234375,
+          "height": 44
+        },
+        {
+          "label": "포장할 것",
+          "x": 12,
+          "y": 162,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "포장 완료",
+          "x": 114.4375,
+          "y": 162,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "배송 완료",
+          "x": 216.875,
+          "y": 162,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "전체",
+          "x": 12,
+          "y": 214,
+          "width": 59.140625,
+          "height": 44
+        }
+      ],
+      "text": "포장\n← 목록\n10월 30일\n포장할 것\n포장 완료\n배송 완료\n전체\n배송 완료한 구매자가 없어요."
+    },
+    {
+      "name": "11a-packing-detail-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 50,
+          "width": 351,
+          "height": 44
+        },
+        {
+          "label": "날짜 10월 30일",
+          "x": 12,
+          "y": 106,
+          "width": 107.234375,
+          "height": 44
+        },
+        {
+          "label": "← 구매자 목록",
+          "x": 12,
+          "y": 162,
+          "width": 351,
+          "height": 44
+        },
+        {
+          "label": "담기 — 16번 핑크프릴",
+          "x": 24,
+          "y": 341.1875,
+          "width": 327,
+          "height": 44
+        },
+        {
+          "label": "포장 완료",
+          "x": 12,
+          "y": 439.59375,
+          "width": 106.4375,
+          "height": 52
+        }
+      ],
+      "text": "포장\n← 목록\n10월 30일\n← 구매자 목록\n문자찜\n포장 대기\n미입금\n뒤 4자리 5678\n담을 상품 1개 · 20,000원\n16번 핑크프릴 · 20,000원\n모두 담으면 포장 완료를 누를 수 있어요.\n포장 완료"
+    },
+    {
+      "name": "11b-packing-complete-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 50,
+          "width": 351,
+          "height": 44
+        },
+        {
+          "label": "날짜 10월 30일",
+          "x": 12,
+          "y": 106,
+          "width": 107.234375,
+          "height": 44
+        },
+        {
+          "label": "← 구매자 목록",
+          "x": 12,
+          "y": 162,
+          "width": 351,
+          "height": 44
+        },
+        {
+          "label": "담음 — 16번 핑크프릴",
+          "x": 24,
+          "y": 341.1875,
+          "width": 327,
+          "height": 44
+        },
+        {
+          "label": "포장 완료 되돌리기",
+          "x": 12,
+          "y": 409.1875,
+          "width": 172.859375,
+          "height": 52
+        },
+        {
+          "label": "배송 완료",
+          "x": 12,
+          "y": 556.1875,
+          "width": 351,
+          "height": 52
+        }
+      ],
+      "text": "포장\n← 목록\n10월 30일\n← 구매자 목록\n문자찜\n포장 완료\n미입금\n뒤 4자리 5678\n담을 상품 1개 · 20,000원\n담음 16번 핑크프릴 · 20,000원\n포장 완료 되돌리기\n송장번호 (선택)\n배송 완료\n포장 완료로 적었어요."
+    },
+    {
+      "name": "12-settings-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 50,
+          "width": 351,
+          "height": 44
+        },
+        {
+          "label": "번호와 가격이 들리면 바로 등록 — 켜짐",
+          "x": 252.65625,
+          "y": 153,
+          "width": 59.140625,
+          "height": 44
+        },
+        {
+          "label": "라벨 기능 — 켜짐",
+          "x": 98.84375,
+          "y": 479.25,
+          "width": 59.140625,
+          "height": 44
+        },
+        {
+          "label": "1등 확정 때 라벨 자동 출력 — 켜짐",
+          "x": 218.40625,
+          "y": 531.25,
+          "width": 59.140625,
+          "height": 44
+        },
+        {
+          "label": "설정 전체 — 웹으로 열기",
+          "x": 24,
+          "y": 699.0625,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "개인정보처리방침 (기기 브라우저)",
+          "x": 24,
+          "y": 759.0625,
+          "width": 327,
+          "height": 44
+        },
+        {
+          "label": "로그아웃",
+          "x": 24,
+          "y": 908.15625,
+          "width": 327,
+          "height": 52
+        }
+      ],
+      "text": "설정\n← 목록\n음성\n번호와 가격이 들리면 바로 등록\n켜짐\n끄면 들린 말은 카드로만 보이고, 등록을 누를 때 등록돼요.\n마이크: 방송 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요.\n블루투스: 라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.\n알림(안드로이드): 음성 듣는 중이라는 알림을 보여 드리려고 해요.\n라벨\n라벨 기능\n켜짐\n1등 확정 때 라벨 자동 출력\n켜짐\n그 밖 설정\n가게·감사 메시지·플랫폼 연결 같은 설정은 웹에서 해요.\n설정 전체 — 웹으로 열기\n개인정보처리방침 (기기 브라우저)\n계정\n시험 가게 · e2e-shop\n로그아웃"
+    },
+    {
+      "name": "13-console-1440",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "documentWidth": 1440,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": 12,
+          "width": 79.84375,
+          "height": 44
+        },
+        {
+          "label": "음성 켜기",
+          "x": 24,
+          "y": 208.296875,
+          "width": 1392,
+          "height": 52
+        },
+        {
+          "label": "보내기",
+          "x": 24,
+          "y": 411.703125,
+          "width": 86.71875,
+          "height": 52
+        },
+        {
+          "label": "판매 종료 — 16번",
+          "x": 24,
+          "y": 667.390625,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "상품 자세히 — 16번",
+          "x": 95.1875,
+          "y": 770.390625,
+          "width": 459.25,
+          "height": 44
+        },
+        {
+          "label": "상품 자세히 — 15번",
+          "x": 95.1875,
+          "y": 822.390625,
+          "width": 478.609375,
+          "height": 44
+        },
+        {
+          "label": "문자찜 넣기",
+          "x": 24,
+          "y": 1011.484375,
+          "width": 1392,
+          "height": 52
+        },
+        {
+          "label": "방송 끝내기",
+          "x": 12,
+          "y": 1087.484375,
+          "width": 1416,
+          "height": 52
+        }
+      ],
+      "text": "← 목록\nUX 검토 — 시험 방송\n알림 없음\n라벨이 안 나가요 · 프린터를 연결해 주세요\n음성\n음성 켜기\n빠른 입력\n가격 단위: 천원 — 10은 10,000원, 2만은 20,000원\n보내기\n현재 상품\n16번 핑크프릴\n20,000원\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n1등\n문자찜\n라벨 대기\n판매 종료\n상품 보드\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n판매 종료\n15번 핑크프릴 20,000원 · 판매 종료 · 1등 아직 없음 · 대기 0명\n문자찜\n번호\n전화번호 (선택)\n문자찜 넣기\n방송 끝내기"
+    },
+    {
+      "name": "14-end-confirmation-375",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "documentWidth": 375,
+      "minText": 16,
+      "smallButtons": [],
+      "overflowingInteractive": [],
+      "buttons": [
+        {
+          "label": "방송 목록으로",
+          "x": 12,
+          "y": -512,
+          "width": 79.84375,
+          "height": 44
+        },
+        {
+          "label": "음성 켜기",
+          "x": 24,
+          "y": -315.703125,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "보내기",
+          "x": 24,
+          "y": -89.890625,
+          "width": 86.71875,
+          "height": 52
+        },
+        {
+          "label": "판매 종료 — 16번",
+          "x": 24,
+          "y": 188.203125,
+          "width": 94.4375,
+          "height": 44
+        },
+        {
+          "label": "상품 자세히 — 16번",
+          "x": 12,
+          "y": 325.203125,
+          "width": 351,
+          "height": 62
+        },
+        {
+          "label": "상품 자세히 — 15번",
+          "x": 12,
+          "y": 429.203125,
+          "width": 351,
+          "height": 62
+        },
+        {
+          "label": "문자찜 넣기",
+          "x": 24,
+          "y": 636.296875,
+          "width": 327,
+          "height": 52
+        },
+        {
+          "label": "끝내기",
+          "x": 12,
+          "y": 770.484375,
+          "width": 86.71875,
+          "height": 52
+        },
+        {
+          "label": "아니요",
+          "x": 106.71875,
+          "y": 770.484375,
+          "width": 86.71875,
+          "height": 52
+        }
+      ],
+      "text": "← 목록\nUX 검토 — 시험 방송\n알림 없음\n라벨이 안 나가요 · 프린터를 연결해 주세요\n음성\n음성 켜기\n빠른 입력\n가격 단위: 천원 — 10은 10,000원, 2만은 20,000원\n보내기\n현재 상품\n16번 핑크프릴\n20,000원\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n1등\n문자찜\n라벨 대기\n판매 종료\n상품 보드\n판매 완료\n16번 핑크프릴 20,000원 · 판매 완료 · 1등 문자찜 · 대기 0명\n판매 종료\n15번 핑크프릴 20,000원 · 판매 종료 · 1등 아직 없음 · 대기 0명\n문자찜\n번호\n전화번호 (선택)\n문자찜 넣기\n방송을 끝낼까요? 끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요.\n끝내기\n아니요"
+    }
+  ],
+  "checks": [
+    "Product registration undo visible and worked",
+    "Packing completion disabled until every item checked; actual completion and undo succeeded",
+    "Ending broadcast opens confirm dialog; cancellation preserves broadcast"
+  ]
+}
