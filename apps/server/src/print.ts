@@ -315,6 +315,7 @@ export type ClaimOutcome =
   | { readonly kind: 'job'; readonly job: ClaimedJob }
 
 export type BitmapOutcome = { readonly kind: 'ok'; readonly image: LabelBitmap } | { readonly kind: 'not_found' } | { readonly kind: 'error'; readonly error: LabelError }
+export type BitmapPagesOutcome = { readonly kind: 'ok'; readonly images: readonly LabelBitmap[] } | { readonly kind: 'not_found' } | { readonly kind: 'error'; readonly error: LabelError }
 
 export type ResultInput = { readonly ok: true } | { readonly ok: false; readonly code: string; readonly item: string | null }
 
@@ -1048,6 +1049,44 @@ export class PrintService {
     const template = await this.#template(this.#db, sellerId, 'product')
     const rendered = renderTestLabel(createNodeRenderEnv(), { shopName: template.shopName, date: kstDate(this.#now().getTime()), size: template.size })
     return rendered.ok ? { kind: 'ok', image: rendered.image } : { kind: 'error', error: rendered.error }
+  }
+
+  /** 실제 라벨 미리 보기·파일은 출력과 같은 서버 글꼴로 그린다. 조회는 작업·시도를 만들거나 끝내지 않는다. */
+  async previewProduct(sellerId: string, date: string, key: string): Promise<BitmapPagesOutcome> {
+    const view = await this.labels(sellerId, date)
+    const label = view?.labels.find((item) => item.key === key && item.kind === 'product' && item.winner && !item.voided)
+    if (label?.data === null || label === undefined) return { kind: 'not_found' }
+    return this.#preview(sellerId, 'product', label.data)
+  }
+
+  async previewPacking(sellerId: string, date: string, buyer: string): Promise<BitmapPagesOutcome> {
+    const view = await this.packing(sellerId, date, buyer)
+    return view?.data === null || view === null ? { kind: 'not_found' } : this.#preview(sellerId, 'packing', view.data)
+  }
+
+  /** 대기열 내보내기: 상품은 지금 데이터, 포장은 요청 때 묶음과 쪽 번호를 유지한다. */
+  async previewWaitingJob(sellerId: string, date: string, id: string): Promise<BitmapPagesOutcome> {
+    const row = await findJob(this.#db, sellerId, date, id)
+    if (row === null || row.job.status !== 'WAITING' || row.job.voided) return { kind: 'not_found' }
+    const contexts = await this.#contexts(sellerId, row.job.kind === 'product' ? [date] : [])
+    const view = this.#jobView(row, contexts.get(date) ?? null)
+    if (view.data === null) return { kind: 'not_found' }
+    return this.#preview(sellerId, view.kind, view.data, view.page, row.job.perPage)
+  }
+
+  async #preview(sellerId: string, kind: 'product' | 'packing', data: ProductLabelData | PackingLabelData, page: number | null = null, perPage: number | null = null): Promise<BitmapPagesOutcome> {
+    const current = await this.#template(this.#db, sellerId, kind)
+    // claim과 같은 규칙: 포장 작업을 만든 때의 쪽 경계는 템플릿 변경 뒤에도 고정한다.
+    const template = kind === 'packing' && perPage !== null && current.kind === 'packing' ? { ...current, perPage } : current
+    const env = createNodeRenderEnv()
+    if (kind === 'product') {
+      const rendered = renderProductLabel(env, template, data)
+      return rendered.ok ? { kind: 'ok', images: [rendered.image] } : { kind: 'error', error: rendered.error }
+    }
+    const rendered = renderPackingLabels(env, template, data)
+    if (!rendered.ok) return { kind: 'error', error: rendered.error }
+    const images = page === null ? rendered.pages.map((item) => item.image) : rendered.pages.slice(page - 1, page).map((item) => item.image)
+    return images.length === 0 ? { kind: 'not_found' } : { kind: 'ok', images }
   }
 
   /**

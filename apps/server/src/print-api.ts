@@ -75,6 +75,22 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
   })
   api.get('/print/test-bitmap', async (c) => bitmapResponse(await print.testBitmap(sellerOf(c))))
 
+  // 미리보기는 출력 시도와 별도인 읽기 전용 조회다. 이름·가격·구매자·템플릿은 클라이언트에서 받지 않는다.
+  api.get('/print/preview/:kind', async (c) => {
+    const date = c.req.query('date')
+    const kind = c.req.param('kind')
+    const ref = c.req.query('ref')
+    if (date === undefined || !isValidDate(date)) return invalid([{ field: 'date', message: "날짜는 '2026-10-18'처럼 적어 주세요." }])
+    const rehearsal = rehearsalQuery(c)
+    if (rehearsal === 'bad') return invalid([{ field: 'rehearsal', message: '리허설 범위는 rehearsal=true로 적어 주세요.' }])
+    if (rehearsal !== null) return rehearsal
+    if (ref === undefined || (kind === 'product' ? !/^[A-Za-z0-9_-]{1,64}@[1-9][0-9]{0,8}$/.test(ref) : kind === 'packing' ? !isBuyerId(ref) : kind === 'job' ? !JOB_ID_RE.test(ref) : true)) return notFound()
+    const value = kind === 'product' ? await print.previewProduct(sellerOf(c), date, ref) : kind === 'packing' ? await print.previewPacking(sellerOf(c), date, ref) : await print.previewWaitingJob(sellerOf(c), date, ref)
+    if (value.kind === 'not_found') return notFound()
+    if (value.kind === 'error') return apiError(422, 'LABEL_INVALID', value.error.message, [], { renderError: value.error })
+    return new Response(JSON.stringify({ images: value.images.map((image) => ({ width: image.width, height: image.height, data: Buffer.from(image.data).toString('base64') })) }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
+  })
+
   // ── 라벨 기능 켬/끔 (N4a, RCP-01, L-13 1·2) — 판매 규칙 설정(/api/settings)과 따로 ──
   api.get('/settings/labels', async (c) => c.json(await print.labelSettings(sellerOf(c))))
   api.put('/settings/labels', async (c) => {

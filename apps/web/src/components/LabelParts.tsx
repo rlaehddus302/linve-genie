@@ -7,7 +7,9 @@
 //   리허설은 그 문장도 없다(라벨 문장이 아예 없다). 켬/끔을 아직 모르면 라벨 자리를 비워 둔다(AC-N4a-18). 창이 열린 채 꺼지면 창은 그대로 두고 라벨 부분만 바꾼다.
 // - 출력·다시 출력·포장 라벨은 엔진 기록이 아니어서 5초 대기 없이 바로 보낸다(같은 요청 번호로 재시도 — 서버는 한 번만 만든다).
 import type { PackingLabelData, ProductLabelData } from '@livejjim/label'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { labelPreviewPath } from '../api/label-bitmap.ts'
+import { useLabelPreview } from '../lib/use-label-preview.ts'
 import { isApiError, newRequestId, withRetry, type ApiError } from '../api/client.ts'
 import type { JobView, LabelView } from '../api/print-types.ts'
 import type { Claim, Product } from '../api/types.ts'
@@ -18,20 +20,16 @@ import {
   labelPdfBytes,
   packingPdfName,
   packingPngName,
-  packingTemplateOf,
   pngBytes,
   productPdfName,
   productPngName,
-  productTemplateOf,
-  renderPacking,
-  renderProduct,
 } from '../lib/label-render.ts'
 import { NO_WINNER_LABEL, PRINT_ACTION, REHEARSAL_NO_LABELS, historyWord } from '../lib/print-words.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { LabelImage } from './LabelImage.tsx'
 import { Modal } from './Modal.tsx'
 import { LabelsOffNote } from './LabelsOff.tsx'
-import { FONT_ERROR, useLabelEnv, useLabelsEnabled, usePackingLabel, usePrintApi, usePrintState, type EnvState } from './print-context.tsx'
+import { useLabelsEnabled, usePackingLabel, usePrintApi, usePrintState } from './print-context.tsx'
 
 /** 1등 찜의 라벨 키 `<찜>@<확정버전>` */
 export const labelKeyOf = (claim: Pick<Claim, 'id' | 'confirmVersion'>): string | null => (claim.confirmVersion === null ? null : `${claim.id}@${String(claim.confirmVersion)}`)
@@ -101,7 +99,6 @@ export interface ProductLabelsProps {
 }
 
 export function ProductLabels({ product, winners, labels, rehearsal, date, nameOf }: ProductLabelsProps) {
-  const env = useLabelEnv()
   const api = usePrintApi()
   const enabled = useLabelsEnabled()
   const store = api?.store ?? null
@@ -141,7 +138,7 @@ export function ProductLabels({ product, winners, labels, rehearsal, date, nameO
       <h3 className="sub-title">라벨</h3>
       {winners.length === 0 ? <p>{NO_WINNER_LABEL}</p> : null}
       {winners.map((claim) => (
-        <WinnerLabel key={claim.id} claim={claim} label={labelKeyOf(claim) === null ? undefined : labels.get(labelKeyOf(claim) as string)} env={env} date={date} name={nameOf(claim)} />
+        <WinnerLabel key={claim.id} claim={claim} label={labelKeyOf(claim) === null ? undefined : labels.get(labelKeyOf(claim) as string)} date={date} name={nameOf(claim)} />
       ))}
       {voided.length > 0 ? (
         <ul className="plain-list" aria-label="폐기한 라벨">
@@ -156,13 +153,14 @@ export function ProductLabels({ product, winners, labels, rehearsal, date, nameO
   )
 }
 
-function WinnerLabel({ claim, label, env, date, name }: { readonly claim: Claim; readonly label: LabelView | undefined; readonly env: EnvState; readonly date: string; readonly name: string }) {
+function WinnerLabel({ claim, label, date, name }: { readonly claim: Claim; readonly label: LabelView | undefined; readonly date: string; readonly name: string }) {
   const print = usePrintState()
   const request = useLabelRequest()
   const exporter = useExport()
-  const template = productTemplateOf(print.templates?.product.template)
   const data = (label?.data ?? null) as ProductLabelData | null
-  const rendered = useMemo(() => (env.state !== 'ready' || data === null ? null : renderProduct(env.env, template, data)), [env, template, data])
+  const preview = useLabelPreview(data === null || label === undefined ? null : labelPreviewPath('product', date, label.key), JSON.stringify([data, print.templates?.product]))
+  const image = preview?.ok === true ? preview.images[0] : undefined
+  const rendered = preview === null ? null : !preview.ok ? preview : image === undefined ? null : { ok: true as const, image }
   const canPrint = label === undefined ? true : label.canPrint
   const no = data?.no ?? claim.no
   const send = () =>
@@ -193,7 +191,6 @@ function WinnerLabel({ claim, label, env, date, name }: { readonly claim: Claim;
         </strong> {label !== undefined && label.word !== '' ? <span className={label.state === 'REPRINT_NEEDED' ? 'tag tag-alert' : 'tag'}>{label.word}</span> : <span className="hint">아직 라벨을 만들지 않았어요</span>}
       </p>
       {label !== undefined ? <p className="hint">{historyWord(label)}</p> : null}
-      {env.state === 'error' ? <p className="field-error">{FONT_ERROR}</p> : null}
       {rendered !== null && !rendered.ok ? (
         <p className="field-error" role="alert">
           {labelErrorMessage(rendered.error)}
@@ -345,15 +342,13 @@ function PackingBody({ date, buyer }: { readonly date: string; readonly buyer: s
   const api = usePrintApi()
   const print = usePrintState()
   const packing = usePackingLabel(date, buyer)
-  const env = useLabelEnv()
   const exporter = useExport()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const view = packing.view
   const data = (view?.data ?? null) as PackingLabelData | null
-  const template = packingTemplateOf(print.templates?.packing.template)
-  const rendered = useMemo(() => (env.state !== 'ready' || data === null ? null : renderPacking(env.env, template, data)), [env, template, data])
+  const rendered = useLabelPreview(data === null ? null : labelPreviewPath('packing', date, view?.buyer ?? buyer), JSON.stringify([data, print.templates?.packing]))
   const pages = rendered !== null && rendered.ok ? rendered.images : []
   const label = view?.label
   // 두 번 보냄 막기는 누르자마자 바뀌는 표시로 — 같은 순간의 두 클릭도 요청 하나 (TE-PL1B-001, 포장 모드와 같은 방식)
@@ -414,7 +409,6 @@ function PackingBody({ date, buyer }: { readonly date: string; readonly buyer: s
         </p>
       ) : null}
       {packing.phase === 'ready' && data === null ? <p className="warning">{NO_ITEMS}</p> : null}
-      {env.state === 'error' ? <p className="field-error">{FONT_ERROR}</p> : null}
       {rendered !== null && !rendered.ok ? (
         <p className="field-error" role="alert">
           {labelErrorMessage(rendered.error)}

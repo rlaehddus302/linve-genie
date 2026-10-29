@@ -1,7 +1,7 @@
-// APP-05: 실제 프린터에는 앱과 동일한 서버 그림을 넘긴다. 미리보기 렌더와 분리한다.
+// APP-05·LBL-03: 출력·미리보기·파일에는 같은 서버 그림을 넘긴다.
 import type { LabelBitmap, LabelErrorCode } from '@livejjim/label'
 import type { ClaimedJob } from './print-types.ts'
-import type { RenderOutcome } from '../lib/label-render.ts'
+import type { PagesOutcome, RenderOutcome } from '../lib/label-render.ts'
 import { ApiError, get } from './client.ts'
 
 export function parseLabelBitmap(value: unknown): LabelBitmap | null {
@@ -38,3 +38,15 @@ export function fetchPrintBitmap(job: Pick<ClaimedJob, 'id' | 'attempt'>, device
   return serverBitmap(`/api/print/jobs/${encodeURIComponent(job.id)}/bitmap?${query}`)
 }
 export function fetchTestPrintBitmap(): Promise<RenderOutcome> { return serverBitmap('/api/print/test-bitmap') }
+
+export function labelPreviewPath(kind: 'product' | 'packing' | 'job', date: string, ref: string): string {
+  return `/api/print/preview/${kind}?${new URLSearchParams({ date, ref })}`
+}
+
+export async function fetchLabelPreview(path: string): Promise<PagesOutcome> {
+  const value: unknown = await get(path)
+  const raw = typeof value === 'object' && value !== null && 'images' in value ? value.images : null
+  const images = Array.isArray(raw) ? raw.map(parseLabelBitmap) : []
+  if (images.length === 0 || images.some((image) => image === null)) return { ok: false, error: { code: 'INVALID_DATA', message: '라벨 그림을 제대로 받지 못했어요. 다시 받아 주세요.' } }
+  return { ok: true, images: images as LabelBitmap[] }
+}

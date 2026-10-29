@@ -13,9 +13,9 @@ import type { LabelView, QueueSummary } from '../api/print-types.ts'
 import type { BroadcastItem, FullView } from '../api/types.ts'
 import { DENSITY_MAX, DENSITY_MIN, cleanDeviceName, savedDeviceName, storedDeviceName } from '../lib/device.ts'
 import { dateWords, kstToday } from '../lib/kst.ts'
-import { labelEnv } from '../lib/label-env.ts'
+import { fetchLabelPreview, labelPreviewPath } from '../api/label-bitmap.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
-import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, renderJob, renderProduct, waitingA4Name } from '../lib/label-render.ts'
+import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, waitingA4Name } from '../lib/label-render.ts'
 import { KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
 import type { PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
@@ -738,16 +738,15 @@ function ExportSection() {
   const exportBroadcast = () =>
     run(async () => {
       if (chosen === null || product === undefined) return null
-      const env = await labelEnv()
       // 지금 1등을 새로 받는다 (채팅으로 생긴 1등은 라벨 상태 알림이 없을 수 있다)
       const fresh = await get<{ labels: LabelView[] }>(`/api/print/labels?date=${chosen.date}`)
       const list = fresh.labels.filter((label) => label.kind === 'product' && label.broadcast === chosen.id && label.winner && !label.voided && label.data !== null).sort((a, b) => (a.no ?? 0) - (b.no ?? 0))
       if (list.length === 0) return '1등 라벨이 없어요.'
       const images: LabelBitmap[] = []
       for (const label of list) {
-        const rendered = renderProduct(env, product, label.data as Parameters<typeof renderProduct>[2])
+        const rendered = await fetchLabelPreview(labelPreviewPath('product', label.date, label.key))
         if (!rendered.ok) return labelErrorMessage(rendered.error)
-        images.push(rendered.image)
+        images.push(...rendered.images)
       }
       const pdf = a4PdfBytes(images)
       if (!pdf.ok) return pdf.message
@@ -759,14 +758,12 @@ function ExportSection() {
     run(async () => {
       const templates = print.templates
       if (templates === null) return null
-      const env = await labelEnv()
       const images: LabelBitmap[] = []
       for (const job of waiting) {
         if (job.data === null) continue
-        const template = job.kind === 'product' ? templates.product.template : templates.packing.template
-        const rendered = renderJob(env, { kind: job.kind, template, data: job.data, page: job.page })
+        const rendered = await fetchLabelPreview(labelPreviewPath('job', job.date, job.id))
         if (!rendered.ok) return labelErrorMessage(rendered.error)
-        images.push(rendered.image)
+        images.push(...rendered.images)
       }
       const pdf = a4PdfBytes(images)
       if (!pdf.ok) return pdf.message
@@ -777,10 +774,11 @@ function ExportSection() {
   const savePng = (label: LabelView, share: boolean) =>
     run(async () => {
       if (product === undefined || label.data === null || label.no === null) return null
-      const env = await labelEnv()
-      const rendered = renderProduct(env, product, label.data as Parameters<typeof renderProduct>[2])
+      const rendered = await fetchLabelPreview(labelPreviewPath('product', label.date, label.key))
       if (!rendered.ok) return labelErrorMessage(rendered.error)
-      const png = pngBytes(rendered.image)
+      const image = rendered.images[0]
+      if (image === undefined) return '라벨 그림을 받지 못했어요.'
+      const png = pngBytes(image)
       if (!png.ok) return png.message
       const name = productPngName(label.date, label.no)
       if (share) await shareBytes(png.bytes, name, 'image/png')
