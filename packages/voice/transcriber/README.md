@@ -44,7 +44,7 @@ umask 077 && printf '%s' '<서버와 같은 토큰>' > ~/.livejjim-worker-token
 ## 켜기
 
 ```
-.venv/bin/python -m livegenie_transcriber --server https://<라이브지니 주소> --token-file ~/.livejjim-worker-token
+.venv/bin/python -B -m livegenie_transcriber --server https://<라이브지니 주소> --token-file ~/.livejjim-worker-token
 ```
 
 | 설정 | 뜻 | 기본 |
@@ -73,7 +73,7 @@ M3 Pro 기준 조각(평균 약 4초) 하나 받아쓰기 평균 약 0.26초·95
   <key>ProgramArguments</key>
   <array>
     <string>/Users/<사용자>/livejjim/packages/voice/transcriber/.venv/bin/python</string>
-    <string>-m</string><string>livegenie_transcriber</string>
+    <string>-B</string><string>-m</string><string>livegenie_transcriber</string>
     <string>--server</string><string>https://<라이브지니 주소></string>
     <string>--token-file</string><string>/Users/<사용자>/.livejjim-worker-token</string>
   </array>
