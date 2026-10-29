@@ -54,3 +54,7 @@
 ## 추가 변경 읽기 감사 (2026-10-30, 609683bb..327c9fff)
 
 독립 spec-auditor가 파일 수정/시험 실행 없이 소스·기존 결과 로그를 대조했다. 추가 CONFIRMED blocker/major 없음. 서버 라벨 preview/출력의 같은 renderer·저장된 perPage(선택3/3), 원본 카드·실제 상품을 확인하는 등록 ACK 대기 해제(충돌/R66/R7 3/3), ENDED·새페이지 동의 계약·PC8행/44px(관련9/9), 서버 실제 이력 hold/release(3/3)의 원래 단언을 유지했다. RA-APP2-003·TE-APP1-011·012 해결 확인. Cohere 의존성 보완과 실제 합성 PCM→DB1건은 실행 증거이며, 실방송 정확도·통계적p95·HG·전체verify/perf를 대신하지 않는다. 최종 전체 게이트 판정은 대기 상태다.
+
+## Additional read-only audit: 327c9fff..fcf6ee62
+
+The independent spec auditor confirmed RA-APP2-004 and TE-APP1-013 resolved: single-key label lookup preserves the original buyer, current product/claim amount and cancellation/succession contracts; one captured state prevents mixed snapshots. The same-origin AudioWorklet preserves PCM calculations, cancellation guards, strict CSP and D-I4-09 lazy loading. Existing label 4/4, served 6/6 and PCM/lazy 3/3 logs were inspected. The real Cohere browser evidence confirms POST1/DB1, ended tracks, closed sockets and zero CSP violations. No new confirmed blocker/major was found. The auditor changed no files and ran no tests. Final full verify/performance and human hardware/broadcast gates remain separate.
