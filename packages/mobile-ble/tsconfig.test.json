@@ -1,0 +1,9 @@
+// 앱 블루투스 라벨 패키지 시험·도구 설정. Node 타입을 쓴다(파일 구조 검사·프린터 골든 읽기).
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["*.ts", "src/**/*.ts", "test/**/*.ts"]
+}

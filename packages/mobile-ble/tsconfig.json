@@ -1,0 +1,8 @@
+// 앱 블루투스 라벨 패키지 소스 (RN에서 돈다). Node 타입 없이 검사한다 — @livejjim/printer가 DOM 타입(Web Bluetooth)으로 쓰여 DOM lib를 함께 둔다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"]
+  },
+  "include": ["src/**/*.ts"]
+}

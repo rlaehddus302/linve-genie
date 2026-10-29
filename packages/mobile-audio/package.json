@@ -1,0 +1,21 @@
+{
+  "name": "@livejjim/mobile-audio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "라이브찜 앱 마이크 모듈(Expo Modules API, 네이티브 이름 LivejjimAudio) — 뒤에서도 16kHz 모노 PCM16 100ms 틀을 JS로 넘긴다 (APP-02)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./native": "./src/native.ts",
+    "./app.plugin": "./app.plugin.js"
+  },
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "expo-modules-core": "58.0.28",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5"
+  }
+}

@@ -1,0 +1,8 @@
+// 앱 마이크 모듈 소스 (RN에서 돈다). Node 타입 없이 검사한다 — 전역 WebSocket은 기능 감지 뒤 구조 타입으로만 쓴다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024"]
+  },
+  "include": ["src/**/*.ts"]
+}

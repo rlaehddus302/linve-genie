@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "modules": ["com.livejjim.audio.LivejjimAudioModule"]
+  },
+  "ios": {
+    "modules": ["LivejjimAudioModule"]
+  }
+}
