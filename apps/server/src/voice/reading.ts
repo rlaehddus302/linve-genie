@@ -15,7 +15,7 @@ import type { Clock } from '../time.ts'
 import type { VoiceAliases } from './aliases.ts'
 import type { VoiceRelayOptions, VoiceReadingSession } from './relay.ts'
 
-export type VoiceHistoryObserver = (sellerId: string, date: string | null) => void | Promise<void>
+export type VoiceHistoryObserver = (sellerId: string, date: string | null, phase: 'start' | 'complete') => void | Promise<void>
 export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWriter; clock: Clock; aliases: VoiceAliases; historyObserver?: VoiceHistoryObserver }): NonNullable<VoiceRelayOptions['reading']> {
   return async ({ session, broadcastId, device, send, mode }): Promise<VoiceReadingSession> => {
     const sellerId = session.sellerId
@@ -44,6 +44,12 @@ export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWr
     await refresh()
     const getProduct = (no: number) => data.products.get(productKey(broadcastId, no))
     const settings = () => data.broadcasts.get(broadcastId)!.settings
+    async function historyRead<T>(date: string | null, read: () => Promise<T>): Promise<T> {
+      try {
+        await deps.historyObserver?.(sellerId, date, 'start')
+        return await read()
+      } finally { await deps.historyObserver?.(sellerId, date, 'complete') }
+    }
     const mergeLearned = async (value: unknown): Promise<void> => {
       if (value === undefined || value === null) return
       const merged = await deps.aliases.merge(sellerId, value, true)
@@ -64,11 +70,9 @@ export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWr
           return { key: product.key, name: product.name, price: product.price, claimCount: slots.winners.length + slots.waitlist.length, closed: product.status === 'CLOSED', status: product.status }
         },
         fetchHistory: async () => {
-          await deps.historyObserver?.(sellerId, null)
-          const days = pickHistoryDays(await deps.service.days(sellerId, false), broadcast)
+          const days = pickHistoryDays(await historyRead(null, () => deps.service.days(sellerId, false)), broadcast)
           return Promise.all(days.map(async (date) => {
-            await deps.historyObserver?.(sellerId, date)
-            const view = await deps.service.scopeView(sellerId, date)
+            const view = await historyRead(date, () => deps.service.scopeView(sellerId, date))
             const products = view?.products
             return { date, names: Array.isArray(products) ? products.flatMap((item: unknown) => typeof item === 'object' && item !== null && 'name' in item && typeof item.name === 'string' ? [item.name] : []) : [] }
           }))
