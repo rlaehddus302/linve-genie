@@ -1,0 +1,126 @@
+// 앱 라벨 대기열 (APP-03·APP-04, L-11): 이 기기에서 출력 → 한 장씩 받아(claim) 서버 그림을 BLE로 보내고 결과를 알린다. 다시 붙으면 요약을 다시 받아 이어 찍는다.
+// @vitest-environment node
+import { describe, expect, it } from 'vitest'
+import type { ClaimedJob, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
+import { decodeBase64, parseBitmap } from '../src/api/labels.ts'
+import { LabelQueue } from '../src/lib/label-queue.ts'
+import { FakeBlePrinter } from '../src/native/ble.ts'
+import { FakeClock, FakeEventSource, FakeServer, flush } from './support.ts'
+
+const queueSummary = (patch: Partial<QueueSummary> = {}): QueueSummary => ({ rev: 1, device: { id: 'app-device-1', name: '내 휴대폰', live: true, printerConnected: true, releasing: false }, pause: null, waiting: 2, printing: 0, discard: 0, labelsEnabled: true, ...patch })
+
+const job = (id: string): ClaimedJob => ({ id, date: '2026-10-29', kind: 'product', reason: 'auto', attempt: `${id}-a1`, data: {} as ClaimedJob['data'], template: {} as ClaimedJob['template'], page: null, pages: null, label: { key: `${id}@1`, claim: 'c1', version: 1, broadcast: 'b1', no: 15, buyerId: 'u1', buyer: { display: '홍길동' } as ClaimedJob['label']['buyer'] } })
+
+function setup() {
+  const server = new FakeServer()
+  server.install()
+  const ble = new FakeBlePrinter()
+  const sources: FakeEventSource[] = []
+  const clock = new FakeClock()
+  const queue = new LabelQueue({
+    ble,
+    deviceId: 'app-device-1',
+    openStream: () => {
+      const source = new FakeEventSource('/api/stream')
+      sources.push(source)
+      return source
+    },
+    timer: clock,
+  })
+  return { server, ble, sources, clock, queue }
+}
+
+describe('LabelQueue', () => {
+  it('이 기기에서 출력을 누르면 기기를 등록하고, 프린터가 연결되면 한 장씩 받아 서버 그림을 찍고 결과를 알린다', async () => {
+    const { server, ble, sources, queue } = setup()
+    const jobs = [job('j1'), job('j2')]
+    let summary = queueSummary({ device: null, waiting: 2 })
+    server.on('GET', /^\/api\/print$/, () => ({ body: { queue: summary, jobs: [], discard: [] } }))
+    server.on('POST', /^\/api\/print\/device$/, () => {
+      summary = queueSummary({ waiting: 2 })
+      return { body: { queue: summary, waiting: 2, backlog: true } }
+    })
+    server.on('POST', /^\/api\/print\/device\/state$/, () => ({ body: { ok: true } }))
+    server.on('POST', /^\/api\/print\/claim$/, () => {
+      const next = jobs.shift() ?? null
+      summary = queueSummary({ waiting: jobs.length, printing: next === null ? 0 : 1 })
+      return { body: { job: next, reason: next === null ? 'EMPTY' : undefined } }
+    })
+    // 그림 입구가 아직 없다(404) → 개발용 빈 그림 (TODO(APP2 server))
+    server.on('POST', /^\/api\/print\/result$/, () => ({ body: { recorded: true } }))
+    queue.start()
+    await flush()
+    sources[0]!.open()
+    expect(queue.getSnapshot().mine).toBe(false)
+    expect(await queue.become('내 휴대폰')).toEqual({ kind: 'ok' })
+    await flush()
+    expect(queue.getSnapshot().mine).toBe(true)
+    // 프린터가 아직 끊김 → 서버에 끊김을 알리고 받지 않는다
+    expect(server.callsTo('POST', /device\/state/).at(-1)?.body).toEqual({ deviceId: 'app-device-1', connected: false })
+    expect(server.callsTo('POST', /claim/).length).toBe(0)
+    await queue.connect()
+    await flush(20)
+    expect(server.callsTo('POST', /device\/state/).at(-1)?.body).toEqual({ deviceId: 'app-device-1', connected: true })
+    expect(ble.printed.length).toBe(2)
+    expect(ble.printed[0]?.image.width).toBe(384)
+    expect(ble.printed[0]?.density).toBe(3)
+    const results = server.callsTo('POST', /\/api\/print\/result/).map((call) => call.body)
+    expect(results).toEqual([
+      { deviceId: 'app-device-1', attempt: 'j1-a1', ok: true },
+      { deviceId: 'app-device-1', attempt: 'j2-a1', ok: true },
+    ])
+    expect(queue.getSnapshot().printed).toBe(2)
+    expect(queue.getSnapshot().job).toBeNull()
+  })
+
+  it('출력에 실패하면 그 시도를 실패로 알리고 프린터 문장을 보인다', async () => {
+    const server = new FakeServer()
+    server.install()
+    const ble = new FakeBlePrinter({ printResult: () => ({ ok: false, error: { code: 'PRINTER_ERROR', message: '프린터 오류로 멈췄어요.' } }) })
+    const clock = new FakeClock()
+    const queue = new LabelQueue({ ble, deviceId: 'app-device-1', openStream: () => new FakeEventSource('/api/stream'), timer: clock })
+    let given = false
+    server.on('GET', /^\/api\/print$/, () => ({ body: { queue: queueSummary(), jobs: [], discard: [] } }))
+    server.on('POST', /^\/api\/print\/device\/state$/, () => ({ body: { ok: true } }))
+    server.on('POST', /^\/api\/print\/claim$/, () => {
+      if (given) return { body: { job: null, reason: 'EMPTY' } }
+      given = true
+      return { body: { job: job('j1') } }
+    })
+    server.on('POST', /^\/api\/print\/result$/, () => ({ body: { recorded: true } }))
+    queue.start()
+    await flush()
+    await queue.connect()
+    await flush(20)
+    expect(server.callsTo('POST', /result/).map((call) => call.body)).toEqual([{ deviceId: 'app-device-1', attempt: 'j1-a1', ok: false, error: { code: 'PRINTER_ERROR' } }])
+    expect(queue.getSnapshot().printerError?.message).toBe('프린터 오류로 멈췄어요.')
+  })
+
+  it('다시 붙으면(두 번째 ready) 요약을 다시 받고 print 알림의 판(rev)이 오래된 것은 버린다', async () => {
+    const { server, sources, queue } = setup()
+    let loads = 0
+    server.on('GET', /^\/api\/print$/, () => {
+      loads++
+      return { body: { queue: queueSummary({ rev: 5, device: null }), jobs: [], discard: [] } }
+    })
+    queue.start()
+    await flush()
+    sources[0]!.open()
+    expect(loads).toBe(1)
+    sources[0]!.emit('print', { rev: 3, queue: queueSummary({ rev: 3, device: null, waiting: 9 }), jobs: [], labels: [] })
+    expect(queue.getSnapshot().queue?.waiting).toBe(2)
+    sources[0]!.emit('print', { rev: 6, queue: queueSummary({ rev: 6, device: null, waiting: 4 }), jobs: [], labels: [] })
+    expect(queue.getSnapshot().queue?.waiting).toBe(4)
+    expect(queue.backlog).toBe(4)
+    sources[0]!.fail()
+    sources[0]!.open()
+    await flush()
+    expect(loads).toBe(2)
+  })
+
+  it('서버 그림 모양 읽기: base64 1비트 행 바이트, 길이가 안 맞으면 null', () => {
+    expect([...decodeBase64('AAEC/w==')]).toEqual([0, 1, 2, 255])
+    expect(parseBitmap({ width: 16, height: 2, data: 'AAEC/w==' })).toEqual({ width: 16, height: 2, data: new Uint8Array([0, 1, 2, 255]) })
+    expect(parseBitmap({ width: 16, height: 3, data: 'AAEC/w==' })).toBeNull()
+  })
+})
