@@ -91,7 +91,7 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
     startingCapture = true
     const born = captureGeneration
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false })
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 }, video: false })
       if (!wanted || born !== captureGeneration) { for (const track of stream.getTracks()) track.stop(); return }
       media = stream
       const activeContext = new AudioContext()
