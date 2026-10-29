@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { toWire } from '@livejjim/voice-session/wire'
 import { VoiceSession } from '../src/lib/voice-session.ts'
 import { FakeNativeAudio } from '../src/native/audio.ts'
-import { configureVoiceStorage } from '../src/lib/voice-preferences.ts'
+import { configureVoiceStorage, readVoicePreferences } from '../src/lib/voice-preferences.ts'
 import { flush, FakeServer } from './support.ts'
 import { createVoiceEffects } from '../src/lib/voice-effects.ts'
 import { fetchJobBitmap, fetchTestBitmap, parseBitmap } from '../src/api/labels.ts'
@@ -29,6 +29,36 @@ async function setup() {
 }
 afterEach(async () => { for (const session of sessions.splice(0)) { await session.turnOff(); session.dispose() } vi.useRealTimers() })
 describe('모바일 전체 서버 음성 세션', () => {
+  it('마이크를 켜기 전에 바꾼 바로 등록 설정을 저장하고 첫 연결·새 앱에서도 복원한다', async () => {
+    let stored = JSON.stringify({ consent: true, settings: { 'voice.autoConfirm': true, 'voice.autoRegister': true } })
+    configureVoiceStorage({ getItem: async () => stored, setItem: async (_key, value) => { stored = value } })
+    const audio = new RemoteAudio()
+    const options = { audio, ticket: async () => ({ wsUrl: 'ws://localhost/api/voice/stream' }), register: async () => undefined, undoRegister: async () => undefined }
+    const session = new VoiceSession(options)
+    sessions.push(session)
+    session.setInstant(false)
+    expect(audio.starts).toHaveLength(0)
+    expect(audio.sent).toHaveLength(0)
+    await session.turnOn('b1', '방송')
+    expect(audio.sent).toContainEqual(expect.objectContaining({ op: 'hello', context: expect.objectContaining({ settings: { 'voice.autoConfirm': true, 'voice.autoRegister': false } }) }))
+    expect(JSON.parse(stored)).toMatchObject({ consent: true, settings: { 'voice.autoRegister': false } })
+    await session.turnOff()
+    const reopened = new VoiceSession({ ...options, audio: new RemoteAudio() })
+    sessions.push(reopened)
+    await readVoicePreferences()
+    expect(reopened.getView().instant).toBe(false)
+  })
+
+  it('늦게 도착한 설정 화면·저장 효과가 바로 등록 끄기를 되돌리지 않는다', async () => {
+    const { audio, session } = await setup()
+    session.setInstant(false)
+    audio.message({ type: 'voice.state', snapshot: toWire({ cards: [], forms: new Map(), instant: true, settings: { 'voice.autoRegister': true }, error: null }), display: toWire({}) })
+    audio.message({ type: 'voice.effect', id: 901, method: 'writeSettings', args: toWire([{ 'voice.autoRegister': true, 'voice.autoConfirm': true }]) })
+    await flush()
+    const preferences = await readVoicePreferences()
+    expect(session.getView().instant).toBe(false)
+    expect(preferences.settings).toMatchObject({ 'voice.autoRegister': false, 'voice.autoConfirm': true })
+  })
   it('SA-APP2-001: 복원표 거절은 마이크·주기 전송을 멈추고 카드는 남기며 새 표 없이 다시 켠다', async () => {
     vi.useFakeTimers()
     const { audio, session, effect } = await setup()

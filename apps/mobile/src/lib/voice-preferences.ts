@@ -2,18 +2,38 @@
 interface Store { getItem(key: string): Promise<string | null>; setItem(key: string, value: string): Promise<void>; removeItem?(key: string): Promise<void> }
 let store: Store | null = null
 let prefs: Record<string, unknown> = {}
-export function configureVoiceStorage(value: Store): void { store = value }
-export async function readVoicePreferences(): Promise<Record<string, unknown>> {
-  try {
-    const raw = await store?.getItem('livegenie.voice.preferences.v1')
-    const parsed: unknown = raw ? JSON.parse(raw) : null
-    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) prefs = parsed as Record<string, unknown>
-  } catch { /* 저장을 읽지 못하면 현재 기기 설정 */ }
-  return prefs
+let preferencesWriting: Promise<unknown> = Promise.resolve()
+export function configureVoiceStorage(value: Store): void { store = value; prefs = {} }
+function accessPreferences<T>(action: (current: Store | null) => Promise<T>): Promise<T> {
+  const current = store
+  const next = preferencesWriting.then(async () => {
+    try {
+      const raw = await current?.getItem('livegenie.voice.preferences.v1')
+      const parsed: unknown = raw ? JSON.parse(raw) : null
+      if (current === store && parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) prefs = parsed as Record<string, unknown>
+    } catch { /* 저장을 읽지 못하면 현재 기기 설정 */ }
+    return action(current)
+  })
+  preferencesWriting = next.catch(() => undefined)
+  return next
 }
-export async function writeVoicePreference(key: string, value: unknown): Promise<void> {
-  prefs = { ...prefs, [key]: value }
-  await store?.setItem('livegenie.voice.preferences.v1', JSON.stringify(prefs))
+export function readVoicePreferences(): Promise<Record<string, unknown>> {
+  return accessPreferences(async () => prefs)
+}
+export function writeVoicePreference(key: string, value: unknown): Promise<void> {
+  return accessPreferences(async (current) => {
+    if (current !== store) return
+    prefs = { ...prefs, [key]: value }
+    await current?.setItem('livegenie.voice.preferences.v1', JSON.stringify(prefs))
+  })
+}
+export function writeVoiceSetting(key: string, value: unknown): Promise<void> {
+  return accessPreferences(async (current) => {
+    if (current !== store) return
+    const settings = prefs.settings !== null && typeof prefs.settings === 'object' && !Array.isArray(prefs.settings) ? prefs.settings : {}
+    prefs = { ...prefs, settings: { ...settings, [key]: value } }
+    await current?.setItem('livegenie.voice.preferences.v1', JSON.stringify(prefs))
+  })
 }
 interface ArchiveEntry { at: number; kind: string; value: unknown }
 const KEEP_MS = 30 * 86400000

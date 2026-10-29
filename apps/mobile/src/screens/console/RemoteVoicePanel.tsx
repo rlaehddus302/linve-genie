@@ -14,6 +14,7 @@ function words(display: Readonly<Record<string, unknown>>, name: string, id: str
 export function RemoteVoicePanel({ session, snapshot, display }: { readonly session: VoiceSession; readonly snapshot: VoiceSnapshot; readonly display: Readonly<Record<string, unknown>> }) {
   const api = useContext(ConsoleContext)
   const view = session.getView()
+  const counting = view.on && view.state.kind === 'listening'
   useEffect(() => {
     if (view.openProduct !== null && api !== null) { api.select(view.openProduct); session.clearProduct() }
   }, [view.openProduct, api, session])
@@ -39,7 +40,7 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
         {note ? <Notice tone="info">{note}</Notice> : null}
         {info?.ask ? <Hint>{info.ask}</Hint> : null}
         {card.flushedAtEnd ? <Hint>늦게 들린 말이에요. 확인하고 등록해 주세요.</Hint> : null}
-        {snapshot.paused.has(card.id) ? <Hint>말하는 동안은 기다려요</Hint> : card.autoConfirmAt !== null ? <Hint>{`${Math.max(0, Math.ceil((card.autoConfirmAt - snapshot.now) / 1000))}초 뒤 등록`}</Hint> : null}
+        {counting && snapshot.paused.has(card.id) ? <Hint>말하는 동안은 기다려요</Hint> : counting && card.autoConfirmAt !== null ? <Hint>{`${Math.max(0, Math.ceil((card.autoConfirmAt - snapshot.now) / 1000))}초 뒤 등록`}</Hint> : null}
         {info?.candidates.map((candidate) => <BigButton key={candidate.name} small label={candidate.name} onPress={() => command('chooseCandidate', [card.id, candidate.name])} />)}
         {form ? <>
           <Field label="상품 번호" keyboardType="number-pad" value={form.no} onChangeText={(no) => command('editForm', [card.id, { no }])} />
@@ -50,7 +51,7 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
         </> : <Row wrap>
           <BigButton primary label="등록" ariaLabel={`등록 — ${card.no ?? ''}번 음성 카드`} onPress={() => void session.confirmCard(card.id)} />
           <BigButton label="고치기" onPress={() => command('openForm', [card.id])} />
-          {card.autoConfirmAt !== null ? <BigButton label="자동 등록 멈추기" onPress={() => command('stopAuto', [card.id])} /> : null}
+          {counting && card.autoConfirmAt !== null ? <BigButton label="자동 등록 멈추기" onPress={() => command('stopAuto', [card.id])} /> : null}
         </Row>}
         <BigButton label="닫기" onPress={() => command('close', [card.id])} />
       </Card>
@@ -78,7 +79,7 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
       {entry.sending ? <Hint>보내는 중…</Hint> : <>
         {entry.results.length > 0 ? entry.results.map((result) => <VoiceSmsResult key={`${result.no}-${result.seq}`} line={result} />) : null}
         {entry.reason === null && entry.card.status === 'OPEN' ? <>
-          <Hint>{words(display, 'countdowns', entry.card.id, '')}</Hint>
+          {counting ? <Hint>{words(display, 'countdowns', entry.card.id, '')}</Hint> : null}
           {entry.card.candidates ? <>
             {entry.card.candidates.map((candidate) => <BigButton key={candidate.buyer} label={`${candidate.display}${candidate.phoneLast4 ? ` · 끝자리 ${candidate.phoneLast4}` : ''}`} onPress={() => command('smsChoose', [entry.card.id, candidate.buyer])} />)}
             <BigButton label="새 손님으로 넣기" onPress={() => command('smsNewBuyer', [entry.card.id])} />

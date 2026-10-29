@@ -13,14 +13,15 @@ it('서버의 카드 폼·후보·정정·손님 선택을 같은 명령으로 �
   const session = new VoiceSession({ audio, deviceId: 'abcdefgh', register: async () => undefined, undoRegister: async () => undefined })
   await session.turnOn('b1', '방송'); await session.acceptConsent()
   receive?.({ type: 'ready' })
+  const now = Date.now()
   receive?.({ type: 'voice.state', sessionId: 's1', snapshot: toWire({
-    phase: 'on', cards: [{ id: 'c1', no: 15, text: '15번 2만 원', price: 20000, autoConfirmAt: null }],
+    phase: 'on', cards: [{ id: 'c1', no: 15, text: '15번 2만 원', price: 20000, autoConfirmAt: now + 3000 }],
     forms: new Map([['c1', { no: '15', name: '', price: '2만', message: null }]]), notes: new Map(), info: new Map([['c1', { candidates: [{ name: '핑크프릴' }], ask: '품종 확인 필요' }]]), paused: new Map(),
     offers: [{ id: 'o1', kind: 'offer', stage: 'ask', message: '가격을 30,000원으로 고칠까요?', error: null }],
     sms: [{ card: { id: 's1', status: 'OPEN', candidates: [{ buyer: 'buyer1', display: '문자 손님', phoneLast4: '1234' }] }, hidden: false, reason: null, sending: false, error: null, results: [] }],
     smsDropped: [], flushedClosed: [], missedFolded: 0, instant: true, archive: false, settings: { 'voice.autoConfirm': false }, smsSettings: { 'voice.smsListen': true }, secondsText: '5', smsSecondsText: '3', quietText: '1.8', learnedCount: 0,
-    hearing: null, readout: { text: '15번 20,000원' }, error: null, now: Date.now(),
-  }), display: toWire({ cards: new Map([['c1', '15번 20,000원']]), sms: new Map([['s1', '15번 · 끝자리 1234 · 문자찜']]), countdowns: new Map() }) })
+    hearing: null, readout: { text: '15번 20,000원' }, error: null, now,
+  }), display: toWire({ cards: new Map([['c1', '15번 20,000원']]), sms: new Map([['s1', '15번 · 끝자리 1234 · 문자찜']]), countdowns: new Map([['s1', '3초 뒤 넣어요']]) }) })
   const command = vi.spyOn(session, 'command')
   const rendered = render(<VoicePanel session={session} broadcastId="b1" title="방송" seller ended={false} />)
   expect(screen.getByText('품종 확인 필요')).toBeTruthy()
@@ -35,6 +36,13 @@ it('서버의 카드 폼·후보·정정·손님 선택을 같은 명령으로 �
   fireEvent.click(screen.getByRole('button', { name: '문자 손님 · 끝자리 1234' }))
   expect(command).toHaveBeenCalledWith('smsChoose', ['s1', 'buyer1'])
   expect(screen.queryByText(/시험:.*들림/)).toBeNull()
+  expect(screen.getByText('3초 뒤 등록')).toBeTruthy()
+  expect(screen.getByText('3초 뒤 넣어요')).toBeTruthy()
+  await act(async () => { await session.turnOff() })
+  expect(screen.queryByText('3초 뒤 등록')).toBeNull()
+  expect(screen.queryByText('3초 뒤 넣어요')).toBeNull()
+  expect(screen.getByRole('button', { name: '고친 값으로 등록' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '문자 손님 · 끝자리 1234' })).toBeTruthy()
   rendered.unmount()
   await act(async () => { await session.turnOff(); session.dispose() })
 })

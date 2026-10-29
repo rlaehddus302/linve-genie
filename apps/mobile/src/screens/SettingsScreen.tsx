@@ -56,6 +56,7 @@ export function SettingsScreen({ onBack, policyUrl }: { readonly onBack: () => v
           <BigButton small primary={view.instant} label={view.instant ? '켜짐' : '꺼짐'} ariaLabel={`${VOICE_INSTANT_LABEL} — ${view.instant ? '켜짐' : '꺼짐'}`} onPress={() => voice.setInstant(!view.instant)} />
         </Row>
         <Hint>끄면 들린 말은 카드로만 보이고, 등록을 누를 때 등록돼요.</Hint>
+        {view.problem !== null ? <Notice tone="danger">{view.problem}</Notice> : null}
         <Hint>{`마이크: ${PERMISSION_WORDS.microphone}`}</Hint>
         <Hint>{`블루투스: ${PERMISSION_WORDS.bluetooth}`}</Hint>
         <Hint>{`알림(안드로이드): ${PERMISSION_WORDS.notification}`}</Hint>

@@ -7,7 +7,7 @@
 // - 앱이 뒤에 있어도 JS가 돌아 결과를 바로 처리한다(APP-02) — 모아 두는 규칙은 없다.
 import { fromWire, isRecord, type VoiceCommand, type VoiceEffectMessage, type VoiceConfirmation } from '@livejjim/voice-session/wire'
 import type { VoiceSnapshot } from '@livejjim/web/src/voice/controller.ts'
-import { readVoicePreferences, writeVoicePreference, archiveVoice } from './voice-preferences.ts'
+import { readVoicePreferences, writeVoicePreference, writeVoiceSetting, archiveVoice } from './voice-preferences.ts'
 import type { AudioResult, AudioState, NativeAudio, VoiceReading } from '../native/audio.ts'
 import { newRequestId } from '../api/client.ts'
 import { fetchVoiceTicket, VoiceRefused } from '../api/voice.ts'
@@ -99,6 +99,9 @@ export class VoiceSession {
   #disconnects: number[] = []
   #undoTimer: unknown = undefined
   #pendingOn: { readonly broadcastId: string; readonly title: string } | null = null
+  #desiredInstant: boolean | null = null
+  #settingsRevision = 0
+  #settingsWrite: Promise<void> = Promise.resolve()
   #unsub: (() => void)[] = []
 
   constructor(options: VoiceSessionOptions) {
@@ -108,6 +111,9 @@ export class VoiceSession {
     this.#unsub.push(options.audio.onState((state) => this.#onState(state)))
     this.#unsub.push(options.audio.onResult((result) => void this.#onResult(result)))
     if (options.audio.onSession) this.#unsub.push(options.audio.onSession((message) => this.#message(message)))
+    if (options.audio.onSession) void readVoicePreferences().then((preferences) => {
+      if (this.#settingsRevision === 0 && isRecord(preferences.settings)) this.#set({ instant: preferences.settings['voice.autoRegister'] !== false })
+    })
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -127,8 +133,14 @@ export class VoiceSession {
   }
 
   setInstant(on: boolean): void {
-    this.command('setInstant', [on])
-    this.#set({ instant: on })
+    this.#settingsRevision++
+    this.#desiredInstant = on
+    const remote = this.#view.remote
+    this.#set({ instant: on, ...(remote === null ? {} : { remote: { ...remote, instant: on, settings: remote.settings === null ? null : { ...remote.settings, 'voice.autoRegister': on } } }) })
+    this.#settingsWrite = writeVoiceSetting('voice.autoRegister', on).catch(() => {
+      this.#set({ problem: '음성 설정을 기기에 저장하지 못했어요. 다시 눌러 주세요.' })
+    })
+    if (this.#view.on || this.#controlOnly) this.command('setInstant', [on])
   }
 
   /** "음성 켜기" — 처음이면 안내 창을 먼저 보인다 (D-APP-08) */
@@ -180,6 +192,7 @@ export class VoiceSession {
     this.#set({ on: !commandsOnly, broadcastId, title, problem: null, ...(sameBroadcast ? {} : { remote: null, display: {} }), state: commandsOnly ? OFF : { kind: 'starting' } })
     try {
       const ticket = await (this.#options.ticket ?? ((b) => fetchVoiceTicket(b, this.#options.deviceId)))(broadcastId)
+      await this.#settingsWrite
       const preferences = await readVoicePreferences()
       if (born !== this.#generation) return
       this.#options.audio.sendSession?.({ type: 'voice.session', op: 'hello', context: { ...preferences, now: this.#now(), dialogOpen: false, smsAutoAllowed: !commandsOnly, consent: true, listening: !commandsOnly, ...(this.#resumeToken === null ? {} : { resumeToken: this.#resumeToken }) } })
@@ -407,9 +420,11 @@ export class VoiceSession {
       const display = fromWire(message.display)
       if (!isRecord(snapshot) || !Array.isArray(snapshot.cards) || !(snapshot.forms instanceof Map)) return
       const state = snapshot as unknown as VoiceSnapshot
-      this.#options.audio.updateSessionContext?.({ settings: state.settings, smsSettings: state.smsSettings, resumeToken: this.#resumeToken ?? undefined })
+      if (state.instant === this.#desiredInstant) this.#desiredInstant = null
+      const instant = this.#desiredInstant ?? state.instant
+      this.#options.audio.updateSessionContext?.({ settings: { ...state.settings, 'voice.autoRegister': instant }, smsSettings: state.smsSettings, resumeToken: this.#resumeToken ?? undefined })
       for (const id of this.#pendingCards) if (!state.cards.some((card) => card.id === id) || state.forms.has(id)) this.#pendingCards.delete(id)
-      const remote = { ...state, cards: state.cards.filter((card) => !this.#pendingCards.has(card.id)) }
+      const remote = { ...state, instant, cards: state.cards.filter((card) => !this.#pendingCards.has(card.id)) }
       this.#set({ remote, display: isRecord(display) ? display : {}, instant: remote.instant, heard: remote.readout?.text ?? remote.hearing?.collected ?? remote.interim, problem: message.resumeToken === '' ? '대기 내용이 많아 다시 연결할 수 없어요. 음성을 끄기 전에 남은 카드와 문자찜을 확인해 주세요.' : remote.error })
       for (const item of this.#commandQueue.splice(0)) this.command(item.method, item.args)
       this.#scheduleIdle()
@@ -455,7 +470,12 @@ export class VoiceSession {
       }
       switch (message.method) {
         case 'writeConsent': await writeVoicePreference('consent', true); break
-        case 'writeSettings': await writeVoicePreference('settings', args[0]); break
+        case 'writeSettings': {
+          const settings = isRecord(args[0]) ? args[0] : {}
+          await this.#settingsWrite
+          await writeVoicePreference('settings', { ...settings, 'voice.autoRegister': this.#view.instant })
+          break
+        }
         case 'writeSmsSettings': await writeVoicePreference('smsSettings', args[0]); break
         case 'archiveChunk': case 'archiveGap': await archiveVoice(message.method, args[0]); break
         case 'voiceOff': if (!this.#controlOnly) await this.turnOff(); break
