@@ -1,7 +1,7 @@
 // 음성 엔진 공용 모양 (VOC-01·VOC-05, D-205, TECH_REVIEW §3).
 // 엔진을 만들기만 해서는 인식 객체·연결·마이크를 열지 않는다. start()를 부를 때만 연다(VOC-05).
 
-export type SpeechEngineKind = 'web-speech' | 'deepgram' | 'returnzero'
+export type SpeechEngineKind = 'web-speech' | 'deepgram' | 'returnzero' | 'livegenie'
 
 /** 엔진 상태: 꺼짐(시작 전·판매자가 멈춤) · 듣는 중 · 다시 시작 중 · 멈춤(오류로 멈춤) */
 export type SpeechState = 'OFF' | 'LISTENING' | 'RESTARTING' | 'HALTED'
@@ -22,6 +22,11 @@ export type SpeechErrorKind =
   | 'CONNECTION_FAILED'
   | 'KEEPS_STOPPING'
   | 'OTHER'
+  // 라이브지니 받아쓰기 (VOC-06·VOC-07, D-APP1-03): 서버가 닫는 까닭 OTHER_DEVICE·BUSY·NO_WORKER·AUTH
+  | 'OTHER_DEVICE'
+  | 'TRANSCRIBE_BUSY'
+  | 'TRANSCRIBE_OFF'
+  | 'LOGIN_ENDED'
 
 /**
  * 오류 문장 (D-205 표, I5에서 D-I5-03으로 바꿈 — 영어 상태값·개발 용어 없음, UX-01·UX-03).
@@ -37,6 +42,11 @@ export const SPEECH_ERROR_MESSAGES: Readonly<Record<SpeechErrorKind, string>> = 
   CONNECTION_FAILED: '음성 인식 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.',
   KEEPS_STOPPING: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.',
   OTHER: '음성 인식이 멈췄어요. 다시 켜 주세요.',
+  // 라이브지니 받아쓰기 거절·멈춤 문장 (acceptance "약속" 표, VOC-07 동시 처리, D-APP1-03) — 글자 그대로
+  OTHER_DEVICE: '음성은 다른 기기에서 듣는 중이에요.',
+  TRANSCRIBE_BUSY: '지금 받아쓰기가 바빠요. 상품은 빠른 입력으로 넣어 주세요.',
+  TRANSCRIBE_OFF: '받아쓰기 서버가 꺼져 있어요. 상품은 빠른 입력으로 넣어 주세요.',
+  LOGIN_ENDED: '로그인이 끝나 음성 듣기를 멈췄어요. 다시 로그인해 주세요.',
 })
 
 /** 인식 결과. 중간 결과(final: false)는 자막용, 추출은 최종 결과만 한다 */
@@ -55,6 +65,11 @@ export interface SpeechResult {
   readonly slot?: string
   /** 이 결과가 그 인식 객체의 아직 최종이 되지 않은 첫 자리인가 (크롬이 한 결과를 여러 자리로 갈라 낼 때 뒤 자리는 거짓). 없음 = 참 */
   readonly lead?: boolean
+  /**
+   * 말 끝 시각 (기기 시계, UTC 밀리초 — VOC-06 늦은 글, D-APP1-08): 라이브지니 받아쓰기 결과에만 셀 수 없는 속성으로 붙는다.
+   * 셈할 수 없으면 NaN(= 늦은 글로 본다). 다른 엔진 결과에는 없다(없음 = 바로 처리). 판단은 isLateSpeech()
+   */
+  readonly spokenEndAt?: number
 }
 
 /** 결과에 자리(slot·lead)를 셀 수 없는 속성으로 붙인다 */
@@ -183,6 +198,11 @@ export abstract class BaseSpeechEngine implements SpeechEngine {
 
   protected emitResult(result: SpeechResult): void {
     this.results.emit(result)
+  }
+
+  /** 오류를 알리기만 한다 (엔진마다 같은 종류에 다른 문장을 실을 때) */
+  protected emitError(error: SpeechError): void {
+    this.errors.emit(error)
   }
 
   /** 오류로 멈춘다: 오류를 알리고 상태를 멈춤으로 */
