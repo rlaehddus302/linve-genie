@@ -2,6 +2,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import type { ClaimedJob, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
+import type { PrinterResult } from '../src/native/ble.ts'
 import { decodeBase64, parseBitmap } from '../src/api/labels.ts'
 import { LabelQueue } from '../src/lib/label-queue.ts'
 import { FakeBlePrinter } from '../src/native/ble.ts'
@@ -9,7 +10,7 @@ import { FakeClock, FakeEventSource, FakeServer, flush } from './support.ts'
 
 const queueSummary = (patch: Partial<QueueSummary> = {}): QueueSummary => ({ rev: 1, device: { id: 'app-device-1', name: '내 휴대폰', live: true, printerConnected: true, releasing: false }, pause: null, waiting: 2, printing: 0, discard: 0, labelsEnabled: true, ...patch })
 
-const job = (id: string): ClaimedJob => ({ id, date: '2026-10-29', kind: 'product', reason: 'auto', attempt: `${id}-a1`, data: {} as ClaimedJob['data'], template: {} as ClaimedJob['template'], page: null, pages: null, label: { key: `${id}@1`, claim: 'c1', version: 1, broadcast: 'b1', no: 15, buyerId: 'u1', buyer: { display: '홍길동' } as ClaimedJob['label']['buyer'] } })
+const job = (id: string): ClaimedJob => ({ id, date: '2026-10-29', kind: 'product', reason: 'auto', attempt: `${id}-a1`, data: {} as ClaimedJob['data'], template: {} as ClaimedJob['template'], page: null, pages: null, label: { key: `${id}@1`, claim: 'c1', version: 1, broadcast: 'b1', no: 15, buyerId: 'u1', buyer: { display: '홍길동' } as unknown as ClaimedJob['label']['buyer'] } })
 
 function setup() {
   const server = new FakeServer()
@@ -76,7 +77,7 @@ describe('LabelQueue', () => {
   it('출력에 실패하면 그 시도를 실패로 알리고 프린터 문장을 보인다', async () => {
     const server = new FakeServer()
     server.install()
-    const ble = new FakeBlePrinter({ printResult: () => ({ ok: false, error: { code: 'PRINTER_ERROR', message: '프린터 오류로 멈췄어요.' } }) })
+    const ble = new FakeBlePrinter({ printResult: () => ({ ok: false, error: { code: 'TIMEOUT', message: '프린터 오류로 멈췄어요.' } }) as PrinterResult })
     const clock = new FakeClock()
     const queue = new LabelQueue({ ble, deviceId: 'app-device-1', openStream: () => new FakeEventSource('/api/stream'), timer: clock })
     let given = false
@@ -92,7 +93,7 @@ describe('LabelQueue', () => {
     await flush()
     await queue.connect()
     await flush(20)
-    expect(server.callsTo('POST', /result/).map((call) => call.body)).toEqual([{ deviceId: 'app-device-1', attempt: 'j1-a1', ok: false, error: { code: 'PRINTER_ERROR' } }])
+    expect(server.callsTo('POST', /result/).map((call) => call.body)).toEqual([{ deviceId: 'app-device-1', attempt: 'j1-a1', ok: false, error: { code: 'TIMEOUT' } }])
     expect(queue.getSnapshot().printerError?.message).toBe('프린터 오류로 멈췄어요.')
   })
 
