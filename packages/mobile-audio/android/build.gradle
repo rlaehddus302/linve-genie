@@ -1,0 +1,22 @@
+// 라이브지니 앱 마이크 모듈 (Expo Modules API). Expo 자동 연결(expo-module.config.json)이 이 모듈을 앱 빌드에 넣는다.
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.livejjim.audio'
+version = '0.0.0'
+
+android {
+  namespace 'com.livejjim.audio'
+  defaultConfig {
+    versionCode 1
+    versionName '0.0.0'
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  implementation 'androidx.core:core-ktx:1.13.1'
+}

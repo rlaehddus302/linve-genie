@@ -1,0 +1,26 @@
+{
+  "name": "@livejjim/mobile-ble",
+  "version": "0.0.0",
+  "private": true,
+  "description": "라이브찜 앱 블루투스 라벨 프린터 — @livejjim/printer 어댑터 계약을 네이티브 BLE(react-native-ble-plx) 전송으로 구현한다 (APP-03)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./plx": "./src/plx.ts",
+    "./app.plugin": "./app.plugin.js"
+  },
+  "dependencies": {
+    "@livejjim/label": "workspace:*",
+    "@livejjim/printer": "workspace:*",
+    "@mmote/niimbluelib": "0.47.1"
+  },
+  "peerDependencies": {
+    "react-native-ble-plx": "*"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "react-native-ble-plx": "3.5.1",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5"
+  }
+}
