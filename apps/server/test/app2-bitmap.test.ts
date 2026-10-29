@@ -1,8 +1,9 @@
 import { defaultTemplate, renderProductLabel, renderTestLabel } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
-import { describe, expect, it } from 'vitest'
-import { DAY, DEVICE_A, DEVICE_B, chat, printApi, register } from './print-support.ts'
-import { addSeller, client, createBroadcast, expectOk, newWorld } from './support.ts'
+import { describe, expect, it, vi } from 'vitest'
+import * as printStore from '../src/print-store.ts'
+import { DAY, DEVICE_A, DEVICE_B, chat, printApi, register, settled } from './print-support.ts'
+import { addSeller, client, createBroadcast, expectOk, newWorld, writeEvent } from './support.ts'
 
 async function claimedLabel() {
   const world = await newWorld()
@@ -20,6 +21,64 @@ async function claimedLabel() {
 }
 
 describe('APP2 서버 라벨 그림', () => {
+  it('단일 키 미리보기는 날짜 전체 라벨·출력 이력을 읽지 않고 처음 이름·현재 품종·찜 금액을 보존한다', async () => {
+    const { world, seller, api, job } = await claimedLabel()
+    const b = job.label.broadcast!
+    await api.done(DEVICE_A, job.attempt)
+    await register(world, seller, b, 16)
+    await chat(world, seller, b, 'UC_B', '김철수', '16')
+    await chat(world, seller, b, 'UC_A', '새이름', '반가워요')
+    await expectOk(writeEvent(world, seller, { type: 'product.update', b, no: 15, name: '핑크프릴 금' }))
+    await expectOk(writeEvent(world, seller, { type: 'product.update', b, no: 15, price: 12000, applyTo: 'UNPAID_CLAIMS' }))
+    const originalView = (await api.labels()).labels.find((label) => label.key === job.label.key)
+    expect(originalView?.data).toMatchObject({ name: '핑크프릴 금', price: 12000, buyer: { kind: 'youtube', name: '홍길동' } })
+    const expected = renderProductLabel(createNodeRenderEnv(), job.template, originalView?.data)
+    if (!expected.ok) throw new Error('기준 그림을 만들지 못했다')
+    await settled(world)
+    const allLabels = vi.spyOn(printStore, 'scopeLabels')
+    const histories = vi.spyOn(printStore, 'jobsOfLabels')
+    try {
+      const preview = await expectOk(api.api.get(`/api/print/preview/product?${new URLSearchParams({ date: DAY, ref: job.label.key })}`))
+      const [image] = preview.body.images as Record<string, unknown>[]
+      expect(image?.data === Buffer.from(expected.image.data).toString('base64')).toBe(true)
+      expect(allLabels).not.toHaveBeenCalled()
+      expect(histories).not.toHaveBeenCalled()
+    } finally { allLabels.mockRestore(); histories.mockRestore() }
+    expect((await api.labels()).labels.find((label) => label.key === job.label.key)).toEqual(originalView)
+    await expectOk(writeEvent(world, seller, { type: 'host.cancel', b, no: 15, buyer: 'UC_A', reason: '구매자 요청' }))
+    expect((await api.api.get(`/api/print/preview/product?${new URLSearchParams({ date: DAY, ref: job.label.key })}`)).status).toBe(404)
+  })
+
+  it('출력 작업이 아직 없는 1등도 현재 이름으로 같은 그림을 주며 승계 뒤 옛 확정 키는 거절한다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const api = printApi(world, seller)
+    await expectOk(api.put('/api/settings/labels', { enabled: false }))
+    const b = await createBroadcast(world, seller, { date: DAY })
+    await register(world, seller, b.id, 15, '핑크프릴', 10000)
+    await chat(world, seller, b.id, 'UC_A', '홍길동', '15')
+    await chat(world, seller, b.id, 'UC_B', '김철수', '15')
+    await chat(world, seller, b.id, 'UC_A', '새이름', '반가워요')
+    const first = (await api.labels()).labels.find((label) => label.winner)
+    expect(first).toMatchObject({ state: 'NONE', data: { buyer: { kind: 'youtube', name: '새이름' } } })
+    const template = (await world.server.print.templates(seller.sellerId)).product.template
+    const expected = renderProductLabel(createNodeRenderEnv(), template, first?.data)
+    if (!expected.ok) throw new Error('기준 그림을 만들지 못했다')
+    const path = `/api/print/preview/product?${new URLSearchParams({ date: DAY, ref: String(first?.key) })}`
+    const before = await api.overview()
+    const preview = await expectOk(api.api.get(path))
+    expect((preview.body.images as Record<string, unknown>[])[0]?.data === Buffer.from(expected.image.data).toString('base64')).toBe(true)
+    expect(await api.overview()).toEqual(before)
+    expect((await api.labels()).labels).toEqual([first])
+    const rows = await world.database.pglite!.query<{ count: number }>('select count(*)::int as count from print_labels where seller_id = $1', [seller.sellerId])
+    expect(rows.rows[0]?.count).toBe(0)
+    await expectOk(writeEvent(world, seller, { type: 'host.cancel', b: b.id, no: 15, buyer: 'UC_A', reason: '구매자 요청' }))
+    expect((await api.api.get(path)).status).toBe(404)
+    const successor = (await api.labels()).labels.find((label) => label.winner)
+    expect(successor?.key).not.toBe(first?.key)
+    expect((await api.api.get(`/api/print/preview/product?${new URLSearchParams({ date: DAY, ref: String(successor?.key) })}`)).status).toBe(200)
+  })
+
   it('출력 완료 뒤 미리보기는 같은 점을 주고 출력 이력·대기열은 바꾸지 않는다', async () => {
     const { api, job, url } = await claimedLabel()
     const printed = (await expectOk(api.api.get(url))).body

@@ -1053,10 +1053,22 @@ export class PrintService {
 
   /** 실제 라벨 미리 보기·파일은 출력과 같은 서버 글꼴로 그린다. 조회는 작업·시도를 만들거나 끝내지 않는다. */
   async previewProduct(sellerId: string, date: string, key: string): Promise<BitmapPagesOutcome> {
-    const view = await this.labels(sellerId, date)
-    const label = view?.labels.find((item) => item.key === key && item.kind === 'product' && item.winner && !item.voided)
-    if (label?.data === null || label === undefined) return { kind: 'not_found' }
-    return this.#preview(sellerId, 'product', label.data)
+    const match = /^(.+)@([1-9]\d*)$/.exec(key)
+    if (match === null) return { kind: 'not_found' }
+    const claim = match[1]!
+    const version = Number(match[2])
+    if (!Number.isSafeInteger(version)) return { kind: 'not_found' }
+    const runtime = await this.#options.writer.read(sellerId, date)
+    if (runtime.seq === 0 || runtime.scopeId === null) return { kind: 'not_found' }
+    const claims = claimIndex(runtime, runtime.state)
+    const info = isWinnerOf(claims, claim, version)
+    if (info === null) return { kind: 'not_found' }
+    // 한 장마다 날짜 전체의 라벨·출력 이력을 다시 만들지 않고 이 키만 읽는다.
+    const row = await findLabel(this.#db, sellerId, runtime.scopeId, key)
+    if (row !== null && (row.kind !== 'product' || row.voidedAt !== null || row.claim !== claim || row.version !== version)) return { kind: 'not_found' }
+    const buyer = row === null ? productLabelBuyer(runtime.state, info) : parseBuyer(row.buyer)
+    const data = productLabelData(runtime.state, claims, { claim, version, buyer }, this.#amountMissing)
+    return data === null ? { kind: 'not_found' } : this.#preview(sellerId, 'product', data)
   }
 
   async previewPacking(sellerId: string, date: string, buyer: string): Promise<BitmapPagesOutcome> {
