@@ -2964,11 +2964,15 @@ export class VoiceController {
     if (no !== null && this.#instantNos.has(no)) {
       const existing = this.#existingOf(no)
       if (existing === null || existing === 'closed') return { action: 'discard', reason: LOG_INSTANT_DONE, readout: null }
+      // 확정 조각이 뒤 말 때문에 사라져 이 전체 덩어리 읽기로 내려와도, 이미 등록한
+      // 품종은 그대로다(D-V3-79). 정정 표시 없는 뒷말은 빈 품종만 채울 수 있다.
+      const next = heard()
+      const reread = !reading.correction && existing.name.trim() !== '' ? { ...next, name: null } : next
       if (existing.pending === true) {
-        this.#setPending(no, { after: { heard: heard(), auto: !noAuto && !this.#rejected.has(no) } })
+        this.#setPending(no, { after: { heard: reread, auto: !noAuto && !this.#rejected.has(no) } })
         return { action: 'discard', reason: LOG_PENDING, readout: null }
       }
-      return this.#applyExisting(work, module, no, existing, heard(), !noAuto && !this.#rejected.has(no), true)
+      return this.#applyExisting(work, module, no, existing, reread, !noAuto && !this.#rejected.has(no), true)
     }
     if (action.kind !== 'create' || no === null) return null
     const rejected = this.#rejected.has(no)

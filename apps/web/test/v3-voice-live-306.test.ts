@@ -335,6 +335,34 @@ describe('굳은 중간 글 (사용자 결정 — 최종이 늦어도 1초 지�
 })
 
 describe('앞 말 맥락의 품종 (사용자 요구: 바이칼녹금이라고 했는데 녹금으로)', () => {
+  describe.each(['등록 응답 뒤', '등록 응답 전'] as const)('D-V3-79: %s 최종 글 재읽기', (ack) => {
+    it.each([
+      ['이미 있는 품종을 보존', '삼광색금 15번 7만 갑니다 라울 뿌리 뿌리 108번 라울', '삼광색금', []],
+      ['빈 품종만 보충', '15번 7만 갑니다 라울 뿌리 뿌리 108번 라울', '', [{ id: 'b1:15', changes: { name: '라울' } }]],
+      ['명시한 품종 정정은 적용', '삼광색금 15번 7만 갑니다 아니 라울 뿌리 뿌리 108번 라울', '삼광색금', [{ id: 'b1:15', changes: { name: '라울' } }]],
+    ] as const)('%s', async (_title, text, name, fixes) => {
+      const h = await ready()
+      const words = text.split(' ')
+      for (let i = 1; i <= words.length; i++) {
+        say(words.slice(0, i).join(' '), false)
+        if (ack === '등록 응답 뒤') finishAll(h)
+        await settle()
+        at(i * 200)
+        if (ack === '등록 응답 뒤') finishAll(h)
+        await settle()
+      }
+      // 최종 글이 앞 조각을 끝내기 전에는 맥락 품종으로 등록한 한 건뿐이다.
+      expect(reg(h)).toEqual([[15, 70_000, name]])
+      expect(h.fixes).toEqual([])
+      say(text)
+      at(words.length * 200 + 3000)
+      finishAll(h)
+      await settle()
+      expect(reg(h)).toEqual([[15, 70_000, name]])
+      expect(h.fixes).toEqual(fixes)
+    })
+  })
+
   it('앞 덩어리에 "바이칼녹금"이 들렸으면 "312번 녹금 5만 원"은 바이칼녹금으로', async () => {
     const h = await ready()
     say('자 바이칼 바이칼녹금 이거 봐 주세요')
