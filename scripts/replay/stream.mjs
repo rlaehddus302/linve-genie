@@ -4,7 +4,7 @@
 // 돌려준 글과 말 끝 → 글 도착 지연(p50·p95)을 잰다. 일꾼은 이 스크립트가 127.0.0.1에 연 측정용 서버(일꾼 약속 그대로)로 먼저 붙는다.
 // 받아쓴 글은 from-whisper.mjs가 읽는 모양(asr.json)으로 남겨 replay 채점(경성·금화 점수)에 쓴다.
 //
-//   node scripts/replay/stream.mjs <방송> [--from 초] [--duration 초] [--speed 1] [--model cohere|whisper] [--python <파이썬>]
+//   node scripts/replay/stream.mjs <방송> [--from 초] [--duration 초] [--speed 1] [--model cohere|whisper] [--python <파이썬>] [--drain-idle 초]
 //
 // --speed 1이 아니면 지연은 재지 않는다(조각 나누기·글은 속도와 상관없이 같다 — 점수용으로 빨리 돌릴 때).
 // 결과: .live-replay/<방송>/runs/stream-<시각>/ — asr.json(받아쓴 글, 개인정보), latency.json(숫자만), run.log(일꾼 로그: 셈만).
@@ -24,7 +24,7 @@ const option = (name, fallback) => {
   return index < 0 ? fallback : args[index + 1]
 }
 if (broadcast === undefined || broadcast.startsWith('--')) {
-  process.stderr.write('쓰는 법: node scripts/replay/stream.mjs <방송> [--from 초] [--duration 초] [--speed 1] [--model cohere|whisper] [--python <파이썬>]\n')
+  process.stderr.write('쓰는 법: node scripts/replay/stream.mjs <방송> [--from 초] [--duration 초] [--speed 1] [--model cohere|whisper] [--python <파이썬>] [--drain-idle 초]\n')
   process.exit(2)
 }
 const from = Number(option('from', 0))
@@ -153,14 +153,65 @@ for (let index = 0; index < totalChunks; index++) {
     log(`진행 ${String(Math.round((index * CHUNK_MS) / 1000))}/${String(Math.round((totalChunks * CHUNK_MS) / 1000))}초 · 결과 ${String(results.length)}개`)
   }
 }
-closeSync(fd)
-// 마지막 조각이 닫히게 쉼 1초, 그 뒤 결과를 기다린다
-for (let index = 0; index < 10; index++) worker.sendBinary(Buffer.concat([header, Buffer.alloc(CHUNK_BYTES)]))
-let before = -1
-while (before !== results.length) {
-  before = results.length
-  await new Promise((resolve) => setTimeout(resolve, 8_000))
+// 줄에 선 조각을 다 받아쓸 때까지 기다린다 (일꾼은 close를 받으면 줄에 선 조각을 버린다 — D-APP1-11).
+// 예전엔 "8초 동안 새 결과 없음"이면 닫았는데, 빠른 속도(--speed 8)로 일꾼이 밀리면 그때 줄에 선 조각(금화 4시간 중 뒤 2시간)이
+// 통째로 버려져 MISSING이 됐다. 이제는 끝 표시를 보낸다: 쉼 1초 뒤 이미 글이 나온 말 한 토막을 한 번 더 흘리고 쉼 1초.
+// 일꾼은 조각을 들어온 차례대로 받아쓰므로 끝 표시의 결과가 오면 그 앞 조각은 다 끝난 것이다. 끝 표시 결과는 asr.json에 넣지 않는다.
+// 끝 표시가 빈 글로 끝나 오지 않을 때를 대비해, --drain-idle초(기본 900) 동안 새 결과가 하나도 없으면 그만 기다린다(drained=false).
+const silence = () => {
+  for (let index = 0; index < 10; index++) worker.sendBinary(Buffer.concat([header, Buffer.alloc(CHUNK_BYTES)]))
 }
+const pause = () => new Promise((resolve) => setTimeout(resolve, 1_000))
+const mainEndMs = Math.floor(((endByte - startByte) / 2) * 1000 / 16_000)
+const drainIdleMs = Number(option('drain-idle', 900)) * 1000
+let lastCount = results.length
+let lastChange = performance.now()
+const idleTooLong = () => {
+  if (results.length !== lastCount) {
+    lastCount = results.length
+    lastChange = performance.now()
+  }
+  return performance.now() - lastChange > drainIdleMs
+}
+silence()
+let sentBytes = endByte - startByte + 10 * CHUNK_BYTES
+// 끝 표시로 쓸 말: 이미 받은 결과 중 1초 이상인 첫 것 (아직 없으면 생길 때까지 기다린다)
+let source
+while ((source = results.find((result) => result.endMs - result.startMs >= 1_000)) === undefined && !exited && !idleTooLong()) await pause()
+let markerFromMs = null
+if (source !== undefined) {
+  markerFromMs = Math.floor((sentBytes / 2) * 1000 / 16_000)
+  const position = startByte + Math.floor((source.startMs * 16_000) / 1000) * 2
+  const length = Math.min(Math.floor(((source.endMs - source.startMs) * 16_000) / 1000) * 2 + 3_200, endByte - position)
+  const pcm = Buffer.alloc(length)
+  const markerFd = openSync(wav, 'r')
+  readSync(markerFd, pcm, 0, length, info.dataOffset + position)
+  closeSync(markerFd)
+  for (let offset = 0; offset < pcm.length; offset += CHUNK_BYTES) {
+    worker.sendBinary(Buffer.concat([header, pcm.subarray(offset, Math.min(offset + CHUNK_BYTES, pcm.length))]))
+    await new Promise((resolve) => setTimeout(resolve, CHUNK_MS / speed))
+  }
+  sentBytes += pcm.length
+  silence()
+}
+let drained = false
+let lastWaitReport = performance.now()
+while (!exited) {
+  if (markerFromMs !== null && results.some((result) => result.startMs >= markerFromMs)) {
+    drained = true
+    break
+  }
+  if (idleTooLong()) break
+  if (performance.now() - lastWaitReport > 60_000) {
+    lastWaitReport = performance.now()
+    log(`남은 조각 기다리는 중 · 결과 ${String(results.length)}개`)
+  }
+  await pause()
+}
+if (!drained) log(`줄에 선 조각을 다 받았는지 확인하지 못했어요(일꾼 ${exited ? '끝남' : `${String(drainIdleMs / 1000)}초 동안 결과 없음`}) — 점수가 낮게 나올 수 있어요`)
+// 끝 표시와 그 뒤 쉼에서 나온 결과는 버린다(방송 소리 밖)
+const markerResults = results.filter((result) => result.startMs >= mainEndMs).length
+results.splice(0, results.length, ...results.filter((result) => result.startMs < mainEndMs))
 worker.sendText(JSON.stringify({ type: 'close', stream: STREAM }))
 cleanup()
 await new Promise((resolve) => setTimeout(resolve, 500))
@@ -190,6 +241,8 @@ const summary = {
   seconds: (endByte - startByte) / 32_000,
   speed,
   results: results.length,
+  drained,
+  markerResults,
   latencyMs: speed === 1 ? { p50: quantile(latencies, 50), p95: quantile(latencies, 95), max: quantile(latencies, 100), n: latencies.length } : null,
   procMs: { p50: quantile(proc, 50), p95: quantile(proc, 95), max: quantile(proc, 100) },
 }
