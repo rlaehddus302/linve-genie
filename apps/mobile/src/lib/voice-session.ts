@@ -401,19 +401,32 @@ export class VoiceSession {
       if (this.#serverSession !== null && this.#serverSession !== message.sessionId) { this.#connection++; this.#effects.clear(); this.#pendingCards.clear() }
       this.#serverSession = message.sessionId
       if (message.sessionReady === false) return
-      if (typeof message.resumeToken === 'string') this.#resumeToken = message.resumeToken
+      if (typeof message.resumeToken === 'string') this.#resumeToken = message.resumeToken === '' ? null : message.resumeToken
       this.#readyForCommands = true
       const snapshot = fromWire(message.snapshot)
       const display = fromWire(message.display)
       if (!isRecord(snapshot) || !Array.isArray(snapshot.cards) || !(snapshot.forms instanceof Map)) return
       const state = snapshot as unknown as VoiceSnapshot
-      this.#options.audio.updateSessionContext?.({ settings: state.settings, smsSettings: state.smsSettings, ...(this.#resumeToken === null ? {} : { resumeToken: this.#resumeToken }) })
+      this.#options.audio.updateSessionContext?.({ settings: state.settings, smsSettings: state.smsSettings, resumeToken: this.#resumeToken ?? undefined })
       for (const id of this.#pendingCards) if (!state.cards.some((card) => card.id === id) || state.forms.has(id)) this.#pendingCards.delete(id)
       const remote = { ...state, cards: state.cards.filter((card) => !this.#pendingCards.has(card.id)) }
-      this.#set({ remote, display: isRecord(display) ? display : {}, instant: remote.instant, heard: remote.readout?.text ?? remote.hearing?.collected ?? remote.interim, problem: remote.error })
+      this.#set({ remote, display: isRecord(display) ? display : {}, instant: remote.instant, heard: remote.readout?.text ?? remote.hearing?.collected ?? remote.interim, problem: message.resumeToken === '' ? '대기 내용이 많아 다시 연결할 수 없어요. 음성을 끄기 전에 남은 카드와 문자찜을 확인해 주세요.' : remote.error })
       for (const item of this.#commandQueue.splice(0)) this.command(item.method, item.args)
       this.#scheduleIdle()
-    } else if (message.type === 'voice.error' && typeof message.message === 'string') this.#set({ problem: message.message })
+    } else if (message.type === 'voice.error' && typeof message.message === 'string') {
+      this.#set({ problem: message.message })
+      if (message.code === 'RESUME_INVALID') {
+        this.#resumeToken = null
+        this.#options.audio.updateSessionContext?.({ resumeToken: undefined })
+        const stopped = this.#generation + 1
+        const note = message.message
+        // 닫힌 서버 읽기에 마이크를 계속 보내지 않는다. 보이는 대기 카드는
+        // 남겨 두고 명시적으로 다시 켤 때 새 세션을 시작한다.
+        void this.turnOff().finally(() => {
+          if (this.#generation === stopped) this.#set({ state: { kind: 'stopped', message: note }, problem: note })
+        })
+      }
+    }
     else if (message.type === 'voice.effect' && message.sessionId === this.#serverSession && typeof message.id === 'number' && !this.#effects.has(message.id)) {
       this.#effects.add(message.id)
       this.#effectsPending++

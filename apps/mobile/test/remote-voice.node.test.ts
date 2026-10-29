@@ -27,8 +27,34 @@ async function setup() {
   audio.message({ type: 'voice.state', snapshot: toWire({ cards: [], forms: new Map(), notes: new Map(), instant: true, error: null }), display: toWire({}) })
   return { audio, effect, session }
 }
-afterEach(async () => { for (const session of sessions.splice(0)) { await session.turnOff(); session.dispose() } })
+afterEach(async () => { for (const session of sessions.splice(0)) { await session.turnOff(); session.dispose() } vi.useRealTimers() })
 describe('모바일 전체 서버 음성 세션', () => {
+  it('SA-APP2-001: 복원표 거절은 마이크·주기 전송을 멈추고 카드는 남기며 새 표 없이 다시 켠다', async () => {
+    vi.useFakeTimers()
+    const { audio, session, effect } = await setup()
+    const snapshot = { cards: [{ id: 'c1', no: 15 }], forms: new Map(), notes: new Map(), instant: true, error: null }
+    audio.message({ type: 'voice.state', sessionReady: true, resumeToken: 'old-token', snapshot: toWire(snapshot), display: toWire({}) })
+    audio.message({ type: 'voice.error', code: 'RESUME_INVALID', message: '음성 대기 내용을 다시 연결하지 못했어요.' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(session.getView()).toMatchObject({ on: false, state: { kind: 'stopped' }, remote: snapshot })
+    expect(audio.stops).toBe(1)
+    const sent = audio.sent.length
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(audio.sent).toHaveLength(sent)
+    audio.message({ type: 'voice.effect', id: 91, method: 'register', args: toWire([]), automatic: false })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(effect).not.toHaveBeenCalled()
+    await session.retry()
+    expect(audio.sent.filter((item) => (item as { op?: string }).op === 'hello').at(-1)).toMatchObject({ context: { listening: true } })
+    expect((audio.sent.at(-1) as { context: Record<string, unknown> }).context).not.toHaveProperty('resumeToken')
+  })
+  it('SA-APP2-001: 빈 복원표를 재전송하지 않고 끄기 전에 대기 내용 확인을 안내한다', async () => {
+    const { audio, session } = await setup()
+    audio.message({ type: 'voice.state', sessionReady: true, resumeToken: '', snapshot: toWire({ cards: [], forms: new Map(), notes: new Map(), instant: true, error: null }), display: toWire({}) })
+    expect(session.getView().problem).toBe('대기 내용이 많아 다시 연결할 수 없어요. 음성을 끄기 전에 남은 카드와 문자찜을 확인해 주세요.')
+    await session.turnOff(); await session.retry()
+    expect((audio.sent.at(-1) as { context: Record<string, unknown> }).context).not.toHaveProperty('resumeToken')
+  })
   it('쿠키 인증 endpoint만 만들며 토큰·가짜 표를 붙이지 않는다', async () => {
     const ticket = await fetchVoiceTicket('b1', 'abcdefgh')
     const url = new URL(ticket.wsUrl)
