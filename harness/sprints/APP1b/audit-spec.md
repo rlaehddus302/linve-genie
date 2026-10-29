@@ -58,3 +58,11 @@
 ## Additional read-only audit: 327c9fff..fcf6ee62
 
 The independent spec auditor confirmed RA-APP2-004 and TE-APP1-013 resolved: single-key label lookup preserves the original buyer, current product/claim amount and cancellation/succession contracts; one captured state prevents mixed snapshots. The same-origin AudioWorklet preserves PCM calculations, cancellation guards, strict CSP and D-I4-09 lazy loading. Existing label 4/4, served 6/6 and PCM/lazy 3/3 logs were inspected. The real Cohere browser evidence confirms POST1/DB1, ended tracks, closed sockets and zero CSP violations. No new confirmed blocker/major was found. The auditor changed no files and ran no tests. Final full verify/performance and human hardware/broadcast gates remain separate.
+
+## TD-APP1b-02의 기존 규칙 판정 (2026-10-30)
+
+최종 무작위 적대 시험에서 같은 음성 결과를 재읽으며 이미 등록한 삼광색금을 라울로 덮는 사례가 나왔다. test-domain은 현행과 APP1b BASE의 controller·상대 의존13개를 각각 실행해 같은 seed/축소 입력에서 동일 실패를 확인했다. 기존 잠재 버그이며 통합 회귀로 분류하지 않는다.
+
+spec-keeper 판정은 **UPHOLD**다. D-V3-79·R-17 §8·AC-V3-60(d)는 등록 시점의 소비 경계를 고정하고 뒤 재읽기로 등록 값이 바뀌지 않도록 이미 요구한다. 이 입력은 새 15번 발화·명시 정정이 없고 품종도 비어 있지 않아 R-22 빈 품종 채우기가 아니다. `fixes=[]`를 유지하는 수정은 APP1b 동등성 요구와 양립하며 새 보호 문서·골든 변경은 필요 없다. 명시 정정·빈 품종 채우기·다른 번호 안내와 D-APP-21의 실제 재생 검증 의무는 보존한다. 판정자는 파일·시험·커밋을 수행하지 않았다. 제품 수정과 독립 재검증 결과는 후속 기록으로 확정한다.
+
+수정 후 독립 spec-auditor가 `bab85239`와 `162def5e`를 읽고 새 blocker/major·스펙 이탈·시험 약화 없음을 확인했다. 같은 덩어리의 등록 번호·품종 있음·정정 없음에만 이름 억제를 적용하고 pending ACK도 동일하며, 다음 덩어리·명시 정정·빈 품종·가격과 후속 조각은 보존했다. 원래 property의 생성기·전제·120회·단언은 그대로다. 직접434/434·원seed 전체12/12·최신 실제 Cohere JSON을 대조했다. 합쳐진 조사 로그의32통과/1실패와 추가10seed 파일21/21은 구분하며, 축소 경로의 활동량 실패를 전체PASS로 합치지 않는다. 파일·시험 실행은 하지 않았다. 최종 전체verify/perf/보호게이트는 별도 확정한다.
