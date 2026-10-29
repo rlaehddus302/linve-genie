@@ -46,7 +46,7 @@ const configure = dropSecureCookie
       })
     }
   : undefined
-const target = { target: api, changeOrigin: false, ...(configure === undefined ? {} : { configure }) }
+const target = { target: api, changeOrigin: false, ws: true, ...(configure === undefined ? {} : { configure }) }
 const proxy = { '/api': target, '^/r(/|$)': target }
 
 await build({ root: ROOT, configFile, logLevel: 'warn', build: { outDir, emptyOutDir: true } })

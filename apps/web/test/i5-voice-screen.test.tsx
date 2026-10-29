@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CONSENT_LINES, VoiceLive, revealCard } from '../src/components/VoicePanel.tsx'
 import { FLUSHED_CARD_NOTE, SENT_NOTICE, SENT_NOTICE_SHORT, STANDALONE_NOTICE, errorLines, flushedClosedNotice, VOICE_IDLE, VoiceController, type VoiceSnapshot } from '../src/voice/controller.ts'
 import { isHomeScreenApp } from '../src/voice/standalone.ts'
+import { REMOTE_CONSENT, REMOTE_NOTICE } from '../src/voice/remote.ts'
 
 const NOTICE_HOME = '홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요.'
 
@@ -33,6 +34,7 @@ function show(snapshot: Partial<VoiceSnapshot>): void {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  window.localStorage.clear()
 })
 
 describe('외부 전송 고지 (AC-I5-12, D-I5-06)', () => {
@@ -42,15 +44,24 @@ describe('외부 전송 고지 (AC-I5-12, D-I5-06)', () => {
     for (const line of [SENT_NOTICE, ...CONSENT_LINES]) expect(line).not.toContain('구글로 보내져요')
     // D-I5-16: 폭 768px 이상은 긴 문장, 미만은 짧은 문장 (AC-I5-31)
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+    vi.stubGlobal('SpeechRecognition', class {})
+    window.localStorage.setItem('livejjim.voiceEngine', 'chrome')
     show({ phase: 'on', stateLabel: '음성: 듣는 중' })
     expect(screen.getByText(SENT_NOTICE)).toBeDefined()
     expect(screen.queryByText(SENT_NOTICE_SHORT)).toBeNull()
   })
 
-  it('폭 768px 미만은 짧은 문장 "구글·애플로" (AC-I5-31, D-I5-16)', () => {
+  it('APP1 기본 LG: 휴대폰은 실제 전송처와 저장하지 않음·데이터·충전 세 줄을 고지한다 (D-APP1b-05)', () => {
     expect(SENT_NOTICE_SHORT).toBe('음성은 인식을 위해 구글·애플로 보내져요.')
+    expect(REMOTE_NOTICE).toBe('음성은 라이브지니 받아쓰기 서버로 보내져요.')
+    expect(REMOTE_CONSENT).toEqual([
+      '음성 듣기를 켜면 이 기기 마이크 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.',
+      '와이파이에서 쓰세요. 휴대폰 데이터로는 1시간에 약 120MB를 써요.',
+      '방송 동안 충전기를 꽂아 두세요.',
+    ])
     show({ phase: 'on', stateLabel: '음성: 듣는 중' })
-    expect(screen.getByText(SENT_NOTICE_SHORT)).toBeDefined()
+    expect(screen.getByText(REMOTE_NOTICE)).toBeDefined()
+    expect(screen.queryByText(SENT_NOTICE_SHORT)).toBeNull()
     expect(screen.queryByText(SENT_NOTICE)).toBeNull()
     expect(document.body.textContent).not.toContain('음성은 인식을 위해 구글로 보내져요.')
   })
@@ -99,14 +110,16 @@ describe('홈 화면 앱 한 줄 (AC-I5-11, D-I5-05)', () => {
     expect(STANDALONE_NOTICE).toBe(NOTICE_HOME)
   })
 
-  it('홈 화면 앱: 켜진 동안과 오류로 멈춘 뒤 보인다 (막지 않는다)', () => {
+  it('APP1 기본 LG 홈 화면 앱: Web Speech 전용 경고 없이 켜기·오류·끄기를 표시한다 (D-APP1b-05)', () => {
     vi.stubGlobal('navigator', { ...navigator, standalone: true })
     show({ phase: 'on', stateLabel: '음성: 듣는 중' })
-    expect(screen.getByText(NOTICE_HOME)).toBeDefined()
+    expect(screen.queryByText(NOTICE_HOME)).toBeNull()
+    expect(screen.getByText(REMOTE_NOTICE)).toBeDefined()
     expect(screen.getByRole('button', { name: '음성 끄기' })).toBeDefined()
     cleanup()
     show({ phase: 'off', error: '마이크 사용이 막혀 있어요.' })
-    expect(screen.getByText(NOTICE_HOME)).toBeDefined()
+    expect(screen.queryByText(NOTICE_HOME)).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain('마이크 사용이 막혀 있어요.')
     cleanup()
     // 꺼져 있고 오류도 없으면 보이지 않는다
     show({ phase: 'off' })

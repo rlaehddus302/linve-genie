@@ -9,6 +9,7 @@ import { setLabelEnv } from '../src/lib/label-env.ts'
 import { device, job, jsdomLabelEnv, overview, queue, templates } from './print-support.ts'
 import { DATE, FakeEventSource, FakeServer, apiError, flush, fullText } from './support.ts'
 import { openMore } from './menu-support.ts'
+import { renderTestLabel } from '@livejjim/label'
 
 const ME = 'device-me-n4a-0001'
 const HELP =
@@ -37,6 +38,11 @@ beforeEach(() => {
     .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: 5000, testPrinter } }))
     .on('GET', /^\/api\/print$/, () => ({ body: current }))
     .on('GET', /^\/api\/print\/templates$/, () => ({ body: templates() }))
+    .on('GET', /^\/api\/print\/test-bitmap$/, () => {
+      const rendered = renderTestLabel(jsdomLabelEnv(), { shopName: '구피 가게', date: DATE })
+      if (!rendered.ok) throw new Error(rendered.error.message)
+      return { body: { width: rendered.image.width, height: rendered.image.height, data: btoa(Array.from(rendered.image.data, (byte) => String.fromCharCode(byte)).join('')) } }
+    })
     .on('GET', /^\/api\/print\/labels\?/, () => ({ body: { date: DATE, labels: [] } }))
     .on('GET', /^\/api\/days$/, () => ({ body: { days: [{ date: DATE }] } }))
     .on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
@@ -373,6 +379,7 @@ describe('라벨 화면 주 버튼은 지금 할 일 하나 (AC-N4a-21, D-N4a-06
     expect(primaryOutsideDialogs()).toEqual(['테스트 인쇄'])
     fireEvent.click(within(printer).getByRole('button', { name: '테스트 인쇄' }))
     await waitFor(() => expect(within(printer).getByRole('group', { name: '테스트 인쇄 결과' })).toBeTruthy(), { timeout: 5000 })
+    expect(server.callsTo('GET', /^\/api\/print\/test-bitmap$/)).toHaveLength(1)
     expect(primaryOutsideDialogs()).toEqual(['테스트 인쇄'])
     fireEvent.click(within(printer).getByRole('button', { name: '예' }))
     expect(primaryOutsideDialogs()).toEqual(['이 기기에서 출력'])

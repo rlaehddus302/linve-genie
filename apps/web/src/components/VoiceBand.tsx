@@ -12,6 +12,7 @@ export function VoiceBand({ route, navigate }: { readonly route: Route; readonly
 
 function Band({ session, route, navigate }: { readonly session: VoiceSession; readonly route: Route; readonly navigate: Navigate }) {
   const view = useSyncExternalStore(session.subscribe, session.getView)
+  const voice = useSyncExternalStore(session.controller.subscribe, session.controller.getSnapshot)
   const [, tick] = useState(0)
   const undo = view.undo
   useEffect(() => {
@@ -28,6 +29,7 @@ function Band({ session, route, navigate }: { readonly session: VoiceSession; re
       <p className="voice-band-line">
         <strong>음성 듣는 중</strong> · <span>{view.title}</span> · <span>{BAND_SENT}</span>
       </p>
+      {voice.error !== null ? <p className="voice-error" role="alert">{voice.error}</p> : null}
       {/* 바로 등록·고침 안내 (AC-V3-58 b) — 들은 글·품종은 글자로만 */}
       {view.readout !== null ? (
         <p className="voice-band-readout" role="status">
@@ -35,6 +37,7 @@ function Band({ session, route, navigate }: { readonly session: VoiceSession; re
         </p>
       ) : null}
       <div className="voice-band-actions">
+        {voice.error !== null ? <button type="button" className="button" onClick={() => { session.controller.turnOff(); void session.controller.turnOn() }}>다시 켜기</button> : null}
         {undo !== null && Date.now() <= undo.until ? (
           <button type="button" className="button" onClick={() => void session.undoOutside()}>
             {`${String(undo.no)}번 등록 되돌리기`}

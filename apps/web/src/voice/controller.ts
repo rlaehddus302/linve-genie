@@ -12,8 +12,7 @@
 // 기다림(그 기기 설정, 기본 3초) 뒤 콘솔이 넘긴 쓰기(host.writeSms — 손 입력과 같은 `sms` 이벤트)로 넣는다. 넣은·닫은 카드도 10초 동안은
 // 같은 말 막기(D-V1-06)를 위해 들고 있다. 열린 카드 수 규칙은 상품 카드와 함께 센다(addVoiceCard).
 import { formatWon, parseAmount, type PriceUnit } from '@livejjim/core'
-import { ARCHIVE_KEY, archiveBroadcasts, archiveGaps, readArchive, type ArchiveGap } from './archive-store.ts'
-import { isHomeScreenApp } from './standalone.ts'
+import { ARCHIVE_KEY, archiveEnabled, type ArchiveGap } from './archive-model.ts'
 import type {
   ChunkFields,
   ChunkReading,
@@ -37,6 +36,7 @@ import type {
   HeardPrice,
   WaitingNumber,
   VoiceArchiveChunk,
+  VoiceArchiveBroadcast,
   InterimCandidate,
   InterimSeen,
   SmsBuyerCandidate,
@@ -501,6 +501,13 @@ export interface ExistingView {
   readonly status?: 'READY' | 'OPEN' | 'SOLD' | 'HOLD' | 'CLOSED'
 }
 
+/** 서버가 서명한 화면 대기값만 다시 잇는다. 추출 버퍼·자동 작업은 이 모양에 없다. */
+export type VoiceResumeView = Pick<VoiceSnapshot, 'cards' | 'sms' | 'smsDropped' | 'forms' | 'notes' | 'info' | 'offers' | 'heard' | 'log' | 'flushedClosed'> & {
+  readonly smsRequests: ReadonlyMap<string, readonly string[]>
+  readonly smsChoices: ReadonlyMap<string, string>
+  readonly recent: readonly RecentRegistration[]
+}
+
 /** 바로 등록을 보낸 뒤 상품 목록에 보이기 전까지 들고 있는 것 (같은 번호를 두 번 보내지 않게) */
 interface PendingInstant {
   readonly cardId: string
@@ -554,7 +561,16 @@ export interface PastDay {
 export interface VoiceHost {
   /** 음성 모듈 (동적 import 한 곳) */
   load(): Promise<VoiceModule>
+  /** 서버 읽기 세션은 마이크 대신 전달받은 결과를 넣는 엔진을 쓴다(APP1b). */
+  createEngine?(): SpeechEngine & Partial<Pick<ReturnType<VoiceModule['createWebSpeechEngine']>, 'onGap' | 'onDiagnostic' | 'onDeviceStatus'>>
   now(): number
+  /** 읽기 위치가 달라도 같은 deadline을 시험할 수 있는 타이머 포트. */
+  readonly timers?: { set(run: () => void, ms: number): unknown; clear(handle: unknown): void }
+  /** 브라우저 저장·환경은 기기 포트로만 읽는다. 서버는 이 포트를 제공하지 않는다. */
+  archiveDefault?(): boolean
+  homeScreenApp?(): boolean
+  archiveBroadcasts?(broadcastId?: string): Promise<readonly VoiceArchiveBroadcast[]>
+  archiveGaps?(broadcastId?: string, now?: number): Promise<ReadonlyMap<string, { readonly title: string; readonly date: string; readonly gaps: readonly ArchiveGap[] }>>
   /** 그 방송 스냅샷의 claim.maxNumber */
   maxNumber(): number
   /** 지금 범위의 상품 이름 — 자료가 같으면 같은 배열 (사전을 다시 만들지 않게) */
@@ -786,9 +802,9 @@ export class VoiceController {
   readonly #listeners = new Set<() => void>()
   #module: VoiceModule | null = null
   #engine: SpeechEngine | null = null
-  #timer: ReturnType<typeof setTimeout> | null = null
+  #timer: unknown = null
   /** "다시 시작 중"을 보이는 동안 (끝나면 엔진이 듣는 중이면 "듣는 중"으로) */
-  #restartTimer: ReturnType<typeof setTimeout> | null = null
+  #restartTimer: unknown = null
   /** 엔진이 마지막으로 알린 상태가 듣는 중이다 */
   #engineListening = false
   #disposed = false
@@ -801,7 +817,7 @@ export class VoiceController {
   #phraseAutoOff = false
   /** #place가 닫은 끝에서 넘긴 카드의 글 — 다음 #set이 스냅샷에 싣는다 */
   #lostFlushed: string[] = []
-  #heldTimer: ReturnType<typeof setTimeout> | null = null
+  #heldTimer: unknown = null
   /** 이 시각까지만 이력을 기다린다 (host.now 기준) */
   #historyDeadline = 0
   #dictionary: { readonly names: readonly string[]; readonly past: readonly PastDay[]; readonly learned: readonly LearnedAlias[]; readonly prepared: VarietyDictionary } | null = null
@@ -812,7 +828,7 @@ export class VoiceController {
   // ── V2 ──
   /** 모으기 상태 (D-V2-03) — 음성 모듈을 받은 뒤 */
   #phrase: PhraseState | null = null
-  #phraseTimer: ReturnType<typeof setTimeout> | null = null
+  #phraseTimer: unknown = null
   /** 배운 별칭 (그 기기, D-V2-10) */
   #learned: readonly LearnedAlias[] = []
   #learnedLoaded = false
@@ -829,7 +845,7 @@ export class VoiceController {
   /** 중간 결과 후보와 보인 시간 (D-V3-71) — 덩어리가 끝나면 비운다 */
   #interimSeen: readonly InterimSeen[] = []
   #interimShown: { readonly candidate: InterimCandidate; readonly text: string } | null = null
-  #interimTimer: ReturnType<typeof setTimeout> | null = null
+  #interimTimer: unknown = null
   /** 이 덩어리에서 한 일 (기록 모아 두기, D-V3-56) */
   readonly #chunkActs = new Set<VoiceArchiveChunk['action']>()
   /** 이 덩어리의 중간 결과 글 (기록 모아 두기, D-V3-56) */
@@ -850,7 +866,7 @@ export class VoiceController {
   #waiting: WaitingNumber | null = null
   /** 굳은 중간 글 (사용자 결정 — 1초 넘게 그대로인 앞 낱말은 최종처럼, 음성 패키지 stepStable) */
   #stable: StableState | null = null
-  #stableTimer: ReturnType<typeof setTimeout> | null = null
+  #stableTimer: unknown = null
   /** 마지막 중간 결과 글 (굳음을 타이머로 다시 볼 때) */
   #lastInterim = ''
   /** 중간 결과에 보인 번호와 시각 (빠진 0 되살리기의 증거, 20초) */
@@ -912,9 +928,39 @@ export class VoiceController {
   /** 보낸 바로 등록 (번호 → 보낸 값) */
   readonly #pending = new Map<number, PendingInstant>()
 
+  #setTimer(run: () => void, ms: number): unknown {
+    return this.#host.timers?.set(run, ms) ?? globalThis.setTimeout(run, ms)
+  }
+
+  #clearTimer(handle: unknown): void {
+    if (this.#host.timers !== undefined) this.#host.timers.clear(handle)
+    else globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>)
+  }
+
   constructor(host: VoiceHost) {
     this.#host = host
     this.#snapshot = { ...VOICE_IDLE, now: host.now() }
+  }
+
+  /** APP1b: 인증된 서버가 검증한 대기 화면. 끈 동안은 어느 항목도 저절로 쓰지 않는다. */
+  resumeView(view: VoiceResumeView): void {
+    if (this.#module === null || this.#disposed) return
+    const cards = view.cards.map((card) => ({ ...card, autoConfirmAt: null }))
+    const sms = view.sms.map((entry) => ({ ...entry, sending: false, card: { ...(entry.sending ? this.#module!.reopenSmsCard(entry.card) : entry.card), autoAt: null } }))
+    const offers = view.offers.map((offer) => offer.stage === 'busy' ? { ...offer, stage: 'ask' as const, error: OFFER_FIX_FAILED } : offer)
+    const cardIds = [...cards.map((card) => card.id), ...sms.map((entry) => entry.card.id)]
+    this.#nextCard = Math.max(this.#nextCard, ...cardIds.map((id) => Number(/^voice-(\d+)$/.exec(id)?.[1] ?? 0) + 1))
+    this.#nextOffer = Math.max(this.#nextOffer, ...offers.map((offer) => Number(/^offer-(\d+)$/.exec(offer.id)?.[1] ?? 0) + 1))
+    for (const [id, requests] of view.smsRequests) this.#smsRequests.set(id, [...requests])
+    for (const [id, choice] of view.smsChoices) this.#smsChoices.set(id, choice)
+    this.#recent = view.recent.filter((entry) => this.#host.now() - entry.registeredAt <= 60_000)
+    const { smsRequests: _requests, smsChoices: _choices, recent: _recent, ...screen } = view
+    this.#set({ ...screen, cards, sms, offers, hearing: null, interim: null, paused: new Map(), tooSoon: false })
+  }
+
+  pendingView(): VoiceResumeView {
+    const { cards, sms, smsDropped, forms, notes, info, offers, heard, log, flushedClosed } = this.#snapshot
+    return { cards, sms, smsDropped, forms, notes, info, offers, heard, log, flushedClosed, smsRequests: this.#smsRequests, smsChoices: this.#smsChoices, recent: this.#recent }
   }
 
   readonly subscribe = (listener: () => void): (() => void) => {
@@ -952,7 +998,7 @@ export class VoiceController {
       // 조용한 시간은 같은 저장값의 `voice.quietMs` (범위 밖·모르는 값은 1800, D-V2-09)
       const quietMs = module.resolveQuietMs(stored)
       this.#stallMs = this.#readStall(module, stored)
-      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null, instant: readInstant(stored), archive: readArchive(stored) })
+      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null, instant: readInstant(stored), archive: archiveEnabled(stored, this.#host.archiveDefault?.() ?? false) })
     }
     if (this.#phrase === null) this.#phrase = module.createPhraseState({ quietMs: this.#snapshot.quietMs })
     if (!this.#learnedLoaded) {
@@ -1016,12 +1062,12 @@ export class VoiceController {
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
-    if (this.#timer !== null) clearTimeout(this.#timer)
+    if (this.#timer !== null) this.#clearTimer(this.#timer)
     this.#timer = null
     this.#clearPhraseTimer()
     this.#releaseRestart()
     this.#dropHeld()
-    if (this.#interimTimer !== null) clearTimeout(this.#interimTimer)
+    if (this.#interimTimer !== null) this.#clearTimer(this.#interimTimer)
     this.#clearStable()
     this.#engine?.stop()
     this.#listeners.clear()
@@ -1037,7 +1083,7 @@ export class VoiceController {
     // 홈 화면 앱은 저절로 끝난 것을 모두 센다 — 권한 창이 끝없이 뜨지 않게 1분에 6번째면 멈춘다 (D-I5-18, UA 아님)
     // 멈춤 지킴이 시간: 그 기기 저장값 voice.stallMs (없으면 기본 2초, 1초보다 짧게는 안 됨)
     this.#stallMs = this.#readStall(module, this.#host.readSettings())
-    const engine = module.createWebSpeechEngine({ now: () => this.#host.now(), countAllEnds: isHomeScreenApp(), ...(this.#stallMs === null ? {} : { stallMs: this.#stallMs }) })
+    const engine = this.#host.createEngine?.() ?? module.createWebSpeechEngine({ now: () => this.#host.now(), countAllEnds: this.#host.homeScreenApp?.() ?? false, ...(this.#stallMs === null ? {} : { stallMs: this.#stallMs }) })
     engine.onResult((result) => this.#onResult(result))
     engine.onError((error) => this.#onError(error))
     engine.onState((state) => this.#onState(state))
@@ -1142,7 +1188,7 @@ export class VoiceController {
     this.#folded = []
     this.#interimSeen = []
     this.#interimShown = null
-    if (this.#interimTimer !== null) clearTimeout(this.#interimTimer)
+    if (this.#interimTimer !== null) this.#clearTimer(this.#interimTimer)
     this.#interimTimer = null
     this.#clearStable()
     this.#interimNos = []
@@ -1181,14 +1227,14 @@ export class VoiceController {
   /** "다시 시작 중"을 RESTART_LABEL_MS 동안 둔다 (다시 끊기면 그때부터 다시 잰다) */
   #holdRestart(): void {
     this.#releaseRestart()
-    this.#restartTimer = setTimeout(() => {
+    this.#restartTimer = this.#setTimer(() => {
       this.#restartTimer = null
       if (!this.#disposed && this.#snapshot.phase === 'on' && this.#engineListening) this.#set({ stateLabel: this.#label('LISTENING') })
     }, RESTART_LABEL_MS)
   }
 
   #releaseRestart(): void {
-    if (this.#restartTimer !== null) clearTimeout(this.#restartTimer)
+    if (this.#restartTimer !== null) this.#clearTimer(this.#restartTimer)
     this.#restartTimer = null
   }
 
@@ -1318,10 +1364,10 @@ export class VoiceController {
   }
 
   #armStable(at: number | null): void {
-    if (this.#stableTimer !== null) clearTimeout(this.#stableTimer)
+    if (this.#stableTimer !== null) this.#clearTimer(this.#stableTimer)
     this.#stableTimer = null
     if (at === null || this.#disposed) return
-    this.#stableTimer = setTimeout(() => {
+    this.#stableTimer = this.#setTimer(() => {
       this.#stableTimer = null
       const module = this.#module
       if (this.#disposed || module === null || this.#snapshot.phase !== 'on' || this.#lastInterim === '' || this.#stable === null) return
@@ -1330,7 +1376,7 @@ export class VoiceController {
   }
 
   #clearStable(): void {
-    if (this.#stableTimer !== null) clearTimeout(this.#stableTimer)
+    if (this.#stableTimer !== null) this.#clearTimer(this.#stableTimer)
     this.#stableTimer = null
     this.#stable = null
     this.#lastInterim = ''
@@ -1621,7 +1667,7 @@ export class VoiceController {
   }
 
   #clearPhraseTimer(): void {
-    if (this.#phraseTimer !== null) clearTimeout(this.#phraseTimer)
+    if (this.#phraseTimer !== null) this.#clearTimer(this.#phraseTimer)
     this.#phraseTimer = null
   }
 
@@ -1631,7 +1677,7 @@ export class VoiceController {
     if (this.#disposed || this.#phrase === null || this.#snapshot.phase !== 'on') return
     const at = module.nextTickAt(this.#phrase)
     if (at === null) return
-    this.#phraseTimer = setTimeout(() => {
+    this.#phraseTimer = this.#setTimer(() => {
       this.#phraseTimer = null
       this.#onPhraseTick()
     }, Math.max(0, at - this.#host.now()))
@@ -1788,10 +1834,10 @@ export class VoiceController {
   async exportArchive(broadcastId?: string): Promise<unknown> {
     const module = this.#module
     if (module === null || typeof module.createArchiveExport !== 'function') return null
-    const broadcasts = await archiveBroadcasts(broadcastId)
+    const broadcasts = await this.#host.archiveBroadcasts?.(broadcastId) ?? []
     const out = module.createArchiveExport(broadcasts, this.#host.now())
     // 인식 끊김 줄은 방송마다 gaps로 붙인다 (덩어리 형식은 그대로) — 끊김만 있는 방송은 덩어리 없이
-    const gaps = await archiveGaps(broadcastId, this.#host.now())
+    const gaps = await this.#host.archiveGaps?.(broadcastId, this.#host.now()) ?? new Map()
     if (gaps.size === 0) return out
     const listed = out.broadcasts.map((item) => ({ ...item, gaps: gaps.get(item.broadcastId)?.gaps ?? [] }))
     const known = new Set(out.broadcasts.map((item) => item.broadcastId))
@@ -2427,10 +2473,10 @@ export class VoiceController {
       return
     }
     // 1,000ms 뒤 같은 후보가 아직 보이면 등록
-    if (this.#interimTimer !== null) clearTimeout(this.#interimTimer)
+    if (this.#interimTimer !== null) this.#clearTimer(this.#interimTimer)
     const last = step.seen.at(-1)
     const wait = last === undefined ? module.INTERIM_STABLE_MS : last.since + module.INTERIM_STABLE_MS - this.#host.now()
-    this.#interimTimer = setTimeout(() => {
+    this.#interimTimer = this.#setTimer(() => {
       this.#interimTimer = null
       this.#onInterimTimer()
     }, Math.max(0, wait))
@@ -3347,7 +3393,7 @@ export class VoiceController {
 
   #armHeld(): void {
     if (this.#heldTimer !== null) return
-    this.#heldTimer = setTimeout(
+    this.#heldTimer = this.#setTimer(
       () => {
         this.#heldTimer = null
         this.#flushHeld()
@@ -3358,7 +3404,7 @@ export class VoiceController {
 
   /** 미룬 문장을 지금 사전으로 카드로 만든 목록 (미룬 것이 없으면 지금 목록) — 미룬 목록은 비운다 */
   #heldCards(module: VoiceModule): CardWork {
-    if (this.#heldTimer !== null) clearTimeout(this.#heldTimer)
+    if (this.#heldTimer !== null) this.#clearTimer(this.#heldTimer)
     this.#heldTimer = null
     const held = this.#held
     this.#held = []
@@ -3383,7 +3429,7 @@ export class VoiceController {
   }
 
   #dropHeld(): void {
-    if (this.#heldTimer !== null) clearTimeout(this.#heldTimer)
+    if (this.#heldTimer !== null) this.#clearTimer(this.#heldTimer)
     this.#heldTimer = null
     this.#held = []
   }
@@ -3625,7 +3671,7 @@ export class VoiceController {
     const base: VoiceSettings & { readonly 'voice.quietMs'?: number } = quietMs === 1800 ? (plain as VoiceSettings) : { ...(plain as VoiceSettings), 'voice.quietMs': quietMs }
     // 바로 등록은 끈 때만 남긴다 (기본 켬, V3). 기록 모아 두기는 그 기기 기본(연습 켬·운영 끔)과 다를 때만 (D-V3-56)
     const instant = this.#snapshot.instant ? base : { ...base, [INSTANT_KEY]: false }
-    const archived = this.#snapshot.archive === readArchive(null) ? instant : { ...instant, [ARCHIVE_KEY]: this.#snapshot.archive }
+    const archived = this.#snapshot.archive === (this.#host.archiveDefault?.() ?? false) ? instant : { ...instant, [ARCHIVE_KEY]: this.#snapshot.archive }
     // 멈춤 지킴이 시간(조정용 저장값)은 있던 값을 그대로 둔다
     const value = this.#stallMs === null ? archived : { ...archived, [STALL_KEY]: this.#stallMs }
     this.#host.writeSettings(value)
@@ -4328,7 +4374,7 @@ export class VoiceController {
   }
 
   #schedule(): void {
-    if (this.#timer !== null) clearTimeout(this.#timer)
+    if (this.#timer !== null) this.#clearTimer(this.#timer)
     this.#timer = null
     if (this.#disposed) return
     const now = this.#snapshot.now
@@ -4346,7 +4392,7 @@ export class VoiceController {
     const deferred = ripe === 'deferred' || this.#dueCards.size > 0 || this.#dueInterim.length > 0
     const delay = ripe === 'now' ? 0 : deferred ? Math.min(wake ?? DEFERRED_POLL_MS, DEFERRED_POLL_MS) : wake
     if (delay === null) return
-    this.#timer = setTimeout(() => {
+    this.#timer = this.#setTimer(() => {
       this.#timer = null
       this.refresh()
     }, delay)

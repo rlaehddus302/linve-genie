@@ -103,6 +103,10 @@ describe('연결 방법 (AC-I1-21·50)', () => {
       testPrinter = true
       const product = { ...defaultTemplate('product', '50x40'), shopName: '다육농장' }
       server.on('GET', /^\/api\/print\/templates$/, () => ({ body: { ...templates(), product: { template: product, version: 3 } } }))
+      const expected = renderTestLabel(env, { shopName: '다육농장', date: '2026-10-20', size: '50x40' })
+      expect(expected.ok).toBe(true)
+      if (!expected.ok) throw new Error('시험 라벨을 그릴 수 없다')
+      server.on('GET', /^\/api\/print\/test-bitmap$/, () => ({ body: { width: expected.image.width, height: expected.image.height, data: btoa(Array.from(expected.image.data, (byte) => String.fromCharCode(byte)).join('')) } }))
       await openLabels()
       const printer = screen.getByRole('region', { name: '프린터' })
       fireEvent.click(within(printer).getByRole('button', { name: '시험용 프린터 — 실제로 출력되지 않아요' }))
@@ -111,9 +115,6 @@ describe('연결 방법 (AC-I1-21·50)', () => {
       await waitFor(() => expect(within(printer).getByText('테스트 라벨의 네 변 테두리와 한글이 모두 또렷하게 보이나요?')).toBeTruthy(), { timeout: 5000 })
       const printed = window.livejjimTestPrinter?.printed() ?? []
       expect(printed).toHaveLength(1)
-      const expected = renderTestLabel(env, { shopName: '다육농장', date: '2026-10-20', size: '50x40' })
-      expect(expected.ok).toBe(true)
-      if (!expected.ok) return
       const got = printed[0]
       expect(got === undefined ? null : { width: got.width, height: got.height }).toEqual({ width: expected.image.width, height: expected.image.height })
       expect(bitmapsEqual({ width: got?.width ?? 0, height: got?.height ?? 0, data: Uint8Array.from(got?.data ?? []) }, expected.image)).toBe(true)
@@ -126,7 +127,8 @@ describe('연결 방법 (AC-I1-21·50)', () => {
         const wrong = renderTestLabel(env, other)
         expect(wrong.ok && bitmapsEqual({ width: got?.width ?? 0, height: got?.height ?? 0, data: Uint8Array.from(got?.data ?? []) }, wrong.image)).toBe(false)
       }
-      // 서버를 거치지 않는다 (받기·결과 없음)
+      // APP2: 서버 그림을 받되 출력 대기열을 받거나 완료시키지는 않는다.
+      expect(server.callsTo('GET', /^\/api\/print\/test-bitmap$/)).toHaveLength(1)
       expect(server.callsTo('POST', /^\/api\/print\/(claim|result)$/)).toHaveLength(0)
     } finally {
       setLabelEnv(null)

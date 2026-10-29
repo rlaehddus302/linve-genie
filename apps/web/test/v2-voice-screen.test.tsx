@@ -1,3 +1,4 @@
+import './legacy-voice-ui-fixture.ts'
 // V2 음성 칸 화면 (AC-V2-07·08·16·17·23·26·28·34, D-V2-01·06~09) — 실제 코어로 도는 가짜 서버 + 가짜 인식 객체.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

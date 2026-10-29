@@ -1,3 +1,4 @@
+import './legacy-voice-ui-fixture.ts'
 // 콘솔 음성 칸 (AC-I4-10~14·20~23·30·40·51, D-I4-03~06·09) — 실제 코어로 도는 가짜 서버 + 가짜 인식 객체(window.SpeechRecognition).
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

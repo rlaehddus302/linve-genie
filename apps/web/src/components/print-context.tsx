@@ -3,8 +3,8 @@ import type { LabelRenderEnv } from '@livejjim/label'
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { claimDeviceId, deviceId, streamUrl } from '../lib/device.ts'
 import { kstToday } from '../lib/kst.ts'
+import { fetchPrintBitmap, fetchTestPrintBitmap } from '../api/label-bitmap.ts'
 import { labelEnv } from '../lib/label-env.ts'
-import { renderJob, renderTest } from '../lib/label-render.ts'
 import { PrintStore, labelsEnabledOf, type LabelSettingsSnapshot, type LabelsSnapshot, type PackingSnapshot, type PrintSnapshot } from '../lib/print-store.ts'
 import { PrinterStation, browserWakeLock, type StationSnapshot, type TestPrinterHandle } from '../lib/printer-station.ts'
 import { sharedStream } from '../lib/stream.ts'
@@ -39,11 +39,8 @@ export function PrintProvider({ children }: { readonly children: ReactNode }) {
       const station = new PrinterStation({
         store,
         deviceId: id,
-        render: async (job) => renderJob(await labelEnv(), job),
-        renderTest: async (input) => renderTest(await labelEnv(), input),
-        prepare: async () => {
-          await labelEnv()
-        },
+        render: (job) => fetchPrintBitmap(job, id),
+        renderTest: () => fetchTestPrintBitmap(),
         requestWakeLock: browserWakeLock(),
         today: () => kstToday(),
         exposeTestHandle: (handle) => {

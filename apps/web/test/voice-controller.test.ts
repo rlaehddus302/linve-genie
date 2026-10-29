@@ -84,6 +84,7 @@ function harness(patch: Partial<VoiceHost> = {}): Harness {
   const host: VoiceHost = {
     load: async () => voiceModule,
     now: () => Date.now(),
+    homeScreenApp: () => (navigator as Navigator & { standalone?: boolean }).standalone === true,
     maxNumber: () => 999,
     currentNames: () => state.names,
     products: () => state.products,

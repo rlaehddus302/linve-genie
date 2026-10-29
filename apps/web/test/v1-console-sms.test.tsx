@@ -1,3 +1,4 @@
+import './legacy-voice-ui-fixture.ts'
 // 콘솔의 음성 문자찜 (V1 AC-V1-20·21·25·30) — 실제 코어로 도는 가짜 서버(끝자리 계약 포함) + 가짜 인식 객체.
 // 정산 화면 "구매자를 확인해 주세요"(AC-V1-29)는 unknownSmsBuyers(순수)와 화면 한 번.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'

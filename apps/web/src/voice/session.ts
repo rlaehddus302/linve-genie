@@ -5,15 +5,16 @@
 // - 이 파일은 음성 패키지를 불러오지 않는다(음성 코드는 컨트롤러가 "음성 켜기" 때 불러온다, AC-I4-04).
 import type { CardRegistration, SuggestionCard } from '@livejjim/voice'
 import { DEFAULT_SETTINGS } from '@livejjim/core'
+import { SERVICE_NAME } from '../brand.ts'
 import { get, isApiError, newRequestId, post, withQuery } from '../api/client.ts'
 import type { WriteResult } from '../api/types.ts'
 import { ConsoleStore } from '../lib/console-store.ts'
 import { productKey, productSlots } from '../lib/derive.ts'
-import { OFFER_FIX_FAILED, VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from './controller.ts'
+import { OFFER_FIX_FAILED, type ExistingView, type RecentFixOutcome, type VoiceHost } from './controller.ts'
 import { deviceId } from '../lib/device.ts'
 import { addArchiveChunk, addArchiveGap } from './archive-store.ts'
 import { fetchPastNames } from './history.ts'
-import { loadVoice } from './load.ts'
+import { createRemoteVoiceController, serverVoiceOnly, type VoiceControllerPort } from './remote.ts'
 import { readConsent, readLearned, readSettings, readSmsSettings, writeConsent, writeLearned, writeSettings, writeSmsSettings } from './storage.ts'
 
 /** 켠 방송 ID (그 기기, D-V3-52) */
@@ -23,7 +24,7 @@ export const VOICE_OFF_AFTER_RELOAD = "음성이 꺼졌어요. '음성 켜기'�
 /** 다른 방송 콘솔의 안내 (D-V3-52) */
 export const voiceOtherBroadcast = (title: string): string => `음성은 '${title}' 방송에서 듣는 중이에요. 여기서 쓰려면 그 방송에서 끄고 여기서 켜 주세요.`
 /** 콘솔 밖 띠 (D-V3-52) */
-export const BAND_SENT = '구글·애플로 보내져요'
+export const BAND_SENT = `${SERVICE_NAME} 받아쓰기 서버로 보내져요`
 
 /** 콘솔 밖 바로 등록 되돌리기 시간 (빠른 입력과 같은 5초) */
 export const OUTSIDE_UNDO_MS = 5000
@@ -79,7 +80,7 @@ const anyDialogOpen = (): boolean => typeof document !== 'undefined' && document
 export class VoiceSession {
   readonly broadcastId: string
   #title: string
-  readonly controller: VoiceController
+  readonly controller: VoiceControllerPort
   readonly #store: ConsoleStore
   #console: ConsoleHost | null = null
   #undo: OutsideUndo | null = null
@@ -99,7 +100,7 @@ export class VoiceSession {
     // 콘솔 밖에서도 상품 보드를 보도록 그 방송 자료를 따로 연다 (채팅 메시지는 받지 않는다).
     // 음성을 켤 때 연다 — 꺼진 채 콘솔만 열면 콘솔 자료 하나로 충분하다 (전체 조회·실시간 연결을 겹쳐 열지 않는다, AC-S05-64)
     this.#store = new ConsoleStore({ broadcastId, messages: false })
-    this.controller = new VoiceController(this.#proxy())
+    this.controller = createRemoteVoiceController(this.#proxy(), broadcastId)
     this.#view = { broadcastId, title, on: false, cards: 0, undo: null, readout: null }
     this.controller.subscribe(() => this.#onVoice())
     this.#store.subscribe(() => this.#onStore())
@@ -320,7 +321,7 @@ export class VoiceSession {
 
   /** 콘솔 밖 처리 — 같은 쓰기 API, 창 없음 */
   readonly #outside: VoiceHost = {
-    load: loadVoice,
+    load: serverVoiceOnly,
     now: () => Date.now(),
     // 자료를 받기 전에는 바로 등록하지 않는다(ready) — 값은 판매 규칙 기본값 (RA-V3-006)
     ready: () => this.#data()?.broadcasts.get(this.broadcastId) !== undefined,

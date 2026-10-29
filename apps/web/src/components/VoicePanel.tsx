@@ -1,3 +1,4 @@
+import { canChooseVoiceEngine, readVoiceEngine, writeVoiceEngine, REMOTE_CONSENT, REMOTE_NOTICE, type VoiceControllerPort } from '../voice/remote.ts'
 // 콘솔 음성 칸 (VOC-01·04·05, D-I4-03~05·09, AC-I4-10~31·50·51).
 // - "음성 켜기"(꺼져 있을 때 콘솔 머리 줄) → 처음이면 안내 창 → 켜진 동안 상태·외부 전송 안내 한 줄·자막·"음성 끄기".
 // - 카드: 카드 글(describeCard)·원래 문장·"확인 필요"·"Enter 등록"·남은 초, 버튼 "등록"·"고치기"·"닫기"(·"자동 등록 멈추기") — 접근 이름에 카드 글을 담는다.
@@ -44,7 +45,6 @@ import {
   type VoiceOffer,
   type SmsEntry,
   type SmsResultLine,
-  type VoiceController,
   type VoiceSnapshot,
 } from '../voice/controller.ts'
 import { isHomeScreenApp } from '../voice/standalone.ts'
@@ -88,12 +88,16 @@ export function cardShortText(described: string): string {
 }
 
 /** 콘솔 머리 줄의 "음성 켜기" (켜져 있으면 음성 칸의 "음성 끄기", 안내 창이 열린 동안은 창의 "음성 켜기") */
-export function VoiceToggle({ voice, snapshot, ready }: { readonly voice: VoiceController; readonly snapshot: VoiceSnapshot; readonly ready: boolean }) {
+export function VoiceToggle({ voice, snapshot, ready }: { readonly voice: VoiceControllerPort; readonly snapshot: VoiceSnapshot; readonly ready: boolean }) {
+  const [engine, setEngine] = useState(readVoiceEngine)
   if (snapshot.phase === 'on' || snapshot.phase === 'consent') return null
   return (
+    <div className="stack-tight">
+    {canChooseVoiceEngine() ? <label>받아쓰기 방법 <select className="input" aria-label="받아쓰기 방법" value={engine} disabled={snapshot.phase === 'loading'} onChange={(event) => { const next = event.target.value === 'chrome' ? 'chrome' : 'livegenie'; writeVoiceEngine(next); setEngine(next) }}><option value="livegenie">{SERVICE_NAME} 받아쓰기</option><option value="chrome">크롬 받아쓰기</option></select></label> : null}
     <button type="button" className="button" disabled={!ready || snapshot.phase === 'loading'} onClick={() => void voice.turnOn()}>
       음성 켜기
     </button>
+    </div>
   )
 }
 
@@ -103,8 +107,8 @@ export function consentLines(instant: boolean): readonly string[] {
   return instant ? CONSENT_LINES : [CONSENT_FIRST_CARD, ...CONSENT_LINES.slice(2)]
 }
 
-export function VoiceConsentDialog({ voice }: { readonly voice: VoiceController }) {
-  const lines = consentLines(voice.getSnapshot().instant && voice.instantScreen())
+export function VoiceConsentDialog({ voice }: { readonly voice: VoiceControllerPort }) {
+  const lines = readVoiceEngine() === 'chrome' ? consentLines(voice.getSnapshot().instant && voice.instantScreen()) : REMOTE_CONSENT
   return (
     <Modal
       title={CONSENT_TITLE}
@@ -172,7 +176,7 @@ function listItems(snapshot: VoiceSnapshot): ListItem[] {
 }
 
 export interface VoiceLiveProps {
-  readonly voice: VoiceController
+  readonly voice: VoiceControllerPort
   readonly snapshot: VoiceSnapshot
   /** "Enter 등록" 표시를 붙일 카드 ID */
   readonly badge: string | null
@@ -214,7 +218,7 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           </span>
           {smsListening(snapshot) ? <span className="voice-sms-on">{voice.smsWords()?.listening}</span> : null}
           {/* 휴대폰 폭은 짧은 문장 (D-I5-16) — 늘 보인다 */}
-          <span className="voice-sent">{wide ? SENT_NOTICE : SENT_NOTICE_SHORT}</span>
+          <span className="voice-sent">{readVoiceEngine() === 'chrome' ? (wide ? SENT_NOTICE : SENT_NOTICE_SHORT) : REMOTE_NOTICE}</span>
           <button type="button" className="button" onClick={() => voice.turnOff()}>
             음성 끄기
           </button>
@@ -241,6 +245,7 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
             {errorLines(snapshot.error).map((line, index) => (
               <p key={`${String(index)}-${line}`}>{line}</p>
             ))}
+            <button type="button" className="button" onClick={() => { voice.turnOff(); void voice.turnOn() }}>다시 켜기</button>
           </div>
         )
       ) : null}
@@ -325,7 +330,7 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
         </ul>
       ) : null}
       {/* 홈 화면 앱: 켜진 동안·오류로 멈춘 뒤 한 줄 (D-I5-05 — 막지 않는다). 좁은 화면에서 카드를 밀어내지 않게 카드 아래에 둔다 (U-I5-02) */}
-      {(on || snapshot.error !== null) && isHomeScreenApp() ? <p className="voice-info">{STANDALONE_NOTICE}</p> : null}
+      {(on || snapshot.error !== null) && readVoiceEngine() === 'chrome' && isHomeScreenApp() ? <p className="voice-info">{STANDALONE_NOTICE}</p> : null}
     </section>
   )
 }
@@ -362,7 +367,7 @@ function HeardNow({ snapshot }: { readonly snapshot: VoiceSnapshot }) {
 }
 
 /** 고칠까요·되돌릴까요·번호 안내 카드 (D-V2-06 3, AC-V2-26·27) — 누르기 전에는 상품이 바뀌지 않는다 */
-function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voice: VoiceController }) {
+function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voice: VoiceControllerPort }) {
   const busy = offer.stage === 'busy'
   let actions: ReactNode
   if (offer.kind === 'offer' && offer.stage !== 'fixed' && offer.maybeOther === true) {
@@ -455,7 +460,7 @@ function OfferView({ offer, voice }: { readonly offer: VoiceOffer; readonly voic
 }
 
 /** [음성 기록] 창 (D-V2-08, AC-V2-28·29): 새것부터 시각·들은 말·읽은 것·한 일·버린 까닭. 그 탭 메모리에만 있다 */
-function VoiceLogDialog({ voice, snapshot, onClose }: { readonly voice: VoiceController; readonly snapshot: VoiceSnapshot; readonly onClose: () => void }) {
+function VoiceLogDialog({ voice, snapshot, onClose }: { readonly voice: VoiceControllerPort; readonly snapshot: VoiceSnapshot; readonly onClose: () => void }) {
   const lines = voice.logLines()
   return (
     <Modal
@@ -532,7 +537,7 @@ interface VoiceCardProps {
   /** 1·2·3 키로 후보를 고르는 카드 (PC 폭 맨 앞 카드, U-V2-05) */
   readonly keys: boolean
   readonly form: CardForm | null
-  readonly voice: VoiceController
+  readonly voice: VoiceControllerPort
   readonly onSubmitForm: (id: string) => void
   readonly onRegister: (id: string) => void
 }
@@ -634,7 +639,7 @@ function VoiceCard({ card, described, badge, countdown, paused, info, note, offe
 }
 
 /** 문자찜 카드 하나 (VOC-04 문자찜 카드) */
-function SmsCardView({ entry, voice, on, esc }: { readonly entry: SmsEntry; readonly voice: VoiceController; readonly on: boolean; readonly esc: boolean }) {
+function SmsCardView({ entry, voice, on, esc }: { readonly entry: SmsEntry; readonly voice: VoiceControllerPort; readonly on: boolean; readonly esc: boolean }) {
   const words = voice.smsWords()
   if (words === null) return null
   const { card } = entry
@@ -793,7 +798,7 @@ function CardFormView({
   readonly cardId: string
   readonly short: string
   readonly form: CardForm
-  readonly voice: VoiceController
+  readonly voice: VoiceControllerPort
   readonly onSubmit: (id: string) => void
 }) {
   const refs: Record<FormField, RefObject<HTMLInputElement | null>> = {
@@ -852,7 +857,7 @@ function CardFormView({
  * 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21, 기본 접힘): 켜진 동안의 설정(자동 확정·조용한 시간)과 [음성 기록]. 자주 쓰는 문자찜 설정은 접는 칸 밖(위)에 늘 보인다.
  * 접는 칸을 연 채로 두는지는 이 화면에만 기억한다
  */
-export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceController; readonly snapshot: VoiceSnapshot }) {
+export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControllerPort; readonly snapshot: VoiceSnapshot }) {
   const on = snapshot.phase === 'on'
   const settings = snapshot.settings
   const smsSettings = snapshot.smsSettings
@@ -929,7 +934,7 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
 }
 
 /** 음성 인식 기록 [내려받기]·[기록 지우기] (D-V3-56) — 서버로 보내지 않고 이 기기 파일로 */
-function ArchiveButtons({ voice }: { readonly voice: VoiceController }) {
+function ArchiveButtons({ voice }: { readonly voice: VoiceControllerPort }) {
   const [note, setNote] = useState<string | null>(null)
   const broadcastId = getVoiceSession()?.broadcastId
   const download = async (one: boolean) => {
@@ -965,7 +970,7 @@ function ArchiveButtons({ voice }: { readonly voice: VoiceController }) {
 }
 
 /** "15번 가격을 못 들었어요" 카드 (D-V3-67): 가격 칸 하나(그 방송 가격 단위)·[등록]·[닫기] — 커서를 빼앗지 않는다 */
-function MissedPriceForm({ cardId, short, voice }: { readonly cardId: string; readonly short: string; readonly voice: VoiceController }) {
+function MissedPriceForm({ cardId, short, voice }: { readonly cardId: string; readonly short: string; readonly voice: VoiceControllerPort }) {
   const [text, setText] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   const inputId = useId()

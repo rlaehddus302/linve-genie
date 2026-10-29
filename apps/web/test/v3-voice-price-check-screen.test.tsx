@@ -1,3 +1,4 @@
+import './legacy-voice-ui-fixture.ts'
 // AC-V3-98 (9)·(10) 화면: 천원 단위 작은 빠른 꼴(D-V3-112)의 카드 안내·가격 칸 고쳐 등록, 손 빠른 입력은 그대로.
 // AC-V3-99 (1)·(7) 화면: 번호가 붙은 가격(D-V3-113)은 가격 칸이 빈 카드, 있는 번호면 고칠 값 칸이 빈 고칠까요 카드(D-V3-114 (2)). 실제 코어로 도는 가짜 서버 + 가짜 인식 객체.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'

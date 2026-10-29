@@ -2,6 +2,8 @@
 // 서버로 보내지 않는다. 30일 지난 덩어리는 지운다(남길 때·열 때). [기록 지우기]·[음성 인식 기록 내려받기](방송 하나 또는 전체).
 // 가리기·형식은 음성 패키지(createArchiveChunk·createArchiveExport) — 이 파일은 저장만 한다. IndexedDB를 쓸 수 없으면 조용히 아무것도 하지 않는다.
 import type { VoiceArchiveBroadcast, VoiceArchiveChunk } from '@livejjim/voice'
+import { archiveEnabled, type ArchiveGap } from './archive-model.ts'
+export { ARCHIVE_KEY, type ArchiveGap } from './archive-model.ts'
 
 const DB_PREFIX = 'livejjim-voice-archive'
 /** 지금 로그인한 판매자 (기록은 판매자마다 따로 — RA-V3-008). 모르면 남기지 않는다 */
@@ -28,7 +30,6 @@ export interface ArchiveRecord {
 type StoredRecord = ArchiveRecord & { readonly at: number }
 
 /** 설정 저장 키 (같은 음성 설정 저장값 안) */
-export const ARCHIVE_KEY = 'voice.archive'
 export const ARCHIVE_LABEL = '음성 인식 기록 모아 두기'
 export const ARCHIVE_CLEAR = '기록 지우기'
 export const ARCHIVE_DOWNLOAD_ONE = '이 방송 음성 인식 기록 내려받기'
@@ -37,11 +38,7 @@ export const ARCHIVE_CLEARED = '음성 인식 기록을 지웠어요.'
 
 /** 저장값에서 켬/끔. 없으면 연습(이 컴퓨터 주소)은 켬, 운영은 끔 (D-V3-56) */
 export function readArchive(stored: unknown, hostname: string = typeof location === 'undefined' ? '' : location.hostname): boolean {
-  if (typeof stored === 'object' && stored !== null && !Array.isArray(stored)) {
-    const value = (stored as Record<string, unknown>)[ARCHIVE_KEY]
-    if (typeof value === 'boolean') return value
-  }
-  return isPracticeHost(hostname)
+  return archiveEnabled(stored, isPracticeHost(hostname))
 }
 
 /** 연습 주소인가 (이 컴퓨터만 — localhost·127.0.0.1·[::1]·*.localhost). 같은 와이파이의 사설 주소는 운영처럼 끔 (RA-V3-008) */
@@ -190,16 +187,6 @@ const gapDbName = (id: string): string => `${GAP_PREFIX}:${encodeURIComponent(id
 const GAP_STORE = 'gaps'
 
 /** 끊김 한 줄 */
-export interface ArchiveGap {
-  /** 다시 듣기 시작한 때 (UTC 밀리초) */
-  readonly at: number
-  /** 끊긴 시간 (밀리초) */
-  readonly ms: number
-  /** 끝난 까닭 (network·no-speech·aborted·end·planned) */
-  readonly reason: string
-  /** "인식 끊김 0.8초 (network)" */
-  readonly text: string
-}
 
 export interface ArchiveGapRecord {
   readonly broadcastId: string

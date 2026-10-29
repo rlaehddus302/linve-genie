@@ -15,7 +15,7 @@ import { VOICE_CHUNK_PLACEHOLDER } from './src/voice/chunk.ts'
 const apiTarget = process.env['LIVEJJIM_API_URL'] ?? 'http://localhost:3000'
 // /r/<토큰>(구매자 확인서 링크 — 서버가 그리는 문서, N4b)도 서버로 넘긴다. '/receipts' 같은 화면 주소는 넘기지 않게 정규식으로 /r 하나·/r/만 고른다
 // /ext/**(크롬 확장이 부르는 경로 — X1)도 넘긴다: 확장은 판매자가 여는 화면 주소 하나만 안다(host 권한도 그 주소 하나).
-const proxy = { '/api': { target: apiTarget, changeOrigin: false }, '^/r(/|$)': { target: apiTarget, changeOrigin: false }, '^/ext/': { target: apiTarget, changeOrigin: false } }
+const proxy = { '/api': { target: apiTarget, changeOrigin: false, ws: true }, '^/r(/|$)': { target: apiTarget, changeOrigin: false }, '^/ext/': { target: apiTarget, changeOrigin: false } }
 
 function publicFiles(dir: string): string[] {
   try {
@@ -53,7 +53,7 @@ function realPath(path: string): string {
 }
 
 /** 음성 패키지 진입 파일 (그 동적 import가 만드는 조각을 찾는다) */
-const VOICE_ENTRY = realPath(fileURLToPath(new URL('../../packages/voice/src/index.ts', import.meta.url)))
+const VOICE_ENTRY = realPath(fileURLToPath(new URL('./src/voice/transport.ts', import.meta.url)))
 
 /** chunk에서 target 파일을 부르는 상대 주소 (같은 폴더면 "./파일") */
 export function chunkRelative(from: string, target: string): string {

@@ -2,7 +2,7 @@
 // 인식 문장·카드는 남기지 않는다(D-I4-09). 저장소를 쓸 수 없으면(읽기·쓰기 예외) 확인은 "안 함"(다음에도 창), 설정은 기본값이다.
 
 /** 안내 창 확인 기록 */
-export const VOICE_CONSENT_KEY = 'livejjim.voiceConsent'
+export const VOICE_CONSENT_KEY = 'livejjim.voiceConsent.server.v1'
 /** 자동 확정 설정 ({"voice.autoConfirm": boolean, "voice.autoConfirmSec": number}) */
 export const VOICE_SETTINGS_KEY = 'livejjim.voiceSettings'
 

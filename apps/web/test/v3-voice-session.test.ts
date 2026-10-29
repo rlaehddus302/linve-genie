@@ -1,4 +1,5 @@
 // 켠 음성은 앱 전체가 들고 있다 (V3 D-V3-52, AC-V3-58) — 콘솔을 떠나도 끄지 않고, 끄기·방송 끝·로그아웃 때만 끝난다.
+import './legacy-voice-ui-fixture.ts'
 import * as voiceModule from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VoiceHost } from '../src/voice/controller.ts'

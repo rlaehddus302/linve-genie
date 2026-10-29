@@ -1,3 +1,4 @@
+import type { VoiceControllerPort } from '../voice/remote.ts'
 // 라이브 콘솔 (SPEC §7 화면 2, AC-S05-02·10~15·21·22·30~35·40~42·54·62·63, AC-I1-30~34·36).
 // 빠른 입력·알림 띠는 위쪽에 늘 보인다. 현재 상품·상품 보드·채팅(·리허설 조작판)은 폭에 맞춰 나란히 또는 아래로.
 // I3: 유튜브 칸(스크롤 영역)·수집 멈춤 경고·사용량 알림(고정 영역)·알림 띠 "감사 실패"·감사 메시지 목록 (AC-I3-20~38),
@@ -35,9 +36,9 @@ import { ResendBoard, existsOnResendWords } from '../lib/resend-board.ts'
 import { captureVacated, vacatedLine, type VacatedBefore } from '../lib/vacated.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
 import { readReceived } from '../lib/received.ts'
-import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, type VoiceController, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceHost, type VoiceLogInput, type VoiceSmsWrite, type VoiceSnapshot, type VoiceWriteOptions } from '../voice/controller.ts'
+import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceHost, type VoiceLogInput, type VoiceSmsWrite, type VoiceSnapshot, type VoiceWriteOptions } from '../voice/controller.ts'
 import { fetchPastNames } from '../voice/history.ts'
-import { loadVoice } from '../voice/load.ts'
+import { serverVoiceOnly } from '../voice/remote.ts'
 import { VOICE_OFF_AFTER_RELOAD, rejectsUnknownVoiceLog, acquireVoiceSession, forgetVoiceOn, getVoiceSession, microphoneGranted, readVoiceOn, voiceOtherBroadcast } from '../voice/session.ts'
 import { readConsent, readLearned, readSettings, readSmsSettings, writeConsent, writeLearned, writeSettings, writeSmsSettings } from '../voice/storage.ts'
 import { AssignDialog, ConfirmDialog, ConvertDialog, EditDialog, ReasonDialog } from './ActionDialogs.tsx'
@@ -380,16 +381,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
     openProduct: () => {},
     renumber: async () => false,
   })
-  const [voice, setVoice] = useState<VoiceController | null>(null)
+  const [voice, setVoice] = useState<VoiceControllerPort | null>(null)
   // 등록 성공을 음성 칸에 알린다 (지원 안 함 안내를 내림, D-I5-15) — 등록 경로가 음성 컨트롤러를 의존하지 않게 ref로
-  const voiceRef = useRef<VoiceController | null>(null)
+  const voiceRef = useRef<VoiceControllerPort | null>(null)
   voiceRef.current = voice
   // 다른 방송에서 듣는 중인 음성 (D-V3-52 — 이 콘솔은 안내만), 새로 고침 뒤 다시 켜지 못한 안내
   const [otherVoice, setOtherVoice] = useState<{ readonly id: string; readonly title: string } | null>(null)
   const [voiceOffNotice, setVoiceOffNotice] = useState(false)
   useEffect(() => {
     const host: VoiceHost = {
-      load: loadVoice,
+      load: serverVoiceOnly,
       now: () => Date.now(),
       maxNumber: () => latest.current.data.broadcasts.get(b)?.settings['claim.maxNumber'] ?? DEFAULT_SETTINGS['claim.maxNumber'],
       // "N번 품종 수"의 수는 그 방송 가격 단위로 (D-V3-48)

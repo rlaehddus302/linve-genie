@@ -3,7 +3,9 @@
 //   apps/web/src에서 @livejjim/voice를 불러오는 곳은 한 파일뿐이고 동적 import('@livejjim/voice')다.
 //   정적 값 import·부수 효과 import·`import { type X }`(verbatimModuleSyntax에선 빈 import로 남아 모듈을 불러온다)·export … from·require·
 //   packages/voice 경로 import는 없다. `import type …`과 타입 위치의 `import('…')`는 지워지므로 된다.
-//   apps의 다른 앱(서버)·packages/core/src·packages/label·packages/documents는 여전히 @livejjim/voice를 참조하지 않는다(글자로도).
+//   APP1b(D-APP-20·21): 서버 읽기 영역에는 추출기를 허용하고 웹 전송 경계에는 아래 3개 순수 전송 모듈만 허용한다.
+//   이전 load.ts 로더의 단독 경계는 유지한다. 실제 화면은 remote.ts→transport.ts를 지연 로드한다.
+//   core·label·documents 및 모바일 실행 코드에는 추출기를 허용하지 않는다.
 // - AC-P2-40·AC-P2-14: packages/voice/src는 Node 전용 모듈을 import하지 않고, 시계·난수를 직접 읽지 않으며, 공급자 주소·키가 없다.
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
@@ -16,9 +18,10 @@ const VOICE_DIR = join(ROOT, 'packages', 'voice')
 const SOURCE = /\.(?:[cm]?[jt]sx?|json|html|vue|svelte)$/
 const SCRIPT = /\.(?:[cm]?[jt]sx?)$/
 /** 다른 곳(서버·코어·라벨·문서): 글자로도 참조하지 않는다 (P2와 같다) */
-const VOICE_TEXT = /@livejjim\/voice|packages\/voice|\.\.\/voice\//
+const VOICE_TEXT = /@livejjim\/voice(?=[/"'`\s]|$)|packages\/voice(?=[/"'`\s]|$)|\.\.\/voice\//
 /** apps/web/src의 글자 검사: 패키지 이름·packages/voice 경로 (상대 경로는 isVoiceSpecifier가 풀어서 본다 — 화면의 voice 폴더는 된다) */
-const WEB_VOICE_TEXT = /@livejjim\/voice|packages\/voice/
+const WEB_VOICE_TEXT = /@livejjim\/voice(?=[/"'`\s]|$)|packages\/voice(?=[/"'`\s]|$)/
+const TRANSPORT_FILES = new Set(['livegenie.ts', 'web-speech.ts', 'speech.ts'].map((name) => join(VOICE_DIR, 'src', name)))
 
 function files(dir: string, out: string[] = []): string[] {
   let entries: string[]
@@ -136,6 +139,7 @@ function checkWebSources(sources: readonly { readonly file: string; readonly tex
     const references = findVoiceReferences(file, text)
     for (const reference of references) {
       if (reference.kind === 'dynamic' || ALLOWED_ANYWHERE.has(reference.kind)) continue
+      if (rel(file) === 'apps/web/src/voice/transport.ts' && reference.kind === 'static' && TRANSPORT_FILES.has(resolve(dirname(file), reference.specifier))) continue
       violations.push(`${rel(file)}:${String(reference.line)} ${reference.kind} '${reference.specifier}'`)
     }
     if (references.some((reference) => reference.kind === 'dynamic')) loaders.push(rel(file))
@@ -212,11 +216,23 @@ describe('AC-I4-04 apps/web/src는 한 파일에서 동적 import로만 @livejji
   it('검사기: 스크립트가 아닌 파일(html·json)의 참조도 위반', () => {
     expect(checkWebSources([{ file: at('x.json'), text: '{"m":"@livejjim/voice"}' }]).violations).toHaveLength(1)
   })
+
+  it('APP1b: 전송 경계의 세 모듈만 허용하고 추출기·사전·다른 화면의 우회 참조는 막는다', () => {
+    for (const name of ['livegenie', 'web-speech', 'speech']) {
+      const source = `import { transport } from '../../../../packages/voice/src/${name}.ts'`
+      expect(check(source, 'voice/transport.ts').violations).toEqual([])
+      expect(check(source, 'components/Panel.tsx').violations).toHaveLength(1)
+    }
+    for (const name of ['index', 'extract', 'dictionary']) {
+      expect(check(`import { value } from '../../../../packages/voice/src/${name}.ts'`, 'voice/transport.ts').violations).toHaveLength(1)
+    }
+    expect(check("import { fromWire } from '@livejjim/voice-session/wire'").violations).toEqual([])
+  })
 })
 
 describe('AC-I4-04·AC-P2-15 다른 곳은 @livejjim/voice에 기대지 않는다 (글자로도)', () => {
   const otherApps = readdirSync(join(ROOT, 'apps'))
-    .filter((name) => name !== 'web' && statSync(join(ROOT, 'apps', name)).isDirectory())
+    .filter((name) => !['web', 'server', 'mobile'].includes(name) && statSync(join(ROOT, 'apps', name)).isDirectory())
     .map((name) => `apps/${name}`)
   const scopes = [...otherApps, 'packages/core/src', 'packages/label', 'packages/documents']
 
@@ -226,10 +242,18 @@ describe('AC-I4-04·AC-P2-15 다른 곳은 @livejjim/voice에 기대지 않는�
   })
 
   it('검사 범위가 비어 있지 않다 (경로가 틀려 아무것도 안 보는 시험 방지)', () => {
-    expect(otherApps).toContain('apps/server')
     expect(files(join(ROOT, 'apps/server')).length).toBeGreaterThan(10)
     expect(files(join(ROOT, 'packages/core/src')).length).toBeGreaterThan(5)
     expect(files(join(ROOT, 'packages/documents')).length).toBeGreaterThan(3)
+  })
+
+  it('APP1b: 서버 src/voice 밖과 모바일 실행 코드에는 추출기 참조가 없다', () => {
+    const checked = [...files(join(ROOT, 'apps/server/src')), ...files(join(ROOT, 'apps/mobile/src')), ...files(join(ROOT, 'apps/mobile/app'))]
+      .filter((file) => SCRIPT.test(file) && !rel(file).startsWith('apps/server/src/voice/'))
+    expect(checked.length).toBeGreaterThan(100)
+    const violations = checked.flatMap((file) => findVoiceReferences(file, readFileSync(file, 'utf8'))
+      .filter((reference) => !ALLOWED_ANYWHERE.has(reference.kind)).map((reference) => `${rel(file)}:${reference.line} ${reference.specifier}`))
+    expect(violations).toEqual([])
   })
 })
 
