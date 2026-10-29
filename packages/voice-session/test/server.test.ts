@@ -21,6 +21,36 @@ beforeEach(() => { vi.useFakeTimers({ now: T0 }) })
 afterEach(() => { vi.useRealTimers() })
 
 describe('APP1b server reading session', () => {
+  it('releases a registration collision only for the original server card and allows the next price correction', async () => {
+    const messages: VoiceServerMessage[] = []
+    let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null
+    const session = createReadingSession({ host: { ...data(), existingProduct: (no) => no === 15 ? product : null }, device: 'test', mode: 'chrome', send: (message) => messages.push(message) })
+    session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { 'voice.autoRegister': true } } }); await settle()
+    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '15번 라울 만원', final: true } })
+    await vi.advanceTimersByTimeAsync(1900)
+    const sent = messages.find((message): message is VoiceEffectMessage => message.type === 'voice.effect' && message.method === 'register')
+    if (sent === undefined) throw new Error('음성 등록이 없다')
+    const [card] = fromWire(sent.args) as [voice.SuggestionCard]
+    const latest = () => fromWire(messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)!.snapshot) as ReturnType<VoiceController['getSnapshot']>
+    // 동일 카드라도 서버에 실제 상품이 없으면 충돌 통지로 성공 대기를 풀지 않는다.
+    session.onMessage({ type: 'voice.session', op: 'command', method: 'instantExists', args: [card] }); await settle()
+    expect(latest().offers).toHaveLength(0)
+    product = { key: 'broadcast:15', name: '핑크프릴', price: 20000, claimCount: 0, closed: false }
+    for (const changed of [{ ...card, id: 'other-card' }, { ...card, price: 9000 }]) {
+      session.onMessage({ type: 'voice.session', op: 'command', method: 'instantExists', args: [changed] }); await settle()
+      expect(latest().offers).toHaveLength(0)
+    }
+    session.onMessage({ type: 'voice.session', op: 'command', method: 'instantExists', args: [card] }); await settle()
+    expect(latest().offers).toEqual([expect.objectContaining({ stage: 'ask', changes: { name: '라울', price: 10000 } })])
+    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '15번 라울 만원', final: true } })
+    await vi.advanceTimersByTimeAsync(1900)
+    const fixes = messages.filter((message): message is VoiceEffectMessage => message.type === 'voice.effect' && message.method === 'fixRecent')
+    expect(fixes).toHaveLength(1)
+    expect(fromWire(fixes[0]!.args)).toEqual(['broadcast:15', { name: '라울', price: 10000 }, expect.objectContaining({ newOnly: true })])
+    session.onMessage({ type: 'voice.session', op: 'effectResult', id: fixes[0]!.id, value: { kind: 'fixed', before: { name: '핑크프릴', price: 20000 } } }); await settle()
+    expect(latest().offers.some((offer) => offer.stage === 'fixed')).toBe(true)
+    session.close()
+  })
   it('preserves the other-number notice after an early interim registration in the long R7 utterance', async () => {
     const messages: VoiceServerMessage[] = []
     let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null
@@ -80,6 +110,10 @@ describe('APP1b server reading session', () => {
       expect(fixes()).toHaveLength(0)
       const latest = messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)!
       expect(fromWire(latest.snapshot)).toMatchObject({ offers: [expect.objectContaining({ stage: 'ask', error: expect.stringContaining('등록한 상품을 확인하지 못했어요') })] })
+      const offer = (fromWire(latest.snapshot) as ReturnType<VoiceController['getSnapshot']>).offers[0]!
+      session.onMessage({ type: 'voice.session', op: 'command', method: 'fixOffer', args: [offer.id] }); await settle()
+      expect(fixes()).toHaveLength(1)
+      expect(fixes()[0]?.automatic).toBe(false)
     }
     session.close()
   })

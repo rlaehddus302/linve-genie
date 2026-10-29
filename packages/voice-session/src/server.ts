@@ -58,12 +58,19 @@ export function createReadingSession(options: ReadingSessionOptions) {
   // 기존 HTTP 경로가 목록까지 따라잡았다는 noteVoiceRegistered 뒤에 보낸다.
   const registering = new Map<number, {
     cardId: string
+    card: unknown
     name: string
     price: number
     done: Promise<boolean>
     finish: (confirmed: boolean) => void
     timer: ReturnType<typeof setTimeout>
   }>()
+  const finishRegistration = (no: number, confirmed: boolean) => {
+    const waiting = registering.get(no)
+    if (waiting === undefined) return
+    clearTimeout(waiting.timer); registering.delete(no); waiting.finish(confirmed)
+  }
+  const sameCard = (left: unknown, right: unknown): boolean => isRecord(left) && isRecord(right) && Object.keys(left).length === Object.keys(right).length && Object.entries(left).every(([key, value]) => JSON.stringify(value) === JSON.stringify(right[key]))
   const now = () => wallNow() + clockOffset
   let nextTimer = 1
   const scheduled = new Map<number, { at: number; run: () => void; timer: ReturnType<typeof setTimeout> }>()
@@ -126,12 +133,11 @@ export function createReadingSession(options: ReadingSessionOptions) {
     readSmsSettings: () => smsSettings,
     writeSmsSettings: (value) => { smsSettings = value; void effect('writeSmsSettings', [value]) },
     register: (card, registration, source) => {
-      const old = registering.get(registration.no)
-      if (old !== undefined) { clearTimeout(old.timer); old.finish(false) }
+      finishRegistration(registration.no, false)
       let finish: (confirmed: boolean) => void = () => {}
       const done = new Promise<boolean>((resolve) => { finish = resolve })
-      const timer = setTimeout(() => finish(false), 30_000)
-      registering.set(registration.no, { cardId: card.id, name: registration.name, price: registration.price, done, finish, timer })
+      const timer = setTimeout(() => finishRegistration(registration.no, false), 30_000)
+      registering.set(registration.no, { cardId: card.id, card: toWire(card), name: registration.name, price: registration.price, done, finish, timer })
       void effect('register', [card, registration, source, controller.voiceLogFor(card.text)])
     },
     focusQuick: () => { void effect('focusQuick', []) },
@@ -249,7 +255,7 @@ export function createReadingSession(options: ReadingSessionOptions) {
         const waiting = registering.get(Number(entry.no))
         if (waiting !== undefined) {
           if (waiting.name !== entry.name || waiting.price !== entry.price || options.host.existingProduct?.(Number(entry.no))?.key !== entry.id) return
-          clearTimeout(waiting.timer); registering.delete(Number(entry.no)); waiting.finish(true)
+          finishRegistration(Number(entry.no), true)
         }
         undoable.set(value.args[0].id, now() + 5000)
         const end = numberEnds.get(Number(value.args[0].no))
@@ -257,7 +263,17 @@ export function createReadingSession(options: ReadingSessionOptions) {
       }
       if (value.method === 'restore' && isRecord(value.args[0])) {
         const waiting = registering.get(Number(value.args[0].no))
-        if (waiting !== undefined && waiting.cardId === value.args[0].id) { clearTimeout(waiting.timer); waiting.finish(false) }
+        if (waiting !== undefined && waiting.cardId === value.args[0].id) finishRegistration(Number(value.args[0].no), false)
+      }
+      if (value.method === 'instantExists' && isRecord(value.args[0])) {
+        const card = value.args[0]
+        const no = Number(card.no)
+        const waiting = registering.get(no)
+        const product = options.host.existingProduct?.(no)
+        if (waiting === undefined || waiting.cardId !== card.id || !sameCard(waiting.card, toWire(card)) || product === null || product === undefined || product.key === '') return
+        // 등록을 보낼 차례에 손입력 상품이 먼저 생겼다. 이 등록의 성공 ACK는 오지 않는다.
+        // 서버가 보낸 같은 카드·번호와 실제 상품을 확인한 뒤 기존 상품 판단으로 이어 간다.
+        finishRegistration(no, !product.closed)
       }
       const method = value.method as (typeof VOICE_COMMANDS)[number]
       if (method === 'submitForm') {
