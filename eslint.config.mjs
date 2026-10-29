@@ -199,6 +199,8 @@ export default defineConfig(
     // XSS 금지(AC-S00-06)·코어 순수성(AC-S00-05) 검사를 통째로 피한다.
     '{dist,build,coverage,.vite}/',
     '{apps,packages}/*/{dist,build,coverage,.vite}/',
+    // 실방송 재생 시험 자료(깃 무시 — 소리·영수증·재생용 작업 사본 worktree). 저장소 코드가 아니다
+    '.live-replay/',
     // 오케스트레이터·하네스 소유 (개발자가 고칠 수 없는 경로)
     '.claude/',
     'scripts/harness/',

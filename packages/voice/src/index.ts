@@ -253,6 +253,8 @@ export {
   type SpeechEngineKind,
   type SpeechError,
   type SpeechErrorKind,
+  type BasicSpeechErrorKind,
+  type LiveGenieErrorKind,
   type SpeechResult,
   type SpeechState,
 } from './speech.ts'
@@ -296,6 +298,46 @@ export {
   type RelayConnection,
   type RelayHandlers,
 } from './cloud.ts'
+// APP1: 라이브지니 받아쓰기 (VOC-06 기기 쪽) — 음성 웹소켓 엔진·약속·늦은 글·16kHz 바꾸기 (D-APP1-01·03·08·09)
+export {
+  DEVICE_TAG_PATTERN,
+  FUTURE_TEXT_SLACK_MS,
+  LATE_TEXT_MS,
+  LIVEGENIE_CLOSE_REASONS,
+  LIVEGENIE_CONNECTION_FAILED_MESSAGE,
+  LIVEGENIE_CONSENT_LINES,
+  LIVEGENIE_ERROR_MESSAGES,
+  LIVEGENIE_LISTENING_TEXT,
+  LIVEGENIE_NOTICE,
+  LIVEGENIE_STATE_LABELS,
+  LIVEGENIE_UNSUPPORTED_MESSAGE,
+  LiveGenieSpeechEngine,
+  RECONNECT_DELAYS_MS,
+  VOICE_FRAME_MAX_BYTES,
+  VOICE_RESULT_TEXT_MAX,
+  VOICE_STREAM_PATH,
+  VOICE_TEXT_FRAME_MAX_BYTES,
+  canCaptureAudio,
+  createLiveGenieEngine,
+  isDeviceTag,
+  isLateSpeech,
+  parseLiveGenieMessage,
+  spokenEndAt,
+  voiceStreamUrl,
+  type LiveGenieCloseReason,
+  type LiveGenieMessage,
+  type LiveGenieOptions,
+} from './livegenie.ts'
+export {
+  PCM_BYTES_PER_MS,
+  PCM_CHUNK_BYTES,
+  PCM_CHUNK_MS,
+  PCM_CHUNK_SAMPLES,
+  PCM_SAMPLE_RATE,
+  Pcm16Resampler,
+  floatToPcm16,
+  mixToMono,
+} from './pcm16.ts'
 // V3: 음성 바로 등록 — 품종 추측(R-17 7)·확정 읽기(R-17 8)·음성 같은 번호(R-22)·열린 카드 합치기 (D-V3-01~D-V3-12)
 export {
   AUTO_FIX_PRICE_RATIO,

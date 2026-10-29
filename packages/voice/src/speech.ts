@@ -1,7 +1,7 @@
 // 음성 엔진 공용 모양 (VOC-01·VOC-05, D-205, TECH_REVIEW §3).
 // 엔진을 만들기만 해서는 인식 객체·연결·마이크를 열지 않는다. start()를 부를 때만 연다(VOC-05).
 
-export type SpeechEngineKind = 'web-speech' | 'deepgram' | 'returnzero'
+export type SpeechEngineKind = 'web-speech' | 'deepgram' | 'returnzero' | 'livegenie'
 
 /** 엔진 상태: 꺼짐(시작 전·판매자가 멈춤) · 듣는 중 · 다시 시작 중 · 멈춤(오류로 멈춤) */
 export type SpeechState = 'OFF' | 'LISTENING' | 'RESTARTING' | 'HALTED'
@@ -13,7 +13,8 @@ export const SPEECH_STATE_LABELS: Readonly<Record<SpeechState, string>> = Object
   HALTED: '멈춤',
 })
 
-export type SpeechErrorKind =
+/** 모든 엔진이 같은 문장(SPEECH_ERROR_MESSAGES)을 쓰는 까닭 */
+export type BasicSpeechErrorKind =
   | 'UNSUPPORTED'
   | 'PERMISSION_DENIED'
   | 'SERVICE_OFF'
@@ -23,11 +24,16 @@ export type SpeechErrorKind =
   | 'KEEPS_STOPPING'
   | 'OTHER'
 
+/** 라이브지니 받아쓰기만의 까닭 (VOC-06·VOC-07, D-APP1-03): 서버가 닫는 까닭 OTHER_DEVICE·BUSY·NO_WORKER·AUTH. 문장은 livegenie.ts의 LIVEGENIE_ERROR_MESSAGES */
+export type LiveGenieErrorKind = 'OTHER_DEVICE' | 'TRANSCRIBE_BUSY' | 'TRANSCRIBE_OFF' | 'LOGIN_ENDED'
+
+export type SpeechErrorKind = BasicSpeechErrorKind | LiveGenieErrorKind
+
 /**
  * 오류 문장 (D-205 표, I5에서 D-I5-03으로 바꿈 — 영어 상태값·개발 용어 없음, UX-01·UX-03).
  * 기기 이름(UA)으로 가르지 않고 모든 기기에 맞는 한 문장을 쓴다(D-036).
  */
-export const SPEECH_ERROR_MESSAGES: Readonly<Record<SpeechErrorKind, string>> = Object.freeze({
+export const SPEECH_ERROR_MESSAGES: Readonly<Record<BasicSpeechErrorKind, string>> = Object.freeze({
   UNSUPPORTED: '이 기기에서는 음성이 어려워요. PC 크롬이나 안드로이드 크롬에서 켜 주세요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.',
   // D-I5-12·D-I5-13: 여러 줄 문장은 \n으로 나눈다(첫 줄 = 무슨 일, 다음 줄 = 할 일). 화면은 줄마다 따로 보인다
   PERMISSION_DENIED: '마이크 사용이 막혀 있어요.\n· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.\n· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.',
@@ -55,6 +61,11 @@ export interface SpeechResult {
   readonly slot?: string
   /** 이 결과가 그 인식 객체의 아직 최종이 되지 않은 첫 자리인가 (크롬이 한 결과를 여러 자리로 갈라 낼 때 뒤 자리는 거짓). 없음 = 참 */
   readonly lead?: boolean
+  /**
+   * 말 끝 시각 (기기 시계, UTC 밀리초 — VOC-06 늦은 글, D-APP1-08): 라이브지니 받아쓰기 결과에만 셀 수 없는 속성으로 붙는다.
+   * 셈할 수 없으면 NaN(= 늦은 글로 본다). 다른 엔진 결과에는 없다(없음 = 바로 처리). 판단은 isLateSpeech()
+   */
+  readonly spokenEndAt?: number
 }
 
 /** 결과에 자리(slot·lead)를 셀 수 없는 속성으로 붙인다 */
@@ -69,7 +80,7 @@ export interface SpeechError {
   readonly message: string
 }
 
-export const speechError = (kind: SpeechErrorKind): SpeechError => ({ kind, message: SPEECH_ERROR_MESSAGES[kind] })
+export const speechError = (kind: BasicSpeechErrorKind): SpeechError => ({ kind, message: SPEECH_ERROR_MESSAGES[kind] })
 
 export interface SpeechEngine {
   readonly kind: SpeechEngineKind
@@ -185,8 +196,13 @@ export abstract class BaseSpeechEngine implements SpeechEngine {
     this.results.emit(result)
   }
 
+  /** 오류를 알리기만 한다 (엔진마다 같은 종류에 다른 문장을 실을 때) */
+  protected emitError(error: SpeechError): void {
+    this.errors.emit(error)
+  }
+
   /** 오류로 멈춘다: 오류를 알리고 상태를 멈춤으로 */
-  protected halt(kind: SpeechErrorKind): void {
+  protected halt(kind: BasicSpeechErrorKind): void {
     this.errors.emit(speechError(kind))
     this.setState('HALTED')
   }

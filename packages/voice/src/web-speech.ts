@@ -16,7 +16,7 @@
 //   기다림을 두 배로 늦춘다(진짜 조용함에서 너무 자주 열지 않게). 멈춤 다시 열기는 그 시간에 한 번까지. STALL_MS는 선택값 stallMs(설정 voice.stallMs)로 바꾼다. 소리 받기 멈춤(onaudioend) 뒤 END_WAIT_MS 안에 끝(onend)이 없거나,
 //   말 끝(onspeechend) 뒤 END_WAIT_MS 안에 결과·끝이 없어도 같은 다시 열기를 한다. 멈춰 닫은 객체에서 늦게 온 결과는 버리지 않고 받는다
 //   (크롬이 모아 뒀다 줄 수 있다). 기록: onDiagnostic(멈춤 · 다시 켠 뒤 첫 결과까지 · 늦은 결과).
-import { BaseSpeechEngine, Listeners, RestartLimiter, withSlot, type SpeechErrorKind } from './speech.ts'
+import { BaseSpeechEngine, Listeners, RestartLimiter, withSlot, type BasicSpeechErrorKind as SpeechErrorKind } from './speech.ts'
 
 /** 인식 결과 하나 (SpeechRecognitionResult 중 쓰는 부분) */
 export interface RecognitionResultLike {
