@@ -1,5 +1,15 @@
 # APP2 추가 위험 감사
 
+## 최종 자동 검증 판정 (2026-10-30)
+
+코드·시험 HEAD `b14815ea783b4616a1c8a4777381757bd516965d`에서 단일 전체 `pnpm verify` **7/7 PASS(exit0)**, E2E **1,677/1,677**(실패·skip·flaky·재시도·러너 오류0), 단위9,084·골든964·적대2,925 통과를 확인했다. 독립 spec-auditor가 실행 결과와 개별 E2E JSON을 대조했으며, 보호 경로 두 BASE도 각각 exit0였다. 오케스트레이터가 이후 단독 실행한 `pnpm perf`는25/48/2개 모두 통과(exit0)했다. 근거는 `work/verify-release.log`, `work/verify-release-e2e.json`, `work/verify-release-protected-*.log`, `work/perf-release.log`다.
+
+열린 CONFIRMED blocker/major는 없다. TE-APP1-001~013·SA-APP2-001·TD-APP2-02·TD-APP1b-02와 관련 RA는 수정·독립 재검증·이번 전체 실행 근거로 해결된 상태다. 마지막 모의 VAD 말끝 보완은 원래 단언과 제품 안전 규칙을 유지했고 실제 PCM 시험도 재시도 없이 통과했다. 자동 구현·통합 범위는 완료로 기록할 수 있다. **HG-APP1·HG-APP2와 AC-APP1b-03은 미확인**이며 실제 ASR 지연1.5초·현장p95·실방송 정확도·네이티브/B1 실물 검증을 PASS로 대신하지 않는다.
+
+아래는 당시 판단과 수정 근거를 보존한 이전 감사 기록이다. 아래의 게이트 대기·미커밋 실패·열린 지적 표기는 이 최종 자동 검증 판정으로 갱신되며, 당시 증거 자체는 삭제하지 않는다.
+
+## 이전 감사 기록
+
 2026-10-30 · 오케스트레이터가 독립 위험 감사자의 읽기 전용 판정과 별도 실행 증거를 기록함.
 
 ## RA-APP2-003 — RESOLVED
