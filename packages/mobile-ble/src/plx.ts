@@ -1,0 +1,129 @@
+// react-native-ble-plx 묶기 (APP-03, D-APP-19 "검증된 기성 모듈") — BleTransport 계약을 BleManager 위에서 구현한다.
+// 이 파일만 react-native-ble-plx를 부른다. 시험·Node에서는 createPlxTransport에 가짜 BleManagerLike를 넣는다.
+// 아이폰 백그라운드 BLE: BleManager({ restoreStateIdentifier })로 만들고 앱 설정에 UIBackgroundModes bluetooth-central(ble-plx 플러그인)을 둔다.
+import type { BleError, BleManager, Characteristic, Device, State, Subscription } from 'react-native-ble-plx'
+import { decodeBase64, encodeBase64 } from './base64.ts'
+import type { BleCharacteristicInfo, BleConnectOptions, BleDeviceInfo, BleLink, BleRadioState, BleScanFilter, BleTransport } from './transport.ts'
+import { BLE_DEFAULT_MTU } from './transport.ts'
+
+/** BleManager에서 쓰는 부분 (가짜를 넣기 쉽게) */
+export type BleManagerLike = Pick<
+  BleManager,
+  | 'state'
+  | 'onStateChange'
+  | 'startDeviceScan'
+  | 'stopDeviceScan'
+  | 'connectToDevice'
+  | 'cancelDeviceConnection'
+  | 'onDeviceDisconnected'
+  | 'discoverAllServicesAndCharacteristicsForDevice'
+  | 'servicesForDevice'
+  | 'characteristicsForDevice'
+  | 'monitorCharacteristicForDevice'
+  | 'writeCharacteristicWithoutResponseForDevice'
+>
+
+export function radioStateOf(state: State | string): BleRadioState {
+  switch (state) {
+    case 'PoweredOn':
+      return 'on'
+    case 'PoweredOff':
+      return 'off'
+    case 'Unauthorized':
+      return 'unauthorized'
+    case 'Unsupported':
+      return 'unsupported'
+    default:
+      return 'unknown'
+  }
+}
+
+/** 앱 전체가 나눠 쓰는 BleManager 식별자 (아이폰 상태 되살리기) */
+export const BLE_RESTORE_IDENTIFIER = 'livejjim-printer'
+
+const nameOf = (device: Pick<Device, 'name' | 'localName'>): string | null => device.name ?? device.localName ?? null
+
+export function createPlxTransport(manager: BleManagerLike): BleTransport {
+  return {
+    async state() {
+      try {
+        return radioStateOf(await manager.state())
+      } catch {
+        return 'unknown'
+      }
+    },
+    onStateChange(listener) {
+      const sub: Subscription = manager.onStateChange((state) => listener(radioStateOf(state)), false)
+      return () => sub.remove()
+    },
+    scan(filter: BleScanFilter, onFound) {
+      const seen = new Set<string>()
+      const prefixes = (filter.namePrefixes ?? []).map((p) => p.toUpperCase())
+      const uuids = filter.serviceUuids ?? []
+      const matches = (device: Device): boolean => {
+        const name = nameOf(device)
+        if (prefixes.length > 0 && name !== null && prefixes.some((p) => name.toUpperCase().startsWith(p))) return true
+        const advertised = (device.serviceUUIDs ?? []).map((u) => u.toLowerCase())
+        if (uuids.some((u) => advertised.includes(u.toLowerCase()))) return true
+        // 이름도 서비스도 없는 장치는 거른다
+        return prefixes.length === 0 && uuids.length === 0
+      }
+      // 서비스 UUID로만 거르면 이름만 알리는 NIIMBOT을 놓친다 — 모두 받아 JS에서 거른다
+      void manager.startDeviceScan(null, { allowDuplicates: false }, (error: BleError | null, device: Device | null) => {
+        if (error !== null || device === null) return
+        if (seen.has(device.id) || !matches(device)) return
+        seen.add(device.id)
+        onFound({ id: device.id, name: nameOf(device) })
+      })
+      return () => {
+        void manager.stopDeviceScan().catch(() => undefined)
+      }
+    },
+    async connect(id, options: BleConnectOptions): Promise<BleLink> {
+      const device = await manager.connectToDevice(id, {
+        ...(options.requestMtu === undefined ? {} : { requestMTU: options.requestMtu }),
+        ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+      })
+      let alive = true
+      const lost: Subscription = manager.onDeviceDisconnected(id, () => {
+        if (!alive) return
+        alive = false
+        lost.remove()
+        options.onDisconnect()
+      })
+      await manager.discoverAllServicesAndCharacteristicsForDevice(id)
+      const link: BleLink = {
+        id,
+        mtu: Number.isInteger(device.mtu) && device.mtu >= BLE_DEFAULT_MTU ? device.mtu : BLE_DEFAULT_MTU,
+        async characteristics() {
+          const out: BleCharacteristicInfo[] = []
+          for (const service of await manager.servicesForDevice(id)) {
+            const list = await manager.characteristicsForDevice(id, service.uuid)
+            for (const c of list) out.push({ serviceUuid: service.uuid, uuid: c.uuid, notify: c.isNotifiable, writeWithoutResponse: c.isWritableWithoutResponse })
+          }
+          return out
+        },
+        monitor(serviceUuid, characteristicUuid, onValue) {
+          const sub = manager.monitorCharacteristicForDevice(id, serviceUuid, characteristicUuid, (error: BleError | null, characteristic: Characteristic | null) => {
+            if (error !== null || characteristic === null || characteristic.value === null) return
+            const bytes = decodeBase64(characteristic.value)
+            if (bytes !== null) onValue(bytes)
+          })
+          return Promise.resolve(() => sub.remove())
+        },
+        async writeWithoutResponse(serviceUuid, characteristicUuid, bytes) {
+          await manager.writeCharacteristicWithoutResponseForDevice(id, serviceUuid, characteristicUuid, encodeBase64(bytes))
+        },
+        async disconnect() {
+          alive = false
+          lost.remove()
+          await manager.cancelDeviceConnection(id).catch(() => undefined)
+        },
+      }
+      return link
+    },
+  }
+}
+
+/** 기억한 기기 정보에서 보기용 */
+export const deviceInfoOf = (device: Pick<Device, 'id' | 'name' | 'localName'>): BleDeviceInfo => ({ id: device.id, name: nameOf(device) })

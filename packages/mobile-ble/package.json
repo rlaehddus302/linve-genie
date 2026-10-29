@@ -6,8 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./plx": "./src/plx.ts",
-    "./app.plugin": "./app.plugin.js"
+    "./plx": "./src/plx.ts"
   },
   "dependencies": {
     "@livejjim/label": "workspace:*",
