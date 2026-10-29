@@ -92,7 +92,7 @@ export function VoiceToggle({ voice, snapshot, ready }: { readonly voice: VoiceC
   const [engine, setEngine] = useState(readVoiceEngine)
   if (snapshot.phase === 'on' || snapshot.phase === 'consent') return null
   return (
-    <div className="stack-tight">
+    <div className="row">
     {canChooseVoiceEngine() ? <label>받아쓰기 방법 <select className="input" aria-label="받아쓰기 방법" value={engine} disabled={snapshot.phase === 'loading'} onChange={(event) => { const next = event.target.value === 'chrome' ? 'chrome' : 'livegenie'; writeVoiceEngine(next); setEngine(next) }}><option value="livegenie">{SERVICE_NAME} 받아쓰기</option><option value="chrome">크롬 받아쓰기</option></select></label> : null}
     <button type="button" className="button" disabled={!ready || snapshot.phase === 'loading'} onClick={() => void voice.turnOn()}>
       음성 켜기
