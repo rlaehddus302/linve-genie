@@ -1151,6 +1151,52 @@ sprints:
     specIds: [UX-01, UX-03, UX-04, UX-06, NFR-03]
     status: done
 
+  - id: APP1
+    phase: 7
+    title: 자체 받아쓰기 — ②폰 마이크 소리를 서버 중계로 자체 받아쓰기 서버(Cohere)에 보내 받아쓰기
+    dependsOn: [V3]
+    devs: [device, server, web]
+    tests: [domain, e2e]
+    uxReview: false
+    humanGate: HG-APP1
+    goal: >
+      사용자 결정 D-APP-01(음성 (B), 모든 기기 같은 엔진 — 크롬 Web Speech는 PC 선택 길). 판정·정산·골든 변경 없음.
+      device: 받아쓰기 서버(파이썬 서비스 — 라이브지니 서버로 먼저 여는 일꾼 웹소켓·일꾼 토큰 D-APP-09, 흐름마다 silero VAD 쉼 0.4초·최대 20초 D-APP-07,
+      Cohere Transcribe 기본·위스퍼 large-v3-turbo 대안 D-APP-14, 동시 흐름 한도 기본 4 D-APP-10, 소리·글 저장·로그 없음 D-APP-03)와 프로토콜,
+      packages/voice cloud.ts 골격 위 새 공급자(최종 결과만, 다시 잇기 1·2·4·8초·60초 안 여섯 번째면 멈춤 D-APP-05, 10초 넘게 늦은 글은 카드 D-APP-12).
+      server: 인증된 음성 웹소켓(로그인 세션·같은 출처·켠 방송 하나·판매자만·초당 64KB 한도 D-APP-04) → 일꾼 중계, 한 판매자 한 흐름·바쁨·일꾼 없음 문장(D-APP-10),
+      /ops/status 일꾼 수·흐름 수·p95와 일꾼 0 경보(D-APP-15).
+      web: AudioWorklet 16kHz 모노 PCM16 100ms 조각(D-APP-06), 엔진 고르기(PC 넓은 화면 브라우저만 '받아쓰기 방법' D-APP-13), 첫 안내 창·상태 줄·와이파이·충전 안내(D-APP-08),
+      '다시 잇는 중'·'듣기 멈춤' 큰 빨간 글과 빠른 입력, 음성이 안 되는 기기 문장(D-APP-18).
+      측정: 실방송 재생 시험 — 녹음 소리를 실시간 속도로 흘려 넣어 경성·금화 점수와 말 끝→글 지연 p50·p95(목표 1.5초) 기록(VOC-07 AC5, 게이트 밖).
+      순서 device → server → web. 수용 기준: harness/sprints/APP1/acceptance.md(스프린트 시작 때 spec-keeper가 SPEC VOC-06 AC1~AC8·VOC-07 AC1~AC6에서 작성), D-APP-01·D-APP-03~D-APP-15·D-APP-18.
+    carryOver:
+      - "사람 확인 HG-APP1: 맥 미니 설치·모델 내려받기·상시 켜 두기, 실제 방송 같은 공간 ②폰 지연·정확도 (사용자 확인 표)"
+    specIds: [VOC-01, VOC-05, VOC-06, VOC-07]
+    status: todo
+
+  - id: APP2
+    phase: 7
+    title: 앱 껍데기 — Capacitor 앱(안드로이드·아이폰), 뒤에서도 듣기, 네이티브 블루투스 B1, 돌아오면 되살리기
+    dependsOn: [APP1]
+    devs: [device, web]
+    tests: [e2e]
+    uxReview: true
+    humanGate: HG-APP2
+    goal: >
+      사용자 결정 D-APP-02. 판정·정산·골든 변경 없음.
+      device: Capacitor 앱 하나(운영 주소의 웹 화면을 엶, 바깥 링크는 기기 브라우저 D-APP-16), 네이티브 마이크 백그라운드(안드로이드 마이크 포그라운드 서비스·고정 알림,
+      아이폰 백그라운드 오디오)가 마이크와 음성 웹소켓을 직접 가짐(D-APP-12 — 화면이 멈춘 동안 글 200개까지 모았다 넘김), 네이티브 블루투스(안드로이드 BLE·아이폰 Core Bluetooth)로
+      웹과 같은 프린터 통신 코드의 보내는 길만 바꿈(APP-03, 아이폰도 UNSUPPORTED 아님 — LABEL_RULES L-7 문장은 스프린트 시작 때 spec-keeper가), 권한 설명 문장(D-APP-11).
+      web: 앱 안 여부에 따른 마이크·블루투스 길 고르기, 돌아오면 실시간 다시 잇기·쌓인 라벨 이어 찍기·'자리를 비운 동안 라벨 n장·찜 n건·음성 n개' 한 줄(APP-04, D-APP-16), 아이폰 앱의 프린터 마법사 단계.
+      시험: 웹 쪽 E2E(페이지 숨김 흉내·모의 프린터·모의 받아쓰기 서버), 네이티브는 에뮬레이터·시뮬레이터·모의 블루투스로 가능한 범위.
+      빌드 도구(Xcode·안드로이드 SDK)·스토어 계정(애플 연 $99·구글 $25)·실기기는 사람 확인(D-APP-17) — 없으면 빌드 설정과 웹 쪽까지 하고 보고.
+      순서 device → web. 수용 기준: harness/sprints/APP2/acceptance.md(SPEC APP-01~APP-04 AC에서 작성), D-APP-02·D-APP-11·D-APP-12·D-APP-16·D-APP-17.
+    carryOver:
+      - "사람 확인 HG-APP2: 스토어 계정·Xcode·안드로이드 SDK, 실제 안드로이드·아이폰 설치, 앱 전환·화면 꺼짐 중 듣기, 아이폰 B1 30장, 배터리·데이터 (사용자 확인 표)"
+    specIds: [APP-01, APP-02, APP-03, APP-04, LBL-06, NFR-05, NFR-09]
+    status: todo
+
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
   - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"
