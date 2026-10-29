@@ -1,0 +1,28 @@
+// 콘솔 화면 조각이 함께 쓰는 값 (웹 console-context와 같은 구실): 방송·범위 자료·이름 표기·쓰기 함수.
+import { createContext, useContext } from 'react'
+import type { WriteResult } from '@livejjim/web/src/api/types.ts'
+import type { BuyerNames } from '../../lib/derive.ts'
+import type { ScopeData } from '../../lib/scope-data.ts'
+
+export interface ConsoleApi {
+  readonly b: string
+  readonly data: ScopeData
+  readonly names: BuyerNames
+  readonly ended: boolean
+  readonly sealed: boolean
+  /** 쓰기: 요청 번호를 붙여 보내고 응답 seq까지 따라잡는다 */
+  readonly command: (event: Readonly<Record<string, unknown>>, requestId?: string) => Promise<WriteResult>
+  /** 상품 고르기 (현재 상품 칸) */
+  readonly select: (key: string | null) => void
+  readonly selected: string | null
+  /** 라벨 상태 낱말 (찜 ID → 낱말, 리허설·모르면 없음) */
+  readonly labelWords: ReadonlyMap<string, string>
+}
+
+export const ConsoleContext = createContext<ConsoleApi | null>(null)
+
+export function useConsoleApi(): ConsoleApi {
+  const api = useContext(ConsoleContext)
+  if (api === null) throw new Error('콘솔 안에서만 쓴다')
+  return api
+}

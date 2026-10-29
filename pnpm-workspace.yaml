@@ -10,13 +10,32 @@ saveExact: true
 # postinstall은 cli/node_modules 폴더를 만들고 판 표기 경고를 내는 일뿐이라 실행에 필요 없다. 거절을 적어 두어야 설치가 실패하지 않는다.
 allowBuilds:
   protobufjs: false
-# pnpm 12의 "갓 나온 판 기다리기" 예외 — 앱 모듈(APP2)의 expo-modules-core 58.0.28(Expo SDK 55)이 아직 새 판이라 설치 때 pnpm이 적었다.
-# 앱(apps/mobile)의 expo 판과 같은 줄이면 된다.
+# Expo SDK 58 묶음은 갓 나온 판이라 최소 공개 기간(supply-chain) 정책에서 뺀다 — expo install이 적은 목록 (APP2)
 minimumReleaseAgeExclude:
+  - '@expo/cli@58.1.17'
+  - '@expo/config-plugins@58.0.11'
+  - '@expo/config@58.0.9'
+  - '@expo/image-utils@0.12.6'
+  - '@expo/inline-modules@0.2.8'
+  - '@expo/local-build-cache-provider@58.0.9'
+  - '@expo/metro-config@58.0.19'
   - '@expo/modules-macros-linux-arm64@0.27.1'
   - '@expo/modules-macros-linux-x64@0.27.1'
   - '@expo/modules-macros-win32-arm64@0.27.1'
   - '@expo/modules-macros-win32-x64@0.27.1'
+  - '@expo/prebuild-config@58.0.17'
+  - '@expo/require-utils@58.0.5'
+  - '@expo/router-server@58.0.19'
+  - babel-preset-expo@58.0.22
+  - expo-asset@58.0.19
+  - expo-constants@58.0.14
+  - expo-file-system@58.0.13
+  - expo-font@58.0.11
+  - expo-modules-autolinking@58.0.16
+  - expo-modules-cli@0.4.0
   - expo-modules-core@58.0.28
   - expo-modules-jsi@58.0.21
   - expo-modules-macros@0.27.1
+  - expo@58.0.21
+  - expo-linking@58.0.15
+  - expo-router@58.0.28

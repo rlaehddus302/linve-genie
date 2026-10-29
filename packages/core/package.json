@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./quick-input": "./src/parse/quick-input.ts",
+    "./format": "./src/format.ts",
     "./golden": "./test/golden/api.ts"
   },
   "devDependencies": {
