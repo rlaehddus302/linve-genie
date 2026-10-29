@@ -47,7 +47,8 @@ describe('LabelQueue', () => {
       summary = queueSummary({ waiting: jobs.length, printing: next === null ? 0 : 1 })
       return { body: { job: next, reason: next === null ? 'EMPTY' : undefined } }
     })
-    // 그림 입구가 아직 없다(404) → 개발용 빈 그림 (TODO(APP2 server))
+    // APP2: 서버 그림을 그대로 보낸다. 404에는 출력하지 않는다.
+    server.on('GET', /^\/api\/print\/jobs\/[^/]+\/bitmap\?/, () => ({ body: { width: 384, height: 1, data: Buffer.alloc(48, 0x81).toString('base64') } }))
     server.on('POST', /^\/api\/print\/result$/, () => ({ body: { recorded: true } }))
     queue.start()
     await flush()
@@ -65,6 +66,7 @@ describe('LabelQueue', () => {
     expect(ble.printed.length).toBe(2)
     expect(ble.printed[0]?.image.width).toBe(384)
     expect(ble.printed[0]?.density).toBe(3)
+    expect([...ble.printed[0]!.image.data]).toEqual(Array(48).fill(0x81))
     const results = server.callsTo('POST', /\/api\/print\/result/).map((call) => call.body)
     expect(results).toEqual([
       { deviceId: 'app-device-1', attempt: 'j1-a1', ok: true },
@@ -88,6 +90,7 @@ describe('LabelQueue', () => {
       given = true
       return { body: { job: job('j1') } }
     })
+    server.on('GET', /^\/api\/print\/jobs\/[^/]+\/bitmap\?/, () => ({ body: { width: 384, height: 1, data: Buffer.alloc(48, 0x81).toString('base64') } }))
     server.on('POST', /^\/api\/print\/result$/, () => ({ body: { recorded: true } }))
     queue.start()
     await flush()

@@ -1,8 +1,4 @@
-// 네이티브 마이크 모듈의 약속 (APP-02, VOC-06). 실제 구현은 packages/mobile-audio(dev-device)가 낸다 — 여기에는 타입과 가짜 구현만 둔다.
-// 모듈이 하는 일: 마이크 소리를 16kHz 모노 PCM16 100ms(3,200바이트) 조각으로 바꿔 라이브지니 음성 웹소켓(wsUrl, 세션 표 token)으로 보내고,
-// 서버가 돌려준 글·읽은 결과(APP-05)를 onResult로, 연결 상태를 onState로 알린다. 뒤에서도(다른 앱·화면 꺼짐) 계속 돈다.
-// 받아쓰기 서버 주소·토큰은 모듈에도 없다 — 라이브지니 서버의 웹소켓 하나만 안다(D-APP-04).
-
+// 실제 모듈은 live-audio.ts에서 연결하고, FakeNativeAudio는 명시적인 시험 주입에서만 쓴다.
 /** 연결 상태 (D-APP-05): 꺼짐 · 켜는 중 · 듣는 중 · 다시 잇는 중(n번째) · 멈춤(까닭 문장) */
 export type AudioState =
   | { readonly kind: 'off' }
@@ -11,7 +7,7 @@ export type AudioState =
   | { readonly kind: 'reconnecting'; readonly attempt: number }
   | { readonly kind: 'stopped'; readonly message: string }
 
-/** 서버가 흐름 안에서 읽어 돌려준 결과 (APP-05 "글과 읽은 결과를 함께") — 모양은 서버(APP1b)가 정한다. TODO(APP1b server): 확정되면 맞춘다 */
+/** 명시적인 모의 전송 시험용 결과. 실제 연결은 voice-session 전체 상태/효과를 쓴다. */
 export interface VoiceReading {
   /** 읽은 상품 번호 (없으면 null) */
   readonly no: number | null
@@ -40,18 +36,27 @@ export interface AudioResult {
 export interface StartListeningInput {
   /** 라이브지니 음성 웹소켓 주소 (wss://…/api/voice/stream) */
   readonly wsUrl: string
-  /** 짧은 표 (세션으로 받은 값 — 모듈은 저장하지 않는다) */
-  readonly token: string
+  /** 예전 명시적 시험 어댑터 호환용. 실제 연결은 세션 쿠키만 쓴다. */
+  readonly token?: string
+  readonly origin?: string
+  /** false면 마이크 없이 기존 카드 조작용 세션만 연다. */
+  readonly capture?: boolean
   /** 안드로이드 고정 알림 글 */
   readonly notificationTitle?: string
   readonly notificationBody?: string
 }
 
 export interface NativeAudio {
+  canResume?(): Promise<boolean>
   startListening(input: StartListeningInput): Promise<void>
   stopListening(): Promise<void>
   onResult(cb: (result: AudioResult) => void): () => void
   onState(cb: (state: AudioState) => void): () => void
+  /** 전체 서버 읽기 세션. 가짜 legacy 결과와 별개로 실제 연결이 제공한다. */
+  onSession?(cb: (message: unknown) => void): () => void
+  sendSession?(message: unknown): void
+  /** 재연결 hello에만 쓰는 메모리 문맥. 전송·저장하지 않는다. */
+  updateSessionContext?(patch: Readonly<Record<string, unknown>>): void
   /** 지금 상태 */
   readonly state: AudioState
 }

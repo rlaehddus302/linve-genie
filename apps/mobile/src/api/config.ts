@@ -23,8 +23,7 @@ function fallbackId(): string {
 }
 
 function readEnvUrl(): string {
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-  const raw = env?.['EXPO_PUBLIC_SERVER_URL']
+  const raw = process.env.EXPO_PUBLIC_SERVER_URL
   return raw === undefined || raw.trim() === '' ? DEFAULT_SERVER_URL : raw.trim().replace(/\/+$/, '')
 }
 
@@ -50,4 +49,10 @@ export function absoluteUrl(path: string): string {
 /** 앱 안 "웹으로 열기"가 여는 웹 화면 주소 (같은 서버 — 로그인 쿠키는 기기 브라우저의 것이라 다시 로그인할 수 있다) */
 export function webUrl(path: string): string {
   return absoluteUrl(path)
+}
+
+/** REST 쓰기와 RN 웹소켓이 같은 공개 origin을 보낸다. */
+export function appOrigin(): string {
+  const explicit = process.env.EXPO_PUBLIC_APP_ORIGIN
+  return explicit?.trim() || new URL(config.baseUrl).origin
 }

@@ -7,7 +7,10 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "ios": {
       "bundleIdentifier": "app.livejjim.mobile",
       "supportsTablet": false,
@@ -15,7 +18,10 @@
         "NSMicrophoneUsageDescription": "방송 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요.",
         "NSBluetoothAlwaysUsageDescription": "라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.",
         "NSBluetoothPeripheralUsageDescription": "라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.",
-        "UIBackgroundModes": ["audio", "bluetooth-central"],
+        "UIBackgroundModes": [
+          "audio",
+          "bluetooth-central"
+        ],
         "CFBundleDevelopmentRegion": "ko"
       }
     },
@@ -40,9 +46,13 @@
       "expo-router",
       "expo-web-browser",
       [
-        "expo-status-bar",
+        "react-native-ble-plx",
         {
-          "style": "dark"
+          "isBackgroundEnabled": true,
+          "modes": [
+            "central"
+          ],
+          "bluetoothAlwaysPermission": "라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요."
         }
       ]
     ],

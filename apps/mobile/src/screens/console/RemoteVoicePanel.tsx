@@ -1,0 +1,103 @@
+// 서버가 보낸 카드·묻기·주문 상태의 화면. 인식문 해석·판매 판정은 여기서 하지 않는다.
+import { useContext, useEffect } from 'react'
+import { View } from 'react-native'
+import type { VoiceSnapshot } from '@livejjim/web/src/voice/controller.ts'
+import type { VoiceSession } from '../../lib/voice-session.ts'
+import { BigButton, Body, Card, Field, Hint, Notice, Row } from '../../ui/parts.tsx'
+import { VoiceSmsResult } from './VoiceSmsResult.tsx'
+import { ConsoleContext } from './context.ts'
+
+function words(display: Readonly<Record<string, unknown>>, name: string, id: string, fallback: string): string {
+  const map = display[name]
+  return map instanceof Map && typeof map.get(id) === 'string' ? map.get(id) as string : fallback
+}
+export function RemoteVoicePanel({ session, snapshot, display }: { readonly session: VoiceSession; readonly snapshot: VoiceSnapshot; readonly display: Readonly<Record<string, unknown>> }) {
+  const api = useContext(ConsoleContext)
+  const view = session.getView()
+  useEffect(() => {
+    if (view.openProduct !== null && api !== null) { api.select(view.openProduct); session.clearProduct() }
+  }, [view.openProduct, api, session])
+  const command = session.command.bind(session)
+  return <View style={{ gap: 10 }}>
+    {snapshot.historyFailed ? <Notice tone="warning">판매 이력을 받지 못했어요. 상품을 확인하고 등록해 주세요.</Notice> : null}
+    {snapshot.flushedClosed.length > 0 ? <Card label="닫힌 카드 안내"><Body>{`확인하지 않은 카드가 닫혔어요: ${snapshot.flushedClosed.join(', ')}`}</Body><BigButton label="확인" onPress={() => command('dismissFlushedClosed')} /></Card> : null}
+    {snapshot.missedFolded > 0 ? <Hint>{`가격을 못 들은 번호 ${String(snapshot.missedFolded)}개가 접혀 있어요. 상품 목록에서 확인해 주세요.`}</Hint> : null}
+    {view.priceChoice !== null ? <Card label="가격 적용 범위">
+      <Body bold>{`${String(view.priceChoice.no)}번을 ${view.priceChoice.price.toLocaleString('ko-KR')}원으로 바꿀까요?`}</Body>
+      <Hint>이미 찜한 손님이 있어요. 새 가격을 적용할 찜을 골라 주세요.</Hint>
+      <BigButton label="새 찜부터 적용" onPress={() => session.resolvePriceScope('NEW_ONLY')} />
+      <BigButton label="입금 전 찜에도 적용" onPress={() => session.resolvePriceScope('UNPAID_CLAIMS')} />
+      <BigButton label="안 바꾸기" onPress={() => session.resolvePriceScope(null)} />
+    </Card> : null}
+    {view.manualRetries.map((item) => <Card key={item.id} label="등록 재전송"><Body>{item.label}</Body>{item.error ? <Notice tone="danger">{item.error}</Notice> : null}{item.busy ? <Hint>보내는 중…</Hint> : <BigButton label="등록 다시 보내기" onPress={() => void session.retryManualRegistration(item.id)} />}</Card>)}
+    {snapshot.cards.map((card) => {
+      const form = snapshot.forms.get(card.id)
+      const info = snapshot.info.get(card.id)
+      const note = snapshot.notes.get(card.id)
+      return <Card key={card.id} label={`음성 카드 ${card.id}`}>
+        <Body bold>{words(display, 'cards', card.id, card.text)}</Body>
+        {note ? <Notice tone="info">{note}</Notice> : null}
+        {info?.ask ? <Hint>{info.ask}</Hint> : null}
+        {card.flushedAtEnd ? <Hint>늦게 들린 말이에요. 확인하고 등록해 주세요.</Hint> : null}
+        {snapshot.paused.has(card.id) ? <Hint>말하는 동안은 기다려요</Hint> : card.autoConfirmAt !== null ? <Hint>{`${Math.max(0, Math.ceil((card.autoConfirmAt - snapshot.now) / 1000))}초 뒤 등록`}</Hint> : null}
+        {info?.candidates.map((candidate) => <BigButton key={candidate.name} small label={candidate.name} onPress={() => command('chooseCandidate', [card.id, candidate.name])} />)}
+        {form ? <>
+          <Field label="상품 번호" keyboardType="number-pad" value={form.no} onChangeText={(no) => command('editForm', [card.id, { no }])} />
+          <Field label="품종" value={form.name} onChangeText={(name) => command('editForm', [card.id, { name }])} />
+          <Field label="가격" keyboardType="decimal-pad" value={form.price} onChangeText={(price) => command('editForm', [card.id, { price }])} />
+          {form.message ? <Notice tone="danger" alert>{form.message}</Notice> : null}
+          <BigButton primary label="고친 값으로 등록" onPress={() => command('submitForm', [card.id])} />
+        </> : <Row wrap>
+          <BigButton primary label="등록" ariaLabel={`등록 — ${card.no ?? ''}번 음성 카드`} onPress={() => void session.confirmCard(card.id)} />
+          <BigButton label="고치기" onPress={() => command('openForm', [card.id])} />
+          {card.autoConfirmAt !== null ? <BigButton label="자동 등록 멈추기" onPress={() => command('stopAuto', [card.id])} /> : null}
+        </Row>}
+        <BigButton label="닫기" onPress={() => command('close', [card.id])} />
+      </Card>
+    })}
+    {snapshot.offers.map((offer) => <Card key={offer.id} label="음성 고침 확인">
+      <Body bold>{offer.message}</Body>
+      {offer.note ? <Hint>{offer.note}</Hint> : null}
+      {offer.error ? <Notice tone="danger" alert>{offer.error}</Notice> : null}
+      {offer.priceEntry !== undefined && offer.stage === 'ask' ? <Field label="고칠 가격" value={offer.priceEntry} keyboardType="decimal-pad" onChangeText={(value) => command('setOfferPrice', [offer.id, value])} /> : null}
+      {offer.stage === 'busy' ? <Hint>보내는 중…</Hint> : <Row wrap>
+        {offer.stage === 'fixed' && offer.undoUntil !== null && offer.undoUntil > snapshot.now ? <BigButton label="고침 되돌리기" onPress={() => command('revertOffer', [offer.id])} /> : null}
+        {offer.stage === 'ask' && offer.kind === 'offer' ? <BigButton primary label={offer.maybeOther ? '새 가격으로 바꾸기' : '고치기'} onPress={() => command('fixOffer', [offer.id])} /> : null}
+        {offer.stage === 'ask' && offer.kind === 'card' ? <BigButton primary label="카드 고치기" onPress={() => command('fixCardOffer', [offer.id])} /> : null}
+        {offer.stage === 'ask' && offer.kind === 'undo' ? <BigButton primary label="등록 되돌리기" onPress={() => command('undoOffer', [offer.id])} /> : null}
+        {offer.maybeOther || offer.kind === 'number' ? <BigButton label="아까 것을 다른 번호로" onPress={() => command('renumberOffer', [offer.id])} /> : null}
+        <BigButton label="닫기" onPress={() => command('dismissOffer', [offer.id])} />
+      </Row>}
+    </Card>)}
+    {snapshot.sms.filter((entry) => !entry.hidden && entry.card.status !== 'CLOSED').map((entry) => <Card key={entry.card.id} label="음성 문자찜">
+      <Body bold>{words(display, 'sms', entry.card.id, '문자찜 확인')}</Body>
+      {entry.reason ? <Notice tone="warning">{entry.reason}</Notice> : null}
+      {entry.error ? <Notice tone="danger" alert>{entry.error}</Notice> : null}
+      {entry.timeCheck ? <Notice tone="warning">받은 시각이 지금보다 늦어요. 그래도 넣을까요?</Notice> : null}
+      {entry.choose ? <Hint>{entry.choose}</Hint> : null}
+      {entry.sending ? <Hint>보내는 중…</Hint> : <>
+        {entry.results.length > 0 ? entry.results.map((result) => <VoiceSmsResult key={`${result.no}-${result.seq}`} line={result} />) : null}
+        {entry.reason === null && entry.card.status === 'OPEN' ? <>
+          <Hint>{words(display, 'countdowns', entry.card.id, '')}</Hint>
+          {entry.card.candidates ? <>
+            {entry.card.candidates.map((candidate) => <BigButton key={candidate.buyer} label={`${candidate.display}${candidate.phoneLast4 ? ` · 끝자리 ${candidate.phoneLast4}` : ''}`} onPress={() => command('smsChoose', [entry.card.id, candidate.buyer])} />)}
+            <BigButton label="새 손님으로 넣기" onPress={() => command('smsNewBuyer', [entry.card.id])} />
+          </> : <BigButton primary label={entry.timeCheck ? '그래도 넣기' : '지금 넣기'} onPress={() => command('smsSend', [entry.card.id])} />}
+          <BigButton label="넣지 않기" onPress={() => command('smsSkip', [entry.card.id])} />
+        </> : <BigButton label="닫기" onPress={() => command('smsDismiss', [entry.card.id])} />}
+      </>}
+    </Card>)}
+    {snapshot.smsDropped.map((item) => <Card key={item.id} label="넣지 않은 문자찜"><Body>{item.text}</Body><BigButton label="확인" onPress={() => command('smsDroppedSeen', [item.id])} /></Card>)}
+    <Card label="음성 설정과 기록">
+      <BigButton label={`번호와 가격이 들리면 바로 등록: ${snapshot.instant ? '켬' : '끔'}`} onPress={() => session.setInstant(!snapshot.instant)} />
+      <BigButton label={`카드 자동 확정: ${snapshot.settings?.['voice.autoConfirm'] ? '켬' : '끔'}`} onPress={() => command('setAutoConfirm', [!snapshot.settings?.['voice.autoConfirm']])} />
+      <Field label="자동 확정 기다림(초)" value={snapshot.secondsText} keyboardType="number-pad" onChangeText={(value) => command('setSeconds', [value])} problem={snapshot.settingsProblem} />
+      <Field label="말이 끝났다고 볼 때까지(초)" value={snapshot.quietText} keyboardType="decimal-pad" onChangeText={(value) => command('setQuietSeconds', [value])} problem={snapshot.quietProblem} />
+      <BigButton label={`문자찜 듣기: ${snapshot.smsSettings?.['voice.smsListen'] ? '켬' : '끔'}`} onPress={() => command('setSmsListen', [!snapshot.smsSettings?.['voice.smsListen']])} />
+      <Field label="문자찜 자동으로 넣기까지(초)" value={snapshot.smsSecondsText} keyboardType="number-pad" onChangeText={(value) => command('setSmsSeconds', [value])} problem={snapshot.smsSettingsProblem} />
+      <BigButton label={`음성 인식 기록 모아 두기: ${snapshot.archive ? '켬' : '끔'}`} onPress={() => command('setArchive', [!snapshot.archive])} />
+      {Array.isArray(display.logLines) ? (display.logLines as { key: string; time: string; pieces: readonly string[]; action: string; reason: string | null }[]).slice(0, 20).map((line) => <Hint key={line.key}>{`${line.time} ${line.pieces.join(' ')} · ${line.action}${line.reason ? ` · ${line.reason}` : ''}`}</Hint>) : null}
+      <Row wrap><BigButton label="음성 기록 지우기" onPress={() => command('clearLog')} /><BigButton label={`배운 품종 이름 지우기(${snapshot.learnedCount})`} onPress={() => command('clearLearned')} /></Row>
+    </Card>
+  </View>
+}

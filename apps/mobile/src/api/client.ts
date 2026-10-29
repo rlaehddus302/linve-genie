@@ -1,7 +1,7 @@
 // 서버 호출 (웹 apps/web/src/api/client.ts와 같은 약속 — 오류 모양·재시도·요청 번호). 세션은 서버 쿠키로만 다룬다(기기 쿠키 저장소,
 // credentials: 'include') — 앱은 토큰을 읽거나 저장하지 않는다. 오류 종류(ApiError)·재시도(withRetry)·질의(withQuery)는 웹 것을 그대로 쓴다.
 import { ApiError, NETWORK_MESSAGE, UNKNOWN_MESSAGE, errorFromBody } from '@livejjim/web/src/api/client.ts'
-import { absoluteUrl, apiConfig } from './config.ts'
+import { absoluteUrl, apiConfig, appOrigin } from './config.ts'
 
 export { ApiError, NETWORK_MESSAGE, SAVE_FAILED_MESSAGE, UNKNOWN_MESSAGE, errorFromBody, isApiError, withQuery, withRetry, RETRY_DELAYS_MS } from '@livejjim/web/src/api/client.ts'
 export type { RetryOptions } from '@livejjim/web/src/api/client.ts'
@@ -28,7 +28,7 @@ async function request<T>(method: string, path: string, body?: unknown, options:
     response = await apiConfig().fetch(absoluteUrl(path), {
       method,
       credentials: 'include',
-      headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
+      headers: { Accept: 'application/json', ...(method === 'GET' ? {} : { Origin: appOrigin() }), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     })

@@ -4,7 +4,7 @@
 // - 프린터 연결이 바뀌면 서버에 알린다(끊김 → 끊김 멈춤, 다시 연결 → 풀림).
 // - 앱이 뒤에 있어도 연결은 끊지 않는다. 앞으로 돌아오면(resume) 대기열 요약을 다시 받고 쌓인 라벨을 이어 찍는다.
 import type { ClaimedJob, PrintNotice, PrintOverview, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
-import { blankBitmap, fetchJobBitmap } from '../api/labels.ts'
+import { fetchTestBitmap, fetchJobBitmap, bitmapFailure } from '../api/labels.ts'
 import { get, isApiError, post, withRetry, type ApiError } from '../api/client.ts'
 import type { EventSourceLike, SseMessage } from '../api/sse.ts'
 import type { ConnectionState, NativeBlePrinter, PrinterError } from '../native/ble.ts'
@@ -71,6 +71,7 @@ export class LabelQueue {
   }
 
   start(): void {
+    this.#stopped = false
     this.#unsubState = this.#options.ble.onStateChange((state) => {
       this.#set({ printer: state })
       if (state === 'CONNECTED') {
@@ -160,12 +161,18 @@ export class LabelQueue {
     await this.#options.ble.disconnect()
   }
 
-  /** 테스트 인쇄 — 서버를 거치지 않는다. TODO(APP2 server): 테스트 라벨 그림도 서버가 준다(`GET /api/print/test-bitmap`); 지금은 빈 그림 */
+  /** 테스트도 서버에서 받은 같은 비트맵만 출력한다. */
   async printTest(): Promise<boolean> {
     if (this.#snapshot.job !== null) return false
-    const result = await this.#options.ble.print(blankBitmap(), { density: this.#snapshot.density })
-    if (!result.ok) this.#set({ printerError: result.error })
-    return result.ok
+    try {
+      const bitmap = await fetchTestBitmap()
+      const result = await this.#options.ble.print(bitmap, { density: this.#snapshot.density })
+      if (!result.ok) this.#set({ printerError: result.error })
+      return result.ok
+    } catch {
+      this.#set({ printerError: { code: 'PRINT_FAILED', message: '테스트 라벨을 받지 못했어요. 연결을 확인하고 다시 눌러 주세요.', action: '다시 시도' } })
+      return false
+    }
   }
 
   async #report(connected: boolean): Promise<void> {
@@ -269,7 +276,7 @@ export class LabelQueue {
   async #printJob(job: ClaimedJob): Promise<void> {
     this.#set({ job, busy: true })
     let ok = false
-    let error: { code: string } | null = null
+    let error: { code: string; item?: string } | null = null
     try {
       const bitmap = await fetchJobBitmap(job, this.#options.deviceId)
       const result = await this.#options.ble.print(bitmap, { density: this.#snapshot.density })
@@ -279,7 +286,9 @@ export class LabelQueue {
         this.#set({ printerError: result.error })
       }
     } catch (caught) {
-      error = { code: isApiError(caught) ? caught.code : 'LABEL_ERROR' }
+      const failure = bitmapFailure(caught)
+      error = { code: failure.code, ...(failure.item === undefined ? {} : { item: failure.item }) }
+      this.#set({ printerError: { code: 'PRINT_FAILED', message: failure.message, action: '다시 시도' } })
     }
     const body = { deviceId: this.#options.deviceId, attempt: job.attempt, ok, ...(error === null ? {} : { error }) }
     try {

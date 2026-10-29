@@ -2,10 +2,12 @@
 // 화면은 useServices()로 받는다. 시험은 가짜 모듈·가짜 서버로 만든 묶음을 Provider에 넣는다.
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Me, WriteResult } from '@livejjim/web/src/api/types.ts'
-import { get, isApiError, newRequestId, onUnauthorized, post, withQuery, withRetry, type ApiError } from './api/client.ts'
+import { get, isApiError, newRequestId, onUnauthorized, post, withRetry, type ApiError } from './api/client.ts'
 import { AwayTracker } from './lib/away.ts'
 import { LabelQueue } from './lib/label-queue.ts'
 import { createLiveStream, type LiveStream } from './lib/live.ts'
+import { clearVoiceArchive, setVoiceAccount } from './lib/voice-preferences.ts'
+import { createVoiceEffects } from './lib/voice-effects.ts'
 import { VoiceSession } from './lib/voice-session.ts'
 import { nativeAudio, nativeBle } from './native/index.ts'
 import type { NativeAudio } from './native/audio.ts'
@@ -22,7 +24,7 @@ export interface Services {
 /** 기기 ID (영문·숫자·'_'·'-' 8~64자). 앱이 켜져 있는 동안 하나 — 출력 기기 역할은 다시 열면 다시 고른다 */
 export function makeDeviceId(random: () => number = Math.random): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  let out = 'app-'
+  let out = 'app'
   for (let i = 0; i < 20; i++) out += chars[Math.floor(random() * chars.length)] ?? 'a'
   return out
 }
@@ -43,10 +45,10 @@ async function scopeOf(broadcastId: string): Promise<{ date: string; rehearsal: 
 /** 바로 등록 요청: 서버가 읽은 결과로 product.register를 보낸다 (입력 우선 기록 — 서버가 이벤트로 먼저 적는다) */
 async function registerFromVoice(broadcastId: string, reading: { readonly no: number | null; readonly name: string; readonly price: number | null }): Promise<void> {
   if (reading.no === null || reading.price === null) throw new Error('번호·가격이 없다')
-  const broadcast = await scopeOf(broadcastId)
+  const requestId = newRequestId()
   await withRetry(() =>
-    post<WriteResult>(withQuery('/api/events', { date: broadcast.date, rehearsal: broadcast.rehearsal }), {
-      requestId: newRequestId(),
+    post<WriteResult>('/api/events', {
+      requestId,
       type: 'product.register',
       b: broadcastId,
       no: reading.no,
@@ -57,8 +59,8 @@ async function registerFromVoice(broadcastId: string, reading: { readonly no: nu
 }
 
 async function closeFromVoice(broadcastId: string, no: number): Promise<void> {
-  const broadcast = await scopeOf(broadcastId)
-  await withRetry(() => post<WriteResult>(withQuery('/api/events', { date: broadcast.date, rehearsal: broadcast.rehearsal }), { requestId: newRequestId(), type: 'product.close', b: broadcastId, no }))
+  const requestId = newRequestId()
+  await withRetry(() => post<WriteResult>('/api/events', { requestId, type: 'product.close', b: broadcastId, no }))
 }
 
 export function createServices(input: { readonly audio?: NativeAudio; readonly ble?: NativeBlePrinter; readonly deviceId?: string; readonly stream?: LiveStream } = {}): Services {
@@ -68,6 +70,8 @@ export function createServices(input: { readonly audio?: NativeAudio; readonly b
   const labels = new LabelQueue({ ble: input.ble ?? nativeBle(), deviceId, openStream: () => stream.open() })
   const voice = new VoiceSession({
     audio: input.audio ?? nativeAudio(),
+    deviceId,
+    effect: createVoiceEffects(scopeOf),
     register: registerFromVoice,
     undoRegister: closeFromVoice,
     onProcessed: () => away.noteVoice(),
@@ -106,6 +110,7 @@ export function SessionProvider({ children, services }: { readonly children: Rea
   const recheck = async () => {
     try {
       const me = await get<Me>('/api/me')
+      setVoiceAccount(me.loginId)
       setSession({ state: 'in', me })
     } catch (error) {
       if (isApiError(error) && error.status === 401) setSession({ state: 'out', expired: false })
@@ -116,7 +121,8 @@ export function SessionProvider({ children, services }: { readonly children: Rea
   useEffect(() => {
     void recheck()
     onUnauthorized(() => {
-      void services.voice.turnOff()
+      void services.voice.shutdown()
+      void clearVoiceArchive()
       services.stream.shutdown()
       setSession({ state: 'out', expired: true })
     })
@@ -137,10 +143,12 @@ export function SessionProvider({ children, services }: { readonly children: Rea
       recheck,
       login: async (loginId, password) => {
         const me = await post<Me>('/api/login', { loginId, password })
+        setVoiceAccount(me.loginId)
         setSession({ state: 'in', me })
       },
       logout: async () => {
-        await services.voice.turnOff()
+        await services.voice.shutdown()
+        await clearVoiceArchive()
         try {
           await post('/api/logout', {})
         } catch (error) {

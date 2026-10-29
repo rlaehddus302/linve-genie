@@ -54,6 +54,7 @@ export function makeWorld(options: { readonly products?: ReturnType<typeof fullV
   server.on('GET', /^\/api\/print$/, () => ({ body: { queue: { rev: 1, device: null, pause: null, waiting: 0, printing: 0, discard: 0, labelsEnabled: true }, jobs: [], discard: [] } }))
   server.on('GET', /^\/api\/print\/labels/, () => ({ body: { date: '2026-10-29', labels: [] } }))
   server.on('POST', /^\/api\/events/, (call) => {
+    if (typeof call.body?.b === 'string' && /[?&](date|rehearsal)=/.test(call.path)) return { status: 400, body: { error: { code: 'INVALID_INPUT', message: '방송이 있는 입력에는 범위를 따로 적지 않아요.' } } }
     world.events.push(call)
     world.seq += 1
     const result: WriteResult = { date: '2026-10-29', rehearsal: broadcast.rehearsal, seq: world.seq, type: String(call.body?.type), changed: true, effects: [] }

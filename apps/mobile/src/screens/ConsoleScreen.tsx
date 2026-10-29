@@ -135,7 +135,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
       if (current.data.sealed) throw new ApiError({ status: 409, code: 'SEALED', message: '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.' })
       let result: WriteResult
       try {
-        result = await withRetry(() => post<WriteResult>(withQuery('/api/events', { date: current.data!.date, rehearsal: current.data!.rehearsal }), { requestId, ...event }))
+        result = await withRetry(() => post<WriteResult>(withQuery('/api/events', typeof event.b === 'string' ? {} : { date: current.data!.date, rehearsal: current.data!.rehearsal }), { requestId, ...event }))
       } catch (error) {
         if (isApiError(error) && error.code === 'PROCESSING_FAILED') void store.catchUp()
         throw error

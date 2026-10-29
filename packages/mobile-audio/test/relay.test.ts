@@ -96,6 +96,7 @@ describe('받기·닫힘', () => {
     socket.drop()
     socket.message('{"type":"ready"}')
     expect(events).toEqual(['error'])
+    expect(socket.closed).toBe(1)
   })
 
   it('엔진이 close()하면 소켓을 닫고 그 뒤 알림은 없다 (판매자가 끈 것은 다시 잇기 대상이 아님)', () => {

@@ -78,6 +78,9 @@ export function createRelayConnect(options: RelayOptions): RelayConnect {
         s.onmessage = null
         s.onclose = null
         s.onerror = null
+        if (how === 'error') {
+          try { s.close() } catch { /* 이미 닫힌 연결 */ }
+        }
       }
       if (how === 'error') handlers.onError()
       else handlers.onClose()

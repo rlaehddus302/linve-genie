@@ -1,10 +1,9 @@
 // 음성 칸 (VOC-06 기기 쪽, APP-02, D-APP-05·08): 켜기/끄기, 듣는 중·다시 잇는 중, 큰 글자 "지금 들리는 말", 카드([등록]·[아니요]), 바로 등록 되돌리기,
 // 듣기 멈춤 큰 빨간 글 + [다시 켜기], 처음 켤 때 안내 창. 상태는 색 + 글자. 판매자 계정만 켤 수 있다(보조자는 음성 없음).
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import type { VoiceSession } from '../../lib/voice-session.ts'
-import { isFakeAudio, nativeAudio } from '../../native/index.ts'
-import { FakeNativeAudio } from '../../native/audio.ts'
+import { RemoteVoicePanel } from './RemoteVoicePanel.tsx'
 import {
   VOICE_CARD_DISMISS,
   VOICE_CARD_REGISTER,
@@ -27,6 +26,7 @@ import { BigButton, BigRed, Body, Card, Hint, Notice, Row, SectionTitle, Tag } f
 
 export function VoicePanel({ session, broadcastId, title, seller, ended }: { readonly session: VoiceSession; readonly broadcastId: string; readonly title: string; readonly seller: boolean; readonly ended: boolean }) {
   const view = useSyncExternalStore(session.subscribe, session.getView)
+  useEffect(() => { if (seller && !ended) void session.resumeIfConsented(broadcastId, title) }, [session, seller, ended, broadcastId, title])
   if (!seller) return <Hint>{VOICE_SELLER_ONLY}</Hint>
   const mine = view.broadcastId === broadcastId
   const on = view.on && mine
@@ -75,22 +75,12 @@ export function VoicePanel({ session, broadcastId, title, seller, ended }: { rea
           <Row wrap>
             <BigButton label={VOICE_OFF} onPress={() => void session.turnOff()} />
             {view.undo !== null ? <BigButton label={`${String(view.undo.no)}번 등록 ${UNDO}`} onPress={() => void session.undo()} /> : null}
-            {isFakeAudio() ? (
-              <BigButton
-                small
-                label="시험: '15번 2만 원' 들림"
-                onPress={() => {
-                  const audio = nativeAudio()
-                  if (audio instanceof FakeNativeAudio) {
-                    const now = Date.now()
-                    audio.emit({ text: '15번 2만 원', startMs: now - 1500, endMs: now - 200, reading: { no: 15, name: '', price: 20000, instant: true, correction: false, readout: '15번 20,000원' } })
-                  }
-                }}
-              />
-            ) : null}
+
           </Row>
         </>
       ) : null}
+      {!on && mine && view.undo !== null ? <BigButton label={`${String(view.undo.no)}번 등록 ${UNDO}`} onPress={() => void session.undo()} /> : null}
+      {mine && view.remote !== null ? <RemoteVoicePanel session={session} snapshot={view.remote} display={view.display} /> : null}
       {view.cards.length > 0 ? (
         <View role="list" aria-label="확인할 카드" style={{ gap: 8 }}>
           {view.cards.map((card) => (
