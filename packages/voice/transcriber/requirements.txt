@@ -1,0 +1,10 @@
+# 받아쓰기 일꾼 실행에 필요한 꾸러미 (단위 시험은 표준 라이브러리만 — 이 꾸러미 없이 돈다)
+# 맥 미니(M 칩)에서 확인한 판: 파이썬 3.12, 2026-10-29
+websockets==17.3
+onnxruntime==1.31.1
+silero-vad==6.2.3
+numpy==2.5.4
+torch==2.15.0
+transformers==5.21.0
+accelerate==1.15.0
+huggingface_hub==2.3.0
