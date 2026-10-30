@@ -105,6 +105,7 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
               }
             />
           ) : null}
+          <BigButton label="제조사 앱으로 보내기" disabled={busy} onPress={() => void run(async () => void (await labels.shareTest()))} />
         </Row>
         {snapshot.printerError !== null ? (
           <Notice tone="danger" alert>

@@ -9,6 +9,7 @@
 // - 농도는 연결한 프린터의 범위 안에서만(B1 1~5 · Marklife YXQ 1~3). 농도를 받지 않는 프린터(L11)면 보내지 않는다.
 import type { DensityRange } from '@livejjim/printer'
 import type { ClaimedJob, ClientConfig, PrintNotice, PrintOverview, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
+import { labelBitmapToPng } from './label-png.ts'
 import { fetchTestBitmap, fetchJobBitmap, bitmapFailure } from '../api/labels.ts'
 import { get, isApiError, post, withRetry, type ApiError } from '../api/client.ts'
 import type { EventSourceLike, SseMessage } from '../api/sse.ts'
@@ -46,6 +47,8 @@ export interface LabelQueueSnapshot {
 export interface LabelQueueOptions {
   readonly ble: NativeBlePrinter
   readonly deviceId: string
+  /** 라벨 그림을 공유 시트로 보낸다 (PR-07) */
+  readonly share?: (png: Uint8Array, name: string) => Promise<void>
   readonly openStream: () => EventSourceLike
   readonly timer?: Timer
 }
@@ -254,6 +257,19 @@ export class LabelQueue {
 
   async disconnect(): Promise<void> {
     await this.#options.ble.disconnect()
+  }
+
+  /** 서버가 만든 테스트 라벨 그림(203dpi 1비트 PNG)을 공유 시트로 제조사 앱에 보낸다. 프린터 연결과 상관없다. */
+  async shareTest(): Promise<boolean> {
+    const share = this.#options.share
+    if (share === undefined) return false
+    try {
+      await share(labelBitmapToPng(await fetchTestBitmap()), 'livejjim-test-label.png')
+      return true
+    } catch {
+      this.#set({ printerError: { code: 'PRINT_FAILED', message: '라벨 그림을 보내지 못했어요. 잠시 뒤 다시 눌러 주세요.', action: '다시 시도' } })
+      return false
+    }
   }
 
   /** 테스트도 서버에서 받은 같은 비트맵만 출력한다. */
