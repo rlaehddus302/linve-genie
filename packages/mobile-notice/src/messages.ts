@@ -12,6 +12,10 @@ export const NOTICE_ACCESS_BUTTON = '알림 읽기 켜러 가기'
 export const NOTICE_ACCESS_OFF = '알림 읽기가 꺼져 있어요'
 /** 401 — 받기 토큰이 끊겼을 때 (AC-SMS3-27) */
 export const NOTICE_TOKEN_AGAIN = '받기 토큰을 다시 넣어 주세요'
+/** 403 INBOX_OFF — 웹 설정에서 받기를 껐을 때 (D-SMS3-27). 대기열·토큰은 지키고 다시 켜면 모아 둔 알림을 보낸다 */
+export const NOTICE_INBOX_OFF = '웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 알림을 보내요'
+/** 대기열(1,000건)이 넘쳐 버린 알림이 있을 때 (D-SMS3-28) — {n}은 건수 */
+export const NOTICE_DROPPED_TEMPLATE = '보내지 못하고 버린 알림이 {n}건 있어요. 은행 앱에서 입금을 확인해 주세요'
 /** 안드로이드 13+ 앱 밖에서 받은 설치 파일이면 허용 단추가 막힌다 */
 export const NOTICE_RESTRICTED_GUIDE = '허용이 눌리지 않으면: 설정 → 애플리케이션 → 라이브지니 → 오른쪽 위 ⋮ → "제한된 설정 허용"을 누른 뒤 다시 해 주세요.'
 /** 배터리 최적화 제외 안내 (삼성 기준 길 — 기종마다 이름이 조금 달라요) */
@@ -36,6 +40,7 @@ export const NOTICE_INTENT_RESULT = Object.freeze({
   duplicate: '이미 보낸 문자예요.',
   dropped: '쌓인 문자가 너무 많아 오래된 것부터 지웠어요. 라이브지니 앱을 열어 주세요.',
   off: '문자 받기가 꺼져 있어요. 라이브지니 앱에서 켜 주세요.',
+  inboxOff: '웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 문자를 보내요.',
   noToken: '라이브지니 앱에 받기 토큰을 먼저 넣어 주세요.',
   empty: '내용이 비어 있어서 보내지 않았어요.',
 })
@@ -46,6 +51,7 @@ export function noticeStatusLine(state: NoticeState): string {
   if (state.access === 'needed') return NOTICE_ACCESS_OFF
   if (!state.hasToken) return '받기 토큰을 넣어 주세요'
   if (state.tokenRejected) return NOTICE_TOKEN_AGAIN
+  if (state.inboxOff) return NOTICE_INBOX_OFF
   if (state.pending > 0 && state.lastError === 'NETWORK') return `인터넷이 끊겨 ${state.pending}건을 모아 두었어요. 연결되면 바로 보내요`
   if (state.pending > 0 && state.lastError === 'SERVER') return `${state.pending}건을 보내지 못했어요. 잠시 뒤 다시 보내요`
   if (state.pending > 0 && state.lastError === 'BUSY') return `${state.pending}건을 1분 뒤에 다시 보내요`
@@ -55,13 +61,17 @@ export function noticeStatusLine(state: NoticeState): string {
   return state.hasFilters ? '문자와 은행 앱 알림을 보내고 있어요' : '문자를 보내고 있어요. 은행 앱 목록은 서버에 연결되면 받아요'
 }
 
-/** 건수 줄 */
+/** 버린 알림 줄 (D-SMS3-28) — 버린 것이 없으면 null. 설정·상태 칸에 눈에 띄게 보인다 */
+export function noticeDroppedLine(state: Pick<NoticeState, 'dropped'>): string | null {
+  return state.dropped > 0 ? NOTICE_DROPPED_TEMPLATE.replace('{n}', String(state.dropped)) : null
+}
+
+/** 건수 줄 (버린 건수는 noticeDroppedLine이 따로 보인다) */
 export function noticeCountLine(state: NoticeState): string {
   const parts = [`보냄 ${state.sent}건`]
   if (state.ignored > 0) parts.push(`찜·입금 아님 ${state.ignored}건`)
   if (state.filtered > 0) parts.push(`광고·인증 문자 거름 ${state.filtered}건`)
   if (state.duplicates > 0) parts.push(`겹침 ${state.duplicates}건`)
   if (state.rejected > 0) parts.push(`서버가 받지 않음 ${state.rejected}건`)
-  if (state.dropped > 0) parts.push(`쌓인 게 많아 지움 ${state.dropped}건`)
   return parts.join(' · ')
 }

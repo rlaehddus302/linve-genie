@@ -112,8 +112,8 @@ internal object NoticeIntake {
         var queued = 0
         val filters = store.filters()
         for (message in result.candidates) {
-          // skipWords가 든 문자는 휴대폰 밖으로 보내지 않는다(C-03). 앱 알림은 bankApps로 이미 골랐다
-          if (message.channel == "SMS" && NoticeFilter.skipWordIn(message.text, filters) != null) {
+          // skipWords가 든 문자는 휴대폰 밖으로 보내지 않는다(C-03) — 은행 대표번호 문자는 거르지 않는다(D-SMS3-26). 앱 알림은 bankApps로 이미 골랐다
+          if (NoticeFilter.skipWordFor(message.channel, message.from, message.text, filters) != null) {
             store.bump("filtered")
             continue
           }

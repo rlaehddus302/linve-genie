@@ -1,8 +1,8 @@
 // 암호화 대기열 · 설정 · 받기 토큰 (아이폰) — 안드로이드 NoticeStore.kt와 같은 일 (SPEC ORD-13 C-02·C-03·C-07, AC-SMS3-27).
 // - 대기열 한 건 = 파일 하나(AES-GCM 암호화, 키는 키체인에만 — 잠금 해제 뒤 첫 사용 전까지 접근 불가). 평문 본문·번호를 디스크에 두지 않는다.
-//   최대 200건 — 넘으면 오래된 것부터 버리고 개수만 센다. 같은 id로 다시 보낸다.
+//   최대 1,000건(D-SMS3-28) — 넘으면 오래된 것부터 버리고 개수를 센다(앱이 "보내지 못하고 버린 알림이 n건" 줄로 보인다). 같은 id로 다시 보낸다.
 // - 토큰·서버 주소·기기 이름도 같은 키로 암호화한 파일. 로그에는 남기지 않는다.
-// - 같은 알림 두 번 막기: 최근 seenMax개 id를 기억한다. 서버 filters(비밀 아님)·429 기다림은 UserDefaults.
+// - 같은 알림 두 번 막기: 최근 seenMax개 id를 기억한다. 서버 filters(비밀 아님)·429 기다림·받기 꺼짐(403) 상태는 UserDefaults.
 import CryptoKit
 import Foundation
 import Security
@@ -98,6 +98,15 @@ public final class NoticeStore {
     public var notBeforeMs: Int64 { Int64(defaults.double(forKey: "notBeforeMs")) }
     public func setNotBeforeMs(_ value: Int64) { defaults.set(Double(value), forKey: "notBeforeMs") }
 
+    // MARK: 받기 꺼짐 (403 INBOX_OFF, D-SMS3-27) — 토큰은 그대로 둔다
+    public var isInboxOff: Bool { defaults.bool(forKey: "inboxOff") }
+    public var offCheckAtMs: Int64 { Int64(defaults.double(forKey: "offCheckAtMs")) }
+    public func setInboxOff(_ off: Bool, checkAtMs: Int64) {
+        defaults.set(off, forKey: "inboxOff")
+        defaults.set(Double(checkAtMs), forKey: "offCheckAtMs")
+        if !off && lastError == "OFF" { setLastError(nil) }
+    }
+
     // MARK: 토큰
     public var hasToken: Bool { FileManager.default.fileExists(atPath: tokenFile.path) }
     public var isTokenRejected: Bool { defaults.bool(forKey: "tokenRejected") }
@@ -132,7 +141,7 @@ public final class NoticeStore {
     // MARK: 대기열
     public enum EnqueueResult: Equatable { case queued, duplicate, dropped }
 
-    /// 두 번 막기 뒤 암호화해 넣는다. 200건이 넘으면 오래된 것(넣은 차례 앞)부터 버리고 개수만 센다 — 이것이 버려지면 .dropped
+    /// 두 번 막기 뒤 암호화해 넣는다. 1,000건이 넘으면 오래된 것(넣은 차례 앞)부터 버리고 개수만 센다 — 이것이 버려지면 .dropped
     public func enqueue(_ message: InboxMessage, nowMs: Int64) -> EnqueueResult {
         lock.lock(); defer { lock.unlock() }
         var seen = loadSeen()
@@ -185,7 +194,7 @@ public final class NoticeStore {
     public func stateMap() -> [String: Any] {
         var map: [String: Any] = [
             "platform": "ios", "enabled": isEnabled, "access": "shortcut", "connected": false, "hasToken": hasToken,
-            "tokenRejected": isTokenRejected, "pending": pendingCount, "bankApps": [String](), "hasFilters": filters() != nil,
+            "tokenRejected": isTokenRejected, "inboxOff": isInboxOff, "pending": pendingCount, "bankApps": [String](), "hasFilters": filters() != nil,
         ]
         for counter in NoticeStore.counters { map[counter] = Double(count(counter)) }
         if defaults.double(forKey: "lastQueuedAtMs") > 0 { map["lastQueuedAtMs"] = defaults.double(forKey: "lastQueuedAtMs") }

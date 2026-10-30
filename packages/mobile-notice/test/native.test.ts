@@ -3,7 +3,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SKIP_WORDS, INBOX_BATCH_MAX, NOTICE_QUEUE_MAX, NOTICE_TEXT_MAX_CHARS, TOO_MANY_WAIT_MS } from '../src/index.ts'
+import { DEFAULT_BANK_NUMBERS, DEFAULT_SKIP_WORDS, INBOX_BATCH_MAX, INBOX_OFF_RECHECK_MS, NOTICE_QUEUE_MAX, NOTICE_TEXT_MAX_CHARS, TOO_MANY_WAIT_MS } from '../src/index.ts'
 
 const root = join(import.meta.dirname, '..')
 const read = (path: string): string => readFileSync(join(root, path), 'utf8')
@@ -37,7 +37,7 @@ describe('로그 금지 (C-07)', () => {
 describe('세 플랫폼이 같은 한도·낱말', () => {
   const kt = kotlin.map((f) => f.text).join('\n')
   const sw = swift.map((f) => f.text).join('\n')
-  it('본문 1,000자 · 한 번에 20건 · 대기열 200건 · 429 뒤 1분', () => {
+  it('본문 1,000자 · 한 번에 20건 · 대기열 1,000건 · 429 뒤 1분', () => {
     expect(kt).toMatch(new RegExp(`TEXT_MAX_CHARS = ${NOTICE_TEXT_MAX_CHARS}\\b`))
     expect(kt).toMatch(new RegExp(`BATCH_MAX = ${INBOX_BATCH_MAX}\\b`))
     expect(kt).toMatch(new RegExp(`QUEUE_MAX = ${NOTICE_QUEUE_MAX}\\b`))
@@ -47,6 +47,16 @@ describe('세 플랫폼이 같은 한도·낱말', () => {
     expect(sw).toMatch(new RegExp(`queueMax = ${NOTICE_QUEUE_MAX}\\b`))
     expect(sw).toMatch(/tooManyWaitMs: Int64 = 60_000/)
     expect(TOO_MANY_WAIT_MS).toBe(60_000)
+  })
+  it('받기 꺼짐(403) 뒤 10분마다 다시 본다', () => {
+    expect(INBOX_OFF_RECHECK_MS).toBe(600_000)
+    expect(kt).toMatch(/INBOX_OFF_RECHECK_MS = 600_000L/)
+    expect(sw).toMatch(/inboxOffRecheckMs: Int64 = 600_000/)
+  })
+  it('목록 받기 전 은행 대표번호(DP-9 1 표 사본)', () => {
+    const list = DEFAULT_BANK_NUMBERS.map((w) => `"${w}"`).join(', ')
+    expect(kt).toContain(`DEFAULT_BANK_NUMBERS = listOf(${list})`)
+    expect(sw).toContain(`defaultBankNumbers = [${list}]`)
   })
   it('목록 받기 전 거를 낱말(R-26 3 사본)', () => {
     const list = DEFAULT_SKIP_WORDS.map((w) => `"${w}"`).join(', ')

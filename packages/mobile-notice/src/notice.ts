@@ -28,7 +28,7 @@ export class NoticeInputError extends Error {
 
 const PLATFORMS: readonly NoticePlatform[] = ['android', 'ios', 'fake']
 const ACCESS: readonly NoticeAccess[] = ['granted', 'needed', 'shortcut']
-const SEND_ERRORS: readonly NoticeSendError[] = ['NETWORK', 'SERVER', 'BUSY', 'TOKEN']
+const SEND_ERRORS: readonly NoticeSendError[] = ['NETWORK', 'SERVER', 'BUSY', 'TOKEN', 'OFF']
 const SETTINGS: readonly NoticeSettingsTarget[] = ['notificationAccess', 'battery', 'app', 'shortcuts']
 
 const count = (value: unknown): number => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0)
@@ -47,6 +47,7 @@ export function normalizeNoticeState(raw: NativeNoticeState | null | undefined):
     connected: r.connected === true,
     hasToken: r.hasToken === true,
     tokenRejected: r.tokenRejected === true,
+    inboxOff: r.inboxOff === true,
     pending: count(r.pending),
     sent: count(r.sent),
     ignored: count(r.ignored),

@@ -1,5 +1,6 @@
 // 서버 받는 입구 약속 (아이폰 쪽 한 곳, SPEC ORD-13 C-04) — TS src/contract.ts·안드로이드 NoticeContract.kt와 같은 값이어야 한다(공용 사례가 잠근다).
-// 요청 { device, messages: [{ id, channel, from, title, text, receivedAt }] } (0~20건), 응답 200 { results: [{ id, status }], filters: { skipWords, bankApps } }.
+// 요청 { device, messages: [{ id, channel, from, title, text, receivedAt }] } (0~20건), 응답 200 { results: [{ id, status }], filters: { skipWords, bankApps, bankNumbers } }.
+// 401 토큰 거절(멈춤) · 403 받기 꺼짐(큐·토큰 지키고 10분 뒤·앱을 열 때 0건 요청으로 다시 봄, D-SMS3-27) · 5xx 같은 id로 다시(D-SMS3-31).
 // 받는 주소는 /api/inbox/messages (JS가 붙여 넘기므로 여기에는 경로가 없다). 순수 Foundation(앱 없이 단위 시험이 돈다).
 import Foundation
 
@@ -35,9 +36,12 @@ public enum NoticeContract {
     public static let fromMaxChars = 200
     public static let deviceNameMaxChars = 30
     public static let batchMax = 20
-    public static let queueMax = 200
+    /// 대기열 최대 (D-SMS3-28) — 넘으면 오래된 것부터 버리고 버린 건수를 앱에 보인다
+    public static let queueMax = 1000
     /// 429 뒤 기다림
     public static let tooManyWaitMs: Int64 = 60_000
+    /// 403 받기 꺼짐 뒤 0건 요청으로 다시 볼 간격 (D-SMS3-27)
+    public static let inboxOffRecheckMs: Int64 = 600_000
     public static let contentType = "application/json"
     public static let tokenPattern = "^[A-Za-z0-9._~+/-]{16,512}=*$"
     private static let loopback = ["http://localhost:", "http://localhost/", "http://127.0.0.1:", "http://127.0.0.1/"]
@@ -64,11 +68,12 @@ public enum NoticeContract {
 
     public static func bearer(_ token: String) -> String { "Bearer \(token)" }
 
-    /// 서버 답 → 할 일: done · bad · token · wait · retry
+    /// 서버 답 → 할 일: done · bad · token(401) · off(403 받기 꺼짐) · wait · retry
     public static func classify(_ status: Int?) -> String {
         guard let status else { return "retry" }
         if (200...299).contains(status) { return "done" }
-        if status == 401 || status == 403 { return "token" }
+        if status == 401 { return "token" }
+        if status == 403 { return "off" }
         if status == 429 { return "wait" }
         if status == 408 || status == 425 { return "retry" }
         if (400...499).contains(status) { return "bad" }

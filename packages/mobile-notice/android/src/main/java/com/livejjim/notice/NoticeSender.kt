@@ -1,8 +1,9 @@
 // 서버로 보내기 — 안드로이드 전송은 이 파일 한 곳(답 처리 고리는 NoticeCore.kt NoticeDrain — JVM 시험) (SPEC ORD-13 C-04, AC-SMS3-27). 요청 모양·서버 답 처리는 NoticeContract.
 // - 받은 차례대로 20건씩 POST(Authorization: Bearer). 200이면 묶음을 지우고 결과(SAVED·DUPLICATE·IGNORED)를 세고, 응답 filters를 저장한다.
 // - 400·413(모양·크기)이면 서버가 아무것도 처리하지 않았다 — 묶음을 한 건씩 다시 보내 틀린 한 건만 버리고 "서버가 받지 않음"으로 센다.
-// - 401·403이면 멈추고 대기열을 지킨다("받기 토큰을 다시 넣어 주세요"). 429면 1분 동안 보내지 않고 1분 뒤 같은 id로 다시.
-// - 연결 실패·5xx는 멈추고 WorkManager에 다시 보내기를 맡긴다(인터넷 연결 조건 + 지수 물러서기). 재부팅 뒤에도 WorkManager가 이어서 돈다.
+// - 401이면 멈추고 대기열을 지킨다("받기 토큰을 다시 넣어 주세요"). 429면 1분 동안 보내지 않고 1분 뒤 같은 id로 다시.
+// - 403(웹에서 받기 꺼짐, D-SMS3-27)이면 토큰·대기열을 지키고 10분 뒤 WorkManager가 0건 요청으로 다시 본다(앱을 열면 바로). 켜졌으면 모아 둔 것을 보낸다.
+// - 연결 실패·5xx(500 잠깐의 오류 포함, D-SMS3-31)는 멈추고 WorkManager에 다시 보내기를 맡긴다(인터넷 연결 조건 + 지수 물러서기). 재부팅 뒤에도 WorkManager가 이어서 돈다.
 // - 대기열이 비었고 filters를 아직 받지 못했으면(또는 켤 때·토큰을 넣을 때) 0건 요청으로 filters만 받는다.
 // - 리다이렉트는 따라가지 않는다(토큰이 다른 곳으로 가지 않게). 토큰·본문·번호는 로그에 남기지 않는다(C-07).
 package com.livejjim.notice
@@ -49,9 +50,13 @@ internal object NoticeSender {
     }
   }
 
-  /** 다시 보낼 까닭이면 WorkManager에 */
-  fun schedule(context: Context, result: DrainResult) {
+  /** 다시 보낼 까닭이면 WorkManager에. fromOffCheck: 받기 꺼짐 다시 보기 일꾼 안에서 부름(자기 자신을 취소하지 않게 뒤에 잇는다) */
+  fun schedule(context: Context, result: DrainResult, fromOffCheck: Boolean = false) {
     when (result.stoppedBy) {
+      "OFF" -> {
+        val wait = (NoticeStore.get(context).offCheckAtMs() - System.currentTimeMillis()).coerceIn(0L, NoticeContract.INBOX_OFF_RECHECK_MS)
+        NoticeUploadWorker.enqueueOffCheck(context, wait, fromOffCheck)
+      }
       "NETWORK" -> NoticeUploadWorker.enqueue(context, 0L)
       "SERVER" -> NoticeUploadWorker.enqueue(context, NoticeContract.RETRY_INITIAL_DELAY_MS)
       "BUSY" -> {
@@ -67,7 +72,9 @@ internal object NoticeSender {
     draining.lock()
     try {
       val config = store.token()
-      NoticeDrain.blockedBy(config != null, store.isTokenRejected(), store.notBeforeMs(), System.currentTimeMillis())?.let { return DrainResult(0, store.pendingCount(), it) }
+      // fetchFilters = 앱을 열 때(켜기·토큰 넣기·지금 보내기) — 받기 꺼짐이어도 10분을 기다리지 않고 바로 다시 본다
+      NoticeDrain.blockedBy(config != null, store.isTokenRejected(), store.notBeforeMs(), System.currentTimeMillis(), store.isInboxOff(), store.offCheckAtMs(), force = fetchFilters)
+        ?.let { return DrainResult(0, store.pendingCount(), it) }
       if (config == null) return DrainResult(0, store.pendingCount(), "NO_TOKEN")
       return NoticeDrain.run(StorePort(store), config.deviceName, fetchFilters, System::currentTimeMillis, isStopped, { NoticeBus.changed(context) }) { json ->
         post(config.endpoint, config.token, json)
@@ -143,6 +150,8 @@ private class StorePort(private val store: NoticeStore) : DrainPort {
   override fun setLastError(value: String?) = store.setLastError(value)
   override fun setTokenRejected() = store.setTokenRejected()
   override fun setNotBeforeMs(value: Long) = store.setNotBeforeMs(value)
+  override fun inboxOff(): Boolean = store.isInboxOff()
+  override fun setInboxOff(off: Boolean, checkAtMs: Long) = store.setInboxOff(off, checkAtMs)
 }
 
 /** 다시 보내기 — 인터넷이 연결되면 돈다. 앱이 꺼져 있어도·재부팅 뒤에도 WorkManager가 이어 돈다 */
@@ -152,12 +161,32 @@ class NoticeUploadWorker(context: Context, params: WorkerParameters) : Worker(co
     return when (result.stoppedBy) {
       // BUSY(429)도 물러서기(30초부터)로 다시 — 1분이 지나기 전이면 drain이 보내지 않고 다시 BUSY
       "NETWORK", "SERVER", "BUSY" -> Result.retry()
+      // 받기 꺼짐(403): 10분 뒤 다시 보기를 따로 잡는다(물러서기는 10분 간격이 아니다)
+      "OFF" -> {
+        NoticeSender.schedule(applicationContext, result, fromOffCheck = tags.contains(OFF_CHECK_TAG))
+        Result.success()
+      }
       else -> Result.success()
     }
   }
 
   companion object {
     const val UNIQUE_NAME = "livejjim-notice-upload"
+    /** 받기 꺼짐 다시 보기 (D-SMS3-27) — 10분 뒤 한 번, 아직 꺼져 있으면 다시 10분 */
+    const val OFF_CHECK_NAME = "livejjim-notice-inbox-off"
+    const val OFF_CHECK_TAG = "livejjim-notice-inbox-off"
+
+    /** inside = 다시 보기 일꾼 안에서 부름: 돌고 있는 자신을 취소하지 않게 뒤에 잇는다(APPEND_OR_REPLACE). 밖에서는 REPLACE(같은 시각을 다시 잡을 뿐) */
+    fun enqueueOffCheck(context: Context, delayMs: Long, inside: Boolean) {
+      val request = OneTimeWorkRequest.Builder(NoticeUploadWorker::class.java)
+        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, NoticeContract.RETRY_INITIAL_DELAY_MS, TimeUnit.MILLISECONDS)
+        .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+        .addTag(OFF_CHECK_TAG)
+        .build()
+      val policy = if (inside) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.REPLACE
+      WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(OFF_CHECK_NAME, policy, request)
+    }
 
     fun enqueue(context: Context, delayMs: Long) {
       val request = OneTimeWorkRequest.Builder(NoticeUploadWorker::class.java)
@@ -176,7 +205,12 @@ class NoticeBootReceiver : BroadcastReceiver() {
     val action = intent.action
     if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) return
     val store = NoticeStore.get(context)
-    if (store.pendingCount() > 0) NoticeUploadWorker.enqueue(context, 0L)
+    if (store.isInboxOff()) {
+      val wait = (store.offCheckAtMs() - System.currentTimeMillis()).coerceIn(0L, NoticeContract.INBOX_OFF_RECHECK_MS)
+      NoticeUploadWorker.enqueueOffCheck(context, wait, false)
+    } else if (store.pendingCount() > 0) {
+      NoticeUploadWorker.enqueue(context, 0L)
+    }
     if (store.isEnabled() && NoticeAccess.isGranted(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
       NotificationListenerService.requestRebind(ComponentName(context, NoticeListenerService::class.java))
     }
