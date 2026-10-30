@@ -255,6 +255,7 @@ describe('AC-N2b-2-31~33 연결 보기·상태 알림·끊기·회차를 끝내�
       saveFailed: 0,
       saveFailedSeen: 0,
       skipped: 0,
+      signNotice: null,
     })
     expect(w.published.filter((item) => item.sellerId === seller.sellerId && item.data.kind === 'LINK').length).toBeGreaterThan(0)
     expect(w.published.some((item) => item.sellerId === other.seller.sellerId)).toBe(false)

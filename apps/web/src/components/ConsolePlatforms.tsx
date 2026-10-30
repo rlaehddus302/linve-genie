@@ -882,6 +882,7 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hide
               {extensionHint !== null && extensionHint !== '' ? <p className="tiktok-hint">{extensionHint}</p> : null}
               {extension?.warning != null ? <p className="warning">{extension.warning}</p> : null}
               {collection.missed && collection.missedMessage !== null ? <p className="warning">{collection.missedMessage}</p> : null}
+              {collection.signNotice != null ? <p className="warning">{collection.signNotice}</p> : null}
               {!sealed && tiktokUnseenSaveFailed(collection) > 0 ? (
                 <div className="row">
                   <button
