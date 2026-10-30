@@ -254,3 +254,14 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
     expect(within(printer).queryByText('좋아요. 멈췄던 출력을 이어서 해요.')).toBeNull()
   })
 })
+
+describe('UX-PRN2-010 크기 목록 기준 한 줄', () => {
+  it('출력 기기 프린터를 모르면 B1 기준, 알면 그 프린터 이름', async () => {
+    await openLabels()
+    expect(screen.getAllByText('크기 목록은 출력 기기에 이은 프린터에 맞춰 바뀌어요. 지금은 NIIMBOT B1 기준이에요.').length).toBeGreaterThan(0)
+    cleanup()
+    current = overview({ queue: queue({ device: device('other-device', { name: 'PC', profileId: 'BAUATO_PPA2L' }), labelSizes: ['50x30', '50x15', '50x50'] }) })
+    await openLabels()
+    expect(screen.getAllByText('크기 목록은 출력 기기에 이은 프린터에 맞춰 바뀌어요. 지금은 바우아토 스티코팝 기준이에요.').length).toBeGreaterThan(0)
+  })
+})

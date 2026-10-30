@@ -32,7 +32,7 @@ import {
   type TemplateItem,
   type TemplateProblem,
 } from '@livejjim/label'
-import { labelSizesForProfileId, sizeNotSupportedMessage } from '@livejjim/printer'
+import { B1_PROFILE, labelSizesForProfileId, printerProfile, sizeNotSupportedMessage } from '@livejjim/printer'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
 import type { StoredTemplate } from '../api/print-types.ts'
@@ -78,6 +78,9 @@ export const NO_PACKING_SIZE_NOTE = '이 프린터로는 포장 라벨을 찍을
 
 /** 라벨 설정 안의 크기 경고 뒤 할 일 — 이미 이 칸에 있으니 어디서 무엇을 누르는지 (UX-PRN2-004, L-11 13 문장 뒤에 붙인다) */
 export const SIZE_WARNING_HERE = "위에서 크기를 하나 고르고 아래 '라벨 설정 저장'을 눌러 주세요."
+
+/** 크기 목록이 어느 프린터 기준인지 (UX-PRN2-010) — 출력 기기 프린터를 모르면 B1 */
+export const sizeListBasis = (printerName: string): string => `크기 목록은 출력 기기에 이은 프린터에 맞춰 바뀌어요. 지금은 ${printerName} 기준이에요.`
 
 /** 품종 칸을 끈 템플릿 안내 (D-O4-07) */
 export const NAME_OFF_OPTIONS_NOTE = '품종 칸을 끄면 사이즈·색상 같은 옵션이 라벨에 찍히지 않아요.'
@@ -355,7 +358,9 @@ function TemplateEditor({ kind, shopName, pickSize = 0 }: { readonly kind: Kind;
             <p className="notice" role="note" data-tone="warning">
               {NO_PACKING_SIZE_NOTE}
             </p>
-          ) : profileId !== null && !(sizes as readonly string[]).includes(template.size) ? (
+          ) : null}
+          {sizes.length === 0 ? null : <p className="hint">{sizeListBasis((profileId === null ? undefined : printerProfile(profileId))?.displayName ?? B1_PROFILE.displayName)}</p>}
+          {sizes.length === 0 ? null : profileId !== null && !(sizes as readonly string[]).includes(template.size) ? (
             // 출력 기기의 프린터가 지금 크기를 찍지 못한다 — 출력 기기는 이 설정의 라벨에서 멈춘다 (L-11 13)
             <p className="notice" role="note" data-tone="warning" aria-label="라벨 크기 경고">
               {sizeNotSupportedMessage(template.size)} {SIZE_WARNING_HERE}
