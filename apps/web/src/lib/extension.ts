@@ -31,10 +31,14 @@ export const EXTENSION_THANKS_PAUSED_HINT = '못 올린 감사는 유튜브 칸�
 export const EXTENSION_THANKS_OWNER_HINT = '유튜브 채팅 창에서 방송 채널 계정으로 로그인해 주세요.'
 export const EXTENSION_THANKS_VIA = '크롬 확장으로'
 
-/** 이 방송의 감사 올리기 경고 (끝난 방송·꺼짐이면 없음) */
-export function thanksWarnings(view: ExtensionView | null, broadcastId: string): readonly ExtensionThanksWarning[] {
+/**
+ * 이 방송의 감사 올리기 경고 (끝난 방송·꺼짐이면 없음).
+ * 초대받은 방송(invited)은 감사를 확장에 맡기지 않으므로 "방송 채널 계정으로 로그인" 경고를 보이지 않는다 —
+ * 유튜버 계정이 필요하다고 읽힐 수 있다 (INV1 D-PHN-21, AC-INV1-10 (3))
+ */
+export function thanksWarnings(view: ExtensionView | null, broadcastId: string, invited = false): readonly ExtensionThanksWarning[] {
   if (view === null || !view.connected || view.thanks === undefined || !view.thanks.enabled) return []
-  return view.thanks.warnings.filter((warning) => warning.broadcast === broadcastId)
+  return view.thanks.warnings.filter((warning) => warning.broadcast === broadcastId && !(invited && warning.kind === 'OWNER'))
 }
 export const EXTENSION_CODE_HELP = '확장 아이콘을 눌러 이 코드를 넣어 주세요. 10분 안에 한 번만 쓸 수 있어요.'
 export const EXTENSION_CODE_EXPIRED = '코드 시간이 지났어요. "새 코드 받기"를 눌러 주세요.'
