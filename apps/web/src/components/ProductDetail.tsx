@@ -22,6 +22,7 @@ import { ProductLabels } from './LabelParts.tsx'
 import { FocusButton } from './ProductBoard.tsx'
 import { Modal } from './Modal.tsx'
 import { ProductVoiceLog } from './VoiceLogView.tsx'
+import { FromSmsTag, useInboxClaims } from './inbox-claims.tsx'
 
 /** 판매 중(OPEN)·다 팔림(SOLD)은 찜에 따라 저절로 오가므로 한 무리로 본다 */
 function statusGroup(status: Product['status']): string {
@@ -397,6 +398,7 @@ function ClaimRow({ claim, product, full }: { readonly claim: Claim; readonly pr
   const caution = useCaution()
   // 시간이 지난 보류 찜은 "보류 · 시간 지남" (D-MOB2-06 — 공개 전(READY) 상품의 보류 찜도 같은 규칙)
   const now = usePendingNow(api.data)
+  const inboxClaims = useInboxClaims()
   return (
     <li className="claim-row">
       <p>
@@ -409,6 +411,11 @@ function ClaimRow({ claim, product, full }: { readonly claim: Claim; readonly pr
         ) : null}
         {claim.variant !== null || claim.qty > 1 ? <span className="claim-option">{claimOptionWords(claim)}</span> : null} <span className="tag">{claimWord(api.data, claim, now)}</span>{' '}
         <span>{ORIGIN_WORD[claim.origin]}</span>{' '}
+        {inboxClaims.has(claim.id) ? (
+          <>
+            <FromSmsTag />{' '}
+          </>
+        ) : null}
         <span>{kstTime(claim.rankTime)}</span>
         {claim.locked ? <span className="tag">잠금</span> : null}
         {claim.cancelRequested ? <span className="tag tag-alert">취소 요청</span> : null}

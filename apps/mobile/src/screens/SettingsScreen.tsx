@@ -1,4 +1,4 @@
-// 설정 중 음성·라벨 (APP-01 화면 범위). 나머지 설정은 "웹으로 열기". 로그아웃도 여기.
+// 설정 중 음성·라벨·휴대폰 알림 받기 (APP-01 화면 범위, SMS3 AC-SMS3-29). 나머지 설정은 "웹으로 열기". 로그아웃도 여기.
 // - 음성: "번호와 가격이 들리면 바로 등록"(이 기기), 권한 설명 문장 보기.
 // - 라벨: 라벨 기능 켬/끔(PUT /api/settings/labels), 1등 확정 때 라벨 자동 출력(PATCH /api/settings print.autoOnConfirm — 다음 방송부터).
 import { useEffect, useState, useSyncExternalStore } from 'react'
@@ -8,6 +8,7 @@ import { openExternal, openWeb } from '../lib/open-web.ts'
 import { OPEN_IN_WEB, VOICE_INSTANT_LABEL } from '../lib/words.ts'
 import { useServices, useSession } from '../services.tsx'
 import { BigButton, Body, Card, Hint, Notice, Row, Screen, SectionTitle } from '../ui/parts.tsx'
+import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
 
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
 export const PERMISSION_WORDS = {
@@ -105,6 +106,8 @@ export function SettingsScreen({ onBack, policyUrl }: { readonly onBack: () => v
           </Row>
         ) : null}
       </Card>
+      {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
+      <PhoneNoticeCard />
       {message !== null ? (
         <Notice tone={message.tone} alert={message.tone === 'danger'}>
           {message.text}

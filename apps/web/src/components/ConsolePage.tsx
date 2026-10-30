@@ -56,6 +56,9 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { ImportDialog } from './ImportDialog.tsx'
 import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
+import { InboxStallBar, SmsInboxPanel, useInboxConsole } from './SmsInbox.tsx'
+import { InboxClaimsContext } from './inbox-claims.tsx'
+import { inboxClaimIds } from '../lib/inbox.ts'
 import { ProductBoard, CurrentProduct, CurrentSummary, FocusBanner } from './ProductBoard.tsx'
 import { EditOptionsHost } from './ProductOptions.tsx'
 import { OptionDialog } from './OptionDialog.tsx'
@@ -241,6 +244,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   const yt = useConsoleYoutube({ store, broadcastId, date: broadcast.date, rehearsal: broadcast.rehearsal, lastMessageSeq: snapshot.messages.at(-1)?.seq ?? 0 })
   // 크롬 확장 (X1 YT-10 AC7·AC8): 리허설은 확장으로 받지 않는다
   const extension = useExtension(!broadcast.rehearsal)
+  // 휴대폰 알림 받기 (SMS3 AC-SMS3-30·31): 리허설은 손님 문자를 받지 않는다(D-SMS3-07), 봉인한 날짜는 볼 것이 없다
+  const inbox = useInboxConsole(b, !broadcast.rehearsal && !sealed)
   const thanksFailed = useRef(yt.thanksFailed)
   thanksFailed.current = yt.thanksFailed
   // 인스타그램·틱톡 (N2b-2): 플랫폼 칸·알림 줄·붙여넣기 창
@@ -1461,8 +1466,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
     />
   )
 
+  const inboxPanel = <SmsInboxPanel handle={inbox} readOnly={sealed} />
+  const inboxClaims = useMemo(() => inboxClaimIds(data.claims.values()), [data.claims])
+
   return (
     <ConsoleContext.Provider value={api}>
+      <InboxClaimsContext.Provider value={inboxClaims}>
       <CautionContext.Provider value={caution}>
       <YoutubeContext.Provider value={yt}>
       <ReadOnlyContext.Provider value={sealed}>
@@ -1506,6 +1515,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
+          <InboxStallBar handle={inbox} broadcast={b} rehearsal={broadcast.rehearsal} ended={ended || sealed} />
           <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} invited={invitedChannelName(yt.link?.link ?? null) !== null} />
           <QuotaToast />
           <div ref={quickBoxRef} className="console-sticky-quick">
@@ -1602,6 +1612,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
         {wide ? null : voiceLive}
         {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
         {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}
+        {wide ? null : inboxPanel}
         {wide ? null : board}
         {wide ? null : chat}
         {wide ? null : <div className="console-head console-head-actions">{actions}</div>}
@@ -1610,6 +1621,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           <div className="console-side">
             {wide ? rehearsalPanel : null}
             {wide ? currentProduct : null}
+            {wide ? inboxPanel : null}
             <MultiPlatformNotice count={live.linkedCount + (youtubeLinked ? 1 : 0)} />
             <YoutubePanel
               navigate={navigate}
@@ -1677,6 +1689,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       </ReadOnlyContext.Provider>
       </YoutubeContext.Provider>
       </CautionContext.Provider>
+      </InboxClaimsContext.Provider>
     </ConsoleContext.Provider>
   )
 }

@@ -42,7 +42,8 @@ const bundle = (patch: Partial<BundleView> = {}): BundleView => ({
 describe('DP-8 낱말 (AC-N3-41·50)', () => {
   it('상태·원천·사유 문장은 규칙서 그대로', () => {
     expect(Object.values(DEPOSIT_STATUS_WORD)).toEqual(['확인 필요', '자동 확인됨', '확인함', '무시함'])
-    expect(SOURCE_KIND_WORD).toEqual({ POPBILL: '계좌조회', PASTE: '붙여넣기', FAKE: '시험용 입금' })
+    // SMS3: 원천 "휴대폰 알림"(DP-8 원천 줄 v0.1.1)
+    expect(SOURCE_KIND_WORD).toEqual({ POPBILL: '계좌조회', PASTE: '붙여넣기', FAKE: '시험용 입금', PHONE: '휴대폰 알림' })
     expect(reasonWords('POSSIBLE_DUPLICATE', 7)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 7도 같은 입금이에요)') // MOB2 D-MOB2-05 + QL3R2 D-QL3R2-04 (D-QL3R1-10 (3))
     expect(reasonWords('SAME_NAME', null)).toBe('같은 이름의 구매자가 여럿이에요')
     expect(reasonWords('MULTIPLE', null)).toBe('금액과 이름이 맞는 묶음이 여럿이에요')
@@ -50,6 +51,10 @@ describe('DP-8 낱말 (AC-N3-41·50)', () => {
     expect(reasonWords('AMOUNT_MISMATCH', null)).toBe('이름은 맞는데 금액이 달라요')
     expect(reasonWords('NO_MATCH', null)).toBe('맞는 묶음을 찾지 못했어요')
     expect(reasonWords('ONE_MATCH', null)).toBe('맞는 묶음이 하나 있어요. 확인해 주세요')
+    // SMS3 (DP-8 v0.1.1, AC-SMS3-32)
+    expect(reasonWords('UNTRUSTED_SOURCE', null)).toBe('은행 앱이나 은행 대표번호가 아닌 곳에서 온 입금 알림이에요. 은행 앱에서 꼭 확인해 주세요')
+    expect(reasonWords('BALANCE_GAP', null)).toBe('잔액이 앞 알림과 이어지지 않아요. 은행 앱에서 확인해 주세요')
+    expect(sourceWords({ kind: 'PHONE', label: '휴대폰 알림' })).toBe('휴대폰 알림')
   })
 
   it('원천 표시: 종류 낱말, 표시 이름이 다르면 함께', () => {

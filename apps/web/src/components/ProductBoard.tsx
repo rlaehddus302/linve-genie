@@ -14,6 +14,7 @@ import { boardLabelWords } from './LabelParts.tsx'
 import { SUMMARY_LIMIT, SUMMARY_SHORT_LIMIT, currentSummaryParts, currentSummaryWords } from '../lib/current-summary.ts'
 import { CautionMark, WinnerNames, useCaution } from './caution.tsx'
 import { CAUTION_SHORT, CAUTION_WORD } from '../lib/customers.ts'
+import { FromSmsTag, useInboxClaims } from './inbox-claims.tsx'
 
 /** 1등 표시 이름 (재고 2 이상이면 여럿). 없으면 "아직 없음". 옵션 상품은 1등이 변형마다라 "변형별" (D-O2-12) */
 function useWinnerNames(product: Product): string {
@@ -323,6 +324,9 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
   const requests = cancelRequestCount(api.data, product)
   const labels = boardLabelWords(consoleLabels(api), api.data.claims, product)
   const waiting = api.waiting.products.has(product.key)
+  // 휴대폰 알림으로 바로 넣은 문자찜이 1등·대기에 있으면 "문자로 받음" (SMS3 AC-SMS3-30)
+  const inboxClaims = useInboxClaims()
+  const fromSms = inboxClaims.size > 0 && [...product.winnerClaims, ...product.waitlistClaims].some((id) => inboxClaims.has(id))
   const [open, setOpen] = useState(false)
   return (
     <li className={api.options === true ? 'board-entry' : undefined}>
@@ -346,6 +350,7 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
           </span>
         ))}
         {waiting ? <span className="tag tag-waiting">보내기 전</span> : null}
+        {fromSms ? <FromSmsTag /> : null}
       </button>
       {api.options === true ? (
         <div className="row board-extra">

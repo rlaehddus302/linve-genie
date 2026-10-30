@@ -15,6 +15,7 @@ export const SOURCE_KIND_WORD: Readonly<Record<SourceKind, string>> = {
   POPBILL: '계좌조회',
   PASTE: '붙여넣기',
   FAKE: '시험용 입금',
+  PHONE: '휴대폰 알림',
 }
 
 /** 입금 이름 "입금 번호 12" (D-MOB2-05 — "#"은 판매자가 모르는 말) */
@@ -54,6 +55,10 @@ export function reasonWords(reason: ReviewReason, twin: number | null): string {
       return '맞는 묶음을 찾지 못했어요'
     case 'ONE_MATCH':
       return '맞는 묶음이 하나 있어요. 확인해 주세요'
+    case 'UNTRUSTED_SOURCE':
+      return '은행 앱이나 은행 대표번호가 아닌 곳에서 온 입금 알림이에요. 은행 앱에서 꼭 확인해 주세요'
+    case 'BALANCE_GAP':
+      return '잔액이 앞 알림과 이어지지 않아요. 은행 앱에서 확인해 주세요'
     default:
       return '확인해 주세요'
   }

@@ -25,6 +25,7 @@ import { PasteTab } from './DepositPaste.tsx'
 import { ReviewTab } from './DepositReview.tsx'
 import { SourcesTab } from './DepositSources.tsx'
 import { ErrorNote } from './ErrorNote.tsx'
+import { BankNotices } from './BankNotices.tsx'
 
 export const TAB_WORD: Readonly<Record<DepositTab, string>> = {
   review: '확인 필요',
@@ -46,6 +47,8 @@ export function DepositsPage({ route, navigate }: { readonly route: DepositsRout
   return (
     <main className="page page-wide deposits-page">
       <h1>입금 확인</h1>
+      {/* 휴대폰 알림의 입금 취소·읽지 못한 은행 알림 (SMS3 AC-SMS3-23·32) */}
+      <BankNotices onNotice={setNotice} />
       <div className="row deposit-tabs" role="tablist" aria-label="입금 확인 목록">
         {DEPOSIT_TABS.map((key) => (
           <button
