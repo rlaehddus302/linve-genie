@@ -5,12 +5,13 @@
 // - 라벨 기능 켬/끔 (N4a, L-13): GET·PUT /api/settings/labels. 꺼져 있으면 출력을 새로 시작하거나 라벨을 새로 만드는 요청은 409 LABELS_OFF.
 //   계약은 harness/sprints/N4a/dev-notes.md "dev-server > 바뀐 계약". 켬/끔 요청 본문·로그인 아이디는 로그에 남기지 않는다(NFR-06).
 import { isValidDate } from '@livejjim/core'
+import { encodeLabelPng } from '@livejjim/label'
 import type { Context, Hono } from 'hono'
 import { REQUEST_ID_RE, hasControlChar, own, ownKeys } from './api-fields.ts'
 import type { SessionContext } from './auth.ts'
 import { apiError, type FieldProblem } from './errors.ts'
 import { unknownFieldProblems } from './messages.ts'
-import { DEVICE_ID_RE, PRINT_MESSAGES, cleanDeviceName, isKnownErrorCode, type ActionOutcome, type PrintService } from './print.ts'
+import { DEVICE_ID_RE, PRINT_MESSAGES, cleanDeviceName, isKnownErrorCode, knownProfileId, type ActionOutcome, type BitmapOutcome, type PrintService } from './print.ts'
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
@@ -46,6 +47,16 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     return typeof id === 'string' && DEVICE_ID_RE.test(id) ? id : null
   }
   const badDevice = () => invalid([{ field: 'deviceId', message: '이 기기를 알아보지 못했어요. 화면을 새로고침한 뒤 다시 해 주세요.' }])
+  /**
+   * 프린터 프로필 ID (PRN2, L-11 10, D-PRN2-07): 칸이 없으면(이전 화면)·null·표에 없는 글이면 모름(null). 글도 null도 아니면 400.
+   * 받은 값은 오류에 되돌려 보내지 않고 로그에 남기지 않는다
+   */
+  const profileIdOf = (value: Record<string, unknown>): string | null | Response => {
+    const id = own(value, 'profileId')
+    if (id === undefined || id === null) return null
+    if (typeof id !== 'string') return invalid([{ field: 'profileId', message: '프린터 종류를 확인해 주세요.' }])
+    return knownProfileId(id)
+  }
   const requestIdOf = (value: Record<string, unknown>): string | null => {
     const id = own(value, 'requestId')
     return typeof id === 'string' && REQUEST_ID_RE.test(id) ? id : null
@@ -59,21 +70,40 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
   }
 
   // 앱은 서버가 만든 점을 그대로 보낸다. 다른 판매자·기기·끝난 시도는 조회 불가.
-  const bitmapResponse = (value: Awaited<ReturnType<PrintService['jobBitmap']>>): Response => {
-    if (value.kind === 'not_found') return notFound()
-    if (value.kind === 'error') return apiError(422, 'LABEL_INVALID', value.error.message, [], { renderError: value.error })
+  // 비트맵(JSON)과 그림 파일(PNG, PRN2 L-11 17)은 같은 검사·같은 그림·같은 오류를 쓰고 담는 모양만 다르다.
+  const imageError = (value: Exclude<BitmapOutcome, { kind: 'ok' }>): Response =>
+    value.kind === 'not_found' ? notFound() : apiError(422, 'LABEL_INVALID', value.error.message, [], { renderError: value.error })
+  const bitmapResponse = (value: BitmapOutcome): Response => {
+    if (value.kind !== 'ok') return imageError(value)
     return new Response(JSON.stringify({ width: value.image.width, height: value.image.height, data: Buffer.from(value.image.data).toString('base64') }), {
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
     })
   }
-  api.get('/print/jobs/:id/bitmap', async (c) => {
+  /** 203dpi 1비트 PNG (L-6 — 웹 LBL-07과 같은 인코더 `encodeLabelPng`, 같은 그림이면 같은 바이트) */
+  const pngResponse = (value: BitmapOutcome): Response => {
+    if (value.kind !== 'ok') return imageError(value)
+    const png = encodeLabelPng(value.image)
+    if (!png.ok) return imageError({ kind: 'error', error: png.error })
+    return new Response(new Uint8Array(png.bytes), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' } })
+  }
+  /** 출력 기기가 받은 작업의 그림: 출력 기기(device)·시도(attempt) 검사 (APP-03, L-11 17) */
+  const jobImage = async (c: Context<Env>): Promise<BitmapOutcome | Response> => {
     const device = c.req.query('device')
     const attempt = c.req.query('attempt')
     if (device === undefined || !DEVICE_ID_RE.test(device)) return badDevice()
     if (attempt === undefined || !/^[A-Za-z0-9_-]{8,64}$/.test(attempt)) return invalid([{ field: 'attempt', message: '시도 표를 확인해 주세요.' }])
-    return bitmapResponse(await print.jobBitmap(sellerOf(c), device, attempt, c.req.param('id')))
+    return print.jobBitmap(sellerOf(c), device, attempt, c.req.param('id') ?? '')
+  }
+  api.get('/print/jobs/:id/bitmap', async (c) => {
+    const image = await jobImage(c)
+    return image instanceof Response ? image : bitmapResponse(image)
+  })
+  api.get('/print/jobs/:id/png', async (c) => {
+    const image = await jobImage(c)
+    return image instanceof Response ? image : pngResponse(image)
   })
   api.get('/print/test-bitmap', async (c) => bitmapResponse(await print.testBitmap(sellerOf(c))))
+  api.get('/print/test-png', async (c) => pngResponse(await print.testBitmap(sellerOf(c))))
 
   // 미리보기는 출력 시도와 별도인 읽기 전용 조회다. 이름·가격·구매자·템플릿은 클라이언트에서 받지 않는다.
   api.get('/print/preview/:kind', async (c) => {
@@ -143,7 +173,7 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
   // ── 출력 기기 (L-11 8·10) ──────────────────────────────────────────────
   api.post('/print/device', async (c) => {
     const input = body(c)
-    const extra = onlyKeys(input, ['deviceId', 'name', 'replace'])
+    const extra = onlyKeys(input, ['deviceId', 'name', 'replace', 'profileId'])
     if (extra !== null) return extra
     const deviceId = deviceIdOf(input)
     if (deviceId === null) return badDevice()
@@ -151,18 +181,22 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     if (name === null) return invalid([{ field: 'name', message: '기기 이름은 1~20자로 적어 주세요.' }])
     const replace = own(input, 'replace')
     if (replace !== undefined && typeof replace !== 'boolean') return invalid([{ field: 'replace', message: '바꿀지는 예나 아니오로만 정할 수 있어요.' }])
-    return outcome(c, await print.registerDevice(sellerOf(c), deviceId, name, replace === true))
+    const profileId = profileIdOf(input)
+    if (profileId instanceof Response) return profileId
+    return outcome(c, await print.registerDevice(sellerOf(c), deviceId, name, replace === true, profileId))
   })
 
   api.post('/print/device/state', async (c) => {
     const input = body(c)
-    const extra = onlyKeys(input, ['deviceId', 'connected'])
+    const extra = onlyKeys(input, ['deviceId', 'connected', 'profileId'])
     if (extra !== null) return extra
     const deviceId = deviceIdOf(input)
     if (deviceId === null) return badDevice()
     const connected = own(input, 'connected')
     if (typeof connected !== 'boolean') return invalid([{ field: 'connected', message: '프린터 연결 여부는 예나 아니오로만 알려 주세요.' }])
-    return outcome(c, await print.deviceState(sellerOf(c), deviceId, connected))
+    const profileId = profileIdOf(input)
+    if (profileId instanceof Response) return profileId
+    return outcome(c, await print.deviceState(sellerOf(c), deviceId, connected, profileId))
   })
 
   api.post('/print/device/release', async (c) => {

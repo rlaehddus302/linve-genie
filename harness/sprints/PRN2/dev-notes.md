@@ -68,3 +68,26 @@ if (!profileSupportsSize(profileId, template.size)) stop('LABEL_ERROR', sizeNotS
 
 - HG-5: 바우아토 Luck Jingle 바이트·`OK` 끝 알림, NIIMBOT B1 SE·B21·D110, Marklife 9종 실기기 확인 — 모두 실험으로 둔다.
 - 실제 B1이 광고하는 이름 꼴(`B1-…`인지)·서비스 광고 여부는 미확인 — 이름도 서비스도 맞지 않으면 목록에 안 보인다(HG-5에서 확인).
+
+## dev-server (2026-10-31)
+
+### server → web·mobile·test-e2e 넘김 (바뀐 계약)
+
+- **프린터 프로필 알림** (AC-PRN2-08, L-11 10): `POST /api/print/device`·`POST /api/print/device/state`에 `profileId` 칸을 더했다(없어도 된다 — 이전 화면 그대로 동작).
+  - 값: `connectedProfileId(adapter)`의 결과(`'NIIMBOT_B1'` 등) 또는 `null`. 칸 없음·`null`·표(`PRINTER_PROFILES`)에 없는 글 → 모름(null)으로 기록, 400이 아니다. 글도 null도 아니면(숫자·배열 등) 400 `INVALID_INPUT` `problems[0].field = 'profileId'`(받은 값은 되돌리지 않음).
+  - 알릴 때마다 그 값으로 **덮어쓴다**: 프린터를 이었거나 바꿨으면 `state { connected: true, profileId }`, `"이 기기에서 출력"`도 `profileId`를 같이. 칸을 빼면 모름이 된다(앞 값을 이어 두지 않는다). `connected: false`·출력 그만하기·출력 기기 바꾸기·`DISCONNECTED` 결과면 서버가 지운다.
+  - 서버 기록은 `print_queues.printer_profile_id` 하나뿐(프린터 이름·기기 ID·주소 없음). 로그에 남기지 않는다.
+- **크기 목록**: `QueueSummary`(`GET /api/print`의 `queue`, 기기 알림·등록 응답의 `queue`, 실시간 푸시의 `queue`)에
+  - `queue.device.profileId: string | null`
+  - `queue.labelSizes: string[]` — 라벨 설정 크기 고르기 목록(첫째가 기본). 출력 기기·프로필을 모르면 `['50x30','50x20','50x40']`. 서버가 `labelSizesForProfileId`로 정하니 웹은 이 값을 그대로 쓰면 된다.
+  - 저장된 템플릿 크기가 이 목록에 없어도 `PUT /api/print/templates/*`·받기는 막지 않는다(D-PRN2-07). 출력 기기가 `INVALID_TEMPLATE`(item `size`)로 알리면 라벨 오류 멈춤이다(지금 웹 코드 그대로 — 서버는 이 코드를 받는다).
+- **그림 파일** (AC-PRN2-09, L-11 17): `GET /api/print/jobs/:id/png?device=&attempt=`, `GET /api/print/test-png`.
+  - `Content-Type: image/png`, `Cache-Control: no-store`. 바이트 = `encodeLabelPng(같은 비트맵)`(`@livejjim/label` — 웹 `pngBytes`와 같은 인코더).
+  - 검사·오류는 `/bitmap`·`/test-bitmap`와 같은 함수: 로그인 없음 401, 다른 판매자·기기·작업·끝난 시도·바뀐 출력 기기 404, `device`·`attempt` 모양이 틀리면 400(같은 본문). 그리기 실패는 422 `LABEL_INVALID`(JSON).
+- 서버가 `@livejjim/printer`에 의존한다(프로필 표만 씀). 마이그레이션 `0030_prn2_printer_profile`(빈 칸 하나 더하기 — 되돌리기 쉬움).
+
+### spec-keeper에게: AUTO 결정 제안 (dev-server)
+
+1. **표에 없는 프로필 ID는 거절하지 않고 모름으로 기록**: 연결 알림이 400이면 출력 기기의 끊김 멈춤이 안 풀려 출력이 멈춘다. 새 앱(표가 더 큰)이 이전 서버에 알려도 출력은 이어지고 크기 목록만 B1이 되는 쪽이 안전하다. 글이 아닌 값만 400.
+2. **칸이 빠진 알림은 앞 값을 잇지 않고 모름**: 이전 화면과 섞여도 다른 프린터의 크기 목록이 남지 않게(테이프 목록이 남아 B1에 50×30을 못 고르는 일 방지). L-11 10 "끊으면 없음"에 맞춰 끊김·출력 그만하기·출력 기기 바꾸기·`DISCONNECTED` 결과도 지운다.
+3. **크기 목록을 서버가 계산해 `queue.labelSizes`로 낸다**: 웹·앱이 표를 따로 들고 있어 판이 다를 때도 같은 목록이 보인다.
