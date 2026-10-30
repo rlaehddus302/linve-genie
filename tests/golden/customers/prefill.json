@@ -1,0 +1,69 @@
+{
+  "kind": "prefill",
+  "about": "묶음 배송지 칸에 손님 장부 연락처를 '확인 전'으로 보이나 (CUSTOMER_RULES CR-4, PARCEL_RULES PC-3, KP1 — D-KP1-05). in = { items, shipping, saved, lines } — items = 품목 수, shipping = 배송비 예외(NONE·FIXED·PICKUP·COMBINED), saved = 그 묶음에 저장한 배송지 상태(NONE·UNCONFIRMED·CONFIRMED), lines = 묶음 구성원(지금의 구매자와 그 아래 합친 구매자)의 표지가 든 손님 장부 줄 중 연락처가 있는 서로 다른 줄의 수. 보이는 때 = items ≥ 1이고 shipping이 PICKUP·COMBINED가 아니고 saved = NONE이고 lines = 1. 줄이 둘 이상이면 누구 것인지 애매해 보이지 않는다. 리허설·봉인한 날짜는 서버가 함수 전에 뺀다. out = { ledger } 불리언.",
+  "cases": [
+    {
+      "id": "G-CUS-KP1-301",
+      "title": "배송지가 없고 장부 줄이 하나면 장부 연락처를 확인 전으로",
+      "refs": ["CR-4", "D-KP1-05"],
+      "in": { "items": 2, "shipping": "NONE", "saved": "NONE", "lines": 1 },
+      "out": { "ledger": true }
+    },
+    {
+      "id": "G-CUS-KP1-302",
+      "title": "장부 줄이 없으면 빈 칸",
+      "refs": ["CR-4"],
+      "in": { "items": 2, "shipping": "NONE", "saved": "NONE", "lines": 0 },
+      "out": { "ledger": false }
+    },
+    {
+      "id": "G-CUS-KP1-303",
+      "title": "합친 묶음의 장부 줄이 둘이면 애매해서 보이지 않는다",
+      "refs": ["CR-4", "D-036"],
+      "in": { "items": 3, "shipping": "NONE", "saved": "NONE", "lines": 2 },
+      "out": { "ledger": false }
+    },
+    {
+      "id": "G-CUS-KP1-304",
+      "title": "이번 묶음에 손님이 적은 배송지(확인 전)가 있으면 그것",
+      "refs": ["CR-4", "PC-3"],
+      "in": { "items": 1, "shipping": "NONE", "saved": "UNCONFIRMED", "lines": 1 },
+      "out": { "ledger": false }
+    },
+    {
+      "id": "G-CUS-KP1-305",
+      "title": "확인한 배송지가 있으면 그것",
+      "refs": ["CR-4", "PC-3"],
+      "in": { "items": 1, "shipping": "NONE", "saved": "CONFIRMED", "lines": 1 },
+      "out": { "ledger": false }
+    },
+    {
+      "id": "G-CUS-KP1-306",
+      "title": "품목이 없으면 배송지 칸이 없다",
+      "refs": ["CR-4", "PC-3"],
+      "in": { "items": 0, "shipping": "NONE", "saved": "NONE", "lines": 1 },
+      "out": { "ledger": false }
+    },
+    {
+      "id": "G-CUS-KP1-307",
+      "title": "직접 수령이면 배송지 칸이 없다",
+      "refs": ["CR-4", "PC-3"],
+      "in": { "items": 1, "shipping": "PICKUP", "saved": "NONE", "lines": 1 },
+      "out": { "ledger": false }
+    },
+    {
+      "id": "G-CUS-KP1-308",
+      "title": "합배송이면 배송지 칸이 없다",
+      "refs": ["CR-4", "PC-3"],
+      "in": { "items": 1, "shipping": "COMBINED", "saved": "NONE", "lines": 1 },
+      "out": { "ledger": false }
+    },
+    {
+      "id": "G-CUS-KP1-309",
+      "title": "배송비 금액 지정은 배송지 칸이 있다",
+      "refs": ["CR-4"],
+      "in": { "items": 1, "shipping": "FIXED", "saved": "NONE", "lines": 1 },
+      "out": { "ledger": true }
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "kind": "badge",
+  "about": "방송 콘솔 채팅 칸의 손님 표시 한 개 (CUSTOMER_RULES CR-7, SPEC BUY-06, KP1 — D-KP1-08이 D-CRM1-07을 고침). in = { show, rehearsal, known, earlier, regular, caution, purchaseTotal } — show = 설정 '방송 화면에 손님 표시'(기본 켬), rehearsal = 리허설 방송, known = 그 채팅 구매자에게 표지가 있음, earlier = 이 방송 날짜보다 앞선 실제 날짜에 그 표지의 기록 묶음(BUY-06)이 있음, regular·caution·purchaseTotal = 손님 기록 요약(regulars 골든과 같은 계산). 위에서부터 처음 맞는 것: show가 아니거나 리허설이거나 표지가 없으면 없음 → caution이면 '입금 늦음 주의' → regular면 '단골 · 누적 {금액}원'(세 자리마다 쉼표) → earlier가 아니면 '처음' → 없음. out = { text } — 글 또는 null.",
+  "cases": [
+    {
+      "id": "G-CUS-KP1-201",
+      "title": "앞선 날짜에 기록이 없는 손님은 '처음'",
+      "refs": ["CR-7", "D-KP1-08"],
+      "in": { "show": true, "rehearsal": false, "known": true, "earlier": false, "regular": false, "caution": false, "purchaseTotal": 0 },
+      "out": { "text": "처음" }
+    },
+    {
+      "id": "G-CUS-KP1-202",
+      "title": "단골은 누적 금액과 함께",
+      "refs": ["CR-7", "D-KP1-08"],
+      "in": { "show": true, "rehearsal": false, "known": true, "earlier": true, "regular": true, "caution": false, "purchaseTotal": 125000 },
+      "out": { "text": "단골 · 누적 125,000원" }
+    },
+    {
+      "id": "G-CUS-KP1-203",
+      "title": "단골이어도 입금 늦음 주의가 먼저 (하나만)",
+      "refs": ["CR-7", "D-KP1-08"],
+      "in": { "show": true, "rehearsal": false, "known": true, "earlier": true, "regular": true, "caution": true, "purchaseTotal": 300000 },
+      "out": { "text": "입금 늦음 주의" }
+    },
+    {
+      "id": "G-CUS-KP1-204",
+      "title": "오늘 '입금 안 함'으로 취소된 처음 손님은 입금 늦음 주의",
+      "refs": ["CR-7", "D-CRM1-04"],
+      "in": { "show": true, "rehearsal": false, "known": true, "earlier": false, "regular": false, "caution": true, "purchaseTotal": 0 },
+      "out": { "text": "입금 늦음 주의" }
+    },
+    {
+      "id": "G-CUS-KP1-205",
+      "title": "전에 온 적 있고 단골도 주의도 아니면 표시 없음",
+      "refs": ["CR-7"],
+      "in": { "show": true, "rehearsal": false, "known": true, "earlier": true, "regular": false, "caution": false, "purchaseTotal": 40000 },
+      "out": { "text": null }
+    },
+    {
+      "id": "G-CUS-KP1-206",
+      "title": "설정에서 끄면 주의도 보이지 않는다",
+      "refs": ["CR-7", "D-KP1-08"],
+      "in": { "show": false, "rehearsal": false, "known": true, "earlier": true, "regular": true, "caution": true, "purchaseTotal": 300000 },
+      "out": { "text": null }
+    },
+    {
+      "id": "G-CUS-KP1-207",
+      "title": "리허설 방송엔 없다",
+      "refs": ["CR-7"],
+      "in": { "show": true, "rehearsal": true, "known": true, "earlier": false, "regular": false, "caution": false, "purchaseTotal": 0 },
+      "out": { "text": null }
+    },
+    {
+      "id": "G-CUS-KP1-208",
+      "title": "표지가 없는 손님(전화번호 없는 문자 구매자)은 '처음'도 아니다",
+      "refs": ["CR-7", "D-CRM1-02"],
+      "in": { "show": true, "rehearsal": false, "known": false, "earlier": false, "regular": false, "caution": false, "purchaseTotal": 0 },
+      "out": { "text": null }
+    },
+    {
+      "id": "G-CUS-KP1-209",
+      "title": "오늘 처음 와서 금액 기준을 넘긴 손님은 '처음'보다 단골",
+      "refs": ["CR-7", "D-CRM1-05"],
+      "in": { "show": true, "rehearsal": false, "known": true, "earlier": false, "regular": true, "caution": false, "purchaseTotal": 100000 },
+      "out": { "text": "단골 · 누적 100,000원" }
+    },
+    {
+      "id": "G-CUS-KP1-210",
+      "title": "백만 원 넘는 누적도 쉼표",
+      "refs": ["CR-7"],
+      "in": { "show": true, "rehearsal": false, "known": true, "earlier": true, "regular": true, "caution": false, "purchaseTotal": 1234567 },
+      "out": { "text": "단골 · 누적 1,234,567원" }
+    }
+  ]
+}

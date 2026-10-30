@@ -1,0 +1,92 @@
+{
+  "kind": "summary",
+  "about": "방송 리포트의 돈·손님 숫자 (SPEC RPT-01~RPT-03, KP1 — D-KP1-09·D-KP1-10). 리포트 하나 = 실제 방송 날짜 하나(그날 모든 회차). in = { bundles, earlier } — bundles = 그날 정산 묶음마다 { buyer, keys, items, subtotal, final, received } (keys = 묶음 구성원의 표지, 없으면 [], items = 확정 찜 수량 합, subtotal = 상품 합계, final = 최종 결제 금액, received = 받은 금액 — 모두 코어 값 그대로), earlier = 이 날짜보다 앞선 실제 날짜에 품목이 있는 묶음을 가진 표지들. out: sales = subtotal 합(판매 금액 — 배송비·조정 빼고), qty = items 합, received = received 합(배송비 포함 받은 돈), unpaid = 묶음마다 max(final − received, 0)의 합, refund = 묶음마다 max(received − final, 0)의 합, buyers = items ≥ 1인 묶음 수, unpaidBuyers = 그중 received < final인 수, 그리고 items ≥ 1인 묶음을 셋으로 — keys가 비면 unknownBuyers, keys 중 하나라도 earlier에 있으면 returningBuyers, 아니면 newBuyers. 금액은 정수 원.",
+  "cases": [
+    {
+      "id": "G-RPT-KP1-001",
+      "title": "묶음이 없으면 모두 0",
+      "refs": ["RPT-01", "RPT-02", "RPT-03"],
+      "in": { "bundles": [], "earlier": [] },
+      "out": { "sales": 0, "qty": 0, "received": 0, "unpaid": 0, "refund": 0, "buyers": 0, "unpaidBuyers": 0, "newBuyers": 0, "returningBuyers": 0, "unknownBuyers": 0 }
+    },
+    {
+      "id": "G-RPT-KP1-002",
+      "title": "입금 완료·부분 입금·미입금 세 손님",
+      "refs": ["RPT-01", "RPT-02", "RPT-03", "D-KP1-09", "D-KP1-10"],
+      "note": "sales 30,000 + 15,000 + 8,000 = 53,000. qty 2+1+1 = 4. received 33,000 + 10,000 + 0 = 43,000. unpaid 0 + (18,000 − 10,000) + 11,000 = 19,000. 미입금 손님 B·C = 2. UC_A만 earlier → 다시 온 1, 처음 2",
+      "in": {
+        "bundles": [
+          { "buyer": "UC_A", "keys": ["UC_A"], "items": 2, "subtotal": 30000, "final": 33000, "received": 33000 },
+          { "buyer": "UC_B", "keys": ["UC_B"], "items": 1, "subtotal": 15000, "final": 18000, "received": 10000 },
+          { "buyer": "sms:r1", "keys": ["K_PHONE_1"], "items": 1, "subtotal": 8000, "final": 11000, "received": 0 }
+        ],
+        "earlier": ["UC_A"]
+      },
+      "out": { "sales": 53000, "qty": 4, "received": 43000, "unpaid": 19000, "refund": 0, "buyers": 3, "unpaidBuyers": 2, "newBuyers": 2, "returningBuyers": 1, "unknownBuyers": 0 }
+    },
+    {
+      "id": "G-RPT-KP1-003",
+      "title": "다 취소된 뒤 받은 돈과 과입금은 돌려줄 돈, 품목 없는 묶음은 손님 수에 없다",
+      "refs": ["RPT-02", "R-12"],
+      "note": "D: 품목 0·최종 0·받은 5,000 → 돌려줄 5,000. E: 최종 20,000·받은 25,000 → 돌려줄 5,000. sales 20,000, received 30,000, refund 10,000, buyers 1(E)",
+      "in": {
+        "bundles": [
+          { "buyer": "UC_D", "keys": ["UC_D"], "items": 0, "subtotal": 0, "final": 0, "received": 5000 },
+          { "buyer": "UC_E", "keys": ["UC_E"], "items": 1, "subtotal": 20000, "final": 20000, "received": 25000 }
+        ],
+        "earlier": []
+      },
+      "out": { "sales": 20000, "qty": 1, "received": 30000, "unpaid": 0, "refund": 10000, "buyers": 1, "unpaidBuyers": 0, "newBuyers": 1, "returningBuyers": 0, "unknownBuyers": 0 }
+    },
+    {
+      "id": "G-RPT-KP1-004",
+      "title": "표지가 없는 손님(전화번호 없는 문자 구매자)은 처음도 다시 온 손님도 아니다",
+      "refs": ["RPT-03", "D-KP1-10"],
+      "in": {
+        "bundles": [
+          { "buyer": "sms:r9", "keys": [], "items": 1, "subtotal": 12000, "final": 15000, "received": 15000 }
+        ],
+        "earlier": []
+      },
+      "out": { "sales": 12000, "qty": 1, "received": 15000, "unpaid": 0, "refund": 0, "buyers": 1, "unpaidBuyers": 0, "newBuyers": 0, "returningBuyers": 0, "unknownBuyers": 1 }
+    },
+    {
+      "id": "G-RPT-KP1-005",
+      "title": "합친 묶음은 표지 하나라도 전에 샀으면 다시 온 손님",
+      "refs": ["RPT-03", "D-KP1-10"],
+      "in": {
+        "bundles": [
+          { "buyer": "UC_F", "keys": ["UC_F", "K_PHONE_2"], "items": 3, "subtotal": 45000, "final": 45000, "received": 0 }
+        ],
+        "earlier": ["K_PHONE_2"]
+      },
+      "out": { "sales": 45000, "qty": 3, "received": 0, "unpaid": 45000, "refund": 0, "buyers": 1, "unpaidBuyers": 1, "newBuyers": 0, "returningBuyers": 1, "unknownBuyers": 0 }
+    },
+    {
+      "id": "G-RPT-KP1-006",
+      "title": "할인으로 최종 0원이면 미입금이 아니다",
+      "refs": ["RPT-02", "R-12"],
+      "in": {
+        "bundles": [
+          { "buyer": "UC_G", "keys": ["UC_G"], "items": 1, "subtotal": 5000, "final": 0, "received": 0 }
+        ],
+        "earlier": ["UC_G"]
+      },
+      "out": { "sales": 5000, "qty": 1, "received": 0, "unpaid": 0, "refund": 0, "buyers": 1, "unpaidBuyers": 0, "newBuyers": 0, "returningBuyers": 1, "unknownBuyers": 0 }
+    },
+    {
+      "id": "G-RPT-KP1-007",
+      "title": "옵션 방송의 수량은 판매 수에 수량 그대로",
+      "refs": ["RPT-01", "D-O4-09"],
+      "note": "qty 3 + 1 = 4, sales 51,000 + 9,000 = 60,000. 둘 다 받은 금액 = 최종 → 미입금 0",
+      "in": {
+        "bundles": [
+          { "buyer": "ig:111", "keys": ["ig:111"], "items": 3, "subtotal": 51000, "final": 54000, "received": 54000 },
+          { "buyer": "tt:222", "keys": ["tt:222"], "items": 1, "subtotal": 9000, "final": 12000, "received": 12000 }
+        ],
+        "earlier": []
+      },
+      "out": { "sales": 60000, "qty": 4, "received": 66000, "unpaid": 0, "refund": 0, "buyers": 2, "unpaidBuyers": 0, "newBuyers": 2, "returningBuyers": 0, "unknownBuyers": 0 }
+    }
+  ]
+}

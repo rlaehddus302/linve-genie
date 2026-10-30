@@ -1,0 +1,101 @@
+{
+  "kind": "compare",
+  "about": "지난 방송·최근 평균과 비교 (SPEC RPT-08, KP1 — D-KP1-13). in = { current, past } — current = 이 날짜의 { sales, qty, buyers }(summary 골든의 같은 이름 값), past = 이 날짜보다 앞선 실제 방송 날짜들의 같은 값 { date, sales, qty, buyers }, 늦은 날짜부터. 함수는 past의 앞 4개까지만 쓴다. last = past[0]의 값과 차이(current − 그 값), past가 비면 null. recent = 앞 4개(모자라면 있는 만큼)의 평균 — 합 ÷ 개수의 몫(정수 나눗셈, 나머지 버림 — 소수를 만들지 않는다)과 차이, past가 비면 null. 차이는 음수일 수 있다. 백분율은 내지 않는다. 받은 돈은 비교하지 않는다(날이 지나면 늘기 때문).",
+  "cases": [
+    {
+      "id": "G-RPT-KP1-401",
+      "title": "앞선 방송이 없으면 비교 없음",
+      "refs": ["RPT-08"],
+      "in": { "current": { "sales": 500000, "qty": 40, "buyers": 25 }, "past": [] },
+      "out": { "last": null, "recent": null }
+    },
+    {
+      "id": "G-RPT-KP1-402",
+      "title": "앞선 방송이 하나면 지난 방송과 평균이 같다",
+      "refs": ["RPT-08", "D-KP1-13"],
+      "note": "차이 500,000 − 450,000 = 50,000, 40 − 38 = 2, 25 − 27 = −2",
+      "in": {
+        "current": { "sales": 500000, "qty": 40, "buyers": 25 },
+        "past": [{ "date": "2026-10-24", "sales": 450000, "qty": 38, "buyers": 27 }]
+      },
+      "out": {
+        "last": { "date": "2026-10-24", "sales": 450000, "qty": 38, "buyers": 27, "diff": { "sales": 50000, "qty": 2, "buyers": -2 } },
+        "recent": { "count": 1, "sales": 450000, "qty": 38, "buyers": 27, "diff": { "sales": 50000, "qty": 2, "buyers": -2 } }
+      }
+    },
+    {
+      "id": "G-RPT-KP1-403",
+      "title": "최근 4번 평균은 정수 몫 (나머지 버림)",
+      "refs": ["RPT-08", "D-KP1-13"],
+      "note": "판매 금액 (400,000 + 300,000 + 350,000 + 250,000) = 1,300,000 ÷ 4 = 325,000. 수량 (30 + 25 + 27 + 20) = 102 ÷ 4 = 25 나머지 2. 손님 (20 + 18 + 19 + 17) = 74 ÷ 4 = 18 나머지 2. 차이: 360,000 − 325,000 = 35,000, 26 − 25 = 1, 21 − 18 = 3. 지난 방송 = 10-24: 360,000 − 400,000 = −40,000, 26 − 30 = −4, 21 − 20 = 1",
+      "in": {
+        "current": { "sales": 360000, "qty": 26, "buyers": 21 },
+        "past": [
+          { "date": "2026-10-24", "sales": 400000, "qty": 30, "buyers": 20 },
+          { "date": "2026-10-17", "sales": 300000, "qty": 25, "buyers": 18 },
+          { "date": "2026-10-10", "sales": 350000, "qty": 27, "buyers": 19 },
+          { "date": "2026-10-03", "sales": 250000, "qty": 20, "buyers": 17 }
+        ]
+      },
+      "out": {
+        "last": { "date": "2026-10-24", "sales": 400000, "qty": 30, "buyers": 20, "diff": { "sales": -40000, "qty": -4, "buyers": 1 } },
+        "recent": { "count": 4, "sales": 325000, "qty": 25, "buyers": 18, "diff": { "sales": 35000, "qty": 1, "buyers": 3 } }
+      }
+    },
+    {
+      "id": "G-RPT-KP1-404",
+      "title": "다섯 번째부터는 쓰지 않는다",
+      "refs": ["RPT-08"],
+      "note": "앞 4개만: 판매 (100,000 × 4) ÷ 4 = 100,000, 수량 10, 손님 5. 다섯 번째(900,000)는 빠진다",
+      "in": {
+        "current": { "sales": 100000, "qty": 10, "buyers": 5 },
+        "past": [
+          { "date": "2026-10-24", "sales": 100000, "qty": 10, "buyers": 5 },
+          { "date": "2026-10-23", "sales": 100000, "qty": 10, "buyers": 5 },
+          { "date": "2026-10-22", "sales": 100000, "qty": 10, "buyers": 5 },
+          { "date": "2026-10-21", "sales": 100000, "qty": 10, "buyers": 5 },
+          { "date": "2026-10-20", "sales": 900000, "qty": 90, "buyers": 50 }
+        ]
+      },
+      "out": {
+        "last": { "date": "2026-10-24", "sales": 100000, "qty": 10, "buyers": 5, "diff": { "sales": 0, "qty": 0, "buyers": 0 } },
+        "recent": { "count": 4, "sales": 100000, "qty": 10, "buyers": 5, "diff": { "sales": 0, "qty": 0, "buyers": 0 } }
+      }
+    },
+    {
+      "id": "G-RPT-KP1-405",
+      "title": "세 번 평균의 나머지 1원은 버린다",
+      "refs": ["RPT-08", "D-KP1-13"],
+      "note": "판매 (100,000 + 100,000 + 100,001) = 300,001 ÷ 3 = 100,000 나머지 1. 수량 (1 + 1 + 2) = 4 ÷ 3 = 1. 손님 3 ÷ 3 = 1. 차이 90,000 − 100,000 = −10,000, 1 − 1 = 0, 1 − 1 = 0. 지난 방송 10-24는 100,001: 차이 −10,001, 1 − 2 = −1",
+      "in": {
+        "current": { "sales": 90000, "qty": 1, "buyers": 1 },
+        "past": [
+          { "date": "2026-10-24", "sales": 100001, "qty": 2, "buyers": 1 },
+          { "date": "2026-10-17", "sales": 100000, "qty": 1, "buyers": 1 },
+          { "date": "2026-10-10", "sales": 100000, "qty": 1, "buyers": 1 }
+        ]
+      },
+      "out": {
+        "last": { "date": "2026-10-24", "sales": 100001, "qty": 2, "buyers": 1, "diff": { "sales": -10001, "qty": -1, "buyers": 0 } },
+        "recent": { "count": 3, "sales": 100000, "qty": 1, "buyers": 1, "diff": { "sales": -10000, "qty": 0, "buyers": 0 } }
+      }
+    },
+    {
+      "id": "G-RPT-KP1-406",
+      "title": "이번 방송이 0이어도 차이는 그대로 음수",
+      "refs": ["RPT-08"],
+      "note": "평균 (80,000 + 40,000) ÷ 2 = 60,000, 수량 (8 + 3) ÷ 2 = 5, 손님 (4 + 3) ÷ 2 = 3",
+      "in": {
+        "current": { "sales": 0, "qty": 0, "buyers": 0 },
+        "past": [
+          { "date": "2026-10-24", "sales": 80000, "qty": 8, "buyers": 4 },
+          { "date": "2026-10-17", "sales": 40000, "qty": 3, "buyers": 3 }
+        ]
+      },
+      "out": {
+        "last": { "date": "2026-10-24", "sales": 80000, "qty": 8, "buyers": 4, "diff": { "sales": -80000, "qty": -8, "buyers": -4 } },
+        "recent": { "count": 2, "sales": 60000, "qty": 5, "buyers": 3, "diff": { "sales": -60000, "qty": -5, "buyers": -3 } }
+      }
+    }
+  ]
+}
