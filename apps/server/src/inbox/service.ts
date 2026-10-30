@@ -17,22 +17,26 @@ import type { ErrorCode } from '../errors.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import { openSellerText, sealSellerText, sha256Hex } from '../secrets.ts'
 import type { Service } from '../service.ts'
+import type { GeneratorTimer } from '../generator.ts'
 import type { Clock } from '../time.ts'
 import { parsePhoneAt } from '../try/sms-test.ts'
 import type { Actor, ScopeWriter, WriteOutcome, WriteResult } from '../writer.ts'
 import {
   broadcastStart,
+  claimCard,
   findCard,
   inboxSmsSeqs,
   findSettings,
   finishCard,
   insertCard,
+  inboxSellerIds,
   insertSmsSeen,
   markSeen,
   openCards,
   pruneSeen,
   purgeCards,
   realBroadcast,
+  releaseCard,
   saveToken,
   seenSince,
   sellerOfToken,
@@ -51,6 +55,9 @@ import {
 export const INBOX_MESSAGES_MAX = 20
 /** 읽는 본문 길이 (C-04 — 넘으면 앞 1,000자) */
 export const INBOX_TEXT_MAX = 1000
+/** 보낸 곳·제목 길이 (기기 상한 packages/mobile-notice NOTICE_FROM_MAX_CHARS·NOTICE_TITLE_MAX_CHARS와 같음 — 넘으면 앞부분만) */
+export const INBOX_FROM_MAX = 200
+export const INBOX_TITLE_MAX = 200
 /** id 길이 (C-04 1~64자) */
 export const INBOX_ID_MAX = 64
 /** 기기 이름 길이 (C-04 1~30자) */
@@ -66,6 +73,8 @@ export const INBOX_SAME_SMS_MS = 60_000
 export const INBOX_AFTER_END_MS = 10 * 60_000
 /** 처리하지 않은 카드를 두는 시간 (방송이 끝나고 24시간, C-07) */
 export const INBOX_CARD_KEEP_MS = 24 * 3_600_000
+/** 주기 정리 간격 (받은 id·같은 문자 표지 24시간, 처리 안 한 카드 방송 끝나고 24시간, 은행 알림 줄 30일 — 요청이 오지 않아도 지운다) */
+export const INBOX_SWEEP_MS = 30 * 60_000
 
 /** 화면 문구 (ORD-13 "화면 문구" — 화면이 그대로 보인다) */
 export const INBOX_MESSAGES = {
@@ -82,6 +91,8 @@ export const INBOX_MESSAGES = {
   badRequest: '보낸 내용의 형식이 올바르지 않아요.',
   notCancel: '취소 요청 카드만 승인할 수 있어요.',
   notReview: '확인 필요 카드만 넣을 수 있어요.',
+  /** 이름만 온 문자의 취소 요청은 승인하지 않는다 (D-SMS3-19) */
+  nameOnlyCancel: '이름만 와서 누가 보냈는지 몰라요. 보드에서 직접 취소해 주세요',
 } as const
 
 export type InboxStatus = 'SAVED' | 'DUPLICATE' | 'IGNORED'
@@ -106,6 +117,8 @@ export interface CardView {
   readonly text: string
   readonly receivedAt: string
   readonly message: string
+  /** "승인" 단추를 보일지 — 번호가 온 취소 요청만 true. 이름만 온 취소 요청·확인 필요 카드는 false (D-SMS3-19) */
+  readonly canApprove: boolean
 }
 
 export interface InboxMessageInput {
@@ -132,6 +145,16 @@ export const INBOX_FILTERS = Object.freeze({ skipWords: [...SMS_EXCLUDED_WORDS],
 const MESSAGE_KEYS = ['id', 'channel', 'from', 'title', 'text', 'receivedAt']
 const chars = (text: string): number => [...text].length
 const cut = (text: string, max: number): string => (text.length <= max ? text : [...text].slice(0, max).join(''))
+/** 글의 방향을 바꾸는 글자 (카드 이름·본문 위장 막기, RA-SMS3-010) — 본문·제목에서 지운다 */
+const BIDI_RE = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu
+/** 화면에 보이는 보낸 이름에서 지우는 글자: 제어 글자 + 방향 글자 */
+const DISPLAY_UNSAFE_RE = /[\p{Cc}\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu
+/** 카드에 보일 보낸 이름 (가르기·믿을 보낸 곳 검사는 받은 그대로의 from으로 한다 — 지운 글로 은행 번호가 되지 않게) */
+const displaySender = (from: string | null): string | null => {
+  if (from === null) return null
+  const clean = from.replace(DISPLAY_UNSAFE_RE, '').trim()
+  return clean === '' ? null : clean
+}
 
 /** 요청 본문 검사 (C-04): 하나라도 틀리면 null(400 — 아무것도 처리하지 않는다) */
 export function parseInboxRequest(raw: unknown): InboxRequest | null {
@@ -157,7 +180,15 @@ export function parseInboxRequest(raw: unknown): InboxRequest | null {
     if (title !== null && typeof title !== 'string') return null
     if (typeof text !== 'string') return null
     if (receivedAt !== null && typeof receivedAt !== 'string' && typeof receivedAt !== 'number') return null
-    out.push({ id, channel, from, title, text, receivedAt })
+    // 보낸 곳·제목은 기기 상한까지, 본문·제목의 방향 글자는 지운다 (RA-SMS3-010)
+    out.push({
+      id,
+      channel,
+      from: from === null ? null : cut(from, INBOX_FROM_MAX),
+      title: title === null ? null : cut(title, INBOX_TITLE_MAX).replace(BIDI_RE, ''),
+      text: text.replace(BIDI_RE, ''),
+      receivedAt,
+    })
   }
   return { device: device.trim(), messages: out }
 }
@@ -203,6 +234,9 @@ export interface InboxDeps {
   readonly publish: (sellerId: string, data: Readonly<Record<string, unknown>>) => void
   /** 1분 한도 (시험만 바꾼다) */
   readonly rateLimit?: number
+  /** 주기 정리 타이머 (기본 실제 setTimeout — 시험은 sweep()을 직접 부른다) */
+  readonly timer?: GeneratorTimer
+  readonly sweepMs?: number
 }
 
 export class InboxService {
@@ -211,8 +245,56 @@ export class InboxService {
   /** 판매자 → 받은 메시지 시각들 (1분 한도) */
   readonly #rate = new Map<string, number[]>()
 
+  #cancelSweep: (() => void) | null = null
+  #closed = false
+
   constructor(deps: InboxDeps) {
     this.#deps = deps
+  }
+
+  /**
+   * 주기 정리를 건다 (C-07·D-SMS3-17·AC-SMS3-18): 요청·화면 열기가 없어도 처리 안 한 카드(본문)는 방송 끝나고 24시간,
+   * 은행 알림 줄은 받은 지 30일, 받은 id·같은 문자 표지는 24시간 뒤 지운다
+   */
+  start(): void {
+    if (this.#closed || this.#cancelSweep !== null || this.#deps.timer === undefined) return
+    const timer = this.#deps.timer
+    // 켤 때 한 번 (서버가 오래 꺼져 있었으면 바로 지운다)
+    void this.sweep()
+    const next = () => {
+      this.#cancelSweep = timer.schedule(this.#deps.sweepMs ?? INBOX_SWEEP_MS, () => {
+        void this.sweep().finally(() => {
+          if (!this.#closed) next()
+        })
+      })
+    }
+    next()
+  }
+
+  close(): void {
+    this.#closed = true
+    this.#cancelSweep?.()
+    this.#cancelSweep = null
+  }
+
+  /** 정리 한 번 — 판매자마다 따로(한 판매자가 실패해도 다음은 한다, 경보는 판매자 ID·까닭 종류만) */
+  async sweep(): Promise<void> {
+    let sellerIds: string[]
+    try {
+      sellerIds = await inboxSellerIds(this.#deps.db)
+    } catch (error) {
+      this.#deps.log({ level: 'warn', code: 'INBOX_SWEEP_FAILED', errorKind: errorKind(error) })
+      return
+    }
+    for (const sellerId of sellerIds) {
+      try {
+        await this.#serial(sellerId, () => pruneSeen(this.#deps.db, sellerId, new Date(this.#now() - INBOX_SEEN_MS)))
+        await this.purge(sellerId)
+        await this.#deps.deposits.pruneOldAlerts(sellerId)
+      } catch (error) {
+        this.#deps.log({ level: 'warn', code: 'INBOX_SWEEP_FAILED', seller: sellerId, errorKind: errorKind(error) })
+      }
+    }
   }
 
   #now(): number {
@@ -316,7 +398,7 @@ export class InboxService {
   /** 가르기 (C-05) */
   async #route(sellerId: string, message: InboxMessageInput, nowMs: number): Promise<InboxStatus> {
     const text = cut(message.text, INBOX_TEXT_MAX)
-    const title = message.title === null ? null : cut(message.title, INBOX_TEXT_MAX)
+    const title = message.title === null ? null : cut(message.title, INBOX_TITLE_MAX)
     const receivedMs = parsePhoneAt(message.receivedAt, new Date(nowMs))?.getTime() ?? nowMs
     if (message.channel === 'APP') return this.#notice(sellerId, message, 'APP', title, text, receivedMs)
     const sender = senderKind(message.from)
@@ -338,7 +420,16 @@ export class InboxService {
     const senderKey = phone === null ? `name:${message.from ?? ''}` : `tel:${phone}`
     const sig = createHmac('sha256', this.#deps.masterKey).update(`inbox-sms/${sellerId}/${senderKey}/${text}`, 'utf8').digest('base64url')
     if (await smsSeenNear(db, sellerId, sig, new Date(receivedMs - INBOX_SAME_SMS_MS), new Date(receivedMs + INBOX_SAME_SMS_MS))) return 'DUPLICATE'
-    await insertSmsSeen(db, sellerId, sig, new Date(receivedMs), now)
+    // 같은 문자 표지는 실제로 받아 처리한(SAVED) 뒤에만 남긴다 — 방송 창 밖·찜 아님으로 무시한 문자, 저장이 실패한 문자가
+    // 60초 안의 다음 문자(새 id)를 DUPLICATE로 먹지 않게 (AC-SMS3-13 방송 없음이면 아무것도 저장되지 않음)
+    const status = await this.#smsBody(sellerId, message, text, receivedMs, now, phone)
+    if (status === 'SAVED') await insertSmsSeen(db, sellerId, sig, new Date(receivedMs), now)
+    return status
+  }
+
+  async #smsBody(sellerId: string, message: InboxMessageInput, text: string, receivedMs: number, now: Date, phone: string | null): Promise<InboxStatus> {
+    const { db } = this.#deps
+    const nowMs = now.getTime()
     // 방송 창 (D-SMS3-07): 끝나지 않은 실제 방송, 없으면 끝난 지 10분 안의 실제 방송
     const broadcast = await windowBroadcast(db, sellerId, new Date(nowMs - INBOX_AFTER_END_MS))
     if (broadcast === null) return 'IGNORED'
@@ -351,7 +442,7 @@ export class InboxService {
     const rawMemo = (result as { readonly memo?: unknown }).memo
     const memo = typeof rawMemo === 'string' ? rawMemo : null
     const card = async (kind: 'REVIEW' | 'CANCEL', why: CardWhy | null, numbers: readonly number[]) => {
-      const sealed: Sealed = { text, phone, sender: phone === null ? message.from : null }
+      const sealed: Sealed = { text, phone, sender: phone === null ? displaySender(message.from) : null }
       await insertCard(db, {
         id: `ic_${randomUUID()}`,
         sellerId,
@@ -440,6 +531,7 @@ export class InboxService {
       text: sealed?.text ?? '',
       receivedAt: row.receivedAt.toISOString(),
       message,
+      canApprove: row.kind === 'CANCEL' && row.last4 !== null,
     }
   }
 
@@ -468,9 +560,27 @@ export class InboxService {
     await this.purge(sellerId)
     const row = await findCard(this.#deps.db, sellerId, id)
     if (row === null) return fail(404, 'NOT_FOUND', '찾을 수 없어요.')
-    if (row.status !== 'OPEN') return fail(409, 'CARD_DONE', INBOX_MESSAGES.cardDone)
+    if (row.status !== 'OPEN' && row.status !== 'BUSY') return fail(409, 'CARD_DONE', INBOX_MESSAGES.cardDone)
     if (row.kind !== kind) return fail(400, 'INVALID_INPUT', kind === 'CANCEL' ? INBOX_MESSAGES.notCancel : INBOX_MESSAGES.notReview)
     return { ok: true, value: row }
+  }
+
+  /**
+   * 카드를 잡고(조건부 UPDATE OPEN → BUSY, 바뀐 행 1일 때만) 기록한다 — 판매자·보조자가 동시에 눌러도 한 요청만 엔진에 적는다.
+   * 다른 요청이 잡았으면 409 CARD_DONE. 기록이 거절·실패하면 카드를 놓아 처리 안 한 채로 남긴다
+   */
+  async #withCard<T>(sellerId: string, row: CardRow, task: () => Promise<InboxOutcome<T>>): Promise<InboxOutcome<T>> {
+    const claimedAt = new Date(this.#now())
+    if (!(await claimCard(this.#deps.db, sellerId, row.id, claimedAt))) return fail(409, 'CARD_DONE', INBOX_MESSAGES.cardDone)
+    let done: InboxOutcome<T>
+    try {
+      done = await task()
+    } catch (error) {
+      await releaseCard(this.#deps.db, sellerId, row.id, claimedAt)
+      throw error
+    }
+    if (!done.ok) await releaseCard(this.#deps.db, sellerId, row.id, claimedAt)
+    return done
   }
 
   /**
@@ -484,17 +594,19 @@ export class InboxService {
     const sealed = this.#open(sellerId, row)
     const phone = sealed?.phone ?? null
     const memo = phone === null ? (sealed?.sender ?? row.memo) : row.memo
-    const outcome = await this.#deps.service.writeInboxSms(sellerId, actor, {
-      b: row.broadcastId,
-      requestId: input.requestId,
-      no: input.no,
-      receivedMs: row.receivedAt.getTime(),
-      memo: memo === null ? null : cut(memo.trim(), 40),
-      phone,
-      checkOnSale: true,
-      extra: input.extra,
+    const done = await this.#withCard(sellerId, row, async () => {
+      const outcome = await this.#deps.service.writeInboxSms(sellerId, actor, {
+        b: row.broadcastId,
+        requestId: input.requestId,
+        no: input.no,
+        receivedMs: row.receivedAt.getTime(),
+        memo: memo === null ? null : cut(memo.trim(), 40),
+        phone,
+        checkOnSale: true,
+        extra: input.extra,
+      })
+      return this.#written(sellerId, row, outcome)
     })
-    const done = await this.#written(sellerId, row, outcome)
     if (!done.ok) return done
     return { ok: true, value: { result: done.value, card: row.id } }
   }
@@ -504,14 +616,24 @@ export class InboxService {
     const opened = await this.#openCard(sellerId, id, 'CANCEL')
     if (!opened.ok) return opened
     const row = opened.value
+    // 이름만 온 문자의 취소 요청은 승인하지 않는다 — 누가 보냈는지 모른다(D-SMS3-19). 엔진 기록 없음, 카드는 무시로 닫는다
+    if (row.last4 === null) return fail(409, 'NAME_ONLY', INBOX_MESSAGES.nameOnlyCancel)
     const no = (JSON.parse(row.numbers) as number[])[0]
     const sealed = this.#open(sellerId, row)
     const broadcast = await realBroadcast(this.#deps.db, sellerId, row.broadcastId)
-    if (broadcast === null || typeof no !== 'number' || sealed === null || sealed.phone === null) return fail(409, 'NO_CLAIM', INBOX_MESSAGES.noClaim)
-    const refs = await smsRefsOfPhoneKey(this.#deps.db, sellerId, broadcast.date, await this.#deps.service.phoneKeyFor(sellerId, sealed.phone))
+    if (broadcast === null || typeof no !== 'number' || sealed === null) return fail(409, 'NO_CLAIM', INBOX_MESSAGES.noClaim)
+    if (sealed.phone === null) return fail(409, 'NAME_ONLY', INBOX_MESSAGES.nameOnlyCancel)
+    const phone = sealed.phone
+    const done = await this.#withCard(sellerId, row, async () => this.#approveWrite(sellerId, actor, row, broadcast.date, no, phone, requestId))
+    if (!done.ok) return done
+    return { ok: true, value: { result: done.value, card: row.id } }
+  }
+
+  async #approveWrite(sellerId: string, actor: Actor, row: CardRow, date: string, no: number, phone: string, requestId: string): Promise<InboxOutcome<WriteResult>> {
+    const refs = await smsRefsOfPhoneKey(this.#deps.db, sellerId, date, await this.#deps.service.phoneKeyFor(sellerId, phone))
     const outcome = await this.#deps.writer.write({
       sellerId,
-      date: broadcast.date,
+      date,
       rehearsal: false,
       createScope: false,
       requestId,
@@ -526,9 +648,7 @@ export class InboxService {
         return { status: 409, code: 'NO_CLAIM', message: INBOX_MESSAGES.noClaim, problems: [] }
       },
     })
-    const done = await this.#written(sellerId, row, outcome)
-    if (!done.ok) return done
-    return { ok: true, value: { result: done.value, card: row.id } }
+    return this.#written(sellerId, row, outcome)
   }
 
   /** 카드 "무시": 기록 없음, 본문을 지우고 카드가 사라진다 */
@@ -536,7 +656,9 @@ export class InboxService {
     await this.purge(sellerId)
     const row = await findCard(this.#deps.db, sellerId, id)
     if (row === null) return fail(404, 'NOT_FOUND', '찾을 수 없어요.')
-    if (!(await finishCard(this.#deps.db, sellerId, id, 'IGNORED', new Date(this.#now())))) return fail(409, 'CARD_DONE', INBOX_MESSAGES.cardDone)
+    // 넣기·승인과 같이 카드를 먼저 잡는다 — 처리 중인 카드를 무시로 닫지 않는다
+    if (!(await claimCard(this.#deps.db, sellerId, id, new Date(this.#now())))) return fail(409, 'CARD_DONE', INBOX_MESSAGES.cardDone)
+    if (!(await finishCard(this.#deps.db, sellerId, id, 'IGNORED', new Date(this.#now()), 'BUSY'))) return fail(409, 'CARD_DONE', INBOX_MESSAGES.cardDone)
     this.#deps.publish(sellerId, { kind: 'cards', b: row.broadcastId })
     return { ok: true, value: { card: id } }
   }
@@ -548,7 +670,7 @@ export class InboxService {
       case 'duplicate': {
         const result = outcome.result
         if (result === null) return fail(409, 'REQUEST_ERROR', '이미 받은 입력이에요.')
-        await finishCard(this.#deps.db, sellerId, row.id, 'DONE', new Date(this.#now()))
+        await finishCard(this.#deps.db, sellerId, row.id, 'DONE', new Date(this.#now()), 'BUSY')
         this.#deps.publish(sellerId, { kind: 'cards', b: row.broadcastId })
         return { ok: true, value: result }
       }

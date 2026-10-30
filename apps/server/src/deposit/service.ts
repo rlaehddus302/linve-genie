@@ -1063,6 +1063,14 @@ export class DepositService {
     return 'SAVED'
   }
 
+  /**
+   * 받은 지 30일이 지난 은행 알림 줄(닫은 줄 포함)·잔액 기록 지우기 (DP-9 9, D-SMS3-17). 은행 알림이 새로 오지 않아도
+   * 휴대폰 알림 받기의 주기 정리(InboxService.sweep)가 판매자마다 부른다
+   */
+  pruneOldAlerts(sellerId: string): Promise<void> {
+    return this.#serial(sellerId, () => pruneOld(this.#deps.db, sellerId, new Date(this.#now() - ALERT_KEEP_MS)))
+  }
+
   /** 은행 알림 줄 (DP-9 9 — 닫지 않았고 받은 지 30일 안, 새것 먼저). 문구는 DP-8 */
   async alerts(sellerId: string): Promise<{ alerts: BankAlertView[] }> {
     const rows = await openAlerts(this.#deps.db, sellerId, new Date(this.#now() - ALERT_KEEP_MS))

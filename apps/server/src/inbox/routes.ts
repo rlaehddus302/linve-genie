@@ -9,6 +9,8 @@ import { REQUEST_ID_RE, own, ownKeys } from '../api-fields.ts'
 import type { SessionContext } from '../auth.ts'
 import { apiError, JSON_CONTENT_TYPE } from '../errors.ts'
 import { errorKind, type LogSink } from '../log.ts'
+import { IpLimiter, clientAddress, ipKey, type LoginLimitOptions } from '../login-limit.ts'
+import type { Clock } from '../time.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import type { Actor, WriteResult } from '../writer.ts'
 import { INBOX_MESSAGES, parseInboxRequest, type InboxOutcome, type InboxService } from './service.ts'
@@ -20,15 +22,43 @@ export const INBOX_BODY_LIMIT_BYTES = 256 * 1024
 
 const noStore = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': JSON_CONTENT_TYPE, 'Cache-Control': 'no-store' } })
 
-/** 기기 입구를 앱에 붙인다 (/api 경로보다 먼저) */
-export function registerInboxIntake(app: Hono, inbox: InboxService, log: LogSink): void {
+/** 토큰 없는·틀린 요청이 많은 IP에 주는 문장 (RA-SMS3-011) */
+export const INBOX_AUTH_LIMITED_MESSAGE = '받기 토큰이 맞지 않는 요청이 너무 많아요. 10분 뒤에 다시 보내 주세요.'
+
+export interface InboxIntakeOptions {
+  readonly clock: Clock
+  /** 믿는 프록시 수 (로그인 IP 한도와 같은 규칙) */
+  readonly trustedProxies: number
+  /** 연결 주소 읽기 (api.ts connectionAddress) */
+  readonly address: (c: Context) => string | null
+  /** 토큰 없는·틀린 요청 IP 한도 (기본 로그인 한도와 같음 — 10분 20번) */
+  readonly authLimits?: LoginLimitOptions
+}
+
+/**
+ * 기기 입구를 앱에 붙인다 (/api 경로보다 먼저).
+ * 토큰 없는·틀린 요청(401)은 로그인과 같은 방식으로 IP마다 센다 — 10분에 20번을 넘긴 IP는 토큰을 확인하지 않고 429(토큰 맞히기 막기, RA-SMS3-011).
+ * 맞는 토큰의 요청은 세지 않는다(판매자 1분 한도가 따로 있다). 연결 주소를 모르면 걸지 않는다. IP는 로그·응답에 남기지 않는다
+ */
+export function registerInboxIntake(app: Hono, inbox: InboxService, log: LogSink, options?: InboxIntakeOptions): void {
   const limit = bodyLimit({ maxSize: INBOX_BODY_LIMIT_BYTES, onError: () => apiError(413, 'PAYLOAD_TOO_LARGE', '보낸 내용이 너무 커요.') })
+  const failures = options === undefined ? null : new IpLimiter(options.clock, options.authLimits)
+  const keyOf = (c: Context): string | null => {
+    if (options === undefined) return null
+    const address = clientAddress(options.address(c), c.req.header('x-forwarded-for'), options.trustedProxies)
+    return address === null ? null : ipKey(address)
+  }
   /** 토큰으로 정한 판매자 (요청마다 — 본문 상한 단계가 요청 객체를 바꾸므로 컨텍스트 변수로 넘긴다) */
   type IntakeContext = Context<{ Variables: { inboxSeller: string } }>
   app.post(INBOX_PATH, async (c, next) => {
-    // 토큰 먼저 (본문을 읽기 전에 — 토큰 없는 큰 본문을 받아 두지 않는다)
+    // 토큰 먼저 (본문을 읽기 전에 — 토큰 없는 큰 본문을 받아 두지 않는다). 틀린 토큰이 많은 IP는 확인 없이 429
+    const key = keyOf(c)
+    if (failures !== null && !failures.allows(key)) return apiError(429, 'TOO_MANY', INBOX_AUTH_LIMITED_MESSAGE)
     const sellerId = await inbox.authenticate(c.req.header('authorization'))
-    if (sellerId === null) return apiError(401, 'TOKEN_INVALID', INBOX_MESSAGES.tokenInvalid)
+    if (sellerId === null) {
+      failures?.take(key)
+      return apiError(401, 'TOKEN_INVALID', INBOX_MESSAGES.tokenInvalid)
+    }
     ;(c as unknown as IntakeContext).set('inboxSeller', sellerId)
     return limit(c, next)
   }, async (c) => {

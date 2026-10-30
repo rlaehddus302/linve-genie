@@ -144,11 +144,11 @@ describe('입금 골든 읽기 (AC-N3-04)', () => {
     expect(loaded.problems).toEqual([])
   })
 
-  it('파일 4 · 사례 75 (name 10 · paste 14 · match 21 · notice 30)', () => {
+  it('파일 4 · 사례 92 (name 10 · paste 14 · match 21 · notice 47)', () => {
     expect(loaded.files.length).toBe(4)
     const count = (kind: Kind) => loaded.files.filter((file) => file.kind === kind).reduce((sum, file) => sum + file.cases.length, 0)
-    expect({ name: count('name'), paste: count('paste'), match: count('match'), notice: count('notice') }).toEqual({ name: 10, paste: 14, match: 21, notice: 30 })
-    expect(loaded.files.reduce((sum, file) => sum + file.cases.length, 0)).toBe(75)
+    expect({ name: count('name'), paste: count('paste'), match: count('match'), notice: count('notice') }).toEqual({ name: 10, paste: 14, match: 21, notice: 47 })
+    expect(loaded.files.reduce((sum, file) => sum + file.cases.length, 0)).toBe(92)
   })
 
   it('검사기가 모르는 키·kind·중복·ID 형식을 실제로 잡는다', () => {

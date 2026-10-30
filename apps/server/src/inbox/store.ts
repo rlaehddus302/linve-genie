@@ -57,6 +57,12 @@ export async function touchReceived(db: Db, sellerId: string, device: string, no
   await db.update(inboxSettings).set({ lastReceivedAt: now, lastDevice: device }).where(eq(inboxSettings.sellerId, sellerId))
 }
 
+/** 휴대폰 알림 받기를 만든 판매자 (주기 정리 — 판매자를 모른 채 묻는 둘째 곳, 판매자 ID만 읽는다) */
+export async function inboxSellerIds(db: Db): Promise<string[]> {
+  const rows = await db.select({ sellerId: inboxSettings.sellerId }).from(inboxSettings).orderBy(asc(inboxSettings.sellerId))
+  return rows.map((row) => row.sellerId)
+}
+
 // ── 받은 id (C-06 같은 id 24시간) ─────────────────────────────────────────
 
 /** 그 id를 since 뒤에 받았는지 */
@@ -168,7 +174,8 @@ export async function smsRefsOfPhoneKey(db: Db, sellerId: string, date: string, 
 
 export type CardKind = 'REVIEW' | 'CANCEL'
 export type CardWhy = 'UNCLEAR' | 'NO_NUMBER' | 'OPTIONS' | 'NOT_ON_SALE'
-export type CardStatus = 'OPEN' | 'DONE' | 'IGNORED'
+/** OPEN 처리 전 · BUSY 넣기·승인 처리 중(한 요청만 잡는다) · DONE 넣기·승인 · IGNORED 무시 */
+export type CardStatus = 'OPEN' | 'BUSY' | 'DONE' | 'IGNORED'
 
 export interface CardRow {
   readonly id: string
@@ -220,12 +227,12 @@ export async function insertCard(
   })
 }
 
-/** 그 방송의 처리 안 한 카드 (받은 순서 — 오래된 것 먼저) */
+/** 그 방송의 처리 안 한 카드 (받은 순서 — 오래된 것 먼저). 처리 중(BUSY)인 카드도 보인다 — 처리가 실패하면 OPEN으로 돌아오고, 성공하면 사라진다 */
 export async function openCards(db: Db, sellerId: string, broadcastId: string): Promise<CardRow[]> {
   const rows = await db
     .select(cardColumns)
     .from(inboxCards)
-    .where(and(eq(inboxCards.sellerId, sellerId), eq(inboxCards.broadcastId, broadcastId), eq(inboxCards.status, 'OPEN')))
+    .where(and(eq(inboxCards.sellerId, sellerId), eq(inboxCards.broadcastId, broadcastId), inArray(inboxCards.status, ['OPEN', 'BUSY'])))
     .orderBy(asc(inboxCards.receivedAt), asc(inboxCards.seq))
     .limit(500)
   return rows as CardRow[]
@@ -240,18 +247,51 @@ export async function findCard(db: Db, sellerId: string, id: string): Promise<Ca
   return (rows[0] as CardRow | undefined) ?? null
 }
 
-/** 카드 처리 (넣기·승인 DONE · 무시 IGNORED): 본문을 바로 지운다. 처리 안 한 카드일 때만 바꾼다 */
-export async function finishCard(db: Db, sellerId: string, id: string, status: 'DONE' | 'IGNORED', now: Date): Promise<boolean> {
+/** 처리 중으로 둔 카드가 이 시간 넘게 그대로면(서버가 처리 도중 멈춤) 다시 잡을 수 있다 */
+export const CARD_BUSY_STALE_MS = 2 * 60_000
+
+/**
+ * 카드 잡기 (넣기·승인 — 판매자·보조자 동시 처리에서 한 요청만): 처리 안 한 카드(또는 오래 멈춘 처리 중 카드)를 조건부 UPDATE로 처리 중(BUSY)으로.
+ * 바뀐 행이 정확히 1일 때만 true — 그 요청만 엔진에 기록한다
+ */
+export async function claimCard(db: Db, sellerId: string, id: string, now: Date): Promise<boolean> {
+  const stale = new Date(now.getTime() - CARD_BUSY_STALE_MS)
   const rows = await db
     .update(inboxCards)
-    .set({ status, sealed: null, handledAt: now })
-    .where(and(eq(inboxCards.sellerId, sellerId), eq(inboxCards.id, id), eq(inboxCards.status, 'OPEN')))
+    .set({ status: 'BUSY', handledAt: now })
+    .where(
+      and(
+        eq(inboxCards.sellerId, sellerId),
+        eq(inboxCards.id, id),
+        or(eq(inboxCards.status, 'OPEN'), and(eq(inboxCards.status, 'BUSY'), or(isNull(inboxCards.handledAt), lt(inboxCards.handledAt, stale)))),
+      ),
+    )
+    .returning({ id: inboxCards.id })
+  return rows.length === 1
+}
+
+/** 잡은 카드 놓기 (기록이 거절·실패 — 카드는 처리 안 한 채로 남는다) */
+export async function releaseCard(db: Db, sellerId: string, id: string, claimedAt: Date): Promise<void> {
+  await db
+    .update(inboxCards)
+    .set({ status: 'OPEN', handledAt: null })
+    .where(and(eq(inboxCards.sellerId, sellerId), eq(inboxCards.id, id), eq(inboxCards.status, 'BUSY'), eq(inboxCards.handledAt, claimedAt)))
+}
+
+/**
+ * 카드 처리 (넣기·승인 DONE · 무시 IGNORED): 본문·읽은 이름(memo)·뒤 4자리를 바로 지운다(평문 개인정보를 남기지 않는다, RA-SMS3-003). from 상태(무시는 OPEN, 넣기·승인은 잡은 BUSY)일 때만 바꾼다
+ */
+export async function finishCard(db: Db, sellerId: string, id: string, status: 'DONE' | 'IGNORED', now: Date, from: 'OPEN' | 'BUSY' = 'OPEN'): Promise<boolean> {
+  const rows = await db
+    .update(inboxCards)
+    .set({ status, sealed: null, memo: null, last4: null, handledAt: now })
+    .where(and(eq(inboxCards.sellerId, sellerId), eq(inboxCards.id, id), eq(inboxCards.status, from)))
     .returning({ id: inboxCards.id })
   return rows.length === 1
 }
 
 /**
- * 본문 지우기 (C-07): 처리 안 한 카드는 그 방송이 끝나고 24시간 뒤 행째 지운다. 처리한 카드의 본문은 처리할 때 이미 지웠다.
+ * 카드 지우기 (C-07): 그 방송이 끝나고 24시간이 지나면 카드 행을 상태와 상관없이 모두 지운다(처리한 카드의 본문·이름은 처리할 때 이미 지웠다).
  * endedBefore = 지금 − 24시간. 지운 카드의 방송 ID 목록을 돌려준다
  */
 export async function purgeCards(db: Db, sellerId: string, endedBefore: Date): Promise<string[]> {
@@ -266,7 +306,7 @@ export async function purgeCards(db: Db, sellerId: string, endedBefore: Date): P
     const part = ids.slice(start, start + 200)
     const rows = await db
       .delete(inboxCards)
-      .where(and(eq(inboxCards.sellerId, sellerId), inArray(inboxCards.broadcastId, part), or(eq(inboxCards.status, 'OPEN'), isNotNull(inboxCards.sealed))))
+      .where(and(eq(inboxCards.sellerId, sellerId), inArray(inboxCards.broadcastId, part)))
       .returning({ b: inboxCards.broadcastId })
     removed.push(...rows.map((row) => row.b))
   }

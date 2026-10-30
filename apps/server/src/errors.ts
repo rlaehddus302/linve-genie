@@ -163,6 +163,7 @@ export type ErrorCode =
   | 'NOT_ON_SALE'
   | 'NO_CLAIM'
   | 'CARD_DONE'
+  | 'NAME_ONLY'
   // T1 택배 자동 접수 (PARCEL_RULES PC-3~PC-8)
   | 'PARCEL_BLOCKED'
   | 'PARCEL_LOCKED'
