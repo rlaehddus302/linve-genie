@@ -35,6 +35,19 @@ export function writeVoiceSetting(key: string, value: unknown): Promise<void> {
     await current?.setItem('livegenie.voice.preferences.v1', JSON.stringify(prefs))
   })
 }
+// 마이크를 켜는 도중 표시. 네이티브 마이크가 앱째로 꺼지면(예: 기기 소리 장치가 답하지 않음) 이 표시가 남아,
+// 다음에 방송 화면을 열 때 저절로 다시 켜다 또 꺼지는 일을 막는다. 소리·세션 값은 넣지 않는다.
+const MIC_STARTING_KEY = 'livegenie.voice.micstarting.v1'
+export async function markMicStarting(on: boolean): Promise<void> {
+  try {
+    if (on) await store?.setItem(MIC_STARTING_KEY, '1')
+    else if (store?.removeItem) await store.removeItem(MIC_STARTING_KEY)
+    else await store?.setItem(MIC_STARTING_KEY, '0')
+  } catch { /* 표시를 못 남겨도 마이크는 켠다 */ }
+}
+export async function micStartWasCut(): Promise<boolean> {
+  try { return (await store?.getItem(MIC_STARTING_KEY)) === '1' } catch { return false }
+}
 interface ArchiveEntry { at: number; kind: string; value: unknown }
 const KEEP_MS = 30 * 86400000
 let account: string | null = null

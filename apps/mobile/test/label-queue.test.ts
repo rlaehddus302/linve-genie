@@ -6,6 +6,7 @@ import type { PrinterResult } from '../src/native/ble.ts'
 import { decodeBase64, parseBitmap } from '../src/api/labels.ts'
 import { LabelQueue } from '../src/lib/label-queue.ts'
 import { FakeBlePrinter } from '../src/native/ble.ts'
+import { APP_PRINTER_UNSUPPORTED } from '../src/lib/words.ts'
 import { FakeClock, FakeEventSource, FakeServer, flush } from './support.ts'
 
 const queueSummary = (patch: Partial<QueueSummary> = {}): QueueSummary => ({ rev: 1, device: { id: 'app-device-1', name: '내 휴대폰', live: true, printerConnected: true, releasing: false }, pause: null, waiting: 2, printing: 0, discard: 0, labelsEnabled: true, ...patch })
@@ -126,5 +127,13 @@ describe('LabelQueue', () => {
     expect([...decodeBase64('AAEC/w==')]).toEqual([0, 1, 2, 255])
     expect(parseBitmap({ width: 16, height: 2, data: 'AAEC/w==' })).toEqual({ width: 16, height: 2, data: new Uint8Array([0, 1, 2, 255]) })
     expect(parseBitmap({ width: 16, height: 3, data: 'AAEC/w==' })).toBeNull()
+  })
+  it('블루투스가 없는 기기에서 연결하면 웹 문장("이 브라우저에서는…")이 아니라 앱 문장을 보인다', async () => {
+    const { ble, queue } = setup()
+    ble.connect = async () => ({ ok: false, error: { code: 'UNSUPPORTED', message: '이 브라우저에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 NIIMBOT 앱에서 인쇄해 주세요.' } }) as PrinterResult
+    await queue.connect()
+    expect(queue.getSnapshot().printerError?.code).toBe('UNSUPPORTED')
+    expect(queue.getSnapshot().printerError?.message).toBe(APP_PRINTER_UNSUPPORTED)
+    expect(queue.getSnapshot().printerError?.message).not.toContain('브라우저')
   })
 })

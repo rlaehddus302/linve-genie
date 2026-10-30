@@ -9,6 +9,7 @@ import { get, isApiError, post, withRetry, type ApiError } from '../api/client.t
 import type { EventSourceLike, SseMessage } from '../api/sse.ts'
 import type { ConnectionState, NativeBlePrinter, PrinterError } from '../native/ble.ts'
 import { realTimer, type Timer } from './live.ts'
+import { APP_PRINTER_UNSUPPORTED } from './words.ts'
 
 export interface LabelQueueSnapshot {
   readonly queue: QueueSummary | null
@@ -66,7 +67,9 @@ export class LabelQueue {
 
   #set(patch: Partial<LabelQueueSnapshot>): void {
     if (this.#stopped) return
-    this.#snapshot = { ...this.#snapshot, ...patch }
+    // 프린터 모듈의 UNSUPPORTED 문장은 웹 브라우저용("이 브라우저에서는…")이라 앱 문장으로 바꾼다 (블루투스가 없는 기기·시뮬레이터)
+    const fixed = patch.printerError?.code === 'UNSUPPORTED' ? { ...patch, printerError: { ...patch.printerError, message: APP_PRINTER_UNSUPPORTED } } : patch
+    this.#snapshot = { ...this.#snapshot, ...fixed }
     for (const listener of [...this.#listeners]) listener()
   }
 

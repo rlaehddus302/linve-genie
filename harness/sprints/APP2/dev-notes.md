@@ -43,3 +43,14 @@
 - 음성 끄기·다시 잇기 중에는 이전 카드/문자찜의 자동 처리 남은 초를 표시하지 않는다. 남은 폼·수동 조작은 보존한다.
 - 독립 375px UX 검토의 긴 상품 요약 잘림과 농도 버튼 폭 미달을 공통 버튼의 최대폭·줄바꿈·최소폭으로 고쳤다. 검토자가 새 export/실제 서버에서 재확인해 두 지적을 닫았다.
 - 최종 모바일 단위 17 파일 74개 통과. 실제 휴대폰·B1 검증 범위는 위 HG 목록 그대로다.
+
+### 안드로이드 에뮬레이터 실제 실행 (dev/android-run, 2026-10-30)
+
+- AVD Pixel 7·android-35(arm64)에서 `expo prebuild` → gradle debug 빌드·설치 성공(첫 빌드 약 19분, NDK 27 자동 설치). 네이티브 모듈 `livejjim-mobile-audio`(Kotlin)·`react-native-ble-plx` 컴파일·자동 연결, 합쳐진 매니페스트의 권한·마이크 포그라운드 서비스 선언 확인.
+- 실제 실행에서 처음 드러난 것과 고친 것
+  - Hermes에 `Intl.Segmenter`가 없어 `@livejjim/label` 모듈을 읽자마자 앱 전체가 빈 화면(“undefined cannot be used as a constructor”). 처음 쓸 때 만들고, 없으면 대체 규칙(결합 부호·ZWJ·피부색·국기 짝·한글 자모)으로 나눈다. Intl.Segmenter와 같은 결과인지 단위 시험.
+  - 마이크 권한을 물은 표시(`PermissionMemory.markAsked`)를 아무도 부르지 않아 “다시 묻지 않음” 거절 뒤에도 canAskAgain이 참이었다.
+  - 문자찜 번호 칸에 전화번호가 이어 붙은 `21301000001234`가 그대로 서버로 가서 보류 찜이 생겼다. 앱에서 `claim.maxNumber`(D-030) 범위로 막는다. **서버·코어(`validate.ts`의 sms `no`는 1 이상만 검사)도 같은 범위를 보지 않는다 — dev-core/dev-server 몫으로 남긴다.**
+  - 앱을 켤 때 서버에 닿지 않으면 말없이 로그인 화면이 떠 로그아웃된 줄 안다. “서버에 연결하지 못해 로그인을 확인하지 못했어요 …” + “다시 확인”.
+- 개발 연결: 로그인 쿠키가 언제나 Secure라 `http://10.0.2.2`·`http://localhost`로는 로그인 직후 풀린다. README에 https 중계 + debug 전용 network security config 방법을 적었다.
+- 에뮬레이터 마이크 소리는 `-allow-host-audio`·`hostmicon`을 줘도 모두 0이었다(에이전트 셸에서 켠 에뮬레이터에 맥 마이크 권한이 없는 것으로 보임). 받아쓰기 일꾼까지의 음성 등록은 확인하지 못했다. 앱→서버 PCM 전송(100ms 3,200바이트), 일꾼 없음 안내, 포그라운드 서비스(마이크 종류)·고정 알림, 홈 30초·화면 꺼짐 60초 동안 PCM 계속 전송은 확인했다.

@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/api/client.ts'
-import { LOGIN_FAILED_HINT, SESSION_EXPIRED_MESSAGE } from '../src/lib/words.ts'
+import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SESSION_EXPIRED_MESSAGE } from '../src/lib/words.ts'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
 
 describe('LoginScreen', () => {
@@ -33,5 +33,14 @@ describe('LoginScreen', () => {
   it('세션이 끝나 돌아왔으면 "로그인이 풀렸어요"를 보인다', () => {
     render(<LoginScreen expired onLogin={async () => {}} />)
     expect(screen.getByText(SESSION_EXPIRED_MESSAGE)).toBeTruthy()
+  })
+
+  it('켤 때 서버에 닿지 못했으면 로그인이 풀렸다고 하지 않고 "다시 확인"을 보인다 (APP2 실기기)', async () => {
+    const onRecheck = vi.fn(async () => {})
+    render(<LoginScreen expired={false} offline onRecheck={onRecheck} onLogin={async () => {}} />)
+    expect(screen.getByText(OFFLINE_AT_START_MESSAGE)).toBeTruthy()
+    expect(screen.queryByText(SESSION_EXPIRED_MESSAGE)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '다시 확인' }))
+    await waitFor(() => expect(onRecheck).toHaveBeenCalledTimes(1))
   })
 })

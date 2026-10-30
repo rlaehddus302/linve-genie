@@ -146,4 +146,16 @@ describe('ConsoleScreen', () => {
     await waitFor(() => expect(screen.getByText('15번 문자찜을 넣었어요.')).toBeTruthy())
     expect((screen.getByLabelText('전화번호 (선택)') as HTMLInputElement).value).toBe('')
   })
+
+  it('문자찜 번호가 방송 번호 범위를 넘으면(번호 칸에 전화번호가 붙음) 보내지 않고 고칠 방법을 알린다 (APP2 실기기)', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    await open(world)
+    fireEvent.change(screen.getByLabelText('번호'), { target: { value: '21301000001234' } })
+    fireEvent.click(screen.getByRole('button', { name: '문자찜 넣기' }))
+    await waitFor(() => expect(screen.getByText(/번호는 1부터 \d+까지예요\. 번호를 확인해 주세요\./)).toBeTruthy())
+    fireEvent.change(screen.getByLabelText('번호'), { target: { value: '1e3' } })
+    fireEvent.click(screen.getByRole('button', { name: '문자찜 넣기' }))
+    await waitFor(() => expect(screen.getByText('상품 번호를 숫자로 적어 주세요.')).toBeTruthy())
+    expect(world.events.length).toBe(0)
+  })
 })
