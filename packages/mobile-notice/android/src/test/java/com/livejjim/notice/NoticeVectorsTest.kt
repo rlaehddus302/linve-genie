@@ -30,7 +30,7 @@ class NoticeVectorsTest {
 
   @Test
   fun phone() {
-    for (v in items("phone")) assertEquals(v.getString("input"), v.stringOrNull("output"), NoticeExtractor.phoneDigits(v.getString("input")))
+    for (v in items("phoneLike")) assertEquals(v.getString("input"), v.stringOrNull("output"), NoticeExtractor.phoneLike(v.getString("input")))
   }
 
   @Test

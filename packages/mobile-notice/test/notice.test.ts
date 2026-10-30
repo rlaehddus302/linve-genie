@@ -7,6 +7,8 @@ import {
   createNoticeIntake,
   normalizeFlushResult,
   normalizeNoticeState,
+  NOTICE_INTENT_TITLE,
+  NOTICE_SHORTCUT_GUIDE,
   noticeCountLine,
   noticeStatusLine,
   type NativeNoticeModuleLike,
@@ -158,5 +160,14 @@ describe('화면 문장 (쉬운 한국어, 영어 상태값 없음)', () => {
       noticeCountLine({ ...base, sent: 1, ignored: 1, filtered: 1, duplicates: 1, rejected: 1, dropped: 1 }),
     ]
     for (const line of lines) expect(line).not.toMatch(/[A-Za-z]/)
+  })
+})
+
+describe('아이폰 단축어 안내 (D-SMS3-23)', () => {
+  it('판매자에게 보이는 안내는 웹 설정의 "URL 콘텐츠 가져오기" 한 가지 — 앱의 단축어 동작을 권하지 않는다', () => {
+    expect(NOTICE_SHORTCUT_GUIDE).toContain('URL 콘텐츠 가져오기')
+    expect(NOTICE_SHORTCUT_GUIDE).toContain('아이폰 단축어 만들기 안내')
+    expect(NOTICE_SHORTCUT_GUIDE).not.toContain(NOTICE_INTENT_TITLE)
+    expect(NOTICE_SHORTCUT_GUIDE).not.toContain('문자 보내기')
   })
 })

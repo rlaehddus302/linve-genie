@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { createFakeNoticeNative, fakeServerReply } from '../src/fake.ts'
 import {
   INBOX_MESSAGE_FIELDS,
   channelForPackage,
@@ -15,7 +16,7 @@ import {
   messageIdOf,
   parseInboxResponse,
   parseNoticeFilters,
-  phoneDigits,
+  phoneLike,
   senderOf,
   sha256Hex,
   shortcutCandidate,
@@ -28,7 +29,7 @@ import {
 
 interface Vectors {
   messageId: { packageName: string; from: string | null; receivedAt: number; title: string | null; text: string; id: string }[]
-  phone: { input: string; output: string | null }[]
+  phoneLike: { input: string; output: string | null }[]
   sender: { name: string | null; uri: string | null; output: string | null }[]
   cut: { input: string; max: number; output: string }[]
   lowerAscii: { input: string; output: string }[]
@@ -40,6 +41,19 @@ interface Vectors {
   shortcut: { input: { sender: string; body: string }; nowMs: number; candidate: unknown }[]
   request: { device: string; messages: InboxMessage[] }
   response: { body: string; results: Record<string, string>; filters: NoticeFilters | null }[]
+  drainFilters: NoticeFilters
+  drain: {
+    name: string
+    queue: string[]
+    replies: { ifText?: string; status: number }[]
+    requests: number[]
+    sent: number
+    rejected: number
+    pending: number
+    stoppedBy: string | null
+    tokenRejected: boolean
+    hasFilters: boolean
+  }[]
 }
 
 const vectors = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'test-vectors', 'notice-vectors.json'), 'utf8')) as Vectors
@@ -54,8 +68,8 @@ describe('공용 사례', () => {
   it.each(vectors.messageId)('id $id', (v) => {
     expect(messageIdOf(v.packageName, v.from, v.receivedAt, v.title, v.text)).toBe(v.id)
   })
-  it.each(vectors.phone)('전화번호 $input', (v) => {
-    expect(phoneDigits(v.input)).toBe(v.output)
+  it.each(vectors.phoneLike)('번호 모양 $input', (v) => {
+    expect(phoneLike(v.input)).toBe(v.output)
   })
   it.each(vectors.sender)('보낸 곳 $name $uri', (v) => {
     expect(senderOf(v.name, v.uri)).toBe(v.output)
@@ -102,5 +116,56 @@ describe('공용 사례', () => {
     const got = parseInboxResponse(v.body)
     expect(Object.fromEntries(got.results)).toEqual(v.results)
     expect(got.filters).toEqual(v.filters)
+  })
+})
+
+describe('공용 사례: 보내기 고리 (D-SMS3-21 (a)(b))', () => {
+  const T0 = 1_761_800_000_000
+  it.each(vectors.drain)('$name', async (v) => {
+    const requests: number[] = []
+    const fake = createFakeNoticeNative({
+      platform: 'android',
+      now: () => T0 + 600_000,
+      send: async (request) => {
+        const body = JSON.parse(request.body) as { messages: { text: string }[] }
+        requests.push(body.messages.length)
+        const rule = v.replies.find((r) => r.ifText === undefined || body.messages.some((m) => m.text === r.ifText))
+        if (rule === undefined || rule.status !== 200) return rule?.status ?? null
+        return fakeServerReply(request.body, vectors.drainFilters)
+      },
+    })
+    await fake.start()
+    for (const [i, text] of v.queue.entries()) {
+      const at = T0 + i * 1_000
+      await fake.post({
+        packageName: 'com.samsung.android.messaging',
+        whenMs: at,
+        postTimeMs: at,
+        title: '010-1234-5678',
+        text,
+        bigText: null,
+        messages: null,
+        groupSummary: false,
+        ongoing: false,
+      })
+    }
+    expect(fake.queued.map((m) => m.text)).toEqual(v.queue)
+    expect(requests).toEqual([])
+    await fake.setToken('dev_token_0123456789abcdef', 'https://livejjim.example/api/inbox/messages', '내 갤럭시')
+    const state = await fake.getState()
+    expect(requests).toEqual(v.requests)
+    expect(state.sent).toBe(v.sent)
+    expect(state.rejected).toBe(v.rejected)
+    expect(state.pending).toBe(v.pending)
+    expect(state.tokenRejected).toBe(v.tokenRejected)
+    expect(state.hasFilters).toBe(v.hasFilters)
+    expect(state.lastError).toBe(v.stoppedBy)
+    // 멈춘 뒤 다시 밀어도 토큰이 끊겼으면 보내지 않고, 대기열은 그대로다
+    const again = await fake.flush()
+    expect(again.stoppedBy === 'TOKEN').toBe(v.tokenRejected)
+    if (v.tokenRejected) {
+      expect(requests).toEqual(v.requests)
+      expect(fake.queued.map((m) => m.text)).toEqual(v.queue.slice(v.queue.length - v.pending))
+    }
   })
 })

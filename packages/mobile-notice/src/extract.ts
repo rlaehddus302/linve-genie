@@ -62,16 +62,23 @@ export function cutUtf16(value: string, max: number): string {
 }
 const cut = cutUtf16
 
-/** 전화번호처럼 생긴 글 → 숫자만(앞 + 유지). 아니면 null */
-export function phoneDigits(value: string): string | null {
-  const trimmed = value.trim()
+/**
+ * 전화번호처럼 생긴 글인가 — 맞으면 앞뒤 빈칸만 뺀 글 그대로, 아니면 null.
+ * 괄호·점·빈칸·하이픈·앞 +를 지우지 않는다: 서버가 보낸 곳 원문으로 은행 대표번호인지 본다(DP-9 1, D-DEP2-10 —
+ * `+82 1588-9999`·`(1588)9999`는 믿지 않는다). 여기서는 tel: 주소가 번호인지 가리는 데만 쓴다.
+ */
+export function phoneLike(value: string): string | null {
+  const trimmed = clean(value)
   if (!/^\+?[0-9 ()\-.]+$/.test(trimmed)) return null
-  const digits = trimmed.replace(/[^0-9]/g, '')
-  if (digits.length < 3 || digits.length > 20) return null
-  return trimmed.startsWith('+') ? `+${digits}` : digits
+  const digits = trimmed.replace(/[^0-9]/g, '').length
+  if (digits < 3 || digits > 20) return null
+  return trimmed
 }
 
-/** 보낸 곳: tel: 주소 → 번호, 번호 모양 이름 → 숫자, 아니면 이름 그대로. 없으면 null (C-04 from) */
+/**
+ * 보낸 곳 (C-04 from): 글을 바꾸지 않고 보낸다(앞뒤 빈칸만 뺀다, 200자까지) — D-DEP2-10.
+ * tel: 주소가 번호면 %XX만 풀어 그 글, 아니면 보낸 사람 이름(연락처 이름·번호 그대로). 없으면 null.
+ */
 export function senderOf(name: string | null, uri: string | null): string | null {
   if (uri !== null && uri.toLowerCase().startsWith('tel:')) {
     let raw = uri.slice(4)
@@ -80,12 +87,12 @@ export function senderOf(name: string | null, uri: string | null): string | null
     } catch {
       // 틀린 % 표기는 그대로 둔다
     }
-    const digits = phoneDigits(raw)
-    if (digits !== null) return digits
+    const number = phoneLike(raw)
+    if (number !== null) return cut(number, NOTICE_FROM_MAX_CHARS)
   }
   const n = clean(name)
   if (n === '') return null
-  return phoneDigits(n) ?? cut(n, NOTICE_FROM_MAX_CHARS)
+  return cut(n, NOTICE_FROM_MAX_CHARS)
 }
 
 /** 메시지 id: SHA-256(패키지 ␟ 보낸 곳 ␟ 받은 시각 ␟ 제목 ␟ 본문) 앞 16바이트 16진 32자. null 칸은 빈 글 */

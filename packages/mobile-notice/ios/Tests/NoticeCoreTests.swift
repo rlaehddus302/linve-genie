@@ -29,7 +29,7 @@ final class NoticeVectorsTests: XCTestCase {
         }
     }
     func testPhone() throws {
-        for v in items(try vectorsJSON(), "phone") { XCTAssertEqual(NoticeExtractor.phoneDigits(str(v, "input")!), str(v, "output"), "\(v)") }
+        for v in items(try vectorsJSON(), "phoneLike") { XCTAssertEqual(NoticeExtractor.phoneLike(str(v, "input")!), str(v, "output"), "\(v)") }
     }
     func testSender() throws {
         for v in items(try vectorsJSON(), "sender") { XCTAssertEqual(NoticeExtractor.senderOf(str(v, "name"), str(v, "uri")), str(v, "output"), "\(v)") }
@@ -135,7 +135,7 @@ final class NoticeQueueTests: XCTestCase {
         XCTAssertEqual(store.count("duplicates"), 1)
         let raw = try Data(contentsOf: store.pendingFiles()[0])
         XCTAssertNil(raw.range(of: Data("찜 3번".utf8)), "본문이 평문으로 디스크에 있으면 안 된다")
-        XCTAssertNil(raw.range(of: Data("01012345678".utf8)))
+        XCTAssertNil(raw.range(of: Data("010-1234-5678".utf8)))
         XCTAssertEqual(store.read(store.pendingFiles()[0]), message(3))
     }
 
@@ -234,6 +234,70 @@ final class NoticeQueueTests: XCTestCase {
         XCTAssertTrue(store.isTokenRejected)
         let blocked = await sender.drain()
         XCTAssertEqual(blocked.stoppedBy, "TOKEN")
+    }
+
+    /// 공용 사례 drain (D-SMS3-21 (a)(b)) — TS 가짜 구현·Kotlin NoticeDrain과 같은 사례
+    func testDrainVectors() async throws {
+        let v = try vectorsJSON()
+        let serverFilters = try JSONSerialization.data(withJSONObject: v["drainFilters"] as! [String: Any])
+        for c in items(v, "drain") {
+            let name = str(c, "name")!
+            let (store, dir) = makeStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            try store.setToken(config)
+            let queue = c["queue"] as! [String]
+            for (i, text) in queue.enumerated() {
+                let m = NoticeExtractor.shortcutCandidate(sender: "010-1234-5678", body: text, nowMs: 1_761_800_000_000 + Int64(i) * 120_000)!
+                XCTAssertEqual(store.enqueue(m, nowMs: 1), .queued, name)
+            }
+            let replies = c["replies"] as! [[String: Any]]
+            var requests: [Int] = []
+            let sender = NoticeSender(store: store) { _, body in
+                let o = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+                let messages = o["messages"] as! [[String: Any]]
+                let texts = messages.map { $0["text"] as! String }
+                requests.append(texts.count)
+                let rule = replies.first { r in (r["ifText"] as? String).map { texts.contains($0) } ?? true }
+                let status = (rule?["status"] as? NSNumber)?.intValue
+                if status != 200 { return (status, Data()) }
+                let results = messages.map { #"{"id":"\#($0["id"] as! String)","status":"SAVED"}"# }.joined(separator: ",")
+                return (200, Data(#"{"results":[\#(results)],"filters":"#.utf8) + serverFilters + Data("}".utf8))
+            }
+            let result = await sender.drain(fetchFilters: true, nowMs: { 1_761_800_600_000 })
+            let stoppedBy = c["stoppedBy"] as? String
+            XCTAssertEqual(requests, c["requests"] as! [Int], name)
+            XCTAssertEqual(result, DrainResult(sent: (c["sent"] as! NSNumber).intValue, pending: (c["pending"] as! NSNumber).intValue, stoppedBy: stoppedBy), name)
+            XCTAssertEqual(store.count("sent"), (c["sent"] as! NSNumber).intValue, name)
+            XCTAssertEqual(store.count("rejected"), (c["rejected"] as! NSNumber).intValue, name)
+            XCTAssertEqual(store.isTokenRejected, c["tokenRejected"] as! Bool, name)
+            XCTAssertEqual(store.filters() != nil, c["hasFilters"] as! Bool, name)
+            XCTAssertEqual(store.stateMap()["lastError"] as? String, stoppedBy, name)
+            XCTAssertEqual((store.stateMap()["rejected"] as? Double).map { Int($0) }, (c["rejected"] as! NSNumber).intValue, name)
+            if store.isTokenRejected {
+                // 새 토큰 전에는 다시 밀어도 보내지 않고 대기열은 그대로
+                let again = await sender.drain(fetchFilters: true, nowMs: { 1_761_800_600_000 })
+                XCTAssertEqual(again.stoppedBy, "TOKEN", name)
+                XCTAssertEqual(requests, c["requests"] as! [Int], name)
+                let left = store.pendingFiles().compactMap { store.read($0)?.text }
+                XCTAssertEqual(left, Array(queue.suffix((c["pending"] as! NSNumber).intValue)), name)
+            }
+        }
+    }
+
+    func testForbiddenStopsAndKeepsQueue() async throws {
+        let (store, dir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try store.setToken(config)
+        for i in 1...2 { _ = store.enqueue(message(i), nowMs: Int64(i)) }
+        let sender = NoticeSender(store: store) { _, _ in (403, Data()) }
+        let result = await sender.drain()
+        XCTAssertEqual(result, DrainResult(sent: 0, pending: 2, stoppedBy: "TOKEN"))
+        XCTAssertTrue(store.isTokenRejected)
+        XCTAssertEqual(store.count("rejected"), 0)
+        try store.setToken(config)
+        let resent = NoticeSender(store: store) { _, body in okReply(body) }
+        let done = await resent.drain()
+        XCTAssertEqual(done, DrainResult(sent: 2, pending: 0, stoppedBy: nil))
     }
 
     func testEmptyQueueFetchesFilters() async throws {

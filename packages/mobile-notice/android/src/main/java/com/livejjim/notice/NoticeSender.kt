@@ -1,7 +1,7 @@
-// 서버로 보내기 — 안드로이드 전송은 이 파일 한 곳 (SPEC ORD-13 C-04, AC-SMS3-27). 요청 모양·서버 답 처리는 NoticeContract.
+// 서버로 보내기 — 안드로이드 전송은 이 파일 한 곳(답 처리 고리는 NoticeCore.kt NoticeDrain — JVM 시험) (SPEC ORD-13 C-04, AC-SMS3-27). 요청 모양·서버 답 처리는 NoticeContract.
 // - 받은 차례대로 20건씩 POST(Authorization: Bearer). 200이면 묶음을 지우고 결과(SAVED·DUPLICATE·IGNORED)를 세고, 응답 filters를 저장한다.
-// - 400(모양)이면 서버가 아무것도 처리하지 않았다 — 묶음을 한 건씩 다시 보내 틀린 한 건만 버린다.
-// - 401이면 멈추고 대기열을 지킨다("받기 토큰을 다시 넣어 주세요"). 429면 1분 동안 보내지 않고 1분 뒤 같은 id로 다시.
+// - 400·413(모양·크기)이면 서버가 아무것도 처리하지 않았다 — 묶음을 한 건씩 다시 보내 틀린 한 건만 버리고 "서버가 받지 않음"으로 센다.
+// - 401·403이면 멈추고 대기열을 지킨다("받기 토큰을 다시 넣어 주세요"). 429면 1분 동안 보내지 않고 1분 뒤 같은 id로 다시.
 // - 연결 실패·5xx는 멈추고 WorkManager에 다시 보내기를 맡긴다(인터넷 연결 조건 + 지수 물러서기). 재부팅 뒤에도 WorkManager가 이어서 돈다.
 // - 대기열이 비었고 filters를 아직 받지 못했으면(또는 켤 때·토큰을 넣을 때) 0건 요청으로 filters만 받는다.
 // - 리다이렉트는 따라가지 않는다(토큰이 다른 곳으로 가지 않게). 토큰·본문·번호는 로그에 남기지 않는다(C-07).
@@ -28,10 +28,6 @@ import java.net.URL
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
-
-internal data class DrainResult(val sent: Int, val pending: Int, val stoppedBy: String?)
-
-internal data class PostResult(val status: Int?, val body: String)
 
 internal object NoticeSender {
   private const val CONNECT_TIMEOUT_MS = 10_000
@@ -70,72 +66,12 @@ internal object NoticeSender {
     val store = NoticeStore.get(context)
     draining.lock()
     try {
-      val config = store.token() ?: return DrainResult(0, store.pendingCount(), "NO_TOKEN")
-      if (store.isTokenRejected()) return DrainResult(0, store.pendingCount(), "TOKEN")
-      if (System.currentTimeMillis() < store.notBeforeMs()) return DrainResult(0, store.pendingCount(), "BUSY")
-      var sent = 0
-      var single = false
-      var askedFilters = false
-      while (true) {
-        if (isStopped()) return DrainResult(sent, store.pendingCount(), "NETWORK")
-        val files = store.pendingFiles().take(if (single) 1 else NoticeContract.BATCH_MAX)
-        val batch = ArrayList<Pair<File, InboxMessage>>()
-        for (file in files) store.read(file)?.let { batch.add(file to it) }
-        if (files.isNotEmpty() && batch.isEmpty()) {
-          // 풀지 못한 파일만 있었다 — 지워졌으면 다음 묶음, 지우지 못했으면 멈춘다(끝없이 돌지 않게)
-          if (files.any { it.exists() }) break
-          continue
-        }
-        if (batch.isEmpty()) {
-          if (askedFilters || !(fetchFilters || store.filters() == null)) break
-          askedFilters = true
-        }
-        val reply = post(config.endpoint, config.token, NoticeContract.requestJson(config.deviceName, batch.map { it.second }))
-        when (NoticeContract.classify(reply.status)) {
-          "done" -> {
-            val response = NoticeContract.parseResponse(reply.body)
-            response.filters?.let { store.setFilters(it) }
-            val now = System.currentTimeMillis()
-            for ((file, message) in batch) {
-              store.remove(file)
-              when (response.results[message.id]) {
-                "DUPLICATE" -> store.bump("duplicates")
-                "IGNORED" -> store.bump("ignored")
-                else -> {
-                  store.bump("sent")
-                  sent++
-                }
-              }
-            }
-            if (batch.isNotEmpty()) store.markSent(now) else store.setLastError(null)
-          }
-          "bad" -> {
-            if (batch.size > 1) {
-              single = true
-            } else if (batch.size == 1) {
-              store.remove(batch[0].first)
-              store.bump("rejected")
-            }
-          }
-          "token" -> {
-            store.setTokenRejected()
-            return DrainResult(sent, store.pendingCount(), "TOKEN")
-          }
-          "wait" -> {
-            store.setNotBeforeMs(System.currentTimeMillis() + NoticeContract.TOO_MANY_WAIT_MS)
-            store.setLastError("BUSY")
-            return DrainResult(sent, store.pendingCount(), "BUSY")
-          }
-          else -> {
-            val why = if (reply.status == null) "NETWORK" else "SERVER"
-            store.setLastError(why)
-            return DrainResult(sent, store.pendingCount(), why)
-          }
-        }
-        NoticeBus.changed(context)
+      val config = store.token()
+      NoticeDrain.blockedBy(config != null, store.isTokenRejected(), store.notBeforeMs(), System.currentTimeMillis())?.let { return DrainResult(0, store.pendingCount(), it) }
+      if (config == null) return DrainResult(0, store.pendingCount(), "NO_TOKEN")
+      return NoticeDrain.run(StorePort(store), config.deviceName, fetchFilters, System::currentTimeMillis, isStopped, { NoticeBus.changed(context) }) { json ->
+        post(config.endpoint, config.token, json)
       }
-      store.setLastError(null)
-      return DrainResult(sent, store.pendingCount(), null)
     } finally {
       draining.unlock()
       NoticeBus.changed(context)
@@ -185,6 +121,28 @@ internal object NoticeSender {
       connection?.disconnect()
     }
   }
+}
+
+/** NoticeStore → 보내기 고리 (handle = 대기열 파일) */
+private class StorePort(private val store: NoticeStore) : DrainPort {
+  override fun head(limit: Int): List<QueuedMessage>? {
+    while (true) {
+      val files = store.pendingFiles().take(limit)
+      val batch = files.mapNotNull { file -> store.read(file)?.let { QueuedMessage(file, it) } }
+      if (files.isEmpty() || batch.isNotEmpty()) return batch
+      // 풀지 못한 파일만 있었다 — 지워졌으면 다음 묶음, 지우지 못했으면 멈춘다(끝없이 돌지 않게)
+      if (files.any { it.exists() }) return null
+    }
+  }
+  override fun remove(item: QueuedMessage) = store.remove(item.handle as File)
+  override fun pendingCount(): Int = store.pendingCount()
+  override fun filters(): NoticeFilters? = store.filters()
+  override fun setFilters(filters: NoticeFilters) = store.setFilters(filters)
+  override fun bump(counter: String) = store.bump(counter)
+  override fun markSent(nowMs: Long) = store.markSent(nowMs)
+  override fun setLastError(value: String?) = store.setLastError(value)
+  override fun setTokenRejected() = store.setTokenRejected()
+  override fun setNotBeforeMs(value: Long) = store.setNotBeforeMs(value)
 }
 
 /** 다시 보내기 — 인터넷이 연결되면 돈다. 앱이 꺼져 있어도·재부팅 뒤에도 WorkManager가 이어 돈다 */

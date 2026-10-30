@@ -89,14 +89,18 @@ object NoticeExtractor {
     return if (head.isNotEmpty() && Character.isHighSurrogate(head[head.length - 1])) head.substring(0, head.length - 1) else head
   }
 
-  /** 전화번호처럼 생긴 글 → 숫자만(앞 + 유지). 아니면 null */
-  fun phoneDigits(value: String): String? {
-    val trimmed = trimJs(value)
+  /**
+   * 전화번호처럼 생긴 글인가 — 맞으면 앞뒤 빈칸만 뺀 글 그대로, 아니면 null.
+   * 괄호·점·빈칸·하이픈·앞 +를 지우지 않는다: 서버가 보낸 곳 원문으로 은행 대표번호인지 본다(DP-9 1, D-DEP2-10).
+   * 여기서는 tel: 주소가 번호인지 가리는 데만 쓴다.
+   */
+  fun phoneLike(value: String): String? {
+    val trimmed = clean(value)
     if (trimmed.isEmpty() || !trimmed.all { it == '+' || it == ' ' || it == '(' || it == ')' || it == '-' || it == '.' || it in '0'..'9' }) return null
     if (trimmed.indexOf('+', 1) >= 0) return null
-    val digits = trimmed.filter { it in '0'..'9' }
-    if (digits.length < 3 || digits.length > 20) return null
-    return if (trimmed.startsWith("+")) "+$digits" else digits
+    val digits = trimmed.count { it in '0'..'9' }
+    if (digits < 3 || digits > 20) return null
+    return trimmed
   }
 
   /** %XX 풀기 (UTF-8). '+'는 그대로 — JS decodeURIComponent와 같다. 틀리면 null */
@@ -125,16 +129,16 @@ object NoticeExtractor {
     }
   }
 
-  /** 보낸 곳: tel: 주소 → 번호, 번호 모양 이름 → 숫자, 아니면 이름 그대로. 없으면 null */
+  /** 보낸 곳(C-04 from): 글을 바꾸지 않는다(앞뒤 빈칸만 뺀다, 200자까지 — D-DEP2-10). tel: 주소가 번호면 %XX만 푼 그 글, 아니면 이름. 없으면 null */
   fun senderOf(name: String?, uri: String?): String? {
     if (uri != null && uri.lowercase().startsWith("tel:")) {
       val raw = uri.substring(4)
       val decoded = percentDecode(raw) ?: raw
-      phoneDigits(decoded)?.let { return it }
+      phoneLike(decoded)?.let { return cutUtf16(it, NoticeContract.FROM_MAX_CHARS) }
     }
     val n = clean(name)
     if (n.isEmpty()) return null
-    return phoneDigits(n) ?: cutUtf16(n, NoticeContract.FROM_MAX_CHARS)
+    return cutUtf16(n, NoticeContract.FROM_MAX_CHARS)
   }
 
   /** 메시지 id: SHA-256(패키지 ␟ 보낸 곳 ␟ 받은 시각 ␟ 제목 ␟ 본문) 앞 16바이트 16진. null 칸은 빈 글 */
@@ -258,4 +262,110 @@ object NoticeFilter {
 
   fun serialize(filters: NoticeFilters): String =
     "{\"skipWords\":[${filters.skipWords.joinToString(",") { NoticeContract.quote(it) }}],\"bankApps\":[${filters.bankApps.joinToString(",") { NoticeContract.quote(it) }}]}"
+}
+
+internal data class DrainResult(val sent: Int, val pending: Int, val stoppedBy: String?)
+
+internal data class PostResult(val status: Int?, val body: String)
+
+/** 대기열 한 건 — handle은 저장한 곳(안드로이드는 파일) */
+internal class QueuedMessage(val handle: Any, val message: InboxMessage)
+
+/** 보내기 고리가 대기열·저장값을 만지는 길 (안드로이드는 NoticeStore, 시험은 메모리) */
+internal interface DrainPort {
+  /** 받은 차례대로 앞에서 limit건. 풀지 못한 것만 있어 더 갈 수 없으면 null(끝없이 돌지 않게 멈춘다) */
+  fun head(limit: Int): List<QueuedMessage>?
+  fun remove(item: QueuedMessage)
+  fun pendingCount(): Int
+  fun filters(): NoticeFilters?
+  fun setFilters(filters: NoticeFilters)
+  fun bump(counter: String)
+  fun markSent(nowMs: Long)
+  fun setLastError(value: String?)
+  fun setTokenRejected()
+  fun setNotBeforeMs(value: Long)
+}
+
+/**
+ * 보내기 고리 (C-04, AC-SMS3-27, D-SMS3-21) — 안드로이드 API 없이 돈다(JVM 시험). TS fake.ts drainOnce·Swift NoticeSender.drain과 같은 처리:
+ * - 2xx: 묶음을 지우고 결과(SAVED·DUPLICATE·IGNORED)를 세고 응답 filters를 저장
+ * - 400·413 등 그 밖의 4xx: 여러 건이면 한 건씩 다시 보내 받지 않는 그 한 건만 버리고 "서버가 받지 않음"(rejected)으로 센다
+ * - 401·403: 받기 토큰이 끊겼다 — 대기열은 버리지 않고 멈춘다
+ * - 429: 1분 동안 보내지 않는다 · 연결 실패·5xx: 멈추고 나중에 같은 id로 다시
+ * - 대기열이 비었고 filters가 없으면(또는 fetchFilters) 0건 요청으로 filters만 받는다
+ */
+internal object NoticeDrain {
+  /** 보내기 전에 멈출 까닭: 토큰 없음(NO_TOKEN) · 토큰이 끊김(TOKEN — 401·403 뒤 새 토큰 전까지) · 429 뒤 1분 전(BUSY). 없으면 null */
+  fun blockedBy(hasToken: Boolean, tokenRejected: Boolean, notBeforeMs: Long, nowMs: Long): String? = when {
+    !hasToken -> "NO_TOKEN"
+    tokenRejected -> "TOKEN"
+    nowMs < notBeforeMs -> "BUSY"
+    else -> null
+  }
+
+  fun run(
+    port: DrainPort,
+    deviceName: String,
+    fetchFilters: Boolean,
+    nowMs: () -> Long,
+    isStopped: () -> Boolean,
+    onStep: () -> Unit,
+    post: (String) -> PostResult,
+  ): DrainResult {
+    var sent = 0
+    var single = false
+    var askedFilters = false
+    while (true) {
+      if (isStopped()) return DrainResult(sent, port.pendingCount(), "NETWORK")
+      val batch = port.head(if (single) 1 else NoticeContract.BATCH_MAX) ?: break
+      if (batch.isEmpty()) {
+        if (askedFilters || !(fetchFilters || port.filters() == null)) break
+        askedFilters = true
+      }
+      val reply = post(NoticeContract.requestJson(deviceName, batch.map { it.message }))
+      when (NoticeContract.classify(reply.status)) {
+        "done" -> {
+          val response = NoticeContract.parseResponse(reply.body)
+          response.filters?.let { port.setFilters(it) }
+          for (item in batch) {
+            port.remove(item)
+            when (response.results[item.message.id]) {
+              "DUPLICATE" -> port.bump("duplicates")
+              "IGNORED" -> port.bump("ignored")
+              else -> {
+                port.bump("sent")
+                sent++
+              }
+            }
+          }
+          if (batch.isNotEmpty()) port.markSent(nowMs()) else port.setLastError(null)
+        }
+        "bad" -> {
+          if (batch.size > 1) {
+            single = true
+          } else if (batch.size == 1) {
+            port.remove(batch[0])
+            port.bump("rejected")
+          }
+        }
+        "token" -> {
+          port.setTokenRejected()
+          return DrainResult(sent, port.pendingCount(), "TOKEN")
+        }
+        "wait" -> {
+          port.setNotBeforeMs(nowMs() + NoticeContract.TOO_MANY_WAIT_MS)
+          port.setLastError("BUSY")
+          return DrainResult(sent, port.pendingCount(), "BUSY")
+        }
+        else -> {
+          val why = if (reply.status == null) "NETWORK" else "SERVER"
+          port.setLastError(why)
+          return DrainResult(sent, port.pendingCount(), why)
+        }
+      }
+      onStep()
+    }
+    port.setLastError(null)
+    return DrainResult(sent, port.pendingCount(), null)
+  }
 }
