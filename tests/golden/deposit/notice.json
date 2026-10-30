@@ -1125,6 +1125,156 @@
         "name": "최유리",
         "balance": null
       }
+    },
+    {
+      "id": "G-DEP-248",
+      "title": "은행 대표번호라도 본문에 [국제발신]이면 믿지 않음 (D-DEP2-12)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "보낸 곳 1588-9999는 KB 표에 있지만 c(공백 뺀 글)에 '국제발신' → trusted false·bank null(해외에서 은행 번호를 흉내 낸 문자). 종류: 입금만 → DEPOSIT. 금액 '입금' 뒤 14,000. 잔액 1014000. 시각 10/31 14:03(minute). 이름: '[국제발신]'→'국제발신'은 버리는 낱말(D-DEP2-12), [KB]10/31·14:03·숫자 토큰·입금 버림 → 홍길동.",
+      "in": {
+        "channel": "SMS",
+        "from": "1588-9999",
+        "title": null,
+        "text": "[국제발신]\n[KB]10/31 14:03\n홍길동\n입금\n14,000\n잔액1,014,000",
+        "receivedAt": "2026-10-31T14:03:20+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": null,
+        "trusted": false,
+        "at": "2026-10-31T14:03:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": 1014000
+      }
+    },
+    {
+      "id": "G-DEP-249",
+      "title": "[해외발신] 출금도 믿지 않음 — 잔액 기록이 되지 않는다 (D-DEP2-12)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "보낸 곳 15889999(KB)지만 '해외발신' → trusted false·bank null. 종류: 출금 낱말만 → WITHDRAWAL. 금액 '출금' 뒤 5,000. 잔액 1009000. 시각 모양 없음 → receivedAt 초까지(second). 서버는 믿지 않는 출금을 저장하지 않는다(DP-9 9).",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[해외발신] [KB] 출금 5,000 잔액 1,009,000",
+        "receivedAt": "2026-10-31T20:10:00+09:00"
+      },
+      "out": {
+        "kind": "WITHDRAWAL",
+        "bank": null,
+        "trusted": false,
+        "at": "2026-10-31T20:10:00+09:00",
+        "precision": "second",
+        "amount": 5000,
+        "balance": 1009000
+      }
+    },
+    {
+      "id": "G-DEP-250",
+      "title": "'국제 발신'처럼 띄어 써도 공백 뺀 글로 본다 (D-DEP2-12)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "c = 공백을 모두 지운 글에 '국제발신' → trusted false·bank null. 입금 뒤 14,000, 뒤 이웃 '잔액'은 글자. 잔액 1014000. 시각 없음 → receivedAt(second). 이름: '[국제'→'국제', '발신]'→'발신'은 버리는 낱말이 아니라 남음 + 홍길동 → 셋 → 빈 이름.",
+      "in": {
+        "channel": "SMS",
+        "from": "1588-9999",
+        "title": null,
+        "text": "[국제 발신] KB 입금 14,000 잔액 1,014,000 홍길동",
+        "receivedAt": "2026-10-31T20:05:07+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": null,
+        "trusted": false,
+        "at": "2026-10-31T20:05:07+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "",
+        "balance": 1014000
+      }
+    },
+    {
+      "id": "G-DEP-251",
+      "title": "은행 앱 알림이라도 글에 해외발신이 있으면 믿지 않음 — 입금자명으로 넣어도 믿지 않는 쪽 (D-DEP2-12)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "앱 알림도 같은 검사(title + ' ' + text). 입금자명을 '해외발신'으로 바꿔 보내면 자동 확인이 확인 필요가 될 뿐(안전한 쪽). 종류 DEPOSIT, 금액 '입금' 뒤 14,000원, 뒤 이웃 '해외발신'은 글자. 잔액 없음. 시각 없음 → receivedAt(second). 이름: 입금·14,000원·해외발신 모두 버림 → 빈 이름.",
+      "in": {
+        "channel": "APP",
+        "from": "com.kakaobank.channel",
+        "title": "입금 14,000원",
+        "text": "해외발신",
+        "receivedAt": "2026-10-31T20:05:07+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": null,
+        "trusted": false,
+        "at": "2026-10-31T20:05:07+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-252",
+      "title": "가린 계좌번호 '***-123456'의 숫자는 금액 조각 — 앞 금액이 아님 (D-DEP2-16)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'123456'의 바로 앞이 '*' + '-' → 조각(가린 계좌 '*'는 숫자로 본다). 그래서 K 앞 금액 없음, K 뒤 14,000 → 14000(앞뒤 다름 아님). 뒤 이웃 김영희는 글자. 잔액 없음. 시각 모양 없음 → receivedAt(second). 이름: 숫자 든 토큰·입금 버림 → 김영희. G-DEP-202 '110-***-123456 입금 14,000'과 같은 이유.",
+      "in": {
+        "channel": "SMS",
+        "from": "15778000",
+        "title": null,
+        "text": "***-123456 입금 14,000 김영희",
+        "receivedAt": "2026-10-31T20:05:07+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "SHINHAN",
+        "trusted": true,
+        "at": "2026-10-31T20:05:07+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "김영희",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-253",
+      "title": "괄호 바로 뒤에 붙은 금액은 홀로 서지 않음 — 읽지 못함 (D-DEP2-17)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "K 뒤 금액 없음(뒤는 홍길동). K 앞 '14,000원 입금' → 14000을 찾았지만 그 앞(K 반대쪽)이 ']'라 공백·글 처음이 아님 → D-DEP2-11 ③ → UNREADABLE. 애매하면 입금 아님 — 판매자는 은행 알림 줄을 본다.",
+      "in": {
+        "channel": "SMS",
+        "from": "1588-9999",
+        "title": null,
+        "text": "[KB]14,000원 입금 홍길동",
+        "receivedAt": "2026-10-31T20:05:07+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
     }
   ]
 }
