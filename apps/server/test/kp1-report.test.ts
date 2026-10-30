@@ -89,10 +89,15 @@ describe('AC-KP1-17·18 방송 리포트 숫자', () => {
       { start: '2026-10-08 20:00', qty: 1, amount: 20_000 },
       { start: '2026-10-08 20:10', qty: 1, amount: 15_000 },
     ])
+    // D-KP1-37: 그날 실제 회차가 둘이라 줄마다 회차 이름
     expect(first.body.rush).toEqual([
-      { b: '1부', no: 15, name: '청개구리', buyers: 2, waiting: 1 },
-      { b: '2부', no: 3, name: '핑크 프릴', buyers: 1, waiting: 0 },
+      { b: '1부', no: 15, name: '청개구리', buyers: 2, waiting: 1, scopeName: '1부' },
+      { b: '2부', no: 3, name: '핑크 프릴', buyers: 1, waiting: 0, scopeName: '2부' },
     ])
+    // 회차가 하나인 날은 회차 이름 칸이 없다
+    const single = (await expectOk(report(w, seller, '2026-10-01'))).body.rush as Record<string, unknown>[]
+    expect(single.length).toBeGreaterThan(0)
+    for (const row of single) expect(row).not.toHaveProperty('scopeName')
     // 손님 이름·채널 ID는 없다
     expect(first.text).not.toMatch(/UC_|다육이맘|초록손|새손님|연습/)
 

@@ -40,10 +40,13 @@ export interface ReportView {
   readonly sealed: boolean
   readonly summary: ReportSummary
   readonly compare: { readonly last: CompareLast | null; readonly recent: CompareRecent | null }
-  readonly rush: RushRow[] | null
+  readonly rush: ReportRushRow[] | null
   readonly varieties: VarietyRow[]
   readonly buckets: BucketRow[] | null
 }
+
+/** 몰린 상품 한 줄 + 회차 이름 (D-KP1-37: 그날 실제 회차가 둘 이상일 때만 채운다 — 회차 이름은 판매자가 적은 글 그대로, 화면이 이스케이프한다) */
+export type ReportRushRow = RushRow & { readonly scopeName?: string }
 
 export type ReportOutcome = { readonly kind: 'ok'; readonly view: ReportView } | { readonly kind: 'not_found' } | { readonly kind: 'unreadable' }
 
@@ -230,7 +233,10 @@ export class ReportService {
     const compare = reportCompare({ current: { sales: summary.sales, qty: summary.qty, buyers: summary.buyers }, past })
     const varieties = reportVarieties({ sales: confirmed.map(({ claim, product }) => ({ name: product.name, qty: claim.qty, amount: amountOf(claim) })) })
     const buckets = sealed ? null : reportBuckets({ claims: confirmed.map(({ claim }) => ({ time: iso(claim.rankTime), qty: claim.qty, amount: amountOf(claim) })) })
-    const rush = sealed ? null : reportRush({ products: await this.#rushInput(sellerId, scope.id, state) }).slice(0, REPORT_RUSH_MAX)
+    const rushRows = sealed ? null : reportRush({ products: await this.#rushInput(sellerId, scope.id, state) }).slice(0, REPORT_RUSH_MAX)
+    // D-KP1-37: 회차가 둘 이상인 날은 줄 번호가 겹칠 수 있어 회차 이름(b = 회차 제목)을 함께 준다
+    const manySessions = listBroadcasts(state).length >= 2
+    const rush: ReportRushRow[] | null = rushRows === null ? null : rushRows.map((row) => (manySessions ? { ...row, scopeName: row.b } : row))
     const live = !sealed && listBroadcasts(state).some((broadcast) => !broadcast.ended)
     return { kind: 'ok', view: { date, live, sealed, summary, compare, rush, varieties, buckets } }
   }
