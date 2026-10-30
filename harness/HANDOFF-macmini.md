@@ -71,3 +71,8 @@
 - 끝남: `spec/printer-stages`(3ac9eead), `dev/mobile-notice`(f9e3d724) → PRN2 개발을 띄울 수 있다. `dev/mobile-design-base`(f617ccb3), `dev/printer-app`(5d13e4fc)
 - 진행 중: `spec/sms-deposit-intake` → `spec/retention-1`(SSH 세션)
 - 갈래가 1시간 넘게 push가 없으면 멈춘 것으로 보고 마지막 커밋에서 이어서 띄운다.
+
+## 합칠 때 주의 (갱신)
+- `sprint/PAY2-server`(45fd9399) 끝: 공개 요금 입구 `GET /api/pricing` — `sprint/PAY2-web`(02c0d743)의 가정과 일치.
+- **마이그레이션 번호 충돌**: PAY2의 `0029_pay2_billing_recheck.sql`과 INV1(int/next)의 0029(유튜브 방송 채널 칸)이 겹친다. 합칠 때 PAY2 쪽을 다음 빈 번호로 옮기고 되돌리기 시험(fb1 등)도 맞춘다.
+- 웹·서버 전체 시험의 실패 대부분은 부하로 인한 시간 초과와 TZ 미지정(맥북은 KST). 따로·`TZ` 주고 돌리면 통과.
