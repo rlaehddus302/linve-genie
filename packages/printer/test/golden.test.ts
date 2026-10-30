@@ -1,4 +1,5 @@
-// 프린터 골든 (AC-N1-01, D-N1-01·09): tests/golden/printer/*.json의 모든 사례를 프린터 패키지의 순수 함수로 돌려 out과 비교한다.
+// 프린터 골든 (AC-N1-01, D-N1-01·09, AC-PRN2-01~04, D-PRN2-01~05): tests/golden/printer/*.json의 모든 사례를 프린터 패키지의 순수 함수로 돌려 out과 비교한다.
+// PRN2: kind list(고르기 목록 — pickListTarget, 앱·웹 공용)·end(끝 알림 — isEndNotice)를 더했고, 사례 ID는 G-PRT-<스프린트>-<두 자리>다.
 // 형식 계약(tests/golden/README.md "프린터 골든")을 어기면 읽기 오류다. 파일 수·사례 수는 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
 // 골든 파일은 보호 경로라 고치지 않는다. yxqRaster는 압축 바이트가 아니라 머리·길이 칸·CMF 28·FLG·사전 비트·창 10으로 풀기·L바이트에서 끝남을 본다.
 import { readFileSync, readdirSync } from 'node:fs'
@@ -6,31 +7,48 @@ import { join } from 'node:path'
 import { deflateSync, inflateSync } from 'node:zlib'
 import { createBitmap, type LabelBitmap } from '@livejjim/label'
 import { describe, expect, it } from 'vitest'
-import { EXPERIMENTAL_PROFILES, MARKLIFE_PROFILES, buildPrintJob, printerProfile, profileForDeviceName, unsupportedReason, type ModelProfile } from '../src/index.ts'
+import {
+  LABEL_PROFILES,
+  PRINTER_PROFILES,
+  buildPrintJob,
+  isEndNotice,
+  isNiimbotProtocol,
+  pickListTarget,
+  printerProfile,
+  profileForDeviceName,
+  unsupportedReason,
+  type LabelProtocol,
+  type ModelProfile,
+} from '../src/index.ts'
 
 const GOLDEN_DIR = join(import.meta.dirname, '..', '..', '..', 'tests', 'golden', 'printer')
 
 const FILE_KEYS = ['kind', 'about', 'cases']
-const KINDS = ['job', 'name', 'profile', 'browser'] as const
+const KINDS = ['job', 'name', 'profile', 'browser', 'list', 'end'] as const
 type Kind = (typeof KINDS)[number]
 const CASE_KEYS: Record<Kind, readonly string[]> = {
   job: ['id', 'title', 'refs', 'note', 'profile', 'image', 'options', 'out'],
   name: ['id', 'title', 'refs', 'note', 'name', 'out'],
   profile: ['id', 'title', 'refs', 'note', 'profile', 'out'],
   browser: ['id', 'title', 'refs', 'note', 'ua', 'maxTouchPoints', 'out'],
+  list: ['id', 'title', 'refs', 'note', 'name', 'services', 'out'],
+  end: ['id', 'title', 'refs', 'note', 'profile', 'value', 'out'],
 }
 const REQUIRED: Record<Kind, readonly string[]> = {
   job: ['id', 'title', 'refs', 'profile', 'image', 'out'],
   name: ['id', 'title', 'refs', 'name', 'out'],
   profile: ['id', 'title', 'refs', 'profile', 'out'],
   browser: ['id', 'title', 'refs', 'ua', 'out'],
+  list: ['id', 'title', 'refs', 'name', 'out'],
+  end: ['id', 'title', 'refs', 'profile', 'value', 'out'],
 }
 const PROFILE_FIELDS = ['maker', 'displayName', 'protocol', 'dpi', 'headDots', 'rotate', 'sizes', 'defaultSize', 'density', 'experimental', 'fallbackApp', 'namePrefix'] as const
-const PROFILE_IDS = ['NIIMBOT_B1', 'MARKLIFE_P50', 'MARKLIFE_S2', 'MARKLIFE_X2', 'MARKLIFE_P11', 'MARKLIFE_P12', 'MARKLIFE_P15', 'MARKLIFE_L13', 'MARKLIFE_LP90', 'MARKLIFE_LP15', 'BAUATO_PPA2L']
+const PROFILE_IDS = ['NIIMBOT_B1', 'NIIMBOT_B1_SE', 'NIIMBOT_B21', 'NIIMBOT_D110', 'MARKLIFE_P50', 'MARKLIFE_S2', 'MARKLIFE_X2', 'MARKLIFE_P11', 'MARKLIFE_P12', 'MARKLIFE_P15', 'MARKLIFE_L13', 'MARKLIFE_LP90', 'MARKLIFE_LP15', 'BAUATO_PPA2L']
 const JOB_ERRORS = ['IMAGE_TOO_WIDE', 'INVALID_DENSITY', 'PRINT_FAILED']
 const REASONS = ['IOS', 'IN_APP', 'OTHER']
 const FILLS = ['white', 'black', 'border']
-const CASE_ID = /^G-PRT-N1-\d{2}$/
+/** 사례 ID: G-PRT-<스프린트>-<두 자리> — 아는 스프린트(N1·PRN2)만. 새 스프린트의 사례가 오면 이 러너도 함께 고친다 */
+const CASE_ID = /^G-PRT-(?:N1|PRN2)-\d{2}$/
 
 type Fill = 'white' | 'black' | 'border'
 type ImageSpec = { readonly width: number; readonly height: number; readonly rows: readonly string[] } | { readonly width: number; readonly height: number; readonly fill: Fill }
@@ -44,9 +62,11 @@ interface GoldenCase {
   readonly profile?: string
   readonly image?: ImageSpec
   readonly options?: { readonly density: number }
-  readonly name?: string
+  readonly name?: string | null
   readonly ua?: string
   readonly maxTouchPoints?: number
+  readonly services?: readonly string[]
+  readonly value?: string
   readonly out: Record<string, unknown>
 }
 interface GoldenFile {
@@ -117,6 +137,16 @@ function checkOut(kind: Kind, out: unknown, where: string): void {
     }
     return
   }
+  if (kind === 'list') {
+    if (keys.join() !== 'list') throw new Error(`${where}: list out 형식`)
+    const v = out.list
+    if (v !== null && v !== 'NIIMBOT' && !PROFILE_IDS.filter((id) => !id.startsWith('NIIMBOT_')).includes(v as string)) throw new Error(`${where}: list 값`)
+    return
+  }
+  if (kind === 'end') {
+    if (keys.join() !== 'end' || typeof out.end !== 'boolean') throw new Error(`${where}: end out 형식`)
+    return
+  }
   if (kind === 'name') {
     if (keys.join() !== 'profile' || (out.profile !== null && !PROFILE_IDS.includes(out.profile as string))) throw new Error(`${where}: name out 형식`)
     return
@@ -150,11 +180,19 @@ function loadGolden(dir: string): GoldenFile[] {
       ids.add(c.id)
       if (typeof c.title !== 'string' || !Array.isArray(c.refs) || c.refs.length === 0) throw new Error(`${at}: title·refs 형식`)
       if (c.note !== undefined && typeof c.note !== 'string') throw new Error(`${at}: note 형식`)
-      if (kind === 'job' || kind === 'profile') {
+      if (kind === 'job' || kind === 'profile' || kind === 'end') {
         if (!PROFILE_IDS.includes(c.profile as string)) throw new Error(`${at}: 모르는 프로필 ${String(c.profile)}`)
       }
+      if ((kind === 'job' || kind === 'end') && String(c.profile).startsWith('NIIMBOT_')) throw new Error(`${at}: ${kind} 사례에 NIIMBOT_*는 쓰지 않는다`)
+      if (kind === 'list') {
+        if (c.name !== null && typeof c.name !== 'string') throw new Error(`${at}: name은 글 또는 null`)
+        if (c.services !== undefined && (!Array.isArray(c.services) || c.services.some((u) => typeof u !== 'string'))) throw new Error(`${at}: services 형식`)
+      }
+      if (kind === 'end') {
+        if (typeof c.value !== 'string') throw new Error(`${at}: value 형식`)
+        hex(c.value, at)
+      }
       if (kind === 'job') {
-        if (c.profile === 'NIIMBOT_B1') throw new Error(`${at}: job 사례에 NIIMBOT_B1은 쓰지 않는다`)
         checkImage(c.image, at)
         if (c.options !== undefined && (!isObject(c.options) || Object.keys(c.options).join() !== 'density' || typeof c.options.density !== 'number')) throw new Error(`${at}: options 형식`)
       }
@@ -257,14 +295,21 @@ export function expectBytesMatchPieces(bytes: Uint8Array, pieces: readonly Piece
 }
 
 const golden = loadGolden(GOLDEN_DIR)
-const NAME_LIST: readonly ModelProfile[] = [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES]
+/** 이름 골든의 목록: Marklife 9종 + 바우아토 전부 (README name — L-12 어댑터 기본 목록, D-PRN2-01) */
+const NAME_LIST: readonly ModelProfile[] = LABEL_PROFILES
 
-describe('프린터 골든 (AC-N1-01)', () => {
-  it('파일 4개 · 사례 87개(작업 34 · 이름 27 · 프로필 11 · 브라우저 15 — 감사 뒤 이름 G-PRT-N1-76~78, D-N1-11)를 읽는다', () => {
-    expect(golden.map((g) => g.file)).toEqual(['browser.json', 'job.json', 'name.json', 'profile.json'])
+describe('프린터 골든 (AC-N1-01, AC-PRN2-01~04)', () => {
+  it('파일 6개 · 사례 130개(브라우저 15 · 끝 14 · 작업 36 · 목록 24 · 이름 27 · 프로필 14 — PRN2가 job 2·profile 3·list·end를 더함)를 읽는다', () => {
+    expect(golden.map((g) => g.file)).toEqual(['browser.json', 'end.json', 'job.json', 'list.json', 'name.json', 'profile.json'])
     const count = (kind: Kind): number => golden.filter((g) => g.kind === kind).reduce((n, g) => n + g.cases.length, 0)
-    expect([count('job'), count('name'), count('profile'), count('browser')]).toEqual([34, 27, 11, 15])
-    expect(golden.reduce((n, g) => n + g.cases.length, 0)).toBe(87)
+    expect([count('browser'), count('end'), count('job'), count('list'), count('name'), count('profile')]).toEqual([15, 14, 36, 24, 27, 14])
+    expect(golden.reduce((n, g) => n + g.cases.length, 0)).toBe(130)
+  })
+
+  it('프로필 골든이 켠 프로필 표 전부를 덮는다 — 표와 골든의 프로필 ID가 같다 (AC-PRN2-01)', () => {
+    const ids = golden.filter((g) => g.kind === 'profile').flatMap((g) => g.cases.map((c) => c.profile))
+    expect([...ids].sort()).toEqual(PRINTER_PROFILES.map((p) => p.id).sort())
+    expect(PRINTER_PROFILES.filter((p) => !p.experimental).map((p) => p.id)).toEqual(['NIIMBOT_B1'])
   })
 
   for (const g of golden) {
@@ -293,6 +338,18 @@ describe('프린터 골든 (AC-N1-01)', () => {
             expect(profileForDeviceName(c.name, NAME_LIST)?.id ?? null).toBe(c.out.profile)
             return
           }
+          if (g.kind === 'list') {
+            // 켠 프로필은 기본 목록 전부 (README list)
+            expect(pickListTarget(c.name, c.services ?? [], PRINTER_PROFILES)).toBe(c.out.list)
+            expect(pickListTarget(c.name, c.services ?? [])).toBe(c.out.list)
+            return
+          }
+          if (g.kind === 'end') {
+            const profile = printerProfile(c.profile as string)
+            if (!profile || isNiimbotProtocol(profile.protocol)) throw new Error('L-12 프로필 없음')
+            expect(isEndNotice(profile.protocol as LabelProtocol, hex(c.value as string, c.id))).toBe(c.out.end)
+            return
+          }
           if (g.kind === 'profile') {
             const profile = printerProfile(c.profile as string)
             if (!profile) throw new Error('프로필 없음')
@@ -309,9 +366,9 @@ describe('프린터 골든 (AC-N1-01)', () => {
 })
 
 describe('프린터 골든 읽기 — 형식 계약을 어기면 읽기 오류 (AC-N1-01)', () => {
-  it('사례 ID 형식: G-PRT-N1-<두 자리>만 받는다', () => {
-    for (const id of ['G-PRT-N1-01', 'G-PRT-N1-95']) expect(CASE_ID.test(id), id).toBe(true)
-    for (const id of ['G-PRT-N1-1', 'G-PRT-N1-001', 'G-PRT-001', 'G-LBL-N1-01', 'G-PRT-N2-01']) expect(CASE_ID.test(id), id).toBe(false)
+  it('사례 ID 형식: G-PRT-<N1|PRN2>-<두 자리>만 받는다', () => {
+    for (const id of ['G-PRT-N1-01', 'G-PRT-N1-95', 'G-PRT-PRN2-01', 'G-PRT-PRN2-64']) expect(CASE_ID.test(id), id).toBe(true)
+    for (const id of ['G-PRT-N1-1', 'G-PRT-N1-001', 'G-PRT-001', 'G-LBL-N1-01', 'G-PRT-N2-01', 'G-PRT-PRN2-1', 'G-PRT-prn2-01']) expect(CASE_ID.test(id), id).toBe(false)
   })
 
   it('yxqRaster를 창 15(78)로 압축한 바이트로 바꾸면 실패한다', () => {

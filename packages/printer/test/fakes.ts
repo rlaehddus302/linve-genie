@@ -250,7 +250,8 @@ export function decodeMarklifeJob(bytes: Uint8Array, profile: { readonly protoco
   let widthBytes: number
   let height: number
   let rows: Uint8Array
-  if (profile.protocol === 'MARKLIFE_L11') {
+  if (profile.protocol === 'MARKLIFE_L11' || profile.protocol === 'LUCKJINGLE') {
+    // 래스터 머리 자리는 둘 다 19 (L11 00×15 + 시작 4 · Luck Jingle 켜기 4 + 깨우기 12 + 위치 맞춤 시작 3)
     const at = 19
     widthBytes = (bytes[at + 4] as number) | ((bytes[at + 5] as number) << 8)
     height = (bytes[at + 6] as number) | ((bytes[at + 7] as number) << 8)

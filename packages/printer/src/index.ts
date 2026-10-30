@@ -1,5 +1,5 @@
-// @livejjim/printer — 프린터 어댑터·B1·Marklife·바우아토·가짜 프린터·가짜 블루투스 기기·출력 대기열·실행기
-// (P1·N1, LABEL_RULES L-7·L-8·L-10·L-12).
+// @livejjim/printer — 프린터 어댑터·NIIMBOT·Marklife·바우아토·웹 한 목록·가짜 프린터·가짜 블루투스 기기·출력 대기열·실행기
+// (P1·N1·PRN2, LABEL_RULES L-7·L-8·L-10·L-11·L-12). 켠 프로필 표는 하나(PRINTER_PROFILES)이고 지원 단계는 프로필의 experimental이다.
 // 그림 형식은 @livejjim/label의 LabelBitmap 하나다(줄 순서, 한 줄 ceil(width/8)바이트, 왼쪽 점이 높은 비트, 1 = 검정).
 export {
   B1_PROFILE,
@@ -10,15 +10,19 @@ export {
   sameRememberedPrinter,
   CONNECTION_STATE_NAMES,
   DEFAULT_PRINT_TIMEOUT_MS,
-  ENABLED_PROFILES,
+  NIIMBOT_PROTOCOLS,
   PRINTER_PROTOCOLS,
+  isNiimbotProtocol,
   systemTimer,
   withBlankRows,
   type AdapterProfile,
   type ConnectionMethod,
   type ConnectionState,
   type DensityRange,
+  type LabelProtocol,
   type ModelProfile,
+  type NiimbotProfile,
+  type NiimbotProtocol,
   type PrintOptions,
   type PrinterAdapter,
   type PrinterProfile,
@@ -36,6 +40,7 @@ export {
   RETRIED_DETAIL_SUFFIX,
   RETRIED_TIMEOUT_DETAIL,
   TIMEOUT_DETAIL,
+  densityMessage,
   describeCause,
   isTimeoutCause,
   printerError,
@@ -48,7 +53,8 @@ export {
 } from './errors.ts'
 export {
   BAUATO_PPA2L,
-  EXPERIMENTAL_PROFILES,
+  ENABLED_PROFILES,
+  LABEL_PROFILES,
   MARKLIFE_L13,
   MARKLIFE_LP15,
   MARKLIFE_LP90,
@@ -59,12 +65,40 @@ export {
   MARKLIFE_PROFILES,
   MARKLIFE_S2,
   MARKLIFE_X2,
+  NIIMBOT_B1_SE,
+  NIIMBOT_B21,
+  NIIMBOT_D110,
+  NIIMBOT_PROFILES,
+  NIIMBOT_SERVICE_UUID,
+  NIIMBOT_TARGET,
   PRINTER_PROFILES,
+  connectedProfileId,
+  experimentalNotice,
+  labelProfilesOf,
   labelSizesFor,
+  labelSizesForProfileId,
+  niimbotNamePrefixes,
+  niimbotProfilesOf,
+  pickListFilter,
+  pickListTarget,
   printerProfile,
+  printerSupportStage,
   profileForDeviceName,
+  profileSupportsSize,
+  type PickListFilter,
+  type PickListTarget,
+  type PrinterSupportStage,
 } from './profiles.ts'
-export { DENSITY_BYTES, buildPrintJob, rotateClockwise, type JobErrorCode, type JobResult } from './job.ts'
+export { DENSITY_BYTES, END_ACK, EXTRA_END_NOTICES, buildPrintJob, isEndNotice, rotateClockwise, type JobErrorCode, type JobResult } from './job.ts'
+export {
+  createWebPrinterAdapter,
+  printerRequestOptions,
+  webPrinterEnvironment,
+  type PrinterRequestOptions,
+  type WebPrinterAdapter,
+  type WebPrinterAdapterOptions,
+  type WebPrinterEnvironment,
+} from './one-list.ts'
 export { MAX_DISTANCE, ZLIB_WINDOW_BITS, adler32, zlibWindow1K } from './deflate.ts'
 export { IN_APP_MARKERS, UNSUPPORTED_REASONS, unsupportedMessage, unsupportedReason, type UnsupportedReason } from './browser-support.ts'
 export {
@@ -103,6 +137,7 @@ export {
   NIIMBOT_RECONNECT_DELAY_MS,
   bluetoothDeviceId,
   browserEnvironment,
+  connectErrorCode,
   createB1Adapter,
   createNiimbotAdapter,
   defaultNiimbotClient,
@@ -113,6 +148,7 @@ export {
   type NiimbotAdapterOptions,
   type NiimbotClientLike,
   type NiimbotPrintTaskLike,
+  type NiimbotRequestOptions,
   type NiimbotTaskOptions,
   type PrinterEnvironment,
 } from './niimbot.ts'

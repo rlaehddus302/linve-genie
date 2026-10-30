@@ -24,13 +24,13 @@ export type PrinterTableErrorCode = (typeof PRINTER_ERROR_CODES)[number]
  */
 export type PrinterErrorCode = PrinterTableErrorCode | 'INVALID_DENSITY'
 
-/** L-7 표 그대로 (글자까지 같다) */
+/** L-7 표 그대로 (글자까지 같다). NOT_SELECTED·WRONG_MODEL은 PRN2(D-PRN2-05) 문장 — 켠 모델이 B1 하나가 아니다 */
 export const PRINTER_MESSAGES: Readonly<Record<PrinterErrorCode, string>> = {
   UNSUPPORTED: '이 브라우저에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 NIIMBOT 앱에서 인쇄해 주세요.',
-  NOT_SELECTED: '프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 B1을 골라 주세요.',
+  NOT_SELECTED: '프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 프린터를 골라 주세요.',
   BLUETOOTH_OFF: '블루투스가 꺼져 있어요. 블루투스를 켠 뒤 다시 연결해 주세요.',
   PORT_BUSY: 'USB 연결을 다른 프로그램이 쓰고 있어요. NIIMBOT 프로그램을 닫거나 블루투스로 연결해 주세요.',
-  WRONG_MODEL: '지금은 NIIMBOT B1만 연결할 수 있어요. B1을 골라 주세요.',
+  WRONG_MODEL: '이 프린터는 바로 출력할 수 없어요. 다른 프린터를 고르거나, 라벨을 그림 파일로 저장해 NIIMBOT 앱에서 인쇄해 주세요.',
   DISCONNECTED: '프린터 연결이 끊겼어요.',
   CONNECT_FAILED: '프린터에 연결하지 못했어요. 아래를 차례로 해 본 뒤 다시 연결해 주세요.',
   NOT_CONNECTED: '프린터를 먼저 연결해 주세요.',
@@ -151,6 +151,11 @@ export const MARKLIFE_MESSAGES: Readonly<Record<MarklifeErrorCode, string>> = {
   TIMEOUT: PRINTER_MESSAGES.TIMEOUT,
   PRINT_FAILED: PRINTER_MESSAGES.PRINT_FAILED,
   INVALID_DENSITY: '인쇄 농도는 1~3 사이의 정수로 정해 주세요.',
+}
+
+/** INVALID_DENSITY 문장 — {최소}~{최대} = 프로필의 농도 범위 (L-7 표, D-PRN2-05). B1(1~5)은 PRINTER_MESSAGES와 글자까지 같다 */
+export function densityMessage(range: { readonly min: number; readonly max: number }): string {
+  return `인쇄 농도는 ${String(range.min)}~${String(range.max)} 사이의 정수로 정해 주세요.`
 }
 
 export function fail(code: PrinterErrorCode, cause?: unknown): PrinterResult {

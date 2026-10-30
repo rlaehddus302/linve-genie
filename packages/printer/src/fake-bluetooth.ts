@@ -2,12 +2,13 @@
 // navigator.bluetooth 모양(requestDevice·getAvailability, 기기의 gatt.connect·getPrimaryService·getCharacteristic·쓰기·startNotifications·
 // 알림 사건·gattserverdisconnected)을 흉내 낸다. 받은 조각을 받은 순서대로 복사해 기록하고, 출력(작업)마다 이어 붙인 바이트를 돌려준다.
 // 기기 이름, 꾸러미(A·C·없음), 고르기 창 닫기, 블루투스 꺼짐, 연결 실패, 첫 크레딧(`01 04` — 안 보냄 포함)과 조각마다 보충할 크레딧,
-// MTU 알림, `AA`(보냄·안 보냄·n ms 늦게·붙잡아 두기·다른 바이트), n번째 조각에서 끊김·쓰기 오류·쓰기 멈춤(끝나지 않음 — 연결은 그대로,
-// D-N1-12)을 미리 정할 수 있다.
+// MTU 알림, `AA`(보냄·안 보냄·n ms 늦게·붙잡아 두기·다른 바이트), Luck Jingle(바우아토)의 `OK`(4F 4B) 끝 알림, 흐름 제어(ff03)가 없는
+// 꾸러미 A(missingCharacteristics: ['ff03'] — D-PRN2-03), n번째 조각에서 끊김·쓰기 오류·쓰기 멈춤(끝나지 않음 — 연결은 그대로, D-N1-12)을
+// 미리 정할 수 있다.
 // 시각·난수를 쓰지 않는다(지연은 주입한 타이머). 작업의 끝은 받은 바이트의 래스터 머리로 계산한다(작업을 다 받아야 `AA`를 보낸다).
 // 작업의 시작은 방식마다의 시작 바이트로 알아본다 — 어댑터가 작업 중간에 그만둔 시도는 다음 작업의 시작을 받으면 닫고,
 // 다음 출력은 새 시도로 센다(어댑터와 가짜 기기 사이에 따로 신호가 없다).
-import { systemTimer, type PrinterProtocol, type PrinterTimer } from './adapter.ts'
+import { systemTimer, type LabelProtocol, type PrinterTimer } from './adapter.ts'
 import {
   GATT_BUNDLES,
   type BluetoothDeviceLike,
@@ -19,13 +20,17 @@ import {
   type GattServerLike,
   type GattServiceLike,
 } from './bluetooth.ts'
-import { EXPERIMENTAL_PROFILES, MARKLIFE_PROFILES, profileForDeviceName } from './profiles.ts'
+import { isEndNotice } from './job.ts'
+import { LABEL_PROFILES, profileForDeviceName } from './profiles.ts'
 import type { EncodedImage } from '@mmote/niimbluelib'
 import type { NiimbotClientLike, NiimbotPrintTaskLike, NiimbotTaskOptions, PrinterEnvironment } from './niimbot.ts'
 import type { ConnectionMethod } from './adapter.ts'
 
-/** 끝 알림: 보냄(작업을 다 받은 그 쓰기 안에서) · 안 보냄 · 붙잡아 두기(releaseAck로 보냄) · n ms 늦게 · 다른 바이트 */
-export type FakeAck = 'send' | 'none' | 'hold' | { readonly delayMs: number } | { readonly bytes: readonly number[] }
+/**
+ * 끝 알림: 보냄(`AA`, 작업을 다 받은 그 쓰기 안에서) · `OK`(4F 4B — Luck Jingle 프린터의 다른 끝 알림, D-PRN2-03) · 안 보냄 ·
+ * 붙잡아 두기(releaseAck로 `AA`) · n ms 늦게(`AA`) · 다른 바이트
+ */
+export type FakeAck = 'send' | 'ok' | 'none' | 'hold' | { readonly delayMs: number } | { readonly bytes: readonly number[] }
 
 /** 출력(작업) 하나에 낼 일 — 받은 순서로 1부터 센다(끊겨 끝나지 않은 시도도 하나로 센다) */
 export interface FakeJobBehavior {
@@ -74,7 +79,7 @@ export interface FakeBluetoothOptions {
   /** 출력마다 낼 일 */
   readonly jobs?: Readonly<Record<number, FakeJobBehavior>>
   /** 작업의 끝을 계산할 방식 (기본: 이름으로 고른 프로필의 방식, 없으면 MARKLIFE_YXQ2) */
-  readonly protocol?: Exclude<PrinterProtocol, 'NIIMBOT_B1'>
+  readonly protocol?: LabelProtocol
   /** 지연용 타이머 (기본: 시스템 타이머) */
   readonly timer?: PrinterTimer
   /** 환경의 사용자 에이전트 (기본 데스크톱 크롬 꼴) */
@@ -90,7 +95,7 @@ export interface FakeAttempt {
   readonly bytes: Uint8Array
   /** 작업을 끝까지 받았는지 */
   readonly complete: boolean
-  /** 끝 알림 `AA`를 보냈는지 */
+  /** 그 방식의 끝 알림(`AA` — Luck Jingle은 `OK`도)을 보냈는지 */
   readonly acked: boolean
 }
 
@@ -154,13 +159,14 @@ const zeros = (n: number): number[] => Array.from({ length: n }, () => 0x00)
  * 래스터 명령까지 맞춰 보므로 압축한 줄 가운데에서 우연히 맞을 일이 사실상 없다. 끝 바이트(`1D 0C 10 FF F1 45`·`… 1F 11 50`)는
  * 어느 방식의 시작 바이트와도 어긋나므로, 작업 하나를 끝까지 받으면 그 안의 시작 후보는 모두 가려진다.
  */
-const JOB_START: Readonly<Record<Exclude<PrinterProtocol, 'NIIMBOT_B1'>, readonly number[]>> = (() => {
+const JOB_START: Readonly<Record<LabelProtocol, readonly number[]>> = (() => {
   const yxq38 = [0x1f, 0x80, 0x02, 0x20, 0x1f, 0x70, 0x02, ANY, ...zeros(6), 0x1f, 0xc0, 0x01, 0x00, 0x1f, 0x11, 0x51, 0x1f, 0x10]
   return {
     MARKLIFE_YXQ2: [0x1f, 0x70, 0x01, ANY, 0x10, 0xff, 0xf1, 0x02, 0x1f, 0x10],
     MARKLIFE_YXQ3: yxq38,
     MARKLIFE_YXQ8: yxq38,
     MARKLIFE_L11: [...zeros(15), 0x10, 0xff, 0xf1, 0x02, 0x1d, 0x76, 0x30, 0x00],
+    LUCKJINGLE: [0x10, 0xff, 0xf1, 0x03, ...zeros(12), 0x1f, 0x11, 0x51, 0x1d, 0x76, 0x30, 0x00],
   }
 })()
 
@@ -168,7 +174,7 @@ const JOB_START: Readonly<Record<Exclude<PrinterProtocol, 'NIIMBOT_B1'>, readonl
  * bytes의 at 자리부터가 작업 시작 바이트인지: 'yes'(모두 맞음) · 'no'(어긋남) · 'maybe'(받은 데까지는 맞는데 아직 짧다).
  * 조각이 시작 바이트보다 짧을 수 있어(MTU 알림) 여러 조각에 걸쳐 본다.
  */
-export function fakeJobStartAt(protocol: Exclude<PrinterProtocol, 'NIIMBOT_B1'>, bytes: Uint8Array, at: number): 'yes' | 'no' | 'maybe' {
+export function fakeJobStartAt(protocol: LabelProtocol, bytes: Uint8Array, at: number): 'yes' | 'no' | 'maybe' {
   const start = JOB_START[protocol]
   const n = Math.min(start.length, bytes.length - at)
   for (let i = 0; i < n; i++) {
@@ -179,15 +185,18 @@ export function fakeJobStartAt(protocol: Exclude<PrinterProtocol, 'NIIMBOT_B1'>,
 }
 
 /** 받은 바이트로 작업 길이를 계산한다 (래스터 머리를 아직 못 받았으면 undefined, 꼴이 틀리면 NaN) */
-export function fakeJobLength(protocol: Exclude<PrinterProtocol, 'NIIMBOT_B1'>, bytes: Uint8Array): number | undefined {
+export function fakeJobLength(protocol: LabelProtocol, bytes: Uint8Array): number | undefined {
   const at = (i: number): number => bytes[i] as number
-  if (protocol === 'MARKLIFE_L11') {
+  if (protocol === 'MARKLIFE_L11' || protocol === 'LUCKJINGLE') {
+    // 래스터 머리 자리는 둘 다 19 (L11: 00×15 + 시작 4 · Luck Jingle: 켜기 4 + 깨우기 12 + 위치 맞춤 시작 3)
     const head = 19
+    // 래스터 뒤: L11 = 다음 라벨 2 + 작업 끝 4 · Luck Jingle = 다음 라벨 2 + 위치 맞춤 끝 3 + 작업 끝 4
+    const tail = protocol === 'LUCKJINGLE' ? 2 + 3 + 4 : 2 + 4
     if (bytes.length < head + 8) return undefined
     if (at(head) !== 0x1d || at(head + 1) !== 0x76 || at(head + 2) !== 0x30 || at(head + 3) !== 0x00) return Number.NaN
     const wb = at(head + 4) | (at(head + 5) << 8)
     const h = at(head + 6) | (at(head + 7) << 8)
-    return head + 8 + wb * h + 2 + 4
+    return head + 8 + wb * h + tail
   }
   const head = protocol === 'MARKLIFE_YXQ2' ? 8 : 21
   const tail = protocol === 'MARKLIFE_YXQ2' ? 2 + 4 : 4 + 4 + 3
@@ -205,7 +214,7 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
   const jobs = new Map<number, FakeJobBehavior>(Object.entries(options.jobs ?? {}).map(([k, v]) => [Number(k), v]))
   const protocol =
     options.protocol ??
-    ((profileForDeviceName(name, [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES])?.protocol ?? 'MARKLIFE_YXQ2') as Exclude<PrinterProtocol, 'NIIMBOT_B1'>)
+    ((profileForDeviceName(name, LABEL_PROFILES)?.protocol ?? 'MARKLIFE_YXQ2') as LabelProtocol)
   let available = options.available ?? true
   let adapterOffSetting = options.adapterOff
   const adapterOff = (): boolean => adapterOffSetting ?? !available
@@ -357,7 +366,7 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
 
   const sendAck = (attempt: MutableAttempt, bytes: readonly number[]): void => {
     if (!connected) return
-    if (bytes.length === 1 && bytes[0] === 0xaa) attempt.acked = true
+    if (isEndNotice(protocol, bytes)) attempt.acked = true
     notifyChar?.emit(bytes)
   }
 
@@ -367,6 +376,7 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
     const ack = jobs.get(attempt.index)?.ack ?? options.ack ?? 'send'
     if (ack === 'none') return
     if (ack === 'send') sendAck(attempt, [0xaa])
+    else if (ack === 'ok') sendAck(attempt, [0x4f, 0x4b])
     else if (ack === 'hold') held = () => sendAck(attempt, [0xaa])
     else if ('delayMs' in ack) timer.setTimeout(() => sendAck(attempt, [0xaa]), ack.delayMs)
     else sendAck(attempt, ack.bytes)

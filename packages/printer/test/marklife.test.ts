@@ -4,7 +4,7 @@ import { createNodeRenderEnv } from '@livejjim/label/node'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   BAUATO_PPA2L,
-  EXPERIMENTAL_PROFILES,
+  LABEL_PROFILES,
   MARKLIFE_DEFAULTS,
   MARKLIFE_MESSAGES,
   MARKLIFE_P12,
@@ -114,7 +114,7 @@ function track<T>(promise: Promise<T>): { promise: Promise<T>; done: () => boole
 }
 
 describe('프로필 목록과 표 한 줄로 더하기 (AC-N1-03)', () => {
-  it('Marklife 기본 목록은 9종(표 순서, 바우아토 없음), 실험 목록은 바우아토 하나', () => {
+  it('Marklife 9종(표 순서) + 바우아토가 어댑터 기본 목록이고 따로 된 실험 목록은 없다 — 모두 실험 (D-PRN2-01·08)', () => {
     expect(MARKLIFE_PROFILES.map((p) => p.id)).toEqual([
       'MARKLIFE_P50',
       'MARKLIFE_S2',
@@ -126,8 +126,9 @@ describe('프로필 목록과 표 한 줄로 더하기 (AC-N1-03)', () => {
       'MARKLIFE_LP90',
       'MARKLIFE_LP15',
     ])
-    expect(EXPERIMENTAL_PROFILES.map((p) => p.id)).toEqual(['BAUATO_PPA2L'])
-    expect(MARKLIFE_PROFILES.some((p) => p.experimental)).toBe(false)
+    expect(LABEL_PROFILES.map((p) => p.id)).toEqual([...MARKLIFE_PROFILES.map((p) => p.id), 'BAUATO_PPA2L'])
+    // PRN2 D-PRN2-08: N1의 experimental false → true (우리 실기기 확인 HG-5 전)
+    expect(LABEL_PROFILES.every((p) => p.experimental)).toBe(true)
     expect(createMarklifeAdapter({ environment: () => ({}) }).profile).toBe(MARKLIFE_PROFILES[0])
   })
 
@@ -161,7 +162,7 @@ describe('Web Bluetooth만, 자동 연결 없음 (AC-N1-30)', () => {
     expect(adapter.availableMethods()).toEqual(['bluetooth'])
     expect(createMarklifeAdapter({ environment: () => ({ bluetooth: {} }) }).availableMethods()).toEqual([])
     expect(createMarklifeAdapter({ environment: () => ({}) }).availableMethods()).toEqual([])
-    expect(createMarklifeAdapter({ profiles: EXPERIMENTAL_PROFILES, environment: () => ({ bluetooth: null }) }).availableMethods()).toEqual([])
+    expect(createMarklifeAdapter({ profiles: [BAUATO_PPA2L], environment: () => ({ bluetooth: null }) }).availableMethods()).toEqual([])
   })
 
   it('패키지를 import하거나 어댑터를 만들기만 해서는 navigator를 읽지 않는다 — 연결은 부르는 쪽이 부를 때만', async () => {
@@ -201,7 +202,8 @@ describe('기기 고르기 창과 이름으로 고르기 (AC-N1-31·55)', () => 
     expect((await adapter.connect('bluetooth')).ok).toBe(true)
     expect(fake.requests).toHaveLength(1)
     const request = fake.requests[0]
-    expect(request?.filters).toEqual(['P50_', 'S2_', 'X2_', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_'].map((namePrefix) => ({ namePrefix })))
+    // 기본 목록 = Marklife 9종 + 바우아토 (PRN2 D-PRN2-01 — N1에서는 바우아토 PPA2가 없었다)
+    expect(request?.filters).toEqual(['P50_', 'S2_', 'X2_', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2'].map((namePrefix) => ({ namePrefix })))
     expect(request?.optionalServices).toEqual([SERVICE_A, SERVICE_C])
     expect(Object.keys(request ?? {}).sort()).toEqual(['filters', 'optionalServices'])
     expect(adapter.profile).toBe(MARKLIFE_P12)
@@ -209,17 +211,24 @@ describe('기기 고르기 창과 이름으로 고르기 (AC-N1-31·55)', () => 
   })
 
   it('바우아토를 넘긴 어댑터는 거르기에 PPA2가 있고 바우아토를 고른다', async () => {
-    const { fake, adapter } = setup({ name: 'PPA2L_1234' }, { profiles: [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES] })
+    const { fake, adapter } = setup({ name: 'PPA2L_1234' }, { profiles: [...MARKLIFE_PROFILES, BAUATO_PPA2L] })
     expect((await adapter.connect('bluetooth')).ok).toBe(true)
     expect(fake.requests[0]?.filters.at(-1)).toEqual({ namePrefix: 'PPA2' })
     expect(adapter.profile).toBe(BAUATO_PPA2L)
   })
 
-  it('기본 목록 어댑터는 PPA2를 거르기에 넣지 않고(고르기 창에 안 보인다), 골라도 WRONG_MODEL', async () => {
-    const hidden = setup({ name: 'PPA2L_1234', respectFilters: true })
+  it('기본 목록 어댑터도 바우아토(실험)를 고르기 창에 보이고 고르면 잇는다 (D-PRN2-01 — 따로 된 실험 목록 없음)', async () => {
+    const shown = setup({ name: 'PPA2L_1234', respectFilters: true })
+    expect((await shown.adapter.connect('bluetooth')).ok).toBe(true)
+    expect(shown.adapter.profile).toBe(BAUATO_PPA2L)
+    expect(shown.adapter.profile.experimental).toBe(true)
+  })
+
+  it('Marklife 9종만 켠 어댑터는 PPA2를 거르기에 넣지 않고(고르기 창에 안 보인다), 골라도 WRONG_MODEL', async () => {
+    const hidden = setup({ name: 'PPA2L_1234', respectFilters: true }, { profiles: MARKLIFE_PROFILES })
     expect(await hidden.adapter.connect('bluetooth')).toMatchObject({ ok: false, error: { code: 'NOT_SELECTED' } })
     expect(hidden.fake.requests[0]?.filters.some((f) => f.namePrefix.startsWith('PPA2'))).toBe(false)
-    const picked = setup({ name: 'PPA2L_1234' })
+    const picked = setup({ name: 'PPA2L_1234' }, { profiles: MARKLIFE_PROFILES })
     const r = await picked.adapter.connect('bluetooth')
     expect(r).toMatchObject({ ok: false, error: { code: 'WRONG_MODEL', message: '연결할 수 없는 프린터예요. 목록에 있는 프린터를 골라 주세요.' } })
     expect(picked.adapter.state).toBe('DISCONNECTED')
@@ -235,9 +244,9 @@ describe('기기 고르기 창과 이름으로 고르기 (AC-N1-31·55)', () => 
     }
   })
 
-  it('바우아토 프로필은 실험적, 대체 경로 Luck Jingle 앱, 크기 50×30·50×15·50×50, L11 바이트(돌림·농도 없음)이고 보내기·끝 알림은 Marklife와 같다', async () => {
-    expect(BAUATO_PPA2L).toMatchObject({ experimental: true, fallbackApp: 'Luck Jingle 앱', sizes: ['50x30', '50x15', '50x50'], rotate: 'NONE', density: null, protocol: 'MARKLIFE_L11' })
-    const { fake, adapter, timer } = setup({ name: 'PPA2L_9F3C' }, { profiles: EXPERIMENTAL_PROFILES })
+  it('바우아토 프로필은 실험, 대체 경로 Luck Jingle 앱, 크기 50×30·50×15·50×50, Luck Jingle 바이트(돌림·농도 없음 — D-PRN2-02)이고 보내기는 Marklife와 같다', async () => {
+    expect(BAUATO_PPA2L).toMatchObject({ experimental: true, fallbackApp: 'Luck Jingle 앱', sizes: ['50x30', '50x15', '50x50'], rotate: 'NONE', density: null, protocol: 'LUCKJINGLE' })
+    const { fake, adapter, timer } = setup({ name: 'PPA2L_9F3C' }, { profiles: [BAUATO_PPA2L] })
     expect((await adapter.connect('bluetooth')).ok).toBe(true)
     const image = border(384, 120)
     const p = track(adapter.print(image, { density: 3 }))
@@ -325,9 +334,9 @@ describe('연결 실패와 문장 (AC-N1-33·34)', () => {
       INVALID_DENSITY: '인쇄 농도는 1~3 사이의 정수로 정해 주세요.',
     })
     expect(Object.keys(MARKLIFE_MESSAGES)).not.toContain('PORT_BUSY')
-    // B1 어댑터의 문장(L-7 표)은 그대로
-    expect(PRINTER_MESSAGES.NOT_SELECTED).toBe('프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 B1을 골라 주세요.')
-    expect(PRINTER_MESSAGES.WRONG_MODEL).toBe('지금은 NIIMBOT B1만 연결할 수 있어요. B1을 골라 주세요.')
+    // NIIMBOT 어댑터의 문장(L-7 표) — PRN2 D-PRN2-05로 NOT_SELECTED는 L-12 6과 같고 WRONG_MODEL은 그림 파일 경로를 알린다
+    expect(PRINTER_MESSAGES.NOT_SELECTED).toBe(MARKLIFE_MESSAGES.NOT_SELECTED)
+    expect(PRINTER_MESSAGES.WRONG_MODEL).toBe('이 프린터는 바로 출력할 수 없어요. 다른 프린터를 고르거나, 라벨을 그림 파일로 저장해 NIIMBOT 앱에서 인쇄해 주세요.')
     expect(PRINTER_MESSAGES.INVALID_DENSITY).toBe('인쇄 농도는 1~5 사이의 정수로 정해 주세요.')
   })
 
@@ -376,8 +385,8 @@ describe('연결 실패와 문장 (AC-N1-33·34)', () => {
       [iphone, 0, MARKLIFE_PROFILES, '아이폰·아이패드에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 Marklife 앱에서 인쇄해 주세요.'],
       [kakao, 5, MARKLIFE_PROFILES, '카카오톡·인스타그램 같은 앱 안에서 연 화면에서는 프린터에 바로 연결할 수 없어요. 크롬에서 열거나, 라벨을 그림 파일로 저장해 Marklife 앱에서 인쇄해 주세요.'],
       [firefox, 0, MARKLIFE_PROFILES, '이 브라우저에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 Marklife 앱에서 인쇄해 주세요.'],
-      [firefox, 0, EXPERIMENTAL_PROFILES, '이 브라우저에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 Luck Jingle 앱에서 인쇄해 주세요.'],
-      [iphone, 0, EXPERIMENTAL_PROFILES, '아이폰·아이패드에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 Luck Jingle 앱에서 인쇄해 주세요.'],
+      [firefox, 0, [BAUATO_PPA2L], '이 브라우저에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 Luck Jingle 앱에서 인쇄해 주세요.'],
+      [iphone, 0, [BAUATO_PPA2L], '아이폰·아이패드에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 Luck Jingle 앱에서 인쇄해 주세요.'],
     ] as const
     for (const [userAgent, maxTouchPoints, profiles, message] of cases) {
       const adapter = createMarklifeAdapter({ profiles, environment: () => ({ userAgent, maxTouchPoints }) })
@@ -715,21 +724,21 @@ describe('AA 끝 알림 — 라벨이 조용히 빠지지 않는다 (AC-N1-42)',
 describe('시간 초과는 진행이 멈춘 20초 — 큰 라벨·작은 MTU (AC-N1-45, L-12 4·5, D-N1-12·13)', () => {
   /** 바우아토 50×50 흰 그림 (384×400) */
   const blank5050 = (): LabelBitmap => createBitmap(384, 400)
-  /** 꾸러미 A, 첫 크레딧 `01 04`, 조각마다 `01 01`, 첫 크레딧 뒤 MTU 알림 `02 17 00`(23), 실험 목록을 넘긴 어댑터 (printTimeoutMs 기본) */
+  /** 꾸러미 A, 첫 크레딧 `01 04`, 조각마다 `01 01`, 첫 크레딧 뒤 MTU 알림 `02 17 00`(23), 기본 목록(바우아토 포함) 어댑터 (printTimeoutMs 기본) */
   const bauato = (fakeOptions: FakeBluetoothOptions = {}) =>
-    setup({ name: 'PPA2L_1234', initialCredits: 4, creditsPerPacket: 1, mtu: 23, ...fakeOptions }, { profiles: [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES] })
+    setup({ name: 'PPA2L_1234', initialCredits: 4, creditsPerPacket: 1, mtu: 23, ...fakeOptions }, { profiles: LABEL_PROFILES })
   const TIMEOUT = { ok: false, error: { code: 'TIMEOUT', message: MARKLIFE_MESSAGES.TIMEOUT } }
 
-  it('바우아토 50×50: 작업 19,233바이트를 20바이트 조각 962개로(마지막 13바이트), 마지막 조각은 28,830ms — AA가 오면 출력 시작 20초가 지났어도 출력 OK', async () => {
+  it('바우아토 50×50: 작업 19,236바이트(Luck Jingle — D-PRN2-02, N1 L11 모양은 19,233)를 20바이트 조각 962개로(마지막 16바이트), 마지막 조각은 28,830ms — AA가 오면 출력 시작 20초가 지났어도 출력 OK', async () => {
     const { adapter, fake, timer } = bauato()
     expect((await adapter.connect('bluetooth')).ok).toBe(true)
     expect(adapter.profile).toBe(BAUATO_PPA2L)
     expect(MARKLIFE_DEFAULTS.printTimeoutMs).toBe(20_000)
     const image = blank5050()
     const expected = jobBytes(BAUATO_PPA2L, image)
-    // 00×15 + 10 FF F1 02 + L11 머리 8 + 줄 48×400 + 1D 0C + 10 FF F1 45
-    expect(expected.length).toBe(15 + 4 + 8 + 48 * 400 + 2 + 4)
-    expect(expected.length).toBe(19_233)
+    // 10 FF F1 03 + 00×12 + 1F 11 51 + 래스터 머리 8 + 줄 48×400 + 1D 0C + 1F 11 50 + 10 FF F1 45 (골든 G-PRT-PRN2-02)
+    expect(expected.length).toBe(4 + 12 + 3 + 8 + 48 * 400 + 2 + 3 + 4)
+    expect(expected.length).toBe(19_236)
     const p = track(adapter.print(image))
     await timer.advance(20_000)
     expect(p.done()).toBe(false)
@@ -745,7 +754,7 @@ describe('시간 초과는 진행이 멈춘 20초 — 큰 라벨·작은 MTU (AC
     expect(timer.pending).toBe(0)
     expect(fake.packets.every((packet) => packet.length <= 20)).toBe(true)
     expect(fake.packets.slice(0, -1).every((packet) => packet.length === 20)).toBe(true)
-    expect(fake.packets.at(-1)).toHaveLength(13)
+    expect(fake.packets.at(-1)).toHaveLength(16)
     expect(concat(fake.packets)).toEqual(expected)
     expect(fake.printed).toHaveLength(1)
   })
@@ -986,7 +995,7 @@ describe('화면 문장 (AC-N1-62)', () => {
       expect(text.replace(BRANDS, ''), text).not.toMatch(/[A-Za-z_]/)
     }
     // 화면 이름·대체 경로 앱은 브랜드·모델 이름과 쉬운 낱말뿐이다 (`Marklife P12`, `바우아토 스티코팝`, `Luck Jingle 앱`)
-    for (const text of [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES].flatMap((p) => [p.displayName, p.fallbackApp])) {
+    for (const text of LABEL_PROFILES.flatMap((p) => [p.displayName, p.fallbackApp])) {
       expect(text.replace(BRANDS, '').trim(), text).toMatch(/^[가-힣 ]*$/)
     }
   })

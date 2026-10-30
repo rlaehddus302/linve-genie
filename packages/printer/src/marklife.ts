@@ -1,8 +1,10 @@
-// Marklife·바우아토 어댑터 (LABEL_RULES L-12 3~6, L-7 어댑터 계약, D-N1-04·05·06·08) — Web Bluetooth만 쓴다(USB·Web Serial 없음).
+// Marklife·바우아토 어댑터 (LABEL_RULES L-12 3~6, L-7 어댑터 계약, D-N1-04·05·06·08·D-PRN2-01·03) — Web Bluetooth만 쓴다(USB·Web Serial 없음).
+// 기본 목록은 Marklife 9종 + 바우아토(LABEL_PROFILES) — 따로 된 실험 목록은 없다(D-PRN2-01).
 // - 연결: 판매자가 누른 동작 안에서만. 기기 고르기 창은 켠 프로필의 이름 앞자리로 거르고, 고른 기기의 이름으로 프로필을 정한다.
-//   GATT 꾸러미 A(ff00) → C(fd00). 꾸러미 A면 연결할 때 ff03·ff01 알림을 켠다(첫 `01 04`를 놓치지 않게 듣기를 먼저 붙인다).
+//   GATT 꾸러미 A(ff00) → C(fd00). 꾸러미 A면 연결할 때 ff03(있으면)·ff01 알림을 켠다(첫 `01 04`를 놓치지 않게 듣기를 먼저 붙인다).
 // - 보내기: 작업 바이트(job.ts)를 90바이트 이하 조각으로, 조각 사이 30ms, 꾸러미 A는 크레딧(0에서 시작, 상한 4, 1초 기다려도 없으면 하나).
-// - 끝: 이번 출력의 첫 조각을 쓴 뒤 받은 `AA` + 모든 조각을 씀 → 출력 OK. 그 전 끊김은 DISCONNECTED —
+//   꾸러미 A에 ff03이 없으면 크레딧 없이 보낸다(D-PRN2-03 — 꾸러미 C처럼).
+// - 끝: 이번 출력의 첫 조각을 쓴 뒤 받은 끝 알림(`AA` — Luck Jingle만 `4F 4B`도, isEndNotice) + 모든 조각을 씀 → 출력 OK. 그 전 끊김은 DISCONNECTED —
 //   바이트를 다 썼다는 것만으로 출력함이라 하지 않는다(라벨이 조용히 빠지지 않게, D-N1-06).
 // - 시간 초과는 "진행이 멈춘 20초"다(L-12 5, D-N1-12): 출력을 시작할 때와 조각 하나의 쓰기가 끝날 때마다(마지막 조각 포함) 20초를 새로 센다.
 //   보내는 중이면 쓰기가 끝나지 않은 채 20초, 모든 조각을 쓴 뒤면 마지막 쓰기가 끝나고 `AA` 없이 20초에 TIMEOUT. 출력 전체 시간의 상한은 없다 —
@@ -15,7 +17,9 @@ import {
   StateBox,
   systemTimer,
   type ConnectionMethod,
+  isNiimbotProtocol,
   type ConnectionState,
+  type LabelProtocol,
   type ModelProfile,
   type PrintOptions,
   type PrinterAdapter,
@@ -36,8 +40,8 @@ import {
 } from './bluetooth.ts'
 import { unsupportedMessage, unsupportedReason } from './browser-support.ts'
 import { MARKLIFE_MESSAGES, OK, printerErrorWithMessage, type MarklifeErrorCode, type PrinterResult } from './errors.ts'
-import { buildPrintJob } from './job.ts'
-import { MARKLIFE_PROFILES, profileForDeviceName } from './profiles.ts'
+import { buildPrintJob, isEndNotice } from './job.ts'
+import { LABEL_PROFILES, profileForDeviceName } from './profiles.ts'
 
 /** 보내기 기본값 (L-12 4·5, D-N1-05·06) */
 export const MARKLIFE_DEFAULTS = Object.freeze({
@@ -56,14 +60,12 @@ export const MARKLIFE_DEFAULTS = Object.freeze({
   maxCredits: 4,
 })
 
-/** 끝 알림 바이트 */
-const END_ACK = 0xaa
 /** 흐름 제어 알림: `01 n` 크레딧, `02 lo hi` MTU */
 const FLOW_CREDIT = 0x01
 const FLOW_MTU = 0x02
 
 export interface MarklifeAdapterOptions {
-  /** 켤 프로필 (기본: Marklife 9종 — 바우아토는 EXPERIMENTAL_PROFILES를 일부러 넘길 때만) */
+  /** 켤 프로필 (기본: Marklife 9종 + 바우아토 — LABEL_PROFILES. 실험 기종도 켠 프로필이다, D-PRN2-01) */
   readonly profiles?: readonly ModelProfile[]
   /** 기능 감지 환경 (기본: 부를 때의 navigator) */
   readonly environment?: () => BluetoothEnvironment
@@ -111,14 +113,14 @@ function safeDisconnect(gatt: GattServerLike | null | undefined): void {
   }
 }
 
-/** 꾸러미의 특성들을 찾는다 (하나라도 없으면 undefined — 다음 꾸러미를 본다) */
+/** 꾸러미의 특성들을 찾는다 (쓰기·알림 중 하나라도 없으면 undefined — 다음 꾸러미를 본다). 흐름 제어(ff03)는 있으면 쓴다(D-PRN2-03) */
 async function findBundle(server: GattServerLike, id: GattBundleId): Promise<{ write: GattCharacteristicLike; notify: GattCharacteristicLike; flow: GattCharacteristicLike | undefined } | undefined> {
   const spec = GATT_BUNDLES[id]
   try {
     const service = await server.getPrimaryService(spec.service)
     const write = await service.getCharacteristic(spec.write)
     const notify = await service.getCharacteristic(spec.notify)
-    const flow = spec.flow === null ? undefined : await service.getCharacteristic(spec.flow)
+    const flow = spec.flow === null ? undefined : await service.getCharacteristic(spec.flow).catch(() => undefined)
     if (typeof write.writeValueWithoutResponse !== 'function' && typeof write.writeValue !== 'function') return undefined
     return { write, notify, flow }
   } catch {
@@ -128,11 +130,11 @@ async function findBundle(server: GattServerLike, id: GattBundleId): Promise<{ w
 
 /** Marklife·바우아토 어댑터 (켠 프로필의 이름 앞자리로 시작하는 기기만 받는다) */
 export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): MarklifeAdapter {
-  const profiles = [...(options.profiles ?? MARKLIFE_PROFILES)]
+  const profiles = [...(options.profiles ?? LABEL_PROFILES)]
   const first = profiles[0]
   if (!first) throw new Error('프로필이 하나도 없다')
   for (const p of profiles) {
-    if (p.protocol === 'NIIMBOT_B1') throw new Error(`NIIMBOT 프로필은 NIIMBOT 어댑터가 쓴다: ${p.id}`)
+    if (isNiimbotProtocol(p.protocol)) throw new Error(`NIIMBOT 프로필은 NIIMBOT 어댑터가 쓴다: ${p.id}`)
     if (p.namePrefix === null || p.namePrefix === '') throw new Error(`이름 앞자리가 없는 프로필은 고를 수 없다: ${p.id}`)
   }
   const environment = options.environment ?? bluetoothEnvironment
@@ -248,8 +250,8 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
 
     const onNotify = (event: CharacteristicValueEvent): void => {
       const value = notificationBytes(event, notify)
-      // 끝 알림은 `AA` 한 바이트뿐이다 — `55`·여러 바이트는 끝 알림이 아니다
-      if (value.length === 1 && value[0] === END_ACK) link.onEnd?.()
+      // 끝 알림은 정확히 `AA` 한 바이트 — Luck Jingle(바우아토)만 정확히 `4F 4B`도 (L-12 5, D-PRN2-03). `55`·`AA AA`·`ok`는 끝이 아니다
+      if (isEndNotice(matched.protocol as LabelProtocol, value)) link.onEnd?.()
     }
     const onFlow = (event: CharacteristicValueEvent): void => {
       if (!flow) return
