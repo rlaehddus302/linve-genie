@@ -130,6 +130,8 @@ export const VOICE_LISTENING = '음성 듣는 중'
 export const VOICE_RECONNECTING = '다시 잇는 중'
 export const VOICE_STOPPED_TITLE = '듣기 멈춤'
 export const VOICE_STOPPED_BODY = '받아쓰기 서버에 연결하지 못했어요. 상품은 빠른 입력으로 넣어 주세요.'
+/** 지난번 마이크를 켜다가 앱이 꺼졌을 때 — 저절로 다시 켜지 않고 알린다 */
+export const MIC_START_CUT_MESSAGE = '지난번에 마이크를 켜다가 앱이 꺼졌어요. 빠른 입력은 그대로 쓸 수 있어요. 음성이 필요하면 [음성 켜기]를 눌러 주세요. 또 꺼지면 휴대폰을 껐다 켜 주세요.'
 export const VOICE_RETRY = '다시 켜기'
 export const VOICE_SENT_LINE = '음성은 라이브지니 받아쓰기 서버로 보내져요.'
 export const VOICE_CONSENT_LINES: readonly string[] = [

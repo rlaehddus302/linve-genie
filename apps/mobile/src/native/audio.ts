@@ -48,6 +48,8 @@ export interface StartListeningInput {
 
 export interface NativeAudio {
   canResume?(): Promise<boolean>
+  /** 지난번 마이크를 켜다가 앱이 꺼졌는지. 참이면 저절로 다시 켜지 않는다. */
+  startWasCut?(): Promise<boolean>
   startListening(input: StartListeningInput): Promise<void>
   stopListening(): Promise<void>
   onResult(cb: (result: AudioResult) => void): () => void
