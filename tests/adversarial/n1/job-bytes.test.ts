@@ -3,6 +3,8 @@
 // 바이트를 L-12 2의 문장만으로 직접 읽어(제품 코드·개발자 시험 도우미를 쓰지 않는다) 아래를 본다.
 // - YXQ: 순서·농도 바이트, CMF 28·FLG·사전 없음, 길이 칸 = 압축 바이트 수, node:zlib 창 10으로 풀면 (남는 비트를 지운) 줄
 // - L11: 00×15 · 10 FF F1 02 · 1D 76 30 00 + LE16 폭·높이 + 줄 그대로 · 1D 0C · 10 FF F1 45, 농도와 상관없이 같은 바이트
+// - Luck Jingle(바우아토, PRN2 D-PRN2-02로 바뀜 — 전에는 L11과 같다고 봤다): 10 FF F1 03 · 00×12 · 1F 11 51 · L11 모양 래스터 ·
+//   1D 0C · 1F 11 50 · 10 FF F1 45, 농도 명령 없음(농도와 상관없이 같은 바이트)
 // - 돌림: 보낸 점 (x, y) = 받은 점 (y, H−1−x) / 보내는 줄의 남는 비트는 늘 0 / 헤드보다 넓으면 언제나 IMAGE_TOO_WIDE
 // - 결정성(두 번 같은 바이트), 받은 그림은 바뀌지 않는다
 import { inflateSync } from 'node:zlib'
@@ -100,6 +102,17 @@ function readJob(profile: ModelProfile, bytes: Uint8Array, density: number): { w
       r.expect([0x1d, 0x0c, 0x10, 0xff, 0xf1, 0x45], '다음 라벨·끝')
       break
     }
+    case 'LUCKJINGLE': {
+      // PRN2 D-PRN2-02 · L-12 2: 켜기 · 깨우기 00×12 · 위치 맞춤 시작 · 래스터 · 다음 라벨로 · 위치 맞춤 끝 · 작업 끝
+      r.expect([0x10, 0xff, 0xf1, 0x03, ...new Array<number>(12).fill(0), 0x1f, 0x11, 0x51], '켜기 · 00×12 · 위치 맞춤 시작')
+      r.expect([0x1d, 0x76, 0x30, 0x00], 'GS v 0')
+      const h = r.take(4)
+      widthBytes = (h[0] as number) | ((h[1] as number) << 8)
+      height = (h[2] as number) | ((h[3] as number) << 8)
+      rows = r.take(widthBytes * height).slice()
+      r.expect([0x1d, 0x0c, 0x1f, 0x11, 0x50, 0x10, 0xff, 0xf1, 0x45], '다음 라벨 · 위치 맞춤 끝 · 작업 끝')
+      break
+    }
     default:
       throw new Error(`모르는 방식 ${profile.protocol}`)
   }
@@ -158,7 +171,8 @@ describe('AC-N1-70 작업 바이트 — 무작위 그림 × 모든 프로필 × 
           expect(result).toEqual({ ok: false, code: 'IMAGE_TOO_WIDE' })
           return
         }
-        const yxq = profile.protocol !== 'MARKLIFE_L11'
+        // 농도 명령은 YXQ만 (L11·Luck Jingle은 없다 — L-12 2, D-PRN2-02)
+        const yxq = profile.protocol.startsWith('MARKLIFE_YXQ')
         const d = density ?? 2
         if (yxq && !(Number.isInteger(d) && d >= 1 && d <= 3)) {
           expect(result).toEqual({ ok: false, code: 'INVALID_DENSITY' })
@@ -174,7 +188,7 @@ describe('AC-N1-70 작업 바이트 — 무작위 그림 × 모든 프로필 × 
         // 결정성: 두 번째도 바이트까지 같다
         const again = buildPrintJob(profile, image, options)
         expect(again.ok && hex(again.bytes)).toBe(hex(result.bytes))
-        // L11은 농도와 상관없이 같은 바이트
+        // L11·Luck Jingle은 농도와 상관없이 같은 바이트
         if (!yxq) {
           const other = buildPrintJob(profile, image, { density: 3 })
           expect(other.ok && hex(other.bytes)).toBe(hex(result.bytes))

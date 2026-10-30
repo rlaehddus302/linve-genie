@@ -2,9 +2,12 @@
 // - 비슷한 글자(전각 Ｐ, 키릴 Р, 폭 없는 공백, 앞 공백, undefined·null·숫자 이름)는 어느 프로필도 고르지 않는다
 // - 어댑터로 연결하면 그런 이름은 WRONG_MODEL이고 상태는 DISCONNECTED, 기기 연결은 끊긴다
 // - 사용자 에이전트: 대소문자가 다른 낱말은 IN_APP이 아니다, 아이폰 + 카카오톡이면 언제나 IOS, 실제 한국 사용자 에이전트 몇 개
+// PRN2 개정(D-PRN2-01, L-12 1 "목록 (PRN2 개정)"): 따로 된 실험 목록(EXPERIMENTAL_PROFILES)이 없어지고 Marklife 어댑터의 기본 목록이
+// Marklife 9종 + 바우아토(LABEL_PROFILES)가 되었다. 그래서 바뀐 기대는 두 곳뿐이다 — 기본 어댑터의 고르기 창 거르기에 PPA2가 들고,
+// 기본 어댑터가 PPA2L_ 이름을 바우아토로 고른다(전에는 WRONG_MODEL). "바우아토만 켠 어댑터"는 [BAUATO_PPA2L]로 그대로 지킨다.
 import {
   BAUATO_PPA2L,
-  EXPERIMENTAL_PROFILES,
+  LABEL_PROFILES,
   MARKLIFE_MESSAGES,
   MARKLIFE_PROFILES,
   createMarklifeAdapter,
@@ -18,7 +21,9 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { ManualBle, StepTimer } from './ble-mock.ts'
 
-const ALL = [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES]
+/** 바우아토만 켠 목록 (옛 EXPERIMENTAL_PROFILES와 같은 내용 — PRN2에서 이름이 없어졌다) */
+const BAUATO_ONLY: readonly ModelProfile[] = [BAUATO_PPA2L]
+const ALL = [...MARKLIFE_PROFILES, ...BAUATO_ONLY]
 const PREFIXES = ALL.map((p) => p.namePrefix as string)
 
 describe('AC-N1-72 이름으로 고르기 — 비슷한 글자', () => {
@@ -75,8 +80,8 @@ describe('AC-N1-31·55 어댑터로 연결 — 비슷한 이름은 WRONG_MODEL, 
     ['전각 Ｐ', 'Ｐ12_AB12', undefined],
     ['키릴 Р', 'Р12_AB12', undefined],
     ['폭 없는 공백', 'P12​_AB12', undefined],
-    ['기본 목록에 바우아토', 'PPA2L_1234', undefined],
-    ['바우아토만 켠 어댑터에 P12', 'P12_AB12', EXPERIMENTAL_PROFILES],
+    ['Marklife 9종만 켠 어댑터에 바우아토', 'PPA2L_1234', MARKLIFE_PROFILES],
+    ['바우아토만 켠 어댑터에 P12', 'P12_AB12', BAUATO_ONLY],
   ]
   it.each(cases)('%s', async (_what, name, profiles) => {
     const timer = new StepTimer()
@@ -90,13 +95,24 @@ describe('AC-N1-31·55 어댑터로 연결 — 비슷한 이름은 WRONG_MODEL, 
     // 거르기는 켠 프로필의 앞자리 하나씩 — acceptAllDevices 없음
     const req = ble.requests[0] as unknown as Record<string, unknown>
     expect(req).not.toHaveProperty('acceptAllDevices')
-    expect((req.filters as { namePrefix: string }[]).map((f) => f.namePrefix)).toEqual((profiles ?? MARKLIFE_PROFILES).map((p) => p.namePrefix))
+    // 기본 목록은 PRN2부터 LABEL_PROFILES(Marklife 9종 + 바우아토 — L-12 1 PRN2 개정)
+    expect((req.filters as { namePrefix: string }[]).map((f) => f.namePrefix)).toEqual((profiles ?? LABEL_PROFILES).map((p) => p.namePrefix))
   })
 
-  it('실험 목록을 넘긴 어댑터는 바우아토를 고르고 L11 바이트를 보낸다', async () => {
+  it('PRN2: 기본 목록 어댑터는 바우아토(PPA2L_)를 고르고 실험이다 (L-12 1 PRN2 개정 — 전에는 WRONG_MODEL)', async () => {
     const timer = new StepTimer()
     const ble = new ManualBle({ name: 'PPA2L_1234', timer, onFlowStart: [[0x01, 0x04]] })
-    const adapter = createMarklifeAdapter({ environment: () => ble.environment, timer, profiles: [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES] })
+    const adapter = createMarklifeAdapter({ environment: () => ble.environment, timer })
+    expect(await adapter.connect('bluetooth')).toEqual({ ok: true })
+    expect(adapter.profile.id).toBe(BAUATO_PPA2L.id)
+    expect(adapter.profile.experimental).toBe(true)
+    expect((ble.requests[0]?.filters ?? []).map((f) => f.namePrefix)).toContain('PPA2')
+  })
+
+  it('Marklife + 바우아토 목록을 넘긴 어댑터는 바우아토를 고른다', async () => {
+    const timer = new StepTimer()
+    const ble = new ManualBle({ name: 'PPA2L_1234', timer, onFlowStart: [[0x01, 0x04]] })
+    const adapter = createMarklifeAdapter({ environment: () => ble.environment, timer, profiles: ALL })
     expect(await adapter.connect('bluetooth')).toEqual({ ok: true })
     expect(adapter.profile.id).toBe(BAUATO_PPA2L.id)
     expect(adapter.profile.experimental).toBe(true)
@@ -136,7 +152,8 @@ describe('AC-N1-72 · D-N1-11 앞자리 뒤의 글은 보지 않는다 — 고�
   it.each([
     ['기본 목록', MARKLIFE_PROFILES],
     ['기본 + 실험 목록', ALL],
-    ['실험 목록만', EXPERIMENTAL_PROFILES],
+    ['바우아토만', BAUATO_ONLY],
+    ['기본(LABEL_PROFILES)', LABEL_PROFILES],
   ] as const)('%s: 창에 보이는 이름이면 반드시 고르고, 안 보이는 이름은 고르지 않는다 (속성)', async (_what, profiles) => {
     const filters = await filtersOf(profiles)
     expect(filters).toEqual(profiles.map((p) => p.namePrefix))
@@ -210,7 +227,7 @@ describe('AC-N1-72·34 까닭 — 글자 그대로', () => {
     expect(a.availableMethods()).toEqual([])
     const r = await a.connect('bluetooth')
     expect(r).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED', message: unsupportedMessage('IOS', 'Marklife 앱') } })
-    const b = createMarklifeAdapter({ environment: () => env, profiles: EXPERIMENTAL_PROFILES })
+    const b = createMarklifeAdapter({ environment: () => env, profiles: BAUATO_ONLY })
     expect(await b.connect('bluetooth')).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED', message: unsupportedMessage('IOS', 'Luck Jingle 앱') } })
     expect(a.state).toBe('DISCONNECTED')
   })
