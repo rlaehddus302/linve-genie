@@ -52,9 +52,9 @@ export async function becomeOutputDevice(page: Page, name: string, experimental:
   await expect(printer.getByText('이 기기가 출력 기기예요')).toBeVisible()
 }
 
-export async function queueOf(page: Page): Promise<{ device: { profileId: string | null } | null; labelSizes: string[]; pause: { reason: string } | null }> {
+export async function queueOf(page: Page): Promise<{ device: { profileId: string | null } | null; labelSizes: string[]; pause: { reason: string } | null; waiting: number }> {
   const res = await page.request.get('/api/print')
   expect(res.ok(), await res.text()).toBe(true)
-  return (await res.json() as { queue: { device: { profileId: string | null } | null; labelSizes: string[]; pause: { reason: string } | null } }).queue
+  return (await res.json() as { queue: { device: { profileId: string | null } | null; labelSizes: string[]; pause: { reason: string } | null; waiting: number } }).queue
 }
 
