@@ -33,7 +33,8 @@
     "@livejjim/mobile-audio": "workspace:*",
     "@livejjim/mobile-ble": "workspace:*",
     "@livejjim/voice-session": "workspace:*",
-    "react-native-ble-plx": "3.5.1"
+    "react-native-ble-plx": "3.5.1",
+    "@livejjim/mobile-notice": "workspace:*"
   },
   "devDependencies": {
     "@testing-library/dom": "10.4.2",

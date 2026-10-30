@@ -2,9 +2,11 @@ import { useSyncExternalStore } from 'react'
 import { Modal, PermissionsAndroid, Platform, ScrollView } from 'react-native'
 import { BleManager } from 'react-native-ble-plx'
 import { getAudioCapture } from '@livejjim/mobile-audio/native'
+import { getNoticeIntake } from '@livejjim/mobile-notice/native'
 import { BLE_RESTORE_IDENTIFIER, createNativeB1Adapter, createPlxTransport, type BleDeviceInfo, type DevicePicker, type BleTransport } from '@livejjim/mobile-ble'
 import { LiveNativeAudio } from './live-audio.ts'
 import { setNativeModules } from './index.ts'
+import { setNoticeModule } from './notice.ts'
 import { BigButton, Body, Card, Hint } from '../ui/parts.tsx'
 
 let devices: readonly BleDeviceInfo[] | null = null
@@ -37,6 +39,8 @@ export function installProductionNative(): void {
   adapter.connect = async (method) => await permission() ? connect(method) : refused
   adapter.reconnect = async (method) => await permission() ? reconnect(method) : refused
   setNativeModules({ audio: new LiveNativeAudio(getAudioCapture), ble: adapter })
+  // 휴대폰 알림 받기 (SMS3 AC-SMS3-29) — 모듈이 없는 빌드(Expo Go·웹)는 null: 설정 칸이 "쓸 수 없어요"
+  setNoticeModule(getNoticeIntake())
 }
 const subscribe = (cb: () => void): (() => void) => { listeners.add(cb); return () => listeners.delete(cb) }
 export function PrinterDevicePicker() {

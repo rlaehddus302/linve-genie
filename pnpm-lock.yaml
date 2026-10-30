@@ -253,6 +253,9 @@ importers:
       '@livejjim/mobile-ble':
         specifier: workspace:*
         version: link:../../packages/mobile-ble
+      '@livejjim/mobile-notice':
+        specifier: workspace:*
+        version: link:../../packages/mobile-notice
       '@livejjim/printer':
         specifier: workspace:*
         version: link:../../packages/printer
