@@ -56,6 +56,8 @@ APP1 BASE `f496035f994dca6aca3011f74669bb331f0f212c`와 APP1b/APP2 BASE `d14ed39
 
 최신 코드·시험 커밋 `7f6ac72b`의 전체 `pnpm verify`는 **7/7 통과(exit0)**: 단위9,084·골든964·적대2,925·E2E1,677, E2E 실패/skip/flaky/오류0, 코어 줄99.78%·분기97.85%. 별도 `pnpm perf`도 단위25·적대48·브라우저2 모두 통과(exit0), 화면 반영 p99 140ms. 이는 앱 시험이며 Cohere의 실방송 지연 p95가 아니다. 로그는 `work/verify-persistent-final.log`, `work/verify-persistent-final-e2e.json`, `work/perf-persistent-final.log`. 앞선 후보 충돌로 중단된 전체 실행 및 반복 실패는 시험 노트에 보존한다.
 
+별도 메모리 서버와 Cohere 일꾼에서 동일 합성 한국어 음성을 20회 반복해 말끝이 든 100ms 틀 전송→받아쓰기 결과를 측정했다. 중앙값628ms·p95 645ms·최대1,124ms(첫 회), 일꾼의 VAD 분리 후 처리 p95 238ms다. 같은 맥에 사용자용 일꾼도 상주했고 틀 단위 오차가 있다. 아이폰 마이크·브라우저·실제 방송 발화가 포함되지 않아 현장 p95/1.5초 목표의 통과로 보지 않는다. 앞선 느린 처리6,506ms 표본 역시 보존했다. 상세는 `test-notes-e2e.md`와 `work/cohere-latency-result.json`이다.
+
 ## 남은 사람 확인
 
 - 경성·금화 재생 자료가 이 컴퓨터와 기존 worktree에 없어 이번 전후 정확도·바로 등록 수·실방송 지연을 측정하지 못했다. 개발 노트의 예전 Cohere 측정은 인계 기록이다.
