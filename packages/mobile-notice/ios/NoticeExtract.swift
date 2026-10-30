@@ -34,27 +34,28 @@ public enum NoticeExtractor {
         return String(decoding: head, as: UTF16.self)
     }
 
-    /// 전화번호처럼 생긴 글 → 숫자만(앞 + 유지). 아니면 nil
-    public static func phoneDigits(_ value: String) -> String? {
-        let trimmed = trimJS(value)
+    /// 전화번호처럼 생긴 글인가 — 맞으면 앞뒤 빈칸만 뺀 글 그대로, 아니면 nil.
+    /// 괄호·점·빈칸·하이픈·앞 +를 지우지 않는다: 서버가 보낸 곳 원문으로 은행 대표번호인지 본다(DP-9 1, D-DEP2-10).
+    public static func phoneLike(_ value: String) -> String? {
+        let trimmed = clean(value)
         let allowed = Set("+ ()-.0123456789")
         if trimmed.isEmpty || !trimmed.allSatisfy({ allowed.contains($0) }) { return nil }
         if trimmed.dropFirst().contains("+") { return nil }
-        let digits = trimmed.filter { $0 >= "0" && $0 <= "9" }
-        if digits.count < 3 || digits.count > 20 { return nil }
-        return trimmed.hasPrefix("+") ? "+" + digits : digits
+        let digits = trimmed.filter { $0 >= "0" && $0 <= "9" }.count
+        if digits < 3 || digits > 20 { return nil }
+        return trimmed
     }
 
-    /// 보낸 곳: tel: 주소 → 번호, 번호 모양 이름 → 숫자, 아니면 이름 그대로. 없으면 nil
+    /// 보낸 곳(C-04 from): 글을 바꾸지 않는다(앞뒤 빈칸만 뺀다, 200자까지 — D-DEP2-10). tel: 주소가 번호면 %XX만 푼 그 글, 아니면 이름. 없으면 nil
     public static func senderOf(_ name: String?, _ uri: String?) -> String? {
         if let uri, uri.lowercased().hasPrefix("tel:") {
             let raw = String(uri.dropFirst(4))
             let decoded = raw.removingPercentEncoding ?? raw
-            if let digits = phoneDigits(decoded) { return digits }
+            if let number = phoneLike(decoded) { return cutUtf16(number, NoticeContract.fromMaxChars) }
         }
         let n = clean(name)
         if n.isEmpty { return nil }
-        return phoneDigits(n) ?? cutUtf16(n, NoticeContract.fromMaxChars)
+        return cutUtf16(n, NoticeContract.fromMaxChars)
     }
 
     /// 메시지 id: SHA-256(패키지 ␟ 보낸 곳 ␟ 받은 시각 ␟ 제목 ␟ 본문) 앞 16바이트 16진. nil 칸은 빈 글

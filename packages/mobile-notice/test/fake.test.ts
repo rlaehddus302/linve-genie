@@ -82,7 +82,7 @@ describe('AC-SMS3-26 무엇을 읽어 보내나', () => {
 
     const sent = t.sentMessages()
     expect(sent).toHaveLength(2)
-    expect(sent[0]).toMatchObject({ channel: 'SMS', from: '01012345678', title: null, text: '15 홍길동', receivedAt: T0 + 1_000 })
+    expect(sent[0]).toMatchObject({ channel: 'SMS', from: '010-1234-5678', title: null, text: '15 홍길동', receivedAt: T0 + 1_000 })
     expect(sent[1]).toMatchObject({ channel: 'APP', from: 'com.kakaobank.channel', title: '입금 35,000원', text: '홍길동 잔액 1,234,000원' })
     const state = await t.intake.getState()
     expect(state.filtered).toBe(1)
@@ -265,6 +265,55 @@ describe('AC-SMS3-27 다시 보내기', () => {
     expect(await t.intake.flush()).toEqual({ sent: 2, pending: 0, stoppedBy: null })
     expect((await t.intake.getState()).rejected).toBe(1)
   })
+
+  it('413도 한 건씩 다시 보내고, 받지 않은 건수가 상태 줄에 "서버가 받지 않음"으로 보인다 — 본문은 남기지 않는다', async () => {
+    const t = setup()
+    await t.ready()
+    t.setReply(() => null)
+    for (let i = 0; i < 4; i++) await t.fake.post(sms({}, `${i + 1} 홍길동`, T0 + i * 1_000))
+    t.setReply((r) => {
+      const body = JSON.parse(r.body) as InboxRequest
+      return body.messages.some((m) => m.text === '2 홍길동' || m.text === '4 홍길동') ? 413 : fakeServerReply(r.body)
+    })
+    expect(await t.intake.flush()).toEqual({ sent: 2, pending: 0, stoppedBy: null })
+    const state = await t.intake.getState()
+    expect(state.rejected).toBe(2)
+    const { noticeCountLine } = await import('../src/index.ts')
+    expect(noticeCountLine(state)).toContain('서버가 받지 않음 2건')
+    expect(JSON.stringify(state)).not.toContain('홍길동')
+  })
+
+  it('403이면 401처럼 멈추고 대기열은 버리지 않는다 — 새 토큰에서 같은 id로 다시', async () => {
+    const t = setup()
+    await t.ready()
+    t.setReply(() => 403)
+    await t.fake.post(sms())
+    await t.fake.post(sms({}, '16 김민지', T0 + 2_000))
+    const state = await t.intake.getState()
+    expect(state.tokenRejected).toBe(true)
+    expect(state.pending).toBe(2)
+    expect(state.rejected).toBe(0)
+    const ids = t.fake.queued.map((m) => m.id)
+    t.setReply(ok)
+    await t.intake.setToken({ token: 'new_token_0123456789abcdef', serverUrl: 'https://livejjim.example', deviceName: '내 갤럭시' })
+    expect((await t.intake.getState()).pending).toBe(0)
+    expect(t.sentMessages().slice(-2).map((m) => m.id)).toEqual(ids)
+  })
+
+  it('filters를 받기 전에는 재부팅·다시 연결해도 은행 앱 알림을 열지 않고, 받은 뒤에야 연다', async () => {
+    const t = setup({ reply: () => null })
+    await t.ready()
+    t.fake.reboot()
+    const bank = appNotice('com.kakaobank.channel', '입금 35,000원', '홍길동')
+    await t.fake.connect([bank])
+    expect(t.fake.queued).toHaveLength(0)
+    expect(t.fake.unopened).toBe(1)
+    t.setReply(ok)
+    await t.intake.flush()
+    expect((await t.intake.getState()).hasFilters).toBe(true)
+    expect(await t.fake.post(bank)).toBe(true)
+    expect(t.sentMessages().map((m) => m.channel)).toEqual(['APP'])
+  })
 })
 
 describe('아이폰 단축어 "라이브지니에 문자 보내기"', () => {
@@ -278,7 +327,7 @@ describe('아이폰 단축어 "라이브지니에 문자 보내기"', () => {
     expect(await t.fake.runShortcut({ sender: '010-1234-5678', body: '15 홍길동' })).toBe('duplicate')
     expect(await t.fake.runShortcut({ sender: '1588-0000', body: '[Web발신] 결제 승인' })).toBe('filtered')
     expect(await t.fake.runShortcut({ sender: '', body: '  ' })).toBe('empty')
-    expect(t.sentMessages()).toEqual([expect.objectContaining({ channel: 'SMS', from: '01012345678', title: null, text: '15 홍길동' })])
+    expect(t.sentMessages()).toEqual([expect.objectContaining({ channel: 'SMS', from: '010-1234-5678', title: null, text: '15 홍길동' })])
     expect(t.bodies().every((b) => b.device === '아이폰')).toBe(true)
   })
 })

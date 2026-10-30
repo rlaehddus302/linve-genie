@@ -39,7 +39,7 @@ export {
   cutUtf16,
   extractNotice,
   messageIdOf,
-  phoneDigits,
+  phoneLike,
   senderOf,
   shortcutCandidate,
   type ExtractResult,
