@@ -124,6 +124,8 @@ export const INSTAGRAM_RECONNECT = '인스타그램 연결을 다시 해 주세�
 export const INSTAGRAM_UNLINK_QUESTION = '끊으면 이 방송의 인스타그램 댓글을 더 받지 않아요. 이미 받은 찜은 그대로예요.'
 export const INSTAGRAM_DISCONNECT_QUESTION = '연결을 끊으면 인스타그램 댓글을 받지 않고 감사 DM도 보내지 않아요. 끊을까요?'
 export const INSTAGRAM_CONSENT_EXPLAIN = '동의한 뒤에 확정된 판매부터 DM을 보내고, 그 전 판매는 보내지 않아요.'
+/** 남의 인스타그램 라이브는 자동으로 받을 길이 없다 (D-06) — 댓글을 복사해 붙여 넣는다 */
+export const INSTAGRAM_PASTE_HINT = '남의 인스타그램 라이브는 댓글을 자동으로 받을 수 없어요. 댓글을 복사해 "댓글 붙여넣기"로 넣어 주세요.'
 export const INSTAGRAM_LIVES_EMPTY = '진행 중인 인스타그램 라이브가 없어요. 인스타그램에서 라이브를 시작한 뒤 다시 눌러 주세요.'
 
 /** 인스타그램에서 돌아온 결과 코드(`?instagram=`) → 문장 (서버 CALLBACK_MESSAGES와 같다) */
