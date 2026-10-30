@@ -62,3 +62,12 @@
   - 각 브랜치의 `harness/sprints/*/dev-notes.md`와 커밋 메시지로 어디까지 했는지 판단한다.
 - `.live-replay`는 모델 파일(whisper·safetensors·onnx·bin)을 빼고 복사했다. 받아쓰기는 맥 미니의 기존 일꾼(Cohere)을 쓴다.
 - 사용자는 휴대폰으로 볼 수 있다(Remote Control). 보고는 짧게.
+
+## 이어받을 때 이미 도는 것 (갱신)
+맥북 SSH 메인(mm-main)이 띄운 갈래가 아직 돌 수 있다. **같은 일을 또 띄우지 말고 원격 브랜치를 먼저 확인한다.**
+- 합치기: `int/next-merge`(단계마다 push) → 시험 통과 시 `int/next`
+- `dev/chat-links-insta`(CH-08·CH-18), `dev/chat-retention-tiktok`(CH-12·CH-20)
+- 남은 채팅: CH-26 시험 옮기기, CH-17 감사 빈도 상한(감사 서버 브랜치 push 뒤)
+- 끝남: `spec/printer-stages`(3ac9eead), `dev/mobile-notice`(f9e3d724) → PRN2 개발을 띄울 수 있다. `dev/mobile-design-base`(f617ccb3), `dev/printer-app`(5d13e4fc)
+- 진행 중: `spec/sms-deposit-intake` → `spec/retention-1`(SSH 세션)
+- 갈래가 1시간 넘게 push가 없으면 멈춘 것으로 보고 마지막 커밋에서 이어서 띄운다.
