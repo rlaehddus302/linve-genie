@@ -30,7 +30,10 @@ import { App } from "../src/App.tsx";
 import { onUnauthorized } from "../src/api/client.ts";
 import type { ClaimedJob, PrintOverview } from "../src/api/print-types.ts";
 import { PrintStore } from "../src/lib/print-store.ts";
-import { PrinterStation } from "../src/lib/printer-station.ts";
+import {
+  PrinterStation,
+  testLabelSize,
+} from "../src/lib/printer-station.ts";
 import { device, overview, queue, templates } from "./print-support.ts";
 import { DATE, FakeEventSource, FakeServer, flush } from "./support.ts";
 
@@ -627,6 +630,29 @@ describe("출력 기기: 이은 프린터가 못 찍는 크기 (AC-PRN2-08, L-11
     expect(testSizes).toEqual(["tape12x40"]);
     expect(station?.getSnapshot().testError).toBeNull();
     expect(station?.getSnapshot().testConfirmed).toBe(true);
+  });
+
+  it("B1에 저장된 라벨 크기가 50×20이면 테스트도 50×20, 목록 밖이면 프로필 기본 크기 (D-PRN2-27)", async () => {
+    const fake = createFakePrinter({ methods: ["bluetooth"] });
+    const { testSizes } = await startWith(fake, []);
+    await vi.waitFor(() => expect(station?.getSnapshot().busy).toBe(false));
+    // 테스트 뒤 받기 한 바퀴(EMPTY)가 끝난 뒤 다음 테스트를 누른다
+    for (const size of ["50x20", "50x40", "tape12x40"] as const) {
+      await station?.testPrint({ shopName: "", size });
+      await vi.waitFor(() => expect(station?.getSnapshot().busy).toBe(false));
+      await flush();
+    }
+    expect(testSizes).toEqual(["50x20", "50x40", "50x30"]);
+  });
+});
+
+describe("테스트 인쇄 크기 고르기 (D-PRN2-27)", () => {
+  it("목록에 있으면 저장된 크기, 없으면 프로필 기본 크기, 프로필을 모르면 저장된 크기", () => {
+    expect(testLabelSize("NIIMBOT_B1", "50x20")).toBe("50x20");
+    expect(testLabelSize("NIIMBOT_B1", "tape12x40")).toBe("50x30");
+    expect(testLabelSize("NIIMBOT_D110", "50x30")).toBe("tape12x40");
+    expect(testLabelSize(null, "50x40")).toBe("50x40");
+    expect(testLabelSize("UNKNOWN_MODEL", "50x40")).toBe("50x40");
   });
 });
 

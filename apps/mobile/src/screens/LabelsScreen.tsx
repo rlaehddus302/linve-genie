@@ -4,7 +4,8 @@
 // - 서버가 시험 모드일 때만 "시험용 프린터 — 실제로 출력되지 않아요"(L-11 15).
 // - 저절로 다시 잇는 동안·그친 뒤 한 줄(웹과 같은 문장, L-11 8). 인쇄 농도 칸은 연결한 프린터의 범위(B1 1~5 · YXQ 1~3), 농도가 없는 프린터면 숨긴다.
 // - 지원 단계 (PRN2 L-7, 웹과 같은 기준): 연결 뒤 프린터 이름, 실험 기종이면 이름 뒤 "(실험)"과 안내 한 줄. 실험 기종이 이어져 있으면
-//   "이 기기에서 출력"은 그 연결에서 테스트 인쇄를 하고 "예"를 누른 뒤에만 보인다. "제조사 앱으로 보내기"는 서버가 만든 그림 파일을 공유 창으로.
+//   "이 기기에서 출력"은 그 연결에서 테스트 인쇄를 하고 "예"를 누른 뒤에만 보인다. "제조사 앱으로 보내기"는 서버가 만든 그림 파일을 공유 창으로
+//   (테스트 라벨, 그리고 이 기기가 받은 작업이 있으면 "찍는 중인 라벨" 칸에서 그 작업 — 상태·결과는 그대로, D-PRN2-28).
 import { experimentalNotice, printerProfile, printerSupportStage } from '@livejjim/printer'
 import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
@@ -21,6 +22,9 @@ export const KEEP_SCREEN_ON = '출력하는 동안 이 화면을 켜 두세요.'
 export const TEST_QUESTION = '테스트 라벨의 네 변 테두리와 한글이 모두 또렷하게 보이나요?'
 export const replaceQuestion = (name: string): string => `지금은 다른 기기 '${name}'에서 출력하고 있어요. 이 기기로 바꿀까요?`
 export const BLUETOOTH_METHOD = '블루투스로 연결'
+export const JOB_CARD_TITLE = '찍는 중인 라벨'
+export const JOB_SHARE_LABEL = '찍는 중인 라벨을 제조사 앱으로 보내기'
+export const JOB_SHARE_HINT = '잘 안 찍히면 이 라벨 그림을 제조사 앱으로 보내 인쇄할 수 있어요. 보내도 출력한 것으로 치지 않아요.'
 
 /** 농도 단추 (범위 안의 정수) */
 const densityLevels = (range: { readonly min: number; readonly max: number }): number[] => Array.from({ length: Math.max(0, range.max - range.min + 1) }, (_, i) => range.min + i)
@@ -188,6 +192,15 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
           </>
         )}
       </Card>
+
+      {/* 이 기기가 받은 작업(지금 찍는 장)만: 그 라벨 그림을 제조사 앱으로 (D-PRN2-28). 보내도 출력한 것으로 치지 않는다(LBL-07 — 상태·결과 그대로) */}
+      {snapshot.mine && snapshot.job !== null ? (
+        <Card label={JOB_CARD_TITLE}>
+          <SectionTitle>{JOB_CARD_TITLE}</SectionTitle>
+          <Hint>{JOB_SHARE_HINT}</Hint>
+          <BigButton label="제조사 앱으로 보내기" ariaLabel={JOB_SHARE_LABEL} disabled={busy} onPress={() => void run(async () => void (await labels.shareJob()))} />
+        </Card>
+      ) : null}
       {message !== null ? (
         <Notice tone={message.tone} alert={message.tone === 'danger'}>
           {message.text}

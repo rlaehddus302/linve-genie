@@ -16,7 +16,7 @@
 //   연결 알림에 함께 보낸다(L-11 10 — 이름·기기 ID는 보내지 않는다). 받은 작업의 템플릿 크기가 그 프로필 목록에 없으면 찍지 않고 라벨 오류로 알린다(L-11 13).
 // - 실험 기종(L-7 지원 단계)은 그 연결에서 테스트 인쇄 뒤 "예"를 누른 것을 기억한다(testConfirmed — 끊김·다시 잇기면 지운다). 화면은 그 뒤에만 "이 기기에서 출력"을 보인다.
 //   이미 출력 기기여도 같다(D-PRN2-10·15): "예" 전에는 받지(claim) 않고 서버에는 연결 안 됨으로 알린다(작업은 대기에 남는다). "예" 뒤 연결됨+프로필 ID로 다시 알린다.
-// - 테스트 그림은 이은 프린터 프로필의 기본 크기로 받는다(D-PRN2-11 — 모르면 화면이 준 크기).
+// - 테스트 그림 크기: 저장된 라벨 크기가 이은 프린터 프로필의 크기 목록에 있으면 그 크기, 없으면 프로필 기본 크기(D-PRN2-27 — 프로필을 모르면 화면이 준 저장 크기).
 import type { LabelBitmap } from '@livejjim/label'
 import {
   PRINTER_MESSAGES,
@@ -120,6 +120,16 @@ export interface StationSnapshot {
 export function awaitingTest(snapshot: Pick<StationSnapshot, 'connection' | 'profileId' | 'testConfirmed'>): boolean {
   const linked = snapshot.connection === 'CONNECTED' || snapshot.connection === 'PRINTING'
   return linked && !snapshot.testConfirmed && printerSupportStage(snapshot.profileId) === 'EXPERIMENTAL'
+}
+
+/**
+ * 테스트 인쇄 크기 (D-PRN2-27, L-7 테스트 라벨): 저장된 라벨 크기가 이은 프린터 프로필의 크기 목록에 있으면 그 크기(실제 작업이 찍힐 크기로 확인),
+ * 없으면 프로필 기본 크기(목록 밖 크기는 어차피 출력 때 라벨 오류다). 프로필을 모르면 저장된 크기 그대로
+ */
+export function testLabelSize<S extends string>(profileId: string | null, saved: S): S {
+  const profile = profileId === null ? undefined : printerProfile(profileId)
+  if (profile === undefined) return saved
+  return profileSupportsSize(profile.id, saved) ? saved : (profile.defaultSize as S)
 }
 
 /** 저절로 다시 잇기의 화면 상태 (QL2 D-QL2-04) */
@@ -1166,9 +1176,7 @@ export class PrinterStation {
     this.#set({ testing: true, testPrinted: false, testConfirmed: false, testError: null })
     // 테스트를 다시 하면 앞 "예"는 지난 일 — 실험 기종이면 연결 안 됨으로 알린다 (D-PRN2-10)
     this.#syncGate()
-    // 이은 프린터 프로필의 기본 크기로 (D-PRN2-11, L-7 — 테이프·D110도 그 크기의 테스트 그림. 모르면 화면이 준 크기)
-    const profile = printerProfile(connectedProfileId(adapter) ?? '')
-    const size = profile?.defaultSize ?? input.size
+    const size = testLabelSize(connectedProfileId(adapter), input.size)
     try {
       const rendered = await this.#options.renderTest({ shopName: input.shopName, date: this.#options.today(), size })
       if (!rendered.ok) {

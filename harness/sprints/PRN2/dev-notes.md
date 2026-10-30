@@ -140,3 +140,11 @@ if (!profileSupportsSize(profileId, template.size)) stop('LABEL_ERROR', sizeNotS
 - ff03: "특성 없음"(NotFoundError)만 없음으로 보고, 그 밖의 오류는 그 꾸러미 실패 → 다음 꾸러미(다 실패면 WRONG_MODEL). 앱 `mobile-ble/src/marklife.ts`는 웹 어댑터를 그대로 쓰므로 같이 적용된다.
 - 바우아토 `OK`는 마지막 조각을 쓰기 시작한 뒤 받은 것만 센다(그 전 `OK`는 버림, Marklife `AA`는 그대로). 마지막 조각 쓰기 중에 온 `OK`는 센다(기존 시험과 같은 성질).
 - 가짜 기기에 `failingCharacteristics` 옵션 추가. 단위 시험은 `packages/printer/test/prn2.test.ts`.
+
+## dev-web 3차 (2026-10-31, D-PRN2-27·28·29·31·33·34)
+- 테스트 인쇄 크기(D-27): 웹 `testLabelSize(profileId, 저장 크기)`(`printer-station.ts`), 앱 같은 이름 함수(`label-queue.ts`). 저장된 상품 라벨 크기가 이은 프로필 목록에 있으면 그 크기, 없으면 프로필 기본, 프로필 모름 → 저장 크기. 앱은 테스트·그림 파일 때 `GET /api/print/templates`로 저장 크기를 읽는다(못 읽으면 모름 → 프로필 기본, 그것도 모르면 50x30). 예: B1 + 저장 50x20 → `test-bitmap?size=50x20`, B1 + 저장 tape12x40 → `?size=50x30`, D110 + 저장 50x30 → `?size=tape12x40`.
+- 앱 작업 그림 보내기(D-28): 이 기기가 출력 기기이고 지금 받은 작업(찍는 중)이 있을 때만 라벨 화면에 group "찍는 중인 라벨" 칸 + 버튼 이름(aria-label) `찍는 중인 라벨을 제조사 앱으로 보내기`(보이는 글 "제조사 앱으로 보내기", 18px·높이 52 이상) + 안내 `잘 안 찍히면 이 라벨 그림을 제조사 앱으로 보내 인쇄할 수 있어요. 보내도 출력한 것으로 치지 않아요.`. 누르면 `GET /api/print/jobs/:id/png?attempt=&device=` → 공유 창. 상태·`/print/result` 그대로. 받은 작업이 없으면 버튼 이름 `제조사 앱으로 보내기`(테스트 라벨)만 보인다. 서버 PNG는 결과 보고 전 시도에만 열리므로 앱은 결과를 알린 뒤 칸을 감춘다.
+- 앱 테스트 중 받지 않음(D-29): `testing` 상태 추가. 받는 중(busy)·찍는 중·테스트 중이면 `printTest`를 하지 않고, 끝나면 받기를 다시 본다.
+- 앱 농도(D-31): 범위 밖이면 보내지 않음(웹과 같음). 프로필이 바뀌어도 고른 농도를 프로필 기본으로 바꾸지 않는다.
+- 앱 크기 없는 템플릿(D-34): `INVALID_TEMPLATE`(size) + 문장 `쓸 수 없는 라벨 크기예요. 라벨 크기 목록에서 다시 골라 주세요.`. 옛 단위 시험 픽스처(`template: {}`)는 실제 서버 모양 `{ size: '50x30' }`으로 맞췄다(기대값 그대로).
+- 고르기 줄(D-33): 앱 시험을 손 픽스처 대신 실제 `pickEntries` 결과로 바꿨다(detail `Marklife P50 · 신호 강함`, 버튼 이름 `P50_1234 — Marklife P50 · 신호 강함`, "실험" 한 번).

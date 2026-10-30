@@ -6,16 +6,20 @@
 // - 연결 방법 단추("블루투스로 연결"·시험용 프린터)는 늘 고르기 창, "다시 연결"은 기억한 프린터로(고르기 창 없이 — 기억이 없으면 고르기 창, L-7).
 // - 저절로 다시 잇기(L-11 8)는 이 기기가 출력 기기이고 라벨 기능이 켜져 있을 때만 허락한다(프린터 모듈이 1·2·4·8·16·30초 6번 잇는다).
 // - 시험용 프린터는 서버가 시험 모드(GET /api/client-config testPrinter)일 때만 고를 수 있다(L-11 15).
-// - 농도는 연결한 프린터의 범위 안에서만(B1 1~5 · Marklife YXQ 1~3). 농도를 받지 않는 프린터(L11)면 보내지 않는다.
+// - 농도는 연결한 프린터의 범위 안에서만(B1 1~5 · Marklife YXQ 1~3). 농도를 받지 않는 프린터(L11)면 보내지 않고, 고른 농도가 범위 밖이면
+//   보내지 않아 프린터 기본값으로 찍는다(D-PRN2-31 — 웹과 같다. 프로필이 바뀌어도 고른 농도를 바꾸지 않는다).
 // - 이은 프린터의 프로필 ID를 연결 알림·"이 기기에서 출력"에 함께 보낸다(PRN2 L-11 10 — 이름·기기 ID는 보내지 않는다). 받은 작업의 템플릿 크기가
-//   그 프로필 목록에 없으면 찍지 않고 라벨 오류(INVALID_TEMPLATE, size)로 알린다 — 서버는 라벨 오류로 멈춘다(L-11 13).
+//   그 프로필 목록에 없거나 템플릿에 크기가 없으면 찍지 않고 라벨 오류(INVALID_TEMPLATE, size)로 알린다 — 서버는 라벨 오류로 멈춘다(L-11 13, D-PRN2-34).
 // - 실험 기종(L-7 지원 단계)은 그 연결에서 테스트 인쇄 뒤 "예"를 누른 것을 기억한다(testConfirmed — 끊김·다시 잇기면 지운다). 화면은 그 뒤에만 "이 기기에서 출력"을 보인다.
 //   이미 출력 기기여도 같다(D-PRN2-10·15, 웹과 같은 기준): "예" 전에는 받지 않고 서버에는 연결 안 됨으로 알린다. "예" 뒤 연결됨+프로필 ID로 다시 알린다.
-// - 테스트 그림·그림 파일은 이은 프린터 프로필의 기본 크기로 받는다(D-PRN2-11 — 모르면 50×30).
-// - 제조사 앱으로 보내기(기본 대체, L-7·L-11 17)는 서버가 만든 PNG(`/api/print/test-png`)를 그대로 공유 창에 넘긴다 — 앱이 다시 그리거나 PNG를 만들지 않는다.
+// - 테스트 그림·그림 파일 크기: 저장된 라벨 크기가 이은 프린터 프로필의 크기 목록에 있으면 그 크기, 없으면 프로필 기본 크기(D-PRN2-27 —
+//   프로필을 모르면 저장된 크기, 그것도 모르면 50×30). 테스트 인쇄 중에는 작업을 받지 않는다(D-PRN2-29 — 웹 testing과 같다).
+// - 제조사 앱으로 보내기(기본 대체, L-7·L-11 17)는 서버가 만든 PNG를 그대로 공유 창에 넘긴다 — 앱이 다시 그리거나 PNG를 만들지 않는다.
+//   테스트 라벨은 `/api/print/test-png`, 이 기기가 받은 작업은 `/api/print/jobs/:id/png`(D-PRN2-28). 작업 그림을 보내도 작업 상태를 바꾸지 않고
+//   결과(/print/result)를 보내지 않는다(LBL-07 — 파일로 내보낸 것은 출력함으로 치지 않는다).
 import { connectedProfileId, printerProfile, printerSupportStage, profileSupportsSize, sizeNotSupportedMessage, type DensityRange } from '@livejjim/printer'
-import type { ClaimedJob, ClientConfig, PrintNotice, PrintOverview, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
-import { fetchTestBitmap, fetchJobBitmap, bitmapFailure, fetchTestPng } from '../api/labels.ts'
+import type { ClaimedJob, ClientConfig, PrintNotice, PrintOverview, QueueSummary, Templates } from '@livejjim/web/src/api/print-types.ts'
+import { fetchTestBitmap, fetchJobBitmap, bitmapFailure, fetchJobPng, fetchTestPng } from '../api/labels.ts'
 import { get, isApiError, post, withRetry, type ApiError } from '../api/client.ts'
 import type { EventSourceLike, SseMessage } from '../api/sse.ts'
 import type { AutoReconnectState, ConnectionState, NativeBlePrinter, PrinterError, PrinterTarget } from '../native/ble.ts'
@@ -53,6 +57,18 @@ export interface LabelQueueSnapshot {
   readonly testPrinted: boolean
   /** 이 연결에서 테스트 인쇄 뒤 "예"를 눌렀다 (실험 기종의 "이 기기에서 출력" 조건 — L-7 지원 단계) */
   readonly testConfirmed: boolean
+  /** 테스트 인쇄 중 (이 동안 작업을 받지 않는다 — D-PRN2-29) */
+  readonly testing: boolean
+}
+
+/**
+ * 테스트 인쇄 크기 (D-PRN2-27, 웹 testLabelSize와 같다): 저장된 라벨 크기가 이은 프린터 프로필의 크기 목록에 있으면 그 크기,
+ * 없으면 프로필 기본 크기. 프로필을 모르면 저장된 크기, 그것도 모르면 50×30
+ */
+export function testLabelSize(profileId: string | null, saved: string | null): string {
+  const profile = profileId === null ? undefined : printerProfile(profileId)
+  if (profile === undefined) return saved ?? '50x30'
+  return saved !== null && profileSupportsSize(profile.id, saved) ? saved : profile.defaultSize
 }
 
 /**
@@ -74,6 +90,8 @@ export interface LabelQueueOptions {
 }
 
 const RETRY_MS = 2000
+/** 템플릿에 크기가 없을 때 (L-7 INVALID_TEMPLATE size 문장) */
+const INVALID_SIZE_MESSAGE = '쓸 수 없는 라벨 크기예요. 라벨 크기 목록에서 다시 골라 주세요.'
 const LABELS_OFF = 'LABELS_OFF'
 
 export class LabelQueue {
@@ -115,6 +133,7 @@ export class LabelQueue {
       profileId: connectedProfileId(ble),
       testPrinted: false,
       testConfirmed: false,
+      testing: false,
     }
   }
 
@@ -146,8 +165,6 @@ export class LabelQueue {
   #syncPrinter(): void {
     const ble = this.#options.ble
     const range = ble.profile.density
-    const before = this.#snapshot.densityRange
-    const sameRange = range === null ? before === null : before !== null && before.min === range.min && before.max === range.max && before.default === range.default
     const linked = ble.state === 'CONNECTED' || ble.state === 'PRINTING'
     const profileId = connectedProfileId(ble)
     this.#set({
@@ -159,7 +176,6 @@ export class LabelQueue {
       profileId,
       // 끊겼거나 다른 프린터가 이어졌으면 테스트 확인은 지난 일이다 (실험 기종은 그 연결에서 다시 확인 — L-7)
       ...(linked && profileId === this.#snapshot.profileId ? {} : { testPrinted: false, testConfirmed: false }),
-      ...(sameRange || range === null ? {} : { density: range.default }),
     })
   }
 
@@ -176,9 +192,16 @@ export class LabelQueue {
     void this.#report(true).then(() => this.pump())
   }
 
-  /** 테스트 그림 크기: 이은 프린터 프로필의 기본 크기 (모르면 50×30 — D-PRN2-11) */
-  #testSize(): string {
-    return printerProfile(connectedProfileId(this.#options.ble) ?? '')?.defaultSize ?? '50x30'
+  /** 테스트 그림 크기 (D-PRN2-27): 저장된 상품 라벨 크기를 서버에서 읽고(못 읽으면 모름) 이은 프린터 프로필로 고른다 */
+  async #testSize(): Promise<string> {
+    let saved: string | null
+    try {
+      const size: unknown = (await get<Templates>('/api/print/templates')).product.template.size
+      saved = typeof size === 'string' ? size : null
+    } catch {
+      saved = null
+    }
+    return testLabelSize(connectedProfileId(this.#options.ble), saved)
   }
 
   /** 시험 모드 신호 (읽지 못하면 시험 모드가 아니다 — 웹 print-store와 같다) */
@@ -191,9 +214,11 @@ export class LabelQueue {
     }
   }
 
-  /** 출력에 넘길 농도 (농도를 받지 않는 프린터면 넘기지 않는다) */
+  /** 출력에 넘길 농도: 농도를 받지 않는 프린터거나 고른 농도가 그 프린터 범위 밖이면 넘기지 않는다 (프린터 기본값 — D-PRN2-31, 웹과 같다) */
   #printOptions(): { density?: number } {
-    return this.#snapshot.densityRange === null ? {} : { density: this.#snapshot.density }
+    const range = this.#options.ble.profile.density
+    const density = this.#snapshot.density
+    return range === null || density < range.min || density > range.max ? {} : { density }
   }
 
   start(): void {
@@ -313,7 +338,24 @@ export class LabelQueue {
     const share = this.#options.share
     if (share === undefined) return false
     try {
-      await share(await fetchTestPng(this.#testSize()), 'livejjim-test-label.png')
+      await share(await fetchTestPng(await this.#testSize()), 'livejjim-test-label.png')
+      return true
+    } catch {
+      this.#set({ printerError: { code: 'PRINT_FAILED', message: '라벨 그림을 보내지 못했어요. 잠시 뒤 다시 눌러 주세요.', action: '다시 시도' } })
+      return false
+    }
+  }
+
+  /**
+   * 이 기기가 받은 작업(지금 찍는 장)의 라벨 그림 파일을 공유 창으로 제조사 앱에 보낸다 (D-PRN2-28, L-11 17).
+   * 작업 상태를 바꾸지 않고 결과를 알리지 않는다 — 출력함으로 치지 않는다(LBL-07). 받은 작업이 없으면 하지 않는다
+   */
+  async shareJob(): Promise<boolean> {
+    const share = this.#options.share
+    const job = this.#snapshot.job
+    if (share === undefined || job === null) return false
+    try {
+      await share(await fetchJobPng(job, this.#options.deviceId), 'livejjim-label.png')
       return true
     } catch {
       this.#set({ printerError: { code: 'PRINT_FAILED', message: '라벨 그림을 보내지 못했어요. 잠시 뒤 다시 눌러 주세요.', action: '다시 시도' } })
@@ -323,12 +365,13 @@ export class LabelQueue {
 
   /** 테스트도 서버에서 받은 같은 비트맵만 출력한다. */
   async printTest(): Promise<boolean> {
-    if (this.#snapshot.job !== null) return false
-    this.#set({ testPrinted: false, testConfirmed: false })
+    // 작업을 받는 중·찍는 중이거나 이미 테스트 중이면 하지 않는다 — 두 출력이 겹치면 프린터가 바빠 작업이 멈춘다 (D-PRN2-29)
+    if (this.#snapshot.job !== null || this.#snapshot.busy || this.#snapshot.testing) return false
+    this.#set({ testing: true, testPrinted: false, testConfirmed: false })
     // 테스트를 다시 하면 앞 "예"는 지난 일 — 실험 기종이면 연결 안 됨으로 알린다 (D-PRN2-10)
     this.#syncGate()
     try {
-      const bitmap = await fetchTestBitmap(this.#testSize())
+      const bitmap = await fetchTestBitmap(await this.#testSize())
       const result = await this.#options.ble.print(bitmap, this.#printOptions())
       if (!result.ok) this.#set({ printerError: result.error })
       else this.#set({ testPrinted: true })
@@ -336,6 +379,9 @@ export class LabelQueue {
     } catch {
       this.#set({ printerError: { code: 'PRINT_FAILED', message: '테스트 라벨을 받지 못했어요. 연결을 확인하고 다시 눌러 주세요.', action: '다시 시도' } })
       return false
+    } finally {
+      this.#set({ testing: false })
+      void this.pump()
     }
   }
 
@@ -399,7 +445,7 @@ export class LabelQueue {
 
   #canClaim(): boolean {
     const queue = this.#snapshot.queue
-    return !this.#stopped && queue !== null && queue.labelsEnabled && this.#snapshot.mine && queue.pause === null && queue.device?.releasing !== true && this.#options.ble.state === 'CONNECTED' && this.#snapshot.job === null && !awaitingTest(this.#snapshot)
+    return !this.#stopped && queue !== null && queue.labelsEnabled && this.#snapshot.mine && queue.pause === null && queue.device?.releasing !== true && this.#options.ble.state === 'CONNECTED' && this.#snapshot.job === null && !this.#snapshot.testing && !awaitingTest(this.#snapshot)
   }
 
   #retryLater(): void {
@@ -446,12 +492,12 @@ export class LabelQueue {
     this.#set({ job, busy: true })
     let ok = false
     let error: { code: string; item?: string } | null = null
-    // 이은 프린터가 이 크기를 찍지 못한다: 그림을 받지도 보내지도 않고 라벨 오류로 알린다 (L-11 13, D-PRN2-07)
+    // 템플릿에 크기가 없거나 이은 프린터가 이 크기를 찍지 못한다: 그림을 받지도 보내지도 않고 라벨 오류로 알린다 (L-11 13, D-PRN2-07·34 — 웹과 같다)
     const profileId = connectedProfileId(this.#options.ble)
     const size = (job.template as { readonly size?: unknown } | null)?.size
-    if (profileId !== null && typeof size === 'string' && !profileSupportsSize(profileId, size)) {
+    if (typeof size !== 'string' || (profileId !== null && !profileSupportsSize(profileId, size))) {
       error = { code: 'INVALID_TEMPLATE', item: 'size' }
-      this.#set({ printerError: { code: 'PRINT_FAILED', message: sizeNotSupportedMessage(size) } })
+      this.#set({ printerError: { code: 'PRINT_FAILED', message: typeof size === 'string' ? sizeNotSupportedMessage(size) : INVALID_SIZE_MESSAGE } })
     } else {
       try {
         const bitmap = await fetchJobBitmap(job, this.#options.deviceId)
