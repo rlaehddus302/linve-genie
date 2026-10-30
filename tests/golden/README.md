@@ -30,6 +30,9 @@
 | `waybill/*.json` | 운송장 — 송장번호 Code 128 부호값·받는 분 연락처 가리기·송장번호 글 (PARCEL_RULES PC-7, T1, D-T1-10). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/documents` 단위 시험이 읽는다 — 아래 "운송장 골든" |
 | `assist/*.json` | 확인 필요 항목의 제안 — 규칙 제안(비슷한 선택지로 바꿔 다시 읽기·같은 이름 상품 가르기)·AI 응답 검사·AI로 보내는 글 가리기·AI 호출 고르기 (SPEC CMT-06, DOMAIN_RULES R-20 10, A1 — D-A1-02~D-A1-06). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "AI 제안 골든" |
 | `regulars/*.json` | 손님 기록 요약 — 표지로 모은 기록 묶음 → 구매 날 수·누적 구매 금액·마지막 구매일·미입금 날 수·마지막 미입금·취소 수·단골·입금 늦음 주의 (SPEC BUY-06, CRM1 — D-CRM1-03~D-CRM1-05). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "손님 기록 골든" |
+| `customers/*.json` | 손님 장부 — 지우는 날·연결 코드 읽기·콘솔 손님 표시·다음 주문에 장부 연락처 보이기 (CUSTOMER_RULES CR-3·CR-5·CR-7·CR-4, KP1 — D-KP1-02·D-KP1-05·D-KP1-06·D-KP1-08). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "손님 장부 골든" |
+| `message/*.json` | 문자 규칙 — 바이트·글 만들기(머리/꼬리·SMS/LMS·비용)·보낼 수 있는 시각·수신 동의 상태 (MESSAGE_RULES MR-2~MR-6, KP1 — D-KP1-16~D-KP1-19). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "메시지 골든" |
+| `report/*.json` | 방송 리포트 — 돈·손님 숫자·10분 칸·품종 묶기·몰린 상품·지난 방송과 비교 (SPEC RPT-01~RPT-06·RPT-08, KP1 — D-KP1-09~D-KP1-13). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "리포트 골든" |
 
 ## 러너가 읽는 범위 (D-020, D-021)
 
@@ -477,3 +480,56 @@ expect:
 - **사례 키**: `id`(`G-CRM-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `today`(`YYYY-MM-DD` — 서버가 부를 때는 서버 시각의 KST 날짜), `settings` `{ regularCount, regularAmount, waitDays }`(`regularAmount`는 정수 원 또는 `null` = 금액 기준 안 씀), `bundles`(0개 이상 `{ date, buyer, items, subtotal, payment, cancels, noPay }` — `payment` ∈ `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID`, 나머지 수는 0 이상 정수), `out`.
 - **`out`** = `{ "purchaseDays", "purchaseTotal", "lastPurchase", "unpaidDays", "lastUnpaid", "cancels", "regular", "caution" }` — 날짜는 `YYYY-MM-DD` 또는 `null`, 금액은 정수 원. 정확히 같음.
 - 결과는 실행 환경의 시간대와 상관없어야 한다(날짜 더하기는 달력 날짜 — 서버 시험도 `TZ`를 바꿔 돌린다). 묶음 순서가 바뀌어도 결과가 같아야 한다.
+
+## 손님 장부 골든 (`customers/*.json`, KP1 — D-KP1-02·D-KP1-05·D-KP1-06·D-KP1-08)
+
+손님 장부(BUY-08)와 콘솔 손님 표시의 서버 순수 함수 넷을 고정한다. 규칙 문장은 `docs/spec/CUSTOMER_RULES.md`다. 파일 4·사례 44 = retention 11 · code 14 · badge 10 · prefill 9.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다. **각 파일의 `about`이 입력·규칙·`out`의 형식 계약이다** — 아래 표는 요약이고 둘이 다르면 `about`과 규칙서를 따른다(규칙서가 먼저).
+- **사례 키**: `id`(`G-CUS-KP1-` + 세 자리, 이 폴더 전체에서 유일 — 파일마다 백 단위 번호 묶음: retention 0xx · code 1xx · badge 2xx · prefill 3xx), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `in`, `out`.
+- 시각은 오프셋을 적은 ISO 8601이고 날짜는 `YYYY-MM-DD`(KST 달력 날짜)다. 결과는 실행 환경의 시간대와 상관없어야 한다(서버 시험도 `TZ`를 바꿔 돌린다). 금액은 정수 원.
+
+| `kind` | `in` | `out` | 규칙 |
+|---|---|---|---|
+| `retention` | `{ lastOrder, consentOrder, consentMonths, settingMonths }` — 날짜 또는 `null`(`lastOrder`만), 개월 ∈ 6·12·24·36 | `{ deleteOn }` 날짜 | CR-3 |
+| `code` | `{ text, codes }` — 채팅 본문, 살아 있는 코드 목록 | `{ code }` 코드 글 그대로 또는 `null` | CR-5 |
+| `badge` | `{ show, rehearsal, known, earlier, regular, caution, purchaseTotal }` — 불리언 여섯 + 정수 | `{ text }` 글 또는 `null` | CR-7 |
+| `prefill` | `{ items, shipping, saved, lines }` — `shipping` ∈ `NONE`·`FIXED`·`PICKUP`·`COMBINED`, `saved` ∈ `NONE`·`UNCONFIRMED`·`CONFIRMED` | `{ ledger }` 불리언 | CR-4, PARCEL_RULES PC-3 |
+
+- 장부 줄 합치기·동의 기록·지우기 실행·연결 코드 확인 흐름·손님 엑셀(CR-2·CR-3·CR-5·CR-6)은 이 골든이 아니라 서버 시험·문서 패키지 시험·적대 시험·E2E가 본다(KP1 acceptance).
+
+## 메시지 골든 (`message/*.json`, KP1 — D-KP1-16~D-KP1-19)
+
+문자 규칙(MSG-01)의 서버 순수 함수 넷을 고정한다. 규칙 문장은 `docs/spec/MESSAGE_RULES.md`다. KP1은 문자를 보내지 않는다 — 발송 스프린트가 이 함수를 그대로 쓴다(MR-0 1). 파일 4·사례 57 = bytes 6 · compose 28 · window 11 · consent 12.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }` — `compose.json`만 머리 키 `price`(`{ "SMS", "LMS" }` 한 건 값, 정수 원)가 더 있다. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다. **각 파일의 `about`이 입력·규칙·`out`의 형식 계약이다** — 아래 표는 요약이고 둘이 다르면 `about`과 규칙서를 따른다(규칙서가 먼저).
+- **사례 키**: `id`(`G-MSG-KP1-` + 세 자리, 이 폴더 전체에서 유일 — 파일마다 백 단위 번호 묶음: bytes 0xx · compose 1xx · window 2xx · consent 3xx), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `in`, `out`.
+- 시각은 오프셋을 적은 ISO 8601이고 날짜는 `YYYY-MM-DD`(KST 달력 날짜)다. 결과는 실행 환경의 시간대와 상관없어야 한다(서버 시험도 `TZ`를 바꿔 돌린다). 금액은 정수 원.
+
+| `kind` | `in` | `out` | 규칙 |
+|---|---|---|---|
+| `bytes` | 글(문자열) | 0 이상 정수 | MR-4 |
+| `compose` | `{ kind, shop, body, optOut, recipients }` — `kind` ∈ MR-1 종류 코드 일곱 | `{ text, bytes, type, cost }`(`type` ∈ `SMS`·`LMS`) 또는 `{ error }`(`EMPTY`·`NO_OPT_OUT`·`OPT_OUT_INVALID`·`TOO_LONG`) | MR-1·MR-3·MR-4·MR-5 |
+| `window` | `{ kind, at }` | `{ sendable: true }` 또는 `{ sendable: false, next }`(`YYYY-MM-DDTHH:MM:SS+09:00`) | MR-2 |
+| `consent` | `{ now, records: [{ type, at }] }` — `type` ∈ `AGREE`·`VERIFY`·`WITHDRAW`·`NOTICE`, 시각 순서 | `{ status, due }` — `status` ∈ `NONE`·`PENDING`·`ACTIVE`·`WITHDRAWN`·`EXPIRED`, `due` 날짜 또는 `null` | MR-6 |
+
+## 리포트 골든 (`report/*.json`, KP1 — D-KP1-09~D-KP1-13)
+
+방송 리포트(RPT)의 서버 순수 함수 다섯을 고정한다. 규칙 문장은 SPEC RPT-01~RPT-08이다(엔진 값을 모아 보이기만 한다 — 엔진 골든 밖). 파일 5·사례 36 = summary 7 · buckets 7 · varieties 9 · rush 7 · compare 6.
+
+- **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다. **각 파일의 `about`이 입력·규칙·`out`의 형식 계약이다** — 아래 표는 요약이고 둘이 다르면 `about`과 규칙서를 따른다(규칙서가 먼저).
+- **사례 키**: `id`(`G-RPT-KP1-` + 세 자리, 이 폴더 전체에서 유일 — 파일마다 백 단위 번호 묶음: summary 0xx · buckets 1xx · varieties 2xx · rush 3xx · compare 4xx), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `in`, `out`.
+- 시각은 오프셋을 적은 ISO 8601이고 날짜는 `YYYY-MM-DD`(KST 달력 날짜)다. 결과는 실행 환경의 시간대와 상관없어야 한다(서버 시험도 `TZ`를 바꿔 돌린다). 금액은 정수 원.
+
+| `kind` | `in` | `out` | SPEC |
+|---|---|---|---|
+| `summary` | `{ bundles: [{ buyer, keys, items, subtotal, final, received }], earlier }` | `{ sales, qty, received, unpaid, refund, buyers, unpaidBuyers, newBuyers, returningBuyers, unknownBuyers }` | RPT-02·RPT-03 |
+| `buckets` | `{ claims: [{ time, qty, amount }] }` | `[{ start, qty, amount }]` — `start` = `YYYY-MM-DD HH:MM`(KST 10분 칸 시작), 시각 순 | RPT-04 |
+| `varieties` | `{ sales: [{ name, qty, amount }] }` | `[{ name, qty, amount }]` — 금액 큰 순 → 수량 큰 순 → 이름 코드 포인트 순 | RPT-05 |
+| `rush` | `{ products: [{ b, no, name, stock, opened, claims: [{ time, buyer }] }] }` | `[{ b, no, name, buyers, waiting }]` — 몰린 손님 큰 순, 같으면 입력 순 | RPT-06 |
+| `compare` | `{ current: { sales, qty, buyers }, past: [{ date, sales, qty, buyers }] }`(늦은 날짜부터) | `{ last, recent }` — 각각 `null` 또는 값 + `diff`(`recent`엔 `count`) | RPT-08 |
+
+- 어느 묶음·찜·상품을 함수에 넘기는지(실제 날짜만, 리허설 없음, 봉인한 날짜는 봉인 장부)는 서버 일이라 서버 시험·E2E가 본다(RPT-01).
