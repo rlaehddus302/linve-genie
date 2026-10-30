@@ -122,7 +122,7 @@ describe('골든 list — 앱 기본 계열 표로 (계열 판정·찾기 거르
     // 찾기 거르기(서비스 또는 이름 앞자리 — 글자 그대로)에 걸리는지 = 목록에 드는지
     const scanned = services.some((s) => filter.serviceUuids.includes(s.toLowerCase())) || (typeof name === 'string' && filter.namePrefixes.some((p) => name.startsWith(p)))
     expect(scanned, '찾기 거르기').toBe(want !== null)
-    // 고르기 목록 줄: 목록에 들면 한 줄, 실험 L-12 기종이면 "실험", NIIMBOT 줄은 표시 없음
+    // 고르기 목록 줄: 목록에 들면 한 줄, 실험 L-12 기종이면 experimental 꼬리표 true(detail에는 "실험" 없음), NIIMBOT 줄은 표시 없음
     const fake = createFakeBleTransport()
     const picker = createPrinterPicker({ transport: fake.transport, pickDevice: () => Promise.resolve(null) })
     const device: BleDeviceInfo = { id: 'AA:BB:CC:DD:EE:01', name, rssi: -50, ...(services.length > 0 ? { serviceUuids: [...services] } : {}) }
@@ -131,9 +131,12 @@ describe('골든 list — 앱 기본 계열 표로 (계열 판정·찾기 거르
     if (want !== null && want !== 'NIIMBOT') {
       expect(entries[0]?.model).toBe(printerProfile(want)?.displayName)
       expect(entries[0]?.experimental).toBe(true)
-      expect(entries[0]?.detail).toContain('실험')
+      expect(entries[0]?.detail).not.toContain('실험') // D-PRN2-33: 글자는 빼고 꼬리표 하나만
     }
-    if (want === 'NIIMBOT') expect(entries[0]?.experimental).toBe(false)
+    if (want === 'NIIMBOT') {
+      expect(entries[0]?.experimental).toBe(false)
+      expect(entries[0]?.detail).not.toContain('실험')
+    }
   })
 })
 

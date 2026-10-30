@@ -203,7 +203,7 @@ describe('AC-PRN2-11 ② 켠 표에 줄을 넣으면 어댑터·앱 고르기가
     expect(await without.connect('bluetooth')).toMatchObject({ ok: false, error: { code: 'WRONG_MODEL', detail: '모델: B3S' } })
   })
 
-  it('앱 계열 표: 새 줄을 넣은 계열이 Q5_·B3S-를 맡고, 고르기 목록 줄은 "가짜 Q5 · 실험"', () => {
+  it('앱 계열 표: 새 줄을 넣은 계열이 Q5_·B3S-를 맡고, 고르기 목록 줄은 "가짜 Q5"(실험은 꼬리표)', () => {
     const families = [marklifeFamily({ profiles: [...LABEL_PROFILES, FAKE_Q5] }), niimbotFamily({ profiles: [...NIIMBOT_PROFILES, FAKE_B3S] })]
     expect(familyOf('Q5_1', families)).toBe('MARKLIFE')
     expect(familyOf('B3S-1', families)).toBe('NIIMBOT')
@@ -214,7 +214,8 @@ describe('AC-PRN2-11 ② 켠 표에 줄을 넣으면 어댑터·앱 고르기가
       { id: 'A1', name: 'Q5_1', rssi: -40 },
       { id: 'A2', name: 'B3S-1', rssi: -50 },
     ])
-    expect(entries.map((e) => e.detail)).toEqual(['가짜 Q5 · 실험 · 신호 강함', 'NIIMBOT · 신호 강함'])
+    expect(entries.map((e) => e.detail)).toEqual(['가짜 Q5 · 신호 강함', 'NIIMBOT · 신호 강함'])
+    expect(entries.map((e) => e.experimental)).toEqual([true, false]) // D-PRN2-33
   })
 })
 

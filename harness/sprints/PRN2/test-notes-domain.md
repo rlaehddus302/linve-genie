@@ -35,3 +35,9 @@
 - 관찰: `/api/print/test-bitmap`·`/test-png`의 `?size=`(빈 값)은 "없음"이 아니라 422, `?size=` 여러 번이면 첫 값. 두 입구가 같은 답이라 시험은 "500이 아니고 두 입구가 같다"만 본다. 스펙(D-PRN2-11 "없으면 50×30")이 빈 값을 어떻게 볼지 정하지 않았다 — 화면은 늘 값을 넘기므로 영향 없음.
 - 관찰: `labelSizesForProfileId`·`printerSupportStage`·`connectedProfileId`는 전역 표(`PRINTER_PROFILES`)만 본다. 줄을 더하는 곳은 그 표 하나여야 한다(어댑터에 켠 표만 넘기면 서버에 알릴 ID가 null). table-row ①이 그 절차를 그대로 시험한다.
 - 범위 밖으로 둔 것: D-PRN2-10·15(실험 기종 "예" 전 받기 멈춤)·D-PRN2-23(범위 밖 농도는 보내지 않음)은 화면 출력 기기 동작이라 test-e2e 몫으로 두었다.
+
+## D-PRN2-33 반영 (고르기 줄 실험 표시)
+
+- 나중 결정 D-PRN2-33(SA-PRN2-003, 커밋 557ece7f)이 고르기 줄 `detail`에서 "실험" 글자를 빼고 꼬리표(`PickEntry.experimental`) 하나만 두기로 했다. 스펙이 바뀐 것이라 `golden-both`(G-PRT-PRN2-37~40)·`table-row`(앱 계열 표 "가짜 Q5")의 기대를 고쳤다.
+- 새 기대: 실험 기종은 `experimental === true` 이고 `detail`에 '실험' 없음, B1(NIIMBOT)은 `experimental === false` 이고 '실험' 없음. 가짜 Q5 줄은 `['가짜 Q5 · 신호 강함', 'NIIMBOT · 신호 강함']` + 꼬리표 `[true, false]`.
+- 약하게 한 것이 아니다: 실험 표시 확인은 꼬리표 true/false 정확 일치로 그대로 남았고, 글자가 없음을 오히려 더 확인한다.
