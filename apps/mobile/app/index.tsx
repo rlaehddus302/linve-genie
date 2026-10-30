@@ -7,12 +7,12 @@ import { useSession } from '../src/services.tsx'
 import { Loading } from '../src/ui/parts.tsx'
 
 export default function IndexRoute() {
-  const { session, login } = useSession()
+  const { session, login, recheck } = useSession()
   const router = useRouter()
   return (
     <SafeAreaView style={{ flex: 1 }}>
       {session.state === 'checking' ? <Loading text="로그인을 확인하는 중…" /> : null}
-      {session.state === 'out' ? <LoginScreen expired={session.expired} onLogin={login} /> : null}
+      {session.state === 'out' ? <LoginScreen expired={session.expired} offline={session.offline === true} onRecheck={recheck} onLogin={login} /> : null}
       {session.state === 'in' ? (
         <HomeScreen
           sellerName={session.me.seller.name}

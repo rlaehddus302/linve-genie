@@ -1,5 +1,6 @@
 // 얇은 네이티브 전송: PCM과 전체 서버 상태만 전달하며 상품·주문을 해석하지 않는다.
 import { AUDIO_HALT_MESSAGES, createRelayConnect, type AudioCapture, type RelayConnection, type WebSocketFactory } from '@livejjim/mobile-audio'
+import { markMicStarting, micStartWasCut } from '../lib/voice-preferences.ts'
 import type { AudioResult, AudioState, NativeAudio, StartListeningInput } from './audio.ts'
 
 export class LiveNativeAudio implements NativeAudio {
@@ -21,6 +22,7 @@ export class LiveNativeAudio implements NativeAudio {
   readonly factory: WebSocketFactory | undefined
   constructor(capture: () => AudioCapture, factory?: WebSocketFactory) { this.capture = capture; this.factory = factory }
   async canResume(): Promise<boolean> { try { return (await this.capture().getPermission()).granted } catch { return false } }
+  startWasCut(): Promise<boolean> { return micStartWasCut() }
   onResult(_cb: (result: AudioResult) => void): () => void { return () => undefined }
   onState(cb: (state: AudioState) => void): () => void { this.#states.add(cb); return () => this.#states.delete(cb) }
   onSession(cb: (message: unknown) => void): () => void { this.#messages.add(cb); return () => this.#messages.delete(cb) }
@@ -55,7 +57,8 @@ export class LiveNativeAudio implements NativeAudio {
         else if (state === 'INTERRUPTED') this.#state({ kind: 'starting' })
         else if (state === 'LISTENING' && this.#ready) this.#state({ kind: 'listening' })
       }))
-      await capture.start({ sampleRate: 16000 })
+      await markMicStarting(true)
+      try { await capture.start({ sampleRate: 16000 }) } finally { await markMicStarting(false) }
       if (born !== this.#generation || capture.getState() === 'HALTED') return
       this.#connect(born)
     } catch { await this.#halt('이 빌드에서는 마이크를 쓸 수 없어요. 네이티브 앱 설치를 확인해 주세요.') }

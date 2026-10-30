@@ -102,6 +102,8 @@ export const NO_STATION_SHORT = '라벨이 안 나가요 · 프린터를 연결�
 /** 서버에 닿지 못했을 때 (웹과 같은 문장) */
 export const NETWORK_MESSAGE = '서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.'
 export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그인해 주세요.'
+/** 앱을 켤 때 서버에 닿지 못함 — 로그인이 풀린 것이 아닐 수 있다 (APP2) */
+export const OFFLINE_AT_START_MESSAGE = '서버에 연결하지 못해 로그인을 확인하지 못했어요. 인터넷 연결을 확인하고 다시 확인을 눌러 주세요.'
 export const LOGIN_FAILED_HINT = '아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
 export const LOGIN_ACCOUNT_NOTE = '계정은 운영자가 만들어 드려요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
 
@@ -128,6 +130,8 @@ export const VOICE_LISTENING = '음성 듣는 중'
 export const VOICE_RECONNECTING = '다시 잇는 중'
 export const VOICE_STOPPED_TITLE = '듣기 멈춤'
 export const VOICE_STOPPED_BODY = '받아쓰기 서버에 연결하지 못했어요. 상품은 빠른 입력으로 넣어 주세요.'
+/** 지난번 마이크를 켜다가 앱이 꺼졌을 때 — 저절로 다시 켜지 않고 알린다 */
+export const MIC_START_CUT_MESSAGE = '지난번에 마이크를 켜다가 앱이 꺼졌어요. 빠른 입력은 그대로 쓸 수 있어요. 음성이 필요하면 [음성 켜기]를 눌러 주세요. 또 꺼지면 휴대폰을 껐다 켜 주세요.'
 export const VOICE_RETRY = '다시 켜기'
 export const VOICE_SENT_LINE = '음성은 라이브지니 받아쓰기 서버로 보내져요.'
 export const VOICE_CONSENT_LINES: readonly string[] = [
@@ -153,3 +157,5 @@ export function awayLine(counts: { readonly labels: number; readonly claims: num
   if (counts.voice > 0) parts.push(`음성 ${String(counts.voice)}개`)
   return parts.length === 0 ? null : `자리를 비운 동안 ${parts.join('·')}`
 }
+/** 블루투스를 쓸 수 없는 기기에서 프린터 연결을 눌렀을 때 (웹의 "이 브라우저에서는…" 대신) */
+export const APP_PRINTER_UNSUPPORTED = '이 휴대폰에서는 블루투스를 쓸 수 없어 프린터에 연결할 수 없어요. 블루투스가 되는 휴대폰에서 연결하거나, 컴퓨터 화면에서 라벨을 출력해 주세요.'

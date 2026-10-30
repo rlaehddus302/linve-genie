@@ -2,7 +2,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import { DISCONNECT_WINDOW_MS, LATE_MS, STOP_AFTER_DISCONNECTS, UNDO_MS, VoiceSession } from '../src/lib/voice-session.ts'
-import { VOICE_STOPPED_BODY } from '../src/lib/words.ts'
+import { MIC_START_CUT_MESSAGE, VOICE_STOPPED_BODY } from '../src/lib/words.ts'
+import { configureVoiceStorage } from '../src/lib/voice-preferences.ts'
 import { FakeNativeAudio, type VoiceReading } from '../src/native/audio.ts'
 import { FakeClock, flush } from './support.ts'
 
@@ -136,5 +137,20 @@ describe('VoiceSession', () => {
     expect(session.getView().on).toBe(false)
     expect(session.getView().problem).toBe('음성은 다른 기기에서 듣는 중이에요.')
     expect(audio.starts.length).toBe(0)
+  })
+  it('지난번 마이크를 켜다가 앱이 꺼졌으면 방송 화면을 열 때 저절로 다시 켜지 않고 알린다, 직접 누르면 켠다', async () => {
+    configureVoiceStorage({ getItem: async (k) => k === 'livegenie.voice.preferences.v1' ? JSON.stringify({ consent: true }) : null, setItem: async () => undefined })
+    const { audio, session } = setup()
+    let cut = true
+    Object.assign(audio, { canResume: async () => true, startWasCut: async () => cut })
+    await session.resumeIfConsented('b1', '저녁 방송')
+    expect(audio.starts.length).toBe(0)
+    expect(session.getView().on).toBe(false)
+    expect(session.getView().problem).toBe(MIC_START_CUT_MESSAGE)
+    cut = false
+    await session.resumeIfConsented('b1', '저녁 방송')
+    await session.acceptConsent() // 가짜 오디오에는 서버 세션이 없어 안내 창을 한 번 거친다
+    expect(audio.starts.length).toBe(1)
+    configureVoiceStorage({ getItem: async () => null, setItem: async () => undefined })
   })
 })

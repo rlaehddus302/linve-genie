@@ -21,6 +21,7 @@ export type BleManagerLike = Pick<
   | 'characteristicsForDevice'
   | 'monitorCharacteristicForDevice'
   | 'writeCharacteristicWithoutResponseForDevice'
+  | 'writeCharacteristicWithResponseForDevice'
 >
 
 export function radioStateOf(state: State | string): BleRadioState {
@@ -41,7 +42,18 @@ export function radioStateOf(state: State | string): BleRadioState {
 /** 앱 전체가 나눠 쓰는 BleManager 식별자 (아이폰 상태 되살리기) */
 export const BLE_RESTORE_IDENTIFIER = 'livejjim-printer'
 
-const nameOf = (device: Pick<Device, 'name' | 'localName'>): string | null => device.name ?? device.localName ?? null
+/**
+ * 기기 이름 — 광고의 이름(localName)을 먼저, 없으면 기기 이름(name).
+ * 프린터가 지금 알리는 이름이 광고의 이름이다. name은 안드로이드·아이폰이 전에 본 이름을 들고 있는 값이라 이름이 바뀐 기기에서 옛 이름일 수 있다.
+ * LABEL_RULES L-12 3은 목록에 보인 이름 그대로 기종을 고르므로(대소문자·앞자리), 목록과 고르기가 같은 값 — 지금 알리는 이름 — 을 쓴다.
+ * 빈 글은 없는 것으로 본다.
+ */
+const nameOf = (device: Pick<Device, 'name' | 'localName'>): string | null => {
+  const local = device.localName ?? null
+  if (local !== null && local !== '') return local
+  const name = device.name ?? null
+  return name !== null && name !== '' ? name : null
+}
 
 export function createPlxTransport(manager: BleManagerLike): BleTransport {
   return {
@@ -58,11 +70,13 @@ export function createPlxTransport(manager: BleManagerLike): BleTransport {
     },
     scan(filter: BleScanFilter, onFound) {
       const seen = new Set<string>()
-      const prefixes = (filter.namePrefixes ?? []).map((p) => p.toUpperCase())
+      const matchCase = filter.matchCase === true
+      const prefixes = (filter.namePrefixes ?? []).map((p) => (matchCase ? p : p.toUpperCase()))
       const uuids = filter.serviceUuids ?? []
       const matches = (device: Device): boolean => {
         const name = nameOf(device)
-        if (prefixes.length > 0 && name !== null && prefixes.some((p) => name.toUpperCase().startsWith(p))) return true
+        const seenName = name === null ? null : matchCase ? name : name.toUpperCase()
+        if (prefixes.length > 0 && seenName !== null && prefixes.some((p) => seenName.startsWith(p))) return true
         const advertised = (device.serviceUUIDs ?? []).map((u) => u.toLowerCase())
         if (uuids.some((u) => advertised.includes(u.toLowerCase()))) return true
         // 이름도 서비스도 없는 장치는 거른다
@@ -95,11 +109,20 @@ export function createPlxTransport(manager: BleManagerLike): BleTransport {
       const link: BleLink = {
         id,
         mtu: Number.isInteger(device.mtu) && device.mtu >= BLE_DEFAULT_MTU ? device.mtu : BLE_DEFAULT_MTU,
+        name: nameOf(device),
         async characteristics() {
           const out: BleCharacteristicInfo[] = []
           for (const service of await manager.servicesForDevice(id)) {
             const list = await manager.characteristicsForDevice(id, service.uuid)
-            for (const c of list) out.push({ serviceUuid: service.uuid, uuid: c.uuid, notify: c.isNotifiable, writeWithoutResponse: c.isWritableWithoutResponse })
+            for (const c of list) {
+              out.push({
+                serviceUuid: service.uuid,
+                uuid: c.uuid,
+                notify: c.isNotifiable,
+                writeWithoutResponse: c.isWritableWithoutResponse,
+                writeWithResponse: c.isWritableWithResponse,
+              })
+            }
           }
           return out
         },
@@ -113,6 +136,9 @@ export function createPlxTransport(manager: BleManagerLike): BleTransport {
         },
         async writeWithoutResponse(serviceUuid, characteristicUuid, bytes) {
           await manager.writeCharacteristicWithoutResponseForDevice(id, serviceUuid, characteristicUuid, encodeBase64(bytes))
+        },
+        async writeWithResponse(serviceUuid, characteristicUuid, bytes) {
+          await manager.writeCharacteristicWithResponseForDevice(id, serviceUuid, characteristicUuid, encodeBase64(bytes))
         },
         async disconnect() {
           alive = false

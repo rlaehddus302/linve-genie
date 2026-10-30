@@ -59,42 +59,24 @@ umask 077 && printf '%s' '<서버와 같은 토큰>' > ~/.livejjim-worker-token
 모르는 값이면 시작하지 않고 쉬운 문장으로 끝낸다(끝 번호 2).
 M3 Pro 기준 조각(평균 약 4초) 하나 받아쓰기 평균 약 0.26초·95% 약 0.53초 — 판매자 4명이 동시에 말해도 따라간다.
 
-## 맥 미니에서 늘 켜 두기 (launchd)
+## 맥 미니에서 늘 켜 두기 (설치 묶음)
 
-`~/Library/LaunchAgents/com.livejjim.transcriber.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.livejjim.transcriber</string>
-  <key>WorkingDirectory</key><string>/Users/<사용자>/livejjim/packages/voice/transcriber</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/Users/<사용자>/livejjim/packages/voice/transcriber/.venv/bin/python</string>
-    <string>-B</string><string>-m</string><string>livegenie_transcriber</string>
-    <string>--server</string><string>https://<라이브지니 주소></string>
-    <string>--token-file</string><string>/Users/<사용자>/.livejjim-worker-token</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardErrorPath</key><string>/Users/<사용자>/Library/Logs/livejjim-transcriber.log</string>
-</dict>
-</plist>
-```
+설치·늘 켜 두기·상태 보기·업데이트·지우기는 `macmini/` 묶음으로 한다. 쉬운 안내서는 [`macmini/README-맥미니.md`](macmini/README-맥미니.md).
 
 ```
-launchctl load ~/Library/LaunchAgents/com.livejjim.transcriber.plist
+bash packages/voice/transcriber/macmini/install.sh
 ```
 
-- 로그 파일에는 셈과 연결 상태만 남는다(받아쓴 글·소리·토큰 없음).
-- 맥이 잠들면 일꾼도 멈춘다: 시스템 설정 > 에너지에서 "디스플레이가 꺼져 있을 때 자동으로 잠자기 방지"를 켜고, 전원에 꽂아 둔다.
+- 설치 폴더 `~/Library/Application Support/LiveJjim/transcriber`: 코드 복사본(`app/`), requirements 해시마다 따로 된 venv(`venv-<해시>/`), 설정 `worker.conf`·토큰 `worker-token`(둘 다 600, 폴더 700).
+- 파이썬은 uv의 3.12 또는 이미 깔린 python.org·brew 3.12만 쓴다. 시스템 설정·맥 기본 파이썬·전원 설정은 바꾸지 않는다.
+- launchd 사용자 에이전트 `~/Library/LaunchAgents/com.livejjim.transcriber.plist`: 로그인 때 켜기(`RunAtLoad`), 꺼지면 다시 켜기(`KeepAlive`, `ThrottleInterval` 30초). 일꾼이 도는 동안만 `caffeinate -i -w <일꾼>`으로 저절로 잠들지 않게 한다.
+- 로그 `~/Library/Logs/livejjim-transcriber.log`: 일꾼이 찍는 셈·연결 상태뿐(받아쓴 글·소리·토큰 없음), 5MB가 넘으면 한 벌만 남긴다. `status.sh`가 이 로그로 연결 상태·마지막 연결 시각·처리 시간 95%를 쉬운 말로 보여 준다.
+- Cohere 허깅페이스 토큰은 `download-model.sh`가 화면에 안 보이게 받아 내려받는 프로세스의 환경변수로만 넘긴다(`hf auth login`을 쓰지 않아 저장되지 않는다).
 - 일꾼이 꺼지면 판매자 화면은 "받아쓰기 서버가 꺼져 있어요. 상품은 빠른 입력으로 넣어 주세요."를 보이고, 운영 상태 `/ops/status`의 `transcribe.workers`가 0이 되며 경보 `TRANSCRIBE_NO_WORKER`가 남는다.
 
 ## 시험
 
-모델·silero·websockets 없이 표준 라이브러리만으로 돈다(자르기·틀 묶기/풀기·설정·흐름 한도·로그에 남는 것).
+모델·silero·websockets 없이 표준 라이브러리만으로 돈다(자르기·틀 묶기/풀기·설정·흐름 한도·로그에 남는 것, 맥 미니 묶음의 스크립트 문법·launchd 파일 형식·설정 파일 권한·토큰 미출력·상태 보기 — 가짜 launchctl·임시 폴더로, 실제 등록·설치 없이).
 
 ```
 cd packages/voice/transcriber && python3 -B -m unittest discover -s tests -t tests

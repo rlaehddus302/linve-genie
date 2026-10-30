@@ -12,7 +12,7 @@ import type { AudioResult, AudioState, NativeAudio, VoiceReading } from '../nati
 import { newRequestId } from '../api/client.ts'
 import { fetchVoiceTicket, VoiceRefused } from '../api/voice.ts'
 import { realTimer, type Timer } from './live.ts'
-import { SERVICE_NAME, VOICE_STOPPED_BODY } from './words.ts'
+import { MIC_START_CUT_MESSAGE, SERVICE_NAME, VOICE_STOPPED_BODY } from './words.ts'
 
 /** 말 끝에서 이보다 늦게 처리하는 글은 카드로만 (D-APP-12) */
 export const LATE_MS = 10_000
@@ -148,6 +148,7 @@ export class VoiceSession {
     if (this.#view.on || this.#manualOff || this.#view.state.kind === 'stopped') return
     const prefs = await readVoicePreferences()
     if (prefs.consent !== true || !await this.#options.audio.canResume?.()) return
+    if (await this.#options.audio.startWasCut?.()) { this.#set({ problem: MIC_START_CUT_MESSAGE }); return }
     if (!this.#view.on && !this.#manualOff) await this.turnOn(broadcastId, title)
   }
 

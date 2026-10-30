@@ -32,7 +32,7 @@ Sleep = Callable[[float], Awaitable[None]]
 
 
 def stderr_log(line: str) -> None:
-    stamp = time.strftime("%H:%M:%S")
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     print(f"{stamp} {line}", file=sys.stderr, flush=True)
 
 

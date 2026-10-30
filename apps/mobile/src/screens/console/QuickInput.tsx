@@ -6,7 +6,7 @@ import { View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError, newRequestId } from '../../api/client.ts'
 import { productKey } from '../../lib/derive.ts'
-import { decideQuickInput, editQuestion, quickSettings, registerPreview, unitLine, type QuickDecision } from '../../lib/quick.ts'
+import { decideQuickInput, editQuestion, quickErrorMessage, quickSettings, registerPreview, unitLine, type QuickDecision } from '../../lib/quick.ts'
 import { QUICK_PLACEHOLDER, QUICK_SEND, UNDO, UNDONE_REGISTER, formatWon } from '../../lib/words.ts'
 import { BigButton, Body, Card, Field, Hint, Notice, Row } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
@@ -143,9 +143,16 @@ export function SmsInput() {
   const [result, setResult] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null)
   if (api.ended || api.sealed) return null
   const send = async () => {
-    const number = Number(no.trim())
-    if (!Number.isInteger(number) || number < 1) {
+    const trimmed = no.trim()
+    const number = Number(trimmed)
+    if (!/^\d+$/.test(trimmed) || !Number.isInteger(number) || number < 1) {
       setResult({ tone: 'danger', text: '상품 번호를 숫자로 적어 주세요.' })
+      return
+    }
+    // 번호 칸에 전화번호가 이어 붙어도(실기기 시험에서 21301000001234) 보류 찜이 생기지 않게 방송 번호 범위로 막는다 (D-030)
+    const maxNumber = quickSettings(api.data.broadcasts.get(api.b)?.settings)['claim.maxNumber']
+    if (number > maxNumber) {
+      setResult({ tone: 'danger', text: quickErrorMessage('NUMBER_INVALID', maxNumber) })
       return
     }
     setBusy(true)

@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAudioCapture, type NativeAudioModuleLike, type NativeFrameEvent, type NativeStateEvent, type WebSocketLike } from '@livejjim/mobile-audio'
 import { LiveNativeAudio } from '../src/native/live-audio.ts'
+import { configureVoiceStorage } from '../src/lib/voice-preferences.ts'
 
 class Socket implements WebSocketLike {
   readyState = 0
@@ -92,5 +93,24 @@ describe('실제 네이티브 음성 연결', () => {
     expect(sockets[1]!.sent).toHaveLength(1)
     expect(JSON.parse(String(sockets[1]!.sent[0])).op).toBe('hello')
     await audio.stopListening()
+  })
+  it('마이크를 켜는 동안만 "켜는 중" 표시를 기기에 남기고, 켜지거나 실패하면 지운다 (앱째 꺼짐 반복 막기)', async () => {
+    const saved = new Map<string, string>()
+    configureVoiceStorage({ getItem: async (k) => saved.get(k) ?? null, setItem: async (k, v) => { saved.set(k, v) }, removeItem: async (k) => { saved.delete(k) } })
+    const { audio, native } = setup()
+    let duringStart: boolean | undefined
+    vi.mocked(native.start).mockImplementationOnce(async () => { duringStart = await audio.startWasCut() })
+    await audio.startListening({ wsUrl: 'wss://app.example/api/voice/stream' })
+    expect(duringStart).toBe(true)
+    expect(await audio.startWasCut()).toBe(false)
+    await audio.stopListening()
+    vi.mocked(native.start).mockImplementationOnce(async () => { throw new Error('장치 오류') })
+    await audio.startListening({ wsUrl: 'wss://app.example/api/voice/stream' })
+    expect(audio.state.kind).toBe('stopped')
+    expect(await audio.startWasCut()).toBe(false)
+    // 켜는 도중 앱이 꺼진 경우: 표시가 남아 있다
+    saved.set('livegenie.voice.micstarting.v1', '1')
+    expect(await audio.startWasCut()).toBe(true)
+    configureVoiceStorage({ getItem: async () => null, setItem: async () => undefined })
   })
 })

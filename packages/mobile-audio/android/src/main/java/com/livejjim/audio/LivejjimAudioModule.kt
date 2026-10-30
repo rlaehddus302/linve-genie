@@ -64,7 +64,11 @@ class LivejjimAudioModule : Module() {
       }
       val wanted = mutableListOf(Manifest.permission.RECORD_AUDIO)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) wanted.add(Manifest.permission.POST_NOTIFICATIONS)
-      manager.askForPermissions({ _ -> promise.resolve(permissionMap()) }, *wanted.toTypedArray())
+      // 물었다는 표시를 남겨야 거절 + "다시 묻지 않음"(설명도 안 보여 줌)을 canAskAgain=false로 알 수 있다
+      manager.askForPermissions({ _ ->
+        PermissionMemory.markAsked(context)
+        promise.resolve(permissionMap())
+      }, *wanted.toTypedArray())
     }
 
     AsyncFunction("start") { options: StartOptions, promise: Promise ->
