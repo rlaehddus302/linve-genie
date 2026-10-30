@@ -117,7 +117,7 @@ export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () 
               {station?.autoReconnect?.kind === 'gaveUp' ? (
                 <>
                   <p>{AUTO_RECONNECT_GAVE_UP}</p>
-                  <ConnectTipsList tips={connectTips({ windows: isWindows(), serial: station.methods.includes('serial'), android: isAndroid() })} />
+                  <ConnectTipsList tips={connectTips({ windows: isWindows(), serial: station.methods.includes('serial'), android: isAndroid(), marklife: station.labelPrinter })} />
                 </>
               ) : null}
               <button type="button" className="button button-primary" data-key="1" disabled={reconnecting || station?.connecting === true} onClick={() => void reconnect()}>

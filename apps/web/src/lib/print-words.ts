@@ -42,6 +42,12 @@ export const PRINT_ACTION = {
 export const REHEARSAL_NO_LABELS = '리허설 방송은 라벨을 출력하지 않아요.'
 export const KEEP_SCREEN_ON = '출력하는 동안 이 화면을 켜 두세요.'
 export const TEST_QUESTION = '테스트 라벨의 네 변 테두리와 한글이 모두 또렷하게 보이나요?'
+/** 실험 기종 표시 — 프린터 이름 뒤 (L-7 지원 단계, D-PRN2-01) */
+export const EXPERIMENTAL_MARK = '(실험)'
+/** 웹 고르기 창(브라우저 창)에는 "실험"을 달 수 없어 연결 전에 한 줄로 알린다 (L-7 지원 단계) */
+export const EXPERIMENTAL_PICK_NOTE = 'NIIMBOT B1이 아닌 프린터(Marklife·바우아토·NIIMBOT 다른 모델)는 실험 중이에요. 연결한 뒤 테스트 인쇄가 잘 나오는지 꼭 확인해 주세요.'
+/** 실험 기종: 테스트 인쇄 "예" 전에는 "이 기기에서 출력"이 없다 (L-7 지원 단계) */
+export const EXPERIMENTAL_WAIT_TEST = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
 export const NO_WINNER_LABEL = '1등이 없어 출력할 라벨이 없어요.'
 /** 라벨 기능을 끈 판매자의 라벨 자리 안내 (L-13 9, D-N4a-05) — 라벨 화면·상품 자세히·정산 자세히·Alt+P */

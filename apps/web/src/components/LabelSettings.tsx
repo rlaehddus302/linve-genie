@@ -10,15 +10,17 @@ import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
   ITEM_NAMES,
-  LABEL_SIZES,
   PACKING_ITEMS,
   PACKING_LOCKED,
   PER_PAGE_MAX,
   PER_PAGE_MIN,
   PRODUCT_ITEMS,
   PRODUCT_LOCKED,
+  canMakePackingLabel,
   defaultTemplate,
+  isLabelSize,
   labelSizeInfo,
+  labelSizeName,
   splitGraphemes,
   trimLabelText,
   validateTemplate,
@@ -30,6 +32,7 @@ import {
   type TemplateItem,
   type TemplateProblem,
 } from '@livejjim/label'
+import { labelSizesForProfileId, sizeNotSupportedMessage } from '@livejjim/printer'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
 import type { StoredTemplate } from '../api/print-types.ts'
@@ -67,7 +70,10 @@ const MOVE_STEP = 4
 /** 글자 크기 한 번 바꾸기 (점) */
 const FONT_STEP = 2
 
-const SIZE_WORD = (size: LabelSizeId): string => `${size.replace('x', '×')}mm`
+const SIZE_WORD = (size: LabelSizeId): string => `${labelSizeName(size)}mm`
+
+/** 이 프린터로는 포장 라벨 크기가 없다 (테이프·50×15 프린터 — L-4 포장 라벨의 크기) */
+export const NO_PACKING_SIZE_NOTE = '이 프린터로는 포장 라벨을 찍을 수 없어요. 포장 라벨은 아래 내보내기에서 그림 파일이나 A4로 내 주세요.'
 
 /** 품종 칸을 끈 템플릿 안내 (D-O4-07) */
 export const NAME_OFF_OPTIONS_NOTE = '품종 칸을 끄면 사이즈·색상 같은 옵션이 라벨에 찍히지 않아요.'
@@ -155,6 +161,16 @@ function TemplateEditor({ kind, shopName }: { readonly kind: Kind; readonly shop
   const [fitError, setFitError] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
   const ids = { size: useId(), shop: useId(), perPage: useId() }
+  // 크기 목록 = 출력 기기에 이은 프린터 프로필의 크기 (모르면 B1 목록 — L-11 13, D-PRN2-07). 포장은 높이 20mm 이상만 (L-4)
+  // 서버가 정한 목록(queue.labelSizes)이 있으면 그것, 없으면(옛 서버) 출력 기기 프로필 ID로 같은 표에서
+  const queue = print.overview?.queue ?? null
+  const profileId = queue?.device?.profileId ?? null
+  const listed = queue?.labelSizes
+  const sizes = useMemo(() => {
+    const fromServer = listed?.filter(isLabelSize)
+    const all = fromServer !== undefined && fromServer.length > 0 ? fromServer : labelSizesForProfileId(profileId)
+    return all.filter((size) => kind === 'product' || canMakePackingLabel(size))
+  }, [listed, profileId, kind])
 
   // 처음·다른 기기가 저장했을 때: 고치지 않은 동안은 서버 것으로
   useEffect(() => {
@@ -307,13 +323,23 @@ function TemplateEditor({ kind, shopName }: { readonly kind: Kind; readonly shop
         <fieldset className="fieldset">
           <legend id={ids.size}>라벨 크기</legend>
           <div className="row" role="radiogroup" aria-labelledby={ids.size}>
-            {LABEL_SIZES.map((size) => (
+            {sizes.map((size) => (
               <label key={size} className="choice">
                 <input type="radio" name={`${kind}-size`} checked={template.size === size} onChange={() => changeSize(size)} />
                 <span>{SIZE_WORD(size)}</span>
               </label>
             ))}
           </div>
+          {sizes.length === 0 ? (
+            <p className="notice" role="note" data-tone="warning">
+              {NO_PACKING_SIZE_NOTE}
+            </p>
+          ) : profileId !== null && !(sizes as readonly string[]).includes(template.size) ? (
+            // 출력 기기의 프린터가 지금 크기를 찍지 못한다 — 출력 기기는 이 설정의 라벨에서 멈춘다 (L-11 13)
+            <p className="notice" role="note" data-tone="warning" aria-label="라벨 크기 경고">
+              {sizeNotSupportedMessage(template.size)}
+            </p>
+          ) : null}
         </fieldset>
         <div className="field">
           <label htmlFor={ids.shop}>가게 이름</label>

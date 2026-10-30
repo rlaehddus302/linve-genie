@@ -6,7 +6,7 @@
 //   아니면 프린터 단계의 다음 할 일(연결 전: 첫 연결 방법 → 연결 뒤: 테스트 인쇄 → 테스트 결과 "예" 뒤: 이 기기에서 출력). 이 기기가 이미 출력 기기면
 //   프린터 단계에 주 버튼이 없다. "버렸어요"·"라벨 설정 저장"은 이 화면에서 늘 보통 버튼이다(알림 창의 "버렸어요"는 그대로 주 버튼).
 import { a4Layout, type LabelBitmap } from '@livejjim/label'
-import { CONNECTION_STATE_NAMES, PRINTER_MESSAGES, RECONNECT_ACTION, type PrinterError } from '@livejjim/printer'
+import { CONNECTION_STATE_NAMES, PRINTER_MESSAGES, RECONNECT_ACTION, experimentalNotice, printerProfile, printerSupportStage, type PrinterError } from '@livejjim/printer'
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { get, isApiError, patch, type ApiError } from '../api/client.ts'
 import type { LabelView, QueueSummary } from '../api/print-types.ts'
@@ -16,7 +16,7 @@ import { dateWords, kstToday } from '../lib/kst.ts'
 import { fetchLabelPreview, labelPreviewPath } from '../api/label-bitmap.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, waitingA4Name } from '../lib/label-render.ts'
-import { KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
+import { EXPERIMENTAL_MARK, EXPERIMENTAL_PICK_NOTE, EXPERIMENTAL_WAIT_TEST, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
 import type { PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -152,15 +152,18 @@ export function PrinterErrorView({
   windows = isWindows(),
   android = isAndroid(),
   primary = false,
+  labelPrinter = false,
 }: {
   readonly error: PrinterError
+  /** Marklife·바우아토 연결 (해볼 일의 앱·프린터 낱말) */
+  readonly labelPrinter?: boolean
   readonly onRetry?: () => void
   readonly serial: boolean
   readonly windows?: boolean
   readonly android?: boolean
   readonly primary?: boolean
 }) {
-  const tips = showsConnectTips(error.code) ? connectTips({ windows, serial, android }) : []
+  const tips = showsConnectTips(error.code) ? connectTips({ windows, serial, android, marklife: labelPrinter }) : []
   return (
     <div className="error-note stack-tight" role="alert">
       <p>{error.message}</p>
@@ -231,6 +234,10 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
   // 출력 기기인지와 상관없이: 이어져 있지 않고, 잇는 중이 아니며, 이 기기에서 쓴 연결 방법을 지금 쓸 수 있으면 연결 방법 줄 위에 "다시 연결" (D-QL2-03 (a))
   const cardReconnect = !bandReconnect && !retryShown && !connected && !station.connecting && api.station.canReconnect
   const testAnswered = answer === 'yes' && station.testPrinted
+  // 지원 단계 (L-7, D-PRN2-01): 실험 기종은 이 연결에서 테스트 인쇄 뒤 "예"를 누른 다음에만 "이 기기에서 출력"
+  const profile = connected && station.profileId !== null ? printerProfile(station.profileId) : undefined
+  const experimental = connected && printerSupportStage(station.profileId) === 'EXPERIMENTAL'
+  const canBecome = !experimental || station.testConfirmed
   return (
     <section id={PRINTER_ID} className="card stack" aria-labelledby={titleId}>
       <Title id={titleId} className="section-title">
@@ -253,6 +260,21 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
             이 기기의 프린터: <strong>{CONNECTION_STATE_NAMES[station.connection]}</strong>
             {connected && lastMethod !== null ? ` (${lastMethod === 'test' ? '시험용 프린터' : lastMethod === 'bluetooth' ? '블루투스' : 'USB 선'})` : ''}
           </p>
+          {profile !== undefined ? (
+            <p>
+              프린터 이름: <strong>{experimental ? `${profile.displayName} ${EXPERIMENTAL_MARK}` : profile.displayName}</strong>
+            </p>
+          ) : null}
+          {profile !== undefined && experimental ? (
+            <div className="notice stack-tight" role="note" aria-label="실험 중인 프린터 안내">
+              <p>{experimentalNotice(profile)}</p>
+              {inWizard ? null : (
+                <a className="button" href={`#${EXPORT_ID}`}>
+                  그림 파일로 저장하기
+                </a>
+              )}
+            </div>
+          ) : null}
           {cardReconnect ? (
             <div className="row">
               <button type="button" className={stepPrimary ? 'button button-primary' : 'button'} onClick={() => void api.station.reconnect()}>
@@ -271,14 +293,17 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
           ) : null}
           {/* 아이폰에서 시험용 프린터가 보이면 그 바로 아래 한 줄 — 실제 아이폰에서도 될 것처럼 보이지 않게 (MOB1 D-MOB1-11, AC-MOB1-20) */}
           {!connected && methods.includes('test') && isIphone() ? <p className="hint">{IPHONE_TEST_PRINTER}</p> : null}
+          {/* 웹의 프린터 고르기는 브라우저 창이라 줄마다 "실험"을 달 수 없다 — 연결하기 전에 한 줄로 알린다 (L-7 지원 단계) */}
+          {!connected && (station.methods.includes('bluetooth') || station.methods.includes('serial')) ? <p className="hint">{EXPERIMENTAL_PICK_NOTE}</p> : null}
           {station.connecting ? (
-            <p role="status">{lastMethod === 'test' ? '연결하는 중…' : '연결하는 중… 브라우저 창에서 프린터(B1)를 골라 주세요.'}</p>
+            <p role="status">{lastMethod === 'test' ? '연결하는 중…' : '연결하는 중… 브라우저 창에서 프린터를 골라 주세요.'}</p>
           ) : null}
           {station.connectError !== null && !connected ? (
-            <PrinterErrorView error={station.connectError} serial={station.methods.includes('serial')} primary={stepPrimary} {...(retryShown ? { onRetry: () => void api.station.reconnect() } : {})} />
+            <PrinterErrorView error={station.connectError} serial={station.methods.includes('serial')} labelPrinter={station.labelPrinter} primary={stepPrimary} {...(retryShown ? { onRetry: () => void api.station.reconnect() } : {})} />
           ) : null}
           {connected ? <ConnectedPrinter answer={answer} onAnswer={setAnswer} primary={primary && !testAnswered} /> : null}
-          {connected && !mine ? <BecomeDevice primary={primary && testAnswered} /> : null}
+          {connected && !mine && canBecome ? <BecomeDevice primary={primary && testAnswered} /> : null}
+          {connected && !mine && !canBecome ? <p className="hint">{EXPERIMENTAL_WAIT_TEST}</p> : null}
           {testMode ? <TestHandlePanel /> : null}
         </>
       )}
@@ -345,6 +370,10 @@ function ConnectedPrinter({ answer, onAnswer: setAnswer, primary }: ConnectedPri
   if (api === null || station === null) return null
   const busy = station.busy || station.job !== null || station.connection === 'PRINTING'
   const product = print.templates?.product.template
+  // 이은 프린터의 농도 범위 (모르면 B1 범위)
+  const connectedProfile = station.profileId === null ? undefined : printerProfile(station.profileId)
+  const range = connectedProfile === undefined ? { min: DENSITY_MIN, max: DENSITY_MAX, default: 3 } : connectedProfile.density
+  const densityShown = range !== null && station.density >= range.min && station.density <= range.max ? station.density : (range?.default ?? station.density)
   const test = () => {
     setAnswer(null)
     void api.station.testPrint({ shopName: product?.shopName ?? '', size: product?.size ?? '50x30' })
@@ -373,10 +402,26 @@ function ConnectedPrinter({ answer, onAnswer: setAnswer, primary }: ConnectedPri
         <div className="notice stack-tight" role="group" aria-label="테스트 인쇄 결과">
           <p>{TEST_QUESTION}</p>
           <div className="row">
-            <button type="button" className="button" aria-pressed={answer === 'yes'} onClick={() => setAnswer('yes')}>
+            <button
+              type="button"
+              className="button"
+              aria-pressed={answer === 'yes'}
+              onClick={() => {
+                setAnswer('yes')
+                api.station.answerTest(true)
+              }}
+            >
               예
             </button>
-            <button type="button" className="button" aria-pressed={answer === 'no'} onClick={() => setAnswer('no')}>
+            <button
+              type="button"
+              className="button"
+              aria-pressed={answer === 'no'}
+              onClick={() => {
+                setAnswer('no')
+                api.station.answerTest(false)
+              }}
+            >
               아니요
             </button>
           </div>
@@ -390,18 +435,21 @@ function ConnectedPrinter({ answer, onAnswer: setAnswer, primary }: ConnectedPri
           ) : null}
         </div>
       ) : null}
-      <div className="field">
-        <label htmlFor={densityId}>인쇄 농도</label>
-        <select id={densityId} className="input input-short" value={station.density} onChange={(event) => api.station.setDensity(Number(event.target.value))}>
-          {Array.from({ length: DENSITY_MAX - DENSITY_MIN + 1 }, (_, i) => DENSITY_MIN + i).map((value) => (
-            <option key={value} value={value}>
-              {value}
-              {value === 3 ? ' (기본)' : ''}
-            </option>
-          ))}
-        </select>
-        <p className="hint">흐리게 찍히면 한 단계 올려 주세요. 이 기기에 남아요.</p>
-      </div>
+      {/* 농도는 이은 프린터의 범위 안에서만 (L-7 — B1 1~5, Marklife 1~3). 농도를 받지 않는 프린터(테이프·바우아토)면 칸이 없다 */}
+      {range !== null ? (
+        <div className="field">
+          <label htmlFor={densityId}>인쇄 농도</label>
+          <select id={densityId} className="input input-short" value={densityShown} onChange={(event) => api.station.setDensity(Number(event.target.value))}>
+            {Array.from({ length: range.max - range.min + 1 }, (_, i) => range.min + i).map((value) => (
+              <option key={value} value={value}>
+                {value}
+                {value === range.default ? ' (기본)' : ''}
+              </option>
+            ))}
+          </select>
+          <p className="hint">흐리게 찍히면 한 단계 올려 주세요. 이 기기에 남아요.</p>
+        </div>
+      ) : null}
     </div>
   )
 }

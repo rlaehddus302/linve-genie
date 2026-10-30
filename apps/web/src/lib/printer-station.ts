@@ -12,18 +12,25 @@
 //   (서버로 보내지 않는다). "다시 연결"은 기억한 기기로(고르기 창 없이 — 얻을 수 없으면 고르기 창), 연결 방법 단추는 늘 고르기 창이다.
 // - 출력 기기에서 프린터가 저절로 끊기면 기억한 기기로만 1·2·4·8·16·30초 뒤 모두 6번 다시 잇는다(D-QS1-02, L-11 8). 이어진 뒤 60초가 지나야
 //   횟수를 새로 센다. "연결 끊기"·다른 연결 방법·출력 기기에서 내려옴·라벨 기능 꺼짐이면 그친다. 다시 이어도 라벨을 다시 보내지 않는다.
+// - 프린터 고르기 창은 한 목록이다(PRN2, L-7 고르기 목록 — createWebPrinterAdapter: NIIMBOT·Marklife·바우아토). 이은 프린터의 프로필 ID를
+//   연결 알림에 함께 보낸다(L-11 10 — 이름·기기 ID는 보내지 않는다). 받은 작업의 템플릿 크기가 그 프로필 목록에 없으면 찍지 않고 라벨 오류로 알린다(L-11 13).
+// - 실험 기종(L-7 지원 단계)은 그 연결에서 테스트 인쇄 뒤 "예"를 누른 것을 기억한다(testConfirmed — 끊기면 지운다). 화면은 그 뒤에만 "이 기기에서 출력"을 보인다.
 import type { LabelBitmap } from '@livejjim/label'
 import {
   PRINTER_MESSAGES,
   browserEnvironment,
   combineNiimbotFakes,
-  createB1Adapter,
+  connectedProfileId,
   createFakeNiimbotBluetooth,
   createFakeNiimbotSerial,
   createFakePrinter,
+  createWebPrinterAdapter,
   detectMethods,
   isRememberingAdapter,
   parseRememberedPrinter,
+  printerProfile,
+  profileSupportsSize,
+  sizeNotSupportedMessage,
   systemTimer,
   type ConnectionMethod,
   type ConnectionState,
@@ -82,6 +89,12 @@ export interface StationSnapshot {
   readonly testing: boolean
   /** 테스트 인쇄가 나왔다 ("또렷하게 보이나요?"를 묻는다) */
   readonly testPrinted: boolean
+  /** 이 연결에서 테스트 인쇄를 하고 "예"를 눌렀다 (실험 기종의 "이 기기에서 출력" 조건 — L-7 지원 단계. 끊기면 지운다) */
+  readonly testConfirmed: boolean
+  /** 이은 프린터의 프로필 ID (끊겼거나 모르면 null — L-7·L-12, 예 `NIIMBOT_B1`) */
+  readonly profileId: string | null
+  /** 마지막으로 이었거나 잇는 프린터가 Marklife·바우아토(L-12)다 — 해볼 일의 "NIIMBOT 앱"·"B1"을 "프린터 앱"·"프린터"로 (L-7 해볼 일) */
+  readonly labelPrinter: boolean
   readonly testError: string | null
   /** 이 기기에서 마지막으로 실패한 출력의 문장 */
   readonly lastError: string | null
@@ -113,7 +126,7 @@ interface WakeSentinel {
 export interface StationOptions {
   readonly store: PrintStore
   readonly deviceId: string
-  /** 실제 프린터 어댑터 (기본: B1) */
+  /** 실제 프린터 어댑터 (기본: 한 목록 어댑터 — NIIMBOT·Marklife·바우아토, L-7 고르기 목록) */
   readonly createAdapter?: () => PrinterAdapter
   /** 시험용 프린터 (기본: 가짜 프린터) */
   readonly createTestPrinter?: () => FakePrinter
@@ -205,6 +218,11 @@ export interface TestPrinterHandle {
    * 끄면 기다리던 시도도 그친다
    */
   setAutoReconnect(on: boolean): void
+  /**
+   * 시험용 프린터가 흉내 낼 프로필 (PRN2 — 켠 프로필 표의 ID, 예 `BAUATO_PPA2L`. null이면 B1). 실험 표시·크기 목록 시험용.
+   * 시험용 프린터가 이어져 있으면 먼저 끊는다(다음 연결부터 그 프로필). 표에 없는 ID면 바꾸지 않고 false
+   */
+  setTestProfile(profileId: string | null): boolean
 }
 
 function readMethod(): PrinterMethod | null {
@@ -223,6 +241,9 @@ function writeMethod(method: PrinterMethod): void {
     // 이 페이지 동안만
   }
 }
+
+/** 한 목록 어댑터가 Marklife·바우아토(L-12) 쪽으로 이었나 */
+const isLabelKind = (adapter: PrinterAdapter): boolean => (adapter as { readonly kind?: unknown }).kind === 'LABEL'
 
 const bitmapOut = (image: LabelBitmap) => ({ width: image.width, height: image.height, data: [...image.data] })
 
@@ -303,6 +324,8 @@ export class PrinterStation {
   #unlistenAdapter: (() => void) | null = null
   #real: PrinterAdapter | null = null
   #test: FakePrinter | null = null
+  /** 시험용 프린터가 흉내 낼 프로필 (null = B1) */
+  #testProfileId: string | null = null
   #fakeB1: FakeNiimbotBluetooth | null = null
   #fakeB1Setup: FakeB1Setup = {}
   #fakeUsb: FakeNiimbotSerial | null = null
@@ -364,6 +387,9 @@ export class PrinterStation {
       busy: false,
       testing: false,
       testPrinted: false,
+      testConfirmed: false,
+      profileId: null,
+      labelPrinter: false,
       testError: null,
       lastError: null,
       wake: 'off',
@@ -462,18 +488,49 @@ export class PrinterStation {
 
   // ── 연결 (판매자가 누른 동작 안에서만, L-7) ─────────────────────────────
 
+  /** 시험용 프린터를 만든다 (흉내 낼 프로필 — 없으면 B1) */
+  #makeTestPrinter(): FakePrinter {
+    const profile = this.#testProfileId === null ? undefined : printerProfile(this.#testProfileId)
+    if (profile === undefined && this.#options.createTestPrinter !== undefined) return this.#options.createTestPrinter()
+    return createFakePrinter({ methods: ['bluetooth'], ...(profile === undefined ? {} : { profile }) })
+  }
+
+  /** 시험 손잡이: 시험용 프린터가 흉내 낼 프로필을 바꾼다 (이어져 있으면 먼저 끊는다) */
+  #setTestProfile(profileId: string | null): boolean {
+    if (profileId !== null && printerProfile(profileId) === undefined) return false
+    if (profileId === this.#testProfileId) return true
+    this.#testProfileId = profileId
+    const previous = this.#test
+    if (previous === null) return true
+    this.#unlistenTestMemory?.()
+    this.#test = this.#makeTestPrinter()
+    this.#unlistenTestMemory = this.#wireMemory(this.#test, REMEMBERED_TEST_KEY)
+    if (this.#adapter === previous) {
+      this.#stopAuto()
+      this.#unlistenAdapter?.()
+      this.#unlistenAdapter = null
+      this.#adapter = null
+      this.#lastState = 'DISCONNECTED'
+      void previous.disconnect()
+      this.#set({ connection: 'DISCONNECTED', profileId: null, testPrinted: false, testConfirmed: false })
+      if (this.isMine()) void this.#report(false)
+    }
+    return true
+  }
+
   #ensureTestPrinter(): FakePrinter {
     if (this.#test === null) {
-      this.#test = this.#options.createTestPrinter?.() ?? createFakePrinter({ methods: ['bluetooth'] })
-      const test = this.#test
-      this.#unlistenTestMemory = this.#wireMemory(test, REMEMBERED_TEST_KEY)
+      this.#test = this.#makeTestPrinter()
+      this.#unlistenTestMemory = this.#wireMemory(this.#test, REMEMBERED_TEST_KEY)
+      // 손잡이는 지금의 시험용 프린터를 본다 (프로필을 바꾸면 새로 만든다)
+      const test = (): FakePrinter => this.#test as FakePrinter
       this.#options.exposeTestHandle?.({
-        printed: () => test.printed.map((record) => bitmapOut(record.image)),
-        printedCount: () => test.printed.length,
-        printCalls: () => test.printCalls,
-        setBehavior: (n, behavior) => test.setBehavior(n, behavior ?? undefined),
-        simulateDisconnect: () => test.simulateDisconnect(),
-        setConnectError: (code) => test.setConnectError(code ?? undefined),
+        printed: () => test().printed.map((record) => bitmapOut(record.image)),
+        printedCount: () => test().printed.length,
+        printCalls: () => test().printCalls,
+        setBehavior: (n, behavior) => test().setBehavior(n, behavior ?? undefined),
+        simulateDisconnect: () => test().simulateDisconnect(),
+        setConnectError: (code) => test().setConnectError(code ?? undefined),
         useFakeB1: () => {
           this.#useFakeB1()
           this.#saveFakes()
@@ -524,6 +581,7 @@ export class PrinterStation {
           this.#autoOffForTest = !on
           if (!on) this.#stopAuto()
         },
+        setTestProfile: (profileId) => this.#setTestProfile(profileId),
       })
       // 새로고침을 넘는 시험(AC-QS1-42): 앞 페이지에서 꽂은 가짜 기기를 같은 설정(허락됨 포함)으로 다시 꽂는다 — 시험 모드에서만
       const saved = readFakes()
@@ -545,7 +603,7 @@ export class PrinterStation {
     })
   }
 
-  /** 시험 모드: 실제 B1 어댑터에 가짜 블루투스 기기를 꽂는다 (한 번 — 이미 꽂았으면 그것) */
+  /** 시험 모드: 실제 한 목록 어댑터에 가짜 B1 블루투스 기기를 꽂는다 (한 번 — 이미 꽂았으면 그것) */
   #useFakeB1(): FakeNiimbotBluetooth {
     if (this.#fakeB1 !== null) return this.#fakeB1
     const setup = this.#fakeB1Setup
@@ -600,7 +658,7 @@ export class PrinterStation {
     const fakes = usb === null ? { environment: bt.environment, createClient: bt.createClient } : combineNiimbotFakes(bt, usb)
     const previous = this.#real
     this.#unlistenRealMemory?.()
-    this.#real = createB1Adapter({ environment: () => fakes.environment, createClient: fakes.createClient })
+    this.#real = createWebPrinterAdapter({ environment: () => fakes.environment, createClient: fakes.createClient })
     this.#unlistenRealMemory = this.#wireMemory(this.#real, REMEMBERED_KEY)
     if (previous !== null && this.#adapter === previous) {
       this.#stopAuto()
@@ -632,7 +690,7 @@ export class PrinterStation {
   #adapterFor(method: PrinterMethod): PrinterAdapter {
     if (method === 'test') return this.#ensureTestPrinter()
     if (this.#real === null) {
-      this.#real = this.#options.createAdapter?.() ?? createB1Adapter()
+      this.#real = this.#options.createAdapter?.() ?? createWebPrinterAdapter()
       this.#unlistenRealMemory = this.#wireMemory(this.#real, REMEMBERED_KEY)
     }
     return this.#real
@@ -675,11 +733,12 @@ export class PrinterStation {
     this.#adapterMethod = method
     writeMethod(method)
     const wasConnected = adapter.state === 'CONNECTED'
-    this.#set({ method, connecting: true, connectError: null, connection: adapter.state })
+    // 새 연결: 앞 연결의 테스트 확인은 지난 일이다 (실험 기종은 이 연결에서 다시 확인 — L-7 지원 단계)
+    this.#set({ method, connecting: true, connectError: null, connection: adapter.state, ...(wasConnected ? {} : { testConfirmed: false }) })
     const target = method === 'test' ? (adapter.availableMethods()[0] ?? 'bluetooth') : method
     // "다시 연결"은 기억한 기기로 (얻을 수 없으면 고르기 창), 연결 방법 단추는 늘 고르기 창 (D-QS1-01 (5))
     const result = await (mode === 'remembered' && isRememberingAdapter(adapter) ? adapter.reconnect(target) : adapter.connect(target))
-    this.#set({ connecting: false, connection: adapter.state, connectError: result.ok ? null : result.error, ...(result.ok ? { lastError: null } : {}) })
+    this.#set({ connecting: false, connection: adapter.state, profileId: connectedProfileId(adapter), labelPrinter: isLabelKind(adapter), connectError: result.ok ? null : result.error, ...(result.ok ? { lastError: null } : {}) })
     if (result.ok) {
       // 판매자가 이은 연결부터 저절로 다시 잇기 횟수를 새로 센다 (D-QS1-02 (3))
       this.#autoUsed = 0
@@ -719,15 +778,19 @@ export class PrinterStation {
   #onAdapterState(state: ConnectionState): void {
     const previous = this.#lastState
     this.#lastState = state
-    this.#set({ connection: state })
+    const adapter = this.#adapter
+    const profileId = adapter === null ? null : connectedProfileId(adapter)
+    // 끊기거나 다시 잇는 중이면 테스트 확인도 지운다 — 실험 기종은 이어진 그 연결에서 다시 확인한다 (L-7 지원 단계)
+    const fresh = state === 'DISCONNECTED' || state === 'CONNECTING'
+    this.#set({ connection: state, profileId, labelPrinter: adapter !== null && isLabelKind(adapter), ...(fresh ? { testConfirmed: false, testPrinted: false } : {}) })
     if (state === 'CONNECTED') {
       this.#autoBlocked = false
       this.#setAuto(null)
       // 저절로 다시 이어졌다: 60초 동안 끊기지 않으면 횟수를 새로 센다.
       // 타이머는 끊김/연결 중에서 처음 이어졌을 때만 건다 — 출력 한 장마다 오는
       // PRINTING → CONNECTED로 다시 걸면 자주 찍는 방송에서 횟수가 영영 새로 세어지지 않는다 (TD-QS1-001)
-      const fresh = previous !== 'PRINTING' && previous !== 'CONNECTED'
-      if (fresh && this.#autoUsed > 0) this.#armStable()
+      const firstLink = previous !== 'PRINTING' && previous !== 'CONNECTED'
+      if (firstLink && this.#autoUsed > 0) this.#armStable()
       this.#saveFakes()
     } else if (state === 'DISCONNECTED' && (previous === 'CONNECTED' || previous === 'PRINTING')) {
       // 연결된 뒤 끊김 (판매자 조작 아님 — "연결 끊기"는 #autoBlocked, 다른 방법은 듣기를 먼저 그만둔다)
@@ -844,7 +907,9 @@ export class PrinterStation {
     if (!force && this.#reported === connected) return
     this.#reported = connected
     try {
-      await this.#options.store.act('/api/print/device/state', { deviceId: this.#options.deviceId, connected })
+      // 이어졌으면 그 프린터의 프로필 ID를 함께 (L-11 10, D-PRN2-07 — 이름·기기 ID는 보내지 않는다. 모르면 보내지 않는다)
+      const profileId = connected && this.#adapter !== null ? connectedProfileId(this.#adapter) : null
+      await this.#options.store.act('/api/print/device/state', { deviceId: this.#options.deviceId, connected, ...(profileId === null ? {} : { profileId }) })
     } catch (error) {
       if (!isApiError(error)) throw error
       this.#reported = null
@@ -863,10 +928,13 @@ export class PrinterStation {
   /** "이 기기에서 출력" (다른 기기가 출력 기기면 replace 없이는 taken) */
   async become(name: string, replace: boolean): Promise<BecomeOutcome> {
     try {
+      // 이은 프린터의 프로필 ID도 함께 (L-11 10 — 모르면 보내지 않는다)
+      const profileId = this.#adapter === null ? null : connectedProfileId(this.#adapter)
       const result = await this.#options.store.act<{ queue: QueueSummary; waiting: number; backlog: boolean }>('/api/print/device', {
         deviceId: this.#options.deviceId,
         name,
         ...(replace ? { replace: true } : {}),
+        ...(profileId === null ? {} : { profileId }),
       })
       saveDeviceName(name)
       this.#mine = true
@@ -982,6 +1050,13 @@ export class PrinterStation {
   async #printJob(job: ClaimedJob): Promise<void> {
     saveAttempt({ deviceId: this.#options.deviceId, attempt: job.attempt })
     this.#set({ job: { id: job.id, date: job.date } })
+    // 이은 프린터가 이 크기를 찍지 못한다: 그리지도 보내지도 않고 라벨 오류로 알린다 — 서버는 라벨 오류로 멈춘다 (L-11 13, D-PRN2-07)
+    const profileId = this.#adapter === null ? null : connectedProfileId(this.#adapter)
+    if (profileId !== null && !profileSupportsSize(profileId, job.template.size)) {
+      this.#set({ lastError: sizeNotSupportedMessage(job.template.size) })
+      await this.#finishJob(job, { ok: false, error: { code: 'INVALID_TEMPLATE', item: 'size' } })
+      return
+    }
     let rendered: RenderOutcome
     try {
       rendered = await this.#renderWithRetry(job)
@@ -1002,7 +1077,7 @@ export class PrinterStation {
         const result =
           adapter === null || adapter.state === 'DISCONNECTED'
             ? { ok: false as const, error: { code: 'DISCONNECTED' as const, message: PRINTER_MESSAGES.DISCONNECTED } }
-            : await adapter.print(rendered.image, { density: this.#snapshot.density })
+            : await adapter.print(rendered.image, this.#printOptions(adapter))
         if (result.ok) {
           body = { ok: true }
           this.#set({ lastError: null })
@@ -1016,6 +1091,16 @@ export class PrinterStation {
       body = { ok: false, error: { code: 'DISCONNECTED' } }
     }
     await this.#finishJob(job, body)
+  }
+
+  /**
+   * 출력에 넘길 농도 (L-7 — 프로필 범위의 정수만): 농도를 받지 않는 프린터(L-12 테이프·바우아토)면 넘기지 않고,
+   * 고른 농도가 그 프린터 범위 밖이면(B1에서 고른 4·5를 Marklife YXQ 1~3에) 넘기지 않아 프린터 기본값으로 찍는다
+   */
+  #printOptions(adapter: PrinterAdapter): { density?: number } {
+    const range = adapter.profile.density
+    const density = this.#snapshot.density
+    return range === null || density < range.min || density > range.max ? {} : { density }
   }
 
   /** 그 장을 그린다. 던지면 조금 기다렸다 다시 그린다(RENDER_RETRY_DELAYS_MS). 오류 결과(설정 오류)는 다시 그리지 않는다 */
@@ -1062,14 +1147,14 @@ export class PrinterStation {
   async testPrint(input: { shopName: string; size: ClaimedJob['template']['size'] }): Promise<void> {
     const adapter = this.#adapter
     if (adapter === null || adapter.state !== 'CONNECTED' || this.#snapshot.busy || this.#snapshot.job !== null || this.#snapshot.testing) return
-    this.#set({ testing: true, testPrinted: false, testError: null })
+    this.#set({ testing: true, testPrinted: false, testConfirmed: false, testError: null })
     try {
       const rendered = await this.#options.renderTest({ shopName: input.shopName, date: this.#options.today(), size: input.size })
       if (!rendered.ok) {
         this.#set({ testError: rendered.error.message })
         return
       }
-      const result = await adapter.print(rendered.image, { density: this.#snapshot.density })
+      const result = await adapter.print(rendered.image, this.#printOptions(adapter))
       this.#set(result.ok ? { testPrinted: true } : { testError: result.error.message })
     } catch {
       this.#set({ testError: PRINTER_MESSAGES.PRINT_FAILED })
@@ -1080,7 +1165,13 @@ export class PrinterStation {
   }
 
   dismissTest(): void {
-    this.#set({ testPrinted: false, testError: null })
+    this.#set({ testPrinted: false, testConfirmed: false, testError: null })
+  }
+
+  /** 테스트 결과의 답 ("예"는 이 연결에서 테스트 인쇄가 나온 뒤에만 받는다 — 실험 기종의 "이 기기에서 출력" 조건, L-7) */
+  answerTest(yes: boolean): void {
+    if (yes && !this.#snapshot.testPrinted) return
+    this.#set({ testConfirmed: yes })
   }
 
   // ── 화면 꺼짐 막기 (D-I1-03) ───────────────────────────────────────────
