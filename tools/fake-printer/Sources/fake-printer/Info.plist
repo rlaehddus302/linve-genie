@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.livejjim.fake-printer</string>
+	<key>CFBundleName</key>
+	<string>fake-printer</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>폰 앱이 라벨을 찍어 볼 수 있게 맥이 블루투스 라벨 프린터인 척합니다.</string>
+</dict>
+</plist>
