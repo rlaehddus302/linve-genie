@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { alertConsents, alertSubscribers, scheduleItems } from '../src/db/schema.ts'
 import { PHONE_NUMBER_MESSAGE } from '../src/messages.ts'
 import { checkScheduleItem, checkSchedulePage, readChannelUrl, SCHEDULE_MESSAGES } from '../src/schedule/rules.ts'
+import { SCHEDULE_TOKEN_LIMIT } from '../src/schedule/page.ts'
 import { storedPhones } from '../src/schedule/service.ts'
 import { sweepSchedule } from '../src/schedule/sweep.ts'
 import { kst, putShop, SHOP } from './i2-support.ts'
@@ -203,17 +204,31 @@ describe('AC-KP1-21 공개 일정 페이지', () => {
     expect((await w.server.app.request(again, { method: 'PUT' })).status).toBe(405)
   })
 
-  it('일정이 없으면 한 줄, 토큰마다 1분 60번(61번째 429)', async () => {
+  it('일정이 없으면 한 줄, 접속 주소마다 1분 60번(61번째 429) — 다른 접속 주소는 그대로 열린다 (RA-KP1-001)', async () => {
     const { world: w, seller } = await world()
     const path = await enable(w, seller)
-    const first = await (await w.server.app.request(path)).text()
+    const open = (ip: string) => w.server.app.request(path, {}, fromIp(ip))
+    const first = await (await open('203.0.113.1')).text()
     expect(first).toContain('다가오는 방송이 아직 없어요.')
-    for (let i = 1; i < 60; i += 1) expect((await w.server.app.request(path)).status).toBe(200)
-    const limited = await w.server.app.request(path)
+    for (let i = 1; i < 60; i += 1) expect((await open('203.0.113.1')).status).toBe(200)
+    const limited = await open('203.0.113.1')
     expect(limited.status).toBe(429)
     expect(await limited.text()).toContain('잠시 뒤 다시 열어 주세요.')
+    // 같은 가게 주소를 다른 손님(접속 주소)은 그대로 연다
+    for (let i = 0; i < 5; i += 1) expect((await open(`198.51.100.${String(i + 10)}`)).status).toBe(200)
     w.clock.advance(60_001)
-    expect((await w.server.app.request(path)).status).toBe(200)
+    expect((await open('203.0.113.1')).status).toBe(200)
+  })
+
+  it('토큰 하나 전체는 1분 3,000번 상한만 (여러 접속 주소의 합 — 3,001번째 429)', async () => {
+    const { world: w } = await world()
+    // 없는 토큰도 모양이 맞으면 같은 칸을 센다 (상한은 열기 전에 본다)
+    const path = `/s/${'A'.repeat(43)}`
+    for (let i = 0; i < SCHEDULE_TOKEN_LIMIT; i += 1) {
+      const response = await w.server.app.request(path, {}, fromIp(`10.0.${String(Math.floor(i / 50))}.${String(i % 50)}`))
+      if (response.status !== 404) throw new Error(`${String(i)}번째가 ${String(response.status)}`)
+    }
+    expect((await w.server.app.request(path, {}, fromIp('10.9.9.9'))).status).toBe(429)
   })
 })
 
@@ -286,13 +301,16 @@ describe('AC-KP1-22 알림 받기 신청·그만 받기', () => {
     expect(await counts(w, seller)).toEqual({ pending: 1, active: 0, withdrawn: 1 })
   })
 
-  it('알림 신청은 토큰마다 1분 10번, 그리고 접속 주소마다 1분 10번', async () => {
+  it('알림 신청은 접속 주소마다 1분 10번 — 손님 11명이 1분에 신청해도 모두 받는다 (RA-KP1-001)', async () => {
     const { world: w, seller } = await world()
     const path = await enable(w, seller)
-    for (let i = 0; i < 10; i += 1) expect((await postForm(w, `${path}/alert`, { phone: `010-1000-${String(1000 + i)}`, agree: 'on' }, { env: fromIp(`203.0.113.${String(i + 1)}`) })).status).toBe(303)
-    expect((await postForm(w, `${path}/alert`, { phone: '010-1000-2000', agree: 'on' }, { env: fromIp('203.0.113.99') })).status).toBe(429)
-    expect(await storedPhones(w.database.db, seller.sellerId)).toBe(10)
-    // 같은 접속 주소가 여러 가게 주소에
+    for (let i = 0; i < 11; i += 1) expect((await postForm(w, `${path}/alert`, { phone: `010-1000-${String(1000 + i)}`, agree: 'on' }, { env: fromIp(`203.0.113.${String(i + 1)}`) })).status).toBe(303)
+    expect(await storedPhones(w.database.db, seller.sellerId)).toBe(11)
+    // 한 접속 주소가 10번을 넘기면 그 주소만 막힌다 (다른 손님은 그대로)
+    for (let i = 0; i < 10; i += 1) expect((await postForm(w, `${path}/stop`, { phone: `010-1000-${String(1000 + i)}` }, { env: fromIp('192.0.2.66') })).status).toBe(303)
+    expect((await postForm(w, `${path}/alert`, { phone: '010-1000-2000', agree: 'on' }, { env: fromIp('192.0.2.66') })).status).toBe(429)
+    expect((await postForm(w, `${path}/alert`, { phone: '010-1000-2001', agree: 'on' }, { env: fromIp('192.0.2.67') })).status).toBe(303)
+    // 같은 접속 주소가 여러 가게 주소에 — 합쳐 센다
     const other = await addSeller(w)
     await expectOk(putShop(w, other, { ...SHOP, name: '다육이네' }))
     const otherPath = await enable(w, other)

@@ -1,8 +1,9 @@
 // 공개 방송 일정 페이지 `/s/<토큰>` (SPEC SCH-02·SCH-03, MESSAGE_RULES MR-6, KP1 AC-KP1-21·22). 서버가 그리는 HTML 한 장 — 스크립트 없음, 로그인 없음.
 // - 보이는 것: 가게 이름·다가오는 일정·(있으면) 유튜브 채널 주소·알림 받기 양식·그만 받기 양식. 손님·판매 정보·연락처는 없다.
 // - 머리글: no-store · noindex · no-referrer · 틀 금지 · nosniff · 스크립트 없는 CSP(form-action 'self'). 판매자 세션 쿠키가 와도 보지 않는다.
-// - 모르는·꺼진·옛 토큰은 모두 같은 404 문서. 토큰마다 1분 60번(GET·POST 합)을 넘으면 429.
-// - 알림 신청·그만 받기(POST): Origin이 앱 주소일 때만(formFromApp), 토큰마다 1분 10번 그리고 접속 주소마다 1분 10번(가정 — 둘 다)을 넘으면 429.
+// - 모르는·꺼진·옛 토큰은 모두 같은 404 문서. 페이지 열기는 접속 주소마다 1분 60번을 넘으면 429 (RA-KP1-001 — 손님 여럿이 한 가게 주소를 함께 연다).
+//   토큰 전체에는 큰 상한만(1분 3,000번 — GET·POST 합): 공격자 한 명이 가게 주소 전체를 막지 못하게 하면서 끝없는 요청은 막는다.
+// - 알림 신청·그만 받기(POST): Origin이 앱 주소일 때만(formFromApp), 접속 주소마다 1분 10번을 넘으면 429. 접속 주소를 모르면 한 칸으로 함께 센다.
 //   체크가 없거나 번호가 휴대폰 번호가 아니면 저장하지 않고 400(적은 번호를 다시 채우지 않는다). 저장하면 303으로 같은 페이지에 처리 결과 한 줄.
 //   그만 받기는 번호가 있든 없든 같은 303·같은 문장(있는지 알려 주지 않는다).
 // - 번호는 응답·로그에 없다(이 파일은 로그를 쓰지 않는다). 문자를 보내지 않는다.
@@ -19,10 +20,12 @@ import { readShop } from '../shop.ts'
 import { kstDate, type Clock } from '../time.ts'
 import { SCHEDULE_TOKEN_RE, type PublicSchedule, type ScheduleService } from './service.ts'
 
-/** 페이지 열기 상한 (토큰마다 1분 60번 — GET·POST 합) */
+/** 페이지 열기 상한 (접속 주소마다 1분 60번, RA-KP1-001) */
 export const SCHEDULE_PAGE_LIMIT = 60
-/** 알림 신청·그만 받기 상한 (토큰마다·접속 주소마다 1분 10번) */
+/** 알림 신청·그만 받기 상한 (접속 주소마다 1분 10번, RA-KP1-001) */
 export const ALERT_FORM_LIMIT = 10
+/** 토큰 하나 전체 상한 (1분 3,000번 — GET·POST 합, RA-KP1-001) */
+export const SCHEDULE_TOKEN_LIMIT = 3000
 export const SCHEDULE_WINDOW_MS = 60_000
 /** 양식 본문 상한 */
 export const ALERT_FORM_MAX_BYTES = 2048
@@ -162,9 +165,11 @@ const FORM_RE = /^\/s\/([^/]+)\/(alert|stop)$/
 
 /** `/s`·`/s/*` 경로를 앱에 단다 (화면 문서 index.html보다 먼저) */
 export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
+  const tokenLimiter = new LinkRateLimiter(deps.clock, SCHEDULE_TOKEN_LIMIT, SCHEDULE_WINDOW_MS)
   const pageLimiter = new LinkRateLimiter(deps.clock, SCHEDULE_PAGE_LIMIT, SCHEDULE_WINDOW_MS)
   const formLimiter = new LinkRateLimiter(deps.clock, ALERT_FORM_LIMIT, SCHEDULE_WINDOW_MS)
-  const addressLimiter = new LinkRateLimiter(deps.clock, ALERT_FORM_LIMIT, SCHEDULE_WINDOW_MS)
+  /** 접속 주소 칸 (모르면 한 칸 — 기존 공개 경로와 같은 clientAddress) */
+  const addressOf = (c: Context) => `ip:${clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0) ?? '?'}`
   const closed = () => htmlResponse(404, CLOSED_PAGE)
   const later = () => htmlResponse(429, LATER_PAGE)
   const shopName = async (sellerId: string) => {
@@ -176,7 +181,8 @@ export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
     const match = PAGE_RE.exec(c.req.path)
     const token = match?.[1] ?? ''
     if (!SCHEDULE_TOKEN_RE.test(token)) return closed()
-    if (!pageLimiter.take(receiptTokenHash(token))) return later()
+    // 접속 주소 칸을 먼저 센다 — 넘은 요청은 토큰 전체 칸을 쓰지 않는다
+    if (!pageLimiter.take(addressOf(c)) || !tokenLimiter.take(receiptTokenHash(token))) return later()
     const data = await deps.schedule.openPage(token)
     if (data === null) return closed()
     const shop = await shopName(data.sellerId)
@@ -196,13 +202,7 @@ export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
     const action = match?.[2] as 'alert' | 'stop' | undefined
     if (action === undefined || !SCHEDULE_TOKEN_RE.test(token)) return closed()
     if (!formFromApp(c.req.header('origin'), c.req.header('sec-fetch-site'), deps.appOrigin)) return htmlResponse(403, FORBIDDEN_PAGE)
-    const hash = receiptTokenHash(token)
-    if (!pageLimiter.take(hash)) return later()
-    const address = clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0)
-    // 둘 다 센다 (토큰마다 그리고 접속 주소마다 — 어느 하나라도 넘으면 막는다)
-    const byToken = formLimiter.take(hash)
-    const byAddress = address === null ? true : addressLimiter.take(`ip:${address}`)
-    if (!byToken || !byAddress) return later()
+    if (!formLimiter.take(addressOf(c)) || !tokenLimiter.take(receiptTokenHash(token))) return later()
     const data = await deps.schedule.openPage(token)
     if (data === null) return closed()
     const shop = await shopName(data.sellerId)
