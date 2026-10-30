@@ -47,6 +47,7 @@ import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './Aler
 import { ChatPanel } from './ChatPanel.tsx'
 import { MultiPlatformNotice, PlatformPanels, platformLeads, useConsolePlatforms } from './ConsolePlatforms.tsx'
 import { ExtensionRouteLine, ExtensionThanksBar, ExtensionWarningBar, useExtension } from './ExtensionConnection.tsx'
+import { invitedChannelName } from '../lib/youtube.ts'
 import { AuthorizeDialog, CollectorWarningBar, OutboxDialog, QuotaToast, UnlinkDialog, YoutubeContext, YoutubePanel, useConsoleYoutube } from './ConsoleYoutube.tsx'
 import { Lock } from './Lock.tsx'
 import { SealedNotice } from './SealNotice.tsx'
@@ -1505,7 +1506,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
-          <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} />
+          <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} invited={invitedChannelName(yt.link?.link ?? null) !== null} />
           <QuotaToast />
           <div ref={quickBoxRef} className="console-sticky-quick">
             <AlertStrip
