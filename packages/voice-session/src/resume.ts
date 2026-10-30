@@ -1,7 +1,7 @@
 // 음성 원문을 서버에 보관하지 않고, 기기가 메모리에 들고 있던 대기 화면의 발급 여부만 검증한다.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { deflateRawSync, inflateRawSync } from 'node:zlib'
-import type { VoiceResumeView } from '../../../apps/web/src/voice/controller.ts'
+import type { VoiceResumeView } from './controller/controller.ts'
 import { fromWire, isRecord, toWire } from './wire.ts'
 
 const key = randomBytes(32)
