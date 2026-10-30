@@ -185,6 +185,8 @@ export type ErrorCode =
   | 'NO_CONSENT'
   // A1 AI 제안: 켜기에 동의가 없음
   | 'CONSENT_REQUIRED'
+  // KP1 방송 일정: 다가오는 일정 10개를 넘음
+  | 'SCHEDULE_FULL'
 
 export interface ErrorBody {
   readonly error: {

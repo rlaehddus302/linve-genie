@@ -44,6 +44,9 @@ import { TikTokExtension } from './tiktok-live/extension.ts'
 import { PasteService } from './tiktok-live/paste-service.ts'
 import { CustomerArchiver } from './customers/archive.ts'
 import { CustomerService } from './customers/service.ts'
+import { ReportService } from './report/service.ts' // KP1 리포트
+import { registerSchedulePage } from './schedule/page.ts' // KP1 일정
+import { ScheduleService } from './schedule/service.ts' // KP1 일정
 import { tiktokLinkCounts } from './tiktok-live/store.ts'
 import { BandService, type BandClock, type BandHooks, type BandTiming } from './band/service.ts'
 import type { BandSettings } from './band/config.ts'
@@ -273,6 +276,10 @@ export interface LivejjimServer {
   readonly customers: CustomerService
   /** 손님 기록 보관 차례 (CRM1 D-CRM1-12 — 서버 시작 때와 1시간마다, 봉인 전 취소 수·'입금 안 함'을 남긴다) */
   readonly customerArchiver: CustomerArchiver
+  /** KP1 방송 리포트 (볼 때 계산 — 저장하지 않는다) */
+  readonly report: ReportService
+  /** KP1 방송 일정·공개 일정 페이지·알림 신청 (문자를 보내지 않는다) */
+  readonly schedule: ScheduleService
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -483,6 +490,9 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
   const customers = new CustomerService({ db, writer, clock, log, masterKey })
   const customerArchiver = new CustomerArchiver({ db, writer, timer, log, facts: customers.factsDeps() })
+  // KP1 방송 리포트·방송 일정
+  const report = new ReportService({ db, writer, log, facts: customers.factsDeps() })
+  const schedule = new ScheduleService({ db, clock, masterKey, appOrigin: options.appOrigin })
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
@@ -689,6 +699,9 @@ export function createServer(options: ServerOptions): LivejjimServer {
       extension,
       assist,
       customers,
+      // KP1
+      report,
+      schedule,
     },
     extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress, tiktok: tiktokExtension, ...(options.extensionCodeLimits === undefined ? {} : { codeLimits: options.extensionCodeLimits }) }) as unknown as Hono,
     https: options.appOrigin.startsWith('https://'),
@@ -700,7 +713,11 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
     webhooks: createWebhookApp(instagramModule),
-    receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer }),
+    receiptPage: (app) => {
+      registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer })
+      // KP1 공개 방송 일정 페이지 /s/<토큰> (화면 문서보다 먼저)
+      registerSchedulePage(app, { db, schedule, clock, appOrigin: options.appOrigin, trustedProxies })
+    },
   })
   registerVoiceRelay(app, voice)
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
@@ -736,6 +753,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     assist,
     customers,
     customerArchiver,
+    report,
+    schedule,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
