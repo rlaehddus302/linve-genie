@@ -93,7 +93,8 @@ export function useServices(): Services {
 
 // ── 세션 ──
 
-export type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean } | { readonly state: 'in'; readonly me: Me }
+/** offline: 첫 확인 때 서버에 닿지 못했다 — 로그인이 풀린 것이 아닐 수 있어 "다시 확인"을 보인다 (APP2 실기기: 서버가 안 닿으면 말없이 로그인 화면이 떠 로그아웃된 줄 알았다) */
+export type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean; readonly offline?: boolean } | { readonly state: 'in'; readonly me: Me }
 
 export interface SessionApi {
   readonly session: Session
@@ -114,7 +115,7 @@ export function SessionProvider({ children, services }: { readonly children: Rea
       setSession({ state: 'in', me })
     } catch (error) {
       if (isApiError(error) && error.status === 401) setSession({ state: 'out', expired: false })
-      else setSession((current) => (current.state === 'in' ? current : { state: 'out', expired: false }))
+      else setSession((current) => (current.state === 'in' ? current : { state: 'out', expired: false, offline: isApiError(error) && error.network === true }))
     }
   }
 

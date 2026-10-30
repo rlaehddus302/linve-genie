@@ -4,14 +4,25 @@
 import { useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import { openWeb } from '../lib/open-web.ts'
-import { LOGIN_ACCOUNT_NOTE, LOGIN_FAILED_HINT, OPEN_IN_WEB, SERVICE_NAME, SESSION_EXPIRED_MESSAGE } from '../lib/words.ts'
+import { LOGIN_ACCOUNT_NOTE, LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, OPEN_IN_WEB, SERVICE_NAME, SESSION_EXPIRED_MESSAGE } from '../lib/words.ts'
 import { BigButton, Field, Hint, Notice, Screen, Stack } from '../ui/parts.tsx'
 
-export function LoginScreen({ expired, onLogin }: { readonly expired: boolean; readonly onLogin: (loginId: string, password: string) => Promise<void> }) {
+export function LoginScreen({ expired, offline = false, onRecheck, onLogin }: { readonly expired: boolean; readonly offline?: boolean; readonly onRecheck?: () => Promise<void>; readonly onLogin: (loginId: string, password: string) => Promise<void> }) {
   const [loginId, setLoginId] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
+  const [rechecking, setRechecking] = useState(false)
+
+  const recheck = async () => {
+    if (rechecking || onRecheck === undefined) return
+    setRechecking(true)
+    try {
+      await onRecheck()
+    } finally {
+      setRechecking(false)
+    }
+  }
 
   const submit = async () => {
     if (busy) return
@@ -31,6 +42,8 @@ export function LoginScreen({ expired, onLogin }: { readonly expired: boolean; r
   return (
     <Screen title={SERVICE_NAME} testID="login-screen">
       {expired ? <Notice tone="warning">{SESSION_EXPIRED_MESSAGE}</Notice> : null}
+      {offline ? <Notice tone="warning" alert>{OFFLINE_AT_START_MESSAGE}</Notice> : null}
+      {offline && onRecheck !== undefined ? <BigButton label="다시 확인" disabled={rechecking} onPress={() => void recheck()} /> : null}
       <Stack>
         <Field label="아이디" value={loginId} onChangeText={setLoginId} autoCapitalize="none" autoCorrect={false} autoComplete="username" textContentType="username" />
         <Field label="비밀번호" value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={() => void submit()} />

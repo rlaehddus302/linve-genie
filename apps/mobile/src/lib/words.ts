@@ -102,6 +102,8 @@ export const NO_STATION_SHORT = '라벨이 안 나가요 · 프린터를 연결�
 /** 서버에 닿지 못했을 때 (웹과 같은 문장) */
 export const NETWORK_MESSAGE = '서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.'
 export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그인해 주세요.'
+/** 앱을 켤 때 서버에 닿지 못함 — 로그인이 풀린 것이 아닐 수 있다 (APP2) */
+export const OFFLINE_AT_START_MESSAGE = '서버에 연결하지 못해 로그인을 확인하지 못했어요. 인터넷 연결을 확인하고 다시 확인을 눌러 주세요.'
 export const LOGIN_FAILED_HINT = '아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
 export const LOGIN_ACCOUNT_NOTE = '계정은 운영자가 만들어 드려요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
 
