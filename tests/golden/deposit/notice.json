@@ -1,0 +1,734 @@
+{
+  "kind": "notice",
+  "about": "휴대폰이 받은 은행 앱 알림·은행 문자 하나 읽기 (DEPOSIT_RULES DP-9 1~7, SMS3 — D-DEP2-02·D-DEP2-03). out = 입금 DEPOSIT / 입금 취소 CANCEL / 출금 WITHDRAWAL / 읽지 못함 UNREADABLE / 은행 알림 아님 NONE. 시계·시간대와 상관없다. 외부 키·잔액 이어짐·저장(DP-9 8·9)은 서버 시험이 본다.",
+  "cases": [
+    {
+      "id": "G-DEP-201",
+      "title": "KB국민 대표번호 문자 — 입금·잔액·시각(분)·이름 하나",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "1588-9999 → 15889999 = KB. [Web발신] 지움. 종류: 입금만 → DEPOSIT. 금액: '입금' 뒤 '14,000'. 잔액 1014000. 시각 10/31 14:03(연도 2026, 초 없음 → minute). 이름: 숫자·* 든 토큰과 '입금' 버림 → 홍길동 하나.",
+      "in": {
+        "channel": "SMS",
+        "from": "1588-9999",
+        "title": null,
+        "text": "[Web발신]\n[KB]10/31 14:03\n123456**789\n홍길동\n입금\n14,000\n잔액1,014,000",
+        "receivedAt": "2026-10-31T14:03:20+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T14:03:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": 1014000
+      }
+    },
+    {
+      "id": "G-DEP-202",
+      "title": "신한 대표번호 문자 — 은행 이름에 붙은 날짜, 이름이 맨 끝",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'신한10/31'은 숫자가 들어 있어 이름 아님. 연속 공백은 한 칸. 남은 토큰 김영희.",
+      "in": {
+        "channel": "SMS",
+        "from": "15778000",
+        "title": null,
+        "text": "[Web발신]\n신한10/31 14:05\n110-***-123456\n입금      14,000\n잔액   1,028,000\n 김영희",
+        "receivedAt": "2026-10-31T14:05:09+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "SHINHAN",
+        "trusted": true,
+        "at": "2026-10-31T14:05:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "김영희",
+        "balance": 1028000
+      }
+    },
+    {
+      "id": "G-DEP-203",
+      "title": "NH농협 문자 — 입금 낱말에 붙은 금액·원, 잔액에 원",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'입금' 바로 뒤 '14,000'(공백 0개). '농협'은 버리는 낱말.",
+      "in": {
+        "channel": "SMS",
+        "from": "1588-2100",
+        "title": null,
+        "text": "농협 입금14,000원 10/31 14:07 351-****-1234-56 박민수 잔액1,042,000원",
+        "receivedAt": "2026-10-31T14:07:30+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "NH",
+        "trusted": true,
+        "at": "2026-10-31T14:07:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "박민수",
+        "balance": 1042000
+      }
+    },
+    {
+      "id": "G-DEP-204",
+      "title": "카카오뱅크 앱 알림 — 제목+본문, 입출금통장은 출금이 아님, 시각 없음 → 받은 시각",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "s = '입금 14,000원 이수진 → 내 입출금통장(1234)'. c에서 '입출금'을 지우면 출금 낱말 없음 → DEPOSIT. 시각 모양 없음 → receivedAt 초까지, second. 이름: '→'(글자 없음)·'내'(낱말)·'입출금통장(1234)'(숫자) 버림 → 이수진. 잔액 없음.",
+      "in": {
+        "channel": "APP",
+        "from": "com.kakaobank.channel",
+        "title": "입금 14,000원",
+        "text": "이수진 → 내 입출금통장(1234)",
+        "receivedAt": "2026-10-31T14:09:12+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KAKAO",
+        "trusted": true,
+        "at": "2026-10-31T14:09:12+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "이수진",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-205",
+      "title": "토스뱅크 앱 알림 — 금액이 입금 앞에",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'입금' 뒤는 '최유리'라 금액 아님 → 앞 '14,000원 '. '토스뱅크'·'통장' 버림.",
+      "in": {
+        "channel": "APP",
+        "from": "viva.republica.toss",
+        "title": "14,000원 입금",
+        "text": "최유리 → 토스뱅크 통장",
+        "receivedAt": "2026-10-31T14:10:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "TOSS",
+        "trusted": true,
+        "at": "2026-10-31T14:10:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "최유리",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-206",
+      "title": "님이 … 원을 입금했어요 문장",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "K '입금'(입금했어요 안) 뒤 '했어요' → 앞 '14,000원을 '. 이름: '최유리님이' → 님이 뗌 → 최유리. '입금했어요'는 버리는 낱말.",
+      "in": {
+        "channel": "APP",
+        "from": "viva.republica.toss",
+        "title": null,
+        "text": "최유리님이 14,000원을 입금했어요",
+        "receivedAt": "2026-10-31T14:11:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "TOSS",
+        "trusted": true,
+        "at": "2026-10-31T14:11:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "최유리",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-207",
+      "title": "우리 대표번호 출금 문자 — 출금은 이름 없이 잔액만",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "1588-5000",
+        "title": null,
+        "text": "[Web발신]\n우리 10/31 14:20\n*123456\n출금 5,000원\n잔액 1,037,000원",
+        "receivedAt": "2026-10-31T14:20:40+09:00"
+      },
+      "out": {
+        "kind": "WITHDRAWAL",
+        "bank": "WOORI",
+        "trusted": true,
+        "at": "2026-10-31T14:20:00+09:00",
+        "precision": "minute",
+        "amount": 5000,
+        "balance": 1037000
+      }
+    },
+    {
+      "id": "G-DEP-208",
+      "title": "하나 체크카드 승인 — 승인은 출금 낱말, 잔액 없음",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "1588-1111",
+        "title": null,
+        "text": "하나 체크카드 승인 12,000원 10/31 14:30 편의점",
+        "receivedAt": "2026-10-31T14:30:05+09:00"
+      },
+      "out": {
+        "kind": "WITHDRAWAL",
+        "bank": "HANA",
+        "trusted": true,
+        "at": "2026-10-31T14:30:00+09:00",
+        "precision": "minute",
+        "amount": 12000,
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-209",
+      "title": "KB 입금취소 — 입금이 아니라 입금 취소",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "c에 '입금취소' → CANCEL(출금 낱말 검사보다 먼저). 금액은 '입금취소' 뒤.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]10/31 14:40 123456**789 홍길동 입금취소 14,000 잔액1,000,000",
+        "receivedAt": "2026-10-31T14:40:02+09:00"
+      },
+      "out": {
+        "kind": "CANCEL",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T14:40:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": 1000000
+      }
+    },
+    {
+      "id": "G-DEP-210",
+      "title": "입금 취소 — 글자 사이 공백",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "공백 지운 c '...입금취소...' → CANCEL. K는 공백 허용 '입금 취소'. 이름: '취소'도 버리는 낱말.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 홍길동 입금 취소 14,000원",
+        "receivedAt": "2026-10-31T14:41:00+09:00"
+      },
+      "out": {
+        "kind": "CANCEL",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T14:41:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-211",
+      "title": "입금 낱말은 있는데 금액이 없음 → 읽지 못함",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 입금 내역을 확인하세요",
+        "receivedAt": "2026-10-31T15:00:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-212",
+      "title": "은행 낱말이 없는 은행 문자 → 은행 알림 아님",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "보안카드는 '카드'를 담지만 출금 낱말은 출금·지급·승인·결제뿐.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 보안카드 재발급 안내",
+        "receivedAt": "2026-10-31T15:00:00+09:00"
+      },
+      "out": {
+        "kind": "NONE"
+      }
+    },
+    {
+      "id": "G-DEP-213",
+      "title": "입금과 출금이 함께 → 읽지 못함",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 입금 14,000 출금 14,000",
+        "receivedAt": "2026-10-31T15:01:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-214",
+      "title": "금액 상한 1억 원 넘음 → 읽지 못함",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 홍길동 입금 200,000,000",
+        "receivedAt": "2026-10-31T15:02:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-215",
+      "title": "금액 0 → 읽지 못함",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 홍길동 입금 0원",
+        "receivedAt": "2026-10-31T15:03:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-216",
+      "title": "이름 후보가 둘 → 빈 이름",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]10/31 14:03 홍길동 김영희 입금 14,000",
+        "receivedAt": "2026-10-31T14:03:30+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T14:03:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-217",
+      "title": "표 밖 번호의 문자 — 읽지만 믿지 않음",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "1600-0000 → 16000000은 표에 없음 → trusted false, bank null. 읽기는 같다.",
+      "in": {
+        "channel": "SMS",
+        "from": "1600-0000",
+        "title": null,
+        "text": "[KB]10/31 14:03 123456**789 홍길동 입금 14,000 잔액1,014,000",
+        "receivedAt": "2026-10-31T14:03:20+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": null,
+        "trusted": false,
+        "at": "2026-10-31T14:03:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": 1014000
+      }
+    },
+    {
+      "id": "G-DEP-218",
+      "title": "표 밖 앱의 알림 — 믿지 않음",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "APP",
+        "from": "com.example.fakebank",
+        "title": "입금 50,000원",
+        "text": "홍길동",
+        "receivedAt": "2026-10-31T16:00:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": null,
+        "trusted": false,
+        "at": "2026-10-31T16:00:00+09:00",
+        "precision": "second",
+        "amount": 50000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-219",
+      "title": "앱 패키지 이름은 대소문자까지 같아야 함",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "APP",
+        "from": "com.KakaoBank.channel",
+        "title": "입금 14,000원",
+        "text": "이수진",
+        "receivedAt": "2026-10-31T16:01:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": null,
+        "trusted": false,
+        "at": "2026-10-31T16:01:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "이수진",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-220",
+      "title": "+82 대표번호 — 보낸 번호 정리로 같음",
+      "refs": [
+        "PAY-02",
+        "DP-9",
+        "R-26"
+      ],
+      "note": "R-26 1: 82 뗌 → 15889999(8자리라 0을 붙이지 않음).",
+      "in": {
+        "channel": "SMS",
+        "from": "+82 1588-9999",
+        "title": null,
+        "text": "[KB] 홍길동 입금 14,000",
+        "receivedAt": "2026-10-31T16:02:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T16:02:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-221",
+      "title": "해가 바뀌는 알림 — 12/31 알림을 1/1에 받음",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "2027-12-31은 받은 날 2027-01-01 + 1일보다 늦음 → 2026.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]12/31 23:59 홍길동 입금 14,000",
+        "receivedAt": "2027-01-01T00:02:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-12-31T23:59:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-222",
+      "title": "초까지 있는 시각 → second",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]10/31 14:03:15 홍길동 입금 14,000",
+        "receivedAt": "2026-10-31T14:03:20+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T14:03:15+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-223",
+      "title": "없는 날짜 → 받은 시각",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]13/45 14:03 홍길동 입금 14,000",
+        "receivedAt": "2026-10-31T14:03:20+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T14:03:20+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-224",
+      "title": "전각 숫자·원 앞 공백",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "NFKC로 반각. '원' 토큰은 버리는 낱말.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 홍길동 입금 １４,０００ 원",
+        "receivedAt": "2026-10-31T14:03:20+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T14:03:20+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-225",
+      "title": "받은 시각은 UTC로 와도 KST로 적음",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "APP",
+        "from": "com.kakaobank.channel",
+        "title": "입금 14,000원",
+        "text": "이수진",
+        "receivedAt": "2026-10-31T05:09:12Z"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KAKAO",
+        "trusted": true,
+        "at": "2026-10-31T14:09:12+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "이수진",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-226",
+      "title": "카카오뱅크 출금 알림 — 입출금통장, 금액만",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "APP",
+        "from": "com.kakaobank.channel",
+        "title": "출금 5,000원",
+        "text": "내 입출금통장(1234) → 김밥천국",
+        "receivedAt": "2026-10-31T16:05:00+09:00"
+      },
+      "out": {
+        "kind": "WITHDRAWAL",
+        "bank": "KAKAO",
+        "trusted": true,
+        "at": "2026-10-31T16:05:00+09:00",
+        "precision": "second",
+        "amount": 5000,
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-227",
+      "title": "출금 낱말 뒤 금액이 없어도 출금 (금액 null)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'출금' 뒤는 '알림' → 앞에도 금액 없음 → amount null. 잔액은 읽음.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 출금 알림 잔액 990,000",
+        "receivedAt": "2026-10-31T16:06:00+09:00"
+      },
+      "out": {
+        "kind": "WITHDRAWAL",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T16:06:00+09:00",
+        "precision": "second",
+        "amount": null,
+        "balance": 990000
+      }
+    },
+    {
+      "id": "G-DEP-228",
+      "title": "잔액 낱말 뒤 콜론",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15998000",
+        "title": null,
+        "text": "신한 입금 14,000 잔액: 1,014,000 정하늘",
+        "receivedAt": "2026-10-31T16:07:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "SHINHAN",
+        "trusted": true,
+        "at": "2026-10-31T16:07:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "정하늘",
+        "balance": 1014000
+      },
+      "note": "'잔액:'은 앞뒤 ':'를 떼면 '잔액'(버리는 낱말). 잔액은 '잔액' 뒤 ':'·공백을 건너 1,014,000. 남은 토큰 정하늘."
+    },
+    {
+      "id": "G-DEP-229",
+      "title": "이름 대괄호는 떼고 봄",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] [홍길동] 입금 14,000",
+        "receivedAt": "2026-10-31T16:08:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T16:08:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-230",
+      "title": "빈 본문 → 은행 알림 아님",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "",
+        "receivedAt": "2026-10-31T16:09:00+09:00"
+      },
+      "out": {
+        "kind": "NONE"
+      }
+    }
+  ]
+}
