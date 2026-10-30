@@ -762,6 +762,8 @@ export interface TikTokCollection {
   readonly saveFailedSeen: number
   /** 입력 검사에 걸려 기록하지 않은 댓글 수 (D-N2b-2-17, 운영 확인용 — 화면에 보이지 않는다) */
   readonly skipped: number
+  /** 서명 서비스 하루 한도에 가깝거나 넘었을 때의 쉬운 문장 (CH-20) — 없거나 null이면 보이지 않는다 */
+  readonly signNotice?: string | null
 }
 
 /**

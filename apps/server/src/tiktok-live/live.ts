@@ -28,6 +28,9 @@ import {
   type TikTokConsentCheck,
   type TikTokSettings,
   type WebcastFactory,
+  createTikTokSignMeter,
+  TIKTOK_SIGN_MESSAGES,
+  type TikTokSignMeter,
 } from '../tiktok/index.ts'
 import type { Draft, Rejection, ScopeWriter, TxHookContext } from '../writer.ts'
 import { tiktokChatFields } from './chat.ts'
@@ -117,6 +120,8 @@ export interface TikTokCollectionView {
   readonly saveFailedSeen: number
   /** 엔진 입력 검사에 걸려 기록하지 않은 댓글 수 (D-N2b-2-17) — 운영 확인용, 화면에 보이지 않는다 */
   readonly skipped: number
+  /** 서명 서비스 하루 한도에 가깝거나 넘었을 때 판매자에게 보일 쉬운 문장 (CH-20) — 아니면 null */
+  readonly signNotice: string | null
 }
 
 /** 회차의 틱톡 연결 보기 (AC-N2b-2-31) */
@@ -160,6 +165,8 @@ export interface TikTokLiveOptions {
   readonly tiktokClock?: TikTokClock
   /** 서버 전체 연결 시도 한도 (기본 60초에 30번) */
   readonly limiter?: TikTokAttemptLimiter
+  /** 서명 서비스 무료 한도 계량 (없으면 설정의 하루 한도로 만든다 — CH-20) */
+  readonly signMeter?: TikTokSignMeter
   /** 실시간 알림 (SSE event: tiktok) */
   readonly publish: (sellerId: string, data: Readonly<Record<string, unknown>>) => void
   /** 지금 고지 판 (시험만 바꾼다) */
@@ -202,6 +209,7 @@ export class TikTokLive {
   readonly #settings: TikTokSettings
   readonly #clock: TikTokClock
   readonly #limiter: TikTokAttemptLimiter
+  readonly #signMeter: TikTokSignMeter
   readonly #noticeVersion: string
   /** 판매자마다 연결 객체 하나 */
   readonly #entries = new Map<string, Entry>()
@@ -221,6 +229,7 @@ export class TikTokLive {
     this.#settings = this.operatorOn ? settings : Object.freeze({ ...settings, beta: false })
     this.#clock = options.tiktokClock ?? systemClockOf(options.clock)
     this.#limiter = options.limiter ?? createTikTokAttemptLimiter()
+    this.#signMeter = options.signMeter ?? createTikTokSignMeter(settings.signDailyLimit)
     this.#noticeVersion = options.noticeVersion ?? TIKTOK_NOTICE_VERSION
   }
 
@@ -306,6 +315,12 @@ export class TikTokLive {
 
   // ── 연결 보기 ─────────────────────────────────────────────────────────
 
+  /** 서명 서비스 하루 한도 경보 문장 (서버 전체 수치라 모든 판매자에게 같다) */
+  #signNotice(): string | null {
+    const level = this.#signMeter.level(this.#clock.now())
+    return level === 'OK' ? null : TIKTOK_SIGN_MESSAGES[level]
+  }
+
   async #viewOf(sellerId: string, broadcastId: string, link: TiktokLinkRow | null, db: Db = this.#options.db): Promise<TikTokLinkView> {
     if (link === null || link.state === 'UNLINKED') return { broadcast: broadcastId, platform: 'TIKTOK', state: 'NONE', linkedAt: null, actor: null, tiktokId: null, collection: null, extension: null }
     const stats = await tiktokChatStats(db, sellerId, broadcastId)
@@ -318,6 +333,7 @@ export class TikTokLive {
       saveFailed: link.saveFailed,
       saveFailedSeen: link.saveFailedSeen,
       skipped: link.skipped,
+      signNotice: this.#signNotice(),
     }
     // 판매자가 아직 확인하지 않은 저장 실패가 있으면 끊긴 동안과 같이 "받지 못했을 수 있음"을 켠다 — 판매자가 붙여넣기로 채운다
     // (RA-N2b-2-02). 문장의 수 = 확인하지 않은 수 (D-N2b-2-16)
@@ -479,6 +495,7 @@ export class TikTokLive {
       clock: this.#clock,
       log: this.#options.log,
       limiter: this.#limiter,
+      signMeter: this.#signMeter,
     })
     entry = { sellerId, linkId, broadcastId, date, conn, pending, draining: false, closed: false }
     this.#entries.set(sellerId, entry)

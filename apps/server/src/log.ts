@@ -93,6 +93,8 @@ export type LogCode =
   | 'IG_REPORT_FAILED'
   // 틱톡 연결 모듈 (N2b-1, D-N2b-1-08): 정해진 코드·실패 종류·개수만. 댓글·닉네임·아이디·판매자 틱톡 아이디·오류 메시지·서명 키는 남기지 않는다
   | 'TIKTOK_BETA_INVALID'
+  | 'TIKTOK_SIGN_NEAR_LIMIT'
+  | 'TIKTOK_SIGN_OVER_LIMIT'
   | 'TIKTOK_CONNECT_FAILED'
   | 'TIKTOK_DISCONNECTED'
   | 'TIKTOK_GAVE_UP'
@@ -231,6 +233,8 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   IG_DM_FAILED: '인스타그램 DM 실행기에서 오류가 생겼어요(다음에 다시 해요)',
   IG_REPORT_FAILED: '인스타그램 DM 게시 보고를 기록하지 못했어요(다음에 다시 해요)',
   TIKTOK_BETA_INVALID: '틱톡 베타 스위치 값을 알아볼 수 없어 끔으로 봤어요',
+  TIKTOK_SIGN_NEAR_LIMIT: '틱톡 서명 서비스 하루 한도에 가까워졌어요(수만 기록)',
+  TIKTOK_SIGN_OVER_LIMIT: '틱톡 서명 서비스 하루 한도를 넘었어요(연결은 막지 않음)',
   TIKTOK_CONNECT_FAILED: '틱톡 연결 시도가 실패했어요',
   TIKTOK_DISCONNECTED: '받던 틱톡 연결이 끊겼어요',
   TIKTOK_GAVE_UP: '틱톡 다시 연결을 멈췄어요',
