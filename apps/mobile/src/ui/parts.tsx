@@ -1,6 +1,6 @@
 // 공통 조각: 큰 단추·입력칸·알림 상자·꼬리표·화면 틀. 역할(role)·이름(aria-label)을 정확히 달아 시험·보조 기술이 잡기 쉽게 한다.
 import type { ReactNode } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native'
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native'
 import { COLOR, FONT, FONT_BIG, FONT_SMALL, GAP, TONE_BG, TONE_TEXT, TOUCH, type Tone } from './theme.ts'
 
 export function Screen({ title, children, testID }: { readonly title?: string; readonly children: ReactNode; readonly testID?: string }) {
@@ -34,6 +34,18 @@ export function Body({ children, muted, bold, big }: { readonly children: ReactN
 
 export function Hint({ children }: { readonly children: ReactNode }) {
   return <Text style={styles.hint}>{children}</Text>
+}
+
+/**
+ * 그대로 적을 값 (단축어 칸 이름·값·받는 주소): 회색 상자의 고정폭 글자, 따옴표 없이. 길게 눌러 복사할 수 있다(selectable).
+ * 글 안에 넣으면 그 줄 안에 이어진다.
+ */
+export function Code({ children, label }: { readonly children: string; readonly label?: string }) {
+  return (
+    <Text selectable style={styles.code} aria-label={label ?? children}>
+      {children}
+    </Text>
+  )
 }
 
 export interface BigButtonProps {
@@ -153,6 +165,7 @@ const styles = StyleSheet.create({
   bold: { fontWeight: '700' },
   big: { fontSize: FONT_BIG },
   hint: { fontSize: FONT_SMALL, color: COLOR.muted, lineHeight: FONT_SMALL * 1.4 },
+  code: { fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }), fontWeight: '700', color: COLOR.text, backgroundColor: '#e8eaed' },
   problem: { fontSize: FONT_SMALL, color: COLOR.danger, lineHeight: FONT_SMALL * 1.4 },
   button: { minHeight: TOUCH, minWidth: TOUCH, maxWidth: '100%', flexShrink: 1, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 10, borderWidth: 2, borderColor: COLOR.primary, backgroundColor: COLOR.background, alignItems: 'center', justifyContent: 'center' },
   buttonSmall: { minHeight: 44, minWidth: 44, paddingHorizontal: 12, paddingVertical: 8 },

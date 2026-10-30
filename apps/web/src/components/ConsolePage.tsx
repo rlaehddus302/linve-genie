@@ -56,7 +56,7 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { ImportDialog } from './ImportDialog.tsx'
 import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
-import { InboxStaleBar, InboxStallBar, SmsInboxPanel, useInboxConsole } from './SmsInbox.tsx'
+import { InboxStaleBar, InboxStallBar, SmsInboxPanel, goToInboxPanel, inboxLeadWords, useInboxConsole } from './SmsInbox.tsx'
 import { InboxClaimsContext } from './inbox-claims.tsx'
 import { inboxClaimIds } from '../lib/inbox.ts'
 import { ProductBoard, CurrentProduct, CurrentSummary, FocusBanner } from './ProductBoard.tsx'
@@ -244,8 +244,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   const yt = useConsoleYoutube({ store, broadcastId, date: broadcast.date, rehearsal: broadcast.rehearsal, lastMessageSeq: snapshot.messages.at(-1)?.seq ?? 0 })
   // 크롬 확장 (X1 YT-10 AC7·AC8): 리허설은 확장으로 받지 않는다
   const extension = useExtension(!broadcast.rehearsal)
-  // 휴대폰 알림 받기 (SMS3 AC-SMS3-30·31): 리허설은 손님 문자를 받지 않는다(D-SMS3-07), 봉인한 날짜는 볼 것이 없다
-  const inbox = useInboxConsole(b, !broadcast.rehearsal && !sealed)
+  // 휴대폰 알림 받기 (SMS3 AC-SMS3-30·31): 리허설은 손님 문자를 받지 않는다(D-SMS3-07).
+  // 봉인한 날짜도 카드는 읽는다 — 엔진이 받지 않은 문자찜(D-SMS3-31 거절 카드)을 판매자가 볼 수 있게. 넣기·승인은 칸이 막는다
+  const inbox = useInboxConsole(b, !broadcast.rehearsal)
+  const inboxLead = inboxLeadWords(inbox.cards.length)
   const thanksFailed = useRef(yt.thanksFailed)
   thanksFailed.current = yt.thanksFailed
   // 인스타그램·틱톡 (N2b-2): 플랫폼 칸·알림 줄·붙여넣기 창
@@ -1541,12 +1543,19 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
           <InboxStallBar handle={inbox} broadcast={b} rehearsal={broadcast.rehearsal} ended={ended || sealed} />
-          <InboxStaleBar stale={inbox.stale} onClosed={inbox.clearStale} />
+          <InboxStaleBar
+            stale={inbox.stale}
+            onClosed={inbox.clearStale}
+            titleOf={(id) => data.broadcasts.get(id)?.title ?? (id === b ? title : null)}
+            {...(inbox.stale !== null && inbox.stale.b !== b ? { onGo: (id: string) => navigate({ name: 'console', id }) } : {})}
+          />
           <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} invited={invitedChannelName(yt.link?.link ?? null) !== null} />
           <QuotaToast />
           <div ref={quickBoxRef} className="console-sticky-quick">
             <AlertStrip
               leads={[
+                // 확인할 문자 카드 수 — 누르면 문자 확인 칸으로 (UX-SMS3-005)
+                ...(inboxLead === null ? [] : [{ key: 'inbox-cards', text: inboxLead, onClick: goToInboxPanel }]),
                 ...platformLeads({ live, sealed, onPaste: openPaste, pasteNote }),
                 ...(stationText === null ? [] : [{ key: 'print-station', text: stationText, ...(stationShort === null ? {} : { shortText: stationShort }), soft: true, uncounted: true, onClick: () => navigate({ name: 'labels' }) }]),
               ]}

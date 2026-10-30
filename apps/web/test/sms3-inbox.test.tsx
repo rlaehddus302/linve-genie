@@ -21,7 +21,16 @@ import {
   INBOX_STALL_MS,
   INBOX_SHORTCUT_STEPS,
   INBOX_TOKEN_ONCE,
+  INBOX_COPIED_ADDRESS,
+  INBOX_COPIED_HEADER,
+  INBOX_INSTANT,
+  INBOX_IPHONE_FIRST,
+  INBOX_LATE_LAST,
+  INBOX_STALL_IPHONE,
   bankNoticeMeta,
+  nameOnlyInsertWords,
+  nameOnlySender,
+  staleDetailWords,
   bankNoticeWords,
   cancelMatches,
   cancelNeedsBoard,
@@ -119,20 +128,35 @@ describe('낱말 (ORD-13 화면 문구, DP-8)', () => {
   })
 
   it('늦게 온 문자 LATE·바로 넣지 못함 REJECTED 문장 (D-SMS3-30·31)', () => {
-    // 휴대폰이 받은 원래 시각 KST 10월 19일 19:59:50 — 서버 문구와 같은 모양
-    expect(inboxReasonWords(card({ why: 'LATE', late: true, receivedAt: '2026-10-19T10:59:50.000Z' }))).toBe('늦게 온 문자예요 (휴대폰이 10월 19일 19:59:50에 받음). 넣으면 지금 받은 순서로 들어가요')
+    // 휴대폰이 받은 원래 시각 KST 10월 19일 19:59:50 — 카드의 다른 시각과 같은 오전/오후 모양 하나로 (UX-SMS3-008)
+    expect(inboxReasonWords(card({ why: 'LATE', late: true, receivedAt: '2026-10-19T10:59:50.000Z' }))).toBe('늦게 온 문자예요 (휴대폰이 10월 19일 오후 7:59:50에 받음). 넣으면 지금 받은 순서로 들어가요')
     expect(inboxReasonWords(card({ why: 'REJECTED', numbers: [15] }))).toBe('15번은 바로 넣지 못했어요. 보드에서 확인해 주세요')
     expect(inboxReasonWords(card({ why: 'REJECTED', numbers: [15] }))).not.toBe('번호는 있는데 확실하지 않아요')
   })
 
   it('늦게 온 카드: 받은 시각은 날짜까지, 서버에 온 시각을 붙이고, 받은 순서는 서버에 온 때 (D-SMS3-30)', () => {
     const late = card({ id: 'late', why: 'UNCLEAR', late: true, receivedAt: '2026-10-17T11:00:00.000Z', arrivedAt: '2026-10-19T11:20:01.000Z' })
-    expect(inboxTimeWords(late)).toBe('10월 17일 20:00:00')
+    expect(inboxTimeWords(late)).toBe('10월 17일 오후 8:00:00')
     expect(inboxArrivedWords(late)).toBe('오후 8:20:01 도착')
     expect(inboxTimeWords(card())).toBe('오후 8:01:05')
     expect(inboxArrivedWords(card({ arrivedAt: '2026-10-19T11:01:06.000Z' }))).toBe('')
     const onTime = card({ id: 'on', receivedAt: '2026-10-19T11:10:00.000Z' })
     expect(orderCards([late, onTime]).map((item) => item.id)).toEqual(['on', 'late'])
+  })
+
+  it('12시간 알림 덧붙임: 어느 방송(이름·시작 시각)과 넣지 않은 손님 문자 수 (UX-SMS3-007)', () => {
+    const at = { startedAt: '2026-10-18T23:00:00.000Z', count: 3 }
+    expect(staleDetailWords(at, '1부')).toBe("'1부' 방송 (10월 19일 오전 8:00 시작) · 넣지 않은 손님 문자 3통")
+    expect(staleDetailWords(at)).toBe('10월 19일 오전 8:00에 시작한 방송 · 넣지 않은 손님 문자 3통')
+    expect(staleDetailWords({ startedAt: null, count: 0 })).toBe('')
+  })
+
+  it('이름만 온 문자: 연락처 이름과 넣으면 들어갈 이름 (UX-SMS3-004)', () => {
+    expect(nameOnlySender(card({ last4: null, sender: ' 김영희 ' }))).toBe('김영희')
+    expect(nameOnlySender(card({ last4: '5678', sender: '김영희' }))).toBeNull()
+    expect(nameOnlySender(card({ last4: null, sender: '  ' }))).toBeNull()
+    expect(nameOnlyInsertWords(card({ last4: null, sender: '김영희' }))).toBe("넣으면 '문자찜(김영희)'으로 들어가요")
+    expect(nameOnlyInsertWords(card({ last4: '5678', sender: null }))).toBeNull()
   })
 
   it('12시간 넘은 방송 알림 읽기 — 문구는 스펙 그대로, 모양이 다르면 없음 (D-SMS3-29)', () => {
@@ -301,6 +325,34 @@ describe('설정 "휴대폰 알림 받기" (AC-SMS3-28)', () => {
     expect(document.body.textContent).not.toContain('tok_SECRET_123')
   })
 
+  it('아이폰으로 옮기기: 토큰은 여러 줄 칸(375에서 잘리지 않음), 헤더 값 "Bearer 토큰"·받는 주소 복사, 바로 저장 안내 (UX-SMS3-002·011)', async () => {
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    server.on('POST', /^\/api\/inbox\/token$/, () => {
+      inbox = settingsView({ enabled: true, hasToken: true })
+      return { body: { token: 'tok_SECRET_123', inbox } }
+    })
+    render(<SettingsHarness />)
+    expect(await screen.findByText(INBOX_INSTANT)).toBeDefined()
+    fireEvent.click(await screen.findByRole('button', { name: '켜고 토큰 만들기' }))
+    const token = await screen.findByLabelText('받기 토큰')
+    expect(token.tagName).toBe('TEXTAREA')
+    fireEvent.click(screen.getByRole('button', { name: '헤더 값 복사 (Bearer 붙음)' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('Bearer tok_SECRET_123'))
+    expect(await screen.findByText(INBOX_COPIED_HEADER)).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: /아이폰 단축어 만들기 안내/ }))
+    expect(screen.getByText(INBOX_IPHONE_FIRST)).toBeDefined()
+    expect(INBOX_IPHONE_FIRST.startsWith('아이폰 사파리로 이 설정 화면을 열어 복사해 붙여 넣으세요')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: '받는 주소 복사' }))
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(`${location.origin}/api/inbox/messages`))
+    expect(await screen.findByText(INBOX_COPIED_ADDRESS)).toBeDefined()
+    // 상태 문장은 하나만 (가장 최근 복사)
+    expect(screen.getAllByRole('status').filter((node) => node.textContent?.includes('복사'))).toHaveLength(1)
+    // 토큰 원문은 저장소·주소에 남기지 않는다
+    expect(JSON.stringify({ ...window.localStorage, ...window.sessionStorage })).not.toContain('tok_SECRET_123')
+    expect(location.href).not.toContain('tok_SECRET_123')
+  })
+
   it('다시 만들기는 확인 창("전에 쓰던 휴대폰·단축어는 더 이상 보내지 못해요")을 거친다', async () => {
     inbox = settingsView({ enabled: true, hasToken: true })
     server.on('POST', /^\/api\/inbox\/token$/, () => ({ body: { token: 'tok_NEW', inbox } }))
@@ -424,22 +476,89 @@ describe('콘솔 "문자 확인" 칸 (AC-SMS3-30)', () => {
     expect(sent).toEqual({ requestId: expect.any(String), no: 15 })
   })
 
-  it('이름만 온 문자: "이름만 와서 누가 보냈는지 몰라요" 한 번, 연락처 이름', async () => {
+  it('이름만 온 문자: "이름만 와서 누가 보냈는지 몰라요" 한 번(굵은 사유 줄), 연락처 이름 (전화번호는 오지 않았어요), 넣으면 들어갈 이름 (UX-SMS3-004)', async () => {
     cards = [card({ why: 'NO_NUMBER', last4: null, sender: '홍길동', text: '15', message: '이름만 와서 누가 보냈는지 몰라요' })]
     await openConsole()
     const panel = await screen.findByRole('region', { name: '문자 확인' })
     expect(within(panel).getAllByText(INBOX_NAME_ONLY)).toHaveLength(1)
-    expect(within(panel).getByText('연락처 이름: 홍길동')).toBeDefined()
+    expect(within(panel).getByText(INBOX_NAME_ONLY).tagName).toBe('STRONG')
+    expect(within(panel).getByText('연락처 이름: 홍길동').textContent).toBe('연락처 이름: 홍길동 (전화번호는 오지 않았어요)')
+    expect(within(panel).getByText("넣으면 '문자찜(홍길동)'으로 들어가요")).toBeDefined()
+    // 후보가 하나면 알약 없이 "15번에 넣기"만 (UX-SMS3-009)
+    expect(within(panel).queryByRole('button', { name: '15번' })).toBeNull()
+    expect(within(panel).getByRole('button', { name: '15번에 넣기' })).toBeDefined()
   })
 
-  it('취소 요청 승인 — 찜이 없으면 "취소할 찜이 없어요"', async () => {
+  it('취소 요청 승인은 확인 창(실제 이름·승계)을 거친다 — "그대로 두기"면 아무것도 보내지 않는다 (UX-SMS3-006)', async () => {
+    const view = fullView({
+      seq: 1,
+      broadcasts: [broadcastView()],
+      products: [product(15, { winners: ['u1'], winnerClaims: ['k1'], waitlist: ['u2'], waitlistClaims: ['k2'] })],
+      claims: [smsClaim('k1', 'u1', 15), { ...smsClaim('k2', 'u2', 15), status: 'WAITLISTED', seq: 2 }],
+      buyers: [smsBuyer('u1', '문자찜(홍길동)', '5678'), smsBuyer('u2', '문자찜(김민지)', '1111')],
+    })
+    server.on('GET', new RegExp(`^/api/days/${DATE}(\\?rehearsal=true)?$`), () => ({ body: view }))
+    cards = [card({ kind: 'CANCEL', why: null, numbers: [15], text: '15 취소', message: '15번 취소를 원해요' })]
+    server.on('POST', /^\/api\/inbox\/cards\/c1\/approve$/, () => {
+      cards = []
+      return { body: { ok: true, card: 'c1', cancelled: true } }
+    })
+    await openConsole()
+    const panel = await screen.findByRole('region', { name: '문자 확인' })
+    fireEvent.click(within(panel).getByRole('button', { name: '승인' }))
+    let dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('15번 문자찜(홍길동) 님 1등 찜을 취소할까요?')).toBeDefined()
+    expect(within(dialog).getByText('승인하면 대기 1순위가 1등이 돼요')).toBeDefined()
+    fireEvent.click(within(dialog).getByRole('button', { name: '그대로 두기' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(server.callsTo('POST', /approve/)).toHaveLength(0)
+    fireEvent.click(within(panel).getByRole('button', { name: '승인' }))
+    dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '찜 취소하기' }))
+    await waitFor(() => expect(server.callsTo('POST', /approve/)).toHaveLength(1))
+    await waitFor(() => expect(screen.queryByRole('region', { name: '문자 확인' })).toBeNull())
+  })
+
+  it('취소 요청 승인 — 찜이 없으면(확인 창은 번호·뒤 4자리로) "취소할 찜이 없어요"', async () => {
     cards = [card({ kind: 'CANCEL', why: null, numbers: [15], text: '15 취소', message: '15번 취소를 원해요' })]
     server.on('POST', /^\/api\/inbox\/cards\/c1\/approve$/, () => apiError(409, 'NO_CLAIM', '취소할 찜이 없어요'))
     await openConsole()
     const panel = await screen.findByRole('region', { name: '문자 확인' })
     fireEvent.click(within(panel).getByRole('button', { name: '승인' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('15번 찜(뒤 4자리 5678 손님)을 취소할까요?')).toBeDefined()
+    fireEvent.click(within(dialog).getByRole('button', { name: '찜 취소하기' }))
     expect(await within(panel).findByText('! 취소할 찜이 없어요')).toBeDefined()
     expect(server.callsTo('POST', /approve/)[0]?.body).toEqual({ requestId: expect.any(String) })
+  })
+
+  it('콘솔 위 알림 줄에 "확인할 문자 n" — 누르면 문자 확인 칸으로 (UX-SMS3-005)', async () => {
+    cards = [card({ id: 'a' }), card({ id: 'b', receivedAt: '2026-10-19T11:02:00.000Z' }), card({ id: 'c', kind: 'CANCEL', why: null, receivedAt: '2026-10-19T11:03:00.000Z' })]
+    await openConsole()
+    const alerts = screen.getByRole('region', { name: '알림' })
+    const lead = await within(alerts).findByRole('button', { name: '확인할 문자 3' })
+    fireEvent.click(lead)
+    expect(document.activeElement).toBe(screen.getByRole('region', { name: '문자 확인' }))
+  })
+
+  it('봉인한 날짜의 콘솔도 카드는 보인다 — 넣기·승인 없이, 무시는 된다 (D-SMS3-31 거절 카드)', async () => {
+    server.on('GET', new RegExp(`^/api/days/${DATE}(\\?rehearsal=true)?$`), () => ({
+      body: { ...fullView({ seq: 1, broadcasts: [broadcastView({ ended: true, endedAt: '2026-10-19T12:00:00.000Z' })], products: [product(15)] }), sealed: true, sealedAt: '2026-11-19T15:00:00.000Z' },
+    }))
+    cards = [card({ why: 'REJECTED', numbers: [15], text: '15 김민지' }), card({ id: 'c2', kind: 'CANCEL', why: null, numbers: [15], text: '15 취소', receivedAt: '2026-10-19T11:05:00.000Z' })]
+    server.on('POST', /^\/api\/inbox\/cards\/c1\/ignore$/, () => {
+      cards = cards.filter((item) => item.id !== 'c1')
+      return { body: { ok: true, card: 'c1' } }
+    })
+    await openConsole()
+    const panel = await screen.findByRole('region', { name: '문자 확인' })
+    expect(within(panel).getByText('15번은 바로 넣지 못했어요. 보드에서 확인해 주세요')).toBeDefined()
+    expect(within(panel).queryByRole('button', { name: /넣기$/ })).toBeNull()
+    expect(within(panel).queryByRole('button', { name: '승인' })).toBeNull()
+    const first = within(panel).getAllByRole('listitem')[0] as HTMLElement
+    fireEvent.click(within(first).getByRole('button', { name: '무시' }))
+    await waitFor(() => expect(server.callsTo('POST', /c1\/ignore/)).toHaveLength(1))
+    await waitFor(() => expect(within(screen.getByRole('region', { name: '문자 확인' })).getAllByRole('listitem')).toHaveLength(1))
   })
 
   it('이름만 온 문자의 취소 요청: "승인" 없이 안내와 "무시"만, 이름만 문구는 한 번 (D-SMS3-19·16)', async () => {
@@ -516,6 +635,8 @@ describe('받기 멈춤 알림 (AC-SMS3-31)', () => {
     })
     const bar = await screen.findByText(`! ${INBOX_STALL}`)
     expect(INBOX_STALL).toBe('휴대폰에서 문자가 오지 않고 있어요. 앱의 알림 읽기가 켜져 있는지 확인해 주세요.')
+    // 아이폰 단축어 판매자 몫 한 줄 (UX-SMS3-011)
+    expect(within(bar).getByText(INBOX_STALL_IPHONE)).toBeDefined()
     // 무엇이든 받으면 사라진다
     act(() => {
       for (const source of FakeEventSource.instances) source.emit('inbox', { kind: 'received', lastReceivedAt: new Date().toISOString(), lastDevice: '폰' })
@@ -600,6 +721,10 @@ describe('12시간 넘은 방송 알림 (D-SMS3-29, AC-SMS3-31)', () => {
     })
     await openConsole()
     const bar = await screen.findByText(`! ${INBOX_STALE}`)
+    // 어느 방송·몇 통인지 (UX-SMS3-007) — 다른 방송이면 그 방송으로 가기
+    expect(within(bar).getByText('(10월 19일 오전 8:00에 시작한 방송 · 넣지 않은 손님 문자 1통)')).toBeDefined()
+    fireEvent.click(within(bar.parentElement as HTMLElement).getByRole('button', { name: '그 방송으로 가기' }))
+    expect(navigate).toHaveBeenCalledWith({ name: 'console', id: 'b0' })
     fireEvent.click(within(bar.parentElement as HTMLElement).getByRole('button', { name: '닫기' }))
     await waitFor(() => expect(screen.queryByText(`! ${INBOX_STALE}`)).toBeNull())
     expect(server.callsTo('POST', /inbox\/stale\/close/)).toHaveLength(1)
@@ -618,12 +743,19 @@ describe('12시간 넘은 방송 알림 (D-SMS3-29, AC-SMS3-31)', () => {
   it('늦게 온 문자 카드: 휴대폰이 받은 원래 시각(날짜까지)·서버에 온 시각·LATE 문장 (D-SMS3-30)', async () => {
     cards = [card({ id: 'late', why: 'LATE', late: true, receivedAt: '2026-10-17T11:00:00.000Z', arrivedAt: '2026-10-19T11:20:01.000Z', message: '서버 글' })]
     await openConsole()
-    const item = await screen.findByRole('listitem', { name: '10월 17일 20:00:00 확인 필요' })
-    expect(within(item).getByText('늦게 온 문자예요 (휴대폰이 10월 17일 20:00:00에 받음). 넣으면 지금 받은 순서로 들어가요')).toBeDefined()
-    expect(within(item).getByText('· 오후 8:20:01 도착')).toBeDefined()
+    // 머리에는 서버에 온 시각만, 휴대폰이 받은 시각은 사유 문장에 한 번 — 오전/오후 한 모양 (UX-SMS3-008)
+    const item = await screen.findByRole('listitem', { name: '오후 8:20:01 도착 확인 필요' })
+    expect(within(item).getByText('늦게 온 문자예요 (휴대폰이 10월 17일 오후 8:00:00에 받음). 넣으면 지금 받은 순서로 들어가요')).toBeDefined()
+    expect(within(item).getByText(INBOX_LATE_LAST)).toBeDefined()
+    expect(item.textContent?.split('오후 8:00:00').length).toBe(2)
+    expect(item.textContent).not.toMatch(/\b20:00:00\b/)
     expect(within(item).getByRole('button', { name: '15번에 넣기' })).toBeDefined()
   })
 })
+
+function smsBuyer(id: string, display: string, phoneLast4: string | null) {
+  return { id, kind: 'sms' as const, current: id, mergedInto: null, merged: [], display, nameHistory: [display], phoneLast4, items: [], subtotal: 0, byBroadcast: {}, blocked: false }
+}
 
 function smsClaim(id: string, buyer: string, no: number): Claim {
   return {

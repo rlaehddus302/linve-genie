@@ -10,9 +10,17 @@ import {
   INBOX_ANDROID_HINT,
   INBOX_COPIED,
   INBOX_COPY,
+  INBOX_COPY_ADDRESS,
   INBOX_COPY_FAILED,
+  INBOX_COPY_FAILED_ANY,
+  INBOX_COPY_HEADER,
+  INBOX_COPIED_ADDRESS,
+  INBOX_COPIED_HEADER,
+  INBOX_INSTANT,
   INBOX_INTRO,
+  INBOX_IPHONE_FIRST,
   INBOX_IPHONE_HINT,
+  INBOX_VALUE_NOTE,
   INBOX_OFF,
   INBOX_OFF_NEW,
   INBOX_OFF_CONFIRM,
@@ -100,6 +108,10 @@ export function useInboxSettings(enabled = true): InboxSettingsHandle {
 }
 
 type Ask = 'renew' | 'off' | null
+/** 무엇을 복사했나 — 토큰·받는 주소·헤더 값("Bearer " + 토큰) */
+type Copied = { readonly what: 'token' | 'address' | 'header'; readonly ok: boolean }
+
+const COPIED_WORDS: Readonly<Record<Copied['what'], string>> = { token: INBOX_COPIED, address: INBOX_COPIED_ADDRESS, header: INBOX_COPIED_HEADER }
 
 export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsHandle }) {
   const { view } = handle
@@ -107,7 +119,7 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [ask, setAsk] = useState<Ask>(null)
-  const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
+  const [copied, setCopied] = useState<Copied | null>(null)
   const [guide, setGuide] = useState(false)
   const guideId = useId()
   const tokenId = useId()
@@ -149,10 +161,17 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
     }
   }
 
-  const copy = async () => {
-    if (token === null) return
-    setCopied((await copyText(token)) ? 'ok' : 'failed')
+  const copy = async (what: Copied['what']) => {
+    const text = what === 'address' ? inboxAddress() : token === null ? null : what === 'header' ? `Bearer ${token}` : token
+    if (text === null) return
+    setCopied({ what, ok: await copyText(text) })
   }
+  const copiedNote =
+    copied === null ? null : (
+      <p role="status" className={copied.ok ? undefined : 'warning'}>
+        {copied.ok ? COPIED_WORDS[copied.what] : copied.what === 'token' ? INBOX_COPY_FAILED : INBOX_COPY_FAILED_ANY}
+      </p>
+    )
 
   if (view === null) {
     if (handle.error !== null) return <ErrorNote error={handle.error} onRetry={() => void handle.reload()} retryLabel="다시 불러오기" />
@@ -162,6 +181,8 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
   return (
     <div className="stack-tight inbox-settings">
       <p>{INBOX_INTRO}</p>
+      {/* 이 칸은 누르면 바로 바뀐다 — 설정 아래 고정 "저장" 줄과 헷갈리지 않게 (UX-SMS3-011) */}
+      <p className="hint">{INBOX_INSTANT}</p>
       <div className="stack-tight" role="group" aria-label="휴대폰 알림 받기 상태">
         <p>
           {view.enabled ? <strong className="state-ok">● {INBOX_ON}</strong> : <strong>○ {view.hasToken ? INBOX_OFF : INBOX_OFF_NEW}</strong>}
@@ -172,18 +193,29 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
       {token !== null ? (
         <div className="inbox-token stack-tight" role="group" aria-label="새로 만든 받기 토큰">
           <label htmlFor={tokenId}>받기 토큰</label>
-          <input id={tokenId} className="input inbox-token-value" readOnly value={token} onFocus={(event) => event.currentTarget.select()} />
+          {/* 여러 줄 칸 — 375px에서도 43자가 잘리지 않고 줄을 바꿔 다 보인다 (UX-SMS3-002) */}
+          <textarea
+            id={tokenId}
+            className="input inbox-token-value"
+            readOnly
+            rows={2}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            value={token}
+            onFocus={(event) => event.currentTarget.select()}
+          />
           <p className="warning">! {INBOX_TOKEN_ONCE}</p>
           <div className="row">
-            <button type="button" className="button button-primary" onClick={() => void copy()}>
+            <button type="button" className="button button-primary" onClick={() => void copy('token')}>
               {INBOX_COPY}
             </button>
+            {/* 아이폰 단축어 헤더 값 — "Bearer " + 토큰을 한 번에 (띄어쓰기 실수 없이) */}
+            <button type="button" className="button" onClick={() => void copy('header')}>
+              {INBOX_COPY_HEADER}
+            </button>
           </div>
-          {copied !== null ? (
-            <p role="status" className={copied === 'ok' ? undefined : 'warning'}>
-              {copied === 'ok' ? INBOX_COPIED : INBOX_COPY_FAILED}
-            </p>
-          ) : null}
+          {copied?.what === 'address' ? null : copiedNote}
         </div>
       ) : null}
       {error !== null ? <ErrorNote error={error} /> : null}
@@ -218,6 +250,21 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
         <DetailToggle label={INBOX_SHORTCUT_LINK} open={guide} controls={guideId} onToggle={() => setGuide(!guide)} />
       </div>
       <div id={guideId} className="stack-tight inbox-shortcut" hidden={!guide}>
+        <p>
+          <strong>{INBOX_IPHONE_FIRST}</strong>
+        </p>
+        <div className="stack-tight">
+          <p>
+            받는 주소: <code className="inbox-address">{inboxAddress()}</code>
+          </p>
+          <div className="row">
+            <button type="button" className="button" onClick={() => void copy('address')}>
+              {INBOX_COPY_ADDRESS}
+            </button>
+          </div>
+          {copied?.what === 'address' ? copiedNote : null}
+        </div>
+        <p className="hint">{INBOX_VALUE_NOTE}</p>
         <ol>
           {INBOX_SHORTCUT_STEPS.map((step) => (
             <li key={step}>
@@ -225,9 +272,6 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
             </li>
           ))}
         </ol>
-        <p>
-          받는 주소: <code className="inbox-address">{inboxAddress()}</code>
-        </p>
       </div>
       {ask === 'renew' ? (
         <Modal
