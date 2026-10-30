@@ -26,7 +26,7 @@ import {
   type RowChange,
   type RunnerRow,
 } from '../youtube/outbox-store.ts'
-import { activeLink, isInvitedLink } from '../youtube/store.ts'
+import { activeLink, isInvitedLink, latestLinkOfVideo, type LinkRow } from '../youtube/store.ts'
 import { batchMessages } from '../youtube/texts.ts'
 import type { Timer } from '../youtube/timer.ts'
 import { activeBindings, activeToken, addLaneFail, bindingOfBroadcast, bindingOfVideo, lanesOf, postEnabledAt, readLane, writeLane, writePostEnabled, youtubeChannelOf } from './store.ts'
@@ -222,8 +222,10 @@ export class ExtensionThanks {
     return this.#serial(`${sellerId}\u0000${b}`, async () => {
       const now = this.#now()
       const link = await activeLink(db, sellerId, b)
-      // 초대 방송: 확장은 감사를 가져가지 않고 방송자 로그인 안내도 남기지 않는다 (D-PHN-21, AC-INV1-10)
-      if (link !== null && isInvitedLink(link)) return { kind: 'none', afterMs: INVITED_RECHECK_MS, channel: null }
+      // 초대 방송: 확장은 감사를 가져가지 않고 방송자 로그인 안내도 남기지 않는다 (D-PHN-21, AC-INV1-10).
+      // 공식 잇기를 끊어도 확장이 받는 영상의 방송 채널은 그대로다 (TD-INV1-009)
+      const cast = await this.#castLink(sellerId, b, binding.videoId)
+      if (cast !== null && isInvitedLink(cast)) return { kind: 'none', afterMs: INVITED_RECHECK_MS, channel: null }
       const lane = await readLane(db, sellerId, b)
       const connection = await youtubeChannelOf(db, sellerId)
       const expected = link?.channelId ?? connection?.channelId ?? lane?.ownerChannelId ?? owner
@@ -366,19 +368,33 @@ export class ExtensionThanks {
     return { enabled: enabledAt !== null, enabledAt: enabledAt?.toISOString() ?? null, warnings }
   }
 
-  /** 그 회차에 이어진 유튜브 방송이 초대 방송(방송 채널 ≠ 글 올리는 계정)인가 */
+  /**
+   * 회차의 방송 채널을 알려 주는 연결: 지금 이어진 연결, 없으면 확장이 받는 영상(videoId, 모르면 그 회차의 확장 잇기)을
+   * 이 회차에 이었던 가장 최근 연결(끊은 것 포함). 공식 잇기만 끊고 확장은 같은 영상을 계속 받을 수 있는데,
+   * 끊어도 그 영상의 방송 채널은 바뀌지 않는다 (AC-INV1-10, TD-INV1-009). 확장이 다른 영상을 받으면 그 영상의 연결만 본다
+   */
+  async #castLink(sellerId: string, broadcastId: string, videoId?: string): Promise<LinkRow | null> {
+    const { db } = this.#deps
+    const active = await activeLink(db, sellerId, broadcastId)
+    if (active !== null) return active
+    const video = videoId ?? (await bindingOfBroadcast(db, sellerId, broadcastId))?.videoId
+    if (video === undefined) return null
+    return latestLinkOfVideo(db, sellerId, broadcastId, video)
+  }
+
+  /** 그 회차의 유튜브 방송이 초대 방송(방송 채널 ≠ 글 올리는 계정)인가 — 공식 잇기를 끊었어도 확장이 같은 영상을 받으면 그대로 */
   async #invited(sellerId: string, broadcastId: string): Promise<boolean> {
-    const link = await activeLink(this.#deps.db, sellerId, broadcastId)
+    const link = await this.#castLink(sellerId, broadcastId)
     return link !== null && isInvitedLink(link)
   }
 
   /**
-   * 회차의 방송 채널: YT-02 이은 영상의 방송 채널(초대 방송이면 유튜버 채널, 옛 기록은 이은 채널) → 유튜브 연결 채널 → 감사 올리기에서 확인한 채널
-   * (모르면 null) — 확장의 방송자 표시를 견줄 때 (D-X1-29, D-PHN-21)
+   * 회차의 방송 채널: YT-02 이은 영상의 방송 채널(초대 방송이면 유튜버 채널, 옛 기록은 이은 채널 — 공식 잇기를 끊었어도 확장이 같은 영상을 받으면 그 영상의 것)
+   * → 유튜브 연결 채널 → 감사 올리기에서 확인한 채널 (모르면 null) — 확장의 방송자 표시를 견줄 때 (D-X1-29, D-PHN-21)
    */
-  async broadcastChannel(sellerId: string, broadcastId: string): Promise<string | null> {
+  async broadcastChannel(sellerId: string, broadcastId: string, videoId?: string): Promise<string | null> {
     const { db } = this.#deps
-    const link = await activeLink(db, sellerId, broadcastId)
+    const link = await this.#castLink(sellerId, broadcastId, videoId)
     if (link !== null) return link.broadcastChannelId
     const connection = await youtubeChannelOf(db, sellerId)
     if (connection !== null) return connection.channelId

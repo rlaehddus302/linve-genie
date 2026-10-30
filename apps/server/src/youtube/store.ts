@@ -93,6 +93,20 @@ export async function latestLink(db: Db, sellerId: string, broadcastId: string):
   return rows[0] ?? null
 }
 
+/**
+ * 그 방송에 그 영상을 이었던 가장 최근 연결 (끊은 것 포함). 공식 잇기를 끊어도 영상의 방송 채널은 그대로라,
+ * 확장이 같은 영상을 계속 받을 때 방송 채널(초대 방송인지)을 알 때 쓴다 (AC-INV1-10, TD-INV1-009)
+ */
+export async function latestLinkOfVideo(db: Db, sellerId: string, broadcastId: string, videoId: string): Promise<LinkRow | null> {
+  const rows = await db
+    .select(linkColumns)
+    .from(youtubeLinks)
+    .where(and(eq(youtubeLinks.sellerId, sellerId), eq(youtubeLinks.broadcastId, broadcastId), eq(youtubeLinks.videoId, videoId)))
+    .orderBy(desc(youtubeLinks.linkedAt))
+    .limit(1)
+  return rows[0] ?? null
+}
+
 export async function linkByRequest(db: Db, sellerId: string, requestId: string): Promise<LinkRow | null> {
   const rows = await db
     .select(linkColumns)

@@ -372,6 +372,34 @@ describe('AC-INV1-10 크롬 확장: 방송자 배지 기준은 방송 채널, �
     expect((view.body.extension as { thanks: { warnings: unknown[] } }).thanks.warnings).toEqual([])
   })
 
+  it('공식 잇기를 끊어도 확장이 같은 영상을 받으면 방송 채널은 B 그대로: B의 배지 글은 방송자 글, 확장 가져가기 0·로그인 안내 없음 (TD-INV1-009)', async () => {
+    const { w, token, liveB, channelB, connected, b, api } = await extWorld('LIVE_CHAT')
+    expect((await api.post(`/api/broadcasts/${b.id}/youtube/unlink`, { requestId: 'inv-unlink' })).status).toBe(200)
+    const sent = await ext(w, '/ext/chats', token, {
+      v: liveB.videoId,
+      messages: [
+        { id: 'u1', ch: channelB.id, nick: B_TITLE, text: '16', at: w.timer.now(), owner: true },
+        { id: 'u2', ch: connected.channel.id, nick: '사장님 가게', text: '15', at: w.timer.now(), owner: true },
+      ],
+    })
+    expect(sent.status, sent.text).toBe(200)
+    // B는 방송자, 글 올리는 계정 A의 배지 표시는 여전히 이 회차의 방송 채널이 아니다
+    expect(sent.body).toMatchObject({ ownerDenied: 1 })
+    const state = (await w.server.writer.read(connected.seller.sellerId, b.date)).state
+    expect(listClaims(state).filter((claim) => claim.buyer === channelB.id)).toEqual([])
+    for (const [meIsOwner, owner] of [
+      [false, channelB.id],
+      [true, channelB.id],
+      [true, connected.channel.id],
+    ] as const) {
+      const taken = await ext(w, '/ext/thanks/take', token, { v: liveB.videoId, meIsOwner, owner })
+      expect(taken.body.state).toBe('NONE')
+      expect(taken.text).not.toContain('방송 채널 계정으로 로그인해야')
+    }
+    const view = await api.get('/api/extension')
+    expect((view.body.extension as { thanks: { warnings: unknown[] } }).thanks.warnings).toEqual([])
+  })
+
   it('(2) 공식으로 올릴 수 없어도(게시 권한 없음) 확장에 맡기지 않는다', async () => {
     const { w, token, liveB, connected, b } = await extWorld(false)
     expect((await ext(w, '/ext/chats', token, { v: liveB.videoId, messages: [{ id: 'e1', ch: 'UCviewer0000000000000001', nick: '가', text: '15', at: w.timer.now() }] })).status).toBe(200)

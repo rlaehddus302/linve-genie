@@ -386,7 +386,7 @@ export class ExtensionService {
     const since = new Date(now - 10 * 60 * 1000)
     // 방송자 글(D-X1-29): 확장의 방송자 표시는 그 채널이 회차의 방송 채널일 때만 인정 — 공식 경로의 isChatOwner와 같은 'owner'로 기록한다.
     // 다르면 일반 시청자로 기록하고 센다(로그 없음). 회차 채널을 아직 모르면(이은 채널·유튜브 연결·감사에서 본 채널 모두 없음) 표시를 믿는다 — 판매자 글이 찜이 되는 쪽이 더 위험하다
-    const castChannel = await this.#deps.thanks.broadcastChannel(caller.sellerId, binding.broadcastId)
+    const castChannel = await this.#deps.thanks.broadcastChannel(caller.sellerId, binding.broadcastId, binding.videoId)
     let ownerDenied = 0
     let skipped = 0
     const recordable: { id: string; ch: string; nick: string; text: string; publishedAt: number; owner?: true }[] = []

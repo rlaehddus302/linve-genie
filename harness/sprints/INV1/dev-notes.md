@@ -53,3 +53,9 @@
   - `POST /_fake/broadcasts {channelId,status:'live'}`
   - `POST /_fake/messages {liveChatId,author,name,text}`: author가 방송 채널 B이면 자동으로 `isChatOwner` true
   - `GET /_fake/state`: posted에 `authorChannelId`가 있다. A 이름의 감사 확인에 쓴다.
+
+### 합치며 고친 것 (통합, TD-INV1-009)
+
+- 초대 방송 회차에서 공식 잇기만 끊고 확장이 같은 영상을 계속 받을 때, 확장 쪽 판단(`ExtensionThanks.broadcastChannel`·`#invited`·`take`)이 지금 이어진 연결만 보아 방송 채널을 연결 채널 A로 되돌렸다. 그래서 유튜버 B의 주인 배지 글이 시청자 찜이 되고, 확장 가져가기가 "방송 채널 계정으로 로그인해야 …"를 줬다.
+- 이제 이어진 연결이 없으면 **확장이 받는 영상을 이 회차에 이었던 가장 최근 연결(끊은 것 포함)**의 방송 채널을 쓴다(`youtube/store.ts` `latestLinkOfVideo`). 영상의 방송 채널은 끊어도 바뀌지 않는다. 확장이 다른 영상을 받으면 그 영상의 연결만 보므로, 끊은 초대 방송의 판단이 다른 영상으로 번지지 않는다.
+- 서버 시험: `apps/server/test/inv1-invited.test.ts` AC-INV1-10 "공식 잇기를 끊어도 …"(고치기 전 실패 확인). 적대 시험 `tests/adversarial/inv1/extension-after-unlink.test.ts` 통과.
