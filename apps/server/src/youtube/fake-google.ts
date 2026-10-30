@@ -225,6 +225,8 @@ export class FakeGoogle {
   readonly comments: FakeComment[] = []
   /** 우리가 게시한(insert로 받은) 메시지 */
   readonly posted: { readonly liveChatId: string; readonly id: string; readonly text: string; readonly authorChannelId: string }[] = []
+  /** 채팅을 읽은 기록 (liveChatMessages.list·streamList — 어느 채널의 토큰으로 어느 채팅을 읽었나, INV1 초대 방송 시험) */
+  readonly chatReads: { readonly liveChatId: string; readonly channel: string | null }[] = []
   /** 다음 승인 화면의 선택 */
   approval: FakeApproval = {}
   /** 폐기 요청으로 받은 토큰 수 */
@@ -611,8 +613,10 @@ export class FakeGoogle {
       case 'videos.list':
         return this.#videosList(res, url)
       case 'liveChatMessages.list':
+        this.chatReads.push({ liveChatId: url.searchParams.get('liveChatId') ?? '', channel: token.channel })
         return this.#chatList(res, url)
       case 'liveChatMessages.streamList':
+        this.chatReads.push({ liveChatId: url.searchParams.get('liveChatId') ?? '', channel: token.channel })
         return this.#chatStream(req, res, url, fault)
       case 'liveChatMessages.insert':
         return this.#chatInsert(req, res, token, fault)
