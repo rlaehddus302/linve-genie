@@ -687,17 +687,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 // V3 D-V3-72(spec 902dcfcc): parser/voice-extract.yaml 179 → 180사례 — +0·+1·+0·+1 = 파일 39 · 파서 757 · 엔진 159 · 통과 916 (교체 — 약화 아님).
 // V3 D-V3-80~89·D-V3-91·D-V3-94(spec f4a919e4까지): parser/voice-extract.yaml 180 → 196 → 213 → 228사례(+16·+17·+15) — +0·+48·+0·+48
 //   = 파일 39 · 파서 805 · 엔진 159 · 통과 964 (실제 골든 결과, 앞 두 번은 이 합계를 바꾸지 않고 지나갔다 — 교체 — 약화 아님).
-// SMS3 D-SMS3-09: parser/sms-text.yaml 새 파일(문서 6 · 사례 129, suite sms-text) — +1·+129·+0·+129 = 파일 40 · 파서 934 · 엔진 159 · 통과 1093
-//   (불일치 0을 그대로 둔다 — 골든과 다른 결과는 숨기지 않고 이 시험이 실패로 알린다).
+// SMS3 D-SMS3-09: parser/sms-text.yaml 새 파일(문서 6 · 사례 129, suite sms-text) — +1·+129·+0·+129 = 파일 40 · 파서 934 · 엔진 159 · 통과 1093.
+// SMS3 D-SMS3-15(spec 324e8c8b): 사례 12 `775,776,777` → {}(금액 모양)로 고침, `15,28,31` 사례 하나 더함 — +0·+1·+0·+1 = 파일 40 · 파서 935 · 엔진 159 · 통과 1094.
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 + FB1 + V3 + SMS3 합계)', () => {
-  it('파일 40 · 파서 934 · 엔진 159 · 통과 1093, 나머지 0', () => {
+  it('파일 40 · 파서 935 · 엔진 159 · 통과 1094, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 40,
-      parserCases: 934,
+      parserCases: 935,
       scenarios: 159,
-      pass: 1093,
+      pass: 1094,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,
