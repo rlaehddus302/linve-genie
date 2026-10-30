@@ -1,16 +1,17 @@
 // 한 목록 프린터 고르기 (APP-03, LABEL_RULES L-7·L-12 3) — 앱 화면은 "프린터 고르기" 하나만 쓴다.
 // 찾은 기기를 한 목록에 보이고, 판매자가 고른 기기의 이름으로 계열을 갈라 그 계열의 어댑터(B1 = createNativeB1Adapter, Marklife = createNativeMarklifeAdapter)로 보낸다.
-// 계열은 데이터(families.ts의 계열 표)다 — 계열을 더해도 이 파일은 바뀌지 않는다. 기본 표는 Marklife → NIIMBOT 차례다
-// (Marklife는 NIIMBOT 서비스 UUID(e7810a71-…)도 알리고 이름 첫 글자(P·S·L…)도 NIIMBOT 거르기에 걸려 B1 목록에 섞인다 — 이름으로 가르면
-// 판매자는 기종을 몰라도 목록에서 자기 프린터를 고르면 된다(잘못된 어댑터로 이어 "다른 프린터"를 보는 일이 없다)).
-// - Marklife 이름(L-12 3 — 대소문자 가림, `P12_`) → Marklife. Marklife 앞자리를 대소문자만 다르게 가진 이름(`p12_…`)은 어느 쪽도 받지 않아 목록에 넣지 않는다.
-// - 그 밖에 NIIMBOT 거르기(이름 첫 글자·서비스)에 걸린 기기 → B1 (B1 확인은 이은 뒤 모델 정보로 — L-7).
+// 계열은 데이터(families.ts의 계열 표)다 — 계열을 더해도 이 파일은 바뀌지 않는다. 기본 표는 Marklife·바우아토 → NIIMBOT 차례다.
+// 어느 기기를 목록에 넣고 어느 계열로 보낼지는 @livejjim/printer의 pickListTarget(웹 고르기 창과 같은 함수, L-7 고르기 목록, D-PRN2-04)이 정한다:
+// - L-12 이름(글자 그대로, `P12_`) → Marklife 계열 — NIIMBOT 서비스를 광고해도 그렇다.
+// - NIIMBOT 서비스 광고 또는 켠 NIIMBOT 모델 이름 꼴(`B1-`·`D110_`…) → NIIMBOT 계열 (모델 확인은 이은 뒤 모델 정보로 — L-7).
+// - 그 밖은 목록에 없다(이름 첫 글자 거르기 없음). 실험 기종도 목록에 보이고 L-12 줄에는 "실험"이 붙는다(D-PRN2-01·08 — 숨김 스위치 없음).
 // 기억은 마지막으로 이은 기기 하나다(RememberedPrinter — ID만). 앱을 다시 켜 계열을 모르면 잠깐 찾아 그 ID의 이름으로 정한다(켠 계열이 하나면 찾지 않는다).
 import {
   B1_PROFILE,
+  LABEL_PROFILES,
   MARKLIFE_MESSAGES,
-  MARKLIFE_PROFILES,
   RememberBox,
+  connectedProfileId,
   printerErrorWithMessage,
   sameRememberedPrinter,
   systemTimer,
@@ -18,7 +19,7 @@ import {
   type ConnectionState,
   type MarklifeErrorCode,
   type ModelProfile,
-  type PrinterProfile,
+  type NiimbotProfile,
   type PrinterResult,
   type PrinterTimer,
   type RememberingPrinterAdapter,
@@ -42,9 +43,9 @@ export interface PrinterPickerOptions {
   readonly printTimeoutMs?: number
   /** B1 첫 확인 다시 잇기 전 쉬는 시간 */
   readonly reconnectDelayMs?: number
-  /** 켤 NIIMBOT 프로필 (기본 B1 하나) */
-  readonly niimbotProfiles?: readonly PrinterProfile[]
-  /** 켤 Marklife 프로필 (기본 9종 — 바우아토는 일부러 넘길 때만) */
+  /** 켤 NIIMBOT 프로필 (기본 NIIMBOT_PROFILES — B1·B1 SE·B21·D110) */
+  readonly niimbotProfiles?: readonly NiimbotProfile[]
+  /** 켤 L-12 프로필 (기본 LABEL_PROFILES — Marklife 9종 + 바우아토) */
   readonly marklifeProfiles?: readonly ModelProfile[]
   readonly client?: NiimbotBleClientOptions
   readonly marklife?: { readonly packetIntervalMs?: number; readonly maxPacketBytes?: number; readonly creditWaitMs?: number }
@@ -63,16 +64,18 @@ export interface PrinterPicker extends RememberingPrinterAdapter {
   readonly profile: AdapterProfile
   /** 켠 계열 (표 순서) */
   readonly families: readonly PrinterFamily[]
+  /** 연결된 프린터의 프로필 ID (끊겼거나 모르면 null) — 출력 기기가 서버에 알린다(L-11 10, D-PRN2-07) */
+  readonly profileId: string | null
   /** 고르기 창에 보일 줄 (이름 없는 기기 뺌, 신호 센 차례, 기종 이름) */
   entries(devices: readonly BleDeviceInfo[]): PickEntry[]
 }
 
 /**
- * 이름으로 기종 가르기: Marklife 이름(L-12 3 그대로) → MARKLIFE, Marklife 앞자리를 대소문자만 다르게 가진 이름 → null(받지 않음), 그 밖 → NIIMBOT.
- * NIIMBOT은 찾기 거르기(이름 첫 글자·서비스)를 지난 기기만 여기 온다
+ * 기기(이름 + 광고 서비스)로 계열 가르기 — pickListTarget(L-7 고르기 목록): L-12 이름(글자 그대로) → MARKLIFE,
+ * NIIMBOT 서비스 광고 또는 NIIMBOT 모델 이름 꼴 → NIIMBOT, 그 밖 → null(목록에 없다)
  */
-export function printerKindOf(name: string | null, marklifeProfiles: readonly ModelProfile[] = MARKLIFE_PROFILES): PrinterKind | null {
-  return familyOf(name, [marklifeFamily({ profiles: marklifeProfiles }), niimbotFamily()])
+export function printerKindOf(name: string | null, marklifeProfiles: readonly ModelProfile[] = LABEL_PROFILES, services: readonly string[] = []): PrinterKind | null {
+  return familyOf(name, [marklifeFamily({ profiles: marklifeProfiles }), niimbotFamily()], services)
 }
 
 export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicker {
@@ -83,7 +86,7 @@ export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicke
   const families: readonly PrinterFamily[] = Object.freeze([
     ...(options.families ?? [
       marklifeFamily({
-        profiles: options.marklifeProfiles ?? MARKLIFE_PROFILES,
+        profiles: options.marklifeProfiles ?? LABEL_PROFILES,
         ...(options.marklife?.packetIntervalMs === undefined ? {} : { packetIntervalMs: options.marklife.packetIntervalMs }),
         ...(options.marklife?.maxPacketBytes === undefined ? {} : { maxPacketBytes: options.marklife.maxPacketBytes }),
         ...(options.marklife?.creditWaitMs === undefined ? {} : { creditWaitMs: options.marklife.creditWaitMs }),
@@ -99,7 +102,7 @@ export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicke
 
   /** 한 목록 찾기 — 켠 계열들의 거르기를 합친다 */
   const filter: BleScanFilter = familyScanFilter(families)
-  const kindOf = (device: BleDeviceInfo): PrinterKind | null => familyOf(device.name, families)
+  const kindOf = (device: BleDeviceInfo): PrinterKind | null => familyOf(device.name, families, device.serviceUuids ?? [])
 
   /** 한 목록에서 고른 기기 — 안쪽 어댑터의 고르기 대신 넘긴다 */
   let preselected: BleDeviceInfo | null = null
@@ -274,10 +277,15 @@ export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicke
       return active === null ? B1_PROFILE : adapterOf(active).profile
     },
     families,
+    get profileId() {
+      return connectedProfileId(picker)
+    },
     entries(devices) {
+      const familyFor = (device: BleDeviceInfo): PrinterFamily | undefined => families.find((f) => f.id === kindOf(device))
       return pickEntries(
         devices.filter((device) => kindOf(device) !== null),
-        (device) => families.find((f) => f.id === kindOf(device))?.modelName(device.name) ?? '',
+        (device) => familyFor(device)?.modelName(device.name) ?? '',
+        { experimental: (device) => familyFor(device)?.isExperimental(device.name) ?? false, keepNameless: true },
       )
     },
     get state() {

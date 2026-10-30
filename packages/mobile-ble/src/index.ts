@@ -21,6 +21,7 @@ export { bleBluetoothEnvironment, createBleBluetooth, fullUuid, type BleBluetoot
 export { createNativeMarklifeAdapter, matchesMarklifeName, type NativeMarklifeAdapter, type NativeMarklifeAdapterOptions } from './marklife.ts'
 export { IDENTIFY_SCAN_MS, createPrinterPicker, printerKindOf, type PrinterKind, type PrinterPicker, type PrinterPickerOptions } from './picker.ts'
 export {
+  defaultPrinterFamilies,
   enabledFamilies,
   familyOf,
   familyScanFilter,
@@ -32,7 +33,17 @@ export {
   type NiimbotFamilyOptions,
   type PrinterFamily,
 } from './families.ts'
-export { SIGNAL_FAIR_DBM, SIGNAL_STRONG_DBM, pickEntries, signalWord, type PickEntry, type SignalWord } from './pick-list.ts'
+export {
+  EXPERIMENTAL_WORD,
+  NAMELESS_TITLE,
+  SIGNAL_FAIR_DBM,
+  SIGNAL_STRONG_DBM,
+  pickEntries,
+  signalWord,
+  type PickEntry,
+  type PickEntryOptions,
+  type SignalWord,
+} from './pick-list.ts'
 export {
   AUTO_RECONNECT_POLICY,
   RECONNECT_DELAYS_MS,

@@ -1,26 +1,30 @@
-// 프린터 계열 표 (APP-03, LABEL_RULES L-7·L-12 3) — 한 목록 고르기(createPrinterPicker)가 다루는 계열을 데이터로 둔다.
-// 계열 하나 = 찾기 거르기(서비스·이름 앞자리) + 이름으로 내 기기인지 + 목록에 보일 기종 이름 + 그 계열의 어댑터 만들기.
-// 계열을 더하는 일은 이 표에 한 줄을 더하는 것이다(고르기 코드에 기종 이름으로 갈라지는 곳이 없다).
-// 목록에서 고른 기기는 표 순서대로 물어 처음 "내 것"이라 한 계열로 간다. "받지 않음"이면 어느 계열로도 가지 않는다.
-// - Marklife(L-12 3 이름 앞자리, 대소문자 가림)를 NIIMBOT보다 먼저 둔다 — Marklife도 NIIMBOT 서비스 UUID를 알리고 이름 첫 글자도 NIIMBOT 거르기에 걸린다.
-// - NIIMBOT은 Marklife·바우아토 이름 꼴(대소문자 무시)을 받지 않는다 — 켠 계열에 Marklife가 없어도 B1 목록에 섞이지 않게(이어진 뒤 "다른 프린터"가 없게).
-// 계열의 지원 단계(앱에서 보일지)는 `experimental`이다. 앱은 실험 계열을 숨김 스위치를 켰을 때만 넣는다(L-7 "검증 없이 지원 표시하지 않는다").
+// 프린터 계열 표 (APP-03, LABEL_RULES L-7 고르기 목록·지원 단계, L-12 3, D-PRN2-01·04·08) — 한 목록 고르기(createPrinterPicker)가 다루는 계열을 데이터로 둔다.
+// 계열 하나 = 그 계열의 켠 프로필 + 찾기 거르기 + 이 기기가 내 것인지 + 목록에 보일 기종 이름·실험 표시 + 그 계열의 어댑터 만들기.
+// 어느 기기를 목록에 넣고 어느 계열로 보낼지는 @livejjim/printer의 pickListTarget 하나로 정한다 — 웹 고르기 창과 같은 함수·같은 표다(AC-PRN2-04).
+//   1. 이름이 L-12 앞자리(글자 그대로)면 그 프로필(Marklife 계열) — NIIMBOT 서비스를 광고해도 그렇다.
+//   2. 아니면 NIIMBOT 서비스 광고 또는 켠 NIIMBOT 모델 이름 + `-`·`_` → NIIMBOT 계열(모델은 이은 뒤 모델 정보로).
+//   3. 그 밖은 목록에 없다. 이름 첫 글자 거르기(niimbluelib 기본)는 쓰지 않는다.
+// 지원 단계(실험)는 프로필마다다 — 앱이 실험 계열을 숨기는 스위치는 없다(D-PRN2-08). 계열을 더하는 일은 이 표에 한 줄을 더하는 것이다.
 import {
-  MARKLIFE_PROFILES,
-  niimbotRequestOptions,
+  LABEL_PROFILES,
+  NIIMBOT_PROFILES,
+  NIIMBOT_TARGET,
+  labelProfilesOf,
+  pickListFilter,
+  pickListTarget,
   profileForDeviceName,
   type ModelProfile,
-  type PrinterProfile,
+  type NiimbotProfile,
   type PrinterTimer,
   type RememberingPrinterAdapter,
 } from '@livejjim/printer'
-import { createNativeB1Adapter, looksLikeMarklifeName } from './adapter.ts'
+import { createNativeB1Adapter } from './adapter.ts'
 import type { NiimbotBleClientOptions } from './client.ts'
-import { createNativeMarklifeAdapter, matchesMarklifeName } from './marklife.ts'
+import { createNativeMarklifeAdapter } from './marklife.ts'
 import type { DevicePicker } from './pick.ts'
 import type { BleDeviceInfo, BleTransport } from './transport.ts'
 
-/** 계열이 기기 이름에 하는 답: 내 것 · 받지 않음(어느 계열로도 보내지 않는다) · 모름(다음 계열에게) */
+/** 계열이 기기에 하는 답: 내 것 · 받지 않음(어느 계열로도 보내지 않는다) · 모름(다음 계열에게) */
 export type FamilyClaim = 'mine' | 'refuse' | 'pass'
 
 /** 계열 어댑터를 만들 때 고르기가 넘기는 것 */
@@ -38,71 +42,79 @@ export interface PrinterFamily {
   readonly id: string
   /** 기종을 모를 때 목록에 보일 이름 */
   readonly label: string
-  /** 실기기 확인 전 — 앱은 숨김 스위치를 켰을 때만 넣는다 */
-  readonly experimental: boolean
-  /** 찾기 거르기 (서비스 UUID 또는 이름 앞자리 — 대소문자 무시로 넓게 찾고 claim이 가린다) */
+  /** 이 계열의 켠 프로필 (표 순서) */
+  readonly profiles: readonly ModelProfile[]
+  /** 찾기 거르기 (서비스 UUID 또는 이름 앞자리 — 글자 그대로). 걸린 기기도 claim으로 한 번 더 본다 */
   readonly scan: { readonly serviceUuids: readonly string[]; readonly namePrefixes: readonly string[] }
-  /** 이 이름의 기기가 이 계열인지 */
-  claim(name: string | null): FamilyClaim
+  /** 이 기기(이름 + 광고 서비스)가 이 계열인지 */
+  claim(name: string | null, services?: readonly string[]): FamilyClaim
   /** 목록에 보일 기종 이름 (이름으로 알 수 없으면 계열 이름) */
   modelName(name: string | null): string
+  /** 목록 줄에 "실험"을 보일지 — 이름으로 프로필이 정해지는 줄(L-12)만. NIIMBOT 줄은 모델을 이은 뒤에 알아 표시하지 않는다(L-7) */
+  isExperimental(name: string | null): boolean
   createAdapter(context: FamilyContext): RememberingPrinterAdapter
 }
 
 export interface NiimbotFamilyOptions {
-  /** 켤 NIIMBOT 프로필 (기본 B1 하나) */
-  readonly profiles?: readonly PrinterProfile[]
+  /** 켤 NIIMBOT 프로필 (기본 NIIMBOT_PROFILES — B1·B1 SE·B21·D110) */
+  readonly profiles?: readonly NiimbotProfile[]
   readonly client?: NiimbotBleClientOptions
   /** B1 첫 확인 다시 잇기 전 쉬는 시간 */
   readonly reconnectDelayMs?: number
 }
 
-/** NIIMBOT 계열 — 이름 첫 글자·NIIMBOT 서비스로 찾고, B1 확인은 이은 뒤 모델 정보로(L-7) */
+/** NIIMBOT 계열 — NIIMBOT 서비스·모델 이름 꼴로 목록에 넣고, 모델은 이은 뒤 모델 정보로(L-7) */
 export function niimbotFamily(options: NiimbotFamilyOptions = {}): PrinterFamily {
-  const request = niimbotRequestOptions()
-  const scan = {
-    serviceUuids: Object.freeze(request.filters.flatMap((f) => ('services' in f ? f.services : []))),
-    namePrefixes: Object.freeze(request.filters.flatMap((f) => ('namePrefix' in f ? [f.namePrefix] : []))),
-  }
+  const profiles: readonly NiimbotProfile[] = Object.freeze([...(options.profiles ?? NIIMBOT_PROFILES)])
+  // L-12 앞자리가 먼저다(1) — Marklife 계열을 켜지 않아도 Marklife 이름은 NIIMBOT으로 보내지 않는다
+  const table: readonly ModelProfile[] = [...profiles, ...LABEL_PROFILES]
+  const filter = pickListFilter(profiles)
   return Object.freeze({
     id: 'NIIMBOT',
     label: 'NIIMBOT',
-    experimental: false,
-    scan: Object.freeze(scan),
-    claim: (name: string | null): FamilyClaim => (looksLikeMarklifeName(name) ? 'refuse' : 'mine'),
+    profiles,
+    scan: Object.freeze({ serviceUuids: filter.serviceUuids, namePrefixes: filter.niimbotNamePrefixes }),
+    claim: (name: string | null, services: readonly string[] = []): FamilyClaim => (pickListTarget(name, services, table) === NIIMBOT_TARGET ? 'mine' : 'refuse'),
     modelName: () => 'NIIMBOT',
+    isExperimental: () => false,
     createAdapter: (context: FamilyContext) =>
       createNativeB1Adapter({
         transport: context.transport,
         pickDevice: context.pickDevice,
         selectDevice: context.selectDevice,
+        profiles,
         ...(context.timer === undefined ? {} : { timer: context.timer }),
         ...(context.printTimeoutMs === undefined ? {} : { printTimeoutMs: context.printTimeoutMs }),
         ...(options.reconnectDelayMs === undefined ? {} : { reconnectDelayMs: options.reconnectDelayMs }),
-        ...(options.profiles === undefined ? {} : { profiles: options.profiles }),
         ...(options.client === undefined ? {} : { client: options.client }),
       }),
   })
 }
 
 export interface MarklifeFamilyOptions {
-  /** 켤 Marklife 프로필 (기본 9종 — 바우아토는 일부러 넘길 때만) */
+  /** 켤 L-12 프로필 (기본 LABEL_PROFILES — Marklife 9종 + 바우아토. 실험도 켠 프로필이다, D-PRN2-01) */
   readonly profiles?: readonly ModelProfile[]
   readonly packetIntervalMs?: number
   readonly maxPacketBytes?: number
   readonly creditWaitMs?: number
 }
 
-/** Marklife 계열 — L-12 3 이름 앞자리(대소문자 가림)로 기종을 정한다. 앱에서는 실기기 확인 전이라 실험 계열이다 */
+/** Marklife·바우아토 계열 — L-12 3 이름 앞자리(글자 그대로)로 기종을 정한다 */
 export function marklifeFamily(options: MarklifeFamilyOptions = {}): PrinterFamily {
-  const profiles: readonly ModelProfile[] = Object.freeze([...(options.profiles ?? MARKLIFE_PROFILES)])
+  const profiles: readonly ModelProfile[] = Object.freeze([...labelProfilesOf(options.profiles ?? LABEL_PROFILES)])
+  const filter = pickListFilter(profiles)
+  const ids = new Set(profiles.map((p) => p.id))
   return Object.freeze({
     id: 'MARKLIFE',
     label: 'Marklife',
-    experimental: true,
-    scan: Object.freeze({ serviceUuids: Object.freeze([] as string[]), namePrefixes: Object.freeze(profiles.flatMap((p) => (p.namePrefix ? [p.namePrefix] : []))) }),
-    claim: (name: string | null): FamilyClaim => (matchesMarklifeName(name, profiles) ? 'mine' : 'pass'),
+    profiles,
+    scan: Object.freeze({ serviceUuids: Object.freeze([] as string[]), namePrefixes: filter.labelNamePrefixes }),
+    claim: (name: string | null, services: readonly string[] = []): FamilyClaim => {
+      const target = pickListTarget(name, services, profiles)
+      return target !== null && ids.has(target) ? 'mine' : 'pass'
+    },
     modelName: (name: string | null) => profileForDeviceName(name, profiles)?.displayName ?? 'Marklife',
+    isExperimental: (name: string | null) => profileForDeviceName(name, profiles)?.experimental ?? false,
     createAdapter: (context: FamilyContext) =>
       createNativeMarklifeAdapter({
         transport: context.transport,
@@ -118,25 +130,34 @@ export function marklifeFamily(options: MarklifeFamilyOptions = {}): PrinterFami
   })
 }
 
-/** 표 순서대로 물어 이 이름의 계열 ID (받지 않거나 아무도 모르면 null) */
-export function familyOf(name: string | null, families: readonly PrinterFamily[]): string | null {
+/** 앱 기본 계열 표 — Marklife·바우아토(L-12 앞자리가 먼저) → NIIMBOT. 켠 프로필 표 전부(PRINTER_PROFILES)를 덮는다 */
+export function defaultPrinterFamilies(): PrinterFamily[] {
+  return [marklifeFamily(), niimbotFamily()]
+}
+
+/** 표 순서대로 물어 이 기기의 계열 ID (받지 않거나 아무도 모르면 null — 목록에 없다) */
+export function familyOf(name: string | null, families: readonly PrinterFamily[], services: readonly string[] = []): string | null {
   for (const family of families) {
-    const answer = family.claim(name)
+    const answer = family.claim(name, services)
     if (answer === 'mine') return family.id
     if (answer === 'refuse') return null
   }
   return null
 }
 
-/** 계열들의 찾기 거르기를 합친다 (같은 값은 한 번) */
-export function familyScanFilter(families: readonly PrinterFamily[]): { serviceUuids: string[]; namePrefixes: string[] } {
+/** 계열들의 찾기 거르기를 합친다 (같은 값은 한 번, 이름 앞자리는 글자 그대로 — L-7) */
+export function familyScanFilter(families: readonly PrinterFamily[]): { serviceUuids: string[]; namePrefixes: string[]; matchCase: true } {
   return {
     serviceUuids: [...new Set(families.flatMap((f) => f.scan.serviceUuids))],
     namePrefixes: [...new Set(families.flatMap((f) => f.scan.namePrefixes))],
+    matchCase: true,
   }
 }
 
-/** 앱이 켤 계열 — 기본은 실험이 아닌 계열만(B1). 숨김 스위치를 켜면 실험 계열도 (표 순서 그대로) */
-export function enabledFamilies(families: readonly PrinterFamily[], showExperimental: boolean): PrinterFamily[] {
-  return families.filter((f) => showExperimental || !f.experimental)
+/**
+ * @deprecated PRN2(D-PRN2-08)로 앱의 실험 숨김 스위치가 없어졌다 — 켠 계열을 모두 돌려준다(두 번째 인자는 보지 않는다).
+ * 앱은 defaultPrinterFamilies()를 쓴다. 실험 표시는 목록 줄(PickEntry.experimental)과 연결 뒤 프로필의 experimental로 한다
+ */
+export function enabledFamilies(families: readonly PrinterFamily[], _showExperimental?: boolean): PrinterFamily[] {
+  return [...families]
 }
