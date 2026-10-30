@@ -1,0 +1,32 @@
+// 라이브지니 문자찜·입금 알림 받기 모듈 (Expo Modules API). Expo 자동 연결(expo-module.config.json)이 이 모듈을 앱 빌드에 넣는다.
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.livejjim.notice'
+version = '0.0.0'
+
+android {
+  namespace 'com.livejjim.notice'
+  defaultConfig {
+    versionCode 1
+    versionName '0.0.0'
+  }
+  lintOptions {
+    abortOnError false
+  }
+  testOptions {
+    unitTests.all {
+      // 공용 사례 파일 (TS·Kotlin·Swift가 같이 읽는다)
+      systemProperty 'notice.vectors', file('../test-vectors/notice-vectors.json').absolutePath
+    }
+  }
+}
+
+dependencies {
+  implementation 'androidx.core:core-ktx:1.13.1'
+  implementation 'androidx.work:work-runtime:2.10.5'
+  testImplementation 'junit:junit:4.13.2'
+  // JVM 단위 시험에서 안드로이드 org.json 대신 진짜 구현
+  testImplementation 'org.json:json:20240303'
+}

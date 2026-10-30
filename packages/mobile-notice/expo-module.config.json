@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "modules": ["com.livejjim.notice.LivejjimNoticeModule"]
+  },
+  "ios": {
+    "modules": ["LivejjimNoticeModule"]
+  }
+}

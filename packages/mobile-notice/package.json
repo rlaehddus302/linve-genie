@@ -1,0 +1,21 @@
+{
+  "name": "@livejjim/mobile-notice",
+  "version": "0.0.0",
+  "private": true,
+  "description": "라이브찜 앱 문자찜·은행 입금 알림 받기 모듈(Expo Modules API, 네이티브 이름 LivejjimNotice) — 안드로이드 알림 읽기·아이폰 단축어 동작이 봉투를 암호화 대기열에 넣고 서버로 보낸다 (SMS3)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./native": "./src/native.ts",
+    "./fake": "./src/fake.ts"
+  },
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "expo-modules-core": "58.0.28",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5"
+  }
+}
