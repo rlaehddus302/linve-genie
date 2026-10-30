@@ -320,7 +320,7 @@ export function addressState(row: AddressRow | null | undefined, opened: boolean
 
 // ── 화면 요청 번호 ───────────────────────────────────────────────────────
 
-export type ParcelRequestKind = 'BOOK' | 'CANCEL' | 'ADDRESS' | 'CONFIRM' | 'DELETE'
+export type ParcelRequestKind = 'BOOK' | 'CANCEL' | 'ADDRESS' | 'CONFIRM' | 'DELETE' | 'LEDGER' // KP1 LEDGER = 장부 배송지 확인(CR-4)
 
 export interface RequestRow {
   readonly date: string

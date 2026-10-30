@@ -174,6 +174,10 @@ export type LogCode =
   | 'ASSIST_EXCLUDED'
   // V3 음성 등록·고침 기록 (R-25, D-V3-65): 판매자·범위 날짜·줄 수만. 들은 말·품종·닉네임은 남기지 않는다
   | 'VOICE_LOG_FAILED'
+  // KP1 손님 장부 (CR-8): 판매자·개수·오류 종류만. 연락처·표지·코드 글·채팅 본문은 남기지 않는다
+  | 'LEDGER_CODE_FAILED'
+  | 'LEDGER_SWEEP_FAILED'
+  | 'LEDGER_SWEPT'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -300,6 +304,10 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   ASSIST_NO_SUGGESTION: 'AI 답에서 검사를 통과하지 못한 항목을 제안 없음으로 두었어요',
   ASSIST_EXCLUDED: '유튜브 채팅은 AI에 보내지 않고 규칙 제안만 두었어요',
   VOICE_LOG_FAILED: '음성 기록의 실패 줄을 남기지 못했어요(상품 명령은 기록되지 않음)',
+  // KP1
+  LEDGER_CODE_FAILED: '채팅에서 손님 장부 연결 코드를 읽지 못했어요(기록·판정은 그대로)',
+  LEDGER_SWEEP_FAILED: '손님 장부 정리 중 오류가 생겼어요(다음 주기에 다시 해요)',
+  LEDGER_SWEPT: '보관 기간이 지난 손님 장부 줄과 끝난 연결 코드를 정리했어요',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

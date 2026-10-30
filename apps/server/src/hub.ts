@@ -76,7 +76,7 @@ interface Pending {
 
 /** 리허설 생성기 상태 알림 (event: generator) · 유튜브 알림 (event: youtube — 연결·수집·발송함·할당량·삭제·차단, AC-Y1-05·27·28·39·52) · 출력 기록 알림 (event: print, I1) · I2 포장·배송(event: packing)·가게 설정(event: shop) 알림 · 인스타그램 알림 (event: instagram, N2) · 라벨 기능 켬/끔 (event: labels, N4a) · 틱톡 연결 알림 (event: tiktok, N2b-2) · 입금 확인 알림 (event: deposit, N3) · 요금 알림 (event: billing, N5) — seq가 없다 */
 export interface GeneratorNotice {
-  readonly kind: 'generator' | 'youtube' | 'print' | 'packing' | 'shop' | 'instagram' | 'labels' | 'tiktok' | 'deposit' | 'billing' | 'login' | 'parcel' | 'extension' | 'band'
+  readonly kind: 'generator' | 'youtube' | 'print' | 'packing' | 'shop' | 'instagram' | 'labels' | 'tiktok' | 'deposit' | 'billing' | 'login' | 'parcel' | 'extension' | 'band' | 'customers' // KP1 손님 장부·손님 표시 설정 { what: 'settings' | 'ledger' }
   readonly data: Readonly<Record<string, unknown>>
 }
 
@@ -229,7 +229,7 @@ export class StreamHub {
 
   /** I2 포장·배송(packing, AC-I2-32)·가게 설정(shop, AC-I2-13)·L1 로그인 방법(login — 간편 로그인 연결·끊기, { kind: 'methods' }) 알림 (그 판매자의 연결 전부 — 다른 판매자의 연결은 받지 않는다). 보조자 연결은 받지 않는다 — 보조자는 포장·설정을 쓰지 않는다 (SYS-04) */
   // T1 택배(parcel — 배송지·접수·취소·조회가 바뀐 묶음 { date, buyer }, 값은 담지 않는다)도 같은 길이다
-  publishNamed(sellerId: string, kind: 'packing' | 'shop' | 'login' | 'parcel', data: Readonly<Record<string, unknown>>): void {
+  publishNamed(sellerId: string, kind: 'packing' | 'shop' | 'login' | 'parcel' | 'customers', data: Readonly<Record<string, unknown>>): void {
     this.#publishNamed(sellerId, { kind, data })
   }
 

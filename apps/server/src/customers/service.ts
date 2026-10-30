@@ -124,6 +124,44 @@ export class CustomerService {
     this.#deps = deps
   }
 
+  // ── KP1 손님 장부가 쓰는 조회 (표지는 서버 안에서만 — 응답에 내지 않는다) ──────────
+
+  /** 손님 자세히에 붙일 장부 칸 (LedgerService가 건다) */
+  #ledgerView: ((sellerId: string, marker: string) => Promise<unknown>) | null = null
+
+  useLedger(view: (sellerId: string, marker: string) => Promise<unknown>): void {
+    this.#ledgerView = view
+  }
+
+  /** 불투명 손님 ID → 표지 (그 판매자의 기록에 있는 것만) */
+  async markerOfId(sellerId: string, id: string): Promise<string | null> {
+    return CustomerService.#markerOf(await this.#index(sellerId), id)
+  }
+
+  /** 표지마다 기록 묶음(실제 날짜)·"모든 손님" 줄 요약 (오늘 KST·지금 설정). 기록이 없는 표지는 빈 묶음 */
+  async markerFacts(sellerId: string, markers: readonly string[]): Promise<{ today: string; byMarker: Map<string, { bundles: DayBundle[]; summary: CustomerSummary }> }> {
+    const index = await this.#index(sellerId)
+    const byMarker = new Map<string, { bundles: DayBundle[]; summary: CustomerSummary }>()
+    for (const marker of new Set(markers)) {
+      const bundles = CustomerService.#markerBundles(index, marker)
+      byMarker.set(marker, { bundles, summary: CustomerService.#summary(index, bundles) })
+    }
+    return { today: index.today, byMarker }
+  }
+
+  /** "모든 손님" 줄 전부 (거르기 없이, 누적 큰 순 — 손님 엑셀 CR-6). 표지·마지막 메모 글을 함께 (서버 안에서만) */
+  async allRows(sellerId: string): Promise<{ today: string; rows: { row: CustomerRow; marker: string; memo: string | null }[] }> {
+    const index = await this.#index(sellerId)
+    const rows: { row: CustomerRow; marker: string }[] = []
+    for (const marker of index.markerDates.keys()) {
+      const row = CustomerService.#row(index, marker)
+      if (row !== null) rows.push({ row, marker })
+    }
+    rows.sort((a, b) => b.row.purchaseTotal - a.row.purchaseTotal || byText(a.row.name, b.row.name) || byText(a.row.id, b.row.id))
+    const memos = await this.#memos(sellerId, rows.map((item) => item.marker))
+    return { today: index.today, rows: rows.map((item) => ({ ...item, memo: memos.get(item.marker)?.text ?? null })) }
+  }
+
   /** 판매자 전화번호 키 (메모리에만 — 응답·로그에 내지 않는다) */
   readonly #sellerKey = async (sellerId: string): Promise<Buffer> => {
     const cached = this.#sellerKeys.get(sellerId)
@@ -342,7 +380,7 @@ export class CustomerService {
   }
 
   /** 손님 자세히: 오늘(서버 KST) + 줄 + 메모 + 날짜 줄(최근부터 20개, before=<날짜>로 다음 쪽). 없으면 null(404) */
-  async customer(sellerId: string, id: string, before: string | null): Promise<{ today: string; customer: CustomerRow; memo: MemoView | null; days: CustomerDay[]; more: boolean; next: string | null } | null> {
+  async customer(sellerId: string, id: string, before: string | null): Promise<{ today: string; customer: CustomerRow; memo: MemoView | null; days: CustomerDay[]; more: boolean; next: string | null; ledger: unknown } | null> {
     const index = await this.#index(sellerId)
     const marker = CustomerService.#markerOf(index, id)
     if (marker === null) return null
@@ -364,7 +402,9 @@ export class CustomerService {
     }))
     const memo = (await this.#memos(sellerId, [marker])).get(marker) ?? null
     // today = 서버 KST 날짜 — 화면이 주소로 바로 열어도 올해 기준을 기기 시계·손님 마지막 날짜가 아니라 이것으로 정한다(AC-CRM1-15, TE-CRM1-003)
-    return { today: index.today, customer: row, memo, days, more, next: more ? (page.at(-1)?.date ?? null) : null }
+    // KP1: 손님 자세히의 장부 칸 (CR-4·CR-5, 장부가 이어져 있지 않으면 null)
+    const ledger = this.#ledgerView === null ? null : await this.#ledgerView(sellerId, marker)
+    return { today: index.today, customer: row, memo, days, more, next: more ? (page.at(-1)?.date ?? null) : null, ledger }
   }
 
   // ── 메모 (D-CRM1-08) ─────────────────────────────────────────────────
