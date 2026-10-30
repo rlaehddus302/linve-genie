@@ -1,6 +1,7 @@
 // 택배 자동 접수 API 모양 (T1, PARCEL_RULES PC-1~PC-8 — 서버 계약은 harness/sprints/T1/dev-notes.md "[server] API").
 // 영어 값(state·reason·payment·address·shipping)은 화면에 그대로 내지 않는다 — 서버가 준 문장(message)·조회 낱말(status)·포장 상태 말(packing)을 쓴다.
 import type { PaymentStatus } from '@livejjim/core'
+import type { LedgerPrefill } from '../lib/ledger.ts' // KP1
 
 /** 접수 기록에 오는 택배사 (자동 접수 어댑터를 둘 수 있는 것 — FB1 D-FB1-04) */
 export type CarrierCode = 'FAKE' | 'EPOST' | 'CJ' | 'HANJIN' | 'LOGEN' | 'LOTTE'
@@ -98,6 +99,8 @@ export interface BundleView {
   /** 보관 기간(날짜 + 30일)이 지났다 */
   readonly expired: boolean
   readonly row: ParcelRow
+  /** KP1 장부 연락처 "확인 전" (CR-4 — 보일 때만, 리허설·봉인 날짜는 null. 옛 서버엔 없다) */
+  readonly ledger?: LedgerPrefill | null
 }
 
 export type BookResult =

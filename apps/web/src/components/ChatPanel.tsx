@@ -13,6 +13,9 @@ import { kstTime } from '../lib/kst.ts'
 import { PLATFORM_WORD, platformOfKey } from '../lib/platforms.ts'
 import { CHAT_REVIEW_WORD, CHAT_WORD, REVIEW_REASON_WORD } from '../lib/words.ts'
 import { useConsoleApi } from './console-context.ts'
+// KP1 손님 꼬리표 (CR-7)
+import { ChatBadgeMark, useBadgeOf } from './ChatBadges.tsx'
+import type { CustomerBadge } from '../lib/ledger.ts'
 
 export interface ChatPanelProps {
   readonly messages: readonly ChatMessage[]
@@ -75,6 +78,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
   const api = useConsoleApi()
   // 찜 낱말 "보류" / "보류 · 시간 지남"은 다른 화면과 같은 판단 (D-MOB2-15)
   const pendingNow = usePendingNow(api.data)
+  const badgeOf = useBadgeOf() // KP1
   const list = useRef<HTMLOListElement>(null)
   const atBottom = useRef(true)
   const lastSeq = useRef(0)
@@ -160,6 +164,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
             look={looks.get(message.id) ?? null}
             onReview={onReview}
             platformTag={platformTags}
+            badge={message.owner ? undefined : badgeOf(message.channel)}
           />
         ))}
       </ol>
@@ -220,10 +225,12 @@ interface ChatRowProps {
   readonly onReview: ((id: string) => void) | undefined
   /** 플랫폼 글자를 붙인다 */
   readonly platformTag: boolean
+  /** KP1 손님 꼬리표 (없으면 undefined) */
+  readonly badge?: CustomerBadge | undefined
 }
 
 const ChatRow = memo(
-  function ChatRow({ message, claimText, already, open, onToggle, note, onConvert, look, onReview, platformTag }: ChatRowProps) {
+  function ChatRow({ message, claimText, already, open, onToggle, note, onConvert, look, onReview, platformTag, badge }: ChatRowProps) {
   const [focused, setFocused] = useState(false)
   const [hovered, setHovered] = useState(false)
   // 누름(마우스·터치)으로 생긴 초점은 키보드 초점으로 치지 않는다 — 다시 누르면 접혀야 한다 (AC-UX2-03)
@@ -308,6 +315,7 @@ const ChatRow = memo(
         {platformTag ? <span className={`tag tag-platform tag-platform-${platformOfKey(message.channel).toLowerCase()}`}>{PLATFORM_WORD[platformOfKey(message.channel)]}</span> : null}
         {platformTag ? ' ' : null}
         <strong className="chat-nick">{message.nick}</strong>
+        {badge !== undefined ? <> <ChatBadgeMark badge={badge} /></> : null}
         {message.owner ? <span className="tag tag-owner">{CHAT_WORD.owner}</span> : null}
         {look !== null
           ? look.orders.map((word, index) => (

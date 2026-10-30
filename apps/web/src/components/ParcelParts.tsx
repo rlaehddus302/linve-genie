@@ -30,6 +30,9 @@ import {
 import { RequestError } from './ErrorNote.tsx'
 import { Lock } from './Lock.tsx'
 import { Modal } from './Modal.tsx'
+// KP1 지난 주문 배송지 "확인 전" (CR-4, AC-KP1-08)
+import { LedgerPrefillBlock, prefillAddress } from './CustomerLedger.tsx'
+import { PREFILL_CONFIRMED, useLedgerVersion } from '../lib/ledger.ts'
 
 /** "택배: 배송 중 · 9000-0000-0001" 꼬리표 (색 + 글자) */
 export function ParcelTag({ parcel }: { readonly parcel: ParcelBrief }) {
@@ -207,6 +210,7 @@ export function AddressSection({ date, buyer, version }: { readonly date: string
   const [done, setDone] = useState<string | null>(null)
   const command = useParcelCommand()
   const latest = useRef(0)
+  const ledgerVersion = useLedgerVersion() // KP1: 장부를 지우면 "확인 전" 칸이 바로 사라진다
 
   useEffect(() => {
     const mine = ++latest.current
@@ -221,7 +225,7 @@ export function AddressSection({ date, buyer, version }: { readonly date: string
         setLoadError(caught)
       },
     )
-  }, [date, buyer, version, attempt])
+  }, [date, buyer, version, attempt, ledgerVersion])
 
   const apply = (next: BundleView | null, text: string) => {
     if (next === null) return false
@@ -242,6 +246,14 @@ export function AddressSection({ date, buyer, version }: { readonly date: string
     setDone(null)
     const result = await command.send<{ bundle: BundleView }>('POST', `/api/parcels/days/${date}/address/confirm`, { buyer, updatedAt: bundle.address.updatedAt })
     apply(result?.bundle ?? null, ADDRESS_CONFIRMED)
+  }
+  // KP1: 장부 연락처를 이 묶음 배송지로 (출처 판매자·확인함) — 장부에는 아무것도 쓰지 않는다
+  const confirmLedger = async () => {
+    const prefill = bundle?.ledger
+    if (prefill == null) return
+    setDone(null)
+    const result = await command.send<{ bundle: BundleView }>('POST', `/api/parcels/days/${date}/address/ledger`, { buyer, ledgerId: prefill.ledgerId, updatedAt: prefill.updatedAt })
+    apply(result?.bundle ?? null, PREFILL_CONFIRMED)
   }
   const remove = async () => {
     setDone(null)
@@ -273,7 +285,19 @@ export function AddressSection({ date, buyer, version }: { readonly date: string
       {shape === 'pickup' ? <p>{PICKUP_BUNDLE}</p> : null}
       {shape === 'combined' ? <p>{COMBINED_BUNDLE}</p> : null}
       {shape === 'expired' ? <p>{ADDRESS_EXPIRED}</p> : null}
-      {shape === 'none' ? (
+      {shape === 'none' && bundle.ledger != null && !bundle.locked ? (
+        <LedgerPrefillBlock
+          prefill={bundle.ledger}
+          busy={command.busy}
+          onConfirm={() => void confirmLedger()}
+          onEdit={() => {
+            setDone(null)
+            command.clearError()
+            setAsk('write')
+          }}
+        />
+      ) : null}
+      {shape === 'none' && (bundle.ledger == null || bundle.locked) ? (
         <>
           <p>{NO_ADDRESS}</p>
           {bundle.locked ? (
@@ -384,8 +408,8 @@ export function AddressSection({ date, buyer, version }: { readonly date: string
       {command.error !== null && ask === null ? <RequestError error={command.error} /> : null}
       {ask === 'write' || ask === 'edit' ? (
         <AddressDialog
-          title={ask === 'write' ? '배송지 적기' : '배송지 고치기'}
-          initial={ask === 'edit' && address !== null ? { name: address.name, phone: address.phone, address: address.address, detail: address.detail, zip: address.zip, memo: address.memo } : EMPTY_ADDRESS}
+          title={ask === 'write' && bundle.ledger == null ? '배송지 적기' : '배송지 고치기'}
+          initial={ask === 'edit' && address !== null ? { name: address.name, phone: address.phone, address: address.address, detail: address.detail, zip: address.zip, memo: address.memo } : bundle.ledger != null ? prefillAddress(bundle.ledger) : EMPTY_ADDRESS}
           busy={command.busy}
           error={command.error}
           onClose={() => {

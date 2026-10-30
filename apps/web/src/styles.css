@@ -4490,3 +4490,39 @@ select.input {
     padding-block: 0.25rem;
   }
 }
+
+/* KP1 손님 장부 (CR-2~CR-7): 누르는 칸 52px 이상·글자 18px, 375px 폭에서 줄바꿈 */
+.button-tall {
+  min-height: 3.25rem;
+  font-size: 1.125rem;
+}
+
+.ledger-settings .choice,
+.ledger-choice {
+  min-height: 3.25rem;
+  font-size: 1.125rem;
+}
+
+.ledger-month-row {
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+}
+
+.ledger-prefill dd,
+.customer-ledger dd,
+.customer-ledger p {
+  overflow-wrap: anywhere;
+}
+
+/* 콘솔 채팅 줄 손님 꼬리표 (CR-7): 글자 + 색, 누르는 것이 아니다 */
+.badge-mark {
+  font-size: 1.125rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.tag-first {
+  background-color: #e8f0fe;
+  border-color: #3c4043;
+  color: #202124;
+}

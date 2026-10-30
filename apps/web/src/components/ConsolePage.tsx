@@ -63,6 +63,9 @@ import { useLabelsEnabled, usePrintApi, usePrintState, useScopeLabels } from './
 import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
 import { CautionContext, useConsoleCaution } from './caution.tsx'
+// KP1 채팅 손님 꼬리표·끄는 설정 (CR-7)
+import { ChatBadgesContext, HIDDEN_CAUTION, badgeLookup } from './ChatBadges.tsx'
+import { chatBuyers, useChatBadges } from '../lib/ledger.ts'
 import { useScreenWake } from '../voice/wake.ts'
 import { QuickInput, QuickUnitLine, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
@@ -722,6 +725,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
 
   // 1등 옆 "입금 늦음 주의" (CRM1 D-CRM1-07): 실제 방송만, 판매자 전용 조회 — 받지 못하면 꼬리표 없이 그대로(오류 띠 없음)
   const caution = useConsoleCaution(data, broadcast.date, broadcast.rehearsal)
+  // KP1 채팅 손님 꼬리표 (CR-7): 새 채팅 구매자를 4초 이상 간격 50명씩 — 설정을 끄면 1등 옆 "입금 늦음 주의"까지 숨긴다
+  const badgeBuyers = useMemo(() => chatBuyers(snapshot.messages), [snapshot.messages])
+  const chatBadges = useChatBadges(broadcast.date, broadcast.rehearsal, badgeBuyers)
+  const badgeOf = useMemo(() => badgeLookup(chatBadges.badges), [chatBadges.badges])
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────
 
@@ -1465,7 +1472,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
 
   return (
     <ConsoleContext.Provider value={api}>
-      <CautionContext.Provider value={caution}>
+      <CautionContext.Provider value={chatBadges.show ? caution : HIDDEN_CAUTION}>
+      <ChatBadgesContext.Provider value={badgeOf}>
       <YoutubeContext.Provider value={yt}>
       <ReadOnlyContext.Provider value={sealed}>
       <main className={broadcast.rehearsal ? 'console console-rehearsal' : 'console'}>
@@ -1678,6 +1686,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       ) : null}
       </ReadOnlyContext.Provider>
       </YoutubeContext.Provider>
+      </ChatBadgesContext.Provider>
       </CautionContext.Provider>
     </ConsoleContext.Provider>
   )
