@@ -1039,7 +1039,8 @@ export class DepositService {
     }
     if (notice.kind === 'CANCEL') {
       // 입금 취소: 은행 알림 줄 + 잔액 기록. 엔진에 적지 않고 입금을 되돌리지 않는다 (판매자가 DP-6 되돌리기로)
-      await insertAlert(db, sellerId, { kind: 'CANCEL', bank: notice.bank as string, amount: notice.amount, name: notice.name === '' ? null : cleanDepositName(notice.name), at }, now)
+      const cancelName = cleanDepositName(notice.name)
+      await insertAlert(db, sellerId, { kind: 'CANCEL', bank: notice.bank as string, amount: notice.amount, name: cancelName === '' ? null : cancelName, at }, now)
       if (notice.balance !== null) await insertBalance(db, sellerId, { bank: notice.bank as string, at, balance: notice.balance }, now)
       this.#deps.publish(sellerId, { alerts: true })
       return 'SAVED'
@@ -1047,14 +1048,17 @@ export class DepositService {
     // 입금: 받는 기간 밖이면 저장하지 않는다 (DP-1)
     if (kstDateOf(atMs) < addDays(kstDateOf(nowMs), -RECEIVE_DAYS_BACK) || atMs > nowMs + RECEIVE_FUTURE_MS) return 'IGNORED'
     const trusted = notice.trusted && notice.bank !== null
-    const key = trusted && notice.balance !== null ? `bal:${notice.bank as string}:${notice.at}:${String(notice.amount)}:${String(notice.balance)}` : `msg:${msgId}`
+    // 외부 키 (DP-9 8, D-DEP2-14): 시각은 분까지 — 분까지 온 문자와 초까지 온 앱 알림이 같은 입금이면 같은 키
+    const key = trusted && notice.balance !== null ? `bal:${notice.bank as string}:${notice.at.slice(0, 16)}:${String(notice.amount)}:${String(notice.balance)}` : `msg:${msgId}`
     // 같은 입금이 이미 있으면 처리한 것으로 본다 (문자와 앱 알림이 같은 입금을 함께 알림 — DP-9 8)
     if ((await existingKeys(db, sellerId, source.id, [key])).has(key)) return 'SAVED'
+    // 잔액 이어짐 (DP-9 9, D-DEP2-13): 이 알림에 잔액이 있고, 같은 은행의 앞선 잔액 p가 있고, p + 금액 = 잔액일 때만 이어짐.
+    // 그 밖(잔액 없음·앞선 잔액 없음·이어지지 않음)은 BALANCE_GAP — 확인 필요로 저장된 입금의 잔액도 다음 비교의 앞선 잔액이 된다(아래 insertBalance)
     let flag: PhoneFlag | null = null
     if (!trusted) flag = 'UNTRUSTED_SOURCE'
-    else if (notice.balance !== null) {
-      const previous = await previousBalance(db, sellerId, notice.bank as string, at)
-      if (previous !== null && previous + notice.amount !== notice.balance) flag = 'BALANCE_GAP'
+    else {
+      const previous = notice.balance === null ? null : await previousBalance(db, sellerId, notice.bank as string, at)
+      if (notice.balance === null || previous === null || previous + notice.amount !== notice.balance) flag = 'BALANCE_GAP'
     }
     if (trusted && notice.balance !== null) await insertBalance(db, sellerId, { bank: notice.bank as string, at, balance: notice.balance }, now)
     const summary = await this.#ingest(sellerId, source, [{ key, at: atMs, precision: notice.precision, amount: notice.amount, name: cleanDepositName(notice.name), phoneFlag: flag }], null)
@@ -1086,7 +1090,7 @@ export class DepositService {
         receivedAt: row.receivedAt.toISOString(),
         message:
           row.kind === 'CANCEL'
-            ? DEPOSIT_MESSAGES.alertCancel.replace('{amount}', formatWon(row.amount ?? 0)).replace('{name}', row.name ?? '이름 모름')
+            ? DEPOSIT_MESSAGES.alertCancel.replace('{amount}', formatWon(row.amount ?? 0)).replace('{name}', row.name === null || row.name.trim() === '' ? '이름 모름' : row.name)
             : DEPOSIT_MESSAGES.alertUnreadable,
       })),
     }

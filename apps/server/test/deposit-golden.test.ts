@@ -1,5 +1,5 @@
 // AC-N3-01·02·03·04·05, AC-SMS3-03: 입금 골든(tests/golden/deposit/*.json)을 서버의 순수 함수 넷으로 돌린다.
-// - 파일 수 4·사례 수 75(name 10 · paste 14 · match 21 · notice 30)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
+// - 파일 수 4·사례 수 98(name 10 · paste 14 · match 21 · notice 53 — D-DEP2-12·16·17 G-DEP-248~253까지)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
 // - 모르는 kind·모르는 키·중복 ID·ID 형식 오류는 시험 실패(읽기 오류)다. 미구현을 허용하는 장치가 없다.
 // - 결과는 실행 환경 시간대와 상관없다: TZ를 바꿔 두 번씩 돌려 같은지 본다.
 import { readdirSync, readFileSync } from 'node:fs'
@@ -144,11 +144,11 @@ describe('입금 골든 읽기 (AC-N3-04)', () => {
     expect(loaded.problems).toEqual([])
   })
 
-  it('파일 4 · 사례 92 (name 10 · paste 14 · match 21 · notice 47)', () => {
+  it('파일 4 · 사례 98 (name 10 · paste 14 · match 21 · notice 53)', () => {
     expect(loaded.files.length).toBe(4)
     const count = (kind: Kind) => loaded.files.filter((file) => file.kind === kind).reduce((sum, file) => sum + file.cases.length, 0)
-    expect({ name: count('name'), paste: count('paste'), match: count('match'), notice: count('notice') }).toEqual({ name: 10, paste: 14, match: 21, notice: 47 })
-    expect(loaded.files.reduce((sum, file) => sum + file.cases.length, 0)).toBe(92)
+    expect({ name: count('name'), paste: count('paste'), match: count('match'), notice: count('notice') }).toEqual({ name: 10, paste: 14, match: 21, notice: 53 })
+    expect(loaded.files.reduce((sum, file) => sum + file.cases.length, 0)).toBe(98)
   })
 
   it('검사기가 모르는 키·kind·중복·ID 형식을 실제로 잡는다', () => {

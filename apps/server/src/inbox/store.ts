@@ -14,6 +14,10 @@ export interface InboxSettingsRow {
   readonly tokenCreatedAt: Date | null
   readonly lastReceivedAt: Date | null
   readonly lastDevice: string | null
+  /** 12시간 넘은 방송 때문에 넣지 않은 손님 문자 (D-SMS3-29 — 본문 없음): 그 방송·마지막 시각·건수(닫으면 0) */
+  readonly staleBroadcastId: string | null
+  readonly staleLastAt: Date | null
+  readonly staleCount: number
 }
 
 const settingsColumns = {
@@ -23,6 +27,9 @@ const settingsColumns = {
   tokenCreatedAt: inboxSettings.tokenCreatedAt,
   lastReceivedAt: inboxSettings.lastReceivedAt,
   lastDevice: inboxSettings.lastDevice,
+  staleBroadcastId: inboxSettings.staleBroadcastId,
+  staleLastAt: inboxSettings.staleLastAt,
+  staleCount: inboxSettings.staleCount,
 }
 
 export async function findSettings(db: Db, sellerId: string): Promise<InboxSettingsRow | null> {
@@ -30,14 +37,14 @@ export async function findSettings(db: Db, sellerId: string): Promise<InboxSetti
   return rows[0] ?? null
 }
 
-/** 토큰 해시 → 켜진 판매자 (없거나 꺼졌으면 null) */
-export async function sellerOfToken(db: Db, tokenHash: string): Promise<string | null> {
+/** 토큰 해시 → 판매자와 켜짐 (그 해시가 없으면 null — 꺼진 판매자도 돌려준다: 꺼짐은 403 INBOX_OFF, D-SMS3-27) */
+export async function sellerOfToken(db: Db, tokenHash: string): Promise<{ sellerId: string; enabled: boolean } | null> {
   const rows = await db
-    .select({ sellerId: inboxSettings.sellerId })
+    .select({ sellerId: inboxSettings.sellerId, enabled: inboxSettings.enabled })
     .from(inboxSettings)
-    .where(and(eq(inboxSettings.tokenHash, tokenHash), eq(inboxSettings.enabled, true)))
+    .where(eq(inboxSettings.tokenHash, tokenHash))
     .limit(1)
-  return rows[0]?.sellerId ?? null
+  return rows[0] ?? null
 }
 
 /** 토큰 만들기·다시 만들기: 해시를 바꾸고 켠다 (옛 해시는 사라진다 — 옛 토큰 바로 무효) */
@@ -55,6 +62,26 @@ export async function setEnabled(db: Db, sellerId: string, enabled: boolean, now
 /** 마지막으로 받은 시각·기기 이름 */
 export async function touchReceived(db: Db, sellerId: string, device: string, now: Date): Promise<void> {
   await db.update(inboxSettings).set({ lastReceivedAt: now, lastDevice: device }).where(eq(inboxSettings.sellerId, sellerId))
+}
+
+/**
+ * 12시간 넘은 방송 때문에 넣지 않은 손님 문자 하나를 적는다 (D-SMS3-29 — 방송·시각·건수만, 본문 없음).
+ * 다른 방송이면 그 방송으로 새로 센다
+ */
+export async function recordStale(db: Db, sellerId: string, broadcastId: string, now: Date): Promise<void> {
+  await db
+    .update(inboxSettings)
+    .set({
+      staleCount: sql`case when ${inboxSettings.staleBroadcastId} = ${broadcastId} then ${inboxSettings.staleCount} + 1 else 1 end`,
+      staleBroadcastId: broadcastId,
+      staleLastAt: now,
+    })
+    .where(eq(inboxSettings.sellerId, sellerId))
+}
+
+/** 12시간 넘은 방송 알림 닫기 (건수를 0으로 — 그 뒤 또 넣지 않은 문자가 오면 다시 보인다) */
+export async function closeStale(db: Db, sellerId: string): Promise<void> {
+  await db.update(inboxSettings).set({ staleCount: 0 }).where(eq(inboxSettings.sellerId, sellerId))
 }
 
 /** 휴대폰 알림 받기를 만든 판매자 (주기 정리 — 판매자를 모른 채 묻는 둘째 곳, 판매자 ID만 읽는다) */
@@ -106,6 +133,8 @@ export interface WindowBroadcast {
   readonly id: string
   readonly date: string
   readonly endedAt: Date | null
+  /** 실제로 시작한 시각 (방송 행을 만든 서버 시각 — 12시간 창·늦게 온 문자, D-SMS3-29·30) */
+  readonly startedAt: Date
 }
 
 /**
@@ -113,7 +142,7 @@ export interface WindowBroadcast {
  */
 export async function windowBroadcast(db: Db, sellerId: string, endedAfter: Date): Promise<WindowBroadcast | null> {
   const rows = await db
-    .select({ id: broadcasts.id, date: broadcasts.date, endedAt: broadcasts.endedAt })
+    .select({ id: broadcasts.id, date: broadcasts.date, endedAt: broadcasts.endedAt, startedAt: broadcasts.createdAt })
     .from(broadcasts)
     .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, sellerId)))
     .where(and(eq(broadcasts.sellerId, sellerId), eq(scopes.rehearsal, false), or(isNull(broadcasts.endedAt), gte(broadcasts.endedAt, endedAfter))))
@@ -128,7 +157,7 @@ export async function windowBroadcast(db: Db, sellerId: string, endedAfter: Date
 /** 그 실제 방송 (카드 처리 — 판매자의 방송인지) */
 export async function realBroadcast(db: Db, sellerId: string, broadcastId: string): Promise<WindowBroadcast | null> {
   const rows = await db
-    .select({ id: broadcasts.id, date: broadcasts.date, endedAt: broadcasts.endedAt })
+    .select({ id: broadcasts.id, date: broadcasts.date, endedAt: broadcasts.endedAt, startedAt: broadcasts.createdAt })
     .from(broadcasts)
     .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, sellerId)))
     .where(and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, broadcastId), eq(scopes.rehearsal, false)))
@@ -173,7 +202,7 @@ export async function smsRefsOfPhoneKey(db: Db, sellerId: string, date: string, 
 // ── 문자 확인 카드 ───────────────────────────────────────────────────────
 
 export type CardKind = 'REVIEW' | 'CANCEL'
-export type CardWhy = 'UNCLEAR' | 'NO_NUMBER' | 'OPTIONS' | 'NOT_ON_SALE'
+export type CardWhy = 'UNCLEAR' | 'NO_NUMBER' | 'OPTIONS' | 'NOT_ON_SALE' | 'LATE' | 'REJECTED'
 /** OPEN 처리 전 · BUSY 넣기·승인 처리 중(한 요청만 잡는다) · DONE 넣기·승인 · IGNORED 무시 */
 export type CardStatus = 'OPEN' | 'BUSY' | 'DONE' | 'IGNORED'
 
@@ -188,6 +217,8 @@ export interface CardRow {
   readonly last4: string | null
   readonly sealed: string | null
   readonly receivedAt: Date
+  /** 늦게 온 문자에서 나온 카드 (D-SMS3-30): receivedAt은 휴대폰이 받은 원래 시각, 넣기의 받은 시각은 createdAt(서버 도착) */
+  readonly late: boolean
   readonly status: CardStatus
   readonly createdAt: Date
 }
@@ -203,13 +234,14 @@ const cardColumns = {
   last4: inboxCards.last4,
   sealed: inboxCards.sealed,
   receivedAt: inboxCards.receivedAt,
+  late: inboxCards.late,
   status: inboxCards.status,
   createdAt: inboxCards.createdAt,
 }
 
 export async function insertCard(
   db: Db,
-  row: { id: string; sellerId: string; broadcastId: string; kind: CardKind; why: CardWhy | null; numbers: readonly number[]; memo: string | null; last4: string | null; sealed: string; receivedAt: Date; now: Date },
+  row: { id: string; sellerId: string; broadcastId: string; kind: CardKind; why: CardWhy | null; numbers: readonly number[]; memo: string | null; last4: string | null; sealed: string; receivedAt: Date; late: boolean; now: Date },
 ): Promise<void> {
   await db.insert(inboxCards).values({
     id: row.id,
@@ -222,6 +254,7 @@ export async function insertCard(
     last4: row.last4,
     sealed: row.sealed,
     receivedAt: row.receivedAt,
+    late: row.late,
     status: 'OPEN',
     createdAt: row.now,
   })

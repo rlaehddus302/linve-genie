@@ -1,6 +1,6 @@
 // 휴대폰 알림 받기 경로 (SMS3 ORD-13 C-02·C-04, 문자 확인 카드). 계약은 dev-notes "dev-server > 화면·기기에게"(SMS3).
 // 1) 기기 입구 POST /api/inbox/messages — 쿠키·Origin을 보지 않고 Authorization: Bearer <받기 토큰>으로만 받는다. /api 공통 미들웨어보다 먼저 붙는다.
-//    401 TOKEN_INVALID(토큰 먼저) → 413(256KB) → 400 BAD_REQUEST(모양 — 한 건이라도 틀리면 아무것도 처리 안 함) → 429 TOO_MANY → 200.
+//    401 TOKEN_INVALID(토큰 없음·틀림·무효 — 토큰 먼저) → 403 INBOX_OFF(받기 꺼짐, D-SMS3-27) → 413(256KB) → 400 BAD_REQUEST(모양 — 한 건이라도 틀리면 아무것도 처리 안 함) → 429 TOO_MANY → 200.
 //    응답에는 메시지마다 상태와 거르기 목록뿐(읽은 결과 없음). 받은 값은 오류 응답에 되돌려 보내지 않고, 로그엔 코드·종류만.
 // 2) 화면 경로 /api/inbox/** — /api 공통(세션·Origin·JSON·64KB) 뒤. 설정은 판매자만(보조자 403 — roles.ts 목록 밖), 카드는 보조자도.
 import type { Context, Hono } from 'hono'
@@ -54,12 +54,14 @@ export function registerInboxIntake(app: Hono, inbox: InboxService, log: LogSink
     // 토큰 먼저 (본문을 읽기 전에 — 토큰 없는 큰 본문을 받아 두지 않는다). 틀린 토큰이 많은 IP는 확인 없이 429
     const key = keyOf(c)
     if (failures !== null && !failures.allows(key)) return apiError(429, 'TOO_MANY', INBOX_AUTH_LIMITED_MESSAGE)
-    const sellerId = await inbox.authenticate(c.req.header('authorization'))
-    if (sellerId === null) {
+    const found = await inbox.authenticate(c.req.header('authorization'))
+    if (found === null) {
       failures?.take(key)
       return apiError(401, 'TOKEN_INVALID', INBOX_MESSAGES.tokenInvalid)
     }
-    ;(c as unknown as IntakeContext).set('inboxSeller', sellerId)
+    // 맞는 토큰인데 받기가 꺼짐: 아무것도 처리하지 않고 토큰은 그대로 (기기는 큐를 지키며 다시 본다, D-SMS3-27)
+    if (!found.enabled) return apiError(403, 'INBOX_OFF', INBOX_MESSAGES.inboxOff)
+    ;(c as unknown as IntakeContext).set('inboxSeller', found.sellerId)
     return limit(c, next)
   }, async (c) => {
     const sellerId = (c as unknown as IntakeContext).get('inboxSeller')
@@ -135,6 +137,12 @@ export function registerInboxRoutes(api: Hono<Env>, inbox: InboxService): void {
     const enabled = own(input, 'enabled')
     if (typeof enabled !== 'boolean') return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'enabled', message: '켤지는 예나 아니오로만 정할 수 있어요.' }])
     return respond(c, await inbox.setEnabled(sellerOf(c), enabled), (view) => ({ inbox: view }))
+  })
+  // 12시간 넘은 방송 알림 닫기 (D-SMS3-29 — 판매자만, 보조자는 roles.ts 목록 밖이라 403)
+  api.post('/inbox/stale/close', async (c) => {
+    const extra = onlyKeys(body(c), [])
+    if (extra !== null) return extra
+    return c.json({ inbox: await inbox.closeStale(sellerOf(c)) })
   })
   // 토큰은 이 응답에만 한 번 (DB엔 해시만, 로그 없음)
   api.post('/inbox/token', async (c) => {

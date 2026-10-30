@@ -2,12 +2,14 @@
 // 기대값은 SPEC ORD-13·DOMAIN_RULES R-26·DEPOSIT_RULES DP-9 문장과 코어 조회 함수(listClaims)로 정한다.
 import type { PGlite } from '@electric-sql/pglite'
 import { SMS_EXCLUDED_WORDS, getBuyer, listClaims } from '@livejjim/core'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { kst } from './deposit-support.ts'
 import { readBankNotice } from '../src/deposit/notice.ts'
 import { addSeller, client, createBroadcast, dumpAllTables, expectOk, fakeClock, login, newWorld, rid, writeEvent } from './support.ts'
 import { SMS3_DAY, SMS3_T0, app, cards, claimsOf, inboxWorld, liveSale, makeToken, send, sendRaw, sms, statuses } from './sms3-support.ts'
 
+/** DP-9 1 표의 대표번호 16개, 숫자만 (C-04 filters.bankNumbers, D-SMS3-26) */
+const BANK_NUMBERS = ['15889999', '16449999', '15999999', '15778000', '15998000', '15885000', '15995000', '15881111', '15991111', '16613000', '15882100', '15662566', '15882588', '15993333', '16617654', '15221000']
 const BANK_APPS = ['com.kbstar.kbbank', 'com.shinhan.sbanking', 'com.wooribank.smart.npib', 'com.kebhana.hanapush', 'nh.smart.banking', 'com.ibk.android.ionebank', 'com.kakaobank.channel', 'viva.republica.toss', 'com.kbankwith.smartbank']
 
 const active = (status: string) => status === 'CONFIRMED' || status === 'WAITLISTED' || status === 'PENDING' || status === 'CONFLICT'
@@ -32,7 +34,8 @@ describe('AC-SMS3-04 은행 알림 읽기 — 예외 없음', () => {
 })
 
 describe('AC-SMS3-05 받기 토큰 (C-02)', () => {
-  it('머리글 없음·엉터리는 401, 맞는 토큰은 200, 다시 만들면 옛 토큰 401, 끄면 401, DB엔 해시만, 다른 API엔 통하지 않음', async () => {
+  // D-SMS3-27: 끄면 403 INBOX_OFF(토큰은 그대로) — 예전 시험은 끄면 401을 기대했다
+  it('머리글 없음·엉터리는 401, 맞는 토큰은 200, 다시 만들면 옛 토큰 401, 끄면 403 INBOX_OFF(토큰 그대로), DB엔 해시만, 다른 API엔 통하지 않음', async () => {
     const { world, seller, token: t1 } = await inboxWorld()
     expect((await send(world, null, [])).body).toMatchObject({ error: { code: 'TOKEN_INVALID' } })
     expect((await send(world, null, [])).status).toBe(401)
@@ -50,7 +53,16 @@ describe('AC-SMS3-05 받기 토큰 (C-02)', () => {
     expect((await send(world, t2, [])).status).toBe(200)
     const off = await expectOk(client(world, seller.cookie).put('/api/inbox/settings', { enabled: false }))
     expect(off.body.inbox).toMatchObject({ enabled: false, hasToken: true })
-    expect((await send(world, t2, [])).status).toBe(401)
+    const offResponse = await send(world, t2, [])
+    expect(offResponse.status).toBe(403)
+    expect(offResponse.body).toMatchObject({ error: { code: 'INBOX_OFF' } })
+    // 꺼져 있어도 옛 토큰·엉터리 토큰은 401 (401 → 403 순서)
+    expect((await send(world, t1, [])).status).toBe(401)
+    // 꺼진 동안 보낸 것은 처리하지 않는다 (본문이 커도 403 — 413보다 먼저)
+    await liveSale(world, seller, [15])
+    expect((await send(world, t2, [sms('off1', '010-1234-5678', '15')])).status).toBe(403)
+    expect((await sendRaw(world, t2, 'x'.repeat(300 * 1024))).status).toBe(403)
+    expect(await claimsOf(world, seller)).toEqual([])
     await expectOk(client(world, seller.cookie).put('/api/inbox/settings', { enabled: true }))
     expect((await send(world, t2, [])).status).toBe(200)
   })
@@ -72,7 +84,7 @@ describe('AC-SMS3-05 받기 토큰 (C-02)', () => {
     expect(on.status).toBe(409)
     expect(on.body).toMatchObject({ error: { code: 'NO_TOKEN' } })
     const view = await expectOk(client(world, fresh.cookie).get('/api/inbox/settings'))
-    expect(view.body.inbox).toEqual({ enabled: false, hasToken: false, tokenCreatedAt: null, lastReceivedAt: null, lastDevice: null })
+    expect(view.body.inbox).toEqual({ enabled: false, hasToken: false, tokenCreatedAt: null, lastReceivedAt: null, lastDevice: null, staleBroadcast: null })
   })
 })
 
@@ -118,11 +130,11 @@ describe('AC-SMS3-06 요청 모양 (C-04)', () => {
     expect(await cards(world, seller, sale.id)).toEqual([])
   })
 
-  it('messages: []이면 200 { results: [], filters } — 거를 낱말 9개(R-26 3), 은행 앱 9개(DP-9 1)', async () => {
+  it('messages: []이면 200 { results: [], filters } — 거를 낱말 9개(R-26 3), 은행 앱 9개(DP-9 1), 은행 대표번호 16개(D-SMS3-26)', async () => {
     const { world, token } = await inboxWorld()
     const response = await send(world, token, [])
     expect(response.status).toBe(200)
-    expect(response.body).toEqual({ results: [], filters: { skipWords: [...SMS_EXCLUDED_WORDS], bankApps: BANK_APPS } })
+    expect(response.body).toEqual({ results: [], filters: { skipWords: [...SMS_EXCLUDED_WORDS], bankApps: BANK_APPS, bankNumbers: BANK_NUMBERS } })
     expect((response.body.filters as { skipWords: string[] }).skipWords).toHaveLength(9)
     expect(response.headers.get('cache-control')).toBe('no-store')
   })
@@ -149,10 +161,11 @@ describe('AC-SMS3-07 응답에 읽은 결과가 없다', () => {
 })
 
 describe('AC-SMS3-08 한도', () => {
-  it('1분에 121번째 메시지면 429 TOO_MANY이고 그 요청은 처리하지 않는다. 1분 뒤 같은 id는 처리된다', async () => {
+  // D-SMS3-28: 한도 1분 600건 (예전 120건)
+  it('1분에 601번째 메시지면 429 TOO_MANY이고 그 요청은 처리하지 않는다. 1분 뒤 같은 id는 처리된다', async () => {
     const { world, seller, token } = await inboxWorld()
     await liveSale(world, seller, [15])
-    for (let round = 0; round < 6; round++) {
+    for (let round = 0; round < 30; round++) {
       expect(await statuses(world, token, Array.from({ length: 20 }, (_, i) => sms(`k${String(round)}-${String(i)}`, '010-9999-0000', '안녕')))).toHaveLength(20)
     }
     const over = await send(world, token, [sms('late', '010-1234-5678', '15')])
@@ -173,7 +186,9 @@ describe('AC-SMS3-09 받은 시각', () => {
     ['밀리초 숫자', kst('2026-10-31 20:01:05'), '20:01:05'],
     ['없음', null, '20:03:00'],
     ['못 읽음', '어제 저녁', '20:03:00'],
-    ['24시간 넘게 차이', '2026-10-29T20:01:05+09:00', '20:03:00'],
+    // D-SMS3-30: 서버 도착보다 늦은 받은 시각은 서버 도착 시각
+    ['서버 도착보다 늦음', '2026-10-31T20:05:00+09:00', '20:03:00'],
+    // 24시간 넘게 지난 받은 시각은 이제 늦게 온 문자(LATE 카드 — 아래 AC-SMS3-09·13 늦게 온 문자, D-SMS3-30)
   ]
   for (const [title, receivedAt, expected] of cases) {
     it(`${title} → 문자찜 받은 시각 ${expected}`, async () => {
@@ -185,6 +200,52 @@ describe('AC-SMS3-09 받은 시각', () => {
       expect(claim?.received).toBe(expected)
     })
   }
+})
+
+describe('AC-SMS3-09·13 늦게 온 문자 (D-SMS3-30)', () => {
+  it('방송 시작 전 받은 문자·서버 도착보다 10분 넘게 이른 문자·이틀 전 문자 → 찜 없이 LATE 카드, 넣으면 받은 시각 = 서버 도착. 10분 안이면 바로 넣는다', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [15, 16, 17, 18])
+    world.clock.advance(5000)
+    // 20:00:05에 19:59:50 받은 15 (방송 시작 20:00:00보다 이름)
+    expect(await statuses(world, token, [sms('l1', '010-1111-2222', '15', '2026-10-31T19:59:50+09:00')])).toEqual(['SAVED'])
+    world.clock.advance(20 * 60_000 - 4000)
+    // 20:20:01에 20:10:00 받은 16 (10분 1초 이름)
+    expect(await statuses(world, token, [sms('l2', '010-1111-3333', '16', '2026-10-31T20:10:00+09:00')])).toEqual(['SAVED'])
+    // 이틀 전 받은 17 (24시간 넘게 지나도 원래 값으로 본다)
+    expect(await statuses(world, token, [sms('l3', '010-1111-4444', '17', '2026-10-29T20:01:05+09:00')])).toEqual(['SAVED'])
+    expect(await claimsOf(world, seller)).toEqual([])
+    const list = await cards(world, seller, sale.id)
+    expect(list.map((card) => [card.why, card.numbers, card.message, card.receivedAt, (card as unknown as { late: boolean }).late])).toEqual([
+      ['LATE', [17], '늦게 온 문자예요 (휴대폰이 10월 29일 20:01:05에 받음). 넣으면 지금 받은 순서로 들어가요', new Date(kst('2026-10-29 20:01') + 5000).toISOString(), true],
+      ['LATE', [15], '늦게 온 문자예요 (휴대폰이 10월 31일 19:59:50에 받음). 넣으면 지금 받은 순서로 들어가요', new Date(kst('2026-10-31 19:59') + 50_000).toISOString(), true],
+      ['LATE', [16], '늦게 온 문자예요 (휴대폰이 10월 31일 20:10:00에 받음). 넣으면 지금 받은 순서로 들어가요', new Date(kst('2026-10-31 20:10')).toISOString(), true],
+    ])
+    expect(list.every((card) => card.kind === 'REVIEW' && (card as unknown as { arrivedAt: string }).arrivedAt.length > 0)).toBe(true)
+    // 넣기: 받은 시각 = 서버 도착 (15 카드는 20:00:05에 왔다)
+    const c15 = list.find((card) => card.numbers[0] === 15) as { id: string }
+    await expectOk(client(world, seller.cookie).post(`/api/inbox/cards/${c15.id}/insert`, { requestId: rid('l1'), no: 15 }))
+    expect((await claimsOf(world, seller)).map((claim) => [claim.no, claim.received])).toEqual([[15, '20:00:05']])
+    // 20:19:59에 20:10:00 받은 18이 오면(9분 59초) 바로 넣는다 — 받은 시각 20:10:00
+    world.clock.set(kst('2026-10-31 20:19') + 59_000)
+    expect(await statuses(world, token, [sms('l4', '010-1111-5555', '18', '2026-10-31T20:10:00+09:00')])).toEqual(['SAVED'])
+    expect((await claimsOf(world, seller)).find((claim) => claim.no === 18)?.received).toBe('20:10:00')
+  })
+
+  it('늦게 온 문자의 다른 확인 필요(UNCLEAR)도 넣으면 서버 도착 시각, 취소 요청은 늦어도 그대로', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [15, 16])
+    world.clock.advance(30 * 60_000)
+    expect(await statuses(world, token, [sms('u1', '010-1111-2222', '15 있나요?', '2026-10-31T20:01:00+09:00'), sms('u2', '010-1111-3333', '15 취소', '2026-10-31T20:02:00+09:00')])).toEqual(['SAVED', 'SAVED'])
+    const list = await cards(world, seller, sale.id)
+    const review = list.find((card) => card.kind === 'REVIEW') as unknown as { id: string; why: string; late: boolean; numbers: number[] } | undefined
+    const cancel = list.find((card) => card.kind === 'CANCEL') as unknown as { late: boolean; receivedAt: string } | undefined
+    expect(review?.late).toBe(true)
+    expect(review?.why).not.toBe('LATE')
+    expect(cancel?.late).toBe(false)
+    await expectOk(client(world, seller.cookie).post(`/api/inbox/cards/${review?.id as string}/insert`, { requestId: rid('u1'), no: review?.numbers[0] as number }))
+    expect((await claimsOf(world, seller)).map((claim) => claim.received)).toEqual(['20:30:00'])
+  })
 })
 
 describe('AC-SMS3-10·11 가르기 (C-05)', () => {
@@ -227,6 +288,8 @@ describe('AC-SMS3-12 같은 것 합치기 (C-06)', () => {
     const { world, seller, token } = await inboxWorld()
     await liveSale(world, seller, [15])
     const at = (offsetSec: number) => new Date(kst('2026-10-31 20:00') + offsetSec * 1000).toISOString()
+    // D-SMS3-30: 서버 도착보다 늦은 받은 시각은 서버 도착 시각이 되므로, 받은 시각들이 모두 지난 시각이 되게(10분 안) 서버 시계를 2분 뒤로
+    world.clock.advance(2 * 60_000)
     expect(await statuses(world, token, [sms('a1', '010-1234-5678', '15', at(0))])).toEqual(['SAVED'])
     expect(await statuses(world, token, [sms('a1', '010-1234-5678', '15', at(0))])).toEqual(['DUPLICATE'])
     expect(await statuses(world, token, [sms('a2', '010-1234-5678', '15', at(30))])).toEqual(['DUPLICATE'])
@@ -285,7 +348,9 @@ describe('AC-SMS3-13 방송 창', () => {
 describe('AC-SMS3-14 바로 넣기', () => {
   it('15 16 홍길동 → sms 이벤트 둘(받은 시각·뒤 4자리·메모·요청 번호 inbox-<id>-<번호>), 본문·번호 원문은 어디에도 없다', async () => {
     const { world, seller, token } = await inboxWorld()
-    await liveSale(world, seller, [15, 16])
+    const sale = await liveSale(world, seller, [15, 16])
+    // D-SMS3-30: 받은 시각 20:01:05가 서버 도착보다 늦지 않게 서버 시계를 20:02로 (늦으면 서버 도착 시각이 된다)
+    world.clock.advance(2 * 60_000)
     expect(await statuses(world, token, [sms('d1', '010-1234-5678', '15 16 홍길동', '2026-10-31T20:01:05+09:00')])).toEqual(['SAVED'])
     const claims = await claimsOf(world, seller)
     expect(claims.map((claim) => [claim.no, claim.received, claim.origin])).toEqual([
@@ -300,7 +365,8 @@ describe('AC-SMS3-14 바로 넣기', () => {
     await expectOk(writeEvent(world, seller, { type: 'sms', b: claims[0]?.broadcast as string, no: 16, phone: '010-5555-6666' }))
     const view = await expectOk(client(world, seller.cookie).get(`/api/inbox/cards?b=${claims[0]?.broadcast as string}`))
     expect(view.body.inboxClaimIds).toEqual(claims.map((claim) => claim.id))
-    expect(view.body.startedAt).toBe(new Date(world.clock.now()).toISOString())
+    expect(view.body.startedAt).toBe(new Date(world.clock.now() - 2 * 60_000).toISOString())
+    expect(sale.id).toBe(claims[0]?.broadcast)
     const pg = world.database.pglite as PGlite
     const rows = await pg.query<{ request_id: string; body: string; actor: string }>(`select request_id, body, actor from events where type = 'sms' and request_id like 'inbox-%' order by seq`)
     expect(rows.rows.map((row) => row.request_id)).toEqual(['inbox-d1-15', 'inbox-d1-16'])
@@ -644,5 +710,82 @@ describe('SMS3 고치기 — 카드 원자 처리·같은 문자 표지·이름�
     await fire()
     expect(await count('bank_alerts')).toBe(0)
     expect(pending).toHaveLength(1)
+  })
+})
+
+describe('SMS3 고치기 2라운드 — 12시간 넘은 방송·엔진이 받지 않음·잠깐의 오류', () => {
+  it('시작 12시간이 넘은 끝내지 않은 방송은 창이 아니다 — IGNORED, 설정·콘솔에 알림(본문 없음), 닫기·다시 나옴, 끝내면 사라짐. 입금 알림은 그대로 (D-SMS3-29)', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [15, 16])
+    const api = client(world, seller.cookie)
+    // 08:00:00 (정확히 12시간) — 아직 창
+    world.clock.advance(12 * 3_600_000)
+    expect(await statuses(world, token, [sms('s1', '010-1234-5678', '15')])).toEqual(['SAVED'])
+    expect((await expectOk(api.get('/api/inbox/settings'))).body.inbox).toMatchObject({ staleBroadcast: null })
+    // 08:00:01 — 창 아님. 찜이 아닌 글은 세지 않는다
+    world.clock.advance(1000)
+    expect(await statuses(world, token, [sms('s2', '010-2222-3333', '16 김영희'), sms('s3', '010-2222-3333', '안녕하세요')])).toEqual(['IGNORED', 'IGNORED'])
+    expect((await claimsOf(world, seller)).map((claim) => claim.no)).toEqual([15])
+    const stale = {
+      b: sale.id,
+      startedAt: new Date(SMS3_T0).toISOString(),
+      lastAt: new Date(world.clock.now()).toISOString(),
+      count: 1,
+      message: '끝내지 않은 방송이 12시간 넘게 이어져 손님 문자를 넣지 않았어요. 방송을 끝내 주세요.',
+    }
+    expect((await expectOk(api.get('/api/inbox/settings'))).body.inbox).toMatchObject({ staleBroadcast: stale })
+    const console = await expectOk(api.get(`/api/inbox/cards?b=${sale.id}`))
+    expect(console.body).toMatchObject({ cards: [], staleBroadcast: stale })
+    const dump = await dumpAllTables(world.database)
+    expect(dump).not.toContain('김영희')
+    expect(dump).not.toContain('01022223333')
+    // 입금 알림은 그대로
+    expect(await statuses(world, token, [sms('dep', '1588-9999', '[KB] 홍길동 입금 14,000')])).toEqual(['SAVED'])
+    // 보조자는 닫지 못한다(판매자만)
+    const made = await expectOk(api.post('/api/assistants', { name: '도우미' }))
+    const helper = client(world, await login(world, (made.body.assistant as { loginId: string }).loginId, made.body.password as string))
+    expect((await helper.post('/api/inbox/stale/close', {})).status).toBe(403)
+    expect((await expectOk(helper.get(`/api/inbox/cards?b=${sale.id}`))).body.staleBroadcast).toMatchObject({ count: 1 })
+    // 닫으면 사라지고, 또 넣지 않은 문자가 오면 다시 나온다
+    expect((await expectOk(api.post('/api/inbox/stale/close', {}))).body.inbox).toMatchObject({ staleBroadcast: null })
+    expect(await statuses(world, token, [sms('s4', '010-2222-3333', '16')])).toEqual(['IGNORED'])
+    expect((await expectOk(api.get('/api/inbox/settings'))).body.inbox).toMatchObject({ staleBroadcast: { b: sale.id, count: 1 } })
+    // 방송을 끝내면 사라진다
+    await expectOk(api.post(`/api/broadcasts/${sale.id}/end`, { requestId: rid('end') }))
+    expect((await expectOk(api.get('/api/inbox/settings'))).body.inbox).toMatchObject({ staleBroadcast: null })
+  })
+
+  it('엔진이 판매 중 아님 밖의 사유로 받지 않으면 REJECTED 카드 "15번은 바로 넣지 못했어요. 보드에서 확인해 주세요" (D-SMS3-31)', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [15])
+    const codes = ['SEALED', 'INVALID_INPUT', 'NOT_SUPPORTED', 'REQUEST_ERROR'] as const
+    const spy = vi.spyOn(world.server.service, 'writeInboxSms')
+    for (const code of codes) spy.mockResolvedValueOnce({ kind: 'rejected', rejection: { status: 409, code, message: '거절', problems: [] } })
+    expect(await statuses(world, token, codes.map((code, i) => sms(`r-${code}`, `010-1234-000${String(i)}`, '15')))).toEqual(['SAVED', 'SAVED', 'SAVED', 'SAVED'])
+    spy.mockRestore()
+    const list = await cards(world, seller, sale.id)
+    expect(list.map((card) => [card.why, card.numbers, card.message, (card as unknown as { canApprove: boolean }).canApprove])).toEqual(
+      codes.map(() => ['REJECTED', [15], '15번은 바로 넣지 못했어요. 보드에서 확인해 주세요', false]),
+    )
+    expect(await claimsOf(world, seller)).toEqual([])
+  })
+
+  it('잠깐의 상태 읽기 오류(STATE_FORMAT)면 카드 없이 500, 그 id는 받은 것으로 적지 않아 다시 보내면 처리된다. 앞서 처리한 메시지는 DUPLICATE (D-SMS3-31)', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [15, 16])
+    const real = world.server.service.writeInboxSms.bind(world.server.service)
+    const spy = vi.spyOn(world.server.service, 'writeInboxSms').mockImplementation(async (sellerId, actor, input) => {
+      if (input.no === 16) return { kind: 'rejected', rejection: { status: 409, code: 'STATE_FORMAT', message: '잠시', problems: [] } }
+      return real(sellerId, actor, input)
+    })
+    const failed = await send(world, token, [sms('f1', '010-1234-5678', '15'), sms('f2', '010-2222-3333', '15 16')])
+    expect(failed.status).toBe(500)
+    expect(failed.body).toMatchObject({ error: { code: 'INTERNAL_ERROR' } })
+    expect(await cards(world, seller, sale.id)).toEqual([])
+    spy.mockRestore()
+    expect(await statuses(world, token, [sms('f1', '010-1234-5678', '15'), sms('f2', '010-2222-3333', '15 16')])).toEqual(['DUPLICATE', 'SAVED'])
+    const claims = await claimsOf(world, seller)
+    expect(claims.map((claim) => claim.no).sort()).toEqual([15, 15, 16])
+    expect(await cards(world, seller, sale.id)).toEqual([])
   })
 })

@@ -30,6 +30,8 @@ export const BANKS: readonly BankEntry[] = Object.freeze([
 
 /** 앱 알림을 보내도 되는 은행 앱 패키지 (C-04 응답 filters.bankApps — DP-9 1 표의 패키지 9개) */
 export const BANK_APPS: readonly string[] = Object.freeze(BANKS.map((bank) => bank.app))
+/** 기기가 skipWords로 거르지 않을 은행 대표번호 (C-04 응답 filters.bankNumbers — DP-9 1 표의 대표번호 16개, 숫자만, D-SMS3-26) */
+export const BANK_NUMBERS: readonly string[] = Object.freeze(BANKS.flatMap((bank) => bank.numbers))
 
 /** 은행 코드 → 화면 이름 */
 export function bankName(code: string): string {
@@ -114,6 +116,8 @@ const BALANCE_RE = new RegExp(String.raw`잔액[\s:]*${AMOUNT}`, 'u')
 /** 토큰이 금액 모양으로 시작함 / 끝남 (D-DEP2-11 ④) */
 const STARTS_AMOUNT_RE = new RegExp(String.raw`^${AMOUNT_BODY}`, 'u')
 const ENDS_AMOUNT_RE = new RegExp(String.raw`${AMOUNT}$`, 'u')
+/** 해외 발신 표시 (DP-9 1, D-DEP2-12) — 공백을 모두 지운 2의 글에 있으면 믿지 않는다. 입금자명에서도 버린다(7) */
+const OVERSEAS_WORDS = ['국제발신', '해외발신', '국외발신'] as const
 /** 되돌림 낱말 (DP-9 3, D-DEP2-08) — 입금 쪽에만 본다 */
 const REVERSAL_WORDS = ['취소', '정정', '반환', '오류', '착오', '환불', '실패', '불능', '예정'] as const
 /** 보이지 않는 글자 (DP-9 2, D-DEP2-08) */
@@ -128,7 +132,7 @@ const NAME_ENDINGS = ['님께서', '님이', '님']
 const STOP_WORDS = new Set(
   [
     'KB', '국민', 'KB국민', '국민은행', '신한', '신한은행', '우리', '우리은행', '하나', '하나은행', '농협', 'NH', 'NH농협', '농협은행', '기업', 'IBK', 'IBK기업', '기업은행', '카카오뱅크', '토스', '토스뱅크', '케이뱅크',
-    '입금', '출금', '지급', '승인', '결제', '입금취소', '취소', '잔액', '원', '이체', '타행', '당행', '알림', '내', '고객님', '입금되었습니다', '입금했어요', '보냈어요', '체크카드', '카드', '일시불',
+    '입금', '출금', '지급', '승인', '결제', '입금취소', '취소', '잔액', '원', '이체', '타행', '당행', '알림', ...OVERSEAS_WORDS, '내', '고객님', '입금되었습니다', '입금했어요', '보냈어요', '체크카드', '카드', '일시불',
   ].map((word) => lower(word)),
 )
 const LETTER_RE = /[가-힣ㄱ-ㅎㅏ-ㅣA-Za-z]/u
@@ -236,8 +240,6 @@ export function readBankNotice(input: NoticeInput): NoticeResult {
 function read(input: NoticeInput): NoticeResult {
   const record = (input !== null && typeof input === 'object' ? input : {}) as Partial<Record<keyof NoticeInput, unknown>>
   const channel: NoticeChannel = record.channel === 'APP' ? 'APP' : 'SMS'
-  const bank = trustedBank(channel, record.from)
-  const trusted = bank !== null
   const text = typeof record.text === 'string' ? record.text : ''
   const title = typeof record.title === 'string' ? record.title : null
   const receivedMs = typeof record.receivedAt === 'string' ? (parseOffsetIso(record.receivedAt) ?? 0) : 0
@@ -250,8 +252,13 @@ function read(input: NoticeInput): NoticeResult {
     .replace(/\[web발신\]/giu, '')
     .replace(/\s+/gu, ' ')
     .trim()
+  // 1. 믿을 보낸 곳 — 표에서 찾았더라도 해외 발신 표시가 있으면 믿지 않는다 (D-DEP2-12, 앱 알림·문자 모두)
+  const spaceless = s.replace(/\s+/gu, '')
+  const overseas = OVERSEAS_WORDS.some((word) => spaceless.includes(word))
+  const bank = overseas ? null : trustedBank(channel, record.from)
+  const trusted = bank !== null
   // 3. 종류
-  const c = s.replace(/\s+/gu, '').replaceAll('입출금', '')
+  const c = spaceless.replaceAll('입출금', '')
   const hasDeposit = c.includes('입금')
   const withdrawWord = WITHDRAW_WORDS.some((word) => c.includes(word))
   let kind: 'DEPOSIT' | 'CANCEL' | 'WITHDRAWAL'

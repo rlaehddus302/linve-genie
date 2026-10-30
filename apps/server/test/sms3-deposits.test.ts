@@ -34,8 +34,10 @@ async function soldToYounghee() {
 }
 
 describe('AC-SMS3-19 믿을 입금 자동 확인', () => {
-  it('신한 대표번호 입금(앞선 잔액 없음) → 휴대폰 알림 입금이 자동 확인되고 메모는 DP-6 그대로', async () => {
+  // D-DEP2-13: 앞선 신한 잔액(1,014,000 — 20:01 알림)이 있어 이어짐이 확인될 때만 자동 확인 (예전 시험은 앞선 잔액 없이 자동 확인을 기대했다)
+  it('신한 대표번호 입금(앞선 신한 잔액 1,014,000) → 휴대폰 알림 입금이 자동 확인되고 메모는 DP-6 그대로', async () => {
     const { world, seller, token, buyer } = await soldToYounghee()
+    await statuses(world, token, [app('w', 'com.shinhan.sbanking', null, '신한 10/31 20:01 출금 1,000 잔액 1,014,000')])
     expect(await statuses(world, token, [sms('dep', SHINHAN, notice('20:05', '14,000', '1,028,000'))])).toEqual(['SAVED'])
     const [auto] = await list(world, seller, 'AUTO_APPLIED')
     expect(auto).toMatchObject({ no: 1, status: 'AUTO_APPLIED', name: '김영희', amount: 14_000, source: { kind: 'PHONE', label: '휴대폰 알림' } })
@@ -47,7 +49,38 @@ describe('AC-SMS3-19 믿을 입금 자동 확인', () => {
   })
 })
 
+describe('AC-SMS3-19·21 잔액 이어짐이 확인될 때만 자동 (D-DEP2-13)', () => {
+  it('앞선 신한 잔액 없음 → BALANCE_GAP(자동 아님), 그 잔액이 다음 이어짐의 앞 잔액이 되어 다음 신한 입금은 자동 확인', async () => {
+    const { world, seller, token } = await soldToYounghee()
+    expect(await statuses(world, token, [sms('first', SHINHAN, notice('20:05', '14,000', '1,028,000', '이몽룡'))])).toEqual(['SAVED'])
+    const [first] = await list(world, seller)
+    expect(first?.review?.reason).toBe('BALANCE_GAP')
+    expect(await list(world, seller, 'AUTO_APPLIED')).toEqual([])
+    expect(await settlementEvents(world, seller, SMS3_DAY)).toEqual([])
+    await statuses(world, token, [sms('next', SHINHAN, notice('20:06', '14,000', '1,042,000'))])
+    expect(await list(world, seller, 'AUTO_APPLIED')).toHaveLength(1)
+  })
+
+  it('잔액이 없는 믿을 입금 알림 → BALANCE_GAP, 자동으로 적지 않는다', async () => {
+    const { world, seller, token } = await soldToYounghee()
+    await statuses(world, token, [app('w', 'com.shinhan.sbanking', null, '신한 10/31 20:01 출금 1,000 잔액 1,014,000')])
+    expect(await statuses(world, token, [sms('nobal', SHINHAN, '신한10/31 20:05 입금 14,000 김영희')])).toEqual(['SAVED'])
+    const [item] = await list(world, seller)
+    expect(item?.review?.reason).toBe('BALANCE_GAP')
+    expect(await settlementEvents(world, seller, SMS3_DAY)).toEqual([])
+  })
+})
+
 describe('AC-SMS3-20 믿지 않는 곳', () => {
+  it('[국제발신]·[해외 발신]·[국외발신]이 붙은 신한 대표번호 입금 → UNTRUSTED_SOURCE (D-DEP2-12)', async () => {
+    const { world, seller, token } = await soldToYounghee()
+    await statuses(world, token, [app('w', 'com.shinhan.sbanking', null, '신한 10/31 20:01 출금 1,000 잔액 1,014,000')])
+    expect(await statuses(world, token, [sms('o1', SHINHAN, `[국제발신]${notice('20:05', '14,000', '1,028,000')}`), sms('o2', SHINHAN, `[해외 발신] ${notice('20:06', '14,000', '1,042,000')}`), app('o3', 'com.shinhan.sbanking', '[국외발신]', '신한 10/31 20:04 입금 14,000 잔액 1,056,000 김영희')])).toEqual(['SAVED', 'SAVED', 'SAVED'])
+    const items = await list(world, seller)
+    expect(items.map((item) => item.review?.reason)).toEqual(['UNTRUSTED_SOURCE', 'UNTRUSTED_SOURCE', 'UNTRUSTED_SOURCE'])
+    expect(await list(world, seller, 'AUTO_APPLIED')).toEqual([])
+  })
+
   it('같은 글이 1600-0000에서 → 저장되지만 확인 필요 UNTRUSTED_SOURCE, 미리 고른 후보 = 김영희 묶음, 다시 열어도 ONE_MATCH가 아니다', async () => {
     const { world, seller, token, buyer } = await soldToYounghee()
     expect(await statuses(world, token, [sms('dep', '1600-0000', notice('20:05', '14,000', '1,028,000'))])).toEqual(['SAVED'])
@@ -92,21 +125,28 @@ describe('AC-SMS3-21 잔액 이어짐', () => {
 })
 
 describe('AC-SMS3-22 외부 키', () => {
-  it('같은 입금을 문자와 앱 알림으로 → 입금 하나(bal: 키), 두 번째도 SAVED', async () => {
+  // D-DEP2-14: 키의 시각은 분까지 — 문자 20:05(분)와 앱 알림 20:05:15(초)가 같은 입금. D-DEP2-13: 앞선 신한 잔액이 있어야 자동 확인이라 20:01 알림을 먼저 둔다
+  it('같은 입금을 문자(20:05)와 앱 알림(20:05:15)으로 → 입금 하나(bal: 키 — 시각은 분까지), 두 번째도 SAVED', async () => {
     const { world, seller, token } = await soldToYounghee()
-    expect(await statuses(world, token, [sms('s', SHINHAN, notice('20:05', '14,000', '1,028,000')), app('a', 'com.shinhan.sbanking', '신한 10/31 20:05', '입금 14,000 잔액 1,028,000 김영희')])).toEqual(['SAVED', 'SAVED'])
+    await statuses(world, token, [app('w', 'com.shinhan.sbanking', null, '신한 10/31 20:01 출금 1,000 잔액 1,014,000')])
+    expect(await statuses(world, token, [sms('s', SHINHAN, notice('20:05', '14,000', '1,028,000')), app('a', 'com.shinhan.sbanking', '신한 10/31 20:05:15', '입금 14,000 잔액 1,028,000 김영희')])).toEqual(['SAVED', 'SAVED'])
     const pg = world.database.pglite as PGlite
     const rows = await pg.query<{ external_key: string }>('select external_key from deposits')
-    expect(rows.rows.map((row) => row.external_key)).toEqual(['bal:SHINHAN:2026-10-31T20:05:00+09:00:14000:1028000'])
+    expect(rows.rows.map((row) => row.external_key)).toEqual(['bal:SHINHAN:2026-10-31T20:05:14000:1028000'])
     expect(await list(world, seller)).toEqual([])
+    expect(await list(world, seller, 'AUTO_APPLIED')).toHaveLength(1)
   })
 
-  it('잔액 없는 같은 내용 알림 둘(다른 id) → 입금 둘, 두 번째는 POSSIBLE_DUPLICATE', async () => {
+  // D-DEP2-13: 잔액 없는 믿을 입금은 BALANCE_GAP(먼저 보는 것) — 예전 시험은 첫째가 자동 확인되고 둘째가 POSSIBLE_DUPLICATE라고 기대했다
+  it('잔액 없는 같은 내용 알림 둘(다른 id) → 입금 둘, 둘 다 확인 필요 BALANCE_GAP, 자동으로 적지 않는다', async () => {
     const { world, seller, token } = await soldToYounghee()
+    world.clock.advance(5 * 60_000)
     await statuses(world, token, [app('k1', 'com.kakaobank.channel', '입금 14,000원', '김영희', '2026-10-31T20:05:00+09:00'), app('k2', 'com.kakaobank.channel', '입금 14,000원', '김영희', '2026-10-31T20:05:00+09:00')])
-    const all = [...(await list(world, seller, 'AUTO_APPLIED')), ...(await list(world, seller))]
+    expect(await list(world, seller, 'AUTO_APPLIED')).toEqual([])
+    const all = await list(world, seller)
     expect(all).toHaveLength(2)
-    expect(all.find((item) => item.no === 2)?.review?.reason).toBe('POSSIBLE_DUPLICATE')
+    expect(all.map((item) => item.review?.reason)).toEqual(['BALANCE_GAP', 'BALANCE_GAP'])
+    expect(await settlementEvents(world, seller, SMS3_DAY)).toEqual([])
   })
 })
 
@@ -140,5 +180,12 @@ describe('AC-SMS3-23 출금·입금 취소·읽지 못함', () => {
     world.clock.advance(30 * 86_400_000 + 1)
     const again = client(world, await login(world, seller.loginId, seller.password))
     expect(((await expectOk(again.get('/api/deposits/alerts'))).body.alerts as unknown[]).length).toBe(0)
+  })
+
+  it('입금자명이 빈 글인 입금 취소 → 은행 알림 줄에 "이름 모름"(D-DEP2-15), name은 null', async () => {
+    const { world, seller, token } = await soldToYounghee()
+    expect(await statuses(world, token, [app('c', 'com.kakaobank.channel', '입금취소 14,000원', '')])).toEqual(['SAVED'])
+    const alerts = (await expectOk(client(world, seller.cookie).get('/api/deposits/alerts'))).body.alerts as { name: string | null; message: string }[]
+    expect(alerts.map((alert) => [alert.name, alert.message])).toEqual([[null, '입금 취소 알림이 왔어요: 14,000원 이름 모름. 이 입금을 확인했다면 되돌려 주세요']])
   })
 })
