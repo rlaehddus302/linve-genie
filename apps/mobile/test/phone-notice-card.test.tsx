@@ -6,6 +6,7 @@ import { setNoticeModule, type PhoneNoticePort, type PhoneNoticeState } from '..
 import {
   PHONE_NOTICE_ACCESS_OFF,
   PHONE_NOTICE_GO,
+  PHONE_NOTICE_INBOX_OFF,
   PHONE_NOTICE_IPHONE,
   PHONE_NOTICE_SHORTCUT_GUIDE,
   PHONE_NOTICE_SHORTCUT_STEPS,
@@ -14,6 +15,7 @@ import {
   PHONE_NOTICE_TOKEN_AGAIN,
   PHONE_NOTICE_UNAVAILABLE,
   PhoneNoticeCard,
+  phoneNoticeDroppedLine,
   phoneNoticeLine,
 } from '../src/screens/PhoneNoticeCard.tsx'
 import { makeWorld } from './screen-support.tsx'
@@ -137,6 +139,9 @@ describe('휴대폰 알림 받기 칸 (AC-SMS3-29)', () => {
     // 웹 설정 안내와 같은 순서: 기기 입구 JSON 칸 이름 그대로 (SA-SMS3-004)
     const all = PHONE_NOTICE_SHORTCUT_STEPS.join('\n')
     for (const value of ['`POST`', '`Authorization`', '`Bearer`', '`JSON`', '`device`', '`messages`', '`id`', '`channel`', '`SMS`', '`from`', '`text`', '`receivedAt`']) expect(all).toContain(value)
+    // id = "현재 날짜(초까지)" + "보낸 사람" 한 가지, 고정 글을 쓰지 말라는 한 줄 — 웹 안내와 같은 글 (D-SMS3-32)
+    expect(all).toContain('"현재 날짜"(날짜 형식 "사용자 지정" `yyyyMMddHHmmss` — 초까지)와 단축어 입력의 "보낸 사람"')
+    expect(PHONE_NOTICE_SHORTCUT_STEPS.some((step) => step.includes('고정 글') && step.includes('넣지 마세요'))).toBe(true)
     expect(screen.getByText(/키는/).textContent).toContain('"Authorization"')
     expect(screen.queryByRole('button', { name: '켜기' })).toBeNull()
   })
@@ -146,5 +151,21 @@ describe('휴대폰 알림 받기 칸 (AC-SMS3-29)', () => {
     expect(phoneNoticeLine({ ...base, enabled: true, hasToken: true, access: 'needed' })).toBe(PHONE_NOTICE_ACCESS_OFF)
     expect(phoneNoticeLine({ ...base, enabled: true, hasToken: true, access: 'granted', pending: 3 })).toBe('3건을 보내는 중이에요')
     expect(phoneNoticeLine({ ...base, enabled: true, hasToken: true, access: 'shortcut' })).toBe('단축어로 받은 문자를 보내고 있어요')
+    // 웹 설정에서 받기가 꺼짐(403 INBOX_OFF) — 토큰은 그대로 (ORD-13 받기 상태, D-SMS3-27)
+    expect(PHONE_NOTICE_INBOX_OFF).toBe('웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 알림을 보내요')
+    expect(phoneNoticeLine({ ...base, enabled: true, hasToken: true, access: 'granted', inboxOff: true, pending: 4 })).toBe(PHONE_NOTICE_INBOX_OFF)
+    // 대기열이 넘쳐 버린 알림 (D-SMS3-28)
+    expect(phoneNoticeDroppedLine({ dropped: 3 })).toBe('보내지 못하고 버린 알림이 3건 있어요. 은행 앱에서 입금을 확인해 주세요')
+    expect(phoneNoticeDroppedLine({ dropped: 0 })).toBeNull()
+    expect(phoneNoticeDroppedLine({})).toBeNull()
+  })
+
+  it('받기 꺼짐·버린 알림이 칸에 보인다 (D-SMS3-27·28)', async () => {
+    const world = makeWorld()
+    setNoticeModule(new FakePort({ enabled: true, hasToken: true, access: 'granted', inboxOff: true, dropped: 12 }))
+    render(world.wrap(<PhoneNoticeCard />))
+    expect(await screen.findByText(PHONE_NOTICE_INBOX_OFF)).toBeDefined()
+    expect(screen.getByText('보내지 못하고 버린 알림이 12건 있어요. 은행 앱에서 입금을 확인해 주세요')).toBeDefined()
+    expect(screen.queryByText(PHONE_NOTICE_TOKEN_AGAIN)).toBeNull()
   })
 })

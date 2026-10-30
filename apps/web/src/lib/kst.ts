@@ -169,6 +169,14 @@ export function kstStamp(value: string | number, minute = false): string {
   return `${String(Number(p.month ?? '0'))}/${String(Number(p.day ?? '0'))} ${clock}`
 }
 
+/** UTC 시각 → KST "10월 31일 19:59:50" (늦게 온 문자의 휴대폰 받은 시각 — 서버 문구와 같은 모양, D-SMS3-30) */
+export function kstMonthDayClock(value: string | number): string {
+  const ms = toMs(value)
+  if (!Number.isFinite(ms)) return ''
+  const p = parts(stampFormat, ms)
+  return `${String(Number(p.month ?? '0'))}월 ${String(Number(p.day ?? '0'))}일 ${p.hour ?? '00'}:${p.minute ?? '00'}:${p.second ?? '00'}`
+}
+
 /** UTC 시각 → KST `HH:MM` (출력 이력 "20:01 휴대폰") */
 export function kstHm(value: string | number): string {
   const time = kstTime(value)

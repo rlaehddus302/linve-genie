@@ -10,8 +10,10 @@ import { DepositProvider } from '../src/components/deposit-context.tsx'
 import { DepositsPage } from '../src/components/DepositsPage.tsx'
 import { PhoneInboxSettings, useInboxSettings } from '../src/components/PhoneInboxSettings.tsx'
 import {
+  BANK_NO_NAME,
   BANK_UNREADABLE,
   INBOX_CANCEL_NAME_ONLY,
+  INBOX_STALE,
   INBOX_FROM_SMS,
   INBOX_NAME_ONLY,
   INBOX_RENEW_QUESTION,
@@ -25,8 +27,11 @@ import {
   cancelNeedsBoard,
   closeStall,
   inboxClaimIds,
+  inboxArrivedWords,
   inboxReasonWords,
   inboxSenderWords,
+  inboxTimeWords,
+  readStaleNotice,
   inboxStalled,
   orderCards,
   parseInboxEvent,
@@ -43,6 +48,7 @@ let inbox: InboxSettingsView
 let cards: InboxCardView[]
 let claimIds: string[]
 let startedAt: string | null
+let stale: unknown
 
 const settingsView = (patch: Partial<InboxSettingsView> = {}): InboxSettingsView => ({ enabled: false, hasToken: false, tokenCreatedAt: null, lastReceivedAt: null, lastDevice: null, ...patch })
 
@@ -74,7 +80,7 @@ function setupConsole() {
     .on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: null, collector: null } }))
     .on('GET', /^\/api\/platforms$/, () => ({ body: { platforms: [] } }))
     .on('GET', /^\/api\/inbox\/settings$/, () => ({ body: { inbox } }))
-    .on('GET', /^\/api\/inbox\/cards\?b=b1$/, () => ({ body: { cards, inboxClaimIds: claimIds, startedAt } }))
+    .on('GET', /^\/api\/inbox\/cards\?b=b1$/, () => ({ body: { cards, inboxClaimIds: claimIds, startedAt, staleBroadcast: stale } }))
 }
 
 beforeEach(() => {
@@ -84,6 +90,7 @@ beforeEach(() => {
   cards = []
   claimIds = []
   startedAt = null
+  stale = null
   vi.stubGlobal('fetch', server.fetch)
   vi.stubGlobal('EventSource', FakeEventSource)
   FakeEventSource.reset()
@@ -111,6 +118,37 @@ describe('낱말 (ORD-13 화면 문구, DP-8)', () => {
     expect(inboxReasonWords(card({ why: 'NEW_THING' as never, message: '새 사유예요' }))).toBe('새 사유예요')
   })
 
+  it('늦게 온 문자 LATE·바로 넣지 못함 REJECTED 문장 (D-SMS3-30·31)', () => {
+    // 휴대폰이 받은 원래 시각 KST 10월 19일 19:59:50 — 서버 문구와 같은 모양
+    expect(inboxReasonWords(card({ why: 'LATE', late: true, receivedAt: '2026-10-19T10:59:50.000Z' }))).toBe('늦게 온 문자예요 (휴대폰이 10월 19일 19:59:50에 받음). 넣으면 지금 받은 순서로 들어가요')
+    expect(inboxReasonWords(card({ why: 'REJECTED', numbers: [15] }))).toBe('15번은 바로 넣지 못했어요. 보드에서 확인해 주세요')
+    expect(inboxReasonWords(card({ why: 'REJECTED', numbers: [15] }))).not.toBe('번호는 있는데 확실하지 않아요')
+  })
+
+  it('늦게 온 카드: 받은 시각은 날짜까지, 서버에 온 시각을 붙이고, 받은 순서는 서버에 온 때 (D-SMS3-30)', () => {
+    const late = card({ id: 'late', why: 'UNCLEAR', late: true, receivedAt: '2026-10-17T11:00:00.000Z', arrivedAt: '2026-10-19T11:20:01.000Z' })
+    expect(inboxTimeWords(late)).toBe('10월 17일 20:00:00')
+    expect(inboxArrivedWords(late)).toBe('오후 8:20:01 도착')
+    expect(inboxTimeWords(card())).toBe('오후 8:01:05')
+    expect(inboxArrivedWords(card({ arrivedAt: '2026-10-19T11:01:06.000Z' }))).toBe('')
+    const onTime = card({ id: 'on', receivedAt: '2026-10-19T11:10:00.000Z' })
+    expect(orderCards([late, onTime]).map((item) => item.id)).toEqual(['on', 'late'])
+  })
+
+  it('12시간 넘은 방송 알림 읽기 — 문구는 스펙 그대로, 모양이 다르면 없음 (D-SMS3-29)', () => {
+    expect(INBOX_STALE).toBe('끝내지 않은 방송이 12시간 넘게 이어져 손님 문자를 넣지 않았어요. 방송을 끝내 주세요.')
+    expect(readStaleNotice({ b: 'b0', startedAt: '2026-10-18T23:00:00.000Z', lastAt: '2026-10-19T11:00:01.000Z', count: 2, message: '다른 글' })).toEqual({
+      b: 'b0',
+      startedAt: '2026-10-18T23:00:00.000Z',
+      lastAt: '2026-10-19T11:00:01.000Z',
+      count: 2,
+      message: INBOX_STALE,
+    })
+    expect(readStaleNotice(null)).toBeNull()
+    expect(readStaleNotice(undefined)).toBeNull()
+    expect(readStaleNotice({ count: 1 })).toBeNull()
+  })
+
   it('보낸 사람: 뒤 4자리 또는 이름만', () => {
     expect(inboxSenderWords(card({ last4: '5678' }))).toBe('뒤 4자리 5678')
     expect(inboxSenderWords(card({ last4: null }))).toBe(INBOX_NAME_ONLY)
@@ -127,6 +165,10 @@ describe('낱말 (ORD-13 화면 문구, DP-8)', () => {
     const cancel: BankAlertView = { id: 1, kind: 'CANCEL', bank: 'SHINHAN', bankName: '신한', amount: 14000, name: '홍길동', at: null, receivedAt: '2026-10-31T11:05:00.000Z', message: '' }
     expect(bankNoticeWords(cancel)).toBe('입금 취소 알림이 왔어요: 14,000원 홍길동. 이 입금을 확인했다면 되돌려 주세요')
     expect(bankNoticeWords({ ...cancel, kind: 'UNREADABLE', amount: null, name: null })).toBe(BANK_UNREADABLE)
+    // 입금자명이 빈 글이면 "이름 모름" (DP-8, D-DEP2-15)
+    expect(BANK_NO_NAME).toBe('이름 모름')
+    expect(bankNoticeWords({ ...cancel, name: null })).toBe('입금 취소 알림이 왔어요: 14,000원 이름 모름. 이 입금을 확인했다면 되돌려 주세요')
+    expect(bankNoticeWords({ ...cancel, name: '  ' })).toBe('입금 취소 알림이 왔어요: 14,000원 이름 모름. 이 입금을 확인했다면 되돌려 주세요')
     expect(BANK_UNREADABLE).toBe('읽지 못한 은행 알림이에요. 은행 앱에서 확인하고 필요하면 정산에서 손으로 적어 주세요')
     expect(bankNoticeMeta(cancel)).toBe('신한 · 10/31 20:05:00')
   })
@@ -291,6 +333,26 @@ describe('설정 "휴대폰 알림 받기" (AC-SMS3-28)', () => {
     expect(server.callsTo('PUT', /inbox\/settings/)[1]?.body).toEqual({ enabled: true })
   })
 
+  it('12시간 넘은 방송 때문에 넣지 않은 문자가 있으면 받기 상태에 알림, 닫기 (D-SMS3-29)', async () => {
+    inbox = settingsView({ enabled: true, hasToken: true, staleBroadcast: { b: 'b0', startedAt: null, lastAt: null, count: 3, message: INBOX_STALE } })
+    server.on('POST', /^\/api\/inbox\/stale\/close$/, () => {
+      inbox = { ...inbox, staleBroadcast: null }
+      return { body: { inbox } }
+    })
+    render(<SettingsHarness />)
+    const group = await screen.findByRole('group', { name: '휴대폰 알림 받기 상태' })
+    const bar = await within(group).findByText(`! ${INBOX_STALE}`)
+    fireEvent.click(within(bar.parentElement as HTMLElement).getByRole('button', { name: '닫기' }))
+    await waitFor(() => expect(screen.queryByText(`! ${INBOX_STALE}`)).toBeNull())
+  })
+
+  it('끄기 확인 창: 다시 켜면 넣어 둔 토큰으로 다시 받는다 (꺼짐은 토큰을 지우지 않음 — D-SMS3-27)', async () => {
+    inbox = settingsView({ enabled: true, hasToken: true })
+    render(<SettingsHarness />)
+    fireEvent.click(await screen.findByRole('button', { name: '끄기' }))
+    expect(within(await screen.findByRole('dialog')).getByText(/다시 켜면 넣어 둔 토큰으로 다시 받아요/)).toBeDefined()
+  })
+
   it('아이폰 단축어 안내는 접어 두고 펼치면 받는 주소가 보인다', async () => {
     render(<SettingsHarness />)
     const toggle = await screen.findByRole('button', { name: /아이폰 단축어 만들기 안내/ })
@@ -304,6 +366,9 @@ describe('설정 "휴대폰 알림 받기" (AC-SMS3-28)', () => {
     const all = INBOX_SHORTCUT_STEPS.join('\n')
     for (const value of ['URL 콘텐츠 가져오기', '`POST`', '`Authorization`', '`Bearer`', '`JSON`', '`device`', '`messages`', '"사전"', '`id`', '`channel`', '`SMS`', '`from`', '`text`', '`receivedAt`']) expect(all).toContain(value)
     expect(all).not.toContain('문자 보내기')
+    // id = "현재 날짜(초까지)" + "보낸 사람" 한 가지, 고정 글을 쓰지 말라는 한 줄 (D-SMS3-32)
+    expect(all).toContain('"현재 날짜"(날짜 형식 "사용자 지정" `yyyyMMddHHmmss` — 초까지)와 단축어 입력의 "보낸 사람"')
+    expect(INBOX_SHORTCUT_STEPS.some((step) => step.includes('고정 글') && step.includes('넣지 마세요'))).toBe(true)
     expect(shortcutStepParts('키는 `Authorization`, 값')).toEqual([
       { text: '키는 ', value: false },
       { text: 'Authorization', value: true },
@@ -520,6 +585,43 @@ describe('받기 멈춤 알림 (AC-SMS3-31)', () => {
     })
     await flush(5)
     expect(screen.queryByText(`! ${INBOX_STALL}`)).toBeNull()
+  })
+})
+
+describe('12시간 넘은 방송 알림 (D-SMS3-29, AC-SMS3-31)', () => {
+  beforeEach(() => setupConsole())
+  const notice = { b: 'b0', startedAt: '2026-10-18T23:00:00.000Z', lastAt: '2026-10-19T11:00:01.000Z', count: 1, message: INBOX_STALE }
+
+  it('콘솔 위에 보이고, "닫기"는 서버에 적고 사라진다', async () => {
+    stale = notice
+    server.on('POST', /^\/api\/inbox\/stale\/close$/, () => {
+      stale = null
+      return { body: { inbox: { ...inbox, staleBroadcast: null } } }
+    })
+    await openConsole()
+    const bar = await screen.findByText(`! ${INBOX_STALE}`)
+    fireEvent.click(within(bar.parentElement as HTMLElement).getByRole('button', { name: '닫기' }))
+    await waitFor(() => expect(screen.queryByText(`! ${INBOX_STALE}`)).toBeNull())
+    expect(server.callsTo('POST', /inbox\/stale\/close/)).toHaveLength(1)
+  })
+
+  it('없으면 보이지 않고, 실시간 설정 알림에 다시 읽어 생기면 보인다', async () => {
+    await openConsole()
+    expect(screen.queryByText(`! ${INBOX_STALE}`)).toBeNull()
+    stale = notice
+    act(() => {
+      for (const source of FakeEventSource.instances) source.emit('inbox', { kind: 'settings' })
+    })
+    expect(await screen.findByText(`! ${INBOX_STALE}`)).toBeDefined()
+  })
+
+  it('늦게 온 문자 카드: 휴대폰이 받은 원래 시각(날짜까지)·서버에 온 시각·LATE 문장 (D-SMS3-30)', async () => {
+    cards = [card({ id: 'late', why: 'LATE', late: true, receivedAt: '2026-10-17T11:00:00.000Z', arrivedAt: '2026-10-19T11:20:01.000Z', message: '서버 글' })]
+    await openConsole()
+    const item = await screen.findByRole('listitem', { name: '10월 17일 20:00:00 확인 필요' })
+    expect(within(item).getByText('늦게 온 문자예요 (휴대폰이 10월 17일 20:00:00에 받음). 넣으면 지금 받은 순서로 들어가요')).toBeDefined()
+    expect(within(item).getByText('· 오후 8:20:01 도착')).toBeDefined()
+    expect(within(item).getByRole('button', { name: '15번에 넣기' })).toBeDefined()
   })
 })
 

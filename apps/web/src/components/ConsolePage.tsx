@@ -56,7 +56,7 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { ImportDialog } from './ImportDialog.tsx'
 import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
-import { InboxStallBar, SmsInboxPanel, useInboxConsole } from './SmsInbox.tsx'
+import { InboxStaleBar, InboxStallBar, SmsInboxPanel, useInboxConsole } from './SmsInbox.tsx'
 import { InboxClaimsContext } from './inbox-claims.tsx'
 import { inboxClaimIds } from '../lib/inbox.ts'
 import { ProductBoard, CurrentProduct, CurrentSummary, FocusBanner } from './ProductBoard.tsx'
@@ -1541,6 +1541,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
           <InboxStallBar handle={inbox} broadcast={b} rehearsal={broadcast.rehearsal} ended={ended || sealed} />
+          <InboxStaleBar stale={inbox.stale} onClosed={inbox.clearStale} />
           <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} invited={invitedChannelName(yt.link?.link ?? null) !== null} />
           <QuotaToast />
           <div ref={quickBoxRef} className="console-sticky-quick">

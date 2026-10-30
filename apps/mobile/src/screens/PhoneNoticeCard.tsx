@@ -22,6 +22,13 @@ export const PHONE_NOTICE_GO = '알림 읽기 켜러 가기'
 export const PHONE_NOTICE_ACCESS_OFF = '알림 읽기가 꺼져 있어요'
 export const PHONE_NOTICE_SETTINGS_FAILED = `설정을 열지 못했어요. 휴대폰 설정 → 알림 → 기기 및 앱 알림(알림 읽기)에서 ${SERVICE_NAME}를 켜 주세요.`
 export const PHONE_NOTICE_TOKEN_AGAIN = '받기 토큰을 다시 넣어 주세요'
+/** 403 INBOX_OFF — 웹 설정에서 받기를 껐다. 토큰·모아 둔 알림은 그대로 (ORD-13 받기 상태, D-SMS3-27 — @livejjim/mobile-notice NOTICE_INBOX_OFF와 같은 글) */
+export const PHONE_NOTICE_INBOX_OFF = '웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 알림을 보내요'
+/** 대기열이 넘쳐 버린 알림 (D-SMS3-28 — @livejjim/mobile-notice NOTICE_DROPPED_TEMPLATE와 같은 글) */
+export function phoneNoticeDroppedLine(state: Pick<PhoneNoticeState, 'dropped'>): string | null {
+  const dropped = state.dropped ?? 0
+  return dropped > 0 ? `보내지 못하고 버린 알림이 ${String(dropped)}건 있어요. 은행 앱에서 입금을 확인해 주세요` : null
+}
 export const PHONE_NOTICE_RENEW_QUESTION = '전에 쓰던 휴대폰·단축어는 더 이상 보내지 못해요. 이 휴대폰으로 받을까요?'
 export const PHONE_NOTICE_UNAVAILABLE = `이 휴대폰에서는 쓸 수 없어요. ${SERVICE_NAME} 앱을 새로 받아 주세요.`
 export const PHONE_NOTICE_IPHONE = '아이폰은 다른 앱 알림을 읽을 수 없어요. 단축어로 손님 문자와 은행 문자만 보낼 수 있어요(은행 앱 알림은 받을 수 없어요).'
@@ -38,7 +45,8 @@ export const PHONE_NOTICE_SHORTCUT_STEPS: readonly string[] = [
   '헤더에 하나를 더하세요. 키는 `Authorization`, 값은 `Bearer` 뒤에 한 칸 띄고 설정에서 만든 받기 토큰을 붙여 넣으세요.',
   '요청 본문을 `JSON`으로 고르고 칸 두 개를 더하세요. `device`(텍스트) = 휴대폰 이름(예: 내 아이폰), `messages`(배열).',
   '`messages` 안에 "사전" 하나를 더하고, 그 안에 칸 다섯 개를 넣으세요.',
-  '`id`(텍스트) = 보낸 사람과 현재 날짜(초까지)를 이어 붙인 글 — 문자마다 달라야 해요.',
+  '`id`(텍스트) = "현재 날짜"(날짜 형식 "사용자 지정" `yyyyMMddHHmmss` — 초까지)와 단축어 입력의 "보낸 사람"을 이어 붙인 글 — 문자마다 달라야 해요.',
+  '`id`에 고정 글(예: 내 문자)을 넣지 마세요. 그러면 하루 동안 같은 문자로 보고 그 뒤 손님 문자를 하나도 받지 못해요.',
   '`channel`(텍스트) = `SMS`',
   '`from`(텍스트) = 단축어 입력의 "보낸 사람"',
   '`text`(텍스트) = 단축어 입력의 "내용"',
@@ -66,6 +74,7 @@ export function phoneNoticeLine(state: PhoneNoticeState): string {
   if (!state.enabled) return '꺼져 있어요'
   if (state.tokenRejected || !state.hasToken) return PHONE_NOTICE_TOKEN_AGAIN
   if (state.access === 'needed') return PHONE_NOTICE_ACCESS_OFF
+  if (state.inboxOff === true) return PHONE_NOTICE_INBOX_OFF
   if (state.pending > 0) return `${String(state.pending)}건을 보내는 중이에요`
   return state.access === 'shortcut' ? '단축어로 받은 문자를 보내고 있어요' : '문자와 은행 앱 알림을 보내고 있어요'
 }
@@ -171,6 +180,9 @@ export function PhoneNoticeCard() {
   const on = state?.enabled === true
   const accessOff = on && state?.access === 'needed'
   const tokenBad = on && state !== null && (state.tokenRejected || !state.hasToken)
+  // 웹 설정에서 받기가 꺼짐 — 토큰은 그대로라 웹에서 다시 켜면 이어진다 (D-SMS3-27)
+  const serverOff = on && !tokenBad && state?.inboxOff === true
+  const droppedLine = state === null ? null : phoneNoticeDroppedLine(state)
 
   return (
     <Card label={PHONE_NOTICE_TITLE}>
@@ -187,7 +199,7 @@ export function PhoneNoticeCard() {
         <Hint>불러오는 중…</Hint>
       ) : (
         <Row wrap>
-          <Tag tone={on && !accessOff && !tokenBad ? 'success' : on ? 'warning' : 'info'}>{on ? '켜짐' : '꺼짐'}</Tag>
+          <Tag tone={on && !accessOff && !tokenBad && !serverOff ? 'success' : on ? 'warning' : 'info'}>{on ? '켜짐' : '꺼짐'}</Tag>
           <Body>{phoneNoticeLine(state)}</Body>
         </Row>
       )}
@@ -200,6 +212,11 @@ export function PhoneNoticeCard() {
       {tokenBad ? (
         <Notice tone="warning" alert>
           {PHONE_NOTICE_TOKEN_AGAIN}
+        </Notice>
+      ) : null}
+      {droppedLine !== null ? (
+        <Notice tone="danger" alert>
+          {droppedLine}
         </Notice>
       ) : null}
       {tokenBad ? <BigButton label="토큰 다시 받기" disabled={busy} onPress={() => (server?.enabled === true ? setAsk(true) : void connect())} /> : null}

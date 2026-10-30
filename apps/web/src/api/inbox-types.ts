@@ -4,7 +4,8 @@
 //   GET  /api/inbox/settings                 → { inbox: InboxSettingsView }          (판매자만 — 보조자 403)
 //   POST /api/inbox/token          {}         → { token, inbox }                      만들기·다시 만들기(옛 토큰 바로 무효). 토큰 원문은 이 응답에만
 //   PUT  /api/inbox/settings  { enabled }     → { inbox }                             켜기·끄기 (토큰 없이 켜기 409 NO_TOKEN)
-//   GET  /api/inbox/cards?b=<방송 ID>         → { cards: InboxCardView[] }            콘솔 "문자 확인" 칸 (받은 순서)
+//   GET  /api/inbox/cards?b=<방송 ID>         → { cards, inboxClaimIds, startedAt, staleBroadcast }   콘솔 "문자 확인" 칸 (받은 순서)
+//   POST /api/inbox/stale/close {}            → { inbox }                             12시간 넘은 방송 알림 닫기 (판매자만)
 //   POST /api/inbox/cards/:id/insert  { requestId, no, qty?, options? }               확인 필요 → 문자찜 넣기
 //   POST /api/inbox/cards/:id/approve { requestId }                                    취소 요청 승인 (찜 없으면 409 NO_CLAIM)
 //   POST /api/inbox/cards/:id/ignore  {}                                               무시
@@ -24,10 +25,24 @@ export interface InboxSettingsView {
   readonly lastReceivedAt: string | null
   /** 마지막으로 보낸 기기 이름 (C-04 `device`, 1~30자 — 판매자가 붙인 글이라 이스케이프만) */
   readonly lastDevice: string | null
+  /** 시작한 지 12시간 넘은(끝내지 않은) 방송 때문에 넣지 않은 손님 문자 (D-SMS3-29) — 없으면 null·빠짐(옛 서버). 그 방송을 끝내거나 닫으면 null */
+  readonly staleBroadcast?: InboxStaleNotice | null
 }
 
-/** 확인 필요 사유 (ORD-13 "화면 문구") */
-export type InboxReviewReason = 'UNCLEAR' | 'NO_NUMBER' | 'OPTIONS' | 'NOT_ON_SALE'
+/** 12시간 넘은 방송 때문에 넣지 않은 손님 문자 (D-SMS3-29, 서버 약속 v4 StaleNotice) — 본문은 없다 */
+export interface InboxStaleNotice {
+  /** 끝내지 않은 그 실제 방송 ID */
+  readonly b: string
+  readonly startedAt: string | null
+  /** 마지막으로 넣지 않은 손님 문자가 서버에 온 시각 */
+  readonly lastAt: string | null
+  /** 넣지 않은 손님 문자 수 */
+  readonly count: number
+  readonly message: string
+}
+
+/** 확인 필요 사유 (ORD-13 "화면 문구") — LATE 늦게 온 문자(D-SMS3-30), REJECTED 엔진이 바로 받지 않음(D-SMS3-31) */
+export type InboxReviewReason = 'UNCLEAR' | 'NO_NUMBER' | 'OPTIONS' | 'NOT_ON_SALE' | 'LATE' | 'REJECTED'
 
 /** 콘솔 "문자 확인" 카드 하나 */
 export interface InboxCardView {
@@ -52,6 +67,12 @@ export interface InboxCardView {
   readonly receivedAt: string
   /** 사유 문구 (서버가 ORD-13 화면 문구로 준다 — 화면은 같은 표로 다시 만들고, 모르는 사유일 때만 이 글) */
   readonly message: string
+  /** "승인" 단추를 보일지 (번호가 온 취소 요청만 true — D-SMS3-19) */
+  readonly canApprove?: boolean
+  /** 늦게 온 문자에서 나온 카드(어떤 사유든) — "넣기"의 받은 시각은 서버 도착 시각이다 (D-SMS3-30). receivedAt은 휴대폰이 받은 원래 시각 */
+  readonly late?: boolean
+  /** 서버에 온 시각 (ISO UTC) */
+  readonly arrivedAt?: string
 }
 
 /** 입금 확인 화면 위 "은행 알림" 줄 (DP-9 9) */
