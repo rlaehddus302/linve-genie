@@ -85,6 +85,13 @@ function setup(profile: FakeBlePrinter['profile'], shared?: Uint8Array[]) {
   return { server, ble, queue, sources }
 }
 
+/** 그 연결에서 테스트 인쇄를 하고 "예"를 누른다 (실험 기종은 이 뒤에 받는다 — D-PRN2-10) */
+async function confirmTest(queue: LabelQueue): Promise<void> {
+  expect(await queue.printTest()).toBe(true)
+  queue.answerTest(true)
+  await flush(30)
+}
+
 describe('앱 대기열 (AC-PRN2-08·10, L-11 10·13·17)', () => {
   it('연결 알림에 프로필 ID만 — 못 찍는 크기면 그림을 받지 않고 INVALID_TEMPLATE(size), 문장은 L-11 13', async () => {
     const { server, ble, queue, sources } = setup(MARKLIFE_P12)
@@ -97,16 +104,20 @@ describe('앱 대기열 (AC-PRN2-08·10, L-11 10·13·17)', () => {
     })
     server.on('GET', /^\/api\/print\/jobs\/[^/]+\/bitmap\?/, () => ({ body: { width: 320, height: 96, data: Buffer.alloc(40 * 96).toString('base64') } }))
     server.on('POST', /^\/api\/print\/result$/, () => ({ body: { recorded: true } }))
+    server.on('GET', /^\/api\/print\/test-bitmap\?size=tape12x40$/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
     queue.start()
     await flush()
     sources[0]!.open()
     await queue.connect()
     await flush(30)
+    // P12는 실험 기종 — 그 연결에서 테스트 "예" 전까지 받지 않는다 (D-PRN2-10)
+    await confirmTest(queue)
+    const tests = ble.printed.length
     expect(server.callsTo('POST', /device\/state/).at(-1)?.body).toEqual({ deviceId: 'app-device-1', connected: true, profileId: 'MARKLIFE_P12' })
     const results = server.callsTo('POST', /\/api\/print\/result$/).map((call) => call.body)
     expect(results[0]).toEqual({ deviceId: 'app-device-1', attempt: 'j1-a1', ok: false, error: { code: 'INVALID_TEMPLATE', item: 'size' } })
     expect(server.callsTo('GET', /\/jobs\/j1\/bitmap/)).toHaveLength(0)
-    expect(ble.printed).toHaveLength(0)
+    expect(ble.printed).toHaveLength(tests)
     queue.stop()
   })
 
@@ -117,11 +128,13 @@ describe('앱 대기열 (AC-PRN2-08·10, L-11 10·13·17)', () => {
     server.on('POST', /^\/api\/print\/device\/state$/, () => ({ body: {} }))
     server.on('POST', /^\/api\/print\/claim$/, () => ({ body: { job: jobs.shift() ?? null, reason: 'EMPTY' } }))
     server.on('POST', /^\/api\/print\/result$/, () => ({ body: { recorded: true } }))
+    server.on('GET', /^\/api\/print\/test-bitmap\?size=50x30$/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
     queue.start()
     await flush()
     sources[0]!.open()
     await queue.connect()
     await flush(30)
+    await confirmTest(queue)
     expect(queue.getSnapshot().printerError?.message).toBe('이 프린터는 테이프 12×40 라벨을 찍을 수 없어요. 라벨 설정에서 크기를 바꿔 주세요.')
     queue.stop()
   })
@@ -129,12 +142,13 @@ describe('앱 대기열 (AC-PRN2-08·10, L-11 10·13·17)', () => {
   it('"제조사 앱으로 보내기"는 서버 PNG 바이트를 그대로 공유 창에 — 테스트 비트맵을 받아 다시 만들지 않는다', async () => {
     const shared: Uint8Array[] = []
     const { server, queue } = setup(B1_PROFILE, shared)
-    server.on('GET', /^\/api\/print\/test-png$/, () => ({ bytes: PNG, contentType: 'image/png' }))
+    // 크기는 이은 프린터 프로필의 기본 크기 — 모르면(끊김) 50×30 (D-PRN2-11)
+    server.on('GET', /^\/api\/print\/test-png\?size=50x30$/, () => ({ bytes: PNG, contentType: 'image/png' }))
     expect(await queue.shareTest()).toBe(true)
     expect(shared.map((png) => [...png])).toEqual([[...PNG]])
     expect(server.callsTo('GET', /test-bitmap/)).toHaveLength(0)
     // PNG가 아니면 보내지 않고 쉬운 문장
-    server.on('GET', /^\/api\/print\/test-png$/, () => ({ bytes: Uint8Array.from([1, 2, 3]), contentType: 'image/png' }))
+    server.on('GET', /^\/api\/print\/test-png\?size=50x30$/, () => ({ bytes: Uint8Array.from([1, 2, 3]), contentType: 'image/png' }))
     expect(await queue.shareTest()).toBe(false)
     expect(shared).toHaveLength(1)
     expect(queue.getSnapshot().printerError?.message).toBe('라벨 그림을 보내지 못했어요. 잠시 뒤 다시 눌러 주세요.')
@@ -147,7 +161,7 @@ describe('앱 라벨 화면 실험 표시 (AC-PRN2-06)', () => {
     world.ble.profile = BAUATO_PPA2L
     world.server.on('POST', /^\/api\/print\/device$/, () => ({ body: { queue: {}, waiting: 0, backlog: false } }))
     world.server.on('POST', /^\/api\/print\/device\/state$/, () => ({ body: {} }))
-    world.server.on('GET', /^\/api\/print\/test-bitmap$/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
+    world.server.on('GET', /^\/api\/print\/test-bitmap\?size=50x30$/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
     world.services.labels.start()
     render(world.wrap(<LabelsScreen onBack={() => {}} />))
     await waitFor(() => expect(screen.getByText('출력 기기 없음')).toBeTruthy())
@@ -189,6 +203,132 @@ describe('앱 라벨 화면 실험 표시 (AC-PRN2-06)', () => {
     expect(screen.getByText('프린터 이름: NIIMBOT B1')).toBeTruthy()
     expect(screen.queryByText(/실험/)).toBeNull()
     expect(screen.getByRole('button', { name: '이 기기에서 출력' })).toBeTruthy()
+    world.services.labels.stop()
+  })
+})
+
+describe('출력 기기의 실험 기종: 그 연결에서 테스트 "예" 전 받기 멈춤 (D-PRN2-10·15, 웹과 같은 기준)', () => {
+  function station(profile: FakeBlePrinter['profile'], jobs: ClaimedJob[]) {
+    const made = setup(profile)
+    const { server } = made
+    server.on('GET', /^\/api\/print$/, () => ({ body: { queue: summary({ waiting: jobs.length }), jobs: [], discard: [] } }))
+    server.on('POST', /^\/api\/print\/device\/state$/, () => ({ body: {} }))
+    server.on('POST', /^\/api\/print\/claim$/, () => {
+      const next = jobs.shift() ?? null
+      return { body: { job: next, reason: next === null ? 'EMPTY' : undefined } }
+    })
+    server.on('GET', /^\/api\/print\/jobs\/[^/]+\/bitmap\?/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
+    server.on('POST', /^\/api\/print\/result$/, () => ({ body: { recorded: true } }))
+    server.on('GET', /^\/api\/print\/test-bitmap\?size=[a-z0-9]+$/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
+    const states = (): unknown[] => server.callsTo('POST', /device\/state/).map((call) => call.body)
+    const claims = (): number => server.callsTo('POST', /\/api\/print\/claim$/).length
+    return { ...made, states, claims }
+  }
+
+  it('잇자마자 연결 안 됨으로 알리고 받지 않는다 — "아니요"도 그대로, "예" 뒤 연결됨+프로필 ID로 알리고 받는다', async () => {
+    const jobs = [job('j1', '50x30')]
+    const { queue, sources, ble, server, states, claims } = station(BAUATO_PPA2L, jobs)
+    queue.start()
+    await flush()
+    sources[0]!.open()
+    await queue.connect()
+    await flush(30)
+    expect(states().at(-1)).toEqual({ deviceId: 'app-device-1', connected: false })
+    expect(states()).not.toContainEqual(expect.objectContaining({ connected: true }))
+    expect(claims()).toBe(0)
+    expect(await queue.printTest()).toBe(true)
+    // 테스트 그림은 이은 프린터 프로필의 기본 크기 (D-PRN2-11)
+    expect(server.callsTo('GET', /test-bitmap/).map((call) => call.path)).toEqual(['/api/print/test-bitmap?size=50x30'])
+    queue.answerTest(false)
+    await flush(30)
+    expect(claims()).toBe(0)
+    queue.answerTest(true)
+    await flush(30)
+    expect(states()).toContainEqual({ deviceId: 'app-device-1', connected: true, profileId: 'BAUATO_PPA2L' })
+    expect(server.callsTo('POST', /\/api\/print\/result$/).map((call) => call.body)).toEqual([{ deviceId: 'app-device-1', attempt: 'j1-a1', ok: true }])
+    // 테스트 한 장 + 작업 한 장
+    expect(ble.printed).toHaveLength(2)
+    queue.stop()
+  })
+
+  it('끊김·다시 잇기면 "예"를 지운다 — 같은 프린터를 다시 이어도 다시 "예" 전까지 받지 않는다', async () => {
+    const jobs = [job('j1', '50x30')]
+    const { queue, sources, ble, server, states, claims } = station(BAUATO_PPA2L, jobs)
+    queue.start()
+    await flush()
+    sources[0]!.open()
+    await queue.connect()
+    await flush(30)
+    await confirmTest(queue)
+    expect(server.callsTo('POST', /\/api\/print\/result$/)).toHaveLength(1)
+    const before = claims()
+    jobs.push(job('j2', '50x30'))
+    ble.drop()
+    await flush(30)
+    expect(queue.getSnapshot().testConfirmed).toBe(false)
+    expect(states().at(-1)).toEqual({ deviceId: 'app-device-1', connected: false })
+    await queue.reconnect()
+    await flush(30)
+    expect(queue.getSnapshot().printer).toBe('CONNECTED')
+    expect(queue.getSnapshot().testConfirmed).toBe(false)
+    expect(states().at(-1)).toEqual({ deviceId: 'app-device-1', connected: false })
+    expect(claims()).toBe(before)
+    await confirmTest(queue)
+    expect(server.callsTo('POST', /\/api\/print\/result$/)).toHaveLength(2)
+    queue.stop()
+  })
+
+  it('확인됨(B1)은 테스트 없이 바로 받는다', async () => {
+    const jobs = [job('j1', '50x30')]
+    const { queue, sources, server, states } = station(B1_PROFILE, jobs)
+    queue.start()
+    await flush()
+    sources[0]!.open()
+    await queue.connect()
+    await flush(30)
+    expect(states().at(-1)).toEqual({ deviceId: 'app-device-1', connected: true, profileId: 'NIIMBOT_B1' })
+    expect(server.callsTo('POST', /\/api\/print\/result$/)).toHaveLength(1)
+    queue.stop()
+  })
+
+  it('화면: 멈춤 줄은 까닭과 할 일, 출력 기기 칸은 한 줄 안내 — "예" 뒤 이어서 출력', async () => {
+    const world = makeWorld()
+    world.ble.profile = MARKLIFE_P12
+    let connected = true
+    world.server.on('GET', /^\/api\/print$/, () => ({
+      body: {
+        queue: {
+          rev: 1,
+          device: { id: 'app-test', name: '내 휴대폰', live: true, printerConnected: connected, releasing: false },
+          pause: connected ? null : { reason: 'DISCONNECTED', message: '프린터 연결이 끊겨 출력을 멈췄어요.', backlog: false },
+          waiting: 0,
+          printing: 0,
+          discard: 0,
+          labelsEnabled: true,
+        },
+        jobs: [],
+        discard: [],
+      },
+    }))
+    world.server.on('POST', /^\/api\/print\/device\/state$/, (call) => {
+      connected = call.body?.['connected'] === true
+      return { body: {} }
+    })
+    world.server.on('GET', /^\/api\/print\/test-bitmap\?size=tape12x40$/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
+    world.services.labels.start()
+    render(world.wrap(<LabelsScreen onBack={() => {}} />))
+    await waitFor(() => expect(screen.getByText('이 기기가 출력 기기예요 · 내 휴대폰')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
+    await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
+    expect(screen.getByText('실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.')).toBeTruthy()
+    await world.services.labels.reload()
+    await waitFor(() => expect(screen.getByText('출력 멈춤 · 실험 중인 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '테스트 인쇄' }))
+    const result = await screen.findByRole('group', { name: '테스트 인쇄 결과' })
+    fireEvent.click(within(result).getByRole('button', { name: '예' }))
+    await waitFor(() => expect(screen.getByText('좋아요. 멈췄던 출력을 이어서 해요.')).toBeTruthy())
+    await waitFor(() => expect(world.server.callsTo('POST', /device\/state/).at(-1)?.body).toEqual({ deviceId: 'app-test', connected: true, profileId: 'MARKLIFE_P12' }))
+    expect(screen.queryByText('실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.')).toBeNull()
     world.services.labels.stop()
   })
 })

@@ -53,7 +53,8 @@ async function fetchBitmap(path: string): Promise<LabelBitmap> {
 export function fetchJobBitmap(job: Pick<ClaimedJob, 'id' | 'attempt'>, deviceId: string): Promise<LabelBitmap> {
   return fetchBitmap(withQuery(`/api/print/jobs/${encodeURIComponent(job.id)}/bitmap`, { attempt: job.attempt, device: deviceId }))
 }
-export function fetchTestBitmap(): Promise<LabelBitmap> { return fetchBitmap('/api/print/test-bitmap') }
+/** 테스트 라벨 그림 — 크기는 이은 프린터 프로필의 기본 크기를 늘 넘긴다 (D-PRN2-11, L-7) */
+export function fetchTestBitmap(size: string): Promise<LabelBitmap> { return fetchBitmap(withQuery('/api/print/test-bitmap', { size })) }
 
 /** PNG 첫 8바이트 (그림 파일인지 본다) */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
@@ -67,8 +68,8 @@ async function fetchPng(path: string): Promise<Uint8Array> {
   if (bytes.length < PNG_SIGNATURE.length || PNG_SIGNATURE.some((byte, i) => bytes[i] !== byte)) throw new Error('LABEL_PNG_FORMAT')
   return bytes
 }
-/** 테스트 라벨 그림 파일 (`GET /api/print/test-png`) */
-export function fetchTestPng(): Promise<Uint8Array> { return fetchPng('/api/print/test-png') }
+/** 테스트 라벨 그림 파일 (`GET /api/print/test-png?size=` — 크기는 테스트 그림과 같다, D-PRN2-11) */
+export function fetchTestPng(size: string): Promise<Uint8Array> { return fetchPng(withQuery('/api/print/test-png', { size })) }
 /** 출력 기기가 받은 작업의 그림 파일 (`GET /api/print/jobs/:id/png?attempt=&device=` — 비트맵 입구와 같은 검사) */
 export function fetchJobPng(job: Pick<ClaimedJob, 'id' | 'attempt'>, deviceId: string): Promise<Uint8Array> {
   return fetchPng(withQuery(`/api/print/jobs/${encodeURIComponent(job.id)}/png`, { attempt: job.attempt, device: deviceId }))

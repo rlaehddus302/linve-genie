@@ -9,7 +9,8 @@ import { experimentalNotice, printerProfile, printerSupportStage } from '@livejj
 import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import { isApiError } from '../api/client.ts'
-import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, EXPERIMENTAL_MARK, EXPERIMENTAL_WAIT_TEST, PRINT_ACTION, RETRY_NOW, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
+import { awaitingTest } from '../lib/label-queue.ts'
+import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, EXPERIMENTAL_MARK, EXPERIMENTAL_PAUSED, EXPERIMENTAL_RESUMED, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, PRINT_ACTION, RETRY_NOW, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import type { Tone } from '../ui/theme.ts'
 import { BigButton, Body, Card, Field, Hint, Notice, Row, Screen, SectionTitle, Tag } from '../ui/parts.tsx'
@@ -40,6 +41,8 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
   const profile = linked && snapshot.profileId !== null ? printerProfile(snapshot.profileId) : undefined
   const experimental = linked && printerSupportStage(snapshot.profileId) === 'EXPERIMENTAL'
   const canBecome = !experimental || snapshot.testConfirmed
+  // 이 기기의 실험 기종이 테스트 "예"를 기다리는 끊김 멈춤: 프린터는 이어져 있다 — 까닭과 할 일로 (D-PRN2-10)
+  const waitTest = snapshot.mine && queue?.pause?.reason === 'DISCONNECTED' && awaitingTest(snapshot)
 
   const run = async (work: () => Promise<void>) => {
     if (busy) return
@@ -123,7 +126,7 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
               <BigButton label="예" primary={snapshot.testConfirmed} onPress={() => labels.answerTest(true)} />
               <BigButton label="아니요" onPress={() => labels.answerTest(false)} />
             </Row>
-            {snapshot.testConfirmed ? <Body>{`좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}"를 눌러 주세요.`}</Body> : null}
+            {snapshot.testConfirmed ? <Body>{snapshot.mine && experimental ? EXPERIMENTAL_RESUMED : `좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}"를 눌러 주세요.`}</Body> : null}
           </View>
         ) : null}
         {snapshot.printerError !== null ? (
@@ -145,6 +148,8 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
         <SectionTitle>출력 기기</SectionTitle>
         {queue === null ? <Hint>불러오는 중…</Hint> : queue.device === null ? <Body>출력 기기 없음</Body> : snapshot.mine ? <Body bold>{`이 기기가 출력 기기예요 · ${queue.device.name}`}</Body> : <Body>{`출력 기기: ${queue.device.name}${queue.device.live ? '' : ' (연결되어 있지 않아요)'}`}</Body>}
         {!snapshot.mine && !canBecome ? <Hint>{EXPERIMENTAL_WAIT_TEST}</Hint> : null}
+        {/* 이미 출력 기기: 실험 기종은 이 연결에서 테스트 "예" 전까지 받지 않는다 (D-PRN2-10·15, 웹과 같다) */}
+        {snapshot.mine && !canBecome ? <Hint>{EXPERIMENTAL_WAIT_TEST_MINE}</Hint> : null}
         {!snapshot.mine && canBecome ? (
           <>
             <Field label="기기 이름" value={name} onChangeText={setName} maxLength={DEVICE_NAME_MAX} />
@@ -174,7 +179,7 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
             <Body>{`대기 ${String(queue.waiting)}장 · 출력 중 ${String(queue.printing)}장 · 버릴 라벨 ${String(queue.discard)}장 · 이 앱에서 찍은 ${String(snapshot.printed)}장`}</Body>
             {queue.pause !== null ? (
               <Notice tone="danger" alert>
-                {`출력 멈춤 · ${queue.pause.message}`}
+                {`출력 멈춤 · ${waitTest ? EXPERIMENTAL_PAUSED : queue.pause.message}`}
               </Notice>
             ) : null}
             <Row wrap>

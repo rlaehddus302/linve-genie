@@ -192,7 +192,7 @@ describe('모바일 전체 서버 음성 세션', () => {
   it('없거나 손상된 서버 비트맵은 빈 그림 성공으로 대체하지 않는다', async () => {
     const server = new FakeServer(); server.install()
     await expect(fetchJobBitmap({ id: 'missing', attempt: 'a1' }, 'abcdefgh')).rejects.toThrow()
-    await expect(fetchTestBitmap()).rejects.toThrow()
+    await expect(fetchTestBitmap('50x30')).rejects.toThrow()
     expect(parseBitmap({ width: 8, height: 1, data: '!!!!AA==' })).toBeNull()
     expect(parseBitmap({ width: 8, height: 1, data: 'AAA=' })).toBeNull()
     expect(parseBitmap({ width: 1000000, height: 1000000, data: '' })).toBeNull()
