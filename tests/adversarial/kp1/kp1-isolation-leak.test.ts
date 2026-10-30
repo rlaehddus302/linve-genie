@@ -131,6 +131,36 @@ describe('AC-KP1-26 같은 사람이 두 가게에서 사도 섞이지 않는다
   })
 })
 
+describe('UX-KP1-002 보관 기간 줄이기 미리보기 (적대)', () => {
+  it('판매자만(로그인 없음 401·보조자 403)·no-store·이상한 months는 400, 개인정보 없이 수만 나온다', async () => {
+    const { world, seller } = await ledgerWorld()
+    await sell(world, seller, [['UC_A', '가람', 1]])
+    await consent(world, seller, 'UC_A', D, SECRET)
+    const created = (await client(world, seller.cookie).post('/api/assistants', { name: '엄마' })).body as { assistant: { loginId: string }; password: string }
+    const { login } = await import('../../../apps/server/test/support.ts')
+    const helper = await login(world, created.assistant.loginId, created.password)
+    const get = (cookie: string | null, query: string) => client(world, cookie).get(`/api/ledger-settings/preview${query}`)
+    expect((await get(null, '?months=6')).status).toBe(401)
+    expect((await get(helper, '?months=6')).status).toBe(403)
+    const good = await get(seller.cookie, '?months=6')
+    expect(good.status, good.text).toBe(200)
+    expect(good.headers.get('cache-control')).toContain('no-store')
+    expect(Object.keys(good.body).sort()).toEqual(['months', 'willDelete'])
+    expect(typeof good.body.willDelete).toBe('number')
+    for (const query of ['', '?months=', '?months=7', '?months=0', '?months=-6', '?months=6.5', '?months=1e1', '?months=abc', '?months=NaN', '?months=%20', '?months=06x', '?months=6&months=36', '?months[]=6']) {
+      const bad = await get(seller.cookie, query)
+      // 같은 키가 두 번이면 첫 값(6)으로 읽어도 안전하다 — 그 밖에는 모두 400
+      if (query === '?months=6&months=36') expect([200, 400]).toContain(bad.status)
+      else expect(bad.status, query).toBe(400)
+      expect(bad.headers.get('cache-control'), query).toContain('no-store')
+      expectClean('미리보기', bad.text)
+    }
+    expectClean('미리보기', good.text)
+    // 미리보기는 지우지 않는다
+    expect(await lines(world)).toHaveLength(1)
+  })
+})
+
 describe('AC-KP1-27 새는 곳 없음 (적대)', () => {
   async function richWorld(): Promise<{ world: TestServer; seller: Seller; code: string; tokenD2: string }> {
     const { world, seller } = await ledgerWorld()

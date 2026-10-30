@@ -308,12 +308,34 @@ describe('AC-KP1-22 알림 받기 신청 (적대)', () => {
       world.clock.advance(7_000)
       const sent = await postForm(world, `${path}/alert`, { phone, agree: 'on' })
       expect(sent.status, phone).toBe(400)
-      expect(sent.text).toContain('휴대폰 번호를 확인해 주세요.')
+      // UX-KP1-011: 문장은 서버(schedule/page.ts badPhone)와 같다
+      expect(sent.text).toContain('휴대폰 번호(010으로 시작하는 11자리)를 적어 주세요.')
     }
     for (const body of [{ phone: '010-2345-6789' }, { phone: '010-2345-6789', agree: '' }, { phone: '010-2345-6789', agree: 'off' }] as Record<string, string>[]) {
       world.clock.advance(7_000)
       expect((await postForm(world, `${path}/alert`, body)).status).toBe(400)
     }
+    expect(await storedPhones(world.database.db, seller.sellerId)).toBe(0)
+  })
+
+  it('UX-KP1-011 번호 오류 때 다시 채우는 값은 이스케이프되고, 로그·저장에는 남지 않는다', async () => {
+    const world = await newWorld({ clock: fakeClock(kst('2026-10-31', '10:00:00')) })
+    const seller = await addSeller(world)
+    const path = await schedulePath(world, seller)
+    for (const phone of ['"><script>alert(1)</script>', "'><img src=x onerror=alert(1)>", '</textarea><svg/onload=1>', '&quot;&#x22;&amp;', '\u0000\n"x']) {
+      world.clock.advance(7_000)
+      for (const agree of ['on', undefined]) {
+        const sent = await postForm(world, `${path}/alert`, agree === undefined ? { phone } : { phone, agree })
+        expect(sent.status, phone).toBe(400)
+        const input = /<input[^>]*id="alert-phone"[^>]*>/.exec(sent.text)?.[0] ?? ''
+        expect(input).not.toBe('')
+        expect(sent.text).not.toMatch(/<script|<img |<svg|onerror=|<\/textarea>/i)
+        // 속성 안에서 따옴표가 닫히지 않는다: value="..." 한 개뿐
+        expect(input.match(/value="/g)?.length).toBe(1)
+        expect(/value="([^"]*)"/.exec(input)?.[1]).not.toMatch(/[<>]/)
+      }
+    }
+    expect(JSON.stringify(world.logs)).not.toMatch(/script|onerror|onload|alert\(1\)/)
     expect(await storedPhones(world.database.db, seller.sellerId)).toBe(0)
   })
 

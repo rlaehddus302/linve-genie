@@ -202,6 +202,11 @@ describe('AC-KP1-11 이은 계정은 손님 기록을 합치지 않는다 (적�
       ['UC_B', '나래', 1],
     ], D2)
     const api = ledgerApi(world, seller.cookie)
+    // D-KP1-43: 손님 표시는 처음엔 안 정함(null)이고 꼬리표를 숨긴다 — 꼬리표를 보려면 먼저 "보이기"로 저장한다
+    expect((await api.settings()).body.settings).toMatchObject({ consoleBadges: null })
+    const hidden = (await api.badges(D2, ['UC_A', 'UC_B'])).body.badges as { text: string | null }[]
+    expect(hidden.every((badge) => badge.text === null)).toBe(true)
+    expect((await api.saveSettings({ months: 12, consoleBadges: true })).status).toBe(200)
     const before = (await api.badges(D2, ['UC_A', 'UC_B'])).body
     expect((before.badges as { text: string | null }[])[0]?.text).toBe('입금 늦음 주의')
     const rowsBefore = (await api.customers()).body.customers

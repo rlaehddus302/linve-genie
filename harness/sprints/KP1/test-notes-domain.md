@@ -51,3 +51,8 @@
 
 ## SA-KP1-004 봉인 날짜 (회귀로 남김, 버그 없음)
 `kp1-sealed-day.test.ts` — AC-KP1-02·CR-4: 봉인 전에는 같은 날짜 링크에 동의 칸(`name="keep"`)이 있다(대조). 30일 뒤 봉인되면 판매자 묶음 자세히 404(ledger·연락처 글 없음)·봉인 전에 받은 확인서 링크 404(칸·장부 글·주소 없음)·새 링크 만들기 409. 손으로 보낸 `keep=on`은 303이 아니며 장부 줄·동의 기록이 늘지 않는다. 스펙대로 봉인 뒤에는 화면이 아예 열리지 않는다.
+
+## 결정 변경 반영 (D-KP1-43, UX-KP1-011)
+- kp1-code-engine: 손님 표시는 처음 "안 정함(null)"이라 꼬리표를 숨김(D-KP1-43). 안 정함이면 숨김 단언 추가 후 `consoleBadges: true` 저장 뒤 꼬리표 단언. AC-KP1-28 단언은 그대로.
+- kp1-report-retention-alerts: 번호 오류 문장을 서버(schedule/page.ts badPhone)와 같게 맞춤. 저장 안 됨 단언 그대로.
+- 새 공격면(버그 없음, 회귀 시험으로 남김): 번호 오류 때 다시 채운 값 이스케이프(`"><script>` 등)·로그/저장 없음, `GET /api/ledger-settings/preview` 401/403/no-store/이상한 months 400. 새 지적 없음(TD-KP1 추가 없음).
