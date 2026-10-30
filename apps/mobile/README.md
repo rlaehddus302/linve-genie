@@ -33,6 +33,7 @@ EXPO_PUBLIC_APP_ORIGIN=https://<서버의 공개 앱 origin> npx expo start --de
 - `EXPO_PUBLIC_SERVER_URL`을 안 적으면 `http://localhost:3000`이에요. 휴대폰에서는 localhost가 안 되니 PC의 IP를 적어 주세요.
 - `EXPO_PUBLIC_APP_ORIGIN`은 서버의 `LIVEJJIM_APP_ORIGIN`과 같아야 해요. REST 쓰기와 네이티브 WebSocket이 이 값을 Origin 헤더로 보내요. 생략하면 서버 주소의 origin을 써요.
 - 로그인은 기기 쿠키 저장소를 써요. 세션 값을 JS 설정이나 AsyncStorage로 옮기지 않아요.
+- **서버 주소는 https여야 로그인이 유지돼요.** 서버의 로그인 쿠키는 언제나 `Secure`라서, 안드로이드 기기 쿠키 저장소는 `http://` 주소(`http://10.0.2.2:…`·`http://localhost:…`·`http://<PC IP>:…` 모두)에서 받은 쿠키를 버려요. 그러면 로그인 직후 "로그인이 풀렸어요"가 떠요. 개발 때는 아래 "에뮬레이터"처럼 https 중계를 앞에 두세요.
 - 비밀값은 앱에 넣지 않아요. 받아쓰기 서버 주소·토큰은 라이브지니 서버만 알아요.
 
 ## 에뮬레이터·시뮬레이터
@@ -40,6 +41,17 @@ EXPO_PUBLIC_APP_ORIGIN=https://<서버의 공개 앱 origin> npx expo start --de
 - 안드로이드: 안드로이드 스튜디오(SDK·에뮬레이터)를 깔고 `npx expo run:android` 또는 `expo start` 뒤 `a`.
 - 아이폰: 맥에 Xcode를 깔고 `npx expo run:ios` 또는 `expo start` 뒤 `i`.
 - SDK가 없으면 아래 EAS 개발 빌드를 실제 기기에 설치해요. 번들 생성만으로 기기 설치나 백그라운드 동작을 확인할 수는 없어요.
+
+### 안드로이드 에뮬레이터를 연습 서버(`pnpm try`)에 붙이기 (APP2에서 확인한 방법)
+
+1. 연습 서버를 켜요: `pnpm try --port 7760` (화면 주소 `http://localhost:7760`).
+2. 이 컴퓨터에 자체 서명 인증서(SAN `localhost`, `CA:TRUE`)를 만들고, `https://127.0.0.1:7443` → `127.0.0.1:7760`으로 TCP를 그대로 넘기는 작은 TLS 중계를 켜요(머리글을 바꾸지 않아야 음성 WebSocket도 지나가요). `pnpm try`의 휴대폰 https 주소(포트+1)는 WebSocket을 넘기지 않아 음성이 안 돼요.
+3. `npx expo prebuild --platform android` 뒤, 생성된 `android/app/src/debug/`에만 그 인증서를 `res/raw/devca.pem`으로 넣고 `res/xml/network_security_config.xml`(`debug-overrides`에 `@raw/devca`, `base-config`는 Metro 때문에 `cleartextTrafficPermitted="true"`)을 만들어 debug `AndroidManifest.xml`의 `<application>`에 `android:networkSecurityConfig`를 달아요. 생성 폴더라 커밋되지 않고, 출시 빌드에는 들어가지 않아요.
+4. `adb reverse tcp:7443 tcp:7443` · `adb reverse tcp:8081 tcp:8081` (`expo start`를 다시 켜면 reverse가 지워질 수 있어 다시 걸어요).
+5. `EXPO_PUBLIC_SERVER_URL=https://localhost:7443 EXPO_PUBLIC_APP_ORIGIN=http://localhost:7760 npx expo start --dev-client --clear`
+   - `APP_ORIGIN`은 연습 서버 화면 주소와 같아야 쓰기가 403이 아니에요.
+   - `.claude/worktrees/…` 같은 작업 폴더에서는 Metro가 바뀐 파일을 못 잡을 때가 있어요. 고친 뒤에는 `--clear`로 다시 켜요.
+6. 에뮬레이터 마이크: `emulator -avd <이름> -allow-host-audio`로 켜고 `adb emu avd hostmicon`. 이 옵션이 없으면 마이크 소리가 모두 0이에요. 맥 마이크 권한이 없는 셸에서 켠 에뮬레이터도 0일 수 있어요.
 
 ## EAS 빌드 (클라우드 — 아이폰도 Xcode 없이)
 
