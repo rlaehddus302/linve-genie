@@ -16,6 +16,8 @@ export interface BleCharacteristicInfo {
   readonly uuid: string
   readonly notify: boolean
   readonly writeWithoutResponse: boolean
+  /** 응답 있는 쓰기를 받는지 (없으면 모름 — 받는 것으로 본다) */
+  readonly writeWithResponse?: boolean
 }
 
 /** 이어진 장치 하나 */
@@ -23,17 +25,26 @@ export interface BleLink {
   readonly id: string
   /** 협상된 ATT MTU (기본 23 — 한 번에 쓸 수 있는 바이트는 mtu − 3) */
   readonly mtu: number
+  /** 이은 기기가 알린 이름 (모르면 null) — 기억한 기기로 이을 때 기종을 정하는 데 쓴다 */
+  readonly name?: string | null
   characteristics(): Promise<readonly BleCharacteristicInfo[]>
   /** 알림 켜기 — 돌려준 함수로 끈다 */
   monitor(serviceUuid: string, characteristicUuid: string, onValue: (bytes: Uint8Array) => void): Promise<() => void>
   writeWithoutResponse(serviceUuid: string, characteristicUuid: string, bytes: Uint8Array): Promise<void>
+  /** 응답 있는 쓰기 — 프린터가 받았다고 답한 뒤에 끝난다 (응답 없는 쓰기를 받지 않는 특성에 쓴다) */
+  writeWithResponse(serviceUuid: string, characteristicUuid: string, bytes: Uint8Array): Promise<void>
   disconnect(): Promise<void>
 }
 
 export interface BleScanFilter {
   readonly serviceUuids?: readonly string[]
-  /** 이름 앞자리 (대소문자 가리지 않음). 비면 모든 장치 */
+  /** 이름 앞자리 (기본: 대소문자 가리지 않음). 비면 모든 장치 */
   readonly namePrefixes?: readonly string[]
+  /**
+   * true면 이름 앞자리를 대소문자까지 그대로 본다 — Web Bluetooth `namePrefix`·LABEL_RULES L-12 3의 이름으로 고르기와 같은 판단
+   * (Marklife `P12_`는 `p12_`를 받지 않는다). 목록에 보인 기기가 이름 때문에 거절되지 않게 한다
+   */
+  readonly matchCase?: boolean
 }
 
 export interface BleConnectOptions {

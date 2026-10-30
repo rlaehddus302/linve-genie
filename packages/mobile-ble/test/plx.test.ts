@@ -62,6 +62,11 @@ function fakeManager(options: { mtu?: number; state?: string } = {}) {
       writes.push({ service, characteristic, bytes: decodeBase64(base64Value)! })
       return {} as Characteristic
     },
+    async writeCharacteristicWithResponseForDevice(_id, service, characteristic, base64Value) {
+      log.push(`writeWithResponse:${characteristic}`)
+      writes.push({ service, characteristic, bytes: decodeBase64(base64Value)! })
+      return {} as Characteristic
+    },
     emitDevice(d) {
       scanListener?.(null, d as Device)
     },
@@ -116,6 +121,31 @@ describe('createPlxTransport', () => {
     expect(manager.log[0]).toBe('scan:null:{"allowDuplicates":false}')
     stop()
     expect(manager.log).toContain('stopScan')
+  })
+
+  it('찾기 matchCase: 이름 앞자리를 대소문자까지 본다(L-12 3), 이름은 광고의 이름(localName)을 먼저', () => {
+    const manager = fakeManager()
+    const transport = createPlxTransport(manager)
+    const found: { id: string; name: string | null }[] = []
+    const stop = transport.scan({ namePrefixes: ['P12_'], matchCase: true }, (d) => found.push(d))
+    manager.emitDevice({ id: '1', name: null, localName: 'P12_A', serviceUUIDs: null })
+    manager.emitDevice({ id: '2', name: null, localName: 'p12_b', serviceUUIDs: null })
+    manager.emitDevice({ id: '3', name: 'P12_OLD', localName: 'X9', serviceUUIDs: null })
+    manager.emitDevice({ id: '4', name: 'P12_C', localName: '', serviceUUIDs: null })
+    stop()
+    expect(found).toEqual([
+      { id: '1', name: 'P12_A' },
+      { id: '4', name: 'P12_C' },
+    ])
+  })
+
+  it('응답 있는 쓰기는 writeCharacteristicWithResponseForDevice(base64), 특성의 응답 있는 쓰기 여부를 알린다', async () => {
+    const manager = fakeManager()
+    const transport = createPlxTransport(manager)
+    const link = await transport.connect('AA:BB', { onDisconnect: () => undefined })
+    await link.writeWithResponse('ff00', 'ff02', Uint8Array.of(1, 2, 3))
+    expect(manager.log).toContain('writeWithResponse:ff02')
+    expect([...(manager.writes.at(-1)?.bytes ?? [])]).toEqual([1, 2, 3])
   })
 
   it('연결: requestMTU·timeout 넘김, 서비스·특성 모으기, 알림은 base64 → 바이트, 쓰기는 base64, MTU는 장치 값(이상하면 23)', async () => {
