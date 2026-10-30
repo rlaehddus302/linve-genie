@@ -45,6 +45,21 @@ export const INBOX_OFF_CONFIRM = '끌게요'
 export const INBOX_NEVER = '아직 받은 것이 없어요.'
 export const INBOX_ANDROID_HINT = `안드로이드: ${SERVICE_NAME} 앱 → 설정 → "휴대폰 알림 받기"에서 켜고, 알림 읽기를 허용해 주세요. 앱이 토큰을 알아서 넣어요.`
 export const INBOX_IPHONE_HINT = '아이폰: 은행 앱 알림은 받을 수 없어요. 단축어로 손님 문자와 은행 문자만 보낼 수 있어요.'
+/**
+ * 아이폰 단축어 안내 첫 줄 (UX-SMS3-002): 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없다 — 아이폰 사파리로 이 설정 화면을 열어
+ * 토큰을 만들고 받는 주소·헤더 값을 복사해 붙여 넣는다(웹은 휴대폰 폭에서도 된다). 앱(apps/mobile PhoneNoticeCard)도 같은 뜻.
+ */
+export const INBOX_IPHONE_FIRST = '아이폰 사파리로 이 설정 화면을 열어 복사해 붙여 넣으세요. 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없어요. 토큰도 아이폰에서 만들면 바로 복사할 수 있어요.'
+/** 단축어 안내의 값 글꼴 설명 (UX-SMS3-001) */
+export const INBOX_VALUE_NOTE = '회색 상자 안의 글자만 그대로 적어 주세요(따옴표는 적지 않아요).'
+export const INBOX_COPY_ADDRESS = '받는 주소 복사'
+/** 단축어 헤더 값 "Bearer <토큰>"을 한 번에 (띄어쓰기 실수 없이) */
+export const INBOX_COPY_HEADER = '헤더 값 복사 (Bearer 붙음)'
+export const INBOX_COPIED_ADDRESS = '받는 주소를 복사했어요. 단축어 URL 칸에 붙여 넣어 주세요.'
+export const INBOX_COPIED_HEADER = '헤더 값(Bearer와 토큰)을 복사했어요. 단축어 Authorization 값 칸에 붙여 넣어 주세요.'
+export const INBOX_COPY_FAILED_ANY = '복사하지 못했어요. 글자를 길게 눌러 직접 복사해 주세요.'
+/** 이 칸은 누르면 바로 바뀐다 — 설정 아래 "저장"과 상관없다 (UX-SMS3-011) */
+export const INBOX_INSTANT = '이 칸은 누르면 바로 저장돼요. 아래 "저장"은 누르지 않아도 돼요.'
 export const INBOX_SHORTCUT_LINK = '아이폰 단축어 만들기 안내'
 /**
  * 단축어 만들기 안내 (아이폰은 앱이 다른 앱 알림을 읽을 수 없다 — D-SMS3-02 ③, 판매자에게 보이는 아이폰 안내는 이것 하나 — D-SMS3-23).
@@ -88,6 +103,8 @@ export function lastReceivedWords(view: Pick<InboxSettingsView, 'lastReceivedAt'
 
 export const INBOX_PANEL_TITLE = '문자 확인'
 export const INBOX_NAME_ONLY = '이름만 와서 누가 보냈는지 몰라요'
+/** 이름만 온 문자 카드의 연락처 이름 줄 꼬리 (UX-SMS3-004) — "연락처 이름: 김영희 (전화번호는 오지 않았어요)" */
+export const INBOX_NO_PHONE = '(전화번호는 오지 않았어요)'
 export const INBOX_FROM_SMS = '문자로 받음'
 export const INBOX_NO_CLAIM = '취소할 찜이 없어요'
 export const INBOX_PICK_NUMBER = '넣을 번호를 먼저 골라 주세요.'
@@ -116,12 +133,37 @@ export function inboxReasonWords(card: Pick<InboxCardView, 'kind' | 'why' | 'num
 }
 
 /**
- * 늦게 온 문자 (D-SMS3-30): "늦게 온 문자예요 (휴대폰이 10월 31일 19:59:50에 받음). 넣으면 지금 받은 순서로 들어가요".
- * 휴대폰이 받은 시각(원래 값)은 며칠 전일 수 있어 날짜를 붙인다(KST, 서버 문구와 같은 모양). 넣으면 받은 시각은 서버 도착 시각이다(서버가 정한다).
+ * 늦게 온 문자 (D-SMS3-30): "늦게 온 문자예요 (휴대폰이 10월 31일 오후 7:59:50에 받음). 넣으면 지금 받은 순서로 들어가요".
+ * 휴대폰이 받은 시각(원래 값)은 며칠 전일 수 있어 날짜를 붙인다(KST). 카드의 다른 시각과 같은 오전/오후 모양 하나로 (UX-SMS3-008).
+ * 넣으면 받은 시각은 서버 도착 시각이다(서버가 정한다).
  */
 export function inboxLateWords(receivedAt: string): string {
-  const at = kstMonthDayClock(receivedAt)
+  const at = kstMonthDayWords(receivedAt)
   return `늦게 온 문자예요 (휴대폰이 ${at === '' ? '먼저' : `${at}에`} 받음). 넣으면 지금 받은 순서로 들어가요`
+}
+
+/** 늦게 온 문자 카드의 덧붙임 줄 — "지금 받은 순서"가 맨 뒤라는 뜻 (UX-SMS3-008) */
+export const INBOX_LATE_LAST = '먼저 온 찜을 앞지르지 않고 맨 뒤 순서로 들어가요.'
+
+/** KST "10월 31일 오후 7:59:50" (날짜 + 오전/오후 시각, 초까지) */
+export function kstMonthDayWords(value: string): string {
+  const stamp = kstMonthDayClock(value)
+  const clock = kstClockWords(value)
+  if (stamp === '' || clock === '') return ''
+  return `${stamp.split(' ').slice(0, 2).join(' ')} ${clock}`
+}
+
+/** 이름만 온 문자(전화번호 없음)의 연락처 이름 — 넣으면 메모가 된다 (서버: 메모 = 보낸 이름, 40자까지). 없으면 null */
+export function nameOnlySender(card: Pick<InboxCardView, 'last4' | 'sender'>): string | null {
+  if (card.last4 !== null && card.last4.trim() !== '') return null
+  const name = card.sender?.trim() ?? ''
+  return name === '' ? null : name
+}
+
+/** 이름만 온 문자 카드에서 넣으면 보드에 보일 이름 "넣으면 '문자찜(김영희)'으로 들어가요" (UX-SMS3-004) */
+export function nameOnlyInsertWords(card: Pick<InboxCardView, 'last4' | 'sender'>): string | null {
+  const name = nameOnlySender(card)
+  return name === null ? null : `넣으면 '문자찜(${[...name].slice(0, 40).join('')})'으로 들어가요`
 }
 
 /** 이름만 온 문자의 취소 요청 안내 (D-SMS3-19) — "승인" 없이 이 문장과 "무시"만 */
@@ -144,9 +186,9 @@ export function cardIsLate(card: Pick<InboxCardView, 'why' | 'late'>): boolean {
   return card.late === true || card.why === 'LATE'
 }
 
-/** 카드 받은 시각 "오후 8:01:05" (KST). 늦게 온 문자는 휴대폰이 받은 원래 시각이 며칠 전일 수 있어 날짜까지 "10월 29일 20:01:05" (D-SMS3-30) */
+/** 카드 받은 시각 "오후 8:01:05" (KST). 늦게 온 문자는 휴대폰이 받은 원래 시각이 며칠 전일 수 있어 날짜까지 "10월 29일 오후 8:01:05" (D-SMS3-30, 오전/오후 한 모양 — UX-SMS3-008) */
 export function inboxTimeWords(card: Pick<InboxCardView, 'receivedAt'> & Partial<Pick<InboxCardView, 'why' | 'late'>>): string {
-  return cardIsLate({ why: card.why ?? null, late: card.late }) ? kstMonthDayClock(card.receivedAt) : kstClockWords(card.receivedAt)
+  return cardIsLate({ why: card.why ?? null, late: card.late }) ? kstMonthDayWords(card.receivedAt) : kstClockWords(card.receivedAt)
 }
 
 /** 늦게 온 카드가 서버에 온 시각 "오후 8:20:01 도착" (없으면 빈 글) */
@@ -168,6 +210,8 @@ export function orderCards(items: readonly InboxCardView[]): InboxCardView[] {
 // ── 받기 멈춤 알림 (AC-SMS3-31) ───────────────────────────────────────────
 
 export const INBOX_STALL = '휴대폰에서 문자가 오지 않고 있어요. 앱의 알림 읽기가 켜져 있는지 확인해 주세요.'
+/** 받기 멈춤 덧붙임 — 위 문장(스펙 그대로)은 안드로이드 앱 말이라 아이폰 단축어 판매자 몫을 한 줄 더한다 (UX-SMS3-011) */
+export const INBOX_STALL_IPHONE = '아이폰은 단축어 앱의 자동화가 켜져 있는지 확인해 주세요.'
 /** 방송 시작 뒤 이만큼 받은 것이 없으면 */
 export const INBOX_STALL_MS = 10 * 60 * 1000
 
@@ -198,6 +242,18 @@ export function inboxStalled(
 // ── 12시간 넘은 방송 알림 (D-SMS3-29, AC-SMS3-31) ─────────────────────────
 
 export const INBOX_STALE = '끝내지 않은 방송이 12시간 넘게 이어져 손님 문자를 넣지 않았어요. 방송을 끝내 주세요.'
+
+/**
+ * 12시간 알림의 덧붙임 줄 (UX-SMS3-007): 어느 방송인지(이름을 알면 이름, 시작 시각)와 넣지 않은 손님 문자 수.
+ * "'1부' 방송 (10월 30일 오전 8:00 시작) · 넣지 않은 손님 문자 3통". 아무것도 모르면 빈 글
+ */
+export function staleDetailWords(stale: Pick<InboxStaleNotice, 'startedAt' | 'count'>, title?: string | null): string {
+  const name = title?.trim() ?? ''
+  const started = stale.startedAt === null ? '' : kstDateTimeWords(stale.startedAt)
+  const which = name !== '' ? `'${name}' 방송${started === '' ? '' : ` (${started} 시작)`}` : started === '' ? '' : `${started}에 시작한 방송`
+  const count = stale.count > 0 ? `넣지 않은 손님 문자 ${String(stale.count)}통` : ''
+  return [which, count].filter((part) => part !== '').join(' · ')
+}
 
 /** 서버가 준 12시간 넘은 방송 알림을 읽는다 — 모양이 다르거나 없으면 null(알림 없음). 문구는 스펙 그대로(화면이 정한다) */
 export function readStaleNotice(raw: unknown): InboxStaleNotice | null {

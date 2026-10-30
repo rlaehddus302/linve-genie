@@ -12,7 +12,7 @@ import { apiConfig } from '../api/config.ts'
 import { get, isApiError, post } from '../api/client.ts'
 import { noticeModule, type PhoneNoticeState } from '../native/notice.ts'
 import { SERVICE_NAME } from '../lib/words.ts'
-import { BigButton, Body, Card, Hint, Notice, Row, SectionTitle, Tag } from '../ui/parts.tsx'
+import { BigButton, Body, Card, Code, Hint, Notice, Row, SectionTitle, Tag } from '../ui/parts.tsx'
 
 export const PHONE_NOTICE_TITLE = '휴대폰 알림 받기'
 export const PHONE_NOTICE_INTRO = `손님 문자는 문자찜으로, 은행 입금 알림은 입금 확인으로 ${SERVICE_NAME}가 자동으로 받아요.`
@@ -32,8 +32,18 @@ export function phoneNoticeDroppedLine(state: Pick<PhoneNoticeState, 'dropped'>)
 export const PHONE_NOTICE_RENEW_QUESTION = '전에 쓰던 휴대폰·단축어는 더 이상 보내지 못해요. 이 휴대폰으로 받을까요?'
 export const PHONE_NOTICE_UNAVAILABLE = `이 휴대폰에서는 쓸 수 없어요. ${SERVICE_NAME} 앱을 새로 받아 주세요.`
 export const PHONE_NOTICE_IPHONE = '아이폰은 다른 앱 알림을 읽을 수 없어요. 단축어로 손님 문자와 은행 문자만 보낼 수 있어요(은행 앱 알림은 받을 수 없어요).'
-/** 아이폰 단축어 안내 — 웹 설정의 한 가지만 (D-SMS3-23). 토큰·받는 주소는 컴퓨터 설정에서 만든다 */
-export const PHONE_NOTICE_SHORTCUT_GUIDE = `컴퓨터에서 ${SERVICE_NAME} 설정 → "휴대폰 알림 받기"를 켜서 받기 토큰을 만든 뒤, 아래 순서대로 단축어를 만들어 주세요. "URL 콘텐츠 가져오기"에 받기 토큰을 붙여 넣어요.`
+/**
+ * 아이폰 단축어 안내 — 웹 설정의 한 가지만 (D-SMS3-23). 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없으니
+ * 아이폰 사파리로 웹 설정을 열어 토큰을 만들고 받는 주소·헤더 값을 복사해 붙여 넣는다 (UX-SMS3-002 — 웹 INBOX_IPHONE_FIRST와 같은 뜻)
+ */
+export const PHONE_NOTICE_SHORTCUT_GUIDE = `아이폰 사파리로 ${SERVICE_NAME} 웹 설정 → "휴대폰 알림 받기"를 열어 받기 토큰을 만들고, 받는 주소와 헤더 값을 복사해 붙여 넣으세요. 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없어요. 그다음 아래 순서대로 "URL 콘텐츠 가져오기" 단축어를 만들어 주세요.`
+/** 값 글꼴 설명 (UX-SMS3-001 — 따옴표를 같이 적지 않게) */
+export const PHONE_NOTICE_VALUE_NOTE = '회색 상자 안의 글자만 그대로 적어 주세요(따옴표는 적지 않아요). 길게 누르면 복사할 수 있어요.'
+
+/** 단축어가 보낼 받는 주소 (웹 설정의 받는 주소와 같다) */
+export function phoneNoticeAddress(baseUrl: string): string {
+  return `${baseUrl.replace(/\/+$/u, '')}/api/inbox/messages`
+}
 /**
  * 단축어 만들기 순서 — 웹 설정 안내(apps/web/src/lib/inbox.ts INBOX_SHORTCUT_STEPS)와 같은 글 (D-SMS3-23, SA-SMS3-004).
  * 기기 입구(ORD-13 C-04)는 JSON `{ device, messages: [{ id, channel, from, text, receivedAt }] }`만 받는다. `…`로 감싼 글은 단축어에 그대로 넣는 값.
@@ -232,10 +242,15 @@ export function PhoneNoticeCard() {
         <>
           <Hint>{PHONE_NOTICE_IPHONE}</Hint>
           <Hint>{PHONE_NOTICE_SHORTCUT_GUIDE}</Hint>
+          <Hint>
+            받는 주소: <Code label="받는 주소">{phoneNoticeAddress(apiConfig().baseUrl)}</Code>
+          </Hint>
+          <Hint>{PHONE_NOTICE_VALUE_NOTE}</Hint>
           {PHONE_NOTICE_SHORTCUT_STEPS.map((step, index) => (
             <Hint key={step}>
               {`${String(index + 1)}. `}
-              {shortcutStepParts(step).map((part, at) => (part.value ? <Body key={at} bold>{`"${part.text}"`}</Body> : part.text))}
+              {/* 값은 따옴표 없이 회색 상자 (UX-SMS3-001) — 따옴표까지 적으면 문자를 하나도 받지 못한다 */}
+              {shortcutStepParts(step).map((part, at) => (part.value ? <Code key={at}>{part.text}</Code> : part.text))}
             </Hint>
           ))}
           <BigButton small label="단축어 앱 열기" disabled={busy} onPress={() => void port.openSettings('shortcuts')} />

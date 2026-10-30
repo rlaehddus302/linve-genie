@@ -10,6 +10,8 @@ import {
   PHONE_NOTICE_IPHONE,
   PHONE_NOTICE_SHORTCUT_GUIDE,
   PHONE_NOTICE_SHORTCUT_STEPS,
+  PHONE_NOTICE_VALUE_NOTE,
+  phoneNoticeAddress,
   PHONE_NOTICE_RENEW_QUESTION,
   PHONE_NOTICE_SHEET,
   PHONE_NOTICE_TOKEN_AGAIN,
@@ -142,7 +144,16 @@ describe('휴대폰 알림 받기 칸 (AC-SMS3-29)', () => {
     // id = "현재 날짜(초까지)" + "보낸 사람" 한 가지, 고정 글을 쓰지 말라는 한 줄 — 웹 안내와 같은 글 (D-SMS3-32)
     expect(all).toContain('"현재 날짜"(날짜 형식 "사용자 지정" `yyyyMMddHHmmss` — 초까지)와 단축어 입력의 "보낸 사람"')
     expect(PHONE_NOTICE_SHORTCUT_STEPS.some((step) => step.includes('고정 글') && step.includes('넣지 마세요'))).toBe(true)
-    expect(screen.getByText(/키는/).textContent).toContain('"Authorization"')
+    // 값은 따옴표 없이 회색 상자(길게 눌러 복사) — 따옴표까지 적으면 문자를 하나도 받지 못한다 (UX-SMS3-001)
+    expect(screen.getByText(/키는/).textContent).toContain('Authorization')
+    expect(screen.getByText(/키는/).textContent).not.toContain('"Authorization"')
+    expect(screen.getByText(/^9\. /).textContent).toBe('9. channel(텍스트) = SMS')
+    expect(screen.getByText(PHONE_NOTICE_VALUE_NOTE)).toBeDefined()
+    // 아이폰 사파리로 웹 설정을 열어 복사해 붙여 넣는다 — 웹 안내와 같은 뜻 (UX-SMS3-002), 받는 주소도 보인다
+    expect(PHONE_NOTICE_SHORTCUT_GUIDE.startsWith('아이폰 사파리로')).toBe(true)
+    expect(PHONE_NOTICE_SHORTCUT_GUIDE).not.toContain('컴퓨터에서 라이브')
+    expect(screen.getByLabelText('받는 주소').textContent).toMatch(/\/api\/inbox\/messages$/)
+    expect(phoneNoticeAddress('https://a.example/')).toBe('https://a.example/api/inbox/messages')
     expect(screen.queryByRole('button', { name: '켜기' })).toBeNull()
   })
 

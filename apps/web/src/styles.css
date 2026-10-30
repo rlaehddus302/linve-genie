@@ -4499,7 +4499,8 @@ select.input {
   color: #0d5c27;
 }
 
-.inbox-stall {
+.inbox-stall,
+.connection-banner.inbox-stale {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4507,6 +4508,36 @@ select.input {
   border-color: #8a6100;
   background-color: #fef7e0;
   color: #4d3800;
+}
+
+.inbox-bar-text {
+  flex: 1 1 20rem;
+}
+
+/* 덧붙임(아이폰 단축어·어느 방송인지)은 보통 굵기 */
+.inbox-bar-more {
+  font-weight: 400;
+}
+
+/* 휴대폰: 받기 멈춤·12시간 알림 모두 글은 한 줄 전체, 단추는 그 아래 따로 (UX-SMS3-007) */
+@media (max-width: 47.99rem) {
+  .inbox-bar-text {
+    flex-basis: 100%;
+  }
+}
+
+.inbox-panel:focus {
+  outline: 3px solid #0b57d0;
+  outline-offset: 2px;
+}
+
+/* 단축어에 그대로 넣는 값: 회색 상자, 따옴표 없이 (UX-SMS3-001) */
+.inbox-shortcut code,
+.inbox-address {
+  padding: 0 0.25rem;
+  border-radius: 0.25rem;
+  background-color: #eef0f2;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 
 .inbox-cards {
@@ -4548,6 +4579,8 @@ select.input {
 
 .inbox-token-value {
   width: 100%;
+  min-height: 3.5rem;
+  resize: none;
   font-family: ui-monospace, Menlo, Consolas, monospace;
 }
 
