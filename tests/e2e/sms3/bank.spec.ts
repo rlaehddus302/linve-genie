@@ -28,8 +28,10 @@ for (const width of ['PC', '375'] as const satisfies readonly Width[]) {
       return due
     }).toBeGreaterThan(0)
 
-    // (가) 은행 앱 알림(카카오뱅크) → 믿음 → 자동 확인
-    const app = await device.send([{ channel: 'APP', from: 'com.kakaobank.channel', title: `입금 ${due.toLocaleString('en-US')}원`, text: '이수진', receivedAt: later() }])
+    // (가) 은행 앱 알림(카카오뱅크) → 믿음 → 잔액이 앞 알림과 이어지면 자동 확인 (D-DEP2-13 — 앞에 같은 은행 출금 알림으로 잔액을 둔다)
+    const before = await device.send([{ channel: 'APP', from: 'com.kakaobank.channel', title: '출금 5,000원', text: '내 입출금통장(1234) → 김밥천국 잔액 100,000원' }])
+    expect((before.body['results'] as { status: string }[])[0]?.status, JSON.stringify(before.body)).toBe('SAVED')
+    const app = await device.send([{ channel: 'APP', from: 'com.kakaobank.channel', title: `입금 ${due.toLocaleString('en-US')}원`, text: `이수진 잔액 ${(100_000 + due).toLocaleString('en-US')}원`, receivedAt: later() }])
     expect((app.body['results'] as { status: string }[])[0]?.status).toBe('SAVED')
     await expect.poll(async () => (await scopeView(page, date, false)).settlements.find((s) => s.buyer === buyer)?.payment).toBe('PAID')
     const applied = (await deposits(page, 'AUTO_APPLIED', 20)).find((d) => d.name === '이수진' && d.amount === due)
@@ -85,7 +87,7 @@ for (const width of ['PC', '375'] as const satisfies readonly Width[]) {
   })
 }
 
-test('AC-SMS3-21 잔액이 이어지지 않으면 확인 필요 "잔액이 앞 알림과 이어지지 않아요" (PC)', async ({ browser, baseURL }) => {
+test('AC-SMS3-21 잔액이 이어지지 않으면 확인 필요 "잔액이 앞 알림과 이어지는지 확인하지 못했어요" (PC, D-DEP2-13 문구)', async ({ browser, baseURL }) => {
   const { page, context } = await sellerAt(browser, baseURL!, 'PC')
   const token = await makeTokenApi(page)
   const device = await fakeDevice(baseURL!, token)
@@ -107,7 +109,7 @@ test('AC-SMS3-21 잔액이 이어지지 않으면 확인 필요 "잔액이 앞 �
   }).toBe('BALANCE_GAP')
   await page.goto('/deposits')
   const { depositRow } = await import('./support.ts')
-  await expect(depositRow(page, no)).toContainText('잔액이 앞 알림과 이어지지 않아요. 은행 앱에서 확인해 주세요')
+  await expect(depositRow(page, no)).toContainText('잔액이 앞 알림과 이어지는지 확인하지 못했어요. 은행 앱에서 확인해 주세요')
   await device.dispose()
   await context.close()
 })

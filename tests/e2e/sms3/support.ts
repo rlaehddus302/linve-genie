@@ -182,8 +182,8 @@ export async function buyerByDisplay(page: Page, date: string, display: string) 
   return view.buyers.find((x) => x.display === display)
 }
 
-/** 화면 글에 영어 상태값·개발 용어가 없다 (보이는 글 innerText) — 이번 스프린트가 더한 곳만 */
-export const DEV_WORDS = /\b(REVIEW|CANCEL|UNCLEAR|NO_NUMBER|OPTIONS|NOT_ON_SALE|UNTRUSTED_SOURCE|BALANCE_GAP|ONE_MATCH|SAVED|IGNORED|DUPLICATE|PHONE|TOKEN_INVALID|AUTO_APPLIED|APPLIED|UNREADABLE|DEPOSIT|WITHDRAWAL|SMS|APP|null|undefined|true|false|NaN|ibx_\w*|ic_\w*|inbox|Invalid Date)\b/
+/** 화면 글에 영어 상태값·개발 용어가 없다 (보이는 글 innerText) — 이번 스프린트가 더한 곳만. 2라운드(D-SMS3-27·29~31): LATE·REJECTED·INBOX_OFF 등 더함 */
+export const DEV_WORDS = /\b(REVIEW|CANCEL|UNCLEAR|NO_NUMBER|OPTIONS|NOT_ON_SALE|UNTRUSTED_SOURCE|BALANCE_GAP|ONE_MATCH|SAVED|IGNORED|DUPLICATE|PHONE|TOKEN_INVALID|AUTO_APPLIED|APPLIED|UNREADABLE|DEPOSIT|WITHDRAWAL|SMS|APP|LATE|REJECTED|INBOX_OFF|TOO_MANY|STATE_FORMAT|SEALED|INVALID_INPUT|NOT_SUPPORTED|REQUEST_ERROR|INTERNAL_ERROR|staleBroadcast|StaleNotice|CANCEL_NOTICE|null|undefined|true|false|NaN|ibx_\w*|ic_\w*|inbox|Invalid Date)\b/
 
 export async function expectNoDevWords(where: Locator, label: string): Promise<void> {
   const text = await where.evaluate((el) => (el as HTMLElement).innerText)
