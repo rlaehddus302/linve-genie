@@ -36,7 +36,7 @@ import type { BandService } from './band/service.ts'
 import { isBandPublicPath, registerBandRoutes } from './band-routes.ts'
 import type { Db } from './db/database.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
-import { WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
+import { PUBLIC_PRICING_PATH, WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
 import type { BillingService } from './billing/service.ts'
 import { registerDepositRoutes } from './deposit/api.ts'
 import { registerExtensionRoutes } from './extension/routes.ts'
@@ -120,7 +120,7 @@ export type Env = { Variables: { body: Record<string, unknown> | null; session: 
 
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 /** 세션을 강제하지 않는 경로. 유튜브 돌아오는 주소는 세션 쿠키와 state로 판매자를 정하고, 없으면 화면으로 돌려보낸다(AC-Y1-02). 인스타그램 OAuth 돌아오는 주소는 state로만 처리한다(N2 AC-N2-61) */
-const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health', `GET ${CALLBACK_PATH}`, ...INSTAGRAM_PUBLIC_PATHS])
+const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/health', `GET ${PUBLIC_PRICING_PATH}`, `GET ${CALLBACK_PATH}`, ...INSTAGRAM_PUBLIC_PATHS])
 
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 const unauthorized = () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')
@@ -947,6 +947,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   }
   // ── 요금 (N5, BILLING_RULES) — 켜져 있을 때만 ───────────────────────────
   if (billing !== null) registerBillingRoutes(api, billing)
+  // 공개 요금 안내 (PAY2 BL-12, D-PAY-11): 로그인 없이 — 세션·쿠키·검색값을 보지 않는다. 요금 기능이 꺼져 있으면 { ready: false, items: [] }
+  api.get('/pricing', (c) => c.json(deps.billing?.enabled === true ? deps.billing.publicPricing() : { ready: false, items: [] }))
 
   // ── 입금 확인 (N3, DEPOSIT_RULES) ─────────────────────────────────────
   if (deps.deposits !== undefined) registerDepositRoutes(api, deps.deposits)

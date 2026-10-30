@@ -147,3 +147,21 @@ export function readBillingEnv(env: Readonly<Record<string, string | undefined>>
   }
   return { ok: true, billing: { enabled, prices, portone } }
 }
+
+/** 증빙 발행기 운영 설정 (BL-8 5, D-PAY-10): 비었거나 none = 없음(운영 기본 — 발행 대기), portone = 포트원 현금영수증 */
+export type ReceiptIssuerChoice = 'none' | 'portone'
+
+export const RECEIPT_ISSUER_REFUSAL = '증빙 발행기 설정(LIVEJJIM_RECEIPT_ISSUER)은 none 또는 portone으로 적어 주세요.'
+export const RECEIPT_ISSUER_PORTONE_REFUSAL = '포트원 현금영수증을 쓰려면 결제 설정(PORTONE_STORE_ID·PORTONE_CHANNEL_KEY·PORTONE_API_SECRET)을 모두 적어 주세요.'
+
+/**
+ * LIVEJJIM_RECEIPT_ISSUER 읽기. 모르는 값이면 기동하지 않는다. portone인데 포트원 설정(상점 ID·채널 키·API 비밀값)이 비면 기동하지 않는다.
+ * 오류 문장에 받은 값을 넣지 않는다
+ */
+export function readReceiptIssuerEnv(env: Readonly<Record<string, string | undefined>>): { readonly ok: true; readonly issuer: ReceiptIssuerChoice } | { readonly ok: false; readonly message: string } {
+  const value = (env['LIVEJJIM_RECEIPT_ISSUER'] ?? '').trim().toLowerCase()
+  if (value === '' || value === 'none') return { ok: true, issuer: 'none' }
+  if (value !== 'portone') return { ok: false, message: RECEIPT_ISSUER_REFUSAL }
+  const missing = ['PORTONE_STORE_ID', 'PORTONE_CHANNEL_KEY', 'PORTONE_API_SECRET'].some((key) => (env[key] ?? '').trim() === '')
+  return missing ? { ok: false, message: RECEIPT_ISSUER_PORTONE_REFUSAL } : { ok: true, issuer: 'portone' }
+}

@@ -1,4 +1,5 @@
-// 증빙 발행기 어댑터 (BILLING_RULES BL-8 3~5, D-N5-11, AC-N5-38). 팝빌 실제 어댑터를 끼울 자리다(실제 네트워크 코드는 없다).
+// 증빙 발행기 어댑터 (BILLING_RULES BL-8 3~5, D-N5-11, AC-N5-38, PAY2 D-PAY-10). 셋 중 하나를 운영 설정으로 고른다.
+// - 포트원 현금영수증: cash-receipt.ts (운영 설정 LIVEJJIM_RECEIPT_ISSUER=portone일 때만 — 금액 칸 세무 확인 뒤).
 // - 시험 모드: 가짜 발행기 — 바로 "발행됨" + `TEST-`로 시작하는 승인 번호, 취소하면 "취소됨".
 // - 운영 기본: "없음" — 외부로 아무것도 보내지 않는다. 요청은 "발행 대기"로 남고(운영자가 billing-list로 보고 손으로 발행), 취소는 "취소 요청"으로 남는다.
 // - 발행기 실패는 "발행 실패"로 남고 결제·이용권은 그대로다.
@@ -29,12 +30,16 @@ export interface IssueRequest {
   readonly supply: number
   readonly vat: number
   readonly recipient: DocumentRecipient
+  /** 결제 주문 이름 (포트원 현금영수증 발급의 orderName) */
+  readonly orderName?: string
+  /** 그 증빙 요청(발급)·취소 요청에서 만든 멱등 키 (BL-6 10) */
+  readonly idempotencyKey?: string
 }
 
 export type IssueResult = { readonly status: 'ISSUED'; readonly approval: string } | { readonly status: 'PENDING' } | { readonly status: 'FAILED' }
 export type DocumentCancelResult = { readonly cancel: 'CANCELLED' } | { readonly cancel: 'REQUESTED' } | { readonly cancel: 'FAILED' }
 
-/** 증빙 발행기 (팝빌 자리) */
+/** 증빙 발행기 (가짜 · 없음 · 포트원 현금영수증) */
 export interface DocumentIssuer {
   issue(request: IssueRequest): Promise<IssueResult>
   cancel(request: IssueRequest & { readonly approval: string | null }): Promise<DocumentCancelResult>

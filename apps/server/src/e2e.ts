@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { createSellerAccount } from './accounts.ts'
-import { testBilling } from './billing/fake.ts'
+import { TEST_FINAL_PRICE_TABLE, testBilling } from './billing/fake.ts'
 import { isValidDate } from '@livejjim/core'
 import { FolderBackupStorage } from './backup.ts'
 import { openPglite, type Database } from './db/database.ts'
@@ -154,6 +154,8 @@ export interface E2eOptions {
   readonly testPrinter?: boolean
   /** 요금 기능 (N5) — 켜면 시험 결제(가짜 결제 서버·가짜 발행기)·기본 요금 표. 기본 false (AC-N5-11) */
   readonly billing?: boolean
+  /** 요금 표 (PAY2 AC-PAY2-12·15): placeholder = BL-1 기본 표(자리 표시 — 기본), final = 시험용 확정 요금 표(TEST_FINAL_PRICE_TABLE — 공개 요금 안내가 ready) */
+  readonly billingPrices?: 'placeholder' | 'final'
   /** 백업 폴더 (없으면 임시 폴더를 만들고 끌 때 지운다) */
   readonly backupDir?: string
   /** 시작할 때 시험 판매자의 자동 백업을 하나 만든다 (기본 true) */
@@ -683,7 +685,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     ...(options.generatorSpeed === undefined ? {} : { generatorSpeed: options.generatorSpeed }),
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
     testPrinter: options.testPrinter ?? true,
-    ...(options.billing === true ? { billing: testBilling() } : {}),
+    ...(options.billing === true ? { billing: testBilling(options.billingPrices === 'final' ? { prices: TEST_FINAL_PRICE_TABLE } : {}) } : {}),
     ...(fakeWebcast === null ? {} : { tiktok: { settings: readTikTokSettings({ LIVEJJIM_TIKTOK_BETA: 'on' }), webcast: fakeWebcast.factory } }),
     ...(fakeBand === null
       ? {}
@@ -711,6 +713,8 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   else if (fakeCarrier !== null) server.parcels.start()
   // 밴드 보관 기간 지우기·이어받기 (유튜브를 켜지 않은 기동도)
   if (fakeBand !== null && fakeGoogle === null) void server.band.resume()
+  // 결제 대기 자동 재확인 (PAY2 BL-6 9 — 요금 기능을 켠 기동만. 유튜브를 켠 기동은 server.start()가 이미 돌린다)
+  if (fakeGoogle === null) server.billingRechecker.start()
   const app = e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier, fakeBand, voiceHistory)
   registerVoiceRelay(app, server.voice)
   const http = createNodeServer({ app })

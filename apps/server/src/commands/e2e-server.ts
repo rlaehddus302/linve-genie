@@ -1,5 +1,5 @@
 // E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
-//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--instagram-port 4300] [--tiktok yes|no] [--band fake|no] [--band-port 4400] [--billing yes|no]
+//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--instagram-port 4300] [--tiktok yes|no] [--band fake|no] [--band-port 4400] [--billing yes|no] [--billing-prices placeholder|final]
 //   [--social fake|no] [--social-port 4500] [--social-providers kakao,naver,google]
 //   [--assist fake|no] [--assist-port 4600] [--assist-daily 20] [--assist-global 500] [--assist-timeout-ms 15000]
 // - --assist fake: 가짜 LLM 서버(Anthropic Messages API 모양)를 127.0.0.1의 --assist-port(기본 0 = 빈 포트)에 함께 띄우고 AI 제안을 가짜 키로 켠다(A1, AC-A1-11).
@@ -57,6 +57,7 @@ const args = parseArgs(process.argv.slice(2), [
   'band-port',
   'backup-dir',
   'billing',
+  'billing-prices',
   'test-deposits',
   'deposit-poll-ms',
   'deposit-refetch-ms',
@@ -102,6 +103,8 @@ const outboxFast = values.get('outbox-fast')
 const webDir = values.get('web-dir')
 const instagramFlag = values.get('instagram')
 const billingFlag = values.get('billing')
+// PAY2: 요금 표 — placeholder(기본, 자리 표시) · final(시험용 확정 요금 표 — 공개 요금 안내 /api/pricing이 ready)
+const billingPricesFlag = values.get('billing-prices')
 const instagramPort = intArg('instagram-port', 0, 65_535)
 const tiktokFlag = values.get('tiktok')
 const bandFlag = values.get('band')
@@ -155,12 +158,13 @@ if (
   (webDir !== undefined && webDirProblem(webDir) !== null) ||
   (instagramFlag !== undefined && instagramFlag !== 'yes' && instagramFlag !== 'no') ||
   (tiktokFlag !== undefined && tiktokFlag !== 'yes' && tiktokFlag !== 'no') ||
-  (billingFlag !== undefined && billingFlag !== 'yes' && billingFlag !== 'no')
+  (billingFlag !== undefined && billingFlag !== 'yes' && billingFlag !== 'no') ||
+  (billingPricesFlag !== undefined && billingPricesFlag !== 'placeholder' && billingPricesFlag !== 'final')
 ) {
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
       '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, --band fake|no, --band-port 0~65535, ' +
-      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --parcel yes|no, --parcel-port 0~65535, --parcel-track-ms 1000~1800000, --social fake|no, --social-port 0~65535, --social-providers google,kakao,naver 중 고른 것, ' +
+      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --billing-prices placeholder|final, --parcel yes|no, --parcel-port 0~65535, --parcel-track-ms 1000~1800000, --social fake|no, --social-port 0~65535, --social-providers google,kakao,naver 중 고른 것, ' +
       '--assist fake|no, --assist-port 0~65535, --assist-daily 0~1000000, --assist-global 0~1000000, --assist-timeout-ms 100~60000',
   )
   process.exit(2)
@@ -191,6 +195,7 @@ const e2e = await startE2eServer({
   ...(bandFlag === 'fake' ? { band: bandPort === undefined ? {} : { port: bandPort } } : {}),
   ...(values.get('backup-dir') === undefined ? {} : { backupDir: values.get('backup-dir') as string }),
   billing: billingFlag === 'yes',
+  ...(billingPricesFlag === 'final' ? { billingPrices: 'final' as const } : {}),
   testDeposits: testDepositsFlag !== 'no',
   ...(depositPoll === undefined ? {} : { depositPollMs: depositPoll }),
   ...(depositRefetch === undefined ? {} : { depositRefetchMs: depositRefetch }),

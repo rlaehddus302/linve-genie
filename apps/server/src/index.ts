@@ -350,6 +350,10 @@ export {
   PORTONE_REFUSAL,
   parsePriceTable,
   readBillingEnv,
+  readReceiptIssuerEnv,
+  RECEIPT_ISSUER_REFUSAL,
+  RECEIPT_ISSUER_PORTONE_REFUSAL,
+  type ReceiptIssuerChoice,
   type BillingEnv,
   type PortOneSettings,
   type PriceItem,
@@ -359,6 +363,8 @@ export {
   PAYMENT_ID_RE,
   PORTONE_API_BASE,
   PORTONE_TIMEOUT_MS,
+  PORTONE_MUTATE_TIMEOUT_MS,
+  IDEMPOTENCY_KEY_RE,
   PortOneGateway,
   WEBHOOK_TOLERANCE_MS,
   checkWebhook,
@@ -370,6 +376,8 @@ export {
   type PaymentGateway,
   type PortOneOptions,
 } from './billing/portone.ts'
+export { PortOneCashReceiptIssuer, readCashReceipt, type CashReceiptLookup, type PortOneCashReceiptOptions } from './billing/cash-receipt.ts'
+export { BillingRechecker, RECHECK_EVERY_MS } from './billing/recheck.ts'
 export { FakeIssuer, RECEIPT_KINDS, noneIssuer, type DocumentIssuer, type DocumentRecipient, type IssueRequest, type IssueResult, type ReceiptKind } from './billing/documents.ts'
 export {
   FAKE_PORTONE_BASE,
@@ -378,7 +386,10 @@ export {
   TEST_CHANNEL_KEY,
   TEST_STORE_ID,
   TEST_WEBHOOK_SECRET,
+  TEST_FINAL_PRICE_TABLE,
   signedWebhook,
+  type FakeCashReceipt,
+  type FakeTimeouts,
   testBilling,
   type TestBillingOptions,
   type TestPayment,
@@ -390,6 +401,12 @@ export {
   DISABLED_BILLING,
   REFUND_HOLD_MS,
   REFUND_SETTLE_MAX,
+  RECHECK_SLOTS_MS,
+  RECHECK_SELLER_CONCURRENCY,
+  idempotencyKey,
+  slotsPassed,
+  type PublicPricing,
+  type RecheckPass,
   checkBusiness,
   checkOperatorGrant,
   grantedMessage,
@@ -406,7 +423,7 @@ export {
   type StartPreview,
   type UsageItem,
 } from './billing/service.ts'
-export { WEBHOOK_PATH } from './billing/api.ts'
+export { PUBLIC_PRICING_PATH, WEBHOOK_PATH } from './billing/api.ts'
 export { checkBillingScope, type BillingScope } from './billing/check.ts'
 export { STALE_PENDING_MS, formatOperatorLists, grantForLogin, operatorLists, type DocumentToHandle, type GrantCommandResult, type OperatorLists } from './billing/operator.ts'
 // N3 입금 확인
