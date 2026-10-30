@@ -195,19 +195,27 @@ test.describe('입금 확인 끝까지 흐름', () => {
   test('확정 창을 연 사이 손 입금 → BUNDLE_CHANGED 문장, 기록 없음, 새 제안으로 (AC-N3-42)', async ({ page }) => {
     await login(page)
     const name = uniq('바뀜이')
-    const sale = await smsSale(page, { memo: name })
+    const price = oddPrice() + 60
+    const sale = await smsSale(page, { memo: name, price })
+    // 부분 입금액과 같은 잔액의 다른 구매자를 만들어 후보 충돌을 항상 재현한다.
+    await smsSale(page, { memo: uniq('다른구매자'), price: price - 1000 })
     const src = await fakeSource(page)
     const [d] = await deposit(page, src, [{ key: uniq('m'), at: kstIso(5_000), amount: sale.remaining - 1000, name }])
     await openReview(page)
+    // 다른 시험의 미정산 금액이 우연히 같으면 후보가 여럿이므로, 이 시험의 구매자를 명시적으로 고른다.
+    await depositRow(page, d!.no).getByRole('radiogroup', { name: `입금 번호 ${String(d!.no)} 묶음` }).getByRole('radio', { name: new RegExp(name) }).check()
     await depositRow(page, d!.no).getByRole('group', { name: `입금 번호 ${String(d!.no)} 처리` }).getByRole('button', { name: '확정' }).click() // MOB2 D-MOB2-05
     const dlg = page.getByRole('dialog', { name: '입금 확정' })
     await expect(dlg).toBeVisible()
+    const previousPayments = new Set((await history(page, sale.date, false)).filter((e) => e.type === 'settlement.payment').map((e) => e.seq))
     expect((await writeEvent(page, { type: 'settlement.payment', buyer: sale.buyer, date: sale.date, amount: 500 }, { date: sale.date, rehearsal: false })).status).toBeLessThan(300)
     await dlg.getByRole('button', { name: '확정' }).click()
     await expect(page.getByRole('status').filter({ hasText: '묶음 금액이 바뀌었어요. 다시 확인해 주세요.' })).toBeVisible()
     await expect(dlg).toHaveCount(0)
     expect((await depositOne(page, d!.no)).status).toBe('REVIEW')
-    expect((await history(page, sale.date, false)).filter((e) => e.type === 'settlement.payment')).toHaveLength(1)
+    const newPayments = (await history(page, sale.date, false)).filter((e) => e.type === 'settlement.payment' && !previousPayments.has(e.seq))
+    expect(newPayments).toHaveLength(1)
+    expect(newPayments[0]?.fields).toMatchObject({ buyer: sale.buyer, amount: 500 })
     // 새 제안: 남은 금액이 바뀐 묶음
     await expect(depositRow(page, d!.no).getByRole('radiogroup')).toContainText(`남은 금액 ${won(sale.remaining - 500)}`)
   })
