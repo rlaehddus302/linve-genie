@@ -21,7 +21,6 @@ import {
   LEDGER_MONTHS_LABEL,
   LEDGER_MONTH_WORDS,
   LEDGER_NONE,
-  LEDGER_SHRINK_COUNTING,
   LEDGER_SHRINK_KEEP,
   LEDGER_SHRINK_NOTE,
   LEDGER_SHRINK_OK,
@@ -56,8 +55,15 @@ export interface LedgerDraft {
   readonly error: ApiError | null
   readonly change: (patch: Partial<LedgerSettings>) => void
   readonly retry: () => void
-  /** 바뀌었으면 보낸다: 'none'(바뀐 것 없음)·'saved'·'failed' */
+  /**
+   * 바뀌었으면 보낸다: 'none'(바뀐 것 없음·[그대로 두기])·'saved'·'failed'.
+   * 보관 기간을 줄였으면 보내기 전에 서버가 센 곧 지워질 손님 수를 받아, 1명 이상(또는 세지 못함)이면 확인 창을 띄우고 답을 기다린다(D-KP1-45).
+   */
   readonly save: () => Promise<'none' | 'saved' | 'failed'>
+  /** 줄이기 확인 창 (없으면 null) — willDelete가 null이면 수를 받지 못함 */
+  readonly shrinkAsk: { readonly from: LedgerMonths; readonly to: LedgerMonths; readonly willDelete: number | null } | null
+  /** 확인 창 답: true = [줄이기], false = [그대로 두기](기간을 저장된 값으로 되돌리고 보내지 않는다) */
+  readonly answerShrink: (ok: boolean) => void
 }
 
 export function useLedgerDraft(): LedgerDraft {
@@ -67,6 +73,8 @@ export function useLedgerDraft(): LedgerDraft {
   const [error, setError] = useState<ApiError | null>(null)
   const [attempt, setAttempt] = useState(0)
   const busy = useRef(false)
+  const [shrinkAsk, setShrinkAsk] = useState<LedgerDraft['shrinkAsk']>(null)
+  const answer = useRef<((ok: boolean) => void) | null>(null)
   const dirty = settings !== null && draft !== null && (settings.months !== draft.months || settings.consoleBadges !== draft.consoleBadges)
 
   useEffect(() => {
@@ -98,11 +106,37 @@ export function useLedgerDraft(): LedgerDraft {
       setError(null)
     },
     retry: () => setAttempt((n) => n + 1),
+    shrinkAsk,
+    answerShrink: (ok) => {
+      const resolve = answer.current
+      answer.current = null
+      setShrinkAsk(null)
+      resolve?.(ok)
+    },
     save: async () => {
-      if (busy.current || draft === null || !dirty) return 'none'
+      if (busy.current || draft === null || settings === null || !dirty) return 'none'
       busy.current = true
       setError(null)
       try {
+        if (draft.months < settings.months) {
+          let willDelete: number | null
+          try {
+            willDelete = await fetchShrinkPreview(draft.months)
+          } catch {
+            willDelete = null // 세지 못하면 수 없이 묻는다 (지워질 수 있으니 묻는 쪽)
+          }
+          if (willDelete === null || willDelete >= 1) {
+            const ok = await new Promise<boolean>((resolve) => {
+              answer.current = resolve
+              setShrinkAsk({ from: settings.months, to: draft.months, willDelete })
+            })
+            if (!ok) {
+              const keep = settings.months
+              setDraft((current) => (current === null ? current : { ...current, months: keep }))
+              return 'none'
+            }
+          }
+        }
         const saved = await saveLedgerSettings(draft)
         setSettings(saved)
         setDraft(saved)
@@ -121,35 +155,12 @@ export function useLedgerDraft(): LedgerDraft {
 /** 보관 기간·방송 화면에 손님 표시 칸 (설정 "손님 관리" 안) */
 export function LedgerSettingsFields({ ledger }: { readonly ledger: LedgerDraft }) {
   const id = useId()
-  // 저장된 값보다 짧게 고르려는 기간 — 확인 창을 연다 (UX-KP1-002)
-  const [shrinking, setShrinking] = useState<LedgerMonths | null>(null)
-  // 서버가 센 곧 지워질 손님 수 (undefined = 세는 중, null = 못 받음)
-  const [willDelete, setWillDelete] = useState<number | null | undefined>(undefined)
-  useEffect(() => {
-    if (shrinking === null) return
-    let alive = true
-    setWillDelete(undefined)
-    fetchShrinkPreview(shrinking).then(
-      (n) => {
-        if (alive) setWillDelete(n)
-      },
-      () => {
-        if (alive) setWillDelete(null)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [shrinking])
   if (ledger.draft === null) {
     return ledger.loadError !== null ? <RequestError error={ledger.loadError} onRetry={ledger.retry} retryLabel="다시 불러오기" /> : <p role="status">저장한 배송지 설정을 불러오는 중…</p>
   }
   const draft = ledger.draft
   const savedMonths = ledger.settings?.months ?? draft.months
-  const pick = (months: LedgerMonths) => {
-    if (months < savedMonths && draft.months >= savedMonths) setShrinking(months)
-    else ledger.change({ months })
-  }
+  const ask = ledger.shrinkAsk
   const shrunk = draft.months < savedMonths
   const monthsProblem = ledger.error?.problemFor('months')
   const badgesProblem = ledger.error?.problemFor('consoleBadges')
@@ -161,7 +172,7 @@ export function LedgerSettingsFields({ ledger }: { readonly ledger: LedgerDraft 
         <div className="row ledger-month-row">
           {LEDGER_MONTHS.map((months) => (
             <label key={months} className="choice ledger-choice">
-              <input type="radio" name={`${id}-months`} value={String(months)} checked={draft.months === months} onChange={() => pick(months)} />
+              <input type="radio" name={`${id}-months`} value={String(months)} checked={draft.months === months} onChange={() => ledger.change({ months })} />
               <span>{LEDGER_MONTH_WORDS[months]}</span>
             </label>
           ))}
@@ -208,29 +219,22 @@ export function LedgerSettingsFields({ ledger }: { readonly ledger: LedgerDraft 
         ) : null}
       </div>
       {outside && ledger.error !== null ? <RequestError error={ledger.error} /> : null}
-      {shrinking !== null ? (
+      {ask !== null ? (
         <Modal
           title={LEDGER_SHRINK_TITLE}
           className="kp1-seller"
-          onClose={() => setShrinking(null)}
+          onClose={() => ledger.answerShrink(false)}
           closeLabel={LEDGER_SHRINK_KEEP}
           actions={
-            <button
-              type="button"
-              className="button button-danger button-tall"
-              onClick={() => {
-                ledger.change({ months: shrinking })
-                setShrinking(null)
-              }}
-            >
+            <button type="button" className="button button-danger button-tall" onClick={() => ledger.answerShrink(true)}>
               {LEDGER_SHRINK_OK}
             </button>
           }
         >
           <p>
-            {LEDGER_MONTH_WORDS[savedMonths]} → {LEDGER_MONTH_WORDS[shrinking]}
+            {LEDGER_MONTH_WORDS[ask.from]} → {LEDGER_MONTH_WORDS[ask.to]}
           </p>
-          {willDelete === undefined ? <p role="status">{LEDGER_SHRINK_COUNTING}</p> : <p>{shrinkAsk(willDelete)}</p>}
+          <p>{shrinkAsk(ask.willDelete)}</p>
         </Modal>
       ) : null}
     </div>

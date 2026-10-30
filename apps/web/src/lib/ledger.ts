@@ -83,7 +83,6 @@ export const CONSOLE_BADGES_ASK_FAILED = '저장하지 못했어요. 인터넷 �
 /** 보관 기간을 줄일 때 확인 (UX-KP1-002) — 몇 명인지 못 받으면 수 없이 */
 export const LEDGER_SHRINK_TITLE = '보관 기간을 줄일까요?'
 export const LEDGER_SHRINK_ASK = '이미 기간이 지난 손님의 저장한 배송지는 1시간 안에 지워져요. 되돌릴 수 없어요.'
-export const LEDGER_SHRINK_COUNTING = '지워질 손님 수를 세는 중…'
 /** 확인 창 문장: 서버가 센 수(n)가 있으면 수와 함께 */
 export function shrinkAsk(n: number | null): string {
   if (n === null) return LEDGER_SHRINK_ASK
@@ -92,7 +91,7 @@ export function shrinkAsk(n: number | null): string {
 }
 export const LEDGER_SHRINK_OK = '줄이기'
 export const LEDGER_SHRINK_KEEP = '그대로 두기'
-export const LEDGER_SHRINK_NOTE = '기간을 줄였어요. [저장]을 누르면 이미 기간이 지난 손님의 저장한 배송지가 1시간 안에 지워져요. 되돌릴 수 없어요.'
+export const LEDGER_SHRINK_NOTE = '기간을 줄이면 이미 기간이 지난 손님의 저장한 배송지가 1시간 안에 지워져요. 되돌릴 수 없어요. [저장]을 누르면 몇 명인지 한 번 더 물어봐요.'
 export const CONSOLE_BADGES_DETAIL = '켜면 방송 화면 채팅에 "입금 늦음 주의"·"단골 · 누적"·"처음"이 보여요. 끄면 1등 옆 "입금 늦음 주의"도 함께 사라져요.'
 export const PREFILL_TITLE = '지난 주문 배송지예요 — 확인해 주세요'
 export const PREFILL_HELP = '손님이 지난 주문 때 저장해 둔 배송지예요. 맞으면 [배송지 확인]을 눌러 주세요. 바뀌었으면 [고치기]로 고쳐 주세요.'
@@ -122,8 +121,8 @@ export async function fetchLedgerSettings(): Promise<LedgerSettings> {
 }
 
 export async function saveLedgerSettings(value: LedgerSettings): Promise<LedgerSettings> {
-  // 아직 정하지 않았으면(null) 그대로 보낸다 — 보관 기간만 바꿔도 콘솔이 계속 묻는다(UX-KP1-006)
-  return (await put<{ settings: LedgerSettings }>(LEDGER_SETTINGS_PATH, { months: value.months, consoleBadges: value.consoleBadges })).settings
+  // 설정 화면은 정해지지 않음을 꺼진 것으로 보이고, 거기서 저장하면 그 값(끔)으로 정해진다 (D-KP1-43)
+  return (await put<{ settings: LedgerSettings }>(LEDGER_SETTINGS_PATH, { months: value.months, consoleBadges: value.consoleBadges ?? false })).settings
 }
 
 /** 보관 기간을 months로 줄이면 곧 지워질 손님 수 (`GET /api/ledger-settings/preview?months=` → `{ months, willDelete }`, UX-KP1-002) */

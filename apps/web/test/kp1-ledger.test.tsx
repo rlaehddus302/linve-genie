@@ -407,22 +407,23 @@ describe('설정 "손님 관리" 장부 칸 (CR-3·CR-7, AC-KP1-15)', () => {
     expect(screen.getByText(CONSOLE_BADGES_HELP)).toBeDefined()
 
     fireEvent.click(toggle)
-    // 줄이면 확인 창 (UX-KP1-002) — [줄이기]를 눌러야 바뀐다
     fireEvent.click(within(group).getByRole('radio', { name: '6개월' }))
-    const ask = screen.getByRole('dialog', { name: '보관 기간을 줄일까요?' })
-    await flush(4)
-    expect(within(ask).getByText('지금 줄이면 손님 3명의 저장한 배송지가 1시간 안에 지워져요. 되돌릴 수 없어요.')).toBeDefined()
-    fireEvent.click(within(ask).getByRole('button', { name: '줄이기' }))
     expect(screen.getByText(LEDGER_SHRINK_NOTE)).toBeDefined()
     expect(screen.getByText('저장하지 않은 칸: 손님 관리')).toBeDefined()
+    // 줄였으니 저장하면 곧 지워질 수를 받아 확인 창 (D-KP1-45) — [줄이기]를 눌러야 보낸다
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    await flush(8)
+    const ask = screen.getByRole('dialog', { name: '보관 기간을 줄일까요?' })
+    expect(within(ask).getByText('지금 줄이면 손님 3명의 저장한 배송지가 1시간 안에 지워져요. 되돌릴 수 없어요.')).toBeDefined()
+    expect(server.callsTo('PUT', /^\/api\/ledger-settings$/)).toHaveLength(0)
+    fireEvent.click(within(ask).getByRole('button', { name: '줄이기' }))
     await flush(8)
     expect(server.callsTo('PUT', /^\/api\/ledger-settings$/).map((call) => call.body)).toEqual([{ months: 6, consoleBadges: false }])
     expect(server.callsTo('PUT', /^\/api\/customer-settings$/)).toHaveLength(0)
     expect(screen.getByText('바꾼 칸이 없어요.')).toBeDefined()
   })
 
-  it('보관 기간을 줄이려다 [그대로 두기]면 바뀌지 않고 보내지 않는다 — 늘리면 묻지 않는다 (UX-KP1-002)', async () => {
+  it('보관 기간을 줄여 저장하다 [그대로 두기]면 보내지 않고 기간을 되돌린다(저장했다고 하지 않음) — 수를 못 받으면 수 없이 묻는다 (D-KP1-45)', async () => {
     const server = new FakeServer()
       .on('GET', /^\/api\/customer-settings$/, () => ({ body: { settings: { regularCount: 3, regularAmount: 100_000, waitDays: 3 } } }))
       .on('GET', /^\/api\/ledger-settings$/, () => ({ body: { settings: { months: 12, consoleBadges: true } } }))
@@ -434,17 +435,43 @@ describe('설정 "손님 관리" 장부 칸 (CR-3·CR-7, AC-KP1-15)', () => {
     )
     await flush(8)
     fireEvent.click(screen.getByRole('radio', { name: '6개월' }))
-    await flush(4)
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    await flush(8)
     // 수를 받지 못하면(옛 서버) 수 없는 문장
     expect(within(screen.getByRole('dialog')).getByText(LEDGER_SHRINK_ASK)).toBeDefined()
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '그대로 두기' }))
+    await flush(8)
     expect(screen.queryByRole('dialog')).toBeNull()
+    expect(server.callsTo('PUT', /^\/api\/ledger-settings$/)).toHaveLength(0)
     expect((screen.getByRole('radio', { name: '1년' }) as HTMLInputElement).checked).toBe(true)
     expect(screen.queryByText(LEDGER_SHRINK_NOTE)).toBeNull()
-    expect(screen.queryByText('저장하지 않은 칸: 손님 관리')).toBeNull()
-    fireEvent.click(screen.getByRole('radio', { name: '3년' }))
+    expect(screen.queryByText('저장했어요.')).toBeNull()
+    expect(screen.getByText('바꾼 칸이 없어요.')).toBeDefined()
+  })
+
+  it('줄여도 곧 지워질 손님이 0명이면 묻지 않고 저장, 늘리면 수를 묻지도 않는다 (D-KP1-45)', async () => {
+    const server = new FakeServer()
+      .on('GET', /^\/api\/customer-settings$/, () => ({ body: { settings: { regularCount: 3, regularAmount: 100_000, waitDays: 3 } } }))
+      .on('GET', /^\/api\/ledger-settings$/, () => ({ body: { settings: { months: 24, consoleBadges: true } } }))
+      .on('GET', /^\/api\/ledger-settings\/preview/, () => ({ body: { months: 12, willDelete: 0 } }))
+      .on('PUT', /^\/api\/ledger-settings$/, (call) => ({ body: { settings: call.body } }))
+    vi.stubGlobal('fetch', server.fetch)
+    render(
+      <SaveBarArea>
+        <CustomerSettingsSection />
+      </SaveBarArea>,
+    )
+    await flush(8)
+    fireEvent.click(screen.getByRole('radio', { name: '1년' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    await flush(8)
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(screen.getByText('저장하지 않은 칸: 손님 관리')).toBeDefined()
+    expect(server.callsTo('PUT', /^\/api\/ledger-settings$/).map((call) => call.body)).toEqual([{ months: 12, consoleBadges: true }])
+    fireEvent.click(screen.getByRole('radio', { name: '3년' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    await flush(8)
+    expect(server.callsTo('GET', /^\/api\/ledger-settings\/preview/)).toHaveLength(1)
+    expect(server.callsTo('PUT', /^\/api\/ledger-settings$/)).toHaveLength(2)
   })
 
   it('줄이기 확인 문장: 수가 있으면 "손님 N명", 0이면 바로 지워지는 손님 없음, 못 받으면 수 없이 (UX-KP1-002)', () => {
@@ -453,7 +480,7 @@ describe('설정 "손님 관리" 장부 칸 (CR-3·CR-7, AC-KP1-15)', () => {
     expect(shrinkAsk(null)).toBe('이미 기간이 지난 손님의 저장한 배송지는 1시간 안에 지워져요. 되돌릴 수 없어요.')
   })
 
-  it('"방송 화면에 손님 표시"를 아직 정하지 않았으면 빈칸 + 안내, 기간만 바꿔 저장해도 정하지 않은 채로 보낸다 (UX-KP1-006)', async () => {
+  it('"방송 화면에 손님 표시"를 아직 정하지 않았으면 꺼진 칸 + 안내, 여기서 저장하면 끔으로 정해진다 (D-KP1-43)', async () => {
     const server = new FakeServer()
       .on('GET', /^\/api\/customer-settings$/, () => ({ body: { settings: { regularCount: 3, regularAmount: 100_000, waitDays: 3 } } }))
       .on('GET', /^\/api\/ledger-settings$/, () => ({ body: { settings: { months: 12, consoleBadges: null } } }))
@@ -470,7 +497,7 @@ describe('설정 "손님 관리" 장부 칸 (CR-3·CR-7, AC-KP1-15)', () => {
     fireEvent.click(screen.getByRole('radio', { name: '2년' }))
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
     await flush(8)
-    expect(server.callsTo('PUT', /^\/api\/ledger-settings$/).map((call) => call.body)).toEqual([{ months: 24, consoleBadges: null }])
+    expect(server.callsTo('PUT', /^\/api\/ledger-settings$/).map((call) => call.body)).toEqual([{ months: 24, consoleBadges: false }])
   })
 
   it('거절되면 칸 아래 서버 문장', async () => {
