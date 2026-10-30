@@ -119,6 +119,30 @@ describe('PRN2 라벨 그림 파일 받기 (AC-PRN2-09, L-11 17)', () => {
     expect((await raw(world, null, '/api/print/test-png')).status).toBe(401)
   })
 
+  it('시험 그림은 ?size= 크기로 그리고 없으면 50x30, 목록 밖이면 INVALID_TEMPLATE이다 (D-PRN2-11)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const api = printApi(world, seller)
+    const date = new Date(world.clock.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    for (const size of ['50x15', '50x30'] as const) {
+      const expected = renderTestLabel(createNodeRenderEnv(), { shopName: `가게 ${seller.loginId}`, date, size })
+      if (!expected.ok) throw new Error('기준 그림을 만들지 못했다')
+      const bitmap = bitmapOf((await expectOk(api.api.get(`/api/print/test-bitmap?size=${size}`))).body)
+      expect(bitmap.width).toBe(expected.image.width)
+      expect(bitmap.height).toBe(expected.image.height)
+      expect(Buffer.from(bitmap.data).equals(Buffer.from(expected.image.data))).toBe(true)
+      const png = await raw(world, seller.cookie, `/api/print/test-png?size=${size}`)
+      const encoded = encodeLabelPng(expected.image)
+      if (!encoded.ok) throw new Error('기준 PNG를 만들지 못했다')
+      expect(Buffer.from(png.bytes).equals(Buffer.from(encoded.bytes))).toBe(true)
+    }
+    for (const path of ['/api/print/test-bitmap', '/api/print/test-png']) {
+      const response = await world.server.app.request(`${path}?size=7x7`, { headers: { Cookie: seller.cookie, Origin: ORIGIN } })
+      expect(response.status).toBe(422)
+      expect(JSON.stringify(await response.json())).toContain('INVALID_TEMPLATE')
+    }
+  })
+
   it('로그인 없음·다른 판매자·다른 기기·다른 작업·끝난 시도·바뀐 출력 기기는 비트맵 입구와 같은 오류다', async () => {
     const { world, seller, api, job, bitmapUrl, pngUrl } = await claimedLabel()
     const other = await addSeller(world)

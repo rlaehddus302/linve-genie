@@ -16,6 +16,7 @@ import {
   renderTestLabel,
   type LabelBitmap,
   type LabelError,
+  type LabelSizeId,
   defaultTemplate,
   splitGraphemes,
   templateToJson,
@@ -1066,10 +1067,10 @@ export class PrintService {
     })
   }
 
-  /** 연결 시험도 같은 글꼴·같은 렌더러를 쓴다. */
-  async testBitmap(sellerId: string): Promise<BitmapOutcome> {
+  /** 연결 시험도 같은 글꼴·같은 렌더러를 쓴다. 크기가 없으면 50×30, L-1 목록 밖이면 INVALID_TEMPLATE (D-PRN2-11). */
+  async testBitmap(sellerId: string, size?: string): Promise<BitmapOutcome> {
     const template = await this.#template(this.#db, sellerId, 'product')
-    const rendered = renderTestLabel(createNodeRenderEnv(), { shopName: template.shopName, date: kstDate(this.#now().getTime()), size: template.size })
+    const rendered = renderTestLabel(createNodeRenderEnv(), { shopName: template.shopName, date: kstDate(this.#now().getTime()), size: (size ?? '50x30') as LabelSizeId })
     return rendered.ok ? { kind: 'ok', image: rendered.image } : { kind: 'error', error: rendered.error }
   }
 

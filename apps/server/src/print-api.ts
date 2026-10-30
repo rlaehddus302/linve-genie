@@ -102,8 +102,8 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     const image = await jobImage(c)
     return image instanceof Response ? image : pngResponse(image)
   })
-  api.get('/print/test-bitmap', async (c) => bitmapResponse(await print.testBitmap(sellerOf(c))))
-  api.get('/print/test-png', async (c) => pngResponse(await print.testBitmap(sellerOf(c))))
+  api.get('/print/test-bitmap', async (c) => bitmapResponse(await print.testBitmap(sellerOf(c), c.req.query('size'))))
+  api.get('/print/test-png', async (c) => pngResponse(await print.testBitmap(sellerOf(c), c.req.query('size'))))
 
   // 미리보기는 출력 시도와 별도인 읽기 전용 조회다. 이름·가격·구매자·템플릿은 클라이언트에서 받지 않는다.
   api.get('/print/preview/:kind', async (c) => {
