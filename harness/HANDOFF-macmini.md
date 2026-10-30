@@ -53,3 +53,12 @@
 
 ## 사람만 할 수 있는 일(최종 보고에 모은다)
 실제 휴대폰·B1 등 프린터 실물, 판매자 인터뷰, 법률·세무 검토, PG 계약·스토어 계정, 받아쓰기 모델 내려받기 동의(HF).
+
+## 맥북이 꺼져도 끊기지 않게 (2026-10-31 추가)
+사용자는 맥북을 닫고 이동하는 동안에도 개발이 계속되길 원한다. 그래서 **메인은 맥 미니 자체의 Claude 앱(또는 맥 미니 안 tmux의 `claude`)에서 돈다.** 맥북 앱이 SSH로 띄운 세션은 맥북이 잠들면 멈출 수 있으니 믿지 않는다.
+- 시작하면 원격 브랜치부터 본다(`git fetch origin`). 맥북이나 SSH 세션이 하다 만 일은 원격 브랜치의 마지막 커밋(제목에 WIP가 있을 수 있음)에서 이어받는다.
+  - 맥북 갈래: `sprint/SRV1-web`, 감사 채팅 서버(`spec/yt-thanks-official` 또는 `dev/yt-thanks-official`), `sprint/PAY2-server`, `sprint/PAY2-web`
+  - SSH 세션 갈래: `spec/sms-deposit-intake` → `spec/retention-1`, `spec/printer-stages` → `dev/mobile-notice`, `int/next` 합치기
+  - 각 브랜치의 `harness/sprints/*/dev-notes.md`와 커밋 메시지로 어디까지 했는지 판단한다.
+- `.live-replay`는 모델 파일(whisper·safetensors·onnx·bin)을 빼고 복사했다. 받아쓰기는 맥 미니의 기존 일꾼(Cohere)을 쓴다.
+- 사용자는 휴대폰으로 볼 수 있다(Remote Control). 보고는 짧게.
