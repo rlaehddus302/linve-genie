@@ -57,7 +57,7 @@ export type NoticeResult =
 const FULLWIDTH_ZERO = 0xff10
 const FULLWIDTH_NINE = 0xff19
 /** 앞 공백 (R-3 정규화와 같은 집합 — JavaScript \s에서 U+FEFF를 뺀 것) */
-const LEADING_SPACE_RE = /^[^\S﻿]+/u
+const LEADING_SPACE_RE = /^[^\S\uFEFF]+/u
 
 /**
  * 보낸 번호 정리 (DOMAIN_RULES R-26 1): 전각 숫자를 반각으로, ASCII 숫자만 남기고, `+82`로 시작하면 맨 앞 `82`를 뗀 뒤

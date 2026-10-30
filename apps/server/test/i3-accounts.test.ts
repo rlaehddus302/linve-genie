@@ -173,9 +173,16 @@ describe('AC-I3-61 보조자 권한 — 허용 목록 밖은 기본으로 막힘
     'POST /api/broadcasts/x1/paste',
     // BND1(AC-BND1-15): 보조자는 회차의 밴드 연결 상태 보기만 된다. 바꾼 기존 시험(BND1 dev-notes)
     'GET /api/broadcasts/x1/band',
+    // SMS3(D-SMS3-12·14): 문자 확인 칸은 문자찜 입력과 같은 권한 — 보조자도 카드 보기·넣기·승인·무시, 받기 멈춤 알림용 설정 읽기. 토큰 만들기·켜기·끄기는 판매자만
+    'GET /api/inbox/settings',
+    'GET /api/inbox/cards',
+    'POST /api/inbox/cards/x1/insert',
+    'POST /api/inbox/cards/x1/approve',
+    'POST /api/inbox/cards/x1/ignore',
   ])
   /** 세션을 강제하지 않는 공개 경로 (로그인·헬스체크) — 보조자 쿠키가 있어도 그대로 */
-  const PUBLIC = new Set(['POST /api/login', 'GET /api/health'])
+  // SMS3 기기 입구(POST /api/inbox/messages)는 세션이 아니라 받기 토큰으로만 받는다 (C-02 — 보조자 쿠키로는 401)
+  const PUBLIC = new Set(['POST /api/login', 'GET /api/health', 'POST /api/inbox/messages'])
 
   it('서버에 등록된 모든 경로를 보조자 세션으로 부르면 허용 목록만 403이 아니다 (나중에 더한 경로도 따로 막지 않아도 막힘)', async () => {
     const w = await world()

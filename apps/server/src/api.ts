@@ -39,6 +39,8 @@ import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.t
 import { WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
 import type { BillingService } from './billing/service.ts'
 import { registerDepositRoutes } from './deposit/api.ts'
+import { registerInboxRoutes } from './inbox/routes.ts'
+import type { InboxService } from './inbox/service.ts'
 import { registerExtensionRoutes } from './extension/routes.ts'
 import type { ExtensionService } from './extension/service.ts'
 import type { DepositService } from './deposit/service.ts'
@@ -80,6 +82,8 @@ export interface ApiDeps {
   readonly instagram?: InstagramModule
   /** 입금 확인 (N3). 없으면 /api/deposits 경로가 없고 날짜 범위 조회에 입금 연결이 없다 */
   readonly deposits?: DepositService
+  /** 휴대폰 알림 받기 설정·문자 확인 카드 (SMS3). 없으면 /api/inbox/** 화면 경로가 없다 */
+  readonly inbox?: InboxService
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
   /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다 / 시험 모드 신호 testPrinter — E2E 기동만 켠다, I1) */
@@ -950,6 +954,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 입금 확인 (N3, DEPOSIT_RULES) ─────────────────────────────────────
   if (deps.deposits !== undefined) registerDepositRoutes(api, deps.deposits)
+  if (deps.inbox !== undefined) registerInboxRoutes(api, deps.inbox)
 
   // ── 택배 자동 접수 (T1, PARCEL_RULES) — 판매자만(보조자는 roles.ts 허용 목록 밖이라 403) ──
   if (deps.parcels !== undefined) registerParcelRoutes(api, deps.parcels.service, deps.parcels.db)

@@ -8,6 +8,7 @@ import {
   currentBuyerOf,
   getBroadcast,
   getBuyer,
+  getProduct,
   isValidDate,
   listBlocked,
   listBroadcasts,
@@ -724,6 +725,72 @@ export class Service {
     // 이 요청이 등록했는데 커밋되지 않았으면 뺀다 (같은 요청 번호의 처음 응답(duplicate)은 이 요청이 등록하지 않았으니 그대로 둔다)
     if (remembered && outcome.kind !== 'ok') this.#voiceRepeats.forget(voiceScope, requestId)
     return { kind: 'phone', outcome: await this.#smsOutcome(sellerId, outcome, ref), phoneLast4: normalized === null ? null : phoneLast4(normalized) }
+  }
+
+  /** 판매자 키로 만든 전화번호 키 (SMS3 문자 확인 카드의 취소 승인 — 그 번호의 문자 구매자를 찾는다). 값은 로그에 남기지 않는다 */
+  async phoneKeyFor(sellerId: string, normalizedPhone: string): Promise<string> {
+    return phoneKeyOf(await this.#sellerKey(sellerId), normalizedPhone)
+  }
+
+  /**
+   * 휴대폰에서 받은 문자찜 넣기 (SMS3 ORD-13 "문자찜 넣기", D-SMS3-12): 지금의 `sms` 이벤트를 같은 기록 경로로 넣는다.
+   * - ref는 `ibx_`로 시작한다(화면의 "문자로 받음" 표시). 전화번호는 판매자 키의 HMAC과 뒤 4자리로만(AC-S04-31과 같음), 없으면 새 문자 구매자.
+   * - checkOnSale이면 기록 직전(범위 줄 안 최신 상태)에 그 번호의 상품이 없거나 판매 중이 아니면(READY·HOLD·CLOSED) 409 NOT_ON_SALE로 넣지 않는다.
+   * - actor: 바로 넣기는 서버, 카드에서 넣기는 판매자 계정
+   */
+  async writeInboxSms(
+    sellerId: string,
+    actor: Actor,
+    input: {
+      readonly b: string
+      readonly requestId: string
+      readonly no: number
+      readonly receivedMs: number
+      readonly memo: string | null
+      readonly phone: string | null
+      readonly checkOnSale: boolean
+      readonly extra?: Readonly<Record<string, unknown>>
+    },
+  ): Promise<WriteOutcome> {
+    const row = await findBroadcast(this.#options.db, sellerId, input.b)
+    if (row === null) return { kind: 'not_found' }
+    const normalized = input.phone === null ? null : normalizePhone(input.phone)
+    const sellerKey = normalized === null ? null : await this.#sellerKey(sellerId)
+    const phoneFields = normalized === null || sellerKey === null ? {} : { phoneKey: phoneKeyOf(sellerKey, normalized), phoneLast4: phoneLast4(normalized) }
+    const ref = `ibx_${this.#smsRef()}`.slice(0, 64)
+    const outcome = await this.#options.writer.write({
+      sellerId,
+      date: row.date,
+      rehearsal: row.rehearsal,
+      createScope: false,
+      requestId: input.requestId,
+      build: (ctx) => {
+        if (input.checkOnSale) {
+          const product = getProduct(ctx.state, input.b, input.no)
+          if (product === null || product.status === 'READY' || product.status === 'HOLD' || product.status === 'CLOSED') {
+            return rejection(409, 'NOT_ON_SALE', `${String(input.no)}번은 지금 판매 중이 아니에요`)
+          }
+        }
+        return [
+          {
+            fields: {
+              ...(input.extra ?? {}),
+              type: 'sms',
+              b: input.b,
+              no: input.no,
+              ref,
+              received: kstTime(input.receivedMs),
+              ...(input.memo === null || input.memo === '' ? {} : { memo: input.memo }),
+              ...phoneFields,
+            },
+            actor,
+            requestId: input.requestId,
+            smsRef: ref,
+          },
+        ]
+      },
+    })
+    return this.#smsOutcome(sellerId, outcome, ref)
   }
 
   /**

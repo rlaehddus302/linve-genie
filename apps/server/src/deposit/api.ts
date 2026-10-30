@@ -82,6 +82,16 @@ export function registerDepositRoutes(api: Hono<Env>, deposits: DepositService):
 
   api.get('/deposits/count', async (c) => c.json(await deposits.count(sellerOf(c))))
 
+  // 은행 알림 줄 (SMS3 DP-9 9 — 입금 취소·읽지 못한 알림. "확인했어요"로 닫는다)
+  api.get('/deposits/alerts', async (c) => c.json(await deposits.alerts(sellerOf(c))))
+  api.post('/deposits/alerts/:id/close', async (c) => {
+    const extra = onlyKeys(body(c), [])
+    if (extra !== null) return extra
+    const id = c.req.param('id')
+    if (!NO_RE.test(id)) return notFound()
+    return respond(c, await deposits.closeAlert(sellerOf(c), Number(id)))
+  })
+
   // ── 원천 (AC-N3-14·15·16·17) ────────────────────────────────────────────
   api.get('/deposits/sources', async (c) => c.json(await deposits.sources(sellerOf(c))))
 

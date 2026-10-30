@@ -1585,7 +1585,7 @@ export const depositSources = pgTable(
     sellerId: text('seller_id')
       .notNull()
       .references(() => sellers.id),
-    /** POPBILL · PASTE · FAKE */
+    /** POPBILL · PASTE · FAKE · PHONE(휴대폰 알림, SMS3) */
     kind: text('kind').notNull(),
     /** 표시 이름 (예: "국민 1234", "붙여넣기") */
     label: text('label').notNull(),
@@ -1604,7 +1604,12 @@ export const depositSources = pgTable(
     createdAt: timestamptz('created_at').notNull(),
     updatedAt: timestamptz('updated_at').notNull(),
   },
-  (t) => [index('deposit_sources_seller_idx').on(t.sellerId), uniqueIndex('deposit_sources_paste_uq').on(t.sellerId).where(sql`kind = 'PASTE'`)],
+  (t) => [
+    index('deposit_sources_seller_idx').on(t.sellerId),
+    uniqueIndex('deposit_sources_paste_uq').on(t.sellerId).where(sql`kind = 'PASTE'`),
+    // 휴대폰 알림 원천 (SMS3 DP-1 PHONE — 판매자마다 하나, D-DEP2-01)
+    uniqueIndex('deposit_sources_phone_uq').on(t.sellerId).where(sql`kind = 'PHONE'`),
+  ],
 )
 
 /**
@@ -1642,6 +1647,11 @@ export const deposits = pgTable(
     receivedAt: timestamptz('received_at').notNull(),
     /** 마지막 처리 시각 (자동 확인·확정·무시·다시 확인 필요로·되돌리기) */
     handledAt: timestamptz('handled_at'),
+    /**
+     * 휴대폰 알림 입금의 저장 때 표시 (SMS3 DP-9 9 — DP-5 "먼저 보는 것"): UNTRUSTED_SOURCE 믿지 않는 보낸 곳 · BALANCE_GAP 잔액이 이어지지 않음.
+     * 있으면 자동 확인하지 않고, 볼 때 다시 계산해도 이 사유 그대로다(ONE_MATCH가 되지 않는다). 그 밖은 null
+     */
+    phoneFlag: text('phone_flag'),
   },
   (t) => [
     unique('deposits_no_uq').on(t.sellerId, t.no),
@@ -2215,7 +2225,132 @@ export const voiceAliases = pgTable('voice_aliases', {
   aliases: text('aliases').notNull().default('[]'),
 })
 
+/**
+ * 휴대폰 알림 받기 설정 (SMS3 ORD-13 C-02, D-SMS3-04): 판매자마다 한 행. 받기 토큰은 SHA-256 해시만 둔다(원문 없음).
+ * 다시 만들면 해시가 바뀌어 옛 토큰은 바로 무효, 끄면(enabled=false) 모든 요청 401. 마지막으로 받은 시각·기기 이름(C-04 device)은 설정 화면·받기 멈춤 알림용
+ */
+export const inboxSettings = pgTable(
+  'inbox_settings',
+  {
+    sellerId: text('seller_id')
+      .primaryKey()
+      .references(() => sellers.id),
+    enabled: boolean('enabled').notNull().default(false),
+    tokenHash: text('token_hash'),
+    tokenCreatedAt: timestamptz('token_created_at'),
+    lastReceivedAt: timestamptz('last_received_at'),
+    lastDevice: text('last_device'),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [uniqueIndex('inbox_settings_token_uq').on(t.tokenHash)],
+)
+
+/** 받은 id (C-06 같은 id 24시간): 기기가 붙인 id의 해시(판매자와 묶음)와 받은 시각만 */
+export const inboxSeen = pgTable(
+  'inbox_seen',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    idHash: text('id_hash').notNull(),
+    seenAt: timestamptz('seen_at').notNull(),
+  },
+  (t) => [unique('inbox_seen_uq').on(t.sellerId, t.idHash), index('inbox_seen_time_idx').on(t.seenAt)],
+)
+
+/** 같은 문자 표지 (C-06 — 보낸 곳·본문이 같고 받은 시각 60초 안): 보낸 곳·본문의 HMAC(마스터 키)과 휴대폰이 받은 시각만. 24시간 뒤 지운다 */
+export const inboxSmsSeen = pgTable(
+  'inbox_sms_seen',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    sig: text('sig').notNull(),
+    receivedAt: timestamptz('received_at').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [index('inbox_sms_seen_sig_idx').on(t.sellerId, t.sig), index('inbox_sms_seen_time_idx').on(t.createdAt)],
+)
+
+/**
+ * 문자 확인 카드 (SMS3 ORD-13 "문자 확인 목록", D-SMS3-12·13): 확인 필요(REVIEW — why UNCLEAR·NO_NUMBER·OPTIONS·NOT_ON_SALE)와 취소 요청(CANCEL).
+ * 본문·보낸 번호·보낸 이름은 sealed에만(판매자에 묶어 마스터 키로 AES-256-GCM). 처리(넣기·승인·무시)하면 sealed를 바로 지우고,
+ * 처리하지 않은 카드는 방송이 끝나고 24시간 뒤 행째 지운다(C-07). numbers = 번호 후보 JSON 배열, memo = R-26이 읽은 이름(한글)
+ */
+export const inboxCards = pgTable(
+  'inbox_cards',
+  {
+    id: text('id').primaryKey(),
+    /** 받은 차례 (같은 시각에 받은 카드의 순서) */
+    seq: bigserial('seq', { mode: 'number' }).notNull(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    broadcastId: text('broadcast_id').notNull(),
+    /** REVIEW · CANCEL */
+    kind: text('kind').notNull(),
+    why: text('why'),
+    numbers: text('numbers').notNull(),
+    memo: text('memo'),
+    last4: text('last4'),
+    sealed: text('sealed'),
+    /** 휴대폰이 받은 시각 (UTC) */
+    receivedAt: timestamptz('received_at').notNull(),
+    /** OPEN 처리 전 · DONE 넣기·승인 · IGNORED 무시 */
+    status: text('status').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    handledAt: timestamptz('handled_at'),
+  },
+  (t) => [index('inbox_cards_open_idx').on(t.sellerId, t.broadcastId, t.status, t.createdAt)],
+)
+
+/**
+ * 은행 알림 줄 (SMS3 DP-9 9, D-DEP2-06): 믿을 보낸 곳의 입금 취소(CANCEL — 금액·이름·시각)와 읽지 못함(UNREADABLE — 은행·받은 시각만).
+ * 본문은 두지 않는다(DP-INV-8). "확인했어요"로 닫거나(closed_at) 받은 지 30일이 지나면 보이지 않는다
+ */
+export const bankAlerts = pgTable(
+  'bank_alerts',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    kind: text('kind').notNull(),
+    bank: text('bank').notNull(),
+    amount: integer('amount'),
+    name: text('name'),
+    at: timestamptz('at'),
+    receivedAt: timestamptz('received_at').notNull(),
+    closedAt: timestamptz('closed_at'),
+  },
+  (t) => [index('bank_alerts_seller_idx').on(t.sellerId, t.receivedAt)],
+)
+
+/** 잔액 기록 (SMS3 DP-9 9 잔액 이어짐, D-DEP2-04): 믿을 휴대폰 알림(입금·출금·입금 취소)의 (은행, 알림 시각, 잔액)만. 금액·가맹점·이름은 두지 않는다 */
+export const bankBalances = pgTable(
+  'bank_balances',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    bank: text('bank').notNull(),
+    at: timestamptz('at').notNull(),
+    balance: bigint('balance', { mode: 'number' }).notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [index('bank_balances_seller_idx').on(t.sellerId, t.bank, t.at)],
+)
+
 export const schema = {
+  inboxSettings,
+  inboxSeen,
+  inboxSmsSeen,
+  inboxCards,
+  bankAlerts,
+  bankBalances,
   voiceAliases,
   sellers,
   accounts,

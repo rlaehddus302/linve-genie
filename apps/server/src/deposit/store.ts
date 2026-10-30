@@ -5,7 +5,9 @@ import type { Db } from '../db/database.ts'
 import { accounts, depositActions, depositCorpBindings, depositLinks, depositLockKey, depositNames, depositRequests, deposits, depositSources, scopes } from '../db/schema.ts'
 
 export type DepositStatus = 'REVIEW' | 'AUTO_APPLIED' | 'APPLIED' | 'IGNORED'
-export type SourceKind = 'POPBILL' | 'PASTE' | 'FAKE'
+export type SourceKind = 'POPBILL' | 'PASTE' | 'FAKE' | 'PHONE'
+/** 휴대폰 알림 입금의 저장 때 표시 (SMS3 DP-9 9) */
+export type PhoneFlag = 'UNTRUSTED_SOURCE' | 'BALANCE_GAP'
 export type DepositPrecision = 'second' | 'minute'
 export type DepositAction = 'RECEIVED' | 'AUTO' | 'CONFIRM' | 'IGNORE' | 'REOPEN' | 'REVERT'
 
@@ -99,6 +101,26 @@ export async function ensurePasteSource(db: Db, sellerId: string, newId: string,
   return row
 }
 
+/** 휴대폰 알림 원천 (SMS3 D-DEP2-01 — 판매자마다 하나, 없으면 만든다. 받기 토큰을 처음 만들 때) */
+export async function ensurePhoneSource(db: Db, sellerId: string, newId: string, now: Date): Promise<SourceRow> {
+  await db
+    .insert(depositSources)
+    .values({ id: newId, sellerId, kind: 'PHONE', label: '휴대폰 알림', intervalMin: 5, createdAt: now, updatedAt: now })
+    .onConflictDoNothing({ target: depositSources.sellerId, where: sql`kind = 'PHONE'` })
+  const row = await findPhoneSource(db, sellerId)
+  if (row === null) throw new Error('휴대폰 알림 원천을 만들지 못했다')
+  return row
+}
+
+export async function findPhoneSource(db: Db, sellerId: string): Promise<SourceRow | null> {
+  const rows = await db
+    .select(sourceColumns)
+    .from(depositSources)
+    .where(and(eq(depositSources.sellerId, sellerId), eq(depositSources.kind, 'PHONE')))
+    .limit(1)
+  return (rows[0] as SourceRow | undefined) ?? null
+}
+
 export async function findPasteSource(db: Db, sellerId: string): Promise<SourceRow | null> {
   const rows = await db
     .select(sourceColumns)
@@ -140,6 +162,8 @@ export interface DepositRow {
   readonly appliedSeq: number | null
   readonly receivedAt: Date
   readonly handledAt: Date | null
+  /** 휴대폰 알림 입금의 저장 때 표시 (없으면 null) */
+  readonly phoneFlag: PhoneFlag | null
 }
 
 const depositColumns = {
@@ -159,6 +183,7 @@ const depositColumns = {
   appliedSeq: deposits.appliedSeq,
   receivedAt: deposits.receivedAt,
   handledAt: deposits.handledAt,
+  phoneFlag: deposits.phoneFlag,
 }
 
 export async function findDeposit(db: Db, sellerId: string, no: number): Promise<DepositRow | null> {
@@ -244,6 +269,8 @@ export interface NewDeposit {
   readonly precision: DepositPrecision
   readonly amount: number
   readonly name: string
+  /** 휴대폰 알림 입금의 저장 때 표시 (SMS3 — 없으면 null) */
+  readonly phoneFlag?: PhoneFlag | null
 }
 
 /** 새 입금 넣기 (같은 외부 키가 있으면 넣지 않는다 — 넣은 행의 id·번호를 돌려준다) */

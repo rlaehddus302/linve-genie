@@ -50,6 +50,8 @@ import type { BandSettings } from './band/config.ts'
 import { recordPlatformChats } from './platform-record.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
+import { registerInboxIntake } from './inbox/routes.ts'
+import { InboxService } from './inbox/service.ts'
 import { ParcelService, type ParcelOptions } from './parcel/service.ts'
 import { createExtensionApp } from './extension/routes.ts'
 import { ExtensionService } from './extension/service.ts'
@@ -207,6 +209,8 @@ export interface ServerOptions {
   readonly backupStartDelayMs?: number
   /** 입금 확인 설정 (N3): 시험 모드(가짜 원천 — E2E 기동만)·팝빌 전송(연동 키가 있을 때)·주기 덮어쓰기(E2E 기동만)·시험용 타이머 */
   readonly deposits?: DepositOptions
+  /** 휴대폰 알림 받기 (SMS3): 1분 한도 덮어쓰기 (시험만) */
+  readonly inbox?: { readonly rateLimit?: number }
   /**
    * 택배 자동 접수 (T1, PARCEL_RULES): 이어진 택배사 어댑터(가짜 택배사 FAKE — E2E 기동·서버 시험만, 운영 기동은 비어 있다 → 설정에 "우체국 택배 — 준비 중"만)·
    * 조회 간격(기본 30분)·배송지 정리 간격(기본 1시간)·한 번에 접수할 때 동시에 보내는 수
@@ -259,6 +263,7 @@ export interface LivejjimServer {
   readonly work: WorkPools
   /** 입금 확인 (N3) */
   readonly deposits: DepositService
+  readonly inbox: InboxService
   /** 택배 자동 접수 (T1) — 주기 작업(조회·배송지 정리)은 start()가 돌린다 */
   readonly parcels: ParcelService
   /** 간편 로그인 (L1 — 설정이 없으면 켜진 공급자가 없다) */
@@ -631,6 +636,18 @@ export function createServer(options: ServerOptions): LivejjimServer {
     publish: (sellerId, data) => hub.publishDeposit(sellerId, data),
     options: options.deposits ?? {},
   })
+  // 휴대폰 알림 받기 (SMS3 ORD-13·PAY-02): 손님 문자 → 지금의 sms 이벤트, 은행 알림 → 입금 확인
+  const inbox = new InboxService({
+    db,
+    service,
+    writer,
+    deposits,
+    clock,
+    masterKey,
+    log,
+    publish: (sellerId, data) => hub.publishInbox(sellerId, data),
+    ...(options.inbox?.rateLimit === undefined ? {} : { rateLimit: options.inbox.rateLimit }),
+  })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
   // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
   // 크롬 확장으로 틱톡 댓글 읽기 (TTX — 직접 연결의 대비책, 같은 '채팅' 이벤트·같은 틱톡 연결 조건)
@@ -678,6 +695,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       tiktok: { db, live: tiktokLive, paste },
       band: bandService,
       deposits,
+      inbox,
       parcels: { service: parcels, db },
       appOrigin: options.appOrigin,
       clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
@@ -700,6 +718,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
     webhooks: createWebhookApp(instagramModule),
+    inbox: (app) => registerInboxIntake(app, inbox, log),
     receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer }),
   })
   registerVoiceRelay(app, voice)
@@ -729,6 +748,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     backups,
     work,
     deposits,
+    inbox,
     parcels,
     social,
     extension,
