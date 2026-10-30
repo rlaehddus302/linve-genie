@@ -145,7 +145,13 @@ export function quotaChangeNotice(previous: QuotaMode | null, next: QuotaMode): 
 // ── 수집 상태 (YT-03, D-I3-04) ────────────────────────────────────────────
 
 /** 경고를 띄우는 멈춤 이유 (AC-I3-25) — 판매자가 끊음(UNLINKED)·봉인(SEALED)은 경고가 아니다 */
-export const WARN_REASONS: ReadonlySet<string> = new Set(['RECONNECT', 'NOT_CONNECTED', 'NOT_MY_CHANNEL', 'QUOTA', 'CHAT_DISABLED', 'FORBIDDEN', 'CHAT_NOT_FOUND'])
+export const WARN_REASONS: ReadonlySet<string> = new Set(['RECONNECT', 'NOT_CONNECTED', 'NOT_MY_CHANNEL', 'QUOTA', 'CHAT_DISABLED', 'FORBIDDEN', 'CHAT_NOT_FOUND', 'OPERATOR_OFF'])
+/** 서버 웹 읽기의 막힘·형식 변경 (YT-11 AC5, D-YT-SRV-06) — "다시 연결하는 중"이어도 10초 기다리지 않고 바로 경고한다 */
+export const IMMEDIATE_RETRY_REASONS: ReadonlySet<string> = new Set(['BLOCKED', 'FORMAT'])
+/** 서버 문장을 그대로 경고 한 줄로 쓰는 이유 (YT-11 AC5·AC6 — 앞머리 "받지 못하고 있어요"를 붙이지 않는다) */
+const OWN_SENTENCE_REASONS: ReadonlySet<string> = new Set(['BLOCKED', 'FORMAT', 'OPERATOR_OFF'])
+/** 막힘·형식 변경이 풀려 다시 받을 때 유튜브 칸에 보이는 줄 (YT-11 AC5) */
+export const RESUMED_MESSAGE = '유튜브 채팅을 다시 받고 있어요. 막힌 동안 손으로 넣은 주문과 겹치지 않는지 봐 주세요.'
 /** "다시 연결하는 중"이 이만큼 이어져야 경고를 띄운다 (깜빡임 방지) */
 export const RETRYING_WARN_MS = 10_000
 export const STOP_WARNING_PREFIX = '유튜브 채팅을 받지 못하고 있어요'
@@ -160,17 +166,20 @@ export interface CollectorWarning {
 
 /**
  * 콘솔 고정 영역의 수집 멈춤 경고 (AC-I3-25). retryingLong = "다시 연결하는 중"이 10초 넘게 이어졌는가.
+ * 막힘·형식 변경(RETRYING + BLOCKED·FORMAT)과 운영자 끔(STOPPED + OPERATOR_OFF)은 바로, 서버 문장 그대로 (YT-11 AC5·AC6).
  * 끝난 방송·채팅이 끝남·시작하는 중(예정 방송)·마침은 경고가 없다
  */
 export function collectorWarning(collector: CollectorView | null, retryingLong: boolean): CollectorWarning | null {
   if (collector === null) return null
   const stopped = collector.status === 'STOPPED' && collector.reason !== null && WARN_REASONS.has(collector.reason)
-  const retrying = collector.status === 'RETRYING' && retryingLong
+  const immediate = collector.reason !== null && IMMEDIATE_RETRY_REASONS.has(collector.reason)
+  const retrying = collector.status === 'RETRYING' && (retryingLong || immediate)
   if (!stopped && !retrying) return null
   const detail = collector.reasonMessage ?? collector.statusMessage
   const reconnect = collector.reason === 'RECONNECT' || collector.reason === 'NOT_CONNECTED'
+  const own = collector.reason !== null && OWN_SENTENCE_REASONS.has(collector.reason) && collector.reasonMessage !== null
   return {
-    message: `${STOP_WARNING_PREFIX} — ${detail}`,
+    message: own ? detail : `${STOP_WARNING_PREFIX} — ${detail}`,
     reconnect,
     // 다시 연결해야 하는 멈춤은 연결을 고치면 저절로 이어받는다 — 할 일 버튼은 "다시 연결하기" 하나만 (헷갈리지 않게)
     restartable: collector.restartable && !reconnect,
@@ -214,6 +223,16 @@ export function channelName(title: unknown): string {
 /** 확인 줄 (AC-INV1-05) */
 export function invitedQuestion(name: string): string {
   return `내 채널 방송이 아니에요 (채널: ${name}). 초대받은 방송이 맞나요?`
+}
+
+/** 서버 잇기의 처음 잇는 채널 확인 줄 (YT-02 서버 잇기, D-YT-SRV-03 — 위 INV1 줄을 대신한다) */
+export function firstChannelQuestion(name: string): string {
+  return `처음 잇는 채널이에요 (채널: ${name}). 이 방송이 맞나요?`
+}
+
+/** 서버 잇기의 콘솔 유튜브 칸 한 줄 (YT-02 서버 잇기 — "초대받은 방송 · …" 줄을 대신한다) */
+export function webLinkLine(name: string): string {
+  return `유튜브 방송 · ${name}`
 }
 
 /** 콘솔 유튜브 칸 한 줄 (AC-INV1-05) */

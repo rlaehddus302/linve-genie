@@ -1504,7 +1504,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
               제목 밑에 남고 스크롤해도 늘 보인다. 누르는 기능이 없어 Tab 차례는 그대로. PC·끝난 방송에는 없다 (QL2 D-QL2-11 (1)·D-QL2-14 (1)) */}
           {wide || ended || sealed ? null : <CurrentSummary product={current} />}
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
-          <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
+          <CollectorWarningBar navigate={navigate} ended={ended || sealed} onPaste={openPaste} />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
           <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} invited={invitedChannelName(yt.link?.link ?? null) !== null} />
           <QuotaToast />

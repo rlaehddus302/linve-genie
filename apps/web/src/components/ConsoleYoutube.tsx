@@ -24,10 +24,14 @@ import {
   RECONNECT_NEEDED_MESSAGE,
   REHEARSAL_OUTBOX,
   REHEARSAL_YOUTUBE,
+  IMMEDIATE_RETRY_REASONS,
+  RESUMED_MESSAGE,
   RETRYING_WARN_MS,
   SEALED_READ_ONLY,
   TARGET_WORD,
+  channelName,
   collectorWarning,
+  firstChannelQuestion,
   hasChannel,
   invitedChannelName,
   invitedConfirmOf,
@@ -39,6 +43,7 @@ import {
   quotaChangeNotice,
   thanksFailedCount,
   unconfirmedWarning,
+  webLinkLine,
 } from '../lib/youtube.ts'
 import { EXTENSION_THANKS_VIA } from '../lib/extension.ts'
 import { openBlockAction } from './actions.ts'
@@ -85,6 +90,10 @@ export interface ConsoleYoutube {
   readonly thanksFailed: number
   readonly toast: string | null
   readonly retryingLong: boolean
+  /** 서버가 방송 주소만으로 채팅을 읽는다 (YT-11 — 구글 연결 없이 잇기 칸을 연다, 옛 공식 읽기 서버면 false) */
+  readonly serverRead: boolean
+  /** 막힘·형식 변경이 풀려 다시 받는 중 (YT-11 AC5 — 유튜브 칸에 한 줄) */
+  readonly resumed: boolean
   /** 감사 메시지 줄마다 보내는 중·오류 */
   readonly rowBusy: ReadonlySet<number>
   readonly rowErrors: ReadonlyMap<number, ApiError>
@@ -118,6 +127,8 @@ export function useConsoleYoutube({ store, broadcastId, date, rehearsal, lastMes
   const [outbox, setOutbox] = useState<readonly OutboxRow[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [retryingLong, setRetryingLong] = useState(false)
+  const [serverRead, setServerRead] = useState(false)
+  const [resumed, setResumed] = useState(false)
   const [rowBusy, setRowBusy] = useState<ReadonlySet<number>>(new Set())
   const [rowErrors, setRowErrors] = useState<ReadonlyMap<number, ApiError>>(new Map())
   const alive = useRef(true)
@@ -192,10 +203,11 @@ export function useConsoleYoutube({ store, broadcastId, date, rehearsal, lastMes
   const loadAll = useCallback(async () => {
     let current: YoutubeConnection
     try {
-      const result = await get<{ connection: YoutubeConnection }>('/api/youtube/connection')
+      const result = await get<{ connection: YoutubeConnection; webChat?: { readonly on: boolean } | null }>('/api/youtube/connection')
       current = result.connection
       if (!alive.current) return
       configured.current = true
+      setServerRead(result.webChat !== null && result.webChat !== undefined)
       setConnection({ phase: 'ready', connection: current })
     } catch (error) {
       if (!alive.current || !isApiError(error)) return
@@ -299,6 +311,22 @@ export function useConsoleYoutube({ store, broadcastId, date, rehearsal, lastMes
     const timer = setTimeout(() => setRetryingLong(true), RETRYING_WARN_MS)
     return () => clearTimeout(timer)
   }, [collectorStatus])
+
+  // 막힘·형식 변경 뒤 다시 받는 중이 되면 "유튜브 채팅을 다시 받고 있어요…" (YT-11 AC5 — 서버에 남는 표시는 없어 상태 전환으로 띄운다)
+  const collectorReason = link?.collector?.reason ?? null
+  const blockedBefore = useRef(false)
+  useEffect(() => {
+    if (collectorStatus === 'RETRYING' && collectorReason !== null && IMMEDIATE_RETRY_REASONS.has(collectorReason)) {
+      blockedBefore.current = true
+      setResumed(false)
+    } else if (collectorStatus === 'LIVE') {
+      if (blockedBefore.current) setResumed(true)
+      blockedBefore.current = false
+    } else if (collectorStatus === null || collectorStatus === 'STOPPED' || collectorStatus === 'CHAT_ENDED' || collectorStatus === 'FINISHED') {
+      blockedBefore.current = false
+      setResumed(false)
+    }
+  }, [collectorStatus, collectorReason])
 
   const updateRows = useCallback((rows: readonly OutboxRow[]) => {
     const changed = byId(rows)
@@ -411,6 +439,8 @@ export function useConsoleYoutube({ store, broadcastId, date, rehearsal, lastMes
     thanksFailed,
     toast,
     retryingLong,
+    serverRead,
+    resumed,
     rowBusy,
     rowErrors,
     setLink,
@@ -427,7 +457,7 @@ export function useConsoleYoutube({ store, broadcastId, date, rehearsal, lastMes
 // ── 고정 영역 ──────────────────────────────────────────────────────────
 
 /** 수집 멈춤 경고 한 줄 (AC-I3-25) — 빠른 입력칸의 포커스를 빼앗지 않는다 */
-export function CollectorWarningBar({ navigate, ended }: { readonly navigate: Navigate; readonly ended: boolean }) {
+export function CollectorWarningBar({ navigate, ended, onPaste }: { readonly navigate: Navigate; readonly ended: boolean; readonly onPaste?: () => void }) {
   const yt = useYoutube()
   const [error, setError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
@@ -470,6 +500,15 @@ export function CollectorWarningBar({ navigate, ended }: { readonly navigate: Na
           채팅 다시 받기
         </button>
       ) : null}
+      {/* 대비 경로 (YT-11 AC8): 댓글 붙여넣기("닉네임: 댓글" 줄 → 문자찜)·문자찜 손 입력 */}
+      {onPaste !== undefined ? (
+        <button type="button" className="button" onClick={onPaste}>
+          댓글 붙여넣기
+        </button>
+      ) : null}
+      <button type="button" className="button" onClick={() => navigate({ name: 'sms' })}>
+        문자찜 손 입력
+      </button>
       {error !== null ? <span className="field-error">{error.message}</span> : null}
     </div>
   )
@@ -548,7 +587,7 @@ function ReadyPanel({ connection, navigate, ended, sealed, onOpenOutbox, onUnlin
   const writable = !ended && !sealed
   return (
     <>
-      {connection.status === 'NOT_CONNECTED' ? (
+      {connection.status === 'NOT_CONNECTED' && !yt.serverRead ? (
         <p className="notice">
           {CONSOLE_NOT_CONNECTED} <SettingsLink navigate={navigate}>유튜브 연결하러 가기</SettingsLink>
         </p>
@@ -561,7 +600,7 @@ function ReadyPanel({ connection, navigate, ended, sealed, onOpenOutbox, onUnlin
       {yt.linkError !== null ? <ErrorNote error={yt.linkError} onRetry={() => void yt.reloadLink()} retryLabel="다시 불러오기" /> : null}
       {yt.link === null && yt.linkError === null ? <p role="status">불러오는 중…</p> : null}
       {yt.link !== null && linked === null ? (
-        writable && connection.status === 'CONNECTED' ? <LinkPicker /> : <p>이은 유튜브 방송이 없어요.</p>
+        writable && (connection.status === 'CONNECTED' || yt.serverRead) ? <LinkPicker /> : <p>이은 유튜브 방송이 없어요.</p>
       ) : null}
       {linked !== null ? <CollectorStatus writable={writable} onUnlink={onUnlink} /> : null}
       {yt.quota !== null && yt.quota.mode !== 'NORMAL' && hasChannel(connection) ? (
@@ -585,7 +624,9 @@ function CollectorStatus({ writable, onUnlink }: { readonly writable: boolean; r
   const collector = yt.link?.collector ?? null
   const link = yt.link?.link ?? null
   // 초대 방송이면 채널 이름 한 줄 (내 방송·옛 기록이면 없음, AC-INV1-05·D-INV1-01)
-  const invited = invitedChannelName(link)
+  // 서버 잇기면 늘 "유튜브 방송 · {채널 이름}" (YT-02 서버 잇기 — 초대 방송 줄을 대신한다)
+  const invited = yt.serverRead ? null : invitedChannelName(link)
+  const webLine = yt.serverRead && link !== null ? webLinkLine(channelName(link.broadcastChannelTitle)) : null
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const restart = async () => {
@@ -605,6 +646,7 @@ function CollectorStatus({ writable, onUnlink }: { readonly writable: boolean; r
     <div className="stack-tight collector-status" role="group" aria-label="채팅 수집">
       {link !== null ? <p>이은 유튜브 방송: 영상 {link.videoId}</p> : null}
       {invited !== null ? <p className="invited-broadcast">{invitedLine(invited)}</p> : null}
+      {webLine !== null ? <p className="invited-broadcast">{webLine}</p> : null}
       {collector === null ? null : (
         <>
           <p>
@@ -615,6 +657,7 @@ function CollectorStatus({ writable, onUnlink }: { readonly writable: boolean; r
           {collector.lastMessageAt !== null ? <p>마지막 채팅 {kstClockWords(collector.lastMessageAt)}</p> : null}
           {collector.skippedBeforeLink > 0 ? <p>잇기 전에 올라온 채팅 {groupDigits(collector.skippedBeforeLink)}개는 받지 않았어요.</p> : null}
           {collector.gap && collector.gapMessage !== null ? <p className="warning">{collector.gapMessage}</p> : null}
+          {yt.resumed && collector.status === 'LIVE' ? <p className="notice">{RESUMED_MESSAGE}</p> : null}
         </>
       )}
       {writable ? (
@@ -785,8 +828,8 @@ function LinkPicker() {
         </div>
       </div>
       {invitedAsk !== null ? (
-        <div className="stack-tight invited-confirm" role="group" aria-label="초대받은 방송 확인">
-          <p role="alert">{invitedQuestion(invitedAsk.name)}</p>
+        <div className="stack-tight invited-confirm" role="group" aria-label={yt.serverRead ? '처음 잇는 채널 확인' : '초대받은 방송 확인'}>
+          <p role="alert">{yt.serverRead ? firstChannelQuestion(invitedAsk.name) : invitedQuestion(invitedAsk.name)}</p>
           <div className="row">
             <button type="button" className="button button-primary" disabled={busy} onClick={() => void link(invitedAsk.video, true)}>
               맞아요, 잇기
