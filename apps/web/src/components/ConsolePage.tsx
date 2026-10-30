@@ -1467,7 +1467,32 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   )
 
   const inboxPanel = <SmsInboxPanel handle={inbox} readOnly={sealed} />
-  const inboxClaims = useMemo(() => inboxClaimIds(data.claims.values()), [data.claims])
+  const inboxClaims = useMemo(() => inboxClaimIds(data.claims.values(), inbox.claimIds), [data.claims, inbox.claimIds])
+  // 실시간으로 들어온 문자찜 중 아직 묻지 않은 것이 있으면 "문자로 받음" 찜 ID를 다시 읽는다 (AC-SMS3-30, 한 찜에 한 번 — 묶어서)
+  const askedClaims = useRef<Set<string>>(new Set())
+  const askTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reloadInboxCards = inbox.reloadCards
+  useEffect(() => {
+    if (broadcast.rehearsal || sealed) return
+    let fresh = false
+    for (const claim of data.claims.values()) {
+      if (claim.origin !== 'sms' || inbox.claimIds.has(claim.id) || askedClaims.current.has(claim.id)) continue
+      askedClaims.current.add(claim.id)
+      fresh = true
+    }
+    if (!fresh || askTimer.current !== null) return
+    askTimer.current = setTimeout(() => {
+      askTimer.current = null
+      void reloadInboxCards()
+    }, 300)
+  }, [data.claims, inbox.claimIds, reloadInboxCards, broadcast.rehearsal, sealed])
+  useEffect(
+    () => () => {
+      if (askTimer.current !== null) clearTimeout(askTimer.current)
+      askTimer.current = null
+    },
+    [],
+  )
 
   return (
     <ConsoleContext.Provider value={api}>

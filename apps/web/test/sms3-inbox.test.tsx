@@ -4,20 +4,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { DepositView } from '../src/api/deposit-types.ts'
 import type { BankAlertView, InboxCardView, InboxSettingsView } from '../src/api/inbox-types.ts'
+import type { Claim } from '../src/api/types.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
 import { DepositProvider } from '../src/components/deposit-context.tsx'
 import { DepositsPage } from '../src/components/DepositsPage.tsx'
 import { PhoneInboxSettings, useInboxSettings } from '../src/components/PhoneInboxSettings.tsx'
 import {
   BANK_UNREADABLE,
+  INBOX_CANCEL_NAME_ONLY,
+  INBOX_FROM_SMS,
   INBOX_NAME_ONLY,
   INBOX_RENEW_QUESTION,
   INBOX_STALL,
   INBOX_STALL_MS,
+  INBOX_SHORTCUT_STEPS,
   INBOX_TOKEN_ONCE,
   bankNoticeMeta,
   bankNoticeWords,
   cancelMatches,
+  cancelNeedsBoard,
   closeStall,
   inboxClaimIds,
   inboxReasonWords,
@@ -25,6 +30,8 @@ import {
   inboxStalled,
   orderCards,
   parseInboxEvent,
+  readInboxCards,
+  shortcutStepParts,
   stallClosed,
 } from '../src/lib/inbox.ts'
 import type { Navigate } from '../src/lib/router.ts'
@@ -34,6 +41,8 @@ let server: FakeServer
 let navigate: Navigate
 let inbox: InboxSettingsView
 let cards: InboxCardView[]
+let claimIds: string[]
+let startedAt: string | null
 
 const settingsView = (patch: Partial<InboxSettingsView> = {}): InboxSettingsView => ({ enabled: false, hasToken: false, tokenCreatedAt: null, lastReceivedAt: null, lastDevice: null, ...patch })
 
@@ -65,7 +74,7 @@ function setupConsole() {
     .on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: null, collector: null } }))
     .on('GET', /^\/api\/platforms$/, () => ({ body: { platforms: [] } }))
     .on('GET', /^\/api\/inbox\/settings$/, () => ({ body: { inbox } }))
-    .on('GET', /^\/api\/inbox\/cards\?b=b1$/, () => ({ body: { cards } }))
+    .on('GET', /^\/api\/inbox\/cards\?b=b1$/, () => ({ body: { cards, inboxClaimIds: claimIds, startedAt } }))
 }
 
 beforeEach(() => {
@@ -73,6 +82,8 @@ beforeEach(() => {
   navigate = vi.fn()
   inbox = settingsView()
   cards = []
+  claimIds = []
+  startedAt = null
   vi.stubGlobal('fetch', server.fetch)
   vi.stubGlobal('EventSource', FakeEventSource)
   FakeEventSource.reset()
@@ -149,6 +160,37 @@ describe('낱말 (ORD-13 화면 문구, DP-8)', () => {
       { id: 'c4', origin: 'sms' },
     ])
     expect([...ids]).toEqual(['c1'])
+  })
+
+  it('"문자로 받음": 서버 cards 응답의 inboxClaimIds에 있는 문자찜 (TE-SMS3-001 — 찜 보기에 ref가 없어도)', () => {
+    const ids = inboxClaimIds(
+      [
+        { id: 'k1', origin: 'sms' },
+        { id: 'k2', origin: 'sms' },
+        { id: 'k3', origin: 'chat' },
+      ],
+      new Set(['k1', 'k3', 'k9']),
+    )
+    expect([...ids]).toEqual(['k1'])
+  })
+
+  it('cards 응답 읽기: 카드·찜 ID·방송 시작 시각, 모양이 다르면 빈 것', () => {
+    const read = readInboxCards({ cards: [card()], inboxClaimIds: ['k1', 3, 'k2'], startedAt: '2026-10-19T11:00:00.000Z' })
+    expect(read.cards).toHaveLength(1)
+    expect([...read.claimIds]).toEqual(['k1', 'k2'])
+    expect(read.startedAt).toBe('2026-10-19T11:00:00.000Z')
+    const old = readInboxCards({ cards: [] })
+    expect(old.claimIds.size).toBe(0)
+    expect(old.startedAt).toBeNull()
+    expect(readInboxCards({ cards: [], startedAt: '아님' }).startedAt).toBeNull()
+  })
+
+  it('이름만 온 문자의 취소 요청은 승인할 수 없다 (D-SMS3-19)', () => {
+    expect(cancelNeedsBoard({ kind: 'CANCEL', last4: null })).toBe(true)
+    expect(cancelNeedsBoard({ kind: 'CANCEL', last4: '5678' })).toBe(false)
+    expect(cancelNeedsBoard({ kind: 'CANCEL', last4: '5678', approvable: false })).toBe(true)
+    expect(cancelNeedsBoard({ kind: 'REVIEW', last4: null })).toBe(false)
+    expect(INBOX_CANCEL_NAME_ONLY).toBe('이름만 와서 누가 보냈는지 몰라요. 보드에서 직접 취소해 주세요')
   })
 })
 
@@ -257,6 +299,22 @@ describe('설정 "휴대폰 알림 받기" (AC-SMS3-28)', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByText(/\/api\/inbox\/messages$/)).toBeDefined()
   })
+
+  it('단축어 안내는 기기 입구 JSON 모양 그대로 칸 이름·값을 적고, 값은 코드 글꼴로 (SA-SMS3-004·D-SMS3-23)', async () => {
+    const all = INBOX_SHORTCUT_STEPS.join('\n')
+    for (const value of ['URL 콘텐츠 가져오기', '`POST`', '`Authorization`', '`Bearer`', '`JSON`', '`device`', '`messages`', '"사전"', '`id`', '`channel`', '`SMS`', '`from`', '`text`', '`receivedAt`']) expect(all).toContain(value)
+    expect(all).not.toContain('문자 보내기')
+    expect(shortcutStepParts('키는 `Authorization`, 값')).toEqual([
+      { text: '키는 ', value: false },
+      { text: 'Authorization', value: true },
+      { text: ', 값', value: false },
+    ])
+    render(<SettingsHarness />)
+    fireEvent.click(await screen.findByRole('button', { name: /아이폰 단축어 만들기 안내/ }))
+    const codes = [...document.querySelectorAll('.inbox-shortcut code')].map((node) => node.textContent)
+    expect(codes).toEqual(expect.arrayContaining(['POST', 'Authorization', 'JSON', 'device', 'messages', 'id', 'channel', 'SMS', 'from', 'text', 'receivedAt']))
+    expect(document.querySelector('.inbox-shortcut')?.textContent).not.toContain('`')
+  })
 })
 
 // ── 콘솔 (AC-SMS3-30·31) ──────────────────────────────────────────────────
@@ -319,6 +377,44 @@ describe('콘솔 "문자 확인" 칸 (AC-SMS3-30)', () => {
     expect(server.callsTo('POST', /approve/)[0]?.body).toEqual({ requestId: expect.any(String) })
   })
 
+  it('이름만 온 문자의 취소 요청: "승인" 없이 안내와 "무시"만, 이름만 문구는 한 번 (D-SMS3-19·16)', async () => {
+    cards = [card({ kind: 'CANCEL', why: null, numbers: [15], last4: null, sender: '홍길동', text: '15 취소', message: '15번 취소를 원해요' })]
+    await openConsole()
+    const panel = await screen.findByRole('region', { name: '문자 확인' })
+    expect(within(panel).getByText('15번 취소를 원해요')).toBeDefined()
+    expect(within(panel).getByText(`! ${INBOX_CANCEL_NAME_ONLY}`)).toBeDefined()
+    expect(within(panel).queryByRole('button', { name: '승인' })).toBeNull()
+    expect(within(panel).getByRole('button', { name: '무시' })).toBeDefined()
+    expect(panel.textContent?.split(INBOX_NAME_ONLY).length).toBe(2)
+  })
+
+  it('바로 넣은 문자찜에 "문자로 받음" — cards 응답의 찜 ID, 실시간으로 새 문자찜이 오면 다시 읽는다 (TE-SMS3-001)', async () => {
+    const view = fullView({
+      seq: 1,
+      broadcasts: [broadcastView()],
+      products: [product(15, { winners: ['u1'], winnerClaims: ['k1'] }), product(16, { winners: ['u2'], winnerClaims: ['k2'] })],
+      claims: [smsClaim('k1', 'u1', 15)],
+    })
+    server.on('GET', new RegExp(`^/api/days/${DATE}(\\?rehearsal=true)?$`), () => ({ body: view }))
+    claimIds = ['k1']
+    await openConsole()
+    const board = screen.getByRole('region', { name: '상품 보드' })
+    await waitFor(() => expect(within(board).getAllByText(INBOX_FROM_SMS)).toHaveLength(1))
+    // 16번에 문자찜이 새로 들어온다 (변경분) — 화면이 cards를 다시 읽는다
+    const before = server.callsTo('GET', /inbox\/cards/).length
+    claimIds = ['k1', 'k2']
+    server.on('GET', new RegExp(`^/api/days/${DATE}/changes\\?since=(\\d+)`), (_call, match): Reply =>
+      Number(match[1]) < 2
+        ? { body: { ...emptyChanges(Number(match[1]), 2), products: [product(16, { winners: ['u2'], winnerClaims: ['k2'] })], claims: [smsClaim('k2', 'u2', 16)] } }
+        : { body: emptyChanges(Number(match[1]), 2) },
+    )
+    act(() => {
+      for (const source of FakeEventSource.instances) source.emit('change', { date: DATE, rehearsal: false, seq: 2, type: 'sms' })
+    })
+    await waitFor(() => expect(server.callsTo('GET', /inbox\/cards/).length).toBeGreaterThan(before), { timeout: 3000 })
+    await waitFor(() => expect(within(board).getAllByText(INBOX_FROM_SMS)).toHaveLength(2), { timeout: 3000 })
+  })
+
   it('무시 → 카드가 사라진다, 실시간 알림 cards에 다시 읽는다', async () => {
     cards = [card()]
     server.on('POST', /^\/api\/inbox\/cards\/c1\/ignore$/, () => {
@@ -370,6 +466,36 @@ describe('받기 멈춤 알림 (AC-SMS3-31)', () => {
     expect(stallClosed('b1')).toBe(true)
   })
 
+  it('콘솔을 새로고침해도 서버가 준 방송 시작 시각부터 잰다 (TE-SMS3-002)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['Date', 'setInterval', 'clearInterval'] })
+    inbox = settingsView({ enabled: true, hasToken: true })
+    // 방송은 9분 전에 시작했다 — 이 콘솔을 지금 열었어도 1분 남짓 뒤에 보여야 한다
+    startedAt = new Date(Date.now() - 9 * 60 * 1000).toISOString()
+    await openConsole()
+    expect(screen.queryByText(`! ${INBOX_STALL}`)).toBeNull()
+    await act(async () => {
+      vi.advanceTimersByTime(61_000 + 31_000)
+    })
+    expect(await screen.findByText(`! ${INBOX_STALL}`)).toBeDefined()
+  })
+
+  it('방송 시작 뒤에 받은 것이 있으면 그 시각부터 잰다 (늦은 쪽)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['Date', 'setInterval', 'clearInterval'] })
+    startedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    inbox = settingsView({ enabled: true, hasToken: true, lastReceivedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() })
+    await openConsole()
+    expect(screen.queryByText(`! ${INBOX_STALL}`)).toBeNull()
+    await act(async () => {
+      vi.advanceTimersByTime(4 * 60 * 1000)
+    })
+    await flush(5)
+    expect(screen.queryByText(`! ${INBOX_STALL}`)).toBeNull()
+    await act(async () => {
+      vi.advanceTimersByTime(60_000 + 31_000)
+    })
+    expect(await screen.findByText(`! ${INBOX_STALL}`)).toBeDefined()
+  })
+
   it('꺼져 있으면 보이지 않는다', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['Date', 'setInterval', 'clearInterval'] })
     await openConsole()
@@ -380,6 +506,37 @@ describe('받기 멈춤 알림 (AC-SMS3-31)', () => {
     expect(screen.queryByText(`! ${INBOX_STALL}`)).toBeNull()
   })
 })
+
+function smsClaim(id: string, buyer: string, no: number): Claim {
+  return {
+    id,
+    product: `b1/${String(no)}`,
+    productId: `p${String(no)}`,
+    broadcast: 'b1',
+    no,
+    buyer,
+    currentBuyer: buyer,
+    status: 'CONFIRMED',
+    reason: null,
+    origin: 'sms',
+    seq: 1,
+    rankTime: '2026-10-19T01:00:00.000Z',
+    rankMinute: false,
+    received: null,
+    at: '2026-10-19T01:00:00.000Z',
+    price: 10000,
+    confirmVersion: 1,
+    locked: false,
+    cancelRequested: false,
+    reprintNeeded: false,
+    priceHistory: [],
+    key: `b1/${String(no)}`,
+    qty: 1,
+    variant: null,
+    options: null,
+    amount: 10000,
+  }
+}
 
 // ── 입금 확인 화면 (AC-SMS3-32) ────────────────────────────────────────────
 
