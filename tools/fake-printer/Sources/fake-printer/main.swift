@@ -13,6 +13,7 @@ enum Mode: String {
     case marklifeP12 = "marklife-p12"
     case marklifeP50 = "marklife-p50"
     case marklifeX2 = "marklife-x2"
+    case bauato
 
     var defaultName: String {
         switch self {
@@ -21,6 +22,7 @@ enum Mode: String {
         case .marklifeP12: return "P12_FAKE"
         case .marklifeP50: return "P50_FAKE"
         case .marklifeX2: return "X2_FAKE"
+        case .bauato: return "PPA2L_FAKE"
         }
     }
 
@@ -34,6 +36,7 @@ enum Mode: String {
         case .marklifeP12: return .l11
         case .marklifeP50: return .yxq3
         case .marklifeX2: return .yxq8
+        case .bauato: return .luckJingle
         }
     }
 }
@@ -52,6 +55,10 @@ struct Options {
     var mtu: MtuSetting = .none
     var noAck = false
     var ackDelayMs = 0
+    /// 끝 알림을 AA 대신 4F 4B(OK)로 (Luck Jingle — D-PRN2-03)
+    var ackOk = false
+    /// 꾸러미 A에 흐름 제어(ff03)가 없다 (D-PRN2-03 — 크레딧 없이 받는다)
+    var noFlow = false
     var alsoB1Service = false
     var noise = false
     var battery: UInt8 = 100
@@ -60,19 +67,22 @@ struct Options {
 }
 
 let usage = """
-쓰는 법: fake-printer --mode <b1|marklife-s2|marklife-p12|marklife-p50|marklife-x2> [옵션]
+쓰는 법: fake-printer --mode <b1|marklife-s2|marklife-p12|marklife-p50|marklife-x2|bauato> [옵션]
 
   --mode b1              NIIMBOT B1인 척 (기본 이름 B1-FAKE)
   --mode marklife-s2     Marklife S2인 척 (YXQ 방식, 기본 이름 S2_FAKE_BLE)
   --mode marklife-p12    Marklife P12인 척 (L11 방식, 기본 이름 P12_FAKE)
   --mode marklife-p50    Marklife P50인 척 (YXQ3 방식, 기본 이름 P50_FAKE)
   --mode marklife-x2     Marklife X2인 척 (YXQ8 방식, GATT 꾸러미 C fd00, 기본 이름 X2_FAKE)
+  --mode bauato          바우아토 스티코팝인 척 (Luck Jingle 방식, 기본 이름 PPA2L_FAKE)
   --name 이름            광고 이름 바꾸기 (앱이 이름 앞자리로 고른다: B1·S2_·P12_)
   --out 폴더             PNG·기록을 둘 폴더 (기본 ./out)
   --no-credit            (Marklife) 흐름 제어 크레딧을 보내지 않는다 (D-N1-12 재현)
   --mtu auto|숫자        (Marklife) 첫 크레딧 뒤에 MTU 알림 02 lo hi를 보낸다 (auto = 연결한 폰의 값)
   --no-ack               (Marklife) 다 받아도 끝 알림 AA를 보내지 않는다 (시간 초과 재현)
   --ack-delay 밀리초     (Marklife) 끝 알림 AA를 늦게 보낸다
+  --ack-ok               (Marklife·바우아토) 끝 알림을 AA 대신 4F 4B(OK)로 — 바우아토는 끝, Marklife는 끝이 아니다(시간 초과)
+  --no-flow              (Marklife·바우아토, 꾸러미 A) 흐름 제어 ff03 특성이 없다 — 앱·웹이 크레딧 없이 보내는지 볼 때
   --also-b1-service      (Marklife) 광고에 B1 서비스(e7810a71…)도 싣는다 (B1 목록 겹침 재현)
   --noise                광고에 상관없는 서비스(배터리·HID 등)를 함께 싣는다 — 찾기 목록에 잡음이 섞인 장소 재현
   --battery 0~100        (B1) 배터리 값 (기본 100)
@@ -110,6 +120,8 @@ func parseOptions(_ args: [String]) -> Options {
                 exit(2)
             }
         case "--no-ack": o.noAck = true
+        case "--ack-ok": o.ackOk = true
+        case "--no-flow": o.noFlow = true
         case "--ack-delay": o.ackDelayMs = max(0, Int(value()) ?? 0)
         case "--also-b1-service": o.alsoB1Service = true
         case "--noise": o.noise = true
@@ -209,10 +221,10 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
             if case .fixed(let n) = options.mtu { mtu = n }
             marklife = MarklifeEmulator(
                 proto: proto,
-                initialCredits: (options.noCredit || options.mode.bundleC) ? nil : 4,
-                creditsPerPacket: (options.noCredit || options.mode.bundleC) ? 0 : 1,
+                initialCredits: (options.noCredit || options.noFlow || options.mode.bundleC) ? nil : 4,
+                creditsPerPacket: (options.noCredit || options.noFlow || options.mode.bundleC) ? 0 : 1,
                 mtu: mtu,
-                ack: (options.noAck || options.ackDelayMs > 0) ? .none : .send
+                ack: (options.noAck || options.ackDelayMs > 0) ? .none : options.ackOk ? .ok : .send
             )
             b1 = nil
         } else {
@@ -249,7 +261,7 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
             let write = CBMutableCharacteristic(type: CBUUID(string: c ? marklifeCWriteUUID : marklifeWriteUUID), properties: [.write, .writeWithoutResponse], value: nil, permissions: [.writeable])
             let notify = CBMutableCharacteristic(type: CBUUID(string: c ? marklifeCNotifyUUID : marklifeNotifyUUID), properties: [.notify], value: nil, permissions: [.readable])
             let service = CBMutableService(type: CBUUID(string: c ? marklifeCServiceUUID : marklifeServiceUUID), primary: true)
-            if c {
+            if c || options.noFlow {
                 service.characteristics = [write, notify]
             } else {
                 let flow = CBMutableCharacteristic(type: CBUUID(string: marklifeFlowUUID), properties: [.notify], value: nil, permissions: [.readable])
@@ -294,7 +306,7 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
         if let error {
             say("광고를 시작하지 못했다: \(error.localizedDescription)")
         } else {
-            say("광고 중: 이름 \(name), 서비스 \(options.mode == .b1 ? "e7810a71…" : "\(options.mode.bundleC ? "fd00" : "ff00")\(options.alsoB1Service ? " + e7810a71…" : "")")\(options.noise ? " + 잡음 서비스" : ""). 폰 앱에서 프린터 찾기를 누른다.")
+            say("광고 중: 이름 \(name), 서비스 \(options.mode == .b1 ? "e7810a71…" : "\(options.mode.bundleC ? "fd00" : options.noFlow ? "ff00(ff03 없음)" : "ff00")\(options.alsoB1Service ? " + e7810a71…" : "")")\(options.noise ? " + 잡음 서비스" : ""). 폰 앱에서 프린터 찾기를 누른다.")
         }
     }
 
@@ -311,8 +323,8 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
             log.write(["event": "connect", "central": id.uuidString, "count": connections, "maxUpdate": central.maximumUpdateValueLength])
         }
         log.write(["event": "subscribe", "central": id.uuidString, "char": characteristic.uuid.uuidString])
-        if let ml = marklife, options.mode.bundleC, characteristic.uuid == notifyChar.uuid {
-            // 꾸러미 C에는 흐름 제어가 없다 — 알림(fd02)을 켜면 연결된 것으로 본다
+        if let ml = marklife, options.mode.bundleC || options.noFlow, characteristic.uuid == notifyChar.uuid {
+            // 꾸러미 C·흐름 제어 없는 꾸러미 A에는 ff03이 없다 — 알림(fd02·ff01)을 켜면 연결된 것으로 본다
             if case .auto = options.mtu { ml.mtu = central.maximumUpdateValueLength + 3 }
         }
         if let flow = flowChar, characteristic.uuid == flow.uuid, let ml = marklife {
@@ -418,7 +430,7 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
         }
         for out in outputs {
             let char = out.channel == .flow ? flowChar! : notifyChar!
-            if out.channel == .notify, out.bytes == [0xAA], let attempt = printer.completedInLastWrite.last {
+            if out.channel == .notify, out.bytes == [0xAA] || out.bytes == okNotice, let attempt = printer.completedInLastWrite.last {
                 send(out.bytes, on: char) { [weak self] sentAt in self?.marklifeJobLog(attempt, lastWrite: now, ack: sentAt) }
             } else {
                 send(out.bytes, on: char)
@@ -441,8 +453,8 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
                 let delay = options.ackDelayMs
                 DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
                     guard let self, !self.subscriptions.isEmpty else { return }
-                    printer.markAcked(attempt)
-                    self.send([0xAA], on: self.notifyChar) { [weak self] sentAt in self?.marklifeJobLog(attempt, lastWrite: now, ack: sentAt) }
+                    if !self.options.ackOk || printer.proto == .luckJingle { printer.markAcked(attempt) }
+                    self.send(self.options.ackOk ? okNotice : [0xAA], on: self.notifyChar) { [weak self] sentAt in self?.marklifeJobLog(attempt, lastWrite: now, ack: sentAt) }
                 }
             } else if options.noAck {
                 marklifeJobLog(attempt, lastWrite: now, ack: nil)
@@ -460,7 +472,7 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
             "firstToLastWriteMs": ms(first, lastWrite), "lastWriteToEndMs": ms(lastWrite, ack), "totalMs": ms(first, ack ?? lastWrite),
             "writes": attempt.writes, "bytes": attempt.bytes.count, "png": pngByAttempt[attempt.index].map { [$0] } ?? [],
         ])
-        say(ack == nil ? "끝 알림을 보내지 않았다 (\(attempt.index)번째, --no-ack)" : "끝 알림 AA를 보냈다 (\(attempt.index)번째, 처음 쓰기부터 \(ms(first, ack))ms)")
+        say(ack == nil ? "끝 알림을 보내지 않았다 (\(attempt.index)번째, --no-ack)" : "끝 알림 \(options.ackOk ? "OK(4F 4B)" : "AA")를 보냈다 (\(attempt.index)번째, 처음 쓰기부터 \(ms(first, ack))ms)")
     }
 
     // MARK: 알림 보내기
