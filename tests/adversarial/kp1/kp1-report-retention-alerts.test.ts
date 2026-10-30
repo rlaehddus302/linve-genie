@@ -2,7 +2,6 @@
 // 보관 기간 정리(AC-KP1-06 — 리허설·품목 없는 묶음은 마지막 주문이 아니다, 설정을 줄이면 다음 정리에서 바로),
 // 알림 받기 신청(AC-KP1-22 — 체크 없음·휴대폰 아닌 번호·그만 받기 같은 문장·판매자마다), 바깥 연결 0번(AC-KP1-24).
 import { createRequire } from 'node:module'
-import type ExcelJSType from 'exceljs'
 import fc from 'fast-check'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { at, chat, getFile, kst } from '../../../apps/server/test/i2-support.ts'
@@ -11,8 +10,26 @@ import { addSeller, client, createBroadcast, expectOk, fakeClock, login, newWorl
 import { sell } from '../../../apps/server/test/t1-support.ts'
 import { storedPhones } from '../../../apps/server/src/schedule/service.ts'
 
-/** exceljs는 서버 패키지 의존성이라 그 패키지 기준으로 불러온다 */
-const ExcelJS = createRequire(new URL('../../../apps/server/package.json', import.meta.url))('exceljs') as typeof ExcelJSType
+/** exceljs는 서버 패키지 의존성이라 그 패키지 기준으로 불러온다(루트에서 타입을 찾지 못해 쓰는 부분만 적는다) */
+interface XlsxCell {
+  readonly value: unknown
+}
+interface XlsxRow {
+  readonly values: unknown
+  getCell(index: number): XlsxCell
+  eachCell(callback: (cell: XlsxCell) => void): void
+}
+interface XlsxSheet {
+  readonly rowCount: number
+  getRow(index: number): XlsxRow
+  eachRow(callback: (row: XlsxRow) => void): void
+}
+interface XlsxBook {
+  readonly xlsx: { load(data: ArrayBuffer): Promise<unknown> }
+  readonly worksheets: XlsxSheet[]
+  getWorksheet(name: string): XlsxSheet | undefined
+}
+const ExcelJS = createRequire(new URL('../../../apps/server/package.json', import.meta.url))('exceljs') as { Workbook: new () => XlsxBook }
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -293,7 +310,7 @@ describe('AC-KP1-22 알림 받기 신청 (적대)', () => {
       expect(sent.status, phone).toBe(400)
       expect(sent.text).toContain('휴대폰 번호를 확인해 주세요.')
     }
-    for (const body of [{ phone: '010-2345-6789' }, { phone: '010-2345-6789', agree: '' }, { phone: '010-2345-6789', agree: 'off' }]) {
+    for (const body of [{ phone: '010-2345-6789' }, { phone: '010-2345-6789', agree: '' }, { phone: '010-2345-6789', agree: 'off' }] as Record<string, string>[]) {
       world.clock.advance(7_000)
       expect((await postForm(world, `${path}/alert`, body)).status).toBe(400)
     }

@@ -7,7 +7,7 @@ import { listClaims, listProducts, listSettlements } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { at, chat, ok } from '../../../apps/server/test/i2-support.ts'
 import { codes, consent, ledgerApi, ledgerWorld, linkFor, lines, markers, postForm, rowsOf, sendAddress } from '../../../apps/server/test/kp1-ledger-support.ts'
-import { createBroadcast, waitFor, type Seller, type TestServer } from '../../../apps/server/test/support.ts'
+import { client, createBroadcast, waitFor, type Seller, type TestServer } from '../../../apps/server/test/support.ts'
 import { sell } from '../../../apps/server/test/t1-support.ts'
 
 const D = '2026-10-19'
@@ -182,5 +182,37 @@ describe('AC-KP1-28 판정 영향 없음 (적대)', () => {
     expect(off.result.claims).toEqual(on.result.claims)
     expect(off.result.products).toEqual(on.result.products)
     expect(off.result.settlements).toEqual(on.result.settlements)
+  })
+})
+
+describe('AC-KP1-11 이은 계정은 손님 기록을 합치지 않는다 (적대)', () => {
+  it('입금 늦음 주의인 UC_A의 줄에 UC_B를 코드로 이어도 UC_B 꼬리표·손님 기록은 UC_B 것만 (주의가 옮지 않는다)', async () => {
+    const { world, seller } = await ledgerWorld()
+    // D: UC_A·UC_B 모두 산다. UC_B만 입금
+    await sell(world, seller, [
+      ['UC_A', '가람', 1],
+      ['UC_B', '나래', 1],
+    ])
+    const view = (await client(world, seller.cookie).get(`/api/days/${D}`)).body.settlements as { buyer: string; total: number }[]
+    await ok(world, seller, { type: 'settlement.payment', buyer: 'UC_B', date: D, amount: view.find((item) => item.buyer === 'UC_B')?.total ?? 0 }, D)
+    const token = await consent(world, seller, 'UC_A')
+    at(world, D2, '20:00:00')
+    const b2 = await sell(world, seller, [
+      ['UC_A', '가람', 1],
+      ['UC_B', '나래', 1],
+    ], D2)
+    const api = ledgerApi(world, seller.cookie)
+    const before = (await api.badges(D2, ['UC_A', 'UC_B'])).body
+    expect((before.badges as { text: string | null }[])[0]?.text).toBe('입금 늦음 주의')
+    const rowsBefore = (await api.customers()).body.customers
+    const code = await newCode(world, token)
+    await chat(world, seller, b2, 'link', 'UC_B', '나래', code)
+    await waitFor(async () => (await codeRow(world, code))?.state === 'CLAIMED')
+    expect((await postForm(world, `/r/${token}/ledger/link`, { answer: 'yes' })).status).toBe(303)
+    expect((await markers(world)).map((row) => row.marker).sort()).toEqual(['c:UC_A', 'c:UC_B'])
+    expect((await api.badges(D2, ['UC_A', 'UC_B'])).body).toEqual(before)
+    expect((await api.customers()).body.customers).toEqual(rowsBefore)
+    // 장부(연락처 이어 쓰기)에는 쓰인다: UC_B 다음 묶음에 UC_A가 저장한 배송지가 "확인 전"으로
+    expect(((await api.bundle('UC_B', D2)).body.bundle as { ledger: { name: string } | null }).ledger?.name).toBe('홍길동')
   })
 })
