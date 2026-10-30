@@ -16,8 +16,9 @@
 | `parser/product-import.yaml` | 상품 목록 글(엑셀 복사·CSV) → 머리글 줄·줄마다 등록할 번호·품종·가격 또는 문제 (R-18, I2 — D-I2-09). 해석 함수는 서버(`apps/server`)의 순수 함수이고 이 러너가 부른다. I2 마지막 감사 보강: 칸이 모두 빈 줄(`,,`)은 건너뜀(D-I2-21), 품종의 제어 글자는 `NAME_CONTROL`(D-I2-17) |
 | `drafts/**` | **초안(JSON만).** 어떤 러너도 읽지 않는다(코어 러너는 `*.yaml`만, JSON 러너는 자기 폴더만 읽는다 — 그래서 이 폴더에 `*.yaml`을 두지 않는다). 스프린트 시작 때 spec-keeper가 제자리로 옮긴다. 지금: 없음(PL1B의 `granted.json`은 `billing/`로 옮김) |
 | `parser/comment-options.yaml` | 옵션 방송의 채팅 한 줄 → 주문(번호·옵션·수량)/취소/확인 필요/언급 (R-20, O1 — D-O-07~D-O-10·D-O1-09). 인식 함수는 코어 `parseOptionComment`이고 이 러너가 부른다. O0 초안(`drafts/o1/`, D-O-01)을 O1 시작 때 옮겼다 |
+| `parser/sms-text.yaml` | 휴대폰이 받은 문자 하나(보낸 곳 + 본문) → 문자찜/취소 요청/확인 필요/거름/찜 아님 (R-26, SMS3 — D-SMS3-09·D-SMS3-10). 인식 함수는 코어 `parseSmsText`이고 이 러너가 부른다. 받는 때·가르기·넣기는 서버 일이라 이 골든 밖이다(SPEC ORD-13) |
 | `known-unimplemented.yaml` | **예약 파일.** 알려진 미구현 허용 목록 (D-020). 골든 시나리오가 아니다 |
-| `deposit/*.json` | 입금 확인 — 이름 정규화·붙여넣기 읽기·입금 맞추기 (DEPOSIT_RULES DP-2·DP-3·DP-5, N3, D-N3-01). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "입금 골든" |
+| `deposit/*.json` | 입금 확인 — 이름 정규화·붙여넣기 읽기·입금 맞추기 (DEPOSIT_RULES DP-2·DP-3·DP-5, N3, D-N3-01), 은행 알림 읽기 `notice.json` (DP-9, SMS3 — D-DEP2-03). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "입금 골든" |
 | `documents/*.json` | 확인서 품목 줄·판매대장 열과 행 (SPEC STL-04·STL-06·RCP-02, O3 — D-O3-05~D-O3-08). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/documents` 단위 테스트가 읽는다 — 아래 "문서 골든" |
 | `billing/*.json` | 요금 — 상태(정액제 기간 사슬·정량 잔량·새 실제 방송의 이용 방식·7일 환불 가능)·결제 확인 판단·부가세 나누기·사업자등록번호 읽기 (BILLING_RULES BL-2·BL-3·BL-4·BL-6·BL-7·BL-8, N5, D-N5-01). PL1 보강: `granted.json` 부여된 결제 다시 맞추기 — 환불 결과 모름·밖에서 취소(BL-7 5·6, D-PL1-08). PL1B 시작 때 초안 `drafts/pl1b/billing/`에서 옮겼다(AC-PL1B-00). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "요금 골든" |
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01. O3 보강: 옵션 글·수량 — `product-options.json`·`packing-options.json`, D-O3-01~D-O3-04). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
@@ -76,8 +77,9 @@ cases:
 | `voice-extract` (P2, D-209) | `maxNumber`(`claim.maxNumber`, 1~9999), `dictionary`(품종 사전 — 문자열 목록, 0개 이상, 생략하면 빈 목록. DOMAIN_RULES 설정표 키가 아니라 이 suite의 입력이다. 기본 사전은 쓰지 않는다) | `out` 키는 `no`(1 이상 정수)·`name`(빈 문자열이 아닌 문자열)·`price`(100 이상 정수)·`confidence`(`HIGH`/`LOW`, **필수**)만. `no`·`name`·`price`는 적지 않거나 `null`이면 `null`. 실제 결과는 정확히 네 키 `{ no, name, price, confidence }`(값이 없으면 `null`)이고 네 값이 모두 같아야 한다. 규칙은 DOMAIN_RULES R-17 |
 | `product-import` (I2, D-I2-09) | `unit`(`price.unit`), `maxNumber`(`claim.maxNumber`, 1~9999), `existing`(그 방송에 이미 있는 상품 번호 — 1 이상 정수 목록, 0개 이상, 생략하면 빈 목록. DOMAIN_RULES 설정표 키가 아니라 이 suite의 입력이다) | `out`은 둘 중 하나다. ① `{ error }` 하나만 — `error` ∈ `EMPTY`·`TOO_MANY`. ② `{ header?, rows }` — `header` = 머리글로 본 줄 번호(1 이상 정수) 또는 `null`(적지 않으면 `null`), `rows`(필수, 목록) = 상품 줄마다 `{ line, no, name, price }`(정확히 네 키 — `line`·`no` 1 이상 정수, `name` 문자열(빈 문자열 가능), `price` 100 이상 정수) 또는 `{ line, error }`(정확히 두 키 — `error` ∈ `CELLS`·`NUMBER_INVALID`·`DUPLICATE`·`EXISTS`·`NAME_CONTROL`·`NAME_PHONE`·`PRICE_MISSING`·`PRICE_INVALID`·`PRICE_TOO_LOW` — `NAME_CONTROL`은 I2 마지막 감사 D-I2-17). 실제 결과와 `header`·줄 순서·줄마다의 키와 값이 모두 같아야 한다(실제 결과에 다른 키가 있거나 키가 빠지면 불일치). 규칙은 DOMAIN_RULES R-18 |
 | `comment-options` (O1, D-O1-09) | `maxNumber`(`claim.maxNumber`, 1~9999), `maxQuantity`(`claim.maxQuantity`, 1~99), 선택 `multiNumber`(`claim.multiNumber`, 기본 `ALL`) — 판매 방식은 늘 `OPTIONS`(이 suite에 `parseMode`는 없다). 문서에 이 suite의 입력 두 개가 더 있다(DOMAIN_RULES 설정표 키가 아니다): `catalog`(필수, 목록 — 그 방송의 판매 종료가 아닌 상품. 항목 `{ no, name, aliases?, options? }`, `no` 1 이상 정수(서로 다름), `name` 문자열, `aliases` 문자열 목록, `options` = `[{ name, choices: [{ label, aliases?, price? }] }]` — 모양·개수·글자 제한·비교 글자 겹침 금지는 R-19 "옵션 모델"과 같고 어기면 읽기 오류. `price`는 결과에 영향이 없다), `focus`(필수 — `null` 또는 `{ no, ageSec }`: 지금 상품의 번호(`catalog`에 있어야 한다)와 정해진 뒤 지난 초(0 이상 정수 = 채팅 `at` − 지금 상품을 정한 이벤트 `at`)) | `out` 키는 `orders`·`cancels`·`mentions`·`review`만, 많아야 하나만 비어 있지 않다. 없는 키 = 빈 값. `orders` = `[{ no, options?, qty }]` 메시지 순서 — `qty`(1 이상 정수)는 늘 적고, `options`(항목 이름 → 선택지 `label`)는 옵션 상품이면 모든 항목(선택지 하나뿐인 항목 포함), 옵션 없는 상품이면 적지 않는다. `cancels`·`mentions` = 1 이상 정수 배열, 메시지 순서. `review` = `{ reason, no?, options?, qty? }` — `reason` ∈ `OPTION_MISSING`·`OPTION_CONFLICT`·`UNKNOWN_WORD`·`QTY_INVALID`·`NUMBER_AMBIGUOUS`·`PRODUCT_AMBIGUOUS`·`MULTI_PRODUCT`·`FOCUS_CHANGED`, `no`·`options`·`qty`는 **읽은 것만**(못 읽었으면 적지 않는다 — 실제 결과에도 없어야 한다), `options`는 읽은 항목만. 비교는 정확히 같음(키·값·순서). 규칙은 DOMAIN_RULES R-20 |
+| `sms-text` (SMS3, D-SMS3-09) | `parseMode`(`claim.parseMode` — `LOOSE`도 문자는 STRICT로 읽는다, `OPTIONS`면 번호 있는 결과가 모두 확인 필요), `multiNumber`(`claim.multiNumber`), `maxNumber`(`claim.maxNumber`) | 사례에 선택 키 `from`(문자열 또는 `null` — 보낸 곳. 적지 않으면 휴대폰 번호 `"010-1234-5678"`)이 더 있다. `out`은 다섯 모양 중 하나이고 **`out`에 없는 키는 실제 결과에도 없어야 한다**: 문자찜 `{ claims, memo? }`, 취소 요청 `{ cancels, memo? }`, 확인 필요 `{ review, why, memo? }`(`why` ∈ `UNCLEAR`·`NO_NUMBER`·`OPTIONS`, `review`는 빈 배열이 아니다), 거름 `{ skip }`(`skip` ∈ `NOT_MOBILE`·`EXCLUDED`), 찜 아님 `{}`. `claims`·`cancels`·`review` = 1 이상 정수 배열, 메시지 순서, 같은 번호 하나. `memo`는 한글 음절 2~10자. 규칙은 DOMAIN_RULES R-26 |
 
-사례의 키는 `in`(문자열)과 `out`뿐이다.
+사례의 키는 `in`(문자열)과 `out`뿐이다. 예외: `sms-text` suite는 선택 키 `from`을 더 받는다(SMS3, D-SMS3-09).
 
 ## 엔진 시나리오 형식
 
@@ -356,11 +358,11 @@ expect:
 
 ## 입금 골든 (`deposit/*.json`, N3 — D-N3-01)
 
-입금 확인(PAY-01)의 순수 함수 셋을 고정한다. 규칙 문장은 `docs/spec/DEPOSIT_RULES.md`다(이름 정규화 DP-3, 붙여넣기 읽기 DP-2, 입금 맞추기 DP-5). 판정 엔진이 아니라 서버의 규칙이라 엔진 골든(YAML)과 따로 둔다.
+입금 확인(PAY-01·PAY-02)의 순수 함수 넷을 고정한다. 규칙 문장은 `docs/spec/DEPOSIT_RULES.md`다(이름 정규화 DP-3, 붙여넣기 읽기 DP-2, 입금 맞추기 DP-5, 은행 알림 읽기 DP-9 — SMS3). 판정 엔진이 아니라 서버의 규칙이라 엔진 골든(YAML)과 따로 둔다.
 
 - **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수와 사례 수 합계를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다(`known-unimplemented.yaml`의 대상이 아니다).
-- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `name`·`paste`·`match`. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
-- **사례 공통 키**: `id`(`G-DEP-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `name`·`paste`·`match`·`notice`(SMS3). 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다. 보이지 않는 글자는 `\uXXXX`로 적는다.
+- **사례 공통 키**: `id`(`G-DEP-` + 세 자리, 이 폴더 전체에서 유일 — name 0xx·paste 02x·match 1xx·notice 2xx), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
 - 시각은 오프셋을 적은 ISO 8601(`2026-10-18T21:03:15+09:00`)이고, 결과는 실행 환경의 시간대와 상관없어야 한다(서버 시험도 `TZ`를 바꿔 돌린다).
 
 | `kind` | 사례 키 | `out` |
@@ -368,9 +370,11 @@ expect:
 | `name` | `in`(문자열) | 정규화한 문자열(DP-3). 빈 글이면 `""` |
 | `paste` | `in`(붙여넣은 글 그대로 — 줄바꿈·탭·BOM 포함) | `{ "rows": [ { "line", "at", "precision", "amount", "name", "balance" } ], "skipped": [ { "line", "why": "NOT_DEPOSIT" } ], "unreadable": [ { "line", "why": "BAD_AMOUNT" \| "BAD_TIME" } ] }` — 셋 다 줄 순서, 정확히 같음. `at` = `YYYY-MM-DDTHH:MM:SS+09:00`, `precision` = `second`/`minute`, `balance` = 정수 또는 `null`. 또는 `{ "error": "NO_HEADER" \| "TOO_MANY_ROWS" }`(아무 줄도 읽지 않음) |
 | `match` | `bundles`(후보가 될 수 있는 묶음 `{ key, buyer, date, names, total, received, saleAt }` — `key` = `<지금의 구매자>@<날짜>`, `names` = 이름 후보(정규화 전 글, 함수가 DP-3으로 정규화), `saleAt` = 판매 시각 ISO 또는 품목이 없으면 `null`), `earlier`(이미 저장된 입금 `{ no, at, amount, name }`, 0개 이상), `incoming`(새 입금, 같은 모양 — 이 순서대로 정한다) | `incoming`마다 하나씩, 같은 순서: `{ "no", "auto": 묶음 키 }`(자동 확인) 또는 `{ "no", "review": 사유, "twin"?: 가장 앞선 쌍둥이 입금 번호(`POSSIBLE_DUPLICATE`일 때만, 그때는 필수), "suggestions": [묶음 키 …](순서대로, 5개까지), "preselect": 묶음 키 또는 null }`. 사유 ∈ `POSSIBLE_DUPLICATE`·`SAME_NAME`·`MULTIPLE`·`NAME_MISMATCH`·`AMOUNT_MISMATCH`·`NO_MATCH` (`ONE_MATCH`는 볼 때 다시 계산한 결과의 화면 사유라 골든에 나오지 않는다) |
+| `notice` (SMS3) | `in` = `{ "channel": "SMS" \| "APP", "from": 문자열 또는 null, "title": 문자열 또는 null, "text", "receivedAt": 오프셋 있는 ISO }` 다섯 키 모두 | 정확히 같음(키 집합 포함). 입금 `{ "kind": "DEPOSIT", "bank", "trusted", "at", "precision", "amount", "name", "balance" }`, 입금 취소 `{ "kind": "CANCEL", 입금과 같은 키 }`, 출금 `{ "kind": "WITHDRAWAL", "bank", "trusted", "at", "precision", "amount", "balance" }`, 읽지 못함 `{ "kind": "UNREADABLE", "bank", "trusted" }`, 은행 알림 아님 `{ "kind": "NONE" }`. `bank` ∈ `KB`·`SHINHAN`·`WOORI`·`HANA`·`NH`·`IBK`·`KAKAO`·`TOSS`·`KBANK` 또는 `null`(믿지 않는 보낸 곳), `at` = `YYYY-MM-DDTHH:MM:SS+09:00`, `precision` = `second`/`minute`, `amount`·`balance` = 정수 또는 `null`(입금·입금 취소의 `amount`는 늘 정수), `name` = 문자열(모르면 `""`) |
 
 - `match`의 함수는 후보 묶음의 날짜 범위(입금 날짜 − 30일 ~ 입금 날짜)와 판매 시각(≤ 입금 시각)도 거른다(DP-4). 리허설 범위·이름 후보 모으기(닉네임 이력·문자찜 메모·기억한 입금자명)는 서버가 함수를 부르기 전에 하는 일이라 이 골든이 아니라 서버 시험·E2E가 본다.
 - 자동 확인한 입금은 그 묶음의 `received`에 금액을 더한 뒤 다음 입금을 정한다(DP-5) — 사례 G-DEP-106·111·113.
+- `notice`는 DP-9 1~7(읽기)만 고정한다. 외부 키(DP-9 8)·잔액 이어짐·저장과 표시(DP-9 9)·가르기(SPEC ORD-13 C-05)는 서버 시험·적대 시험·E2E가 본다(SMS3 acceptance).
 
 ## 요금 골든 (`billing/*.json`, N5 — D-N5-01)
 
