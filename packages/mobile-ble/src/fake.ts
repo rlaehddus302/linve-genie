@@ -318,6 +318,7 @@ export function createFakeBleTransport(options: FakeBleTransportOptions = {}): F
       const link: BleLink = {
         id,
         mtu,
+        name: device.name,
         characteristics: () => Promise.resolve(characteristics),
         monitor(_service, _characteristic, onValue) {
           unlisten?.()
@@ -330,6 +331,10 @@ export function createFakeBleTransport(options: FakeBleTransportOptions = {}): F
           })
         },
         async writeWithoutResponse(_service, _characteristic, bytes) {
+          if (!alive) throw new Error('GATT Server is disconnected')
+          printer.write(bytes)
+        },
+        async writeWithResponse(_service, _characteristic, bytes) {
           if (!alive) throw new Error('GATT Server is disconnected')
           printer.write(bytes)
         },
