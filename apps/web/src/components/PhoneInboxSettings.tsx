@@ -32,12 +32,14 @@ import {
   setInboxEnabled,
   fetchInboxSettings,
   lastReceivedWords,
+  readStaleNotice,
 } from '../lib/inbox.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { copyText } from '../lib/receipt-links.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 import { DetailToggle } from './RuleFields.tsx'
+import { InboxStaleBar } from './SmsInbox.tsx'
 
 /** 단축어가 보낼 받는 주소 */
 export function inboxAddress(origin: string = typeof location === 'undefined' ? '' : location.origin): string {
@@ -165,6 +167,7 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
           {view.enabled ? <strong className="state-ok">● {INBOX_ON}</strong> : <strong>○ {view.hasToken ? INBOX_OFF : INBOX_OFF_NEW}</strong>}
         </p>
         {view.enabled || view.lastReceivedAt !== null ? <p>{lastReceivedWords(view)}</p> : null}
+        <InboxStaleBar stale={readStaleNotice(view.staleBroadcast)} banner={false} onClosed={(next) => (next === null ? void handle.reload() : handle.set(next))} />
       </div>
       {token !== null ? (
         <div className="inbox-token stack-tight" role="group" aria-label="새로 만든 받기 토큰">

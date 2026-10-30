@@ -15,6 +15,10 @@ export interface PhoneNoticeState {
   /** 서버가 토큰을 받지 않았다(401) */
   readonly tokenRejected: boolean
   readonly pending: number
+  /** 웹 설정에서 휴대폰 알림 받기가 꺼져 있다(403 INBOX_OFF) — 대기열·토큰은 그대로 (D-SMS3-27). 옛 모듈은 빠짐 */
+  readonly inboxOff?: boolean
+  /** 대기열(최대 1,000건)이 넘쳐 오래된 것부터 버린 건수 (D-SMS3-28). 옛 모듈은 빠짐 */
+  readonly dropped?: number
   /** 마지막으로 서버가 받은 시각 (기기 벽시계 UTC ms) */
   readonly lastSentAtMs: number | null
 }

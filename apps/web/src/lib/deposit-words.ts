@@ -58,7 +58,8 @@ export function reasonWords(reason: ReviewReason, twin: number | null): string {
     case 'UNTRUSTED_SOURCE':
       return '은행 앱이나 은행 대표번호가 아닌 곳에서 온 입금 알림이에요. 은행 앱에서 꼭 확인해 주세요'
     case 'BALANCE_GAP':
-      return '잔액이 앞 알림과 이어지지 않아요. 은행 앱에서 확인해 주세요'
+      // 잔액 없음·앞선 잔액 없음·이어지지 않음 모두 (DP-8, D-DEP2-13)
+      return '잔액이 앞 알림과 이어지는지 확인하지 못했어요. 은행 앱에서 확인해 주세요'
     default:
       return '확인해 주세요'
   }

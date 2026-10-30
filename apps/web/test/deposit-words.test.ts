@@ -53,7 +53,8 @@ describe('DP-8 낱말 (AC-N3-41·50)', () => {
     expect(reasonWords('ONE_MATCH', null)).toBe('맞는 묶음이 하나 있어요. 확인해 주세요')
     // SMS3 (DP-8 v0.1.1, AC-SMS3-32)
     expect(reasonWords('UNTRUSTED_SOURCE', null)).toBe('은행 앱이나 은행 대표번호가 아닌 곳에서 온 입금 알림이에요. 은행 앱에서 꼭 확인해 주세요')
-    expect(reasonWords('BALANCE_GAP', null)).toBe('잔액이 앞 알림과 이어지지 않아요. 은행 앱에서 확인해 주세요')
+    // DP-8 BALANCE_GAP 문구 넓힘 — 잔액 없음·앞선 잔액 없음·이어지지 않음 모두 (D-DEP2-13)
+    expect(reasonWords('BALANCE_GAP', null)).toBe('잔액이 앞 알림과 이어지는지 확인하지 못했어요. 은행 앱에서 확인해 주세요')
     expect(sourceWords({ kind: 'PHONE', label: '휴대폰 알림' })).toBe('휴대폰 알림')
   })
 

@@ -4,8 +4,8 @@
 import { formatWon } from '@livejjim/core'
 import { SERVICE_NAME } from '../brand.ts'
 import { get, newRequestId, post, put, withRetry } from '../api/client.ts'
-import type { BankAlertView, InboxCardView, InboxReviewReason, InboxSettingsView } from '../api/inbox-types.ts'
-import { kstClockWords, kstDateTimeWords, kstStamp } from './kst.ts'
+import type { BankAlertView, InboxCardView, InboxReviewReason, InboxStaleNotice, InboxSettingsView } from '../api/inbox-types.ts'
+import { kstClockWords, kstDateTimeWords, kstMonthDayClock, kstStamp } from './kst.ts'
 
 // ── 주소 (서버 계약이 바뀌면 여기만) ──────────────────────────────────────
 
@@ -16,6 +16,7 @@ export const INBOX_PATHS = {
   card: (id: string, action: InboxAction) => `/api/inbox/cards/${encodeURIComponent(id)}/${action}`,
   alerts: '/api/deposits/alerts',
   closeAlert: (id: number) => `/api/deposits/alerts/${String(id)}/close`,
+  closeStale: '/api/inbox/stale/close',
 } as const
 
 export type InboxAction = 'insert' | 'approve' | 'ignore'
@@ -57,7 +58,8 @@ export const INBOX_SHORTCUT_STEPS: readonly string[] = [
   '헤더에 하나를 더하세요. 키는 `Authorization`, 값은 `Bearer` 뒤에 한 칸 띄고 설정에서 만든 받기 토큰을 붙여 넣으세요.',
   '요청 본문을 `JSON`으로 고르고 칸 두 개를 더하세요. `device`(텍스트) = 휴대폰 이름(예: 내 아이폰), `messages`(배열).',
   '`messages` 안에 "사전" 하나를 더하고, 그 안에 칸 다섯 개를 넣으세요.',
-  '`id`(텍스트) = 보낸 사람과 현재 날짜(초까지)를 이어 붙인 글 — 문자마다 달라야 해요.',
+  '`id`(텍스트) = "현재 날짜"(날짜 형식 "사용자 지정" `yyyyMMddHHmmss` — 초까지)와 단축어 입력의 "보낸 사람"을 이어 붙인 글 — 문자마다 달라야 해요.',
+  '`id`에 고정 글(예: 내 문자)을 넣지 마세요. 그러면 하루 동안 같은 문자로 보고 그 뒤 손님 문자를 하나도 받지 못해요.',
   '`channel`(텍스트) = `SMS`',
   '`from`(텍스트) = 단축어 입력의 "보낸 사람"',
   '`text`(텍스트) = 단축어 입력의 "내용"',
@@ -91,7 +93,7 @@ export const INBOX_NO_CLAIM = '취소할 찜이 없어요'
 export const INBOX_PICK_NUMBER = '넣을 번호를 먼저 골라 주세요.'
 
 /** 확인 필요 사유 문장 (ORD-13 "화면 문구"). NO_NUMBER는 수용 기준 AC-SMS3-17·30 문장. 모르는 사유는 서버 문장 */
-export function inboxReasonWords(card: Pick<InboxCardView, 'kind' | 'why' | 'numbers' | 'message'>): string {
+export function inboxReasonWords(card: Pick<InboxCardView, 'kind' | 'why' | 'numbers' | 'message' | 'receivedAt'>): string {
   const no = card.numbers[0]
   if (card.kind === 'CANCEL') return no === undefined ? '찜 취소를 원해요' : `${String(no)}번 취소를 원해요`
   const reason: InboxReviewReason | null = card.why
@@ -104,9 +106,22 @@ export function inboxReasonWords(card: Pick<InboxCardView, 'kind' | 'why' | 'num
       return '옵션 방송이라 직접 골라 주세요'
     case 'NOT_ON_SALE':
       return no === undefined ? '지금 판매 중이 아니에요' : `${String(no)}번은 지금 판매 중이 아니에요`
+    case 'LATE':
+      return inboxLateWords(card.receivedAt)
+    case 'REJECTED':
+      return `${no === undefined ? '' : `${String(no)}번은 `}바로 넣지 못했어요. 보드에서 확인해 주세요`
     default:
       return card.message.trim() === '' ? '확인해 주세요' : card.message
   }
+}
+
+/**
+ * 늦게 온 문자 (D-SMS3-30): "늦게 온 문자예요 (휴대폰이 10월 31일 19:59:50에 받음). 넣으면 지금 받은 순서로 들어가요".
+ * 휴대폰이 받은 시각(원래 값)은 며칠 전일 수 있어 날짜를 붙인다(KST, 서버 문구와 같은 모양). 넣으면 받은 시각은 서버 도착 시각이다(서버가 정한다).
+ */
+export function inboxLateWords(receivedAt: string): string {
+  const at = kstMonthDayClock(receivedAt)
+  return `늦게 온 문자예요 (휴대폰이 ${at === '' ? '먼저' : `${at}에`} 받음). 넣으면 지금 받은 순서로 들어가요`
 }
 
 /** 이름만 온 문자의 취소 요청 안내 (D-SMS3-19) — "승인" 없이 이 문장과 "무시"만 */
@@ -124,15 +139,28 @@ export function inboxSenderWords(card: Pick<InboxCardView, 'last4'>): string {
   return card.last4 === null ? INBOX_NAME_ONLY : `뒤 4자리 ${card.last4}`
 }
 
-/** 카드 받은 시각 "20:01:05" (KST) */
-export function inboxTimeWords(card: Pick<InboxCardView, 'receivedAt'>): string {
-  return kstClockWords(card.receivedAt)
+/** 늦게 온 문자에서 나온 카드 (D-SMS3-30) */
+export function cardIsLate(card: Pick<InboxCardView, 'why' | 'late'>): boolean {
+  return card.late === true || card.why === 'LATE'
+}
+
+/** 카드 받은 시각 "오후 8:01:05" (KST). 늦게 온 문자는 휴대폰이 받은 원래 시각이 며칠 전일 수 있어 날짜까지 "10월 29일 20:01:05" (D-SMS3-30) */
+export function inboxTimeWords(card: Pick<InboxCardView, 'receivedAt'> & Partial<Pick<InboxCardView, 'why' | 'late'>>): string {
+  return cardIsLate({ why: card.why ?? null, late: card.late }) ? kstMonthDayClock(card.receivedAt) : kstClockWords(card.receivedAt)
+}
+
+/** 늦게 온 카드가 서버에 온 시각 "오후 8:20:01 도착" (없으면 빈 글) */
+export function inboxArrivedWords(card: Pick<InboxCardView, 'why' | 'late' | 'arrivedAt'>): string {
+  if (!cardIsLate(card) || card.arrivedAt === undefined) return ''
+  const at = kstClockWords(card.arrivedAt)
+  return at === '' ? '' : `${at} 도착`
 }
 
 /** 받은 순서(오래된 것 먼저, 새것 아래). 같은 시각이면 서버 순서 그대로 */
 export function orderCards(items: readonly InboxCardView[]): InboxCardView[] {
   return items
-    .map((item, index) => ({ item, index, at: Date.parse(item.receivedAt) }))
+    // 늦게 온 문자는 서버에 온 때가 받은 순서다 (휴대폰이 받은 원래 시각은 며칠 전일 수 있다, D-SMS3-30)
+    .map((item, index) => ({ item, index, at: Date.parse(cardIsLate(item) && item.arrivedAt !== undefined ? item.arrivedAt : item.receivedAt) }))
     .sort((a, b) => (Number.isFinite(a.at) && Number.isFinite(b.at) && a.at !== b.at ? a.at - b.at : a.index - b.index))
     .map((entry) => entry.item)
 }
@@ -167,6 +195,20 @@ export function inboxStalled(
   return now - from > INBOX_STALL_MS
 }
 
+// ── 12시간 넘은 방송 알림 (D-SMS3-29, AC-SMS3-31) ─────────────────────────
+
+export const INBOX_STALE = '끝내지 않은 방송이 12시간 넘게 이어져 손님 문자를 넣지 않았어요. 방송을 끝내 주세요.'
+
+/** 서버가 준 12시간 넘은 방송 알림을 읽는다 — 모양이 다르거나 없으면 null(알림 없음). 문구는 스펙 그대로(화면이 정한다) */
+export function readStaleNotice(raw: unknown): InboxStaleNotice | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const record = raw as Record<string, unknown>
+  if (typeof record.b !== 'string' || record.b === '') return null
+  const time = (value: unknown): string | null => (typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null)
+  const count = typeof record.count === 'number' && Number.isInteger(record.count) && record.count > 0 ? record.count : 0
+  return { b: record.b, startedAt: time(record.startedAt), lastAt: time(record.lastAt), count, message: INBOX_STALE }
+}
+
 /** 이 방송에서 닫은 받기 멈춤 알림 (그 방송에서 다시 안 보인다 — 탭을 닫아도 이 기기에서는) */
 const STALL_KEY = 'livejjim.inbox.stallClosed'
 
@@ -192,13 +234,17 @@ export function closeStall(broadcast: string): void {
 
 export const BANK_NOTICE_TITLE = '은행 알림'
 export const BANK_NOTICE_CLOSE = '확인했어요'
+/** 입금 취소 알림의 입금자명이 빈 글일 때 (DP-8, D-DEP2-15) */
+export const BANK_NO_NAME = '이름 모름'
 export const BANK_UNREADABLE = '읽지 못한 은행 알림이에요. 은행 앱에서 확인하고 필요하면 정산에서 손으로 적어 주세요'
 
 /** 줄 문장 (DP-8 그대로). 모르는 종류는 서버 문장 */
 export function bankNoticeWords(notice: BankAlertView): string {
   if (notice.kind === 'CANCEL') {
     const amount = notice.amount === null ? '' : formatWon(notice.amount)
-    const name = notice.name?.trim() ?? ''
+    // 입금자명이 빈 글이면 "이름 모름" (DP-8, D-DEP2-15)
+    const given = notice.name?.trim() ?? ''
+    const name = given === '' ? BANK_NO_NAME : given
     const what = [amount, name].filter((part) => part !== '').join(' ')
     return `입금 취소 알림이 왔어요: ${what}. 이 입금을 확인했다면 되돌려 주세요`
   }
@@ -247,19 +293,26 @@ export interface InboxCardsResult {
   readonly cards: readonly InboxCardView[]
   readonly claimIds: ReadonlySet<string>
   readonly startedAt: string | null
+  /** 12시간 넘은 방송 알림 (설정과 같은 값 — 방송과 상관없이 판매자 것, D-SMS3-29) */
+  readonly stale: InboxStaleNotice | null
 }
 
 /** 서버 응답을 읽는다 — 모양이 다른 값(옛 서버)은 빈 것으로 (표시만 빠지고 판정·보드는 그대로) */
-export function readInboxCards(raw: { readonly cards?: unknown; readonly inboxClaimIds?: unknown; readonly startedAt?: unknown }): InboxCardsResult {
+export function readInboxCards(raw: { readonly cards?: unknown; readonly inboxClaimIds?: unknown; readonly startedAt?: unknown; readonly staleBroadcast?: unknown }): InboxCardsResult {
   const cards = Array.isArray(raw.cards) ? (raw.cards as InboxCardView[]) : []
   const claimIds = new Set<string>()
   if (Array.isArray(raw.inboxClaimIds)) for (const id of raw.inboxClaimIds as unknown[]) if (typeof id === 'string') claimIds.add(id)
   const startedAt = typeof raw.startedAt === 'string' && Number.isFinite(Date.parse(raw.startedAt)) ? raw.startedAt : null
-  return { cards, claimIds, startedAt }
+  return { cards, claimIds, startedAt, stale: readStaleNotice(raw.staleBroadcast) }
 }
 
 export function fetchInboxCards(broadcast: string): Promise<InboxCardsResult> {
-  return get<{ cards?: unknown; inboxClaimIds?: unknown; startedAt?: unknown }>(INBOX_PATHS.cards(broadcast)).then(readInboxCards)
+  return get<{ cards?: unknown; inboxClaimIds?: unknown; startedAt?: unknown; staleBroadcast?: unknown }>(INBOX_PATHS.cards(broadcast)).then(readInboxCards)
+}
+
+/** 12시간 넘은 방송 알림 닫기 (판매자만 — 닫은 뒤 또 넣지 않은 문자가 오면 서버가 다시 준다) */
+export function closeStaleNotice(): Promise<InboxSettingsView> {
+  return withRetry(() => post<{ inbox: InboxSettingsView }>(INBOX_PATHS.closeStale, {})).then((result) => result.inbox)
 }
 
 export interface InsertInput {

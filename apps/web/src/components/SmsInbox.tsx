@@ -8,7 +8,7 @@
 import { DEFAULT_SETTINGS } from '@livejjim/core'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
-import type { InboxCardView, InboxSettingsView } from '../api/inbox-types.ts'
+import type { InboxCardView, InboxSettingsView, InboxStaleNotice } from '../api/inbox-types.ts'
 import { isOptionBroadcast, productKey } from '../lib/derive.ts'
 import {
   INBOX_CANCEL_NAME_ONLY,
@@ -17,8 +17,11 @@ import {
   INBOX_NO_CLAIM,
   INBOX_PANEL_TITLE,
   INBOX_PICK_NUMBER,
+  INBOX_STALE,
   INBOX_STALL,
+  closeStaleNotice,
   closeStall,
+  inboxArrivedWords,
   fetchInboxCards,
   fetchInboxSettings,
   inboxReasonWords,
@@ -47,6 +50,10 @@ export interface InboxConsoleHandle {
   readonly settings: InboxSettingsView | null
   /** 휴대폰 알림으로 넣은 찜 ID ("문자로 받음", 서버 cards 응답 `inboxClaimIds`) */
   readonly claimIds: ReadonlySet<string>
+  /** 12시간 넘은 방송 알림 (cards 응답 `staleBroadcast` — 방송과 상관없이 판매자 것, D-SMS3-29) */
+  readonly stale: InboxStaleNotice | null
+  /** 12시간 넘은 방송 알림을 닫은 뒤 (서버가 null로 준다) */
+  readonly clearStale: () => void
   /** 받기 멈춤을 재기 시작한 때: 서버가 준 방송 시작 시각(새로고침해도 같다). 아직 모르거나 이 기기 시계가 서버보다 늦으면 이 콘솔을 연 때 — 늦게 보일 수는 있어도 일찍 보이지 않는다 */
   readonly since: string
   /** 카드·찜 ID만 다시 읽기 (보드에 모르는 문자찜이 보일 때) */
@@ -63,6 +70,7 @@ export function useInboxConsole(broadcast: string, enabled: boolean, clock: () =
   const [opened] = useState(() => new Date(clock()).toISOString())
   const [claimIds, setClaimIds] = useState<ReadonlySet<string>>(NO_IDS)
   const [startedAt, setStartedAt] = useState<string | null>(null)
+  const [stale, setStale] = useState<InboxStaleNotice | null>(null)
   // 방송 시작 시각(서버 시계)과 이 콘솔을 연 때(이 기기 시계) 중 이른 쪽. 콘솔은 방송 시작 뒤에 열리므로, 연 때가 더 이르면
   // 이 기기 시계가 서버보다 늦은 것이다 — 그때는 연 때가 더 가까운 값이고, 어느 쪽이든 일찍 보이지는 않는다
   const since = startedAt !== null && Date.parse(startedAt) < Date.parse(opened) ? startedAt : opened
@@ -74,6 +82,7 @@ export function useInboxConsole(broadcast: string, enabled: boolean, clock: () =
       if (mine === version.current) {
         setCards(next.cards)
         setClaimIds(next.claimIds)
+        setStale(next.stale)
         if (next.startedAt !== null) setStartedAt(next.startedAt)
       }
     } catch (caught) {
@@ -82,6 +91,7 @@ export function useInboxConsole(broadcast: string, enabled: boolean, clock: () =
       if (mine === version.current && (caught.status === 403 || caught.status === 404)) {
         setCards([])
         setClaimIds(NO_IDS)
+        setStale(null)
       }
     }
   }, [broadcast])
@@ -101,6 +111,7 @@ export function useInboxConsole(broadcast: string, enabled: boolean, clock: () =
     setCards([])
     setClaimIds(NO_IDS)
     setStartedAt(null)
+    setStale(null)
     if (enabled) void reload()
   }, [enabled, reload])
   useEffect(() => {
@@ -118,13 +129,20 @@ export function useInboxConsole(broadcast: string, enabled: boolean, clock: () =
           // 바로 넣은 문자찜이 있을 수 있다 — "문자로 받음" 찜 ID를 다시 읽는다
           void reloadCards()
           setSettings((current) => (current === null ? current : { ...current, lastReceivedAt: event.lastReceivedAt ?? current.lastReceivedAt, lastDevice: event.lastDevice ?? current.lastDevice }))
-        } else void reloadSettings()
+        } else {
+          // 설정 바뀜 — 12시간 넘은 방송 알림이 생기거나 닫혔을 수 있다(cards 응답에 함께 온다, D-SMS3-29)
+          void reload()
+        }
       },
       onReconnect: () => void reload(),
     },
     enabled,
   )
-  return { cards, claimIds, settings, since, now, reload, reloadCards }
+  const clearStale = useCallback(() => {
+    version.current++
+    setStale(null)
+  }, [])
+  return { cards, claimIds, stale, clearStale, settings, since, now, reload, reloadCards }
 }
 
 // ── 받기 멈춤 알림 (AC-SMS3-31) ───────────────────────────────────────────
@@ -148,6 +166,45 @@ export function InboxStallBar({ handle, broadcast, rehearsal, ended }: { readonl
       >
         닫기
       </button>
+    </div>
+  )
+}
+
+// ── 12시간 넘은 방송 알림 (D-SMS3-29) ─────────────────────────────────────
+
+/**
+ * "끝내지 않은 방송이 12시간 넘게 이어져 손님 문자를 넣지 않았어요. 방송을 끝내 주세요." — 콘솔 위·설정 받기 상태.
+ * 그 방송을 끝내면 서버가 지운다. "닫기"는 서버에 닫았다고 적는다(판매자만 — 403이면 단추만 숨긴다). 닫은 뒤 또 넣지 않은 문자가 오면 서버가 다시 준다.
+ */
+export function InboxStaleBar({ stale, onClosed, banner = true }: { readonly stale: InboxStaleNotice | null; readonly onClosed: (inbox: InboxSettingsView | null) => void; readonly banner?: boolean }) {
+  const [busy, setBusy] = useState(false)
+  const [cannotClose, setCannotClose] = useState(false)
+  const [error, setError] = useState<ApiError | null>(null)
+  if (stale === null) return null
+  const close = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      onClosed(await closeStaleNotice())
+    } catch (caught) {
+      if (!isApiError(caught)) throw caught
+      if (caught.status === 403) setCannotClose(true)
+      else if (caught.status === 404) onClosed(null)
+      else setError(caught)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className={banner ? 'connection-banner inbox-stale' : 'stack-tight inbox-stale'} role="alert" data-tone="warning">
+      <span className={banner ? undefined : 'warning'}>! {INBOX_STALE}</span>
+      {cannotClose ? null : (
+        <button type="button" className="button" disabled={busy} onClick={() => void close()}>
+          닫기
+        </button>
+      )}
+      {error !== null ? <ErrorNote error={error} /> : null}
     </div>
   )
 }
@@ -240,12 +297,14 @@ function InboxCard({ card, readOnly, onDone }: { readonly card: InboxCardView; r
   const reason = inboxReasonWords(card)
   const sender = inboxSenderWords(card)
   const time = inboxTimeWords(card)
+  const arrived = inboxArrivedWords(card)
   return (
     <li className={review ? 'inbox-card stack-tight' : 'inbox-card inbox-cancel stack-tight'} aria-label={`${time} ${review ? '확인 필요' : '취소 요청'}`}>
       <p className="inbox-meta">
         <span className={review ? 'tag tag-waiting' : 'tag tag-alert'}>{review ? '확인 필요' : '취소 요청'}</span> <span>{time}</span>
         {/* 이름만 온 취소 요청은 아래 안내 문장에 같은 글이 있다 — 한 번만 (D-SMS3-16) */}
         {boardOnly ? null : <> <span>{sender}</span></>}
+        {arrived === '' ? null : <> <span>· {arrived}</span></>}
       </p>
       {card.last4 === null && card.sender !== null && card.sender.trim() !== '' ? <p className="hint">연락처 이름: {card.sender}</p> : null}
       {/* 손님이 보낸 글 — React 기본 이스케이프로만 */}
