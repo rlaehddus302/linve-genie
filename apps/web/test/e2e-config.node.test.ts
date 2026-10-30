@@ -196,4 +196,26 @@ describe('E2E 기동 (코드 검사)', () => {
     const ports = STACKS.flatMap((item) => [item.web, item.api, item.youtube, item.instagram, item.social, item.assist, item.band].filter((port): port is number => port !== undefined).filter((port, index, list) => list.indexOf(port) === index))
     expect(new Set(ports).size).toBe(ports.length)
   })
+
+  it('CH-26 웹 읽기 묶음: @ytweb만 --youtube-chat web(가짜 유튜브 정한 포트), 다른 유튜브 묶음은 official, 기본 묶음은 @ytweb을 빼고 다른 묶음은 고르지 않는다', () => {
+    const servers = Array.isArray(config.webServer) ? config.webServer : []
+    const command = (name: string) => {
+      const stack = STACKS.find((item) => item.name === name)
+      return servers.find((item) => item.command?.includes(`--port ${String(stack?.api)}`) && item.command.includes('@livejjim/server'))?.command ?? ''
+    }
+    const stack = STACKS.find((item) => item.name === 'chromium-ytweb')
+    expect(stack?.youtube).toBeTypeOf('number')
+    expect(command('chromium-ytweb')).toContain(`--youtube fake --youtube-port ${String(stack?.youtube)} --outbox-fast yes --youtube-chat web`)
+    expect(fakeYoutubeUrl('chromium-ytweb')).toBe(`http://127.0.0.1:${String(stack?.youtube)}`)
+    expect(stack?.grep?.test('시험 @ytweb')).toBe(true)
+    expect(stack?.grep?.test('시험 @youtube')).toBe(false)
+    for (const name of ['chromium-youtube', 'chromium-quota', 'chromium-multi']) expect(command(name)).toContain('--youtube-chat official')
+    for (const other of STACKS.filter((item) => item.name !== 'chromium-ytweb')) {
+      expect(command(other.name)).not.toContain('--youtube-chat web')
+      expect(other.grep?.test('시험 @ytweb') ?? false).toBe(false)
+    }
+    expect(STACKS.find((item) => item.name === 'chromium')?.grepInvert?.test('시험 @ytweb')).toBe(true)
+    const ports = STACKS.flatMap((item) => [item.web, item.api, item.youtube, item.instagram, item.social, item.assist, item.band].filter((port): port is number => port !== undefined).filter((port, index, list) => list.indexOf(port) === index))
+    expect(new Set(ports).size).toBe(ports.length)
+  })
 })
