@@ -35,7 +35,7 @@ test('AC-PRN2-11: 바우아토(실험) — 테스트 인쇄 "예" 뒤 출력 기
 test.describe('휴대폰 폭 390', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
 
-  test('AC-PRN2-06: 실험 표시·안내·"테스트 인쇄"·"예"가 가로 스크롤 없이 보이고, 안내 글자 18px 이상·버튼 글자 16px 이상·누르는 칸 44px 이상(MOB1 기준)', async ({ page }) => {
+  test('AC-PRN2-06: 실험 표시·안내·"테스트 인쇄"·"예"가 가로 스크롤 없이 보이고, 안내 글자 18px 이상·프린터 칸 단추 글자 18px 이상·누르는 칸 52px 이상(PRN2 제품 결정: 나이 든 판매자용 글자 18+, 누르는 칸 52~64)', async ({ page }) => {
     await loginNewSeller(page)
     await connectAs(page, BAUATO.id)
     const printer = region(page, '프린터')
@@ -48,14 +48,23 @@ test.describe('휴대폰 폭 390', () => {
     expect(noteSize).toBeGreaterThanOrEqual(18)
     for (const button of [printer.getByRole('button', { name: '테스트 인쇄' }), yes]) {
       const box = (await button.boundingBox())!
-      expect(box.height, '누르는 칸 높이').toBeGreaterThanOrEqual(44)
+      expect(box.height, '누르는 칸 높이').toBeGreaterThanOrEqual(52)
       const font = await button.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
-      expect(font).toBeGreaterThanOrEqual(16)
+      expect(font).toBeGreaterThanOrEqual(18)
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await yes.click()
     const output = printer.getByRole('button', { name: '이 기기에서 출력' })
     await expect(output).toBeVisible()
-    expect((await output.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect((await output.boundingBox())!.height).toBeGreaterThanOrEqual(52)
+    // 프린터 칸 안의 보이는 단추 전부가 같은 기준
+    const buttons = page.locator('section.printer-card').getByRole('button')
+    for (let i = 0; i < (await buttons.count()); i++) {
+      const button = buttons.nth(i)
+      if (!(await button.isVisible())) continue
+      const name = (await button.textContent())?.trim()
+      expect((await button.boundingBox())!.height, `${name} 높이`).toBeGreaterThanOrEqual(52)
+      expect(await button.evaluate((el) => parseFloat(getComputedStyle(el).fontSize)), `${name} 글자`).toBeGreaterThanOrEqual(18)
+    }
   })
 })
