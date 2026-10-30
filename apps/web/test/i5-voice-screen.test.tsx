@@ -1,13 +1,18 @@
 // 아이폰(사파리) 음성 화면 (I5 — AC-I5-11·12·13·90, D-I5-05~08).
+// SRV1 (D-APP-22·25): 크롬·사파리 받아쓰기 길이 없어졌다 — 그 길의 고지("크롬은 구글, 아이폰은 애플")·홈 화면 앱 한 줄 기대는
+// "어떤 기기·저장값이어도 서버 받아쓰기 고지만 보이고 그 문장이 없다"로 바꿨다(바꾼 시험마다 옛 기대를 적었다).
 import type { SuggestionCard } from '@livejjim/voice'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CONSENT_LINES, VoiceLive, revealCard } from '../src/components/VoicePanel.tsx'
-import { FLUSHED_CARD_NOTE, SENT_NOTICE, SENT_NOTICE_SHORT, STANDALONE_NOTICE, errorLines, flushedClosedNotice, VOICE_IDLE, VoiceController, type VoiceSnapshot } from '../src/voice/controller.ts'
-import { isHomeScreenApp } from '../src/voice/standalone.ts'
+import { VoiceLive, revealCard } from '../src/components/VoicePanel.tsx'
+import { FLUSHED_CARD_NOTE, errorLines, flushedClosedNotice, VOICE_IDLE, type VoiceSnapshot } from '../src/voice/model.ts'
+import { VoiceController } from '../src/voice/controller.ts'
 import { REMOTE_CONSENT, REMOTE_NOTICE } from '../src/voice/remote.ts'
 
 const NOTICE_HOME = '홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요.'
+/** 없어진 크롬·사파리 받아쓰기 고지 (옛 SENT_NOTICE·SENT_NOTICE_SHORT) */
+const OLD_SENT = '음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.'
+const OLD_SENT_SHORT = '음성은 인식을 위해 구글·애플로 보내져요.'
 
 function controller(): VoiceController {
   return new VoiceController({
@@ -38,21 +43,20 @@ afterEach(() => {
 })
 
 describe('외부 전송 고지 (AC-I5-12, D-I5-06)', () => {
-  it('켜진 동안의 한 줄과 안내 창 문장이 "크롬은 구글, 아이폰은 애플"이고 옛 문장은 없다', () => {
-    expect(SENT_NOTICE).toBe('음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.')
-    expect(CONSENT_LINES).toContain('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.')
-    for (const line of [SENT_NOTICE, ...CONSENT_LINES]) expect(line).not.toContain('구글로 보내져요')
-    // D-I5-16: 폭 768px 이상은 긴 문장, 미만은 짧은 문장 (AC-I5-31)
+  // 옛 기대(AC-I5-12·31): PC 크롬 받아쓰기를 고른 넓은 화면은 "크롬은 구글로, 아이폰은 애플로" 긴 고지.
+  // SRV1 새 기대(D-APP-22·25, AC-SRV1-10): 크롬 고르기가 저장된 넓은 PC 크롬이어도 서버 받아쓰기 고지 하나다.
+  it('PC 크롬·옛 크롬 고르기 저장값이어도 서버 받아쓰기 고지만 보이고 구글·애플 고지는 없다', () => {
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
     vi.stubGlobal('SpeechRecognition', class {})
     window.localStorage.setItem('livejjim.voiceEngine', 'chrome')
     show({ phase: 'on', stateLabel: '음성: 듣는 중' })
-    expect(screen.getByText(SENT_NOTICE)).toBeDefined()
-    expect(screen.queryByText(SENT_NOTICE_SHORT)).toBeNull()
+    expect(screen.getByText(REMOTE_NOTICE)).toBeDefined()
+    expect(screen.queryByText(OLD_SENT)).toBeNull()
+    expect(screen.queryByText(OLD_SENT_SHORT)).toBeNull()
+    expect(document.body.textContent).not.toContain('구글')
   })
 
   it('APP1 기본 LG: 휴대폰은 실제 전송처와 저장하지 않음·데이터·충전 세 줄을 고지한다 (D-APP1b-05)', () => {
-    expect(SENT_NOTICE_SHORT).toBe('음성은 인식을 위해 구글·애플로 보내져요.')
     expect(REMOTE_NOTICE).toBe('음성은 라이브지니 받아쓰기 서버로 보내져요.')
     expect(REMOTE_CONSENT).toEqual([
       '음성 듣기를 켜면 이 기기 마이크 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.',
@@ -61,16 +65,17 @@ describe('외부 전송 고지 (AC-I5-12, D-I5-06)', () => {
     ])
     show({ phase: 'on', stateLabel: '음성: 듣는 중' })
     expect(screen.getByText(REMOTE_NOTICE)).toBeDefined()
-    expect(screen.queryByText(SENT_NOTICE_SHORT)).toBeNull()
-    expect(screen.queryByText(SENT_NOTICE)).toBeNull()
+    expect(screen.queryByText(OLD_SENT_SHORT)).toBeNull()
+    expect(screen.queryByText(OLD_SENT)).toBeNull()
     expect(document.body.textContent).not.toContain('음성은 인식을 위해 구글로 보내져요.')
   })
 })
 
-describe('안내 창 마이크 줄 (AC-I5-27, D-I5-11)', () => {
-  it('"브라우저가 마이크 사용을 물으면", "크롬이 마이크"는 없다', () => {
-    expect(CONSENT_LINES).toContain('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
-    for (const line of CONSENT_LINES) expect(line).not.toContain('크롬이 마이크')
+// 옛 기대(AC-I5-27): 크롬·사파리 안내 창에 "브라우저가 마이크 사용을 물으면" 줄이 있고 "크롬이 마이크"는 없다.
+// SRV1 새 기대: 그 안내 창은 없어졌다 — 하나 남은 서버 받아쓰기 안내 창(REMOTE_CONSENT)에도 크롬 문장이 없다.
+describe('안내 창 마이크 줄 (AC-I5-27 → SRV1)', () => {
+  it('안내 창 줄에 "크롬이 마이크"·크롬 문장이 없다', () => {
+    for (const line of REMOTE_CONSENT) expect(line).not.toMatch(/크롬|구글/)
   })
 })
 
@@ -101,13 +106,15 @@ describe('오류 문장은 줄마다 따로 (AC-I5-28, D-I5-12·13)', () => {
 })
 
 describe('홈 화면 앱 한 줄 (AC-I5-11, D-I5-05)', () => {
-  it('navigator.standalone === true일 때만 홈 화면 앱이다 (UA는 보지 않는다)', () => {
-    expect(isHomeScreenApp({ standalone: true })).toBe(true)
-    for (const value of [false, undefined, 'true', 1, null]) expect(isHomeScreenApp({ standalone: value })).toBe(false)
-    expect(isHomeScreenApp({ userAgent: 'iPhone', standalone: false })).toBe(false)
-    expect(isHomeScreenApp(undefined)).toBe(false)
-    expect(isHomeScreenApp(null)).toBe(false)
-    expect(STANDALONE_NOTICE).toBe(NOTICE_HOME)
+  // 옛 기대(D-I5-05): 사파리 받아쓰기 길에서 navigator.standalone === true면 홈 화면 앱 한 줄. SRV1 새 기대: 그 길이 없어 옛 크롬 고르기가 저장된 홈 화면 앱이어도 한 줄이 없다
+  it('홈 화면 앱 + 옛 크롬 고르기 저장값이어도 사파리 받아쓰기 한 줄은 없다', () => {
+    vi.stubGlobal('navigator', { ...navigator, standalone: true })
+    vi.stubGlobal('SpeechRecognition', class {})
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(min-width: 48rem)', media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+    window.localStorage.setItem('livejjim.voiceEngine', 'chrome')
+    show({ phase: 'on', stateLabel: '음성: 듣는 중' })
+    expect(screen.queryByText(NOTICE_HOME)).toBeNull()
+    expect(screen.getByText(REMOTE_NOTICE)).toBeDefined()
   })
 
   it('APP1 기본 LG 홈 화면 앱: Web Speech 전용 경고 없이 켜기·오류·끄기를 표시한다 (D-APP1b-05)', () => {

@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react'
-import type { SmsResultLine } from '@livejjim/web/src/voice/controller.ts'
+import type { SmsResultLine } from '@livejjim/web/src/voice/model.ts'
 import { isApiError, newRequestId } from '../../api/client.ts'
 import { claimWord } from '../../lib/derive.ts'
 import { BigButton, Body, Field, Hint, Notice, Row } from '../../ui/parts.tsx'

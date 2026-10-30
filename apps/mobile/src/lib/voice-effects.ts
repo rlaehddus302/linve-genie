@@ -1,6 +1,6 @@
 // 서버가 결정한 효과만 기존 HTTP 이벤트에 연결한다. 등록·찜·정정의 판정은 서버가 맡는다.
 import type { FullView, WriteResult } from '@livejjim/web/src/api/types.ts'
-import type { VoiceHost, VoiceWriteOptions, VoiceSmsWrite } from '@livejjim/web/src/voice/controller.ts'
+import type { VoiceHost, VoiceWriteOptions, VoiceSmsWrite } from '@livejjim/web/src/voice/model.ts'
 import { get, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import { productSlots } from './derive.ts'
 import type { VoiceSession } from './voice-session.ts'

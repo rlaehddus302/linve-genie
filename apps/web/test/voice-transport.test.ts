@@ -6,7 +6,8 @@ class FakeSocket extends EventTarget {
   static readonly OPEN = 1
   readyState = 1
   send = vi.fn()
-  constructor(_url: URL) { super(); sockets.push(this) }
+  readonly url: URL
+  constructor(url: URL) { super(); this.url = url; sockets.push(this) }
   close() { this.readyState = 3 }
   message(value: unknown) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) })) }
 }
@@ -20,7 +21,7 @@ const transports: ReturnType<typeof createVoiceTransport>[] = []
 function setup() {
   const error = vi.fn()
   const lost = vi.fn()
-  const transport = createVoiceTransport({ broadcastId: 'b1', device: 'abcdefgh', chrome: false, hello: () => ({ type: 'voice.session', op: 'hello', context: { now: Date.now(), dialogOpen: false, smsAutoAllowed: true } }), onMessage() {}, onState() {}, onError: error, onConnectionLost: lost })
+  const transport = createVoiceTransport({ broadcastId: 'b1', device: 'abcdefgh', hello: () => ({ type: 'voice.session', op: 'hello', context: { now: Date.now(), dialogOpen: false, smsAutoAllowed: true } }), onMessage() {}, onState() {}, onError: error, onConnectionLost: lost })
   transports.push(transport)
   transport.start()
   sockets.at(-1)!.message({ type: 'ready' })
@@ -102,5 +103,24 @@ describe('마이크 비동기 캡처 취소', () => {
     expect(lost).toHaveBeenCalledOnce()
     expect(stop).toHaveBeenCalledOnce()
     expect(createContext).not.toHaveBeenCalled()
+  })
+})
+
+// SRV1 (D-APP-22·25, 약속 4): 받아쓰기는 언제나 서버 — 크롬 길(mode=chrome)이 없다. 마이크 없는 조작 전용 연결은 capture=false로 연다.
+describe('서버 받아쓰기 연결 인자 (SRV1)', () => {
+  it('음성 듣기 연결은 mode·capture 인자 없이 열고, 조작 전용 연결은 capture=false로 연다 (mode=chrome 없음)', () => {
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(() => new Promise(() => {})) } })
+    vi.stubGlobal('AudioContext', vi.fn(function AudioContext() {}))
+    setup()
+    const listening = sockets.at(-1)!.url
+    expect(listening.searchParams.has('mode')).toBe(false)
+    expect(listening.searchParams.has('capture')).toBe(false)
+    const control = createVoiceTransport({ broadcastId: 'b1', device: 'abcdefgh', capture: false, hello: () => ({ type: 'voice.session', op: 'hello', context: { now: Date.now(), dialogOpen: false, smsAutoAllowed: true } }), onMessage() {}, onState() {}, onError() {} })
+    transports.push(control)
+    expect(control.isSupported()).toBe(true)
+    control.start()
+    const url = sockets.at(-1)!.url
+    expect(url.searchParams.get('capture')).toBe('false')
+    expect(url.searchParams.has('mode')).toBe(false)
   })
 })

@@ -10,7 +10,7 @@ import { get, isApiError, newRequestId, post, withQuery } from '../api/client.ts
 import type { WriteResult } from '../api/types.ts'
 import { ConsoleStore } from '../lib/console-store.ts'
 import { productKey, productSlots } from '../lib/derive.ts'
-import { OFFER_FIX_FAILED, type ExistingView, type RecentFixOutcome, type VoiceHost } from './controller.ts'
+import { OFFER_FIX_FAILED, type ExistingView, type RecentFixOutcome, type VoiceHost } from './model.ts'
 import { deviceId } from '../lib/device.ts'
 import { addArchiveChunk, addArchiveGap } from './archive-store.ts'
 import { fetchPastNames } from './history.ts'
