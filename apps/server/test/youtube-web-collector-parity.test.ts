@@ -309,6 +309,8 @@ describe('AC-Y1-26 우리가 게시한 감사는 기록하지 않는다 (웹 읽
     const patched = await client(w, seller.cookie).patch('/api/settings', { settings: { 'claim.parseMode': 'LOOSE', 'claim.ignoreOwner': false } })
     expect(patched.status, JSON.stringify(patched.body)).toBe(200)
     const video = w.web.addVideo({ channelId, channelTitle: '구피 가게' })
+    // 감사 쓰기는 공식 API(D-YT-SRV-13 (가)) — 첫 감사 직전에 videos.list로 채팅 ID를 받는다(D-YT-SRV-15). 가짜 구글에도 같은 영상
+    w.google?.addBroadcast(channelId, { videoId: video.videoId })
     const { b } = await webLinked(w, { seller, video })
     await expectOk(writeEvent(w, seller, { type: 'product.register', b: b.id, no: 17, name: '미니마', price: 800 }))
     await expectOk(writeEvent(w, seller, { type: 'product.register', b: b.id, no: 18, name: '라울', price: 900, stock: 2 }))
