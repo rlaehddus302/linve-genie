@@ -36,9 +36,9 @@
 ### 은행 알림 읽기 DP-9 1~7 (server)
 
 **AC-SMS3-03** [server] 골든 그대로
-- Given `deposit/notice.json` 사례 41(G-DEP-201~241 — G-DEP-220 기대값·G-DEP-231~241은 D-DEP2-08~10)
+- Given `deposit/notice.json` 사례 47(G-DEP-201~247 — G-DEP-220 기대값·G-DEP-231~241은 D-DEP2-08~10, G-DEP-242~247은 D-DEP2-11)
 - When 서버 입금 골든 시험이 `readBankNotice(in)`을 돌린다(TZ를 바꿔도)
-- Then 모두 `out`과 깊은 같음. 그 시험의 파일 수·사례 수 합계 고정값에 `notice` 41이 더해진다
+- Then 모두 `out`과 깊은 같음. 그 시험의 파일 수·사례 수 합계 고정값에 `notice` 47이 더해진다
 - 확인: 단위(골든)
 
 **AC-SMS3-04** [server] 예외 없음

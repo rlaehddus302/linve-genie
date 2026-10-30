@@ -989,6 +989,142 @@
         "amount": null,
         "balance": 1049000
       }
+    },
+    {
+      "id": "G-DEP-242",
+      "title": "이름에 '입금50000'을 넣은 1원 입금 → 읽지 못함 (D-DEP2-11 ①)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "c에 '입금'이 둘(이름 토큰 '입금50000'과 낱말) → UNREADABLE. 고치기 전엔 첫 '입금' 뒤 50000을 읽어 50,000원 입금.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]10/31 14:03 123456**789 입금50000 입금 1 잔액1,000,001",
+        "receivedAt": "2026-10-31T14:03:20+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-243",
+      "title": "이름에 '50,000원'을 넣은 1원 입금 — 앞뒤 금액이 다름 (D-DEP2-11 ②)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "K=입금. 뒤 '1', 앞 '50,000원' → 50000 ≠ 1 → UNREADABLE.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]10/31 14:03 123456**789 50,000원 입금 1 잔액1,000,001",
+        "receivedAt": "2026-10-31T14:03:20+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-244",
+      "title": "입금과 금액 사이 이름 '50000' — 이웃 토큰이 금액 (D-DEP2-11 ④)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "K 뒤 금액 50000, 그 다음 이웃 토큰 '1'이 금액 모양으로 시작 → UNREADABLE.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 입금 50000 1 잔액1,000,001",
+        "receivedAt": "2026-10-31T14:04:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-245",
+      "title": "이름 '50000원홍' — 금액이 토큰 중간 (D-DEP2-11 ③)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "K 뒤 '50000원' 바로 뒤가 '홍'(공백·끝 아님) → UNREADABLE.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 입금 50000원홍 1",
+        "receivedAt": "2026-10-31T14:05:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-246",
+      "title": "정상 1원 입금 대조 — 그대로 입금 (D-DEP2-11 경계)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "G-DEP-242·243과 같은 틀, 이름 홍길동. '입금' 하나, 앞 금액 없음(앞 토큰 홍길동), 뒤 '1' 다음 이웃 '잔액1,000,001'은 글자로 시작 → amount 1. 잔액 1000001. 시각 10/31 14:03(minute). 이름: 숫자 든 토큰·입금 버림 → 홍길동.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]10/31 14:03 123456**789 홍길동 입금 1 잔액1,000,001",
+        "receivedAt": "2026-10-31T14:03:20+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T14:03:00+09:00",
+        "precision": "minute",
+        "amount": 1,
+        "name": "홍길동",
+        "balance": 1000001
+      }
+    },
+    {
+      "id": "G-DEP-247",
+      "title": "앞뒤 금액이 같으면 입금 (D-DEP2-11 ② 경계)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "앞 '14,000원' = 뒤 '14,000원' → 14000. 앞 금액의 앞은 글의 처음, 뒤 금액 다음 이웃 '최유리'는 글자. 이름: 숫자 든 토큰·입금 버림 → 최유리. 시각 없음 → 받은 시각(second).",
+      "in": {
+        "channel": "APP",
+        "from": "viva.republica.toss",
+        "title": null,
+        "text": "14,000원 입금 14,000원 최유리",
+        "receivedAt": "2026-10-31T14:30:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "TOSS",
+        "trusted": true,
+        "at": "2026-10-31T14:30:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "최유리",
+        "balance": null
+      }
     }
   ]
 }
