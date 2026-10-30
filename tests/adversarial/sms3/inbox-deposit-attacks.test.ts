@@ -42,9 +42,15 @@ async function soldToYounghee() {
   return { ...w, sale }
 }
 
+/** D-DEP2-13: 자동 확인은 같은 은행 앞선 잔액이 있고 앞 잔액 + 금액 = 잔액일 때만. 앞선 신한 출금 알림(잔액 1,014,000)을 하나 넣어 잔액 이어짐을 만든다 */
+async function primeShinhanBalance(world: TestServer, token: string, id = 'prime'): Promise<void> {
+  expect(await statuses(world, token, [sms(id, SHINHAN, '신한10/31 20:01 출금 5,000원 잔액 1,014,000')])).toEqual(['SAVED'])
+}
+
 describe('같은 입금이 문자와 앱 알림으로 — 두 번 확인 없음 (DP-9 8, DP-INV-4)', () => {
   it('문자와 앱 알림을 서로 다른 요청으로 동시에 → 입금 하나, 정산 기록 하나', async () => {
     const { world, seller, token } = await soldToYounghee()
+    await primeShinhanBalance(world, token) // D-DEP2-13
     const [a, b] = await Promise.all([
       send(world, token, [sms('s1', SHINHAN, notice('20:05', '14,000', '1,028,000'))]),
       send(world, token, [app('a1', SHINHAN_APP, '신한 10/31 20:05', '입금 14,000 잔액 1,028,000 김영희')]),
@@ -56,6 +62,7 @@ describe('같은 입금이 문자와 앱 알림으로 — 두 번 확인 없음 
 
   it('앱 알림(시각 글 없음 — 받은 시각 초까지)이 먼저, 같은 거래의 문자(분까지)가 뒤에 → 자동 확인은 한 번뿐', async () => {
     const { world, seller, token } = await soldToYounghee()
+    await primeShinhanBalance(world, token) // D-DEP2-13
     expect(await statuses(world, token, [app('a1', SHINHAN_APP, '신한 입금', '입금 14,000 잔액 1,028,000 김영희', '2026-10-31T20:05:07+09:00')])).toEqual(['SAVED'])
     expect(await statuses(world, token, [sms('s1', SHINHAN, notice('20:05', '14,000', '1,028,000'), '2026-10-31T20:05:05+09:00')])).toEqual(['SAVED'])
     expect(await list(world, seller, 'AUTO_APPLIED')).toHaveLength(1)
@@ -64,6 +71,7 @@ describe('같은 입금이 문자와 앱 알림으로 — 두 번 확인 없음 
 
   it('문자(잔액 있음)와 앱 알림(잔액 없음)이 같은 입금을 알림 → 자동 확인은 한 번뿐', async () => {
     const { world, seller, token } = await soldToYounghee()
+    await primeShinhanBalance(world, token) // D-DEP2-13
     expect(await statuses(world, token, [sms('s1', SHINHAN, notice('20:05', '14,000', '1,028,000')), app('a1', SHINHAN_APP, '입금 14,000원', '김영희', '2026-10-31T20:05:20+09:00')])).toEqual(['SAVED', 'SAVED'])
     expect(await list(world, seller, 'AUTO_APPLIED')).toHaveLength(1)
     expect(await payments(world, seller)).toBe(1)
@@ -71,6 +79,7 @@ describe('같은 입금이 문자와 앱 알림으로 — 두 번 확인 없음 
 
   it('은행 대표번호 문자 둘(같은 은행의 다른 대표번호)로 같은 거래 → 입금 하나', async () => {
     const { world, seller, token } = await soldToYounghee()
+    await primeShinhanBalance(world, token) // D-DEP2-13
     expect(await statuses(world, token, [sms('s1', '1577-8000', notice('20:05', '14,000', '1,028,000')), sms('s2', '1599-8000', notice('20:05', '14,000', '1,028,000'))])).toEqual(['SAVED', 'SAVED'])
     expect(await allDeposits(world, seller)).toHaveLength(1)
     expect(await payments(world, seller)).toBe(1)
@@ -114,6 +123,7 @@ describe('믿지 않는 곳은 자동 확인되지 않는다 (DP-INV-6)', () => 
       ]),
     ).toEqual(['SAVED', 'IGNORED', 'SAVED'])
     expect(await balancesOf(world.database.db, seller.sellerId)).toEqual([])
+    await primeShinhanBalance(world, token) // D-DEP2-13: 진짜 앞선 잔액은 믿는 곳에서만
     expect(await statuses(world, token, [sms('real', SHINHAN, notice('20:05', '14,000', '1,028,000'))])).toEqual(['SAVED'])
     expect((await list(world, seller, 'AUTO_APPLIED')).map((item) => item.name)).toEqual(['김영희'])
   })
@@ -187,6 +197,7 @@ describe('출금·입금 취소·읽지 못함은 입금이 아니다 (DP-INV-7)
 
   it('입금 취소 알림 뒤에도 이미 자동 확인된 입금은 그대로 (자동 되돌리기 없음 — 판매자가 DP-6 되돌리기로)', async () => {
     const { world, seller, token } = await soldToYounghee()
+    await primeShinhanBalance(world, token) // D-DEP2-13
     expect(await statuses(world, token, [sms('d', SHINHAN, notice('20:05', '14,000', '1,028,000'))])).toEqual(['SAVED'])
     const before = (await world.server.writer.read(seller.sellerId, SMS3_DAY, false)).seq
     expect(await statuses(world, token, [sms('c', SHINHAN, '신한10/31 20:07 입금취소 14,000 잔액 1,014,000 김영희')])).toEqual(['SAVED'])
