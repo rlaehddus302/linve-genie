@@ -16,7 +16,6 @@ import type {
   SmsReadOptions,
   SmsVoiceSettings,
   SmsWrite,
-  SpeechEngine,
   SuggestionCard,
   VarietyCandidate,
   VoiceArchiveBroadcast,

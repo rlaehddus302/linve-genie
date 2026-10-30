@@ -158,6 +158,8 @@ export class FakeServer {
   readonly readProducts = new Map<string, ReadProduct & { readonly broadcast: string }>()
   /** 가짜 읽기 입구가 상품을 찾는 곳 (EngineServer는 엔진 상태로 바꾼다) */
   findProduct: (b: string, no: number) => ReadProduct | undefined = (b, no) => this.readProducts.get(`${b}/${String(no)}`)
+  /** 원문 쓰기를 처리기 앞에서 읽는다 (EngineServer는 같은 요청 번호 확인 뒤 스스로 읽으므로 끈다) */
+  decodeRawWrites = true
   /** 받은 읽기 요청 본문 */
   get reads(): Call[] {
     return this.calls.filter((call) => call.method === 'POST' && /^\/api\/(?:broadcasts\/[^/?]+\/)?read$/.test(call.path))
@@ -187,7 +189,7 @@ export class FakeServer {
       if (match === null) continue
       // 원문 쓰기 (SRV1 약속 2): 서버처럼 먼저 읽어 엔진 필드로 바꿔 처리기에 넘긴다 — 받은 원문 본문은 calls에 그대로 남는다
       let handed = call
-      if (method === 'POST' && /^\/api\/events$/.test(path) && body !== null && RAW_NAMES.some((name) => body[name] !== undefined)) {
+      if (this.decodeRawWrites && method === 'POST' && /^\/api\/events$/.test(path) && body !== null && RAW_NAMES.some((name) => body[name] !== undefined)) {
         const decoded = readRawWrite(body, (b) => (typeof b === 'string' ? this.readSettings.get(b) : undefined) ?? DEFAULT_READ, this.findProduct)
         if (!('event' in decoded)) return new Response(JSON.stringify(decoded.body ?? {}), { status: decoded.status ?? 200, headers: { 'Content-Type': 'application/json' } })
         handed = { ...call, body: decoded.event }

@@ -948,6 +948,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
             else if (read.no !== null && read.price !== null && request.onExists === undefined) {
               // 화면이 아직 그 상품을 받지 못했다(다른 기기가 막 등록) — 칸 아래 "고칠까요?"에 남긴다. 화면이 따라잡으면 그 상품과 견준다(AC-S06-67)
               if (request.extra !== undefined) noteDroppedOptions(read.no)
+              void store.catchUp()
               const no = read.no
               const price = read.price
               setAsks((list) => [

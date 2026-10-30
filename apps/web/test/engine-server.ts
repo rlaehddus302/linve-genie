@@ -42,7 +42,7 @@ export interface EngineServerOptions {
 
 export class EngineServer {
   readonly server = new FakeServer()
-  /** 받아 기록한 쓰기 (요청 본문) */
+  /** 받아 기록한 쓰기 (요청 본문 + 원문 칸을 읽은 엔진 필드, SRV1) */
   readonly posts: Record<string, unknown>[] = []
   /** 음성 쓰기에 실려 온 기록 한 줄 (R-25) */
   readonly voiceLogs: unknown[] = []
@@ -63,6 +63,8 @@ export class EngineServer {
     const ended = new Set(options.ended ?? [])
     // 가짜 읽기 입구도 엔진 상태의 상품으로 읽는다 (서버 readScope와 같다)
     this.server.findProduct = this.readProduct
+    // 원문은 같은 요청 번호 확인(이미 기록한 요청이면 처음 결과) 뒤에 읽는다 — 실제 서버 기록 경로와 같은 차례
+    this.server.decodeRawWrites = false
     this.server
       .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
       .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: options.delayMs ?? 60 } }))
@@ -140,9 +142,18 @@ export class EngineServer {
     const raw = this.#readRaw(sent)
     if (!('event' in raw)) return raw
     const input = raw.event
+    // posts에는 받은 원문 본문과 서버가 읽어 기록한 엔진 필드를 함께 남긴다 (원문 단언·기록 값 단언 둘 다)
+    this.posts[this.posts.length - 1] = { ...body, ...input }
     let event: Record<string, unknown> = input
     let last4: string | null | undefined
     let ref: string | undefined
+    // 정산 메모·사유의 전화번호: 서버가 지금 화면 문장으로 거절한다 (SRV1 AC-SRV1-08 — 화면은 먼저 막지 않는다)
+    if (String(input.type).startsWith('settlement.')) {
+      for (const field of ['memo', 'reason']) {
+        const value = input[field]
+        if (typeof value === 'string' && containsPhoneRun(value)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field, message: PHONE_SENTENCE }])
+      }
+    }
     if (input.type === 'sms') {
       if (typeof input.memo === 'string' && containsPhoneRun(input.memo)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'memo', message: PHONE_SENTENCE }])
       if (input.received !== undefined && !isValidReceivedTime(input.received)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'received', message: '받은 시각을 확인해 주세요.' }])
