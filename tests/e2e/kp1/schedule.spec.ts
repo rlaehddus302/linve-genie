@@ -2,7 +2,7 @@
 // 기대 문장은 SPEC SCH-01~03·acceptance 따옴표 그대로. 공개 페이지는 로그인 없는 새 문맥(스크립트 없는 서버 HTML).
 import { test, expect, type Page } from '@playwright/test'
 import { apiUrl } from '../i3/support.ts'
-import { PC, PHONE, PHONE_RULE, SCHEDULE_FULL, VIEWPORTS, buyerBrowser, loginNewSeller, noOverflow, postJson, DEV_WORDS } from './support.ts'
+import { NOT_SENDING, PC, PHONE, PHONE_RULE, SCHEDULE_FULL, VIEWPORTS, buyerBrowser, loginNewSeller, noOverflow, postJson, DEV_WORDS } from './support.ts'
 
 function scheduleSection(page: Page) {
   return page.getByRole('region', { name: '방송 일정', exact: true })
@@ -157,7 +157,7 @@ test.describe('AC-KP1-21 공개 페이지', () => {
 
 test.describe('AC-KP1-23 방송 알림 수', () => {
   for (const { name, viewport } of VIEWPORTS) {
-    test(`${name}: 설정 "방송 알림"엔 신청 기다림·받는 중·그만 받음 수만 — 손님이 공개 페이지에서 신청·그만 받기 하면 수가 바뀌고 번호·목록·내려받기·대신 넣기는 없다`, async ({ page, request }) => {
+    test(`${name}: 설정 "방송 알림"엔 번호 확인 전·받는 중·그만 받음 수만(D-KP1-48) — 손님이 공개 페이지에서 신청·그만 받기 하면 수가 바뀌고 번호·목록·내려받기·대신 넣기는 없다`, async ({ page, request }) => {
       test.setTimeout(150_000)
       await page.setViewportSize(viewport)
       await loginNewSeller(page)
@@ -178,9 +178,12 @@ test.describe('AC-KP1-23 방송 알림 수', () => {
       const alerts = alertSection(page)
       await expect(alerts).toBeVisible()
       const row = (label: string) => alerts.locator('div').filter({ has: page.getByText(label, { exact: true }) }).last()
-      await expect(row('신청 기다림')).toContainText('1명')
+      // D-KP1-48: PENDING 수 이름 "신청 기다림" → "번호 확인 전", 아직 보내지 않는다는 한 줄
+      await expect(row('번호 확인 전')).toContainText('1명')
       await expect(row('받는 중')).toContainText('0명')
       await expect(row('그만 받음')).toContainText('1명')
+      await expect(alerts.getByText(NOT_SENDING)).toBeVisible()
+      await expect(alerts).not.toContainText('신청 기다림')
       const text = await alerts.innerText()
       expect(text).not.toMatch(/1001|1002|010/)
       expect(text).not.toMatch(DEV_WORDS)
@@ -188,6 +191,56 @@ test.describe('AC-KP1-23 방송 알림 수', () => {
       await expect(alerts.getByRole('link')).toHaveCount(0)
       await expect(alerts.getByRole('textbox')).toHaveCount(0)
       if (viewport.width === PHONE.width) await noOverflow(page, '설정 방송 알림 375px')
+    })
+  }
+})
+
+test.describe('AC-KP1-22 공개 페이지 알림 받기 양식 (D-KP1-48·UX-KP1-011)', () => {
+  for (const { name, viewport } of VIEWPORTS) {
+    test(`${name}: "${NOT_SENDING}" 한 줄, 번호가 틀리면 서버 문장 + 적은 번호 다시 채움, 동의 없이 보내면 "알림 받기에 동의해 주세요." — 둘 다 저장 안 함`, async ({ page, browser }) => {
+      test.setTimeout(150_000)
+      await page.setViewportSize(PC)
+      const seller = await loginNewSeller(page)
+      await addItemApi(page, kstAfter(3), '토요 다육이 방송')
+      await page.goto('/settings')
+      const section = scheduleSection(page)
+      await section.getByRole('checkbox', { name: /방송 일정 공개/ }).click()
+      await expect(section).toContainText('공개 일정 페이지를 켰어요.')
+      const url = (await scheduleView(page)).page.url!
+      const buyer = await buyerBrowser(browser, page, viewport)
+      try {
+        await buyer.page.goto(url)
+        await expect(buyer.page.locator('body')).toContainText(seller.shopName)
+        const form = buyer.page.locator('form').filter({ has: buyer.page.getByRole('button', { name: '알림 받기' }) })
+        await expect(form.getByText(NOT_SENDING)).toBeVisible()
+        const phone = form.getByLabel('휴대폰 번호')
+        const agree = form.getByRole('checkbox')
+        // 빈칸·동의 검사는 서버 문장으로 (브라우저 말풍선이 아니다 — required 없음)
+        await expect(phone).not.toHaveAttribute('required', /.*/)
+        await expect(agree).not.toHaveAttribute('required', /.*/)
+        // 휴대폰 번호가 아니다 → 서버 문장, 적은 번호는 다시 채움
+        await phone.fill('02-123-4567')
+        await agree.check()
+        await form.getByRole('button', { name: '알림 받기' }).click()
+        await expect(buyer.page.getByText('휴대폰 번호(010으로 시작하는 11자리)를 적어 주세요.')).toBeVisible()
+        const again = buyer.page.locator('form').filter({ has: buyer.page.getByRole('button', { name: '알림 받기' }) })
+        await expect(again.getByLabel('휴대폰 번호')).toHaveValue('02-123-4567')
+        // 동의 없이 → 서버 문장
+        await again.getByLabel('휴대폰 번호').fill('010-4444-1001')
+        await expect(again.getByRole('checkbox')).not.toBeChecked()
+        await again.getByRole('button', { name: '알림 받기' }).click()
+        await expect(buyer.page.getByText('알림 받기에 동의해 주세요.')).toBeVisible()
+        await expect(buyer.page.getByText(/방송 알림을 신청했어요/)).toHaveCount(0)
+        if (viewport.width === PHONE.width) await noOverflow(buyer.page, '공개 페이지 오류 375px')
+      } finally {
+        await buyer.context.close()
+      }
+      // 둘 다 저장하지 않았다 — 판매자 수는 모두 0
+      await page.reload()
+      const alerts = alertSection(page)
+      const row = (label: string) => alerts.locator('div').filter({ has: page.getByText(label, { exact: true }) }).last()
+      await expect(row('번호 확인 전')).toContainText('0명')
+      await expect(row('받는 중')).toContainText('0명')
     })
   }
 })

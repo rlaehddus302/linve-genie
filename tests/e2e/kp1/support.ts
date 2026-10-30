@@ -23,12 +23,31 @@ export const ADDRESS = { name: '홍길동', phone: '010-1234-5678', address: '�
 
 // ── 스펙 문장 (CUSTOMER_RULES CR-2·CR-3·CR-4·CR-5, acceptance) ─────────────
 export const CONSENT_TITLE = '다음 주문에도 이 배송지 쓰기 (선택)'
+/** 문구 판 CR-CONSENT-2 (D-KP1-46 — 글을 다듬고 판을 올림. 출처: DECISIONS D-KP1-46 따옴표, 서버 customers/ledger-rules.ts와 같아야 한다) */
+export const CONSENT_VERSION = 'CR-CONSENT-2'
 export const consentBody = (shop: string, period: string) =>
-  `${shop}가 받는 분·연락처·주소를 다음 주문 배송지로 쓰려고 마지막 주문 뒤 ${period} 동안 보관해요. 그 뒤엔 지워요. 언제든 이 링크나 판매자에게 지워 달라고 할 수 있어요. 고르지 않아도 이번 주문은 그대로 보내요.`
+  `고르면 받는 분·연락처·주소를 30일 뒤에 지우지 않고, ${shop}가 다음 주문 배송지로 쓰려고 마지막 주문 뒤 ${period} 동안 보관해요. ${shop}에서만 쓰고, 그 뒤엔 지워요. 언제든 이 링크나 판매자에게 지워 달라고 할 수 있어요. 고르지 않아도 이번 주문은 그대로 보내요.`
 export const SAVED_LINE = '저장해 둔 배송지가 있어요 (받는 분 홍*동 · 연락처 끝 5678)'
 export const DELETE_SAVED = '저장한 정보 지우기'
 export const DELETE_ASK = '저장한 배송지를 지울까요? 이번 주문 배송지는 그대로예요.'
 export const DELETED = '지웠어요.'
+/** 링크 지우기 확인 쪽의 경고 (UX-KP1-009 — 확인 쪽 문장 뒤) */
+export const DELETE_WARN = '지우면 되돌릴 수 없어요.'
+/** 코드가 살아 있을 때 다시 받기 버튼 (UX-KP1-008) */
+export const NEW_CODE = '새 코드 받기 (지금 코드는 없어져요)'
+// 판매자 화면의 손님 장부는 "저장한 배송지"라 부른다 (D-KP1-47, AC-KP1-07 — 판매자 화면 글에 "장부" 낱말 없음)
+export const SELLER_LEDGER = '저장한 배송지'
+export const SELLER_LEDGER_DELETE = '저장한 배송지 지우기'
+export const SELLER_LEDGER_DELETED = '저장한 배송지를 지웠어요.'
+/** [배송지 확인]으로 저장한 묶음 배송지의 출처 글 (D-KP1-44, AC-KP1-08) */
+// 화면은 출처 글 + 확인 꼬리표(색 칸)로 나눠 그려 가운데 점 대신 칸 경계가 들어갈 수 있다 — 두 말이 이 순서로 한 줄에 붙어 있으면 같은 문구로 본다
+export const LEDGER_SOURCE_LINE = /손님이 지난번에 적은 배송지\s*(·\s*)?판매자가 확인함/
+/** 콘솔 첫 물음 (D-KP1-43, AC-KP1-15) */
+export const BADGES_ASK = '방송 화면에 손님 표시를 보일까요? 이 화면을 방송에 내보내면 손님도 볼 수 있어요.'
+/** 보관 기간 줄이기 확인 창 (D-KP1-45, AC-KP1-06) */
+export const shrinkAskLine = (n: number) => `지금 줄이면 손님 ${String(n)}명의 저장한 배송지가 1시간 안에 지워져요. 되돌릴 수 없어요.`
+/** 알림을 받지만 아직 보내지 않음 (D-KP1-48, AC-KP1-22·23) */
+export const NOT_SENDING = '아직 문자를 보내지 않아요. 보내기는 준비 중이에요.'
 export const LINK_PREFILL = '지난번 배송지로 보낼게요 (받는 분 홍*동 · 연락처 끝 5678). 바뀌었으면 다시 적어 주세요.'
 export const PREFILL_TITLE = '지난 주문 배송지예요 — 확인해 주세요'
 export const LINK_ACCOUNT = '다른 계정도 잇기'
@@ -57,8 +76,8 @@ export async function parcelSettings(page: Page): Promise<void> {
   expect(res.status(), await res.text()).toBe(200)
 }
 
-/** 장부 설정 (API) */
-export async function ledgerSettings(page: Page, settings: { months: 6 | 12 | 24 | 36; consoleBadges: boolean }): Promise<void> {
+/** 장부 설정 (API) — consoleBadges null = 정하지 않음(처음 값, D-KP1-43) */
+export async function ledgerSettings(page: Page, settings: { months: 6 | 12 | 24 | 36; consoleBadges: boolean | null }): Promise<void> {
   const res = await page.request.put('/api/ledger-settings', { data: settings, headers: { Origin: new URL(page.url()).origin } })
   expect(res.status(), await res.text()).toBe(200)
 }
@@ -138,8 +157,8 @@ export function consentBox(page: Page): Locator {
 /** 링크 배송지 양식을 채워 보낸다 (keep = "다음 주문에도" 고르기) */
 export async function sendAddress(page: Page, keep: boolean, address: { name: string; phone: string; address: string; detail?: string; zip?: string } = ADDRESS): Promise<void> {
   const form = addressForm(page)
-  await form.getByLabel('받는 분').fill(address.name)
-  await form.getByLabel('연락처').fill(address.phone)
+  await form.getByLabel('받는 분', { exact: true }).fill(address.name)
+  await form.getByLabel('연락처', { exact: true }).fill(address.phone)
   await form.getByLabel('주소', { exact: true }).fill(address.address)
   if (address.detail !== undefined) await form.getByLabel('상세 주소').fill(address.detail)
   if (address.zip !== undefined) await form.getByLabel(/^우편번호/).fill(address.zip)
@@ -197,4 +216,16 @@ export async function noOverflow(page: Page, where: string): Promise<void> {
 export async function registerStock(page: Page, b: string, no: number, name: string, price: number, stock: number): Promise<void> {
   const res = await postJson(page, '/api/events', { requestId: crypto.randomUUID(), type: 'product.register', b, no, name, price, stock })
   expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
+}
+
+/** 그 판매자의 장부 설정 (API) */
+export async function ledgerSettingsNow(page: Page): Promise<{ months: number; consoleBadges: boolean | null }> {
+  const res = await page.request.get('/api/ledger-settings')
+  expect(res.status(), await res.text()).toBe(200)
+  return ((await res.json()) as { settings: { months: number; consoleBadges: boolean | null } }).settings
+}
+
+/** 콘솔 첫 물음 띠 (D-KP1-43) */
+export function badgesAsk(page: Page): Locator {
+  return page.getByRole('region', { name: '방송 화면에 손님 표시 정하기' })
 }

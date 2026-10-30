@@ -1,8 +1,11 @@
 // KP1 방송 콘솔 손님 표시 (test-e2e) — AC-KP1-14(꼬리표)·15(끄는 설정)·16(받기 간격 — 요청 수 셈).
 // 기대 글은 CUSTOMER_RULES CR-7 그대로: "입금 늦음 주의"·"단골 · 누적 125,000원"·"처음"·없음, 화면 읽기 "손님: 단골, 누적 125,000원".
+// D-KP1-43: "방송 화면에 손님 표시"는 처음엔 정해지지 않음(숨김·조회 없음)이고 실제 방송 콘솔이 한 번 묻는다.
+//   꼬리표 자체를 보는 장면은 설정을 미리 "보이기"로 정해 두고(showBadges), 묻는 장면은 따로 본다(AC-KP1-15).
 // 단골 기본 = 3번 이상 또는 100,000원 이상(D-CRM1-05), 입금 늦음 주의 = 기다리는 날(기본 3일)이 지난 미입금 한 번 이상.
 import { test, expect, type Page, type Request } from '@playwright/test'
 import {
+  BADGES_ASK,
   BADGES_HELP,
   BADGES_LABEL,
   BADGES_PATH,
@@ -14,7 +17,10 @@ import {
   chat,
   chatRow,
   customerSection,
+  badgesAsk,
   kstDate,
+  ledgerSettings,
+  ledgerSettingsNow,
   loginNewSeller,
   openConsole,
   registerStock,
@@ -52,6 +58,15 @@ async function chatAll(page: Page, w: World): Promise<void> {
   await chat(page, w.b, w.d, '디손님', '안녕하세요 디')
 }
 
+function chatList(page: Page) {
+  return page.getByRole('list', { name: '채팅 메시지' })
+}
+
+/** 설정 "방송 화면에 손님 표시"를 미리 보이기로 (D-KP1-43 — 처음 값은 정해지지 않음이라 꼬리표 장면은 정해 두고 시작) */
+async function showBadges(page: Page): Promise<void> {
+  await ledgerSettings(page, { months: 12, consoleBadges: true })
+}
+
 function badgeRequests(page: Page): { at: number; buyers: string[]; status: number | null }[] {
   const out: { at: number; buyers: string[]; status: number | null; req?: Request }[] = []
   page.on('request', (r) => {
@@ -71,9 +86,11 @@ for (const { name, viewport } of VIEWPORTS) {
     test(`AC-KP1-14 ${name}: 줄 이름 뒤 "입금 늦음 주의"·"단골 · 누적 125,000원"·"처음"·없음, 화면 읽기 "손님: 단골, 누적 125,000원", 누르는 것이 아니다`, async ({ page }) => {
       test.setTimeout(180_000)
       const w = await badgeWorld(page)
+      await showBadges(page)
       await chatAll(page, w)
       await openConsole(page, w.b)
       await expect(chatRow(page, '에이손님')).toContainText('입금 늦음 주의')
+      await expect(badgesAsk(page)).toHaveCount(0) // 정해 두었으면 묻지 않는다
       await expect(chatRow(page, '비손님')).toContainText('단골 · 누적 125,000원')
       await expect(chatRow(page, '비손님')).toContainText('손님: 단골, 누적 125,000원')
       await expect(chatRow(page, '씨손님')).toContainText('처음')
@@ -101,10 +118,15 @@ test.describe('AC-KP1-14 리허설', () => {
     await chat(page, rb, w.bb, '비손님', '안녕하세요 비')
     await openConsole(page, rb)
     await expect(chatRow(page, '비손님')).toContainText('안녕하세요 비')
+    // D-KP1-43: 정하지 않은 판매자라도 리허설 콘솔은 묻지 않는다
+    expect((await ledgerSettingsNow(page)).consoleBadges).toBeNull()
+    await expect(badgesAsk(page)).toHaveCount(0)
+    await expect(page.getByText(BADGES_ASK)).toHaveCount(0)
     await expect(chatRow(page, '에이손님')).not.toContainText('입금 늦음 주의')
     await expect(chatRow(page, '비손님')).not.toContainText('단골')
     // 꼬리표 조회가 없었다는 것을 상태로 확인: 실제 콘솔을 열면 그때 처음 부른다
     expect(asked).toHaveLength(0)
+    await showBadges(page)
     await chatAll(page, w)
     await openConsole(page, w.b)
     await expect(chatRow(page, '비손님')).toContainText('단골')
@@ -114,7 +136,7 @@ test.describe('AC-KP1-14 리허설', () => {
 })
 
 test.describe('AC-KP1-15 끄는 설정', () => {
-  test('PC 설정에서 "방송 화면에 손님 표시"를 끄면 휴대폰 콘솔의 꼬리표와 1등 옆 "입금 늦음 주의"가 다시 열지 않아도 모두 사라진다 — 설명 문장, 다시 켜면 돌아온다', async ({ page, browser }) => {
+  test('정하지 않은 판매자의 콘솔은 한 번 묻고 [보이기]면 꼬리표·설정 켜짐·다시 묻지 않음 → PC 설정에서 끄면 휴대폰 콘솔의 꼬리표와 1등 옆 "입금 늦음 주의"가 다시 열지 않아도 모두 사라진다 — 설명 문장, 다시 켜면 돌아온다', async ({ page, browser }) => {
     test.setTimeout(180_000)
     await page.setViewportSize(PHONE)
     const seller = await loginNewSeller(page)
@@ -133,6 +155,15 @@ test.describe('AC-KP1-15 끄는 설정', () => {
     await openConsole(page, b)
     const card = page.getByRole('region', { name: '현재 상품' })
     await expect(card.getByText(/^1등: /)).toContainText('에이손님')
+    // D-KP1-43(AC-KP1-15): 처음엔 정해지지 않음 — 묻는 띠, 답하기 전엔 꼬리표·1등 옆 주의 없음
+    await expect(badgesAsk(page)).toContainText(BADGES_ASK)
+    await expect(chatRow(page, '비손님')).toContainText('안녕하세요 비')
+    await expect(chatRow(page, '비손님')).not.toContainText('단골')
+    await expect(chatRow(page, '에이손님')).not.toContainText('입금 늦음 주의')
+    await expect(card).not.toContainText('입금 늦음 주의')
+    // [보이기] → 띠가 사라지고 꼬리표·1등 옆 주의가 나온다
+    await badgesAsk(page).getByRole('button', { name: '보이기', exact: true }).click()
+    await expect(badgesAsk(page)).toHaveCount(0)
     await expect(card).toContainText('입금 늦음 주의')
     await expect(chatRow(page, '비손님')).toContainText('단골 · 누적 125,000원')
     await expect(chatRow(page, '에이손님')).toContainText('입금 늦음 주의')
@@ -143,7 +174,8 @@ test.describe('AC-KP1-15 끄는 설정', () => {
       await pc.goto('/settings')
       const section = customerSection(pc)
       const toggle = section.getByRole('checkbox', { name: BADGES_LABEL })
-      await expect(toggle).toBeChecked() // 기본 켬
+      await expect(toggle).toBeChecked() // 콘솔에서 [보이기]로 정한 값이 설정에 (판매자 계정 — 다른 기기에도, D-KP1-43)
+      expect((await ledgerSettingsNow(pc)).consoleBadges).toBe(true)
       await expect(section.getByText(BADGES_HELP)).toBeVisible()
       await toggle.uncheck()
       await saveButton(pc).click()
@@ -155,9 +187,10 @@ test.describe('AC-KP1-15 끄는 설정', () => {
       await expect(chatRow(page, '에이손님')).not.toContainText('입금 늦음 주의')
       await expect(card.getByText(/^1등: /)).toHaveText('1등: 에이손님')
       await expect(card).not.toContainText('입금 늦음 주의')
-      // 다시 열어도 없다
+      // 다시 열어도 없다 (정했으니 다시 묻지도 않는다)
       await page.reload()
       await expect(page.getByLabel('빠른 입력')).toBeVisible()
+      await expect(badgesAsk(page)).toHaveCount(0)
       await expect(chatRow(page, '비손님')).toContainText('안녕하세요 비')
       await expect(chatRow(page, '비손님')).not.toContainText('단골')
       await expect(page.getByRole('region', { name: '현재 상품' })).not.toContainText('입금 늦음 주의')
@@ -175,12 +208,66 @@ test.describe('AC-KP1-15 끄는 설정', () => {
   })
 })
 
+test.describe('AC-KP1-15 처음 묻기 (D-KP1-43)', () => {
+  for (const { name, viewport } of VIEWPORTS) {
+    test(`${name}: 정하지 않은 판매자의 실제 방송 콘솔 — 처음엔 꼬리표·1등 옆 주의 없이 묻는 띠, 답 없이 닫았다 다시 열면 또 묻고, [안 보이기]면 계속 없음·다시 묻지 않음`, async ({ page }) => {
+      test.setTimeout(180_000)
+      const w = await badgeWorld(page)
+      expect((await ledgerSettingsNow(page)).consoleBadges).toBeNull()
+      await chatAll(page, w)
+      await chat(page, w.b, w.a, '에이손님', '15')
+      await openConsole(page, w.b)
+      const card = page.getByRole('region', { name: '현재 상품' })
+      await expect(card.getByText(/^1등: /)).toContainText('에이손님')
+      await expect(badgesAsk(page)).toContainText(BADGES_ASK)
+      await expect(badgesAsk(page).getByRole('button', { name: '보이기', exact: true })).toBeVisible()
+      await expect(badgesAsk(page).getByRole('button', { name: '안 보이기', exact: true })).toBeVisible()
+      await expect(chatRow(page, '디손님')).toContainText('안녕하세요 디')
+      for (const word of ['입금 늦음 주의', '단골', '누적', '처음']) await expect(chatList(page)).not.toContainText(word)
+      await expect(card).not.toContainText('입금 늦음 주의')
+      // (설정을 받기 전 첫 조회가 한 번 나갈 수 있다 — 서버가 정해지지 않음이면 글 없이 답하므로 화면만 본다. 스펙은 보이지 않음만 정한다)
+      if (viewport.width === PHONE.width) {
+        const size = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
+        expect(size.scroll, '묻는 띠 375px 가로 넘침').toBeLessThanOrEqual(size.client)
+      }
+
+      // 답 없이 닫음(다시 열기) → 숨긴 채, 또 묻는다
+      await page.reload()
+      await expect(page.getByLabel('빠른 입력')).toBeVisible()
+      await expect(badgesAsk(page)).toContainText(BADGES_ASK)
+      await expect(chatRow(page, '비손님')).toContainText('안녕하세요 비')
+      await expect(chatRow(page, '비손님')).not.toContainText('단골')
+      expect((await ledgerSettingsNow(page)).consoleBadges).toBeNull()
+
+      // [안 보이기] → 띠 사라짐, 꼬리표 계속 없음, 설정에 저장
+      await badgesAsk(page).getByRole('button', { name: '안 보이기', exact: true }).click()
+      await expect(badgesAsk(page)).toHaveCount(0)
+      await expect.poll(async () => (await ledgerSettingsNow(page)).consoleBadges).toBe(false)
+      await chat(page, w.b, `UC_E${w.t}`, '이손님', '또 왔어요') // 새 구매자도 꼬리표 없음
+      await expect(chatList(page)).toContainText('또 왔어요')
+      for (const word of ['입금 늦음 주의', '단골', '누적', '처음']) await expect(chatList(page)).not.toContainText(word)
+      await expect(card).not.toContainText('입금 늦음 주의')
+      // 다시 열어도 묻지 않고 없다
+      await page.reload()
+      await expect(page.getByLabel('빠른 입력')).toBeVisible()
+      await expect(chatRow(page, '비손님')).toContainText('안녕하세요 비')
+      await expect(badgesAsk(page)).toHaveCount(0)
+      await expect(chatRow(page, '비손님')).not.toContainText('단골')
+      await expect(page.getByRole('region', { name: '현재 상품' })).not.toContainText('입금 늦음 주의')
+      // 설정 화면도 꺼짐
+      await page.goto('/settings')
+      await expect(customerSection(page).getByRole('checkbox', { name: BADGES_LABEL })).not.toBeChecked()
+    })
+  }
+})
+
 test.describe('AC-KP1-16 받기 간격', () => {
   test.use({ viewport: PC })
 
   test('새 채팅 구매자 60명 → 한 번에 50명 이하, 받기 사이 4초 이상, 모든 구매자를 정확히 한 번 — 받은 구매자가 다시 쳐도 다시 묻지 않고 새 구매자만', async ({ page }) => {
     test.setTimeout(240_000)
     await loginNewSeller(page)
+    await showBadges(page) // D-KP1-43: 정해지지 않으면 조회 자체를 하지 않는다
     const date = kstDate(1)
     const b = await broadcast(page, date)
     const asked = badgeRequests(page)
@@ -211,6 +298,7 @@ test.describe('AC-KP1-16 받기 간격', () => {
   test('조회가 실패하면 꼬리표 없이 그대로 — 오류 띠 없음, 채팅·찜은 계속', async ({ page }) => {
     test.setTimeout(150_000)
     const w = await badgeWorld(page)
+    await showBadges(page) // D-KP1-43
     await chatAll(page, w)
     let failed = 0
     await page.route(BADGES_PATH, async (route) => {

@@ -1,9 +1,10 @@
 // KP1 한 바퀴 (test-e2e) — AC-KP1-29, PC와 375px.
-// 방송 1(유튜브 UC_A 15번 1등) → 링크에서 배송지 + "다음 주문에도" → 방송 2(같은 UC_A) → 콘솔 꼬리표 "단골…"("처음" 아님)
+// 방송 1(유튜브 UC_A 15번 1등) → 링크에서 배송지 + "다음 주문에도" → 방송 2(같은 UC_A) → 콘솔 첫 물음에 [보이기](D-KP1-43) → 콘솔 꼬리표 "단골…"("처음" 아님)
 // → 묶음에 "지난 주문 배송지예요" → [배송지 확인] → 리포트에 다시 온 손님 1 → 링크에서 [저장한 정보 지우기] → 방송 3 묶음엔 보이지 않음.
 import { test, expect } from '@playwright/test'
 import {
   ADDRESS,
+  BADGES_ASK,
   DELETED,
   DELETE_SAVED,
   LINK_PREFILL,
@@ -12,6 +13,7 @@ import {
   SAVED_LINE,
   VIEWPORTS,
   addressForm,
+  badgesAsk,
   broadcast,
   buyerBrowser,
   bundleOf,
@@ -20,6 +22,7 @@ import {
   consentBox,
   endBroadcast,
   kstDate,
+  LEDGER_SOURCE_LINE,
   ledgerSection,
   loginNewSeller,
   makeLink,
@@ -65,6 +68,10 @@ for (const { name, viewport } of VIEWPORTS) {
         const b2 = await broadcast(page, d2)
         await registerApi(page, b2, 15, '핑크프릴', 10_000)
         await openConsole(page, b2)
+        // D-KP1-43(AC-KP1-29): 처음엔 손님 표시를 정하지 않아 콘솔이 한 번 묻는다 → [보이기]
+        await expect(badgesAsk(page)).toContainText(BADGES_ASK)
+        await badgesAsk(page).getByRole('button', { name: '보이기', exact: true }).click()
+        await expect(badgesAsk(page)).toHaveCount(0)
         await chat(page, b2, ch, '가람손님', '15')
         const row = chatRow(page, '가람손님')
         await expect(row).toContainText('단골 · 누적 120,000원')
@@ -82,7 +89,9 @@ for (const { name, viewport } of VIEWPORTS) {
         await expect(prefill).toContainText('확인 전')
         await prefill.getByRole('button', { name: '배송지 확인' }).click()
         await expect(region).toContainText('확인함')
-        expect((await bundleOf(page, d2, id2)).address).toMatchObject({ address: ADDRESS.address, source: 'SELLER', confirmed: true })
+        // D-KP1-44: 출처 장부 확인 — "손님이 지난번에 적은 배송지 · 판매자가 확인함"
+        await expect(region).toContainText(LEDGER_SOURCE_LINE)
+        expect((await bundleOf(page, d2, id2)).address).toMatchObject({ address: ADDRESS.address, source: 'LEDGER', confirmed: true })
         if (viewport.width === PHONE.width) await noOverflow(page, '묶음 자세히 375px')
         await endBroadcast(page, b2)
 
@@ -117,7 +126,7 @@ for (const { name, viewport } of VIEWPORTS) {
       try {
         await buyer3.page.goto(link3)
         await expect(buyer3.page.getByText(LINK_PREFILL)).toHaveCount(0)
-        await expect(addressForm(buyer3.page).getByLabel('받는 분')).toHaveValue('')
+        await expect(addressForm(buyer3.page).getByLabel('받는 분', { exact: true })).toHaveValue('')
         await expect(consentBox(buyer3.page)).not.toBeChecked()
         await expect(ledgerSection(buyer3.page)).toHaveCount(0)
       } finally {

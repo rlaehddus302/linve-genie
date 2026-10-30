@@ -1,4 +1,4 @@
-// KP1 확인서 링크의 손님 장부 (test-e2e) — AC-KP1-02(동의 칸 보이기)·05(이미 저장한 손님)·07(손님·판매자 지우기)·11(연결 코드 손님 확인).
+// KP1 확인서 링크의 손님 장부 (test-e2e, 사용성 점검 뒤 D-KP1-46·47 반영) — AC-KP1-02(동의 칸 보이기)·05(이미 저장한 손님)·07(손님·판매자 지우기)·11(연결 코드 손님 확인).
 // 기대 문장은 CUSTOMER_RULES CR-2·CR-3·CR-5와 acceptance 따옴표 그대로. 링크는 로그인 없는 새 문맥, 판매자는 다른 문맥.
 import { test, expect, type Page } from '@playwright/test'
 import {
@@ -6,6 +6,11 @@ import {
   CONSENT_TITLE,
   DELETED,
   DELETE_ASK,
+  DELETE_WARN,
+  NEW_CODE,
+  SELLER_LEDGER,
+  SELLER_LEDGER_DELETE,
+  SELLER_LEDGER_DELETED,
   DELETE_SAVED,
   LINK_ACCOUNT,
   CODE_INTRO,
@@ -53,7 +58,7 @@ for (const { name, viewport } of VIEWPORTS) {
   test.describe(`링크 ${name}`, () => {
     test.use({ viewport })
 
-    test(`AC-KP1-02 ${name}: 유튜브 구매자 묶음의 링크엔 배송지 양식 아래 빈 체크 칸과 CR-CONSENT-1 글(가게 이름·"1년"), 설정을 2년으로 바꾸면 "2년"`, async ({ page, browser }) => {
+    test(`AC-KP1-02 ${name}: 유튜브 구매자 묶음의 링크엔 배송지 양식 아래 빈 체크 칸과 CR-CONSENT-2 글(가게 이름·"1년", D-KP1-46), 설정을 2년으로 바꾸면 "2년"`, async ({ page, browser }) => {
       const w = await world(page)
       const url = await makeLink(page, w.date, w.buyer)
       const buyer = await buyerBrowser(browser, page, viewport)
@@ -63,6 +68,8 @@ for (const { name, viewport } of VIEWPORTS) {
         await expect(box).toBeVisible()
         await expect(box).not.toBeChecked()
         await expect(addressForm(buyer.page)).toContainText(consentBody(w.seller.shopName, '1년'))
+        // D-KP1-46: 위 "30일 뒤 지워요"와 이어 읽히게 "고르면 … 30일 뒤에 지우지 않고"로 시작
+        await expect(addressForm(buyer.page).getByText(/^고르면 받는 분·연락처·주소를 30일 뒤에 지우지 않고/)).toBeVisible()
         // 양식 안, 보내기 버튼 위
         const order = await addressForm(buyer.page).evaluate((form) => {
           const check = form.querySelector('input[type=checkbox][name=keep]')
@@ -124,7 +131,7 @@ test.describe('AC-KP1-02 칸이 없는 묶음', () => {
       }
       // 메모 문자 구매자는 배송지 양식은 있다(칸만 없다)
       await buyer.page.goto(links[2]!.url)
-      await expect(addressForm(buyer.page).getByLabel('받는 분')).toBeVisible()
+      await expect(addressForm(buyer.page).getByLabel('받는 분', { exact: true })).toBeVisible()
     } finally {
       await buyer.context.close()
     }
@@ -162,6 +169,10 @@ for (const { name, viewport } of VIEWPORTS) {
         // 지우기 → 확인 쪽 → [그대로 두기]는 아무것도 지우지 않는다
         await section.getByRole('link', { name: DELETE_SAVED }).click()
         await expect(ledgerSection(buyer.page)).toContainText(DELETE_ASK)
+        // UX-KP1-009: 되돌릴 수 없음을 알리고, [지우기]는 주 버튼이 아니다(처음 눈이 가는 쪽 = [그대로 두기])
+        await expect(ledgerSection(buyer.page)).toContainText(DELETE_WARN)
+        await expect(ledgerSection(buyer.page).getByRole('button', { name: '지우기', exact: true })).not.toHaveClass(/\bprimary\b/)
+        await expect(ledgerSection(buyer.page).getByRole('link', { name: '그대로 두기' })).toHaveClass(/\bprimary\b/)
         await ledgerSection(buyer.page).getByRole('link', { name: '그대로 두기' }).click()
         await expect(ledgerSection(buyer.page)).toContainText(SAVED_LINE)
         expect(await customerLedger(page, id)).not.toBeNull()
@@ -169,6 +180,9 @@ for (const { name, viewport } of VIEWPORTS) {
         await ledgerSection(buyer.page).getByRole('link', { name: DELETE_SAVED }).click()
         await ledgerSection(buyer.page).getByRole('button', { name: '지우기', exact: true }).click()
         await expect(buyer.page.getByText(DELETED, { exact: true })).toBeVisible()
+        // UX-KP1-009: 잘 된 일은 안내 상자(분홍 오류 상자 아님)
+        await expect(buyer.page.getByText(DELETED, { exact: true })).toHaveClass(/\binfo\b/)
+        await expect(buyer.page.getByText(DELETED, { exact: true })).not.toHaveClass(/\balert\b/)
         await expect(buyer.page.getByText(SAVED_LINE)).toHaveCount(0)
         await expect(buyer.page.getByRole('link', { name: DELETE_SAVED })).toHaveCount(0)
         // 이번 주문 배송지는 그대로
@@ -206,7 +220,7 @@ test.describe('AC-KP1-03·05 고르지 않고 저장', () => {
 
 test.describe('AC-KP1-07 판매자 지우기', () => {
   for (const { name, viewport } of VIEWPORTS) {
-    test(`${name}: 손님 자세히 [장부에서 지우기] → 확인 창 → 지움, 링크 장부 칸도 사라지고 묶음 배송지는 그대로`, async ({ page, browser }) => {
+    test(`${name}: 손님 자세히 "저장한 배송지" 칸 [저장한 배송지 지우기] → 확인 창 → 지움("장부" 낱말 없음), 링크 장부 칸도 사라지고 묶음 배송지는 그대로`, async ({ page, browser }) => {
       test.setTimeout(150_000)
       await page.setViewportSize(viewport)
       const w = await world(page)
@@ -219,17 +233,21 @@ test.describe('AC-KP1-07 판매자 지우기', () => {
         const id = await customerIdOf(page, '가람손님')
         await page.goto(`/buyers?view=customers&customer=${encodeURIComponent(id)}`)
         const detail = page.getByRole('region', { name: '손님 자세히' })
-        const ledger = detail.getByRole('region', { name: '손님 장부' })
+        // D-KP1-47: 판매자 화면 글은 "저장한 배송지" — 칸 이름·버튼·확인 창·완료 문장 어디에도 "장부" 낱말 없음
+        const ledger = detail.getByRole('region', { name: SELLER_LEDGER, exact: true })
         await expect(ledger).toContainText('홍*동')
         await expect(ledger).toContainText('5678')
         await expect(ledger).not.toContainText('세종대로')
-        await ledger.getByRole('button', { name: '장부에서 지우기' }).click()
-        const dialog = page.getByRole('dialog', { name: '장부에서 지우기' })
+        expect(await ledger.innerText()).not.toContain('장부')
+        await ledger.getByRole('button', { name: SELLER_LEDGER_DELETE }).click()
+        const dialog = page.getByRole('dialog', { name: SELLER_LEDGER_DELETE })
         await expect(dialog).toBeVisible()
+        expect(await dialog.innerText()).not.toContain('장부')
         await dialog.getByRole('button', { name: '지우기', exact: true }).click()
         await expect(dialog).toHaveCount(0)
-        await expect(ledger.getByText('장부에서 지웠어요.')).toBeVisible()
-        await expect(ledger.getByRole('button', { name: '장부에서 지우기' })).toHaveCount(0)
+        await expect(ledger.getByText(SELLER_LEDGER_DELETED)).toBeVisible()
+        await expect(ledger.getByRole('button', { name: SELLER_LEDGER_DELETE })).toHaveCount(0)
+        expect(await ledger.innerText()).not.toContain('장부')
         expect(await customerLedger(page, id)).toBeNull()
         await buyer.page.reload()
         await expect(buyer.page.getByText(SAVED_LINE)).toHaveCount(0)
@@ -261,6 +279,9 @@ test.describe('AC-KP1-11 연결 코드 손님 확인', () => {
         expect(words![1]).not.toBe(words![2])
         const code = `${words![1]!} ${words![2]!}`
         expect(text).toMatch(/까지/)
+        // UX-KP1-008: 코드가 살아 있으면 다시 받는 버튼은 지금 코드가 없어짐을 알린다
+        await expect(ledgerSection(buyer.page).getByRole('button', { name: NEW_CODE })).toBeVisible()
+        await expect(ledgerSection(buyer.page).getByRole('button', { name: LINK_ACCOUNT, exact: true })).toHaveCount(0)
         if (viewport.width === PHONE.width) await noOverflow(buyer.page, '코드 375px')
 
         // 새 실제 방송(번호 방송)에서 다른 유튜브 계정이 코드를 친다 (채널 끝 4자리 = 4321)
@@ -271,6 +292,8 @@ test.describe('AC-KP1-11 연결 코드 손님 확인', () => {
         await expect(ledgerSection(buyer.page)).toContainText("유튜브 '둘째계정'(끝 4321)이 코드를 쳤어요. 내 계정이 맞나요?")
         // 코드 채팅은 찜이 아니다
         expect((await scopeView(page, kstDate(1), false)).claims).toHaveLength(0)
+        // UX-KP1-008: 남이 친 코드일 수 있으니 [네, 제 계정이에요]는 주 버튼이 아니다
+        await expect(ledgerSection(buyer.page).getByRole('button', { name: '네, 제 계정이에요' })).not.toHaveClass(/\bprimary\b/)
         await ledgerSection(buyer.page).getByRole('button', { name: '네, 제 계정이에요' }).click()
         await expect(ledgerSection(buyer.page)).not.toContainText('코드를 쳤어요')
         await expect(ledgerSection(buyer.page)).toContainText(SAVED_LINE)
@@ -278,7 +301,7 @@ test.describe('AC-KP1-11 연결 코드 손님 확인', () => {
         // 판매자 손님 자세히: 이은 계정 한 줄
         const id = await customerIdOf(page, '가람손님')
         await page.goto(`/buyers?view=customers&customer=${encodeURIComponent(id)}`)
-        const ledger = page.getByRole('region', { name: '손님 자세히' }).getByRole('region', { name: '손님 장부' })
+        const ledger = page.getByRole('region', { name: '손님 자세히' }).getByRole('region', { name: SELLER_LEDGER, exact: true }) // D-KP1-47
         await expect(ledger).toContainText(`${LINKED_PREFIX}유튜브 둘째계정(끝 4321)`)
         // 손님 기록은 합치지 않는다 — 코드만 친 계정은 기록 묶음이 없으니, 그 계정이 찜하면 별도 줄
         await registerApi(page, b2, 21, '라울', 8_000)
@@ -314,7 +337,7 @@ test.describe('AC-KP1-11 연결 코드 손님 확인', () => {
       await expect(ledgerSection(buyer.page)).not.toContainText('코드를 쳤어요')
       const id = await customerIdOf(page, '가람손님')
       await page.goto(`/buyers?view=customers&customer=${encodeURIComponent(id)}`)
-      const ledger = page.getByRole('region', { name: '손님 자세히' }).getByRole('region', { name: '손님 장부' })
+      const ledger = page.getByRole('region', { name: '손님 자세히' }).getByRole('region', { name: SELLER_LEDGER, exact: true }) // D-KP1-47
       await expect(ledger).toContainText('홍*동')
       await expect(ledger).not.toContainText(LINKED_PREFIX)
     } finally {
