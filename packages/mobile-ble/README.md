@@ -36,6 +36,14 @@ await adapter.disconnect()                // 판매자가 끊음 — 다시 잇�
 - 라벨 대기열은 앱 몫: 이 패키지는 `print` 결과(성공/실패·까닭 코드)만 정확히 돌려준다(L-11의 대기열·일시정지 규칙은 `@livejjim/printer`의 `queue.ts`를 앱이 쓴다).
 - `NiimbotBleClient`(`src/client.ts`)는 `NiimbotAbstractClient`를 잇는 클라이언트 — `createNiimbotAdapter`의 `createClient` 자리에 들어간다.
 
+## Marklife 9종 · 한 목록 고르기
+
+- `createNativeMarklifeAdapter({ transport, pickDevice })` → Marklife 9종(YXQ: P50·S2·X2, L11: P11·P12·P15·L13·LP90·LP15, 바우아토는 `profiles`로 일부러 넘길 때만). `@livejjim/printer`의 `createMarklifeAdapter`를 **그대로** 쓰고 환경만 끼움 장치(`createBleBluetooth` — `BleTransport` → Web Bluetooth 모양)로 바꾼다. 꾸러미 A(ff00)→C(fd00)·조각 90바이트·크레딧·MTU 알림·`AA` 끝·진행 없는 20초는 웹과 같은 코드가 정한다(`test/marklife.test.ts`가 웹 가짜 기기와 바이트·조각 크기를 비교).
+- 웹 Marklife에는 없는 **기억**을 더해 `RememberingPrinterAdapter`다 — `createReconnectingAdapter`에 그대로 넣는다. 앱을 다시 켜 이름을 모르면 먼저 이어 기기가 알린 이름으로 기종을 정한다.
+- 이름 판단은 L-12 3 그대로(대소문자 가림, `P12_`). 찾기는 `matchCase`로 같은 판단을 쓰고, 이름은 광고의 이름(`localName`)을 먼저 본다 — 목록에 보인 기기가 이름 때문에 거절되지 않는다.
+- 이은 MTU − 3보다 큰 조각은 끼움 장치가 나눠 쓴다(이어 붙이면 같은 바이트). 응답 없는 쓰기를 받지 않는 특성은 `writeWithResponse`로 쓴다.
+- **앱 화면은 `createPrinterPicker({ transport, pickDevice })` 하나만 쓴다** — 한 목록에 B1·Marklife를 보이고, 고른 기기 이름으로 기종을 갈라(`printerKindOf`) 그 어댑터로 보낸다. Marklife는 NIIMBOT 서비스 UUID를 알려 B1 목록에 섞이므로, `createNativeB1Adapter`만 쓸 때도 Marklife 이름 꼴은 목록에서 뺀다.
+
 ## 앱 설정 (apps/mobile)
 
 `package.json`에 `"react-native-ble-plx": "3.5.1"`(peer — 앱이 가진다)과 `"@livejjim/mobile-ble": "workspace:*"`. `app.json` plugins에 `BLE_PLX_PLUGIN_CONFIG` 그대로:

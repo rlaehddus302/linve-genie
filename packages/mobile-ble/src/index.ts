@@ -15,7 +15,11 @@ export { chunkPayloadFor, splitForMtu } from './chunk.ts'
 export { decodeBase64, encodeBase64 } from './base64.ts'
 export { ANDROID_BLE_RUNTIME_PERMISSIONS, BLE_PLX_PLUGIN_CONFIG, BLE_RADIO_MESSAGES, BLUETOOTH_PERMISSION_MESSAGE } from './messages.ts'
 export { NiimbotBleClient, NoDeviceError, pickChannel, type NiimbotBleClientOptions } from './client.ts'
-export { createNativeB1Adapter, matchesNiimbotName, type DevicePicker, type NativeB1AdapterOptions } from './adapter.ts'
+export { createNativeB1Adapter, looksLikeMarklifeName, matchesNiimbotName, type NativeB1AdapterOptions } from './adapter.ts'
+export { PickCancelledError, RadioOffError, pickFromScan, type DevicePicker } from './pick.ts'
+export { bleBluetoothEnvironment, createBleBluetooth, fullUuid, type BleBluetoothDevice, type BleBluetoothOptions, type ChosenDevice } from './bluetooth.ts'
+export { createNativeMarklifeAdapter, matchesMarklifeName, type NativeMarklifeAdapter, type NativeMarklifeAdapterOptions } from './marklife.ts'
+export { IDENTIFY_SCAN_MS, createPrinterPicker, printerKindOf, type PrinterKind, type PrinterPicker, type PrinterPickerOptions } from './picker.ts'
 export { RECONNECT_DELAYS_MS, createReconnectingAdapter, type ReconnectingAdapter, type ReconnectingAdapterOptions } from './reconnect.ts'
 export {
   B1_MODEL_ID,
