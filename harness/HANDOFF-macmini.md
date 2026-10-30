@@ -76,3 +76,4 @@
 - `sprint/PAY2-server`(45fd9399) 끝: 공개 요금 입구 `GET /api/pricing` — `sprint/PAY2-web`(02c0d743)의 가정과 일치.
 - **마이그레이션 번호 충돌**: PAY2의 `0029_pay2_billing_recheck.sql`과 INV1(int/next)의 0029(유튜브 방송 채널 칸)이 겹친다. 합칠 때 PAY2 쪽을 다음 빈 번호로 옮기고 되돌리기 시험(fb1 등)도 맞춘다.
 - 웹·서버 전체 시험의 실패 대부분은 부하로 인한 시간 초과와 TZ 미지정(맥북은 KST). 따로·`TZ` 주고 돌리면 통과.
+- `dev/yt-thanks-official`(d0e8dfa8) 끝: 감사만 공식 API, 늦은 채팅 ID(videos.list), 게시 확인은 수집기가 본 우리 글로만(못 보면 UNCONFIRMED, 재게시 없음). 마이그레이션 0030 — PAY2 0029 옮길 때 번호 겹침 같이 정리. 화면에서 `link.channelId`가 null일 수 있음. `tests/e2e/i3/youtube.spec.ts`의 실시간 채팅 확인 조회·재게시 기대는 test-e2e 역할이 새 규칙(D-YT-SRV-17)에 맞춰야 함. CH-17(감사 빈도 상한)은 이 브랜치 위에서.
