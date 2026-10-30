@@ -222,6 +222,33 @@ async function expectPaired(w: YoutubeWorld, connected: Connected, date: string,
   return list
 }
 
+/**
+ * 서버 수집기가 그 회차에서 우리 글을 본 것처럼 (D-YT-SRV-17 — 실시간 채팅 게시 확인은 공식 조회 없이 수집기가 본 우리 글로만).
+ * 가짜 채팅에 글 올리는 계정이 올린 글을 우리 글 표(youtube_own_messages)에 그 회차로 적는다. 수집기의 시간 흐름과 상관없이 짝짓기 규칙만 본다
+ */
+async function seeOwn(w: YoutubeWorld, connected: Connected, liveChatId: string): Promise<void> {
+  const link = (await w.database.pglite?.query<{ id: string; scope_id: string }>(`select id, scope_id from youtube_links where seller_id = $1 and unlinked_at is null`, [connected.seller.sellerId]))?.rows[0]
+  if (link === undefined) throw new Error('이은 기록이 없다')
+  for (const message of w.fake.messages(liveChatId)) {
+    if (message.authorChannelId !== connected.channel.id || message.text === null) continue
+    await w.database.pglite?.query(
+      `insert into youtube_own_messages (seller_id, scope_id, link_id, live_chat_id, author_channel_id, message_id, text, published_at) values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict do nothing`,
+      [connected.seller.sellerId, link.scope_id, link.id, liveChatId, message.authorChannelId, message.id, message.text, message.publishedAt],
+    )
+  }
+}
+
+/** runUntil + 바퀴마다 수집기가 본 우리 글 (seeOwn) */
+async function runSeeing(w: YoutubeWorld, connected: Connected, liveChatId: string, predicate: () => Promise<boolean>, step = 2000, max = 60): Promise<void> {
+  for (let i = 0; i < max; i++) {
+    await seeOwn(w, connected, liveChatId)
+    if (await predicate()) return
+    await w.timer.advance(step)
+    await run(w)
+  }
+  if (!(await predicate())) throw new Error('기다린 조건이 되지 않았다')
+}
+
 /** 게시된 같은 글의 메시지 ID — 게시 시각 순, 같으면 메시지 ID 순 (AC-Y1-93의 짝짓기 순서) */
 function postedOrder(w: YoutubeWorld, liveChatId: string): string[] {
   return w.fake
@@ -233,7 +260,8 @@ function postedOrder(w: YoutubeWorld, liveChatId: string): string[] {
 }
 
 describe('AC-Y1-93 게시 확인 짝짓기 — 이미 짝지은 메시지는 고르지 않는다 (RA-Y1-004)', () => {
-  it('(가) 첫 게시 성공(m1), 둘째는 받지 않고 응답 없음 → 둘째는 m1을 고르지 않고 확인 실패 → 다시 시도로 m2', async () => {
+  // D-YT-SRV-17: 실시간 채팅은 수집기가 본 우리 글로만 확인한다(시험은 seeOwn으로 수집기가 본 글을 적는다). 못 보면 다시 게시하지 않고 UNCONFIRMED
+  it('(가) 첫 게시 성공(m1), 둘째는 받지 않고 응답 없음 → 둘째는 수집기가 본 m1을 고르지 않고 UNCONFIRMED(다시 게시 없음)', async () => {
     const w = await world()
     const { connected, b, liveChatId, second } = await namelessPair(w)
     await run(w)
@@ -241,10 +269,16 @@ describe('AC-Y1-93 게시 확인 짝짓기 — 이미 짝지은 메시지는 고
     await second()
     w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
     await run(w)
-    await runUntil(w, async () => (await rows(w, connected, b.date))[1]?.state === 'SENT')
-    const list = await expectPaired(w, connected, b.date, liveChatId)
-    expect(list[1]?.attempts).toBe(1)
-    expect(w.fake.calls('liveChatMessages.insert')).toBe(3)
+    await runSeeing(w, connected, liveChatId, async () => (await rows(w, connected, b.date))[1]?.state === 'FAILED')
+    const list = await rows(w, connected, b.date)
+    expect(list.map((row) => [row.state, row.reason])).toEqual([
+      ['SENT', null],
+      ['FAILED', 'UNCONFIRMED'],
+    ])
+    expect(list[0]?.messageId).toBe(w.fake.posted[0]?.id)
+    expect(list[1]?.messageId).toBeNull()
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(2)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
   })
 
   it('(나) 둘 다 게시는 받고 응답 없음 → 먼저 난 효과의 행 = 먼저 게시된 메시지, 다시 게시 없음', async () => {
@@ -253,10 +287,11 @@ describe('AC-Y1-93 게시 확인 짝짓기 — 이미 짝지은 메시지는 고
     await second()
     w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' }, 2)
     await run(w)
-    await runUntil(w, async () => (await rows(w, connected, b.date)).every((row) => row.state === 'SENT'))
+    await runSeeing(w, connected, liveChatId, async () => (await rows(w, connected, b.date)).every((row) => row.state === 'SENT'))
     const list = await expectPaired(w, connected, b.date, liveChatId)
     expect(list.map((row) => row.messageId)).toEqual(postedOrder(w, liveChatId))
     expect(w.fake.calls('liveChatMessages.insert')).toBe(2)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
   })
 
   it('(다) (나)를 실행기 둘(같은 데이터베이스)로 돌려도 같다', async () => {
@@ -267,6 +302,7 @@ describe('AC-Y1-93 게시 확인 짝짓기 — 이미 짝지은 메시지는 고
     const other = youtubeOf(extra(w, 'B')).outbox
     for (let i = 0; i < 60 && !(await rows(w, connected, b.date)).every((row) => row.state === 'SENT'); i++) {
       await Promise.all([drive(w, runner(w).runOnce()), drive(w, other.runOnce())])
+      await seeOwn(w, connected, liveChatId)
       await w.timer.advance(1000)
     }
     const list = await expectPaired(w, connected, b.date, liveChatId)
@@ -275,17 +311,16 @@ describe('AC-Y1-93 게시 확인 짝짓기 — 이미 짝지은 메시지는 고
     expect(w.fake.calls('liveChatMessages.insert')).toBe(2)
   })
 
-  it('(라) 첫 게시는 받고 응답 없음(이른 조회 실패), 둘째 게시는 성공(m2) → 첫째는 m2를 고르지 않고 자기 m1을 찾는다', async () => {
+  it('(라) 첫 게시는 받고 응답 없음, 둘째 게시는 성공(m2) → 첫째는 수집기가 본 글 중 m2를 고르지 않고 자기 m1을 찾는다', async () => {
     const w = await world()
     const { connected, b, liveChatId, second } = await namelessPair(w)
     await second()
     w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
-    w.fake.fail('liveChatMessages.list', { status: 503 })
     await run(w)
     const now = await rows(w, connected, b.date)
     expect(now.map((row) => row.state)).toEqual(['SENDING', 'SENT'])
     expect(now[1]?.messageId).toBe(w.fake.posted[1]?.id)
-    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
+    await runSeeing(w, connected, liveChatId, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
     const list = await expectPaired(w, connected, b.date, liveChatId)
     expect(list.map((row) => row.messageId)).toEqual(w.fake.posted.map((post) => post.id))
   })
@@ -520,14 +555,15 @@ async function oneSale(w: YoutubeWorld, target: 'LIVE_CHAT' | 'VIDEO_COMMENT' = 
 const TEXT = '15번 핑크프릴 10,000원 가님 구매 감사합니다'
 
 describe('AC-Y1-96 확인하지 못하면 다시 게시하지 않는다 (RA-Y1-008)', () => {
-  it('(가) 게시는 받고 응답 없음 + 이른 조회 5xx + 끝 조회 성공 → SENT, 게시 1번', async () => {
+  // D-YT-SRV-17: 실시간 채팅은 공식 조회를 부르지 않는다 — 수집기가 본 우리 글로만 확인
+  it('(가) 게시는 받고 응답 없음 + 수집기가 확인 시간 안에 우리 글을 봄 → SENT, 게시 1번, 공식 조회 0', async () => {
     const w = await world()
     const { connected, b, liveChatId } = await oneSale(w)
     w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
-    w.fake.fail('liveChatMessages.list', { status: 503 })
     await run(w)
     expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENDING' })
-    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
+    await runSeeing(w, connected, liveChatId, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
     expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
     expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
     expect((await eventTypes(w)).filter((type) => type === 'effect.thanksSent')).toHaveLength(1)
@@ -574,17 +610,22 @@ describe('AC-Y1-96 확인하지 못하면 다시 게시하지 않는다 (RA-Y1-0
     expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENT' })
   })
 
-  it('(라) 게시는 받지만 조회에 늦게 보임(이른 조회에는 없고 끝 조회에는 있음) → SENT, 그 글 1개', async () => {
+  it('(라) 수집기가 우리 글을 늦게 봄(확인 시간이 끝나기 전) → SENT, 그 글 1개 / 확인 시간이 끝난 뒤에 보면 이미 UNCONFIRMED', async () => {
     const w = await world()
     const { connected, b, liveChatId } = await oneSale(w)
-    w.fake.postsHiddenForMs = 20_000
     w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
     await run(w)
-    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENDING', reason: 'CONFIRM_LISTED' })
-    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENDING', reason: 'CONFIRM' })
+    // 확인 시간(타임아웃 뒤 30초) 안 20초 동안 수집기가 못 봄
+    for (let i = 0; i < 10; i++) {
+      await w.timer.advance(2000)
+      await run(w)
+    }
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENDING' })
+    await runSeeing(w, connected, liveChatId, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
     expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
     expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
-    expect(w.fake.calls('liveChatMessages.list')).toBe(2)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
   })
 
   it('(마) 영상 댓글로 (나) → UNCONFIRMED, 댓글 1개', async () => {
@@ -603,19 +644,16 @@ describe('AC-Y1-96 확인하지 못하면 다시 게시하지 않는다 (RA-Y1-0
     expect(w.fake.calls('commentThreads.insert')).toBe(1)
   })
 
-  it('(바) (나)에서 끝 조회 중 서버를 죽였다 살림 → 다른 서버가 이어서 끝 조회 — 그 글 1개, UNCONFIRMED', async () => {
+  it('(바) (나)에서 확인 중에 서버를 죽였다 살림 → 다른 서버가 이어서 확인 — 그 글 1개, UNCONFIRMED, 공식 조회 0', async () => {
     const w = await world()
     const { connected, b, liveChatId } = await oneSale(w)
     w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
-    w.fake.fail('liveChatMessages.list', { status: 503 }, 20)
     await run(w)
-    // 확인 시간(30초)이 지나 끝 조회를 한 번 실패할 때까지
-    const listsBefore = w.fake.calls('liveChatMessages.list')
-    for (let i = 0; i < 40 && w.fake.calls('liveChatMessages.list') < listsBefore + 1; i++) {
+    for (let i = 0; i < 10; i++) {
       await w.timer.advance(1000)
       await run(w)
     }
-    expect(w.fake.calls('liveChatMessages.list')).toBe(listsBefore + 1)
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENDING' })
     await runner(w).kill()
     const revived = youtubeOf(extra(w, 'B')).outbox
     for (let i = 0; i < 120 && (await rows(w, connected, b.date))[0]?.state !== 'FAILED'; i++) {
@@ -625,6 +663,7 @@ describe('AC-Y1-96 확인하지 못하면 다시 게시하지 않는다 (RA-Y1-0
     expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED' })
     expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
     expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
   })
 })
 

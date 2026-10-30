@@ -47,6 +47,25 @@ async function runUntil(w: YoutubeWorld, predicate: () => Promise<boolean>, step
   if (!(await predicate())) throw new Error('기다린 조건이 되지 않았다')
 }
 
+/** 서버 수집기가 그 회차에서 글 올리는 계정의 글을 본 것처럼 우리 글 표에 적는다 (D-YT-SRV-17 — 실시간 채팅 게시 확인은 이것으로만) */
+async function seeOwn(w: YoutubeWorld, connected: Connected, liveChatId: string): Promise<void> {
+  const link = (await w.database.pglite?.query<{ id: string; scope_id: string }>(`select id, scope_id from youtube_links where seller_id = $1 and unlinked_at is null`, [connected.seller.sellerId]))?.rows[0]
+  if (link === undefined) throw new Error('이은 기록이 없다')
+  for (const message of w.fake.messages(liveChatId)) {
+    if (message.authorChannelId !== connected.channel.id || message.text === null) continue
+    await insertOwnMessage(w.database.db, {
+      sellerId: connected.seller.sellerId,
+      scopeId: link.scope_id,
+      linkId: link.id,
+      liveChatId,
+      authorChannelId: message.authorChannelId,
+      messageId: message.id,
+      text: message.text,
+      publishedAt: new Date(message.publishedAt),
+    })
+  }
+}
+
 async function rows(w: YoutubeWorld, connected: Connected, date: string): Promise<Row[]> {
   const response = await client(w, connected.seller.cookie).get(`/api/days/${date}/outbox`)
   expect(response.status).toBe(200)
@@ -154,21 +173,24 @@ describe('AC-I3-85 게시·조회 토큰은 그 방송을 이은 채널의 것',
 })
 
 describe('AC-I3-86 조회는 그 시도 뒤의 글을 모두 본다', () => {
-  it('(가) 우리 글 앞에 시청자 채팅이 많아 첫 쪽에 없음 → 다음 쪽에서 찾아 SENT, 그 글 1개(다시 게시 없음)', async () => {
-    const w = await world({ overrides: { outboxTiming: { liveChatLookupPage: 100 } } })
+  // D-YT-SRV-17: 실시간 채팅은 공식 조회를 부르지 않는다 — 바쁜 채팅이어도 수집기가 본 우리 글로만 확인하고 할당량은 게시(insert)만 쓴다
+  it('(가) 시청자 채팅이 많은 채팅 — 수집기가 본 우리 글로 SENT, 그 글 1개(다시 게시 없음), 공식 조회 0', async () => {
+    const w = await world()
     const { connected, b, liveChatId } = await oneSale(w)
     for (let i = 0; i < 150; i++) w.fake.addMessage(liveChatId, { author: `UCv${String(i)}`, name: `시청자${String(i)}`, text: `채팅 ${String(i)}` })
     w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
     await sale(w, connected, b.id, 'c1')
-    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
+    await runUntil(w, async () => {
+      await seeOwn(w, connected, liveChatId)
+      return (await rows(w, connected, b.date))[0]?.state === 'SENT'
+    })
     expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
     expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
-    // 첫 쪽(꽉 참) → 다음 쪽(덜 참 — 끝까지 봄)
-    expect(w.fake.calls('liveChatMessages.list')).toBe(2)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
   })
 
-  it('(나) 5쪽을 넘게 꽉 찬 채팅에서 우리 글을 못 찾음 → 실패한 조회 → 끝 조회 3번 → UNCONFIRMED, 다시 게시 0, 쪽마다 할당량', async () => {
-    const w = await world({ overrides: { outboxTiming: { liveChatLookupPage: 100 } } })
+  it('(나) 꽉 찬 채팅에서 수집기가 우리 글을 못 봄 → UNCONFIRMED, 다시 게시 0, 공식 조회 0(할당량은 게시 20단위만)', async () => {
+    const w = await world()
     const { connected, b, liveChatId } = await oneSale(w)
     for (let i = 0; i < 600; i++) w.fake.addMessage(liveChatId, { author: `UCv${String(i)}`, name: `시청자${String(i)}`, text: `채팅 ${String(i)}` })
     w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
@@ -176,10 +198,10 @@ describe('AC-I3-86 조회는 그 시도 뒤의 글을 모두 본다', () => {
     await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'FAILED')
     expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED' })
     expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
-    // 이른 조회 1 + 끝 조회 3, 조회마다 5쪽
-    expect(w.fake.calls('liveChatMessages.list')).toBe(20)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
     const quota = (await client(w, connected.seller.cookie).get('/api/youtube/quota')).body.quota as { methods: { method: string; calls: number; units: number }[] }
-    expect(quota.methods.find((item) => item.method === 'liveChatMessages.list')).toEqual({ method: 'liveChatMessages.list', calls: 20, units: 100 })
+    expect(quota.methods.find((item) => item.method === 'liveChatMessages.list')).toBeUndefined()
+    expect(quota.methods.find((item) => item.method === 'liveChatMessages.insert')).toEqual({ method: 'liveChatMessages.insert', calls: 1, units: 20 })
     for (let i = 0; i < 3; i++) {
       await w.timer.advance(60_000)
       await run(w)
@@ -224,7 +246,18 @@ describe('AC-I3-86 조회는 그 시도 뒤의 글을 모두 본다', () => {
     const posted = w.fake.messages(liveChatId).find((message) => message.text === TEXT)
     expect(posted).toBeDefined()
     const scope = await w.database.pglite?.query<{ id: string }>(`select id from scopes where seller_id = $1 and date = $2 and rehearsal = false`, [connected.seller.sellerId, b.date])
-    await insertOwnMessage(w.database.db, { sellerId: connected.seller.sellerId, scopeId: scope?.rows[0]?.id ?? '', liveChatId, messageId: posted?.id ?? '', text: TEXT, publishedAt: new Date(w.timer.now()) })
+    // 우리 글은 회차(이은 기록)에 묶인다 (D-YT-SRV-17)
+    const link = await w.database.pglite?.query<{ id: string }>(`select id from youtube_links where seller_id = $1 and unlinked_at is null`, [connected.seller.sellerId])
+    await insertOwnMessage(w.database.db, {
+      sellerId: connected.seller.sellerId,
+      scopeId: scope?.rows[0]?.id ?? '',
+      linkId: link?.rows[0]?.id ?? '',
+      liveChatId,
+      authorChannelId: connected.channel.id,
+      messageId: posted?.id ?? '',
+      text: TEXT,
+      publishedAt: new Date(w.timer.now()),
+    })
     await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
     expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
   })
@@ -255,27 +288,40 @@ describe('RA-I3-001 실시간 채팅 조회 — 지점 없는 첫 쪽은 최근 
     expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
   })
 
-  it('첫 쪽이 그 시도 전 채팅까지 거슬러 가면 모두 본 조회 — 받지 않은 글은 실패 한 번 → 다시 시도로 1번 게시 (회귀)', async () => {
+  // D-YT-SRV-17: 받지 않은 글도 수집기가 못 보면 "못 찾음 → 다시 게시"가 아니라 UNCONFIRMED (판매자가 다시 보내기로 고른다)
+  it('시도 전 채팅이 있는 채팅 — 받지 않은 글은 다시 게시하지 않고 UNCONFIRMED, 공식 조회 0 → 수동 재전송으로 1번', async () => {
     const w = await world()
     const { connected, b, liveChatId } = await oneSale(w)
-    w.fake.backlogSize = 50
     for (let i = 0; i < 100; i++) w.fake.addMessage(liveChatId, { author: `UCv${String(i)}`, name: `시청자${String(i)}`, text: `채팅 ${String(i)}`, publishedAt: w.timer.now() - 60_000 + i })
     w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
     await sale(w, connected, b.id, 'c1')
+    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'FAILED')
+    const [row] = await rows(w, connected, b.date)
+    expect(row).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED' })
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(0)
+    w.fake.clearFaults()
+    expect((await client(w, connected.seller.cookie).post(`/api/outbox/${String(row?.id)}/resend`, { requestId: 'ra-1' })).status).toBe(200)
     await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
     expect(w.fake.calls('liveChatMessages.insert')).toBe(2)
     expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
   })
 
-  it('채팅에 메시지가 하나도 없을 때(첫 쪽이 빔) 받지 않은 글은 모두 본 조회로 실패 한 번 → 다시 시도 (회귀)', async () => {
+  it('채팅에 메시지가 하나도 없을 때도 받지 않은 글은 UNCONFIRMED, 다시 게시 0, 공식 조회 0', async () => {
     const w = await world()
     const { connected, b, liveChatId } = await oneSale(w)
-    w.fake.backlogSize = 50
     w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
     await sale(w, connected, b.id, 'c1')
-    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'SENT')
-    expect(w.fake.calls('liveChatMessages.insert')).toBe(2)
-    expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(1)
+    await runUntil(w, async () => (await rows(w, connected, b.date))[0]?.state === 'FAILED')
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED' })
+    for (let i = 0; i < 3; i++) {
+      await w.timer.advance(60_000)
+      await run(w)
+    }
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === TEXT)).toHaveLength(0)
   })
 })
 
@@ -394,7 +440,17 @@ describe('AC-I3-87 조회 간격·횟수', () => {
     { name: '끝 조회', lags: { 2: 4000 }, timing: {} },
     { name: '이른 조회(확인 시간 5초)', lags: { 1: 4000 }, timing: { confirmWindowMs: 5000 } },
   ] as const
-  for (const target of ['LIVE_CHAT', 'VIDEO_COMMENT'] as const) {
+  // 실시간 채팅은 공식 조회를 부르지 않는다(D-YT-SRV-17) — 조회 간격 시험은 영상 댓글만, 실시간 채팅은 조회 0·UNCONFIRMED만 본다
+  it('LIVE_CHAT: 게시 연결이 끊겨 올라갔는지 모름 → 2분 동안 공식 조회 0, 확인 시간 뒤 UNCONFIRMED, 다시 게시 없음', async () => {
+    const w = await world()
+    const { connected, b } = await unknownPost(w, 'LIVE_CHAT')
+    await twoMinutesStepwise(w)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED' })
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+  })
+
+  for (const target of ['VIDEO_COMMENT'] as const) {
     for (const item of lagCases) {
       it(`${target}: ${item.name}가 유튜브에 닿기 전에 시계가 4초 가도 그 조회와 다음 조회 사이는 유튜브가 받은 시각으로 10초 이상 — 실패한 조회 4번(이른 1 + 끝 3) 뒤 UNCONFIRMED, 다시 게시 없음 (SA-I3-009)`, async () => {
         const lag = lagBeforeLookup(item.lags)

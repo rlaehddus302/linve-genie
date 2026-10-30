@@ -26,7 +26,7 @@ import {
   type RowChange,
   type RunnerRow,
 } from '../youtube/outbox-store.ts'
-import { activeLink, isInvitedLink } from '../youtube/store.ts'
+import { activeLink, isInvitedLink, ownAuthorChannels } from '../youtube/store.ts'
 import { batchMessages } from '../youtube/texts.ts'
 import type { Timer } from '../youtube/timer.ts'
 import { activeBindings, activeToken, addLaneFail, bindingOfBroadcast, bindingOfVideo, lanesOf, postEnabledAt, readLane, writeLane, writePostEnabled, youtubeChannelOf } from './store.ts'
@@ -226,7 +226,8 @@ export class ExtensionThanks {
       if (link !== null && isInvitedLink(link)) return { kind: 'none', afterMs: INVITED_RECHECK_MS, channel: null }
       const lane = await readLane(db, sellerId, b)
       const connection = await youtubeChannelOf(db, sellerId)
-      const expected = link?.channelId ?? connection?.channelId ?? lane?.ownerChannelId ?? owner
+      // 확장은 방송 채널 주인으로만 올린다(AC12) — 이은 기록의 방송 채널(초대 방송이 아니면 글 올리는 계정과 같다, 글 올리는 계정이 비어 있어도 있다 — D-YT-SRV-16)
+      const expected = link?.broadcastChannelId ?? connection?.channelId ?? lane?.ownerChannelId ?? owner
       const ownerOk = meIsOwner && owner !== null && expected !== null && owner === expected
       if (!ownerOk) {
         if (lane?.ownerProblemAt === null || lane?.ownerProblemAt === undefined) {
@@ -390,7 +391,8 @@ export class ExtensionThanks {
     const { db } = this.#deps
     const out = new Set<string>()
     const link = await activeLink(db, sellerId, broadcastId)
-    if (link !== null) out.add(link.channelId)
+    // 글 올리는 계정(있으면)과 방송 채널 둘 다 (D-YT-SRV-16)
+    if (link !== null) for (const channel of ownAuthorChannels(link)) out.add(channel)
     const lane = await readLane(db, sellerId, broadcastId)
     if (lane?.ownerChannelId !== null && lane?.ownerChannelId !== undefined) out.add(lane.ownerChannelId)
     const connection = await youtubeChannelOf(db, sellerId)

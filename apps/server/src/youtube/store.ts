@@ -13,8 +13,11 @@ export interface LinkRow {
   readonly broadcastId: string
   readonly videoId: string
   readonly liveChatId: string
-  /** 글 올리는 계정 = 이을 때 연결돼 있던 사장님 채널 (D-PHN-17·19) */
-  readonly channelId: string
+  /**
+   * 글 올리는 계정 = 이을 때 연결돼 있던 사장님 채널 (D-PHN-17·19). 구글 연결 없이 이으면 null(아직 모름) — 처음 공식으로 올릴 때 그때 연결한
+   * 채널을 적는다 (D-YT-SRV-16). 방송 채널로 채우지 않는다
+   */
+  readonly channelId: string | null
   /** 방송 채널 = 영상의 채널. INV1 전 기록(빈 칸)은 글 올리는 계정과 같다고 읽는다 (D-INV1-01) */
   readonly broadcastChannelId: string
   /** 방송 채널 이름 (바깥 글, 모르면 null — 옛 기록) */
@@ -29,9 +32,17 @@ export interface LinkRow {
   readonly summaryAt: Date | null
 }
 
-/** 초대 방송인가: 방송 채널 ≠ 글 올리는 계정 (D-PHN-17) */
+/** 초대 방송인가: 글 올리는 계정이 있고 방송 채널과 다르다 (D-PHN-17). 글 올리는 계정이 비어 있으면 초대 방송으로 보지 않는다 (D-YT-SRV-16) */
 export function isInvitedLink(link: Pick<LinkRow, 'channelId' | 'broadcastChannelId'>): boolean {
-  return link.broadcastChannelId !== link.channelId
+  return link.channelId !== null && link.broadcastChannelId !== link.channelId
+}
+
+/** 우리 감사 글로 볼 작성자: 글 올리는 계정(있으면)과 방송 채널 둘 다 (D-YT-SRV-16) */
+export function ownAuthorChannels(link: Pick<LinkRow, 'channelId' | 'broadcastChannelId'>): Set<string> {
+  const out = new Set<string>()
+  if (link.channelId !== null && link.channelId !== '') out.add(link.channelId)
+  if (link.broadcastChannelId !== '') out.add(link.broadcastChannelId)
+  return out
 }
 
 const linkColumns = {
@@ -143,7 +154,8 @@ export async function insertLink(
     broadcastId: string
     videoId: string
     liveChatId: string
-    channelId: string
+    /** 글 올리는 계정 — 구글 연결 없이 이으면 null (D-YT-SRV-16) */
+    channelId: string | null
     /** 방송 채널(영상의 채널)과 이름 (D-PHN-17) */
     broadcastChannelId: string
     broadcastChannelTitle: string | null
@@ -201,6 +213,29 @@ export async function markLinkStarted(db: Db, sellerId: string, linkId: string, 
     .update(youtubeLinks)
     .set({ startedAt })
     .where(and(eq(youtubeLinks.sellerId, sellerId), eq(youtubeLinks.id, linkId), isNull(youtubeLinks.startedAt)))
+}
+
+/**
+ * 글 올리는 계정이 비어 있는 회차에 처음 공식으로 올리려 할 때 그때 연결한 채널을 적는다 — 비어 있을 때만, 한 번 적으면 바뀌지 않는다 (D-YT-SRV-16).
+ * 적은 뒤(또는 이미 적혀 있던) 값을 돌려준다 (연결이 없으면 null)
+ */
+export async function fillLinkPoster(db: Db, sellerId: string, linkId: string, channelId: string): Promise<string | null> {
+  await db
+    .update(youtubeLinks)
+    .set({ channelId })
+    .where(and(eq(youtubeLinks.sellerId, sellerId), eq(youtubeLinks.id, linkId), isNull(youtubeLinks.channelId)))
+  return (await linkById(db, sellerId, linkId))?.channelId ?? null
+}
+
+/**
+ * 서버로 이은 회차의 공식 채팅 ID를 적는다 — 비어 있을 때만(둘이 함께 받아도 먼저 적은 값), 적힌 값을 돌려준다 (D-YT-SRV-15)
+ */
+export async function fillLinkLiveChatId(db: Db, sellerId: string, linkId: string, liveChatId: string): Promise<string> {
+  await db
+    .update(youtubeLinks)
+    .set({ liveChatId })
+    .where(and(eq(youtubeLinks.sellerId, sellerId), eq(youtubeLinks.id, linkId), eq(youtubeLinks.liveChatId, '')))
+  return (await linkById(db, sellerId, linkId))?.liveChatId ?? ''
 }
 
 export async function markChatEnded(db: Db, sellerId: string, linkId: string, now: Date): Promise<void> {
@@ -413,7 +448,11 @@ export async function connectedSellerIds(db: Db): Promise<string[]> {
 // ── 우리 채널이 쓴 메시지 (게시 확인) ──────────────────────────────────────
 // 게시 확인에서 우리 메시지를 고르는 것(짝짓기)은 outbox-store.ts claimRemote가 발송함 행과 함께 한 트랜잭션에서 한다 (AC-Y1-93)
 
-export async function insertOwnMessage(db: Db, row: { sellerId: string; scopeId: string; liveChatId: string; messageId: string; text: string; publishedAt: Date }): Promise<void> {
+/** 우리 글 하나 — 그 회차(linkId)와 작성자 채널을 함께 남긴다 (D-YT-SRV-17) */
+export async function insertOwnMessage(
+  db: Db,
+  row: { sellerId: string; scopeId: string; linkId: string; liveChatId: string; authorChannelId: string | null; messageId: string; text: string; publishedAt: Date },
+): Promise<void> {
   await db.insert(youtubeOwnMessages).values(row).onConflictDoNothing({ target: [youtubeOwnMessages.sellerId, youtubeOwnMessages.messageId] })
 }
 
