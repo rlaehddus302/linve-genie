@@ -212,7 +212,7 @@ export class BadgeQueue {
 export interface ChatBadges {
   /**
    * "방송 화면에 손님 표시"가 꺼져 있지 않다. 거짓이면 채팅 꼬리표와 1등 옆 "입금 늦음 주의"를 모두 숨긴다(CR-7).
-   * 설정을 아직 모르거나 받지 못하면 참(그 전 화면 그대로 — 꼬리표가 오면 서버의 show로 다시 정한다).
+   * 설정을 아직 모르거나 받지 못하면 거짓(D-KP1-40 — 알 때까지 숨김. 설정·꼬리표 응답이 오면 서버의 show로 정한다).
    */
   readonly show: boolean
   /** 구매자 → 꼬리표 (글이 있는 것만) */
@@ -380,7 +380,7 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
     run()
   }, [buyers, scope, tick, show])
 
-  return useMemo(() => ({ show: !enabled ? true : show !== false, badges: !enabled || show === false ? NO_BADGES : badges }), [enabled, show, badges])
+  return useMemo(() => ({ show: !enabled ? true : show === true, badges: !enabled || show !== true ? NO_BADGES : badges }), [enabled, show, badges])
 }
 
 /**

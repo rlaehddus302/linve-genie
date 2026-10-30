@@ -218,6 +218,14 @@ describe('useChatBadges (CR-7, AC-KP1-14~16)', () => {
     expect(h.asked.length).toBe(1)
   })
 
+  it('설정을 받지 못하면(D-KP1-40) 알 때까지 꼬리표와 1등 옆 주의를 숨긴다', async () => {
+    const h = harness({ settings: () => Promise.reject(new Error('서버 오류')), badges: () => Promise.reject(new Error('서버 오류')) })
+    render(<h.Probe buyers={['UC_A']} />)
+    await settle()
+    expect(h.seen.at(-1)?.show).toBe(false)
+    expect(h.seen.at(-1)?.badges.size).toBe(0)
+  })
+
   it('리허설이면 아무것도 부르지 않는다', async () => {
     const h = harness()
     render(<h.Probe buyers={['UC_A', 'UC_B']} rehearsal />)

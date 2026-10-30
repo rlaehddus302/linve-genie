@@ -49,6 +49,8 @@ export interface RushRow {
   readonly name: string
   readonly buyers: number
   readonly waiting: number
+  /** 하루 실제 회차가 둘 이상일 때만 서버가 준다 (D-KP1-37) */
+  readonly scopeName?: string
 }
 
 /** 품종별 판매 (RPT-05) */
@@ -159,7 +161,7 @@ export function barPercent(value: number, max: number): number {
 export function rushWords(row: RushRow): { readonly title: string; readonly detail: string } {
   const name = row.name.trim() === '' ? '이름 없음' : row.name
   return {
-    title: `${String(row.no)}번 ${name}`,
+    title: `${row.scopeName !== undefined && row.scopeName.trim() !== '' ? `${row.scopeName} · ` : ''}${String(row.no)}번 ${name}`,
     detail: `열고 30초 안에 ${amountWords(row.buyers, '명')}${row.waiting > 0 ? ` · 기다린 손님 ${amountWords(row.waiting, '명')}` : ''}`,
   }
 }

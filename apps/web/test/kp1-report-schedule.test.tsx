@@ -101,6 +101,17 @@ describe('리포트 화면 (AC-KP1-19, RPT-07)', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(12)
   })
 
+  it('몰린 상품: 회차 이름이 있으면 "회차 이름 · N번 이름", 없으면 그대로 (D-KP1-37)', () => {
+    render(<ReportBody view={{ ...REPORT, rush: [{ b: 'B1', no: 2, name: '금황', buyers: 4, waiting: 0, scopeName: '저녁 방송' }, { b: 'B2', no: 3, name: '백도', buyers: 2, waiting: 0 }] }} />)
+    expect(screen.getByText('저녁 방송 · 2번 금황')).toBeTruthy()
+    expect(screen.getByText('3번 백도')).toBeTruthy()
+  })
+
+  it('판매 금액 설명에 추가 금액도 뺀다고 쓴다 (SA-KP1-005)', () => {
+    render(<ReportBody view={REPORT} />)
+    expect(screen.getByText(/상품값만 더했어요\. 배송비·할인·추가 금액은 빼요\./)).toBeTruthy()
+  })
+
   it('몰린 상품은 많아야 5개, 시간대 막대는 글로도 읽힌다', () => {
     render(<ReportBody view={{ ...REPORT, rush: [...(REPORT.rush ?? []), { b: 'B1', no: 9, name: '여섯째', buyers: 1, waiting: 0 }] }} />)
     expect(within(screen.getByRole('list', { name: '몰린 상품 목록' })).getAllByRole('listitem')).toHaveLength(5)

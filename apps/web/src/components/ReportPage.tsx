@@ -103,7 +103,7 @@ export function ReportBody({ view }: { readonly view: ReportView }) {
       ) : null}
       <Section title="돈">
         <dl className="kp1-numbers">
-          <NumberRow label="판매 금액" value={amountWords(summary.sales, '원')} hint="상품값만 더했어요. 배송비·할인은 빼요." />
+          <NumberRow label="판매 금액" value={amountWords(summary.sales, '원')} hint="상품값만 더했어요. 배송비·할인·추가 금액은 빼요." />
           <NumberRow label="판매 수량" value={amountWords(summary.qty, '개')} />
           <NumberRow label="받은 돈" value={amountWords(summary.received, '원')} hint={RECEIVED_HELP} />
           <NumberRow label="아직 못 받은 돈" value={amountWords(summary.unpaid, '원')} hint="손님마다 낼 돈에서 받은 돈을 뺀 합이에요." />
