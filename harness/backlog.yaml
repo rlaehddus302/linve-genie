@@ -1228,6 +1228,22 @@ sprints:
     specIds: [APP-01, APP-02, APP-03, APP-04, APP-05, LBL-06, NFR-05, NFR-09]
     status: done
 
+  - id: INV1
+    phase: 7
+    title: 초대받은 유튜버 방송 — 공개 방송 주소로 잇기, 사장님 계정으로 감사
+    dependsOn: [APP2]
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: false
+    humanGate: HG-INV
+    goal: >
+      사용자 결정 D-PHN-18·D-PHN-19(2026-10-30)와 D-PHN-17·20·21·24(AUTO). 판정 엔진·골든 변경 없음.
+      server: 주소 붙여넣기로 남의 채널 공개 방송 잇기(내 채널 아님 확인), 글 올리는 계정(사장님 채널)과 방송 채널을 따로 기록, 감사 채팅·영상 댓글은 사장님 계정 공식 경로, 확장 주인 배지 기준은 방송 채널.
+      web: 확인 한 줄 "내 채널 방송이 아니에요 (채널: {이름}). 초대받은 방송이 맞나요?", 콘솔 "초대받은 방송 · {이름}" 한 줄.
+      순서 server → web. 수용 기준: harness/sprints/INV1/acceptance.md (AC-INV1-01~12).
+    specIds: [YT-02, YT-04, YT-05, YT-06, YT-10, NFR-10]
+    status: todo
+
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
   - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"
