@@ -1,7 +1,7 @@
 // KP1 손님 장부 순수 함수 중 골든 밖의 것 (CR-2·CR-3·CR-5·CR-7): 낱말·코드 고르기·이름 가리기·화면 읽기 글·개월 낱말·문구.
 import { describe, expect, it } from 'vitest'
 import {
-  CR_CONSENT_1,
+  CR_CONSENT_2,
   LINK_CODE_WORDS,
   addMonths,
   badgeSpoken,
@@ -101,10 +101,10 @@ describe('보관 기간 (CR-3, AC-KP1-06)', () => {
 
 describe('동의 문구 판 (CR-2)', () => {
   it('글 그대로, {가게}·{기간} 자리', () => {
-    expect(CR_CONSENT_1.id).toBe('CR-CONSENT-1')
-    expect(CR_CONSENT_1.title).toBe('다음 주문에도 이 배송지 쓰기 (선택)')
-    expect(CR_CONSENT_1.body('초록가게', '1년')).toBe(
-      '초록가게가 받는 분·연락처·주소를 다음 주문 배송지로 쓰려고 마지막 주문 뒤 1년 동안 보관해요. 그 뒤엔 지워요. 언제든 이 링크나 판매자에게 지워 달라고 할 수 있어요. 고르지 않아도 이번 주문은 그대로 보내요.',
+    expect(CR_CONSENT_2.id).toBe('CR-CONSENT-2')
+    expect(CR_CONSENT_2.title).toBe('다음 주문에도 이 배송지 쓰기 (선택)')
+    expect(CR_CONSENT_2.body('초록가게', '1년')).toBe(
+      '고르면 받는 분·연락처·주소를 30일 뒤에 지우지 않고, 초록가게가 다음 주문 배송지로 쓰려고 마지막 주문 뒤 1년 동안 보관해요. 초록가게에서만 쓰고, 그 뒤엔 지워요. 언제든 이 링크나 판매자에게 지워 달라고 할 수 있어요. 고르지 않아도 이번 주문은 그대로 보내요.',
     )
   })
 })

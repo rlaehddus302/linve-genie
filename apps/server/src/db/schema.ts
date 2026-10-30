@@ -2223,7 +2223,8 @@ export const ledgerSettings = pgTable('ledger_settings', {
     .references(() => sellers.id),
   /** 6 · 12 · 24 · 36 */
   months: integer('months').notNull(),
-  consoleBadges: boolean('console_badges').notNull(),
+  /** null = 판매자가 아직 정하지 않음 (UX-KP1-006, 마이그레이션 0033) */
+  consoleBadges: boolean('console_badges'),
   updatedAt: timestamptz('updated_at').notNull(),
 })
 

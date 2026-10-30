@@ -55,7 +55,8 @@ export function openAddress(masterKey: Buffer, sellerId: string, date: string, b
   }
 }
 
-export type AddressSource = 'BUYER' | 'SELLER'
+/** LEDGER: 판매자가 [배송지 확인]으로 장부(지난 주문에 손님이 적은) 배송지를 옮겨 저장 (UX-KP1-004) */
+export type AddressSource = 'BUYER' | 'SELLER' | 'LEDGER'
 
 export interface AddressRow {
   readonly id: number
@@ -83,7 +84,7 @@ const addressColumns = {
 
 const toAddressRow = (row: { id: number; date: string; buyer: string; sealed: string; source: string; confirmed: boolean; confirmedBy: string | null; updatedAt: Date; updatedBy: string | null }): AddressRow => ({
   ...row,
-  source: row.source === 'SELLER' ? 'SELLER' : 'BUYER',
+  source: row.source === 'SELLER' ? 'SELLER' : row.source === 'LEDGER' ? 'LEDGER' : 'BUYER',
 })
 
 export async function addressRow(db: Db, sellerId: string, date: string, buyer: string): Promise<AddressRow | null> {

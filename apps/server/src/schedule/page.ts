@@ -14,7 +14,7 @@ import type { Context, Hono } from 'hono'
 import { connectionAddress } from '../api.ts'
 import type { Db } from '../db/database.ts'
 import { errorResponse } from '../errors.ts'
-import { clientAddress } from '../login-limit.ts'
+import { clientAddress, ipKey } from '../login-limit.ts'
 import { MR_CONSENT_1 } from '../messaging/rules.ts'
 import { escapeHtml, formFromApp, kstDateTimeWithDay, LinkRateLimiter, RECEIPT_PAGE_CSP, readCapped } from '../receipt-page.ts'
 import { receiptTokenHash } from '../receipt-links.ts'
@@ -40,7 +40,9 @@ export const SCHEDULE_PAGE_MESSAGES = {
   forbidden: '다른 곳에서 보낸 양식이라 받지 않았어요. 주소를 다시 열어 그 화면에서 보내 주세요.',
   empty: '다가오는 방송이 아직 없어요.',
   needAgree: '알림 받기에 동의해 주세요.',
-  badPhone: '휴대폰 번호를 확인해 주세요.',
+  badPhone: '휴대폰 번호(010으로 시작하는 11자리)를 적어 주세요.',
+  /** 아직 문자를 보내지 않는다 (D-KP1-20) */
+  notYet: '아직 문자를 보내지 않아요. 보내기는 준비 중이에요.',
   badForm: '입력한 내용을 확인해 주세요.',
   agreed: (shop: string, date: string) => `${shop} 방송 알림을 신청했어요 (${date}).`,
   stopped: (shop: string, date: string) => `${shop} 방송 알림을 그만 받아요 (${date}).`,
@@ -76,7 +78,7 @@ const STYLE = [
   'label{font-weight:600;margin-top:8px}',
   'input[type=tel]{width:100%;min-height:52px;padding:10px 12px;border:1px solid #9aa196;border-radius:8px;font-size:18px;background:#fff;color:#1d1f1c}',
   '.check{display:flex;gap:10px;align-items:flex-start;font-weight:400;min-height:52px}',
-  '.check input{width:28px;height:28px;margin:4px 0 0;flex:none}',
+  '.check input{width:32px;height:32px;min-height:32px;margin:2px 0 0;flex:none}',
   'button{min-height:56px;margin-top:12px;border-radius:10px;border:1px solid #2f6b3a;background:#2f6b3a;color:#fff;font-size:18px;font-weight:700}',
   'button.plain{background:#fff;color:#2f6b3a}',
   'a{color:#2f6b3a}',
@@ -116,6 +118,9 @@ export interface SchedulePagePart {
   readonly alert?: string
   /** 그 가게 판매자 세션이 함께 왔다 — 알림 신청 양식 대신 한 문장 (RA-KP1-006) */
   readonly sellerHere?: boolean
+  /** 틀려서 다시 그릴 때 손님이 적은 번호 (응답 HTML에만 — 저장·로그 없음) */
+  readonly phone?: string
+  readonly phoneFor?: 'alert' | 'stop'
 }
 
 /** 공개 일정 페이지 HTML (가게 이름·일정·채널 주소는 모두 이스케이프) */
@@ -145,15 +150,17 @@ export function schedulePageHtml(shop: string, data: PublicSchedule, path: strin
   else {
     lines.push(`<form method="post" action="${escapeHtml(path)}/alert" class="card">`)
     lines.push('<label for="alert-phone">휴대폰 번호</label>')
-    lines.push('<input id="alert-phone" type="tel" name="phone" inputmode="tel" autocomplete="tel" maxlength="20" required>')
-    lines.push(`<label class="check"><input type="checkbox" name="agree" value="on" required><span>${escapeHtml(MR_CONSENT_1.body(shop))}</span></label>`)
+    // 빈칸·동의 검사는 서버가 한다 (브라우저 말풍선 대신 서버 문장, UX-KP1-011)
+    lines.push(`<input id="alert-phone" type="tel" name="phone" inputmode="tel" autocomplete="tel" maxlength="20"${part.phoneFor === 'alert' ? ` value="${escapeHtml(part.phone ?? '')}"` : ''}>`)
+    lines.push(`<label class="check"><input type="checkbox" name="agree" value="on"><span>${escapeHtml(MR_CONSENT_1.body(shop))}</span></label>`)
+    lines.push(`<p class="muted">${SCHEDULE_PAGE_MESSAGES.notYet}</p>`)
     lines.push('<button type="submit">알림 받기</button>')
     lines.push('</form>')
   }
   lines.push('<h2>알림 그만 받기</h2>')
   lines.push(`<form method="post" action="${escapeHtml(path)}/stop" class="card">`)
   lines.push('<label for="stop-phone">휴대폰 번호</label>')
-  lines.push('<input id="stop-phone" type="tel" name="phone" inputmode="tel" autocomplete="tel" maxlength="20" required>')
+  lines.push(`<input id="stop-phone" type="tel" name="phone" inputmode="tel" autocomplete="tel" maxlength="20"${part.phoneFor === 'stop' ? ` value="${escapeHtml(part.phone ?? '')}"` : ''}>`)
   lines.push('<button type="submit" class="plain">그만 받기</button>')
   lines.push('</form>')
   lines.push('</main>', '</body>', '</html>', '')
@@ -179,7 +186,11 @@ export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
   const pageLimiter = new LinkRateLimiter(deps.clock, SCHEDULE_PAGE_LIMIT, SCHEDULE_WINDOW_MS)
   const formLimiter = new LinkRateLimiter(deps.clock, ALERT_FORM_LIMIT, SCHEDULE_WINDOW_MS)
   /** 접속 주소 칸 (모르면 한 칸 — 기존 공개 경로와 같은 clientAddress) */
-  const addressOf = (c: Context) => `ip:${clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0) ?? '?'}`
+  const addressOf = (c: Context) => {
+    const address = clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0)
+    // RA-KP1-101: IPv6는 /64 한 칸으로 묶는다 (기존 ipKey 관례, D-I3-12)
+    return `ip:${(address === null ? null : ipKey(address)) ?? '?'}`
+  }
   const notices = new NoticeSigner(deps.clock)
   const closed = () => htmlResponse(404, CLOSED_PAGE)
   const later = () => htmlResponse(429, LATER_PAGE)
@@ -214,13 +225,15 @@ export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
     const action = match?.[2] as 'alert' | 'stop' | undefined
     if (action === undefined || !SCHEDULE_TOKEN_RE.test(token)) return closed()
     if (!formFromApp(c.req.header('origin'), c.req.header('sec-fetch-site'), deps.appOrigin)) return htmlResponse(403, FORBIDDEN_PAGE)
-    if (!formLimiter.take(addressOf(c)) || !tokenLimiter.take(receiptTokenHash(token))) return later()
+    // RA-KP1-104: 알림 신청 칸은 (접속 주소, 토큰) — 가게끼리 칸을 함께 쓰지 않는다
+    if (!formLimiter.take(`${addressOf(c)}|${receiptTokenHash(token)}`) || !tokenLimiter.take(receiptTokenHash(token))) return later()
     const data = await deps.schedule.openPage(token)
     if (data === null) return closed()
     const shop = await shopName(data.sellerId)
     const path = `/s/${token}`
     const sellerHere = action === 'alert' && (await sellerSignedIn(c, deps.db, deps.clock, data.sellerId))
-    const bad = (message: string) => htmlResponse(400, schedulePageHtml(shop, data, path, { alert: message, sellerHere }))
+    const bad = (message: string, phone?: string) =>
+      htmlResponse(400, schedulePageHtml(shop, data, path, { alert: message, sellerHere, ...(phone === undefined ? {} : { phone: phone.slice(0, 20), phoneFor: action }) }))
     // RA-KP1-006: 판매자 로그인 화면에서 낸 알림 신청은 저장하지 않는다 (본문도 읽지 않는다)
     if (sellerHere) return bad(SELLER_CANNOT_CONSENT)
     const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
@@ -233,10 +246,10 @@ export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
     if (action === 'alert') {
       const agree = form.getAll('agree')
       if (agree.length > 1 || (agree.length === 1 && agree[0] !== 'on')) return bad(SCHEDULE_PAGE_MESSAGES.badForm)
-      if (agree.length === 0) return bad(SCHEDULE_PAGE_MESSAGES.needAgree)
+      if (agree.length === 0) return bad(SCHEDULE_PAGE_MESSAGES.needAgree, phones[0])
     }
     const normalized = phones.length === 1 ? normalizePhone(phones[0] as string) : null
-    if (normalized === null) return bad(SCHEDULE_PAGE_MESSAGES.badPhone)
+    if (normalized === null) return bad(SCHEDULE_PAGE_MESSAGES.badPhone, phones[0])
     const at = action === 'alert' ? await deps.schedule.subscribe(data.sellerId, normalized) : await deps.schedule.unsubscribe(data.sellerId, normalized)
     const headers = new Headers(SCHEDULE_PAGE_HEADERS)
     const done = action === 'alert' ? 'agree' : 'stop'

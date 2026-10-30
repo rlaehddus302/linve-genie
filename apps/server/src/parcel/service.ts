@@ -200,7 +200,7 @@ export interface ParcelDay {
 }
 
 export interface AddressView extends ParcelAddress {
-  readonly source: 'BUYER' | 'SELLER'
+  readonly source: 'BUYER' | 'SELLER' | 'LEDGER'
   readonly confirmed: boolean
   /** 고친 시각 (UTC ISO — 배송지 확인 요청에 그대로 보낸다) */
   readonly updatedAt: string
@@ -743,7 +743,7 @@ export class ParcelService {
       const found = settlement.items.length === 0 || shipping === 'PICKUP' || shipping === 'COMBINED' ? null : await ledger.lineForBundle(tx, sellerId, runtime.state, buyer, known)
       if (found === null || found.line.id !== ledgerId) return problem(409, 'NO_LEDGER', LEDGER_PARCEL_MESSAGES.noLedger)
       if (iso(found.line.updatedAt.getTime()) !== updatedAt) return problem(409, 'LEDGER_CHANGED', LEDGER_PARCEL_MESSAGES.changed)
-      await putAddress(tx, this.#deps.masterKey, { sellerId, date, buyer, address: { ...found.contact, memo: '' }, source: 'SELLER', accountId, confirmed: true, now })
+      await putAddress(tx, this.#deps.masterKey, { sellerId, date, buyer, address: { ...found.contact, memo: '' }, source: 'LEDGER', accountId, confirmed: true, now })
       return null
     })
   }

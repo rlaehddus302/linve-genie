@@ -13,14 +13,15 @@ import { and, asc, eq, gt, inArray, lte, ne, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { ledgerCodes, ledgerConsents, ledgerLines, ledgerMarkers, ledgerSettings } from '../db/schema.ts'
 import { SecretError, openText, sealText } from '../secrets.ts'
-import { CR_CONSENT_1, DEFAULT_LEDGER_MONTHS, LEDGER_CONSENT_ITEMS, isLedgerMonths, type LedgerMonths } from './ledger-rules.ts'
+import { CR_CONSENT_2, DEFAULT_LEDGER_MONTHS, LEDGER_CONSENT_ITEMS, isLedgerMonths, type LedgerMonths } from './ledger-rules.ts'
 
 export interface LedgerSettings {
   readonly months: LedgerMonths
-  readonly consoleBadges: boolean
+  /** null = 아직 정하지 않음 (켠 것처럼 보이되 웹이 한 번 묻는다, UX-KP1-006) */
+  readonly consoleBadges: boolean | null
 }
 
-export const DEFAULT_LEDGER_SETTINGS: LedgerSettings = { months: DEFAULT_LEDGER_MONTHS, consoleBadges: true }
+export const DEFAULT_LEDGER_SETTINGS: LedgerSettings = { months: DEFAULT_LEDGER_MONTHS, consoleBadges: null }
 
 /** 장부 연락처 다섯 칸 (PC-2로 다듬은 값 — 배송 메모 없음) */
 export interface LedgerContact {
@@ -228,7 +229,7 @@ export async function addConsent(
     lineId: input.lineId,
     type: input.type,
     items: LEDGER_CONSENT_ITEMS,
-    wording: CR_CONSENT_1.id,
+    wording: CR_CONSENT_2.id,
     months: input.months,
     route: input.route,
     orderDate: input.orderDate,

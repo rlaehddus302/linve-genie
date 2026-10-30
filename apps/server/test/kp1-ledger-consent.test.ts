@@ -10,7 +10,7 @@ const CONSENT_TEXT = '다음 주문에도 이 배송지 쓰기 (선택)'
 const OTHER = { name: '남궁민수', phone: '010-2222-9999', address: '부산광역시 해운대구 우동 1', detail: '3층', zip: '48060', memo: '' }
 
 describe('AC-KP1-02 동의 칸 보이기', () => {
-  it('실제 날짜·품목 있음·유튜브 구매자: 양식 안 저장 버튼 위에 빈 체크 칸과 CR-CONSENT-1 글(기간 1년)', async () => {
+  it('실제 날짜·품목 있음·유튜브 구매자: 양식 안 저장 버튼 위에 빈 체크 칸과 CR-CONSENT-2 글(기간 1년)', async () => {
     const { world, seller } = await ledgerWorld()
     await sell(world, seller, [['UC_A', '가람', 1]])
     const page = await openLink(world, `/r/${await linkFor(world, seller, 'UC_A')}`)
@@ -73,7 +73,7 @@ describe('AC-KP1-03 고르고 저장', () => {
     for (const secret of [ADDRESS.name, '01012345678', ADDRESS.address, ADDRESS.detail, '04524', ADDRESS.memo]) expectNoSecret(sealed, secret)
     expect(await markers(world)).toEqual([{ seller_id: seller.sellerId, marker: 'c:UC_A', line_id: line?.id, source: 'CONSENT', label_platform: null, label_name: null, label_last4: null }])
     expect(await consents(world)).toEqual([
-      { seller_id: seller.sellerId, line_id: line?.id, type: 'AGREE', items: '받는 분·연락처·주소·상세 주소·우편번호', wording: 'CR-CONSENT-1', months: 12, route: 'RECEIPT_LINK', order_date: D, reason: null, account_id: null },
+      { seller_id: seller.sellerId, line_id: line?.id, type: 'AGREE', items: '받는 분·연락처·주소·상세 주소·우편번호', wording: 'CR-CONSENT-2', months: 12, route: 'RECEIPT_LINK', order_date: D, reason: null, account_id: null },
     ])
     const logs = logText(world)
     for (const secret of [ADDRESS.name, '01012345678', ADDRESS.address, 'c:UC_A']) expectNoSecret(logs, secret)
@@ -198,7 +198,7 @@ describe('AC-KP1-05·08 이미 저장한 손님 / 다음 주문에 "확인 전"'
     const confirmed = await api.confirmLedger('UC_A', bundle.ledger.ledgerId ?? '', bundle.ledger.updatedAt ?? '', D2)
     expect(confirmed.status, confirmed.text).toBe(200)
     const saved = confirmed.body.bundle as { address: Record<string, unknown>; ledger: unknown; row: { address: string } }
-    expect(saved.address).toMatchObject({ name: '홍길동', phone: '01012345678', memo: '', source: 'SELLER', confirmed: true })
+    expect(saved.address).toMatchObject({ name: '홍길동', phone: '01012345678', memo: '', source: 'LEDGER', confirmed: true })
     expect(saved.ledger).toBeNull()
     expect(saved.row.address).toBe('CONFIRMED')
     expect((await api.confirmLedger('UC_A', bundle.ledger.ledgerId ?? '', bundle.ledger.updatedAt ?? '', D2)).body.error).toMatchObject({ code: 'ADDRESS_EXISTS' })

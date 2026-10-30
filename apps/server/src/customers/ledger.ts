@@ -156,6 +156,15 @@ export class LedgerService {
     return readLedgerSettings(this.#deps.db, sellerId)
   }
 
+  /** 보관 기간을 months로 줄이면 지금 기준으로 새로 지워질 줄 수 (D-KP1-45: 새 기간으로 지우는 날이 오늘이거나 지난 줄). 읽지 못한 날이 있는 줄은 늦게 지워지는 쪽으로 본다 */
+  async shrinkPreview(sellerId: string, months: LedgerMonths): Promise<number> {
+    const today = kstDate(this.#now().getTime())
+    const lines = await sweepLines(this.#deps.db, sellerId, today)
+    if (lines.length === 0) return 0
+    const next = (await this.#deleteOnsCounted(sellerId, lines, months, true)).deleteOns
+    return lines.filter((line) => today >= (next.get(line.id) ?? '9999-12-31')).length
+  }
+
   async saveSettings(sellerId: string, value: LedgerSettings): Promise<LedgerSettings> {
     await writeLedgerSettings(this.#deps.db, sellerId, value, this.#now())
     this.#changed(sellerId, 'settings')
@@ -345,9 +354,9 @@ export class LedgerService {
       const open = await openCodeOfLine(tx, sellerId, lineId)
       if (open === null || open.state !== 'CLAIMED' || open.expiresAt.getTime() <= now.getTime() || open.claimedMarker === null) return 'none'
       if (action.yes) {
-        // 이미 다른 장부 줄에 동의로 들어 있는 계정은 코드로 옮기지 않는다 — 꾀어 코드를 치게 해 남의 줄을 빼앗지 못하게 (RA-KP1-007, CR-0 6 "애매하면 쓰지 않는다")
+        // 이미 다른 장부 줄에 (동의·코드 어느 쪽이든) 들어 있는 계정은 코드로 옮기지 않는다 — 꾀어 코드를 치게 해 남의 줄을 빼앗지 못하게 (RA-KP1-007, CR-0 6 "애매하면 쓰지 않는다")
         const held = await markerHolder(tx, sellerId, open.claimedMarker)
-        if (held !== null && held.lineId !== lineId && held.source === 'CONSENT') {
+        if (held !== null && held.lineId !== lineId) {
           await finishCodesOfLine(tx, sellerId, lineId)
           return 'refused'
         }
@@ -429,7 +438,8 @@ export class LedgerService {
     const scope = await this.#scope(sellerId, date)
     if (scope === null) return null
     const settings = await this.settings(sellerId)
-    if (!settings.consoleBadges) return { show: false, badges: buyers.map((buyer) => ({ buyer, text: null, spoken: null })) }
+    // 정해지지 않음(null)이면 숨긴다 — 보이기로 정한 뒤에만 (D-KP1-43)
+    if (settings.consoleBadges !== true) return { show: false, badges: buyers.map((buyer) => ({ buyer, text: null, spoken: null })) }
     const facts = await factsFor(this.#deps.customers.factsDeps(), sellerId, scope)
     const markerOf = (buyer: string): string | null => {
       const known = facts?.buyers.get(buyer)
@@ -576,7 +586,12 @@ export class LedgerService {
     await dropOldCodes(db, new Date(now.getTime() - RECENT_CODE_MS))
     const before = kstDate(now.getTime() - SWEEP_MIN_AGE_MS)
     let removed = 0
+    let first = true
     for (const sellerId of await sweepSellers(db, before)) {
+      // RA-KP1-103: 판매자 사이에 이벤트 루프를 양보한다 (캐시 밖 날짜를 연달아 다시 세우며 막지 않게)
+      if (!first) await new Promise<void>((resolve) => setImmediate(resolve))
+      first = false
+      let count = 0
       try {
         const settings = await this.settings(sellerId)
         const lines = await sweepLines(db, sellerId, before)
@@ -587,7 +602,6 @@ export class LedgerService {
         }
         const due = lines.filter((line) => today >= (deleteOns.get(line.id) ?? '9999-12-31'))
         if (due.length === 0) continue
-        let count = 0
         for (let at = 0; at < due.length; at += SWEEP_BATCH) {
           const batch = due.slice(at, at + SWEEP_BATCH)
           count += await db.transaction(async (tx) => {
@@ -605,12 +619,14 @@ export class LedgerService {
             return done
           })
         }
+      } catch (error) {
+        this.#deps.log({ level: 'error', code: 'LEDGER_SWEEP_FAILED', seller: sellerId, errorKind: errorKind(error) })
+      } finally {
+        // RA-KP1-105: 도중에 실패해도 이미 지운 줄이 있으면 화면에 알린다
         if (count > 0) {
           removed += count
           this.published(sellerId)
         }
-      } catch (error) {
-        this.#deps.log({ level: 'error', code: 'LEDGER_SWEEP_FAILED', seller: sellerId, errorKind: errorKind(error) })
       }
     }
     if (removed > 0 || codes > 0) this.#deps.log({ level: 'info', code: 'LEDGER_SWEPT', count: removed })

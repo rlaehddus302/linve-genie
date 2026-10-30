@@ -165,6 +165,37 @@ describe('AC-KP1-10·11 채팅에서 읽기와 손님 확인', () => {
     expect((await openLink(world, `/r/${tokenA}?ledger=refused`)).text).not.toContain('이 계정은 이을 수 없어요.')
   })
 
+  it('RA-KP1-102 다른 줄에 코드로 든 계정도 [네]여도 옮기지 않는다 — 줄·표지·동의 기록 그대로', async () => {
+    const { world, seller } = await ledgerWorld()
+    const b = await sell(world, seller, [
+      ['UC_A', '가람', 1],
+      ['UC_B', '나래', 1],
+    ])
+    const tokenA = await consent(world, seller, 'UC_A')
+    at(world, D, '20:05:00')
+    const tokenB = await consent(world, seller, 'UC_B', D, { name: '나래', phone: '010-3333-4444', address: '대전 서구 둔산로 1', detail: '', zip: '', memo: '' })
+    // UC_Z가 코드로 A 줄에 든다
+    const first = await newCode(world, tokenA)
+    await chat(world, seller, b, 'c-z1', 'UC_Z', '제트', first)
+    await waitFor(async () => (await codes(world)).at(-1)?.state === 'CLAIMED')
+    expect((await postForm(world, `/r/${tokenA}/ledger/link`, { answer: 'yes' })).status).toBe(303)
+    expect((await markers(world)).find((row) => row.marker === 'c:UC_Z')).toMatchObject({ source: 'CODE' })
+    const before = await markers(world)
+    const linesBefore = await lines(world)
+    const consentsBefore = await consents(world)
+    // B 줄이 만든 코드를 UC_Z가 치고 [네]
+    at(world, D, '20:10:00')
+    const code = await newCode(world, tokenB)
+    await chat(world, seller, b, 'c-z2', 'UC_Z', '제트', code)
+    await waitFor(async () => (await codes(world)).at(-1)?.state === 'CLAIMED')
+    const yes = await postForm(world, `/r/${tokenB}/ledger/link`, { answer: 'yes' })
+    expect(yes.headers.get('location')).toMatch(/ledger=refused/)
+    expect(await markers(world)).toEqual(before)
+    expect(await lines(world)).toEqual(linesBefore)
+    expect(await consents(world)).toEqual(consentsBefore)
+    expect((await codes(world)).at(-1)).toMatchObject({ state: 'DONE', claimed_marker: null })
+  })
+
   it('D-KP1-39 장부 동작 조건이 그사이 깨졌으면 "지금은 여기서 할 수 없어요." 한 줄', async () => {
     const { world, seller } = await ledgerWorld()
     await sell(world, seller, [['UC_A', '가람', 1]])

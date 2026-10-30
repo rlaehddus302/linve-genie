@@ -43,9 +43,9 @@ export function checkLedgerSettings(body: Record<string, unknown>): { ok: true; 
   if (extra.length > 0) return { ok: false, response: unknownField(extra) }
   const problems: FieldProblem[] = []
   if (!isLedgerMonths(body.months)) problems.push({ field: 'months', message: LEDGER_MESSAGES.months })
-  if (typeof body.consoleBadges !== 'boolean') problems.push({ field: 'consoleBadges', message: LEDGER_MESSAGES.consoleBadges })
+  if (typeof body.consoleBadges !== 'boolean' && body.consoleBadges !== null) problems.push({ field: 'consoleBadges', message: LEDGER_MESSAGES.consoleBadges })
   if (problems.length > 0) return { ok: false, response: invalid(problems) }
-  return { ok: true, value: { months: body.months as LedgerSettings['months'], consoleBadges: body.consoleBadges as boolean } }
+  return { ok: true, value: { months: body.months as LedgerSettings['months'], consoleBadges: body.consoleBadges as boolean | null } }
 }
 
 export function registerLedgerRoutes(api: Hono<Env>, ledger: LedgerService): void {
@@ -54,6 +54,12 @@ export function registerLedgerRoutes(api: Hono<Env>, ledger: LedgerService): voi
 
   // 설정 "손님 관리"의 장부 칸 (CR-3·CR-7)
   api.get('/ledger-settings', async (c) => c.json({ settings: await ledger.settings(sellerOf(c)) }))
+  // 보관 기간을 줄이면 곧 지워질 줄 수 (UX-KP1-002) — 개인정보 없이 수만
+  api.get('/ledger-settings/preview', async (c) => {
+    const months = Number(c.req.query('months'))
+    if (!isLedgerMonths(months)) return invalid([{ field: 'months', message: LEDGER_MESSAGES.months }])
+    return c.json({ months, willDelete: await ledger.shrinkPreview(sellerOf(c), months) })
+  })
   api.put('/ledger-settings', async (c) => {
     const checked = checkLedgerSettings(body(c))
     if (!checked.ok) return checked.response

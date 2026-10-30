@@ -30,7 +30,7 @@ describe('설정 "손님 관리"의 장부 칸 (CR-3·CR-7)', () => {
     const seller = await parcelSeller(world)
     const api = ledgerApi(world, seller.cookie)
     const first = await api.settings()
-    expect(first.body).toEqual({ settings: { months: 12, consoleBadges: true } })
+    expect(first.body).toEqual({ settings: { months: 12, consoleBadges: null } })
     expect(first.headers.get('cache-control')).toBe('no-store')
     expect((await api.saveSettings({ months: 6, consoleBadges: false })).body).toEqual({ settings: { months: 6, consoleBadges: false } })
     expect((await api.settings()).body).toEqual({ settings: { months: 6, consoleBadges: false } })
@@ -52,6 +52,9 @@ describe('AC-KP1-14·16 콘솔 손님 표시', () => {
   it('A 입금 늦음 주의 · B 단골 · 누적 125,000원 · C 처음 · D 없음 (물은 순서대로), 화면 읽기 글', async () => {
     const { world, seller } = await world4()
     const api = ledgerApi(world, seller.cookie)
+    // D-KP1-43: 정해지지 않으면 숨긴다 — 보이기로 정한 뒤에만
+    expect((await api.badges(D, ['UC_A'])).body).toEqual({ show: false, badges: [{ buyer: 'UC_A', text: null, spoken: null }] })
+    expect((await api.saveSettings({ months: 12, consoleBadges: true })).status).toBe(200)
     const response = await api.badges(D, ['UC_A', 'UC_B', 'UC_C', 'UC_D', 'UC_A'])
     expect(response.status, response.text).toBe(200)
     expect(response.headers.get('cache-control')).toBe('no-store')
@@ -159,6 +162,7 @@ describe('AC-KP1-26 판매자만·판매자마다', () => {
     // 같은 날짜에 다른 판매자가 같은 채널을 팔아도 A의 장부·기록이 꼬리표에 나오지 않는다
     at(world, D, '21:30:00')
     await createBroadcast(world, other, { date: D })
+    await otherApi.saveSettings({ months: 12, consoleBadges: true })
     expect((await otherApi.badges(D, ['UC_A', 'UC_B'])).body).toEqual({
       show: true,
       badges: [

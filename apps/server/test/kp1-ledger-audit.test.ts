@@ -10,7 +10,7 @@ import { isServerPath } from '../src/web.ts'
 import { WorkBusy, WorkFailed } from '../src/work-pool.ts'
 import { at, chat } from './i2-support.ts'
 import { attempts, bookOk, packAll, pay } from './t1-support.ts'
-import { login, waitFor } from './support.ts'
+import { addSeller, login, waitFor } from './support.ts'
 import { codes, consent, kst, ledgerApi, ledgerWorld, lines, logText, openLink, postForm, rowsOf, sell } from './kp1-ledger-support.ts'
 
 const JAN = '2026-01-31'
@@ -199,5 +199,41 @@ describe('SA-KP1-001 접수 직전 다시 판단도 장부 "확인 전" 묶음�
     const [result] = await bookOk(world, seller, [{ buyer: 'UC_A' }], D2)
     expect(result).toMatchObject({ buyer: 'UC_A', ok: false, reason: 'ADDRESS_UNCONFIRMED' })
     expect(await attempts(world, seller.sellerId, 'UC_A')).toEqual([])
+  })
+})
+
+describe('RA-KP1-103·105 정리: 판매자 사이 양보, 도중에 실패해도 지운 줄은 알림', () => {
+  const insert = (world: Parameters<typeof rowsOf>[0], sellerId: string, count: number, prefix: string) => {
+    const values = Array.from({ length: count }, (_, i) => `('${prefix}-${String(i).padStart(4, '0')}', '${sellerId}', 'x', '${JAN}', 6, now(), now())`).join(',')
+    return rowsOf(world, `insert into ledger_lines (id, seller_id, contact_enc, consent_date, consent_months, created_at, updated_at) values ${values}`)
+  }
+
+  it('RA-KP1-103 판매자가 둘이면 둘 사이에 이벤트 루프를 한 번 양보한다', async () => {
+    const { world, seller } = await ledgerWorld()
+    const other = await addSeller(world)
+    await insert(world, seller.sellerId, 1, 'a')
+    await insert(world, other.sellerId, 1, 'b')
+    world.clock.set(kst('2026-08-01', '09:00:00'))
+    const yielded = vi.spyOn(globalThis, 'setImmediate')
+    await world.server.ledger.sweepOnce()
+    expect(yielded).toHaveBeenCalled()
+    expect(await lines(world)).toEqual([])
+  })
+
+  it('RA-KP1-105 두 번째 묶음에서 실패해도 첫 묶음에서 지운 판매자는 화면에 알린다', async () => {
+    const { world, seller } = await ledgerWorld()
+    await insert(world, seller.sellerId, SWEEP_BATCH + 5, 'old')
+    world.clock.set(kst('2026-08-01', '09:00:00'))
+    const published = vi.spyOn(world.server.ledger, 'published')
+    const real = world.database.db.transaction.bind(world.database.db) as (...args: unknown[]) => Promise<unknown>
+    let calls = 0
+    vi.spyOn(world.database.db, 'transaction').mockImplementation(((...args: unknown[]) => {
+      calls += 1
+      return calls === 2 ? Promise.reject(new Error('x')) : real(...args)
+    }) as never)
+    await world.server.ledger.sweepOnce()
+    expect(calls).toBe(2)
+    expect(published).toHaveBeenCalledWith(seller.sellerId)
+    expect(await lines(world)).toHaveLength(5)
   })
 })

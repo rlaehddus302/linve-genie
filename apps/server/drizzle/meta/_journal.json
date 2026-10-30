@@ -225,6 +225,13 @@
       "when": 1794960000006,
       "tag": "0032_kp1_schedule_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794960000007,
+      "tag": "0033_kp1_console_badges_undecided",
+      "breakpoints": true
     }
   ]
 }

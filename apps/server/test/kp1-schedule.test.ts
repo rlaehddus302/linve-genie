@@ -179,7 +179,7 @@ describe('AC-KP1-21 공개 일정 페이지', () => {
     // SCH-02 "채널 주소" — 주소 글자도 보인다
     expect(html).toContain('>https://www.youtube.com/@chorok</a>')
     expect(html).toContain('초록다육의 방송 알림(광고) 문자를 받을게요.')
-    expect(html).toMatch(/<input type="checkbox" name="agree" value="on" required>/)
+    expect(html).toMatch(/<input type="checkbox" name="agree" value="on">/)
     expect(html).not.toMatch(/checked/)
     // 지난 일정은 빠진다
     expect(html).toContain('곧 지날 방송')
@@ -222,6 +222,38 @@ describe('AC-KP1-21 공개 일정 페이지', () => {
     expect((await open('203.0.113.1')).status).toBe(200)
   })
 
+  it('RA-KP1-101 IPv6는 앞 64비트 한 칸으로 센다 — 같은 /64의 다른 주소로 한도를 피하지 못한다', async () => {
+    const { world: w, seller } = await world()
+    const path = await enable(w, seller)
+    const open = (ip: string) => w.server.app.request(path, {}, fromIp(ip))
+    for (let i = 0; i < 60; i += 1) expect((await open(`2001:db8:1:2:${String(i + 1)}::1`)).status).toBe(200)
+    expect((await open('2001:db8:1:2:ffff::9')).status).toBe(429)
+    expect((await open('2001:db8:1:3::1')).status).toBe(200)
+  })
+
+  it('UX-KP1-011 동의 없이 보내면 서버 문장, 번호가 틀리면 새 문장과 적은 번호를 이스케이프해 다시 채운다, 문자를 아직 안 보낸다는 한 줄·큰 체크 네모', async () => {
+    const { world: w, seller } = await world()
+    const path = await enable(w, seller)
+    const read = async (response: Response) => response.text()
+    const empty = await postForm(w, `${path}/alert`, { phone: '010-2345-6789' })
+    expect(empty.status).toBe(400)
+    const emptyHtml = await read(empty)
+    expect(emptyHtml).toContain('알림 받기에 동의해 주세요.')
+    expect(emptyHtml).toContain('value="010-2345-6789"')
+    const bad = await postForm(w, `${path}/alert`, { phone: '"><b>12', agree: 'on' })
+    expect(bad.status).toBe(400)
+    const badHtml = await read(bad)
+    expect(badHtml).toContain('휴대폰 번호(010으로 시작하는 11자리)를 적어 주세요.')
+    expect(badHtml).toContain('value="&quot;&gt;&lt;b&gt;12"')
+    expect(badHtml).not.toContain('<b>12')
+    const page = await read(await w.server.app.request(path))
+    expect(page).toContain('아직 문자를 보내지 않아요. 보내기는 준비 중이에요.')
+    expect(page).toContain('.check input{width:32px;height:32px')
+    expect(page).not.toMatch(/\brequired\b/)
+    // 저장하지 않는다
+    expect(await storedPhones(w.database.db, seller.sellerId)).toBe(0)
+  })
+
   it('토큰 하나 전체는 1분 3,000번 상한만 (여러 접속 주소의 합 — 3,001번째 429)', async () => {
     const { world: w } = await world()
     // 없는 토큰도 모양이 맞으면 같은 칸을 센다 (상한은 열기 전에 본다)
@@ -243,10 +275,10 @@ describe('AC-KP1-22 알림 받기 신청·그만 받기', () => {
     expect(noAgree.status).toBe(400)
     const noAgreeHtml = await noAgree.text()
     expect(noAgreeHtml).toContain('알림 받기에 동의해 주세요.')
-    expect(noAgreeHtml).not.toContain('2345')
+    expect(noAgreeHtml).toContain('value="010-2345-6789"') // UX-KP1-011: 틀렸을 때 적은 번호를 다시 채운다 (응답에만)
     const badPhone = await postForm(w, `${path}/alert`, { phone: '02-123-4567', agree: 'on' })
     expect(badPhone.status).toBe(400)
-    expect(await badPhone.text()).toContain('휴대폰 번호를 확인해 주세요.')
+    expect(await badPhone.text()).toContain('휴대폰 번호(010으로 시작하는 11자리)를 적어 주세요.')
     expect((await postForm(w, `${path}/alert`, { phone: PHONE, agree: ['on', 'on'] })).status).toBe(400)
     expect((await postForm(w, `${path}/alert`, { phone: PHONE, agree: 'on' }, { origin: 'https://evil.example' })).status).toBe(403)
     expect((await postForm(w, `${path}/alert`, { phone: PHONE, agree: 'on' }, { origin: null })).status).toBe(403)
@@ -312,17 +344,22 @@ describe('AC-KP1-22 알림 받기 신청·그만 받기', () => {
     for (let i = 0; i < 10; i += 1) expect((await postForm(w, `${path}/stop`, { phone: `010-1000-${String(1000 + i)}` }, { env: fromIp('192.0.2.66') })).status).toBe(303)
     expect((await postForm(w, `${path}/alert`, { phone: '010-1000-2000', agree: 'on' }, { env: fromIp('192.0.2.66') })).status).toBe(429)
     expect((await postForm(w, `${path}/alert`, { phone: '010-1000-2001', agree: 'on' }, { env: fromIp('192.0.2.67') })).status).toBe(303)
-    // 같은 접속 주소가 여러 가게 주소에 — 합쳐 센다
+    // 같은 접속 주소가 여러 가게 주소에 — 가게(토큰)마다 따로 센다 (RA-KP1-104)
     const other = await addSeller(w)
     await expectOk(putShop(w, other, { ...SHOP, name: '다육이네' }))
     const otherPath = await enable(w, other)
     w.clock.advance(60_001)
     for (let i = 0; i < 5; i += 1) expect((await postForm(w, `${path}/alert`, { phone: `010-3000-${String(1000 + i)}`, agree: 'on' }, { env: fromIp('192.0.2.7') })).status).toBe(303)
     for (let i = 0; i < 5; i += 1) expect((await postForm(w, `${otherPath}/alert`, { phone: `010-3000-${String(2000 + i)}`, agree: 'on' }, { env: fromIp('192.0.2.7') })).status).toBe(303)
-    expect((await postForm(w, `${otherPath}/alert`, { phone: '010-3000-3000', agree: 'on' }, { env: fromIp('192.0.2.7') })).status).toBe(429)
+    expect((await postForm(w, `${otherPath}/alert`, { phone: '010-3000-3000', agree: 'on' }, { env: fromIp('192.0.2.7') })).status).toBe(303)
     expect((await postForm(w, `${otherPath}/alert`, { phone: '010-3000-3000', agree: 'on' }, { env: fromIp('192.0.2.8') })).status).toBe(303)
+    // RA-KP1-104: 알림 신청 칸은 (접속 주소, 토큰) — 한 가게에서 10번을 채워도 다른 가게 칸은 그대로
+    w.clock.advance(60_001)
+    for (let i = 0; i < 10; i += 1) await postForm(w, `${path}/stop`, { phone: `010-1000-${String(1000 + i)}` }, { env: fromIp('192.0.2.90') })
+    expect((await postForm(w, `${path}/alert`, { phone: '010-4000-1000', agree: 'on' }, { env: fromIp('192.0.2.90') })).status).toBe(429)
+    expect((await postForm(w, `${otherPath}/alert`, { phone: '010-4000-1000', agree: 'on' }, { env: fromIp('192.0.2.90') })).status).toBe(303)
     // 판매자마다 따로 센다
-    expect(await counts(w, other)).toEqual({ pending: 6, active: 0, withdrawn: 0 })
+    expect(await counts(w, other)).toEqual({ pending: 7, active: 0, withdrawn: 0 })
   })
 })
 
