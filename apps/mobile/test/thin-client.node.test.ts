@@ -28,12 +28,12 @@ function runtimeImports(source: string): string[] {
 const files = [...walk(join(ROOT, 'src')), ...walk(join(ROOT, 'app'))]
 
 describe('앱 소스에 판정·추출·그리기 코드가 없다 (APP-01 AC3)', () => {
-  it('@livejjim/core 전체·@livejjim/voice·@livejjim/label·@livejjim/printer를 실행 코드로 가져오지 않는다 — 코어는 입력 읽기(quick-input)·포맷(format)만', () => {
+  it('@livejjim/core 전체·@livejjim/voice·@livejjim/label을 실행 코드로(프린터 어댑터 @livejjim/printer는 앱이 직접 잇는다 — 그리기가 아니라 보내기) 가져오지 않는다 — 코어는 입력 읽기(quick-input)·포맷(format)만', () => {
     const allowed = new Set(['@livejjim/core/quick-input', '@livejjim/core/format'])
     for (const file of files) {
       const source = readFileSync(file, 'utf8')
       for (const spec of runtimeImports(source)) {
-        if (spec === '@livejjim/core' || spec === '@livejjim/voice' || spec.startsWith('@livejjim/voice/') || spec === '@livejjim/label' || spec === '@livejjim/printer') throw new Error(`${file}: ${spec}를 실행 코드로 가져온다`)
+        if (spec === '@livejjim/core' || spec === '@livejjim/voice' || spec.startsWith('@livejjim/voice/') || spec === '@livejjim/label') throw new Error(`${file}: ${spec}를 실행 코드로 가져온다`)
         if (spec.startsWith('@livejjim/core/')) expect(allowed.has(spec), `${file}: ${spec}`).toBe(true)
         // 웹 모듈 중 코어 전체를 끌어오는 것(lib/words·derive·scope-data·quick…)은 가져오지 않는다
         if (spec.startsWith('@livejjim/web/')) expect(['@livejjim/web/src/api/client.ts', '@livejjim/web/src/lib/kst.ts'].includes(spec), `${file}: ${spec}`).toBe(true)

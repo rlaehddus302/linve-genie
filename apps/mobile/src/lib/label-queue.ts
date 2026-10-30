@@ -3,11 +3,17 @@
 // - 그림은 서버가 만든다(APP-05) — 받은 그림을 BLE 모듈에 그대로 넘긴다. 결과는 같은 시도 번호로 알린다(네트워크 오류면 다시 보낸다).
 // - 프린터 연결이 바뀌면 서버에 알린다(끊김 → 끊김 멈춤, 다시 연결 → 풀림).
 // - 앱이 뒤에 있어도 연결은 끊지 않는다. 앞으로 돌아오면(resume) 대기열 요약을 다시 받고 쌓인 라벨을 이어 찍는다.
-import type { ClaimedJob, PrintNotice, PrintOverview, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
+// - 연결 방법 단추("블루투스로 연결"·시험용 프린터)는 늘 고르기 창, "다시 연결"은 기억한 프린터로(고르기 창 없이 — 기억이 없으면 고르기 창, L-7).
+// - 저절로 다시 잇기(L-11 8)는 이 기기가 출력 기기이고 라벨 기능이 켜져 있을 때만 허락한다(프린터 모듈이 1·2·4·8·16·30초 6번 잇는다).
+// - 시험용 프린터는 서버가 시험 모드(GET /api/client-config testPrinter)일 때만 고를 수 있다(L-11 15).
+// - 농도는 연결한 프린터의 범위 안에서만(B1 1~5 · Marklife YXQ 1~3). 농도를 받지 않는 프린터(L11)면 보내지 않는다.
+import type { DensityRange } from '@livejjim/printer'
+import type { ClaimedJob, ClientConfig, PrintNotice, PrintOverview, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
+import { labelBitmapToPng } from './label-png.ts'
 import { fetchTestBitmap, fetchJobBitmap, bitmapFailure } from '../api/labels.ts'
 import { get, isApiError, post, withRetry, type ApiError } from '../api/client.ts'
 import type { EventSourceLike, SseMessage } from '../api/sse.ts'
-import type { ConnectionState, NativeBlePrinter, PrinterError } from '../native/ble.ts'
+import type { AutoReconnectState, ConnectionState, NativeBlePrinter, PrinterError, PrinterTarget } from '../native/ble.ts'
 import { realTimer, type Timer } from './live.ts'
 import { APP_PRINTER_UNSUPPORTED } from './words.ts'
 
@@ -26,11 +32,23 @@ export interface LabelQueueSnapshot {
   /** 이 앱이 켜진 뒤 찍은 장 수 */
   readonly printed: number
   readonly density: number
+  /** 지금 프린터가 받는 농도 범위 — 없으면 농도 칸을 숨긴다(L11) */
+  readonly densityRange: DensityRange | null
+  /** 지금 쓰는 연결 방법 */
+  readonly target: PrinterTarget
+  /** 기억한 프린터가 있다 ("다시 연결"이 고르기 창 없이 잇는다) */
+  readonly hasRemembered: boolean
+  /** 저절로 다시 잇기 (n번째 시도 · 그침) */
+  readonly autoReconnect: AutoReconnectState
+  /** 서버가 시험 모드 — 시험용 프린터를 고를 수 있다 (L-11 15) */
+  readonly testPrinter: boolean
 }
 
 export interface LabelQueueOptions {
   readonly ble: NativeBlePrinter
   readonly deviceId: string
+  /** 라벨 그림을 공유 시트로 보낸다 (PR-07) */
+  readonly share?: (png: Uint8Array, name: string) => Promise<void>
   readonly openStream: () => EventSourceLike
   readonly timer?: Timer
 }
@@ -51,11 +69,30 @@ export class LabelQueue {
   #stopped = false
   #readyCount = 0
   #unsubState: (() => void) | null = null
+  #unsubChange: (() => void) | null = null
+  #autoAllowed = false
 
   constructor(options: LabelQueueOptions) {
     this.#options = options
     this.#timer = options.timer ?? realTimer
-    this.#snapshot = { queue: null, mine: false, printer: options.ble.state, job: null, busy: false, printerError: null, loadError: null, printed: 0, density: options.ble.profile.density?.default ?? 3 }
+    const ble = options.ble
+    const range = ble.profile.density
+    this.#snapshot = {
+      queue: null,
+      mine: false,
+      printer: ble.state,
+      job: null,
+      busy: false,
+      printerError: null,
+      loadError: null,
+      printed: 0,
+      density: range?.default ?? 3,
+      densityRange: range,
+      target: ble.target,
+      hasRemembered: ble.hasRemembered,
+      autoReconnect: ble.autoReconnect,
+      testPrinter: false,
+    }
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -70,11 +107,54 @@ export class LabelQueue {
     // 프린터 모듈의 UNSUPPORTED 문장은 웹 브라우저용("이 브라우저에서는…")이라 앱 문장으로 바꾼다 (블루투스가 없는 기기·시뮬레이터)
     const fixed = patch.printerError?.code === 'UNSUPPORTED' ? { ...patch, printerError: { ...patch.printerError, message: APP_PRINTER_UNSUPPORTED } } : patch
     this.#snapshot = { ...this.#snapshot, ...fixed }
+    this.#syncAuto()
     for (const listener of [...this.#listeners]) listener()
+  }
+
+  /** 저절로 다시 잇기 허락: 출력 기기이고 라벨 기능이 켜져 있을 때만 (L-11 8 — 내려오거나 끄면 그친다) */
+  #syncAuto(): void {
+    const allowed = !this.#stopped && this.#snapshot.mine && this.#snapshot.queue?.labelsEnabled === true
+    if (allowed === this.#autoAllowed) return
+    this.#autoAllowed = allowed
+    this.#options.ble.setAutoReconnect(allowed)
+  }
+
+  /** 프린터 모듈의 지금 값 → 화면 (프로필이 바뀌어 농도 범위가 달라지면 그 프린터의 기본 농도로) */
+  #syncPrinter(): void {
+    const ble = this.#options.ble
+    const range = ble.profile.density
+    const before = this.#snapshot.densityRange
+    const sameRange = range === null ? before === null : before !== null && before.min === range.min && before.max === range.max && before.default === range.default
+    this.#set({
+      printer: ble.state,
+      target: ble.target,
+      hasRemembered: ble.hasRemembered,
+      autoReconnect: ble.autoReconnect,
+      densityRange: range,
+      ...(sameRange || range === null ? {} : { density: range.default }),
+    })
+  }
+
+  /** 시험 모드 신호 (읽지 못하면 시험 모드가 아니다 — 웹 print-store와 같다) */
+  async #loadConfig(): Promise<void> {
+    try {
+      const config = await get<Partial<ClientConfig>>('/api/client-config')
+      this.#set({ testPrinter: config.testPrinter === true })
+    } catch {
+      this.#set({ testPrinter: false })
+    }
+  }
+
+  /** 출력에 넘길 농도 (농도를 받지 않는 프린터면 넘기지 않는다) */
+  #printOptions(): { density?: number } {
+    return this.#snapshot.densityRange === null ? {} : { density: this.#snapshot.density }
   }
 
   start(): void {
     this.#stopped = false
+    this.#unsubChange = this.#options.ble.onChange(() => this.#syncPrinter())
+    this.#syncPrinter()
+    void this.#loadConfig()
     this.#unsubState = this.#options.ble.onStateChange((state) => {
       this.#set({ printer: state })
       if (state === 'CONNECTED') {
@@ -91,6 +171,10 @@ export class LabelQueue {
     this.#stream?.close()
     this.#stream = null
     this.#unsubState?.()
+    this.#unsubChange?.()
+    this.#unsubChange = null
+    // 로그아웃·앱 끔 — 저절로 다시 잇지 않는다
+    this.#syncAuto()
     if (this.#retry !== undefined) this.#timer.clear(this.#retry)
   }
 
@@ -154,9 +238,20 @@ export class LabelQueue {
 
   // ── 프린터 연결 (판매자 동작 안에서만) ──
 
-  async connect(): Promise<void> {
+  /** 연결 방법 단추 — 늘 고르기 창 (다른 프린터로 바꾸는 길). 시험용 프린터는 서버가 시험 모드일 때만 */
+  async connect(target: PrinterTarget = 'bluetooth'): Promise<void> {
+    if (target === 'test' && !this.#snapshot.testPrinter) return
     this.#set({ printerError: null })
-    const result = this.#options.ble.hasRemembered ? await this.#options.ble.reconnect('bluetooth') : await this.#options.ble.connect('bluetooth')
+    await this.#options.ble.selectTarget(target)
+    const result = await this.#options.ble.connect('bluetooth')
+    if (!result.ok) this.#set({ printerError: result.error })
+  }
+
+  /** "다시 연결" — 지금 연결 방법의 기억한 프린터로 고르기 창 없이 (기억이 없으면 고르기 창) */
+  async reconnect(): Promise<void> {
+    this.#set({ printerError: null })
+    const ble = this.#options.ble
+    const result = ble.hasRemembered ? await ble.reconnect('bluetooth') : await ble.connect('bluetooth')
     if (!result.ok) this.#set({ printerError: result.error })
   }
 
@@ -164,12 +259,25 @@ export class LabelQueue {
     await this.#options.ble.disconnect()
   }
 
+  /** 서버가 만든 테스트 라벨 그림(203dpi 1비트 PNG)을 공유 시트로 제조사 앱에 보낸다. 프린터 연결과 상관없다. */
+  async shareTest(): Promise<boolean> {
+    const share = this.#options.share
+    if (share === undefined) return false
+    try {
+      await share(labelBitmapToPng(await fetchTestBitmap()), 'livejjim-test-label.png')
+      return true
+    } catch {
+      this.#set({ printerError: { code: 'PRINT_FAILED', message: '라벨 그림을 보내지 못했어요. 잠시 뒤 다시 눌러 주세요.', action: '다시 시도' } })
+      return false
+    }
+  }
+
   /** 테스트도 서버에서 받은 같은 비트맵만 출력한다. */
   async printTest(): Promise<boolean> {
     if (this.#snapshot.job !== null) return false
     try {
       const bitmap = await fetchTestBitmap()
-      const result = await this.#options.ble.print(bitmap, { density: this.#snapshot.density })
+      const result = await this.#options.ble.print(bitmap, this.#printOptions())
       if (!result.ok) this.#set({ printerError: result.error })
       return result.ok
     } catch {
@@ -282,7 +390,7 @@ export class LabelQueue {
     let error: { code: string; item?: string } | null = null
     try {
       const bitmap = await fetchJobBitmap(job, this.#options.deviceId)
-      const result = await this.#options.ble.print(bitmap, { density: this.#snapshot.density })
+      const result = await this.#options.ble.print(bitmap, this.#printOptions())
       ok = result.ok
       if (!result.ok) {
         error = { code: result.error.code }

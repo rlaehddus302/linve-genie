@@ -1,16 +1,16 @@
 // 한 목록 프린터 고르기 (APP-03, LABEL_RULES L-7·L-12 3) — 앱 화면은 "프린터 고르기" 하나만 쓴다.
-// 찾은 기기를 한 목록에 보이고, 판매자가 고른 기기의 이름으로 기종을 갈라 그 어댑터(B1 = createNativeB1Adapter, Marklife = createNativeMarklifeAdapter)로 보낸다.
-// Marklife는 NIIMBOT 서비스 UUID(e7810a71-…)도 알리고 이름 첫 글자(P·S·L…)도 NIIMBOT 거르기에 걸려 B1 목록에 섞인다 — 이름으로 가르면
-// 판매자는 기종을 몰라도 목록에서 자기 프린터를 고르면 된다(잘못된 어댑터로 이어 "다른 프린터"를 보는 일이 없다).
+// 찾은 기기를 한 목록에 보이고, 판매자가 고른 기기의 이름으로 계열을 갈라 그 계열의 어댑터(B1 = createNativeB1Adapter, Marklife = createNativeMarklifeAdapter)로 보낸다.
+// 계열은 데이터(families.ts의 계열 표)다 — 계열을 더해도 이 파일은 바뀌지 않는다. 기본 표는 Marklife → NIIMBOT 차례다
+// (Marklife는 NIIMBOT 서비스 UUID(e7810a71-…)도 알리고 이름 첫 글자(P·S·L…)도 NIIMBOT 거르기에 걸려 B1 목록에 섞인다 — 이름으로 가르면
+// 판매자는 기종을 몰라도 목록에서 자기 프린터를 고르면 된다(잘못된 어댑터로 이어 "다른 프린터"를 보는 일이 없다)).
 // - Marklife 이름(L-12 3 — 대소문자 가림, `P12_`) → Marklife. Marklife 앞자리를 대소문자만 다르게 가진 이름(`p12_…`)은 어느 쪽도 받지 않아 목록에 넣지 않는다.
 // - 그 밖에 NIIMBOT 거르기(이름 첫 글자·서비스)에 걸린 기기 → B1 (B1 확인은 이은 뒤 모델 정보로 — L-7).
-// 기억은 마지막으로 이은 기기 하나다(RememberedPrinter — ID만). 앱을 다시 켜 기종을 모르면 잠깐 찾아 그 ID의 이름으로 정한다.
+// 기억은 마지막으로 이은 기기 하나다(RememberedPrinter — ID만). 앱을 다시 켜 계열을 모르면 잠깐 찾아 그 ID의 이름으로 정한다(켠 계열이 하나면 찾지 않는다).
 import {
   B1_PROFILE,
   MARKLIFE_MESSAGES,
   MARKLIFE_PROFILES,
   RememberBox,
-  niimbotRequestOptions,
   printerErrorWithMessage,
   sameRememberedPrinter,
   systemTimer,
@@ -23,14 +23,14 @@ import {
   type PrinterTimer,
   type RememberingPrinterAdapter,
 } from '@livejjim/printer'
-import { createNativeB1Adapter, looksLikeMarklifeName } from './adapter.ts'
 import type { NiimbotBleClientOptions } from './client.ts'
-import { createNativeMarklifeAdapter, matchesMarklifeName, type NativeMarklifeAdapter } from './marklife.ts'
+import { familyOf, familyScanFilter, marklifeFamily, niimbotFamily, type PrinterFamily } from './families.ts'
 import { pickFromScan, type DevicePicker } from './pick.ts'
+import { pickEntries, type PickEntry } from './pick-list.ts'
 import type { BleDeviceInfo, BleRadioState, BleScanFilter, BleTransport } from './transport.ts'
 
-/** 기종 */
-export type PrinterKind = 'NIIMBOT' | 'MARKLIFE'
+/** 계열 ID (계열 표의 id — 기본 표는 `NIIMBOT` · `MARKLIFE`) */
+export type PrinterKind = string
 
 /** 앱을 다시 켠 뒤 기억한 기기의 기종을 정하려고 찾는 시간 (ms) */
 export const IDENTIFY_SCAN_MS = 5_000
@@ -50,12 +50,21 @@ export interface PrinterPickerOptions {
   readonly marklife?: { readonly packetIntervalMs?: number; readonly maxPacketBytes?: number; readonly creditWaitMs?: number }
   /** 기억한 기기의 기종을 찾는 시간 (기본 5초) */
   readonly identifyScanMs?: number
+  /**
+   * 계열 표 (앞의 계열이 먼저 답한다). 없으면 Marklife → NIIMBOT(위 marklifeProfiles·niimbotProfiles·client·marklife·reconnectDelayMs로 만든다).
+   * 있으면 그 표만 쓴다 — 계열마다의 설정은 계열을 만들 때 준다
+   */
+  readonly families?: readonly PrinterFamily[]
 }
 
 export interface PrinterPicker extends RememberingPrinterAdapter {
-  /** 이은(잇는 중인) 프린터의 기종 — 아직 없으면 null */
+  /** 이은(잇는 중인) 프린터의 계열 — 아직 없으면 null */
   readonly kind: PrinterKind | null
   readonly profile: AdapterProfile
+  /** 켠 계열 (표 순서) */
+  readonly families: readonly PrinterFamily[]
+  /** 고르기 창에 보일 줄 (이름 없는 기기 뺌, 신호 센 차례, 기종 이름) */
+  entries(devices: readonly BleDeviceInfo[]): PickEntry[]
 }
 
 /**
@@ -63,52 +72,59 @@ export interface PrinterPicker extends RememberingPrinterAdapter {
  * NIIMBOT은 찾기 거르기(이름 첫 글자·서비스)를 지난 기기만 여기 온다
  */
 export function printerKindOf(name: string | null, marklifeProfiles: readonly ModelProfile[] = MARKLIFE_PROFILES): PrinterKind | null {
-  if (matchesMarklifeName(name, marklifeProfiles)) return 'MARKLIFE'
-  if (looksLikeMarklifeName(name)) return null
-  return 'NIIMBOT'
+  return familyOf(name, [marklifeFamily({ profiles: marklifeProfiles }), niimbotFamily()])
 }
 
 export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicker {
   const { transport, pickDevice } = options
   if (typeof transport?.connect !== 'function' || typeof pickDevice !== 'function') throw new TypeError('BLE 전송과 고르기 창이 필요하다')
   const timer = options.timer ?? systemTimer
-  const marklifeProfiles = [...(options.marklifeProfiles ?? MARKLIFE_PROFILES)]
   const identifyMs = options.identifyScanMs ?? IDENTIFY_SCAN_MS
+  const families: readonly PrinterFamily[] = Object.freeze([
+    ...(options.families ?? [
+      marklifeFamily({
+        profiles: options.marklifeProfiles ?? MARKLIFE_PROFILES,
+        ...(options.marklife?.packetIntervalMs === undefined ? {} : { packetIntervalMs: options.marklife.packetIntervalMs }),
+        ...(options.marklife?.maxPacketBytes === undefined ? {} : { maxPacketBytes: options.marklife.maxPacketBytes }),
+        ...(options.marklife?.creditWaitMs === undefined ? {} : { creditWaitMs: options.marklife.creditWaitMs }),
+      }),
+      niimbotFamily({
+        ...(options.niimbotProfiles === undefined ? {} : { profiles: options.niimbotProfiles }),
+        ...(options.client === undefined ? {} : { client: options.client }),
+        ...(options.reconnectDelayMs === undefined ? {} : { reconnectDelayMs: options.reconnectDelayMs }),
+      }),
+    ]),
+  ])
+  if (families.length === 0 || new Set(families.map((f) => f.id)).size !== families.length) throw new TypeError('계열 표가 비었거나 ID가 겹친다')
 
-  const request = niimbotRequestOptions()
-  /** 한 목록 찾기 — NIIMBOT 거르기(이름 첫 글자·서비스) + Marklife 앞자리 */
-  const filter: BleScanFilter = {
-    serviceUuids: request.filters.flatMap((f) => ('services' in f ? f.services : [])),
-    namePrefixes: [...request.filters.flatMap((f) => ('namePrefix' in f ? [f.namePrefix] : [])), ...marklifeProfiles.flatMap((p) => (p.namePrefix ? [p.namePrefix] : []))],
-  }
-  const kindOf = (device: BleDeviceInfo): PrinterKind | null => printerKindOf(device.name, marklifeProfiles)
+  /** 한 목록 찾기 — 켠 계열들의 거르기를 합친다 */
+  const filter: BleScanFilter = familyScanFilter(families)
+  const kindOf = (device: BleDeviceInfo): PrinterKind | null => familyOf(device.name, families)
 
   /** 한 목록에서 고른 기기 — 안쪽 어댑터의 고르기 대신 넘긴다 */
   let preselected: BleDeviceInfo | null = null
   const selectDevice = (): Promise<BleDeviceInfo | null> => Promise.resolve(preselected)
 
-  const niimbot = createNativeB1Adapter({
-    transport,
-    pickDevice,
-    selectDevice,
-    ...(options.timer === undefined ? {} : { timer: options.timer }),
-    ...(options.printTimeoutMs === undefined ? {} : { printTimeoutMs: options.printTimeoutMs }),
-    ...(options.reconnectDelayMs === undefined ? {} : { reconnectDelayMs: options.reconnectDelayMs }),
-    ...(options.niimbotProfiles === undefined ? {} : { profiles: options.niimbotProfiles }),
-    ...(options.client === undefined ? {} : { client: options.client }),
-  })
-  const marklife: NativeMarklifeAdapter = createNativeMarklifeAdapter({
-    transport,
-    pickDevice,
-    selectDevice,
-    profiles: marklifeProfiles,
-    ...(options.timer === undefined ? {} : { timer: options.timer }),
-    ...(options.printTimeoutMs === undefined ? {} : { printTimeoutMs: options.printTimeoutMs }),
-    ...(options.marklife?.packetIntervalMs === undefined ? {} : { packetIntervalMs: options.marklife.packetIntervalMs }),
-    ...(options.marklife?.maxPacketBytes === undefined ? {} : { maxPacketBytes: options.marklife.maxPacketBytes }),
-    ...(options.marklife?.creditWaitMs === undefined ? {} : { creditWaitMs: options.marklife.creditWaitMs }),
-  })
-  const adapters: Readonly<Record<PrinterKind, RememberingPrinterAdapter>> = { NIIMBOT: niimbot, MARKLIFE: marklife }
+  const adapters = new Map<PrinterKind, RememberingPrinterAdapter>()
+  for (const family of families) {
+    adapters.set(
+      family.id,
+      family.createAdapter({
+        transport,
+        pickDevice,
+        selectDevice,
+        ...(options.timer === undefined ? {} : { timer: options.timer }),
+        ...(options.printTimeoutMs === undefined ? {} : { printTimeoutMs: options.printTimeoutMs }),
+      }),
+    )
+  }
+  const adapterOf = (kind: PrinterKind): RememberingPrinterAdapter => {
+    const adapter = adapters.get(kind)
+    if (adapter === undefined) throw new Error('없는 계열')
+    return adapter
+  }
+  /** 고르기 창 없이 바로 이을 때(블루투스가 없는 기기)의 계열 — 표의 마지막(기본 NIIMBOT) */
+  const fallbackKind = families[families.length - 1]!.id
 
   let radio: BleRadioState = 'unknown'
   void transport.state().then(
@@ -131,8 +147,7 @@ export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicke
   let connecting: Promise<PrinterResult> | undefined
   let generation = 0
 
-  for (const kind of ['NIIMBOT', 'MARKLIFE'] as const) {
-    const adapter = adapters[kind]
+  for (const [kind, adapter] of adapters) {
     adapter.onStateChange((next) => {
       if (active === kind && !picking) state.set(next)
     })
@@ -150,18 +165,18 @@ export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicke
 
   const fail = (code: MarklifeErrorCode): PrinterResult => ({ ok: false, error: printerErrorWithMessage(code, MARKLIFE_MESSAGES[code]) })
 
-  /** 다른 기종이 이어져 있으면 끊고 이 기종을 쓴다 */
+  /** 다른 계열이 이어져 있으면 끊고 이 계열을 쓴다 */
   const use = async (kind: PrinterKind): Promise<RememberingPrinterAdapter> => {
-    const other = adapters[kind === 'NIIMBOT' ? 'MARKLIFE' : 'NIIMBOT']
-    if (other.state !== 'DISCONNECTED') await other.disconnect()
+    for (const [other, adapter] of adapters) if (other !== kind && adapter.state !== 'DISCONNECTED') await adapter.disconnect()
     active = kind
-    return adapters[kind]
+    return adapterOf(kind)
   }
 
-  /** 기억한 ID의 기종 — 이번에 정한 것, 없으면 잠깐 찾아 그 ID의 이름으로 (못 찾으면 null) */
+  /** 기억한 ID의 계열 — 이번에 정한 것, 켠 계열이 하나면 그것, 아니면 잠깐 찾아 그 ID의 이름으로 (못 찾으면 null) */
   const identify = (id: string): Promise<PrinterKind | null> => {
     const known = kinds.get(id)
     if (known !== undefined) return Promise.resolve(known)
+    if (families.length === 1) return Promise.resolve(fallbackKind)
     return new Promise<PrinterKind | null>((resolve) => {
       let done = false
       let stop: (() => void) | null = null
@@ -188,7 +203,7 @@ export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicke
   const pickAndConnect = async (started: number): Promise<PrinterResult> => {
     const radioNow = await transport.state().catch((): BleRadioState => 'unknown')
     radio = radioNow
-    if (radioNow === 'unsupported') return niimbot.connect('bluetooth')
+    if (radioNow === 'unsupported') return (await use(fallbackKind)).connect('bluetooth')
     if (radioNow === 'off' || radioNow === 'unauthorized') return fail('BLUETOOTH_OFF')
     picking = true
     state.set('CONNECTING')
@@ -214,7 +229,7 @@ export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicke
     } finally {
       // 고르는 동안·잇는 동안은 "연결 중" 하나로 보이고, 끝나면 쓰는 어댑터의 상태를 따른다
       picking = false
-      state.set(active === null ? 'DISCONNECTED' : adapters[active].state)
+      state.set(active === null ? 'DISCONNECTED' : adapterOf(active).state)
     }
   }
 
@@ -256,7 +271,14 @@ export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicke
       return active
     },
     get profile(): AdapterProfile {
-      return active === null ? B1_PROFILE : adapters[active].profile
+      return active === null ? B1_PROFILE : adapterOf(active).profile
+    },
+    families,
+    entries(devices) {
+      return pickEntries(
+        devices.filter((device) => kindOf(device) !== null),
+        (device) => families.find((f) => f.id === kindOf(device))?.modelName(device.name) ?? '',
+      )
     },
     get state() {
       return state.state
@@ -278,12 +300,12 @@ export function createPrinterPicker(options: PrinterPickerOptions): PrinterPicke
     connectRemembered: () => run('only'),
     async disconnect() {
       generation++
-      await Promise.all([niimbot.disconnect(), marklife.disconnect()])
+      await Promise.all([...adapters.values()].map((adapter) => adapter.disconnect()))
       state.set('DISCONNECTED')
     },
     print(image, printOptions) {
       if (active === null) return Promise.resolve(fail('NOT_CONNECTED'))
-      return adapters[active].print(image, printOptions)
+      return adapterOf(active).print(image, printOptions)
     },
   }
   return picker

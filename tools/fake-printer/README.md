@@ -3,7 +3,7 @@
 실물 프린터가 없어도 **폰 앱이 진짜 블루투스로** 라벨을 보내 볼 수 있게, 맥이 라벨 프린터처럼 광고하고 답하는 도구입니다.
 받은 라벨은 PNG 그림으로 저장하고, 장마다 걸린 시간을 기록합니다.
 
-- 흉내 내는 기종: NIIMBOT B1 · Marklife S2 · Marklife P12
+- 흉내 내는 기종: NIIMBOT B1(모델 번호 표로 B1 SE·B1 Pro·B21·D110도) · Marklife S2·P50·X2(YXQ)·P12(L11). X2는 GATT 꾸러미 C(`fd00`: 쓰기 fd01·알림 fd02, 흐름 제어 없음)
 - 답하는 방식은 저장소의 시험용 가짜 프린터(`packages/mobile-ble`의 `createFakeB1`, `packages/printer`의 `createFakeBluetooth`)와 같습니다. 자체 시험이 같은 입력에 같은 답·같은 점이 나오는지 확인합니다.
 - 맥의 Command Line Tools만 있으면 됩니다(Xcode 전체는 필요 없음).
 
@@ -12,7 +12,7 @@
 ```sh
 cd tools/fake-printer
 ./build.sh                 # .build/sc/fake-printer 와 .build/sc/fake-printer-selftest 가 생깁니다
-.build/sc/fake-printer-selftest   # "통과: 확인 …개"가 나오면 됩니다
+.build/sc/fake-printer-selftest test/golden   # "통과: 확인 …개"가 나오면 됩니다
 ```
 
 `swift build -c release`로 만들어도 됩니다(결과는 `.build/release/`).
@@ -30,20 +30,23 @@ cd tools/fake-printer
 .build/sc/fake-printer --mode b1             # NIIMBOT B1인 척 (이름 B1-FAKE)
 .build/sc/fake-printer --mode marklife-s2    # Marklife S2인 척 (이름 S2_FAKE_BLE)
 .build/sc/fake-printer --mode marklife-p12   # Marklife P12인 척 (이름 P12_FAKE)
+.build/sc/fake-printer --mode marklife-p50   # Marklife P50인 척 (YXQ3, 이름 P50_FAKE)
+.build/sc/fake-printer --mode marklife-x2    # Marklife X2인 척 (YXQ8, 꾸러미 C fd00, 이름 X2_FAKE)
 ```
 
 멈추려면 `Ctrl+C`. 받은 그림과 기록은 `./out/`에 생깁니다(`--out 폴더`로 바꿀 수 있음).
 
 | 옵션 | 하는 일 |
 |---|---|
-| `--name 이름` | 광고 이름 바꾸기. 앱은 이름 앞자리로 고릅니다(B1은 `B1`, S2는 `S2_`, P12는 `P12_`) |
+| `--name 이름` | 광고 이름 바꾸기. 앱은 이름 앞자리로 고릅니다(B1은 `B1-…`, S2는 `S2_`, P50은 `P50_`, X2는 `X2_`, P12는 `P12_`) |
 | `--no-credit` | (Marklife) 흐름 제어 크레딧(`01 04`, `01 01`)을 보내지 않음 — 크레딧 없는 기기 흉내(D-N1-12) |
 | `--mtu auto` 또는 `--mtu 185` | (Marklife) 첫 크레딧 뒤에 MTU 알림 `02 lo hi`를 보냄 |
 | `--no-ack` | (Marklife) 다 받아도 끝 알림 `AA`를 보내지 않음 — 시간 초과 흉내 |
 | `--ack-delay 3000` | (Marklife) 끝 알림을 3초 늦게 보냄 |
 | `--also-b1-service` | (Marklife) 광고에 B1 서비스(`e7810a71…`)도 실음 — B1 찾기 목록에 섞여 보이는 경우 흉내 |
+| `--noise` | 광고에 상관없는 서비스(배터리 180F·HID 1812·기기 정보 180A)를 함께 실음 — 찾기 목록에 잡음이 섞인 곳 흉내 |
 | `--battery 30` | (B1) 배터리 값 |
-| `--model-id 4097` | (B1) 모델 번호를 바꿈 — 앱이 "다른 기종"으로 거르는지 볼 때 |
+| `--model-id 4098` 또는 `b1se` | (B1) 모델 번호를 바꿈 — 숫자 또는 `b1`4096 · `b1se`4098 · `b1pro`4097 · `b21`768 · `d110`2304. 앱이 "다른 기종"으로 거르는지 볼 때 |
 | `--verbose` | 받은·보낸 바이트를 16진으로 화면에 찍음 |
 
 ## 4. 폰 앱에서 고르기

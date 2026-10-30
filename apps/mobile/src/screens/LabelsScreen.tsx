@@ -1,9 +1,12 @@
 // 라벨·프린터 (LBL-06·LBL-10, LABEL_RULES L-7·L-11, 웹 LabelsPage와 같은 낱말): 프린터 연결(판매자가 누를 때만) → "이 기기에서 출력" → 대기열 요약 →
 // 출력 멈추기/다시 시작 → 테스트 인쇄 → 인쇄 농도. 아이폰 앱도 BLE로 바로 연결한다(APP-03 — UNSUPPORTED가 아니다).
+// - "다시 연결"은 기억한 프린터로(앱을 다시 켠 뒤에도 고르기 창 없이), "블루투스로 연결"은 늘 고르기 창(다른 프린터로 바꾸는 길) — L-7.
+// - 서버가 시험 모드일 때만 "시험용 프린터 — 실제로 출력되지 않아요"(L-11 15).
+// - 저절로 다시 잇는 동안·그친 뒤 한 줄(웹과 같은 문장, L-11 8). 인쇄 농도 칸은 연결한 프린터의 범위(B1 1~5 · YXQ 1~3), 농도가 없는 프린터면 숨긴다.
 import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import { isApiError } from '../api/client.ts'
-import { CONNECTION_STATE_WORD, PRINT_ACTION, RETRY_NOW } from '../lib/words.ts'
+import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, PRINT_ACTION, RETRY_NOW, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import type { Tone } from '../ui/theme.ts'
 import { BigButton, Body, Card, Field, Hint, Notice, Row, Screen, SectionTitle, Tag } from '../ui/parts.tsx'
@@ -13,6 +16,10 @@ export const DEVICE_NAME_MAX = 20
 export const KEEP_SCREEN_ON = '출력하는 동안 이 화면을 켜 두세요.'
 export const TEST_QUESTION = '테스트 라벨의 네 변 테두리와 한글이 모두 또렷하게 보이나요?'
 export const replaceQuestion = (name: string): string => `지금은 다른 기기 '${name}'에서 출력하고 있어요. 이 기기로 바꿀까요?`
+export const BLUETOOTH_METHOD = '블루투스로 연결'
+
+/** 농도 단추 (범위 안의 정수) */
+const densityLevels = (range: { readonly min: number; readonly max: number }): number[] => Array.from({ length: Math.max(0, range.max - range.min + 1) }, (_, i) => range.min + i)
 
 export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
   const { labels } = useServices()
@@ -22,6 +29,9 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
   const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const queue = snapshot.queue
+  const disconnected = snapshot.printer === 'DISCONNECTED'
+  // 기억한 프린터가 있으면 "다시 연결"이 이 칸의 주 버튼 (고르기 창 없이 — L-7)
+  const showReconnect = disconnected && snapshot.hasRemembered
 
   const run = async (work: () => Promise<void>) => {
     if (busy) return
@@ -69,10 +79,19 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
         <SectionTitle>프린터</SectionTitle>
         <Row wrap>
           <Tag tone={STATE_TONE[snapshot.printer]}>{CONNECTION_STATE_WORD[snapshot.printer]}</Tag>
+          {snapshot.target === 'test' && snapshot.printer !== 'DISCONNECTED' ? <Body muted>시험용 프린터</Body> : null}
           <Body muted>{snapshot.job === null ? '' : '라벨을 찍는 중이에요'}</Body>
         </Row>
+        {snapshot.autoReconnect?.kind === 'trying' && snapshot.autoReconnect.total !== null ? <Notice tone="info">{autoReconnectingMessage(snapshot.autoReconnect.attempt, snapshot.autoReconnect.total)}</Notice> : null}
+        {snapshot.autoReconnect?.kind === 'gaveUp' && disconnected ? (
+          <Notice tone="danger" alert>
+            {AUTO_RECONNECT_GAVE_UP}
+          </Notice>
+        ) : null}
         <Row wrap>
-          {snapshot.printer === 'DISCONNECTED' ? <BigButton label={labels.getSnapshot().printer === 'DISCONNECTED' && snapshot.printerError !== null ? PRINT_ACTION.reconnect : '블루투스로 연결'} primary disabled={busy} onPress={() => void run(() => labels.connect())} /> : null}
+          {showReconnect ? <BigButton label={PRINT_ACTION.reconnect} primary disabled={busy} onPress={() => void run(() => labels.reconnect())} /> : null}
+          {disconnected ? <BigButton label={BLUETOOTH_METHOD} primary={!showReconnect} disabled={busy} onPress={() => void run(() => labels.connect('bluetooth'))} /> : null}
+          {disconnected && snapshot.testPrinter ? <BigButton label={TEST_PRINTER_METHOD} disabled={busy} onPress={() => void run(() => labels.connect('test'))} /> : null}
           {snapshot.printer === 'CONNECTED' ? <BigButton label="연결 끊기" disabled={busy} onPress={() => void run(() => labels.disconnect())} /> : null}
           {snapshot.printer === 'CONNECTED' ? (
             <BigButton
@@ -86,18 +105,21 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
               }
             />
           ) : null}
+          <BigButton label="제조사 앱으로 보내기" disabled={busy} onPress={() => void run(async () => void (await labels.shareTest()))} />
         </Row>
         {snapshot.printerError !== null ? (
           <Notice tone="danger" alert>
             {snapshot.printerError.message}
           </Notice>
         ) : null}
-        <Row wrap>
-          <Body>인쇄 농도</Body>
-          {[1, 2, 3, 4, 5].map((level) => (
-            <BigButton key={level} small primary={snapshot.density === level} label={String(level)} ariaLabel={`인쇄 농도 ${String(level)}`} onPress={() => labels.setDensity(level)} />
-          ))}
-        </Row>
+        {snapshot.densityRange !== null ? (
+          <Row wrap>
+            <Body>인쇄 농도</Body>
+            {densityLevels(snapshot.densityRange).map((level) => (
+              <BigButton key={level} small primary={snapshot.density === level} label={String(level)} ariaLabel={`인쇄 농도 ${String(level)}`} onPress={() => labels.setDensity(level)} />
+            ))}
+          </Row>
+        ) : null}
       </Card>
 
       <Card label="출력 기기">
