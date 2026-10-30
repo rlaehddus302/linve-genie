@@ -208,7 +208,7 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
   const Title = inWizard ? 'h3' : 'h2'
   if (api === null || station === null) {
     return (
-      <section id={PRINTER_ID} className="card stack" aria-labelledby={titleId}>
+      <section id={PRINTER_ID} className="card stack printer-card" aria-labelledby={titleId}>
         <Title id={titleId} className="section-title">
           프린터
         </Title>
@@ -240,7 +240,7 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
   const experimental = connected && printerSupportStage(station.profileId) === 'EXPERIMENTAL'
   const canBecome = !experimental || station.testConfirmed
   return (
-    <section id={PRINTER_ID} className="card stack" aria-labelledby={titleId}>
+    <section id={PRINTER_ID} className="card stack printer-card" aria-labelledby={titleId}>
       <Title id={titleId} className="section-title">
         프린터
       </Title>

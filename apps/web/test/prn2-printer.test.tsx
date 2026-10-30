@@ -715,3 +715,21 @@ describe('출력 기기 화면: 실험 기종 테스트 "예" 기다림 (D-PRN2-
     ).toEqual({ deviceId: ME, connected: true, profileId: "MARKLIFE_P50" });
   });
 });
+
+describe("프린터 칸 단추 크기 (나이 든 판매자용 글자 18px·높이 52px 이상, PRN2 화면 범위)", () => {
+  it("프린터 칸·테스트 결과·이 기기에서 출력의 단추는 큰 단추 규칙(.printer-card .button) 안에 있다", async () => {
+    // 스타일 규칙 글은 prn2-button-size.node.test.ts가 본다
+    // 연결 전(연결 방법·그림 파일)과 연결 뒤(테스트 인쇄·예/아니요·이 기기에서 출력) 단추가 모두 그 칸 안
+    const printer = await openLabels();
+    expect(printer.closest(".printer-card")).toBe(printer);
+    await connectTest(printer);
+    fireEvent.click(within(printer).getByRole("button", { name: "테스트 인쇄" }));
+    const result = await within(printer).findByRole("group", { name: "테스트 인쇄 결과" });
+    for (const name of ["예", "아니요"]) {
+      expect(within(result).getByRole("button", { name }).closest(".printer-card")).toBe(printer);
+    }
+    const become = within(printer).getByRole("button", { name: "이 기기에서 출력" });
+    expect(become.classList.contains("button")).toBe(true);
+    expect(become.closest(".printer-card, .become-device")).not.toBeNull();
+  });
+});

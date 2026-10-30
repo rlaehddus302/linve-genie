@@ -4490,3 +4490,11 @@ select.input {
     padding-block: 0.25rem;
   }
 }
+
+/* PRN2: 라벨 화면 프린터 칸(연결·실험 안내·테스트 결과 "예"/"아니요"·이 기기에서 출력·그림 파일로 저장하기) 단추 — 나이 든 판매자용 글자 18px·높이 52px 이상.
+   공통 .button은 바꾸지 않고 이 칸 안에서만 키운다 */
+.printer-card .button,
+.become-device .button {
+  font-size: 1.125rem;
+  min-height: 3.25rem;
+}
