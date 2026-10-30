@@ -26,7 +26,7 @@ describe('약속 상태', () => {
   it('지금은 가정 — 봉투 칸 8개', () => {
     expect(NOTICE_CONTRACT_STATUS).toBe('ASSUMED')
     expect([...ENVELOPE_FIELDS]).toEqual(['kindHint', 'sourceType', 'source', 'body', 'receivedAtMs', 'sentAtMs', 'deviceId', 'localId'])
-    expect(NOTICE_INTAKE_PATH.startsWith('/api/')).toBe(true)
+    expect(NOTICE_INTAKE_PATH).toBe('/api/inbox/messages')
   })
 })
 

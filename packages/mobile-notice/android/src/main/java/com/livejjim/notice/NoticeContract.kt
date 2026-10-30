@@ -1,4 +1,4 @@
-// 서버 입구 약속 (가정) — 안드로이드 쪽 한 곳 (SMS3). TS src/contract.ts·아이폰 ios/NoticeCore.swift와 같은 값이어야 한다(구조 시험이 잠근다).
+// 서버 입구 약속 (가정) — 안드로이드 쪽 한 곳 (SMS3). TS src/contract.ts·아이폰 ios/NoticeContract.swift와 같은 값이어야 한다(구조 시험이 잠근다).
 // spec/sms-deposit-intake가 나오면 세 파일만 맞춘다. 경로는 JS가 붙여 넘기므로(noticeIntakeUrl) 여기에는 없다.
 // 순수 Kotlin(JVM 단위 시험) — 안드로이드 API를 쓰지 않는다.
 package com.livejjim.notice

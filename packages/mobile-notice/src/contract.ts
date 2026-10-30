@@ -1,6 +1,6 @@
 // 서버 입구 약속 — 이 파일 한 곳에 모은다 (SMS3).
 // 지금 값은 **가정**이다: spec-keeper가 `spec/sms-deposit-intake`에 약속을 쓰는 중이라, 나오면 이 파일과
-// 네이티브 전송 파일 두 개(android/.../NoticeContract.kt · ios/NoticeCore.swift)만 맞춘다. 구조 시험이 세 곳이 같은지 잠근다.
+// 네이티브 전송 파일 두 개(android/.../NoticeContract.kt · ios/NoticeContract.swift)만 맞춘다. 구조 시험이 세 곳이 같은지 잠근다.
 //
 // 가정한 봉투(요청 본문 JSON 하나 = 알림 한 건):
 //   { kindHint: "sms"|"bank", sourceType: "sms_number"|"app_package", source, body, receivedAtMs, sentAtMs, deviceId, localId }
@@ -14,8 +14,8 @@ export const NOTICE_CONTRACT_STATUS: 'ASSUMED' | 'SPEC' = 'ASSUMED'
 /** 약속이 나올 갈래 */
 export const NOTICE_CONTRACT_SOURCE = 'spec/sms-deposit-intake'
 
-/** 서버 입구 경로 (가정). 앱은 서버 주소 + 이 경로를 네이티브에 넘기고, 네이티브는 받은 주소로만 보낸다 */
-export const NOTICE_INTAKE_PATH = '/api/notice/intake'
+/** 서버 입구 경로 (받는 주소 — 사용자 지시 /api/inbox/messages). 앱은 서버 주소 + 이 경로를 네이티브에 넘기고, 네이티브는 받은 주소로만 보낸다 */
+export const NOTICE_INTAKE_PATH = '/api/inbox/messages'
 
 export type NoticeKindHint = 'sms' | 'bank'
 export const NOTICE_KIND_HINTS: readonly NoticeKindHint[] = Object.freeze(['sms', 'bank'])
