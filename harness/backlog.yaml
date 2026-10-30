@@ -1174,7 +1174,7 @@ sprints:
       자동 구현·통합 검증 범위 완료. pnpm verify 7/7·pnpm perf·두 BASE 보호 게이트 통과.
       HG-APP1·HG-APP2 및 AC-APP1b-03 실방송 전후 재생 측정은 미확인으로 남음; 모든 수용 기준 통과·실방송 운용 검증 완료를 뜻하지 않음.
     carryOver:
-      - "사람 확인 HG-APP1: 이 맥의 Cohere 모델 설치·실제 로컬 연결은 완료. 상시 운영 장치/호스팅, 실제 방송 공간·휴대폰 마이크·망·다중 흐름·장시간 운용은 미확인. 느린 처리6,506ms 표본도 보존하며 실방송 지연1.5초·p95·정확도는 미확인"
+      - "사람 확인 HG-APP1: 이 맥의 Cohere 모델 설치·실제 로컬 연결 및 아이폰 Safari 마이크 발화·상품 등록·정상 재시작 후 보존을 사용자와 확인. 상시 운영 장치/호스팅, 실제 방송 공간·대표 음성/망·다중 흐름·장시간 운용은 미확인. 느린 처리6,506ms 표본도 보존하며 실방송 지연1.5초·p95·정확도는 미확인"
     specIds: [VOC-01, VOC-05, VOC-06, VOC-07]
     status: done
 
@@ -1223,7 +1223,7 @@ sprints:
       자동 구현·통합 검증 범위 완료. pnpm verify 7/7·pnpm perf·두 BASE 보호 게이트 통과.
       HG-APP1·HG-APP2 및 AC-APP1b-03 실방송 전후 재생 측정은 미확인으로 남음; 모든 수용 기준 통과·실방송 운용 검증 완료를 뜻하지 않음.
     carryOver:
-      - "사람 확인 HG-APP2: Expo iOS/Android export는 완료. Xcode 전체·Android SDK·서명 환경·실기기가 없어 설치 가능한 서명 앱/APK 및 실제 설치는 미확인. EAS·스토어 계정, 앱 전환·화면 꺼짐 중 듣기, 아이폰 B1 30장, 배터리·데이터 확인 필요"
+      - "사람 확인 HG-APP2: Expo iOS/Android export는 완료. Xcode 전체·Android SDK·서명 환경·실기기가 없어 설치 가능한 서명 앱/APK 및 실제 설치는 미확인. EAS·스토어 계정, 앱 전환·화면 꺼짐 중 듣기, 아이폰 B1 30장, 배터리·데이터 확인 필요. 사용자는 B1 프린터가 없다고 확인함"
       - "열린 문제: 나머지 화면(정산·택배·판매대장·가게 설정)을 앱 화면으로 옮기는 차례, PC 웹을 Expo web으로 합칠지(D-APP-19)"
     specIds: [APP-01, APP-02, APP-03, APP-04, APP-05, LBL-06, NFR-05, NFR-09]
     status: done
