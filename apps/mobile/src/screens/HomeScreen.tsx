@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BroadcastItem, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
+import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import { openWeb, WEB_SCREENS } from '../lib/open-web.ts'
 import { OPEN_IN_WEB, RETRY_NOW } from '../lib/words.ts'
@@ -18,6 +19,14 @@ export interface HomeNavigation {
 export function broadcastLine(item: BroadcastItem): string {
   const title = item.title.trim() === '' ? '제목 없음' : item.title
   return `${title} · ${dateWords(item.date)}${item.rehearsal ? ' · 리허설' : ''}${item.ended ? ' · 끝남' : ' · 진행 중'}`
+}
+
+/**
+ * 방송 시작 거절 문장 (PAY2 BL-11 2, D-PAY-03): 이용권이 없다는 거절(`NO_PASS`)은 서버 문장 대신 앱 문장 하나만 — 링크·버튼 없음.
+ * 다른 거절은 서버 문장 그대로.
+ */
+export function startErrorMessage(error: ApiError): string {
+  return error.code === 'NO_PASS' ? APP_NO_PASS_MESSAGE : error.message
 }
 
 export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; readonly sellerName: string }) {
@@ -78,12 +87,12 @@ export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; 
       {formOpen ? (
         <Card label="새 방송">
           <Field label="방송 제목 (비워도 돼요)" value={title} onChangeText={setTitle} placeholder="예: 10월 29일 저녁 방송" />
-          {createError !== null ? <Notice tone="danger" alert>{createError.message}</Notice> : null}
+          {createError !== null ? <Notice tone="danger" alert>{startErrorMessage(createError)}</Notice> : null}
           <BigButton label="이 방송 시작하기" primary disabled={busy} onPress={() => void create(title.trim() === '' ? {} : { title: title.trim() })} />
         </Card>
       ) : createError !== null ? (
         <Notice tone="danger" alert>
-          {createError.message}
+          {startErrorMessage(createError)}
         </Notice>
       ) : null}
 
