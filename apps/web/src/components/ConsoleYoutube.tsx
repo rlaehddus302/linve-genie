@@ -32,6 +32,8 @@ import {
   invitedChannelName,
   invitedConfirmOf,
   invitedLine,
+  isChannelLiveLink,
+  NOT_VIDEO_LINK_MESSAGE,
   invitedQuestion,
   needsAttention,
   outboxGroups,
@@ -669,6 +671,10 @@ function LinkPicker() {
     setParsed(null)
     setParseProblem(null)
     if (text.trim() === '') return
+    if (isChannelLiveLink(text)) {
+      setParseProblem(NOT_VIDEO_LINK_MESSAGE)
+      return
+    }
     try {
       const { videoId } = await post<{ videoId: string }>('/api/youtube/parse-video', { video: text })
       setParsed(videoId)
