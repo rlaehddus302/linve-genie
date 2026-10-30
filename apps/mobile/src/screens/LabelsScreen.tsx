@@ -3,10 +3,13 @@
 // - "다시 연결"은 기억한 프린터로(앱을 다시 켠 뒤에도 고르기 창 없이), "블루투스로 연결"은 늘 고르기 창(다른 프린터로 바꾸는 길) — L-7.
 // - 서버가 시험 모드일 때만 "시험용 프린터 — 실제로 출력되지 않아요"(L-11 15).
 // - 저절로 다시 잇는 동안·그친 뒤 한 줄(웹과 같은 문장, L-11 8). 인쇄 농도 칸은 연결한 프린터의 범위(B1 1~5 · YXQ 1~3), 농도가 없는 프린터면 숨긴다.
+// - 지원 단계 (PRN2 L-7, 웹과 같은 기준): 연결 뒤 프린터 이름, 실험 기종이면 이름 뒤 "(실험)"과 안내 한 줄. 실험 기종이 이어져 있으면
+//   "이 기기에서 출력"은 그 연결에서 테스트 인쇄를 하고 "예"를 누른 뒤에만 보인다. "제조사 앱으로 보내기"는 서버가 만든 그림 파일을 공유 창으로.
+import { experimentalNotice, printerProfile, printerSupportStage } from '@livejjim/printer'
 import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import { isApiError } from '../api/client.ts'
-import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, PRINT_ACTION, RETRY_NOW, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
+import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, EXPERIMENTAL_MARK, EXPERIMENTAL_WAIT_TEST, PRINT_ACTION, RETRY_NOW, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import type { Tone } from '../ui/theme.ts'
 import { BigButton, Body, Card, Field, Hint, Notice, Row, Screen, SectionTitle, Tag } from '../ui/parts.tsx'
@@ -32,6 +35,11 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
   const disconnected = snapshot.printer === 'DISCONNECTED'
   // 기억한 프린터가 있으면 "다시 연결"이 이 칸의 주 버튼 (고르기 창 없이 — L-7)
   const showReconnect = disconnected && snapshot.hasRemembered
+  // 지원 단계 (L-7): 실험 기종이 이어져 있으면 테스트 인쇄 "예" 뒤에만 "이 기기에서 출력"
+  const linked = snapshot.printer === 'CONNECTED' || snapshot.printer === 'PRINTING'
+  const profile = linked && snapshot.profileId !== null ? printerProfile(snapshot.profileId) : undefined
+  const experimental = linked && printerSupportStage(snapshot.profileId) === 'EXPERIMENTAL'
+  const canBecome = !experimental || snapshot.testConfirmed
 
   const run = async (work: () => Promise<void>) => {
     if (busy) return
@@ -82,6 +90,8 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
           {snapshot.target === 'test' && snapshot.printer !== 'DISCONNECTED' ? <Body muted>시험용 프린터</Body> : null}
           <Body muted>{snapshot.job === null ? '' : '라벨을 찍는 중이에요'}</Body>
         </Row>
+        {profile !== undefined ? <Body>{`프린터 이름: ${experimental ? `${profile.displayName} ${EXPERIMENTAL_MARK}` : profile.displayName}`}</Body> : null}
+        {profile !== undefined && experimental ? <Notice tone="warning">{experimentalNotice(profile)}</Notice> : null}
         {snapshot.autoReconnect?.kind === 'trying' && snapshot.autoReconnect.total !== null ? <Notice tone="info">{autoReconnectingMessage(snapshot.autoReconnect.attempt, snapshot.autoReconnect.total)}</Notice> : null}
         {snapshot.autoReconnect?.kind === 'gaveUp' && disconnected ? (
           <Notice tone="danger" alert>
@@ -99,14 +109,23 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
               disabled={busy || snapshot.job !== null}
               onPress={() =>
                 void run(async () => {
-                  const ok = await labels.printTest()
-                  if (ok) setMessage({ tone: 'info', text: TEST_QUESTION })
+                  await labels.printTest()
                 })
               }
             />
           ) : null}
           <BigButton label="제조사 앱으로 보내기" disabled={busy} onPress={() => void run(async () => void (await labels.shareTest()))} />
         </Row>
+        {snapshot.testPrinted && linked ? (
+          <View role="group" aria-label="테스트 인쇄 결과" style={{ gap: 8 }}>
+            <Notice tone="info">{TEST_QUESTION}</Notice>
+            <Row wrap>
+              <BigButton label="예" primary={snapshot.testConfirmed} onPress={() => labels.answerTest(true)} />
+              <BigButton label="아니요" onPress={() => labels.answerTest(false)} />
+            </Row>
+            {snapshot.testConfirmed ? <Body>{`좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}"를 눌러 주세요.`}</Body> : null}
+          </View>
+        ) : null}
         {snapshot.printerError !== null ? (
           <Notice tone="danger" alert>
             {snapshot.printerError.message}
@@ -125,7 +144,8 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
       <Card label="출력 기기">
         <SectionTitle>출력 기기</SectionTitle>
         {queue === null ? <Hint>불러오는 중…</Hint> : queue.device === null ? <Body>출력 기기 없음</Body> : snapshot.mine ? <Body bold>{`이 기기가 출력 기기예요 · ${queue.device.name}`}</Body> : <Body>{`출력 기기: ${queue.device.name}${queue.device.live ? '' : ' (연결되어 있지 않아요)'}`}</Body>}
-        {!snapshot.mine ? (
+        {!snapshot.mine && !canBecome ? <Hint>{EXPERIMENTAL_WAIT_TEST}</Hint> : null}
+        {!snapshot.mine && canBecome ? (
           <>
             <Field label="기기 이름" value={name} onChangeText={setName} maxLength={DEVICE_NAME_MAX} />
             <BigButton label={PRINT_ACTION.thisDevice} primary disabled={busy} onPress={() => void become(false)} />
@@ -139,9 +159,9 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
               </View>
             ) : null}
           </>
-        ) : (
+        ) : snapshot.mine ? (
           <BigButton label={PRINT_ACTION.release} disabled={busy} onPress={() => void run(() => labels.release())} />
-        )}
+        ) : null}
         {snapshot.mine ? <Hint>{KEEP_SCREEN_ON} 다른 앱으로 가 있어도 프린터 연결은 끊지 않아요.</Hint> : null}
       </Card>
 

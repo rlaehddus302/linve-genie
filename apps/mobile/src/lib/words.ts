@@ -166,3 +166,8 @@ export function awayLine(counts: { readonly labels: number; readonly claims: num
 }
 /** 블루투스를 쓸 수 없는 기기에서 프린터 연결을 눌렀을 때 (웹의 "이 브라우저에서는…" 대신) */
 export const APP_PRINTER_UNSUPPORTED = '이 휴대폰에서는 블루투스를 쓸 수 없어 프린터에 연결할 수 없어요. 블루투스가 되는 휴대폰에서 연결하거나, 컴퓨터 화면에서 라벨을 출력해 주세요.'
+/** 실험 기종 표시 — 고르기 목록 줄의 꼬리표, 연결 뒤 프린터 이름 뒤 "(실험)" (L-7 지원 단계, D-PRN2-01 — 웹과 같다) */
+export const EXPERIMENTAL_WORD = '실험'
+export const EXPERIMENTAL_MARK = '(실험)'
+/** 실험 기종: 테스트 인쇄 "예" 전에는 "이 기기에서 출력"이 없다 (L-7 지원 단계 — 웹 print-words와 같은 문장) */
+export const EXPERIMENTAL_WAIT_TEST = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'

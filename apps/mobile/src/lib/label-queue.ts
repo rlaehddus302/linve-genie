@@ -7,10 +7,13 @@
 // - 저절로 다시 잇기(L-11 8)는 이 기기가 출력 기기이고 라벨 기능이 켜져 있을 때만 허락한다(프린터 모듈이 1·2·4·8·16·30초 6번 잇는다).
 // - 시험용 프린터는 서버가 시험 모드(GET /api/client-config testPrinter)일 때만 고를 수 있다(L-11 15).
 // - 농도는 연결한 프린터의 범위 안에서만(B1 1~5 · Marklife YXQ 1~3). 농도를 받지 않는 프린터(L11)면 보내지 않는다.
-import type { DensityRange } from '@livejjim/printer'
+// - 이은 프린터의 프로필 ID를 연결 알림·"이 기기에서 출력"에 함께 보낸다(PRN2 L-11 10 — 이름·기기 ID는 보내지 않는다). 받은 작업의 템플릿 크기가
+//   그 프로필 목록에 없으면 찍지 않고 라벨 오류(INVALID_TEMPLATE, size)로 알린다 — 서버는 라벨 오류로 멈춘다(L-11 13).
+// - 실험 기종(L-7 지원 단계)은 그 연결에서 테스트 인쇄 뒤 "예"를 누른 것을 기억한다(testConfirmed — 끊기면 지운다). 화면은 그 뒤에만 "이 기기에서 출력"을 보인다.
+// - 제조사 앱으로 보내기(기본 대체, L-7·L-11 17)는 서버가 만든 PNG(`/api/print/test-png`)를 그대로 공유 창에 넘긴다 — 앱이 다시 그리거나 PNG를 만들지 않는다.
+import { connectedProfileId, profileSupportsSize, sizeNotSupportedMessage, type DensityRange } from '@livejjim/printer'
 import type { ClaimedJob, ClientConfig, PrintNotice, PrintOverview, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
-import { labelBitmapToPng } from './label-png.ts'
-import { fetchTestBitmap, fetchJobBitmap, bitmapFailure } from '../api/labels.ts'
+import { fetchTestBitmap, fetchJobBitmap, bitmapFailure, fetchTestPng } from '../api/labels.ts'
 import { get, isApiError, post, withRetry, type ApiError } from '../api/client.ts'
 import type { EventSourceLike, SseMessage } from '../api/sse.ts'
 import type { AutoReconnectState, ConnectionState, NativeBlePrinter, PrinterError, PrinterTarget } from '../native/ble.ts'
@@ -42,6 +45,12 @@ export interface LabelQueueSnapshot {
   readonly autoReconnect: AutoReconnectState
   /** 서버가 시험 모드 — 시험용 프린터를 고를 수 있다 (L-11 15) */
   readonly testPrinter: boolean
+  /** 이은 프린터의 프로필 ID (끊겼거나 모르면 null — L-7·L-12) */
+  readonly profileId: string | null
+  /** 이 연결에서 테스트 인쇄가 나왔다 ("또렷하게 보이나요?"를 묻는다) */
+  readonly testPrinted: boolean
+  /** 이 연결에서 테스트 인쇄 뒤 "예"를 눌렀다 (실험 기종의 "이 기기에서 출력" 조건 — L-7 지원 단계) */
+  readonly testConfirmed: boolean
 }
 
 export interface LabelQueueOptions {
@@ -92,6 +101,9 @@ export class LabelQueue {
       hasRemembered: ble.hasRemembered,
       autoReconnect: ble.autoReconnect,
       testPrinter: false,
+      profileId: connectedProfileId(ble),
+      testPrinted: false,
+      testConfirmed: false,
     }
   }
 
@@ -125,14 +137,25 @@ export class LabelQueue {
     const range = ble.profile.density
     const before = this.#snapshot.densityRange
     const sameRange = range === null ? before === null : before !== null && before.min === range.min && before.max === range.max && before.default === range.default
+    const linked = ble.state === 'CONNECTED' || ble.state === 'PRINTING'
+    const profileId = connectedProfileId(ble)
     this.#set({
       printer: ble.state,
       target: ble.target,
       hasRemembered: ble.hasRemembered,
       autoReconnect: ble.autoReconnect,
       densityRange: range,
+      profileId,
+      // 끊겼거나 다른 프린터가 이어졌으면 테스트 확인은 지난 일이다 (실험 기종은 그 연결에서 다시 확인 — L-7)
+      ...(linked && profileId === this.#snapshot.profileId ? {} : { testPrinted: false, testConfirmed: false }),
       ...(sameRange || range === null ? {} : { density: range.default }),
     })
+  }
+
+  /** 테스트 결과의 답 ("예"는 이 연결에서 테스트 인쇄가 나온 뒤에만 받는다 — 실험 기종의 "이 기기에서 출력" 조건, L-7) */
+  answerTest(yes: boolean): void {
+    if (yes && !this.#snapshot.testPrinted) return
+    this.#set({ testConfirmed: yes })
   }
 
   /** 시험 모드 신호 (읽지 못하면 시험 모드가 아니다 — 웹 print-store와 같다) */
@@ -157,6 +180,7 @@ export class LabelQueue {
     void this.#loadConfig()
     this.#unsubState = this.#options.ble.onStateChange((state) => {
       this.#set({ printer: state })
+      this.#syncPrinter()
       if (state === 'CONNECTED') {
         void this.#report(true)
         void this.pump()
@@ -259,12 +283,12 @@ export class LabelQueue {
     await this.#options.ble.disconnect()
   }
 
-  /** 서버가 만든 테스트 라벨 그림(203dpi 1비트 PNG)을 공유 시트로 제조사 앱에 보낸다. 프린터 연결과 상관없다. */
+  /** 서버가 만든 테스트 라벨 그림 파일(203dpi 1비트 PNG, L-11 17)을 그대로 공유 시트로 제조사 앱에 보낸다. 프린터 연결과 상관없다. */
   async shareTest(): Promise<boolean> {
     const share = this.#options.share
     if (share === undefined) return false
     try {
-      await share(labelBitmapToPng(await fetchTestBitmap()), 'livejjim-test-label.png')
+      await share(await fetchTestPng(), 'livejjim-test-label.png')
       return true
     } catch {
       this.#set({ printerError: { code: 'PRINT_FAILED', message: '라벨 그림을 보내지 못했어요. 잠시 뒤 다시 눌러 주세요.', action: '다시 시도' } })
@@ -275,10 +299,12 @@ export class LabelQueue {
   /** 테스트도 서버에서 받은 같은 비트맵만 출력한다. */
   async printTest(): Promise<boolean> {
     if (this.#snapshot.job !== null) return false
+    this.#set({ testPrinted: false, testConfirmed: false })
     try {
       const bitmap = await fetchTestBitmap()
       const result = await this.#options.ble.print(bitmap, this.#printOptions())
       if (!result.ok) this.#set({ printerError: result.error })
+      else this.#set({ testPrinted: true })
       return result.ok
     } catch {
       this.#set({ printerError: { code: 'PRINT_FAILED', message: '테스트 라벨을 받지 못했어요. 연결을 확인하고 다시 눌러 주세요.', action: '다시 시도' } })
@@ -290,7 +316,9 @@ export class LabelQueue {
     if (!this.#snapshot.mine || this.#reported === connected) return
     this.#reported = connected
     try {
-      await post('/api/print/device/state', { deviceId: this.#options.deviceId, connected })
+      // 이어졌으면 그 프린터의 프로필 ID를 함께 (L-11 10, D-PRN2-07 — 모르면 보내지 않는다)
+      const profileId = connected ? connectedProfileId(this.#options.ble) : null
+      await post('/api/print/device/state', { deviceId: this.#options.deviceId, connected, ...(profileId === null ? {} : { profileId }) })
     } catch (error) {
       if (!isApiError(error)) throw error
       this.#reported = null
@@ -302,7 +330,8 @@ export class LabelQueue {
 
   async become(name: string, replace = false): Promise<{ kind: 'ok' } | { kind: 'taken'; name: string } | { kind: 'error'; error: ApiError }> {
     try {
-      await post('/api/print/device', { deviceId: this.#options.deviceId, name, ...(replace ? { replace: true } : {}) })
+      const profileId = connectedProfileId(this.#options.ble)
+      await post('/api/print/device', { deviceId: this.#options.deviceId, name, ...(replace ? { replace: true } : {}), ...(profileId === null ? {} : { profileId }) })
       this.#reported = true
       this.#set({ mine: true })
       if (this.#options.ble.state !== 'CONNECTED') {
@@ -388,18 +417,26 @@ export class LabelQueue {
     this.#set({ job, busy: true })
     let ok = false
     let error: { code: string; item?: string } | null = null
-    try {
-      const bitmap = await fetchJobBitmap(job, this.#options.deviceId)
-      const result = await this.#options.ble.print(bitmap, this.#printOptions())
-      ok = result.ok
-      if (!result.ok) {
-        error = { code: result.error.code }
-        this.#set({ printerError: result.error })
+    // 이은 프린터가 이 크기를 찍지 못한다: 그림을 받지도 보내지도 않고 라벨 오류로 알린다 (L-11 13, D-PRN2-07)
+    const profileId = connectedProfileId(this.#options.ble)
+    const size = (job.template as { readonly size?: unknown } | null)?.size
+    if (profileId !== null && typeof size === 'string' && !profileSupportsSize(profileId, size)) {
+      error = { code: 'INVALID_TEMPLATE', item: 'size' }
+      this.#set({ printerError: { code: 'PRINT_FAILED', message: sizeNotSupportedMessage(size) } })
+    } else {
+      try {
+        const bitmap = await fetchJobBitmap(job, this.#options.deviceId)
+        const result = await this.#options.ble.print(bitmap, this.#printOptions())
+        ok = result.ok
+        if (!result.ok) {
+          error = { code: result.error.code }
+          this.#set({ printerError: result.error })
+        }
+      } catch (caught) {
+        const failure = bitmapFailure(caught)
+        error = { code: failure.code, ...(failure.item === undefined ? {} : { item: failure.item }) }
+        this.#set({ printerError: { code: 'PRINT_FAILED', message: failure.message, action: '다시 시도' } })
       }
-    } catch (caught) {
-      const failure = bitmapFailure(caught)
-      error = { code: failure.code, ...(failure.item === undefined ? {} : { item: failure.item }) }
-      this.#set({ printerError: { code: 'PRINT_FAILED', message: failure.message, action: '다시 시도' } })
     }
     const body = { deviceId: this.#options.deviceId, attempt: job.attempt, ok, ...(error === null ? {} : { error }) }
     try {
