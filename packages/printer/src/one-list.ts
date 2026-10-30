@@ -22,7 +22,7 @@ import { MARKLIFE_OPTIONAL_SERVICES, type BluetoothDeviceLike, type BluetoothEnv
 import { fail, type PrinterResult } from './errors.ts'
 import { createMarklifeAdapter, type MarklifeAdapter } from './marklife.ts'
 import { browserEnvironment, connectErrorCode, createNiimbotAdapter, type NiimbotClientLike, type PrinterEnvironment } from './niimbot.ts'
-import { NIIMBOT_TARGET, PRINTER_PROFILES, connectedProfileId, labelProfilesOf, niimbotProfilesOf, pickListFilter, pickListTarget } from './profiles.ts'
+import { NIIMBOT_SERVICE_UUID, NIIMBOT_TARGET, PRINTER_PROFILES, connectedProfileId, labelProfilesOf, niimbotProfilesOf, pickListFilter, pickListTarget } from './profiles.ts'
 
 /** 웹 한 목록 고르기 창 인자 (requestDevice 하나 — L-7) */
 export interface PrinterRequestOptions {
@@ -30,7 +30,7 @@ export interface PrinterRequestOptions {
   readonly optionalServices: readonly string[]
 }
 
-/** 한 목록 고르기 창 인자: filters = NIIMBOT 서비스 + NIIMBOT 이름 꼴 + L-12 앞자리, optionalServices = ff00·fd00 (L-7, D-PRN2-04) */
+/** 한 목록 고르기 창 인자: filters = NIIMBOT 서비스 + NIIMBOT 이름 꼴 + L-12 앞자리, optionalServices = ff00·fd00·NIIMBOT 서비스 (L-7, D-PRN2-04·20) */
 export function printerRequestOptions(profiles: readonly ModelProfile[] = PRINTER_PROFILES): PrinterRequestOptions {
   const filter = pickListFilter(profiles)
   return {
@@ -39,7 +39,7 @@ export function printerRequestOptions(profiles: readonly ModelProfile[] = PRINTE
       ...filter.niimbotNamePrefixes.map((namePrefix) => ({ namePrefix })),
       ...filter.labelNamePrefixes.map((namePrefix) => ({ namePrefix })),
     ],
-    optionalServices: [...MARKLIFE_OPTIONAL_SERVICES],
+    optionalServices: [...MARKLIFE_OPTIONAL_SERVICES, NIIMBOT_SERVICE_UUID],
   }
 }
 

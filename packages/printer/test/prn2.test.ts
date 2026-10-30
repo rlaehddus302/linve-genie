@@ -138,11 +138,11 @@ describe('고르기 목록 — 앱·웹 같은 함수 (AC-PRN2-04, D-PRN2-04)', 
     })
   })
 
-  it('웹 고르기 창은 requestDevice 하나 — filters = 서비스 + 이름 꼴 + L-12 앞자리, optionalServices = ff00·fd00', () => {
+  it('웹 고르기 창은 requestDevice 하나 — filters = 서비스 + 이름 꼴 + L-12 앞자리, optionalServices = ff00·fd00·NIIMBOT 서비스 (D-PRN2-20)', () => {
     const options = printerRequestOptions()
     expect(options.filters[0]).toEqual({ services: [NIIMBOT_SERVICE] })
     expect(options.filters.slice(1)).toEqual([...pickListFilter().niimbotNamePrefixes, ...pickListFilter().labelNamePrefixes].map((namePrefix) => ({ namePrefix })))
-    expect(options.optionalServices).toEqual(['0000ff00-0000-1000-8000-00805f9b34fb', '0000fd00-0000-1000-8000-00805f9b34fb'])
+    expect(options.optionalServices).toEqual(['0000ff00-0000-1000-8000-00805f9b34fb', '0000fd00-0000-1000-8000-00805f9b34fb', NIIMBOT_SERVICE])
   })
 
   it('켠 표에 한 줄을 더하는 것만으로 목록 판정이 따라간다 — 코드 분기 없음 (AC-PRN2-11)', () => {
