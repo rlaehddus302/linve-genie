@@ -1,6 +1,7 @@
 // 문자찜·입금 알림 받기 모듈의 공용 모양 (SMS3).
 // 네이티브(안드로이드 알림 읽기 서비스·아이폰 단축어 동작)가 알림을 봉투로 만들어 암호화 대기열에 넣고 서버로 보낸다.
-// JS는 켜고 끄기·상태 보기·설정 열기·은행 앱 고르기·기기 토큰 넣기·지금 보내기만 한다(뒤에서는 JS 없이 돈다).
+// JS는 켜고 끄기·상태 보기·설정 열기·받기 토큰 넣기·지금 보내기만 한다(뒤에서는 JS 없이 돈다).
+// 무엇을 읽고 거를지는 서버가 C-04 응답으로 주는 filters를 네이티브가 저장해 그대로 쓴다(SPEC ORD-13 C-03).
 
 /** 어느 기기에서 도는가 */
 export type NoticePlatform = 'android' | 'ios' | 'fake'
@@ -13,8 +14,8 @@ export type NoticePlatform = 'android' | 'ios' | 'fake'
  */
 export type NoticeAccess = 'granted' | 'needed' | 'shortcut'
 
-/** 마지막 보내기 실패 까닭 */
-export type NoticeSendError = 'NETWORK' | 'SERVER' | 'TOKEN'
+/** 마지막 보내기 실패 까닭 — BUSY: 서버가 너무 많다고 함(429, 1분 뒤 다시) */
+export type NoticeSendError = 'NETWORK' | 'SERVER' | 'BUSY' | 'TOKEN'
 
 /** 앱이 보는 상태 */
 export interface NoticeState {
@@ -24,33 +25,37 @@ export interface NoticeState {
   readonly access: NoticeAccess
   /** 안드로이드: 시스템이 알림 읽기 서비스를 붙였는가. 아이폰은 늘 false */
   readonly connected: boolean
-  /** 기기 토큰·서버 주소가 들어 있는가 */
+  /** 받기 토큰·서버 주소가 들어 있는가 */
   readonly hasToken: boolean
-  /** 서버가 토큰을 받지 않았다(401·403) — 새 토큰을 넣을 때까지 보내지 않는다 */
+  /** 서버가 토큰을 받지 않았다(401) — 새 토큰을 넣을 때까지 보내지 않는다("받기 토큰을 다시 넣어 주세요") */
   readonly tokenRejected: boolean
   /** 아직 못 보낸 건수 (암호화 대기열) */
   readonly pending: number
-  /** 보낸 건수 (이 기기에서 켠 뒤 누적) */
+  /** 서버가 받아 처리한 건수 (SAVED, 이 기기 누적) */
   readonly sent: number
-  /** 기기에서 거른 건수 (인증번호·광고) */
+  /** 서버가 받았지만 저장하지 않은 건수 (IGNORED — 찜 아님·방송 창 밖 등) */
+  readonly ignored: number
+  /** 기기에서 거른 건수 (skipWords 문자) */
   readonly filtered: number
-  /** 같은 알림 두 번 막은 건수 */
+  /** 같은 알림 두 번 막은 건수 (기기 + 서버 DUPLICATE) */
   readonly duplicates: number
-  /** 서버가 받지 않은 건수 (봉투가 틀림 — 다시 보내지 않는다) */
+  /** 서버가 모양이 틀렸다고 한 건수 (400 — 다시 보내지 않는다) */
   readonly rejected: number
-  /** 대기열이 넘쳐 못 담은 건수 */
+  /** 대기열(최대 200건)이 넘쳐 오래된 것부터 버린 건수 */
   readonly dropped: number
   /** 마지막으로 대기열에 넣은 시각 (기기 벽시계 UTC ms) */
   readonly lastQueuedAtMs: number | null
   /** 마지막으로 서버가 받은 시각 */
   readonly lastSentAtMs: number | null
   readonly lastError: NoticeSendError | null
-  /** 판매자가 고른 은행 앱 (문자 앱은 늘 포함 — SMS_PACKAGES) */
-  readonly bankPackages: readonly string[]
+  /** 서버가 준 은행 앱 목록 (filters.bankApps — 이 앱 알림만 읽는다) */
+  readonly bankApps: readonly string[]
+  /** 안드로이드 기본 문자 앱 패키지 (모르면 null) */
+  readonly smsApp: string | null
   /** 안드로이드: 배터리 최적화 대상인가(true면 뒤에서 늦거나 멈출 수 있다). 아이폰·모름은 null */
   readonly batteryOptimized: boolean | null
-  /** 서버가 내려준 거르기 규칙을 쓰는가 (아니면 기본 규칙) */
-  readonly serverRules: boolean
+  /** 서버의 filters를 받아 두었는가 (아니면 문자만 보낸다) */
+  readonly hasFilters: boolean
 }
 
 /** 설정 화면 */
@@ -66,13 +71,14 @@ export interface NoticeFlushResult {
   readonly stoppedBy: 'NO_TOKEN' | NoticeSendError | null
 }
 
-/** 기기 토큰과 보낼 곳 */
+/** 받기 토큰과 보낼 곳 (SPEC ORD-13 C-02) */
 export interface NoticeTokenConfig {
-  /** 서버가 이 기기에 준 토큰 (Authorization: Bearer) — 안드로이드 Keystore 암호화·아이폰 키체인에만 둔다 */
+  /** 판매자 설정 "휴대폰 알림 받기"에서 만든 토큰 (Authorization: Bearer) — 안드로이드 Keystore 암호화·아이폰 키체인 키로 암호화해서만 둔다 */
   readonly token: string
   /** 라이브지니 서버 주소 (https) — 입구 경로는 contract.ts가 붙인다 */
   readonly serverUrl: string
-  readonly deviceId: string
+  /** 기기 이름 1~30자 (C-04 device — 설정에 "마지막으로 받은 기기"로 보인다) */
+  readonly deviceName: string
 }
 
 export interface NativeEventSubscription {
@@ -88,12 +94,9 @@ export interface NativeNoticeModuleLike {
   stop(): Promise<NativeNoticeState>
   getState(): Promise<NativeNoticeState>
   openSettings(target: NoticeSettingsTarget): Promise<boolean>
-  setAllowedPackages(packages: string[]): Promise<NativeNoticeState>
-  /** endpoint는 입구 주소 전체(contract.noticeIntakeUrl) */
-  setToken(token: string, endpoint: string, deviceId: string): Promise<NativeNoticeState>
+  /** endpoint는 입구 주소 전체(contract.noticeIntakeUrl). 넣으면 곧바로 0건 요청으로 filters를 받아 둔다 */
+  setToken(token: string, endpoint: string, deviceName: string): Promise<NativeNoticeState>
   clearToken(): Promise<NativeNoticeState>
-  /** 규칙 JSON 배열 글. 빈 글이면 기본 규칙으로 */
-  setFilterRules(rulesJson: string): Promise<NativeNoticeState>
   flush(): Promise<{ readonly sent?: unknown; readonly pending?: unknown; readonly stoppedBy?: unknown }>
   addListener(eventName: 'state', listener: (event: NativeNoticeState) => void): NativeEventSubscription
 }
@@ -111,12 +114,8 @@ export interface NoticeIntake {
   addStateListener(listener: NoticeStateListener): () => void
   /** 설정 화면을 연다. 열지 못하면 false (화면이 안내 문장을 보여 준다) */
   openSettings(target?: NoticeSettingsTarget): Promise<boolean>
-  /** 판매자가 고른 은행 앱. 틀린 이름·메신저·문자 앱은 NoticeInputError */
-  setAllowedPackages(bankPackages: readonly string[]): Promise<NoticeState>
-  /** 기기 토큰을 넣는다(null이면 지운다). 틀린 토큰·http 주소는 NoticeInputError */
+  /** 받기 토큰을 넣는다(null이면 지운다). 틀린 토큰·기기 이름·http 주소는 NoticeInputError */
   setToken(config: NoticeTokenConfig | null): Promise<NoticeState>
-  /** 서버가 내려준 거르기 규칙 (null이면 기본 규칙). 틀린 목록은 NoticeInputError */
-  setFilterRules(rules: unknown): Promise<NoticeState>
-  /** 대기열을 지금 보낸다 */
+  /** 대기열을 지금 보낸다(비었으면 0건 요청으로 filters만 새로 받는다) */
   flush(): Promise<NoticeFlushResult>
 }

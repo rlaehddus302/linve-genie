@@ -1,36 +1,56 @@
-// 서버 입구 약속 (아이폰 쪽 한 곳) — TS src/contract.ts·안드로이드 NoticeContract.kt와 같은 값이어야 한다(공용 사례가 잠근다).
-// 받는 주소는 /api/inbox/messages (JS가 붙여 넘기므로 여기에는 경로가 없다). 순수 Foundation(앱 없이 JVM처럼 단위 시험이 돈다).
+// 서버 받는 입구 약속 (아이폰 쪽 한 곳, SPEC ORD-13 C-04) — TS src/contract.ts·안드로이드 NoticeContract.kt와 같은 값이어야 한다(공용 사례가 잠근다).
+// 요청 { device, messages: [{ id, channel, from, title, text, receivedAt }] } (0~20건), 응답 200 { results: [{ id, status }], filters: { skipWords, bankApps } }.
+// 받는 주소는 /api/inbox/messages (JS가 붙여 넘기므로 여기에는 경로가 없다). 순수 Foundation(앱 없이 단위 시험이 돈다).
 import Foundation
 
-public struct NoticeCandidate: Equatable {
-    public let kindHint: String
-    public let sourceType: String
-    public let source: String
-    public let body: String
-    public let receivedAtMs: Int64
-    public let localId: String
+/// 요청의 메시지 한 건 (C-04). from·title은 없으면 nil, receivedAt은 밀리초
+public struct InboxMessage: Equatable {
+    public let id: String
+    public let channel: String
+    public let from: String?
+    public let title: String?
+    public let text: String
+    public let receivedAt: Int64
 
-    public init(kindHint: String, sourceType: String, source: String, body: String, receivedAtMs: Int64, localId: String) {
-        self.kindHint = kindHint
-        self.sourceType = sourceType
-        self.source = source
-        self.body = body
-        self.receivedAtMs = receivedAtMs
-        self.localId = localId
+    public init(id: String, channel: String, from: String?, title: String?, text: String, receivedAt: Int64) {
+        self.id = id
+        self.channel = channel
+        self.from = from
+        self.title = title
+        self.text = text
+        self.receivedAt = receivedAt
     }
 }
 
+/// 200 응답에서 읽은 것
+public struct InboxResponse: Equatable {
+    public let results: [String: String]
+    public let filters: NoticeFilters?
+}
+
 public enum NoticeContract {
-    public static let envelopeFields = ["kindHint", "sourceType", "source", "body", "receivedAtMs", "sentAtMs", "deviceId", "localId"]
-    public static let bodyMaxChars = 2000
-    public static let sourceMaxChars = 200
+    public static let messageFields = ["id", "channel", "from", "title", "text", "receivedAt"]
+    public static let resultStatuses = ["SAVED", "DUPLICATE", "IGNORED"]
+    public static let textMaxChars = 1000
+    public static let fromMaxChars = 200
+    public static let deviceNameMaxChars = 30
+    public static let batchMax = 20
+    public static let queueMax = 200
+    /// 429 뒤 기다림
+    public static let tooManyWaitMs: Int64 = 60_000
     public static let contentType = "application/json"
     public static let tokenPattern = "^[A-Za-z0-9._~+/-]{16,512}=*$"
-    public static let deviceIdPattern = "^[A-Za-z0-9._:-]{1,128}$"
     private static let loopback = ["http://localhost:", "http://localhost/", "http://127.0.0.1:", "http://127.0.0.1/"]
 
     public static func isValidToken(_ token: String) -> Bool { token.range(of: tokenPattern, options: .regularExpression) != nil }
-    public static func isValidDeviceId(_ id: String) -> Bool { id.range(of: deviceIdPattern, options: .regularExpression) != nil }
+
+    /// 기기 이름: 제어 문자 없이, 앞뒤 빈칸을 뺀 1~30자(UTF-16) — JS cleanDeviceName과 같다
+    public static func cleanDeviceName(_ value: String) -> String? {
+        if value.utf16.contains(where: { $0 < 0x20 || $0 == 0x7F }) { return nil }
+        let trimmed = NoticeExtractor.clean(value)
+        if trimmed.isEmpty || trimmed.utf16.count > deviceNameMaxChars { return nil }
+        return trimmed
+    }
 
     /// 토큰이 실리므로 https만. 개발용 루프백만 http
     public static func isAllowedEndpoint(_ endpoint: String) -> Bool {
@@ -44,32 +64,44 @@ public enum NoticeContract {
 
     public static func bearer(_ token: String) -> String { "Bearer \(token)" }
 
-    /// 서버 답 → 할 일: accepted · duplicate · rejected · token · retry
+    /// 서버 답 → 할 일: done · bad · token · wait · retry
     public static func classify(_ status: Int?) -> String {
         guard let status else { return "retry" }
-        if (200...299).contains(status) { return "accepted" }
-        if status == 409 { return "duplicate" }
+        if (200...299).contains(status) { return "done" }
         if status == 401 || status == 403 { return "token" }
-        if status == 408 || status == 425 || status == 429 { return "retry" }
-        if (400...499).contains(status) { return "rejected" }
+        if status == 429 { return "wait" }
+        if status == 408 || status == 425 { return "retry" }
+        if (400...499).contains(status) { return "bad" }
         return "retry"
     }
 
-    /// 봉투 JSON (칸 순서 = envelopeFields)
-    public static func envelopeJson(_ c: NoticeCandidate, sentAtMs: Int64, deviceId: String) -> String {
-        "{\"kindHint\":\(quote(c.kindHint)),\"sourceType\":\(quote(c.sourceType)),\"source\":\(quote(c.source)),\"body\":\(quote(c.body)),\"receivedAtMs\":\(c.receivedAtMs),\"sentAtMs\":\(sentAtMs),\"deviceId\":\(quote(deviceId)),\"localId\":\(quote(c.localId))}"
+    /// 메시지 한 건 JSON (칸 순서 = messageFields). 대기열에도 이 글을 암호화해 둔다
+    public static func messageJson(_ m: InboxMessage) -> String {
+        "{\"id\":\(quote(m.id)),\"channel\":\(quote(m.channel)),\"from\":\(m.from.map(quote) ?? "null"),\"title\":\(m.title.map(quote) ?? "null"),\"text\":\(quote(m.text)),\"receivedAt\":\(m.receivedAt)}"
     }
 
-    /// 대기열 한 건(암호화 전 글)
-    public static func candidateJson(_ c: NoticeCandidate) -> String {
-        "{\"kindHint\":\(quote(c.kindHint)),\"sourceType\":\(quote(c.sourceType)),\"source\":\(quote(c.source)),\"body\":\(quote(c.body)),\"receivedAtMs\":\(c.receivedAtMs),\"localId\":\(quote(c.localId))}"
+    /// 요청 본문 JSON
+    public static func requestJson(device: String, messages: [InboxMessage]) -> String {
+        "{\"device\":\(quote(device)),\"messages\":[\(messages.map(messageJson).joined(separator: ","))]}"
     }
 
-    public static func candidate(fromJson text: String) -> NoticeCandidate? {
+    /// 대기열 글 → 메시지. 틀리면 nil
+    public static func message(fromJson text: String) -> InboxMessage? {
         guard let data = text.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let kind = o["kindHint"] as? String, let type = o["sourceType"] as? String, let source = o["source"] as? String,
-              let body = o["body"] as? String, let at = (o["receivedAtMs"] as? NSNumber)?.int64Value, let id = o["localId"] as? String else { return nil }
-        return NoticeCandidate(kindHint: kind, sourceType: type, source: source, body: body, receivedAtMs: at, localId: id)
+              let id = o["id"] as? String, let channel = o["channel"] as? String, channel == "SMS" || channel == "APP",
+              let body = o["text"] as? String, let at = (o["receivedAt"] as? NSNumber)?.int64Value else { return nil }
+        return InboxMessage(id: id, channel: channel, from: o["from"] as? String, title: o["title"] as? String, text: body, receivedAt: at)
+    }
+
+    /// 200 응답 본문 읽기. JSON이 아니면 빈 결과
+    public static func parseResponse(_ body: Data) -> InboxResponse {
+        guard let o = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { return InboxResponse(results: [:], filters: nil) }
+        var results: [String: String] = [:]
+        for item in (o["results"] as? [Any]) ?? [] {
+            guard let r = item as? [String: Any], let id = r["id"] as? String, let status = r["status"] as? String, resultStatuses.contains(status) else { continue }
+            results[id] = status
+        }
+        return InboxResponse(results: results, filters: NoticeFilter.parse(o["filters"]))
     }
 
     public static func quote(_ value: String) -> String {

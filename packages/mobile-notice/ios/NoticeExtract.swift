@@ -1,11 +1,11 @@
-// 단축어 문자 → 봉투 후보 · 기기 안 거르기 (아이폰) — TS src/extract.ts·rules.ts, 안드로이드 NoticeCore.kt와 같은 규칙이다.
-// 아이폰은 알림을 읽지 못한다. 판매자가 단축어 자동화("메시지를 받으면")를 만들고, 그 동작(NoticeIntents.swift)이 보낸 사람·본문을 넘긴다.
+// 단축어 문자 → 보낼 메시지 · 기기에서 먼저 거르기 (아이폰, SPEC ORD-13 C-01·C-03) — TS src/extract.ts·rules.ts, 안드로이드 NoticeCore.kt와 같은 규칙이다.
+// 아이폰은 다른 앱 알림을 읽지 못한다(은행 앱 알림 없음 — D-SMS3-02). 판매자가 단축어 자동화("메시지를 받으면")를 만들고,
+// 그 동작(NoticeIntents.swift)이 보낸 곳·본문을 넘긴다 → channel "SMS". skipWords가 든 문자는 보내지 않는다.
 import CryptoKit
 import Foundation
 
 public enum NoticeExtractor {
     public static let shortcutSourceApp = "ios.shortcut.messages"
-    public static let unknownSender = "모름"
 
     /// 앞뒤 빈칸·줄 끝을 다듬는다 (JS trim과 같은 빈칸)
     public static func clean(_ value: String?) -> String {
@@ -45,103 +45,105 @@ public enum NoticeExtractor {
         return trimmed.hasPrefix("+") ? "+" + digits : digits
     }
 
-    /// 보낸 사람: tel: 주소 → 번호, 번호 모양 이름 → 숫자, 아니면 이름 그대로
-    public static func senderOf(_ name: String?, _ uri: String?) -> String {
+    /// 보낸 곳: tel: 주소 → 번호, 번호 모양 이름 → 숫자, 아니면 이름 그대로. 없으면 nil
+    public static func senderOf(_ name: String?, _ uri: String?) -> String? {
         if let uri, uri.lowercased().hasPrefix("tel:") {
             let raw = String(uri.dropFirst(4))
             let decoded = raw.removingPercentEncoding ?? raw
             if let digits = phoneDigits(decoded) { return digits }
         }
         let n = clean(name)
-        if n.isEmpty { return unknownSender }
-        return phoneDigits(n) ?? cutUtf16(n, NoticeContract.sourceMaxChars)
+        if n.isEmpty { return nil }
+        return phoneDigits(n) ?? cutUtf16(n, NoticeContract.fromMaxChars)
     }
 
-    /// 같은 알림 두 번 막기 열쇠: SHA-256(패키지 ␟ 보낸 곳 ␟ 받은 시각 ␟ 본문) 앞 16바이트 16진
-    public static func localIdOf(_ packageName: String, _ source: String, _ receivedAtMs: Int64, _ body: String) -> String {
-        let text = "\(packageName)\u{1F}\(source)\u{1F}\(receivedAtMs)\u{1F}\(body)"
-        return SHA256.hash(data: Data(text.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+    /// 메시지 id: SHA-256(패키지 ␟ 보낸 곳 ␟ 받은 시각 ␟ 제목 ␟ 본문) 앞 16바이트 16진. nil 칸은 빈 글
+    public static func messageIdOf(_ packageName: String, _ from: String?, _ receivedAt: Int64, _ title: String?, _ text: String) -> String {
+        let joined = "\(packageName)\u{1F}\(from ?? "")\u{1F}\(receivedAt)\u{1F}\(title ?? "")\u{1F}\(text)"
+        return SHA256.hash(data: Data(joined.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// 단축어가 넘긴 문자 → 후보. 본문이 비면 nil. 받은 시각 = 지금(1분 단위로 두 번 막기 열쇠를 만든다)
-    public static func shortcutCandidate(sender: String, body: String, kind: String, nowMs: Int64) -> NoticeCandidate? {
-        let cleaned = cutUtf16(clean(body), NoticeContract.bodyMaxChars)
-        if cleaned.isEmpty { return nil }
-        let source = senderOf(sender, nil)
+    /// 단축어가 넘긴 문자 → 보낼 메시지(channel SMS). 본문이 비면 nil. 받은 시각 = 지금(1분 단위로 같은 id — 두 번 막기)
+    public static func shortcutCandidate(sender: String, body: String, nowMs: Int64) -> InboxMessage? {
+        let text = cutUtf16(clean(body), NoticeContract.textMaxChars)
+        if text.isEmpty { return nil }
+        let from = senderOf(sender, nil)
         let bucket = Int64((Double(nowMs) / 60_000.0).rounded(.down)) * 60_000
-        return NoticeCandidate(kindHint: kind, sourceType: "sms_number", source: source, body: cleaned, receivedAtMs: nowMs, localId: localIdOf(shortcutSourceApp, source, bucket, cleaned))
+        return InboxMessage(id: messageIdOf(shortcutSourceApp, from, bucket, nil, text), channel: "SMS", from: from, title: nil, text: text, receivedAt: nowMs)
     }
 }
 
-public struct FilterRule: Equatable {
-    public let id: String
-    public let field: String
-    public let op: String
-    public let value: String
-    public let kinds: [String]?
+/// 서버가 주는 거르기 목록 (C-04 응답 filters)
+public struct NoticeFilters: Equatable {
+    public let skipWords: [String]
+    public let bankApps: [String]
+    public init(skipWords: [String], bankApps: [String]) {
+        self.skipWords = skipWords
+        self.bankApps = bankApps
+    }
 }
 
-/// 기기 안 거르기 — 인증번호·광고. 서버가 규칙을 내려주면(setFilterRules) 그것, 없으면 기본 규칙
+/// 기기에서 먼저 거르기 — skipWords가 든 문자는 보내지 않는다(영문 대소문자 무시, 들어 있나). 목록을 받기 전에는 R-26 3 사본
 public enum NoticeFilter {
-    public static let defaultRules: [FilterRule] = [
-        FilterRule(id: "otp-ko", field: "body", op: "contains", value: "인증번호", kinds: nil),
-        FilterRule(id: "otp-ko-code", field: "body", op: "contains", value: "인증코드", kinds: nil),
-        FilterRule(id: "otp-ko-confirm", field: "body", op: "contains", value: "확인코드", kinds: nil),
-        FilterRule(id: "otp-ko-auth", field: "body", op: "contains", value: "본인확인", kinds: nil),
-        FilterRule(id: "otp-en", field: "body", op: "contains", value: "verification code", kinds: nil),
-        FilterRule(id: "ad-mark", field: "body", op: "contains", value: "(광고)", kinds: nil),
-        FilterRule(id: "ad-optout", field: "body", op: "contains", value: "무료수신거부", kinds: nil),
-        FilterRule(id: "ad-optout-short", field: "body", op: "contains", value: "무료거부", kinds: nil),
-    ]
-    public static let rulesMax = 200
-    public static let valueMax = 100
+    public static let defaultSkipWords = ["(광고)", "[광고]", "web발신", "국제발신", "해외발신", "인증", "승인", "결제", "택배"]
+    public static let skipWordsMax = 200
+    public static let skipWordMaxChars = 100
+    public static let bankAppsMax = 100
+    private static let packageName = "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$"
 
-    /// 비교용 글: 모든 빈칸을 빼고 영문자만 소문자로
-    public static func normalize(_ text: String) -> String {
+    /// 영문 대문자(A-Z)만 소문자로
+    public static func lowerAscii(_ text: String) -> String {
         var out = String.UnicodeScalarView()
         for s in text.unicodeScalars {
-            if s.value == 0xFEFF || (s.properties.isWhitespace && s.value != 0x85) { continue }
             if s.value >= 65 && s.value <= 90 { out.append(Unicode.Scalar(s.value + 32)!) } else { out.append(s) }
         }
         return String(out)
     }
 
-    public static func match(_ rules: [FilterRule], kindHint: String, source: String, body: String) -> String? {
-        let b = normalize(body)
-        let s = normalize(source)
-        for rule in rules {
-            if let kinds = rule.kinds, !kinds.contains(kindHint) { continue }
-            let needle = normalize(rule.value)
-            if needle.isEmpty { continue }
-            let text = rule.field == "body" ? b : s
-            let hit = rule.op == "contains" ? text.contains(needle) : text.hasPrefix(needle)
-            if hit { return rule.id }
+    /// 문자 본문에 든 거를 낱말 (없으면 nil). 비교는 UTF-16 단위 "들어 있나"(TS includes와 같게)
+    public static func skipWordIn(_ text: String, _ filters: NoticeFilters?) -> String? {
+        let haystack = Array(lowerAscii(text).utf16)
+        for word in filters?.skipWords ?? defaultSkipWords {
+            let needle = Array(lowerAscii(word).utf16)
+            if !needle.isEmpty && containsUnits(haystack, needle) { return word }
         }
         return nil
     }
 
-    /// 서버 규칙 JSON 배열 글 → 규칙. 하나라도 틀리면 nil(기본 규칙을 쓴다)
-    public static func parse(_ json: String) -> [FilterRule]? {
-        guard let data = json.data(using: .utf8), let array = try? JSONSerialization.jsonObject(with: data) as? [Any], array.count <= rulesMax else { return nil }
-        var out: [FilterRule] = []
-        for item in array {
-            guard let o = item as? [String: Any], let id = o["id"] as? String, let field = o["field"] as? String, let op = o["op"] as? String, let value = o["value"] as? String else { return nil }
-            if id.range(of: "^[A-Za-z0-9_-]{1,64}$", options: .regularExpression) == nil { return nil }
-            if field != "body" && field != "source" { return nil }
-            if op != "contains" && op != "startsWith" { return nil }
-            if normalize(value).isEmpty || value.utf16.count > valueMax { return nil }
-            var kinds: [String]? = nil
-            if o.keys.contains("kinds") {
-                guard let k = o["kinds"] as? [Any], !k.isEmpty else { return nil }
-                var list: [String] = []
-                for entry in k {
-                    guard let kind = entry as? String, kind == "sms" || kind == "bank" else { return nil }
-                    if !list.contains(kind) { list.append(kind) }
-                }
-                kinds = list
-            }
-            out.append(FilterRule(id: id, field: field, op: op, value: value, kinds: kinds))
+    private static func containsUnits(_ haystack: [UInt16], _ needle: [UInt16]) -> Bool {
+        if needle.count > haystack.count { return false }
+        var i = 0
+        while i + needle.count <= haystack.count {
+            if haystack[i] == needle[0] && Array(haystack[i..<(i + needle.count)]) == needle { return true }
+            i += 1
         }
-        return out
+        return false
+    }
+
+    /// 서버 filters 검사 — 하나라도 틀리면 nil(전에 저장한 목록을 그대로 쓴다)
+    public static func parse(_ value: Any?) -> NoticeFilters? {
+        guard let o = value as? [String: Any], let skip = o["skipWords"] as? [Any], let apps = o["bankApps"] as? [Any] else { return nil }
+        if skip.count > skipWordsMax || apps.count > bankAppsMax { return nil }
+        var words: [String] = []
+        for item in skip {
+            guard let word = item as? String, !(item is NSNumber), !word.isEmpty, word.utf16.count <= skipWordMaxChars else { return nil }
+            if !words.contains(word) { words.append(word) }
+        }
+        var bank: [String] = []
+        for item in apps {
+            guard let app = item as? String, !(item is NSNumber), app.utf16.count <= 150, app.range(of: packageName, options: .regularExpression) != nil else { return nil }
+            if !bank.contains(app) { bank.append(app) }
+        }
+        return NoticeFilters(skipWords: words, bankApps: bank)
+    }
+
+    /// 저장 글 → filters
+    public static func parseJson(_ json: String) -> NoticeFilters? {
+        guard let data = json.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        return parse(o)
+    }
+
+    public static func serialize(_ filters: NoticeFilters) -> String {
+        "{\"skipWords\":[\(filters.skipWords.map(NoticeContract.quote).joined(separator: ","))],\"bankApps\":[\(filters.bankApps.map(NoticeContract.quote).joined(separator: ","))]}"
     }
 }

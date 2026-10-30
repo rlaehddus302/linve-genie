@@ -1,7 +1,8 @@
-// 암호화 대기열 · 설정 · 기기 토큰 (아이폰) — 안드로이드 NoticeStore.kt와 같은 일.
+// 암호화 대기열 · 설정 · 받기 토큰 (아이폰) — 안드로이드 NoticeStore.kt와 같은 일 (SPEC ORD-13 C-02·C-03·C-07, AC-SMS3-27).
 // - 대기열 한 건 = 파일 하나(AES-GCM 암호화, 키는 키체인에만 — 잠금 해제 뒤 첫 사용 전까지 접근 불가). 평문 본문·번호를 디스크에 두지 않는다.
-// - 토큰·서버 주소·기기 번호도 같은 키로 암호화한 파일. 로그에는 남기지 않는다.
-// - 같은 알림 두 번 막기: 최근 SEEN_MAX개 localId를 기억한다.
+//   최대 200건 — 넘으면 오래된 것부터 버리고 개수만 센다. 같은 id로 다시 보낸다.
+// - 토큰·서버 주소·기기 이름도 같은 키로 암호화한 파일. 로그에는 남기지 않는다.
+// - 같은 알림 두 번 막기: 최근 seenMax개 id를 기억한다. 서버 filters(비밀 아님)·429 기다림은 UserDefaults.
 import CryptoKit
 import Foundation
 import Security
@@ -36,13 +37,13 @@ public struct KeychainKeyProvider: NoticeKeyProvider {
 public struct TokenConfig: Equatable {
     public let token: String
     public let endpoint: String
-    public let deviceId: String
+    public let deviceName: String
 }
 
 public final class NoticeStore {
-    public static let queueMax = 5_000
+    public static let queueMax = NoticeContract.queueMax
     public static let seenMax = 5_000
-    public static let counters = ["sent", "filtered", "duplicates", "rejected", "dropped"]
+    public static let counters = ["sent", "ignored", "filtered", "duplicates", "rejected", "dropped"]
 
     private let directory: URL
     private let defaults: UserDefaults
@@ -89,24 +90,24 @@ public final class NoticeStore {
         defaults.set(enabled, forKey: "enabled")
     }
 
-    public func rules() -> [FilterRule] {
-        defaults.string(forKey: "rulesJson").flatMap(NoticeFilter.parse) ?? NoticeFilter.defaultRules
-    }
-    public var serverRules: Bool { defaults.string(forKey: "rulesJson").flatMap(NoticeFilter.parse) != nil }
-    public func setRulesJson(_ json: String) {
-        if json.isEmpty { defaults.removeObject(forKey: "rulesJson") } else { defaults.set(json, forKey: "rulesJson") }
-    }
+    /// 서버가 준 filters. 받기 전이면 nil
+    public func filters() -> NoticeFilters? { defaults.string(forKey: "filters").flatMap(NoticeFilter.parseJson) }
+    public func setFilters(_ filters: NoticeFilters) { defaults.set(NoticeFilter.serialize(filters), forKey: "filters") }
+
+    /// 429 뒤 이 시각 전에는 보내지 않는다
+    public var notBeforeMs: Int64 { Int64(defaults.double(forKey: "notBeforeMs")) }
+    public func setNotBeforeMs(_ value: Int64) { defaults.set(Double(value), forKey: "notBeforeMs") }
 
     // MARK: 토큰
     public var hasToken: Bool { FileManager.default.fileExists(atPath: tokenFile.path) }
     public var isTokenRejected: Bool { defaults.bool(forKey: "tokenRejected") }
-    public func setTokenRejected() { defaults.set(true, forKey: "tokenRejected") }
+    public func setTokenRejected() { defaults.set(true, forKey: "tokenRejected"); setLastError("TOKEN") }
 
     public func token() -> TokenConfig? {
         guard let blob = try? Data(contentsOf: tokenFile), let plain = open(blob, purpose: "livejjim-notice-token"),
               let o = try? JSONSerialization.jsonObject(with: plain) as? [String: String],
-              let token = o["token"], let endpoint = o["endpoint"], let deviceId = o["deviceId"] else { return nil }
-        return TokenConfig(token: token, endpoint: endpoint, deviceId: deviceId)
+              let token = o["token"], let endpoint = o["endpoint"], let deviceName = o["deviceName"] else { return nil }
+        return TokenConfig(token: token, endpoint: endpoint, deviceName: deviceName)
     }
 
     public func setToken(_ config: TokenConfig?) throws {
@@ -115,9 +116,10 @@ public final class NoticeStore {
             defaults.set(false, forKey: "tokenRejected")
             return
         }
-        let plain = try JSONSerialization.data(withJSONObject: ["token": config.token, "endpoint": config.endpoint, "deviceId": config.deviceId])
+        let plain = try JSONSerialization.data(withJSONObject: ["token": config.token, "endpoint": config.endpoint, "deviceName": config.deviceName])
         try writeAtomic(try seal(plain, purpose: "livejjim-notice-token"), to: tokenFile)
         defaults.set(false, forKey: "tokenRejected")
+        defaults.removeObject(forKey: "notBeforeMs")
     }
 
     // MARK: 숫자
@@ -125,25 +127,34 @@ public final class NoticeStore {
     public func count(_ counter: String) -> Int { defaults.integer(forKey: "count_\(counter)") }
     public var lastError: String? { defaults.string(forKey: "lastError") }
     public func setLastError(_ value: String?) { if let value { defaults.set(value, forKey: "lastError") } else { defaults.removeObject(forKey: "lastError") } }
-    public func markSent(nowMs: Int64) { defaults.set(Double(nowMs), forKey: "lastSentAtMs") }
+    public func markSent(nowMs: Int64) { defaults.set(Double(nowMs), forKey: "lastSentAtMs"); setLastError(nil) }
 
     // MARK: 대기열
     public enum EnqueueResult: Equatable { case queued, duplicate, dropped }
 
-    public func enqueue(_ candidate: NoticeCandidate, nowMs: Int64) -> EnqueueResult {
+    /// 두 번 막기 뒤 암호화해 넣는다. 200건이 넘으면 오래된 것(넣은 차례 앞)부터 버리고 개수만 센다 — 이것이 버려지면 .dropped
+    public func enqueue(_ message: InboxMessage, nowMs: Int64) -> EnqueueResult {
         lock.lock(); defer { lock.unlock() }
         var seen = loadSeen()
-        if seen.contains(candidate.localId) { bump("duplicates"); return .duplicate }
-        if pendingFiles().count >= NoticeStore.queueMax { bump("dropped"); return .dropped }
-        guard let blob = try? seal(Data(NoticeContract.candidateJson(candidate).utf8), purpose: "livejjim-notice-queue") else { bump("dropped"); return .dropped }
+        if seen.contains(message.id) { bump("duplicates"); return .duplicate }
+        guard let blob = try? seal(Data(NoticeContract.messageJson(message).utf8), purpose: "livejjim-notice-queue") else { bump("dropped"); return .dropped }
         sequence += 1
         let name = String(format: "%016lld-%06lld.q", nowMs, sequence)
         guard (try? writeAtomic(blob, to: queueDirectory.appendingPathComponent(name))) != nil else { bump("dropped"); return .dropped }
-        seen.append(candidate.localId)
+        seen.append(message.id)
         if seen.count > NoticeStore.seenMax { seen = Array(seen.suffix(NoticeStore.seenMax)) }
         saveSeen(seen)
         defaults.set(Double(nowMs), forKey: "lastQueuedAtMs")
-        return .queued
+        var outcome = EnqueueResult.queued
+        let files = pendingFiles()
+        if files.count > NoticeStore.queueMax {
+            for old in files.prefix(files.count - NoticeStore.queueMax) {
+                if old.lastPathComponent == name { outcome = .dropped }
+                try? FileManager.default.removeItem(at: old)
+                bump("dropped")
+            }
+        }
+        return outcome
     }
 
     public func pendingFiles() -> [URL] {
@@ -153,10 +164,11 @@ public final class NoticeStore {
     public var pendingCount: Int { pendingFiles().count }
 
     /// 읽지 못하는(깨진·키가 바뀐) 파일은 지우고 nil
-    public func read(_ file: URL) -> NoticeCandidate? {
+    public func read(_ file: URL) -> InboxMessage? {
         if let blob = try? Data(contentsOf: file), let plain = open(blob, purpose: "livejjim-notice-queue"),
-           let text = String(data: plain, encoding: .utf8), let candidate = NoticeContract.candidate(fromJson: text) { return candidate }
+           let text = String(data: plain, encoding: .utf8), let message = NoticeContract.message(fromJson: text) { return message }
         try? FileManager.default.removeItem(at: file)
+        bump("dropped")
         return nil
     }
     public func remove(_ file: URL) { try? FileManager.default.removeItem(at: file) }
@@ -173,7 +185,7 @@ public final class NoticeStore {
     public func stateMap() -> [String: Any] {
         var map: [String: Any] = [
             "platform": "ios", "enabled": isEnabled, "access": "shortcut", "connected": false, "hasToken": hasToken,
-            "tokenRejected": isTokenRejected, "pending": pendingCount, "bankPackages": [String](), "serverRules": serverRules,
+            "tokenRejected": isTokenRejected, "pending": pendingCount, "bankApps": [String](), "hasFilters": filters() != nil,
         ]
         for counter in NoticeStore.counters { map[counter] = Double(count(counter)) }
         if defaults.double(forKey: "lastQueuedAtMs") > 0 { map["lastQueuedAtMs"] = defaults.double(forKey: "lastQueuedAtMs") }

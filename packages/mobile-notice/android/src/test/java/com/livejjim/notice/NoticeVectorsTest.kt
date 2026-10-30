@@ -1,13 +1,11 @@
 // 공용 사례(test-vectors/notice-vectors.json)를 Kotlin 본이 그대로 내는지 — TS(test/vectors.test.ts)·Swift(ios/Tests)와 같은 파일을 읽는다.
-// 안드로이드 API 없이 JVM에서 돈다: ./gradlew :packages:mobile-notice:android:testDebugUnitTest (SDK가 있는 곳)
+// 안드로이드 API 없이 JVM에서 돈다(NoticeContract.kt·NoticeCore.kt + org.json + junit): 앱 빌드에서는 testDebugUnitTest, 앱 없이는 두 파일만 kotlin("jvm") 틀로.
 package com.livejjim.notice
 
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,10 +19,12 @@ class NoticeVectorsTest {
 
   private fun JSONObject.stringOrNull(key: String): String? = if (isNull(key)) null else getString(key)
 
+  private fun filtersOf(o: JSONObject, key: String): NoticeFilters? = if (o.isNull(key)) null else NoticeFilter.parse(o.getJSONObject(key))
+
   @Test
-  fun localId() {
-    for (v in items("localId")) {
-      assertEquals(v.getString("localId"), NoticeExtractor.localIdOf(v.getString("packageName"), v.getString("source"), v.getLong("receivedAtMs"), v.getString("body")))
+  fun messageId() {
+    for (v in items("messageId")) {
+      assertEquals(v.toString(), v.getString("id"), NoticeExtractor.messageIdOf(v.getString("packageName"), v.stringOrNull("from"), v.getLong("receivedAt"), v.stringOrNull("title"), v.getString("text")))
     }
   }
 
@@ -35,12 +35,7 @@ class NoticeVectorsTest {
 
   @Test
   fun sender() {
-    for (v in items("sender")) assertEquals(v.toString(), v.getString("output"), NoticeExtractor.senderOf(v.stringOrNull("name"), v.stringOrNull("uri")))
-  }
-
-  @Test
-  fun normalize() {
-    for (v in items("normalize")) assertEquals(v.getString("input"), v.getString("output"), NoticeFilter.normalize(v.getString("input")))
+    for (v in items("sender")) assertEquals(v.toString(), v.stringOrNull("output"), NoticeExtractor.senderOf(v.stringOrNull("name"), v.stringOrNull("uri")))
   }
 
   @Test
@@ -49,11 +44,30 @@ class NoticeVectorsTest {
   }
 
   @Test
-  fun filter() {
-    for (v in items("filter")) {
-      val rules = if (v.isNull("rules")) NoticeFilter.DEFAULT_RULES else NoticeFilter.parse(v.getJSONArray("rules").toString())
-      assertNotNull(v.toString(), rules)
-      assertEquals(v.toString(), v.stringOrNull("rule"), NoticeFilter.match(rules!!, v.getString("kindHint"), v.getString("source"), v.getString("body")))
+  fun lowerAscii() {
+    for (v in items("lowerAscii")) assertEquals(v.toString(), v.getString("output"), NoticeFilter.lowerAscii(v.getString("input")))
+  }
+
+  @Test
+  fun skip() {
+    for (v in items("skip")) assertEquals(v.toString(), v.stringOrNull("word"), NoticeFilter.skipWordIn(v.getString("text"), filtersOf(v, "filters")))
+  }
+
+  @Test
+  fun filters() {
+    for (v in items("filters")) {
+      val want = if (v.isNull("output")) null else v.getJSONObject("output").let { o ->
+        NoticeFilters(o.getJSONArray("skipWords").let { a -> (0 until a.length()).map { a.getString(it) } }, o.getJSONArray("bankApps").let { a -> (0 until a.length()).map { a.getString(it) } })
+      }
+      assertEquals(v.toString(), want, NoticeFilter.parse(v.opt("input")))
+      if (want != null) assertEquals(want, NoticeFilter.parseJson(NoticeFilter.serialize(want)))
+    }
+  }
+
+  @Test
+  fun channel() {
+    for (v in items("channel")) {
+      assertEquals(v.toString(), v.stringOrNull("channel"), NoticeExtractor.channelForPackage(v.getString("packageName"), v.stringOrNull("smsApp"), filtersOf(v, "filters")))
     }
   }
 
@@ -77,13 +91,13 @@ class NoticeVectorsTest {
         raw.stringOrNull("title"), raw.stringOrNull("text"), raw.stringOrNull("bigText"),
         messages, raw.getBoolean("groupSummary"), raw.getBoolean("ongoing"),
       )
-      val result = NoticeExtractor.extract(notice, v.getLong("enabledAtMs"))
+      val result = NoticeExtractor.extract(notice, v.getString("channel"), v.getLong("enabledAtMs"))
       val name = v.getString("name")
       assertEquals(name, v.stringOrNull("skipped"), result.skipped)
       assertEquals(name, v.getInt("tooOld"), result.tooOld)
       val want = v.getJSONArray("candidates")
       assertEquals(name, want.length(), result.candidates.size)
-      for (i in 0 until want.length()) assertEquals(name, candidateOf(want.getJSONObject(i)), result.candidates[i])
+      for (i in 0 until want.length()) assertEquals(name, messageOf(want.getJSONObject(i)), result.candidates[i])
     }
   }
 
@@ -91,37 +105,59 @@ class NoticeVectorsTest {
   fun shortcut() {
     for (v in items("shortcut")) {
       val input = v.getJSONObject("input")
-      val got = NoticeExtractor.shortcutCandidate(input.getString("sender"), input.getString("body"), input.getString("kind"), v.getLong("nowMs"))
-      assertEquals(v.toString(), if (v.isNull("candidate")) null else candidateOf(v.getJSONObject("candidate")), got)
+      val got = NoticeExtractor.shortcutCandidate(input.getString("sender"), input.getString("body"), v.getLong("nowMs"))
+      assertEquals(v.toString(), if (v.isNull("candidate")) null else messageOf(v.getJSONObject("candidate")), got)
     }
   }
 
   @Test
-  fun envelope() {
-    val v = vectors.getJSONObject("envelope")
-    val json = NoticeContract.envelopeJson(candidateOf(v.getJSONObject("candidate")), v.getLong("sentAtMs"), v.getString("deviceId"))
-    // 칸 순서와 이스케이프까지 TS 사례와 같다
-    val want = v.getJSONObject("json")
+  fun request() {
+    val v = vectors.getJSONObject("request")
+    val want = v.getJSONArray("messages")
+    val messages = (0 until want.length()).map { messageOf(want.getJSONObject(it)) }
+    val json = NoticeContract.requestJson(v.getString("device"), messages)
     val got = JSONObject(json)
-    // org.json은 칸 순서를 보존하지 않으므로 글에서 칸 이름이 나온 자리로 순서를 본다
-    val positions = NoticeContract.ENVELOPE_FIELDS.map { json.indexOf("\"$it\":") }
-    assertTrue(positions.all { it >= 0 })
-    assertEquals(positions.sorted(), positions)
-    for (field in NoticeContract.ENVELOPE_FIELDS) assertEquals(field, want.get(field), got.get(field))
+    assertEquals(v.getString("device"), got.getString("device"))
+    val gotMessages = got.getJSONArray("messages")
+    assertEquals(want.length(), gotMessages.length())
+    for (i in 0 until want.length()) {
+      // 칸 순서: 글에서 칸 이름이 나온 자리
+      val one = NoticeContract.messageJson(messages[i])
+      val positions = NoticeContract.MESSAGE_FIELDS.map { one.indexOf("\"$it\":") }
+      assertTrue(positions.all { it >= 0 })
+      assertEquals(positions.sorted(), positions)
+      assertEquals(messages[i], messageOf(gotMessages.getJSONObject(i)))
+      // 대기열 글을 다시 읽으면 같다
+      assertEquals(messages[i], NoticeContract.messageOf(one))
+    }
     assertTrue(json.contains("\\\"35,000원\\\""))
+    assertTrue(json.contains("\\u2028"))
   }
 
   @Test
-  fun endpoint() {
+  fun response() {
+    for (v in items("response")) {
+      val got = NoticeContract.parseResponse(v.getString("body"))
+      val results = v.getJSONObject("results")
+      assertEquals(v.toString(), results.keySet().associateWith { results.getString(it) }, got.results)
+      assertEquals(v.toString(), filtersOf(v, "filters"), got.filters)
+    }
+  }
+
+  @Test
+  fun deviceNameAndEndpoint() {
+    assertEquals("내 갤럭시 S23", NoticeContract.cleanDeviceName("  내 갤럭시 S23 "))
+    assertEquals(null, NoticeContract.cleanDeviceName("가".repeat(31)))
+    assertEquals(null, NoticeContract.cleanDeviceName("폰\n1"))
+    assertEquals(null, NoticeContract.cleanDeviceName("   "))
     assertTrue(NoticeContract.isAllowedEndpoint("https://livejjim.example/api/inbox/messages"))
     assertTrue(NoticeContract.isAllowedEndpoint("http://10.0.2.2:3000/api/inbox/messages"))
     assertTrue(!NoticeContract.isAllowedEndpoint("http://livejjim.example/api/inbox/messages"))
     assertTrue(!NoticeContract.isAllowedEndpoint("https://user:pw@livejjim.example/api/inbox/messages"))
     assertTrue(!NoticeContract.isAllowedEndpoint("https://livejjim.example/a b"))
-    assertNull(null as String?)
   }
 
-  private fun candidateOf(o: JSONObject) = NoticeCandidate(
-    o.getString("kindHint"), o.getString("sourceType"), o.getString("source"), o.getString("body"), o.getLong("receivedAtMs"), o.getString("localId"),
+  private fun messageOf(o: JSONObject) = InboxMessage(
+    o.getString("id"), o.getString("channel"), o.stringOrNull("from"), o.stringOrNull("title"), o.getString("text"), o.getLong("receivedAt"),
   )
 }

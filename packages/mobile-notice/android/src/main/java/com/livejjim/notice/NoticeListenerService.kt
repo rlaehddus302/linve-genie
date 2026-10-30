@@ -1,5 +1,5 @@
-// 안드로이드 알림 읽기 서비스 (SMS3) — 문자 앱 두 개와 판매자가 고른 은행 앱의 알림만 연다.
-// 다른 앱 알림은 패키지 이름만 보고 내용(extras)을 열지 않은 채 버린다.
+// 안드로이드 알림 읽기 서비스 (SMS3, SPEC ORD-13 C-01·C-03, D-SMS3-02·11) — 기본 문자 앱의 알림과 서버 filters.bankApps 앱의 알림만 연다.
+// 다른 앱 알림은 패키지 이름만 보고 내용(extras)을 열지 않은 채 버린다. 문자 수신 권한(READ_SMS)은 쓰지 않는다 — 알림 읽기 권한 하나.
 // 시스템이 서비스를 붙이면(앱 설치·재부팅·허용 직후) 떠 있는 알림을 한 번 훑어 꺼져 있던 동안 온 것을 이어받는다(본 열쇠로 두 번 막기).
 package com.livejjim.notice
 
@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
+import android.provider.Telephony
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
@@ -45,21 +46,21 @@ class NoticeListenerService : NotificationListenerService() {
   }
 
   private fun handle(sbn: StatusBarNotification) {
-    // 허용 밖 앱은 패키지 이름만 보고 버린다 — 알림 내용을 열지 않는다
+    // 읽을 앱이 아니면 패키지 이름만 보고 버린다 — 알림 내용을 열지 않는다
     val packageName = sbn.packageName ?: return
     val store = NoticeStore.get(this)
-    if (!store.isAllowed(packageName)) return
     if (!store.isEnabled()) return
+    val channel = NoticeExtractor.channelForPackage(packageName, NoticeAccess.defaultSmsPackage(this), store.filters()) ?: return
     val raw = try {
       NotificationReader.read(sbn)
     } catch (_: Exception) {
       return
     }
-    NoticeIntake.submit(applicationContext, raw)
+    NoticeIntake.submit(applicationContext, raw, channel)
   }
 }
 
-/** 알림 → 날것 (허용한 앱의 알림만 여기로 온다) */
+/** 알림 → 날것 (읽을 앱의 알림만 여기로 온다) */
 internal object NotificationReader {
   fun read(sbn: StatusBarNotification): RawNotice {
     val n = sbn.notification
@@ -102,20 +103,21 @@ internal object NotificationReader {
 internal object NoticeIntake {
   private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "livejjim-notice-intake") }
 
-  fun submit(context: Context, raw: RawNotice) {
+  fun submit(context: Context, raw: RawNotice, channel: String) {
     executor.execute {
       try {
         val store = NoticeStore.get(context)
         if (!store.isEnabled()) return@execute
-        val result = NoticeExtractor.extract(raw, store.enabledAtMs())
+        val result = NoticeExtractor.extract(raw, channel, store.enabledAtMs())
         var queued = 0
-        val rules = store.rules()
-        for (candidate in result.candidates) {
-          if (NoticeFilter.match(rules, candidate.kindHint, candidate.source, candidate.body) != null) {
+        val filters = store.filters()
+        for (message in result.candidates) {
+          // skipWords가 든 문자는 휴대폰 밖으로 보내지 않는다(C-03). 앱 알림은 bankApps로 이미 골랐다
+          if (message.channel == "SMS" && NoticeFilter.skipWordIn(message.text, filters) != null) {
             store.bump("filtered")
             continue
           }
-          if (store.enqueue(candidate, System.currentTimeMillis()) == "queued") queued++
+          if (store.enqueue(message, System.currentTimeMillis()) == "queued") queued++
         }
         NoticeBus.changed(context)
         if (queued > 0) NoticeSender.kick(context)
@@ -126,8 +128,15 @@ internal object NoticeIntake {
   }
 }
 
-/** 알림 읽기 허용·배터리 최적화 */
+/** 알림 읽기 허용·배터리 최적화·기본 문자 앱 */
 internal object NoticeAccess {
+  /** 기본 문자 앱 패키지 (권한 없이 읽힌다). 모르면 null → 흔한 문자 앱 둘로 대신 */
+  fun defaultSmsPackage(context: Context): String? = try {
+    Telephony.Sms.getDefaultSmsPackage(context)
+  } catch (_: Exception) {
+    null
+  }
+
   fun isGranted(context: Context): Boolean = NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
 
   /** 배터리 최적화 대상이면 true (뒤에서 늦거나 멈출 수 있다) */

@@ -1,4 +1,4 @@
-// JS API (start/stop/getState/addStateListener/openSettings/setAllowedPackages/setToken/setFilterRules/flush) — 가짜 네이티브로.
+// JS API (start/stop/getState/addStateListener/openSettings/setToken/flush) — 가짜 네이티브로.
 import { describe, expect, it, vi } from 'vitest'
 import { createFakeNoticeNative } from '../src/fake.ts'
 import {
@@ -17,7 +17,7 @@ const TOKEN = 'dev_token_0123456789abcdef'
 
 describe('상태 고치기', () => {
   it('모르는 칸·틀린 값은 안전한 쪽(꺼짐·0건·모름)', () => {
-    const state = normalizeNoticeState({ platform: 'web', enabled: 'yes', access: 'all', pending: -1, sent: 1.5, lastSentAtMs: 0, lastError: 'BOOM', bankPackages: ['a.b', 3], batteryOptimized: 'no' })
+    const state = normalizeNoticeState({ platform: 'web', enabled: 'yes', access: 'all', pending: -1, sent: 1.5, lastSentAtMs: 0, lastError: 'BOOM', bankApps: ['a.b', 3], smsApp: 3, batteryOptimized: 'no' })
     expect(state).toEqual({
       platform: 'fake',
       enabled: false,
@@ -27,6 +27,7 @@ describe('상태 고치기', () => {
       tokenRejected: false,
       pending: 0,
       sent: 0,
+      ignored: 0,
       filtered: 0,
       duplicates: 0,
       rejected: 0,
@@ -34,9 +35,10 @@ describe('상태 고치기', () => {
       lastQueuedAtMs: null,
       lastSentAtMs: null,
       lastError: null,
-      bankPackages: ['a.b'],
+      bankApps: ['a.b'],
+      smsApp: null,
       batteryOptimized: null,
-      serverRules: false,
+      hasFilters: false,
     })
     expect(normalizeNoticeState(null).enabled).toBe(false)
     expect(normalizeNoticeState({ platform: 'ios' }).access).toBe('shortcut')
@@ -53,49 +55,36 @@ describe('입력 검사 — 틀린 값은 네이티브에 가지 않는다', () 
   const spyNative = () => {
     const fake = createFakeNoticeNative()
     const setToken = vi.spyOn(fake, 'setToken')
-    const setAllowed = vi.spyOn(fake, 'setAllowedPackages')
-    const setRules = vi.spyOn(fake, 'setFilterRules')
-    return { fake, setToken, setAllowed, setRules, intake: createNoticeIntake(fake) }
+    return { fake, setToken, intake: createNoticeIntake(fake) }
   }
 
-  it('토큰: 서버 주소 + 약속 경로를 네이티브에 넘긴다', async () => {
+  it('토큰: 서버 주소 + 약속 경로, 다듬은 기기 이름을 네이티브에 넘긴다', async () => {
     const { intake, setToken } = spyNative()
-    const state = await intake.setToken({ token: TOKEN, serverUrl: 'https://livejjim.example', deviceId: 'phone-a' })
-    expect(setToken).toHaveBeenCalledWith(TOKEN, `https://livejjim.example${NOTICE_INTAKE_PATH}`, 'phone-a')
+    const state = await intake.setToken({ token: ` ${TOKEN} `, serverUrl: 'https://livejjim.example', deviceName: ' 내 갤럭시 ' })
+    expect(setToken).toHaveBeenCalledWith(TOKEN, `https://livejjim.example${NOTICE_INTAKE_PATH}`, '내 갤럭시')
     expect(state.hasToken).toBe(true)
   })
-  it('http 주소·틀린 토큰·틀린 기기 번호', async () => {
+  it('http 주소·틀린 토큰·틀린 기기 이름', async () => {
     const { intake, setToken } = spyNative()
-    await expect(intake.setToken({ token: TOKEN, serverUrl: 'http://livejjim.example', deviceId: 'phone-a' })).rejects.toMatchObject({ code: 'SERVER_URL' })
-    await expect(intake.setToken({ token: 'short', serverUrl: 'https://livejjim.example', deviceId: 'phone-a' })).rejects.toMatchObject({ code: 'TOKEN' })
-    await expect(intake.setToken({ token: TOKEN, serverUrl: 'https://livejjim.example', deviceId: '' })).rejects.toMatchObject({ code: 'DEVICE_ID' })
+    await expect(intake.setToken({ token: TOKEN, serverUrl: 'http://livejjim.example', deviceName: '폰' })).rejects.toMatchObject({ code: 'SERVER_URL' })
+    await expect(intake.setToken({ token: 'short', serverUrl: 'https://livejjim.example', deviceName: '폰' })).rejects.toMatchObject({ code: 'TOKEN' })
+    await expect(intake.setToken({ token: TOKEN, serverUrl: 'https://livejjim.example', deviceName: '' })).rejects.toMatchObject({ code: 'DEVICE_NAME' })
+    await expect(intake.setToken({ token: TOKEN, serverUrl: 'https://livejjim.example', deviceName: '가'.repeat(31) })).rejects.toMatchObject({ code: 'DEVICE_NAME' })
     expect(setToken).not.toHaveBeenCalled()
-    const error = await intake.setToken({ token: 'secretvalue with space', serverUrl: 'https://a.example', deviceId: 'p' }).catch((e: unknown) => e)
+    const error = await intake.setToken({ token: 'secretvalue with space', serverUrl: 'https://a.example', deviceName: 'p' }).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(NoticeInputError)
     // 화면 문장에 토큰 값이 실리지 않는다
     expect(String((error as Error).message)).not.toContain('secretvalue')
   })
   it('토큰 지우기', async () => {
     const { intake } = spyNative()
-    await intake.setToken({ token: TOKEN, serverUrl: 'https://livejjim.example', deviceId: 'phone-a' })
+    await intake.setToken({ token: TOKEN, serverUrl: 'https://livejjim.example', deviceName: '폰' })
     expect((await intake.setToken(null)).hasToken).toBe(false)
   })
-  it('은행 앱: 메신저는 막고 쉬운 문장', async () => {
-    const { intake, setAllowed } = spyNative()
-    await expect(intake.setAllowedPackages(['com.kakao.talk'])).rejects.toThrow('카카오톡 같은 대화 앱은')
-    expect(setAllowed).not.toHaveBeenCalled()
-    const state = await intake.setAllowedPackages(['com.kbstar.kbbank', 'com.kbstar.kbbank'])
-    expect(setAllowed).toHaveBeenCalledWith(['com.kbstar.kbbank'])
-    expect(state.bankPackages).toEqual(['com.kbstar.kbbank'])
-  })
-  it('거르기 규칙: 틀린 목록은 넘기지 않고, null은 기본 규칙으로', async () => {
-    const { intake, setRules } = spyNative()
-    await expect(intake.setFilterRules([{ id: 'x', field: 'body', op: 'regex', value: '.*' }])).rejects.toMatchObject({ code: 'FILTER_RULES' })
-    expect(setRules).not.toHaveBeenCalled()
-    expect((await intake.setFilterRules([{ id: 'x', field: 'body', op: 'contains', value: '출금' }])).serverRules).toBe(true)
-    expect(setRules).toHaveBeenLastCalledWith('[{"id":"x","field":"body","op":"contains","value":"출금"}]')
-    expect((await intake.setFilterRules(null)).serverRules).toBe(false)
-    expect(setRules).toHaveBeenLastCalledWith('')
+  it('은행 앱 고르기·거르기 규칙 넣기는 없다 — 서버 filters만 쓴다(C-03)', () => {
+    const intake = createNoticeIntake(createFakeNoticeNative()) as unknown as Record<string, unknown>
+    expect(intake.setAllowedPackages).toBeUndefined()
+    expect(intake.setFilterRules).toBeUndefined()
   })
 })
 
@@ -121,7 +110,7 @@ describe('켜기·끄기·상태 듣기·설정 열기', () => {
     const intake = createNoticeIntake(fake)
     const state = await intake.start()
     expect(state).toMatchObject({ enabled: true, access: 'needed', connected: false })
-    expect(noticeStatusLine(state)).toBe('알림 읽기를 허용해 주세요')
+    expect(noticeStatusLine(state)).toBe('알림 읽기가 꺼져 있어요')
     fake.setAccess(true)
     expect(await intake.getState()).toMatchObject({ access: 'granted', connected: true })
   })
@@ -141,19 +130,21 @@ describe('화면 문장 (쉬운 한국어, 영어 상태값 없음)', () => {
   const base = normalizeNoticeState({ platform: 'android', enabled: true, access: 'granted', connected: true, hasToken: true })
   it('상태 줄', () => {
     expect(noticeStatusLine({ ...base, enabled: false })).toBe('꺼져 있어요')
-    expect(noticeStatusLine({ ...base, hasToken: false })).toBe('라이브지니 서버와 연결이 필요해요')
-    expect(noticeStatusLine({ ...base, tokenRejected: true })).toBe('연결이 풀렸어요. 다시 켜 주세요')
+    expect(noticeStatusLine({ ...base, hasToken: false })).toBe('받기 토큰을 넣어 주세요')
+    expect(noticeStatusLine({ ...base, tokenRejected: true })).toBe('받기 토큰을 다시 넣어 주세요')
     expect(noticeStatusLine({ ...base, pending: 3, lastError: 'NETWORK' })).toBe('인터넷이 끊겨 3건을 모아 두었어요. 연결되면 바로 보내요')
     expect(noticeStatusLine({ ...base, pending: 2, lastError: 'SERVER' })).toBe('2건을 보내지 못했어요. 잠시 뒤 다시 보내요')
+    expect(noticeStatusLine({ ...base, pending: 2, lastError: 'BUSY' })).toBe('2건을 1분 뒤에 다시 보내요')
     expect(noticeStatusLine({ ...base, pending: 1 })).toBe('1건 보내는 중이에요')
     expect(noticeStatusLine({ ...base, connected: false })).toContain('알림 읽기를 아직 붙이지 않았어요')
-    expect(noticeStatusLine(base)).toBe('문자·입금 알림을 받고 있어요')
-    expect(noticeStatusLine({ ...base, platform: 'ios', access: 'shortcut', connected: false })).toBe('단축어로 넣은 문자를 받고 있어요')
+    expect(noticeStatusLine(base)).toBe('문자를 보내고 있어요. 은행 앱 목록은 서버에 연결되면 받아요')
+    expect(noticeStatusLine({ ...base, hasFilters: true })).toBe('문자와 은행 앱 알림을 보내고 있어요')
+    expect(noticeStatusLine({ ...base, platform: 'ios', access: 'shortcut', connected: false })).toBe('단축어로 받은 문자를 보내고 있어요')
   })
   it('건수 줄', () => {
     expect(noticeCountLine({ ...base, sent: 5 })).toBe('보냄 5건')
-    expect(noticeCountLine({ ...base, sent: 5, filtered: 2, duplicates: 1, rejected: 1, dropped: 1 })).toBe(
-      '보냄 5건 · 인증번호·광고 거름 2건 · 겹침 1건 · 서버가 받지 않음 1건 · 넘쳐서 못 담음 1건',
+    expect(noticeCountLine({ ...base, sent: 5, ignored: 3, filtered: 2, duplicates: 1, rejected: 1, dropped: 1 })).toBe(
+      '보냄 5건 · 찜·입금 아님 3건 · 광고·인증 문자 거름 2건 · 겹침 1건 · 서버가 받지 않음 1건 · 쌓인 게 많아 지움 1건',
     )
   })
   it('모든 문장에 영문 상태값이 없다', () => {
@@ -161,8 +152,10 @@ describe('화면 문장 (쉬운 한국어, 영어 상태값 없음)', () => {
       noticeStatusLine(base),
       noticeStatusLine({ ...base, pending: 3, lastError: 'NETWORK' }),
       noticeStatusLine({ ...base, pending: 3, lastError: 'SERVER' }),
+      noticeStatusLine({ ...base, pending: 3, lastError: 'BUSY' }),
+      noticeStatusLine({ ...base, hasFilters: true }),
       noticeStatusLine({ ...base, tokenRejected: true }),
-      noticeCountLine({ ...base, sent: 1, filtered: 1, duplicates: 1, rejected: 1, dropped: 1 }),
+      noticeCountLine({ ...base, sent: 1, ignored: 1, filtered: 1, duplicates: 1, rejected: 1, dropped: 1 }),
     ]
     for (const line of lines) expect(line).not.toMatch(/[A-Za-z]/)
   })

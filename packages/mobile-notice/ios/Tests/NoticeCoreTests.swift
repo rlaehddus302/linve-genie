@@ -17,14 +17,15 @@ private func vectorsJSON() throws -> [String: Any] {
 private func items(_ v: [String: Any], _ key: String) -> [[String: Any]] { v[key] as! [[String: Any]] }
 private func str(_ o: [String: Any], _ k: String) -> String? { o[k] as? String }
 private func int64(_ o: [String: Any], _ k: String) -> Int64 { (o[k] as! NSNumber).int64Value }
-private func candidate(_ o: [String: Any]) -> NoticeCandidate {
-    NoticeCandidate(kindHint: str(o, "kindHint")!, sourceType: str(o, "sourceType")!, source: str(o, "source")!, body: str(o, "body")!, receivedAtMs: int64(o, "receivedAtMs"), localId: str(o, "localId")!)
+private func message(_ o: [String: Any]) -> InboxMessage {
+    InboxMessage(id: str(o, "id")!, channel: str(o, "channel")!, from: str(o, "from"), title: str(o, "title"), text: str(o, "text")!, receivedAt: int64(o, "receivedAt"))
 }
+private func filtersOf(_ o: [String: Any], _ k: String) -> NoticeFilters? { o[k] is NSNull ? nil : NoticeFilter.parse(o[k]) }
 
 final class NoticeVectorsTests: XCTestCase {
-    func testLocalId() throws {
-        for v in items(try vectorsJSON(), "localId") {
-            XCTAssertEqual(NoticeExtractor.localIdOf(str(v, "packageName")!, str(v, "source")!, int64(v, "receivedAtMs"), str(v, "body")!), str(v, "localId"))
+    func testMessageId() throws {
+        for v in items(try vectorsJSON(), "messageId") {
+            XCTAssertEqual(NoticeExtractor.messageIdOf(str(v, "packageName")!, str(v, "from"), int64(v, "receivedAt"), str(v, "title"), str(v, "text")!), str(v, "id"), "\(v)")
         }
     }
     func testPhone() throws {
@@ -33,17 +34,20 @@ final class NoticeVectorsTests: XCTestCase {
     func testSender() throws {
         for v in items(try vectorsJSON(), "sender") { XCTAssertEqual(NoticeExtractor.senderOf(str(v, "name"), str(v, "uri")), str(v, "output"), "\(v)") }
     }
-    func testNormalize() throws {
-        for v in items(try vectorsJSON(), "normalize") { XCTAssertEqual(NoticeFilter.normalize(str(v, "input")!), str(v, "output"), "\(v)") }
-    }
     func testCut() throws {
         for v in items(try vectorsJSON(), "cut") { XCTAssertEqual(NoticeExtractor.cutUtf16(str(v, "input")!, (v["max"] as! NSNumber).intValue), str(v, "output"), "\(v)") }
     }
-    func testFilter() throws {
-        for v in items(try vectorsJSON(), "filter") {
-            let rules: [FilterRule]? = v["rules"] is NSNull ? NoticeFilter.defaultRules : NoticeFilter.parse(String(data: try JSONSerialization.data(withJSONObject: v["rules"]!), encoding: .utf8)!)
-            XCTAssertNotNil(rules, "\(v)")
-            XCTAssertEqual(NoticeFilter.match(rules ?? [], kindHint: str(v, "kindHint")!, source: str(v, "source")!, body: str(v, "body")!), str(v, "rule"), "\(v)")
+    func testLowerAscii() throws {
+        for v in items(try vectorsJSON(), "lowerAscii") { XCTAssertEqual(NoticeFilter.lowerAscii(str(v, "input")!), str(v, "output"), "\(v)") }
+    }
+    func testSkip() throws {
+        for v in items(try vectorsJSON(), "skip") { XCTAssertEqual(NoticeFilter.skipWordIn(str(v, "text")!, filtersOf(v, "filters")), str(v, "word"), "\(v)") }
+    }
+    func testFilters() throws {
+        for v in items(try vectorsJSON(), "filters") {
+            let want = filtersOf(v, "output")
+            XCTAssertEqual(NoticeFilter.parse(v["input"] is NSNull ? nil : v["input"]), want, "\(v)")
+            if let want { XCTAssertEqual(NoticeFilter.parseJson(NoticeFilter.serialize(want)), want) }
         }
     }
     func testClassify() throws {
@@ -52,25 +56,42 @@ final class NoticeVectorsTests: XCTestCase {
     func testShortcut() throws {
         for v in items(try vectorsJSON(), "shortcut") {
             let input = v["input"] as! [String: Any]
-            let got = NoticeExtractor.shortcutCandidate(sender: str(input, "sender")!, body: str(input, "body")!, kind: str(input, "kind")!, nowMs: int64(v, "nowMs"))
-            XCTAssertEqual(got, v["candidate"] is NSNull ? nil : candidate(v["candidate"] as! [String: Any]), "\(v)")
+            let got = NoticeExtractor.shortcutCandidate(sender: str(input, "sender")!, body: str(input, "body")!, nowMs: int64(v, "nowMs"))
+            XCTAssertEqual(got, v["candidate"] is NSNull ? nil : message(v["candidate"] as! [String: Any]), "\(v)")
         }
     }
-    func testEnvelope() throws {
-        let v = try vectorsJSON()["envelope"] as! [String: Any]
-        let json = NoticeContract.envelopeJson(candidate(v["candidate"] as! [String: Any]), sentAtMs: int64(v, "sentAtMs"), deviceId: str(v, "deviceId")!)
+    func testRequest() throws {
+        let v = try vectorsJSON()["request"] as! [String: Any]
+        let messages = (v["messages"] as! [[String: Any]]).map(message)
+        let json = NoticeContract.requestJson(device: str(v, "device")!, messages: messages)
         let got = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
-        let want = v["json"] as! [String: Any]
-        XCTAssertEqual(NSDictionary(dictionary: got), NSDictionary(dictionary: want))
-        // 칸 순서 = ENVELOPE_FIELDS
-        var last = json.startIndex
-        for field in NoticeContract.envelopeFields {
-            let r = json.range(of: "\"\(field)\":", range: last..<json.endIndex)
-            XCTAssertNotNil(r, field)
-            last = r?.upperBound ?? last
+        XCTAssertEqual(str(got, "device"), str(v, "device"))
+        let gotMessages = (got["messages"] as! [[String: Any]]).map(message)
+        XCTAssertEqual(gotMessages, messages)
+        for m in messages {
+            let one = NoticeContract.messageJson(m)
+            XCTAssertEqual(NoticeContract.message(fromJson: one), m)
+            // 칸 순서 = messageFields
+            var last = one.startIndex
+            for field in NoticeContract.messageFields {
+                let r = one.range(of: "\"\(field)\":", range: last..<one.endIndex)
+                XCTAssertNotNil(r, field)
+                last = r?.upperBound ?? last
+            }
+        }
+        XCTAssertTrue(json.contains("\\u2028"))
+    }
+    func testResponse() throws {
+        for v in items(try vectorsJSON(), "response") {
+            let got = NoticeContract.parseResponse(Data(str(v, "body")!.utf8))
+            XCTAssertEqual(got.results, v["results"] as! [String: String], "\(v)")
+            XCTAssertEqual(got.filters, filtersOf(v, "filters"), "\(v)")
         }
     }
-    func testEndpoint() {
+    func testDeviceNameAndEndpoint() {
+        XCTAssertEqual(NoticeContract.cleanDeviceName("  내 아이폰 15 "), "내 아이폰 15")
+        XCTAssertNil(NoticeContract.cleanDeviceName(String(repeating: "가", count: 31)))
+        XCTAssertNil(NoticeContract.cleanDeviceName("폰\n1"))
         XCTAssertTrue(NoticeContract.isAllowedEndpoint("https://livejjim.example/api/inbox/messages"))
         XCTAssertTrue(NoticeContract.isAllowedEndpoint("http://127.0.0.1:7760/api/inbox/messages"))
         XCTAssertFalse(NoticeContract.isAllowedEndpoint("http://livejjim.example/api/inbox/messages"))
@@ -84,15 +105,26 @@ private struct FixedKey: NoticeKeyProvider {
     func key() throws -> SymmetricKey { k }
 }
 
+private let filtersJSON = #"{"skipWords":["(광고)","인증"],"bankApps":[]}"#
+
+/// 가짜 서버: 요청의 모든 id를 SAVED로 답하고 filters를 붙인다
+private func okReply(_ body: Data) -> NoticeSender.Reply {
+    let request = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+    let ids = (request["messages"] as! [[String: Any]]).map { $0["id"] as! String }
+    let results = ids.map { #"{"id":"\#($0)","status":"SAVED"}"# }.joined(separator: ",")
+    return (200, Data(#"{"results":[\#(results)],"filters":\#(filtersJSON)}"#.utf8))
+}
+
 final class NoticeQueueTests: XCTestCase {
     private func makeStore() -> (NoticeStore, URL) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("notice-test-\(UUID().uuidString)")
         let defaults = UserDefaults(suiteName: "notice-test-\(UUID().uuidString)")!
         return (NoticeStore(directory: dir, defaults: defaults, keys: FixedKey()), dir)
     }
-    private func message(_ i: Int) -> NoticeCandidate {
-        NoticeExtractor.shortcutCandidate(sender: "010-1234-5678", body: "찜 \(i)번", kind: "sms", nowMs: 1_761_800_000_000 + Int64(i) * 120_000)!
+    private func message(_ i: Int) -> InboxMessage {
+        NoticeExtractor.shortcutCandidate(sender: "010-1234-5678", body: "찜 \(i)번", nowMs: 1_761_800_000_000 + Int64(i) * 120_000)!
     }
+    private let config = TokenConfig(token: "abcdefghijklmnop1234", endpoint: "https://x.example/api/inbox/messages", deviceName: "내 아이폰")
 
     func testQueueIsEncryptedAndDeduped() throws {
         let (store, dir) = makeStore()
@@ -107,10 +139,18 @@ final class NoticeQueueTests: XCTestCase {
         XCTAssertEqual(store.read(store.pendingFiles()[0]), message(3))
     }
 
+    func testQueueKeepsNewest200() throws {
+        let (store, dir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for i in 1...203 { _ = store.enqueue(message(i), nowMs: Int64(i)) }
+        XCTAssertEqual(store.pendingCount, 200)
+        XCTAssertEqual(store.count("dropped"), 3)
+        XCTAssertEqual(store.read(store.pendingFiles()[0])?.text, "찜 4번")
+    }
+
     func testTokenStoredEncrypted() throws {
         let (store, dir) = makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let config = TokenConfig(token: "abcdefghijklmnop1234", endpoint: "https://x.example/api/inbox/messages", deviceId: "phone-a")
         try store.setToken(config)
         XCTAssertEqual(store.token(), config)
         XCTAssertNil(try Data(contentsOf: dir.appendingPathComponent("token.bin")).range(of: Data("abcdefghijklmnop1234".utf8)))
@@ -118,36 +158,77 @@ final class NoticeQueueTests: XCTestCase {
         XCTAssertFalse(store.hasToken)
     }
 
-    func testDrainHandlesServerAnswers() async throws {
+    func testDrainBatchesAndStoresFilters() async throws {
         let (store, dir) = makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try store.setToken(TokenConfig(token: "abcdefghijklmnop1234", endpoint: "https://x.example/api/inbox/messages", deviceId: "phone-a"))
-        for i in 1...4 { XCTAssertEqual(store.enqueue(message(i), nowMs: Int64(i)), .queued) }
-        var bodies: [String] = []
-        var answers: [Int?] = [200, 409, 422, nil]
+        try store.setToken(config)
+        for i in 1...23 { XCTAssertEqual(store.enqueue(message(i), nowMs: Int64(i)), .queued) }
+        var sizes: [Int] = []
         let sender = NoticeSender(store: store) { request, body in
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer abcdefghijklmnop1234")
             XCTAssertEqual(request.url?.path, "/api/inbox/messages")
-            bodies.append(String(data: body, encoding: .utf8)!)
-            return answers.removeFirst()
+            let o = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+            XCTAssertEqual(o["device"] as? String, "내 아이폰")
+            sizes.append((o["messages"] as! [Any]).count)
+            return okReply(body)
         }
         let result = await sender.drain()
-        XCTAssertEqual(result, DrainResult(sent: 1, pending: 1, stoppedBy: "NETWORK"))
-        XCTAssertEqual(bodies.count, 4)
-        XCTAssertEqual(store.count("sent"), 1)
+        XCTAssertEqual(result, DrainResult(sent: 23, pending: 0, stoppedBy: nil))
+        XCTAssertEqual(sizes, [20, 3])
+        XCTAssertEqual(store.filters(), NoticeFilters(skipWords: ["(광고)", "인증"], bankApps: []))
+    }
+
+    func testRetryKeepsSameIdAnd429Waits() async throws {
+        let (store, dir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try store.setToken(config)
+        XCTAssertEqual(store.enqueue(message(1), nowMs: 1), .queued)
+        var ids: [String] = []
+        var answers: [Int?] = [nil, 503, 429]
+        var clock: Int64 = 1_000
+        let sender = NoticeSender(store: store) { _, body in
+            let o = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+            ids.append(contentsOf: (o["messages"] as! [[String: Any]]).map { $0["id"] as! String })
+            if answers.isEmpty { return okReply(body) }
+            return (answers.removeFirst(), Data())
+        }
+        let first = await sender.drain(nowMs: { clock })
+        XCTAssertEqual(first.stoppedBy, "NETWORK")
+        let second = await sender.drain(nowMs: { clock })
+        XCTAssertEqual(second.stoppedBy, "SERVER")
+        let third = await sender.drain(nowMs: { clock })
+        XCTAssertEqual(third.stoppedBy, "BUSY")
+        clock += 59_999
+        let early = await sender.drain(nowMs: { clock })
+        XCTAssertEqual(early, DrainResult(sent: 0, pending: 1, stoppedBy: "BUSY"))
+        XCTAssertEqual(ids.count, 3)
+        clock += 1
+        let done = await sender.drain(nowMs: { clock })
+        XCTAssertEqual(done, DrainResult(sent: 1, pending: 0, stoppedBy: nil))
+        XCTAssertEqual(Set(ids).count, 1, "같은 id로 다시 보낸다")
+    }
+
+    func testBadRequestIsolatesOne() async throws {
+        let (store, dir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try store.setToken(config)
+        for i in 1...3 { _ = store.enqueue(message(i), nowMs: Int64(i)) }
+        let sender = NoticeSender(store: store) { _, body in
+            let o = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+            let texts = (o["messages"] as! [[String: Any]]).map { $0["text"] as! String }
+            return texts.contains("찜 2번") ? (400, Data()) : okReply(body)
+        }
+        let result = await sender.drain()
+        XCTAssertEqual(result, DrainResult(sent: 2, pending: 0, stoppedBy: nil))
         XCTAssertEqual(store.count("rejected"), 1)
-        // 연결 실패한 한 건은 남아 있고, 다음에 보내면 나간다
-        answers = [200]
-        let again = await sender.drain()
-        XCTAssertEqual(again, DrainResult(sent: 1, pending: 0, stoppedBy: nil))
     }
 
     func testTokenRejectedStopsAndKeepsQueue() async throws {
         let (store, dir) = makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try store.setToken(TokenConfig(token: "abcdefghijklmnop1234", endpoint: "https://x.example/api/inbox/messages", deviceId: "phone-a"))
+        try store.setToken(config)
         XCTAssertEqual(store.enqueue(message(1), nowMs: 1), .queued)
-        let sender = NoticeSender(store: store) { _, _ in 401 }
+        let sender = NoticeSender(store: store) { _, _ in (401, Data()) }
         let result = await sender.drain()
         XCTAssertEqual(result, DrainResult(sent: 0, pending: 1, stoppedBy: "TOKEN"))
         XCTAssertTrue(store.isTokenRejected)
@@ -155,15 +236,32 @@ final class NoticeQueueTests: XCTestCase {
         XCTAssertEqual(blocked.stoppedBy, "TOKEN")
     }
 
+    func testEmptyQueueFetchesFilters() async throws {
+        let (store, dir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try store.setToken(config)
+        var bodies: [String] = []
+        let sender = NoticeSender(store: store) { _, body in bodies.append(String(data: body, encoding: .utf8)!); return okReply(body) }
+        _ = await sender.drain()
+        XCTAssertEqual(bodies, [#"{"device":"내 아이폰","messages":[]}"#])
+        XCTAssertNotNil(store.filters())
+        _ = await sender.drain()
+        XCTAssertEqual(bodies.count, 1, "목록이 있으면 빈 대기열로 다시 묻지 않는다")
+        _ = await sender.drain(fetchFilters: true)
+        XCTAssertEqual(bodies.count, 2)
+    }
+
     func testServiceFiltersAndRespectsOffSwitch() async throws {
         let (store, dir) = makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let service = NoticeService(store: store, sender: NoticeSender(store: store) { _, _ in 200 })
+        let service = NoticeService(store: store, sender: NoticeSender(store: store) { _, body in okReply(body) })
         let off = await service.receive(sender: "010-1234-5678", body: "찜 3번")
         XCTAssertEqual(off, .off)
         store.setEnabled(true, nowMs: 1)
-        let ad = await service.receive(sender: "15880000", body: "(광고) 할인 무료수신거부")
+        let ad = await service.receive(sender: "15880000", body: "[Web발신] 결제 승인")
         XCTAssertEqual(ad, .filtered)
+        let otp = await service.receive(sender: "15880000", body: "인증번호 123456")
+        XCTAssertEqual(otp, .filtered)
         XCTAssertEqual(store.pendingCount, 0)
         let blank = await service.receive(sender: "010", body: "   ")
         XCTAssertEqual(blank, .empty)

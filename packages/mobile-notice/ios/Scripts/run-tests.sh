@@ -7,13 +7,17 @@ mkdir -p "$OUT"
 cat > "$OUT/main.swift" <<'SW'
 import Foundation
 let vectors = NoticeVectorsTests()
-for run in [vectors.testLocalId, vectors.testPhone, vectors.testSender, vectors.testNormalize, vectors.testCut, vectors.testFilter, vectors.testClassify, vectors.testShortcut, vectors.testEnvelope] { try run() }
-vectors.testEndpoint()
+for run in [vectors.testMessageId, vectors.testPhone, vectors.testSender, vectors.testCut, vectors.testLowerAscii, vectors.testSkip, vectors.testFilters, vectors.testClassify, vectors.testShortcut, vectors.testRequest, vectors.testResponse] { try run() }
+vectors.testDeviceNameAndEndpoint()
 let queue = NoticeQueueTests()
 try queue.testQueueIsEncryptedAndDeduped()
+try queue.testQueueKeepsNewest200()
 try queue.testTokenStoredEncrypted()
-try await queue.testDrainHandlesServerAnswers()
+try await queue.testDrainBatchesAndStoresFilters()
+try await queue.testRetryKeepsSameIdAnd429Waits()
+try await queue.testBadRequestIsolatesOne()
 try await queue.testTokenRejectedStopsAndKeepsQueue()
+try await queue.testEmptyQueueFetchesFilters()
 try await queue.testServiceFiltersAndRespectsOffSwitch()
 print(shimFailures == 0 ? "통과: 확인 \(shimChecks)개" : "실패 \(shimFailures)개 / 확인 \(shimChecks)개")
 exit(shimFailures == 0 ? 0 : 1)

@@ -1,4 +1,4 @@
-// 모듈과 앱 동작(App Intent)이 함께 쓰는 한 곳 — 문자 한 건을 거르고, 암호화 대기열에 넣고, 보낸다.
+// 모듈과 앱 동작(App Intent)이 함께 쓰는 한 곳 — 문자 한 건을 거르고(서버 skipWords, 받기 전엔 R-26 3 사본), 암호화 대기열에 넣고, 보낸다.
 import Foundation
 
 public final class NoticeService {
@@ -15,12 +15,12 @@ public final class NoticeService {
 
     public enum Outcome: Equatable { case off, empty, filtered, duplicate, dropped, queued(sentNow: Int, pending: Int) }
 
-    /// 단축어 동작이 넘긴 문자 한 건. 꺼져 있으면 아무것도 하지 않는다
+    /// 단축어 동작이 넘긴 문자 한 건(channel SMS). 꺼져 있으면 아무것도 하지 않는다
     @discardableResult
-    public func receive(sender senderName: String, body: String, kind: String = "sms", nowMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) async -> Outcome {
+    public func receive(sender senderName: String, body: String, nowMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) async -> Outcome {
         guard store.isEnabled else { return .off }
-        guard let candidate = NoticeExtractor.shortcutCandidate(sender: senderName, body: body, kind: kind == "bank" ? "bank" : "sms", nowMs: nowMs) else { return .empty }
-        if NoticeFilter.match(store.rules(), kindHint: candidate.kindHint, source: candidate.source, body: candidate.body) != nil {
+        guard let candidate = NoticeExtractor.shortcutCandidate(sender: senderName, body: body, nowMs: nowMs) else { return .empty }
+        if NoticeFilter.skipWordIn(candidate.text, store.filters()) != nil {
             store.bump("filtered")
             onChange?()
             return .filtered

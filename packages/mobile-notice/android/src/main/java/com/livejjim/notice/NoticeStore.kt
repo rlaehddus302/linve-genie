@@ -1,9 +1,10 @@
-// 문자찜·입금 알림 받기의 기기 저장 (SMS3).
-// - 대기열: 알림 한 건 = 파일 하나, 안드로이드 Keystore AES-256-GCM으로 암호화(전화번호·본문이 평문으로 남지 않는다).
-//   noBackupFilesDir에 두어 클라우드 백업에 실리지 않는다. 파일 이름 = 받은 시각(15자리) + localId → 이름 순서 = 받은 차례.
-// - 기기 토큰·보낼 곳: 같은 키로 암호화한 파일 하나(토큰은 로그·설정 글에 남기지 않는다).
-// - 본 열쇠(localId): 같은 알림 두 번 막기 — 최근 5,000개를 noBackup 파일에 둔다(지문이라 비밀이 아니다).
-// - 켬/끔·은행 앱·거르기 규칙·건수: SharedPreferences (비밀 없음).
+// 휴대폰 알림 받기의 기기 저장 (SMS3, SPEC ORD-13 C-02·C-03·C-07, AC-SMS3-27).
+// - 대기열: 메시지 한 건 = 파일 하나, 안드로이드 Keystore AES-256-GCM으로 암호화(전화번호·본문이 평문으로 남지 않는다).
+//   noBackupFilesDir에 두어 클라우드 백업에 실리지 않는다. 파일 이름 = 받은 시각(15자리) + id → 이름 순서 = 받은 차례.
+//   최대 200건 — 넘으면 오래된 것부터 버리고 개수만 센다. 같은 id로 다시 보낸다.
+// - 받기 토큰·보낼 곳·기기 이름: 같은 키로 암호화한 파일 하나(토큰은 로그·설정 글에 남기지 않는다).
+// - 본 id: 같은 알림 두 번 막기 — 최근 5,000개를 noBackup 파일에 둔다(지문이라 비밀이 아니다).
+// - 켬/끔·서버 filters(skipWords·bankApps — 비밀 아님)·건수·429 기다림: SharedPreferences.
 // 재부팅 뒤에도 모두 남아, 서비스가 다시 붙거나 WorkManager가 돌면 이어서 보낸다.
 package com.livejjim.notice
 
@@ -66,16 +67,16 @@ internal object NoticeCrypto {
   }
 }
 
-internal data class TokenConfig(val token: String, val endpoint: String, val deviceId: String)
+internal data class TokenConfig(val token: String, val endpoint: String, val deviceName: String)
 
 internal class NoticeStore private constructor(context: Context) {
   companion object {
-    const val QUEUE_MAX = 5_000
+    const val QUEUE_MAX = NoticeContract.QUEUE_MAX
     const val SEEN_MAX = 5_000
     private const val PREFS = "livejjim_notice"
     private const val PURPOSE_QUEUE = "livejjim-notice-queue"
     private const val PURPOSE_TOKEN = "livejjim-notice-token"
-    val COUNTERS = listOf("sent", "filtered", "duplicates", "rejected", "dropped")
+    val COUNTERS = listOf("sent", "ignored", "filtered", "duplicates", "rejected", "dropped")
 
     @Volatile private var instance: NoticeStore? = null
     fun get(context: Context): NoticeStore =
@@ -89,8 +90,8 @@ internal class NoticeStore private constructor(context: Context) {
   private val tokenFile = File(dir, "token.bin")
   private val lock = Any()
   private var seen: LinkedHashSet<String>? = null
-  @Volatile private var allowed: Set<String>? = null
-  @Volatile private var rulesCache: List<FilterRule>? = null
+  @Volatile private var filtersCache: NoticeFilters? = null
+  @Volatile private var filtersLoaded = false
 
   /** 시스템이 알림 읽기 서비스를 붙였는가 (서비스와 모듈이 같은 프로세스) */
   @Volatile var connected: Boolean = false
@@ -104,39 +105,25 @@ internal class NoticeStore private constructor(context: Context) {
     editor.apply()
   }
 
-  // ── 허용한 앱 ──
-  fun bankPackages(): List<String> {
-    val text = prefs.getString("bankPackages", null) ?: return emptyList()
-    return try {
-      val array = JSONArray(text)
-      (0 until array.length()).mapNotNull { array.opt(it) as? String }
-    } catch (_: Exception) {
-      emptyList()
-    }
+  // ── 서버 filters (C-03) ──
+  /** 저장한 목록. 받기 전이면 null — 문자만 보낸다 */
+  fun filters(): NoticeFilters? {
+    if (filtersLoaded) return filtersCache
+    val parsed = prefs.getString("filters", null)?.let { NoticeFilter.parseJson(it) }
+    filtersCache = parsed
+    filtersLoaded = true
+    return parsed
   }
-  fun setBankPackages(packages: List<String>) {
-    prefs.edit().putString("bankPackages", JSONArray(packages).toString()).apply()
-    allowed = null
-  }
-  /** 패키지 이름만 본다 — 허용 밖이면 알림 내용을 열지 않는다 */
-  fun isAllowed(packageName: String): Boolean {
-    val set = allowed ?: (NoticeExtractor.SMS_PACKAGES + bankPackages()).toSet().also { allowed = it }
-    return set.contains(packageName)
+  fun setFilters(filters: NoticeFilters) {
+    prefs.edit().putString("filters", NoticeFilter.serialize(filters)).apply()
+    filtersCache = filters
+    filtersLoaded = true
   }
 
-  // ── 거르기 규칙 ──
-  fun rules(): List<FilterRule> {
-    rulesCache?.let { return it }
-    val json = prefs.getString("rulesJson", null)
-    val parsed = if (json == null) null else NoticeFilter.parse(json)
-    return (parsed ?: NoticeFilter.DEFAULT_RULES).also { rulesCache = it }
-  }
-  fun serverRules(): Boolean = prefs.getString("rulesJson", null)?.let { NoticeFilter.parse(it) } != null
-  /** 빈 글·틀린 글이면 기본 규칙으로 */
-  fun setRulesJson(json: String) {
-    val parsed = if (json.isEmpty()) null else NoticeFilter.parse(json)
-    if (parsed == null) prefs.edit().remove("rulesJson").apply() else prefs.edit().putString("rulesJson", json).apply()
-    rulesCache = null
+  // ── 429 기다림 ──
+  fun notBeforeMs(): Long = prefs.getLong("notBeforeMs", 0L)
+  fun setNotBeforeMs(value: Long) {
+    prefs.edit().putLong("notBeforeMs", value).apply()
   }
 
   // ── 기기 토큰 ──
@@ -147,7 +134,7 @@ internal class NoticeStore private constructor(context: Context) {
       val plain = NoticeCrypto.decrypt(tokenFile.readBytes(), PURPOSE_TOKEN) ?: return null
       return try {
         val o = JSONObject(String(plain, Charsets.UTF_8))
-        TokenConfig(o.getString("token"), o.getString("endpoint"), o.getString("deviceId"))
+        TokenConfig(o.getString("token"), o.getString("endpoint"), o.getString("deviceName"))
       } catch (_: Exception) {
         null
       }
@@ -159,10 +146,10 @@ internal class NoticeStore private constructor(context: Context) {
         tokenFile.delete()
       } else {
         dir.mkdirs()
-        val plain = JSONObject().put("token", config.token).put("endpoint", config.endpoint).put("deviceId", config.deviceId).toString()
+        val plain = JSONObject().put("token", config.token).put("endpoint", config.endpoint).put("deviceName", config.deviceName).toString()
         writeAtomic(tokenFile, NoticeCrypto.encrypt(plain.toByteArray(Charsets.UTF_8), PURPOSE_TOKEN))
       }
-      prefs.edit().putBoolean("tokenRejected", false).apply()
+      prefs.edit().putBoolean("tokenRejected", false).putLong("notBeforeMs", 0L).apply()
       if (lastError() == "TOKEN") setLastError(null)
     }
   }
@@ -185,25 +172,31 @@ internal class NoticeStore private constructor(context: Context) {
   }
 
   // ── 대기열 ──
-  /** 두 번 막기·넘침 검사 뒤 암호화해 넣는다: queued · duplicate · dropped */
-  fun enqueue(candidate: NoticeCandidate, nowMs: Long): String {
+  /** 두 번 막기 뒤 암호화해 넣는다: queued · duplicate · dropped(넣었지만 200건이 넘어 이것이 가장 오래돼 버려짐) */
+  fun enqueue(message: InboxMessage, nowMs: Long): String {
     synchronized(lock) {
       val seenSet = loadSeen()
-      if (seenSet.contains(candidate.localId)) {
+      if (seenSet.contains(message.id)) {
         bump("duplicates")
         return "duplicate"
       }
       queueDir.mkdirs()
-      if ((queueDir.list()?.size ?: 0) >= QUEUE_MAX) {
-        bump("dropped")
-        return "dropped"
-      }
-      val name = "${candidate.receivedAtMs.coerceAtLeast(0L).toString().padStart(15, '0')}-${candidate.localId}.q"
-      val sealed = NoticeCrypto.encrypt(NoticeContract.candidateJson(candidate).toByteArray(Charsets.UTF_8), PURPOSE_QUEUE)
+      val name = "${message.receivedAt.coerceAtLeast(0L).toString().padStart(15, '0')}-${message.id}.q"
+      val sealed = NoticeCrypto.encrypt(NoticeContract.messageJson(message).toByteArray(Charsets.UTF_8), PURPOSE_QUEUE)
       writeAtomic(File(queueDir, name), sealed)
-      rememberSeen(seenSet, candidate.localId)
+      rememberSeen(seenSet, message.id)
       prefs.edit().putLong("lastQueuedAtMs", nowMs).apply()
-      return "queued"
+      // 200건이 넘으면 오래된 것(이름 순서 앞)부터 버리고 개수만 기억한다
+      var outcome = "queued"
+      val files = pendingFiles()
+      if (files.size > QUEUE_MAX) {
+        for (old in files.take(files.size - QUEUE_MAX)) {
+          if (old.name == name) outcome = "dropped"
+          old.delete()
+          bump("dropped")
+        }
+      }
+      return outcome
     }
   }
 
@@ -212,27 +205,18 @@ internal class NoticeStore private constructor(context: Context) {
   fun pendingCount(): Int = queueDir.list { _, name -> name.endsWith(".q") }?.size ?: 0
 
   /** 풀지 못한 파일은 지우고 넘침 건수로 센다(키가 바뀐 경우 — 다시 보낼 수 없다) */
-  fun read(file: File): NoticeCandidate? {
+  fun read(file: File): InboxMessage? {
     val plain = try {
       NoticeCrypto.decrypt(file.readBytes(), PURPOSE_QUEUE)
     } catch (_: Exception) {
       null
     }
-    if (plain == null) {
-      if (file.exists()) {
-        file.delete()
-        bump("dropped")
-      }
-      return null
-    }
-    return try {
-      val o = JSONObject(String(plain, Charsets.UTF_8))
-      NoticeCandidate(o.getString("kindHint"), o.getString("sourceType"), o.getString("source"), o.getString("body"), o.getLong("receivedAtMs"), o.getString("localId"))
-    } catch (_: Exception) {
+    val message = plain?.let { NoticeContract.messageOf(String(it, Charsets.UTF_8)) }
+    if (message == null && file.exists()) {
       file.delete()
       bump("dropped")
-      null
     }
+    return message
   }
 
   fun remove(file: File) {
@@ -279,14 +263,15 @@ internal class NoticeStore private constructor(context: Context) {
       "hasToken" to hasToken(),
       "tokenRejected" to isTokenRejected(),
       "pending" to pendingCount(),
-      "bankPackages" to bankPackages(),
-      "serverRules" to serverRules(),
+      "bankApps" to (filters()?.bankApps ?: emptyList()),
+      "hasFilters" to (filters() != null),
     )
     for (counter in COUNTERS) map[counter] = count(counter).toDouble()
     prefs.getLong("lastQueuedAtMs", 0L).takeIf { it > 0 }?.let { map["lastQueuedAtMs"] = it.toDouble() }
     prefs.getLong("lastSentAtMs", 0L).takeIf { it > 0 }?.let { map["lastSentAtMs"] = it.toDouble() }
     lastError()?.let { map["lastError"] = it }
     NoticeAccess.batteryOptimized(context)?.let { map["batteryOptimized"] = it }
+    NoticeAccess.defaultSmsPackage(context)?.let { map["smsApp"] = it }
     return map
   }
 }

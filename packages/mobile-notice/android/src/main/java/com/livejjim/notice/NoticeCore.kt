@@ -1,13 +1,17 @@
-// 알림 → 봉투 후보 · 기기 안 거르기 (SMS3) — 안드로이드 API를 쓰지 않는 순수 Kotlin(JVM 단위 시험이 그대로 돈다).
-// TS 본(src/extract.ts·src/rules.ts)과 같은 규칙이다. 공용 사례 test-vectors/notice-vectors.json을 세 쪽이 같이 읽는다.
-// 1) 묶음 요약·계속 떠 있는 알림은 버린다.
-// 2) 메시지 스타일이면 메시지마다 시각·보낸 사람·본문. 내가 보낸 메시지는 뺀다.
-// 3) 아니면 TITLE(보낸 사람·은행 알림 제목) / BIG_TEXT(없으면 TEXT)로 한 건.
-// 4) 판매자가 켜기 1시간 전보다 오래된 메시지는 보내지 않는다(대화 기록이 통째로 가지 않게).
+// 알림 → 보낼 메시지 · 읽을 앱 · 기기에서 먼저 거르기 (SPEC ORD-13 C-01·C-03·C-04, SMS3) — 안드로이드 API를 쓰지 않는 순수 Kotlin(JVM 단위 시험이 그대로 돈다).
+// TS 본(src/extract.ts·src/packages.ts·src/rules.ts)과 같은 규칙이다. 공용 사례 test-vectors/notice-vectors.json을 세 쪽이 같이 읽는다.
+// 1) 읽을 앱: 기본 문자 앱(모르면 흔한 문자 앱 둘) → SMS, 서버 filters.bankApps → APP, 그 밖·메신저 → 내용을 열지 않는다. 목록을 받기 전에는 문자만.
+// 2) 묶음 요약·계속 떠 있는 알림은 버린다.
+// 3) 메시지 스타일이면 메시지마다 시각·보낸 곳·본문. 내가 보낸 메시지는 뺀다.
+// 4) 아니면 문자는 TITLE(보낸 곳) / BIG_TEXT(없으면 TEXT)로 한 건, 앱 알림은 title = TITLE, text = BIG_TEXT(없으면 TEXT).
+// 5) 판매자가 켜기 1시간 전보다 오래된 메시지는 보내지 않는다(대화 기록이 통째로 가지 않게).
+// 6) 문자는 skipWords(영문 대소문자 무시, 들어 있나)가 든 것을 보내지 않는다. 목록 전에는 R-26 3 사본.
 package com.livejjim.notice
 
 import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class RawMessage(
   val timestampMs: Long,
@@ -30,21 +34,15 @@ data class RawNotice(
   val ongoing: Boolean,
 )
 
-data class NoticeCandidate(
-  val kindHint: String,
-  val sourceType: String,
-  val source: String,
-  val body: String,
-  val receivedAtMs: Long,
-  val localId: String,
-)
+data class ExtractResult(val candidates: List<InboxMessage>, val skipped: String?, val tooOld: Int)
 
-data class ExtractResult(val candidates: List<NoticeCandidate>, val skipped: String?, val tooOld: Int)
+/** 서버가 주는 거르기 목록 (C-04 응답 filters) */
+data class NoticeFilters(val skipWords: List<String>, val bankApps: List<String>)
 
 object NoticeExtractor {
-  /** 문자 앱 — 삼성 메시지·구글 메시지 (src/packages.ts SMS_PACKAGES와 같다) */
+  /** 기본 문자 앱을 모를 때 대신 보는 문자 앱 — 삼성 메시지·구글 메시지 (src/packages.ts SMS_PACKAGES와 같다) */
   val SMS_PACKAGES = listOf("com.samsung.android.messaging", "com.google.android.apps.messaging")
-  /** 개인 대화가 섞이는 메신저 — 은행 앱으로 고를 수 없다 (src/packages.ts BLOCKED_PACKAGES와 같다) */
+  /** 목록에 있어도 읽지 않는 메신저 (src/packages.ts BLOCKED_PACKAGES와 같다) */
   val BLOCKED_PACKAGES = listOf(
     "com.kakao.talk",
     "jp.naver.line.android",
@@ -55,15 +53,34 @@ object NoticeExtractor {
     "com.discord",
     "com.nhn.android.band",
   )
-  val PACKAGE_NAME = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
-  const val BANK_PACKAGES_MAX = 20
   const val HISTORY_GRACE_MS = 60L * 60L * 1000L
-  const val UNKNOWN_SENDER = "모름"
   const val IOS_SHORTCUT_SOURCE_APP = "ios.shortcut.messages"
 
-  fun isSmsPackage(packageName: String): Boolean = SMS_PACKAGES.contains(packageName)
+  /** 문자로 볼 앱들: 기본 문자 앱이 있으면 그것 하나, 모르면 SMS_PACKAGES */
+  fun smsPackagesFor(defaultSmsPackage: String?): List<String> =
+    if (defaultSmsPackage.isNullOrEmpty()) SMS_PACKAGES else listOf(defaultSmsPackage)
 
-  fun clean(value: String?): String = (value ?: "").replace("\r\n", "\n").replace('\r', '\n').trim()
+  /** 패키지 이름만 보고 정한다: "SMS" · "APP" · null(열지 않음) */
+  fun channelForPackage(packageName: String, defaultSmsPackage: String?, filters: NoticeFilters?): String? {
+    if (BLOCKED_PACKAGES.contains(packageName)) return null
+    if (smsPackagesFor(defaultSmsPackage).contains(packageName)) return "SMS"
+    if (filters != null && filters.bankApps.contains(packageName)) return "APP"
+    return null
+  }
+
+  /** JS의 \s와 같은 빈칸 */
+  fun isJsSpace(c: Char): Boolean = c == '﻿' || Character.isSpaceChar(c) || (Character.isWhitespace(c) && c.code !in 0x1C..0x1F)
+
+  /** JS trim과 같은 앞뒤 빈칸 빼기 */
+  fun trimJs(value: String): String {
+    var start = 0
+    var end = value.length
+    while (start < end && isJsSpace(value[start])) start++
+    while (end > start && isJsSpace(value[end - 1])) end--
+    return value.substring(start, end)
+  }
+
+  fun clean(value: String?): String = trimJs((value ?: "").replace("\r\n", "\n").replace('\r', '\n'))
 
   /** UTF-16 단위로 자른다. 짝 대리 문자 가운데서 잘리면 앞쪽 반을 뺀다 */
   fun cutUtf16(value: String, max: Int): String {
@@ -74,7 +91,7 @@ object NoticeExtractor {
 
   /** 전화번호처럼 생긴 글 → 숫자만(앞 + 유지). 아니면 null */
   fun phoneDigits(value: String): String? {
-    val trimmed = value.trim()
+    val trimmed = trimJs(value)
     if (trimmed.isEmpty() || !trimmed.all { it == '+' || it == ' ' || it == '(' || it == ')' || it == '-' || it == '.' || it in '0'..'9' }) return null
     if (trimmed.indexOf('+', 1) >= 0) return null
     val digits = trimmed.filter { it in '0'..'9' }
@@ -100,178 +117,145 @@ object NoticeExtractor {
         i += Character.charCount(cp)
       }
     }
-    val bytes = out.toByteArray()
     val decoder = Charsets.UTF_8.newDecoder()
     return try {
-      decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+      decoder.decode(java.nio.ByteBuffer.wrap(out.toByteArray())).toString()
     } catch (_: java.nio.charset.CharacterCodingException) {
       null
     }
   }
 
-  /** 보낸 사람: tel: 주소 → 번호, 번호 모양 이름 → 숫자, 아니면 이름 그대로 */
-  fun senderOf(name: String?, uri: String?): String {
+  /** 보낸 곳: tel: 주소 → 번호, 번호 모양 이름 → 숫자, 아니면 이름 그대로. 없으면 null */
+  fun senderOf(name: String?, uri: String?): String? {
     if (uri != null && uri.lowercase().startsWith("tel:")) {
       val raw = uri.substring(4)
       val decoded = percentDecode(raw) ?: raw
       phoneDigits(decoded)?.let { return it }
     }
     val n = clean(name)
-    if (n.isEmpty()) return UNKNOWN_SENDER
-    return phoneDigits(n) ?: cutUtf16(n, NoticeContract.SOURCE_MAX_CHARS)
+    if (n.isEmpty()) return null
+    return phoneDigits(n) ?: cutUtf16(n, NoticeContract.FROM_MAX_CHARS)
   }
 
-  /** 같은 알림 두 번 막기 열쇠: SHA-256(패키지 ␟ 보낸 곳 ␟ 받은 시각 ␟ 본문) 앞 16바이트 16진 */
-  fun localIdOf(packageName: String, source: String, receivedAtMs: Long, body: String): String {
-    val digest = MessageDigest.getInstance("SHA-256").digest("$packageName\u001f$source\u001f$receivedAtMs\u001f$body".toByteArray(Charsets.UTF_8))
+  /** 메시지 id: SHA-256(패키지 ␟ 보낸 곳 ␟ 받은 시각 ␟ 제목 ␟ 본문) 앞 16바이트 16진. null 칸은 빈 글 */
+  fun messageIdOf(packageName: String, from: String?, receivedAt: Long, title: String?, text: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest("$packageName\u001f${from ?: ""}\u001f$receivedAt\u001f${title ?: ""}\u001f$text".toByteArray(Charsets.UTF_8))
     val sb = StringBuilder(32)
     for (i in 0 until 16) sb.append(String.format("%02x", digest[i].toInt() and 0xff))
     return sb.toString()
   }
 
-  private fun candidate(packageName: String, kindHint: String, source: String, body: String, receivedAtMs: Long): NoticeCandidate {
-    val sourceType = if (kindHint == "sms") "sms_number" else "app_package"
-    val finalSource = if (kindHint == "sms") source else packageName
-    val finalBody = cutUtf16(body, NoticeContract.BODY_MAX_CHARS)
-    return NoticeCandidate(kindHint, sourceType, finalSource, finalBody, receivedAtMs, localIdOf(packageName, finalSource, receivedAtMs, finalBody))
+  private fun message(packageName: String, channel: String, from: String?, title: String?, text: String, receivedAt: Long): InboxMessage {
+    val finalFrom = if (channel == "APP") packageName else from
+    val finalTitle = if (channel == "APP" && !title.isNullOrEmpty()) cutUtf16(title, NoticeContract.TITLE_MAX_CHARS) else null
+    val finalText = cutUtf16(text, NoticeContract.TEXT_MAX_CHARS)
+    return InboxMessage(messageIdOf(packageName, finalFrom, receivedAt, finalTitle, finalText), channel, finalFrom, finalTitle, finalText, receivedAt)
   }
 
   /** 아이폰 단축어와 같은 모양 (시험용 — 안드로이드는 쓰지 않는다) */
-  fun shortcutCandidate(sender: String, body: String, kind: String, nowMs: Long): NoticeCandidate? {
-    val cleaned = cutUtf16(clean(body), NoticeContract.BODY_MAX_CHARS)
-    if (cleaned.isEmpty()) return null
-    val source = senderOf(sender, null)
+  fun shortcutCandidate(sender: String, body: String, nowMs: Long): InboxMessage? {
+    val text = cutUtf16(clean(body), NoticeContract.TEXT_MAX_CHARS)
+    if (text.isEmpty()) return null
+    val from = senderOf(sender, null)
     val bucket = Math.floorDiv(nowMs, 60_000L) * 60_000L
-    return NoticeCandidate(kind, "sms_number", source, cleaned, nowMs, localIdOf(IOS_SHORTCUT_SOURCE_APP, source, bucket, cleaned))
+    return InboxMessage(messageIdOf(IOS_SHORTCUT_SOURCE_APP, from, bucket, null, text), "SMS", from, null, text, nowMs)
   }
 
-  /** 날것 알림 → 봉투 후보들. enabledAtMs = 판매자가 켠 시각 */
-  fun extract(raw: RawNotice, enabledAtMs: Long): ExtractResult {
+  /** 날것 알림 → 보낼 메시지들. channel = channelForPackage로 정한 것, enabledAtMs = 판매자가 켠 시각 */
+  fun extract(raw: RawNotice, channel: String, enabledAtMs: Long): ExtractResult {
     if (raw.groupSummary) return ExtractResult(emptyList(), "SUMMARY", 0)
     if (raw.ongoing) return ExtractResult(emptyList(), "ONGOING", 0)
-    val kindHint = if (isSmsPackage(raw.packageName)) "sms" else "bank"
     val oldest = enabledAtMs - HISTORY_GRACE_MS
-    val out = ArrayList<NoticeCandidate>()
+    val out = ArrayList<InboxMessage>()
     var tooOld = 0
 
     val messages = raw.messages
     if (messages != null && messages.isNotEmpty()) {
-      for (message in messages) {
-        if (message.fromUser) continue
-        val text = clean(message.text)
+      for (m in messages) {
+        if (m.fromUser) continue
+        val text = clean(m.text)
         if (text.isEmpty()) continue
-        val at = if (message.timestampMs > 0) message.timestampMs else if (raw.whenMs > 0) raw.whenMs else raw.postTimeMs
+        val at = if (m.timestampMs > 0) m.timestampMs else if (raw.whenMs > 0) raw.whenMs else raw.postTimeMs
         if (at < oldest) {
           tooOld++
           continue
         }
-        val source = if (kindHint == "sms") senderOf(message.senderName ?: raw.title, message.senderUri) else raw.packageName
-        out.add(candidate(raw.packageName, kindHint, source, text, at))
+        if (channel == "SMS") out.add(message(raw.packageName, "SMS", senderOf(m.senderName ?: raw.title, m.senderUri), null, text, at))
+        else out.add(message(raw.packageName, "APP", null, clean(raw.title), text, at))
       }
       return ExtractResult(out, if (out.isEmpty() && tooOld == 0) "EMPTY" else null, tooOld)
     }
 
     val title = clean(raw.title)
     val big = clean(raw.bigText)
-    val text = if (big.isNotEmpty()) big else clean(raw.text)
+    val body = if (big.isNotEmpty()) big else clean(raw.text)
     val at = if (raw.whenMs > 0) raw.whenMs else raw.postTimeMs
-    if (text.isEmpty() && (kindHint == "sms" || title.isEmpty())) return ExtractResult(emptyList(), "EMPTY", 0)
+    if (body.isEmpty() && (channel == "SMS" || title.isEmpty())) return ExtractResult(emptyList(), "EMPTY", 0)
     if (at < oldest) return ExtractResult(emptyList(), null, 1)
-    if (kindHint == "sms") {
-      out.add(candidate(raw.packageName, "sms", senderOf(title, null), text, at))
-    } else {
-      // 은행 알림은 제목에 금액·이름이 있을 때가 많다 — 제목과 본문을 한 줄씩 (본문이 제목으로 시작하면 본문만)
-      val body = when {
-        title.isEmpty() -> text
-        text.isEmpty() -> title
-        text.startsWith(title) -> text
-        else -> "$title\n$text"
-      }
-      out.add(candidate(raw.packageName, "bank", raw.packageName, body, at))
+    when {
+      channel == "SMS" -> out.add(message(raw.packageName, "SMS", senderOf(title, null), null, body, at))
+      // 제목만 있는 은행 알림 — 제목을 본문으로(같은 글을 두 칸에 싣지 않는다)
+      body.isEmpty() -> out.add(message(raw.packageName, "APP", null, null, title, at))
+      else -> out.add(message(raw.packageName, "APP", null, title, body, at))
     }
     return ExtractResult(out, null, 0)
   }
 }
 
-data class FilterRule(val id: String, val field: String, val op: String, val value: String, val kinds: List<String>?)
-
-/** 기기 안 거르기 — 인증번호·광고. 규칙 목록은 서버가 내려줄 자리(setFilterRules)만 있고, 없으면 기본 규칙 */
+/** 기기에서 먼저 거르기 — 서버 filters (src/rules.ts와 같다) */
 object NoticeFilter {
-  val DEFAULT_RULES = listOf(
-    FilterRule("otp-ko", "body", "contains", "인증번호", null),
-    FilterRule("otp-ko-code", "body", "contains", "인증코드", null),
-    FilterRule("otp-ko-confirm", "body", "contains", "확인코드", null),
-    FilterRule("otp-ko-auth", "body", "contains", "본인확인", null),
-    FilterRule("otp-en", "body", "contains", "verification code", null),
-    FilterRule("ad-mark", "body", "contains", "(광고)", null),
-    FilterRule("ad-optout", "body", "contains", "무료수신거부", null),
-    FilterRule("ad-optout-short", "body", "contains", "무료거부", null),
-  )
-  const val RULES_MAX = 200
-  const val VALUE_MAX = 100
-  private val RULE_ID = Regex("^[A-Za-z0-9_-]{1,64}$")
+  /** 목록을 받기 전 쓰는 거를 낱말 — DOMAIN_RULES R-26 3과 같은 목록 */
+  val DEFAULT_SKIP_WORDS = listOf("(광고)", "[광고]", "web발신", "국제발신", "해외발신", "인증", "승인", "결제", "택배")
+  const val SKIP_WORDS_MAX = 200
+  const val SKIP_WORD_MAX_CHARS = 100
+  const val BANK_APPS_MAX = 100
+  val PACKAGE_NAME = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
 
-  /** 비교용 글: 모든 빈칸을 빼고 영문자만 소문자로 (빈칸 = JS의 \s와 같은 문자들) */
-  fun normalize(text: String): String {
+  /** 영문 대문자(A-Z)만 소문자로 */
+  fun lowerAscii(text: String): String {
     val sb = StringBuilder(text.length)
-    var i = 0
-    while (i < text.length) {
-      val cp = text.codePointAt(i)
-      i += Character.charCount(cp)
-      val space = cp == 0xFEFF || Character.isSpaceChar(cp) || (Character.isWhitespace(cp) && cp !in 0x1C..0x1F)
-      if (space) continue
-      if (cp in 'A'.code..'Z'.code) sb.append((cp + 32).toChar()) else sb.appendCodePoint(cp)
-    }
+    for (c in text) sb.append(if (c in 'A'..'Z') (c.code + 32).toChar() else c)
     return sb.toString()
   }
 
-  fun match(rules: List<FilterRule>, kindHint: String, source: String, body: String): String? {
-    val b = normalize(body)
-    val s = normalize(source)
-    for (rule in rules) {
-      if (rule.kinds != null && !rule.kinds.contains(kindHint)) continue
-      val needle = normalize(rule.value)
-      if (needle.isEmpty()) continue
-      val text = if (rule.field == "body") b else s
-      val hit = if (rule.op == "contains") text.contains(needle) else text.startsWith(needle)
-      if (hit) return rule.id
+  /** 문자 본문에 든 거를 낱말 (없으면 null). filters가 없으면 R-26 3 사본 */
+  fun skipWordIn(text: String, filters: NoticeFilters?): String? {
+    val haystack = lowerAscii(text)
+    for (word in filters?.skipWords ?: DEFAULT_SKIP_WORDS) {
+      val needle = lowerAscii(word)
+      if (needle.isNotEmpty() && haystack.contains(needle)) return word
     }
     return null
   }
 
-  /** 서버 규칙 JSON 배열 글 → 규칙. 하나라도 틀리면 null(기본 규칙을 쓴다) */
-  fun parse(json: String): List<FilterRule>? {
-    val array = try {
-      org.json.JSONArray(json)
-    } catch (_: Exception) {
-      return null
+  /** 서버 filters(JSONObject) 검사 — 하나라도 틀리면 null(전에 저장한 목록을 그대로 쓴다) */
+  fun parse(value: Any?): NoticeFilters? {
+    val o = value as? JSONObject ?: return null
+    val skip = o.opt("skipWords") as? JSONArray ?: return null
+    val apps = o.opt("bankApps") as? JSONArray ?: return null
+    if (skip.length() > SKIP_WORDS_MAX || apps.length() > BANK_APPS_MAX) return null
+    val words = ArrayList<String>()
+    for (i in 0 until skip.length()) {
+      val word = skip.opt(i) as? String ?: return null
+      if (word.isEmpty() || word.length > SKIP_WORD_MAX_CHARS) return null
+      if (!words.contains(word)) words.add(word)
     }
-    if (array.length() > RULES_MAX) return null
-    val out = ArrayList<FilterRule>()
-    for (i in 0 until array.length()) {
-      val item = array.optJSONObject(i) ?: return null
-      val id = item.opt("id") as? String ?: return null
-      val field = item.opt("field") as? String ?: return null
-      val op = item.opt("op") as? String ?: return null
-      val value = item.opt("value") as? String ?: return null
-      if (!RULE_ID.matches(id)) return null
-      if (field != "body" && field != "source") return null
-      if (op != "contains" && op != "startsWith") return null
-      if (normalize(value).isEmpty() || value.length > VALUE_MAX) return null
-      var kinds: List<String>? = null
-      if (item.has("kinds")) {
-        val k = item.optJSONArray("kinds") ?: return null
-        if (k.length() == 0) return null
-        val list = ArrayList<String>()
-        for (j in 0 until k.length()) {
-          val kind = k.opt(j) as? String ?: return null
-          if (kind != "sms" && kind != "bank") return null
-          if (!list.contains(kind)) list.add(kind)
-        }
-        kinds = list
-      }
-      out.add(FilterRule(id, field, op, value, kinds))
+    val bank = ArrayList<String>()
+    for (i in 0 until apps.length()) {
+      val app = apps.opt(i) as? String ?: return null
+      if (app.length > 150 || !PACKAGE_NAME.matches(app)) return null
+      if (!bank.contains(app)) bank.add(app)
     }
-    return out
+    return NoticeFilters(words, bank)
   }
+
+  /** 저장 글 → filters (틀리면 null) */
+  fun parseJson(json: String): NoticeFilters? = try {
+    parse(JSONObject(json))
+  } catch (_: Exception) {
+    null
+  }
+
+  fun serialize(filters: NoticeFilters): String =
+    "{\"skipWords\":[${filters.skipWords.joinToString(",") { NoticeContract.quote(it) }}],\"bankApps\":[${filters.bankApps.joinToString(",") { NoticeContract.quote(it) }}]}"
 }

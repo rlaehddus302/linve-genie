@@ -1,32 +1,36 @@
-// 서버 입구 약속(가정) — 주소·봉투 모양·토큰 모양. 약속이 나오면 이 시험과 contract.ts를 같이 맞춘다.
+// 서버 받는 입구 약속 (SPEC ORD-13 C-04) — 주소·요청 모양·한도·토큰 모양.
 import { describe, expect, it } from 'vitest'
 import {
-  DEVICE_ID_PATTERN,
+  DEVICE_NAME_MAX_CHARS,
   DEVICE_TOKEN_PATTERN,
-  ENVELOPE_FIELDS,
-  NOTICE_BODY_MAX_CHARS,
+  INBOX_BATCH_MAX,
+  INBOX_MESSAGE_FIELDS,
+  INBOX_REQUEST_FIELDS,
   NOTICE_CONTRACT_STATUS,
   NOTICE_INTAKE_PATH,
-  isNoticeEnvelope,
+  NOTICE_QUEUE_MAX,
+  NOTICE_TEXT_MAX_CHARS,
+  TOO_MANY_WAIT_MS,
+  cleanDeviceName,
+  isInboxMessage,
+  isInboxRequest,
   noticeIntakeUrl,
+  type InboxMessage,
 } from '../src/index.ts'
 
-const envelope = {
-  kindHint: 'sms',
-  sourceType: 'sms_number',
-  source: '01012345678',
-  body: '찜 3번',
-  receivedAtMs: 1_761_800_000_000,
-  sentAtMs: 1_761_800_000_500,
-  deviceId: 'phone-a',
-  localId: 'd914f7dd6f9f0a83bd9053d4a95960a3',
-}
+const message: InboxMessage = { id: 'a0220353186dd4a2e44dfafe4cb8eb18', channel: 'SMS', from: '01012345678', title: null, text: '찜 3번', receivedAt: 1_761_800_000_000 }
 
-describe('약속 상태', () => {
-  it('지금은 가정 — 봉투 칸 8개', () => {
-    expect(NOTICE_CONTRACT_STATUS).toBe('ASSUMED')
-    expect([...ENVELOPE_FIELDS]).toEqual(['kindHint', 'sourceType', 'source', 'body', 'receivedAtMs', 'sentAtMs', 'deviceId', 'localId'])
+describe('약속 상태·한도', () => {
+  it('스펙 C-04: 경로 하나, 칸, 한도', () => {
+    expect(NOTICE_CONTRACT_STATUS).toBe('SPEC')
     expect(NOTICE_INTAKE_PATH).toBe('/api/inbox/messages')
+    expect([...INBOX_REQUEST_FIELDS]).toEqual(['device', 'messages'])
+    expect([...INBOX_MESSAGE_FIELDS]).toEqual(['id', 'channel', 'from', 'title', 'text', 'receivedAt'])
+    expect(INBOX_BATCH_MAX).toBe(20)
+    expect(NOTICE_TEXT_MAX_CHARS).toBe(1_000)
+    expect(DEVICE_NAME_MAX_CHARS).toBe(30)
+    expect(TOO_MANY_WAIT_MS).toBe(60_000)
+    expect(NOTICE_QUEUE_MAX).toBe(200)
   })
 })
 
@@ -50,32 +54,48 @@ describe('입구 주소', () => {
   })
 })
 
-describe('봉투 모양', () => {
-  it('맞는 봉투', () => {
-    expect(isNoticeEnvelope(envelope)).toBe(true)
-    expect(isNoticeEnvelope({ ...envelope, kindHint: 'bank', sourceType: 'app_package', source: 'com.kbstar.kbbank' })).toBe(true)
+describe('요청 모양', () => {
+  it('맞는 메시지·요청 (0건 요청은 filters만 받기)', () => {
+    expect(isInboxMessage(message)).toBe(true)
+    expect(isInboxMessage({ ...message, from: null })).toBe(true)
+    expect(isInboxMessage({ ...message, channel: 'APP', from: 'com.kbstar.kbbank', title: '입금' })).toBe(true)
+    expect(isInboxRequest({ device: '내 갤럭시', messages: [message] })).toBe(true)
+    expect(isInboxRequest({ device: '내 갤럭시', messages: [] })).toBe(true)
   })
-  it('칸이 빠지거나 더 있으면 아니다', () => {
-    const { localId: _localId, ...missing } = envelope
-    expect(isNoticeEnvelope(missing)).toBe(false)
-    expect(isNoticeEnvelope({ ...envelope, phone: '010' })).toBe(false)
-  })
-  it('값이 틀리면 아니다', () => {
-    expect(isNoticeEnvelope({ ...envelope, kindHint: 'kakao' })).toBe(false)
-    expect(isNoticeEnvelope({ ...envelope, sourceType: 'number' })).toBe(false)
-    expect(isNoticeEnvelope({ ...envelope, source: '' })).toBe(false)
-    expect(isNoticeEnvelope({ ...envelope, body: '' })).toBe(false)
-    expect(isNoticeEnvelope({ ...envelope, body: 'x'.repeat(NOTICE_BODY_MAX_CHARS + 1) })).toBe(false)
-    expect(isNoticeEnvelope({ ...envelope, receivedAtMs: 1.5 })).toBe(false)
-    expect(isNoticeEnvelope({ ...envelope, sentAtMs: '1' })).toBe(false)
-    expect(isNoticeEnvelope({ ...envelope, deviceId: 'a b' })).toBe(false)
-    expect(isNoticeEnvelope({ ...envelope, localId: 'D914F7DD6F9F0A83BD9053D4A95960A3' })).toBe(false)
-    expect(isNoticeEnvelope(null)).toBe(false)
-    expect(isNoticeEnvelope('{}')).toBe(false)
+  it('칸이 빠지거나 더 있거나 값이 틀리면 아니다', () => {
+    const { id: _id, ...missing } = message
+    for (const bad of [
+      missing,
+      { ...message, phone: '010' },
+      { ...message, id: '' },
+      { ...message, id: 'x'.repeat(65) },
+      { ...message, channel: 'KAKAO' },
+      { ...message, from: '' },
+      { ...message, title: '문자에는 제목 없음' },
+      { ...message, text: '' },
+      { ...message, text: 'x'.repeat(NOTICE_TEXT_MAX_CHARS + 1) },
+      { ...message, receivedAt: 1.5 },
+      { ...message, receivedAt: '1761800000000' },
+      null,
+    ]) {
+      expect(isInboxMessage(bad), JSON.stringify(bad)?.slice(0, 60)).toBe(false)
+    }
+    expect(isInboxRequest({ device: '', messages: [] })).toBe(false)
+    expect(isInboxRequest({ device: 'x'.repeat(31), messages: [] })).toBe(false)
+    expect(isInboxRequest({ device: '폰', messages: Array.from({ length: 21 }, () => message) })).toBe(false)
+    expect(isInboxRequest({ device: '폰', messages: [], extra: 1 })).toBe(false)
   })
 })
 
-describe('토큰·기기 번호 모양', () => {
+describe('기기 이름·토큰 모양', () => {
+  it('기기 이름: 앞뒤 빈칸 빼고 1~30자, 제어 문자 없음', () => {
+    expect(cleanDeviceName('  내 갤럭시 S23 ')).toBe('내 갤럭시 S23')
+    expect(cleanDeviceName('가'.repeat(30))).toBe('가'.repeat(30))
+    expect(cleanDeviceName('가'.repeat(31))).toBeNull()
+    expect(cleanDeviceName('   ')).toBeNull()
+    expect(cleanDeviceName('폰\n1')).toBeNull()
+    expect(cleanDeviceName(3)).toBeNull()
+  })
   it('토큰: b64token 16~512자', () => {
     expect(DEVICE_TOKEN_PATTERN.test('abcDEF0123456789_-')).toBe(true)
     expect(DEVICE_TOKEN_PATTERN.test('abc.def~ghi+jkl/mno==')).toBe(true)
@@ -83,10 +103,5 @@ describe('토큰·기기 번호 모양', () => {
     expect(DEVICE_TOKEN_PATTERN.test('has space 0123456789')).toBe(false)
     expect(DEVICE_TOKEN_PATTERN.test('줄바꿈\n0123456789abcdef')).toBe(false)
     expect(DEVICE_TOKEN_PATTERN.test('a'.repeat(513))).toBe(false)
-  })
-  it('기기 번호: 영문·숫자·._:- 1~128자', () => {
-    expect(DEVICE_ID_PATTERN.test('phone-a_1')).toBe(true)
-    expect(DEVICE_ID_PATTERN.test('')).toBe(false)
-    expect(DEVICE_ID_PATTERN.test('a/b')).toBe(false)
   })
 })

@@ -1,4 +1,4 @@
-// 단축어 자동화에서 부르는 동작 "라이브지니에 문자 보내기" (App Intent, iOS 16+).
+// 단축어 자동화에서 부르는 동작 "라이브지니에 문자 보내기" (App Intent, iOS 16+). 아이폰은 문자만 보낸다(SPEC ORD-13 C-01 — channel SMS).
 // 판매자가 단축어 앱 → 자동화 → 메시지(받을 때) → 이 동작을 고르고 "보낸 사람"·"내용"에 단축어 변수를 끼운다.
 // 앱을 열지 않고(openAppWhenRun false) 뒤에서 돈다. 꺼져 있거나 토큰이 없으면 아무 것도 보내지 않는다.
 // 문구는 판매자에게 보이므로 쉬운 한국어. 토큰·본문은 로그에 남기지 않는다.
@@ -33,9 +33,9 @@ public struct SendNoticeIntent: AppIntent {
         switch outcome {
         case .off: return .result(dialog: "문자 받기가 꺼져 있어요. 라이브지니 앱에서 켜 주세요.")
         case .empty: return .result(dialog: "내용이 비어 있어서 보내지 않았어요.")
-        case .filtered: return .result(dialog: "인증번호나 광고라서 보내지 않았어요.")
+        case .filtered: return .result(dialog: "광고·인증·결제 같은 문자라서 보내지 않았어요.")
         case .duplicate: return .result(dialog: "이미 보낸 문자예요.")
-        case .dropped: return .result(dialog: "쌓인 문자가 너무 많아 담지 못했어요. 라이브지니 앱을 열어 주세요.")
+        case .dropped: return .result(dialog: "쌓인 문자가 너무 많아 오래된 것부터 지웠어요. 라이브지니 앱을 열어 주세요.")
         case .queued(_, let pending):
             return .result(dialog: pending == 0 ? "라이브지니로 보냈어요." : "문자를 담았어요. 인터넷이 연결되면 라이브지니로 보내요.")
         }

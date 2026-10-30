@@ -1,5 +1,6 @@
 // 문자찜·입금 알림 받기 모듈 (Expo Modules API, 이름 LivejjimNotice — 아이폰).
-// JS에 보이는 것은 안드로이드와 같다: start · stop · getState · openSettings · setAllowedPackages · setToken · clearToken · setFilterRules · flush · 사건 "state".
+// JS에 보이는 것은 안드로이드와 같다: start · stop · getState · openSettings · setToken · clearToken · flush · 사건 "state".
+// 거를 낱말은 서버 응답 filters를 저장해 쓴다(SPEC ORD-13 C-03) — JS가 넣지 않는다.
 // 아이폰은 알림을 읽을 수 없어 판매자가 단축어 자동화를 만든다(access = "shortcut"). 문자를 받는 일은 NoticeIntents.swift의 동작이 한다.
 import ExpoModulesCore
 import UIKit
@@ -27,7 +28,7 @@ public class LivejjimNoticeModule: Module {
 
         AsyncFunction("start") { () -> [String: Any] in
             self.service.store.setEnabled(true, nowMs: Int64(Date().timeIntervalSince1970 * 1000))
-            Task { _ = await self.service.sender.drain() }
+            Task { _ = await self.service.sender.drain(fetchFilters: true); self.service.onChange?() }
             return self.service.store.stateMap()
         }
 
@@ -49,13 +50,10 @@ public class LivejjimNoticeModule: Module {
             }
         }
 
-        // 아이폰은 은행 앱 알림을 읽지 못한다 — 받아도 쓸 곳이 없으니 상태만 돌려준다
-        AsyncFunction("setAllowedPackages") { (_: [String]) -> [String: Any] in self.service.store.stateMap() }
-
-        AsyncFunction("setToken") { (token: String, endpoint: String, deviceId: String) -> [String: Any] in
-            guard NoticeContract.isValidToken(token), NoticeContract.isValidDeviceId(deviceId), NoticeContract.isAllowedEndpoint(endpoint) else { throw InvalidTokenException(()) }
-            try self.service.store.setToken(TokenConfig(token: token, endpoint: endpoint, deviceId: deviceId))
-            Task { _ = await self.service.sender.drain() }
+        AsyncFunction("setToken") { (token: String, endpoint: String, deviceName: String) -> [String: Any] in
+            guard NoticeContract.isValidToken(token), let name = NoticeContract.cleanDeviceName(deviceName), NoticeContract.isAllowedEndpoint(endpoint) else { throw InvalidTokenException(()) }
+            try self.service.store.setToken(TokenConfig(token: token, endpoint: endpoint, deviceName: name))
+            Task { _ = await self.service.sender.drain(fetchFilters: true); self.service.onChange?() }
             self.service.onChange?()
             return self.service.store.stateMap()
         }
@@ -66,14 +64,9 @@ public class LivejjimNoticeModule: Module {
             return self.service.store.stateMap()
         }
 
-        AsyncFunction("setFilterRules") { (rulesJson: String) -> [String: Any] in
-            self.service.store.setRulesJson(rulesJson)
-            self.service.onChange?()
-            return self.service.store.stateMap()
-        }
-
         AsyncFunction("flush") { () async -> [String: Any] in
-            let result = await self.service.sender.drain()
+            let result = await self.service.sender.drain(fetchFilters: true)
+            self.service.onChange?()
             var map: [String: Any] = ["sent": result.sent, "pending": result.pending]
             if let stoppedBy = result.stoppedBy { map["stoppedBy"] = stoppedBy }
             return map

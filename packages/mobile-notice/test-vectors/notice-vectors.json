@@ -1,73 +1,505 @@
 {
-  "_": "문자찜·입금 알림 받기 공용 사례 (SMS3). TS(vitest)·Kotlin(JVM 단위 시험)·Swift(맥 swiftc 시험)가 같은 파일을 읽어 세 쪽 규칙이 같은지 잠근다. localId는 node:crypto SHA-256으로 따로 셈한 값.",
-  "localId": [
-    { "packageName": "com.samsung.android.messaging", "source": "01012345678", "receivedAtMs": 1761800000000, "body": "찜 3번 김민지", "localId": "d914f7dd6f9f0a83bd9053d4a95960a3" },
-    { "packageName": "com.google.android.apps.messaging", "source": "+821098765432", "receivedAtMs": 1761800005000, "body": "5번 찜이요 🌵", "localId": "9a5b1435e4138564f981571c877f7051" },
-    { "packageName": "com.kbstar.kbbank", "source": "com.kbstar.kbbank", "receivedAtMs": 1761800010000, "body": "입금 35,000원\n홍길동 10/30 14:13 잔액 1,234,000원", "localId": "79578b7641e2fc6adb9c2fbd5909366b" },
-    { "packageName": "ios.shortcut.messages", "source": "01012345678", "receivedAtMs": 1761799980000, "body": "찜 7번", "localId": "f66266a7466e4878aeb8c190c24a1846" }
+  "_": "문자찜·입금 알림 받기 공용 사례 (SMS3, SPEC ORD-13 C-03·C-04). TS(vitest)·Kotlin(JVM 단위 시험)·Swift(맥 swiftc 시험)가 같은 파일을 읽어 세 쪽 규칙이 같은지 잠근다. id는 node:crypto SHA-256으로 따로 셈한 값(시험 밖 생성 스크립트).",
+  "messageId": [
+    {
+      "packageName": "com.samsung.android.messaging",
+      "from": "01012345678",
+      "receivedAt": 1761800000000,
+      "title": null,
+      "text": "찜 3번 김민지",
+      "id": "a0220353186dd4a2e44dfafe4cb8eb18"
+    },
+    {
+      "packageName": "com.google.android.apps.messaging",
+      "from": "+821098765432",
+      "receivedAt": 1761800005000,
+      "title": null,
+      "text": "5번 찜이요 🌵",
+      "id": "1f122cdc64ec71acfbf2cb622563a84a"
+    },
+    {
+      "packageName": "com.kbstar.kbbank",
+      "from": "com.kbstar.kbbank",
+      "receivedAt": 1761800010000,
+      "title": "입금 35,000원",
+      "text": "홍길동 10/30 14:13 잔액 1,234,000원",
+      "id": "f27af1df9c84d296a24d76743cde0715"
+    },
+    {
+      "packageName": "ios.shortcut.messages",
+      "from": "01012345678",
+      "receivedAt": 1761799980000,
+      "title": null,
+      "text": "찜 7번",
+      "id": "b205718106c50058f1c17901f77a5291"
+    },
+    {
+      "packageName": "com.samsung.android.messaging",
+      "from": null,
+      "receivedAt": 1761800000000,
+      "title": null,
+      "text": "찜 1번",
+      "id": "b771cce73d0341b5a409f8e1af0ab35b"
+    }
   ],
   "phone": [
-    { "input": "010-1234-5678", "output": "01012345678" },
-    { "input": "+82 10-9876-5432", "output": "+821098765432" },
-    { "input": "(02) 123-4567", "output": "021234567" },
-    { "input": "1588-9999", "output": "15889999" },
-    { "input": "김민지", "output": null },
-    { "input": "12", "output": null },
-    { "input": "010-1234-5678 엄마", "output": null }
+    {
+      "input": "010-1234-5678",
+      "output": "01012345678"
+    },
+    {
+      "input": "+82 10-9876-5432",
+      "output": "+821098765432"
+    },
+    {
+      "input": "(02) 123-4567",
+      "output": "021234567"
+    },
+    {
+      "input": "1588-9999",
+      "output": "15889999"
+    },
+    {
+      "input": "김민지",
+      "output": null
+    },
+    {
+      "input": "12",
+      "output": null
+    },
+    {
+      "input": "010-1234-5678 엄마",
+      "output": null
+    }
   ],
   "sender": [
-    { "name": "김민지", "uri": "tel:010-1234-5678", "output": "01012345678" },
-    { "name": "김민지", "uri": "tel:%2B821012345678", "output": "+821012345678" },
-    { "name": "+82 10-9876-5432", "uri": null, "output": "+821098765432" },
-    { "name": "엄마", "uri": "content://contacts/1", "output": "엄마" },
-    { "name": "  ", "uri": null, "output": "모름" },
-    { "name": null, "uri": null, "output": "모름" }
-  ],
-  "normalize": [
-    { "input": "인증 번호", "output": "인증번호" },
-    { "input": "Verification\tCODE", "output": "verificationcode" },
-    { "input": "A　B\nc", "output": "abc" },
-    { "input": "(광고) 봄", "output": "(광고)봄" }
+    {
+      "name": "김민지",
+      "uri": "tel:010-1234-5678",
+      "output": "01012345678"
+    },
+    {
+      "name": "김민지",
+      "uri": "tel:%2B821012345678",
+      "output": "+821012345678"
+    },
+    {
+      "name": "+82 10-9876-5432",
+      "uri": null,
+      "output": "+821098765432"
+    },
+    {
+      "name": "엄마",
+      "uri": "content://contacts/1",
+      "output": "엄마"
+    },
+    {
+      "name": "  ",
+      "uri": null,
+      "output": null
+    },
+    {
+      "name": null,
+      "uri": null,
+      "output": null
+    }
   ],
   "cut": [
-    { "input": "가나다", "max": 2, "output": "가나" },
-    { "input": "a🌵b", "max": 2, "output": "a" },
-    { "input": "a🌵b", "max": 3, "output": "a🌵" },
-    { "input": "짧음", "max": 10, "output": "짧음" }
+    {
+      "input": "가나다",
+      "max": 2,
+      "output": "가나"
+    },
+    {
+      "input": "a🌵b",
+      "max": 2,
+      "output": "a"
+    },
+    {
+      "input": "a🌵b",
+      "max": 3,
+      "output": "a🌵"
+    },
+    {
+      "input": "짧음",
+      "max": 10,
+      "output": "짧음"
+    }
   ],
-  "filter": [
-    { "rules": null, "kindHint": "sms", "source": "15880000", "body": "[Web발신]\n(광고) 봄맞이 할인 무료수신거부 080-123-4567", "rule": "ad-mark" },
-    { "rules": null, "kindHint": "sms", "source": "15880000", "body": "[Web발신] 인증 번호 [123456]을 입력해 주세요", "rule": "otp-ko" },
-    { "rules": null, "kindHint": "sms", "source": "12345", "body": "Your Verification Code is 1234", "rule": "otp-en" },
-    { "rules": null, "kindHint": "sms", "source": "01012345678", "body": "찜 3번 김민지", "rule": null },
-    { "rules": null, "kindHint": "bank", "source": "com.kbstar.kbbank", "body": "입금 35,000원\n홍길동", "rule": null },
-    { "rules": [{ "id": "bank-out", "field": "body", "op": "contains", "value": "출금", "kinds": ["bank"] }], "kindHint": "bank", "source": "com.kbstar.kbbank", "body": "출금 10,000원", "rule": "bank-out" },
-    { "rules": [{ "id": "bank-out", "field": "body", "op": "contains", "value": "출금", "kinds": ["bank"] }], "kindHint": "sms", "source": "01012345678", "body": "출금 10,000원", "rule": null },
-    { "rules": [{ "id": "ad-num", "field": "source", "op": "startsWith", "value": "080" }], "kindHint": "sms", "source": "0801234567", "body": "안내", "rule": "ad-num" },
-    { "rules": [{ "id": "ad-num", "field": "source", "op": "startsWith", "value": "080" }], "kindHint": "sms", "source": "01080123456", "body": "찜 1번", "rule": null }
+  "lowerAscii": [
+    {
+      "input": "[Web발신] VERIFY",
+      "output": "[web발신] verify"
+    },
+    {
+      "input": "ÀÉ Ａ 가A",
+      "output": "ÀÉ Ａ 가a"
+    }
+  ],
+  "skip": [
+    {
+      "filters": null,
+      "text": "[Web발신]\n(광고) 봄맞이 할인",
+      "word": "(광고)"
+    },
+    {
+      "filters": null,
+      "text": "[WEB발신] 결제 승인 12,000원",
+      "word": "web발신"
+    },
+    {
+      "filters": null,
+      "text": "[Web발신] 인증번호 [123456]을 입력해 주세요",
+      "word": "web발신"
+    },
+    {
+      "filters": null,
+      "text": "인증번호 123456",
+      "word": "인증"
+    },
+    {
+      "filters": null,
+      "text": "775 택배로 보내주세요",
+      "word": "택배"
+    },
+    {
+      "filters": null,
+      "text": "찜 3번 김민지",
+      "word": null
+    },
+    {
+      "filters": null,
+      "text": "인 증 번호",
+      "word": null
+    },
+    {
+      "filters": {
+        "skipWords": [
+          "SALE"
+        ],
+        "bankApps": []
+      },
+      "text": "big sale today",
+      "word": "SALE"
+    },
+    {
+      "filters": {
+        "skipWords": [
+          "SALE"
+        ],
+        "bankApps": []
+      },
+      "text": "인증번호 123456",
+      "word": null
+    },
+    {
+      "filters": {
+        "skipWords": [],
+        "bankApps": []
+      },
+      "text": "(광고) 봄",
+      "word": null
+    }
+  ],
+  "filters": [
+    {
+      "input": {
+        "skipWords": [
+          "(광고)",
+          "[광고]",
+          "web발신",
+          "국제발신",
+          "해외발신",
+          "인증",
+          "승인",
+          "결제",
+          "택배"
+        ],
+        "bankApps": [
+          "com.kakaobank.channel",
+          "com.kbstar.kbbank"
+        ]
+      },
+      "output": {
+        "skipWords": [
+          "(광고)",
+          "[광고]",
+          "web발신",
+          "국제발신",
+          "해외발신",
+          "인증",
+          "승인",
+          "결제",
+          "택배"
+        ],
+        "bankApps": [
+          "com.kakaobank.channel",
+          "com.kbstar.kbbank"
+        ]
+      }
+    },
+    {
+      "input": {
+        "skipWords": [
+          "a",
+          "a",
+          "b"
+        ],
+        "bankApps": [
+          "com.kbstar.kbbank",
+          "com.kbstar.kbbank"
+        ],
+        "extra": 1
+      },
+      "output": {
+        "skipWords": [
+          "a",
+          "b"
+        ],
+        "bankApps": [
+          "com.kbstar.kbbank"
+        ]
+      }
+    },
+    {
+      "input": {
+        "skipWords": [],
+        "bankApps": []
+      },
+      "output": {
+        "skipWords": [],
+        "bankApps": []
+      }
+    },
+    {
+      "input": {
+        "skipWords": [
+          ""
+        ],
+        "bankApps": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "skipWords": [
+          1
+        ],
+        "bankApps": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "skipWords": [],
+        "bankApps": [
+          "not a package"
+        ]
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "skipWords": []
+      },
+      "output": null
+    },
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": [
+        "a"
+      ],
+      "output": null
+    }
+  ],
+  "channel": [
+    {
+      "packageName": "com.samsung.android.messaging",
+      "smsApp": "com.samsung.android.messaging",
+      "filters": null,
+      "channel": "SMS"
+    },
+    {
+      "packageName": "com.google.android.apps.messaging",
+      "smsApp": "com.samsung.android.messaging",
+      "filters": null,
+      "channel": null
+    },
+    {
+      "packageName": "com.google.android.apps.messaging",
+      "smsApp": null,
+      "filters": null,
+      "channel": "SMS"
+    },
+    {
+      "packageName": "com.example.sms",
+      "smsApp": "com.example.sms",
+      "filters": null,
+      "channel": "SMS"
+    },
+    {
+      "packageName": "com.kakaobank.channel",
+      "smsApp": "com.samsung.android.messaging",
+      "filters": null,
+      "channel": null
+    },
+    {
+      "packageName": "com.kakaobank.channel",
+      "smsApp": "com.samsung.android.messaging",
+      "filters": {
+        "skipWords": [
+          "(광고)",
+          "[광고]",
+          "web발신",
+          "국제발신",
+          "해외발신",
+          "인증",
+          "승인",
+          "결제",
+          "택배"
+        ],
+        "bankApps": [
+          "com.kakaobank.channel",
+          "com.kbstar.kbbank"
+        ]
+      },
+      "channel": "APP"
+    },
+    {
+      "packageName": "com.kakao.talk",
+      "smsApp": "com.samsung.android.messaging",
+      "filters": {
+        "skipWords": [
+          "(광고)",
+          "[광고]",
+          "web발신",
+          "국제발신",
+          "해외발신",
+          "인증",
+          "승인",
+          "결제",
+          "택배"
+        ],
+        "bankApps": [
+          "com.kakaobank.channel",
+          "com.kbstar.kbbank"
+        ]
+      },
+      "channel": null
+    },
+    {
+      "packageName": "com.kakao.talk",
+      "smsApp": "com.samsung.android.messaging",
+      "filters": {
+        "skipWords": [],
+        "bankApps": [
+          "com.kakao.talk"
+        ]
+      },
+      "channel": null
+    },
+    {
+      "packageName": "com.kakao.talk",
+      "smsApp": "com.kakao.talk",
+      "filters": null,
+      "channel": null
+    },
+    {
+      "packageName": "viva.republica.toss",
+      "smsApp": "com.samsung.android.messaging",
+      "filters": {
+        "skipWords": [
+          "(광고)",
+          "[광고]",
+          "web발신",
+          "국제발신",
+          "해외발신",
+          "인증",
+          "승인",
+          "결제",
+          "택배"
+        ],
+        "bankApps": [
+          "com.kakaobank.channel",
+          "com.kbstar.kbbank"
+        ]
+      },
+      "channel": null
+    }
   ],
   "classify": [
-    { "status": 200, "action": "accepted" },
-    { "status": 201, "action": "accepted" },
-    { "status": 202, "action": "accepted" },
-    { "status": 204, "action": "accepted" },
-    { "status": 409, "action": "duplicate" },
-    { "status": 401, "action": "token" },
-    { "status": 403, "action": "token" },
-    { "status": 400, "action": "rejected" },
-    { "status": 404, "action": "rejected" },
-    { "status": 413, "action": "rejected" },
-    { "status": 422, "action": "rejected" },
-    { "status": 408, "action": "retry" },
-    { "status": 425, "action": "retry" },
-    { "status": 429, "action": "retry" },
-    { "status": 500, "action": "retry" },
-    { "status": 503, "action": "retry" },
-    { "status": null, "action": "retry" }
+    {
+      "status": 200,
+      "action": "done"
+    },
+    {
+      "status": 201,
+      "action": "done"
+    },
+    {
+      "status": 204,
+      "action": "done"
+    },
+    {
+      "status": 400,
+      "action": "bad"
+    },
+    {
+      "status": 404,
+      "action": "bad"
+    },
+    {
+      "status": 409,
+      "action": "bad"
+    },
+    {
+      "status": 413,
+      "action": "bad"
+    },
+    {
+      "status": 422,
+      "action": "bad"
+    },
+    {
+      "status": 401,
+      "action": "token"
+    },
+    {
+      "status": 403,
+      "action": "token"
+    },
+    {
+      "status": 429,
+      "action": "wait"
+    },
+    {
+      "status": 408,
+      "action": "retry"
+    },
+    {
+      "status": 425,
+      "action": "retry"
+    },
+    {
+      "status": 500,
+      "action": "retry"
+    },
+    {
+      "status": 503,
+      "action": "retry"
+    },
+    {
+      "status": null,
+      "action": "retry"
+    }
   ],
   "extract": [
     {
       "name": "삼성 메시지 메시지 스타일 — 켜기 전 오래된 것·내가 보낸 답은 빼고 손님 문자만",
+      "channel": "SMS",
       "enabledAtMs": 1761799000000,
       "raw": {
         "packageName": "com.samsung.android.messaging",
@@ -79,19 +511,45 @@
         "groupSummary": false,
         "ongoing": false,
         "messages": [
-          { "timestampMs": 1761790000000, "senderName": "010-1234-5678", "senderUri": null, "text": "어제 문자", "fromUser": false },
-          { "timestampMs": 1761800000000, "senderName": "김민지", "senderUri": "tel:010-1234-5678", "text": " 찜 3번 김민지 ", "fromUser": false },
-          { "timestampMs": 1761800001000, "senderName": null, "senderUri": null, "text": "네 확인했어요", "fromUser": true }
+          {
+            "timestampMs": 1761790000000,
+            "senderName": "010-1234-5678",
+            "senderUri": null,
+            "text": "어제 문자",
+            "fromUser": false
+          },
+          {
+            "timestampMs": 1761800000000,
+            "senderName": "김민지",
+            "senderUri": "tel:010-1234-5678",
+            "text": " 찜 3번 김민지 ",
+            "fromUser": false
+          },
+          {
+            "timestampMs": 1761800001000,
+            "senderName": null,
+            "senderUri": null,
+            "text": "네 확인했어요",
+            "fromUser": true
+          }
         ]
       },
       "skipped": null,
       "tooOld": 1,
       "candidates": [
-        { "kindHint": "sms", "sourceType": "sms_number", "source": "01012345678", "body": "찜 3번 김민지", "receivedAtMs": 1761800000000, "localId": "d914f7dd6f9f0a83bd9053d4a95960a3" }
+        {
+          "id": "a0220353186dd4a2e44dfafe4cb8eb18",
+          "channel": "SMS",
+          "from": "01012345678",
+          "title": null,
+          "text": "찜 3번 김민지",
+          "receivedAt": 1761800000000
+        }
       ]
     },
     {
       "name": "구글 메시지 — 보낸 사람 이름이 번호면 숫자로",
+      "channel": "SMS",
       "enabledAtMs": 1761799000000,
       "raw": {
         "packageName": "com.google.android.apps.messaging",
@@ -102,16 +560,32 @@
         "bigText": null,
         "groupSummary": false,
         "ongoing": false,
-        "messages": [{ "timestampMs": 1761800005000, "senderName": "+82 10-9876-5432", "senderUri": null, "text": "5번 찜이요 🌵", "fromUser": false }]
+        "messages": [
+          {
+            "timestampMs": 1761800005000,
+            "senderName": "+82 10-9876-5432",
+            "senderUri": null,
+            "text": "5번 찜이요 🌵",
+            "fromUser": false
+          }
+        ]
       },
       "skipped": null,
       "tooOld": 0,
       "candidates": [
-        { "kindHint": "sms", "sourceType": "sms_number", "source": "+821098765432", "body": "5번 찜이요 🌵", "receivedAtMs": 1761800005000, "localId": "9a5b1435e4138564f981571c877f7051" }
+        {
+          "id": "1f122cdc64ec71acfbf2cb622563a84a",
+          "channel": "SMS",
+          "from": "+821098765432",
+          "title": null,
+          "text": "5번 찜이요 🌵",
+          "receivedAt": 1761800005000
+        }
       ]
     },
     {
-      "name": "은행 앱 — 메시지 스타일 없음: 제목 + BIG_TEXT(TEXT보다 먼저), 보낸 곳은 패키지",
+      "name": "은행 앱 — 메시지 스타일 없음: title = 제목, text = BIG_TEXT(TEXT보다 먼저), from = 패키지",
+      "channel": "APP",
       "enabledAtMs": 1761799000000,
       "raw": {
         "packageName": "com.kbstar.kbbank",
@@ -127,11 +601,83 @@
       "skipped": null,
       "tooOld": 0,
       "candidates": [
-        { "kindHint": "bank", "sourceType": "app_package", "source": "com.kbstar.kbbank", "body": "입금 35,000원\n홍길동 10/30 14:13 잔액 1,234,000원", "receivedAtMs": 1761800010000, "localId": "79578b7641e2fc6adb9c2fbd5909366b" }
+        {
+          "id": "f27af1df9c84d296a24d76743cde0715",
+          "channel": "APP",
+          "from": "com.kbstar.kbbank",
+          "title": "입금 35,000원",
+          "text": "홍길동 10/30 14:13 잔액 1,234,000원",
+          "receivedAt": 1761800010000
+        }
       ]
     },
     {
-      "name": "문자 앱 — 메시지 스타일 없음: TITLE이 보낸 사람, TEXT가 본문",
+      "name": "은행 앱 — 제목만 있으면 제목을 본문으로, title은 null",
+      "channel": "APP",
+      "enabledAtMs": 1761799000000,
+      "raw": {
+        "packageName": "com.kbstar.kbbank",
+        "whenMs": 1761800011000,
+        "postTimeMs": 1761800011000,
+        "title": "입금 5,000원 김철수",
+        "text": null,
+        "bigText": null,
+        "groupSummary": false,
+        "ongoing": false,
+        "messages": null
+      },
+      "skipped": null,
+      "tooOld": 0,
+      "candidates": [
+        {
+          "id": "bf99fe9844715ab885995d0908190411",
+          "channel": "APP",
+          "from": "com.kbstar.kbbank",
+          "title": null,
+          "text": "입금 5,000원 김철수",
+          "receivedAt": 1761800011000
+        }
+      ]
+    },
+    {
+      "name": "은행 앱 메시지 스타일 — 메시지마다, 제목은 알림 제목",
+      "channel": "APP",
+      "enabledAtMs": 1761799000000,
+      "raw": {
+        "packageName": "com.kakaobank.channel",
+        "whenMs": 1761800012000,
+        "postTimeMs": 1761800012000,
+        "title": "카카오뱅크",
+        "text": null,
+        "bigText": null,
+        "groupSummary": false,
+        "ongoing": false,
+        "messages": [
+          {
+            "timestampMs": 1761800012000,
+            "senderName": "카카오뱅크",
+            "senderUri": null,
+            "text": "입금 10,000원 이영희",
+            "fromUser": false
+          }
+        ]
+      },
+      "skipped": null,
+      "tooOld": 0,
+      "candidates": [
+        {
+          "id": "edb44b39303406349d7781a431e55356",
+          "channel": "APP",
+          "from": "com.kakaobank.channel",
+          "title": "카카오뱅크",
+          "text": "입금 10,000원 이영희",
+          "receivedAt": 1761800012000
+        }
+      ]
+    },
+    {
+      "name": "문자 앱 — 메시지 스타일 없음: TITLE이 보낸 곳, TEXT가 본문, title은 null",
+      "channel": "SMS",
       "enabledAtMs": 1761799000000,
       "raw": {
         "packageName": "com.samsung.android.messaging",
@@ -147,35 +693,132 @@
       "skipped": null,
       "tooOld": 0,
       "candidates": [
-        { "kindHint": "sms", "sourceType": "sms_number", "source": "엄마", "body": "저녁 먹었니", "receivedAtMs": 1761800020000, "localId": "0e6d5a2320500bf898fc77e21978a26f" }
+        {
+          "id": "695d859cc3b8f1539a4d96c76e42d2e4",
+          "channel": "SMS",
+          "from": "엄마",
+          "title": null,
+          "text": "저녁 먹었니",
+          "receivedAt": 1761800020000
+        }
+      ]
+    },
+    {
+      "name": "문자 앱 — 보낸 곳이 없으면 from null",
+      "channel": "SMS",
+      "enabledAtMs": 1761799000000,
+      "raw": {
+        "packageName": "com.samsung.android.messaging",
+        "whenMs": 1761800021000,
+        "postTimeMs": 1761800021000,
+        "title": "  ",
+        "text": "찜 1번",
+        "bigText": null,
+        "groupSummary": false,
+        "ongoing": false,
+        "messages": null
+      },
+      "skipped": null,
+      "tooOld": 0,
+      "candidates": [
+        {
+          "id": "af988cc788e1675ab6b1931440f14f09",
+          "channel": "SMS",
+          "from": null,
+          "title": null,
+          "text": "찜 1번",
+          "receivedAt": 1761800021000
+        }
+      ]
+    },
+    {
+      "name": "문자 본문은 앞 1,000자",
+      "channel": "SMS",
+      "enabledAtMs": 1761799000000,
+      "raw": {
+        "packageName": "com.samsung.android.messaging",
+        "whenMs": 1761800022000,
+        "postTimeMs": 1761800022000,
+        "title": "01012345678",
+        "text": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+        "bigText": null,
+        "groupSummary": false,
+        "ongoing": false,
+        "messages": null
+      },
+      "skipped": null,
+      "tooOld": 0,
+      "candidates": [
+        {
+          "id": "e73ac49857773daafe403f19523b9a6f",
+          "channel": "SMS",
+          "from": "01012345678",
+          "title": null,
+          "text": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+          "receivedAt": 1761800022000
+        }
       ]
     },
     {
       "name": "묶음 요약 알림은 버린다",
+      "channel": "SMS",
       "enabledAtMs": 1761799000000,
-      "raw": { "packageName": "com.samsung.android.messaging", "whenMs": 1761800030000, "postTimeMs": 1761800030000, "title": "메시지", "text": "새 메시지 3개", "bigText": null, "groupSummary": true, "ongoing": false, "messages": null },
+      "raw": {
+        "packageName": "com.samsung.android.messaging",
+        "whenMs": 1761800030000,
+        "postTimeMs": 1761800030000,
+        "title": "메시지",
+        "text": "새 메시지 3개",
+        "bigText": null,
+        "groupSummary": true,
+        "ongoing": false,
+        "messages": null
+      },
       "skipped": "SUMMARY",
       "tooOld": 0,
       "candidates": []
     },
     {
       "name": "계속 떠 있는 알림은 버린다",
+      "channel": "APP",
       "enabledAtMs": 1761799000000,
-      "raw": { "packageName": "com.kbstar.kbbank", "whenMs": 1761800030000, "postTimeMs": 1761800030000, "title": "KB스타뱅킹", "text": "실행 중", "bigText": null, "groupSummary": false, "ongoing": true, "messages": null },
+      "raw": {
+        "packageName": "com.kbstar.kbbank",
+        "whenMs": 1761800030000,
+        "postTimeMs": 1761800030000,
+        "title": "KB스타뱅킹",
+        "text": "실행 중",
+        "bigText": null,
+        "groupSummary": false,
+        "ongoing": true,
+        "messages": null
+      },
       "skipped": "ONGOING",
       "tooOld": 0,
       "candidates": []
     },
     {
       "name": "본문 없는 문자 알림은 버린다",
+      "channel": "SMS",
       "enabledAtMs": 1761799000000,
-      "raw": { "packageName": "com.google.android.apps.messaging", "whenMs": 1761800030000, "postTimeMs": 1761800030000, "title": "김민지", "text": "  ", "bigText": null, "groupSummary": false, "ongoing": false, "messages": [] },
+      "raw": {
+        "packageName": "com.google.android.apps.messaging",
+        "whenMs": 1761800030000,
+        "postTimeMs": 1761800030000,
+        "title": "김민지",
+        "text": "  ",
+        "bigText": null,
+        "groupSummary": false,
+        "ongoing": false,
+        "messages": []
+      },
       "skipped": "EMPTY",
       "tooOld": 0,
       "candidates": []
     },
     {
-      "name": "메시지 스타일에 when만 있고 메시지 시각이 0이면 when",
+      "name": "메시지 스타일에 메시지 시각이 0이면 when — 같은 알림이 고쳐 다시 떠도 같은 id",
+      "channel": "SMS",
       "enabledAtMs": 1761799000000,
       "raw": {
         "packageName": "com.samsung.android.messaging",
@@ -186,36 +829,154 @@
         "bigText": null,
         "groupSummary": false,
         "ongoing": false,
-        "messages": [{ "timestampMs": 0, "senderName": "김민지", "senderUri": "tel:01012345678", "text": "찜 3번 김민지", "fromUser": false }]
+        "messages": [
+          {
+            "timestampMs": 0,
+            "senderName": "김민지",
+            "senderUri": "tel:01012345678",
+            "text": "찜 3번 김민지",
+            "fromUser": false
+          }
+        ]
       },
       "skipped": null,
       "tooOld": 0,
       "candidates": [
-        { "kindHint": "sms", "sourceType": "sms_number", "source": "01012345678", "body": "찜 3번 김민지", "receivedAtMs": 1761800000000, "localId": "d914f7dd6f9f0a83bd9053d4a95960a3" }
+        {
+          "id": "a0220353186dd4a2e44dfafe4cb8eb18",
+          "channel": "SMS",
+          "from": "01012345678",
+          "title": null,
+          "text": "찜 3번 김민지",
+          "receivedAt": 1761800000000
+        }
       ]
     }
   ],
   "shortcut": [
     {
-      "input": { "sender": "010-1234-5678", "body": " 찜 7번 ", "kind": "sms" },
+      "input": {
+        "sender": "010-1234-5678",
+        "body": " 찜 7번 "
+      },
       "nowMs": 1761799985000,
-      "candidate": { "kindHint": "sms", "sourceType": "sms_number", "source": "01012345678", "body": "찜 7번", "receivedAtMs": 1761799985000, "localId": "f66266a7466e4878aeb8c190c24a1846" }
+      "candidate": {
+        "id": "b205718106c50058f1c17901f77a5291",
+        "channel": "SMS",
+        "from": "01012345678",
+        "title": null,
+        "text": "찜 7번",
+        "receivedAt": 1761799985000
+      }
     },
     {
-      "input": { "sender": "010-1234-5678", "body": "찜 7번", "kind": "sms" },
+      "input": {
+        "sender": "010-1234-5678",
+        "body": "찜 7번"
+      },
       "nowMs": 1761800039999,
-      "candidate": { "kindHint": "sms", "sourceType": "sms_number", "source": "01012345678", "body": "찜 7번", "receivedAtMs": 1761800039999, "localId": "f66266a7466e4878aeb8c190c24a1846" }
+      "candidate": {
+        "id": "b205718106c50058f1c17901f77a5291",
+        "channel": "SMS",
+        "from": "01012345678",
+        "title": null,
+        "text": "찜 7번",
+        "receivedAt": 1761800039999
+      }
     },
     {
-      "input": { "sender": "", "body": "   ", "kind": "bank" },
+      "input": {
+        "sender": "",
+        "body": "찜 2번"
+      },
+      "nowMs": 1761800000000,
+      "candidate": {
+        "id": "100e156c31f988c6fbeacf61c261a188",
+        "channel": "SMS",
+        "from": null,
+        "title": null,
+        "text": "찜 2번",
+        "receivedAt": 1761800000000
+      }
+    },
+    {
+      "input": {
+        "sender": "",
+        "body": "   "
+      },
       "nowMs": 1761800000000,
       "candidate": null
     }
   ],
-  "envelope": {
-    "candidate": { "kindHint": "bank", "sourceType": "app_package", "source": "com.kbstar.kbbank", "body": "입금 \"35,000원\"\n홍길동\t\\ 끝", "receivedAtMs": 1761800010000, "localId": "79578b7641e2fc6adb9c2fbd5909366b" },
-    "sentAtMs": 1761800012345,
-    "deviceId": "phone-a_1",
-    "json": { "kindHint": "bank", "sourceType": "app_package", "source": "com.kbstar.kbbank", "body": "입금 \"35,000원\"\n홍길동\t\\ 끝", "receivedAtMs": 1761800010000, "sentAtMs": 1761800012345, "deviceId": "phone-a_1", "localId": "79578b7641e2fc6adb9c2fbd5909366b" }
-  }
+  "request": {
+    "device": "내 갤럭시 \"S23\"",
+    "messages": [
+      {
+        "id": "aff0d2f06ead35078c310d706ea2c908",
+        "channel": "APP",
+        "from": "com.kbstar.kbbank",
+        "title": "입금 \"35,000원\"",
+        "text": "홍길동\t\\ 끝\n잔액 1,234,000원",
+        "receivedAt": 1761800010000
+      },
+      {
+        "id": "f28d1524c7a64ac646e31d3a6b7a0f96",
+        "channel": "SMS",
+        "from": "01012345678",
+        "title": null,
+        "text": "찜 3번 김민지",
+        "receivedAt": 1761800000000
+      },
+      {
+        "id": "4b340d36121ce2ba97785c60c53ba6b3",
+        "channel": "SMS",
+        "from": null,
+        "title": null,
+        "text": "찜 4번",
+        "receivedAt": 1761800000001
+      }
+    ]
+  },
+  "response": [
+    {
+      "body": "{\"results\":[{\"id\":\"a\",\"status\":\"SAVED\"},{\"id\":\"b\",\"status\":\"DUPLICATE\"},{\"id\":\"c\",\"status\":\"IGNORED\"},{\"id\":\"d\",\"status\":\"WHAT\"},{\"status\":\"SAVED\"}],\"filters\":{\"skipWords\":[\"(광고)\",\"[광고]\",\"web발신\",\"국제발신\",\"해외발신\",\"인증\",\"승인\",\"결제\",\"택배\"],\"bankApps\":[\"com.kakaobank.channel\",\"com.kbstar.kbbank\"]}}",
+      "results": {
+        "a": "SAVED",
+        "b": "DUPLICATE",
+        "c": "IGNORED"
+      },
+      "filters": {
+        "skipWords": [
+          "(광고)",
+          "[광고]",
+          "web발신",
+          "국제발신",
+          "해외발신",
+          "인증",
+          "승인",
+          "결제",
+          "택배"
+        ],
+        "bankApps": [
+          "com.kakaobank.channel",
+          "com.kbstar.kbbank"
+        ]
+      }
+    },
+    {
+      "body": "{\"results\":[],\"filters\":{\"skipWords\":\"x\",\"bankApps\":[]}}",
+      "results": {},
+      "filters": null
+    },
+    {
+      "body": "<html>oops</html>",
+      "results": {},
+      "filters": null
+    },
+    {
+      "body": "",
+      "results": {},
+      "filters": null
+    }
+  ]
 }
