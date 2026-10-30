@@ -5,19 +5,21 @@
 // - 주 버튼(.button-primary)은 창 밖에 많아야 하나 — 지금 할 일 (UX-01, D-N4a-06, AC-N4a-21): 이 기기에서 누를 수 있는 멈춤 띠의 조치가 먼저,
 //   아니면 프린터 단계의 다음 할 일(연결 전: 첫 연결 방법 → 연결 뒤: 테스트 인쇄 → 테스트 결과 "예" 뒤: 이 기기에서 출력). 이 기기가 이미 출력 기기면
 //   프린터 단계에 주 버튼이 없다. "버렸어요"·"라벨 설정 저장"은 이 화면에서 늘 보통 버튼이다(알림 창의 "버렸어요"는 그대로 주 버튼).
-import { a4Layout, type LabelBitmap } from '@livejjim/label'
+import { a4Layout, type LabelBitmap, type LabelSizeId } from '@livejjim/label'
 import { CONNECTION_STATE_NAMES, PRINTER_MESSAGES, RECONNECT_ACTION, experimentalNotice, printerProfile, printerSupportStage, type PrinterError } from '@livejjim/printer'
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { get, isApiError, patch, type ApiError } from '../api/client.ts'
-import type { LabelView, QueueSummary } from '../api/print-types.ts'
+import type { JobView, LabelView, QueueSummary } from '../api/print-types.ts'
 import type { BroadcastItem, FullView } from '../api/types.ts'
 import { DENSITY_MAX, DENSITY_MIN, cleanDeviceName, savedDeviceName, storedDeviceName } from '../lib/device.ts'
 import { dateWords, kstToday } from '../lib/kst.ts'
-import { fetchLabelPreview, labelPreviewPath } from '../api/label-bitmap.ts'
+import { fetchLabelPreview, fetchTestPrintBitmap, labelPreviewPath } from '../api/label-bitmap.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
-import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, waitingA4Name } from '../lib/label-render.ts'
-import { EXPERIMENTAL_MARK, EXPERIMENTAL_PICK_NOTE, EXPERIMENTAL_RESUMED, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
-import { awaitingTest, type PrinterMethod } from '../lib/printer-station.ts'
+import { bringIntoView, onLabelFiles, requestLabelFiles, requestPickLabelSize } from '../lib/label-jump.ts'
+import { a4PdfBytes, broadcastA4Name, labelErrorMessage, packingPngName, pngBytes, productPngName, waitingA4Name } from '../lib/label-render.ts'
+import { sizeWordMm, testHelp } from '../lib/test-help.ts'
+import { EXPERIMENTAL_MARK, EXPERIMENTAL_PICK_NOTE, EXPERIMENTAL_RESUMED, TEST_CONFIRMED_PAST, jobNameWord, jobNumberWord, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
+import { awaitingTest, testLabelSize, type PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { LabelSettings } from './LabelSettings.tsx'
@@ -34,15 +36,34 @@ export const METHOD_WORD: Readonly<Record<PrinterMethod, string>> = {
   test: '시험용 프린터 — 실제로 출력되지 않아요',
 }
 
-export const TEST_HELP: readonly string[] = [
-  '라벨 크기가 50×30mm인지 확인해 주세요.',
-  '인쇄 농도를 한 단계 올려 보세요.',
-  'NIIMBOT 정품 라벨인지 확인해 주세요.',
-  '맨 아래 테두리가 빠지면 알려 주세요.',
-]
-
 const EXPORT_ID = 'label-export'
 const PRINTER_ID = 'label-printer'
+/** 내보내기의 "라벨마다 그림 파일로 저장" 목록 (UX-PRN2-002 — 안내 상자 단추가 바로 여기로) */
+const FILES_ID = 'label-export-files'
+/** 실험 안내·테스트 도움말의 "그림 파일로 저장하기" 단추 글 (L-7 기본 대체) */
+const FILES_ACTION = '그림 파일로 저장하기'
+
+/** "그림 파일로 저장하기": 내보내기의 그림 파일 목록을 펼치고 그리로 (UX-PRN2-002) — 링크 주소는 그 목록 */
+function FilesLink() {
+  return (
+    <a
+      className="button"
+      href={`#${FILES_ID}`}
+      onClick={(event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+        event.preventDefault()
+        requestLabelFiles()
+      }}
+    >
+      {FILES_ACTION}
+    </a>
+  )
+}
+
+/** 테스트 인쇄에 넘길 값 — 저장된 상품 라벨의 가게 이름·크기 (크기는 printer-station이 이은 프린터로 고른다, D-PRN2-27) */
+function testInput(product: { readonly shopName: string; readonly size: LabelSizeId } | undefined): { shopName: string; size: LabelSizeId } {
+  return { shopName: product?.shopName ?? '', size: product?.size ?? '50x30' }
+}
 
 /**
  * 이 기기에서 누를 수 있는 멈춤 띠의 조치가 보이는가 (AC-N4a-21 우선순위 1): 손으로 푸는 멈춤·쌓인 라벨이면 "다시 시작"·"출력 시작",
@@ -115,7 +136,15 @@ function LabelsOnPage({ shopName }: { readonly shopName?: string }) {
         <h2 id={ids.queue} className="section-title">
           출력 대기열
         </h2>
-        <PausePanel onReconnectHelp={() => document.getElementById(PRINTER_ID)?.scrollIntoView({ block: 'start' })} />
+        <PausePanel
+          onReconnectHelp={() => document.getElementById(PRINTER_ID)?.scrollIntoView?.({ block: 'start' })}
+          onTestPrint={() => {
+            // 멈춤 띠에서 바로 테스트 인쇄 — 결과 "예/아니요"는 프린터 칸에 나온다 (UX-PRN2-005)
+            void api?.station.testPrint(testInput(print.templates?.product.template))
+            bringIntoView(document.getElementById(PRINTER_ID), null)
+          }}
+          onPickSize={requestPickLabelSize}
+        />
         <QueueControls />
         <QueueList />
       </section>
@@ -205,6 +234,11 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
   useEffect(() => {
     if (!linked) setAnswer(null)
   }, [linked])
+  // 테스트 인쇄를 새로 하면(프린터 칸·멈춤 띠 어디서든) 앞 답은 지난 일이다
+  const testing = station?.testing === true
+  useEffect(() => {
+    if (testing) setAnswer(null)
+  }, [testing])
   const Title = inWizard ? 'h3' : 'h2'
   if (api === null || station === null) {
     return (
@@ -249,11 +283,7 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
         <div className="notice stack-tight" role="note">
           <p>{PRINTER_MESSAGES.UNSUPPORTED}</p>
           <p>이 기기는 출력 기기가 될 수 없어요.</p>
-          {inWizard ? null : (
-            <a className="button" href={`#${EXPORT_ID}`}>
-              그림 파일로 저장하기
-            </a>
-          )}
+          {inWizard ? null : <FilesLink />}
         </div>
       ) : (
         <>
@@ -269,11 +299,7 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
           {profile !== undefined && experimental ? (
             <div className="notice stack-tight" role="note" aria-label="실험 중인 프린터 안내">
               <p>{experimentalNotice(profile)}</p>
-              {inWizard ? null : (
-                <a className="button" href={`#${EXPORT_ID}`}>
-                  그림 파일로 저장하기
-                </a>
-              )}
+              {inWizard ? null : <FilesLink />}
             </div>
           ) : null}
           {cardReconnect ? (
@@ -302,7 +328,7 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
           {station.connectError !== null && !connected ? (
             <PrinterErrorView error={station.connectError} serial={station.methods.includes('serial')} labelPrinter={station.labelPrinter} primary={stepPrimary} {...(retryShown ? { onRetry: () => void api.station.reconnect() } : {})} />
           ) : null}
-          {connected ? <ConnectedPrinter answer={answer} onAnswer={setAnswer} primary={primary && !testAnswered} /> : null}
+          {connected ? <ConnectedPrinter answer={answer} onAnswer={setAnswer} primary={primary && !testAnswered} inWizard={inWizard} /> : null}
           {connected && !mine && canBecome ? <BecomeDevice primary={primary && testAnswered} /> : null}
           {connected && !mine && !canBecome ? <p className="hint">{EXPERIMENTAL_WAIT_TEST}</p> : null}
           {/* 이미 출력 기기: 실험 기종은 이 연결에서 테스트 "예" 전까지 받지 않는다 — 까닭과 할 일 한 줄 (D-PRN2-10·15) */}
@@ -366,10 +392,12 @@ interface ConnectedPrinterProps {
   readonly onAnswer: (answer: 'yes' | 'no' | null) => void
   /** "테스트 인쇄"가 지금 할 일 (주 버튼) */
   readonly primary: boolean
+  /** 시작 마법사 안 — 내보내기 칸이 없어 "그림 파일로 저장하기" 단추를 두지 않는다 */
+  readonly inWizard: boolean
 }
 
 /** 연결된 프린터: 테스트 인쇄·결과 확인·농도·연결 끊기 (AC-I1-22) */
-function ConnectedPrinter({ answer, onAnswer: setAnswer, primary }: ConnectedPrinterProps) {
+function ConnectedPrinter({ answer, onAnswer: setAnswer, primary, inWizard }: ConnectedPrinterProps) {
   const api = usePrintApi()
   const print = usePrintState()
   const station = useStationState()
@@ -385,8 +413,13 @@ function ConnectedPrinter({ answer, onAnswer: setAnswer, primary }: ConnectedPri
   const densityShown = range !== null && station.density >= range.min && station.density <= range.max ? station.density : (range?.default ?? station.density)
   const test = () => {
     setAnswer(null)
-    void api.station.testPrint({ shopName: product?.shopName ?? '', size: product?.size ?? '50x30' })
+    void api.station.testPrint(testInput(product))
   }
+  // "아니요" 뒤 도움말은 이은 프린터에 맞는 줄만 — 크기는 테스트 라벨을 찍은 크기 (UX-PRN2-001)
+  const help = testHelp(station.profileId, testLabelSize(station.profileId, product?.size ?? '50x30'))
+  const queue = print.overview?.queue ?? null
+  // "예" 뒤 다른 까닭으로 다시 멈췄으면 "이어서 해요"는 지난 일 (UX-PRN2-006)
+  const pausedAgain = queue?.pause != null && queue.pause.reason !== 'DISCONNECTED'
   return (
     <div className="stack-tight">
       <div className="row">
@@ -434,13 +467,20 @@ function ConnectedPrinter({ answer, onAnswer: setAnswer, primary }: ConnectedPri
               아니요
             </button>
           </div>
-          {answer === 'yes' ? <p role="status">{mine && experimental ? EXPERIMENTAL_RESUMED : `좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}"를 눌러 주세요.`}</p> : null}
+          {answer === 'yes' ? <p role="status">{mine && experimental ? (pausedAgain ? TEST_CONFIRMED_PAST : EXPERIMENTAL_RESUMED) : `좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}"를 눌러 주세요.`}</p> : null}
           {answer === 'no' ? (
-            <ul className="plain-list" aria-label="테스트 인쇄 도움말">
-              {TEST_HELP.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
+            <>
+              <ul className="plain-list test-help" aria-label="테스트 인쇄 도움말">
+                {help.lines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              {help.fallbackApp !== null && !inWizard ? (
+                <div className="row">
+                  <FilesLink />
+                </div>
+              ) : null}
+            </>
           ) : null}
         </div>
       ) : null}
@@ -778,6 +818,32 @@ function ExportSection() {
   )
   const product = print.templates?.product.template
   const waiting = (print.overview?.jobs ?? []).filter((job) => job.status === 'WAITING' && job.data !== null)
+  // 그림 파일 목록의 대기·출력 중 라벨 — 멈춘 그 한 장도 그림 파일로 (UX-PRN2-002)
+  const jobFiles = (print.overview?.jobs ?? []).filter((job) => (job.status === 'WAITING' || job.status === 'PRINTING') && job.data !== null)
+  const testSize = testLabelSize(station?.profileId ?? null, product?.size ?? '50x30')
+  // 실험 기종이 이어져 있거나 이 브라우저가 연결할 수 없으면 그림 파일 목록을 펼쳐 둔다 (UX-PRN2-002)
+  const experimentalLinked = station !== null && (station.connection === 'CONNECTED' || station.connection === 'PRINTING') && printerSupportStage(station.profileId) === 'EXPERIMENTAL'
+  const noMethodsHere = station !== null && station.methods.length === 0 && print.config?.testPrinter !== true
+  const [filesOpen, setFilesOpen] = useState(noMethodsHere || experimentalLinked)
+  const filesRef = useRef<HTMLDetailsElement | null>(null)
+  const [jump, setJump] = useState(0)
+  useEffect(() => {
+    if (noMethodsHere || experimentalLinked) setFilesOpen(true)
+  }, [noMethodsHere, experimentalLinked])
+  // "그림 파일로 저장하기"(프린터 칸·도움말): 목록을 펼치고 그리로 옮겨 첫 줄에 초점
+  useEffect(
+    () =>
+      onLabelFiles(() => {
+        setFilesOpen(true)
+        setJump((count) => count + 1)
+      }),
+    [],
+  )
+  useEffect(() => {
+    if (jump === 0) return
+    const details = filesRef.current
+    bringIntoView(details, details?.querySelector<HTMLElement>('.stack-tight button') ?? details?.querySelector<HTMLElement>('summary') ?? null)
+  }, [jump])
   const perPage = a4Layout(product?.size ?? '50x30').perPage
 
   const run = async (work: () => Promise<string | null>) => {
@@ -828,6 +894,35 @@ function ExportSection() {
       return null
     })
 
+  /** 대기·출력 중 작업 한 장의 그림 파일 (UX-PRN2-002 — 멈춘 그 라벨을 제조사 앱으로). 서버 미리 보기 그림 그대로 */
+  const saveJobPng = (job: JobView, share: boolean) =>
+    run(async () => {
+      const rendered = await fetchLabelPreview(labelPreviewPath('job', job.date, job.id))
+      if (!rendered.ok) return labelErrorMessage(rendered.error)
+      const image = rendered.images[0]
+      if (image === undefined) return '라벨 그림을 받지 못했어요.'
+      const png = pngBytes(image)
+      if (!png.ok) return png.message
+      const no = job.data !== null && 'no' in job.data ? job.data.no : job.label.no
+      const name = job.kind === 'packing' ? packingPngName(job.date, job.page ?? 1) : no === null ? `라벨-${job.date}.png` : productPngName(job.date, no)
+      if (share) await shareBytes(png.bytes, name, 'image/png')
+      else downloadBytes(png.bytes, name, 'image/png')
+      return null
+    })
+
+  /** 테스트 라벨 그림 파일 — 방송이 없어도 제조사 앱에서 찍어 볼 수 있게 (UX-PRN2-002). 크기는 테스트 인쇄와 같다 (D-PRN2-27) */
+  const saveTestPng = (share: boolean) =>
+    run(async () => {
+      const rendered = await fetchTestPrintBitmap(testSize)
+      if (!rendered.ok) return labelErrorMessage(rendered.error)
+      const png = pngBytes(rendered.image)
+      if (!png.ok) return png.message
+      const name = `테스트라벨-${kstToday()}.png`
+      if (share) await shareBytes(png.bytes, name, 'image/png')
+      else downloadBytes(png.bytes, name, 'image/png')
+      return null
+    })
+
   const savePng = (label: LabelView, share: boolean) =>
     run(async () => {
       if (product === undefined || label.data === null || label.no === null) return null
@@ -843,9 +938,8 @@ function ExportSection() {
       return null
     })
 
-  const noMethods = station !== null && station.methods.length === 0 && print.config?.testPrinter !== true
   return (
-    <section id={EXPORT_ID} className="card stack" aria-labelledby={titleId}>
+    <section id={EXPORT_ID} className="card stack label-export" aria-labelledby={titleId}>
       <h2 id={titleId} className="section-title">
         내보내기
       </h2>
@@ -871,22 +965,57 @@ function ExportSection() {
               1등 라벨 모두 A4 PDF로 저장
             </button>
           </div>
-          <details className="details" open={noMethods}>
-            <summary>라벨마다 그림 파일로 저장</summary>
-            {winners.length === 0 ? <p>1등 라벨이 없어요.</p> : null}
-            <ul className="plain-list job-list" aria-label="그림 파일로 저장할 라벨">
-              {winners.map((label) => (
-                <li key={label.key} className="job-row">
+        </div>
+      ) : null}
+      <details
+        id={FILES_ID}
+        ref={filesRef}
+        className="details label-files"
+        open={filesOpen}
+        onToggle={(event) => setFilesOpen(event.currentTarget.open)}
+      >
+        <summary className="files-summary">{shareRef.current === true ? '라벨마다 그림 파일로 저장·공유' : '라벨마다 그림 파일로 저장'}</summary>
+        <div className="stack-tight">
+          {chosen !== null ? (
+            <>
+              {winners.length === 0 ? <p>1등 라벨이 없어요.</p> : null}
+              <ul className="plain-list job-list" aria-label="그림 파일로 저장할 라벨">
+                {winners.map((label) => (
+                  <li key={label.key} className="job-row">
+                    <p className="job-main">
+                      <strong>{label.no}번</strong>
+                      {labelOptionWords(label.data)} · {buyerWord(label.buyer)}
+                    </p>
+                    <div className="row">
+                      <button type="button" className="button button-small" disabled={busy} onClick={() => void savePng(label, false)}>
+                        그림 파일로 저장
+                      </button>
+                      {shareRef.current === true ? (
+                        <button type="button" className="button button-small" disabled={busy} onClick={() => void savePng(label, true)}>
+                          공유
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {jobFiles.length > 0 ? (
+            <ul className="plain-list job-list" aria-label="그림 파일로 저장할 대기 라벨">
+              {jobFiles.map((job) => (
+                <li key={`${job.date}|${job.id}`} className="job-row">
                   <p className="job-main">
-                    <strong>{label.no}번</strong>
-                    {labelOptionWords(label.data)} · {buyerWord(label.buyer)}
+                    <strong>{jobNumberWord(job)}</strong>
+                    {jobNameWord(job) !== '' ? ` ${jobNameWord(job)}` : ''}
+                    {job.kind === 'product' ? labelOptionWords(job.data) : ''} · {buyerWord(job.label.buyer)} · {job.word}
                   </p>
                   <div className="row">
-                    <button type="button" className="button button-small" disabled={busy} onClick={() => void savePng(label, false)}>
+                    <button type="button" className="button button-small" disabled={busy} onClick={() => void saveJobPng(job, false)}>
                       그림 파일로 저장
                     </button>
                     {shareRef.current === true ? (
-                      <button type="button" className="button button-small" disabled={busy} onClick={() => void savePng(label, true)}>
+                      <button type="button" className="button button-small" disabled={busy} onClick={() => void saveJobPng(job, true)}>
                         공유
                       </button>
                     ) : null}
@@ -894,9 +1023,24 @@ function ExportSection() {
                 </li>
               ))}
             </ul>
-          </details>
+          ) : null}
+          <div className="job-row" role="group" aria-label="테스트 라벨 그림 파일">
+            <p className="job-main">
+              <strong>테스트 라벨</strong> {sizeWordMm(testSize)}
+            </p>
+            <div className="row">
+              <button type="button" className="button button-small" disabled={busy} aria-label="테스트 라벨 그림 파일로 저장" onClick={() => void saveTestPng(false)}>
+                그림 파일로 저장
+              </button>
+              {shareRef.current === true ? (
+                <button type="button" className="button button-small" disabled={busy} aria-label="테스트 라벨 공유" onClick={() => void saveTestPng(true)}>
+                  공유
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
-      ) : null}
+      </details>
       <div className="stack-tight">
         <p>대기 중인 라벨 {waiting.length}장</p>
         <div className="row">

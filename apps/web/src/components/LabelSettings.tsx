@@ -33,9 +33,10 @@ import {
   type TemplateProblem,
 } from '@livejjim/label'
 import { labelSizesForProfileId, sizeNotSupportedMessage } from '@livejjim/printer'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
 import type { StoredTemplate } from '../api/print-types.ts'
+import { bringIntoView, onPickLabelSize } from '../lib/label-jump.ts'
 import { checkTemplate, labelErrorMessage, renderSample, type PagesOutcome } from '../lib/label-render.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { LabelImage } from './LabelImage.tsx'
@@ -75,6 +76,9 @@ const SIZE_WORD = (size: LabelSizeId): string => `${labelSizeName(size)}mm`
 /** 이 프린터로는 포장 라벨 크기가 없다 (테이프·50×15 프린터 — L-4 포장 라벨의 크기) */
 export const NO_PACKING_SIZE_NOTE = '이 프린터로는 포장 라벨을 찍을 수 없어요. 포장 라벨은 아래 내보내기에서 그림 파일이나 A4로 내 주세요.'
 
+/** 라벨 설정 안의 크기 경고 뒤 할 일 — 이미 이 칸에 있으니 어디서 무엇을 누르는지 (UX-PRN2-004, L-11 13 문장 뒤에 붙인다) */
+export const SIZE_WARNING_HERE = "위에서 크기를 하나 고르고 아래 '라벨 설정 저장'을 눌러 주세요."
+
 /** 품종 칸을 끈 템플릿 안내 (D-O4-07) */
 export const NAME_OFF_OPTIONS_NOTE = '품종 칸을 끄면 사이즈·색상 같은 옵션이 라벨에 찍히지 않아요.'
 
@@ -113,17 +117,27 @@ type Kind = 'product' | 'packing'
 /** shopName: 설정 "가게"의 가게 이름 (로그인 정보 — 서버가 채운 이름을 아직 모를 때 대신 찍힐 이름) */
 export function LabelSettings({ shopName = '' }: { readonly shopName?: string } = {}) {
   const [kind, setKind] = useState<Kind>('product')
+  /** 멈춤 띠 "라벨 크기 고르기"를 누른 횟수 — 그 종류로 바꾸고 크기 칸으로 (UX-PRN2-003) */
+  const [pickSize, setPickSize] = useState(0)
+  useEffect(
+    () =>
+      onPickLabelSize((next) => {
+        setKind(next)
+        setPickSize((count) => count + 1)
+      }),
+    [],
+  )
   return (
     <div className="stack">
       <div className="row" role="group" aria-label="라벨 종류">
-        <button type="button" className="button" aria-pressed={kind === 'product'} onClick={() => setKind('product')}>
+        <button type="button" className="button" aria-pressed={kind === 'product'} onClick={() => { setKind('product'); setPickSize(0) }}>
           상품 라벨
         </button>
-        <button type="button" className="button" aria-pressed={kind === 'packing'} onClick={() => setKind('packing')}>
+        <button type="button" className="button" aria-pressed={kind === 'packing'} onClick={() => { setKind('packing'); setPickSize(0) }}>
           포장 라벨
         </button>
       </div>
-      <TemplateEditor key={kind} kind={kind} shopName={shopName} />
+      <TemplateEditor key={kind} kind={kind} shopName={shopName} pickSize={pickSize} />
     </div>
   )
 }
@@ -149,7 +163,14 @@ function problemsAt(problems: readonly TemplateProblem[], path: string): string[
   return problems.filter((problem) => problem.path === path || problem.path.startsWith(`${path}.`)).map((problem) => problem.message)
 }
 
-function TemplateEditor({ kind, shopName }: { readonly kind: Kind; readonly shopName: string }) {
+function TemplateEditor({ kind, shopName, pickSize = 0 }: { readonly kind: Kind; readonly shopName: string; readonly pickSize?: number }) {
+  const sizeRef = useRef<HTMLFieldSetElement | null>(null)
+  // "라벨 크기 고르기": 크기 칸을 보이고 고른 크기(없으면 첫 크기)에 초점 (UX-PRN2-003)
+  useEffect(() => {
+    if (pickSize === 0) return
+    const field = sizeRef.current
+    bringIntoView(field, field?.querySelector<HTMLInputElement>('input:checked') ?? field?.querySelector<HTMLInputElement>('input') ?? null)
+  }, [pickSize])
   const print = usePrintState()
   const api = usePrintApi()
   const env = useLabelEnv()
@@ -320,9 +341,9 @@ function TemplateEditor({ kind, shopName }: { readonly kind: Kind; readonly shop
             {storedFit}
           </p>
         ) : null}
-        <fieldset className="fieldset">
+        <fieldset className="fieldset" ref={sizeRef}>
           <legend id={ids.size}>라벨 크기</legend>
-          <div className="row" role="radiogroup" aria-labelledby={ids.size}>
+          <div className="row label-size-choices" role="radiogroup" aria-labelledby={ids.size}>
             {sizes.map((size) => (
               <label key={size} className="choice">
                 <input type="radio" name={`${kind}-size`} checked={template.size === size} onChange={() => changeSize(size)} />
@@ -337,7 +358,7 @@ function TemplateEditor({ kind, shopName }: { readonly kind: Kind; readonly shop
           ) : profileId !== null && !(sizes as readonly string[]).includes(template.size) ? (
             // 출력 기기의 프린터가 지금 크기를 찍지 못한다 — 출력 기기는 이 설정의 라벨에서 멈춘다 (L-11 13)
             <p className="notice" role="note" data-tone="warning" aria-label="라벨 크기 경고">
-              {sizeNotSupportedMessage(template.size)}
+              {sizeNotSupportedMessage(template.size)} {SIZE_WARNING_HERE}
             </p>
           ) : null}
         </fieldset>

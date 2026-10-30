@@ -210,7 +210,7 @@ describe('실험 표시와 "이 기기에서 출력" (AC-PRN2-06, L-7 지원 단
       )
         .getByRole("link", { name: "그림 파일로 저장하기" })
         .getAttribute("href"),
-    ).toBe("#label-export");
+    ).toBe("#label-export-files");
     // 농도를 받지 않는 프린터 — 농도 칸이 없다
     expect(within(printer).queryByLabelText("인쇄 농도")).toBeNull();
     expect(
@@ -326,7 +326,8 @@ describe("라벨 설정 크기 목록 (AC-PRN2-08, L-11 13)", () => {
     expect(
       screen.getAllByRole("note", { name: "라벨 크기 경고" })[0]?.textContent,
     ).toBe(
-      "이 프린터는 50×30 라벨을 찍을 수 없어요. 라벨 설정에서 크기를 바꿔 주세요.",
+      // L-11 13 문장 그대로 + 라벨 설정 안에서 할 일 (UX-PRN2-004)
+      "이 프린터는 50×30 라벨을 찍을 수 없어요. 라벨 설정에서 크기를 바꿔 주세요. 위에서 크기를 하나 고르고 아래 '라벨 설정 저장'을 눌러 주세요.",
     );
   });
 

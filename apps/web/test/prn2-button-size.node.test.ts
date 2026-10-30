@@ -15,4 +15,17 @@ describe('프린터 칸 단추 크기 (PRN2)', () => {
     expect(px(rule?.[1] ?? '', 'font-size')).toBeGreaterThanOrEqual(18)
     expect(px(rule?.[1] ?? '', 'min-height')).toBeGreaterThanOrEqual(52)
   })
+
+  it('라벨 화면 멈춤 띠·내보내기 단추·그림 파일 접기 줄·라벨 크기 고르기 줄도 글자 18px·높이 52px 이상 (UX-PRN2-009, 라벨 화면 범위만)', () => {
+    const buttons = /\.labels-page \.pause-band \.button,\s*\.label-export \.button\s*\{([^}]*)\}/.exec(css)
+    const summary = /\.label-export \.files-summary\s*\{([^}]*)\}/.exec(css)
+    const sizes = /\.labels-page \.label-size-choices \.choice\s*\{([^}]*)\}/.exec(css)
+    for (const rule of [buttons, summary, sizes]) {
+      expect(rule).not.toBeNull()
+      expect(px(rule?.[1] ?? '', 'font-size')).toBeGreaterThanOrEqual(18)
+      expect(px(rule?.[1] ?? '', 'min-height')).toBeGreaterThanOrEqual(52)
+    }
+    // 공통 .button·.pause-band 규칙은 그대로 (콘솔 알림 창 등 다른 화면은 바뀌지 않는다)
+    expect(px(/\n\.button \{([^}]*)\}/.exec(css)?.[1] ?? '', 'font-size')).toBe(16)
+  })
 })

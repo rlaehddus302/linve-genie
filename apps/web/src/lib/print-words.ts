@@ -1,9 +1,10 @@
 // 출력 화면 낱말·문장 (D-088에 D-I1-08을 더함, LABEL_RULES L-7·L-8·L-11, AC-I1-24·34·60·61). 영어 상태값·코드는 화면에 보이지 않는다.
 import { LABEL_MESSAGES, buyerText, doesNotFitMessage, formatLabelDate, type LabelBuyer } from '@livejjim/label'
-import { PRINTER_MESSAGES, type PrinterErrorCode } from '@livejjim/printer'
+import { PRINTER_MESSAGES, labelSizesForProfileId, printerProfile, profileSupportsSize, sizeNotSupportedMessage, type PrinterErrorCode } from '@livejjim/printer'
 import type { JobReason, JobView, LabelData, LabelView, QueueSummary } from '../api/print-types.ts'
 import { kstHm } from './kst.ts'
 import { saleOptionWords } from './sale-line.ts'
+import { sizeWordMm } from './test-help.ts'
 import { SERVICE_NAME } from '../brand.ts'
 
 /** 알림 띠 낱말 (D-I1-08) */
@@ -54,6 +55,43 @@ export const EXPERIMENTAL_PAUSED = '실험 중인 프린터라 출력을 잠시 
 export const EXPERIMENTAL_WAIT_TEST_MINE = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.'
 /** 출력 기기에서 실험 기종의 테스트 "예"를 누른 뒤 (D-PRN2-10) */
 export const EXPERIMENTAL_RESUMED = '좋아요. 멈췄던 출력을 이어서 해요.'
+/** "예" 뒤 다른 까닭으로 다시 멈췄을 때 — "이어서 해요"를 지난 일로 (UX-PRN2-006) */
+export const TEST_CONFIRMED_PAST = '테스트 인쇄가 잘 나온 것을 확인했어요.'
+/** 멈춤 띠의 라벨 크기 칸으로 가는 단추 (UX-PRN2-003) */
+export const PICK_SIZE_ACTION = '라벨 크기 고르기'
+/** 작업 줄 "마지막 오류:" — 크기 때문에 그리지 못함(INVALID_TEMPLATE size, UX-PRN2-003) */
+export const LABEL_SIZE_JOB_ERROR = '라벨 크기가 이 프린터에 맞지 않아요. 라벨 설정에서 크기를 다시 골라 주세요.'
+/** 라벨 오류 멈춤이 크기 때문일 때 할 일 (UX-PRN2-003) — example: 이 프린터가 찍는 크기 하나("50×30mm"), 모르면 null */
+export const sizePauseHint = (example: string | null): string =>
+  `'${PICK_SIZE_ACTION}'를 눌러 ${example === null ? '' : `${example}처럼 `}이 프린터에 맞는 크기를 고르고 '라벨 설정 저장'을 누른 뒤 '다시 시작'을 눌러 주세요.`
+
+/** 라벨 오류 멈춤이 크기 때문인가 (UX-PRN2-003): 그 작업 종류, 까닭 문장(L-11 13 — 출력 기기 프린터가 저장된 크기를 못 찍을 때만), 할 일 */
+export interface SizePause {
+  readonly kind: 'product' | 'packing'
+  readonly message: string | null
+  readonly hint: string
+}
+
+/**
+ * 순수 함수: 멈춤이 라벨 오류이고 대기·출력 중 작업의 마지막 오류가 크기(INVALID_TEMPLATE size)면 SizePause, 아니면 null.
+ * sizes: 지금 저장된 템플릿 크기(종류별), profileId: 출력 기기 프린터 프로필(모르면 null)
+ */
+export function labelSizePause(input: {
+  readonly pause: QueueSummary['pause']
+  readonly jobs: readonly Pick<JobView, 'kind' | 'status' | 'lastError'>[]
+  readonly sizes: { readonly product?: string; readonly packing?: string }
+  readonly profileId: string | null
+}): SizePause | null {
+  if (input.pause?.reason !== 'LABEL_ERROR') return null
+  const job = input.jobs.find((item) => (item.status === 'WAITING' || item.status === 'PRINTING') && item.lastError?.code === 'INVALID_TEMPLATE' && item.lastError.item === 'size')
+  if (job === undefined) return null
+  const profileId = input.profileId !== null && printerProfile(input.profileId) !== undefined ? input.profileId : null
+  const size = input.sizes[job.kind]
+  const message = profileId !== null && size !== undefined && !profileSupportsSize(profileId, size) ? sizeNotSupportedMessage(size) : null
+  const first = profileId === null ? undefined : labelSizesForProfileId(profileId)[0]
+  return { kind: job.kind, message, hint: sizePauseHint(first === undefined ? null : sizeWordMm(first)) }
+}
+
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
 export const NO_WINNER_LABEL = '1등이 없어 출력할 라벨이 없어요.'
 /** 라벨 기능을 끈 판매자의 라벨 자리 안내 (L-13 9, D-N4a-05) — 라벨 화면·상품 자세히·정산 자세히·Alt+P */
@@ -148,7 +186,7 @@ export function printErrorMessage(error: { readonly code: string; readonly item:
     case 'INVALID_DATA':
       return `${LABEL_MESSAGES.invalidDataPrefix}${LABEL_MESSAGES.labelData}`
     case 'INVALID_TEMPLATE':
-      return LABEL_MESSAGES.invalidTemplate
+      return error.item === 'size' ? LABEL_SIZE_JOB_ERROR : LABEL_MESSAGES.invalidTemplate
     case 'MIXED_SIZES':
       return LABEL_MESSAGES.mixedSizes
     case 'NO_LABELS':
