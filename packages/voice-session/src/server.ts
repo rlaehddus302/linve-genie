@@ -1,11 +1,11 @@
 // APP1b: 기존 V2/V3 읽기 컨트롤러를 서버 메모리에서 그대로 실행한다.
 // 쓰기 효과는 기기로 보내 기존 요청 API를 거친다. 소리·글·상태는 저장하지 않는다.
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { readFixForm } from './read.ts'
+import { decideFixForm } from './read/quick.ts'
 import * as voice from '@livejjim/voice'
 import { BaseSpeechEngine, type SpeechResult } from '../../voice/src/speech.ts'
-import { VoiceController, type VoiceHost } from '../../../apps/web/src/voice/controller.ts'
-import { VOICE_COMMANDS, isRecord, isVoiceClientMessage, toWire, type VoiceServerMessage } from './wire.ts'
+import { VoiceController, type VoiceHost } from './controller/controller.ts'
+import { CHROME_RESULT_UNSUPPORTED, VOICE_COMMANDS, isRecord, isVoiceClientMessage, toWire, type VoiceFlowMode, type VoiceServerMessage } from './wire.ts'
 import { sealResume, openResume } from './resume.ts'
 
 type DataKeys = 'maxNumber' | 'currentNames' | 'products' | 'fetchHistory' | 'priceUnit' | 'existingProduct' | 'smsReadOptions' | 'smsProduct' | 'smsProductName' | 'readSmsTime' | 'readLearned' | 'writeLearned' | 'lastVoiceDevice' | 'ready'
@@ -17,7 +17,8 @@ export interface ReadingSessionOptions {
   readonly accountId?: string
   readonly send: (message: VoiceServerMessage) => void
   readonly now?: () => number
-  readonly mode?: 'chrome' | 'livegenie'
+  /** 흐름 종류 (D-APP-25). control·chrome은 마이크 없는 조작 전용 — 받아쓴 글을 받지 않는다 */
+  readonly mode?: VoiceFlowMode
   readonly mergeLearned?: (learned: unknown) => Promise<void>
 }
 
@@ -244,10 +245,10 @@ export function createReadingSession(options: ReadingSessionOptions) {
     } else if (value.op === 'effectResult' && typeof value.id === 'number') {
       const item = pending.get(value.id)
       if (item !== undefined) { pending.delete(value.id); clearTimeout(item.timer); item.resolve(value.value) }
-    } else if (value.op === 'chromeResult' && options.mode === 'chrome' && isRecord(value.result)) {
-      const result = value.result
-      if (typeof result.text !== 'string' || result.text.length > 2000 || typeof result.final !== 'boolean') return
-      engine.receive({ text: result.text, final: result.final, ...(result.flushedAtEnd === true ? { flushedAtEnd: true } : {}), ...(typeof result.slot === 'string' ? { slot: result.slot } : {}), ...(typeof result.lead === 'boolean' ? { lead: result.lead } : {}) })
+    } else if (value.op === 'chromeResult') {
+      // SRV1 (D-APP-22·D-APP-25 (2), APP-05 AC5): 기기가 보낸 "받아쓴 글"은 받아쓴 말처럼 읽지 않는다 — 거절만 알리고 아무것도 쓰지 않는다.
+      // 받아쓰기는 소리 틀(VOC-06)로만. 연결은 끊지 않는다(카드 손 조작은 그대로, D-APP1b-08)
+      emit({ type: 'voice.error', code: 'UNSUPPORTED', message: CHROME_RESULT_UNSUPPORTED })
     } else if (value.op === 'command' && typeof value.method === 'string' && VOICE_COMMANDS.some((method) => method === value.method) && Array.isArray(value.args) && value.args.length <= 4) {
       if (!initialized) return
       if (value.method === 'noteVoiceRegistered' && isRecord(value.args[0]) && typeof value.args[0].id === 'string') {
@@ -280,7 +281,7 @@ export function createReadingSession(options: ReadingSessionOptions) {
         const id = String(value.args[0])
         const form = controller.getSnapshot().forms.get(id)
         if (form === undefined) return
-        const parsed = readFixForm(form, { 'price.unit': host.priceUnit?.() ?? 'WON', 'claim.maxNumber': host.maxNumber() })
+        const parsed = decideFixForm(form, { 'price.unit': host.priceUnit?.() ?? 'WON', 'claim.maxNumber': host.maxNumber() }, () => undefined)
         if (parsed.kind === 'fix') controller.formProblem(id, parsed.message, parsed.focus)
         else if (parsed.kind === 'register') {
           const card = controller.take(id)

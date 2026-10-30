@@ -77,10 +77,20 @@ export interface VoiceEffectMessage {
   readonly args: WireValue
   readonly spokenEndAt?: number
   readonly automatic?: boolean
-  readonly source?: 'chrome' | 'livegenie'
+  /**
+   * 흐름 종류: livegenie 받아쓰기 · control 마이크 없는 조작 전용(`capture=false`, D-APP-25) · chrome 옛 조작 전용 인자(`mode=chrome` — SRV1부터 받아쓴 글은 받지 않고
+   * 조작 전용과 같다. 기기가 `capture=false`로 옮길 때까지 같은 값을 돌려준다). control·chrome 흐름의 자동 효과는 말 끝 시각이 없다
+   */
+  readonly source?: VoiceFlowMode
 }
 
-export type VoiceServerMessage = VoiceStateMessage | VoiceEffectMessage | { readonly type: 'voice.error'; readonly code?: 'RESUME_INVALID'; readonly message: string }
+/** 음성 흐름 종류 (D-APP-25): livegenie · control(`capture=false`) · chrome(옛 `mode=chrome` — 조작 전용과 같다) */
+export type VoiceFlowMode = 'livegenie' | 'control' | 'chrome'
+
+/** 옛 크롬 받아쓴 글(chromeResult)을 거절할 때 (D-APP-25 (2), APP-05 AC5 — 아무것도 쓰지 않는다) */
+export const CHROME_RESULT_UNSUPPORTED = '받아쓴 글은 받지 않아요. 음성은 라이브지니 받아쓰기로 들어요. 상품은 빠른 입력으로 넣어 주세요.'
+
+export type VoiceServerMessage = VoiceStateMessage | VoiceEffectMessage | { readonly type: 'voice.error'; readonly code?: 'RESUME_INVALID' | 'UNSUPPORTED'; readonly message: string }
 
 export interface VoiceConfirmation {
   readonly sessionId: string

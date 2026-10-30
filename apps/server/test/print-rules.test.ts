@@ -422,9 +422,18 @@ describe('AC-I1-11 빼기·모두 빼기', () => {
     const b = await createBroadcast(world, seller, { date: DAY })
     const p = printApi(world, seller)
     await becomeDevice(world, seller)
-    // 채팅 파서는 10000을 찜으로 읽지 않는다 — 문자찜으로 1등을 만든다
+    // 채팅 파서는 10000을 찜으로 읽지 않는다 — 문자찜으로 1등을 만든다.
+    // SRV1부터 API는 번호 한도(claim.maxNumber) 밖 문자찜을 받지 않는다 — 그 전에 기록된 옛 문자찜과 같은 이벤트를 기록 경로로 바로 쓴다(바꾼 기존 시험, SRV1 dev-notes)
     await register(world, seller, b.id, 10000, '큰번호', 8000)
-    await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 10000, received: '20:00' }))
+    const old = await world.server.writer.write({
+      sellerId: seller.sellerId,
+      date: DAY,
+      rehearsal: false,
+      createScope: false,
+      requestId: 'old-sms-10000',
+      build: () => [{ fields: { type: 'sms', b: b.id, no: 10000, ref: 'oldsmsref', received: '20:00' }, actor: { kind: 'account', accountId: seller.accountId } }],
+    })
+    expect(old.kind).toBe('ok')
     await sale(world, seller, b.id, 2, 'UC_B', '김철수')
     expect(await p.claim(DEVICE_A)).toEqual({ job: null, reason: 'PAUSED' })
     let overview = await p.overview()

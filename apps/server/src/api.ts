@@ -26,6 +26,7 @@ import { ASSISTANT_EVENT_TYPES, ASSISTANT_FORBIDDEN_MESSAGE, assistantMayCall } 
 import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerVoiceAliasRoutes, type VoiceAliases } from './voice/aliases.ts'
 import { registerPrintRoutes } from './print-api.ts'
+import { registerReadRoutes } from './read-routes.ts'
 import type { InstagramModule } from './instagram/index.ts'
 import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.ts'
 import type { ReceiptLinkService } from './receipt-links.ts'
@@ -492,6 +493,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const outcome = await service.writeEvent(sellerOf(c), actorOf(c), requestId, input, c.req.query('date'), rehearsal.value, { assistant })
     return outcomeResponse(c, outcome.kind === 'phone' ? outcome.outcome : outcome)
   })
+
+  // ── 서버 읽기 입구 (SRV1 약속 1 — 친 글 원문 → 읽은 값, 기록 없음) ─────
+  registerReadRoutes(api, { service })
 
   // ── 리허설: 시청자로 보내기·가짜 채팅 생성기 (AC-S05-51·52) ─────────────
   // 실제 방송·다른 판매자의 방송·없는 방송이면 404이고 아무것도 기록하지 않는다

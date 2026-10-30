@@ -4,7 +4,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer, type RawData } from 'ws'
-import { isVoiceClientMessage } from '@livejjim/voice-session/wire'
+import { isVoiceClientMessage, type VoiceFlowMode } from '@livejjim/voice-session/wire'
 import type { Auth, SessionContext } from '../auth.ts'
 import type { Db } from '../db/database.ts'
 import type { LogSink } from '../log.ts'
@@ -25,7 +25,7 @@ export interface VoiceRelayOptions {
   readonly clock: Clock
   readonly log: LogSink
   readonly workerToken?: string
-  readonly reading?: (context: { session: SessionContext; broadcastId: string; device: string; mode: 'chrome' | 'livegenie'; send: (message: unknown) => void }) => VoiceReadingSession | Promise<VoiceReadingSession>
+  readonly reading?: (context: { session: SessionContext; broadcastId: string; device: string; mode: VoiceFlowMode; send: (message: unknown) => void }) => VoiceReadingSession | Promise<VoiceReadingSession>
 }
 interface Peer { readonly ws: WebSocket; pongAt: number }
 interface Worker extends Peer { capacity: number; nextStream: number; readonly streams: Map<number, Device> }
@@ -33,7 +33,7 @@ interface Device extends Peer {
   session: SessionContext | null
   broadcastId: string
   device: string
-  mode: 'chrome' | 'livegenie'
+  mode: VoiceFlowMode
   pending: number
   worker: Worker | null
   stream: number
@@ -46,6 +46,14 @@ interface Device extends Peer {
 const REGISTRATIONS = new WeakMap<object, VoiceRelay>()
 export function registerVoiceRelay(app: object, voice: VoiceRelay): void { REGISTRATIONS.set(app, voice) }
 export function attachVoiceRelay(server: Server, app: object): void { REGISTRATIONS.get(app)?.attach(server) }
+/**
+ * 흐름 종류 (D-APP-25 (2)): `capture=false`는 마이크 없는 조작 전용(control). 옛 `mode=chrome`도 조작 전용으로만 연다 — SRV1부터 받아쓴 글은 받지 않는다
+ * (읽기 세션이 chromeResult를 UNSUPPORTED로 거절). 둘 다 받아쓰기 일꾼을 잡지 않는다
+ */
+function flowMode(url: URL): VoiceFlowMode {
+  if (url.searchParams.get('capture') === 'false') return 'control'
+  return url.searchParams.get('mode') === 'chrome' ? 'chrome' : 'livegenie'
+}
 const record = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x)
 const natural = (x: unknown): x is number => typeof x === 'number' && Number.isSafeInteger(x) && x >= 0
 const bytesOf = (data: RawData): Buffer => Buffer.isBuffer(data) ? data : data instanceof ArrayBuffer ? Buffer.from(data) : Buffer.concat(data)
@@ -142,7 +150,7 @@ export class VoiceRelay {
   }
   #device(ws: WebSocket, req: IncomingMessage, url: URL): void {
     const now = this.#options.clock.now()
-    const device: Device = { ws, pongAt: now, session: null, broadcastId: url.searchParams.get('broadcastId') ?? '', device: url.searchParams.get('device') ?? '', mode: url.searchParams.get('mode') === 'chrome' ? 'chrome' : 'livegenie', pending: 0, worker: null, stream: 0, ready: false, bytes: 0, windowAt: now, reading: null, work: Promise.resolve() }
+    const device: Device = { ws, pongAt: now, session: null, broadcastId: url.searchParams.get('broadcastId') ?? '', device: url.searchParams.get('device') ?? '', mode: flowMode(url), pending: 0, worker: null, stream: 0, ready: false, bytes: 0, windowAt: now, reading: null, work: Promise.resolve() }
     this.#devices.add(device)
     ws.on('error', () => {})
     ws.on('pong', () => { device.pongAt = this.#options.clock.now() })
@@ -186,12 +194,12 @@ export class VoiceRelay {
     }
     const worker = [...this.#workers].filter((candidate) => candidate.ws.readyState === WebSocket.OPEN && candidate.streams.size < candidate.capacity && candidate.nextStream <= 4_294_967_295)
       .sort((a, b) => (b.capacity - b.streams.size) - (a.capacity - a.streams.size))[0]
-    if (worker === undefined && device.mode !== 'chrome') {
+    if (worker === undefined && device.mode === 'livegenie') {
       if (this.#workers.size === 0) { this.#noWorker(); this.#finish(device, 'NO_WORKER') }
       else this.#finish(device, 'BUSY')
       return
     }
-    if (device.mode !== 'chrome' && worker !== undefined) {
+    if (device.mode === 'livegenie' && worker !== undefined) {
       device.worker = worker
       device.stream = worker.nextStream++
       worker.streams.set(device.stream, device)
