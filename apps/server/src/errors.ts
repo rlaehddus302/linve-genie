@@ -50,6 +50,8 @@ export type ErrorCode =
   | 'REHEARSAL_LINK'
   | 'ALREADY_LINKED'
   | 'NOT_MY_CHANNEL'
+  // INV1 내 채널이 아닌 방송 잇기 — 확인 필요 (D-PHN-17·D-INV1-04)
+  | 'INVITED_CONFIRM_NEEDED'
   | 'NO_LIVE_CHAT'
   | 'VIDEO_IN_USE'
   | 'NOT_LINKED'

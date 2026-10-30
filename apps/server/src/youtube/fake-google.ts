@@ -754,7 +754,13 @@ export class FakeGoogle {
         {
           kind: 'youtube#video',
           id: videoId,
-          snippet: { channelId: broadcast.channelId, title: broadcast.title, liveBroadcastContent: broadcast.status === 'complete' ? 'none' : broadcast.status },
+          snippet: {
+            channelId: broadcast.channelId,
+            // 영상의 채널 이름 (실제 videos.list snippet.channelTitle — 초대 방송 확인 줄, D-PHN-17). 모르는 채널이면 빈 글
+            channelTitle: this.#channels.get(broadcast.channelId)?.title ?? '',
+            title: broadcast.title,
+            liveBroadcastContent: broadcast.status === 'complete' ? 'none' : broadcast.status,
+          },
           liveStreamingDetails: {
             scheduledStartTime: broadcast.scheduledStartTime,
             ...(broadcast.actualStartTime === null ? {} : { actualStartTime: broadcast.actualStartTime }),

@@ -445,8 +445,12 @@ export const youtubeLinks = pgTable(
     broadcastId: text('broadcast_id').notNull(),
     videoId: text('video_id').notNull(),
     liveChatId: text('live_chat_id').notNull(),
-    /** 이을 때 연결돼 있던 채널 */
+    /** 이을 때 연결돼 있던 채널 = 글 올리는 계정 (감사 채팅·영상 댓글은 이 채널의 토큰으로, D-PHN-19·20) */
     channelId: text('channel_id').notNull(),
+    /** 방송 채널 = 붙여 넣은 영상의 채널(snippet.channelId). 비면(INV1 전 기록) 글 올리는 계정과 같다 (D-PHN-17, D-INV1-01) */
+    broadcastChannelId: text('broadcast_channel_id'),
+    /** 방송 채널 이름(snippet.channelTitle) — 바깥 글, 화면은 글자로만 (D-INV1-03) */
+    broadcastChannelTitle: text('broadcast_channel_title'),
     linkedAt: timestamptz('linked_at').notNull(),
     /** 유튜브 방송의 실제 시작 시각. null이면 예정(시작 전) — 수집기는 채팅을 부르지 않고 상태만 본다 (AC-Y1-94) */
     startedAt: timestamptz('started_at'),
