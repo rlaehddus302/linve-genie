@@ -2,7 +2,7 @@
 // 연습 모드로 라이브찜 켜기: pnpm try [--port 7700]
 // 판매자가 자기 컴퓨터에서 처음부터 끝까지 따라 해 보는 용도다(docs/TRY-IT.md). 운영 기동(apps/server main.ts)이 아니다.
 // - 화면을 운영용으로 빌드해(node_modules/.cache/livejjim-try/web-<포트>) 서버가 같은 출처로 함께 낸다.
-// - 메모리 DB(끄면 연습 기록은 사라진다)·그 자리에서 만든 마스터 키·연습용 판매자 계정 하나(비밀번호는 실행마다 무작위, 터미널에만 보인다).
+// - 기본은 메모리 DB(끄면 연습 기록 삭제). LIVEGENIE_DATA_DIR을 명시하면 파일 DB·마스터 키·연습 계정을 보존한다.
 // - 시험용 프린터(실제로 출력하지 않음)·시험용 입금 넣기·가짜 유튜브(연습 채널과 진행 중인 "연습 라이브" 하나)를 켠다.
 // - 연습용 시청자 채팅 화면 /_try/chat: 가짜 유튜브 라이브에 시청자 채팅을 넣는다(이 스크립트만 가진 화면).
 // - 간편 로그인(L1, AC-L1-24): 가짜 구글·카카오·네이버를 연습 전용 경로 /_try/oauth/<공급자>/…에 붙여 켠다(운영 기동에는 이 경로가 없다).
@@ -21,7 +21,7 @@
 //   진짜 구글(--real-youtube)이면 휴대폰에서는 연결하지 않고 이 컴퓨터에서 먼저 연결하라고 안내한다(apps/server/src/try/phone-relay.ts).
 //   E2E 서버와 달리 같은 와이파이에 열린다(휴대폰 때문). 연습 데이터뿐이고 비밀번호는 실행마다 무작위다.
 // - 기본 포트를 다른 프로그램이 쓰고 있으면 다음 빈 포트로 옮긴다.
-// 비밀번호·마스터 키는 파일과 로그에 남기지 않는다.
+// 기본 모드의 비밀번호·마스터 키는 저장하지 않는다. 영구 모드는 지정한 비공개 폴더에 키·비밀번호를 보관한다.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { randomInt } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -160,9 +160,25 @@ const { readTikTokSettings } = await server('tiktok/settings.ts')
 const lans = lanAddresses(networkInterfaces())
 const lan = lans[0] ?? null
 
-const database = await openPglite()
-const masterKey = generateMasterKey()
-const backupDir = mkdtempSync(join(tmpdir(), 'livejjim-try-backup-'))
+// 명시적으로 저장 폴더를 지정한 연습만 영구 보관한다. 기존 pnpm try의 메모리 계약은 그대로다.
+const persistentDir = process.env['LIVEGENIE_DATA_DIR'] || null
+const passwordLetters = 'abcdefghjkmnpqrstuvwxyz23456789'
+const makePassword = () => Array.from({ length: 3 }, () => Array.from({ length: 4 }, () => passwordLetters[randomInt(passwordLetters.length)]).join('')).join('-')
+let credentials
+if (persistentDir !== null) {
+  mkdirSync(persistentDir, { recursive: true, mode: 0o700 })
+  const keyFile = join(persistentDir, 'credentials.json')
+  if (!existsSync(keyFile)) {
+    if (existsSync(join(persistentDir, 'database'))) fail('저장된 DB의 암호화 키가 없습니다. 기존 데이터를 보존하고 실행을 중단합니다.')
+    writeFileSync(keyFile, JSON.stringify({ masterKey: generateMasterKey(), password: makePassword() }), { mode: 0o600, flag: 'wx' })
+  }
+  credentials = JSON.parse(readFileSync(keyFile, 'utf8'))
+  if (typeof credentials.masterKey !== 'string' || Buffer.from(credentials.masterKey, 'base64').length !== 32 || typeof credentials.password !== 'string' || credentials.password.length < 8) fail('저장된 로그인·암호화 키를 읽지 못했어요. 기존 데이터를 보존하고 실행을 중단합니다.')
+} else credentials = { masterKey: generateMasterKey(), password: makePassword() }
+const database = await openPglite(persistentDir === null ? undefined : join(persistentDir, 'database'))
+const masterKey = credentials.masterKey
+const backupDir = persistentDir === null ? mkdtempSync(join(tmpdir(), 'livejjim-try-backup-')) : join(persistentDir, 'backups')
+mkdirSync(backupDir, { recursive: true, mode: 0o700 })
 const fake = await FakeGoogle.start({ pollingIntervalMillis: 1000 })
 // 연습 채널과 진행 중인 연습 라이브 (유튜브 연결을 누르면 바로 이 채널로 허락된다)
 const fakeAccount = fake.addAccount()
@@ -212,10 +228,9 @@ const livejjim = createServer({
   ...(realTiktok ? { tiktok: { settings: readTikTokSettings({ LIVEJJIM_TIKTOK_BETA: 'on', LIVEJJIM_TIKTOK_SIGN_API_KEY: process.env['LIVEJJIM_TIKTOK_SIGN_API_KEY'] }) } } : {}),
 })
 
-const PASSWORD_LETTERS = 'abcdefghjkmnpqrstuvwxyz23456789'
-const password = Array.from({ length: 3 }, () => Array.from({ length: 4 }, () => PASSWORD_LETTERS[randomInt(PASSWORD_LETTERS.length)]).join('')).join('-')
+const password = credentials.password
 const account = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), { shopName: SHOP_NAME, loginId: LOGIN_ID, password })
-if (!account.ok) fail(`연습 계정을 만들지 못했어요. ${account.message}`)
+if (!account.ok && !(persistentDir !== null && account.message === '이미 있는 아이디예요.')) fail(`연습 계정을 만들지 못했어요. ${account.message}`)
 livejjim.start()
 livejjim.backups.start()
 livejjim.work.receipts.warm()
@@ -299,7 +314,12 @@ let phone = null
 let phoneProblem = null
 if (lan !== null) {
   try {
-    const { key, cert } = phoneCertificate(lans)
+    const suppliedKey = process.env['LIVEGENIE_PHONE_TLS_KEY']
+    const suppliedCert = process.env['LIVEGENIE_PHONE_TLS_CERT']
+    if ((suppliedKey === undefined) !== (suppliedCert === undefined)) throw new Error('휴대폰 인증서와 개인 키를 함께 지정해 주세요.')
+    const { key, cert } = suppliedKey !== undefined && suppliedCert !== undefined
+      ? { key: readFileSync(suppliedKey), cert: readFileSync(suppliedCert) }
+      : phoneCertificate(lans)
     // 휴대폰 주소들과, 이 컴퓨터에서 https로 여는 주소(사파리에서 로그인이 안 될 때) 모두 화면 주소로 바꿔 넘긴다
     const httpsOrigins = new Set([...lans.map((ip) => `https://${ip}:${String(phonePort)}`), `https://localhost:${String(phonePort)}`])
     // 중계 규칙(Origin·Location·간편 로그인·유튜브 연결)은 apps/server/src/try/phone-relay.ts (MOB1 D-MOB1-06)
@@ -368,7 +388,7 @@ if (phone !== null) {
   say(` 문자 자동 수신 시험 토큰 : ${smsTestToken}`)
 }
 say('')
-say(' 연습 기록은 이 창을 끄면 모두 지워져요. 실제 방송·실제 프린터·실제 돈과는 상관없어요.')
+say(persistentDir === null ? ' 연습 기록은 이 창을 끄면 모두 지워져요. 실제 방송·실제 프린터·실제 돈과는 상관없어요.' : ' 연습 기록은 이 컴퓨터에 저장되어 다시 켜도 유지돼요. 실제 방송·실제 프린터·실제 돈과는 상관없어요.')
 say('')
 if (realLogin !== null) {
   // 값은 보이지 않는다 — 켜짐·꺼짐과 등록할 주소만
@@ -412,7 +432,7 @@ async function stop() {
   await livejjim.stop().catch(() => {})
   await fake.close().catch(() => {})
   await database.close().catch(() => {})
-  rmSync(backupDir, { recursive: true, force: true })
+  if (persistentDir === null) rmSync(backupDir, { recursive: true, force: true })
   say('껐어요. 다시 켜려면 pnpm try')
   process.exit(0)
 }
