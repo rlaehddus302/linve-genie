@@ -5,10 +5,12 @@ import { factsBuildCount, factsCacheStats, forgetCustomerCaches } from '../src/c
 import { SWEEP_BATCH } from '../src/customers/ledger.ts'
 import { LINK_CODE_WORDS } from '../src/customers/ledger-rules.ts'
 import { RECENT_CODE_MS, recentCodes } from '../src/customers/ledger-store.ts'
+import { WORK_BUSY_MESSAGE } from '../src/closing.ts'
 import { isServerPath } from '../src/web.ts'
+import { WorkBusy, WorkFailed } from '../src/work-pool.ts'
 import { at, chat } from './i2-support.ts'
 import { login, waitFor } from './support.ts'
-import { codes, consent, kst, ledgerWorld, lines, logText, openLink, postForm, rowsOf, sell } from './kp1-ledger-support.ts'
+import { codes, consent, kst, ledgerApi, ledgerWorld, lines, logText, openLink, postForm, rowsOf, sell } from './kp1-ledger-support.ts'
 
 const JAN = '2026-01-31'
 const JUN = '2026-06-01'
@@ -159,5 +161,26 @@ describe('TD-KP1-002 새 연결 코드는 최근에 끝난 코드와 겹치지 �
 describe('공개 일정 주소는 서버 경로 (화면 문서로 빠지지 않는다)', () => {
   it('/s·/s/<토큰>은 서버 경로, /settings·/settlements는 화면', () => {
     expect([isServerPath('/s'), isServerPath('/s/abc'), isServerPath('/settings'), isServerPath('/settlements'), isServerPath('/sales')]).toEqual([true, true, false, false, false])
+  })
+})
+
+describe('RA-KP1-008 손님 엑셀은 판매대장과 같은 작업 풀(documents)에서 만든다', () => {
+  it('작업 워커가 만든 파일을 주고, 밀려 있으면 429(판매대장과 같은 문장)·받은 기록 없음, 못 끝내면 500', async () => {
+    const { world, seller } = await ledgerWorld()
+    await sell(world, seller, [['UC_A', '가람', 1]])
+    const run = vi.spyOn(world.server.work.documents, 'run')
+    const api = ledgerApi(world, seller.cookie)
+    const ok = await api.xlsx('0')
+    expect(ok.status).toBe(200)
+    expect(new Uint8Array(await ok.arrayBuffer()).slice(0, 2)).toEqual(new Uint8Array([0x50, 0x4b]))
+    expect(run.mock.calls.map((call) => [call[0], call[1]])).toEqual([[seller.sellerId, 'customersXlsx']])
+    const exportsBefore = await rowsOf(world, 'select id from customer_exports')
+    run.mockRejectedValueOnce(new WorkBusy())
+    const busy = await api.xlsx('1')
+    expect(busy.status).toBe(429)
+    expect(await busy.text()).toContain(WORK_BUSY_MESSAGE)
+    run.mockRejectedValueOnce(new WorkFailed('timeout'))
+    expect((await api.xlsx('1')).status).toBe(500)
+    expect(await rowsOf(world, 'select id from customer_exports')).toEqual(exportsBefore)
   })
 })

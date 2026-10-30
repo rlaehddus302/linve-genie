@@ -5,7 +5,8 @@
 import { isValidDate } from '@livejjim/core'
 import type { Context, Hono } from 'hono'
 import type { SessionContext } from '../auth.ts'
-import { buyerParam } from '../closing.ts'
+import { WORK_BUSY_MESSAGE, WORK_FAILED_MESSAGE, buyerParam } from '../closing.ts'
+import { WorkBusy, WorkFailed } from '../work-pool.ts'
 import { apiError, type FieldProblem } from '../errors.ts'
 import { MIME, fileResponse } from '../files.ts'
 import { isLedgerMonths } from './ledger-rules.ts'
@@ -83,7 +84,15 @@ export function registerLedgerRoutes(api: Hono<Env>, ledger: LedgerService): voi
     const contact = c.req.query('contact') ?? '0'
     if (contact !== '0' && contact !== '1') return invalid([{ field: 'contact', message: LEDGER_MESSAGES.contact }])
     const session = c.get('session')
-    const file = await ledger.exportXlsx(session.sellerId, session.accountId, contact === '1')
+    let file: Awaited<ReturnType<LedgerService['exportXlsx']>>
+    try {
+      file = await ledger.exportXlsx(session.sellerId, session.accountId, contact === '1', c.req.raw.signal)
+    } catch (error) {
+      // 작업 워커 (RA-KP1-008): 밀려 있으면 429, 못 끝내면 500 — 판매대장과 같은 문장
+      if (error instanceof WorkBusy) return apiError(429, 'BUSY', WORK_BUSY_MESSAGE)
+      if (error instanceof WorkFailed) return apiError(500, 'FILE_FAILED', WORK_FAILED_MESSAGE)
+      throw error
+    }
     return fileResponse(file.bytes, MIME.xlsx, file.fileName, 'customers.xlsx')
   })
 

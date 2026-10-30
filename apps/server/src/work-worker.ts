@@ -60,6 +60,11 @@ const handlers: Readonly<Record<WorkKind, Handler>> = {
     const { documentFont } = await import('./files.ts')
     return renderWaybillsPdf((input as { list: WaybillData[] }).list, documentFont())
   },
+  /** KP1 손님 엑셀 (CR-6, RA-KP1-008 — 판매대장처럼 이벤트 루프 밖에서). 답 = { fileName, bytes } */
+  customersXlsx: async (input) => {
+    const { buildCustomersXlsx } = await import('@livejjim/documents')
+    return buildCustomersXlsx(input as Parameters<typeof buildCustomersXlsx>[0])
+  },
   /** 상품 목록 .xlsx → 첫 시트의 행 (압축 해제·시트·행·칸 상한 — import-files.ts) */
   xlsxRows: async (input) => {
     const { readXlsxRowsBounded } = await import('./import-files.ts')

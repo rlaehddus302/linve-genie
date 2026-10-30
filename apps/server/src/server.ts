@@ -500,7 +500,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const customers = new CustomerService({ db, writer, clock, log, masterKey })
   const customerArchiver = new CustomerArchiver({ db, writer, timer, log, facts: customers.factsDeps() })
   // KP1 손님 장부 — 손님 자세히에 장부 칸을 건다
-  const ledger = new LedgerService({ db, clock, masterKey, hub, log, customers, readState: async (sellerId, date) => (await writer.read(sellerId, date, false)).state })
+  const ledger = new LedgerService({ db, clock, masterKey, hub, log, customers, readState: async (sellerId, date) => (await writer.read(sellerId, date, false)).state, work: work.documents }) // KP1 RA-KP1-008 손님 엑셀은 documents 풀
   customers.useLedger((sellerId, marker) => ledger.customerLedger(sellerId, marker))
   const ledgerSweeper = new LedgerSweeper({ ledger, timer, log, schedule: (now) => sweepSchedule(db, now) })
   // KP1 방송 리포트·방송 일정

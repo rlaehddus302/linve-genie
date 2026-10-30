@@ -16,6 +16,7 @@ import { phoneLast4 } from '../parcel/rules.ts'
 import { PLATFORM_NAMES, platformOfKey } from '../platform.ts'
 import { readShop } from '../shop.ts'
 import { iso, kstDate, type Clock } from '../time.ts'
+import type { WorkPool } from '../work-pool.ts'
 import type { TxHookContext } from '../writer.ts'
 import { factsFor, realScopes, type ScopeRow } from './facts.ts'
 import { LINK_CODE_TTL_MS, badgeSpoken, customerBadge, ledgerDeleteOn, ledgerMonthsWord, maskRecipient, matchLinkCode, pickLinkCode, showLedgerPrefill, type LedgerMonths } from './ledger-rules.ts'
@@ -108,6 +109,8 @@ export interface LedgerDeps {
   readonly readState: (sellerId: string, date: string) => Promise<EngineState>
   /** 코드 고르기 난수 (기본 crypto.randomInt — 시험은 정해진 값) */
   readonly randomIndex?: (n: number) => number
+  /** 손님 엑셀을 만들 작업 풀 (판매대장과 같은 documents 풀 — RA-KP1-008). 없으면 요청 안에서 만든다 */
+  readonly work?: Pick<WorkPool, 'run'>
 }
 
 const SMS_PREFIX = 'sms:'
@@ -516,7 +519,7 @@ export class LedgerService {
   // ── 손님 엑셀 (CR-6, AC-KP1-12·13) ───────────────────────────────────
 
   /** "모든 손님" 전부 → 엑셀. 받은 기록(누가·언제·연락처 열)을 남긴다 */
-  async exportXlsx(sellerId: string, accountId: string, includeContact: boolean): Promise<CustomersXlsxResult> {
+  async exportXlsx(sellerId: string, accountId: string, includeContact: boolean, signal?: AbortSignal): Promise<CustomersXlsxResult> {
     const { today, rows } = await this.#deps.customers.allRows(sellerId)
     const contacts = new Map<string, NonNullable<CustomerXlsxRow['contact']>>()
     if (includeContact) {
@@ -548,7 +551,10 @@ export class LedgerService {
       memo,
       contact: includeContact ? (contacts.get(marker) ?? null) : null,
     }))
-    const result = await buildCustomersXlsx({ date: today, rows: xlsxRows, includeContact })
+    // 이벤트 루프 밖(작업 워커)에서 만든다 — 밀려 있으면 WorkBusy, 못 끝내면 WorkFailed (부르는 쪽이 429·500으로)
+    const input = { date: today, rows: xlsxRows, includeContact }
+    const work = this.#deps.work
+    const result = work === undefined ? await buildCustomersXlsx(input) : await work.run<CustomersXlsxResult>(sellerId, 'customersXlsx', input, signal === undefined ? {} : { signal })
     await this.#deps.db.insert(customerExports).values({ sellerId, accountId, contact: includeContact, at: this.#now() })
     return result
   }
