@@ -29,6 +29,9 @@ const ASSISTANT_ROUTES: readonly { readonly method: 'GET' | 'POST'; readonly pat
   // 댓글 붙여넣기 — 문자찜 입력과 같은 권한 (실제 회차만 — 리허설은 처리기가 403, D-N2b-2-08)
   { method: 'POST', path: /^\/api\/broadcasts\/[^/]+\/paste\/preview$/ },
   { method: 'POST', path: /^\/api\/broadcasts\/[^/]+\/paste$/ },
+  // 서버 읽기 입구 — 문자찜 화면 칸(받은 시각·전화번호)만 (SRV1, 그 밖의 칸은 처리기가 403)
+  { method: 'POST', path: /^\/api\/broadcasts\/[^/]+\/read$/ },
+  { method: 'POST', path: /^\/api\/read$/ },
   // 회차의 밴드 글 연결 보기 — 상태·수·알림만 (잇기·끊기·확인했어요는 판매자만, BND1 AC-BND1-15)
   { method: 'GET', path: /^\/api\/broadcasts\/[^/]+\/band$/ },
 ]

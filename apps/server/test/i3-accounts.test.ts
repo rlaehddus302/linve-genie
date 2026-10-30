@@ -173,6 +173,9 @@ describe('AC-I3-61 보조자 권한 — 허용 목록 밖은 기본으로 막힘
     'POST /api/broadcasts/x1/paste',
     // BND1(AC-BND1-15): 보조자는 회차의 밴드 연결 상태 보기만 된다. 바꾼 기존 시험(BND1 dev-notes)
     'GET /api/broadcasts/x1/band',
+    // SRV1(약속 1): 서버 읽기 입구 — 보조자는 문자찜 칸(받은 시각·전화번호)만, 그 밖 칸은 처리기가 403(srv1-read 시험). 바꾼 기존 시험(SRV1 dev-notes)
+    'POST /api/broadcasts/x1/read',
+    'POST /api/read',
   ])
   /** 세션을 강제하지 않는 공개 경로 (로그인·헬스체크) — 보조자 쿠키가 있어도 그대로 */
   const PUBLIC = new Set(['POST /api/login', 'GET /api/health'])

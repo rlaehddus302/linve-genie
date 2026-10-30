@@ -180,6 +180,12 @@ export type ErrorCode =
   | 'NO_CONSENT'
   // A1 AI 제안: 켜기에 동의가 없음
   | 'CONSENT_REQUIRED'
+  // SRV1 원문 쓰기 (D-APP-24): 빠른 입력 원문을 읽었더니 고칠 곳이 있음 · 그 번호의 상품이 이미 있음("고칠까요?") · 번호만 쳤고 그 상품이 있음(상품 자세히)
+  | 'QUICK_FIX'
+  | 'QUICK_EXISTS'
+  | 'QUICK_OPEN'
+  // SRV1 음성 흐름의 옛 크롬 최종 글 (D-APP-25)
+  | 'UNSUPPORTED'
 
 export interface ErrorBody {
   readonly error: {

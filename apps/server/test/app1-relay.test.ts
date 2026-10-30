@@ -268,23 +268,34 @@ describe('APP1b 서버 읽기 실제 WebSocket', () => {
     expect((await client(world, seller.cookie).get('/api/me')).status).toBe(200)
     expect(world.server.voice.status().streams).toBe(0)
   })
-  it('크롬 최종 글도 DOM 없이 서버 읽기를 거쳐 등록 효과가 된다. 쓰기 전에는 DB에 남지 않는다', async () => {
+  // SRV1 (D-APP-22·D-APP-25 (2), APP-05 AC5 대체 — AC-SRV1-12): 옛 테스트 "크롬 최종 글도 서버 읽기를 거쳐 등록 효과가 된다"는 스펙이 없앤 길이다.
+  // 새 기대: 기기가 보낸 받아쓴 글은 거절(UNSUPPORTED)되고 효과·상품·이벤트가 0. 보존한 단언: 글이 DB·로그에 남지 않음, 손 등록은 그대로 된다.
+  it.each(['mode=chrome', 'capture=false'])('AC-SRV1-12 받아쓴 글(chromeResult)은 거절되고 아무것도 쓰지 않는다 — 조작 전용 연결(%s)은 일꾼 없이 열린다', async (param) => {
     const { world, url } = await setup()
     const seller = await addSeller(world), b = await createBroadcast(world, seller)
-    const stream = new Peer(`${url}/api/voice/stream?broadcastId=${b.id}&device=chromedev1&mode=chrome`, { Origin: ORIGIN, Cookie: seller.cookie })
+    const eventsBefore = (await world.server.writer.read(seller.sellerId, b.date)).seq
+    // 받아쓰기 일꾼이 없어도 조작 전용 연결은 열린다 (D-APP1b-08)
+    const stream = new Peer(`${url}/api/voice/stream?broadcastId=${b.id}&device=controldev1&${param}`, { Origin: ORIGIN, Cookie: seller.cookie })
     await stream.message('ready')
     stream.send({ type: 'voice.session', op: 'hello', context: { now: world.clock.now(), dialogOpen: false, smsAutoAllowed: true, consent: true } })
     await stream.matching((value) => value.type === 'voice.state' && (value.snapshot as {phase: string}).phase === 'on')
     stream.send({ type: 'voice.session', op: 'chromeResult', result: { text: '15번 2만 원', final: true } })
-    const effect = await stream.matching((value) => value.type === 'voice.effect' && value.method === 'register')
-    expect(effect.args).toMatchObject([{ text: '15번 2만 원' }, { no: 15, price: 20_000 }, 'instant', { source: 'voice', device: 'chromedev1', heard: '15번 2만 원' }])
-    expect((await world.server.writer.read(seller.sellerId, b.date)).state.products.size).toBe(0)
+    expect(await stream.matching((value) => value.type === 'voice.error')).toEqual({ type: 'voice.error', code: 'UNSUPPORTED', message: '받아쓴 글은 받지 않아요. 음성은 라이브지니 받아쓰기로 들어요. 상품은 빠른 입력으로 넣어 주세요.' })
+    // 카드 손 조작(설정 바꾸기)은 그대로 — 연결이 살아 있고 효과가 온다
+    stream.send({ type: 'voice.session', op: 'command', method: 'setInstant', args: [false] })
+    await stream.matching((value) => value.type === 'voice.effect' && value.method === 'writeSettings')
+    world.clock.advance(5_000)
+    stream.send({ type: 'voice.session', op: 'command', method: 'refresh', args: [] })
+    await stream.matching((value) => value.type === 'voice.state')
+    expect(stream.messages.some((item) => !item.binary && (item.body as {type: string; method?: string}).type === 'voice.effect' && ['register', 'writeSms', 'fixRecent'].includes(String((item.body as {method?: string}).method)))).toBe(false)
+    const after = await world.server.writer.read(seller.sellerId, b.date)
+    expect(after.state.products.size).toBe(0)
+    expect(after.seq).toBe(eventsBefore)
     expect(await dumpAllTables(world.database)).not.toContain('15번 2만 원')
     expect(JSON.stringify(world.logs)).not.toContain('15번 2만 원')
-    const args = effect.args as [unknown, {no:number;name:string|null;price:number}, string]
-    const saved = await client(world, seller.cookie).post('/api/events', { requestId: 'voice-actual-register', type: 'product.register', b: b.id, no: args[1].no, name: args[1].name ?? '', price: args[1].price })
+    // 손 등록은 그대로 된다
+    const saved = await client(world, seller.cookie).post('/api/events', { requestId: 'srv1-hand-register', type: 'product.register', b: b.id, no: 15, name: '', price: 20_000 })
     expect(saved.status, saved.text).toBe(200)
-    expect((await world.server.writer.read(seller.sellerId, b.date)).state.products.size).toBe(1)
     stream.ws.close()
     await waitFor(() => world.server.voice.status().streams === 0)
   })
@@ -302,5 +313,9 @@ describe('APP1b 서버 읽기 실제 WebSocket', () => {
     const effect = await stream.matching((value) => value.type === 'voice.effect' && value.method === 'register')
     expect(effect.args).toMatchObject([{}, { no: 15, name: '선버스트', price: 20_000 }, 'instant', { source: 'voice', device: 'testdevice01' }])
     expect(effect.spokenEndAt).toBe(world.clock.now())
+    // 서버 읽기를 거친 글은 쓰기 전에는 DB·로그에 남지 않는다 (옛 크롬 시험에서 옮긴 단언, APP-05 AC7)
+    expect((await world.server.writer.read(seller.sellerId, b.date)).state.products.size).toBe(0)
+    expect(await dumpAllTables(world.database)).not.toContain('15번 선버스 2만 원')
+    expect(JSON.stringify(world.logs)).not.toContain('15번 선버스 2만 원')
   })
 })
