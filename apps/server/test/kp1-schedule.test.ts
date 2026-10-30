@@ -176,6 +176,8 @@ describe('AC-KP1-21 공개 일정 페이지', () => {
     expect(html).not.toMatch(/<script/i)
     expect(html).toContain('2026-11-07 (토) 20:00')
     expect(html).toContain('href="https://www.youtube.com/@chorok" rel="noopener noreferrer"')
+    // SCH-02 "채널 주소" — 주소 글자도 보인다
+    expect(html).toContain('>https://www.youtube.com/@chorok</a>')
     expect(html).toContain('초록다육의 방송 알림(광고) 문자를 받을게요.')
     expect(html).toMatch(/<input type="checkbox" name="agree" value="on" required>/)
     expect(html).not.toMatch(/checked/)

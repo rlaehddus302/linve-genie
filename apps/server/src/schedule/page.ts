@@ -137,7 +137,8 @@ export function schedulePageHtml(shop: string, data: PublicSchedule, path: strin
     lines.push('</ul>')
   }
   if (data.channelUrl !== null) {
-    lines.push(`<p><a href="${escapeHtml(data.channelUrl)}" rel="noopener noreferrer" target="_blank">유튜브 채널로 가기</a></p>`)
+    // SCH-02 "채널 주소": 주소 글자도 보인다 (손님이 옮겨 적거나 확인할 수 있게)
+    lines.push(`<p>유튜브 채널 <a href="${escapeHtml(data.channelUrl)}" rel="noopener noreferrer" target="_blank">${escapeHtml(data.channelUrl)}</a></p>`)
   }
   lines.push('<h2>방송 알림 받기</h2>')
   if (part.sellerHere === true) lines.push(`<p class="card muted">${escapeHtml(SELLER_CANNOT_CONSENT)}</p>`)
