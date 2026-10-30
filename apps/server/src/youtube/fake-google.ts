@@ -43,6 +43,23 @@ export type FakeFault =
   /** 연결을 바로 끊는다 (네트워크 오류) */
   | { readonly kind: 'reset' }
 
+/**
+ * 바뀜 알림 (observe — 가짜 유튜브 웹 다리 등 시험 도구가 따라 비춘다). 동기로, 바뀐 순서대로 부른다.
+ * broadcast: 방송이 생기거나 상태가 바뀜(시작·채팅 끝·채팅 끔), message: 채팅에 한 줄 들어감(시청자 글·삭제·차단·우리 insert 모두)
+ */
+export type FakeGoogleChange =
+  | {
+      readonly kind: 'broadcast'
+      readonly broadcast: FakeBroadcast
+      /** 방송 채널 이름 (가짜에 없는 채널이면 빈 글 — videos.list와 같음) */
+      readonly channelTitle: string
+      /** 채팅이 없거나 꺼짐 */
+      readonly chatDisabled: boolean
+      /** 채팅이 끝남 (endChat) */
+      readonly chatEnded: boolean
+    }
+  | { readonly kind: 'message'; readonly liveChatId: string; readonly videoId: string; readonly message: FakeChatMessage }
+
 export interface FakeChannel {
   readonly id: string
   readonly title: string
@@ -242,6 +259,8 @@ export class FakeGoogle {
   postsHiddenForMs = 0
   readonly #insertedAt = new Map<string, number>()
   readonly #holds = new Map<FakeMethod, { readonly count: number; readonly waiting: (() => void)[] }>()
+  readonly #observers = new Set<(change: FakeGoogleChange) => void>()
+  #controlExtension: ((method: string, path: string, input: Record<string, unknown>, query: URLSearchParams) => unknown) | null = null
 
   private constructor(options: FakeOptions) {
     this.clientId = options.clientId ?? 'fake-client-id'
@@ -332,6 +351,7 @@ export class FakeGoogle {
     }
     this.#broadcasts.set(videoId, broadcast)
     if (chatId !== null) this.#chats.set(chatId, { id: chatId, videoId, channelId, messages: [], endedAt: null, disabled: false })
+    this.#broadcastChanged(broadcast)
     return broadcast
   }
 
@@ -340,6 +360,8 @@ export class FakeGoogle {
     const chat = this.#chat(liveChatId)
     chat.disabled = true
     this.#events.emit(`chat:${liveChatId}`)
+    const broadcast = this.#broadcasts.get(chat.videoId)
+    if (broadcast !== undefined) this.#broadcastChanged(broadcast)
   }
 
   /** 채팅을 끝낸다 (응답에 offlineAt, 그 뒤 호출은 liveChatEnded) */
@@ -352,6 +374,7 @@ export class FakeGoogle {
       broadcast.actualEndTime = chat.endedAt
     }
     this.#events.emit(`chat:${liveChatId}`)
+    if (broadcast !== undefined) this.#broadcastChanged(broadcast)
   }
 
   /** 예정 방송을 시작한다 (진행 중, 실제 시작 시각 = at 또는 지금) — AC-Y1-94 */
@@ -360,7 +383,52 @@ export class FakeGoogle {
     if (broadcast === undefined) throw new Error('없는 방송')
     broadcast.status = 'live'
     broadcast.actualStartTime = new Date(at ?? this.#now()).toISOString()
+    this.#broadcastChanged(broadcast)
     return broadcast
+  }
+
+  /**
+   * 바뀜을 따라 듣는다 (시험 도구 — 가짜 유튜브 웹 다리). replay면 지금 있는 방송·메시지를 먼저 그 순서대로 알린다. 그만 듣기 함수를 돌려준다.
+   * 가짜의 응답·동작은 바꾸지 않는다
+   */
+  observe(listener: (change: FakeGoogleChange) => void, options: { readonly replay?: boolean } = {}): () => void {
+    if (options.replay === true) {
+      for (const broadcast of this.#broadcasts.values()) {
+        listener(this.#broadcastChange(broadcast))
+        const chat = broadcast.liveChatId === null ? undefined : this.#chats.get(broadcast.liveChatId)
+        for (const message of chat?.messages ?? []) listener({ kind: 'message', liveChatId: chat?.id ?? '', videoId: broadcast.videoId, message })
+      }
+    }
+    this.#observers.add(listener)
+    return () => {
+      this.#observers.delete(listener)
+    }
+  }
+
+  /** /_fake/* 조작 경로를 더한다 (가짜가 모르는 경로만 이 함수로 — undefined를 돌려주면 404, 던지면 400). 시험 도구용, 하나만 */
+  extendControl(handler: ((method: string, path: string, input: Record<string, unknown>, query: URLSearchParams) => unknown) | null): void {
+    this.#controlExtension = handler
+  }
+
+  #broadcastChange(broadcast: FakeBroadcast): FakeGoogleChange {
+    const chat = broadcast.liveChatId === null ? undefined : this.#chats.get(broadcast.liveChatId)
+    return {
+      kind: 'broadcast',
+      broadcast,
+      channelTitle: this.#channels.get(broadcast.channelId)?.title ?? '',
+      chatDisabled: chat === undefined || chat.disabled,
+      chatEnded: chat?.endedAt != null,
+    }
+  }
+
+  #broadcastChanged(broadcast: FakeBroadcast): void {
+    if (this.#observers.size === 0) return
+    const change = this.#broadcastChange(broadcast)
+    for (const listener of [...this.#observers]) listener(change)
+  }
+
+  #messageAdded(chat: Chat, message: FakeChatMessage): void {
+    for (const listener of [...this.#observers]) listener({ kind: 'message', liveChatId: chat.id, videoId: chat.videoId, message })
   }
 
   #chat(liveChatId: string): Chat {
@@ -405,6 +473,7 @@ export class FakeGoogle {
     }
     chat.messages.push(message)
     this.#events.emit(`chat:${liveChatId}`)
+    this.#messageAdded(chat, message)
     return message.id
   }
 
@@ -431,6 +500,7 @@ export class FakeGoogle {
     }
     chat.messages.push(event)
     this.#events.emit(`chat:${liveChatId}`)
+    this.#messageAdded(chat, event)
     return event.id
   }
 
@@ -456,6 +526,7 @@ export class FakeGoogle {
     }
     chat.messages.push(event)
     this.#events.emit(`chat:${liveChatId}`)
+    this.#messageAdded(chat, event)
     return event.id
   }
 
@@ -1069,8 +1140,10 @@ export class FakeGoogle {
             calls: this.callCounts(),
             ...(url.searchParams.get('liveChatId') === null ? {} : { messages: this.messages(url.searchParams.get('liveChatId') ?? '') }),
           })
-        default:
-          return googleError(res, 404, 'notFound')
+        default: {
+          const extended = this.#controlExtension?.(req.method ?? '', path, input, url.searchParams)
+          return extended === undefined ? googleError(res, 404, 'notFound') : json(res, 200, extended)
+        }
       }
     } catch {
       return googleError(res, 400, 'badRequest')

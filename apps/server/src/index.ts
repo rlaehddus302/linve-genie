@@ -130,7 +130,9 @@ export { formatLog, stderrLog, type LogCode, type LogRecord, type LogSink } from
 export { iso, kstDate, kstTime, systemClock, withIsoTimes, type Clock } from './time.ts'
 // Y1 유튜브 연동
 export { readYoutubeSetting, type YoutubeEnvSetting, type YoutubeSetting } from './config.ts'
-export { FakeGoogle, FAKE_HOST, type FakeApproval, type FakeBroadcast, type FakeChannel, type FakeChatMessage, type FakeComment, type FakeFault, type FakeMethod, type FakeOptions } from './youtube/fake-google.ts'
+export { FakeGoogle, FAKE_HOST, type FakeApproval, type FakeBroadcast, type FakeChannel, type FakeChatMessage, type FakeComment, type FakeFault, type FakeGoogleChange, type FakeMethod, type FakeOptions } from './youtube/fake-google.ts'
+export { FakeYoutubeWeb, FAKE_WEB_HOST, FAKE_WEB_CLIENT_VERSION, type FakeWebEndpoint, type FakeWebFault, type FakeWebMessage, type FakeWebState, type FakeWebVideo } from './youtube/fake-youtube-web.ts'
+export { bridgeFakeWeb, webMessageOf, webStateOf, FAKE_WEB_ENDPOINTS, type FakeWebBridge } from './youtube/fake-web-bridge.ts'
 export { ManualTimer, kstMidnightAfter, nextPacificMidnight, pacificDay, pacificOffset, realTimer as realWorkerTimer, settle, type Timer } from './youtube/timer.ts'
 export {
   COMMENT_MAX,

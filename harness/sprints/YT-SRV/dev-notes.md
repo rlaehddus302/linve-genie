@@ -35,5 +35,8 @@ YT-11(서버가 유튜브 채팅 읽기, D-YT-SRV-01~12) 서버 몫. 스펙 `ori
 - 수집 상태: `RETRYING` + `reason` `BLOCKED`·`FORMAT`은 **바로** 경고(10초 기다리지 않음), `STOPPED` + `OPERATOR_OFF`(다시 시작 버튼 없음 — `restartable: false`). 다시 `LIVE`가 되면 "유튜브 채팅을 다시 받고 있어요. 막힌 동안 손으로 넣은 주문과 겹치지 않는지 봐 주세요."는 화면이 상태 전환으로 띄운다(서버에 저장한 표시는 없다).
 
 ## 시험 쪽(test-domain·test-e2e)에게
-- 가짜 유튜브 웹 서버: `FakeYoutubeWeb`(같은 프로세스 메서드 조작만 — E2E용 `/_fake/*` JSON 조작 경로는 아직 없다). 서버 설정은 `youtube.webChat = { on: true, baseUrl: fake.url }` + `allowInsecure: true`.
-- 적대·E2E 하네스는 아직 공식 읽기 길(webChat 없음)이다 — 옮기면 D-YT-SRV-10의 "구글 연결과 무관" 단언이 적대 시험에서도 돈다.
+- 가짜 유튜브 웹 서버: `FakeYoutubeWeb`. 서버 설정은 `youtube.webChat = { on: true, baseUrl: fake.url }` + `allowInsecure: true`. `@livejjim/server`에서 `FakeYoutubeWeb`·`FakeWeb*` 타입을 가져올 수 있다.
+- 다리 `bridgeFakeWeb(fakeGoogle, fakeWeb)` (`apps/server/src/youtube/fake-web-bridge.ts`, `@livejjim/server`에서 내보냄): 가짜 구글의 방송(같은 영상·채널 ID·채널 이름·제목·상태)과 채팅 줄(같은 메시지 ID·작성자·이름·게시 시각 — 시청자 글·슈퍼챗·멤버십·스티커·주인 글·우리 insert, 삭제 → 지움, 차단 → 작성자 글 모두 지움)을 넣은 순서대로 웹에 비춘다. 그래서 `fake.addMessage(liveChatId, …)`로 넣은 채팅을 WEB 수집기가 같은 ID로 받는다. 방송 객체를 직접 고쳤으면 `bridge.sync()`. 웹 영상은 `bridge.video(videoId)`.
+- E2E 서버(`startE2eServer({ youtube })`, `--youtube fake`)는 기본이 웹 읽기다(가짜 유튜브 웹 + 다리). 웹 조작은 가짜 구글과 같은 포트의 `/_fake/web/*`: `POST fail {endpoint:'watch'|'chatPage'|'poll'|'channelLive', fault:{status}|{kind:'bot'|'shape'|'empty'|'hang'|'reset'|'cut'}, times}`, `GET state`(→ `{url, calls}`, `?videoId=`면 `video`), `POST options {timeoutMs, backlogSize}`, `POST video {videoId, state, topChatOnly}`(웹만의 상태 — 비공개 등), `POST messages {videoId, …}`(웹만의 줄). 가짜 구글 `/_fake/fail` `liveChatMessages.streamList`를 주던 시험은 `/_fake/web/fail` `endpoint: 'poll'`로. 옛 공식 읽기는 `youtube.chat: 'official'`(`--youtube-chat official`).
+- **주의**: 웹 잇기는 공식 채팅 ID를 비워 두므로(위 2번) 웹 읽기 길에선 공식 `liveChatMessages.insert` 감사가 올라가지 않는다. 감사 게시를 단언하는 시험은 D-YT-SRV-13 결정 전까지 `chat: 'official'`이어야 한다(`apps/server/test/youtube-fake.test.ts` AC-Y1-81이 그렇게 바뀜).
+- 적대 하네스(`tests/adversarial/y1`)는 아직 공식 읽기 길(webChat 없음)이다 — 옮기면 D-YT-SRV-10의 "구글 연결과 무관" 단언이 적대 시험에서도 돈다.

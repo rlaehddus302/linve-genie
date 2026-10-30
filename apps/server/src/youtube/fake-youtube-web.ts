@@ -6,7 +6,7 @@
 //   첫 지점(Live chat 다시 불러오기)은 실제처럼 최근 동작부터 준다. 응답 모양은 2026-10-31 실제 응답 녹화본의 필드 이름을 쓴다.
 // - 채널 라이브 주소(/channel/<ID>/live?hl=en): 그 채널의 진행 중(없으면 예정) 방송 페이지, 없으면 플레이어 응답이 없는 채널 페이지.
 // - 시험 조작: 방송 만들기·상태 바꾸기, 시청자 글·슈퍼챗·멤버십·스티커·모르는 항목 넣기, 지우기·작성자 글 모두 지우기, 오류 넣기(상태·봇 화면·모르는 모양·빈 응답·응답 없음),
-//   녹화본 응답 그대로 내기, 호출 수·요청 머리글(쿠키 없음 확인) 보기.
+//   묶음 중간 끊기, 녹화본 응답 그대로 내기, 호출 수·요청 머리글(쿠키 없음 확인)·받은 지점 값·동시 채팅 요청 수 보기.
 import { randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
@@ -32,6 +32,8 @@ export type FakeWebFault =
   | { readonly kind: 'hang' }
   /** 연결을 바로 끊는다 */
   | { readonly kind: 'reset' }
+  /** 200과 본문 앞 절반만 보내고 연결을 끊는다 (묶음 중간 끊김 — 받는 쪽은 연결 오류) */
+  | { readonly kind: 'cut' }
 
 export interface FakeWebVideo {
   readonly videoId: string
@@ -88,6 +90,11 @@ export class FakeYoutubeWeb {
   readonly requestHeaders: Record<string, string | string[] | undefined>[] = []
   /** 받은 get_live_chat 본문의 클라이언트 값 */
   readonly pollClients: Record<string, unknown>[] = []
+  /** 받은 get_live_chat 지점 값 (로그에 지점 값이 없는지 확인용) */
+  readonly continuations: string[] = []
+  /** 동시에 열려 있던 get_live_chat 요청 수의 최대 (요청은 한 번에 하나) */
+  maxInflightPolls = 0
+  #inflightPolls = 0
   /** 응답에 넣을 timeoutMs (null이면 빼고 넣는다) */
   timeoutMs: number | null = 5000
   /** 첫 지점(다시 불러오기)이 주는 최근 동작 수 */
@@ -230,6 +237,11 @@ export class FakeYoutubeWeb {
     return total
   }
 
+  /** 아직 쓰지 않은 넣은 오류 수 */
+  pendingFaults(endpoint: FakeWebEndpoint): number {
+    return this.#faults.get(endpoint)?.length ?? 0
+  }
+
   /** 부른 시각 (가짜 시계) */
   callTimes(endpoint: FakeWebEndpoint): readonly number[] {
     return this.#calls.get(endpoint) ?? []
@@ -252,8 +264,30 @@ export class FakeYoutubeWeb {
     const calls = this.#calls.get(endpoint) ?? []
     calls.push(this.#now())
     this.#calls.set(endpoint, calls)
+    if (endpoint === 'poll') {
+      this.#inflightPolls += 1
+      this.maxInflightPolls = Math.max(this.maxInflightPolls, this.#inflightPolls)
+      res.on('close', () => {
+        this.#inflightPolls -= 1
+      })
+    }
     const body = req.method === 'POST' ? await readBody(req) : ''
+    if (endpoint === 'poll') {
+      try {
+        const continuation = (JSON.parse(body) as { continuation?: unknown }).continuation
+        if (typeof continuation === 'string') this.continuations.push(continuation)
+      } catch {
+        // JSON이 아니면 #respond가 거절한다
+      }
+    }
     const fault = this.#faults.get(endpoint)?.shift()
+    if (fault !== undefined && 'kind' in fault && fault.kind === 'cut') {
+      const [status, type, text] = this.#respond(endpoint, url, body)
+      const half = Buffer.from(text).subarray(0, Math.floor(Buffer.byteLength(text) / 2))
+      res.writeHead(status, { 'Content-Type': `${type}; charset=utf-8`, 'Content-Length': String(Buffer.byteLength(text)), 'Cache-Control': 'no-store' })
+      res.write(half, () => res.socket?.destroy())
+      return
+    }
     if (fault !== undefined) {
       if ('status' in fault) return send(res, fault.status, 'application/json', `{"error":{"code":${String(fault.status)},"status":"FAKE"}}`)
       if (fault.kind === 'hang') return
@@ -265,36 +299,37 @@ export class FakeYoutubeWeb {
       if (fault.kind === 'shape') return send(res, 200, endpoint === 'poll' ? 'application/json' : 'text/html', endpoint === 'poll' ? '{"somethingNew":{"items":[]}}' : '<html>new layout</html>')
       if (fault.kind === 'empty') return send(res, 200, 'application/json', '{"responseContext":{"serviceTrackingParams":[]}}')
     }
+    const [status, type, text] = this.#respond(endpoint, url, body)
+    send(res, status, type, text)
+  }
+
+  /** 요청 하나의 정상 응답 (상태·종류·본문) */
+  #respond(endpoint: FakeWebEndpoint, url: URL, body: string): [number, string, string] {
     switch (endpoint) {
       case 'watch':
-        return send(res, 200, 'text/html', this.#watchHtml(this.#videos.get(url.searchParams.get('v') ?? '')))
+        return [200, 'text/html', this.#watchHtml(this.#videos.get(url.searchParams.get('v') ?? ''))]
       case 'chatPage':
-        return send(res, 200, 'text/html', this.#chatHtml(this.#videos.get(url.searchParams.get('v') ?? '')))
+        return [200, 'text/html', this.#chatHtml(this.#videos.get(url.searchParams.get('v') ?? ''))]
       case 'channelLive': {
         const channelId = decodeURIComponent(url.pathname.split('/')[2] ?? '')
         const videos = [...this.#videos.values()].filter((video) => video.channelId === channelId)
         const pick = videos.find((video) => video.state === 'live') ?? videos.find((video) => video.state === 'upcoming')
-        return send(res, 200, 'text/html', pick === undefined ? '<html><script>var ytInitialData = {"contents":{"twoColumnBrowseResultsRenderer":{}}};</script></html>' : this.#watchHtml(pick))
+        return [200, 'text/html', pick === undefined ? '<html><script>var ytInitialData = {"contents":{"twoColumnBrowseResultsRenderer":{}}};</script></html>' : this.#watchHtml(pick)]
       }
       case 'poll': {
-        this.pollClients.push((JSON.parse(body) as { context?: { client?: Record<string, unknown> } }).context?.client ?? {})
-        return this.#poll(res, (JSON.parse(body) as { continuation?: unknown }).continuation)
+        const parsed = JSON.parse(body) as { context?: { client?: Record<string, unknown> }; continuation?: unknown }
+        this.pollClients.push(parsed.context?.client ?? {})
+        return this.#poll(parsed.continuation)
       }
     }
   }
 
-  #poll(res: ServerResponse, raw: unknown): void {
+  #poll(raw: unknown): [number, string, string] {
     const continuation = typeof raw === 'string' ? decodeContinuation(raw) : null
     const video = continuation === null ? undefined : this.#videos.get(continuation.videoId)
-    if (continuation === null || video === undefined) {
-      send(res, 400, 'application/json', '{"error":{"code":400,"status":"INVALID_ARGUMENT"}}')
-      return
-    }
+    if (continuation === null || video === undefined) return [400, 'application/json', '{"error":{"code":400,"status":"INVALID_ARGUMENT"}}']
     const recorded = this.#raw.get(video.videoId)?.shift()
-    if (recorded !== undefined) {
-      send(res, 200, 'application/json', JSON.stringify(recorded))
-      return
-    }
+    if (recorded !== undefined) return [200, 'application/json', JSON.stringify(recorded)]
     const from = continuation.cursor < 0 ? Math.max(0, video.actions.length - this.backlogSize) : continuation.cursor
     const actions = video.actions.slice(from)
     const ended = video.state !== 'live'
@@ -305,7 +340,7 @@ export class FakeYoutubeWeb {
       ...(actions.length === 0 ? {} : { actions }),
       ...(continuation.cursor < 0 ? { liveChatCurrentFilter: continuation.filter === 'top' ? 'LIVE_CHAT_FILTER_MODE_DEFAULT' : 'LIVE_CHAT_FILTER_MODE_UNFILTERED' } : {}),
     }
-    send(res, 200, 'application/json', JSON.stringify({ responseContext: { serviceTrackingParams: [] }, continuationContents: { liveChatContinuation: chat } }))
+    return [200, 'application/json', JSON.stringify({ responseContext: { serviceTrackingParams: [] }, continuationContents: { liveChatContinuation: chat } })]
   }
 
   #watchHtml(video: FakeWebVideo | undefined): string {
