@@ -1,8 +1,7 @@
 // 문자찜 "받은 시각" 읽기 (AC-S06-12, R-6 D-023, D-089). 시험은 TZ=Pacific/Honolulu에서 돈다 — 날짜·시각은 늘 KST로 읽는다.
+// SRV1 (D-APP-23·24): 읽기 함수는 서버 전용 자리(packages/voice-session/src/read)로 옮겼다 — 기대값은 그대로, 서버 읽기 함수를 본다.
 import { describe, expect, it } from 'vitest'
-// SRV1 (D-APP-24): 받은 시각 읽기는 서버 읽기(packages/voice-session read.ts)로 옮겼다 — 기대값 그대로 서버 함수를 본다. 문장·표시는 화면 lib/received.ts
-import { RECEIVED_INVALID, receivedWords } from '../src/lib/received.ts'
-import { readReceived } from '../../../packages/voice-session/src/read.ts'
+import { RECEIVED_INVALID, readReceived, receivedWords } from '../../../packages/voice-session/src/read/index.ts'
 
 /** KST 시각 → UTC 밀리초 */
 const kst = (iso: string): number => Date.parse(`${iso}+09:00`)

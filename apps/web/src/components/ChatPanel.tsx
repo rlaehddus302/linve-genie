@@ -48,8 +48,9 @@ export function optionLook(message: ChatMessage, products: readonly Pick<Product
   if (message.optionOrders === undefined) return null
   const orders = message.optionOrders.map((order) => `${CHAT_WORD.order} ${String(order.no)}번${order.variant === null ? '' : ` ${order.variant}`}${order.qty > 1 ? ` ×${String(order.qty)}` : ''}`)
   const review = message.review == null ? null : `${CHAT_REVIEW_WORD} · ${REVIEW_REASON_WORD[message.review.reason]}`
-  const named = products.filter((product) => message.mentions.includes(product.no))
-  const mention = orders.length === 0 && review === null && !message.cancel && !message.ignored && (message.mentions.length > 0 || named.length > 0)
+  const nameMentions = message.nameMentions ?? []
+  const named = products.filter((product) => message.mentions.includes(product.no) || nameMentions.includes(product.no))
+  const mention = orders.length === 0 && review === null && !message.cancel && !message.ignored && (message.mentions.length > 0 || nameMentions.length > 0)
   return { orders, review, mention, optionProduct: named.some((product) => product.hasOptions) || (message.review != null) }
 }
 

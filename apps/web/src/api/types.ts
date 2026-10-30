@@ -143,6 +143,8 @@ export interface ChatMessage {
   readonly orders: readonly number[]
   readonly cancels: readonly number[]
   readonly mentions: readonly number[]
+  /** 옵션 방송 메시지의 상품 이름·별칭 언급 번호 (SRV1 약속 5 — 서버가 찾는다, 옛 서버면 없음) */
+  readonly nameMentions?: readonly number[]
   readonly converted: readonly number[]
   readonly claims: readonly string[]
   readonly failed: boolean

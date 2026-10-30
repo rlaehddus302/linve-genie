@@ -3,7 +3,9 @@
 // SRV1 (D-APP-23·24): 칸 글을 금액으로 읽는 일은 서버가 한다(서버 읽기 입구 kind `money`). 화면은 서버가 읽은 금액으로
 // 칸 범위만 막고(서버가 다시 검사한다) 보이는 글을 만든다. 보내는 본문은 친 글 원문이다.
 import { formatWon } from '@livejjim/core'
-import { readProblem, readText, useServerRead, type MoneyReading } from './read.ts'
+import { readProblem, readText, useServerRead, type ReadOf } from './read.ts'
+
+type MoneyReading = ReadOf<'money'>
 
 export const AMOUNT_UNREADABLE = '금액을 14000처럼 적어 주세요.'
 
@@ -28,7 +30,7 @@ export function amountRead(text: string, reading: MoneyReading | null, range: Am
   if (text.trim() === '') return { kind: 'empty' }
   if (reading === null) return { kind: 'pending' }
   const amount = reading.amount
-  if (amount === null) return { kind: 'invalid', message: AMOUNT_UNREADABLE }
+  if (amount === null) return { kind: 'invalid', message: reading.message ?? AMOUNT_UNREADABLE }
   if (amount < range.min) return { kind: 'invalid', message: range.low ?? range.message }
   if (amount > range.max) return { kind: 'invalid', message: range.message }
   return { kind: 'ok', amount, words: formatWon(amount) }

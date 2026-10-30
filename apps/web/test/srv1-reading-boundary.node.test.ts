@@ -2,7 +2,7 @@
 // SRV1 의존 검사 (AC-SRV1-13, APP-05 AC9, D-APP-23): 기기 소스(웹·앱·확장, 시험 파일 제외)는 글을 값으로 읽는 함수를 부르지 않는다.
 // 금지 목록(D-APP-23): @livejjim/core의 parseChat·parseAmount·parseKoreanNumber·parseQuickInput·parseOptionComment·normalizeText·normalizePhone·
 // containsPhoneRun·phoneLast4·resolveReceivedTime, @livejjim/core/quick-input, packages/core/src/parse/, @livejjim/voice 값 import·동적 import,
-// packages/voice/src/web-speech.ts·createWebSpeechEngine, 서버 읽기(packages/voice-session/src/read.ts) 값 import, VoiceController 실행 코드.
+// packages/voice/src/web-speech.ts·createWebSpeechEngine, 서버 읽기(packages/voice-session/src/read/) 값 import, VoiceController 실행 코드(서버 전용 packages/voice-session/src/controller/).
 // 타입 import(`import type`, `{ type X }`)는 허용. 기기 소스에 `webkitSpeechRecognition` 글자도 없다(크롬 받아쓰기 길 없음, D-APP-22).
 // 빌드 결과 쪽(모듈 목록·글자)은 build.node.test.ts가 본다.
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
@@ -36,7 +36,8 @@ function forbiddenModule(spec: string): string | null {
   if (spec === '@livejjim/voice' || spec.startsWith('@livejjim/voice/')) return '음성 패키지(@livejjim/voice)'
   if (/(^|\/)packages\/core\/src\/parse\//.test(spec)) return '코어 파서(packages/core/src/parse/)'
   if (/(^|\/)packages\/voice\/src\/web-speech(\.ts)?$/.test(spec)) return '크롬 받아쓰기(web-speech.ts)'
-  if (/(^|\/)packages\/voice-session\/src\/read(\.ts)?$/.test(spec) || spec === '@livejjim/voice-session/read') return '서버 읽기(voice-session read.ts)'
+  if (/(^|\/)packages\/voice-session\/src\/read(\/|\.ts$|$)/.test(spec) || spec === '@livejjim/voice-session/read' || spec === '@livejjim/voice-session/rules') return '서버 읽기(voice-session read)'
+  if (/(^|\/)packages\/voice-session\/src\/(controller\/|server\.ts$)/.test(spec) || spec === '@livejjim/voice-session/server') return '음성 읽기 컨트롤러(voice-session controller)'
   if (/(^|\/)voice\/controller(\.ts)?$/.test(spec) || /^\.\/controller(\.ts)?$/.test(spec)) return '음성 읽기 컨트롤러(voice/controller.ts)'
   return null
 }
@@ -100,8 +101,7 @@ describe('기기 소스에 읽기 함수가 없다 (AC-SRV1-13, D-APP-23)', () =
 
   it('금지 목록의 값 import(정적·동적)가 0이다', () => {
     const found: string[] = []
-    // 웹 voice/controller.ts는 서버가 돌리는 VoiceController 자리 — 아래 시험이 따로 본다(서버 전용 자리로 옮긴다, AC-SRV1-15)
-    for (const { file, text } of files) if (file !== 'apps/web/src/voice/controller.ts') for (const problem of readingImports(text)) found.push(`${file}: ${problem}`)
+    for (const { file, text } of files) for (const problem of readingImports(text)) found.push(`${file}: ${problem}`)
     expect(found).toEqual([])
   })
 
@@ -123,7 +123,9 @@ describe('검사가 금지 import를 잡는다 (고정 사례, AC-SRV1-13)', () 
     ["import * as voice from '@livejjim/voice'", '@livejjim/voice'],
     ["const v = await import('@livejjim/voice')", '동적 import @livejjim/voice'],
     ["import { createWebSpeechEngine } from '../../../../packages/voice/src/web-speech.ts'", 'web-speech.ts'],
-    ["import { readQuick } from '../../../../packages/voice-session/src/read.ts'", 'read.ts'],
+    ["import { readText } from '../../../../packages/voice-session/src/read/index.ts'", 'read/index.ts'],
+    ["import { decideQuickInput } from '@livejjim/voice-session/read'", '@livejjim/voice-session/read'],
+    ["import { VoiceController } from '../../../../packages/voice-session/src/controller/controller.ts'", 'controller/controller.ts'],
     ["import { VoiceController } from './controller.ts'", './controller.ts'],
     ["import { parseAmount } from '../../../../packages/core/src/parse/amount.ts'", 'packages/core/src/parse/amount.ts'],
     ["export { containsPhoneRun } from '@livejjim/core'", '@livejjim/core의 containsPhoneRun'],
@@ -138,7 +140,8 @@ describe('검사가 금지 import를 잡는다 (고정 사례, AC-SRV1-13)', () 
     "import type * as Voice from '@livejjim/voice'",
     "import type { SuggestionCard } from '@livejjim/voice'",
     "import { type SuggestionCard } from '@livejjim/voice'",
-    "import type { QuickReading } from '../../../../packages/voice-session/src/read.ts'",
+    "import type { ReadResult } from '../../../../packages/voice-session/src/read/index.ts'",
+    "import type { VoiceController } from '../../../../packages/voice-session/src/controller/controller.ts'",
     "import type { VoiceController } from './controller.ts'",
     "import { formatWon } from '@livejjim/core/format'",
   ])('%s → 타입·허용 모듈은 통과', (line) => {

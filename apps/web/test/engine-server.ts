@@ -6,12 +6,12 @@
 // SRV1 (약속 1·2): 읽기 입구는 FakeServer가 서버와 같은 읽기 함수로 답한다. 쓰기는 친 글 원문을 받는다 — 빠른 입력 줄 `text`,
 //   고치기 칸 `no`·`price` 글, 상품 고치기 `price` 글, 문자찜 `received` 글, 정산 `amount` 글(할인은 `sign: 'minus'`) — 서버처럼 같은 함수로 읽어 기록한다.
 //   posts에는 받은 원문 본문 그대로 남는다.
-import { applyEvent, buyerOfRef, containsPhoneRun, isValidReceivedTime, listClaims, normalizePhone, phoneLast4, previewMerge, type EngineState, type SettingsOverride } from '@livejjim/core'
+import { applyEvent, buyerOfRef, getProduct, containsPhoneRun, isValidReceivedTime, listClaims, normalizePhone, phoneLast4, previewMerge, type EngineState, type SettingsOverride } from '@livejjim/core'
 import type { Changes, WriteResult } from '../src/api/types.ts'
 import { settlementKey } from '../src/lib/scope-data.ts'
 import { T0, run, viewOf } from './engine.ts'
-import { DATE, FakeEventSource, FakeServer, apiError, type Reply } from './support.ts'
-import { readFixNumber, readMoney, readPrice, readQuick, readReceived, type ReadSettings } from '../../../packages/voice-session/src/read.ts'
+import { DATE, FakeEventSource, FakeServer, apiError, readRawWrite, type Reply } from './support.ts'
+import type { QuickSettings, ReadProduct } from '../../../packages/voice-session/src/read/index.ts'
 
 export const PHONE_SENTENCE = '전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.'
 
@@ -61,6 +61,8 @@ export class EngineServer {
     this.#states = [first.state]
     for (const event of events) this.#apply(event)
     const ended = new Set(options.ended ?? [])
+    // 가짜 읽기 입구도 엔진 상태의 상품으로 읽는다 (서버 readScope와 같다)
+    this.server.findProduct = this.readProduct
     this.server
       .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
       .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: options.delayMs ?? 60 } }))
@@ -124,7 +126,7 @@ export class EngineServer {
 
   #handle(body: Record<string, unknown>): Reply {
     // voiceLog(R-25)는 엔진 필드가 아니다 — 실제 서버처럼 떼고 따로 남긴다
-    const { requestId, voiceLog, ...input } = body
+    const { requestId, voiceLog, ...sent } = body
     if (voiceLog !== undefined) this.voiceLogs.push(voiceLog)
     const prior = this.#results.get(String(requestId))
     if (prior !== undefined) return { body: prior }
@@ -134,9 +136,11 @@ export class EngineServer {
       return reply
     }
     this.posts.push(body)
-    const raw = this.#readRaw(input)
+    // 원문 칸은 서버처럼 같은 읽기 함수로 읽어 엔진 필드로 (SRV1 약속 2 — apps/server/src/raw-input.ts와 같은 약속)
+    const raw = this.#readRaw(sent)
     if (!('event' in raw)) return raw
-    let event: Record<string, unknown> = raw.event
+    const input = raw.event
+    let event: Record<string, unknown> = input
     let last4: string | null | undefined
     let ref: string | undefined
     if (input.type === 'sms') {
@@ -222,44 +226,21 @@ export class EngineServer {
   }
 
   /** 그 방송의 읽기 설정 (엔진 상태의 방송 설정) */
-  #readSettings(b: unknown): ReadSettings {
-    const view = viewOf(this.state, this.seq) as unknown as { broadcasts?: { id: string; settings?: { 'price.unit'?: ReadSettings['price.unit']; 'claim.maxNumber'?: number } }[] }
+  #readSettings(b: unknown): QuickSettings {
+    const view = viewOf(this.state, this.seq) as unknown as { broadcasts?: { id: string; settings?: { 'price.unit'?: QuickSettings['price.unit']; 'claim.maxNumber'?: number } }[] }
     const settings = view.broadcasts?.find((item) => item.id === b)?.settings
     return { 'price.unit': settings?.['price.unit'] ?? 'THOUSAND', 'claim.maxNumber': settings?.['claim.maxNumber'] ?? 999 }
   }
 
-  /** 원문 칸을 서버처럼 읽어 엔진 필드로 (SRV1 약속 2). 읽지 못하면 서버 문장으로 400 */
+  /** 그 방송의 번호 → 읽기용 상품 (엔진 상태 — 판매 종료한 상품도 있다) */
+  readProduct = (b: string, no: number): ReadProduct | undefined => {
+    const product = getProduct(this.state, b, no)
+    return product === null ? undefined : { id: product.id, no: product.no, name: product.name, price: product.price, closed: product.status === 'CLOSED' }
+  }
+
+  /** 원문 칸을 서버처럼 읽어 엔진 필드로 (support.ts readRawWrite — 서버 raw-input.ts와 같은 약속) */
   #readRaw(input: Record<string, unknown>): { event: Record<string, unknown> } | Reply {
-    const bad = (field: string, message: string): Reply => apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field, message }])
-    const settings = this.#readSettings(input.b)
-    if (input.type === 'product.register' && typeof input.text === 'string') {
-      const { text, ...rest } = input
-      const read = readQuick(text, settings)
-      if (read.error !== null || read.no === null || read.price === null) return bad('text', read.message ?? '입력한 내용을 확인해 주세요.')
-      return { event: { ...rest, no: read.no, name: read.name ?? '', price: read.price } }
-    }
-    const event: Record<string, unknown> = { ...input }
-    if ((input.type === 'product.register' || input.type === 'product.update') && typeof input.no === 'string') {
-      const read = readFixNumber(input.no, settings)
-      if (read.no === null) return bad('no', read.message ?? '')
-      event.no = read.no
-    }
-    if ((input.type === 'product.register' || input.type === 'product.update') && typeof input.price === 'string') {
-      const read = readPrice(input.price, settings)
-      if (read.error !== null || read.amount === null) return bad('price', read.message ?? '')
-      event.price = read.amount
-    }
-    if (input.type === 'sms' && typeof input.received === 'string') {
-      const read = readReceived(input.received, Date.now())
-      if (read.kind === 'ok') event.received = read.value
-    }
-    if (String(input.type).startsWith('settlement.') && typeof input.amount === 'string') {
-      const read = readMoney(input.amount)
-      if (read.amount === null) return bad('amount', '금액을 14000처럼 적어 주세요.')
-      event.amount = input.sign === 'minus' ? -read.amount : read.amount
-    }
-    delete event.sign
-    return { event }
+    return readRawWrite(input, (b) => this.#readSettings(b), this.readProduct)
   }
 
   /** 받은 합치기 미리 보기 조회 수 */

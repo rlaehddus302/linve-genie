@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { VoiceLive, revealCard } from '../src/components/VoicePanel.tsx'
 import { FLUSHED_CARD_NOTE, errorLines, flushedClosedNotice, VOICE_IDLE, type VoiceSnapshot } from '../src/voice/model.ts'
-import { VoiceController } from '../src/voice/controller.ts'
+import { VoiceController } from '../../../packages/voice-session/src/controller/controller.ts'
 import { REMOTE_CONSENT, REMOTE_NOTICE } from '../src/voice/remote.ts'
 
 const NOTICE_HOME = '홈 화면 앱에서는 음성이 자주 끊길 수 있어요. 안 되면 사파리에서 열어 주세요.'

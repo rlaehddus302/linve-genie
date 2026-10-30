@@ -160,7 +160,8 @@ describe('vite build', () => {
     // 빌드의 해시가 붙은 파일이 모두 들어 있고(누를 때만 받는 음성 조각은 빼고 — AC-I4-10, D-I4-09), 적힌 파일은 모두 있다
     const lazy = new Set(lazyScripts())
     expect(lazy.size).toBeGreaterThan(0)
-    for (const file of builtFiles().filter((f) => f.startsWith('assets/'))) {
+    // 소스맵(.map)은 이 시험이 모듈 목록을 보려고 함께 낸 것(AC-SRV1-13) — 운영 빌드에는 없고 앱 껍데기에도 담지 않는다
+    for (const file of builtFiles().filter((f) => f.startsWith('assets/') && !f.endsWith('.map'))) {
       if (lazy.has(file)) expect(files, file).not.toContain(`/${file}`)
       else expect(files).toContain(`/${file}`)
     }
@@ -230,7 +231,7 @@ describe('vite build', () => {
       /packages\/voice\/src\/web-speech\.ts$/,
       // 음성 패키지는 기기 일(마이크 소리 연결·소리 틀·오류 문장)만 — 읽기 모듈(추출·사전·카드·문자찜…)은 들어가지 않는다
       /packages\/voice\/src\/(?!livegenie\.ts$|speech\.ts$|pcm16\.ts$)/,
-      /packages\/voice-session\/src\/(read|server)\.ts$/,
+      /packages\/voice-session\/src\/(read\/|controller\/|server\.ts$)/,
       /src\/voice\/controller\.ts$/,
     ]
     const bad = [...modules].filter((source) => forbidden.some((pattern) => pattern.test(source)))

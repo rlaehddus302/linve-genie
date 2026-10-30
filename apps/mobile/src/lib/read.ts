@@ -1,33 +1,24 @@
 // 서버 읽기 입구 (SRV1 D-APP-22~24, AC-SRV1-05, acceptance "약속" 1·3 — 웹 lib/read.ts와 같은 약속).
-// 앱은 친 글을 읽지 않는다: 빠른 입력 한 줄을 서버 읽기 입구 `POST /api/broadcasts/:id/read` `{ kind, text }`에 보내 받은 결과만 보인다.
-// 스토어 판이 서버보다 늦게 바뀌어도 읽기 규칙은 서버 한 곳이라 같은 줄이 같은 결과다(D-APP-23).
+// 앱은 친 글을 읽지 않는다: 빠른 입력 한 줄을 서버 읽기 입구 `POST /api/broadcasts/:id/read` `{ kind: 'quick', text }`에 보내 받은 결과(`{ read }`)만 보인다.
+// 스토어 판이 서버보다 늦게 바뀌어도 읽기 규칙은 서버 한 곳이라 같은 줄이 같은 결과다(D-APP-23). 결과 모양은 타입만 가져온다.
 // 미리 보기: 마지막 글자 뒤 150ms에 묻고, 그 사이 글이 바뀌면 앞 답은 버린다. 답이 없거나 연결이 없으면 null(미리 보기를 비운다).
 import { useEffect, useState } from 'react'
-import type { QuickReading } from '../../../../packages/voice-session/src/read.ts'
+import type { ReadOf } from '@livejjim/web/src/lib/read.ts'
 import { ApiError, post } from '../api/client.ts'
 
-export type { QuickReading }
+/** 서버가 읽은 빠른 입력 한 줄 */
+export type QuickReading = ReadOf<'quick'>
 
 export const READ_WAIT_MS = 150
 export const READ_TEXT_LIMIT = 2000
 
-const QUICK_ERRORS: readonly unknown[] = ['EMPTY', 'PRICE_MISSING', 'PRICE_TOO_LOW', 'NUMBER_MISSING', 'NUMBER_INVALID']
-const numberOrNull = (value: unknown): boolean => value === null || (typeof value === 'number' && Number.isSafeInteger(value))
-const stringOrNull = (value: unknown): boolean => value === null || typeof value === 'string'
-
-/** 서버 답이 빠른 입력 읽기 모양인지 (모르는 모양이면 쓰지 않는다) */
-export function quickReadingOf(value: unknown): QuickReading | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
-  const item = value as Record<string, unknown>
-  const ok =
-    numberOrNull(item.no) &&
-    stringOrNull(item.name) &&
-    numberOrNull(item.price) &&
-    (item.error === null || QUICK_ERRORS.includes(item.error)) &&
-    stringOrNull(item.message) &&
-    (item.noText === undefined || typeof item.noText === 'string') &&
-    (item.priceText === undefined || typeof item.priceText === 'string')
-  return ok ? (item as unknown as QuickReading) : null
+/** 응답 본문 `{ read }` → 빠른 입력 결과 (모르는 모양이면 null) */
+export function quickReadingOf(body: unknown): QuickReading | null {
+  if (typeof body !== 'object' || body === null) return null
+  const read = (body as Record<string, unknown>).read
+  if (typeof read !== 'object' || read === null) return null
+  const item = read as Record<string, unknown>
+  return item.kind === 'quick' && typeof item.decision === 'string' ? (read as QuickReading) : null
 }
 
 /** 빠른 입력 한 줄을 서버에서 읽는다. 연결·서버 오류는 ApiError로 던진다 */

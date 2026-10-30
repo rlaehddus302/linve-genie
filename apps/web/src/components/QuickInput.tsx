@@ -10,8 +10,8 @@ import { AUTO_RESEND_NOTE, RESENDING_WORD } from '../lib/resend-board.ts'
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react'
 import type { ApiError } from '../api/client.ts'
 import { productKey } from '../lib/derive.ts'
-import { editQuestion, fixPricePreview, registerPreview, unitLine, type FixField } from '../lib/quick.ts'
-import { useServerRead, type QuickReading } from '../lib/read.ts'
+import { editQuestion, unitLine, type FixField, type TypedFields } from '../lib/quick.ts'
+import { useServerRead, type ReadOf } from '../lib/read.ts'
 import { useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { ProductSummary } from './ProductBoard.tsx'
@@ -55,6 +55,8 @@ export interface EditAsk {
   readonly price: number
   /** 개수 칸이 1이 아니었으면 그 개수 (AC-ORD11-08) */
   readonly stock?: number
+  /** 판매자가 친 원문 칸 — "예"에서 이 원문을 보낸다 (SRV1 약속 2) */
+  readonly typed?: TypedFields
 }
 
 /** 옵션 없는 상품의 "개수" 칸 (AC-ORD11-01·03·04, D-STK-01). 붙인 옵션이 있으면 없다(AC-ORD11-09) */
@@ -69,7 +71,7 @@ export interface CountField {
 export interface QuickInputProps {
   readonly value: string
   /** 서버가 읽은 지금 줄 (답이 오기 전·연결이 없으면 null — 미리 보기를 비운다) */
-  readonly reading: QuickReading | null
+  readonly reading: ReadOf<'quick'> | null
   readonly onChange: (value: string) => void
   readonly inputRef: RefObject<HTMLInputElement | null>
   readonly onEnter: (line: string) => void
@@ -111,10 +113,10 @@ export interface QuickInputProps {
  * FB1 D-FB1-18 (a): 늘 있는 "등록하면: …" 한 줄도 휴대폰에선 고정 영역에 두면 35%를 넘어(n2b2 layout 293px > 284px) 같은 자리로 — 단위 줄 위.
  * reading: 빠른 입력칸 글을 서버가 읽은 결과 (칸 안과 같은 답)
  */
-export function QuickUnitLine({ reading }: { readonly reading: QuickReading | null }) {
+export function QuickUnitLine({ reading }: { readonly reading: ReadOf<'quick'> | null }) {
   const api = useConsoleApi()
   const settings = api.settingsOf(api.b)
-  const willRegister = settings === null ? null : registerPreview(reading, (n) => api.data.products.get(productKey(api.b, n)))
+  const willRegister = settings === null ? null : (reading?.preview ?? null)
   return (
     <>
       <RegisterLine text={willRegister} />
@@ -152,11 +154,12 @@ export function QuickInput(props: QuickInputProps) {
 
   // 번호·가격은 서버가 읽은 답 (그 방송의 번호 최대·가격 단위로 — Enter 때와 같은 함수)
   const settings = api.settingsOf(api.b)
-  const no = props.reading?.no ?? null
+  // 번호 찾기 미리 보기(PRD-03 AC3)는 서버가 그 줄에서 읽은 번호, "등록하면: …"은 서버가 등록으로 읽은 줄의 글
+  const no = props.reading?.previewNo ?? null
   const preview = no === null ? undefined : api.data.products.get(productKey(api.b, no))
-  const willRegister = settings === null ? null : registerPreview(props.reading, (n) => api.data.products.get(productKey(api.b, n)))
-  const fixPriceReading = useServerRead(api.b, 'price', fix?.price ?? '', fix !== null)
-  const fixPrice = fix === null ? null : fixPricePreview(fixPriceReading)
+  const willRegister = settings === null ? null : (props.reading?.preview ?? null)
+  // 고치기 칸 가격 옆 "= 15,000원" — 서버가 그 방송의 가격 단위로 읽은 답
+  const fixPrice = useServerRead(api.b, 'price', fix?.price ?? '', fix !== null)?.preview ?? null
   const sending = props.registrations.some((item) => item.status !== 'failed')
   const resending = props.registrations.some((item) => item.status !== 'failed' && item.auto === true)
   const failed = props.registrations.filter((item) => item.status === 'failed')

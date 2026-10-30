@@ -204,7 +204,8 @@ describe('판매 규칙 칸 (AC-I3-45·46·52)', () => {
     expect(changedSettings(fields, { ...draft, 'thanks.liveChat': false, 'thanks.videoComment': 'SUMMARY' }, DEFAULT_SETTINGS)).toEqual({ 'thanks.liveChat': false, 'thanks.videoComment': 'SUMMARY' })
     // 돈 칸은 원 단위 (천원 단위 설정을 쓰지 않는다)
     expect(payloadOf(fieldOf('shipping.baseFee'), '3,500')).toBe(3500)
-    expect(payloadOf(fieldOf('shipping.baseFee'), '4천')).toBe(4000)
+    // 옛 기대: 화면이 '4천'을 4000으로 읽어 보냄. SRV1(D-APP-24)부터 글은 원문 그대로 보내고 서버가 원 단위로 읽는다(서버 readMoneySetting → 4,000원)
+    expect(payloadOf(fieldOf('shipping.baseFee'), '4천')).toBe('4천')
     expect(payloadOf(fieldOf('shipping.baseFee'), '')).toBe('')
   })
 

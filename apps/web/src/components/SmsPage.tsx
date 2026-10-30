@@ -25,8 +25,8 @@ import { usePendingNow } from '../lib/use-pending-now.ts'
 import { AUTO_RESEND_NOTE, RESENT_PREFIX } from '../lib/resend-board.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { broadcastWords, kstStamp, kstTime } from '../lib/kst.ts'
-import { RECEIVED_HELP, RECEIVED_INVALID, receivedWords } from '../lib/received.ts'
-import { readProblem, readText, useServerRead, type ReceivedReading } from '../lib/read.ts'
+import { RECEIVED_HELP, RECEIVED_INVALID, receivedWords, type ReceivedReading } from '../lib/received.ts'
+import { readProblem, readText, useServerRead } from '../lib/read.ts'
 import type { Navigate } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { useScopeStore } from '../lib/use-store.ts'
@@ -392,9 +392,9 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   // 받은 시각·전화번호 미리 보기는 서버가 읽은 답 (150ms 뒤 — 답이 오기 전·연결이 없으면 비운다, SRV1 약속 3)
   const receivedPreview = useServerRead(api?.b ?? null, 'received', received, api !== undefined)
   const read: ReceivedReading | null = receivedPreview ?? (checked !== null && checked.text === received ? checked.reading : null)
-  const receivedProblem = read?.kind === 'invalid' ? RECEIVED_INVALID : checked !== null && checked.text === received ? checked.problem : null
+  const receivedProblem = read?.state === 'invalid' ? (read.message ?? RECEIVED_INVALID) : checked !== null && checked.text === received ? checked.problem : null
   const phoneRead = useServerRead(api?.b ?? null, 'phone', phone, api !== undefined && buyer === null)
-  const phoneProblem = buyer === null && phone.trim() !== '' && phoneRead !== null && phoneRead.phone === null ? PHONE_UNREADABLE : null
+  const phoneProblem = buyer === null && phone.trim() !== '' && phoneRead !== null && !phoneRead.valid ? (phoneRead.message ?? PHONE_UNREADABLE) : null
   const chosen = buyer === null || api === undefined ? undefined : api.data.buyers.get(buyer)
   const label = number !== null && numberProblem === null ? `${String(number)}번에 문자찜 넣기` : '문자찜 넣기'
   const optionMode = api !== undefined && isOptionBroadcast(api.data, api.b)
@@ -426,8 +426,9 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
     return {
       type: 'sms',
       b: api.b,
-      no: number,
-      ...(receivedValue !== null ? { received: receivedValue } : {}),
+      // 번호·받은 시각은 친 글 원문 — 서버가 그 방송의 번호 한도·서버 시계로 읽는다 (SRV1 D-APP-24)
+      noText: no,
+      ...(receivedValue !== null ? { receivedText: receivedValue } : {}),
       ...(buyer === null && phone.trim() !== '' ? { phone: phone.trim() } : {}),
       ...(memo.trim() === '' ? {} : { memo: memo.trim() }),
       ...(buyer === null ? {} : { buyer }),
@@ -498,9 +499,9 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
       }
       setChecked({ text: typed, reading: current, problem: null })
       if (receivedRef.current !== typed) return
-      if (current.kind === 'invalid') return
-      if (current.kind === 'ok' && current.late) {
-        setLate({ words: receivedWords(current) })
+      if (current.state === 'invalid') return
+      if (current.state === 'ok' && current.late === true) {
+        setLate({ words: receivedWords(current) ?? typed })
         return
       }
     }
@@ -639,7 +640,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
             />
           </div>
           <p id={`${receivedId}-help`} className="hint">
-            {read?.kind === 'ok' ? `${receivedWords(read)}에 받은 문자` : RECEIVED_HELP}
+            {read !== null && receivedWords(read) !== null ? `${receivedWords(read) ?? ''}에 받은 문자` : RECEIVED_HELP}
           </p>
           {filled !== null && received === filled ? (
             <p id={`${receivedId}-filled`} className="hint" role="status">

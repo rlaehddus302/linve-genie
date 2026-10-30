@@ -40,7 +40,7 @@ export function QuickInput() {
 
   const closed = api.ended || api.sealed
   const reading = useQuickReading(api.b, text, !closed)
-  const preview = closed ? null : registerPreview(reading, findProduct)
+  const preview = closed ? null : registerPreview(reading)
 
   /** 등록: 본문은 친 줄 원문 — 서버가 같은 읽기로 기록한다. 응답이 없을 때 같은 요청 번호로 다시 보내도 한 번만 기록 */
   const register = async (decision: { readonly no: number; readonly name: string; readonly price: number }, line: string) => {
@@ -103,8 +103,9 @@ export function QuickInput() {
     if (ask === null) return
     setBusy(true)
     try {
-      const changes = { ...(ask.name !== '' && ask.name !== ask.product.name ? { name: ask.name } : {}), ...(ask.price !== ask.product.price ? { price: ask.price } : {}) }
-      if (Object.keys(changes).length > 0) await api.command({ type: 'product.update', b: api.b, no: ask.product.no, ...changes })
+      const changed = (ask.name !== '' && ask.name !== ask.product.name) || ask.price !== ask.product.price
+      // 친 줄 원문을 보낸다 — 서버가 다시 읽어 고친다(SRV1 약속 2). 품종이 없는 줄이면 품종은 그대로
+      if (changed) await api.command({ type: 'product.update', b: api.b, text: ask.line }, newRequestId())
       setText((current) => (current === ask.line ? '' : current))
       setAsk(null)
       api.select(ask.product.key)
@@ -159,17 +160,18 @@ export function SmsInput() {
   const [result, setResult] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null)
   if (api.ended || api.sealed) return null
   const send = async () => {
-    const number = Number(no.trim())
-    if (!Number.isInteger(number) || number < 1) {
-      setResult({ tone: 'danger', text: '상품 번호를 숫자로 적어 주세요.' })
+    // 번호 칸은 원문 그대로 보낸다 — 서버가 그 방송의 번호 한도로 읽고, 읽지 못하면 그 문장으로 거절한다 (SRV1 D-APP-24)
+    const typed = no.trim()
+    if (typed === '') {
+      setResult({ tone: 'danger', text: '상품 번호를 적어 주세요.' })
       return
     }
     setBusy(true)
     setResult(null)
     try {
-      const written = await api.command({ type: 'sms', b: api.b, no: number, ...(phone.trim() === '' ? {} : { phone: phone.trim() }) }, newRequestId())
+      const written = await api.command({ type: 'sms', b: api.b, noText: typed, ...(phone.trim() === '' ? {} : { phone: phone.trim() }) }, newRequestId())
       const last4 = written.phoneLast4 ?? null
-      setResult({ tone: 'success', text: `${String(number)}번 문자찜을 넣었어요${last4 === null ? '' : ` · 뒤 4자리 ${last4}`}.` })
+      setResult({ tone: 'success', text: `${typed}번 문자찜을 넣었어요${last4 === null ? '' : ` · 뒤 4자리 ${last4}`}.` })
       setNo('')
       setPhone('')
     } catch (caught) {

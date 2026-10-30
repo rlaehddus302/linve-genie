@@ -3,7 +3,6 @@
 // 할 일만 정한다. 앱 번들에 입력 읽기 모듈(@livejjim/core/quick-input)이 들어가지 않는다.
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import type { QuickReading } from './read.ts'
-import { formatWon } from './words.ts'
 
 export type PriceUnit = 'WON' | 'THOUSAND' | 'TEN_THOUSAND' | 'AUTO'
 
@@ -20,21 +19,26 @@ export type QuickDecision =
   | { readonly kind: 'open'; readonly product: Product }
   | { readonly kind: 'fix'; readonly message: string }
 
-/** 서버가 읽은 빠른 입력 한 줄 → 할 일 (D-084 가~라) */
+/** 서버가 읽은 빠른 입력 한 줄 → 할 일 (D-084 가~라 — 서버가 정한 할 일을 화면 상품에 잇는다) */
 export function decideQuick(reading: QuickReading, findProduct: (no: number) => Product | undefined): QuickDecision {
-  if (reading.error !== null) {
-    if (reading.error === 'EMPTY') return { kind: 'none' }
-    if (reading.error === 'PRICE_MISSING' && reading.no !== null && (reading.name ?? '') === '') {
-      const product = findProduct(reading.no)
-      if (product !== undefined) return { kind: 'open', product }
+  switch (reading.decision) {
+    case 'none':
+      return { kind: 'none' }
+    case 'fix':
+      return { kind: 'fix', message: reading.message ?? '' }
+    case 'open': {
+      const product = reading.no === null ? undefined : findProduct(reading.no)
+      return product === undefined ? { kind: 'none' } : { kind: 'open', product }
     }
-    return { kind: 'fix', message: reading.message ?? '' }
+    case 'register':
+    case 'edit': {
+      if (reading.no === null || reading.price === null) return { kind: 'none' }
+      const name = reading.name ?? ''
+      const product = reading.decision === 'edit' ? findProduct(reading.no) : undefined
+      if (product !== undefined) return { kind: 'edit', product, no: reading.no, name, price: reading.price }
+      return { kind: 'register', no: reading.no, name, price: reading.price }
+    }
   }
-  if (reading.no === null || reading.price === null) return { kind: 'none' }
-  const name = reading.name ?? ''
-  const product = findProduct(reading.no)
-  if (product !== undefined) return { kind: 'edit', product, no: reading.no, name, price: reading.price }
-  return { kind: 'register', no: reading.no, name, price: reading.price }
 }
 
 /** 빠른 입력칸 아래 그 방송의 가격 단위 한 줄 (FB1 D-FB1-01) */
@@ -45,12 +49,9 @@ export function unitLine(unit: PriceUnit): string {
   return '가격 단위: 천원 — 10은 10,000원, 2만은 20,000원'
 }
 
-/** 서버가 읽은 줄이 새 상품 등록이면 "등록하면: 15번 엘레강스 10,000원", 아니면(답 없음 포함) null */
-export function registerPreview(reading: QuickReading | null, findProduct: (no: number) => Product | undefined): string | null {
-  if (reading === null) return null
-  const decision = decideQuick(reading, findProduct)
-  if (decision.kind !== 'register') return null
-  return `등록하면: ${String(decision.no)}번 ${decision.name === '' ? '' : `${decision.name} `}${formatWon(decision.price)}`
+/** 서버가 새 상품 등록으로 읽은 줄이면 "등록하면: 15번 엘레강스 10,000원"(서버 글), 아니면(답 없음 포함) null */
+export function registerPreview(reading: QuickReading | null): string | null {
+  return reading?.preview ?? null
 }
 
 /** 같은 번호를 다시 쳤을 때의 물음 (AC-S05-13) */

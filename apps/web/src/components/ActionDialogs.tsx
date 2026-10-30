@@ -6,7 +6,7 @@ import type { Buyer, ChatMessage, Product } from '../api/types.ts'
 import { formatWon, productKey, productSlots } from '../lib/derive.ts'
 import { saleOptionWords } from '../lib/sale-line.ts'
 import { pickFor, qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
-import { changedFields, editQuestion } from '../lib/quick.ts'
+import { changedFields, editQuestion, type TypedFields } from '../lib/quick.ts'
 import { readProblem, readText } from '../lib/read.ts'
 import { COUNT_PROBLEM, readCount, stockProblem } from '../lib/stock.ts'
 import { PRODUCT_STATUS_WORD } from '../lib/words.ts'
@@ -405,6 +405,8 @@ export interface EditDialogProps {
   readonly stock?: number
   /** 빠른 입력 줄 (null이면 상품 자세히의 "고치기" — 칸을 보인다) */
   readonly line: string | null
+  /** 판매자가 친 원문 칸 (빠른 입력 줄·고치기 칸) — "예"에서 숫자 대신 이 원문을 보낸다 (SRV1 약속 2 — 서버가 다시 읽는다) */
+  readonly typed?: TypedFields
   readonly onClose: () => void
   /** 보낸 뒤: 빠른 입력 줄 비우기·현재 상품 */
   readonly onDone: (product: Product) => void
@@ -415,7 +417,7 @@ export interface EditDialogProps {
 /** 고칠 칸. priceText = 가격 칸에 친 글 원문 (보낼 때는 원문을 보내고 서버가 다시 읽는다 — SRV1 D-APP-24). price는 서버가 읽은 값(묻기·비교에만) */
 type EditChanges = { name?: string; price?: number; priceText?: string; stock?: number }
 
-export function EditDialog({ productKey: key, name, price, stock, line, onClose, onDone, onUnchanged }: EditDialogProps) {
+export function EditDialog({ productKey: key, name, price, stock, line, typed: typedFields, onClose, onDone, onUnchanged }: EditDialogProps) {
   const api = useConsoleApi()
   const product = api.data.products.get(key)
   const [stage, setStage] = useState<'ask' | 'form' | 'applyTo'>(line === null ? 'form' : 'ask')
@@ -446,13 +448,23 @@ export function EditDialog({ productKey: key, name, price, stock, line, onClose,
     setBusy(true)
     setError(null)
     try {
-      const { priceText: typedPrice, ...values } = changes
+      const { priceText: typedPrice, price: _readPrice, ...values } = changes
+      // 원문을 보낸다 (SRV1 약속 2): 빠른 입력 "고칠까요?"는 친 줄·칸 원문, 고치기 창은 가격 칸 원문(번호 칸은 그 상품 번호 글).
+      // 음성 카드처럼 서버가 이미 읽어 준 값만 있으면 숫자 그대로
+      const body =
+        typedFields !== undefined && line !== null
+          ? {
+              ...(changes.stock === undefined ? {} : { stock: changes.stock }),
+              // 품종은 바뀐 때만 (친 줄에 품종이 없으면 그대로 — changedFields와 같다)
+              ...('text' in typedFields ? { text: typedFields.text } : { noText: typedFields.noText, priceText: typedFields.priceText, ...(changes.name === undefined ? {} : { name: changes.name }) }),
+            }
+          : typedPrice !== undefined
+            ? { ...values, noText: String(product.no), priceText: typedPrice }
+            : { no: product.no, ...values, ...(changes.price === undefined ? {} : { price: changes.price }) }
       await api.command({
         type: 'product.update',
         b: product.broadcast,
-        no: product.no,
-        ...values,
-        ...(changes.price !== undefined && typedPrice !== undefined ? { price: typedPrice } : {}),
+        ...body,
         ...(applyTo !== null && changes.price !== undefined ? { applyTo } : {}),
       })
       if (line !== null && closed) await api.command({ type: 'product.open', b: product.broadcast, no: product.no })
@@ -501,8 +513,13 @@ export function EditDialog({ productKey: key, name, price, stock, line, onClose,
       setBusy(false)
     }
     setError(null)
-    if (read.error !== null || read.amount === null) {
-      setPriceProblem(read.message ?? '가격을 알아보지 못했어요. 가격 칸에 적어 주세요.')
+    // 문장은 빠른 입력 고치기 칸과 같다 (AC-S05-11)
+    if (read.amount === null) {
+      setPriceProblem('가격을 알아보지 못했어요. 가격 칸에 적어 주세요.')
+      return
+    }
+    if (read.amount < 100) {
+      setPriceProblem('가격이 100원보다 적어요. 가격을 확인해 주세요.')
       return
     }
     const parsed = read.amount

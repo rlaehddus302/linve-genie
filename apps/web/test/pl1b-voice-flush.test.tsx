@@ -1,13 +1,13 @@
 // PL1B 끝에서 넘긴 문자찜 카드 시험 (VOC-04, D-I5-20·D-I5-09·D-I5-10·D-V1-18, AC-PL1B-23~25 — 동작 변경 없음, 시험만):
+// SRV1 (D-APP-23·24): 읽기 함수는 서버 전용 자리(packages/voice-session/src/read)로 옮겼다 — 기대값은 그대로, 서버 읽기 함수를 본다.
 // 실제 음성 모듈 + 가짜 인식 객체(최종 표시 없이 끝나는 중간 결과 = 사파리 끝 넘김) + 가짜 시계. 쓰기는 가짜 host.writeSms가 받는다.
 import * as voiceModule from '@livejjim/voice'
 import { act, cleanup, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoiceLive } from '../src/components/VoicePanel.tsx'
-// SRV1: 받은 시각 읽기는 서버 읽기(read.ts)로 옮겼다 — 시험의 음성 host도 서버와 같은 함수를 쓴다
-import { readReceived } from '../../../packages/voice-session/src/read.ts'
-import { VoiceController, smsShown, type SmsEntry, type VoiceHost, type VoiceSmsWrite } from '../src/voice/controller.ts'
+import { readReceived } from '../../../packages/voice-session/src/read/index.ts'
+import { VoiceController, smsShown, type SmsEntry, type VoiceHost, type VoiceSmsWrite } from '../../../packages/voice-session/src/controller/controller.ts'
 
 /** 2026-10-23 20:01:00 KST */
 const T0 = Date.UTC(2026, 9, 23, 11, 1, 0)

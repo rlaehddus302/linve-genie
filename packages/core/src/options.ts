@@ -1,6 +1,6 @@
 // 상품 옵션 모델 (DOMAIN_RULES R-19 "옵션 모델"·"변형과 재고 단위"·"가격", D-O-03~D-O-05, D-O1-03).
 // 판정 엔진(입력 검사·변형 재고)과 댓글 옵션 인식(R-20)이 같은 정의를 쓴다. 모두 순수 함수다.
-import { normalizeText } from './parse/text.ts'
+import { normalizeText } from './text.ts'
 
 /** 선택지 (R-19): 표시 이름 label, 동의어 aliases(0~10), 가격 차이 price(정수 원, 기본 0) */
 export interface OptionChoice {

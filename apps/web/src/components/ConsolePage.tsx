@@ -26,8 +26,8 @@ import { dateWords } from '../lib/kst.ts'
 import { LABELS_OFF_NOTE, pauseAlertMessage, stationLeadShortText, stationLeadText } from '../lib/print-words.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import { ReadOnlyContext } from '../lib/read-only.ts'
-import { changedFields, decideFix, decideQuick, editQuestion, type QuickDecision } from '../lib/quick.ts'
-import { readProblem, readText, useServerRead, type QuickReading } from '../lib/read.ts'
+import { changedFields, decisionOf, editQuestion, typedBody, type QuickDecision, type TypedFields } from '../lib/quick.ts'
+import { readProblem, readText, rejectedRead, useServerRead, type QuickRead } from '../lib/read.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
@@ -93,14 +93,6 @@ export function shortcutsWord(labels: boolean): string {
 const noSubscribe = () => () => {}
 const idleVoice = (): VoiceSnapshot => VOICE_IDLE
 
-/**
- * 등록 요청 본문의 상품 칸 (SRV1 D-APP-24, 약속 2): 판매자가 친 글은 원문 그대로 보내고 서버가 읽어 기록한다.
- * - text: 빠른 입력 한 줄 원문 (`{ text }`)
- * - fields: 고치기 칸의 원문 (`{ no, name, price }` — 번호·가격 칸도 친 글자 그대로)
- * - values: 서버가 이미 읽어 준 값(음성 카드·"고칠까요?"에서 고른 값) — 숫자 칸 그대로
- */
-type RegSend = { readonly kind: 'text'; readonly text: string } | { readonly kind: 'fields'; readonly no: string; readonly name: string; readonly price: string } | { readonly kind: 'values' }
-
 /** 한 줄의 판단을 실행한다 (inChain·등록 요청 모양은 handleDecision 참고) */
 type HandleDecision = (
   decision: QuickDecision,
@@ -108,7 +100,7 @@ type HandleDecision = (
   fromFix: boolean,
   countAt: string,
   inChain?: boolean,
-  extra?: { readonly send?: RegSend; readonly requestId?: string },
+  extra?: { readonly typed?: TypedFields; readonly requestId?: string },
 ) => Promise<void> | undefined
 
 /** 등록 경로에 넘긴 한 줄 (빠른 입력·고치기 칸·음성 카드) */
@@ -119,7 +111,11 @@ interface RegRequest {
   readonly name: string
   readonly price: number
   readonly fromFix: boolean
-  readonly send: RegSend
+  /**
+   * 판매자가 친 원문 칸 (SRV1 D-APP-24, 약속 2) — 있으면 등록 본문에 번호·가격 대신 이 원문을 보내고 서버가 같은 함수로 다시 읽어 기록한다.
+   * 없으면 서버 음성 읽기가 이미 읽어 준 값(음성 카드)이라 no·name·price 숫자 그대로
+   */
+  readonly typed?: TypedFields
   /** 서버 읽기 입구에 닿지 못해 아직 읽지 못한 빠른 입력 줄 (다시 보내면 같은 요청 번호로 읽고 판단한다 — AC-SRV1-06). 그 줄의 개수 칸 글자 */
   readonly unread?: { readonly countAt: string }
   /** 빠른 입력 줄에 붙인 옵션·별칭·변형 재고 (옵션 방송 — product.register 한 번에 함께, D-O2-05) */
@@ -151,8 +147,8 @@ interface RegHooks {
   readonly extra?: OptionPayload
   readonly draftOf?: OptionDraft
   readonly stock?: number
-  /** 상품 칸을 보내는 모양 (없으면 values) */
-  readonly send?: RegSend
+  /** 판매자가 친 원문 칸 (없으면 숫자 값 — 음성 카드) */
+  readonly typed?: TypedFields
   /** 앞서 정한 요청 번호 (읽지 못해 다시 보내는 줄 — 같은 요청 번호로 한 번만 기록) */
   readonly requestId?: string
 }
@@ -770,13 +766,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
    * Enter 바로 뒤의 판단은 칸 글자가 그 줄 그대로라 늘 창을 연다
    */
   const askEdit = useCallback(
-    (product: Product, name: string, price: number, line: string, stock?: number) => {
+    (product: Product, name: string, price: number, line: string, stock?: number, typed?: TypedFields) => {
       const counted = stock === undefined || product.hasOptions ? {} : { stock }
+      // 친 원문이 있으면 "예"에서 그 원문을 보낸다 (SRV1 약속 2 — 서버가 다시 읽는다)
+      const raw = typed === undefined ? {} : { typed }
       if (typedNext(line)) {
-        setAsks((list) => [...list, { id: askId.current++, line, no: product.no, product: product.key, name, price, ...counted }])
+        setAsks((list) => [...list, { id: askId.current++, line, no: product.no, product: product.key, name, price, ...counted, ...raw }])
         return
       }
-      openDialog({ kind: 'edit', product: product.key, name, price, line, ...counted })
+      openDialog({ kind: 'edit', product: product.key, name, price, line, ...counted, ...raw })
     },
     [openDialog, typedNext],
   )
@@ -792,7 +790,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       // 그 번호의 지금 상품과 비교한다 (번호 변경 뒤에도 — AC-S06-67)
       const current = findProduct(ask.no)
       if (current === undefined) return
-      const base = { kind: 'edit', product: current.key, name: ask.name, price: ask.price, line: ask.line, ...(ask.stock === undefined ? {} : { stock: ask.stock }) } as const
+      const base = {
+        kind: 'edit',
+        product: current.key,
+        name: ask.name,
+        price: ask.price,
+        line: ask.line,
+        ...(ask.stock === undefined ? {} : { stock: ask.stock }),
+        ...(ask.typed === undefined ? {} : { typed: ask.typed }),
+      } as const
       // 칸이 비었으면 친 줄을 칸으로 옮긴다 — 바로 물었을 때와 같이 아니요면 칸에 그대로 남는다(AC-S05-13).
       // 다른 줄을 치는 중이면 그 글자를 두고, 아니요면 "고칠까요?"를 남겨 친 줄을 잃지 않는다
       if (quickTextRef.current === '') {
@@ -842,9 +848,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       // 서버 읽기 입구에 닿지 못했던 줄: 지금 읽고 판단한다 — 등록이면 처음 정한 요청 번호로 보낸다 (AC-SRV1-06)
       if (request.unread !== undefined) {
         setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'sending', error: null, auto } : item)))
-        let reading: QuickReading
+        let read: QuickRead
         try {
-          reading = await readText(b, 'quick', request.line)
+          read = await readText(b, 'quick', request.line)
         } catch (error) {
           const problem = readProblem(error)
           if (problem.transient) failed(problem)
@@ -855,14 +861,24 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           return
         }
         remove()
-        return handleDecisionRef.current(decideQuick(reading, findProduct), request.line, false, request.unread.countAt, true, { send: request.send, requestId: request.requestId })
+        return handleDecisionRef.current(decisionOf(read, findProduct), request.line, false, request.unread.countAt, true, {
+          ...(request.typed === undefined ? {} : { typed: request.typed }),
+          requestId: request.requestId,
+        })
       }
       // 앞 줄이 같은 번호를 등록했으면(또는 다른 기기가) 등록 대신 묻는다
       const exists = (product: Product) => {
         // 등록하려던 번호가 이미 있다: 함께 보내려던 옵션은 넣지 않았다고 알린다 (말없이 사라지지 않게)
         if (request.extra !== undefined) noteDroppedOptions(product.no)
         if (request.onExists !== undefined) request.onExists(product)
-        else askEdit(product, request.name, request.price, request.line, request.stock)
+        else askEdit(product, request.name, request.price, request.line, request.stock, request.typed)
+      }
+      /** 등록되지 않았다: 개수 칸·붙였던 옵션을 되살린다 (다시 Enter하면 같이 간다) */
+      const restore = () => {
+        request.onFailed?.()
+        restoreCount(request.stock)
+        const extra = request.extra
+        if (extra !== undefined) setAttached((current) => current ?? { draft: request.draftOf ?? EMPTY_DRAFT, payload: extra })
       }
       // 처음 보낼 때만 화면을 미리 본다. 저절로 다시 보낼 때는 화면에 그 번호가 있어도 미리 보지 않고 처음 요청 번호로 한 번 보내
       // 서버 답으로 판단한다(D-MOB2-14): 응답만 잃은 자기 등록이면 서버가 처음 결과(changed: true)를 돌려주고,
@@ -878,11 +894,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'sending', error: null, auto } : item)))
       try {
         const extra = request.extra
-        const send = request.send
         const result = await write(request.requestId, {
           type: 'product.register',
           b,
-          ...(send.kind === 'text' ? { text: send.text } : send.kind === 'fields' ? { no: send.no, name: send.name, price: send.price } : { no: request.no, name: request.name, price: request.price }),
+          // 친 원문 그대로 (서버가 그 방송의 가격 단위·번호 한도로 다시 읽는다). 음성 카드는 서버가 읽어 준 값
+          ...(request.typed === undefined ? { no: request.no, name: request.name, price: request.price } : typedBody(request.typed, request.name)),
           ...(request.stock === undefined ? {} : { stock: request.stock }),
           ...(extra === undefined || extra.options.length === 0 ? {} : { options: extra.options, stocks: extra.stocks }),
           ...(extra === undefined || extra.aliases.length === 0 ? {} : { aliases: extra.aliases }),
@@ -901,13 +917,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           // 그사이 다른 곳에서 같은 번호가 생겼다: 등록되지 않았으니 묻는다
           const existing = findProduct(request.no)
           if (existing !== undefined) exists(existing)
-          else {
-            request.onFailed?.()
-            restoreCount(request.stock)
-            // 등록되지 않았으니 붙였던 옵션을 되살린다
-            const extra = request.extra
-            if (extra !== undefined) setAttached((current) => current ?? { draft: request.draftOf ?? EMPTY_DRAFT, payload: extra })
-          }
+          else restore()
           return
         }
         clearLine(request.line)
@@ -922,6 +932,48 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
         request.onDone?.(key)
       } catch (error) {
         if (!isApiError(error)) throw error
+        // 원문을 서버가 다시 읽었더니 (SRV1 약속 2 — 기록 없음): 그 번호가 이미 있다·번호만 친 줄의 상품이 있다·고칠 곳이 있다
+        const read = rejectedRead(error)
+        if (read !== null && (error.code === 'QUICK_EXISTS' || error.code === 'QUICK_OPEN' || error.code === 'QUICK_FIX')) {
+          remove()
+          const decision = decisionOf(read, findProduct)
+          if (error.code === 'QUICK_EXISTS') {
+            if (auto) {
+              // 저절로 다시 보냈는데 그사이 그 번호가 생겼다 (D-MOB2-14 (2)) — 창 없이 한 줄로
+              setResendNote((note) => ({ text: existsOnResendWords(read.no ?? request.no), n: (note?.n ?? 0) + 1 }))
+              if (request.extra !== undefined) noteDroppedOptions(read.no ?? request.no)
+              return
+            }
+            if (decision.kind === 'edit') exists(decision.product)
+            else if (read.no !== null && read.price !== null && request.onExists === undefined) {
+              // 화면이 아직 그 상품을 받지 못했다(다른 기기가 막 등록) — 칸 아래 "고칠까요?"에 남긴다. 화면이 따라잡으면 그 상품과 견준다(AC-S06-67)
+              if (request.extra !== undefined) noteDroppedOptions(read.no)
+              const no = read.no
+              const price = read.price
+              setAsks((list) => [
+                ...list,
+                {
+                  id: askId.current++,
+                  line: request.line,
+                  no,
+                  product: productKey(b, no),
+                  name: read.name ?? '',
+                  price,
+                  ...(request.stock === undefined ? {} : { stock: request.stock }),
+                  ...(request.typed === undefined ? {} : { typed: request.typed }),
+                },
+              ])
+            } else {
+              restore()
+              setQuickError(error)
+            }
+            return
+          }
+          restore()
+          if (decision.kind === 'open' || decision.kind === 'fix') void handleDecisionRef.current(decision, request.line, request.fromFix, DEFAULT_COUNT, true, request.typed === undefined ? {} : { typed: request.typed })
+          else setQuickError(error)
+          return
+        }
         if (error.transient) {
           failed(error)
           request.onTransient?.()
@@ -945,16 +997,16 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
 
   const startRegistration = useCallback((line: string, no: number, name: string, price: number, fromFix: boolean, hooks: RegHooks = {}): number => {
     const id = regId.current++
-    const { send, requestId, ...rest } = hooks
-    regRequests.current.set(id, { requestId: requestId ?? newRequestId(), line, no, name, price, fromFix, send: send ?? { kind: 'values' }, ...rest })
+    const { requestId, ...rest } = hooks
+    regRequests.current.set(id, { requestId: requestId ?? newRequestId(), line, no, name, price, fromFix, ...rest })
     setRegistrations((list) => [...list, { id, line, no, status: 'sending', error: null }])
     return id
   }, [])
 
   /** 서버 읽기 입구에 닿지 못한 빠른 입력 줄: "저장하지 못했어요"로 남기고 연결이 돌아오면 같은 요청 번호로 다시 읽어 보낸다 (AC-SRV1-06) */
-  const keepUnreadLine = useCallback((line: string, countAt: string, error: ApiError, extra: { readonly send?: RegSend; readonly requestId?: string } = {}) => {
+  const keepUnreadLine = useCallback((line: string, countAt: string, error: ApiError) => {
     const id = regId.current++
-    regRequests.current.set(id, { requestId: extra.requestId ?? newRequestId(), line, no: 0, name: '', price: 0, fromFix: false, send: extra.send ?? { kind: 'text', text: line }, unread: { countAt } })
+    regRequests.current.set(id, { requestId: newRequestId(), line, no: 0, name: '', price: 0, fromFix: false, typed: { text: line }, unread: { countAt } })
     setRegistrations((list) => [...list, { id, line, no: 0, status: 'failed', error, auto: false }])
     if (error.retryable) {
       resendBoard.add(`register:${String(id)}`, 'register', () => {
@@ -1089,67 +1141,23 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   }
 
   /**
-   * 카드 고치기 칸의 Enter: 빠른 입력 고치기 칸과 같은 읽기 — 번호·가격 칸은 서버가 읽는다(SRV1 D-APP-24, 그 방송의 price.unit).
-   * 등록 요청에는 칸의 원문을 보낸다(서버가 같은 함수로 다시 읽어 기록한다).
+   * 카드 고치기 칸의 Enter: 칸의 번호·가격은 서버 음성 흐름이 읽는다(SRV1 D-APP-23·24 — 빠른 입력 고치기 칸과 같은 번호·금액 읽기, 그 방송의 price.unit).
+   * 읽지 못하면 서버가 카드에 그 문장을 보이고, 읽으면 서버가 읽은 값으로 등록 효과(registerVoiceCard)를 보낸다 — 앱 RemoteVoicePanel과 같은 명령.
    */
   const submitCardForm = useCallback(
-    async (id: string) => {
-      if (voice === null || settings === null) return
-      const form = voice.getSnapshot().forms.get(id)
-      if (form === undefined) return
-      let readings: { no: Awaited<ReturnType<typeof readText<'fix'>>>; price: Awaited<ReturnType<typeof readText<'price'>>> }
-      try {
-        const [no, price] = await Promise.all([readText(b, 'fix', form.no), readText(b, 'price', form.price)])
-        readings = { no, price }
-      } catch (error) {
-        voice.formProblem(id, readProblem(error).message, 'no')
-        return
-      }
-      // 읽는 동안 칸이 바뀌었으면 그 글로 다시 (옛 글의 답으로 등록하지 않는다)
-      const now = voice.getSnapshot().forms.get(id)
-      if (now === undefined || now.no !== form.no || now.price !== form.price || now.name !== form.name) return
-      const decision = decideFix(form, readings, findProduct)
-      const fields: RegSend = { kind: 'fields', no: form.no, name: form.name.trim(), price: form.price }
-      switch (decision.kind) {
-        case 'fix':
-          voice.formProblem(id, decision.message, decision.focus)
-          return
-        case 'register': {
-          const card = voice.take(id)
-          if (card === undefined) return
-          const { no, name, price } = decision
-          dropAttached(no)
-          // 고치기 칸에 적은 품종이 들은 말과 다르면 배운다 (D-V2-10)
-          voice.learnFrom(card, name)
-          // 음성 카드를 손으로 고쳐 등록해도 그 카드의 조각 글을 기록에 (SA-V3-001)
-          const voiceLog = voice.voiceLogFor(card.text)
-          enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
-            send: fields,
-            ...(voiceLog === null ? {} : { voiceLog }),
-            onFailed: () => voice.restore({ ...card, no, name: name === '' ? null : name, price }, { touched: true }),
-            onDone: (key) => voice.noteVoiceRegistered({ id: key, no, name, price }),
-          })
-          focusQuick()
-          return
-        }
-        case 'edit': {
-          if (voice.take(id) === undefined) return
-          dropAttached(decision.no)
-          askEdit(decision.product, decision.name, decision.price, cardLine(decision.no, decision.name, decision.price))
-          return
-        }
-        default:
-          return
-      }
+    (id: string) => {
+      if (voice === null || !voice.getSnapshot().forms.has(id)) return
+      // 등록되면 registerVoiceCard('click')가 빠른 입력으로 커서를 돌린다. 고칠 곳이 있으면 커서는 카드 칸에 남는다
+      voice.submitForm?.(id)
     },
-    [askEdit, b, dropAttached, enqueueRegistration, findProduct, focusQuick, settings, voice],
+    [voice],
   )
 
   /** 카드의 "등록": 고치기 칸이 열려 있으면 그 칸의 값으로 */
   const registerCardClick = useCallback(
     (id: string) => {
       if (voice === null) return
-      if (voice.getSnapshot().forms.has(id)) void submitCardForm(id)
+      if (voice.getSnapshot().forms.has(id)) submitCardForm(id)
       else voice.confirm(id, 'click')
     },
     [submitCardForm, voice],
@@ -1195,7 +1203,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
    * 차례를 잡는다(뒤 줄의 판단이 이 등록을 본다: "15 …" 다음의 "15"는 찾기).
    */
   const handleDecision: HandleDecision = useCallback(
-    (decision: QuickDecision, line: string, fromFix: boolean, countAt: string, inChain = false, extra: { readonly send?: RegSend; readonly requestId?: string } = {}): Promise<void> | undefined => {
+    (decision: QuickDecision, line: string, fromFix: boolean, countAt: string, inChain = false, extra: { readonly typed?: TypedFields; readonly requestId?: string } = {}): Promise<void> | undefined => {
       /** 개수 칸 → 넘길 재고 (1이면 넘기지 않는다). 칸이 틀렸으면 보내지 않고 알린다 (AC-ORD11-04) */
       const readStock = (): { ok: true; stock: number | undefined } | { ok: false } => {
         const count = readCount(countAt)
@@ -1224,7 +1232,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           const hooks: RegHooks = {
             ...(option === null ? {} : { extra: option.payload, draftOf: option.draft }),
             ...(counted.stock === undefined ? {} : { stock: counted.stock }),
-            ...(extra.send === undefined ? {} : { send: extra.send }),
+            ...(extra.typed === undefined ? {} : { typed: extra.typed }),
             ...(extra.requestId === undefined ? {} : { requestId: extra.requestId }),
           }
           if (option !== null) {
@@ -1247,7 +1255,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           if (fromFix) setFix(null)
           // 이미 있는 번호 고치기에는 붙인 옵션을 넣지 않는다 — 떼고 알린다 (D-O2-05 보강)
           dropAttached(decision.product.no)
-          askEdit(decision.product, decision.name, decision.price, line, counted.stock)
+          askEdit(decision.product, decision.name, decision.price, line, counted.stock, extra.typed)
           return undefined
         }
         case 'open': {
@@ -1299,14 +1307,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       if (line.trim() === '') return
       // 개수 칸은 Enter를 친 때의 글자로 읽는다 (늦게 판단해도 그 줄의 개수)
       const countAt = countRef.current
-      // SRV1 (D-APP-24): 줄은 서버가 읽는다 — 미리 보기 답을 기다리지 않고 Enter 때 그 줄을 읽어 판단한다. 차례대로 판단한다 —
-      // "15 …" 바로 뒤의 "15"(찾기)·"15 …"(고치기)가 앞 등록을 본다. 등록 요청에는 친 줄 원문을 보낸다
+      // SRV1 (D-APP-24, 약속 3): 줄은 서버가 읽는다 — 미리 보기 답을 기다리지 않고 Enter 때 그 줄을 서버에 읽혀 할 일(등록·"고칠까요?"·자세히·
+      // 고치기 칸)을 정한다. 차례대로 판단한다 — "15 …" 바로 뒤의 "15"(찾기)·"15 …"(고치기)가 앞 등록을 본다. 등록 본문은 친 줄 원문이다
       waitingLines.current++
       chain.current = chain.current.then(async () => {
         waitingLines.current--
-        let reading: QuickReading
+        let read: QuickRead
         try {
-          reading = await readText(b, 'quick', line)
+          read = await readText(b, 'quick', line)
         } catch (error) {
           const problem = readProblem(error)
           // 서버에 닿지 못했다: "저장하지 못했어요"로 남기고 연결이 돌아오면 같은 원문·같은 요청 번호로 한 번 (AC-SRV1-06)
@@ -1314,7 +1322,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           else setQuickError(problem)
           return
         }
-        return handleDecisionRef.current(decideQuick(reading, findProduct), line, false, countAt, true, { send: { kind: 'text', text: line } })
+        return handleDecisionRef.current(decisionOf(read, findProduct), line, false, countAt, true, { typed: { text: line } })
       })
     },
     [b, findProduct, keepUnreadLine, settings, voice],
@@ -1324,17 +1332,17 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
     if (settings === null || fix === null) return
     const form = fix
     const countAt = countRef.current
-    // 고치기 칸의 번호·가격도 서버가 읽는다. 등록 요청에는 칸의 원문을 보낸다 (SRV1 D-APP-24)
+    // 고치기 칸의 번호·가격도 서버가 읽는다(kind fix — 빠른 입력과 같은 번호·금액 읽기). 등록 본문은 칸의 원문이다 (SRV1 D-APP-24)
     chain.current = chain.current.then(async () => {
-      let readings: { no: Awaited<ReturnType<typeof readText<'fix'>>>; price: Awaited<ReturnType<typeof readText<'price'>>> }
+      let read: QuickRead
       try {
-        const [no, price] = await Promise.all([readText(b, 'fix', form.no), readText(b, 'price', form.price)])
-        readings = { no, price }
+        read = await readText(b, 'fix', { no: form.no, name: form.name, price: form.price })
       } catch (error) {
+        // 서버에 닿지 못했다: 칸은 그대로 두고 알린다 — 다시 등록을 누르면 된다
         setQuickError(readProblem(error))
         return
       }
-      return handleDecisionRef.current(decideFix(form, readings, findProduct), form.line, true, countAt, true, { send: { kind: 'fields', no: form.no, name: form.name.trim(), price: form.price } })
+      return handleDecisionRef.current(decisionOf(read, findProduct), form.line, true, countAt, true, { typed: { noText: form.no, priceText: form.price } })
     })
   }, [b, findProduct, fix, settings])
 
@@ -1763,11 +1771,9 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           }}
           optionDraft={attached?.draft ?? EMPTY_DRAFT}
           quickPrice={() => {
-            // 서버가 읽은 지금 줄 (답이 없으면 null)
+            // 서버가 읽은 지금 줄 (답이 없으면 null) — 새 상품 등록으로 읽힌 줄의 가격
             const reading = quickReadingRef.current
-            if (reading === null) return null
-            const decision = decideQuick(reading, findProduct)
-            return decision.kind === 'register' ? decision.price : null
+            return reading !== null && reading.decision === 'register' ? reading.price : null
           }}
           onAttach={(payload, draft) => {
             // 아무것도 넣지 않았으면 붙이지 않는다
@@ -1817,6 +1823,7 @@ function DialogView({ dialog, broadcastId, onSync, messageOf, onClose, onEditDon
           price={dialog.price}
           {...(dialog.stock === undefined ? {} : { stock: dialog.stock })}
           line={dialog.line}
+          {...(dialog.typed === undefined ? {} : { typed: dialog.typed })}
           onClose={onClose}
           onDone={(product) => onEditDone(product, dialog.line, dialog.ask)}
           onUnchanged={(product) => onEditUnchanged(product, dialog.ask)}

@@ -414,8 +414,6 @@ export interface PastDay {
 export interface VoiceHost {
   /** 음성 모듈 (동적 import 한 곳) */
   load(): Promise<VoiceModule>
-  /** 서버 읽기 세션은 마이크 대신 전달받은 결과를 넣는 엔진을 쓴다(APP1b). */
-  createEngine?(): SpeechEngine & Partial<Pick<ReturnType<VoiceModule['createWebSpeechEngine']>, 'onGap' | 'onDiagnostic' | 'onDeviceStatus'>>
   now(): number
   /** 읽기 위치가 달라도 같은 deadline을 시험할 수 있는 타이머 포트. */
   readonly timers?: { set(run: () => void, ms: number): unknown; clear(handle: unknown): void }

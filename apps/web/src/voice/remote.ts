@@ -2,7 +2,8 @@
 // 추출·사전·판정 모듈은 불러오지 않는다. controller.ts의 공개 인터페이스는 그대로다.
 // SRV1 (D-APP-22·25): 받아쓰기도 언제나 서버다 — "받아쓰기 방법" 칸·크롬 받아쓰기 길이 없다. 기기에 남은 옛 고르기 값(livejjim.voiceEngine)은 읽지 않고 지운다.
 import type { SuggestionCard, SmsCard, SpeechGap, SpeechDiagnostic, OnDeviceStatus, SpeechState } from '@livejjim/voice'
-import type { VoiceController } from './controller.ts'
+// 음성 읽기 컨트롤러(VoiceController)는 서버 전용 자리에 있다(AC-SRV1-15) — 화면은 그 공개 모양(타입)만 쓴다. 실행 코드는 기기 번들에 없다(D-APP-23)
+import type { VoiceController } from '../../../../packages/voice-session/src/controller/controller.ts'
 import { VOICE_IDLE, type VoiceHost, type VoiceSnapshot, type SmsEntry, type SmsWords, type VoiceLogInput, type VoiceLogLine, type VoiceModule } from './model.ts'
 import { post } from '../api/client.ts'
 import { decideVoiceEnter, enterReady, nextFront } from '../lib/voice.ts'
@@ -16,7 +17,8 @@ import { SERVICE_NAME } from '../brand.ts'
 import { supportsVoiceCapture } from './capabilities.ts'
 let transportFailures = 0
 
-export type VoiceControllerPort = Pick<VoiceController, keyof VoiceController>
+/** 화면이 쓰는 음성 조작: 서버 VoiceController의 공개 모양 + 카드 고치기 칸 보내기(submitForm — 서버가 칸을 읽고 등록 효과를 보낸다, 앱과 같은 명령) */
+export type VoiceControllerPort = Pick<VoiceController, keyof VoiceController> & { readonly submitForm?: (id: string) => void }
 /** 옛 "받아쓰기 방법" 저장값 (D-APP-13). SRV1부터 읽지 않고 지운다 (D-APP-25 (1)) */
 export const VOICE_ENGINE_KEY = 'livejjim.voiceEngine'
 export const REMOTE_NOTICE = `음성은 ${SERVICE_NAME} 받아쓰기 서버로 보내져요.`

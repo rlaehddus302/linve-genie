@@ -11,10 +11,40 @@ vi.hoisted(() => { vi.resetModules() })
 
 vi.mock('../src/voice/remote.ts', async (original) => {
   const remote = await original<typeof Remote>()
-  const { VoiceController } = await import('../src/voice/controller.ts')
+  const { VoiceController } = await import('../../../packages/voice-session/src/controller/controller.ts')
   const archive = await import('../src/voice/archive-store.ts')
+  const read_ = await import('../../../packages/voice-session/src/read/index.ts')
   return {
     ...remote,
-    createRemoteVoiceController: (host: VoiceHost) => new VoiceController({ ...host, load: () => import('@livejjim/voice'), homeScreenApp: () => false, archiveDefault: () => archive.readArchive(null), archiveBroadcasts: archive.archiveBroadcasts, archiveGaps: archive.archiveGaps }),
+    createRemoteVoiceController: (host: VoiceHost) => {
+      // 서버 읽기 세션(packages/voice-session/src/server.ts)이 기기 대신 하는 일: 받은 시각 읽기(readSmsTime)와 카드 고치기 칸 보내기(submitForm)
+      const controller = new VoiceController({
+        ...host,
+        load: () => import('@livejjim/voice'),
+        homeScreenApp: () => false,
+        archiveDefault: () => archive.readArchive(null),
+        archiveBroadcasts: archive.archiveBroadcasts,
+        archiveGaps: archive.archiveGaps,
+        readSmsTime: (time: string, now: number) => {
+          const read = read_.readReceived(time, now)
+          return read.kind === 'ok' ? { value: read.value, late: read.late } : null
+        },
+      })
+      return Object.assign(controller, {
+        submitForm(id: string) {
+          const form = controller.getSnapshot().forms.get(id)
+          if (form === undefined) return
+          const parsed = read_.decideFixForm(form, { 'price.unit': host.priceUnit?.() ?? 'WON', 'claim.maxNumber': host.maxNumber() }, () => undefined)
+          if (parsed.kind === 'fix') controller.formProblem(id, parsed.message, parsed.focus)
+          else if (parsed.kind === 'register') {
+            const card = controller.take(id)
+            if (card !== undefined) {
+              controller.learnFrom(card, parsed.name)
+              host.register(card, { no: parsed.no, name: parsed.name, price: parsed.price }, 'click')
+            }
+          }
+        },
+      })
+    },
   }
 })

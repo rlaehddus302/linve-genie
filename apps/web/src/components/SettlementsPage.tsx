@@ -744,7 +744,7 @@ function PaymentDialog({ data, names, settlement, command, onClose, onDone }: In
 
   /** 보내는 본문의 금액은 친 글 원문 — 서버가 같은 읽기로 기록한다 */
   const send = async (text: string) => {
-    const result = await sender.send({ type: 'settlement.payment', buyer: settlement.buyer, date: settlement.date, amount: text.trim(), ...(memo.trim() === '' ? {} : { memo: memo.trim() }) })
+    const result = await sender.send({ type: 'settlement.payment', buyer: settlement.buyer, date: settlement.date, amountText: text, ...(memo.trim() === '' ? {} : { memo: memo.trim() }) })
     if (result !== null) onDone(result, '입금을 적었어요')
   }
   const submit = async () => {
@@ -784,7 +784,7 @@ function PaymentDialog({ data, names, settlement, command, onClose, onDone }: In
         </p>
         <PaymentPreview data={data} settlement={settlement} entry={{ kind: 'payment', amount: confirming.amount }} />
         {sender.busy ? <p role="status">보내는 중…</p> : null}
-        {sender.error !== null ? <WriteError error={sender.error} onRetry={() => void send(confirming.text)} omitFields={['memo', 'amount']} /> : null}
+        {sender.error !== null ? <WriteError error={sender.error} onRetry={() => void send(confirming.text)} omitFields={['memo', 'amount', 'amountText']} /> : null}
         {serverProblem(sender.error, 'memo') !== null ? <p className="field-error">{serverProblem(sender.error, 'memo')}</p> : null}
       </Modal>
     )
@@ -808,7 +808,7 @@ function PaymentDialog({ data, names, settlement, command, onClose, onDone }: In
         }}
       >
         <AmountsLine settlement={settlement} />
-        <AmountField label="입금 금액" value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} inputRef={amountField} serverMessage={serverProblem(sender.error, 'amount')} />
+        <AmountField label="입금 금액" value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} inputRef={amountField} serverMessage={(serverProblem(sender.error, 'amountText') ?? serverProblem(sender.error, 'amount'))} />
         <PaymentPreview data={data} settlement={settlement} entry={read.kind === 'ok' ? { kind: 'payment', amount: read.amount } : null} />
         <div className="field">
           <label htmlFor="payment-memo">메모(선택)</label>
@@ -818,7 +818,7 @@ function PaymentDialog({ data, names, settlement, command, onClose, onDone }: In
         <p className="hint">{PAYMENT_DATE_NOTE}</p>
         <button type="submit" hidden />
       </form>
-      {sender.error !== null ? <WriteError error={sender.error} onRetry={() => void submit()} omitFields={['memo', 'amount']} /> : null}
+      {sender.error !== null ? <WriteError error={sender.error} onRetry={() => void submit()} omitFields={['memo', 'amount', 'amountText']} /> : null}
     </Modal>
   )
 }
@@ -850,7 +850,7 @@ function ShippingDialog({ data, names, settlement, command, onClose, onDone }: I
       }
     }
     // 금액은 친 글 원문 — 서버가 읽어 기록한다 (SRV1 D-APP-24)
-    const result = await sender.send({ type: 'settlement.shippingOverride', buyer: settlement.buyer, date: settlement.date, mode, ...(mode === 'FIXED' ? { amount: typed.trim() } : {}) })
+    const result = await sender.send({ type: 'settlement.shippingOverride', buyer: settlement.buyer, date: settlement.date, mode, ...(mode === 'FIXED' ? { amountText: typed } : {}) })
     if (result !== null) onDone(result, '배송비를 바꿨어요')
   }
   const word = (choice: ShippingChoice) => (choice === 'DEFAULT' ? '기본 배송비로' : SHIPPING_WORD[choice])
@@ -876,7 +876,7 @@ function ShippingDialog({ data, names, settlement, command, onClose, onDone }: I
           </label>
         ))}
       </div>
-      {mode === 'FIXED' ? <AmountField label="배송비 금액" value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} serverMessage={serverProblem(sender.error, 'amount')} /> : null}
+      {mode === 'FIXED' ? <AmountField label="배송비 금액" value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} serverMessage={(serverProblem(sender.error, 'amountText') ?? serverProblem(sender.error, 'amount'))} /> : null}
       {preview !== null ? (
         <p className="notice" role="status" data-tone="info">
           배송비 {formatWon(settlement.shipping)} → {formatWon(preview.shipping)}, 최종 {formatWon(settlement.total)} → {formatWon(preview.total)}
@@ -921,7 +921,7 @@ function AdjustDialog({ data, names, settlement, command, onClose, onDone }: Inp
       return
     }
     // 금액은 친 글 원문 + 할인·추가 (서버가 읽고 할인이면 빼는 쪽으로 기록한다). 사유의 전화번호는 서버가 거절한다
-    const result = await sender.send({ type: 'settlement.adjust', buyer: settlement.buyer, date: settlement.date, amount: typed.trim(), sign, reason: value })
+    const result = await sender.send({ type: 'settlement.adjust', buyer: settlement.buyer, date: settlement.date, amountText: typed, amountSign: sign === 'minus' ? 'MINUS' : 'PLUS', reason: value })
     if (result !== null) onDone(result, sign === 'minus' ? '할인을 적었어요' : '추가를 적었어요')
   }
   return (
@@ -945,7 +945,7 @@ function AdjustDialog({ data, names, settlement, command, onClose, onDone }: Inp
           <span>추가</span>
         </label>
       </div>
-      <AmountField label={sign === 'minus' ? '할인 금액' : '추가 금액'} value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} serverMessage={serverProblem(sender.error, 'amount')} />
+      <AmountField label={sign === 'minus' ? '할인 금액' : '추가 금액'} value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} serverMessage={(serverProblem(sender.error, 'amountText') ?? serverProblem(sender.error, 'amount'))} />
       {preview !== null ? (
         <p className="notice" role="status" data-tone="info">
           최종 {formatWon(settlement.total)} → {formatWon(preview.total)}
@@ -1004,7 +1004,7 @@ function RefundDialog({ data, names, settlement, command, onClose, onDone }: Inp
       return
     }
     // 금액은 친 글 원문 — 서버가 읽어 기록한다. 사유의 전화번호는 서버가 거절한다 (SRV1)
-    const result = await sender.send({ type: 'settlement.refund', buyer: settlement.buyer, date: settlement.date, amount: typed.trim(), reason: value })
+    const result = await sender.send({ type: 'settlement.refund', buyer: settlement.buyer, date: settlement.date, amountText: typed, reason: value })
     if (result !== null) onDone(result, '환불을 적었어요')
   }
   return (
@@ -1019,7 +1019,7 @@ function RefundDialog({ data, names, settlement, command, onClose, onDone }: Inp
     >
       <AmountsLine settlement={settlement} />
       {settlement.refundDue > 0 ? <p>환불 필요 {formatWon(settlement.refundDue)}</p> : null}
-      <AmountField label="환불 금액" value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} serverMessage={serverProblem(sender.error, 'amount')} />
+      <AmountField label="환불 금액" value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} serverMessage={(serverProblem(sender.error, 'amountText') ?? serverProblem(sender.error, 'amount'))} />
       <PaymentPreview data={data} settlement={settlement} entry={read.kind === 'ok' ? { kind: 'refund', amount: read.amount } : null} />
       <p className="hint">{REFUND_NOTE}</p>
       <ReasonField
