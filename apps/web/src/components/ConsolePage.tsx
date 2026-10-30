@@ -70,6 +70,7 @@ import { NOT_APPLIED_MESSAGE, UndoBar, secondsWord } from './UndoBar.tsx'
 import { PasteDialog } from './PasteDialog.tsx'
 import { chatPlatformTags } from '../lib/platforms.ts'
 import { VoiceConsentDialog, VoiceExtras, VoiceLive, VoiceToggle, voiceLiveShown } from './VoicePanel.tsx'
+import { TodayReportLink } from './ReportPage.tsx' // KP1
 
 export interface ConsolePageProps {
   readonly broadcastId: string
@@ -1412,6 +1413,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           >
             영수증 보내기
           </a>
+          {broadcast.rehearsal ? null : <TodayReportLink date={broadcast.date} /> /* KP1 오늘 리포트 */}
         </>
       ) : (
         <>

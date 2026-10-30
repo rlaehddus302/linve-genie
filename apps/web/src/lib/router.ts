@@ -125,6 +125,13 @@ export type Route =
   | { readonly name: 'privacy' }
   | { readonly name: 'terms' }
   | DepositsRoute
+  | ReportRoute // KP1
+
+/** 방송 리포트 (KP1 RPT-01·RPT-07): 실제 날짜 하나 — `/report?date=YYYY-MM-DD` */
+export interface ReportRoute {
+  readonly name: 'report'
+  readonly date?: string
+}
 
 /** 로그인 없이 여는 화면 (AC-I3-77, LND1 D-LND1-01 — 로그인 화면 `/login`도) */
 export const isPublicRoute = (route: Route): boolean => route.name === 'privacy' || route.name === 'terms' || route.name === 'login'
@@ -210,6 +217,11 @@ export function parseRoute(pathname: string, search = ''): Route {
     const tab = new URLSearchParams(search).get('tab')
     return { name: 'deposits', tab: (DEPOSIT_TABS as readonly string[]).includes(tab ?? '') ? (tab as DepositTab) : 'review' }
   }
+  if (path === '/report') {
+    // KP1 방송 리포트
+    const date = new URLSearchParams(search).get('date')
+    return date !== null && DATE_RE.test(date) ? { name: 'report', date } : { name: 'report' }
+  }
   if (path === '/buyers') return scopeRoute('buyers', search)
   if (path === '/settlements') return scopeRoute('settlements', search)
   if (path === '/packing') return packingRoute(search)
@@ -277,6 +289,8 @@ export function routePath(route: Route): string {
     }
     case 'parcels':
       return route.date === undefined ? '/parcels' : `/parcels?${new URLSearchParams({ date: route.date }).toString()}`
+    case 'report': // KP1
+      return route.date === undefined ? '/report' : `/report?${new URLSearchParams({ date: route.date }).toString()}`
     case 'reviews': {
       const params = new URLSearchParams()
       if (route.broadcast !== undefined) params.set('broadcast', route.broadcast)
@@ -303,6 +317,7 @@ export function menuOf(route: Route): MenuKey | null {
     case 'buyers':
       return 'buyers'
     case 'settlements':
+    case 'report': // KP1 — 리포트는 정산 메뉴 아래
       return 'settlements'
     case 'packing':
       return 'packing'
