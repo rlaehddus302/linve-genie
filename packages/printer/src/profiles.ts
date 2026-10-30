@@ -4,7 +4,7 @@
 // 고르기 목록·크기 목록은 모두 칸(데이터)으로 정하고 모델 이름으로 갈라지는 코드가 없다(AC-PRN2-11).
 // 프로토콜 사실의 출처: niimbluelib 0.47.1 모델 표·인쇄 방식 표, MIT 참고 구현 thermal-label/marklife의 공개 문서(코드를 옮기지 않았다 — dev-notes),
 // Luck Jingle 검증 문서(DP-L1S 라벨 순서 — D-PRN2-02).
-import { TAPE_LABEL_SIZES, type LabelSizeId } from '@livejjim/label'
+import { TAPE_LABEL_SIZES, isLabelSize, labelSizeName, type LabelSizeId } from '@livejjim/label'
 import { B1_PROFILE, isNiimbotProtocol, type DensityRange, type ModelProfile, type NiimbotProfile, type PrinterAdapter } from './adapter.ts'
 
 const deepFreeze = <T extends ModelProfile>(profile: T): T =>
@@ -268,6 +268,15 @@ export function labelSizesForProfileId(profileId: unknown): readonly LabelSizeId
 /** 그 프로필이 이 크기를 찍을 수 있는지 (프로필을 모르면 B1 목록으로 본다) */
 export function profileSupportsSize(profileId: unknown, size: string): boolean {
   return (labelSizesForProfileId(profileId) as readonly string[]).includes(size)
+}
+
+/**
+ * 출력 기기 프로필의 크기 목록에 없는 템플릿 크기로 그릴 때의 멈춤 문장 (L-11 13 — 글자 그대로, LABEL_ERROR).
+ * {크기}는 화면 이름(`50×30`·`테이프 12×40`). L-1 목록 밖의 크기면 받은 글 그대로 넣는다
+ */
+export function sizeNotSupportedMessage(size: string): string {
+  const shown = isLabelSize(size) ? labelSizeName(size) : size
+  return `이 프린터는 ${shown} 라벨을 찍을 수 없어요. 라벨 설정에서 크기를 바꿔 주세요.`
 }
 
 /** 실험 기종 안내 한 줄 (L-7 지원 단계 — 글자 그대로). {앱} = 프로필의 대체 경로 앱 */

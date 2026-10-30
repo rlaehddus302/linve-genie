@@ -85,6 +85,7 @@ export {
   printerSupportStage,
   profileForDeviceName,
   profileSupportsSize,
+  sizeNotSupportedMessage,
   type PickListFilter,
   type PickListTarget,
   type PrinterSupportStage,

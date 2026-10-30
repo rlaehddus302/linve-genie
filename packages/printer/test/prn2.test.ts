@@ -35,6 +35,7 @@ import {
   printerRequestOptions,
   printerSupportStage,
   profileSupportsSize,
+  sizeNotSupportedMessage,
   type FakeBluetoothOptions,
   type ModelProfile,
   type NiimbotProfile,
@@ -444,6 +445,9 @@ describe('server·web이 쓰는 도우미 (AC-PRN2-08, L-1·L-11 10·13, D-PRN2-
     expect(profileSupportsSize('NIIMBOT_D110', '50x30')).toBe(false)
     expect(profileSupportsSize(null, '50x30')).toBe(true)
     expect(profileSupportsSize('MARKLIFE_P50', '50x50')).toBe(true)
+    // 크기 목록에 없는 저장된 템플릿 — 출력 기기의 LABEL_ERROR 문장 (L-11 13)
+    expect(sizeNotSupportedMessage('50x30')).toBe('이 프린터는 50×30 라벨을 찍을 수 없어요. 라벨 설정에서 크기를 바꿔 주세요.')
+    expect(sizeNotSupportedMessage('tape12x40')).toBe('이 프린터는 테이프 12×40 라벨을 찍을 수 없어요. 라벨 설정에서 크기를 바꿔 주세요.')
   })
 
   it('단계: B1 확인됨 · 표의 나머지 실험 · 표에 없으면 그림 파일로만', () => {
