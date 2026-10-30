@@ -325,6 +325,24 @@ describe('WRONG_MODEL — 켠 표에 없는 NIIMBOT 모델 (AC-PRN2-05, L-7, D-P
   })
 })
 
+describe('앱 고르기: 목록에 든 NIIMBOT 기기는 이름이 모델 꼴이 아니어도 이어서 모델로 판단한다 (골든 list 2 → L-7 모델 확인)', () => {
+  it.each([
+    ['서비스만 광고하는 이름 없는 기기 (G-PRT-PRN2-25)', null, [NIIMBOT_SERVICE]],
+    ['B1 Pro 이름 + 서비스 (G-PRT-PRN2-31)', 'B1 Pro-0001', [NIIMBOT_SERVICE]],
+    ['B1 이름만 + 서비스 대문자 (G-PRT-PRN2-27·44)', 'B1', [NIIMBOT_SERVICE.toUpperCase()]],
+    ['B1- 이름, 서비스 없음 (G-PRT-PRN2-21)', 'B1-G3250', []],
+  ] as const)('%s → 모델 B1이면 NIIMBOT_B1로 이어진다', async (_what, name, services) => {
+    const fake = createFakeBleTransport({ device: { id: 'FA:KE:B1:00:00:01', name, ...(services.length > 0 ? { serviceUuids: [...services] } : {}) } })
+    const picker = createPrinterPicker({ transport: fake.transport, pickDevice: pickFirst, client: { packetIntervalMs: 0 } })
+    const r = await picker.connect('bluetooth')
+    expect(r).toEqual({ ok: true })
+    expect(picker.kind).toBe('NIIMBOT')
+    expect(picker.profileId).toBe('NIIMBOT_B1')
+    await picker.disconnect()
+    expect(picker.profileId).toBeNull()
+  })
+})
+
 describe('D-PRN2-22 시험용 프린터 — 농도 없는 프로필은 받은 농도를 쓰지 않고 0으로 기록', () => {
   it.each(['BAUATO_PPA2L', 'MARKLIFE_P12'])('%s', async (id) => {
     const profile = printerProfile(id)!

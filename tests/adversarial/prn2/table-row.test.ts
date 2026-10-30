@@ -29,6 +29,7 @@ import {
   type PrinterResult,
 } from '@livejjim/printer'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import type * as ProfilesSource from '../../../packages/printer/src/profiles.ts'
 import { createFakeBleTransport, createPrinterPicker, familyOf, marklifeFamily, niimbotFamily } from '../../../packages/mobile-ble/src/index.ts'
 import { ManualBle, StepTimer } from '../n1/ble-mock.ts'
 import { golden } from './helpers.ts'
@@ -58,7 +59,7 @@ const FAKE_B3S: NiimbotProfile = Object.freeze({ ...NIIMBOT_B21, id: 'NIIMBOT_B3
 const FAKE_Q5_SRC = `{ id: 'FAKE_Q5', maker: 'Fake', displayName: '가짜 Q5', protocol: 'LUCKJINGLE', dpi: 203, headDots: 384, rotate: 'NONE', sizes: ['50x50', '50x30'], defaultSize: '50x50', density: null, experimental: true, fallbackApp: '가짜 앱', namePrefix: 'Q5_' }`
 const FAKE_B3S_SRC = `{ ...NIIMBOT_B21, id: 'NIIMBOT_B3S', model: 'B3S', displayName: 'NIIMBOT B3S', experimental: true }`
 
-type ProfilesModule = typeof import('../../../packages/printer/src/profiles.ts')
+type ProfilesModule = typeof ProfilesSource
 let dir = ''
 let extended: ProfilesModule
 
@@ -167,7 +168,7 @@ describe('AC-PRN2-11 ② 켠 표에 줄을 넣으면 어댑터·앱 고르기가
     expect(prefixes).toEqual(expect.arrayContaining(['Q5_', 'B3S-', 'B3S_']))
     expect(printerRequestOptions(TABLE)).toEqual(request)
     expect(adapter.kind).toBe('LABEL')
-    expect(adapter.profile.id).toBe('FAKE_Q5')
+    expect((adapter.profile as ModelProfile).id).toBe('FAKE_Q5')
     const image = createBitmap(384, 40)
     const job = buildPrintJob(FAKE_Q5, image)
     if (!job.ok) throw new Error(job.code)
@@ -195,7 +196,7 @@ describe('AC-PRN2-11 ② 켠 표에 줄을 넣으면 어댑터·앱 고르기가
     const yes = createFakeNiimbotBluetooth({ model: 'B3S', name: 'B3S-0001' })
     const withRow = createNiimbotAdapter({ environment: () => yes.environment, createClient: yes.createClient, timer: systemTimer, profiles: [...NIIMBOT_PROFILES, FAKE_B3S] })
     expect(await withRow.connect('bluetooth')).toEqual({ ok: true })
-    expect(withRow.profile.id).toBe('NIIMBOT_B3S')
+    expect((withRow.profile as ModelProfile).id).toBe('NIIMBOT_B3S')
     await withRow.disconnect()
     const no = createFakeNiimbotBluetooth({ model: 'B3S', name: 'B3S-0001' })
     const without = createB1Adapter({ environment: () => no.environment, createClient: no.createClient, timer: systemTimer })
