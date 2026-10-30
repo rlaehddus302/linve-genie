@@ -148,7 +148,7 @@ describe('AC-KP1-26 판매자만·판매자마다', () => {
     const helper = await login(world, assistant.assistant.loginId, assistant.password)
     const calls = (cookie: string | null) => {
       const api = ledgerApi(world, cookie)
-      return [api.settings(), api.saveSettings({ months: 6, consoleBadges: true }), api.badges(D, ['UC_A']), api.xlsx('1').then(async (response) => ({ status: response.status })), api.deleteLedger(id, ledgerId)]
+      return [api.settings(), api.saveSettings({ months: 6, consoleBadges: true }), api.badges(D, ['UC_A']), Promise.resolve(api.xlsx('1')).then((response: Response) => ({ status: response.status })), api.deleteLedger(id, ledgerId)]
     }
     for (const response of await Promise.all(calls(null))) expect(response.status).toBe(401)
     for (const response of await Promise.all(calls(helper))) expect(response.status).toBe(403)
