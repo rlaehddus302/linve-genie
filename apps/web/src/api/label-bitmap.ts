@@ -37,7 +37,10 @@ export function fetchPrintBitmap(job: Pick<ClaimedJob, 'id' | 'attempt'>, device
   const query = new URLSearchParams({ attempt: job.attempt, device })
   return serverBitmap(`/api/print/jobs/${encodeURIComponent(job.id)}/bitmap?${query}`)
 }
-export function fetchTestPrintBitmap(): Promise<RenderOutcome> { return serverBitmap('/api/print/test-bitmap') }
+/** 테스트 라벨 그림 — 크기는 이은 프린터 프로필의 기본 크기를 늘 넘긴다 (D-PRN2-11, L-7) */
+export function fetchTestPrintBitmap(size: ClaimedJob['template']['size']): Promise<RenderOutcome> {
+  return serverBitmap(`/api/print/test-bitmap?${new URLSearchParams({ size })}`)
+}
 
 export function labelPreviewPath(kind: 'product' | 'packing' | 'job', date: string, ref: string): string {
   return `/api/print/preview/${kind}?${new URLSearchParams({ date, ref })}`

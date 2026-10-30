@@ -15,6 +15,7 @@
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { PRINT_ACTION, printerStatusWord } from '../lib/print-words.ts'
+import { awaitingTest } from '../lib/printer-station.ts'
 import { useReconnectOwned } from '../lib/reconnect-owner.ts'
 import { barLabel, menuAll, menuLayout, type MenuItem } from '../lib/menu.ts'
 import { menuOf, routePath, type MenuKey, type Navigate, type Route } from '../lib/router.ts'
@@ -199,7 +200,8 @@ function PrinterStatus({ onOpen }: { readonly onOpen: (event: MouseEvent<HTMLAnc
   if (api === null) return null
   const queue = print.overview?.queue ?? null
   const paused = queue?.pause != null
-  const canReconnect = !owned && queue?.pause?.reason === 'DISCONNECTED' && api.station.isMine(queue) && api.station.canReconnect
+  // 실험 기종이 테스트 "예"를 기다리는 멈춤은 프린터가 이어져 있다 — "다시 연결"이 아니다 (D-PRN2-10)
+  const canReconnect = !owned && queue?.pause?.reason === 'DISCONNECTED' && api.station.isMine(queue) && api.station.canReconnect && !(station !== null && awaitingTest(station))
   const reconnect = async () => {
     if (busy) return
     setBusy(true)

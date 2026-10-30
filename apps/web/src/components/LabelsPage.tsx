@@ -16,8 +16,8 @@ import { dateWords, kstToday } from '../lib/kst.ts'
 import { fetchLabelPreview, labelPreviewPath } from '../api/label-bitmap.ts'
 import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import { a4PdfBytes, broadcastA4Name, labelErrorMessage, pngBytes, productPngName, waitingA4Name } from '../lib/label-render.ts'
-import { EXPERIMENTAL_MARK, EXPERIMENTAL_PICK_NOTE, EXPERIMENTAL_WAIT_TEST, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
-import type { PrinterMethod } from '../lib/printer-station.ts'
+import { EXPERIMENTAL_MARK, EXPERIMENTAL_PICK_NOTE, EXPERIMENTAL_RESUMED, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
+import { awaitingTest, type PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { LabelSettings } from './LabelSettings.tsx'
@@ -228,7 +228,8 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
   const primary = stepPrimary && !mine
   // 한 화면에 이 기기의 프린터를 다시 잇는 "다시 연결"은 하나 (QL2 D-QL2-03 (c)) — 먼저 오는 것: 출력 멈춤 띠(라벨 화면, 이 기기가 출력 기기·끊김) →
   // 연결 오류 상자 → 프린터 칸 단추. 셋 모두 station.reconnect() — 기억한 기기가 있으면 고르기 창 없이 (D-QL2-03 (a)(b), D-QS1-01)
-  const bandReconnect = !inWizard && mine && queue?.pause?.reason === 'DISCONNECTED' && api.station.canReconnect
+  // 실험 기종의 테스트 "예"를 기다리는 멈춤이면 띠는 "다시 연결"을 보이지 않는다 (D-PRN2-10)
+  const bandReconnect = !inWizard && mine && queue?.pause?.reason === 'DISCONNECTED' && api.station.canReconnect && !awaitingTest(station)
   // 연결 실패 상자의 "다시 연결"이 보이면 그것이 지금 할 일 — 연결 방법 버튼은 보통 버튼 (D-FB1-18 (b))
   const retryShown = !bandReconnect && station.connectError !== null && !connected && lastMethod !== null && methods.includes(lastMethod)
   // 출력 기기인지와 상관없이: 이어져 있지 않고, 잇는 중이 아니며, 이 기기에서 쓴 연결 방법을 지금 쓸 수 있으면 연결 방법 줄 위에 "다시 연결" (D-QL2-03 (a))
@@ -304,6 +305,12 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
           {connected ? <ConnectedPrinter answer={answer} onAnswer={setAnswer} primary={primary && !testAnswered} /> : null}
           {connected && !mine && canBecome ? <BecomeDevice primary={primary && testAnswered} /> : null}
           {connected && !mine && !canBecome ? <p className="hint">{EXPERIMENTAL_WAIT_TEST}</p> : null}
+          {/* 이미 출력 기기: 실험 기종은 이 연결에서 테스트 "예" 전까지 받지 않는다 — 까닭과 할 일 한 줄 (D-PRN2-10·15) */}
+          {connected && mine && !canBecome ? (
+            <p className="hint" role="status">
+              {EXPERIMENTAL_WAIT_TEST_MINE}
+            </p>
+          ) : null}
           {testMode ? <TestHandlePanel /> : null}
         </>
       )}
@@ -370,6 +377,8 @@ function ConnectedPrinter({ answer, onAnswer: setAnswer, primary }: ConnectedPri
   if (api === null || station === null) return null
   const busy = station.busy || station.job !== null || station.connection === 'PRINTING'
   const product = print.templates?.product.template
+  const mine = api.station.isMine(print.overview?.queue ?? null)
+  const experimental = printerSupportStage(station.profileId) === 'EXPERIMENTAL'
   // 이은 프린터의 농도 범위 (모르면 B1 범위)
   const connectedProfile = station.profileId === null ? undefined : printerProfile(station.profileId)
   const range = connectedProfile === undefined ? { min: DENSITY_MIN, max: DENSITY_MAX, default: 3 } : connectedProfile.density
@@ -425,7 +434,7 @@ function ConnectedPrinter({ answer, onAnswer: setAnswer, primary }: ConnectedPri
               아니요
             </button>
           </div>
-          {answer === 'yes' ? <p role="status">좋아요. 이 기기에서 출력하려면 "{PRINT_ACTION.thisDevice}"를 눌러 주세요.</p> : null}
+          {answer === 'yes' ? <p role="status">{mine && experimental ? EXPERIMENTAL_RESUMED : `좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}"를 눌러 주세요.`}</p> : null}
           {answer === 'no' ? (
             <ul className="plain-list" aria-label="테스트 인쇄 도움말">
               {TEST_HELP.map((line) => (

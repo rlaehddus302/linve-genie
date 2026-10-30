@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ApiError, isApiError } from '../api/client.ts'
 import type { JobView } from '../api/print-types.ts'
 import { kstHm } from '../lib/kst.ts'
+import { awaitingTest } from '../lib/printer-station.ts'
 import { useOwnReconnect } from '../lib/reconnect-owner.ts'
 import {
   AUTO_RECONNECT_GAVE_UP,
@@ -12,6 +13,7 @@ import {
   PRINT_ACTION,
   REASON_WORD,
   CANCEL_JOB_TITLE,
+  EXPERIMENTAL_PAUSED,
   autoReconnectingMessage,
   backlogMessage,
   buyerWord,
@@ -97,6 +99,8 @@ export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () 
   if (queue === null || queue.pause === null || api === null) return null
   const pause = queue.pause
   const mine = api.station.isMine(queue)
+  // 이 기기의 실험 기종이 테스트 "예"를 기다린다: 프린터는 이어져 있다 — "다시 연결" 대신 까닭과 할 일 (D-PRN2-10)
+  const waitTest = mine && pause.reason === 'DISCONNECTED' && station !== null && awaitingTest(station)
   const reconnect = async () => {
     setReconnecting(true)
     try {
@@ -107,8 +111,8 @@ export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () 
   }
   return (
     <div className="pause-band" role="region" aria-label="출력 멈춤">
-      <p className="pause-message">{pause.backlog ? backlogMessage(queue.waiting) : pause.message}</p>
-      {pause.reason === 'DISCONNECTED' ? (
+      <p className="pause-message">{waitTest ? EXPERIMENTAL_PAUSED : pause.backlog ? backlogMessage(queue.waiting) : pause.message}</p>
+      {waitTest ? null : pause.reason === 'DISCONNECTED' ? (
         mine ? (
           api.station.canReconnect ? (
             <>

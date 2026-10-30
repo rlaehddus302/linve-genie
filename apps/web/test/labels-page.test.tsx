@@ -106,7 +106,7 @@ describe('연결 방법 (AC-I1-21·50)', () => {
       const expected = renderTestLabel(env, { shopName: '다육농장', date: '2026-10-20', size: '50x40' })
       expect(expected.ok).toBe(true)
       if (!expected.ok) throw new Error('시험 라벨을 그릴 수 없다')
-      server.on('GET', /^\/api\/print\/test-bitmap$/, () => ({ body: { width: expected.image.width, height: expected.image.height, data: btoa(Array.from(expected.image.data, (byte) => String.fromCharCode(byte)).join('')) } }))
+      server.on('GET', /^\/api\/print\/test-bitmap\?size=50x30$/, () => ({ body: { width: expected.image.width, height: expected.image.height, data: btoa(Array.from(expected.image.data, (byte) => String.fromCharCode(byte)).join('')) } }))
       await openLabels()
       const printer = screen.getByRole('region', { name: '프린터' })
       fireEvent.click(within(printer).getByRole('button', { name: '시험용 프린터 — 실제로 출력되지 않아요' }))
@@ -128,7 +128,7 @@ describe('연결 방법 (AC-I1-21·50)', () => {
         expect(wrong.ok && bitmapsEqual({ width: got?.width ?? 0, height: got?.height ?? 0, data: Uint8Array.from(got?.data ?? []) }, wrong.image)).toBe(false)
       }
       // APP2: 서버 그림을 받되 출력 대기열을 받거나 완료시키지는 않는다.
-      expect(server.callsTo('GET', /^\/api\/print\/test-bitmap$/)).toHaveLength(1)
+      expect(server.callsTo('GET', /^\/api\/print\/test-bitmap\?size=50x30$/)).toHaveLength(1)
       expect(server.callsTo('POST', /^\/api\/print\/(claim|result)$/)).toHaveLength(0)
     } finally {
       setLabelEnv(null)

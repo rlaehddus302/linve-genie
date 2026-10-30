@@ -14,7 +14,9 @@
 //   횟수를 새로 센다. "연결 끊기"·다른 연결 방법·출력 기기에서 내려옴·라벨 기능 꺼짐이면 그친다. 다시 이어도 라벨을 다시 보내지 않는다.
 // - 프린터 고르기 창은 한 목록이다(PRN2, L-7 고르기 목록 — createWebPrinterAdapter: NIIMBOT·Marklife·바우아토). 이은 프린터의 프로필 ID를
 //   연결 알림에 함께 보낸다(L-11 10 — 이름·기기 ID는 보내지 않는다). 받은 작업의 템플릿 크기가 그 프로필 목록에 없으면 찍지 않고 라벨 오류로 알린다(L-11 13).
-// - 실험 기종(L-7 지원 단계)은 그 연결에서 테스트 인쇄 뒤 "예"를 누른 것을 기억한다(testConfirmed — 끊기면 지운다). 화면은 그 뒤에만 "이 기기에서 출력"을 보인다.
+// - 실험 기종(L-7 지원 단계)은 그 연결에서 테스트 인쇄 뒤 "예"를 누른 것을 기억한다(testConfirmed — 끊김·다시 잇기면 지운다). 화면은 그 뒤에만 "이 기기에서 출력"을 보인다.
+//   이미 출력 기기여도 같다(D-PRN2-10·15): "예" 전에는 받지(claim) 않고 서버에는 연결 안 됨으로 알린다(작업은 대기에 남는다). "예" 뒤 연결됨+프로필 ID로 다시 알린다.
+// - 테스트 그림은 이은 프린터 프로필의 기본 크기로 받는다(D-PRN2-11 — 모르면 화면이 준 크기).
 import type { LabelBitmap } from '@livejjim/label'
 import {
   PRINTER_MESSAGES,
@@ -29,6 +31,7 @@ import {
   isRememberingAdapter,
   parseRememberedPrinter,
   printerProfile,
+  printerSupportStage,
   profileSupportsSize,
   sizeNotSupportedMessage,
   systemTimer,
@@ -108,6 +111,15 @@ export interface StationSnapshot {
    * 다른 연결 방법·출력 기기에서 내려옴·라벨 기능 끔·출력 기기가 아님)은 null
    */
   readonly autoReconnect: AutoReconnectState
+}
+
+/**
+ * 실험 기종이 이어져 있는데 그 연결에서 테스트 인쇄 "예"를 아직 누르지 않았다 (L-7 지원 단계, D-PRN2-10·15).
+ * 이 동안 이 기기는 작업을 받지 않고 서버에는 연결 안 됨으로 알린다 — 출력 기기이든 아니든 같다
+ */
+export function awaitingTest(snapshot: Pick<StationSnapshot, 'connection' | 'profileId' | 'testConfirmed'>): boolean {
+  const linked = snapshot.connection === 'CONNECTED' || snapshot.connection === 'PRINTING'
+  return linked && !snapshot.testConfirmed && printerSupportStage(snapshot.profileId) === 'EXPERIMENTAL'
 }
 
 /** 저절로 다시 잇기의 화면 상태 (QL2 D-QL2-04) */
@@ -733,8 +745,8 @@ export class PrinterStation {
     this.#adapterMethod = method
     writeMethod(method)
     const wasConnected = adapter.state === 'CONNECTED'
-    // 새 연결: 앞 연결의 테스트 확인은 지난 일이다 (실험 기종은 이 연결에서 다시 확인 — L-7 지원 단계)
-    this.#set({ method, connecting: true, connectError: null, connection: adapter.state, ...(wasConnected ? {} : { testConfirmed: false }) })
+    // 잇기·다시 잇기: 앞 연결의 테스트 확인은 지난 일이다 — 이어져 있던 프린터를 다시 이어도 연결이 바뀐 것으로 본다 (D-PRN2-15, 실험 기종은 이 연결에서 다시 확인)
+    this.#set({ method, connecting: true, connectError: null, connection: adapter.state, testConfirmed: false, testPrinted: false })
     const target = method === 'test' ? (adapter.availableMethods()[0] ?? 'bluetooth') : method
     // "다시 연결"은 기억한 기기로 (얻을 수 없으면 고르기 창), 연결 방법 단추는 늘 고르기 창 (D-QS1-01 (5))
     const result = await (mode === 'remembered' && isRememberingAdapter(adapter) ? adapter.reconnect(target) : adapter.connect(target))
@@ -903,7 +915,9 @@ export class PrinterStation {
   }
 
   /** 서버에 프린터 연결 상태를 알린다 (같은 값이면 다시 알리지 않는다) */
-  async #report(connected: boolean, force = false): Promise<void> {
+  async #report(linked: boolean, force = false): Promise<void> {
+    // 실험 기종이 그 연결에서 테스트 "예" 전이면 연결 안 됨으로 알린다 — 서버가 받기를 멈추고 작업은 대기에 남는다 (D-PRN2-10)
+    const connected = linked && !awaitingTest(this.#snapshot)
     if (!force && this.#reported === connected) return
     this.#reported = connected
     try {
@@ -939,8 +953,8 @@ export class PrinterStation {
       saveDeviceName(name)
       this.#mine = true
       this.#reported = true
-      // 프린터가 그사이 끊겼으면 바로 알린다 (출력 기기가 되는 기기는 연결된 것으로 서버가 본다)
-      if (this.#adapter?.state !== 'CONNECTED') await this.#report(false, true)
+      // 프린터가 그사이 끊겼거나 실험 기종의 테스트 "예" 전이면 바로 알린다 (출력 기기가 되는 기기는 연결된 것으로 서버가 본다, D-PRN2-10)
+      if (this.#adapter?.state !== 'CONNECTED' || awaitingTest(this.#snapshot)) await this.#report(false, true)
       void this.#options.store.reload()
       void this.pump()
       return { kind: 'ok', backlog: result.backlog, waiting: result.waiting }
@@ -969,7 +983,9 @@ export class PrinterStation {
       (queue.device?.releasing !== true || (this.#lostClaim && this.#snapshot.job === null && this.#pendingResult === null)) &&
       this.#adapter !== null &&
       this.#adapter.state === 'CONNECTED' &&
-      !this.#snapshot.testing
+      !this.#snapshot.testing &&
+      // 실험 기종: 그 연결에서 테스트 "예" 전에는 받지 않는다 (D-PRN2-10)
+      !awaitingTest(this.#snapshot)
     )
   }
 
@@ -1148,8 +1164,13 @@ export class PrinterStation {
     const adapter = this.#adapter
     if (adapter === null || adapter.state !== 'CONNECTED' || this.#snapshot.busy || this.#snapshot.job !== null || this.#snapshot.testing) return
     this.#set({ testing: true, testPrinted: false, testConfirmed: false, testError: null })
+    // 테스트를 다시 하면 앞 "예"는 지난 일 — 실험 기종이면 연결 안 됨으로 알린다 (D-PRN2-10)
+    this.#syncGate()
+    // 이은 프린터 프로필의 기본 크기로 (D-PRN2-11, L-7 — 테이프·D110도 그 크기의 테스트 그림. 모르면 화면이 준 크기)
+    const profile = printerProfile(connectedProfileId(adapter) ?? '')
+    const size = profile?.defaultSize ?? input.size
     try {
-      const rendered = await this.#options.renderTest({ shopName: input.shopName, date: this.#options.today(), size: input.size })
+      const rendered = await this.#options.renderTest({ shopName: input.shopName, date: this.#options.today(), size })
       if (!rendered.ok) {
         this.#set({ testError: rendered.error.message })
         return
@@ -1166,12 +1187,23 @@ export class PrinterStation {
 
   dismissTest(): void {
     this.#set({ testPrinted: false, testConfirmed: false, testError: null })
+    this.#syncGate()
   }
 
   /** 테스트 결과의 답 ("예"는 이 연결에서 테스트 인쇄가 나온 뒤에만 받는다 — 실험 기종의 "이 기기에서 출력" 조건, L-7) */
   answerTest(yes: boolean): void {
     if (yes && !this.#snapshot.testPrinted) return
     this.#set({ testConfirmed: yes })
+    this.#syncGate()
+  }
+
+  /**
+   * 테스트 확인이 바뀌었다: 출력 기기이고 프린터가 이어져 있으면 서버에 다시 알린다 (D-PRN2-10) —
+   * 실험 기종의 "예" 전이면 연결 안 됨, "예" 뒤면 연결됨+프로필 ID. 같은 값이면 알리지 않는다. 그 뒤 받기를 다시 본다
+   */
+  #syncGate(): void {
+    if (!this.isMine() || this.#adapter === null || this.#adapter.state !== 'CONNECTED') return
+    void this.#report(true).then(() => this.pump())
   }
 
   // ── 화면 꺼짐 막기 (D-I1-03) ───────────────────────────────────────────

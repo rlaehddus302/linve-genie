@@ -48,6 +48,12 @@ export const EXPERIMENTAL_MARK = '(실험)'
 export const EXPERIMENTAL_PICK_NOTE = 'NIIMBOT B1이 아닌 프린터(Marklife·바우아토·NIIMBOT 다른 모델)는 실험 중이에요. 연결한 뒤 테스트 인쇄가 잘 나오는지 꼭 확인해 주세요.'
 /** 실험 기종: 테스트 인쇄 "예" 전에는 "이 기기에서 출력"이 없다 (L-7 지원 단계) */
 export const EXPERIMENTAL_WAIT_TEST = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'
+/** 이미 출력 기기인 기기에 실험 기종을 이었다: 테스트 "예" 전에는 받지 않는다 — 멈춘 까닭과 할 일 (D-PRN2-10) */
+export const EXPERIMENTAL_PAUSED = '실험 중인 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.'
+/** 프린터 칸 — 이미 출력 기기인 기기의 실험 기종: 테스트 "예" 전 (D-PRN2-10) */
+export const EXPERIMENTAL_WAIT_TEST_MINE = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.'
+/** 출력 기기에서 실험 기종의 테스트 "예"를 누른 뒤 (D-PRN2-10) */
+export const EXPERIMENTAL_RESUMED = '좋아요. 멈췄던 출력을 이어서 해요.'
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
 export const NO_WINNER_LABEL = '1등이 없어 출력할 라벨이 없어요.'
 /** 라벨 기능을 끈 판매자의 라벨 자리 안내 (L-13 9, D-N4a-05) — 라벨 화면·상품 자세히·정산 자세히·Alt+P */

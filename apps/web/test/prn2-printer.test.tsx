@@ -73,7 +73,7 @@ beforeEach(() => {
     .on("GET", /^\/api\/settings$/, () => ({
       body: { settings: { "print.autoOnConfirm": true } },
     }))
-    .on("GET", /^\/api\/print\/test-bitmap$/, () => ({
+    .on("GET", /^\/api\/print\/test-bitmap\?size=[a-z0-9]+$/, () => ({
       body: { width: IMAGE.width, height: IMAGE.height, data: base64(IMAGE) },
     }));
   vi.stubGlobal("fetch", server.fetch);
@@ -390,12 +390,23 @@ describe("출력 기기: 이은 프린터가 못 찍는 크기 (AC-PRN2-08, L-11
     };
   }
 
+  /**
+   * 출력 기기로 시작해 시험용 프린터를 잇는다. confirm이면 그 연결에서 테스트 인쇄 뒤 "예"까지 누른다 —
+   * 실험 기종은 "예" 전에 받지 않는다(D-PRN2-10). testPrints = 테스트 인쇄로 나간 장 수(작업 장 수와 가르기 위해)
+   */
   async function startWith(
     fake: FakePrinter,
     jobs: ClaimedJob[],
-  ): Promise<{ results: Record<string, unknown>[]; renders: number[] }> {
+    { confirm = false }: { confirm?: boolean } = {},
+  ): Promise<{
+    results: Record<string, unknown>[];
+    renders: number[];
+    testSizes: string[];
+    testPrints: number;
+  }> {
     const results: Record<string, unknown>[] = [];
     const renders: number[] = [];
+    const testSizes: string[] = [];
     current = overview({
       queue: queue({ device: device(ME, { name: "휴대폰" }) }),
     });
@@ -426,7 +437,13 @@ describe("출력 기기: 이은 프린터가 못 찍는 크기 (AC-PRN2-08, L-11
         renders.push(1);
         return { ok: true, image: createBitmap(320, 96) };
       },
-      renderTest: async () => ({ ok: true, image: IMAGE }),
+      renderTest: async ({ size }) => {
+        testSizes.push(size);
+        return {
+          ok: true,
+          image: size.startsWith("tape") ? createBitmap(320, 96) : IMAGE,
+        };
+      },
       requestWakeLock: null,
       today: () => DATE,
     });
@@ -434,7 +451,11 @@ describe("출력 기기: 이은 프린터가 못 찍는 크기 (AC-PRN2-08, L-11
     station.start();
     await flush();
     await station.connect("test");
-    return { results, renders };
+    if (confirm) {
+      await station.testPrint({ shopName: "", size: "50x30" });
+      station.answerTest(true);
+    }
+    return { results, renders, testSizes, testPrints: confirm ? 1 : 0 };
   }
 
   it("D110(테이프)에 50×30 작업: 그리지도 보내지도 않고 INVALID_TEMPLATE(size) — 문장은 L-11 13 그대로, 다음 테이프 작업은 찍는다", async () => {
@@ -442,10 +463,12 @@ describe("출력 기기: 이은 프린터가 못 찍는 크기 (AC-PRN2-08, L-11
       methods: ["bluetooth"],
       profile: NIIMBOT_D110,
     });
-    const { results, renders } = await startWith(fake, [
-      claimed("j1", "50x30"),
-      claimed("j2", "tape12x40"),
-    ]);
+    // D110은 실험 기종 — 그 연결에서 테스트 "예" 뒤에 받는다 (D-PRN2-10)
+    const { results, renders, testPrints } = await startWith(
+      fake,
+      [claimed("j1", "50x30"), claimed("j2", "tape12x40")],
+      { confirm: true },
+    );
     await vi.waitFor(() => expect(results).toHaveLength(2));
     expect(results[0]).toEqual({
       deviceId: ME,
@@ -459,7 +482,7 @@ describe("출력 기기: 이은 프린터가 못 찍는 크기 (AC-PRN2-08, L-11
       ok: true,
     });
     expect(renders).toHaveLength(1);
-    expect(fake.printed).toHaveLength(1);
+    expect(fake.printed).toHaveLength(testPrints + 1);
     expect(station?.getSnapshot().profileId).toBe("NIIMBOT_D110");
   });
 
@@ -468,12 +491,16 @@ describe("출력 기기: 이은 프린터가 못 찍는 크기 (AC-PRN2-08, L-11
       methods: ["bluetooth"],
       profile: BAUATO_PPA2L,
     });
-    const { results } = await startWith(fake, [claimed("j1", "tape12x40")]);
+    const { results, testPrints } = await startWith(
+      fake,
+      [claimed("j1", "tape12x40")],
+      { confirm: true },
+    );
     await vi.waitFor(() => expect(results).toHaveLength(1));
     expect(station?.getSnapshot().lastError).toBe(
       "이 프린터는 테이프 12×40 라벨을 찍을 수 없어요. 라벨 설정에서 크기를 바꿔 주세요.",
     );
-    expect(fake.printed).toHaveLength(0);
+    expect(fake.printed).toHaveLength(testPrints);
   });
 
   it('"예"는 그 연결에서 테스트 인쇄가 나온 뒤에만 받는다', async () => {
@@ -495,5 +522,170 @@ describe("출력 기기: 이은 프린터가 못 찍는 크기 (AC-PRN2-08, L-11
       expect(station?.getSnapshot().testConfirmed).toBe(false),
     );
     expect(station?.getSnapshot().profileId).toBeNull();
+  });
+
+  const stateBodies = (): unknown[] =>
+    server
+      .callsTo("POST", /^\/api\/print\/device\/state$/)
+      .map((call) => call.body);
+  const claims = (): number =>
+    server.callsTo("POST", /^\/api\/print\/claim$/).length;
+
+  it('이미 출력 기기에 실험 기종을 이으면 "예" 전까지 받지 않고 연결 안 됨으로 알린다 — "예" 뒤 연결됨+프로필 ID로 알리고 받는다 (D-PRN2-10)', async () => {
+    const fake = createFakePrinter({
+      methods: ["bluetooth"],
+      profile: MARKLIFE_P50,
+    });
+    const { results } = await startWith(fake, [claimed("j1", "50x30")]);
+    await flush(10);
+    expect(stateBodies().at(-1)).toEqual({ deviceId: ME, connected: false });
+    expect(stateBodies()).not.toContainEqual(
+      expect.objectContaining({ connected: true }),
+    );
+    expect(claims()).toBe(0);
+    expect(fake.printed).toHaveLength(0);
+    // "아니요"는 풀지 않는다
+    await station?.testPrint({ shopName: "", size: "50x30" });
+    station?.answerTest(false);
+    await flush(10);
+    expect(claims()).toBe(0);
+    expect(stateBodies()).not.toContainEqual(
+      expect.objectContaining({ connected: true }),
+    );
+    // "예": 연결됨 + 프로필 ID로 다시 알리고 받기를 시작한다
+    station?.answerTest(true);
+    await vi.waitFor(() => expect(results).toHaveLength(1));
+    expect(stateBodies()).toContainEqual({
+      deviceId: ME,
+      connected: true,
+      profileId: "MARKLIFE_P50",
+    });
+    expect(results[0]).toEqual({
+      deviceId: ME,
+      attempt: "attempt-j1-0000",
+      ok: true,
+    });
+    // 테스트 한 장 + 작업 한 장
+    expect(fake.printed).toHaveLength(2);
+  });
+
+  it('끊김·다시 잇기면 "예"를 지운다 — 같은 프린터를 다시 이어도 그 연결에서 다시 "예" 전까지 받지 않는다 (D-PRN2-15)', async () => {
+    const fake = createFakePrinter({
+      methods: ["bluetooth"],
+      profile: BAUATO_PPA2L,
+    });
+    const jobs = [claimed("j1", "50x30"), claimed("j2", "50x30")];
+    const { results, testSizes } = await startWith(fake, jobs, {
+      confirm: true,
+    });
+    // 테스트 그림은 이은 프린터 프로필의 기본 크기로 (D-PRN2-11)
+    expect(testSizes).toEqual(["50x30"]);
+    await vi.waitFor(() => expect(results).toHaveLength(2));
+    const claimed1 = claims();
+    jobs.push(claimed("j3", "50x30"));
+    fake.simulateDisconnect();
+    await vi.waitFor(() =>
+      expect(station?.getSnapshot().testConfirmed).toBe(false),
+    );
+    await vi.waitFor(() =>
+      expect(stateBodies().at(-1)).toEqual({ deviceId: ME, connected: false }),
+    );
+    await station?.connect("test");
+    await flush(10);
+    expect(station?.getSnapshot().connection).toBe("CONNECTED");
+    expect(station?.getSnapshot().testConfirmed).toBe(false);
+    expect(stateBodies().at(-1)).toEqual({ deviceId: ME, connected: false });
+    expect(claims()).toBe(claimed1);
+    expect(results).toHaveLength(2);
+    // 이어져 있는 채로 "다시 연결"을 눌러도 연결이 바뀐 것 — "예"를 지운다
+    await station?.testPrint({ shopName: "", size: "50x30" });
+    station?.answerTest(true);
+    await vi.waitFor(() => expect(results).toHaveLength(3));
+    await station?.reconnect();
+    await flush(10);
+    expect(station?.getSnapshot().testConfirmed).toBe(false);
+    expect(stateBodies().at(-1)).toEqual({ deviceId: ME, connected: false });
+  });
+
+  it("확인됨(B1)은 테스트 없이 바로 받는다 — 테스트 그림은 B1 기본 크기", async () => {
+    const fake = createFakePrinter({ methods: ["bluetooth"] });
+    const { results } = await startWith(fake, [claimed("j1", "50x30")]);
+    await vi.waitFor(() => expect(results).toHaveLength(1));
+    expect(stateBodies()).toContainEqual({
+      deviceId: ME,
+      connected: true,
+      profileId: "NIIMBOT_B1",
+    });
+  });
+
+  it("D110 테스트 인쇄는 테이프 기본 크기로 그린다 (D-PRN2-11)", async () => {
+    const fake = createFakePrinter({
+      methods: ["bluetooth"],
+      profile: NIIMBOT_D110,
+    });
+    const { testSizes } = await startWith(fake, [], { confirm: true });
+    expect(testSizes).toEqual(["tape12x40"]);
+    expect(station?.getSnapshot().testError).toBeNull();
+    expect(station?.getSnapshot().testConfirmed).toBe(true);
+  });
+});
+
+describe('출력 기기 화면: 실험 기종 테스트 "예" 기다림 (D-PRN2-10)', () => {
+  it('멈춤 띠는 "다시 연결" 대신 까닭과 할 일, 프린터 칸은 한 줄 안내 — "예" 뒤 이어서 출력', async () => {
+    window.sessionStorage.setItem("livejjim.deviceId", ME);
+    current = overview({
+      queue: queue({ device: device(ME, { name: "PC" }) }),
+    });
+    server.on("POST", /^\/api\/print\/device\/state$/, (call) => {
+      const connected = call.body?.["connected"] === true;
+      current = overview({
+        queue: queue({
+          device: device(ME, { name: "PC", printerConnected: connected }),
+          ...(connected
+            ? {}
+            : {
+                pause: {
+                  reason: "DISCONNECTED",
+                  message: "프린터 연결이 끊겨 출력을 멈췄어요.",
+                  backlog: false,
+                },
+              }),
+        }),
+      });
+      return { body: { queue: current.queue } };
+    });
+    const printer = await openLabels();
+    window.livejjimTestPrinter?.setTestProfile("MARKLIFE_P50");
+    await connectTest(printer);
+    const band = await screen.findByRole("region", { name: "출력 멈춤" });
+    await waitFor(() =>
+      expect(
+        within(band).getByText(
+          '실험 중인 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.',
+        ),
+      ).toBeTruthy(),
+    );
+    expect(within(band).queryByRole("button", { name: "다시 연결" })).toBeNull();
+    expect(
+      within(printer).getByText(
+        '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "다시 연결" })).toBeNull();
+    fireEvent.click(
+      within(printer).getByRole("button", { name: "테스트 인쇄" }),
+    );
+    fireEvent.click(
+      within(
+        await within(printer).findByRole("group", { name: "테스트 인쇄 결과" }),
+      ).getByRole("button", { name: "예" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "출력 멈춤" })).toBeNull(),
+    );
+    expect(within(printer).getByText("좋아요. 멈췄던 출력을 이어서 해요.")).toBeTruthy();
+    expect(
+      server.callsTo("POST", /^\/api\/print\/device\/state$/).at(-1)?.body,
+    ).toEqual({ deviceId: ME, connected: true, profileId: "MARKLIFE_P50" });
   });
 });
