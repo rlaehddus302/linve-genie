@@ -32,10 +32,14 @@ import {
   unlinkRow,
   updateCollector,
   isInvitedLink,
+  linkedChannels,
   type LinkRow,
 } from './store.ts'
 import { parseVideoId } from './texts.ts'
 import type { Timer } from './timer.ts'
+import { webCollectorCounts } from '../ops-store.ts'
+import { HttpWebTransport, WebChatError, WebChatSource, type WebTransport } from './web-chat-source.ts'
+import type { WatchPage } from './web-chat.ts'
 
 export interface YoutubeConfig {
   readonly clientId: string
@@ -48,10 +52,36 @@ export interface YoutubeConfig {
   readonly quota?: { readonly limit?: number; readonly sellerBudget?: number; readonly costs?: Partial<Record<ApiMethod, number>> }
   /** http:// 주소를 받는다 (시험·E2E의 가짜 서버만 — 운영 설정은 https만) */
   readonly allowInsecure?: boolean
+  /**
+   * 서버가 유튜브 채팅 읽기 (YT-11, D-YT-SRV-01). 있으면 잇기·수집은 이 길로만 — 구글 연결 없이 방송 주소만, 공식 Data API로 읽지 않는다
+   * (옛 공식 방식 수집기도 이 길로 바꾼다). 이때 구글 클라이언트 ID·비밀은 비워도 된다(감사 게시용 구글 연결만 503).
+   * 없으면 옛 공식 API 읽기 — 가짜 구글로 도는 기존 시험 하네스(서버·적대·E2E)를 가짜 유튜브 웹 서버로 옮기기 전까지만 남긴다
+   */
+  readonly webChat?: {
+    /** 운영자 스위치 (LIVEJJIM_YT_WEB_CHAT — off일 때만 false) */
+    readonly on: boolean
+    /** 스위치 값을 알아볼 수 없었다 (켬으로 봄, 서버가 경고 로그) */
+    readonly warning?: 'YT_WEB_CHAT_INVALID' | null
+    /** 유튜브 웹 주소 (기본 https://www.youtube.com — 시험은 가짜 유튜브 웹 서버) */
+    readonly baseUrl?: string
+    /** 유튜브에 묻는 부분을 갈아 끼운다 (맥 미니 일꾼 — AC7). 없으면 이 서버에서 바로 */
+    readonly transport?: WebTransport
+  }
 }
 
 /** 설정 확인: 운영은 모든 바깥 주소가 https (AC-Y1-72). 문제가 있으면 문장, 없으면 null (값은 문장에 넣지 않는다) */
 export function checkYoutubeConfig(config: YoutubeConfig): string | null {
+  if (config.webChat?.baseUrl !== undefined) {
+    let parsed: URL
+    try {
+      parsed = new URL(config.webChat.baseUrl)
+    } catch {
+      return '구글·유튜브 주소 설정을 확인해 주세요.'
+    }
+    if (parsed.protocol !== 'https:' && !(config.allowInsecure === true && parsed.protocol === 'http:')) return '구글·유튜브 주소는 https://로만 적을 수 있어요.'
+  }
+  // 서버 웹 읽기만 쓰는 서버: 구글 연결 설정이 없어도 된다 (YT-11)
+  if (config.webChat !== undefined && config.clientId.trim() === '' && config.clientSecret.trim() === '') return null
   if (config.clientId.trim() === '' || config.clientSecret.trim() === '') return '구글 클라이언트 ID·비밀을 적어 주세요.'
   const endpoints = config.endpoints ?? GOOGLE_ENDPOINTS
   const urls = [endpoints.authUrl, endpoints.tokenUrl, endpoints.revokeUrl, endpoints.apiBase, config.redirectUri, config.returnUrl]
@@ -76,6 +106,9 @@ export const LINK_MESSAGES = {
   // 내 채널이 아닌 방송 — 잇지 않고 확인을 받는다 (D-PHN-17·D-INV1-04). 화면은 채널 이름을 넣은 확인 줄을 띄운다
   INVITED_CONFIRM_NEEDED: '내 채널 방송이 아니에요. 초대받은 방송이 맞나요?',
   NO_LIVE_CHAT: '채팅을 받을 수 없는 방송이에요. 끝났거나 채팅이 꺼져 있어요.',
+  // YT-11 서버 잇기 (D-YT-SRV-03·07)
+  YOUTUBE_NOT_PUBLIC: '로그인 없이 볼 수 있는 방송만 이을 수 있어요. 공개나 일부공개로 바꿔 주세요.',
+  YOUTUBE_WEB_CHAT_OFF: '지금은 유튜브 채팅을 자동으로 받지 않아요. 주문은 손으로 넣어 주세요.',
   VIDEO_IN_USE: '이미 다른 방송에 이어진 유튜브 방송이에요.',
   NOT_LINKED: '이어진 유튜브 방송이 없어요.',
   YOUTUBE_NOT_CONNECTED: '유튜브 채널을 먼저 연결해 주세요.',
@@ -95,7 +128,13 @@ export interface LiveBroadcastItem {
   readonly actualStartTime: string | null
   /** 이미 이어져 있는 이 판매자의 회차 ID (없으면 null) */
   readonly linkedBroadcast: string | null
+  /** 방송 채널 (서버 웹 읽기의 최근 채널 찾기 — "{채널 이름} · {방송 제목}", 바깥 글) */
+  readonly channelId?: string
+  readonly channelTitle?: string | null
 }
+
+/** 처음 잇는 채널 확인 줄 (YT-11 서버 잇기, D-YT-SRV-03 — 코드·확인 방식은 INV1 그대로) */
+export const FIRST_CHANNEL_CONFIRM_MESSAGE = '처음 잇는 채널이에요. 이 방송이 맞나요?'
 
 export interface LinkView {
   readonly link: {
@@ -124,8 +163,8 @@ export type LinkOutcome =
   | { kind: 'ok'; view: LinkView }
   | { kind: 'not_found' }
   | { kind: 'rejected'; status: number; code: LinkCode }
-  /** 내 채널 방송이 아님 — 잇지 않았다. 확인 표시(true)와 함께 다시 보내면 잇는다 (D-INV1-02) */
-  | { kind: 'confirm'; channel: InvitedChannel }
+  /** 내 채널 방송이 아님(서버 웹 읽기는 처음 잇는 채널 — firstChannel) — 잇지 않았다. 확인 표시(true)와 함께 다시 보내면 잇는다 (D-INV1-02·D-YT-SRV-03) */
+  | { kind: 'confirm'; channel: InvitedChannel; firstChannel?: boolean }
 
 export interface LinkHooks {
   /** 잇기: 조건 확인을 마친 뒤·연결을 넣기 직전 (시험: 기다리게 해 동시에 잇는 요청이 겹치게 한다, AC-Y1-98) */
@@ -164,12 +203,24 @@ export class YoutubeSystem {
   readonly collectors: CollectorManager
   readonly outbox: OutboxRunner
   readonly config: YoutubeConfig
+  /** 서버 웹 읽기 원천 (YT-11). 설정에 webChat이 없으면 null(옛 공식 읽기) */
+  readonly web: WebChatSource | null
   readonly #options: YoutubeSystemOptions
 
   constructor(options: YoutubeSystemOptions) {
     this.#options = options
     this.config = options.config
     const { db, timer, log, config, publish } = options
+    const webChat = config.webChat
+    this.web =
+      webChat === undefined
+        ? null
+        : new WebChatSource({
+            timer,
+            off: !webChat.on,
+            transport: webChat.transport ?? new HttpWebTransport({ timer, ...(webChat.baseUrl === undefined ? {} : { baseUrl: webChat.baseUrl }), ...(options.fetch === undefined ? {} : { fetch: options.fetch }) }),
+          })
+    if (webChat?.warning === 'YT_WEB_CHAT_INVALID') log({ level: 'warn', code: 'YT_WEB_CHAT_INVALID' })
     const owner = options.owner ?? `srv_${randomBytes(6).toString('base64url')}`
     const settings: QuotaSettings = {
       limit: config.quota?.limit ?? DEFAULT_QUOTA.limit,
@@ -247,7 +298,25 @@ export class YoutubeSystem {
       ...(options.collectorHooks === undefined ? {} : { hooks: options.collectorHooks }),
       ...options.collectorTiming,
       onPass: (ok) => options.health?.pass('collector', ok),
+      web: this.web,
+      webOnly: this.web !== null,
     })
+  }
+
+  /** 구글 연결(OAuth) 설정이 있는가 — 없으면 연결·게시 동의는 503 (서버 웹 읽기만 쓰는 서버) */
+  get oauthReady(): boolean {
+    return this.config.clientId.trim() !== '' && this.config.clientSecret.trim() !== ''
+  }
+
+  /** 서버 웹 읽기 상태 (화면 — 잇기 칸·운영 상태). 옛 공식 읽기면 null */
+  webChatView(): { readonly on: boolean } | null {
+    return this.web === null ? null : { on: !this.web.off }
+  }
+
+  /** 운영 상태의 유튜브 수집 합계 (YT-11 AC5 — 판매자 정보 없음): 수집기·받는 중·막힘·모르는 모양 수, 이 서버의 분당 요청 수 */
+  async webChatOps(): Promise<Record<string, unknown> | null> {
+    if (this.web === null) return null
+    return { operator: this.web.off ? 'off' : 'on', ...(await webCollectorCounts(this.#options.db)), requestsPerMinute: this.web.requestsPerMinute() }
   }
 
   /** 워커를 돌린다 (서버 시작 — 끝나지 않은 회차의 수집기가 저절로 다시 돈다, NFR-03) */
@@ -275,6 +344,7 @@ export class YoutubeSystem {
   // ── 내 라이브 목록 (AC-Y1-10) ─────────────────────────────────────────
 
   async liveBroadcasts(sellerId: string): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
+    if (this.web !== null) return this.#recentBroadcasts(sellerId, this.web)
     const view = await this.connections.status(sellerId)
     if (view.status === 'NOT_CONNECTED') return { kind: 'rejected', status: 409, code: 'YOUTUBE_NOT_CONNECTED' }
     if (view.status === 'RECONNECT_NEEDED') return { kind: 'rejected', status: 409, code: 'YOUTUBE_RECONNECT_NEEDED' }
@@ -351,6 +421,7 @@ export class YoutubeSystem {
    * 확인 상태는 서버에 남기지 않는다 — 확인 요청마다 영상을 다시 조회해 다시 판단하고, 다른 받는 조건은 확인이 있어도 그대로 본다
    */
   async link(session: SessionInfo, b: string, video: string, requestId: string, confirmInvited = false): Promise<LinkOutcome> {
+    if (this.web !== null) return this.#linkWeb(session, b, video, requestId, confirmInvited, this.web)
     const { db, timer } = this.#options
     const sellerId = session.sellerId
     const prior = await linkByRequest(db, sellerId, requestId)
@@ -422,6 +493,165 @@ export class YoutubeSystem {
     const view = await this.#linkView(sellerId, await activeLink(db, sellerId, b))
     this.#options.publish(sellerId, { kind: 'collector', broadcast: b, date: row.date, collector: view.collector })
     return { kind: 'ok', view }
+  }
+
+  // ── 서버 잇기 (YT-11 AC2, D-YT-SRV-03) ────────────────────────────────
+
+  /** 웹 읽기 실패 → 잇기·찾기 거절 (막힘·모르는 모양은 운영자 경보 재료 — 판매자 정보 없음) */
+  #webFailure(sellerId: string, error: unknown): { status: number; code: LinkCode } {
+    if (error instanceof WebChatError && error.kind === 'OFF') return { status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
+    if (error instanceof WebChatError && error.kind === 'BLOCKED') this.#options.log({ level: 'warn', code: 'YT_CHAT_BLOCKED' })
+    if (error instanceof WebChatError && error.kind === 'UNKNOWN_SHAPE') this.#options.log({ level: 'warn', code: 'YT_CHAT_FORMAT' })
+    this.#options.log({ level: 'warn', code: 'YOUTUBE_API_FAILED', seller: sellerId, errorKind: error instanceof WebChatError ? `YoutubeWeb_${error.kind}` : errorKind(error) })
+    return { status: 502, code: 'YOUTUBE_UNAVAILABLE' }
+  }
+
+  /** 방송 페이지 상태 → 잇기 거절 (진행 중·예정이면 null) */
+  #pageRefusal(sellerId: string, page: WatchPage): { status: number; code: LinkCode } | null {
+    switch (page.state) {
+      case 'LIVE':
+      case 'UPCOMING':
+        return page.channelId === null || page.channelId === '' ? this.#webFailure(sellerId, new WebChatError('UNKNOWN_SHAPE')) : null
+      case 'NOT_PUBLIC':
+        return { status: 409, code: 'YOUTUBE_NOT_PUBLIC' }
+      case 'BLOCKED':
+      case 'UNKNOWN_SHAPE':
+        return this.#webFailure(sellerId, new WebChatError(page.state))
+      default:
+        // 끝남·라이브 아님·없음·채팅 꺼짐
+        return { status: 409, code: 'NO_LIVE_CHAT' }
+    }
+  }
+
+  /** 확인한 채널: 실제 회차에 이은 적 있는 방송 채널 + 구글 연결이 있으면 그 채널 (처음 잇는 채널만 확인 줄) */
+  async #confirmedChannels(sellerId: string, connectionChannel: string | null): Promise<Set<string>> {
+    const channels = new Set((await linkedChannels(this.#options.db, sellerId)).map((channel) => channel.id))
+    if (connectionChannel !== null) channels.add(connectionChannel)
+    return channels
+  }
+
+  /**
+   * 서버 잇기 (YT-11 AC2): 구글 연결 없이 주소만. 서버가 로그인 없이 공개 페이지로 영상이 있고 로그인 없이 볼 수 있으며(공개·일부공개) 진행 중·예정이고,
+   * 진행 중이면 전체 채팅 지점을 얻을 수 있는지 본다(예정은 시작할 때 수집기가 본다). 처음 잇는 채널이면 확인 표시(true)가 있을 때만 잇는다(상태 없음, D-INV1-02).
+   * 실제 회차·끝나지 않음·리허설 안 됨·한 영상 한 회차(D-Y1-08)·같은 요청 번호 한 번은 옛 잇기와 같다. 공식 Data API를 부르지 않는다.
+   * 글 올리는 계정(이은 채널)은 구글 연결이 있으면 그 채널, 없으면 방송 채널 — 감사 게시 쪽 규칙(D-YT-SRV-13 결정 대기)이 지금과 같게 돈다
+   */
+  async #linkWeb(session: SessionInfo, b: string, video: string, requestId: string, confirmInvited: boolean, web: WebChatSource): Promise<LinkOutcome> {
+    const { db, timer } = this.#options
+    const sellerId = session.sellerId
+    const prior = await linkByRequest(db, sellerId, requestId)
+    if (prior !== null) return prior.broadcastId === b ? { kind: 'ok', view: await this.#linkView(sellerId, prior) } : { kind: 'rejected', status: 409, code: 'ALREADY_LINKED' }
+    const row = await findBroadcast(db, sellerId, b)
+    if (row === null) return { kind: 'not_found' }
+    const videoId = parseVideoId(video)
+    if (videoId === null) return { kind: 'rejected', status: 400, code: 'INVALID_VIDEO_URL' }
+    if (row.rehearsal) return { kind: 'rejected', status: 409, code: 'REHEARSAL_LINK' }
+    if (await this.#sealed(sellerId, row)) return { kind: 'rejected', status: 409, code: 'SEALED' }
+    if (row.endedAt !== null) return { kind: 'rejected', status: 409, code: 'BROADCAST_ENDED' }
+    if ((await activeLink(db, sellerId, b)) !== null) return { kind: 'rejected', status: 409, code: 'ALREADY_LINKED' }
+    if (web.off) return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
+    let page: WatchPage
+    try {
+      page = await web.page(videoId)
+      const refused = this.#pageRefusal(sellerId, page)
+      if (refused !== null) return { kind: 'rejected', ...refused }
+      if (page.state === 'LIVE') {
+        const chat = await web.chatPage(videoId)
+        if (chat.state === 'BLOCKED') return { kind: 'rejected', ...this.#webFailure(sellerId, new WebChatError('BLOCKED')) }
+        // 채팅 칸이 없거나 전체 채팅 지점을 얻지 못함 — 받을 수 없는 방송
+        if (chat.state !== 'OK') return { kind: 'rejected', status: 409, code: 'NO_LIVE_CHAT' }
+      }
+    } catch (error) {
+      return { kind: 'rejected', ...this.#webFailure(sellerId, error) }
+    }
+    const broadcastChannelId = page.channelId as string
+    const broadcastChannelTitle = page.channelTitle
+    const connection = await this.connections.status(sellerId)
+    const connectionChannel = connection.channel?.id ?? null
+    // 처음 잇는 채널이면 확인 표시(정확히 true)가 있을 때만 — 없으면 아무것도 넣지 않고 채널 이름을 돌려준다
+    if (!(await this.#confirmedChannels(sellerId, connectionChannel)).has(broadcastChannelId) && confirmInvited !== true) {
+      return { kind: 'confirm', channel: { id: broadcastChannelId, title: broadcastChannelTitle ?? '' }, firstChannel: true }
+    }
+    const startedAt = page.state === 'UPCOMING' ? null : new Date(page.startedAt ?? timer.now())
+    const scope = await scopeRow(db, sellerId, row.date, false)
+    if (scope === null) return { kind: 'not_found' }
+    const id = `yl_${randomBytes(12).toString('base64url')}`
+    let refused: LinkCode | null
+    try {
+      refused = await db.transaction(async (tx): Promise<LinkCode | null> => {
+        await tx.execute(sql`select pg_advisory_xact_lock(${sellerLinkLockKey(sellerId)})`)
+        if ((await activeLink(tx, sellerId, b)) !== null) return 'ALREADY_LINKED'
+        if ((await findBroadcast(tx, sellerId, b))?.endedAt != null) return 'BROADCAST_ENDED'
+        const others = (await openLinksForVideo(tx, sellerId, [videoId])).filter((other) => other.broadcastId !== b)
+        if (others.length > 0) return 'VIDEO_IN_USE'
+        await this.#options.linkHooks?.beforeInsert?.(b)
+        await insertLink(tx, {
+          id,
+          sellerId,
+          scopeId: scope.id,
+          broadcastId: b,
+          videoId,
+          // 공식 채팅 ID는 부르지 않는다(읽기 할당량 0) — 감사 게시 쪽(D-YT-SRV-13)이 정해지면 그쪽에서 채운다
+          liveChatId: '',
+          channelId: connectionChannel ?? broadcastChannelId,
+          broadcastChannelId,
+          broadcastChannelTitle,
+          startedAt,
+          linkedBy: session.accountId,
+          requestId,
+          now: new Date(timer.now()),
+          mode: 'WEB',
+          ...(startedAt === null ? { upcomingCheckAt: new Date(timer.now() + UPCOMING_CHECK_MS) } : {}),
+        })
+        return null
+      })
+    } catch (error) {
+      const constraint = uniqueViolation(error)
+      if (constraint === 'youtube_links_request_uq') {
+        const again = await linkByRequest(db, sellerId, requestId)
+        if (again !== null) return { kind: 'ok', view: await this.#linkView(sellerId, again) }
+      }
+      if (constraint === 'youtube_links_active_uq') return { kind: 'rejected', status: 409, code: 'ALREADY_LINKED' }
+      throw error
+    }
+    if (refused !== null) return { kind: 'rejected', status: 409, code: refused }
+    this.collectors.wake()
+    const view = await this.#linkView(sellerId, await activeLink(db, sellerId, b))
+    this.#options.publish(sellerId, { kind: 'collector', broadcast: b, date: row.date, collector: view.collector })
+    return { kind: 'ok', view }
+  }
+
+  /**
+   * 최근 채널 찾기 (YT-11 AC2, D-YT-SRV-03 목록 ②): 최근 이은 채널 3개의 공개 채널 라이브 주소에서 지금·예정 공개 방송을 찾는다(채널마다 한 번, 하나씩).
+   * 부를 때만 찾는다(되풀이하지 않음). 막히거나 못 읽은 채널은 건너뛴다. 운영자가 끄면 거절
+   */
+  async #recentBroadcasts(sellerId: string, web: WebChatSource): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
+    if (web.off) return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
+    const list: Omit<LiveBroadcastItem, 'linkedBroadcast'>[] = []
+    for (const channel of await linkedChannels(this.#options.db, sellerId, 3)) {
+      let page: WatchPage
+      try {
+        page = await web.channelLive(channel.id)
+      } catch (error) {
+        if (error instanceof WebChatError && error.kind === 'OFF') return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
+        if (error instanceof WebChatError && error.kind === 'BLOCKED') this.#options.log({ level: 'warn', code: 'YT_CHAT_BLOCKED' })
+        continue
+      }
+      if ((page.state !== 'LIVE' && page.state !== 'UPCOMING') || page.videoId === null || page.channelId !== channel.id) continue
+      const at = page.startedAt === null ? null : new Date(page.startedAt).toISOString()
+      list.push({
+        videoId: page.videoId,
+        title: page.title ?? '',
+        status: page.state === 'LIVE' ? 'LIVE' : 'UPCOMING',
+        scheduledStartTime: page.state === 'UPCOMING' ? at : null,
+        actualStartTime: page.state === 'LIVE' ? at : null,
+        channelId: channel.id,
+        channelTitle: page.channelTitle ?? channel.title,
+      })
+    }
+    const linked = await openLinksForVideo(this.#options.db, sellerId, list.map((item) => item.videoId))
+    const byVideo = new Map(linked.map((row) => [row.videoId, row.broadcastId]))
+    return { kind: 'ok', broadcasts: list.map((item) => ({ ...item, linkedBroadcast: byVideo.get(item.videoId) ?? null })) }
   }
 
   /** 끊기 (AC-Y1-13): 수집기가 멈추고, 그 방송의 기다리던 실시간 채팅 감사는 보내지 못함(NO_LINK) */

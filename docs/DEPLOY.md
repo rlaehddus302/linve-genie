@@ -31,7 +31,8 @@
 | `LIVEJJIM_OPS_TOKEN` | 선택 | (32자 이상) | `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` — 운영 상태 `/ops/status`를 연다 | 비우면 `/ops/status`는 없다(404). 32자 미만이면 시작하지 않는다. 새면 바꾼다(합친 숫자만 보여 판매 정보는 새지 않는다) |
 | `LIVEJJIM_TRANSCRIBE_WORKER_TOKEN` | 자체 받아쓰기면 필수 | (무작위 비밀값) | 서버와 일꾼만 공유한다. 일꾼에는 권한 0600 파일과 `--token-file`로 전달한다 | 비우거나 다르면 일꾼 연결이 401. 연결된 일꾼이 없으면 기기에 받아쓰기 서버가 꺼졌다고 알린다 |
 | `LIVEJJIM_TRUSTED_PROXIES` | 선택 | `1` | 서버 앞의 믿는 프록시 수(0~5, 기본 0). 5절 | 틀리게 적으면 로그인 IP 한도가 엉뚱한 주소를 센다. 0~5가 아니면 시작하지 않는다 |
-| `LIVEJJIM_GOOGLE_CLIENT_ID` | 선택 | `1234-abc.apps.googleusercontent.com` | 구글 OAuth 클라이언트 ID(4절). 비우면 유튜브 연동을 하지 않는다 | 유튜브 기능이 꺼진다(화면에 "유튜브 연동을 준비하지 않은 서버예요.") |
+| `LIVEJJIM_YT_WEB_CHAT` | 선택 | (비움) | 서버가 유튜브 채팅을 읽는 기능(YT-11 — 구글 연결·할당량 없이 방송 주소만으로)의 운영자 스위치. 다듬고 소문자로 `off`일 때만 끈다 — 비움·`on`은 켬. 서버 시작 때 한 번 읽는다 | 끄면 유튜브에 아무 요청도 하지 않고 이은 회차의 수집은 "지금은 유튜브 채팅을 자동으로 받지 않아요."로 멈춘다(크롬 확장은 그대로). `on`·`off`·빈 값이 아니면 켬으로 보고 경고 `YT_WEB_CHAT_INVALID`(값 없이)를 남긴다 |
+| `LIVEJJIM_GOOGLE_CLIENT_ID` | 선택 | `1234-abc.apps.googleusercontent.com` | 구글 OAuth 클라이언트 ID(4절) — 감사 채팅 게시용(D-YT-SRV-13). 비우면 구글 연결이 없다(채팅 읽기는 `LIVEJJIM_YT_WEB_CHAT`로 그대로 된다) | 구글 연결 버튼이 "유튜브 연동을 준비하지 않은 서버예요."로 거절된다 |
 | `LIVEJJIM_GOOGLE_CLIENT_SECRET` | 유튜브면 필수 | (구글이 준 값) | 구글 OAuth 클라이언트 비밀 | 새면 구글 콘솔에서 새로 만든다 |
 | `LIVEJJIM_GOOGLE_REDIRECT_URI` | 유튜브면 필수 | `https://app.example.com/api/youtube/oauth/callback` | 구글에 등록한 돌아오는 주소 하나(https만) | 구글에 등록한 값과 다르면 연결이 실패한다 |
 | `LIVEJJIM_YOUTUBE_RETURN_URL` | 선택 | `https://app.example.com/settings/youtube` | 연결을 마친 뒤 판매자를 보낼 화면(비우면 `<앱 주소>/settings/youtube`) | |
@@ -237,6 +238,9 @@
 | `SEAL_FAILED` | 30일 지난 범위의 봉인이 실패(다음 시간에 다시 한다) | 봉인 예정 날짜가 지나도 봉인되지 않은 채로 보인다 | DB 상태를 보고, 이어지면 개발자에게 알린다 |
 | `BACKUP_FAILED` | 운영 백업 명령 실패(아무것도 지우지 않음, `seller` 칸 없음) 또는 판매자 자동 백업 실패(`seller` 칸 = 판매자 ID — 다음 확인 때 다시 한다, 같은 판매자는 10분에 한 번) | 판매자 자동 백업이 26시간 넘게 없으면 백업 상태에 경고 | 백업 폴더(`LIVEJJIM_BACKUP_DIR`)가 있는지·디스크 공간·`pg_dump` 버전과 DB 연결을 확인하고 다시 돌린다. `seller` 칸이 있으면 그 판매자 백업 폴더(`LIVEJJIM_BACKUP_DIR/<판매자 ID>`)가 있는지·쓸 수 있는지를 본다 |
 | `DB_UNAVAILABLE` | 준비 확인에서 DB가 2초 안에 답하지 않음 | 저장·조회가 실패한다 | 업체의 DB 상태·연결 수·네트워크를 본다 |
+| `YT_CHAT_BLOCKED` | 서버의 유튜브 채팅 읽기가 막혔다(429·403·봇 확인·로그인 요구 화면 — 판매자 정보 없음) | 콘솔 고정 영역 "유튜브가 채팅 읽기를 잠시 막았어요. 다시 될 때까지 주문은 손으로 넣어 주세요." | `/ops/status`의 `youtubeWebChat`(막힘 수·분당 요청 수)을 본다. 우회하지 않는다 — 이어지면 끄기 스위치(`LIVEJJIM_YT_WEB_CHAT=off`)·맥 미니 일꾼 이전(사용자 확인)을 검토한다 |
+| `YT_CHAT_FORMAT` | 유튜브 채팅 응답 모양을 알아볼 수 없다(지점·채팅 묶음 없음, 전체 채팅 지점 없음, 1분 동안 읽은 메시지 0개 + 모르는 종류) | 콘솔 고정 영역 "유튜브가 바뀌어 채팅을 자동으로 읽지 못하고 있어요. 주문은 손으로 넣어 주세요." | 개발자에게 알린다 — 새 응답 녹화본(가린 것)으로 읽기 함수를 고친다. 로그 `YT_CHAT_UNKNOWN_ITEM`에 모르는 종류 이름이 있다 |
+| `YT_CHAT_NETWORK` | 한 수집기에서 유튜브 채팅 읽기가 연결 오류(끊김·시간 초과·5xx)로 다섯 번 이어 실패 | 10초 넘게 이어지면 "유튜브 채팅을 받지 못하고 있어요" 경고 | 서버의 바깥 연결·DNS를 본다 |
 | `TRANSCRIBE_NO_WORKER` | 받아쓰기 일꾼이 모두 끊겼거나 일꾼 없이 기기 연결이 들어옴(10분에 한 번, 판매자 정보 없음) | 받아쓰기 서버가 꺼져 있다는 안내 | 일꾼 프로세스·토큰 파일·네트워크를 확인한다. `/ops/status`의 `transcribe`에는 `workers`, `streams`, 최근 10분 처리 시간 `p95Ms`만 나온다 |
 
 ### 로그에 남기지 않는 것 (D-073)

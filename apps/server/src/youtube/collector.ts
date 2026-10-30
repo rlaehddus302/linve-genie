@@ -13,6 +13,13 @@
 // - 우리 채널이 쓴 메시지 중 발송함이 게시한 것은 기록하지 않고 게시 확인에 쓴다. 판매자가 손으로 쓴 것은 owner: true로 기록한다.
 // - 지운 메시지·유튜브 차단은 알림만 남긴다(엔진은 그대로).
 // - 같은 연결의 수집기는 서버 전체에서 하나만 돈다(DB 임대 20초, 5초마다 늘림). 하나가 죽으면 다른 서버가 30초 안에 이어받는다.
+// - 서버 웹 읽기 (YT-11, D-YT-SRV-04~07·10): 방식 WEB인 수집기는 구글 연결·할당량 없이 유튜브 웹 내부 채팅 API로 공개 라이브의 전체 채팅을 받는다.
+//   채팅 페이지에서 호출 정보·전체 채팅 첫 지점을 받고(그 수집기 메모리), get_live_chat을 한 번에 하나씩 부른다 — 다음 부름은 앞 응답을 받은 뒤
+//   그 응답의 timeoutMs(1~10초로 자름, 없으면 5초). 실패 뒤: 연결 오류·5xx·모르는 모양 5·10·20·30초(그 뒤 30초씩), 막힘 30·60·120·300초(그 뒤 300초씩).
+//   지점·기록·이어받기·잇기 전/예정/끝낸 뒤 거르기·우리 감사 거르기·지움/숨김 알림은 위와 같다. 구글 연결 상태는 이 수집을 멈추지 않는다.
+//   다음 지점이 없거나 빈 응답이면 방송 페이지로 한 번 더 확인해 끝났을 때만 CHAT_ENDED, 아직 진행 중이면 모르는 모양이다(잘못 끝내면 되돌릴 수 없다).
+//   막힘·모르는 모양은 처음 생길 때 바로 RETRYING + 이유 BLOCKED·FORMAT(콘솔 경고)과 운영자 경보, 연결 오류 5번 이어지면 운영자 경보.
+//   1분 동안 읽은 메시지가 0개인데 모르는 종류·읽지 못함이 있으면 모르는 모양. 운영자 끄기면 STOPPED·OPERATOR_OFF(유튜브 요청 0).
 import { getBroadcast } from '@livejjim/core'
 import type { Db } from '../db/database.ts'
 import { errorKind, type LogSink } from '../log.ts'
@@ -22,6 +29,8 @@ import { messageLookup } from '../views.ts'
 import type { ScopeWriter } from '../writer.ts'
 import { YoutubeAccessError, googleFields, type YoutubeConnections } from './connect.ts'
 import { GoogleError, type GoogleClient } from './google.ts'
+import type { InnertubeSession, PageState } from './web-chat.ts'
+import { WEB_MIN_WAIT_MS, WebChatError, backoffMs, nextWaitMs, type WebChatPoll, type WebChatSource } from './web-chat-source.ts'
 import type { QuotaMeter } from './quota.ts'
 import {
   acquireLease,
@@ -71,6 +80,11 @@ export const COLLECTOR_REASON_MESSAGES = {
   SEALED: '30일이 지나 봉인한 방송이에요.',
   // 시작하는 중(STARTING)의 이유: 예정 방송이 시작하기를 기다림 (AC-Y1-94)
   NOT_STARTED: '유튜브 방송이 시작되면 채팅을 받아요.',
+  // 서버 웹 읽기 (YT-11 AC5·AC6): 다시 연결하는 중(RETRYING)의 이유 — 바로 경고, 저절로 다시 시도한다
+  BLOCKED: '유튜브가 채팅 읽기를 잠시 막았어요. 다시 될 때까지 주문은 손으로 넣어 주세요.',
+  FORMAT: '유튜브가 바뀌어 채팅을 자동으로 읽지 못하고 있어요. 주문은 손으로 넣어 주세요.',
+  // 운영자 끄기 — 다시 켜면(서버 다시 시작) 저절로 이어받는다
+  OPERATOR_OFF: '지금은 유튜브 채팅을 자동으로 받지 않아요. 주문은 손으로 넣어 주세요.',
 } as const
 export type CollectorReason = keyof typeof COLLECTOR_REASON_MESSAGES
 
@@ -101,6 +115,20 @@ export const UPCOMING_CHECK_MS = 30_000
 const STREAM_FAILURES_TO_POLL = 3
 /** 폴링 응답에 간격이 없거나 숫자가 아니면 (AC-Y1-94) */
 const DEFAULT_POLL_MS = 5000
+/** 서버 웹 읽기 수집기의 방식 (youtube_collectors.mode, YT-11) */
+export const WEB_MODE = 'WEB'
+/** 연결 오류가 한 수집기에서 이만큼 이어지면 운영자 경보 YT_CHAT_NETWORK (AC5) */
+const WEB_NETWORK_ALERT_AFTER = 5
+/** 읽은 메시지 0개 + 모르는 종류·읽지 못함을 보는 창 (AC5) */
+const WEB_FORMAT_WINDOW_MS = 60_000
+/** 방송 페이지 상태 → 멈춤 이유 (판매자가 다시 시작해야 함). 로그인 없이 볼 수 없게 바뀐 방송(비공개·멤버 전용·연령 제한)은 채팅을 찾을 수 없음으로 */
+const PAGE_STOPS: Readonly<Partial<Record<PageState, CollectorReason>>> = {
+  NOT_FOUND: 'CHAT_NOT_FOUND',
+  NOT_PUBLIC: 'CHAT_NOT_FOUND',
+  CHAT_DISABLED: 'CHAT_DISABLED',
+}
+/** 로그에 남겨도 되는 모르는 종류 이름 (영문 이름 모양만 — 그 밖은 OTHER) */
+const ITEM_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
 
 export interface CollectorHooks {
   /** 한 응답의 기록을 마친 뒤, 지점을 저장하기 직전 (시험: 던지면 그 수집기가 죽은 것처럼 멈춘다 — 지점 저장 없음) */
@@ -130,6 +158,10 @@ export interface CollectorOptions {
   readonly scanMs?: number
   /** 찾기 바퀴마다 성공·실패 (워커 건강, AC-I3-82) */
   readonly onPass?: (ok: boolean) => void
+  /** 서버 웹 읽기 원천 (YT-11). 없으면 방식 WEB 수집기는 멈춤 OPERATOR_OFF */
+  readonly web?: WebChatSource | null
+  /** 읽기는 서버 웹으로만 (운영 설정) — 옛 공식 방식(STREAM·POLL) 수집기도 WEB으로 바꿔 받는다 */
+  readonly webOnly?: boolean
 }
 
 /** 수집기 하나가 지금 무엇을 할지 */
@@ -154,6 +186,24 @@ interface Running {
   basis: { readonly endedAt: number | null; readonly channelId: string } | null
   done: Promise<void>
   killed: boolean
+  /** 웹 읽기 상태 (그 수집기 메모리만 — 저장·공유 없음, AC1) */
+  web: WebRun
+}
+
+/** 웹 읽기 수집기 하나의 메모리 상태 */
+interface WebRun {
+  /** 호출 정보와 채팅 페이지의 전체 채팅 첫 지점 (다시 시작하면 채팅 페이지에서 다시 받는다) */
+  session: { readonly session: InnertubeSession; readonly fresh: string } | null
+  /** 이어진 실패 수: 막힘 · 그 밖(연결 오류·5xx·모르는 모양) · 연결 오류만(운영자 경보) */
+  blocked: number
+  others: number
+  network: number
+  /** 모르는 모양 창: 시작 시각·읽은 메시지·모르는 종류+읽지 못함 */
+  window: { start: number; chats: number; odd: number } | null
+  /** 창이 모르는 모양으로 판정했다 (메시지를 읽을 때까지 FORMAT으로 둔다) */
+  formatHeld: boolean
+  /** 로그에 이미 남긴 모르는 종류 이름 */
+  readonly loggedItems: Set<string>
 }
 
 class StopRun extends Error {
@@ -179,11 +229,11 @@ class SaveFailed extends Error {
 }
 
 /** 응답 하나에서 꺼낸 것 */
-interface Parsed {
+export interface Parsed {
   readonly chats: { id: string; ch: string; nick: string; text: string; owner: boolean; publishedAt: number }[]
   readonly own: { id: string; text: string; publishedAt: number }[]
   readonly deleted: string[]
-  readonly bans: { id: string; channelId: string; nick: string; type: string; seconds: number | null }[]
+  readonly bans: { id: string; channelId: string; nick: string; type: string | null; seconds: number | null }[]
   readonly next: string | null
   readonly offline: boolean
   readonly pollingMs: number | null
@@ -192,6 +242,8 @@ interface Parsed {
 export class CollectorManager {
   readonly #options: CollectorOptions
   readonly #running = new Map<string, Running>()
+  /** 웹 읽기에서 마지막으로 알린 막힘·모르는 모양 (연결 ID → 이유) — 다시 받으면 지운다 */
+  readonly #trouble = new Map<string, 'BLOCKED' | 'FORMAT'>()
   #loop: Promise<void> | null = null
   #stopped = false
   #wake: AbortController = new AbortController()
@@ -294,6 +346,8 @@ export class CollectorManager {
     if (row.status === 'FINISHED' || row.status === 'CHAT_ENDED') return { run: false, change: null }
     if (row.status === 'STOPPED' && row.reason !== null && (MANUAL_REASONS.has(row.reason) || FINAL_REASONS.has(row.reason))) return { run: false, change: null }
     if (broadcast.endedAt !== null && now >= broadcast.endedAt.getTime() + AFTER_END_MS) return { run: false, change: { status: 'FINISHED', reason: null } }
+    // 서버 웹 읽기는 구글 연결과 상관없다 — 운영자 끄기만 본다 (D-YT-SRV-10)
+    if (row.mode === WEB_MODE) return this.#options.web == null || this.#options.web.off ? stop('OPERATOR_OFF') : { run: true }
     if (connection === null) return stop('NOT_CONNECTED')
     if (connection.status !== 'CONNECTED') return stop('RECONNECT')
     if (connection.channelId !== link.channelId) return stop('NOT_MY_CHANNEL')
@@ -321,6 +375,10 @@ export class CollectorManager {
     const now = timer.now()
     for (const candidate of await collectorCandidates(db, owner, new Date(now))) {
       if (this.#running.has(candidate.linkId) || this.#stopped) continue
+      // 읽기는 서버 웹으로만(운영): 옛 공식 방식 수집기를 WEB으로 — 공식 지점은 웹에서 쓸 수 없어 새 전체 채팅 지점으로 시작한다(받던 중이면 끊긴 동안 일부를 못 받았을 수 있음)
+      if (this.#options.webOnly === true && candidate.mode !== WEB_MODE) {
+        await updateCollector(db, candidate.sellerId, candidate.linkId, { mode: WEB_MODE, pageToken: null, ...(candidate.firstDone ? { gap: true } : {}), firstDone: false }, new Date(timer.now()))
+      }
       const ctx = await this.#context(candidate)
       const verdict = this.#verdict(ctx, timer.now())
       if (!verdict.run) {
@@ -333,7 +391,16 @@ export class CollectorManager {
   }
 
   #launch(row: CollectorRow): void {
-    const running: Running = { sellerId: row.sellerId, broadcastId: row.broadcastId, controller: new AbortController(), attempt: null, basis: null, done: Promise.resolve(), killed: false }
+    const running: Running = {
+      sellerId: row.sellerId,
+      broadcastId: row.broadcastId,
+      controller: new AbortController(),
+      attempt: null,
+      basis: null,
+      done: Promise.resolve(),
+      killed: false,
+      web: { session: null, blocked: 0, others: 0, network: 0, window: null, formatHeld: false, loggedItems: new Set() },
+    }
     this.#running.set(row.linkId, running)
     running.done = this.#run(row, running)
       .catch((error: unknown) => {
@@ -383,6 +450,8 @@ export class CollectorManager {
     if (link === null || link.unlinkedAt !== null) return true
     const broadcast = await findBroadcast(db, row.sellerId, row.broadcastId)
     if (broadcast === null || (broadcast.endedAt?.getTime() ?? null) !== basis.endedAt) return true
+    // 서버 웹 읽기는 구글 연결이 바뀌어도 그대로 받는다
+    if (row.mode === WEB_MODE) return false
     const connection = await connectionChannel(db, row.sellerId)
     return connection === null || connection.status !== 'CONNECTED' || connection.channelId !== basis.channelId
   }
@@ -444,9 +513,20 @@ export class CollectorManager {
               })
         let received = 0
         const callAt = timer.now()
-        nextCallAt = callAt + (ctx.row.mode === 'POLL' ? MIN_CALL_GAP_MS : STREAM_REOPEN_MS)
+        nextCallAt = callAt + (ctx.row.mode === WEB_MODE ? WEB_MIN_WAIT_MS : ctx.row.mode === 'POLL' ? MIN_CALL_GAP_MS : STREAM_REOPEN_MS)
         try {
-          if (ctx.row.mode === 'POLL') {
+          if (ctx.row.mode === WEB_MODE) {
+            const outcome = await this.#webOnce(ctx, link, broadcast, running, attempt.signal)
+            if (outcome.kind === 'stop') return
+            if (outcome.kind === 'ended') return await this.#chatEnded(ctx.row, link)
+            received = 1
+            // 응답을 받았다: 실패 수를 처음으로, 다음 부름은 받은 뒤 timeoutMs(1~10초, 없으면 5초)
+            running.web.blocked = 0
+            running.web.others = 0
+            running.web.network = 0
+            nextCallAt = Math.max(nextCallAt, outcome.receivedAt + nextWaitMs(outcome.timeoutMs))
+            continue
+          } else if (ctx.row.mode === 'POLL') {
             const parsed = await this.#options.connections.withToken(ctx.row.sellerId, (token) =>
               this.#options.google.api({
                 sellerId: ctx.row.sellerId,
@@ -505,6 +585,19 @@ export class CollectorManager {
           if (error instanceof StopRun) {
             running.killed = true // 임대를 잃었거나 봉인됨 — 이 서버는 더 손대지 않는다
             return
+          }
+          if (error instanceof WebChatError) {
+            // 지점 거절·모르는 모양이면 호출 정보를 버리고 다음에 채팅 페이지에서 새 전체 채팅 지점을 받는다
+            if (error.kind === 'REJECTED' || error.kind === 'UNKNOWN_SHAPE') running.web.session = null
+            const action = await this.#webError(ctx.row, error, running)
+            if (action === 'stop') return
+            if (action === 'now') continue
+            const blocked = error.kind === 'BLOCKED'
+            if (blocked) running.web.blocked += 1
+            else running.web.others += 1
+            nextCallAt = Math.max(nextCallAt, timer.now() + backoffMs(blocked ? 'BLOCKED' : 'OTHER', blocked ? running.web.blocked : running.web.others))
+            if (!blocked && error.kind !== 'UNKNOWN_SHAPE') await this.#retrying(ctx.row)
+            continue
           }
           const action = await this.#onError(ctx.row, error)
           if (action === 'stop') return
@@ -575,6 +668,7 @@ export class CollectorManager {
       await this.#pause(ctx, broadcast, running, wait)
       return 'again'
     }
+    if (row.mode === WEB_MODE) return await this.#webAwaitStart(row, link)
     let body: Record<string, unknown>
     try {
       body = await this.#options.connections.withToken(row.sellerId, (token) =>
@@ -701,7 +795,7 @@ export class CollectorManager {
    * (ingestYoutubeBatch — 끝낸 시각, #stillCollecting — 회차 잇기·유튜브 연결 상태).
    * 끝낸 시각이 이 시도를 시작할 때와 다르면 recheck — 시도를 끊고 끝낸 뒤 10분 멈춤을 다시 잡는다
    */
-  async #handle(ctx: Context, link: LinkRow, broadcast: BroadcastRow, parsed: Parsed, firstResponse: boolean): Promise<{ offline: boolean; pollingMs: number | null; recheck: boolean }> {
+  async #handle(ctx: Context, link: LinkRow, broadcast: BroadcastRow, parsed: Parsed, firstResponse: boolean, hold: CollectorReason | null = null): Promise<{ offline: boolean; pollingMs: number | null; recheck: boolean }> {
     const { db, timer, service, owner } = this.#options
     const row = ctx.row
     const current = await linkById(db, row.sellerId, row.linkId)
@@ -754,8 +848,9 @@ export class CollectorManager {
       {
         pageToken: parsed.next ?? row.pageToken,
         firstDone: true,
-        status: 'LIVE',
-        reason: null,
+        // 받았지만 모르는 모양으로 판정한 동안(웹 읽기)은 다시 연결하는 중 + 그 이유로 둔다
+        status: hold === null ? 'LIVE' : 'RETRYING',
+        reason: hold,
         resumeAt: null,
         addRecorded: outcome.recorded,
         addSkipped: skipped,
@@ -766,9 +861,184 @@ export class CollectorManager {
     )
     if (!saved) throw new StopRun()
     // 다음 응답이 이 지점을 이어받는다 (같은 시도 안)
-    ctx.row = { ...row, pageToken: parsed.next ?? row.pageToken, firstDone: true, status: 'LIVE', reason: null }
-    if (row.status !== 'LIVE' || row.reason !== null) await this.#publish(row)
+    ctx.row = { ...row, pageToken: parsed.next ?? row.pageToken, firstDone: true, status: hold === null ? 'LIVE' : 'RETRYING', reason: hold }
+    if (row.status !== ctx.row.status || row.reason !== ctx.row.reason) await this.#publish(row)
     return { offline: parsed.offline, pollingMs: parsed.pollingMs, recheck: endedAt !== (broadcast.endedAt?.getTime() ?? null) }
+  }
+
+  // ── 서버 웹 읽기 (YT-11) ────────────────────────────────────────────────
+
+  /**
+   * 웹 읽기 한 번 (AC3): 지점 → 응답 묶음 → 기록(#handle — 기록을 마친 뒤 지점 저장). 호출 정보가 없으면 채팅 페이지에서 받는다(전체 채팅 첫 지점).
+   * 저장한 지점이 있으면 그것부터(이어받기), 없으면 채팅 페이지의 첫 지점부터(그 응답은 잇기 전 거르기를 한다).
+   * 다음 지점 없음·빈 응답·채팅 칸 없음은 방송 페이지로 확인한 뒤에만 ended. 막힘·모르는 모양·지점 거절은 WebChatError로 던진다(#webError)
+   */
+  async #webOnce(
+    ctx: Context,
+    link: LinkRow,
+    broadcast: BroadcastRow,
+    running: Running,
+    signal: AbortSignal,
+  ): Promise<{ kind: 'ok'; receivedAt: number; timeoutMs: number | null } | { kind: 'ended' } | { kind: 'stop' }> {
+    const source = this.#options.web
+    if (source == null) throw new WebChatError('OFF')
+    let cached = running.web.session
+    if (cached === null) {
+      const page = await source.chatPage(link.videoId, signal)
+      if (page.state === 'BLOCKED' || page.state === 'UNKNOWN_SHAPE') throw new WebChatError(page.state)
+      if (page.state !== 'OK' || page.session === null || page.continuation === null) return await this.#webConfirmEnd(ctx.row, link, running, signal)
+      cached = { session: page.session, fresh: page.continuation }
+      running.web.session = cached
+    }
+    const result: WebChatPoll = await source.poll(cached.session, ctx.row.pageToken ?? cached.fresh, signal)
+    const receivedAt = this.#options.timer.now()
+    if (result.kind === 'no_contents') return await this.#webConfirmEnd(ctx.row, link, running, signal)
+    this.#logUnknownItems(running, result.unknown)
+    const hold = this.#formatWindow(running, result, receivedAt)
+    await this.#handle(ctx, link, broadcast, webParsed(result), !ctx.row.firstDone, hold)
+    if (hold === null) this.#trouble.delete(ctx.row.linkId)
+    else this.#webTrouble(ctx.row, 'FORMAT')
+    if (result.next === null) return await this.#webConfirmEnd(ctx.row, link, running, signal)
+    return { kind: 'ok', receivedAt, timeoutMs: result.timeoutMs }
+  }
+
+  /**
+   * 모르는 모양 창 (AC5): 1분 동안 읽은 메시지가 0개인데 모르는 종류·읽지 못함이 1개 이상이면 모르는 모양으로 판정하고,
+   * 메시지를 하나라도 읽을 때까지 FORMAT으로 둔다. 판정 중이면 그 이유(FORMAT), 아니면 null
+   */
+  #formatWindow(running: Running, result: Extract<WebChatPoll, { kind: 'ok' }>, now: number): CollectorReason | null {
+    const web = running.web
+    if (result.chats.length > 0) web.formatHeld = false
+    const window = web.window ?? { start: now, chats: 0, odd: 0 }
+    window.chats += result.chats.length
+    window.odd += result.unknown.length + result.unreadable
+    web.window = window
+    if (now - window.start >= WEB_FORMAT_WINDOW_MS) {
+      if (window.chats === 0 && window.odd > 0) web.formatHeld = true
+      web.window = null
+    }
+    return web.formatHeld ? 'FORMAT' : null
+  }
+
+  /** 모르는 종류 이름과 수만 남긴다 (AC10 — 응답 본문 없음). 같은 이름은 그 수집기에서 한 번 */
+  #logUnknownItems(running: Running, names: readonly string[]): void {
+    const counts = new Map<string, number>()
+    for (const name of names) {
+      const safe = ITEM_NAME_RE.test(name) ? name : 'OTHER'
+      counts.set(safe, (counts.get(safe) ?? 0) + 1)
+    }
+    for (const [name, count] of counts) {
+      if (running.web.loggedItems.has(name)) continue
+      running.web.loggedItems.add(name)
+      this.#options.log({ level: 'warn', code: 'YT_CHAT_UNKNOWN_ITEM', reason: name, count })
+    }
+  }
+
+  /**
+   * 채팅이 끝난 것 같다(다음 지점 없음·빈 응답·채팅 칸 없음) — 방송 페이지로 한 번 더 확인한다 (AC3). 끝났으면 ended, 멈출 까닭이면 그 상태로 stop,
+   * 막혔으면 막힘, 아직 진행 중(또는 예정)이면 모르는 모양
+   */
+  async #webConfirmEnd(row: CollectorRow, link: LinkRow, running: Running, signal: AbortSignal): Promise<{ kind: 'ended' } | { kind: 'stop' }> {
+    const source = this.#options.web
+    if (source == null) throw new WebChatError('OFF')
+    running.web.session = null
+    const page = await source.page(link.videoId, signal)
+    if (page.state === 'ENDED' || page.state === 'NOT_LIVE') return { kind: 'ended' }
+    if (page.state === 'BLOCKED') throw new WebChatError('BLOCKED')
+    const stop = PAGE_STOPS[page.state]
+    if (stop !== undefined) {
+      await this.#setStatus(row, { status: 'STOPPED', reason: stop }, this.#options.owner)
+      return { kind: 'stop' }
+    }
+    throw new WebChatError('UNKNOWN_SHAPE')
+  }
+
+  /**
+   * 웹 읽기 오류별 동작 (AC3·AC5·AC6): 끔 → 멈춤(OPERATOR_OFF). 막힘 → RETRYING·BLOCKED + 경보(처음 생길 때). 모르는 모양 → 새 전체 채팅 지점으로 다시 시작
+   * (받던 지점이 있었으면 "끊긴 동안 일부" 표시) + RETRYING·FORMAT + 경보. 지점 거절 → 받던 지점이 있었으면 새 지점으로 바로 다시(끊긴 동안 일부 표시).
+   * 연결 오류는 기다렸다 다시, 한 수집기에서 5번 이어지면 운영자 경보. 잇기 전 거르기는 새 지점의 첫 응답에서 다시 한다
+   */
+  async #webError(row: CollectorRow, error: WebChatError, running: Running): Promise<'stop' | 'now' | 'retry'> {
+    const owner = this.#options.owner
+    this.#options.log({ level: 'warn', code: 'COLLECTOR_ERROR', seller: row.sellerId, errorKind: `YoutubeWeb_${error.kind}`, ...(error.status === null ? {} : { status: error.status }) })
+    const restart = async (): Promise<boolean> => {
+      const current = await collectorOf(this.#options.db, row.sellerId, row.linkId)
+      if (current === null || current.pageToken === null) return false
+      await this.#setStatus(row, { pageToken: null, gap: true, firstDone: false }, owner)
+      return true
+    }
+    switch (error.kind) {
+      case 'OFF':
+        await this.#setStatus(row, { status: 'STOPPED', reason: 'OPERATOR_OFF' }, owner)
+        return 'stop'
+      case 'BLOCKED':
+        this.#webTrouble(row, 'BLOCKED')
+        await this.#setStatus(row, { status: 'RETRYING', reason: 'BLOCKED' }, owner)
+        return 'retry'
+      case 'UNKNOWN_SHAPE':
+        await restart()
+        this.#webTrouble(row, 'FORMAT')
+        await this.#setStatus(row, { status: 'RETRYING', reason: 'FORMAT' }, owner)
+        return 'retry'
+      case 'REJECTED':
+        return (await restart()) ? 'now' : 'retry'
+      default:
+        running.web.network += 1
+        if (running.web.network === WEB_NETWORK_ALERT_AFTER) this.#options.log({ level: 'warn', code: 'YT_CHAT_NETWORK' })
+        return 'retry'
+    }
+  }
+
+  /** 막힘·모르는 모양이 그 수집기에서 처음 생겼다 — 운영자 경보 기록 재료(판매자 정보 없음, AC5). 다시 받으면 지운다 */
+  #webTrouble(row: CollectorRow, reason: 'BLOCKED' | 'FORMAT'): void {
+    if (this.#trouble.get(row.linkId) === reason) return
+    this.#trouble.set(row.linkId, reason)
+    this.#options.log({ level: 'warn', code: reason === 'BLOCKED' ? 'YT_CHAT_BLOCKED' : 'YT_CHAT_FORMAT' })
+  }
+
+  /**
+   * 예정 방송 (웹 읽기, AC3): 채팅을 부르지 않고 30초마다 방송 페이지로 상태만 본다. 진행 중이면 실제 시작 시각(없으면 지금)을 적고 바로 수집 시작,
+   * 아직 예정이면 다음 확인 시각, 끝났으면 채팅 끝남, 멈출 까닭이면 그 상태. 막힘·모르는 모양·연결 오류는 30초 뒤 다시 본다(막힘·모르는 모양은 경보)
+   */
+  async #webAwaitStart(row: CollectorRow, link: LinkRow): Promise<'again' | 'stop'> {
+    const { timer, owner, db } = this.#options
+    const later = async (): Promise<'again'> => {
+      await updateCollector(db, row.sellerId, row.linkId, { resumeAt: new Date(timer.now() + UPCOMING_CHECK_MS) }, new Date(timer.now()), owner)
+      return 'again'
+    }
+    const source = this.#options.web
+    if (source == null || source.off) {
+      await this.#setStatus(row, { status: 'STOPPED', reason: 'OPERATOR_OFF', resumeAt: null }, owner)
+      return 'stop'
+    }
+    let page: { state: PageState; startedAt: number | null }
+    try {
+      page = await source.page(link.videoId)
+    } catch (error) {
+      if (error instanceof WebChatError && error.kind === 'BLOCKED') this.#webTrouble(row, 'BLOCKED')
+      this.#options.log({ level: 'warn', code: 'COLLECTOR_ERROR', seller: row.sellerId, errorKind: error instanceof WebChatError ? `YoutubeWeb_${error.kind}` : errorKind(error) })
+      return await later()
+    }
+    if (page.state === 'LIVE') {
+      await markLinkStarted(db, row.sellerId, link.id, new Date(page.startedAt ?? timer.now()))
+      this.#trouble.delete(row.linkId)
+      await this.#setStatus(row, { status: 'STARTING', reason: null, resumeAt: null }, owner)
+      return 'again'
+    }
+    if (page.state === 'UPCOMING') return await later()
+    if (page.state === 'ENDED' || page.state === 'NOT_LIVE') {
+      await this.#chatEnded(row, link)
+      return 'stop'
+    }
+    const stop = PAGE_STOPS[page.state]
+    if (stop !== undefined) {
+      await this.#setStatus(row, { status: 'STOPPED', reason: stop, resumeAt: null }, owner)
+      return 'stop'
+    }
+    // 막힘·모르는 모양: 시작 확인을 30초 뒤 다시
+    this.#webTrouble(row, page.state === 'BLOCKED' ? 'BLOCKED' : 'FORMAT')
+    this.#options.log({ level: 'warn', code: 'COLLECTOR_ERROR', seller: row.sellerId, errorKind: `YoutubeWeb_${page.state}` })
+    return await later()
   }
 
   /**
@@ -778,6 +1048,8 @@ export class CollectorManager {
    */
   async #stillCollecting(tx: Db, row: CollectorRow, link: LinkRow): Promise<boolean> {
     if ((await activeLink(tx, row.sellerId, link.broadcastId))?.id !== row.linkId) return false
+    // 서버 웹 읽기는 구글 연결과 상관없다 — 그 회차에 지금 이어진 연결이면 기록한다 (D-YT-SRV-10)
+    if (row.mode === WEB_MODE) return true
     const connection = await connectionChannel(tx, row.sellerId)
     return connection !== null && connection.status === 'CONNECTED' && connection.channelId === link.channelId
   }
@@ -909,6 +1181,26 @@ export function parse(response: Record<string, unknown>, now: number): Parsed {
   }
 }
 
+/**
+ * 웹 읽기 응답 묶음 → 수집기 모양 (YT-11 AC4·AC9). 한 작성자 글 모두 지움은 D-Y10 숨김(차단) 알림 재료 — 영구/임시는 모른다(null).
+ * 그 알림의 이름은 같은 묶음에 그 시청자 글이 있으면 그 이름(정리), 없으면 빈 이름(알림이 "시청자"로 보인다)
+ */
+export function webParsed(batch: Extract<WebChatPoll, { kind: 'ok' }>): Parsed {
+  const nickOf = (channelId: string) => batch.chats.findLast((chat) => chat.ch === channelId)?.nick ?? ''
+  return {
+    chats: batch.chats.map((chat) => ({ id: chat.id, ch: chat.ch, nick: chat.nick, text: chat.text, owner: chat.owner, publishedAt: chat.publishedAt })),
+    own: [],
+    deleted: batch.deleted,
+    bans: batch.removedAuthors.map((channelId) => {
+      const nick = nickOf(channelId)
+      return { id: `author:${channelId}`, channelId, nick: nick === '' ? '' : sanitizeNick(nick), type: null, seconds: null }
+    }),
+    next: batch.next,
+    offline: false,
+    pollingMs: batch.timeoutMs,
+  }
+}
+
 export interface CollectorView {
   readonly status: CollectorStatus
   readonly statusMessage: string
@@ -941,7 +1233,7 @@ export function collectorView(row: CollectorRow, recorded?: number): CollectorVi
     skippedBeforeLink: row.skippedBeforeLink,
     gap: row.gap,
     gapMessage: row.gap ? GAP_MESSAGE : null,
-    restartable: status === 'STOPPED' && reason !== 'QUOTA' && reason !== null && !FINAL_REASONS.has(reason),
+    restartable: status === 'STOPPED' && reason !== 'QUOTA' && reason !== 'OPERATOR_OFF' && reason !== null && !FINAL_REASONS.has(reason),
   }
 }
 

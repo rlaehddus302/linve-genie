@@ -53,6 +53,9 @@ export type ErrorCode =
   // INV1 내 채널이 아닌 방송 잇기 — 확인 필요 (D-PHN-17·D-INV1-04)
   | 'INVITED_CONFIRM_NEEDED'
   | 'NO_LIVE_CHAT'
+  // YT-11 서버 잇기: 로그인 없이 볼 수 없는 방송(비공개·멤버 전용·연령 제한), 운영자가 유튜브 채팅 읽기를 끔 (D-YT-SRV-03·07)
+  | 'YOUTUBE_NOT_PUBLIC'
+  | 'YOUTUBE_WEB_CHAT_OFF'
   | 'VIDEO_IN_USE'
   | 'NOT_LINKED'
   | 'QUOTA_PAUSED'

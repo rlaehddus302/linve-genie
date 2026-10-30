@@ -14,7 +14,7 @@ import type { Service } from '../service.ts'
 import { CALLBACK_MESSAGES, NOT_CONNECTED_MESSAGE, type CallbackResult } from './connect.ts'
 import { SELLER_OUTBOX_MESSAGES } from './outbox.ts'
 import type { Sealer } from './seal.ts'
-import { LINK_MESSAGES, type LinkOutcome, type YoutubeSystem } from './system.ts'
+import { FIRST_CHANNEL_CONFIRM_MESSAGE, LINK_MESSAGES, type LinkOutcome, type YoutubeSystem } from './system.ts'
 import { parseVideoId } from './texts.ts'
 
 export const CALLBACK_PATH = '/api/youtube/oauth/callback'
@@ -46,7 +46,8 @@ function linkResponse(c: Context, outcome: LinkOutcome): Response {
   if (outcome.kind === 'not_found') return notFound()
   if (outcome.kind === 'rejected') return apiError(outcome.status, outcome.code as ErrorCode, LINK_MESSAGES[outcome.code])
   // 내 채널이 아닌 방송: 잇지 않았다 — 채널 이름(바깥 글)을 함께 돌려주고 화면이 확인 줄을 띄운다 (D-PHN-17·D-INV1-04)
-  if (outcome.kind === 'confirm') return apiError(409, 'INVITED_CONFIRM_NEEDED', LINK_MESSAGES.INVITED_CONFIRM_NEEDED, [], { channel: outcome.channel })
+  // 서버 잇기(YT-11)는 처음 잇는 채널일 때 같은 코드·같은 확인 방식으로 문장만 다르다 (D-YT-SRV-03)
+  if (outcome.kind === 'confirm') return apiError(409, 'INVITED_CONFIRM_NEEDED', outcome.firstChannel === true ? FIRST_CHANNEL_CONFIRM_MESSAGE : LINK_MESSAGES.INVITED_CONFIRM_NEEDED, [], { channel: outcome.channel })
   return c.json(outcome.view)
 }
 
@@ -67,10 +68,11 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
   // ── 구글 연결 (AC-Y1-01~06·31) ────────────────────────────────────────
   api.get('/youtube/connection', async (c) => {
     if (youtube === null) return notConfigured()
-    return c.json({ connection: await youtube.status(sellerOf(c)) })
+    // webChat: 서버가 방송 주소만으로 채팅을 읽는가(YT-11 — 구글 연결 없이 잇기 칸을 연다, 옛 공식 읽기면 null), oauth: 구글 연결(감사 게시용)을 쓸 수 있는가
+    return c.json({ connection: await youtube.status(sellerOf(c)), webChat: youtube.webChatView(), oauth: youtube.oauthReady })
   })
   api.post('/youtube/connection/start', async (c) => {
-    if (youtube === null) return notConfigured()
+    if (youtube === null || !youtube.oauthReady) return notConfigured()
     const extra = onlyKeys(body(c), [])
     if (extra !== null) return extra
     return c.json({ authorizeUrl: await youtube.connections.start(info(c), 'connect') })
@@ -80,7 +82,7 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     const current = await auth.session(getCookie(c, SESSION_COOKIE))
     // 보조자 계정은 유튜브 경로를 쓰지 않는다 (AC-I3-61 — 세션을 강제하지 않는 이 경로도)
     if (current?.role === 'ASSISTANT') return apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
-    if (youtube === null) return notConfigured()
+    if (youtube === null || !youtube.oauthReady) return notConfigured()
     const code = c.req.query('code')
     const state = c.req.query('state')
     const error = c.req.query('error')
@@ -98,7 +100,7 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     return c.json({ connection: await youtube.connections.disconnect(sellerOf(c)) })
   })
   api.put('/youtube/consent', async (c) => {
-    if (youtube === null) return notConfigured()
+    if (youtube === null || !youtube.oauthReady) return notConfigured()
     const input = body(c)
     const extra = onlyKeys(input, ['target', 'enabled'])
     if (extra !== null) return extra
