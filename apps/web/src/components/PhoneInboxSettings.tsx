@@ -23,6 +23,7 @@ import {
   INBOX_RENEW_QUESTION,
   INBOX_SHORTCUT_LINK,
   INBOX_SHORTCUT_STEPS,
+  shortcutStepParts,
   INBOX_TOKEN_ONCE,
   INBOX_TURN_OFF,
   INBOX_TURN_ON,
@@ -216,7 +217,9 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
       <div id={guideId} className="stack-tight inbox-shortcut" hidden={!guide}>
         <ol>
           {INBOX_SHORTCUT_STEPS.map((step) => (
-            <li key={step}>{step}</li>
+            <li key={step}>
+              {shortcutStepParts(step).map((part, index) => (part.value ? <code key={index}>{part.text}</code> : <span key={index}>{part.text}</span>))}
+            </li>
           ))}
         </ol>
         <p>

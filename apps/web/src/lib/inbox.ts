@@ -45,14 +45,34 @@ export const INBOX_NEVER = '아직 받은 것이 없어요.'
 export const INBOX_ANDROID_HINT = `안드로이드: ${SERVICE_NAME} 앱 → 설정 → "휴대폰 알림 받기"에서 켜고, 알림 읽기를 허용해 주세요. 앱이 토큰을 알아서 넣어요.`
 export const INBOX_IPHONE_HINT = '아이폰: 은행 앱 알림은 받을 수 없어요. 단축어로 손님 문자와 은행 문자만 보낼 수 있어요.'
 export const INBOX_SHORTCUT_LINK = '아이폰 단축어 만들기 안내'
-/** 단축어 만들기 안내 (아이폰은 앱이 다른 앱 알림을 읽을 수 없다 — D-SMS3-02 ③) */
+/**
+ * 단축어 만들기 안내 (아이폰은 앱이 다른 앱 알림을 읽을 수 없다 — D-SMS3-02 ③, 판매자에게 보이는 아이폰 안내는 이것 하나 — D-SMS3-23).
+ * 기기 입구(ORD-13 C-04)는 JSON `{ device, messages: [{ id, channel, from, text, receivedAt }] }`만 받는다 — 모양이 다르면 400이라 문자를 모두 잃는다.
+ * 그래서 단축어 화면에 실제로 넣는 칸 이름·값을 그대로 적는다. 앱(apps/mobile PhoneNoticeCard)도 같은 글을 보인다 — 바꾸면 둘 다. `…`로 감싼 글은 단축어 화면에 글자 그대로 넣는 값이다(화면은 코드 글꼴로 보인다).
+ */
 export const INBOX_SHORTCUT_STEPS: readonly string[] = [
-  '단축어 앱 → 자동화 → 새로 만들기 → "메시지"를 고르세요.',
-  '"메시지에 다음이 포함된 경우"는 비워 두고 "즉시 실행"을 켜세요.',
-  `동작에 "URL 콘텐츠 가져오기"를 넣고 주소에 아래 ${SERVICE_NAME} 받는 주소를 넣으세요.`,
-  '방법은 POST, 머리글 이름 Authorization, 값은 "Bearer " 뒤에 위 토큰을 붙여 넣으세요.',
-  '본문에 보낸 사람·내용·받은 시각을 이어 주세요. 끝나면 손님 문자 하나로 시험해 보세요.',
+  '단축어 앱 → 자동화 → 새로 만들기 → "메시지"를 고르세요. 보낸 사람·내용 조건은 비워 두고 "즉시 실행"을 켜세요.',
+  `동작에 "URL 콘텐츠 가져오기"를 넣고, URL에 ${SERVICE_NAME} 설정 "휴대폰 알림 받기"의 받는 주소를 넣으세요.`,
+  '동작을 펼쳐 방법을 `POST`로 바꾸세요.',
+  '헤더에 하나를 더하세요. 키는 `Authorization`, 값은 `Bearer` 뒤에 한 칸 띄고 설정에서 만든 받기 토큰을 붙여 넣으세요.',
+  '요청 본문을 `JSON`으로 고르고 칸 두 개를 더하세요. `device`(텍스트) = 휴대폰 이름(예: 내 아이폰), `messages`(배열).',
+  '`messages` 안에 "사전" 하나를 더하고, 그 안에 칸 다섯 개를 넣으세요.',
+  '`id`(텍스트) = 보낸 사람과 현재 날짜(초까지)를 이어 붙인 글 — 문자마다 달라야 해요.',
+  '`channel`(텍스트) = `SMS`',
+  '`from`(텍스트) = 단축어 입력의 "보낸 사람"',
+  '`text`(텍스트) = 단축어 입력의 "내용"',
+  '`receivedAt`(텍스트) = 현재 날짜 (날짜 형식은 "ISO 8601")',
+  '칸 이름은 위 영어 글자를 대소문자까지 똑같이 적어 주세요. 하나라도 다르면 문자를 하나도 받지 못해요.',
+  '다 만들면 손님 문자 하나로 시험해 보세요. 설정 "휴대폰 알림 받기"의 "마지막으로 받은 시각"이 바뀌면 잘 된 거예요.',
 ]
+
+/** 안내 한 단계를 글·값 조각으로 (`…`로 감싼 조각은 단축어에 그대로 넣는 값) */
+export function shortcutStepParts(step: string): { readonly text: string; readonly value: boolean }[] {
+  return step
+    .split('`')
+    .map((text, index) => ({ text, value: index % 2 === 1 }))
+    .filter((part) => part.text !== '')
+}
 
 /** 마지막으로 받은 줄: "마지막으로 받은 시각 10월 31일 오후 8:01 · 김사장 갤럭시" */
 export function lastReceivedWords(view: Pick<InboxSettingsView, 'lastReceivedAt' | 'lastDevice'>): string {
@@ -87,6 +107,16 @@ export function inboxReasonWords(card: Pick<InboxCardView, 'kind' | 'why' | 'num
     default:
       return card.message.trim() === '' ? '확인해 주세요' : card.message
   }
+}
+
+/** 이름만 온 문자의 취소 요청 안내 (D-SMS3-19) — "승인" 없이 이 문장과 "무시"만 */
+export const INBOX_CANCEL_NAME_ONLY = `${INBOX_NAME_ONLY}. 보드에서 직접 취소해 주세요`
+
+/** 승인할 수 없는 취소 요청: 이름만 온 문자(뒤 4자리 없음)는 보낸 손님을 정할 수 없다 (D-SMS3-19). 서버가 승인 불가 값을 주면 그것도 따른다 */
+export function cancelNeedsBoard(card: Pick<InboxCardView, 'kind' | 'last4'> & { readonly approvable?: unknown; readonly canApprove?: unknown }): boolean {
+  if (card.kind !== 'CANCEL') return false
+  if (card.approvable === false || card.canApprove === false) return true
+  return card.last4 === null || card.last4.trim() === ''
 }
 
 /** 보낸 사람 줄: "뒤 4자리 5678" 또는 이름만 */
@@ -212,8 +242,24 @@ export function setInboxEnabled(enabled: boolean): Promise<InboxSettingsView> {
   return put<{ inbox: InboxSettingsView }>(INBOX_PATHS.settings, { enabled }).then((result) => result.inbox)
 }
 
-export function fetchInboxCards(broadcast: string): Promise<readonly InboxCardView[]> {
-  return get<{ cards: InboxCardView[] }>(INBOX_PATHS.cards(broadcast)).then((result) => result.cards)
+/** "문자 확인" 칸 읽기: 카드 · 휴대폰 알림으로 넣은 찜 ID("문자로 받음") · 방송 시작 시각(받기 멈춤 알림) */
+export interface InboxCardsResult {
+  readonly cards: readonly InboxCardView[]
+  readonly claimIds: ReadonlySet<string>
+  readonly startedAt: string | null
+}
+
+/** 서버 응답을 읽는다 — 모양이 다른 값(옛 서버)은 빈 것으로 (표시만 빠지고 판정·보드는 그대로) */
+export function readInboxCards(raw: { readonly cards?: unknown; readonly inboxClaimIds?: unknown; readonly startedAt?: unknown }): InboxCardsResult {
+  const cards = Array.isArray(raw.cards) ? (raw.cards as InboxCardView[]) : []
+  const claimIds = new Set<string>()
+  if (Array.isArray(raw.inboxClaimIds)) for (const id of raw.inboxClaimIds as unknown[]) if (typeof id === 'string') claimIds.add(id)
+  const startedAt = typeof raw.startedAt === 'string' && Number.isFinite(Date.parse(raw.startedAt)) ? raw.startedAt : null
+  return { cards, claimIds, startedAt }
+}
+
+export function fetchInboxCards(broadcast: string): Promise<InboxCardsResult> {
+  return get<{ cards?: unknown; inboxClaimIds?: unknown; startedAt?: unknown }>(INBOX_PATHS.cards(broadcast)).then(readInboxCards)
 }
 
 export interface InsertInput {
@@ -268,11 +314,12 @@ export function parseInboxEvent(raw: unknown): InboxStreamEvent | null {
 }
 
 /**
- * 휴대폰 알림으로 넣은 문자찜의 찜 ID ("문자로 받음"): 찜 보기에 엔진 ref가 오고 `ibx_`로 시작하면.
- * 찜 보기에 ref가 없는 서버면 빈 모음 — 표시만 빠지고 판정·보드는 그대로다.
+ * 휴대폰 알림으로 넣은 문자찜의 찜 ID ("문자로 받음"): 서버 cards 응답의 `inboxClaimIds`에 있는 문자찜,
+ * 또는 찜 보기에 엔진 ref가 오고 `ibx_`로 시작하면. 둘 다 없으면 빈 모음 — 표시만 빠지고 판정·보드는 그대로다.
  */
-export function inboxClaimIds(claims: Iterable<{ readonly id: string; readonly origin: string }>): ReadonlySet<string> {
+export function inboxClaimIds(claims: Iterable<{ readonly id: string; readonly origin: string }>, fromServer: ReadonlySet<string> = new Set()): ReadonlySet<string> {
   const out = new Set<string>()
+  for (const claim of claims) if (claim.origin === 'sms' && fromServer.has(claim.id)) out.add(claim.id)
   for (const claim of claims) {
     const ref = (claim as { readonly ref?: unknown }).ref
     if (claim.origin === 'sms' && typeof ref === 'string' && ref.startsWith(INBOX_REF_PREFIX)) out.add(claim.id)

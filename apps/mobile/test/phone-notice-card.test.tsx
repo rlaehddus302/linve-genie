@@ -7,6 +7,8 @@ import {
   PHONE_NOTICE_ACCESS_OFF,
   PHONE_NOTICE_GO,
   PHONE_NOTICE_IPHONE,
+  PHONE_NOTICE_SHORTCUT_GUIDE,
+  PHONE_NOTICE_SHORTCUT_STEPS,
   PHONE_NOTICE_RENEW_QUESTION,
   PHONE_NOTICE_SHEET,
   PHONE_NOTICE_TOKEN_AGAIN,
@@ -122,6 +124,21 @@ describe('휴대폰 알림 받기 칸 (AC-SMS3-29)', () => {
     expect(await screen.findByText(PHONE_NOTICE_IPHONE)).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '단축어 앱 열기' }))
     await waitFor(() => expect(port.opened).toEqual(['shortcuts']))
+  })
+
+  it('아이폰 단축어 안내는 웹 설정의 한 가지("URL 콘텐츠 가져오기"에 토큰)뿐이고, 꺼져 있으면 앱에서 켜지 않는다 (D-SMS3-23)', async () => {
+    const world = makeWorld()
+    const port = new FakePort({ platform: 'ios', access: 'shortcut', enabled: false, hasToken: false })
+    setNoticeModule(port)
+    render(world.wrap(<PhoneNoticeCard />))
+    expect(await screen.findByText(PHONE_NOTICE_SHORTCUT_GUIDE)).toBeDefined()
+    expect(PHONE_NOTICE_SHORTCUT_GUIDE).toContain('URL 콘텐츠 가져오기')
+    expect(PHONE_NOTICE_SHORTCUT_GUIDE).not.toContain('문자 보내기')
+    // 웹 설정 안내와 같은 순서: 기기 입구 JSON 칸 이름 그대로 (SA-SMS3-004)
+    const all = PHONE_NOTICE_SHORTCUT_STEPS.join('\n')
+    for (const value of ['`POST`', '`Authorization`', '`Bearer`', '`JSON`', '`device`', '`messages`', '`id`', '`channel`', '`SMS`', '`from`', '`text`', '`receivedAt`']) expect(all).toContain(value)
+    expect(screen.getByText(/키는/).textContent).toContain('"Authorization"')
+    expect(screen.queryByRole('button', { name: '켜기' })).toBeNull()
   })
 
   it('상태 한 줄', () => {
