@@ -164,6 +164,7 @@ export type ErrorCode =
   | 'NO_CLAIM'
   | 'CARD_DONE'
   | 'NAME_ONLY'
+  | 'INBOX_OFF'
   // T1 택배 자동 접수 (PARCEL_RULES PC-3~PC-8)
   | 'PARCEL_BLOCKED'
   | 'PARCEL_LOCKED'

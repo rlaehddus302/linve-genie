@@ -2227,7 +2227,7 @@ export const voiceAliases = pgTable('voice_aliases', {
 
 /**
  * 휴대폰 알림 받기 설정 (SMS3 ORD-13 C-02, D-SMS3-04): 판매자마다 한 행. 받기 토큰은 SHA-256 해시만 둔다(원문 없음).
- * 다시 만들면 해시가 바뀌어 옛 토큰은 바로 무효, 끄면(enabled=false) 모든 요청 401. 마지막으로 받은 시각·기기 이름(C-04 device)은 설정 화면·받기 멈춤 알림용
+ * 다시 만들면 해시가 바뀌어 옛 토큰은 바로 무효, 끄면(enabled=false) 그 토큰의 요청은 403 INBOX_OFF(해시는 그대로 — D-SMS3-27). 마지막으로 받은 시각·기기 이름(C-04 device)은 설정 화면·받기 멈춤 알림용
  */
 export const inboxSettings = pgTable(
   'inbox_settings',
@@ -2240,6 +2240,10 @@ export const inboxSettings = pgTable(
     tokenCreatedAt: timestamptz('token_created_at'),
     lastReceivedAt: timestamptz('last_received_at'),
     lastDevice: text('last_device'),
+    /** 12시간 넘은 방송 때문에 넣지 않은 손님 문자 (D-SMS3-29 — 본문 없음): 그 방송 ID·마지막으로 온 시각·건수(알림을 닫으면 0) */
+    staleBroadcastId: text('stale_broadcast_id'),
+    staleLastAt: timestamptz('stale_last_at'),
+    staleCount: integer('stale_count').notNull().default(0),
     updatedAt: timestamptz('updated_at').notNull(),
   },
   (t) => [uniqueIndex('inbox_settings_token_uq').on(t.tokenHash)],
@@ -2275,7 +2279,7 @@ export const inboxSmsSeen = pgTable(
 )
 
 /**
- * 문자 확인 카드 (SMS3 ORD-13 "문자 확인 목록", D-SMS3-12·13): 확인 필요(REVIEW — why UNCLEAR·NO_NUMBER·OPTIONS·NOT_ON_SALE)와 취소 요청(CANCEL).
+ * 문자 확인 카드 (SMS3 ORD-13 "문자 확인 목록", D-SMS3-12·13): 확인 필요(REVIEW — why UNCLEAR·NO_NUMBER·OPTIONS·NOT_ON_SALE·LATE·REJECTED)와 취소 요청(CANCEL).
  * 본문·보낸 번호·보낸 이름은 sealed에만(판매자에 묶어 마스터 키로 AES-256-GCM). 처리(넣기·승인·무시)하면 sealed를 바로 지우고,
  * 처리하지 않은 카드는 방송이 끝나고 24시간 뒤 행째 지운다(C-07). numbers = 번호 후보 JSON 배열, memo = R-26이 읽은 이름(한글)
  */
@@ -2296,8 +2300,10 @@ export const inboxCards = pgTable(
     memo: text('memo'),
     last4: text('last4'),
     sealed: text('sealed'),
-    /** 휴대폰이 받은 시각 (UTC) */
+    /** 휴대폰이 받은 시각 (UTC) — 늦게 온 문자(late)는 읽을 수 있던 원래 값 */
     receivedAt: timestamptz('received_at').notNull(),
+    /** 늦게 온 문자에서 나온 카드 (D-SMS3-30) — 넣기의 받은 시각은 created_at(서버 도착) */
+    late: boolean('late').notNull().default(false),
     /** OPEN 처리 전 · DONE 넣기·승인 · IGNORED 무시 */
     status: text('status').notNull(),
     createdAt: timestamptz('created_at').notNull(),
