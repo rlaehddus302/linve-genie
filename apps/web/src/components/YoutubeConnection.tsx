@@ -3,14 +3,30 @@
 //   다시 연결 필요("다시 연결하기", 동의가 켜져 있으면 글쓰기 권한 안내).
 // - 연결하기는 서버가 준 승인 주소로 같은 탭에서 최상위 이동한다(저장·기록 없음). 돌아온 결과 문장은 화면 낭독기가 읽는 상태 영역에 한 번.
 // - 연결 상태는 늘 서버로 다시 읽는다(결과 코드로 짐작하지 않는다). 영문 상태값·권한 주소·인증 정보는 화면에 없다.
+// - 서버가 방송 주소만으로 채팅을 읽으면(연결 응답 webChat, YT-11 D-YT-SRV-11): 첫 줄 "방송할 때 방송 주소만 넣으면 채팅을 받아요."와
+//   운영자 끔 안내, 그 아래 "감사 채팅을 올리려면 (선택)" 칸에 구글 연결(보조 버튼 — 마법사에서도 건너뛸 수 있다). oauth=false면 버튼 대신 안내.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, post, type ApiError } from '../api/client.ts'
-import type { BroadcastItem, LinkView, QuotaView, YoutubeConnection } from '../api/types.ts'
+import type { BroadcastItem, LinkView, QuotaView, YoutubeConnection, YoutubeConnectionResponse, YoutubeWebChat } from '../api/types.ts'
 import { goToGoogle, type GoogleReturn } from '../lib/google-return.ts'
 import { kstDateTimeWords } from '../lib/kst.ts'
 import { groupDigits } from '../lib/money.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
-import { NOT_CONFIGURED_MESSAGE, QUOTA_MODE_SENTENCE, RECONNECT_NEEDED_MESSAGE, callbackMessage, callbackSucceeded, hasChannel } from '../lib/youtube.ts'
+import {
+  GOOGLE_FOR_THANKS,
+  GOOGLE_FOR_THANKS_TITLE,
+  GOOGLE_NOT_READY,
+  NOT_CONFIGURED_MESSAGE,
+  QUOTA_MODE_SENTENCE,
+  RECONNECT_FOR_THANKS,
+  RECONNECT_NEEDED_MESSAGE,
+  WEB_CHAT_INTRO,
+  WEB_CHAT_OFF_MESSAGE,
+  callbackMessage,
+  callbackSucceeded,
+  hasChannel,
+  readModeOf,
+} from '../lib/youtube.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 import { SERVICE_NAME } from '../brand.ts'
@@ -19,13 +35,41 @@ export type ConnectionState =
   | { readonly phase: 'loading' }
   | { readonly phase: 'notConfigured' }
   | { readonly phase: 'error'; readonly error: ApiError }
-  | { readonly phase: 'ready'; readonly connection: YoutubeConnection }
+  | {
+      readonly phase: 'ready'
+      readonly connection: YoutubeConnection
+      /** 서버가 방송 주소만으로 채팅을 읽는가 (YT-11) — null이면 옛 공식 읽기 */
+      readonly webChat?: YoutubeWebChat | null
+      /** 구글 연결(감사 채팅용)을 쓸 수 있는 서버인가 — 없으면 쓸 수 있음(옛 서버) */
+      readonly oauth?: boolean
+    }
 
 export interface ConnectionHandle {
   readonly state: ConnectionState
   readonly connection: YoutubeConnection | null
   readonly reload: () => Promise<void>
+  /** 알림·쓰기 응답으로 받은 연결 — 서버 읽기·구글 연결 가능 여부는 앞에 받은 값을 그대로 둔다 */
   readonly set: (connection: YoutubeConnection) => void
+}
+
+/** 연결 응답 → 준비된 상태 (서버 읽기·구글 연결 가능 여부를 함께) */
+export function readyState(body: YoutubeConnectionResponse): ConnectionState {
+  return { phase: 'ready', connection: body.connection, ...readModeOf(body) }
+}
+
+/** 알림으로 받은 연결로 바꾼다 — 서버 읽기·구글 연결 가능 여부(연결 응답에만 있다)는 그대로 */
+export function withConnection(state: ConnectionState, connection: YoutubeConnection): ConnectionState {
+  return state.phase === 'ready' ? { ...state, connection } : { phase: 'ready', connection }
+}
+
+/** 서버가 방송 주소만으로 읽는가 (준비된 상태에서만) */
+export function webChatOf(state: ConnectionState): YoutubeWebChat | null {
+  return state.phase === 'ready' ? (state.webChat ?? null) : null
+}
+
+/** 구글 연결(감사 채팅용)을 쓸 수 있는가 */
+export function oauthOf(state: ConnectionState): boolean {
+  return state.phase !== 'ready' || state.oauth !== false
 }
 
 /** 연결 상태 (GET /api/youtube/connection — 503 YOUTUBE_NOT_CONFIGURED면 준비 안 된 서버) */
@@ -35,8 +79,8 @@ export function useYoutubeConnection(enabled = true): ConnectionHandle {
   const reload = useCallback(async () => {
     const mine = ++version.current
     try {
-      const { connection } = await get<{ connection: YoutubeConnection }>('/api/youtube/connection')
-      if (mine === version.current) setState({ phase: 'ready', connection })
+      const body = await get<YoutubeConnectionResponse>('/api/youtube/connection')
+      if (mine === version.current) setState(readyState(body))
     } catch (error) {
       if (!isApiError(error) || mine !== version.current) return
       setState(error.code === 'YOUTUBE_NOT_CONFIGURED' ? { phase: 'notConfigured' } : { phase: 'error', error })
@@ -44,7 +88,7 @@ export function useYoutubeConnection(enabled = true): ConnectionHandle {
   }, [])
   const set = useCallback((connection: YoutubeConnection) => {
     version.current++
-    setState({ phase: 'ready', connection })
+    setState((current) => withConnection(current, connection))
   }, [])
   useEffect(() => {
     if (enabled) void reload()
@@ -78,16 +122,27 @@ export function useQuota(enabled: boolean): QuotaHandle {
   return { quota, reload, setMode }
 }
 
-/** 권한 안내 (연결 안 됨·다시 연결 필요일 때 버튼 위, AC-I3-01) */
-export function PermissionGuide({ navigate, place }: { readonly navigate: Navigate; readonly place: 'settings' | 'wizard' }) {
+/**
+ * 권한 안내 (연결 안 됨·다시 연결 필요일 때 버튼 위, AC-I3-01).
+ * 서버가 방송 주소만으로 채팅을 읽으면(web) 구글 연결은 감사 채팅용이라 "채팅 읽기"를 할 수 있는 일에 넣지 않는다 (D-YT-SRV-01·11)
+ */
+export function PermissionGuide({ navigate, place, web = false }: { readonly navigate: Navigate; readonly place: 'settings' | 'wizard'; readonly web?: boolean }) {
   return (
     <div className="permission-guide stack-tight">
       <p>연결하면 {SERVICE_NAME}가 할 수 있는 일:</p>
-      <ul>
-        <li>내 채널 이름 보기</li>
-        <li>내 라이브 방송 목록 보기</li>
-        <li>방송 채팅 읽기(찜 받기)</li>
-      </ul>
+      {web ? (
+        <ul>
+          <li>내 채널 이름 보기</li>
+          <li>감사 채팅을 내 채널 이름으로 올리기 (따로 동의할 때만)</li>
+        </ul>
+      ) : (
+        <ul>
+          <li>내 채널 이름 보기</li>
+          <li>내 라이브 방송 목록 보기</li>
+          <li>방송 채팅 읽기(찜 받기)</li>
+        </ul>
+      )}
+      {web ? <p>채팅 받기에는 구글 연결을 쓰지 않아요.</p> : null}
       <p>연결만으로는 내 채널에 글을 쓰지 않아요.</p>
       <p>
         {place === 'settings'
@@ -182,19 +237,44 @@ export interface YoutubeStatusProps {
 
 /** 연결 상태 본문 (설정·마법사) */
 export function YoutubeStatus({ handle, quota, navigate, place }: YoutubeStatusProps) {
-  const [disconnecting, setDisconnecting] = useState(false)
   const { state } = handle
   if (state.phase === 'loading') return <p role="status">불러오는 중…</p>
   if (state.phase === 'notConfigured') return <p className="notice">{NOT_CONFIGURED_MESSAGE}</p>
   if (state.phase === 'error') return <ErrorNote error={state.error} onRetry={() => void handle.reload()} retryLabel="다시 불러오기" />
-  const { connection } = state
+  const webChat = state.webChat ?? null
+  if (webChat === null) return <GoogleStatus handle={handle} connection={state.connection} quota={quota} navigate={navigate} place={place} web={false} />
+  // 서버가 방송 주소만으로 읽는다 (YT-11, D-YT-SRV-11): 첫 줄은 "방송 주소만", 구글 연결은 감사 채팅을 올리려는 판매자만의 선택 칸
+  return (
+    <div className="stack">
+      <p className="web-chat-intro">
+        <strong>{WEB_CHAT_INTRO}</strong>
+      </p>
+      {webChat.on ? null : (
+        <p className="warning" role="note">
+          {WEB_CHAT_OFF_MESSAGE}
+        </p>
+      )}
+      <section className="stack-tight google-optional" aria-label={GOOGLE_FOR_THANKS_TITLE}>
+        <h3 className="sub-title">{GOOGLE_FOR_THANKS_TITLE}</h3>
+        <p>{GOOGLE_FOR_THANKS}</p>
+        {state.oauth === false ? <p className="notice">{GOOGLE_NOT_READY}</p> : <GoogleStatus handle={handle} connection={state.connection} quota={quota} navigate={navigate} place={place} web />}
+      </section>
+    </div>
+  )
+}
+
+/** 구글 연결 본문. web = 서버가 읽는다 — 구글 연결은 감사 채팅용 선택이라 주 버튼이 아니고, "다시 연결 필요"여도 채팅은 받는다 */
+function GoogleStatus({ handle, connection, quota, navigate, place, web }: YoutubeStatusProps & { readonly connection: YoutubeConnection; readonly web: boolean }) {
+  const [disconnecting, setDisconnecting] = useState(false)
   const from: GoogleReturn | null = place === 'wizard' ? 'wizard' : null
+  // 주 버튼은 화면에 하나까지 — 선택 칸이 된 구글 연결은 마법사에서도 보조 버튼 (마법사의 주 버튼은 "다음")
+  const primary = place === 'wizard' && !web
   if (connection.status === 'NOT_CONNECTED') {
     return (
       <div className="stack">
         <p>유튜브 채널이 아직 연결되지 않았어요.</p>
-        <PermissionGuide navigate={navigate} place={place} />
-        <ConnectButton label="구글로 유튜브 연결하기" from={from} primary={place === 'wizard'} />
+        <PermissionGuide navigate={navigate} place={place} web={web} />
+        <ConnectButton label="구글로 유튜브 연결하기" from={from} primary={primary} />
       </div>
     )
   }
@@ -209,11 +289,11 @@ export function YoutubeStatus({ handle, quota, navigate, place }: YoutubeStatusP
       {connection.status === 'RECONNECT_NEEDED' ? (
         <>
           <p className="warning" role="note">
-            {RECONNECT_NEEDED_MESSAGE}
+            {web ? RECONNECT_FOR_THANKS : RECONNECT_NEEDED_MESSAGE}
           </p>
           {consentOn ? <p>구글 화면에 글쓰기 권한도 함께 나와요. 빼고 허락하면 자동 게시가 꺼져요.</p> : null}
-          <PermissionGuide navigate={navigate} place={place} />
-          <ConnectButton label="다시 연결하기" from={from} primary={place === 'wizard'} />
+          <PermissionGuide navigate={navigate} place={place} web={web} />
+          <ConnectButton label="다시 연결하기" from={from} primary={primary} />
         </>
       ) : (
         <ul className="plain-list">
@@ -232,6 +312,7 @@ export function YoutubeStatus({ handle, quota, navigate, place }: YoutubeStatusP
       ) : null}
       {disconnecting ? (
         <DisconnectDialog
+          web={web}
           onClose={() => setDisconnecting(false)}
           onDone={(next) => {
             setDisconnecting(false)
@@ -259,12 +340,16 @@ async function collectingTitles(): Promise<string[]> {
   return views.filter(({ view }) => view?.link !== null && view?.link !== undefined).map(({ item }) => item.title)
 }
 
-/** 연결 끊기 확인 (AC-I3-03): 처음 포커스·Esc는 "그대로 두기" — 그때는 아무 요청도 보내지 않는다 */
-function DisconnectDialog({ onClose, onDone }: { readonly onClose: () => void; readonly onDone: (connection: YoutubeConnection) => void }) {
+/**
+ * 연결 끊기 확인 (AC-I3-03): 처음 포커스·Esc는 "그대로 두기" — 그때는 아무 요청도 보내지 않는다.
+ * 서버가 읽으면(web) 끊어도 채팅은 그대로 받는다 — 채팅을 받는 방송 목록을 찾지 않는다 (D-YT-SRV-10)
+ */
+function DisconnectDialog({ web, onClose, onDone }: { readonly web: boolean; readonly onClose: () => void; readonly onDone: (connection: YoutubeConnection) => void }) {
   const [titles, setTitles] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   useEffect(() => {
+    if (web) return
     let alive = true
     collectingTitles().then(
       (list) => {
@@ -275,7 +360,7 @@ function DisconnectDialog({ onClose, onDone }: { readonly onClose: () => void; r
     return () => {
       alive = false
     }
-  }, [])
+  }, [web])
   const disconnect = async () => {
     if (busy) return
     setBusy(true)
@@ -300,7 +385,7 @@ function DisconnectDialog({ onClose, onDone }: { readonly onClose: () => void; r
         </button>
       }
     >
-      <p>끊으면 진행 중인 방송의 채팅 수집과 감사 메시지 자동 게시가 멈추고, 자동 게시 동의도 지워져요.</p>
+      <p>{web ? '끊으면 감사 메시지 자동 게시가 멈추고, 자동 게시 동의도 지워져요. 채팅은 그대로 받아요.' : '끊으면 진행 중인 방송의 채팅 수집과 감사 메시지 자동 게시가 멈추고, 자동 게시 동의도 지워져요.'}</p>
       <p>이미 받은 찜과 판매 기록은 그대로예요.</p>
       {titles.map((title) => (
         <p key={title} className="warning">

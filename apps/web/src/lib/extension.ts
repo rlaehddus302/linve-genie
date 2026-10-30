@@ -8,6 +8,12 @@ export const EXTENSION_ROUTE = {
   BOTH: '공식 연결·확장 둘 다로 받는 중',
 } as const
 
+/** 서버가 유튜브 채팅을 읽을 때(수집 방식 WEB, YT-11)의 받는 길 문장 — "공식 연결" 자리 (YT-10 서버 수집과 함께, D-YT-SRV-11) */
+export const SERVER_ROUTE = {
+  SERVER: '서버 연결로 받는 중',
+  BOTH: '서버 연결·확장 둘 다로 받는 중',
+} as const
+
 /** 설정 확장 칸의 틱톡 문장 (TTX D-TTX-17 — 화면 문구 표 글자 그대로, "서버" 낱말 없이) */
 export const EXTENSION_TIKTOK_LINE = '틱톡도 같은 확장으로 받을 수 있어요. 틱톡 연결이 막혔을 때 이 크롬에서 내 틱톡 방송 화면을 열어 두면 확장이 댓글을 대신 읽어 보내요.'
 
@@ -66,12 +72,13 @@ export function extensionOnBroadcast(view: ExtensionView | null, broadcastId: st
   return view !== null && view.connected && view.broadcasts.includes(broadcastId)
 }
 
-/** 콘솔 유튜브 칸의 받는 경로 한 줄 (AC8). 둘 다 아니면 null */
+/** 콘솔 유튜브 칸의 받는 경로 한 줄 (AC8). 둘 다 아니면 null. 서버가 읽는 수집기(WEB)면 "서버 연결로 …" (D-YT-SRV-11) */
 export function routeWords(collector: CollectorView | null, view: ExtensionView | null, broadcastId: string): string | null {
   const official = collector !== null && collector.status === 'LIVE'
+  const server = collector !== null && collector.mode === 'WEB'
   const extension = extensionReceiving(view, broadcastId)
-  if (official && extension) return EXTENSION_ROUTE.BOTH
-  if (official) return EXTENSION_ROUTE.OFFICIAL
+  if (official && extension) return server ? SERVER_ROUTE.BOTH : EXTENSION_ROUTE.BOTH
+  if (official) return server ? SERVER_ROUTE.SERVER : EXTENSION_ROUTE.OFFICIAL
   if (extension) return EXTENSION_ROUTE.EXTENSION
   return null
 }

@@ -47,7 +47,8 @@ import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './Aler
 import { ChatPanel } from './ChatPanel.tsx'
 import { MultiPlatformNotice, PlatformPanels, platformLeads, useConsolePlatforms } from './ConsolePlatforms.tsx'
 import { ExtensionRouteLine, ExtensionThanksBar, ExtensionWarningBar, useExtension } from './ExtensionConnection.tsx'
-import { invitedChannelName } from '../lib/youtube.ts'
+import { extensionReceiving } from '../lib/extension.ts'
+import { YOUTUBE_PASTE_GUIDE, invitedChannelName } from '../lib/youtube.ts'
 import { AuthorizeDialog, CollectorWarningBar, OutboxDialog, QuotaToast, UnlinkDialog, YoutubeContext, YoutubePanel, useConsoleYoutube } from './ConsoleYoutube.tsx'
 import { Lock } from './Lock.tsx'
 import { SealedNotice } from './SealNotice.tsx'
@@ -246,6 +247,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   // 인스타그램·틱톡 (N2b-2): 플랫폼 칸·알림 줄·붙여넣기 창
   const live = useConsolePlatforms({ store, broadcastId, date: broadcast.date, rehearsal: broadcast.rehearsal, lastMessageSeq: snapshot.messages.at(-1)?.seq ?? 0 })
   const [pasteOpen, setPasteOpen] = useState(false)
+  // 유튜브 수집 경고(서버 읽기 막힘 등)에서 연 붙여넣기 창은 유튜브 안내로 (YT-11 AC8, D-YT-SRV-09) — 같은 창·같은 넣기
+  const [pasteGuide, setPasteGuide] = useState<string | undefined>(undefined)
   const [pasteNote, setPasteNote] = useState<string | null>(null)
   // 붙여 넣던 글은 창을 닫아도 남는다 (넣기를 마치면 비운다 — UX-N2b-2-01)
   const [pasteDraft, setPasteDraft] = useState('')
@@ -256,6 +259,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   }, [pasteNote])
   const openPaste = useCallback(() => {
     setPasteNote(null)
+    setPasteGuide(undefined)
+    setPasteOpen(true)
+  }, [])
+  const openYoutubePaste = useCallback(() => {
+    setPasteNote(null)
+    setPasteGuide(YOUTUBE_PASTE_GUIDE)
     setPasteOpen(true)
   }, [])
   const youtubeLinked = yt.enabled && yt.link?.link !== null && yt.link?.link !== undefined
@@ -1504,7 +1513,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
               제목 밑에 남고 스크롤해도 늘 보인다. 누르는 기능이 없어 Tab 차례는 그대로. PC·끝난 방송에는 없다 (QL2 D-QL2-11 (1)·D-QL2-14 (1)) */}
           {wide || ended || sealed ? null : <CurrentSummary product={current} />}
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
-          <CollectorWarningBar navigate={navigate} ended={ended || sealed} />
+          <CollectorWarningBar
+            navigate={navigate}
+            ended={ended || sealed}
+            extensionConnected={extension.view?.connected === true}
+            extensionReceiving={extensionReceiving(extension.view, b)}
+            onPaste={openYoutubePaste}
+          />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
           <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} invited={invitedChannelName(yt.link?.link ?? null) !== null} />
           <QuotaToast />
@@ -1631,6 +1646,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       {pasteOpen ? (
         <PasteDialog
           broadcastId={b}
+          {...(pasteGuide === undefined ? {} : { guide: pasteGuide })}
           draft={pasteDraft}
           onDraftChange={setPasteDraft}
           onClose={() => setPasteOpen(false)}

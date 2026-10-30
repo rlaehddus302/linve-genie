@@ -16,9 +16,11 @@ import { kstDateTimeWords } from '../lib/kst.ts'
 import { fieldOf, fieldsAt, SAVED_MESSAGE, THANKS_DETAIL } from '../lib/settings-fields.ts'
 import {
   CONNECT_FIRST_MESSAGE,
+  CONNECT_FOR_THANKS,
   CONSENT_NAME,
   CONSENT_OFF_DONE,
   CONSENT_PLACE,
+  GOOGLE_NOT_READY,
   NOT_CONFIGURED_MESSAGE,
   PREVIEW_BATCH,
   PREVIEW_SINGLE,
@@ -28,7 +30,7 @@ import {
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 import { DetailToggle, RuleField, settingProblem, useRuleForm, type RuleForm } from './RuleFields.tsx'
-import type { ConnectionHandle } from './YoutubeConnection.tsx'
+import { oauthOf, webChatOf, type ConnectionHandle } from './YoutubeConnection.tsx'
 
 const THANKS_FIELDS = fieldsAt('thanks')
 const LIVE_CHAT_FIELD = fieldOf('thanks.liveChat')
@@ -151,7 +153,17 @@ function ConsentControls({ youtube, videoComment }: { readonly youtube: Connecti
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const connection = youtube.connection
-  const blocked = youtube.state.phase === 'notConfigured' ? NOT_CONFIGURED_MESSAGE : connection === null || connection.status === 'NOT_CONNECTED' ? CONNECT_FIRST_MESSAGE : null
+  // 서버가 채팅을 읽는 서버(YT-11)에서는 구글 연결이 감사 채팅용 선택이다 — 연결이 없으면 "감사 채팅을 올리려면…", 구글 연결을 못 쓰는 서버면 그 안내
+  const blocked =
+    youtube.state.phase === 'notConfigured'
+      ? NOT_CONFIGURED_MESSAGE
+      : !oauthOf(youtube.state)
+        ? GOOGLE_NOT_READY
+        : connection === null || connection.status === 'NOT_CONNECTED'
+          ? webChatOf(youtube.state) !== null
+            ? CONNECT_FOR_THANKS
+            : CONNECT_FIRST_MESSAGE
+          : null
 
   const send = async (target: ConsentTarget, enabled: boolean) => {
     if (busy !== null) return

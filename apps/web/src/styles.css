@@ -2500,6 +2500,43 @@ html:has(.save-bar) {
   align-items: center;
 }
 
+/* 서버가 읽는 유튜브 채팅 (YT-11, D-YT-SRV-03·09): 채널 이름·방송 제목은 바깥 글이라 띄어쓰기 없이 길어도 375px 폭에서 줄을 바꾼다 */
+.youtube-channel-line,
+.recent-line,
+.invited-broadcast,
+.invited-confirm {
+  overflow-wrap: anywhere;
+}
+
+.youtube-channel-line {
+  margin: 0;
+}
+
+.recent-item {
+  display: grid;
+  gap: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.recent-item p {
+  margin: 0;
+}
+
+/* 경고 띠 안 확장 안내는 굵은 경고 글이 아닌 보통 글 (버튼 옆에 두지 않고 줄 전체) */
+.collector-fallback-note {
+  flex-basis: 100%;
+  font-weight: 400;
+}
+
+.resumed-line {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.web-chat-intro {
+  font-size: 1.125rem;
+}
+
 .quota-toast {
   margin: 0;
   padding: 0.375rem 0.75rem;

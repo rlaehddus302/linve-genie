@@ -30,6 +30,8 @@ export interface PasteDialogProps {
   /** 붙여 넣던 글 (창을 닫아도 부른 쪽에 남는다) */
   readonly draft?: string
   readonly onDraftChange?: (text: string) => void
+  /** 글 칸 위 안내 (없으면 틱톡 안내 — 유튜브 수집 경고에서 열면 유튜브 안내, YT-11 AC8) */
+  readonly guide?: string
 }
 
 interface Previewed {
@@ -45,7 +47,7 @@ interface Previewed {
 
 const NO_LINES: ReadonlySet<number> = new Set()
 
-export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftChange }: PasteDialogProps) {
+export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftChange, guide = PASTE_GUIDE }: PasteDialogProps) {
   const [text, setTextState] = useState(draft)
   const setText = (value: string) => {
     setTextState(value)
@@ -155,7 +157,7 @@ export function PasteDialog({ broadcastId, onClose, onDone, draft = '', onDraftC
       }
     >
       <div className="stack paste-dialog">
-        <p id={guideId}>{PASTE_GUIDE}</p>
+        <p id={guideId}>{guide}</p>
         <label className="field" htmlFor={textId}>
           <span>붙여 넣을 댓글</span>
         </label>
