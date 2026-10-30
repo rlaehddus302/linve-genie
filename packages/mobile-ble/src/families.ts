@@ -153,11 +153,3 @@ export function familyScanFilter(families: readonly PrinterFamily[]): { serviceU
     matchCase: true,
   }
 }
-
-/**
- * @deprecated PRN2(D-PRN2-08)로 앱의 실험 숨김 스위치가 없어졌다 — 켠 계열을 모두 돌려준다(두 번째 인자는 보지 않는다).
- * 앱은 defaultPrinterFamilies()를 쓴다. 실험 표시는 목록 줄(PickEntry.experimental)과 연결 뒤 프로필의 experimental로 한다
- */
-export function enabledFamilies(families: readonly PrinterFamily[], _showExperimental?: boolean): PrinterFamily[] {
-  return [...families]
-}

@@ -105,9 +105,9 @@ describe('앱 한 목록 고르기 — 실험 표시·숨김 없음·바우아�
       { id: 'A6', name: 'M110', rssi: -30, serviceUuids: ['0000180f-0000-1000-8000-00805f9b34fb'] },
     ])
     expect(entries.map((e) => [e.title, e.detail, e.experimental])).toEqual([
-      ['P50_77', 'Marklife P50 · 실험 · 신호 강함', true],
+      ['P50_77', 'Marklife P50 · 신호 강함', true],
       ['B1-G325', 'NIIMBOT · 신호 강함', false],
-      ['PPA2L_1234', '바우아토 스티코팝 · 실험 · 신호 강함', true],
+      ['PPA2L_1234', '바우아토 스티코팝 · 신호 강함', true],
       ['이름 없는 프린터 (끝자리 BEEF)', 'NIIMBOT · 신호 보통', false],
     ])
   })

@@ -22,7 +22,6 @@ export { createNativeMarklifeAdapter, matchesMarklifeName, type NativeMarklifeAd
 export { IDENTIFY_SCAN_MS, createPrinterPicker, printerKindOf, type PrinterKind, type PrinterPicker, type PrinterPickerOptions } from './picker.ts'
 export {
   defaultPrinterFamilies,
-  enabledFamilies,
   familyOf,
   familyScanFilter,
   marklifeFamily,

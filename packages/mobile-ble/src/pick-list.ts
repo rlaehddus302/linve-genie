@@ -24,7 +24,7 @@ export interface PickEntry {
   readonly signal: SignalWord | null
   /** 실험 기종 줄인지 (이름으로 프로필이 정해지는 L-12 줄만 — NIIMBOT 줄은 모델을 이은 뒤에 안다) */
   readonly experimental: boolean
-  /** 한 줄 설명 (`NIIMBOT · 신호 강함`, `Marklife P50 · 실험 · 신호 강함`) */
+  /** 한 줄 설명 (`NIIMBOT · 신호 강함`, `Marklife P50 · 신호 강함` — "실험"은 꼬리표로 한 번만, D-PRN2-33) */
   readonly detail: string
 }
 
@@ -72,7 +72,7 @@ export function pickEntries(devices: readonly BleDeviceInfo[], modelName: (devic
       const signal = signalWord(device.rssi)
       const experimental = options.experimental?.(device) ?? false
       const title = nameless || (counts.get(name) ?? 0) > 1 ? `${name} (끝자리 ${idTail(device.id)})` : name
-      const detail = [model, ...(experimental ? [EXPERIMENTAL_WORD] : []), ...(signal === null ? [] : [signal])].join(' · ')
+      const detail = [model, ...(signal === null ? [] : [signal])].join(' · ')
       return { device, title, model, signal, experimental, detail }
     })
 }

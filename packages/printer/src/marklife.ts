@@ -40,7 +40,7 @@ import {
 } from './bluetooth.ts'
 import { unsupportedMessage, unsupportedReason } from './browser-support.ts'
 import { MARKLIFE_MESSAGES, OK, printerErrorWithMessage, type MarklifeErrorCode, type PrinterResult } from './errors.ts'
-import { buildPrintJob, isEndNotice } from './job.ts'
+import { END_ACK, buildPrintJob, isEndNotice } from './job.ts'
 import { LABEL_PROFILES, profileForDeviceName } from './profiles.ts'
 
 /** 보내기 기본값 (L-12 4·5, D-N1-05·06) */
@@ -95,7 +95,8 @@ interface Link {
   credits: number
   packetLimit: number
   /** 출력 중에만 있다 */
-  onEnd?: () => void
+  /** 끝 알림을 받았다 (afterAllWritten: 모든 조각을 쓴 뒤에만 세는 값 — 바우아토 `OK`) */
+  onEnd?: (needsAllWritten: boolean) => void
   onCredit?: () => void
   onDrop?: () => void
   readonly detach: () => void
@@ -120,7 +121,14 @@ async function findBundle(server: GattServerLike, id: GattBundleId): Promise<{ w
     const service = await server.getPrimaryService(spec.service)
     const write = await service.getCharacteristic(spec.write)
     const notify = await service.getCharacteristic(spec.notify)
-    const flow = spec.flow === null ? undefined : await service.getCharacteristic(spec.flow).catch(() => undefined)
+    // ff03은 "특성 없음"(NotFoundError)만 없음으로 본다. 다른 오류는 던져서 이 꾸러미를 실패로 두고 다음 꾸러미를 본다 (D-PRN2-34 RA-003)
+    const flow =
+      spec.flow === null
+        ? undefined
+        : await service.getCharacteristic(spec.flow).catch((error: unknown) => {
+            if (errorName(error) === 'NotFoundError') return undefined
+            throw error
+          })
     if (typeof write.writeValueWithoutResponse !== 'function' && typeof write.writeValue !== 'function') return undefined
     return { write, notify, flow }
   } catch {
@@ -251,7 +259,7 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
     const onNotify = (event: CharacteristicValueEvent): void => {
       const value = notificationBytes(event, notify)
       // 끝 알림은 정확히 `AA` 한 바이트 — Luck Jingle(바우아토)만 정확히 `4F 4B`도 (L-12 5, D-PRN2-03). `55`·`AA AA`·`ok`는 끝이 아니다
-      if (isEndNotice(matched.protocol as LabelProtocol, value)) link.onEnd?.()
+      if (isEndNotice(matched.protocol as LabelProtocol, value)) link.onEnd?.(!(value.length === 1 && value[0] === END_ACK))
     }
     const onFlow = (event: CharacteristicValueEvent): void => {
       if (!flow) return
@@ -341,8 +349,10 @@ export function createMarklifeAdapter(options: MarklifeAdapterOptions = {}): Mar
         link.onDrop = undefined
         resolve(outcome)
       }
-      link.onEnd = () => {
+      link.onEnd = (needsAllWritten) => {
         if (!armed) return
+        // 바우아토 `OK`는 마지막 조각을 쓰기 시작한 뒤 받은 것만 센다(모든 조각을 프린터에 넘긴 뒤) — 그 전에 받은 `OK`는 버린다 (D-PRN2-34 RA-004)
+        if (needsAllWritten && offset < bytes.length) return
         ended = true
         if (written) finish({ kind: 'done' })
       }

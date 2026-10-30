@@ -5,7 +5,6 @@ import {
   createFakeBleTransport,
   defaultPrinterFamilies,
   createPrinterPicker,
-  enabledFamilies,
   familyOf,
   familyScanFilter,
   marklifeFamily,
@@ -74,9 +73,6 @@ describe('계열 표', () => {
   })
 
   it('숨김 스위치는 없다 — 켠 계열이 모두 목록에 든다, 실험은 줄마다 표시 (PRN2 D-PRN2-08 — N1에서는 Marklife를 숨겼다)', () => {
-    const table = [marklifeFamily(), niimbotFamily()]
-    expect(enabledFamilies(table, false).map((f) => f.id)).toEqual(['MARKLIFE', 'NIIMBOT'])
-    expect(enabledFamilies(table, true).map((f) => f.id)).toEqual(['MARKLIFE', 'NIIMBOT'])
     expect(defaultPrinterFamilies().map((f) => f.id)).toEqual(['MARKLIFE', 'NIIMBOT'])
     expect(marklifeFamily().isExperimental('P50_1')).toBe(true)
     expect(marklifeFamily().isExperimental('PPA2L_1')).toBe(true)

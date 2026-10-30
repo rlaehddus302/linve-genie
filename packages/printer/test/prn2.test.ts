@@ -246,6 +246,43 @@ describe('바우아토 Luck Jingle 바이트 · 끝 알림 · ff03 없는 꾸러
     expect(timer.now).toBe((fake.packets.length - 1) * 30)
   })
 
+  it('ff03을 찾다가 "특성 없음"이 아닌 오류가 나면 그 꾸러미는 실패다 — 흐름 제어 없이 붙지 않고 WRONG_MODEL (D-PRN2-34 RA-003)', async () => {
+    const { adapter, fake } = setup({ name: 'S2_ABCD', failingCharacteristics: ['ff03'] })
+    expect(await adapter.connect('bluetooth')).toMatchObject({ ok: false, error: { code: 'WRONG_MODEL' } })
+    expect(adapter.bundle).toBeNull()
+    expect(fake.packets).toHaveLength(0)
+  })
+
+  it('바우아토 OK를 모든 조각을 쓰기 전에 받으면 버린다 — 끝까지 써도 TIMEOUT, 쓴 뒤 받은 OK는 출력 OK (D-PRN2-34 RA-004)', async () => {
+    const early = setup({ name: 'PPA2L_1234', ack: 'hold' })
+    expect((await early.adapter.connect('bluetooth')).ok).toBe(true)
+    const p = track(early.adapter.print(border(384, 240)))
+    await early.timer.advance(30)
+    early.fake.sendNotify([0x4f, 0x4b])
+    await runUntil(early.timer, () => early.fake.attempts[0]?.complete === true)
+    expect(p.done()).toBe(false)
+    await runUntil(early.timer, p.done, 1000)
+    expect(await p.promise).toEqual({ ok: false, error: { code: 'TIMEOUT', message: MARKLIFE_MESSAGES.TIMEOUT } })
+
+    const late = setup({ name: 'PPA2L_1234', ack: 'hold' })
+    expect((await late.adapter.connect('bluetooth')).ok).toBe(true)
+    const q = track(late.adapter.print(border(384, 240)))
+    await late.timer.advance(30)
+    late.fake.sendNotify([0x4f, 0x4b])
+    await runUntil(late.timer, () => late.fake.attempts[0]?.complete === true)
+    late.fake.sendNotify([0x4f, 0x4b])
+    await flush()
+    expect(await q.promise).toEqual({ ok: true })
+  })
+
+  it('Marklife AA는 그대로 — 마지막 조각 쓰기가 끝나기 전에 온 AA도 센다 (D-PRN2-34)', async () => {
+    const { timer, adapter } = setup({ name: 'S2_ABCD', ack: 'send' })
+    expect((await adapter.connect('bluetooth')).ok).toBe(true)
+    const p = track(adapter.print(border(384, 240)))
+    await runUntil(timer, p.done)
+    expect(await p.promise).toEqual({ ok: true })
+  })
+
   it('쓰기·알림 특성이 없는 꾸러미 A는 여전히 꾸러미가 아니다 — C도 없으면 WRONG_MODEL', async () => {
     const { adapter } = setup({ name: 'S2_ABCD', missingCharacteristics: ['ff02'] })
     expect(await adapter.connect('bluetooth')).toMatchObject({ ok: false, error: { code: 'WRONG_MODEL' } })

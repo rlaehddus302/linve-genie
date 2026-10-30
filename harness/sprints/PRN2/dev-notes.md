@@ -133,3 +133,10 @@ if (!profileSupportsSize(profileId, template.size)) stop('LABEL_ERROR', sizeNotS
   - 프린터 칸 role=status 한 줄 = `실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.`
   - "예" 뒤 role=status = `좋아요. 멈췄던 출력을 이어서 해요.` → 서버 멈춤이 풀리고 받기 재개.
 - spec-keeper 제안: L-7 "연결 마법사는 프로필 기본 크기"대로 라벨 화면 테스트도 기본 크기를 쓴다. B1에 50×40 용지를 끼운 판매자는 테스트가 50×30 그림으로 나온다 — 이은 프로필이 저장된 크기를 찍을 수 있으면 그 크기로 하는 쪽이 용지와 맞는다(결정 요청, 지금은 스펙대로).
+
+## dev-device 3차 (2026-10-31, D-PRN2-32·33·34)
+- `enabledFamilies`를 `families.ts`·`index.ts`·`families.test.ts`에서 지웠다(쓰는 곳 없음; apps/mobile은 "없음"을 확인하는 시험만 있다).
+- 고르기 줄 `detail`에서 "실험"을 뺐다(예: `Marklife P50 · 신호 강함`, 꼬리표 "실험"은 `experimental` 값으로 한 번). dev-web에게: `apps/mobile/test/prn2-printer.test.tsx` 44~49줄의 `detail: 'Marklife P50 · 실험 · 신호 강함'`과 버튼 이름 기대 `P50_1234 — Marklife P50 · 실험 · 신호 강함`을 새 `detail`에 맞춰 갱신해야 한다(그 시험은 픽스처를 손으로 적어 지금도 통과하지만 실제 값과 달라졌다).
+- ff03: "특성 없음"(NotFoundError)만 없음으로 보고, 그 밖의 오류는 그 꾸러미 실패 → 다음 꾸러미(다 실패면 WRONG_MODEL). 앱 `mobile-ble/src/marklife.ts`는 웹 어댑터를 그대로 쓰므로 같이 적용된다.
+- 바우아토 `OK`는 마지막 조각을 쓰기 시작한 뒤 받은 것만 센다(그 전 `OK`는 버림, Marklife `AA`는 그대로). 마지막 조각 쓰기 중에 온 `OK`는 센다(기존 시험과 같은 성질).
+- 가짜 기기에 `failingCharacteristics` 옵션 추가. 단위 시험은 `packages/printer/test/prn2.test.ts`.

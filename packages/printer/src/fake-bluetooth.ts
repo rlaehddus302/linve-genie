@@ -53,6 +53,8 @@ export interface FakeBluetoothOptions {
   readonly bundle?: 'A' | 'C' | 'none'
   /** 빠뜨릴 특성 (16비트 UUID 글 — 예 `ff02`) */
   readonly missingCharacteristics?: readonly string[]
+  /** 찾으면 "특성 없음"이 아닌 오류(NetworkError)를 내는 특성 (16비트 UUID 글 — 예 `ff03`, D-PRN2-34) */
+  readonly failingCharacteristics?: readonly string[]
   /** getAvailability() 값 (기본 true) */
   readonly available?: boolean
   /**
@@ -210,6 +212,7 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
   const name = options.name === undefined ? 'S2_FAKE01' : options.name
   const bundleId = options.bundle ?? 'A'
   const missing = new Set((options.missingCharacteristics ?? []).map((s) => s.toLowerCase()))
+  const failing = new Set((options.failingCharacteristics ?? []).map((s) => s.toLowerCase()))
   const timer = options.timer ?? systemTimer
   const jobs = new Map<number, FakeJobBehavior>(Object.entries(options.jobs ?? {}).map(([k, v]) => [Number(k), v]))
   const protocol =
@@ -316,6 +319,7 @@ export function createFakeBluetooth(options: FakeBluetoothOptions = {}): FakeBlu
   const service: GattServiceLike = {
     getCharacteristic: (uuid) => {
       const found = chars.get(String(uuid).toLowerCase())
+      if (failing.has(shortId(String(uuid)))) return Promise.reject(new FakeError('NetworkError', '특성을 읽다가 오류가 났다'))
       if (!connected) return Promise.reject(new FakeError('NetworkError', 'GATT 서버가 끊겼다'))
       return found ? Promise.resolve(found) : Promise.reject(new FakeError('NotFoundError', '특성이 없다'))
     },
