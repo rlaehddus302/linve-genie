@@ -124,6 +124,11 @@ import {
   youtubeOauthStates,
   youtubeOwnMessages,
   youtubeQuota,
+  // KP1 일정
+  schedulePages,
+  scheduleItems,
+  alertSubscribers,
+  alertConsents,
 } from './db/schema.ts'
 import type { IdSource } from './ids.ts'
 import { JsonPullReader, JsonStreamError } from './json-stream.ts'
@@ -1798,6 +1803,12 @@ export const RESTORE_KEPT_TABLES = [
   ledgerConsents,
   ledgerCodes,
   customerExports,
+  // KP1 방송 일정·공개 페이지·방송 알림 신청과 수신 동의 기록(SCH-01~03, MR-6): 판매자 설정과 손님이 직접 한 동의라 파일에 없고
+  // 복구·가져오기가 지우지 않는다(범위·구매자 ID를 참조하지 않는다). 판매자 백업·전체 기록 내려받기에 넣지 않는다
+  schedulePages,
+  scheduleItems,
+  alertSubscribers,
+  alertConsents,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const

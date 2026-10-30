@@ -2338,6 +2338,83 @@ export const customerExports = pgTable(
   (t) => [index('customer_exports_seller_idx').on(t.sellerId, t.id)],
 )
 
+// KP1 일정 (SPEC SCH-01~SCH-03, MESSAGE_RULES MR-6, 마이그레이션 0032). 모두 판매자 ID 조건으로만 읽는다. 백업 파일에 없고 복구·가져오기가 지우지 않는다(RESTORE_KEPT_TABLES).
+/**
+ * 공개 일정 페이지 (SCH-02): 판매자마다 한 줄. 토큰은 SHA-256 base64url(token_hash)로 찾고, 판매자 화면 주소용 원문은 판매자·용도로 묶은 암호문(token_enc)만.
+ * 끄거나 다시 만들면 토큰 칸을 바꾼다(옛 주소 404)
+ */
+export const schedulePages = pgTable(
+  'schedule_pages',
+  {
+    sellerId: text('seller_id')
+      .primaryKey()
+      .references(() => sellers.id),
+    enabled: boolean('enabled').notNull(),
+    tokenHash: text('token_hash'),
+    tokenEnc: text('token_enc'),
+    /** 유튜브 채널 주소 (없으면 null) */
+    channelUrl: text('channel_url'),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('schedule_pages_token_uq').on(t.tokenHash)],
+)
+
+/** 방송 일정 (SCH-01): 시작 시각(UTC)·제목·소개. 개인정보 없음. 지난 일정은 정리 작업이 지운다 */
+export const scheduleItems = pgTable(
+  'schedule_items',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    startsAt: timestamptz('starts_at').notNull(),
+    title: text('title').notNull(),
+    intro: text('intro').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [index('schedule_items_seller_starts_idx').on(t.sellerId, t.startsAt)],
+)
+
+/**
+ * 방송 알림 신청 번호 (MR-6): 판매자 안에서 번호마다 한 줄. 원문은 판매자·용도로 묶은 암호문, 찾기는 전화번호 키.
+ * 그만 받기·기한 지남이면 두 칸을 바로 null로(줄과 동의 기록은 번호 없이 남는다)
+ */
+export const alertSubscribers = pgTable(
+  'alert_subscribers',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    phoneKey: text('phone_key'),
+    phoneEnc: text('phone_enc'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [uniqueIndex('alert_subscribers_phone_uq').on(t.sellerId, t.phoneKey).where(sql`phone_key IS NOT NULL`)],
+)
+
+/** 방송 알림 수신 동의 기록 (MR-6): 덧붙이기만. AGREE · VERIFY · WITHDRAW · NOTICE. 번호 없음 */
+export const alertConsents = pgTable(
+  'alert_consents',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    subscriberId: text('subscriber_id')
+      .notNull()
+      .references(() => alertSubscribers.id),
+    type: text('type').notNull(),
+    /** 'MR-CONSENT-1' (AGREE만) */
+    wording: text('wording'),
+    /** 'SCHEDULE_PAGE' (AGREE만) */
+    route: text('route'),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('alert_consents_subscriber_idx').on(t.sellerId, t.subscriberId, t.id)],
+)
+
 export const schema = {
   voiceAliases,
   sellers,
@@ -2426,6 +2503,11 @@ export const schema = {
   ledgerConsents,
   ledgerCodes,
   customerExports,
+  // KP1 일정
+  schedulePages,
+  scheduleItems,
+  alertSubscribers,
+  alertConsents,
 }
 
 /**
