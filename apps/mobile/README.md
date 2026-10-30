@@ -53,6 +53,17 @@ EXPO_PUBLIC_APP_ORIGIN=https://<서버의 공개 앱 origin> npx expo start --de
    - `.claude/worktrees/…` 같은 작업 폴더에서는 Metro가 바뀐 파일을 못 잡을 때가 있어요. 고친 뒤에는 `--clear`로 다시 켜요.
 6. 에뮬레이터 마이크: `emulator -avd <이름> -allow-host-audio`로 켜고 `adb emu avd hostmicon`. 이 옵션이 없으면 마이크 소리가 모두 0이에요. 맥 마이크 권한이 없는 셸에서 켠 에뮬레이터도 0일 수 있어요.
 
+### 아이폰 시뮬레이터를 연습 서버에 붙이기 (APP2에서 확인한 방법, Xcode 27)
+
+1. CocoaPods가 없으면 `brew install cocoapods`. 셸은 `LANG=en_US.UTF-8`.
+2. `npx expo prebuild --platform ios` → `cd ios && pod install` → `xcodebuild -workspace app.xcworkspace -scheme app -configuration Debug -sdk iphonesimulator -destination 'id=<기기 UDID>' -derivedDataPath build/dd build` → `xcrun simctl install <UDID> build/dd/Build/Products/Debug-iphonesimulator/app.app`. (첫 빌드 약 10분)
+   - `@capacitor-community/bluetooth-le`(niimbluelib이 딸려 옴)는 `package.json`의 `expo.autolinking.exclude`로 뺐어요. 빼지 않으면 `pod install`이 Capacitor 모듈 오류로 멈춰요.
+3. 연습 서버(`pnpm try --port <포트>`)와 안드로이드와 같은 https TCP 중계를 켜요. 인증서(SAN `localhost`, `CA:TRUE`, 짧은 유효기간)를 `xcrun simctl keychain <UDID> add-root-cert cert.pem`으로 시뮬레이터에 믿게 해요. 시뮬레이터의 `localhost`는 맥이라 `adb reverse`가 필요 없어요.
+4. `EXPO_PUBLIC_SERVER_URL=https://localhost:<중계 포트> EXPO_PUBLIC_APP_ORIGIN=http://localhost:<포트> npx expo start --dev-client --clear` 뒤 `xcrun simctl launch <UDID> app.livejjim.mobile`.
+5. 마이크 권한 창은 `xcrun simctl privacy <UDID> grant microphone app.livejjim.mobile`로 대신할 수 있어요(앱이 다시 켜져요). 다른 앱을 띄우면(`xcrun simctl launch <UDID> com.apple.Preferences`) 뒤에서 듣기를 확인할 수 있어요.
+   - 시뮬레이터 마이크는 맥 소리 장치를 써요. 맥 쪽이 답하지 않으면 `AVAudioEngine`이 앱째로 멈출 수 있어요(AURemoteIO RPC timeout). 이때 앱은 다음에 방송 화면을 열 때 음성을 저절로 다시 켜지 않아요.
+   - 시뮬레이터에는 블루투스가 없어 프린터 연결은 "이 휴대폰에서는 블루투스를 쓸 수 없어…"로 끝나요. 실제 B1은 실제 아이폰에서 확인해요.
+
 ## EAS 빌드 (클라우드 — 아이폰도 Xcode 없이)
 
 ```sh
