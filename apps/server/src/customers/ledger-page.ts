@@ -13,6 +13,10 @@ export const LEDGER_LINK_NOTICES = {
   linked: '계정을 이었어요.',
   unlinked: '잇지 않았어요. 필요하면 새 코드를 받아 주세요.',
   full: '잠시 뒤 다시 받아 주세요.',
+  /** 코드를 친 계정이 이미 다른 장부 줄에 동의로 들어 있다 (RA-KP1-007) */
+  refused: '이 계정은 이을 수 없어요.',
+  /** 장부 칸 조건이 그사이 깨져 아무것도 하지 않았다 (D-KP1-39) */
+  unavailable: '지금은 여기서 할 수 없어요. 저장한 정보를 지우려면 판매자에게 말해 주세요.',
 } as const
 export type LedgerLinkNotice = keyof typeof LEDGER_LINK_NOTICES
 

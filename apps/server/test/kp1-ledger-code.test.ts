@@ -57,10 +57,9 @@ describe('AC-KP1-10·11 채팅에서 읽기와 손님 확인', () => {
       ['UC_A', '가람', 1],
       ['UC_B', '나래', 1],
     ])
-    // UC_B도 장부 줄이 있다 — 옮기면 빈 줄은 EXPIRE '표지 옮김'
+    // UC_B는 장부 줄이 없다 (다른 줄에 동의로 든 계정은 옮기지 않는다 — RA-KP1-007은 아래 시험)
     const tokenA = await consent(world, seller, 'UC_A')
     at(world, D, '20:05:00')
-    await consent(world, seller, 'UC_B', D, { name: '나래', phone: '010-3333-4444', address: '대전 서구 둔산로 1', detail: '', zip: '', memo: '' })
     const code = await newCode(world, tokenA)
     const squeezed = code.replace(' ', '')
     const eventsBefore = Number((await rowsOf(world, 'select count(*)::int as n from events'))[0]?.n)
@@ -106,7 +105,6 @@ describe('AC-KP1-10·11 채팅에서 읽기와 손님 확인', () => {
       ['c:UC_A', line?.id, 'CONSENT'],
       ['c:UC_B', line?.id, 'CODE'],
     ])
-    expect((await consents(world)).map((row) => [row.type, row.reason])).toContainEqual(['EXPIRE', '표지 옮김'])
     expect((await codes(world)).at(-1)?.state).toBe('DONE')
     // 손님 기록(BUY-06)은 그대로 두 줄, 판매자 손님 자세히에 이은 계정 한 줄
     const api = ledgerApi(world, seller.cookie)
@@ -138,5 +136,45 @@ describe('AC-KP1-10·11 채팅에서 읽기와 손님 확인', () => {
     expect((await openLink(world, `/r/${token}`)).text).not.toContain('코드를 쳤어요')
     await postForm(world, `/r/${token}/ledger/link`, { answer: 'yes' })
     expect((await markers(world)).map((row) => row.marker)).toEqual(['c:UC_A'])
+  })
+
+  it('RA-KP1-007 코드를 친 계정이 이미 다른 장부 줄에 동의로 들어 있으면 [네]여도 옮기지 않고 코드를 끝낸다 — "이 계정은 이을 수 없어요."', async () => {
+    const { world, seller } = await ledgerWorld()
+    const b = await sell(world, seller, [
+      ['UC_A', '가람', 1],
+      ['UC_B', '나래', 1],
+    ])
+    const tokenA = await consent(world, seller, 'UC_A')
+    at(world, D, '20:05:00')
+    await consent(world, seller, 'UC_B', D, { name: '나래', phone: '010-3333-4444', address: '대전 서구 둔산로 1', detail: '', zip: '', memo: '' })
+    const before = await markers(world)
+    const linesBefore = await lines(world)
+    const code = await newCode(world, tokenA)
+    await chat(world, seller, b, 'c-b', 'UC_B', '나래', code)
+    await waitFor(async () => (await codes(world)).at(-1)?.state === 'CLAIMED')
+    const yes = await postForm(world, `/r/${tokenA}/ledger/link`, { answer: 'yes' })
+    expect(yes.status).toBe(303)
+    const location = yes.headers.get('location') as string
+    expect(location).toMatch(new RegExp(`^/r/${tokenA}\\?ledger=refused&n=[^#]+#ledger$`))
+    expect((await openLink(world, location.replace('#ledger', ''))).text).toContain('이 계정은 이을 수 없어요.')
+    expect(await markers(world)).toEqual(before)
+    expect(await lines(world)).toEqual(linesBefore)
+    expect((await codes(world)).at(-1)).toMatchObject({ state: 'DONE', claimed_marker: null })
+    expect((await consents(world)).map((row) => row.type)).toEqual(['AGREE', 'AGREE'])
+    // 지은 주소로는 문장이 없다
+    expect((await openLink(world, `/r/${tokenA}?ledger=refused`)).text).not.toContain('이 계정은 이을 수 없어요.')
+  })
+
+  it('D-KP1-39 장부 동작 조건이 그사이 깨졌으면 "지금은 여기서 할 수 없어요." 한 줄', async () => {
+    const { world, seller } = await ledgerWorld()
+    await sell(world, seller, [['UC_A', '가람', 1]])
+    const { linkFor } = await import('./kp1-ledger-support.ts')
+    const token = await linkFor(world, seller, 'UC_A')
+    const sent = await postForm(world, `/r/${token}/ledger/delete`, {})
+    expect(sent.status).toBe(303)
+    const location = (sent.headers.get('location') as string).replace('#ledger', '')
+    expect(location).toContain('ledger=unavailable')
+    expect((await openLink(world, location)).text).toContain('지금은 여기서 할 수 없어요. 저장한 정보를 지우려면 판매자에게 말해 주세요.')
+    expect((await openLink(world, `/r/${token}?ledger=unavailable`)).text).not.toContain('지금은 여기서 할 수 없어요.')
   })
 })

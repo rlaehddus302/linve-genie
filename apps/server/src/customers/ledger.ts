@@ -32,6 +32,7 @@ import {
   linesOfMarkers,
   liveCodes,
   lockLedger,
+  markerHolder,
   markersOfLines,
   moveMarker,
   newLedgerId,
@@ -88,7 +89,8 @@ export interface LinkLedgerView {
   } | null
 }
 
-export type LinkLedgerAction = 'deleted' | 'code' | 'full' | 'linked' | 'unlinked' | 'none'
+/** refused = 코드를 친 계정이 이미 다른 장부 줄에 동의로 들어 있어 잇지 않았다 (RA-KP1-007). none = 조건이 그사이 깨져 아무것도 하지 않았다 (D-KP1-39) */
+export type LinkLedgerAction = 'deleted' | 'code' | 'full' | 'linked' | 'unlinked' | 'refused' | 'none'
 
 export interface BadgesView {
   readonly show: boolean
@@ -339,7 +341,15 @@ export class LedgerService {
       }
       const open = await openCodeOfLine(tx, sellerId, lineId)
       if (open === null || open.state !== 'CLAIMED' || open.expiresAt.getTime() <= now.getTime() || open.claimedMarker === null) return 'none'
-      if (action.yes) await moveMarker(tx, { sellerId, marker: open.claimedMarker, lineId, platform: open.claimedPlatform, name: open.claimedName, last4: open.claimedLast4, now })
+      if (action.yes) {
+        // 이미 다른 장부 줄에 동의로 들어 있는 계정은 코드로 옮기지 않는다 — 꾀어 코드를 치게 해 남의 줄을 빼앗지 못하게 (RA-KP1-007, CR-0 6 "애매하면 쓰지 않는다")
+        const held = await markerHolder(tx, sellerId, open.claimedMarker)
+        if (held !== null && held.lineId !== lineId && held.source === 'CONSENT') {
+          await finishCodesOfLine(tx, sellerId, lineId)
+          return 'refused'
+        }
+        await moveMarker(tx, { sellerId, marker: open.claimedMarker, lineId, platform: open.claimedPlatform, name: open.claimedName, last4: open.claimedLast4, now })
+      }
       await finishCodesOfLine(tx, sellerId, lineId)
       return action.yes ? 'linked' : 'unlinked'
     })

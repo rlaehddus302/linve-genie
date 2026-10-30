@@ -372,7 +372,7 @@ const ADDRESS_PATH_RE = /^\/r\/([A-Za-z0-9_-]{43})\/address$/
 const LEDGER_PATH_RE = /^\/r\/([A-Za-z0-9_-]{43})\/ledger\/(delete|code|link)$/
 /** 장부 양식 본문 상한 (answer 한 칸뿐) */
 const LEDGER_FORM_MAX_BYTES = 1024
-const LEDGER_NOTICE_QUERY: Readonly<Record<string, LedgerLinkNotice>> = { deleted: 'deleted', linked: 'linked', unlinked: 'unlinked' }
+const LEDGER_NOTICE_QUERY: Readonly<Record<string, LedgerLinkNotice>> = { deleted: 'deleted', linked: 'linked', unlinked: 'unlinked', refused: 'refused', unavailable: 'unavailable' }
 
 function htmlResponse(status: number, body: Uint8Array | string): Response {
   const headers = new Headers(RECEIPT_PAGE_HEADERS)
@@ -504,7 +504,8 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
       const ledger = await ledgerPart(opened, `/r/${token}`, { confirmDelete: false, notice: 'full' })
       return htmlResponse(409, receiptPageHtml(opened, shop, `/r/${token}`, part === null ? undefined : { ...part, ...(await consentFor(c, opened, ledger.consent)) }, ledger.html))
     }
-    const done = result === 'deleted' || result === 'linked' || result === 'unlinked' ? result : null
+    // KP1: 'none'(조건이 그사이 깨짐)은 "지금은 여기서 할 수 없어요" 한 줄 (D-KP1-39), 'refused'는 "이 계정은 이을 수 없어요" (RA-KP1-007)
+    const done = result === 'deleted' || result === 'linked' || result === 'unlinked' || result === 'refused' ? result : result === 'none' ? 'unavailable' : null
     const query = done === null ? '' : `?ledger=${done}&n=${ledgerNotices.sign(receiptTokenHash(token), done)}`
     const headers = new Headers(RECEIPT_PAGE_HEADERS)
     headers.set('Location', `/r/${token}${query}#ledger`)

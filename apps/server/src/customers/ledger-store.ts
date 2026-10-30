@@ -118,6 +118,17 @@ export async function lineIdsOfMarkers(db: Db, sellerId: string, markers: readon
   return out
 }
 
+/** 표지가 든 줄과 들어간 까닭 (없으면 null) */
+export async function markerHolder(db: Db, sellerId: string, marker: string): Promise<{ lineId: string; source: 'CONSENT' | 'CODE' } | null> {
+  const rows = await db
+    .select({ lineId: ledgerMarkers.lineId, source: ledgerMarkers.source })
+    .from(ledgerMarkers)
+    .where(and(eq(ledgerMarkers.sellerId, sellerId), eq(ledgerMarkers.marker, marker)))
+    .limit(1)
+  const row = rows[0]
+  return row === undefined ? null : { lineId: row.lineId, source: row.source === 'CODE' ? 'CODE' : 'CONSENT' }
+}
+
 /** 표지들이 든 서로 다른 줄 (만든 순 — 가장 먼저 만든 것이 앞) */
 export async function linesOfMarkers(db: Db, sellerId: string, markers: readonly string[]): Promise<LineRow[]> {
   const ids = [...new Set((await lineIdsOfMarkers(db, sellerId, markers)).values())]
