@@ -47,7 +47,7 @@ const configure = dropSecureCookie
     }
   : undefined
 const target = { target: api, changeOrigin: false, ws: true, ...(configure === undefined ? {} : { configure }) }
-const proxy = { '/api': target, '^/r(/|$)': target }
+const proxy = { '/api': target, '^/r(/|$)': target, '^/s/': target }
 
 await build({ root: ROOT, configFile, logLevel: 'warn', build: { outDir, emptyOutDir: true } })
 const server = await preview({ root: ROOT, configFile, logLevel: 'warn', build: { outDir }, preview: { port, strictPort: true, host: SERVE_HOST, proxy } })
