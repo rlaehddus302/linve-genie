@@ -14,7 +14,7 @@ import { openSellerKey, sha256Hex } from '../secrets.ts'
 import { findSeller } from '../store.ts'
 import { kstDate, type Clock } from '../time.ts'
 import type { ScopeWriter } from '../writer.ts'
-import { allFacts, type DayBundle, type DayFacts, type FactsDeps } from './facts.ts'
+import { allFactsCounted, type DayBundle, type DayFacts, type FactsDeps, type FactsReadOptions } from './facts.ts'
 import { DEFAULT_CUSTOMER_SETTINGS, customerSummary, isUnpaid, type CustomerSettings, type CustomerSummary } from './summary.ts'
 
 export const CUSTOMERS_PAGE_SIZE = 20
@@ -114,6 +114,8 @@ interface Index {
   readonly days: ReadonlyMap<string, DayFacts>
   /** 표지 → 나온 실제 날짜들 (오름차순) */
   readonly markerDates: ReadonlyMap<string, readonly string[]>
+  /** 봉인 장부를 읽지 못해 빠진 날 수 (KP1 RA-KP1-002) */
+  readonly unreadable: number
 }
 
 export class CustomerService {
@@ -138,15 +140,22 @@ export class CustomerService {
     return CustomerService.#markerOf(await this.#index(sellerId), id)
   }
 
-  /** 표지마다 기록 묶음(실제 날짜)·"모든 손님" 줄 요약 (오늘 KST·지금 설정). 기록이 없는 표지는 빈 묶음 */
-  async markerFacts(sellerId: string, markers: readonly string[]): Promise<{ today: string; byMarker: Map<string, { bundles: DayBundle[]; summary: CustomerSummary }> }> {
-    const index = await this.#index(sellerId)
+  /**
+   * 표지마다 기록 묶음(실제 날짜)·"모든 손님" 줄 요약 (오늘 KST·지금 설정). 기록이 없는 표지는 빈 묶음.
+   * unreadable = 봉인 장부를 읽지 못해 빠진 날 수. quiet = 공용 재료 캐시를 건드리지 않는 읽기 (KP1 장부 정리 — RA-KP1-002·009)
+   */
+  async markerFacts(
+    sellerId: string,
+    markers: readonly string[],
+    options: FactsReadOptions = {},
+  ): Promise<{ today: string; unreadable: number; byMarker: Map<string, { bundles: DayBundle[]; summary: CustomerSummary }> }> {
+    const index = await this.#index(sellerId, options)
     const byMarker = new Map<string, { bundles: DayBundle[]; summary: CustomerSummary }>()
     for (const marker of new Set(markers)) {
       const bundles = CustomerService.#markerBundles(index, marker)
       byMarker.set(marker, { bundles, summary: CustomerService.#summary(index, bundles) })
     }
-    return { today: index.today, byMarker }
+    return { today: index.today, unreadable: index.unreadable, byMarker }
   }
 
   /** "모든 손님" 줄 전부 (거르기 없이, 누적 큰 순 — 손님 엑셀 CR-6). 표지·마지막 메모 글을 함께 (서버 안에서만) */
@@ -199,8 +208,8 @@ export class CustomerService {
 
   // ── 기록 모으기 ──────────────────────────────────────────────────────
 
-  async #index(sellerId: string): Promise<Index> {
-    const facts = await allFacts(this.factsDeps(), sellerId)
+  async #index(sellerId: string, options: FactsReadOptions = {}): Promise<Index> {
+    const { days: facts, unreadable } = await allFactsCounted(this.factsDeps(), sellerId, options)
     const days = new Map<string, DayFacts>()
     const markerDates = new Map<string, string[]>()
     for (const day of facts) {
@@ -211,7 +220,7 @@ export class CustomerService {
         else list.push(day.date)
       }
     }
-    return { sellerId, today: kstDate(this.#deps.clock.now()), settings: await this.settings(sellerId), days, markerDates }
+    return { sellerId, today: kstDate(this.#deps.clock.now()), settings: await this.settings(sellerId), days, markerDates, unreadable }
   }
 
   /** 표지가 나온 날짜마다 그날 그 구매자의 지금의 구매자 묶음 (기록 묶음만) */

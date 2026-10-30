@@ -5,7 +5,7 @@
 //   범위 줄 안(배송지 저장 트랜잭션)에서도 부른다 — 락 순서는 늘 범위 락 → 장부 락이고, 장부 락을 잡은 쪽은 범위 락을 잡지 않는다(교착 없음).
 // - 동의 기록은 덧붙이기만 한다. 연락처·표지·코드 글·토큰·구매자 ID를 동의 기록·로그에 넣지 않는다.
 import { randomBytes } from 'node:crypto'
-import { and, asc, eq, inArray, lte, ne, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, lte, ne, or, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { ledgerCodes, ledgerConsents, ledgerLines, ledgerMarkers, ledgerSettings } from '../db/schema.ts'
 import { SecretError, openText, sealText } from '../secrets.ts'
@@ -146,6 +146,32 @@ export async function allLines(db: Db, sellerId: string): Promise<LineRow[]> {
 export async function sellersWithLines(db: Db): Promise<string[]> {
   const rows = await db.selectDistinct({ sellerId: ledgerLines.sellerId }).from(ledgerLines)
   return rows.map((row) => row.sellerId).sort()
+}
+
+/**
+ * 정리 후보 판매자 (RA-KP1-009): 동의 날짜가 `before` 이하인 줄이 있는 판매자만.
+ * 지우는 날 ≥ 동의 날짜 + 6개월(가장 짧은 보관)이라, 그보다 늦게 동의한 줄만 있는 판매자는 이번 정리에서 지울 것이 없다
+ */
+export async function sweepSellers(db: Db, before: string): Promise<string[]> {
+  const rows = await db.selectDistinct({ sellerId: ledgerLines.sellerId }).from(ledgerLines).where(lte(ledgerLines.consentDate, before))
+  return rows.map((row) => row.sellerId).sort()
+}
+
+/** 정리 후보 줄 (동의 날짜가 `before` 이하 — sweepSellers와 같은 조건) */
+export async function sweepLines(db: Db, sellerId: string, before: string): Promise<LineRow[]> {
+  return db
+    .select(lineColumns)
+    .from(ledgerLines)
+    .where(and(eq(ledgerLines.sellerId, sellerId), lte(ledgerLines.consentDate, before)))
+    .orderBy(asc(ledgerLines.createdAt), asc(ledgerLines.id))
+}
+
+/** 줄을 고친 시각을 지금으로 (표지가 바뀌었다 — 정리가 그사이 바뀐 줄을 지우지 않게, RA-KP1-003) */
+export async function touchLine(tx: Db, sellerId: string, lineId: string, now: Date): Promise<void> {
+  await tx
+    .update(ledgerLines)
+    .set({ updatedAt: now })
+    .where(and(eq(ledgerLines.sellerId, sellerId), eq(ledgerLines.id, lineId)))
 }
 
 export interface MarkerRow {
@@ -324,12 +350,40 @@ export async function liveCodes(db: Db, sellerId: string): Promise<CodeRow[]> {
   return rows.map(toCode)
 }
 
+/**
+ * 끝난(DONE) 코드를 남겨 두는 시간 — 기한(만든 때 + 24시간)에서 25시간 (RA-KP1-005·TD-KP1-002).
+ * 코드는 기한 전에 끝나거나 기한 뒤 1시간 안(정리 주기)에 끝나므로, 끝난 지 24시간이 안 된 코드는 모두 남는다.
+ * 새 코드는 이 안의 코드와 겹치지 않게 고르고, 정리 작업이 이보다 오래된 DONE 행을 지운다
+ */
+export const RECENT_CODE_MS = 25 * 60 * 60 * 1000
+
+/** 끝낼 때 비우는 칸: 코드를 친 사람의 표지·이름·끝자리 (남의 채널 ID·닉네임을 남기지 않는다, RA-KP1-005) */
+const DONE_FIELDS = { state: 'DONE', claimedMarker: null, claimedPlatform: null, claimedName: null, claimedLast4: null, claimedAt: null } as const
+
 /** 줄의 끝나지 않은 코드를 끝낸다 */
 export async function finishCodesOfLine(tx: Db, sellerId: string, lineId: string): Promise<void> {
   await tx
     .update(ledgerCodes)
-    .set({ state: 'DONE' })
+    .set(DONE_FIELDS)
     .where(and(eq(ledgerCodes.sellerId, sellerId), eq(ledgerCodes.lineId, lineId), ne(ledgerCodes.state, 'DONE')))
+}
+
+/** 새 코드를 고를 때 피할 코드: 끝나지 않은 것 + 기한이 `since`보다 뒤인 것(최근에 끝난 것 포함 — TD-KP1-002) */
+export async function recentCodes(db: Db, sellerId: string, since: Date): Promise<string[]> {
+  const rows = await db
+    .select({ code: ledgerCodes.code })
+    .from(ledgerCodes)
+    .where(and(eq(ledgerCodes.sellerId, sellerId), or(ne(ledgerCodes.state, 'DONE'), gt(ledgerCodes.expiresAt, since))))
+  return rows.map((row) => row.code)
+}
+
+/** 기한이 `before` 이전인 DONE 코드를 지운다 (정리 작업 — 모든 판매자). 지운 수 */
+export async function dropOldCodes(db: Db, before: Date): Promise<number> {
+  const rows = await db
+    .delete(ledgerCodes)
+    .where(and(eq(ledgerCodes.state, 'DONE'), lte(ledgerCodes.expiresAt, before)))
+    .returning({ id: ledgerCodes.id })
+  return rows.length
 }
 
 export async function insertCode(tx: Db, input: { id: string; sellerId: string; lineId: string; code: string; now: Date; expiresAt: Date }): Promise<void> {
@@ -350,7 +404,7 @@ export async function claimCode(db: Db, input: { sellerId: string; id: string; m
 export async function finishExpiredCodes(db: Db, now: Date): Promise<number> {
   const rows = await db
     .update(ledgerCodes)
-    .set({ state: 'DONE' })
+    .set(DONE_FIELDS)
     .where(and(inArray(ledgerCodes.state, ['LIVE', 'CLAIMED']), lte(ledgerCodes.expiresAt, now)))
     .returning({ id: ledgerCodes.id, sellerId: ledgerCodes.sellerId })
   return rows.length
@@ -364,6 +418,8 @@ export async function moveMarker(
   const { sellerId, marker, lineId, now } = input
   const before = (await lineIdsOfMarkers(tx, sellerId, [marker])).get(marker) ?? null
   const label = { source: 'CODE', labelPlatform: input.platform, labelName: input.name, labelLast4: input.last4, linkedAt: now }
+  // 받는 줄은 고친 시각을 바꾼다 (정리 작업이 "그대로인지" 다시 볼 때 이 줄을 지우지 않게)
+  await touchLine(tx, sellerId, lineId, now)
   if (before === null) {
     await tx.insert(ledgerMarkers).values({ sellerId, marker, lineId, ...label })
     return
@@ -372,5 +428,5 @@ export async function moveMarker(
     .update(ledgerMarkers)
     .set({ lineId, ...label })
     .where(and(eq(ledgerMarkers.sellerId, sellerId), eq(ledgerMarkers.marker, marker)))
-  if (before !== lineId) await dropIfEmpty(tx, sellerId, before, now)
+  if (before !== lineId && !(await dropIfEmpty(tx, sellerId, before, now))) await touchLine(tx, sellerId, before, now)
 }

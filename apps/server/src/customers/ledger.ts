@@ -23,6 +23,7 @@ import {
   claimCode,
   consentInTx,
   deleteLine,
+  dropOldCodes,
   finishCodesOfLine,
   finishExpiredCodes,
   insertCode,
@@ -37,8 +38,10 @@ import {
   openCodeOfLine,
   openContact,
   readLedgerSettings,
-  sellersWithLines,
-  allLines,
+  RECENT_CODE_MS,
+  recentCodes,
+  sweepLines,
+  sweepSellers,
   writeLedgerSettings,
   type LedgerContact,
   type LedgerSettings,
@@ -106,6 +109,11 @@ export interface LedgerDeps {
 }
 
 const SMS_PREFIX = 'sms:'
+
+/** 정리 작업: 한 트랜잭션에서 지우는 줄 수 (RA-KP1-003) */
+export const SWEEP_BATCH = 100
+/** 정리 후보: 동의한 지 이만큼 지난 줄만 (가장 짧은 보관 6개월 ≥ 181일보다 하루 짧게, RA-KP1-009) */
+export const SWEEP_MIN_AGE_MS = 180 * 24 * 60 * 60 * 1000
 
 /** 연결 코드 후보 채팅 (커밋 뒤 읽는다 — 메모리에만, 로그 금지) */
 interface CodeCandidate {
@@ -322,7 +330,8 @@ export class LedgerService {
       }
       if (action.kind === 'code') {
         await finishCodesOfLine(tx, sellerId, lineId)
-        const taken = new Set((await liveCodes(tx, sellerId)).map((row) => row.code))
+        // 최근에 끝난 코드와도 겹치지 않게 (TD-KP1-002)
+        const taken = new Set(await recentCodes(tx, sellerId, new Date(now.getTime() - RECENT_CODE_MS)))
         const code = pickLinkCode(taken, this.#deps.randomIndex ?? ((n) => randomInt(n)))
         if (code === null) return 'full'
         await insertCode(tx, { id: newLedgerId(), sellerId, lineId, code, now, expiresAt: new Date(now.getTime() + LINK_CODE_TTL_MS) })
@@ -342,12 +351,18 @@ export class LedgerService {
 
   /** 줄마다 지우는 날 (마지막 주문 = 줄 표지 중 품목 있는 묶음의 가장 늦은 실제 날짜) */
   async #deleteOns(sellerId: string, lines: readonly LineRow[], months: LedgerMonths): Promise<Map<string, string>> {
+    return (await this.#deleteOnsCounted(sellerId, lines, months)).deleteOns
+  }
+
+  /** #deleteOns + 봉인 장부를 읽지 못해 빠진 날 수 (quiet = 공용 재료 캐시를 건드리지 않음 — 정리 작업) */
+  async #deleteOnsCounted(sellerId: string, lines: readonly LineRow[], months: LedgerMonths, quiet = false): Promise<{ deleteOns: Map<string, string>; unreadable: number }> {
     const out = new Map<string, string>()
-    if (lines.length === 0) return out
+    if (lines.length === 0) return { deleteOns: out, unreadable: 0 }
     const markers = await markersOfLines(this.#deps.db, sellerId, lines.map((line) => line.id))
     const facts = await this.#deps.customers.markerFacts(
       sellerId,
       markers.map((row) => row.marker),
+      { quiet },
     )
     const last = new Map<string, string>()
     for (const row of markers) {
@@ -361,7 +376,7 @@ export class LedgerService {
       const consentMonths = [6, 12, 24, 36].includes(line.consentMonths) ? (line.consentMonths as LedgerMonths) : 6
       out.set(line.id, ledgerDeleteOn({ lastOrder: last.get(line.id) ?? null, consentOrder: line.consentDate, consentMonths, settingMonths: months }).deleteOn)
     }
-    return out
+    return { deleteOns: out, unreadable: facts.unreadable }
   }
 
   /** 그 손님(표지)의 장부 칸. 줄이 없거나 연락처가 풀리지 않으면 null */
@@ -530,33 +545,50 @@ export class LedgerService {
 
   // ── 정리 (CR-3, AC-KP1-06) ───────────────────────────────────────────
 
-  /** 한 차례: 기한 지난 코드 끝내기, 지우는 날이 된 줄 지우기(EXPIRE '기간 지남'). 지운 줄 수 */
+  /**
+   * 한 차례: 기한 지난 코드 끝내기, 지우는 날이 된 줄 지우기(EXPIRE '기간 지남'). 지운 줄 수.
+   * - 후보 판매자·줄만 본다: 동의 날짜가 오늘 − 180일 이하인 줄 (지우는 날 ≥ 동의 + 6개월 ≥ 181일 — RA-KP1-009).
+   *   재료는 공용 캐시를 건드리지 않고 읽는다(방송 중 판매자 재료를 밀어내지 않게).
+   * - 그 판매자 봉인 장부 중 읽지 못한 날이 하나라도 있으면 이번 정리에서 그 판매자 줄을 지우지 않는다(마지막 주문을 앞당겨 일찍 지우지 않게 — RA-KP1-002).
+   * - 지우기는 SWEEP_BATCH줄마다 따로 트랜잭션(장부 락을 오래 쥐지 않는다 — 링크 저장이 범위 줄 안에서 기다리지 않게, RA-KP1-003)
+   */
   async sweepOnce(): Promise<{ lines: number; codes: number }> {
     const { db } = this.#deps
     const now = this.#now()
     const today = kstDate(now.getTime())
     const codes = await finishExpiredCodes(db, now)
+    await dropOldCodes(db, new Date(now.getTime() - RECENT_CODE_MS))
+    const before = kstDate(now.getTime() - SWEEP_MIN_AGE_MS)
     let removed = 0
-    for (const sellerId of await sellersWithLines(db)) {
+    for (const sellerId of await sweepSellers(db, before)) {
       try {
         const settings = await this.settings(sellerId)
-        const lines = await allLines(db, sellerId)
-        const deleteOns = await this.#deleteOns(sellerId, lines, settings.months)
+        const lines = await sweepLines(db, sellerId, before)
+        const { deleteOns, unreadable } = await this.#deleteOnsCounted(sellerId, lines, settings.months, true)
+        if (unreadable > 0) {
+          this.#deps.log({ level: 'warn', code: 'LEDGER_SWEEP_SKIPPED', seller: sellerId, count: unreadable })
+          continue
+        }
         const due = lines.filter((line) => today >= (deleteOns.get(line.id) ?? '9999-12-31'))
         if (due.length === 0) continue
         let count = 0
-        await db.transaction(async (tx) => {
-          await lockLedger(tx, sellerId)
-          for (const line of due) {
-            // 그사이 새 동의로 바뀐 줄은 다음 차례에 다시 센다
-            const still = await tx
-              .select({ id: ledgerLines.id })
-              .from(ledgerLines)
-              .where(and(eq(ledgerLines.sellerId, sellerId), eq(ledgerLines.id, line.id), eq(ledgerLines.updatedAt, line.updatedAt)))
-            if (still.length === 0) continue
-            if (await deleteLine(tx, sellerId, line.id, { type: 'EXPIRE', reason: '기간 지남', accountId: null, route: null, orderDate: null, at: now })) count += 1
-          }
-        })
+        for (let at = 0; at < due.length; at += SWEEP_BATCH) {
+          const batch = due.slice(at, at + SWEEP_BATCH)
+          count += await db.transaction(async (tx) => {
+            await lockLedger(tx, sellerId)
+            let done = 0
+            for (const line of batch) {
+              // 그사이 새 동의·표지 옮김·합치기로 바뀐 줄은 다음 차례에 다시 센다
+              const still = await tx
+                .select({ id: ledgerLines.id })
+                .from(ledgerLines)
+                .where(and(eq(ledgerLines.sellerId, sellerId), eq(ledgerLines.id, line.id), eq(ledgerLines.updatedAt, line.updatedAt)))
+              if (still.length === 0) continue
+              if (await deleteLine(tx, sellerId, line.id, { type: 'EXPIRE', reason: '기간 지남', accountId: null, route: null, orderDate: null, at: now })) done += 1
+            }
+            return done
+          })
+        }
         if (count > 0) {
           removed += count
           this.published(sellerId)

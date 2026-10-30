@@ -178,6 +178,7 @@ export type LogCode =
   | 'LEDGER_CODE_FAILED'
   | 'LEDGER_SWEEP_FAILED'
   | 'LEDGER_SWEPT'
+  | 'LEDGER_SWEEP_SKIPPED' // KP1 RA-KP1-002
 
 export type LogSink = (record: LogRecord) => void
 
@@ -308,6 +309,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   LEDGER_CODE_FAILED: '채팅에서 손님 장부 연결 코드를 읽지 못했어요(기록·판정은 그대로)',
   LEDGER_SWEEP_FAILED: '손님 장부 정리 중 오류가 생겼어요(다음 주기에 다시 해요)',
   LEDGER_SWEPT: '보관 기간이 지난 손님 장부 줄과 끝난 연결 코드를 정리했어요',
+  LEDGER_SWEEP_SKIPPED: '읽지 못한 지난 장부가 있어 이 판매자의 손님 장부는 이번에 지우지 않았어요(다음 주기에 다시 봐요)', // KP1 RA-KP1-002
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */
