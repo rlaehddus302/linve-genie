@@ -22,10 +22,15 @@ SILENCE_THRESHOLD = 0.35
 MIN_SILENCE_MS = 400
 MAX_SEGMENT_MS = 20000
 MIN_SPEECH_MS = 250
-# 말 앞뒤 여유와 20초 자를 틈 찾는 범위 (실방송 재생 측정으로 고른 값 — V-05)
+# 말 앞뒤 여유와 20초 자를 틈 찾는 범위. Segmenter()의 기본은 AC-APP1-01·02의 자르기 규칙 그대로(여유 없음·정확히 20초)
 PRE_ROLL_MS = 0
 POST_ROLL_MS = 0
 CUT_LOOKBACK_MS = 0
+# 일꾼이 쓰는 값 (APP1 실방송 재생으로 고름 — `python -m livegenie_transcriber.tune`, 근거는 harness/sprints/APP1/dev-notes.md)
+# 경성·금화 녹음 전체를 진짜 Cohere로 받아써 채점: 여유 0·틈 0 = 44·16 → 200·200·8초 = 49·16 (300·300은 다시 떨어짐)
+WORKER_PRE_ROLL_MS = 200
+WORKER_POST_ROLL_MS = 200
+WORKER_CUT_LOOKBACK_MS = 8000
 
 
 @dataclass(frozen=True)
@@ -215,3 +220,8 @@ class Segmenter:
         out.append(Segment(start, start + len(pcm) // BYTES_PER_SAMPLE, pcm))
         # 뒤 여유 다음 쉼만 다음 말의 앞 여유가 될 수 있다(조각끼리 겹치지 않게)
         self._remember(bytes(pending[tail:]))
+
+
+def worker_segmenter() -> Segmenter:
+    """일꾼 흐름 하나의 자르기 (고른 여유·틈 범위)"""
+    return Segmenter(pre_roll_ms=WORKER_PRE_ROLL_MS, post_roll_ms=WORKER_POST_ROLL_MS, cut_lookback_ms=WORKER_CUT_LOOKBACK_MS)

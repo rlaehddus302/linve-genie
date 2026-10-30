@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import unittest
 
-from livegenie_transcriber.segmenter import Segmenter
+from livegenie_transcriber import segmenter as segmenter_module
+from livegenie_transcriber.segmenter import Segmenter, worker_segmenter
 
 from helpers import frames_from_timeline, silence, tone
 
@@ -161,6 +162,30 @@ class LookbackTest(unittest.TestCase):
     def test_no_dip_cuts_exactly_at_20s(self):
         segments = run_with(frames_from_timeline([(45000, True), (1000, False)]), cut_lookback_ms=3000)
         self.assertEqual([s.end_ms - s.start_ms for s in segments][:2], [20000, 20000])
+
+
+class WorkerValuesTest(unittest.TestCase):
+    """일꾼 값: 재생 측정으로 고른 앞 0.2초·뒤 0.2초·틈 8초. 자르기 함수 기본은 AC-APP1-01·02 규칙(여유 없음)"""
+
+    def test_worker_values(self):
+        self.assertEqual(
+            (segmenter_module.WORKER_PRE_ROLL_MS, segmenter_module.WORKER_POST_ROLL_MS, segmenter_module.WORKER_CUT_LOOKBACK_MS),
+            (200, 200, 8000),
+        )
+        self.assertEqual((segmenter_module.PRE_ROLL_MS, segmenter_module.POST_ROLL_MS, segmenter_module.CUT_LOOKBACK_MS), (0, 0, 0))
+
+    def test_worker_segmenter_pads_and_moves_cut_to_breath(self):
+        frames = frames_from_timeline([(1000, False), (13000, True), (210, False), (9000, True), (1000, False)])
+        out = []
+        segmenter = worker_segmenter()
+        for probability, pcm in frames:
+            out.extend(segmenter.push(probability, pcm))
+        self.assertEqual(len(out), 2)
+        self.assertAlmostEqual(out[0].start_ms, 800, delta=30)
+        # 20초가 차는 자리(19.8초)에서 8초 안의 숨 쉬는 틈(14.0~14.21초) 끝으로 옮겨 자른다
+        self.assertAlmostEqual(out[0].end_ms, 14210, delta=30)
+        self.assertEqual(out[0].end_sample, out[1].start_sample)
+        self.assertAlmostEqual(out[1].end_ms, 23410, delta=30)
 
 
 if __name__ == "__main__":

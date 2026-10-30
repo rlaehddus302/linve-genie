@@ -7,6 +7,7 @@ import unittest
 
 from livegenie_transcriber.protocol import pack_audio
 from livegenie_transcriber.runner import Rejected, backoff_seconds, percentile, run_worker, summary_line
+from livegenie_transcriber.segmenter import worker_segmenter
 from livegenie_transcriber.session import Stats
 
 from helpers import AmplitudeVad, length_model, silence, tone
@@ -159,6 +160,13 @@ class SummaryTest(unittest.TestCase):
         self.assertIn("95% 400ms", line)
         self.assertEqual(percentile([], 95), None)
         self.assertEqual(percentile(list(range(100, 2001, 100)), 95), 1900)
+
+
+class WorkerSegmenterDefaultTest(unittest.TestCase):
+    def test_run_worker_cuts_with_worker_values_by_default(self):
+        import inspect
+
+        self.assertIs(inspect.signature(run_worker).parameters["segmenter_factory"].default, worker_segmenter)
 
 
 if __name__ == "__main__":

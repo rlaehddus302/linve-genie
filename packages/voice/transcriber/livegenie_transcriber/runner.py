@@ -10,6 +10,7 @@ import sys
 import time
 from typing import Any, AsyncContextManager, Awaitable, Callable, List, Optional
 
+from .segmenter import Segmenter, worker_segmenter
 from .session import Stats, Transcribe, VadFactory, WorkerSession
 
 BACKOFF_SECONDS = (1, 2, 4, 8, 16, 30)
@@ -121,6 +122,7 @@ async def run_worker(
     run_blocking: Optional[Callable[[Callable[[], str]], Awaitable[str]]] = None,
     stop: Optional[asyncio.Event] = None,
     max_connections: Optional[int] = None,
+    segmenter_factory: Callable[[], Segmenter] = worker_segmenter,
 ) -> Stats:
     """끝없이 붙어 있는다(stop이 켜지거나 max_connections번 붙어 본 뒤 끝). 셈을 돌려준다"""
     stats = Stats()
@@ -140,7 +142,7 @@ async def run_worker(
                 async def send_text(text: str) -> None:
                     await socket.send(text)
 
-                session = WorkerSession(send_text, transcribe, vad_factory, max_streams, clock, run_blocking, stats)
+                session = WorkerSession(send_text, transcribe, vad_factory, max_streams, clock, run_blocking, stats, segmenter_factory)
                 await serve_connection(socket, session, log)
             log("라이브지니 서버 연결이 닫혔어요.")
         except asyncio.CancelledError:
