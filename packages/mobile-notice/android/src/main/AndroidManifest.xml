@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 문자찜·입금 알림 받기 모듈 (SMS3). 앱 매니페스트에 합쳐진다(manifest merger). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 서버로 보내기 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 재부팅 뒤 이어받기 (남은 대기열을 다시 보내고 알림 읽기를 다시 붙인다) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application>
+        <!-- 알림 읽기: 시스템만 붙일 수 있다(BIND_NOTIFICATION_LISTENER_SERVICE). 판매자가 설정에서 허용해야 돈다 -->
+        <service
+            android:name="com.livejjim.notice.NoticeListenerService"
+            android:label="라이브지니 문자찜·입금 알림"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+            <!-- 안드로이드 13+: 대화·알림만 받는다(계속 떠 있는 알림은 받지 않음). 조용한 알림도 받는다 — 은행 앱이 조용히 띄우기도 한다 -->
+            <meta-data
+                android:name="android.service.notification.default_filter_types"
+                android:value="conversations|alerting|silent" />
+            <meta-data
+                android:name="android.service.notification.disabled_filter_types"
+                android:value="ongoing" />
+        </service>
+
+        <receiver
+            android:name="com.livejjim.notice.NoticeBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
