@@ -492,8 +492,22 @@ export interface CollectorView {
 }
 
 /** 방송 잇기 상태 (GET·POST /api/broadcasts/:id/youtube) */
+/** 이은 유튜브 방송 (YT-02). channelId = 글 올리는 계정(잇는 때 연결돼 있던 사장님 채널) */
+export interface LinkRecordView {
+  readonly videoId: string
+  readonly channelId: string
+  readonly linkedAt: string
+  readonly chatEnded: boolean
+  /** 방송 채널(영상의 채널, INV1 D-PHN-17). 없거나 비면 글 올리는 계정과 같다(옛 기록, D-INV1-01) */
+  readonly broadcastChannelId?: string | null
+  /** 방송 채널 이름 — 바깥 글이라 글자로만 보인다(D-INV1-03) */
+  readonly broadcastChannelTitle?: string | null
+  /** 서버 판단: 초대 방송인가(방송 채널 ≠ 글 올리는 계정) */
+  readonly invited?: boolean
+}
+
 export interface LinkView {
-  readonly link: { readonly videoId: string; readonly channelId: string; readonly linkedAt: string; readonly chatEnded: boolean } | null
+  readonly link: LinkRecordView | null
   readonly collector: CollectorView | null
 }
 

@@ -13,7 +13,12 @@ export interface LinkRow {
   readonly broadcastId: string
   readonly videoId: string
   readonly liveChatId: string
+  /** 글 올리는 계정 = 이을 때 연결돼 있던 사장님 채널 (D-PHN-17·19) */
   readonly channelId: string
+  /** 방송 채널 = 영상의 채널. INV1 전 기록(빈 칸)은 글 올리는 계정과 같다고 읽는다 (D-INV1-01) */
+  readonly broadcastChannelId: string
+  /** 방송 채널 이름 (바깥 글, 모르면 null — 옛 기록) */
+  readonly broadcastChannelTitle: string | null
   readonly linkedAt: Date
   /** 유튜브 방송의 실제 시작 시각 (null = 예정, AC-Y1-94) */
   readonly startedAt: Date | null
@@ -24,6 +29,11 @@ export interface LinkRow {
   readonly summaryAt: Date | null
 }
 
+/** 초대 방송인가: 방송 채널 ≠ 글 올리는 계정 (D-PHN-17) */
+export function isInvitedLink(link: Pick<LinkRow, 'channelId' | 'broadcastChannelId'>): boolean {
+  return link.broadcastChannelId !== link.channelId
+}
+
 const linkColumns = {
   id: youtubeLinks.id,
   sellerId: youtubeLinks.sellerId,
@@ -32,6 +42,9 @@ const linkColumns = {
   videoId: youtubeLinks.videoId,
   liveChatId: youtubeLinks.liveChatId,
   channelId: youtubeLinks.channelId,
+  // 옛 기록(빈 칸)은 글 올리는 계정과 같다 (D-INV1-01) — 유튜브를 다시 부르거나 고쳐 쓰지 않는다
+  broadcastChannelId: sql<string>`coalesce(${youtubeLinks.broadcastChannelId}, ${youtubeLinks.channelId})`,
+  broadcastChannelTitle: youtubeLinks.broadcastChannelTitle,
   linkedAt: youtubeLinks.linkedAt,
   startedAt: youtubeLinks.startedAt,
   linkedBy: youtubeLinks.linkedBy,
@@ -109,6 +122,9 @@ export async function insertLink(
     videoId: string
     liveChatId: string
     channelId: string
+    /** 방송 채널(영상의 채널)과 이름 (D-PHN-17) */
+    broadcastChannelId: string
+    broadcastChannelTitle: string | null
     /** 유튜브 방송의 실제 시작 시각 (예정이면 null) */
     startedAt: Date | null
     linkedBy: string
@@ -126,6 +142,8 @@ export async function insertLink(
     videoId: row.videoId,
     liveChatId: row.liveChatId,
     channelId: row.channelId,
+    broadcastChannelId: row.broadcastChannelId,
+    broadcastChannelTitle: row.broadcastChannelTitle,
     linkedAt: row.now,
     startedAt: row.startedAt,
     linkedBy: row.linkedBy,

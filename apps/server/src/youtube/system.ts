@@ -31,6 +31,7 @@ import {
   scopeNotices,
   unlinkRow,
   updateCollector,
+  isInvitedLink,
   type LinkRow,
 } from './store.ts'
 import { parseVideoId } from './texts.ts'
@@ -72,7 +73,8 @@ export const LINK_MESSAGES = {
   REHEARSAL_LINK: '리허설 방송에는 유튜브 방송을 이을 수 없어요.',
   BROADCAST_ENDED: '끝난 방송에는 유튜브 방송을 이을 수 없어요.',
   ALREADY_LINKED: alreadyLinkedMessage('YOUTUBE'),
-  NOT_MY_CHANNEL: '내 채널의 방송만 연결할 수 있어요.',
+  // 내 채널이 아닌 방송 — 잇지 않고 확인을 받는다 (D-PHN-17·D-INV1-04). 화면은 채널 이름을 넣은 확인 줄을 띄운다
+  INVITED_CONFIRM_NEEDED: '내 채널 방송이 아니에요. 초대받은 방송이 맞나요?',
   NO_LIVE_CHAT: '채팅을 받을 수 없는 방송이에요. 끝났거나 채팅이 꺼져 있어요.',
   VIDEO_IN_USE: '이미 다른 방송에 이어진 유튜브 방송이에요.',
   NOT_LINKED: '이어진 유튜브 방송이 없어요.',
@@ -96,11 +98,34 @@ export interface LiveBroadcastItem {
 }
 
 export interface LinkView {
-  readonly link: { readonly videoId: string; readonly channelId: string; readonly linkedAt: string; readonly chatEnded: boolean } | null
+  readonly link: {
+    readonly videoId: string
+    /** 글 올리는 계정 (이을 때 연결돼 있던 내 채널) */
+    readonly channelId: string
+    /** 방송 채널 (영상의 채널, 옛 기록은 channelId와 같음 — D-INV1-01) */
+    readonly broadcastChannelId: string
+    /** 방송 채널 이름 (바깥 글 — 화면은 글자로만, 모르면 null) */
+    readonly broadcastChannelTitle: string | null
+    /** 초대 방송 = 방송 채널 ≠ 글 올리는 계정 (콘솔 "초대받은 방송 · {이름}") */
+    readonly invited: boolean
+    readonly linkedAt: string
+    readonly chatEnded: boolean
+  } | null
   readonly collector: CollectorView | null
 }
 
-export type LinkOutcome = { kind: 'ok'; view: LinkView } | { kind: 'not_found' } | { kind: 'rejected'; status: number; code: LinkCode }
+/** 내 채널이 아닌 방송의 채널 (확인 줄에 쓴다, D-PHN-17). title은 바깥 글 — 비면 '' */
+export interface InvitedChannel {
+  readonly id: string
+  readonly title: string
+}
+
+export type LinkOutcome =
+  | { kind: 'ok'; view: LinkView }
+  | { kind: 'not_found' }
+  | { kind: 'rejected'; status: number; code: LinkCode }
+  /** 내 채널 방송이 아님 — 잇지 않았다. 확인 표시(true)와 함께 다시 보내면 잇는다 (D-INV1-02) */
+  | { kind: 'confirm'; channel: InvitedChannel }
 
 export interface LinkHooks {
   /** 잇기: 조건 확인을 마친 뒤·연결을 넣기 직전 (시험: 기다리게 해 동시에 잇는 요청이 겹치게 한다, AC-Y1-98) */
@@ -296,7 +321,15 @@ export class YoutubeSystem {
     if (link === null) return { link: null, collector: null }
     const collector = await collectorOf(this.#options.db, sellerId, link.id)
     return {
-      link: { videoId: link.videoId, channelId: link.channelId, linkedAt: link.linkedAt.toISOString(), chatEnded: link.chatEndedAt !== null },
+      link: {
+        videoId: link.videoId,
+        channelId: link.channelId,
+        broadcastChannelId: link.broadcastChannelId,
+        broadcastChannelTitle: link.broadcastChannelTitle,
+        invited: isInvitedLink(link),
+        linkedAt: link.linkedAt.toISOString(),
+        chatEnded: link.chatEndedAt !== null,
+      },
       collector: collector === null ? null : collectorView(collector, await recordedChats(this.#options.db, sellerId, link.broadcastId)),
     }
   }
@@ -314,8 +347,10 @@ export class YoutubeSystem {
   /**
    * 잇기 (AC-Y1-12). 조건을 모두 만족할 때만 잇고 바로 수집을 시작한다. 같은 요청 번호로 두 번 보내도 한 번만 잇는다.
    * 다른 플랫폼(인스타그램·틱톡)이 이어져 있어도 막지 않는다 — 같은 플랫폼만 ALREADY_LINKED (동시 송출, D-N2b-2-01)
+   * 초대 방송 (D-PHN-17·D-INV1-02): 영상의 채널이 내 채널과 다르면 confirmInvited가 true일 때만 잇고, 아니면 아무것도 넣지 않고 채널을 돌려준다.
+   * 확인 상태는 서버에 남기지 않는다 — 확인 요청마다 영상을 다시 조회해 다시 판단하고, 다른 받는 조건은 확인이 있어도 그대로 본다
    */
-  async link(session: SessionInfo, b: string, video: string, requestId: string): Promise<LinkOutcome> {
+  async link(session: SessionInfo, b: string, video: string, requestId: string, confirmInvited = false): Promise<LinkOutcome> {
     const { db, timer } = this.#options
     const sellerId = session.sellerId
     const prior = await linkByRequest(db, sellerId, requestId)
@@ -337,16 +372,23 @@ export class YoutubeSystem {
         this.google.api({ sellerId, method: 'videos.list', accessToken: token, path: '/videos', query: { part: 'snippet,liveStreamingDetails', id: videoId } }),
       )
     } catch (error) {
-      if (error instanceof GoogleError && error.status === 404) return { kind: 'rejected', status: 409, code: 'NOT_MY_CHANNEL' }
+      // 사장님 계정으로 보이지 않는 영상(지움·비공개) — 채팅을 받을 수 없는 방송 (옛 "내 채널의 방송만" 문장은 쓰지 않는다, D-INV1-04)
+      if (error instanceof GoogleError && error.status === 404) return { kind: 'rejected', status: 409, code: 'NO_LIVE_CHAT' }
       return { kind: 'rejected', ...this.#accessFailure(sellerId, error) }
     }
     const item = ((Array.isArray(body.items) ? body.items : []) as Record<string, unknown>[]).find((candidate) => candidate.id === videoId)
-    const snippet = (item?.snippet ?? {}) as Record<string, unknown>
-    if (item === undefined || snippet.channelId !== connection.channel.id) return { kind: 'rejected', status: 409, code: 'NOT_MY_CHANNEL' }
+    if (item === undefined) return { kind: 'rejected', status: 409, code: 'NO_LIVE_CHAT' }
+    const snippet = (item.snippet ?? {}) as Record<string, unknown>
     const details = (item.liveStreamingDetails ?? {}) as Record<string, unknown>
     const content = snippet.liveBroadcastContent
     const liveChatId = details.activeLiveChatId
+    // 받는 조건(진행 중·예정, 채팅 ID)은 채널과 상관없이 먼저 본다 — 확인을 받아도 건너뛰지 않는다 (AC-INV1-04)
     if ((content !== 'live' && content !== 'upcoming') || typeof liveChatId !== 'string' || liveChatId === '') return { kind: 'rejected', status: 409, code: 'NO_LIVE_CHAT' }
+    const broadcastChannelId = typeof snippet.channelId === 'string' ? snippet.channelId : ''
+    if (broadcastChannelId === '') return { kind: 'rejected', status: 409, code: 'NO_LIVE_CHAT' }
+    const broadcastChannelTitle = typeof snippet.channelTitle === 'string' ? snippet.channelTitle : null
+    // 내 채널이 아니면 확인 표시(정확히 true)가 있을 때만 잇는다 — 없으면 아무것도 넣지 않고 채널 이름을 돌려준다 (D-PHN-17)
+    if (broadcastChannelId !== connection.channel.id && confirmInvited !== true) return { kind: 'confirm', channel: { id: broadcastChannelId, title: broadcastChannelTitle ?? '' } }
     // 유튜브 방송의 실제 시작 시각 — 예정이면 비워 둔다(수집기가 시작을 확인한다, AC-Y1-94)
     const actualStart = Date.parse(typeof details.actualStartTime === 'string' ? details.actualStartTime : '')
     const startedAt = content === 'upcoming' ? null : new Date(Number.isFinite(actualStart) ? actualStart : timer.now())
@@ -363,7 +405,7 @@ export class YoutubeSystem {
         const others = (await openLinksForVideo(tx, sellerId, [videoId])).filter((other) => other.broadcastId !== b)
         if (others.length > 0) return 'VIDEO_IN_USE'
         await this.#options.linkHooks?.beforeInsert?.(b)
-        await insertLink(tx, { id, sellerId, scopeId: scope.id, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', startedAt, linkedBy: session.accountId, requestId, now: new Date(timer.now()), ...(startedAt === null ? { upcomingCheckAt: new Date(timer.now() + UPCOMING_CHECK_MS) } : {}) })
+        await insertLink(tx, { id, sellerId, scopeId: scope.id, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', broadcastChannelId, broadcastChannelTitle, startedAt, linkedBy: session.accountId, requestId, now: new Date(timer.now()), ...(startedAt === null ? { upcomingCheckAt: new Date(timer.now() + UPCOMING_CHECK_MS) } : {}) })
         return null
       })
     } catch (error) {

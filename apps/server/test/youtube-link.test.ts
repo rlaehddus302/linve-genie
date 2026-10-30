@@ -86,8 +86,11 @@ describe('AC-Y1-12 잇기 조건', () => {
     expect((await link(rehearsal.id, live.videoId, 'r3')).body).toEqual({ error: { code: 'REHEARSAL_LINK', message: '리허설 방송에는 유튜브 방송을 이을 수 없어요.' } })
     // 주소
     expect((await link(b.id, 'https://vimeo.com/x', 'r4')).body).toMatchObject({ error: { code: 'INVALID_VIDEO_URL', message: '유튜브 방송 주소를 확인해 주세요.' } })
-    // 남의 채널 방송
-    expect((await link(b.id, others.videoId, 'r5')).body).toEqual({ error: { code: 'NOT_MY_CHANNEL', message: '내 채널의 방송만 연결할 수 있어요.' } })
+    // 남의 채널 방송 — INV1(D-PHN-17)로 바뀜: 잇지 않고 확인 필요 코드와 채널을 준다 (옛 "내 채널의 방송만" 문장 없음)
+    expect((await link(b.id, others.videoId, 'r5')).body).toEqual({
+      channel: { id: others.channelId, title: '남' },
+      error: { code: 'INVITED_CONFIRM_NEEDED', message: '내 채널 방송이 아니에요. 초대받은 방송이 맞나요?' },
+    })
     // 채팅 없음·끝남
     expect((await link(b.id, noChat.videoId, 'r6')).body).toEqual({ error: { code: 'NO_LIVE_CHAT', message: '채팅을 받을 수 없는 방송이에요. 끝났거나 채팅이 꺼져 있어요.' } })
     expect((await link(b.id, ended.videoId, 'r7')).body).toEqual({ error: { code: 'NO_LIVE_CHAT', message: '채팅을 받을 수 없는 방송이에요. 끝났거나 채팅이 꺼져 있어요.' } })

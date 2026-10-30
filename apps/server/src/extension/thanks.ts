@@ -26,7 +26,7 @@ import {
   type RowChange,
   type RunnerRow,
 } from '../youtube/outbox-store.ts'
-import { activeLink } from '../youtube/store.ts'
+import { activeLink, isInvitedLink } from '../youtube/store.ts'
 import { batchMessages } from '../youtube/texts.ts'
 import type { Timer } from '../youtube/timer.ts'
 import { activeBindings, activeToken, addLaneFail, bindingOfBroadcast, bindingOfVideo, lanesOf, postEnabledAt, readLane, writeLane, writePostEnabled, youtubeChannelOf } from './store.ts'
@@ -46,6 +46,9 @@ export const EXT_THANKS_MESSAGES = {
 } as const
 
 export type ThanksResult = 'POSTED' | 'UNCONFIRMED' | 'NOT_POSTED'
+
+/** 초대 방송 회차에서 확장이 다시 물을 때까지 (가져갈 글이 생기지 않는다 — 드물게만 묻게) */
+const INVITED_RECHECK_MS = 60_000
 
 export type TakeOutcome =
   /** 넣을 글 하나 (발송함 ID들, 서버가 만든 글 그대로 — 글자로만 넣는다) */
@@ -154,6 +157,8 @@ export class ExtensionThanks {
     if (enabledAt === null) return null
     if ((await activeToken(db, sellerId)) === null) return null
     if ((await bindingOfBroadcast(db, sellerId, broadcastId)) === null) return null
+    // 초대 방송(남의 채널 방송)의 감사는 확장에 맡기지 않는다 — 공식 경로만 (D-PHN-21, AC-INV1-10)
+    if (await this.#invited(sellerId, broadcastId)) return null
     const lane = await readLane(db, sellerId, broadcastId)
     if (lane?.pausedAt !== null && lane?.pausedAt !== undefined) return null
     return enabledAt
@@ -216,8 +221,10 @@ export class ExtensionThanks {
     const b = binding.broadcastId
     return this.#serial(`${sellerId}\u0000${b}`, async () => {
       const now = this.#now()
-      const lane = await readLane(db, sellerId, b)
       const link = await activeLink(db, sellerId, b)
+      // 초대 방송: 확장은 감사를 가져가지 않고 방송자 로그인 안내도 남기지 않는다 (D-PHN-21, AC-INV1-10)
+      if (link !== null && isInvitedLink(link)) return { kind: 'none', afterMs: INVITED_RECHECK_MS, channel: null }
+      const lane = await readLane(db, sellerId, b)
       const connection = await youtubeChannelOf(db, sellerId)
       const expected = link?.channelId ?? connection?.channelId ?? lane?.ownerChannelId ?? owner
       const ownerOk = meIsOwner && owner !== null && expected !== null && owner === expected
@@ -350,6 +357,8 @@ export class ExtensionThanks {
       }
       for (const lane of await lanesOf(db, sellerId)) {
         if (!bound.has(lane.broadcastId)) continue
+        // 초대 방송은 확장으로 올리지 않으니 확장 경고(방송 채널 로그인 등)도 띄우지 않는다 (AC-INV1-10)
+        if (await this.#invited(sellerId, lane.broadcastId)) continue
         if (lane.pausedAt !== null) warnings.push({ broadcast: lane.broadcastId, kind: 'PAUSED', message: EXT_THANKS_MESSAGES.PAUSED })
         if (lane.ownerProblemAt !== null) warnings.push({ broadcast: lane.broadcastId, kind: 'OWNER', message: EXT_THANKS_MESSAGES.OWNER })
       }
@@ -357,11 +366,20 @@ export class ExtensionThanks {
     return { enabled: enabledAt !== null, enabledAt: enabledAt?.toISOString() ?? null, warnings }
   }
 
-  /** 회차의 방송 채널: YT-02 이은 채널 → 유튜브 연결 채널 → 감사 올리기에서 확인한 채널 (모르면 null) — 확장의 방송자 표시를 견줄 때 (D-X1-29) */
+  /** 그 회차에 이어진 유튜브 방송이 초대 방송(방송 채널 ≠ 글 올리는 계정)인가 */
+  async #invited(sellerId: string, broadcastId: string): Promise<boolean> {
+    const link = await activeLink(this.#deps.db, sellerId, broadcastId)
+    return link !== null && isInvitedLink(link)
+  }
+
+  /**
+   * 회차의 방송 채널: YT-02 이은 영상의 방송 채널(초대 방송이면 유튜버 채널, 옛 기록은 이은 채널) → 유튜브 연결 채널 → 감사 올리기에서 확인한 채널
+   * (모르면 null) — 확장의 방송자 표시를 견줄 때 (D-X1-29, D-PHN-21)
+   */
   async broadcastChannel(sellerId: string, broadcastId: string): Promise<string | null> {
     const { db } = this.#deps
     const link = await activeLink(db, sellerId, broadcastId)
-    if (link !== null) return link.channelId
+    if (link !== null) return link.broadcastChannelId
     const connection = await youtubeChannelOf(db, sellerId)
     if (connection !== null) return connection.channelId
     return (await readLane(db, sellerId, broadcastId))?.ownerChannelId ?? null

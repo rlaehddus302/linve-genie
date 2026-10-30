@@ -45,6 +45,8 @@ const requestIdOf = (value: Record<string, unknown>): string | null => {
 function linkResponse(c: Context, outcome: LinkOutcome): Response {
   if (outcome.kind === 'not_found') return notFound()
   if (outcome.kind === 'rejected') return apiError(outcome.status, outcome.code as ErrorCode, LINK_MESSAGES[outcome.code])
+  // 내 채널이 아닌 방송: 잇지 않았다 — 채널 이름(바깥 글)을 함께 돌려주고 화면이 확인 줄을 띄운다 (D-PHN-17·D-INV1-04)
+  if (outcome.kind === 'confirm') return apiError(409, 'INVITED_CONFIRM_NEEDED', LINK_MESSAGES.INVITED_CONFIRM_NEEDED, [], { channel: outcome.channel })
   return c.json(outcome.view)
 }
 
@@ -138,12 +140,17 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     const input = body(c)
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
-    const extra = onlyKeys(input, ['requestId', 'video'])
+    const extra = onlyKeys(input, ['requestId', 'video', 'confirmInvited'])
     if (extra !== null) return extra
+    // 초대 방송 확인 표시 (D-INV1-02): JSON 불리언만 — true만 확인, 없거나 false는 확인 아님, 다른 모양("true"·1·{})은 거절
+    const confirm = own(input, 'confirmInvited')
+    if (confirm !== undefined && typeof confirm !== 'boolean') {
+      return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'confirmInvited', message: '초대받은 방송 확인 값이 올바르지 않아요.' }])
+    }
     const raw = own(input, 'video')
     // 잇기는 회차부터 본다(다른 판매자의 회차가 있는지 알리지 않는다) — 주소가 글자가 아니면 빈 주소로 넘겨 그다음에 거른다
     const video = typeof raw === 'string' && raw.length <= 2048 ? raw : ''
-    return linkResponse(c, await youtube.link(info(c), c.req.param('id'), video, requestId))
+    return linkResponse(c, await youtube.link(info(c), c.req.param('id'), video, requestId, confirm === true))
   })
   api.post('/broadcasts/:id/youtube/unlink', async (c) => {
     if (youtube === null) return notConfigured()
