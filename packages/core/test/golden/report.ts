@@ -18,7 +18,7 @@ function display(value: unknown): string {
 /** 항목 위치: 파일 · (시나리오 ID | suite 문서 n · 사례 m · 입력 "…") */
 export function itemLocation(item: ItemResult): string {
   if (item.kind === 'scenario') return `${item.file} · ${item.id}`
-  return `${item.file} · ${item.suite} 문서 ${item.docIndex} · 사례 ${item.caseIndex} · 입력 ${JSON.stringify(item.input)}`
+  return `${item.file} · ${item.suite} 문서 ${item.docIndex} · 사례 ${item.caseIndex} · 입력 ${JSON.stringify(item.input)}${item.from === undefined ? '' : ` · 보낸 곳 ${JSON.stringify(item.from)}`}`
 }
 
 export function itemStatusLabel(item: ItemResult): string {

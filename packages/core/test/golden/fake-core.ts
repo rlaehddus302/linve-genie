@@ -13,6 +13,8 @@ export interface FakeCoreOptions {
     readonly quickInput?: (text: string, settings: SettingsOverride) => unknown
     readonly voiceExtract?: (text: string, settings: SettingsOverride, dictionary: readonly string[]) => unknown
     readonly productImport?: (text: string, settings: SettingsOverride, existing: readonly number[]) => unknown
+    /** 없으면 smsText가 없는 코어(sms-text 사례는 미구현) */
+    readonly smsText?: (from: string | null, text: string, settings: SettingsOverride) => unknown
   }
   /** 고정 스냅샷, 또는 지금까지 적용한 이벤트로 스냅샷을 만드는 함수 */
   readonly snapshot?: GoldenSnapshot | ((events: readonly GoldenEvent[]) => GoldenSnapshot)
@@ -66,6 +68,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): GoldenCore {
       quickInput: options.parser?.quickInput ?? notImplemented('가짜 quick-input'),
       voiceExtract: options.parser?.voiceExtract ?? notImplemented('가짜 voice-extract'),
       productImport: options.parser?.productImport ?? notImplemented('가짜 product-import'),
+      ...(options.parser?.smsText === undefined ? {} : { smsText: options.parser.smsText }),
     },
     engine: { ...baseEngine, ...preview, ...options.engine },
   }

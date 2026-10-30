@@ -2,7 +2,7 @@
 // 입력은 파일 내용(문자열)과 코어(GoldenCore)뿐이다. 파일 시스템·환경변수·명령행을 보지 않는다.
 import { NotImplementedError, isNotImplemented } from '@livejjim/core'
 import { EMPTY_ALLOWLIST, readAllowlist, type Allowlist } from './allowlist.ts'
-import { SCENARIO_ID_RE, SUITES, isPlainObject, type SuiteName } from './contract.ts'
+import { SCENARIO_ID_RE, SMS_TEXT_DEFAULT_FROM, SUITES, isPlainObject, type SuiteName } from './contract.ts'
 import { buyerSelfOf, compareExpect, compareParserOutput } from './compare.ts'
 import { SerializationError, stableSerialize } from './serialize.ts'
 import { mergePreviewIssues, snapshotIssues } from './snapshot-check.ts'
@@ -95,6 +95,11 @@ function runParserCase(
         // 상품 목록·지금 상품도 사례마다 사본을 넘긴다 (O1, D-O1-09). 코어에 인식 함수가 없으면 미구현
         if (core.parser.commentOptions === undefined) throw new NotImplementedError('댓글 옵션 인식(comment-options, O1)')
         actual = core.parser.commentOptions(testCase.input, copy, structuredClone(inputs.catalog ?? []), structuredClone(inputs.focus ?? null))
+        break
+      case 'sms-text':
+        // 보낸 곳은 사례의 from (검사기가 기본값 "010-1234-5678"을 채운다). 코어에 읽기 함수가 없으면 미구현 (SMS3, D-SMS3-09)
+        if (core.parser.smsText === undefined) throw new NotImplementedError('문자 읽기(sms-text, SMS3)')
+        actual = core.parser.smsText(testCase.from === undefined ? SMS_TEXT_DEFAULT_FROM : testCase.from, testCase.input, copy)
         break
     }
   } catch (error) {
@@ -448,6 +453,7 @@ export function runGoldenSources(options: RunGoldenSourcesOptions): GoldenReport
           suite: doc.suite,
           caseIndex: testCase.index,
           input: testCase.input,
+          ...(testCase.from === undefined ? {} : { from: testCase.from }),
           status,
           listed,
           allowed: listed && status === 'not-implemented',

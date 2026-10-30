@@ -27,6 +27,7 @@ import {
   listSettlements,
   listSmsRefs,
   parseOptionComment,
+  parseSmsText,
   parseAmount,
   parseChat,
   parseKoreanNumber,
@@ -221,6 +222,9 @@ export const realCore: GoldenCore = {
     productImport: (text, settings, existing) => parseProductList(text, { unit: settings['price.unit'], maxNumber: settings['claim.maxNumber'], existing }),
     // 결과를 바꾸지 않고 out 모양으로만 옮긴다 (O1, D-O1-09)
     commentOptions: (text, settings, catalog, focus) => toCommentOptionsOut(parseOptionComment(text, catalog as readonly OptionCatalogEntry[], focus as OptionFocus | null, settings)),
+    // 결과를 바꾸지 않고 그대로 넘긴다 — 다섯 모양이 곧 out 모양이다 (SMS3, D-SMS3-09). 빠진 설정은 코어가 DOMAIN_RULES 기본값
+    smsText: (from, text, settings) =>
+      parseSmsText({ from, text }, { parseMode: settings['claim.parseMode'], multiNumber: settings['claim.multiNumber'], maxNumber: settings['claim.maxNumber'] }),
   },
   engine: {
     start: (setup) => initEngine(setup),

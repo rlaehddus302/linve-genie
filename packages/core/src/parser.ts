@@ -15,3 +15,13 @@ export {
   type OptionReview,
   type OptionReviewReason,
 } from './parse/options.ts'
+// 휴대폰이 받은 문자 읽기 (R-26, SMS3) — 순수·전체 함수
+export {
+  parseSmsText,
+  SMS_EXCLUDED_WORDS,
+  type SmsReviewWhy,
+  type SmsSkipWhy,
+  type SmsTextInput,
+  type SmsTextOptions,
+  type SmsTextResult,
+} from './parse/sms-text.ts'
