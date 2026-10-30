@@ -105,7 +105,8 @@ describe('마이그레이션 명령 (AC-S04-20)', () => {
     //   + V3 D-V3-68: 판매자 품종 사전(seller_names)을 0022로 지워 70으로 교체 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
     //   + V3 합치기(main 78 + V3 voice_log 1개, V3 마이그레이션은 0024~0026으로 다시 매김): 79로 교체 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
     // APP1b의 계정 별칭 voice_aliases 1개를 더한다. 위의 전체 이름 대조도 유지한다.
-    expect(tables?.rows).toHaveLength(80)
+    //   + SMS3 휴대폰 알림 받기: 받기 설정·받은 id·같은 문자 표지·문자 확인 카드·은행 알림 줄·잔액 기록 6개를 더해 86으로 교체 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
+    expect(tables?.rows).toHaveLength(86)
     const none = await run(script('commands/migrate.ts'), [], {})
     expect(none.code).toBe(1)
     expect(none.out).toContain('데이터베이스 연결 설정이 없어요')

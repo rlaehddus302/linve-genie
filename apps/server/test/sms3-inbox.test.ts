@@ -102,6 +102,13 @@ describe('AC-SMS3-06 요청 모양 (C-04)', () => {
     expect((await claimsOf(world, seller)).filter((claim) => claim.broadcast === sale.id)).toHaveLength(1)
   })
 
+  it('C-04 최대 요청(20건 × 한글 1,000자 + 제목·보낸 곳 200자)은 413 없이 받는다', async () => {
+    const { world, token } = await inboxWorld()
+    const messages = Array.from({ length: 20 }, (_, i) => app(`big${String(i)}`, '가'.repeat(200), '나'.repeat(200), '\u0001'.repeat(500) + '다'.repeat(500)))
+    const response = await send(world, token, messages)
+    expect(response.status, response.text).toBe(200)
+  })
+
   it('본문 1,500자는 앞 1,000자만 읽는다', async () => {
     const { world, seller, token } = await inboxWorld()
     const sale = await liveSale(world, seller, [775])
