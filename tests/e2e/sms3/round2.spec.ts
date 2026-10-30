@@ -31,11 +31,12 @@ import {
 
 const WIDTHS = ['PC', '375'] as const satisfies readonly Width[]
 
-/** 서버가 채우는 KST "M월 D일 HH:mm:ss" (서버 약속 v4 LATE 문구의 {시각}) */
+/** 화면의 KST "M월 D일 오전/오후 h:mm:ss" (D-SMS3-34, LATE 문구의 {시각}) */
 function kstMonthDayTime(ms: number): string {
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms))
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms))
   const part = (t: string): string => parts.find((x) => x.type === t)?.value ?? ''
-  return `${String(Number(part('month')))}월 ${String(Number(part('day')))}일 ${part('hour')}:${part('minute')}:${part('second')}`
+  const h = Number(part('hour'))
+  return `${String(Number(part('month')))}월 ${String(Number(part('day')))}일 ${h < 12 ? '오전' : '오후'} ${String(h % 12 === 0 ? 12 : h % 12)}:${part('minute')}:${part('second')}`
 }
 
 const STALE_TEXT = '끝내지 않은 방송이 12시간 넘게 이어져 손님 문자를 넣지 않았어요. 방송을 끝내 주세요.'
@@ -112,6 +113,10 @@ for (const width of WIDTHS) {
     await expect(card, '거절 카드가 콘솔에 보여야 한다(보드에서 확인하라는 안내)').toBeVisible()
     await expect(card).toContainText('15번은 바로 넣지 못했어요. 보드에서 확인해 주세요')
     await expectNoDevWords(inboxPanel(page), '거절 카드')
+    // UX-SMS3-011: 보관만 하는(봉인) 콘솔도 카드는 보이고, 넣기·승인 단추 없이 "무시"만 있다
+    await expect(card.getByRole('button', { name: /넣기/ })).toHaveCount(0)
+    await expect(card.getByRole('button', { name: '승인' })).toHaveCount(0)
+    await expect(card.getByRole('button', { name: '무시' })).toBeVisible()
     await device.dispose()
     await context.close()
   })
