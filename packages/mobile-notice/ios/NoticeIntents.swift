@@ -37,6 +37,7 @@ public struct SendNoticeIntent: AppIntent {
         case .filtered: return .result(dialog: "광고·인증·결제 같은 문자라서 보내지 않았어요.")
         case .duplicate: return .result(dialog: "이미 보낸 문자예요.")
         case .dropped: return .result(dialog: "쌓인 문자가 너무 많아 오래된 것부터 지웠어요. 라이브지니 앱을 열어 주세요.")
+        case .inboxOff: return .result(dialog: "웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 문자를 보내요.")
         case .queued(_, let pending):
             return .result(dialog: pending == 0 ? "라이브지니로 보냈어요." : "문자를 담았어요. 인터넷이 연결되면 라이브지니로 보내요.")
         }

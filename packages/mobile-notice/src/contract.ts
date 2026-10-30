@@ -9,8 +9,10 @@
 //   - title: 앱 알림 제목, 없으면 null (문자는 null)
 //   - text: 본문(1,000자 넘으면 앞 1,000자)
 //   - receivedAt: 휴대폰이 받은 시각 — 밀리초 숫자(D-SMS2-02 (다): 13자리 이상 숫자 = 밀리초)
-// C-04 응답 200: { results: [{ id, status }], filters: { skipWords, bankApps } } — status ∈ SAVED·DUPLICATE·IGNORED.
-// 오류: 401 TOKEN_INVALID(보내기를 멈춘다) · 400 BAD_REQUEST(한 건이라도 틀리면 아무것도 처리하지 않는다) · 429 TOO_MANY(1분 뒤 같은 id로 다시).
+// C-04 응답 200: { results: [{ id, status }], filters: { skipWords, bankApps, bankNumbers } } — status ∈ SAVED·DUPLICATE·IGNORED.
+// 오류: 401 TOKEN_INVALID(보내기를 멈춘다 — 새 토큰을 기다린다) · 403 INBOX_OFF(웹에서 받기를 껐다 — 큐·토큰을 지키고 10분마다
+// 0건 요청으로 다시 본다, D-SMS3-27) · 400·413(한 건이라도 틀리면 아무것도 처리하지 않는다 — 한 건씩 다시 보내 그 건만 버린다) ·
+// 429 TOO_MANY(1분 뒤 같은 id로 다시) · 500 등 5xx(잠깐의 서버 오류 — 같은 id로 다시, D-SMS3-31).
 // 머리글 외 쿠키는 쓰지 않는다(뒤에서 JS 없이 보낸다). 토큰·본문·번호는 로그에 남기지 않는다(C-07).
 
 import { parseNoticeFilters, type NoticeFilters } from './rules.ts'
@@ -59,10 +61,12 @@ export const DEVICE_NAME_MAX_CHARS = 30
 export const MESSAGE_ID_PATTERN = /^[0-9a-f]{32}$/
 /** 한 번에 보내는 건수 (C-04 0~20건) */
 export const INBOX_BATCH_MAX = 20
-/** 못 보낸 것 대기열 최대 (AC-SMS3-27 — 넘으면 오래된 것부터 버리고 개수만 기억) */
-export const NOTICE_QUEUE_MAX = 200
+/** 못 보낸 것 대기열 최대 (D-SMS3-28, AC-SMS3-27 — 넘으면 오래된 것부터 버리고 버린 건수를 앱에 보인다) */
+export const NOTICE_QUEUE_MAX = 1_000
 /** 429를 받으면 이만큼 기다렸다 같은 id로 다시 (C-04) */
 export const TOO_MANY_WAIT_MS = 60_000
+/** 403 INBOX_OFF(받기 꺼짐) 뒤 0건 요청으로 다시 볼 간격 (D-SMS3-27). 앱을 열 때(켜기·토큰 넣기·지금 보내기)는 기다리지 않고 바로 본다 */
+export const INBOX_OFF_RECHECK_MS = 600_000
 /** 연결 실패·5xx 다시 보내기 시작 간격 (WorkManager 지수 물러서기 시작값) */
 export const RETRY_INITIAL_DELAY_MS = 30_000
 
@@ -82,15 +86,17 @@ export function cleanDeviceName(value: unknown): string | null {
  * 서버 답 → 대기열이 할 일 (C-04).
  * - done: 2xx — 보낸 묶음을 대기열에서 지운다(결과마다 SAVED·DUPLICATE·IGNORED를 센다)
  * - bad: 400(모양) 등 그 밖의 4xx — 서버가 아무것도 처리하지 않았다. 여러 건 묶음이면 한 건씩 다시 보내 틀린 한 건만 골라 버린다
- * - token: 401(·403) — 받기 토큰이 끊겼다. 대기열은 그대로 두고 보내기를 멈춘다("받기 토큰을 다시 넣어 주세요")
+ * - token: 401 — 받기 토큰이 없거나 틀리거나 다시 만들어 무효다. 대기열은 그대로 두고 새 토큰을 넣을 때까지 멈춘다("받기 토큰을 다시 넣어 주세요")
+ * - off: 403 INBOX_OFF — 웹 설정에서 받기를 껐다(토큰은 그대로). 대기열·토큰을 지키고 10분마다 0건 요청으로 다시 본다(D-SMS3-27)
  * - wait: 429 — 1분 뒤 같은 id로 다시
- * - retry: 408·425·5xx·연결 실패(null) — 나중에 같은 id로 다시
+ * - retry: 408·425·5xx(500 잠깐의 오류 포함, D-SMS3-31)·연결 실패(null) — 나중에 같은 id로 다시
  */
-export type NoticeResponseAction = 'done' | 'bad' | 'token' | 'wait' | 'retry'
+export type NoticeResponseAction = 'done' | 'bad' | 'token' | 'off' | 'wait' | 'retry'
 export function classifyIntakeResponse(status: number | null): NoticeResponseAction {
   if (status === null || !Number.isInteger(status)) return 'retry'
   if (status >= 200 && status < 300) return 'done'
-  if (status === 401 || status === 403) return 'token'
+  if (status === 401) return 'token'
+  if (status === 403) return 'off'
   if (status === 429) return 'wait'
   if (status === 408 || status === 425) return 'retry'
   if (status >= 400 && status < 500) return 'bad'

@@ -54,10 +54,20 @@ class NoticeVectorsTest {
   }
 
   @Test
+  fun smsSkip() {
+    for (v in items("smsSkip")) {
+      val filters = filtersOf(v, "filters")
+      if (!v.isNull("filters")) assertTrue(v.getString("name"), filters != null)
+      assertEquals(v.getString("name"), v.stringOrNull("word"), NoticeFilter.skipWordFor(v.getString("channel"), v.stringOrNull("from"), v.getString("text"), filters))
+    }
+  }
+
+  @Test
   fun filters() {
     for (v in items("filters")) {
       val want = if (v.isNull("output")) null else v.getJSONObject("output").let { o ->
-        NoticeFilters(o.getJSONArray("skipWords").let { a -> (0 until a.length()).map { a.getString(it) } }, o.getJSONArray("bankApps").let { a -> (0 until a.length()).map { a.getString(it) } })
+        fun list(key: String) = o.getJSONArray(key).let { a -> (0 until a.length()).map { a.getString(it) } }
+        NoticeFilters(list("skipWords"), list("bankApps"), list("bankNumbers"))
       }
       assertEquals(v.toString(), want, NoticeFilter.parse(v.opt("input")))
       if (want != null) assertEquals(want, NoticeFilter.parseJson(NoticeFilter.serialize(want)))

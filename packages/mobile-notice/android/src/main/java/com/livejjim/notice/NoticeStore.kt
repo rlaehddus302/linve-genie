@@ -1,10 +1,10 @@
 // 휴대폰 알림 받기의 기기 저장 (SMS3, SPEC ORD-13 C-02·C-03·C-07, AC-SMS3-27).
 // - 대기열: 메시지 한 건 = 파일 하나, 안드로이드 Keystore AES-256-GCM으로 암호화(전화번호·본문이 평문으로 남지 않는다).
 //   noBackupFilesDir에 두어 클라우드 백업에 실리지 않는다. 파일 이름 = 받은 시각(15자리) + id → 이름 순서 = 받은 차례.
-//   최대 200건 — 넘으면 오래된 것부터 버리고 개수만 센다. 같은 id로 다시 보낸다.
+//   최대 1,000건(D-SMS3-28) — 넘으면 오래된 것부터 버리고 개수를 센다(앱이 "보내지 못하고 버린 알림이 n건" 줄로 보인다). 같은 id로 다시 보낸다.
 // - 받기 토큰·보낼 곳·기기 이름: 같은 키로 암호화한 파일 하나(토큰은 로그·설정 글에 남기지 않는다).
 // - 본 id: 같은 알림 두 번 막기 — 최근 5,000개를 noBackup 파일에 둔다(지문이라 비밀이 아니다).
-// - 켬/끔·서버 filters(skipWords·bankApps — 비밀 아님)·건수·429 기다림: SharedPreferences.
+// - 켬/끔·서버 filters(skipWords·bankApps·bankNumbers — 비밀 아님)·건수·429 기다림·받기 꺼짐(403) 상태: SharedPreferences.
 // 재부팅 뒤에도 모두 남아, 서비스가 다시 붙거나 WorkManager가 돌면 이어서 보낸다.
 package com.livejjim.notice
 
@@ -153,6 +153,15 @@ internal class NoticeStore private constructor(context: Context) {
       if (lastError() == "TOKEN") setLastError(null)
     }
   }
+  // ── 받기 꺼짐 (403 INBOX_OFF, D-SMS3-27) — 토큰은 그대로 둔다 ──
+  fun isInboxOff(): Boolean = prefs.getBoolean("inboxOff", false)
+  fun offCheckAtMs(): Long = prefs.getLong("offCheckAtMs", 0L)
+  fun setInboxOff(off: Boolean, checkAtMs: Long) {
+    val editor = prefs.edit().putBoolean("inboxOff", off).putLong("offCheckAtMs", checkAtMs)
+    if (!off && lastError() == "OFF") editor.remove("lastError")
+    editor.apply()
+  }
+
   fun isTokenRejected(): Boolean = prefs.getBoolean("tokenRejected", false)
   fun setTokenRejected() {
     prefs.edit().putBoolean("tokenRejected", true).putString("lastError", "TOKEN").apply()
@@ -172,7 +181,7 @@ internal class NoticeStore private constructor(context: Context) {
   }
 
   // ── 대기열 ──
-  /** 두 번 막기 뒤 암호화해 넣는다: queued · duplicate · dropped(넣었지만 200건이 넘어 이것이 가장 오래돼 버려짐) */
+  /** 두 번 막기 뒤 암호화해 넣는다: queued · duplicate · dropped(넣었지만 1,000건이 넘어 이것이 가장 오래돼 버려짐) */
   fun enqueue(message: InboxMessage, nowMs: Long): String {
     synchronized(lock) {
       val seenSet = loadSeen()
@@ -186,7 +195,7 @@ internal class NoticeStore private constructor(context: Context) {
       writeAtomic(File(queueDir, name), sealed)
       rememberSeen(seenSet, message.id)
       prefs.edit().putLong("lastQueuedAtMs", nowMs).apply()
-      // 200건이 넘으면 오래된 것(이름 순서 앞)부터 버리고 개수만 기억한다
+      // 1,000건이 넘으면 오래된 것(이름 순서 앞)부터 버리고 개수를 기억한다
       var outcome = "queued"
       val files = pendingFiles()
       if (files.size > QUEUE_MAX) {
@@ -262,6 +271,7 @@ internal class NoticeStore private constructor(context: Context) {
       "connected" to connected,
       "hasToken" to hasToken(),
       "tokenRejected" to isTokenRejected(),
+      "inboxOff" to isInboxOff(),
       "pending" to pendingCount(),
       "bankApps" to (filters()?.bankApps ?: emptyList()),
       "hasFilters" to (filters() != null),

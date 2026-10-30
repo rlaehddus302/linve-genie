@@ -5,6 +5,8 @@
 // 4) 아니면 문자는 TITLE(보낸 사람) / BIG_TEXT(없으면 TEXT)로 한 건, 앱 알림은 title = TITLE, text = BIG_TEXT(없으면 TEXT)로 한 건.
 // 5) 판매자가 켜기 전(enabledAtMs − 1시간)보다 오래된 메시지는 보내지 않는다(대화 기록이 통째로 가지 않게).
 // id: 같은 알림이 고쳐 다시 떠도(안드로이드 알림 갱신·떠 있는 알림 다시 훑기) 같은 메시지면 같은 id(C-04·C-06, AC-SMS3-27).
+//   본문이 id 재료라 같은 알림 자리에 같은 손님의 새 문자(새 본문)가 오면 받은 시각이 같아도 다른 id다 — 새 문자가 DUPLICATE로 버려지지 않는다.
+//   아이폰 단축어 동작도 본문을 id 재료로 쓴다(고정 id 문제 없음, D-SMS3-32).
 import { NOTICE_FROM_MAX_CHARS, NOTICE_TEXT_MAX_CHARS, NOTICE_TITLE_MAX_CHARS, type InboxChannel, type InboxMessage } from './contract.ts'
 import { sha256Hex } from './sha256.ts'
 

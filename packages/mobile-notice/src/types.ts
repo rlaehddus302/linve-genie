@@ -14,8 +14,8 @@ export type NoticePlatform = 'android' | 'ios' | 'fake'
  */
 export type NoticeAccess = 'granted' | 'needed' | 'shortcut'
 
-/** 마지막 보내기 실패 까닭 — BUSY: 서버가 너무 많다고 함(429, 1분 뒤 다시) */
-export type NoticeSendError = 'NETWORK' | 'SERVER' | 'BUSY' | 'TOKEN'
+/** 마지막 보내기 실패 까닭 — BUSY: 서버가 너무 많다고 함(429, 1분 뒤 다시) · OFF: 웹 설정에서 받기가 꺼짐(403, 10분마다 다시 봄) */
+export type NoticeSendError = 'NETWORK' | 'SERVER' | 'BUSY' | 'TOKEN' | 'OFF'
 
 /** 앱이 보는 상태 */
 export interface NoticeState {
@@ -29,6 +29,8 @@ export interface NoticeState {
   readonly hasToken: boolean
   /** 서버가 토큰을 받지 않았다(401) — 새 토큰을 넣을 때까지 보내지 않는다("받기 토큰을 다시 넣어 주세요") */
   readonly tokenRejected: boolean
+  /** 웹 설정에서 휴대폰 알림 받기가 꺼져 있다(403 INBOX_OFF) — 대기열·토큰은 그대로, 10분마다·앱을 열 때 다시 본다(D-SMS3-27) */
+  readonly inboxOff: boolean
   /** 아직 못 보낸 건수 (암호화 대기열) */
   readonly pending: number
   /** 서버가 받아 처리한 건수 (SAVED, 이 기기 누적) */
@@ -41,7 +43,7 @@ export interface NoticeState {
   readonly duplicates: number
   /** 서버가 모양이 틀렸다고 한 건수 (400 — 다시 보내지 않는다) */
   readonly rejected: number
-  /** 대기열(최대 200건)이 넘쳐 오래된 것부터 버린 건수 */
+  /** 대기열(최대 1,000건)이 넘쳐 오래된 것부터 버린 건수 (풀지 못한 대기열 파일도 센다) — 0보다 크면 noticeDroppedLine을 보인다(D-SMS3-28) */
   readonly dropped: number
   /** 마지막으로 대기열에 넣은 시각 (기기 벽시계 UTC ms) */
   readonly lastQueuedAtMs: number | null

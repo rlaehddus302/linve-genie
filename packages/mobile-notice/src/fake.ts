@@ -1,10 +1,12 @@
 // 가짜 네이티브 (SMS3) — 시험·에뮬레이터 리허설용. 실제 네이티브(Kotlin·Swift)와 같은 순서로 돈다:
 //   읽을 앱인가(패키지 이름만 — 기본 문자 앱·filters.bankApps, 아니면 내용을 열지 않음) → 켜져 있나 → 꺼내기(extract.ts)
-//   → 거르기(문자의 skipWords — rules.ts) → 두 번 막기(id) → 대기열(최대 200, 넘으면 오래된 것부터 버림) → 보내기(contract.ts, 20건씩)
+//   → 거르기(은행 대표번호가 아닌 문자의 skipWords — rules.ts skipWordFor) → 두 번 막기(id) → 대기열(최대 1,000, 넘으면 오래된 것부터 버림)
+//   → 보내기(contract.ts, 20건씩). 403(받기 꺼짐)이면 대기열·토큰을 지키고 10분 뒤(앱을 열면 바로) 0건 요청으로 다시 본다.
 // 대기열·본 id·설정·filters는 "디스크"(persisted) 칸에 두어 reboot()로 재부팅·앱 다시 켜기 뒤 이어받기를 흉내 낸다. 암호화는 흉내 내지 않는다.
 // 앱은 명시적으로 넣을 때만 쓴다(Expo Go·모듈 없음에서 가짜 성공으로 바꾸지 않는다).
 import {
   INBOX_BATCH_MAX,
+  INBOX_OFF_RECHECK_MS,
   NOTICE_QUEUE_MAX,
   TOO_MANY_WAIT_MS,
   classifyIntakeResponse,
@@ -15,7 +17,7 @@ import {
 } from './contract.ts'
 import { extractNotice, shortcutCandidate, type NoticeCandidate, type RawNotice } from './extract.ts'
 import { channelForPackage } from './packages.ts'
-import { DEFAULT_SKIP_WORDS, skipWordIn, type NoticeFilters } from './rules.ts'
+import { DEFAULT_BANK_NUMBERS, DEFAULT_SKIP_WORDS, skipWordFor, type NoticeFilters } from './rules.ts'
 import type { NativeEventSubscription, NativeNoticeModuleLike, NativeNoticeState, NoticeAccess, NoticeSendError, NoticeSettingsTarget } from './types.ts'
 
 /** 보내기 한 번 (가짜 HTTP) */
@@ -32,6 +34,7 @@ export type FakeNoticeSend = (request: FakeNoticeRequest) => Promise<FakeNoticeR
 export const FAKE_SERVER_FILTERS: NoticeFilters = Object.freeze({
   skipWords: DEFAULT_SKIP_WORDS,
   bankApps: Object.freeze(['com.kakaobank.channel', 'com.kbstar.kbbank', 'viva.republica.toss']),
+  bankNumbers: DEFAULT_BANK_NUMBERS,
 })
 
 /** 가짜 서버: 받은 요청의 모든 id를 status로 답하고 filters를 붙인다 */
@@ -39,7 +42,7 @@ export function fakeServerReply(requestBody: string, filters: NoticeFilters = FA
   const request = JSON.parse(requestBody) as InboxRequest
   return {
     status: 200,
-    body: JSON.stringify({ results: request.messages.map((m) => ({ id: m.id, status: status(m.id) })), filters: { skipWords: [...filters.skipWords], bankApps: [...filters.bankApps] } }),
+    body: JSON.stringify({ results: request.messages.map((m) => ({ id: m.id, status: status(m.id) })), filters: { skipWords: [...filters.skipWords], bankApps: [...filters.bankApps], bankNumbers: [...filters.bankNumbers] } }),
   }
 }
 
@@ -52,7 +55,7 @@ export interface FakeNoticeOptions {
   readonly accessGranted?: boolean
   /** 안드로이드 기본 문자 앱 (기본 삼성 메시지, null이면 모름 → SMS_PACKAGES) */
   readonly defaultSmsPackage?: string | null
-  /** 대기열 최대 (기본 200) */
+  /** 대기열 최대 (기본 1,000) */
   readonly queueMax?: number
   /** 본 id 기억 수 (기본 5,000) */
   readonly seenMax?: number
@@ -66,6 +69,10 @@ interface Persisted {
   enabledAtMs: number
   token: { token: string; endpoint: string; deviceName: string } | null
   tokenRejected: boolean
+  /** 403 INBOX_OFF를 받았다 — 다시 볼 때까지 대기열을 보내지 않는다 */
+  inboxOff: boolean
+  /** 받기 꺼짐을 이 시각부터 다시 본다(앱을 열 때는 기다리지 않는다) */
+  offCheckAtMs: number
   filters: NoticeFilters | null
   queue: NoticeCandidate[]
   seen: string[]
@@ -81,7 +88,7 @@ export interface FakeNoticeNative extends NativeNoticeModuleLike {
   /** 알림이 왔다 (안드로이드 onNotificationPosted). 내용을 열었으면 true, 읽을 앱이 아님·꺼짐이면 false */
   post(raw: RawNotice): Promise<boolean>
   /** 아이폰 단축어 "라이브지니에 문자 보내기" */
-  runShortcut(input: { sender: string; body: string }): Promise<'sent' | 'queued' | 'filtered' | 'duplicate' | 'dropped' | 'off' | 'noToken' | 'empty'>
+  runShortcut(input: { sender: string; body: string }): Promise<'sent' | 'queued' | 'inboxOff' | 'filtered' | 'duplicate' | 'dropped' | 'off' | 'noToken' | 'empty'>
   /** 재부팅·앱 다시 켜기: 메모리를 비우고 디스크만 남긴다. connected는 connect() 전까지 false */
   reboot(): void
   /** 시스템이 알림 읽기 서비스를 붙였다 — 떠 있는 알림(activeNotifications)을 다시 훑는다 */
@@ -119,6 +126,8 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
     enabledAtMs: 0,
     token: null,
     tokenRejected: false,
+    inboxOff: false,
+    offCheckAtMs: 0,
     filters: null,
     queue: [],
     seen: [],
@@ -143,6 +152,7 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
     connected: platform !== 'ios' && connected,
     hasToken: disk.token !== null,
     tokenRejected: disk.tokenRejected,
+    inboxOff: disk.inboxOff,
     pending: disk.queue.length,
     ...disk.counters,
     lastQueuedAtMs: disk.lastQueuedAtMs,
@@ -160,7 +170,7 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
 
   /** 거르기·두 번 막기·대기열 넣기 */
   const accept = (candidate: NoticeCandidate): 'queued' | 'filtered' | 'duplicate' | 'dropped' => {
-    if (candidate.channel === 'SMS' && skipWordIn(candidate.text, disk.filters) !== null) {
+    if (skipWordFor(candidate, disk.filters) !== null) {
       disk.counters.filtered++
       return 'filtered'
     }
@@ -200,16 +210,20 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
     return { status: reply.status, body: reply.body ?? '' }
   }
 
-  const drainOnce = async (fetchFilters: boolean): Promise<{ sent: number; stoppedBy: DrainStop }> => {
+  /** force: 앱을 열 때(켜기·토큰 넣기·지금 보내기) — 받기 꺼짐이어도 10분을 기다리지 않고 바로 다시 본다 */
+  const drainOnce = async (fetchFilters: boolean, force: boolean): Promise<{ sent: number; stoppedBy: DrainStop }> => {
     let sent = 0
     if (disk.token === null) return { sent, stoppedBy: 'NO_TOKEN' }
     if (disk.tokenRejected) return { sent, stoppedBy: 'TOKEN' }
     if (now() < disk.notBeforeMs) return { sent, stoppedBy: 'BUSY' }
+    if (disk.inboxOff && !force && now() < disk.offCheckAtMs) return { sent, stoppedBy: 'OFF' }
     let single = false
     let askedFilters = false
+    // 받기 꺼짐 뒤에는 대기열을 싣지 않고 0건 요청으로 먼저 본다(D-SMS3-27)
+    let probe = disk.inboxOff
     for (;;) {
-      const batch = disk.queue.slice(0, single ? 1 : INBOX_BATCH_MAX)
-      if (batch.length === 0) {
+      const batch = probe ? [] : disk.queue.slice(0, single ? 1 : INBOX_BATCH_MAX)
+      if (batch.length === 0 && !probe) {
         if (askedFilters || !(fetchFilters || disk.filters === null)) break
         askedFilters = true
       }
@@ -228,6 +242,19 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
         disk.tokenRejected = true
         disk.lastError = 'TOKEN'
         return { sent, stoppedBy: 'TOKEN' }
+      }
+      if (action === 'off') {
+        disk.inboxOff = true
+        disk.offCheckAtMs = now() + INBOX_OFF_RECHECK_MS
+        disk.lastError = 'OFF'
+        return { sent, stoppedBy: 'OFF' }
+      }
+      if (probe) {
+        // 꺼짐이 풀렸다(서버가 403이 아닌 답을 했다) — 이제 대기열을 보낸다
+        probe = false
+        askedFilters = true
+        disk.inboxOff = false
+        disk.offCheckAtMs = 0
       }
       if (action === 'bad') {
         if (batch.length > 1) {
@@ -260,9 +287,9 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
     return { sent, stoppedBy: null }
   }
 
-  const drain = async (fetchFilters = false): Promise<{ sent: number; stoppedBy: DrainStop }> => {
+  const drain = async (fetchFilters = false, force = false): Promise<{ sent: number; stoppedBy: DrainStop }> => {
     while (draining !== null) await draining
-    draining = drainOnce(fetchFilters)
+    draining = drainOnce(fetchFilters, force)
     try {
       return await draining
     } finally {
@@ -294,7 +321,7 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
         disk.enabledAtMs = now()
       }
       emit()
-      await drain(true)
+      await drain(true, true)
       return state()
     },
     async stop() {
@@ -316,7 +343,7 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
       disk.notBeforeMs = 0
       if (disk.lastError === 'TOKEN') disk.lastError = null
       emit()
-      await drain(true)
+      await drain(true, true)
       return state()
     },
     async clearToken() {
@@ -325,7 +352,7 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
       return state()
     },
     async flush() {
-      const result = await drain(true)
+      const result = await drain(true, true)
       return { sent: result.sent, pending: disk.queue.length, stoppedBy: result.stoppedBy }
     },
     addListener(_eventName: 'state', listener: (event: NativeNoticeState) => void): NativeEventSubscription {
@@ -346,7 +373,8 @@ export function createFakeNoticeNative(options: FakeNoticeOptions = {}): FakeNot
       emit()
       if (outcome !== 'queued') return outcome
       await drain()
-      return disk.queue.some((q) => q.id === candidate.id) ? 'queued' : 'sent'
+      if (!disk.queue.some((q) => q.id === candidate.id)) return 'sent'
+      return disk.inboxOff ? 'inboxOff' : 'queued'
     },
     reboot() {
       connected = false

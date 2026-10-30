@@ -1,5 +1,5 @@
 {
-  "_": "문자찜·입금 알림 받기 공용 사례 (SMS3, SPEC ORD-13 C-03·C-04). TS(vitest)·Kotlin(JVM 단위 시험)·Swift(맥 swiftc 시험)가 같은 파일을 읽어 세 쪽 규칙이 같은지 잠근다. id는 node:crypto SHA-256으로 따로 셈한 값(시험 밖 생성 스크립트). drain(D-SMS3-21 (a)(b)): 토큰을 넣은 뒤 filters 없이 대기열 queue(받은 차례)를 fetchFilters 참으로 한 번 보낸 결과. 서버 답은 replies를 위에서부터 보아 ifText가 요청 본문 글에 있거나 ifText가 없으면 그 status, 200이면 모든 id를 SAVED로 답하고 filters = drainFilters. requests = 요청마다 실린 건수.",
+  "_": "문자찜·입금 알림 받기 공용 사례 (SMS3, SPEC ORD-13 C-03·C-04). TS(vitest)·Kotlin(JVM 단위 시험)·Swift(맥 swiftc 시험)가 같은 파일을 읽어 세 쪽 규칙이 같은지 잠근다. id는 node:crypto SHA-256으로 따로 셈한 값(시험 밖 생성 스크립트). smsSkip(D-SMS3-26): 보낸 곳·본문·filters → 거를 낱말(보내면 null) — 은행 대표번호 문자는 skipWords를 보지 않는다. filters.bankNumbers가 없으면 기기 사본(DP-9 1 표 16개). drain(D-SMS3-21 (a), D-SMS3-27·31): 토큰을 넣은 뒤 filters 없이 대기열 queue(받은 차례)를 fetchFilters 참으로 한 번 보낸 결과. 서버 답은 replies를 위에서부터 보아 ifText가 요청 본문 글에 있거나 ifText가 없으면 그 status, 200이면 모든 id를 SAVED로 답하고 filters = drainFilters. requests = 요청마다 실린 건수. startOff가 참이면 받기 꺼짐(403) 상태에서 시작한다(먼저 0건 요청으로 다시 본다). inboxOff = 끝난 뒤 받기 꺼짐 상태.",
   "messageId": [
     {
       "packageName": "com.samsung.android.messaging",
@@ -251,6 +251,179 @@
       "word": null
     }
   ],
+  "smsSkip": [
+    {
+      "name": "은행 번호 + [Web발신] 입금 문자는 보낸다",
+      "channel": "SMS",
+      "from": "1588-9999",
+      "text": "[Web발신] 홍길동 입금 14,000원 잔액 50,000원",
+      "filters": null,
+      "word": null
+    },
+    {
+      "name": "은행 번호 + 승인(출금) 문자도 보낸다",
+      "channel": "SMS",
+      "from": "15993333",
+      "text": "[Web발신] 승인 12,000원 출금 잔액 38,000원",
+      "filters": null,
+      "word": null
+    },
+    {
+      "name": "은행 번호 빈칸 표기 + 결제",
+      "channel": "SMS",
+      "from": "1588 1111",
+      "text": "[Web발신] 결제 3,000원 잔액 35,000원",
+      "filters": null,
+      "word": null
+    },
+    {
+      "name": "앞뒤 빈칸은 빼고 본다",
+      "channel": "SMS",
+      "from": " 1661-7654 ",
+      "text": "[Web발신] 입금 1원",
+      "filters": null,
+      "word": null
+    },
+    {
+      "name": "+82가 붙으면 대표번호가 아니다 — 거른다",
+      "channel": "SMS",
+      "from": "+82 1588-9999",
+      "text": "[Web발신] 홍길동 입금 14,000원",
+      "filters": null,
+      "word": "web발신"
+    },
+    {
+      "name": "괄호 표기는 대표번호가 아니다",
+      "channel": "SMS",
+      "from": "(1588)9999",
+      "text": "[Web발신] 입금 1원",
+      "filters": null,
+      "word": "web발신"
+    },
+    {
+      "name": "글자가 섞이면 대표번호가 아니다",
+      "channel": "SMS",
+      "from": "광고15889999",
+      "text": "(광고) 대출",
+      "filters": null,
+      "word": "(광고)"
+    },
+    {
+      "name": "전각 숫자는 대표번호가 아니다",
+      "channel": "SMS",
+      "from": "１５８８９９９９",
+      "text": "[Web발신] 입금 1원",
+      "filters": null,
+      "word": "web발신"
+    },
+    {
+      "name": "점 표기는 대표번호가 아니다",
+      "channel": "SMS",
+      "from": "1588.9999",
+      "text": "[Web발신] 입금 1원",
+      "filters": null,
+      "word": "web발신"
+    },
+    {
+      "name": "목록 밖 번호는 거른다",
+      "channel": "SMS",
+      "from": "1588-0000",
+      "text": "[Web발신] 승인 1,000원",
+      "filters": null,
+      "word": "web발신"
+    },
+    {
+      "name": "휴대폰 번호의 인증번호 문자는 거른다",
+      "channel": "SMS",
+      "from": "010-1234-5678",
+      "text": "인증번호 123456",
+      "filters": null,
+      "word": "인증"
+    },
+    {
+      "name": "보낸 곳이 없으면 거른다",
+      "channel": "SMS",
+      "from": null,
+      "text": "(광고) 봄",
+      "filters": null,
+      "word": "(광고)"
+    },
+    {
+      "name": "하이픈만은 대표번호가 아니다",
+      "channel": "SMS",
+      "from": "---",
+      "text": "(광고) 봄",
+      "filters": null,
+      "word": "(광고)"
+    },
+    {
+      "name": "손님 찜 문자는 보낸다",
+      "channel": "SMS",
+      "from": "010-1234-5678",
+      "text": "찜 3번 김민지",
+      "filters": null,
+      "word": null
+    },
+    {
+      "name": "서버 bankNumbers를 쓴다 — 목록 안",
+      "channel": "SMS",
+      "from": "1588-1234",
+      "text": "[Web발신] 승인 1,000원",
+      "filters": {
+        "skipWords": [
+          "(광고)",
+          "web발신",
+          "승인",
+          "결제"
+        ],
+        "bankApps": [],
+        "bankNumbers": [
+          "15881234"
+        ]
+      },
+      "word": null
+    },
+    {
+      "name": "서버 bankNumbers를 쓴다 — 기기 사본에만 있는 번호는 거른다",
+      "channel": "SMS",
+      "from": "1588-9999",
+      "text": "[Web발신] 승인 1,000원",
+      "filters": {
+        "skipWords": [
+          "(광고)",
+          "web발신",
+          "승인",
+          "결제"
+        ],
+        "bankApps": [],
+        "bankNumbers": [
+          "15881234"
+        ]
+      },
+      "word": "web발신"
+    },
+    {
+      "name": "서버가 bankNumbers 없이 주면 기기 사본",
+      "channel": "SMS",
+      "from": "1588-9999",
+      "text": "[Web발신] 승인 1,000원",
+      "filters": {
+        "skipWords": [
+          "web발신"
+        ],
+        "bankApps": []
+      },
+      "word": null
+    },
+    {
+      "name": "앱 알림은 거르지 않는다",
+      "channel": "APP",
+      "from": "com.kbstar.kbbank",
+      "text": "승인 12,000원 결제",
+      "filters": null,
+      "word": null
+    }
+  ],
   "filters": [
     {
       "input": {
@@ -285,6 +458,24 @@
         "bankApps": [
           "com.kakaobank.channel",
           "com.kbstar.kbbank"
+        ],
+        "bankNumbers": [
+          "15889999",
+          "16449999",
+          "15999999",
+          "15778000",
+          "15998000",
+          "15885000",
+          "15995000",
+          "15881111",
+          "15991111",
+          "16613000",
+          "15882100",
+          "15662566",
+          "15882588",
+          "15993333",
+          "16617654",
+          "15221000"
         ]
       }
     },
@@ -308,6 +499,24 @@
         ],
         "bankApps": [
           "com.kbstar.kbbank"
+        ],
+        "bankNumbers": [
+          "15889999",
+          "16449999",
+          "15999999",
+          "15778000",
+          "15998000",
+          "15885000",
+          "15995000",
+          "15881111",
+          "15991111",
+          "16613000",
+          "15882100",
+          "15662566",
+          "15882588",
+          "15993333",
+          "16617654",
+          "15221000"
         ]
       }
     },
@@ -318,7 +527,25 @@
       },
       "output": {
         "skipWords": [],
-        "bankApps": []
+        "bankApps": [],
+        "bankNumbers": [
+          "15889999",
+          "16449999",
+          "15999999",
+          "15778000",
+          "15998000",
+          "15885000",
+          "15995000",
+          "15881111",
+          "15991111",
+          "16613000",
+          "15882100",
+          "15662566",
+          "15882588",
+          "15993333",
+          "16617654",
+          "15221000"
+        ]
       }
     },
     {
@@ -362,6 +589,83 @@
       "input": [
         "a"
       ],
+      "output": null
+    },
+    {
+      "input": {
+        "skipWords": [],
+        "bankApps": [],
+        "bankNumbers": [
+          "15881234",
+          "15881234",
+          "16449999"
+        ]
+      },
+      "output": {
+        "skipWords": [],
+        "bankApps": [],
+        "bankNumbers": [
+          "15881234",
+          "16449999"
+        ]
+      }
+    },
+    {
+      "input": {
+        "skipWords": [],
+        "bankApps": [],
+        "bankNumbers": []
+      },
+      "output": {
+        "skipWords": [],
+        "bankApps": [],
+        "bankNumbers": []
+      }
+    },
+    {
+      "input": {
+        "skipWords": [],
+        "bankApps": [],
+        "bankNumbers": [
+          "1588-9999"
+        ]
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "skipWords": [],
+        "bankApps": [],
+        "bankNumbers": [
+          15889999
+        ]
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "skipWords": [],
+        "bankApps": [],
+        "bankNumbers": [
+          "15"
+        ]
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "skipWords": [],
+        "bankApps": [],
+        "bankNumbers": "15889999"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "skipWords": [],
+        "bankApps": [],
+        "bankNumbers": null
+      },
       "output": null
     }
   ],
@@ -519,7 +823,7 @@
     },
     {
       "status": 403,
-      "action": "token"
+      "action": "off"
     },
     {
       "status": 429,
@@ -1010,6 +1314,24 @@
         "bankApps": [
           "com.kakaobank.channel",
           "com.kbstar.kbbank"
+        ],
+        "bankNumbers": [
+          "15889999",
+          "16449999",
+          "15999999",
+          "15778000",
+          "15998000",
+          "15885000",
+          "15995000",
+          "15881111",
+          "15991111",
+          "16613000",
+          "15882100",
+          "15662566",
+          "15882588",
+          "15993333",
+          "16617654",
+          "15221000"
         ]
       }
     },
@@ -1027,6 +1349,21 @@
       "body": "",
       "results": {},
       "filters": null
+    },
+    {
+      "body": "{\"results\":[],\"filters\":{\"skipWords\":[\"인증\"],\"bankApps\":[\"com.kbstar.kbbank\"],\"bankNumbers\":[\"15889999\"]}}",
+      "results": {},
+      "filters": {
+        "skipWords": [
+          "인증"
+        ],
+        "bankApps": [
+          "com.kbstar.kbbank"
+        ],
+        "bankNumbers": [
+          "15889999"
+        ]
+      }
     }
   ],
   "drainFilters": {
@@ -1035,6 +1372,9 @@
     ],
     "bankApps": [
       "com.kbstar.kbbank"
+    ],
+    "bankNumbers": [
+      "15889999"
     ]
   },
   "drain": [
@@ -1066,7 +1406,8 @@
       "pending": 0,
       "stoppedBy": null,
       "tokenRejected": false,
-      "hasFilters": true
+      "hasFilters": true,
+      "inboxOff": false
     },
     {
       "name": "400이 두 건: 두 건만 버리고 나머지는 보낸다",
@@ -1100,10 +1441,11 @@
       "pending": 0,
       "stoppedBy": null,
       "tokenRejected": false,
-      "hasFilters": true
+      "hasFilters": true,
+      "inboxOff": false
     },
     {
-      "name": "403: 보내기를 멈추고 대기열은 버리지 않는다",
+      "name": "403(받기 꺼짐): 토큰을 버리지 않고 대기열을 지킨 채 멈춘다 (D-SMS3-27)",
       "queue": [
         "찜 1번",
         "찜 2번"
@@ -1119,9 +1461,10 @@
       "sent": 0,
       "rejected": 0,
       "pending": 2,
-      "stoppedBy": "TOKEN",
-      "tokenRejected": true,
-      "hasFilters": false
+      "stoppedBy": "OFF",
+      "tokenRejected": false,
+      "hasFilters": false,
+      "inboxOff": true
     },
     {
       "name": "401: 보내기를 멈추고 대기열은 버리지 않는다",
@@ -1141,10 +1484,11 @@
       "pending": 1,
       "stoppedBy": "TOKEN",
       "tokenRejected": true,
-      "hasFilters": false
+      "hasFilters": false,
+      "inboxOff": false
     },
     {
-      "name": "한 건씩 보내다 403을 받으면 거기서 멈추고 남은 것은 그대로",
+      "name": "한 건씩 보내다 403(받기 꺼짐)을 받으면 거기서 멈추고 남은 것은 그대로",
       "queue": [
         "찜 1번",
         "찜 2번",
@@ -1167,12 +1511,13 @@
       "sent": 0,
       "rejected": 1,
       "pending": 2,
-      "stoppedBy": "TOKEN",
-      "tokenRejected": true,
-      "hasFilters": false
+      "stoppedBy": "OFF",
+      "tokenRejected": false,
+      "hasFilters": false,
+      "inboxOff": true
     },
     {
-      "name": "빈 대기열에서 filters를 묻다 403",
+      "name": "빈 대기열에서 filters를 묻다 403(받기 꺼짐)",
       "queue": [],
       "replies": [
         {
@@ -1185,9 +1530,10 @@
       "sent": 0,
       "rejected": 0,
       "pending": 0,
-      "stoppedBy": "TOKEN",
-      "tokenRejected": true,
-      "hasFilters": false
+      "stoppedBy": "OFF",
+      "tokenRejected": false,
+      "hasFilters": false,
+      "inboxOff": true
     },
     {
       "name": "빈 대기열에서 filters를 묻다 400 — 셀 것도 다시 물을 것도 없다",
@@ -1205,7 +1551,99 @@
       "pending": 0,
       "stoppedBy": null,
       "tokenRejected": false,
-      "hasFilters": false
+      "hasFilters": false,
+      "inboxOff": false
+    },
+    {
+      "name": "500(잠깐의 서버 오류): 묶음을 지우지 않고 멈춘다 — 다음에 같은 id로 (D-SMS3-31)",
+      "queue": [
+        "찜 1번",
+        "찜 2번"
+      ],
+      "replies": [
+        {
+          "status": 500
+        }
+      ],
+      "requests": [
+        2
+      ],
+      "sent": 0,
+      "rejected": 0,
+      "pending": 2,
+      "stoppedBy": "SERVER",
+      "tokenRejected": false,
+      "hasFilters": false,
+      "inboxOff": false
+    },
+    {
+      "name": "받기 꺼짐에서 다시 볼 때: 0건 요청이 200이면 모아 둔 것을 보낸다",
+      "startOff": true,
+      "queue": [
+        "찜 1번",
+        "찜 2번"
+      ],
+      "replies": [
+        {
+          "status": 200
+        }
+      ],
+      "requests": [
+        0,
+        2
+      ],
+      "sent": 2,
+      "rejected": 0,
+      "pending": 0,
+      "stoppedBy": null,
+      "tokenRejected": false,
+      "hasFilters": true,
+      "inboxOff": false
+    },
+    {
+      "name": "받기 꺼짐에서 다시 볼 때: 아직 403이면 대기열을 싣지 않는다",
+      "startOff": true,
+      "queue": [
+        "찜 1번",
+        "찜 2번"
+      ],
+      "replies": [
+        {
+          "status": 403
+        }
+      ],
+      "requests": [
+        0
+      ],
+      "sent": 0,
+      "rejected": 0,
+      "pending": 2,
+      "stoppedBy": "OFF",
+      "tokenRejected": false,
+      "hasFilters": false,
+      "inboxOff": true
+    },
+    {
+      "name": "받기 꺼짐에서 다시 볼 때 401이면 그때 토큰 거절",
+      "startOff": true,
+      "queue": [
+        "찜 1번"
+      ],
+      "replies": [
+        {
+          "status": 401
+        }
+      ],
+      "requests": [
+        0
+      ],
+      "sent": 0,
+      "rejected": 0,
+      "pending": 1,
+      "stoppedBy": "TOKEN",
+      "tokenRejected": true,
+      "hasFilters": false,
+      "inboxOff": true
     }
   ]
 }

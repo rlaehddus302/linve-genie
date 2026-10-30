@@ -5,7 +5,8 @@
 // 3) 메시지 스타일이면 메시지마다 시각·보낸 곳·본문. 내가 보낸 메시지는 뺀다.
 // 4) 아니면 문자는 TITLE(보낸 곳) / BIG_TEXT(없으면 TEXT)로 한 건, 앱 알림은 title = TITLE, text = BIG_TEXT(없으면 TEXT).
 // 5) 판매자가 켜기 1시간 전보다 오래된 메시지는 보내지 않는다(대화 기록이 통째로 가지 않게).
-// 6) 문자는 skipWords(영문 대소문자 무시, 들어 있나)가 든 것을 보내지 않는다. 목록 전에는 R-26 3 사본.
+// 6) 문자는 skipWords(영문 대소문자 무시, 들어 있나)가 든 것을 보내지 않는다 — 단 보낸 곳이 은행 대표번호(bankNumbers)면 거르지 않는다(D-SMS3-26).
+//    목록 전에는 R-26 3 낱말·DP-9 1 대표번호 사본.
 package com.livejjim.notice
 
 import java.io.ByteArrayOutputStream
@@ -36,8 +37,8 @@ data class RawNotice(
 
 data class ExtractResult(val candidates: List<InboxMessage>, val skipped: String?, val tooOld: Int)
 
-/** 서버가 주는 거르기 목록 (C-04 응답 filters) */
-data class NoticeFilters(val skipWords: List<String>, val bankApps: List<String>)
+/** 서버가 주는 거르기 목록 (C-04 응답 filters). bankNumbers: 이 번호(숫자만)에서 온 문자는 skipWords로 거르지 않는다 */
+data class NoticeFilters(val skipWords: List<String>, val bankApps: List<String>, val bankNumbers: List<String>)
 
 object NoticeExtractor {
   /** 기본 문자 앱을 모를 때 대신 보는 문자 앱 — 삼성 메시지·구글 메시지 (src/packages.ts SMS_PACKAGES와 같다) */
@@ -210,9 +211,13 @@ object NoticeExtractor {
 object NoticeFilter {
   /** 목록을 받기 전 쓰는 거를 낱말 — DOMAIN_RULES R-26 3과 같은 목록 */
   val DEFAULT_SKIP_WORDS = listOf("(광고)", "[광고]", "web발신", "국제발신", "해외발신", "인증", "승인", "결제", "택배")
+  /** 목록을 받기 전 쓰는 은행 대표번호 — DEPOSIT_RULES DP-9 1 표의 16개 (src/rules.ts DEFAULT_BANK_NUMBERS와 같다) */
+  val DEFAULT_BANK_NUMBERS = listOf("15889999", "16449999", "15999999", "15778000", "15998000", "15885000", "15995000", "15881111", "15991111", "16613000", "15882100", "15662566", "15882588", "15993333", "16617654", "15221000")
   const val SKIP_WORDS_MAX = 200
   const val SKIP_WORD_MAX_CHARS = 100
   const val BANK_APPS_MAX = 100
+  const val BANK_NUMBERS_MAX = 100
+  private val BANK_NUMBER = Regex("^[0-9]{3,20}$")
   val PACKAGE_NAME = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
 
   /** 영문 대문자(A-Z)만 소문자로 */
@@ -232,12 +237,33 @@ object NoticeFilter {
     return null
   }
 
-  /** 서버 filters(JSONObject) 검사 — 하나라도 틀리면 null(전에 저장한 목록을 그대로 쓴다) */
+  /** 보낸 곳이 은행 대표번호인가 (DP-9 1 문자 검사와 같다): 앞뒤 빈칸을 뺀 글이 ASCII 숫자·`-`·빈칸만이고 숫자만 남긴 글이 목록에 있음 */
+  fun isBankNumber(from: String?, filters: NoticeFilters?): Boolean {
+    if (from == null) return false
+    val trimmed = NoticeExtractor.trimJs(from)
+    if (trimmed.isEmpty() || !trimmed.all { it in '0'..'9' || it == '-' || it == ' ' }) return false
+    val digits = trimmed.filter { it in '0'..'9' }
+    return digits.isNotEmpty() && (filters?.bankNumbers ?: DEFAULT_BANK_NUMBERS).contains(digits)
+  }
+
+  /** 거를 낱말 (보내면 null) — 문자이고 보낸 곳이 은행 대표번호가 아닐 때만 skipWords를 본다. 앱 알림은 거르지 않는다 (src/rules.ts skipWordFor) */
+  fun skipWordFor(channel: String, from: String?, text: String, filters: NoticeFilters?): String? {
+    if (channel != "SMS") return null
+    if (isBankNumber(from, filters)) return null
+    return skipWordIn(text, filters)
+  }
+
+  /** 서버 filters(JSONObject) 검사 — 하나라도 틀리면 null(전에 저장한 목록을 그대로 쓴다). bankNumbers 칸이 없으면(옛 서버) 기기 사본 */
   fun parse(value: Any?): NoticeFilters? {
     val o = value as? JSONObject ?: return null
     val skip = o.opt("skipWords") as? JSONArray ?: return null
     val apps = o.opt("bankApps") as? JSONArray ?: return null
     if (skip.length() > SKIP_WORDS_MAX || apps.length() > BANK_APPS_MAX) return null
+    val numbersRaw: List<Any?> = if (!o.has("bankNumbers")) DEFAULT_BANK_NUMBERS else {
+      val array = o.opt("bankNumbers") as? JSONArray ?: return null
+      if (array.length() > BANK_NUMBERS_MAX) return null
+      (0 until array.length()).map { array.opt(it) }
+    }
     val words = ArrayList<String>()
     for (i in 0 until skip.length()) {
       val word = skip.opt(i) as? String ?: return null
@@ -250,7 +276,13 @@ object NoticeFilter {
       if (app.length > 150 || !PACKAGE_NAME.matches(app)) return null
       if (!bank.contains(app)) bank.add(app)
     }
-    return NoticeFilters(words, bank)
+    val numbers = ArrayList<String>()
+    for (item in numbersRaw) {
+      val number = item as? String ?: return null
+      if (!BANK_NUMBER.matches(number)) return null
+      if (!numbers.contains(number)) numbers.add(number)
+    }
+    return NoticeFilters(words, bank, numbers)
   }
 
   /** 저장 글 → filters (틀리면 null) */
@@ -261,7 +293,7 @@ object NoticeFilter {
   }
 
   fun serialize(filters: NoticeFilters): String =
-    "{\"skipWords\":[${filters.skipWords.joinToString(",") { NoticeContract.quote(it) }}],\"bankApps\":[${filters.bankApps.joinToString(",") { NoticeContract.quote(it) }}]}"
+    "{\"skipWords\":[${filters.skipWords.joinToString(",") { NoticeContract.quote(it) }}],\"bankApps\":[${filters.bankApps.joinToString(",") { NoticeContract.quote(it) }}],\"bankNumbers\":[${filters.bankNumbers.joinToString(",") { NoticeContract.quote(it) }}]}"
 }
 
 internal data class DrainResult(val sent: Int, val pending: Int, val stoppedBy: String?)
@@ -284,22 +316,31 @@ internal interface DrainPort {
   fun setLastError(value: String?)
   fun setTokenRejected()
   fun setNotBeforeMs(value: Long)
+  /** 403 받기 꺼짐 상태인가 — 참이면 대기열을 싣기 전에 0건 요청으로 먼저 본다 */
+  fun inboxOff(): Boolean
+  /** off면 checkAtMs부터 다시 본다. 풀리면 (false, 0) */
+  fun setInboxOff(off: Boolean, checkAtMs: Long)
 }
 
 /**
  * 보내기 고리 (C-04, AC-SMS3-27, D-SMS3-21) — 안드로이드 API 없이 돈다(JVM 시험). TS fake.ts drainOnce·Swift NoticeSender.drain과 같은 처리:
  * - 2xx: 묶음을 지우고 결과(SAVED·DUPLICATE·IGNORED)를 세고 응답 filters를 저장
  * - 400·413 등 그 밖의 4xx: 여러 건이면 한 건씩 다시 보내 받지 않는 그 한 건만 버리고 "서버가 받지 않음"(rejected)으로 센다
- * - 401·403: 받기 토큰이 끊겼다 — 대기열은 버리지 않고 멈춘다
- * - 429: 1분 동안 보내지 않는다 · 연결 실패·5xx: 멈추고 나중에 같은 id로 다시
+ * - 401: 받기 토큰이 끊겼다 — 대기열은 버리지 않고 새 토큰까지 멈춘다
+ * - 403: 웹에서 받기를 껐다(D-SMS3-27) — 대기열·토큰을 지키고 10분 뒤(앱을 열면 바로) 0건 요청으로 먼저 다시 본다. 200이면 모아 둔 것을 보낸다
+ * - 429: 1분 동안 보내지 않는다 · 연결 실패·5xx(500 잠깐의 오류 포함, D-SMS3-31): 멈추고 나중에 같은 id로 다시
  * - 대기열이 비었고 filters가 없으면(또는 fetchFilters) 0건 요청으로 filters만 받는다
  */
 internal object NoticeDrain {
-  /** 보내기 전에 멈출 까닭: 토큰 없음(NO_TOKEN) · 토큰이 끊김(TOKEN — 401·403 뒤 새 토큰 전까지) · 429 뒤 1분 전(BUSY). 없으면 null */
-  fun blockedBy(hasToken: Boolean, tokenRejected: Boolean, notBeforeMs: Long, nowMs: Long): String? = when {
+  /**
+   * 보내기 전에 멈출 까닭: 토큰 없음(NO_TOKEN) · 토큰이 끊김(TOKEN — 401 뒤 새 토큰 전까지) · 429 뒤 1분 전(BUSY) ·
+   * 받기 꺼짐 뒤 10분 전(OFF — 앱을 열 때 force면 기다리지 않는다). 없으면 null
+   */
+  fun blockedBy(hasToken: Boolean, tokenRejected: Boolean, notBeforeMs: Long, nowMs: Long, inboxOff: Boolean = false, offCheckAtMs: Long = 0L, force: Boolean = false): String? = when {
     !hasToken -> "NO_TOKEN"
     tokenRejected -> "TOKEN"
     nowMs < notBeforeMs -> "BUSY"
+    inboxOff && !force && nowMs < offCheckAtMs -> "OFF"
     else -> null
   }
 
@@ -315,15 +356,24 @@ internal object NoticeDrain {
     var sent = 0
     var single = false
     var askedFilters = false
+    // 받기 꺼짐 뒤에는 대기열을 싣지 않고 0건 요청으로 먼저 본다(D-SMS3-27)
+    var probe = port.inboxOff()
     while (true) {
       if (isStopped()) return DrainResult(sent, port.pendingCount(), "NETWORK")
-      val batch = port.head(if (single) 1 else NoticeContract.BATCH_MAX) ?: break
-      if (batch.isEmpty()) {
+      val batch = if (probe) emptyList() else port.head(if (single) 1 else NoticeContract.BATCH_MAX) ?: break
+      if (batch.isEmpty() && !probe) {
         if (askedFilters || !(fetchFilters || port.filters() == null)) break
         askedFilters = true
       }
       val reply = post(NoticeContract.requestJson(deviceName, batch.map { it.message }))
-      when (NoticeContract.classify(reply.status)) {
+      val action = NoticeContract.classify(reply.status)
+      if (probe && (action == "done" || action == "bad")) {
+        // 꺼짐이 풀렸다(서버가 403이 아닌 답을 했다) — 이제 대기열을 보낸다
+        probe = false
+        askedFilters = true
+        port.setInboxOff(false, 0L)
+      }
+      when (action) {
         "done" -> {
           val response = NoticeContract.parseResponse(reply.body)
           response.filters?.let { port.setFilters(it) }
@@ -351,6 +401,11 @@ internal object NoticeDrain {
         "token" -> {
           port.setTokenRejected()
           return DrainResult(sent, port.pendingCount(), "TOKEN")
+        }
+        "off" -> {
+          port.setInboxOff(true, nowMs() + NoticeContract.INBOX_OFF_RECHECK_MS)
+          port.setLastError("OFF")
+          return DrainResult(sent, port.pendingCount(), "OFF")
         }
         "wait" -> {
           port.setNotBeforeMs(nowMs() + NoticeContract.TOO_MANY_WAIT_MS)

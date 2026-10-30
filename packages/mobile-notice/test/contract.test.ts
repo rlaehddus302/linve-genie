@@ -30,7 +30,7 @@ describe('약속 상태·한도', () => {
     expect(NOTICE_TEXT_MAX_CHARS).toBe(1_000)
     expect(DEVICE_NAME_MAX_CHARS).toBe(30)
     expect(TOO_MANY_WAIT_MS).toBe(60_000)
-    expect(NOTICE_QUEUE_MAX).toBe(200)
+    expect(NOTICE_QUEUE_MAX).toBe(1_000)
   })
 })
 

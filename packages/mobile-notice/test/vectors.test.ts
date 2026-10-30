@@ -20,6 +20,7 @@ import {
   senderOf,
   sha256Hex,
   shortcutCandidate,
+  skipWordFor,
   skipWordIn,
   type InboxChannel,
   type InboxMessage,
@@ -34,6 +35,7 @@ interface Vectors {
   cut: { input: string; max: number; output: string }[]
   lowerAscii: { input: string; output: string }[]
   skip: { filters: NoticeFilters | null; text: string; word: string | null }[]
+  smsSkip: { name: string; channel: InboxChannel; from: string | null; text: string; filters: unknown; word: string | null }[]
   filters: { input: unknown; output: NoticeFilters | null }[]
   channel: { packageName: string; smsApp: string | null; filters: NoticeFilters | null; channel: InboxChannel | null }[]
   classify: { status: number | null; action: string }[]
@@ -53,6 +55,8 @@ interface Vectors {
     stoppedBy: string | null
     tokenRejected: boolean
     hasFilters: boolean
+    inboxOff: boolean
+    startOff?: boolean
   }[]
 }
 
@@ -82,6 +86,11 @@ describe('공용 사례', () => {
   })
   it.each(vectors.skip)('거를 낱말 $text', (v) => {
     expect(skipWordIn(v.text, v.filters)).toBe(v.word)
+  })
+  it.each(vectors.smsSkip)('은행 번호 거르기: $name', (v) => {
+    const filters = v.filters === null ? null : parseNoticeFilters(v.filters)
+    if (v.filters !== null) expect(filters).not.toBeNull()
+    expect(skipWordFor({ channel: v.channel, from: v.from, text: v.text }, filters)).toBe(v.word)
   })
   it.each(vectors.filters)('filters 읽기 %#', (v) => {
     expect(parseNoticeFilters(v.input)).toEqual(v.output)
@@ -119,14 +128,20 @@ describe('공용 사례', () => {
   })
 })
 
-describe('공용 사례: 보내기 고리 (D-SMS3-21 (a)(b))', () => {
+describe('공용 사례: 보내기 고리 (D-SMS3-21 (a)·D-SMS3-27·D-SMS3-31)', () => {
   const T0 = 1_761_800_000_000
   it.each(vectors.drain)('$name', async (v) => {
     const requests: number[] = []
+    // startOff: 토큰을 넣을 때 첫 요청에 403을 받아 받기 꺼짐으로 시작한 뒤, 지금 보내기(앱을 열 때)부터 센다
+    let warming = v.startOff === true
     const fake = createFakeNoticeNative({
       platform: 'android',
       now: () => T0 + 600_000,
       send: async (request) => {
+        if (warming) {
+          warming = false
+          return 403
+        }
         const body = JSON.parse(request.body) as { messages: { text: string }[] }
         requests.push(body.messages.length)
         const rule = v.replies.find((r) => r.ifText === undefined || body.messages.some((m) => m.text === r.ifText))
@@ -152,6 +167,10 @@ describe('공용 사례: 보내기 고리 (D-SMS3-21 (a)(b))', () => {
     expect(fake.queued.map((m) => m.text)).toEqual(v.queue)
     expect(requests).toEqual([])
     await fake.setToken('dev_token_0123456789abcdef', 'https://livejjim.example/api/inbox/messages', '내 갤럭시')
+    if (v.startOff === true) {
+      expect((await fake.getState()).inboxOff).toBe(true)
+      await fake.flush()
+    }
     const state = await fake.getState()
     expect(requests).toEqual(v.requests)
     expect(state.sent).toBe(v.sent)
@@ -159,6 +178,7 @@ describe('공용 사례: 보내기 고리 (D-SMS3-21 (a)(b))', () => {
     expect(state.pending).toBe(v.pending)
     expect(state.tokenRejected).toBe(v.tokenRejected)
     expect(state.hasFilters).toBe(v.hasFilters)
+    expect(state.inboxOff).toBe(v.inboxOff)
     expect(state.lastError).toBe(v.stoppedBy)
     // 멈춘 뒤 다시 밀어도 토큰이 끊겼으면 보내지 않고, 대기열은 그대로다
     const again = await fake.flush()

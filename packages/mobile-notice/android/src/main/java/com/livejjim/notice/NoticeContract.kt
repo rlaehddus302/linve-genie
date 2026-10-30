@@ -1,5 +1,6 @@
 // 서버 받는 입구 약속 — 안드로이드 쪽 한 곳 (SPEC ORD-13 C-04, SMS3). TS src/contract.ts·아이폰 ios/NoticeContract.swift와 같은 값이어야 한다(공용 사례가 잠근다).
-// 요청 { device, messages: [{ id, channel, from, title, text, receivedAt }] } (0~20건), 응답 200 { results: [{ id, status }], filters: { skipWords, bankApps } }.
+// 요청 { device, messages: [{ id, channel, from, title, text, receivedAt }] } (0~20건), 응답 200 { results: [{ id, status }], filters: { skipWords, bankApps, bankNumbers } }.
+// 401 토큰 거절(멈춤) · 403 받기 꺼짐(큐·토큰 지키고 10분마다 0건 요청으로 다시 봄, D-SMS3-27) · 5xx 같은 id로 다시(D-SMS3-31).
 // 경로는 JS가 붙여 넘기므로(noticeIntakeUrl) 여기에는 없다. 순수 Kotlin + org.json(JVM 단위 시험) — 안드로이드 API를 쓰지 않는다.
 package com.livejjim.notice
 
@@ -27,9 +28,12 @@ object NoticeContract {
   const val TITLE_MAX_CHARS = 200
   const val DEVICE_NAME_MAX_CHARS = 30
   const val BATCH_MAX = 20
-  const val QUEUE_MAX = 200
+  /** 대기열 최대 (D-SMS3-28) — 넘으면 오래된 것부터 버리고 버린 건수를 앱에 보인다 */
+  const val QUEUE_MAX = 1000
   /** 429 뒤 기다림 */
   const val TOO_MANY_WAIT_MS = 60_000L
+  /** 403 받기 꺼짐 뒤 0건 요청으로 다시 볼 간격 (D-SMS3-27) */
+  const val INBOX_OFF_RECHECK_MS = 600_000L
   /** WorkManager 지수 물러서기 시작값 */
   const val RETRY_INITIAL_DELAY_MS = 30_000L
   const val CONTENT_TYPE = "application/json"
@@ -54,11 +58,12 @@ object NoticeContract {
 
   fun bearer(token: String): String = "Bearer $token"
 
-  /** 서버 답 → 할 일: done · bad · token · wait · retry (src/contract.ts classifyIntakeResponse와 같다) */
+  /** 서버 답 → 할 일: done · bad · token(401) · off(403 받기 꺼짐) · wait · retry (src/contract.ts classifyIntakeResponse와 같다) */
   fun classify(status: Int?): String {
     if (status == null) return "retry"
     if (status in 200..299) return "done"
-    if (status == 401 || status == 403) return "token"
+    if (status == 401) return "token"
+    if (status == 403) return "off"
     if (status == 429) return "wait"
     if (status == 408 || status == 425) return "retry"
     if (status in 400..499) return "bad"

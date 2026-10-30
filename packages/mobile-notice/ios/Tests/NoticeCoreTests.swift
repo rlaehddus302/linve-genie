@@ -43,6 +43,13 @@ final class NoticeVectorsTests: XCTestCase {
     func testSkip() throws {
         for v in items(try vectorsJSON(), "skip") { XCTAssertEqual(NoticeFilter.skipWordIn(str(v, "text")!, filtersOf(v, "filters")), str(v, "word"), "\(v)") }
     }
+    func testSmsSkip() throws {
+        for v in items(try vectorsJSON(), "smsSkip") {
+            let filters = filtersOf(v, "filters")
+            if !(v["filters"] is NSNull) { XCTAssertNotNil(filters, str(v, "name")!) }
+            XCTAssertEqual(NoticeFilter.skipWordFor(channel: str(v, "channel")!, from: str(v, "from"), text: str(v, "text")!, filters), str(v, "word"), str(v, "name")!)
+        }
+    }
     func testFilters() throws {
         for v in items(try vectorsJSON(), "filters") {
             let want = filtersOf(v, "output")
@@ -139,11 +146,12 @@ final class NoticeQueueTests: XCTestCase {
         XCTAssertEqual(store.read(store.pendingFiles()[0]), message(3))
     }
 
-    func testQueueKeepsNewest200() throws {
+    func testQueueKeepsNewest1000() throws {
         let (store, dir) = makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
-        for i in 1...203 { _ = store.enqueue(message(i), nowMs: Int64(i)) }
-        XCTAssertEqual(store.pendingCount, 200)
+        for i in 1...1003 { _ = store.enqueue(message(i), nowMs: Int64(i)) }
+        XCTAssertEqual(store.pendingCount, 1000)
+        XCTAssertEqual((store.stateMap()["dropped"] as? Double).map { Int($0) }, 3)
         XCTAssertEqual(store.count("dropped"), 3)
         XCTAssertEqual(store.read(store.pendingFiles()[0])?.text, "찜 4번")
     }
@@ -175,7 +183,8 @@ final class NoticeQueueTests: XCTestCase {
         let result = await sender.drain()
         XCTAssertEqual(result, DrainResult(sent: 23, pending: 0, stoppedBy: nil))
         XCTAssertEqual(sizes, [20, 3])
-        XCTAssertEqual(store.filters(), NoticeFilters(skipWords: ["(광고)", "인증"], bankApps: []))
+        // 서버가 bankNumbers 없이 주면 기기 사본(DP-9 1 표)
+        XCTAssertEqual(store.filters(), NoticeFilters(skipWords: ["(광고)", "인증"], bankApps: [], bankNumbers: NoticeFilter.defaultBankNumbers))
     }
 
     func testRetryKeepsSameIdAnd429Waits() async throws {
@@ -245,6 +254,7 @@ final class NoticeQueueTests: XCTestCase {
             let (store, dir) = makeStore()
             defer { try? FileManager.default.removeItem(at: dir) }
             try store.setToken(config)
+            if (c["startOff"] as? Bool) == true { store.setInboxOff(true, checkAtMs: 1_761_800_600_000) }
             let queue = c["queue"] as! [String]
             for (i, text) in queue.enumerated() {
                 let m = NoticeExtractor.shortcutCandidate(sender: "010-1234-5678", body: text, nowMs: 1_761_800_000_000 + Int64(i) * 120_000)!
@@ -271,6 +281,17 @@ final class NoticeQueueTests: XCTestCase {
             XCTAssertEqual(store.count("rejected"), (c["rejected"] as! NSNumber).intValue, name)
             XCTAssertEqual(store.isTokenRejected, c["tokenRejected"] as! Bool, name)
             XCTAssertEqual(store.filters() != nil, c["hasFilters"] as! Bool, name)
+            XCTAssertEqual(store.isInboxOff, c["inboxOff"] as! Bool, name)
+            XCTAssertEqual(store.stateMap()["inboxOff"] as? Bool, (c["inboxOff"] as! Bool), name)
+            if store.isInboxOff && !store.isTokenRejected {
+                // 받기 꺼짐: 10분 동안은 묻지 않고 대기열은 그대로, 앱을 열 때(fetchFilters)는 바로 다시 본다
+                XCTAssertEqual(store.offCheckAtMs, 1_761_800_600_000 + NoticeContract.inboxOffRecheckMs, name)
+                let waiting = await sender.drain(nowMs: { 1_761_800_600_000 + 599_999 })
+                XCTAssertEqual(waiting.stoppedBy, "OFF", name)
+                XCTAssertEqual(requests, c["requests"] as! [Int], name)
+                let left = store.pendingFiles().compactMap { store.read($0)?.text }
+                XCTAssertEqual(left, Array(queue.suffix((c["pending"] as! NSNumber).intValue)), name)
+            }
             XCTAssertEqual(store.stateMap()["lastError"] as? String, stoppedBy, name)
             XCTAssertEqual((store.stateMap()["rejected"] as? Double).map { Int($0) }, (c["rejected"] as! NSNumber).intValue, name)
             if store.isTokenRejected {
@@ -284,20 +305,61 @@ final class NoticeQueueTests: XCTestCase {
         }
     }
 
-    func testForbiddenStopsAndKeepsQueue() async throws {
+    /// 403(받기 꺼짐, D-SMS3-27): 토큰 거절이 아니다 — 큐·토큰을 지키고, 10분 뒤 0건 요청으로 다시 보고, 켜졌으면 같은 id로 보낸다
+    func testInboxOffKeepsTokenAndRechecks() async throws {
         let (store, dir) = makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         try store.setToken(config)
         for i in 1...2 { _ = store.enqueue(message(i), nowMs: Int64(i)) }
-        let sender = NoticeSender(store: store) { _, _ in (403, Data()) }
-        let result = await sender.drain()
-        XCTAssertEqual(result, DrainResult(sent: 0, pending: 2, stoppedBy: "TOKEN"))
-        XCTAssertTrue(store.isTokenRejected)
-        XCTAssertEqual(store.count("rejected"), 0)
+        var bodies: [[String]] = []
+        var status = 403
+        let sender = NoticeSender(store: store) { _, body in
+            let o = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+            bodies.append((o["messages"] as! [[String: Any]]).map { $0["id"] as! String })
+            return status == 200 ? okReply(body) : (status, Data())
+        }
+        var clock: Int64 = 1_000
+        let first = await sender.drain(nowMs: { clock })
+        XCTAssertEqual(first, DrainResult(sent: 0, pending: 2, stoppedBy: "OFF"))
+        XCTAssertFalse(store.isTokenRejected)
+        XCTAssertTrue(store.isInboxOff)
+        XCTAssertTrue(store.hasToken)
+        XCTAssertEqual(store.lastError, "OFF")
+        let ids = bodies[0]
+        clock += 599_999
+        let early = await sender.drain(nowMs: { clock })
+        XCTAssertEqual(early.stoppedBy, "OFF")
+        XCTAssertEqual(bodies.count, 1, "10분 안에는 묻지 않는다")
+        clock += 1
+        let still = await sender.drain(nowMs: { clock })
+        XCTAssertEqual(still.stoppedBy, "OFF")
+        XCTAssertEqual(bodies.last, [], "다시 볼 때는 0건 요청")
+        status = 200
+        let opened = await sender.drain(fetchFilters: true, nowMs: { clock + 1 })
+        XCTAssertEqual(opened, DrainResult(sent: 2, pending: 0, stoppedBy: nil), "앱을 열면 10분을 기다리지 않는다")
+        XCTAssertEqual(Array(bodies.suffix(2)), [[], ids])
+        XCTAssertFalse(store.isInboxOff)
+        XCTAssertNil(store.lastError)
+    }
+
+    func testServerErrorKeepsSameIds() async throws {
+        let (store, dir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try store.setToken(config)
-        let resent = NoticeSender(store: store) { _, body in okReply(body) }
-        let done = await resent.drain()
-        XCTAssertEqual(done, DrainResult(sent: 2, pending: 0, stoppedBy: nil))
+        for i in 1...2 { _ = store.enqueue(message(i), nowMs: Int64(i)) }
+        var bodies: [[String]] = []
+        var status = 500
+        let sender = NoticeSender(store: store) { _, body in
+            let o = try! JSONSerialization.jsonObject(with: body) as! [String: Any]
+            bodies.append((o["messages"] as! [[String: Any]]).map { $0["id"] as! String })
+            return status == 200 ? okReply(body) : (status, Data())
+        }
+        let failed = await sender.drain()
+        XCTAssertEqual(failed, DrainResult(sent: 0, pending: 2, stoppedBy: "SERVER"))
+        status = 200
+        let done = await sender.drain()
+        XCTAssertEqual(done.sent, 2)
+        XCTAssertEqual(bodies[0], bodies[1])
     }
 
     func testEmptyQueueFetchesFilters() async throws {
@@ -324,12 +386,17 @@ final class NoticeQueueTests: XCTestCase {
         store.setEnabled(true, nowMs: 1)
         let ad = await service.receive(sender: "15880000", body: "[Web발신] 결제 승인")
         XCTAssertEqual(ad, .filtered)
+        // 은행 대표번호 문자는 [Web발신]·승인이 들어도 거르지 않는다 (D-SMS3-26)
+        let bank = await service.receive(sender: "1588-9999", body: "[Web발신] 승인 12,000원 출금 잔액 38,000원")
+        XCTAssertEqual(bank, .queued(sentNow: 0, pending: 1))
+        let spoof = await service.receive(sender: "+82 1588-9999", body: "[Web발신] 홍길동 입금 14,000원")
+        XCTAssertEqual(spoof, .filtered)
         let otp = await service.receive(sender: "15880000", body: "인증번호 123456")
         XCTAssertEqual(otp, .filtered)
-        XCTAssertEqual(store.pendingCount, 0)
+        XCTAssertEqual(store.pendingCount, 1)
         let blank = await service.receive(sender: "010", body: "   ")
         XCTAssertEqual(blank, .empty)
         let ok = await service.receive(sender: "010-1234-5678", body: "찜 3번")
-        XCTAssertEqual(ok, .queued(sentNow: 0, pending: 1), "토큰이 없으면 담아 두기만 한다")
+        XCTAssertEqual(ok, .queued(sentNow: 0, pending: 2), "토큰이 없으면 담아 두기만 한다")
     }
 }

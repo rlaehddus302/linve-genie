@@ -10,6 +10,7 @@ import {
   NOTICE_INTENT_TITLE,
   NOTICE_SHORTCUT_GUIDE,
   noticeCountLine,
+  noticeDroppedLine,
   noticeStatusLine,
   type NativeNoticeModuleLike,
   type NoticeState,
@@ -27,6 +28,7 @@ describe('상태 고치기', () => {
       connected: false,
       hasToken: false,
       tokenRejected: false,
+      inboxOff: false,
       pending: 0,
       sent: 0,
       ignored: 0,
@@ -146,8 +148,16 @@ describe('화면 문장 (쉬운 한국어, 영어 상태값 없음)', () => {
   it('건수 줄', () => {
     expect(noticeCountLine({ ...base, sent: 5 })).toBe('보냄 5건')
     expect(noticeCountLine({ ...base, sent: 5, ignored: 3, filtered: 2, duplicates: 1, rejected: 1, dropped: 1 })).toBe(
-      '보냄 5건 · 찜·입금 아님 3건 · 광고·인증 문자 거름 2건 · 겹침 1건 · 서버가 받지 않음 1건 · 쌓인 게 많아 지움 1건',
+      '보냄 5건 · 찜·입금 아님 3건 · 광고·인증 문자 거름 2건 · 겹침 1건 · 서버가 받지 않음 1건',
     )
+  })
+  it('버린 알림 줄 (D-SMS3-28)', () => {
+    expect(noticeDroppedLine({ ...base, dropped: 0 })).toBeNull()
+    expect(noticeDroppedLine({ ...base, dropped: 12 })).toBe('보내지 못하고 버린 알림이 12건 있어요. 은행 앱에서 입금을 확인해 주세요')
+  })
+  it('받기 꺼짐(403) 줄 (D-SMS3-27) — 토큰 거절이 먼저', () => {
+    expect(noticeStatusLine({ ...base, inboxOff: true, pending: 3 })).toBe('웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 알림을 보내요')
+    expect(noticeStatusLine({ ...base, inboxOff: true, tokenRejected: true })).toBe('받기 토큰을 다시 넣어 주세요')
   })
   it('모든 문장에 영문 상태값이 없다', () => {
     const lines = [
@@ -158,6 +168,8 @@ describe('화면 문장 (쉬운 한국어, 영어 상태값 없음)', () => {
       noticeStatusLine({ ...base, hasFilters: true }),
       noticeStatusLine({ ...base, tokenRejected: true }),
       noticeCountLine({ ...base, sent: 1, ignored: 1, filtered: 1, duplicates: 1, rejected: 1, dropped: 1 }),
+      noticeStatusLine({ ...base, inboxOff: true }),
+      noticeDroppedLine({ dropped: 1 }) ?? '',
     ]
     for (const line of lines) expect(line).not.toMatch(/[A-Za-z]/)
   })
