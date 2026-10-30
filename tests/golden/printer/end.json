@@ -1,0 +1,20 @@
+{
+  "kind": "end",
+  "about": "끝 알림 (LABEL_RULES L-12 5, D-N1-06·D-PRN2-03). 프로필(L-12) + 알림 특성(ff01·fd02)으로 받은 값 하나(16진 글, 빈 글 가능) → 끝 알림인지. 모든 방식: 값이 정확히 AA 한 바이트. Luck Jingle 방식(바우아토)만: 정확히 4F 4B(ASCII OK) 두 바이트도. 이번 출력의 첫 조각을 쓴 뒤 받은 것만 세는 일·모든 조각을 써야 출력함인 일은 어댑터 기준(AC)이 본다",
+  "cases": [
+    {"id":"G-PRT-PRN2-51","title":"Marklife S2(YXQ 2) AA → 끝","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"note":"한 바이트 AA(D-N1-06 그대로)","profile":"MARKLIFE_S2","value":"AA","out":{"end":true}},
+    {"id":"G-PRT-PRN2-52","title":"Marklife S2는 OK를 끝으로 보지 않는다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"note":"YXQ 2의 첫 명령 1F 70 01 <농도>는 검증 문서 표에서 OK로 답하는 명령(가열 정도)이다 — OK를 끝으로 세면 첫 조각 뒤 바로 출력함이 될 수 있다","profile":"MARKLIFE_S2","value":"4F 4B","out":{"end":false}},
+    {"id":"G-PRT-PRN2-53","title":"Marklife P50(YXQ 3)도 OK는 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"note":"YXQ 3·8의 첫 명령 1F 80 02 20(종이 종류)도 검증 문서 표에서 OK로 답한다","profile":"MARKLIFE_P50","value":"4F 4B","out":{"end":false}},
+    {"id":"G-PRT-PRN2-54","title":"Marklife P12(L11)도 OK는 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"note":"Marklife 방식(YXQ·L11)의 끝 알림은 AA 하나","profile":"MARKLIFE_P12","value":"4F 4B","out":{"end":false}},
+    {"id":"G-PRT-PRN2-55","title":"Marklife P12 AA → 끝","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"MARKLIFE_P12","value":"AA","out":{"end":true}},
+    {"id":"G-PRT-PRN2-56","title":"바우아토(Luck Jingle) AA → 끝","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"note":"검증 문서: 10 FF F1 45(작업 끝) → AA 또는 OK","profile":"BAUATO_PPA2L","value":"AA","out":{"end":true}},
+    {"id":"G-PRT-PRN2-57","title":"바우아토(Luck Jingle) OK(4F 4B) → 끝","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"note":"ASCII \"OK\" 정확히 두 바이트. Luck Jingle 작업(켜기·깨우기·위치 맞춤·래스터·다음 라벨)에는 작업 끝 전에 OK로 답하는 명령이 없다(검증 문서 표)","profile":"BAUATO_PPA2L","value":"4F 4B","out":{"end":true}},
+    {"id":"G-PRT-PRN2-58","title":"바우아토 소문자 ok(6F 6B)는 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"note":"글자 그대로","profile":"BAUATO_PPA2L","value":"6F 6B","out":{"end":false}},
+    {"id":"G-PRT-PRN2-59","title":"바우아토 OK 뒤에 줄바꿈이 붙으면(4F 4B 0D 0A) 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"note":"정확히 두 바이트만 — 다른 꼴이면 HG-5에서 보고 이 사례와 규칙을 함께 고친다(그때까지는 20초 뒤 TIMEOUT)","profile":"BAUATO_PPA2L","value":"4F 4B 0D 0A","out":{"end":false}},
+    {"id":"G-PRT-PRN2-60","title":"바우아토 AA AA는 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"note":"알림 값 전체가 정확히 AA 한 바이트여야 한다(N1 적대 시험과 같다)","profile":"BAUATO_PPA2L","value":"AA AA","out":{"end":false}},
+    {"id":"G-PRT-PRN2-61","title":"바우아토 55는 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"BAUATO_PPA2L","value":"55","out":{"end":false}},
+    {"id":"G-PRT-PRN2-62","title":"빈 알림은 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"BAUATO_PPA2L","value":"","out":{"end":false}},
+    {"id":"G-PRT-PRN2-63","title":"O(4F) 한 바이트는 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"BAUATO_PPA2L","value":"4F","out":{"end":false}},
+    {"id":"G-PRT-PRN2-64","title":"Marklife X2 AA 00은 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"MARKLIFE_X2","value":"AA 00","out":{"end":false}}
+  ]
+}
