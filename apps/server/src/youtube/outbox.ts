@@ -1,6 +1,6 @@
 // 감사 메시지 발송함 실행기 (AC-Y1-30~46, R-13, D-Y01·D-Y06~D-Y08·D-Y12).
 // - 행은 outbox-store.ts의 함수로만 고르고 바꾼다(rehearsal = false 고정, RA-S05-002). 감사(POST_THANKS)와 방송 후 요약 댓글만 다룬다.
-// - 처음 볼 때: 효과가 나온 때(행이 생긴 시각) 그 대상의 동의가 없었으면 보내지 못함(NO_CONSENT). 실시간 채팅은 묶음 창(설정, 할당량 묶음 모드면 ≥ 60초)에 넣는다.
+// - 처음 볼 때: 효과가 나온 때(행이 생긴 시각) 그 대상의 동의가 없었으면 보내지 못함(NO_CONSENT). 실시간 채팅은 묶음 창(설정, 할당량 묶음 모드·초대 방송이면 ≥ 60초 — D-YT-SRV-18)에 넣는다.
 // - 보내기 직전: 기한(실시간 채팅 10분·영상 댓글 24시간·요약 24시간) → 그 범위의 지금 엔진 상태(취소 → 건너뜀, 완료 → 게시됨) → 연결·
 //   그 방송을 이은 채널 = 지금 연결한 채널(아니면 NOT_MY_CHANNEL, D-Y1-02)·권한·이은 방송·채팅 끝남·할당량 → 문구(묶음·200자 분할) →
 //   한 문장으로 SENDING을 잡고(실행기 둘이 같은 행을 잡지 않는다) 게시한다.
@@ -53,7 +53,7 @@ import {
   type RunnerRow,
 } from './outbox-store.ts'
 import type { QuotaMeter } from './quota.ts'
-import { activeLink, fillLinkLiveChatId, fillLinkPoster, insertOwnMessage, latestLink, markChatEnded, markSummaryDone, summaryCandidates, type LinkRow } from './store.ts'
+import { activeLink, fillLinkLiveChatId, fillLinkPoster, insertOwnMessage, isInvitedLink, latestLink, markChatEnded, markSummaryDone, summaryCandidates, type LinkRow } from './store.ts'
 import { SUMMARY_KIND, batchMessages, commentText, liveChatText, summaryComments, type SummaryLine } from './texts.ts'
 import type { Timer } from './timer.ts'
 import { winnerClaimsOf } from '../winners.ts'
@@ -126,6 +126,21 @@ export const MAX_CONFIRM_TRIES = 3
 export const SENDING_LEASE_MS = 60_000
 /** 할당량 묶음 모드의 실시간 채팅 최소 창 (AC-Y1-40·52) */
 export const BATCH_MODE_WINDOW_SEC = 60
+/**
+ * 초대 방송(방송 채널 ≠ 글 올리는 계정, INV1)의 실시간 채팅 최소 창 (D-YT-SRV-18) — 남의 채팅창을 도배하지 않게 판매자 설정이 0이어도 60초로 묶는다.
+ * 판매자 설정 값은 바꾸지 않는다. 할당량 묶음 모드와 겹치면 그대로 60초
+ */
+export const INVITED_WINDOW_SEC = 60
+
+/**
+ * 실시간 채팅 감사 묶음 창(초): 판매자 설정, 할당량 묶음 모드면 ≥ 60초(AC-Y1-40), 초대 방송이면 ≥ 60초(D-YT-SRV-18). 0이면 한 건씩 바로
+ */
+export function liveChatWindowSec(setting: number, quotaMode: string, invited: boolean): number {
+  let windowSec = setting
+  if (quotaMode !== 'NORMAL') windowSec = Math.max(windowSec, BATCH_MODE_WINDOW_SEC)
+  if (invited) windowSec = Math.max(windowSec, INVITED_WINDOW_SEC)
+  return windowSec
+}
 /** 방송 후 요약은 끝낸 뒤 이만큼 (AC-Y1-46) */
 export const SUMMARY_DELAY_MS = 10 * 60 * 1000
 /** 기다림을 다시 볼 간격 (연결·할당량) */
@@ -460,8 +475,9 @@ export class OutboxRunner {
         mode = await this.#options.quota.mode(row.sellerId)
         modes.set(row.sellerId, mode)
       }
-      const setting = batchWindowOf(state, effect.broadcast)
-      const windowSec = mode === 'NORMAL' ? setting : Math.max(setting, BATCH_MODE_WINDOW_SEC)
+      // 초대 방송인지는 행을 처음 볼 때 그 회차 이은 기록으로 (글 올리는 계정이 비면 초대 방송 아님 — D-YT-SRV-16·18)
+      const link = await latestLink(this.#options.db, row.sellerId, effect.broadcast)
+      const windowSec = liveChatWindowSec(batchWindowOf(state, effect.broadcast), mode, link !== null && isInvitedLink(link))
       if (windowSec <= 0) {
         // 묶지 않고 한 건씩 바로
         await this.#update(row, [row.id], { ...base, state: 'WAITING', reason: null, nextAt: row.createdAt, groupId: `g${String(row.id)}` }, { state: null })

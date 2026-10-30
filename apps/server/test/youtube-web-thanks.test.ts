@@ -4,6 +4,7 @@
 // 게시 확인(공식 조회 없이 서버 수집기가 본 우리 글로만, 못 보면 UNCONFIRMED), 우리 감사 거르기(글 올리는 계정·방송 채널 둘 다), 할당량(감사 쓰기만).
 import { afterEach, describe, expect, it } from 'vitest'
 import type { FakeFault } from '../src/youtube/fake-google.ts'
+import { INVITED_WINDOW_SEC } from '../src/youtube/outbox.ts'
 import type { FakeWebVideo } from '../src/youtube/fake-youtube-web.ts'
 import { addSeller, client, expectOk, writeEvent, type Seller } from './support.ts'
 import { approve, callback, drive, enableConsent, type YoutubeWorld } from './youtube-support.ts'
@@ -43,6 +44,12 @@ const runner = (w: WebWorld) => {
   return outbox
 }
 const run = (w: WebWorld) => drive(asYoutube(w), runner(w).runOnce())
+/** 초대 방송(글 올리는 계정 ≠ 방송 채널)의 실시간 채팅 감사는 60초 창에 묶인다 (D-YT-SRV-18) — 창이 닫힌 뒤 한 바퀴 더 */
+async function runPastInvitedWindow(w: WebWorld) {
+  await run(w)
+  await w.timer.advance(INVITED_WINDOW_SEC * 1000)
+  await run(w)
+}
 
 /** 사장님 구글 연결 + 실시간 채팅 게시 동의. 채널 ID를 정할 수 있다(내 채널 방송) */
 async function connect(w: WebWorld, seller: Seller, channelId?: string) {
@@ -141,7 +148,7 @@ describe('D-YT-SRV-15 채팅 ID 늦게 받기', () => {
     expect(google.posted.map((post) => [post.liveChatId, post.authorChannelId, post.text])).toEqual([[chatId, channel.id, TEXT]])
     expect((await rows(w, seller, b.date))[0]).toMatchObject({ state: 'SENT' })
     await sale(w, seller, b.id, 16, { id: 'c2', ch: 'UCb', nick: '나' })
-    await run(w)
+    await runPastInvitedWindow(w)
     expect(google.calls('videos.list')).toBe(1)
     expect(google.calls('liveChatMessages.insert')).toBe(2)
     // 실시간 채팅 감사 확인에 공식 조회를 부르지 않고, 읽기 호출도 없다
@@ -254,7 +261,7 @@ describe('D-YT-SRV-15 채팅 ID 늦게 받기', () => {
     // 둘째 감사: 토큰이 무효이고 새로 고침도 거절 → 다시 연결 필요
     googleOf(w).revokeAll()
     await sale(w, seller, b.id, 16, { id: 'c2', ch: 'UCb', nick: '나' })
-    await run(w)
+    await runPastInvitedWindow(w)
     expect((await rows(w, seller, b.date))[1]).toMatchObject({ state: 'WAITING', reason: 'RECONNECT' })
     expect(googleOf(w).calls('liveChatMessages.insert')).toBe(0)
     expect(await linkRow(w, seller)).toMatchObject({ live_chat_id: '' })
@@ -272,7 +279,7 @@ describe('D-YT-SRV-15 채팅 ID 늦게 받기', () => {
     // 채팅이 꺼진 방송 (activeLiveChatId 없음)
     googleOf(w).addBroadcast(video.channelId, { videoId: video.videoId, chat: false })
     await sale(w, seller, b.id, 16, { id: 'c2', ch: 'UCb', nick: '나' })
-    await run(w)
+    await runPastInvitedWindow(w)
     expect((await rows(w, seller, b.date))[1]).toMatchObject({ state: 'FAILED', reason: 'REJECTED' })
     expect(googleOf(w).calls('videos.list')).toBe(2)
     expect(googleOf(w).calls('liveChatMessages.insert')).toBe(0)
@@ -364,7 +371,7 @@ describe('D-YT-SRV-16 처음 올릴 때 적은 글 올리는 계정은 고정', 
     expect((await client(w, seller.cookie).post('/api/youtube/connection/disconnect', {})).status).toBe(200)
     await connect(w, seller)
     await sale(w, seller, b.id, 16, { id: 'c2', ch: 'UCb', nick: '나' })
-    await run(w)
+    await runPastInvitedWindow(w)
     expect((await rows(w, seller, b.date))[1]).toMatchObject({ state: 'FAILED', reason: 'NOT_MY_CHANNEL' })
     expect(googleOf(w).calls('liveChatMessages.insert')).toBe(1)
     expect(await linkRow(w, seller)).toMatchObject({ channel_id: first.id })

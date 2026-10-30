@@ -49,3 +49,11 @@ YT-11(서버가 유튜브 채팅 읽기, D-YT-SRV-01~12) 서버 몫. 스펙 `ori
 - 바꾼 기존 시험(스펙 변경 D-YT-SRV-17 "기존 Y1·I3 확인 조회 시험은 실시간 채팅 몫을 이 규칙으로"): `test/youtube-outbox.test.ts`(AC-Y1-36 (가)(나)(마), AC-Y1-31 확인 중 동의 끔), `test/youtube-followup.test.ts`(AC-Y1-93 (가)~(라), AC-Y1-96 (가)(라)(바)), `test/youtube-i3-followup.test.ts`(AC-I3-86 (가)(나)·(라) 도우미 인자, RA-I3-001 회귀 둘, AC-I3-87 LIVE_CHAT 지연 둘 → 조회 0·UNCONFIRMED 하나). 실시간 채팅에서 "못 찾음 → 다시 게시"였던 기대는 UNCONFIRMED·게시 1번으로, 조회 횟수 기대는 0으로. 새 시험 `test/youtube-web-thanks.test.ts`.
 - 화면(dev-web)에게: `GET/POST /api/broadcasts/:id/youtube`의 `link.channelId`가 **null**일 수 있다(연결 없이 이음). `invited`는 서버 판단을 쓰면 된다.
 - 시험 쪽에게: `tests/adversarial/y1`·`tests/e2e/i3/youtube.spec.ts` 중 실시간 채팅 확인 조회(`liveChatMessages.list`)·확인 실패 뒤 다시 게시를 기대하는 것은 D-YT-SRV-17로 바뀐다(남의 몫 — 고치지 않았다).
+
+## 초대 방송 감사 묶음 창 하한 60초 (CH-17, D-YT-SRV-18 AUTO) — dev-server
+- 실시간 채팅 감사 창 = `liveChatWindowSec(설정, 할당량 모드, 초대 방송)`(`apps/server/src/youtube/outbox.ts`, 순수 함수): 설정 `thanks.batchWindowSec`, 할당량 묶음 모드면 ≥ `BATCH_MODE_WINDOW_SEC`(60), 초대 방송이면 ≥ `INVITED_WINDOW_SEC`(60). 겹쳐도 60. 판매자 설정 값은 바꾸지 않는다. 기다림 이유는 기존 `WINDOW`.
+- 초대 방송 판단: 행을 처음 볼 때(`#intake`) 그 회차의 가장 최근 이은 기록(`latestLink`)에 `isInvitedLink` — 글 올리는 계정이 비면 초대 방송 아님(D-YT-SRV-16). 연결 없이 이은 회차는 첫 게시 때 글 올리는 계정이 적히고, 그 뒤 처음 보는 행부터 60초 창.
+- 그대로: 엔진·판정·효과, 영상 댓글·요약·확장 감사, 200자 분할(한 창의 글이 200자를 넘으면 나눈 메시지는 지금처럼 이어 보낸다 — 창 사이만 60초 이상), 내 방송(0이면 한 건씩).
+- 남는 틈(고치지 않음): 앞 창 묶음이 다시 시도(RETRY)로 늦게 올라가면 다음 창과 60초보다 가까울 수 있다(창은 행이 생긴 시각부터 잰다).
+- 새 시험 `apps/server/test/youtube-invited-window.test.ts`(7). 스펙 변경으로 초대 방송에서 설정 0의 감사를 바로 게시하던 기존 시험은 "60초 창이 닫힌 뒤 한 바퀴 더"를 넣었다(기대값은 그대로): `test/inv1-invited.test.ts` AC-INV1-06 동의 있음·AC-INV1-07 (1)(2)(3)·AC-INV1-10 (2)(3), `test/youtube-web-thanks.test.ts` D-YT-SRV-15 둘째 감사 셋(채팅 ID 늦게 받기·REJECTED·RECONNECT)·D-YT-SRV-16 NOT_MY_CHANNEL.
+- 시험 쪽에게(남의 몫): `tests/adversarial`·`tests/e2e` 중 초대 방송에서 설정 0 감사가 바로 올라가길 기대하는 것은 60초 창을 지나야 한다.

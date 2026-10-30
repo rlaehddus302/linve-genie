@@ -2,6 +2,7 @@
 // 사장님 연결 채널 A(글 올리는 계정), 유튜버 채널 B("다육이유튜버", 방송 채널)의 진행 중 공개 방송을 가짜 구글에 둔다.
 import { getProduct, listClaims } from '@livejjim/core'
 import { afterEach, describe, expect, it } from 'vitest'
+import { INVITED_WINDOW_SEC } from '../src/youtube/outbox.ts'
 import { addSeller, client, createBroadcast, expectOk, writeEvent } from './support.ts'
 import { approve, callback, connectSeller, drive, enableConsent, until, youtubeWorld, type Connected, type YoutubeWorld } from './youtube-support.ts'
 
@@ -31,6 +32,12 @@ const youtubeOf = (w: YoutubeWorld) => {
   return youtube
 }
 const run = (w: YoutubeWorld) => drive(w, youtubeOf(w).outbox.runOnce())
+/** 초대 방송의 실시간 채팅 감사는 60초 창에 묶인다 (D-YT-SRV-18) — 창이 닫힌 뒤 한 바퀴 더 */
+async function runPastInvitedWindow(w: YoutubeWorld) {
+  await run(w)
+  await w.timer.advance(INVITED_WINDOW_SEC * 1000)
+  await run(w)
+}
 
 async function count(w: YoutubeWorld, sql: string): Promise<number> {
   return (await w.database.pglite?.query<{ n: number }>(sql))?.rows[0]?.n ?? -1
@@ -197,7 +204,7 @@ describe('AC-INV1-06 초대 방송의 실시간 채팅 감사는 A의 토큰으�
     const { w, connected, b, liveChatId } = await linkInvited({ publish: 'LIVE_CHAT', settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
     await product(w, connected, b.id, 15, '핑크프릴', 10000)
     expect((await w.server.ingestChat(connected.seller.sellerId, { b: b.id, id: 'c1', ch: 'UCviewer1', nick: '가', text: '15', publishedAt: w.timer.now() })).status).toBe('recorded')
-    await run(w)
+    await runPastInvitedWindow(w)
     expect(w.fake.posted.map((post) => [post.liveChatId, post.authorChannelId, post.text])).toEqual([[liveChatId, connected.channel.id, '15번 핑크프릴 10,000원 가님 구매 감사합니다']])
     expect((await rows(w, connected, b.date)).map((row) => row.state)).toEqual(['SENT'])
   })
@@ -225,7 +232,7 @@ describe('AC-INV1-07 채널이 바뀌면 보내지 않음 · 우리 글은 채�
     await enableConsent(w, connected.seller, 'LIVE_CHAT')
     await w.timer.advance(1000)
     expect((await w.server.ingestChat(connected.seller.sellerId, { b: b.id, id: 'c1', ch: 'UCviewer1', nick: '가', text: '15', publishedAt: w.timer.now() })).status).toBe('recorded')
-    await run(w)
+    await runPastInvitedWindow(w)
     expect(w.fake.posted).toEqual([])
     expect((await rows(w, connected, b.date)).map((row) => [row.state, row.reason])).toEqual([['FAILED', 'NOT_MY_CHANNEL']])
   })
@@ -238,6 +245,7 @@ describe('AC-INV1-07 채널이 바뀌면 보내지 않음 · 우리 글은 채�
     w.fake.addMessage(liveChatId, { author: 'UCviewer1', name: '가', text: '15', publishedAt: w.timer.now() + 1 })
     await until(w, async () => (await chatCount(w)) === 1, { step: 100 })
     await youtube.outbox.runOnce()
+    await w.timer.advance(INVITED_WINDOW_SEC * 1000)
     await youtube.outbox.runOnce()
     expect(w.fake.posted).toHaveLength(1)
     await until(w, async () => (await count(w, `select count(*)::int as n from youtube_own_messages`)) === 1, { step: 100 })
@@ -251,7 +259,7 @@ describe('AC-INV1-07 채널이 바뀌면 보내지 않음 · 우리 글은 채�
     await product(w, connected, b.id, 15, '핑크프릴', 10000)
     w.fake.fail('liveChatMessages.insert', { status: 403, reason: 'forbidden' })
     expect((await w.server.ingestChat(connected.seller.sellerId, { b: b.id, id: 'c1', ch: 'UCviewer1', nick: '가', text: '15', publishedAt: w.timer.now() })).status).toBe('recorded')
-    await run(w)
+    await runPastInvitedWindow(w)
     expect(w.fake.posted).toEqual([])
     expect((await rows(w, connected, b.date)).map((row) => [row.state, row.reason])).toEqual([['FAILED', 'NO_PERMISSION']])
     const state = (await w.server.writer.read(connected.seller.sellerId, b.date)).state
@@ -364,7 +372,7 @@ describe('AC-INV1-10 크롬 확장: 방송자 배지 기준은 방송 채널, �
       expect(taken.body.post).toBeNull()
       expect(taken.text).not.toContain('방송 채널 계정으로 로그인해야')
     }
-    await run(w)
+    await runPastInvitedWindow(w)
     expect(w.fake.posted.map((post) => [post.liveChatId, post.authorChannelId])).toEqual([[liveChatId, connected.channel.id]])
     expect((await rows(w, connected, b.date)).map((row) => [row.state, row.viaExtension])).toEqual([['SENT', false]])
     const view = await api.get('/api/extension')
