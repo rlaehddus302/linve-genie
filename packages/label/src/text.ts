@@ -27,15 +27,71 @@ export const NO_TITLE = '제목 없음'
 /** 문자찜 구매자는 언제나 이 글 (L-3, R-11) */
 export const SMS_BUYER = '문자찜'
 
-// 실행 환경 언어와 상관없이 같은 결과: 보이는 글자 나누기는 언어 맞춤이 없는 규칙이라 'und'로 고정한다
-const graphemeSegmenter = new Intl.Segmenter('und', { granularity: 'grapheme' })
+// 실행 환경 언어와 상관없이 같은 결과: 보이는 글자 나누기는 언어 맞춤이 없는 규칙이라 'und'로 고정한다.
+// 앱(React Native Hermes)에는 Intl.Segmenter가 없어 모듈을 읽자마자 `new`가 터졌다(APP2 안드로이드 실행에서 처음 드러남).
+// 그래서 처음 쓸 때 만들고, 없으면 아래 대체 규칙으로 나눈다.
+interface GraphemeSegmenter {
+  segment(value: string): Iterable<{ segment: string }>
+}
+let graphemeSegmenter: GraphemeSegmenter | null | undefined
+
+function segmenter(): GraphemeSegmenter | null {
+  if (graphemeSegmenter === undefined) {
+    const Segmenter = (Intl as { Segmenter?: new (locale: string, options: { granularity: 'grapheme' }) => GraphemeSegmenter }).Segmenter
+    graphemeSegmenter = typeof Segmenter === 'function' ? new Segmenter('und', { granularity: 'grapheme' }) : null
+  }
+  return graphemeSegmenter
+}
+
+// 대체 규칙(Intl.Segmenter 없는 실행 환경): 앞 글자에 붙는 것 — 결합 부호·변형 선택자·피부색·태그·ZWJ 다음 글자·국기 짝·한글 자모 이음
+const MARK = /^\p{M}$/u
+const between = (c: number, low: number, high: number): boolean => c >= low && c <= high
+const isExtend = (cur: string, c: number): boolean =>
+  MARK.test(cur) || c === 0x200d || between(c, 0xfe00, 0xfe0f) || between(c, 0x1f3fb, 0x1f3ff) || between(c, 0xe0020, 0xe007f)
+const isRegional = (value: string): boolean => between(value.codePointAt(0) ?? 0, 0x1f1e6, 0x1f1ff)
+const isJamoL = (c: number): boolean => c >= 0x1100 && c <= 0x115f
+const isJamoV = (c: number): boolean => c >= 0x1160 && c <= 0x11a7
+const isJamoT = (c: number): boolean => c >= 0x11a8 && c <= 0x11ff
+const isSyllable = (c: number): boolean => c >= 0xac00 && c <= 0xd7a3
+const isLvSyllable = (c: number): boolean => isSyllable(c) && (c - 0xac00) % 28 === 0
+
+function joinsPrevious(prev: string, prevCode: number, cur: string, curCode: number, regionalRun: number): boolean {
+  if (isExtend(cur, curCode)) return true
+  if (prev === '‍') return true
+  if (isRegional(prev) && isRegional(cur)) return regionalRun % 2 === 1
+  if (isJamoL(prevCode) && (isJamoL(curCode) || isJamoV(curCode) || isSyllable(curCode))) return true
+  if ((isJamoV(prevCode) || isLvSyllable(prevCode)) && (isJamoV(curCode) || isJamoT(curCode))) return true
+  if ((isJamoT(prevCode) || (isSyllable(prevCode) && !isLvSyllable(prevCode))) && isJamoT(curCode)) return true
+  return false
+}
+
+function splitGraphemesFallback(value: string): string[] {
+  const out: string[] = []
+  let prev = ''
+  let prevCode = -1
+  let regionalRun = 0
+  for (const cur of value) {
+    const curCode = cur.codePointAt(0) ?? 0
+    if (out.length > 0 && joinsPrevious(prev, prevCode, cur, curCode, regionalRun)) out[out.length - 1] += cur
+    else out.push(cur)
+    regionalRun = isRegional(cur) ? regionalRun + 1 : 0
+    prev = cur
+    prevCode = curCode
+  }
+  return out
+}
 
 /** 보이는 글자(자소 묶음) 단위로 나눈다. 말줄임표·두 줄 나누기가 이모지·결합 문자를 가르지 않게 (L-5) */
 export function splitGraphemes(value: string): string[] {
+  const native = segmenter()
+  if (native === null) return splitGraphemesFallback(value)
   const out: string[] = []
-  for (const part of graphemeSegmenter.segment(value)) out.push(part.segment)
+  for (const part of native.segment(value)) out.push(part.segment)
   return out
 }
+
+/** 시험용: Intl.Segmenter 없는 실행 환경의 대체 나누기 */
+export const splitGraphemesWithoutIntl = splitGraphemesFallback
 
 /** 세 자리 쉼표 (0 이상 안전한 정수) */
 export function groupDigits(value: number): string {
