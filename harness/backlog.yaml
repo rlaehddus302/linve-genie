@@ -1285,7 +1285,7 @@ sprints:
       e2e — 방송 둘에 걸친 장부 한 바퀴·꼬리표·리포트·지우기, PC·375.
       순서 device → server → web. 수용 기준: harness/sprints/KP1/acceptance.md(AC-KP1-01~29). 법률·문구·솔라피는 DECISIONS 사용자 확인 필요.
     specIds: [BUY-08, RPT-01, RPT-02, RPT-03, RPT-04, RPT-05, RPT-06, RPT-07, RPT-08, SCH-01, SCH-02, SCH-03, MSG-01, BUY-06, PC-3, DAT-06]
-    status: todo
+    status: done
 
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
@@ -1335,6 +1335,13 @@ techDebt:
   - "UX-I1-010: 출력 멈춤 대화상자 버튼에 숫자 '1'이 안 보임"
   - "UX-I1-011: 처음 연 라벨 화면이 '이 기기의 프린터: 끊김'으로 보임"
   - "UX-I1-013: 저장하지 않은 라벨 설정이 경고 없이 사라짐"
+  - "UX-KP1-015: 리포트 앞선 방송이 하나뿐이면 '지난 방송'과 '최근 1번 평균' 비교가 같은 숫자로 겹치고 '1개 많아요'에 기준 숫자가 없음 (D-KP1-49)"
+  - "UX-KP1-016: 공개 일정 주소가 43자로 길어 세 줄로 꺾이고 손님 화면 미리 보기 링크가 없음 (D-KP1-49)"
+  - "UX-KP1-008: 연결 코드를 잘못 이었을 때 손님 링크에서 되돌리는 길이 없음 (D-KP1-49)"
+  - "RA-KP1-103: 장부 정리가 매시간 캐시 밖 봉인 날짜 재료를 다시 세움 — 판매자 사이 양보만 넣음, 하루 한 번·마지막 주문 날짜 저장은 미룸"
+  - "RA-KP1-009: 확인서 링크 GET마다 knownMarkers(force=true)로 그날 재료를 세움(seq 캐시라 낮은 위험)"
+  - "TE-KP1-003: 콘솔이 손님 표시 설정을 받기 전에 꼬리표 조회를 한 번 보냄(화면엔 안 보임, nit)"
+  - "SA-KP1-GATE: 커밋 a6f71c33이 [dev:server] 접두어로 harness/sprints/KP1/contract.md를 올려 보호 경로 게이트 위반 — 강제 push가 막혀 이력을 고치지 못함, 합칠 때 오케스트레이터 판단"
 
 # 해결·결정된 지적 (D-QS1-08 — 뒤 스프린트 수용 기준이나 DECISIONS 결정 줄이 다룸, 지우지 않고 옮김)
 techDebtResolved:
