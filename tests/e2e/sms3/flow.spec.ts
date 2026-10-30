@@ -69,17 +69,17 @@ for (const width of ['PC', '375'] as const satisfies readonly Width[]) {
     await expect(ask).toContainText('뒤 4자리 1111')
     await expect(ask).toContainText('번호는 있는데 확실하지 않아요')
     await expect(ask).toContainText(/\d{1,2}:\d{2}/)
-    const pick = ask.getByRole('button', { name: '15번', exact: true })
+    // UX-SMS3-009: 후보 번호가 하나면 알약 없이 "15번에 넣기"만
+    await expect(ask.getByRole('button', { name: '15번', exact: true })).toHaveCount(0)
+    const pick = ask.getByRole('button', { name: '15번에 넣기' })
     await expect(pick).toBeVisible()
     if (width === '375') {
       // 375px 폭에서 단추 높이 48px 이상 (AC-SMS3-30)
-      expect(await heightOf(pick), '번호 단추 높이').toBeGreaterThanOrEqual(48)
-      expect(await heightOf(ask.getByRole('button', { name: /넣기$/ })), '넣기 단추 높이').toBeGreaterThanOrEqual(48)
+      expect(await heightOf(pick), '넣기 단추 높이').toBeGreaterThanOrEqual(48)
       expect(await heightOf(ask.getByRole('button', { name: '무시' })), '무시 단추 높이').toBeGreaterThanOrEqual(48)
     }
     await expectNoDevWords(inboxPanel(page), '문자 확인 칸')
     await pick.click()
-    await ask.getByRole('button', { name: /넣기$/ }).click()
     await expect(ask).toHaveCount(0)
     await expect(inboxPanel(page)).toHaveCount(0)
     await expect.poll(async () => (await claimsOf(page, date, 15)).length).toBe(2)
@@ -101,7 +101,16 @@ for (const width of ['PC', '375'] as const satisfies readonly Width[]) {
     const hongId = hong!.current ?? hong!.id
     expect((await claimsOf(page, date, 15)).find((c) => c.currentBuyer === hongId)?.status).toBe('CONFIRMED')
     await expectNoDevWords(inboxPanel(page), '취소 요청 카드')
+    // UX-SMS3-006: 승인 → 확인 창. "그대로 두기"면 취소되지 않고, "찜 취소하기"를 눌러야 취소된다
     await cancel.getByRole('button', { name: '승인' }).click()
+    const sure = page.getByRole('dialog', { name: '찜을 취소할까요?' })
+    await expect(sure).toContainText('문자찜(홍길동)')
+    await sure.getByRole('button', { name: '그대로 두기' }).click()
+    await expect(sure).toHaveCount(0)
+    await expect(cancel).toBeVisible()
+    expect((await claimsOf(page, date, 15)).find((c) => c.currentBuyer === hongId)?.status).toBe('CONFIRMED')
+    await cancel.getByRole('button', { name: '승인' }).click()
+    await page.getByRole('dialog', { name: '찜을 취소할까요?' }).getByRole('button', { name: '찜 취소하기' }).click()
     await expect(cancel).toHaveCount(0)
     await expect.poll(async () => (await claimsOf(page, date, 15)).find((c) => c.currentBuyer === hongId)?.status).toBe('CANCELLED')
     await expect(boardItem(page, 15)).not.toContainText('문자찜(홍길동)')
