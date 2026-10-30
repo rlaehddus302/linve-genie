@@ -157,3 +157,5 @@ export function awayLine(counts: { readonly labels: number; readonly claims: num
   if (counts.voice > 0) parts.push(`음성 ${String(counts.voice)}개`)
   return parts.length === 0 ? null : `자리를 비운 동안 ${parts.join('·')}`
 }
+/** 블루투스를 쓸 수 없는 기기에서 프린터 연결을 눌렀을 때 (웹의 "이 브라우저에서는…" 대신) */
+export const APP_PRINTER_UNSUPPORTED = '이 휴대폰에서는 블루투스를 쓸 수 없어 프린터에 연결할 수 없어요. 블루투스가 되는 휴대폰에서 연결하거나, 컴퓨터 화면에서 라벨을 출력해 주세요.'
