@@ -122,8 +122,9 @@ describe('AC-KP1-07 손님·판매자 지우기', () => {
     expect(confirmPage.text).toContain('그대로 두기')
     const done = await postForm(world, `/r/${token}/ledger/delete`, {})
     expect(done.status).toBe(303)
-    expect(done.headers.get('location')).toBe(`/r/${token}?ledger=deleted#ledger`)
-    expect((await openLink(world, `/r/${token}?ledger=deleted`)).text).toContain('지웠어요.')
+    const location = done.headers.get('location') as string
+    expect(location).toMatch(new RegExp(`^/r/${token}\\?ledger=deleted&n=\\d+\\.[A-Za-z0-9_-]{22}#ledger$`))
+    expect((await openLink(world, location.replace('#ledger', ''))).text).toContain('지웠어요.')
     expect(await lines(world)).toEqual([])
     expect((await consents(world)).map((row) => [row.type, row.route, row.order_date])).toEqual([
       ['AGREE', 'RECEIPT_LINK', D],

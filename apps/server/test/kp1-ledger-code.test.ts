@@ -97,8 +97,9 @@ describe('AC-KP1-10·11 채팅에서 읽기와 손님 확인', () => {
     expect((await postForm(world, `/r/${tokenA}/ledger/link`, { answer: 'maybe' })).status).toBe(400)
     const yes = await postForm(world, `/r/${tokenA}/ledger/link`, { answer: 'yes' })
     expect(yes.status).toBe(303)
-    expect(yes.headers.get('location')).toBe(`/r/${tokenA}?ledger=linked#ledger`)
-    expect((await openLink(world, `/r/${tokenA}?ledger=linked`)).text).toContain('계정을 이었어요.')
+    const linkedAt = yes.headers.get('location') as string
+    expect(linkedAt).toMatch(new RegExp(`^/r/${tokenA}\\?ledger=linked&n=[^#]+#ledger$`))
+    expect((await openLink(world, linkedAt.replace('#ledger', ''))).text).toContain('계정을 이었어요.')
     const [line] = await lines(world)
     expect(await lines(world)).toHaveLength(1)
     expect((await markers(world)).map((row) => [row.marker, row.line_id, row.source])).toEqual([
@@ -123,8 +124,9 @@ describe('AC-KP1-10·11 채팅에서 읽기와 손님 확인', () => {
     await chat(world, seller, b, 'c-1', 'UC_Z', '제트', code)
     await waitFor(async () => (await codes(world)).at(-1)?.state === 'CLAIMED')
     const no = await postForm(world, `/r/${token}/ledger/link`, { answer: 'no' })
-    expect(no.headers.get('location')).toBe(`/r/${token}?ledger=unlinked#ledger`)
-    expect((await openLink(world, `/r/${token}?ledger=unlinked`)).text).toContain('잇지 않았어요. 필요하면 새 코드를 받아 주세요.')
+    const unlinkedAt = no.headers.get('location') as string
+    expect(unlinkedAt).toMatch(new RegExp(`^/r/${token}\\?ledger=unlinked&n=[^#]+#ledger$`))
+    expect((await openLink(world, unlinkedAt.replace('#ledger', ''))).text).toContain('잇지 않았어요. 필요하면 새 코드를 받아 주세요.')
     expect((await markers(world)).map((row) => row.marker)).toEqual(['c:UC_A'])
     expect((await codes(world)).at(-1)?.state).toBe('DONE')
     // 새 코드를 받고 확인 없이 24시간이 지나면 확인 칸이 없고 [네]도 듣지 않는다

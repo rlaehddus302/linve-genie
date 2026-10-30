@@ -1,11 +1,13 @@
 // 공개 방송 일정 페이지 `/s/<토큰>` (SPEC SCH-02·SCH-03, MESSAGE_RULES MR-6, KP1 AC-KP1-21·22). 서버가 그리는 HTML 한 장 — 스크립트 없음, 로그인 없음.
 // - 보이는 것: 가게 이름·다가오는 일정·(있으면) 유튜브 채널 주소·알림 받기 양식·그만 받기 양식. 손님·판매 정보·연락처는 없다.
-// - 머리글: no-store · noindex · no-referrer · 틀 금지 · nosniff · 스크립트 없는 CSP(form-action 'self'). 판매자 세션 쿠키가 와도 보지 않는다.
+// - 머리글: no-store · noindex · no-referrer · 틀 금지 · nosniff · 스크립트 없는 CSP(form-action 'self'). 판매자 세션 쿠키는 그 가게 판매자인지만 본다(늘리지 않는다).
 // - 모르는·꺼진·옛 토큰은 모두 같은 404 문서. 페이지 열기는 접속 주소마다 1분 60번을 넘으면 429 (RA-KP1-001 — 손님 여럿이 한 가게 주소를 함께 연다).
 //   토큰 전체에는 큰 상한만(1분 3,000번 — GET·POST 합): 공격자 한 명이 가게 주소 전체를 막지 못하게 하면서 끝없는 요청은 막는다.
 // - 알림 신청·그만 받기(POST): Origin이 앱 주소일 때만(formFromApp), 접속 주소마다 1분 10번을 넘으면 429. 접속 주소를 모르면 한 칸으로 함께 센다.
 //   체크가 없거나 번호가 휴대폰 번호가 아니면 저장하지 않고 400(적은 번호를 다시 채우지 않는다). 저장하면 303으로 같은 페이지에 처리 결과 한 줄.
 //   그만 받기는 번호가 있든 없든 같은 303·같은 문장(있는지 알려 주지 않는다).
+// - 처리 결과 한 줄은 303 주소의 짧은 수명 서명 값(n)이 맞을 때만 보인다 — 주소 질의만 지어서는 보이지 않는다 (SA-KP1-003).
+// - 그 가게 판매자(또는 보조자)의 유효한 세션 쿠키가 함께 오면 알림 신청 양식 대신 한 문장을 보이고, 신청 POST는 저장하지 않는다 (RA-KP1-006).
 // - 번호는 응답·로그에 없다(이 파일은 로그를 쓰지 않는다). 문자를 보내지 않는다.
 import { isValidDate, normalizePhone } from '@livejjim/core'
 import type { Context, Hono } from 'hono'
@@ -16,6 +18,8 @@ import { clientAddress } from '../login-limit.ts'
 import { MR_CONSENT_1 } from '../messaging/rules.ts'
 import { escapeHtml, formFromApp, kstDateTimeWithDay, LinkRateLimiter, RECEIPT_PAGE_CSP, readCapped } from '../receipt-page.ts'
 import { receiptTokenHash } from '../receipt-links.ts'
+import { NoticeSigner } from '../notice-sign.ts'
+import { SELLER_CANNOT_CONSENT, sellerSignedIn } from '../seller-here.ts'
 import { readShop } from '../shop.ts'
 import { kstDate, type Clock } from '../time.ts'
 import { SCHEDULE_TOKEN_RE, type PublicSchedule, type ScheduleService } from './service.ts'
@@ -110,6 +114,8 @@ export interface SchedulePagePart {
   /** 위 한 줄 — 처리 결과(notice) 또는 양식 오류(alert) */
   readonly notice?: string
   readonly alert?: string
+  /** 그 가게 판매자 세션이 함께 왔다 — 알림 신청 양식 대신 한 문장 (RA-KP1-006) */
+  readonly sellerHere?: boolean
 }
 
 /** 공개 일정 페이지 HTML (가게 이름·일정·채널 주소는 모두 이스케이프) */
@@ -134,12 +140,15 @@ export function schedulePageHtml(shop: string, data: PublicSchedule, path: strin
     lines.push(`<p><a href="${escapeHtml(data.channelUrl)}" rel="noopener noreferrer" target="_blank">유튜브 채널로 가기</a></p>`)
   }
   lines.push('<h2>방송 알림 받기</h2>')
-  lines.push(`<form method="post" action="${escapeHtml(path)}/alert" class="card">`)
-  lines.push('<label for="alert-phone">휴대폰 번호</label>')
-  lines.push('<input id="alert-phone" type="tel" name="phone" inputmode="tel" autocomplete="tel" maxlength="20" required>')
-  lines.push(`<label class="check"><input type="checkbox" name="agree" value="on" required><span>${escapeHtml(MR_CONSENT_1.body(shop))}</span></label>`)
-  lines.push('<button type="submit">알림 받기</button>')
-  lines.push('</form>')
+  if (part.sellerHere === true) lines.push(`<p class="card muted">${escapeHtml(SELLER_CANNOT_CONSENT)}</p>`)
+  else {
+    lines.push(`<form method="post" action="${escapeHtml(path)}/alert" class="card">`)
+    lines.push('<label for="alert-phone">휴대폰 번호</label>')
+    lines.push('<input id="alert-phone" type="tel" name="phone" inputmode="tel" autocomplete="tel" maxlength="20" required>')
+    lines.push(`<label class="check"><input type="checkbox" name="agree" value="on" required><span>${escapeHtml(MR_CONSENT_1.body(shop))}</span></label>`)
+    lines.push('<button type="submit">알림 받기</button>')
+    lines.push('</form>')
+  }
   lines.push('<h2>알림 그만 받기</h2>')
   lines.push(`<form method="post" action="${escapeHtml(path)}/stop" class="card">`)
   lines.push('<label for="stop-phone">휴대폰 번호</label>')
@@ -170,6 +179,7 @@ export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
   const formLimiter = new LinkRateLimiter(deps.clock, ALERT_FORM_LIMIT, SCHEDULE_WINDOW_MS)
   /** 접속 주소 칸 (모르면 한 칸 — 기존 공개 경로와 같은 clientAddress) */
   const addressOf = (c: Context) => `ip:${clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0) ?? '?'}`
+  const notices = new NoticeSigner(deps.clock)
   const closed = () => htmlResponse(404, CLOSED_PAGE)
   const later = () => htmlResponse(429, LATER_PAGE)
   const shopName = async (sellerId: string) => {
@@ -189,11 +199,12 @@ export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
     const done = c.req.query('done')
     const on = c.req.query('on')
     let notice: string | undefined
-    if (on !== undefined && isValidDate(on)) {
-      if (done === 'agree') notice = SCHEDULE_PAGE_MESSAGES.agreed(shop, on)
-      else if (done === 'stop') notice = SCHEDULE_PAGE_MESSAGES.stopped(shop, on)
+    // 결과 한 줄은 서명 값이 맞을 때만 (SA-KP1-003)
+    if (on !== undefined && isValidDate(on) && (done === 'agree' || done === 'stop') && notices.check(receiptTokenHash(token), `${done}|${on}`, c.req.query('n'))) {
+      notice = done === 'agree' ? SCHEDULE_PAGE_MESSAGES.agreed(shop, on) : SCHEDULE_PAGE_MESSAGES.stopped(shop, on)
     }
-    return htmlResponse(200, schedulePageHtml(shop, data, `/s/${token}`, notice === undefined ? {} : { notice }))
+    const sellerHere = await sellerSignedIn(c, deps.db, deps.clock, data.sellerId)
+    return htmlResponse(200, schedulePageHtml(shop, data, `/s/${token}`, { ...(notice === undefined ? {} : { notice }), sellerHere }))
   }
 
   const handleForm = async (c: Context): Promise<Response> => {
@@ -207,7 +218,10 @@ export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
     if (data === null) return closed()
     const shop = await shopName(data.sellerId)
     const path = `/s/${token}`
-    const bad = (message: string) => htmlResponse(400, schedulePageHtml(shop, data, path, { alert: message }))
+    const sellerHere = action === 'alert' && (await sellerSignedIn(c, deps.db, deps.clock, data.sellerId))
+    const bad = (message: string) => htmlResponse(400, schedulePageHtml(shop, data, path, { alert: message, sellerHere }))
+    // RA-KP1-006: 판매자 로그인 화면에서 낸 알림 신청은 저장하지 않는다 (본문도 읽지 않는다)
+    if (sellerHere) return bad(SELLER_CANNOT_CONSENT)
     const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
     const declared = Number(c.req.header('content-length') ?? '0')
     if (type !== 'application/x-www-form-urlencoded' || !Number.isFinite(declared) || declared > ALERT_FORM_MAX_BYTES) return bad(SCHEDULE_PAGE_MESSAGES.badForm)
@@ -224,7 +238,9 @@ export function registerSchedulePage(app: Hono, deps: SchedulePageDeps): void {
     if (normalized === null) return bad(SCHEDULE_PAGE_MESSAGES.badPhone)
     const at = action === 'alert' ? await deps.schedule.subscribe(data.sellerId, normalized) : await deps.schedule.unsubscribe(data.sellerId, normalized)
     const headers = new Headers(SCHEDULE_PAGE_HEADERS)
-    headers.set('Location', `${path}?done=${action === 'alert' ? 'agree' : 'stop'}&on=${kstDate(at)}`)
+    const done = action === 'alert' ? 'agree' : 'stop'
+    const on = kstDate(at)
+    headers.set('Location', `${path}?done=${done}&on=${on}&n=${notices.sign(receiptTokenHash(token), `${done}|${on}`)}`)
     return new Response(null, { status: 303, headers })
   }
 

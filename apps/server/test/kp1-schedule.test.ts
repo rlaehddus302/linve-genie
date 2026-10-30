@@ -252,7 +252,7 @@ describe('AC-KP1-22 알림 받기 신청·그만 받기', () => {
 
     const saved = await postForm(w, `${path}/alert`, { phone: PHONE, agree: 'on' })
     expect(saved.status).toBe(303)
-    expect(saved.headers.get('location')).toBe(`${path}?done=agree&on=2026-10-31`)
+    expect(saved.headers.get('location')).toMatch(new RegExp(`^${path}\\?done=agree&on=2026-10-31&n=\\d+\\.[A-Za-z0-9_-]{22}$`))
     expect(saved.headers.get('referrer-policy')).toBe('no-referrer')
     const done = await (await w.server.app.request(saved.headers.get('location') as string)).text()
     expect(done).toContain('초록다육 방송 알림을 신청했어요 (2026-10-31).')
@@ -286,7 +286,7 @@ describe('AC-KP1-22 알림 받기 신청·그만 받기', () => {
     const unknown = await postForm(w, `${path}/stop`, { phone: '010-9999-0000' })
     expect(stop.status).toBe(303)
     expect(unknown.status).toBe(303)
-    expect(stop.headers.get('location')).toBe(`${path}?done=stop&on=2026-10-31`)
+    expect(stop.headers.get('location')).toMatch(new RegExp(`^${path}\\?done=stop&on=2026-10-31&n=`))
     expect(unknown.headers.get('location')).toBe(stop.headers.get('location'))
     const html = await (await w.server.app.request(stop.headers.get('location') as string)).text()
     expect(html).toContain('초록다육 방송 알림을 그만 받아요 (2026-10-31).')

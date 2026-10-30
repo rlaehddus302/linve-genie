@@ -24,6 +24,8 @@ import type { LinkSection, ParcelService } from './parcel/service.ts'
 import type { ScopeWriter } from './writer.ts'
 import type { LedgerService, LinkLedgerView } from './customers/ledger.ts' // KP1
 import { LEDGER_LINK_TEXT, consentFieldHtml, ledgerSectionHtml, type LedgerLinkNotice } from './customers/ledger-page.ts' // KP1
+import { SELLER_CANNOT_CONSENT, sellerSignedIn } from './seller-here.ts' // KP1 RA-KP1-006
+import { NoticeSigner } from './notice-sign.ts' // KP1 SA-KP1-003
 
 export const RECEIPT_PAGE_MESSAGES = {
   closed: '이 링크는 열 수 없어요. 판매자에게 새 링크를 받아 주세요.',
@@ -192,6 +194,8 @@ export interface ParcelPagePart {
   readonly consent?: { readonly shop: string; readonly monthsWord: string } | null
   /** 틀려서 다시 그릴 때 손님이 고른 그대로 (처음엔 늘 빈 칸) */
   readonly keep?: boolean
+  /** KP1 RA-KP1-006: 그 가게 판매자 세션이 함께 왔다 — 동의 칸 대신 한 문장 */
+  readonly consentBlocked?: boolean
 }
 
 const FIELD_LABELS: Readonly<Record<AddressField, string>> = {
@@ -286,7 +290,7 @@ export function parcelSectionHtml(part: ParcelPagePart, base: string, kstTime: (
         `<p class="muted">${e(PARCEL_MESSAGES.linkNotice)}</p>`,
         `<form method="post" action="${base}/address">`,
         ...fields,
-        part.consent === undefined || part.consent === null ? '' : consentFieldHtml(part.consent, part.keep === true),
+        part.consentBlocked === true ? `<p class="muted">${e(SELLER_CANNOT_CONSENT)}</p>` : part.consent === undefined || part.consent === null ? '' : consentFieldHtml(part.consent, part.keep === true),
         '<button class="button primary" type="submit">배송지 보내기</button>',
         '</form>',
         '</section>',
@@ -410,6 +414,8 @@ export async function readCapped(body: ReadableStream<Uint8Array> | null, max: n
 /** `/r`·`/r/*` 경로를 앱에 단다 (화면 문서 index.html보다 먼저 — 운영 서버·E2E 서버 둘 다 이 앱을 쓴다) */
 export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
   const limiter = new LinkRateLimiter(deps.clock)
+  /** KP1 장부 결과 한 줄 서명 (SA-KP1-003) */
+  const ledgerNotices = new NoticeSigner(deps.clock)
   const closed = () => htmlResponse(404, CLOSED_PAGE)
   const later = (status: 429 | 503) => htmlResponse(status, LATER_PAGE)
 
@@ -426,9 +432,12 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
       const shop = await readShop(deps.db, opened.sellerId)
       const part = await parcelPart(opened)
       const ledgerQuery = c.req.query('ledger')
-      const notice = ledgerQuery === undefined ? null : (LEDGER_NOTICE_QUERY[ledgerQuery] ?? null)
+      // KP1 SA-KP1-003: 결과 한 줄은 서명 값(n)이 맞을 때만 — 주소 질의만 지어서는 보이지 않는다
+      const asked = ledgerQuery === undefined ? null : (LEDGER_NOTICE_QUERY[ledgerQuery] ?? null)
+      const notice = asked !== null && ledgerNotices.check(receiptTokenHash(token), asked, c.req.query('n')) ? asked : null
       const ledger = await ledgerPart(opened, `/r/${token}`, { confirmDelete: ledgerQuery === 'delete', notice })
-      return htmlResponse(200, receiptPageHtml(opened, shop, `/r/${token}`, part === null ? undefined : { ...part, edit: c.req.query('edit') === '1', consent: ledger.consent }, ledger.html))
+      const consent = await consentFor(c, opened, ledger.consent)
+      return htmlResponse(200, receiptPageHtml(opened, shop, `/r/${token}`, part === null ? undefined : { ...part, edit: c.req.query('edit') === '1', ...consent }, ledger.html))
     }
     const kind = file === 'receipt.pdf' ? 'pdf' : 'jpg'
     const rendered = await deps.closing.renderReceiptFile(opened.sellerId, opened.date, false, opened.receipt, opened.createdAt, kind, c.req.raw.signal)
@@ -454,7 +463,16 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
   const ledgerPart = async (opened: OpenedLink, base: string, options: { confirmDelete: boolean; notice: LedgerLinkNotice | null }): Promise<{ consent: LinkLedgerView['consent']; html: string }> => {
     if (deps.ledger === undefined) return { consent: null, html: '' }
     const view = await deps.ledger.linkView(opened.sellerId, opened.date, opened.buyer)
-    return { consent: view.consent, html: ledgerSectionHtml(view.line, base, { ...options, kstTime: kstDateTimeWithDay }) }
+    // "지웠어요"는 장부 칸이 정말 없을 때만, "이었어요·잇지 않았어요"는 장부 칸이 있을 때만 (SA-KP1-003)
+    const notice = options.notice === 'deleted' ? (view.line === null ? 'deleted' : null) : options.notice === 'linked' || options.notice === 'unlinked' ? (view.line === null ? null : options.notice) : options.notice
+    return { consent: view.consent, html: ledgerSectionHtml(view.line, base, { ...options, notice, kstTime: kstDateTimeWithDay }) }
+  }
+
+  /** KP1 RA-KP1-006: 동의 칸 — 그 가게 판매자 세션이 함께 오면 칸 대신 한 문장 (동의 칸을 보일 때만 세션을 본다) */
+  const consentFor = async (c: Context, opened: OpenedLink, consent: LinkLedgerView['consent']): Promise<{ consent: LinkLedgerView['consent']; consentBlocked: boolean }> => {
+    if (consent === null) return { consent, consentBlocked: false }
+    if (await sellerSignedIn(c, deps.db, deps.clock, opened.sellerId)) return { consent: null, consentBlocked: true }
+    return { consent, consentBlocked: false }
   }
 
   /** KP1 장부 양식 (POST /r/<토큰>/ledger/delete|code|link): Origin → 링크 한도 → 형식·크기 → 링크 열기 → 장부 동작 → 303 (#ledger) */
@@ -484,9 +502,10 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
       const shop = await readShop(deps.db, opened.sellerId)
       const part = await parcelPart(opened)
       const ledger = await ledgerPart(opened, `/r/${token}`, { confirmDelete: false, notice: 'full' })
-      return htmlResponse(409, receiptPageHtml(opened, shop, `/r/${token}`, part === null ? undefined : { ...part, consent: ledger.consent }, ledger.html))
+      return htmlResponse(409, receiptPageHtml(opened, shop, `/r/${token}`, part === null ? undefined : { ...part, ...(await consentFor(c, opened, ledger.consent)) }, ledger.html))
     }
-    const query = result === 'deleted' ? '?ledger=deleted' : result === 'linked' ? '?ledger=linked' : result === 'unlinked' ? '?ledger=unlinked' : ''
+    const done = result === 'deleted' || result === 'linked' || result === 'unlinked' ? result : null
+    const query = done === null ? '' : `?ledger=${done}&n=${ledgerNotices.sign(receiptTokenHash(token), done)}`
     const headers = new Headers(RECEIPT_PAGE_HEADERS)
     headers.set('Location', `/r/${token}${query}#ledger`)
     return new Response(null, { status: 303, headers })
@@ -511,7 +530,8 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     // KP1 동의 칸 (CR-2): keep은 없거나 'on' 하나 — 그 밖은 받지 않는다
     const keeps = form.getAll('keep')
     if (keeps.length > 1 || (keeps.length === 1 && keeps[0] !== 'on')) return htmlResponse(400, BAD_FORM_PAGE)
-    const keep = keeps.length === 1
+    // KP1 RA-KP1-006: 그 가게 판매자 세션이 함께 오면 동의는 받지 않는다(배송지는 그대로 저장 — PC-3)
+    const keep = keeps.length === 1 && !(deps.ledger !== undefined && (await sellerSignedIn(c, deps.db, deps.clock, opened.sellerId)))
     const values: Partial<Record<AddressField, string>> = {}
     let complete = true
     for (const field of ADDRESS_FIELDS) {
@@ -531,7 +551,7 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     const ledger = await ledgerPart(opened, `/r/${token}`, { confirmDelete: false, notice: null })
     if (saved.kind === 'invalid') {
       // 적은 값은 이 응답에만 다시 채운다(저장하지 않는다)
-      const page: ParcelPagePart = { section: { kind: 'form' }, values, errors: saved.errors, consent: ledger.consent, keep, ...(saved.errors.length === 0 ? { alert: RECEIPT_PAGE_MESSAGES.badForm } : {}) }
+      const page: ParcelPagePart = { section: { kind: 'form' }, values, errors: saved.errors, ...(await consentFor(c, opened, ledger.consent)), keep, ...(saved.errors.length === 0 ? { alert: RECEIPT_PAGE_MESSAGES.badForm } : {}) }
       return htmlResponse(
         400,
         receiptPageHtml(opened, shop, `/r/${token}`, section.kind === 'form' || section.kind === 'saved' || section.kind === 'ledger' ? page : { section, alert: RECEIPT_PAGE_MESSAGES.badForm }, ledger.html),
