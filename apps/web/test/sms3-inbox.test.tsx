@@ -479,6 +479,22 @@ describe('받기 멈춤 알림 (AC-SMS3-31)', () => {
     expect(await screen.findByText(`! ${INBOX_STALL}`)).toBeDefined()
   })
 
+  it('이 기기 시계가 서버보다 늦으면(방송 시작이 콘솔 연 때보다 뒤) 콘솔 연 때부터 잰다 — 일찍도, 끝없이 늦게도 보이지 않는다', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['Date', 'setInterval', 'clearInterval'] })
+    inbox = settingsView({ enabled: true, hasToken: true })
+    startedAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+    await openConsole()
+    await act(async () => {
+      vi.advanceTimersByTime(9 * 60 * 1000)
+    })
+    await flush(5)
+    expect(screen.queryByText(`! ${INBOX_STALL}`)).toBeNull()
+    await act(async () => {
+      vi.advanceTimersByTime(60_000 + 31_000)
+    })
+    expect(await screen.findByText(`! ${INBOX_STALL}`)).toBeDefined()
+  })
+
   it('방송 시작 뒤에 받은 것이 있으면 그 시각부터 잰다 (늦은 쪽)', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['Date', 'setInterval', 'clearInterval'] })
     startedAt = new Date(Date.now() - 30 * 60 * 1000).toISOString()
