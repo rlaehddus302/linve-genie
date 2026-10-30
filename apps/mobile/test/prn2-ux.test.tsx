@@ -5,9 +5,11 @@
 // - 007 두 보내기 단추의 보이는 글이 무엇을·어디로, 테스트 라벨 단추는 쓸 때만
 // - 008 "실험" 꼬리표 18px, 실험 기다림 안내·작업 보내기 안내는 본문(18px)
 import { BAUATO_PPA2L, B1_PROFILE, MARKLIFE_P12 } from '@livejjim/printer'
-import { testHelp } from '@livejjim/web/src/lib/test-help.ts'
+import { ALL_LABEL_SIZES } from '@livejjim/label'
+import { testHelp as webTestHelp } from '@livejjim/web/src/lib/test-help.ts'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { testHelp } from '../src/lib/test-help.ts'
 import { LabelsScreen, fallbackAppName, jobShareLabel, testShareLabel } from '../src/screens/LabelsScreen.tsx'
 import { Tag } from '../src/ui/parts.tsx'
 import { makeWorld } from './screen-support.tsx'
@@ -32,6 +34,13 @@ async function connected(profile: typeof B1_PROFILE | typeof BAUATO_PPA2L | type
   await flush()
   return world
 }
+
+describe('앱 도움말 문장이 웹과 같다 (UX-PRN2-001)', () => {
+  it('프로필·크기마다 같은 줄과 제조사 앱', () => {
+    for (const profile of [null, 'NIIMBOT_B1', 'BAUATO_PPA2L', 'MARKLIFE_P12'])
+      for (const size of [...ALL_LABEL_SIZES, '99x99']) expect(testHelp(profile, size)).toEqual(webTestHelp(profile, size))
+  })
+})
 
 describe('UX-PRN2-007 보내기 단추 글', () => {
   it('무엇을·어디로 — 앱 이름은 이은 프린터의 대체 경로 앱, 모르면 "제조사 앱"', () => {

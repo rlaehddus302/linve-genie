@@ -7,11 +7,11 @@
 //   "이 기기에서 출력"은 그 연결에서 테스트 인쇄를 하고 "예"를 누른 뒤에만 보인다. "제조사 앱으로 보내기"는 서버가 만든 그림 파일을 공유 창으로
 //   (테스트 라벨, 그리고 이 기기가 받은 작업이 있으면 "찍는 중인 라벨" 칸에서 그 작업 — 상태·결과는 그대로, D-PRN2-28).
 import { experimentalNotice, printerProfile, printerSupportStage } from '@livejjim/printer'
-import { testHelp } from '@livejjim/web/src/lib/test-help.ts'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import { isApiError } from '../api/client.ts'
 import { awaitingTest } from '../lib/label-queue.ts'
+import { testHelp } from '../lib/test-help.ts'
 import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, EXPERIMENTAL_MARK, EXPERIMENTAL_PAUSED, EXPERIMENTAL_RESUMED, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, PRINT_ACTION, RETRY_NOW, TEST_CONFIRMED_PAST, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import type { Tone } from '../ui/theme.ts'
