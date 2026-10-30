@@ -1,8 +1,8 @@
 // Y1 적대 테스트 공용 도구 (test-domain). 가짜 구글·유튜브 서버(127.0.0.1) + 주입한 시계(ManualTimer) + 서버(PGlite 메모리).
 // 실제 구글 주소로 나가는 요청은 막는다(installGoogleBlock). 워커(수집기·발송함·봉인)는 시험이 직접 돌린다.
 // 채팅 읽기 길 두 가지 (CH-26, D-YT-SRV-10):
-// - world() / world({ chat: 'official' }): 옛 공식 읽기(STREAM·POLL — 서버 설정에 youtube.webChat 없음). 감사 게시(liveChatMessages.insert)를 단언하는
-//   시험은 이 길이다 — 웹 잇기 회차는 공식 채팅 ID가 비어 감사가 올라가지 않는다(D-YT-SRV-13 대기).
+// - world() / world({ chat: 'official' }): 옛 공식 읽기(STREAM·POLL — 서버 설정에 youtube.webChat 없음). 수집기를 돌리지 않는 감사 게시 시험은 이 길이다.
+//   웹 잇기 회차도 감사를 처음 올릴 때 videos.list로 채팅 ID를 받아 올린다(D-YT-SRV-15) — 수집기가 본 우리 글로 확인하는 시험(D-YT-SRV-17)은 웹 길로 써도 된다.
 // - world({ chat: 'web' }): 운영과 같은 서버 웹 읽기(수집기 방식 WEB). 가짜 유튜브 웹(127.0.0.1)을 띄우고 bridgeFakeWeb으로 가짜 구글의 방송·채팅·지움·차단을
 //   같은 ID로 비춘다 — fake.addMessage(liveChatId, …)로 넣은 채팅을 WEB 수집기가 같은 ID로 받는다. sibling 서버도 같은 설정이다.
 //   close()에서 이 world가 사는 동안 실제 구글·유튜브 주소로 나가려다 막힌 요청이 하나라도 있었으면 실패한다(가짜 웹 주소가 127.0.0.1인지도 본다).
