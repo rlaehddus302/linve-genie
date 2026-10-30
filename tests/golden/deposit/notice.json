@@ -460,13 +460,13 @@
     },
     {
       "id": "G-DEP-220",
-      "title": "+82 대표번호 — 보낸 번호 정리로 같음",
+      "title": "+82 대표번호 — 해외 표기 보낸 곳은 믿지 않음 (D-DEP2-10)",
       "refs": [
         "PAY-02",
         "DP-9",
         "R-26"
       ],
-      "note": "R-26 1: 82 뗌 → 15889999(8자리라 0을 붙이지 않음).",
+      "note": "D-DEP2-10으로 기대값 바꿈(전: KB·trusted true). DP-9 1: 문자 보낸 곳은 ASCII 숫자·하이픈·공백으로만 되어 있을 때만 대표번호로 본다 — `+`가 있어 믿지 않음 → bank null·trusted false. 읽기는 그대로: 입금 뒤 14,000, 시각 없음 → 받은 시각(second), 이름 홍길동. 가르기(C-05)는 R-26 1 휴대폰 아님 → ④ DP-9.",
       "in": {
         "channel": "SMS",
         "from": "+82 1588-9999",
@@ -476,8 +476,8 @@
       },
       "out": {
         "kind": "DEPOSIT",
-        "bank": "KB",
-        "trusted": true,
+        "bank": null,
+        "trusted": false,
         "at": "2026-10-31T16:02:00+09:00",
         "precision": "second",
         "amount": 14000,
@@ -728,6 +728,266 @@
       },
       "out": {
         "kind": "NONE"
+      }
+    },
+    {
+      "id": "G-DEP-231",
+      "title": "입금 뒤에 떨어진 취소 → 읽지 못함 (D-DEP2-08)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "c = '신한10/3120:05입금14,000원취소김영희'. '입금취소'로 붙어 있지 않지만 '취소'가 있음 → 입금이 아니라 읽지 못함(믿을 보낸 곳이라 은행 알림 줄).",
+      "in": {
+        "channel": "SMS",
+        "from": "15778000",
+        "title": null,
+        "text": "신한10/31 20:05 입금 14,000원 취소 김영희",
+        "receivedAt": "2026-10-31T20:05:30+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "SHINHAN",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-232",
+      "title": "입금이 취소되었습니다 문장 → 읽지 못함 (D-DEP2-08)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "c = '[KB]14,000원입금이취소되었습니다' — '입금취소'가 아니고 '취소'가 있음 → UNREADABLE.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 14,000원 입금이 취소되었습니다",
+        "receivedAt": "2026-10-31T20:06:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-233",
+      "title": "입금과 취소 사이 제로폭 글자 → 지우고 입금 취소 (D-DEP2-08)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "정규화가 U+200B를 지움 → s '[KB] 홍길동 입금취소 14,000' → CANCEL. 금액: 입금취소 뒤 14,000. 시각 없음 → 받은 시각(second). 이름: KB·입금취소 버림, 14,000 숫자 → 홍길동.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 홍길동 입금\u200b취소 14,000",
+        "receivedAt": "2026-10-31T20:07:00+09:00"
+      },
+      "out": {
+        "kind": "CANCEL",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T20:07:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-234",
+      "title": "입금정정 → 읽지 못함 (D-DEP2-08)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "c에 '정정' → UNREADABLE. (D-DEP2-09 전에는 '05'를 금액으로 읽어 5원 입금이었다.)",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]10/31 20:05 입금정정 14,000",
+        "receivedAt": "2026-10-31T20:08:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-235",
+      "title": "입금 앞의 시각 분은 금액이 아님 (D-DEP2-09)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "K=입금. 뒤: '홍길동' — 금액 없음. 앞: '05'는 바로 앞이 '0:'(숫자+':')라 시각 조각 → 금액 아님. 금액을 못 찾음 → UNREADABLE(5원 입금이 아님).",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB]10/31 20:05 입금 홍길동 14,000",
+        "receivedAt": "2026-10-31T20:09:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-236",
+      "title": "입금 앞의 날짜 일은 금액이 아님 (D-DEP2-09)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "K=입금. 뒤: '홍길동'. 앞: '31'은 바로 앞이 '0/'(숫자+'/')라 날짜 조각 → 금액 아님 → UNREADABLE(31원 입금이 아님).",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 10/31 입금 홍길동",
+        "receivedAt": "2026-10-31T20:10:00+09:00"
+      },
+      "out": {
+        "kind": "UNREADABLE",
+        "bank": "KB",
+        "trusted": true
+      }
+    },
+    {
+      "id": "G-DEP-237",
+      "title": "낱말 뒤 콜론은 그대로 금액·잔액 (D-DEP2-09 경계)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'입금:14,000'의 ':' 앞은 숫자가 아니라 조각이 아님 → 14000. '잔액:1,014,000'도 → 1014000. 이름: 숫자 든 두 토큰과 KB 버림 → 홍길동. 시각 없음 → 받은 시각.",
+      "in": {
+        "channel": "SMS",
+        "from": "15889999",
+        "title": null,
+        "text": "[KB] 홍길동 입금:14,000 잔액:1,014,000",
+        "receivedAt": "2026-10-31T20:11:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T20:11:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": 1014000
+      }
+    },
+    {
+      "id": "G-DEP-238",
+      "title": "글자 섞인 보낸 곳(신한 1577-8000) — 믿지 않음 (D-DEP2-10)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "보낸 곳에 한글이 있어 대표번호 아님 → bank null·trusted false. 읽기: 입금 뒤 14,000, 이름: 신한 버림 → 김영희. (가르기 C-05에선 R-26 1 이름만이라 ③으로 가지만, DP-9 읽기 자체도 믿지 않음을 고정.)",
+      "in": {
+        "channel": "SMS",
+        "from": "신한 1577-8000",
+        "title": null,
+        "text": "신한 입금 14,000 김영희",
+        "receivedAt": "2026-10-31T20:12:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": null,
+        "trusted": false,
+        "at": "2026-10-31T20:12:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "김영희",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-239",
+      "title": "광고 글자 붙은 대표번호 — 믿지 않음 (D-DEP2-10)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'광고15889999'는 숫자만 남기면 15889999지만 글자가 섞여 믿지 않음 → bank null·trusted false. 읽기는 G-DEP-220과 같음.",
+      "in": {
+        "channel": "SMS",
+        "from": "광고15889999",
+        "title": null,
+        "text": "[KB] 홍길동 입금 14,000",
+        "receivedAt": "2026-10-31T20:13:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": null,
+        "trusted": false,
+        "at": "2026-10-31T20:13:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-240",
+      "title": "숫자 사이 공백만 있는 대표번호 — 믿음 (D-DEP2-10 경계)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'1588 9999'는 ASCII 숫자·공백만 → 숫자 15889999 = KB → 믿음. 읽기: 입금 뒤 14,000, 이름 홍길동, 받은 시각.",
+      "in": {
+        "channel": "SMS",
+        "from": " 1588 9999 ",
+        "title": null,
+        "text": "[KB] 홍길동 입금 14,000",
+        "receivedAt": "2026-10-31T20:14:00+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-10-31T20:14:00+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-241",
+      "title": "체크카드 승인취소는 그대로 출금 쪽 (D-DEP2-08 경계)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "c에 '입금'이 없고 '승인'이 있음 → WITHDRAWAL(취소 낱말 검사는 입금 쪽에만). K=승인: 뒤 '취소' 금액 아님, 앞 '체크카드' 금액 아님 → amount null. 잔액 1049000. 받은 시각.",
+      "in": {
+        "channel": "SMS",
+        "from": "15881111",
+        "title": null,
+        "text": "[하나] 체크카드 승인취소 12,000원 잔액 1,049,000원",
+        "receivedAt": "2026-10-31T20:15:00+09:00"
+      },
+      "out": {
+        "kind": "WITHDRAWAL",
+        "bank": "HANA",
+        "trusted": true,
+        "at": "2026-10-31T20:15:00+09:00",
+        "precision": "second",
+        "amount": null,
+        "balance": 1049000
       }
     }
   ]
