@@ -325,6 +325,26 @@ describe('AC-KP1-22 알림 받기 신청·그만 받기', () => {
 })
 
 describe('AC-KP1-24 정리 작업', () => {
+  it('RA-KP1-004 고른 뒤 지우기 전에 같은 번호가 다시 신청하면 번호를 지우지 않는다 (알림 락 안에서 다시 판단)', async () => {
+    const { world: w, seller } = await world()
+    const path = await enable(w, seller)
+    await postForm(w, `${path}/alert`, { phone: PHONE, agree: 'on' })
+    const db = w.database.db
+    const [row] = await db.select().from(alertSubscribers)
+    const later = new Date(kst('2028-10-31', '00:00:00'))
+    const original = db.transaction.bind(db)
+    // 정리가 락을 잡기 바로 전에 손님이 다시 신청했다 (같은 신청 줄에 새 AGREE)
+    vi.spyOn(db, 'transaction').mockImplementationOnce(async (task) => {
+      await db.insert(alertConsents).values({ sellerId: seller.sellerId, subscriberId: row?.id as string, type: 'AGREE', wording: 'MR-CONSENT-1', route: 'SCHEDULE_PAGE', at: later })
+      return original(task)
+    })
+    await sweepSchedule(db, later)
+    expect(await storedPhones(db, seller.sellerId)).toBe(1)
+    // 다시 신청이 없으면 그대로 지운다
+    await sweepSchedule(db, new Date(kst('2030-11-01', '00:00:00')))
+    expect(await storedPhones(db, seller.sellerId)).toBe(0)
+  })
+
   it('기한(2년)이 되는 날 0시 KST 뒤 첫 정리에서 번호·키를 지우고, 지난 일정을 지운다. 수에서 빠진다', async () => {
     const { world: w, seller } = await world()
     const api = client(w, seller.cookie)

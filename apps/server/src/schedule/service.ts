@@ -70,7 +70,8 @@ const newToken = () => randomBytes(32).toString('base64url')
 /** 판매자 일정 직렬 처리 키 (다가오는 일정 10개 상한을 동시 요청에도 지킨다) */
 const scheduleLockKey = (sellerId: string) => sql`hashtextextended(${`${sellerId}/schedule`}, 0)`
 /** 판매자 알림 신청 직렬 처리 키 (같은 번호의 신청·그만 받기를 차례로) */
-const alertLockKey = (sellerId: string) => sql`hashtextextended(${`${sellerId}/alerts`}, 0)`
+/** 판매자 알림 신청 락 키 (신청·그만 받기·정리 — KP1 RA-KP1-004) */
+export const alertLockKey = (sellerId: string) => sql`hashtextextended(${`${sellerId}/alerts`}, 0)`
 
 function itemView(row: { id: string; startsAt: Date; title: string; intro: string }): ScheduleItemView {
   const text = kstIso(row.startsAt.getTime())
