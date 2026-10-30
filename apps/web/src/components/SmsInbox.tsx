@@ -47,7 +47,7 @@ export interface InboxConsoleHandle {
   readonly settings: InboxSettingsView | null
   /** 휴대폰 알림으로 넣은 찜 ID ("문자로 받음", 서버 cards 응답 `inboxClaimIds`) */
   readonly claimIds: ReadonlySet<string>
-  /** 받기 멈춤을 재기 시작한 때: 서버가 준 방송 시작 시각(새로고침해도 같다). 아직 모르면 이 콘솔을 연 때 — 늦게 보일 수는 있어도 일찍 보이지 않는다 */
+  /** 받기 멈춤을 재기 시작한 때: 서버가 준 방송 시작 시각(새로고침해도 같다). 아직 모르거나 이 기기 시계가 서버보다 늦으면 이 콘솔을 연 때 — 늦게 보일 수는 있어도 일찍 보이지 않는다 */
   readonly since: string
   /** 카드·찜 ID만 다시 읽기 (보드에 모르는 문자찜이 보일 때) */
   readonly reloadCards: () => Promise<void>
@@ -63,7 +63,9 @@ export function useInboxConsole(broadcast: string, enabled: boolean, clock: () =
   const [opened] = useState(() => new Date(clock()).toISOString())
   const [claimIds, setClaimIds] = useState<ReadonlySet<string>>(NO_IDS)
   const [startedAt, setStartedAt] = useState<string | null>(null)
-  const since = startedAt ?? opened
+  // 방송 시작 시각(서버 시계)과 이 콘솔을 연 때(이 기기 시계) 중 이른 쪽. 콘솔은 방송 시작 뒤에 열리므로, 연 때가 더 이르면
+  // 이 기기 시계가 서버보다 늦은 것이다 — 그때는 연 때가 더 가까운 값이고, 어느 쪽이든 일찍 보이지는 않는다
+  const since = startedAt !== null && Date.parse(startedAt) < Date.parse(opened) ? startedAt : opened
   const version = useRef(0)
   const reloadCards = useCallback(async () => {
     const mine = ++version.current
