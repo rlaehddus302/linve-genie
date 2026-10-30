@@ -108,10 +108,11 @@ export function Notice({ tone, children, alert, label }: { readonly tone: Tone; 
   )
 }
 
-export function Tag({ tone, children }: { readonly tone: Tone; readonly children: ReactNode }) {
+/** big: 글자 18px (기본 16px은 그대로 — 꼭 봐야 하는 꼬리표만 키운다, UX-PRN2-008) */
+export function Tag({ tone, children, big }: { readonly tone: Tone; readonly children: ReactNode; readonly big?: boolean }) {
   return (
     <View style={[styles.tag, { backgroundColor: TONE_BG[tone] }]}>
-      <Text style={[styles.tagText, { color: TONE_TEXT[tone] }]}>{children}</Text>
+      <Text style={[styles.tagText, big === true ? styles.tagTextBig : null, { color: TONE_TEXT[tone] }]}>{children}</Text>
     </View>
   )
 }
@@ -172,6 +173,7 @@ const styles = StyleSheet.create({
   noticeText: { fontSize: FONT, lineHeight: FONT * 1.4 },
   tag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start' },
   tagText: { fontSize: FONT_SMALL, fontWeight: '700' },
+  tagTextBig: { fontSize: FONT },
   card: { padding: 12, borderRadius: 12, backgroundColor: COLOR.surface, gap: 8 },
   loading: { flexDirection: 'row', gap: 10, alignItems: 'center', padding: 12 },
   bigRed: { padding: 16, borderRadius: 12, backgroundColor: COLOR.dangerBg, borderWidth: 2, borderColor: COLOR.danger, gap: 6 },

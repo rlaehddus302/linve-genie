@@ -59,6 +59,8 @@ export interface LabelQueueSnapshot {
   readonly testConfirmed: boolean
   /** 테스트 인쇄 중 (이 동안 작업을 받지 않는다 — D-PRN2-29) */
   readonly testing: boolean
+  /** 마지막 테스트 인쇄의 라벨 크기 ("아니요" 도움말의 크기 줄 — UX-PRN2-001). 아직 안 했으면 null */
+  readonly testSize?: string | null
 }
 
 /**
@@ -371,7 +373,9 @@ export class LabelQueue {
     // 테스트를 다시 하면 앞 "예"는 지난 일 — 실험 기종이면 연결 안 됨으로 알린다 (D-PRN2-10)
     this.#syncGate()
     try {
-      const bitmap = await fetchTestBitmap(await this.#testSize())
+      const size = await this.#testSize()
+      this.#set({ testSize: size })
+      const bitmap = await fetchTestBitmap(size)
       const result = await this.#options.ble.print(bitmap, this.#printOptions())
       if (!result.ok) this.#set({ printerError: result.error })
       else this.#set({ testPrinted: true })

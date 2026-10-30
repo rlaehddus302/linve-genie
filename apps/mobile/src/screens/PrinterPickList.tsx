@@ -22,7 +22,11 @@ export function PrinterPickList({ entries, onPick, onClose }: { readonly entries
         <View key={entry.device.id} style={{ gap: 4 }}>
           <BigButton label={entry.title} ariaLabel={`${entry.title} — ${entry.detail}`} onPress={() => onPick(entry)} />
           <Row wrap>
-            {entry.experimental ? <Tag tone="warning">{EXPERIMENTAL_WORD}</Tag> : null}
+            {entry.experimental ? (
+              <Tag tone="warning" big>
+                {EXPERIMENTAL_WORD}
+              </Tag>
+            ) : null}
             <Hint>{entry.detail}</Hint>
           </Row>
         </View>

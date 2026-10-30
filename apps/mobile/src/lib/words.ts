@@ -177,3 +177,5 @@ export const EXPERIMENTAL_PAUSED = '실험 중인 프린터라 출력을 잠시 
 export const EXPERIMENTAL_WAIT_TEST_MINE = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.'
 /** 출력 기기에서 실험 기종의 테스트 "예"를 누른 뒤 (D-PRN2-10, 웹과 같은 문장) */
 export const EXPERIMENTAL_RESUMED = '좋아요. 멈췄던 출력을 이어서 해요.'
+/** "예" 뒤 다른 까닭으로 다시 멈췄을 때 — "이어서 해요"를 지난 일로 (UX-PRN2-006, 웹과 같은 문장) */
+export const TEST_CONFIRMED_PAST = '테스트 인쇄가 잘 나온 것을 확인했어요.'
