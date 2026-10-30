@@ -28,6 +28,8 @@
 
 - 고친 시험 2: `apps/server/test/i3-accounts.test.ts` 보조자 경로 전수 시험의 공개 경로 목록(PUBLIC)에 `GET /api/pricing`을 더함 — BL-12 1·2로 세션을 보지 않는 공개 입구라 보조자 쿠키여도 403이 아니라 같은 답이어야 한다. 다른 경로 기대값은 그대로.
 
+- 고친 시험 3: `apps/server/test/fb1-parcel-settings.test.ts` 0019 다시 적용 시험의 되돌리기 목록에 0029(`billing_orders.recheck_done`) 되돌리기 한 줄 — 새 마이그레이션마다 더해 온 같은 방식.
+
 ### 포트원 시간 한도·멱등 키 (BL-6 10, D-PAY-09)
 - 결제 조회 10초(`PORTONE_TIMEOUT_MS`), 결제 취소·현금영수증 발급·취소 60초(`PORTONE_MUTATE_TIMEOUT_MS`). 시간 한도는 setTimeout+AbortController(신호를 지키지 않는 fetch도 끊는다).
 - `REFUND_HOLD_MS` = 2분.
