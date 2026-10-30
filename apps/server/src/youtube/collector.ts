@@ -40,6 +40,7 @@ import {
   connectionChannel,
   insertNotice,
   insertOwnMessage,
+  ownAuthorChannels,
   linkById,
   markChatEnded,
   markLinkStarted,
@@ -807,11 +808,13 @@ export class CollectorManager {
     const endedAt = fresh.endedAt?.getTime() ?? null
     // 우리 채널이 쓴 메시지: 발송함이 게시했거나 10분 안에 보내려 한 글이면 기록하지 않고 게시 확인에 쓴다 (AC-Y1-26).
     // 잇기 전·끝낸 뒤 거르기보다 먼저 본다 — 끝낸 뒤 올라간 우리 감사도 게시 확인에 쓰여야 두 번 게시하지 않는다 (AC-Y1-36)
-    const own: Parsed['own'] = []
+    // 작성자는 그 회차의 글 올리는 계정(있으면)과 방송 채널 둘 다 본다 — 확장이 올린 글(방송 채널 주인)과 공식으로 올린 글을 한 규칙으로 (D-YT-SRV-16)
+    const authors = ownAuthorChannels(link)
+    const own: (Parsed['own'][number] & { ch: string | null })[] = parsed.own.map((message) => ({ ...message, ch: null }))
     const viewers: Parsed['chats'] = []
     for (const chat of parsed.chats) {
-      if (chat.ch === link.channelId && (await this.#options.ourPost(row.sellerId, link.broadcastId, chat.id, chat.text))) {
-        own.push({ id: chat.id, text: chat.text, publishedAt: chat.publishedAt })
+      if (authors.has(chat.ch) && (await this.#options.ourPost(row.sellerId, link.broadcastId, chat.id, chat.text))) {
+        own.push({ id: chat.id, text: chat.text, publishedAt: chat.publishedAt, ch: chat.ch })
         continue
       }
       viewers.push(chat)
@@ -826,8 +829,18 @@ export class CollectorManager {
       if (endedAt !== null && chat.publishedAt > endedAt) continue
       recordable.push(chat)
     }
-    for (const message of [...parsed.own, ...own]) {
-      await insertOwnMessage(db, { sellerId: row.sellerId, scopeId: row.scopeId, liveChatId: link.liveChatId, messageId: message.id, text: message.text, publishedAt: new Date(message.publishedAt) })
+    // 우리 글은 회차에 묶는다 — 공식 채팅 ID를 받기 전에 본 글도 게시 확인에 쓴다 (D-YT-SRV-17)
+    for (const message of own) {
+      await insertOwnMessage(db, {
+        sellerId: row.sellerId,
+        scopeId: row.scopeId,
+        linkId: link.id,
+        liveChatId: link.liveChatId,
+        authorChannelId: message.ch,
+        messageId: message.id,
+        text: message.text,
+        publishedAt: new Date(message.publishedAt),
+      })
     }
     const outcome = await service.ingestYoutubeBatch(
       row.sellerId,

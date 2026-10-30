@@ -377,8 +377,11 @@ export interface ClaimInput {
   readonly selfState: 'SENDING' | 'WAITING'
   /** SENDING이면 그 임대 주인 (내 것일 때만 적는다) */
   readonly selfOwner?: string
-  /** 실시간 채팅이면 그 채팅 ID — 수집기가 본 우리 메시지(youtube_own_messages)도 후보다 */
-  readonly liveChatId: string | null
+  /**
+   * 실시간 채팅이면 그 회차(이은 기록)와 글 올리는 계정 — 수집기가 그 회차에서 본 우리 메시지(youtube_own_messages) 중 작성자가 글 올리는 계정인 것
+   * (작성자를 모르는 옛 행 포함)도 후보다 (D-YT-SRV-17). 공식 채팅 ID에 묶지 않는다 — 채팅 ID를 받기 전에 본 글도 쓴다
+   */
+  readonly own: { readonly linkId: string; readonly posterChannelId: string | null } | null
   /** 조회로 찾은 후보 (없으면 빈 목록) */
   readonly candidates: readonly RemoteCandidate[]
   /** 시도 시작 − 이만큼부터의 글만 그 시도의 것으로 본다 */
@@ -426,11 +429,19 @@ export async function claimRemote(db: Db, input: ClaimInput): Promise<ClaimResul
     // 후보: 조회로 찾은 것 + 수집기가 본 우리 메시지
     const byId = new Map<string, RemoteCandidate>()
     for (const candidate of input.candidates) byId.set(candidate.id, candidate)
-    if (input.liveChatId !== null) {
+    if (input.own !== null) {
+      const poster = input.own.posterChannelId
       const own = await tx
         .select({ id: youtubeOwnMessages.messageId, publishedAt: youtubeOwnMessages.publishedAt })
         .from(youtubeOwnMessages)
-        .where(and(eq(youtubeOwnMessages.sellerId, sellerId), eq(youtubeOwnMessages.liveChatId, input.liveChatId), eq(youtubeOwnMessages.text, text)))
+        .where(
+          and(
+            eq(youtubeOwnMessages.sellerId, sellerId),
+            eq(youtubeOwnMessages.linkId, input.own.linkId),
+            eq(youtubeOwnMessages.text, text),
+            poster === null ? isNull(youtubeOwnMessages.authorChannelId) : or(isNull(youtubeOwnMessages.authorChannelId), eq(youtubeOwnMessages.authorChannelId, poster)),
+          ),
+        )
       for (const row of own) if (!byId.has(row.id)) byId.set(row.id, { id: row.id, publishedAt: row.publishedAt.getTime() })
     }
     if (byId.size === 0) return { kind: 'none' }

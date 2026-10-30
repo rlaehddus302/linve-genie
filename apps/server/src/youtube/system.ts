@@ -139,8 +139,8 @@ export const FIRST_CHANNEL_CONFIRM_MESSAGE = '처음 잇는 채널이에요. 이
 export interface LinkView {
   readonly link: {
     readonly videoId: string
-    /** 글 올리는 계정 (이을 때 연결돼 있던 내 채널) */
-    readonly channelId: string
+    /** 글 올리는 계정 (이을 때 연결돼 있던 내 채널). 구글 연결 없이 이으면 null — 처음 공식으로 올릴 때 적는다 (D-YT-SRV-16) */
+    readonly channelId: string | null
     /** 방송 채널 (영상의 채널, 옛 기록은 channelId와 같음 — D-INV1-01) */
     readonly broadcastChannelId: string
     /** 방송 채널 이름 (바깥 글 — 화면은 글자로만, 모르면 null) */
@@ -591,9 +591,10 @@ export class YoutubeSystem {
           scopeId: scope.id,
           broadcastId: b,
           videoId,
-          // 공식 채팅 ID는 부르지 않는다(읽기 할당량 0) — 감사 게시 쪽(D-YT-SRV-13)이 정해지면 그쪽에서 채운다
+          // 공식 채팅 ID는 부르지 않는다(읽기 할당량 0) — 감사를 공식으로 처음 올리려 할 때 발송함이 받는다 (D-YT-SRV-15)
           liveChatId: '',
-          channelId: connectionChannel ?? broadcastChannelId,
+          // 글 올리는 계정: 구글 연결이 있으면 그 채널, 없으면 비움 — 방송 채널로 채우지 않는다 (D-YT-SRV-16)
+          channelId: connectionChannel,
           broadcastChannelId,
           broadcastChannelTitle,
           startedAt,

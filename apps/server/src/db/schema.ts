@@ -445,8 +445,11 @@ export const youtubeLinks = pgTable(
     broadcastId: text('broadcast_id').notNull(),
     videoId: text('video_id').notNull(),
     liveChatId: text('live_chat_id').notNull(),
-    /** 이을 때 연결돼 있던 채널 = 글 올리는 계정 (감사 채팅·영상 댓글은 이 채널의 토큰으로, D-PHN-19·20) */
-    channelId: text('channel_id').notNull(),
+    /**
+     * 글 올리는 계정 (감사 채팅·영상 댓글은 이 채널의 토큰으로, D-PHN-19·20). 이을 때 구글 연결이 있으면 그 채널, 없으면 비움(null — 아직 모름)이고
+     * 처음 공식으로 올릴 때 그때 연결한 채널을 적어 고정한다 (D-YT-SRV-16)
+     */
+    channelId: text('channel_id'),
     /** 방송 채널 = 붙여 넣은 영상의 채널(snippet.channelId). 비면(INV1 전 기록) 글 올리는 계정과 같다 (D-PHN-17, D-INV1-01) */
     broadcastChannelId: text('broadcast_channel_id'),
     /** 방송 채널 이름(snippet.channelTitle) — 바깥 글, 화면은 글자로만 (D-INV1-03) */
@@ -518,11 +521,19 @@ export const youtubeOwnMessages = pgTable(
       .notNull()
       .references(() => scopes.id),
     liveChatId: text('live_chat_id').notNull(),
+    /** 본 회차(이은 기록) — 공식 채팅 ID를 받기 전에 본 글도 그 회차에 묶는다 (D-YT-SRV-17). 옛 행은 0030이 채웠다(못 찾으면 null) */
+    linkId: text('link_id'),
+    /** 작성자 채널 (게시 확인은 글 올리는 계정의 글만, D-YT-SRV-17). 옛 행은 null — 그때는 글 올리는 계정의 글만 남겼다 */
+    authorChannelId: text('author_channel_id'),
     messageId: text('message_id').notNull(),
     text: text('text').notNull(),
     publishedAt: timestamptz('published_at').notNull(),
   },
-  (t) => [unique('youtube_own_messages_uq').on(t.sellerId, t.messageId), index('youtube_own_messages_chat_idx').on(t.sellerId, t.liveChatId, t.publishedAt)],
+  (t) => [
+    unique('youtube_own_messages_uq').on(t.sellerId, t.messageId),
+    index('youtube_own_messages_chat_idx').on(t.sellerId, t.liveChatId, t.publishedAt),
+    index('youtube_own_messages_link_idx').on(t.sellerId, t.linkId, t.publishedAt),
+  ],
 )
 
 /** 지운 메시지·유튜브 차단 알림 (AC-Y1-27). 엔진 입력이 아니다. 봉인하면 지운다 */
