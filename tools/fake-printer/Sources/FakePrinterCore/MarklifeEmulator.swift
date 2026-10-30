@@ -16,6 +16,10 @@ public let marklifeServiceUUID = "FF00"
 public let marklifeWriteUUID = "FF02"
 public let marklifeNotifyUUID = "FF01"
 public let marklifeFlowUUID = "FF03"
+/// GATT 꾸러미 C: 쓰기 fd01 · 알림 fd02 · 흐름 제어 없음
+public let marklifeCServiceUUID = "FD00"
+public let marklifeCWriteUUID = "FD01"
+public let marklifeCNotifyUUID = "FD02"
 
 public enum MarklifeChannel: String, Equatable {
     case notify = "ff01"
