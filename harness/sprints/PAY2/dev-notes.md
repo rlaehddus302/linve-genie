@@ -26,6 +26,8 @@
 - 고친 시험: `apps/server/test/billing-ops.test.ts` "목록: 확인 필요·…결제 대기…" — 1시간 넘긴 뒤 목록이 비어 있음을 확인하고, 24시간 칸까지 `recheckDue()`를 돌린 뒤 그 주문이 목록에 있음을 본다(기대값 [pending]은 그대로). 삭제·skip 없음.
 - `billing-list` 출력 줄: "자동 재확인을 마친 결제 대기 n건 (…)".
 
+- 고친 시험 2: `apps/server/test/i3-accounts.test.ts` 보조자 경로 전수 시험의 공개 경로 목록(PUBLIC)에 `GET /api/pricing`을 더함 — BL-12 1·2로 세션을 보지 않는 공개 입구라 보조자 쿠키여도 403이 아니라 같은 답이어야 한다. 다른 경로 기대값은 그대로.
+
 ### 포트원 시간 한도·멱등 키 (BL-6 10, D-PAY-09)
 - 결제 조회 10초(`PORTONE_TIMEOUT_MS`), 결제 취소·현금영수증 발급·취소 60초(`PORTONE_MUTATE_TIMEOUT_MS`). 시간 한도는 setTimeout+AbortController(신호를 지키지 않는 fetch도 끊는다).
 - `REFUND_HOLD_MS` = 2분.
