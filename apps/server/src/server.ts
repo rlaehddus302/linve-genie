@@ -28,7 +28,7 @@ import { createWebServer, webDirProblem } from './web.ts'
 import type { EngineAdapter } from './runtime.ts'
 import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
-import type { GeneratorTimer } from './generator.ts'
+import { realTimer as realGeneratorTimer, type GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
 import { ReceiptLinkService } from './receipt-links.ts'
 import { registerReceiptPage } from './receipt-page.ts'
@@ -209,8 +209,8 @@ export interface ServerOptions {
   readonly backupStartDelayMs?: number
   /** 입금 확인 설정 (N3): 시험 모드(가짜 원천 — E2E 기동만)·팝빌 전송(연동 키가 있을 때)·주기 덮어쓰기(E2E 기동만)·시험용 타이머 */
   readonly deposits?: DepositOptions
-  /** 휴대폰 알림 받기 (SMS3): 1분 한도 덮어쓰기 (시험만) */
-  readonly inbox?: { readonly rateLimit?: number }
+  /** 휴대폰 알림 받기 (SMS3): 1분 한도 덮어쓰기·주기 정리 타이머 (시험만) */
+  readonly inbox?: { readonly rateLimit?: number; readonly sweepTimer?: GeneratorTimer; readonly authLimits?: LoginLimitOptions }
   /**
    * 택배 자동 접수 (T1, PARCEL_RULES): 이어진 택배사 어댑터(가짜 택배사 FAKE — E2E 기동·서버 시험만, 운영 기동은 비어 있다 → 설정에 "우체국 택배 — 준비 중"만)·
    * 조회 간격(기본 30분)·배송지 정리 간격(기본 1시간)·한 번에 접수할 때 동시에 보내는 수
@@ -647,6 +647,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     log,
     publish: (sellerId, data) => hub.publishInbox(sellerId, data),
     ...(options.inbox?.rateLimit === undefined ? {} : { rateLimit: options.inbox.rateLimit }),
+    timer: options.inbox?.sweepTimer ?? realGeneratorTimer,
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
   // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
@@ -718,12 +719,15 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     ops: { token: options.opsToken === undefined ? null : options.opsToken.trim(), status: opsStatus },
     webhooks: createWebhookApp(instagramModule),
-    inbox: (app) => registerInboxIntake(app, inbox, log),
+    inbox: (app) =>
+      registerInboxIntake(app, inbox, log, { clock, trustedProxies, address: connectionAddress, ...(options.inbox?.authLimits === undefined ? {} : { authLimits: options.inbox.authLimits }) }),
     receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer }),
   })
   registerVoiceRelay(app, voice)
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
   deposits.start()
+  // 휴대폰 알림 받기 주기 정리 (처리 안 한 카드 24시간·은행 알림 줄 30일 — C-07·D-SMS3-17)
+  inbox.start()
   const stop = async () => {
     await Promise.all([youtube?.stop(), sealer.stop(), customerArchiver.stop(), parcels.stop()])
   }
@@ -779,6 +783,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       tiktokLive.close()
       bandService.close()
       deposits.close()
+      inbox.close()
       extension.close()
       tiktokExtension.close()
       hub.closeAll()

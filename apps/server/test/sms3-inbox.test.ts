@@ -5,8 +5,8 @@ import { SMS_EXCLUDED_WORDS, getBuyer, listClaims } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { kst } from './deposit-support.ts'
 import { readBankNotice } from '../src/deposit/notice.ts'
-import { addSeller, client, createBroadcast, dumpAllTables, expectOk, login, rid, writeEvent } from './support.ts'
-import { SMS3_DAY, app, cards, claimsOf, inboxWorld, liveSale, makeToken, send, sendRaw, sms, statuses } from './sms3-support.ts'
+import { addSeller, client, createBroadcast, dumpAllTables, expectOk, fakeClock, login, newWorld, rid, writeEvent } from './support.ts'
+import { SMS3_DAY, SMS3_T0, app, cards, claimsOf, inboxWorld, liveSale, makeToken, send, sendRaw, sms, statuses } from './sms3-support.ts'
 
 const BANK_APPS = ['com.kbstar.kbbank', 'com.shinhan.sbanking', 'com.wooribank.smart.npib', 'com.kebhana.hanapush', 'nh.smart.banking', 'com.ibk.android.ionebank', 'com.kakaobank.channel', 'viva.republica.toss', 'com.kbankwith.smartbank']
 
@@ -485,5 +485,164 @@ describe('AC-SMS3-25 로그·DB에 본문 없음', () => {
     for (const secret of ['15 16 박하늘', '될까요', '01043218765', '010-4321-8765', '123456**789', '김밥천국', '[KB]10/31', token]) {
       expect(dump, secret).not.toContain(secret)
     }
+  })
+})
+
+describe('SMS3 고치기 — 카드 원자 처리·같은 문자 표지·이름만 취소·주기 정리', () => {
+  it('이름만 온 "15 취소" 카드는 canApprove false, 승인하면 409 NAME_ONLY·쉬운 문장·기록 없음, 카드는 무시로 닫는다', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [15])
+    expect(await statuses(world, token, [sms('own', '010-1234-5678', '15'), sms('nm', '홍길동', '15 취소'), sms('ph', '010-1234-5678', '15 취소')])).toEqual(['SAVED', 'SAVED', 'SAVED'])
+    const list = (await expectOk(client(world, seller.cookie).get(`/api/inbox/cards?b=${sale.id}`))).body.cards as { id: string; last4: string | null; canApprove: boolean }[]
+    expect(list.map((card) => [card.last4, card.canApprove])).toEqual([
+      [null, false],
+      ['5678', true],
+    ])
+    const seq = (await world.server.writer.read(seller.sellerId, SMS3_DAY, false)).seq
+    const api = client(world, seller.cookie)
+    const refused = await api.post(`/api/inbox/cards/${list[0]?.id as string}/approve`, { requestId: rid('ap') })
+    expect(refused.status).toBe(409)
+    expect(refused.body).toMatchObject({ error: { code: 'NAME_ONLY', message: '이름만 와서 누가 보냈는지 몰라요. 보드에서 직접 취소해 주세요' } })
+    expect((await world.server.writer.read(seller.sellerId, SMS3_DAY, false)).seq).toBe(seq)
+    await expectOk(api.post(`/api/inbox/cards/${list[0]?.id as string}/ignore`, {}))
+    expect((await cards(world, seller, sale.id)).map((card) => card.last4)).toEqual(['5678'])
+  })
+
+  it('넣기가 판매 중 아님으로 거절되면 카드는 처리 안 한 채로 남아 다시 넣을 수 있다 (잡은 카드를 놓는다)', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [15])
+    expect(await statuses(world, token, [sms('u', '010-1234-5678', '15 16 있나요?')])).toEqual(['SAVED'])
+    const [card] = await cards(world, seller, sale.id)
+    const api = client(world, seller.cookie)
+    const refused = await api.post(`/api/inbox/cards/${card?.id as string}/insert`, { requestId: rid('in'), no: 16 })
+    expect(refused.status).toBe(409)
+    expect(await cards(world, seller, sale.id)).toHaveLength(1)
+    await expectOk(api.post(`/api/inbox/cards/${card?.id as string}/insert`, { requestId: rid('in'), no: 15 }))
+    expect(await cards(world, seller, sale.id)).toEqual([])
+    expect((await api.post(`/api/inbox/cards/${card?.id as string}/insert`, { requestId: rid('in'), no: 15 })).status).toBe(409)
+  })
+
+  it('찜이 아닌 문자(IGNORED)는 같은 문자 표지를 남기지 않는다 — 60초 안 같은 글의 새 문자도 다시 읽는다', async () => {
+    const { world, seller, token } = await inboxWorld()
+    await liveSale(world, seller, [15])
+    const pg = world.database.pglite as PGlite
+    expect(await statuses(world, token, [sms('a', '010-1234-5678', '안녕하세요')])).toEqual(['IGNORED'])
+    expect((await pg.query<{ n: number }>('select count(*)::int as n from inbox_sms_seen')).rows[0]?.n).toBe(0)
+    expect(await statuses(world, token, [sms('b', '010-1234-5678', '15')])).toEqual(['SAVED'])
+    expect((await pg.query<{ n: number }>('select count(*)::int as n from inbox_sms_seen')).rows[0]?.n).toBe(1)
+    expect(await statuses(world, token, [sms('c', '010-1234-5678', '15')])).toEqual(['DUPLICATE'])
+  })
+
+  it('처리·무시한 카드는 본문·읽은 이름·뒤 4자리를 바로 지우고, 방송이 끝나고 24시간 뒤 행째 지운다 (RA-SMS3-003)', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [15])
+    expect(await statuses(world, token, [sms('m1', '010-1234-5678', '15 있나요 홍길동'), sms('m2', '010-2222-3333', '15 될까요 김철수')])).toEqual(['SAVED', 'SAVED'])
+    const [one, two] = await cards(world, seller, sale.id)
+    const api = client(world, seller.cookie)
+    await expectOk(api.post(`/api/inbox/cards/${one?.id as string}/insert`, { requestId: rid('in'), no: 15 }))
+    await expectOk(api.post(`/api/inbox/cards/${two?.id as string}/ignore`, {}))
+    const pg = world.database.pglite as PGlite
+    const rows = await pg.query<{ status: string; memo: string | null; last4: string | null; sealed: string | null }>('select status, memo, last4, sealed from inbox_cards order by seq')
+    expect(rows.rows).toEqual([
+      { status: 'DONE', memo: null, last4: null, sealed: null },
+      { status: 'IGNORED', memo: null, last4: null, sealed: null },
+    ])
+    await expectOk(api.post(`/api/broadcasts/${sale.id}/end`, { requestId: rid('end') }))
+    world.clock.advance(24 * 3_600_000 + 1)
+    await world.server.inbox.sweep()
+    expect((await pg.query<{ n: number }>('select count(*)::int as n from inbox_cards')).rows[0]?.n).toBe(0)
+  })
+
+  it('보낸 곳·제목은 200자까지, 본문의 방향 글자는 지우고, 카드의 보낸 이름에서 제어·방향 글자를 지운다. 방향 글자 섞인 은행 번호는 믿지 않는다 (RA-SMS3-010)', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [15])
+    const long = '가'.repeat(500)
+    expect(await statuses(world, token, [sms('l1', long, '15 있나요?')])).toEqual(['SAVED'])
+    expect(await statuses(world, token, [sms('l2', '홍\u202E길동\u0007', '15\u202E 있나요?')])).toEqual(['SAVED'])
+    const list = await cards(world, seller, sale.id)
+    expect(list.map((card) => [card.sender?.length, card.text])).toEqual([
+      [200, '15 있나요?'],
+      [3, '15 있나요?'],
+    ])
+    expect(list[1]?.sender).toBe('홍길동')
+    // 방향 글자를 끼운 대표번호는 받은 그대로 가른다 — 숫자 모양이 아니라 이름(C-05 ③)이고 찜이 아니라 무시. 입금이 되지 않는다
+    expect(await statuses(world, token, [sms('b1', '1588\u202E-9999', '[KB] 홍길동 입금 14,000')])).toEqual(['IGNORED'])
+    for (const status of ['REVIEW', 'AUTO_APPLIED']) {
+      expect((await expectOk(client(world, seller.cookie).get(`/api/deposits?status=${status}`))).body.deposits).toEqual([])
+    }
+  })
+
+  it('토큰 없는·틀린 요청은 IP마다 10분 20번까지 401, 넘으면 토큰을 보지 않고 429 — 다른 IP·맞는 토큰은 그대로 (RA-SMS3-011)', async () => {
+    const world = await newWorld({ clock: fakeClock(SMS3_T0), deposits: { testMode: true, autoStart: false }, trustedProxies: 1 })
+    const { token } = await inboxWorld({ world })
+    const post = (auth: string | null, ip: string) =>
+      world.server.app.request('/api/inbox/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip, ...(auth === null ? {} : { Authorization: `Bearer ${auth}` }) },
+        body: JSON.stringify({ device: '갤럭시', messages: [] }),
+      })
+    for (let i = 0; i < 20; i++) expect((await post(i % 2 === 0 ? null : 'x'.repeat(43), '203.0.113.7')).status).toBe(401)
+    const blocked = await post('y'.repeat(43), '203.0.113.7')
+    expect(blocked.status).toBe(429)
+    expect(await blocked.text()).not.toContain('203.0.113.7')
+    expect((await post('y'.repeat(43), '198.51.100.9')).status).toBe(401)
+    expect((await post(token, '198.51.100.9')).status).toBe(200)
+    world.clock.advance(10 * 60_000 + 1)
+    expect((await post('y'.repeat(43), '203.0.113.7')).status).toBe(401)
+  })
+
+  it('주기 정리: 서버 정리 타이머가 판매자 전체로 돈다 — 아무것도 읽지 않고 시계만 넘겨도 카드(방송 끝나고 24시간, C-07)·은행 알림 줄(30일, DP-9 9)·받은 id가 DB에서 사라진다', async () => {
+    // 정리 타이머만 손으로 돌린다 (다른 작업 타이머는 그대로)
+    const pending: (() => void)[] = []
+    const sweepTimer = {
+      schedule(_ms: number, fn: () => void) {
+        pending.push(fn)
+        return () => {
+          const at = pending.indexOf(fn)
+          if (at >= 0) pending.splice(at, 1)
+        }
+      },
+    }
+    const fire = async () => {
+      const run = pending.splice(0)
+      for (const fn of run) fn()
+      // sweep()은 비동기 — 다음 예약이 걸릴 때까지 기다린다
+      for (let i = 0; i < 200 && pending.length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    const world = await newWorld({ clock: fakeClock(SMS3_T0), deposits: { testMode: true, autoStart: false }, inbox: { sweepTimer } })
+    const { seller, token } = await inboxWorld({ world })
+    const other = await inboxWorld({ world })
+    expect(pending).toHaveLength(1)
+    const sale = await liveSale(world, seller, [15])
+    const otherSale = await liveSale(world, other.seller, [15])
+    expect(await statuses(world, token, [sms('k', '010-1234-5678', '15 있나요?'), sms('n1', '1588-9999', '[KB] 입금 확인 안내'), sms('n2', '1588-9999', '[KB] 홍길동 입금취소 14,000')])).toEqual(['SAVED', 'SAVED', 'SAVED'])
+    expect(await statuses(world, other.token, [sms('k', '010-2222-3333', '15 있나요?')])).toEqual(['SAVED'])
+    const api = client(world, seller.cookie)
+    const alerts = (await expectOk(api.get('/api/deposits/alerts'))).body.alerts as { id: number; kind: string; name: string | null }[]
+    // 읽지 못함 줄에는 이름이 없다 (D-SMS3-17)
+    expect(alerts.map((alert) => [alert.kind, alert.name])).toEqual([
+      ['CANCEL', '홍길동'],
+      ['UNREADABLE', null],
+    ])
+    await expectOk(api.post(`/api/deposits/alerts/${String(alerts[0]?.id)}/close`, {}))
+    await expectOk(api.post(`/api/broadcasts/${sale.id}/end`, { requestId: rid('end') }))
+    await expectOk(client(world, other.seller.cookie).post(`/api/broadcasts/${otherSale.id}/end`, { requestId: rid('end') }))
+    const pg = world.database.pglite as PGlite
+    const count = async (table: string) => (await pg.query<{ n: number }>(`select count(*)::int as n from ${table}`)).rows[0]?.n
+    expect([await count('inbox_cards'), await count('bank_alerts'), await count('inbox_seen')]).toEqual([2, 2, 4])
+    // 23시간: 아직 남는다
+    world.clock.advance(23 * 3_600_000)
+    await fire()
+    expect(await count('inbox_cards')).toBe(2)
+    // 24시간 넘음: 두 판매자의 처리 안 한 카드·받은 id가 지워진다. 은행 알림 줄은 남는다
+    world.clock.advance(3_600_001)
+    await fire()
+    expect([await count('inbox_cards'), await count('inbox_seen'), await count('inbox_sms_seen')]).toEqual([0, 0, 0])
+    expect(await count('bank_alerts')).toBe(2)
+    // 받은 지 30일 넘음: 닫은 줄·열린 줄 모두 지워진다
+    world.clock.advance(29 * 86_400_000)
+    await fire()
+    expect(await count('bank_alerts')).toBe(0)
+    expect(pending).toHaveLength(1)
   })
 })

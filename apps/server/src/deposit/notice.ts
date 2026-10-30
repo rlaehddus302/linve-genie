@@ -78,22 +78,46 @@ export function senderDigits(from: unknown): string {
   return digits
 }
 
-/** 보낸 곳이 표의 은행인지 (DP-9 1) — 앱은 패키지 이름이 정확히 같음, 문자는 보낸 번호 정리값이 대표번호와 같음 */
+/** 앞뒤 공백 (R-3 정규화와 같은 집합 — U+FEFF는 공백으로 보지 않는다) */
+const EDGE_SPACE_RE = /^[^\S\uFEFF]+|[^\S\uFEFF]+$/gu
+/** 문자 보낸 곳이 대표번호 모양인지: ASCII 숫자·`-`·공백만 (D-DEP2-10 — `+82`·글자·괄호·전각 숫자가 섞이면 아님) */
+const BANK_NUMBER_SHAPE_RE = /^[0-9\- ]+$/u
+
+/**
+ * 보낸 곳이 표의 은행인지 (DP-9 1) — 앱은 패키지 이름이 정확히 같음, 문자는 앞뒤 공백을 뺀 글이 숫자·하이픈·공백만이고
+ * 숫자만 남긴 글이 대표번호와 같음. R-26 1 보낸 번호 정리(+82 떼기·전각 숫자)는 쓰지 않는다 (D-DEP2-10)
+ */
 export function trustedBank(channel: NoticeChannel, from: unknown): BankCode | null {
   if (typeof from !== 'string') return null
   if (channel === 'APP') return BANKS.find((bank) => bank.app === from)?.code ?? null
-  const digits = senderDigits(from)
+  const trimmed = from.replace(EDGE_SPACE_RE, '')
+  if (!BANK_NUMBER_SHAPE_RE.test(trimmed)) return null
+  const digits = trimmed.replace(/[^0-9]/gu, '')
   if (digits === '') return null
   return BANKS.find((bank) => bank.numbers.includes(digits))?.code ?? null
 }
 
 /** 출금 낱말 (DP-9 3) */
 const WITHDRAW_WORDS = ['출금', '지급', '승인', '결제'] as const
-/** 금액 모양: `\d{1,3}(,\d{3})+` 또는 `\d+` (쉼표 모양을 먼저 — 뒤에 숫자가 이어지면 쉼표 모양이 아니다) */
-const AMOUNT = String.raw`(?<!\d)(\d{1,3}(?:,\d{3})+(?!\d)|\d+)`
-const AFTER_RE = new RegExp(String.raw`^[\s:]*${AMOUNT}`, 'u')
-const BEFORE_RE = new RegExp(String.raw`${AMOUNT}\s*원?(?:을|이)?\s*$`, 'u')
+/**
+ * 금액 모양 (DP-9 4): `\d{1,3}(,\d{3})+` 또는 `\d+` (쉼표 모양을 먼저 — 뒤에 숫자가 이어지면 쉼표 모양이 아니다).
+ * 숫자 덩어리 바로 앞이 숫자 + `:`·`/`·`.`·`-`이거나 바로 뒤가 그 글자 + 숫자이면 시각·날짜·계좌번호 조각이라 금액이 아니다 (D-DEP2-09).
+ * 가린 계좌번호의 `*`도 숫자로 본다 — `110-***-123456`의 `123456`은 계좌번호 조각 (골든 G-DEP-202)
+ */
+const AMOUNT_BODY = String.raw`(\d{1,3}(?:,\d{3})+(?!\d)|\d+(?!\d))(?![:/.\-][\d*])`
+const AMOUNT = String.raw`(?<!\d)(?<![\d*][:/.\-])${AMOUNT_BODY}`
+/** 1. K 바로 뒤: 공백·`:` + 금액 + (공백 + `원`) — 3은 금액 다음 글 */
+const AFTER_RE = new RegExp(String.raw`^[\s:]*${AMOUNT}(?:\s*원)?([\s\S]*)$`, 'u')
+/** 2. K 바로 앞: 금액 + 공백 + `원`(선택) + `을`·`이`(선택) + 공백 — 1은 금액 앞 글 */
+const BEFORE_RE = new RegExp(String.raw`^([\s\S]*?)${AMOUNT}\s*원?(?:을|이)?\s*$`, 'u')
 const BALANCE_RE = new RegExp(String.raw`잔액[\s:]*${AMOUNT}`, 'u')
+/** 토큰이 금액 모양으로 시작함 / 끝남 (D-DEP2-11 ④) */
+const STARTS_AMOUNT_RE = new RegExp(String.raw`^${AMOUNT_BODY}`, 'u')
+const ENDS_AMOUNT_RE = new RegExp(String.raw`${AMOUNT}$`, 'u')
+/** 되돌림 낱말 (DP-9 3, D-DEP2-08) — 입금 쪽에만 본다 */
+const REVERSAL_WORDS = ['취소', '정정', '반환', '오류', '착오', '환불', '실패', '불능', '예정'] as const
+/** 보이지 않는 글자 (DP-9 2, D-DEP2-08) */
+const INVISIBLE_RE = /[\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/gu
 /** 시각: `M/D H:MM`·`M.D H:MM` (선택 `:SS`) — 앞뒤에 숫자가 붙어 있지 않은 것 */
 const TIME_RE = /(?<!\d)(\d{1,2})[/.](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?(?!\d)/u
 /** 이름 토큰 앞뒤에서 떼는 글자 */
@@ -120,15 +144,39 @@ function amountOf(text: string): number {
   return Number(digits)
 }
 
-/** 종류 낱말 K가 s에서 처음 나오는 자리 기준으로 금액 (DP-9 4) */
-function amountNear(s: string, keyword: RegExp): number | null {
+interface Found {
+  readonly value: number
+  /** 금액이 홀로 서는지 (D-DEP2-11 ③④) */
+  readonly alone: boolean
+}
+
+interface Near {
+  readonly after: Found | null
+  readonly before: Found | null
+}
+
+/** 종류 낱말 K가 s에서 처음 나오는 자리 기준으로 1. 뒤 금액 2. 앞 금액 (DP-9 4) */
+function amountsNear(s: string, keyword: RegExp): Near {
   const match = keyword.exec(s)
-  if (match === null) return null
-  const after = AFTER_RE.exec(s.slice(match.index + match[0].length))
-  if (after !== null) return amountOf(after[1] as string)
-  const before = BEFORE_RE.exec(s.slice(0, match.index))
-  if (before !== null) return amountOf(before[1] as string)
-  return null
+  if (match === null) return { after: null, before: null }
+  const afterMatch = AFTER_RE.exec(s.slice(match.index + match[0].length))
+  let after: Found | null = null
+  if (afterMatch !== null) {
+    const rest = afterMatch[2] as string
+    // ③ 반대쪽이 공백이나 끝 ④ 반대쪽 이웃 토큰이 금액 모양으로 시작하지 않음
+    const next = rest.trimStart().split(' ')[0] as string
+    const alone = (rest === '' || /^\s/u.test(rest)) && !STARTS_AMOUNT_RE.test(next)
+    after = { value: amountOf(afterMatch[1] as string), alone }
+  }
+  const beforeMatch = BEFORE_RE.exec(s.slice(0, match.index))
+  let before: Found | null = null
+  if (beforeMatch !== null) {
+    const head = beforeMatch[1] as string
+    const previous = head.trimEnd().split(' ').at(-1) as string
+    const alone = (head === '' || /\s$/u.test(head)) && !ENDS_AMOUNT_RE.test(previous)
+    before = { value: amountOf(beforeMatch[2] as string), alone }
+  }
+  return { after, before }
 }
 
 /** 시각 (DP-9 6): 글의 `M/D H:MM`이 있는 날짜·시각이면 그것(연도는 받은 날 기준), 아니면 받은 시각 초까지 */
@@ -196,6 +244,7 @@ function read(input: NoticeInput): NoticeResult {
   // 2. 정규화: 앱 알림은 제목 + 본문, 호환 정규화(전각 → 반각), [web발신] 지움, 연속 공백 한 칸, 앞뒤 공백 뺌
   const joined = channel === 'APP' && title !== null ? `${title} ${text}` : text
   const s = joined
+    .replace(INVISIBLE_RE, '')
     .toWellFormed()
     .normalize('NFKC')
     .replace(/\[web발신\]/giu, '')
@@ -207,7 +256,11 @@ function read(input: NoticeInput): NoticeResult {
   const withdrawWord = WITHDRAW_WORDS.some((word) => c.includes(word))
   let kind: 'DEPOSIT' | 'CANCEL' | 'WITHDRAWAL'
   if (c.includes('입금취소')) kind = 'CANCEL'
-  else if (hasDeposit && !withdrawWord) kind = 'DEPOSIT'
+  else if (hasDeposit && !withdrawWord) {
+    // 되돌림 낱말이 든 입금 모양은 들어온 돈이 아닐 수 있다 — 읽지 못함 (D-DEP2-08)
+    if (REVERSAL_WORDS.some((word) => c.includes(word))) return { kind: 'UNREADABLE', bank, trusted }
+    kind = 'DEPOSIT'
+  }
   else if (withdrawWord && !hasDeposit) kind = 'WITHDRAWAL'
   else if (hasDeposit && withdrawWord) return { kind: 'UNREADABLE', bank, trusted }
   else return { kind: 'NONE' }
@@ -221,9 +274,17 @@ function read(input: NoticeInput): NoticeResult {
       .sort((a, b) => a.at - b.at)[0]
     keyword = new RegExp(first === undefined ? '출금' : first.word, 'u')
   }
-  const amount = amountNear(s, keyword)
+  const near = amountsNear(s, keyword)
+  const amount = near.after?.value ?? near.before?.value ?? null
   const amountOk = amount !== null && Number.isSafeInteger(amount) && amount >= 1 && amount <= DEPOSIT_AMOUNT_MAX
   if (kind !== 'WITHDRAWAL' && !amountOk) return { kind: 'UNREADABLE', bank, trusted }
+  // 금액은 홀로 서야 한다 (입금·입금 취소만, D-DEP2-11): ① `입금` 두 번 이상 ② 앞뒤 금액이 다름 ③④ 금액 반대쪽에 붙은 글·금액 모양 이웃
+  if (kind !== 'WITHDRAWAL') {
+    const twice = c.indexOf('입금') !== c.lastIndexOf('입금')
+    const differ = near.after !== null && near.before !== null && near.after.value !== near.before.value
+    const notAlone = (near.after !== null && !near.after.alone) || (near.before !== null && !near.before.alone)
+    if (twice || differ || notAlone) return { kind: 'UNREADABLE', bank, trusted }
+  }
   // 5. 잔액
   const balanceMatch = BALANCE_RE.exec(s)
   const balanceValue = balanceMatch === null ? null : amountOf(balanceMatch[1] as string)
