@@ -1,5 +1,6 @@
 {
  "kind": "marklife",
+ "bundle": "A",
  "protocol": "MARKLIFE_YXQ2",
  "deviceName": "S2_FAKE_BLE",
  "options": {

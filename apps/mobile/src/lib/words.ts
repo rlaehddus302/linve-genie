@@ -96,6 +96,13 @@ export const CONNECTION_STATE_WORD = {
 } as const
 export type ConnectionState = keyof typeof CONNECTION_STATE_WORD
 
+/** 저절로 다시 잇는 동안 (웹 print-words autoReconnectingMessage와 같다, L-11 8) — n = 기다리거나 하는 중인 시도의 차례 */
+export const autoReconnectingMessage = (attempt: number, total: number): string => `프린터에 다시 잇고 있어요. (${String(attempt)}/${String(total)})`
+/** 저절로 다시 잇기가 그친 뒤 (웹 AUTO_RECONNECT_GAVE_UP과 같다) */
+export const AUTO_RECONNECT_GAVE_UP = "저절로 다시 잇지 못했어요. 아래를 해 본 뒤 '다시 연결'을 눌러 주세요."
+/** 시험용 프린터 연결 단추 (웹 LabelsPage와 같은 낱말, L-11 15) */
+export const TEST_PRINTER_METHOD = '시험용 프린터 — 실제로 출력되지 않아요'
+
 export const REHEARSAL_NO_LABELS = '리허설 방송은 라벨을 출력하지 않아요.'
 export const NO_STATION_SHORT = '라벨이 안 나가요 · 프린터를 연결해 주세요'
 

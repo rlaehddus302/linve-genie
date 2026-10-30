@@ -1,5 +1,6 @@
 {
  "kind": "marklife",
+ "bundle": "A",
  "protocol": "MARKLIFE_L11",
  "deviceName": "P12_FAKE",
  "options": {

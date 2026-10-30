@@ -11,20 +11,29 @@ enum Mode: String {
     case b1
     case marklifeS2 = "marklife-s2"
     case marklifeP12 = "marklife-p12"
+    case marklifeP50 = "marklife-p50"
+    case marklifeX2 = "marklife-x2"
 
     var defaultName: String {
         switch self {
         case .b1: return "B1-FAKE"
         case .marklifeS2: return "S2_FAKE_BLE"
         case .marklifeP12: return "P12_FAKE"
+        case .marklifeP50: return "P50_FAKE"
+        case .marklifeX2: return "X2_FAKE"
         }
     }
+
+    /// GATT 꾸러미 C(fd00): 쓰기 fd01 · 알림 fd02, 흐름 제어 없음 (X2)
+    var bundleC: Bool { self == .marklifeX2 }
 
     var marklifeProtocol: MarklifeProtocol? {
         switch self {
         case .b1: return nil
         case .marklifeS2: return .yxq2
         case .marklifeP12: return .l11
+        case .marklifeP50: return .yxq3
+        case .marklifeX2: return .yxq8
         }
     }
 }
@@ -44,17 +53,20 @@ struct Options {
     var noAck = false
     var ackDelayMs = 0
     var alsoB1Service = false
+    var noise = false
     var battery: UInt8 = 100
     var modelId: UInt16 = b1ModelId
     var verbose = false
 }
 
 let usage = """
-쓰는 법: fake-printer --mode <b1|marklife-s2|marklife-p12> [옵션]
+쓰는 법: fake-printer --mode <b1|marklife-s2|marklife-p12|marklife-p50|marklife-x2> [옵션]
 
   --mode b1              NIIMBOT B1인 척 (기본 이름 B1-FAKE)
   --mode marklife-s2     Marklife S2인 척 (YXQ 방식, 기본 이름 S2_FAKE_BLE)
   --mode marklife-p12    Marklife P12인 척 (L11 방식, 기본 이름 P12_FAKE)
+  --mode marklife-p50    Marklife P50인 척 (YXQ3 방식, 기본 이름 P50_FAKE)
+  --mode marklife-x2     Marklife X2인 척 (YXQ8 방식, GATT 꾸러미 C fd00, 기본 이름 X2_FAKE)
   --name 이름            광고 이름 바꾸기 (앱이 이름 앞자리로 고른다: B1·S2_·P12_)
   --out 폴더             PNG·기록을 둘 폴더 (기본 ./out)
   --no-credit            (Marklife) 흐름 제어 크레딧을 보내지 않는다 (D-N1-12 재현)
@@ -62,8 +74,9 @@ let usage = """
   --no-ack               (Marklife) 다 받아도 끝 알림 AA를 보내지 않는다 (시간 초과 재현)
   --ack-delay 밀리초     (Marklife) 끝 알림 AA를 늦게 보낸다
   --also-b1-service      (Marklife) 광고에 B1 서비스(e7810a71…)도 싣는다 (B1 목록 겹침 재현)
+  --noise                광고에 상관없는 서비스(배터리·HID 등)를 함께 싣는다 — 찾기 목록에 잡음이 섞인 장소 재현
   --battery 0~100        (B1) 배터리 값 (기본 100)
-  --model-id 숫자        (B1) 모델 번호 (기본 4096 = B1. 다르면 앱이 '다른 기종'으로 거른다)
+  --model-id 값          (B1) 모델 번호: 숫자 또는 b1(4096)·b1se(4098)·b1pro(4097)·b21(768)·d110(2304). 기본 b1. 다르면 앱이 '다른 기종'으로 거른다
   --verbose              받은 바이트를 16진으로 찍는다
 """
 
@@ -99,8 +112,14 @@ func parseOptions(_ args: [String]) -> Options {
         case "--no-ack": o.noAck = true
         case "--ack-delay": o.ackDelayMs = max(0, Int(value()) ?? 0)
         case "--also-b1-service": o.alsoB1Service = true
+        case "--noise": o.noise = true
         case "--battery": o.battery = UInt8(min(100, max(0, Int(value()) ?? 100)))
-        case "--model-id": o.modelId = UInt16(min(65535, max(0, Int(value()) ?? Int(b1ModelId))))
+        case "--model-id":
+            let v = value()
+            if let id = niimbotModels[v.lowercased()] { o.modelId = id } else if let n = Int(v), n >= 0, n <= 65535 { o.modelId = UInt16(n) } else {
+                print("모델은 숫자 또는 \(niimbotModels.keys.sorted().joined(separator: "·")): \(v)")
+                exit(2)
+            }
         case "--verbose": o.verbose = true
         case "-h", "--help":
             print(usage)
@@ -113,6 +132,9 @@ func parseOptions(_ args: [String]) -> Options {
     }
     return o
 }
+
+/// --noise: 찾기 목록에 섞이는 상관없는 기기 흉내 (배터리 0x180F · HID 0x1812 · 기기 정보 0x180A)
+let noiseServiceUUIDs: [CBUUID] = [CBUUID(string: "180F"), CBUUID(string: "1812"), CBUUID(string: "180A")]
 
 // MARK: - 기록
 
@@ -187,8 +209,8 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
             if case .fixed(let n) = options.mtu { mtu = n }
             marklife = MarklifeEmulator(
                 proto: proto,
-                initialCredits: options.noCredit ? nil : 4,
-                creditsPerPacket: options.noCredit ? 0 : 1,
+                initialCredits: (options.noCredit || options.mode.bundleC) ? nil : 4,
+                creditsPerPacket: (options.noCredit || options.mode.bundleC) ? 0 : 1,
                 mtu: mtu,
                 ack: (options.noAck || options.ackDelayMs > 0) ? .none : .send
             )
@@ -223,18 +245,24 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
             manager.add(service)
             advertised.append(service.uuid)
         } else {
-            let write = CBMutableCharacteristic(type: CBUUID(string: marklifeWriteUUID), properties: [.write, .writeWithoutResponse], value: nil, permissions: [.writeable])
-            let notify = CBMutableCharacteristic(type: CBUUID(string: marklifeNotifyUUID), properties: [.notify], value: nil, permissions: [.readable])
-            let flow = CBMutableCharacteristic(type: CBUUID(string: marklifeFlowUUID), properties: [.notify], value: nil, permissions: [.readable])
-            let service = CBMutableService(type: CBUUID(string: marklifeServiceUUID), primary: true)
-            service.characteristics = [write, notify, flow]
+            let c = options.mode.bundleC
+            let write = CBMutableCharacteristic(type: CBUUID(string: c ? marklifeCWriteUUID : marklifeWriteUUID), properties: [.write, .writeWithoutResponse], value: nil, permissions: [.writeable])
+            let notify = CBMutableCharacteristic(type: CBUUID(string: c ? marklifeCNotifyUUID : marklifeNotifyUUID), properties: [.notify], value: nil, permissions: [.readable])
+            let service = CBMutableService(type: CBUUID(string: c ? marklifeCServiceUUID : marklifeServiceUUID), primary: true)
+            if c {
+                service.characteristics = [write, notify]
+            } else {
+                let flow = CBMutableCharacteristic(type: CBUUID(string: marklifeFlowUUID), properties: [.notify], value: nil, permissions: [.readable])
+                service.characteristics = [write, notify, flow]
+                flowChar = flow
+            }
             writeChar = write
             notifyChar = notify
-            flowChar = flow
             manager.add(service)
             advertised.append(service.uuid)
             if options.alsoB1Service { advertised.append(CBUUID(string: b1ServiceUUID)) }
         }
+        if options.noise { advertised += noiseServiceUUIDs }
         manager.startAdvertising([CBAdvertisementDataLocalNameKey: name, CBAdvertisementDataServiceUUIDsKey: advertised])
         log.write(["event": "advertise", "mode": options.mode.rawValue, "name": name, "services": advertised.map(\.uuidString)])
     }
@@ -266,7 +294,7 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
         if let error {
             say("광고를 시작하지 못했다: \(error.localizedDescription)")
         } else {
-            say("광고 중: 이름 \(name), 서비스 \(options.mode == .b1 ? "e7810a71…" : "ff00\(options.alsoB1Service ? " + e7810a71…" : "")"). 폰 앱에서 프린터 찾기를 누른다.")
+            say("광고 중: 이름 \(name), 서비스 \(options.mode == .b1 ? "e7810a71…" : "\(options.mode.bundleC ? "fd00" : "ff00")\(options.alsoB1Service ? " + e7810a71…" : "")")\(options.noise ? " + 잡음 서비스" : ""). 폰 앱에서 프린터 찾기를 누른다.")
         }
     }
 
@@ -283,6 +311,10 @@ final class FakePrinter: NSObject, CBPeripheralManagerDelegate {
             log.write(["event": "connect", "central": id.uuidString, "count": connections, "maxUpdate": central.maximumUpdateValueLength])
         }
         log.write(["event": "subscribe", "central": id.uuidString, "char": characteristic.uuid.uuidString])
+        if let ml = marklife, options.mode.bundleC, characteristic.uuid == notifyChar.uuid {
+            // 꾸러미 C에는 흐름 제어가 없다 — 알림(fd02)을 켜면 연결된 것으로 본다
+            if case .auto = options.mtu { ml.mtu = central.maximumUpdateValueLength + 3 }
+        }
         if let flow = flowChar, characteristic.uuid == flow.uuid, let ml = marklife {
             if case .auto = options.mtu { ml.mtu = central.maximumUpdateValueLength + 3 }
             for out in ml.onFlowSubscribed() { send(out.bytes, on: flow) }

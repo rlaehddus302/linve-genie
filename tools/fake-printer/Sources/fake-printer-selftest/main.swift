@@ -69,6 +69,7 @@ struct GoldenOptions: Decodable {
 
 struct Golden: Decodable {
     let kind: String
+    let bundle: String?
     let steps: [Step]
     let pages: [GoldenPage]?
     let `protocol`: String?
@@ -145,11 +146,12 @@ func runMarklife(_ name: String, _ g: Golden) {
         mtu: options.mtu
     )
     // 알림 켜기 순서: ff01 → ff03 (첫 크레딧·MTU는 ff03을 켤 때)
-    let subscribed = printer.onFlowSubscribed().map { "\($0.channel.rawValue):\(hexString($0.bytes))" }
+    let channelName = { (c: MarklifeChannel) in c == .notify && g.bundle == "C" ? "fd02" : c.rawValue }
+    let subscribed = printer.onFlowSubscribed().map { "\(channelName($0.channel)):\(hexString($0.bytes))" }
     check(subscribed == (g.onSubscribe ?? []).map(\.text), "\(name): 알림 켤 때 \(subscribed)")
     var completed: [MarklifeAttempt] = []
     for (i, step) in g.steps.enumerated() {
-        let got = printer.write(bytesFromHex(step.write)).map { "\($0.channel.rawValue):\(hexString($0.bytes))" }
+        let got = printer.write(bytesFromHex(step.write)).map { "\(channelName($0.channel)):\(hexString($0.bytes))" }
         let want = step.notify.map(\.text)
         check(got == want, "\(name) 조각 \(i + 1): 답 \(got) ≠ \(want)")
         completed += printer.completedInLastWrite
@@ -189,6 +191,12 @@ func runUnit() {
     // 모델 번호 바꾸기
     let other = B1Emulator(modelId: 0x1234)
     check(other.write(niimbotPacket(B1Command.printerInfo, [8])) == [niimbotPacket(B1Response.printerCode, [0x12, 0x34])], "모델 번호")
+    // NIIMBOT 모델 번호 표 (--model-id 이름): 앱이 같은 번호로 기종을 가른다
+    check(niimbotModels.map { "\($0.key)=\($0.value)" }.sorted() == ["b1=4096", "b1pro=4097", "b1se=4098", "b21=768", "d110=2304"], "NIIMBOT 모델 번호 표")
+    for (_, id) in niimbotModels {
+        let model = B1Emulator(modelId: id)
+        check(model.write(niimbotPacket(B1Command.printerInfo, [8])) == [niimbotPacket(B1Response.printerCode, [UInt8(id >> 8), UInt8(id & 0xFF)])], "모델 번호 \(id) 답")
+    }
     // 끊긴 뒤 반쪽 패킷은 버린다
     let dropped = B1Emulator()
     _ = dropped.write([0x55, 0x55, B1Command.connect])
