@@ -15,6 +15,7 @@ import { groupDigits } from '../lib/money.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
 import {
   CONSOLE_NOT_CONNECTED,
+  INVITED_CONFIRM_FIELD,
   NOT_CONFIGURED_MESSAGE,
   NOT_MY_CHANNEL_HINT,
   NOT_MY_CHANNEL_MESSAGE,
@@ -28,6 +29,10 @@ import {
   TARGET_WORD,
   collectorWarning,
   hasChannel,
+  invitedChannelName,
+  invitedConfirmOf,
+  invitedLine,
+  invitedQuestion,
   needsAttention,
   outboxGroups,
   productNo,
@@ -579,6 +584,8 @@ function CollectorStatus({ writable, onUnlink }: { readonly writable: boolean; r
   const yt = useYoutube()
   const collector = yt.link?.collector ?? null
   const link = yt.link?.link ?? null
+  // 초대 방송이면 채널 이름 한 줄 (내 방송·옛 기록이면 없음, AC-INV1-05·D-INV1-01)
+  const invited = invitedChannelName(link)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const restart = async () => {
@@ -597,6 +604,7 @@ function CollectorStatus({ writable, onUnlink }: { readonly writable: boolean; r
   return (
     <div className="stack-tight collector-status" role="group" aria-label="채팅 수집">
       {link !== null ? <p>이은 유튜브 방송: 영상 {link.videoId}</p> : null}
+      {invited !== null ? <p className="invited-broadcast">{invitedLine(invited)}</p> : null}
       {collector === null ? null : (
         <>
           <p>
@@ -639,7 +647,9 @@ function LinkPicker() {
   const [parseProblem, setParseProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [linkError, setLinkError] = useState<ApiError | null>(null)
-  const pending = useRef<{ video: string; requestId: string } | null>(null)
+  // 남의 채널 방송 확인 줄 (AC-INV1-05) — 서버에 남는 상태는 없다(D-INV1-02): [맞아요, 잇기]는 확인 표시를 붙여 다시 보낸다
+  const [invitedAsk, setInvitedAsk] = useState<{ video: string; name: string } | null>(null)
+  const pending = useRef<{ video: string; confirmed: boolean; requestId: string } | null>(null)
   const addressId = useId()
 
   const loadList = async () => {
@@ -668,21 +678,27 @@ function LinkPicker() {
     }
   }
 
-  const link = async (video: string) => {
+  const link = async (video: string, confirmed = false) => {
     if (busy) return
-    if (pending.current?.video !== video) pending.current = { video, requestId: newRequestId() }
+    // 확인한 요청은 새 요청 번호로 보낸다 (확인 전 요청은 잇지 않고 끝났다)
+    if (pending.current?.video !== video || pending.current.confirmed !== confirmed) pending.current = { video, confirmed, requestId: newRequestId() }
     const { requestId } = pending.current
     setBusy(true)
     setLinkError(null)
+    setInvitedAsk(null)
     try {
-      const view = await withRetry(() => post<LinkView>(`/api/broadcasts/${encodeURIComponent(api.b)}/youtube`, { requestId, video }))
+      const body = confirmed ? { requestId, video, [INVITED_CONFIRM_FIELD]: true } : { requestId, video }
+      const view = await withRetry(() => post<LinkView>(`/api/broadcasts/${encodeURIComponent(api.b)}/youtube`, body))
       pending.current = null
       yt.setLink(view)
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       // 다시 보내도 되는 실패(네트워크)만 같은 요청 번호를 남긴다
       if (!caught.retryable) pending.current = null
-      setLinkError(caught)
+      const invited = confirmed ? null : invitedConfirmOf(caught)
+      // 확인 줄의 영상은 이 요청에서 보낸 영상 그대로 (확인 표시는 그 영상 하나에만 쓰인다, D-INV1-02)
+      if (invited !== null) setInvitedAsk({ video, name: invited.name })
+      else setLinkError(caught)
     } finally {
       setBusy(false)
     }
@@ -740,6 +756,7 @@ function LinkPicker() {
             setAddress(event.target.value)
             setParsed(null)
             setParseProblem(null)
+            setInvitedAsk(null)
           }}
           onPaste={(event) => {
             const text = event.clipboardData.getData('text')
@@ -767,6 +784,19 @@ function LinkPicker() {
           </button>
         </div>
       </div>
+      {invitedAsk !== null ? (
+        <div className="stack-tight invited-confirm" role="group" aria-label="초대받은 방송 확인">
+          <p role="alert">{invitedQuestion(invitedAsk.name)}</p>
+          <div className="row">
+            <button type="button" className="button button-primary" disabled={busy} onClick={() => void link(invitedAsk.video, true)}>
+              맞아요, 잇기
+            </button>
+            <button type="button" className="button" disabled={busy} onClick={() => setInvitedAsk(null)}>
+              취소
+            </button>
+          </div>
+        </div>
+      ) : null}
       {busy ? <p role="status">잇는 중…</p> : null}
       {linkError !== null ? <ErrorNote error={linkError} /> : null}
     </div>

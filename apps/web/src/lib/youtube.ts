@@ -1,6 +1,7 @@
 // 유튜브 화면 낱말·판단 (YT-01~08, D-I3-02~07). 판정은 하지 않는다 — 서버가 준 상태·문장을 고르고 화면 낱말로 바꾸기만 한다.
 // 서버가 돌려주는 문장(수집 상태·발송함 사유·잇기 오류)은 화면이 고치지 않고 그대로 보인다(AC-I3 머리말).
-import type { CollectorView, OutboxRow, OutboxTarget, QuotaMode, YoutubeConnection } from '../api/types.ts'
+import type { ApiError } from '../api/client.ts'
+import type { CollectorView, LinkRecordView, OutboxRow, OutboxTarget, QuotaMode, YoutubeConnection } from '../api/types.ts'
 
 /** 준비 안 된 서버 (503 YOUTUBE_NOT_CONFIGURED의 서버 문장과 같다, AC-I3-01·20) */
 export const NOT_CONFIGURED_MESSAGE = '유튜브 연동을 준비하지 않은 서버예요.'
@@ -189,4 +190,61 @@ export const SEAL_WARNING = '30일이 지나면 채팅 내용을 지우고 기�
 export function sealSoon(sealAt: string, now: number = Date.now()): boolean {
   const at = Date.parse(sealAt)
   return Number.isFinite(at) && now >= at - SEAL_WARN_BEFORE_MS
+}
+
+// ── 초대받은 방송 (YT-02, INV1 D-PHN-17·D-INV1-02~04) ───────────────────────
+
+/** 서버가 "내 채널 아님 — 확인 필요"로 잇지 않았을 때의 코드 (409, 본문에 channel: { id, title }·videoId) */
+export const INVITED_CONFIRM_CODE = 'OTHER_CHANNEL_CONFIRM'
+/** 확인한 뒤 다시 보내는 잇기 요청의 확인 표시 칸 — 값은 JSON true만 (D-INV1-02) */
+export const INVITED_CONFIRM_FIELD = 'confirmOtherChannel'
+/** 채널 이름이 비었을 때 (D-INV1-03) */
+export const NO_CHANNEL_NAME = '(이름 없음)'
+/** 화면에서 채널 이름을 이만큼 넘으면 줄임표로 자른다 (저장값은 자르지 않는다, D-INV1-03) */
+export const CHANNEL_NAME_MAX = 40
+
+/** 화면에 보일 채널 이름: 글자가 아니거나 비면 "(이름 없음)", 길면 줄임표. 글자로만 넣는다(React 이스케이프) */
+export function channelName(title: unknown): string {
+  const text = typeof title === 'string' ? title.trim() : ''
+  if (text === '') return NO_CHANNEL_NAME
+  const chars = Array.from(text)
+  return chars.length > CHANNEL_NAME_MAX ? `${chars.slice(0, CHANNEL_NAME_MAX).join('')}…` : text
+}
+
+/** 확인 줄 (AC-INV1-05) */
+export function invitedQuestion(name: string): string {
+  return `내 채널 방송이 아니에요 (채널: ${name}). 초대받은 방송이 맞나요?`
+}
+
+/** 콘솔 유튜브 칸 한 줄 (AC-INV1-05) */
+export function invitedLine(name: string): string {
+  return `초대받은 방송 · ${name}`
+}
+
+export interface InvitedConfirm {
+  /** 서버가 다시 알려 준 영상 ID (없으면 null — 그때는 보낸 영상을 쓴다) */
+  readonly videoId: string | null
+  /** 화면에 보일 채널 이름 */
+  readonly name: string
+}
+
+function recordOf(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+/** 잇기 실패가 "내 채널 아님 — 확인 필요"인가. 맞으면 확인 줄에 쓸 값, 아니면 null */
+export function invitedConfirmOf(error: ApiError): InvitedConfirm | null {
+  if (error.code !== INVITED_CONFIRM_CODE) return null
+  const channel = recordOf(error.details.channel)
+  const title = channel !== null ? channel.title : error.details.channelTitle
+  const videoId = typeof error.details.videoId === 'string' && error.details.videoId !== '' ? error.details.videoId : null
+  return { videoId, name: channelName(title) }
+}
+
+/** 이은 방송이 초대 방송이면 그 채널 이름, 내 방송(옛 기록 포함)이면 null (D-INV1-01) */
+export function invitedChannelName(link: LinkRecordView | null): string | null {
+  if (link === null) return null
+  const broadcastChannel = link.broadcastChannelId
+  if (typeof broadcastChannel !== 'string' || broadcastChannel === '' || broadcastChannel === link.channelId) return null
+  return channelName(link.broadcastChannelTitle)
 }

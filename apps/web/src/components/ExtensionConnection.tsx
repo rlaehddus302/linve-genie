@@ -359,10 +359,21 @@ export function ExtensionRouteLine({ collector, view, broadcastId }: { readonly 
 }
 
 /** 콘솔 고정 영역의 감사 올리기 경고 (AC12·AC17): 채널 주인 아님 / 연달아 실패해 멈춤 + "다시 켜기". 포커스를 빼앗지 않는다 */
-export function ExtensionThanksBar({ handle, broadcastId, ended }: { readonly handle: ExtensionHandle; readonly broadcastId: string; readonly ended: boolean }) {
+export function ExtensionThanksBar({
+  handle,
+  broadcastId,
+  ended,
+  invited = false,
+}: {
+  readonly handle: ExtensionHandle
+  readonly broadcastId: string
+  readonly ended: boolean
+  /** 초대받은 방송이면 계정 로그인 경고를 보이지 않는다 (AC-INV1-10 (3)) */
+  readonly invited?: boolean
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
-  const warnings = ended ? [] : thanksWarnings(handle.view, broadcastId)
+  const warnings = ended ? [] : thanksWarnings(handle.view, broadcastId, invited)
   if (warnings.length === 0) return null
   const resume = async () => {
     if (busy) return

@@ -21,6 +21,8 @@ let ended: boolean
 let seq: number
 let assigned: string[]
 let navigate: Navigate
+/** 남의 채널(초대받은 방송) 영상의 채널 이름 (INV1) */
+let invitedTitle: string
 
 const collector = (patch: Partial<CollectorView> = {}): CollectorView => ({
   status: 'LIVE',
@@ -75,7 +77,18 @@ function setup() {
       return m === null || video.includes('잘못') ? apiError(400, 'INVALID_VIDEO_URL', '유튜브 방송 주소를 확인해 주세요.', [{ field: 'video', message: '유튜브 방송 주소를 확인해 주세요.' }]) : { body: { videoId: m[1] } }
     })
     .on('POST', /^\/api\/broadcasts\/b1\/youtube$/, (call): Reply => {
-      if (call.body?.video === 'OTHERCHANNEL') return apiError(409, 'NOT_MY_CHANNEL', '내 채널의 방송만 연결할 수 있어요.')
+      if (call.body?.video === 'OTHERCHANNEL') return apiError(409, 'NO_LIVE_CHAT', '채팅을 받을 수 없는 방송이에요. 끝났거나 채팅이 꺼져 있어요.')
+      if (call.body?.video === 'INVITED0001') {
+        // 서버는 확인 표시(JSON true)가 없으면 잇지 않고 채널 이름을 돌려준다 (AC-INV1-01·D-INV1-02)
+        if (call.body.confirmOtherChannel !== true) {
+          return { status: 409, body: { error: { code: 'OTHER_CHANNEL_CONFIRM', message: '내 채널 방송이 아니에요. 초대받은 방송이 맞는지 확인해 주세요.' }, videoId: 'INVITED0001', channel: { id: 'UC_B', title: invitedTitle } } }
+        }
+        link = {
+          link: { videoId: 'INVITED0001', channelId: 'UC_ME', linkedAt: '2026-10-19T10:00:00.000Z', chatEnded: false, broadcastChannelId: 'UC_B', broadcastChannelTitle: invitedTitle },
+          collector: collector({ recorded: 0, lastMessageAt: null }),
+        }
+        return { body: link }
+      }
       link = linked({ status: 'STARTING', statusMessage: '시작하는 중', reason: 'NOT_STARTED', reasonMessage: '유튜브 방송이 시작되면 채팅을 받아요.', recorded: 0, lastMessageAt: null })
       return { body: link }
     })
@@ -124,6 +137,7 @@ beforeEach(() => {
   seq = 1
   assigned = []
   navigate = vi.fn()
+  invitedTitle = '다육이유튜버'
   setTopLevelNavigation((url) => assigned.push(url))
   vi.stubGlobal('fetch', server.fetch)
   vi.stubGlobal('EventSource', FakeEventSource)
@@ -239,7 +253,7 @@ describe('방송 잇기 (AC-I3-21~23)', () => {
     fireEvent.keyDown(field, { key: 'Enter' })
     await within(panel()).findByText('읽은 영상: OTHERCHANNEL')
     fireEvent.click(linkButton())
-    expect(await within(panel()).findByText('내 채널의 방송만 연결할 수 있어요.')).toBeDefined()
+    expect(await within(panel()).findByText('채팅을 받을 수 없는 방송이에요. 끝났거나 채팅이 꺼져 있어요.')).toBeDefined()
     expect(within(panel()).getByLabelText('주소 붙여넣기')).toBeDefined()
   })
 
@@ -549,5 +563,82 @@ describe('봉인한 날짜 (AC-I3-41)', () => {
     for (let seqNext = 2; seqNext < 6; seqNext++) act(() => FakeEventSource.last.emit('change', { date: DATE, rehearsal: false, seq: seqNext, type: 'x' }))
     await flush(10)
     expect(server.callsTo('GET', /\/changes\?/).length).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('초대받은 방송 (INV1 AC-INV1-05·10)', () => {
+  const QUESTION = '내 채널 방송이 아니에요 (채널: 다육이유튜버). 초대받은 방송이 맞나요?'
+  const linkPosts = () => server.callsTo('POST', /^\/api\/broadcasts\/b1\/youtube$/)
+
+  async function pasteInvited() {
+    await openConsole()
+    const field = within(panel()).getByLabelText('주소 붙여넣기')
+    fireEvent.change(field, { target: { value: 'https://www.youtube.com/watch?v=INVITED0001' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    await within(panel()).findByText('읽은 영상: INVITED0001')
+    fireEvent.click(within(panel()).getAllByRole('button', { name: '이 방송에 잇기' }).at(-1) as HTMLElement)
+    return within(panel()).findByRole('group', { name: '초대받은 방송 확인' })
+  }
+
+  it('남의 채널 주소: 확인 줄과 [맞아요, 잇기]·[취소] — [취소]면 잇기 요청을 더 보내지 않고 이어지지 않는다', async () => {
+    const ask = await pasteInvited()
+    expect(ask.textContent).toContain(QUESTION)
+    expect(within(ask).getByRole('button', { name: '맞아요, 잇기' })).toBeDefined()
+    expect(linkPosts()).toHaveLength(1)
+    expect(linkPosts()[0]?.body).not.toHaveProperty('confirmOtherChannel')
+    expect(panel().textContent).not.toContain('내 채널의 방송만 연결할 수 있어요.')
+    fireEvent.click(within(ask).getByRole('button', { name: '취소' }))
+    await flush(5)
+    expect(within(panel()).queryByRole('group', { name: '초대받은 방송 확인' })).toBeNull()
+    expect(linkPosts()).toHaveLength(1)
+    expect(link.link).toBeNull()
+    expect(panel().textContent).not.toContain('초대받은 방송 ·')
+  })
+
+  it('[맞아요, 잇기]: 확인 표시 true와 새 요청 번호로 한 번 더 보내 이어지고, 칸에 "초대받은 방송 · 다육이유튜버" 한 줄', async () => {
+    const ask = await pasteInvited()
+    fireEvent.click(within(ask).getByRole('button', { name: '맞아요, 잇기' }))
+    expect(await within(panel()).findByText('초대받은 방송 · 다육이유튜버')).toBeDefined()
+    const posts = linkPosts()
+    expect(posts).toHaveLength(2)
+    expect(posts[1]?.body).toMatchObject({ video: 'INVITED0001', confirmOtherChannel: true })
+    expect(posts[1]?.body?.requestId).not.toBe(posts[0]?.body?.requestId)
+    expect(within(panel()).queryByRole('group', { name: '초대받은 방송 확인' })).toBeNull()
+  })
+
+  it('주소를 바꾸면 확인 줄이 사라진다 (확인은 그 영상 하나에만)', async () => {
+    await pasteInvited()
+    fireEvent.change(within(panel()).getByLabelText('주소 붙여넣기'), { target: { value: 'https://youtu.be/ABCDEFGHIJK' } })
+    expect(within(panel()).queryByRole('group', { name: '초대받은 방송 확인' })).toBeNull()
+  })
+
+  it('내 방송을 이으면 "초대받은 방송" 줄이 없다 (옛 기록처럼 방송 채널이 없어도, 같아도)', async () => {
+    link = linked()
+    await openConsole()
+    expect(await within(panel()).findByText(/받은 채팅/)).toBeDefined()
+    expect(panel().textContent).not.toContain('초대받은 방송')
+    cleanup()
+    link = { ...linked(), link: { videoId: 'VID00000001', channelId: 'UC_ME', linkedAt: '2026-10-19T10:00:00.000Z', chatEnded: false, broadcastChannelId: 'UC_ME', broadcastChannelTitle: '내 채널' } }
+    await openConsole()
+    expect(await within(panel()).findByText(/받은 채팅/)).toBeDefined()
+    expect(panel().textContent).not.toContain('초대받은 방송')
+  })
+
+  it('채널 이름은 글자로만 보인다 — 확인 줄·콘솔 한 줄 모두 요소가 생기지 않는다', async () => {
+    invitedTitle = '<img src=x onerror=alert(1)>'
+    const ask = await pasteInvited()
+    expect(ask.textContent).toContain('내 채널 방송이 아니에요 (채널: <img src=x onerror=alert(1)>). 초대받은 방송이 맞나요?')
+    expect(document.querySelector('img[src="x"]')).toBeNull()
+    fireEvent.click(within(ask).getByRole('button', { name: '맞아요, 잇기' }))
+    expect(await within(panel()).findByText('초대받은 방송 · <img src=x onerror=alert(1)>')).toBeDefined()
+    expect(document.querySelector('img[src="x"]')).toBeNull()
+  })
+
+  it('채널 이름이 비면 "(이름 없음)"', async () => {
+    invitedTitle = '   '
+    const ask = await pasteInvited()
+    expect(ask.textContent).toContain('내 채널 방송이 아니에요 (채널: (이름 없음)). 초대받은 방송이 맞나요?')
+    fireEvent.click(within(ask).getByRole('button', { name: '맞아요, 잇기' }))
+    expect(await within(panel()).findByText('초대받은 방송 · (이름 없음)')).toBeDefined()
   })
 })
