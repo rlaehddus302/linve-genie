@@ -111,7 +111,10 @@ for (const width of ['PC', '375'] as const satisfies readonly Width[]) {
     const settle = (await scopeView(page, date, false)).settlements.find((s) => s.buyer === hongId)!
     const due = settle.total - settle.received
     expect(due).toBeGreaterThan(0)
-    const bank = await device.send([{ channel: 'SMS', from: '1588-9999', text: `[KB] 홍길동 입금 ${due.toLocaleString('en-US')}`, receivedAt: new Date(Date.now() + 2_000).toISOString() }])
+    // D-DEP2-13: 휴대폰 알림 입금은 같은 은행 앞선 잔액 + 금액 = 잔액일 때만 자동 확인 → 앞에 같은 은행(KB) 출금 알림으로 잔액을 둔다
+    const before = await device.send([{ channel: 'SMS', from: '1588-9999', text: '[KB] 출금 5,000 잔액 1,000,000' }])
+    expect((before.body['results'] as { status: string }[])[0]?.status, JSON.stringify(before.body)).toBe('SAVED')
+    const bank = await device.send([{ channel: 'SMS', from: '1588-9999', text: `[KB] 홍길동 입금 ${due.toLocaleString('en-US')} 잔액 ${(1_000_000 + due).toLocaleString('en-US')}`, receivedAt: new Date(Date.now() + 2_000).toISOString() }])
     expect(bank.status, JSON.stringify(bank.body)).toBe(200)
     expect((bank.body['results'] as { status: string }[])[0]?.status).toBe('SAVED')
     await expect.poll(async () => (await scopeView(page, date, false)).settlements.find((s) => s.buyer === hongId)?.payment).toBe('PAID')

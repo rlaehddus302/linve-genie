@@ -1,11 +1,11 @@
 // 설정 "휴대폰 알림 받기" (AC-SMS3-28, ORD-13 C-02·받기 상태, AC-SMS3-05의 화면 몫) — PC와 375px.
 // 토큰은 한 번만 보이고 "복사하기", "다시 만들기"는 확인 창("전에 쓰던 휴대폰·단축어는 더 이상 보내지 못해요") 뒤 옛 토큰 401,
-// "끄기" 뒤 모든 요청 401, 마지막으로 받은 시각·기기 이름(이스케이프), 아이폰 단축어 만들기 안내.
+// "끄기" 뒤 그 토큰은 403 INBOX_OFF·다시 켜면 같은 토큰(D-SMS3-27), 마지막으로 받은 시각·기기 이름(이스케이프), 아이폰 단축어 만들기 안내.
 import { test, expect } from '@playwright/test'
 import { claimsOf, expectNoDevWords, fakeDevice, heightOf, inboxSection, kstToday, makeTokenOnScreen, onSale, realBroadcast, sellerAt, type Width } from './support.ts'
 
 for (const width of ['PC', '375'] as const satisfies readonly Width[]) {
-  test(`AC-SMS3-28 (${width}): 토큰 한 번 보이기 → 다시 만들기 확인 창 → 옛 토큰 401 → 끄기 401 → 다시 켜기`, async ({ browser, baseURL }) => {
+  test(`AC-SMS3-28 (${width}): 토큰 한 번 보이기 → 다시 만들기 확인 창 → 옛 토큰 401 → 끄기 403 → 다시 켜기 같은 토큰`, async ({ browser, baseURL }) => {
     test.setTimeout(120_000)
     const { page, context } = await sellerAt(browser, baseURL!, width)
     await page.goto('/settings/inbox')
@@ -65,14 +65,20 @@ for (const width of ['PC', '375'] as const satisfies readonly Width[]) {
     expect((old.body['error'] as { code?: string } | undefined)?.code).toBe('TOKEN_INVALID')
     expect((await device.send([], { token: t2 })).status).toBe(200)
 
-    // 4. 끄기 → 확인 창 → 모든 요청 401 → 다시 켜기 → 넣어 둔 토큰으로 다시 받는다
+    // 4. 끄기 → 확인 창 → 403 INBOX_OFF → 다시 켜기 → 넣어 둔 같은 토큰으로 다시 받는다 (D-SMS3-27)
     await inboxSection(page).getByRole('button', { name: '끄기' }).click()
     dlg = page.getByRole('dialog', { name: '휴대폰 알림 받기를 끌까요?' })
     await dlg.getByRole('button', { name: '끌게요' }).click()
     await expect(dlg).toHaveCount(0)
     await expect(inboxSection(page)).toContainText('꺼져 있어요')
     await expect(inboxSection(page).getByRole('textbox', { name: '받기 토큰' }), '끄면 보이던 토큰도 감춘다').toHaveCount(0)
-    expect((await device.send([], { token: t2 })).status, '끈 뒤 401').toBe(401)
+    // D-SMS3-27: 끈 뒤에는 403 INBOX_OFF(토큰은 그대로 — 401은 토큰이 없거나 틀리거나 무효일 때만). 판정 순서 401 → 403
+    const off = await device.send([], { token: t2 })
+    expect(off.status, '끈 뒤 403').toBe(403)
+    expect((off.body['error'] as { code?: string } | undefined)?.code).toBe('INBOX_OFF')
+    expect(off.body['filters'], '꺼진 동안 filters를 주지 않는다').toBeUndefined()
+    const offOld = await device.send([], { token: t1 })
+    expect(offOld.status, '꺼져 있어도 옛 토큰은 401 (401 → 403 순서)').toBe(401)
     await expectNoDevWords(inboxSection(page), '끈 설정 칸')
     await inboxSection(page).getByRole('button', { name: '다시 켜기' }).click()
     await expect(inboxSection(page)).toContainText('켜져 있어요')
