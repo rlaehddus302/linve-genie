@@ -6,6 +6,7 @@ import { systemTikTokClock, type TikTokClock } from './clock.ts'
 import { chatEventFields, createCommentFilter, type TikTokCommentCounts, type TikTokCommentFilter, type TikTokCommentRecord } from './comment.ts'
 import { denyAllTikTokConsent, type TikTokConsentCheck } from './consent.ts'
 import { classifyWebcastFailure, type TikTokFailureKind, type TikTokRetryKind } from './failure.ts'
+import type { TikTokSignMeter } from './sign-usage.ts'
 import { UNLIMITED_TIKTOK_ATTEMPTS, type TikTokAttemptLimiter } from './limiter.ts'
 import { tiktokStatusMessage, type TikTokOffReason, type TikTokState, type TikTokStopReason } from './messages.ts'
 import { libraryOptions, TIKTOK_SETTINGS_OFF, type TikTokSettings } from './settings.ts'
@@ -70,6 +71,8 @@ export interface TikTokConnectionOptions {
   readonly log?: LogSink
   /** 서버 전체 연결 시도 한도 (서버 하나의 모든 연결 객체가 같은 것을 나눈다 — 없으면 한도 없음) */
   readonly limiter?: TikTokAttemptLimiter
+  /** 서명 서비스 무료 한도 계량 (CH-20 — 없으면 세지 않는다) */
+  readonly signMeter?: TikTokSignMeter
 }
 
 /** 연결 객체 — 조작은 start·stop·off와 상태 조회뿐이다(틱톡에 무엇을 보내는 조작은 없다) */
@@ -412,6 +415,11 @@ export function createTikTokConnection(options: TikTokConnectionOptions): TikTok
       return
     }
     attemptStartedAt = clock.now()
+    if (options.signMeter !== undefined) {
+      const usage = options.signMeter.record(attemptStartedAt)
+      // 수준이 바뀐 때만 한 번 경고한다 (수만 남기고 아이디·키는 남기지 않는다). 연결은 막지 않는다
+      if (usage.changed && usage.level !== 'OK') log('warn', usage.level === 'OVER' ? 'TIKTOK_SIGN_OVER_LIMIT' : 'TIKTOK_SIGN_NEAR_LIMIT', { count: usage.used })
+    }
     let client: WebcastClient
     let pending: Promise<unknown>
     try {
