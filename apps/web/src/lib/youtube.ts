@@ -195,9 +195,9 @@ export function sealSoon(sealAt: string, now: number = Date.now()): boolean {
 // ── 초대받은 방송 (YT-02, INV1 D-PHN-17·D-INV1-02~04) ───────────────────────
 
 /** 서버가 "내 채널 아님 — 확인 필요"로 잇지 않았을 때의 코드 (409, 본문에 channel: { id, title }·videoId) */
-export const INVITED_CONFIRM_CODE = 'OTHER_CHANNEL_CONFIRM'
+export const INVITED_CONFIRM_CODE = 'INVITED_CONFIRM_NEEDED'
 /** 확인한 뒤 다시 보내는 잇기 요청의 확인 표시 칸 — 값은 JSON true만 (D-INV1-02) */
-export const INVITED_CONFIRM_FIELD = 'confirmOtherChannel'
+export const INVITED_CONFIRM_FIELD = 'confirmInvited'
 /** 채널 이름이 비었을 때 (D-INV1-03) */
 export const NO_CHANNEL_NAME = '(이름 없음)'
 /** 화면에서 채널 이름을 이만큼 넘으면 줄임표로 자른다 (저장값은 자르지 않는다, D-INV1-03) */
@@ -244,6 +244,9 @@ export function invitedConfirmOf(error: ApiError): InvitedConfirm | null {
 /** 이은 방송이 초대 방송이면 그 채널 이름, 내 방송(옛 기록 포함)이면 null (D-INV1-01) */
 export function invitedChannelName(link: LinkRecordView | null): string | null {
   if (link === null) return null
+  // 서버가 알려 준 판단(invited)이 있으면 그대로 따른다
+  if (link.invited === false) return null
+  if (link.invited === true) return channelName(link.broadcastChannelTitle)
   const broadcastChannel = link.broadcastChannelId
   if (typeof broadcastChannel !== 'string' || broadcastChannel === '' || broadcastChannel === link.channelId) return null
   return channelName(link.broadcastChannelTitle)

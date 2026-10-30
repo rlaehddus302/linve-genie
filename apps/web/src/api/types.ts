@@ -502,6 +502,8 @@ export interface LinkRecordView {
   readonly broadcastChannelId?: string | null
   /** 방송 채널 이름 — 바깥 글이라 글자로만 보인다(D-INV1-03) */
   readonly broadcastChannelTitle?: string | null
+  /** 서버 판단: 초대 방송인가(방송 채널 ≠ 글 올리는 계정) */
+  readonly invited?: boolean
 }
 
 export interface LinkView {

@@ -80,8 +80,8 @@ function setup() {
       if (call.body?.video === 'OTHERCHANNEL') return apiError(409, 'NO_LIVE_CHAT', '채팅을 받을 수 없는 방송이에요. 끝났거나 채팅이 꺼져 있어요.')
       if (call.body?.video === 'INVITED0001') {
         // 서버는 확인 표시(JSON true)가 없으면 잇지 않고 채널 이름을 돌려준다 (AC-INV1-01·D-INV1-02)
-        if (call.body.confirmOtherChannel !== true) {
-          return { status: 409, body: { error: { code: 'OTHER_CHANNEL_CONFIRM', message: '내 채널 방송이 아니에요. 초대받은 방송이 맞는지 확인해 주세요.' }, videoId: 'INVITED0001', channel: { id: 'UC_B', title: invitedTitle } } }
+        if (call.body.confirmInvited !== true) {
+          return { status: 409, body: { error: { code: 'INVITED_CONFIRM_NEEDED', message: '내 채널 방송이 아니에요. 초대받은 방송이 맞는지 확인해 주세요.' }, videoId: 'INVITED0001', channel: { id: 'UC_B', title: invitedTitle } } }
         }
         link = {
           link: { videoId: 'INVITED0001', channelId: 'UC_ME', linkedAt: '2026-10-19T10:00:00.000Z', chatEnded: false, broadcastChannelId: 'UC_B', broadcastChannelTitle: invitedTitle },
@@ -585,7 +585,7 @@ describe('초대받은 방송 (INV1 AC-INV1-05·10)', () => {
     expect(ask.textContent).toContain(QUESTION)
     expect(within(ask).getByRole('button', { name: '맞아요, 잇기' })).toBeDefined()
     expect(linkPosts()).toHaveLength(1)
-    expect(linkPosts()[0]?.body).not.toHaveProperty('confirmOtherChannel')
+    expect(linkPosts()[0]?.body).not.toHaveProperty('confirmInvited')
     expect(panel().textContent).not.toContain('내 채널의 방송만 연결할 수 있어요.')
     fireEvent.click(within(ask).getByRole('button', { name: '취소' }))
     await flush(5)
@@ -601,7 +601,7 @@ describe('초대받은 방송 (INV1 AC-INV1-05·10)', () => {
     expect(await within(panel()).findByText('초대받은 방송 · 다육이유튜버')).toBeDefined()
     const posts = linkPosts()
     expect(posts).toHaveLength(2)
-    expect(posts[1]?.body).toMatchObject({ video: 'INVITED0001', confirmOtherChannel: true })
+    expect(posts[1]?.body).toMatchObject({ video: 'INVITED0001', confirmInvited: true })
     expect(posts[1]?.body?.requestId).not.toBe(posts[0]?.body?.requestId)
     expect(within(panel()).queryByRole('group', { name: '초대받은 방송 확인' })).toBeNull()
   })

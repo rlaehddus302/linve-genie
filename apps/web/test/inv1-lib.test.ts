@@ -52,6 +52,12 @@ describe('이은 방송이 초대 방송인가 (D-INV1-01)', () => {
     expect(invitedChannelName({ ...base, broadcastChannelId: 'UC_B', broadcastChannelTitle: '다육이유튜버' })).toBe('다육이유튜버')
     expect(invitedChannelName({ ...base, broadcastChannelId: 'UC_B', broadcastChannelTitle: null })).toBe(NO_CHANNEL_NAME)
   })
+
+  it('서버가 invited를 알려 주면 그 판단을 따른다', () => {
+    expect(invitedChannelName({ ...base, broadcastChannelId: 'UC_B', broadcastChannelTitle: '다육이유튜버', invited: false })).toBeNull()
+    expect(invitedChannelName({ ...base, broadcastChannelId: 'UC_B', broadcastChannelTitle: '다육이유튜버', invited: true })).toBe('다육이유튜버')
+    expect(invitedChannelName({ ...base, broadcastChannelId: 'UC_B', broadcastChannelTitle: '', invited: true })).toBe(NO_CHANNEL_NAME)
+  })
 })
 
 describe('확장 감사 경고 (AC-INV1-10 (3))', () => {
