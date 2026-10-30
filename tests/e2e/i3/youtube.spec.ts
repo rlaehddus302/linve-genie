@@ -104,6 +104,7 @@ test.describe('@youtube 연결 화면', () => {
     await ctx.close()
   })
 
+  // 같은 뜻 WEB 시험(뜻이 뒤집힘 — 웹 읽기는 구글 연결 상태로 멈추지 않는다, D-YT-SRV-10): tests/e2e/ytweb/collect.spec.ts 'YT-11 AC9 (D-YT-SRV-10): 구글 연결 토큰이 무효가 돼도 …'
   test('AC-I3-01·25: 가짜 서버에서 토큰이 무효(invalid_grant) → 다시 연결 필요 → 콘솔 고정 영역 경고 "다시 연결하기"', async ({ page }) => {
     const { live } = await linkedConsole(page, { consent: false })
     await fakeChat(page.request, live.liveChatId, 'UCv1', '시청자1', '안녕')
@@ -179,6 +180,7 @@ test.describe('@youtube 감사 메시지 설정', () => {
 })
 
 test.describe('@youtube 콘솔 잇기·수집', () => {
+  // 같은 뜻 WEB 시험(수집 부분): tests/e2e/ytweb/collect.spec.ts 'AC-I3-24·YT-11 AC3: 예정 방송을 이으면 …'
   test('AC-I3-21·24: 내 라이브 목록 — 방송 중·예정·다른 회차에 이은 것, 예정 방송을 이으면 "유튜브 방송이 시작되면 채팅을 받아요." → 시작하면 받는 중', async ({ page }) => {
     await loginNewSeller(page)
     const channel = await connectYoutube(page)
@@ -207,6 +209,7 @@ test.describe('@youtube 콘솔 잇기·수집', () => {
     await expect(group).toContainText(/마지막 채팅 오[전후] \d+:\d\d:\d\d/)
   })
 
+  // 같은 뜻 WEB 시험: tests/e2e/ytweb/collect.spec.ts 'TE-I3-001 AC-I3-24: 채팅이 조용한 라이브를 이어도 …'
   test('TE-I3-001 AC-I3-24: 채팅이 조용한 라이브를 이어도(예정 방송이 시작돼도) 수집이 붙으면 "채팅을 받는 중" — "시작하는 중"에 머물지 않는다', async ({ page }) => {
     test.setTimeout(150_000)
     await loginNewSeller(page)
@@ -290,6 +293,7 @@ test.describe('@youtube 콘솔 잇기·수집', () => {
     await expect(yt.getByRole('button', { name: '내 라이브 목록에서 고르기' })).toBeVisible()
   })
 
+  // 같은 뜻 WEB 시험: tests/e2e/ytweb/collect.spec.ts 'AC-I3-27·YT-11 AC4: 시청자 알림 — …'
   test('AC-I3-27: 시청자 알림 — 지운 메시지(주문이었던 메시지)·유튜브 차단(라이브지니에서도 차단 → 차단 창)', async ({ page }) => {
     const { live } = await linkedConsole(page, { consent: false })
     await register(page, '15 핑크프릴 10', 15)
@@ -365,6 +369,7 @@ test.describe('@youtube 감사 메시지 목록', () => {
     expect((await fakeState(page.request)).posted.filter((p) => p.liveChatId === live.liveChatId && p.text.includes('16번 라울')).length).toBe(1)
   })
 
+  // 감사 게시 시험이라 옮기지 않음(D-YT-SRV-13). 수집 응답 없음만 WEB 시험: tests/e2e/ytweb/collect.spec.ts 'YT-11 AC3: get_live_chat이 응답 없이 멈추면(15초) …'
   test('AC-I3-33: 확인하지 못한 감사 — 경고 문장, "유튜브에 올라가 있어요" 확인 창 → 보냄 — 판매자가 확인함, 알림 띠 줄어듦', async ({ page }) => {
     test.setTimeout(180_000)
     const { b, date } = await linkedConsole(page, { consent: true })

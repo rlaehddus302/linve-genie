@@ -54,6 +54,7 @@ test('@youtube AC-I3-10: 실시간 채팅 감사를 끄고 저장 → 진행 중
   expect(rows.filter((r) => r.target === 'LIVE_CHAT' && r.text.startsWith('42번'))).toHaveLength(0)
 })
 
+// 같은 뜻 WEB 시험: tests/e2e/ytweb/collect.spec.ts 'AC-I3-25·YT-11 AC3: 진행 중 방송의 채팅이 꺼지면 …' (막힘·모르는 모양은 TE-YT-SRV-001·002)
 test('@youtube AC-I3-25: 스트림이 "채팅 꺼짐" → 고정 영역 경고 + "채팅 다시 받기", 다시 받으면 경고가 사라진다', async ({ page }) => {
   await loginNewSeller(page)
   const channel = await connectYoutube(page)
