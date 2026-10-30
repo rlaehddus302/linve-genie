@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { PHONE_NUMBER_MESSAGE } from '../src/messages.ts'
 import { optionBroadcast } from './a1-support.ts'
 import { ORIGIN, addSeller, client, countRows, createBroadcast, dumpAllTables, expectOk, login, newWorld, rid, writeEvent, type Seller, type TestServer } from './support.ts'
+import { chats, msgId, tiktokSeller, ttWorld } from './tiktok-live-support.ts'
 
 const GOLDEN = new URL('../../../tests/golden/parser/', import.meta.url)
 type Unit = 'WON' | 'THOUSAND' | 'TEN_THOUSAND' | 'AUTO'
@@ -346,6 +347,81 @@ describe('AC-SRV1-14 확장 수집은 읽은 필드를 받지 않는다 (APP-05 
       expect(((await response.json()) as { error: { code: string } }).error.code).toBe('UNKNOWN_FIELD')
     }
     expect(await countRows(world.database, 'events')).toBe(before)
+  })
+
+  it('틱톡 확장 묶음 항목에 claimNo·no 같은 읽은 필드가 있으면 모르는 항목으로 거절하고 기록하지 않는다', async () => {
+    const w = await ttWorld()
+    try {
+      const { seller } = await tiktokSeller(w, { tiktokId: 'seller_kim' })
+      const issued = await client(w, seller.cookie).post('/api/extension/code', {})
+      const headers = { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop', 'Content-Type': 'application/json' }
+      const connected = await w.server.app.request('/ext/connect', { method: 'POST', headers, body: JSON.stringify({ code: issued.body.code }) })
+      const { token } = (await connected.json()) as { token: string }
+      const before = await countRows(w.database, 'events')
+      for (const extra of [{ claimNo: 15 }, { no: 15 }, { claims: [{ no: 15 }] }]) {
+        const item = { commentId: msgId(), userId: '7101000000000010001', uniqueId: 'buyer_a', nickname: '시청자', text: '15', ...extra }
+        const response = await w.server.app.request('/ext/tiktok/chats', { method: 'POST', headers: { ...headers, Authorization: `Bearer ${token}` }, body: JSON.stringify({ pageId: 'seller_kim', items: [item] }) })
+        expect(response.status).toBe(400)
+        expect(((await response.json()) as { error: { code: string } }).error.code).toBe('UNKNOWN_FIELD')
+        await w.tclock.advance(250)
+      }
+      expect(await countRows(w.database, 'events')).toBe(before)
+      expect(await chats(w, seller.sellerId)).toEqual([])
+    } finally {
+      await w.close()
+    }
+  })
+
+  it('같은 채팅을 공식 연결과 확장으로 넣으면 같은 판정이다 (찜 번호·상태·순서·가격·구매자, 채팅 항목의 주문·언급)', async () => {
+    const CHATS = [
+      { id: 'p1', ch: 'UCbuyerA000000000000001', nick: '가손님', text: '3번' },
+      { id: 'p2', ch: 'UCbuyerB000000000000002', nick: '나손님', text: '3번요' },
+      { id: 'p3', ch: 'UCbuyerB000000000000002', nick: '나손님', text: '5' },
+      { id: 'p4', ch: 'UCbuyerC000000000000003', nick: '다손님', text: '3번 이쁘다 5번 사고 싶은데 1000원' },
+      { id: 'p5', ch: 'UCbuyerA000000000000001', nick: '가손님', text: '5번 취소요' },
+    ]
+    const judged = async (path: 'official' | 'extension') => {
+      const world = await newWorld()
+      const seller = await addSeller(world)
+      const b = await createBroadcast(world, seller)
+      await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 3, name: '핑크프릴', price: 20_000 }))
+      await expectOk(writeEvent(world, seller, { type: 'product.register', b: b.id, no: 5, name: '라울', price: 10_000 }))
+      if (path === 'extension') {
+        const issued = await client(world, seller.cookie).post('/api/extension/code', {})
+        const headers = { Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop', 'Content-Type': 'application/json' }
+        const connected = await world.server.app.request('/ext/connect', { method: 'POST', headers, body: JSON.stringify({ code: issued.body.code }) })
+        const { token } = (await connected.json()) as { token: string }
+        const auth = { ...headers, Authorization: `Bearer ${token}` }
+        const bound = await world.server.app.request('/ext/bind', { method: 'POST', headers: auth, body: JSON.stringify({ v: 'abcdefghijk', broadcast: b.id }) })
+        expect(bound.status, await bound.text()).toBe(200)
+        world.clock.advance(1_000)
+        for (const chat of CHATS) {
+          world.clock.advance(1_000)
+          const sent = await world.server.app.request('/ext/chats', { method: 'POST', headers: auth, body: JSON.stringify({ v: 'abcdefghijk', messages: [{ ...chat, at: world.clock.now() }] }) })
+          expect(sent.status, await sent.text()).toBe(200)
+        }
+      } else {
+        world.clock.advance(1_000)
+        for (const chat of CHATS) {
+          world.clock.advance(1_000)
+          await world.server.service.ingestYoutubeBatch(seller.sellerId, b.id, [{ ...chat, publishedAt: world.clock.now() }])
+        }
+      }
+      const state = (await world.server.writer.read(seller.sellerId, b.date)).state
+      const buyers: string[] = []
+      const who = (buyer: string) => {
+        if (!buyers.includes(buyer)) buyers.push(buyer)
+        return buyers.indexOf(buyer)
+      }
+      const claims = listClaims(state).map((claim) => ({ no: claim.no, status: claim.status, origin: claim.origin, price: claim.price, buyer: who(claim.currentBuyer), cancelRequested: claim.cancelRequested }))
+      const view = await client(world, seller.cookie).get(`/api/days/${b.date}/messages`)
+      const messages = (view.body.messages as { id: string; orders: number[]; cancels: number[]; mentions: number[] }[]).map(({ id, orders, cancels, mentions }) => ({ id, orders, cancels, mentions }))
+      return { claims, messages }
+    }
+    const official = await judged('official')
+    const extension = await judged('extension')
+    expect(official.claims.length).toBeGreaterThan(0)
+    expect(extension).toEqual(official)
   })
 })
 

@@ -40,6 +40,14 @@
 - 옵션 방송 채팅 항목에 새 칸 `nameMentions: number[]` — 상품 이름·별칭 언급 번호(옛 웹 `optionLook`과 같은 비교: 그 방송 상품 전부(판매 종료 포함), `compareChars` 두 글자 이상, 글 안 포함). 번호 언급 `mentions`는 지금 그대로(AC-O2-24). 번호 방송 항목에는 칸이 없다(옛 optionLook도 옵션 방송만).
   - 웹 `optionLook`: `named` = `products.filter(p => message.nameMentions.includes(p.no))`, `mention` = `… (message.mentions.length > 0 || (message.nameMentions?.length ?? 0) > 0)`. 증분 조회(`/changes`의 messages)·SSE도 같은 항목 모양이다.
 
+### 확장은 원문만 (AC-SRV1-14)
+- 유튜브 `/ext/chats`·틱톡 `/ext/tiktok/chats` 항목의 모르는 칸(`claimNo`·`no`·`claims` 같은 읽은 필드)은 지금도 400 `UNKNOWN_FIELD`·기록 0 — 서버 코드는 바꾸지 않았고 시험으로 지킨다(srv1-read).
+- 같은 채팅을 공식 수집(`ingestYoutubeBatch`)과 확장으로 넣으면 찜(번호·상태·출처·가격·구매자 순서·취소 요청)과 채팅 항목(주문·취소·언급)이 같다 — 시험으로 지킨다.
+
+### 읽기 함수 같은 결과 (AC-SRV1-01·07)
+- 웹 `test/quick.test.ts`·`test/received.test.ts`를 `packages/voice-session/test/read/`로 같은 기대값으로 복사(웹 화면 몫 `changedFields`만 뺌 — 서버 원문 고치기의 같은 규칙은 srv1-read). 웹이 `lib/quick.ts`·`lib/received.ts`를 지울 때 웹 쪽 시험은 함께 지워도 된다.
+- `read-text.test.ts`: 입구 함수 `readText` 칸마다 응답 모양.
+
 ### 음성 흐름 (약속 4)
 - 기기가 보낸 받아쓴 글(`op: 'chromeResult'`)은 어느 연결이든 읽지 않고 `{ type: 'voice.error', code: 'UNSUPPORTED', message }`만 보낸다(연결은 유지, 쓰기 0).
 - 조작 전용 연결의 새 인자: `capture=false` (일꾼을 잡지 않음). 옛 `mode=chrome`도 같은 조작 전용으로 받는다(기기가 옮길 때까지).
