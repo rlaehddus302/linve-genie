@@ -20,6 +20,10 @@ export const ALERT_CODES = [
   'SEAL_FAILED',
   'BACKUP_FAILED',
   'DB_UNAVAILABLE',
+  // YT-11 서버 웹 읽기 (D-YT-SRV-06): 판매자 정보·응답 본문 없음
+  'YT_CHAT_BLOCKED',
+  'YT_CHAT_FORMAT',
+  'YT_CHAT_NETWORK',
 ] as const
 export type AlertCode = (typeof ALERT_CODES)[number]
 
@@ -97,6 +101,12 @@ export class Alerter {
         return
       case 'COLLECTOR_STOPPED':
         if (record.reason !== undefined && MANUAL_STOP_REASONS.has(record.reason)) this.alert('COLLECTOR_STOPPED', fields)
+        return
+      case 'YT_CHAT_BLOCKED':
+      case 'YT_CHAT_FORMAT':
+      case 'YT_CHAT_NETWORK':
+        // 서버 웹 읽기 (D-YT-SRV-06): 판매자 정보 없이 — 같은 코드는 10분에 한 번
+        this.alert(record.code)
         return
       default:
         return

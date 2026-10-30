@@ -115,6 +115,21 @@ export function readYoutubeSetting(env: Readonly<Record<string, string | undefin
   }
 }
 
+/** 서버가 유튜브 채팅 읽기 (YT-11 AC6, D-YT-SRV-07) 운영자 스위치 */
+export interface YoutubeWebChatSetting {
+  /** `LIVEJJIM_YT_WEB_CHAT`이 다듬고 소문자로 `off`일 때만 false */
+  readonly on: boolean
+  /** 알아볼 수 없는 값(켬으로 봄) — 값은 담지 않는다 */
+  readonly warning: 'YT_WEB_CHAT_INVALID' | null
+}
+
+/** 서버 시작 때 한 번 읽는다. 없음·빈 값·`on`은 켬, `off`만 끔, 그 밖의 값은 켬 + 경고 */
+export function readYoutubeWebChat(env: Readonly<Record<string, string | undefined>>): YoutubeWebChatSetting {
+  const value = (env['LIVEJJIM_YT_WEB_CHAT'] ?? '').trim().toLowerCase()
+  if (value === 'off') return { on: false, warning: null }
+  return { on: true, warning: value === '' || value === 'on' ? null : 'YT_WEB_CHAT_INVALID' }
+}
+
 // ── I3: 배포·운영 (SYS-05, D-I3-12·13·16, AC-I3-72) ─────────────────────────
 
 export const HTTPS_ORIGIN_MESSAGE = '화면 앱 주소는 https://로 적어 주세요(내 컴퓨터 시험은 http://localhost만).'

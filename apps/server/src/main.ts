@@ -3,7 +3,8 @@
 // - DB 연결 설정(DATABASE_URL 또는 개발용 LIVEJJIM_PGLITE_DIR)·서버 마스터 키(LIVEJJIM_MASTER_KEY)·화면 앱 주소(LIVEJJIM_APP_ORIGIN)가
 //   없거나 틀리면 쉬운 문장으로 알리고 시작하지 않는다(값은 출력하지 않는다). 메모리 DB로 조용히 바꾸지 않는다.
 // - 시작할 때 마이그레이션을 적용한다.
-// - 유튜브 연동(LIVEJJIM_GOOGLE_*)은 선택이다. 적었으면 주소는 https만 받는다(아니면 시작하지 않는다, AC-Y1-72). 워커(수집기·발송함·봉인)를 함께 돌린다.
+// - 유튜브 채팅 읽기(YT-11)는 늘 켜 둔다(LIVEJJIM_YT_WEB_CHAT=off일 때만 끔). 구글 연결(LIVEJJIM_GOOGLE_*)은 선택이다 — 적었으면 주소는 https만 받는다
+//   (아니면 시작하지 않는다, AC-Y1-72). 워커(수집기·발송함·봉인)를 함께 돌린다.
 // - 배포·운영 (I3, AC-I3-72): 앱 주소는 https만(내 컴퓨터 시험은 http://localhost), 운영 토큰(LIVEJJIM_OPS_TOKEN)은 32자 이상, 믿는 프록시 수
 //   (LIVEJJIM_TRUSTED_PROXIES)는 0~5, 화면 폴더(LIVEJJIM_WEB_DIR)에는 index.html — 아니면 시작하지 않는다. 화면 폴더가 있으면 같은 출처로 함께 낸다.
 // - 기동 로그에 환경변수 값을 찍지 않는다.
@@ -11,7 +12,7 @@
 //   한 번 더 누르면 바로 끝낸다.
 import { existsSync } from 'node:fs'
 import { FolderBackupStorage } from './backup.ts'
-import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readDeploySetting, readPort, readYoutubeSetting } from './config.ts'
+import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readDeploySetting, readPort, readYoutubeSetting, readYoutubeWebChat } from './config.ts'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
 import { productionServerOptions } from './production.ts'
@@ -80,7 +81,8 @@ const livejjim = createServer({
   trustedProxies: deploy.trustedProxies,
   ...(deploy.opsToken === null ? {} : { opsToken: deploy.opsToken }),
   ...(deploy.webDir === null ? {} : { webDir: deploy.webDir }),
-  ...(youtubeSetting.youtube === null ? {} : { youtube: youtubeSetting.youtube }),
+  // 유튜브 채팅 읽기는 서버가 방송 주소만으로 (YT-11, D-YT-SRV-01) — 구글 OAuth 설정이 없어도 된다(그때 구글 연결은 503). 끄기는 LIVEJJIM_YT_WEB_CHAT=off
+  youtube: { ...(youtubeSetting.youtube ?? { clientId: '', clientSecret: '', redirectUri: '', returnUrl: `${origin.origin}/settings/youtube` }), webChat: readYoutubeWebChat(process.env) },
   backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir),
 })
 // 워커: 유튜브 수집기·발송함(설정이 있을 때), 30일 봉인 작업 — 끝나지 않은 회차의 수집기가 저절로 다시 돈다 (NFR-03)

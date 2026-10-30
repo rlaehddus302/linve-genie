@@ -561,6 +561,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       failedEvents24h: await counts(() => failedEventCount(db, new Date(now - 24 * 60 * 60 * 1000))),
       realtimeConnections: hub.size,
       quota: youtube === null ? null : await counts(() => youtube.quota.projectToday()),
+      // 서버 웹 읽기 합계 (YT-11 AC5): 스위치·수집기·받는 중·막힘·모르는 모양 수, 이 서버의 분당 유튜브 요청 수 (판매자 정보 없음)
+      youtubeWebChat: youtube === null ? null : await counts(() => youtube.webChatOps()),
       // 인스타 DM 행은 유튜브 발송함 수와 따로 상태별로, 틱톡은 이어진 연결 수와 이 서버 연결 객체의 상태별 수 (판매자 정보 없이, AC-N2b-2-70)
       instagramDm: await counts(() => instagramDmCounts(db, dayStart, new Date(dayStart.getTime() + 24 * 60 * 60 * 1000))),
       tiktok: { operator: (tiktok as TikTokLive).operatorOn, links: await counts(() => tiktokLinkCounts(db)), connections: (tiktok as TikTokLive).stateCounts() },

@@ -25,6 +25,24 @@ export async function collectorCounts(db: Db): Promise<Record<string, number | R
   return out
 }
 
+/** 서버 웹 읽기 수집기 합계 (YT-11 AC5): 돌고 있는 것(시작·받는 중·다시 연결)·받는 중·막힘·모르는 모양 수 — 판매자 정보 없음 */
+export async function webCollectorCounts(db: Db): Promise<{ collectors: number; receiving: number; blocked: number; format: number }> {
+  const rows = await db
+    .select({ status: youtubeCollectors.status, reason: youtubeCollectors.reason, n: sql<number>`count(*)::int` })
+    .from(youtubeCollectors)
+    .where(and(eq(youtubeCollectors.mode, 'WEB'), inArray(youtubeCollectors.status, ['STARTING', 'LIVE', 'RETRYING'])))
+    .groupBy(youtubeCollectors.status, youtubeCollectors.reason)
+  const out = { collectors: 0, receiving: 0, blocked: 0, format: 0 }
+  for (const row of rows) {
+    const n = Number(row.n)
+    out.collectors += n
+    if (row.status === 'LIVE') out.receiving += n
+    if (row.status === 'RETRYING' && row.reason === 'BLOCKED') out.blocked += n
+    if (row.status === 'RETRYING' && row.reason === 'FORMAT') out.format += n
+  }
+  return out
+}
+
 /**
  * 유튜브 실행기가 집는 행만 (AC-N2b-2-70, D-N2b-2-10): 인스타 DM 행이 있는 발송함 행(인스타그램 DM 실행기 몫)과
  * 여러 플랫폼 회차의 감사 경로가 건너뛴 행(틱톡 구매자 NOT_SUPPORTED·보낼 곳 없음 NO_RECIPIENT)은 세지 않는다

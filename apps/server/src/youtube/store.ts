@@ -126,6 +126,28 @@ export async function openLinksForVideo(db: Db, sellerId: string, videoIds: read
     .where(and(eq(youtubeLinks.sellerId, sellerId), inArray(youtubeLinks.videoId, [...videoIds]), isNull(youtubeLinks.unlinkedAt), isNull(broadcasts.endedAt)))
 }
 
+/**
+ * 판매자가 실제 회차에 이은 적 있는 방송 채널, 최근 이은 순서 (YT-11 서버 잇기 — 확인한 채널·최근 채널 찾기, D-YT-SRV-03).
+ * 끊은 연결도 센다(이은 적이 있다). 리허설에는 잇지 않으므로 모든 연결이 실제 회차다. 이름은 그 채널을 가장 최근에 이을 때 본 것
+ */
+export async function linkedChannels(db: Db, sellerId: string, limit?: number): Promise<{ id: string; title: string | null }[]> {
+  const channel = sql<string>`coalesce(${youtubeLinks.broadcastChannelId}, ${youtubeLinks.channelId})`
+  const rows = await db
+    .select({ id: channel, title: youtubeLinks.broadcastChannelTitle, linkedAt: youtubeLinks.linkedAt })
+    .from(youtubeLinks)
+    .where(eq(youtubeLinks.sellerId, sellerId))
+    .orderBy(desc(youtubeLinks.linkedAt))
+  const out: { id: string; title: string | null }[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (row.id === '' || seen.has(row.id)) continue
+    seen.add(row.id)
+    out.push({ id: row.id, title: row.title })
+    if (limit !== undefined && out.length >= limit) break
+  }
+  return out
+}
+
 export async function insertLink(
   db: Db,
   row: {
@@ -146,6 +168,8 @@ export async function insertLink(
     now: Date
     /** 예정 방송(startedAt null)의 첫 상태 확인 시각 — 잇는 그 순간부터 '시작되면 받아요'(STARTING·NOT_STARTED, AC-Y1-94·AC-I3-24) */
     upcomingCheckAt?: Date
+    /** 수집 방식 — 서버 웹 읽기(YT-11)는 WEB, 없으면 옛 공식 STREAM */
+    mode?: 'STREAM' | 'WEB'
   },
 ): Promise<void> {
   await db.insert(youtubeLinks).values({
@@ -168,7 +192,7 @@ export async function insertLink(
     sellerId: row.sellerId,
     scopeId: row.scopeId,
     broadcastId: row.broadcastId,
-    mode: 'STREAM',
+    mode: row.mode ?? 'STREAM',
     status: 'STARTING',
     // 예정 방송은 잇기 응답부터 '시작되면 받아요'로 — 수집기가 나중에 같은 값을 적으므로 잇기 응답(낡은 '시작하는 중')이 알림보다 늦게 닿아도 덮지 않는다
     ...(row.startedAt === null && row.upcomingCheckAt !== undefined ? { reason: 'NOT_STARTED', resumeAt: row.upcomingCheckAt } : {}),
