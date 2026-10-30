@@ -1,12 +1,14 @@
 // 빠른 입력 한 줄 + 보내기 (AC-S05-10~13, PRD-01, D-084, 웹 QuickInput과 같은 규칙·문구).
 // 한 줄 "15 핑크프릴 10000" → 그 번호가 없으면 등록, 있으면 "고칠까요?", 번호만이면 상품 자세히, 오류면 문장. 등록은 바로 기록하고 5초 동안 "되돌리기"(판매 종료).
 // 문자찜 한 줄: 번호 + 전화번호(선택) → sms 이벤트(손 입력, D-V1-10 인식 문장은 없다).
+// SRV1 (D-APP-24, AC-SRV1-05): 줄은 서버 읽기 입구가 읽는다 — 미리 보기는 서버 답(150ms 뒤, 없으면 비움), 등록 요청 본문은 친 줄 원문(`text`).
 import { useEffect, useRef, useState } from 'react'
 import { View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError, newRequestId } from '../../api/client.ts'
 import { productKey } from '../../lib/derive.ts'
-import { decideQuickInput, editQuestion, quickSettings, registerPreview, unitLine, type QuickDecision } from '../../lib/quick.ts'
+import { decideQuick, editQuestion, priceUnitOf, registerPreview, unitLine } from '../../lib/quick.ts'
+import { readQuickLine, useQuickReading, type QuickReading } from '../../lib/read.ts'
 import { QUICK_PLACEHOLDER, QUICK_SEND, UNDO, UNDONE_REGISTER, formatWon } from '../../lib/words.ts'
 import { BigButton, Body, Card, Field, Hint, Notice, Row } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
@@ -29,7 +31,7 @@ export function QuickInput() {
   const [undo, setUndo] = useState<{ readonly no: number; readonly until: number } | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const settings = quickSettings(api.data.broadcasts.get(api.b)?.settings)
+  const unit = priceUnitOf(api.data.broadcasts.get(api.b)?.settings)
   const findProduct = (no: number) => api.data.products.get(productKey(api.b, no))
 
   useEffect(() => () => {
@@ -37,12 +39,14 @@ export function QuickInput() {
   }, [])
 
   const closed = api.ended || api.sealed
-  const preview = closed ? null : registerPreview(text, settings, findProduct)
+  const reading = useQuickReading(api.b, text, !closed)
+  const preview = closed ? null : registerPreview(reading, findProduct)
 
-  const register = async (decision: Extract<QuickDecision, { kind: 'register' }>, line: string) => {
+  /** 등록: 본문은 친 줄 원문 — 서버가 같은 읽기로 기록한다. 응답이 없을 때 같은 요청 번호로 다시 보내도 한 번만 기록 */
+  const register = async (decision: { readonly no: number; readonly name: string; readonly price: number }, line: string) => {
     setBusy(true)
     try {
-      const result = await api.command({ type: 'product.register', b: api.b, no: decision.no, name: decision.name, price: decision.price }, newRequestId())
+      const result = await api.command({ type: 'product.register', b: api.b, text: line }, newRequestId())
       if (!result.changed) {
         const existing = findProduct(decision.no)
         if (existing !== undefined) setAsk({ product: existing, name: decision.name, price: decision.price, line })
@@ -61,11 +65,23 @@ export function QuickInput() {
     }
   }
 
-  const send = () => {
+  const send = async () => {
     if (closed || busy) return
     const line = text
     setProblem(null)
-    const decision = decideQuickInput(line, settings, findProduct)
+    if (line.trim() === '') return
+    // 미리 보기 답을 기다리지 않는다 — 보낼 때 그 줄을 서버에 읽힌다
+    let read: QuickReading
+    setBusy(true)
+    try {
+      read = await readQuickLine(api.b, line)
+    } catch (caught) {
+      setProblem(isApiError(caught) ? caught.message : '읽지 못했어요. 다시 보내기를 눌러 주세요.')
+      return
+    } finally {
+      setBusy(false)
+    }
+    const decision = decideQuick(read, findProduct)
     if (decision.kind === 'none') return
     if (decision.kind === 'fix') {
       setProblem(decision.message)
@@ -114,9 +130,9 @@ export function QuickInput() {
   if (closed) return null
   return (
     <Card label="빠른 입력">
-      <Field label="빠른 입력" value={text} onChangeText={setText} placeholder={QUICK_PLACEHOLDER} autoCorrect={false} autoCapitalize="none" onSubmitEditing={send} returnKeyType="send" blurOnSubmit={false} problem={problem} hint={preview ?? unitLine(settings['price.unit'])} />
+      <Field label="빠른 입력" value={text} onChangeText={setText} placeholder={QUICK_PLACEHOLDER} autoCorrect={false} autoCapitalize="none" onSubmitEditing={() => void send()} returnKeyType="send" blurOnSubmit={false} problem={problem} hint={preview ?? unitLine(unit)} />
       <Row>
-        <BigButton label={QUICK_SEND} primary disabled={busy} onPress={send} />
+        <BigButton label={QUICK_SEND} primary disabled={busy} onPress={() => void send()} />
         {undo !== null ? <BigButton label={`${String(undo.no)}번 등록 ${UNDO}`} onPress={() => void undoRegister()} /> : null}
       </Row>
       {note !== null ? <Notice tone="info">{note}</Notice> : null}

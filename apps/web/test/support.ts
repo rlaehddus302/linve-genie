@@ -3,6 +3,7 @@
 import { DEFAULT_SETTINGS } from '@livejjim/core'
 import { vi } from 'vitest'
 import type { BroadcastItem, BroadcastView, ChatMessage, FullView, OutboxRow, Product, YoutubeConnection } from '../src/api/types.ts'
+import { READ_TEXT_LIMIT, isReadKind, readText, type ReadSettings } from '../../../packages/voice-session/src/read.ts'
 
 export interface Call {
   readonly method: string
@@ -20,10 +21,45 @@ export interface Reply {
 
 type Handler = (call: Call, match: RegExpExecArray) => Reply | Promise<Reply>
 
-/** 경로·메서드로 고르는 가짜 서버. 맞는 처리기가 없으면 404 */
+/** 응답 본문에서 방송 설정을 줍는다 (가짜 읽기 입구가 화면과 같은 방송 설정으로 읽게) */
+function learnSettings(body: unknown, into: Map<string, ReadSettings>): void {
+  if (typeof body !== 'object' || body === null) return
+  const record = body as Record<string, unknown>
+  const lists = [record.broadcasts, ...(typeof record.view === 'object' && record.view !== null ? [(record.view as Record<string, unknown>).broadcasts] : [])]
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue
+    for (const item of list as unknown[]) {
+      if (typeof item !== 'object' || item === null) continue
+      const { id, settings } = item as { id?: unknown; settings?: Record<string, unknown> }
+      if (typeof id !== 'string' || typeof settings !== 'object' || settings === null) continue
+      const unit = settings['price.unit']
+      const max = settings['claim.maxNumber']
+      if ((unit === 'WON' || unit === 'THOUSAND' || unit === 'TEN_THOUSAND' || unit === 'AUTO') && typeof max === 'number') into.set(id, { 'price.unit': unit, 'claim.maxNumber': max })
+    }
+  }
+}
+
+/**
+ * 가짜 서버 읽기 입구 (SRV1 약속 1): `POST /api/broadcasts/:id/read`·`POST /api/read` `{ kind, text }` → 서버와 같은 읽기 함수
+ * (packages/voice-session read.ts)의 결과. 방송 설정은 화면이 받은 방송 응답에서 줍고, 모르면 기본값.
+ */
+export function fakeRead(call: Call, broadcast: string | null, settings: ReadonlyMap<string, ReadSettings>): Reply {
+  const kind = call.body?.kind
+  const text = call.body?.text
+  if (!isReadKind(kind) || typeof text !== 'string' || text.length > READ_TEXT_LIMIT) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.')
+  const known = broadcast === null ? undefined : settings.get(broadcast)
+  const use: ReadSettings = known ?? { 'price.unit': DEFAULT_SETTINGS['price.unit'], 'claim.maxNumber': DEFAULT_SETTINGS['claim.maxNumber'] }
+  return { body: readText(kind, text, { settings: use, now: Date.now() }) }
+}
+
+/** 경로·메서드로 고르는 가짜 서버. 맞는 처리기가 없으면 404 (읽기 입구는 따로 처리기를 달지 않으면 서버와 같은 읽기로 답한다) */
 export class FakeServer {
   readonly calls: Call[] = []
   readonly #routes: { method: string; pattern: RegExp; handler: Handler }[] = []
+  /** 응답에서 주운 방송 설정 (가짜 읽기 입구용) */
+  readonly readSettings = new Map<string, ReadSettings>()
+  /** 읽기 입구가 답하지 않는다 (AC-SRV1-06) */
+  readDown = false
 
   on(method: string, pattern: RegExp, handler: Handler): this {
     this.#routes.unshift({ method, pattern, handler })
@@ -47,6 +83,13 @@ export class FakeServer {
       if (match === null) continue
       const reply = await route.handler(call, match)
       if (reply.network === true) throw new TypeError('Failed to fetch')
+      learnSettings(reply.body, this.readSettings)
+      return new Response(JSON.stringify(reply.body ?? {}), { status: reply.status ?? 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    const read = method === 'POST' ? /^\/api\/(?:broadcasts\/([^/?]+)\/)?read$/.exec(path) : null
+    if (read !== null) {
+      if (this.readDown) throw new TypeError('Failed to fetch')
+      const reply = fakeRead(call, read[1] === undefined ? null : decodeURIComponent(read[1]), this.readSettings)
       return new Response(JSON.stringify(reply.body ?? {}), { status: reply.status ?? 200, headers: { 'Content-Type': 'application/json' } })
     }
     return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '찾을 수 없어요.' } }), { status: 404 })

@@ -3,7 +3,8 @@
 import * as voiceModule from '@livejjim/voice'
 import type { SmsProductView, SmsVoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readReceived } from '../src/lib/received.ts'
+// SRV1: 받은 시각 읽기는 서버 읽기(read.ts)로 옮겼다 — 시험의 음성 host도 서버와 같은 함수를 쓴다
+import { readReceived } from '../../../packages/voice-session/src/read.ts'
 import { SMS_RESULTS_SHOWN, SMS_SEND_FAILED, VoiceController, candidateClaims, pruneSms, smsCandidateLabel, smsShown, type SmsEntry, type SmsWriteOutcome, type VoiceHost, type VoiceSmsWrite } from '../src/voice/controller.ts'
 
 /** 2026-10-23 20:01:00 KST */

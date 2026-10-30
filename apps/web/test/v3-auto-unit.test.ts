@@ -1,8 +1,12 @@
 // 가격 단위 자동 (V3 D-V3-70) — 빠른 입력 한 줄·미리 보기·설정 낱말
 import { DEFAULT_SETTINGS } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
-import { registerPreview, unitLine } from '../src/lib/quick.ts'
+import { registerPreview as registerPreviewText, unitLine } from '../src/lib/quick.ts'
+import { readQuick, type ReadSettings } from '../../../packages/voice-session/src/read.ts'
 import { PRICE_UNIT_WORDS } from '../src/lib/settings-fields.ts'
+
+// SRV1: 미리 보기는 서버가 읽은 결과로 만든다 (기대값 그대로)
+const registerPreview = (line: string, settings: ReadSettings, find: () => undefined) => registerPreviewText(readQuick(line, settings), find)
 
 describe('가격 단위 자동 (D-V3-70)', () => {
   it('설정 낱말과 빠른 입력칸 아래 한 줄', () => {

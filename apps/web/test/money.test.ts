@@ -1,6 +1,10 @@
 // 정산 금액 칸 (AC-S06-36, R-14, D-092): 코어 parseAmount를 원 단위(WON)로 — 판매자의 천원 단위 설정을 쓰지 않는다.
+// SRV1 (D-APP-23·24): 금액 읽기는 서버(read.ts readMoney), 칸 상태(범위 문장)는 화면(money.ts amountRead) — 기대값 그대로 둘을 잇는다
 import { describe, expect, it } from 'vitest'
-import { ADJUST_RANGE, AMOUNT_UNREADABLE, PAYMENT_RANGE, SHIPPING_RANGE, readAmount, refundRange } from '../src/lib/money.ts'
+import { ADJUST_RANGE, AMOUNT_UNREADABLE, PAYMENT_RANGE, SHIPPING_RANGE, amountRead, refundRange, type AmountRange } from '../src/lib/money.ts'
+import { readMoney } from '../../../packages/voice-session/src/read.ts'
+
+const readAmount = (text: string, range: AmountRange) => amountRead(text, readMoney(text), range)
 
 describe('원 단위 금액 칸', () => {
   it.each(['14000', '14,000', '1만 4천', '1만4천', '만 사천 원', '14000원'])('%s → 14,000원', (text) => {
@@ -33,5 +37,12 @@ describe('원 단위 금액 칸', () => {
     expect(readAmount('14001', range)).toEqual({ kind: 'invalid', message: '받은 금액(14,000원)보다 많이 환불할 수 없어요.' })
     expect(readAmount('0', range)).toEqual({ kind: 'invalid', message: '환불은 1원 이상으로 적어 주세요.' })
     expect(readAmount('1', refundRange(0))).toEqual({ kind: 'invalid', message: '받은 금액이 없어서 환불할 수 없어요.' })
+  })
+})
+
+describe('서버 답을 기다리는 동안 (SRV1 약속 3)', () => {
+  it('글이 있는데 답이 아직이면 pending — 미리 보기를 비운다', () => {
+    expect(amountRead('14000', null, PAYMENT_RANGE)).toEqual({ kind: 'pending' })
+    expect(amountRead('  ', null, PAYMENT_RANGE)).toEqual({ kind: 'empty' })
   })
 })

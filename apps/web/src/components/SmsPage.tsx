@@ -10,7 +10,9 @@
 // - I3: 30일이 지나 봉인한 날짜의 방송은 고를 수 없다(기본 방송으로도 고르지 않는다, AC-I3-41). 보조자 계정은 실제 방송만 고르고
 //   허용된 요청(방송 목록·범위 목록·범위 조회·실시간)만 보낸다(AC-I3-63).
 // - N2b-2: "댓글 붙여넣기" — 콘솔과 같은 붙여넣기 창(번호마다 문자찜). 보조자도 실제 방송에서 쓴다(서버 권한이 문자찜 입력과 같다).
-import { DEFAULT_SETTINGS, containsPhoneRun, normalizePhone, phoneLast4, type ClaimStatus } from '@livejjim/core'
+// - SRV1 (D-APP-23·24, AC-SRV1-07): 받은 시각·전화번호 칸은 서버가 읽는다 — 미리 보기("오늘 15:10"·뒤 4자리)는 서버 읽기 입구의 답이고
+//   보내는 본문은 친 글 원문(received·phone). 메모의 전화번호는 서버가 지금 문장으로 거절하고 칸 글은 그대로 둔다(화면이 먼저 막지 않는다).
+import { DEFAULT_SETTINGS, type ClaimStatus } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { get, isApiError, type ApiError } from '../api/client.ts'
 import type { BroadcastItem, Buyer, Claim, DayRow, Product, ReviewsView } from '../api/types.ts'
@@ -23,7 +25,8 @@ import { usePendingNow } from '../lib/use-pending-now.ts'
 import { AUTO_RESEND_NOTE, RESENT_PREFIX } from '../lib/resend-board.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
 import { broadcastWords, kstStamp, kstTime } from '../lib/kst.ts'
-import { RECEIVED_HELP, RECEIVED_INVALID, readReceived, receivedWords } from '../lib/received.ts'
+import { RECEIVED_HELP, RECEIVED_INVALID, receivedWords } from '../lib/received.ts'
+import { readProblem, readText, useServerRead, type ReceivedReading } from '../lib/read.ts'
 import type { Navigate } from '../lib/router.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { useScopeStore } from '../lib/use-store.ts'
@@ -366,7 +369,8 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   const [tried, setTried] = useState(false)
   const [late, setLate] = useState<{ words: string } | null>(null)
   const [result, setResult] = useState<SentResult | null>(null)
-  const [now, setNow] = useState(() => Date.now())
+  /** 넣기를 누른 때 서버가 읽은 받은 시각 (미리 보기 답이 오기 전에 눌렀을 때) 또는 읽지 못한 까닭 */
+  const [checked, setChecked] = useState<{ readonly text: string; readonly reading: ReceivedReading | null; readonly problem: string | null } | null>(null)
   const noField = useRef<HTMLInputElement>(null)
   const receivedField = useRef<HTMLInputElement>(null)
   // 응답만 기다린다 — 따라잡기를 기다리면 그 사이 친 글이 늦은 비우기로 지워진다 (D-SMS-01)
@@ -382,20 +386,15 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
     if (!disabled) noField.current?.focus()
   }, [focusSignal, disabled])
 
-  // "오늘·내일" 판단과 늦은 시각 비교를 위해 30초마다 지금 시각을 새로
-  useEffect(() => {
-    const handle = setInterval(() => setNow(Date.now()), 30_000)
-    return () => clearInterval(handle)
-  }, [])
-
   const max = (api === undefined ? null : api.settingsOf(api.b)?.['claim.maxNumber']) ?? 999
   const number = no === '' ? null : Number(no)
   const numberProblem = number !== null && (number < 1 || number > max) ? `번호는 1~${String(max)} 사이로 적어 주세요.` : null
-  const read = readReceived(received, now)
-  const receivedProblem = read.kind === 'invalid' ? RECEIVED_INVALID : null
-  const normalized = phone.trim() === '' ? null : normalizePhone(phone)
-  const phoneProblem = buyer === null && phone.trim() !== '' && normalized === null ? PHONE_UNREADABLE : null
-  const memoProblem = memo.trim() !== '' && containsPhoneRun(memo) ? MEMO_HAS_PHONE : null
+  // 받은 시각·전화번호 미리 보기는 서버가 읽은 답 (150ms 뒤 — 답이 오기 전·연결이 없으면 비운다, SRV1 약속 3)
+  const receivedPreview = useServerRead(api?.b ?? null, 'received', received, api !== undefined)
+  const read: ReceivedReading | null = receivedPreview ?? (checked !== null && checked.text === received ? checked.reading : null)
+  const receivedProblem = read?.kind === 'invalid' ? RECEIVED_INVALID : checked !== null && checked.text === received ? checked.problem : null
+  const phoneRead = useServerRead(api?.b ?? null, 'phone', phone, api !== undefined && buyer === null)
+  const phoneProblem = buyer === null && phone.trim() !== '' && phoneRead !== null && phoneRead.phone === null ? PHONE_UNREADABLE : null
   const chosen = buyer === null || api === undefined ? undefined : api.data.buyers.get(buyer)
   const label = number !== null && numberProblem === null ? `${String(number)}번에 문자찜 넣기` : '문자찜 넣기'
   const optionMode = api !== undefined && isOptionBroadcast(api.data, api.b)
@@ -421,7 +420,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   /** 받은 시각을 비운 채 실패해 칸에 채워 넣은 처음 누른 시각 `HH:MM:SS` (D-MOB2-09) */
   const [filled, setFilled] = useState<string | null>(null)
 
-  /** 보낼 쓰기 (받은 시각은 읽은 값 — 비우면 넣지 않는다, ORD-08 AC6) */
+  /** 보낼 쓰기 (받은 시각은 친 글 원문 — 서버가 읽는다. 비우면 넣지 않는다, ORD-08 AC6) */
   const eventOf = (receivedValue: string | null): Readonly<Record<string, unknown>> | null => {
     if (api === undefined || number === null) return null
     return {
@@ -447,8 +446,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
     // 같은 칸 내용으로 처음 누른 때 (다시 보내기·저절로 다시 보내기에서도 처음 것 — RA-MOB2-02)
     const pressKey = JSON.stringify([no, receivedText, phone, memo, buyer, picks, qtyText])
     if (pressRef.current?.key !== pressKey) pressRef.current = { key: pressKey, at }
-    const current = readReceived(receivedText, at)
-    const event = eventOf(current.kind === 'ok' ? current.value : null)
+    const event = eventOf(receivedText.trim() === '' ? null : receivedText.trim())
     if (event === null) return
     const written = await sender.send(event)
     // 실패면 칸은 친 그대로 (AC-SMS-04)
@@ -460,7 +458,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
       no: number,
       b: api.b,
       receivedText,
-      phoneLast4: typeof written.phoneLast4 === 'string' ? written.phoneLast4 : normalized === null ? null : phoneLast4(normalized),
+      phoneLast4: typeof written.phoneLast4 === 'string' ? written.phoneLast4 : null,
       buyer: typeof written.buyer === 'string' ? written.buyer : null,
       auto,
     })
@@ -479,7 +477,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
     noField.current?.focus({ preventScroll: true })
   }
 
-  const submit = (event?: FormEvent) => {
+  const submit = async (event?: FormEvent) => {
     event?.preventDefault()
     if (disabled || api === undefined || sender.busy) return
     setTried(true)
@@ -487,11 +485,24 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
       noField.current?.focus()
       return
     }
-    if (receivedProblem !== null || phoneProblem !== null || memoProblem !== null || qtyProblem !== null || optionsMissing) return
-    const current = readReceived(received, Date.now())
-    if (current.kind === 'ok' && current.late) {
-      setLate({ words: receivedWords(current) })
-      return
+    if (receivedProblem !== null || phoneProblem !== null || qtyProblem !== null || optionsMissing) return
+    // 받은 시각을 적었으면 지금 서버에 읽혀 지금보다 늦은지 묻는다 (미리 보기 답을 기다리지 않는다). 읽지 못하면 넣지 않고 칸 아래에 알린다
+    const typed = received
+    if (typed.trim() !== '') {
+      let current: ReceivedReading
+      try {
+        current = await readText(api.b, 'received', typed)
+      } catch (error) {
+        setChecked({ text: typed, reading: null, problem: readProblem(error).message })
+        return
+      }
+      setChecked({ text: typed, reading: current, problem: null })
+      if (receivedRef.current !== typed) return
+      if (current.kind === 'invalid') return
+      if (current.kind === 'ok' && current.late) {
+        setLate({ words: receivedWords(current) })
+        return
+      }
     }
     void send()
   }
@@ -544,9 +555,8 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
     const press = pressRef.current
     if (press === null || receivedRef.current.trim() !== '') return
     const text = kstTime(press.at)
-    const filledRead = readReceived(text, Date.now())
-    if (filledRead.kind !== 'ok') return
-    const event = eventOfRef.current(filledRead.value)
+    if (text === '') return
+    const event = eventOfRef.current(text)
     if (event === null) return
     sender.carry(event)
     const [fieldNo, , ...rest] = JSON.parse(fieldsRef.current) as unknown[]
@@ -566,7 +576,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   return (
     <section className="sms-form card" aria-label="문자찜 넣기">
       {result !== null && api !== undefined ? <ResultCard key={result.seq} api={api} result={result} onSame={fillSame} locked={locked} /> : null}
-      <form className="stack" onSubmit={submit} noValidate>
+      <form className="stack" onSubmit={(event) => void submit(event)} noValidate>
         <div className="stack-tight">
           <div className="field">
             <label htmlFor={noId}>번호</label>
@@ -629,7 +639,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
             />
           </div>
           <p id={`${receivedId}-help`} className="hint">
-            {read.kind === 'ok' ? `${receivedWords(read)}에 받은 문자` : RECEIVED_HELP}
+            {read?.kind === 'ok' ? `${receivedWords(read)}에 받은 문자` : RECEIVED_HELP}
           </p>
           {filled !== null && received === filled ? (
             <p id={`${receivedId}-filled`} className="hint" role="status">
@@ -658,7 +668,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
             />
           </div>
           <p id={`${phoneId}-help`} className="hint">
-            {buyer !== null ? '구매자를 골랐으면 전화번호는 쓰지 않아요' : normalized !== null ? `뒤 4자리 ${phoneLast4(normalized)}로 이어져요` : '선택 — 적으면 같은 번호의 문자 구매자로 이어져요'}
+            {buyer !== null ? '구매자를 골랐으면 전화번호는 쓰지 않아요' : phoneRead?.last4 != null ? `뒤 4자리 ${phoneRead.last4}로 이어져요` : '선택 — 적으면 같은 번호의 문자 구매자로 이어져요'}
           </p>
           <FieldNote id={`${phoneId}-error`} message={phoneProblem ?? serverProblem(serverError, 'phone')} />
         </div>
@@ -674,14 +684,14 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
               value={memo}
               disabled={disabled}
               readOnly={locked}
-              aria-invalid={memoProblem !== null}
+              aria-invalid={serverProblem(serverError, 'memo') !== null}
               aria-describedby={`${memoId}-error`}
               onChange={(event) => {
                 if (!locked) setMemo(event.target.value)
               }}
             />
           </div>
-          <FieldNote id={`${memoId}-error`} message={memoProblem ?? serverProblem(serverError, 'memo')} />
+          <FieldNote id={`${memoId}-error`} message={serverProblem(serverError, 'memo')} />
         </div>
 
         {api !== undefined ? (

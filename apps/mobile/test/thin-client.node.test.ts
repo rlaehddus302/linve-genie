@@ -28,8 +28,9 @@ function runtimeImports(source: string): string[] {
 const files = [...walk(join(ROOT, 'src')), ...walk(join(ROOT, 'app'))]
 
 describe('앱 소스에 판정·추출·그리기 코드가 없다 (APP-01 AC3)', () => {
-  it('@livejjim/core 전체·@livejjim/voice·@livejjim/label·@livejjim/printer를 실행 코드로 가져오지 않는다 — 코어는 입력 읽기(quick-input)·포맷(format)만', () => {
-    const allowed = new Set(['@livejjim/core/quick-input', '@livejjim/core/format'])
+  // 옛 기대(APP-01 AC3): 코어는 입력 읽기(quick-input)·포맷(format)만. SRV1 새 기대(D-APP-23·24, AC-SRV1-05·13): 입력 읽기도 서버 — 포맷만
+  it('@livejjim/core 전체·@livejjim/voice·@livejjim/label·@livejjim/printer를 실행 코드로 가져오지 않는다 — 코어는 포맷(format)만 (입력 읽기 quick-input도 없다)', () => {
+    const allowed = new Set(['@livejjim/core/format'])
     for (const file of files) {
       const source = readFileSync(file, 'utf8')
       for (const spec of runtimeImports(source)) {

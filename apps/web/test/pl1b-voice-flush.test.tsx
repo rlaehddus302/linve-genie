@@ -5,7 +5,8 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoiceLive } from '../src/components/VoicePanel.tsx'
-import { readReceived } from '../src/lib/received.ts'
+// SRV1: 받은 시각 읽기는 서버 읽기(read.ts)로 옮겼다 — 시험의 음성 host도 서버와 같은 함수를 쓴다
+import { readReceived } from '../../../packages/voice-session/src/read.ts'
 import { VoiceController, smsShown, type SmsEntry, type VoiceHost, type VoiceSmsWrite } from '../src/voice/controller.ts'
 
 /** 2026-10-23 20:01:00 KST */

@@ -15,6 +15,7 @@ import * as derive from '../src/lib/derive.ts'
 import * as scope from '../src/lib/scope-data.ts'
 import * as quick from '../src/lib/quick.ts'
 import * as packing from '../src/lib/packing.ts'
+import { readQuick } from '../../../packages/voice-session/src/read.ts'
 import { buyer, changes, claim, fullView, product } from './support.ts'
 
 describe('낱말 표가 웹과 같다', () => {
@@ -80,27 +81,30 @@ describe('고르기 규칙이 웹과 같다', () => {
   })
 })
 
-describe('빠른 입력 읽기가 웹과 같다', () => {
-  const settings = quick.quickSettings(DEFAULT_SETTINGS)
-  const webSettings = webQuick.quickSettings(DEFAULT_SETTINGS)
+// SRV1 (D-APP-23·24): 줄 읽기는 서버 한 곳(packages/voice-session read.ts)이다. 옛 기대는 "앱·웹이 각자 읽은 결과가 같다"였고,
+// 새 기대는 "서버가 읽은 같은 결과로 앱·웹이 같은 할 일·같은 문장을 정한다"이다 (견주는 줄·단언은 그대로).
+describe('빠른 입력 할 일이 웹과 같다 (서버가 읽은 결과로)', () => {
+  const settings = { 'price.unit': DEFAULT_SETTINGS['price.unit'], 'claim.maxNumber': DEFAULT_SETTINGS['claim.maxNumber'] }
   const find = () => undefined
   it('등록·오류·단위 줄', () => {
     for (const line of ['15 핑크프릴 10000', '15 핑크프릴 2만', '15 10', '핑크프릴 10000', '15 핑크프릴', '15 핑크프릴 50', '1000 핑크 10', '']) {
-      const a = quick.decideQuickInput(line, settings, find)
-      const b = webQuick.decideQuickInput(line, webSettings, find)
+      const reading = readQuick(line, settings)
+      const a = quick.decideQuick(reading, find)
+      const b = webQuick.decideQuick(reading, find)
       expect(a.kind).toBe(b.kind)
       if (a.kind === 'register' && b.kind === 'register') expect([a.no, a.name, a.price]).toEqual([b.no, b.name, b.price])
       if (a.kind === 'fix' && b.kind === 'fix') expect(a.message).toBe(b.message)
     }
     for (const unit of ['WON', 'THOUSAND', 'TEN_THOUSAND', 'AUTO'] as const) expect(quick.unitLine(unit)).toBe(webQuick.unitLine(unit))
-    expect(quick.registerPreview('15 핑크프릴 10', settings, find)).toBe(webQuick.registerPreview('15 핑크프릴 10', webSettings, find))
+    expect(quick.registerPreview(readQuick('15 핑크프릴 10', settings), find)).toBe(webQuick.registerPreview(readQuick('15 핑크프릴 10', settings), find))
+    expect(quick.registerPreview(null, find)).toBeNull()
     expect(quick.editQuestion(15, true)).toBe(webQuick.editQuestion(15, true))
   })
   it('있는 번호는 고치기, 번호만이면 열기', () => {
     const existing = product(15)
     const findExisting = (no: number) => (no === 15 ? existing : undefined)
-    expect(quick.decideQuickInput('15 핑크 12000', settings, findExisting).kind).toBe('edit')
-    expect(quick.decideQuickInput('15', settings, findExisting).kind).toBe('open')
-    expect(quick.decideQuickInput('15', settings, find).kind).toBe('fix')
+    expect(quick.decideQuick(readQuick('15 핑크 12000', settings), findExisting).kind).toBe('edit')
+    expect(quick.decideQuick(readQuick('15', settings), findExisting).kind).toBe('open')
+    expect(quick.decideQuick(readQuick('15', settings), find).kind).toBe('fix')
   })
 })

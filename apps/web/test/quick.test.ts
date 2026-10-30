@@ -1,11 +1,22 @@
 // 빠른 입력 (AC-S05-10~13, D-084): 해석은 코어 parseQuickInput에 그 방송 스냅샷의 price.unit·claim.maxNumber를 넣은 결과와 같다.
-import { DEFAULT_SETTINGS, parseQuickInput } from '@livejjim/core'
+// SRV1 (D-APP-23·24): 읽기(줄 → 번호·품종·가격, 번호 칸·가격 칸)는 서버 읽기(packages/voice-session read.ts)로 옮겼고 화면은 그 결과로
+// 할 일만 정한다(lib/quick.ts decideQuick·decideFix). 이 시험의 기대값은 그대로 — 아래 도우미가 "서버가 읽고 → 화면이 정하는" 같은 길을 잇는다.
+import { DEFAULT_SETTINGS, parseQuickInput, type SaleSettings } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import type { Product } from '../src/api/types.ts'
-import { changedFields, decideFixForm, decideQuickInput, numberErrorFill, previewNumber, quickErrorMessage, quickSettings } from '../src/lib/quick.ts'
+import { changedFields, decideFix, decideQuick } from '../src/lib/quick.ts'
+import { numberErrorFill, quickErrorMessage, readFixNumber, readPrice, readQuick, type ReadSettings } from '../../../packages/voice-session/src/read.ts'
 import { product } from './support.ts'
 
+const quickSettings = (value: SaleSettings): ReadSettings => ({ 'price.unit': value['price.unit'], 'claim.maxNumber': value['claim.maxNumber'] })
 const settings = quickSettings(DEFAULT_SETTINGS)
+/** 서버가 줄을 읽고(readQuick) 화면이 할 일을 정한다(decideQuick) */
+const decideQuickInput = (line: string, s: ReadSettings, find: (no: number) => Product | undefined) => decideQuick(readQuick(line, s), find)
+/** 서버가 번호·가격 칸을 읽고(readFixNumber·readPrice) 화면이 할 일을 정한다(decideFix) */
+const decideFixForm = (input: { no: string; name: string; price: string }, s: ReadSettings, find: (no: number) => Product | undefined) =>
+  decideFix(input, { no: readFixNumber(input.no, s), price: readPrice(input.price, s) }, find)
+/** 치는 동안 미리 보기 번호 = 서버가 읽은 줄의 번호 */
+const previewNumber = (line: string, s: ReadSettings = settings) => readQuick(line, s).no
 const none = (): Product | undefined => undefined
 
 describe('빠른 입력 → 등록 (AC-S05-10)', () => {

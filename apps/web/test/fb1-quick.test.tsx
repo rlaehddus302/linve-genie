@@ -5,9 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { Product } from '../src/api/types.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
-import { decideQuickInput, fixPricePreview, quickSettings, registerPreview, unitLine } from '../src/lib/quick.ts'
+import { decideQuick, fixPricePreview as fixPriceText, registerPreview as registerPreviewText, unitLine } from '../src/lib/quick.ts'
+import { readPrice, readQuick, type ReadSettings } from '../../../packages/voice-session/src/read.ts'
 import { DATE, FakeEventSource, FakeServer, broadcastItem, broadcastView, emptyChanges, flush, fullView, product } from './support.ts'
 
+// SRV1 (D-APP-23·24): 미리 보기 글은 서버가 읽은 결과로 만든다 — 아래 도우미가 "서버 읽기(read.ts) → 화면 글(lib/quick.ts)"을 잇는다(기대값 그대로)
+const quickSettings = (value: SaleSettings): ReadSettings => ({ 'price.unit': value['price.unit'], 'claim.maxNumber': value['claim.maxNumber'] })
+const registerPreview = (line: string, settings: ReadSettings, find: (no: number) => Product | undefined) => registerPreviewText(readQuick(line, settings), find)
+const fixPricePreview = (text: string, settings: ReadSettings) => fixPriceText(readPrice(text, settings))
+const decideQuickInput = (line: string, settings: ReadSettings, find: (no: number) => Product | undefined) => decideQuick(readQuick(line, settings), find)
 const THOUSAND = quickSettings({ ...DEFAULT_SETTINGS, 'price.unit': 'THOUSAND' })
 const WON = quickSettings({ ...DEFAULT_SETTINGS, 'price.unit': 'WON' })
 const TEN_THOUSAND = quickSettings({ ...DEFAULT_SETTINGS, 'price.unit': 'TEN_THOUSAND' })

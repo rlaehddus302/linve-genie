@@ -26,7 +26,8 @@ import { dateWords } from '../lib/kst.ts'
 import { LABELS_OFF_NOTE, pauseAlertMessage, stationLeadShortText, stationLeadText } from '../lib/print-words.ts'
 import { useLeaveGuard } from '../lib/leave-guard.ts'
 import { ReadOnlyContext } from '../lib/read-only.ts'
-import { changedFields, decideFixForm, decideQuickInput, editQuestion, quickSettings, type QuickDecision } from '../lib/quick.ts'
+import { changedFields, decideFix, decideQuick, editQuestion, type QuickDecision } from '../lib/quick.ts'
+import { readProblem, readText, useServerRead, type QuickReading } from '../lib/read.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
 import { useScopeStore } from '../lib/use-store.ts'
 import { useWide } from '../lib/use-wide.ts'
@@ -35,7 +36,6 @@ import type { UndoItem, UndoQueue } from '../lib/undo-queue.ts'
 import { ResendBoard, existsOnResendWords } from '../lib/resend-board.ts'
 import { captureVacated, vacatedLine, type VacatedBefore } from '../lib/vacated.ts'
 import { cardLine, enterBadgeCard } from '../lib/voice.ts'
-import { readReceived } from '../lib/received.ts'
 import { OFFER_FIX_FAILED, SMS_SEND_FAILED, SMS_UNDO_NOTE, VOICE_IDLE, type RecentFixOutcome, type RegisterSource, type SmsBuyerChoice, type SmsWriteOutcome, type VoiceHost, type VoiceLogInput, type VoiceSmsWrite, type VoiceSnapshot, type VoiceWriteOptions } from '../voice/model.ts'
 import { fetchPastNames } from '../voice/history.ts'
 import { serverVoiceOnly } from '../voice/remote.ts'
@@ -93,6 +93,24 @@ export function shortcutsWord(labels: boolean): string {
 const noSubscribe = () => () => {}
 const idleVoice = (): VoiceSnapshot => VOICE_IDLE
 
+/**
+ * 등록 요청 본문의 상품 칸 (SRV1 D-APP-24, 약속 2): 판매자가 친 글은 원문 그대로 보내고 서버가 읽어 기록한다.
+ * - text: 빠른 입력 한 줄 원문 (`{ text }`)
+ * - fields: 고치기 칸의 원문 (`{ no, name, price }` — 번호·가격 칸도 친 글자 그대로)
+ * - values: 서버가 이미 읽어 준 값(음성 카드·"고칠까요?"에서 고른 값) — 숫자 칸 그대로
+ */
+type RegSend = { readonly kind: 'text'; readonly text: string } | { readonly kind: 'fields'; readonly no: string; readonly name: string; readonly price: string } | { readonly kind: 'values' }
+
+/** 한 줄의 판단을 실행한다 (inChain·등록 요청 모양은 handleDecision 참고) */
+type HandleDecision = (
+  decision: QuickDecision,
+  line: string,
+  fromFix: boolean,
+  countAt: string,
+  inChain?: boolean,
+  extra?: { readonly send?: RegSend; readonly requestId?: string },
+) => Promise<void> | undefined
+
 /** 등록 경로에 넘긴 한 줄 (빠른 입력·고치기 칸·음성 카드) */
 interface RegRequest {
   readonly requestId: string
@@ -101,6 +119,9 @@ interface RegRequest {
   readonly name: string
   readonly price: number
   readonly fromFix: boolean
+  readonly send: RegSend
+  /** 서버 읽기 입구에 닿지 못해 아직 읽지 못한 빠른 입력 줄 (다시 보내면 같은 요청 번호로 읽고 판단한다 — AC-SRV1-06). 그 줄의 개수 칸 글자 */
+  readonly unread?: { readonly countAt: string }
   /** 빠른 입력 줄에 붙인 옵션·별칭·변형 재고 (옵션 방송 — product.register 한 번에 함께, D-O2-05) */
   readonly extra?: OptionPayload
   readonly draftOf?: OptionDraft
@@ -130,6 +151,10 @@ interface RegHooks {
   readonly extra?: OptionPayload
   readonly draftOf?: OptionDraft
   readonly stock?: number
+  /** 상품 칸을 보내는 모양 (없으면 values) */
+  readonly send?: RegSend
+  /** 앞서 정한 요청 번호 (읽지 못해 다시 보내는 줄 — 같은 요청 번호로 한 번만 기록) */
+  readonly requestId?: string
 }
 
 /** 창이 열려 있다 (콘솔 창·음성 안내 창·떠날지 묻는 창) */
@@ -272,6 +297,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   const [quickText, setQuickText] = useState('')
   const quickTextRef = useRef(quickText)
   quickTextRef.current = quickText
+  // 치는 동안의 미리 보기 — 서버 읽기 입구의 답 (150ms 뒤, 답이 오기 전·연결이 없으면 null, SRV1 약속 3)
+  const quickReading = useServerRead(b, 'quick', quickText, !(ended || sealed))
+  const quickReadingRef = useRef(quickReading)
+  quickReadingRef.current = quickReading
   const [fix, setFix] = useState<FixState | null>(null)
   /** 빠른 입력 고치기 칸이 열려 있다 (Esc가 문자찜 카드를 닫지 않는다, D-V1-20) */
   const fixOpen = useRef(false)
@@ -420,11 +449,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
         const product = current.products.get(productKey(b, no))
         return product === undefined || product.name.trim() === '' ? null : product.name
       },
-      // 손 입력 문자찜의 받은 시각 칸과 같은 읽기 (ORD-08 AC6, D-089 — 오전·오후 중 지금과 가까운 쪽)
-      readSmsTime: (time, now) => {
-        const read = readReceived(time, now)
-        return read.kind === 'ok' ? { value: read.value, late: read.late } : null
-      },
+      // 받은 시각 읽기(readSmsTime)는 서버 음성 흐름이 한다 (SRV1 D-APP-23 — 기기에 읽기 함수가 없다)
       writeSms: (write, received, requestId) => voiceActions.current.writeSms(write, received, requestId),
       newRequestId,
       readSmsSettings,
@@ -794,7 +819,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   )
 
   const runRegistration = useCallback(
-    async (id: number, first: boolean, auto = false) => {
+    async (id: number, first: boolean, auto = false): Promise<void> => {
       const request = regRequests.current.get(id)
       if (request === undefined) return
       // 보내기 시작하면 저절로 다시 보낼 목록에서 내린다 (판매자가 "다시 보내기"를 눌렀거나 지금 저절로 보냄, D-MOB2-07)
@@ -802,6 +827,35 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       const remove = () => {
         regRequests.current.delete(id)
         setRegistrations((list) => list.filter((item) => item.id !== id))
+      }
+      const failed = (error: ApiError) => {
+        setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'failed', error, auto: false } : item)))
+        // 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(응답만 잃은 경우 포함): 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07·14)
+        if (error.retryable) {
+          resendBoard.add(`register:${String(id)}`, 'register', () => {
+            const next = chain.current.then(() => runRegistrationRef.current(id, false, true))
+            chain.current = next
+            return next
+          })
+        }
+      }
+      // 서버 읽기 입구에 닿지 못했던 줄: 지금 읽고 판단한다 — 등록이면 처음 정한 요청 번호로 보낸다 (AC-SRV1-06)
+      if (request.unread !== undefined) {
+        setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'sending', error: null, auto } : item)))
+        let reading: QuickReading
+        try {
+          reading = await readText(b, 'quick', request.line)
+        } catch (error) {
+          const problem = readProblem(error)
+          if (problem.transient) failed(problem)
+          else {
+            remove()
+            setQuickError(problem)
+          }
+          return
+        }
+        remove()
+        return handleDecisionRef.current(decideQuick(reading, findProduct), request.line, false, request.unread.countAt, true, { send: request.send, requestId: request.requestId })
       }
       // 앞 줄이 같은 번호를 등록했으면(또는 다른 기기가) 등록 대신 묻는다
       const exists = (product: Product) => {
@@ -824,12 +878,11 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'sending', error: null, auto } : item)))
       try {
         const extra = request.extra
+        const send = request.send
         const result = await write(request.requestId, {
           type: 'product.register',
           b,
-          no: request.no,
-          name: request.name,
-          price: request.price,
+          ...(send.kind === 'text' ? { text: send.text } : send.kind === 'fields' ? { no: send.no, name: send.name, price: send.price } : { no: request.no, name: request.name, price: request.price }),
           ...(request.stock === undefined ? {} : { stock: request.stock }),
           ...(extra === undefined || extra.options.length === 0 ? {} : { options: extra.options, stocks: extra.stocks }),
           ...(extra === undefined || extra.aliases.length === 0 ? {} : { aliases: extra.aliases }),
@@ -870,16 +923,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       } catch (error) {
         if (!isApiError(error)) throw error
         if (error.transient) {
-          setRegistrations((list) => list.map((item) => (item.id === id ? { ...item, status: 'failed', error, auto: false } : item)))
+          failed(error)
           request.onTransient?.()
-          // 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(응답만 잃은 경우 포함): 연결이 돌아오면 같은 요청 번호로 한 번 저절로 (D-MOB2-07·14)
-          if (error.retryable) {
-            resendBoard.add(`register:${String(id)}`, 'register', () => {
-              const next = chain.current.then(() => runRegistrationRef.current(id, false, true))
-              chain.current = next
-              return next
-            })
-          }
         } else {
           remove()
           setQuickError(error)
@@ -900,10 +945,25 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
 
   const startRegistration = useCallback((line: string, no: number, name: string, price: number, fromFix: boolean, hooks: RegHooks = {}): number => {
     const id = regId.current++
-    regRequests.current.set(id, { requestId: newRequestId(), line, no, name, price, fromFix, ...hooks })
+    const { send, requestId, ...rest } = hooks
+    regRequests.current.set(id, { requestId: requestId ?? newRequestId(), line, no, name, price, fromFix, send: send ?? { kind: 'values' }, ...rest })
     setRegistrations((list) => [...list, { id, line, no, status: 'sending', error: null }])
     return id
   }, [])
+
+  /** 서버 읽기 입구에 닿지 못한 빠른 입력 줄: "저장하지 못했어요"로 남기고 연결이 돌아오면 같은 요청 번호로 다시 읽어 보낸다 (AC-SRV1-06) */
+  const keepUnreadLine = useCallback((line: string, countAt: string, error: ApiError, extra: { readonly send?: RegSend; readonly requestId?: string } = {}) => {
+    const id = regId.current++
+    regRequests.current.set(id, { requestId: extra.requestId ?? newRequestId(), line, no: 0, name: '', price: 0, fromFix: false, send: extra.send ?? { kind: 'text', text: line }, unread: { countAt } })
+    setRegistrations((list) => [...list, { id, line, no: 0, status: 'failed', error, auto: false }])
+    if (error.retryable) {
+      resendBoard.add(`register:${String(id)}`, 'register', () => {
+        const next = chain.current.then(() => runRegistrationRef.current(id, false, true))
+        chain.current = next
+        return next
+      })
+    }
+  }, [resendBoard])
 
   const enqueueRegistration = useCallback(
     (line: string, no: number, name: string, price: number, fromFix: boolean, hooks: RegHooks = {}) => {
@@ -1028,13 +1088,28 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
     },
   }
 
-  /** 카드 고치기 칸의 Enter: 빠른 입력 고치기 칸과 같은 해석 (decideFixForm — 그 방송의 price.unit) */
+  /**
+   * 카드 고치기 칸의 Enter: 빠른 입력 고치기 칸과 같은 읽기 — 번호·가격 칸은 서버가 읽는다(SRV1 D-APP-24, 그 방송의 price.unit).
+   * 등록 요청에는 칸의 원문을 보낸다(서버가 같은 함수로 다시 읽어 기록한다).
+   */
   const submitCardForm = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (voice === null || settings === null) return
       const form = voice.getSnapshot().forms.get(id)
       if (form === undefined) return
-      const decision = decideFixForm(form, quickSettings(settings), findProduct)
+      let readings: { no: Awaited<ReturnType<typeof readText<'fix'>>>; price: Awaited<ReturnType<typeof readText<'price'>>> }
+      try {
+        const [no, price] = await Promise.all([readText(b, 'fix', form.no), readText(b, 'price', form.price)])
+        readings = { no, price }
+      } catch (error) {
+        voice.formProblem(id, readProblem(error).message, 'no')
+        return
+      }
+      // 읽는 동안 칸이 바뀌었으면 그 글로 다시 (옛 글의 답으로 등록하지 않는다)
+      const now = voice.getSnapshot().forms.get(id)
+      if (now === undefined || now.no !== form.no || now.price !== form.price || now.name !== form.name) return
+      const decision = decideFix(form, readings, findProduct)
+      const fields: RegSend = { kind: 'fields', no: form.no, name: form.name.trim(), price: form.price }
       switch (decision.kind) {
         case 'fix':
           voice.formProblem(id, decision.message, decision.focus)
@@ -1049,6 +1124,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           // 음성 카드를 손으로 고쳐 등록해도 그 카드의 조각 글을 기록에 (SA-V3-001)
           const voiceLog = voice.voiceLogFor(card.text)
           enqueueRegistration(cardLine(no, name, price), no, name, price, false, {
+            send: fields,
             ...(voiceLog === null ? {} : { voiceLog }),
             onFailed: () => voice.restore({ ...card, no, name: name === '' ? null : name, price }, { touched: true }),
             onDone: (key) => voice.noteVoiceRegistered({ id: key, no, name, price }),
@@ -1066,14 +1142,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           return
       }
     },
-    [askEdit, dropAttached, enqueueRegistration, findProduct, focusQuick, settings, voice],
+    [askEdit, b, dropAttached, enqueueRegistration, findProduct, focusQuick, settings, voice],
   )
 
   /** 카드의 "등록": 고치기 칸이 열려 있으면 그 칸의 값으로 */
   const registerCardClick = useCallback(
     (id: string) => {
       if (voice === null) return
-      if (voice.getSnapshot().forms.has(id)) submitCardForm(id)
+      if (voice.getSnapshot().forms.has(id)) void submitCardForm(id)
       else voice.confirm(id, 'click')
     },
     [submitCardForm, voice],
@@ -1118,8 +1194,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
    * 한 줄의 판단을 실행한다. inChain = 앞 등록 응답을 기다렸다가 차례 안에서 판단한 줄 — 등록은 그 자리에서 보내고 끝날 때까지
    * 차례를 잡는다(뒤 줄의 판단이 이 등록을 본다: "15 …" 다음의 "15"는 찾기).
    */
-  const handleDecision = useCallback(
-    (decision: QuickDecision, line: string, fromFix: boolean, countAt: string, inChain = false): Promise<void> | undefined => {
+  const handleDecision: HandleDecision = useCallback(
+    (decision: QuickDecision, line: string, fromFix: boolean, countAt: string, inChain = false, extra: { readonly send?: RegSend; readonly requestId?: string } = {}): Promise<void> | undefined => {
       /** 개수 칸 → 넘길 재고 (1이면 넘기지 않는다). 칸이 틀렸으면 보내지 않고 알린다 (AC-ORD11-04) */
       const readStock = (): { ok: true; stock: number | undefined } | { ok: false } => {
         const count = readCount(countAt)
@@ -1148,6 +1224,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           const hooks: RegHooks = {
             ...(option === null ? {} : { extra: option.payload, draftOf: option.draft }),
             ...(counted.stock === undefined ? {} : { stock: counted.stock }),
+            ...(extra.send === undefined ? {} : { send: extra.send }),
+            ...(extra.requestId === undefined ? {} : { requestId: extra.requestId }),
           }
           if (option !== null) {
             attachedRef.current = null
@@ -1202,6 +1280,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
     },
     [askEdit, clearLine, dropAttached, enqueueRegistration, focusQuick, openDialog, runRegistration, startRegistration, takeCount, typedNext],
   )
+  const handleDecisionRef = useRef<HandleDecision>(handleDecision)
+  handleDecisionRef.current = handleDecision
 
   const onEnter = useCallback(
     (line: string) => {
@@ -1215,27 +1295,48 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       // 칸의 글자를 골라 둔다: 다음 줄을 바로 치면 그 글자가 바뀌고 뒤에 이어 붙지 않는다(응답이 늦어도, TE-S05-001). 판단은 친 줄로 한다
       const input = quickRef.current
       if (input !== null && input.value === line) input.select()
-      const snapshotSettings = quickSettings(settings)
+      // 빈 줄은 아무 일도 없다 (읽을 글이 없다)
+      if (line.trim() === '') return
       // 개수 칸은 Enter를 친 때의 글자로 읽는다 (늦게 판단해도 그 줄의 개수)
       const countAt = countRef.current
-      if (regRequests.current.size === 0 && waitingLines.current === 0) {
-        void handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false, countAt)
-        return
-      }
-      // 앞 줄의 등록이 아직 끝나지 않았다: 그 뒤에 차례대로 판단한다 — "15 …" 바로 뒤의 "15"(찾기)·"15 …"(고치기)가 앞 등록을 본다
+      // SRV1 (D-APP-24): 줄은 서버가 읽는다 — 미리 보기 답을 기다리지 않고 Enter 때 그 줄을 읽어 판단한다. 차례대로 판단한다 —
+      // "15 …" 바로 뒤의 "15"(찾기)·"15 …"(고치기)가 앞 등록을 본다. 등록 요청에는 친 줄 원문을 보낸다
       waitingLines.current++
-      chain.current = chain.current.then(() => {
+      chain.current = chain.current.then(async () => {
         waitingLines.current--
-        return handleDecision(decideQuickInput(line, snapshotSettings, findProduct), line, false, countAt, true)
+        let reading: QuickReading
+        try {
+          reading = await readText(b, 'quick', line)
+        } catch (error) {
+          const problem = readProblem(error)
+          // 서버에 닿지 못했다: "저장하지 못했어요"로 남기고 연결이 돌아오면 같은 원문·같은 요청 번호로 한 번 (AC-SRV1-06)
+          if (problem.transient) keepUnreadLine(line, countAt, problem)
+          else setQuickError(problem)
+          return
+        }
+        return handleDecisionRef.current(decideQuick(reading, findProduct), line, false, countAt, true, { send: { kind: 'text', text: line } })
       })
     },
-    [findProduct, handleDecision, settings, voice],
+    [b, findProduct, keepUnreadLine, settings, voice],
   )
 
   const onFixSubmit = useCallback(() => {
     if (settings === null || fix === null) return
-    void handleDecision(decideFixForm(fix, quickSettings(settings), findProduct), fix.line, true, countRef.current)
-  }, [findProduct, fix, handleDecision, settings])
+    const form = fix
+    const countAt = countRef.current
+    // 고치기 칸의 번호·가격도 서버가 읽는다. 등록 요청에는 칸의 원문을 보낸다 (SRV1 D-APP-24)
+    chain.current = chain.current.then(async () => {
+      let readings: { no: Awaited<ReturnType<typeof readText<'fix'>>>; price: Awaited<ReturnType<typeof readText<'price'>>> }
+      try {
+        const [no, price] = await Promise.all([readText(b, 'fix', form.no), readText(b, 'price', form.price)])
+        readings = { no, price }
+      } catch (error) {
+        setQuickError(readProblem(error))
+        return
+      }
+      return handleDecisionRef.current(decideFix(form, readings, findProduct), form.line, true, countAt, true, { send: { kind: 'fields', no: form.no, name: form.name.trim(), price: form.price } })
+    })
+  }, [b, findProduct, fix, settings])
 
   const closeFix = useCallback(() => {
     setFix(null)
@@ -1525,6 +1626,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
             <Lock className="lock-quick">
               <QuickInput
                 value={quickText}
+                reading={quickReading}
                 onChange={setQuickText}
                 inputRef={quickRef}
                 onEnter={onEnter}
@@ -1594,7 +1696,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           </div>
           {wide ? voiceLive : null}
         </div>
-        {wide || ended || sealed ? null : <QuickUnitLine value={quickText} />}
+        {wide || ended || sealed ? null : <QuickUnitLine reading={quickReading} />}
         {/* 휴대폰 차례 (QL3R1 D-QL3R1-03 — D-QL2-01 (1)을 대신함): 고정 영역·단위 줄 → 현재 상품 → 음성 칸 → 상품 보드 → 채팅 → 행동 줄 → 리허설 조작판
             → 여러 플랫폼 안내 → 유튜브 칸 → 인스타그램·틱톡 칸. 방송 중 자주 보는 보드·채팅을 엄지 가까이, 드물게 누르는 "방송 끝내기"는 그 아래. PC는 그대로 */}
         {wide ? null : currentProduct}
@@ -1661,8 +1763,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           }}
           optionDraft={attached?.draft ?? EMPTY_DRAFT}
           quickPrice={() => {
-            if (settings === null) return null
-            const decision = decideQuickInput(quickTextRef.current, quickSettings(settings), findProduct)
+            // 서버가 읽은 지금 줄 (답이 없으면 null)
+            const reading = quickReadingRef.current
+            if (reading === null) return null
+            const decision = decideQuick(reading, findProduct)
             return decision.kind === 'register' ? decision.price : null
           }}
           onAttach={(payload, draft) => {

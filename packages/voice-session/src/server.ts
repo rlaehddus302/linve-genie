@@ -1,7 +1,7 @@
 // APP1b: 기존 V2/V3 읽기 컨트롤러를 서버 메모리에서 그대로 실행한다.
 // 쓰기 효과는 기기로 보내 기존 요청 API를 거친다. 소리·글·상태는 저장하지 않는다.
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { decideFixForm } from '../../../apps/web/src/lib/quick.ts'
+import { readFixForm } from './read.ts'
 import * as voice from '@livejjim/voice'
 import { BaseSpeechEngine, type SpeechResult } from '../../voice/src/speech.ts'
 import { VoiceController, type VoiceHost } from '../../../apps/web/src/voice/controller.ts'
@@ -280,7 +280,7 @@ export function createReadingSession(options: ReadingSessionOptions) {
         const id = String(value.args[0])
         const form = controller.getSnapshot().forms.get(id)
         if (form === undefined) return
-        const parsed = decideFixForm(form, { 'price.unit': host.priceUnit?.() ?? 'WON', 'claim.maxNumber': host.maxNumber() }, () => undefined)
+        const parsed = readFixForm(form, { 'price.unit': host.priceUnit?.() ?? 'WON', 'claim.maxNumber': host.maxNumber() })
         if (parsed.kind === 'fix') controller.formProblem(id, parsed.message, parsed.focus)
         else if (parsed.kind === 'register') {
           const card = controller.take(id)
