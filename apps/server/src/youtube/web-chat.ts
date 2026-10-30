@@ -137,15 +137,26 @@ export function usecToMs(usec: string | null): number | null {
   return Number.isSafeInteger(ms) ? ms : null
 }
 
+/** 표시가 스크립트 맨 앞에 있는가 (`<script nonce="…">var ytInitialData = ` — 실제 페이지 2026-10-31 확인) */
+const SCRIPT_START = /<script[^<>]*>\s*$/i
+
 /**
- * HTML에서 `marker` 바로 뒤의 JSON 객체 하나를 꺼낸다 (문자열 안의 괄호는 세지 않는다). 없거나 깨졌으면 null.
+ * HTML에서 스크립트 맨 앞의 `marker` 바로 뒤 JSON 객체 하나를 꺼낸다 (문자열 안의 괄호는 세지 않는다). 없거나 깨졌으면 null.
+ * 방송 제목·채팅 같은 바깥 글에 같은 표시가 들어 있어도(JSON 문자열 안 — `<`는 <로 나온다) 스크립트 맨 앞이 아니면 건너뛴다.
  * 정규식으로 JSON을 자르지 않는다 — 큰 페이지(1MB 남짓)에서도 한 번 훑는다
  */
 export function jsonAfter(html: string, marker: string): Record<string, unknown> | null {
-  const at = html.indexOf(marker)
-  if (at < 0) return null
-  const start = html.indexOf('{', at + marker.length)
-  if (start < 0 || html.slice(at + marker.length, start).trim() !== '') return null
+  for (let at = html.indexOf(marker); at >= 0; at = html.indexOf(marker, at + 1)) {
+    if (!SCRIPT_START.test(html.slice(Math.max(0, at - 200), at))) continue
+    const start = at + marker.length
+    if (html[start] !== '{') continue
+    return objectAt(html, start)
+  }
+  return null
+}
+
+/** start의 `{`부터 짝이 맞는 `}`까지를 JSON으로 (깨졌으면 null) */
+function objectAt(html: string, start: number): Record<string, unknown> | null {
   let depth = 0
   let inString = false
   let escape = false
