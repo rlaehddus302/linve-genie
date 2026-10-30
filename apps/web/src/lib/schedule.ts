@@ -88,9 +88,13 @@ export const COPY_LABEL = '주소 복사'
 export const COPIED = '주소를 복사했어요.'
 export const COPY_FAILED = '복사하지 못했어요. 주소를 길게 눌러 직접 복사해 주세요.'
 export const ALERTS_HINT = '공개 일정 페이지에서 손님이 직접 신청한 수예요. 번호는 보이지 않아요.'
+/** 아직 아무 문자도 보내지 않는다 (D-KP1-20, UX-KP1-012) */
+export const ALERTS_NOT_SENDING = '아직 문자를 보내지 않아요. 보내기는 준비 중이에요.'
+/** 방송 일정은 칸마다 바로 저장된다 — 아래 저장 막대와 따로 (UX-KP1-003) */
+export const SCHEDULE_INSTANT = '방송 일정은 적거나 바꾸면 바로 저장돼요. 아래 [저장]은 누르지 않아도 돼요.'
 
 /** 알림 신청 상태 → 화면 낱말 (영어 상태값을 화면에 내지 않는다) */
-export const ALERT_WORDS = { pending: '신청 기다림', active: '받는 중', withdrawn: '그만 받음' } as const
+export const ALERT_WORDS = { pending: '번호 확인 전', active: '받는 중', withdrawn: '그만 받음' } as const
 
 /** 제목 1~40자, 소개 0~100자 (SCH-01) — 화면은 입력 길이만 막고, 거절 문장은 서버가 준다 */
 export const TITLE_MAX = 40

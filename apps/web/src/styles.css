@@ -4526,3 +4526,42 @@ select.input {
   border-color: #3c4043;
   color: #202124;
 }
+
+/* KP1 판매자 화면 큰 글자·큰 버튼 (UX-KP1-005): 글자 18px 이상, 누르는 칸 52px 이상.
+ * 묶음 배송지·저장한 배송지·설정 손님 관리·방송 일정·방송 알림·리포트·엑셀 창·콘솔 띠. 채팅 줄 안 꼬리표는 줄 글자 크기를 따른다(여기 없음). */
+.kp1-seller,
+.kp1-seller .hint,
+.kp1-seller .tag,
+.kp1-seller .notice,
+.kp1-seller dt,
+.kp1-seller dd,
+.kp1-page .hint,
+.kp1-page .tag,
+.kp1-page dt {
+  font-size: 1.125rem;
+}
+
+.kp1-seller .button,
+.kp1-page .button {
+  min-height: 3.25rem;
+  font-size: 1.125rem;
+}
+
+/* 콘솔에서 처음 한 번 묻는 "방송 화면에 손님 표시" 띠 (UX-KP1-006) */
+.badges-ask {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid #8a6d00;
+  border-radius: 0.5rem;
+  background-color: #fff8e1;
+  color: #3d2f00;
+}
+
+.badges-ask p {
+  margin: 0;
+}
+
+.badges-ask .row {
+  flex-wrap: wrap;
+}

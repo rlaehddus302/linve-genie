@@ -64,7 +64,7 @@ import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
 import { CautionContext, useConsoleCaution } from './caution.tsx'
 // KP1 채팅 손님 꼬리표·끄는 설정 (CR-7)
-import { ChatBadgesContext, HIDDEN_CAUTION, badgeLookup } from './ChatBadges.tsx'
+import { ChatBadgesContext, ConsoleBadgesAsk, HIDDEN_CAUTION, badgeLookup } from './ChatBadges.tsx'
 import { chatBuyers, useChatBadges } from '../lib/ledger.ts'
 import { useScreenWake } from '../voice/wake.ts'
 import { QuickInput, QuickUnitLine, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
@@ -1495,6 +1495,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
         </div>
         {endError !== null ? <ErrorNote error={endError} /> : null}
         {sealed ? <SealedNotice /> : null}
+        {/* KP1 UX-KP1-006: "방송 화면에 손님 표시"를 아직 정하지 않았으면 처음 한 번 묻는다 (실제 방송·봉인 전만) */}
+        {chatBadges.undecided && !sealed ? <ConsoleBadgesAsk onDecide={chatBadges.decide} /> : null}
         {otherVoice !== null ? (
           // 다른 방송에서 듣는 중 (D-V3-52)
           <div className="notice row" role="status">

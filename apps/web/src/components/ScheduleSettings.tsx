@@ -17,6 +17,7 @@ import {
   SCHEDULE_EMPTY,
   SCHEDULE_FULL_MESSAGE,
   SCHEDULE_HINT,
+  SCHEDULE_INSTANT,
   TITLE_MAX,
   addScheduleItem,
   editScheduleItem,
@@ -63,7 +64,10 @@ export function ScheduleSettings() {
     return loadError !== null ? <RequestError error={loadError} onRetry={() => setAttempt((n) => n + 1)} retryLabel="다시 불러오기" /> : <p role="status">방송 일정을 불러오는 중…</p>
   }
   return (
-    <div className="stack kp1-page">
+    <div className="stack kp1-page kp1-seller">
+      <p className="kp1-note" role="note">
+        {SCHEDULE_INSTANT}
+      </p>
       <p className="hint">{SCHEDULE_HINT}</p>
       <PagePart view={view} onSaved={setView} />
       <ItemsPart view={view} onSaved={setView} />

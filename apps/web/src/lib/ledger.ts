@@ -17,11 +17,14 @@ export const DEFAULT_LEDGER_MONTHS: LedgerMonths = 12
 /** 설정 "손님 관리"의 장부 칸 (CR-3·CR-7) */
 export interface LedgerSettings {
   readonly months: LedgerMonths
-  /** 방송 화면에 손님 표시 (기본 켬) */
-  readonly consoleBadges: boolean
+  /**
+   * 방송 화면에 손님 표시. null = 판매자가 아직 정하지 않음(UX-KP1-006 — 정하기 전에는 보이지 않는다).
+   * 서버가 아직 null을 주지 않으면(옛 서버) 받은 참·거짓 그대로다.
+   */
+  readonly consoleBadges: boolean | null
 }
 
-export const DEFAULT_LEDGER_SETTINGS: LedgerSettings = { months: DEFAULT_LEDGER_MONTHS, consoleBadges: true }
+export const DEFAULT_LEDGER_SETTINGS: LedgerSettings = { months: DEFAULT_LEDGER_MONTHS, consoleBadges: null }
 
 /** 콘솔 채팅 줄 꼬리표 하나 (CR-7) — text가 null이면 꼬리표 없음 */
 export interface CustomerBadge {
@@ -65,10 +68,31 @@ export interface CustomerLedgerView {
 // ── 문구 ──────────────────────────────────────────────────────────────
 
 export const LEDGER_MONTH_WORDS: Readonly<Record<LedgerMonths, string>> = { 6: '6개월', 12: '1년', 24: '2년', 36: '3년' }
-export const LEDGER_MONTHS_LABEL = '손님 장부 보관 기간'
+export const LEDGER_MONTHS_LABEL = '저장한 배송지 보관 기간'
 export const LEDGER_MONTHS_HELP = '손님이 다음 주문에도 쓰겠다고 고른 배송지를 이 기간 동안 보관해요. 마지막 주문 뒤 기간이 지나면 저절로 지워요.'
 export const CONSOLE_BADGES_LABEL = '방송 화면에 손님 표시'
 export const CONSOLE_BADGES_HELP = '방송 화면을 녹화하거나 송출 화면에 띄운다면 꺼 주세요. 손님에게 보이면 안 되는 표시예요.'
+/** 아직 정하지 않았을 때 (UX-KP1-006) */
+export const CONSOLE_BADGES_UNDECIDED = '아직 정하지 않았어요. 정하기 전에는 방송 화면에 보이지 않아요.'
+/** 콘솔에서 처음 한 번 묻는 띠 (UX-KP1-006) */
+export const CONSOLE_BADGES_ASK = '방송 화면에 손님 표시를 보일까요? 이 화면을 방송에 내보내면 손님도 볼 수 있어요.'
+export const CONSOLE_BADGES_ASK_DETAIL = '"단골 · 누적 금액"·"입금 늦음 주의"·"처음" 표시예요. 나중에 설정 "손님 관리"에서 바꿀 수 있어요.'
+export const CONSOLE_BADGES_SHOW = '보이기'
+export const CONSOLE_BADGES_HIDE = '안 보이기'
+export const CONSOLE_BADGES_ASK_FAILED = '저장하지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.'
+/** 보관 기간을 줄일 때 확인 (UX-KP1-002) — 몇 명인지 못 받으면 수 없이 */
+export const LEDGER_SHRINK_TITLE = '보관 기간을 줄일까요?'
+export const LEDGER_SHRINK_ASK = '이미 기간이 지난 손님의 저장한 배송지는 1시간 안에 지워져요. 되돌릴 수 없어요.'
+export const LEDGER_SHRINK_COUNTING = '지워질 손님 수를 세는 중…'
+/** 확인 창 문장: 서버가 센 수(n)가 있으면 수와 함께 */
+export function shrinkAsk(n: number | null): string {
+  if (n === null) return LEDGER_SHRINK_ASK
+  if (n === 0) return '지금 줄여도 바로 지워지는 손님은 없어요. 앞으로는 줄인 기간이 지나면 저장한 배송지가 지워져요. 되돌릴 수 없어요.'
+  return `지금 줄이면 손님 ${n.toLocaleString('ko-KR')}명의 저장한 배송지가 1시간 안에 지워져요. 되돌릴 수 없어요.`
+}
+export const LEDGER_SHRINK_OK = '줄이기'
+export const LEDGER_SHRINK_KEEP = '그대로 두기'
+export const LEDGER_SHRINK_NOTE = '기간을 줄였어요. [저장]을 누르면 이미 기간이 지난 손님의 저장한 배송지가 1시간 안에 지워져요. 되돌릴 수 없어요.'
 export const CONSOLE_BADGES_DETAIL = '켜면 방송 화면 채팅에 "입금 늦음 주의"·"단골 · 누적"·"처음"이 보여요. 끄면 1등 옆 "입금 늦음 주의"도 함께 사라져요.'
 export const PREFILL_TITLE = '지난 주문 배송지예요 — 확인해 주세요'
 export const PREFILL_HELP = '손님이 지난 주문 때 저장해 둔 배송지예요. 맞으면 [배송지 확인]을 눌러 주세요. 바뀌었으면 [고치기]로 고쳐 주세요.'
@@ -77,16 +101,17 @@ export const XLSX_BUTTON = '엑셀로 받기'
 export const XLSX_TITLE = '손님 엑셀로 받기'
 export const XLSX_HELP = '모든 손님을 누적 큰 순으로 받아요. 거르기·찾기와 상관없이 전부 들어가요.'
 export const XLSX_CONTACT_LABEL = '연락처·주소도 넣기'
+export const XLSX_CONTACT_HELP = '배송지 저장에 동의한 손님만 들어가요.'
 export const XLSX_CONTACT_WARNING = '연락처가 든 파일은 다른 사람에게 보내지 마세요.'
 export const XLSX_BUSY = '엑셀을 만드는 중…'
 export const LINKED_PREFIX = '이 손님이 직접 이은 계정: '
-export const LEDGER_TITLE = '손님 장부'
+export const LEDGER_TITLE = '저장한 배송지'
 export const LEDGER_NONE = '저장해 둔 배송지가 없어요. 손님이 확인서 링크에서 "다음 주문에도 이 배송지 쓰기"를 고르면 생겨요.'
-export const LEDGER_DELETE = '장부에서 지우기'
-export const LEDGER_DELETE_TITLE = '장부에서 지우기'
+export const LEDGER_DELETE = '저장한 배송지 지우기'
+export const LEDGER_DELETE_TITLE = '저장한 배송지 지우기'
 export const LEDGER_DELETE_ASK = '이 손님의 저장한 배송지를 지울까요? 지우면 되돌릴 수 없어요. 지난 주문의 배송지와 손님 기록은 그대로예요.'
-export const LEDGER_DELETED = '장부에서 지웠어요.'
-export const SELLER_CANNOT_WRITE = '장부는 손님이 확인서 링크에서 직접 고를 때만 생겨요. 판매자가 대신 만들 수 없어요.'
+export const LEDGER_DELETED = '저장한 배송지를 지웠어요.'
+export const SELLER_CANNOT_WRITE = '저장한 배송지는 손님이 확인서 링크에서 직접 고를 때만 생겨요. 판매자가 대신 만들 수 없어요.'
 
 // ── 부르기 ────────────────────────────────────────────────────────────
 
@@ -97,7 +122,15 @@ export async function fetchLedgerSettings(): Promise<LedgerSettings> {
 }
 
 export async function saveLedgerSettings(value: LedgerSettings): Promise<LedgerSettings> {
+  // 아직 정하지 않았으면(null) 그대로 보낸다 — 보관 기간만 바꿔도 콘솔이 계속 묻는다(UX-KP1-006)
   return (await put<{ settings: LedgerSettings }>(LEDGER_SETTINGS_PATH, { months: value.months, consoleBadges: value.consoleBadges })).settings
+}
+
+/** 보관 기간을 months로 줄이면 곧 지워질 손님 수 (`GET /api/ledger-settings/preview?months=` → `{ months, willDelete }`, UX-KP1-002) */
+export async function fetchShrinkPreview(months: LedgerMonths): Promise<number> {
+  const result = await get<{ months: number; willDelete: number }>(`${LEDGER_SETTINGS_PATH}/preview?months=${String(months)}`)
+  if (!Number.isSafeInteger(result.willDelete) || result.willDelete < 0) throw new Error('수를 알 수 없어요')
+  return result.willDelete
 }
 
 /** 한 번에 묻는 가장 많은 구매자 수 (CR-7) */
@@ -217,11 +250,16 @@ export interface ChatBadges {
   readonly show: boolean
   /** 구매자 → 꼬리표 (글이 있는 것만) */
   readonly badges: ReadonlyMap<string, CustomerBadge>
+  /** 설정을 받았고 판매자가 "방송 화면에 손님 표시"를 아직 정하지 않았다 — 콘솔이 한 번 묻는다(UX-KP1-006). 리허설은 늘 거짓 */
+  readonly undecided: boolean
+  /** 콘솔 띠에서 정하기 (PUT /api/ledger-settings — 보관 기간은 받은 그대로). 실패하면 거절 */
+  readonly decide: (value: boolean) => Promise<void>
 }
 
 export interface ChatBadgesDeps {
   readonly fetchBadges: (date: string, buyers: readonly string[]) => Promise<BadgesView>
   readonly fetchSettings: () => Promise<LedgerSettings>
+  readonly saveSettings: (value: LedgerSettings) => Promise<LedgerSettings>
   /** 실시간 알림 (`customers` {what:'settings'}·다시 붙음) */
   readonly openStream: () => EventSourceLike
   readonly now: () => number
@@ -230,6 +268,7 @@ export interface ChatBadgesDeps {
 const defaultDeps: ChatBadgesDeps = {
   fetchBadges,
   fetchSettings: fetchLedgerSettings,
+  saveSettings: saveLedgerSettings,
   openStream: () => sharedStream(streamUrl).open(),
   now: () => Date.now(),
 }
@@ -257,15 +296,17 @@ export function customersEventWhat(raw: unknown): 'settings' | 'ledger' | null {
 export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly string[], deps: ChatBadgesDeps = defaultDeps): ChatBadges {
   const enabled = !rehearsal && date !== ''
   const [show, setShow] = useState<boolean | null>(null)
+  const [months, setMonths] = useState<LedgerMonths | null>(null)
+  const [undecided, setUndecided] = useState(false)
   const [badges, setBadges] = useState<ReadonlyMap<string, CustomerBadge>>(NO_BADGES)
   const depsRef = useRef(deps)
   depsRef.current = deps
   const scope = `${date}|${String(enabled)}`
-  const state = useRef<{ scope: string; queue: BadgeQueue; timer: ReturnType<typeof setTimeout> | null; busy: boolean; show: boolean | null; alive: boolean } | null>(null)
+  const state = useRef<{ scope: string; queue: BadgeQueue; timer: ReturnType<typeof setTimeout> | null; busy: boolean; show: boolean | null; undecided: boolean; alive: boolean } | null>(null)
   if (state.current === null || state.current.scope !== scope) {
     if (state.current?.timer != null) clearTimeout(state.current.timer)
     if (state.current !== null) state.current.alive = false
-    state.current = { scope, queue: new BadgeQueue(), timer: null, busy: false, show: null, alive: true }
+    state.current = { scope, queue: new BadgeQueue(), timer: null, busy: false, show: null, undecided: false, alive: true }
   }
   const [tick, setTick] = useState(0)
 
@@ -273,6 +314,7 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
   useEffect(() => {
     setBadges(NO_BADGES)
     setShow(null)
+    setUndecided(false)
   }, [scope])
 
   useEffect(() => {
@@ -283,6 +325,13 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
       if (current.timer !== null) clearTimeout(current.timer)
     }
   }, [scope])
+
+  const applySettings = (settings: LedgerSettings) => {
+    if (state.current !== null) state.current.undecided = settings.consoleBadges === null
+    setMonths(settings.months)
+    setUndecided(settings.consoleBadges === null)
+    applyShow(settings.consoleBadges === true)
+  }
 
   const applyShow = (value: boolean) => {
     const current = state.current
@@ -306,7 +355,7 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
     const load = () => {
       depsRef.current.fetchSettings().then(
         (settings) => {
-          if (alive && mine === state.current) applyShow(settings.consoleBadges)
+          if (alive && mine === state.current) applySettings(settings)
         },
         () => {
           // 받지 못하면 지금 그대로 (오류 띠 없음)
@@ -341,7 +390,8 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
     current.queue.add(buyers)
     const run = () => {
       if (!current.alive || current.busy || current.timer !== null) return
-      if (current.show === false) return
+      // 아직 정하지 않았으면 묻지 않는다 (UX-KP1-006)
+      if (current.show === false || current.undecided) return
       const step = current.queue.next(depsRef.current.now())
       if (step.kind === 'idle') return
       if (step.kind === 'wait') {
@@ -356,6 +406,8 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
         (view) => {
           if (!current.alive) return
           current.busy = false
+          // 그 사이 설정을 받아 아직 정하지 않은 것을 알았으면 꼬리표 응답의 show는 쓰지 않는다
+          if (current.undecided) return
           if (view.show !== current.show) applyShow(view.show)
           if (view.show) {
             const found = view.badges.filter((badge) => badge.text !== null && badge.text !== '')
@@ -380,7 +432,19 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
     run()
   }, [buyers, scope, tick, show])
 
-  return useMemo(() => ({ show: !enabled ? true : show === true, badges: !enabled || show !== true ? NO_BADGES : badges }), [enabled, show, badges])
+  const decide = async (value: boolean): Promise<void> => {
+    const mine = state.current
+    const saved = await depsRef.current.saveSettings({ months: months ?? DEFAULT_LEDGER_MONTHS, consoleBadges: value })
+    if (mine === state.current && mine?.alive === true) applySettings(saved)
+  }
+  const decideRef = useRef(decide)
+  decideRef.current = decide
+  const stableDecide = useMemo(() => (value: boolean) => decideRef.current(value), [])
+
+  return useMemo(
+    () => ({ show: !enabled ? true : show === true, badges: !enabled || show !== true ? NO_BADGES : badges, undecided: enabled && undecided, decide: stableDecide }),
+    [enabled, show, badges, undecided, stableDecide],
+  )
 }
 
 /**

@@ -1,7 +1,7 @@
 // 손님 장부 화면 조각 (KP1 CR-2~CR-5·CR-7, AC-KP1-04·07·08·11·15).
 // - 설정 "손님 관리"의 장부 칸: 보관 기간(6개월·1년·2년·3년)·"방송 화면에 손님 표시"(켜기·끄기 + 설명). 저장은 설정 화면 아래 저장 막대 하나.
 // - 묶음 자세히의 "지난 주문 배송지예요 — 확인해 주세요" + 다섯 칸 + [배송지 확인]·[고치기]. 판매자 저장엔 동의 칸이 없다(AC-KP1-04).
-// - 손님 자세히의 장부 칸: 가린 받는 분·연락처 끝 4자리·보관 끝나는 날, "이 손님이 직접 이은 계정: …", [장부에서 지우기] + 확인 창.
+// - 손님 자세히의 "저장한 배송지" 칸(UX-KP1-014 — 판매자 화면엔 "장부" 낱말을 쓰지 않는다): 가린 받는 분·연락처 끝 4자리·보관 끝나는 날, "이 손님이 직접 이은 계정: …", [저장한 배송지 지우기] + 확인 창.
 // - 이름·주소·계정 이름은 React 기본 이스케이프로만 그린다. 장부를 만드는 판매자 길은 없다.
 import { useEffect, useId, useRef, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
@@ -11,6 +11,7 @@ import {
   CONSOLE_BADGES_DETAIL,
   CONSOLE_BADGES_HELP,
   CONSOLE_BADGES_LABEL,
+  CONSOLE_BADGES_UNDECIDED,
   LEDGER_DELETE,
   LEDGER_DELETE_ASK,
   LEDGER_DELETE_TITLE,
@@ -20,11 +21,18 @@ import {
   LEDGER_MONTHS_LABEL,
   LEDGER_MONTH_WORDS,
   LEDGER_NONE,
+  LEDGER_SHRINK_COUNTING,
+  LEDGER_SHRINK_KEEP,
+  LEDGER_SHRINK_NOTE,
+  LEDGER_SHRINK_OK,
+  LEDGER_SHRINK_TITLE,
   LEDGER_TITLE,
   LINKED_PREFIX,
   PREFILL_HELP,
   PREFILL_TITLE,
   deleteCustomerLedger,
+  fetchShrinkPreview,
+  shrinkAsk,
   fetchLedgerSettings,
   saveLedgerSettings,
   type CustomerLedgerView,
@@ -113,21 +121,47 @@ export function useLedgerDraft(): LedgerDraft {
 /** 보관 기간·방송 화면에 손님 표시 칸 (설정 "손님 관리" 안) */
 export function LedgerSettingsFields({ ledger }: { readonly ledger: LedgerDraft }) {
   const id = useId()
+  // 저장된 값보다 짧게 고르려는 기간 — 확인 창을 연다 (UX-KP1-002)
+  const [shrinking, setShrinking] = useState<LedgerMonths | null>(null)
+  // 서버가 센 곧 지워질 손님 수 (undefined = 세는 중, null = 못 받음)
+  const [willDelete, setWillDelete] = useState<number | null | undefined>(undefined)
+  useEffect(() => {
+    if (shrinking === null) return
+    let alive = true
+    setWillDelete(undefined)
+    fetchShrinkPreview(shrinking).then(
+      (n) => {
+        if (alive) setWillDelete(n)
+      },
+      () => {
+        if (alive) setWillDelete(null)
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [shrinking])
   if (ledger.draft === null) {
-    return ledger.loadError !== null ? <RequestError error={ledger.loadError} onRetry={ledger.retry} retryLabel="다시 불러오기" /> : <p role="status">손님 장부 설정을 불러오는 중…</p>
+    return ledger.loadError !== null ? <RequestError error={ledger.loadError} onRetry={ledger.retry} retryLabel="다시 불러오기" /> : <p role="status">저장한 배송지 설정을 불러오는 중…</p>
   }
   const draft = ledger.draft
+  const savedMonths = ledger.settings?.months ?? draft.months
+  const pick = (months: LedgerMonths) => {
+    if (months < savedMonths && draft.months >= savedMonths) setShrinking(months)
+    else ledger.change({ months })
+  }
+  const shrunk = draft.months < savedMonths
   const monthsProblem = ledger.error?.problemFor('months')
   const badgesProblem = ledger.error?.problemFor('consoleBadges')
   const outside = ledger.error !== null && monthsProblem === undefined && badgesProblem === undefined
   return (
-    <div className="stack-tight ledger-settings">
+    <div className="stack-tight ledger-settings kp1-seller">
       <fieldset className="field ledger-months" aria-describedby={`${id}-months-help`}>
         <legend>{LEDGER_MONTHS_LABEL}</legend>
         <div className="row ledger-month-row">
           {LEDGER_MONTHS.map((months) => (
             <label key={months} className="choice ledger-choice">
-              <input type="radio" name={`${id}-months`} value={String(months)} checked={draft.months === months} onChange={() => ledger.change({ months: months as LedgerMonths })} />
+              <input type="radio" name={`${id}-months`} value={String(months)} checked={draft.months === months} onChange={() => pick(months)} />
               <span>{LEDGER_MONTH_WORDS[months]}</span>
             </label>
           ))}
@@ -135,6 +169,11 @@ export function LedgerSettingsFields({ ledger }: { readonly ledger: LedgerDraft 
         <p className="hint" id={`${id}-months-help`}>
           {LEDGER_MONTHS_HELP}
         </p>
+        {shrunk ? (
+          <p className="notice" role="note" data-tone="warning">
+            {LEDGER_SHRINK_NOTE}
+          </p>
+        ) : null}
         {monthsProblem !== undefined ? (
           <p className="field-error" role="alert">
             {monthsProblem.message}
@@ -143,9 +182,19 @@ export function LedgerSettingsFields({ ledger }: { readonly ledger: LedgerDraft 
       </fieldset>
       <div className="field">
         <label className="choice ledger-choice">
-          <input type="checkbox" checked={draft.consoleBadges} aria-describedby={`${id}-badges-help ${id}-badges-detail`} onChange={(event) => ledger.change({ consoleBadges: event.target.checked })} />
+          <input
+            type="checkbox"
+            checked={draft.consoleBadges === true}
+            aria-describedby={`${draft.consoleBadges === null ? `${id}-badges-undecided ` : ''}${id}-badges-help ${id}-badges-detail`}
+            onChange={(event) => ledger.change({ consoleBadges: event.target.checked })}
+          />
           <span>{CONSOLE_BADGES_LABEL}</span>
         </label>
+        {draft.consoleBadges === null ? (
+          <p className="notice" role="note" data-tone="warning" id={`${id}-badges-undecided`}>
+            {CONSOLE_BADGES_UNDECIDED}
+          </p>
+        ) : null}
         <p className="hint" id={`${id}-badges-help`}>
           {CONSOLE_BADGES_HELP}
         </p>
@@ -159,6 +208,31 @@ export function LedgerSettingsFields({ ledger }: { readonly ledger: LedgerDraft 
         ) : null}
       </div>
       {outside && ledger.error !== null ? <RequestError error={ledger.error} /> : null}
+      {shrinking !== null ? (
+        <Modal
+          title={LEDGER_SHRINK_TITLE}
+          className="kp1-seller"
+          onClose={() => setShrinking(null)}
+          closeLabel={LEDGER_SHRINK_KEEP}
+          actions={
+            <button
+              type="button"
+              className="button button-danger button-tall"
+              onClick={() => {
+                ledger.change({ months: shrinking })
+                setShrinking(null)
+              }}
+            >
+              {LEDGER_SHRINK_OK}
+            </button>
+          }
+        >
+          <p>
+            {LEDGER_MONTH_WORDS[savedMonths]} → {LEDGER_MONTH_WORDS[shrinking]}
+          </p>
+          {willDelete === undefined ? <p role="status">{LEDGER_SHRINK_COUNTING}</p> : <p>{shrinkAsk(willDelete)}</p>}
+        </Modal>
+      ) : null}
     </div>
   )
 }
@@ -167,7 +241,7 @@ export function LedgerSettingsFields({ ledger }: { readonly ledger: LedgerDraft 
 
 export function LedgerPrefillBlock({ prefill, busy, onConfirm, onEdit }: { readonly prefill: LedgerPrefill; readonly busy: boolean; readonly onConfirm: () => void; readonly onEdit: () => void }) {
   return (
-    <section className="stack-tight ledger-prefill" aria-label={PREFILL_TITLE}>
+    <section className="stack-tight ledger-prefill kp1-seller" aria-label={PREFILL_TITLE}>
       <p className="notice" role="note" data-tone="warning">
         <strong>{PREFILL_TITLE}</strong>
       </p>
@@ -257,7 +331,7 @@ export function CustomerLedgerSection({ customerId, ledger, today, onDeleted }: 
 
   const linked = ledger === null ? null : linkedLine(ledger.linked, today)
   return (
-    <section className="stack-tight customer-ledger" aria-label={LEDGER_TITLE}>
+    <section className="stack-tight customer-ledger kp1-seller" aria-label={LEDGER_TITLE}>
       <h3 className="sub-title">{LEDGER_TITLE}</h3>
       {ledger === null ? (
         <p>{LEDGER_NONE}</p>
@@ -309,6 +383,7 @@ export function CustomerLedgerSection({ customerId, ledger, today, onDeleted }: 
       {asking && ledger !== null ? (
         <Modal
           title={LEDGER_DELETE_TITLE}
+          className="kp1-seller"
           onClose={() => setAsking(false)}
           closeLabel="그대로 두기"
           closeDisabled={busy}

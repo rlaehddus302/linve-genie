@@ -1,7 +1,7 @@
 // "모든 손님"의 [엑셀로 받기] (KP1 CR-6, AC-KP1-12·13): 창 하나 — 처음엔 빈 "연락처·주소도 넣기", 고르면 경고 한 줄.
 // 파일은 서버가 만든다(`GET /api/customers.xlsx?contact=0|1`) — 받은 바이트를 그 이름으로 저장만 한다. 받을 때마다 서버가 누가·언제·연락처 포함 여부를 남긴다.
 import { useId, useState } from 'react'
-import { XLSX_BUSY, XLSX_BUTTON, XLSX_CONTACT_LABEL, XLSX_CONTACT_WARNING, XLSX_HELP, XLSX_TITLE, customersXlsxPath } from '../lib/ledger.ts'
+import { XLSX_BUSY, XLSX_BUTTON, XLSX_CONTACT_HELP, XLSX_CONTACT_LABEL, XLSX_CONTACT_WARNING, XLSX_HELP, XLSX_TITLE, customersXlsxPath } from '../lib/ledger.ts'
 import { kstToday } from '../lib/kst.ts'
 import { useDownload } from './downloads.tsx'
 import { RequestError } from './ErrorNote.tsx'
@@ -30,6 +30,7 @@ export function CustomersXlsxDialog({ onClose }: { readonly onClose: () => void 
   return (
     <Modal
       title={XLSX_TITLE}
+      className="kp1-seller"
       onClose={onClose}
       closeDisabled={download.busy}
       actions={
@@ -40,9 +41,13 @@ export function CustomersXlsxDialog({ onClose }: { readonly onClose: () => void 
     >
       <p>{XLSX_HELP}</p>
       <label className="choice ledger-choice">
-        <input type="checkbox" checked={contact} aria-describedby={contact ? `${id}-warning` : undefined} onChange={(event) => setContact(event.target.checked)} />
+        <input type="checkbox" checked={contact} aria-describedby={contact ? `${id}-help ${id}-warning` : `${id}-help`} onChange={(event) => setContact(event.target.checked)} />
         <span>{XLSX_CONTACT_LABEL}</span>
       </label>
+      {/* UX-KP1-013: 모든 손님 연락처가 들어가는 것처럼 읽히지 않게 */}
+      <p className="hint" id={`${id}-help`}>
+        {XLSX_CONTACT_HELP}
+      </p>
       {contact ? (
         <p className="notice" role="note" data-tone="warning" id={`${id}-warning`}>
           {XLSX_CONTACT_WARNING}

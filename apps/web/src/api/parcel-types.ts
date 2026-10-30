@@ -83,8 +83,11 @@ export interface AddressFields {
   readonly memo: string
 }
 
+export type AddressSource = 'BUYER' | 'SELLER' | 'LEDGER'
+
 export interface AddressView extends AddressFields {
-  readonly source: 'BUYER' | 'SELLER'
+  /** LEDGER = 손님이 지난 주문에 저장한 배송지를 판매자가 확인함 (UX-KP1-004 — 서버 값 이름은 가정, 모르는 값은 SELLER 문구) */
+  readonly source: AddressSource
   readonly confirmed: boolean
   /** 고친 시각 (UTC ISO — 배송지 확인 요청에 그대로 보낸다) */
   readonly updatedAt: string

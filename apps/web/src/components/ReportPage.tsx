@@ -64,7 +64,7 @@ export function ReportPage({ date }: ReportPageProps) {
 
   const shown = view !== null && view.date === date ? view : null
   return (
-    <main className="page stack kp1-page report-page">
+    <main className="page stack kp1-page kp1-seller report-page">
       <h1>
         {REPORT_TITLE}
         {date !== undefined ? <span className="report-date"> · {dateLong(date)}</span> : null}

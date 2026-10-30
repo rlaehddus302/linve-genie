@@ -25,6 +25,7 @@ import {
   parcelLine,
   parcelTone,
   phoneWords,
+  confirmedWords,
   sourceWords,
 } from '../lib/parcel-words.ts'
 import { RequestError } from './ErrorNote.tsx'
@@ -269,7 +270,7 @@ export function AddressSection({ date, buyer, version }: { readonly date: string
 
   if (bundle === null) {
     return (
-      <section className="stack-tight address-section" aria-label="배송지">
+      <section className="stack-tight address-section kp1-seller" aria-label="배송지">
         <h3 className="sub-title">배송지</h3>
         {loadError !== null ? <RequestError error={loadError} onRetry={() => setAttempt((n) => n + 1)} retryLabel="다시 불러오기" /> : <p role="status">배송지를 불러오는 중…</p>}
       </section>
@@ -279,7 +280,7 @@ export function AddressSection({ date, buyer, version }: { readonly date: string
   const address = bundle.address
   const parcel = bundle.row.parcel
   return (
-    <section className="stack-tight address-section" aria-label="배송지">
+    <section className="stack-tight address-section kp1-seller" aria-label="배송지">
       <h3 className="sub-title">배송지</h3>
       {parcel !== null ? <ParcelLine parcel={parcel} /> : null}
       {shape === 'pickup' ? <p>{PICKUP_BUNDLE}</p> : null}
@@ -355,7 +356,7 @@ export function AddressSection({ date, buyer, version }: { readonly date: string
           <p className="row">
             <span>{sourceWords(address.source)}</span>
             <span className="tag" data-tone={address.confirmed ? 'success' : 'warning'}>
-              {address.confirmed ? '확인함' : '확인 전'}
+              {confirmedWords(address.source, address.confirmed)}
             </span>
           </p>
           {bundle.locked ? (

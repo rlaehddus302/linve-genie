@@ -16,7 +16,7 @@ import {
   type ReportView,
 } from '../src/lib/report.ts'
 import { parseRoute, routePath, menuOf } from '../src/lib/router.ts'
-import { SCHEDULE_FULL_MESSAGE, scheduleWhen, type ScheduleView } from '../src/lib/schedule.ts'
+import { ALERTS_NOT_SENDING, SCHEDULE_FULL_MESSAGE, SCHEDULE_INSTANT, scheduleWhen, type ScheduleView } from '../src/lib/schedule.ts'
 import { FakeServer, apiError, flush } from './support.ts'
 
 afterEach(() => {
@@ -191,6 +191,14 @@ describe('방송 일정 (AC-KP1-20, SCH-01·02)', () => {
     expect(screen.getByText('일정을 적었어요.')).toBeTruthy()
   })
 
+  it('일정은 바로 저장된다는 안내가 맨 위에 있다 — 아래 저장 막대와 따로 (UX-KP1-003)', async () => {
+    const server = new FakeServer().on('GET', /^\/api\/schedule$/, () => ({ body: scheduleView() }))
+    vi.stubGlobal('fetch', server.fetch)
+    render(<ScheduleSettings />)
+    await act(() => flush())
+    expect(screen.getAllByRole('note')[0]?.textContent).toBe(SCHEDULE_INSTANT)
+  })
+
   it('휴대폰 번호 모양은 서버 문장 그대로 제목 칸 아래에', async () => {
     const phone = '전화번호는 적을 수 없어요. 번호를 빼고 적어 주세요.'
     const server = new FakeServer()
@@ -282,7 +290,10 @@ describe('방송 알림 (AC-KP1-23)', () => {
     vi.stubGlobal('fetch', server.fetch)
     const { container } = render(<AlertCountsSection />)
     await act(() => flush())
-    expect(screen.getByText('신청 기다림')).toBeTruthy()
+    // "신청 기다림" 대신 "번호 확인 전", 아직 보내지 않는다는 한 줄 (UX-KP1-012)
+    expect(screen.getByText('번호 확인 전')).toBeTruthy()
+    expect(screen.queryByText('신청 기다림')).toBeNull()
+    expect(screen.getByText(ALERTS_NOT_SENDING)).toBeTruthy()
     expect(screen.getByText('3명')).toBeTruthy()
     expect(screen.getByText('받는 중')).toBeTruthy()
     expect(screen.getByText('1,200명')).toBeTruthy()
