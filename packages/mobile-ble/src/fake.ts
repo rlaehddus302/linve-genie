@@ -252,6 +252,8 @@ export interface FakeBleTransportOptions {
   readonly connectFails?: boolean
   /** 찾기에 장치가 보이지 않는다 */
   readonly invisible?: boolean
+  /** 찾기에 함께 보이는 다른 장치 (이어지지 않는다 — 이어폰·다른 프린터·이름 없는 광고 같은 잡음) */
+  readonly others?: readonly BleDeviceInfo[]
   /** 특성 목록 (기본: NIIMBOT 서비스의 notify+writeWithoutResponse 하나) */
   readonly characteristics?: readonly BleCharacteristicInfo[]
   readonly printer?: FakeB1Options
@@ -295,9 +297,10 @@ export function createFakeBleTransport(options: FakeBleTransportOptions = {}): F
     scan(_filter, onFound) {
       scanning++
       let stopped = false
-      if (!options.invisible && radio === 'on') {
+      if (radio === 'on') {
+        const shown = [...(options.invisible ? [] : [device]), ...(options.others ?? [])]
         queueMicrotask(() => {
-          if (!stopped) onFound(device)
+          for (const one of shown) if (!stopped) onFound(one)
         })
       }
       return () => {

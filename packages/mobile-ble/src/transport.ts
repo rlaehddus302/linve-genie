@@ -9,6 +9,8 @@ export interface BleDeviceInfo {
   /** 안드로이드는 MAC, 아이폰은 식별자 — 기억한 프린터(RememberedPrinter.deviceId)에 그대로 둔다 */
   readonly id: string
   readonly name: string | null
+  /** 찾을 때 받은 신호 세기 (dBm, 클수록 가깝다). 모르면 없다 — 고르기 목록의 차례에만 쓴다 */
+  readonly rssi?: number
 }
 
 export interface BleCharacteristicInfo {
