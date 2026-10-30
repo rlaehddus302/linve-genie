@@ -850,6 +850,10 @@ describe('콘솔 — 인스타그램 칸 (AC-63)', () => {
       })
     await openConsole()
     expect(within(igPanel()).getByText('감사 DM 2건을 보내지 못했어요. 인스타그램 앱에서 직접 보내 주세요.')).toBeDefined()
+    // CH-18: 남의 인스타그램 라이브는 댓글 붙여넣기로 — 틱톡과 같은 창
+    fireEvent.click(within(igPanel()).getByRole('button', { name: '인스타그램 댓글 붙여넣기' }))
+    expect(screen.getByRole('dialog', { name: '댓글 붙여넣기' })).toBeDefined()
+    fireEvent.click(within(screen.getByRole('dialog', { name: '댓글 붙여넣기' })).getByRole('button', { name: '닫기' }))
     fireEvent.click(within(igPanel()).getByRole('button', { name: '인스타그램 기다리기' }))
     expect(await within(igPanel()).findByText('인스타그램 라이브를 기다리는 중이에요. 라이브를 시작하면 첫 댓글부터 받아요.')).toBeDefined()
     // 서버에서 끊긴 것으로 바뀐다

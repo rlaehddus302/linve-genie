@@ -11,6 +11,15 @@ export const CONNECT_FIRST_MESSAGE = '유튜브를 먼저 연결해 주세요.'
 export const CONSOLE_NOT_CONNECTED = '유튜브 채널을 먼저 연결해 주세요.'
 export const REHEARSAL_YOUTUBE = '리허설 방송은 유튜브와 잇지 않아요. 가짜 채팅으로 연습해요.'
 
+/** 영상 주소가 아닌 `@핸들/live` 링크를 넣었을 때의 안내 (CH-08) */
+export const NOT_VIDEO_LINK_MESSAGE = '방송 화면의 공유 버튼으로 주소를 복사해 주세요.'
+
+/** `@핸들/live`·`＠핸들/live`(앞에 주소가 붙어도 됨)처럼 영상 주소가 아닌 채널 방송 링크인가 */
+export function isChannelLiveLink(input: string): boolean {
+  const text = input.trim().normalize('NFKC')
+  return /^(?:(?:https?:\/\/)?[^/\s]+\/)?@[^/\s?#]+\/live\/?(?:[?#].*)?$/i.test(text)
+}
+
 /** 구글에서 돌아온 결과 문장 (AC-I3-02 — 서버 CALLBACK_MESSAGES와 같은 문장) */
 export const CALLBACK_RESULT_MESSAGES: Readonly<Record<string, string>> = {
   connected: '유튜브 채널을 연결했어요.',
