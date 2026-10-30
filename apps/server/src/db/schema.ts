@@ -2215,6 +2215,129 @@ export const voiceAliases = pgTable('voice_aliases', {
   aliases: text('aliases').notNull().default('[]'),
 })
 
+// KP1 손님 장부 (CUSTOMER_RULES CR-1~CR-6, 마이그레이션 0031). 모두 판매자 ID 조건으로만 읽는다. 백업 파일에 없고 복구·가져오기가 지우지 않는다(RESTORE_KEPT_TABLES).
+/** 설정 "손님 관리"의 장부 칸 (판매자마다 한 줄, 없으면 12개월·손님 표시 켬) */
+export const ledgerSettings = pgTable('ledger_settings', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  /** 6 · 12 · 24 · 36 */
+  months: integer('months').notNull(),
+  consoleBadges: boolean('console_badges').notNull(),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/** 장부 줄 (CR-1): 연락처 다섯 칸 JSON의 암호문(판매자·줄 ID를 AAD로 묶음)·가장 최근 동의 묶음 날짜·그 문구 개월. 이전 연락처는 남기지 않는다 */
+export const ledgerLines = pgTable(
+  'ledger_lines',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    contactEnc: text('contact_enc').notNull(),
+    consentDate: text('consent_date').notNull(),
+    consentMonths: integer('consent_months').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [index('ledger_lines_seller_idx').on(t.sellerId)],
+)
+
+/** 장부 줄의 표지 (한 표지는 한 줄에만 — CR-1). 표지는 서버 안에서만 쓴다. CODE로 이은 표지는 화면 이름표(플랫폼·이름·끝 4자리)를 함께 둔다 */
+export const ledgerMarkers = pgTable(
+  'ledger_markers',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    marker: text('marker').notNull(),
+    lineId: text('line_id')
+      .notNull()
+      .references(() => ledgerLines.id),
+    /** CONSENT · CODE */
+    source: text('source').notNull(),
+    labelPlatform: text('label_platform'),
+    labelName: text('label_name'),
+    labelLast4: text('label_last4'),
+    linkedAt: timestamptz('linked_at').notNull(),
+  },
+  (t) => [unique('ledger_markers_uq').on(t.sellerId, t.marker), index('ledger_markers_line_idx').on(t.sellerId, t.lineId)],
+)
+
+/** 동의 기록 (CR-2 — 덧붙이기만, 줄을 지워도 남는다). 연락처·표지·토큰·구매자 ID가 없다 */
+export const ledgerConsents = pgTable(
+  'ledger_consents',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 줄 ID (외래 키 없음 — 줄이 지워져도 남는다) */
+    lineId: text('line_id').notNull(),
+    /** AGREE · WITHDRAW · EXPIRE · SELLER_DELETE */
+    type: text('type').notNull(),
+    items: text('items').notNull(),
+    wording: text('wording').notNull(),
+    months: integer('months').notNull(),
+    /** RECEIPT_LINK 또는 null */
+    route: text('route'),
+    orderDate: text('order_date'),
+    /** '표지 옮김' · '기간 지남' · '줄 합침' */
+    reason: text('reason'),
+    /** SELLER_DELETE를 한 계정 */
+    accountId: text('account_id').references(() => accounts.id),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('ledger_consents_line_idx').on(t.sellerId, t.lineId, t.id)],
+)
+
+/** 연결 코드 (CR-5): 줄마다 살아 있는 것 많아야 하나, 판매자 안에서 살아 있는 코드 글은 겹치지 않는다. 코드 글은 로그에 남기지 않는다 */
+export const ledgerCodes = pgTable(
+  'ledger_codes',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    lineId: text('line_id')
+      .notNull()
+      .references(() => ledgerLines.id),
+    code: text('code').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    /** LIVE · CLAIMED · DONE */
+    state: text('state').notNull(),
+    claimedMarker: text('claimed_marker'),
+    claimedPlatform: text('claimed_platform'),
+    claimedName: text('claimed_name'),
+    claimedLast4: text('claimed_last4'),
+    claimedAt: timestamptz('claimed_at'),
+  },
+  (t) => [
+    uniqueIndex('ledger_codes_live_uq').on(t.sellerId, t.code).where(sql`state = 'LIVE'`),
+    uniqueIndex('ledger_codes_line_uq').on(t.sellerId, t.lineId).where(sql`state <> 'DONE'`),
+  ],
+)
+
+/** 손님 엑셀 받은 기록 (CR-6 — 누가·언제·연락처 열을 넣었는지만, 파일 내용 없음) */
+export const customerExports = pgTable(
+  'customer_exports',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    contact: boolean('contact').notNull(),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('customer_exports_seller_idx').on(t.sellerId, t.id)],
+)
+
 export const schema = {
   voiceAliases,
   sellers,
@@ -2296,6 +2419,13 @@ export const schema = {
   customerArchiveDays,
   customerArchiveRows,
   voiceLog,
+  // KP1 손님 장부
+  ledgerSettings,
+  ledgerLines,
+  ledgerMarkers,
+  ledgerConsents,
+  ledgerCodes,
+  customerExports,
 }
 
 /**

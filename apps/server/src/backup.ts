@@ -60,6 +60,13 @@ import {
   customerArchiveRows,
   customerMemos,
   customerSettings,
+  // KP1 손님 장부
+  ledgerSettings,
+  ledgerLines,
+  ledgerMarkers,
+  ledgerConsents,
+  ledgerCodes,
+  customerExports,
   depositSources,
   deposits,
   events,
@@ -1784,6 +1791,13 @@ export const RESTORE_KEPT_TABLES = [
   // 봉인한 날짜의 행은 그 뒤 복구로 바뀌지 않는다(AC-CRM1-33 (4)). 날짜로 잇고 범위를 참조하지 않는다
   customerArchiveDays,
   customerArchiveRows,
+  // KP1 손님 장부(CR-3): 표지 기준이라 복구 뒤에도 같은 손님에 맞는다 — 파일에 없고 복구·가져오기가 지우지 않는다. 연락처는 암호문만
+  ledgerSettings,
+  ledgerLines,
+  ledgerMarkers,
+  ledgerConsents,
+  ledgerCodes,
+  customerExports,
 ] as const
 /** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
 export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
