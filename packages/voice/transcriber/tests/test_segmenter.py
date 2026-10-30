@@ -93,5 +93,75 @@ class OddInputTest(unittest.TestCase):
         self.assertEqual(out, [])
 
 
+def run_with(frames, **options):
+    segmenter = Segmenter(**options)
+    out = []
+    for probability, pcm in frames:
+        out.extend(segmenter.push(probability, pcm))
+    return out
+
+
+class RollTest(unittest.TestCase):
+    """말 앞뒤 여유: VAD가 늦게 알아챈 첫 소리·말끝 소리를 조각에 넣는다"""
+
+    def test_pre_roll_adds_sound_before_speech(self):
+        segments = run_with(frames_from_timeline([(1000, False), (1000, True), (1000, False)]), pre_roll_ms=200)
+        self.assertEqual(len(segments), 1)
+        self.assertAlmostEqual(segments[0].start_ms, 800, delta=30)
+        self.assertAlmostEqual(segments[0].end_ms, 2000, delta=30)
+        self.assertTrue(segments[0].pcm.startswith(silence(160)))
+
+    def test_post_roll_adds_start_of_pause(self):
+        segments = run_with(frames_from_timeline([(500, False), (1000, True), (1000, False)]), post_roll_ms=200)
+        self.assertEqual(len(segments), 1)
+        self.assertAlmostEqual(segments[0].start_ms, 500, delta=30)
+        self.assertAlmostEqual(segments[0].end_ms, 1700, delta=30)
+        self.assertTrue(segments[0].pcm.endswith(silence(3200)))
+
+    def test_rolls_never_overlap_neighbours(self):
+        timeline = [(300, False), (1000, True), (450, False), (1000, True), (2000, False)]
+        segments = run_with(frames_from_timeline(timeline), pre_roll_ms=300, post_roll_ms=300)
+        self.assertEqual(len(segments), 2)
+        self.assertLessEqual(segments[0].end_sample, segments[1].start_sample)
+        self.assertGreaterEqual(segments[0].start_sample, 0)
+        for segment in segments:
+            self.assertEqual(len(segment.pcm), (segment.end_sample - segment.start_sample) * 2)
+
+    def test_click_with_pre_roll_is_still_dropped(self):
+        self.assertEqual(run_with(frames_from_timeline([(500, False), (120, True), (1000, False)]), pre_roll_ms=300), [])
+
+    def test_rolls_keep_segments_within_20s(self):
+        segments = run_with(frames_from_timeline([(1000, False), (45000, True), (1000, False)]), pre_roll_ms=300, post_roll_ms=300)
+        for segment in segments:
+            self.assertLessEqual(segment.end_sample - segment.start_sample, 320000)
+        for before, after in zip(segments, segments[1:]):
+            self.assertEqual(before.end_sample, after.start_sample)
+
+
+class LookbackTest(unittest.TestCase):
+    """20초가 차면 끝 몇 초 안의 숨 쉬는 틈에서 자른다 (낱말을 가르지 않게)"""
+
+    def test_cut_moves_to_short_dip_before_20s(self):
+        timeline = [(18000, True), (210, False), (5000, True), (1000, False)]
+        segments = run_with(frames_from_timeline(timeline), cut_lookback_ms=3000)
+        self.assertEqual(len(segments), 2)
+        self.assertAlmostEqual(segments[0].end_ms, 18210, delta=30)
+        self.assertEqual(segments[0].end_sample, segments[1].start_sample)
+
+    def test_without_lookback_cut_stays_at_20s(self):
+        timeline = [(18000, True), (210, False), (5000, True), (1000, False)]
+        segments = run_with(frames_from_timeline(timeline))
+        self.assertEqual(segments[0].end_ms - segments[0].start_ms, 20000)
+
+    def test_dip_outside_lookback_is_ignored(self):
+        timeline = [(15000, True), (210, False), (8000, True), (1000, False)]
+        segments = run_with(frames_from_timeline(timeline), cut_lookback_ms=3000)
+        self.assertEqual(segments[0].end_ms - segments[0].start_ms, 20000)
+
+    def test_no_dip_cuts_exactly_at_20s(self):
+        segments = run_with(frames_from_timeline([(45000, True), (1000, False)]), cut_lookback_ms=3000)
+        self.assertEqual([s.end_ms - s.start_ms for s in segments][:2], [20000, 20000])
+
+
 if __name__ == "__main__":
     unittest.main()
