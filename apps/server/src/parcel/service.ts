@@ -1020,6 +1020,8 @@ export class ParcelService {
   async #prepare(sellerId: string, accountId: string, date: string, buyer: string, box: BoxKind, carrier: CarrierCode): Promise<Prepared> {
     const { db, writer } = this.#deps
     const skip = (result: BookItemResult): Prepared => ({ kind: 'skip', result })
+    // KP1 SA-KP1-001: 장부 "확인 전" 묶음은 목록과 같이 UNCONFIRMED로 판단한다 — 표지는 범위 줄 밖에서 미리
+    const known = await this.#known(sellerId, date)
     return writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Prepared> => {
       if (runtime.seq === 0 || runtime.scopeId === null) return skip({ buyer, ok: false, reason: 'BUYER', message: '구매자를 다시 확인해 주세요.' })
       const scopeId = runtime.scopeId
@@ -1039,7 +1041,8 @@ export class ParcelService {
           return { kind: 'send', attempt: latest, receiver }
         }
         const records = await packingRows(tx, sellerId, scopeId, buyer)
-        const row = this.#row(state, date, buyer, records, address, latest, box, sellerId)
+        const ledgered = (await this.#prefills(tx, sellerId, date, state, [buyer], new Map(address === null ? [] : [[buyer, address]]), known)).has(buyer)
+        const row = this.#row(state, date, buyer, records, address, latest, box, sellerId, ledgered)
         if (!row.ready) return skip({ buyer, ok: false, reason: row.reason as EligibilityReason, message: row.message as string })
         const receiver = this.#open(sellerId, address) as ParcelAddress
         const attempt = await insertAttempt(tx, { sellerId, date, buyer, carrier, box, qty: row.qty, accountId, now: new Date(now) })

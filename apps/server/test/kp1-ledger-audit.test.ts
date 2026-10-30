@@ -9,6 +9,7 @@ import { WORK_BUSY_MESSAGE } from '../src/closing.ts'
 import { isServerPath } from '../src/web.ts'
 import { WorkBusy, WorkFailed } from '../src/work-pool.ts'
 import { at, chat } from './i2-support.ts'
+import { attempts, bookOk, packAll, pay } from './t1-support.ts'
 import { login, waitFor } from './support.ts'
 import { codes, consent, kst, ledgerApi, ledgerWorld, lines, logText, openLink, postForm, rowsOf, sell } from './kp1-ledger-support.ts'
 
@@ -182,5 +183,21 @@ describe('RA-KP1-008 손님 엑셀은 판매대장과 같은 작업 풀(document
     run.mockRejectedValueOnce(new WorkFailed('timeout'))
     expect((await api.xlsx('1')).status).toBe(500)
     expect(await rowsOf(world, 'select id from customer_exports')).toEqual(exportsBefore)
+  })
+})
+
+describe('SA-KP1-001 접수 직전 다시 판단도 장부 "확인 전" 묶음을 ADDRESS_UNCONFIRMED로 (PC-3·PC-4)', () => {
+  it('입금·포장이 끝나 배송지만 장부 "확인 전"인 묶음을 접수하면 ADDRESS_UNCONFIRMED, 시도·택배사 접수 없음', async () => {
+    const { world, seller } = await ledgerWorld()
+    await sell(world, seller, [['UC_A', '가람', 1]])
+    await consent(world, seller, 'UC_A')
+    const D2 = '2026-10-26'
+    at(world, D2, '20:00:00')
+    await sell(world, seller, [['UC_A', '가람', 1]], D2)
+    await pay(world, seller, 'UC_A', undefined, D2)
+    await packAll(world, seller, 'UC_A', D2)
+    const [result] = await bookOk(world, seller, [{ buyer: 'UC_A' }], D2)
+    expect(result).toMatchObject({ buyer: 'UC_A', ok: false, reason: 'ADDRESS_UNCONFIRMED' })
+    expect(await attempts(world, seller.sellerId, 'UC_A')).toEqual([])
   })
 })
