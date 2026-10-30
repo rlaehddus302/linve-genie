@@ -1242,6 +1242,8 @@ sprints:
       web: 확인 한 줄 "내 채널 방송이 아니에요 (채널: {이름}). 초대받은 방송이 맞나요?", 콘솔 "초대받은 방송 · {이름}" 한 줄.
       순서 server → web. 수용 기준: harness/sprints/INV1/acceptance.md (AC-INV1-01~12).
     specIds: [YT-02, YT-04, YT-05, YT-06, YT-10, NFR-10]
+    status: todo
+
   - id: SRV1
     phase: 7
     title: 읽기는 서버 — 받아쓰기·찜 읽기·친 글 읽기를 서버 한 곳에서, PC 크롬 받아쓰기 없앰
