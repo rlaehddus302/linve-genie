@@ -8,8 +8,9 @@
 //   그 수집기 메모리에서만 다음 요청에 쓴다(저장·공유 없음 — 이 모듈은 값을 들고 있지 않는다).
 // - 실패 종류(AC5): 막힘 BLOCKED(429·403·봇 확인·로그인 요구 화면·확인 페이지로 돌려보냄), 모르는 모양 UNKNOWN_SHAPE(JSON 아님·모양 다름·인기 채팅),
 //   지점 거절 REJECTED(400·404), 연결 오류 NETWORK·TIMEOUT·HTTP(5xx 등). 오류에는 종류·HTTP 상태만 — 본문·지점·키는 담지 않는다.
+// - 방송 페이지가 봇 확인으로 막히면(데이터센터 IP, 2026-11-01 측정) next로 한 번 대신 확인한다(pageOrNext, D-YT-SRV-19). 로그인·우회는 여기서도 없다.
 // - 운영자 끄기(AC6): off면 유튜브에 아무 요청도 하지 않고 OFF 오류.
-import { looksBlocked, parseChatPage, parseLiveChat, parseWatchPage, type ChatPage, type InnertubeSession, type LiveChatParse, type WatchPage } from './web-chat.ts'
+import { looksBlocked, parseChatPage, parseInnertubeConfig, parseLiveChat, parseNextResponse, parseWatchPage, type ChatPage, type InnertubeSession, type LiveChatParse, type WatchPage } from './web-chat.ts'
 import type { Timer } from './timer.ts'
 
 /** 유튜브 웹 주소 (시험은 가짜 유튜브 웹 서버 주소를 넣는다) */
@@ -29,6 +30,12 @@ export const WEB_DEFAULT_WAIT_MS = 5000
 export const WEB_FAILURE_BACKOFF_MS: readonly number[] = [5000, 10_000, 20_000, 30_000]
 /** 막힘 (30·60·120·300초, 그 뒤 300초씩) */
 export const WEB_BLOCKED_BACKOFF_MS: readonly number[] = [30_000, 60_000, 120_000, 300_000]
+
+/**
+ * next를 부를 때 페이지가 알려 준 호출 정보가 하나도 없을 때만 쓰는 기본 클라이언트 값 (D-YT-SRV-19). 2026-11-01 측정에서 받은 값
+ * (AWS ap-northeast-2에서 2.20251030.01.00으로 200, 같은 날 공개 페이지 ytcfg 2.20261029.11.00). 유튜브가 옛 판을 거절하기 시작하면 바꾼다
+ */
+export const NEXT_FALLBACK_CLIENT: InnertubeSession = { apiKey: null, clientName: 'WEB', clientVersion: '2.20261029.11.00', visitorData: null }
 
 /** 다음 부름까지 (응답의 timeoutMs → 1~10초, 없으면 5초) */
 export function nextWaitMs(timeoutMs: number | null): number {
@@ -184,11 +191,69 @@ export class WebChatSource {
     return text
   }
 
+  /** 방송 페이지 + 그 페이지의 호출 정보(ytcfg — 막힌 페이지에도 있다) */
+  async #watch(videoId: string, signal?: AbortSignal): Promise<{ page: WatchPage; session: InnertubeSession | null }> {
+    const html = await this.#html(`/watch?v=${encodeURIComponent(videoId)}&hl=en`, signal)
+    if (html === null) return { page: { state: 'NOT_FOUND', videoId, channelId: null, channelTitle: null, title: null, startedAt: null }, session: null }
+    return { page: parseWatchPage(html), session: parseInnertubeConfig(html) }
+  }
+
   /** 방송 페이지 → 상태·채널·제목·시작 시각 (BLOCKED·UNKNOWN_SHAPE는 상태로 돌려준다) */
   async page(videoId: string, signal?: AbortSignal): Promise<WatchPage> {
-    const html = await this.#html(`/watch?v=${encodeURIComponent(videoId)}&hl=en`, signal)
-    if (html === null) return { state: 'NOT_FOUND', videoId, channelId: null, channelTitle: null, title: null, startedAt: null }
-    return parseWatchPage(html)
+    return (await this.#watch(videoId, signal)).page
+  }
+
+  /**
+   * next(POST /youtubei/v1/next) → 방송 페이지와 같은 모양 (시작 시각 없음 — D-YT-SRV-19). 클라이언트 값은 넘겨받은 호출 정보(페이지가 알려 준 값),
+   * 없을 때만 NEXT_FALLBACK_CLIENT. 429·403 → BLOCKED, 그 밖 HTTP 오류 → HTTP를 던진다. JSON이 아니면 봇 확인 글이면 BLOCKED, 아니면 UNKNOWN_SHAPE 상태.
+   * 응답의 영상 ID가 물은 것과 다르면 UNKNOWN_SHAPE
+   */
+  async next(videoId: string, session: InnertubeSession | null, signal?: AbortSignal): Promise<WatchPage> {
+    const used = session ?? NEXT_FALLBACK_CLIENT
+    const query = `prettyPrint=false${used.apiKey === null ? '' : `&key=${encodeURIComponent(used.apiKey)}`}`
+    const client = { clientName: used.clientName, clientVersion: used.clientVersion, hl: 'en', ...(used.visitorData === null ? {} : { visitorData: used.visitorData }) }
+    const { status, text } = await this.#send({ method: 'POST', path: `/youtubei/v1/next?${query}`, body: JSON.stringify({ context: { client }, videoId }) }, signal)
+    if (status < 200 || status >= 300) throw new WebChatError('HTTP', status)
+    const empty = { videoId, channelId: null, channelTitle: null, title: null, startedAt: null }
+    let json: unknown
+    try {
+      json = JSON.parse(text)
+    } catch {
+      return { state: looksBlocked(text) ? 'BLOCKED' : 'UNKNOWN_SHAPE', ...empty }
+    }
+    const page = parseNextResponse(json)
+    if (page.videoId !== null && page.videoId !== videoId) return { state: 'UNKNOWN_SHAPE', ...empty }
+    return page
+  }
+
+  /**
+   * 방송 페이지, 막혔으면(BLOCKED) next로 한 번 대신 확인 (D-YT-SRV-19 — 데이터센터 IP에서 방송 페이지만 봇 확인으로 막히는 일, 로그인·우회 없음).
+   * 호출 정보는 넘겨받은 것(수집기가 들고 있던 채팅 페이지 값) → 막힌 방송 페이지의 ytcfg → 채팅 페이지의 ytcfg → 기본값 순.
+   * next도 막히거나 실패하면(연결 오류·HTTP 오류) 방송 페이지의 BLOCKED를 그대로 돌려준다. next가 모르는 모양이면 UNKNOWN_SHAPE(모르는 모양 경보로 알린다).
+   * 끄기(OFF)는 그대로 던진다
+   */
+  async pageOrNext(videoId: string, signal?: AbortSignal, known: InnertubeSession | null = null): Promise<WatchPage> {
+    const watched = await this.#watch(videoId, signal)
+    if (watched.page.state !== 'BLOCKED') return watched.page
+    try {
+      let session = known ?? watched.session
+      if (session === null) {
+        // 채팅 페이지를 못 읽어도(막힘·연결 오류) 기본값으로 next는 불러 본다
+        session = await this.chatPage(videoId, signal).then(
+          (chat) => chat.session,
+          (error: unknown) => {
+            if ((error instanceof WebChatError && error.kind === 'OFF') || signal?.aborted === true) throw error
+            return null
+          },
+        )
+      }
+      const page = await this.next(videoId, session, signal)
+      return page.state === 'BLOCKED' ? watched.page : page
+    } catch (error) {
+      if (error instanceof WebChatError && error.kind === 'OFF') throw error
+      if (signal?.aborted === true) throw error
+      return watched.page
+    }
   }
 
   /** 채널의 지금(또는 예정) 공개 방송 — 채널 라이브 주소가 보여 주는 방송 페이지 (최근 채널 찾기, D-YT-SRV-03) */

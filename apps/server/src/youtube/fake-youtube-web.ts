@@ -5,6 +5,8 @@
 // - get_live_chat(POST /youtubei/v1/live_chat/get_live_chat): 지점 → 그 뒤 동작(채팅 줄 넣기·지움·한 작성자 글 모두 지움)과 다음 지점(timeoutMs), 끝나면 다음 지점 없음.
 //   첫 지점(Live chat 다시 불러오기)은 실제처럼 최근 동작부터 준다. 응답 모양은 2026-10-31 실제 응답 녹화본의 필드 이름을 쓴다.
 // - 채널 라이브 주소(/channel/<ID>/live?hl=en): 그 채널의 진행 중(없으면 예정) 방송 페이지, 없으면 플레이어 응답이 없는 채널 페이지.
+// - next(POST /youtubei/v1/next): 2026-11-01 실제 응답 녹화본(test/fixtures/youtube-web/next-*.json)의 경로 — 제목·진행 중 표시·날짜 글·채널·채팅 칸.
+//   watchBlocked를 켜면 방송 페이지만 데이터센터 IP처럼 봇 확인(LOGIN_REQUIRED "not a bot" + ytcfg)으로 막히고 채팅 페이지·next·get_live_chat은 된다(D-YT-SRV-19).
 // - 시험 조작: 방송 만들기·상태 바꾸기, 시청자 글·슈퍼챗·멤버십·스티커·모르는 항목 넣기, 지우기·작성자 글 모두 지우기, 오류 넣기(상태·봇 화면·모르는 모양·빈 응답·응답 없음),
 //   묶음 중간 끊기, 녹화본 응답 그대로 내기, 호출 수·요청 머리글(쿠키 없음 확인)·받은 지점 값·동시 채팅 요청 수 보기.
 import { randomBytes } from 'node:crypto'
@@ -14,7 +16,7 @@ import type { Socket } from 'node:net'
 export const FAKE_WEB_HOST = '127.0.0.1'
 export const FAKE_WEB_CLIENT_VERSION = '2.20261029.01.00'
 
-export type FakeWebEndpoint = 'watch' | 'chatPage' | 'poll' | 'channelLive'
+export type FakeWebEndpoint = 'watch' | 'chatPage' | 'poll' | 'channelLive' | 'next'
 
 export type FakeWebState = 'live' | 'upcoming' | 'ended' | 'vod' | 'private' | 'members' | 'age' | 'chatOff' | 'missing'
 
@@ -88,6 +90,10 @@ export class FakeYoutubeWeb {
   readonly #calls = new Map<FakeWebEndpoint, number[]>()
   /** 받은 요청 머리글 (쿠키·로그인 확인용) */
   readonly requestHeaders: Record<string, string | string[] | undefined>[] = []
+  /** 방송 페이지만 막힘 (데이터센터 IP 측정 2026-11-01 — 채팅 페이지·next·get_live_chat은 된다) */
+  watchBlocked = false
+  /** 받은 next 본문의 클라이언트 값 */
+  readonly nextClients: Record<string, unknown>[] = []
   /** 받은 get_live_chat 본문의 클라이언트 값 */
   readonly pollClients: Record<string, unknown>[] = []
   /** 받은 get_live_chat 지점 값 (로그에 지점 값이 없는지 확인용) */
@@ -257,6 +263,7 @@ export class FakeYoutubeWeb {
     else if (req.method === 'GET' && url.pathname === '/live_chat') endpoint = 'chatPage'
     else if (req.method === 'POST' && url.pathname === '/youtubei/v1/live_chat/get_live_chat') endpoint = 'poll'
     else if (req.method === 'GET' && /^\/channel\/[^/]+\/live$/.test(url.pathname)) endpoint = 'channelLive'
+    else if (req.method === 'POST' && url.pathname === '/youtubei/v1/next') endpoint = 'next'
     else {
       send(res, 404, 'text/html', '<html>404</html>')
       return
@@ -307,7 +314,13 @@ export class FakeYoutubeWeb {
   #respond(endpoint: FakeWebEndpoint, url: URL, body: string): [number, string, string] {
     switch (endpoint) {
       case 'watch':
+        if (this.watchBlocked) return [200, 'text/html', blockedWatchHtml(`fake-visitor-${randomBytes(4).toString('hex')}`)]
         return [200, 'text/html', this.#watchHtml(this.#videos.get(url.searchParams.get('v') ?? ''))]
+      case 'next': {
+        const parsed = JSON.parse(body) as { context?: { client?: Record<string, unknown> }; videoId?: unknown }
+        this.nextClients.push(parsed.context?.client ?? {})
+        return [200, 'application/json', JSON.stringify(this.#next(typeof parsed.videoId === 'string' ? this.#videos.get(parsed.videoId) : undefined))]
+      }
       case 'chatPage':
         return [200, 'text/html', this.#chatHtml(this.#videos.get(url.searchParams.get('v') ?? ''))]
       case 'channelLive': {
@@ -376,6 +389,33 @@ export class FakeYoutubeWeb {
     }
   }
 
+  /** next 응답 (실제 녹화본 경로만 — 시작 시각은 날짜까지). 비공개·멤버 전용·연령 제한은 실제로 보지 못했다 — 없는 영상과 같은 모양으로 둔다 */
+  #next(video: FakeWebVideo | undefined): Record<string, unknown> {
+    if (video === undefined || video.state === 'missing' || video.state === 'private' || video.state === 'members' || video.state === 'age') {
+      return { responseContext: {}, contents: { twoColumnWatchNextResults: { results: { results: { contents: [{ itemSectionRenderer: { contents: [{ backgroundPromoRenderer: { title: { runs: [{ text: "This video isn't available anymore" }] } } }] } }] } } } } }
+    }
+    const day = new Date(video.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    const live = video.state === 'live' || video.state === 'chatOff'
+    const dateText = live ? `Started streaming on ${day}` : video.state === 'upcoming' ? `Scheduled for ${day}` : video.state === 'ended' ? `Streamed live on ${day}` : day
+    const viewCount = live ? { viewCount: { runs: [{ text: '12' }, { text: ' watching now' }] }, isLive: true, originalViewCount: '12' } : { viewCount: { simpleText: video.state === 'upcoming' ? '3 waiting' : '120 views' }, originalViewCount: '0' }
+    const browse = { browseEndpoint: { browseId: video.channelId, canonicalBaseUrl: `/channel/${video.channelId}` } }
+    const two: Record<string, unknown> = {
+      results: {
+        results: {
+          contents: [
+            { videoPrimaryInfoRenderer: { title: { runs: [{ text: video.title }] }, viewCount: { videoViewCountRenderer: viewCount }, dateText: { simpleText: dateText } } },
+            { videoSecondaryInfoRenderer: { owner: { videoOwnerRenderer: { title: { runs: [{ text: video.channelTitle, navigationEndpoint: browse }] }, navigationEndpoint: browse } } } },
+            { compositeVideoPrimaryInfoRenderer: {} },
+            { itemSectionRenderer: { contents: [] } },
+          ],
+        },
+      },
+    }
+    if (video.state === 'live' || video.state === 'upcoming') two.conversationBar = { liveChatRenderer: { continuations: [{ reloadContinuationData: { continuation: 'short-next-token' } }] } }
+    if (video.state === 'ended') two.conversationBar = { liveChatRenderer: { continuations: [{ reloadContinuationData: { continuation: 'replay-token' } }], isReplay: true } }
+    return { responseContext: {}, contents: { twoColumnWatchNextResults: two }, currentVideoEndpoint: { watchEndpoint: { videoId: video.videoId } } }
+  }
+
   #chatHtml(video: FakeWebVideo | undefined): string {
     const visitor = `fake-visitor-${randomBytes(4).toString('hex')}`
     if (video === undefined || video.state !== 'live') {
@@ -410,6 +450,11 @@ function decodeContinuation(raw: string): Continuation | null {
   } catch {
     return null
   }
+}
+
+/** 데이터센터 IP에서 본 방송 페이지 (2026-11-01 AWS 측정): 플레이어 응답 LOGIN_REQUIRED "not a bot" — ytcfg는 그대로 있다 */
+function blockedWatchHtml(visitor: string): string {
+  return `<html>${PAGE_CFG(visitor)}${page({ playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm you’re not a bot' } }, { contents: {} }).slice('<html>'.length)}`
 }
 
 function page(player: Record<string, unknown>, data: Record<string, unknown>): string {

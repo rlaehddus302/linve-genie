@@ -1,0 +1,94 @@
+{
+ "responseContext": {},
+ "contents": {
+  "twoColumnWatchNextResults": {
+   "results": {
+    "results": {
+     "contents": [
+      {
+       "videoPrimaryInfoRenderer": {
+        "title": {
+         "runs": [
+          {
+           "text": "24/7 halloween ambience 🎃 spooky lofi to get chills to"
+          }
+         ]
+        },
+        "viewCount": {
+         "videoViewCountRenderer": {
+          "viewCount": {
+           "runs": [
+            {
+             "text": "5,966"
+            },
+            {
+             "text": " watching now"
+            }
+           ]
+          },
+          "isLive": true,
+          "originalViewCount": "5966"
+         }
+        },
+        "dateText": {
+         "simpleText": "Started streaming on Oct 20, 2026"
+        }
+       }
+      },
+      {
+       "videoSecondaryInfoRenderer": {
+        "owner": {
+         "videoOwnerRenderer": {
+          "title": {
+           "runs": [
+            {
+             "text": "Lofi Girl",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UCSJ4gkVC6NrvII8umztf0Ow",
+               "canonicalBaseUrl": "/channel/UCSJ4gkVC6NrvII8umztf0Ow"
+              }
+             }
+            }
+           ]
+          },
+          "navigationEndpoint": {
+           "browseEndpoint": {
+            "browseId": "UCSJ4gkVC6NrvII8umztf0Ow",
+            "canonicalBaseUrl": "/@LofiGirl"
+           }
+          }
+         }
+        }
+       }
+      },
+      {
+       "compositeVideoPrimaryInfoRenderer": {}
+      },
+      {
+       "itemSectionRenderer": {
+        "contents": []
+       }
+      }
+     ]
+    }
+   },
+   "conversationBar": {
+    "liveChatRenderer": {
+     "continuations": [
+      {
+       "reloadContinuationData": {
+        "continuation": "CONT-0001"
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "currentVideoEndpoint": {
+  "watchEndpoint": {
+   "videoId": "0sfDth4lMLc"
+  }
+ }
+}

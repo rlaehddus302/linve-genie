@@ -552,7 +552,8 @@ export class YoutubeSystem {
     if (web.off) return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
     let page: WatchPage
     try {
-      page = await web.page(videoId)
+      // 방송 페이지가 막히면 next로 대신 확인 (D-YT-SRV-19 — 시작 시각은 없어 아래에서 잇는 시각을 쓴다)
+      page = await web.pageOrNext(videoId)
       const refused = this.#pageRefusal(sellerId, page)
       if (refused !== null) return { kind: 'rejected', ...refused }
       if (page.state === 'LIVE') {
