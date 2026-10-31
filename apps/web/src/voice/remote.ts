@@ -1,25 +1,29 @@
 // APP1b: 화면은 서버 읽기 상태를 그리며 쓰기 효과만 기존 API 경로로 넘긴다.
 // 추출·사전·판정 모듈은 불러오지 않는다. controller.ts의 공개 인터페이스는 그대로다.
+// SRV1 (D-APP-22·25): 받아쓰기도 언제나 서버다 — "받아쓰기 방법" 칸·크롬 받아쓰기 길이 없다. 기기에 남은 옛 고르기 값(livejjim.voiceEngine)은 읽지 않고 지운다.
 import type { SuggestionCard, SmsCard, SpeechGap, SpeechDiagnostic, OnDeviceStatus, SpeechState } from '@livejjim/voice'
-import { RESTART_LABEL_MS, VOICE_IDLE, type VoiceController, type VoiceHost, type VoiceSnapshot, type SmsEntry, type SmsWords, type VoiceLogInput, type VoiceLogLine } from './controller.ts'
+// 음성 읽기 컨트롤러(VoiceController)는 서버 전용 자리에 있다(AC-SRV1-15) — 화면은 그 공개 모양(타입)만 쓴다. 실행 코드는 기기 번들에 없다(D-APP-23)
+import type { VoiceController } from '../../../../packages/voice-session/src/controller/controller.ts'
+import { VOICE_IDLE, type VoiceHost, type VoiceSnapshot, type SmsEntry, type SmsWords, type VoiceLogInput, type VoiceLogLine, type VoiceModule } from './model.ts'
 import { post } from '../api/client.ts'
 import { decideVoiceEnter, enterReady, nextFront } from '../lib/voice.ts'
 import { archiveBroadcasts, archiveGaps, readArchive } from './archive-store.ts'
 import { fromWire, isRecord, VOICE_COMMANDS, type VoiceCommand, type VoiceClientMessage, type VoiceConfirmation } from '../../../../packages/voice-session/src/wire.ts'
 import type { createVoiceTransport } from './transport.ts'
 import type * as TransportModule from './transport.ts'
-import type { VoiceModule } from './load.ts'
 import { VOICE_CHUNK_PLACEHOLDER } from './chunk.ts'
-import { retryAddress } from './load.ts'
+import { retryAddress } from './retry.ts'
 import { SERVICE_NAME } from '../brand.ts'
 import { supportsVoiceCapture } from './capabilities.ts'
 let transportFailures = 0
 
+/** 화면이 쓰는 음성 조작: 서버 VoiceController의 공개 모양 + 카드 고치기 칸 보내기(submitForm — 서버가 칸을 읽고 등록 효과를 보낸다, 앱과 같은 명령) */
 export type VoiceControllerPort = Pick<VoiceController, keyof VoiceController> & {
-  readonly captureEngine?: () => 'chrome' | 'livegenie'
+  readonly submitForm?: (id: string) => void
   /** 방송 소리로 듣는 동안 조작 전용 흐름을 늘 열어 둔다 (LV1 VOC-08) — 서버가 받아쓴 글·효과를 이 흐름으로 보낸다 */
   readonly listenStream?: (on: boolean) => void
 }
+/** 옛 "받아쓰기 방법" 저장값 (D-APP-13). SRV1부터 읽지 않고 지운다 (D-APP-25 (1)) */
 export const VOICE_ENGINE_KEY = 'livejjim.voiceEngine'
 export const REMOTE_NOTICE = `음성은 ${SERVICE_NAME} 받아쓰기 서버로 보내져요.`
 export const REMOTE_CONSENT = [
@@ -27,15 +31,9 @@ export const REMOTE_CONSENT = [
   '와이파이에서 쓰세요. 휴대폰 데이터로는 1시간에 약 120MB를 써요.',
   '방송 동안 충전기를 꽂아 두세요.',
 ] as const
-export function canChooseVoiceEngine(): boolean {
-  const scope = globalThis as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown }
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 48rem)').matches && (typeof scope.SpeechRecognition === 'function' || typeof scope.webkitSpeechRecognition === 'function')
-}
-export function readVoiceEngine(): 'livegenie' | 'chrome' {
-  try { return canChooseVoiceEngine() && localStorage.getItem(VOICE_ENGINE_KEY) === 'chrome' ? 'chrome' : 'livegenie' } catch { return 'livegenie' }
-}
-export function writeVoiceEngine(value: 'livegenie' | 'chrome'): void {
-  try { localStorage.setItem(VOICE_ENGINE_KEY, value) } catch { /* 이 화면에서 선택만 */ }
+/** 옛 "받아쓰기 방법" 저장값을 지운다 — 읽지 않는다. 저장소를 쓸 수 없는 기기면 그대로 둔다(어차피 읽지 않는다) */
+export function forgetVoiceEngine(): void {
+  try { localStorage.removeItem(VOICE_ENGINE_KEY) } catch { /* 저장소를 쓸 수 없는 기기 */ }
 }
 /** 옛 host 모양과 호환하되 production에서 추출 패키지를 받지 않는다. */
 export function serverVoiceOnly(): Promise<VoiceModule> { return Promise.reject(new Error('음성 읽기는 서버에서 실행해요.')) }
@@ -57,9 +55,10 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   let tooSoon = false
   let transportState: SpeechState | null = null
   let transportError: string | null = null
-  let gaps: SpeechGap[] = []
-  let diagnostics: SpeechDiagnostic[] = []
-  let onDevice: OnDeviceStatus | null = null
+  // 브라우저 음성 인식에만 있던 끊김·진단·기기 안 인식 상태 — 서버 받아쓰기에는 없다(빈 값으로 둔다, 공개 인터페이스는 그대로)
+  const gaps: readonly SpeechGap[] = []
+  const diagnostics: readonly SpeechDiagnostic[] = []
+  const onDevice: OnDeviceStatus | null = null
   let pendingInstant: boolean | null = null
   let pendingArchive: boolean | null = null
   let pendingAuto: boolean | null = null
@@ -76,25 +75,23 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   let idleTimer: ReturnType<typeof setTimeout> | null = null
   let effectPending = 0
   let connecting = false
-  let chromeMode = false
-  let restartTimer: ReturnType<typeof setTimeout> | null = null
   let restartRequested = false
   const interruptedSms = new Set<string>()
   const localSettings: Record<string, boolean | number | undefined> = {}
   const localSmsSettings: Record<string, boolean | number> = {}
-  const restartingLabel = () => chromeMode ? '음성: 다시 시작 중' : '다시 잇는 중'
-  const haltedLabel = () => chromeMode ? '음성: 멈춤' : '듣기 멈춤'
+  const restartingLabel = () => '다시 잇는 중'
+  const haltedLabel = () => '듣기 멈춤'
   const commandQueue: { method: VoiceCommand; args: readonly unknown[] }[] = []
   let disposed = false
   let transport: ReturnType<typeof createVoiceTransport> | null = null
   let contextTimer: ReturnType<typeof setInterval> | null = null
   let generation = 0
+  forgetVoiceEngine()
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
   const device = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
   const emit = () => { for (const listener of [...listeners]) listener() }
   const set = (patch: Partial<VoiceSnapshot>) => { snapshot = { ...snapshot, ...patch, now: host.now() }; emit() }
-  const releaseRestart = () => { if (restartTimer !== null) clearTimeout(restartTimer); restartTimer = null }
   const withLocalSettings = (settings: Parameters<VoiceHost['writeSettings']>[0]) => {
     const next: typeof settings & Record<string, unknown> = { ...settings, ...localSettings }
     for (const [key, value] of Object.entries(next)) if (value === undefined) delete next[key]
@@ -126,7 +123,6 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   }
   const stop = () => {
     generation++
-    releaseRestart()
     readyForCommands = false
     if (idleTimer !== null) clearTimeout(idleTimer)
     idleTimer = null
@@ -141,7 +137,7 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
     const args = fromWire(message.args)
     if (!Array.isArray(args)) return null
     const end = message.spokenEndAt
-    const stale = message.automatic !== false && ((message.source !== 'chrome' && (typeof end !== 'number' || !Number.isFinite(end) || host.now() - end > 10_000 || end > host.now())) || transportState === 'HALTED' || transportState === 'RESTARTING' || stopping || (controlOnly && !streamListen))
+    const stale = message.automatic !== false && ((typeof end !== 'number' || !Number.isFinite(end) || host.now() - end > 10_000 || end > host.now()) || transportState === 'HALTED' || transportState === 'RESTARTING' || stopping || (controlOnly && !streamListen))
     if (stale && ['fixRecent', 'writeSms'].includes(String(message.method))) return { kind: 'failed', message: '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.' }
     if (stale && ['renumber', 'undoRecent'].includes(String(message.method))) return false
     let value: unknown = null
@@ -190,7 +186,6 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
     if (transport !== null) stop()
     const born = ++generation
     connecting = true
-    chromeMode = readVoiceEngine() === 'chrome'
     controlOnly = commandsOnly; if (!commandsOnly) streamListen = false; stopping = false; readyForCommands = false
     transportState = null; transportError = null
     set({ phase: commandsOnly ? 'off' : 'loading', error: null, unsupported: false })
@@ -205,31 +200,23 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
       }
       if (disposed || born !== generation) return
       transport = create({
-        broadcastId, device, chrome: chromeMode, capture: !commandsOnly,
-        ...(isRecord(host.readSettings()) && typeof (host.readSettings() as Record<string, unknown>)['voice.stallMs'] === 'number' ? { stallMs: (host.readSettings() as Record<string, number>)['voice.stallMs'] } : {}),
+        broadcastId, device, capture: !commandsOnly,
         hello: () => ({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { ...safeSettings(host.readSettings()), 'voice.archive': readArchive(host.readSettings()) }, smsSettings: safeSettings(host.readSmsSettings?.()), consent: true, listening: !commandsOnly, ...(resumeToken === null ? {} : { resumeToken }) } }),
         onState: (state) => {
           if (disposed || born !== generation) return
           transportState = state
           if (commandsOnly || stopping) return
-          if (state === 'LISTENING') { transportError = null; set({ phase: 'on', stateLabel: restartTimer === null ? '음성: 듣는 중' : restartingLabel(), error: null }) }
-          if (state === 'RESTARTING') {
-            releaseRestart()
-            if (chromeMode) restartTimer = setTimeout(() => { restartTimer = null; if (!disposed && born === generation && transportState === 'LISTENING' && !stopping) set({ stateLabel: '음성: 듣는 중' }) }, RESTART_LABEL_MS)
-            set({ phase: 'on', stateLabel: restartingLabel() })
-          }
-          if (state === 'HALTED') set({ phase: chromeMode ? 'off' : 'on', stateLabel: chromeMode ? null : haltedLabel() })
+          if (state === 'LISTENING') { transportError = null; set({ phase: 'on', stateLabel: '음성: 듣는 중', error: null }) }
+          if (state === 'RESTARTING') set({ phase: 'on', stateLabel: restartingLabel() })
+          if (state === 'HALTED') set({ phase: 'on', stateLabel: haltedLabel() })
         },
-        onError: (error) => { if (!disposed && born === generation) { transportError = error.message; transportState = 'HALTED'; if (chromeMode && !commandsOnly) local.turnOff(); set({ phase: commandsOnly || chromeMode ? 'off' : 'on', stateLabel: chromeMode ? null : haltedLabel(), error: error.message, unsupported: error.kind === 'UNSUPPORTED' }) } },
+        onError: (error) => { if (!disposed && born === generation) { transportError = error.message; transportState = 'HALTED'; set({ phase: commandsOnly ? 'off' : 'on', stateLabel: haltedLabel(), error: error.message, unsupported: error.kind === 'UNSUPPORTED' }) } },
         onConnectionLost: () => {
           if (disposed || born !== generation || stopping) return
           readyForCommands = false
           for (const entry of snapshot.sms) if (entry.card.status === 'OPEN' && !entry.sending) interruptedSms.add(entry.card.id)
           set({ sms: snapshot.sms.map(stopSms), cards: snapshot.cards.map((card) => ({ ...card, autoConfirmAt: null })) })
         },
-        onGap: (gap, text) => { gaps = [...gaps.slice(-79), gap]; if (snapshot.archive) host.archiveGap?.({ at: gap.to, ms: gap.ms, reason: gap.reason, text }); emit() },
-        onDiagnostic: (diagnostic, text) => { diagnostics = [...diagnostics.slice(-79), diagnostic]; if (snapshot.archive) host.archiveGap?.({ at: diagnostic.at, ms: diagnostic.ms, reason: diagnostic.kind, text }); emit() },
-        onDeviceStatus: (status) => { onDevice = status; emit() },
         onMessage: (value) => {
           if (disposed || born !== generation || !isRecord(value)) return
           if (value.type === 'voice.state') {
@@ -268,7 +255,7 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
               instant: pendingInstant ?? state.instant, archive: pendingArchive ?? state.archive,
               settings: state.settings === null ? null : { ...state.settings, ...(pendingAuto === null ? {} : { 'voice.autoConfirm': pendingAuto }) },
               smsSettings: state.smsSettings === null ? null : { ...state.smsSettings, ...(pendingSmsListen === null ? {} : { 'voice.smsListen': pendingSmsListen }) },
-              ...((transportState === 'RESTARTING' || restartTimer !== null) ? { stateLabel: restartingLabel() } : transportState === 'HALTED' || transportError !== null ? { stateLabel: chromeMode ? null : haltedLabel(), ...(chromeMode ? { phase: 'off' } : {}) } : {}),
+              ...(transportState === 'RESTARTING' ? { stateLabel: restartingLabel() } : transportState === 'HALTED' || transportError !== null ? { stateLabel: haltedLabel() } : {}),
               ...(transportError === null ? {} : { error: transportError }),
               ...(value.resumeToken === '' ? { error: '대기 내용이 많아 다시 연결할 수 없어요. 음성을 끄기 전에 남은 카드와 문자찜을 확인해 주세요.' } : {}),
             }
@@ -297,10 +284,9 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   const local = {
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener) } },
     getSnapshot: () => snapshot,
-    captureEngine: () => chromeMode ? 'chrome' as const : 'livegenie' as const,
     async turnOn() {
       if (disposed || snapshot.phase !== 'off') return
-      if (!supportsVoiceCapture(readVoiceEngine())) { set({ unsupported: true, error: '이 기기에서는 음성이 어려워요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.' }); return }
+      if (!supportsVoiceCapture()) { set({ unsupported: true, error: '이 기기에서는 음성이 어려워요. 상품은 빠른 입력으로 그대로 등록할 수 있어요.' }); return }
       if (stopping) { restartRequested = true; return }
       if (!host.readConsent()) { set({ phase: 'consent', instant: storedInstant() }); return }
       await start()
@@ -310,7 +296,6 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
     declineConsent() { if (snapshot.phase === 'consent') { set({ phase: 'off' }); host.focusQuick() } },
     turnOff() {
       stopping = true
-      releaseRestart()
       transport?.pauseCapture?.()
       const sent = readyForCommands && send({ type: 'voice.session', op: 'command', method: 'turnOff', args: [] })
       if (!sent) { stopping = false; stop() }

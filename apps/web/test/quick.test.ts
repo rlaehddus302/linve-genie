@@ -1,8 +1,10 @@
 // 빠른 입력 (AC-S05-10~13, D-084): 해석은 코어 parseQuickInput에 그 방송 스냅샷의 price.unit·claim.maxNumber를 넣은 결과와 같다.
+// SRV1 (D-APP-23·24): 읽기 함수는 서버 전용 자리(packages/voice-session/src/read)로 옮겼다 — 기대값은 그대로, 서버 읽기 함수를 본다.
 import { DEFAULT_SETTINGS, parseQuickInput } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import type { Product } from '../src/api/types.ts'
-import { changedFields, decideFixForm, decideQuickInput, numberErrorFill, previewNumber, quickErrorMessage, quickSettings } from '../src/lib/quick.ts'
+import { changedFields } from '../src/lib/quick.ts'
+import { decideFixForm, decideQuickInput, numberErrorFill, previewNumber, quickErrorMessage, quickSettings } from '../../../packages/voice-session/src/read/index.ts'
 import { product } from './support.ts'
 
 const settings = quickSettings(DEFAULT_SETTINGS)

@@ -294,9 +294,12 @@ describe('채팅 패널의 옵션 주문·확인 필요 (AC-O2-24)', () => {
     const review = optionLook(opt(3, '반바지', { review: { reason: 'OPTION_MISSING', no: 21, options: null, qty: null } }), products)
     expect(review?.review).toBe('확인 필요 · 옵션 빠짐')
     expect(review?.mention).toBe(false)
-    const mention = optionLook(opt(4, '반바지 예뻐요 너무', {}), products)
+    // 옛 기대: 화면이 글에서 상품 이름을 찾아 언급으로 보임. SRV1(D-APP-23, 약속 5)부터 이름 언급은 서버가 준 nameMentions — 같은 단언을 서버 값으로
+    const mention = optionLook(opt(4, '반바지 예뻐요 너무', { nameMentions: [21] }), products)
     expect(mention?.mention).toBe(true)
     expect(mention?.optionProduct).toBe(true)
+    // 서버가 언급으로 주지 않은 글은 기기가 이름을 찾아 언급으로 바꾸지 않는다 (APP-05 AC13)
+    expect(optionLook(opt(6, '반바지 예뻐요 너무', {}), products)?.mention).toBe(false)
     expect(optionLook(message(5, { text: '반바지 M' }), products)).toBeNull()
   })
 })

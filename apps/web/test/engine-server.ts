@@ -3,11 +3,15 @@
 // 문자찜: ref는 서버가 만들고, phone은 정규화해 phoneKey·phoneLast4만 엔진에 넣는다(원문은 버린다), received를 비우면 '10:00:00'.
 //   응답의 buyer는 그 이벤트를 적용한 뒤 상태의 코어 buyerOfRef (S06b 서버 계약, D-099).
 // 합치기 미리 보기 GET /api/days/:date/merge-preview?from=&into= — 지금 상태로 코어 previewMerge, { date, rehearsal, seq, preview } (D-100).
-import { applyEvent, buyerOfRef, containsPhoneRun, isValidReceivedTime, listClaims, normalizePhone, phoneLast4, previewMerge, type EngineState, type SettingsOverride } from '@livejjim/core'
+// SRV1 (약속 1·2): 읽기 입구는 FakeServer가 서버와 같은 읽기 함수로 답한다. 쓰기는 친 글 원문을 받는다 — 빠른 입력 줄 `text`,
+//   고치기 칸 `no`·`price` 글, 상품 고치기 `price` 글, 문자찜 `received` 글, 정산 `amount` 글(할인은 `sign: 'minus'`) — 서버처럼 같은 함수로 읽어 기록한다.
+//   posts에는 받은 원문 본문 그대로 남는다.
+import { applyEvent, buyerOfRef, getProduct, containsPhoneRun, isValidReceivedTime, listClaims, normalizePhone, phoneLast4, previewMerge, type EngineState, type SettingsOverride } from '@livejjim/core'
 import type { Changes, WriteResult } from '../src/api/types.ts'
 import { settlementKey } from '../src/lib/scope-data.ts'
 import { T0, run, viewOf } from './engine.ts'
-import { DATE, FakeEventSource, FakeServer, apiError, type Reply } from './support.ts'
+import { DATE, FakeEventSource, FakeServer, apiError, readRawWrite, type Reply } from './support.ts'
+import type { QuickSettings, ReadProduct } from '../../../packages/voice-session/src/read/index.ts'
 
 export const PHONE_SENTENCE = '전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.'
 
@@ -38,7 +42,7 @@ export interface EngineServerOptions {
 
 export class EngineServer {
   readonly server = new FakeServer()
-  /** 받아 기록한 쓰기 (요청 본문) */
+  /** 받아 기록한 쓰기 (요청 본문 + 원문 칸을 읽은 엔진 필드, SRV1) */
   readonly posts: Record<string, unknown>[] = []
   /** 음성 쓰기에 실려 온 기록 한 줄 (R-25) */
   readonly voiceLogs: unknown[] = []
@@ -57,6 +61,10 @@ export class EngineServer {
     this.#states = [first.state]
     for (const event of events) this.#apply(event)
     const ended = new Set(options.ended ?? [])
+    // 가짜 읽기 입구도 엔진 상태의 상품으로 읽는다 (서버 readScope와 같다)
+    this.server.findProduct = this.readProduct
+    // 원문은 같은 요청 번호 확인(이미 기록한 요청이면 처음 결과) 뒤에 읽는다 — 실제 서버 기록 경로와 같은 차례
+    this.server.decodeRawWrites = false
     this.server
       .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
       .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: options.delayMs ?? 60 } }))
@@ -120,7 +128,7 @@ export class EngineServer {
 
   #handle(body: Record<string, unknown>): Reply {
     // voiceLog(R-25)는 엔진 필드가 아니다 — 실제 서버처럼 떼고 따로 남긴다
-    const { requestId, voiceLog, ...input } = body
+    const { requestId, voiceLog, ...sent } = body
     if (voiceLog !== undefined) this.voiceLogs.push(voiceLog)
     const prior = this.#results.get(String(requestId))
     if (prior !== undefined) return { body: prior }
@@ -130,9 +138,22 @@ export class EngineServer {
       return reply
     }
     this.posts.push(body)
+    // 원문 칸은 서버처럼 같은 읽기 함수로 읽어 엔진 필드로 (SRV1 약속 2 — apps/server/src/raw-input.ts와 같은 약속)
+    const raw = this.#readRaw(sent)
+    if (!('event' in raw)) return raw
+    const input = raw.event
+    // posts에는 받은 원문 본문과 서버가 읽어 기록한 엔진 필드를 함께 남긴다 (원문 단언·기록 값 단언 둘 다)
+    this.posts[this.posts.length - 1] = { ...body, ...input }
     let event: Record<string, unknown> = input
     let last4: string | null | undefined
     let ref: string | undefined
+    // 정산 메모·사유의 전화번호: 서버가 지금 화면 문장으로 거절한다 (SRV1 AC-SRV1-08 — 화면은 먼저 막지 않는다)
+    if (String(input.type).startsWith('settlement.')) {
+      for (const field of ['memo', 'reason']) {
+        const value = input[field]
+        if (typeof value === 'string' && containsPhoneRun(value)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field, message: PHONE_SENTENCE }])
+      }
+    }
     if (input.type === 'sms') {
       if (typeof input.memo === 'string' && containsPhoneRun(input.memo)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'memo', message: PHONE_SENTENCE }])
       if (input.received !== undefined && !isValidReceivedTime(input.received)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'received', message: '받은 시각을 확인해 주세요.' }])
@@ -213,6 +234,24 @@ export class EngineServer {
     this.#results.set(String(requestId), result)
     queueMicrotask(() => this.#notify(String(input.type)))
     return { body: result }
+  }
+
+  /** 그 방송의 읽기 설정 (엔진 상태의 방송 설정) */
+  #readSettings(b: unknown): QuickSettings {
+    const view = viewOf(this.state, this.seq) as unknown as { broadcasts?: { id: string; settings?: { 'price.unit'?: QuickSettings['price.unit']; 'claim.maxNumber'?: number } }[] }
+    const settings = view.broadcasts?.find((item) => item.id === b)?.settings
+    return { 'price.unit': settings?.['price.unit'] ?? 'THOUSAND', 'claim.maxNumber': settings?.['claim.maxNumber'] ?? 999 }
+  }
+
+  /** 그 방송의 번호 → 읽기용 상품 (엔진 상태 — 판매 종료한 상품도 있다) */
+  readProduct = (b: string, no: number): ReadProduct | undefined => {
+    const product = getProduct(this.state, b, no)
+    return product === null ? undefined : { id: product.id, no: product.no, name: product.name, price: product.price, closed: product.status === 'CLOSED' }
+  }
+
+  /** 원문 칸을 서버처럼 읽어 엔진 필드로 (support.ts readRawWrite — 서버 raw-input.ts와 같은 약속) */
+  #readRaw(input: Record<string, unknown>): { event: Record<string, unknown> } | Reply {
+    return readRawWrite(input, (b) => this.#readSettings(b), this.readProduct)
   }
 
   /** 받은 합치기 미리 보기 조회 수 */

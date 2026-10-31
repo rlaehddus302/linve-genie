@@ -3,6 +3,26 @@
 import { DEFAULT_SETTINGS } from '@livejjim/core'
 import { vi } from 'vitest'
 import type { BroadcastItem, BroadcastView, ChatMessage, FullView, OutboxRow, Product, YoutubeConnection } from '../src/api/types.ts'
+import {
+  AMOUNT_UNREADABLE,
+  BROADCAST_READ_KINDS,
+  READ_KINDS,
+  READ_TEXT_MAX,
+  RECEIVED_INVALID,
+  decideFixForm,
+  decideQuickInput,
+  editQuestion,
+  quickErrorMessage,
+  quickRead,
+  readMoney,
+  readNumberField,
+  readReceived,
+  readText,
+  type FixText,
+  type QuickSettings,
+  type ReadKind,
+  type ReadProduct,
+} from '../../../packages/voice-session/src/read/index.ts'
 
 export interface Call {
   readonly method: string
@@ -20,10 +40,132 @@ export interface Reply {
 
 type Handler = (call: Call, match: RegExpExecArray) => Reply | Promise<Reply>
 
-/** 경로·메서드로 고르는 가짜 서버. 맞는 처리기가 없으면 404 */
+type ReadSettings = QuickSettings
+
+const isPriceUnit = (unit: unknown): unit is ReadSettings['price.unit'] => unit === 'WON' || unit === 'THOUSAND' || unit === 'TEN_THOUSAND' || unit === 'AUTO'
+
+/** 응답 본문에서 방송 설정·상품을 줍는다 (가짜 읽기 입구가 화면과 같은 방송 설정·상품으로 읽게) — 깊이 3까지 `broadcasts`·`products` 목록 */
+function learn(body: unknown, settings: Map<string, ReadSettings>, products: Map<string, ReadProduct & { readonly broadcast: string }>, depth = 0): void {
+  if (typeof body !== 'object' || body === null || depth > 3) return
+  if (Array.isArray(body)) return
+  const record = body as Record<string, unknown>
+  for (const [key, value] of Object.entries(record)) {
+    if (key === 'broadcasts' && Array.isArray(value)) {
+      for (const item of value as unknown[]) {
+        if (typeof item !== 'object' || item === null) continue
+        const { id, settings: own } = item as { id?: unknown; settings?: Record<string, unknown> }
+        if (typeof id !== 'string' || typeof own !== 'object' || own === null) continue
+        const unit = own['price.unit']
+        const max = own['claim.maxNumber']
+        if (isPriceUnit(unit) && typeof max === 'number') settings.set(id, { 'price.unit': unit, 'claim.maxNumber': max })
+      }
+    } else if (key === 'products' && Array.isArray(value)) {
+      for (const item of value as unknown[]) {
+        if (typeof item !== 'object' || item === null) continue
+        const p = item as Record<string, unknown>
+        if (typeof p.broadcast !== 'string' || typeof p.no !== 'number' || typeof p.name !== 'string' || typeof p.price !== 'number') continue
+        const id = typeof p.id === 'string' ? p.id : `${p.broadcast}/${String(p.no)}`
+        products.set(`${p.broadcast}/${String(p.no)}`, { id, broadcast: p.broadcast, no: p.no, name: p.name, price: p.price, closed: p.status === 'CLOSED' })
+      }
+    } else if (typeof value === 'object' && value !== null) learn(value, settings, products, depth + 1)
+  }
+}
+
+/** 원문 쓰기 칸 이름 (서버 raw-input.ts RAW_FIELDS) */
+const RAW_NAMES = ['text', 'noText', 'priceText', 'receivedText', 'amountText', 'amountSign']
+
+/** 화면이 아직 방송 설정을 받지 못했을 때 (코어 기본값) */
+const DEFAULT_READ: ReadSettings = { 'price.unit': DEFAULT_SETTINGS['price.unit'], 'claim.maxNumber': DEFAULT_SETTINGS['claim.maxNumber'] }
+
+/**
+ * 가짜 서버 읽기 입구 (SRV1 약속 1, 서버 apps/server/src/read-routes.ts와 같은 약속): `POST /api/broadcasts/:id/read`·`POST /api/read`
+ * `{ kind, text }` → `{ read }` — 서버와 같은 읽기 함수(packages/voice-session/src/read readText)의 결과. fix만 text가 세 칸.
+ * 방송 설정·상품은 화면이 받은 응답에서 줍고, 모르면 기본값. `/api/read`는 방송과 무관한 칸(money·received·phone)만.
+ */
+export function fakeRead(call: Call, broadcast: string | null, settings: ReadonlyMap<string, ReadSettings>, findProduct: (b: string, no: number) => ReadProduct | undefined, now: number = Date.now()): Reply {
+  const kind = call.body?.kind
+  const text = call.body?.text
+  if (typeof kind !== 'string' || !(READ_KINDS as readonly string[]).includes(kind)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.')
+  const readKind = kind as ReadKind
+  if (broadcast === null && BROADCAST_READ_KINDS.includes(readKind)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.')
+  let input: string | FixText
+  if (readKind === 'fix') {
+    if (typeof text !== 'object' || text === null) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.')
+    const form = text as Record<string, unknown>
+    input = { no: String(form.no ?? ''), name: String(form.name ?? ''), price: String(form.price ?? '') }
+  } else {
+    if (typeof text !== 'string' || text.length > READ_TEXT_MAX) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.')
+    input = text
+  }
+  const use = broadcast === null ? undefined : (settings.get(broadcast) ?? DEFAULT_READ)
+  const read = readText(readKind, input, { ...(use === undefined ? {} : { settings: use }), ...(broadcast === null ? {} : { findProduct: (no: number) => findProduct(broadcast, no) }), now })
+  return { body: { read } }
+}
+
+/**
+ * 원문 칸을 서버처럼 읽어 엔진 필드로 (SRV1 약속 2, 서버 raw-input.ts와 같은 약속): product.register·update의 `text`·`noText`·`priceText`,
+ * sms의 `noText`·`receivedText`, 정산의 `amountText`(+ `amountSign`). 읽지 못하면 서버 문장으로 400, 이미 있는 번호는 409 QUICK_EXISTS
+ */
+export function readRawWrite(input: Record<string, unknown>, settingsOf: (b: unknown) => QuickSettings, findProduct: (b: string, no: number) => ReadProduct | undefined, now: number = Date.now()): { event: Record<string, unknown> } | Reply {
+  const bad = (field: string, message: string, extra: Record<string, unknown> = {}): Reply => ({ status: 400, body: { ...extra, error: { code: field === 'text' || field === 'noText' || field === 'priceText' ? 'QUICK_FIX' : 'INVALID_INPUT', message, problems: [{ field, message }] } } })
+  const { text, noText, priceText, receivedText, amountText, amountSign, ...event } = input
+  const type = String(input.type)
+  if (type === 'product.register' || type === 'product.update') {
+    const settings = settingsOf(input.b)
+    const b = String(input.b)
+    const find = (no: number) => findProduct(b, no)
+    const decision = typeof text === 'string' ? decideQuickInput(text, settings, find) : typeof noText === 'string' && typeof priceText === 'string' ? decideFixForm({ no: noText, name: typeof input.name === 'string' ? input.name : '', price: priceText }, settings, find) : null
+    if (decision !== null) {
+      const read = quickRead(decision)
+      if (decision.kind === 'fix') return bad(typeof text === 'string' ? 'text' : decision.focus === 'price' ? 'priceText' : 'noText', decision.message, { read })
+      if (decision.kind === 'open') return { status: 409, body: { read, error: { code: 'QUICK_OPEN', message: `${String(decision.product.no)}번 상품이 이미 있어요.`, problems: [] } } }
+      if (decision.kind === 'none') return bad('text', quickErrorMessage('NUMBER_MISSING', 0))
+      if (decision.kind === 'edit' && type === 'product.register') return { status: 409, body: { read, error: { code: 'QUICK_EXISTS', message: editQuestion(decision.no, decision.product.closed), problems: [] } } }
+      event.no = decision.no
+      event.price = decision.price
+      if (typeof text === 'string' && (type === 'product.register' || decision.name !== '')) event.name = decision.name
+    }
+  }
+  if (type === 'sms') {
+    if (typeof noText === 'string') {
+      const settings = settingsOf(input.b)
+      const no = readNumberField(noText, settings)
+      if (no === 'empty') return bad('noText', '상품 번호를 적어 주세요.')
+      if (no === null) return bad('noText', quickErrorMessage('NUMBER_INVALID', settings['claim.maxNumber']))
+      event.no = no
+    }
+    if (typeof receivedText === 'string') {
+      const read = readReceived(receivedText, now)
+      if (read.kind === 'invalid') return bad('receivedText', RECEIVED_INVALID)
+      if (read.kind === 'ok') event.received = read.value
+    }
+  }
+  if (type.startsWith('settlement.') && typeof amountText === 'string') {
+    const read = readMoney(amountText)
+    if (read.amount === null) return bad('amountText', AMOUNT_UNREADABLE)
+    event.amount = amountSign === 'MINUS' ? -read.amount : read.amount
+  }
+  return { event }
+}
+
+
+/** 경로·메서드로 고르는 가짜 서버. 맞는 처리기가 없으면 404 (읽기 입구는 따로 처리기를 달지 않으면 서버와 같은 읽기로 답한다) */
 export class FakeServer {
   readonly calls: Call[] = []
   readonly #routes: { method: string; pattern: RegExp; handler: Handler }[] = []
+  /** 응답에서 주운 방송 설정·상품 (가짜 읽기 입구용) */
+  readonly readSettings = new Map<string, ReadSettings>()
+  readonly readProducts = new Map<string, ReadProduct & { readonly broadcast: string }>()
+  /** 가짜 읽기 입구가 상품을 찾는 곳 (EngineServer는 엔진 상태로 바꾼다) */
+  findProduct: (b: string, no: number) => ReadProduct | undefined = (b, no) => this.readProducts.get(`${b}/${String(no)}`)
+  /** 원문 쓰기를 처리기 앞에서 읽는다 (EngineServer는 같은 요청 번호 확인 뒤 스스로 읽으므로 끈다) */
+  decodeRawWrites = true
+  /** 받은 읽기 요청 본문 */
+  get reads(): Call[] {
+    return this.calls.filter((call) => call.method === 'POST' && /^\/api\/(?:broadcasts\/[^/?]+\/)?read$/.test(call.path))
+  }
+  /** 읽기 입구가 답하지 않는다 (AC-SRV1-06) */
+  readDown = false
 
   on(method: string, pattern: RegExp, handler: Handler): this {
     this.#routes.unshift({ method, pattern, handler })
@@ -45,8 +187,22 @@ export class FakeServer {
       if (route.method !== method) continue
       const match = route.pattern.exec(path)
       if (match === null) continue
-      const reply = await route.handler(call, match)
+      // 원문 쓰기 (SRV1 약속 2): 서버처럼 먼저 읽어 엔진 필드로 바꿔 처리기에 넘긴다 — 받은 원문 본문은 calls에 그대로 남는다
+      let handed = call
+      if (this.decodeRawWrites && method === 'POST' && /^\/api\/events$/.test(path) && body !== null && RAW_NAMES.some((name) => body[name] !== undefined)) {
+        const decoded = readRawWrite(body, (b) => (typeof b === 'string' ? this.readSettings.get(b) : undefined) ?? DEFAULT_READ, this.findProduct)
+        if (!('event' in decoded)) return new Response(JSON.stringify(decoded.body ?? {}), { status: decoded.status ?? 200, headers: { 'Content-Type': 'application/json' } })
+        handed = { ...call, body: decoded.event }
+      }
+      const reply = await route.handler(handed, match)
       if (reply.network === true) throw new TypeError('Failed to fetch')
+      learn(reply.body, this.readSettings, this.readProducts)
+      return new Response(JSON.stringify(reply.body ?? {}), { status: reply.status ?? 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    const read = method === 'POST' ? /^\/api\/(?:broadcasts\/([^/?]+)\/)?read$/.exec(path) : null
+    if (read !== null) {
+      if (this.readDown) throw new TypeError('Failed to fetch')
+      const reply = fakeRead(call, read[1] === undefined ? null : decodeURIComponent(read[1]), this.readSettings, this.findProduct)
       return new Response(JSON.stringify(reply.body ?? {}), { status: reply.status ?? 200, headers: { 'Content-Type': 'application/json' } })
     }
     return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '찾을 수 없어요.' } }), { status: 404 })

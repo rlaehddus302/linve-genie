@@ -1,11 +1,13 @@
 // FB1 빠른 입력 가격 단위 한 줄·등록 전 미리 보기 (D-FB1-01, AC-FB1-02·03): 해석은 Enter와 같은 함수 — 미리 보기 가격 = 등록 가격.
+// SRV1 (D-APP-23·24): 읽기 함수는 서버 전용 자리(packages/voice-session/src/read)로 옮겼다 — 기대값은 그대로, 서버 읽기 함수를 본다.
 import { DEFAULT_SETTINGS, parseQuickInput, type SaleSettings } from '@livejjim/core'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { Product } from '../src/api/types.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
-import { decideQuickInput, fixPricePreview, quickSettings, registerPreview, unitLine } from '../src/lib/quick.ts'
+import { unitLine } from '../src/lib/quick.ts'
+import { decideQuickInput, fixPricePreview, quickSettings, registerPreview } from '../../../packages/voice-session/src/read/index.ts'
 import { DATE, FakeEventSource, FakeServer, broadcastItem, broadcastView, emptyChanges, flush, fullView, product } from './support.ts'
 
 const THOUSAND = quickSettings({ ...DEFAULT_SETTINGS, 'price.unit': 'THOUSAND' })
@@ -114,16 +116,18 @@ async function openConsole() {
   return quick
 }
 
+// SRV1 (D-APP-24, 약속 3): 미리 보기는 서버 읽기 입구의 답(마지막 글자 뒤 150ms)이다 — 옛 기대는 친 즉시(getByText) 보였고, 새 기대는 답이 오면(findByText) 같은 글이다.
+// 보이는 글·Enter로 보낸 값의 단언은 그대로. 등록 본문은 친 원문(text)이고 가짜 서버가 서버처럼 읽어 events에 엔진 필드로 남긴다.
 describe('콘솔 빠른 입력 (AC-FB1-02·03)', () => {
   it('천원 방송: 단위 한 줄, 치는 동안 "등록하면: …", Enter로 보낸 가격 = 미리 보기 가격', async () => {
     const quick = await openConsole()
     expect(await screen.findByText('가격 단위: 천원 — 10은 10,000원, 2만은 20,000원')).toBeDefined()
     fireEvent.change(quick, { target: { value: '15 엘레강스 10' } })
-    expect(screen.getByText('등록하면: 15번 엘레강스 10,000원')).toBeDefined()
+    expect(await screen.findByText('등록하면: 15번 엘레강스 10,000원')).toBeDefined()
     fireEvent.change(quick, { target: { value: '15 엘레강스 2만' } })
-    expect(screen.getByText('등록하면: 15번 엘레강스 20,000원')).toBeDefined()
+    expect(await screen.findByText('등록하면: 15번 엘레강스 20,000원')).toBeDefined()
     fireEvent.change(quick, { target: { value: '15 10' } })
-    expect(screen.getByText('등록하면: 15번 10,000원')).toBeDefined()
+    expect(await screen.findByText('등록하면: 15번 10,000원')).toBeDefined()
     // 이미 있는 번호(고칠까요)·번호만이면 없다
     fireEvent.change(quick, { target: { value: '7 엘레강스 10' } })
     expect(screen.queryByText(/^등록하면:/)).toBeNull()
@@ -133,6 +137,8 @@ describe('콘솔 빠른 입력 (AC-FB1-02·03)', () => {
     fireEvent.keyDown(quick, { key: 'Enter' })
     await waitFor(() => expect(events.some((event) => event.type === 'product.register')).toBe(true))
     expect(events.find((event) => event.type === 'product.register')).toMatchObject({ no: 15, name: '엘레강스', price: 20000 })
+    // 보낸 본문은 친 원문 그대로 (AC-SRV1-04)
+    expect(server.callsTo('POST', /^\/api\/events/).map((call) => call.body).find((body) => body?.type === 'product.register')).toMatchObject({ type: 'product.register', b: 'b1', text: '15 엘레강스 2만' })
   })
 
   it('원 방송: 단위 한 줄은 그 방송의 값', async () => {
@@ -140,7 +146,7 @@ describe('콘솔 빠른 입력 (AC-FB1-02·03)', () => {
     const quick = await openConsole()
     expect(await screen.findByText('가격 단위: 원 — 10000은 10,000원, 2만은 20,000원')).toBeDefined()
     fireEvent.change(quick, { target: { value: '15 엘레강스 10000' } })
-    expect(screen.getByText('등록하면: 15번 엘레강스 10,000원')).toBeDefined()
+    expect(await screen.findByText('등록하면: 15번 엘레강스 10,000원')).toBeDefined()
   })
 
   it('만원 방송: 단위 한 줄은 만원, "등록하면: … 150,000원", Enter로 보낸 가격 = 150000, 고치기 칸 "= 140,000원"', async () => {
@@ -149,9 +155,9 @@ describe('콘솔 빠른 입력 (AC-FB1-02·03)', () => {
     expect(await screen.findByText('가격 단위: 만원 — 15는 150,000원, 5천은 5,000원')).toBeDefined()
     expect(screen.queryByText(/^가격 단위: 천원/)).toBeNull()
     fireEvent.change(quick, { target: { value: '15 엘레강스 15000' } })
-    expect(screen.getByText('등록하면: 15번 엘레강스 15,000원')).toBeDefined()
+    expect(await screen.findByText('등록하면: 15번 엘레강스 15,000원')).toBeDefined()
     fireEvent.change(quick, { target: { value: '15 엘레강스 15' } })
-    expect(screen.getByText('등록하면: 15번 엘레강스 150,000원')).toBeDefined()
+    expect(await screen.findByText('등록하면: 15번 엘레강스 150,000원')).toBeDefined()
     fireEvent.keyDown(quick, { key: 'Enter' })
     await waitFor(() => expect(events.some((event) => event.type === 'product.register')).toBe(true))
     expect(events.find((event) => event.type === 'product.register')).toMatchObject({ no: 15, name: '엘레강스', price: 150000 })
@@ -164,20 +170,20 @@ describe('콘솔 빠른 입력 (AC-FB1-02·03)', () => {
     fireEvent.keyDown(quick, { key: 'Enter' })
     const fix = await screen.findByRole('group', { name: '고치기 칸' })
     fireEvent.change(fix.querySelectorAll('input')[2] as HTMLInputElement, { target: { value: '14' } })
-    expect(screen.getByText('= 140,000원')).toBeDefined()
+    expect(await screen.findByText('= 140,000원')).toBeDefined()
   })
 
   it('품종은 글자로만 (HTML로 읽지 않는다), 고치기 칸 가격 옆 "= 15,000원"', async () => {
     const quick = await openConsole()
     fireEvent.change(quick, { target: { value: '15 <img src=x onerror=alert(1)> 10' } })
-    expect(screen.getByText('등록하면: 15번 <img src=x onerror=alert(1)> 10,000원')).toBeDefined()
+    expect(await screen.findByText('등록하면: 15번 <img src=x onerror=alert(1)> 10,000원')).toBeDefined()
     expect(document.querySelector('img[src="x"]')).toBeNull()
     fireEvent.change(quick, { target: { value: '15 엘레강스' } })
     fireEvent.keyDown(quick, { key: 'Enter' })
     const fix = await screen.findByRole('group', { name: '고치기 칸' })
     const price = fix.querySelectorAll('input')[2] as HTMLInputElement
     fireEvent.change(price, { target: { value: '1.5만' } })
-    expect(screen.getByText('= 15,000원')).toBeDefined()
+    expect(await screen.findByText('= 15,000원')).toBeDefined()
     fireEvent.change(price, { target: { value: '모름' } })
     expect(screen.queryByText(/^= /)).toBeNull()
   })
@@ -196,7 +202,7 @@ describe('"등록하면" 줄 자리 고정 (AC-FB1-02 회차 2)', () => {
     const before = siblings()
     fireEvent.change(quick, { target: { value: '15 엘레강스 10' } })
     expect(line()).toBe(first)
-    expect(first.textContent).toBe('등록하면: 15번 엘레강스 10,000원')
+    await waitFor(() => expect(first.textContent).toBe('등록하면: 15번 엘레강스 10,000원'))
     expect(siblings()).toEqual(before)
     fireEvent.change(quick, { target: { value: '' } })
     expect(line()).toBe(first)
@@ -225,7 +231,7 @@ describe('휴대폰 고정 영역 (UX-04 · TE-FB1-001 · U-FB1-01)', () => {
     expect(document.querySelectorAll('.quick-will-register')).toHaveLength(1)
     fireEvent.change(quick, { target: { value: '15 엘레강스 10' } })
     expect(sticky.nextElementSibling).toBe(register)
-    expect(register.textContent).toBe('등록하면: 15번 엘레강스 10,000원')
+    await waitFor(() => expect(register.textContent).toBe('등록하면: 15번 엘레강스 10,000원'))
     expect(sticky.contains(register)).toBe(false)
   })
 

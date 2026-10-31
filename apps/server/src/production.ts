@@ -17,7 +17,8 @@
 //   LIVEJJIM_ASSIST_DAILY_CALLS(판매자 하루, 기본 20)·LIVEJJIM_ASSIST_GLOBAL_DAILY_CALLS(서버 전체 하루, 기본 500). 주소는 https://api.anthropic.com 고정이다 —
 //   주소를 바꾸는 환경 변수는 없다(다른 이름의 변수를 적어도 읽지 않는다). 가짜 LLM 서버는 시험·E2E·연습 기동만.
 // - 오류 문장에 환경변수 값을 넣지 않는다.
-import { readBillingEnv } from './billing/config.ts'
+import { PortOneCashReceiptIssuer } from './billing/cash-receipt.ts'
+import { readBillingEnv, readReceiptIssuerEnv } from './billing/config.ts'
 import { noneIssuer } from './billing/documents.ts'
 import { PortOneGateway } from './billing/portone.ts'
 import type { BillingSetup } from './billing/service.ts'
@@ -55,12 +56,15 @@ export function productionServerOptions(
   const billingEnv = readBillingEnv(env, readFile)
   if (!billingEnv.ok) return { ok: false, message: billingEnv.message }
   const { enabled, prices, portone } = billingEnv.billing
+  // 증빙 발행기 (BL-8 5, D-PAY-10): 운영 기본 "없음". portone일 때만 포트원 현금영수증(금액 칸 세무 확인 뒤 켠다). 모르는 값이면 기동하지 않는다
+  const issuerChoice = readReceiptIssuerEnv(env)
+  if (!issuerChoice.ok) return { ok: false, message: issuerChoice.message }
   const billing: BillingSetup = {
     enabled,
     prices,
     storeId: portone.storeId,
     gateway: new PortOneGateway({ storeId: portone.storeId, apiSecret: portone.apiSecret }),
-    issuer: noneIssuer,
+    issuer: issuerChoice.issuer === 'portone' ? new PortOneCashReceiptIssuer({ storeId: portone.storeId, apiSecret: portone.apiSecret, channelKey: portone.channelKey }) : noneIssuer,
     webhookSecret: portone.webhookSecret,
     publicKeys: enabled ? { storeId: portone.storeId, channelKey: portone.channelKey } : null,
     test: null,

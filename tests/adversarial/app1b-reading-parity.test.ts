@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as voice from '../../packages/voice/src/index.ts'
 import { BaseSpeechEngine, type SpeechResult } from '../../packages/voice/src/speech.ts'
-import { VoiceController, type VoiceHost } from '../../apps/web/src/voice/controller.ts'
+import { VoiceController, type VoiceHost } from './support/legacy-voice-controller.ts'
 import { createReadingSession, type ReadingHost } from '../../packages/voice-session/src/server.ts'
 import { fromWire, toWire, type VoiceServerMessage, type VoiceStateMessage } from '../../packages/voice-session/src/wire.ts'
 

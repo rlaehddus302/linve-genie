@@ -55,7 +55,8 @@ describe('아이폰(사파리) 음성 코드 검사 (I5)', () => {
 
   it('D-036·D-I5-05: 음성 화면 코드는 기기 이름(UA)을 읽지 않는다 — 기능 값(navigator.standalone)만', () => {
     const voiceFiles = files.filter((item) => item.file.startsWith('voice/') || item.file === 'components/VoicePanel.tsx')
-    expect(voiceFiles.map((item) => item.file)).toContain('voice/standalone.ts')
+    // SRV1: 사파리 홈 화면 앱 판단(voice/standalone.ts)은 크롬·사파리 받아쓰기 길과 함께 없앴다 — 빈 목록으로 통과하지 않게 마이크 연결 파일로 본다
+    expect(voiceFiles.map((item) => item.file)).toContain('voice/transport.ts')
     for (const { file, text } of voiceFiles) expect(text, file).not.toMatch(/userAgent|userAgentData|isIosSafari/)
   })
 })

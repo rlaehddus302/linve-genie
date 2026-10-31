@@ -1528,6 +1528,8 @@ export const billingOrders = pgTable(
     grantedAt: timestamptz('granted_at'),
     refundHoldUntil: timestamptz('refund_hold_until'),
     refundedAt: timestamptz('refunded_at'),
+    /** 결제 대기 자동 재확인 칸 중 쓴 칸 수 0~5 (만든 시각 + 1분·5분·30분·3시간·24시간, BL-6 9 — 서버를 다시 켜도 칸을 두 번 하지 않는다) */
+    recheckDone: integer('recheck_done').notNull().default(0),
   },
   (t) => [unique('billing_orders_request_uq').on(t.sellerId, t.requestId), index('billing_orders_seller_idx').on(t.sellerId, t.createdAt)],
 )

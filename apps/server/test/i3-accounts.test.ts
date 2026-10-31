@@ -177,8 +177,8 @@ describe('AC-I3-61 보조자 권한 — 허용 목록 밖은 기본으로 막힘
     'POST /api/broadcasts/x1/read',
     'POST /api/read',
   ])
-  /** 세션을 강제하지 않는 공개 경로 (로그인·헬스체크) — 보조자 쿠키가 있어도 그대로 */
-  const PUBLIC = new Set(['POST /api/login', 'GET /api/health'])
+  /** 세션을 강제하지 않는 공개 경로 (로그인·헬스체크·공개 요금 안내 — PAY2 BL-12, 누가 불러도 같은 답) — 보조자 쿠키가 있어도 그대로 */
+  const PUBLIC = new Set(['POST /api/login', 'GET /api/health', 'GET /api/pricing'])
 
   it('서버에 등록된 모든 경로를 보조자 세션으로 부르면 허용 목록만 403이 아니다 (나중에 더한 경로도 따로 막지 않아도 막힘)', async () => {
     const w = await world()

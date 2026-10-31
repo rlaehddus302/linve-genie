@@ -72,7 +72,7 @@ function Showcase({ scheme, setScheme, big, setBig }: { readonly scheme: Scheme 
         </Section>
         <Section title="상태 꼬리표" description="색만으로 알리지 않고 기호와 글자를 함께 써요.">
           <Card>
-            <StatusChip tone="success" label="결제 완료" />
+            <StatusChip tone="success" label="입금 완료" />
             <StatusChip tone="warning" label="입금 기다려요" />
             <StatusChip tone="danger" label="확인이 필요해요" />
             <StatusChip tone="info" label="새 소식" />

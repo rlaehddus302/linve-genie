@@ -69,6 +69,7 @@ import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { kstDate, systemClock, type Clock } from './time.ts'
 import { ViewCacheBudget } from './view-budget.ts'
+import { BillingRechecker } from './billing/recheck.ts'
 import { BillingService, DISABLED_BILLING, type BillingSetup } from './billing/service.ts'
 import { sharedWorkPools, type WorkPools } from './work-pool.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
@@ -296,6 +297,8 @@ export interface LivejjimServer {
   readonly report: ReportService
   /** KP1 방송 일정·공개 일정 페이지·알림 신청 (문자를 보내지 않는다) */
   readonly schedule: ScheduleService
+  /** 결제 대기 자동 재확인 (PAY2 BL-6 9 — 서버 시작 때와 20초마다, 요금 기능이 켜져 있을 때만) */
+  readonly billingRechecker: BillingRechecker
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -530,6 +533,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // KP1 방송 리포트·방송 일정
   const report = new ReportService({ db, writer, log, facts: customers.factsDeps() })
   const schedule = new ScheduleService({ db, clock, masterKey, appOrigin: options.appOrigin })
+  const billingRechecker = new BillingRechecker({ billing, timer, log })
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
@@ -763,7 +767,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
   deposits.start()
   const stop = async () => {
-    await Promise.all([youtube?.stop(), sealer.stop(), customerArchiver.stop(), parcels.stop(), ledgerSweeper.stop()])
+    await Promise.all([youtube?.stop(), sealer.stop(), customerArchiver.stop(), parcels.stop(), ledgerSweeper.stop(), billingRechecker.stop()])
   }
   return {
     app,
@@ -799,6 +803,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ledgerSweeper,
     report,
     schedule,
+    billingRechecker,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
@@ -806,6 +811,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       customerArchiver.start()
       // KP1 손님 장부·방송 일정 정리 (시작 때·1시간마다)
       ledgerSweeper.start()
+      // 결제 대기 자동 재확인 — 꺼져 있던 동안 지난 칸은 한 번만 (BL-6 9)
+      billingRechecker.start()
       // 택배 배송 조회(30분마다)·배송지 30일 정리 (T1 PC-8·PC-3)
       parcels.start()
       // 끝나지 않은 실제 회차의 이어진 틱톡 연결을 이어받는다 (NFR-03, AC-N2b-2-35)

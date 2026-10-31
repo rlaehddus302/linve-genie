@@ -107,10 +107,11 @@ describe('번호·미리 보기·칸 확인 (AC-S06-11·12·13)', () => {
     setup()
     await open()
     expect(screen.getByText('비우면 지금 시각(초까지)으로 넣어요')).toBeDefined()
+    // SRV1 (D-APP-24, 약속 3): 미리 보기는 서버 읽기 입구의 답(150ms 뒤) — 옛 기대는 친 즉시. 보이는 글은 그대로
     type(field('받은 시각'), '2001')
-    expect(screen.getByText(/^(어제|오늘|내일) 20:01에 받은 문자$/)).toBeDefined()
+    expect(await screen.findByText(/^(어제|오늘|내일) 20:01에 받은 문자$/)).toBeDefined()
     type(field('받은 시각'), '25:00')
-    expect(screen.getByText('받은 시각을 20:01처럼 적어 주세요.')).toBeDefined()
+    expect(await screen.findByText('받은 시각을 20:01처럼 적어 주세요.')).toBeDefined()
     type(numberField(), '15')
     fireEvent.submit(numberField().form as HTMLFormElement)
     await flush()
@@ -121,19 +122,22 @@ describe('번호·미리 보기·칸 확인 (AC-S06-11·12·13)', () => {
     setup()
     await open()
     type(numberField(), '15')
+    // SRV1 (D-APP-24): 전화번호 미리 보기·읽지 못함은 서버 답(150ms 뒤)
     type(field('전화번호'), '010-1234-5678')
-    expect(screen.getByText('뒤 4자리 5678로 이어져요')).toBeDefined()
+    expect(await screen.findByText('뒤 4자리 5678로 이어져요')).toBeDefined()
     for (const bad of ['1234', '+82 10-1234-5678', '010-12']) {
       type(field('전화번호'), bad)
-      expect(screen.getByText('휴대폰 번호로 읽지 못했어요. 고치거나 지워 주세요.')).toBeDefined()
+      expect(await screen.findByText('휴대폰 번호로 읽지 못했어요. 고치거나 지워 주세요.')).toBeDefined()
     }
-    fireEvent.submit(numberField().form as HTMLFormElement)
-    type(field('전화번호'), '')
-    type(field('메모'), '김씨 010-9999-8888')
-    expect(screen.getByText(PHONE_SENTENCE)).toBeDefined()
     fireEvent.submit(numberField().form as HTMLFormElement)
     await flush()
     expect(engine.posts).toHaveLength(0)
+    // 메모의 휴대폰 번호 (SRV1 AC-SRV1-07): 옛 기대는 화면이 먼저 막음. 새 기대는 보내면 서버가 같은 문장으로 거절하고 칸 글은 그대로, 기록 없음
+    type(field('전화번호'), '')
+    type(field('메모'), '김씨 010-9999-8888')
+    fireEvent.submit(numberField().form as HTMLFormElement)
+    expect(await screen.findByText(PHONE_SENTENCE)).toBeDefined()
+    expect((field('메모') as HTMLInputElement).value).toBe('김씨 010-9999-8888')
   })
 
   it('구매자 표시 이름 미리 보기: "문자찜", 메모가 있으면 "문자찜(김씨)", 유튜브 구매자를 고르면 그 닉네임(메모가 바꾸지 않는다)', async () => {

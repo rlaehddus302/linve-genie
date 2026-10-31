@@ -3,12 +3,15 @@
 // FB1 D-FB1-01 (AC-FB1-02): 도움말 줄에 그 방송의 가격 단위 한 줄, 친 줄이 새 상품 등록으로 읽히면 Enter 전에 "등록하면: …",
 // 고치기 칸 가격 옆에 읽은 가격 "= …원".
 // MOB1 D-MOB1-09(AC-MOB1-17): 끝난 방송·봉인 날짜(closed)에는 빠른 입력 줄(입력칸·개수·옵션·도움말·단위 줄·"등록하면" 줄)이 없다 —
-// 상품 자세히의 "고치기"로 여는 고치기 칸·오류·"고칠까요?"는 그대로. 방송이 끝나면 치던 글은 버린다(보내지 않음 — 콘솔이 비운다). 해석은 Enter와 같은 함수(그 방송 스냅샷의 price.unit) — 품종은 React 글자로만 들어간다.
+// 상품 자세히의 "고치기"로 여는 고치기 칸·오류·"고칠까요?"는 그대로. 방송이 끝나면 치던 글은 버린다(보내지 않음 — 콘솔이 비운다). 품종은 React 글자로만 들어간다.
+// SRV1 (D-APP-24, 약속 3): 미리 보기(찾은 상품·"등록하면: …"·"= …원")는 서버 읽기 입구의 답이다 — 마지막 글자 뒤 150ms에 묻고,
+// 답이 오기 전이나 연결이 없으면 비운다. 화면은 글을 읽지 않는다.
 import { AUTO_RESEND_NOTE, RESENDING_WORD } from '../lib/resend-board.ts'
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from 'react'
 import type { ApiError } from '../api/client.ts'
 import { productKey } from '../lib/derive.ts'
-import { editQuestion, fixPricePreview, previewNumber, quickSettings, registerPreview, unitLine, type FixField } from '../lib/quick.ts'
+import { editQuestion, unitLine, type FixField, type TypedFields } from '../lib/quick.ts'
+import { useServerRead, type ReadOf } from '../lib/read.ts'
 import { useConsoleApi } from './console-context.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { ProductSummary } from './ProductBoard.tsx'
@@ -52,6 +55,8 @@ export interface EditAsk {
   readonly price: number
   /** 개수 칸이 1이 아니었으면 그 개수 (AC-ORD11-08) */
   readonly stock?: number
+  /** 판매자가 친 원문 칸 — "예"에서 이 원문을 보낸다 (SRV1 약속 2) */
+  readonly typed?: TypedFields
 }
 
 /** 옵션 없는 상품의 "개수" 칸 (AC-ORD11-01·03·04, D-STK-01). 붙인 옵션이 있으면 없다(AC-ORD11-09) */
@@ -65,6 +70,8 @@ export interface CountField {
 
 export interface QuickInputProps {
   readonly value: string
+  /** 서버가 읽은 지금 줄 (답이 오기 전·연결이 없으면 null — 미리 보기를 비운다) */
+  readonly reading: ReadOf<'quick'> | null
   readonly onChange: (value: string) => void
   readonly inputRef: RefObject<HTMLInputElement | null>
   readonly onEnter: (line: string) => void
@@ -104,17 +111,16 @@ export interface QuickInputProps {
  * 휴대폰 콘솔의 가격 단위 한 줄 (AC-FB1-02, D-FB1-01) — 고정 영역 바로 아래, 화면을 따라 내려가지 않는다.
  * 고정 영역에 두면 두 줄로 꺾여 35%를 넘는다(UX-04, TE-FB1-001·U-FB1-01). 문장은 PC와 같다.
  * FB1 D-FB1-18 (a): 늘 있는 "등록하면: …" 한 줄도 휴대폰에선 고정 영역에 두면 35%를 넘어(n2b2 layout 293px > 284px) 같은 자리로 — 단위 줄 위.
- * value: 빠른 입력칸의 글 (미리 보기는 칸 안과 같은 코어 해석)
+ * reading: 빠른 입력칸 글을 서버가 읽은 결과 (칸 안과 같은 답)
  */
-export function QuickUnitLine({ value }: { readonly value: string }) {
+export function QuickUnitLine({ reading }: { readonly reading: ReadOf<'quick'> | null }) {
   const api = useConsoleApi()
   const settings = api.settingsOf(api.b)
-  const quick = settings === null ? null : quickSettings(settings)
-  const willRegister = quick === null ? null : registerPreview(value, quick, (n) => api.data.products.get(productKey(api.b, n)))
+  const willRegister = settings === null ? null : (reading?.preview ?? null)
   return (
     <>
       <RegisterLine text={willRegister} />
-      {quick === null ? null : <p className="hint quick-unit quick-unit-below">{unitLine(quick['price.unit'])}</p>}
+      {settings === null ? null : <p className="hint quick-unit quick-unit-below">{unitLine(settings['price.unit'])}</p>}
     </>
   )
 }
@@ -146,13 +152,14 @@ export function QuickInput(props: QuickInputProps) {
     field?.select()
   }, [fix?.version])
 
-  // 번호 읽기는 등록과 같은 코어 해석(그 방송 스냅샷의 번호 최대·가격 단위)
+  // 번호·가격은 서버가 읽은 답 (그 방송의 번호 최대·가격 단위로 — Enter 때와 같은 함수)
   const settings = api.settingsOf(api.b)
-  const no = settings === null ? previewNumber(value) : previewNumber(value, quickSettings(settings))
+  // 번호 찾기 미리 보기(PRD-03 AC3)는 서버가 그 줄에서 읽은 번호, "등록하면: …"은 서버가 등록으로 읽은 줄의 글
+  const no = props.reading?.previewNo ?? null
   const preview = no === null ? undefined : api.data.products.get(productKey(api.b, no))
-  const quick = settings === null ? null : quickSettings(settings)
-  const willRegister = quick === null ? null : registerPreview(value, quick, (n) => api.data.products.get(productKey(api.b, n)))
-  const fixPrice = quick === null || fix === null ? null : fixPricePreview(fix.price, quick)
+  const willRegister = settings === null ? null : (props.reading?.preview ?? null)
+  // 고치기 칸 가격 옆 "= 15,000원" — 서버가 그 방송의 가격 단위로 읽은 답
+  const fixPrice = useServerRead(api.b, 'price', fix?.price ?? '', fix !== null)?.preview ?? null
   const sending = props.registrations.some((item) => item.status !== 'failed')
   const resending = props.registrations.some((item) => item.status !== 'failed' && item.auto === true)
   const failed = props.registrations.filter((item) => item.status === 'failed')
@@ -228,7 +235,7 @@ export function QuickInput(props: QuickInputProps) {
       <p id="quick-help" className="hint quick-help">
         번호 품종 가격을 적고 Enter. 번호만 적으면 그 상품을 찾아요.{props.count !== undefined ? ' 같은 번호로 여러 개를 팔면 옆 개수 칸을 바꿔요.' : ''}
       </p>
-      {quick !== null && props.unitInside !== false ? <p className="hint quick-unit">{unitLine(quick['price.unit'])}</p> : null}
+      {settings !== null && props.unitInside !== false ? <p className="hint quick-unit">{unitLine(settings['price.unit'])}</p> : null}
       {/* FB1 D-FB1-18 (a): PC는 칸 바로 아래(고정 영역 안), 휴대폰은 고정 영역 바로 아래(QuickUnitLine) */}
       {props.unitInside !== false ? <RegisterLine text={willRegister} /> : null}
       {preview !== undefined ? (

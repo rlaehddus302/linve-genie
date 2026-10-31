@@ -1,15 +1,15 @@
 // 운영자 명령의 일 (AC-N5-12, BL-1 출처·BL-8 5). 명령(commands/billing-grant.ts·billing-list.ts)과 시험이 쓴다.
 // - 이용권 부여: 판매자 로그인 아이디·종류·양·사유로 OPERATOR 이용권을 덧붙인다(명령마다 새 이용권).
-// - 목록: 확인 필요 결제(밖에서 취소된 결제 포함), 1시간 넘게 결제 대기인 주문, 결과를 남기지 못하고 멈춘 환불(RA-N5-01),
+// - 목록: 확인 필요 결제(밖에서 취소된 결제 포함), 자동 재확인을 모두 마친 결제 대기 주문(PAY2 BL-6 9 — 옛 "1시간 넘게" 기준을 대체), 결과를 남기지 못하고 멈춘 환불(RA-N5-01),
 //   발행 대기·발행 실패·취소 요청 증빙(손으로 발행하는 데 필요한 사업자 정보 — 표준 출력에만, 서버 로그엔 없다).
 import { formatWon } from '@livejjim/core'
 import { normalizeLoginId } from '../accounts.ts'
 import type { Db } from '../db/database.ts'
 import { openSellerText } from '../secrets.ts'
 import { findAccountByLogin } from '../store.ts'
-import { HOUR_MS, type PassKind } from './rules.ts'
-import { BUSINESS_PURPOSE, checkOperatorGrant, operatorGrant } from './service.ts'
-import { allRefundingOrders, documentsToHandle, ordersInState, type DocumentRow, type OrderRow } from './store.ts'
+import type { PassKind } from './rules.ts'
+import { BUSINESS_PURPOSE, RECHECK_SLOTS_MS, checkOperatorGrant, operatorGrant } from './service.ts'
+import { allRefundingOrders, documentsToHandle, exhaustedPendingOrders, ordersInState, type DocumentRow, type OrderRow } from './store.ts'
 
 export type GrantCommandResult = { readonly ok: true; readonly sellerId: string; readonly grantId: string; readonly kind: PassKind; readonly quantity: number | null } | { readonly ok: false; readonly message: string }
 
@@ -37,12 +37,15 @@ export interface OperatorLists {
   readonly documents: readonly DocumentToHandle[]
 }
 
-/** 1시간 넘게 결제 대기면 운영자 목록에 보인다 */
-export const STALE_PENDING_MS = HOUR_MS
+/**
+ * 운영자 목록 "결제 대기"의 기준 (PAY2 D-PAY-08): 자동 재확인 마지막 칸(만든 시각 + 24시간). 목록에는 그 칸까지 자동 재확인을 모두 마친(쓴 칸 5) 결제 대기 주문만 보인다 —
+ * 시각만 지난 주문(서버가 꺼져 있어 아직 확인하지 못함)은 다음 자동 재확인이 먼저 한다
+ */
+export const STALE_PENDING_MS = RECHECK_SLOTS_MS[RECHECK_SLOTS_MS.length - 1] as number
 
 export async function operatorLists(db: Db, masterKey: Buffer, now: number): Promise<OperatorLists> {
   const review = await ordersInState(db, 'NEEDS_REVIEW')
-  const stalePending = (await ordersInState(db, 'PENDING')).filter((order) => order.createdAt.getTime() < now - STALE_PENDING_MS)
+  const stalePending = await exhaustedPendingOrders(db, RECHECK_SLOTS_MS.length)
   const stuckRefunds = (await allRefundingOrders(db)).filter((order) => order.refundHoldUntil !== null && order.refundHoldUntil.getTime() <= now)
   const documents = (await documentsToHandle(db)).map((document) => {
     return { document, recipient: openRecipient(masterKey, document) }
@@ -70,7 +73,7 @@ export function formatOperatorLists(lists: OperatorLists): string[] {
   const order = (row: OrderRow) => `판매자 ${row.sellerId} · 결제 ${row.paymentId} · ${row.itemName} · ${formatWon(row.amount)} · 만든 때 ${row.createdAt.toISOString()}`
   lines.push(`확인 필요 결제 ${String(lists.review.length)}건`)
   for (const row of lists.review) lines.push(`  ${order(row)}`)
-  lines.push(`1시간 넘게 결제 대기 ${String(lists.stalePending.length)}건`)
+  lines.push(`자동 재확인을 마친 결제 대기 ${String(lists.stalePending.length)}건 (포트원 콘솔에서 결제됐는지 확인 — 판매자의 '다시 확인'·웹훅은 계속 돼요)`)
   for (const row of lists.stalePending) lines.push(`  ${order(row)}`)
   lines.push(`결과를 모르는 환불 ${String(lists.stuckRefunds.length)}건 (포트원 콘솔에서 취소됐는지 확인 — 판매자가 결제 내역을 열거나 웹훅이 오면 서버가 다시 맞춰요)`)
   for (const row of lists.stuckRefunds) lines.push(`  ${order(row)} · 취소를 맡은 기한 ${row.refundHoldUntil?.toISOString() ?? ''}`)

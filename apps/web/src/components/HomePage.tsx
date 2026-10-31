@@ -17,6 +17,7 @@ import { SALE_MODE_WORD, saleModeOf, type SaleMode } from '../lib/words.ts'
 import { SaleModeField } from './RuleFields.tsx'
 import { useBillingConfig, useBillingStore } from './billing-context.tsx'
 import { BillingBanners, StartPreviewNote } from './BillingNotices.tsx'
+import { isAppTab } from '../lib/app-tab.ts'
 import { ErrorNote, FieldError } from './ErrorNote.tsx'
 import { SealNotice } from './SealNotice.tsx'
 
@@ -65,6 +66,8 @@ export function HomePage({ navigate }: HomePageProps) {
   const reviews = useReviews({ rehearsal: false })
   const rehearsalReviews = useReviews({ rehearsal: true })
   const billingEnabled = useBillingConfig()?.enabled === true
+  // 앱에서 연 탭 (PAY2 BL-11 3): 알림 띠 없음, 이용권 없음은 앱 문장만
+  const appTab = isAppTab()
   const billing = useBillingStore(billingEnabled, false)
   const billingStore = billing.store
   const status = billing.snapshot.status
@@ -165,7 +168,7 @@ export function HomePage({ navigate }: HomePageProps) {
     <>
       <main className="page">
         <h1>방송 목록</h1>
-        {status !== null ? <BillingBanners banners={status.banners} navigate={navigate} /> : null}
+        {status !== null && !appTab ? <BillingBanners banners={status.banners} navigate={navigate} /> : null}
         <div className="row">
           {/* 주 버튼은 하나 (D-101): 새 방송 칸이 열리면 그 칸의 "이 방송 시작하기"가 주 버튼 */}
           <button type="button" className={formOpen ? 'button' : 'button button-primary'} aria-expanded={formOpen} onClick={() => setFormOpen((open) => !open)}>
@@ -201,7 +204,7 @@ export function HomePage({ navigate }: HomePageProps) {
                 이 방송만 "{SALE_MODE_WORD[saleMode]}"로 시작해요. 설정은 그대로예요.
               </p>
             ) : null}
-            {billingEnabled ? <StartPreviewNote start={status?.start ?? null} rejected={rejected} navigate={navigate} /> : null}
+            {billingEnabled ? <StartPreviewNote start={status?.start ?? null} rejected={rejected} navigate={navigate} appTab={appTab} /> : null}
             <div className="row">
               <button type="submit" className="button button-primary" disabled={busy}>
                 이 방송 시작하기

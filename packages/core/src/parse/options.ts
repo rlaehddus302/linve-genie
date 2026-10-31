@@ -2,7 +2,7 @@
 // 주문 / 취소 / 확인 필요 / 그 밖(언급) 중 하나로 읽는다. 애매하면 주문이 아니다 — 자동 주문은 해석이 하나로 정해지고 모든 항목이 맞을 때만이다.
 // 순수 함수다: 시계·난수·I/O를 쓰지 않고, 어떤 문자열에도 예외를 던지지 않으며, 같은 입력이면 같은 결과다(넘긴 값을 바꾸지 않는다).
 // 손으로 짠 앞에서부터 훑는 스캐너다. 되돌아가며 다시 맞춰 보는 정규식을 쓰지 않는다.
-import { compareChars, variantCount, type OptionItem } from '../options.ts'
+import { FOCUS_GRACE_SEC, compareChars, variantCount, type OptionItem } from '../options.ts'
 import { resolveSettings, type SettingsOverride } from '../settings.ts'
 import { CLAIM_TAIL_WORDS, hasAmountChunk, hasQuestionMark, isClaimTailChar, matchesNumberGrammar, parseChat } from './chat.ts'
 import { asText, isAllDigits, isDigitAt, normalizeText } from './text.ts'
@@ -55,8 +55,9 @@ export interface OptionCommentResult {
   readonly review: OptionReview | null
 }
 
-/** 지금 상품이 바뀐 뒤 이름 없는 옵션 댓글을 확인 필요로 보내는 시간 (R-20 5-4, D-O-09 — 설정이 아닌 고정값) */
-export const FOCUS_GRACE_SEC = 15
+// 지금 상품이 바뀐 뒤 이름 없는 옵션 댓글을 확인 필요로 보내는 시간(FOCUS_GRACE_SEC)은 옵션 모델(../options.ts)에 둔다 —
+// 화면이 이 상수만 쓰려고 읽기 모듈을 끌어오지 않게(SRV1 AC-SRV1-13). 여기서는 그대로 다시 내보낸다.
+export { FOCUS_GRACE_SEC } from '../options.ts'
 
 /** 수량 단위 (R-20 4-2) — 길이 내림차순 */
 const QTY_UNITS = ['박스', '세트', '개', '봉', '팩', '병', '통', '장', '벌']

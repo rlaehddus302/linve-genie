@@ -1,7 +1,7 @@
 // 서버가 보낸 카드·묻기·주문 상태의 화면. 인식문 해석·판매 판정은 여기서 하지 않는다.
 import { useContext, useEffect } from 'react'
 import { View } from 'react-native'
-import type { VoiceSnapshot } from '@livejjim/web/src/voice/controller.ts'
+import type { VoiceSnapshot } from '@livejjim/web/src/voice/model.ts'
 import type { VoiceSession } from '../../lib/voice-session.ts'
 import { BigButton, Body, Card, Field, Hint, Notice, Row } from '../../ui/parts.tsx'
 import { VoiceSmsResult } from './VoiceSmsResult.tsx'

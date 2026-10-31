@@ -6,7 +6,7 @@
 // - 끊김(D-APP-05): 네이티브가 "다시 잇는 중"을 알린다. 최종 결과 없이 60초 안에 여섯 번째 끊김이면 멈추고 큰 빨간 글(듣기 멈춤)과 [다시 켜기].
 // - 앱이 뒤에 있어도 JS가 돌아 결과를 바로 처리한다(APP-02) — 모아 두는 규칙은 없다.
 import { fromWire, isRecord, type VoiceCommand, type VoiceEffectMessage, type VoiceConfirmation } from '@livejjim/voice-session/wire'
-import type { VoiceSnapshot } from '@livejjim/web/src/voice/controller.ts'
+import type { VoiceSnapshot } from '@livejjim/web/src/voice/model.ts'
 import { readVoicePreferences, writeVoicePreference, writeVoiceSetting, archiveVoice } from './voice-preferences.ts'
 import type { AudioResult, AudioState, NativeAudio, VoiceReading } from '../native/audio.ts'
 import { newRequestId } from '../api/client.ts'
@@ -198,7 +198,7 @@ export class VoiceSession {
       if (born !== this.#generation) return
       this.#options.audio.sendSession?.({ type: 'voice.session', op: 'hello', context: { ...preferences, now: this.#now(), dialogOpen: false, smsAutoAllowed: !commandsOnly, consent: true, listening: !commandsOnly, ...(this.#resumeToken === null ? {} : { resumeToken: this.#resumeToken }) } })
       const url = new URL(ticket.wsUrl)
-      if (commandsOnly) url.searchParams.set('mode', 'chrome')
+      if (commandsOnly) url.searchParams.set('capture', 'false')
       await this.#options.audio.startListening({ wsUrl: url.toString(), capture: !commandsOnly, ...(ticket.token === undefined ? {} : { token: ticket.token }), ...(ticket.origin === undefined ? {} : { origin: ticket.origin }), notificationTitle: `${SERVICE_NAME} · 음성 듣는 중`, notificationBody: '눌러서 돌아가기' })
       if (born !== this.#generation || this.#options.audio.state.kind === 'stopped') return
       if (this.#options.audio.onSession && !commandsOnly) {
@@ -460,7 +460,7 @@ export class VoiceSession {
     if (!Array.isArray(args) || b === null) return
     let value: unknown = null
     try {
-      if (message.automatic === true && message.source !== 'chrome' && ['register', 'writeSms', 'fixRecent', 'renumber', 'undoRecent'].includes(message.method)) {
+      if (message.automatic === true && ['register', 'writeSms', 'fixRecent', 'renumber', 'undoRecent'].includes(message.method)) {
         const end = message.spokenEndAt
         if (!Number.isFinite(end) || typeof end !== 'number' || this.#now() - end > LATE_MS || end > this.#now() || (args[2] === 'instant' && !this.#view.instant)) {
           const note = '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.'
@@ -484,7 +484,7 @@ export class VoiceSession {
         case 'openProduct': this.showProduct(String(args[0])); break
         default: value = await this.#options.effect?.(b, message.method, args, this, (firstAttempt) => {
           if (born !== this.#generation || connection !== this.#connection || (message.automatic === true && (!this.#view.on || !this.#readyForCommands || this.#view.state.kind !== 'listening'))) return '음성 연결이 바뀌어 보내지 않았어요. 확인하고 다시 눌러 주세요.'
-          if (firstAttempt && message.automatic === true && message.source !== 'chrome') {
+          if (firstAttempt && message.automatic === true) {
             const end = message.spokenEndAt
             if (typeof end !== 'number' || !Number.isFinite(end) || this.#now() - end > LATE_MS || end > this.#now() || (message.method === 'register' && args[2] === 'instant' && !this.#view.instant)) return '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.'
           }

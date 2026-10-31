@@ -22,6 +22,7 @@ import { menuOf, routePath, type MenuKey, type Navigate, type Route } from '../l
 import { useWide } from '../lib/use-wide.ts'
 import { useDepositReview } from './deposit-context.tsx'
 import { useBillingConfig } from './billing-context.tsx'
+import { isAppTab } from '../lib/app-tab.ts'
 import { LogoutButton } from './LogoutButton.tsx'
 import { useLabelsEnabled, usePrintApi, usePrintState, useStationState } from './print-context.tsx'
 
@@ -38,7 +39,8 @@ type Go = (event: MouseEvent<HTMLAnchorElement>, to: Route) => void
 
 export function TopBar({ shopName, assistant = false, onLogout, route, navigate }: TopBarProps) {
   const review = useDepositReview()
-  const billing = useBillingConfig()?.enabled === true
+  // 앱에서 연 탭에는 메뉴 "요금"이 없다 (PAY2 BL-11 3)
+  const billing = useBillingConfig()?.enabled === true && !isAppTab()
   const labels = useLabelsEnabled() === true
   const wide = useWide()
   const go: Go = (event, to) => {
