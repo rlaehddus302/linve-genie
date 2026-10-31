@@ -104,16 +104,19 @@ function isoAt(text: string): number | null {
  * 휴대폰이 받은 시각 읽기 (D-SMS2-02). 읽을 수 없거나 서버 시각과 하루 넘게 차이 나면 null(화면 "-").
  */
 export function parsePhoneAt(value: unknown, serverAt: Date): Date | null {
-  let at: number | null = null
-  if (typeof value === 'number') at = numberAt(value)
-  else if (typeof value === 'string') {
-    const text = value.trim()
-    if (text.length > 64) return null
-    at = /^\d+$/.test(text) ? numberAt(Number(text)) : isoAt(text)
-  }
+  const at = readPhoneAt(value)
   if (at === null) return null
   if (Math.abs(serverAt.getTime() - at) > DAY_MS) return null
   return new Date(at)
+}
+
+/** 휴대폰이 받은 시각의 원래 값 (D-SMS2-02 모양 — 서버 시각과의 차이는 보지 않는다, D-SMS3-30 늦게 온 문자 판정용). 읽을 수 없으면 null */
+export function readPhoneAt(value: unknown): number | null {
+  if (typeof value === 'number') return numberAt(value)
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  if (text.length > 64) return null
+  return /^\d+$/.test(text) ? numberAt(Number(text)) : isoAt(text)
 }
 
 /**

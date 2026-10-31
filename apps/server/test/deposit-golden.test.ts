@@ -1,5 +1,5 @@
-// AC-N3-01·02·03·04·05: 입금 골든(tests/golden/deposit/*.json)을 서버의 순수 함수 셋으로 돌린다.
-// - 파일 수 3·사례 수 45(name 10 · paste 14 · match 21)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
+// AC-N3-01·02·03·04·05, AC-SMS3-03: 입금 골든(tests/golden/deposit/*.json)을 서버의 순수 함수 넷으로 돌린다.
+// - 파일 수 4·사례 수 98(name 10 · paste 14 · match 21 · notice 53 — D-DEP2-12·16·17 G-DEP-248~253까지)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다.
 // - 모르는 kind·모르는 키·중복 ID·ID 형식 오류는 시험 실패(읽기 오류)다. 미구현을 허용하는 장치가 없다.
 // - 결과는 실행 환경 시간대와 상관없다: TZ를 바꿔 두 번씩 돌려 같은지 본다.
 import { readdirSync, readFileSync } from 'node:fs'
@@ -9,12 +9,13 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { parseOffsetIso } from '../src/deposit/calendar.ts'
 import { matchDeposits, type MatchBundle, type MatchDeposit } from '../src/deposit/match.ts'
 import { normalizeDepositName } from '../src/deposit/name.ts'
+import { readBankNotice, type NoticeInput } from '../src/deposit/notice.ts'
 import { PASTE_ROWS_MAX, readPaste } from '../src/deposit/paste.ts'
 
 const GOLDEN_DIR = fileURLToPath(new URL('../../../tests/golden/deposit/', import.meta.url))
 const SRC_DIR = fileURLToPath(new URL('../src/', import.meta.url))
 
-type Kind = 'name' | 'paste' | 'match'
+type Kind = 'name' | 'paste' | 'match' | 'notice'
 interface GoldenCase {
   readonly id: string
   readonly title: string
@@ -31,7 +32,7 @@ interface GoldenFile {
 
 const FILE_KEYS = ['kind', 'about', 'cases']
 const COMMON_KEYS = ['id', 'title', 'refs', 'note', 'out']
-const KIND_KEYS: Readonly<Record<Kind, readonly string[]>> = { name: ['in'], paste: ['in'], match: ['bundles', 'earlier', 'incoming'] }
+const KIND_KEYS: Readonly<Record<Kind, readonly string[]>> = { name: ['in'], paste: ['in'], match: ['bundles', 'earlier', 'incoming'], notice: ['in'] }
 const BUNDLE_KEYS = ['key', 'buyer', 'date', 'names', 'total', 'received', 'saleAt']
 const DEPOSIT_KEYS = ['no', 'at', 'amount', 'name']
 
@@ -56,7 +57,7 @@ function checkGolden(sources: readonly { readonly file: string; readonly text: s
     }
     for (const key of Object.keys(parsed)) if (!FILE_KEYS.includes(key)) problems.push(`${file}: 모르는 파일 키 '${key}'`)
     const kind = parsed.kind
-    if (kind !== 'name' && kind !== 'paste' && kind !== 'match') {
+    if (kind !== 'name' && kind !== 'paste' && kind !== 'match' && kind !== 'notice') {
       problems.push(`${file}: 모르는 kind ${JSON.stringify(kind)}`)
       continue
     }
@@ -126,6 +127,7 @@ const toDeposits = (raw: unknown): MatchDeposit[] =>
 function runCase(kind: Kind, item: GoldenCase): unknown {
   if (kind === 'name') return normalizeDepositName(item.in as string)
   if (kind === 'paste') return readPaste(item.in as string)
+  if (kind === 'notice') return readBankNotice(item.in as NoticeInput)
   return matchDeposits({ bundles: toBundles(item.bundles), earlier: toDeposits(item.earlier), incoming: toDeposits(item.incoming) })
 }
 
@@ -142,11 +144,11 @@ describe('입금 골든 읽기 (AC-N3-04)', () => {
     expect(loaded.problems).toEqual([])
   })
 
-  it('파일 3 · 사례 45 (name 10 · paste 14 · match 21)', () => {
-    expect(loaded.files.length).toBe(3)
+  it('파일 4 · 사례 98 (name 10 · paste 14 · match 21 · notice 53)', () => {
+    expect(loaded.files.length).toBe(4)
     const count = (kind: Kind) => loaded.files.filter((file) => file.kind === kind).reduce((sum, file) => sum + file.cases.length, 0)
-    expect({ name: count('name'), paste: count('paste'), match: count('match') }).toEqual({ name: 10, paste: 14, match: 21 })
-    expect(loaded.files.reduce((sum, file) => sum + file.cases.length, 0)).toBe(45)
+    expect({ name: count('name'), paste: count('paste'), match: count('match'), notice: count('notice') }).toEqual({ name: 10, paste: 14, match: 21, notice: 53 })
+    expect(loaded.files.reduce((sum, file) => sum + file.cases.length, 0)).toBe(98)
   })
 
   it('검사기가 모르는 키·kind·중복·ID 형식을 실제로 잡는다', () => {
@@ -168,7 +170,7 @@ describe('입금 골든 읽기 (AC-N3-04)', () => {
   })
 })
 
-describe('입금 골든 = 서버 순수 함수 (AC-N3-01·02·03)', () => {
+describe('입금 골든 = 서버 순수 함수 (AC-N3-01·02·03, AC-SMS3-03)', () => {
   for (const file of loaded.files) {
     for (const item of file.cases) {
       it(`${item.id} ${item.title}`, () => {
@@ -191,8 +193,8 @@ describe('결정성 — 시계·시간대와 상관없다 (AC-N3-02·05)', () =>
     expect(results[0]).toBe(JSON.stringify(loaded.files.map((file) => file.cases.map((item) => item.out))))
   })
 
-  it('세 순수 함수의 소스는 시계·난수·Intl·localeCompare·실행 환경을 쓰지 않는다', () => {
-    for (const file of ['deposit/name.ts', 'deposit/paste.ts', 'deposit/match.ts', 'deposit/calendar.ts']) {
+  it('네 순수 함수의 소스는 시계·난수·Intl·localeCompare·실행 환경을 쓰지 않는다', () => {
+    for (const file of ['deposit/name.ts', 'deposit/paste.ts', 'deposit/match.ts', 'deposit/calendar.ts', 'deposit/notice.ts']) {
       const code = readFileSync(join(SRC_DIR, file), 'utf8')
         .split('\n')
         .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*') && !line.trim().startsWith('/**'))
@@ -203,7 +205,11 @@ describe('결정성 — 시계·시간대와 상관없다 (AC-N3-02·05)', () =>
 
   it('이름 정규화(NFKC)는 name.ts 한 곳에만 있다 — 다른 곳은 normalizeDepositName을 부른다 (AC-N3-01)', () => {
     // 예외 하나: 화면 이름 표기(BUY-01, D-098)의 "같은 모양" 비교(bundles.ts sameLook) — 공백을 한 칸으로 줄일 뿐 지우지 않아 DP-3이 아니다
-    const allowed = new Map([[join('deposit', 'bundles.ts'), /\.replace\(\/\\s\+\/gu, ' '\)/]])
+    // 예외 둘: 은행 알림 읽기(DP-9 2, SMS3)의 알림 글 정규화 — 이름 비교가 아니라 알림 글 전체를 읽기 전에 한 번(NFKC 한 곳)
+    const allowed = new Map([
+      [join('deposit', 'bundles.ts'), /\.replace\(\/\\s\+\/gu, ' '\)/],
+      [join('deposit', 'notice.ts'), /\.normalize\('NFKC'\)/],
+    ])
     const offenders: string[] = []
     const callers: string[] = []
     const walk = (dir: string) => {

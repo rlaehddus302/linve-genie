@@ -3,9 +3,11 @@
 import type { PaymentStatus } from '@livejjim/core'
 
 export type DepositStatus = 'REVIEW' | 'AUTO_APPLIED' | 'APPLIED' | 'IGNORED'
-export type SourceKind = 'POPBILL' | 'PASTE' | 'FAKE'
+/** PHONE 휴대폰 알림 (SMS3 PAY-02, DP-1) */
+export type SourceKind = 'POPBILL' | 'PASTE' | 'FAKE' | 'PHONE'
 export type DepositPrecision = 'second' | 'minute'
-export type ReviewReason = 'POSSIBLE_DUPLICATE' | 'SAME_NAME' | 'MULTIPLE' | 'NAME_MISMATCH' | 'AMOUNT_MISMATCH' | 'NO_MATCH' | 'ONE_MATCH'
+/** UNTRUSTED_SOURCE·BALANCE_GAP: 휴대폰 알림 입금의 "먼저 보는 것" (SMS3 DP-5·DP-9 9) */
+export type ReviewReason = 'POSSIBLE_DUPLICATE' | 'SAME_NAME' | 'MULTIPLE' | 'NAME_MISMATCH' | 'AMOUNT_MISMATCH' | 'NO_MATCH' | 'ONE_MATCH' | 'UNTRUSTED_SOURCE' | 'BALANCE_GAP'
 
 /** 묶음 하나 (제안·묶음 찾기·확정 창) */
 export interface BundleView {

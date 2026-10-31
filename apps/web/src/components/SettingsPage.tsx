@@ -47,6 +47,8 @@ import { LoginMethodsPanel, showLoginMethods, useLoginMethods } from './LoginMet
 import { parseLoginResult, stripLoginParams } from '../lib/social-login.ts'
 import { DetailToggle, FixedArrivalField, RuleField, SaleModeField, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { ThanksSettings } from './ThanksSettings.tsx'
+import { PhoneInboxSettings, useInboxSettings } from './PhoneInboxSettings.tsx'
+import { INBOX_SECTION_TITLE } from '../lib/inbox.ts'
 import { ScheduleSettings } from './ScheduleSettings.tsx' // KP1
 import { AlertCountsSection } from './AlertCounts.tsx' // KP1
 import { BandCallbackResult, BandSettings, useBandAccount } from './BandSettings.tsx'
@@ -130,6 +132,8 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
   const loginMethods = useLoginMethods(!assistant)
   // 크롬 확장 연결 (X1 — 판매자만, 보조자는 코드를 만들 수 없다)
   const extension = useExtension(!assistant)
+  // 휴대폰 알림 받기 (SMS3 AC-SMS3-28 — 판매자만, 받기 토큰은 판매자가 만든다)
+  const inbox = useInboxSettings(!assistant)
   // AI 제안 칸 (A1): 저장된 판매 방식이 옵션이면 바로, 아니면 옵션 방송 기록을 물어서
   const showAssist = useShowAssist(settings === null ? (loadError === null ? null : false) : settings['claim.parseMode'] === 'OPTIONS', assistant)
   useEffect(() => {
@@ -214,6 +218,11 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
       {assistant ? null : (
         <SettingsSection title="크롬 확장으로 채팅 받기" focus={route.section === 'extension' && (settings !== null || loadError !== null)}>
           <ExtensionSettings handle={extension} />
+        </SettingsSection>
+      )}
+      {assistant || inbox.missing ? null : (
+        <SettingsSection title={INBOX_SECTION_TITLE} focus={route.section === 'inbox' && (settings !== null || loadError !== null)}>
+          <PhoneInboxSettings handle={inbox} />
         </SettingsSection>
       )}
       <SettingsSection title="인스타그램" focus={route.section === 'instagram' && (settings !== null || loadError !== null)}>

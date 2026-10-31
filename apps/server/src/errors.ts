@@ -156,6 +156,15 @@ export type ErrorCode =
   | 'SOURCE_FAILED'
   | 'FETCH_TOO_SOON'
   | 'CORP_NOT_ALLOWED'
+  // SMS3 휴대폰 알림 받기 (ORD-13 C-02·C-04, 문자 확인 카드)
+  | 'TOKEN_INVALID'
+  | 'TOO_MANY'
+  | 'NO_TOKEN'
+  | 'NOT_ON_SALE'
+  | 'NO_CLAIM'
+  | 'CARD_DONE'
+  | 'NAME_ONLY'
+  | 'INBOX_OFF'
   // T1 택배 자동 접수 (PARCEL_RULES PC-3~PC-8)
   | 'PARCEL_BLOCKED'
   | 'PARCEL_LOCKED'

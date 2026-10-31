@@ -1,0 +1,8 @@
+// 문자찜·입금 알림 받기 모듈 소스 (RN에서 돈다). Node 타입 없이 검사한다.
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024"]
+  },
+  "include": ["src/**/*.ts"]
+}

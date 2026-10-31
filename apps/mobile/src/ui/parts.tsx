@@ -1,7 +1,7 @@
 // 공통 조각: 큰 단추·입력칸·알림 상자·꼬리표·화면 틀. 모양은 공통 디자인 바탕(ui/kit)에서 가져오고,
 // 역할(role)·이름(aria-label)을 정확히 달아 시험·보조 기술이 잡기 쉽게 한다. (화면들이 쓰는 이 이름·인자는 그대로 둔다.)
 import type { ReactNode } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, TextInput, View, type TextInputProps } from 'react-native'
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View, type TextInputProps } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOUCH } from './kit/tokens.ts'
 import { Txt, useKit, type TxtColor } from './kit/theme.tsx'
 import type { Tone } from './theme.ts'
@@ -47,6 +47,23 @@ export function Hint({ children }: { readonly children: ReactNode }) {
     <Txt step="caption" color="textSub">
       {children}
     </Txt>
+  )
+}
+
+/**
+ * 그대로 적을 값 (단축어 칸 이름·값·받는 주소): 회색 상자의 고정폭 글자, 따옴표 없이. 길게 눌러 복사할 수 있다(selectable).
+ * 글 안에 넣으면 그 줄 안에 이어진다.
+ */
+export function Code({ children, label }: { readonly children: string; readonly label?: string }) {
+  const { p } = useKit()
+  return (
+    <Text
+      selectable
+      style={{ fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }), fontWeight: '700', color: p.text, backgroundColor: p.surfaceAlt }}
+      aria-label={label ?? children}
+    >
+      {children}
+    </Text>
   )
 }
 

@@ -1,4 +1,4 @@
-// 설정 중 음성·라벨 (공통 디자인 바탕으로 개편한 본보기: 큰 질문 제목 · 묶음별 카드 · 켜고 끄기는 되돌리기 알림 · 로그아웃은 확인 판 · 맨 아래 큰 버튼) (APP-01 화면 범위). 나머지 설정은 "웹으로 열기". 로그아웃도 여기.
+// 설정 중 음성·라벨·휴대폰 알림 받기(SMS3 AC-SMS3-29) (공통 디자인 바탕으로 개편한 본보기: 큰 질문 제목 · 묶음별 카드 · 켜고 끄기는 되돌리기 알림 · 로그아웃은 확인 판 · 맨 아래 큰 버튼) (APP-01 화면 범위). 나머지 설정은 "웹으로 열기". 로그아웃도 여기.
 // - 음성: "번호와 가격이 들리면 바로 등록"(이 기기), 권한 설명 문장 보기.
 // - 라벨: 라벨 기능 켬/끔(PUT /api/settings/labels), 1등 확정 때 라벨 자동 출력(PATCH /api/settings print.autoOnConfirm — 다음 방송부터).
 import { View } from 'react-native'
@@ -9,6 +9,7 @@ import { openExternal, openWeb } from '../lib/open-web.ts'
 import { OPEN_IN_WEB, VOICE_INSTANT_LABEL } from '../lib/words.ts'
 import { useServices, useSession } from '../services.tsx'
 import { BigButton, BottomCTA, Card, ConfirmSheet, KitScreen, ListRow, Section, Toast, ToggleRow, Txt, useToast } from '../ui/kit/index.ts'
+import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
 
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
 export const PERMISSION_WORDS = {
@@ -113,6 +114,8 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign }: { readonly o
             {auto !== null ? <ToggleRow title="1등 확정 때 라벨 자동 출력" subtitle="다음에 시작하는 방송부터 적용돼요." on={auto} disabled={busy} onChange={(next) => void run(() => setAutoPrint(next, auto))} /> : null}
           </Card>
         </Section>
+        {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
+        <PhoneNoticeCard />
         <Section title="그 밖 설정" description="가게·감사 메시지·플랫폼 연결 같은 설정은 웹에서 해요.">
           <Card label="그 밖">
             <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />

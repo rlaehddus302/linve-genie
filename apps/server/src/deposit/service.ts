@@ -9,7 +9,7 @@
 // - 자동 확인·확정·되돌리기의 마지막 확인은 기록 경로의 build 안(그 범위의 기록 잠금 안, 최신 상태)에서 한다.
 // - 로그에는 코드·개수·오류 종류만 남긴다(입금자명·금액·붙여넣은 글·계좌번호·사업자번호·팝빌 응답 없음, AC-N3-16).
 import { randomUUID } from 'node:crypto'
-import { currentBuyerOf, getSettlement, isValidDate } from '@livejjim/core'
+import { currentBuyerOf, formatWon, getSettlement, isValidDate } from '@livejjim/core'
 import { hasUnsafeText } from '../api-fields.ts'
 import type { Db } from '../db/database.ts'
 import type { ErrorCode, FieldProblem } from '../errors.ts'
@@ -23,6 +23,8 @@ import { bundleOf, bundlesOf, buyerInfoOf, buyerLabel, previewPayment, type Bund
 import { addDays, kstDateOf, kstStartOf, parseOffsetIso } from './calendar.ts'
 import { MATCH_DAYS_BACK, evaluateDeposits, evaluateEach, type MatchDeposit, type ReviewReason } from './match.ts'
 import { normalizeDepositName } from './name.ts'
+import { bankName, type NoticeResult } from './notice.ts'
+import { closeAlert, insertAlert, insertBalance, openAlerts, previousBalance, pruneOld, type BankAlertKind } from './phone-store.ts'
 import { DEPOSIT_AMOUNT_MAX, cleanDepositName, readPaste, type PasteRow } from './paste.ts'
 import { SOURCE_MESSAGES, SourceError, fetchPopbill, sourceErrorKind, withTimeout, type FetchResult, type FetchedRow, type PopbillTransport } from './popbill.ts'
 import {
@@ -33,6 +35,8 @@ import {
   depositsByNos,
   enabledFetchSources,
   ensurePasteSource,
+  ensurePhoneSource,
+  findPhoneSource,
   existingKeys,
   findDeposit,
   findPasteSource,
@@ -60,6 +64,7 @@ import {
   deleteName,
   type DepositRow,
   type DepositStatus,
+  type PhoneFlag,
   type NewDeposit,
   type SourceKind,
   type SourceRow,
@@ -95,6 +100,8 @@ export const SEARCH_DAYS_BEFORE = 60
 export const SEARCH_DAYS_AFTER = 30
 /** 기억한 입금자명의 구매자 표시 이름을 찾는 최근 날짜 범위 (그 밖은 그 채널에 입금 확인으로 적은 가장 늦은 날짜를 본다) */
 export const NAMES_DAYS_BACK = 60
+/** 은행 알림 줄을 보이는 기간 (받은 지 30일 — DP-9 9) */
+export const ALERT_KEEP_MS = 30 * 86_400_000
 /** 시험용 입금 넣기 한 번의 줄 수 */
 export const TEST_ROWS_MAX = 1000
 
@@ -114,6 +121,9 @@ export const DEPOSIT_MESSAGES = {
   tooManyRows: '한 번에 2,000줄까지 넣을 수 있어요. 나눠서 넣어 주세요.',
   popbillNotReady: '계좌 연동은 아직 준비 중이에요. 붙여넣기로 넣어 주세요.',
   noFetch: '붙여넣기는 받아 오기가 없어요.',
+  noFetchPhone: '휴대폰 알림은 받아 오기가 없어요. 휴대폰에서 보내면 바로 들어와요.',
+  alertCancel: '입금 취소 알림이 왔어요: {amount} {name}. 이 입금을 확인했다면 되돌려 주세요',
+  alertUnreadable: '읽지 못한 은행 알림이에요. 은행 앱에서 확인하고 필요하면 정산에서 손으로 적어 주세요',
   disabled: '꺼진 원천이에요. 켠 뒤 받아 와 주세요.',
   tooSoon: '방금 받아 왔어요. 잠시 뒤에 다시 눌러 주세요.',
   saveFailed: '받은 내역을 저장하지 못했어요. 잠시 뒤에 다시 받아 올게요.',
@@ -121,7 +131,9 @@ export const DEPOSIT_MESSAGES = {
 } as const
 
 /** 원천 표시 이름 기본값 (DP-8) */
-const KIND_LABEL: Readonly<Record<SourceKind, string>> = { POPBILL: '계좌조회', PASTE: '붙여넣기', FAKE: '시험용 입금' }
+const KIND_LABEL: Readonly<Record<SourceKind, string>> = { POPBILL: '계좌조회', PASTE: '붙여넣기', FAKE: '시험용 입금', PHONE: '휴대폰 알림' }
+/** 받아 오기가 없는 원천 (붙여넣기·휴대폰 알림 — 받는 입구로만 들어온다) */
+const noFetch = (kind: SourceKind): boolean => kind === 'PASTE' || kind === 'PHONE'
 
 // ── 보기 ─────────────────────────────────────────────────────────────────
 
@@ -172,7 +184,20 @@ export interface BundleView {
   readonly canRemember: boolean
 }
 
-export type ShownReason = ReviewReason | 'ONE_MATCH'
+/** 은행 알림 줄 (DP-9 9 — 입금 취소·읽지 못함) */
+export interface BankAlertView {
+  readonly id: number
+  readonly kind: BankAlertKind
+  readonly bank: string
+  readonly bankName: string
+  readonly amount: number | null
+  readonly name: string | null
+  readonly at: string | null
+  readonly receivedAt: string
+  readonly message: string
+}
+
+export type ShownReason = ReviewReason | 'ONE_MATCH' | PhoneFlag
 
 export interface DepositView {
   readonly no: number
@@ -324,6 +349,9 @@ interface MatchContext {
   readonly sameDays: readonly DepositRow[]
 }
 
+/** 저장할 줄 (휴대폰 알림만 표시가 붙는다) */
+type IngestRow = FetchedRow & { readonly phoneFlag?: PhoneFlag | null }
+
 const toMatch = (row: DepositRow): MatchDeposit => ({ no: row.no, at: row.at.getTime(), amount: row.amount, name: row.name })
 const isoOrNull = (date: Date | null): string | null => (date === null ? null : date.toISOString())
 const charCount = (text: string): number => [...text].length
@@ -418,7 +446,7 @@ export class DepositService {
       lastErrorAt: isoOrNull(row.lastErrorAt),
       lastNew: row.lastNew,
       fetching: this.#running.has(row.id),
-      fetchable: row.kind !== 'PASTE',
+      fetchable: !noFetch(row.kind),
     }
   }
 
@@ -488,7 +516,7 @@ export class DepositService {
     }
     if (input.intervalMin !== undefined) {
       const interval = input.intervalMin
-      if (row.kind === 'PASTE') problems.push({ field: 'intervalMin', message: '붙여넣기는 받아 오기 주기가 없어요.' })
+      if (noFetch(row.kind)) problems.push({ field: 'intervalMin', message: `${KIND_LABEL[row.kind]}는 받아 오기 주기가 없어요.` })
       else if (typeof interval !== 'number' || !Number.isInteger(interval) || interval < INTERVAL_MIN || interval > INTERVAL_MAX) problems.push({ field: 'intervalMin', message: '받아 오기 주기는 1~5분 중에서 골라 주세요.' })
       else patch.intervalMin = interval
     }
@@ -509,7 +537,7 @@ export class DepositService {
   async fetchNow(sellerId: string, id: string): Promise<DepositOutcome<SourceView>> {
     const row = await findSource(this.#deps.db, sellerId, id)
     if (row === null) return notFound()
-    if (row.kind === 'PASTE') return fail(400, 'SOURCE_NO_FETCH', DEPOSIT_MESSAGES.noFetch)
+    if (noFetch(row.kind)) return fail(400, 'SOURCE_NO_FETCH', row.kind === 'PHONE' ? DEPOSIT_MESSAGES.noFetchPhone : DEPOSIT_MESSAGES.noFetch)
     if (row.kind === 'FAKE' && !this.testMode) return notFound()
     if (!row.enabled) return fail(409, 'SOURCE_DISABLED', DEPOSIT_MESSAGES.disabled)
     const gap = this.#deps.options.refetchGapMs ?? REFETCH_GAP_MS
@@ -608,7 +636,7 @@ export class DepositService {
   #schedule(row: SourceRow): void {
     this.#schedules.get(row.id)?.()
     this.#schedules.delete(row.id)
-    if (this.#closed || !row.enabled || row.kind === 'PASTE' || (row.kind === 'FAKE' && !this.testMode)) return
+    if (this.#closed || !row.enabled || noFetch(row.kind) || (row.kind === 'FAKE' && !this.testMode)) return
     const cancel = this.#timer.schedule(this.#intervalMs(row), () => {
       if (this.#schedules.get(row.id) === cancel) this.#schedules.delete(row.id)
       void this.#run(row.sellerId, row.id, false).finally(async () => {
@@ -648,7 +676,7 @@ export class DepositService {
   async #fetchOnce(sellerId: string, id: string, manual: boolean): Promise<void> {
     const { db } = this.#deps
     const row = await findSource(db, sellerId, id)
-    if (row === null || !row.enabled || row.kind === 'PASTE' || (row.kind === 'FAKE' && !this.testMode)) return
+    if (row === null || !row.enabled || noFetch(row.kind) || (row.kind === 'FAKE' && !this.testMode)) return
     let fetched: FetchResult
     try {
       fetched = await this.#fetchRows(row)
@@ -738,13 +766,13 @@ export class DepositService {
    * 받은 줄을 저장하고 맞춘다 (판매자 줄 안에서 부른다). 받는 기간 밖은 개수만, 같은 외부 키는 저장하지 않는다.
    * 새 입금은 거래 시각 순서(같으면 받은 순서)로 번호를 붙이고 그 순서대로 맞춘다
    */
-  async #ingest(sellerId: string, source: SourceRow, rows: readonly FetchedRow[], accountId: string | null): Promise<IngestSummary> {
+  async #ingest(sellerId: string, source: SourceRow, rows: readonly IngestRow[], accountId: string | null): Promise<IngestSummary> {
     const { db } = this.#deps
     const nowMs = this.#now()
     const minDate = addDays(kstDateOf(nowMs), -RECEIVE_DAYS_BACK)
     let old = 0
     let future = 0
-    const kept: FetchedRow[] = []
+    const kept: IngestRow[] = []
     const keys = new Set<string>()
     for (const row of rows) {
       if (kstDateOf(row.at) < minDate) old++
@@ -764,7 +792,7 @@ export class DepositService {
       const fresh: NewDeposit[] = []
       for (const { row } of ordered) {
         if (existing.has(row.key)) continue
-        fresh.push({ no: first + fresh.length, sourceId: source.id, externalKey: row.key, at: new Date(row.at), precision: row.precision, amount: row.amount, name: row.name })
+        fresh.push({ no: first + fresh.length, sourceId: source.id, externalKey: row.key, at: new Date(row.at), precision: row.precision, amount: row.amount, name: row.name, phoneFlag: row.phoneFlag ?? null })
       }
       let done: { id: number; no: number }[]
       try {
@@ -850,7 +878,8 @@ export class DepositService {
       const results = evaluateDeposits({ bundles: context.bundles, earlier, incoming: pending.map(toMatch) })
       let restart = -1
       for (const [index, result] of results.entries()) {
-        if (result.auto === null) continue
+        // 휴대폰 알림의 저장 때 표시(믿지 않는 보낸 곳·잔액 끊김)가 있으면 자동으로 적지 않는다 (DP-5 "먼저 보는 것", DP-INV-6)
+        if (result.auto === null || (pending[index] as DepositRow).phoneFlag !== null) continue
         const bundle = context.byKey.get(result.auto) as BundleFacts
         if (await this.#applyAuto(sellerId, pending[index] as DepositRow, bundle)) applied++
         else {
@@ -965,6 +994,115 @@ export class DepositService {
     })
   }
 
+  // ── 휴대폰 알림 (SMS3 DP-9 8·9, D-DEP2-01~07) ─────────────────────────────
+
+  /** 휴대폰 알림 원천을 둔다 (받기 토큰을 처음 만들 때 — 판매자마다 하나, D-DEP2-01) */
+  async ensurePhoneSource(sellerId: string): Promise<SourceView> {
+    const row = await ensurePhoneSource(this.#deps.db, sellerId, `dsrc_${randomUUID()}`, new Date(this.#now()))
+    return this.#sourceView(row)
+  }
+
+  /**
+   * 은행 알림 하나를 저장한다 (DP-9 8·9 — 판매자 줄 안에서, DP-7). msgId = 기기가 붙인 수신 id(C-04).
+   * 결과: SAVED(처리함 — 같은 입금이 이미 있어도) · IGNORED(저장하지 않음 — 은행 알림 아님·믿지 않는 곳의 입금 아닌 알림·원천 꺼짐·받는 기간 밖).
+   * 본문은 받지 않는다(이미 읽은 결과만) — 저장하는 것은 입금(DP-1 칸)·잔액 기록·은행 알림 줄뿐이다(DP-INV-8)
+   */
+  receiveNotice(sellerId: string, msgId: string, notice: NoticeResult): Promise<'SAVED' | 'IGNORED'> {
+    return this.#serial(sellerId, () => this.#receiveNotice(sellerId, msgId, notice))
+  }
+
+  async #receiveNotice(sellerId: string, msgId: string, notice: NoticeResult): Promise<'SAVED' | 'IGNORED'> {
+    const { db } = this.#deps
+    if (notice.kind === 'NONE') return 'IGNORED'
+    const source = await findPhoneSource(db, sellerId)
+    if (source === null || !source.enabled) return 'IGNORED'
+    // 믿지 않는 보낸 곳은 입금만 받는다 (출금·입금 취소·읽지 못함은 버린다 — DP-9 9)
+    if (!notice.trusted || notice.bank === null) {
+      if (notice.kind !== 'DEPOSIT') return 'IGNORED'
+    }
+    const nowMs = this.#now()
+    const now = new Date(nowMs)
+    await pruneOld(db, sellerId, new Date(nowMs - ALERT_KEEP_MS))
+    if (notice.kind === 'UNREADABLE') {
+      await insertAlert(db, sellerId, { kind: 'UNREADABLE', bank: notice.bank as string, amount: null, name: null, at: null }, now)
+      this.#deps.publish(sellerId, { alerts: true })
+      return 'SAVED'
+    }
+    const atMs = parseOffsetIso(notice.at)
+    if (atMs === null) return 'IGNORED'
+    const at = new Date(atMs)
+    if (notice.kind === 'WITHDRAWAL') {
+      // 출금: 잔액 기록만 (금액·가맹점·이름은 두지 않는다 — 입금이 아니다, DP-INV-7)
+      if (notice.balance === null) return 'IGNORED'
+      await insertBalance(db, sellerId, { bank: notice.bank as string, at, balance: notice.balance }, now)
+      return 'SAVED'
+    }
+    if (notice.kind === 'CANCEL') {
+      // 입금 취소: 은행 알림 줄 + 잔액 기록. 엔진에 적지 않고 입금을 되돌리지 않는다 (판매자가 DP-6 되돌리기로)
+      const cancelName = cleanDepositName(notice.name)
+      await insertAlert(db, sellerId, { kind: 'CANCEL', bank: notice.bank as string, amount: notice.amount, name: cancelName === '' ? null : cancelName, at }, now)
+      if (notice.balance !== null) await insertBalance(db, sellerId, { bank: notice.bank as string, at, balance: notice.balance }, now)
+      this.#deps.publish(sellerId, { alerts: true })
+      return 'SAVED'
+    }
+    // 입금: 받는 기간 밖이면 저장하지 않는다 (DP-1)
+    if (kstDateOf(atMs) < addDays(kstDateOf(nowMs), -RECEIVE_DAYS_BACK) || atMs > nowMs + RECEIVE_FUTURE_MS) return 'IGNORED'
+    const trusted = notice.trusted && notice.bank !== null
+    // 외부 키 (DP-9 8, D-DEP2-14): 시각은 분까지 — 분까지 온 문자와 초까지 온 앱 알림이 같은 입금이면 같은 키
+    const key = trusted && notice.balance !== null ? `bal:${notice.bank as string}:${notice.at.slice(0, 16)}:${String(notice.amount)}:${String(notice.balance)}` : `msg:${msgId}`
+    // 같은 입금이 이미 있으면 처리한 것으로 본다 (문자와 앱 알림이 같은 입금을 함께 알림 — DP-9 8)
+    if ((await existingKeys(db, sellerId, source.id, [key])).has(key)) return 'SAVED'
+    // 잔액 이어짐 (DP-9 9, D-DEP2-13): 이 알림에 잔액이 있고, 같은 은행의 앞선 잔액 p가 있고, p + 금액 = 잔액일 때만 이어짐.
+    // 그 밖(잔액 없음·앞선 잔액 없음·이어지지 않음)은 BALANCE_GAP — 확인 필요로 저장된 입금의 잔액도 다음 비교의 앞선 잔액이 된다(아래 insertBalance)
+    let flag: PhoneFlag | null = null
+    if (!trusted) flag = 'UNTRUSTED_SOURCE'
+    else {
+      const previous = notice.balance === null ? null : await previousBalance(db, sellerId, notice.bank as string, at)
+      if (notice.balance === null || previous === null || previous + notice.amount !== notice.balance) flag = 'BALANCE_GAP'
+    }
+    if (trusted && notice.balance !== null) await insertBalance(db, sellerId, { bank: notice.bank as string, at, balance: notice.balance }, now)
+    const summary = await this.#ingest(sellerId, source, [{ key, at: atMs, precision: notice.precision, amount: notice.amount, name: cleanDepositName(notice.name), phoneFlag: flag }], null)
+    await updateSource(db, sellerId, source.id, { lastFetchedAt: now, lastNew: summary.stored.length }, now)
+    if (summary.stored.length > 0) this.#notify(sellerId, summary.stored, [source.id])
+    return 'SAVED'
+  }
+
+  /**
+   * 받은 지 30일이 지난 은행 알림 줄(닫은 줄 포함)·잔액 기록 지우기 (DP-9 9, D-SMS3-17). 은행 알림이 새로 오지 않아도
+   * 휴대폰 알림 받기의 주기 정리(InboxService.sweep)가 판매자마다 부른다
+   */
+  pruneOldAlerts(sellerId: string): Promise<void> {
+    return this.#serial(sellerId, () => pruneOld(this.#deps.db, sellerId, new Date(this.#now() - ALERT_KEEP_MS)))
+  }
+
+  /** 은행 알림 줄 (DP-9 9 — 닫지 않았고 받은 지 30일 안, 새것 먼저). 문구는 DP-8 */
+  async alerts(sellerId: string): Promise<{ alerts: BankAlertView[] }> {
+    const rows = await openAlerts(this.#deps.db, sellerId, new Date(this.#now() - ALERT_KEEP_MS))
+    return {
+      alerts: rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        bank: row.bank,
+        bankName: bankName(row.bank),
+        amount: row.amount,
+        name: row.name,
+        at: isoOrNull(row.at),
+        receivedAt: row.receivedAt.toISOString(),
+        message:
+          row.kind === 'CANCEL'
+            ? DEPOSIT_MESSAGES.alertCancel.replace('{amount}', formatWon(row.amount ?? 0)).replace('{name}', row.name === null || row.name.trim() === '' ? '이름 모름' : row.name)
+            : DEPOSIT_MESSAGES.alertUnreadable,
+      })),
+    }
+  }
+
+  /** 은행 알림 줄 닫기 ("확인했어요") */
+  async closeAlert(sellerId: string, id: number): Promise<DepositOutcome<{ ok: true }>> {
+    if (!(await closeAlert(this.#deps.db, sellerId, id, new Date(this.#now())))) return notFound()
+    this.#deps.publish(sellerId, { alerts: true })
+    return { ok: true, value: { ok: true } }
+  }
+
   // ── 목록·하나 (AC-N3-23·31) ─────────────────────────────────────────────
 
   /** 상태별 목록 (상태 하나 이상 — 예: 자동 확인됨·확인함을 함께, 입금 번호 내림차순, before 앞부터 limit개) */
@@ -1059,7 +1197,8 @@ export class DepositService {
       const result = results[index] as (typeof results)[number]
       const preselect = result.preselect === null ? null : context.byKey.get(result.preselect)
       out.set(row.no, {
-        reason: result.auto !== null ? 'ONE_MATCH' : (result.reason as ReviewReason),
+        // 휴대폰 알림의 저장 때 표시는 다시 계산하지 않는다 — ONE_MATCH로 바뀌지 않는다 (DP-5 "먼저 보는 것")
+        reason: row.phoneFlag ?? (result.auto !== null ? 'ONE_MATCH' : (result.reason as ReviewReason)),
         twin: result.twin,
         suggestions: result.suggestions.map((key) => this.#bundleView(context.byKey.get(key) as BundleFacts, context.states.get((context.byKey.get(key) as BundleFacts).date) as StateAt, row)),
         preselect: preselect === undefined || preselect === null ? null : { date: preselect.date, buyer: preselect.buyer },

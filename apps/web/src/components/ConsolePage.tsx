@@ -57,6 +57,9 @@ import { ErrorNote } from './ErrorNote.tsx'
 import { ImportDialog } from './ImportDialog.tsx'
 import { ReprintDialog } from './LabelParts.tsx'
 import { LiveNotices } from './LiveNotices.tsx'
+import { InboxStaleBar, InboxStallBar, SmsInboxPanel, goToInboxPanel, inboxLeadWords, useInboxConsole } from './SmsInbox.tsx'
+import { InboxClaimsContext } from './inbox-claims.tsx'
+import { inboxClaimIds } from '../lib/inbox.ts'
 import { ProductBoard, CurrentProduct, CurrentSummary, FocusBanner } from './ProductBoard.tsx'
 import { EditOptionsHost } from './ProductOptions.tsx'
 import { OptionDialog } from './OptionDialog.tsx'
@@ -268,6 +271,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   const yt = useConsoleYoutube({ store, broadcastId, date: broadcast.date, rehearsal: broadcast.rehearsal, lastMessageSeq: snapshot.messages.at(-1)?.seq ?? 0 })
   // 크롬 확장 (X1 YT-10 AC7·AC8): 리허설은 확장으로 받지 않는다
   const extension = useExtension(!broadcast.rehearsal)
+  // 휴대폰 알림 받기 (SMS3 AC-SMS3-30·31): 리허설은 손님 문자를 받지 않는다(D-SMS3-07).
+  // 봉인한 날짜도 카드는 읽는다 — 엔진이 받지 않은 문자찜(D-SMS3-31 거절 카드)을 판매자가 볼 수 있게. 넣기·승인은 칸이 막는다
+  const inbox = useInboxConsole(b, !broadcast.rehearsal)
+  const inboxLead = inboxLeadWords(inbox.cards.length)
   const thanksFailed = useRef(yt.thanksFailed)
   thanksFailed.current = yt.thanksFailed
   // 인스타그램·틱톡 (N2b-2): 플랫폼 칸·알림 줄·붙여넣기 창
@@ -1611,8 +1618,37 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
     />
   )
 
+  const inboxPanel = <SmsInboxPanel handle={inbox} readOnly={sealed} />
+  const inboxClaims = useMemo(() => inboxClaimIds(data.claims.values(), inbox.claimIds), [data.claims, inbox.claimIds])
+  // 실시간으로 들어온 문자찜 중 아직 묻지 않은 것이 있으면 "문자로 받음" 찜 ID를 다시 읽는다 (AC-SMS3-30, 한 찜에 한 번 — 묶어서)
+  const askedClaims = useRef<Set<string>>(new Set())
+  const askTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reloadInboxCards = inbox.reloadCards
+  useEffect(() => {
+    if (broadcast.rehearsal || sealed) return
+    let fresh = false
+    for (const claim of data.claims.values()) {
+      if (claim.origin !== 'sms' || inbox.claimIds.has(claim.id) || askedClaims.current.has(claim.id)) continue
+      askedClaims.current.add(claim.id)
+      fresh = true
+    }
+    if (!fresh || askTimer.current !== null) return
+    askTimer.current = setTimeout(() => {
+      askTimer.current = null
+      void reloadInboxCards()
+    }, 300)
+  }, [data.claims, inbox.claimIds, reloadInboxCards, broadcast.rehearsal, sealed])
+  useEffect(
+    () => () => {
+      if (askTimer.current !== null) clearTimeout(askTimer.current)
+      askTimer.current = null
+    },
+    [],
+  )
+
   return (
     <ConsoleContext.Provider value={api}>
+      <InboxClaimsContext.Provider value={inboxClaims}>
       <CautionContext.Provider value={chatBadges.caution ? caution : HIDDEN_CAUTION}>
       <ChatBadgesContext.Provider value={badgeOf}>
       <YoutubeContext.Provider value={yt}>
@@ -1663,11 +1699,20 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
             onPaste={openYoutubePaste}
           />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
+          <InboxStallBar handle={inbox} broadcast={b} rehearsal={broadcast.rehearsal} ended={ended || sealed} />
+          <InboxStaleBar
+            stale={inbox.stale}
+            onClosed={inbox.clearStale}
+            titleOf={(id) => data.broadcasts.get(id)?.title ?? (id === b ? title : null)}
+            {...(inbox.stale !== null && inbox.stale.b !== b ? { onGo: (id: string) => navigate({ name: 'console', id }) } : {})}
+          />
           <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} invited={invitedChannelName(yt.link?.link ?? null) !== null} />
           <QuotaToast />
           <div ref={quickBoxRef} className="console-sticky-quick">
             <AlertStrip
               leads={[
+                // 확인할 문자 카드 수 — 누르면 문자 확인 칸으로 (UX-SMS3-005)
+                ...(inboxLead === null ? [] : [{ key: 'inbox-cards', text: inboxLead, onClick: goToInboxPanel }]),
                 ...platformLeads({ live, sealed, onPaste: openPaste, pasteNote }),
                 ...(stationText === null ? [] : [{ key: 'print-station', text: stationText, ...(stationShort === null ? {} : { shortText: stationShort }), soft: true, uncounted: true, onClick: () => navigate({ name: 'labels' }) }]),
               ]}
@@ -1762,6 +1807,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
         {wide ? null : voiceLive}
         {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
         {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}
+        {wide ? null : inboxPanel}
         {wide ? null : board}
         {wide ? null : chat}
         {wide ? null : <div className="console-head console-head-actions">{actions}</div>}
@@ -1770,6 +1816,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           <div className="console-side">
             {wide ? rehearsalPanel : null}
             {wide ? currentProduct : null}
+            {wide ? inboxPanel : null}
             <MultiPlatformNotice count={live.linkedCount + (youtubeLinked ? 1 : 0)} />
             <YoutubePanel
               navigate={navigate}
@@ -1839,6 +1886,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       </YoutubeContext.Provider>
       </ChatBadgesContext.Provider>
       </CautionContext.Provider>
+      </InboxClaimsContext.Provider>
     </ConsoleContext.Provider>
   )
 }

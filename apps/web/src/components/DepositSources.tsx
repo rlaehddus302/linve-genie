@@ -119,21 +119,32 @@ function SourceItem({ source, onChanged }: { readonly source: SourceView; readon
     }
   }
   const kind = SOURCE_KIND_WORD[source.kind] ?? ''
+  // 휴대폰 알림 (SMS3 D-DEP2-01, AC-SMS3-24): 받아 오기 대신 휴대폰이 보낸다 — 켜기·끄기만
+  const phone = source.kind === 'PHONE'
   return (
     <li className="claim-row source-item" aria-label={`입금 받는 곳 ${source.label}`}>
       <p>
         <strong>{source.label}</strong>
         {source.label.trim() === kind ? '' : ` · ${kind}`}
         {source.accountLast4 !== null ? ` · ${bankName(source.bank)} 계좌 끝 ${source.accountLast4}` : ''}
-        {source.fetchable ? (
+        {source.fetchable || phone ? (
           <>
             {' · '}
             <span className={source.enabled ? 'tag tag-live' : 'tag'}>{source.enabled ? '켜짐' : '꺼짐'}</span>
-            {` · ${intervalWords(source.intervalMin)}`}
+            {phone ? '' : ` · ${intervalWords(source.intervalMin)}`}
           </>
         ) : null}
       </p>
-      {source.fetchable ? (
+      {phone ? (
+        <>
+          <p className="hint">{PHONE_SOURCE_HINT}</p>
+          <div className="toolbar">
+            <button type="button" className="button" disabled={busy} onClick={() => void act(() => patch(`/api/deposits/sources/${encodeURIComponent(source.id)}`, { enabled: !source.enabled }))}>
+              {source.enabled ? '끄기' : '켜기'}
+            </button>
+          </div>
+        </>
+      ) : source.fetchable ? (
         <p>
           {source.lastFetchedAt === null ? '아직 받아 오지 않았어요' : `마지막으로 받아 온 때 ${kstShort(source.lastFetchedAt)}`}
           {source.lastNew !== null && source.lastFetchedAt !== null ? ` · 새 입금 ${String(source.lastNew)}건` : ''}
@@ -192,6 +203,9 @@ function SourceItem({ source, onChanged }: { readonly source: SourceView; readon
     </li>
   )
 }
+
+/** 휴대폰 알림 원천 안내 (끄면 은행 알림을 저장하지 않는다 — 손님 문자는 그대로 받는다) */
+export const PHONE_SOURCE_HINT = '판매자 휴대폰의 은행 앱 알림·은행 문자로 받아요. 끄면 은행 알림을 받지 않아요(손님 문자찜은 그대로 받아요). 설정 → 휴대폰 알림 받기에서 휴대폰을 이어요.'
 
 /** 계좌조회 원천 추가 (AC-N3-46·16): 비밀번호 칸은 없다 */
 function AddPopbill({ onAdded }: { readonly onAdded: () => void }) {

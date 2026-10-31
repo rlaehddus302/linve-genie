@@ -16,6 +16,7 @@
     "@livejjim/label": "workspace:*",
     "@livejjim/mobile-audio": "workspace:*",
     "@livejjim/mobile-ble": "workspace:*",
+    "@livejjim/mobile-notice": "workspace:*",
     "@livejjim/printer": "workspace:*",
     "@livejjim/voice-session": "workspace:*",
     "@livejjim/web": "workspace:*",

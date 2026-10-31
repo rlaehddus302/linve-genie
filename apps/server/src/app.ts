@@ -27,6 +27,8 @@ export interface AppOptions {
   readonly ops?: { readonly token: string | null; readonly status: () => Promise<Record<string, unknown>> }
   /** 크롬 확장 경로 (/ext — 로그인·Origin 검사 밖, 확장 토큰으로만 받는다, X1) */
   readonly extension?: Hono
+  /** 휴대폰 알림 받는 입구 `POST /api/inbox/messages` (SMS3 — 로그인·Origin 검사 밖, 받기 토큰으로만. /api 경로보다 먼저 붙는다) */
+  readonly inbox?: (app: Hono) => void
   /** 구매자 확인서 링크 화면 `/r/<토큰>` (N4b — 로그인·Origin 검사 밖, 화면 문서보다 먼저) */
   readonly receiptPage?: (app: Hono) => void
 }
@@ -128,6 +130,7 @@ export function createApp(options: AppOptions = {}): Hono {
     app.all('/ops/status', () => (ops.token === null ? errorResponse(404) : errorResponse(405, { Allow: HEALTH_ALLOW })))
   }
 
+  options.inbox?.(app)
   if (options.api !== undefined) app.route('/api', createApi(options.api))
   if (options.webhooks !== undefined) app.route('/webhooks', options.webhooks)
   if (options.extension !== undefined) app.route('/ext', options.extension)

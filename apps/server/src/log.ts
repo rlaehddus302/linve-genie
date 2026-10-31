@@ -160,6 +160,10 @@ export type LogCode =
   | 'DEPOSIT_ROW_SAVE_FAILED'
   | 'DEPOSIT_APPLY_FAILED'
   | 'DEPOSIT_NOTIFY_FAILED'
+  // SMS3 휴대폰 알림 받기: 코드·종류만 — 본문·번호·이름·토큰은 남기지 않는다 (C-07)
+  | 'INBOX_CARD_UNREADABLE'
+  | 'INBOX_FAILED'
+  | 'INBOX_SWEEP_FAILED'
   // T1 택배 (PARCEL_RULES PC-3 "로그 금지"): 택배사 코드(reason)·HTTP 상태·개수·판매자 ID·날짜만. 받는 분·연락처·주소·메모·택배사 원래 응답·송장번호는 남기지 않는다
   | 'PARCEL_BOOK_UNKNOWN'
   | 'PARCEL_BOOK_RESUMED'
@@ -302,6 +306,9 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   DEPOSIT_ROW_SAVE_FAILED: '받은 입금 한 줄을 저장하지 못해 그 줄만 건너뛰었어요',
   DEPOSIT_APPLY_FAILED: '입금 자동 확인을 적지 못해 확인 필요로 남겼어요',
   DEPOSIT_NOTIFY_FAILED: '입금 확인 알림을 보내지 못했어요(기록은 저장됨)',
+  INBOX_CARD_UNREADABLE: '문자 확인 카드의 암호화한 본문을 풀지 못했어요',
+  INBOX_FAILED: '휴대폰 알림을 처리하지 못했어요(기기가 다시 보낸다)',
+  INBOX_SWEEP_FAILED: '휴대폰 알림의 오래된 카드·은행 알림 줄을 지우지 못했어요(다음 주기에 다시 함)',
   PARCEL_BOOK_UNKNOWN: '택배사 접수 답을 받지 못해 접수됐는지 모름으로 남겼어요(같은 요청 번호로 다시 확인해요)',
   PARCEL_BOOK_RESUMED: '결과 없이 멈춘 택배 접수 요청을 같은 요청 번호로 이어받았어요(두 번 접수되지 않아요)',
   PARCEL_CANCEL_UNKNOWN: '택배사 접수 취소 답을 받지 못했어요(접수는 그대로)',

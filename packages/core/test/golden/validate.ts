@@ -43,6 +43,12 @@ import {
   SETTLEMENT_EXPECT_KEYS,
   SMS_PREFIX,
   SMS_REF_RE,
+  SMS_TEXT_DEFAULT_FROM,
+  SMS_TEXT_FROM_KEY,
+  SMS_TEXT_MEMO_RE,
+  SMS_TEXT_REVIEW_WHYS,
+  SMS_TEXT_SHAPES,
+  SMS_TEXT_SKIPS,
   SUITES,
   SUITE_SETTINGS,
   TARGETS,
@@ -193,6 +199,8 @@ export interface ParserCase {
   readonly index: number
   readonly input: string
   readonly out: unknown
+  /** sms-text의 보낸 곳 (적지 않으면 SMS_TEXT_DEFAULT_FROM). 다른 suite에는 없다 (SMS3, D-SMS3-09) */
+  readonly from?: string | null
 }
 
 export interface ParserSuiteDoc {
@@ -749,6 +757,31 @@ function checkSuiteOut(c: Checker, suite: SuiteName, path: readonly PathSegment[
       }
       return
     }
+    case 'sms-text': {
+      // README (SMS3, D-SMS3-09): 다섯 모양 중 하나 — { claims, memo? } · { cancels, memo? } · { review, why, memo? } · { skip } · {}
+      if (!c.object(path, out)) return
+      const shapeKey = (Object.keys(SMS_TEXT_SHAPES) as (keyof typeof SMS_TEXT_SHAPES)[]).find((key) => hasValue(out, key))
+      if (shapeKey === undefined) {
+        // 찜 아님 {} — 다른 키가 있으면 읽기 오류
+        c.keys(path, out, [], [], 'sms-text out 키')
+        return
+      }
+      const shape = SMS_TEXT_SHAPES[shapeKey]
+      c.keys(path, out, shape.keys, shape.required, `sms-text ${shapeKey} 모양 out 키`)
+      for (const key of ['claims', 'cancels', 'review'] as const) {
+        if (hasValue(out, key) && c.value([...path, key], out[key], intArray(1))) {
+          const list = out[key] as number[]
+          if (key === 'review' && list.length === 0) c.fail([...path, key], 'review는 빈 목록일 수 없다')
+          if (new Set(list).size !== list.length) c.fail([...path, key], `같은 번호는 하나여야 한다 (값: ${showValue(list)})`)
+        }
+      }
+      if (hasValue(out, 'why')) c.value([...path, 'why'], out.why, oneOf(SMS_TEXT_REVIEW_WHYS))
+      if (hasValue(out, 'skip')) c.value([...path, 'skip'], out.skip, oneOf(SMS_TEXT_SKIPS))
+      if (hasValue(out, 'memo')) {
+        c.value([...path, 'memo'], out.memo, (v) => (typeof v === 'string' && SMS_TEXT_MEMO_RE.test(v) ? undefined : `memo는 한글 음절 2~10자여야 한다 (값: ${showValue(v)})`))
+      }
+      return
+    }
     case 'product-import': {
       // README (I2, D-I2-09): ① { error } 하나만 — EMPTY·TOO_MANY ② { header?, rows } — 줄은 { line, no, name, price } 또는 { line, error } (정확히 그 키)
       if (!c.object(path, out)) return
@@ -849,8 +882,8 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
         continue
       }
       const domainKey = Object.hasOwn(mapping, key) ? mapping[key] : undefined
-      // chat suite의 parseMode는 STRICT·LOOSE만 — 옵션 방송의 인식은 comment-options suite (D-O1-09)
-      const check = domainKey === undefined ? undefined : domainKey === 'claim.parseMode' ? oneOf(CHAT_PARSE_MODES) : SETTING_CHECKS[domainKey]
+      // chat suite의 parseMode는 STRICT·LOOSE만 — 옵션 방송의 인식은 comment-options suite (D-O1-09). sms-text는 OPTIONS도 받는다 (SMS3)
+      const check = domainKey === undefined ? undefined : suite === 'chat' && domainKey === 'claim.parseMode' ? oneOf(CHAT_PARSE_MODES) : SETTING_CHECKS[domainKey]
       if (domainKey === undefined || check === undefined) {
         c.fail(['settings', key], `suite '${suite}'에 없는 설정 키 '${key}'`)
         continue
@@ -864,10 +897,19 @@ function validateSuite(raw: Record<string, unknown>): ValidationResult {
     raw.cases.forEach((entry, i) => {
       const p = ['cases', i]
       if (!c.object(p, entry)) return
-      c.keys(p, entry, ['in', 'out'], ['in', 'out'], '사례 키')
+      // sms-text만 선택 키 from(보낸 곳)을 더 받는다 — 다른 suite에 있으면 읽기 오류 (README 파서 사례 형식, SMS3 D-SMS3-09)
+      const smsText = suite === 'sms-text'
+      if (!smsText && hasValue(entry, SMS_TEXT_FROM_KEY)) c.fail([...p, SMS_TEXT_FROM_KEY], `'${SMS_TEXT_FROM_KEY}'는 sms-text suite의 사례에만 쓴다 (suite '${suite}')`)
+      // from은 위에서 따로 알렸으니 여기선 모르는 키로 두 번 세지 않는다
+      c.keys(p, entry, ['in', 'out', SMS_TEXT_FROM_KEY], ['in', 'out'], '사례 키')
       const inputOk = hasValue(entry, 'in') && c.value([...p, 'in'], entry.in, str)
+      let from: string | null = SMS_TEXT_DEFAULT_FROM
+      if (smsText && hasValue(entry, SMS_TEXT_FROM_KEY)) {
+        const raw = entry[SMS_TEXT_FROM_KEY]
+        if (c.value([...p, SMS_TEXT_FROM_KEY], raw, (v) => (v === null || typeof v === 'string' ? undefined : `보낸 곳은 문자열 또는 null이어야 한다 (값: ${showValue(v)})`))) from = raw as string | null
+      }
       if (hasValue(entry, 'out')) checkSuiteOut(c, suite, [...p, 'out'], entry.out)
-      if (inputOk) cases.push({ index: i + 1, input: entry.in as string, out: entry.out })
+      if (inputOk) cases.push({ index: i + 1, input: entry.in as string, out: entry.out, ...(smsText ? { from } : {}) })
     })
   }
   if (c.issues.length > 0) return { ok: false, label: suite, issues: c.issues }

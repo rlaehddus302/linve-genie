@@ -7,6 +7,7 @@ import type { BandEvent, ExtensionView, InstagramEvent, ScopeSeq, TikTokEvent, Y
 import type { EventSourceLike } from './console-store.ts'
 import { streamUrl } from './device.ts'
 import { parseExtensionEvent } from './extension.ts'
+import { parseInboxEvent, type InboxStreamEvent } from './inbox.ts'
 import { sharedStream } from './stream.ts'
 
 const REOPEN_MS = 2000
@@ -49,6 +50,8 @@ export interface LiveHandlers {
   readonly onLogin?: () => void
   /** 크롬 확장 상태가 바뀌었다 (SSE `extension` — X1 YT-10 AC7·AC8) */
   readonly onExtension?: (view: ExtensionView) => void
+  /** 휴대폰 알림 받기가 바뀌었다 (SSE `inbox` — SMS3: 설정·문자 확인 카드·무엇이든 받음·은행 알림 줄) */
+  readonly onInbox?: (event: InboxStreamEvent) => void
 }
 
 export function parseYoutubeEvent(raw: unknown): YoutubeEvent | null {
@@ -116,6 +119,10 @@ export class LiveEvents {
     stream.addEventListener('extension', (event) => {
       const data = parseExtensionEvent(event.data)
       if (data !== null) this.#handlers().onExtension?.(data)
+    })
+    stream.addEventListener('inbox', (event) => {
+      const data = parseInboxEvent(event.data)
+      if (data !== null) this.#handlers().onInbox?.(data)
     })
     for (const type of PLATFORM_STREAM_TYPES) {
       stream.addEventListener(type, (event) => {

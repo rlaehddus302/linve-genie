@@ -176,9 +176,16 @@ describe('AC-I3-61 보조자 권한 — 허용 목록 밖은 기본으로 막힘
     // SRV1(약속 1): 서버 읽기 입구 — 보조자는 문자찜 칸(받은 시각·전화번호)만, 그 밖 칸은 처리기가 403(srv1-read 시험). 바꾼 기존 시험(SRV1 dev-notes)
     'POST /api/broadcasts/x1/read',
     'POST /api/read',
+    // SMS3(D-SMS3-12·14): 문자 확인 칸은 문자찜 입력과 같은 권한 — 보조자도 카드 보기·넣기·승인·무시, 받기 멈춤 알림용 설정 읽기. 토큰 만들기·켜기·끄기는 판매자만
+    'GET /api/inbox/settings',
+    'GET /api/inbox/cards',
+    'POST /api/inbox/cards/x1/insert',
+    'POST /api/inbox/cards/x1/approve',
+    'POST /api/inbox/cards/x1/ignore',
   ])
   /** 세션을 강제하지 않는 공개 경로 (로그인·헬스체크·공개 요금 안내 — PAY2 BL-12, 누가 불러도 같은 답) — 보조자 쿠키가 있어도 그대로 */
-  const PUBLIC = new Set(['POST /api/login', 'GET /api/health', 'GET /api/pricing'])
+  // SMS3 기기 입구(POST /api/inbox/messages)는 세션이 아니라 받기 토큰으로만 받는다 (C-02 — 보조자 쿠키로는 401)
+  const PUBLIC = new Set(['POST /api/login', 'GET /api/health', 'GET /api/pricing', 'POST /api/inbox/messages'])
 
   it('서버에 등록된 모든 경로를 보조자 세션으로 부르면 허용 목록만 403이 아니다 (나중에 더한 경로도 따로 막지 않아도 막힘)', async () => {
     const w = await world()

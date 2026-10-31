@@ -5,7 +5,7 @@
 import { containsPhoneRun, looksLikePhoneId } from '@livejjim/core'
 import { YamlFloat } from './yaml.ts'
 
-export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input', 'voice-extract', 'product-import', 'comment-options'] as const
+export const SUITES = ['chat', 'amount', 'korean-number', 'quick-input', 'voice-extract', 'product-import', 'comment-options', 'sms-text'] as const
 export type SuiteName = (typeof SUITES)[number]
 
 /** suite별 settings 키 → DOMAIN_RULES 키 */
@@ -18,6 +18,8 @@ export const SUITE_SETTINGS: Readonly<Record<SuiteName, Readonly<Record<string, 
   'product-import': { unit: 'price.unit', maxNumber: 'claim.maxNumber' },
   // 판매 방식은 늘 OPTIONS다 — 이 suite에 parseMode는 없다 (O1, D-O1-09)
   'comment-options': { maxNumber: 'claim.maxNumber', maxQuantity: 'claim.maxQuantity', multiNumber: 'claim.multiNumber' },
+  // parseMode는 STRICT·LOOSE·OPTIONS 모두 (LOOSE도 문자는 STRICT로 읽고, OPTIONS면 번호 있는 결과가 모두 확인 필요 — SMS3, D-SMS3-09)
+  'sms-text': { parseMode: 'claim.parseMode', multiNumber: 'claim.multiNumber', maxNumber: 'claim.maxNumber' },
 }
 
 /** chat suite의 parseMode는 STRICT·LOOSE만 (옵션 방송의 인식은 comment-options suite, D-O1-09) */
@@ -66,6 +68,24 @@ export const PRODUCT_IMPORT_ROW_ERRORS = ['CELLS', 'NUMBER_INVALID', 'DUPLICATE'
 /** product-import 줄 키: 등록할 값은 정확히 네 키, 문제는 정확히 두 키 */
 export const PRODUCT_IMPORT_ROW_KEYS = ['line', 'no', 'name', 'price'] as const
 export const PRODUCT_IMPORT_ERROR_ROW_KEYS = ['line', 'error'] as const
+
+/**
+ * sms-text 사례의 선택 키 (README 파서 suite 표, SMS3 D-SMS3-09): 보낸 곳 — 문자열 또는 null.
+ * 적지 않으면 휴대폰 번호 SMS_TEXT_DEFAULT_FROM. 다른 suite의 사례에 있으면 읽기 오류다.
+ */
+export const SMS_TEXT_FROM_KEY = 'from'
+export const SMS_TEXT_DEFAULT_FROM = '010-1234-5678'
+/** sms-text out 다섯 모양의 키 (README: out에 없는 키는 실제 결과에도 없어야 한다) */
+export const SMS_TEXT_SHAPES = Object.freeze({
+  claims: { keys: ['claims', 'memo'], required: ['claims'] },
+  cancels: { keys: ['cancels', 'memo'], required: ['cancels'] },
+  review: { keys: ['review', 'why', 'memo'], required: ['review', 'why'] },
+  skip: { keys: ['skip'], required: ['skip'] },
+} as const)
+export const SMS_TEXT_REVIEW_WHYS = ['UNCLEAR', 'NO_NUMBER', 'OPTIONS'] as const
+export const SMS_TEXT_SKIPS = ['NOT_MOBILE', 'EXCLUDED'] as const
+/** sms-text memo: 한글 음절 2~10자 */
+export const SMS_TEXT_MEMO_RE = /^[가-힣]{2,10}$/u
 
 export const QUICK_INPUT_ERRORS = ['PRICE_MISSING', 'NUMBER_MISSING', 'EMPTY', 'NUMBER_INVALID', 'PRICE_TOO_LOW'] as const
 

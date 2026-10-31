@@ -68,6 +68,12 @@ import {
   ledgerCodes,
   customerExports,
   depositSources,
+  inboxSettings,
+  inboxSeen,
+  inboxSmsSeen,
+  inboxCards,
+  bankAlerts,
+  bankBalances,
   deposits,
   events,
   executableOutbox,
@@ -1689,6 +1695,8 @@ const BATCH = 500
  *   복구한 구매자 ID가 다른 사람을 가리킬 수 있어 복구 전에 받은 배송지는 모두 버린다(D-N4b-06과 같음).
  */
 export const RESTORE_REPLACED_TABLES = [
+  // SMS3 문자 확인 카드: 방송에 딸린 처리 전 카드(본문은 암호화) — 파일에 없고 지운다(복구한 지난 방송의 카드를 다시 보이지 않는다 — 본문을 더 두지 않는 쪽, C-07)
+  inboxCards,
   // V3 음성 등록·고침 기록(R-25): 파일의 voiceLog 칸으로 다시 만든다(옛 파일엔 칸이 없어 비워진다 — 바꾸기 전 안전 백업에 남는다)
   voiceLog,
   // X1 확장 회차 잇기·마지막 상태: 회차(방송 ID)에 딸린 연결이라 지운다(복구한 지난 회차를 다시 잇지 않는다 — 라이브 연결과 같음)
@@ -1777,6 +1785,13 @@ export const RESTORE_KEPT_TABLES = [
   depositNames,
   depositCorpBindings,
   depositRequests,
+  // SMS3 휴대폰 알림 받기: 받기 설정(토큰 해시·마지막으로 받은 시각)·받은 id·같은 문자 표지(24시간 합치기용 해시)는 계정·기기 쪽이라 그대로 둔다.
+  // 은행 알림 줄·잔액 기록은 입금 표처럼 엔진 밖 기록이라 파일에 없고 그대로 둔다(DP-9 9)
+  inboxSettings,
+  inboxSeen,
+  inboxSmsSeen,
+  bankAlerts,
+  bankBalances,
   // T1 택배 접수 시도·설정 "택배": 엔진 밖 기록·판매자 설정이라 파일에 없다. 접수 시도는 그대로 둔다 — 택배사에 이미 접수한 묶음을 다시 접수하지 않게
   // (복구한 포장 기록이 접수 전이어도 그 묶음은 "이미 접수했어요"로 빠진다). 배송지 원문은 없다(PC-3)
   parcels,

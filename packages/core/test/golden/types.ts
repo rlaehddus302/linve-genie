@@ -20,6 +20,11 @@ export interface GoldenParserCore {
    * 결과는 out 모양 `{ orders?, cancels?, mentions?, review? }`(빈 값은 키 없음)으로 돌려준다
    */
   commentOptions?(text: string, settings: SettingsOverride, catalog: readonly unknown[], focus: unknown): unknown
+  /**
+   * 휴대폰이 받은 문자 읽기 (SMS3, D-SMS3-09 — 코어 parseSmsText). from은 사례의 보낸 곳(적지 않으면 "010-1234-5678").
+   * 결과는 out 다섯 모양 그대로 돌려준다(키를 더하거나 빼지 않는다)
+   */
+  smsText?(from: string | null, text: string, settings: SettingsOverride): unknown
 }
 
 export interface GoldenBroadcast {
@@ -246,6 +251,8 @@ export interface ParserItemResult extends ItemBase {
   readonly suite: SuiteName
   readonly caseIndex: number
   readonly input: string
+  /** sms-text 사례의 보낸 곳 (다른 suite에는 없다) */
+  readonly from?: string | null
 }
 
 export interface ScenarioItemResult extends ItemBase {

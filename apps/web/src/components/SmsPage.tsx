@@ -1042,7 +1042,7 @@ export function useSentToReview(api: ConsoleApi, result: Pick<SmsOutcomeRef, 'b'
  * 옵션 상품이면 항목마다 선택지(처음엔 고르지 않음 — 선택지 옆 "남은 n개")와 수량(처음 1, 숫자 키패드).
  * 보내는 중에는 다른 칸처럼 잠근다(AC-SMS-01) — 성공하면 비우고, 실패면 고른 그대로 둔다(AC-SMS-02·04).
  */
-function OptionQtyFields(props: {
+export function OptionQtyFields(props: {
   readonly product: Product | undefined
   readonly picks: Readonly<Record<string, string>>
   readonly onPick: (name: string, value: string) => void

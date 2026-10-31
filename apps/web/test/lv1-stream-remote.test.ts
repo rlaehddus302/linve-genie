@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SuggestionCard } from '@livejjim/voice'
 import { createRemoteVoiceController, serverVoiceOnly } from '../src/voice/remote.ts'
-import { VOICE_IDLE, type VoiceHost } from '../src/voice/controller.ts'
+import { VOICE_IDLE, type VoiceHost } from '../src/voice/model.ts'
 import type { VoiceTransportOptions } from '../src/voice/transport.ts'
 import { toWire } from '../../../packages/voice-session/src/wire.ts'
 

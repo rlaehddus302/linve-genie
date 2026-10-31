@@ -34,6 +34,10 @@ const ASSISTANT_ROUTES: readonly { readonly method: 'GET' | 'POST'; readonly pat
   { method: 'POST', path: /^\/api\/read$/ },
   // 회차의 밴드 글 연결 보기 — 상태·수·알림만 (잇기·끊기·확인했어요는 판매자만, BND1 AC-BND1-15)
   { method: 'GET', path: /^\/api\/broadcasts\/[^/]+\/band$/ },
+  // 문자 확인 칸 (SMS3) — 문자찜 입력과 같은 권한: 카드 보기·넣기·승인·무시, 받기 멈춤 알림용 설정 읽기(토큰 만들기·켜기·끄기는 판매자만)
+  { method: 'GET', path: /^\/api\/inbox\/settings$/ },
+  { method: 'GET', path: /^\/api\/inbox\/cards$/ },
+  { method: 'POST', path: /^\/api\/inbox\/cards\/[^/]+\/(?:insert|approve|ignore)$/ },
 ]
 
 /** 보조자 세션이 이 요청을 할 수 있는지 (경로·메서드, 리허설 범위 조회는 안 됨) */

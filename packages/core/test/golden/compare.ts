@@ -96,7 +96,29 @@ export function compareParserOutput(suite: SuiteName, expected: unknown, actual:
       return compareProductImport(expected, actual)
     case 'comment-options':
       return compareCommentOptions(expected, actual)
+    case 'sms-text':
+      return compareSmsText(expected, actual)
   }
+}
+
+/**
+ * sms-text (SMS3, D-SMS3-09 — README 파서 suite 표): 키마다 정확히 같음. out에 없는 키는 실제 결과에도 없어야 한다 —
+ * 값이 undefined인 키도 "있는 키"로 본다(키 이름이 있으면 서버가 그 모양으로 오해할 수 있다).
+ */
+function compareSmsText(expected: unknown, actual: unknown): Problem[] {
+  if (!isPlainObject(actual) || !isPlainObject(expected)) return [{ path: 'out', expected, actual, message: '결과가 맵이 아니다' }]
+  const problems: Problem[] = []
+  for (const key of Object.keys(actual)) {
+    if (!Object.hasOwn(expected, key)) problems.push({ path: `out.${key}`, expected: undefined, actual: actual[key], message: 'out에 없는 키가 실제 결과에 있다' })
+  }
+  for (const key of Object.keys(expected)) {
+    if (!Object.hasOwn(actual, key)) {
+      problems.push({ path: `out.${key}`, expected: expected[key], actual: undefined, message: '실제 결과에 키가 없다' })
+      continue
+    }
+    if (!deepEqual(expected[key], actual[key])) problems.push({ path: `out.${key}`, expected: expected[key], actual: actual[key] })
+  }
+  return problems
 }
 
 /**
