@@ -12,7 +12,6 @@ import {
   READ_TEXT_MAX,
   decideFixForm,
   decideQuickInput,
-  editQuestion,
   quickErrorMessage,
   quickRead,
   quickSettings,
@@ -107,10 +106,8 @@ export function smsNumberProblem(state: EngineState, b: unknown, no: unknown, fi
   return no > max ? invalid([{ field, message: quickErrorMessage('NUMBER_INVALID', max) }]) : null
 }
 
-/** 등록하려던 번호의 상품이 이미 있음 — "고칠까요?" (기록하지 않는다. 화면이 물은 뒤 product.update로 같은 원문을 보낸다) */
-function exists(decision: Extract<QuickDecision<ReadProduct>, { kind: 'edit' }>): Rejection {
-  return { status: 409, code: 'QUICK_EXISTS', message: editQuestion(decision.no, decision.product.closed), problems: [], extra: { read: quickRead(decision) } }
-}
+// 등록하려던 번호의 상품이 이미 있으면(다른 기기가 먼저 등록 등) 거절하지 않고 읽은 번호·가격으로 기록한다 — 엔진은 이미 있는 번호를
+// 바꾸지 않고 changed:false로 답한다(D-MOB2-14 (2), 입력 우선 기록). 화면은 그 답으로 "고칠까요?"를 묻거나, 저절로 다시 보낸 줄이면 한 줄로 알린다
 
 function quickRejection(decision: QuickDecision<ReadProduct>): Rejection | null {
   switch (decision.kind) {
@@ -148,14 +145,13 @@ function readRawInput(type: string, raw: RawInput, fields: Readonly<Record<strin
       const decision = decideQuickInput(raw.text, quick, find)
       const refused = quickRejection(decision)
       if (refused !== null) return refused
-      if (decision.kind === 'edit' && type === 'product.register') {
-        return exists(decision)
-      }
       if (decision.kind !== 'register' && decision.kind !== 'edit') return invalid([{ field: 'text', message: quickErrorMessage('NUMBER_MISSING', 0) }])
       out.no = decision.no
       out.price = decision.price
       // 고치기: 친 줄에 품종이 없으면(`15 12000`) 품종은 그대로 둔다 — 가격만 고치려던 줄이 품종을 지우지 않게 (웹 changedFields와 같다)
-      if (type === 'product.register' || decision.name !== '') out.name = decision.name
+      // 고치기에서 품종이 지금 그대로면 넣지 않는다 — 바뀐 칸만 고친다 (AC-S05-13)
+      const sameName = decision.kind === 'edit' && decision.name === decision.product.name
+      if (type === 'product.register' || (decision.name !== '' && !sameName)) out.name = decision.name
       return out
     }
     if (raw.noText !== undefined && raw.priceText !== undefined) {
@@ -164,9 +160,6 @@ function readRawInput(type: string, raw: RawInput, fields: Readonly<Record<strin
       if (decision.kind === 'fix') {
         const field = decision.focus === 'price' ? 'priceText' : 'noText'
         return { status: 400, code: 'QUICK_FIX', message: decision.message, problems: [{ field, message: decision.message }], extra: { read: quickRead(decision) } }
-      }
-      if (decision.kind === 'edit' && type === 'product.register') {
-        return exists(decision)
       }
       if (decision.kind !== 'register' && decision.kind !== 'edit') return invalid([{ field: 'noText', message: quickErrorMessage('NUMBER_MISSING', 0) }])
       out.no = decision.no

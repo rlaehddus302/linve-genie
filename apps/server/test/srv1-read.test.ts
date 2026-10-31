@@ -114,17 +114,17 @@ describe('AC-SRV1-02 빠른 입력 원문 등록 (약속 1·2)', () => {
     expect(await dumpAllTables(world.database)).not.toContain('15 핑크프릴 20"')
   })
 
-  it('같은 번호를 다시 치면 409 "고칠까요?"(기록 없음) — 물은 뒤 product.update로 같은 원문을 보내면 고친다. 품종 없는 줄은 품종을 두고 가격만', async () => {
+  it('같은 번호를 다시 치면 기록하되 바꾸지 않는다(changed:false — D-MOB2-14 (2), 입력 우선 기록), 15번은 그대로 — 물은 뒤 product.update로 같은 원문을 보내면 고친다. 품종 없는 줄은 품종을 두고 가격만', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller)
     const api = client(world, seller.cookie)
     await expectOk(api.post('/api/events', { requestId: rid(), type: 'product.register', b: b.id, text: '15 핑크프릴 20' }))
-    const before = await countRows(world.database, 'events')
     const exists = await api.post('/api/events', { requestId: rid(), type: 'product.register', b: b.id, text: '15 핑크프릴 25' })
-    expect(exists.status).toBe(409)
-    expect(exists.body.error).toMatchObject({ code: 'QUICK_EXISTS', message: '15번이 이미 있어요. 고칠까요?' })
-    expect(exists.body.read).toMatchObject({ decision: 'edit', no: 15, price: 25_000, closed: false })
+    expect(exists.status).toBeLessThan(300)
+    expect(exists.body).toMatchObject({ changed: false })
+    expect(listProducts((await world.server.writer.read(seller.sellerId, b.date)).state)[0]).toMatchObject({ no: 15, price: 20_000 })
+    const before = await countRows(world.database, 'events')
     const opened = await api.post('/api/events', { requestId: rid(), type: 'product.register', b: b.id, text: '15' })
     expect(opened.status).toBe(409)
     expect(opened.body.error).toMatchObject({ code: 'QUICK_OPEN' })
