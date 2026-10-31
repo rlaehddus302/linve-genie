@@ -424,7 +424,16 @@ describe('AC-I1-11 빼기·모두 빼기', () => {
     await becomeDevice(world, seller)
     // 채팅 파서는 10000을 찜으로 읽지 않는다 — 문자찜으로 1등을 만든다.
     // SRV1부터 API는 번호 한도(claim.maxNumber) 밖 문자찜을 받지 않는다 — 그 전에 기록된 옛 문자찜과 같은 이벤트를 기록 경로로 바로 쓴다(바꾼 기존 시험, SRV1 dev-notes)
-    await register(world, seller, b.id, 10000, '큰번호', 8000)
+    // REL1부터 숫자 no 상품 등록도 번호 한도 밖이면 400(66d819b5) — 상품도 그 전에 기록된 옛 등록과 같은 이벤트를 기록 경로로 바로 쓴다
+    const oldProduct = await world.server.writer.write({
+      sellerId: seller.sellerId,
+      date: DAY,
+      rehearsal: false,
+      createScope: false,
+      requestId: 'old-register-10000',
+      build: () => [{ fields: { type: 'product.register', b: b.id, no: 10000, name: '큰번호', price: 8000 }, actor: { kind: 'account', accountId: seller.accountId } }],
+    })
+    expect(oldProduct.kind).toBe('ok')
     const old = await world.server.writer.write({
       sellerId: seller.sellerId,
       date: DAY,
