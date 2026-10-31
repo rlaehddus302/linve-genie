@@ -11,6 +11,9 @@ import { formatWon, parseAmount, parseQuickInput, resolveSettings } from '@livej
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 
+// SRV1(D-APP-23·24): 줄을 읽고 할 일·미리 보기를 정하는 일은 서버 읽기(packages/voice-session/src/read/quick.ts)가 한다 — 화면은 그 결과를 보인다.
+// 가격 단위 안내 줄(unitLine)만 화면 파일에 남았다.
+const READ_MODULE = '../../../packages/voice-session/src/read/quick.ts'
 const QUICK_MODULE = '../../../apps/web/src/lib/quick.ts'
 const ROOT = join(import.meta.dirname, '..', '..', '..')
 
@@ -29,7 +32,10 @@ interface QuickModule {
   unitLine(unit: Unit): string
 }
 
-const load = async (): Promise<QuickModule> => (await import(/* @vite-ignore */ QUICK_MODULE)) as QuickModule
+const load = async (): Promise<QuickModule> => ({
+  ...((await import(/* @vite-ignore */ READ_MODULE)) as Omit<QuickModule, 'unitLine'>),
+  ...((await import(/* @vite-ignore */ QUICK_MODULE)) as Pick<QuickModule, 'unitLine'>),
+})
 
 // ── 실제 판매자가 칠 법한 줄 ─────────────────────────────
 const toFull = (s: string): string => s.replace(/[0-9]/g, (d) => String.fromCharCode(0xff10 + Number(d)))

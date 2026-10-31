@@ -21,7 +21,14 @@ describe('TD-I1-001 받을 때 데이터를 만들 수 없는 1등 라벨을 조
     const reg = await call(h.server, a.cookie, 'POST', '/api/events', { requestId: rid('reg'), type: 'product.register', b, no: 10000, name: '큰번호', price: 8000 })
     // 서버가 L-3 밖 번호를 처음부터 받지 않도록 고쳐도 이 공격은 막힌 것이다
     if (reg.status !== 200) return
-    await ev(h, a.cookie, { type: 'sms', b, no: 10000, received: '20:00' })
+    // D-089: 문자찜 번호는 그 방송의 1..claim.maxNumber(D-071 최대 9999)다 — 서버가 번호 칸 오류로 받지 않으면 1등이 생기지 않아 이 공격은 막힌 것이다.
+    // 다른 이유의 거절(번호 칸이 아닌 오류)은 막힌 것으로 보지 않는다.
+    const sms = await call(h.server, a.cookie, 'POST', '/api/events', { requestId: rid('sms'), type: 'sms', b, no: 10000, received: '20:00' })
+    if (sms.status === 400) {
+      expect(sms.text).toContain('"field":"no"')
+      return
+    }
+    expect(sms.status, sms.text).toBe(200)
     expect((await p.overview()).jobs).toHaveLength(1)
     await p.become()
     const claimed = await p.claim(DEV_A)

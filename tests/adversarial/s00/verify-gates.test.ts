@@ -228,9 +228,12 @@ const TYPECHECK_ROOT = ['package.json', 'pnpm-workspace.yaml', 'tsconfig.base.js
 const TYPECHECK_CORE = [...TYPECHECK_ROOT, 'packages/core', 'packages/voice', 'apps/server/src/product-import.ts']
 /** packages/label: 다른 패키지 소스를 상대 경로로 가져오지 않는다 */
 const TYPECHECK_LABEL = [...TYPECHECK_ROOT, 'packages/label']
-/** apps/server: 기존 순수 조회 어댑터를 APP1b 서버 읽기가 재사용한다. 상대 경로 의존도 복사해 같은 타입 오류 공격을 유지한다. */
-const TYPECHECK_SERVER = [...TYPECHECK_ROOT, 'apps/server', 'packages/core', 'packages/voice', 'packages/documents', 'packages/label',
-  ...['scope-data', 'derive', 'received', 'voice', 'kst', 'sale-line', 'words'].map((name) => `apps/web/src/lib/${name}.ts`),
+/**
+ * apps/server: 기존 순수 조회 어댑터를 APP1b 서버 읽기가 재사용한다. 상대 경로 의존도 복사해 같은 타입 오류 공격을 유지한다.
+ * SRV1(D-APP-24): 읽기가 packages/voice-session/src/read로 옮겨 서버는 웹 lib/received·voice를 더 가져오지 않는다 — 대신 voice-session·printer를 쓴다.
+ */
+const TYPECHECK_SERVER = [...TYPECHECK_ROOT, 'apps/server', 'packages/core', 'packages/voice', 'packages/voice-session', 'packages/printer', 'packages/documents', 'packages/label',
+  ...['scope-data', 'derive', 'kst', 'sale-line', 'words'].map((name) => `apps/web/src/lib/${name}.ts`),
   ...['types', 'deposit-types', 'parcel-types'].map((name) => `apps/web/src/api/${name}.ts`),
 ]
 const TYPE_ERROR = "export const probe: number = '타입 오류'\n"

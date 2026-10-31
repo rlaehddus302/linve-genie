@@ -8,7 +8,8 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 
 const KST_MODULE = '../../../apps/web/src/lib/kst.ts'
-const RECEIVED_MODULE = '../../../apps/web/src/lib/received.ts'
+// SRV1(D-APP-23·24): 받은 시각 칸 읽기(readReceived)는 서버 읽기(packages/voice-session/src/read/received.ts)로 옮겼다 — 다시 보내기는 원문을 실어 서버가 읽는다.
+const RECEIVED_MODULE = '../../../packages/voice-session/src/read/received.ts'
 
 interface Web {
   kstTime(value: number): string

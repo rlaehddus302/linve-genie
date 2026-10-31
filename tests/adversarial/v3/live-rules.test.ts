@@ -15,7 +15,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // 매번 다시 만든다(#prepared는 목록이 같을 때만 다시 씀) — 사전이 1,082개로 커진 뒤(D-V3-115) 시험이 느려진 틀 문제. 단언은 그대로.
 const NO_NAMES: readonly string[] = []
 
-const CONTROLLER_MODULE = '../../../apps/web/src/voice/controller.ts'
+// SRV1(D-APP-22·23, AC-SRV1-15): 음성 읽기 컨트롤러는 웹에서 서버 음성 흐름(packages/voice-session, server.ts createReadingSession)으로 옮겼다 — 같은 사례를 지금 제품 경로에서 본다.
+const CONTROLLER_MODULE = '../../../packages/voice-session/src/controller/controller.ts'
 const T0 = Date.UTC(2026, 9, 27, 1, 0, 0)
 const DICT = prepareVoiceDictionary()
 

@@ -6,7 +6,8 @@
 import { parseQuickInput, resolveSettings } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 
-const QUICK_MODULE = '../../../apps/web/src/lib/quick.ts'
+// SRV1(D-APP-23·24): 번호 찾기 미리 보기·고치기 칸 읽기는 서버 읽기(packages/voice-session/src/read/quick.ts)로 옮겼다 — 화면은 그 결과를 보인다.
+const QUICK_MODULE = '../../../packages/voice-session/src/read/quick.ts'
 
 interface QuickModule {
   previewNumber(text: string): number | null
