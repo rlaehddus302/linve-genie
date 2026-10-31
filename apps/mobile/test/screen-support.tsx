@@ -5,6 +5,7 @@ import { LiveStream } from '../src/lib/live.ts'
 import { FakeNativeAudio } from '../src/native/audio.ts'
 import { FakeBlePrinter } from '../src/native/ble.ts'
 import { createServices, ServicesProvider, type Services } from '../src/services.tsx'
+import { quickErrorMessage } from '../../../packages/voice-session/src/read/quick.ts'
 import { READ_KINDS, readText, type ReadKind } from '../../../packages/voice-session/src/read/index.ts'
 import { BROADCAST, FakeEventSource, FakeServer, SETTINGS, fullView, type Call } from './support.ts'
 
@@ -75,6 +76,14 @@ export function makeWorld(options: { readonly products?: ReturnType<typeof fullV
   })
   server.on('POST', /^\/api\/events/, (call) => {
     if (typeof call.body?.b === 'string' && /[?&](date|rehearsal)=/.test(call.path)) return { status: 400, body: { error: { code: 'INVALID_INPUT', message: '방송이 있는 입력에는 범위를 따로 적지 않아요.' } } }
+    // 서버 문자찜 입구 (SRV1 D-APP-24): 번호 칸 원문을 그 방송 번호 한도로 읽고, 숫자가 아니거나 한도 밖이면 문장으로 거절한다 — 이벤트는 쓰지 않는다
+    if (call.body?.type === 'sms' && typeof call.body.noText === 'string') {
+      const typed = call.body.noText.trim()
+      const number = Number(typed)
+      const max = SETTINGS['claim.maxNumber']
+      if (!/^\d+$/.test(typed) || !Number.isInteger(number) || number < 1) return { status: 400, body: { error: { code: 'INVALID_INPUT', message: '상품 번호를 숫자로 적어 주세요.' } } }
+      if (number > max) return { status: 400, body: { error: { code: 'INVALID_INPUT', message: quickErrorMessage('NUMBER_INVALID', max) } } }
+    }
     world.events.push(call)
     world.seq += 1
     const result: WriteResult = { date: '2026-10-29', rehearsal: broadcast.rehearsal, seq: world.seq, type: String(call.body?.type), changed: true, effects: [] }
