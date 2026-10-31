@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
 import { VOICE_CONSENT_KEY, VOICE_SETTINGS_KEY } from '../src/voice/storage.ts'
+import { REMOTE_CONSENT, REMOTE_NOTICE } from '../src/voice/remote.ts'
 import { register } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
 import { DATE, FakeEventSource, flush } from './support.ts'
@@ -102,11 +103,10 @@ describe('켜기 전·안내 창 (AC-I4-10·11)', () => {
     expect(engine.server.callsTo('GET', /^\/api\/days(\?|$)/)).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: '음성 켜기' }))
     const dialog = await screen.findByRole('dialog', { name: '음성으로 상품 등록' })
-    expect(dialog.textContent).toContain('말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.')
-    // 외부 전송 문장: D-I5-06 (AC-I5-12)
-    expect(dialog.textContent).toContain('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.')
-    // 마이크 줄: D-I5-11 (AC-I5-27)
-    expect(dialog.textContent).toContain('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
+    // 옛 기대(D-I4-04·D-I5-06·D-I5-11): 크롬·사파리 받아쓰기 안내 창 — "카드로 보여 줘요"·"크롬은 구글, 아이폰은 애플"·"브라우저가 마이크 사용을 물으면".
+    // SRV1 새 기대(D-APP-22·25): 그 길이 없어 안내 창은 서버 받아쓰기 세 줄(REMOTE_CONSENT, D-APP1b-05) 하나다. 처음 포커스·창 닫기 기대는 그대로.
+    for (const line of REMOTE_CONSENT) expect(dialog.textContent).toContain(line)
+    expect(dialog.textContent).not.toContain('구글')
     expect(document.body.textContent).not.toContain('크롬이 마이크 사용을 물으면')
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: '닫기' }))
     // 창이 열린 동안 머리 줄의 "음성 켜기"는 없다 (창의 버튼 하나)
@@ -126,8 +126,9 @@ describe('켜기 전·안내 창 (AC-I4-10·11)', () => {
     // 누른 버튼이 사라졌다 — 빠른 입력칸으로
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('빠른 입력')))
     expect(window.localStorage.getItem(VOICE_CONSENT_KEY)).not.toBeNull()
-    // 켜진 동안의 고지: D-I5-06 (AC-I5-12)
-    expect(screen.getByText('음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.')).toBeDefined()
+    // 켜진 동안의 고지 — 옛 기대(D-I5-06): "크롬은 구글로, 아이폰은 애플로". SRV1 새 기대: 서버 받아쓰기 고지 하나
+    expect(screen.getByText(REMOTE_NOTICE)).toBeDefined()
+    expect(screen.queryByText('음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.')).toBeNull()
     await waitFor(() => expect(engine.server.callsTo('GET', /^\/api\/days$/)).toHaveLength(1))
     fireEvent.click(screen.getByRole('button', { name: '음성 끄기' }))
     expect(FakeRecognition.all[0]?.stops).toBe(1)

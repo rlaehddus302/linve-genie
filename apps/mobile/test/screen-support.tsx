@@ -5,7 +5,8 @@ import { LiveStream } from '../src/lib/live.ts'
 import { FakeNativeAudio } from '../src/native/audio.ts'
 import { FakeBlePrinter } from '../src/native/ble.ts'
 import { createServices, ServicesProvider, type Services } from '../src/services.tsx'
-import { BROADCAST, FakeEventSource, FakeServer, fullView, type Call } from './support.ts'
+import { READ_KINDS, readText, type ReadKind } from '../../../packages/voice-session/src/read/index.ts'
+import { BROADCAST, FakeEventSource, FakeServer, SETTINGS, fullView, type Call } from './support.ts'
 
 export interface ScreenWorld {
   readonly server: FakeServer
@@ -19,6 +20,8 @@ export interface ScreenWorld {
   /** 범위 seq (쓰기마다 는다) */
   seq: number
   readonly events: Call[]
+  /** 서버 읽기 입구로 온 요청 (SRV1) */
+  readonly reads: Call[]
 }
 
 /** 방송 하나·범위 하나·쓰기(/api/events)·출력 요약이 있는 세상 */
@@ -47,12 +50,29 @@ export function makeWorld(options: { readonly products?: ReturnType<typeof fullV
     wrap: (children) => <ServicesProvider services={services}>{children}</ServicesProvider>,
     seq: 5,
     events: [],
+    reads: [],
   }
   const broadcast = { ...BROADCAST, rehearsal: options.rehearsal === true }
   server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [broadcast] } }))
   server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=true)?$/, () => ({ body: fullView({ seq: world.seq, rehearsal: broadcast.rehearsal, products: options.products ?? [] }) }))
   server.on('GET', /^\/api\/print$/, () => ({ body: { queue: { rev: 1, device: null, pause: null, waiting: 0, printing: 0, discard: 0, labelsEnabled: true }, jobs: [], discard: [] } }))
   server.on('GET', /^\/api\/print\/labels/, () => ({ body: { date: '2026-10-29', labels: [] } }))
+  // 서버 읽기 입구 (SRV1 약속 1): 서버와 같은 읽기 함수(packages/voice-session/src/read)로 그 방송 설정·상품을 읽어 { read }로 답한다 — 앱은 읽지 않는다
+  server.on('POST', /^\/api\/broadcasts\/b1\/read$/, (call) => {
+    world.reads.push(call)
+    const kind = call.body?.kind
+    if (typeof kind !== 'string' || !(READ_KINDS as readonly string[]).includes(kind)) return { status: 400, body: { error: { code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.' } } }
+    const products = options.products ?? []
+    const read = readText(kind as ReadKind, call.body?.text as string, {
+      settings: { 'price.unit': SETTINGS['price.unit'], 'claim.maxNumber': SETTINGS['claim.maxNumber'] },
+      findProduct: (no) => {
+        const found = products.find((item) => item.no === no)
+        return found === undefined ? undefined : { id: found.id, no: found.no, name: found.name, price: found.price, closed: found.status === 'CLOSED' }
+      },
+      now: Date.now(),
+    })
+    return { body: { read } }
+  })
   server.on('POST', /^\/api\/events/, (call) => {
     if (typeof call.body?.b === 'string' && /[?&](date|rehearsal)=/.test(call.path)) return { status: 400, body: { error: { code: 'INVALID_INPUT', message: '방송이 있는 입력에는 범위를 따로 적지 않아요.' } } }
     world.events.push(call)

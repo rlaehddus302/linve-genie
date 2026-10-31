@@ -5,7 +5,7 @@
 import { useCallback, useId, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { isApiError, newRequestId, type ApiError } from '../api/client.ts'
 import type { WriteResult } from '../api/types.ts'
-import { readAmount, type AmountRange } from '../lib/money.ts'
+import type { AmountRead } from '../lib/money.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 
 export interface Sender {
@@ -138,7 +138,8 @@ export interface AmountFieldProps {
   readonly label: string
   readonly value: string
   readonly onChange: (value: string) => void
-  readonly range: AmountRange
+  /** 서버가 읽은 칸 상태 (money.ts useAmount — 답이 오기 전에는 pending) */
+  readonly read: AmountRead
   /** 서버가 이 칸을 거절했을 때 */
   readonly serverMessage?: string | null
   /** 보내려다 막혔을 때만 빈 칸 문장을 보인다 */
@@ -147,10 +148,9 @@ export interface AmountFieldProps {
   readonly children?: ReactNode
 }
 
-/** 금액 칸 (AC-S06-36): 원 단위로 읽어 칸 옆에 "14,000원", 읽지 못하거나 범위 밖이면 그 문장 */
-export function AmountField({ label, value, onChange, range, serverMessage = null, showEmpty = false, inputRef }: AmountFieldProps) {
+/** 금액 칸 (AC-S06-36): 서버가 원 단위로 읽은 금액을 칸 옆에 "14,000원", 읽지 못하거나 범위 밖이면 그 문장 (SRV1 — 읽기는 서버) */
+export function AmountField({ label, value, onChange, read, serverMessage = null, showEmpty = false, inputRef }: AmountFieldProps) {
   const id = useId()
-  const read = readAmount(value, range)
   const message = read.kind === 'invalid' ? read.message : read.kind === 'empty' && showEmpty ? '금액을 적어 주세요.' : serverMessage
   return (
     <div className="stack-tight">

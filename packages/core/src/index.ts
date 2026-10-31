@@ -19,7 +19,7 @@ export {
   type QuickInputResult,
 } from './parser.ts'
 export { formatWon, formatThanksText, type ThanksTextInput } from './format.ts'
-export { normalizeText } from './parse/text.ts'
+export { normalizeText } from './text.ts'
 export {
   OPTION_LIMITS,
   compareChars,

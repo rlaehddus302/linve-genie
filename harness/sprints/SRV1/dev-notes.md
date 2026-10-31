@@ -59,3 +59,36 @@
 - 서버는 아직 웹 `lib/scope-data.ts`·`lib/derive.ts`·`api/types.ts`(표시·자료 모양, 남김 목록)를 부른다.
 - 바꾼 기존 서버 시험: `i3-accounts`(보조자 허용 목록에 읽기 입구 둘), `print-rules` AC-I1-11(번호 10000 문자찜은 API가 막으므로 옛 기록과 같은 이벤트를 기록 경로로 바로 씀 — 라벨 오류 단언은 그대로).
 - `packages/voice-session/test/server.test.ts`의 크롬 입력(`chromeResult`)은 일꾼 최종 글(`onResult`)로 바꿨다 — 단언은 그대로. `apps/server/test/app1-relay.test.ts`의 "크롬 최종 글도 등록 효과가 된다"는 스펙이 없앤 길이라 AC-SRV1-12(거절·쓰기 0·조작 전용 연결 그대로)로 바꾸고, 글이 DB·로그에 없다는 단언은 일꾼 결과 시험으로 옮겼다(D-APP-25 (3)).
+
+## dev-web (웹·앱 몫, 브랜치 sprint/SRV1-web)
+
+### 서버 몫과 맞춘 약속 (위 dev-server 절 그대로 따름)
+- 읽기 입구: `POST /api/broadcasts/:id/read`(빠른 입력·고치기 칸·가격·받은 시각·전화번호) · `POST /api/read`(정산 금액) `{ kind, text }` → `{ read }`. 웹·앱은 `ReadResult` 타입만 import type.
+- 빠른 입력: 마지막 글자 뒤 150ms 미리 보기(`preview`·`previewNo`), Enter 때 서버가 읽은 `decision`으로 등록/"고칠까요?"/자세히/고치기 칸. 등록 본문 `text`(고치기 칸은 `noText`·`name`·`priceText`). 409 `QUICK_EXISTS`(화면이 상품을 아직 모르면 칸 아래 "고칠까요?" + 따라잡기)·`QUICK_OPEN`·400 `QUICK_FIX`(`read`로 고치기 칸) 처리.
+- 읽기 입구에 닿지 못한 Enter 줄: "저장하지 못했어요"로 남기고 연결이 돌아오면 같은 원문·같은 요청 번호로 한 번(AC-SRV1-06).
+- "고칠까요?" 예: 빠른 입력 줄은 `product.update { text }`, 고치기 칸은 `{ noText, priceText, name? }`. 상품 고치기 창 가격 칸은 `{ noText: '<상품 번호>', priceText }` — **서버 요청**: product.update에서 `priceText`만(번호 숫자 `no`와 함께) 받게 되면 noText를 뺀다(지금은 "함께 보내 주세요" 규칙 때문에 번호 글을 같이 보냄).
+- 문자찜 `noText`·`receivedText`, 정산 `amountText`(+할인·추가 `amountSign`), 설정 금액 칸은 숫자 아닌 글을 원문으로.
+- 메모·사유 전화번호: 화면은 먼저 막지 않는다. **서버 요청**: 정산 메모·사유도 `PHONE_IN_TEXT` 문장으로 400(필드 memo·reason) — 문자찜 메모는 이미 됨(AC-SRV1-08).
+- 채팅 이름 언급: `message.nameMentions`만 본다(없으면 언급 아님).
+- 카드 고치기 칸 등록: 웹도 앱처럼 `submitForm` 명령(서버가 읽음). 조작 전용 연결은 `capture=false`.
+
+### 걷어낸 것
+- PC 크롬 받아쓰기 길(c32949c0): createWebSpeechEngine 호출·mode=chrome·"받아쓰기 방법" 칸·livejjim.voiceEngine(읽지 않고 지움)·load.ts·standalone.ts.
+- 웹 `voice/controller.ts`(VoiceController) 삭제 — 서버 `packages/voice-session/src/controller/`만. 같은 내용 시험 15개(v1-voice-sms·v2-voice-controller·v3-voice-*·voice-controller)는 dev-server가 `packages/voice-session/test/controller/`에 같은 기대로 옮겨 두어 웹 사본은 지움(옮김 — 기대값 그대로). 화면 시험(i5·pl1b·console-voice 등)은 import 경로만 서버 자리로.
+- 웹 lib/quick.ts·received.ts·money.ts·settings-fields.ts·ActionDialogs·SmsPage·SettlementsPage·ChatPanel의 읽기 함수, 앱 lib/quick.ts의 `@livejjim/core/quick-input`.
+
+### 남의 영역을 건드린 곳 (최소)
+- dev-core: `packages/core/src/text.ts` 새로(normalizeText를 parse/ 밖으로 — parse/text.ts는 다시 내보냄), FOCUS_GRACE_SEC를 options.ts로(parse/options.ts는 다시 내보냄), package.json `sideEffects: false`. 동작 그대로, 웹 번들 모듈 목록에 `packages/core/src/parse/`가 없게(AC-SRV1-13). 코어 시험 1584개 통과.
+- 서버 브랜치(ef473a1b)를 이 브랜치에 합침 — 타입 import·가짜 서버가 같은 함수를 쓰게.
+
+### 바꾼 기존 웹·앱 시험 (옛 기대 → 새 기대, 단언 보존)
+- 미리 보기(fb1-quick·sms-page·settlements-page·console-screen 앱): 친 즉시 보임 → 서버 답 뒤(findByText/waitFor), 글은 그대로.
+- 등록·문자찜·정산 본문: 숫자 칸 → 원문(text·noText·amountText). 가짜 서버가 서버처럼 읽어 기록 값 단언(15번 20,000원 등)은 그대로.
+- 메모·사유 전화번호: 치는 즉시 막음 → 보내면 서버가 같은 문장으로 거절, 칸 글 그대로.
+- 채팅 언급(o2-screens): 화면이 이름을 찾음 → 서버 nameMentions, 서버가 주지 않으면 언급 아님 단언 추가.
+- 설정 금액(i3-lib): '4천' → 4000 → 원문 '4천'(서버가 4,000원으로).
+- mob2-register-resend: 등록 요청 고르기를 본문 no → 원문 text의 번호로.
+- web-sync(앱): 앱·웹 각자 읽기 비교 → 서버가 읽은 같은 결과로 같은 할 일.
+
+### 참고
+- 시험 기기 부하가 높을 때(load 70~100) console-voice 일부가 5초 제한 근처(4~6초)로 느려 한 번 시간 초과가 났다 — 따로 돌리면 통과. 시험 내용 문제 아님.

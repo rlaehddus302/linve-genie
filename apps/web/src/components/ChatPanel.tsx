@@ -5,7 +5,6 @@
 // - 맨 아래를 보고 있으면 새 메시지를 따라 내려가고, 위로 올려 보는 중이면 자리를 지키고 "새 메시지 n개"를 보인다.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ChatMessage } from '../api/types.ts'
-import { compareChars } from '@livejjim/core'
 import type { Product } from '../api/types.ts'
 import { chatOptionWords, claimWord } from '../lib/derive.ts'
 import { usePendingNow } from '../lib/use-pending-now.ts'
@@ -46,14 +45,17 @@ export interface OptionLook {
   readonly optionProduct: boolean
 }
 
-/** 옵션 방송 메시지의 표시: 주문은 서버 optionOrders, 확인 필요는 review, 언급은 번호 언급 또는 이 방송 상품의 이름·별칭이 들어간 글 */
-export function optionLook(message: ChatMessage, products: readonly Pick<Product, 'no' | 'name' | 'aliases' | 'hasOptions'>[]): OptionLook | null {
+/**
+ * 옵션 방송 메시지의 표시: 주문은 서버 optionOrders, 확인 필요는 review, 언급은 서버가 준 mentions(번호 언급과 상품 이름·별칭 언급).
+ * SRV1 (D-APP-23, 약속 5): 채팅 글에서 상품 이름을 찾는 일은 서버가 한다 — 화면은 서버가 언급으로 주지 않은 글을 언급으로 바꾸지 않는다.
+ */
+export function optionLook(message: ChatMessage, products: readonly Pick<Product, 'no' | 'hasOptions'>[]): OptionLook | null {
   if (message.optionOrders === undefined) return null
   const orders = message.optionOrders.map((order) => `${CHAT_WORD.order} ${String(order.no)}번${order.variant === null ? '' : ` ${order.variant}`}${order.qty > 1 ? ` ×${String(order.qty)}` : ''}`)
   const review = message.review == null ? null : `${CHAT_REVIEW_WORD} · ${REVIEW_REASON_WORD[message.review.reason]}`
-  const text = compareChars(message.text)
-  const named = products.filter((product) => message.mentions.includes(product.no) || [product.name, ...product.aliases].some((word) => compareChars(word).length >= 2 && text.includes(compareChars(word))))
-  const mention = orders.length === 0 && review === null && !message.cancel && !message.ignored && (message.mentions.length > 0 || named.length > 0)
+  const nameMentions = message.nameMentions ?? []
+  const named = products.filter((product) => message.mentions.includes(product.no) || nameMentions.includes(product.no))
+  const mention = orders.length === 0 && review === null && !message.cancel && !message.ignored && (message.mentions.length > 0 || nameMentions.length > 0)
   return { orders, review, mention, optionProduct: named.some((product) => product.hasOptions) || (message.review != null) }
 }
 

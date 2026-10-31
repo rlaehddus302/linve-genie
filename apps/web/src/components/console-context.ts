@@ -8,6 +8,7 @@ import type { WriteResult } from '../api/types.ts'
 import type { BuyerNames } from '../lib/derive.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import type { SuccessionPick } from '../lib/undo-queue.ts'
+import type { TypedFields } from '../lib/quick.ts'
 
 /** 열린 창 (위에 쌓인다) */
 export type Dialog =
@@ -22,6 +23,8 @@ export type Dialog =
       readonly stock?: number
       /** 빠른 입력칸 아래에 남겨 둔 "고칠까요?"에서 열었으면 그 번호 — 예로 마치면 지운다, 아니요면 남는다 */
       readonly ask?: number
+      /** 판매자가 친 원문 칸 (빠른 입력 줄·고치기 칸) — "예"에서 숫자 대신 이 원문을 보낸다 (SRV1 약속 2) */
+      readonly typed?: TypedFields
     }
   | { readonly kind: 'conflict' }
   | { readonly kind: 'cancelRequests' }

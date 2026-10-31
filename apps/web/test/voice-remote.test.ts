@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SuggestionCard } from '@livejjim/voice'
 import { createRemoteVoiceController, serverVoiceOnly } from '../src/voice/remote.ts'
-import { RESTART_LABEL_MS, VOICE_IDLE, type VoiceHost, type SmsEntry } from '../src/voice/controller.ts'
+import { VOICE_IDLE, type VoiceHost, type SmsEntry } from '../src/voice/model.ts'
 import { supportsVoiceCapture } from '../src/voice/capabilities.ts'
 import type { VoiceTransportOptions } from '../src/voice/transport.ts'
 import { toWire } from '../../../packages/voice-session/src/wire.ts'
@@ -28,6 +28,7 @@ beforeEach(() => {
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn() } })
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+// SRV1 (D-APP-22·25): 옛 크롬 받아쓰기 고르기가 저장된 PC — 크롬 길은 없고 저장값은 지운다
 function chrome() {
   vi.stubGlobal('SpeechRecognition', function SpeechRecognition() {})
   vi.stubGlobal('matchMedia', () => ({ matches: true }))
@@ -44,8 +45,9 @@ describe('server reading thin facade', () => {
   })
   it('checks microphone support before consent without constructing or opening it', async () => {
     const create = vi.fn()
-    expect(supportsVoiceCapture('chrome', { SpeechRecognition: create })).toBe(true)
-    expect(supportsVoiceCapture('livegenie', { AudioContext: create, AudioWorkletNode: create, navigator: { mediaDevices: { getUserMedia: create } } })).toBe(true)
+    // SRV1: 브라우저 음성 인식만 있는 기기는 음성 가능으로 보지 않는다 — 마이크 소리를 서버로 보낼 수 있어야 한다 (옛 기대: 크롬 SpeechRecognition만으로 true)
+    expect(supportsVoiceCapture({ SpeechRecognition: create })).toBe(false)
+    expect(supportsVoiceCapture({ AudioContext: create, AudioWorkletNode: create, navigator: { mediaDevices: { getUserMedia: create } } })).toBe(true)
     expect(create).not.toHaveBeenCalled()
     vi.stubGlobal('AudioWorkletNode', undefined)
     const { remote } = fixture({ readConsent: () => false })
@@ -67,24 +69,30 @@ describe('server reading thin facade', () => {
     expect(stored).not.toHaveProperty('voice.autoRegister')
     remote.dispose()
   })
-  it('keeps Chrome restarting visible for the established hold even when listening arrives in the same callback', async () => {
+  // 옛 기대(크롬 받아쓰기): "음성: 다시 시작 중"을 1초 붙잡아 보인다. SRV1 새 기대: 크롬 고르기가 저장돼 있어도 서버 받아쓰기 문장만 쓰고 저장값을 지운다 (AC-SRV1-10)
+  it('ignores and clears a stored Chrome engine choice: server transcription labels only', async () => {
     chrome()
-    const { remote } = fixture(); await remote.turnOn(); state()
-    transport.options!.onState('RESTARTING'); transport.options!.onState('LISTENING'); state()
-    expect(remote.getSnapshot().stateLabel).toBe('음성: 다시 시작 중')
-    await vi.advanceTimersByTimeAsync(RESTART_LABEL_MS)
+    const { remote } = fixture()
+    expect(localStorage.getItem('livejjim.voiceEngine')).toBeNull()
+    await remote.turnOn(); state()
+    expect(transport.options).not.toHaveProperty('chrome')
+    expect(transport.options!.capture).toBe(true)
+    transport.options!.onState('RESTARTING'); state()
+    expect(remote.getSnapshot().stateLabel).toBe('다시 잇는 중')
+    transport.options!.onState('LISTENING')
     expect(remote.getSnapshot().stateLabel).toBe('음성: 듣는 중')
     remote.dispose()
   })
-  it('stops Chrome on a fatal error and starts a fresh capture after the final off state', async () => {
+  // 옛 기대(크롬 받아쓰기): 치명 오류면 음성을 끈다(phase off). SRV1 새 기대: 서버 받아쓰기처럼 "듣기 멈춤"과 오류를 보이고, 껐다 켜면 새 마이크 연결로 다시 듣는다
+  it('halts with the error on a fatal capture error and starts a fresh capture after off and on', async () => {
     chrome()
     const { remote } = fixture(); await remote.turnOn(); state()
     const old = transport.options!
     old.onError({ kind: 'PERMISSION_DENIED', message: '마이크 사용이 막혀 있어요.' }); old.onState('HALTED')
-    expect(remote.getSnapshot()).toMatchObject({ phase: 'off', error: '마이크 사용이 막혀 있어요.' })
-    await remote.turnOn()
-    expect(transport.options).toBe(old)
-    state('session-1', { phase: 'off' }); await vi.dynamicImportSettled(); await settle()
+    expect(remote.getSnapshot()).toMatchObject({ phase: 'on', stateLabel: '듣기 멈춤', error: '마이크 사용이 막혀 있어요.' })
+    remote.turnOff()
+    state('session-1', { phase: 'off' })
+    await remote.turnOn(); await vi.dynamicImportSettled(); await settle()
     expect(transport.options).not.toBe(old)
     transport.options!.onState('LISTENING')
     expect(remote.getSnapshot()).toMatchObject({ phase: 'on', error: null })
@@ -144,13 +152,15 @@ describe('server reading thin facade', () => {
     expect(transport.stop).toHaveBeenCalledTimes(2)
     remote.dispose()
   })
-  it('exposes Chrome recognition gap and diagnostic callbacks without reading speech in the client', async () => {
+  // 옛 기대: 크롬 인식 끊김·진단·기기 안 인식 상태를 받는다. SRV1 새 기대: 브라우저 인식이 없으니 그 값도 받는 길도 없다 (빈 값)
+  it('has no browser-recognition gap, diagnostic or on-device callbacks (server transcription only)', async () => {
     const { remote } = fixture(); await remote.turnOn(); state()
-    const gap = { from: T0, to: T0 + 100, ms: 100, retries: 1, reason: 'network' as const }
-    transport.options!.onGap?.(gap, '인식 끊김 0.1초 (network)')
-    transport.options!.onDeviceStatus?.('unavailable')
-    expect(remote.recognitionGaps()).toEqual([gap])
-    expect(remote.onDeviceRecognition()).toBe('unavailable')
+    expect(transport.options).not.toHaveProperty('onGap')
+    expect(transport.options).not.toHaveProperty('onDiagnostic')
+    expect(transport.options).not.toHaveProperty('onDeviceStatus')
+    expect(remote.recognitionGaps()).toEqual([])
+    expect(remote.recognitionDiagnostics()).toEqual([])
+    expect(remote.onDeviceRecognition()).toBeNull()
     remote.dispose()
   })
   it('executes an effect once and acknowledges repeated responses without a second write', async () => {

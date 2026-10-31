@@ -1,7 +1,9 @@
 // 가격 단위 자동 (V3 D-V3-70) — 빠른 입력 한 줄·미리 보기·설정 낱말
+// SRV1 (D-APP-23·24): 읽기 함수는 서버 전용 자리(packages/voice-session/src/read)로 옮겼다 — 기대값은 그대로, 서버 읽기 함수를 본다.
 import { DEFAULT_SETTINGS } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
-import { registerPreview, unitLine } from '../src/lib/quick.ts'
+import { unitLine } from '../src/lib/quick.ts'
+import { registerPreview } from '../../../packages/voice-session/src/read/index.ts'
 import { PRICE_UNIT_WORDS } from '../src/lib/settings-fields.ts'
 
 describe('가격 단위 자동 (D-V3-70)', () => {
