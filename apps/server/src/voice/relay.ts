@@ -91,6 +91,8 @@ export class VoiceRelay {
   readonly #workers = new Set<Worker>()
   readonly #devices = new Set<Device>()
   readonly #owners = new Map<string, Device>()
+  /** 휴대폰 마이크에 자리를 내준 콘솔 조작 흐름 (닫지 않는다 — 마이크가 끝나면 다시 주인, 방송 소리 글을 받는다. TD-LV1-001) */
+  readonly #parked = new Map<string, Device>()
   readonly #samples: { at: number; ms: number }[] = []
   readonly #timer: ReturnType<typeof setInterval>
   readonly #offLogout: () => void
@@ -208,8 +210,15 @@ export class VoiceRelay {
     if (broadcast === null || broadcast.endedAt !== null) { this.#finish(device, 'ENDED'); return }
     const owner = this.#owners.get(session.sellerId)
     if (owner !== undefined) {
-      if (owner.device !== device.device) { this.#finish(device, 'OTHER_DEVICE'); return }
-      this.#finish(owner)
+      if (owner.device !== device.device) {
+        // 콘솔 조작 흐름(마이크 없음)이 주인이면 마이크를 받아들이고 그 흐름은 쉬게 둔다 (D-LV1-06)
+        if (device.mode === 'livegenie' && owner.mode !== 'livegenie') {
+          this.#owners.delete(session.sellerId)
+          const before = this.#parked.get(session.sellerId)
+          if (before !== undefined && before !== owner) this.#finish(before)
+          this.#parked.set(session.sellerId, owner)
+        } else { this.#finish(device, 'OTHER_DEVICE'); return }
+      } else this.#finish(owner)
     }
     // 마이크가 일꾼 자리를 먼저 받게 방송 소리 흐름을 먼저 쉬게 한다 (D-LV1-06). 거절되면 다시 돌려 놓는다
     if (device.mode === 'livegenie') this.#options.onMicChange?.(session.sellerId, true)
@@ -253,9 +262,14 @@ export class VoiceRelay {
   #finish(device: Device, reason?: VoiceCloseReason): void {
     if (!this.#devices.delete(device)) return
     device.ready = false
+    if (device.session && this.#parked.get(device.session.sellerId) === device) this.#parked.delete(device.session.sellerId)
     if (device.session && this.#owners.get(device.session.sellerId) === device) {
-      this.#owners.delete(device.session.sellerId)
-      if (device.mode === 'livegenie') this.#options.onMicChange?.(device.session.sellerId, false)
+      const sellerId = device.session.sellerId
+      this.#owners.delete(sellerId)
+      // 쉬던 콘솔 조작 흐름이 다시 주인이 된다
+      const parked = this.#parked.get(sellerId)
+      if (parked !== undefined) { this.#parked.delete(sellerId); if (this.#devices.has(parked)) this.#owners.set(sellerId, parked) }
+      if (device.mode === 'livegenie') this.#options.onMicChange?.(sellerId, false)
     }
     const worker = device.worker
     if (worker !== null) {
