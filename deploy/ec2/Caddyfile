@@ -1,0 +1,12 @@
+# 라이브지니 앞단 (compose.yaml의 caddy). LJ_DOMAIN 하나로 인증서를 받고 app:3000으로 넘긴다.
+# - 앞단 프록시는 이것 하나다 → .env의 LIVEJJIM_TRUSTED_PROXIES=1 (docs/DEPLOY.md 5절).
+#   Caddy는 들어온 X-Forwarded-For를 믿지 않고 실제 접속 주소로 다시 적는다(trusted_proxies를 두지 않는다).
+# - WebSocket(/api/voice/stream·/api/voice/worker)은 reverse_proxy가 그대로 넘긴다.
+# - 압축(encode)은 두지 않는다: 이어 보내는 응답이 묶여 늦게 갈 수 있다.
+{
+	admin off
+}
+
+{$LJ_DOMAIN} {
+	reverse_proxy app:3000
+}

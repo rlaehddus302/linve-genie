@@ -90,6 +90,8 @@
 
 ## 3. 처음 배포
 
+> AWS EC2 한 대(서울, docker compose + Caddy 자동 https + SSM 비밀값 + S3 매일 백업)로 올리는 묶음과 CloudShell 순서는 [deploy/ec2/README.md](../deploy/ec2/README.md)에 있다.
+
 1. **데이터베이스**를 만들고 `DATABASE_URL`을 받는다.
 2. **이미지**: `docker build -t livejjim .` (저장소 루트). 여러 단계 빌드로 화면을 빌드해 넣고 root가 아닌 사용자로 돈다.
 3. **환경변수**를 업체 설정에 넣는다(2절 — 적어도 `DATABASE_URL`·`LIVEJJIM_MASTER_KEY`·`LIVEJJIM_APP_ORIGIN`).

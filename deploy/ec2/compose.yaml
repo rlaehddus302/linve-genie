@@ -1,0 +1,77 @@
+# 라이브지니 EC2 한 대 배포 (deploy/ec2/README.md). 직접 부르지 말고 lg-compose(lg-compose.sh)로 부른다.
+# - app: 저장소 루트 Dockerfile로 이 기계에서 빌드. 포트를 밖에 내지 않는다(caddy만 닿는다).
+# - db: PostgreSQL 15 — 서버 이미지의 pg_dump(데비안 bookworm, 15)와 메이저 판을 맞춘다(docs/DEPLOY.md 6절).
+#        판을 올리면 서버 백업 명령이 실패하니 Dockerfile의 pg_dump도 함께 올린다.
+# - caddy: 80·443만 공개, LJ_DOMAIN 인증서를 저절로 받고 /api/voice/* WebSocket도 그대로 넘긴다.
+# - 망: back(내부 전용, db·app) · edge(밖으로 나가는 망, app·caddy). db는 밖으로 나가지도 들어오지도 않는다.
+# 값: --env-file로 받은 .env(LJ_DOMAIN·LJ_DB_PASSWORD)와 app의 env_file(같은 파일). 값에 $를 넣지 않는다.
+name: livegenie
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:15.19-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: livejjim
+      POSTGRES_DB: livejjim
+      POSTGRES_PASSWORD: ${LJ_DB_PASSWORD:?LJ_DB_PASSWORD가 .env에 없어요}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks: [back]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U livejjim -d livejjim"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: livegenie-app:local
+    restart: unless-stopped
+    env_file:
+      - ${LJ_ENV_FILE:-/opt/livegenie/.env}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # 서버의 판매자 자동 백업 폴더(LIVEJJIM_BACKUP_DIR=/backups). 이미지 사용자 node(uid 1000)가 쓸 수 있어야 한다
+      - ${LJ_APP_BACKUP_DIR:-/opt/livegenie/backups/app}:/backups
+    networks: [back, edge]
+    logging: *logging
+
+  caddy:
+    image: caddy:2.11.6-alpine
+    restart: unless-stopped
+    environment:
+      LJ_DOMAIN: ${LJ_DOMAIN:?LJ_DOMAIN이 .env에 없어요}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    networks: [edge]
+    logging: *logging
+
+networks:
+  back:
+    internal: true
+  edge: {}
+
+volumes:
+  db-data: {}
+  caddy-data: {}
+  caddy-config: {}

@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LivegenieSecrets",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameter", "ssm:PutParameter"],
+      "Resource": "arn:aws:ssm:ap-northeast-2:__ACCOUNT_ID__:parameter/livegenie/prod/*"
+    },
+    {
+      "Sid": "LivegenieBackupUpload",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::__BACKUP_BUCKET__/postgres/*"
+    }
+  ]
+}
