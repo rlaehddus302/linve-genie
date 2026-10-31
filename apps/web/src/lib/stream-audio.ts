@@ -19,8 +19,8 @@ export interface StreamAudioStatus {
   readonly lagMs?: number
 }
 
-/** 늦음 안내 기준 (D-LV1-04) */
-export const STREAM_AUDIO_LATE_MS = 20_000
+/** 늦음 안내 기준 (D-LV1-04 → D-LV1-10 30초) */
+export const STREAM_AUDIO_LATE_MS = 30_000
 
 export const STREAM_AUDIO_LISTENING = '방송 소리로 듣는 중'
 export const STREAM_AUDIO_MIC = '휴대폰 마이크로 듣는 중'
@@ -32,6 +32,8 @@ export const STREAM_AUDIO_OFF = '방송 소리로 듣기가 꺼져 있어요. �
 export const STREAM_AUDIO_IDLE = '방송을 이으면 방송 소리로 들어요.'
 export const STREAM_AUDIO_CONSENT_TITLE = '방송 소리로 듣기'
 export const STREAM_AUDIO_CONSENT = '방송 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.'
+/** 초저지연 안내 (D-LV1-10, AC-LV1-13) — 설정 칸·첫 안내 창 */
+export const STREAM_AUDIO_LOW_LATENCY = "유튜브 방송 설정에서 지연 시간을 '초저지연'으로 하면 더 빨리 등록돼요."
 export const STREAM_AUDIO_SETTING_LABEL = '방송 소리로 듣기'
 export const STREAM_AUDIO_SETTING_HELP = '켜 두면 방송 주소만 이어도 콘솔이 열려 있는 동안 방송 소리를 듣고 상품을 등록해요. 휴대폰 마이크를 켜면 마이크가 대신 들어요.'
 

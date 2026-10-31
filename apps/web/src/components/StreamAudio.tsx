@@ -7,6 +7,7 @@ import { get, post, put } from '../api/client.ts'
 import {
   STREAM_AUDIO_CONSENT,
   STREAM_AUDIO_CONSENT_TITLE,
+  STREAM_AUDIO_LOW_LATENCY,
   STREAM_AUDIO_SETTING_HELP,
   STREAM_AUDIO_SETTING_LABEL,
   readStreamAudioConsent,
@@ -90,6 +91,7 @@ export function StreamAudioConsent({ onAccept, onClose }: { readonly onAccept: (
       actions={<button type="button" className="button button-primary" onClick={onAccept}>확인하고 듣기</button>}
     >
       <p>{STREAM_AUDIO_CONSENT}</p>
+      <p>{STREAM_AUDIO_LOW_LATENCY}</p>
     </Modal>
   )
 }
@@ -129,6 +131,7 @@ export function StreamAudioSetting({ wrap }: { readonly wrap: (children: ReactNo
       </label>
       <p>{settings.enabled ? '지금: 켜짐' : '지금: 꺼짐'}</p>
       <p className="muted">{STREAM_AUDIO_SETTING_HELP}</p>
+      <p>{STREAM_AUDIO_LOW_LATENCY}</p>
       {error ? <p role="alert" className="voice-error">저장하지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.</p> : null}
     </div>
   )

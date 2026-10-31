@@ -4,8 +4,9 @@ import { STREAM_AUDIO_LATE, STREAM_AUDIO_LISTENING, STREAM_AUDIO_MIC, STREAM_AUD
 describe('방송 소리 상태 줄 (LV1 VOC-08)', () => {
   it('듣는 중·늦음·끊김·멈춤·받을 수 없음 문장', () => {
     expect(streamAudioLine({ phase: 'listening', lagMs: 1000 }, false)).toMatchObject({ text: STREAM_AUDIO_LISTENING, late: null, useMic: false })
-    expect(streamAudioLine({ phase: 'listening', lagMs: 20_001 }, false)).toMatchObject({ late: STREAM_AUDIO_LATE, useMic: true })
-    expect(streamAudioLine({ phase: 'listening', lagMs: 20_000 }, false)?.late).toBeNull()
+    expect(streamAudioLine({ phase: 'listening', lagMs: 30_001 }, false)).toMatchObject({ late: STREAM_AUDIO_LATE, useMic: true })
+    expect(streamAudioLine({ phase: 'listening', lagMs: 30_000 }, false)?.late).toBeNull()
+    expect(streamAudioLine({ phase: 'listening', lagMs: 29_000 }, false)?.late).toBeNull()
     expect(streamAudioLine({ phase: 'reconnecting' }, false)?.text).toBe(STREAM_AUDIO_RECONNECTING)
     expect(streamAudioLine({ phase: 'stopped' }, false)).toMatchObject({ text: STREAM_AUDIO_STOPPED, tone: 'danger', retry: true, useMic: true })
     expect(streamAudioLine({ phase: 'unsupported' }, false)?.text).toBe(STREAM_AUDIO_UNSUPPORTED)
