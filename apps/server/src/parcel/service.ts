@@ -25,6 +25,8 @@ import { iso, kstDate, type Clock } from '../time.ts'
 import { WorkBusy, WorkFailed, type WorkPools } from '../work-pool.ts'
 import { SEALED_MESSAGE, type ScopeWriter } from '../writer.ts'
 import { kstMidnightAfter, type Timer } from '../youtube/timer.ts'
+import type { LedgerPrefill, LedgerService } from '../customers/ledger.ts' // KP1
+import { maskRecipient } from '../customers/ledger-rules.ts' // KP1
 import {
   CARRIER_CODES,
   CARRIER_LABELS,
@@ -131,6 +133,8 @@ export interface ParcelDeps {
   readonly log: LogSink
   readonly work: WorkPools
   readonly options: ParcelOptions
+  /** KP1 손님 장부 (묶음 배송지 칸의 "확인 전"·[배송지 확인]·링크 동의). 없으면 장부를 보지 않는다 */
+  readonly ledger?: LedgerService
 }
 
 /** 묶음의 택배 줄 (`parcel` — 정산 묶음·포장 모드·택배 화면) */
@@ -196,7 +200,7 @@ export interface ParcelDay {
 }
 
 export interface AddressView extends ParcelAddress {
-  readonly source: 'BUYER' | 'SELLER'
+  readonly source: 'BUYER' | 'SELLER' | 'LEDGER'
   readonly confirmed: boolean
   /** 고친 시각 (UTC ISO — 배송지 확인 요청에 그대로 보낸다) */
   readonly updatedAt: string
@@ -211,6 +215,8 @@ export interface BundleView {
   /** 보관 기간(날짜 + 30일)이 지났다 */
   readonly expired: boolean
   readonly row: ParcelRow
+  /** KP1: 저장한 배송지가 없을 때 손님 장부 연락처 "확인 전" (CR-4 — 보이기만, 복사하지 않음). 없으면 null */
+  readonly ledger: LedgerPrefill | null
 }
 
 /**
@@ -247,6 +253,8 @@ export type BookItemResult =
 export type LinkSection =
   | { readonly kind: 'form' }
   | { readonly kind: 'saved'; readonly name: string; readonly last4: string }
+  /** KP1: 손님 장부의 지난번 배송지 (가린 이름·끝 4자리만 — CR-4) */
+  | { readonly kind: 'ledger'; readonly name: string; readonly last4: string }
   | { readonly kind: 'pickup' }
   | { readonly kind: 'combined' }
   | { readonly kind: 'closed' }
@@ -265,6 +273,13 @@ const problem = (status: number, code: ApiProblem['code'], message: string, prob
   error: { status, code, message, problems, ...(extra === undefined ? {} : { extra }) },
 })
 const invalid = (field: string, message: string) => problem(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field, message }])
+
+/** KP1 장부 배송지 확인 문장 (CR-4) */
+export const LEDGER_PARCEL_MESSAGES = {
+  noLedger: '지난 주문 배송지가 없어졌어요. 배송지를 직접 적어 주세요.',
+  changed: '지난 주문 배송지가 바뀌었어요. 다시 확인해 주세요.',
+  exists: '이미 이 묶음에 배송지가 있어요.',
+} as const
 
 /** 그 날짜 배송지의 보관이 끝나는 시각 (날짜 + 30일의 0시 KST) */
 export const addressExpiresAt = (date: string): number => kstMidnightAfter(date, ADDRESS_KEEP_DAYS)
@@ -392,12 +407,13 @@ export class ParcelService {
   }
 
   /** 묶음 한 줄 (코어 정산·STL-08 포장 상태·배송지·가장 나중 시도 → PC-4) */
-  #row(state: EngineState, date: string, buyer: string, records: readonly PackingRecordRow[], address: AddressRow | null | undefined, attempt: AttemptRow | null | undefined, defaultBox: BoxKind, sellerId: string): ParcelRow {
+  #row(state: EngineState, date: string, buyer: string, records: readonly PackingRecordRow[], address: AddressRow | null | undefined, attempt: AttemptRow | null | undefined, defaultBox: BoxKind, sellerId: string, ledgered = false): ParcelRow {
     const settlement = getSettlement(state, buyer, date)
     const info = getBuyer(state, buyer)
     const packing = packingStatusOf(state, date, buyer, records).status
     const opened = this.#open(sellerId, address) !== null
-    const addressKind: AddressState = !opened ? 'NONE' : address?.confirmed === true ? 'CONFIRMED' : 'UNCONFIRMED'
+    // KP1: 장부 연락처를 "확인 전"으로 보이는 묶음은 UNCONFIRMED (PC-4 ADDRESS_UNCONFIRMED — CR-4)
+    const addressKind: AddressState = !opened ? (ledgered ? 'UNCONFIRMED' : 'NONE') : address?.confirmed === true ? 'CONFIRMED' : 'UNCONFIRMED'
     const now = this.#deps.clock.now()
     const parcelState = attempt === null || attempt === undefined ? 'NONE' : stateNow(attempt, now)
     const shipping: ShippingKind = settlement.items.length === 0 ? 'NONE' : (settlement.shippingOverride ?? 'NONE')
@@ -580,7 +596,9 @@ export class ParcelService {
     const records = await packingRows(db, sellerId, runtime.scopeId as string)
     const addresses = await addressRowsOf(db, sellerId, date)
     const attempts = await latestAttempts(db, sellerId, date)
-    const rows = ParcelService.buyersOf(state, date, attempts).map((buyer) => this.#row(state, date, buyer, records, addresses.get(buyer), attempts.get(buyer), settings.box, sellerId))
+    const buyers = ParcelService.buyersOf(state, date, attempts)
+    const ledgered = await this.#prefills(db, sellerId, date, state, buyers, addresses, await this.#known(sellerId, date))
+    const rows = buyers.map((buyer) => this.#row(state, date, buyer, records, addresses.get(buyer), attempts.get(buyer), settings.box, sellerId, ledgered.has(buyer)))
     return ok({
       date,
       seq: runtime.seq,
@@ -595,13 +613,14 @@ export class ParcelService {
 
   // ── 묶음 자세히·배송지 (PC-3, AC-T1-13) ──────────────────────────────
 
-  async #bundleView(db: Db, sellerId: string, runtime: ScopeRuntime, date: string, buyer: string): Promise<BundleView> {
+  async #bundleView(db: Db, sellerId: string, runtime: ScopeRuntime, date: string, buyer: string, known: ReadonlyMap<string, string>): Promise<BundleView> {
     const settings = await readSettings(db, this.#deps.masterKey, sellerId)
     const records = await packingRows(db, sellerId, runtime.scopeId as string, buyer)
     const address = await addressRow(db, sellerId, date, buyer)
     const attempt = await latestAttempt(db, sellerId, date, buyer)
     const opened = this.#open(sellerId, address)
-    const row = this.#row(runtime.state, date, buyer, records, address, attempt, settings.box, sellerId)
+    const ledger = (await this.#prefills(db, sellerId, date, runtime.state, [buyer], new Map(address === null ? [] : [[buyer, address]]), known)).get(buyer) ?? null
+    const row = this.#row(runtime.state, date, buyer, records, address, attempt, settings.box, sellerId, ledger !== null)
     const live = row.parcel !== null && (row.parcel.state === 'PENDING' || row.parcel.state === 'UNKNOWN' || row.parcel.state === 'BOOKED')
     return {
       date,
@@ -610,14 +629,34 @@ export class ParcelService {
       locked: live,
       expired: this.#expired(date),
       row,
+      ledger,
     }
+  }
+
+  // ── KP1 손님 장부 (CR-4) ───────────────────────────────────────────────
+
+  /** 그날 문자 구매자 표지 (범위 줄 밖에서만 부른다 — 장부가 없으면 빈 표) */
+  async #known(sellerId: string, date: string, force = false): Promise<ReadonlyMap<string, string>> {
+    return this.#deps.ledger === undefined ? new Map() : this.#deps.ledger.knownMarkers(sellerId, date, force)
+  }
+
+  /** 묶음마다 장부 "확인 전" (저장한 배송지가 풀리지 않거나 없는 묶음만) */
+  async #prefills(db: Db, sellerId: string, date: string, state: EngineState, buyers: readonly string[], addresses: ReadonlyMap<string, AddressRow>, known: ReadonlyMap<string, string>): Promise<Map<string, LedgerPrefill>> {
+    const ledger = this.#deps.ledger
+    if (ledger === undefined || this.#expired(date)) return new Map()
+    const bundles = buyers.map((buyer) => {
+      const row = addresses.get(buyer)
+      const saved: AddressState = this.#open(sellerId, row) === null ? 'NONE' : row?.confirmed === true ? 'CONFIRMED' : 'UNCONFIRMED'
+      return { buyer, saved }
+    })
+    return ledger.prefills(db, sellerId, date, state, bundles, known)
   }
 
   /** 묶음 자세히 (배송지 여섯 칸 전부·출처·확인 여부, 택배 줄). 모르는 구매자 404 */
   async bundle(sellerId: string, date: string, buyer: string): Promise<Outcome<BundleView>> {
     const runtime = await this.#realScope(sellerId, date)
     if (runtime === null || getBuyer(runtime.state, buyer) === null) return NOT_FOUND
-    return ok(await this.#bundleView(this.#deps.db, sellerId, runtime, date, buyer))
+    return ok(await this.#bundleView(this.#deps.db, sellerId, runtime, date, buyer, await this.#known(sellerId, date)))
   }
 
   /**
@@ -630,7 +669,7 @@ export class ParcelService {
     requestId: string,
     kind: ParcelRequestKind,
     buyer: string,
-    work: (tx: Db, runtime: ScopeRuntime, now: Date) => Promise<{ kind: 'error'; error: ApiProblem } | null>,
+    work: (tx: Db, runtime: ScopeRuntime, now: Date, known: ReadonlyMap<string, string>) => Promise<{ kind: 'error'; error: ApiProblem } | null>,
   ): Promise<Outcome<BundleView>> {
     if (!isValidDate(date)) return NOT_FOUND
     const { db, writer } = this.#deps
@@ -639,6 +678,8 @@ export class ParcelService {
       if (prior.kind !== kind || prior.date !== date) return problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request)
       return this.bundle(sellerId, date, buyer)
     }
+    // KP1: 장부 표지는 범위 줄 밖에서 미리 (범위 줄 안에서 그날 재료를 읽으면 자기 차례를 기다린다)
+    const known = await this.#known(sellerId, date, kind === 'LEDGER')
     try {
       const outcome = await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<BundleView>> => {
         if (runtime.seq === 0 || runtime.scopeId === null) return NOT_FOUND
@@ -649,10 +690,10 @@ export class ParcelService {
           const attempt = await latestAttempt(tx, sellerId, date, buyer)
           const now = this.#deps.clock.now()
           if (attempt !== null && ['PENDING', 'UNKNOWN', 'BOOKED'].includes(stateNow(attempt, now))) return problem(409, 'PARCEL_LOCKED', PARCEL_MESSAGES.locked)
-          const failed = await work(tx, runtime, new Date(now))
+          const failed = await work(tx, runtime, new Date(now), known)
           if (failed !== null) return failed
           if (!(await claimRequest(tx, { sellerId, requestId, date, kind, targets: [buyer], result: null, now: new Date(now) }))) throw new RequestTaken()
-          return ok(await this.#bundleView(tx, sellerId, runtime, date, buyer))
+          return ok(await this.#bundleView(tx, sellerId, runtime, date, buyer, known))
         })
       })
       if (outcome.kind === 'ok') this.#deps.hub.publishNamed(sellerId, 'parcel', { date, buyer })
@@ -683,6 +724,26 @@ export class ParcelService {
       if (row === null || this.#open(sellerId, row) === null) return problem(409, 'NO_ADDRESS', PARCEL_MESSAGES.noAddress)
       if (iso(row.updatedAt.getTime()) !== updatedAt) return problem(409, 'ADDRESS_CHANGED', PARCEL_MESSAGES.addressChanged)
       if (!row.confirmed) await confirmAddress(tx, sellerId, date, buyer, accountId)
+      return null
+    })
+  }
+
+  /**
+   * KP1 [배송지 확인] (CR-4, AC-KP1-08): 그때 장부 연락처(+ 빈 배송 메모)를 이 묶음 배송지로 저장한다(출처 판매자, 확인함). 그 뒤로는 묶음 배송지가 앞선다.
+   * 줄이 없어졌거나 하나가 아니면 NO_LEDGER, 줄을 그사이 고쳤으면 LEDGER_CHANGED, 이미 배송지가 있으면 ADDRESS_EXISTS
+   */
+  async confirmFromLedger(sellerId: string, accountId: string, date: string, requestId: string, buyer: string, ledgerId: string, updatedAt: string): Promise<Outcome<BundleView>> {
+    const ledger = this.#deps.ledger
+    if (ledger === undefined) return NOT_FOUND
+    return this.#addressWrite(sellerId, date, requestId, 'LEDGER', buyer, async (tx, runtime, now, known) => {
+      if (this.#expired(date)) return problem(409, 'ADDRESS_EXPIRED', PARCEL_MESSAGES.addressClosed)
+      if (this.#open(sellerId, await addressRow(tx, sellerId, date, buyer)) !== null) return problem(409, 'ADDRESS_EXISTS', LEDGER_PARCEL_MESSAGES.exists)
+      const settlement = getSettlement(runtime.state, buyer, date)
+      const shipping = settlement.shippingOverride
+      const found = settlement.items.length === 0 || shipping === 'PICKUP' || shipping === 'COMBINED' ? null : await ledger.lineForBundle(tx, sellerId, runtime.state, buyer, known)
+      if (found === null || found.line.id !== ledgerId) return problem(409, 'NO_LEDGER', LEDGER_PARCEL_MESSAGES.noLedger)
+      if (iso(found.line.updatedAt.getTime()) !== updatedAt) return problem(409, 'LEDGER_CHANGED', LEDGER_PARCEL_MESSAGES.changed)
+      await putAddress(tx, this.#deps.masterKey, { sellerId, date, buyer, address: { ...found.contact, memo: '' }, source: 'LEDGER', accountId, confirmed: true, now })
       return null
     })
   }
@@ -720,17 +781,25 @@ export class ParcelService {
     if (settlement.shippingOverride === 'PICKUP') return { kind: 'pickup' }
     if (settlement.shippingOverride === 'COMBINED') return { kind: 'combined' }
     if (this.#expired(date)) return { kind: 'closed' }
-    const opened = this.#open(sellerId, await addressRow(db, sellerId, date, buyer))
+    const row = await addressRow(db, sellerId, date, buyer)
+    const opened = this.#open(sellerId, row)
     if (opened !== null) return { kind: 'saved', name: opened.name, last4: phoneLast4(opened.phone) }
+    // KP1: 손님 장부의 지난번 배송지 (가린 이름·끝 4자리만 — 주소 원문은 링크에 없다, CR-4)
+    const prefill = (await this.#prefills(db, sellerId, date, state, [buyer], new Map(row === null ? [] : [[buyer, row]]), await this.#known(sellerId, date))).get(buyer)
+    if (prefill !== undefined) return { kind: 'ledger', name: maskRecipient(prefill.name), last4: phoneLast4(prefill.phone) }
     return { kind: 'form' }
   }
 
   /** 구매자 링크 양식 저장 (출처 구매자, "확인 전" — 확인한 배송지도 덮어쓰면 다시 확인 전). 잠금·직접 수령·합배송·보관 기간이면 refused */
-  async saveFromLink(sellerId: string, date: string, buyer: string, raw: Record<AddressField, string> | null): Promise<LinkSave> {
+  async saveFromLink(sellerId: string, date: string, buyer: string, raw: Record<AddressField, string> | null, keep = false): Promise<LinkSave> {
     if (raw === null) return { kind: 'invalid', errors: [] }
     const read = readAddress(raw)
     if ('errors' in read) return { kind: 'invalid', errors: read.errors }
     const { db, writer } = this.#deps
+    // KP1 "다음 주문에도 이 배송지 쓰기"(CR-2): 고른 경우만, 표지는 범위 줄 밖에서 미리
+    const ledger = keep ? this.#deps.ledger : undefined
+    const known = ledger === undefined ? new Map<string, string>() : await ledger.knownMarkers(sellerId, date, true)
+    let consented = false
     const result = await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<LinkSave> => {
       if (runtime.seq === 0 || runtime.scopeId === null) return { kind: 'refused', message: PARCEL_MESSAGES.addressClosed }
       return db.transaction(async (tx) => {
@@ -746,10 +815,13 @@ export class ParcelService {
         if (override === 'COMBINED') return { kind: 'refused', message: PARCEL_MESSAGES.combinedLink }
         if (this.#expired(date)) return { kind: 'refused', message: PARCEL_MESSAGES.addressClosed }
         await putAddress(tx, this.#deps.masterKey, { sellerId, date, buyer, address: read.ok, source: 'BUYER', accountId: null, confirmed: false, now: new Date(now) })
+        // 같은 트랜잭션: 장부 줄·동의 기록 (구성원 표지가 없으면 칸이 안 보이는 묶음 — keep을 무시하고 배송지만)
+        if (ledger !== undefined) consented = await ledger.consentInTx(tx, { sellerId, date, state, buyer, known, contact: read.ok, now: new Date(now) })
         return { kind: 'saved' }
       })
     })
     if (result.kind === 'saved') this.#deps.hub.publishNamed(sellerId, 'parcel', { date, buyer })
+    if (result.kind === 'saved' && consented) this.#deps.ledger?.published(sellerId)
     return result
   }
 
@@ -948,6 +1020,8 @@ export class ParcelService {
   async #prepare(sellerId: string, accountId: string, date: string, buyer: string, box: BoxKind, carrier: CarrierCode): Promise<Prepared> {
     const { db, writer } = this.#deps
     const skip = (result: BookItemResult): Prepared => ({ kind: 'skip', result })
+    // KP1 SA-KP1-001: 장부 "확인 전" 묶음은 목록과 같이 UNCONFIRMED로 판단한다 — 표지는 범위 줄 밖에서 미리
+    const known = await this.#known(sellerId, date)
     return writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Prepared> => {
       if (runtime.seq === 0 || runtime.scopeId === null) return skip({ buyer, ok: false, reason: 'BUYER', message: '구매자를 다시 확인해 주세요.' })
       const scopeId = runtime.scopeId
@@ -967,7 +1041,8 @@ export class ParcelService {
           return { kind: 'send', attempt: latest, receiver }
         }
         const records = await packingRows(tx, sellerId, scopeId, buyer)
-        const row = this.#row(state, date, buyer, records, address, latest, box, sellerId)
+        const ledgered = (await this.#prefills(tx, sellerId, date, state, [buyer], new Map(address === null ? [] : [[buyer, address]]), known)).has(buyer)
+        const row = this.#row(state, date, buyer, records, address, latest, box, sellerId, ledgered)
         if (!row.ready) return skip({ buyer, ok: false, reason: row.reason as EligibilityReason, message: row.message as string })
         const receiver = this.#open(sellerId, address) as ParcelAddress
         const attempt = await insertAttempt(tx, { sellerId, date, buyer, carrier, box, qty: row.qty, accountId, now: new Date(now) })
@@ -1055,6 +1130,7 @@ export class ParcelService {
     }
     if (answer.kind === 'REFUSED') return problem(409, 'PICKED_UP', PARCEL_MESSAGES.pickedUp)
     try {
+      const known = await this.#known(sellerId, date) // KP1 (범위 줄 밖에서)
       const outcome = await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<BundleView>> =>
         db.transaction(async (tx) => {
           await catchUpIn(tx)
@@ -1067,7 +1143,7 @@ export class ParcelService {
               .onConflictDoNothing({ target: [packingRecords.sellerId, packingRecords.requestId] })
           }
           if (!(await claimRequest(tx, { sellerId, requestId, date, kind: 'CANCEL', targets: [buyer], result: null, now }))) throw new RequestTaken()
-          return ok(await this.#bundleView(tx, sellerId, runtime, date, buyer))
+          return ok(await this.#bundleView(tx, sellerId, runtime, date, buyer, known))
         }),
       )
       this.#deps.hub.publishNamed(sellerId, 'parcel', { date, buyer })

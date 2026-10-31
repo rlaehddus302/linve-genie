@@ -1,0 +1,87 @@
+{
+  "kind": "retention",
+  "about": "손님 장부 연락처·배송지를 지우는 날 (CUSTOMER_RULES CR-3, KP1 — D-KP1-02). in = { lastOrder, consentOrder, consentMonths, settingMonths } — lastOrder = 그 장부 줄의 표지 중 하나라도 품목(확정 찜)이 있는 묶음을 가진 가장 늦은 실제 날짜(없으면 null), consentOrder = 가장 최근 동의를 받은 묶음의 날짜, consentMonths = 그 동의 문구 판에 적힌 보관 개월, settingMonths = 지금 설정 개월. 개월 ∈ 6·12·24·36. 기준 날짜 = lastOrder와 consentOrder 중 늦은 날(lastOrder가 null이면 consentOrder). 보관 개월 = min(consentMonths, settingMonths). deleteOn = 기준 날짜 + 보관 개월(달력 — 그 달에 같은 날이 없으면 그 달 말일). 서버는 deleteOn의 0시(KST)에 지운다. out = { deleteOn }.",
+  "cases": [
+    {
+      "id": "G-CUS-KP1-001",
+      "title": "기본 1년 — 마지막 주문 날짜 + 12개월",
+      "refs": ["CR-3", "D-KP1-02"],
+      "in": { "lastOrder": "2026-10-31", "consentOrder": "2026-10-31", "consentMonths": 12, "settingMonths": 12 },
+      "out": { "deleteOn": "2027-10-31" }
+    },
+    {
+      "id": "G-CUS-KP1-002",
+      "title": "그 뒤에 또 주문하면 마지막 주문부터 다시 센다",
+      "refs": ["CR-3"],
+      "in": { "lastOrder": "2027-03-15", "consentOrder": "2026-10-31", "consentMonths": 12, "settingMonths": 12 },
+      "out": { "deleteOn": "2028-03-15" }
+    },
+    {
+      "id": "G-CUS-KP1-003",
+      "title": "판매자가 기간을 줄이면 이미 받은 동의에도 바로 짧은 쪽",
+      "refs": ["CR-3", "D-KP1-02"],
+      "note": "min(24, 12) = 12",
+      "in": { "lastOrder": "2026-10-31", "consentOrder": "2026-10-31", "consentMonths": 24, "settingMonths": 12 },
+      "out": { "deleteOn": "2027-10-31" }
+    },
+    {
+      "id": "G-CUS-KP1-004",
+      "title": "판매자가 기간을 늘려도 전의 동의는 그 문구의 기간까지만",
+      "refs": ["CR-3", "D-KP1-02"],
+      "note": "min(12, 36) = 12 — 손님이 읽은 문구는 12개월",
+      "in": { "lastOrder": "2026-10-31", "consentOrder": "2026-10-31", "consentMonths": 12, "settingMonths": 36 },
+      "out": { "deleteOn": "2027-10-31" }
+    },
+    {
+      "id": "G-CUS-KP1-005",
+      "title": "6개월 — 8월 31일 + 6개월은 2월 말일",
+      "refs": ["CR-3"],
+      "note": "2026-08-31 + 6 → 2027-02-31 없음 → 2027-02-28",
+      "in": { "lastOrder": "2026-08-31", "consentOrder": "2026-08-31", "consentMonths": 6, "settingMonths": 6 },
+      "out": { "deleteOn": "2027-02-28" }
+    },
+    {
+      "id": "G-CUS-KP1-006",
+      "title": "윤년 2월 29일 + 12개월은 2월 28일",
+      "refs": ["CR-3"],
+      "in": { "lastOrder": "2028-02-29", "consentOrder": "2028-02-29", "consentMonths": 12, "settingMonths": 12 },
+      "out": { "deleteOn": "2029-02-28" }
+    },
+    {
+      "id": "G-CUS-KP1-007",
+      "title": "품목이 모두 취소돼 주문 날짜가 없으면 동의한 묶음 날짜부터",
+      "refs": ["CR-3"],
+      "in": { "lastOrder": null, "consentOrder": "2026-10-31", "consentMonths": 12, "settingMonths": 12 },
+      "out": { "deleteOn": "2027-10-31" }
+    },
+    {
+      "id": "G-CUS-KP1-008",
+      "title": "마지막 주문 날짜가 동의한 묶음보다 앞이면 동의한 묶음 날짜부터",
+      "refs": ["CR-3"],
+      "note": "동의한 10-31 묶음의 품목이 나중에 모두 취소 → lastOrder 10-24. 기준 = max(10-24, 10-31) = 10-31",
+      "in": { "lastOrder": "2026-10-24", "consentOrder": "2026-10-31", "consentMonths": 12, "settingMonths": 12 },
+      "out": { "deleteOn": "2027-10-31" }
+    },
+    {
+      "id": "G-CUS-KP1-009",
+      "title": "3년",
+      "refs": ["CR-3"],
+      "in": { "lastOrder": "2026-10-31", "consentOrder": "2026-10-31", "consentMonths": 36, "settingMonths": 36 },
+      "out": { "deleteOn": "2029-10-31" }
+    },
+    {
+      "id": "G-CUS-KP1-010",
+      "title": "12월 31일 + 6개월은 6월 30일",
+      "refs": ["CR-3"],
+      "in": { "lastOrder": "2026-12-31", "consentOrder": "2026-12-31", "consentMonths": 6, "settingMonths": 12 },
+      "out": { "deleteOn": "2027-06-30" }
+    },
+    {
+      "id": "G-CUS-KP1-011",
+      "title": "2년 — 1월 31일 + 24개월",
+      "refs": ["CR-3"],
+      "in": { "lastOrder": "2026-01-31", "consentOrder": "2026-01-31", "consentMonths": 24, "settingMonths": 24 },
+      "out": { "deleteOn": "2028-01-31" }
+    }
+  ]
+}

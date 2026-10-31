@@ -55,6 +55,12 @@ import { registerAssistRoutes } from './assist/routes.ts'
 import type { AssistService } from './assist/service.ts'
 import { registerCustomerRoutes } from './customers/api.ts'
 import type { CustomerService } from './customers/service.ts'
+import { registerReportRoutes } from './report/api.ts' // KP1 리포트
+import type { ReportService } from './report/service.ts' // KP1 리포트
+import { registerScheduleRoutes } from './schedule/api.ts' // KP1 일정
+import type { ScheduleService } from './schedule/service.ts' // KP1 일정
+import { registerLedgerRoutes } from './customers/ledger-api.ts' // KP1
+import type { LedgerService } from './customers/ledger.ts' // KP1
 
 /** 요청 본문 상한 (AC-S04-34) */
 export const BODY_LIMIT_BYTES = 64 * 1024
@@ -108,6 +114,12 @@ export interface ApiDeps {
   readonly assist?: AssistService
   /** 손님 기록·메모·설정 "손님 관리" (CRM1). 없으면 /api/customers·/api/customer-settings·/api/days/:date/customer(s) 경로가 없다 */
   readonly customers?: CustomerService
+  /** KP1 방송 리포트 (RPT). 없으면 /api/days/:date/report 경로가 없다 */
+  readonly report?: ReportService
+  /** KP1 방송 일정·알림 신청 수 (SCH). 없으면 /api/schedule 경로가 없다 */
+  readonly schedule?: ScheduleService
+  /** KP1 손님 장부 (설정·콘솔 손님 표시·손님 엑셀·장부 지우기). 없으면 그 경로가 없다 */
+  readonly ledger?: LedgerService
 }
 
 /** TCP 연결 주소 (@hono/node-server가 넘기는 요청 정보). 프로세스 안 요청(시험의 app.request)은 env로 넣을 수 있고, 없으면 null */
@@ -934,7 +946,12 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   registerYoutubeRoutes(api, { service, auth, youtube: deps.youtube ?? null, sealer: deps.sealer ?? null })
   if (deps.assist !== undefined) registerAssistRoutes(api, deps.assist)
   // ── 손님 기록 (CRM1 — 판매자 계정만: 보조자 허용 목록 밖이라 403) ──
+  // KP1 손님 장부 (/customers.xlsx가 /customers/:id보다 먼저 — 경로는 겹치지 않는다)
+  if (deps.ledger !== undefined) registerLedgerRoutes(api, deps.ledger)
   if (deps.customers !== undefined) registerCustomerRoutes(api, deps.customers)
+  // KP1 방송 리포트·방송 일정 (판매자 계정만 — 보조자 허용 목록 밖이라 403)
+  if (deps.report !== undefined) registerReportRoutes(api, deps.report)
+  if (deps.schedule !== undefined) registerScheduleRoutes(api, deps.schedule)
   if (social !== null) registerSocialRoutes(api, social, (c) => clientAddress(connectionAddress(c), c.req.header('x-forwarded-for'), deps.trustedProxies ?? 0))
 
   // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────

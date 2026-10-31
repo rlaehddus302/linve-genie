@@ -1,6 +1,6 @@
 // 택배 화면 낱말 (T1, PARCEL_RULES PC-3·PC-4·PC-8, D-T1-08·D-T1-12).
 // 영어 상태값(PENDING·BOOKED…)은 화면 글자에 넣지 않는다 — 서버가 준 문장·조회 낱말을 쓰고, 없을 때만 여기 문장으로 채운다.
-import type { AddressFields, BoxKind, BundleView, ParcelBrief, ParcelRow } from '../api/parcel-types.ts'
+import type { AddressFields, AddressSource, BoxKind, BundleView, ParcelBrief, ParcelRow } from '../api/parcel-types.ts'
 import type { PackingWord } from '../api/types.ts'
 import { kstShort } from './kst.ts'
 import { packingWords } from './packing.ts'
@@ -168,9 +168,17 @@ export const ADDRESS_KEYS = ['name', 'phone', 'address', 'detail', 'zip', 'memo'
 
 export const EMPTY_ADDRESS: AddressFields = { name: '', phone: '', address: '', detail: '', zip: '', memo: '' }
 
-/** 출처 문장 */
-export function sourceWords(source: 'BUYER' | 'SELLER'): string {
-  return source === 'BUYER' ? '구매자가 적었어요' : '판매자가 적었어요'
+/** 출처 문장 (모르는 값은 지금까지처럼 "판매자가 적었어요") */
+export function sourceWords(source: AddressSource | string): string {
+  if (source === 'BUYER') return '구매자가 적었어요'
+  if (source === 'LEDGER') return '손님이 지난번에 적은 배송지'
+  return '판매자가 적었어요'
+}
+
+/** 출처 옆 확인 꼬리표 (손님이 지난번에 적은 배송지는 누가 확인했는지까지 — UX-KP1-004) */
+export function confirmedWords(source: AddressSource | string, confirmed: boolean): string {
+  if (!confirmed) return '확인 전'
+  return source === 'LEDGER' ? '판매자가 확인함' : '확인함'
 }
 
 /** 묶음 자세히의 배송지 칸 모양 */

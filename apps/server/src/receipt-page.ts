@@ -22,6 +22,10 @@ import type { Db } from './db/database.ts'
 import { ADDRESS_ERROR_FIELD, ADDRESS_ERROR_MESSAGES, ADDRESS_FIELDS, ADDRESS_LIMITS, PARCEL_MESSAGES, type AddressErrorCode, type AddressField } from './parcel/rules.ts'
 import type { LinkSection, ParcelService } from './parcel/service.ts'
 import type { ScopeWriter } from './writer.ts'
+import type { LedgerService, LinkLedgerView } from './customers/ledger.ts' // KP1
+import { LEDGER_LINK_TEXT, consentFieldHtml, ledgerSectionHtml, type LedgerLinkNotice } from './customers/ledger-page.ts' // KP1
+import { SELLER_CANNOT_CONSENT, sellerSignedIn } from './seller-here.ts' // KP1 RA-KP1-006
+import { NoticeSigner } from './notice-sign.ts' // KP1 SA-KP1-003
 
 export const RECEIPT_PAGE_MESSAGES = {
   closed: '이 링크는 열 수 없어요. 판매자에게 새 링크를 받아 주세요.',
@@ -113,7 +117,7 @@ export class LinkRateLimiter {
 const STYLE = [
   ':root{color-scheme:light}',
   '*{box-sizing:border-box}',
-  'body{margin:0;background:#f4f5f2;color:#1d1f1c;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;font-size:17px;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere}',
+  'body{margin:0;background:#f4f5f2;color:#1d1f1c;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;font-size:18px;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere}',
   'main{max-width:560px;margin:0 auto;padding:20px 16px 40px}',
   'h1{font-size:24px;margin:0 0 4px}',
   'h2{font-size:18px;margin:24px 0 8px}',
@@ -126,18 +130,23 @@ const STYLE = [
   'dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}',
   '.total{font-weight:700}',
   'ul{margin:0;padding-left:20px}',
-  '.account{font-size:19px;font-weight:700;user-select:all;-webkit-user-select:all}',
+  '.account{font-size:20px;font-weight:700;user-select:all;-webkit-user-select:all}',
   '.actions{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}',
-  '.button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;min-width:44px;padding:10px 18px;border-radius:10px;border:1px solid #2f6b3a;color:#2f6b3a;background:#fff;font-size:17px;font-weight:600;text-decoration:none}',
+  '.button{display:inline-flex;align-items:center;justify-content:center;min-height:52px;min-width:52px;padding:10px 18px;border-radius:10px;border:1px solid #2f6b3a;color:#2f6b3a;background:#fff;font-size:18px;font-weight:600;text-decoration:none}',
   '.button.primary{background:#2f6b3a;color:#fff}',
   '.notice{font-size:16px;color:#4f554c;border-top:1px solid #d9dcd5;padding-top:12px;margin-top:24px}',
   'form{display:grid;gap:4px}',
   'label{font-weight:600;margin-top:12px}',
-  'input{width:100%;min-height:48px;padding:10px 12px;border:1px solid #9aa196;border-radius:8px;font-size:17px;background:#fff;color:#1d1f1c}',
+  'input{width:100%;min-height:52px;padding:10px 12px;border:1px solid #9aa196;border-radius:8px;font-size:18px;background:#fff;color:#1d1f1c}',
   'input[aria-invalid="true"]{border-color:#b3261e;border-width:2px}',
   '.error{color:#b3261e;font-size:16px;margin:2px 0 0}',
   '.alert{background:#fdecea;border:1px solid #f1b3ad;border-radius:8px;padding:10px 12px;color:#7a1a14}',
   'form .button{margin-top:16px;width:100%}',
+  '.info{background:#eef5ee;border:1px solid #b9d3bc;border-radius:8px;padding:10px 12px;color:#1f4a28}',
+  '.check-card{display:flex;align-items:flex-start;gap:14px;min-height:56px;padding:12px 14px;margin-top:12px;border:2px solid #9aa196;border-radius:10px;background:#fff;font-weight:600;cursor:pointer}',
+  '.consent-label .consent-title::after{content:"";position:absolute;inset:0;cursor:pointer}',
+  '.check-card input[type="checkbox"]{position:relative;z-index:1;flex:none;width:32px;min-width:32px;height:32px;min-height:32px;margin:0;padding:0}',
+  '.code-box{font-size:30px;font-weight:700;text-align:center;padding:16px 12px;margin:8px 0;background:#f4f5f2;border:2px dashed #2f6b3a;border-radius:10px;user-select:all;-webkit-user-select:all}',
 ].join('')
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'] as const
@@ -186,6 +195,12 @@ export interface ParcelPagePart {
   readonly errors?: readonly AddressErrorCode[]
   /** 양식 위 한 문장 (잠금·형식 오류 등) */
   readonly alert?: string
+  /** KP1 동의 칸 (CR-2 — 양식이 보일 때만 그린다). null·없음이면 칸 없음 */
+  readonly consent?: { readonly shop: string; readonly monthsWord: string } | null
+  /** 틀려서 다시 그릴 때 손님이 고른 그대로 (처음엔 늘 빈 칸) */
+  readonly keep?: boolean
+  /** KP1 RA-KP1-006: 그 가게 판매자 세션이 함께 왔다 — 동의 칸 대신 한 문장 */
+  readonly consentBlocked?: boolean
 }
 
 const FIELD_LABELS: Readonly<Record<AddressField, string>> = {
@@ -208,7 +223,7 @@ const FIELD_ATTRS: Readonly<Record<AddressField, string>> = {
 /** 배송지 칸 HTML (글자는 모두 이스케이프 — 받은 값을 다시 채울 때도) */
 export function parcelSectionHtml(part: ParcelPagePart, base: string, kstTime: (ms: number) => string): string {
   const e = escapeHtml
-  const section = part.edit === true && part.section.kind === 'saved' ? ({ kind: 'form' } as const) : part.section
+  const section = part.edit === true && (part.section.kind === 'saved' || part.section.kind === 'ledger') ? ({ kind: 'form' } as const) : part.section
   const alert = part.alert === undefined ? '' : `<p class="alert" role="alert">${e(part.alert)}</p>`
   switch (section.kind) {
     case 'booked':
@@ -247,6 +262,18 @@ export function parcelSectionHtml(part: ParcelPagePart, base: string, kstTime: (
       ]
         .filter((line) => line !== '')
         .join('\n')
+    case 'ledger':
+      // KP1: 손님 장부의 지난번 배송지 (가린 이름·끝 4자리만 — CR-4)
+      return [
+        '<section class="card" id="address">',
+        '<h2>배송지</h2>',
+        alert,
+        `<p>${e(LEDGER_LINK_TEXT.prefill(section.name, section.last4))}</p>`,
+        `<div class="actions"><a class="button" href="${base}?edit=1#address">다시 적기</a></div>`,
+        '</section>',
+      ]
+        .filter((line) => line !== '')
+        .join('\n')
     case 'form': {
       const errors = new Map<AddressField, AddressErrorCode>()
       for (const code of part.errors ?? []) if (!errors.has(ADDRESS_ERROR_FIELD[code])) errors.set(ADDRESS_ERROR_FIELD[code], code)
@@ -268,6 +295,7 @@ export function parcelSectionHtml(part: ParcelPagePart, base: string, kstTime: (
         `<p class="muted">${e(PARCEL_MESSAGES.linkNotice)}</p>`,
         `<form method="post" action="${base}/address">`,
         ...fields,
+        part.consentBlocked === true ? `<p class="muted">${e(SELLER_CANNOT_CONSENT)}</p>` : part.consent === undefined || part.consent === null ? '' : consentFieldHtml(part.consent, part.keep === true),
         '<button class="button primary" type="submit">배송지 보내기</button>',
         '</form>',
         '</section>',
@@ -279,7 +307,7 @@ export function parcelSectionHtml(part: ParcelPagePart, base: string, kstTime: (
 }
 
 /** 확인서 문서 (글자는 모두 이스케이프). parcel이 있으면 확인서 아래에 배송지 칸 (T1) */
-export function receiptPageHtml(opened: Pick<OpenedLink, 'receipt' | 'expiresAt'>, shop: ShopView, base: string, parcel?: ParcelPagePart): string {
+export function receiptPageHtml(opened: Pick<OpenedLink, 'receipt' | 'expiresAt'>, shop: ShopView, base: string, parcel?: ParcelPagePart, ledger?: string): string {
   const { receipt } = opened
   const font = documentFont()
   const e = escapeHtml
@@ -316,6 +344,7 @@ export function receiptPageHtml(opened: Pick<OpenedLink, 'receipt' | 'expiresAt'
       ? ['<section class="card">', '<h2>입금 계좌</h2>', `<p class="account">${e(account)}</p>`, shop.accountNote.trim() === '' ? '' : `<p class="muted">${e(shop.accountNote.trim())}</p>`, '</section>'].join('\n')
       : '',
     parcel === undefined ? '' : parcelSectionHtml(parcel, base, kstDateTimeWithDay),
+    ledger ?? '',
     `<p>이 링크는 ${kstDateTimeWithDay(opened.expiresAt)}까지 열 수 있어요.</p>`,
     `<p class="notice">${e(receipt.notice)}</p>`,
     '</main>',
@@ -337,11 +366,18 @@ export interface ReceiptPageDeps {
   readonly appOrigin?: string
   /** 범위 상태 읽기 (배송지 칸 — 직접 수령·합배송) */
   readonly writer?: ScopeWriter
+  /** KP1 손님 장부 (동의 칸·장부 칸·연결 코드). 없으면 칸이 없다 */
+  readonly ledger?: LedgerService
 }
 
 type PageFile = 'receipt.jpg' | 'image.jpg' | 'receipt.pdf'
 const PATH_RE = /^\/r\/([A-Za-z0-9_-]{43})(?:\/(receipt\.jpg|image\.jpg|receipt\.pdf))?$/
 const ADDRESS_PATH_RE = /^\/r\/([A-Za-z0-9_-]{43})\/address$/
+/** KP1 장부 양식 (지우기·코드 받기·코드 확인) */
+const LEDGER_PATH_RE = /^\/r\/([A-Za-z0-9_-]{43})\/ledger\/(delete|code|link)$/
+/** 장부 양식 본문 상한 (answer 한 칸뿐) */
+const LEDGER_FORM_MAX_BYTES = 1024
+const LEDGER_NOTICE_QUERY: Readonly<Record<string, LedgerLinkNotice>> = { deleted: 'deleted', linked: 'linked', unlinked: 'unlinked', refused: 'refused', unavailable: 'unavailable' }
 
 function htmlResponse(status: number, body: Uint8Array | string): Response {
   const headers = new Headers(RECEIPT_PAGE_HEADERS)
@@ -383,6 +419,8 @@ export async function readCapped(body: ReadableStream<Uint8Array> | null, max: n
 /** `/r`·`/r/*` 경로를 앱에 단다 (화면 문서 index.html보다 먼저 — 운영 서버·E2E 서버 둘 다 이 앱을 쓴다) */
 export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
   const limiter = new LinkRateLimiter(deps.clock)
+  /** KP1 장부 결과 한 줄 서명 (SA-KP1-003) */
+  const ledgerNotices = new NoticeSigner(deps.clock)
   const closed = () => htmlResponse(404, CLOSED_PAGE)
   const later = (status: 429 | 503) => htmlResponse(status, LATER_PAGE)
 
@@ -398,7 +436,13 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     if (file === null) {
       const shop = await readShop(deps.db, opened.sellerId)
       const part = await parcelPart(opened)
-      return htmlResponse(200, receiptPageHtml(opened, shop, `/r/${token}`, part === null ? undefined : { ...part, edit: c.req.query('edit') === '1' }))
+      const ledgerQuery = c.req.query('ledger')
+      // KP1 SA-KP1-003: 결과 한 줄은 서명 값(n)이 맞을 때만 — 주소 질의만 지어서는 보이지 않는다
+      const asked = ledgerQuery === undefined ? null : (LEDGER_NOTICE_QUERY[ledgerQuery] ?? null)
+      const notice = asked !== null && ledgerNotices.check(receiptTokenHash(token), asked, c.req.query('n')) ? asked : null
+      const ledger = await ledgerPart(opened, `/r/${token}`, { confirmDelete: ledgerQuery === 'delete', notice })
+      const consent = await consentFor(c, opened, ledger.consent)
+      return htmlResponse(200, receiptPageHtml(opened, shop, `/r/${token}`, part === null ? undefined : { ...part, edit: c.req.query('edit') === '1', ...consent }, ledger.html))
     }
     const kind = file === 'receipt.pdf' ? 'pdf' : 'jpg'
     const rendered = await deps.closing.renderReceiptFile(opened.sellerId, opened.date, false, opened.receipt, opened.createdAt, kind, c.req.raw.signal)
@@ -420,6 +464,59 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     return { section: await deps.parcels.linkSection(opened.sellerId, opened.date, opened.buyer, runtime.state) }
   }
 
+  /** KP1 그 링크의 장부 거리: 동의 칸(양식에 넣는다)·장부 칸 HTML. 장부 기능이 없거나 링크 묶음에 표지가 없으면 둘 다 없다 */
+  const ledgerPart = async (opened: OpenedLink, base: string, options: { confirmDelete: boolean; notice: LedgerLinkNotice | null }): Promise<{ consent: LinkLedgerView['consent']; html: string }> => {
+    if (deps.ledger === undefined) return { consent: null, html: '' }
+    const view = await deps.ledger.linkView(opened.sellerId, opened.date, opened.buyer)
+    // "지웠어요"는 장부 칸이 정말 없을 때만, "이었어요·잇지 않았어요"는 장부 칸이 있을 때만 (SA-KP1-003)
+    const notice = options.notice === 'deleted' ? (view.line === null ? 'deleted' : null) : options.notice === 'linked' || options.notice === 'unlinked' ? (view.line === null ? null : options.notice) : options.notice
+    return { consent: view.consent, html: ledgerSectionHtml(view.line, base, { ...options, notice, kstTime: kstDateTimeWithDay }) }
+  }
+
+  /** KP1 RA-KP1-006: 동의 칸 — 그 가게 판매자 세션이 함께 오면 칸 대신 한 문장 (동의 칸을 보일 때만 세션을 본다) */
+  const consentFor = async (c: Context, opened: OpenedLink, consent: LinkLedgerView['consent']): Promise<{ consent: LinkLedgerView['consent']; consentBlocked: boolean }> => {
+    if (consent === null) return { consent, consentBlocked: false }
+    if (await sellerSignedIn(c, deps.db, deps.clock, opened.sellerId)) return { consent: null, consentBlocked: true }
+    return { consent, consentBlocked: false }
+  }
+
+  /** KP1 장부 양식 (POST /r/<토큰>/ledger/delete|code|link): Origin → 링크 한도 → 형식·크기 → 링크 열기 → 장부 동작 → 303 (#ledger) */
+  const handleLedger = async (c: Context): Promise<Response> => {
+    const match = LEDGER_PATH_RE.exec(c.req.path)
+    if (match === null || deps.ledger === undefined) return closed()
+    const token = match[1] as string
+    const kind = match[2] as 'delete' | 'code' | 'link'
+    if (!formFromApp(c.req.header('origin'), c.req.header('sec-fetch-site'), deps.appOrigin)) return htmlResponse(403, FORBIDDEN_PAGE)
+    if (!limiter.take(receiptTokenHash(token))) return later(429)
+    const type = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
+    const declared = Number(c.req.header('content-length') ?? '0')
+    if (type !== 'application/x-www-form-urlencoded' || !Number.isFinite(declared) || declared > LEDGER_FORM_MAX_BYTES) return htmlResponse(400, BAD_FORM_PAGE)
+    const bytes = await readCapped(c.req.raw.body, LEDGER_FORM_MAX_BYTES)
+    if (bytes === null) return htmlResponse(400, BAD_FORM_PAGE)
+    const form = new URLSearchParams(new TextDecoder().decode(bytes))
+    let action: Parameters<LedgerService['linkAction']>[3]
+    if (kind === 'link') {
+      const answers = form.getAll('answer')
+      if (answers.length !== 1 || (answers[0] !== 'yes' && answers[0] !== 'no')) return htmlResponse(400, BAD_FORM_PAGE)
+      action = { kind: 'answer', yes: answers[0] === 'yes' }
+    } else action = { kind }
+    const opened = await deps.links.open(token)
+    if (opened === null) return closed()
+    const result = await deps.ledger.linkAction(opened.sellerId, opened.date, opened.buyer, action)
+    if (result === 'full') {
+      const shop = await readShop(deps.db, opened.sellerId)
+      const part = await parcelPart(opened)
+      const ledger = await ledgerPart(opened, `/r/${token}`, { confirmDelete: false, notice: 'full' })
+      return htmlResponse(409, receiptPageHtml(opened, shop, `/r/${token}`, part === null ? undefined : { ...part, ...(await consentFor(c, opened, ledger.consent)) }, ledger.html))
+    }
+    // KP1: 'none'(조건이 그사이 깨짐)은 "지금은 여기서 할 수 없어요" 한 줄 (D-KP1-39), 'refused'는 "이 계정은 이을 수 없어요" (RA-KP1-007)
+    const done = result === 'deleted' || result === 'linked' || result === 'unlinked' || result === 'refused' ? result : result === 'none' ? 'unavailable' : null
+    const query = done === null ? '' : `?ledger=${done}&n=${ledgerNotices.sign(receiptTokenHash(token), done)}`
+    const headers = new Headers(RECEIPT_PAGE_HEADERS)
+    headers.set('Location', `/r/${token}${query}#ledger`)
+    return new Response(null, { status: 303, headers })
+  }
+
   /** 배송지 양식 보내기 (T1 AC-T1-11·12): Origin(또는 null + Sec-Fetch-Site: same-origin) → 링크마다 한도 → 형식·크기 → 링크 열기 → 저장(303) · 틀림(400) · 거절(409) */
   const handleAddress = async (c: Context): Promise<Response> => {
     const match = ADDRESS_PATH_RE.exec(c.req.path)
@@ -436,6 +533,11 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     const opened = await deps.links.open(token)
     if (opened === null) return closed()
     const form = new URLSearchParams(new TextDecoder().decode(bytes))
+    // KP1 동의 칸 (CR-2): keep은 없거나 'on' 하나 — 그 밖은 받지 않는다
+    const keeps = form.getAll('keep')
+    if (keeps.length > 1 || (keeps.length === 1 && keeps[0] !== 'on')) return htmlResponse(400, BAD_FORM_PAGE)
+    // KP1 RA-KP1-006: 그 가게 판매자 세션이 함께 오면 동의는 받지 않는다(배송지는 그대로 저장 — PC-3)
+    const keep = keeps.length === 1 && !(deps.ledger !== undefined && (await sellerSignedIn(c, deps.db, deps.clock, opened.sellerId)))
     const values: Partial<Record<AddressField, string>> = {}
     let complete = true
     for (const field of ADDRESS_FIELDS) {
@@ -443,7 +545,7 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
       if (all.length !== 1) complete = false
       else values[field] = all[0] as string
     }
-    const saved = await deps.parcels.saveFromLink(opened.sellerId, opened.date, opened.buyer, complete ? (values as Record<AddressField, string>) : null)
+    const saved = await deps.parcels.saveFromLink(opened.sellerId, opened.date, opened.buyer, complete ? (values as Record<AddressField, string>) : null, keep)
     if (saved.kind === 'saved') {
       const headers = new Headers(RECEIPT_PAGE_HEADERS)
       headers.set('Location', `/r/${token}`)
@@ -452,17 +554,23 @@ export function registerReceiptPage(app: Hono, deps: ReceiptPageDeps): void {
     const shop = await readShop(deps.db, opened.sellerId)
     const part = await parcelPart(opened)
     const section = part?.section ?? ({ kind: 'form' } as const)
+    const ledger = await ledgerPart(opened, `/r/${token}`, { confirmDelete: false, notice: null })
     if (saved.kind === 'invalid') {
       // 적은 값은 이 응답에만 다시 채운다(저장하지 않는다)
-      const page: ParcelPagePart = { section: { kind: 'form' }, values, errors: saved.errors, ...(saved.errors.length === 0 ? { alert: RECEIPT_PAGE_MESSAGES.badForm } : {}) }
-      return htmlResponse(400, receiptPageHtml(opened, shop, `/r/${token}`, section.kind === 'form' || section.kind === 'saved' ? page : { section, alert: RECEIPT_PAGE_MESSAGES.badForm }))
+      const page: ParcelPagePart = { section: { kind: 'form' }, values, errors: saved.errors, ...(await consentFor(c, opened, ledger.consent)), keep, ...(saved.errors.length === 0 ? { alert: RECEIPT_PAGE_MESSAGES.badForm } : {}) }
+      return htmlResponse(
+        400,
+        receiptPageHtml(opened, shop, `/r/${token}`, section.kind === 'form' || section.kind === 'saved' || section.kind === 'ledger' ? page : { section, alert: RECEIPT_PAGE_MESSAGES.badForm }, ledger.html),
+      )
     }
-    return htmlResponse(409, receiptPageHtml(opened, shop, `/r/${token}`, { section, alert: saved.message }))
+    return htmlResponse(409, receiptPageHtml(opened, shop, `/r/${token}`, { section, alert: saved.message }, ledger.html))
   }
 
   app.on(['GET', 'HEAD'], '/r', handle)
   app.on(['GET', 'HEAD'], '/r/*', handle)
   app.post('/r/*', async (c, next) => (ADDRESS_PATH_RE.test(c.req.path) ? handleAddress(c) : next()))
+  // KP1 장부 양식 (지우기·코드 받기·코드 확인 — CR-3·CR-5)
+  app.post('/r/*', async (c, next) => (LEDGER_PATH_RE.test(c.req.path) ? handleLedger(c) : next()))
   // 배송지 양식(POST /r/<토큰>/address) 밖에는 상태를 바꾸는 일이 없다 — 다른 메서드는 405
   const notAllowed = () => {
     const response = errorResponse(405, { Allow: 'GET, HEAD' })

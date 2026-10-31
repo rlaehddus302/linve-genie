@@ -40,6 +40,7 @@ import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
 import { PackingPage } from './components/PackingPage.tsx'
 import { ParcelsPage } from './components/ParcelsPage.tsx'
+import { ReportPage } from './components/ReportPage.tsx' // KP1
 import { ReviewsPage } from './components/ReviewsPage.tsx'
 import { PrivacyPage, TermsPage } from './components/PolicyPages.tsx'
 import { PrintProvider } from './components/print-context.tsx'
@@ -509,6 +510,8 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
       return <PackingPage route={route} navigate={navigate} />
     case 'parcels':
       return <ParcelsPage route={route} navigate={navigate} />
+    case 'report': // KP1 방송 리포트
+      return <ReportPage key={route.date ?? ''} {...(route.date === undefined ? {} : { date: route.date })} navigate={navigate} />
     case 'reviews':
       return <ReviewsPage route={route} navigate={navigate} />
     case 'labels':

@@ -191,6 +191,12 @@ export type ErrorCode =
   | 'QUICK_OPEN'
   // SRV1 음성 흐름의 옛 크롬 최종 글 (D-APP-25)
   | 'UNSUPPORTED'
+  // KP1 방송 일정: 다가오는 일정 10개를 넘음
+  | 'SCHEDULE_FULL'
+  // KP1 손님 장부 (CR-4): 장부가 없어짐·바뀜, 묶음에 이미 배송지가 있음
+  | 'NO_LEDGER'
+  | 'LEDGER_CHANGED'
+  | 'ADDRESS_EXISTS'
 
 export interface ErrorBody {
   readonly error: {

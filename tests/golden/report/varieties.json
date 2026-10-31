@@ -1,0 +1,127 @@
+{
+  "kind": "varieties",
+  "about": "품종별 판매 묶기 (SPEC RPT-05, KP1 — D-KP1-11). in = { sales } — 그날 지금 확정인 찜마다 { name, qty, amount } (name = 상품의 지금 이름 — 옵션 글은 넣지 않는다). 묶는 키 = name을 NFC로 바꾸고 공백 문자(JavaScript \\s — 전각 공백 포함)를 모두 지운 글, 빈 글이면 '이름 없음'. 대소문자·비슷한 이름은 합치지 않는다(D-036). 보이는 이름 = 키. out = [ { name, qty(수량 합), amount(찜 금액 합) } ] — amount 큰 순, 같으면 qty 큰 순, 같으면 name의 코드 포인트 순.",
+  "cases": [
+    {
+      "id": "G-RPT-KP1-201",
+      "title": "판매가 없으면 빈 목록",
+      "refs": ["RPT-05"],
+      "in": { "sales": [] },
+      "out": []
+    },
+    {
+      "id": "G-RPT-KP1-202",
+      "title": "띄어 쓴 이름과 붙여 쓴 이름은 한 품종",
+      "refs": ["RPT-05", "D-KP1-11"],
+      "note": "핑크프릴 10,000 + 핑크 프릴 12,000 = 22,000 (2개). 청개구리 30,000이 더 커서 먼저",
+      "in": {
+        "sales": [
+          { "name": "핑크프릴", "qty": 1, "amount": 10000 },
+          { "name": "핑크 프릴", "qty": 1, "amount": 12000 },
+          { "name": "청개구리", "qty": 1, "amount": 30000 }
+        ]
+      },
+      "out": [
+        { "name": "청개구리", "qty": 1, "amount": 30000 },
+        { "name": "핑크프릴", "qty": 2, "amount": 22000 }
+      ]
+    },
+    {
+      "id": "G-RPT-KP1-203",
+      "title": "금액이 같으면 수량 큰 순",
+      "refs": ["RPT-05"],
+      "in": {
+        "sales": [
+          { "name": "까라솔", "qty": 1, "amount": 20000 },
+          { "name": "라울", "qty": 1, "amount": 10000 },
+          { "name": "라울", "qty": 1, "amount": 10000 }
+        ]
+      },
+      "out": [
+        { "name": "라울", "qty": 2, "amount": 20000 },
+        { "name": "까라솔", "qty": 1, "amount": 20000 }
+      ]
+    },
+    {
+      "id": "G-RPT-KP1-204",
+      "title": "금액·수량이 같으면 이름 코드 포인트 순",
+      "refs": ["RPT-05"],
+      "note": "라(U+B77C) < 선(U+C120)",
+      "in": {
+        "sales": [
+          { "name": "선인장", "qty": 1, "amount": 10000 },
+          { "name": "라울", "qty": 1, "amount": 10000 }
+        ]
+      },
+      "out": [
+        { "name": "라울", "qty": 1, "amount": 10000 },
+        { "name": "선인장", "qty": 1, "amount": 10000 }
+      ]
+    },
+    {
+      "id": "G-RPT-KP1-205",
+      "title": "빈 이름·공백뿐인 이름은 '이름 없음' 하나로",
+      "refs": ["RPT-05"],
+      "in": {
+        "sales": [
+          { "name": "", "qty": 1, "amount": 8000 },
+          { "name": "   ", "qty": 1, "amount": 5000 }
+        ]
+      },
+      "out": [{ "name": "이름 없음", "qty": 2, "amount": 13000 }]
+    },
+    {
+      "id": "G-RPT-KP1-206",
+      "title": "풀어 쓴 한글(NFD)과 합친 한글은 한 품종",
+      "refs": ["RPT-05"],
+      "note": "라 = U+1105 U+1161, 울 = U+110B U+116E U+11AF → NFC '라울'",
+      "in": {
+        "sales": [
+          { "name": "라울", "qty": 1, "amount": 7000 },
+          { "name": "라울", "qty": 1, "amount": 9000 }
+        ]
+      },
+      "out": [{ "name": "라울", "qty": 2, "amount": 16000 }]
+    },
+    {
+      "id": "G-RPT-KP1-207",
+      "title": "전각 공백도 지워 한 품종, 보이는 이름은 공백 없는 키",
+      "refs": ["RPT-05"],
+      "in": {
+        "sales": [
+          { "name": "방울복랑　금", "qty": 1, "amount": 15000 },
+          { "name": "방울복랑금", "qty": 1, "amount": 15000 }
+        ]
+      },
+      "out": [{ "name": "방울복랑금", "qty": 2, "amount": 30000 }]
+    },
+    {
+      "id": "G-RPT-KP1-208",
+      "title": "대소문자는 합치지 않는다",
+      "refs": ["RPT-05", "D-036"],
+      "note": "P(U+0050) < p(U+0070)",
+      "in": {
+        "sales": [
+          { "name": "pink", "qty": 1, "amount": 5000 },
+          { "name": "Pink", "qty": 1, "amount": 5000 }
+        ]
+      },
+      "out": [
+        { "name": "Pink", "qty": 1, "amount": 5000 },
+        { "name": "pink", "qty": 1, "amount": 5000 }
+      ]
+    },
+    {
+      "id": "G-RPT-KP1-209",
+      "title": "옵션 상품 수량 2는 수량 그대로 더한다",
+      "refs": ["RPT-05", "D-O4-09"],
+      "in": {
+        "sales": [
+          { "name": "반바지", "qty": 2, "amount": 34000 },
+          { "name": "반바지", "qty": 1, "amount": 17000 }
+        ]
+      },
+      "out": [{ "name": "반바지", "qty": 3, "amount": 51000 }]
+    }
+  ]
+}

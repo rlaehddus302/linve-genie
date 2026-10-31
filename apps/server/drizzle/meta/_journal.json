@@ -218,6 +218,27 @@
       "when": 1794960000004,
       "tag": "0030_prn2_printer_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794960000005,
+      "tag": "0031_kp1_customer_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794960000006,
+      "tag": "0032_kp1_schedule_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794960000007,
+      "tag": "0033_kp1_console_badges_undecided",
+      "breakpoints": true
     }
   ]
 }

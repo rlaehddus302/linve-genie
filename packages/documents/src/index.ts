@@ -123,3 +123,14 @@ export {
   type WaybillText,
   type WaybillsPdfResult,
 } from './waybill.ts'
+export {
+  CUSTOMERS_SHEET_NAME,
+  CUSTOMER_COLUMNS,
+  CUSTOMER_CONTACT_COLUMNS,
+  buildCustomersXlsx,
+  safeCustomerText,
+  type CustomerXlsxContact,
+  type CustomerXlsxRow,
+  type CustomersXlsxInput,
+  type CustomersXlsxResult,
+} from './customers.ts'

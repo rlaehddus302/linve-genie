@@ -46,6 +46,8 @@ import { LoginMethodsPanel, showLoginMethods, useLoginMethods } from './LoginMet
 import { parseLoginResult, stripLoginParams } from '../lib/social-login.ts'
 import { DetailToggle, FixedArrivalField, RuleField, SaleModeField, settingProblem, useRuleForm } from './RuleFields.tsx'
 import { ThanksSettings } from './ThanksSettings.tsx'
+import { ScheduleSettings } from './ScheduleSettings.tsx' // KP1
+import { AlertCountsSection } from './AlertCounts.tsx' // KP1
 import { BandCallbackResult, BandSettings, useBandAccount } from './BandSettings.tsx'
 import { InstagramCallbackResult, InstagramSettings, TikTokSettingsSection, useInstagramConnection, useTikTokSettings } from './PlatformSettings.tsx'
 import { CallbackResult, useQuota, useYoutubeConnection, YoutubeStatus } from './YoutubeConnection.tsx'
@@ -201,6 +203,9 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
           <CustomerSettingsSection />
         </SettingsSection>
       )}
+      {/* KP1 방송 일정·방송 알림(수만) — 판매자 계정만 */}
+      {assistant ? null : <SettingsSection title="방송 일정"><ScheduleSettings /></SettingsSection>}
+      {assistant ? null : <SettingsSection title="방송 알림"><AlertCountsSection /></SettingsSection>}
       <SettingsSection title="유튜브" focus={route.section === 'youtube' && (settings !== null || loadError !== null)}>
         <CallbackResult code={result} />
         <YoutubeStatus handle={youtube} quota={quota.quota} navigate={navigate} place="settings" />
