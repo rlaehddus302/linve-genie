@@ -1,10 +1,11 @@
 // LV1 방송 소리로 듣기 (VOC-08, D-LV1-02~09): 방송 소리를 16kHz 모노 PCM16 100ms 조각으로 받아 기존 받아쓰기 일꾼 입구에 넣는 부품.
 // 소리는 메모리에서만 다룬다 — 로그·DB·백업·이벤트에 쓰지 않는다(VOC-07 저장하지 않음). 로그에는 까닭 코드만 남긴다.
-import { spawn, spawnSync, type ChildProcessByStdio } from 'node:child_process'
+import { execFile, spawn, spawnSync, type ChildProcessByStdio } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import { activeLink } from '../youtube/store.ts'
 import type { WebChatSource } from '../youtube/web-chat-source.ts'
 import type { Db } from '../db/database.ts'
+import type { LogSink } from '../log.ts'
 
 /** 조각 하나: 16,000Hz × 2바이트 × 0.1초 */
 export const STREAM_CHUNK_BYTES = 3_200
@@ -109,31 +110,120 @@ export function safeHlsUrl(value: string | null | undefined): string | null {
   }
 }
 
-/** 실제: 수집기와 같은 방송 페이지 응답(innertube)의 라이브 HLS 주소 (D-LV1-02). 계정·쿠키 없음 */
-export function webStreamLocator(db: Db, web: WebChatSource | null): StreamLocator {
+// ── 소리 주소를 yt-dlp로 얻기 (D-LV1-11) ─────────────────────────────────
+// 유튜브 웹 방송 페이지가 이제 hlsManifestUrl 대신 SABR·PO 토큰이 필요한 주소만 준다. 그래서 페이지에 HLS가 없으면
+// yt-dlp(로그인·쿠키·PO 토큰·프록시 없음)로 라이브 HLS 주소를 묻는다. 주소는 몇 시간 뒤 만료되므로 끊길 때마다 다시 묻는다(캐시 없음).
+
+/** yt-dlp 한 번 기다리는 최대 시간 */
+export const YTDLP_TIMEOUT_MS = 60_000
+/** yt-dlp 출력 최대 바이트 (주소 한두 줄) */
+const YTDLP_MAX_BUFFER = 256 * 1024
+/** 봇 확인 막힘을 알아보는 stderr 표지 (분류에만 쓰고 원문은 버린다) */
+const YTDLP_BLOCKED = /not a bot|sign in to confirm/i
+/** 유튜브 영상 ID (11자) — 이것만 yt-dlp에 넘긴다 */
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/
+
+/** 소리 주소 얻기 결과. 실패는 종류만 (주소·영상 정보·stderr 원문은 담지 않는다) */
+export type AudioUrlResult =
+  | { readonly kind: 'ok'; readonly url: string }
+  /** yt-dlp가 없음 */
+  | { readonly kind: 'missing' }
+  /** 시간 넘김 (네트워크일 수 있음 — 다시 본다) */
+  | { readonly kind: 'timeout' }
+  /** 유튜브가 봇 확인("Sign in to confirm you're not a bot")으로 막음 — 데이터센터 IP에서 흔하다 */
+  | { readonly kind: 'blocked' }
+  /** yt-dlp가 그 밖의 실패로 끝남 (소리 없는 방송 등) */
+  | { readonly kind: 'failed' }
+  /** 출력이 유튜브 영상 서버의 https 주소가 아님 */
+  | { readonly kind: 'bad_output' }
+/** 검증된 영상 ID로 소리 주소를 얻는 함수 (시험은 가짜) */
+export type AudioUrlResolver = (videoId: string) => Promise<AudioUrlResult>
+
+/** execFile 모양 (시험은 가짜) */
+export type ExecFileRunner = (
+  file: string,
+  args: readonly string[],
+  options: { timeout: number; killSignal: 'SIGKILL'; maxBuffer: number; windowsHide: boolean; shell: false },
+  callback: (error: (Error & { code?: unknown; killed?: boolean }) | null, stdout: string, stderr: string) => void,
+) => void
+
+const defaultRunner: ExecFileRunner = (file, args, options, callback) => {
+  execFile(file, [...args], { ...options, encoding: 'utf8' }, (error, stdout, stderr) => callback(error, String(stdout), String(stderr)))
+}
+
+/** `LIVEJJIM_YTDLP_PATH` (다듬어서 비면 `yt-dlp`) */
+export function readYtDlpPath(env: Readonly<Record<string, string | undefined>>): string {
+  const value = (env['LIVEJJIM_YTDLP_PATH'] ?? '').trim()
+  return value === '' ? 'yt-dlp' : value
+}
+
+/** 실제: `yt-dlp -g -f bestaudio/best <방송 주소>` 출력 첫 줄. 셸 없이 인자 배열, 60초 제한, 설정 파일 무시 */
+export function ytDlpResolver(command = 'yt-dlp', run: ExecFileRunner = defaultRunner): AudioUrlResolver {
+  return (videoId) => new Promise((resolve) => {
+    if (!VIDEO_ID.test(videoId)) { resolve({ kind: 'failed' }); return }
+    const args = ['--ignore-config', '--no-playlist', '--no-warnings', '-g', '-f', 'bestaudio/best', '--', `https://www.youtube.com/watch?v=${videoId}`]
+    try {
+      run(command, args, { timeout: YTDLP_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: YTDLP_MAX_BUFFER, windowsHide: true, shell: false }, (error, stdout, stderr) => {
+        if (error !== null) {
+          if (error.code === 'ENOENT' || error.code === 'EACCES') resolve({ kind: 'missing' })
+          else if (error.killed === true) resolve({ kind: 'timeout' })
+          else if (YTDLP_BLOCKED.test(stderr)) resolve({ kind: 'blocked' })
+          else resolve({ kind: 'failed' })
+          return
+        }
+        const first = stdout.split(/\r?\n/, 1)[0]?.trim() ?? ''
+        const url = safeHlsUrl(first)
+        resolve(url === null ? { kind: 'bad_output' } : { kind: 'ok', url })
+      })
+    } catch {
+      resolve({ kind: 'missing' })
+    }
+  })
+}
+
+/** 방송 페이지 하나로 소리 주소 찾기: 페이지의 HLS가 있으면 그것, 없으면 yt-dlp (D-LV1-11) */
+export async function locateFromPage(
+  web: Pick<WebChatSource, 'page'>,
+  videoId: string,
+  options: { readonly resolve?: AudioUrlResolver | null; readonly log?: LogSink; readonly sellerId?: string } = {},
+): Promise<StreamLocation> {
+  const page = await web.page(videoId)
+  switch (page.state) {
+    case 'LIVE':
+    case 'CHAT_DISABLED': {
+      const url = safeHlsUrl(page.hlsUrl)
+      if (url !== null) return { kind: 'ok', url }
+      if (options.resolve == null || !VIDEO_ID.test(videoId)) return { kind: 'unsupported' }
+      const found = await options.resolve(videoId)
+      if (found.kind === 'ok') return found
+      options.log?.({ level: 'warn', code: 'STREAM_AUDIO_YTDLP_FAILED', reason: found.kind.toUpperCase(), ...(options.sellerId === undefined ? {} : { seller: options.sellerId }) })
+      // 시간 넘김만 끊김으로 세어 다시 본다. 없음·봇 확인 막힘·실패는 지금처럼 바로 꺼짐 + 휴대폰 마이크 안내
+      return found.kind === 'timeout' ? { kind: 'retry' } : { kind: 'unsupported' }
+    }
+    case 'UPCOMING':
+      return { kind: 'none' }
+    case 'ENDED':
+    case 'NOT_LIVE':
+      return { kind: 'ended' }
+    case 'NOT_PUBLIC':
+    case 'NOT_FOUND':
+      return { kind: 'unsupported' }
+    default:
+      return { kind: 'retry' }
+  }
+}
+
+/**
+ * 실제: 수집기와 같은 방송 페이지 응답(innertube)의 라이브 HLS 주소 (D-LV1-02), 없으면 yt-dlp (D-LV1-11). 계정·쿠키 없음.
+ * 끊기면 서비스가 다시 부르므로 만료된 주소 대신 새 주소를 얻는다.
+ */
+export function webStreamLocator(db: Db, web: WebChatSource | null, options: { readonly resolve?: AudioUrlResolver | null; readonly log?: LogSink } = {}): StreamLocator {
   return async (sellerId, broadcastId) => {
     const link = await activeLink(db, sellerId, broadcastId)
     if (link === null) return { kind: 'none' }
     if (web === null || web.off) return { kind: 'unsupported' }
     try {
-      const page = await web.page(link.videoId)
-      switch (page.state) {
-        case 'LIVE':
-        case 'CHAT_DISABLED': {
-          const url = safeHlsUrl(page.hlsUrl)
-          return url === null ? { kind: 'unsupported' } : { kind: 'ok', url }
-        }
-        case 'UPCOMING':
-          return { kind: 'none' }
-        case 'ENDED':
-        case 'NOT_LIVE':
-          return { kind: 'ended' }
-        case 'NOT_PUBLIC':
-        case 'NOT_FOUND':
-          return { kind: 'unsupported' }
-        default:
-          return { kind: 'retry' }
-      }
+      return await locateFromPage(web, link.videoId, { ...options, sellerId })
     } catch {
       return { kind: 'retry' }
     }

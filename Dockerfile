@@ -43,10 +43,29 @@ COPY apps/server/package.json apps/server/package.json
 COPY apps/web/package.json apps/web/package.json
 RUN pnpm install --frozen-lockfile --prod --filter "@livejjim/server..."
 
-FROM node:24.20.0-bookworm-slim AS runtime
+# 방송 소리 주소 찾기 yt-dlp (LV1 D-LV1-11) — 고정 판 단일 실행 파일, 체크섬 확인. 판을 올릴 때 두 체크섬도 함께 바꾼다
+FROM node:24.20.0-bookworm-slim AS ytdlp
+ARG TARGETARCH
+ARG YTDLP_VERSION=2026.10.26
+ARG YTDLP_SHA256_AMD64=767ba9dce7052aa196f8b12652f433d76de128ba168966fa84b6394d5e6c6795
+ARG YTDLP_SHA256_ARM64=e87e9533e89fe5889abaa21f5114dfe7756d6aa6219b83551add04d48b18e483
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends postgresql-client \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && case "$TARGETARCH" in \
+       arm64) name=yt-dlp_linux_aarch64; sum="$YTDLP_SHA256_ARM64" ;; \
+       *) name=yt-dlp_linux; sum="$YTDLP_SHA256_AMD64" ;; \
+     esac \
+  && curl -fsSL -o /usr/local/bin/yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/${name}" \
+  && echo "${sum}  /usr/local/bin/yt-dlp" | sha256sum -c - \
+  && chmod 0755 /usr/local/bin/yt-dlp
+
+FROM node:24.20.0-bookworm-slim AS runtime
+# pg_dump(백업), ffmpeg(방송 소리 받기 LV1 D-LV1-02)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends postgresql-client ffmpeg \
   && rm -rf /var/lib/apt/lists/*
+COPY --from=ytdlp /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \

@@ -11,7 +11,7 @@
 import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
 import { VoiceAliases } from './voice/aliases.ts'
 import { VoiceRelay, registerVoiceRelay } from './voice/relay.ts'
-import { FfmpegAudioFeed, ffmpegAvailable, webStreamLocator, type AudioFeed, type StreamLocator } from './voice/stream-audio.ts'
+import { FfmpegAudioFeed, ffmpegAvailable, webStreamLocator, ytDlpResolver, type AudioFeed, type StreamLocator } from './voice/stream-audio.ts'
 import { StreamAudioService } from './voice/stream-service.ts'
 import { sellerStreamAudioOn } from './voice/stream-routes.ts'
 import { readFileSync } from 'node:fs'
@@ -110,7 +110,7 @@ export interface ServerOptions {
    * 방송 소리로 듣기 (LV1, D-LV1-08). 없으면 꺼짐. `on: false`는 운영자 끔(LIVEJJIM_STREAM_AUDIO=off).
    * feed를 주지 않으면 ffmpeg를 쓰고, 없으면 시작 기록 한 줄 남기고 꺼진 것처럼. locate를 주지 않으면 유튜브 웹 방송 페이지의 HLS 주소
    */
-  readonly streamAudio?: { readonly on: boolean; readonly feed?: AudioFeed; readonly locate?: StreamLocator; readonly schedule?: (run: () => void, ms: number) => () => void }
+  readonly streamAudio?: { readonly on: boolean; /** yt-dlp 경로 (D-LV1-11). 없으면 페이지의 HLS만 쓴다 */ readonly ytDlpPath?: string; readonly feed?: AudioFeed; readonly locate?: StreamLocator; readonly schedule?: (run: () => void, ms: number) => () => void }
   readonly database: Pick<Database, 'db'>
   /** 서버 마스터 키 (32바이트 또는 그 base64). 형식이 틀리면 만들지 않는다 */
   readonly masterKey: Buffer | string
@@ -405,10 +405,11 @@ export function createServer(options: ServerOptions): LivejjimServer {
     if (ffmpegAvailable()) streamFeed = new FfmpegAudioFeed()
     else log({ level: 'warn', code: 'STREAM_AUDIO_NO_FFMPEG' })
   }
+  const streamResolve = streamSetting?.ytDlpPath === undefined ? null : ytDlpResolver(streamSetting.ytDlpPath)
   const streamAudio = new StreamAudioService({
     available: streamSetting?.on === true && streamFeed !== null,
     feed: streamFeed ?? { open: (_url, sink) => { queueMicrotask(() => sink.fail()); return { close: () => {} } } },
-    locate: streamSetting?.locate ?? ((sellerId, b) => webStreamLocator(db, youtube?.web ?? null)(sellerId, b)),
+    locate: streamSetting?.locate ?? ((sellerId, b) => webStreamLocator(db, youtube?.web ?? null, { resolve: streamResolve, log })(sellerId, b)),
     clock,
     log,
     sellerOn: (sellerId) => sellerStreamAudioOn(db, sellerId),

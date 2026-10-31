@@ -7,9 +7,11 @@ import { parseWatchPage } from '../src/youtube/web-chat.ts'
 import { startMockWorker } from '../src/voice/mock-worker.ts'
 import {
   FakeBroadcastAudio, MARKER_CHUNKS, PRACTICE_SPEECH, Rechunker, SILENT_CHUNK, markerChunk, readStreamAudioSwitch, recordFailure, retryDelayMs, safeHlsUrl,
+  locateFromPage, readYtDlpPath, ytDlpResolver, type AudioUrlResult, type ExecFileRunner,
   type AudioSink, type StreamLocation,
 } from '../src/voice/stream-audio.ts'
 import { generateMasterKey } from '../src/secrets.ts'
+import type { LogRecord } from '../src/log.ts'
 import { addSeller, client, createBroadcast, dumpAllTables, newWorld, openTestDb, ORIGIN, startServer, waitFor, type TestServer } from './support.ts'
 
 const TOKEN = 'test-worker-token-not-used-outside-tests'
@@ -349,5 +351,89 @@ describe('LV1 방송 소리로 듣기 (서버)', () => {
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller)
     expect(await fake.locate(seller.sellerId, b.id)).toEqual({ kind: 'none' })
+  })
+})
+
+describe('D-LV1-11 페이지에 HLS가 없으면 yt-dlp로 소리 주소', () => {
+  const ID = 'abcDEF_-123'
+  const HLS = 'https://manifest.googlevideo.com/api/manifest/hls_playlist/a/index.m3u8'
+  const livePage = (hlsUrl?: string) => ({ page: async (videoId: string) => ({ state: 'LIVE' as const, videoId, channelId: 'UCx', channelTitle: null, title: null, startedAt: null, ...(hlsUrl === undefined ? {} : { hlsUrl }) }) })
+
+  it('yt-dlp는 셸 없이 인자 배열·60초 제한으로 부르고 출력 첫 줄을 쓴다. 없음·시간 넘김·봇 확인 막힘·실패·이상한 출력은 종류만', async () => {
+    const calls: { file: string; args: readonly string[]; options: Parameters<ExecFileRunner>[2] }[] = []
+    let reply: Parameters<Parameters<ExecFileRunner>[3]> = [null, `${HLS}\nhttps://second.googlevideo.com/b\n`, '']
+    const run: ExecFileRunner = (file, args, options, callback) => { calls.push({ file, args, options }); queueMicrotask(() => callback(...reply)) }
+    const resolve = ytDlpResolver('/opt/yt-dlp', run)
+    expect(await resolve(ID)).toEqual({ kind: 'ok', url: HLS })
+    expect(calls[0]!.file).toBe('/opt/yt-dlp')
+    expect(calls[0]!.args).toEqual(['--ignore-config', '--no-playlist', '--no-warnings', '-g', '-f', 'bestaudio/best', '--', `https://www.youtube.com/watch?v=${ID}`])
+    expect(calls[0]!.options).toMatchObject({ timeout: 60_000, shell: false })
+    const fail = (fields: { code?: unknown; killed?: boolean }) => Object.assign(new Error('x'), fields)
+    reply = [fail({ code: 'ENOENT' }), '', '']
+    expect(await resolve(ID)).toEqual({ kind: 'missing' })
+    reply = [fail({ killed: true }), '', '']
+    expect(await resolve(ID)).toEqual({ kind: 'timeout' })
+    reply = [fail({ code: 1 }), '', "ERROR: [youtube] abc: Sign in to confirm you're not a bot."]
+    expect(await resolve(ID)).toEqual({ kind: 'blocked' })
+    reply = [fail({ code: 1 }), '', 'ERROR: something else']
+    expect(await resolve(ID)).toEqual({ kind: 'failed' })
+    reply = [null, 'https://evil.test/a.m3u8\n', '']
+    expect(await resolve(ID)).toEqual({ kind: 'bad_output' })
+    const before = calls.length
+    for (const bad of ['short', 'abcDEF_-123; rm', '--exec=abcde']) expect(await resolve(bad)).toEqual({ kind: 'failed' })
+    expect(calls.length).toBe(before)
+    expect(readYtDlpPath({})).toBe('yt-dlp')
+    expect(readYtDlpPath({ LIVEJJIM_YTDLP_PATH: ' /usr/local/bin/yt-dlp ' })).toBe('/usr/local/bin/yt-dlp')
+  })
+
+  it('페이지에 HLS가 있으면 yt-dlp를 부르지 않고, 없으면 yt-dlp 주소. 실패는 종류만 로그에 남기고 대비 안내(못 받음)로', async () => {
+    let asked = 0
+    let next: AudioUrlResult = { kind: 'ok', url: HLS }
+    const resolve = async (videoId: string) => { asked++; expect(videoId).toBe(ID); return next }
+    const logs: LogRecord[] = []
+    expect(await locateFromPage(livePage('https://manifest.googlevideo.com/page.m3u8'), ID, { resolve })).toEqual({ kind: 'ok', url: 'https://manifest.googlevideo.com/page.m3u8' })
+    expect(asked).toBe(0)
+    expect(await locateFromPage(livePage(), ID, { resolve })).toEqual({ kind: 'ok', url: HLS })
+    expect(asked).toBe(1)
+    expect(await locateFromPage(livePage(), ID, { resolve: null })).toEqual({ kind: 'unsupported' })
+    for (const kind of ['missing', 'blocked', 'failed', 'bad_output'] as const) {
+      next = { kind }
+      expect(await locateFromPage(livePage(), ID, { resolve, log: (r) => logs.push(r), sellerId: 's1' })).toEqual({ kind: 'unsupported' })
+    }
+    next = { kind: 'timeout' }
+    expect(await locateFromPage(livePage(), ID, { resolve, log: (r) => logs.push(r), sellerId: 's1' })).toEqual({ kind: 'retry' })
+    expect(logs.map((l) => l.reason)).toEqual(['MISSING', 'BLOCKED', 'FAILED', 'BAD_OUTPUT', 'TIMEOUT'])
+    expect(logs.every((l) => l.code === 'STREAM_AUDIO_YTDLP_FAILED' && l.seller === 's1')).toBe(true)
+    expect(JSON.stringify(logs)).not.toContain(ID)
+  })
+
+  it('yt-dlp 주소로 소리를 열고, 끊기면(주소 만료) 다시 yt-dlp를 불러 새 주소로 이어 받는다. yt-dlp가 막히면 대비 안내', async () => {
+    const urls: string[] = []
+    const sinks: AudioSink[] = []
+    const feed = { open: (url: string, sink: AudioSink) => { urls.push(url); sinks.push(sink); return { close: () => {} } } }
+    const timer = new ManualSchedule()
+    let n = 0
+    let next: () => AudioUrlResult = () => ({ kind: 'ok', url: `https://manifest.googlevideo.com/hls_playlist/expire/${++n}/index.m3u8` })
+    const world = await newWorld({
+      transcribeWorkerToken: TOKEN,
+      streamAudio: { on: true, feed, locate: () => locateFromPage(livePage(), ID, { resolve: async () => next() }), schedule: timer.schedule },
+    })
+    worlds.push(world)
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await watch(world, seller.cookie, b.id)
+    await waitFor(() => urls.length === 1)
+    expect(urls[0]).toBe('https://manifest.googlevideo.com/hls_playlist/expire/1/index.m3u8')
+    sinks[0]!.fail()
+    expect((await phase(world, seller.cookie, b.id)).phase).toBe('reconnecting')
+    expect(timer.runRetries()).toEqual([1_000])
+    await waitFor(() => urls.length === 2)
+    expect(urls[1]).toBe('https://manifest.googlevideo.com/hls_playlist/expire/2/index.m3u8')
+    next = () => ({ kind: 'blocked' })
+    sinks[1]!.fail()
+    expect(timer.runRetries()).toEqual([2_000])
+    await waitFor(async () => (await phase(world, seller.cookie, b.id)).phase === 'unsupported')
+    expect(urls.length).toBe(2)
+    expect(world.logs.some((l) => l.code === 'STREAM_AUDIO_UNSUPPORTED')).toBe(true)
   })
 })
