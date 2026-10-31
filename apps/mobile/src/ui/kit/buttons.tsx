@@ -1,0 +1,85 @@
+// 버튼: 큰 버튼(주·보조·위험)과 화면 아래 고정 영역(BottomCTA).
+import type { ReactNode } from 'react'
+import { ActivityIndicator, Pressable, View } from 'react-native'
+import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
+import { Txt, useBottomInset, useKit, type TxtColor } from './theme.tsx'
+
+export type ButtonKind = 'primary' | 'secondary' | 'danger'
+
+export interface BigButtonProps {
+  readonly label: string
+  readonly onPress: () => void
+  readonly kind?: ButtonKind
+  readonly disabled?: boolean
+  /** 처리 중: 글자는 그대로 두고 눌러도 아무 일도 없다 */
+  readonly busy?: boolean
+  /** 보이는 글과 다른 이름이 필요할 때 ("지금 상품으로 — 15번") */
+  readonly ariaLabel?: string
+  /** 글자 앞에 붙는 기호. 아이콘만 두지 않고 반드시 글자와 함께 보인다. */
+  readonly icon?: string
+  readonly testID?: string
+}
+
+export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ariaLabel, icon, testID }: BigButtonProps) {
+  const { p } = useKit()
+  const off = disabled === true || busy === true
+  const fill = kind === 'primary' ? p.primary : kind === 'danger' ? p.danger : p.secondary
+  const ink: TxtColor = kind === 'primary' ? 'onPrimary' : kind === 'danger' ? 'onDanger' : 'onSecondary'
+  return (
+    <Pressable
+      role="button"
+      aria-label={ariaLabel ?? label}
+      aria-disabled={off}
+      aria-busy={busy === true}
+      disabled={off}
+      onPress={onPress}
+      testID={testID}
+      style={({ pressed }) => ({
+        minHeight: TOUCH.button,
+        borderRadius: RADIUS.lg,
+        paddingHorizontal: SPACE.xl,
+        paddingVertical: SPACE.md,
+        backgroundColor: fill,
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'row',
+        gap: SPACE.sm,
+        opacity: disabled === true ? 0.45 : pressed ? 0.85 : 1,
+      })}
+    >
+      {busy === true ? <ActivityIndicator color={p[ink]} /> : null}
+      <Txt step="bodyLarge" weight="bold" color={ink} center>
+        {icon === undefined ? label : `${icon} ${label}`}
+      </Txt>
+    </Pressable>
+  )
+}
+
+export interface BottomCTAProps {
+  readonly children?: ReactNode
+  /** 한 줄 도움말 (버튼 위) */
+  readonly note?: string
+}
+
+/**
+ * 화면 맨 아래에 붙는 큰 버튼 자리. 홈 막대(안전 영역)를 피하고, 버튼은 세로로 쌓는다(한 손·큰 글자에서도 안 깨짐).
+ * 주 버튼이 가장 아래, 보조 버튼은 그 위. children 순서대로 위에서 아래로 놓이니 주 버튼을 마지막에 둔다.
+ */
+export function BottomCTA({ children, note }: BottomCTAProps) {
+  const { p } = useKit()
+  const inset = useBottomInset()
+  return (
+    <View
+      role="toolbar"
+      aria-label="화면 아래 버튼"
+      style={{ backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.border, paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xs, gap: SPACE.sm, ...SHADOW.sheet }}
+    >
+      {note === undefined ? null : (
+        <Txt step="caption" color="textSub" center>
+          {note}
+        </Txt>
+      )}
+      {children}
+    </View>
+  )
+}

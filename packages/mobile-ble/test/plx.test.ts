@@ -115,7 +115,8 @@ describe('createPlxTransport', () => {
     manager.emitDevice({ id: '4', name: null, localName: 'd110', serviceUUIDs: null })
     expect(found).toEqual([
       { id: '1', name: 'B1-G1' },
-      { id: '2', name: null },
+      // 광고한 서비스를 함께 싣는다 (고르기 목록 판정 — PRN2 D-PRN2-04)
+      { id: '2', name: null, serviceUuids: ['E7810A71-73AE-499D-8C15-FAA9AEF0C3F2'] },
       { id: '4', name: 'd110' },
     ])
     expect(manager.log[0]).toBe('scan:null:{"allowDuplicates":false}')

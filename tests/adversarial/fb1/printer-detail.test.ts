@@ -145,7 +145,8 @@ const b1CaseArb: fc.Arbitrary<B1Case> = fc.oneof(
   fc.record({ kind: fc.constant('serial' as const), error: thrownArb }),
   fc.record({ kind: fc.constant('make' as const), error: thrownArb }),
   fc.record({ kind: fc.constant('print' as const), error: thrownArb, step: fc.constantFrom('init' as const, 'page' as const, 'wait' as const), dropFirst: fc.boolean() }),
-  fc.record({ kind: fc.constant('model' as const), model: fc.constantFrom('D110', 'D11', 'B21', 'B3S', 'D101') }),
+  // PRN2 D-PRN2-05: D110·B21은 켠 실험 프로필이 되어 WRONG_MODEL이 아니다 — 켠 표에 없는 모델(L-7: 300dpi B1 Pro·B21 Pro, B21S·D110_M 같은 변형)로 바꾼다
+  fc.record({ kind: fc.constant('model' as const), model: fc.constantFrom('B1_PRO', 'D11', 'B21_PRO', 'B3S', 'D101', 'B21S', 'D110_M') }),
 )
 
 async function runB1(c: B1Case): Promise<{ result: PrinterResult; thrown: unknown[] }> {

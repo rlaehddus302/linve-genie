@@ -1,0 +1,85 @@
+{
+  "kind": "window",
+  "about": "지금 보내도 되는지 (MESSAGE_RULES MR-2, KP1 — D-KP1-17). in = { kind, at } — at은 오프셋을 적은 ISO 8601. 광고성 종류(BROADCAST_ALERT·FREE_TEXT)는 한국 시간(KST) 08:00:00 이상 21:00:00 미만일 때만 보낸다(야간 수신 동의는 받지 않고 늘 막는다). 막히면 next = 다음 08:00 KST — 그 시각이 08:00 전이면 같은 날, 21:00 이후면 다음 날. 정보성 종류는 늘 보낸다. out = { sendable: true } 또는 { sendable: false, next: 'YYYY-MM-DDTHH:MM:SS+09:00' }. 결과는 실행 환경의 시간대와 상관없다.",
+  "cases": [
+    {
+      "id": "G-MSG-KP1-201",
+      "title": "광고는 20:59:59까지 보낸다",
+      "refs": ["MR-2", "D-KP1-17"],
+      "in": { "kind": "BROADCAST_ALERT", "at": "2026-10-31T20:59:59+09:00" },
+      "out": { "sendable": true }
+    },
+    {
+      "id": "G-MSG-KP1-202",
+      "title": "광고는 21:00:00부터 막히고 다음 날 08:00",
+      "refs": ["MR-2"],
+      "in": { "kind": "BROADCAST_ALERT", "at": "2026-10-31T21:00:00+09:00" },
+      "out": { "sendable": false, "next": "2026-11-01T08:00:00+09:00" }
+    },
+    {
+      "id": "G-MSG-KP1-203",
+      "title": "07:59:59는 막히고 같은 날 08:00",
+      "refs": ["MR-2"],
+      "in": { "kind": "BROADCAST_ALERT", "at": "2026-11-01T07:59:59+09:00" },
+      "out": { "sendable": false, "next": "2026-11-01T08:00:00+09:00" }
+    },
+    {
+      "id": "G-MSG-KP1-204",
+      "title": "08:00:00부터 보낸다",
+      "refs": ["MR-2"],
+      "in": { "kind": "BROADCAST_ALERT", "at": "2026-11-01T08:00:00+09:00" },
+      "out": { "sendable": true }
+    },
+    {
+      "id": "G-MSG-KP1-205",
+      "title": "UTC로 적힌 시각도 KST로 본다 (12:30Z = 21:30 KST)",
+      "refs": ["MR-2", "NFR-07"],
+      "note": "2026-10-31T12:30:00Z + 9시간 = 2026-10-31 21:30 KST → 다음 날 08:00",
+      "in": { "kind": "FREE_TEXT", "at": "2026-10-31T12:30:00Z" },
+      "out": { "sendable": false, "next": "2026-11-01T08:00:00+09:00" }
+    },
+    {
+      "id": "G-MSG-KP1-206",
+      "title": "UTC 날짜가 전날이어도 KST 08:30이면 보낸다",
+      "refs": ["MR-2"],
+      "note": "2026-10-31T23:30:00Z = 2026-11-01 08:30 KST",
+      "in": { "kind": "BROADCAST_ALERT", "at": "2026-10-31T23:30:00Z" },
+      "out": { "sendable": true }
+    },
+    {
+      "id": "G-MSG-KP1-207",
+      "title": "정보성(확인서 링크)은 밤 11시 반에도 보낸다",
+      "refs": ["MR-1", "MR-2"],
+      "in": { "kind": "RECEIPT_LINK", "at": "2026-10-31T23:30:00+09:00" },
+      "out": { "sendable": true }
+    },
+    {
+      "id": "G-MSG-KP1-208",
+      "title": "정보성(입금 안내)은 새벽에도 보낸다",
+      "refs": ["MR-2"],
+      "in": { "kind": "PAYMENT_DUE", "at": "2026-11-01T03:00:00+09:00" },
+      "out": { "sendable": true }
+    },
+    {
+      "id": "G-MSG-KP1-209",
+      "title": "해를 넘기는 밤 — 12월 31일 22시면 1월 1일 08:00",
+      "refs": ["MR-2"],
+      "in": { "kind": "BROADCAST_ALERT", "at": "2026-12-31T22:00:00+09:00" },
+      "out": { "sendable": false, "next": "2027-01-01T08:00:00+09:00" }
+    },
+    {
+      "id": "G-MSG-KP1-210",
+      "title": "자정 00:00:00은 같은 날 08:00까지 기다린다",
+      "refs": ["MR-2"],
+      "in": { "kind": "FREE_TEXT", "at": "2026-10-31T00:00:00+09:00" },
+      "out": { "sendable": false, "next": "2026-10-31T08:00:00+09:00" }
+    },
+    {
+      "id": "G-MSG-KP1-211",
+      "title": "2월 말일 밤은 3월 1일 08:00 (평년)",
+      "refs": ["MR-2"],
+      "in": { "kind": "BROADCAST_ALERT", "at": "2027-02-28T21:10:00+09:00" },
+      "out": { "sendable": false, "next": "2027-03-01T08:00:00+09:00" }
+    }
+  ]
+}

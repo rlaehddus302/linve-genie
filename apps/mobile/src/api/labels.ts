@@ -1,10 +1,10 @@
 // 서버가 만든 라벨 그림 받기 (APP-03·APP-05: 앱은 그리지 않는다 — LABEL_RULES L-0 렌더 함수가 서버에서 돈다).
-// 서버 입구: `GET /api/print/jobs/:id/bitmap?attempt=&device=` → `{ width, height, data }`
+// 서버 입구: `GET /api/print/jobs/:id/bitmap?attempt=&device=` → `{ width, height, data }`, 그림 파일은 `…/png`·`/api/print/test-png`(image/png, PRN2)
 // (data = 1비트 행 바이트 base64, 폭 ÷ 8 올림 바이트씩, 1 = 검정 — @livejjim/label LabelBitmap과 같은 모양).
 // 없거나 잘못된 그림은 실패한다. 앱은 서버가 준 점만 프린터에 넘긴다.
 import type { LabelBitmap } from '@livejjim/label'
 import type { ClaimedJob } from '@livejjim/web/src/api/print-types.ts'
-import { get, isApiError, withQuery } from './client.ts'
+import { get, getBytes, isApiError, withQuery } from './client.ts'
 
 interface BitmapResponse {
   readonly width: number
@@ -53,7 +53,27 @@ async function fetchBitmap(path: string): Promise<LabelBitmap> {
 export function fetchJobBitmap(job: Pick<ClaimedJob, 'id' | 'attempt'>, deviceId: string): Promise<LabelBitmap> {
   return fetchBitmap(withQuery(`/api/print/jobs/${encodeURIComponent(job.id)}/bitmap`, { attempt: job.attempt, device: deviceId }))
 }
-export function fetchTestBitmap(): Promise<LabelBitmap> { return fetchBitmap('/api/print/test-bitmap') }
+/** 테스트 라벨 그림 — 크기는 이은 프린터 프로필의 기본 크기를 늘 넘긴다 (D-PRN2-11, L-7) */
+export function fetchTestBitmap(size: string): Promise<LabelBitmap> { return fetchBitmap(withQuery('/api/print/test-bitmap', { size })) }
+
+/** PNG 첫 8바이트 (그림 파일인지 본다) */
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+/**
+ * 서버가 만든 라벨 그림 파일 (PRN2 L-11 17 — 203dpi 1비트 PNG, 웹 LBL-07과 같은 바이트). 앱은 받은 바이트를 그대로 공유 창에 넘긴다(다시 만들지 않는다).
+ * PNG가 아니면 실패한다
+ */
+async function fetchPng(path: string): Promise<Uint8Array> {
+  const { bytes } = await getBytes(path)
+  if (bytes.length < PNG_SIGNATURE.length || PNG_SIGNATURE.some((byte, i) => bytes[i] !== byte)) throw new Error('LABEL_PNG_FORMAT')
+  return bytes
+}
+/** 테스트 라벨 그림 파일 (`GET /api/print/test-png?size=` — 크기는 테스트 그림과 같다, D-PRN2-11) */
+export function fetchTestPng(size: string): Promise<Uint8Array> { return fetchPng(withQuery('/api/print/test-png', { size })) }
+/** 출력 기기가 받은 작업의 그림 파일 (`GET /api/print/jobs/:id/png?attempt=&device=` — 비트맵 입구와 같은 검사) */
+export function fetchJobPng(job: Pick<ClaimedJob, 'id' | 'attempt'>, deviceId: string): Promise<Uint8Array> {
+  return fetchPng(withQuery(`/api/print/jobs/${encodeURIComponent(job.id)}/png`, { attempt: job.attempt, device: deviceId }))
+}
 
 /** /print/result는 라벨·프린터 오류 코드만 받는다. HTTP 코드를 그대로 보내지 않는다. */
 export function bitmapFailure(error: unknown): { code: string; item?: string; message: string } {

@@ -1,4 +1,4 @@
-// 라이브 콘솔 (SPEC §7 화면 2, 웹 ConsolePage와 같은 규칙·문구): 자리를 비운 동안 한 줄 → 실시간 상태 → 알림 띠 → 음성 → 빠른 입력 → 현재 상품 → 상품 보드 → 문자찜.
+// 라이브 콘솔 (SPEC §7 화면 2, 웹 ConsolePage와 같은 규칙·문구): 자리를 비운 동안 한 줄 → 실시간 상태 → 알림 띠 → 유튜브 경고 → 음성 → 빠른 입력 → 현재 상품 → 상품 보드 → 문자찜 → 유튜브 칸(YT-11).
 // - 범위 자료는 ScopeStore(웹과 같은 프로토콜)로 받고, 쓰기는 /api/events에 요청 번호를 붙여 보낸 뒤 응답 seq까지 따라잡는다.
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
@@ -17,6 +17,7 @@ import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { CurrentProduct, ProductBoard } from './console/ProductBoard.tsx'
 import { QuickInput, SmsInput } from './console/QuickInput.tsx'
 import { VoicePanel } from './console/VoicePanel.tsx'
+import { YoutubeSection, YoutubeWarning, useMobileYoutube } from './console/YoutubeSection.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
 const RETURN_WAIT_MS = 3000
@@ -75,6 +76,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
   const data = snapshot.data
   const broadcast = snapshot.broadcast
   const returning = useRef<{ at: number } | null>(null)
+  // 유튜브 (YT-11): 실제 방송만 — 리허설은 유튜브 요청을 보내지 않는다
+  const yt = useMobileYoutube(broadcastId, broadcast !== null && !broadcast.rehearsal)
 
   // 앱이 뒤로 갔다 돌아옴 (APP-04)
   const finishReturn = useCallback(() => {
@@ -212,11 +215,13 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
         {ended ? <Notice tone="info">끝난 방송이에요. 늦게 온 채팅·문자찜은 처리돼요.</Notice> : null}
         {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
         <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} />
+        <YoutubeWarning yt={yt} closed={ended || sealed} />
         <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
         <QuickInput />
         <CurrentProduct product={current} />
         <ProductBoard />
         <SmsInput />
+        <YoutubeSection yt={yt} closed={ended || sealed} />
         {!ended && !sealed ? (
           <Stack tight>
             {askEnd ? (

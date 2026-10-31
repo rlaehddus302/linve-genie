@@ -196,7 +196,8 @@ if (source !== undefined) {
 let drained = false
 let lastWaitReport = performance.now()
 while (!exited) {
-  if (markerFromMs !== null && results.some((result) => result.startMs >= markerFromMs)) {
+  // 끝 표시 조각은 앞 여유(pre-roll)만큼 markerFromMs보다 앞에서 시작할 수 있다 — 방송 소리 끝(mainEndMs) 뒤에서 시작하면 끝 표시 결과로 본다
+  if (markerFromMs !== null && results.some((result) => result.startMs >= mainEndMs)) {
     drained = true
     break
   }

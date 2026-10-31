@@ -53,7 +53,8 @@ export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable'
 
 /** 서버가 내지 않는(화면으로 넘기지 않는) 경로 — 웹훅 받는 주소 /webhooks(N2), 구매자 확인서 링크 /r(N4b)도 */
 export function isServerPath(path: string): boolean {
-  return path === '/r' || path.startsWith('/r/') || path === '/api' || path.startsWith('/api/') || path === '/health' || path.startsWith('/health/') || path === '/ops' || path.startsWith('/ops/') || path === '/webhooks' || path.startsWith('/webhooks/') || path === '/ext' || path.startsWith('/ext/')
+  // KP1: /s·/s/* = 공개 방송 일정 페이지 (서버가 그린다 — 화면 문서로 빠지지 않게)
+  return path === '/r' || path.startsWith('/r/') || path === '/s' || path.startsWith('/s/') || path === '/api' || path.startsWith('/api/') || path === '/health' || path.startsWith('/health/') || path === '/ops' || path.startsWith('/ops/') || path === '/webhooks' || path.startsWith('/webhooks/') || path === '/ext' || path.startsWith('/ext/')
 }
 
 /** 화면 폴더 확인 (운영 시작 검사, AC-I3-72): 그 폴더에 index.html이 있어야 한다 */

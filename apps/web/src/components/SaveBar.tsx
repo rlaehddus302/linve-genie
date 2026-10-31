@@ -90,7 +90,8 @@ function SaveBar({ steps }: { readonly steps: Steps }) {
     try {
       const outcome = await runSteps(steps)
       const ok = outcome.failed.length === 0
-      setResult(ok ? { kind: 'saved', text: savedMessage(outcome.saved) } : { kind: 'failed', failed: outcome.failed, saved: outcome.saved })
+      // 저장한 칸이 하나도 없으면(확인 창에서 [그대로 두기] — KP1 D-KP1-45) "저장했어요."를 보이지 않는다
+      setResult(ok ? (outcome.saved.length === 0 ? null : { kind: 'saved', text: savedMessage(outcome.saved) }) : { kind: 'failed', failed: outcome.failed, saved: outcome.saved })
       return ok
     } finally {
       sending.current = false

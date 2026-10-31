@@ -128,7 +128,7 @@ test('AC-I1-21: 연결 실패는 L-7 문장 그대로 (블루투스 꺼짐·고�
   await expect(printer.getByRole('alert')).toContainText('블루투스가 꺼져 있어요. 블루투스를 켠 뒤 다시 연결해 주세요.')
   await page.evaluate(() => (window as unknown as { livejjimTestPrinter: { setConnectError(c: string | null): void } }).livejjimTestPrinter.setConnectError('NOT_SELECTED'))
   await printer.getByRole('button', { name: TEST_PRINTER }).click()
-  await expect(printer.getByRole('alert')).toContainText('프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 B1을 골라 주세요.')
+  await expect(printer.getByRole('alert')).toContainText('프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 프린터를 골라 주세요.')
   const text = await page.locator('main').innerText()
   expect(text).not.toMatch(/Error|undefined|NOT_SELECTED|BLUETOOTH_OFF|DISCONNECTED|WAITING|PRINTING/)
 })

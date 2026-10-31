@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ApiError, isApiError } from '../api/client.ts'
 import type { JobView } from '../api/print-types.ts'
 import { kstHm } from '../lib/kst.ts'
+import { awaitingTest } from '../lib/printer-station.ts'
 import { useOwnReconnect } from '../lib/reconnect-owner.ts'
 import {
   AUTO_RECONNECT_GAVE_UP,
@@ -12,6 +13,8 @@ import {
   PRINT_ACTION,
   REASON_WORD,
   CANCEL_JOB_TITLE,
+  EXPERIMENTAL_PAUSED,
+  PICK_SIZE_ACTION,
   autoReconnectingMessage,
   backlogMessage,
   buyerWord,
@@ -23,6 +26,7 @@ import {
   jobNameWord,
   jobNumberWord,
   labelOptionWords,
+  labelSizePause,
   printErrorMessage,
   reconnectThereMessage,
 } from '../lib/print-words.ts'
@@ -84,8 +88,18 @@ export function ConnectTipsList({ tips }: { readonly tips: readonly string[] }) 
 /**
  * 멈춤 띠 (AC-I1-09·24): 멈춘 까닭 문장과 할 일 — 끊김이면 출력 기기에서 "다시 연결"(다른 기기는 그 기기에서 하라는 문장),
  * 손으로 푸는 멈춤이면 "다시 시작", 쌓인 라벨이면 "출력 시작".
+ * PRN2 (라벨 화면에서만 — 단추를 주는 화면): 실험 기종의 테스트 "예" 기다림이면 "테스트 인쇄"(onTestPrint, UX-PRN2-005),
+ * 라벨 오류가 크기 때문이면 까닭(L-11 13)·할 일과 "라벨 크기 고르기"(onPickSize, UX-PRN2-003).
  */
-export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () => void }) {
+export function PausePanel({
+  onReconnectHelp,
+  onTestPrint,
+  onPickSize,
+}: {
+  readonly onReconnectHelp?: () => void
+  readonly onTestPrint?: () => void
+  readonly onPickSize?: (kind: 'product' | 'packing') => void
+}) {
   const print = usePrintState()
   const station = useStationState()
   const api = usePrintApi()
@@ -97,6 +111,16 @@ export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () 
   if (queue === null || queue.pause === null || api === null) return null
   const pause = queue.pause
   const mine = api.station.isMine(queue)
+  // 이 기기의 실험 기종이 테스트 "예"를 기다린다: 프린터는 이어져 있다 — "다시 연결" 대신 까닭과 할 일 (D-PRN2-10)
+  const waitTest = mine && pause.reason === 'DISCONNECTED' && station !== null && awaitingTest(station)
+  // 라벨 오류가 크기 때문인가 — 까닭은 출력 기기 프린터가 지금 저장된 크기를 못 찍을 때만 (UX-PRN2-003)
+  const sizePause = labelSizePause({
+    pause,
+    jobs: print.overview?.jobs ?? [],
+    sizes: { ...(print.templates === null ? {} : { product: print.templates.product.template.size, packing: print.templates.packing.template.size }) },
+    profileId: mine && station !== null && station.profileId !== null ? station.profileId : (queue.device?.profileId ?? null),
+  })
+  const pickSize = sizePause !== null && onPickSize !== undefined
   const reconnect = async () => {
     setReconnecting(true)
     try {
@@ -107,8 +131,24 @@ export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () 
   }
   return (
     <div className="pause-band" role="region" aria-label="출력 멈춤">
-      <p className="pause-message">{pause.backlog ? backlogMessage(queue.waiting) : pause.message}</p>
-      {pause.reason === 'DISCONNECTED' ? (
+      <p className="pause-message">{waitTest ? EXPERIMENTAL_PAUSED : pause.backlog ? backlogMessage(queue.waiting) : pause.message}</p>
+      {sizePause !== null ? (
+        <>
+          {sizePause.message !== null ? <p className="pause-cause">{sizePause.message}</p> : null}
+          <p>{sizePause.hint}</p>
+          {pickSize ? (
+            <button type="button" className="button button-primary" onClick={() => onPickSize(sizePause.kind)}>
+              {PICK_SIZE_ACTION}
+            </button>
+          ) : null}
+        </>
+      ) : null}
+      {waitTest && onTestPrint !== undefined ? (
+        <button type="button" className="button button-primary" disabled={station?.testing === true || station?.busy === true || station?.job != null || station?.connection !== 'CONNECTED'} onClick={onTestPrint}>
+          {station?.testing === true ? '테스트 인쇄 중…' : '테스트 인쇄'}
+        </button>
+      ) : null}
+      {waitTest ? null : pause.reason === 'DISCONNECTED' ? (
         mine ? (
           api.station.canReconnect ? (
             <>
@@ -117,7 +157,7 @@ export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () 
               {station?.autoReconnect?.kind === 'gaveUp' ? (
                 <>
                   <p>{AUTO_RECONNECT_GAVE_UP}</p>
-                  <ConnectTipsList tips={connectTips({ windows: isWindows(), serial: station.methods.includes('serial'), android: isAndroid() })} />
+                  <ConnectTipsList tips={connectTips({ windows: isWindows(), serial: station.methods.includes('serial'), android: isAndroid(), marklife: station.labelPrinter })} />
                 </>
               ) : null}
               <button type="button" className="button button-primary" data-key="1" disabled={reconnecting || station?.connecting === true} onClick={() => void reconnect()}>
@@ -138,7 +178,7 @@ export function PausePanel({ onReconnectHelp }: { readonly onReconnectHelp?: () 
           <p>{reconnectThereMessage(queue.device.name)}</p>
         ) : null
       ) : (
-        <button type="button" className="button button-primary" disabled={action.busy} data-key="1" onClick={() => void action.run('/api/print/restart')}>
+        <button type="button" className={pickSize ? 'button' : 'button button-primary'} disabled={action.busy} data-key="1" onClick={() => void action.run('/api/print/restart')}>
           {pause.backlog ? PRINT_ACTION.start : PRINT_ACTION.restart}
         </button>
       )}

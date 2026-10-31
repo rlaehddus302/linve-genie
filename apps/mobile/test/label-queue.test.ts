@@ -11,7 +11,8 @@ import { FakeClock, FakeEventSource, FakeServer, flush } from './support.ts'
 
 const queueSummary = (patch: Partial<QueueSummary> = {}): QueueSummary => ({ rev: 1, device: { id: 'app-device-1', name: '내 휴대폰', live: true, printerConnected: true, releasing: false }, pause: null, waiting: 2, printing: 0, discard: 0, labelsEnabled: true, ...patch })
 
-const job = (id: string): ClaimedJob => ({ id, date: '2026-10-29', kind: 'product', reason: 'auto', attempt: `${id}-a1`, data: {} as ClaimedJob['data'], template: {} as ClaimedJob['template'], page: null, pages: null, label: { key: `${id}@1`, claim: 'c1', version: 1, broadcast: 'b1', no: 15, buyerId: 'u1', buyer: { display: '홍길동' } as unknown as ClaimedJob['label']['buyer'] } })
+// 템플릿은 실제 서버처럼 크기가 있다 — 크기가 없으면 앱도 INVALID_TEMPLATE로 멈춘다 (D-PRN2-34)
+const job = (id: string): ClaimedJob => ({ id, date: '2026-10-29', kind: 'product', reason: 'auto', attempt: `${id}-a1`, data: {} as ClaimedJob['data'], template: { size: '50x30' } as ClaimedJob['template'], page: null, pages: null, label: { key: `${id}@1`, claim: 'c1', version: 1, broadcast: 'b1', no: 15, buyerId: 'u1', buyer: { display: '홍길동' } as unknown as ClaimedJob['label']['buyer'] } })
 
 function setup() {
   const server = new FakeServer()

@@ -8,6 +8,8 @@ import { groupDigits } from '../lib/money.ts'
 import { useUnsavedGuard } from '../lib/leave-guard.ts'
 import { useSaveStep, type StepResult } from '../lib/save-bar.ts'
 import { RequestError } from './ErrorNote.tsx'
+// KP1 손님 장부 보관 기간·방송 화면에 손님 표시 (CR-3·CR-7) — 같은 "손님 관리" 칸, 저장 막대 하나에서 PUT 둘
+import { LedgerSettingsFields, useLedgerDraft } from './CustomerLedger.tsx'
 
 export const CUSTOMER_SETTINGS_HINT = '손님 기록의 "단골"·"입금 늦음 주의" 기준이에요. 판매 규칙·판정에는 영향이 없어요.'
 export const REGULAR_AMOUNT_HINT = '비우면 금액 기준을 쓰지 않아요.'
@@ -59,9 +61,19 @@ export function CustomerSettingsSection() {
   const [attempt, setAttempt] = useState(0)
   const busy = useRef(false)
   const dirty = settings !== null && draft !== null && !same(draft, draftOf(settings))
-  useUnsavedGuard(dirty)
+  const ledger = useLedgerDraft() // KP1
+  useUnsavedGuard(dirty || ledger.dirty)
 
   const save = async (): Promise<StepResult> => {
+    // KP1: 장부 칸이 바뀌었으면 PUT /api/ledger-settings도 (하나가 실패해도 다른 하나는 보낸다)
+    const ledgerResult = await ledger.save()
+    const base = await saveCustomer()
+    if (ledgerResult === 'failed') return { saved: [], failed: ['손님 관리'] }
+    if (ledgerResult === 'saved' && base.failed.length === 0) return { saved: ['손님 관리'], failed: [] }
+    return base
+  }
+
+  const saveCustomer = async (): Promise<StepResult> => {
     if (busy.current || settings === null || draft === null || !dirty) return { saved: [], failed: [] }
     busy.current = true
     setError(null)
@@ -79,7 +91,7 @@ export function CustomerSettingsSection() {
       busy.current = false
     }
   }
-  useSaveStep('customers', dirty ? ['손님 관리'] : [], save)
+  useSaveStep('customers', dirty || ledger.dirty ? ['손님 관리'] : [], save)
 
   useEffect(() => {
     let alive = true
@@ -157,6 +169,7 @@ export function CustomerSettingsSection() {
         )
       })}
       {outside && error !== null ? <RequestError error={error} /> : null}
+      <LedgerSettingsFields ledger={ledger} />
     </form>
   )
 }

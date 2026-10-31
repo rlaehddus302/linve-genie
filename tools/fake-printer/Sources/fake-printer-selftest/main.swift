@@ -65,10 +65,13 @@ struct GoldenOptions: Decodable {
     let initialCredits: Int?
     let creditsPerPacket: Int
     let mtu: Int?
+    /// 끝 알림: send(AA, 기본) · ok(4F 4B)
+    let ack: String?
 }
 
 struct Golden: Decodable {
     let kind: String
+    let bundle: String?
     let steps: [Step]
     let pages: [GoldenPage]?
     let `protocol`: String?
@@ -142,14 +145,16 @@ func runMarklife(_ name: String, _ g: Golden) {
         proto: proto,
         initialCredits: options.initialCredits.map { UInt8($0) },
         creditsPerPacket: UInt8(options.creditsPerPacket),
-        mtu: options.mtu
+        mtu: options.mtu,
+        ack: options.ack == "ok" ? .ok : .send
     )
     // 알림 켜기 순서: ff01 → ff03 (첫 크레딧·MTU는 ff03을 켤 때)
-    let subscribed = printer.onFlowSubscribed().map { "\($0.channel.rawValue):\(hexString($0.bytes))" }
+    let channelName = { (c: MarklifeChannel) in c == .notify && g.bundle == "C" ? "fd02" : c.rawValue }
+    let subscribed = printer.onFlowSubscribed().map { "\(channelName($0.channel)):\(hexString($0.bytes))" }
     check(subscribed == (g.onSubscribe ?? []).map(\.text), "\(name): 알림 켤 때 \(subscribed)")
     var completed: [MarklifeAttempt] = []
     for (i, step) in g.steps.enumerated() {
-        let got = printer.write(bytesFromHex(step.write)).map { "\($0.channel.rawValue):\(hexString($0.bytes))" }
+        let got = printer.write(bytesFromHex(step.write)).map { "\(channelName($0.channel)):\(hexString($0.bytes))" }
         let want = step.notify.map(\.text)
         check(got == want, "\(name) 조각 \(i + 1): 답 \(got) ≠ \(want)")
         completed += printer.completedInLastWrite
@@ -166,7 +171,7 @@ func runMarklife(_ name: String, _ g: Golden) {
             let (bitmap, windowBits) = try decodeMarklifeJob(proto, attempt.jobBytes(proto))
             check(bitmap.width == want.width && bitmap.height == want.height, "\(name) 작업 \(i + 1): 크기 \(bitmap.width)×\(bitmap.height) ≠ \(want.width)×\(want.height)")
             check(hexString(bitmap.data) == want.bitmap, "\(name) 작업 \(i + 1): 점이 다르다")
-            if proto != .l11 { check(windowBits == 10, "\(name) 작업 \(i + 1): zlib 창 \(String(describing: windowBits)) ≠ 10") }
+            if !proto.rawRaster { check(windowBits == 10, "\(name) 작업 \(i + 1): zlib 창 \(String(describing: windowBits)) ≠ 10") }
             check(attempt.jobBytes(proto).count == want.length, "\(name) 작업 \(i + 1): 작업 길이")
             if let problem = pngMatches(encodePNG(bitmap), Bitmap(width: want.width, height: want.height, data: bytesFromHex(want.bitmap))) {
                 check(false, "\(name) 작업 \(i + 1): \(problem)")
@@ -189,6 +194,12 @@ func runUnit() {
     // 모델 번호 바꾸기
     let other = B1Emulator(modelId: 0x1234)
     check(other.write(niimbotPacket(B1Command.printerInfo, [8])) == [niimbotPacket(B1Response.printerCode, [0x12, 0x34])], "모델 번호")
+    // NIIMBOT 모델 번호 표 (--model-id 이름): 앱이 같은 번호로 기종을 가른다
+    check(niimbotModels.map { "\($0.key)=\($0.value)" }.sorted() == ["b1=4096", "b1pro=4097", "b1se=4098", "b21=768", "d110=2304"], "NIIMBOT 모델 번호 표")
+    for (_, id) in niimbotModels {
+        let model = B1Emulator(modelId: id)
+        check(model.write(niimbotPacket(B1Command.printerInfo, [8])) == [niimbotPacket(B1Response.printerCode, [UInt8(id >> 8), UInt8(id & 0xFF)])], "모델 번호 \(id) 답")
+    }
     // 끊긴 뒤 반쪽 패킷은 버린다
     let dropped = B1Emulator()
     _ = dropped.write([0x55, 0x55, B1Command.connect])
@@ -210,6 +221,24 @@ func runUnit() {
     } else {
         check(false, "L11 풀기")
     }
+    // 바우아토(Luck Jingle, D-PRN2-02): 켜기 · 깨우기 00×12 · 위치 맞춤 시작 · 래스터 · 다음 라벨 · 위치 맞춤 끝 · 작업 끝 → OK 끝 알림(D-PRN2-03)
+    let ljJob: [UInt8] = [0x10, 0xFF, 0xF1, 0x03] + [UInt8](repeating: 0, count: 12) + [0x1F, 0x11, 0x51, 0x1D, 0x76, 0x30, 0x00, 1, 0, 2, 0, 0x80, 0x01, 0x1D, 0x0C, 0x1F, 0x11, 0x50, 0x10, 0xFF, 0xF1, 0x45]
+    check(marklifeJobLength(.luckJingle, ljJob) == ljJob.count, "Luck Jingle 작업 길이")
+    let lj = MarklifeEmulator(proto: .luckJingle, initialCredits: nil, creditsPerPacket: 0, ack: .ok)
+    check(lj.write(Array(ljJob.prefix(10))) == [], "Luck Jingle 앞 조각 — 아직 끝 아님")
+    check(lj.write(Array(ljJob.dropFirst(10))) == [MarklifeOutput(.notify, [0x4F, 0x4B])], "Luck Jingle OK 끝 알림")
+    check(lj.attempts.count == 1 && lj.attempts.first?.complete == true && lj.attempts.first?.acked == true, "Luck Jingle 끝까지 받음, OK = 끝")
+    if let a = lj.attempts.first, let decoded = try? decodeMarklifeJob(.luckJingle, a.jobBytes(.luckJingle)) {
+        check(decoded.bitmap == Bitmap(width: 8, height: 2, data: [0x80, 0x01]), "Luck Jingle 풀기")
+    } else {
+        check(false, "Luck Jingle 풀기")
+    }
+    // 끝 알림 판정 (골든 end와 같은 규칙)
+    check(marklifeIsEndNotice(.luckJingle, [0x4F, 0x4B]) && marklifeIsEndNotice(.yxq2, [0xAA]), "끝 알림: OK(Luck Jingle)·AA")
+    check(!marklifeIsEndNotice(.yxq2, [0x4F, 0x4B]) && !marklifeIsEndNotice(.luckJingle, [0x6F, 0x6B]) && !marklifeIsEndNotice(.luckJingle, [0xAA, 0xAA]) && !marklifeIsEndNotice(.l11, []), "끝 알림 아님: Marklife OK·ok·AA AA·빈 값")
+    // Marklife에 OK를 보내면 끝으로 세지 않는다 (acked false)
+    let mlOk = MarklifeEmulator(proto: .l11, initialCredits: nil, creditsPerPacket: 0, ack: .ok)
+    check(mlOk.write(l11Job) == [MarklifeOutput(.notify, [0x4F, 0x4B])] && mlOk.attempts.first?.acked == false, "L11에 OK — 끝 아님")
     print("작은 시험: 끝")
 }
 

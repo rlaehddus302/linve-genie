@@ -212,9 +212,9 @@ describe('AC-N4b-21 머리글·검색·미리 보기', () => {
       expectPageHeaders(response.headers)
     }
     expect(await linkRows(world)).toEqual(before)
-    // 판매자 세션 쿠키가 와도 같은 문서, Set-Cookie 없음
+    // 판매자 세션 쿠키가 와도 같은 문서(KP1 RA-KP1-006: 동의 칸 자리만 한 문장으로), Set-Cookie 없음
     const withCookie = await openLink(world, `/r/${token}`, { headers: { Cookie: seller.cookie } })
-    expect(withCookie.text).toBe(page.text)
+    expect(withCookie.text).toBe(page.text.replace(/<div class="consent">[\s\S]*?<\/div>/, '<p class="muted">판매자 로그인 화면에서는 손님 대신 동의할 수 없어요.</p>'))
     expect(withCookie.headers.get('set-cookie')).toBeNull()
   })
 })

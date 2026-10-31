@@ -47,7 +47,8 @@ import { AlertStrip, firstAlert, type AlertKind, type PrintAlerts } from './Aler
 import { ChatPanel } from './ChatPanel.tsx'
 import { MultiPlatformNotice, PlatformPanels, platformLeads, useConsolePlatforms } from './ConsolePlatforms.tsx'
 import { ExtensionRouteLine, ExtensionThanksBar, ExtensionWarningBar, useExtension } from './ExtensionConnection.tsx'
-import { invitedChannelName } from '../lib/youtube.ts'
+import { extensionReceiving } from '../lib/extension.ts'
+import { YOUTUBE_PASTE_GUIDE, invitedChannelName } from '../lib/youtube.ts'
 import { AuthorizeDialog, CollectorWarningBar, OutboxDialog, QuotaToast, UnlinkDialog, YoutubeContext, YoutubePanel, useConsoleYoutube } from './ConsoleYoutube.tsx'
 import { Lock } from './Lock.tsx'
 import { SealedNotice } from './SealNotice.tsx'
@@ -63,6 +64,9 @@ import { useLabelsEnabled, usePrintApi, usePrintState, useScopeLabels } from './
 import { DiscardDialog, PrintPauseDialog } from './PrintParts.tsx'
 import { ProductDetail } from './ProductDetail.tsx'
 import { CautionContext, useConsoleCaution } from './caution.tsx'
+// KP1 채팅 손님 꼬리표·끄는 설정 (CR-7)
+import { ChatBadgesContext, ConsoleBadgesAsk, HIDDEN_CAUTION, badgeLookup } from './ChatBadges.tsx'
+import { chatBuyers, useChatBadges } from '../lib/ledger.ts'
 import { useScreenWake } from '../voice/wake.ts'
 import { QuickInput, QuickUnitLine, type EditAsk, type FixState, type Registration } from './QuickInput.tsx'
 import { RehearsalPanel } from './RehearsalPanel.tsx'
@@ -70,6 +74,7 @@ import { NOT_APPLIED_MESSAGE, UndoBar, secondsWord } from './UndoBar.tsx'
 import { PasteDialog } from './PasteDialog.tsx'
 import { chatPlatformTags } from '../lib/platforms.ts'
 import { VoiceConsentDialog, VoiceExtras, VoiceLive, VoiceToggle, voiceLiveShown } from './VoicePanel.tsx'
+import { TodayReportLink } from './ReportPage.tsx' // KP1
 
 export interface ConsolePageProps {
   readonly broadcastId: string
@@ -246,6 +251,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   // 인스타그램·틱톡 (N2b-2): 플랫폼 칸·알림 줄·붙여넣기 창
   const live = useConsolePlatforms({ store, broadcastId, date: broadcast.date, rehearsal: broadcast.rehearsal, lastMessageSeq: snapshot.messages.at(-1)?.seq ?? 0 })
   const [pasteOpen, setPasteOpen] = useState(false)
+  // 유튜브 수집 경고(서버 읽기 막힘 등)에서 연 붙여넣기 창은 유튜브 안내로 (YT-11 AC8, D-YT-SRV-09) — 같은 창·같은 넣기
+  const [pasteGuide, setPasteGuide] = useState<string | undefined>(undefined)
   const [pasteNote, setPasteNote] = useState<string | null>(null)
   // 붙여 넣던 글은 창을 닫아도 남는다 (넣기를 마치면 비운다 — UX-N2b-2-01)
   const [pasteDraft, setPasteDraft] = useState('')
@@ -256,6 +263,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   }, [pasteNote])
   const openPaste = useCallback(() => {
     setPasteNote(null)
+    setPasteGuide(undefined)
+    setPasteOpen(true)
+  }, [])
+  const openYoutubePaste = useCallback(() => {
+    setPasteNote(null)
+    setPasteGuide(YOUTUBE_PASTE_GUIDE)
     setPasteOpen(true)
   }, [])
   const youtubeLinked = yt.enabled && yt.link?.link !== null && yt.link?.link !== undefined
@@ -721,6 +734,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
 
   // 1등 옆 "입금 늦음 주의" (CRM1 D-CRM1-07): 실제 방송만, 판매자 전용 조회 — 받지 못하면 꼬리표 없이 그대로(오류 띠 없음)
   const caution = useConsoleCaution(data, broadcast.date, broadcast.rehearsal)
+  // KP1 채팅 손님 꼬리표 (CR-7): 새 채팅 구매자를 4초 이상 간격 50명씩 — 설정을 명시적으로 끄면 1등 옆 "입금 늦음 주의"까지 숨긴다(안 정함이면 그것은 보인다 — D-KP1-50)
+  const badgeBuyers = useMemo(() => chatBuyers(snapshot.messages), [snapshot.messages])
+  const chatBadges = useChatBadges(broadcast.date, broadcast.rehearsal, badgeBuyers)
+  const badgeOf = useMemo(() => badgeLookup(chatBadges.badges), [chatBadges.badges])
 
   // ── 빠른 입력 (AC-S05-10~13, D-084) ──────────────────────────────────
 
@@ -1412,6 +1429,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           >
             영수증 보내기
           </a>
+          {broadcast.rehearsal ? null : <TodayReportLink date={broadcast.date} /> /* KP1 오늘 리포트 */}
         </>
       ) : (
         <>
@@ -1458,12 +1476,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       sealedMessage={snapshot.sealedMessage}
       {...(optionMode ? { onReview: () => navigate({ name: 'reviews', broadcast: b, rehearsal: broadcast.rehearsal }) } : {})}
       platformTags={platformTags}
+      // KP1 UX-KP1-006·D-KP1-43: "방송 화면에 손님 표시"를 아직 정하지 않았으면 처음 한 번 묻는다 (실제 방송·봉인 전만) — 고정 영역·요약 줄을 밀지 않게 채팅 칸 안, 꼬리표 자리 위
+      top={chatBadges.undecided && !sealed ? <ConsoleBadgesAsk onDecide={chatBadges.decide} /> : null}
     />
   )
 
   return (
     <ConsoleContext.Provider value={api}>
-      <CautionContext.Provider value={caution}>
+      <CautionContext.Provider value={chatBadges.caution ? caution : HIDDEN_CAUTION}>
+      <ChatBadgesContext.Provider value={badgeOf}>
       <YoutubeContext.Provider value={yt}>
       <ReadOnlyContext.Provider value={sealed}>
       <main className={broadcast.rehearsal ? 'console console-rehearsal' : 'console'}>
@@ -1504,7 +1525,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
               제목 밑에 남고 스크롤해도 늘 보인다. 누르는 기능이 없어 Tab 차례는 그대로. PC·끝난 방송에는 없다 (QL2 D-QL2-11 (1)·D-QL2-14 (1)) */}
           {wide || ended || sealed ? null : <CurrentSummary product={current} />}
           <LiveNotices snapshot={snapshot} onRetry={() => void store.retryNow()} />
-          <CollectorWarningBar navigate={navigate} ended={ended || sealed} onPaste={openPaste} />
+          <CollectorWarningBar
+            navigate={navigate}
+            ended={ended || sealed}
+            extensionConnected={extension.view?.connected === true}
+            extensionReceiving={extensionReceiving(extension.view, b)}
+            onPaste={openYoutubePaste}
+          />
           <ExtensionWarningBar view={extension.view} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} navigate={navigate} />
           <ExtensionThanksBar handle={extension} broadcastId={b} ended={ended || sealed || broadcast.rehearsal} invited={invitedChannelName(yt.link?.link ?? null) !== null} />
           <QuotaToast />
@@ -1631,6 +1658,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       {pasteOpen ? (
         <PasteDialog
           broadcastId={b}
+          {...(pasteGuide === undefined ? {} : { guide: pasteGuide })}
           draft={pasteDraft}
           onDraftChange={setPasteDraft}
           onClose={() => setPasteOpen(false)}
@@ -1676,6 +1704,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       ) : null}
       </ReadOnlyContext.Provider>
       </YoutubeContext.Provider>
+      </ChatBadgesContext.Provider>
       </CautionContext.Provider>
     </ConsoleContext.Provider>
   )

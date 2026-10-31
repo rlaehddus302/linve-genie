@@ -93,6 +93,8 @@ export type LogCode =
   | 'IG_REPORT_FAILED'
   // 틱톡 연결 모듈 (N2b-1, D-N2b-1-08): 정해진 코드·실패 종류·개수만. 댓글·닉네임·아이디·판매자 틱톡 아이디·오류 메시지·서명 키는 남기지 않는다
   | 'TIKTOK_BETA_INVALID'
+  | 'TIKTOK_SIGN_NEAR_LIMIT'
+  | 'TIKTOK_SIGN_OVER_LIMIT'
   | 'TIKTOK_CONNECT_FAILED'
   | 'TIKTOK_DISCONNECTED'
   | 'TIKTOK_GAVE_UP'
@@ -174,6 +176,11 @@ export type LogCode =
   | 'ASSIST_EXCLUDED'
   // V3 음성 등록·고침 기록 (R-25, D-V3-65): 판매자·범위 날짜·줄 수만. 들은 말·품종·닉네임은 남기지 않는다
   | 'VOICE_LOG_FAILED'
+  // KP1 손님 장부 (CR-8): 판매자·개수·오류 종류만. 연락처·표지·코드 글·채팅 본문은 남기지 않는다
+  | 'LEDGER_CODE_FAILED'
+  | 'LEDGER_SWEEP_FAILED'
+  | 'LEDGER_SWEPT'
+  | 'LEDGER_SWEEP_SKIPPED' // KP1 RA-KP1-002
 
 export type LogSink = (record: LogRecord) => void
 
@@ -231,6 +238,8 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   IG_DM_FAILED: '인스타그램 DM 실행기에서 오류가 생겼어요(다음에 다시 해요)',
   IG_REPORT_FAILED: '인스타그램 DM 게시 보고를 기록하지 못했어요(다음에 다시 해요)',
   TIKTOK_BETA_INVALID: '틱톡 베타 스위치 값을 알아볼 수 없어 끔으로 봤어요',
+  TIKTOK_SIGN_NEAR_LIMIT: '틱톡 서명 서비스 하루 한도에 가까워졌어요(수만 기록)',
+  TIKTOK_SIGN_OVER_LIMIT: '틱톡 서명 서비스 하루 한도를 넘었어요(연결은 막지 않음)',
   TIKTOK_CONNECT_FAILED: '틱톡 연결 시도가 실패했어요',
   TIKTOK_DISCONNECTED: '받던 틱톡 연결이 끊겼어요',
   TIKTOK_GAVE_UP: '틱톡 다시 연결을 멈췄어요',
@@ -300,6 +309,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   ASSIST_NO_SUGGESTION: 'AI 답에서 검사를 통과하지 못한 항목을 제안 없음으로 두었어요',
   ASSIST_EXCLUDED: '유튜브 채팅은 AI에 보내지 않고 규칙 제안만 두었어요',
   VOICE_LOG_FAILED: '음성 기록의 실패 줄을 남기지 못했어요(상품 명령은 기록되지 않음)',
+  // KP1
+  LEDGER_CODE_FAILED: '채팅에서 손님 장부 연결 코드를 읽지 못했어요(기록·판정은 그대로)',
+  LEDGER_SWEEP_FAILED: '손님 장부 정리 중 오류가 생겼어요(다음 주기에 다시 해요)',
+  LEDGER_SWEPT: '보관 기간이 지난 손님 장부 줄과 끝난 연결 코드를 정리했어요',
+  LEDGER_SWEEP_SKIPPED: '읽지 못한 지난 장부가 있어 이 판매자의 손님 장부는 이번에 지우지 않았어요(다음 주기에 다시 봐요)', // KP1 RA-KP1-002
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

@@ -14,6 +14,9 @@ export interface Reply {
   readonly status?: number
   readonly body?: unknown
   readonly network?: boolean
+  /** JSON 대신 이 바이트를 그대로 (그림 파일 등) */
+  readonly bytes?: Uint8Array
+  readonly contentType?: string
 }
 
 type Handler = (call: Call, match: RegExpExecArray) => Reply | Promise<Reply>
@@ -46,6 +49,7 @@ export class FakeServer {
       const reply = await route.handler(call, match)
       if (reply.network === true) throw new TypeError('Network request failed')
       const status = reply.status ?? 200
+      if (reply.bytes !== undefined) return new Response(reply.bytes.slice().buffer, { status, headers: { 'Content-Type': reply.contentType ?? 'application/octet-stream' } })
       return new Response(reply.body === undefined ? '{}' : JSON.stringify(reply.body), { status, headers: { 'Content-Type': 'application/json' } })
     }
     return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }), { status: 404, headers: { 'Content-Type': 'application/json' } })

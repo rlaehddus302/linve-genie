@@ -55,6 +55,16 @@ const nameOf = (device: Pick<Device, 'name' | 'localName'>): string | null => {
   return name !== null && name !== '' ? name : null
 }
 
+/** 광고한 서비스 UUID — 글 목록일 때만 (고르기 목록 판정, L-7 PRN2) */
+const servicesOf = (device: Pick<Device, 'serviceUUIDs'>): { serviceUuids?: readonly string[] } => {
+  const list = device.serviceUUIDs
+  return Array.isArray(list) && list.length > 0 ? { serviceUuids: list.filter((u): u is string => typeof u === 'string') } : {}
+}
+
+/** 신호 세기 — 수가 아니면(모름·127 같은 '없음' 값) 넣지 않는다 */
+const rssiOf = (device: Pick<Device, 'rssi'>): { rssi?: number } =>
+  typeof device.rssi === 'number' && Number.isFinite(device.rssi) && device.rssi < 0 ? { rssi: device.rssi } : {}
+
 export function createPlxTransport(manager: BleManagerLike): BleTransport {
   return {
     async state() {
@@ -87,7 +97,7 @@ export function createPlxTransport(manager: BleManagerLike): BleTransport {
         if (error !== null || device === null) return
         if (seen.has(device.id) || !matches(device)) return
         seen.add(device.id)
-        onFound({ id: device.id, name: nameOf(device) })
+        onFound({ id: device.id, name: nameOf(device), ...rssiOf(device), ...servicesOf(device) })
       })
       return () => {
         void manager.stopDeviceScan().catch(() => undefined)

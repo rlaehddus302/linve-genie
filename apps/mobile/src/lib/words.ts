@@ -96,6 +96,13 @@ export const CONNECTION_STATE_WORD = {
 } as const
 export type ConnectionState = keyof typeof CONNECTION_STATE_WORD
 
+/** 저절로 다시 잇는 동안 (웹 print-words autoReconnectingMessage와 같다, L-11 8) — n = 기다리거나 하는 중인 시도의 차례 */
+export const autoReconnectingMessage = (attempt: number, total: number): string => `프린터에 다시 잇고 있어요. (${String(attempt)}/${String(total)})`
+/** 저절로 다시 잇기가 그친 뒤 (웹 AUTO_RECONNECT_GAVE_UP과 같다) */
+export const AUTO_RECONNECT_GAVE_UP = "저절로 다시 잇지 못했어요. 아래를 해 본 뒤 '다시 연결'을 눌러 주세요."
+/** 시험용 프린터 연결 단추 (웹 LabelsPage와 같은 낱말, L-11 15) */
+export const TEST_PRINTER_METHOD = '시험용 프린터 — 실제로 출력되지 않아요'
+
 export const REHEARSAL_NO_LABELS = '리허설 방송은 라벨을 출력하지 않아요.'
 export const NO_STATION_SHORT = '라벨이 안 나가요 · 프린터를 연결해 주세요'
 
@@ -159,3 +166,16 @@ export function awayLine(counts: { readonly labels: number; readonly claims: num
 }
 /** 블루투스를 쓸 수 없는 기기에서 프린터 연결을 눌렀을 때 (웹의 "이 브라우저에서는…" 대신) */
 export const APP_PRINTER_UNSUPPORTED = '이 휴대폰에서는 블루투스를 쓸 수 없어 프린터에 연결할 수 없어요. 블루투스가 되는 휴대폰에서 연결하거나, 컴퓨터 화면에서 라벨을 출력해 주세요.'
+/** 실험 기종 표시 — 고르기 목록 줄의 꼬리표, 연결 뒤 프린터 이름 뒤 "(실험)" (L-7 지원 단계, D-PRN2-01 — 웹과 같다) */
+export const EXPERIMENTAL_WORD = '실험'
+export const EXPERIMENTAL_MARK = '(실험)'
+/** 실험 기종: 테스트 인쇄 "예" 전에는 "이 기기에서 출력"이 없다 (L-7 지원 단계 — 웹 print-words와 같은 문장) */
+export const EXPERIMENTAL_WAIT_TEST = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'
+/** 이미 출력 기기인 기기에 실험 기종을 이었다: 테스트 "예" 전에는 받지 않는다 — 멈춘 까닭과 할 일 (D-PRN2-10, 웹과 같은 문장) */
+export const EXPERIMENTAL_PAUSED = '실험 중인 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.'
+/** 출력 기기 칸 — 실험 기종의 테스트 "예" 전 (D-PRN2-10, 웹과 같은 문장) */
+export const EXPERIMENTAL_WAIT_TEST_MINE = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.'
+/** 출력 기기에서 실험 기종의 테스트 "예"를 누른 뒤 (D-PRN2-10, 웹과 같은 문장) */
+export const EXPERIMENTAL_RESUMED = '좋아요. 멈췄던 출력을 이어서 해요.'
+/** "예" 뒤 다른 까닭으로 다시 멈췄을 때 — "이어서 해요"를 지난 일로 (UX-PRN2-006, 웹과 같은 문장) */
+export const TEST_CONFIRMED_PAST = '테스트 인쇄가 잘 나온 것을 확인했어요.'

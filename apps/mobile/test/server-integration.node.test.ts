@@ -107,7 +107,7 @@ it('앱 로그인 쿠키+Origin → 네이티브 PCM → 서버 전체 읽기 �
   await until(() => session.getView().remote?.phase === 'on')
   expect(native.start).toHaveBeenCalledTimes(2)
   expect((await get<FullView>(`/api/days/${broadcast.date}?rehearsal=true`)).products.filter((item) => item.no === 16)).toHaveLength(1)
-  const bitmap = await fetchTestBitmap()
+  const bitmap = await fetchTestBitmap('50x30')
   expect(bitmap.data.some((pixel) => pixel !== 0)).toBe(true)
   await session.turnOff()
   const { broadcast: live } = await post<{ broadcast: { id: string } }>('/api/broadcasts', { requestId: randomUUID(), title: '라벨 서버 통합' })

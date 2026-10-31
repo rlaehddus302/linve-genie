@@ -463,6 +463,21 @@ export interface YoutubeConnection {
 
 export type ConsentTarget = 'LIVE_CHAT' | 'VIDEO_COMMENT'
 
+/** 서버가 방송 주소만으로 유튜브 채팅을 읽는가 (YT-11) — on=false면 운영자가 끔(D-YT-SRV-07) */
+export interface YoutubeWebChat {
+  readonly on: boolean
+}
+
+/**
+ * GET /api/youtube/connection 응답 (YT-SRV dev-notes). webChat이 있으면 구글 연결 없이 잇기 칸을 연다(없거나 null이면 옛 공식 읽기).
+ * oauth=false면 구글 연결(감사 채팅용)을 쓸 수 없는 서버 — 연결 버튼 대신 안내. 옛 서버는 두 칸이 없다
+ */
+export interface YoutubeConnectionResponse {
+  readonly connection: YoutubeConnection
+  readonly webChat?: YoutubeWebChat | null
+  readonly oauth?: boolean
+}
+
 /** 내 라이브 목록 한 줄 */
 export interface LiveBroadcastItem {
   readonly videoId: string
@@ -472,6 +487,9 @@ export interface LiveBroadcastItem {
   readonly actualStartTime: string | null
   /** 이미 이어진 이 판매자의 회차 ID */
   readonly linkedBroadcast: string | null
+  /** 방송 채널 (서버 잇기의 최근 채널 찾기 — "{채널 이름} · {방송 제목}", 바깥 글이라 글자로만, YT-11) */
+  readonly channelId?: string
+  readonly channelTitle?: string | null
 }
 
 export type CollectorStatus = 'STARTING' | 'LIVE' | 'RETRYING' | 'STOPPED' | 'FINISHED' | 'CHAT_ENDED'
@@ -482,6 +500,7 @@ export interface CollectorView {
   readonly statusMessage: string
   readonly reason: string | null
   readonly reasonMessage: string | null
+  /** STREAM · POLL(옛 공식 읽기) · WEB(서버가 읽음, YT-11) — 화면에 보이지 않는다 */
   readonly mode: string
   readonly lastMessageAt: string | null
   readonly recorded: number
@@ -743,6 +762,8 @@ export interface TikTokCollection {
   readonly saveFailedSeen: number
   /** 입력 검사에 걸려 기록하지 않은 댓글 수 (D-N2b-2-17, 운영 확인용 — 화면에 보이지 않는다) */
   readonly skipped: number
+  /** 서명 서비스 하루 한도에 가깝거나 넘었을 때의 쉬운 문장 (CH-20) — 없거나 null이면 보이지 않는다 */
+  readonly signNotice?: string | null
 }
 
 /**

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as voice from '@livejjim/voice'
 import { BaseSpeechEngine, type SpeechResult } from '../../voice/src/speech.ts'
-import { VoiceController, type VoiceHost } from '../../../apps/web/src/voice/controller.ts'
+import { VoiceController, type VoiceHost } from '../src/controller/controller.ts'
 import { createReadingSession, type ReadingHost } from '../src/server.ts'
 import { fromWire, isVoiceClientMessage, toWire, type VoiceEffectMessage, type VoiceServerMessage, type VoiceStateMessage } from '../src/wire.ts'
 import { openResume } from '../src/resume.ts'
@@ -17,6 +17,21 @@ class Engine extends BaseSpeechEngine {
   stop() { this.setState('OFF') }
   result(result: SpeechResult) { this.emitResult(result) }
 }
+/**
+ * SRV1 (D-APP-22·D-APP-25): 옛 크롬 받아쓴 글(chromeResult) 대신 받아쓰기 일꾼의 최종 글(onResult)로 말한다 — 같은 읽기 컨트롤러를 지난다.
+ * 말 끝 시각이 지금이 되도록 처음 한 번 capture(소리 잡은 시각)를 보내고, 끝 ms는 그 뒤 지난 시간이다(늦은 글 판단 D-APP-12에 걸리지 않게)
+ */
+function speaker(session: { onMessage(value: unknown): void; onResult(text: string, startMs: number, endMs: number): void }) {
+  let capturedAt: number | null = null
+  return (text: string) => {
+    if (capturedAt === null) {
+      capturedAt = Date.now()
+      session.onMessage({ type: 'voice.session', op: 'capture', at: capturedAt })
+    }
+    const end = Date.now() - capturedAt
+    session.onResult(text, Math.max(0, end - 100), end)
+  }
+}
 beforeEach(() => { vi.useFakeTimers({ now: T0 }) })
 afterEach(() => { vi.useRealTimers() })
 
@@ -24,9 +39,10 @@ describe('APP1b server reading session', () => {
   it('releases a registration collision only for the original server card and allows the next price correction', async () => {
     const messages: VoiceServerMessage[] = []
     let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null
-    const session = createReadingSession({ host: { ...data(), existingProduct: (no) => no === 15 ? product : null }, device: 'test', mode: 'chrome', send: (message) => messages.push(message) })
+    const session = createReadingSession({ host: { ...data(), existingProduct: (no) => no === 15 ? product : null }, device: 'test', send: (message) => messages.push(message) })
+    const speak = speaker(session)
     session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { 'voice.autoRegister': true } } }); await settle()
-    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '15번 라울 만원', final: true } })
+    speak('15번 라울 만원')
     await vi.advanceTimersByTimeAsync(1900)
     const sent = messages.find((message): message is VoiceEffectMessage => message.type === 'voice.effect' && message.method === 'register')
     if (sent === undefined) throw new Error('음성 등록이 없다')
@@ -42,7 +58,7 @@ describe('APP1b server reading session', () => {
     }
     session.onMessage({ type: 'voice.session', op: 'command', method: 'instantExists', args: [card] }); await settle()
     expect(latest().offers).toEqual([expect.objectContaining({ stage: 'ask', changes: { name: '라울', price: 10000 } })])
-    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '15번 라울 만원', final: true } })
+    speak('15번 라울 만원')
     await vi.advanceTimersByTimeAsync(1900)
     const fixes = messages.filter((message): message is VoiceEffectMessage => message.type === 'voice.effect' && message.method === 'fixRecent')
     expect(fixes).toHaveLength(1)
@@ -54,7 +70,7 @@ describe('APP1b server reading session', () => {
   it('preserves the other-number notice after an early interim registration in the long R7 utterance', async () => {
     const messages: VoiceServerMessage[] = []
     let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null
-    const session = createReadingSession({ host: { ...data(), existingProduct: (no) => no === 139 ? product : null }, device: 'test', mode: 'chrome', send: (message) => {
+    const session = createReadingSession({ host: { ...data(), existingProduct: (no) => no === 139 ? product : null }, device: 'test', send: (message) => {
       messages.push(message)
       if (message.type === 'voice.effect' && message.method === 'register') {
         const [, registration] = fromWire(message.args) as [unknown, { name: string; price: number }]
@@ -62,13 +78,12 @@ describe('APP1b server reading session', () => {
       }
     } })
     session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { 'voice.autoRegister': true } } }); await settle()
-    const tokens = '어 자 요거 지금 189번인데 뿌리가 있습니다 뿌리 있는데 컵이 너무 잘 들었어요 빅뱅 금 139번 얘 50만 원 들어요'.split(' ')
-    for (let i = 1; i <= tokens.length; i++) {
-      if (i > 1) await vi.advanceTimersByTimeAsync(200)
-      session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: tokens.slice(0, i).join(' '), final: i === tokens.length, slot: '1:0', lead: true } })
-      if (i === 19) { session.onMessage({ type: 'voice.session', op: 'command', method: 'noteVoiceRegistered', args: [{ id: 'broadcast:139', no: 139, name: '빅뱅금', price: 500000 }] }); await settle() }
-    }
-    await vi.advanceTimersByTimeAsync(1900 + 2500)
+    // SRV1: 옛 크롬 중간 글(굳은 중간 글 D-V3-80) 대신 받아쓰기 일꾼의 최종 글 하나 — 같은 긴 말
+    const speak = speaker(session)
+    speak('어 자 요거 지금 189번인데 뿌리가 있습니다 뿌리 있는데 컵이 너무 잘 들었어요 빅뱅 금 139번 얘 50만 원 들어요')
+    await vi.advanceTimersByTimeAsync(1900)
+    session.onMessage({ type: 'voice.session', op: 'command', method: 'noteVoiceRegistered', args: [{ id: 'broadcast:139', no: 139, name: '빅뱅금', price: 500000 }] }); await settle()
+    await vi.advanceTimersByTimeAsync(2500)
     const latest = messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)!
     expect(fromWire(latest.snapshot)).toMatchObject({ readout: { text: '139번으로 등록했는데 189번도 들렸어요. 맞는지 확인해 주세요.' } })
     expect(messages.filter((message) => message.type === 'voice.effect' && message.method === 'register')).toHaveLength(1)
@@ -77,7 +92,7 @@ describe('APP1b server reading session', () => {
   it.each(['ack', 'failed', 'timeout'] as const)('waits for the matching client registration before a following automatic price correction (%s)', async (outcome) => {
     const messages: VoiceServerMessage[] = []
     let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null
-    const session = createReadingSession({ host: { ...data(), existingProduct: (no) => no === 55 ? product : null }, device: 'test', mode: 'chrome', send: (message) => {
+    const session = createReadingSession({ host: { ...data(), existingProduct: (no) => no === 55 ? product : null }, device: 'test', send: (message) => {
       messages.push(message)
       if (message.type === 'voice.effect' && message.method === 'register') {
         const [, registration] = fromWire(message.args) as [unknown, { name: string; price: number }]
@@ -85,11 +100,11 @@ describe('APP1b server reading session', () => {
       }
     } })
     session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { 'voice.autoRegister': true } } }); await settle()
-    const tokens = '55번 만 원 아니 만오천 원'.split(' ')
-    for (let i = 1; i <= tokens.length; i++) {
-      if (i > 1) await vi.advanceTimersByTimeAsync(200)
-      session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: tokens.slice(0, i).join(' '), final: i === tokens.length, slot: '1:0', lead: true } })
-    }
+    // SRV1: 옛 크롬 중간 글로 먼저 등록되던 앞 말과 뒤따른 정정을 받아쓰기 일꾼의 두 최종 글로
+    const speak = speaker(session)
+    speak('55번 만 원')
+    await vi.advanceTimersByTimeAsync(1900)
+    speak('아니 만오천 원')
     await vi.advanceTimersByTimeAsync(1900)
     const registration = messages.find((message) => message.type === 'voice.effect' && message.method === 'register')
     expect(registration).toBeDefined()
@@ -119,11 +134,12 @@ describe('APP1b server reading session', () => {
   })
   it('flushes an accepted unfinished phrase into the final off-state log and ignores late capture', async () => {
     const messages: VoiceServerMessage[] = []
-    const session = createReadingSession({ host: data(), device: 'test', mode: 'chrome', send: (message) => messages.push(message) })
+    const session = createReadingSession({ host: data(), device: 'test', send: (message) => messages.push(message) })
+    const speak = speaker(session)
     session.onMessage({ type: 'voice.session', op: 'hello', context: context() }); await settle()
-    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '첫 문장이에요', final: true } })
+    speak('첫 문장이에요')
     session.onMessage({ type: 'voice.session', op: 'command', method: 'turnOff', args: [] }); await settle()
-    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '늦게 온 문장이에요', final: true } })
+    speak('늦게 온 문장이에요')
     const latest = messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)!
     expect(fromWire(latest.snapshot)).toMatchObject({ phase: 'off', log: [{ pieces: [{ text: '첫 문장이에요' }] }] })
     expect(fromWire(latest.display)).toMatchObject({ logLines: [{ pieces: ['첫 문장이에요'] }] })
@@ -131,8 +147,9 @@ describe('APP1b server reading session', () => {
   })
   it('resumes cards, edited forms and SMS while off, with no automatic writes and the same SMS retry request', async () => {
     const messages: VoiceServerMessage[] = []
-    const options = { host: { ...data(), smsReadOptions: () => ({ maxNumber: 999 }), smsProduct: () => ({ state: 'OPEN' as const, waitlistFull: false }) }, device: 'device', accountId: 'seller', broadcastId: 'broadcast', mode: 'chrome' as const, send: (message: VoiceServerMessage) => messages.push(message) }
+    const options = { host: { ...data(), smsReadOptions: () => ({ maxNumber: 999 }), smsProduct: () => ({ state: 'OPEN' as const, waitlistFull: false }) }, device: 'device', accountId: 'seller', broadcastId: 'broadcast', send: (message: VoiceServerMessage) => messages.push(message) }
     let session = createReadingSession(options)
+    const speak = speaker(session)
     const start = async (token?: string) => {
       session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), smsSettings: { 'voice.smsAutoSec': 10 }, ...(token === undefined ? {} : { resumeToken: token, listening: false }) } })
       await settle()
@@ -140,12 +157,12 @@ describe('APP1b server reading session', () => {
     const latest = () => messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state' && message.sessionReady).at(-1)!
     const view = () => fromWire(latest().snapshot) as ReturnType<VoiceController['getSnapshot']>
     await start()
-    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '16번 엘레강스 만오천원', final: true } })
+    speak('16번 엘레강스 만오천원')
     await vi.advanceTimersByTimeAsync(1900)
     const id = view().cards[0]!.id
     session.onMessage({ type: 'voice.session', op: 'command', method: 'openForm', args: [id] })
     session.onMessage({ type: 'voice.session', op: 'command', method: 'editForm', args: [id, { price: '18000' }] })
-    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '15번 문자찜 끝자리 1234', final: true } })
+    speak('15번 문자찜 끝자리 1234')
     await vi.advanceTimersByTimeAsync(1900)
     session.onMessage({ type: 'voice.session', op: 'command', method: 'turnOff', args: [] }); await settle()
     const before = view(), token = latest().resumeToken
@@ -182,7 +199,8 @@ describe('APP1b server reading session', () => {
 
   it('preserves existing controller cards, candidates, forms and registration for the same utterances', async () => {
     const messages: VoiceServerMessage[] = []
-    const server = createReadingSession({ host: data(), device: 'test', mode: 'chrome', send: (message) => messages.push(message) })
+    const server = createReadingSession({ host: data(), device: 'test', send: (message) => messages.push(message) })
+    const speak = speaker(server)
     const engine = new Engine()
     const registered: unknown[][] = []
     const host: VoiceHost = { ...data(), load: async () => voice, createEngine: () => engine, now: Date.now, dialogOpen: () => false, readConsent: () => true, writeConsent() {}, readSettings: () => context().settings, writeSettings() {}, register: (...args) => registered.push(args), focusQuick() {} }
@@ -191,7 +209,7 @@ describe('APP1b server reading session', () => {
     await original.turnOn(); await settle()
     for (const text of ['15번 엘레강스 만오천원', '16번 핑크프릴 이만원']) {
       engine.result({ text, final: true })
-      server.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text, final: true } })
+      speak(text)
       await vi.advanceTimersByTimeAsync(1900)
     }
     const latest = () => fromWire((messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1) as VoiceStateMessage).snapshot) as ReturnType<VoiceController['getSnapshot']>
@@ -217,9 +235,10 @@ describe('APP1b server reading session', () => {
 
   it('moves queued deadlines with the supplied device clock and discards all timers on close', async () => {
     const messages: VoiceServerMessage[] = []
-    const session = createReadingSession({ host: data(), device: 'test', mode: 'chrome', send: (message) => messages.push(message) })
+    const session = createReadingSession({ host: data(), device: 'test', send: (message) => messages.push(message) })
+    const speak = speaker(session)
     session.onMessage({ type: 'voice.session', op: 'hello', context: context() }); await settle()
-    session.onMessage({ type: 'voice.session', op: 'chromeResult', result: { text: '15번 엘레강스 만오천원', final: true } })
+    speak('15번 엘레강스 만오천원')
     session.onMessage({ type: 'voice.session', op: 'context', context: { ...context(), now: T0 + 1900 } })
     const state = messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)
     expect((fromWire(state?.snapshot) as { cards: unknown[] }).cards).toHaveLength(1)

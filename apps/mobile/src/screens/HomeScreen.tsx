@@ -69,7 +69,7 @@ export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; 
   const ended = items?.filter((item) => item.ended) ?? []
 
   return (
-    <Screen title="방송 목록" testID="home-screen">
+    <Screen title="어떤 방송을 열까요?" testID="home-screen">
       <Hint>{sellerName} 사장님</Hint>
       <Row wrap>
         <BigButton label="새 방송 시작" primary={!formOpen} onPress={() => setFormOpen((open) => !open)} />

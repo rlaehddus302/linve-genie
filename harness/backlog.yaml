@@ -1265,6 +1265,52 @@ sprints:
     specIds: [VOC-01, VOC-05, VOC-06, APP-05, PRD-01, ORD-08, YT-03, YT-10, PLT-02, NFR-09]
     status: todo
 
+  - id: PRN2
+    phase: 7
+    title: 프린터 지원 단계 — 확인됨(B1)·실험(NIIMBOT 다른 모델·Marklife·바우아토)·그림 파일로만, 고르기 목록, 바우아토 Luck Jingle 규약
+    dependsOn: [APP2]
+    devs: [device, server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    goal: >
+      D-PRN2-01~08(AUTO). 기본 프린터 NIIMBOT B1(확인됨), 나머지 켠 프로필은 "실험", 표에 없는 프린터는 그림 파일로만.
+      device: 프로필 표를 LABEL_RULES L-7·L-12대로(NIIMBOT B1 SE·B21·D110 줄 추가, Marklife 9종 experimental true, 바우아토 방식 LUCKJINGLE),
+      바우아토 작업 바이트(Luck Jingle 순서)·끝 알림 OK(바우아토만)·꾸러미 A ff03 없어도 동작, 고르기 목록 판정 함수 하나(앱·웹 공용, 이름 앞자리 먼저).
+      server: 출력 기기 프로필 ID 기록, 라벨 그림 PNG 입구(/api/print/jobs/:id/png·/api/print/test-png).
+      web: 실험 표시(목록·"(실험)"·안내·테스트 인쇄 "네" 뒤 출력), 프로필별 크기 목록, 앱 숨김 스위치 제거, 그림 파일로 대체 길(웹 PNG, 앱 공유 창).
+      tests: domain — 골든 printer/{profile,job,end,list} 전부. e2e — 실험 표시·크기 목록·PNG·가짜 프린터.
+      순서 device → server → web. 수용 기준: harness/sprints/PRN2/acceptance.md. 실물 확인은 HG-5.
+    specIds: [PRT-01, PRT-02, LBL-06, LBL-12, APP-03]
+    note: >
+      자동 구현·통합 검증 범위 완료(D-PRN2-01~41). 프린터 지원 단계(확인됨·실험·그림 파일로만)와 바우아토 규약은 모의 프린터·골든으로만 확인.
+      HG-5 실물 확인은 미확인으로 남음; 실제 프린터 출력 검증 완료를 뜻하지 않음.
+    carryOver:
+      - "사람 확인 HG-5: NIIMBOT B1 외 프린터(B1 SE·B21·D110, Marklife 9종, 바우아토)는 실물 출력 확인 전까지 '실험'. 판매자 실기기 테스트 인쇄·용지 크기·농도 확인 필요."
+      - "후속: 앱 라벨 크기 멈춤 단추·멈춘 대기 라벨 그림 파일 보내기(D-PRN2-41), 알림 띠 잘림 UX-PRN2-012, 스펙 낱말 네→예 정리(D-PRN2-38)"
+    status: done
+
+  - id: KP1
+    phase: 7
+    title: 단골 만들기 — 손님 장부(동의한 배송지 이어 쓰기·연결 코드·손님 엑셀·콘솔 손님 표시), 방송 리포트, 방송 일정·알림 받기 동의, 문자 규칙(보내지 않음)
+    dependsOn: [CRM1, T1, N4b]
+    devs: [device, server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    goal: >
+      D-KP1-01~D-KP1-21(AUTO). 판정 엔진·엔진 골든 변경 없음(엔진 밖). 문자·알림톡은 하나도 보내지 않는다(D-KP1-20 — 발송은 다음 스프린트).
+      device: packages/documents 손님 엑셀(CR-6 — 기본 9열, 고를 때만 연락처 열, 수식 글 앞 ').
+      server: CUSTOMER_RULES CR-2~CR-8 — 확인서 링크 동의 칸·장부 줄(표지 묶음·암호화·합치기)·동의 기록·보관 기간 정리(시작 때·1시간마다)·손님/판매자 지우기,
+      다음 주문 "확인 전" 보이기(PC-3 예외·PC-4 UNCONFIRMED)·연결 코드(48낱말·24시간·한 번·손님 확인)·콘솔 손님 표시 묶음 조회(4초·50명)·손님 엑셀 경로와 기록,
+      리포트 계산(RPT-01~RPT-08 — 실제 날짜, 봉인 날짜 처리), 방송 일정·공개 페이지 /s/<토큰>(서버 HTML)·알림 받기 신청/그만 받기(MR-6, 모두 PENDING), MESSAGE_RULES 순수 함수 넷,
+      골든 customers·message·report 137사례를 읽는 서버 시험(파일·사례 고정값).
+      web: 확인서 링크 칸·저장한 배송지 표시·지우기·연결 코드 화면, 묶음 배송지 "지난 주문 배송지예요", 손님 자세히(장부·이은 계정·지우기), 콘솔 채팅 꼬리표·끄는 설정,
+      리포트 화면(RPT-07 순서, 375px), 일정 설정·알림 신청 수, 손님 엑셀 받기 창. 앱(apps/mobile) 화면도 web 영역.
+      tests: domain — 판매자만·판매자마다(401/403/404, 다른 가게 섞임 없음), 새는 곳 없음(링크·라벨·대장·백업·로그), 판정 영향 없음, 연결 코드 훔치기·한 번, 리포트=판매대장 합, 바깥 연결 0번.
+      e2e — 방송 둘에 걸친 장부 한 바퀴·꼬리표·리포트·지우기, PC·375.
+      순서 device → server → web. 수용 기준: harness/sprints/KP1/acceptance.md(AC-KP1-01~29). 법률·문구·솔라피는 DECISIONS 사용자 확인 필요.
+    specIds: [BUY-08, RPT-01, RPT-02, RPT-03, RPT-04, RPT-05, RPT-06, RPT-07, RPT-08, SCH-01, SCH-02, SCH-03, MSG-01, BUY-06, PC-3, DAT-06]
+    status: done
+
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
   - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"
@@ -1313,6 +1359,13 @@ techDebt:
   - "UX-I1-010: 출력 멈춤 대화상자 버튼에 숫자 '1'이 안 보임"
   - "UX-I1-011: 처음 연 라벨 화면이 '이 기기의 프린터: 끊김'으로 보임"
   - "UX-I1-013: 저장하지 않은 라벨 설정이 경고 없이 사라짐"
+  - "UX-KP1-015: 리포트 앞선 방송이 하나뿐이면 '지난 방송'과 '최근 1번 평균' 비교가 같은 숫자로 겹치고 '1개 많아요'에 기준 숫자가 없음 (D-KP1-49)"
+  - "UX-KP1-016: 공개 일정 주소가 43자로 길어 세 줄로 꺾이고 손님 화면 미리 보기 링크가 없음 (D-KP1-49)"
+  - "UX-KP1-008: 연결 코드를 잘못 이었을 때 손님 링크에서 되돌리는 길이 없음 (D-KP1-49)"
+  - "RA-KP1-103: 장부 정리가 매시간 캐시 밖 봉인 날짜 재료를 다시 세움 — 판매자 사이 양보만 넣음, 하루 한 번·마지막 주문 날짜 저장은 미룸"
+  - "RA-KP1-009: 확인서 링크 GET마다 knownMarkers(force=true)로 그날 재료를 세움(seq 캐시라 낮은 위험)"
+  - "TE-KP1-003: 콘솔이 손님 표시 설정을 받기 전에 꼬리표 조회를 한 번 보냄(화면엔 안 보임, nit)"
+  - "SA-KP1-GATE: 커밋 a6f71c33이 [dev:server] 접두어로 harness/sprints/KP1/contract.md를 올려 보호 경로 게이트 위반 — 강제 push가 막혀 이력을 고치지 못함, 합칠 때 오케스트레이터 판단"
 
 # 해결·결정된 지적 (D-QS1-08 — 뒤 스프린트 수용 기준이나 DECISIONS 결정 줄이 다룸, 지우지 않고 옮김)
 techDebtResolved:

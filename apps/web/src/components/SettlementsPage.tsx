@@ -49,6 +49,7 @@ import { ReasonField } from './ReasonField.tsx'
 import { ReceiptSection } from './ReceiptSection.tsx'
 import { Lock } from './Lock.tsx'
 import { ScopePicker, sealOf, useScopeChoice } from './ScopePicker.tsx'
+import { ReportLink } from './ReportPage.tsx' // KP1
 import { SealNotice } from './SealNotice.tsx'
 import { ReadOnlyContext } from '../lib/read-only.ts'
 import { SettlementVoiceLog } from './VoiceLogView.tsx'
@@ -227,6 +228,7 @@ function ClosingActions({ data }: { readonly data: ScopeData }) {
         </button>
       )}
       {ledger ? <LedgerDialog date={data.date} onClose={() => setLedger(false)} /> : null}
+      {data.rehearsal ? null : <ReportLink date={data.date} /> /* KP1 방송 리포트 */}
     </div>
   )
 }

@@ -456,3 +456,13 @@ export { FakePopbillTransport, FAKE_POPBILL_MGT_URL, type FakePopbillAccount, ty
 export { openAccount, sealAccount, type AccountSecret } from './deposit/account-seal.ts'
 export { DEPOSIT_STATUSES, type DepositStatus, type SourceKind } from './deposit/store.ts'
 export { DEPOSIT_REQUEST_PREFIX } from './api.ts'
+// KP1 메시지 규칙 (MESSAGE_RULES — 순수 함수, 보내는 코드 없음). 이름이 겹치는 생성기 MessageKind 대신 MessageRuleKind로도 낸다
+export * from './messaging/rules.ts'
+export type { MessageKind as MessageRuleKind } from './messaging/rules.ts'
+// KP1 방송 리포트·방송 일정 (순수 함수·서비스·정리 작업)
+export { NO_NAME_VARIETY, RUSH_WINDOW_MS, reportBuckets, reportCompare, reportRush, reportSummary, reportVarieties, type ReportSummary } from './report/rules.ts'
+export { ReportService, REPORT_RUSH_MAX, type ReportView } from './report/service.ts'
+export { ScheduleService, storedPhones, type AlertCounts, type ScheduleView } from './schedule/service.ts'
+export { SCHEDULE_MAX, SCHEDULE_MESSAGES } from './schedule/rules.ts'
+export { ALERT_FORM_LIMIT, SCHEDULE_PAGE_LIMIT, SCHEDULE_PAGE_MESSAGES } from './schedule/page.ts'
+export { sweepSchedule } from './schedule/sweep.ts'

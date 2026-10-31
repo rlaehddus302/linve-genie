@@ -2,7 +2,7 @@
 // 꾸러미 A(ff00: 쓰기 ff02 · 알림 ff01 · 흐름 제어 ff03) · C(fd00: 쓰기 fd01 · 알림 fd02), 흐름 제어 알림을 켜면 첫 크레딧 `01 04`(+ MTU 알림 `02 lo hi`),
 // 조각마다 `01 01`, 작업을 다 받으면 알림으로 `AA`. 받은 조각을 복사해 기록한다. 장치 여럿을 둘 수 있다(찾기 목록 시험).
 import type { BleError, Characteristic, Device, Service, State } from 'react-native-ble-plx'
-import { fakeJobLength, uuid16, type PrinterProtocol } from '@livejjim/printer'
+import { fakeJobLength, uuid16, type LabelProtocol } from '@livejjim/printer'
 import { decodeBase64, encodeBase64, type BleManagerLike, type BleTransport } from '../src/index.ts'
 
 type ScanListener = (error: BleError | null, device: Device | null) => void
@@ -16,7 +16,7 @@ export interface FakeMarklifeDeviceOptions {
   readonly name?: string | null
   /** 이을 수 있는 Marklife 프린터인지 (아니면 찾기 목록에만 보이는 장치) */
   readonly printer?: {
-    readonly protocol: Exclude<PrinterProtocol, 'NIIMBOT_B1'>
+    readonly protocol: LabelProtocol
     readonly bundle: 'A' | 'C'
     /** 첫 크레딧 (기본 4). null이면 보내지 않는다 */
     readonly initialCredits?: number | null

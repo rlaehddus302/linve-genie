@@ -27,6 +27,7 @@ import { kstClockWords } from '../lib/kst.ts'
 import { groupDigits } from '../lib/money.ts'
 import {
   INSTAGRAM_LIVES_EMPTY,
+  INSTAGRAM_PASTE_HINT,
   INSTAGRAM_NOT_CONFIGURED,
   INSTAGRAM_NOT_CONNECTED,
   INSTAGRAM_RECONNECT,
@@ -647,7 +648,7 @@ async function send<T>(ids: ReturnType<typeof useRequestIds>, key: string, path:
 
 // ── 인스타그램 칸 (AC-N2b-2-63) ───────────────────────────────────────
 
-function InstagramPanel({ live, broadcastId, navigate, ended, sealed, hideIdle }: PlatformPanelsProps & IdleProps) {
+function InstagramPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hideIdle }: PlatformPanelsProps & IdleProps) {
   const { instagram, igLink } = live
   const action = useAction()
   const ids = useRequestIds()
@@ -696,7 +697,7 @@ function InstagramPanel({ live, broadcastId, navigate, ended, sealed, hideIdle }
 
   const open = igLink !== null && igLink.state !== 'NONE'
   const collection = igLink?.collection ?? null
-  const idle = instagram !== null && (!instagram.configured || instagram.status === 'NOT_CONNECTED') && !open && live.notices.length === 0 && live.dmFailed === 0 && action.error === null && !asking
+  const idle = instagram !== null && (!instagram.configured || instagram.status === 'NOT_CONNECTED') && !open && live.notices.length === 0 && live.dmFailed === 0 && action.error === null && !asking && sealed
   if (hideIdle && idle) return null
   return (
     <section className="card stack platform-panel instagram-panel" aria-label="인스타그램">
@@ -782,6 +783,16 @@ function InstagramPanel({ live, broadcastId, navigate, ended, sealed, hideIdle }
         ) : (
           <p>이은 인스타그램 라이브가 없어요.</p>
         )
+      ) : null}
+      {!sealed ? (
+        <div className="stack-tight">
+          <p className="hint">{INSTAGRAM_PASTE_HINT}</p>
+          <div className="row">
+            <button type="button" className="button" aria-label="인스타그램 댓글 붙여넣기" onClick={onPaste}>
+              댓글 붙여넣기
+            </button>
+          </div>
+        </div>
       ) : null}
       {live.dmFailed > 0 ? <p className="warning">{failedDmMessage(live.dmFailed)}</p> : null}
       {live.notices.length > 0 ? (
@@ -882,6 +893,7 @@ function TikTokPanel({ live, broadcastId, navigate, ended, sealed, onPaste, hide
               {extensionHint !== null && extensionHint !== '' ? <p className="tiktok-hint">{extensionHint}</p> : null}
               {extension?.warning != null ? <p className="warning">{extension.warning}</p> : null}
               {collection.missed && collection.missedMessage !== null ? <p className="warning">{collection.missedMessage}</p> : null}
+              {collection.signNotice != null ? <p className="warning">{collection.signNotice}</p> : null}
               {!sealed && tiktokUnseenSaveFailed(collection) > 0 ? (
                 <div className="row">
                   <button

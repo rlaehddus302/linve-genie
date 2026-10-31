@@ -19,7 +19,7 @@ import {
 } from '@livejjim/core'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { chatRaw, outbox, scopeLockKey, scopes, snapshots, youtubeCollectors, youtubeNotices, voiceLog, youtubeOwnMessages } from '../db/schema.ts'
+import { chatRaw, events as eventsTable, outbox, scopeLockKey, scopes, snapshots, youtubeCollectors, youtubeNotices, voiceLog, youtubeOwnMessages } from '../db/schema.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import { emptyState } from '../runtime.ts'
 import { sha256Hex } from '../secrets.ts'
@@ -27,7 +27,7 @@ import { eventsAfter } from '../store.ts'
 import { iso, withIsoTimes } from '../time.ts'
 import { MissingAmountError, requireAmount } from '../amount.ts'
 import { winnerClaimsOf } from '../winners.ts'
-import type { ScopeWriter } from '../writer.ts'
+import { eventDigest, type ScopeWriter } from '../writer.ts'
 import { kstMidnightAfter, type Timer } from './timer.ts'
 
 /** 봉인까지 날 수 (AC-Y1-61) */
@@ -253,7 +253,33 @@ export class Sealer {
         // 장부 재료: 로그 전체를 처음부터 재생 (따로 둔 본문·이름을 합쳐서) — 확정 시각도 함께
         const events = await eventsAfter(tx, sellerId, scopeId, 0)
         const { state, times } = confirmTimes(events)
-        const ledger = JSON.stringify(buildLedger(date, state, times, now))
+        const built = buildLedger(date, state, times, now)
+        const ledger = JSON.stringify(built)
+        // (2-1) 산 적도 정산 기록도 없는 시청자의 채널 ID — 이름·본문처럼 개인정보라 남의 방송(초대받은 방송) 채팅까지 함께 지운다 (CH-12).
+        // 장부에 있는 구매자(합쳐진 이전 구매자 포함)의 채팅만 채널 ID를 남긴다 (지난 구매·손님 기록이 그 표지로 잇는다)
+        const kept = new Set<string>()
+        for (const buyer of built.buyers) {
+          if (typeof buyer.id === 'string') kept.add(buyer.id)
+          if (typeof buyer.mergedInto === 'string') kept.add(buyer.mergedInto)
+        }
+        for (const row of events) {
+          if (row.type !== 'chat') continue
+          let parsed: Record<string, unknown>
+          try {
+            parsed = JSON.parse(row.body) as Record<string, unknown>
+          } catch {
+            continue
+          }
+          if (typeof parsed.ch !== 'string' || kept.has(parsed.ch)) continue
+          // 읽어 온 본문은 따로 둔 본문·이름을 합친 것이다 — 합친 칸(nick·text)도 함께 빼야 지운 원문이 되돌아오지 않는다
+          const { ch: _ch, nick: _nick, text: _text, ...rest } = parsed
+          void [_ch, _nick, _text]
+          const body = JSON.stringify(rest)
+          await tx
+            .update(eventsTable)
+            .set({ body, raw: false, digest: eventDigest(scopeId, row.seq, row.type, body, row.failed) })
+            .where(and(eq(eventsTable.sellerId, sellerId), eq(eventsTable.scopeId, scopeId), eq(eventsTable.seq, row.seq)))
+        }
         // (1) 발송함: 끝나지 않은 감사·요약 행은 보내지 못함(봉인), 모든 행의 게시 문구를 지운다(효과 본문의 문구 포함)
         await tx
           .update(outbox)

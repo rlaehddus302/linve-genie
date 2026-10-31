@@ -1,11 +1,17 @@
-// 공통 조각: 큰 단추·입력칸·알림 상자·꼬리표·화면 틀. 역할(role)·이름(aria-label)을 정확히 달아 시험·보조 기술이 잡기 쉽게 한다.
+// 공통 조각: 큰 단추·입력칸·알림 상자·꼬리표·화면 틀. 모양은 공통 디자인 바탕(ui/kit)에서 가져오고,
+// 역할(role)·이름(aria-label)을 정확히 달아 시험·보조 기술이 잡기 쉽게 한다. (화면들이 쓰는 이 이름·인자는 그대로 둔다.)
 import type { ReactNode } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native'
-import { COLOR, FONT, FONT_BIG, FONT_SMALL, GAP, TONE_BG, TONE_TEXT, TOUCH, type Tone } from './theme.ts'
+import { ActivityIndicator, Pressable, ScrollView, TextInput, View, type TextInputProps } from 'react-native'
+import { RADIUS, SHADOW, SPACE, TOUCH } from './kit/tokens.ts'
+import { Txt, useKit, type TxtColor } from './kit/theme.tsx'
+import type { Tone } from './theme.ts'
+
+const TONE_MARK: Readonly<Record<Tone, string>> = { info: 'i', success: '✓', warning: '!', danger: '✕' }
 
 export function Screen({ title, children, testID }: { readonly title?: string; readonly children: ReactNode; readonly testID?: string }) {
+  const { p } = useKit()
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.screenContent} keyboardShouldPersistTaps="handled" testID={testID}>
+    <ScrollView style={{ flex: 1, backgroundColor: p.background }} contentContainerStyle={{ padding: SPACE.lg, paddingTop: SPACE.xl, gap: SPACE.lg, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" testID={testID}>
       {title !== undefined ? <Title>{title}</Title> : null}
       {children}
     </ScrollView>
@@ -14,26 +20,34 @@ export function Screen({ title, children, testID }: { readonly title?: string; r
 
 export function Title({ children }: { readonly children: ReactNode }) {
   return (
-    <Text role="heading" aria-level={1} style={styles.title}>
+    <Txt step="headline" weight="bold" role="heading" aria-level={1}>
       {children}
-    </Text>
+    </Txt>
   )
 }
 
 export function SectionTitle({ children }: { readonly children: ReactNode }) {
   return (
-    <Text role="heading" aria-level={2} style={styles.sectionTitle}>
+    <Txt step="section" weight="bold" role="heading" aria-level={2}>
       {children}
-    </Text>
+    </Txt>
   )
 }
 
 export function Body({ children, muted, bold, big }: { readonly children: ReactNode; readonly muted?: boolean; readonly bold?: boolean; readonly big?: boolean }) {
-  return <Text style={[styles.body, muted === true ? styles.muted : null, bold === true ? styles.bold : null, big === true ? styles.big : null]}>{children}</Text>
+  return (
+    <Txt step={big === true ? 'bodyLarge' : 'body'} weight={bold === true ? 'bold' : 'regular'} color={muted === true ? 'textSub' : 'text'}>
+      {children}
+    </Txt>
+  )
 }
 
 export function Hint({ children }: { readonly children: ReactNode }) {
-  return <Text style={styles.hint}>{children}</Text>
+  return (
+    <Txt step="caption" color="textSub">
+      {children}
+    </Txt>
+  )
 }
 
 export interface BigButtonProps {
@@ -42,6 +56,7 @@ export interface BigButtonProps {
   readonly primary?: boolean
   readonly danger?: boolean
   readonly disabled?: boolean
+  /** 줄 안에 나란히 놓는 작은 단추 (그래도 누르는 칸은 52) */
   readonly small?: boolean
   /** 보이는 글과 다른 이름이 필요할 때 ("지금 상품으로 — 15번") */
   readonly ariaLabel?: string
@@ -49,6 +64,9 @@ export interface BigButtonProps {
 }
 
 export function BigButton({ label, onPress, primary, danger, disabled, small, ariaLabel, testID }: BigButtonProps) {
+  const { p } = useKit()
+  const fill = danger === true ? p.danger : primary === true ? p.primary : p.secondary
+  const ink: TxtColor = danger === true ? 'onDanger' : primary === true ? 'onPrimary' : 'onSecondary'
   return (
     <Pressable
       role="button"
@@ -57,26 +75,33 @@ export function BigButton({ label, onPress, primary, danger, disabled, small, ar
       disabled={disabled === true}
       onPress={onPress}
       testID={testID}
-      style={({ pressed }) => [
-        styles.button,
-        small === true ? styles.buttonSmall : null,
-        primary === true ? styles.buttonPrimary : null,
-        danger === true ? styles.buttonDanger : null,
-        disabled === true ? styles.buttonDisabled : null,
-        pressed ? styles.buttonPressed : null,
-      ]}
+      style={({ pressed }) => ({
+        minHeight: small === true ? TOUCH.min : TOUCH.button,
+        minWidth: TOUCH.min,
+        maxWidth: '100%',
+        flexShrink: 1,
+        paddingHorizontal: small === true ? SPACE.lg : SPACE.xl,
+        paddingVertical: SPACE.md,
+        borderRadius: RADIUS.lg,
+        backgroundColor: fill,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: disabled === true ? 0.45 : pressed ? 0.85 : 1,
+      })}
     >
-      <Text style={[styles.buttonText, primary === true || danger === true ? styles.buttonTextLight : null]}>{label}</Text>
+      <Txt step="bodyLarge" weight="bold" color={ink} center>
+        {label}
+      </Txt>
     </Pressable>
   )
 }
 
 export function Row({ children, wrap }: { readonly children: ReactNode; readonly wrap?: boolean }) {
-  return <View style={[styles.row, wrap === true ? styles.rowWrap : null]}>{children}</View>
+  return <View style={{ flexDirection: 'row', gap: TOUCH.gap, alignItems: 'center', flexWrap: wrap === true ? 'wrap' : 'nowrap' }}>{children}</View>
 }
 
 export function Stack({ children, gap, tight }: { readonly children: ReactNode; readonly gap?: number; readonly tight?: boolean }) {
-  return <View style={{ gap: gap ?? (tight === true ? 6 : GAP) }}>{children}</View>
+  return <View style={{ gap: gap ?? (tight === true ? 6 : SPACE.md) }}>{children}</View>
 }
 
 export interface FieldProps extends Omit<TextInputProps, 'style'> {
@@ -86,95 +111,100 @@ export interface FieldProps extends Omit<TextInputProps, 'style'> {
 }
 
 export function Field({ label, problem, hint, ...input }: FieldProps) {
+  const { p, fontScale, forced } = useKit()
+  const bad = problem !== undefined && problem !== null
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput aria-label={label} style={[styles.input, problem !== undefined && problem !== null ? styles.inputProblem : null]} placeholderTextColor={COLOR.muted} {...input} />
-      {hint !== undefined && hint !== null ? <Text style={styles.hint}>{hint}</Text> : null}
-      {problem !== undefined && problem !== null ? (
-        <Text role="alert" style={styles.problem}>
-          {problem}
-        </Text>
+    <View style={{ gap: SPACE.sm }}>
+      <Txt step="bodyLarge" weight="bold">
+        {label}
+      </Txt>
+      <TextInput
+        aria-label={label}
+        aria-invalid={bad}
+        maxFontSizeMultiplier={2}
+        placeholderTextColor={p.textSub}
+        {...input}
+        style={{ minHeight: TOUCH.button, fontSize: forced ? 22 * fontScale : 22, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.md, borderWidth: bad ? 3 : 2, borderColor: bad ? p.dangerText : p.borderStrong, borderRadius: RADIUS.md, color: p.text, backgroundColor: p.surface }}
+      />
+      {hint !== undefined && hint !== null ? <Hint>{hint}</Hint> : null}
+      {bad ? (
+        <View style={{ flexDirection: 'row', gap: SPACE.xs }}>
+          <View aria-hidden>
+            <Txt step="caption" weight="bold" color="dangerText">
+              ⚠
+            </Txt>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Txt step="caption" weight="bold" color="dangerText" role="alert">
+              {problem}
+            </Txt>
+          </View>
+        </View>
       ) : null}
     </View>
   )
 }
 
 export function Notice({ tone, children, alert, label }: { readonly tone: Tone; readonly children: ReactNode; readonly alert?: boolean; readonly label?: string }) {
+  const { tones } = useKit()
+  const pair = tones[tone]
   return (
-    <View role={alert === true ? 'alert' : 'status'} aria-label={label} style={[styles.notice, { backgroundColor: TONE_BG[tone] }]}>
-      <Text style={[styles.noticeText, { color: TONE_TEXT[tone] }]}>{children}</Text>
+    <View role={alert === true ? 'alert' : 'status'} aria-label={label} style={{ padding: SPACE.lg, borderRadius: RADIUS.md, backgroundColor: pair.bg, borderLeftWidth: 6, borderLeftColor: pair.fg }}>
+      <Txt step="body" ink={pair.fg}>
+        {children}
+      </Txt>
     </View>
   )
 }
 
-export function Tag({ tone, children }: { readonly tone: Tone; readonly children: ReactNode }) {
+/** big: 글자를 한 단계 키운다 (꼭 봐야 하는 꼬리표만, UX-PRN2-008) */
+export function Tag({ tone, children, big }: { readonly tone: Tone; readonly children: ReactNode; readonly big?: boolean }) {
+  const { tones } = useKit()
+  const pair = tones[tone]
   return (
-    <View style={[styles.tag, { backgroundColor: TONE_BG[tone] }]}>
-      <Text style={[styles.tagText, { color: TONE_TEXT[tone] }]}>{children}</Text>
+    <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, backgroundColor: pair.bg }}>
+      <View aria-hidden>
+        <Txt step="caption" weight="heavy" ink={pair.fg}>
+          {TONE_MARK[tone]}
+        </Txt>
+      </View>
+      <Txt step={big === true ? 'body' : 'caption'} weight="bold" ink={pair.fg}>
+        {children}
+      </Txt>
     </View>
   )
 }
 
 export function Card({ children, label }: { readonly children: ReactNode; readonly label?: string }) {
+  const { p } = useKit()
   return (
-    <View aria-label={label} role={label === undefined ? undefined : 'group'} style={styles.card}>
+    <View aria-label={label} role={label === undefined ? undefined : 'group'} style={{ padding: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: p.surface, gap: SPACE.md, ...SHADOW.card }}>
       {children}
     </View>
   )
 }
 
 export function Loading({ text }: { readonly text?: string }) {
+  const { p } = useKit()
   return (
-    <View role="status" style={styles.loading}>
-      <ActivityIndicator color={COLOR.primary} />
-      <Text style={styles.body}>{text ?? '불러오는 중…'}</Text>
+    <View role="status" style={{ flexDirection: 'row', gap: SPACE.md, alignItems: 'center', padding: SPACE.md }}>
+      <ActivityIndicator color={p.primary} />
+      <Body>{text ?? '불러오는 중…'}</Body>
     </View>
   )
 }
 
 /** 큰 빨간 글 (듣기 멈춤 등) */
 export function BigRed({ title, body }: { readonly title: string; readonly body: string }) {
+  const { p, tones } = useKit()
   return (
-    <View role="alert" style={styles.bigRed}>
-      <Text style={styles.bigRedTitle}>{title}</Text>
-      <Text style={styles.bigRedBody}>{body}</Text>
+    <View role="alert" style={{ padding: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: tones.danger.bg, borderWidth: 3, borderColor: p.dangerText, gap: SPACE.sm }}>
+      <Txt step="title" weight="heavy" color="dangerText">
+        {title}
+      </Txt>
+      <Txt step="body" color="dangerText">
+        {body}
+      </Txt>
     </View>
   )
 }
-
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: COLOR.background },
-  screenContent: { padding: GAP, gap: GAP, paddingBottom: 48 },
-  title: { fontSize: FONT_BIG, fontWeight: '700', color: COLOR.text },
-  sectionTitle: { fontSize: FONT_BIG - 2, fontWeight: '700', color: COLOR.text, marginTop: 4 },
-  body: { fontSize: FONT, color: COLOR.text, lineHeight: FONT * 1.45 },
-  muted: { color: COLOR.muted },
-  bold: { fontWeight: '700' },
-  big: { fontSize: FONT_BIG },
-  hint: { fontSize: FONT_SMALL, color: COLOR.muted, lineHeight: FONT_SMALL * 1.4 },
-  problem: { fontSize: FONT_SMALL, color: COLOR.danger, lineHeight: FONT_SMALL * 1.4 },
-  button: { minHeight: TOUCH, minWidth: TOUCH, maxWidth: '100%', flexShrink: 1, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 10, borderWidth: 2, borderColor: COLOR.primary, backgroundColor: COLOR.background, alignItems: 'center', justifyContent: 'center' },
-  buttonSmall: { minHeight: 44, minWidth: 44, paddingHorizontal: 12, paddingVertical: 8 },
-  buttonPrimary: { backgroundColor: COLOR.primary },
-  buttonDanger: { backgroundColor: COLOR.danger, borderColor: COLOR.danger },
-  buttonDisabled: { opacity: 0.45 },
-  buttonPressed: { opacity: 0.75 },
-  buttonText: { fontSize: FONT, fontWeight: '700', color: COLOR.primary },
-  buttonTextLight: { color: COLOR.primaryText },
-  row: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  rowWrap: { flexWrap: 'wrap' },
-  field: { gap: 6 },
-  fieldLabel: { fontSize: FONT, fontWeight: '600', color: COLOR.text },
-  input: { minHeight: TOUCH, fontSize: FONT_BIG, paddingHorizontal: 12, paddingVertical: 10, borderWidth: 2, borderColor: COLOR.border, borderRadius: 10, color: COLOR.text, backgroundColor: COLOR.background },
-  inputProblem: { borderColor: COLOR.danger },
-  notice: { padding: 12, borderRadius: 10 },
-  noticeText: { fontSize: FONT, lineHeight: FONT * 1.4 },
-  tag: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start' },
-  tagText: { fontSize: FONT_SMALL, fontWeight: '700' },
-  card: { padding: 12, borderRadius: 12, backgroundColor: COLOR.surface, gap: 8 },
-  loading: { flexDirection: 'row', gap: 10, alignItems: 'center', padding: 12 },
-  bigRed: { padding: 16, borderRadius: 12, backgroundColor: COLOR.dangerBg, borderWidth: 2, borderColor: COLOR.danger, gap: 6 },
-  bigRedTitle: { fontSize: 26, fontWeight: '800', color: COLOR.danger },
-  bigRedBody: { fontSize: FONT, color: COLOR.danger, lineHeight: FONT * 1.4 },
-})

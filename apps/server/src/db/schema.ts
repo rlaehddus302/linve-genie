@@ -598,6 +598,11 @@ export const printQueues = pgTable('print_queues', {
   deviceName: text('device_name'),
   /** 출력 기기가 알린 프린터 연결 여부 */
   printerConnected: boolean('printer_connected').notNull().default(false),
+  /**
+   * 출력 기기가 알린 프린터 프로필 ID (PRN2, L-11 10·16, D-PRN2-07). 켠 프로필 표(L-7·L-12)에 있는 값만 — 모르거나 끊겼으면 null.
+   * 프린터 기기 ID·이름·주소는 두지 않는다
+   */
+  printerProfileId: text('printer_profile_id'),
   /** 출력 그만하기를 눌렀고 출력 중인 장의 결과를 기다리는 중 */
   releasing: boolean('releasing').notNull().default(false),
   /** 멈춘 까닭: DISCONNECTED · PRINTER_ERROR · SELLER · LABEL_ERROR (멈추지 않았으면 null) */
@@ -2226,6 +2231,207 @@ export const voiceAliases = pgTable('voice_aliases', {
   aliases: text('aliases').notNull().default('[]'),
 })
 
+// KP1 손님 장부 (CUSTOMER_RULES CR-1~CR-6, 마이그레이션 0031). 모두 판매자 ID 조건으로만 읽는다. 백업 파일에 없고 복구·가져오기가 지우지 않는다(RESTORE_KEPT_TABLES).
+/** 설정 "손님 관리"의 장부 칸 (판매자마다 한 줄, 없으면 12개월·손님 표시 켬) */
+export const ledgerSettings = pgTable('ledger_settings', {
+  sellerId: text('seller_id')
+    .primaryKey()
+    .references(() => sellers.id),
+  /** 6 · 12 · 24 · 36 */
+  months: integer('months').notNull(),
+  /** null = 판매자가 아직 정하지 않음 (UX-KP1-006, 마이그레이션 0033) */
+  consoleBadges: boolean('console_badges'),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
+/** 장부 줄 (CR-1): 연락처 다섯 칸 JSON의 암호문(판매자·줄 ID를 AAD로 묶음)·가장 최근 동의 묶음 날짜·그 문구 개월. 이전 연락처는 남기지 않는다 */
+export const ledgerLines = pgTable(
+  'ledger_lines',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    contactEnc: text('contact_enc').notNull(),
+    consentDate: text('consent_date').notNull(),
+    consentMonths: integer('consent_months').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [index('ledger_lines_seller_idx').on(t.sellerId)],
+)
+
+/** 장부 줄의 표지 (한 표지는 한 줄에만 — CR-1). 표지는 서버 안에서만 쓴다. CODE로 이은 표지는 화면 이름표(플랫폼·이름·끝 4자리)를 함께 둔다 */
+export const ledgerMarkers = pgTable(
+  'ledger_markers',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    marker: text('marker').notNull(),
+    lineId: text('line_id')
+      .notNull()
+      .references(() => ledgerLines.id),
+    /** CONSENT · CODE */
+    source: text('source').notNull(),
+    labelPlatform: text('label_platform'),
+    labelName: text('label_name'),
+    labelLast4: text('label_last4'),
+    linkedAt: timestamptz('linked_at').notNull(),
+  },
+  (t) => [unique('ledger_markers_uq').on(t.sellerId, t.marker), index('ledger_markers_line_idx').on(t.sellerId, t.lineId)],
+)
+
+/** 동의 기록 (CR-2 — 덧붙이기만, 줄을 지워도 남는다). 연락처·표지·토큰·구매자 ID가 없다 */
+export const ledgerConsents = pgTable(
+  'ledger_consents',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 줄 ID (외래 키 없음 — 줄이 지워져도 남는다) */
+    lineId: text('line_id').notNull(),
+    /** AGREE · WITHDRAW · EXPIRE · SELLER_DELETE */
+    type: text('type').notNull(),
+    items: text('items').notNull(),
+    wording: text('wording').notNull(),
+    months: integer('months').notNull(),
+    /** RECEIPT_LINK 또는 null */
+    route: text('route'),
+    orderDate: text('order_date'),
+    /** '표지 옮김' · '기간 지남' · '줄 합침' */
+    reason: text('reason'),
+    /** SELLER_DELETE를 한 계정 */
+    accountId: text('account_id').references(() => accounts.id),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('ledger_consents_line_idx').on(t.sellerId, t.lineId, t.id)],
+)
+
+/** 연결 코드 (CR-5): 줄마다 살아 있는 것 많아야 하나, 판매자 안에서 살아 있는 코드 글은 겹치지 않는다. 코드 글은 로그에 남기지 않는다 */
+export const ledgerCodes = pgTable(
+  'ledger_codes',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    lineId: text('line_id')
+      .notNull()
+      .references(() => ledgerLines.id),
+    code: text('code').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    /** LIVE · CLAIMED · DONE */
+    state: text('state').notNull(),
+    claimedMarker: text('claimed_marker'),
+    claimedPlatform: text('claimed_platform'),
+    claimedName: text('claimed_name'),
+    claimedLast4: text('claimed_last4'),
+    claimedAt: timestamptz('claimed_at'),
+  },
+  (t) => [
+    uniqueIndex('ledger_codes_live_uq').on(t.sellerId, t.code).where(sql`state = 'LIVE'`),
+    uniqueIndex('ledger_codes_line_uq').on(t.sellerId, t.lineId).where(sql`state <> 'DONE'`),
+  ],
+)
+
+/** 손님 엑셀 받은 기록 (CR-6 — 누가·언제·연락처 열을 넣었는지만, 파일 내용 없음) */
+export const customerExports = pgTable(
+  'customer_exports',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    contact: boolean('contact').notNull(),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('customer_exports_seller_idx').on(t.sellerId, t.id)],
+)
+
+// KP1 일정 (SPEC SCH-01~SCH-03, MESSAGE_RULES MR-6, 마이그레이션 0032). 모두 판매자 ID 조건으로만 읽는다. 백업 파일에 없고 복구·가져오기가 지우지 않는다(RESTORE_KEPT_TABLES).
+/**
+ * 공개 일정 페이지 (SCH-02): 판매자마다 한 줄. 토큰은 SHA-256 base64url(token_hash)로 찾고, 판매자 화면 주소용 원문은 판매자·용도로 묶은 암호문(token_enc)만.
+ * 끄거나 다시 만들면 토큰 칸을 바꾼다(옛 주소 404)
+ */
+export const schedulePages = pgTable(
+  'schedule_pages',
+  {
+    sellerId: text('seller_id')
+      .primaryKey()
+      .references(() => sellers.id),
+    enabled: boolean('enabled').notNull(),
+    tokenHash: text('token_hash'),
+    tokenEnc: text('token_enc'),
+    /** 유튜브 채널 주소 (없으면 null) */
+    channelUrl: text('channel_url'),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('schedule_pages_token_uq').on(t.tokenHash)],
+)
+
+/** 방송 일정 (SCH-01): 시작 시각(UTC)·제목·소개. 개인정보 없음. 지난 일정은 정리 작업이 지운다 */
+export const scheduleItems = pgTable(
+  'schedule_items',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    startsAt: timestamptz('starts_at').notNull(),
+    title: text('title').notNull(),
+    intro: text('intro').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [index('schedule_items_seller_starts_idx').on(t.sellerId, t.startsAt)],
+)
+
+/**
+ * 방송 알림 신청 번호 (MR-6): 판매자 안에서 번호마다 한 줄. 원문은 판매자·용도로 묶은 암호문, 찾기는 전화번호 키.
+ * 그만 받기·기한 지남이면 두 칸을 바로 null로(줄과 동의 기록은 번호 없이 남는다)
+ */
+export const alertSubscribers = pgTable(
+  'alert_subscribers',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    phoneKey: text('phone_key'),
+    phoneEnc: text('phone_enc'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [uniqueIndex('alert_subscribers_phone_uq').on(t.sellerId, t.phoneKey).where(sql`phone_key IS NOT NULL`)],
+)
+
+/** 방송 알림 수신 동의 기록 (MR-6): 덧붙이기만. AGREE · VERIFY · WITHDRAW · NOTICE. 번호 없음 */
+export const alertConsents = pgTable(
+  'alert_consents',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    subscriberId: text('subscriber_id')
+      .notNull()
+      .references(() => alertSubscribers.id),
+    type: text('type').notNull(),
+    /** 'MR-CONSENT-1' (AGREE만) */
+    wording: text('wording'),
+    /** 'SCHEDULE_PAGE' (AGREE만) */
+    route: text('route'),
+    at: timestamptz('at').notNull(),
+  },
+  (t) => [index('alert_consents_subscriber_idx').on(t.sellerId, t.subscriberId, t.id)],
+)
+
 export const schema = {
   voiceAliases,
   sellers,
@@ -2307,6 +2513,18 @@ export const schema = {
   customerArchiveDays,
   customerArchiveRows,
   voiceLog,
+  // KP1 손님 장부
+  ledgerSettings,
+  ledgerLines,
+  ledgerMarkers,
+  ledgerConsents,
+  ledgerCodes,
+  customerExports,
+  // KP1 일정
+  schedulePages,
+  scheduleItems,
+  alertSubscribers,
+  alertConsents,
 }
 
 /**

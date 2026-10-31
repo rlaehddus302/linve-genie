@@ -232,12 +232,15 @@ describe('이름 판단 (L-12 3 — 대소문자 가림·밑줄, D-N1-11)', () =
     }
   })
 
-  it('printerKindOf: Marklife 이름 → MARKLIFE, 대소문자만 다른 Marklife 꼴 → 받지 않음, 그 밖 → NIIMBOT', () => {
+  it('printerKindOf: Marklife 이름 → MARKLIFE, NIIMBOT 서비스·이름 꼴 → NIIMBOT, 그 밖 → 목록에 없음 (PRN2 D-PRN2-04)', () => {
     expect(printerKindOf('P12_ZA15B')).toBe('MARKLIFE')
+    expect(printerKindOf('PPA2L_1')).toBe('MARKLIFE')
     expect(printerKindOf('p12_za15b')).toBeNull()
     expect(printerKindOf('B1-H123')).toBe('NIIMBOT')
-    expect(printerKindOf('P12 Pro')).toBe('NIIMBOT')
-    expect(printerKindOf(null)).toBe('NIIMBOT')
+    // N1까지는 NIIMBOT 찾기(첫 글자)를 지난 기기라 NIIMBOT으로 봤다 — PRN2는 서비스·이름 꼴이 없으면 목록에 없다(골든 G-PRT-PRN2-36·41)
+    expect(printerKindOf('P12 Pro')).toBeNull()
+    expect(printerKindOf(null)).toBeNull()
+    expect(printerKindOf(null, undefined, [NIIMBOT_SERVICE])).toBe('NIIMBOT')
   })
 })
 
@@ -327,7 +330,7 @@ describe('B1 목록과 한 목록 고르기 (Marklife가 NIIMBOT 서비스를 �
     { id: 'ML:low', localName: 'p50_lower', serviceUUIDs: [NIIMBOT_SERVICE] },
   ]
 
-  it('B1 연결 목록에 Marklife 이름 꼴은 보이지 않는다', async () => {
+  it('B1 연결 목록에 Marklife 이름(글자 그대로)은 보이지 않는다 — 대소문자만 다른 이름은 NIIMBOT 서비스를 광고하면 보인다(PRN2 D-PRN2-04)', async () => {
     const manager = createFakeMarklifeManager(marklifeLike)
     const b1 = createFakeBleTransport()
     const transport = combineTransports(b1.transport, createPlxTransport(manager))
@@ -338,7 +341,8 @@ describe('B1 목록과 한 목록 고르기 (Marklife가 NIIMBOT 서비스를 �
     expect(names).toContain('B1-FAKE01')
     expect(names).not.toContain('P12_ZA15B')
     expect(names).not.toContain('S2_77')
-    expect(names).not.toContain('p50_lower')
+    // L-7 고르기 목록 1은 글자 그대로 — `p50_lower`는 L-12 이름이 아니고 NIIMBOT 서비스를 광고해 2로 NIIMBOT 목록에 든다(이은 뒤 모델로 거른다)
+    expect(names).toContain('p50_lower')
   })
 
   it('한 목록에 B1과 Marklife가 함께 보이고, 고른 기기의 기종 어댑터로 간다 — 바꿔 골라도 앞 기종은 끊는다', async () => {

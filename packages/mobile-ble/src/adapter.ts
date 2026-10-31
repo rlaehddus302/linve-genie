@@ -2,10 +2,13 @@
 // 환경(기능 감지·고르기 창·기억한 기기 찾기)과 클라이언트(NiimbotBleClient)만 네이티브 BLE로 바꾼다.
 // 그래서 연결 상태·기억·다시 잇기 한 번·농도·마지막 줄 +1행·시간 초과·출력 결과는 웹과 같은 코드가 정한다. 그림은 받은 그대로 보낸다(점을 다시 그리지 않음).
 import {
-  EXPERIMENTAL_PROFILES,
-  MARKLIFE_PROFILES,
+  ENABLED_PROFILES,
+  LABEL_PROFILES,
+  NIIMBOT_SERVICE_UUID,
+  NIIMBOT_TARGET,
   createNiimbotAdapter,
-  niimbotRequestOptions,
+  pickListTarget,
+  profileForDeviceName,
   type NiimbotAdapterOptions,
   type PrinterEnvironment,
   type PrinterProfile,
@@ -24,7 +27,7 @@ export interface NativeB1AdapterOptions {
   readonly timer?: PrinterTimer
   readonly printTimeoutMs?: number
   readonly reconnectDelayMs?: number
-  /** 켤 프로필 (기본: B1 하나) */
+  /** 켤 프로필 (기본: ENABLED_PROFILES — B1·B1 SE·B21·D110) */
   readonly profiles?: readonly PrinterProfile[]
   readonly client?: NiimbotBleClientOptions
   /**
@@ -33,25 +36,22 @@ export interface NativeB1AdapterOptions {
   readonly selectDevice?: () => Promise<BleDeviceInfo | null>
 }
 
-/** 이름 앞자리 거르기 (niimbotRequestOptions의 namePrefix들) — 이름 없는 장치는 서비스 UUID 거르기가 맡는다 */
+/** 이름 앞자리 거르기 — 글자 그대로(대소문자를 가린다, PRN2 D-PRN2-04). 이름 없는 장치는 서비스 UUID 거르기가 맡는다 */
 export function matchesNiimbotName(name: string | null, prefixes: readonly string[]): boolean {
   if (name === null || name === '') return false
-  const upper = name.toUpperCase()
-  return prefixes.some((p) => upper.startsWith(p.toUpperCase()))
+  return prefixes.some((p) => p !== '' && name.startsWith(p))
 }
-
-/** Marklife·바우아토의 이름 앞자리 (대소문자 무시로 본다 — 모양만 비슷한 이름도 B1 목록에 넣지 않는다) */
-const NON_NIIMBOT_PREFIXES: readonly string[] = [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES].flatMap((p) => (p.namePrefix ? [p.namePrefix.toUpperCase()] : []))
 
 /**
- * Marklife·바우아토 이름 꼴인지 (대소문자 무시). Marklife는 NIIMBOT 서비스 UUID(e7810a71-…)도 알려 B1 찾기 목록에 섞인다 —
- * B1 목록에서 빼서 판매자가 B1 연결에서 Marklife를 고르는 일(이어진 뒤 "다른 프린터")이 없게 한다
+ * Marklife·바우아토 이름인지 (L-12 앞자리, 글자 그대로 — L-7 고르기 목록 1). Marklife는 NIIMBOT 서비스 UUID(e7810a71-…)도 알려
+ * NIIMBOT 찾기에 섞인다 — 이 이름은 NIIMBOT 어댑터로 보내지 않는다(이어진 뒤 "다른 프린터"가 없게)
  */
 export function looksLikeMarklifeName(name: string | null): boolean {
-  if (name === null || name === '') return false
-  const upper = name.toUpperCase()
-  return NON_NIIMBOT_PREFIXES.some((p) => upper.startsWith(p))
+  return profileForDeviceName(name, LABEL_PROFILES) !== undefined
 }
+
+/** 모델 이름 + `-`·`_` 꼴 (켠 NIIMBOT 프로필에서 — pickListTarget 2와 같은 꼴) */
+const nameShapes = (profiles: readonly PrinterProfile[]): string[] => [...new Set(profiles.flatMap((p) => [`${p.model}-`, `${p.model}_`]))]
 
 export function createNativeB1Adapter(options: NativeB1AdapterOptions): RememberingPrinterAdapter {
   const { transport, pickDevice } = options
@@ -66,11 +66,20 @@ export function createNativeB1Adapter(options: NativeB1AdapterOptions): Remember
   transport.onStateChange((state) => {
     radio = state
   })
-  const request = niimbotRequestOptions()
-  const namePrefixes = request.filters.flatMap((f) => ('namePrefix' in f ? [f.namePrefix] : []))
-  const serviceUuids = request.filters.flatMap((f) => ('services' in f ? f.services : []))
+  const namePrefixes = nameShapes(options.profiles ?? ENABLED_PROFILES)
+  const serviceUuids = [NIIMBOT_SERVICE_UUID]
 
-  /** 고르기 창: 찾기 → 판매자 고름 → 찾기 멈춤 (Marklife 이름 꼴은 목록에 넣지 않는다) */
+  /**
+   * 이 기기가 NIIMBOT 목록에 들어가는지 (L-7 고르기 목록 — 웹과 같은 판정 pickListTarget): L-12 이름이 아니고,
+   * NIIMBOT 서비스를 광고하거나 켠 모델 이름 꼴로 시작한다
+   */
+  const isNiimbotDevice = (device: BleDeviceInfo): boolean => {
+    const services = device.serviceUuids ?? []
+    if (pickListTarget(device.name, services) !== NIIMBOT_TARGET) return false
+    return services.some((u) => u.toLowerCase() === NIIMBOT_SERVICE_UUID) || matchesNiimbotName(device.name, namePrefixes)
+  }
+
+  /** 고르기 창: 찾기 → 판매자 고름 → 찾기 멈춤 (Marklife 이름·목록 밖 기기는 넣지 않는다) */
   const requestDevice = async (): Promise<BleDeviceInfo> => {
     const state = await transport.state()
     radio = state
@@ -78,7 +87,7 @@ export function createNativeB1Adapter(options: NativeB1AdapterOptions): Remember
     const picked =
       options.selectDevice !== undefined
         ? await options.selectDevice()
-        : await pickFromScan(transport, { serviceUuids, namePrefixes }, pickDevice, (device) => !looksLikeMarklifeName(device.name))
+        : await pickFromScan(transport, { serviceUuids, namePrefixes, matchCase: true }, pickDevice, isNiimbotDevice)
     if (picked === null) throw new PickCancelledError()
     return picked
   }

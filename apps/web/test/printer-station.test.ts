@@ -129,7 +129,7 @@ describe('받기·찍기·결과 (L-11 4·6)', () => {
     // 열 때: 서버는 이 기기를 출력 기기로 알지만 프린터는 아직 이어지지 않았다 → 끊김, 이은 뒤 → 연결됨
     expect(states).toEqual([
       { deviceId: ME, connected: false },
-      { deviceId: ME, connected: true },
+      { deviceId: ME, connected: true, profileId: 'NIIMBOT_B1' },
     ])
     expect(savedAttempt()).toBeNull()
   })
@@ -165,7 +165,7 @@ describe('받기·찍기·결과 (L-11 4·6)', () => {
     claims = [claimed('j2b')]
     expect(s.canReconnect).toBe(true)
     await s.reconnect()
-    expect(states.at(-1)).toEqual({ deviceId: ME, connected: true })
+    expect(states.at(-1)).toEqual({ deviceId: ME, connected: true, profileId: 'NIIMBOT_B1' })
     FakeEventSource.last.emit('print', { rev: 6, queue: queue({ rev: 6, device: device(ME) }), jobs: [], labels: [] })
     await vi.waitFor(() => expect(results).toHaveLength(3))
     expect(printer.printed).toHaveLength(2)
@@ -231,7 +231,7 @@ describe('받기·찍기·결과 (L-11 4·6)', () => {
       const before = states.length
       // "다시 연결": 프린터가 이미 이어져 있어도 서버에 연결됨을 다시 알린다 (알리지 않으면 끊김 멈춤이 풀리지 않는다)
       expect(await s.reconnect()).toBe(true)
-      expect(states.slice(before)).toEqual([{ deviceId: ME, connected: true }])
+      expect(states.slice(before)).toEqual([{ deviceId: ME, connected: true, profileId: 'NIIMBOT_B1' }])
       FakeEventSource.last.emit('print', { rev: 6, queue: queue({ rev: 6, device: device(ME) }), jobs: [], labels: [] })
       await vi.waitFor(() => expect(results).toHaveLength(2))
       expect(results[1]).toEqual({ deviceId: ME, attempt: 'attempt-j1b-0000', ok: true })

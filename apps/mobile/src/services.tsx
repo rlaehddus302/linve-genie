@@ -9,7 +9,7 @@ import { createLiveStream, type LiveStream } from './lib/live.ts'
 import { clearVoiceArchive, setVoiceAccount } from './lib/voice-preferences.ts'
 import { createVoiceEffects } from './lib/voice-effects.ts'
 import { VoiceSession } from './lib/voice-session.ts'
-import { nativeAudio, nativeBle } from './native/index.ts'
+import { nativeAudio, nativeBle, nativeShare } from './native/index.ts'
 import type { NativeAudio } from './native/audio.ts'
 import type { NativeBlePrinter } from './native/ble.ts'
 
@@ -67,7 +67,7 @@ export function createServices(input: { readonly audio?: NativeAudio; readonly b
   const deviceId = input.deviceId ?? makeDeviceId()
   const stream = input.stream ?? createLiveStream(() => deviceId)
   const away = new AwayTracker()
-  const labels = new LabelQueue({ ble: input.ble ?? nativeBle(), deviceId, openStream: () => stream.open() })
+  const labels = new LabelQueue({ ble: input.ble ?? nativeBle(), share: nativeShare(), deviceId, openStream: () => stream.open() })
   const voice = new VoiceSession({
     audio: input.audio ?? nativeAudio(),
     deviceId,

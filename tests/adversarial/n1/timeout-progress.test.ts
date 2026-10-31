@@ -6,12 +6,15 @@
 //   - 출력 OK면 (마지막 조각 쓰기 끝, 이번 출력의 `AA`) 둘 다 갖춰진 바로 그 순간이고, 그 전에 진행 없이 20초가 지난 적이 없다
 //   - 조각 간격은 앞 쓰기가 끝난 때부터 30ms(꾸러미 C) · 30~1,030ms(꾸러미 A) · 크레딧이 전혀 없으면 정확히 1,030ms(첫 조각 1,000ms)
 //   - 결과 뒤에는 쓰기가 없고, 멈춘 쓰기가 늦게 끝나도 결과·상태가 그대로이며 남은 타이머가 없다
-// 장면: AC-N1-45의 수치(22,940·48,830·45,290·65,290ms), 아주 큰 작업(1바이트 조각 19,233개 · 크레딧 없음 ≈ 5.5시간),
+// 장면: AC-N1-45의 수치(22,940·48,830·45,290·65,290ms), 아주 큰 작업(1바이트 조각 19,236개 · 크레딧 없음 ≈ 5.5시간),
 // 멈춘 쓰기 중 잡음 알림·끊김·판매자 끊기, 경계 ±1ms, 실행기 재시도에서 같은 라벨이 두 번 나오지 않음(L-8 3, D-P1-09).
+// PRN2 개정: ① EXPERIMENTAL_PROFILES가 없어졌다(D-PRN2-01) — 같은 내용 [BAUATO_PPA2L]로 둔다. ② 바우아토 바이트가 Luck Jingle 순서다
+// (D-PRN2-02, L-12 2): 384×400 그림의 작업은 머리 4 + 00×12 + 1F 11 51 + 래스터 8 + 19,200 + 1D 0C + 1F 11 50 + 끝 4 = 19,236바이트
+// (전 L11 모양은 19,233). MTU 23(20바이트 조각)이면 조각 수 962·마지막 조각 28,830ms는 그대로이고, 1바이트 조각 장면만 19,236개가 된다.
+// 시간 규칙(L-12 4·5)은 바뀌지 않았다 — 나머지 수치는 그대로 지킨다.
 import { createBitmap, setPixel, type LabelBitmap } from '@livejjim/label'
 import {
   BAUATO_PPA2L,
-  EXPERIMENTAL_PROFILES,
   MARKLIFE_P12,
   MARKLIFE_P50,
   MARKLIFE_PROFILES,
@@ -28,7 +31,9 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { ManualBle, StepTimer, flush, type Write, type WriteLatency } from './ble-mock.ts'
 
-const ALL = [...MARKLIFE_PROFILES, ...EXPERIMENTAL_PROFILES]
+/** 바우아토만 켠 목록 (옛 EXPERIMENTAL_PROFILES와 같은 내용) */
+const BAUATO_ONLY: readonly ModelProfile[] = [BAUATO_PPA2L]
+const ALL = [...MARKLIFE_PROFILES, ...BAUATO_ONLY]
 /** 진행 없이 기다리는 시간 (L-12 5) */
 const LIMIT = 20_000
 
@@ -374,7 +379,8 @@ describe('AC-N1-45 진행이 멈춘 20초 — 수치 그대로', () => {
     const { timer, ble, adapter } = await connectManual(BAUATO_PPA2L, { mtu: 23 })
     const job = buildPrintJob(BAUATO_PPA2L, bauato50())
     if (!job.ok) throw new Error(job.code)
-    expect(job.bytes.length).toBe(19_233)
+    // PRN2 D-PRN2-02: Luck Jingle 순서 (전 L11 모양 19,233)
+    expect(job.bytes.length).toBe(19_236)
     let result: PrinterResult | undefined
     void adapter.print(bauato50()).then((r) => (result = r))
     await timer.advance(48_829)
@@ -422,7 +428,7 @@ describe('AC-N1-45 진행이 멈춘 20초 — 수치 그대로', () => {
 })
 
 describe('L-12 5 새 규칙의 구멍 — 멈춘 쓰기·아주 큰 작업·다시 거는 경계', () => {
-  it('아주 큰 작업: 바우아토 50×50을 1바이트 조각(MTU 4) 19,233개로, 크레딧 없이(1.03초 간격 ≈ 5.5시간) — TIMEOUT 없이 끝까지, 타이머가 쌓이지 않는다', async () => {
+  it('아주 큰 작업: 바우아토 50×50을 1바이트 조각(MTU 4) 19,236개로, 크레딧 없이(1.03초 간격 ≈ 5.5시간) — TIMEOUT 없이 끝까지, 타이머가 쌓이지 않는다', async () => {
     const timer = new StepTimer()
     const img = createBitmap(384, 400)
     for (let x = 0; x < 384; x += 7) setPixel(img, x, x % 400, true)
@@ -443,10 +449,11 @@ describe('L-12 5 새 규칙의 구멍 — 멈춘 쓰기·아주 큰 작업·다�
     expect(await adapter.connect('bluetooth')).toEqual({ ok: true })
     let result: PrinterResult | undefined
     void adapter.print(img).then((r) => (result = r))
-    const lastAt = 1_000 + (19_233 - 1) * 1_030
+    expect(job.bytes.length).toBe(19_236)
+    const lastAt = 1_000 + (19_236 - 1) * 1_030
     while (!result && timer.now < lastAt + 40_000) await timer.advance(600_000)
     expect(result).toEqual({ ok: true })
-    expect(ble.writes).toHaveLength(19_233)
+    expect(ble.writes).toHaveLength(19_236)
     expect(ble.writes.every((w) => w.bytes.length === 1)).toBe(true)
     expect(ble.writes.at(-1)?.at).toBe(lastAt)
     expect(Buffer.from(ble.joined()).equals(Buffer.from(job.bytes))).toBe(true)
@@ -532,7 +539,7 @@ describe('L-8 3 · D-P1-09 재시도 — 같은 라벨이 두 번 나오지 않�
   it('크레딧 없는 기기 + MTU 23의 큰 라벨 3장(각 ≈ 990초) — TIMEOUT 없이 한 장씩, 기록된 시도도 3번뿐', async () => {
     const timer = new StepTimer()
     const fake = createFakeBluetooth({ name: 'PPA2L_1234', timer, initialCredits: null, creditsPerPacket: 0, mtu: 23 })
-    const adapter = createMarklifeAdapter({ environment: () => fake.environment, timer, profiles: EXPERIMENTAL_PROFILES })
+    const adapter = createMarklifeAdapter({ environment: () => fake.environment, timer, profiles: BAUATO_ONLY })
     const runner = createPrintRunner({ adapter, render, clock: () => 0, device: 'PC' })
     expect((await adapter.connect('bluetooth')).ok).toBe(true)
     for (let i = 1; i <= 3; i++) runner.enqueue(jobOf(i))
@@ -553,7 +560,7 @@ describe('L-8 3 · D-P1-09 재시도 — 같은 라벨이 두 번 나오지 않�
   it('2번째 라벨의 50번째 조각이 멈춤 → TIMEOUT, 프린터 오류 멈춤 → 멈춘 쓰기가 늦게 끝나도 그대로 → 다시 시작하면 2번째부터, 라벨마다 한 장씩', async () => {
     const timer = new StepTimer()
     const fake = createFakeBluetooth({ name: 'PPA2L_1234', timer, mtu: 23, jobs: { 2: { stallWriteAtPacket: 50 } } })
-    const adapter = createMarklifeAdapter({ environment: () => fake.environment, timer, profiles: EXPERIMENTAL_PROFILES })
+    const adapter = createMarklifeAdapter({ environment: () => fake.environment, timer, profiles: BAUATO_ONLY })
     const runner = createPrintRunner({ adapter, render, clock: () => 0, device: 'PC' })
     expect((await adapter.connect('bluetooth')).ok).toBe(true)
     for (let i = 1; i <= 3; i++) runner.enqueue(jobOf(i))

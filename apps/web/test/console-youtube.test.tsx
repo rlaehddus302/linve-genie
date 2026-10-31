@@ -685,7 +685,7 @@ describe('서버가 방송 주소로 채팅 읽기 (YT-SRV YT-11 AC2·AC5·AC8, 
     expect(warning.textContent).toContain(BLOCKED)
     expect(warning.closest('.console-sticky')).not.toBeNull()
     expect(within(warning).getByRole('button', { name: '댓글 붙여넣기' })).toBeDefined()
-    fireEvent.click(within(warning).getByRole('button', { name: '문자찜 손 입력' }))
+    fireEvent.click(within(warning).getByRole('link', { name: '손으로 넣기' }))
     expect(navigate).toHaveBeenCalledWith({ name: 'sms' })
     expect(panel().textContent).not.toContain(RESUMED)
     act(() => FakeEventSource.last.emit('youtube', { kind: 'collector', broadcast: 'b1', date: DATE, collector: collector({ mode: 'WEB' }) }))

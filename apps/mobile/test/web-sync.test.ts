@@ -6,6 +6,8 @@ import * as webDerive from '@livejjim/web/src/lib/derive.ts'
 import * as webScope from '@livejjim/web/src/lib/scope-data.ts'
 import * as webQuick from '@livejjim/web/src/lib/quick.ts'
 import * as webPacking from '@livejjim/web/src/lib/packing.ts'
+import * as webYoutube from '@livejjim/web/src/lib/youtube.ts'
+import { SERVER_ROUTE } from '@livejjim/web/src/lib/extension.ts'
 import { PRINT_ACTION as WEB_PRINT_ACTION, PRINT_ALERT_WORD as WEB_PRINT_ALERT_WORD } from '@livejjim/web/src/lib/print-words.ts'
 import { CONNECTION_STATE_NAMES } from '@livejjim/printer'
 import { DEFAULT_SETTINGS } from '@livejjim/core'
@@ -15,6 +17,7 @@ import * as derive from '../src/lib/derive.ts'
 import * as scope from '../src/lib/scope-data.ts'
 import * as quick from '../src/lib/quick.ts'
 import * as packing from '../src/lib/packing.ts'
+import * as youtube from '../src/lib/youtube.ts'
 import { buyer, changes, claim, fullView, product } from './support.ts'
 
 describe('낱말 표가 웹과 같다', () => {
@@ -102,5 +105,48 @@ describe('빠른 입력 읽기가 웹과 같다', () => {
     expect(quick.decideQuickInput('15 핑크 12000', settings, findExisting).kind).toBe('edit')
     expect(quick.decideQuickInput('15', settings, findExisting).kind).toBe('open')
     expect(quick.decideQuickInput('15', settings, find).kind).toBe('fix')
+  })
+})
+
+describe('유튜브 낱말·판단이 웹과 같다 (YT-11, D-YT-SRV-03·06·07·11)', () => {
+  const view = (patch: Record<string, unknown>) => ({ status: 'LIVE', statusMessage: '채팅을 받는 중', reason: null, reasonMessage: null, mode: 'WEB', lastMessageAt: null, recorded: 0, skippedBeforeLink: 0, gap: false, gapMessage: null, restartable: false, ...patch }) as Parameters<typeof webYoutube.collectorWarning>[0] & object
+
+  it('문장', () => {
+    for (const key of ['NOT_CONFIGURED_MESSAGE', 'WEB_CHAT_OFF_MESSAGE', 'WEB_CHAT_RESUMED', 'STOP_WARNING_PREFIX', 'RETRYING_WARN_MS', 'FIRST_CHANNEL_GROUP', 'RECENT_TITLE', 'RECENT_AGAIN', 'RECENT_EMPTY', 'RECENT_SEARCHING', 'NO_BROADCAST_TITLE', 'NO_CHANNEL_NAME', 'CHANNEL_NAME_MAX', 'INVITED_CONFIRM_CODE'] as const) {
+      expect(youtube[key], key).toEqual(webYoutube[key])
+    }
+    expect(youtube.WEB_TROUBLE_FALLBACK).toEqual(webYoutube.WEB_TROUBLE_FALLBACK)
+    expect([...youtube.WARN_REASONS]).toEqual([...webYoutube.WARN_REASONS])
+    expect(youtube.SERVER_ROUTE_SERVER).toBe(SERVER_ROUTE.SERVER)
+    expect(youtube.firstChannelQuestion('가')).toBe(webYoutube.firstChannelQuestion('가'))
+    expect(youtube.broadcastChannelLine('가')).toBe(webYoutube.broadcastChannelLine('가'))
+    for (const title of ['', '  ', '다육이네', '가'.repeat(41), 3]) expect(youtube.channelName(title)).toBe(webYoutube.channelName(title))
+  })
+
+  it('경고 문장·다시 받음 전환·최근 줄', () => {
+    const views = [
+      view({ status: 'RETRYING', reason: 'BLOCKED', reasonMessage: '막힘' }),
+      view({ status: 'RETRYING', reason: 'FORMAT' }),
+      view({ status: 'STOPPED', reason: 'OPERATOR_OFF' }),
+      view({ status: 'RETRYING', statusMessage: '다시 연결하는 중' }),
+      view({ status: 'STOPPED', reason: 'CHAT_NOT_FOUND', reasonMessage: '채팅을 찾을 수 없어요.' }),
+      view({ status: 'STOPPED', reason: 'UNLINKED' }),
+      view({}),
+      null,
+    ]
+    for (const item of views) {
+      for (const long of [false, true]) expect(youtube.warningLine(item, long)).toBe(webYoutube.collectorWarning(item, long)?.message ?? null)
+      expect(youtube.webChatTrouble(item)).toBe(webYoutube.webChatTrouble(item))
+    }
+    let mine: youtube.ResumeStep = { trouble: false, resumed: false }
+    let theirs: webYoutube.ResumeStep = { trouble: false, resumed: false }
+    for (const item of views) {
+      mine = youtube.resumeStep(mine, item)
+      theirs = webYoutube.resumeStep(theirs, item)
+      expect(mine).toEqual(theirs)
+    }
+    const line = { videoId: 'V', title: '', status: 'LIVE' as const, scheduledStartTime: null, actualStartTime: null, linkedBroadcast: null, channelTitle: null }
+    expect(youtube.recentLine(line)).toBe(webYoutube.recentLine(line))
+    expect(youtube.readModeOf({ webChat: { on: false }, oauth: false })).toEqual(webYoutube.readModeOf({ webChat: { on: false }, oauth: false }))
   })
 })
