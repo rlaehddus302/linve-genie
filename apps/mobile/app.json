@@ -2,7 +2,7 @@
   "expo": {
     "name": "라이브지니",
     "slug": "livejjim-mobile",
-    "version": "0.1.0",
+    "version": "0.1.2",
     "scheme": "livejjim",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -33,7 +33,7 @@
     },
     "android": {
       "package": "app.livejjim.mobile",
-      "versionCode": 1,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1F8A4C"

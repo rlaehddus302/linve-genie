@@ -53,8 +53,8 @@ export function sheetClaimWord(base: string, claim: Claim, product: Product): st
 /** 자세히 시트 요약 한 줄 (제목·가격을 되풀이하지 않는다): 보드 둘째 줄과 같은 말 */
 export function sheetSummary(product: Product, conflictClaims: number, nameOfBuyer: (id: string) => string): string {
   const slots = productSlots(product)
-  if (slots.conflict || conflictClaims > 0) return '예약이 겹쳐요. 아직 누가 살지 정하지 않았어요.'
-  if (slots.awaitingSuccession) return '다음 손님을 정해야 해요. 아직 정하지 않았어요.'
+  if (slots.conflict || conflictClaims > 0) return '예약이 겹쳐서 정해야 해요.'
+  if (slots.awaitingSuccession) return '다음 손님을 정해야 해요.'
   const words = rowWords(product, conflictClaims, nameOfBuyer)
   return words.wait === '' ? words.who : `${words.who} ${words.wait}`
 }

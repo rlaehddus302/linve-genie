@@ -16,6 +16,7 @@ import {
   INVITED_CONFIRM_CODE,
   MOBILE_FALLBACK_HINT,
   NOT_CONFIGURED_MESSAGE,
+  NO_BROADCAST_TITLE,
   NOT_CONNECTED_FIRST,
   NOT_CONNECTED_HELP,
   PASTE_COPIED,
@@ -346,7 +347,8 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
         {!searching && recent !== null && recent.length === 0 ? <Body>{RECENT_EMPTY}</Body> : null}
         {(recent ?? []).map((item) => {
           const other = item.linkedBroadcast !== null && item.linkedBroadcast !== yt.broadcastId
-          const line = recentLine(item)
+          // 내 채널 목록(구글 연결로 읽는 서버)에는 채널 이름이 없다 — 제목만 ("(이름 없음)"을 보이지 않게)
+          const line = yt.webChat === null ? (item.title.trim() === '' ? NO_BROADCAST_TITLE : item.title) : recentLine(item)
           return (
             <Stack tight key={item.videoId}>
               <Body>

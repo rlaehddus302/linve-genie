@@ -205,7 +205,7 @@ describe('ConsoleScreen', () => {
     expect(detail.textContent).not.toContain('판매 완료')
     expect(detail.textContent).not.toContain('1등')
     expect(detail.textContent).not.toContain('충돌')
-    expect(detail.textContent).toContain('예약이 겹쳐요. 아직 누가 살지 정하지 않았어요.')
+    expect(detail.textContent).toContain('예약이 겹쳐서 정해야 해요.')
     const claims = within(detail).getByRole('list', { name: '5번 찜' }).textContent ?? ''
     expect(claims.match(/겹침/g)).toHaveLength(2)
     expect(claims).toContain('꽃집언니')
