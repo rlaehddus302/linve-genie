@@ -27,7 +27,7 @@
   - e2e: D-KP1-43이 CRM1의 1등 옆 "입금 늦음 주의"까지 숨김 → D-KP1-50(안 정함이면 CRM1 주의는 보임), 콘솔 첫 물음 띠를 채팅 칸으로·보통 버튼, 설정 "일정 적기" 보통 버튼, 동의 칸 접근 이름이 "받는 분"과 겹침(56264b1a).
   - adversarial: 작업자 프로세스의 V8 강제 종료("Check failed: end > addr")로 CRM1 시험 3개 pending — KP1과 무관, 다시 돌리면 통과.
 - 고친 뒤 다시 돌림(부하 낮을 때): typecheck·lint·test(503파일·9,348개)·adversarial(177파일·2,966개) 통과, 실패했던 e2e 9파일 100개(크로미움·웹킷) 통과, kp1 e2e 46개 통과.
-- 보호 경로 게이트: GATE_PLACEHOLDER
+- 보호 경로 게이트: `check-protected.mjs f4b04dd7`(이 스프린트 범위) 실패 1건 — a6f71c33 `[dev:server]`가 `harness/sprints/KP1/contract.md`를 올림(아래 "남은 것"). `3b403c44`(BASE) 기준은 int/next의 INV1 커밋 74ff8727·0f45bf2a까지 더해 3건. 그 밖의 커밋 접두어·금지 패턴·커밋 안 된 변경 문제 없음.
 
 ## 감사와 고침
 
