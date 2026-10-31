@@ -119,13 +119,14 @@ internal object SmsLink {
   /** 한 건 넣기 — 거르기(skipWords, 은행 대표번호는 거르지 않음) → 대기열. 넣었으면 true */
   private fun offer(context: Context, message: InboxMessage, nowMs: Long): Boolean {
     val store = NoticeStore.get(context)
+    // 수신기·저장소가 같은 문자를 함께 읽는 것은 정상 — 건수는 한 번만 센다
+    ensureRecent(context)
+    val again = recent.matches(SmsCore.bodyHash(message.text), message.receivedAt)
+    remember(context, message)
     if (NoticeFilter.skipWordFor(message.channel, message.from, message.text, store.filters()) != null) {
-      // 같은 문자를 두 길로 두 번 세지 않게 지문은 남긴다
-      remember(context, message)
-      store.bump("filtered")
+      if (!again) store.bump("filtered")
       return false
     }
-    remember(context, message)
     return store.enqueue(message, nowMs, countDuplicate = false) == "queued"
   }
 
