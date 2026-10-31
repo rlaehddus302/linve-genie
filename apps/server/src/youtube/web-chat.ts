@@ -49,6 +49,8 @@ export interface WatchPage {
   readonly title: string | null
   /** 실제 시작 시각 밀리초 (진행 중·끝남), 예정이면 예정 시각, 모르면 null */
   readonly startedAt: number | null
+  /** 라이브 소리·영상 HLS 주소 (streamingData.hlsManifestUrl, 방송 소리로 듣기 LV1). 없으면 없음 */
+  readonly hlsUrl?: string | null
 }
 
 /** 채팅 페이지로 본 것 */
@@ -215,13 +217,16 @@ export function parseWatchPage(html: string): WatchPage {
   const details = rec(player.videoDetails)
   const broadcast = rec(rec(rec(player.microformat).playerMicroformatRenderer).liveBroadcastDetails)
   const start = Date.parse(str(broadcast.startTimestamp) ?? '')
-  const base: Partial<WatchPage> = {
+  const base: { -readonly [K in keyof WatchPage]?: WatchPage[K] } = {
     videoId: str(details.videoId),
     channelId: str(details.channelId),
     channelTitle: str(details.author),
     title: str(details.title),
     startedAt: Number.isFinite(start) ? start : null,
   }
+  // 소리 주소는 있을 때만 붙인다 (없는 페이지 읽기 결과 모양은 그대로)
+  const hls = str(rec(player.streamingData).hlsManifestUrl)
+  if (hls !== null) base.hlsUrl = hls
   const ended = str(broadcast.endTimestamp) !== null
   switch (status) {
     case 'OK':

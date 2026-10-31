@@ -74,6 +74,7 @@ const args = parseArgs(process.argv.slice(2), [
   'assist-daily',
   'assist-global',
   'assist-timeout-ms',
+  'stream-audio',
 ])
 if (!args.ok) {
   complain(args.message)
@@ -108,6 +109,8 @@ const instagramFlag = values.get('instagram')
 const billingFlag = values.get('billing')
 const instagramPort = intArg('instagram-port', 0, 65_535)
 const tiktokFlag = values.get('tiktok')
+// LV1: --stream-audio fake|off|no — fake면 가짜 방송 소리 + 모의 일꾼(조작 /_e2e/stream-audio), off면 운영자 끔과 같게(설정 칸 없음). 기본 no(꺼짐)
+const streamAudioFlag = values.get('stream-audio')
 const bandFlag = values.get('band')
 const bandPort = intArg('band-port', 0, 65_535)
 const testDepositsFlag = values.get('test-deposits')
@@ -160,11 +163,12 @@ if (
   (webDir !== undefined && webDirProblem(webDir) !== null) ||
   (instagramFlag !== undefined && instagramFlag !== 'yes' && instagramFlag !== 'no') ||
   (tiktokFlag !== undefined && tiktokFlag !== 'yes' && tiktokFlag !== 'no') ||
+  (streamAudioFlag !== undefined && !['fake', 'off', 'no'].includes(streamAudioFlag)) ||
   (billingFlag !== undefined && billingFlag !== 'yes' && billingFlag !== 'no')
 ) {
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
-      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --youtube-chat web|official, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, --band fake|no, --band-port 0~65535, ' +
+      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --youtube-chat web|official, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, --stream-audio fake|off|no, --band fake|no, --band-port 0~65535, ' +
       '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --parcel yes|no, --parcel-port 0~65535, --parcel-track-ms 1000~1800000, --social fake|no, --social-port 0~65535, --social-providers google,kakao,naver 중 고른 것, ' +
       '--assist fake|no, --assist-port 0~65535, --assist-daily 0~1000000, --assist-global 0~1000000, --assist-timeout-ms 100~60000',
   )
@@ -193,6 +197,7 @@ const e2e = await startE2eServer({
   instagram: instagramFlag === 'yes',
   ...(instagramPort === undefined ? {} : { instagramPort }),
   tiktok: tiktokFlag === 'yes',
+  ...(streamAudioFlag === 'fake' ? { streamAudio: { mockWorker: true } } : streamAudioFlag === 'off' ? { streamAudio: { on: false } } : {}),
   ...(bandFlag === 'fake' ? { band: bandPort === undefined ? {} : { port: bandPort } } : {}),
   ...(values.get('backup-dir') === undefined ? {} : { backupDir: values.get('backup-dir') as string }),
   billing: billingFlag === 'yes',

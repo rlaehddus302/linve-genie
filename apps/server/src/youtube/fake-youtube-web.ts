@@ -355,7 +355,7 @@ export class FakeYoutubeWeb {
       case 'live':
       case 'chatOff':
         return page(
-          { playabilityStatus: { status: 'OK' }, videoDetails: { ...details, isLive: true }, microformat: microformat({ isLiveNow: true }) },
+          { playabilityStatus: { status: 'OK' }, videoDetails: { ...details, isLive: true }, microformat: microformat({ isLiveNow: true }), streamingData: { hlsManifestUrl: `https://manifest.googlevideo.com/api/manifest/hls_variant/id/${video.videoId}/file/index.m3u8` } },
           { contents: { twoColumnWatchNextResults: video.state === 'live' ? chat : { conversationBar: { conversationBarRenderer: { availabilityMessage: { messageRenderer: { text: { runs: [{ text: 'Chat is disabled for this live stream.' }] } } } } } } } },
         )
       case 'upcoming':

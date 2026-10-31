@@ -11,6 +11,9 @@
 import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
 import { VoiceAliases } from './voice/aliases.ts'
 import { VoiceRelay, registerVoiceRelay } from './voice/relay.ts'
+import { FfmpegAudioFeed, ffmpegAvailable, webStreamLocator, type AudioFeed, type StreamLocator } from './voice/stream-audio.ts'
+import { StreamAudioService } from './voice/stream-service.ts'
+import { sellerStreamAudioOn } from './voice/stream-routes.ts'
 import { readFileSync } from 'node:fs'
 import { applyEvent } from '@livejjim/core'
 import type { Hono } from 'hono'
@@ -100,6 +103,11 @@ export interface ServerOptions {
   /** 이력 저장소 관측/장애 시험 포트. 운영 기동은 제공하지 않는다. */
   readonly voiceHistoryObserver?: VoiceHistoryObserver
   readonly transcribeWorkerToken?: string
+  /**
+   * 방송 소리로 듣기 (LV1, D-LV1-08). 없으면 꺼짐. `on: false`는 운영자 끔(LIVEJJIM_STREAM_AUDIO=off).
+   * feed를 주지 않으면 ffmpeg를 쓰고, 없으면 시작 기록 한 줄 남기고 꺼진 것처럼. locate를 주지 않으면 유튜브 웹 방송 페이지의 HLS 주소
+   */
+  readonly streamAudio?: { readonly on: boolean; readonly feed?: AudioFeed; readonly locate?: StreamLocator; readonly schedule?: (run: () => void, ms: number) => () => void }
   readonly database: Pick<Database, 'db'>
   /** 서버 마스터 키 (32바이트 또는 그 base64). 형식이 틀리면 만들지 않는다 */
   readonly masterKey: Buffer | string
@@ -236,6 +244,7 @@ export interface ServerOptions {
 
 export interface LivejjimServer {
   readonly voice: VoiceRelay
+  readonly streamAudio: StreamAudioService
   readonly app: Hono
   readonly service: Service
   readonly writer: ScopeWriter
@@ -382,7 +391,22 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.passwordVerifier === undefined ? {} : { verify: options.passwordVerifier }),
   })
   const voiceAliases = new VoiceAliases(db)
-  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, clock, log, reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
+  const streamSetting = options.streamAudio
+  let streamFeed: AudioFeed | null = streamSetting?.feed ?? null
+  if (streamSetting?.on === true && streamFeed === null) {
+    if (ffmpegAvailable()) streamFeed = new FfmpegAudioFeed()
+    else log({ level: 'warn', code: 'STREAM_AUDIO_NO_FFMPEG' })
+  }
+  const streamAudio = new StreamAudioService({
+    available: streamSetting?.on === true && streamFeed !== null,
+    feed: streamFeed ?? { open: (_url, sink) => { queueMicrotask(() => sink.fail()); return { close: () => {} } } },
+    locate: streamSetting?.locate ?? ((sellerId, b) => webStreamLocator(db, youtube?.web ?? null)(sellerId, b)),
+    clock,
+    log,
+    sellerOn: (sellerId) => sellerStreamAudioOn(db, sellerId),
+    ...(streamSetting?.schedule === undefined ? {} : { schedule: streamSetting.schedule }),
+  })
+  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
   let print: PrintService | null = null
   let writerRef: ScopeWriter | null = null
   const billing = new BillingService({
@@ -426,7 +450,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     onCommit: (sellerId, date, rehearsal, records) => {
       hub.publish(sellerId, records.map((record) => ({ date, rehearsal, seq: record.seq, type: record.type })))
       youtube?.onCommit(sellerId, rehearsal, records)
-      for (const record of records) if (record.changed && record.event.type === 'broadcast.end') voice.endBroadcast(sellerId, record.event.b)
+      for (const record of records) if (record.changed && record.event.type === 'broadcast.end') { voice.endBroadcast(sellerId, record.event.b); streamAudio.endBroadcast(sellerId, record.event.b) }
       voice.refreshSeller(sellerId)
       // 마지막 조회 뒤 10분이 지난 범위의 보기 캐시를 비운다 (커밋 뒤 — 항목이 많아야 33개, AC-S06b-12)
       viewCaches.sweep()
@@ -696,6 +720,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       hub,
       print: printService,
       voiceAliases,
+      streamAudio: { db, service: streamAudio },
       billing,
       instagram: instagramModule,
       tiktok: { db, live: tiktokLive, paste },
@@ -734,6 +759,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
   })
   registerVoiceRelay(app, voice)
+  streamAudio.attach(voice)
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
   deposits.start()
   const stop = async () => {
@@ -742,6 +768,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   return {
     app,
     voice,
+    streamAudio,
     service,
     writer,
     hub,
@@ -790,6 +817,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     stop,
     close: () => {
+      streamAudio.close()
       voice.close()
       service.generators.closeAll()
       printService.close()

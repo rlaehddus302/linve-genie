@@ -28,6 +28,8 @@ export const sellers = pgTable('sellers', {
    * 가게 이름은 name 칸이다(화면 위 가게 이름과 같은 값)
    */
   shop: text('shop').notNull().default('{}'),
+  /** 설정 "방송 소리로 듣기" (LV1 D-LV1-03, 기본 켬 — 마이그레이션 0035) */
+  streamAudio: boolean('stream_audio').notNull().default(true),
 })
 
 /**

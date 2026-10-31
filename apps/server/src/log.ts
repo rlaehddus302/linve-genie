@@ -35,6 +35,10 @@ export interface LogRecord {
 
 export type LogCode =
   | 'TRANSCRIBE_NO_WORKER'
+  | 'STREAM_AUDIO_NO_FFMPEG'
+  | 'STREAM_AUDIO_UNSUPPORTED'
+  | 'STREAM_AUDIO_NO_CONSOLE'
+  | 'STREAM_AUDIO_STOPPED'
   | 'ENGINE_FAILED'
   | 'REPLAY_SKIPPED'
   | 'SAVE_FAILED'
@@ -186,6 +190,10 @@ export type LogSink = (record: LogRecord) => void
 
 const MESSAGES: Readonly<Record<LogCode, string>> = {
   TRANSCRIBE_NO_WORKER: '받아쓰기 서버가 연결되어 있지 않아요',
+  STREAM_AUDIO_NO_FFMPEG: '방송 소리 받기 도구(ffmpeg)가 없어 방송 소리로 듣기를 껐어요',
+  STREAM_AUDIO_UNSUPPORTED: '소리를 받을 수 없는 방송이에요',
+  STREAM_AUDIO_NO_CONSOLE: '방송 소리 글을 넘길 콘솔 연결이 없어요',
+  STREAM_AUDIO_STOPPED: '방송 소리 듣기가 여러 번 끊겨 멈췄어요',
   ENGINE_FAILED: '엔진이 처리하지 못한 입력을 실패로 표시하고 건너뛰었어요',
   REPLAY_SKIPPED: '다시 불러오는 중 처리하지 못한 입력을 건너뛰었어요',
   SAVE_FAILED: '저장하지 못했어요',

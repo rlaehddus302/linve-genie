@@ -152,6 +152,8 @@ const { createSmsTestBox, createSmsTestHttpServer, makeSmsTestToken, SMS_TEST_PA
 const { createPhoneRelay, createPhoneVoiceUpgrade, phoneYoutubeNotice } = await server('try/phone-relay.ts')
 const { ensureWorkerToken } = await server('try/worker-token.ts')
 const { registerVoiceRelay } = await server('voice/relay.ts')
+const { FakeBroadcastAudio, readStreamAudioSwitch } = await server('voice/stream-audio.ts')
+const { startMockWorker } = await server('voice/mock-worker.ts')
 const workerTokenPath = join(CACHE, `voice-worker-${String(port)}.token`)
 const transcribeWorkerToken = ensureWorkerToken(workerTokenPath)
 const { readTikTokSettings } = await server('tiktok/settings.ts')
@@ -191,8 +193,11 @@ const oauth = realLogin !== null ? null : new FakeOAuth({ practice: true, basePa
 // 가짜 AI (연습 전용 경로 /_try/llm — 서버가 127.0.0.1로 부른다. 조작 경로 없음)
 const llm = new FakeLlm({ practice: true, basePath: '/_try/llm' })
 
+// 방송 소리로 듣기 연습 (LV1 D-LV1-09): 연습 라이브는 가짜 방송 소리(정해진 말 "15번 핑크프릴 이만 원")를 내고, 모의 일꾼이 그 글을 돌려준다
+const fakeAudio = new FakeBroadcastAudio(database.db)
 const livejjim = createServer({
   database,
+  streamAudio: { on: readStreamAudioSwitch(process.env), feed: fakeAudio, locate: fakeAudio.locate },
   transcribeWorkerToken,
   masterKey,
   appOrigin,
@@ -253,6 +258,13 @@ async function tryRoute(request) {
   if (url.pathname === SMS_TEST_PATH) return (await smsTest.handle(request)) ?? new Response('없는 주소예요.', { status: 404 })
   if (url.pathname.startsWith('/_try/oauth/') && oauth !== null) return oauth.handle(request)
   if (url.pathname.startsWith('/_try/llm/')) return llm.handle(request)
+  if (request.method === 'POST' && url.pathname === '/_try/stream-audio') {
+    if (request.headers.get('origin') !== appOrigin) return Response.json({ error: '이 화면에서만 보낼 수 있어요.' }, { status: 403 })
+    let body
+    try { body = await request.json() } catch { body = {} }
+    const op = ['say', 'cut', 'restore', 'delay', 'unsupported', 'supported'].includes(body?.op) ? body.op : 'say'
+    return Response.json(fakeAudio.control(op, typeof body?.ms === 'number' ? body.ms : undefined))
+  }
   if (request.method === 'GET' && url.pathname === '/_try/chat') {
     return new Response(CHAT_PAGE, {
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" },
@@ -287,6 +299,8 @@ await new Promise((resolve, reject) => {
   http.once('error', reject)
   http.listen(port, '127.0.0.1', resolve)
 }).catch(() => fail(`포트 ${String(port)}를 열지 못했어요. pnpm try --port 8800 처럼 다른 번호로 해 보세요.`))
+// 모의 받아쓰기 일꾼 (표지 소리만 알아듣는다 — 진짜 일꾼을 함께 띄우면 자리가 더 많은 진짜 일꾼이 마이크 흐름을 받는다)
+const mockWorker = startMockWorker({ url: `ws://127.0.0.1:${String(port)}/api/voice/worker`, token: transcribeWorkerToken })
 
 // ── 휴대폰용 https (같은 와이파이) ──────────────────────────
 /**
@@ -430,6 +444,7 @@ async function stop() {
   http.close()
   livejjim.close()
   await livejjim.stop().catch(() => {})
+  mockWorker.close()
   await fake.close().catch(() => {})
   await database.close().catch(() => {})
   if (persistentDir === null) rmSync(backupDir, { recursive: true, force: true })

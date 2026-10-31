@@ -25,10 +25,16 @@ export interface VoiceRelayOptions {
   readonly clock: Clock
   readonly log: LogSink
   readonly workerToken?: string
+  /** LV1: 휴대폰 마이크 흐름이 생기기 직전·끝난 뒤 (방송 소리는 마이크에 자리를 내준다, D-LV1-06) */
+  readonly onMicChange?: (sellerId: string, active: boolean) => void
   readonly reading?: (context: { session: SessionContext; broadcastId: string; device: string; mode: VoiceFlowMode; send: (message: unknown) => void }) => VoiceReadingSession | Promise<VoiceReadingSession>
 }
 interface Peer { readonly ws: WebSocket; pongAt: number }
-interface Worker extends Peer { capacity: number; nextStream: number; readonly streams: Map<number, Device> }
+/** 서버가 직접 여는 흐름 (방송 소리, LV1) — 기기 대신 서버가 소리를 넣고 글을 받는다 */
+interface External { readonly external: true; readonly onResult: (result: { text: string; startMs: number; endMs: number }) => void; readonly onLost: () => void }
+interface Worker extends Peer { capacity: number; nextStream: number; readonly streams: Map<number, Device | External> }
+export interface ExternalStream { send(pcm: Buffer): boolean; close(): void }
+const isExternal = (x: Device | External): x is External => 'external' in x
 interface Device extends Peer {
   session: SessionContext | null
   broadcastId: string
@@ -38,6 +44,8 @@ interface Device extends Peer {
   worker: Worker | null
   stream: number
   ready: boolean
+  /** 서버 방송 소리 글을 넘길 때 쓴 첫 시각 (조작 흐름에만) */
+  captureAt: number | null
   bytes: number
   windowAt: number
   reading: VoiceReadingSession | null
@@ -123,7 +131,11 @@ export class VoiceRelay {
     ws.on('close', () => {
       clearTimeout(greeting)
       const wasActive = this.#workers.delete(worker)
-      for (const device of [...worker.streams.values()]) this.#finish(device, 'WORKER_LOST')
+      for (const device of [...worker.streams.values()]) {
+        if (isExternal(device)) device.onLost()
+        else this.#finish(device, 'WORKER_LOST')
+      }
+      worker.streams.clear()
       if (wasActive && this.#workers.size === 0 && !this.#closed) this.#noWorker()
     })
     ws.on('message', (data, binary) => {
@@ -140,17 +152,24 @@ export class VoiceRelay {
       if (value.type !== 'result' || !natural(value.stream) || typeof value.text !== 'string' || value.text.trim() === '' || value.text.length > 2_000 ||
         !natural(value.startMs) || !natural(value.endMs) || value.startMs > value.endMs || !natural(value.procMs)) return
       const device = worker.streams.get(value.stream)
-      if (!device?.ready) return
+      if (device === undefined) return
+      const result = { text: value.text, startMs: value.startMs, endMs: value.endMs }
+      if (isExternal(device)) {
+        this.#samples.push({ at: this.#options.clock.now(), ms: value.procMs })
+        this.#trimSamples()
+        device.onResult(result)
+        return
+      }
+      if (!device.ready) return
       this.#samples.push({ at: this.#options.clock.now(), ms: value.procMs })
       this.#trimSamples()
-      const result = { text: value.text, startMs: value.startMs, endMs: value.endMs }
       send(device.ws, { type: 'result', ...result })
       if (device.reading !== null) this.#enqueue(device, () => device.reading?.onResult(result))
     })
   }
   #device(ws: WebSocket, req: IncomingMessage, url: URL): void {
     const now = this.#options.clock.now()
-    const device: Device = { ws, pongAt: now, session: null, broadcastId: url.searchParams.get('broadcastId') ?? '', device: url.searchParams.get('device') ?? '', mode: flowMode(url), pending: 0, worker: null, stream: 0, ready: false, bytes: 0, windowAt: now, reading: null, work: Promise.resolve() }
+    const device: Device = { ws, pongAt: now, session: null, broadcastId: url.searchParams.get('broadcastId') ?? '', device: url.searchParams.get('device') ?? '', mode: flowMode(url), pending: 0, worker: null, stream: 0, ready: false, captureAt: null, bytes: 0, windowAt: now, reading: null, work: Promise.resolve() }
     this.#devices.add(device)
     ws.on('error', () => {})
     ws.on('pong', () => { device.pongAt = this.#options.clock.now() })
@@ -192,9 +211,12 @@ export class VoiceRelay {
       if (owner.device !== device.device) { this.#finish(device, 'OTHER_DEVICE'); return }
       this.#finish(owner)
     }
+    // 마이크가 일꾼 자리를 먼저 받게 방송 소리 흐름을 먼저 쉬게 한다 (D-LV1-06). 거절되면 다시 돌려 놓는다
+    if (device.mode === 'livegenie') this.#options.onMicChange?.(session.sellerId, true)
     const worker = [...this.#workers].filter((candidate) => candidate.ws.readyState === WebSocket.OPEN && candidate.streams.size < candidate.capacity && candidate.nextStream <= 4_294_967_295)
       .sort((a, b) => (b.capacity - b.streams.size) - (a.capacity - a.streams.size))[0]
     if (worker === undefined && device.mode === 'livegenie') {
+      queueMicrotask(() => this.#options.onMicChange?.(session.sellerId, false))
       if (this.#workers.size === 0) { this.#noWorker(); this.#finish(device, 'NO_WORKER') }
       else this.#finish(device, 'BUSY')
       return
@@ -205,6 +227,8 @@ export class VoiceRelay {
       worker.streams.set(device.stream, device)
     }
     this.#owners.set(session.sellerId, device)
+    // 마이크가 이긴다: 방송 소리 흐름은 쉰다 (D-LV1-06)
+    if (device.mode === 'livegenie') this.#options.onMicChange?.(session.sellerId, true)
     if (this.#options.reading !== undefined) {
       const reading = await this.#options.reading({ session, broadcastId: device.broadcastId, device: device.device, mode: device.mode, send: (value) => send(device.ws, value) })
       if (!this.#devices.has(device)) { reading.close(); return }
@@ -229,7 +253,10 @@ export class VoiceRelay {
   #finish(device: Device, reason?: VoiceCloseReason): void {
     if (!this.#devices.delete(device)) return
     device.ready = false
-    if (device.session && this.#owners.get(device.session.sellerId) === device) this.#owners.delete(device.session.sellerId)
+    if (device.session && this.#owners.get(device.session.sellerId) === device) {
+      this.#owners.delete(device.session.sellerId)
+      if (device.mode === 'livegenie') this.#options.onMicChange?.(device.session.sellerId, false)
+    }
     const worker = device.worker
     if (worker !== null) {
       worker.streams.delete(device.stream)
@@ -240,6 +267,58 @@ export class VoiceRelay {
     device.reading = null
     if (reason !== undefined) send(device.ws, { type: 'closing', reason })
     if (device.ws.readyState === WebSocket.OPEN) device.ws.close()
+  }
+  /** 그 판매자의 휴대폰 마이크(받아쓰기 흐름)가 듣는 중인가 */
+  micActive(sellerId: string): boolean {
+    return this.#owners.get(sellerId)?.mode === 'livegenie'
+  }
+  /** 서버가 직접 소리를 넣는 흐름을 연다 (방송 소리). 일꾼이 없거나 다 차면 까닭 */
+  openExternal(onResult: External['onResult'], onLost: () => void): ExternalStream | 'NO_WORKER' | 'BUSY' {
+    if (this.#closed) return 'NO_WORKER'
+    const worker = [...this.#workers].filter((candidate) => candidate.ws.readyState === WebSocket.OPEN && candidate.streams.size < candidate.capacity && candidate.nextStream <= 4_294_967_295)
+      .sort((a, b) => (b.capacity - b.streams.size) - (a.capacity - a.streams.size))[0]
+    if (worker === undefined) {
+      if (this.#workers.size === 0) { this.#noWorker(); return 'NO_WORKER' }
+      return 'BUSY'
+    }
+    const stream = worker.nextStream++
+    const entry: External = { external: true, onResult, onLost }
+    worker.streams.set(stream, entry)
+    send(worker.ws, { type: 'open', stream })
+    const header = Buffer.allocUnsafe(4)
+    header.writeUInt32BE(stream)
+    let open = true
+    return {
+      send: (pcm) => {
+        if (!open || worker.streams.get(stream) !== entry) return false
+        if (worker.ws.readyState !== WebSocket.OPEN || worker.ws.bufferedAmount > 262_144) return false
+        worker.ws.send(Buffer.concat([header, pcm]))
+        return true
+      },
+      close: () => {
+        if (!open) return
+        open = false
+        if (worker.streams.get(stream) === entry) { worker.streams.delete(stream); send(worker.ws, { type: 'close', stream }) }
+      },
+    }
+  }
+  /**
+   * 방송 소리에서 받아쓴 글을 그 방송 콘솔(마이크 아닌 조작 흐름)의 읽기로 넘긴다. 시각은 서버가 조각을 받은 시각(밀리초, UTC).
+   * 넘길 콘솔이 없으면 false — 아무도 못 보는 바로 등록은 하지 않는다 (D-LV1-03)
+   */
+  deliver(sellerId: string, broadcastId: string, result: { text: string; startAt: number; endAt: number }): boolean {
+    const device = this.#owners.get(sellerId)
+    if (device === undefined || device.mode === 'livegenie' || device.broadcastId !== broadcastId || !device.ready || device.reading === null) return false
+    if (device.captureAt === null) {
+      const at = result.startAt
+      device.captureAt = at
+      this.#enqueue(device, () => device.reading?.onMessage({ type: 'voice.session', op: 'capture', at }))
+    }
+    const base = device.captureAt
+    const shifted = { text: result.text, startMs: Math.max(0, result.startAt - base), endMs: Math.max(0, result.endAt - base) }
+    send(device.ws, { type: 'result', ...shifted })
+    this.#enqueue(device, () => device.reading?.onResult(shifted))
+    return true
   }
   refreshSeller(sellerId: string): void {
     const device = this.#owners.get(sellerId)

@@ -42,6 +42,8 @@ import { FakeWebcast, readTikTokSettings, type FakeAccountState, type TikTokFail
 import { generateMasterKey, type PasswordCost } from './secrets.ts'
 import { createServer, type LivejjimServer } from './server.ts'
 import { registerVoiceRelay } from './voice/relay.ts'
+import { FakeBroadcastAudio, type FakeAudioOp } from './voice/stream-audio.ts'
+import { startMockWorker } from './voice/mock-worker.ts'
 import { findAccountByLogin } from './store.ts'
 import { kstDate, systemClock, type Clock } from './time.ts'
 import type { Draft } from './writer.ts'
@@ -144,6 +146,11 @@ export interface E2eOptions {
   readonly appOrigin?: string
   /** E2E에서만 쓰는 모의 받아쓰기 일꾼 인증값. 운영 설정과 공유하지 않는다. */
   readonly transcribeWorkerToken?: string
+  /**
+   * 방송 소리로 듣기 (LV1 D-LV1-09): 가짜 방송 소리를 켠다(유튜브 이은 회차면 소리 주소가 있다). mockWorker면 표지 소리만 알아듣는 모의 일꾼도 띄운다
+   * (transcribeWorkerToken 필요). 조작 POST /_e2e/stream-audio { op: cut|restore|delay|unsupported|supported|say, ms? }
+   */
+  readonly streamAudio?: { readonly on?: boolean; readonly mockWorker?: boolean }
   /** 채우기 (없으면 채우지 않는다) */
   readonly fill?: FillOptions
   /** 화면의 방송자 조치 대기 시간 (밀리초, 0~5000, 기본 5000) */
@@ -253,8 +260,18 @@ export function e2eControl(
   carrier?: FakeCarrier | null,
   band?: FakeBand | null,
   voiceHistory?: E2eVoiceHistory,
+  fakeAudio?: FakeBroadcastAudio | null,
 ): Hono {
   const control = new Hono()
+  if (fakeAudio != null) {
+    control.post('/_e2e/stream-audio', async (c) => {
+      const body = await read(c.req.raw)
+      const ops: readonly FakeAudioOp[] = ['cut', 'restore', 'delay', 'unsupported', 'supported', 'say']
+      const op = ops.find((item) => item === body.op)
+      if (op === undefined) return c.json({ error: 'input' }, 400)
+      return c.json(fakeAudio.control(op, typeof body.ms === 'number' ? body.ms : undefined))
+    })
+  }
   const read = async (request: Request): Promise<Record<string, unknown>> => {
     try {
       const parsed: unknown = JSON.parse((await request.text()) || '{}')
@@ -639,8 +656,10 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         })
   const fakeLlm = options.assist === undefined ? null : await FakeLlm.start(options.assist.port === undefined ? {} : { port: options.assist.port })
   const voiceHistory: E2eVoiceHistory = new Map()
+  const fakeAudio = options.streamAudio === undefined ? null : new FakeBroadcastAudio(database.db)
   const server = createServer({
     database,
+    ...(fakeAudio === null ? {} : { streamAudio: { on: options.streamAudio?.on !== false, feed: fakeAudio, locate: fakeAudio.locate } }),
     masterKey,
     appOrigin,
     voiceHistoryObserver: async (sellerId, date, phase) => {
@@ -724,9 +743,18 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   else if (fakeCarrier !== null) server.parcels.start()
   // 밴드 보관 기간 지우기·이어받기 (유튜브를 켜지 않은 기동도)
   if (fakeBand !== null && fakeGoogle === null) void server.band.resume()
-  const app = e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier, fakeBand, voiceHistory)
+  const app = e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier, fakeBand, voiceHistory, fakeAudio)
   registerVoiceRelay(app, server.voice)
   const http = createNodeServer({ app })
+  if (options.streamAudio?.mockWorker === true && options.transcribeWorkerToken !== undefined) {
+    const token = options.transcribeWorkerToken
+    http.once('listening', () => {
+      const address = http.address()
+      if (address === null || typeof address === 'string') return
+      const worker = startMockWorker({ url: `ws://127.0.0.1:${String(address.port)}/api/voice/worker`, token })
+      http.once('close', () => worker.close())
+    })
+  }
   return {
     server,
     database,
