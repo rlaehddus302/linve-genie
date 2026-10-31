@@ -296,7 +296,9 @@ test('AC-V3-38 R29 → APP1-32/APP1b: 둘째 휴대폰 음성은 OTHER_DEVICE, �
   await phone.getByLabel('빠른 입력').press('Enter')
   await expect(boardItem(phone, 15)).toContainText('10,000')
   await expect(boardItem(page, 15)).toBeVisible()
-  expect(productWrites(phoneWrites)).toEqual([['product.register', 15, '핑크프릴', 10000]])
+  // SRV1 (D-APP-24): 손 입력 등록 본문은 친 줄 원문 — 값은 서버가 읽어 보드에 15번 핑크프릴 10,000원
+  expect(phoneWrites.filter((w) => w.type.startsWith('product.')).map((w) => [w.type, w.body['text']])).toEqual([['product.register', '15 핑크프릴 10']])
+  await expect(boardItem(page, 15)).toContainText('핑크프릴')
   expect([...productWrites(pcWrites), ...productWrites(phoneWrites)].filter((w) => w[0] !== 'product.register')).toEqual([])
   await phone.close()
 })

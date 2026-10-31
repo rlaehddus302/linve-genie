@@ -34,7 +34,6 @@ import {
   safariError,
   safariSay,
   speak,
-  speechError,
   turnOnVoice,
   uniqueDate,
   voiceRegion,
@@ -465,8 +464,9 @@ test('AC-I5-30 크로미움: 지원 안 함 안내는 안내 색·"닫기"·빠�
   await unsupportedGuide(page, async (other, url) => {
     await installFakeSpeech(other, { consent: true })
     await other.goto(url) // 같은 기기(로그인 그대로)의 같은 방송
-    await turnOnVoice(other)
-    await speechError(other, 'not-allowed')
+    // D-REL1-05: 크롬 not-allowed 대신 마이크 권한 거부(브라우저 마이크 잡기 실패) — 서버 경로에도 있는 일
+    await microphoneError(other, 'NotAllowedError')
+    await other.getByRole('button', { name: '음성 켜기', exact: true }).click()
   })
 })
 

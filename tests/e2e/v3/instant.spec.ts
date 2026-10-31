@@ -28,43 +28,38 @@ const BROADCAST_4 = '자 파이텐트까지 나오는 상강색 게임 잘 들�
 const BROADCAST_5 = '자 9cm에 자 9cm에 3번 자 3강 세금 뿌리 다 남았고요 얘는 자 25만 원 170 자 요런 색금 예쁘게 나왔습니다 이거 25만 원 3강 세금 170 자 이 703강 세금이 자 25만 원까지'
 
 /**
- * 문장을 사례 표 꼴로 말하고: 결과 k-1까지 쓰기 0, 결과 k에서 등록 하나(표의 값), 덩어리가 끝난 뒤에도 쓰기는 그 하나뿐.
+ * 적용 안 함: D-REL1-02 — 옛 시험은 "결과 k-1까지(중간 글) 쓰기 0, 결과 k에서 등록"을 봤다. SRV1부터 중간 글이 없어(SPEC "크롬 받아쓰기 없음")
+ * 결과 번호 k는 기록으로만 남기고, 대신 D-REL1-03으로 본다: 말하기 전 쓰기 0 → 모의 일꾼 최종 결과 1건 → 다른 조작 없이 표의 값으로 등록 하나,
+ * 같은 최종 결과가 한 번 더 와도 등록은 그 하나뿐.
  */
 async function expectRegisteredAt(page: Page, writes: Write[], sentence: string, k: number, expected: readonly [number, string, number]): Promise<void> {
+  void k // 적용 안 함: D-REL1-02 (옛 결과 번호)
   const [no, name, price] = expected
-  await sayWords(page, sentence, {
-    afterEach: async (i) => {
-      if (i === k - 1) {
-        await settle(page)
-        expect(productWrites(writes), `결과 ${String(i)}까지는 쓰기 없음`).toEqual([])
-      }
-      if (i === k) await expect.poll(() => productWrites(writes), { message: `결과 ${String(k)}에서 등록` }).toEqual([['product.register', no, name, price]])
-    },
-  })
+  await settle(page)
+  expect(productWrites(writes), '최종 결과 전에는 쓰기 없음').toEqual([])
+  await sayWords(page, sentence)
+  await expect.poll(() => productWrites(writes), { message: '최종 결과에서 등록 하나' }).toEqual([['product.register', no, name, price]])
   await page.clock.runFor(QUIET_MS + 100)
   await expect(boardItem(page, no)).toBeVisible()
+  // 같은 최종 결과가 다시 와도 한 번만 (D-REL1-03)
+  await sayWords(page, sentence)
+  await page.clock.runFor(QUIET_MS + 100)
   await settle(page)
   expect(productWrites(writes)).toEqual([['product.register', no, name, price]])
   await expect(voiceCards(page)).toHaveCount(0)
 }
 
 // 수용 기준 표 R1·R3: bts는 영수증 품종으로 기본 사전에 들어가 사전 이름 BTS로 맞는다(D-V3-86 — 처음 기대 "품종 미입력"은 bts가 사전 밖일 때)
-test('AC-V3-20 R1 (D-V3-86): 실제 방송 1 — 결과 7(원까지)에서 조용한 시간 전에 108번 BTS 100,000원 등록 하나(bts = 사전 이름 BTS), 5초 되돌리기 띠·큰 글자 칸, 카드 없음', async ({ page }) => {
+// 적용 안 함: D-REL1-02 — "결과 7(원까지)에서 조용한 시간 전에"는 중간 글 기준이라 없다. D-REL1-03: 최종 결과 1건으로 바로 등록·띠·큰 글자 칸
+test('AC-V3-20 R1 (D-V3-86 · D-REL1-03): 실제 방송 1 — 최종 결과에서 108번 BTS 100,000원 등록 하나(bts = 사전 이름 BTS), 5초 되돌리기 띠·큰 글자 칸, 카드 없음', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await sayWords(page, BROADCAST_1, {
-    afterEach: async (k) => {
-      if (k === 6) {
-        await settle(page)
-        expect(productWrites(writes)).toEqual([])
-      }
-      if (k === 7) {
-        await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'BTS', 100000]])
-        await expect(readout(page)).toHaveText('108번 BTS 100,000원 등록했어요')
-        await expect(undoBar(page).getByRole('button', { name: '108번 등록 되돌리기' })).toBeVisible()
-      }
-    },
-  })
+  await settle(page)
+  expect(productWrites(writes)).toEqual([])
+  await sayWords(page, BROADCAST_1)
+  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, 'BTS', 100000]])
+  await expect(readout(page)).toHaveText('108번 BTS 100,000원 등록했어요')
+  await expect(undoBar(page).getByRole('button', { name: '108번 등록 되돌리기' })).toBeVisible()
   await expect(voiceCards(page)).toHaveCount(0)
   // 덩어리 끝
   await page.clock.runFor(QUIET_MS + 100)

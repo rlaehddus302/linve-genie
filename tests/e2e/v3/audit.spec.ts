@@ -27,6 +27,7 @@ import {
   sayChunk,
   sayFirstOfTwo,
   sayWords,
+  sayFinals,
   settle,
   setupV3,
   smsApi,
@@ -454,11 +455,9 @@ test.describe('AC-V3-73 판매 말투 (D-V3-72, 천원)', () => {
 test('R97 (자동 단위, D-V3-79): 중간 "15번 라울 60 자"에서 등록 뒤 최종 "15번 라울 60 자 뿌리 다 살아 있어요" → 15번 라울 600,000원 하나, 취소·두 번째 쓰기 없음', async ({ page }) => {
   await setupV3(page, { sellerSettings: { 'price.unit': 'AUTO' } })
   const writes = recordWrites(page)
-  await sayWords(page, '15번 라울 60 자 뿌리 다 살아 있어요', {
-    afterEach: async (k) => {
-      // `자`(결과 4) 때 등록 — 표 R97 "`자` 때"
-      if (k === 4) await registers(writes, [['product.register', 15, '라울', 600000]])
-    },
+  // 적용 안 함: D-REL1-02 (중간 결과 4 `자` 때 등록). D-REL1-04: 최종 결과 "15번 라울 60 자" 뒤 같은 덩어리 "뿌리 다 살아 있어요"
+  await sayFinals(page, ['15번 라울 60 자', '뿌리 다 살아 있어요'], async (i) => {
+    if (i === 1) await registers(writes, [['product.register', 15, '라울', 600000]])
   })
   await page.clock.runFor(QUIET_MS + 100)
   await page.clock.runFor(5000)

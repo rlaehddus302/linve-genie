@@ -26,11 +26,9 @@ const BROADCAST_6 = '어 자 요거 지금 189번인데 뿌리가 있습니다 �
 test('TE-V3-013 AC-V3-25 R7 (D-V3-46): 실제 방송 6 → 결과 19(원)에서 139번 빅뱅금 500,000원 등록 하나, 덩어리 끝 4초 "139번으로 등록했는데 189번도 들렸어요…"', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await sayWords(page, BROADCAST_6, {
-    afterEach: async (k) => {
-      if (k === 19) await expect.poll(() => productWrites(writes)).toEqual([['product.register', 139, '빅뱅금', 500000]])
-    },
-  })
+  // 적용 안 함: D-REL1-02 (중간 결과 19에서 등록). D-REL1-03: 최종 결과 하나에서 등록
+  await sayWords(page, BROADCAST_6)
+  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 139, '빅뱅금', 500000]])
   await page.clock.runFor(QUIET_MS + 100)
   const OTHER = '139번으로 등록했는데 189번도 들렸어요. 맞는지 확인해 주세요.'
   await page.clock.runFor(2500)
@@ -47,11 +45,9 @@ test('TE-V3-013 AC-V3-25 R7 (D-V3-46): 실제 방송 6 → 결과 19(원)에서 
 test('AC-V3-25 R26 (D-V3-45): "189번 빅뱅금 50만 원 139번" → 결과 4에서 189번 등록 하나, 덩어리 끝 큰 글자 칸 4초 안내(단추 없음)·음성 기록, 5초 되돌리기 띠 그대로', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await sayWords(page, '189번 빅뱅금 50만 원 139번', {
-    afterEach: async (k) => {
-      if (k === 4) await expect.poll(() => productWrites(writes)).toEqual([['product.register', 189, '빅뱅금', 500000]])
-    },
-  })
+  // 적용 안 함: D-REL1-02 (중간 결과 4에서 등록). D-REL1-03: 최종 결과 하나에서 189번 등록
+  await sayWords(page, '189번 빅뱅금 50만 원 139번')
+  await expect.poll(() => productWrites(writes)).toEqual([['product.register', 189, '빅뱅금', 500000]])
   await page.clock.runFor(QUIET_MS + 100)
   const OTHER = '189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.'
   // 등록 뒤 5초 되돌리기 띠는 그대로

@@ -1,4 +1,5 @@
-import { historyProbe, pcmCounts } from '../app1/support.ts'
+import { haltPcm, historyProbe, LG_FAILED, microphoneError, pcmCounts, reconnectPcm } from '../app1/support.ts'
+import { clockConsole, pauseClock } from '../i5/support.ts'
 // I4 음성 켜기·끄기 (AC-I4-10~14) — test-e2e. SRV1부터 PC도 서버 받아쓰기(D-APP-22·D-APP-25): 합성 마이크 → 서버 → 모의 일꾼(app1/support).
 // 가짜 SpeechRecognition은 "만들지 않는다"를 보려고만 둔다(AC-SRV1-10).
 import { test, expect } from '@playwright/test'
@@ -19,8 +20,6 @@ import {
   register,
   speak,
   speechCounts,
-  speechEnd,
-  speechError,
   turnOnVoice,
   uniqueDate,
   voiceRegion,
@@ -167,72 +166,59 @@ test.describe('I4 음성 켜기·끄기', () => {
     await expect(page.getByRole('button', { name: '음성 끄기' })).toHaveCount(0)
   })
 
-  test('AC-I4-12: 권한 거부·마이크 없음은 꺼지고 다시 시작하지 않는다, 다시 켜면 문장이 사라진다', async ({ page }) => {
+  // D-REL1-05: 크롬 not-allowed·audio-capture 대신 마이크 잡기 실패(NotAllowedError·NotFoundError). 적용 안 함: service-not-allowed(크롬 오류 코드, D-REL1-01 (3))
+  test('AC-I4-12 → D-REL1-05: 마이크 권한 거부·마이크 없음은 꺼지고 다시 시작하지 않는다, 다시 켜면 문장이 사라진다', async ({ page }) => {
     await installFakeSpeech(page, { consent: true })
-    await login(page)
-    await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
-    await turnOnVoice(page)
-    await speechError(page, 'not-allowed')
-    // D-I5-03: 권한 거부 문장 교체, D-I5-12: 기기별 줄로 나눠 줄마다 따로 보인다 (I5)
+    await clockConsole(page)
+    await pauseClock(page)
+    await microphoneError(page, 'NotAllowedError')
+    await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
     const denied = page.getByRole('alert').filter({ has: page.getByText('마이크 사용이 막혀 있어요.', { exact: true }) })
     await expect(denied).toBeVisible()
-    await expect(denied.getByText('· PC·안드로이드 크롬: 주소창 왼쪽 자물쇠에서 마이크를 허용해 주세요.', { exact: true })).toBeVisible()
-    await expect(denied.getByText('· 아이폰: 설정 > 사파리 > 마이크에서 허용해 주세요.', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
-    expect((await speechCounts(page)).starts).toBe(1)
+    const sockets = (await pcmCounts(page)).sockets
+    await page.clock.runFor(10_000)
+    expect((await pcmCounts(page)).sockets, '저절로 다시 시작하지 않는다').toBe(sockets)
+    await expect(page.getByRole('button', { name: /^(음성 켜기|다시 켜기)$/ }).first()).toBeVisible()
 
-    await turnOnVoice(page)
+    await microphoneError(page, 'NotFoundError')
+    await page.getByRole('button', { name: /^(음성 켜기|다시 켜기)$/ }).first().click()
     await expect(page.getByText('마이크 사용이 막혀 있어요.')).toHaveCount(0)
-    expect((await speechCounts(page)).starts).toBe(2)
-    await speechError(page, 'audio-capture')
     await expect(page.getByRole('alert').filter({ hasText: '마이크를 찾지 못했어요. 마이크 연결을 확인해 주세요.' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
-    expect((await speechCounts(page)).starts).toBe(2)
+    const again = (await pcmCounts(page)).sockets
+    await page.clock.runFor(10_000)
+    expect((await pcmCounts(page)).sockets, '저절로 다시 시작하지 않는다').toBe(again)
 
-    await turnOnVoice(page)
-    await speechError(page, 'service-not-allowed')
-    // D-I5-03: 처음 켤 때의 service-not-allowed는 SERVICE_OFF 문장, D-I5-12: 기기별 줄로 나눠 줄마다 따로 (I5)
-    const off = page.getByRole('alert').filter({ has: page.getByText('이 기기에서 음성 인식이 꺼져 있어요.', { exact: true }) })
-    await expect(off).toBeVisible()
-    await expect(off.getByText('· 아이폰: 설정에서 Siri와 받아쓰기를 켜 주세요.', { exact: true })).toBeVisible()
-    await expect(off.getByText('· 그래도 안 되면 PC 크롬이나 안드로이드에서 켜 주세요.', { exact: true })).toBeVisible()
-    expect((await speechCounts(page)).starts).toBe(3)
+    await microphoneError(page, null)
+    await page.getByRole('button', { name: /^(음성 켜기|다시 켜기)$/ }).first().click()
+    await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible()
+    await expect(page.getByText('마이크를 찾지 못했어요.')).toHaveCount(0)
   })
 
-  test('AC-I4-12: network·no-speech·저절로 끝남은 다시 시작하고, 최종 결과 없이 6번째면 "자꾸 끊겨요"로 꺼진다', async ({ page }) => {
+  // D-REL1-05: 크롬 network·no-speech·저절로 끝남 대신 음성 웹소켓 끊김 — 다시 잇고, 한도(다섯 번) 넘게 끊기면 멈춤 문장과 [다시 켜기], 손 입력은 그대로
+  test('AC-I4-12 → D-REL1-05: 음성 웹소켓이 끊기면 다시 잇고, 한도를 넘으면 "듣기 멈춤"으로 꺼진다, 다시 켤 수 있다', async ({ page }) => {
     await installFakeSpeech(page, { consent: true })
-    await login(page)
-    await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
+    await clockConsole(page)
     await turnOnVoice(page)
-    await speechError(page, 'network')
-    await speechError(page, 'no-speech')
-    await speechEnd(page)
-    await speechEnd(page)
-    await speechEnd(page)
-    expect((await speechCounts(page)).starts).toBe(6)
-    await expect(page.getByRole('button', { name: '음성 끄기' })).toBeVisible()
-    await speechEnd(page)
-    // D-I5-03: 끊김 문장 교체 (I5)
-    await expect(page.getByRole('alert').filter({ hasText: '음성 인식이 자꾸 끊겨요. 마이크를 확인하고 다시 켜 주세요. 계속 끊기면 PC 크롬이나 안드로이드에서 켜 주세요.' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
-    expect((await speechCounts(page)).starts).toBe(6)
-    // 다시 켤 수 있다
-    await turnOnVoice(page)
-    await expect(page.getByText('음성 인식이 자꾸 끊겨요.')).toHaveCount(0)
+    await pauseClock(page)
+    await haltPcm(page)
+    await register(page, '21 핑크프릴 10', 21)
+    await page.getByRole('button', { name: '다시 켜기', exact: true }).first().click()
+    await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible()
+    await expect(voiceRegion(page)).not.toContainText(LG_FAILED)
   })
 
-  test('AC-I4-12: 최종 결과가 오면 끊김 횟수를 다시 센다 — 5번 끊김 → 최종 결과 → 5번 끊김에도 켜져 있다', async ({ page }) => {
+  // D-REL1-05: 끊기기 전 받은 최종 결과는 남는다(옛 "최종 결과가 오면 끊김 횟수를 다시 센다"의 크롬 횟수 세기는 적용 안 함 — D-REL1-01 (3))
+  test('AC-I4-12 → D-REL1-05: 끊김 사이에 받은 최종 결과는 카드로 남고, 다시 이은 뒤에도 듣는다', async ({ page }) => {
     await installFakeSpeech(page, { consent: true })
-    await login(page)
-    await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
+    await clockConsole(page)
     await turnOnVoice(page)
-    for (let i = 0; i < 5; i++) await speechEnd(page)
-    await speak(page, '안녕하세요')
-    for (let i = 0; i < 5; i++) await speechEnd(page)
+    await pauseClock(page)
+    for (let i = 0; i < 2; i++) await reconnectPcm(page, i)
+    await speak(page, '15번 핑크프릴 만오천 원')
+    await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
+    for (let i = 2; i < 4; i++) await reconnectPcm(page, i)
+    await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
     await expect(page.getByRole('button', { name: '음성 끄기' })).toBeVisible()
-    expect((await speechCounts(page)).starts).toBe(11)
-    await speechEnd(page)
-    await expect(page.getByRole('alert').filter({ hasText: '음성 인식이 자꾸 끊겨요.' })).toBeVisible()
   })
 
   test('AC-I4-13: 중간 결과는 자막 한 줄로 덮어쓰고, 최종 결과는 기록 맨 앞·카드, 악성 문장은 글자로만', async ({ page }) => {
@@ -246,16 +232,13 @@ test.describe('I4 음성 켜기·끄기', () => {
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await turnOnVoice(page)
     // V3 교체(D-V3-50, AC-V3-56): "들리는 말:" 줄이 없어지고 중간 결과는 맨 위 큰 칸("지금 들리는 말")에만 덮어써 보인다
+    // 적용 안 함: D-REL1-02 — 중간 결과 자막 덮어쓰기는 없다. 대신 최종 결과 전에는 큰 칸·카드가 비고, 최종 결과가 오면 그 글이 바로 보인다
     const now = page.getByRole('region', { name: '지금 들리는 말', exact: true })
-    await speak(page, '15번 핑', { final: false })
-    await expect(now).toContainText('15번 핑')
-    await expect(page.getByText(/^들리는 말:/)).toHaveCount(0)
-    await speak(page, '15번 핑크프릴', { final: false })
-    await expect(now).toContainText('15번 핑크프릴')
-    await expect(now.getByText('15번 핑', { exact: true })).toHaveCount(0)
+    await expect(now).toContainText('말하면 여기에 보여요')
     await expect(page.getByText(/^들리는 말:/)).toHaveCount(0)
     await expect(cardList(page)).toHaveCount(0)
     await speak(page, '15번 핑크프릴 만오천 원')
+    await expect(now).toContainText('15번 핑크프릴 만오천 원')
     await expect(page.getByText(/^들리는 말:/)).toHaveCount(0)
     await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
     await speak(page, '<img src=x onerror=alert(1)>16번 라울 만원')
@@ -322,13 +305,11 @@ test.describe('I4 음성 켜기·끄기', () => {
     await speak(page, '15번 핑크프릴 만오천 원')
     await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
     await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
-    const counts = await speechCounts(page)
-    expect(counts.stops + counts.aborts).toBeGreaterThanOrEqual(1)
+    // D-REL1-05: 끄면 마이크를 멈추고 받아쓰기 흐름을 닫는다 — 늦은 결과가 올 곳이 없다(적용 안 함: 크롬 늦은 결과 이벤트, D-REL1-02)
+    await expect.poll(async () => (await pcmCounts(page)).stops, { message: '마이크 멈춤' }).toBeGreaterThanOrEqual(1)
+    await expect.poll(async () => (await pcmCounts(page)).openSockets, { message: '흐름 닫힘' }).toBe(0)
     await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
-    // 늦은 결과
-    await speak(page, '16번 라울 만원', { final: false })
-    await speak(page, '16번 라울 만원')
     await expect(card(page, '16번 라울 10,000원')).toHaveCount(0)
     await expect(page.getByText('들리는 말:')).toHaveCount(0)
     await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
@@ -345,11 +326,10 @@ test.describe('I4 음성 켜기·끄기', () => {
     await turnOnVoice(page)
     await speak(page, '17번 라울 만원')
     await expect(card(page, '17번 라울 10,000원')).toBeVisible()
-    const before = await speechCounts(page)
+    const before = (await pcmCounts(page)).stops
     await page.getByRole('link', { name: '방송 목록' }).click()
     await expect(page.getByRole('button', { name: '새 방송 시작' })).toBeVisible()
-    const after = await speechCounts(page)
-    expect(after.stops + after.aborts).toBe(before.stops + before.aborts)
+    expect((await pcmCounts(page)).stops, '마이크를 멈추지 않는다').toBe(before)
     await page.goBack()
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
     await expect(card(page, '17번 라울 10,000원')).toBeVisible()

@@ -174,9 +174,10 @@ test('AC-V2-16: 저장값이 범위 밖(9000)이면 1.8초로 읽음', async ({ 
 })
 
 for (const [label, width, min] of [['PC', 1440, 28], ['휴대폰 375', 375, 22]] as const) {
-  test(`AC-V2-17 ${label}: 맨 위 큰 칸에 모은 글·${width === 375 ? 'LG 최종 조각' : '중간 결과'}, 글자 ${String(min)}px 이상, <b>는 글자로, 읽은 뒤 결과 줄`, async ({ page }) => {
+  // 적용 안 함: D-REL1-02 — PC의 "중간 결과" 표시는 없다. 두 폭 모두 모의 일꾼 최종 조각으로 모은 글을 본다
+  test(`AC-V2-17 ${label}: 맨 위 큰 칸에 모은 글·최종 조각(D-REL1-02), 글자 ${String(min)}px 이상, <b>는 글자로, 읽은 뒤 결과 줄`, async ({ page }) => {
     await setupV2(page, { width })
-    await sayAt(page, [['십오번', 0], ['<b>엘레강스</b>', 300, width === 375]])
+    await sayAt(page, [['십오번', 0], ['<b>엘레강스</b>', 300]])
     const box = heardBox(page)
     await expect(box).toContainText('십오번')
     await expect(box).toContainText('<b>엘레강스</b>')

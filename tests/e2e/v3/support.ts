@@ -94,6 +94,18 @@ export async function sayWords(page: Page, sentence: string, opts: { afterEach?:
   }
 }
 
+/**
+ * 모의 일꾼 최종 결과를 조각마다 하나씩 보낸다(사이 200ms, 같은 덩어리). D-REL1-04: 크롬 중간/최종 겹침 대신 최종 결과를 연달아.
+ * afterEach(i)는 조각 i(1부터)의 최종 결과를 넣은 바로 뒤.
+ */
+export async function sayFinals(page: Page, pieces: readonly string[], afterEach?: (i: number) => Promise<void>): Promise<void> {
+  for (const [i, piece] of pieces.entries()) {
+    if (i > 0) await page.clock.runFor(GAP_MS)
+    await speak(page, piece)
+    if (afterEach !== undefined) await afterEach(i + 1)
+  }
+}
+
 /** 문장 하나를 말하고 조용한 시간까지 흘려 덩어리를 끝낸다 */
 export async function sayChunk(page: Page, sentence: string): Promise<void> {
   await sayWords(page, sentence)

@@ -15,6 +15,7 @@ import {
   sayChunk,
   sayFirstOfTwo,
   sayWords,
+  sayFinals,
   settle,
   setupV3,
   undoBar,
@@ -254,10 +255,9 @@ test('AC-V3-32 R17: 핑크프릴 108번에 "108번 zeta 10만 원" → 쓰기 0,
 test('AC-V3-35 R18: "108번 10만원 아니 12만원" 한 덩어리 → 등록(100,000) 뒤 고치기(120,000), 고쳤어요 알림', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await sayWords(page, '108번 10만원 아니 12만원', {
-    afterEach: async (k) => {
-      if (k === 2) await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
-    },
+  // 적용 안 함: D-REL1-02 (중간 결과 2에서 등록). D-REL1-04: 같은 덩어리의 최종 결과 둘 "108번 10만원" → "아니 12만원"
+  await sayFinals(page, ['108번 10만원', '아니 12만원'], async (i) => {
+    if (i === 1) await expect.poll(() => productWrites(writes)).toEqual([['product.register', 108, '', 100000]])
   })
   await expect(boardItem(page, 108)).toBeVisible()
   await page.clock.runFor(QUIET_MS + 100)
@@ -326,10 +326,9 @@ test('AC-V3-35 R19b (D-V3-109·13·84 ㄱ): R1 등록 31초 뒤 다음 덩어리
 test('AC-V3-36 R20: "21번 핑크문 만원 취소" → 등록 뒤 되돌림(21번 판매 종료), "21번 등록을 되돌렸어요". 다시 말하면 카드만, 음성을 껐다 켜면 다시 바로 등록', async ({ page }) => {
   await setupV3(page)
   const writes = recordWrites(page)
-  await sayWords(page, '21번 핑크문 만원 취소', {
-    afterEach: async (k) => {
-      if (k === 3) await expect.poll(() => productWrites(writes)).toEqual([['product.register', 21, '핑크문', 10000]])
-    },
+  // 적용 안 함: D-REL1-02 (중간 결과 3에서 등록). D-REL1-04: 같은 덩어리의 최종 결과 둘 "21번 핑크문 만원" → "취소"
+  await sayFinals(page, ['21번 핑크문 만원', '취소'], async (i) => {
+    if (i === 1) await expect.poll(() => productWrites(writes)).toEqual([['product.register', 21, '핑크문', 10000]])
   })
   await page.clock.runFor(QUIET_MS + 100)
   // 4초 안내는 차례로(D-V3-61): "등록했어요" 4초 뒤 "되돌렸어요"

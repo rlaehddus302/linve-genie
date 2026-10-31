@@ -283,37 +283,34 @@ test.describe('AC-V3-74 (d) 가격 단위 자동 (D-V3-70)', () => {
 })
 
 test.describe('AC-V3-75 중간 결과 안정 (D-V3-71, 천원 단위)', () => {
-  test('R89: 중간 결과 "148번 280"이 1,200ms 바뀌지 않음 → 1,000ms 때 148번 280,000원, 기록 "중간 글로 등록"', async ({ page }) => {
+  // 적용 안 함: D-REL1-02 — R89·R90은 중간 결과가 1,000ms 바뀌지 않으면 등록하는 "굳은 중간 글"(D-V3-71)이라 SRV1부터 없다.
+  // 대신: 최종 결과가 오기 전엔 쓰기 0, 최종 결과가 오면 그 값으로 하나, 기록에 "중간 글로 등록"은 생기지 않는다.
+  test('R89 → D-REL1-02: 적용 안 함(굳은 중간 글) — 최종 결과 "148번 280" → 148번 280,000원 하나, 기록에 "중간 글로 등록" 없음', async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
-    await speak(page, '148번 280', { final: false })
-    await page.clock.runFor(999)
+    await page.clock.runFor(1200)
     await settle(page)
-    expect(productWrites(writes)).toEqual([])
-    await page.clock.runFor(1)
+    expect(productWrites(writes), '최종 결과 전에는 쓰기 없음').toEqual([])
+    await speak(page, '148번 280')
     await expect.poll(() => productWrites(writes)).toEqual([['product.register', 148, '', 280000]])
-    await page.clock.runFor(200)
     await page.clock.runFor(QUIET_MS + 100)
+    await settle(page)
+    expect(productWrites(writes)).toEqual([['product.register', 148, '', 280000]])
     const dlg = await openLog(page)
-    await expect(dlg.getByRole('list', { name: '음성 기록 목록' })).toContainText('중간 글로 등록')
+    await expect(dlg.getByRole('list', { name: '음성 기록 목록' })).not.toContainText('중간 글로 등록')
   })
 
-  test('R90: "148번 280"(0ms) → "148번 280만"(500ms) → 그대로 → 1,500ms 때 2,800,000원 하나(280,000원 쓰기 없음)', async ({ page }) => {
+  test('R90 → D-REL1-02: 적용 안 함(굳은 중간 글) — 최종 결과 "148번 280만" → 2,800,000원 하나(280,000원 쓰기 없음)', async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
-    await speak(page, '148번 280', { final: false })
-    await page.clock.runFor(500)
-    await speak(page, '148번 280만', { final: false })
-    await page.clock.runFor(999)
-    await settle(page)
-    expect(productWrites(writes)).toEqual([])
-    await page.clock.runFor(1)
+    await speak(page, '148번 280만')
     await expect.poll(() => productWrites(writes)).toEqual([['product.register', 148, '', 2800000]])
     await page.clock.runFor(QUIET_MS + 100)
     await settle(page)
     expect(productWrites(writes)).toEqual([['product.register', 148, '', 2800000]])
   })
 
+  // 적용 안 함: D-REL1-02 — 중간 결과는 없다(아래 speak final:false는 서버 경로에서 아무것도 보내지 않음). 최종 결과에 가격이 없으면 등록 없음은 그대로
   test('R91: 중간 "148번 280"이 800ms뿐이고 최종에서 가격이 사라지면 148번 등록 없음', async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
@@ -325,13 +322,12 @@ test.describe('AC-V3-75 중간 결과 안정 (D-V3-71, 천원 단위)', () => {
     expect(productWrites(writes).filter((w) => w[1] === 148)).toEqual([])
   })
 
-  test('R92: 중간 "148번 280"이 1,200ms — 그 사이 창이 열려 미뤄짐 — 최종에서 가격이 사라져도 창이 닫힐 때 중간 후보로 148번 280,000원', async ({ page }) => {
+  // 적용 안 함: D-REL1-02 — "중간 후보"가 없다. 대신 창이 열린 동안 온 최종 결과는 미뤄졌다가 창이 닫히면 등록된다(D-V3-71의 미룸은 그대로)
+  test('R92 → D-REL1-02: 창이 열린 동안 최종 결과 "148번 280" → 쓰기 0, 창이 닫히면 148번 280,000원', async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
     const dlg = await openLog(page)
-    await speak(page, '148번 280', { final: false })
-    await page.clock.runFor(1200)
-    await speak(page, '148번 자 회장님들 자국 8번 캡처 떠 주시고요 132번')
+    await speak(page, '148번 280')
     await page.clock.runFor(QUIET_MS + 100)
     await settle(page)
     expect(productWrites(writes).filter((w) => w[1] === 148)).toEqual([])
@@ -345,9 +341,10 @@ test.describe('AC-V3-75 중간 결과 안정 (D-V3-71, 천원 단위)', () => {
   test('R93 (D-V3-83·103): R89 뒤 같은 덩어리 최종 "148번 30만 원" → 280,000원 그대로·묻기 카드, 다른 조각에서 한 번 더 들으면 300,000원으로 고침', async ({ page }) => {
     await setupV3(page)
     const writes = recordWrites(page)
-    await speak(page, '148번 280', { final: false })
-    await page.clock.runFor(1000)
+    // 적용 안 함: D-REL1-02 (중간 글 280 등록). D-REL1-04: 같은 덩어리 최종 결과 "148번 280" → "148번 30만 원"
+    await speak(page, '148번 280')
     await expect.poll(() => productWrites(writes)).toEqual([['product.register', 148, '', 280000]])
+    await page.clock.runFor(200)
     await speak(page, '148번 30만 원')
     const ask = notices(page).getByRole('listitem', { name: '148번을 고칠까요? 가격 280,000원 → 300,000원', exact: true })
     await page.clock.runFor(QUIET_MS + 100)

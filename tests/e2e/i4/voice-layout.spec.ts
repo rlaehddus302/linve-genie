@@ -1,4 +1,5 @@
 // I4 배치·쉬운 말 (AC-I4-50·51) — test-e2e. 높이 측정은 AC-S06-61과 같은 방법(고정·sticky 가장 바깥 요소의 보이는 높이 합).
+import { microphoneError } from '../app1/support.ts'
 import { test, expect, type Page } from '@playwright/test'
 import {
   boardItem,
@@ -13,7 +14,6 @@ import {
   sendViewerChat,
   smsApi,
   speak,
-  speechError,
   turnOnVoice,
   waitForVoiceReady,
   uniqueDate,
@@ -202,11 +202,16 @@ test.describe('I4 배치·쉬운 말', () => {
     await form.getByLabel('번호').press('Enter')
     await expect(form.getByRole('alert')).toBeVisible()
     seen.push(await form.innerText())
-    for (const err of ['not-allowed', 'audio-capture', 'bad-grammar']) {
-      await speechError(page, err)
-      await expect(voiceRegion(page).locator('.voice-error')).toBeVisible()
+    // D-REL1-05: 크롬 오류 코드(not-allowed·audio-capture) 대신 마이크 잡기 실패. 적용 안 함: bad-grammar(크롬 오류 코드, D-REL1-01 (3))
+    for (const err of ['NotAllowedError', 'NotFoundError'] as const) {
+      await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
+      await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeEnabled()
+      await microphoneError(page, err)
+      await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
+      await expect(voiceRegion(page).getByRole('alert').filter({ hasText: '마이크' })).toBeVisible()
       seen.push(await voiceRegion(page).innerText())
-      await turnOnVoice(page)
+      await microphoneError(page, null)
+      await page.getByRole('button', { name: /^(음성 켜기|다시 켜기)$/ }).and(page.locator(':enabled')).first().click()
       await expect(voiceRegion(page).getByRole('button', { name: '음성 끄기' })).toBeVisible()
     }
     const bad = seen.filter((t) => WORDS.test(t))

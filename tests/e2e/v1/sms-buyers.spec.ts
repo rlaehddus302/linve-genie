@@ -281,7 +281,8 @@ test.describe('V1 개인정보', () => {
     await expect(page.getByRole('region', { name: '최근 넣은 문자찜' })).toBeVisible()
     await expect(smsField(page, '번호')).toBeFocused()
     await smsUi(page, { no: 167, memo: '손입력' })
-    const manual = smsWrites(requests).filter((w) => w['no'] === 167)
+    // SRV1 (D-APP-24): 손 입력 문자찜 번호 칸은 원문 `noText`로 보낸다
+    const manual = smsWrites(requests).filter((w) => w['no'] === 167 || w['noText'] === '167')
     expect(manual).toHaveLength(1)
     expect(manual[0]).not.toHaveProperty('voice')
   })

@@ -1,6 +1,7 @@
 // I4 흐름 깨뜨리기 (test-e2e 라운드 0). 통과한 공격은 회귀로 남기고, 재현한 버그는 지적 ID(TE-I4-xxx)를 붙인다.
 import { test, expect, type Page } from '@playwright/test'
-import { syncReadingClock, waitReadingHeard } from '../app1/support.ts'
+import { pcmCounts, reconnectPcm, syncReadingClock, waitReadingHeard } from '../app1/support.ts'
+import { clockConsole, pauseClock } from '../i5/support.ts'
 import {
   boardItem,
   card,
@@ -12,7 +13,6 @@ import {
   openNewBroadcast,
   recordRequests,
   speak,
-  speechEnd,
   turnOnVoice,
   uniqueDate,
   voiceLogItems,
@@ -99,28 +99,31 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await expect(page.getByRole('dialog', { name: '음성 기록' })).not.toContainText(lines[0]!)
   })
 
-  test('한 결과 이벤트에 최종 문장 둘 → 카드 둘(새 것이 앞), 같은 위치가 다시 와도 카드 하나', async ({ page }) => {
+  // 적용 안 함: D-REL1-04 — "한 결과 이벤트의 같은 위치를 크롬이 다시 보냄"은 크롬 결과 목록의 일이라 없다.
+  // 대신 모의 일꾼 최종 결과 둘을 연달아 → 카드 둘(새 것이 앞), 그 뒤 아무 결과가 없으면 카드는 둘 그대로(덧붙지 않음)
+  test('최종 결과 둘을 연달아 → 카드 둘(새 것이 앞), 더 오지 않으면 둘 그대로 (적용 안 함: 같은 위치 다시 옴 — D-REL1-04)', async ({ page }) => {
     await setup(page)
     await speak(page, ['15번 핑크프릴 만오천 원', '16번 라울 만원'])
     await expect(cardList(page).getByRole('listitem')).toHaveText([/^16번/, /^15번/])
-    // 같은 결과 목록을 다시 알림 (크롬이 같은 위치를 다시 보내는 경우)
-    await page.evaluate(() => {
-      const s = (window as unknown as { __speech: { instances: { onresult: (e: unknown) => void; results: unknown[] }[] } }).__speech
-      const rec = s.instances.at(-1)!
-      rec.onresult({ resultIndex: 0, results: rec.results })
-    })
+    await syncReadingClock(page)
     await expect(cardList(page).getByRole('listitem')).toHaveCount(2)
   })
 
-  test('다시 시작한 인식 객체의 결과도 카드가 되고, 지난 객체의 늦은 결과는 무시한다', async ({ page }) => {
-    await setup(page)
-    await speechEnd(page)
+  // D-REL1-05: 크롬 인식 객체 다시 시작 대신 음성 웹소켓 끊김 → 저절로 다시 이음. 끊기기 전 최종 결과(카드)는 남고, 다시 이은 흐름의 결과도 카드가 된다.
+  // 적용 안 함: D-REL1-01 (3) — "지난 인식 객체의 늦은 결과"는 크롬 객체의 일이라 없다(닫힌 흐름에는 결과가 올 길이 없다)
+  test('음성 웹소켓이 끊겨 다시 이은 뒤 결과도 카드가 되고, 끊기기 전 카드는 남는다 (D-REL1-05)', async ({ page }) => {
+    await installFakeSpeech(page, { consent: true })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await clockConsole(page)
+    await turnOnVoice(page)
+    await pauseClock(page)
+    await speak(page, '14번 라울 만원')
+    await expect(card(page, '14번 라울 10,000원')).toBeVisible()
+    await reconnectPcm(page)
     await expect(voiceRegion(page).getByRole('button', { name: '음성 끄기' })).toBeVisible()
-    // 지난 객체(0번)의 늦은 결과
-    await speak(page, '14번 라울 만원', { instance: 0 })
-    await speak(page, '15번 핑크프릴 만오천 원', { instance: 1 })
+    await speak(page, '15번 핑크프릴 만오천 원')
     await expect(card(page, '15번 핑크프릴 15,000원')).toBeVisible()
-    await expect(card(page, '14번 라울 10,000원')).toHaveCount(0)
+    await expect(card(page, '14번 라울 10,000원'), '끊기기 전 결과는 버리지 않는다').toBeVisible()
   })
 
   test('"음성 끄기" 직후 늦게 온 중간·최종 결과는 기록에도 남지 않는다', async ({ page }) => {
@@ -128,7 +131,8 @@ test.describe('I4 흐름 깨뜨리기', () => {
     await speak(page, '첫 문장이에요')
     await waitReadingHeard(page, '첫 문장이에요')
     await voiceRegion(page).getByRole('button', { name: '음성 끄기' }).click()
-    await speak(page, '늦게 온 문장이에요')
+    // 적용 안 함: D-REL1-02 (늦은 중간 결과). 끈 뒤에는 받아쓰기 흐름이 닫혀 일꾼 결과가 올 곳이 없다 — 흐름이 닫혔는지 본다
+    await expect.poll(async () => (await pcmCounts(page)).openSockets, { message: '끈 뒤 받아쓰기 흐름 닫힘' }).toBe(0)
     await openVoiceLog(page)
     await expect(voiceLogItems(page)).toHaveCount(1)
     await expect(voiceLogItems(page).first()).toContainText('첫 문장이에요')
@@ -279,21 +283,15 @@ test.describe('I4 흐름 깨뜨리기', () => {
     expect(view.products.filter((p) => p.no === 15)).toHaveLength(1)
   })
 
-  test('TE-I4-001: 저절로 끝나 다시 시작할 때 상태가 "음성: 다시 시작 중"을 거친다 (AC-I4-12) — 지금은 한 번도 그려지지 않는다', async ({ page }) => {
-    await setup(page)
-    await page.evaluate(() => {
-      const seen: string[] = []
-      ;(window as unknown as { __labels: string[] }).__labels = seen
-      const region = document.querySelector('[aria-label="음성 등록"]')
-      if (region === null) throw new Error('음성 칸 없음')
-      new MutationObserver(() => {
-        for (const el of region.querySelectorAll('[role="status"]')) seen.push(el.textContent ?? '')
-      }).observe(region, { subtree: true, childList: true, characterData: true })
-    })
-    await speechEnd(page)
+  // D-REL1-05: 크롬 "저절로 끝남 → 다시 시작" 대신 음성 웹소켓 끊김 → "다시 잇는 중"을 거쳐 "음성: 듣는 중"
+  test('TE-I4-001 → D-REL1-05: 음성 웹소켓이 끊겨 다시 이을 때 상태가 "다시 잇는 중"을 거쳐 "음성: 듣는 중"으로 돌아온다 (AC-I4-12)', async ({ page }) => {
+    await installFakeSpeech(page, { consent: true })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await clockConsole(page)
+    await turnOnVoice(page)
+    await pauseClock(page)
+    await reconnectPcm(page)
     await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible()
-    const labels = await page.evaluate(() => (window as unknown as { __labels: string[] }).__labels)
-    expect(labels).toContain('음성: 다시 시작 중')
   })
 
   test('TE-I4-002: 음성 코드를 받지 못하면 안내하고 꺼진 그대로, 다시 누르면 다시 받아 켜진다 — 지금은 새로 고침 전까지 계속 실패', async ({ page }) => {
