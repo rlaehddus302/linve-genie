@@ -1,9 +1,9 @@
 // KP1 사용성 지적 서버 몫: 링크 화면 큰 글·큰 카드(UX-KP1-001·005·007·008·009), 공개 일정 알림 신청(UX-KP1-011),
 // 장부 배송지 출처 LEDGER(004), 손님 표시 "아직 안 정함"(006), 보관 기간 줄이기 미리보기(002).
 import { describe, expect, it } from 'vitest'
-import { at, chat } from './i2-support.ts'
+import { chat } from './i2-support.ts'
 import { waitFor } from './support.ts'
-import { D, codes, consent, ledgerApi, ledgerWorld, openLink, postForm, sell } from './kp1-ledger-support.ts'
+import { codes, consent, ledgerApi, ledgerWorld, openLink, postForm, sell } from './kp1-ledger-support.ts'
 
 describe('UX-KP1 확인서 링크 화면', () => {
   it('동의 칸은 체크 네모와 글이 한 줄 큰 카드, 글자 18px·버튼 52px, 코드 큰 상자·새 코드 받기, 지우기는 덜 눈에 띄는 버튼과 되돌릴 수 없다는 말', async () => {
