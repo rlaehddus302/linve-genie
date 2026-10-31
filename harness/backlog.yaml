@@ -1311,6 +1311,23 @@ sprints:
     specIds: [BUY-08, RPT-01, RPT-02, RPT-03, RPT-04, RPT-05, RPT-06, RPT-07, RPT-08, SCH-01, SCH-02, SCH-03, MSG-01, BUY-06, PC-3, DAT-06]
     status: done
 
+  - id: LV1
+    phase: 7
+    title: 방송 소리로 듣기 — 링크만 넣으면 채팅과 음성 인식이 자동으로, 휴대폰 마이크는 보조
+    dependsOn: [SRV1]
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: true
+    goal: >
+      사용자 결정 D-LV1-01, 세부 D-LV1-02~D-LV1-09 AUTO. 판정·정산 규칙·엔진·골든 변경 없음(등록 시각 = 서버 기록 시각, 지연은 R-5 보류).
+      server: 수집기 innertube 응답의 HLS → ffmpeg 16kHz 모노 PCM16 → 기존 받아쓰기 일꾼 입구, 콘솔 열림·설정에 따라 켜기, 끊김 다시 잇기·멈춤·늦음 알림,
+      마이크와 한 흐름(마이크 우선), 초대 방송, LIVEJJIM_STREAM_AUDIO=off·ffmpeg 없음, 연습 라이브 가짜 HLS·모의 일꾼(scripts/try).
+      web: "방송 소리로 듣기" 설정·첫 안내 창·듣는 곳 상태 줄·끊김/늦음/받을 수 없음 문장·[휴대폰으로 듣기].
+      tests: domain — 저장·로그 없음, 한 흐름, 끄기, 지연 중 찜 판정. e2e — 연습 라이브 링크만으로 등록·찜 한 바퀴, 끊김, PC·375.
+      순서 server → web. 수용 기준: harness/sprints/LV1/acceptance.md(AC-LV1-01~12).
+    specIds: [VOC-08, VOC-06, VOC-07, YT-11, ORD-06]
+    status: todo
+
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
   - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"
