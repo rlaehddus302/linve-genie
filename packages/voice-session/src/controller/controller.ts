@@ -877,6 +877,8 @@ export class VoiceController {
   #lastInterim = ''
   /** 중간 결과에 보인 번호와 시각 (빠진 0 되살리기의 증거, 20초) */
   #interimNos: { readonly no: number; readonly at: number }[] = []
+  /** 지금 처리하는 최종 결과 글 (#onResult 동안만, R93) */
+  #resultText: string | null = null
   /** 지금 크롬 결과의 중간 글(굳은 글·중간 결과 안정 포함)에서 번호와 짝지어 들은 확정 가격 — 최종 결과가 오면 비운다 (R-17 8, D-V3-103) */
   #resultPrices = new Map<number, number>()
   /** 최종 결과를 읽는 동안만: 그 결과의 중간 글에서 들은 번호별 가격 */
@@ -1294,10 +1296,12 @@ export class VoiceController {
     // 이 결과의 중간 글 가격과 최종 글 가격을 맞대 본다 (D-V3-103) — 다음 결과는 처음부터
     this.#finalPrices = this.#resultPrices
     this.#resultPrices = new Map()
+    this.#resultText = finalText
     try {
       this.#runOutputs(work, module, step.out)
       this.#tryInstant(work, module)
     } finally {
+      this.#resultText = null
       this.#finalPrices = null
       this.#join = null
       this.#prevResult = { text: result.text, at: this.#host.now() }
@@ -2447,6 +2451,9 @@ export class VoiceController {
     const seg = this.#readSegments(module, text, interim.trim() === '')
     if (interim.trim() !== '') this.#noteResultPrices(module, interim)
     if (seg !== null) this.#runPicks(work, module, seg, text, false, false, interim.trim() === '')
+    // 최종 결과만 오는 받아쓰기(D-REL1-04, R93): 덩어리 글로 이으면 짝을 못 찾는 이미 있는 번호를 이 결과 글만으로 읽어 R-22에 넘긴다
+    const alone = seg !== null && interim.trim() === '' ? this.#resultAlone(module, seg) : null
+    if (alone !== null) this.#runPicks(work, module, alone, text, false, false, true)
     // 글 끝 가격이 `원까지`·`원에`라 뒤 낱말을 기다리는 조각(지난 일 가격일 수 있다): 없는 번호의 새 등록만 바로 (R1 — `108번 … 10만 원까지` 때 등록),
     // 있는 상품의 가격은 뒤 낱말을 듣고 고친다 (실방송 468번 "120만 원까지 팔아 본 적 있어요")
     if (seg !== null && seg.held !== undefined && seg.held.length > 0) this.#runPicks(work, module, { ...seg, picks: seg.held }, text, false, true)
@@ -2511,6 +2518,26 @@ export class VoiceController {
     const before = work.log
     this.#runPicks(work, module, { tokens: [], picks: [pick], others: [], tail: null, rest: '' }, text, false)
     if (work.log !== before && work.log[0] !== undefined) work.log = [{ ...work.log[0], reason: LOG_INTERIM }, ...work.log.slice(1)]
+  }
+
+  /**
+   * 이 최종 결과 글만으로 읽은 조각 (R93, D-V3-83·D-REL1-04): 서버 받아쓰기는 중간 글 없이 최종 결과를 잇달아 보내 "148번 280" 뒤 "148번 30만 원"이
+   * 한 덩어리 글 "148번 280 148번 30만 원"이 되고, 덩어리 글로는 뒤 148번이 짝을 못 찾는다(others). 그 번호가 **이미 있는 상품**이고 덩어리 읽기가
+   * 이 결과 글 안의 토큰을 하나도 쓰지 않았을 때만 이 결과 글의 조각을 덩어리 토큰 자리로 옮겨 돌려준다 — 이미 있는 상품이라 같은 번호 규칙(R-22·고침 문턱)만 탄다.
+   * 새 번호는 넘기지 않는다(나뉜 숫자 합치기가 애매한 때 잘못 등록하지 않게 — D-REL1-04 "애매하면 확인 필요")
+   */
+  #resultAlone(module: VoiceModule, seg: SegmentReading): SegmentReading | null {
+    const own = this.#resultText
+    if (own === null || own.trim() === '' || seg.others.length === 0) return null
+    const alone = this.#readSegments(module, own, true)
+    if (alone === null || alone.picks.length === 0) return null
+    const offset = seg.tokens.length - alone.tokens.length
+    if (offset <= 0 || alone.tokens.some((token, i) => seg.tokens[offset + i] !== token)) return null
+    if (seg.picks.some((pick) => pick.end >= offset)) return null
+    const picks = alone.picks
+      .filter((pick) => seg.others.includes(pick.no) && this.#existingOf(pick.no) !== null)
+      .map((pick) => ({ ...pick, start: pick.start + offset, end: pick.end + offset }))
+    return picks.length === 0 ? null : { ...seg, picks, tail: null, held: [] }
   }
 
   /** 지금 결과의 첫 'N번'이 바로 앞 결과 끝 수와 이어질 수 있는가 (음성 패키지 joinPrevious, R-17 8 7) */
