@@ -670,6 +670,11 @@ export class Service {
       build: (ctx) => {
         const resolved = raw === null ? { fields } : applyRawInput(type, raw, fields, ctx.state, ctx.at)
         if ('rejection' in resolved) return resolved.rejection
+        // 구조화된 번호(no)로 등록할 때도 그 방송의 번호 한도(claim.maxNumber) 안만 — 빠른 입력(D-030)·문자찜(D-089)과 같다
+        if (type === 'product.register' && raw?.text === undefined && raw?.noText === undefined) {
+          const outOfRange = smsNumberProblem(ctx.state, resolved.fields.b, resolved.fields.no, 'no')
+          if (outOfRange !== null) return outOfRange
+        }
         return [{ fields: resolved.fields, actor, requestId, ...(assistant ? { validate: assistantCancelCheck } : {}) }]
       },
     })

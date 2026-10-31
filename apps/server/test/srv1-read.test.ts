@@ -435,4 +435,16 @@ describe('기존 숫자 필드 요청도 한 판 동안 받는다 (약속 2)', (
     expect(listClaims((await world.server.writer.read(seller.sellerId, b.date)).state)).toHaveLength(1)
     expect(ORIGIN).toMatch(/^https:/)
   })
+
+  it('product.register 숫자 no도 그 방송의 번호 한도(claim.maxNumber) 밖이면 400 field no, 기록 없음 (D-030·D-089와 같다)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    const before = await countRows(world.database, 'events')
+    const out = await writeEvent(world, seller, { type: 'product.register', b: b.id, no: 10_000, name: '핑크프릴', price: 20_000 })
+    expect(out.status).toBe(400)
+    expect(out.body.error).toMatchObject({ problems: [{ field: 'no', message: expect.stringMatching(/^번호는 1부터 \d+까지예요\. 번호를 확인해 주세요\.$/) }] })
+    expect(await countRows(world.database, 'events')).toBe(before)
+    expect(listProducts((await world.server.writer.read(seller.sellerId, b.date)).state)).toEqual([])
+  })
 })
