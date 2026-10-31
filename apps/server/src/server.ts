@@ -11,7 +11,7 @@
 import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
 import { VoiceAliases } from './voice/aliases.ts'
 import { VoiceRelay, registerVoiceRelay } from './voice/relay.ts'
-import { FfmpegAudioFeed, ffmpegAvailable, webStreamLocator, ytDlpResolver, type AudioFeed, type StreamLocator } from './voice/stream-audio.ts'
+import { FfmpegAudioFeed, ffmpegAvailable, webStreamLocator, ytDlpResolver, type AudioFeed, type MediaProxySetting, type StreamLocator } from './voice/stream-audio.ts'
 import { StreamAudioService } from './voice/stream-service.ts'
 import { sellerStreamAudioOn } from './voice/stream-routes.ts'
 import { readFileSync } from 'node:fs'
@@ -110,7 +110,7 @@ export interface ServerOptions {
    * 방송 소리로 듣기 (LV1, D-LV1-08). 없으면 꺼짐. `on: false`는 운영자 끔(LIVEJJIM_STREAM_AUDIO=off).
    * feed를 주지 않으면 ffmpeg를 쓰고, 없으면 시작 기록 한 줄 남기고 꺼진 것처럼. locate를 주지 않으면 유튜브 웹 방송 페이지의 HLS 주소
    */
-  readonly streamAudio?: { readonly on: boolean; /** yt-dlp 경로 (D-LV1-11). 없으면 페이지의 HLS만 쓴다 */ readonly ytDlpPath?: string; readonly feed?: AudioFeed; readonly locate?: StreamLocator; readonly schedule?: (run: () => void, ms: number) => () => void }
+  readonly streamAudio?: { readonly on: boolean; /** yt-dlp 경로 (D-LV1-11). 없으면 페이지의 HLS만 쓴다 */ readonly ytDlpPath?: string; /** 집 회선 프록시 (D-LV1-13) — yt-dlp·ffmpeg 모두 */ readonly mediaProxy?: MediaProxySetting; readonly feed?: AudioFeed; readonly locate?: StreamLocator; readonly schedule?: (run: () => void, ms: number) => () => void }
   readonly database: Pick<Database, 'db'>
   /** 서버 마스터 키 (32바이트 또는 그 base64). 형식이 틀리면 만들지 않는다 */
   readonly masterKey: Buffer | string
@@ -400,12 +400,15 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const voiceAliases = new VoiceAliases(db)
   const streamSetting = options.streamAudio
+  // 허용하지 않는 프록시 값은 쓰지 않고(바로 나감 → 데이터센터면 막힘 → 휴대폰 마이크 안내) 시작 기록 한 줄. 판매는 그대로 한다
+  if (streamSetting?.on === true && streamSetting.mediaProxy?.kind === 'rejected') log({ level: 'warn', code: 'STREAM_AUDIO_PROXY_IGNORED' })
+  const mediaProxy = streamSetting?.mediaProxy?.kind === 'ok' ? streamSetting.mediaProxy.url : null
   let streamFeed: AudioFeed | null = streamSetting?.feed ?? null
   if (streamSetting?.on === true && streamFeed === null) {
-    if (ffmpegAvailable()) streamFeed = new FfmpegAudioFeed()
+    if (ffmpegAvailable()) streamFeed = new FfmpegAudioFeed('ffmpeg', mediaProxy)
     else log({ level: 'warn', code: 'STREAM_AUDIO_NO_FFMPEG' })
   }
-  const streamResolve = streamSetting?.ytDlpPath === undefined ? null : ytDlpResolver(streamSetting.ytDlpPath)
+  const streamResolve = streamSetting?.ytDlpPath === undefined ? null : ytDlpResolver(streamSetting.ytDlpPath, undefined, mediaProxy)
   const streamAudio = new StreamAudioService({
     available: streamSetting?.on === true && streamFeed !== null,
     feed: streamFeed ?? { open: (_url, sink) => { queueMicrotask(() => sink.fail()); return { close: () => {} } } },

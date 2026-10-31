@@ -38,6 +38,9 @@ export type LogCode =
   | 'STREAM_AUDIO_NO_FFMPEG'
   // D-LV1-11: yt-dlp로 소리 주소 얻기 실패 — 종류(reason: MISSING · TIMEOUT · BLOCKED · FAILED · BAD_OUTPUT)·판매자 ID만. 주소·영상 정보·stderr는 남기지 않는다
   | 'STREAM_AUDIO_YTDLP_FAILED'
+  // D-LV1-13: 집 회선 프록시(터널·tinyproxy)에 닿지 못함 — 경보, 판매자 ID만 / 프록시 값이 허용 모양이 아니라 쓰지 않음 — 값은 남기지 않는다
+  | 'STREAM_AUDIO_PROXY_DOWN'
+  | 'STREAM_AUDIO_PROXY_IGNORED'
   | 'STREAM_AUDIO_UNSUPPORTED'
   | 'STREAM_AUDIO_NO_CONSOLE'
   | 'STREAM_AUDIO_STOPPED'
@@ -198,6 +201,8 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   TRANSCRIBE_NO_WORKER: '받아쓰기 서버가 연결되어 있지 않아요',
   STREAM_AUDIO_NO_FFMPEG: '방송 소리 받기 도구(ffmpeg)가 없어 방송 소리로 듣기를 껐어요',
   STREAM_AUDIO_YTDLP_FAILED: '방송 소리 주소 찾기 도구(yt-dlp)가 주소를 못 찾았어요',
+  STREAM_AUDIO_PROXY_DOWN: '방송 소리용 집 회선 프록시에 닿지 못했어요(집 장비·터널을 확인해 주세요)',
+  STREAM_AUDIO_PROXY_IGNORED: '방송 소리 프록시 값이 이 기계 안 주소가 아니라 쓰지 않았어요',
   STREAM_AUDIO_UNSUPPORTED: '소리를 받을 수 없는 방송이에요',
   STREAM_AUDIO_NO_CONSOLE: '방송 소리 글을 넘길 콘솔 연결이 없어요',
   STREAM_AUDIO_STOPPED: '방송 소리 듣기가 여러 번 끊겨 멈췄어요',

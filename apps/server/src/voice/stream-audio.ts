@@ -112,7 +112,7 @@ export function safeHlsUrl(value: string | null | undefined): string | null {
 
 // ── 소리 주소를 yt-dlp로 얻기 (D-LV1-11) ─────────────────────────────────
 // 유튜브 웹 방송 페이지가 이제 hlsManifestUrl 대신 SABR·PO 토큰이 필요한 주소만 준다. 그래서 페이지에 HLS가 없으면
-// yt-dlp(로그인·쿠키·PO 토큰·프록시 없음)로 라이브 HLS 주소를 묻는다. 주소는 몇 시간 뒤 만료되므로 끊길 때마다 다시 묻는다(캐시 없음).
+// yt-dlp(로그인·쿠키·PO 토큰 없음. 프록시는 D-LV1-13 집 회선만)로 라이브 HLS 주소를 묻는다. 주소는 몇 시간 뒤 만료되므로 끊길 때마다 다시 묻는다(캐시 없음).
 
 /** yt-dlp 한 번 기다리는 최대 시간 */
 export const YTDLP_TIMEOUT_MS = 60_000
@@ -120,6 +120,12 @@ export const YTDLP_TIMEOUT_MS = 60_000
 const YTDLP_MAX_BUFFER = 256 * 1024
 /** 봇 확인 막힘을 알아보는 stderr 표지 (분류에만 쓰고 원문은 버린다) */
 const YTDLP_BLOCKED = /not a bot|sign in to confirm/i
+/**
+ * 집 회선 프록시가 끊김을 알아보는 stderr 표지 (D-LV1-13 — 분류에만 쓰고 원문은 버린다). 프록시를 쓸 때만 본다.
+ * 터널 끝이 없음 → "Unable to connect to proxy"(ProxyError), 터널은 있는데 집 tinyproxy가 꺼짐 → 받자마자 끊김("Connection aborted"·reset),
+ * tinyproxy 필터 거절 → "Tunnel connection failed: 403". 프록시를 쓸 때는 모든 연결이 그 길로 가므로 끊김은 출구 쪽 문제로 본다(실측 2026-11-01).
+ */
+const YTDLP_PROXY_DOWN = /unable to connect to proxy|proxyerror|tunnel connection failed|connection aborted|connection reset by peer|remote end closed connection/i
 /** 유튜브 영상 ID (11자) — 이것만 yt-dlp에 넘긴다 */
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/
 
@@ -132,6 +138,8 @@ export type AudioUrlResult =
   | { readonly kind: 'timeout' }
   /** 유튜브가 봇 확인("Sign in to confirm you're not a bot")으로 막음 — 데이터센터 IP에서 흔하다 */
   | { readonly kind: 'blocked' }
+  /** 집 회선 프록시(D-LV1-13)에 닿지 못함 — 터널·tinyproxy·집 장비가 꺼짐. 운영자가 할 일이 있다 */
+  | { readonly kind: 'proxy_down' }
   /** yt-dlp가 그 밖의 실패로 끝남 (소리 없는 방송 등) */
   | { readonly kind: 'failed' }
   /** 출력이 유튜브 영상 서버의 https 주소가 아님 */
@@ -157,16 +165,46 @@ export function readYtDlpPath(env: Readonly<Record<string, string | undefined>>)
   return value === '' ? 'yt-dlp' : value
 }
 
-/** 실제: `yt-dlp -g -f bestaudio/best <방송 주소>` 출력 첫 줄. 셸 없이 인자 배열, 60초 제한, 설정 파일 무시 */
-export function ytDlpResolver(command = 'yt-dlp', run: ExecFileRunner = defaultRunner): AudioUrlResolver {
+// ── 집 회선 프록시 (D-LV1-13) ────────────────────────────────────────────
+// 데이터센터 IP는 봇 확인으로 막히므로, 팀 장비(맥 미니)의 집 회선을 SSH 역방향 터널로 끌어와 yt-dlp·ffmpeg만 그쪽으로 내보낸다.
+// 프록시는 이 기계(또는 컨테이너의 호스트) 안의 터널 끝만 허용한다 — 다른 곳이면 판매자·방송 정보가 바깥 프록시로 새지 않게 쓰지 않는다.
+
+/** 허용하는 프록시 호스트: 이 기계(127.0.0.1·localhost)와, 컨테이너에서 본 호스트(compose extra_hosts의 host.docker.internal) */
+const PROXY_HOSTS = new Set(['127.0.0.1', 'localhost', 'host.docker.internal'])
+
+/** `LIVEJJIM_YT_MEDIA_PROXY` 읽기 결과. 값이 있는데 허용하지 않는 모양이면 쓰지 않고(rejected) 시작 기록 한 줄 */
+export type MediaProxySetting =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'ok'; readonly url: string }
+  | { readonly kind: 'rejected' }
+
+/** `LIVEJJIM_YT_MEDIA_PROXY` (예 `http://127.0.0.1:18888`, 비우면 없음). `http://<허용 호스트>:<포트>`만 — 계정·경로·질의 없음 */
+export function readMediaProxy(env: Readonly<Record<string, string | undefined>>): MediaProxySetting {
+  const value = (env['LIVEJJIM_YT_MEDIA_PROXY'] ?? '').trim()
+  if (value === '') return { kind: 'none' }
+  if (value.length > 200) return { kind: 'rejected' }
+  try {
+    const url = new URL(value)
+    const plain = url.username === '' && url.password === '' && (url.pathname === '/' || url.pathname === '') && url.search === '' && url.hash === ''
+    const port = Number(url.port)
+    if (url.protocol !== 'http:' || !PROXY_HOSTS.has(url.hostname) || !plain || !Number.isInteger(port) || port < 1 || port > 65_535) return { kind: 'rejected' }
+    return { kind: 'ok', url: `http://${url.hostname}:${port}` }
+  } catch {
+    return { kind: 'rejected' }
+  }
+}
+
+/** 실제: `yt-dlp -g -f bestaudio/best <방송 주소>` 출력 첫 줄. 셸 없이 인자 배열, 60초 제한, 설정 파일 무시. proxy가 있으면 `--proxy` */
+export function ytDlpResolver(command = 'yt-dlp', run: ExecFileRunner = defaultRunner, proxy: string | null = null): AudioUrlResolver {
   return (videoId) => new Promise((resolve) => {
     if (!VIDEO_ID.test(videoId)) { resolve({ kind: 'failed' }); return }
-    const args = ['--ignore-config', '--no-playlist', '--no-warnings', '-g', '-f', 'bestaudio/best', '--', `https://www.youtube.com/watch?v=${videoId}`]
+    const args = ['--ignore-config', '--no-playlist', '--no-warnings', ...(proxy === null ? [] : ['--proxy', proxy]), '-g', '-f', 'bestaudio/best', '--', `https://www.youtube.com/watch?v=${videoId}`]
     try {
       run(command, args, { timeout: YTDLP_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: YTDLP_MAX_BUFFER, windowsHide: true, shell: false }, (error, stdout, stderr) => {
         if (error !== null) {
           if (error.code === 'ENOENT' || error.code === 'EACCES') resolve({ kind: 'missing' })
           else if (error.killed === true) resolve({ kind: 'timeout' })
+          else if (proxy !== null && YTDLP_PROXY_DOWN.test(stderr)) resolve({ kind: 'proxy_down' })
           else if (YTDLP_BLOCKED.test(stderr)) resolve({ kind: 'blocked' })
           else resolve({ kind: 'failed' })
           return
@@ -196,8 +234,11 @@ export async function locateFromPage(
       if (options.resolve == null || !VIDEO_ID.test(videoId)) return { kind: 'unsupported' }
       const found = await options.resolve(videoId)
       if (found.kind === 'ok') return found
-      options.log?.({ level: 'warn', code: 'STREAM_AUDIO_YTDLP_FAILED', reason: found.kind.toUpperCase(), ...(options.sellerId === undefined ? {} : { seller: options.sellerId }) })
-      // 시간 넘김만 끊김으로 세어 다시 본다. 없음·봇 확인 막힘·실패는 지금처럼 바로 꺼짐 + 휴대폰 마이크 안내
+      const seller = options.sellerId === undefined ? {} : { seller: options.sellerId }
+      // 집 회선 프록시가 끊김(D-LV1-13): 운영자 경보 한 줄 — 판매자에게는 아래처럼 휴대폰 마이크 안내
+      if (found.kind === 'proxy_down') options.log?.({ level: 'alert', code: 'STREAM_AUDIO_PROXY_DOWN', ...seller })
+      else options.log?.({ level: 'warn', code: 'STREAM_AUDIO_YTDLP_FAILED', reason: found.kind.toUpperCase(), ...seller })
+      // 시간 넘김만 끊김으로 세어 다시 본다. 없음·봇 확인 막힘·프록시 끊김·실패는 지금처럼 바로 꺼짐 + 휴대폰 마이크 안내
       return found.kind === 'timeout' ? { kind: 'retry' } : { kind: 'unsupported' }
     }
     case 'UPCOMING':
@@ -230,22 +271,33 @@ export function webStreamLocator(db: Db, web: WebChatSource | null, options: { r
   }
 }
 
+/**
+ * ffmpeg 인자. proxy가 있으면(D-LV1-13) `-http_proxy`로 목록·조각 모두 같은 출구로 받는다 — HLS 주소에 요청 IP가 박혀 있어
+ * 다른 IP로 조각을 받으면 403이다. https는 tls가 그 프록시에 CONNECT로 터널을 여므로 허용 목록에 `httpproxy`만 더한다(평문 http는 그대로 뺌).
+ * 환경변수(http_proxy)가 아니라 옵션으로 준다 — no_proxy 같은 바깥 값에 흔들리지 않고, 프록시가 죽으면 바로 나가지 않고 실패한다(실측 2026-11-01).
+ */
+export function ffmpegArgs(url: string, proxy: string | null = null): string[] {
+  return [
+    '-hide_banner', '-loglevel', 'quiet', '-nostdin',
+    ...(proxy === null ? [] : ['-http_proxy', proxy]),
+    '-protocol_whitelist', proxy === null ? 'https,tls,tcp,crypto,hls' : 'https,tls,tcp,crypto,hls,httpproxy',
+    '-live_start_index', '-1', '-i', url,
+    '-vn', '-ac', '1', '-ar', String(STREAM_SAMPLE_RATE), '-f', 's16le', 'pipe:1',
+  ]
+}
+
 /** 실제: ffmpeg로 HLS를 열어 16kHz 모노 s16le로 바꾼다. 표준 오류는 버린다(주소·내용을 로그에 남기지 않음) */
 export class FfmpegAudioFeed implements AudioFeed {
   readonly #command: string
-  constructor(command = 'ffmpeg') { this.#command = command }
+  readonly #proxy: string | null
+  constructor(command = 'ffmpeg', proxy: string | null = null) { this.#command = command; this.#proxy = proxy }
   open(url: string, sink: AudioSink): { close(): void } {
     let done = false
     const chunker = new Rechunker()
     let child: ChildProcessByStdio<null, Readable, null> | null = null
     const end = () => { if (done) return; done = true; chunker.clear(); sink.fail() }
     try {
-      child = spawn(this.#command, [
-        '-hide_banner', '-loglevel', 'quiet', '-nostdin',
-        '-protocol_whitelist', 'https,tls,tcp,crypto,hls',
-        '-live_start_index', '-1', '-i', url,
-        '-vn', '-ac', '1', '-ar', String(STREAM_SAMPLE_RATE), '-f', 's16le', 'pipe:1',
-      ], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+      child = spawn(this.#command, ffmpegArgs(url, this.#proxy), { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
     } catch {
       queueMicrotask(end)
       return { close: () => { done = true } }
