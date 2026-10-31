@@ -5,7 +5,7 @@
 **최종: 웹이 정한 REST 모양(아래 `## web`)에 서버를 맞췄다.** 처음 적었던 방송 소리 웹소켓 안은 버림. 구현 `apps/server/src/voice/stream-audio.ts`·`stream-service.ts`·`stream-routes.ts`·`relay.ts`.
 
 - `GET /api/settings/stream-audio` → `{ available, enabled }` · `PUT { enabled: boolean }`(아니면 400 `INVALID_INPUT`). 끄면 그 판매자 소리 흐름을 바로 닫는다. 기본 `enabled: true`(sellers.stream_audio, 마이그레이션 0035).
-- `GET /api/broadcasts/:id/stream-audio` → `{ phase, lagMs? }` (`lagMs`는 `listening`일 때만, 조각 도착 기준). 남의 방송 404, 끝난 방송 `ended`, 운영자 끔·ffmpeg 없음 `hidden`, 판매자 끔 `off`.
+- `GET /api/broadcasts/:id/stream-audio` → `{ phase, lagMs? }` (`lagMs`·`late`는 `listening`일 때만, 조각 도착 기준. `late` = lagMs가 30,000을 넘음 — D-LV1-10). 남의 방송 404, 끝난 방송 `ended`, 운영자 끔·ffmpeg 없음 `hidden`, 판매자 끔 `off`.
 - `POST .../stream-audio/watch {}` → 같은 모양. 25초 안에 다시 오지 않으면 콘솔이 닫힌 것으로 보고 소리 흐름을 닫는다. 이은 유튜브 링크가 없으면 `idle`로 기다리다(3초마다 확인) 이으면 스스로 시작.
 - `POST .../stream-audio/restart {}` → `stopped`·`unsupported`를 지우고 다시 시작.
 - 끊김 `reconnecting`(1·2·4·8초), 60초 안 여섯 번째면 `stopped`. 휴대폰 마이크(기본 음성 흐름)가 켜지면 `mic`, 끄면 다시 `listening`. 판매자 하나에 방송 소리 하나 — 다른 방송 콘솔이 열려 있는 동안 두 번째 방송은 `idle`.

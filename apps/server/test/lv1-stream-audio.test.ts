@@ -57,6 +57,11 @@ class Peer {
   }
   async open() { await once(this.ws, 'open'); return this }
   send(value: unknown) { this.ws.send(JSON.stringify(value)) }
+  async matching(predicate: (value: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
+    const ok = (item: typeof this.messages[number]) => !item.binary && predicate(item.body as Record<string, unknown>)
+    await waitFor(() => this.messages.some(ok), 8_000).catch(() => { throw new Error(JSON.stringify(this.messages.map((m) => m.body)).slice(0, 3000)) })
+    return this.messages.splice(this.messages.findIndex(ok), 1)[0]!.body as Record<string, unknown>
+  }
   async message(type: string) {
     const match = (item: typeof this.messages[number]) => !item.binary && (item.body as { type: string }).type === type
     await waitFor(() => this.messages.some(match))
@@ -158,7 +163,19 @@ describe('LV1 방송 소리로 듣기 (서버)', () => {
     expect(await dumpAllTables(world.database)).not.toContain('십오번 이만원')
     expect(JSON.stringify(world.logs)).not.toContain('십오번 이만원')
   })
-  it('20초 넘게 늦은 조각은 lagMs로 알린다', async () => {
+  it('AC-LV1-13 29초 늦음은 알림 없음, 30초를 넘으면 late', async () => {
+    const { world, feed, url } = await setup()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await worker(url, world)
+    await watch(world, seller.cookie, b.id)
+    await waitFor(() => feed.sink !== undefined)
+    feed.sink!.chunk(Buffer.alloc(3_200), world.clock.now() - 29_000)
+    expect(await phase(world, seller.cookie, b.id)).toEqual({ phase: 'listening', lagMs: 29_000, late: false })
+    feed.sink!.chunk(Buffer.alloc(3_200), world.clock.now() - 30_001)
+    expect(await phase(world, seller.cookie, b.id)).toMatchObject({ phase: 'listening', late: true })
+  })
+  it('늦은 조각은 lagMs로 알린다', async () => {
     const { world, feed, url } = await setup()
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller)
@@ -268,8 +285,14 @@ describe('LV1 방송 소리로 듣기 (서버)', () => {
     const b = await createBroadcast(live, seller)
     const consoleFlow = device(url, seller.cookie, b.id, 'consolepc01', false)
     await consoleFlow.message('ready')
+    consoleFlow.send({ type: 'voice.session', op: 'hello', context: { now: live.clock.now(), dialogOpen: false, smsAutoAllowed: true, consent: true } })
     await watch(live, seller.cookie, b.id)
     expect(await consoleFlow.message('result')).toMatchObject({ type: 'result', text: PRACTICE_SPEECH })
+    // 늦은 글로 빠지지 않고 바로 등록 효과가 온다 — 15번 핑크프릴 20,000원 (AC-LV1-01)
+    const effect = await consoleFlow.matching((value) => value.type === 'voice.effect' && value.method === 'register')
+    expect(JSON.stringify(effect.args)).toContain('"no":15')
+    expect(JSON.stringify(effect.args)).toContain('"price":20000')
+    expect(JSON.stringify(effect.args)).toContain('핑크프릴')
     expect((await phase(live, seller.cookie, b.id)).phase).toBe('listening')
     expect(await dumpAllTables(live.database)).not.toContain(PRACTICE_SPEECH)
   })

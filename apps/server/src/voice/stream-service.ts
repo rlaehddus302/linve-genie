@@ -6,7 +6,8 @@ import type { ExternalStream, VoiceRelay } from './relay.ts'
 import { STREAM_IDLE_RECHECK_MS, STREAM_LATE_MS, recordFailure, retryDelayMs, type AudioFeed, type StreamLocator } from './stream-audio.ts'
 
 export type StreamAudioPhase = 'hidden' | 'off' | 'idle' | 'listening' | 'reconnecting' | 'stopped' | 'unsupported' | 'mic' | 'ended'
-export interface StreamAudioView { readonly phase: StreamAudioPhase; readonly lagMs?: number }
+/** late = lagMs가 30초를 넘음 (늦음 안내를 보일 때, D-LV1-10) */
+export interface StreamAudioView { readonly phase: StreamAudioPhase; readonly lagMs?: number; readonly late?: boolean }
 
 /** 콘솔 열림 신호가 이만큼 끊기면 콘솔이 닫힌 것으로 본다 (콘솔은 10초마다 보낸다) */
 export const WATCH_TTL_MS = 25_000
@@ -101,7 +102,7 @@ export class StreamAudioService {
     if (!this.#o.available) return { phase: 'hidden' }
     const listen = this.#listens.get(sellerId)
     if (listen === undefined || listen.broadcastId !== broadcastId) return { phase: 'idle' }
-    if (listen.phase === 'listening') return { phase: 'listening', lagMs: listen.lagMs }
+    if (listen.phase === 'listening') return { phase: 'listening', lagMs: listen.lagMs, late: listen.lagMs > STREAM_LATE_MS }
     return { phase: listen.phase }
   }
   async viewFor(sellerId: string, broadcastId: string): Promise<StreamAudioView> {
@@ -220,7 +221,8 @@ export class StreamAudioService {
           ) ?? 'NO_WORKER'
           if (typeof opened === 'string') { this.#fail(listen, generation); return }
           listen.worker = opened
-          listen.base = now
+          // 첫 조각(100ms)은 도착한 순간 끝난 소리다 — 일꾼의 시각 0은 그보다 100ms 앞 (말 끝이 미래 시각이 되어 늦은 글로 빠지지 않게)
+          listen.base = now - 100
         }
         if (!listen.worker.send(pcm)) { this.#fail(listen, generation); return }
         listen.lagMs = producedAt === undefined ? 0 : Math.max(0, now - producedAt)
@@ -231,7 +233,9 @@ export class StreamAudioService {
   }
   #result(listen: Listen, generation: number, result: { text: string; startMs: number; endMs: number }): void {
     if (!this.#live(listen, generation) || this.#relay === null) return
-    const delivered = this.#relay.deliver(listen.sellerId, listen.broadcastId, { text: result.text, startAt: listen.base + result.startMs, endAt: listen.base + result.endMs })
+    const now = this.#o.clock.now()
+    const endAt = Math.min(listen.base + result.endMs, now)
+    const delivered = this.#relay.deliver(listen.sellerId, listen.broadcastId, { text: result.text, startAt: Math.min(listen.base + result.startMs, endAt), endAt })
     if (!delivered && !listen.delivered) {
       listen.delivered = true
       this.#o.log({ level: 'info', code: 'STREAM_AUDIO_NO_CONSOLE', seller: listen.sellerId })

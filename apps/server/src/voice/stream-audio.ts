@@ -9,8 +9,8 @@ import type { Db } from '../db/database.ts'
 /** 조각 하나: 16,000Hz × 2바이트 × 0.1초 */
 export const STREAM_CHUNK_BYTES = 3_200
 export const STREAM_SAMPLE_RATE = 16_000
-/** 늦음 안내 기준 (D-LV1-04, 조각 도착 기준) */
-export const STREAM_LATE_MS = 20_000
+/** 늦음 안내 기준 (D-LV1-10 — 30초를 넘으면, 조각 도착 기준) */
+export const STREAM_LATE_MS = 30_000
 /** 끊김 다시 잇기 (D-LV1-05) */
 export const STREAM_RETRY_WINDOW_MS = 60_000
 export const STREAM_RETRY_LIMIT = 6
