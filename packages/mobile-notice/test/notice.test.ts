@@ -134,8 +134,8 @@ describe('화면 문장 (쉬운 한국어, 영어 상태값 없음)', () => {
   const base = normalizeNoticeState({ platform: 'android', enabled: true, access: 'granted', connected: true, hasToken: true })
   it('상태 줄', () => {
     expect(noticeStatusLine({ ...base, enabled: false })).toBe('꺼져 있어요')
-    expect(noticeStatusLine({ ...base, hasToken: false })).toBe('받기 토큰을 넣어 주세요')
-    expect(noticeStatusLine({ ...base, tokenRejected: true })).toBe('받기 토큰을 다시 넣어 주세요')
+    expect(noticeStatusLine({ ...base, hasToken: false })).toBe('받기 열쇠를 넣어 주세요')
+    expect(noticeStatusLine({ ...base, tokenRejected: true })).toBe('받기 열쇠를 다시 넣어 주세요')
     expect(noticeStatusLine({ ...base, pending: 3, lastError: 'NETWORK' })).toBe('인터넷이 끊겨 3건을 모아 두었어요. 연결되면 바로 보내요')
     expect(noticeStatusLine({ ...base, pending: 2, lastError: 'SERVER' })).toBe('2건을 보내지 못했어요. 잠시 뒤 다시 보내요')
     expect(noticeStatusLine({ ...base, pending: 2, lastError: 'BUSY' })).toBe('2건을 1분 뒤에 다시 보내요')
@@ -157,7 +157,7 @@ describe('화면 문장 (쉬운 한국어, 영어 상태값 없음)', () => {
   })
   it('받기 꺼짐(403) 줄 (D-SMS3-27) — 토큰 거절이 먼저', () => {
     expect(noticeStatusLine({ ...base, inboxOff: true, pending: 3 })).toBe('웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 알림을 보내요')
-    expect(noticeStatusLine({ ...base, inboxOff: true, tokenRejected: true })).toBe('받기 토큰을 다시 넣어 주세요')
+    expect(noticeStatusLine({ ...base, inboxOff: true, tokenRejected: true })).toBe('받기 열쇠를 다시 넣어 주세요')
   })
   it('모든 문장에 영문 상태값이 없다', () => {
     const lines = [

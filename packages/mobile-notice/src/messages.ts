@@ -10,8 +10,9 @@ export const NOTICE_ACCESS_GUIDE = '문자와 은행 앱 알림만 라이브지�
 export const NOTICE_ACCESS_BUTTON = '알림 읽기 켜러 가기'
 /** 알림 읽기가 꺼져 있을 때 설정 칸 */
 export const NOTICE_ACCESS_OFF = '알림 읽기가 꺼져 있어요'
-/** 401 — 받기 토큰이 끊겼을 때 (AC-SMS3-27) */
-export const NOTICE_TOKEN_AGAIN = '받기 토큰을 다시 넣어 주세요'
+/** 401 — 받기 열쇠가 끊겼을 때 (AC-SMS3-27) */
+// D-SMS3-39: 판매자에게 보이는 말은 "토큰" 대신 "받기 열쇠"
+export const NOTICE_TOKEN_AGAIN = '받기 열쇠를 다시 넣어 주세요'
 /** 403 INBOX_OFF — 웹 설정에서 받기를 껐을 때 (D-SMS3-27). 대기열·토큰은 지키고 다시 켜면 모아 둔 알림을 보낸다 */
 export const NOTICE_INBOX_OFF = '웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 알림을 보내요'
 /** 대기열(1,000건)이 넘쳐 버린 알림이 있을 때 (D-SMS3-28) — {n}은 건수 */
@@ -22,11 +23,11 @@ export const NOTICE_RESTRICTED_GUIDE = '허용이 눌리지 않으면: 설정 �
 export const NOTICE_BATTERY_GUIDE =
   '방송 중에 문자를 놓치지 않으려면 배터리 절약에서 라이브지니를 빼 주세요.\n설정 → 애플리케이션 → 라이브지니 → 배터리 → "제한 없음"'
 /**
- * 아이폰 단축어 안내 — 판매자에게 보이는 것은 웹 설정의 한 가지("URL 콘텐츠 가져오기"에 받기 토큰 붙여 넣기)뿐이다(D-SMS3-23).
+ * 아이폰 단축어 안내 — 판매자에게 보이는 것은 웹 설정의 한 가지("URL 콘텐츠 가져오기"에 받기 열쇠 붙여 넣기)뿐이다(D-SMS3-23).
  * 이 모듈의 단축어 동작("라이브지니에 문자 보내기", NoticeIntents.swift)은 코드에 두되 안내에서 권하지 않는다 — 실물 확인(HG-SMS3-07) 뒤 다시 본다.
  */
 export const NOTICE_SHORTCUT_GUIDE =
-  '컴퓨터에서 라이브지니 설정 → "휴대폰 알림 받기"를 켜고 "아이폰 단축어 만들기 안내"를 따라 주세요. 단축어의 "URL 콘텐츠 가져오기"에 받기 토큰을 붙여 넣으면 돼요.'
+  '컴퓨터에서 라이브지니 설정 → "휴대폰 알림 받기"를 켜고 "아이폰 단축어 만들기 안내"를 따라 주세요. 단축어의 "URL 콘텐츠 가져오기"에 받기 열쇠를 붙여 넣으면 돼요.'
 /** 아이폰 단축어 동작 이름 (단축어 앱 동작 목록에만 보임 — 안내에서는 권하지 않는다, D-SMS3-23) */
 export const NOTICE_INTENT_TITLE = '라이브지니에 문자 보내기'
 export const NOTICE_INTENT_DESCRIPTION = '받은 문자를 라이브지니로 보내 찜 접수와 입금 확인에 씁니다.'
@@ -41,7 +42,7 @@ export const NOTICE_INTENT_RESULT = Object.freeze({
   dropped: '쌓인 문자가 너무 많아 오래된 것부터 지웠어요. 라이브지니 앱을 열어 주세요.',
   off: '문자 받기가 꺼져 있어요. 라이브지니 앱에서 켜 주세요.',
   inboxOff: '웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 문자를 보내요.',
-  noToken: '라이브지니 앱에 받기 토큰을 먼저 넣어 주세요.',
+  noToken: '라이브지니 앱에 받기 열쇠를 먼저 넣어 주세요.',
   empty: '내용이 비어 있어서 보내지 않았어요.',
 })
 
@@ -49,7 +50,7 @@ export const NOTICE_INTENT_RESULT = Object.freeze({
 export function noticeStatusLine(state: NoticeState): string {
   if (!state.enabled) return '꺼져 있어요'
   if (state.access === 'needed') return NOTICE_ACCESS_OFF
-  if (!state.hasToken) return '받기 토큰을 넣어 주세요'
+  if (!state.hasToken) return '받기 열쇠를 넣어 주세요'
   if (state.tokenRejected) return NOTICE_TOKEN_AGAIN
   if (state.inboxOff) return NOTICE_INBOX_OFF
   if (state.pending > 0 && state.lastError === 'NETWORK') return `인터넷이 끊겨 ${state.pending}건을 모아 두었어요. 연결되면 바로 보내요`

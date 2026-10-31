@@ -204,7 +204,7 @@ describe('AC-SMS3-27 다시 보내기', () => {
     expect(await t.intake.flush()).toEqual({ sent: 2, pending: 0, stoppedBy: null })
   })
 
-  it('401이면 보내기를 멈추고 "받기 토큰을 다시 넣어 주세요" — 새 토큰에서 같은 id로 다시', async () => {
+  it('401이면 보내기를 멈추고 "받기 열쇠를 다시 넣어 주세요" — 새 토큰에서 같은 id로 다시', async () => {
     const t = setup()
     await t.ready()
     t.setReply(() => 401)
@@ -214,7 +214,7 @@ describe('AC-SMS3-27 다시 보내기', () => {
     expect(state.tokenRejected).toBe(true)
     expect(state.pending).toBe(2)
     const { noticeStatusLine } = await import('../src/index.ts')
-    expect(noticeStatusLine(state)).toBe('받기 토큰을 다시 넣어 주세요')
+    expect(noticeStatusLine(state)).toBe('받기 열쇠를 다시 넣어 주세요')
     const tried = t.requests.length
     expect((await t.intake.flush()).stoppedBy).toBe('TOKEN')
     expect(t.requests.length).toBe(tried)
@@ -369,7 +369,7 @@ describe('AC-SMS3-27 다시 보내기', () => {
     expect((await t.intake.getState()).inboxOff).toBe(false)
   })
 
-  it('401만 토큰 거절이다 — 403 뒤에 401이 오면 그때 "받기 토큰을 다시 넣어 주세요"', async () => {
+  it('401만 토큰 거절이다 — 403 뒤에 401이 오면 그때 "받기 열쇠를 다시 넣어 주세요"', async () => {
     const t = setup()
     await t.ready()
     t.setReply(() => 403)
@@ -380,7 +380,7 @@ describe('AC-SMS3-27 다시 보내기', () => {
     expect(state.tokenRejected).toBe(true)
     expect(state.pending).toBe(1)
     const { noticeStatusLine } = await import('../src/index.ts')
-    expect(noticeStatusLine(state)).toBe('받기 토큰을 다시 넣어 주세요')
+    expect(noticeStatusLine(state)).toBe('받기 열쇠를 다시 넣어 주세요')
   })
 
   it('500(잠깐의 서버 오류)이면 묶음을 지우지 않고 같은 id로 다시 보낸다 (D-SMS3-31)', async () => {

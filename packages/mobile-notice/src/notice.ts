@@ -119,7 +119,7 @@ export function createNoticeIntake(native: NativeNoticeModuleLike): NoticeIntake
     async setToken(config: NoticeTokenConfig | null) {
       if (config === null) return normalizeNoticeState(await native.clearToken())
       const token = typeof config.token === 'string' ? config.token.trim() : ''
-      if (!DEVICE_TOKEN_PATTERN.test(token)) throw new NoticeInputError('TOKEN', '받기 토큰이 맞지 않아요. 설정에서 복사한 토큰을 그대로 넣어 주세요.')
+      if (!DEVICE_TOKEN_PATTERN.test(token)) throw new NoticeInputError('TOKEN', '받기 열쇠가 맞지 않아요. 설정에서 복사한 받기 열쇠를 그대로 넣어 주세요.')
       const deviceName = cleanDeviceName(config.deviceName)
       if (deviceName === null) throw new NoticeInputError('DEVICE_NAME', '휴대폰 이름은 1~30자로 넣어 주세요.')
       const endpoint = typeof config.serverUrl === 'string' ? noticeIntakeUrl(config.serverUrl) : null
