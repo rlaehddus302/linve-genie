@@ -23,8 +23,8 @@ describe('받아쓰기 일꾼 파이썬 시험 (python3 -m unittest)', () => {
     expect(run.status, output).toBe(0)
     const ran = /Ran (\d+) tests?/.exec(output)
     expect(ran, output).not.toBeNull()
-    // 시험을 몰래 줄이지 않았는지: 지금 49개
-    expect(Number(ran?.[1])).toBeGreaterThanOrEqual(49)
+    // 시험을 몰래 줄이지 않았는지: 지금 74개
+    expect(Number(ran?.[1])).toBeGreaterThanOrEqual(74)
     expect(output).not.toMatch(/skipped|expected failures/)
     const caches = [TRANSCRIBER, join(TRANSCRIBER, 'tests'), join(TRANSCRIBER, 'livegenie_transcriber')].filter((folder) => readdirSync(folder).includes('__pycache__'))
     expect(caches).toEqual([])
