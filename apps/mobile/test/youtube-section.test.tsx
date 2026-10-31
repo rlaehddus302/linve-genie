@@ -1,11 +1,12 @@
 // 콘솔 유튜브 (YT-11 AC2·AC5·AC6·AC8, D-YT-SRV-03·06·07·09): 구글 연결 없이 잇기(최근 채널·주소), 처음 잇는 채널 확인,
 // "유튜브 방송 · {이름}", "서버 연결로 받는 중", 막힘 바로 경고 + 대비 경로, 다시 받으면 한 줄, 운영자 끔, 거절 문장.
+// 새 시안(D-UX2-03): 유튜브 칸은 방송 메뉴(⋯) → "유튜브 연결" 시트로 옮겼다. 상품이 없는 새 방송이 이어져 있지 않으면 시트가 저절로 한 번 열린다.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { CollectorView, LinkView, LiveBroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
-import { flush, product } from './support.ts'
+import { flush, fullView, product } from './support.ts'
 
 const BLOCKED = '유튜브가 채팅 읽기를 잠시 막았어요. 다시 될 때까지 주문은 손으로 넣어 주세요.'
 const OFF = '지금은 유튜브 채팅을 자동으로 받지 않아요. 주문은 손으로 넣어 주세요.'
@@ -46,11 +47,17 @@ async function open(world: ReturnType<typeof makeWorld>) {
 }
 
 const section = () => screen.getByRole('group', { name: '유튜브' })
+/** 방송 메뉴 → 유튜브 연결 */
+async function openYoutube() {
+  fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+  fireEvent.click(await screen.findByRole('button', { name: '유튜브 연결' }))
+}
 
 describe('콘솔 유튜브 (앱)', () => {
   it('구글 연결 없이 최근 채널 [잇기] → "유튜브 방송 · 다육이네"·"서버 연결로 받는 중", 찾기는 칸을 열 때 한 번', async () => {
     const { world } = youtubeWorld({ recent: [item] })
     await open(world)
+    await openYoutube()
     const box = await screen.findByRole('group', { name: '최근 이은 채널의 방송' })
     expect(within(box).getByText(/다육이네 · 오늘 경매 · 방송 중/)).toBeTruthy()
     expect(world.server.callsTo('GET', /live-broadcasts/)).toHaveLength(1)
@@ -64,6 +71,7 @@ describe('콘솔 유튜브 (앱)', () => {
   it('처음 잇는 채널: 확인 줄 → [맞아요, 잇기]는 확인 표시로 다시 보낸다, 이름은 글자로만', async () => {
     const { world } = youtubeWorld()
     await open(world)
+    await openYoutube()
     fireEvent.change(await screen.findByRole('textbox', { name: '주소 붙여넣기' }), { target: { value: 'NEWCHAN0001' } })
     fireEvent.click(screen.getByRole('button', { name: '이 방송에 잇기' }))
     const ask = await screen.findByRole('group', { name: '처음 잇는 채널 확인' })
@@ -77,6 +85,7 @@ describe('콘솔 유튜브 (앱)', () => {
   it('비공개 방송은 서버 문장으로 거절', async () => {
     const { world } = youtubeWorld()
     await open(world)
+    await openYoutube()
     fireEvent.change(await screen.findByRole('textbox', { name: '주소 붙여넣기' }), { target: { value: 'PRIVATE0001' } })
     fireEvent.click(screen.getByRole('button', { name: '이 방송에 잇기' }))
     await waitFor(() => expect(within(section()).getByRole('alert').textContent).toBe(NOT_PUBLIC))
@@ -86,6 +95,7 @@ describe('콘솔 유튜브 (앱)', () => {
     const { world, state } = youtubeWorld()
     state.link = linked('다육이네')
     await open(world)
+    await openYoutube()
     await waitFor(() => expect(within(section()).getByText('유튜브 방송 · 다육이네')).toBeTruthy())
     const emit = async (patch: Partial<CollectorView>) => {
       state.link = { ...state.link, collector: collector(patch) }
@@ -97,7 +107,8 @@ describe('콘솔 유튜브 (앱)', () => {
     await emit({ status: 'RETRYING', statusMessage: '다시 연결하는 중', reason: 'BLOCKED', reasonMessage: BLOCKED })
     const warning = screen.getByRole('alert', { name: '유튜브 채팅 경고' })
     expect(warning.textContent).toBe(BLOCKED)
-    expect(screen.getByText('아래 문자찜 칸이나 음성으로 넣을 수 있어요.')).toBeTruthy()
+    // 옛 문장 "아래 문자찜 칸이나…" — 문자찜 칸은 "직접 넣기" 시트로 옮겼다 (D-UX2-03)
+    expect(screen.getByText('"직접 넣기"의 문자찜 칸이나 음성으로 넣을 수 있어요.')).toBeTruthy()
     expect(screen.getByRole('button', { name: '댓글 붙여넣기 (웹으로 열기)' })).toBeTruthy()
     await emit({ status: 'LIVE' })
     expect(screen.queryByRole('alert', { name: '유튜브 채팅 경고' })).toBeNull()
@@ -109,9 +120,18 @@ describe('콘솔 유튜브 (앱)', () => {
   it('운영자가 끄면 잇기 칸 대신 안내 — 최근 채널을 찾지 않는다', async () => {
     const { world } = youtubeWorld({ webChat: { on: false } })
     await open(world)
+    await openYoutube()
     await waitFor(() => expect(within(section()).getByText(OFF)).toBeTruthy())
     expect(screen.queryByRole('textbox', { name: '주소 붙여넣기' })).toBeNull()
     expect(world.server.callsTo('GET', /live-broadcasts/)).toHaveLength(0)
+  })
+
+  it('상품이 없는 새 방송이 이어져 있지 않으면 유튜브 연결 시트가 저절로 한 번 열린다 (방송 시작 흐름, D-UX2-03)', async () => {
+    const { world } = youtubeWorld()
+    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=true)?$/, () => ({ body: fullView({ seq: world.seq, rehearsal: false, products: [] }) }))
+    await open(world)
+    expect(await screen.findByRole('textbox', { name: '주소 붙여넣기' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: '유튜브 연결' })).toBeTruthy()
   })
 
   it('리허설은 유튜브 요청을 보내지 않는다', async () => {

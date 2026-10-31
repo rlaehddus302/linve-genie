@@ -9,7 +9,7 @@ import type { BroadcastItem, PackingEntry, PackingList, WriteResult } from '@liv
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
-import { inFilter, itemCount } from '../lib/packing.ts'
+import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'

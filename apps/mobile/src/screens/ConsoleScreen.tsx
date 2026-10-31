@@ -1,22 +1,29 @@
-// 라이브 콘솔 (SPEC §7 화면 2, 웹 ConsolePage와 같은 규칙·문구): 자리를 비운 동안 한 줄 → 실시간 상태 → 알림 띠 → 유튜브 경고 → 음성 → 빠른 입력 → 현재 상품 → 상품 보드 → 문자찜 → 유튜브 칸(YT-11).
+// 방송 중 (SPEC §7 화면 2, D-UX2-03 새 시안): 머리(뒤로 · "방송 중" · 음성 상태 · 방송 메뉴) → 도움 한 줄 → 꼭 필요한 경고만 한 줄씩
+// → 음성 확인할 것 → 상품 전체 리스트(최신이 위) → 아래 고정 버튼 두 개(듣기 멈추기/듣기 시작 · 직접 넣기).
+// 빠른 입력·문자찜은 "직접 넣기" 시트, 유튜브 잇기·음성 설정·방송 끝내기는 방송 메뉴(⋯)의 시트로 옮겼다. 상품이 없는 새 방송이 유튜브에
+// 이어져 있지 않으면 유튜브 잇기 시트를 한 번 먼저 연다(방송 시작 흐름의 "주소 붙여넣기" 단계).
 // - 범위 자료는 ScopeStore(웹과 같은 프로토콜)로 받고, 쓰기는 /api/events에 요청 번호를 붙여 보낸 뒤 응답 seq까지 따라잡는다.
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { ScrollView, View } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import { ApiError, get, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
-import { BuyerNames, alertCounts, latestProduct } from '../lib/derive.ts'
+import { BuyerNames, alertCounts, boardProducts, nameOf } from '../lib/derive.ts'
+import { openWeb } from '../lib/open-web.ts'
 import { ScopeStore, type ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
-import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW } from '../lib/words.ts'
+import { DIRECT_INPUT, LISTEN_HELP, LISTEN_OFF_HELP, LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, Body, Hint, Loading, Notice, Row, Screen, Stack } from '../ui/parts.tsx'
+import { AppHeader, BigButton, BottomSheet, ConfirmSheet, HeaderIconButton, RowGroup, TodoRow, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
+import { SPACE } from '../ui/kit/tokens.ts'
+import { BigButton as SmallButton, Loading, Notice, Row } from '../ui/parts.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
-import { CurrentProduct, ProductBoard } from './console/ProductBoard.tsx'
+import { ProductDetail, ProductList } from './console/ProductBoard.tsx'
 import { QuickInput, SmsInput } from './console/QuickInput.tsx'
-import { VoicePanel } from './console/VoicePanel.tsx'
+import { ListenButton, ListenStatus, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { YoutubeSection, YoutubeWarning, useMobileYoutube } from './console/YoutubeSection.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
@@ -42,7 +49,7 @@ export function LiveNotice({ snapshot, onRetry }: { readonly snapshot: ScopeSnap
           <Notice tone="warning" alert>
             {LIVE_STALE}
           </Notice>
-          <BigButton small label={RETRY_NOW} onPress={onRetry} />
+          <SmallButton small label={RETRY_NOW} onPress={onRetry} />
         </Row>
       ) : null}
     </>
@@ -68,10 +75,13 @@ function AwayLine() {
 export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
+  const { p } = useKit()
+  const inset = useBottomInset()
   const [selected, setSelected] = useState<string | null>(null)
+  const [detail, setDetail] = useState<string | null>(null)
+  const [sheet, setSheet] = useState<'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end'>('none')
   const [labels, setLabels] = useState<readonly LabelView[]>([])
   const [endError, setEndError] = useState<string | null>(null)
-  const [askEnd, setAskEnd] = useState(false)
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
   const data = snapshot.data
   const broadcast = snapshot.broadcast
@@ -151,6 +161,17 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
 
   // 방송이 끝나면 음성도 끈다 (APP-02 "방송 끝")
   const voiceView = useSyncExternalStore(services.voice.subscribe, services.voice.getView)
+  const listening = voiceView.on && voiceView.broadcastId === broadcastId && voiceView.state.kind === 'listening'
+
+  // 방송 시작 흐름의 "주소 붙여넣기" 단계: 상품이 없는 새 방송이 유튜브에 이어져 있지 않으면 잇기 시트를 한 번 연다
+  const askedLink = useRef(false)
+  const productCount = data === null ? -1 : boardProducts(data, broadcastId).length
+  useEffect(() => {
+    if (askedLink.current || yt.phase !== 'ready' || yt.link === null || yt.link.link !== null) return
+    if ((broadcast?.ended ?? true) || (data?.sealed ?? true) || productCount !== 0) return
+    askedLink.current = true
+    setSheet((now) => (now === 'none' ? 'youtube' : now))
+  }, [yt.phase, yt.link, broadcast?.ended, data?.sealed, productCount])
   useEffect(() => {
     if (ended && voiceView.on && voiceView.broadcastId === broadcastId) void services.voice.turnOff()
   }, [ended, voiceView.on, voiceView.broadcastId, broadcastId, services])
@@ -160,85 +181,128 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
     try {
       const result = await withRetry(() => post<WriteResult>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/end`, { requestId: newRequestId() }))
       await store.sync(result.seq)
-      setAskEnd(false)
+      setSheet('none')
     } catch (caught) {
+      setSheet('none')
       setEndError(isApiError(caught) ? caught.message : '끝내지 못했어요. 다시 눌러 주세요.')
     }
   }
 
+  const frame = (body: ReactNode) => (
+    <View style={{ flex: 1, backgroundColor: p.background }}>
+      <AppHeader title="방송" onBack={onBack} backLabel="홈으로" />
+      <View style={{ paddingHorizontal: SPACE.lg, gap: SPACE.md }}>{body}</View>
+    </View>
+  )
   if (snapshot.phase === 'missing') {
-    return (
-      <Screen title="콘솔">
+    return frame(
+      <>
         <Notice tone="danger" alert>
-          그 방송을 찾지 못했어요. 방송 목록에서 다시 골라 주세요.
+          그 방송을 찾지 못했어요. 홈에서 다시 골라 주세요.
         </Notice>
-        <BigButton label="방송 목록으로" onPress={onBack} />
-      </Screen>
+        <BigButton label="홈으로" onPress={onBack} />
+      </>,
     )
   }
   if (snapshot.phase === 'error' && snapshot.error !== null) {
-    return (
-      <Screen title="콘솔">
+    return frame(
+      <>
         <Notice tone="danger" alert>
           {snapshot.error.message}
         </Notice>
         <BigButton label={RETRY_NOW} onPress={() => void store.retryNow()} />
-        <BigButton label="방송 목록으로" onPress={onBack} />
-      </Screen>
+        <BigButton kind="outline" label="홈으로" onPress={onBack} />
+      </>,
     )
   }
   if (data === null || broadcast === null || names === null) {
-    return (
-      <Screen title="콘솔">
+    return frame(
+      <>
         <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
         <Loading />
-      </Screen>
+      </>,
     )
   }
 
   const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, select: setSelected, selected, labelWords }
-  const current = (selected === null ? undefined : data.products.get(selected)) ?? latestProduct(data, broadcastId)
+  const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
+  const closed = ended || sealed
+  const heading = ended ? '끝난 방송' : broadcast.rehearsal ? '리허설 중' : '방송 중'
+  const help = closed ? '끝난 방송이에요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : listening ? LISTEN_HELP : LISTEN_OFF_HELP
+  const close = () => setSheet('none')
 
   return (
     <ConsoleContext.Provider value={api}>
-      <Screen testID="console-screen">
-        <Row wrap>
-          <BigButton small label="← 목록" ariaLabel="방송 목록으로" onPress={onBack} />
-          <Body bold big>
-            {title}
-          </Body>
-          {broadcast.rehearsal ? <Hint>리허설</Hint> : null}
-        </Row>
-        <AwayLine />
-        <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
-        {ended ? <Notice tone="info">끝난 방송이에요. 늦게 온 채팅·문자찜은 처리돼요.</Notice> : null}
-        {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
-        <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} />
-        <YoutubeWarning yt={yt} closed={ended || sealed} />
-        <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
-        <QuickInput />
-        <CurrentProduct product={current} />
-        <ProductBoard />
-        <SmsInput />
-        <YoutubeSection yt={yt} closed={ended || sealed} />
-        {!ended && !sealed ? (
-          <Stack tight>
-            {askEnd ? (
-              <>
-                <Body>방송을 끝낼까요? 끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요.</Body>
-                <Row>
-                  <BigButton label="끝내기" danger onPress={() => void endBroadcast()} />
-                  <BigButton label="아니요" onPress={() => setAskEnd(false)} />
-                </Row>
-              </>
-            ) : (
-              <BigButton label="방송 끝내기" onPress={() => setAskEnd(true)} />
-            )}
-            {endError !== null ? <Notice tone="danger" alert>{endError}</Notice> : null}
-          </Stack>
+      <View style={{ flex: 1, backgroundColor: p.background }} testID="console-screen">
+        <AppHeader
+          title={heading}
+          onBack={onBack}
+          backLabel="홈으로"
+          right={
+            <>
+              {seller && !closed ? <ListenStatus session={services.voice} broadcastId={broadcastId} /> : null}
+              <HeaderIconButton icon="more" label="방송 메뉴" onPress={() => setSheet('menu')} />
+            </>
+          }
+        />
+        <View style={{ paddingHorizontal: SPACE.xl, paddingBottom: SPACE.md }}>
+          <Txt step="caption" color="textSub">
+            {help}
+          </Txt>
+        </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
+          <AwayLine />
+          <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
+          {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
+          {endError !== null ? <Notice tone="danger" alert>{endError}</Notice> : null}
+          <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} />
+          <YoutubeWarning yt={yt} closed={closed} />
+          <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
+          <ProductList onOpen={setDetail} />
+        </ScrollView>
+        {!closed ? (
+          <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.sm, backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.line }}>
+            {seller ? <ListenButton session={services.voice} broadcastId={broadcastId} title={title} /> : null}
+            <View style={{ width: seller ? 120 : undefined, flex: seller ? undefined : 1 }}>
+              <BigButton kind="outline" label={DIRECT_INPUT} onPress={() => setSheet('direct')} />
+            </View>
+          </View>
         ) : null}
-      </Screen>
+
+        <BottomSheet visible={sheet === 'direct'} onClose={close} title={DIRECT_INPUT}>
+          <QuickInput />
+          <SmsInput />
+        </BottomSheet>
+        <BottomSheet visible={detailProduct !== undefined} onClose={() => setDetail(null)} title={detailProduct === undefined ? '' : `${String(detailProduct.no)}번 ${nameOf(detailProduct)}`}>
+          {detailProduct !== undefined ? <ProductDetail product={detailProduct} /> : null}
+        </BottomSheet>
+        <BottomSheet visible={sheet === 'menu'} onClose={close} title="방송 메뉴">
+          <Txt step="caption" color="textSub">{`${title}${broadcast.rehearsal ? ' · 리허설' : ''}`}</Txt>
+          <RowGroup label="방송 메뉴">
+            {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="유튜브 연결" sub="방송 주소 붙여 넣기, 채팅 받는 상태" onPress={() => setSheet('youtube')} /> : null}
+            {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => setSheet('voice')} /> : null}
+            {!broadcast.rehearsal ? <TodoRow title="댓글 붙여넣기 (웹으로 열기)" onPress={() => void openWeb(`/broadcasts/${encodeURIComponent(broadcastId)}`)} /> : null}
+            {!closed ? <TodoRow title="방송 끝내기" onPress={() => setSheet('end')} /> : null}
+          </RowGroup>
+        </BottomSheet>
+        <BottomSheet visible={sheet === 'youtube'} onClose={close} title="유튜브 연결">
+          <YoutubeSection yt={yt} closed={closed} />
+        </BottomSheet>
+        <BottomSheet visible={sheet === 'voice'} onClose={close} title="음성 설정">
+          <VoiceSettingsPanel session={services.voice} broadcastId={broadcastId} />
+        </BottomSheet>
+        <ConfirmSheet
+          visible={sheet === 'end'}
+          question="방송을 끝낼까요?"
+          description="끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요."
+          confirmLabel="끝내기"
+          cancelLabel="아니요"
+          danger
+          onCancel={close}
+          onConfirm={() => void endBroadcast()}
+        />
+      </View>
     </ConsoleContext.Provider>
   )
 }

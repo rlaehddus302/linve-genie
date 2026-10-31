@@ -63,7 +63,7 @@ describe('PackingScreen', () => {
     expect(screen.getByRole('button', { name: '배송 완료' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '포장 완료 되돌리기' })).toBeTruthy()
     // 끝낸 손님 카드는 저절로 넘기지 않는다 — 되돌리기를 바로 누를 수 있게 남고 진행이 1 / 1이 된다
-    expect(screen.getByText('1 / 1')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('1 / 1')).toBeTruthy())
   })
 
   it('걸러 보기: 포장 완료한 구매자는 "포장할 것"에 없고 "포장 완료"에 있다', async () => {

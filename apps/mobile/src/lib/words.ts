@@ -121,7 +121,7 @@ export const RETRY_NOW = '지금 다시 불러오기'
 
 /** 콘솔 */
 export const CURRENT_PRODUCT = '현재 상품'
-export const NO_PRODUCTS_YET = '아직 등록한 상품이 없어요. 빠른 입력칸에 "15 핑크프릴 10000"처럼 적어 주세요.'
+export const NO_PRODUCTS_YET = '아직 올린 상품이 없어요. 말하거나 "직접 넣기"로 올려 주세요.'
 export const QUICK_PLACEHOLDER = '15 핑크프릴 10000'
 export const QUICK_SEND = '보내기'
 export const ALERTS_NONE = '알림 없음'
@@ -136,9 +136,9 @@ export const VOICE_OFF = '음성 끄기'
 export const VOICE_LISTENING = '음성 듣는 중'
 export const VOICE_RECONNECTING = '다시 잇는 중'
 export const VOICE_STOPPED_TITLE = '듣기 멈춤'
-export const VOICE_STOPPED_BODY = '받아쓰기 서버에 연결하지 못했어요. 상품은 빠른 입력으로 넣어 주세요.'
+export const VOICE_STOPPED_BODY = '받아쓰기 서버에 연결하지 못했어요. 상품은 "직접 넣기"로 넣어 주세요.'
 /** 지난번 마이크를 켜다가 앱이 꺼졌을 때 — 저절로 다시 켜지 않고 알린다 */
-export const MIC_START_CUT_MESSAGE = '지난번에 마이크를 켜다가 앱이 꺼졌어요. 빠른 입력은 그대로 쓸 수 있어요. 음성이 필요하면 [음성 켜기]를 눌러 주세요. 또 꺼지면 휴대폰을 껐다 켜 주세요.'
+export const MIC_START_CUT_MESSAGE = '지난번에 마이크를 켜다가 앱이 꺼졌어요. "직접 넣기"는 그대로 쓸 수 있어요. 음성이 필요하면 [듣기 시작]을 눌러 주세요. 또 꺼지면 휴대폰을 껐다 켜 주세요.'
 export const VOICE_RETRY = '다시 켜기'
 export const VOICE_SENT_LINE = '음성은 라이브지니 받아쓰기 서버로 보내져요.'
 export const VOICE_CONSENT_LINES: readonly string[] = [
@@ -155,6 +155,15 @@ export const VOICE_CARD_DISMISS = '아니요'
 export const VOICE_INSTANT_LABEL = '번호와 가격이 들리면 바로 등록'
 export const VOICE_OTHER_DEVICE = '음성은 다른 기기에서 듣는 중이에요.'
 export const VOICE_SELLER_ONLY = '음성은 판매자 계정에서만 켤 수 있어요.'
+
+/** 방송 중 화면 (D-UX2-03): 아래 고정 버튼 두 개와 머리 아래 도움 한 줄 */
+export const LISTEN_START = '듣기 시작'
+export const LISTEN_STOP = '듣기 멈추기'
+export const DIRECT_INPUT = '직접 넣기'
+export const LISTEN_HELP = '“15번 핑크프릴 만 이천원”처럼 말하면 자동으로 올라가요'
+export const LISTEN_OFF_HELP = '듣기를 켜면 말로 상품을 올릴 수 있어요'
+/** 머리 오른쪽 음성 상태 (점 + 글) */
+export const LISTEN_STATE = { on: '듣는 중', starting: '켜는 중', reconnecting: '다시 잇는 중', stopped: '듣기 멈춤', off: '듣기 꺼짐' } as const
 
 /** 자리를 비운 동안 (APP-04) */
 export function awayLine(counts: { readonly labels: number; readonly claims: number; readonly voice: number }): string | null {

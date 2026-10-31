@@ -89,7 +89,13 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
       </>}
     </Card>)}
     {snapshot.smsDropped.map((item) => <Card key={item.id} label="넣지 않은 문자찜"><Body>{item.text}</Body><BigButton label="확인" onPress={() => command('smsDroppedSeen', [item.id])} /></Card>)}
-    <Card label="음성 설정과 기록">
+  </View>
+}
+
+/** 음성 설정과 기록 (D-UX2-03: 방송 중 화면에서 빼고 "방송 메뉴 → 음성 설정"으로 옮겼다) */
+export function VoiceSettings({ session, snapshot, display }: { readonly session: VoiceSession; readonly snapshot: VoiceSnapshot; readonly display: Readonly<Record<string, unknown>> }) {
+  const command = session.command.bind(session)
+  return <Card label="음성 설정과 기록">
       <BigButton label={`번호와 가격이 들리면 바로 등록: ${snapshot.instant ? '켬' : '끔'}`} onPress={() => session.setInstant(!snapshot.instant)} />
       <BigButton label={`카드 자동 확정: ${snapshot.settings?.['voice.autoConfirm'] ? '켬' : '끔'}`} onPress={() => command('setAutoConfirm', [!snapshot.settings?.['voice.autoConfirm']])} />
       <Field label="자동 확정 기다림(초)" value={snapshot.secondsText} keyboardType="number-pad" onChangeText={(value) => command('setSeconds', [value])} problem={snapshot.settingsProblem} />
@@ -99,6 +105,5 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
       <BigButton label={`음성 인식 기록 모아 두기: ${snapshot.archive ? '켬' : '끔'}`} onPress={() => command('setArchive', [!snapshot.archive])} />
       {Array.isArray(display.logLines) ? (display.logLines as { key: string; time: string; pieces: readonly string[]; action: string; reason: string | null }[]).slice(0, 20).map((line) => <Hint key={line.key}>{`${line.time} ${line.pieces.join(' ')} · ${line.action}${line.reason ? ` · ${line.reason}` : ''}`}</Hint>) : null}
       <Row wrap><BigButton label="음성 기록 지우기" onPress={() => command('clearLog')} /><BigButton label={`배운 품종 이름 지우기(${snapshot.learnedCount})`} onPress={() => command('clearLearned')} /></Row>
-    </Card>
-  </View>
+  </Card>
 }

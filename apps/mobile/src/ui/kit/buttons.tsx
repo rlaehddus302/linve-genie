@@ -18,10 +18,12 @@ export interface BigButtonProps {
   readonly ariaLabel?: string
   /** 글자 앞에 붙는 기호. 아이콘만 두지 않고 반드시 글자와 함께 보인다. */
   readonly icon?: string
+  /** 글자 앞에 붙는 그림 조각 (선 아이콘) — 보조 기술에는 읽히지 않는다 */
+  readonly leading?: ReactNode
   readonly testID?: string
 }
 
-export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ariaLabel, icon, testID }: BigButtonProps) {
+export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ariaLabel, icon, leading, testID }: BigButtonProps) {
   const { p } = useKit()
   const off = disabled === true || busy === true
   const fill = kind === 'primary' ? p.primary : kind === 'danger' ? p.danger : kind === 'outline' ? p.surface : p.secondary
@@ -51,6 +53,7 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
       })}
     >
       {busy === true ? <ActivityIndicator color={p[ink]} /> : null}
+      {busy !== true && leading !== undefined ? leading : null}
       <Txt step="bodyLarge" weight="heavy" color={ink} center>
         {icon === undefined ? label : `${icon} ${label}`}
       </Txt>
