@@ -10,7 +10,7 @@
 // - 기동 로그에 환경변수 값을 찍지 않는다.
 // - Ctrl+C(SIGINT)·SIGTERM이면 새 연결을 받지 않고 진행 중인 요청을 마친 뒤 종료 코드 0으로 끝난다.
 //   한 번 더 누르면 바로 끝낸다.
-import { readStreamAudioSwitch, readYtDlpPath } from './voice/stream-audio.ts'
+import { readMediaProxy, readStreamAudioSwitch, readYtDlpPath } from './voice/stream-audio.ts'
 import { existsSync } from 'node:fs'
 import { FolderBackupStorage } from './backup.ts'
 import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readDeploySetting, readPort, readYoutubeSetting, readYoutubeWebChat } from './config.ts'
@@ -87,7 +87,8 @@ const livejjim = createServer({
   backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir),
   // 방송 소리로 듣기 (LV1 D-LV1-08): LIVEJJIM_STREAM_AUDIO=off면 끔, ffmpeg가 없으면 시작 기록 한 줄 남기고 꺼짐
   // 페이지에 HLS가 없으면 yt-dlp로 소리 주소를 얻는다 (D-LV1-11) — LIVEJJIM_YTDLP_PATH, 비우면 yt-dlp
-  streamAudio: { on: readStreamAudioSwitch(process.env), ytDlpPath: readYtDlpPath(process.env) },
+  // 집 회선 프록시 (D-LV1-13): LIVEJJIM_YT_MEDIA_PROXY — 이 기계 안 터널 끝(http://127.0.0.1·localhost·host.docker.internal:<포트>)만. 그 밖이면 쓰지 않고 경고 한 줄
+  streamAudio: { on: readStreamAudioSwitch(process.env), ytDlpPath: readYtDlpPath(process.env), mediaProxy: readMediaProxy(process.env) },
 })
 // 워커: 유튜브 수집기·발송함(설정이 있을 때), 30일 봉인 작업 — 끝나지 않은 회차의 수집기가 저절로 다시 돈다 (NFR-03)
 livejjim.start()

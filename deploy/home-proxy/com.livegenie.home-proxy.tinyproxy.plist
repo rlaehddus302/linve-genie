@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  라이브지니 집 회선 프록시: tinyproxy (D-LV1-13). README.md "3. 서비스로 올리기"로 /Library/LaunchDaemons 에 넣는다.
+  LaunchDaemon + UserName: 로그인하지 않아도 켜지고, 관리자 권한 없이 그 사용자로 돈다. 꺼지면 launchd가 다시 띄운다.
+  __USER__ 는 이 맥의 사용자 이름(README의 sed가 채운다).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.livegenie.home-proxy.tinyproxy</string>
+  <key>UserName</key>
+  <string>__USER__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/opt/tinyproxy/bin/tinyproxy</string>
+    <string>-d</string>
+    <string>-c</string>
+    <string>/opt/homebrew/etc/tinyproxy/livegenie.conf</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardErrorPath</key>
+  <string>/opt/homebrew/var/log/tinyproxy/livegenie-stderr.log</string>
+</dict>
+</plist>

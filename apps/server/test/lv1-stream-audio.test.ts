@@ -7,7 +7,7 @@ import { parseWatchPage } from '../src/youtube/web-chat.ts'
 import { startMockWorker } from '../src/voice/mock-worker.ts'
 import {
   FakeBroadcastAudio, MARKER_CHUNKS, PRACTICE_SPEECH, Rechunker, SILENT_CHUNK, markerChunk, readStreamAudioSwitch, recordFailure, retryDelayMs, safeHlsUrl,
-  locateFromPage, readYtDlpPath, ytDlpResolver, type AudioUrlResult, type ExecFileRunner,
+  locateFromPage, readYtDlpPath, ytDlpResolver, readMediaProxy, ffmpegArgs, type AudioUrlResult, type ExecFileRunner,
   type AudioSink, type StreamLocation,
 } from '../src/voice/stream-audio.ts'
 import { generateMasterKey } from '../src/secrets.ts'
@@ -435,5 +435,72 @@ describe('D-LV1-11 페이지에 HLS가 없으면 yt-dlp로 소리 주소', () =>
     await waitFor(async () => (await phase(world, seller.cookie, b.id)).phase === 'unsupported')
     expect(urls.length).toBe(2)
     expect(world.logs.some((l) => l.code === 'STREAM_AUDIO_UNSUPPORTED')).toBe(true)
+  })
+})
+
+describe('D-LV1-13 집 회선 프록시 (yt-dlp·ffmpeg 같은 출구)', () => {
+  const ID = 'abcDEF_-123'
+  const HLS = 'https://manifest.googlevideo.com/api/manifest/hls_playlist/a/index.m3u8'
+  const livePage = () => ({ page: async (videoId: string) => ({ state: 'LIVE' as const, videoId, channelId: 'UCx', channelTitle: null, title: null, startedAt: null }) })
+
+  it('프록시 값은 이 기계 안 터널 끝(http://127.0.0.1·localhost·host.docker.internal:<포트>)만 받고, 그 밖은 거절', () => {
+    expect(readMediaProxy({})).toEqual({ kind: 'none' })
+    expect(readMediaProxy({ LIVEJJIM_YT_MEDIA_PROXY: '  ' })).toEqual({ kind: 'none' })
+    expect(readMediaProxy({ LIVEJJIM_YT_MEDIA_PROXY: ' http://127.0.0.1:18888 ' })).toEqual({ kind: 'ok', url: 'http://127.0.0.1:18888' })
+    expect(readMediaProxy({ LIVEJJIM_YT_MEDIA_PROXY: 'http://localhost:8888/' })).toEqual({ kind: 'ok', url: 'http://localhost:8888' })
+    expect(readMediaProxy({ LIVEJJIM_YT_MEDIA_PROXY: 'http://host.docker.internal:18888' })).toEqual({ kind: 'ok', url: 'http://host.docker.internal:18888' })
+    for (const bad of [
+      'http://10.0.0.5:8888', 'http://proxy.example.com:8080', 'https://127.0.0.1:18888', 'socks5://127.0.0.1:1080',
+      'http://user:pw@127.0.0.1:18888', 'http://127.0.0.1', 'http://127.0.0.1:18888/x', 'http://127.0.0.1:18888?a=1',
+      'http://127.0.0.2:18888', 'http://[::1]:18888', 'http://127.0.0.1.evil.test:18888', '127.0.0.1:18888', 'not a url',
+    ]) expect(readMediaProxy({ LIVEJJIM_YT_MEDIA_PROXY: bad }), bad).toEqual({ kind: 'rejected' })
+  })
+
+  it('프록시가 있으면 yt-dlp에 --proxy, ffmpeg에 -http_proxy와 허용 목록 httpproxy(평문 http는 여전히 뺌). 없으면 지금과 같다', async () => {
+    const calls: (readonly string[])[] = []
+    const run: ExecFileRunner = (_file, args, _options, callback) => { calls.push(args); queueMicrotask(() => callback(null, `${HLS}\n`, '')) }
+    expect(await ytDlpResolver('yt-dlp', run, 'http://127.0.0.1:18888')(ID)).toEqual({ kind: 'ok', url: HLS })
+    expect(calls[0]).toEqual(['--ignore-config', '--no-playlist', '--no-warnings', '--proxy', 'http://127.0.0.1:18888', '-g', '-f', 'bestaudio/best', '--', `https://www.youtube.com/watch?v=${ID}`])
+    await ytDlpResolver('yt-dlp', run)(ID)
+    expect(calls[1]).not.toContain('--proxy')
+    const withProxy = ffmpegArgs(HLS, 'http://127.0.0.1:18888')
+    expect(withProxy.slice(withProxy.indexOf('-http_proxy'), withProxy.indexOf('-http_proxy') + 2)).toEqual(['-http_proxy', 'http://127.0.0.1:18888'])
+    expect(withProxy.indexOf('-http_proxy')).toBeLessThan(withProxy.indexOf('-i'))
+    expect(withProxy[withProxy.indexOf('-protocol_whitelist') + 1]).toBe('https,tls,tcp,crypto,hls,httpproxy')
+    const direct = ffmpegArgs(HLS)
+    expect(direct).not.toContain('-http_proxy')
+    expect(direct[direct.indexOf('-protocol_whitelist') + 1]).toBe('https,tls,tcp,crypto,hls')
+    expect(direct[direct.indexOf('-i') + 1]).toBe(HLS)
+  })
+
+  it('프록시에 닿지 못하면(연결 거부·터널 거절) BLOCKED가 아닌 PROXY_DOWN — 운영자 경보 한 줄, 판매자는 휴대폰 마이크 안내(못 받음)', async () => {
+    let stderr = ''
+    const run: ExecFileRunner = (_file, _args, _options, callback) => queueMicrotask(() => callback(Object.assign(new Error('x'), { code: 1 }), '', stderr))
+    const proxied = ytDlpResolver('yt-dlp', run, 'http://127.0.0.1:18888')
+    stderr = `ERROR: [youtube] ${ID}: Unable to download API page: ('Unable to connect to proxy', NewConnectionError("[Errno 111] Connection refused")) (caused by ProxyError(...))`
+    expect(await proxied(ID)).toEqual({ kind: 'proxy_down' })
+    stderr = 'ERROR: Tunnel connection failed: 403 Filtered'
+    expect(await proxied(ID)).toEqual({ kind: 'proxy_down' })
+    // 터널은 살아 있는데 집 쪽 tinyproxy가 꺼짐: 받자마자 끊긴다
+    stderr = `ERROR: [youtube] ${ID}: Unable to download API page: ('Connection aborted.', ConnectionResetError(54, 'Connection reset by peer'))`
+    expect(await proxied(ID)).toEqual({ kind: 'proxy_down' })
+    stderr = "ERROR: [youtube] abc: Sign in to confirm you're not a bot."
+    expect(await proxied(ID)).toEqual({ kind: 'blocked' })
+    // 프록시를 쓰지 않으면 같은 글이 있어도 프록시 끊김으로 보지 않는다
+    stderr = 'ERROR: Unable to connect to proxy'
+    expect(await ytDlpResolver('yt-dlp', run)(ID)).toEqual({ kind: 'failed' })
+
+    const logs: LogRecord[] = []
+    const location = await locateFromPage(livePage(), ID, { resolve: async () => ({ kind: 'proxy_down' }), log: (r) => logs.push(r), sellerId: 's1' })
+    expect(location).toEqual({ kind: 'unsupported' })
+    expect(logs).toEqual([{ level: 'alert', code: 'STREAM_AUDIO_PROXY_DOWN', seller: 's1' }])
+  })
+
+  it('허용하지 않는 프록시 값은 쓰지 않고 시작 기록 한 줄(값은 남기지 않음), 서버는 그대로 뜬다', async () => {
+    const feed = { open: (_url: string, sink: AudioSink) => { queueMicrotask(() => sink.fail()); return { close: () => {} } } }
+    const world = await newWorld({ transcribeWorkerToken: TOKEN, streamAudio: { on: true, feed, mediaProxy: readMediaProxy({ LIVEJJIM_YT_MEDIA_PROXY: 'http://proxy.example.com:8080' }) } })
+    worlds.push(world)
+    expect(world.logs.filter((l) => l.code === 'STREAM_AUDIO_PROXY_IGNORED')).toEqual([{ level: 'warn', code: 'STREAM_AUDIO_PROXY_IGNORED' }])
+    expect(JSON.stringify(world.logs)).not.toContain('proxy.example.com')
   })
 })

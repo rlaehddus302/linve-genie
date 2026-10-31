@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  라이브지니 집 회선 프록시: EC2로 거는 SSH 역방향 터널 (D-LV1-13). README.md "3. 서비스로 올리기"로 /Library/LaunchDaemons 에 넣는다.
+  EC2 쪽 __BIND__:18888 → 이 맥의 127.0.0.1:8888(tinyproxy). 터널만 연다(-N, 셸·명령 없음).
+  - autossh -M 0: 감시 포트 없이 ServerAlive(30초 × 3번)로 끊김을 알아채고 ssh를 다시 띄운다. autossh 자체가 죽어도 launchd가 다시 띄운다.
+  - ExitOnForwardFailure=yes: EC2 쪽 포트를 못 열면(이전 연결이 아직 쥐고 있음 등) 바로 끝내고 다시 시도한다 — 터널 없는 연결이 남지 않게.
+  - BatchMode·StrictHostKeyChecking=yes·전용 known_hosts: 비밀번호를 묻지 않고, 처음 등록한 EC2 호스트 키가 아니면 붙지 않는다.
+  __USER__ · __HOME__ · __EC2_HOST__ · __BIND__ 는 README의 sed가 채운다.
+  __BIND__: 서버가 컨테이너면 도커 브리지 172.17.0.1(EC2 sshd가 그 주소·포트만 허용), EC2 호스트에서 바로 쓰면(시험) 127.0.0.1.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.livegenie.home-proxy.tunnel</string>
+  <key>UserName</key>
+  <string>__USER__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>AUTOSSH_GATETIME</key>
+    <string>0</string>
+    <key>AUTOSSH_POLL</key>
+    <string>60</string>
+  </dict>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/autossh</string>
+    <string>-M</string>
+    <string>0</string>
+    <string>-N</string>
+    <string>-T</string>
+    <string>-o</string>
+    <string>ServerAliveInterval=30</string>
+    <string>-o</string>
+    <string>ServerAliveCountMax=3</string>
+    <string>-o</string>
+    <string>ExitOnForwardFailure=yes</string>
+    <string>-o</string>
+    <string>BatchMode=yes</string>
+    <string>-o</string>
+    <string>IdentitiesOnly=yes</string>
+    <string>-o</string>
+    <string>StrictHostKeyChecking=yes</string>
+    <string>-o</string>
+    <string>UserKnownHostsFile=__HOME__/.livejjim-release/home-proxy/known_hosts</string>
+    <string>-o</string>
+    <string>ConnectTimeout=20</string>
+    <string>-i</string>
+    <string>__HOME__/.livejjim-release/home-proxy/id_ed25519</string>
+    <string>-R</string>
+    <string>__BIND__:18888:127.0.0.1:8888</string>
+    <string>lgtunnel@__EC2_HOST__</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardErrorPath</key>
+  <string>/opt/homebrew/var/log/tinyproxy/livegenie-tunnel.log</string>
+</dict>
+</plist>
