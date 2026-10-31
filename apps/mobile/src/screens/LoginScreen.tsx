@@ -42,7 +42,7 @@ export function LoginScreen({ expired, offline = false, onRecheck, onLogin }: { 
 
   return (
     <Screen title={SERVICE_NAME} testID="login-screen">
-      <Hint>라이브 방송 찜을 대신 받아 드려요. 아이디와 비밀번호를 넣어 주세요.</Hint>
+      <Hint>아이디와 비밀번호를 넣어 주세요.</Hint>
       {expired ? <Notice tone="warning">{SESSION_EXPIRED_MESSAGE}</Notice> : null}
       {offline ? <Notice tone="warning" alert>{OFFLINE_AT_START_MESSAGE}</Notice> : null}
       {offline && onRecheck !== undefined ? <BigButton label="다시 확인" disabled={rechecking} onPress={() => void recheck()} /> : null}
@@ -54,7 +54,7 @@ export function LoginScreen({ expired, offline = false, onRecheck, onLogin }: { 
         <BigButton label="로그인" primary disabled={busy} onPress={() => void submit()} />
       </Stack>
       <Hint>{LOGIN_ACCOUNT_NOTE}</Hint>
-      <KitButton kind="outline" label={`간편 로그인(카카오·네이버·구글) — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/login')} />
+      <KitButton kind="outline" label="간편 로그인 (카카오·네이버·구글)" ariaLabel={`간편 로그인(카카오·네이버·구글) — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/login')} />
     </Screen>
   )
 }

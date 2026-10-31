@@ -6,7 +6,7 @@ import { RADIUS, SHADOW, SPACE, TOUCH } from './kit/tokens.ts'
 import { Txt, useKit, type TxtColor } from './kit/theme.tsx'
 import type { Tone } from './theme.ts'
 
-const TONE_MARK: Readonly<Record<Tone, string>> = { info: 'i', success: '✓', warning: '!', danger: '✕' }
+const TONE_MARK: Readonly<Record<Tone, string>> = { info: '•', success: '✓', warning: '!', danger: '✕' }
 
 export function Screen({ title, children, testID }: { readonly title?: string; readonly children: ReactNode; readonly testID?: string }) {
   const { p } = useKit()
