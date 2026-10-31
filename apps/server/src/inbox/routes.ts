@@ -23,7 +23,7 @@ export const INBOX_BODY_LIMIT_BYTES = 256 * 1024
 const noStore = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': JSON_CONTENT_TYPE, 'Cache-Control': 'no-store' } })
 
 /** 토큰 없는·틀린 요청이 많은 IP에 주는 문장 (RA-SMS3-011) */
-export const INBOX_AUTH_LIMITED_MESSAGE = '받기 토큰이 맞지 않는 요청이 너무 많아요. 10분 뒤에 다시 보내 주세요.'
+export const INBOX_AUTH_LIMITED_MESSAGE = '받기 열쇠가 맞지 않는 요청이 너무 많아요. 10분 뒤에 다시 보내 주세요.'
 
 export interface InboxIntakeOptions {
   readonly clock: Clock
