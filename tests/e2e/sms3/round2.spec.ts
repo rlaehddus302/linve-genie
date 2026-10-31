@@ -3,7 +3,7 @@
 // 잔액 이어짐이 확인되지 않은 첫 입금은 확인 필요(D-DEP2-13), 이름 없는 입금 취소 줄 "이름 모름"(D-DEP2-15),
 // 화면에 영어 상태값(LATE·REJECTED·INBOX_OFF 등)이 보이지 않음.
 // 기대값: SPEC ORD-13 "화면 문구"·받기 상태, DEPOSIT_RULES DP-8·DP-9 9, acceptance.md AC-SMS3-*, 서버 약속 v4. 화면 코드를 보고 정하지 않는다.
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page, type Route } from '@playwright/test'
 import { sealNow } from '../i3/support.ts'
 import { loginAs, settingsRegion } from '../i3/support.ts'
 import {
@@ -201,7 +201,7 @@ for (const width of WIDTHS) {
 async function fakeStale(page: Page, b: string): Promise<{ closed: () => boolean }> {
   let closed = false
   const notice = { b, startedAt: new Date(Date.now() - 13 * 3_600_000).toISOString(), lastAt: new Date().toISOString(), count: 3, message: STALE_TEXT }
-  const inject = async (route: import('@playwright/test').Route) => {
+  const inject = async (route: Route) => {
     if (route.request().method() !== 'GET') return route.fallback()
     const res = await route.fetch()
     const body = (await res.json()) as Record<string, unknown>
