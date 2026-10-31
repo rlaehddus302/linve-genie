@@ -135,7 +135,7 @@ aws ec2 get-console-output --instance-id $INSTANCE_ID --latest --output text | g
 
 ```bash
 echo 'ssh-ed25519 AAAA… livegenie-ec2' > livegenie-ec2.pub
-gh repo deploy-key add livegenie-ec2.pub --repo unhoyeo/livegenie --title "livegenie-ec2 $(date +%F)"
+gh repo deploy-key add livegenie-ec2.pub --repo Port-051/livegenie --title "livegenie-ec2 $(date +%F)"
 ```
 
 `--allow-write`를 붙이지 않는다(읽기 전용이 기본). 웹이면 저장소 Settings → Deploy keys → Add deploy key(Allow write access 끔). 서버는 60분 동안 30초마다 다시 받아 본다. 60분을 넘기면 `LG-FAIL clone` — 인스턴스를 재부팅하지 말고 아래 "다시 돌리기"를 한다.
