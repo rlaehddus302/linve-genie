@@ -21,7 +21,14 @@ import { Modal } from './Modal.tsx'
 const POLL_MS = 1000
 const WATCH_MS = 10_000
 
-const storage = (): Storage | null => (typeof window === 'undefined' ? null : window.localStorage)
+/** 이 기기 저장소 — 막힌 브라우저(읽기만 해도 예외)에서는 없음으로 본다. 콘솔이 그려지지 않으면 안 된다 (AC-I4-11·30) */
+const storage = (): Storage | null => {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage
+  } catch {
+    return null
+  }
+}
 
 export const streamAudioPath = (broadcastId: string): string => `/api/broadcasts/${encodeURIComponent(broadcastId)}/stream-audio`
 

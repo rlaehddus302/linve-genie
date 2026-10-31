@@ -269,9 +269,9 @@ const isLabelKind = (adapter: PrinterAdapter): boolean => (adapter as { readonly
 
 const bitmapOut = (image: LabelBitmap) => ({ width: image.width, height: image.height, data: [...image.data] })
 
-function readJson(storage: Storage, key: string): unknown {
+function readJson(storage: () => Storage, key: string): unknown {
   try {
-    const raw = storage.getItem(key)
+    const raw = storage().getItem(key)
     return raw === null ? null : (JSON.parse(raw) as unknown)
   } catch {
     // 깨진 값·저장소를 쓸 수 없음: 없는 것으로 본다
@@ -279,10 +279,10 @@ function readJson(storage: Storage, key: string): unknown {
   }
 }
 
-function writeJson(storage: Storage, key: string, value: unknown): void {
+function writeJson(storage: () => Storage, key: string, value: unknown): void {
   try {
-    if (value === null) storage.removeItem(key)
-    else storage.setItem(key, JSON.stringify(value))
+    if (value === null) storage().removeItem(key)
+    else storage().setItem(key, JSON.stringify(value))
   } catch {
     // 이 페이지 동안만
   }
@@ -295,7 +295,7 @@ interface SavedFakes {
 
 function readFakes(): SavedFakes {
   if (typeof window === 'undefined') return {}
-  const value = readJson(window.sessionStorage, FAKE_DEVICES_KEY)
+  const value = readJson(() => window.sessionStorage, FAKE_DEVICES_KEY)
   if (typeof value !== 'object' || value === null) return {}
   const v = value as Record<string, unknown>
   const pick = (x: unknown): Record<string, unknown> | undefined => (typeof x === 'object' && x !== null ? (x as Record<string, unknown>) : undefined)
@@ -619,9 +619,9 @@ export class PrinterStation {
   /** 기억한 프린터를 저장소에서 되살리고, 바뀔 때마다 저장소에 쓴다 (D-QS1-01 (6) — 서버로 보내지 않는다) */
   #wireMemory(adapter: PrinterAdapter, key: string): (() => void) | null {
     if (!isRememberingAdapter(adapter) || typeof window === 'undefined') return null
-    adapter.restoreRemembered(parseRememberedPrinter(readJson(window.localStorage, key)))
+    adapter.restoreRemembered(parseRememberedPrinter(readJson(() => window.localStorage, key)))
     return adapter.onRememberedChange((value) => {
-      writeJson(window.localStorage, key, value)
+      writeJson(() => window.localStorage, key, value)
     })
   }
 
@@ -696,7 +696,7 @@ export class PrinterStation {
     if (typeof window === 'undefined' || (this.#fakeB1 === null && this.#fakeUsb === null)) return
     const bt = this.#fakeB1
     const usb = this.#fakeUsb
-    writeJson(window.sessionStorage, FAKE_DEVICES_KEY, {
+    writeJson(() => window.sessionStorage, FAKE_DEVICES_KEY, {
       ...(bt === null ? {} : { b1: { ...this.#fakeB1Setup, permitted: bt.permitted, powered: bt.powered } }),
       ...(usb === null
         ? {}

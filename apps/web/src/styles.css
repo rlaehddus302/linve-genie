@@ -4648,6 +4648,7 @@ select.input {
 
 .badges-ask .row {
   flex-wrap: wrap;
+}
 
 /* PAY2 공개 요금 안내 `/pricing` (§7 화면 18): 375 폭·글자 150%에서도 가로 넘침 없이 — 칸은 줄을 바꾼다 */
 .pricing-table {
@@ -4698,6 +4699,7 @@ select.input {
 .pricing-terms {
   padding-left: 1.5rem;
   overflow-wrap: anywhere;
+}
 
 /* ── 휴대폰 알림 받기 (SMS3 AC-SMS3-28·30·31·32) ─────────────────────────── */
 
@@ -4811,3 +4813,8 @@ select.input {
 .stream-audio-setting { font-size: 1.125rem; }
 .stream-audio-check { min-height: 52px; align-items: center; gap: 0.75rem; font-size: 1.125rem; }
 .stream-audio-check input { height: 28px; aspect-ratio: 1 / 1; flex: none; }
+
+/* 문자찜 확인 카드의 넣기·취소 단추: 휴대폰 폭에서 한 손으로 누르기 쉽게 52px (AC-SMS3-30, 48px 이상) */
+@media (max-width: 47.99rem) {
+  .inbox-actions .button { min-height: 52px; }
+}

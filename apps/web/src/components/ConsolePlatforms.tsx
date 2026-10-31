@@ -697,7 +697,8 @@ function InstagramPanel({ live, broadcastId, navigate, ended, sealed, onPaste, h
 
   const open = igLink !== null && igLink.state !== 'NONE'
   const collection = igLink?.collection ?? null
-  const idle = instagram !== null && (!instagram.configured || instagram.status === 'NOT_CONNECTED') && !open && live.notices.length === 0 && live.dmFailed === 0 && action.error === null && !asking && sealed
+  const idle = instagram !== null && (!instagram.configured || instagram.status === 'NOT_CONNECTED') && !open && live.notices.length === 0 && live.dmFailed === 0 && action.error === null && !asking
+  // 휴대폰 폭은 붙여넣기 단추가 있어도 쓸 수 없는 칸이므로 숨긴다(AC-MOB1-15) — 붙여넣기는 PC 폭에서.
   if (hideIdle && idle) return null
   return (
     <section className="card stack platform-panel instagram-panel" aria-label="인스타그램">

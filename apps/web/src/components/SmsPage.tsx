@@ -494,7 +494,14 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
       try {
         current = await readText(api.b, 'received', typed)
       } catch (error) {
-        setChecked({ text: typed, reading: null, problem: readProblem(error).message })
+        const problem = readProblem(error)
+        // 서버에 닿지 못했다(끊김): 멈추지 않고 그대로 넣는다 — 넣기도 닿지 못하면 "저장하지 못했어요"로 남고 연결이 돌아오면 저절로 다시 보낸다.
+        // 받은 시각은 서버가 넣을 때 다시 읽는다 (AC-MOB2-43, D-MOB2-07)
+        if (problem.transient) {
+          void send()
+          return
+        }
+        setChecked({ text: typed, reading: null, problem: problem.message })
         return
       }
       setChecked({ text: typed, reading: current, problem: null })

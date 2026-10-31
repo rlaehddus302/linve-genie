@@ -110,8 +110,15 @@ type HandleDecision = (
   fromFix: boolean,
   countAt: string,
   inChain?: boolean,
-  extra?: { readonly typed?: TypedFields; readonly requestId?: string },
+  extra?: DecisionExtra,
 ) => Promise<void> | undefined
+
+/** 판단에 덧붙이는 것: 친 원문 칸·앞서 정한 요청 번호·연결이 돌아와 저절로 보내는 줄인지 (D-MOB2-14) */
+interface DecisionExtra {
+  readonly typed?: TypedFields
+  readonly requestId?: string
+  readonly auto?: boolean
+}
 
 /** 등록 경로에 넘긴 한 줄 (빠른 입력·고치기 칸·음성 카드) */
 interface RegRequest {
@@ -897,9 +904,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           return
         }
         remove()
-        return handleDecisionRef.current(decisionOf(read, findProduct), request.line, false, request.unread.countAt, true, {
+        const decision = decisionOf(read, findProduct)
+        // 저절로 다시 보낼 때는 그 번호가 이미 있어도 "고칠까요?"로 가지 않고 처음 요청 번호로 한 번 보내 서버 답으로 정한다 (D-MOB2-14):
+        // 처음 등록이 기록됐으면 평소 성공("연결이 돌아와 보냈어요: "), 다른 곳에서 먼저 생겼으면 changed:false → 한 줄 안내
+        const resend: QuickDecision = auto && decision.kind === 'edit' ? { kind: 'register', no: decision.no, name: decision.name, price: decision.price } : decision
+        return handleDecisionRef.current(resend, request.line, false, request.unread.countAt, true, {
           ...(request.typed === undefined ? {} : { typed: request.typed }),
           requestId: request.requestId,
+          ...(auto ? { auto: true } : {}),
         })
       }
       // 앞 줄이 같은 번호를 등록했으면(또는 다른 기기가) 등록 대신 묻는다
@@ -950,8 +962,13 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
             if (request.extra !== undefined) noteDroppedOptions(request.no)
             return
           }
-          // 그사이 다른 곳에서 같은 번호가 생겼다: 등록되지 않았으니 묻는다
-          const existing = findProduct(request.no)
+          // 그사이 다른 곳에서 같은 번호가 생겼다(두 기기가 같은 번호를 동시에 등록 등): 등록되지 않았으니 묻는다 (AC-S05-13).
+          // 화면이 그 상품을 아직 받지 못했으면 따라잡은 뒤 묻는다
+          let existing = findProduct(request.no)
+          if (existing === undefined) {
+            await store.catchUp().catch(() => undefined)
+            existing = findProduct(request.no)
+          }
           if (existing !== undefined) exists(existing)
           else restore()
           return
@@ -1027,7 +1044,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
         }
       }
     },
-    [askEdit, b, clearLine, findProduct, noteDroppedOptions, queue, restoreCount, undoRegistration, write, resendBoard],
+    [askEdit, b, clearLine, findProduct, noteDroppedOptions, queue, restoreCount, store, undoRegistration, write, resendBoard],
   )
   const runRegistrationRef = useRef(runRegistration)
   runRegistrationRef.current = runRegistration
@@ -1240,7 +1257,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
    * 차례를 잡는다(뒤 줄의 판단이 이 등록을 본다: "15 …" 다음의 "15"는 찾기).
    */
   const handleDecision: HandleDecision = useCallback(
-    (decision: QuickDecision, line: string, fromFix: boolean, countAt: string, inChain = false, extra: { readonly typed?: TypedFields; readonly requestId?: string } = {}): Promise<void> | undefined => {
+    (decision: QuickDecision, line: string, fromFix: boolean, countAt: string, inChain = false, extra: DecisionExtra = {}): Promise<void> | undefined => {
       /** 개수 칸 → 넘길 재고 (1이면 넘기지 않는다). 칸이 틀렸으면 보내지 않고 알린다 (AC-ORD11-04) */
       const readStock = (): { ok: true; stock: number | undefined } | { ok: false } => {
         const count = readCount(countAt)
@@ -1283,7 +1300,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
             return undefined
           }
           const id = startRegistration(line, decision.no, decision.name, decision.price, fromFix, hooks)
-          return runRegistration(id, true)
+          // 저절로 다시 보내는 줄은 화면을 미리 보지 않는다 (D-MOB2-14)
+          return extra.auto === true ? runRegistration(id, false, true) : runRegistration(id, true)
         }
         case 'edit': {
           // 개수 칸이 1이 아니면 개수도 함께 묻는다 (AC-ORD11-08). 옵션 상품은 개수 칸을 보지 않는다
