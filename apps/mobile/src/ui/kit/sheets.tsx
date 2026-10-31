@@ -28,7 +28,7 @@ export function BottomSheet({ visible, onClose, title, children, actions, testID
           aria-modal
           aria-label={title}
           testID={testID}
-          style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, maxHeight: height * 0.9, paddingTop: SPACE.xxl, paddingHorizontal: SPACE.lg, paddingBottom: Math.max(inset, SPACE.md) + SPACE.md, gap: SPACE.lg, ...SHADOW.sheet }}
+          style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xxl, borderTopRightRadius: RADIUS.xxl, maxHeight: height * 0.9, paddingTop: SPACE.xxl, paddingHorizontal: SPACE.lg, paddingBottom: Math.max(inset, SPACE.md) + SPACE.md, gap: SPACE.lg, ...SHADOW.sheet }}
         >
           <Txt step="title" weight="bold" role="heading" aria-level={2}>
             {title}

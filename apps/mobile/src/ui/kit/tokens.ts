@@ -1,4 +1,4 @@
-// 디자인 토큰 (모바일 개편 바탕): 색(밝게·어둡게) · 글자 크기 단계 · 간격 · 모서리 · 그림자 · 누르는 크기.
+// 디자인 토큰 (모바일 개편 바탕, 새 시안 D-UX2-01): 색(밝게·어둡게) · 글자 크기 단계 · 간격 · 모서리 · 그림자 · 누르는 크기.
 // 원칙(토스식 + 나이 드신 판매자): 본문 18 이상, 누르는 곳 52 이상·사이 8 이상, 글자-바탕 대비 4.5:1 이상,
 // 상태는 색 + 글자(+기호)로. 시스템 큰 글자를 따라가되 MAX_FONT_SCALE까지만 키워 화면이 깨지지 않게 한다.
 // 색 쌍 대비는 test/design-tokens.test.ts가 계산해서 지킨다.
@@ -35,6 +35,16 @@ export interface Palette {
   readonly onToast: string
   readonly toastAction: string
   readonly focus: string
+  /** 아래 탭·고정 버튼 위 구분선 (장식용) */
+  readonly line: string
+  /** 테두리 버튼 선 (장식용 — 글자가 뜻을 전한다) */
+  readonly outline: string
+  /** 방금 올라온 상품 줄 바탕 */
+  readonly freshBg: string
+  /** 확인이 필요한 줄 바탕·글자 */
+  readonly warnBg: string
+  readonly warnText: string
+  readonly warnStrong: string
 }
 
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
@@ -44,70 +54,51 @@ export interface TonePair {
   readonly fg: string
 }
 
-export const PALETTE: Readonly<Record<Scheme, Palette>> = {
-  light: {
-    background: '#f2f4f6',
-    surface: '#ffffff',
-    surfaceAlt: '#e8ebef',
-    text: '#191f28',
-    textSub: '#4e5968',
-    border: '#d1d6db',
-    borderStrong: '#6b7684',
-    primary: '#1b64da',
-    onPrimary: '#ffffff',
-    primaryText: '#1957c2',
-    secondary: '#e8f0fd',
-    onSecondary: '#1957c2',
-    danger: '#d22030',
-    onDanger: '#ffffff',
-    dangerText: '#c01c2b',
-    backdrop: '#000000',
-    toast: '#262c35',
-    onToast: '#ffffff',
-    toastAction: '#8fbcff',
-    focus: '#1b64da',
-  },
-  dark: {
-    background: '#101317',
-    surface: '#1c2128',
-    surfaceAlt: '#2b323b',
-    text: '#f2f4f6',
-    textSub: '#b0b8c1',
-    border: '#3a424c',
-    borderStrong: '#8b95a1',
-    primary: '#2f6fe0',
-    onPrimary: '#ffffff',
-    primaryText: '#a9c8ff',
-    secondary: '#22324d',
-    onSecondary: '#a9c8ff',
-    danger: '#c62837',
-    onDanger: '#ffffff',
-    dangerText: '#ff8f97',
-    backdrop: '#000000',
-    toast: '#e5e8eb',
-    onToast: '#191f28',
-    toastAction: '#1648a8',
-    focus: '#8fbcff',
-  },
+/**
+ * 색 (D-UX2-01, 사장님이 고른 새 시안): 밝은 테마 하나만 쓴다. 바탕 옅은 회색-초록, 카드 흰색, 강조 초록, 주의 주황.
+ * 어두운 모드도 같은 밝은 색을 쓴다 — 방송 중 화면이 휴대폰 설정에 따라 바뀌지 않게.
+ */
+const LIGHT: Palette = {
+  background: '#F7F8F6',
+  surface: '#FFFFFF',
+  surfaceAlt: '#F2F3F1',
+  text: '#16201A',
+  textSub: '#5B665E',
+  border: '#EEF0EC',
+  borderStrong: '#7D8780',
+  primary: '#1F7A4D',
+  onPrimary: '#FFFFFF',
+  primaryText: '#1F7A4D',
+  secondary: '#E6F2EB',
+  onSecondary: '#155C39',
+  danger: '#B42318',
+  onDanger: '#FFFFFF',
+  dangerText: '#B42318',
+  backdrop: '#000000',
+  toast: '#16201A',
+  onToast: '#FFFFFF',
+  toastAction: '#8FD3AE',
+  focus: '#1F7A4D',
+  line: '#E3E6E1',
+  outline: '#D5DAD3',
+  freshBg: '#E6F2EB',
+  warnBg: '#FFF4E5',
+  warnText: '#B54708',
+  warnStrong: '#8A3A06',
+}
+
+export const PALETTE: Readonly<Record<Scheme, Palette>> = { light: LIGHT, dark: LIGHT }
+
+const LIGHT_TONES: Readonly<Record<Tone, TonePair>> = {
+  neutral: { bg: '#EEF0EC', fg: '#16201A' },
+  info: { bg: '#EAF1F7', fg: '#1F4E79' },
+  success: { bg: '#E6F2EB', fg: '#155C39' },
+  warning: { bg: '#FFF4E5', fg: '#8A3A06' },
+  danger: { bg: '#FDECEA', fg: '#B42318' },
 }
 
 /** 상태 꼬리표·알림 상자 색 쌍 (바탕 + 글자) */
-export const TONES: Readonly<Record<Scheme, Readonly<Record<Tone, TonePair>>>> = {
-  light: {
-    neutral: { bg: '#e8ebef', fg: '#333d4b' },
-    info: { bg: '#e8f0fd', fg: '#1648a8' },
-    success: { bg: '#e3f5e9', fg: '#11632f' },
-    warning: { bg: '#fff3d6', fg: '#7a4300' },
-    danger: { bg: '#fdeaea', fg: '#b01825' },
-  },
-  dark: {
-    neutral: { bg: '#2b323b', fg: '#e5e8eb' },
-    info: { bg: '#1c2f50', fg: '#a9c8ff' },
-    success: { bg: '#163823', fg: '#8fe0aa' },
-    warning: { bg: '#3d2c0c', fg: '#ffd27a' },
-    danger: { bg: '#45171b', fg: '#ffa3aa' },
-  },
-}
+export const TONES: Readonly<Record<Scheme, Readonly<Record<Tone, TonePair>>>> = { light: LIGHT_TONES, dark: LIGHT_TONES }
 
 /** 글자 크기 단계 (dp, 시스템 큰 글자 배율 전). 본문은 18 이상. */
 export const TYPE = {
@@ -119,6 +110,8 @@ export const TYPE = {
   bodyLarge: 20,
   /** 묶음 제목 */
   section: 20,
+  /** 방송 중 상품 줄의 품종·가격 (멀리서도 읽히게) */
+  lead: 22,
   /** 카드·시트 제목 */
   title: 24,
   /** 화면 맨 위 질문형 제목 */
@@ -137,7 +130,8 @@ export const WEIGHT = { regular: '400', medium: '600', bold: '700', heavy: '800'
 /** 간격 (4·8 단위) */
 export const SPACE = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const
 
-export const RADIUS = { sm: 8, md: 12, lg: 16, xl: 24, pill: 999 } as const
+/** 모서리: 숫자 배지 14 · 줄·버튼 16 · 카드 20 · 시트 24 */
+export const RADIUS = { sm: 10, md: 14, lg: 16, xl: 20, xxl: 24, pill: 999 } as const
 
 /** 누르는 크기: 최소 52, 큰 버튼 60, 숫자판 키 64. 서로 붙은 것은 gap(8) 이상 띄운다. */
 export const TOUCH = { min: 52, button: 60, key: 64, gap: 8 } as const
@@ -149,7 +143,8 @@ export const MAX_FONT_SCALE = 2
 export const STACK_AT_SCALE = 1.5
 
 export const SHADOW = {
-  card: { shadowColor: '#000000', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  /** 새 시안은 그림자 없이 흰 카드만 (D-UX2-01) */
+  card: { shadowColor: '#000000', shadowOpacity: 0, shadowRadius: 0, shadowOffset: { width: 0, height: 0 }, elevation: 0 },
   sheet: { shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: -4 }, elevation: 12 },
   toast: { shadowColor: '#000000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
 } as const
@@ -190,6 +185,13 @@ export function contrastPairs(scheme: Scheme): readonly ContrastPair[] {
     { name: '입력칸 테두리/카드', fg: p.borderStrong, bg: p.surface, min: 3 },
     { name: '입력칸 테두리/옅은바탕', fg: p.borderStrong, bg: p.surfaceAlt, min: 3 },
     { name: '초점선/카드', fg: p.focus, bg: p.surface, min: 3 },
+    { name: '주색글자/옅은초록', fg: p.primaryText, bg: p.freshBg, min: 4.5 },
+    { name: '본문/옅은초록', fg: p.text, bg: p.freshBg, min: 4.5 },
+    { name: '설명/옅은초록', fg: p.textSub, bg: p.freshBg, min: 4.5 },
+    { name: '주의글자/주의바탕', fg: p.warnText, bg: p.warnBg, min: 4.5 },
+    { name: '주의진한글자/주의바탕', fg: p.warnStrong, bg: p.warnBg, min: 4.5 },
+    { name: '본문/주의바탕', fg: p.text, bg: p.warnBg, min: 4.5 },
+    { name: '설명/주의바탕', fg: p.textSub, bg: p.warnBg, min: 4.5 },
   ]
   for (const [tone, pair] of Object.entries(TONES[scheme])) pairs.push({ name: `상태 ${tone}`, fg: pair.fg, bg: pair.bg, min: 4.5 })
   return pairs

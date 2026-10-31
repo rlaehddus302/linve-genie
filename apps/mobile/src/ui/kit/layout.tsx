@@ -1,6 +1,7 @@
 // 자리 잡는 조각: 화면 틀(KitScreen), 묶음(Section), 카드(Card), 줄(ListRow·ToggleRow), 빈 화면(EmptyState).
 import type { ReactNode } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
+import { Icon } from './app.tsx'
 import { BigButton } from './buttons.tsx'
 import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
@@ -12,7 +13,7 @@ export function KitScreen({ title, lead, children, footer, testID }: { readonly 
     <View style={{ flex: 1, backgroundColor: p.background }} testID={testID}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: SPACE.lg, paddingTop: SPACE.xxl, gap: SPACE.xl, paddingBottom: SPACE.xxxl }} keyboardShouldPersistTaps="handled">
         <View style={{ gap: SPACE.sm }}>
-          <Txt step="headline" weight="bold" role="heading" aria-level={1}>
+          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
             {title}
           </Txt>
           {lead === undefined ? null : (
@@ -44,7 +45,7 @@ export function Section({ title, description, children }: { readonly title: stri
 export function Card({ children, label, testID }: { readonly children?: ReactNode; readonly label?: string; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <View role={label === undefined ? undefined : 'group'} aria-label={label} testID={testID} style={{ backgroundColor: p.surface, borderRadius: RADIUS.lg, padding: SPACE.xl, gap: SPACE.md, ...SHADOW.card }}>
+    <View role={label === undefined ? undefined : 'group'} aria-label={label} testID={testID} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, padding: SPACE.xl, gap: SPACE.md, ...SHADOW.card }}>
       {children}
     </View>
   )
@@ -97,11 +98,7 @@ export function ListRow({ title, subtitle, value, right, onPress, ariaLabel, tes
   return (
     <Pressable role="button" aria-label={ariaLabel ?? [title, value].filter((x) => x !== undefined).join(' — ')} onPress={onPress} testID={testID} style={({ pressed }) => ({ ...frame, opacity: pressed ? 0.6 : 1, borderRadius: RADIUS.md })}>
       {body}
-      <View aria-hidden>
-        <Txt step="title" color="textSub">
-          ›
-        </Txt>
-      </View>
+      <Icon name="chevron" size={20} />
     </Pressable>
   )
 }

@@ -7,3 +7,4 @@ export { Card, EmptyState, KitScreen, ListRow, Section, ToggleRow, type ListRowP
 export { BottomSheet, ConfirmSheet, type BottomSheetProps, type ConfirmSheetProps } from './sheets.tsx'
 export { StatusChip, Toast, useToast, type ToastApi, type ToastData } from './feedback.tsx'
 export { applyPadKey, NumberPad, TextField, type PadKey, type TextFieldProps } from './inputs.tsx'
+export { AppHeader, CountBadge, DotStatus, GroupLabel, HeaderIconButton, HeroButton, Icon, RowDivider, RowGroup, TabBar, TodoRow, type BadgeTone, type IconName, type TabKey } from './app.tsx'

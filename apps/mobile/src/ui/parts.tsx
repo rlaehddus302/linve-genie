@@ -11,7 +11,7 @@ const TONE_MARK: Readonly<Record<Tone, string>> = { info: 'i', success: '✓', w
 export function Screen({ title, children, testID }: { readonly title?: string; readonly children: ReactNode; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.background }} contentContainerStyle={{ padding: SPACE.lg, paddingTop: SPACE.xl, gap: SPACE.lg, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" testID={testID}>
+    <ScrollView style={{ flex: 1, backgroundColor: p.background }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.xxl, gap: SPACE.lg, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" testID={testID}>
       {title !== undefined ? <Title>{title}</Title> : null}
       {children}
     </ScrollView>
@@ -20,7 +20,7 @@ export function Screen({ title, children, testID }: { readonly title?: string; r
 
 export function Title({ children }: { readonly children: ReactNode }) {
   return (
-    <Txt step="headline" weight="bold" role="heading" aria-level={1}>
+    <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
       {children}
     </Txt>
   )
@@ -106,7 +106,7 @@ export function BigButton({ label, onPress, primary, danger, disabled, small, ar
         opacity: disabled === true ? 0.45 : pressed ? 0.85 : 1,
       })}
     >
-      <Txt step="bodyLarge" weight="bold" color={ink} center>
+      <Txt step="bodyLarge" weight="heavy" color={ink} center>
         {label}
       </Txt>
     </Pressable>
@@ -166,8 +166,8 @@ export function Notice({ tone, children, alert, label }: { readonly tone: Tone; 
   const { tones } = useKit()
   const pair = tones[tone]
   return (
-    <View role={alert === true ? 'alert' : 'status'} aria-label={label} style={{ padding: SPACE.lg, borderRadius: RADIUS.md, backgroundColor: pair.bg, borderLeftWidth: 6, borderLeftColor: pair.fg }}>
-      <Txt step="body" ink={pair.fg}>
+    <View role={alert === true ? 'alert' : 'status'} aria-label={label} style={{ paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.md, backgroundColor: pair.bg }}>
+      <Txt step="body" weight="medium" ink={pair.fg}>
         {children}
       </Txt>
     </View>
@@ -195,7 +195,7 @@ export function Tag({ tone, children, big }: { readonly tone: Tone; readonly chi
 export function Card({ children, label }: { readonly children: ReactNode; readonly label?: string }) {
   const { p } = useKit()
   return (
-    <View aria-label={label} role={label === undefined ? undefined : 'group'} style={{ padding: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: p.surface, gap: SPACE.md, ...SHADOW.card }}>
+    <View aria-label={label} role={label === undefined ? undefined : 'group'} style={{ padding: SPACE.lg, borderRadius: RADIUS.xl, backgroundColor: p.surface, gap: SPACE.md, ...SHADOW.card }}>
       {children}
     </View>
   )
@@ -215,7 +215,7 @@ export function Loading({ text }: { readonly text?: string }) {
 export function BigRed({ title, body }: { readonly title: string; readonly body: string }) {
   const { p, tones } = useKit()
   return (
-    <View role="alert" style={{ padding: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: tones.danger.bg, borderWidth: 3, borderColor: p.dangerText, gap: SPACE.sm }}>
+    <View role="alert" style={{ padding: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: tones.danger.bg, borderWidth: 2, borderColor: p.dangerText, gap: SPACE.sm }}>
       <Txt step="title" weight="heavy" color="dangerText">
         {title}
       </Txt>

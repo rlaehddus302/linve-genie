@@ -1,10 +1,11 @@
 // 버튼: 큰 버튼(주·보조·위험)과 화면 아래 고정 영역(BottomCTA).
 import type { ReactNode } from 'react'
 import { ActivityIndicator, Pressable, View } from 'react-native'
-import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
+import { RADIUS, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit, type TxtColor } from './theme.tsx'
 
-export type ButtonKind = 'primary' | 'secondary' | 'danger'
+/** outline: 흰 바탕 + 테두리 (방송 중 "직접 넣기" 같은 둘째 버튼) */
+export type ButtonKind = 'primary' | 'secondary' | 'danger' | 'outline'
 
 export interface BigButtonProps {
   readonly label: string
@@ -23,8 +24,8 @@ export interface BigButtonProps {
 export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ariaLabel, icon, testID }: BigButtonProps) {
   const { p } = useKit()
   const off = disabled === true || busy === true
-  const fill = kind === 'primary' ? p.primary : kind === 'danger' ? p.danger : p.secondary
-  const ink: TxtColor = kind === 'primary' ? 'onPrimary' : kind === 'danger' ? 'onDanger' : 'onSecondary'
+  const fill = kind === 'primary' ? p.primary : kind === 'danger' ? p.danger : kind === 'outline' ? p.surface : p.secondary
+  const ink: TxtColor = kind === 'primary' ? 'onPrimary' : kind === 'danger' ? 'onDanger' : kind === 'outline' ? 'text' : 'onSecondary'
   return (
     <Pressable
       role="button"
@@ -40,6 +41,8 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
         paddingHorizontal: SPACE.xl,
         paddingVertical: SPACE.md,
         backgroundColor: fill,
+        borderWidth: kind === 'outline' ? 2 : 0,
+        borderColor: p.outline,
         alignItems: 'center',
         justifyContent: 'center',
         flexDirection: 'row',
@@ -48,7 +51,7 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
       })}
     >
       {busy === true ? <ActivityIndicator color={p[ink]} /> : null}
-      <Txt step="bodyLarge" weight="bold" color={ink} center>
+      <Txt step="bodyLarge" weight="heavy" color={ink} center>
         {icon === undefined ? label : `${icon} ${label}`}
       </Txt>
     </Pressable>
@@ -72,7 +75,7 @@ export function BottomCTA({ children, note }: BottomCTAProps) {
     <View
       role="toolbar"
       aria-label="화면 아래 버튼"
-      style={{ backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.border, paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xs, gap: SPACE.sm, ...SHADOW.sheet }}
+      style={{ backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.line, paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xs, gap: SPACE.sm }}
     >
       {note === undefined ? null : (
         <Txt step="caption" color="textSub" center>
