@@ -117,13 +117,10 @@ internal object NoticeIntake {
         val filters = store.filters()
         for (message in result.candidates) {
           // skipWords가 든 문자는 휴대폰 밖으로 보내지 않는다(C-03) — 은행 대표번호 문자는 거르지 않는다(D-SMS3-26). 앱 알림은 bankApps로 이미 골랐다
+          // 문자 직접 받기(SMS4)가 저장소·수신기로 이미 읽은 문자의 알림은 보내지도 세지도 않는다 — 저장소에 없는 RCS 알림만 이 길로 간다
+          if (SmsLink.alreadyTaken(context, message)) continue
           if (NoticeFilter.skipWordFor(message.channel, message.from, message.text, filters) != null) {
             store.bump("filtered")
-            continue
-          }
-          // 문자 직접 받기(SMS4)가 저장소·수신기로 이미 넣은 문자의 알림은 보내지 않는다 — 저장소에 없는 RCS 알림만 이 길로 간다
-          if (SmsLink.alreadyTaken(context, message)) {
-            store.bump("duplicates")
             continue
           }
           if (store.enqueue(message, System.currentTimeMillis()) == "queued") queued++
