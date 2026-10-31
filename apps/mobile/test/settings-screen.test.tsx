@@ -1,6 +1,7 @@
 // 설정 화면(공통 디자인 바탕 본보기): 큰 질문 제목 · 켜고 끄기 + 되돌리기 · 로그아웃은 확인 판을 거친다.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { PHONE_NOTICE_TITLE } from '../src/screens/PhoneNoticeCard.tsx'
 import { SettingsScreen } from '../src/screens/SettingsScreen.tsx'
 import { SessionProvider } from '../src/services.tsx'
 import { makeWorld } from './screen-support.tsx'
@@ -51,5 +52,18 @@ describe('SettingsScreen', () => {
     setup()
     await screen.findByRole('heading', { name: '무엇을 바꿀까요?' })
     expect(screen.queryByText('디자인 견본 (개발용)')).toBeNull()
+  })
+
+  it('알림 받기를 뺀 빌드(showPhoneNotice=false)는 휴대폰 알림 받기 칸을 숨기고, 기본은 보인다', async () => {
+    const world = makeWorld()
+    world.server.on('GET', /^\/api\/me$/, () => ({ body: { loginId: 'seller1', seller: { id: 's1', name: '김다육' } } }))
+    world.server.on('GET', /^\/api\/settings\/labels$/, () => ({ body: { enabled: true, history: [], waiting: 0, rev: 1 } }))
+    world.server.on('GET', /^\/api\/settings$/, () => ({ body: { settings: {} } }))
+    const off = render(world.wrap(<SessionProvider services={world.services}><SettingsScreen onBack={() => undefined} showPhoneNotice={false} /></SessionProvider>))
+    await screen.findByRole('heading', { name: '무엇을 바꿀까요?' })
+    expect(screen.queryByText(PHONE_NOTICE_TITLE)).toBeNull()
+    off.unmount()
+    setup()
+    expect(await screen.findByText(PHONE_NOTICE_TITLE)).toBeTruthy()
   })
 })

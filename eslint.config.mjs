@@ -233,6 +233,12 @@ export default defineConfig(
     languageOptions: { globals: { ...globals.node } },
   },
 
+  // Expo 설정 플러그인(app.json "plugins")은 Expo가 CommonJS로 읽는다 — require가 필요하다
+  {
+    files: ['apps/mobile/plugins/**/*.js'],
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+
   // 코어 순수성 (AC-S00-05, D-024). packages/core/test(골든 러너 포함)와 다른 패키지에는 적용하지 않는다.
   {
     files: ['packages/core/src/**/*.{ts,tsx,mts,cts,js,mjs,cjs}'],

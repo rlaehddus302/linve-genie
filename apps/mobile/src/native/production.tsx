@@ -23,6 +23,7 @@ import {
   type PrinterPicker,
 } from '@livejjim/mobile-ble'
 import { createFakePrinter } from '@livejjim/printer'
+import { phoneNoticeBuilt } from '../lib/build-flags.ts'
 import { wirePrinterMemory } from '../lib/printer-memory.ts'
 import { PrinterPickList } from '../screens/PrinterPickList.tsx'
 import { AppPrinter } from './app-printer.ts'
@@ -95,7 +96,8 @@ export function installProductionNative(): void {
   void wirePrinterMemory(device, (value) => printer.restoreDeviceMemory(value), AsyncStorage)
   setNativeModules({ audio: new LiveNativeAudio(getAudioCapture), ble: printer })
   // 휴대폰 알림 받기 (SMS3 AC-SMS3-29) — 모듈이 없는 빌드(Expo Go·웹)는 null: 설정 칸이 "쓸 수 없어요"
-  setNoticeModule(getNoticeIntake())
+  // 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)는 매니페스트에 서비스가 없으므로 끼우지 않는다
+  setNoticeModule(phoneNoticeBuilt() ? getNoticeIntake() : null)
 }
 
 const subscribe = (cb: () => void): (() => void) => {
