@@ -299,11 +299,11 @@ const golden = loadGolden(GOLDEN_DIR)
 const NAME_LIST: readonly ModelProfile[] = LABEL_PROFILES
 
 describe('프린터 골든 (AC-N1-01, AC-PRN2-01~04)', () => {
-  it('파일 6개 · 사례 130개(브라우저 15 · 끝 14 · 작업 36 · 목록 24 · 이름 27 · 프로필 14 — PRN2가 job 2·profile 3·list·end를 더함)를 읽는다', () => {
+  it('파일 6개 · 사례 131개(브라우저 15 · 끝 15 · 작업 36 · 목록 24 · 이름 27 · 프로필 14 — PRN2가 job 2·profile 3·list·end를 더함, X2 OK D-910)를 읽는다', () => {
     expect(golden.map((g) => g.file)).toEqual(['browser.json', 'end.json', 'job.json', 'list.json', 'name.json', 'profile.json'])
     const count = (kind: Kind): number => golden.filter((g) => g.kind === kind).reduce((n, g) => n + g.cases.length, 0)
-    expect([count('browser'), count('end'), count('job'), count('list'), count('name'), count('profile')]).toEqual([15, 14, 36, 24, 27, 14])
-    expect(golden.reduce((n, g) => n + g.cases.length, 0)).toBe(130)
+    expect([count('browser'), count('end'), count('job'), count('list'), count('name'), count('profile')]).toEqual([15, 15, 36, 24, 27, 14])
+    expect(golden.reduce((n, g) => n + g.cases.length, 0)).toBe(131)
   })
 
   it('프로필 골든이 켠 프로필 표 전부를 덮는다 — 표와 골든의 프로필 ID가 같다 (AC-PRN2-01)', () => {

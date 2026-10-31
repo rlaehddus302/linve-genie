@@ -27,13 +27,13 @@ export const DENSITY_BYTES: Readonly<Record<LabelProtocol, readonly [number, num
 /** 끝 알림 `AA` (모든 방식) */
 export const END_ACK = 0xaa
 /**
- * 방식마다 `AA` 말고도 끝으로 세는 알림 값 (L-12 5, D-PRN2-03). Luck Jingle만 정확히 `4F 4B`(ASCII `OK`, 두 바이트).
- * Marklife(YXQ·L11)는 `OK`를 끝으로 세지 않는다 — 첫 명령 등이 `OK`로 답해 첫 조각 뒤 바로 출력함이 될 수 있다
+ * 방식마다 `AA` 말고도 끝으로 세는 알림 값 (L-12 5, D-PRN2-03). Luck Jingle과 YXQ 8(X2)은 정확히 `4F 4B`(ASCII `OK`, 두 바이트).
+ * X2 실물은 마지막 조각을 쓴 뒤 ff01로 `OK` 한 번만 보냈다(흐름 ff03은 `01 01`, D-910). 다른 Marklife(YXQ 2·3·L11)는 확인 전이라 `OK`를 끝으로 세지 않는다
  */
 export const EXTRA_END_NOTICES: Readonly<Record<LabelProtocol, readonly (readonly number[])[]>> = {
   MARKLIFE_YXQ2: [],
   MARKLIFE_YXQ3: [],
-  MARKLIFE_YXQ8: [],
+  MARKLIFE_YXQ8: [[0x4f, 0x4b]],
   MARKLIFE_L11: [],
   LUCKJINGLE: [[0x4f, 0x4b]],
 }

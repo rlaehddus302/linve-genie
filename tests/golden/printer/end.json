@@ -15,6 +15,7 @@
     {"id":"G-PRT-PRN2-61","title":"바우아토 55는 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"BAUATO_PPA2L","value":"55","out":{"end":false}},
     {"id":"G-PRT-PRN2-62","title":"빈 알림은 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"BAUATO_PPA2L","value":"","out":{"end":false}},
     {"id":"G-PRT-PRN2-63","title":"O(4F) 한 바이트는 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"BAUATO_PPA2L","value":"4F","out":{"end":false}},
-    {"id":"G-PRT-PRN2-64","title":"Marklife X2 AA 00은 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"MARKLIFE_X2","value":"AA 00","out":{"end":false}}
+    {"id":"G-PRT-PRN2-64","title":"Marklife X2 AA 00은 끝이 아니다","refs":["PRT-01","PRT-02","L-12","D-PRN2-03"],"profile":"MARKLIFE_X2","value":"AA 00","out":{"end":false}},
+    {"id":"G-PRT-PRN2-65","title":"Marklife X2 OK(4F 4B)는 끝이다 — 실물","refs":["PRT-01","PRT-02","L-12","D-910"],"profile":"MARKLIFE_X2","value":"4F 4B","out":{"end":true}}
   ]
 }
