@@ -5,6 +5,7 @@ import { DEVICE_TOKEN_PATTERN, cleanDeviceName, noticeIntakeUrl } from './contra
 import type {
   NativeNoticeModuleLike,
   NativeNoticeState,
+  NativeSmsState,
   NoticeAccess,
   NoticeFlushResult,
   NoticeIntake,
@@ -14,6 +15,8 @@ import type {
   NoticeState,
   NoticeStateListener,
   NoticeTokenConfig,
+  SmsLink,
+  SmsLinkState,
 } from './types.ts'
 
 /** 잘못된 입력 (화면 문장은 message) */
@@ -62,6 +65,36 @@ export function normalizeNoticeState(raw: NativeNoticeState | null | undefined):
     smsApp: typeof r.smsApp === 'string' && r.smsApp !== '' ? r.smsApp : null,
     batteryOptimized: typeof r.batteryOptimized === 'boolean' ? r.batteryOptimized : null,
     hasFilters: r.hasFilters === true,
+  }
+}
+
+/** 네이티브 문자 상태 → 앱 상태 (모르는 값은 꺼짐·권한 없음) */
+export function normalizeSmsState(raw: NativeSmsState | null | undefined): SmsLinkState {
+  const r = raw ?? {}
+  const available = r.available === true
+  const permission = r.permission === 'granted' ? 'granted' : 'needed'
+  const enabled = available && r.enabled === true
+  return { available, permission, enabled, active: enabled && permission === 'granted' && r.active === true, lastScanAtMs: timeOrNull(r.lastScanAtMs) }
+}
+
+/** 네이티브에 문자 직접 받기 함수가 다 있으면 문자 연동, 아니면 null */
+export function createSmsLink(native: NativeNoticeModuleLike): SmsLink | null {
+  const { getSmsState, requestSmsPermission, setSmsEnabled } = native
+  if (typeof getSmsState !== 'function' || typeof requestSmsPermission !== 'function' || typeof setSmsEnabled !== 'function') return null
+  return {
+    async getState() {
+      return normalizeSmsState(await getSmsState.call(native))
+    },
+    async requestPermission() {
+      try {
+        return normalizeSmsState(await requestSmsPermission.call(native))
+      } catch {
+        return normalizeSmsState(await getSmsState.call(native))
+      }
+    },
+    async setEnabled(on: boolean) {
+      return normalizeSmsState(await setSmsEnabled.call(native, on))
+    },
   }
 }
 
@@ -129,5 +162,6 @@ export function createNoticeIntake(native: NativeNoticeModuleLike): NoticeIntake
     async flush() {
       return normalizeFlushResult(await native.flush())
     },
+    sms: createSmsLink(native),
   }
 }

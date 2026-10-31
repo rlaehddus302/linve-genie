@@ -9,6 +9,9 @@
 //    - BLUETOOTH·BLUETOOTH_ADMIN: 옛 권한이라 API 30 이하에서만.
 //    - REMOVED_PERMISSIONS: 앱이 쓰지 않는 권한(라이브러리가 끼워 넣어도 뺀다).
 //    - 알림 받기 스위치(LIVEGENIE_NOTICE, app.config.js): off면 알림 읽기 서비스·재부팅 수신기·RECEIVE_BOOT_COMPLETED를 뺀다.
+//    - 문자 직접 받기 스위치(LIVEGENIE_SMS, app.config.js, SMS4): on일 때만 READ_SMS·RECEIVE_SMS와 새 문자 수신기를 앱 매니페스트에 넣는다.
+//      모듈 매니페스트(packages/mobile-notice)에는 두 권한이 없다 — off 빌드에는 아예 들어가지 않고, 다른 라이브러리가 넣어도 지운다.
+//      Play SMS 권한 정책 — 기본 문자 앱이 아니면 '민감한 권한 선언'으로 예외 승인을 받아야 한다(D-SMS4-05). 알림 받기가 off면 문자도 off(같은 대기열을 쓴다).
 // 2) 업로드 서명: 저장소 밖 속성 파일(storeFile·storePassword·keyAlias·keyPassword)을 읽는다.
 //    경로 = 환경변수 LIVEJJIM_UPLOAD_PROPERTIES → gradle 속성 livejjimUploadProperties → ~/.livejjim-release/upload.properties.
 //    파일이 없으면 출시(release) 작업을 멈춘다 — 개발용 열쇠로 서명된 파일을 사장님 폰·Play에 잘못 올리지 않게.
@@ -43,6 +46,31 @@ const PERMISSION_OVERRIDES = {
 const NOTICE_SERVICE = 'com.livejjim.notice.NoticeListenerService'
 const NOTICE_BOOT_RECEIVER = 'com.livejjim.notice.NoticeBootReceiver'
 const NOTICE_PERMISSIONS = ['android.permission.RECEIVE_BOOT_COMPLETED']
+
+/** 문자 직접 받기(LIVEGENIE_SMS=on, extra.smsIntake)에서만 넣는 것 — 수신기 클래스는 packages/mobile-notice SmsLink.kt (SMS4) */
+const SMS_RECEIVER = 'com.livejjim.notice.SmsReceivedReceiver'
+const SMS_PERMISSIONS = ['android.permission.READ_SMS', 'android.permission.RECEIVE_SMS']
+
+/** on: 두 권한 + 새 문자 수신기(BROADCAST_SMS를 가진 시스템만 보낼 수 있다) · off: 수신기를 지운다(권한은 normalizePermissions가 지운다) */
+function applySmsIntake(manifest, on) {
+  const app = AndroidConfig.Manifest.getMainApplicationOrThrow(manifest)
+  const others = (app.receiver ?? []).filter((item) => item.$['android:name'] !== SMS_RECEIVER)
+  if (!on) {
+    app.receiver = [...others, { $: { 'android:name': SMS_RECEIVER, 'tools:node': 'remove' } }]
+    return manifest
+  }
+  const root = manifest.manifest
+  const listed = new Set((root['uses-permission'] ?? []).map((item) => item.$['android:name']))
+  root['uses-permission'] = [...(root['uses-permission'] ?? []), ...SMS_PERMISSIONS.filter((name) => !listed.has(name)).map((name) => ({ $: { 'android:name': name } }))]
+  app.receiver = [
+    ...others,
+    {
+      $: { 'android:name': SMS_RECEIVER, 'android:exported': 'true', 'android:permission': 'android.permission.BROADCAST_SMS' },
+      'intent-filter': [{ action: [{ $: { 'android:name': 'android.provider.Telephony.SMS_RECEIVED' } }] }],
+    },
+  ]
+  return manifest
+}
 
 function removeNoticeIntake(manifest) {
   const app = AndroidConfig.Manifest.getMainApplicationOrThrow(manifest)
@@ -117,8 +145,12 @@ function addUploadSigning(gradle) {
 
 module.exports = function withAndroidRelease(config) {
   const noticeOn = config.extra?.noticeIntake !== 'off'
+  // 문자 직접 받기는 명시적으로 on일 때만 (기본 off)
+  const smsOn = noticeOn && config.extra?.smsIntake === 'on'
   config = withAndroidManifest(config, (c) => {
-    c.modResults = normalizePermissions(c.modResults, noticeOn ? REMOVED_PERMISSIONS : [...REMOVED_PERMISSIONS, ...NOTICE_PERMISSIONS])
+    c.modResults = applySmsIntake(c.modResults, smsOn)
+    const removed = [...REMOVED_PERMISSIONS, ...(noticeOn ? [] : NOTICE_PERMISSIONS), ...(smsOn ? [] : SMS_PERMISSIONS)]
+    c.modResults = normalizePermissions(c.modResults, removed)
     if (!noticeOn) c.modResults = removeNoticeIntake(c.modResults)
     return c
   })
@@ -132,3 +164,4 @@ module.exports = function withAndroidRelease(config) {
 
 module.exports.REMOVED_PERMISSIONS = REMOVED_PERMISSIONS
 module.exports.PERMISSION_OVERRIDES = PERMISSION_OVERRIDES
+module.exports.SMS_PERMISSIONS = SMS_PERMISSIONS

@@ -181,12 +181,15 @@ internal class NoticeStore private constructor(context: Context) {
   }
 
   // ── 대기열 ──
-  /** 두 번 막기 뒤 암호화해 넣는다: queued · duplicate · dropped(넣었지만 1,000건이 넘어 이것이 가장 오래돼 버려짐) */
-  fun enqueue(message: InboxMessage, nowMs: Long): String {
+  /**
+   * 두 번 막기 뒤 암호화해 넣는다: queued · duplicate · dropped(넣었지만 1,000건이 넘어 이것이 가장 오래돼 버려짐).
+   * countDuplicate=false: 문자 직접 받기의 수신기·저장소가 같은 문자를 함께 읽는 것은 정상이라 "같은 알림 두 번" 건수로 세지 않는다
+   */
+  fun enqueue(message: InboxMessage, nowMs: Long, countDuplicate: Boolean = true): String {
     synchronized(lock) {
       val seenSet = loadSeen()
       if (seenSet.contains(message.id)) {
-        bump("duplicates")
+        if (countDuplicate) bump("duplicates")
         return "duplicate"
       }
       queueDir.mkdirs()
@@ -282,6 +285,8 @@ internal class NoticeStore private constructor(context: Context) {
     lastError()?.let { map["lastError"] = it }
     NoticeAccess.batteryOptimized(context)?.let { map["batteryOptimized"] = it }
     NoticeAccess.defaultSmsPackage(context)?.let { map["smsApp"] = it }
+    // 문자 직접 받기 (SMS4) — LIVEGENIE_SMS=off 빌드는 available=false
+    map["sms"] = SmsLink.stateMap(context)
     return map
   }
 }

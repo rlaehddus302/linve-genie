@@ -149,7 +149,7 @@ class NoticeVectorsTest {
     for (v in items("response")) {
       val got = NoticeContract.parseResponse(v.getString("body"))
       val results = v.getJSONObject("results")
-      assertEquals(v.toString(), results.keySet().associateWith { results.getString(it) }, got.results)
+      assertEquals(v.toString(), results.keys().asSequence().toList().associateWith { key -> results.getString(key) }, got.results)
       assertEquals(v.toString(), filtersOf(v, "filters"), got.filters)
     }
   }

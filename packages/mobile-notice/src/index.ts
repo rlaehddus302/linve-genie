@@ -86,7 +86,7 @@ export {
   noticeDroppedLine,
   noticeStatusLine,
 } from './messages.ts'
-export { NoticeInputError, createNoticeIntake, normalizeFlushResult, normalizeNoticeState } from './notice.ts'
+export { NoticeInputError, createNoticeIntake, createSmsLink, normalizeFlushResult, normalizeNoticeState, normalizeSmsState } from './notice.ts'
 export { sha256Hex } from './sha256.ts'
 export type {
   NativeEventSubscription,
@@ -101,4 +101,7 @@ export type {
   NoticeState,
   NoticeStateListener,
   NoticeTokenConfig,
+  NativeSmsState,
+  SmsLink,
+  SmsLinkState,
 } from './types.ts'

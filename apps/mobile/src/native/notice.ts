@@ -23,6 +23,22 @@ export interface PhoneNoticeState {
   readonly lastSentAtMs: number | null
 }
 
+/** 문자 직접 받기 상태 (SMS4 — @livejjim/mobile-notice SmsLinkState와 같은 모양) */
+export interface PhoneSmsState {
+  /** 이 빌드에 문자 권한이 들어 있나 (LIVEGENIE_SMS=on) */
+  readonly available: boolean
+  readonly permission: 'granted' | 'needed'
+  readonly enabled: boolean
+  readonly active: boolean
+}
+
+/** 문자 연동 (SmsLink와 같은 이름·모양) */
+export interface PhoneSmsPort {
+  getState(): Promise<PhoneSmsState>
+  requestPermission(): Promise<PhoneSmsState>
+  setEnabled(on: boolean): Promise<PhoneSmsState>
+}
+
 /** 화면이 부르는 것 (NoticeIntake와 같은 이름·모양) */
 export interface PhoneNoticePort {
   start(): Promise<PhoneNoticeState>
@@ -32,6 +48,8 @@ export interface PhoneNoticePort {
   openSettings(target?: 'notificationAccess' | 'battery' | 'app' | 'shortcuts'): Promise<boolean>
   /** 받기 토큰 넣기(null이면 지운다) */
   setToken(config: { readonly token: string; readonly serverUrl: string; readonly deviceName: string } | null): Promise<PhoneNoticeState>
+  /** 문자 직접 받기 (SMS4) — 아이폰·옛 모듈·LIVEGENIE_SMS=off 빌드는 없음 */
+  readonly sms?: PhoneSmsPort | null
 }
 
 let port: PhoneNoticePort | null = null

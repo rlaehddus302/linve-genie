@@ -13,6 +13,7 @@ import { get, isApiError, post } from '../api/client.ts'
 import { noticeModule, type PhoneNoticeState } from '../native/notice.ts'
 import { SERVICE_NAME } from '../lib/words.ts'
 import { BigButton, Body, Card, Code, Hint, Notice, Row, SectionTitle, Tag } from '../ui/parts.tsx'
+import { SmsLinkRow } from './SmsLinkRow.tsx'
 
 export const PHONE_NOTICE_TITLE = '휴대폰 알림 받기'
 export const PHONE_NOTICE_INTRO = `손님 문자는 문자찜으로, 은행 입금 알림은 입금 확인으로 ${SERVICE_NAME}가 자동으로 받아요.`
@@ -241,6 +242,7 @@ export function PhoneNoticeCard() {
         </Card>
       ) : null}
       {state !== null ? on ? <BigButton label="끄기" disabled={busy} onPress={() => void turnOff()} /> : ios ? null : <BigButton primary label="켜기" disabled={busy} onPress={turnOn} /> : null}
+      {state !== null && !ios ? <SmsLinkRow port={port} noticeOn={on && !tokenBad} accessNeeded={state.access === 'needed'} /> : null}
       {ios ? (
         <>
           <Hint>{PHONE_NOTICE_IPHONE}</Hint>
