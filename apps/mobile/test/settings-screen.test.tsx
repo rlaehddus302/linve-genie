@@ -24,8 +24,9 @@ function setup() {
 describe('SettingsScreen', () => {
   it('질문형 제목과 맨 아래 큰 버튼이 있다', async () => {
     const { backed } = setup()
-    expect(await screen.findByRole('heading', { name: '무엇을 바꿀까요?' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '방송 목록으로' }))
+    // 옛 기대: 제목 "무엇을 바꿀까요?" + 아래 "방송 목록으로" 단추. 새 기대(D-UX2-05): 머리 "설정" + 뒤로 (더보기 탭에서 연다)
+    expect(await screen.findByRole('heading', { name: '설정' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '뒤로' }))
     expect(backed()).toBe(1)
   })
 
@@ -50,7 +51,7 @@ describe('SettingsScreen', () => {
 
   it('개발용 견본 줄은 열 방법을 받았을 때만 보인다', async () => {
     setup()
-    await screen.findByRole('heading', { name: '무엇을 바꿀까요?' })
+    await screen.findByRole('heading', { name: '설정' })
     expect(screen.queryByText('디자인 견본 (개발용)')).toBeNull()
   })
 
@@ -60,7 +61,7 @@ describe('SettingsScreen', () => {
     world.server.on('GET', /^\/api\/settings\/labels$/, () => ({ body: { enabled: true, history: [], waiting: 0, rev: 1 } }))
     world.server.on('GET', /^\/api\/settings$/, () => ({ body: { settings: {} } }))
     const off = render(world.wrap(<SessionProvider services={world.services}><SettingsScreen onBack={() => undefined} showPhoneNotice={false} /></SessionProvider>))
-    await screen.findByRole('heading', { name: '무엇을 바꿀까요?' })
+    await screen.findByRole('heading', { name: '설정' })
     expect(screen.queryByText(PHONE_NOTICE_TITLE)).toBeNull()
     off.unmount()
     setup()

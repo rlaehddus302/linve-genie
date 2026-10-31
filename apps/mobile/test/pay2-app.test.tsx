@@ -6,6 +6,7 @@ import { webUrl } from '../src/api/config.ts'
 import { openExternal, openWeb, setWebOpener, WEB_SCREENS } from '../src/lib/open-web.ts'
 import { HomeScreen } from '../src/screens/HomeScreen.tsx'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
+import { MoreScreen } from '../src/screens/MoreScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 const nav = () => ({ openConsole: vi.fn(), openPacking: vi.fn(), openLabels: vi.fn(), openSettings: vi.fn() })
@@ -50,7 +51,8 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
     fireEvent.click(screen.getByRole('button', { name: '이 방송 시작하기' }))
     await screen.findByText(APP_NO_PASS_MESSAGE)
-    fireEvent.click(screen.getByRole('button', { name: '새 방송 시작' }))
+    // 옛 기대: "새 방송 시작"을 다시 눌러 칸을 닫음. 새 기대(D-UX2-02): 시작은 시트 — "닫기"로 닫는다
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
     expect(screen.queryByRole('button', { name: '이 방송 시작하기' })).toBeNull()
     expect(screen.getByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expectNoBillingWords()
@@ -73,7 +75,8 @@ describe('앱이 여는 라이브지니 주소에 from=app (AC-PAY2-03)', () => 
     setWebOpener(async (url) => {
       opened.push(url)
     })
-    render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
+    // 웹으로 여는 화면 목록은 더보기 탭으로 옮겼다 (D-UX2-02)
+    render(world.wrap(<MoreScreen nav={{ openLabels: vi.fn(), openSettings: vi.fn() }} />))
     await screen.findByRole('button', { name: '정산 — 웹으로 열기' })
     for (const item of WEB_SCREENS) fireEvent.click(screen.getByRole('button', { name: `${item.word} — 웹으로 열기` }))
     expect(opened).toEqual(['/settlements', '/buyers', '/parcels', '/receipts', '/settings', '/sms'].map((path) => `http://test.local${path}?from=app`))

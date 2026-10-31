@@ -4,7 +4,7 @@ import { Pressable, View } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOAST_MS, TOUCH, type Tone } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
 
-const TONE_MARK: Readonly<Record<Tone, string>> = { neutral: '•', info: 'i', success: '✓', warning: '!', danger: '✕' }
+const TONE_MARK: Readonly<Record<Tone, string>> = { neutral: '•', info: '•', success: '✓', warning: '!', danger: '✕' }
 
 /** 상태 꼬리표: 색 + 기호 + 글자. 색만으로 뜻을 전하지 않는다. */
 export function StatusChip({ tone, label, testID }: { readonly tone: Tone; readonly label: string; readonly testID?: string }) {

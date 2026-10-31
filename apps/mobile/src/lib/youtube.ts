@@ -24,7 +24,7 @@ export const NO_CHANNEL_NAME = '(이름 없음)'
 export const CHANNEL_NAME_MAX = 40
 export const INVITED_CONFIRM_CODE = 'INVITED_CONFIRM_NEEDED'
 /** 앱에서의 대비 경로 안내 — 휴대폰만 쓰는 판매자: 문자찜·음성·댓글 붙여넣기(웹) (D-YT-SRV-09, NFR-09) */
-export const MOBILE_FALLBACK_HINT = '아래 문자찜 칸이나 음성으로 넣을 수 있어요.'
+export const MOBILE_FALLBACK_HINT = '"직접 넣기"의 문자찜 칸이나 음성으로 넣을 수 있어요.'
 export const OFFICIAL_LINK_HINT = '유튜브 방송 잇기는 웹에서 해 주세요.'
 
 export function channelName(title: unknown): string {

@@ -15,6 +15,7 @@ import { testHelp } from '../lib/test-help.ts'
 import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, EXPERIMENTAL_MARK, EXPERIMENTAL_PAUSED, EXPERIMENTAL_RESUMED, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, PRINT_ACTION, RETRY_NOW, TEST_CONFIRMED_PAST, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import type { Tone } from '../ui/theme.ts'
+import { AppHeader, useKit } from '../ui/kit/index.ts'
 import { BigButton, Body, Card, Field, Hint, Notice, Row, Screen, SectionTitle, Tag } from '../ui/parts.tsx'
 
 const STATE_TONE: Readonly<Record<keyof typeof CONNECTION_STATE_WORD, Tone>> = { DISCONNECTED: 'danger', CONNECTING: 'info', CONNECTED: 'success', PRINTING: 'info' }
@@ -39,6 +40,7 @@ const densityLevels = (range: { readonly min: number; readonly max: number }): n
 
 export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
   const { labels } = useServices()
+  const { p } = useKit()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
   const [name, setName] = useState('내 휴대폰')
   const [taken, setTaken] = useState<string | null>(null)
@@ -101,8 +103,9 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
     })
 
   return (
-    <Screen title="라벨" testID="labels-screen">
-      <BigButton small label="← 목록" ariaLabel="방송 목록으로" onPress={onBack} />
+    <View style={{ flex: 1, backgroundColor: p.background }}>
+    <AppHeader title="라벨·프린터" onBack={onBack} />
+    <Screen testID="labels-screen">
       {snapshot.loadError !== null ? (
         <Row wrap>
           <Notice tone="danger" alert>
@@ -111,7 +114,7 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
           <BigButton small label={RETRY_NOW} onPress={() => void labels.reload()} />
         </Row>
       ) : null}
-      {queue !== null && !queue.labelsEnabled ? <Notice tone="info">라벨 쓰지 않음 — 설정에서 켤 수 있어요.</Notice> : null}
+      {queue !== null && !queue.labelsEnabled ? <Notice tone="info">라벨을 쓰지 않게 해 두었어요. 설정에서 켤 수 있어요.</Notice> : null}
 
       <Card label="프린터">
         <SectionTitle>프린터</SectionTitle>
@@ -239,5 +242,6 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
         </Notice>
       ) : null}
     </Screen>
+    </View>
   )
 }

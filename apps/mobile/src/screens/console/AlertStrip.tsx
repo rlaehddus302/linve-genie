@@ -1,10 +1,10 @@
-// 알림 띠 (AC-S05-30, D-088·D-I1-08): 충돌 · 취소 요청 · 승계 결정 필요 · 출력 멈춤 · 버릴 라벨 · 보류 찜 · 확인 필요. 0인 항목은 숨기고 모두 0이면 "알림 없음".
+// 알림 (AC-S05-30, D-088·D-I1-08, D-UX2-03): 충돌 · 취소 요청 · 승계 결정 필요 · 출력 멈춤 · 버릴 라벨 · 보류 찜 · 확인 필요. 방송 중 화면은 상품 줄에 없는 것만 한 줄로 보이고 모두 0이면 숨긴다.
 // 출력 기기 없음(라벨이 쌓이는데 찍는 기기가 없음)은 띠 아래 짧은 줄 — "라벨이 안 나가요 · 프린터를 연결해 주세요"(D-QL3R1-04).
 import { View } from 'react-native'
 import type { QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import type { AlertCounts } from '../../lib/derive.ts'
-import { ALERTS_NONE, ALERT_WORD, NO_STATION_SHORT, PRINT_ALERT_WORD } from '../../lib/words.ts'
-import { Body, Notice, Row, Tag } from '../../ui/parts.tsx'
+import { ALERT_WORD, NO_STATION_SHORT, PRINT_ALERT_WORD } from '../../lib/words.ts'
+import { Notice } from '../../ui/parts.tsx'
 
 export interface AlertItem {
   readonly key: string
@@ -34,22 +34,20 @@ export function noStation(queue: QueueSummary | null, rehearsal: boolean, ended:
   return queue.device === null || !queue.device.live || !queue.device.printerConnected
 }
 
+/**
+ * 리스트 위 경고 한 줄 (D-UX2-03): 상품 줄에 이미 보이는 충돌·승계는 빼고, 나머지(취소 요청·출력 멈춤·버릴 라벨·보류 찜·확인 필요)만 한 줄로.
+ * 모두 없으면 아무것도 그리지 않는다. 라벨이 안 나가면 그 아래 한 줄.
+ */
 export function AlertStrip({ counts, queue, rehearsal, ended }: { readonly counts: AlertCounts; readonly queue: QueueSummary | null; readonly rehearsal: boolean; readonly ended: boolean }) {
-  const items = alertItems(counts, queue, rehearsal)
+  const items = alertItems(counts, queue, rehearsal).filter((item) => item.key !== 'conflict' && item.key !== 'succession')
+  const station = noStation(queue, rehearsal, ended)
+  if (items.length === 0 && !station) return null
   return (
     <View aria-label="알림" role="region" style={{ gap: 6 }}>
-      {items.length === 0 ? (
-        <Body muted>{ALERTS_NONE}</Body>
-      ) : (
-        <Row wrap>
-          {items.map((item) => (
-            <Tag key={item.key} tone={item.tone}>
-              {item.text}
-            </Tag>
-          ))}
-        </Row>
-      )}
-      {noStation(queue, rehearsal, ended) ? (
+      {items.length > 0 ? (
+        <Notice tone={items.some((item) => item.tone === 'danger') ? 'danger' : 'warning'}>{`확인할 것: ${items.map((item) => item.text).join(' · ')}`}</Notice>
+      ) : null}
+      {station ? (
         <Notice tone="danger" alert>
           {NO_STATION_SHORT}
         </Notice>

@@ -64,6 +64,7 @@ export function packItems(items: readonly Pick<PackingItem, 'key' | 'qty'>[]): {
 }
 
 export const NO_SALES = '아직 판매 기록이 없어요.'
-export const ALL_CHECKED_HINT = '모두 담으면 포장 완료를 누를 수 있어요.'
+/** 단추 이름 "포장 끝"과 맞춘다 (D-UX2-04) */
+export const ALL_CHECKED_HINT = '모두 담으면 "포장 끝"을 누를 수 있어요.'
 export const PACKED_NOTICE = '포장 완료로 적었어요.'
 export const SEALED_VIEW_ONLY = '30일이 지나 봉인한 날짜예요. 볼 수만 있어요.'
