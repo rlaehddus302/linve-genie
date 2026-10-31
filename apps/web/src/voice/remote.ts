@@ -137,7 +137,9 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
     const args = fromWire(message.args)
     if (!Array.isArray(args)) return null
     const end = message.spokenEndAt
-    const stale = message.automatic !== false && ((typeof end !== 'number' || !Number.isFinite(end) || host.now() - end > 10_000 || end > host.now()) || transportState === 'HALTED' || transportState === 'RESTARTING' || stopping || (controlOnly && !streamListen))
+    // 문자찜은 말이 끝난 뒤 그 기기의 기다림(voice.smsAutoSec)만큼 일부러 기다렸다 넣는다 — 그 기다림은 늦게 들린 것이 아니다 (D-V1-18)
+    const smsWait = message.method === 'writeSms' ? Math.max(0, Number(snapshot.smsSettings?.['voice.smsAutoSec'] ?? 0) || 0) * 1000 : 0
+    const stale = message.automatic !== false && ((typeof end !== 'number' || !Number.isFinite(end) || host.now() - end > 10_000 + smsWait || end > host.now()) || transportState === 'HALTED' || transportState === 'RESTARTING' || stopping || (controlOnly && !streamListen))
     if (stale && ['fixRecent', 'writeSms'].includes(String(message.method))) return { kind: 'failed', message: '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.' }
     if (stale && ['renumber', 'undoRecent'].includes(String(message.method))) return false
     let value: unknown = null
