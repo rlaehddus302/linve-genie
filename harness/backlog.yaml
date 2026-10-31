@@ -1285,7 +1285,7 @@ sprints:
       순서 core → device → server → web. 수용 기준: harness/sprints/SMS3/acceptance.md(AC-SMS3-01~34). 실물(실제 은행 알림 문구·패키지·번호, 안드로이드 알림 읽기, 아이폰 단축어)은 HG-SMS3.
     specIds: [ORD-13, PAY-02, ORD-08, PAY-01, DAT-06]
     humanGate: HG-SMS3
-    status: todo
+    status: done
 
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
