@@ -24,7 +24,8 @@ interface Done {
   readonly undo?: () => Promise<Done>
 }
 
-export function SettingsScreen({ onBack, policyUrl, onOpenDesign }: { readonly onBack: () => void; readonly policyUrl?: string; readonly onOpenDesign?: () => void }) {
+/** showPhoneNotice: 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)면 false — 칸을 숨긴다 */
+export function SettingsScreen({ onBack, policyUrl, onOpenDesign, showPhoneNotice = true }: { readonly onBack: () => void; readonly policyUrl?: string; readonly onOpenDesign?: () => void; readonly showPhoneNotice?: boolean }) {
   const { voice } = useServices()
   const { session, logout } = useSession()
   const view = useSyncExternalStore(voice.subscribe, voice.getView)
@@ -115,7 +116,7 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign }: { readonly o
           </Card>
         </Section>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
-        <PhoneNoticeCard />
+        {showPhoneNotice ? <PhoneNoticeCard /> : null}
         <Section title="그 밖 설정" description="가게·감사 메시지·플랫폼 연결 같은 설정은 웹에서 해요.">
           <Card label="그 밖">
             <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />

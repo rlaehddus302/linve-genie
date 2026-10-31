@@ -2,6 +2,7 @@
 import { Redirect, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { webUrl } from '../src/api/config.ts'
+import { phoneNoticeBuilt } from '../src/lib/build-flags.ts'
 import { KitInsets } from '../src/ui/kit/safe-area.tsx'
 import { SettingsScreen } from '../src/screens/SettingsScreen.tsx'
 import { useSession } from '../src/services.tsx'
@@ -14,7 +15,7 @@ export default function SettingsRoute() {
   return (
     <SafeAreaView style={{ flex: 1 }} edges={['top']}>
       <KitInsets>
-        <SettingsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))} policyUrl={webUrl('/privacy')} onOpenDesign={__DEV__ ? () => router.push('/dev/design') : undefined} />
+        <SettingsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))} policyUrl={webUrl('/privacy')} onOpenDesign={__DEV__ ? () => router.push('/dev/design') : undefined} showPhoneNotice={phoneNoticeBuilt()} />
       </KitInsets>
     </SafeAreaView>
   )

@@ -78,6 +78,26 @@ eas update --channel production                      # JS만 고쳤을 때 (심�
 
 프로필별 서버 주소는 `eas.json`의 `env.EXPO_PUBLIC_SERVER_URL`에 있어요. `.example` 주소는 예시이므로 실제 서버 주소와 공개 Origin으로 바꾼 뒤 빌드해요.
 
+## 출시 빌드 (안드로이드, 맥에서 직접)
+
+EAS 없이 Play 업로드용 AAB와 직접 설치용 APK를 만들어요. 필요한 것: `ANDROID_HOME`(안드로이드 SDK), Java 21.
+
+1. **업로드 열쇠**는 저장소 밖 `~/.livejjim-release/`에 있어요(`upload.jks`, `upload.properties`, 둘 다 권한 600). 다른 곳에 두면 `LIVEJJIM_UPLOAD_PROPERTIES=<속성 파일 경로>`로 알려 줘요. 속성 파일에는 `storeFile`·`storePassword`·`keyAlias`·`keyPassword`가 있어요. 이 파일이 없으면 release 빌드가 멈춰요(개발 열쇠로 서명되지 않게). **잃으면 Play 업로드 열쇠를 재설정해야 하니 백업해요.**
+2. 네이티브 폴더 만들기: `npx expo prebuild -p android --clean` (`android/`는 커밋하지 않아요). 권한 정리와 업로드 서명은 `plugins/with-android-release.js`가 넣어요 — `android/`를 손으로 고치지 말고 이 플러그인을 고쳐요. prebuild가 `package.json`의 `android`·`ios` 스크립트를 바꾸면 되돌려요.
+3. 서버 주소를 넣고 빌드 (주소는 JS 번들에 들어가요):
+
+```sh
+cd android
+EXPO_PUBLIC_SERVER_URL=https://<운영 서버> NODE_ENV=production ./gradlew bundleRelease     # Play용 → app/build/outputs/bundle/release/app-release.aab
+EXPO_PUBLIC_SERVER_URL=https://<연습 서버> NODE_ENV=production ./gradlew assembleRelease   # 폰 설치용 → app/build/outputs/apk/release/app-release.apk
+```
+
+- **알림 받기 스위치** `LIVEGENIE_NOTICE`: `on`일 때만 휴대폰 알림 받기(문자찜·입금 알림 읽기)가 들어가요. 비우면 `off` — 1차 Play 출시 기본(SMS 정책 거절 위험). off면 알림 읽기 서비스·재부팅 수신기·`RECEIVE_BOOT_COMPLETED`가 빠지고 설정 화면의 알림 받기 칸이 숨어요. **prebuild와 gradle 둘 다 같은 값**으로 돌려요(개발 때 쓰려면 `LIVEGENIE_NOTICE=on npx expo start`).
+- 아이콘·스플래시는 임시 그림이에요: `node apps/mobile/scripts/make-icons.mjs [Play 그림 폴더]`로 다시 만들어요(Play 512 아이콘·1024×500 그래픽은 폴더를 줄 때만).
+- 서버의 `LIVEJJIM_APP_ORIGIN`이 서버 주소의 origin과 다르면 `EXPO_PUBLIC_APP_ORIGIN`도 같이 넣어요.
+- 버전은 `app.json`의 `version`(versionName)·`android.versionCode`. Play에 새로 올릴 때마다 versionCode를 1씩 올려요.
+- 확인: `apksigner verify --print-certs <apk>`, `aapt2 dump badging <apk>`(targetSdk·권한).
+
 ## 검사
 
 ```sh
