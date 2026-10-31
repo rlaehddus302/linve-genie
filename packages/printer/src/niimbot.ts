@@ -1,11 +1,11 @@
-// NIIMBOT 어댑터 — 지금은 B1 프로필 하나 (LABEL_RULES L-7, LBL-06·12, D-P1-08, TECH_REVIEW §1).
+// NIIMBOT 어댑터 — 켠 프로필 B1(확인됨) + B1 SE·B21·D110(실험) (LABEL_RULES L-7, LBL-06·12, D-P1-08·D-PRN2-04·05, TECH_REVIEW §1).
+// 연결한 뒤 niimbluelib 모델 정보가 켠 프로필의 모델과 같을 때만 그 프로필로 쓰고, 아니면(B1 Pro·B21 Pro·변형·모름) 끊고 WRONG_MODEL.
 // @mmote/niimbluelib(정확한 버전 고정)로 연결·출력한다. 클라이언트는 주입할 수 있어 시험은 가짜 클라이언트로 돈다.
 // import만으로는 navigator를 건드리지 않는다 — 기능 감지는 함수를 부를 때 한다.
-import { ImageEncoder, LabelType, NiimbotBluetoothClient, NiimbotSerialClient, PageColorType, modelsLibrary, type EncodedImage } from '@mmote/niimbluelib'
+import { ImageEncoder, LabelType, NiimbotBluetoothClient, NiimbotSerialClient, PageColorType, type EncodedImage } from '@mmote/niimbluelib'
 import { getPixel, isLabelBitmap, type LabelBitmap } from '@livejjim/label'
 import {
   DEFAULT_PRINT_TIMEOUT_MS,
-  ENABLED_PROFILES,
   RememberBox,
   StateBox,
   systemTimer,
@@ -18,7 +18,8 @@ import {
   type RememberedPrinter,
   type RememberingPrinterAdapter,
 } from './adapter.ts'
-import { OK, fail, isTimeoutCause, modelDetail, retriedTimeoutDetail, type PrinterErrorCode, type PrinterResult } from './errors.ts'
+import { OK, densityMessage, fail, isTimeoutCause, modelDetail, printerErrorWithMessage, retriedTimeoutDetail, type PrinterErrorCode, type PrinterResult } from './errors.ts'
+import { ENABLED_PROFILES, NIIMBOT_SERVICE_UUID, PRINTER_PROFILES, labelProfilesOf, profileForDeviceName } from './profiles.ts'
 
 /** niimbluelib 인쇄 작업에서 이 어댑터가 쓰는 부분 */
 export interface NiimbotPrintTaskLike {
@@ -111,7 +112,7 @@ export function defaultNiimbotClient(method: ConnectionMethod): NiimbotClientLik
 }
 
 export interface NiimbotAdapterOptions {
-  /** 켤 프로필 (기본: B1 하나) */
+  /** 켤 프로필 (기본: ENABLED_PROFILES — B1·B1 SE·B21·D110) */
   readonly profiles?: readonly PrinterProfile[]
   /** 기능 감지 환경 (기본: 부를 때의 navigator) */
   readonly environment?: () => PrinterEnvironment
@@ -128,16 +129,33 @@ export interface NiimbotAdapterOptions {
 export const NIIMBOT_RECONNECT_DELAY_MS = 1_000
 
 /** niimbluelib 블루투스 클라이언트가 쓰는 서비스 (BleDefaultConfiguration.SERVICES와 같다 — 0.47.1은 내보내지 않는다) */
-export const NIIMBOT_BLE_SERVICES: readonly string[] = Object.freeze(['e7810a71-73ae-499d-8c15-faa9aef0c3f2'])
+export const NIIMBOT_BLE_SERVICES: readonly string[] = Object.freeze([NIIMBOT_SERVICE_UUID])
+
+/** Web Bluetooth requestDevice 인자 (이 패키지가 쓰는 칸) */
+export interface NiimbotRequestOptions {
+  filters: ({ namePrefix: string } | { services: string[] })[]
+  exclusionFilters?: { namePrefix: string }[]
+  optionalServices?: string[]
+}
 
 /**
- * 고르기 창 거르기 — niimbluelib NiimbotBluetoothClient.connect()가 쓰는 것과 같다(모델 이름 첫 글자들 + 서비스).
- * 어댑터가 고르기 창을 직접 띄우고 고른 기기를 클라이언트에 넘긴다 — 첫 확인이 시간 초과면 그 기기로 다시 잇는다(창을 다시 띄우지 않는다)
+ * NIIMBOT 어댑터가 혼자 고르기 창을 띄울 때의 거르기 (L-7 고르기 목록 — 한 목록 밖): NIIMBOT 서비스 + 켠 NIIMBOT 모델 이름 꼴(`B1-`·`B1_`…),
+ * L-12 앞자리는 exclusionFilters로 뺀다(모르는 브라우저는 무시 — 그래도 고르면 연결하지 않고 WRONG_MODEL). 이름 첫 글자 거르기(niimbluelib 기본)는
+ * 쓰지 않는다(D-PRN2-04). 어댑터가 고르기 창을 직접 띄우고 고른 기기를 클라이언트에 넘긴다 — 첫 확인이 시간 초과면 그 기기로 다시 잇는다
  */
-export function niimbotRequestOptions(): { filters: ({ namePrefix: string } | { services: string[] })[] } {
-  const letters = [...new Set(modelsLibrary.map((m) => m.model[0]).filter((l): l is string => typeof l === 'string' && l !== ''))]
-  return { filters: [...letters.map((namePrefix) => ({ namePrefix })), { services: [...NIIMBOT_BLE_SERVICES] }] }
+export function niimbotRequestOptions(profiles: readonly PrinterProfile[] = ENABLED_PROFILES): NiimbotRequestOptions {
+  // 모델 이름 + `-`·`_` (pickListTarget 2와 같은 꼴 — profiles.ts niimbotNamePrefixes)
+  const shapes = [...new Set(profiles.flatMap((p) => [`${p.model}-`, `${p.model}_`]))]
+  const labels = labelProfilesOf(PRINTER_PROFILES)
+  return {
+    filters: [{ services: [...NIIMBOT_BLE_SERVICES] }, ...shapes.map((namePrefix) => ({ namePrefix }))],
+    exclusionFilters: labels.map((p) => ({ namePrefix: p.namePrefix as string })),
+  }
 }
+
+/** 기기 이름이 L-12 프로필(Marklife·바우아토) 이름인지 — NIIMBOT 어댑터는 그 기기에 연결하지 않는다(WRONG_MODEL) */
+const isLabelPrinterName = (device: unknown): boolean =>
+  typeof device === 'object' && device !== null && profileForDeviceName((device as { name?: unknown }).name, labelProfilesOf(PRINTER_PROFILES)) !== undefined
 
 /** 1비트 그림 → niimbluelib 인쇄 그림 (흰색 0xffffff, 검정 0x000000) */
 export function encodeForNiimbot(image: LabelBitmap, direction: 'top' | 'left'): EncodedImage {
@@ -153,7 +171,8 @@ export function encodeForNiimbot(image: LabelBitmap, direction: 'top' | 'left'):
   )
 }
 
-function connectErrorCode(error: unknown, method: ConnectionMethod): PrinterErrorCode {
+/** 연결 중 예외 → 오류 코드 (L-7 — 한 목록 어댑터도 같은 판단을 쓴다) */
+export function connectErrorCode(error: unknown, method: ConnectionMethod): PrinterErrorCode {
   const name = typeof error === 'object' && error !== null && 'name' in error ? String(error.name) : ''
   const message = error instanceof Error ? error.message : String(error)
   if (/adapter (is )?not available|bluetooth.*(off|disabled|unavailable)/i.test(message)) return 'BLUETOOTH_OFF'
@@ -292,8 +311,10 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Remem
     try {
       if (target === undefined && method === 'bluetooth') {
         const requestDevice = env.bluetooth?.requestDevice as (options: ReturnType<typeof niimbotRequestOptions>) => Promise<unknown>
-        device = await requestDevice.call(env.bluetooth, niimbotRequestOptions())
+        device = await requestDevice.call(env.bluetooth, niimbotRequestOptions(profiles))
         if (stale()) return fail('DISCONNECTED')
+        // exclusionFilters를 모르는 브라우저에서 L-12 이름의 기기를 골랐다 — 연결하지 않는다 (L-7 고르기 목록)
+        if (isLabelPrinterName(device)) return giveUp('WRONG_MODEL')
       } else if (target === undefined) {
         // USB 고르기 창도 어댑터가 띄운다 — 고른 포트를 기억하려고 (niimbluelib도 거르기 없이 requestPort()를 부른다)
         const requestPort = env.serial?.requestPort as () => Promise<unknown>
@@ -400,9 +421,13 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Remem
       const current = client
       if (box.state !== 'CONNECTED' || !current) return fail('NOT_CONNECTED')
       const density = printOptions.density ?? profile.density.default
-      if (!Number.isInteger(density) || density < profile.density.min || density > profile.density.max) return fail('INVALID_DENSITY')
+      if (!Number.isInteger(density) || density < profile.density.min || density > profile.density.max) {
+        return { ok: false, error: printerErrorWithMessage('INVALID_DENSITY', densityMessage(profile.density)) }
+      }
       if (!isLabelBitmap(image)) return fail('PRINT_FAILED', '그림 형식(L-1)이 아니다')
-      if (image.width > profile.headDots) return fail('IMAGE_TOO_WIDE')
+      // 보낼 그림의 폭(돌린 뒤 — left는 받은 그림의 높이)이 헤드보다 넓으면 보내지 않는다 (L-7)
+      const sendWidth = profile.printDirection === 'left' ? image.height + profile.extraBlankRows : image.width
+      if (sendWidth > profile.headDots) return fail('IMAGE_TOO_WIDE')
       // 마지막 줄 미출력 대응: 아래에 흰 줄을 더해 보낸다 (받은 그림은 바꾸지 않는다)
       const encoded = encodeForNiimbot(withBlankRows(image, profile.extraBlankRows), profile.printDirection)
       box.set('PRINTING')
@@ -456,7 +481,7 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Remem
   return adapter
 }
 
-/** B1 어댑터 (켠 프로필 = B1 하나) */
+/** NIIMBOT 어댑터 (켠 프로필 = ENABLED_PROFILES — B1·B1 SE·B21·D110). 이름은 예전 그대로 둔다(웹·시험이 쓴다) */
 export function createB1Adapter(options: Omit<NiimbotAdapterOptions, 'profiles'> = {}): RememberingPrinterAdapter {
   return createNiimbotAdapter({ ...options, profiles: ENABLED_PROFILES })
 }

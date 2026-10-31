@@ -1,4 +1,4 @@
-import { canChooseVoiceEngine, readVoiceEngine, writeVoiceEngine, REMOTE_CONSENT, REMOTE_NOTICE, type VoiceControllerPort } from '../voice/remote.ts'
+import { REMOTE_CONSENT, REMOTE_NOTICE, type VoiceControllerPort } from '../voice/remote.ts'
 // 콘솔 음성 칸 (VOC-01·04·05, D-I4-03~05·09, AC-I4-10~31·50·51).
 // - "음성 켜기"(꺼져 있을 때 콘솔 머리 줄) → 처음이면 안내 창 → 켜진 동안 상태·외부 전송 안내 한 줄·자막·"음성 끄기".
 // - 카드: 카드 글(describeCard)·원래 문장·"확인 필요"·"Enter 등록"·남은 초, 버튼 "등록"·"고치기"·"닫기"(·"자동 등록 멈추기") — 접근 이름에 카드 글을 담는다.
@@ -8,6 +8,7 @@ import { canChooseVoiceEngine, readVoiceEngine, writeVoiceEngine, REMOTE_CONSENT
 // 고르기 카드는 후보마다 버튼, 넣은 뒤엔 손 입력 문자찜과 같은 결과 문장·"찜 취소하기". 카드 글(이름 포함)은 글자로만 그린다(AC-V1-30).
 // 버튼 자리는 모든 문자찜 카드에서 같다: "넣지 않기"(이유 카드는 "닫기")가 첫 버튼, 넣는 버튼은 뒤이고 주 버튼 색(D-V1-20). PC 폭에선 Esc가 닫을 카드에 "Esc" 표시.
 // 이유 카드 제목은 "문자찜 · 넣지 않았어요", 번호 방식 카드는 번호 뒤에 품종, "확인 필요"로 넣은 결과 카드엔 정산 안내 한 줄(D-V1-21).
+// SRV1 (D-APP-22·25): 받아쓰기는 모든 기기가 서버 받아쓰기 하나다 — "받아쓰기 방법" 칸·크롬 안내 문장·홈 화면 앱 안내(크롬·사파리 길)가 없다.
 import type { SmsBuyerCandidate, SuggestionCard } from '@livejjim/voice'
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { isActive } from '../lib/buyers.ts'
@@ -25,12 +26,9 @@ import {
   QUIET_LABEL,
   FLUSHED_CARD_NOTE,
   HISTORY_FAILED,
-  SENT_NOTICE,
-  SENT_NOTICE_SHORT,
   SMS_NEW_BUYER,
   SMS_REASON_TITLE,
   SMS_UNKNOWN_BUYER_NOTE,
-  STANDALONE_NOTICE,
   TOO_SOON,
   candidateClaims,
   errorLines,
@@ -46,35 +44,17 @@ import {
   type SmsEntry,
   type SmsResultLine,
   type VoiceSnapshot,
-} from '../voice/controller.ts'
-import { isHomeScreenApp } from '../voice/standalone.ts'
+} from '../voice/model.ts'
 import { openClaimAction } from './actions.ts'
 import { useConsoleApi } from './console-context.ts'
 import { Modal } from './Modal.tsx'
 import { smsLast4Suffix, smsResultWords, useSentToReview, useSmsClaim } from './SmsPage.tsx'
-import { SERVICE_NAME } from '../brand.ts'
-import { INSTANT_CONSENT_LINE, INSTANT_HELP, INSTANT_LABEL, MAYBE_OTHER_FIX, MAYBE_OTHER_RENUMBER, MISSED_PRICE_LABEL } from '../voice/instant.ts'
+import { INSTANT_HELP, INSTANT_LABEL, MAYBE_OTHER_FIX, MAYBE_OTHER_RENUMBER, MISSED_PRICE_LABEL } from '../voice/instant.ts'
 import { ARCHIVE_CLEAR, ARCHIVE_CLEARED, ARCHIVE_DOWNLOAD_ALL, ARCHIVE_DOWNLOAD_ONE, ARCHIVE_LABEL, VOICE_ARCHIVE_NOTICE, clearArchive, downloadJson } from '../voice/archive-store.ts'
 import { getVoiceSession } from '../voice/session.ts'
 
-/** 안내 창 마지막 줄 (MOB1 D-MOB1-07, AC-MOB1-11) */
-export const CONSENT_OTHER_DEVICE = '방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.'
-/** 안내 창 문장 (D-I4-04, AC-I4-11 — 외부 전송 문장은 D-I5-06, 마이크 줄은 D-I5-11로 바꿈) */
+/** 안내 창 제목 (D-I4-04, AC-I4-11). 줄은 서버 받아쓰기 안내(REMOTE_CONSENT) 하나 — 크롬·사파리 받아쓰기 안내 줄은 SRV1에서 없앴다(D-APP-22) */
 export const CONSENT_TITLE = '음성으로 상품 등록'
-/** 바로 등록을 끈 기기의 첫 줄 (I4 그대로, D-V3-36) */
-export const CONSENT_FIRST_CARD = '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.'
-/** 바로 등록을 켠 기기의 첫 줄 (D-V3-36) */
-export const CONSENT_FIRST_INSTANT = '번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.'
-/** 바로 등록을 켠 기기의 안내 창 (D-V3-36: 첫 줄 · 바로 등록 줄 · 나머지 그대로) */
-export const CONSENT_LINES: readonly string[] = [
-  CONSENT_FIRST_INSTANT,
-  INSTANT_CONSENT_LINE,
-  `음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. ${SERVICE_NAME}는 음성을 녹음하거나 저장하지 않아요.`,
-  // D-I5-11: 크롬·사파리 모두에 맞게 "브라우저가"
-  '다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.',
-  // MOB1 D-MOB1-07: 방송 앱과 마이크가 겹치지 않게
-  CONSENT_OTHER_DEVICE,
-]
 /** 문자찜 설정 안내 (VOC-04 문자찜 카드) */
 /** 후보 단추 키 안내 (U-V2-05, PC 폭) */
 export const CANDIDATE_KEYS_HINT = '입력칸 밖에서 1·2·3 키로도 골라요'
@@ -89,11 +69,9 @@ export function cardShortText(described: string): string {
 
 /** 콘솔 머리 줄의 "음성 켜기" (켜져 있으면 음성 칸의 "음성 끄기", 안내 창이 열린 동안은 창의 "음성 켜기") */
 export function VoiceToggle({ voice, snapshot, ready }: { readonly voice: VoiceControllerPort; readonly snapshot: VoiceSnapshot; readonly ready: boolean }) {
-  const [engine, setEngine] = useState(readVoiceEngine)
   if (snapshot.phase === 'on' || snapshot.phase === 'consent') return null
   return (
     <div className="row">
-    {canChooseVoiceEngine() ? <label>받아쓰기 방법 <select className="input" aria-label="받아쓰기 방법" value={engine} disabled={snapshot.phase === 'loading'} onChange={(event) => { const next = event.target.value === 'chrome' ? 'chrome' : 'livegenie'; writeVoiceEngine(next); setEngine(next) }}><option value="livegenie">{SERVICE_NAME} 받아쓰기</option><option value="chrome">크롬 받아쓰기</option></select></label> : null}
     <button type="button" className="button" disabled={!ready || snapshot.phase === 'loading'} onClick={() => void voice.turnOn()}>
       음성 켜기
     </button>
@@ -102,13 +80,8 @@ export function VoiceToggle({ voice, snapshot, ready }: { readonly voice: VoiceC
 }
 
 /** 처음 켤 때의 안내 창 (외부 전송 고지·권한 안내). 처음 포커스는 "닫기" */
-/** 안내 창 줄: 바로 등록을 끈 기기(또는 V3가 아닌 화면)는 I4 첫 줄이고 바로 등록 줄이 없다 (D-V3-36) */
-export function consentLines(instant: boolean): readonly string[] {
-  return instant ? CONSENT_LINES : [CONSENT_FIRST_CARD, ...CONSENT_LINES.slice(2)]
-}
-
 export function VoiceConsentDialog({ voice }: { readonly voice: VoiceControllerPort }) {
-  const lines = readVoiceEngine() === 'chrome' ? consentLines(voice.getSnapshot().instant && voice.instantScreen()) : REMOTE_CONSENT
+  const lines: readonly string[] = REMOTE_CONSENT
   return (
     <Modal
       title={CONSENT_TITLE}
@@ -218,7 +191,7 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           </span>
           {smsListening(snapshot) ? <span className="voice-sms-on">{voice.smsWords()?.listening}</span> : null}
           {/* 휴대폰 폭은 짧은 문장 (D-I5-16) — 늘 보인다 */}
-          <span className="voice-sent">{readVoiceEngine() === 'chrome' ? (wide ? SENT_NOTICE : SENT_NOTICE_SHORT) : REMOTE_NOTICE}</span>
+          <span className="voice-sent">{REMOTE_NOTICE}</span>
           <button type="button" className="button" onClick={() => voice.turnOff()}>
             음성 끄기
           </button>
@@ -329,8 +302,6 @@ export function VoiceLive({ voice, snapshot, badge, onSubmitForm, onRegister }: 
           })}
         </ul>
       ) : null}
-      {/* 홈 화면 앱: 켜진 동안·오류로 멈춘 뒤 한 줄 (D-I5-05 — 막지 않는다). 좁은 화면에서 카드를 밀어내지 않게 카드 아래에 둔다 (U-I5-02) */}
-      {(on || snapshot.error !== null) && readVoiceEngine() === 'chrome' && isHomeScreenApp() ? <p className="voice-info">{STANDALONE_NOTICE}</p> : null}
     </section>
   )
 }

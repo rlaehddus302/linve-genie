@@ -1,6 +1,9 @@
 // INV1 적대 테스트 (test-domain): 남의 채널 방송 잇기 확인 우회 (AC-INV1-11, YT-02, D-PHN-17·D-INV1-02).
 // 확인 표시는 정확히 JSON true만이다. 다른 모양·다른 칸·섞인 영상 주소·요청 번호 재사용·다른 판매자 세션으로는
 // 남의 채널 방송이 확인 없이 이어지지 않는다. 통과한 공격은 회귀로 남긴다.
+// CH-26 이전(YT-SRV): 채팅 읽기 결과(찜 판정)를 단언하는 TD-INV1-007·008은 운영 길인 서버 웹 읽기(world({ chat: 'web' }) — 가짜 유튜브 웹 + bridgeFakeWeb)로 옮겼다.
+// 웹 잇기 회차는 공식 채팅 ID(youtube_links.live_chat_id)가 비어 있으므로 채팅은 가짜 구글 방송의 liveChatId로 넣는다(다리가 같은 ID로 웹에 비춘다).
+// 잇기 확인 우회(TD-INV1-001~006)는 옛 잇기 길 그대로다(읽기가 아니라 잇기 공격 — 웹 잇기의 "처음 잇는 채널" 확인은 이 파일 범위 밖).
 import { listClaims } from "@livejjim/core";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -10,6 +13,7 @@ import {
   api,
   collectors,
   connect,
+  pass,
   query,
   rid,
   until,
@@ -34,13 +38,15 @@ interface Setup {
   readonly videoB: string;
   readonly liveChatB: string;
   readonly videoA: string;
+  readonly liveChatA: string;
 }
 
 /** 사장님(채널 A 연결) + 유튜버 채널 B의 진행 중 방송 + 사장님 자기 방송 + 오늘 회차 */
 async function setup(
   settings: Record<string, unknown> = NO_LABEL,
+  chat: "official" | "web" = "official",
 ): Promise<Setup> {
-  w = await world();
+  w = await world({ chat });
   const a = await connect(w);
   const client = api(w.server, a.seller.cookie);
   const patched = await client.patch("/api/settings", { settings });
@@ -67,6 +73,7 @@ async function setup(
     videoB: liveB.videoId,
     liveChatB: liveB.liveChatId as string,
     videoA: liveA.videoId,
+    liveChatA: liveA.liveChatId as string,
   };
 }
 
@@ -389,12 +396,15 @@ describe("AC-INV1-11 다른 판매자 세션", () => {
 });
 
 describe("AC-INV1-11 판정은 채널 종류에 따라 달라지지 않는다", () => {
-  /** 같은 채팅 열을 공식 수집기로 받는다. host는 방송 채널(초대 방송이면 B, 내 방송이면 A) */
+  /** 같은 채팅 열을 서버 웹 읽기 수집기로 받는다. host는 방송 채널(초대 방송이면 B, 내 방송이면 A) */
   async function claimsOf(
     invited: boolean,
     ignoreOwner: boolean,
   ): Promise<unknown[]> {
-    const s = await setup({ ...NO_LABEL, "claim.ignoreOwner": ignoreOwner });
+    const s = await setup(
+      { ...NO_LABEL, "claim.ignoreOwner": ignoreOwner },
+      "web",
+    );
     const client = api(s.w.server, s.a.seller.cookie);
     const linked = await client.post(`/api/broadcasts/${s.b.id}/youtube`, {
       requestId: rid("l"),
@@ -404,13 +414,8 @@ describe("AC-INV1-11 판정은 채널 종류에 따라 달라지지 않는다", 
     expect(linked.status, linked.text).toBe(200);
     const link = linked.body.link as { liveChatId?: string; invited: boolean };
     expect(link.invited).toBe(invited);
-    const liveChatId =
-      (
-        await query<{ live_chat_id: string }>(
-          s.w,
-          "select live_chat_id from youtube_links",
-        )
-      )[0]?.live_chat_id ?? "";
+    expect(linked.body.collector).toMatchObject({ mode: "WEB" });
+    const liveChatId = invited ? s.liveChatB : s.liveChatA;
     for (const [no, name, price] of [
       [15, "핑크프릴", 10000],
       [16, "라울", 25000],
@@ -441,13 +446,14 @@ describe("AC-INV1-11 판정은 채널 종류에 따라 달라지지 않는다", 
     ];
     collectors(s.w).start();
     let at = s.w.timer.now();
+    const sent: string[] = [];
     for (const [author, name, text] of script)
-      s.w.fake.addMessage(liveChatId, {
+      sent.push(s.w.fake.addMessage(liveChatId, {
         author,
         name,
         text,
         publishedAt: (at += 1000),
-      });
+      }));
     await until(
       s.w,
       async () =>
@@ -459,6 +465,15 @@ describe("AC-INV1-11 판정은 채널 종류에 따라 달라지지 않는다", 
         )[0]?.n === script.length,
       { step: 200 },
     );
+    // 다 받은 뒤에도 더 기록되지 않는다 (중복 0) — 메시지 ID가 넣은 순서 그대로 한 번씩
+    await pass(s.w, 20_000);
+    const ids = (
+      await query<{ id: string }>(
+        s.w,
+        `select body::jsonb->>'id' as id from events where type = 'chat' order by seq`,
+      )
+    ).map((row) => row.id);
+    expect(ids).toEqual(sent);
     const state = (await s.w.server.writer.read(s.a.seller.sellerId, s.b.date))
       .state;
     const who = (buyer: string) => (buyer === host ? "HOST" : buyer);

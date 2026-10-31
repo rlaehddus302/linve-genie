@@ -261,7 +261,8 @@ describe('AC-FB1-16 택배 크기 코드와 옛 값 옮기기 (D-FB1-05)', () =>
     // 0024 V3 seller_names·0025 V3 voice_log·0026 V3 seller_names 지움)도 되돌린다 — 다시 열면 0019부터 차례로 다시 적용된다
     // (CRM1에서 "마지막 기록 하나 지우기"를 "0019(저널 when) 이후 기록 지우기"로 교체 — 약화 아님, 0019를 다시 적용하는 같은 시험.
     //  V3 합치기: V3 0020~0022를 0024~0026으로 다시 매김 — 0026이 seller_names를 지운 뒤라 if exists.
-    //  INV1: 0029 youtube_links 방송 채널 칸 둘도 되돌린다. SMS3: 0030 받기 표 여섯·휴대폰 알림 원천 인덱스·입금 표시 칸도 되돌린다)
+    //  INV1: 0029 youtube_links 방송 채널 칸 둘도 되돌린다 PAY2 0035 — 결제 주문의 자동 재확인 칸 수.
+    //  SMS3: 0036·0037 받기 표 여섯·휴대폰 알림 원천 인덱스·입금 표시 칸도 되돌린다 — int/next 합치기에서 0030·0031을 0036·0037로 다시 매김)
     await pg.exec(`
       update parcel_settings set box = '중' where seller_id = '${seller.sellerId}';
       update parcels set box = '대' where seller_id = '${seller.sellerId}';
@@ -282,6 +283,7 @@ describe('AC-FB1-16 택배 크기 코드와 옛 값 옮기기 (D-FB1-05)', () =>
       drop table inbox_settings; drop table inbox_seen; drop table inbox_sms_seen; drop table inbox_cards; drop table bank_alerts; drop table bank_balances;
       drop index deposit_sources_phone_uq;
       alter table deposits drop column phone_flag;
+      alter table billing_orders drop column recheck_done;
       delete from drizzle.__drizzle_migrations where created_at >= ${String(MIGRATION_0019_WHEN)};`)
     const reopened = await openPglite(pg)
     expect((await pg.query<{ box: string }>('select box from parcel_settings')).rows).toEqual([{ box: '100' }])

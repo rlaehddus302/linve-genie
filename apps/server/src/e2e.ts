@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { createSellerAccount } from './accounts.ts'
-import { testBilling } from './billing/fake.ts'
+import { TEST_FINAL_PRICE_TABLE, testBilling } from './billing/fake.ts'
 import { isValidDate } from '@livejjim/core'
 import { FolderBackupStorage } from './backup.ts'
 import { openPglite, type Database } from './db/database.ts'
@@ -46,6 +46,8 @@ import { findAccountByLogin } from './store.ts'
 import { kstDate, systemClock, type Clock } from './time.ts'
 import type { Draft } from './writer.ts'
 import { FakeGoogle } from './youtube/fake-google.ts'
+import { bridgeFakeWeb, type FakeWebBridge } from './youtube/fake-web-bridge.ts'
+import { FakeYoutubeWeb } from './youtube/fake-youtube-web.ts'
 import type { OutboxTiming } from './youtube/outbox.ts'
 import { FakeOAuth } from './social/fake-oauth.ts'
 import { FakeLlm } from './assist/fake-llm.ts'
@@ -154,6 +156,8 @@ export interface E2eOptions {
   readonly testPrinter?: boolean
   /** 요금 기능 (N5) — 켜면 시험 결제(가짜 결제 서버·가짜 발행기)·기본 요금 표. 기본 false (AC-N5-11) */
   readonly billing?: boolean
+  /** 요금 표 (PAY2 AC-PAY2-12·15): placeholder = BL-1 기본 표(자리 표시 — 기본), final = 시험용 확정 요금 표(TEST_FINAL_PRICE_TABLE — 공개 요금 안내가 ready) */
+  readonly billingPrices?: 'placeholder' | 'final'
   /** 백업 폴더 (없으면 임시 폴더를 만들고 끌 때 지운다) */
   readonly backupDir?: string
   /** 시작할 때 시험 판매자의 자동 백업을 하나 만든다 (기본 true) */
@@ -165,9 +169,12 @@ export interface E2eOptions {
   /**
    * 가짜 구글·유튜브 서버와 함께 띄운다 (AC-Y1-81, D-Y13). 127.0.0.1의 그 포트(0이면 빈 포트)에서 열고 서버가 그 주소를 쓴다.
    * 돌아오는 주소는 화면 주소를 거친다(<화면>/api/youtube/oauth/callback — 화면이 /api를 서버로 넘긴다), 연결 뒤 화면 주소는 <화면>/settings/youtube.
-   * 워커(수집기·발송함·봉인)를 함께 돌린다
+   * 워커(수집기·발송함·봉인)를 함께 돌린다.
+   * 채팅 읽기(chat)는 기본 'web' — 운영(main.ts)처럼 서버가 유튜브 웹으로 읽는다(YT-11): 가짜 유튜브 웹 서버를 함께 띄우고 가짜 구글의 방송·채팅을 다리(fake-web-bridge)로 비춘다.
+   * 웹 조작은 가짜 구글 서버의 /_fake/web/* (같은 포트). 'official'이면 옛 공식 API 읽기(STREAM·POLL — 웹 서버 없음). 감사 게시·확인은 둘 다 가짜 구글 공식 API.
+   * pollingIntervalMillis는 웹 채팅 응답 간격(timeoutMs)에도 쓴다(수집기는 1~10초로 자른다)
    */
-  readonly youtube?: { readonly port?: number; readonly returnUrl?: string; readonly pollingIntervalMillis?: number; readonly quotaBudget?: number }
+  readonly youtube?: { readonly port?: number; readonly returnUrl?: string; readonly pollingIntervalMillis?: number; readonly quotaBudget?: number; readonly chat?: 'web' | 'official' }
   /** 발송함 시간 줄이기 (확인하지 못한 감사가 30초 안에 — AC-I3-93) */
   readonly outboxFast?: boolean
   /** 화면 빌드 폴더 — 서버가 같은 출처로 함께 낸다 (AC-I3-70) */
@@ -580,6 +587,10 @@ export interface E2eServer {
   readonly backupDir: string
   /** 가짜 구글·유튜브 서버 (youtube를 주었을 때만) */
   readonly fakeGoogle: FakeGoogle | null
+  /** 가짜 유튜브 웹 서버 (youtube를 주고 chat이 'web'일 때만 — 가짜 구글과 다리로 이어짐) */
+  readonly fakeWeb: FakeYoutubeWeb | null
+  /** 가짜 구글 → 가짜 유튜브 웹 다리 (fakeWeb이 있을 때만) */
+  readonly fakeWebBridge: FakeWebBridge | null
   /** Node HTTP 서버 (열기는 listen으로) */
   readonly http: Server
   /** 함께 띄운 가짜 메타 서버 (instagram: true일 때만) */
@@ -614,6 +625,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
           pollingIntervalMillis: options.youtube.pollingIntervalMillis ?? 1000,
         })
   const budget = options.youtube?.quotaBudget
+  const fakeWeb = fakeGoogle === null || options.youtube?.chat === 'official' ? null : await FakeYoutubeWeb.start()
+  if (fakeWeb !== null) fakeWeb.timeoutMs = options.youtube?.pollingIntervalMillis ?? 1000
+  const fakeWebBridge = fakeGoogle === null || fakeWeb === null ? null : bridgeFakeWeb(fakeGoogle, fakeWeb)
   const fakeWebcast = options.tiktok === true ? new FakeWebcast() : null
   const fakeBand = options.band === undefined ? null : await FakeBand.start(options.band.port === undefined ? {} : { port: options.band.port })
   const fakeCarrier = options.parcel === false ? null : await FakeCarrier.start(options.parcelPort === undefined ? {} : { port: options.parcelPort })
@@ -663,6 +677,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
             endpoints: fakeGoogle.endpoints(),
             allowInsecure: true,
             ...(budget === undefined ? {} : { quota: { limit: budget, sellerBudget: budget } }),
+            ...(fakeWeb === null ? {} : { webChat: { on: true, baseUrl: fakeWeb.url } }),
           },
           collectorTiming: { scanMs: 1000 },
           // 확인 조회 한 쪽 = 가짜 서버의 쪽 크기 (꽉 찬 쪽인지 바르게 안다)
@@ -683,7 +698,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     ...(options.generatorSpeed === undefined ? {} : { generatorSpeed: options.generatorSpeed }),
     ...(options.passwordCost === undefined ? {} : { passwordCost: options.passwordCost }),
     testPrinter: options.testPrinter ?? true,
-    ...(options.billing === true ? { billing: testBilling() } : {}),
+    ...(options.billing === true ? { billing: testBilling(options.billingPrices === 'final' ? { prices: TEST_FINAL_PRICE_TABLE } : {}) } : {}),
     ...(fakeWebcast === null ? {} : { tiktok: { settings: readTikTokSettings({ LIVEJJIM_TIKTOK_BETA: 'on' }), webcast: fakeWebcast.factory } }),
     ...(fakeBand === null
       ? {}
@@ -711,6 +726,8 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   else if (fakeCarrier !== null) server.parcels.start()
   // 밴드 보관 기간 지우기·이어받기 (유튜브를 켜지 않은 기동도)
   if (fakeBand !== null && fakeGoogle === null) void server.band.resume()
+  // 결제 대기 자동 재확인 (PAY2 BL-6 9 — 요금 기능을 켠 기동만. 유튜브를 켠 기동은 server.start()가 이미 돌린다)
+  if (fakeGoogle === null) server.billingRechecker.start()
   const app = e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier, fakeBand, voiceHistory)
   registerVoiceRelay(app, server.voice)
   const http = createNodeServer({ app })
@@ -722,6 +739,8 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     fill,
     backupDir,
     fakeGoogle,
+    fakeWeb,
+    fakeWebBridge,
     http,
     fakeMeta,
     fakeWebcast,
@@ -748,7 +767,9 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
       for (const state of voiceHistory.values()) { state.fail = true; releaseVoiceHistory(state) }
       server.close()
       await server.stop()
+      fakeWebBridge?.close()
       await fakeGoogle?.close()
+      await fakeWeb?.close()
       http.closeAllConnections()
       await new Promise<void>((resolve) => {
         if (!http.listening) resolve()

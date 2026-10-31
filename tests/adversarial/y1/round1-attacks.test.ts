@@ -1,6 +1,11 @@
 // Y1 적대 테스트 (test-domain) 라운드 1: 수정(직전 확인·동의·다시 연결 권한·다른 서버의 조작)이 만든 새 구멍.
+// CH-26 이전(YT-SRV): 감사 게시를 단언하는 시험(TD-Y1-014·015·016)은 옛 공식 읽기 world 그대로다(웹 잇기 회차는 공식 채팅 ID가 비어 감사가 올라가지 않음, D-YT-SRV-13 대기).
+// 채팅 읽기를 공격하는 '수집기 — 다른 서버에서 유튜브 연결을 끊음'(TD-Y1-006)은 운영 길인 world({ chat: 'web' })로 옮겼다.
+// 이 시험만은 스펙이 뜻을 바꿨다: D-Y02 "구글 연결을 끊으면 수집기를 멈춘다"가 읽기에서 빠지고 D-YT-SRV-10·SPEC YT-11 AC9
+// "구글 연결 상태(없음·끊김·다시 연결 필요·다른 채널)는 수집을 멈추지 않는다"가 되었다. 그래서 다른 서버(B)에서 구글 연결을 끊어도
+// 끊은 뒤 채팅이 한 번(중복 없이) 기록되고 수집기가 LIVE로 남는지를 본다. 회차 연결 끊기(unlink)의 "끊은 뒤 기록 0"은 collector-attacks에 그대로 있다.
 import { afterEach, describe, expect, it } from 'vitest'
-import { NO_LABEL, api, approve, callback, chat, collectors, connect, drive, linked, outbox, ok, product, query, rows, until, world, writeEvent, type World } from './helpers.ts'
+import { NO_LABEL, api, approve, callback, chat, collectors, connect, drive, linked, outbox, ok, pass, product, query, rows, until, world, writeEvent, type World } from './helpers.ts'
 
 let w: World | null = null
 afterEach(async () => {
@@ -90,11 +95,11 @@ describe('발송함 — 200자로 나뉜 묶음의 직전 확인 (AC-Y1-41·42, 
   }, 60_000)
 })
 
-describe('수집기 — 다른 서버에서 유튜브 연결을 끊음 (AC-Y1-06·28)', () => {
-  it('TD-Y1-006: 수집기가 A에서 도는데 B에서 유튜브 연결을 끊으면, 끊은 뒤 채팅은 기록되지 않는다', async () => {
-    w = await world()
+describe('수집기 — 다른 서버에서 유튜브 연결을 끊음 (AC-Y1-06·28 → D-YT-SRV-10, 웹 읽기)', () => {
+  it('TD-Y1-006: 수집기가 A에서 도는데 B에서 구글 연결을 끊어도, 끊은 뒤 채팅은 그 회차에 한 번 기록되고 수집은 멈추지 않는다 (D-YT-SRV-10)', async () => {
+    w = await world({ chat: 'web' })
     const c = await connect(w, { publish: false })
-    const { liveChatId } = await linked(w, c, { settings: NO_LABEL })
+    const { b, liveChatId } = await linked(w, c, { settings: NO_LABEL })
     collectors(w).start()
     const fake = w.fake
     const first = fake.addMessage(liveChatId, { author: 'UC_v1', name: '시청자1', text: '안녕하세요' })
@@ -103,13 +108,13 @@ describe('수집기 — 다른 서버에서 유튜브 연결을 끊음 (AC-Y1-06
     const other = w.sibling('B')
     const off = await api(other, c.seller.cookie).post('/api/youtube/connection/disconnect', {})
     expect(off.status, off.text).toBe(200)
+    expect(((await api(w.server, c.seller.cookie).get('/api/youtube/connection')).body.connection as { status?: string } | null)?.status).not.toBe('CONNECTED')
     await w.timer.advance(1000)
     const after = fake.addMessage(liveChatId, { author: 'UC_v2', name: '시청자2', text: '15' })
-    for (let i = 0; i < 20; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 10))
-      await w.timer.advance(500)
-    }
-    expect(await recordedIds(w)).not.toContain(after)
+    await until(w, async () => (await recordedIds(ww)).includes(after), { step: 200 })
+    await pass(w, 20_000)
+    expect(await recordedIds(w)).toEqual([first, after])
+    const status = await api(w.server, c.seller.cookie).get(`/api/broadcasts/${b.id}/youtube`)
+    expect(status.body.collector).toMatchObject({ mode: 'WEB', status: 'LIVE' })
   }, 60_000)
 })
-

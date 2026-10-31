@@ -18,6 +18,10 @@
 //   | chromium-social-one | 5182  | 3110  | —           | --social fake --social-port 4105 --social-providers google(구글 하나만 켬, L1 AC-L1-30)     | 제목에 @social-one |
 //   | webkit-iphone       | 5183  | 3111  | —           | 기본과 같음 — 브라우저만 WebKit·devices['iPhone 15'](393px 폭·터치), I5 AC-I5-20~24·90     | 제목에 @webkit     |
 //   | chromium-assist     | 5184  | 3112  | —           | --assist fake --assist-port 4106 --assist-daily 3 --assist-timeout-ms 2000(가짜 AI·작은 상한, A1) | 제목에 @assist |
+//   | chromium-ytweb      | 5185  | 3113  | 4109        | 가짜 유튜브 + --youtube-chat web(운영처럼 서버가 유튜브 웹으로 채팅 읽기, YT-11 — CH-26)         | 제목에 @ytweb  |
+// - 채팅 읽기 길(CH-26): 운영은 늘 서버 웹 읽기(YT-11)다. @ytweb 묶음이 그 길로 수집 흐름을 본다(가짜 구글 방송·채팅을 가짜 유튜브 웹에 비춤, 오류는 /_fake/web/fail).
+//   @youtube·@quota·@multi 묶음은 --youtube-chat official(옛 공식 읽기)로 둔다 — 웹 잇기 회차는 공식 채팅 ID가 비어 감사 게시를 단언하는 시험이 돌 수 없다
+//   (D-YT-SRV-13, dev/yt-thanks-official이 합쳐지면 web으로 바꾼다).
 // - 아이폰 크기 묶음(I5): Playwright WebKit은 http://localhost에서 Secure 쿠키를 보내지 않는다 — 그 묶음의 화면 미리 보기 서버만 /api 응답 Set-Cookie의
 //   Secure를 떼어 넘긴다(serve.ts --drop-secure-cookie yes, 서버는 그대로). Playwright WebKit은 실제 아이폰 사파리가 아니다(음성 인식 자체는 HG-4). 사파리 흉내 가짜 인식은 시험(tests/e2e/i5)이 넣는다.
 // - AI 제안 묶음(A1 AC-A1-11·31): 가짜 LLM 서버가 127.0.0.1:<assist 포트>에 함께 뜬다(조작 GET /_fake/requests·POST /_fake/answers·/_fake/fail·/_fake/reset —
@@ -105,7 +109,7 @@ export const E2E_ASSIST_DAILY = 3
 const assistArgs = (port: number) => `--assist fake --assist-port ${String(port)} --assist-daily ${String(E2E_ASSIST_DAILY)} --assist-timeout-ms 2000`
 /** 가짜 밴드 서버 (BND1 AC-BND1-80 — 읽기 간격 1초·3초, 조작 경로 /_e2e/band/*는 E2E 서버에만) */
 const bandArgs = (port: number) => `--band fake --band-port ${String(port)}`
-const youtubeArgs = (port: number) => `--youtube fake --youtube-port ${String(port)} --outbox-fast yes`
+const youtubeArgs = (port: number, chat: 'web' | 'official' = 'official') => `--youtube fake --youtube-port ${String(port)} --outbox-fast yes --youtube-chat ${chat}`
 
 export const STACKS: readonly Stack[] = [
   {
@@ -113,7 +117,7 @@ export const STACKS: readonly Stack[] = [
     web: 5173 + offset,
     api: 3100 + offset,
     serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`,
-    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing|@multi|@social|@webkit|@assist/,
+    grepInvert: /@prod-delay|@fill|@youtube|@quota|@served|@no-test-printer|@billing|@multi|@social|@webkit|@assist|@ytweb/,
   },
   { name: 'chromium-prod-delay', web: 5174 + offset, api: 3101 + offset, serverArgs: `--chat-speed ${chatSpeed}`, grep: /@prod-delay/ },
   { name: 'chromium-fill', web: 5175 + offset, api: 3102 + offset, serverArgs: `--fill yes --host-delay-ms ${hostDelay} --chat-speed ${chatSpeed}`, grep: /@fill/ },
@@ -181,6 +185,14 @@ export const STACKS: readonly Stack[] = [
     assist: 4106 + offset,
     serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${assistArgs(4106 + offset)}`,
     grep: /@assist/,
+  },
+  {
+    name: 'chromium-ytweb',
+    web: 5185 + offset,
+    api: 3113 + offset,
+    youtube: 4109 + offset,
+    serverArgs: `--host-delay-ms ${hostDelay} --chat-speed ${chatSpeed} ${youtubeArgs(4109 + offset, 'web')}`,
+    grep: /@ytweb/,
   },
 ]
 

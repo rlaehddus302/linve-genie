@@ -1,4 +1,5 @@
-// 작업 바이트 (AC-N1-20~23, LABEL_RULES L-12 2, D-N1-02·09) — 순수 함수·결정성·창 1KiB zlib·돌림·남는 비트·거절.
+// 작업 바이트 (AC-N1-20~23·AC-PRN2-02, LABEL_RULES L-12 2, D-N1-02·09·D-PRN2-02) — 순수 함수·결정성·창 1KiB zlib·돌림·남는 비트·거절.
+// PRN2: 바우아토는 Luck Jingle 방식이다(N1의 L11 모양 추정을 바꿈 — D-PRN2-02). 래스터 모양은 L11과 같고 앞뒤 명령이 다르다.
 import { inflateSync } from 'node:zlib'
 import { bytesPerRow, createBitmap, defaultTemplate, getPixel, renderProductLabel, type LabelBitmap } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
@@ -13,6 +14,7 @@ import {
   MARKLIFE_X2,
   PRINTER_PROFILES,
   buildPrintJob,
+  isNiimbotProtocol,
   rotateClockwise,
   zlibWindow1K,
   type ModelProfile,
@@ -22,7 +24,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const PROFILES: readonly ModelProfile[] = PRINTER_PROFILES.filter((p) => p.protocol !== 'NIIMBOT_B1')
+const PROFILES: readonly ModelProfile[] = PRINTER_PROFILES.filter((p) => !isNiimbotProtocol(p.protocol))
+
+/** 래스터(1D 76 30 00 …) 앞뒤 명령 — L11과 Luck Jingle(D-PRN2-02) */
+const RAW_FRAME = {
+  MARKLIFE_L11: { head: [...new Array<number>(15).fill(0), 0x10, 0xff, 0xf1, 0x02], tail: [0x1d, 0x0c, 0x10, 0xff, 0xf1, 0x45] },
+  LUCKJINGLE: { head: [0x10, 0xff, 0xf1, 0x03, ...new Array<number>(12).fill(0), 0x1f, 0x11, 0x51], tail: [0x1d, 0x0c, 0x1f, 0x11, 0x50, 0x10, 0xff, 0xf1, 0x45] },
+} as const
 
 /** 결정적 의사 난수 그림 */
 function randomImage(width: number, height: number, seed: number, density = 0.5): LabelBitmap {
@@ -58,14 +66,15 @@ function yxqRaster(bytes: Uint8Array, profile: ModelProfile): { widthBytes: numb
   return { widthBytes, height, length, packed: bytes.subarray(at + 10, at + 10 + length), end: at + 10 + length }
 }
 
-function l11Raster(bytes: Uint8Array): LabelBitmap {
-  const at = 19
-  expect(Array.from(bytes.subarray(0, 19))).toEqual([...new Array<number>(15).fill(0), 0x10, 0xff, 0xf1, 0x02])
+function l11Raster(bytes: Uint8Array, protocol: keyof typeof RAW_FRAME = 'MARKLIFE_L11'): LabelBitmap {
+  const frame = RAW_FRAME[protocol]
+  const at = frame.head.length
+  expect(Array.from(bytes.subarray(0, at))).toEqual(frame.head)
   expect(Array.from(bytes.subarray(at, at + 4))).toEqual([0x1d, 0x76, 0x30, 0x00])
   const widthBytes = (bytes[at + 4] as number) | ((bytes[at + 5] as number) << 8)
   const height = (bytes[at + 6] as number) | ((bytes[at + 7] as number) << 8)
   const data = bytes.slice(at + 8, at + 8 + widthBytes * height)
-  expect(Array.from(bytes.subarray(at + 8 + widthBytes * height))).toEqual([0x1d, 0x0c, 0x10, 0xff, 0xf1, 0x45])
+  expect(Array.from(bytes.subarray(at + 8 + widthBytes * height))).toEqual(frame.tail)
   return { width: widthBytes * 8, height, data }
 }
 
@@ -210,7 +219,7 @@ describe('L11 — 돌림·줄 그대로·농도 없음 (AC-N1-22)', () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 384 }), fc.integer({ min: 1, max: 120 }), fc.integer({ min: 1, max: 100000 }), (W, H, seed) => {
         const image = randomImage(W, H, seed, 0.7)
-        const sent = l11Raster(ok(BAUATO_PPA2L, image))
+        const sent = l11Raster(ok(BAUATO_PPA2L, image), 'LUCKJINGLE')
         expect(sent.width).toBe(bytesPerRow(W) * 8)
         expect(Buffer.from(sent.data).equals(Buffer.from(cleaned(image)))).toBe(true)
       }),
@@ -218,16 +227,19 @@ describe('L11 — 돌림·줄 그대로·농도 없음 (AC-N1-22)', () => {
     )
   })
 
-  it('L11 작업에는 농도 명령(1F 70·10 FF 10)이 없다 — 농도를 넘겨도 바이트가 같다', () => {
+  it('L11·Luck Jingle 작업에는 농도 명령(1F 70·10 FF 10)이 없다 — 농도를 넘겨도 바이트가 같다 (D-PRN2-02)', () => {
     const image = randomImage(320, 96, 4)
-    for (const profile of [MARKLIFE_P12, BAUATO_PPA2L]) {
+    for (const [profile, protocol] of [
+      [MARKLIFE_P12, 'MARKLIFE_L11'],
+      [BAUATO_PPA2L, 'LUCKJINGLE'],
+    ] as const) {
       const target = profile === BAUATO_PPA2L ? randomImage(384, 50, 4) : image
       const base = ok(profile, target)
       for (const density of [1, 2, 3, 0, 9, 2.5, -1, Number.NaN]) expect(Buffer.from(ok(profile, target, density)).equals(Buffer.from(base)), String(density)).toBe(true)
-      // 래스터 앞뒤 명령에 농도 명령이 없다
-      const head = Array.from(base.subarray(0, 19))
-      expect(head).toEqual([...new Array<number>(15).fill(0), 0x10, 0xff, 0xf1, 0x02])
-      expect(Array.from(base.subarray(base.length - 6))).toEqual([0x1d, 0x0c, 0x10, 0xff, 0xf1, 0x45])
+      // 래스터 앞뒤 명령에 농도 명령이 없다 (앞뒤가 정해진 바이트 그대로)
+      const frame = RAW_FRAME[protocol]
+      expect(Array.from(base.subarray(0, frame.head.length))).toEqual(frame.head)
+      expect(Array.from(base.subarray(base.length - frame.tail.length))).toEqual(frame.tail)
     }
   })
 })

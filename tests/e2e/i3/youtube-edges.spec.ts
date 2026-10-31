@@ -69,6 +69,7 @@ test('@youtube AC-I3-32: 확정이 풀린 판매의 감사 다시 보내기 → 
 })
 
 
+// 같은 뜻 WEB 시험: tests/e2e/ytweb/collect.spec.ts 'AC-I3-24·YT-11 AC9: 잇기 전에 올라온 채팅은 받지 않고 …'
 test('@youtube AC-I3-24: 잇기 전에 올라온 채팅은 받지 않고 "잇기 전에 올라온 채팅 n개는 받지 않았어요."', async ({ page }) => {
   await loginNewSeller(page)
   const channel = await connectYoutube(page)
@@ -123,6 +124,7 @@ test('@youtube AC-I3-90: 375×812 — 긴 채널 이름·방송 제목·시청�
   expect(await width()).toBeLessThanOrEqual(375)
 })
 
+// 같은 뜻 WEB 시험: tests/e2e/ytweb/collect.spec.ts 'AC-I3-98·24·YT-11 AC3: get_live_chat이 503으로 끊긴 동안 …'
 test('@youtube AC-I3-98·24: 가짜 서버 스트림이 끊긴 동안 쓴 시청자 채팅이 이어받기로 빠짐·중복 없이 채팅 패널에, 받은 수도 맞다', async ({ page }) => {
   await loginNewSeller(page)
   const channel = await connectYoutube(page)

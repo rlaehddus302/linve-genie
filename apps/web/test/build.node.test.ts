@@ -36,7 +36,8 @@ beforeAll(async () => {
     NO_COLOR: '1',
   }
   try {
-    const { stdout } = await promisify(execFile)(process.execPath, [viteBin(), 'build', '--outDir', outDir, '--emptyOutDir'], { cwd: WEB_ROOT, env })
+    // 소스맵을 함께 낸다: 빌드에 든 모듈 목록(sources)으로 읽기 모듈이 없는지 본다 (AC-SRV1-13). 앱 껍데기(/sw.js)는 .map을 담지 않는다
+    const { stdout } = await promisify(execFile)(process.execPath, [viteBin(), 'build', '--outDir', outDir, '--emptyOutDir', '--sourcemap'], { cwd: WEB_ROOT, env })
     build = { ok: true, stdout }
     files = readdirSync(outDir, { recursive: true, encoding: 'utf8' }).sort()
   } catch (error) {
@@ -159,7 +160,8 @@ describe('vite build', () => {
     // 빌드의 해시가 붙은 파일이 모두 들어 있고(누를 때만 받는 음성 조각은 빼고 — AC-I4-10, D-I4-09), 적힌 파일은 모두 있다
     const lazy = new Set(lazyScripts())
     expect(lazy.size).toBeGreaterThan(0)
-    for (const file of builtFiles().filter((f) => f.startsWith('assets/'))) {
+    // 소스맵(.map)은 이 시험이 모듈 목록을 보려고 함께 낸 것(AC-SRV1-13) — 운영 빌드에는 없고 앱 껍데기에도 담지 않는다
+    for (const file of builtFiles().filter((f) => f.startsWith('assets/') && !f.endsWith('.map'))) {
       if (lazy.has(file)) expect(files, file).not.toContain(`/${file}`)
       else expect(files).toContain(`/${file}`)
     }
@@ -184,7 +186,10 @@ describe('vite build', () => {
     const lazy = lazyScripts()
     const voice = lazy.filter((file) => read(file).includes(marker))
     expect(voice).toHaveLength(1)
-    expect(read(voice[0] as string)).toContain('ko-KR')
+    // 옛 기대: 음성 조각에 크롬 받아쓰기 인식 언어 'ko-KR'. SRV1(D-APP-22)부터 크롬 받아쓰기가 없어 음성 조각은 서버 받아쓰기 연결이다 —
+    // 서버 받아쓰기 연결 실패 문장이 들어 있고 인식 언어 글자는 없다
+    expect(read(voice[0] as string)).toContain('받아쓰기 서버에 연결하지 못했어요')
+    expect(read(voice[0] as string)).not.toContain('ko-KR')
     // 첫 화면 html은 그 조각을 미리 받지 않는다 (modulepreload 없음)
     expect(read('index.html')).not.toContain(voice[0] as string)
   })
@@ -211,6 +216,27 @@ describe('vite build', () => {
     expect(read('index.html')).not.toContain(file)
     const shell = JSON.parse(/\(self, (\{.*\})\);/.exec(read('sw.js'))?.[1] ?? 'null') as { files: string[] }
     expect(shell.files).not.toContain(`/${file}`)
+  })
+
+  it('AC-SRV1-13 (D-APP-22·23): 빌드에 든 모듈에 코어 파서·크롬 받아쓰기·음성 읽기·VoiceController·서버 읽기가 없고, 결과에 webkitSpeechRecognition 글자가 없다', () => {
+    const maps = builtFiles().filter((file) => file.endsWith('.js.map'))
+    expect(maps.length).toBeGreaterThan(0)
+    const modules = new Set<string>()
+    for (const file of maps) for (const source of (JSON.parse(read(file)) as { sources?: string[] }).sources ?? []) modules.add(source.replaceAll('\\', '/'))
+    // 빈 목록으로 통과하지 않게: 화면·음성 연결 모듈은 있다
+    expect([...modules].some((source) => source.endsWith('src/components/ConsolePage.tsx'))).toBe(true)
+    expect([...modules].some((source) => source.endsWith('src/voice/transport.ts'))).toBe(true)
+    const forbidden = [
+      /packages\/core\/src\/parse\//,
+      /packages\/voice\/src\/web-speech\.ts$/,
+      // 음성 패키지는 기기 일(마이크 소리 연결·소리 틀·오류 문장)만 — 읽기 모듈(추출·사전·카드·문자찜…)은 들어가지 않는다
+      /packages\/voice\/src\/(?!livegenie\.ts$|speech\.ts$|pcm16\.ts$)/,
+      /packages\/voice-session\/src\/(read\/|controller\/|server\.ts$)/,
+      /src\/voice\/controller\.ts$/,
+    ]
+    const bad = [...modules].filter((source) => forbidden.some((pattern) => pattern.test(source)))
+    expect(bad).toEqual([])
+    for (const file of builtFiles().filter((f) => f.endsWith('.js'))) expect(read(file), file).not.toContain('webkitSpeechRecognition')
   })
 
   it('운영용 빌드다 (React 개발 모드 코드가 들어가지 않는다)', () => {

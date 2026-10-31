@@ -2,7 +2,7 @@
 import './legacy-voice-ui-fixture.ts'
 import * as voiceModule from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { VoiceHost } from '../src/voice/controller.ts'
+import type { VoiceHost } from '../../../packages/voice-session/src/controller/controller.ts'
 import { VOICE_ON_KEY, acquireVoiceSession, endVoiceSession, getVoiceSession, logoutVoice, readVoiceOn } from '../src/voice/session.ts'
 
 class FakeRecognition {

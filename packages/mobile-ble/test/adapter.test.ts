@@ -98,8 +98,9 @@ describe('연결 마법사 (L-7)', () => {
     if (!result.ok) expect(result.error.code).toBe('UNSUPPORTED')
   })
 
-  it('B1이 아닌 프린터(D110 = 2304)는 WRONG_MODEL이고 기억하지 않는다', async () => {
-    const { fake, adapter } = setup({ printer: { modelId: 2304 } })
+  it('켠 프로필이 아닌 프린터(B1 Pro = 4097)는 WRONG_MODEL이고 기억하지 않는다', async () => {
+    // PRN2 D-PRN2-05: D110(2304)은 켠 실험 프로필이 되었다 — 켠 프로필이 아닌 300dpi B1 Pro로 본다
+    const { fake, adapter } = setup({ printer: { modelId: 4097 } })
     const result = await adapter.connect('bluetooth')
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.code).toBe('WRONG_MODEL')
@@ -107,11 +108,11 @@ describe('연결 마법사 (L-7)', () => {
     expect(fake.connected).toBe(false)
   })
 
-  it('matchesNiimbotName: 이름 앞자리(대소문자 무시), 이름 없는 장치는 거짓', () => {
-    expect(matchesNiimbotName('B1-G123', ['B', 'D'])).toBe(true)
-    expect(matchesNiimbotName('b21-x', ['B'])).toBe(true)
-    expect(matchesNiimbotName('P50_X', ['B', 'D'])).toBe(false)
-    expect(matchesNiimbotName(null, ['B'])).toBe(false)
+  it('matchesNiimbotName: 이름 앞자리 글자 그대로(PRN2 D-PRN2-04 — 대소문자를 가린다), 이름 없는 장치는 거짓', () => {
+    expect(matchesNiimbotName('B1-G123', ['B1-', 'D110-'])).toBe(true)
+    expect(matchesNiimbotName('b21-x', ['B21-'])).toBe(false)
+    expect(matchesNiimbotName('P50_X', ['B1-', 'D110-'])).toBe(false)
+    expect(matchesNiimbotName(null, ['B1-'])).toBe(false)
   })
 })
 

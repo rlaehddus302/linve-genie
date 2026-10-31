@@ -44,10 +44,10 @@ class Stats:
 
 
 class _Stream:
-    def __init__(self, stream_id: int, vad: Vad) -> None:
+    def __init__(self, stream_id: int, vad: Vad, segmenter: Segmenter) -> None:
         self.id = stream_id
         self.vad = vad
-        self.segmenter = Segmenter()
+        self.segmenter = segmenter
         self.pending = bytearray()
         self.open = True
 
@@ -68,8 +68,10 @@ class WorkerSession:
         clock: Callable[[], float],
         run_blocking: Optional[Callable[[Callable[[], str]], Awaitable[str]]] = None,
         stats: Optional[Stats] = None,
+        segmenter_factory: Callable[[], Segmenter] = Segmenter,
     ) -> None:
         self._send_text = send_text
+        self._segmenter_factory = segmenter_factory
         self._transcribe = transcribe
         self._vad_factory = vad_factory
         self._max_streams = max_streams
@@ -175,7 +177,7 @@ class WorkerSession:
             self.stats.streams_refused += 1
             return
         self._refused.discard(stream_id)
-        self._streams[stream_id] = _Stream(stream_id, vad)
+        self._streams[stream_id] = _Stream(stream_id, vad, self._segmenter_factory())
         self.stats.streams_opened += 1
 
     def _close(self, stream_id: int) -> None:

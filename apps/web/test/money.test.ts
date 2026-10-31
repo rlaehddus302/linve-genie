@@ -1,6 +1,14 @@
 // 정산 금액 칸 (AC-S06-36, R-14, D-092): 코어 parseAmount를 원 단위(WON)로 — 판매자의 천원 단위 설정을 쓰지 않는다.
+// SRV1 (D-APP-23·24): 읽기 함수는 서버 전용 자리(packages/voice-session/src/read)로 옮겼다 — 기대값은 그대로, 서버 읽기 함수를 본다.
 import { describe, expect, it } from 'vitest'
-import { ADJUST_RANGE, AMOUNT_UNREADABLE, PAYMENT_RANGE, SHIPPING_RANGE, readAmount, refundRange } from '../src/lib/money.ts'
+import { ADJUST_RANGE, AMOUNT_UNREADABLE, PAYMENT_RANGE, SHIPPING_RANGE, amountRead, refundRange, type AmountRange } from '../src/lib/money.ts'
+import { readText } from '../../../packages/voice-session/src/read/index.ts'
+
+/** 서버가 금액 칸을 읽고(kind money) 화면이 그 칸의 범위로 막는다 — 옮기기 전 readAmount와 같은 길 */
+const readAmount = (text: string, range: AmountRange) => {
+  const read = readText('money', text, { now: 0 })
+  return amountRead(text, read.kind === 'money' ? read : null, range)
+}
 
 describe('원 단위 금액 칸', () => {
   it.each(['14000', '14,000', '1만 4천', '1만4천', '만 사천 원', '14000원'])('%s → 14,000원', (text) => {

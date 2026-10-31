@@ -1,7 +1,7 @@
 // Y1 적대 테스트 (test-domain): 감사 발송함 — 잘못된 게시·두 번 게시 (AC-Y1-32·33·36·38·39·42).
 // 판정은 코어 상태(취소·완료)로, 게시는 가짜 서버가 받은 글로 센다.
 import { afterEach, describe, expect, it } from 'vitest'
-import { NO_LABEL, api, approve, callback, chat, connect, drive, eventTypes, linked, outbox, ok, product, rows, until, world, writeEvent, type World } from './helpers.ts'
+import { NO_LABEL, api, approve, callback, chat, collectors, connect, drive, eventTypes, linked, outbox, ok, product, rows, until, world, writeEvent, type World } from './helpers.ts'
 
 let w: World | null = null
 afterEach(async () => {
@@ -51,30 +51,80 @@ describe('발송함 — 공개 문구 (AC-Y1-22·33)', () => {
 })
 
 describe('발송함 — 두 번 게시 없음 (AC-Y1-36·38·39)', () => {
-  it('TD-Y1-003(회귀): 묶음 메시지를 유튜브가 받고 응답이 없을 때(수집기 없음) 확인으로 SENT — 같은 묶음 글은 1개, 보고는 효과마다 1개', async () => {
-    w = await world()
-    const c = await connect(w, { publish: 'LIVE_CHAT' })
-    const { b, liveChatId } = await linked(w, c, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 10 } })
-    await product(w, c, b.id, 15, '핑크프릴', 10000)
-    await product(w, c, b.id, 16, '라울', 5000)
-    await chat(w, c, b.id, 'a1', 'UC_A', '홍길동', '15')
-    await chat(w, c, b.id, 'a2', 'UC_B', '김철수', '16')
-    await outbox(w).runOnce()
-    await w.timer.advance(10_000)
-    w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
-    await drive(w, outbox(w).runOnce())
-    await drive(w, outbox(w).runOnce())
-    await drive(w, outbox(w).runOnce())
-    const batch = '15번 핑크프릴 10,000원 홍길동님, 16번 라울 5,000원 김철수님 구매 감사합니다'
-    expect(w.fake.messages(liveChatId).filter((message) => message.text === batch)).toHaveLength(1)
-    const list = await rows(w, c, b.date)
+  // D-YT-SRV-17 (SPEC v0.1.73 YT-06 세부 "서버로 이은 회차" (3)): "응답을 모르는 게시(시간 초과·연결 끊김·게시 중 서버가 멈춤)는 확인 시간
+  // (그 시도의 시간 제한 뒤 30초) 안에 서버 수집기가 그 회차에서 본 우리 글 … 로만 확인한다. 보면 게시됨(게시 보고·잠금), 못 보면 다시 게시하지
+  // 않고 UNCONFIRMED … 공식 조회(liveChatMessages.list)는 부르지 않는다". 옛 TD-Y1-003은 수집기 없이 공식 조회로 SENT를 기대했다 — 그 길은
+  // 스펙에서 빠졌으므로 두 경우로 나눈다. 지키는 뜻은 같다: 같은 묶음 글은 채팅에 1개(두 번 게시 없음), 게시 보고는 효과마다 1개이고 보았을 때만.
+  const batch = '15번 핑크프릴 10,000원 홍길동님, 16번 라울 5,000원 김철수님 구매 감사합니다'
+  const setup = async (current: World) => {
+    const c = await connect(current, { publish: 'LIVE_CHAT' })
+    const { b, liveChatId } = await linked(current, c, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 10 } })
+    await product(current, c, b.id, 15, '핑크프릴', 10000)
+    await product(current, c, b.id, 16, '라울', 5000)
+    await chat(current, c, b.id, 'a1', 'UC_A', '홍길동', '15')
+    await chat(current, c, b.id, 'a2', 'UC_B', '김철수', '16')
+    await outbox(current).runOnce()
+    await current.timer.advance(10_000)
+    return { c, b, liveChatId }
+  }
+
+  it('TD-Y1-003(회귀, 가): 묶음 메시지를 유튜브가 받고 응답이 없을 때 수집기(서버 웹 읽기)가 그 글을 보면 SENT — 같은 묶음 글 1개, 보고는 효과마다 1개, 공식 조회 0', async () => {
+    w = await world({ chat: 'web' })
+    const { c, b, liveChatId } = await setup(w)
+    const current = w
+    collectors(current).start()
+    current.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
+    for (let i = 0; i < 60 && !(await rows(current, c, b.date)).every((row) => row.state === 'SENT'); i++) {
+      await drive(current, outbox(current).runOnce())
+      await current.timer.advance(1000)
+    }
+    // 확인 시간이 한참 지나도 그대로 (다시 게시 없음)
+    for (let i = 0; i < 3; i++) {
+      await current.timer.advance(60_000)
+      await drive(current, outbox(current).runOnce())
+    }
+    await collectors(current).stop()
+    expect(current.fake.messages(liveChatId).filter((message) => message.text === batch)).toHaveLength(1)
+    expect(current.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(current.fake.calls('liveChatMessages.list')).toBe(0)
+    const list = await rows(current, c, b.date)
     expect(list.map((row) => row.state)).toEqual(['SENT', 'SENT'])
-    expect((await eventTypes(w)).filter((type) => type === 'effect.thanksSent')).toHaveLength(2)
+    expect((await eventTypes(current)).filter((type) => type === 'effect.thanksSent')).toHaveLength(2)
+  }, 60_000)
+
+  it('TD-Y1-003(회귀, 나): 묶음 메시지를 유튜브가 받고 응답이 없는데 수집기가 그 글을 못 보면(수집기 없음) — 다시 게시하지 않고 두 행 모두 UNCONFIRMED, 게시 보고 0, 공식 조회 0', async () => {
+    w = await world()
+    const { c, b, liveChatId } = await setup(w)
+    const current = w
+    current.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
+    for (let i = 0; i < 40 && !(await rows(current, c, b.date)).every((row) => row.state === 'FAILED'); i++) {
+      await drive(current, outbox(current).runOnce())
+      await current.timer.advance(2000)
+    }
+    // 다시 시도 시각(2·4·8·16·32초)을 다 넘겨도 자동으로 다시 올리지 않는다
+    for (let i = 0; i < 5; i++) {
+      await current.timer.advance(60_000)
+      await drive(current, outbox(current).runOnce())
+    }
+    expect(current.fake.messages(liveChatId).filter((message) => message.text === batch)).toHaveLength(1)
+    expect(current.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(current.fake.calls('liveChatMessages.list')).toBe(0)
+    const list = await rows(current, c, b.date)
+    expect(list.map((row) => [row.state, row.reason])).toEqual([
+      ['FAILED', 'UNCONFIRMED'],
+      ['FAILED', 'UNCONFIRMED'],
+    ])
+    expect((await eventTypes(current)).filter((type) => type === 'effect.thanksSent')).toHaveLength(0)
   }, 60_000)
 })
 
 describe('발송함 — 동의를 끈 뒤에는 자동으로 게시하지 않는다 (AC-Y1-31, D-Y12)', () => {
-  it('TD-Y1-007: 게시 요청이 응답 없이 확인 중(SENDING)일 때 판매자가 실시간 채팅 동의를 끄면, 확인 실패 뒤 다시 시도로 게시하지 않는다(NO_CONSENT)', async () => {
+  // 핵심: 동의를 끈 뒤 자동 게시 0번 (D-Y12). 상태·이유는 D-YT-SRV-17 (SPEC YT-06 세부 "서버로 이은 회차" (3)):
+  // 응답을 모르는 게시는 수집기가 본 우리 글로만 확인하고 "못 보면 다시 게시하지 않고 UNCONFIRMED". 옛 기대 NO_CONSENT는 "확인 실패 → 다시 시도
+  // 직전 동의 검사"에서 나왔는데, 실시간 채팅에서는 그 다시 시도 길이 없어졌다. 게다가 이 행은 유튜브에 올라갔는지 알 수 없는 상태라
+  // "동의하지 않음"(아무것도 안 올림으로 읽힘)보다 "올라갔는지 확인하지 못했어요"(UNCONFIRMED — 판매자가 유튜브에서 보고 고름)가 사실에 맞다.
+  // 개발 쪽 AC-Y1-31 시험(apps/server/test/youtube-outbox.test.ts)도 같은 결론이다.
+  it('TD-Y1-007: 게시 요청이 응답 없이 확인 중(SENDING)일 때 판매자가 실시간 채팅 동의를 끄면, 확인 시간이 지나도 다시 게시하지 않는다 (게시 요청 1번뿐, UNCONFIRMED)', async () => {
     w = await world()
     const c = await connect(w, { publish: 'LIVE_CHAT' })
     const { b } = await linked(w, c, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
@@ -92,9 +142,16 @@ describe('발송함 — 동의를 끈 뒤에는 자동으로 게시하지 않는
       await w.timer.advance(2000)
       await drive(w, outbox(w).runOnce())
     }
+    for (let i = 0; i < 3; i++) {
+      await w.timer.advance(60_000)
+      await drive(w, outbox(w).runOnce())
+    }
     expect(w.fake.posted).toEqual([])
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
     const row = (await rows(w, c, b.date))[0]
-    expect([row?.state, row?.reason]).toEqual(['FAILED', 'NO_CONSENT'])
+    expect([row?.state, row?.reason]).toEqual(['FAILED', 'UNCONFIRMED'])
+    expect((await eventTypes(w)).filter((type) => type === 'effect.thanksSent')).toHaveLength(0)
   }, 60_000)
 })
 

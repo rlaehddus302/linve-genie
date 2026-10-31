@@ -20,7 +20,37 @@ export { PickCancelledError, RadioOffError, pickFromScan, type DevicePicker } fr
 export { bleBluetoothEnvironment, createBleBluetooth, fullUuid, type BleBluetoothDevice, type BleBluetoothOptions, type ChosenDevice } from './bluetooth.ts'
 export { createNativeMarklifeAdapter, matchesMarklifeName, type NativeMarklifeAdapter, type NativeMarklifeAdapterOptions } from './marklife.ts'
 export { IDENTIFY_SCAN_MS, createPrinterPicker, printerKindOf, type PrinterKind, type PrinterPicker, type PrinterPickerOptions } from './picker.ts'
-export { RECONNECT_DELAYS_MS, createReconnectingAdapter, type ReconnectingAdapter, type ReconnectingAdapterOptions } from './reconnect.ts'
+export {
+  defaultPrinterFamilies,
+  familyOf,
+  familyScanFilter,
+  marklifeFamily,
+  niimbotFamily,
+  type FamilyClaim,
+  type FamilyContext,
+  type MarklifeFamilyOptions,
+  type NiimbotFamilyOptions,
+  type PrinterFamily,
+} from './families.ts'
+export {
+  EXPERIMENTAL_WORD,
+  NAMELESS_TITLE,
+  SIGNAL_FAIR_DBM,
+  SIGNAL_STRONG_DBM,
+  pickEntries,
+  signalWord,
+  type PickEntry,
+  type PickEntryOptions,
+  type SignalWord,
+} from './pick-list.ts'
+export {
+  AUTO_RECONNECT_POLICY,
+  RECONNECT_DELAYS_MS,
+  createReconnectingAdapter,
+  type AutoReconnectState,
+  type ReconnectingAdapter,
+  type ReconnectingAdapterOptions,
+} from './reconnect.ts'
 export {
   B1_MODEL_ID,
   FAKE_B1_CHARACTERISTIC,

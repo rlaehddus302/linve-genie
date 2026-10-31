@@ -18,6 +18,8 @@
 // 보조자 계정은 문자찜 입력만 — 로그인하면 `/sms`로, 다른 화면 주소는 안내만 보이고 그 화면의 데이터를 부르지 않는다(AC-I3-63).
 // 저장하지 않은 설정 값이 있으면 같은 떠나기 창이 그 문장으로 묻는다(AC-I3-46).
 // LND1(D-LND1-01·02): 로그아웃 상태의 `/`는 브라우저 탭에서 처음 열면 공개 소개 화면, 로그인 화면은 `/login`(로그인하면 `/`로 바꿔 간다 — 보조자는 `/sms`).
+// PAY2(BL-11 3, D-PAY-04): `from=app`(값이 정확히 app)으로 열린 탭은 탭이 닫힐 때까지 "앱에서 연 탭" — 요금 메뉴·띠·"요금 화면 열기"·"요금 안내" 링크가 없고,
+// `/pricing`은 늘, `/billing`은 요금 기능이 켜져 있을 때 `/`로 바꿔 간다(꺼져 있으면 지금처럼 없는 화면, BL-11 3.5). 공개 요금 안내 `/pricing`은 로그인 없이(§7 화면 18).
 // `/?login=` 결과가 붙어 왔거나, 이 탭에서 로그아웃·풀린 뒤(새로고침 전까지), 홈 화면 앱으로 열었으면 `/`에서도 바로 로그인 화면. 그 밖의 앱 주소는 지금처럼 그 자리에 로그인 화면.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { get, isApiError, onUnauthorized, post, type ApiError } from './api/client.ts'
@@ -40,8 +42,11 @@ import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
 import { PackingPage } from './components/PackingPage.tsx'
 import { ParcelsPage } from './components/ParcelsPage.tsx'
+import { ReportPage } from './components/ReportPage.tsx' // KP1
 import { ReviewsPage } from './components/ReviewsPage.tsx'
 import { PrivacyPage, TermsPage } from './components/PolicyPages.tsx'
+import { PricingPage } from './components/PricingPage.tsx'
+import { isAppTab, rememberAppTab } from './lib/app-tab.ts'
 import { PrintProvider } from './components/print-context.tsx'
 import { ReceiptsPage } from './components/ReceiptsPage.tsx'
 import { SettingsPage } from './components/SettingsPage.tsx'
@@ -84,6 +89,8 @@ interface Leaving {
 export const ASSISTANT_BLOCKED = '보조자 계정으로는 쓸 수 없는 화면이에요.'
 
 export function App() {
+  // 앱에서 연 탭인지 처음 연 주소로 기억한다 — 자식 화면이 그리기 전에 (PAY2 BL-11 3.2)
+  const [appTab] = useState(() => rememberAppTab(window.location.search))
   const guards = useRef(new Set<LeaveGuard>())
   const [leaving, setLeaving] = useState<Leaving | null>(null)
   const pending = useCallback(() => [...guards.current].some((guard) => guard.pending()), [])
@@ -351,6 +358,13 @@ export function App() {
     setSession((current) => (current.state === 'in' ? { state: 'in', me: { ...current.me, seller: { name } } } : current))
   }, [])
 
+  // 앱에서 연 탭의 공개 요금 안내: 그리지 않고 `/`로 바꿔 간다 (그 뒤는 SYS-01의 `/` 규칙 그대로, BL-11 3.3)
+  const pricingInAppTab = appTab && route.name === 'pricing'
+  useEffect(() => {
+    if (pricingInAppTab) go({ name: 'home' }, { replace: true })
+  }, [pricingInAppTab, go])
+  if (pricingInAppTab) return null
+
   // 정책 페이지는 로그인 없이 연다 (세션이 없어도 로그인 화면으로 바꾸지 않는다, AC-I3-77).
   // "로그인 화면으로"는 `/login`으로, 확인 중의 "처음 화면으로"는 `/` (D-LND1-08)
   if (isPublicRoute(route) && route.name !== 'login' && session.state !== 'in') {
@@ -370,7 +384,7 @@ export function App() {
             {session.state === 'checking' ? '처음 화면으로' : '로그인 화면으로'}
           </a>
         </header>
-        {route.name === 'privacy' ? <PrivacyPage /> : <TermsPage />}
+        {route.name === 'privacy' ? <PrivacyPage /> : route.name === 'pricing' ? <PricingPage /> : <TermsPage />}
       </>
     )
   }
@@ -509,6 +523,8 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
       return <PackingPage route={route} navigate={navigate} />
     case 'parcels':
       return <ParcelsPage route={route} navigate={navigate} />
+    case 'report': // KP1 방송 리포트
+      return <ReportPage key={route.date ?? ''} {...(route.date === undefined ? {} : { date: route.date })} navigate={navigate} />
     case 'reviews':
       return <ReviewsPage route={route} navigate={navigate} />
     case 'labels':
@@ -523,6 +539,8 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
       return <PrivacyPage />
     case 'terms':
       return <TermsPage />
+    case 'pricing':
+      return <PricingPage />
     case 'deposits':
       return <DepositsPage route={route} navigate={navigate} />
     case 'home':
@@ -576,7 +594,17 @@ function BillingScreen({ route, navigate }: { readonly route: BillingRoute; read
     )
   }
   if (!state.config.enabled) return <NotFound navigate={navigate} />
+  // 앱에서 연 탭: 요금 화면을 그리지 않고(결제 창 스크립트도 부르지 않는다) `/`로 (BL-11 3.3)
+  if (isAppTab()) return <ToHome navigate={navigate} />
   return <BillingPage config={state.config} route={route} navigate={navigate} />
+}
+
+/** 그리지 않고 방송 목록 `/`로 바꿔 간다 (기록을 남기지 않는다) */
+function ToHome({ navigate }: { readonly navigate: Navigate }) {
+  useEffect(() => {
+    navigate({ name: 'home' }, { replace: true })
+  }, [navigate])
+  return null
 }
 
 /** 구글에서 돌아온 주소(`/settings/youtube?youtube=`)인데 시작 마법사 3단계에서 떠났으면 마법사로 돌려보낸다 (AC-I3-02·54) */

@@ -44,6 +44,12 @@ import { TikTokExtension } from './tiktok-live/extension.ts'
 import { PasteService } from './tiktok-live/paste-service.ts'
 import { CustomerArchiver } from './customers/archive.ts'
 import { CustomerService } from './customers/service.ts'
+import { LedgerService } from './customers/ledger.ts' // KP1 손님 장부
+import { LedgerSweeper } from './customers/ledger-sweep.ts' // KP1 손님 장부
+import { sweepSchedule } from './schedule/sweep.ts' // KP1 정리 작업이 같이 부른다
+import { ReportService } from './report/service.ts' // KP1 리포트
+import { registerSchedulePage } from './schedule/page.ts' // KP1 일정
+import { ScheduleService } from './schedule/service.ts' // KP1 일정
 import { tiktokLinkCounts } from './tiktok-live/store.ts'
 import { BandService, type BandClock, type BandHooks, type BandTiming } from './band/service.ts'
 import type { BandSettings } from './band/config.ts'
@@ -62,6 +68,7 @@ import { DEFAULT_CHANGES_WINDOW } from './runtime.ts'
 import { Service, type ChatIngestOutcome } from './service.ts'
 import { kstDate, systemClock, type Clock } from './time.ts'
 import { ViewCacheBudget } from './view-budget.ts'
+import { BillingRechecker } from './billing/recheck.ts'
 import { BillingService, DISABLED_BILLING, type BillingSetup } from './billing/service.ts'
 import { sharedWorkPools, type WorkPools } from './work-pool.ts'
 import { DEFAULT_RUNTIME_CACHE_MAX, ScopeWriter, type WriterHooks } from './writer.ts'
@@ -278,6 +285,16 @@ export interface LivejjimServer {
   readonly customers: CustomerService
   /** 손님 기록 보관 차례 (CRM1 D-CRM1-12 — 서버 시작 때와 1시간마다, 봉인 전 취소 수·'입금 안 함'을 남긴다) */
   readonly customerArchiver: CustomerArchiver
+  /** KP1 손님 장부 (동의·이어 쓰기·연결 코드·손님 표시·손님 엑셀 — 엔진 이벤트를 쓰지 않는다) */
+  readonly ledger: LedgerService
+  /** KP1 손님 장부·방송 일정 정리 (시작 때·1시간마다) */
+  readonly ledgerSweeper: LedgerSweeper
+  /** KP1 방송 리포트 (볼 때 계산 — 저장하지 않는다) */
+  readonly report: ReportService
+  /** KP1 방송 일정·공개 일정 페이지·알림 신청 (문자를 보내지 않는다) */
+  readonly schedule: ScheduleService
+  /** 결제 대기 자동 재확인 (PAY2 BL-6 9 — 서버 시작 때와 20초마다, 요금 기능이 켜져 있을 때만) */
+  readonly billingRechecker: BillingRechecker
   /** 서버 안 채팅 수집 함수 (S05 리허설·S10 수집기, AC-S04-33) */
   ingestChat(sellerId: string, input: unknown): Promise<ChatIngestOutcome>
   /** 유튜브 연동 (설정이 있을 때만) */
@@ -433,7 +450,9 @@ export function createServer(options: ServerOptions): LivejjimServer {
       const ended = await (tiktok as TikTokLive).txHook(tx, ctx)
       // 회차를 끝내면 밴드 글 연결 FINISHED(ENDED) — 같은 트랜잭션, 커밋 뒤 읽기를 멈춘다 (BND1 AC-BND1-23)
       const bandEnded = await (band as BandService).txHook(tx, ctx)
-      const after = [billed, printed, dm, ended, bandEnded].filter((fn): fn is () => void => fn !== null)
+      // KP1 채팅 연결 코드: 트랜잭션 안에서는 고르기만, 커밋 뒤 읽는다 (판정·기록에 영향 없음, CR-5)
+      const ledgerAfter = await ledger.txHook(tx, ctx)
+      const after = [billed, printed, dm, ended, bandEnded, ledgerAfter].filter((fn): fn is () => void => fn !== null)
       if (after.length === 0) return null
       return () => {
         for (const fn of after) fn()
@@ -488,6 +507,14 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const closing = new ClosingService({ db, writer, clock, hub, backups, log, work })
   const customers = new CustomerService({ db, writer, clock, log, masterKey })
   const customerArchiver = new CustomerArchiver({ db, writer, timer, log, facts: customers.factsDeps() })
+  // KP1 손님 장부 — 손님 자세히에 장부 칸을 건다
+  const ledger = new LedgerService({ db, clock, masterKey, hub, log, customers, readState: async (sellerId, date) => (await writer.read(sellerId, date, false)).state, work: work.documents }) // KP1 RA-KP1-008 손님 엑셀은 documents 풀
+  customers.useLedger((sellerId, marker) => ledger.customerLedger(sellerId, marker))
+  const ledgerSweeper = new LedgerSweeper({ ledger, timer, log, schedule: (now) => sweepSchedule(db, now) })
+  // KP1 방송 리포트·방송 일정
+  const report = new ReportService({ db, writer, log, facts: customers.factsDeps() })
+  const schedule = new ScheduleService({ db, clock, masterKey, appOrigin: options.appOrigin })
+  const billingRechecker = new BillingRechecker({ billing, timer, log })
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
@@ -649,7 +676,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.inbox?.rateLimit === undefined ? {} : { rateLimit: options.inbox.rateLimit }),
     timer: options.inbox?.sweepTimer ?? realGeneratorTimer,
   })
-  const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {} })
+  const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {}, ledger })
   // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
   // 크롬 확장으로 틱톡 댓글 읽기 (TTX — 직접 연결의 대비책, 같은 '채팅' 이벤트·같은 틱톡 연결 조건)
   const tiktokExtension = new TikTokExtension({ db, writer, clock, log, live: tiktokLive })
@@ -708,6 +735,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
       extension,
       assist,
       customers,
+      // KP1
+      ledger,
+      report,
+      schedule,
     },
     extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress, tiktok: tiktokExtension, ...(options.extensionCodeLimits === undefined ? {} : { codeLimits: options.extensionCodeLimits }) }) as unknown as Hono,
     https: options.appOrigin.startsWith('https://'),
@@ -721,7 +752,11 @@ export function createServer(options: ServerOptions): LivejjimServer {
     webhooks: createWebhookApp(instagramModule),
     inbox: (app) =>
       registerInboxIntake(app, inbox, log, { clock, trustedProxies, address: connectionAddress, ...(options.inbox?.authLimits === undefined ? {} : { authLimits: options.inbox.authLimits }) }),
-    receiptPage: (app) => registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer }),
+    receiptPage: (app) => {
+      registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer, ledger })
+      // KP1 공개 방송 일정 페이지 /s/<토큰> (화면 문서보다 먼저)
+      registerSchedulePage(app, { db, schedule, clock, appOrigin: options.appOrigin, trustedProxies })
+    },
   })
   registerVoiceRelay(app, voice)
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
@@ -729,7 +764,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // 휴대폰 알림 받기 주기 정리 (처리 안 한 카드 24시간·은행 알림 줄 30일 — C-07·D-SMS3-17)
   inbox.start()
   const stop = async () => {
-    await Promise.all([youtube?.stop(), sealer.stop(), customerArchiver.stop(), parcels.stop()])
+    await Promise.all([youtube?.stop(), sealer.stop(), customerArchiver.stop(), parcels.stop(), ledgerSweeper.stop(), billingRechecker.stop()])
   }
   return {
     app,
@@ -760,11 +795,21 @@ export function createServer(options: ServerOptions): LivejjimServer {
     assist,
     customers,
     customerArchiver,
+    // KP1 손님 장부
+    ledger,
+    ledgerSweeper,
+    report,
+    schedule,
+    billingRechecker,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
       youtube?.start()
       sealer.start()
       customerArchiver.start()
+      // KP1 손님 장부·방송 일정 정리 (시작 때·1시간마다)
+      ledgerSweeper.start()
+      // 결제 대기 자동 재확인 — 꺼져 있던 동안 지난 칸은 한 번만 (BL-6 9)
+      billingRechecker.start()
       // 택배 배송 조회(30분마다)·배송지 30일 정리 (T1 PC-8·PC-3)
       parcels.start()
       // 끝나지 않은 실제 회차의 이어진 틱톡 연결을 이어받는다 (NFR-03, AC-N2b-2-35)

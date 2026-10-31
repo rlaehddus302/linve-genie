@@ -94,3 +94,13 @@ export {
   type TikTokTargetParse,
 } from './target.ts'
 export { WEBCAST_EVENTS, type WebcastClient, type WebcastFactory } from './webcast.ts'
+export {
+  createTikTokSignMeter,
+  readTikTokSignLimit,
+  TIKTOK_SIGN_DAILY_LIMIT_DEFAULT,
+  TIKTOK_SIGN_MESSAGES,
+  TIKTOK_SIGN_NEAR_RATIO,
+  TIKTOK_SIGN_WINDOW_MS,
+  type TikTokSignLevel,
+  type TikTokSignMeter,
+} from './sign-usage.ts'

@@ -4,6 +4,7 @@
 import {
   buyerOfRef,
   checkSettings,
+  compareChars,
   containsPhoneRun,
   currentBuyerOf,
   getBroadcast,
@@ -28,6 +29,8 @@ import {
 import { randomBytes } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { API_EVENTS, CHAT_FIELDS, VOICE_LOG_FIELD, hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
+import type { ReadProduct } from '@livejjim/voice-session/read'
+import { MONEY_SETTING_KEYS, RAW_FIELDS, applyRawInput, checkRawInput, readMoneySetting, readProductOf, smsNumberProblem, type RawInput } from './raw-input.ts'
 import type { Db } from './db/database.ts'
 import { sellers } from './db/schema.ts'
 import type { FieldProblem } from './errors.ts'
@@ -245,6 +248,11 @@ export interface MessageItem {
    */
   readonly optionOrders?: readonly { readonly claim: string; readonly no: number; readonly variant: string | null; readonly qty: number }[]
   readonly review?: { readonly reason: string; readonly no: number | null; readonly options: readonly (readonly [string, string])[] | null; readonly qty: number | null } | null
+  /**
+   * 옵션 방송 메시지의 상품 이름·별칭 언급 번호 (SRV1 약속 5, APP-05 AC13 — 옛 웹 ChatPanel optionLook의 이름 찾기를 서버로):
+   * 그 방송 상품(판매 종료 포함) 중 비교 글자(compareChars)가 두 글자 이상인 이름·별칭이 메시지 비교 글자 안에 있는 번호, 상품 순서
+   */
+  readonly nameMentions?: readonly number[]
 }
 
 export interface MessagesView {
@@ -353,7 +361,11 @@ export class Service {
     if (!isPlainObject(body)) return { ok: false, rejection: rejection(400, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.') }
     const extra = ownKeys(body).filter((key) => key !== 'settings')
     if (extra.length > 0) return { ok: false, rejection: rejection(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra)) }
-    const changes = own(body, 'settings')
+    const sent = own(body, 'settings')
+    // 금액 칸(기본 배송비·무료배송 기준)은 원문도 받는다 (SRV1 D-APP-24): 글이면 원 단위로 읽는다 — 읽지 못한 글은 그대로 두어 코어 설정 검사 문장을 받는다
+    const changes = isPlainObject(sent)
+      ? Object.fromEntries(ownKeys(sent).map((key) => [key, MONEY_SETTING_KEYS.includes(key) ? readMoneySetting(own(sent, key)) : own(sent, key)]))
+      : sent
     const problems = checkSettings(changes).map((problem) => {
       const key = problem.key === null ? null : safeFieldName(problem.key)
       return { field: key === null ? 'settings' : `settings.${key}`, message: problem.message }
@@ -381,6 +393,25 @@ export class Service {
   // ── 가게 이름·시작 마법사 (AC-I3-47·50) ───────────────────────────────
 
   // 가게 이름 바꾸기는 I2와 합친 뒤 ClosingService.renameShop(shop.ts 규칙 — 가게 설정과 같은 상한, 가게 설정 알림)으로 옮겼다
+
+  /** 서버 시계 (읽기 입구의 받은 시각 — 쓰기와 같은 시계) */
+  now(): number {
+    return this.#options.clock.now()
+  }
+
+  /**
+   * 서버 읽기 입구가 쓰는 그 방송의 설정 스냅샷과 번호 → 상품 (SRV1 약속 1). 다른 판매자의·없는 방송이면 null(404).
+   * 아무것도 기록하지 않는다 — 범위 상태를 읽기만 한다
+   */
+  async readScope(sellerId: string, b: string): Promise<{ readonly rehearsal: boolean; readonly settings: SaleSettings; readonly findProduct: (no: number) => ReadProduct | undefined } | null> {
+    const row = await findBroadcast(this.#options.db, sellerId, b)
+    if (row === null) return null
+    const runtime = await this.#options.writer.read(sellerId, row.date, row.rehearsal)
+    const state = runtime.state
+    const settings = getBroadcast(state, b)?.settings
+    if (settings === undefined) return null
+    return { rehearsal: row.rehearsal, settings, findProduct: readProductOf(state, b) }
+  }
 
   /** 판매자의 보조자 목록 (지우지 않은 것, AC-I3-60) */
   assistants(sellerId: string): Promise<AssistantRow[]> {
@@ -552,9 +583,15 @@ export class Service {
     if (assistant && (typeof type !== 'string' || !ASSISTANT_EVENT_TYPES.includes(type))) return { kind: 'rejected', rejection: assistantForbidden() }
     const spec = typeof type === 'string' && Object.hasOwn(API_EVENTS, type) ? API_EVENTS[type] : undefined
     if (spec === undefined || typeof type !== 'string') return { kind: 'rejected', rejection: invalidInput([{ field: 'type', message: fieldMessage('type') }]) }
-    const allowed = new Set(['requestId', 'type', ...spec.fields])
+    // 원문 필드 (SRV1 D-APP-24 — 빠른 입력 한 줄·고치기 칸·문자찜 번호/받은 시각·정산 금액): 엔진 필드가 아니고 기록 경로 안에서 읽어 엔진 필드로 바꾼다
+    const allowed = new Set(['requestId', 'type', ...spec.fields, ...(RAW_FIELDS[type] ?? [])])
     const unknown = ownKeys(body).filter((key) => !allowed.has(key))
     if (unknown.length > 0) return { kind: 'rejected', rejection: rejection(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(unknown)) }
+    const rawChecked = checkRawInput(type, body)
+    if (!rawChecked.ok) return { kind: 'rejected', rejection: rawChecked.rejection }
+    const raw = rawChecked.raw
+    // 음성 쓰기는 서버 음성 읽기가 읽은 값을 보낸다 — 원문 필드와 함께 받지 않는다
+    if (raw !== null && own(body, VOICE_LOG_FIELD) !== undefined) return { kind: 'rejected', rejection: invalidInput([{ field: VOICE_LOG_FIELD, message: '받을 수 없는 항목이에요.' }]) }
     const fields: Record<string, unknown> = { type }
     for (const field of spec.fields) {
       const value = own(body, field)
@@ -585,7 +622,7 @@ export class Service {
       }
     }
 
-    if (type === 'sms') return this.#writeSms(sellerId, actor, requestId, date, rehearsal, body, fields)
+    if (type === 'sms') return this.#writeSms(sellerId, actor, requestId, date, rehearsal, body, fields, raw)
     // 음성 기록 칸 (V3 R-25, D-V3-65): 있으면 같은 기록 트랜잭션에서 상품 명령보다 먼저 음성 기록 줄을 남긴다. 없으면 손 입력(기록 없음)
     const voiceLogRaw = own(body, VOICE_LOG_FIELD)
     if (voiceLogRaw !== undefined && VOICE_LOG_TYPES.includes(type)) {
@@ -629,7 +666,12 @@ export class Service {
       requestId,
       ...packingGuard,
       // 보조자의 방송자 취소: 그 범위의 지금 상태(기록 트랜잭션 안)에서 문자찜으로 생긴 찜인지 코어 조회로 본다
-      build: () => [{ fields, actor, requestId, ...(assistant ? { validate: assistantCancelCheck } : {}) }],
+      // 원문 필드는 같은 상태(그 방송 스냅샷의 가격 단위·번호 한도, 그때의 상품)로 읽는다 — 읽지 못하면 기록하지 않는다
+      build: (ctx) => {
+        const resolved = raw === null ? { fields } : applyRawInput(type, raw, fields, ctx.state, ctx.at)
+        if ('rejection' in resolved) return resolved.rejection
+        return [{ fields: resolved.fields, actor, requestId, ...(assistant ? { validate: assistantCancelCheck } : {}) }]
+      },
     })
   }
 
@@ -642,6 +684,7 @@ export class Service {
     rehearsal: boolean,
     body: Record<string, unknown>,
     fields: Record<string, unknown>,
+    raw: RawInput | null = null,
   ): Promise<WriteOutcome | { kind: 'phone'; outcome: WriteOutcome; phoneLast4: string | null }> {
     const phone = own(body, 'phone')
     if (phone !== undefined && typeof phone !== 'string') return { kind: 'rejected', rejection: invalidInput([{ field: 'phone', message: fieldMessage('phone') }]) }
@@ -695,10 +738,18 @@ export class Service {
         if (signature !== null && this.#voiceRepeats.repeated(voiceScope, signature, arrivedAt, requestId)) return rejection(409, 'VOICE_REPEATED', VOICE_REPEATED_MESSAGE)
         const byLast4 = last4Fields(ctx.state)
         if ('rejection' in byLast4) return byLast4.rejection
+        // 원문 칸(번호·받은 시각)은 그 방송 스냅샷의 번호 한도·서버 시계로 읽는다 (SRV1 D-APP-24)
+        const resolved = raw === null ? { fields } : applyRawInput('sms', raw, fields, ctx.state, ctx.at)
+        if ('rejection' in resolved) return resolved.rejection
+        const smsFields = resolved.fields
+        // 번호 한도 (claim.maxNumber): 코어 입력 검사는 1 이상만 본다 — 전화번호가 붙은 긴 숫자 같은 범위 밖 번호로 보류 찜을 만들지 않는다
+        const outOfRange = smsNumberProblem(ctx.state, smsFields.b, smsFields.no, raw?.noText === undefined ? 'no' : 'noText')
+        if (outOfRange !== null) return outOfRange
+        const received = own(smsFields, 'received')
         return [
         {
           // 받은 시각이 없으면 서버 도착 시각(이 이벤트의 at)의 KST. null 같은 값은 그대로 넘겨 엔진이 입력 오류로 거른다
-          fields: { ...fields, ref, received: own(body, 'received') === undefined ? kstTime(ctx.at) : own(body, 'received'), ...phoneFields, ...byLast4.fields },
+          fields: { ...smsFields, ref, received: received === undefined ? kstTime(ctx.at) : received, ...phoneFields, ...byLast4.fields },
           actor,
           requestId,
           smsRef: ref,
@@ -1303,6 +1354,20 @@ export class Service {
       }
       return found
     }
+    // 상품 이름·별칭 언급 (SRV1 약속 5, APP-05 AC13 — 옛 웹 ChatPanel optionLook과 같은 비교): 그 방송의 상품(판매 종료 포함) 중
+    // 비교 글자(compareChars)가 두 글자 이상인 이름·별칭이 메시지 비교 글자 안에 있으면 그 번호. 방송마다 한 번
+    const namedWords = new Map<string, { no: number; words: string[] }[]>()
+    const named = (b: string, text: string): number[] => {
+      let found = namedWords.get(b)
+      if (found === undefined) {
+        found = listProducts(state)
+          .filter((product) => product.broadcast === b)
+          .map((product) => ({ no: product.no, words: [product.name, ...product.aliases].map(compareChars).filter((word) => word.length >= 2) }))
+        namedWords.set(b, found)
+      }
+      const compared = compareChars(text)
+      return found.filter((product) => product.words.some((word) => compared.includes(word))).map((product) => product.no)
+    }
     return rows.map((row) => {
       const event = JSON.parse(row.body) as { b: string; id: string; ch: string; nick: string; text: string; owner?: boolean; at: number; publishedAt?: number }
       const key = JSON.stringify([event.b, event.id])
@@ -1339,6 +1404,8 @@ export class Service {
           orders: [...new Set(optionOrders.map((item) => item.no))],
           cancels: cancel ? [...reread.cancels] : [],
           mentions: [...reread.mentions],
+          // 상품 이름·별칭 언급 번호 (SRV1 약속 5) — 번호 언급(mentions, 코어 parseOptionComment)과 따로 둔다
+          nameMentions: named(event.b, event.text),
           converted: info === undefined ? [] : [...info.converted],
           claims,
           failed: row.failed,

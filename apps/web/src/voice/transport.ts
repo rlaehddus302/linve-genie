@@ -1,26 +1,21 @@
 import pcmWorkletUrl from './pcm-worklet.js?url'
 // APP1: 마이크·연결만 기기에서 실행한다. 품종 사전이나 상품 추출을 불러오지 않는다.
+// SRV1 (D-APP-22·25): 받아쓰기는 언제나 서버다 — PC도 마이크 소리(16kHz PCM)를 서버로 보낸다. 브라우저 음성 인식(Web Speech) 길은 없다.
+// 마이크 없는 조작 전용 연결(D-APP1b-08)은 `capture=false`로 연다(크롬과 무관한 인자).
 import { createLiveGenieEngine, voiceStreamUrl, canCaptureAudio } from '../../../../packages/voice/src/livegenie.ts'
-import { createWebSpeechEngine, formatSpeechDiagnostic, formatSpeechGap, type SpeechGap, type SpeechDiagnostic, type OnDeviceStatus } from '../../../../packages/voice/src/web-speech.ts'
 import type { SpeechError, SpeechState } from '../../../../packages/voice/src/speech.ts'
 import { speechError } from '../../../../packages/voice/src/speech.ts'
-import { isHomeScreenApp } from './standalone.ts'
 import type { VoiceClientMessage } from '../../../../packages/voice-session/src/wire.ts'
 
 export interface VoiceTransportOptions {
   readonly broadcastId: string
   readonly device: string
-  readonly chrome: boolean
   readonly capture?: boolean
   readonly hello: () => VoiceClientMessage
   readonly onMessage: (value: unknown) => void
   readonly onState: (state: SpeechState) => void
   readonly onError: (error: SpeechError) => void
-  readonly onGap?: (gap: SpeechGap, text: string) => void
-  readonly onDiagnostic?: (diagnostic: SpeechDiagnostic, text: string) => void
-  readonly onDeviceStatus?: (status: OnDeviceStatus) => void
   readonly onConnectionLost?: () => void
-  readonly stallMs?: number
 }
 
 
@@ -33,16 +28,15 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
   let node: AudioWorkletNode | null = null
   let source: MediaStreamAudioSourceNode | null = null
   let mute: GainNode | null = null
-  let chromeEngine: ReturnType<typeof createWebSpeechEngine> | null = null
   let startingCapture = false
   let captureGeneration = 0
   const engine = createLiveGenieEngine({
     now: Date.now,
-    isSupported: () => options.capture === false || (options.chrome ? createWebSpeechEngine({ now: Date.now }).isSupported() : canCaptureAudio()),
+    isSupported: () => options.capture === false || canCaptureAudio(),
     connect: (handlers) => {
       captureSent = false
       const url = new URL(voiceStreamUrl(location.origin, options.broadcastId, options.device))
-      if (options.chrome || options.capture === false) url.searchParams.set('mode', 'chrome')
+      if (options.capture === false) url.searchParams.set('capture', 'false')
       const current = new WebSocket(url)
       socket = current
       current.addEventListener('message', (event) => {
@@ -74,20 +68,7 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
   engine.onClosing((reason) => { if (reason === 'ENDED' || reason === 'AUTH' || reason === 'OTHER_DEVICE') { wanted = false; stopCapture() } })
 
   async function startCapture(): Promise<void> {
-    if (!wanted || startingCapture || media !== null || chromeEngine !== null) return
-    if (options.chrome) {
-      chromeEngine = createWebSpeechEngine({ now: Date.now, countAllEnds: isHomeScreenApp(), ...(options.stallMs === undefined ? {} : { stallMs: options.stallMs }) })
-      chromeEngine.onResult((result) => {
-        send({ type: 'voice.session', op: 'chromeResult', result: { text: result.text, final: result.final, ...(result.slot === undefined ? {} : { slot: result.slot }), ...(result.lead === undefined ? {} : { lead: result.lead }), ...(result.flushedAtEnd === undefined ? {} : { flushedAtEnd: result.flushedAtEnd }) } })
-      })
-      chromeEngine.onError(options.onError)
-      chromeEngine.onState(options.onState)
-      chromeEngine.onGap((gap) => options.onGap?.(gap, formatSpeechGap(gap)))
-      chromeEngine.onDiagnostic((diagnostic) => options.onDiagnostic?.(diagnostic, formatSpeechDiagnostic(diagnostic)))
-      void chromeEngine.onDeviceStatus().then((status) => options.onDeviceStatus?.(status))
-      chromeEngine.start()
-      return
-    }
+    if (!wanted || startingCapture || media !== null) return
     startingCapture = true
     const born = captureGeneration
     try {
@@ -120,7 +101,6 @@ export function createVoiceTransport(options: VoiceTransportOptions) {
   function stopCapture(): void {
     captureGeneration++
     startingCapture = false
-    chromeEngine?.stop(); chromeEngine = null
     if (node !== null) { node.port.onmessage = null; node.disconnect(); node = null }
     source?.disconnect(); source = null
     mute?.disconnect(); mute = null

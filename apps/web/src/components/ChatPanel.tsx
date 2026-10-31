@@ -5,7 +5,6 @@
 // - 맨 아래를 보고 있으면 새 메시지를 따라 내려가고, 위로 올려 보는 중이면 자리를 지키고 "새 메시지 n개"를 보인다.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ChatMessage } from '../api/types.ts'
-import { compareChars } from '@livejjim/core'
 import type { Product } from '../api/types.ts'
 import { chatOptionWords, claimWord } from '../lib/derive.ts'
 import { usePendingNow } from '../lib/use-pending-now.ts'
@@ -13,6 +12,9 @@ import { kstTime } from '../lib/kst.ts'
 import { PLATFORM_WORD, platformOfKey } from '../lib/platforms.ts'
 import { CHAT_REVIEW_WORD, CHAT_WORD, REVIEW_REASON_WORD } from '../lib/words.ts'
 import { useConsoleApi } from './console-context.ts'
+// KP1 손님 꼬리표 (CR-7)
+import { ChatBadgeMark, useBadgeOf } from './ChatBadges.tsx'
+import type { CustomerBadge } from '../lib/ledger.ts'
 
 export interface ChatPanelProps {
   readonly messages: readonly ChatMessage[]
@@ -27,6 +29,8 @@ export interface ChatPanelProps {
   readonly onReview?: (messageId: string) => void
   /** 줄마다 플랫폼 글자를 붙인다 (인스타그램·틱톡 채팅이 있거나 이어져 있을 때, AC-N2b-2-65) */
   readonly platformTags?: boolean
+  /** KP1 채팅 칸 맨 위(목록 위, 고정 영역 밖)에 두는 것 — 콘솔 첫 물음 "방송 화면에 손님 표시" (D-KP1-43) */
+  readonly top?: ReactNode
 }
 
 /** 옵션 방송의 메시지 표시 (D-O2-12, AC-O2-24) — 서버가 준 optionOrders·review가 있는 메시지만 */
@@ -41,14 +45,17 @@ export interface OptionLook {
   readonly optionProduct: boolean
 }
 
-/** 옵션 방송 메시지의 표시: 주문은 서버 optionOrders, 확인 필요는 review, 언급은 번호 언급 또는 이 방송 상품의 이름·별칭이 들어간 글 */
-export function optionLook(message: ChatMessage, products: readonly Pick<Product, 'no' | 'name' | 'aliases' | 'hasOptions'>[]): OptionLook | null {
+/**
+ * 옵션 방송 메시지의 표시: 주문은 서버 optionOrders, 확인 필요는 review, 언급은 서버가 준 mentions(번호 언급과 상품 이름·별칭 언급).
+ * SRV1 (D-APP-23, 약속 5): 채팅 글에서 상품 이름을 찾는 일은 서버가 한다 — 화면은 서버가 언급으로 주지 않은 글을 언급으로 바꾸지 않는다.
+ */
+export function optionLook(message: ChatMessage, products: readonly Pick<Product, 'no' | 'hasOptions'>[]): OptionLook | null {
   if (message.optionOrders === undefined) return null
   const orders = message.optionOrders.map((order) => `${CHAT_WORD.order} ${String(order.no)}번${order.variant === null ? '' : ` ${order.variant}`}${order.qty > 1 ? ` ×${String(order.qty)}` : ''}`)
   const review = message.review == null ? null : `${CHAT_REVIEW_WORD} · ${REVIEW_REASON_WORD[message.review.reason]}`
-  const text = compareChars(message.text)
-  const named = products.filter((product) => message.mentions.includes(product.no) || [product.name, ...product.aliases].some((word) => compareChars(word).length >= 2 && text.includes(compareChars(word))))
-  const mention = orders.length === 0 && review === null && !message.cancel && !message.ignored && (message.mentions.length > 0 || named.length > 0)
+  const nameMentions = message.nameMentions ?? []
+  const named = products.filter((product) => message.mentions.includes(product.no) || nameMentions.includes(product.no))
+  const mention = orders.length === 0 && review === null && !message.cancel && !message.ignored && (message.mentions.length > 0 || nameMentions.length > 0)
   return { orders, review, mention, optionProduct: named.some((product) => product.hasOptions) || (message.review != null) }
 }
 
@@ -71,10 +78,11 @@ export function highlightMentions(text: string, mentions: readonly number[]): Re
   })
 }
 
-export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null, onReview, platformTags = false }: ChatPanelProps) {
+export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null, onReview, platformTags = false, top = null }: ChatPanelProps) {
   const api = useConsoleApi()
   // 찜 낱말 "보류" / "보류 · 시간 지남"은 다른 화면과 같은 판단 (D-MOB2-15)
   const pendingNow = usePendingNow(api.data)
+  const badgeOf = useBadgeOf() // KP1
   const list = useRef<HTMLOListElement>(null)
   const atBottom = useRef(true)
   const lastSeq = useRef(0)
@@ -134,6 +142,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
   return (
     <section className="chat card" aria-label="채팅">
       <h2 className="section-title">채팅</h2>
+      {top}
       {older ? (
         <button type="button" className="button" disabled={loadingOlder} onClick={onLoadOlder}>
           {loadingOlder ? '불러오는 중…' : '이전 메시지 보기'}
@@ -160,6 +169,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
             look={looks.get(message.id) ?? null}
             onReview={onReview}
             platformTag={platformTags}
+            badge={message.owner ? undefined : badgeOf(message.channel)}
           />
         ))}
       </ol>
@@ -220,10 +230,12 @@ interface ChatRowProps {
   readonly onReview: ((id: string) => void) | undefined
   /** 플랫폼 글자를 붙인다 */
   readonly platformTag: boolean
+  /** KP1 손님 꼬리표 (없으면 undefined) */
+  readonly badge?: CustomerBadge | undefined
 }
 
 const ChatRow = memo(
-  function ChatRow({ message, claimText, already, open, onToggle, note, onConvert, look, onReview, platformTag }: ChatRowProps) {
+  function ChatRow({ message, claimText, already, open, onToggle, note, onConvert, look, onReview, platformTag, badge }: ChatRowProps) {
   const [focused, setFocused] = useState(false)
   const [hovered, setHovered] = useState(false)
   // 누름(마우스·터치)으로 생긴 초점은 키보드 초점으로 치지 않는다 — 다시 누르면 접혀야 한다 (AC-UX2-03)
@@ -308,6 +320,7 @@ const ChatRow = memo(
         {platformTag ? <span className={`tag tag-platform tag-platform-${platformOfKey(message.channel).toLowerCase()}`}>{PLATFORM_WORD[platformOfKey(message.channel)]}</span> : null}
         {platformTag ? ' ' : null}
         <strong className="chat-nick">{message.nick}</strong>
+        {badge !== undefined ? <> <ChatBadgeMark badge={badge} /></> : null}
         {message.owner ? <span className="tag tag-owner">{CHAT_WORD.owner}</span> : null}
         {look !== null
           ? look.orders.map((word, index) => (

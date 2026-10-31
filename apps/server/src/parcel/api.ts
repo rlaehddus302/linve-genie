@@ -114,6 +114,23 @@ export function registerParcelRoutes(api: Hono<Env>, parcels: ParcelService, db:
     if (!date.ok) return date.response
     return json(c, await parcels.confirm(sellerOf(c), accountOf(c), date.date, requestId, buyer.buyer, updatedAt), (bundle) => ({ bundle }))
   })
+  // KP1 장부 배송지 확인 (CR-4): { requestId, buyer, ledgerId, updatedAt(묶음 자세히의 ledger.updatedAt 그대로) }
+  api.post('/parcels/days/:date/address/ledger', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'buyer', 'ledgerId', 'updatedAt'])
+    if (extra !== null) return extra
+    const buyer = buyerOf(own(input, 'buyer'))
+    if (!buyer.ok) return buyer.response
+    const ledgerId = own(input, 'ledgerId')
+    if (typeof ledgerId !== 'string' || !/^[0-9a-f]{32}$/.test(ledgerId)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'ledgerId', message: '지난 주문 배송지를 다시 열어 주세요.' }])
+    const updatedAt = own(input, 'updatedAt')
+    if (typeof updatedAt !== 'string' || updatedAt.length > 40) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'updatedAt', message: '본 배송지의 고친 시각을 보내 주세요.' }])
+    const date = await dateOf(c, true)
+    if (!date.ok) return date.response
+    return json(c, await parcels.confirmFromLedger(sellerOf(c), accountOf(c), date.date, requestId, buyer.buyer, ledgerId, updatedAt), (bundle) => ({ bundle }))
+  })
   // 배송지 지우기: { requestId, buyer }
   api.post('/parcels/days/:date/address/delete', async (c) => {
     const input = body(c)

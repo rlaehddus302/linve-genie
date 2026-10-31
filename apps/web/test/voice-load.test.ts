@@ -1,7 +1,8 @@
 // 음성 코드 불러오기 (AC-I4-04·12, D-I4-09, TE-I4-002): 받지 못한 뒤 다시 받을 주소.
+// SRV1 (D-APP-22, AC-SRV1-13): 음성 패키지를 통째로 받는 옛 로더(load.ts)는 없앴다 — 다시 받을 주소 만들기는 retry.ts로 옮겼다.
 import { describe, expect, it } from 'vitest'
 import { VOICE_CHUNK_PLACEHOLDER } from '../src/voice/chunk.ts'
-import { loadVoice, retryAddress } from '../src/voice/load.ts'
+import { retryAddress } from '../src/voice/retry.ts'
 
 const BASE = 'https://app.test/assets/index-abc.js'
 
@@ -21,9 +22,8 @@ describe('음성 조각 다시 받기 주소 (TE-I4-002)', () => {
     expect(retryAddress(1, './src-xyz.js', 'not a url')).toBeNull()
   })
 
-  it('한 번 받으면 같은 모듈을 돌려준다', async () => {
-    const first = await loadVoice()
-    expect(typeof first.createWebSpeechEngine).toBe('function')
-    expect(await loadVoice()).toBe(first)
+  // 옛 기대: "한 번 받으면 같은 음성 모듈(createWebSpeechEngine 포함)을 돌려준다". SRV1부터 기기는 음성 패키지를 받지 않는다(D-APP-22·23) — 로더 파일이 없다.
+  it('기기에는 음성 패키지를 통째로 받는 로더가 없다 (SRV1)', () => {
+    expect(Object.keys(import.meta.glob('../src/voice/load.ts'))).toEqual([])
   })
 })

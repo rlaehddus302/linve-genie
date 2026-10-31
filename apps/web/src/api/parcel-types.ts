@@ -82,8 +82,23 @@ export interface AddressFields {
   readonly memo: string
 }
 
+export type AddressSource = 'BUYER' | 'SELLER' | 'LEDGER'
+
+/** KP1 묶음 자세히의 "지난 주문 배송지" (CR-4 — 판매자에겐 다섯 칸 전부). DOM 없는 타입 검사 설정도 이 파일을 읽으므로 여기 둔다 — lib/ledger.ts가 다시 내보낸다 */
+export interface LedgerPrefill {
+  readonly ledgerId: string
+  /** 장부 줄을 고친 시각 (UTC ISO — 확인 요청에 그대로 보낸다) */
+  readonly updatedAt: string
+  readonly name: string
+  readonly phone: string
+  readonly address: string
+  readonly detail: string
+  readonly zip: string
+}
+
 export interface AddressView extends AddressFields {
-  readonly source: 'BUYER' | 'SELLER'
+  /** LEDGER = 손님이 지난 주문에 저장한 배송지를 판매자가 확인함 (UX-KP1-004 — 서버 값 이름은 가정, 모르는 값은 SELLER 문구) */
+  readonly source: AddressSource
   readonly confirmed: boolean
   /** 고친 시각 (UTC ISO — 배송지 확인 요청에 그대로 보낸다) */
   readonly updatedAt: string
@@ -98,6 +113,8 @@ export interface BundleView {
   /** 보관 기간(날짜 + 30일)이 지났다 */
   readonly expired: boolean
   readonly row: ParcelRow
+  /** KP1 장부 연락처 "확인 전" (CR-4 — 보일 때만, 리허설·봉인 날짜는 null. 옛 서버엔 없다) */
+  readonly ledger?: LedgerPrefill | null
 }
 
 export type BookResult =

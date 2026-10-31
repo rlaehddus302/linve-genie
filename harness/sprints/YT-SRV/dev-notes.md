@@ -35,5 +35,25 @@ YT-11(서버가 유튜브 채팅 읽기, D-YT-SRV-01~12) 서버 몫. 스펙 `ori
 - 수집 상태: `RETRYING` + `reason` `BLOCKED`·`FORMAT`은 **바로** 경고(10초 기다리지 않음), `STOPPED` + `OPERATOR_OFF`(다시 시작 버튼 없음 — `restartable: false`). 다시 `LIVE`가 되면 "유튜브 채팅을 다시 받고 있어요. 막힌 동안 손으로 넣은 주문과 겹치지 않는지 봐 주세요."는 화면이 상태 전환으로 띄운다(서버에 저장한 표시는 없다).
 
 ## 시험 쪽(test-domain·test-e2e)에게
-- 가짜 유튜브 웹 서버: `FakeYoutubeWeb`(같은 프로세스 메서드 조작만 — E2E용 `/_fake/*` JSON 조작 경로는 아직 없다). 서버 설정은 `youtube.webChat = { on: true, baseUrl: fake.url }` + `allowInsecure: true`.
-- 적대·E2E 하네스는 아직 공식 읽기 길(webChat 없음)이다 — 옮기면 D-YT-SRV-10의 "구글 연결과 무관" 단언이 적대 시험에서도 돈다.
+- 가짜 유튜브 웹 서버: `FakeYoutubeWeb`. 서버 설정은 `youtube.webChat = { on: true, baseUrl: fake.url }` + `allowInsecure: true`. `@livejjim/server`에서 `FakeYoutubeWeb`·`FakeWeb*` 타입을 가져올 수 있다.
+- 다리 `bridgeFakeWeb(fakeGoogle, fakeWeb)` (`apps/server/src/youtube/fake-web-bridge.ts`, `@livejjim/server`에서 내보냄): 가짜 구글의 방송(같은 영상·채널 ID·채널 이름·제목·상태)과 채팅 줄(같은 메시지 ID·작성자·이름·게시 시각 — 시청자 글·슈퍼챗·멤버십·스티커·주인 글·우리 insert, 삭제 → 지움, 차단 → 작성자 글 모두 지움)을 넣은 순서대로 웹에 비춘다. 그래서 `fake.addMessage(liveChatId, …)`로 넣은 채팅을 WEB 수집기가 같은 ID로 받는다. 방송 객체를 직접 고쳤으면 `bridge.sync()`. 웹 영상은 `bridge.video(videoId)`.
+- E2E 서버(`startE2eServer({ youtube })`, `--youtube fake`)는 기본이 웹 읽기다(가짜 유튜브 웹 + 다리). 웹 조작은 가짜 구글과 같은 포트의 `/_fake/web/*`: `POST fail {endpoint:'watch'|'chatPage'|'poll'|'channelLive', fault:{status}|{kind:'bot'|'shape'|'empty'|'hang'|'reset'|'cut'}, times}`, `GET state`(→ `{url, calls}`, `?videoId=`면 `video`), `POST options {timeoutMs, backlogSize}`, `POST video {videoId, state, topChatOnly}`(웹만의 상태 — 비공개 등), `POST messages {videoId, …}`(웹만의 줄). 가짜 구글 `/_fake/fail` `liveChatMessages.streamList`를 주던 시험은 `/_fake/web/fail` `endpoint: 'poll'`로. 옛 공식 읽기는 `youtube.chat: 'official'`(`--youtube-chat official`).
+- **주의**: 웹 잇기는 공식 채팅 ID를 비워 두므로(위 2번) 웹 읽기 길에선 공식 `liveChatMessages.insert` 감사가 올라가지 않는다. 감사 게시를 단언하는 시험은 (감사만 공식 API가 합쳐지기 전 기준) `chat: 'official'`이어야 한다(`apps/server/test/youtube-fake.test.ts` AC-Y1-81이 그렇게 바뀜).
+- 적대 하네스(`tests/adversarial/y1`)는 아직 공식 읽기 길(webChat 없음)이다 — 옮기면 D-YT-SRV-10의 "구글 연결과 무관" 단언이 적대 시험에서도 돈다.
+
+## 감사만 공식 API (D-YT-SRV-13·15·16·17, SPEC v0.1.73) — dev-server
+- 위 "스펙과 다르거나…" 1·2번은 D-YT-SRV-16·15로 정해져 고쳤다: 서버 잇기는 구글 연결이 없으면 글 올리는 계정(`youtube_links.channel_id`)을 **비운다(null)** — 마이그레이션 0030이 NOT NULL을 풀었다(옛 기록 그대로). 공식 채팅 ID(`live_chat_id`)는 빈 글 그대로.
+- 발송함 `#prepare`(게시 검사 뒤·올리기 바로 전, 행은 WAITING): 글 올리는 계정이 비면 그때 연결한 채널을 적고(비어 있을 때만), 실시간 채팅이고 채팅 ID가 비면 글 올리는 계정 토큰으로 `videos.list(part=liveStreamingDetails)` 한 번 → 비어 있을 때만 저장. 실패: 연결·시간 초과·5xx·429·속도 제한 → RETRY(2·4·8·16·32초, 넘으면 GAVE_UP), 토큰 못 씀 → RECONNECT, quotaExceeded → QUOTA(멈춤 표시), 권한 → NO_PERMISSION, 채널 다름 → NOT_MY_CHANNEL, 영상·activeLiveChatId 없음·그 밖의 거절 → REJECTED(저장 없음). 채팅 끝을 적지 않는다. 로그 코드는 기존 `YOUTUBE_API_FAILED`.
+- 실시간 채팅 게시 확인: `liveChatMessages.list`를 부르지 않는다. 수집기가 그 회차에서 본 우리 글(`youtube_own_messages.link_id` = 회차, `author_channel_id` = 글 올리는 계정 또는 옛 행 null)로만 짝짓고, 확인 시간이 끝나면 UNCONFIRMED(다시 게시 없음). 같은 글을 게시하는 다른 묶음 때문에 미루면 10초 간격 3번까지. 영상·요약 댓글 확인 조회는 그대로.
+- 우리 감사 거르기(수집기·확장 읽기): 작성자가 글 올리는 계정(있으면) 또는 방송 채널. 초대 방송 판단은 글 올리는 계정이 있을 때만. 확장 감사의 기대 채널은 이은 기록의 방송 채널.
+- 바꾼 기존 시험(스펙 변경 D-YT-SRV-17 "기존 Y1·I3 확인 조회 시험은 실시간 채팅 몫을 이 규칙으로"): `test/youtube-outbox.test.ts`(AC-Y1-36 (가)(나)(마), AC-Y1-31 확인 중 동의 끔), `test/youtube-followup.test.ts`(AC-Y1-93 (가)~(라), AC-Y1-96 (가)(라)(바)), `test/youtube-i3-followup.test.ts`(AC-I3-86 (가)(나)·(라) 도우미 인자, RA-I3-001 회귀 둘, AC-I3-87 LIVE_CHAT 지연 둘 → 조회 0·UNCONFIRMED 하나). 실시간 채팅에서 "못 찾음 → 다시 게시"였던 기대는 UNCONFIRMED·게시 1번으로, 조회 횟수 기대는 0으로. 새 시험 `test/youtube-web-thanks.test.ts`.
+- 화면(dev-web)에게: `GET/POST /api/broadcasts/:id/youtube`의 `link.channelId`가 **null**일 수 있다(연결 없이 이음). `invited`는 서버 판단을 쓰면 된다.
+- 시험 쪽에게: `tests/adversarial/y1`·`tests/e2e/i3/youtube.spec.ts` 중 실시간 채팅 확인 조회(`liveChatMessages.list`)·확인 실패 뒤 다시 게시를 기대하는 것은 D-YT-SRV-17로 바뀐다(남의 몫 — 고치지 않았다).
+
+## 초대 방송 감사 묶음 창 하한 60초 (CH-17, D-YT-SRV-18 AUTO) — dev-server
+- 실시간 채팅 감사 창 = `liveChatWindowSec(설정, 할당량 모드, 초대 방송)`(`apps/server/src/youtube/outbox.ts`, 순수 함수): 설정 `thanks.batchWindowSec`, 할당량 묶음 모드면 ≥ `BATCH_MODE_WINDOW_SEC`(60), 초대 방송이면 ≥ `INVITED_WINDOW_SEC`(60). 겹쳐도 60. 판매자 설정 값은 바꾸지 않는다. 기다림 이유는 기존 `WINDOW`.
+- 초대 방송 판단: 행을 처음 볼 때(`#intake`) 그 회차의 가장 최근 이은 기록(`latestLink`)에 `isInvitedLink` — 글 올리는 계정이 비면 초대 방송 아님(D-YT-SRV-16). 연결 없이 이은 회차는 첫 게시 때 글 올리는 계정이 적히고, 그 뒤 처음 보는 행부터 60초 창.
+- 그대로: 엔진·판정·효과, 영상 댓글·요약·확장 감사, 200자 분할(한 창의 글이 200자를 넘으면 나눈 메시지는 지금처럼 이어 보낸다 — 창 사이만 60초 이상), 내 방송(0이면 한 건씩).
+- 남는 틈(고치지 않음): 앞 창 묶음이 다시 시도(RETRY)로 늦게 올라가면 다음 창과 60초보다 가까울 수 있다(창은 행이 생긴 시각부터 잰다).
+- 새 시험 `apps/server/test/youtube-invited-window.test.ts`(7). 스펙 변경으로 초대 방송에서 설정 0의 감사를 바로 게시하던 기존 시험은 "60초 창이 닫힌 뒤 한 바퀴 더"를 넣었다(기대값은 그대로): `test/inv1-invited.test.ts` AC-INV1-06 동의 있음·AC-INV1-07 (1)(2)(3)·AC-INV1-10 (2)(3), `test/youtube-web-thanks.test.ts` D-YT-SRV-15 둘째 감사 셋(채팅 ID 늦게 받기·REJECTED·RECONNECT)·D-YT-SRV-16 NOT_MY_CHANNEL.
+- 시험 쪽에게(남의 몫): `tests/adversarial`·`tests/e2e` 중 초대 방송에서 설정 0 감사가 바로 올라가길 기대하는 것은 60초 창을 지나야 한다.

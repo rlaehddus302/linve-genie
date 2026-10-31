@@ -40,7 +40,7 @@ export function PrintProvider({ children }: { readonly children: ReactNode }) {
         store,
         deviceId: id,
         render: (job) => fetchPrintBitmap(job, id),
-        renderTest: () => fetchTestPrintBitmap(),
+        renderTest: (input) => fetchTestPrintBitmap(input.size),
         requestWakeLock: browserWakeLock(),
         today: () => kstToday(),
         exposeTestHandle: (handle) => {

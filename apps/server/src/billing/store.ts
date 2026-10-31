@@ -1,7 +1,7 @@
 // 요금 원장 저장소 (BILLING_RULES BL-0 2·4, BL-INV-5·8, SYS-02). 모든 질의에 판매자 ID 조건을 건다.
 // 이용권·회수·쓴 기록·이용 방식 표에는 넣기만 한다(UPDATE·DELETE 없음 — 시험이 소스를 검사한다).
 // 결제 주문·증빙 요청은 상태 칸만 바꾼다. 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다.
-import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import {
   billingBusiness,
@@ -283,6 +283,39 @@ export async function ordersOf(db: Db, sellerId: string): Promise<OrderRow[]> {
 /** 운영자 목록: 확인 필요 주문·오래 결제 대기인 주문 (모든 판매자) */
 export async function ordersInState(db: Db, state: OrderState): Promise<OrderRow[]> {
   return db.select().from(billingOrders).where(eq(billingOrders.state, state)).orderBy(asc(billingOrders.createdAt))
+}
+
+/**
+ * 자동 재확인 후보: 결제 대기이고 아직 쓸 칸이 남았으며 첫 칸(만든 시각 + firstSlot)이 지난 주문 (모든 판매자 — 또는 그 판매자만).
+ * 칸이 정말 됐는지는 부른 쪽이 recheckDone으로 다시 본다
+ */
+export async function recheckCandidates(db: Db, input: { createdBefore: Date; slots: number; sellerId: string | null }): Promise<OrderRow[]> {
+  const conditions = [eq(billingOrders.state, 'PENDING'), lt(billingOrders.recheckDone, input.slots), lte(billingOrders.createdAt, input.createdBefore)]
+  if (input.sellerId !== null) conditions.push(eq(billingOrders.sellerId, input.sellerId))
+  return db
+    .select()
+    .from(billingOrders)
+    .where(and(...conditions))
+    .orderBy(asc(billingOrders.createdAt), asc(billingOrders.paymentId))
+}
+
+/** 자동 재확인 칸 잡기: 결제 대기이고 쓴 칸 수가 from 그대로일 때만 to로 (잡았는지). 조회 전에 잡는다 — 조회가 실패해도 그 칸은 쓴 것 */
+export async function claimRecheck(db: Db, sellerId: string, paymentId: string, from: number, to: number, now: Date): Promise<boolean> {
+  const rows = await db
+    .update(billingOrders)
+    .set({ recheckDone: to, updatedAt: now })
+    .where(and(eq(billingOrders.sellerId, sellerId), eq(billingOrders.paymentId, paymentId), eq(billingOrders.state, 'PENDING'), eq(billingOrders.recheckDone, from)))
+    .returning({ paymentId: billingOrders.paymentId })
+  return rows.length > 0
+}
+
+/** 운영자 목록: 자동 재확인을 모두 마친 결제 대기 주문 (모든 판매자, BL-6 9) */
+export async function exhaustedPendingOrders(db: Db, slots: number): Promise<OrderRow[]> {
+  return db
+    .select()
+    .from(billingOrders)
+    .where(and(eq(billingOrders.state, 'PENDING'), gte(billingOrders.recheckDone, slots)))
+    .orderBy(asc(billingOrders.createdAt), asc(billingOrders.paymentId))
 }
 
 /** 환불 중 표시가 있는 결제 완료 주문 (그 판매자 — 결제 내역을 열 때 결제 조회로 맞춘다, RA-N5-01) */

@@ -5,6 +5,8 @@
 /** 이상한 스위치 값을 끔으로 봤다는 경고 코드 (log.ts에 같은 코드가 있다) */
 export type TikTokSettingsWarning = 'TIKTOK_BETA_INVALID'
 
+import { readTikTokSignLimit, TIKTOK_SIGN_DAILY_LIMIT_DEFAULT } from './sign-usage.ts'
+
 const HIDDEN = '[가림]'
 const keys = new WeakMap<TikTokSignKey, string>()
 
@@ -34,6 +36,8 @@ export interface TikTokSettings {
   readonly warning: TikTokSettingsWarning | null
   /** 선택 서명 서비스 키 `LIVEJJIM_TIKTOK_SIGN_API_KEY` (다듬어 빈 값이면 없음) */
   readonly signKey: TikTokSignKey | null
+  /** 서명 서비스 하루 요청 한도 `LIVEJJIM_TIKTOK_SIGN_DAILY_LIMIT` (양의 정수, 아니면 기본값 — CH-20) */
+  readonly signDailyLimit: number
 }
 
 /** 환경 변수에서 틱톡 설정을 읽는다. 없음·빈 값·off → 끔, on → 켬, 그 밖 → 끔 + 경고 */
@@ -44,11 +48,11 @@ export function readTikTokSettings(env: Readonly<Record<string, string | undefin
   const warning: TikTokSettingsWarning | null = value === '' || value === 'on' || value === 'off' ? null : 'TIKTOK_BETA_INVALID'
   const key = env['LIVEJJIM_TIKTOK_SIGN_API_KEY']
   const trimmedKey = typeof key === 'string' ? key.trim() : ''
-  return Object.freeze({ beta, warning, signKey: trimmedKey === '' ? null : signKeyOf(trimmedKey) })
+  return Object.freeze({ beta, warning, signKey: trimmedKey === '' ? null : signKeyOf(trimmedKey), signDailyLimit: readTikTokSignLimit(env['LIVEJJIM_TIKTOK_SIGN_DAILY_LIMIT']) })
 }
 
 /** 켜지 않은 설정 (연결 객체의 기본값) */
-export const TIKTOK_SETTINGS_OFF: TikTokSettings = Object.freeze({ beta: false, warning: null, signKey: null })
+export const TIKTOK_SETTINGS_OFF: TikTokSettings = Object.freeze({ beta: false, warning: null, signKey: null, signDailyLimit: TIKTOK_SIGN_DAILY_LIMIT_DEFAULT })
 
 /**
  * 라이브러리 생성자에 넘기는 옵션 (허용 목록 — AC-N2b-1-03). 그 밖의 키는 넘기지 않는다:

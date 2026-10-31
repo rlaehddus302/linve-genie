@@ -538,24 +538,31 @@ export async function realScopes(db: Db, sellerId: string): Promise<ScopeRow[]> 
   return rows
 }
 
+/** 재료 읽기 방식 — quiet: 캐시에 있으면 쓰되 순서를 바꾸지 않고, 없으면 세워 쓰고 캐시에 넣지 않는다 (정리 작업이 방송 중 판매자 재료를 밀어내지 않게, RA-KP1-009) */
+export interface FactsReadOptions {
+  readonly quiet?: boolean
+}
+
 /** 범위 하나의 재료 (캐시). 봉인 장부를 읽을 수 없으면 null */
-export async function factsFor(deps: FactsDeps, sellerId: string, scope: ScopeRow): Promise<DayFacts | null> {
+export async function factsFor(deps: FactsDeps, sellerId: string, scope: ScopeRow, options: FactsReadOptions = {}): Promise<DayFacts | null> {
   const sealed = scope.sealedAt !== null
   const slot = JSON.stringify([sellerId, scope.id])
   const hit = factsCache.get(slot)
   if (hit !== undefined && hit.seq === scope.seq && hit.sealed === sealed) {
-    rememberFacts(slot, hit)
+    if (options.quiet !== true) rememberFacts(slot, hit)
     return hit.facts
   }
   const buildKey = JSON.stringify([sellerId, scope.id, scope.seq, sealed])
   const building = factsBuilding.get(buildKey)
   if (building !== undefined) return building
+  if (options.quiet === true) return buildFacts(deps, sellerId, scope, sealed, null)
   const promise = buildFacts(deps, sellerId, scope, sealed, slot).finally(() => factsBuilding.delete(buildKey))
   factsBuilding.set(buildKey, promise)
   return promise
 }
 
-async function buildFacts(deps: FactsDeps, sellerId: string, scope: ScopeRow, sealed: boolean, slot: string): Promise<DayFacts | null> {
+/** slot = 캐시 자리 (null이면 캐시에 넣지 않는다 — quiet 읽기) */
+async function buildFacts(deps: FactsDeps, sellerId: string, scope: ScopeRow, sealed: boolean, slot: string | null): Promise<DayFacts | null> {
   let state: EngineState
   let seq = scope.seq
   let ended: ReadonlySet<string> = new Set()
@@ -577,18 +584,26 @@ async function buildFacts(deps: FactsDeps, sellerId: string, scope: ScopeRow, se
   // 봉인 날짜: 봉인 전에 남긴 보관 행을 더한다 (D-CRM1-12 — 봉인한 날짜의 행은 바뀌지 않아 (범위, seq, 봉인) 캐시가 그대로 맞다)
   if (sealed) facts = mergeArchive(facts, await archiveRows(deps.db, sellerId, scope.date, deps.log))
   factsBuilds += 1
+  if (slot === null) return facts
   // 읽은 상태의 seq로 둔다 — 범위 줄의 seq보다 앞서 읽었으면 다음 조회가 다시 세운다
   const current = factsCache.get(slot)
   if (current === undefined || current.seq <= seq) rememberFacts(slot, { seq, sealed, facts, weight: facts.buyers.size + facts.bundles.size })
   return facts
 }
 
-/** 판매자의 모든 실제 날짜 재료 (날짜 순) */
-export async function allFacts(deps: FactsDeps, sellerId: string): Promise<DayFacts[]> {
-  const out: DayFacts[] = []
+/** 판매자의 모든 실제 날짜 재료 (날짜 순). 봉인 장부를 읽지 못한 날은 빠진다 — 그 수는 allFactsCounted로 */
+export async function allFacts(deps: FactsDeps, sellerId: string, options: FactsReadOptions = {}): Promise<DayFacts[]> {
+  return (await allFactsCounted(deps, sellerId, options)).days
+}
+
+/** allFacts + 읽지 못한(null) 날 수 (장부 정리가 그런 판매자를 건너뛴다, RA-KP1-002) */
+export async function allFactsCounted(deps: FactsDeps, sellerId: string, options: FactsReadOptions = {}): Promise<{ days: DayFacts[]; unreadable: number }> {
+  const days: DayFacts[] = []
+  let unreadable = 0
   for (const scope of await realScopes(deps.db, sellerId)) {
-    const facts = await factsFor(deps, sellerId, scope)
-    if (facts !== null) out.push(facts)
+    const facts = await factsFor(deps, sellerId, scope, options)
+    if (facts !== null) days.push(facts)
+    else unreadable += 1
   }
-  return out
+  return { days, unreadable }
 }

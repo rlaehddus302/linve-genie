@@ -1,5 +1,5 @@
 // E2E용 서버 기동 명령 (AC-S05-91): pnpm --filter @livejjim/server e2e [--port 3100 (0이면 빈 포트)] [--origin http://localhost:5173] [--fill yes]
-//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--instagram-port 4300] [--tiktok yes|no] [--band fake|no] [--band-port 4400] [--billing yes|no]
+//   [--fill-products 500] [--fill-chats 10000] [--host-delay-ms 5000] [--chat-speed 1] [--test-printer yes|no] [--youtube fake] [--youtube-port 4100] [--instagram yes|no] [--instagram-port 4300] [--tiktok yes|no] [--band fake|no] [--band-port 4400] [--billing yes|no] [--billing-prices placeholder|final]
 //   [--social fake|no] [--social-port 4500] [--social-providers kakao,naver,google]
 //   [--assist fake|no] [--assist-port 4600] [--assist-daily 20] [--assist-global 500] [--assist-timeout-ms 15000]
 // - --assist fake: 가짜 LLM 서버(Anthropic Messages API 모양)를 127.0.0.1의 --assist-port(기본 0 = 빈 포트)에 함께 띄우고 AI 제안을 가짜 키로 켠다(A1, AC-A1-11).
@@ -15,6 +15,8 @@
 // - --billing: 요금 기능(N5). 기본 no(꺼짐 — 지금과 똑같다). yes면 시험 결제(가짜 결제 서버·가짜 발행기·시험 경로 /api/billing/test/**)와 기본 요금 표(AC-N5-11·40).
 // - --youtube fake: 가짜 구글·유튜브 서버를 127.0.0.1의 --youtube-port(기본 0 = 빈 포트)에 함께 띄우고 서버가 그 주소를 쓴다(AC-Y1-81).
 //   조작은 http://127.0.0.1:<그 포트>/_fake/* (harness/sprints/Y1/dev-notes.md "화면(I3)에게"). 워커(수집기·발송함·봉인)도 돈다.
+//   --youtube-chat web|official: 채팅 읽기 길. 기본 web(운영처럼 서버가 유튜브 웹으로 읽음 — 가짜 유튜브 웹 서버를 함께 띄우고 가짜 구글 방송·채팅을 비춘다,
+//   웹 조작은 같은 포트의 /_fake/web/*, harness/sprints/YT-SRV/dev-notes.md). official은 옛 공식 API 읽기.
 // - I3 시험용 선택 (AC-I3-93, harness/sprints/I3/dev-notes.md "화면에게" 8 — 운영 시작 main에는 없다):
 //   --youtube-quota-budget n(유튜브 할당량 판매자 예산·프로젝트 한도) · --outbox-fast yes(발송함 시간 줄이기) · --web-dir <폴더>(서버가 화면을 같은 출처로 함께 낸다).
 //   시험용 조작 경로 POST /_e2e/sellers · /_e2e/dates · /_e2e/seal (이 서버 주소, JSON).
@@ -48,6 +50,7 @@ const args = parseArgs(process.argv.slice(2), [
   'youtube',
   'youtube-port',
   'youtube-quota-budget',
+  'youtube-chat',
   'outbox-fast',
   'web-dir',
   'instagram',
@@ -57,6 +60,7 @@ const args = parseArgs(process.argv.slice(2), [
   'band-port',
   'backup-dir',
   'billing',
+  'billing-prices',
   'test-deposits',
   'deposit-poll-ms',
   'deposit-refetch-ms',
@@ -98,10 +102,13 @@ const testPrinterFlag = values.get('test-printer')
 const youtubeFlag = values.get('youtube')
 const youtubePort = intArg('youtube-port', 0, 65_535)
 const quotaBudget = intArg('youtube-quota-budget', 1, 1_000_000)
+const youtubeChat = values.get('youtube-chat')
 const outboxFast = values.get('outbox-fast')
 const webDir = values.get('web-dir')
 const instagramFlag = values.get('instagram')
 const billingFlag = values.get('billing')
+// PAY2: 요금 표 — placeholder(기본, 자리 표시) · final(시험용 확정 요금 표 — 공개 요금 안내 /api/pricing이 ready)
+const billingPricesFlag = values.get('billing-prices')
 const instagramPort = intArg('instagram-port', 0, 65_535)
 const tiktokFlag = values.get('tiktok')
 const bandFlag = values.get('band')
@@ -151,16 +158,18 @@ if (
   (fillFlag !== undefined && fillFlag !== 'yes' && fillFlag !== 'no') ||
   (testPrinterFlag !== undefined && testPrinterFlag !== 'yes' && testPrinterFlag !== 'no') ||
   (youtubeFlag !== undefined && youtubeFlag !== 'fake' && youtubeFlag !== 'no') ||
+  (youtubeChat !== undefined && youtubeChat !== 'web' && youtubeChat !== 'official') ||
   (outboxFast !== undefined && outboxFast !== 'yes' && outboxFast !== 'no') ||
   (webDir !== undefined && webDirProblem(webDir) !== null) ||
   (instagramFlag !== undefined && instagramFlag !== 'yes' && instagramFlag !== 'no') ||
   (tiktokFlag !== undefined && tiktokFlag !== 'yes' && tiktokFlag !== 'no') ||
-  (billingFlag !== undefined && billingFlag !== 'yes' && billingFlag !== 'no')
+  (billingFlag !== undefined && billingFlag !== 'yes' && billingFlag !== 'no') ||
+  (billingPricesFlag !== undefined && billingPricesFlag !== 'placeholder' && billingPricesFlag !== 'final')
 ) {
   complain(
     '인자를 확인해 주세요. --port 0~65535, --fill yes|no, --fill-products 1~999, --fill-chats 0~100000, --host-delay-ms 0~5000, --chat-speed 1~1000, --test-printer yes|no, ' +
-      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, --band fake|no, --band-port 0~65535, ' +
-      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --parcel yes|no, --parcel-port 0~65535, --parcel-track-ms 1000~1800000, --social fake|no, --social-port 0~65535, --social-providers google,kakao,naver 중 고른 것, ' +
+      '--youtube fake|no, --youtube-port 0~65535, --youtube-quota-budget 1~1000000, --youtube-chat web|official, --outbox-fast yes|no, --web-dir <index.html이 있는 화면 빌드 폴더>, --instagram yes|no, --tiktok yes|no, --band fake|no, --band-port 0~65535, ' +
+      '--test-deposits yes|no, --deposit-poll-ms 100~300000, --deposit-refetch-ms 0~60000, --billing yes|no, --billing-prices placeholder|final, --parcel yes|no, --parcel-port 0~65535, --parcel-track-ms 1000~1800000, --social fake|no, --social-port 0~65535, --social-providers google,kakao,naver 중 고른 것, ' +
       '--assist fake|no, --assist-port 0~65535, --assist-daily 0~1000000, --assist-global 0~1000000, --assist-timeout-ms 100~60000',
   )
   process.exit(2)
@@ -182,7 +191,7 @@ const e2e = await startE2eServer({
   ...(hostDelay === undefined ? {} : { hostActionDelayMs: hostDelay }),
   ...(chatSpeed === undefined ? {} : { generatorSpeed: chatSpeed }),
   testPrinter: testPrinterFlag !== 'no',
-  ...(youtubeFlag === 'fake' ? { youtube: { ...(youtubePort === undefined ? {} : { port: youtubePort }), ...(quotaBudget === undefined ? {} : { quotaBudget }) } } : {}),
+  ...(youtubeFlag === 'fake' ? { youtube: { ...(youtubePort === undefined ? {} : { port: youtubePort }), ...(quotaBudget === undefined ? {} : { quotaBudget }), chat: youtubeChat === 'official' ? 'official' : 'web' } } : {}),
   ...(outboxFast === 'yes' ? { outboxFast: true } : {}),
   ...(webDir === undefined ? {} : { webDir }),
   instagram: instagramFlag === 'yes',
@@ -191,6 +200,7 @@ const e2e = await startE2eServer({
   ...(bandFlag === 'fake' ? { band: bandPort === undefined ? {} : { port: bandPort } } : {}),
   ...(values.get('backup-dir') === undefined ? {} : { backupDir: values.get('backup-dir') as string }),
   billing: billingFlag === 'yes',
+  ...(billingPricesFlag === 'final' ? { billingPrices: 'final' as const } : {}),
   testDeposits: testDepositsFlag !== 'no',
   ...(depositPoll === undefined ? {} : { depositPollMs: depositPoll }),
   ...(depositRefetch === undefined ? {} : { depositRefetchMs: depositRefetch }),
@@ -216,7 +226,7 @@ const e2e = await startE2eServer({
 try {
   const opened = await e2e.listen(port)
   const filled = e2e.fill === null ? '채우기 없음' : `채운 범위 ${e2e.fill.date} · 상품 ${String(e2e.fill.products)} · 채팅 ${String(e2e.fill.chats)}`
-  const youtube = e2e.fakeGoogle === null ? '' : ` · 가짜 유튜브 ${e2e.fakeGoogle.url}`
+  const youtube = e2e.fakeGoogle === null ? '' : ` · 가짜 유튜브 ${e2e.fakeGoogle.url}${e2e.fakeWeb === null ? '(공식 읽기)' : `(웹 읽기 ${e2e.fakeWeb.url}, 조작 /_fake/web/*)`}`
   const meta =
     (e2e.fakeMeta === null ? '' : ` · 가짜 메타 ${e2e.fakeMeta.url}`) +
     (e2e.fakeWebcast === null ? '' : ' · 가짜 틱톡(/_e2e/tiktok/*)') +

@@ -1,8 +1,17 @@
 // Y1 적대 테스트 공용 도구 (test-domain). 가짜 구글·유튜브 서버(127.0.0.1) + 주입한 시계(ManualTimer) + 서버(PGlite 메모리).
 // 실제 구글 주소로 나가는 요청은 막는다(installGoogleBlock). 워커(수집기·발송함·봉인)는 시험이 직접 돌린다.
+// 채팅 읽기 길 두 가지 (CH-26, D-YT-SRV-10):
+// - world() / world({ chat: 'official' }): 옛 공식 읽기(STREAM·POLL — 서버 설정에 youtube.webChat 없음). 수집기를 돌리지 않는 감사 게시 시험은 이 길이다.
+//   웹 잇기 회차도 감사를 처음 올릴 때 videos.list로 채팅 ID를 받아 올린다(D-YT-SRV-15) — 수집기가 본 우리 글로 확인하는 시험(D-YT-SRV-17)은 웹 길로 써도 된다.
+// - world({ chat: 'web' }): 운영과 같은 서버 웹 읽기(수집기 방식 WEB). 가짜 유튜브 웹(127.0.0.1)을 띄우고 bridgeFakeWeb으로 가짜 구글의 방송·채팅·지움·차단을
+//   같은 ID로 비춘다 — fake.addMessage(liveChatId, …)로 넣은 채팅을 WEB 수집기가 같은 ID로 받는다. sibling 서버도 같은 설정이다.
+//   close()에서 이 world가 사는 동안 실제 구글·유튜브 주소로 나가려다 막힌 요청이 하나라도 있었으면 실패한다(가짜 웹 주소가 127.0.0.1인지도 본다).
 import {
   FakeGoogle,
+  FakeYoutubeWeb,
   ManualTimer,
+  blockedRequests,
+  bridgeFakeWeb,
   createSellerAccount,
   createServer,
   generateMasterKey,
@@ -11,6 +20,7 @@ import {
   settle,
   type Database,
   type FakeChannel,
+  type FakeWebBridge,
   type LivejjimServer,
   type LogRecord,
   type ServerOptions,
@@ -31,6 +41,12 @@ export interface World {
   readonly database: Database
   readonly masterKey: string
   readonly fake: FakeGoogle
+  /** 채팅 읽기 길 */
+  readonly chat: 'official' | 'web'
+  /** 가짜 유튜브 웹 (chat: 'web'일 때만) */
+  readonly web: FakeYoutubeWeb | null
+  /** 가짜 구글 → 가짜 유튜브 웹 다리 (chat: 'web'일 때만) */
+  readonly bridge: FakeWebBridge | null
   readonly timer: ManualTimer
   readonly logs: LogRecord[]
   server: LivejjimServer
@@ -38,9 +54,14 @@ export interface World {
   close(): Promise<void>
 }
 
-export async function world(options: { start?: number; extra?: Partial<ServerOptions> } = {}): Promise<World> {
+export async function world(options: { start?: number; extra?: Partial<ServerOptions>; chat?: 'official' | 'web' } = {}): Promise<World> {
   const timer = new ManualTimer(options.start ?? EIGHT_PM)
+  const blockedAtStart = blockedRequests.count
   const fake = await FakeGoogle.start({ now: () => timer.now(), pollingIntervalMillis: 1000 })
+  const chatPath = options.chat ?? 'official'
+  const web = chatPath === 'web' ? await FakeYoutubeWeb.start({ now: () => timer.now() }) : null
+  if (web !== null && new URL(web.url).hostname !== '127.0.0.1') throw new Error(`가짜 유튜브 웹이 127.0.0.1이 아니다: ${web.url}`)
+  const bridge = web === null ? null : bridgeFakeWeb(fake, web)
   const database = await openPglite()
   const masterKey = generateMasterKey()
   const logs: LogRecord[] = []
@@ -63,6 +84,7 @@ export async function world(options: { start?: number; extra?: Partial<ServerOpt
         returnUrl: RETURN_URL,
         endpoints: fake.endpoints(),
         allowInsecure: true,
+        ...(web === null ? {} : { webChat: { on: true, baseUrl: web.url } }),
       },
       ...options.extra,
       ...extra,
@@ -74,6 +96,9 @@ export async function world(options: { start?: number; extra?: Partial<ServerOpt
     database,
     masterKey,
     fake,
+    chat: chatPath,
+    web,
+    bridge,
     timer,
     logs,
     server: make('A'),
@@ -83,8 +108,12 @@ export async function world(options: { start?: number; extra?: Partial<ServerOpt
         s.close()
         await s.stop().catch(() => {})
       }
+      bridge?.close()
+      await web?.close()
       await fake.close()
       await database.close()
+      // 실제 구글·유튜브 주소로 나가려던 요청 (installGoogleBlock이 막은 수) — 웹 읽기 길이 가짜 웹 대신 실제 주소로 새면 여기서 드러난다
+      if (blockedRequests.count !== blockedAtStart) throw new Error(`실제 구글·유튜브 주소로 나가려던 요청 ${String(blockedRequests.count - blockedAtStart)}건`)
     },
   }
   return w
@@ -292,4 +321,24 @@ export async function dumpText(w: World): Promise<string> {
   let out = ''
   for (const { table_name } of tables) out += JSON.stringify(await query(w, `select * from "${table_name}"`))
   return out
+}
+
+/** 가짜 유튜브 웹 엔드포인트별 부른 수 (chat: 'web'일 때만) */
+export function webCalls(w: World, endpoint: 'watch' | 'chatPage' | 'poll' | 'channelLive'): number {
+  if (w.web === null) throw new Error('웹 읽기 길 world가 아니다')
+  return w.web.calls(endpoint)
+}
+
+/** 기록된 chat 이벤트의 메시지 ID (접수 순서) */
+export async function recordedChatIds(w: World): Promise<string[]> {
+  return (await query<{ id: string }>(w, `select body::jsonb->>'id' as id from events where type = 'chat' order by seq`)).map((row) => row.id)
+}
+
+/** 시계를 step씩 옮기며 실제 I/O가 돌 틈을 준다 */
+export async function pass(w: World, ms: number, step = 500): Promise<void> {
+  for (let done = 0; done < ms; done += step) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    await w.timer.advance(Math.min(step, ms - done))
+  }
+  await new Promise((resolve) => setTimeout(resolve, 10))
 }

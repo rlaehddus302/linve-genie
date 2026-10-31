@@ -78,7 +78,7 @@ public func zlibWindowBits(_ stream: [UInt8]) -> Int? {
 /// 끝까지 받은 Marklife 작업 → 그림
 public func decodeMarklifeJob(_ p: MarklifeProtocol, _ bytes: [UInt8]) throws -> (bitmap: Bitmap, windowBits: Int?) {
     func at(_ i: Int) -> Int { i < bytes.count ? Int(bytes[i]) : 0 }
-    if p == .l11 {
+    if p.rawRaster {
         let head = 19
         guard bytes.count >= head + 8, at(head) == 0x1D, at(head + 1) == 0x76, at(head + 2) == 0x30, at(head + 3) == 0x00 else {
             throw RasterError.badHeader("1D 76 30 00이 아니다")

@@ -65,8 +65,9 @@ async function attachSizes() {
 
 const AUTO_NOTE = "연결이 돌아오면 저절로 다시 보내요. 바로 보내려면 '다시 보내기'를 눌러도 돼요."
 
-/** 이 줄의 등록 요청들 (같은 요청 번호인지 본다) */
-const registerPosts = (no: number) => engine.server.callsTo('POST', /^\/api\/events/).filter((call) => call.body?.type === 'product.register' && call.body.no === no)
+/** 이 줄의 등록 요청들 (같은 요청 번호인지 본다). SRV1(D-APP-24): 빠른 입력 등록 본문은 친 원문(text)이라 그 줄의 번호로 고른다 — 옛 기대는 본문 no */
+const registerPosts = (no: number) =>
+  engine.server.callsTo('POST', /^\/api\/events/).filter((call) => call.body?.type === 'product.register' && (call.body.no === no || (typeof call.body.text === 'string' && call.body.text.startsWith(`${String(no)} `))))
 
 /** 끊긴 채 등록 → 실패 줄 (D-MOB2-16 (2) 문장) */
 async function failWhileDown(quick: HTMLInputElement, line: string) {

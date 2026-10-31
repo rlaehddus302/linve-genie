@@ -600,7 +600,7 @@ describe('한 번에 하나, 다시 보내지 않음 (AC-QS1-23)', () => {
     // 끊김 한 번, 이어짐 한 번
     expect(states.slice(before - 1)).toEqual([
       { deviceId: ME, connected: false },
-      { deviceId: ME, connected: true },
+      { deviceId: ME, connected: true, profileId: 'NIIMBOT_B1' },
     ])
     expect(printer.pickerCount).toBe(1)
     expect(printer.rememberedAttempts).toBe(1)

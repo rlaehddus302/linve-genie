@@ -129,6 +129,8 @@ describe('AC-Y1-61 봉인', () => {
     expect(dump).not.toContain('지울 말')
     expect(dump).not.toContain('구경만한사람')
     expect(dump).not.toContain('대기만한사람')
+    expect(dump).not.toContain('UClooker') // CH-12: 구경만 한 시청자의 채널 ID도 지운다
+    expect(dump).not.toContain('UCwaiter')
     expect(dump).toContain('산사람') // 산 사람은 장부에 남는다
     for (const table of ['chat_raw', 'snapshots', 'youtube_notices', 'youtube_own_messages']) {
       const count = await w.database.pglite?.query<{ n: number }>(`select count(*)::int as n from ${table} t join scopes s on s.id = t.scope_id where s.date = '${DAY}' and s.rehearsal = false`)

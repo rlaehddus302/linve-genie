@@ -3,7 +3,7 @@
 // 음성을 켤 때만 부른다(켜기 전에는 이력 조회 0번). 하나라도 받지 못하면 실패다 — 콘솔은 지금 범위 + 기본 사전으로 계속한다.
 import { get, isApiError } from '../api/client.ts'
 import { pickHistoryDays, type DayRef } from '../lib/voice.ts'
-import type { PastDay } from './controller.ts'
+import type { PastDay } from './model.ts'
 
 export async function fetchPastNames(current: { readonly date: string; readonly rehearsal: boolean }): Promise<PastDay[]> {
   const list = await get<{ days?: readonly DayRef[] }>('/api/days')

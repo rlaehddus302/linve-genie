@@ -4,8 +4,8 @@
 // 웹 Marklife 어댑터에는 기억이 없다 — 앱은 마지막으로 이은 기기를 기억하고, 기억한 기기로는 고르기 창 없이 잇는다
 // (RememberingPrinterAdapter: connect = 늘 고르기 창, reconnect = 기억한 기기가 있으면 그것(실패하면 기억을 지움), connectRemembered = 기억한 기기로만).
 import {
+  LABEL_PROFILES,
   MARKLIFE_MESSAGES,
-  MARKLIFE_PROFILES,
   RememberBox,
   createMarklifeAdapter,
   printerErrorWithMessage,
@@ -23,7 +23,7 @@ import type { BleDeviceInfo, BleRadioState, BleTransport } from './transport.ts'
 export interface NativeMarklifeAdapterOptions {
   readonly transport: BleTransport
   readonly pickDevice: DevicePicker
-  /** 켤 프로필 (기본: Marklife 9종 — 바우아토는 EXPERIMENTAL_PROFILES를 일부러 넘길 때만) */
+  /** 켤 프로필 (기본: LABEL_PROFILES — Marklife 9종 + 바우아토, D-PRN2-01) */
   readonly profiles?: readonly ModelProfile[]
   readonly timer?: PrinterTimer
   readonly printTimeoutMs?: number
@@ -44,14 +44,14 @@ export interface NativeMarklifeAdapter extends RememberingPrinterAdapter {
 }
 
 /** 이름이 켠 프로필의 앞자리로 시작하는지 — L-12 3 그대로(대소문자를 가린다). 목록과 연결이 같은 판단을 쓴다 */
-export function matchesMarklifeName(name: string | null, profiles: readonly ModelProfile[] = MARKLIFE_PROFILES): boolean {
+export function matchesMarklifeName(name: string | null, profiles: readonly ModelProfile[] = LABEL_PROFILES): boolean {
   return profileForDeviceName(name, profiles) !== undefined
 }
 
 export function createNativeMarklifeAdapter(options: NativeMarklifeAdapterOptions): NativeMarklifeAdapter {
   const { transport, pickDevice } = options
   if (typeof transport?.connect !== 'function' || typeof pickDevice !== 'function') throw new TypeError('BLE 전송과 고르기 창이 필요하다')
-  const profiles = [...(options.profiles ?? MARKLIFE_PROFILES)]
+  const profiles = [...(options.profiles ?? LABEL_PROFILES)]
   let radio: BleRadioState = 'unknown'
   void transport.state().then(
     (state) => {

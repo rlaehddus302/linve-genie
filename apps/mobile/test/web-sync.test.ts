@@ -6,6 +6,8 @@ import * as webDerive from '@livejjim/web/src/lib/derive.ts'
 import * as webScope from '@livejjim/web/src/lib/scope-data.ts'
 import * as webQuick from '@livejjim/web/src/lib/quick.ts'
 import * as webPacking from '@livejjim/web/src/lib/packing.ts'
+import * as webYoutube from '@livejjim/web/src/lib/youtube.ts'
+import { SERVER_ROUTE } from '@livejjim/web/src/lib/extension.ts'
 import { PRINT_ACTION as WEB_PRINT_ACTION, PRINT_ALERT_WORD as WEB_PRINT_ALERT_WORD } from '@livejjim/web/src/lib/print-words.ts'
 import { CONNECTION_STATE_NAMES } from '@livejjim/printer'
 import { DEFAULT_SETTINGS } from '@livejjim/core'
@@ -15,6 +17,9 @@ import * as derive from '../src/lib/derive.ts'
 import * as scope from '../src/lib/scope-data.ts'
 import * as quick from '../src/lib/quick.ts'
 import * as packing from '../src/lib/packing.ts'
+import * as youtube from '../src/lib/youtube.ts'
+import { readText } from '../../../packages/voice-session/src/read/index.ts'
+import type { Product } from '@livejjim/web/src/api/types.ts'
 import { buyer, changes, claim, fullView, product } from './support.ts'
 
 describe('낱말 표가 웹과 같다', () => {
@@ -80,27 +85,86 @@ describe('고르기 규칙이 웹과 같다', () => {
   })
 })
 
-describe('빠른 입력 읽기가 웹과 같다', () => {
-  const settings = quick.quickSettings(DEFAULT_SETTINGS)
-  const webSettings = webQuick.quickSettings(DEFAULT_SETTINGS)
-  const find = () => undefined
+// SRV1 (D-APP-23·24): 줄 읽기는 서버 한 곳(packages/voice-session/src/read)이다. 옛 기대는 "앱·웹이 각자 읽은 결과가 같다"였고,
+// 새 기대는 "서버가 읽은 같은 결과(서버 읽기 입구 kind quick)로 앱·웹이 같은 할 일·같은 문장을 정한다"이다 (견주는 줄·단언은 그대로).
+describe('빠른 입력 할 일이 웹과 같다 (서버가 읽은 결과로)', () => {
+  const settings = { 'price.unit': DEFAULT_SETTINGS['price.unit'], 'claim.maxNumber': DEFAULT_SETTINGS['claim.maxNumber'] }
+  const find = (): Product | undefined => undefined
+  /** 서버 읽기 입구가 그 방송 상품으로 읽은 결과 */
+  const readQuick = (line: string, findProduct: (no: number) => Product | undefined = find) => {
+    const read = readText('quick', line, {
+      settings,
+      findProduct: (no) => {
+        const found = findProduct(no)
+        return found === undefined ? undefined : { id: found.id, no: found.no, name: found.name, price: found.price, closed: found.status === 'CLOSED' }
+      },
+      now: 0,
+    })
+    if (read.kind !== 'quick') throw new Error('quick')
+    return read
+  }
   it('등록·오류·단위 줄', () => {
     for (const line of ['15 핑크프릴 10000', '15 핑크프릴 2만', '15 10', '핑크프릴 10000', '15 핑크프릴', '15 핑크프릴 50', '1000 핑크 10', '']) {
-      const a = quick.decideQuickInput(line, settings, find)
-      const b = webQuick.decideQuickInput(line, webSettings, find)
+      const reading = readQuick(line)
+      const a = quick.decideQuick(reading, find)
+      const b = webQuick.decisionOf(reading, find)
       expect(a.kind).toBe(b.kind)
       if (a.kind === 'register' && b.kind === 'register') expect([a.no, a.name, a.price]).toEqual([b.no, b.name, b.price])
       if (a.kind === 'fix' && b.kind === 'fix') expect(a.message).toBe(b.message)
     }
     for (const unit of ['WON', 'THOUSAND', 'TEN_THOUSAND', 'AUTO'] as const) expect(quick.unitLine(unit)).toBe(webQuick.unitLine(unit))
-    expect(quick.registerPreview('15 핑크프릴 10', settings, find)).toBe(webQuick.registerPreview('15 핑크프릴 10', webSettings, find))
+    expect(quick.registerPreview(readQuick('15 핑크프릴 10'))).toBe('등록하면: 15번 핑크프릴 10,000원')
+    expect(quick.registerPreview(null)).toBeNull()
     expect(quick.editQuestion(15, true)).toBe(webQuick.editQuestion(15, true))
   })
   it('있는 번호는 고치기, 번호만이면 열기', () => {
     const existing = product(15)
     const findExisting = (no: number) => (no === 15 ? existing : undefined)
-    expect(quick.decideQuickInput('15 핑크 12000', settings, findExisting).kind).toBe('edit')
-    expect(quick.decideQuickInput('15', settings, findExisting).kind).toBe('open')
-    expect(quick.decideQuickInput('15', settings, find).kind).toBe('fix')
+    expect(quick.decideQuick(readQuick('15 핑크 12000', findExisting), findExisting).kind).toBe('edit')
+    expect(quick.decideQuick(readQuick('15', findExisting), findExisting).kind).toBe('open')
+    expect(quick.decideQuick(readQuick('15'), find).kind).toBe('fix')
+  })
+})
+
+describe('유튜브 낱말·판단이 웹과 같다 (YT-11, D-YT-SRV-03·06·07·11)', () => {
+  const view = (patch: Record<string, unknown>) => ({ status: 'LIVE', statusMessage: '채팅을 받는 중', reason: null, reasonMessage: null, mode: 'WEB', lastMessageAt: null, recorded: 0, skippedBeforeLink: 0, gap: false, gapMessage: null, restartable: false, ...patch }) as Parameters<typeof webYoutube.collectorWarning>[0] & object
+
+  it('문장', () => {
+    for (const key of ['NOT_CONFIGURED_MESSAGE', 'WEB_CHAT_OFF_MESSAGE', 'WEB_CHAT_RESUMED', 'STOP_WARNING_PREFIX', 'RETRYING_WARN_MS', 'FIRST_CHANNEL_GROUP', 'RECENT_TITLE', 'RECENT_AGAIN', 'RECENT_EMPTY', 'RECENT_SEARCHING', 'NO_BROADCAST_TITLE', 'NO_CHANNEL_NAME', 'CHANNEL_NAME_MAX', 'INVITED_CONFIRM_CODE'] as const) {
+      expect(youtube[key], key).toEqual(webYoutube[key])
+    }
+    expect(youtube.WEB_TROUBLE_FALLBACK).toEqual(webYoutube.WEB_TROUBLE_FALLBACK)
+    expect([...youtube.WARN_REASONS]).toEqual([...webYoutube.WARN_REASONS])
+    expect(youtube.SERVER_ROUTE_SERVER).toBe(SERVER_ROUTE.SERVER)
+    expect(youtube.firstChannelQuestion('가')).toBe(webYoutube.firstChannelQuestion('가'))
+    expect(youtube.broadcastChannelLine('가')).toBe(webYoutube.broadcastChannelLine('가'))
+    for (const title of ['', '  ', '다육이네', '가'.repeat(41), 3]) expect(youtube.channelName(title)).toBe(webYoutube.channelName(title))
+  })
+
+  it('경고 문장·다시 받음 전환·최근 줄', () => {
+    const views = [
+      view({ status: 'RETRYING', reason: 'BLOCKED', reasonMessage: '막힘' }),
+      view({ status: 'RETRYING', reason: 'FORMAT' }),
+      view({ status: 'STOPPED', reason: 'OPERATOR_OFF' }),
+      view({ status: 'RETRYING', statusMessage: '다시 연결하는 중' }),
+      view({ status: 'STOPPED', reason: 'CHAT_NOT_FOUND', reasonMessage: '채팅을 찾을 수 없어요.' }),
+      view({ status: 'STOPPED', reason: 'UNLINKED' }),
+      view({}),
+      null,
+    ]
+    for (const item of views) {
+      for (const long of [false, true]) expect(youtube.warningLine(item, long)).toBe(webYoutube.collectorWarning(item, long)?.message ?? null)
+      expect(youtube.webChatTrouble(item)).toBe(webYoutube.webChatTrouble(item))
+    }
+    let mine: youtube.ResumeStep = { trouble: false, resumed: false }
+    let theirs: webYoutube.ResumeStep = { trouble: false, resumed: false }
+    for (const item of views) {
+      mine = youtube.resumeStep(mine, item)
+      theirs = webYoutube.resumeStep(theirs, item)
+      expect(mine).toEqual(theirs)
+    }
+    const line = { videoId: 'V', title: '', status: 'LIVE' as const, scheduledStartTime: null, actualStartTime: null, linkedBroadcast: null, channelTitle: null }
+    expect(youtube.recentLine(line)).toBe(webYoutube.recentLine(line))
+    expect(youtube.readModeOf({ webChat: { on: false }, oauth: false })).toEqual(webYoutube.readModeOf({ webChat: { on: false }, oauth: false }))
   })
 })

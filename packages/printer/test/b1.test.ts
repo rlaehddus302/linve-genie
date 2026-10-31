@@ -41,23 +41,27 @@ describe('PrinterAdapter와 프로필 (AC-P1-40)', () => {
     expect([...CONNECTION_STATES]).toEqual(['DISCONNECTED', 'CONNECTING', 'CONNECTED', 'PRINTING'])
   })
 
-  it('B1 프로필: 203dpi·헤드 384점·농도 1~5 기본 3·B1 인쇄 방식·간격 있는 라벨·마지막 줄 +1행, 켜진 프로필은 B1 하나', () => {
+  it('B1 프로필: 203dpi·헤드 384점·농도 1~5 기본 3·B1 인쇄 방식·간격 있는 라벨·마지막 줄 +1행, 켜진 프로필은 B1·B1 SE·B21·D110 (PRN2 D-PRN2-05)', () => {
     expect(B1_PROFILE).toMatchObject({ model: 'B1', dpi: 203, headDots: 384, density: { min: 1, max: 5, default: 3 }, printTask: 'B1', labelType: 'WITH_GAPS', extraBlankRows: 1, printDirection: 'top' })
-    expect(ENABLED_PROFILES.map((p) => p.model)).toEqual(['B1'])
+    // PRN2 D-PRN2-05: N1까지는 B1 하나 — niimbluelib 0.47.1 표 그대로 실험 프로필 세 줄을 더했다
+    expect(ENABLED_PROFILES.map((p) => p.model)).toEqual(['B1', 'B1_SE', 'B21', 'D110'])
+    expect(ENABLED_PROFILES.map((p) => p.experimental)).toEqual([false, true, true, true])
     expect(setup().adapter.profile).toBe(B1_PROFILE)
   })
 
   it('프로필 목록에 모델 하나를 더하는 것만으로 다른 모델을 붙일 수 있다 (시험용 가짜 프로필 — 제품 코드에는 켜지 않는다)', async () => {
-    const TEST_D110: PrinterProfile = { model: 'D110', displayName: '시험용 D110', dpi: 203, headDots: 96, density: { min: 1, max: 3, default: 2 }, printTask: 'D110', labelType: 'WITH_GAPS', printDirection: 'left', extraBlankRows: 0 }
+    // PRN2: D110은 켠 프로필이 되었다(D-PRN2-05) — 시험용 가짜는 표에 없는 모델(D11)로 둔다
+    const TEST_D110: PrinterProfile = { model: 'D11', displayName: '시험용 D11', dpi: 203, headDots: 96, density: { min: 1, max: 3, default: 2 }, printTask: 'D110', labelType: 'WITH_GAPS', printDirection: 'left', extraBlankRows: 0 }
     const client = new FakeNiimbotClient()
-    client.model = 'D110'
+    client.model = 'D11'
     const b1Only = createB1Adapter({ environment: () => BOTH, createClient: () => client })
     expect((await b1Only.connect('bluetooth')).ok).toBe(false)
     const extended = createNiimbotAdapter({ profiles: [B1_PROFILE, TEST_D110], environment: () => BOTH, createClient: () => client })
     expect((await extended.connect('bluetooth')).ok).toBe(true)
     expect(extended.profile).toBe(TEST_D110)
-    // 그 모델의 헤드 점 수·농도·인쇄 방식을 쓴다
-    expect((await extended.print(sampleImage(1, 384, 96))).ok).toBe(false)
+    // 그 모델의 헤드 점 수·농도·인쇄 방식을 쓴다 — left는 돌린 뒤의 폭(받은 그림의 높이)을 헤드와 견준다 (L-7 PRN2)
+    expect(await extended.print(sampleImage(1, 96, 97))).toMatchObject({ ok: false, error: { code: 'IMAGE_TOO_WIDE' } })
+    expect((await extended.print(sampleImage(1, 320, 96))).ok).toBe(true)
     const small = sampleImage(2, 96, 40)
     expect((await extended.print(small)).ok).toBe(true)
     const task = client.tasks.at(-1)
@@ -159,14 +163,15 @@ describe('B1 어댑터 — 기능 감지와 연결 (AC-P1-41)', () => {
     }
   })
 
-  it('연결된 프린터 모델이 B1이 아니면 연결을 끊고 WRONG_MODEL', async () => {
-    for (const model of ['B1_PRO', 'D110', undefined]) {
+  it('연결된 프린터 모델이 켠 프로필(B1·B1 SE·B21·D110)이 아니면 연결을 끊고 WRONG_MODEL — 300dpi B1 Pro·B21 Pro·변형·모름 (AC-PRN2-05)', async () => {
+    for (const model of ['B1_PRO', 'B21_PRO', 'D110_M', 'B21S', undefined]) {
       const client = new FakeNiimbotClient()
       client.model = model
       const { adapter } = setup(BOTH, client)
       const r = await adapter.connect('bluetooth')
       expect(!r.ok && r.error.code).toBe('WRONG_MODEL')
-      expect(!r.ok && r.error.message).toBe('지금은 NIIMBOT B1만 연결할 수 있어요. B1을 골라 주세요.')
+      // 문장이 그림 파일 경로를 알린다 (L-7 표 PRN2)
+      expect(!r.ok && r.error.message).toBe('이 프린터는 바로 출력할 수 없어요. 다른 프린터를 고르거나, 라벨을 그림 파일로 저장해 NIIMBOT 앱에서 인쇄해 주세요.')
       expect(client.disconnectCalls).toBe(1)
       expect(client.connected).toBe(false)
       expect(adapter.state).toBe('DISCONNECTED')
@@ -279,10 +284,10 @@ describe('끊김·오류·시간 초과 (AC-P1-43)', () => {
   it('오류 문장은 L-7 표와 글자까지 같다', () => {
     const TABLE: Record<string, string> = {
       UNSUPPORTED: '이 브라우저에서는 프린터에 바로 연결할 수 없어요. 라벨을 그림 파일로 저장해 NIIMBOT 앱에서 인쇄해 주세요.',
-      NOT_SELECTED: '프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 B1을 골라 주세요.',
+      NOT_SELECTED: '프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 프린터를 골라 주세요.', // PRN2 D-PRN2-05
       BLUETOOTH_OFF: '블루투스가 꺼져 있어요. 블루투스를 켠 뒤 다시 연결해 주세요.',
       PORT_BUSY: 'USB 연결을 다른 프로그램이 쓰고 있어요. NIIMBOT 프로그램을 닫거나 블루투스로 연결해 주세요.',
-      WRONG_MODEL: '지금은 NIIMBOT B1만 연결할 수 있어요. B1을 골라 주세요.',
+      WRONG_MODEL: '이 프린터는 바로 출력할 수 없어요. 다른 프린터를 고르거나, 라벨을 그림 파일로 저장해 NIIMBOT 앱에서 인쇄해 주세요.', // PRN2 D-PRN2-05
       DISCONNECTED: '프린터 연결이 끊겼어요.',
       CONNECT_FAILED: '프린터에 연결하지 못했어요. 아래를 차례로 해 본 뒤 다시 연결해 주세요.', // FB1 D-FB1-09
       NOT_CONNECTED: '프린터를 먼저 연결해 주세요.',

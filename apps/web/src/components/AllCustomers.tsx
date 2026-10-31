@@ -32,6 +32,10 @@ import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { CustomerTags, MemoEditor, SummaryFacts } from './CustomerParts.tsx'
 import { RequestError } from './ErrorNote.tsx'
+// KP1 손님 엑셀·장부 칸 (CR-6, AC-KP1-07·11·13)
+import { CustomersXlsxButton } from './CustomersXlsxDialog.tsx'
+import { CustomerLedgerSection } from './CustomerLedger.tsx'
+import type { WithCustomerLedger } from '../lib/ledger.ts'
 
 /** 받아 둔 목록 (뒤로 가기로 돌아올 때 그대로 보인다) */
 interface ListMemory {
@@ -229,6 +233,7 @@ function CustomerList({ route, navigate }: { readonly route: ScopeRoute; readonl
             </button>
           ))}
         </div>
+        <CustomersXlsxButton />
       </div>
       {rows === null && error === null ? <p role="status">불러오는 중…</p> : null}
       {rows !== null ? (
@@ -349,7 +354,7 @@ function CustomerTable({ rows, today, route, sort, filter, onOpen }: RowsProps) 
 function CustomerDetail({ route, id, navigate }: { readonly route: ScopeRoute; readonly id: string; readonly navigate: Navigate }) {
   const sort = sortOf(route)
   const filter = filterOf(route)
-  const [view, setView] = useState<CustomerDetailView | null>(null)
+  const [view, setView] = useState<(CustomerDetailView & WithCustomerLedger) | null>(null)
   const [days, setDays] = useState<readonly CustomerDayLine[]>([])
   const [error, setError] = useState<ApiError | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -359,7 +364,7 @@ function CustomerDetail({ route, id, navigate }: { readonly route: ScopeRoute; r
   useEffect(() => {
     let alive = true
     setError(null)
-    get<CustomerDetailView>(`/api/customers/${encodeURIComponent(id)}`).then(
+    get<CustomerDetailView & WithCustomerLedger>(`/api/customers/${encodeURIComponent(id)}`).then(
       (result) => {
         if (!alive) return
         setView(result)
@@ -421,6 +426,7 @@ function CustomerDetail({ route, id, navigate }: { readonly route: ScopeRoute; r
         <SummaryFacts summary={row} today={base} />
         <MemoEditor key={row.id} customer={row.id} label={label} memo={view.memo} today={base} />
       </section>
+      <CustomerLedgerSection customerId={row.id} ledger={view.ledger ?? null} today={base} onDeleted={() => setView((current) => (current === null ? current : { ...current, ledger: null }))} />
       <p className="hint">
         <a className="table-link" href={routePath(blockRoute)} onClick={(event) => linkClick(event, () => navigate(blockRoute))}>
           가장 최근 날짜({dateWords(row.latestDate)})의 구매자 화면에서 차단할 수 있어요

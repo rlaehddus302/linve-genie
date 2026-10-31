@@ -174,7 +174,9 @@ describe('AC-Y1-81 E2E 서버와 가짜 유튜브', () => {
   })
 
   it('설정 하나로 가짜 구글·유튜브 서버와 함께 뜨고, 연결 → 잇기 → 시청자 채팅 → 판정 → 감사 게시를 실제 HTTP로 돌릴 수 있다', async () => {
-    e2e = await startE2eServer({ youtube: { port: 0, pollingIntervalMillis: 200 }, passwordCost: FAST_COST, appOrigin: 'http://localhost:5999' })
+    // 옛 공식 읽기 길(chat: 'official'): E2E 서버 기본은 이제 웹 읽기(YT-11)인데, 웹 잇기는 공식 채팅 ID를 비워 두어 감사 insert가 올라가지 않는다
+    // (YT-SRV dev-notes 2번, D-YT-SRV-13 대기). 웹 읽기 E2E 흐름은 fake-web-bridge.test.ts
+    e2e = await startE2eServer({ youtube: { port: 0, pollingIntervalMillis: 200, chat: 'official' }, passwordCost: FAST_COST, appOrigin: 'http://localhost:5999' })
     const fake = e2e.fakeGoogle
     if (fake === null) throw new Error('가짜 유튜브가 없다')
     expect(new URL(fake.url).hostname).toBe('127.0.0.1')

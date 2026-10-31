@@ -10,6 +10,7 @@ import type { Me } from '../api/types.ts'
 import { goTopLevel } from '../lib/google-return.ts'
 import { continueLabel, fetchLoginProviders, movingLabel, parseLoginResult, resultMessage, safeAuthorizeUrl, startErrorMessage, START_FAILED, stripLoginParams, type LoginProvider, type LoginResult } from '../lib/social-login.ts'
 import { SERVICE_NAME } from '../brand.ts'
+import { isAppTab } from '../lib/app-tab.ts'
 
 export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그인해 주세요.'
 /** 주소가 `/login`일 때만 로그인 칸 아래 (D-LND1-10 (2)) */
@@ -132,6 +133,8 @@ export function LoginPage({
       <nav className="row policy-links" aria-label="약관">
         <a href="/privacy">개인정보처리방침</a>
         <a href="/terms">이용약관</a>
+        {/* 공개 요금 안내 (PAY2 §7 화면 18) — 앱에서 연 탭에서는 없다 (BL-11 3) */}
+        {isAppTab() ? null : <a href="/pricing">요금 안내</a>}
       </nav>
     </main>
   )

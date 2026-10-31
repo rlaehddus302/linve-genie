@@ -15,12 +15,14 @@
 import { useEffect, useId, useRef, useState, type MouseEvent } from 'react'
 import { useInstallHint, useUpdateNotice } from '../pwa/pwa.ts'
 import { PRINT_ACTION, printerStatusWord } from '../lib/print-words.ts'
+import { awaitingTest } from '../lib/printer-station.ts'
 import { useReconnectOwned } from '../lib/reconnect-owner.ts'
 import { barLabel, menuAll, menuLayout, type MenuItem } from '../lib/menu.ts'
 import { menuOf, routePath, type MenuKey, type Navigate, type Route } from '../lib/router.ts'
 import { useWide } from '../lib/use-wide.ts'
 import { useDepositReview } from './deposit-context.tsx'
 import { useBillingConfig } from './billing-context.tsx'
+import { isAppTab } from '../lib/app-tab.ts'
 import { LogoutButton } from './LogoutButton.tsx'
 import { useLabelsEnabled, usePrintApi, usePrintState, useStationState } from './print-context.tsx'
 
@@ -37,7 +39,8 @@ type Go = (event: MouseEvent<HTMLAnchorElement>, to: Route) => void
 
 export function TopBar({ shopName, assistant = false, onLogout, route, navigate }: TopBarProps) {
   const review = useDepositReview()
-  const billing = useBillingConfig()?.enabled === true
+  // 앱에서 연 탭에는 메뉴 "요금"이 없다 (PAY2 BL-11 3)
+  const billing = useBillingConfig()?.enabled === true && !isAppTab()
   const labels = useLabelsEnabled() === true
   const wide = useWide()
   const go: Go = (event, to) => {
@@ -199,7 +202,8 @@ function PrinterStatus({ onOpen }: { readonly onOpen: (event: MouseEvent<HTMLAnc
   if (api === null) return null
   const queue = print.overview?.queue ?? null
   const paused = queue?.pause != null
-  const canReconnect = !owned && queue?.pause?.reason === 'DISCONNECTED' && api.station.isMine(queue) && api.station.canReconnect
+  // 실험 기종이 테스트 "예"를 기다리는 멈춤은 프린터가 이어져 있다 — "다시 연결"이 아니다 (D-PRN2-10)
+  const canReconnect = !owned && queue?.pause?.reason === 'DISCONNECTED' && api.station.isMine(queue) && api.station.canReconnect && !(station !== null && awaitingTest(station))
   const reconnect = async () => {
     if (busy) return
     setBusy(true)

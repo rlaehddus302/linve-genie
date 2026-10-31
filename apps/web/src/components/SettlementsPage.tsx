@@ -14,7 +14,7 @@
 //   리허설 범위에는 배송지·택배가 없다.
 //   되돌림 환불은 "입금 확인 되돌림 · 입금 번호 12" — 서버의 입금 연결(범위 seq)로 붙이고 메모 글을 읽지 않는다. 아직 되돌리지 않은 입금 확인 기록에는
 //   "입금 확인 되돌리기"(입금 확인 화면과 같은 확인 창). 리허설 범위는 "리허설 묶음은 입금 확인에 쓰지 않아요."이고 연결·되돌리기가 없다.
-import { containsPhoneRun, formatWon, type PaymentStatus } from '@livejjim/core'
+import { formatWon, type PaymentStatus } from '@livejjim/core'
 import { useMemo, useRef, useState, type MouseEvent } from 'react'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import type { Claim, PackingWord, Settlement, WriteResult } from '../api/types.ts'
@@ -22,7 +22,7 @@ import { UNKNOWN_SMS_DISPLAY, claimsOf, isActive, isUnknownSms } from '../lib/bu
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
 import { BuyerNames } from '../lib/derive.ts'
 import { dateYear, kstShort } from '../lib/kst.ts'
-import { ADJUST_RANGE, PAYMENT_RANGE, SHIPPING_RANGE, readAmount, refundRange } from '../lib/money.ts'
+import { ADJUST_RANGE, PAYMENT_RANGE, SHIPPING_RANGE, amountNow, refundRange, useAmount, type AmountRead } from '../lib/money.ts'
 import { routePath, type Navigate, type ScopeRoute } from '../lib/router.ts'
 import { saleLine } from '../lib/sale-line.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
@@ -49,6 +49,7 @@ import { ReasonField } from './ReasonField.tsx'
 import { ReceiptSection } from './ReceiptSection.tsx'
 import { Lock } from './Lock.tsx'
 import { ScopePicker, sealOf, useScopeChoice } from './ScopePicker.tsx'
+import { ReportLink } from './ReportPage.tsx' // KP1
 import { SealNotice } from './SealNotice.tsx'
 import { ReadOnlyContext } from '../lib/read-only.ts'
 import { SettlementVoiceLog } from './VoiceLogView.tsx'
@@ -227,6 +228,7 @@ function ClosingActions({ data }: { readonly data: ScopeData }) {
         </button>
       )}
       {ledger ? <LedgerDialog date={data.date} onClose={() => setLedger(false)} /> : null}
+      {data.rehearsal ? null : <ReportLink date={data.date} /> /* KP1 방송 리포트 */}
     </div>
   )
 }
@@ -701,6 +703,11 @@ export function inputTitle(kind: InputKind, name: string, date: string): string 
   return `${INPUT_TITLE[kind]} · ${name} · ${dateYear(date)} 묶음`
 }
 
+/** 칸에 보일 상태: 미리 보기 답이 없으면 넣기를 누른 때 읽은 상태(그 글 그대로일 때만) */
+function shownAmount(read: AmountRead, checked: { readonly text: string; readonly read: AmountRead } | null, text: string): AmountRead {
+  return read.kind === 'pending' && checked !== null && checked.text === text ? checked.read : read
+}
+
 /** 머리 아래 줄: "최종 33,000원 · 받은 금액 0원 · 남은 금액 33,000원" */
 function AmountsLine({ settlement }: { readonly settlement: Settlement }) {
   return (
@@ -728,28 +735,34 @@ function PaymentDialog({ data, names, settlement, command, onClose, onDone }: In
   const [amount, setAmount] = useState(remaining > 0 ? String(remaining) : '')
   const [memo, setMemo] = useState('')
   const [tried, setTried] = useState(false)
-  const [confirming, setConfirming] = useState<number | null>(null)
+  const [confirming, setConfirming] = useState<{ readonly amount: number; readonly text: string } | null>(null)
+  /** 넣기를 누른 때 읽은 칸 상태 (미리 보기 답이 오기 전에 눌렀을 때) */
+  const [checked, setChecked] = useState<{ readonly text: string; readonly read: AmountRead } | null>(null)
   const amountField = useRef<HTMLInputElement>(null)
   const sender = useSender(command)
-  const read = readAmount(amount, PAYMENT_RANGE)
-  const memoProblem = memo.trim() !== '' && containsPhoneRun(memo) ? PHONE_IN_TEXT : null
+  // 금액은 서버가 읽는다(SRV1 D-APP-24). 메모의 전화번호는 서버가 지금 문장(PHONE_IN_TEXT)으로 거절한다 — 칸 글은 그대로
+  const read = useAmount(amount, PAYMENT_RANGE)
   const title = inputTitle('payment', names.name(settlement.buyer), settlement.date)
 
-  const send = async (value: number) => {
-    const result = await sender.send({ type: 'settlement.payment', buyer: settlement.buyer, date: settlement.date, amount: value, ...(memo.trim() === '' ? {} : { memo: memo.trim() }) })
+  /** 보내는 본문의 금액은 친 글 원문 — 서버가 같은 읽기로 기록한다 */
+  const send = async (text: string) => {
+    const result = await sender.send({ type: 'settlement.payment', buyer: settlement.buyer, date: settlement.date, amountText: text, ...(memo.trim() === '' ? {} : { memo: memo.trim() }) })
     if (result !== null) onDone(result, '입금을 적었어요')
   }
-  const submit = () => {
+  const submit = async () => {
     setTried(true)
-    if (read.kind !== 'ok' || memoProblem !== null) {
+    const typed = amount
+    const now = await amountNow(typed, read, PAYMENT_RANGE)
+    if (now.kind !== 'ok') {
+      setChecked({ text: typed, read: now })
       amountField.current?.focus()
       return
     }
-    if (read.amount !== remaining) {
-      setConfirming(read.amount)
+    if (now.amount !== remaining) {
+      setConfirming({ amount: now.amount, text: typed })
       return
     }
-    void send(read.amount)
+    void send(typed)
   }
 
   if (confirming !== null) {
@@ -763,17 +776,17 @@ function PaymentDialog({ data, names, settlement, command, onClose, onDone }: In
           setTimeout(() => amountField.current?.focus(), 0)
         }}
         actions={
-          <button type="button" className="button button-primary" disabled={sender.busy} onClick={() => void send(confirming)}>
-            {formatWon(confirming)} 적기
+          <button type="button" className="button button-primary" disabled={sender.busy} onClick={() => void send(confirming.text)}>
+            {formatWon(confirming.amount)} 적기
           </button>
         }
       >
         <p>
-          남은 금액({formatWon(remaining)})과 달라요. {formatWon(confirming)}으로 적을까요?
+          남은 금액({formatWon(remaining)})과 달라요. {formatWon(confirming.amount)}으로 적을까요?
         </p>
-        <PaymentPreview data={data} settlement={settlement} entry={{ kind: 'payment', amount: confirming }} />
+        <PaymentPreview data={data} settlement={settlement} entry={{ kind: 'payment', amount: confirming.amount }} />
         {sender.busy ? <p role="status">보내는 중…</p> : null}
-        {sender.error !== null ? <WriteError error={sender.error} onRetry={() => void send(confirming)} omitFields={['memo', 'amount']} /> : null}
+        {sender.error !== null ? <WriteError error={sender.error} onRetry={() => void send(confirming.text)} omitFields={['memo', 'amount', 'amountText']} /> : null}
         {serverProblem(sender.error, 'memo') !== null ? <p className="field-error">{serverProblem(sender.error, 'memo')}</p> : null}
       </Modal>
     )
@@ -784,7 +797,7 @@ function PaymentDialog({ data, names, settlement, command, onClose, onDone }: In
       title={title}
       onClose={onClose}
       actions={
-        <button type="button" className="button button-primary" disabled={sender.busy} onClick={submit}>
+        <button type="button" className="button button-primary" disabled={sender.busy} onClick={() => void submit()}>
           {sender.busy ? '보내는 중…' : '입금 적기'}
         </button>
       }
@@ -793,21 +806,21 @@ function PaymentDialog({ data, names, settlement, command, onClose, onDone }: In
         className="stack-tight"
         onSubmit={(event) => {
           event.preventDefault()
-          submit()
+          void submit()
         }}
       >
         <AmountsLine settlement={settlement} />
-        <AmountField label="입금 금액" value={amount} onChange={setAmount} range={PAYMENT_RANGE} showEmpty={tried} inputRef={amountField} serverMessage={serverProblem(sender.error, 'amount')} />
+        <AmountField label="입금 금액" value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} inputRef={amountField} serverMessage={(serverProblem(sender.error, 'amountText') ?? serverProblem(sender.error, 'amount'))} />
         <PaymentPreview data={data} settlement={settlement} entry={read.kind === 'ok' ? { kind: 'payment', amount: read.amount } : null} />
         <div className="field">
           <label htmlFor="payment-memo">메모(선택)</label>
           <input id="payment-memo" className="input" autoComplete="off" placeholder="10/18 국민" value={memo} onChange={(event) => setMemo(event.target.value)} />
         </div>
-        <FieldNote id="payment-memo-error" message={memoProblem ?? serverProblem(sender.error, 'memo')} />
+        <FieldNote id="payment-memo-error" message={serverProblem(sender.error, 'memo')} />
         <p className="hint">{PAYMENT_DATE_NOTE}</p>
         <button type="submit" hidden />
       </form>
-      {sender.error !== null ? <WriteError error={sender.error} onRetry={submit} omitFields={['memo', 'amount']} /> : null}
+      {sender.error !== null ? <WriteError error={sender.error} onRetry={() => void submit()} omitFields={['memo', 'amount', 'amountText']} /> : null}
     </Modal>
   )
 }
@@ -822,14 +835,24 @@ function ShippingDialog({ data, names, settlement, command, onClose, onDone }: I
   const [tried, setTried] = useState(false)
   const sender = useSender(command)
   const choices: ShippingChoice[] = [...(settlement.shippingOverride === null ? [] : (['DEFAULT'] as const)), 'PICKUP', 'COMBINED', 'FIXED']
-  const read = readAmount(amount, SHIPPING_RANGE)
+  const read = useAmount(amount, SHIPPING_RANGE)
+  const [checked, setChecked] = useState<{ readonly text: string; readonly read: AmountRead } | null>(null)
   const fixedAmount = mode === 'FIXED' && read.kind === 'ok' ? read.amount : null
   const entry: PreviewEntry | null = mode === null || (mode === 'FIXED' && fixedAmount === null) ? null : { kind: 'shipping', mode, amount: mode === 'FIXED' ? fixedAmount : null }
   const preview = entry === null ? null : previewWith(data, settlement, entry)
   const submit = async () => {
     setTried(true)
-    if (mode === null || (mode === 'FIXED' && fixedAmount === null)) return
-    const result = await sender.send({ type: 'settlement.shippingOverride', buyer: settlement.buyer, date: settlement.date, mode, ...(mode === 'FIXED' ? { amount: fixedAmount } : {}) })
+    if (mode === null) return
+    const typed = amount
+    if (mode === 'FIXED') {
+      const now = await amountNow(typed, read, SHIPPING_RANGE)
+      if (now.kind !== 'ok') {
+        setChecked({ text: typed, read: now })
+        return
+      }
+    }
+    // 금액은 친 글 원문 — 서버가 읽어 기록한다 (SRV1 D-APP-24)
+    const result = await sender.send({ type: 'settlement.shippingOverride', buyer: settlement.buyer, date: settlement.date, mode, ...(mode === 'FIXED' ? { amountText: typed } : {}) })
     if (result !== null) onDone(result, '배송비를 바꿨어요')
   }
   const word = (choice: ShippingChoice) => (choice === 'DEFAULT' ? '기본 배송비로' : SHIPPING_WORD[choice])
@@ -855,7 +878,7 @@ function ShippingDialog({ data, names, settlement, command, onClose, onDone }: I
           </label>
         ))}
       </div>
-      {mode === 'FIXED' ? <AmountField label="배송비 금액" value={amount} onChange={setAmount} range={SHIPPING_RANGE} showEmpty={tried} serverMessage={serverProblem(sender.error, 'amount')} /> : null}
+      {mode === 'FIXED' ? <AmountField label="배송비 금액" value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} serverMessage={(serverProblem(sender.error, 'amountText') ?? serverProblem(sender.error, 'amount'))} /> : null}
       {preview !== null ? (
         <p className="notice" role="status" data-tone="info">
           배송비 {formatWon(settlement.shipping)} → {formatWon(preview.shipping)}, 최종 {formatWon(settlement.total)} → {formatWon(preview.total)}
@@ -878,25 +901,30 @@ function AdjustDialog({ data, names, settlement, command, onClose, onDone }: Inp
   const reasonField = useRef<HTMLInputElement>(null)
   const submitButton = useRef<HTMLButtonElement>(null)
   const sender = useSender(command)
-  const read = readAmount(amount, ADJUST_RANGE)
+  const read = useAmount(amount, ADJUST_RANGE)
+  const [checked, setChecked] = useState<{ readonly text: string; readonly read: AmountRead } | null>(null)
   const signed = read.kind === 'ok' ? (sign === 'minus' ? -read.amount : read.amount) : null
   const entry: PreviewEntry | null = signed === null ? null : { kind: 'adjust', amount: signed }
   const preview = entry === null ? null : previewWith(data, settlement, entry)
   const floored = preview !== null && settlement.items.length > 0 && settlement.subtotal + preview.shipping + preview.adjustments < 0
-  const reasonProblem = reason.trim() !== '' && containsPhoneRun(reason) ? PHONE_IN_TEXT : null
   const verb = sign === 'minus' ? '할인 적기' : '추가 적기'
   const submit = async () => {
     setTried(true)
-    if (signed === null) return
+    const typed = amount
+    const now = await amountNow(typed, read, ADJUST_RANGE)
+    if (now.kind !== 'ok') {
+      setChecked({ text: typed, read: now })
+      return
+    }
     const value = reason.trim()
     if (value === '') {
       setEmpty(true)
       reasonField.current?.focus()
       return
     }
-    if (reasonProblem !== null) return
-    const result = await sender.send({ type: 'settlement.adjust', buyer: settlement.buyer, date: settlement.date, amount: signed, reason: value })
-    if (result !== null) onDone(result, signed < 0 ? '할인을 적었어요' : '추가를 적었어요')
+    // 금액은 친 글 원문 + 할인·추가 (서버가 읽고 할인이면 빼는 쪽으로 기록한다). 사유의 전화번호는 서버가 거절한다
+    const result = await sender.send({ type: 'settlement.adjust', buyer: settlement.buyer, date: settlement.date, amountText: typed, amountSign: sign === 'minus' ? 'MINUS' : 'PLUS', reason: value })
+    if (result !== null) onDone(result, sign === 'minus' ? '할인을 적었어요' : '추가를 적었어요')
   }
   return (
     <Modal
@@ -919,7 +947,7 @@ function AdjustDialog({ data, names, settlement, command, onClose, onDone }: Inp
           <span>추가</span>
         </label>
       </div>
-      <AmountField label={sign === 'minus' ? '할인 금액' : '추가 금액'} value={amount} onChange={setAmount} range={ADJUST_RANGE} showEmpty={tried} serverMessage={serverProblem(sender.error, 'amount')} />
+      <AmountField label={sign === 'minus' ? '할인 금액' : '추가 금액'} value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} serverMessage={(serverProblem(sender.error, 'amountText') ?? serverProblem(sender.error, 'amount'))} />
       {preview !== null ? (
         <p className="notice" role="status" data-tone="info">
           최종 {formatWon(settlement.total)} → {formatWon(preview.total)}
@@ -940,7 +968,7 @@ function AdjustDialog({ data, names, settlement, command, onClose, onDone }: Inp
         onPicked={() => submitButton.current?.focus()}
         reasons={ADJUST_REASONS}
         empty={empty}
-        problem={reasonProblem}
+        problem={null}
         error={sender.error}
         inputRef={reasonField}
         onEnter={() => void submit()}
@@ -961,19 +989,24 @@ function RefundDialog({ data, names, settlement, command, onClose, onDone }: Inp
   const submitButton = useRef<HTMLButtonElement>(null)
   const sender = useSender(command)
   const range = refundRange(settlement.received)
-  const read = readAmount(amount, range)
-  const reasonProblem = reason.trim() !== '' && containsPhoneRun(reason) ? PHONE_IN_TEXT : null
+  const read = useAmount(amount, range)
+  const [checked, setChecked] = useState<{ readonly text: string; readonly read: AmountRead } | null>(null)
   const submit = async () => {
     setTried(true)
-    if (read.kind !== 'ok') return
+    const typed = amount
+    const now = await amountNow(typed, read, range)
+    if (now.kind !== 'ok') {
+      setChecked({ text: typed, read: now })
+      return
+    }
     const value = reason.trim()
     if (value === '') {
       setEmpty(true)
       reasonField.current?.focus()
       return
     }
-    if (reasonProblem !== null) return
-    const result = await sender.send({ type: 'settlement.refund', buyer: settlement.buyer, date: settlement.date, amount: read.amount, reason: value })
+    // 금액은 친 글 원문 — 서버가 읽어 기록한다. 사유의 전화번호는 서버가 거절한다 (SRV1)
+    const result = await sender.send({ type: 'settlement.refund', buyer: settlement.buyer, date: settlement.date, amountText: typed, reason: value })
     if (result !== null) onDone(result, '환불을 적었어요')
   }
   return (
@@ -988,7 +1021,7 @@ function RefundDialog({ data, names, settlement, command, onClose, onDone }: Inp
     >
       <AmountsLine settlement={settlement} />
       {settlement.refundDue > 0 ? <p>환불 필요 {formatWon(settlement.refundDue)}</p> : null}
-      <AmountField label="환불 금액" value={amount} onChange={setAmount} range={range} showEmpty={tried} serverMessage={serverProblem(sender.error, 'amount')} />
+      <AmountField label="환불 금액" value={amount} onChange={setAmount} read={shownAmount(read, checked, amount)} showEmpty={tried} serverMessage={(serverProblem(sender.error, 'amountText') ?? serverProblem(sender.error, 'amount'))} />
       <PaymentPreview data={data} settlement={settlement} entry={read.kind === 'ok' ? { kind: 'refund', amount: read.amount } : null} />
       <p className="hint">{REFUND_NOTE}</p>
       <ReasonField
@@ -1000,7 +1033,7 @@ function RefundDialog({ data, names, settlement, command, onClose, onDone }: Inp
         onPicked={() => submitButton.current?.focus()}
         reasons={REFUND_REASONS}
         empty={empty}
-        problem={reasonProblem}
+        problem={null}
         error={sender.error}
         inputRef={reasonField}
         onEnter={() => void submit()}

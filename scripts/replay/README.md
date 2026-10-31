@@ -86,6 +86,22 @@ node scripts/replay/stream.mjs <방송> [--from 초] [--duration 초] [--speed 1
   `--interim 0`: 라이브지니 받아쓰기는 중간 결과가 없다.
 - 지금은 라이브지니 서버의 기기 음성 웹소켓(`/api/voice/stream`)을 거치지 않는다(측정용 서버가 서버 자리) — 서버 중계를 거친 지연은 HG-APP1에서 실기기로 본다.
 
+## 조각 매개변수 고르기 — tune (APP1, 게이트 밖)
+
+일꾼의 말 앞뒤 여유·20초 자를 틈 범위(`segmenter.py`의 `PRE_ROLL_MS`·`POST_ROLL_MS`·`CUT_LOOKBACK_MS`)를 녹음으로 견준다. stream.mjs보다 빠르다(실시간 흘리기·웹소켓 없이 일꾼과 같은 자르기 + 같은 모델).
+
+```
+cd packages/voice/transcriber
+python -B -m livegenie_transcriber.tune probs      <wav> <probs.f32>                     # silero 확률 한 번 (방송 하나 약 1분)
+python -B -m livegenie_transcriber.tune sweep      <wav> <probs.f32> --pre 0,200 --post 0,200 --lookback 0,3000,5000   # 셈만, 모델 없음
+python -B -m livegenie_transcriber.tune transcribe <wav> <probs.f32> <asr.json> --pre 200 --post 200 --lookback 5000 --cache <캐시.json>
+```
+
+- `<wav>`는 `.live-replay/<방송>/cache/audio-16k.wav`, 결과·캐시는 `.live-replay/work/` 아래에 둔다(받아쓴 글은 개인정보).
+- sweep의 "억지 자르기"는 쉼 없이 20초에서 자른 곳, "말 가운데 자르기"는 그중 자른 자리 바로 앞이 말인 곳.
+- transcribe의 asr.json은 stream.mjs와 같은 모양 — 같은 채점(`from-whisper.mjs … --interim 0` → `cli.mjs replay`)을 쓴다. 캐시는 (시작, 끝) 표본이 같은 조각의 글을 다시 쓰므로 틈 범위만 바꾼 조합은 몇 초면 된다.
+- 재생 화면은 크롬 엔진을 고른다(`livejjim.voiceEngine=chrome`, PC 기본은 서버 받아쓰기).
+
 ## 도는 차례 (loop)
 
 1. 방송마다 **record를 한 번** (실제 소리, 실시간). 밤새 돌려도 된다 — 무인 실행용이다.

@@ -642,3 +642,54 @@ describe('초대받은 방송 (INV1 AC-INV1-05·10)', () => {
     expect(await within(panel()).findByText('초대받은 방송 · (이름 없음)')).toBeDefined()
   })
 })
+
+describe('서버가 방송 주소로 채팅 읽기 (YT-SRV YT-11 AC2·AC5·AC8, D-YT-SRV-03·06·09)', () => {
+  const BLOCKED = '유튜브가 채팅 읽기를 잠시 막았어요. 다시 될 때까지 주문은 손으로 넣어 주세요.'
+  const RESUMED = '유튜브 채팅을 다시 받고 있어요. 막힌 동안 손으로 넣은 주문과 겹치지 않는지 봐 주세요.'
+  const webServer = () => {
+    server.on('GET', /^\/api\/youtube\/connection$/, (): Reply => ({ body: { connection: youtube, webChat: { on: true }, oauth: true } }))
+  }
+
+  it('구글 연결이 없어도 잇기 칸이 열리고, 처음 잇는 채널이면 "처음 잇는 채널이에요 (채널: …)" → 맞아요, 잇기 → "유튜브 방송 · …"', async () => {
+    youtube = connection({ status: 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false } })
+    invitedTitle = '<b>처음</b> 채널'
+    webServer()
+    await openConsole()
+    expect(panel().textContent).not.toContain('유튜브 채널을 먼저 연결해 주세요.')
+    const field = within(panel()).getByLabelText('주소 붙여넣기')
+    fireEvent.change(field, { target: { value: 'https://www.youtube.com/watch?v=INVITED0001' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    await within(panel()).findByText('읽은 영상: INVITED0001')
+    fireEvent.click(within(panel()).getAllByRole('button', { name: '이 방송에 잇기' }).at(-1) as HTMLElement)
+    const ask = await within(panel()).findByRole('group', { name: '처음 잇는 채널 확인' })
+    expect(ask.textContent).toContain('처음 잇는 채널이에요 (채널: <b>처음</b> 채널). 이 방송이 맞나요?')
+    expect(ask.querySelector('b')).toBeNull()
+    fireEvent.click(within(ask).getByRole('button', { name: '맞아요, 잇기' }))
+    expect(await within(panel()).findByText('유튜브 방송 · <b>처음</b> 채널')).toBeDefined()
+    expect(panel().textContent).not.toContain('초대받은 방송 ·')
+  })
+
+  it('막힘은 바로 고정 영역 경고 + 대비 경로 버튼, 다시 받으면 경고를 내리고 유튜브 칸에 "다시 받고 있어요" 한 줄', async () => {
+    webServer()
+    link = linked({ mode: 'WEB' })
+    await openConsole()
+    act(() =>
+      FakeEventSource.last.emit('youtube', {
+        kind: 'collector',
+        broadcast: 'b1',
+        date: DATE,
+        collector: collector({ mode: 'WEB', status: 'RETRYING', statusMessage: '다시 연결하는 중', reason: 'BLOCKED', reasonMessage: BLOCKED }),
+      }),
+    )
+    const warning = screen.getByRole('alert')
+    expect(warning.textContent).toContain(BLOCKED)
+    expect(warning.closest('.console-sticky')).not.toBeNull()
+    expect(within(warning).getByRole('button', { name: '댓글 붙여넣기' })).toBeDefined()
+    fireEvent.click(within(warning).getByRole('link', { name: '손으로 넣기' }))
+    expect(navigate).toHaveBeenCalledWith({ name: 'sms' })
+    expect(panel().textContent).not.toContain(RESUMED)
+    act(() => FakeEventSource.last.emit('youtube', { kind: 'collector', broadcast: 'b1', date: DATE, collector: collector({ mode: 'WEB' }) }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(panel().textContent).toContain(RESUMED)
+  })
+})

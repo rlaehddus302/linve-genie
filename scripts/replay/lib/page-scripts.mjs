@@ -8,6 +8,8 @@ export function captureSpeech() {
   const g = globalThis
   try {
     g.localStorage.setItem('livejjim.voiceConsent', 'yes')
+    // PC 화면 기본 엔진은 서버 받아쓰기(APP1) — 재생·녹음은 크롬 인식 객체를 쓰므로 크롬을 고른다(apps/web/src/voice/remote.ts VOICE_ENGINE_KEY)
+    g.localStorage.setItem('livejjim.voiceEngine', 'chrome')
   } catch {
     // about:blank
   }
@@ -61,6 +63,8 @@ export function fakeSpeech() {
   const g = globalThis
   try {
     g.localStorage.setItem('livejjim.voiceConsent', 'yes')
+    // PC 화면 기본 엔진은 서버 받아쓰기(APP1) — 재생·녹음은 크롬 인식 객체를 쓰므로 크롬을 고른다(apps/web/src/voice/remote.ts VOICE_ENGINE_KEY)
+    g.localStorage.setItem('livejjim.voiceEngine', 'chrome')
   } catch {
     // about:blank
   }

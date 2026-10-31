@@ -6,6 +6,7 @@ import json
 import unittest
 
 from livegenie_transcriber.protocol import pack_audio
+from livegenie_transcriber.segmenter import worker_segmenter
 from livegenie_transcriber.session import WorkerSession
 
 from helpers import AmplitudeVad, length_model, silence, tone
@@ -209,6 +210,24 @@ class BadInputTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0)
         self.assertEqual(recorder.sent, [])
         self.assertEqual(session.open_streams, 0)
+
+
+class WorkerSegmenterTest(unittest.IsolatedAsyncioTestCase):
+    """일꾼 흐름은 고른 여유로 자른다: 말 앞 쉼 0.2초·말 뒤 쉼 0.2초까지 조각에 들어간다"""
+
+    async def test_each_stream_gets_its_own_segmenter_with_rolls(self):
+        recorder = Recorder()
+        session = WorkerSession(recorder.send, length_model, AmplitudeVad, 4, Clock(), None, None, worker_segmenter)
+        session.start()
+        for stream in (1, 2):
+            await session.handle_text(json.dumps({"type": "open", "stream": stream}))
+            await feed(session, stream, [silence(CHUNK) for _ in range(5)] + speech_then_pause())
+        await session.drain()
+        for stream in (1, 2):
+            result = recorder.results(stream)[0]
+            self.assertTrue(abs(result["startMs"] - 300) <= 32, result)
+            self.assertTrue(abs(result["endMs"] - 1700) <= 32, result)
+        await session.close()
 
 
 if __name__ == "__main__":

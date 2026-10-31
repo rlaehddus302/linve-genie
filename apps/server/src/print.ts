@@ -16,6 +16,7 @@ import {
   renderTestLabel,
   type LabelBitmap,
   type LabelError,
+  type LabelSizeId,
   defaultTemplate,
   splitGraphemes,
   templateToJson,
@@ -27,6 +28,7 @@ import {
   type ProductLabelData,
 } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
+import { labelSizesForProfileId, printerProfile } from '@livejjim/printer'
 import { kstDate } from './time.ts'
 import type { Db } from './db/database.ts'
 import type { FieldProblem } from './errors.ts'
@@ -197,6 +199,8 @@ export interface QueueSummary {
     readonly printerConnected: boolean
     /** 출력 그만하기를 눌러 출력 중인 장이 끝나기를 기다리는 중 */
     readonly releasing: boolean
+    /** 그 기기가 알린 프린터 프로필 ID (L-7·L-12 표, 예 `NIIMBOT_B1`). 모르거나 끊겼으면 null (PRN2, D-PRN2-07) */
+    readonly profileId: string | null
   } | null
   readonly pause: { readonly reason: PauseReason; readonly message: string; readonly backlog: boolean } | null
   readonly waiting: number
@@ -204,6 +208,11 @@ export interface QueueSummary {
   readonly discard: number
   /** 라벨 기능 켬(true)/끔(false) — 기록이 없으면 켬 (N4a, L-13 1) */
   readonly labelsEnabled: boolean
+  /**
+   * 라벨 설정의 크기 고르기 목록 (PRN2, L-11 13, D-PRN2-07): 출력 기기가 알린 프로필의 크기(첫째가 기본).
+   * 출력 기기나 그 프로필을 모르면 B1 목록. 저장된 템플릿 크기가 여기 없어도 서버는 막지 않는다
+   */
+  readonly labelSizes: readonly string[]
 }
 
 /** 라벨 기능 켬/끔을 바꾼 기록 한 줄 (N4a, L-13 2) */
@@ -349,6 +358,14 @@ export const SHOP_NAME_MAX = 40
 /** 기기 이름 (다듬은 뒤 1~20자) */
 export const DEVICE_NAME_MAX = 20
 export const DEVICE_ID_RE = /^[A-Za-z0-9_-]{8,64}$/
+
+/**
+ * 출력 기기가 알린 프린터 프로필 ID를 기록할 값으로 (PRN2, L-11 10·16, D-PRN2-07): 켠 프로필 표(L-7·L-12)에 있는 ID만 그대로,
+ * 없거나(이전 화면 — 칸 없음)·null·표에 없는 값은 모름(null). 받은 값을 되돌려 보내거나 로그에 남기지 않는다
+ */
+export function knownProfileId(value: unknown): string | null {
+  return typeof value === 'string' && printerProfile(value) !== undefined ? value : null
+}
 /** 받을 때 폐기한 작업을 건너뛰며 다음 작업을 찾는 횟수 상한 */
 const CLAIM_ROUNDS = 200
 /**
@@ -574,6 +591,7 @@ export class PrintService {
   #summaryOf(sellerId: string, queue: QueueRow | null, counts: { waiting: number; printing: number; discard: number }): QueueSummary {
     const deviceId = queue?.deviceId ?? null
     const paused = (queue?.paused ?? null) as PauseReason | null
+    const profileId = queue === null || deviceId === null ? null : knownProfileId(queue.printerProfileId)
     return {
       rev: queue?.rev ?? 0,
       device:
@@ -585,10 +603,12 @@ export class PrintService {
               live: this.#options.deviceLive(sellerId, deviceId),
               printerConnected: queue.printerConnected,
               releasing: queue.releasing,
+              profileId,
             },
       pause: paused === null ? null : { reason: paused, message: PAUSE_MESSAGES[paused], backlog: queue?.backlog === true },
       ...counts,
       labelsEnabled: queue?.labelsEnabled ?? true,
+      labelSizes: [...labelSizesForProfileId(profileId)],
     }
   }
 
@@ -781,7 +801,7 @@ export class PrintService {
    * 바꾸면 이전 기기의 출력 중 작업은 대기 맨 앞(시도 +1, DISCONNECTED). 새로 정할 때 대기 작업이 있으면 판매자 멈춤(backlog)으로 시작.
    * 이미 출력 기기인 기기가 다시 알리면 이름을 고치고 출력 그만하기를 거두며 멈춤을 바꾸지 않는다. 출력 기기가 되는 기기는 프린터가 연결돼 있다
    */
-  async registerDevice(sellerId: string, deviceId: string, name: string, replace: boolean): Promise<ActionOutcome<{ queue: QueueSummary; waiting: number; backlog: boolean }>> {
+  async registerDevice(sellerId: string, deviceId: string, name: string, replace: boolean, profileId: string | null = null): Promise<ActionOutcome<{ queue: QueueSummary; waiting: number; backlog: boolean }>> {
     // 라벨 기능이 꺼져 있으면 출력 기기를 정하지 않는다 (같은 기기의 다시 알림·바꾸기 포함, L-13 5)
     if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
     const now = this.#now()
@@ -792,11 +812,11 @@ export class PrintService {
       const counts = async () => queueCounts(tx, sellerId)
       if (queue.deviceId === deviceId) {
         // 같은 기기가 다시 "이 기기에서 출력"을 누르면 출력 그만하기를 거둔다(출력 중인 장이 끝나도 출력 기기로 남는다, L-11 10). 멈춤은 그대로
-        await updateQueue(tx, sellerId, { deviceName: name, releasing: false }, now)
+        await updateQueue(tx, sellerId, { deviceName: name, printerProfileId: profileId, releasing: false }, now)
         return { kind: 'ok' as const, backlog: false }
       }
       if (queue.deviceId !== null && !replace) return { kind: 'taken' as const, name: queue.deviceName ?? '' }
-      const patch: QueuePatch = { deviceId, deviceName: name, printerConnected: true, releasing: false }
+      const patch: QueuePatch = { deviceId, deviceName: name, printerConnected: true, printerProfileId: profileId, releasing: false }
       let backlog = false
       if (queue.deviceId !== null) {
         // 바꾸기: 이전 기기의 출력 중 작업을 대기 맨 앞으로 (L-11 10)
@@ -836,15 +856,18 @@ export class PrintService {
     return job.id
   }
 
-  /** 출력 기기가 알린 프린터 연결 상태 (끊김 → 멈춤(끊김), 다시 연결 → 끊김 멈춤만 풀린다, L-8 3) */
-  async deviceState(sellerId: string, deviceId: string, connected: boolean): Promise<ActionOutcome<{ queue: QueueSummary }>> {
+  /**
+   * 출력 기기가 알린 프린터 연결 상태 (끊김 → 멈춤(끊김), 다시 연결 → 끊김 멈춤만 풀린다, L-8 3).
+   * 프로필 ID는 연결됐을 때만 둔다(끊으면 없음, PRN2 L-11 10) — 알리지 않았으면(이전 화면) 모름
+   */
+  async deviceState(sellerId: string, deviceId: string, connected: boolean, profileId: string | null = null): Promise<ActionOutcome<{ queue: QueueSummary }>> {
     // 출력 기기가 아니면 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다)
     if ((await readQueue(this.#db, sellerId))?.deviceId !== deviceId) return rejected(409, 'PRINT_NOT_DEVICE', PRINT_MESSAGES.notDevice)
     const now = this.#now()
     const ok = await this.#db.transaction(async (tx) => {
       const queue = await lockQueue(tx, sellerId, now)
       if (queue.deviceId !== deviceId) return false
-      const patch: QueuePatch = { printerConnected: connected }
+      const patch: QueuePatch = { printerConnected: connected, printerProfileId: connected ? profileId : null }
       if (connected && queue.paused === 'DISCONNECTED') patch.paused = null
       if (!connected && queue.paused === null) patch.paused = 'DISCONNECTED'
       await updateQueue(tx, sellerId, patch, now)
@@ -1044,10 +1067,10 @@ export class PrintService {
     })
   }
 
-  /** 연결 시험도 같은 글꼴·같은 렌더러를 쓴다. */
-  async testBitmap(sellerId: string): Promise<BitmapOutcome> {
+  /** 연결 시험도 같은 글꼴·같은 렌더러를 쓴다. 크기가 없으면 50×30, L-1 목록 밖이면 INVALID_TEMPLATE (D-PRN2-11). */
+  async testBitmap(sellerId: string, size?: string): Promise<BitmapOutcome> {
     const template = await this.#template(this.#db, sellerId, 'product')
-    const rendered = renderTestLabel(createNodeRenderEnv(), { shopName: template.shopName, date: kstDate(this.#now().getTime()), size: template.size })
+    const rendered = renderTestLabel(createNodeRenderEnv(), { shopName: template.shopName, date: kstDate(this.#now().getTime()), size: (size ?? '50x30') as LabelSizeId })
     return rendered.ok ? { kind: 'ok', image: rendered.image } : { kind: 'error', error: rendered.error }
   }
 
@@ -1183,6 +1206,7 @@ export class PrintService {
       const reason = pauseForError(input.code)
       if (reason === 'DISCONNECTED') {
         patch.printerConnected = false
+        patch.printerProfileId = null
         if (paused === null) paused = 'DISCONNECTED'
       } else {
         paused = reason
@@ -1658,7 +1682,7 @@ export async function servedTemplate(db: Db, sellerId: string, kind: 'product' |
 }
 
 function clearDevice(paused: PauseReason | null): QueuePatch {
-  return { deviceId: null, deviceName: null, printerConnected: false, releasing: false, ...(paused === 'DISCONNECTED' ? { paused: null } : {}) }
+  return { deviceId: null, deviceName: null, printerConnected: false, printerProfileId: null, releasing: false, ...(paused === 'DISCONNECTED' ? { paused: null } : {}) }
 }
 
 const PATH_SEGMENT = /^[A-Za-z][A-Za-z0-9_]{0,40}$/

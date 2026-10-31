@@ -40,11 +40,14 @@ describe('ConsoleScreen', () => {
     await open(world)
     const input = screen.getByRole('textbox', { name: '빠른 입력' })
     fireEvent.change(input, { target: { value: '16 핑크프릴 10000' } })
-    expect(screen.getByText('등록하면: 16번 핑크프릴 10,000원')).toBeTruthy()
+    // SRV1 (D-APP-24, AC-SRV1-05): 미리 보기는 서버 읽기 입구의 답(150ms 뒤) — 옛 기대는 앱이 읽어 친 즉시
+    expect(await screen.findByText('등록하면: 16번 핑크프릴 10,000원')).toBeTruthy()
+    expect(world.reads.at(-1)?.body).toEqual({ kind: 'quick', text: '16 핑크프릴 10000' })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { products: [product(16, { name: '핑크프릴' })] }) }))
     fireEvent.click(screen.getByRole('button', { name: '보내기' }))
     await waitFor(() => expect(world.events.length).toBe(1))
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.register', b: 'b1', no: 16, name: '핑크프릴', price: 10_000 })
+    // 옛 기대: 본문 no·name·price. 새 기대(약속 2): 친 줄 원문 — 서버가 같은 함수로 다시 읽어 16번 핑크프릴 10,000원을 기록한다
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.register', b: 'b1', text: '16 핑크프릴 10000' })
     await waitFor(() => expect(screen.getByRole('button', { name: '16번 등록 되돌리기' })).toBeTruthy())
     expect((input as HTMLInputElement).value).toBe('')
     expect(within(screen.getByRole('group', { name: '현재 상품' })).getByText('16번 핑크프릴')).toBeTruthy()
@@ -142,7 +145,8 @@ describe('ConsoleScreen', () => {
     fireEvent.change(screen.getByLabelText('전화번호 (선택)'), { target: { value: '010-1234-5678' } })
     fireEvent.click(screen.getByRole('button', { name: '문자찜 넣기' }))
     await waitFor(() => expect(world.events.length).toBe(1))
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15, phone: '010-1234-5678' })
+    // 옛 기대: 번호 숫자 no. 새 기대(D-APP-24): 번호 칸 원문 noText — 서버가 그 방송 번호 한도로 읽는다
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', noText: '15', phone: '010-1234-5678' })
     await waitFor(() => expect(screen.getByText('15번 문자찜을 넣었어요.')).toBeTruthy())
     expect((screen.getByLabelText('전화번호 (선택)') as HTMLInputElement).value).toBe('')
   })

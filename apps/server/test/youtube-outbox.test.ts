@@ -361,23 +361,53 @@ describe('AC-Y1-35 다시 시도', () => {
 })
 
 describe('AC-Y1-36 타임아웃·서버 재시작 — 두 번 게시 없음', () => {
-  it('(가) 게시는 받고 응답 없음 → 확인으로 SENT, 게시 1번', async () => {
+  // D-YT-SRV-17: 실시간 채팅 게시 확인은 공식 조회(liveChatMessages.list)를 부르지 않고 서버 수집기가 그 회차에서 본 우리 글로만 한다.
+  // 못 보면 다시 게시하지 않고 UNCONFIRMED (옛 시험: 수집기가 돌지 않으면 최근 채팅 조회 → 이 규칙으로 바꿈)
+  it('(가) 게시는 받고 응답 없음 → 수집기가 본 우리 글로 SENT, 게시 1번, 공식 조회 0', async () => {
+    const w = await world()
+    const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
+    const { b, liveChatId } = await linkedBroadcast(w, connected, { settings: NO_LABEL })
+    await product(w, connected, b.id, 15, '핑크프릴', 10000)
+    const youtube = w.server.youtube
+    if (youtube === null) throw new Error('유튜브가 없다')
+    youtube.collectors.start()
+    await chat(w, connected, b.id, 'c1', 'UCa', '가', '15')
+    w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
+    for (let i = 0; i < 40 && (await rows(w, connected, b.date))[0]?.state !== 'SENT'; i++) {
+      await run(w)
+      await w.timer.advance(1000)
+    }
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENT', attempts: 0 })
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === '15번 핑크프릴 10,000원 가님 구매 감사합니다')).toHaveLength(1)
+    expect((await eventTypes(w)).filter((type) => type === 'effect.thanksSent')).toHaveLength(1)
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
+    await youtube.collectors.stop()
+  })
+
+  it('(가2) 게시는 받고 응답 없음 + 수집기가 우리 글을 못 봄 → 확인 시간 뒤 UNCONFIRMED, 다시 게시 0, 공식 조회 0, 게시 보고 없음', async () => {
     const w = await world()
     const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
     const { b, liveChatId } = await linkedBroadcast(w, connected, { settings: NO_LABEL })
     await product(w, connected, b.id, 15, '핑크프릴', 10000)
     await chat(w, connected, b.id, 'c1', 'UCa', '가', '15')
     w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
-    await run(w)
-    await run(w)
-    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENT', messageId: w.fake.posted[0]?.id })
+    for (let i = 0; i < 40 && (await rows(w, connected, b.date))[0]?.state !== 'FAILED'; i++) {
+      await run(w)
+      await w.timer.advance(2000)
+    }
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED', attempts: 0 })
+    for (let i = 0; i < 5; i++) {
+      await w.timer.advance(60_000)
+      await run(w)
+    }
     expect(w.fake.messages(liveChatId).filter((message) => message.text === '15번 핑크프릴 10,000원 가님 구매 감사합니다')).toHaveLength(1)
-    expect((await eventTypes(w)).filter((type) => type === 'effect.thanksSent')).toHaveLength(1)
-    // 수집기가 돌지 않아 최근 채팅 조회 한 번
-    expect(w.fake.calls('liveChatMessages.list')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
+    expect((await eventTypes(w)).filter((type) => type === 'effect.thanksSent')).toHaveLength(0)
   })
 
-  it('(나) 게시를 받지 않고 응답도 없음 → 확인 실패(30초) → 다시 시도로 게시 1번', async () => {
+  it('(나) 게시를 받지 않고 응답도 없음 → 확인 시간(30초) 안에 수집기가 못 봄 → 다시 게시하지 않고 UNCONFIRMED (판매자가 고름)', async () => {
     const w = await world()
     const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
     const { b, liveChatId } = await linkedBroadcast(w, connected, { settings: NO_LABEL })
@@ -386,13 +416,15 @@ describe('AC-Y1-36 타임아웃·서버 재시작 — 두 번 게시 없음', ()
     w.fake.fail('liveChatMessages.insert', { kind: 'hang' })
     await run(w)
     expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENDING' })
-    for (let i = 0; i < 40 && (await rows(w, connected, b.date))[0]?.state !== 'SENT'; i++) {
+    for (let i = 0; i < 40 && (await rows(w, connected, b.date))[0]?.state !== 'FAILED'; i++) {
       await w.timer.advance(2000)
       await run(w)
     }
-    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENT', attempts: 1 })
-    expect(w.fake.messages(liveChatId).filter((message) => message.text === '15번 핑크프릴 10,000원 가님 구매 감사합니다')).toHaveLength(1)
-    expect((await eventTypes(w)).filter((type) => type === 'effect.thanksSent')).toHaveLength(1)
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED', attempts: 0 })
+    expect(w.fake.messages(liveChatId).filter((message) => message.text === '15번 핑크프릴 10,000원 가님 구매 감사합니다')).toHaveLength(0)
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
+    expect((await eventTypes(w)).filter((type) => type === 'effect.thanksSent')).toHaveLength(0)
   })
 
   it('(다) 게시 요청을 보낸 직후 서버가 죽었다 살아남 → 확인부터 해 게시 1번 (수집기가 본 우리 메시지로)', async () => {
@@ -769,7 +801,8 @@ describe('AC-Y1-32·42 직전 확인은 메시지마다 (R-13 실행 직전)', (
 })
 
 describe('AC-Y1-31 동의를 끈 뒤에는 확인 중이던 행도 다시 보내지 않는다 (D-Y12)', () => {
-  it('확인 중(SENDING)에 동의를 끄면 확인 실패 뒤 NO_CONSENT — 곧바로 다시 켜도 그 전에 생긴 행은 보내지 않는다', async () => {
+  // D-YT-SRV-17: 실시간 채팅은 확인하지 못하면 다시 시도로 돌아가지 않고 UNCONFIRMED — 동의를 끄고 켜도 게시 0은 같다
+  it('확인 중(SENDING)에 동의를 끄고 곧바로 다시 켜도 그 행은 다시 보내지 않는다 (확인하지 못함 UNCONFIRMED, 게시 0)', async () => {
     const w = await world()
     const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
     const { b } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
@@ -787,7 +820,8 @@ describe('AC-Y1-31 동의를 끈 뒤에는 확인 중이던 행도 다시 보내
       await run(w)
     }
     expect(w.fake.posted).toEqual([])
-    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'NO_CONSENT' })
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED' })
   })
 })
 
@@ -819,7 +853,8 @@ describe('AC-Y1-36 타임아웃 확인 — 수집기가 돌아도 두 번 게시
     await youtube.collectors.stop()
   })
 
-  it('(마) 수집기가 도는 것으로 보여도 확인 시간 안에 우리 글을 못 받았으면, 실패로 세기 전에 최근 채팅을 한 번 본다(게시 1번)', async () => {
+  // D-YT-SRV-17: 최근 채팅 공식 조회는 하지 않는다 — 수집기가 확인 시간 안에 우리 글을 못 받았으면 UNCONFIRMED, 다시 게시 없음
+  it('(마) 수집기가 도는 것으로 보여도 확인 시간 안에 우리 글을 못 받았으면 공식 조회 없이 UNCONFIRMED (게시 1번)', async () => {
     const w = await world()
     const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
     const { b, liveChatId } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'thanks.batchWindowSec': 0 } })
@@ -828,12 +863,13 @@ describe('AC-Y1-36 타임아웃 확인 — 수집기가 돌아도 두 번 게시
     // 다른 서버의 수집기가 채팅을 받는 중인 것처럼 (임대 있음) — 그런데 우리 글은 전하지 않는다(스트림이 멈춤)
     await w.database.pglite?.query(`update youtube_collectors set status = 'LIVE', lease_owner = 'Z', lease_until = $1`, [new Date(w.timer.now() + 3_600_000).toISOString()])
     w.fake.fail('liveChatMessages.insert', { kind: 'acceptHang' })
-    for (let i = 0; i < 40 && (await rows(w, connected, b.date))[0]?.state !== 'SENT'; i++) {
+    for (let i = 0; i < 40 && (await rows(w, connected, b.date))[0]?.state !== 'FAILED'; i++) {
       await run(w)
       await w.timer.advance(2000)
     }
-    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'SENT', attempts: 0 })
+    expect((await rows(w, connected, b.date))[0]).toMatchObject({ state: 'FAILED', reason: 'UNCONFIRMED', attempts: 0 })
     expect(w.fake.messages(liveChatId).filter((message) => message.text === '15번 핑크프릴 10,000원 가님 구매 감사합니다')).toHaveLength(1)
-    expect(w.fake.calls('liveChatMessages.list')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.insert')).toBe(1)
+    expect(w.fake.calls('liveChatMessages.list')).toBe(0)
   })
 })

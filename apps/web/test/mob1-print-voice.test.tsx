@@ -7,7 +7,8 @@ import { AlertStrip } from '../src/components/AlertStrip.tsx'
 import { EXTENSION_PHONE_ONLY, ExtensionSettings, type ExtensionHandle } from '../src/components/ExtensionConnection.tsx'
 import { LABELS_SCREEN_LINK, NO_PRINT_DEVICE_WAITING, PackingPrintResult, type PackingPrintState } from '../src/components/PackingPrint.tsx'
 import { PrintContext } from '../src/components/print-context.tsx'
-import { CONSENT_LINES, CONSENT_OTHER_DEVICE, consentLines } from '../src/components/VoicePanel.tsx'
+import { VoiceConsentDialog } from '../src/components/VoicePanel.tsx'
+import { REMOTE_CONSENT, type VoiceControllerPort } from '../src/voice/remote.ts'
 import type { QueueSummary } from '../src/api/print-types.ts'
 import { DEFAULT_DEVICE_NAMES, cleanDeviceName, defaultDeviceName } from '../src/lib/device.ts'
 import { PrintStore } from '../src/lib/print-store.ts'
@@ -181,17 +182,15 @@ describe('아이폰 시험용 프린터 줄 (AC-MOB1-20)', () => {
   })
 })
 
-describe('음성 안내 창 마지막 줄 (AC-MOB1-11)', () => {
-  it('지금 세 줄 뒤에 "방송하는 폰이 아닌 다른 기기…"', () => {
-    // MOB1 D-MOB1-07: 줄이 넷이 됐다 · V3 D-V3-17: 바로 등록 한 줄을 더해 다섯 (마지막 줄은 그대로)
-    expect(CONSENT_LINES).toHaveLength(5)
-    expect(CONSENT_LINES.at(-1)).toBe(CONSENT_OTHER_DEVICE)
-    // D-V3-36: 바로 등록을 끈 기기는 I4 첫 줄, 바로 등록 줄 없음 (마지막 줄은 그대로)
-    expect(consentLines(false)[0]).toBe('말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.')
-    expect(consentLines(false)).toHaveLength(4)
-    expect(consentLines(true).slice(0, 2)).toEqual(['번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.', '번호와 가격이 들리면 바로 등록돼요. 음성 설정에서 끌 수 있어요.'])
-    expect(consentLines(false).at(-1)).toBe(CONSENT_OTHER_DEVICE)
-    expect(CONSENT_OTHER_DEVICE).toBe('방송하는 폰이 아닌 다른 기기(관리 폰이나 PC)에서 켜 주세요. 방송 앱이 마이크를 쓰는 폰에서는 잘 듣지 못해요.')
+// 옛 기대(AC-MOB1-11, D-V3-36): 크롬 받아쓰기 안내 창 다섯 줄 — "구글·애플로 보내져요"·바로 등록 줄·마지막 "방송하는 폰이 아닌 다른 기기…".
+// SRV1 새 기대(D-APP-22·25): 크롬 길이 없어 그 안내 창도 없다. 모든 기기가 서버 받아쓰기 안내 세 줄(REMOTE_CONSENT, D-APP1b-05)을 본다.
+describe('음성 안내 창 줄 (AC-MOB1-11 → SRV1 D-APP-22)', () => {
+  it('안내 창은 서버 받아쓰기 세 줄이고 크롬·구글 문장이 없다', () => {
+    const voice = { acceptConsent: vi.fn(), declineConsent: vi.fn() } as unknown as VoiceControllerPort
+    render(<VoiceConsentDialog voice={voice} />)
+    const dialog = screen.getByRole('dialog')
+    expect([...dialog.querySelectorAll('.stack-tight p')].map((p) => p.textContent)).toEqual([...REMOTE_CONSENT])
+    expect(dialog.textContent).not.toMatch(/구글|크롬/)
   })
 })
 

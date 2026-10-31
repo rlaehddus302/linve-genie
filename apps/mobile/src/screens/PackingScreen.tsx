@@ -35,7 +35,7 @@ export function PackingScreen({ initialDate, onBack }: { readonly initialDate?: 
   }, [])
 
   return (
-    <Screen title="포장" testID="packing-screen">
+    <Screen title="포장할 손님을 골라 주세요" testID="packing-screen">
       <BigButton small label="← 목록" ariaLabel="방송 목록으로" onPress={onBack} />
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {days === null && error === null ? <Loading /> : null}
