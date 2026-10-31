@@ -198,6 +198,7 @@ export type ErrorCode =
   | 'QUICK_FIX'
   | 'QUICK_EXISTS'
   | 'QUICK_OPEN'
+  | 'RECEIVED_LATE'
   // SRV1 음성 흐름의 옛 크롬 최종 글 (D-APP-25)
   | 'UNSUPPORTED'
   // KP1 방송 일정: 다가오는 일정 10개를 넘음

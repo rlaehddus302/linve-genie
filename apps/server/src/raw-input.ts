@@ -29,7 +29,7 @@ import type { Rejection } from './writer.ts'
 export const RAW_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'product.register': ['text', 'noText', 'priceText'],
   'product.update': ['text', 'noText', 'priceText'],
-  sms: ['noText', 'receivedText'],
+  sms: ['noText', 'receivedText', 'receivedLateOk'],
   'settlement.payment': ['amountText'],
   'settlement.refund': ['amountText'],
   'settlement.adjust': ['amountText', 'amountSign'],
@@ -43,6 +43,8 @@ export interface RawInput {
   readonly noText?: string
   readonly priceText?: string
   readonly receivedText?: string
+  /** 받은 시각이 지금보다 늦어도 넣는다 — 판매자가 "이대로 넣을까요?"에 답한 뒤에만 true (REL1) */
+  readonly receivedLateOk?: boolean
   readonly amountText?: string
   readonly amountSign?: 'PLUS' | 'MINUS'
 }
@@ -50,6 +52,15 @@ export interface RawInput {
 const RAW_TEXT_MESSAGE = `글자로 ${String(READ_TEXT_MAX)}자까지 적어 주세요.`
 const BOTH_MESSAGE = '같은 칸을 글과 숫자로 함께 보내지 않아요. 화면을 새로고침한 뒤 다시 해 주세요.'
 const SMS_NO_EMPTY = '상품 번호를 적어 주세요.'
+
+/** 받은 시각이 지금보다 늦어 확인이 필요하다 (기록하지 않는다 — 같은 요청에 receivedLateOk: true를 더해 다시 보내면 넣는다) */
+const receivedLate = (value: string, day: string): Rejection => ({
+  status: 409,
+  code: 'RECEIVED_LATE',
+  message: `받은 시각(${day} ${value})이 지금보다 늦어요. 이대로 넣을까요?`,
+  problems: [{ field: 'receivedText', message: '받은 시각이 지금보다 늦어요.' }],
+  extra: { received: { value, day } },
+})
 
 const invalid = (problems: readonly FieldProblem[]): Rejection => ({ status: 400, code: 'INVALID_INPUT', message: '입력한 내용을 확인해 주세요.', problems })
 
@@ -64,6 +75,11 @@ export function checkRawInput(type: string, body: Record<string, unknown>): { ok
     if (name === 'amountSign') {
       if (value !== 'PLUS' && value !== 'MINUS') problems.push({ field: name, message: '더하기인지 빼기인지 골라 주세요.' })
       else raw[name] = value
+      continue
+    }
+    if (name === 'receivedLateOk') {
+      if (typeof value !== 'boolean') problems.push({ field: name, message: '입력한 내용을 확인해 주세요.' })
+      else if (value) raw[name] = true
       continue
     }
     if (typeof value !== 'string' || value.length > READ_TEXT_MAX || !value.isWellFormed()) problems.push({ field: name, message: RAW_TEXT_MESSAGE })
@@ -180,6 +196,8 @@ function readRawInput(type: string, raw: RawInput, fields: Readonly<Record<strin
     if (raw.receivedText !== undefined) {
       const read = readReceived(raw.receivedText, now)
       if (read.kind === 'invalid') return invalid([{ field: 'receivedText', message: RECEIVED_INVALID }])
+      // 지금(서버 시계)보다 늦은 받은 시각은 판매자가 확인한 뒤에만 넣는다 — 화면이 미리 읽지 못하고 보냈어도 서버가 스스로 막는다 (REL1, SPEC S06 "지금보다 늦어요")
+      if (read.kind === 'ok' && read.late && raw.receivedLateOk !== true) return receivedLate(read.value, read.day)
       // 비우면 서버 도착 시각(초까지) — 받은 시각 필드를 넣지 않는다
       if (read.kind === 'ok') out.received = read.value
     }

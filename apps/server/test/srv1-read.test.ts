@@ -216,7 +216,11 @@ describe('AC-SRV1-07 문자찜 칸 원문 (APP-05 AC12, ORD-08)', () => {
     expect(phone).toEqual({ kind: 'phone', empty: false, valid: true, last4: '5678', hasPhone: true, message: null })
     // 정리한 번호는 답에 없다
     expect(JSON.stringify(phone)).not.toContain('01012345678')
-    const written = await api.post('/api/events', { requestId: rid(), type: 'sms', b: b.id, noText: '15번', receivedText: '3:10', phone: '010-1234-5678' })
+    // 지금(12:00)보다 늦은 15:10은 확인 없이 넣지 않는다 (REL1) — 화면은 "이대로 넣을까요?"에 답한 뒤 receivedLateOk: true로 보낸다
+    const unconfirmed = await api.post('/api/events', { requestId: rid(), type: 'sms', b: b.id, noText: '15번', receivedText: '3:10', phone: '010-1234-5678' })
+    expect(unconfirmed.status).toBe(409)
+    expect(unconfirmed.body.received).toEqual({ value: '15:10', day: '오늘' })
+    const written = await api.post('/api/events', { requestId: rid(), type: 'sms', b: b.id, noText: '15번', receivedText: '3:10', phone: '010-1234-5678', receivedLateOk: true })
     expect(written.status, written.text).toBe(200)
     expect(written.body.phoneLast4).toBe('5678')
     const claims = listClaims((await world.server.writer.read(seller.sellerId, b.date)).state)
@@ -243,6 +247,33 @@ describe('AC-SRV1-07 문자찜 칸 원문 (APP-05 AC12, ORD-08)', () => {
     expect(memo.body.error).toMatchObject({ problems: [{ field: 'memo', message: PHONE_NUMBER_MESSAGE }] })
     expect((await api.post('/api/read', { kind: 'phone', text: '연락 010-9999-8888' })).body.read).toMatchObject({ hasPhone: true })
     expect(await countRows(world.database, 'events')).toBe(before)
+  })
+
+  it('받은 시각 원문이 서버 시계보다 늦으면 화면이 미리 읽지 못했어도 넣지 않고 확인을 묻는다(409, 기록 없음) — receivedLateOk: true면 넣는다 (REL1)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    const api = client(world, seller.cookie)
+    await expectOk(api.post('/api/events', { requestId: rid(), type: 'product.register', b: b.id, text: '15 핑크프릴 20' }))
+    // 서버 시계 KST 20:00:00
+    world.clock.set(Date.parse('2026-10-19T11:00:00Z'))
+    const before = await countRows(world.database, 'events')
+    const requestId = rid()
+    const late = await api.post('/api/events', { requestId, type: 'sms', b: b.id, noText: '15', receivedText: '20:30' })
+    expect(late.status).toBe(409)
+    expect(late.body.error).toMatchObject({ code: 'RECEIVED_LATE', problems: [{ field: 'receivedText' }] })
+    expect(await countRows(world.database, 'events')).toBe(before)
+    // 거짓·잘못된 값은 확인으로 보지 않는다
+    expect((await api.post('/api/events', { requestId: rid(), type: 'sms', b: b.id, noText: '15', receivedText: '20:30', receivedLateOk: false })).status).toBe(409)
+    expect((await api.post('/api/events', { requestId: rid(), type: 'sms', b: b.id, noText: '15', receivedText: '20:30', receivedLateOk: 'yes' })).status).toBe(400)
+    expect(await countRows(world.database, 'events')).toBe(before)
+    // 이른 시각은 그대로 넣는다
+    await expectOk(api.post('/api/events', { requestId: rid(), type: 'sms', b: b.id, noText: '15', receivedText: '19:59' }))
+    // 확인한 뒤 같은 요청 번호로 다시 보내면 넣는다
+    await expectOk(api.post('/api/events', { requestId, type: 'sms', b: b.id, noText: '15', receivedText: '20:30', receivedLateOk: true }))
+    const rows = await world.database.pglite!.query<{ body: string }>(`select body from events where type = 'sms' order by seq`)
+    expect(rows.rows.map((row) => (JSON.parse(row.body) as { received: string }).received)).toEqual(['19:59', '20:30'])
+    expect(rows.rows[1]!.body).not.toContain('receivedLateOk')
   })
 
   it('문자찜 번호는 그 방송의 번호 한도(claim.maxNumber) 안만 — 숫자 필드·번호 칸 원문 모두, 범위 밖이면 보류 찜을 만들지 않는다', async () => {
