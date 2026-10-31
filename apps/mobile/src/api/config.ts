@@ -1,6 +1,7 @@
 // 서버 주소와 가져오기 함수 (APP-01 AC2: 받아쓰기 서버 주소·토큰 같은 비밀은 여기에도, 앱 어디에도 없다 — 라이브지니 서버 주소 하나뿐).
 // 주소는 빌드 때 EXPO_PUBLIC_SERVER_URL(eas.json의 profile마다)로 넣고, 없으면 개발 서버(localhost:3000)다.
 // 시험·개발은 configureApi로 fetch와 주소를 바꿔 넣는다.
+import { withFromApp } from '@livejjim/web/src/lib/app-tab.ts'
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -46,9 +47,12 @@ export function absoluteUrl(path: string): string {
   return path.startsWith('http://') || path.startsWith('https://') ? path : `${config.baseUrl}${path}`
 }
 
-/** 앱 안 "웹으로 열기"가 여는 웹 화면 주소 (같은 서버 — 로그인 쿠키는 기기 브라우저의 것이라 다시 로그인할 수 있다) */
+/**
+ * 앱 안 "웹으로 열기"가 여는 웹 화면 주소 (같은 서버 — 로그인 쿠키는 기기 브라우저의 것이라 다시 로그인할 수 있다).
+ * 라이브지니 주소에는 `from=app`을 붙인다 — 그 탭은 요금 메뉴·안내를 숨긴다(PAY2 BL-11 3.1, D-PAY-04). 밖 주소는 그대로다.
+ */
 export function webUrl(path: string): string {
-  return absoluteUrl(path)
+  return withFromApp(absoluteUrl(path), config.baseUrl)
 }
 
 /** REST 쓰기와 RN 웹소켓이 같은 공개 origin을 보낸다. */

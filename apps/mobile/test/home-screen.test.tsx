@@ -39,6 +39,6 @@ describe('HomeScreen', () => {
     })
     render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
     fireEvent.click(await screen.findByRole('button', { name: '정산 — 웹으로 열기' }))
-    expect(opened).toEqual(['http://test.local/settlements'])
+    expect(opened).toEqual(['http://test.local/settlements?from=app'])
   })
 })

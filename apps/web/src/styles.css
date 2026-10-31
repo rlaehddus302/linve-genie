@@ -4648,4 +4648,54 @@ select.input {
 
 .badges-ask .row {
   flex-wrap: wrap;
+
+/* PAY2 공개 요금 안내 `/pricing` (§7 화면 18): 375 폭·글자 150%에서도 가로 넘침 없이 — 칸은 줄을 바꾼다 */
+.pricing-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.pricing-table th,
+.pricing-table td {
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid #d1d5db;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.pricing-table thead th {
+  font-size: 1rem;
+  color: #374151;
+}
+
+.pricing-kind,
+.pricing-vat {
+  display: block;
+  font-size: 1rem;
+  font-weight: normal;
+  color: #4b5563;
+}
+
+.pricing-price {
+  display: block;
+  font-weight: bold;
+}
+
+.pricing-facts {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 0.25rem 1rem;
+  margin: 0;
+}
+
+.pricing-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pricing-terms {
+  padding-left: 1.5rem;
+  overflow-wrap: anywhere;
 }

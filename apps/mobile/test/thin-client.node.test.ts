@@ -37,7 +37,7 @@ describe('앱 소스에 판정·추출·그리기 코드가 없다 (APP-01 AC3)'
         if (spec === '@livejjim/core' || spec === '@livejjim/voice' || spec.startsWith('@livejjim/voice/') || spec === '@livejjim/label') throw new Error(`${file}: ${spec}를 실행 코드로 가져온다`)
         if (spec.startsWith('@livejjim/core/')) expect(allowed.has(spec), `${file}: ${spec}`).toBe(true)
         // 웹 모듈 중 코어 전체를 끌어오는 것(lib/words·derive·scope-data·quick…)은 가져오지 않는다
-        if (spec.startsWith('@livejjim/web/')) expect(['@livejjim/web/src/api/client.ts', '@livejjim/web/src/lib/kst.ts'].includes(spec), `${file}: ${spec}`).toBe(true)
+        if (spec.startsWith('@livejjim/web/')) expect(['@livejjim/web/src/api/client.ts', '@livejjim/web/src/lib/kst.ts', '@livejjim/web/src/lib/app-tab.ts'].includes(spec), `${file}: ${spec}`).toBe(true)
       }
     }
   })

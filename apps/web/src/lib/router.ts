@@ -9,6 +9,7 @@
 //   `/settings/labels` 설정의 라벨 칸 (PL1B U-PL1B-06 — "라벨 쓰지 않음 — 설정에서 켤 수 있어요."의 "설정" 링크)
 //   `/login` 로그인 화면(LND1 D-LND1-01 — 메뉴에 없는 화면. 로그아웃 상태의 `/`는 소개 화면, 로그인하면 `/`로 바꿔 간다)
 //   `/start` 시작 마법사 · `/privacy` 개인정보처리방침(초안) · `/terms` 이용약관(초안) — 둘은 로그인 없이 열린다
+//   `/pricing` 공개 요금 안내(PAY2 §7 화면 18) — 로그인 없이 열리고 메뉴에 없다. 앱에서 연 탭에서는 `/`로 바뀐다(BL-11 3)
 //   구매자 자세히의 합치기 창: 상대·방향은 `merge`(상대 구매자 ID)·`into`(남는 쪽 구매자 ID), 막힘에서 연 상품 자세히는 `product`(상품 키)
 //   — 상품 자세히에 갔다 와도(브라우저 뒤로 가기 포함) 같은 합치기 창이 다시 열린다 (AC-S06b-34, D-102).
 //   `/labels` 라벨(프린터·출력 대기열·버릴 라벨·출력 이력·라벨 설정·내보내기, I1 AC-I1-20)
@@ -124,6 +125,7 @@ export type Route =
   | StartRoute
   | { readonly name: 'privacy' }
   | { readonly name: 'terms' }
+  | { readonly name: 'pricing' }
   | DepositsRoute
   | ReportRoute // KP1
 
@@ -133,8 +135,8 @@ export interface ReportRoute {
   readonly date?: string
 }
 
-/** 로그인 없이 여는 화면 (AC-I3-77, LND1 D-LND1-01 — 로그인 화면 `/login`도) */
-export const isPublicRoute = (route: Route): boolean => route.name === 'privacy' || route.name === 'terms' || route.name === 'login'
+/** 로그인 없이 여는 화면 (AC-I3-77, LND1 D-LND1-01 — 로그인 화면 `/login`도, PAY2 공개 요금 안내 `/pricing`도) */
+export const isPublicRoute = (route: Route): boolean => route.name === 'privacy' || route.name === 'terms' || route.name === 'pricing' || route.name === 'login'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -207,6 +209,7 @@ export function parseRoute(pathname: string, search = ''): Route {
   if (path === '/login') return { name: 'login' }
   if (path === '/privacy') return { name: 'privacy' }
   if (path === '/terms') return { name: 'terms' }
+  if (path === '/pricing') return { name: 'pricing' }
   if (path === '/sms') return { name: 'sms' }
   if (path === '/labels') return { name: 'labels' }
   if (path === '/billing') {
@@ -265,6 +268,8 @@ export function routePath(route: Route): string {
       return '/privacy'
     case 'terms':
       return '/terms'
+    case 'pricing':
+      return '/pricing'
     case 'deposits':
       return route.tab === 'review' ? '/deposits' : `/deposits?tab=${route.tab}`
     case 'buyers':
@@ -335,6 +340,7 @@ export function menuOf(route: Route): MenuKey | null {
     case 'login':
     case 'privacy':
     case 'terms':
+    case 'pricing':
       return null
   }
 }

@@ -22,6 +22,7 @@ import {
   USER_DATA_POLICY_URL,
 } from '../lib/landing.ts'
 import { OPERATOR, type Operator } from '../operator.ts'
+import { isAppTab } from '../lib/app-tab.ts'
 
 const START_ID = 'landing-start'
 
@@ -108,6 +109,8 @@ export function LandingPage({ operator = OPERATOR, onLogin }: { readonly operato
       <nav className="row policy-links" aria-label="약관">
         <a href="/privacy">개인정보처리방침</a>
         <a href="/terms">이용약관</a>
+        {/* 공개 요금 안내 (PAY2 §7 화면 18) — 앱에서 연 탭에서는 없다 (BL-11 3) */}
+        {isAppTab() ? null : <a href="/pricing">요금 안내</a>}
       </nav>
 
       <section className="stack-tight" aria-labelledby="landing-operator-title">
