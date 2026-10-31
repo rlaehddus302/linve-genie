@@ -24,9 +24,18 @@ export interface DensityRange {
   readonly default: number
 }
 
-/** 인쇄 방식 (L-12 1 · 프린터 골든 열거값) */
-export const PRINTER_PROTOCOLS = ['NIIMBOT_B1', 'MARKLIFE_YXQ2', 'MARKLIFE_YXQ3', 'MARKLIFE_YXQ8', 'MARKLIFE_L11'] as const
+/** 인쇄 방식 (L-7·L-12 1 · 프린터 골든 열거값). `NIIMBOT_*`는 niimbluelib이 바이트를 만든다(PRN2 — D-PRN2-02·05) */
+export const PRINTER_PROTOCOLS = ['NIIMBOT_B1', 'NIIMBOT_B21_V1', 'NIIMBOT_D110', 'MARKLIFE_YXQ2', 'MARKLIFE_YXQ3', 'MARKLIFE_YXQ8', 'MARKLIFE_L11', 'LUCKJINGLE'] as const
 export type PrinterProtocol = (typeof PRINTER_PROTOCOLS)[number]
+
+/** niimbluelib이 바이트를 만드는 방식 (NIIMBOT 어댑터) */
+export const NIIMBOT_PROTOCOLS = ['NIIMBOT_B1', 'NIIMBOT_B21_V1', 'NIIMBOT_D110'] as const
+export type NiimbotProtocol = (typeof NIIMBOT_PROTOCOLS)[number]
+/** 이 패키지가 바이트를 만드는 방식 (Marklife·바우아토 어댑터 — job.ts) */
+export type LabelProtocol = Exclude<PrinterProtocol, NiimbotProtocol>
+
+/** NIIMBOT 방식인지 (데이터로 가른다 — 모델 이름으로 가르지 않는다) */
+export const isNiimbotProtocol = (protocol: PrinterProtocol): protocol is NiimbotProtocol => (NIIMBOT_PROTOCOLS as readonly string[]).includes(protocol)
 
 /** 보내기 직전의 돌림: 없음 · 시계 방향 90도(테이프 프린터 — 받은 그림의 왼쪽 끝이 먼저 나온다) */
 export type PrinterRotate = 'NONE' | 'CW90'
@@ -52,7 +61,10 @@ export interface ModelProfile {
   readonly defaultSize: LabelSizeId
   /** 농도 범위. null이면 농도를 받지 않는다(보내지 않는다 — L11·바우아토) */
   readonly density: DensityRange | null
-  /** 실기기 확인 전이라 기본 목록에 없고, 부르는 쪽이 일부러 넘길 때만 쓴다 */
+  /**
+   * 지원 단계 (L-7, D-PRN2-01): false = 확인됨(실제 판매자 기기로 확인 — 지금 NIIMBOT B1 하나), true = 실험(근거는 있으나 HG-5 전).
+   * 실험도 켠 프로필이라 고르기 목록에 보이고 바로 연결한다 — 화면이 "실험"·"(실험)"과 안내 한 줄을 보인다. 따로 된 실험 목록은 없다
+   */
   readonly experimental: boolean
   /** 바로 연결할 수 없을 때 그림 파일로 인쇄할 공식 앱 (`Marklife 앱` 등) */
   readonly fallbackApp: string
@@ -69,9 +81,11 @@ export interface AdapterProfile {
   readonly density: DensityRange | null
 }
 
-/** NIIMBOT 프린터 프로필(niimbluelib) — 모델마다 하나. 다른 NIIMBOT 모델은 프로필을 더해 붙인다 (LBL-12) */
+/** NIIMBOT 프린터 프로필(niimbluelib) — 모델마다 하나. 다른 NIIMBOT 모델은 프로필 표에 한 줄을 더해 붙인다 (LBL-12, L-7 켠 프로필) */
 export interface PrinterProfile {
-  /** niimbluelib 모델 이름 (`B1`) */
+  /** 프로필 ID (`NIIMBOT_B1`) — 없으면 모른다(출력 기기가 서버에 알리지 않는다) */
+  readonly id?: string
+  /** niimbluelib 모델 이름 (`B1`) — 연결한 뒤 모델 정보가 이것과 같을 때만 이 프로필로 쓴다(L-7) */
   readonly model: string
   /** 화면 이름 */
   readonly displayName: string
@@ -79,21 +93,24 @@ export interface PrinterProfile {
   /** 인쇄 헤드 점 수 — 이보다 넓은 그림은 보내지 않는다 */
   readonly headDots: number
   readonly density: { readonly min: number; readonly max: number; readonly default: number }
-  /** niimbluelib 인쇄 방식 이름 (`B1`) */
+  /** niimbluelib 인쇄 방식 이름 (`B1` · `B21_V1` · `D110`) */
   readonly printTask: string
   /** 라벨 종류: 간격 있는 라벨 */
   readonly labelType: 'WITH_GAPS'
-  /** 인쇄 방향 (niimbluelib 모델 정보와 같다 — B1은 위쪽, 돌리지 않음) */
+  /** 인쇄 방향 (niimbluelib 모델 정보와 같다 — B1은 위쪽·돌리지 않음, D110은 left·시계 방향 90도로 돌려 보낸다) */
   readonly printDirection: 'top' | 'left'
-  /** 그림 아래에 더해 보낼 흰 줄 수 (B1 마지막 줄 미출력 대응 = 1) */
+  /** 그림 아래에 더해 보낼 흰 줄 수 (B1 마지막 줄 미출력 대응 = 1, left 방향은 0 — 돌리면 폭이 되어 헤드를 넘는다) */
   readonly extraBlankRows: number
 }
+
+/** NIIMBOT 프로필 표의 한 줄 — niimbluelib 칸 + 프로필 표 칸 (L-7 켠 프로필) */
+export type NiimbotProfile = PrinterProfile & ModelProfile & { readonly id: string; readonly protocol: NiimbotProtocol }
 
 /**
  * NIIMBOT B1 (TECH_REVIEW §1.1·1.2): 203dpi, 헤드 384점, 농도 1~5 기본 3, B1 인쇄 방식, 간격 있는 라벨, 마지막 줄 +1행.
  * 프로필 표의 칸(L-12 1 — 크기 50×30·50×20·50×40, 대체 경로 NIIMBOT 앱, 이름 앞자리 없음)도 가진다(N1).
  */
-export const B1_PROFILE: PrinterProfile & ModelProfile = Object.freeze({
+export const B1_PROFILE: NiimbotProfile = Object.freeze({
   id: 'NIIMBOT_B1',
   maker: 'NIIMBOT',
   model: 'B1',
@@ -113,9 +130,6 @@ export const B1_PROFILE: PrinterProfile & ModelProfile = Object.freeze({
   printDirection: 'top',
   extraBlankRows: 1,
 })
-
-/** NIIMBOT 어댑터의 켠 프로필은 B1 하나다 (D-P1-08 — N1 뒤에도 그대로). 다른 NIIMBOT 모델은 HG-2 같은 실기기 확인 뒤 여기에 더한다 */
-export const ENABLED_PROFILES: readonly PrinterProfile[] = Object.freeze([B1_PROFILE])
 
 export interface PrintOptions {
   /** 농도 — 없으면 프로필 기본값(B1 = 3, Marklife YXQ = 2). 농도를 받지 않는 프로필(L11)은 쓰지 않는다 */

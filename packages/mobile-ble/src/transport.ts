@@ -11,6 +11,8 @@ export interface BleDeviceInfo {
   readonly name: string | null
   /** 찾을 때 받은 신호 세기 (dBm, 클수록 가깝다). 모르면 없다 — 고르기 목록의 차례에만 쓴다 */
   readonly rssi?: number
+  /** 광고한 서비스 UUID (모르면 없다) — 고르기 목록 판정(pickListTarget, L-7)에 쓴다. 아이폰은 대문자로 준다 */
+  readonly serviceUuids?: readonly string[]
 }
 
 export interface BleCharacteristicInfo {

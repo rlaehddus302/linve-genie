@@ -3,7 +3,8 @@
 실물 프린터가 없어도 **폰 앱이 진짜 블루투스로** 라벨을 보내 볼 수 있게, 맥이 라벨 프린터처럼 광고하고 답하는 도구입니다.
 받은 라벨은 PNG 그림으로 저장하고, 장마다 걸린 시간을 기록합니다.
 
-- 흉내 내는 기종: NIIMBOT B1(모델 번호 표로 B1 SE·B1 Pro·B21·D110도) · Marklife S2·P50·X2(YXQ)·P12(L11). X2는 GATT 꾸러미 C(`fd00`: 쓰기 fd01·알림 fd02, 흐름 제어 없음)
+- 흉내 내는 기종: NIIMBOT B1(모델 번호 표로 B1 SE·B1 Pro·B21·D110도) · Marklife S2·P50·X2(YXQ)·P12(L11) · 바우아토 스티코팝(Luck Jingle). X2는 GATT 꾸러미 C(`fd00`: 쓰기 fd01·알림 fd02, 흐름 제어 없음)
+- 지원 단계(PRN2): 확인된 기종은 NIIMBOT B1 하나이고 나머지는 모두 "실험"입니다. 이 도구는 바이트 규칙을 흉내 낼 뿐 실물 확인(HG-5)을 대신하지 않습니다.
 - 답하는 방식은 저장소의 시험용 가짜 프린터(`packages/mobile-ble`의 `createFakeB1`, `packages/printer`의 `createFakeBluetooth`)와 같습니다. 자체 시험이 같은 입력에 같은 답·같은 점이 나오는지 확인합니다.
 - 맥의 Command Line Tools만 있으면 됩니다(Xcode 전체는 필요 없음).
 
@@ -32,17 +33,21 @@ cd tools/fake-printer
 .build/sc/fake-printer --mode marklife-p12   # Marklife P12인 척 (이름 P12_FAKE)
 .build/sc/fake-printer --mode marklife-p50   # Marklife P50인 척 (YXQ3, 이름 P50_FAKE)
 .build/sc/fake-printer --mode marklife-x2    # Marklife X2인 척 (YXQ8, 꾸러미 C fd00, 이름 X2_FAKE)
+.build/sc/fake-printer --mode bauato         # 바우아토 스티코팝인 척 (Luck Jingle, 이름 PPA2L_FAKE)
+.build/sc/fake-printer --mode bauato --ack-ok --no-flow   # 끝 알림 OK(4F 4B) · 흐름 제어 ff03 없는 기기
 ```
 
 멈추려면 `Ctrl+C`. 받은 그림과 기록은 `./out/`에 생깁니다(`--out 폴더`로 바꿀 수 있음).
 
 | 옵션 | 하는 일 |
 |---|---|
-| `--name 이름` | 광고 이름 바꾸기. 앱은 이름 앞자리로 고릅니다(B1은 `B1-…`, S2는 `S2_`, P50은 `P50_`, X2는 `X2_`, P12는 `P12_`) |
+| `--name 이름` | 광고 이름 바꾸기. 앱은 이름 앞자리로 고릅니다(B1은 `B1-…`·`B1_…` 또는 NIIMBOT 서비스, S2는 `S2_`, P50은 `P50_`, X2는 `X2_`, P12는 `P12_`, 바우아토는 `PPA2`). 글자 그대로(대소문자를 가립니다) |
 | `--no-credit` | (Marklife) 흐름 제어 크레딧(`01 04`, `01 01`)을 보내지 않음 — 크레딧 없는 기기 흉내(D-N1-12) |
 | `--mtu auto` 또는 `--mtu 185` | (Marklife) 첫 크레딧 뒤에 MTU 알림 `02 lo hi`를 보냄 |
 | `--no-ack` | (Marklife) 다 받아도 끝 알림 `AA`를 보내지 않음 — 시간 초과 흉내 |
 | `--ack-delay 3000` | (Marklife) 끝 알림을 3초 늦게 보냄 |
+| `--ack-ok` | (Marklife·바우아토) 끝 알림을 `AA` 대신 `4F 4B`(OK)로 보냄 — 바우아토는 출력 끝으로 세고, Marklife는 끝으로 세지 않아 20초 뒤 시간 초과가 맞다(D-PRN2-03) |
+| `--no-flow` | (Marklife·바우아토, 꾸러미 A) 흐름 제어 `ff03` 특성을 두지 않음 — 앱·웹이 크레딧 없이 끝까지 보내는지 볼 때(D-PRN2-03) |
 | `--also-b1-service` | (Marklife) 광고에 B1 서비스(`e7810a71…`)도 실음 — B1 찾기 목록에 섞여 보이는 경우 흉내 |
 | `--noise` | 광고에 상관없는 서비스(배터리 180F·HID 1812·기기 정보 180A)를 함께 실음 — 찾기 목록에 잡음이 섞인 곳 흉내 |
 | `--battery 30` | (B1) 배터리 값 |
@@ -56,7 +61,7 @@ cd tools/fake-printer
 3. 앱에서 **프린터 연결 → 찾기**를 누르고 목록에서 `B1-FAKE`(또는 맥 이름, 아래 주의)를 고릅니다.
 4. 라벨을 찍습니다. 맥 화면에 "쪽을 다 받았다 … → out/b1-….png"가 나오면 그 PNG를 열어 봅니다.
 
-Marklife 모드(`S2_FAKE_BLE`·`P12_FAKE`)는 웹(크롬 Web Bluetooth)의 Marklife 연결로 고릅니다.
+Marklife·바우아토 모드(`S2_FAKE_BLE`·`P12_FAKE`·`PPA2L_FAKE`)는 앱의 한 목록이나 웹(크롬 Web Bluetooth)의 한 목록 고르기 창에서 고릅니다. 목록에 "실험"이 붙어 보입니다.
 
 ### 주의: 목록에 맥 이름이 보일 수 있어요
 
@@ -69,10 +74,11 @@ Marklife 모드(`S2_FAKE_BLE`·`P12_FAKE`)는 웹(크롬 Web Bluetooth)의 Markl
 
 - `out/<모드>-<날짜시각>-<번호>.png` — 프린터가 받은 그림 그대로(검정 점 = 검정). 203dpi로 적혀 있습니다.
   - P12(L11)는 앱이 시계 방향으로 90도 돌려 보내므로 그림이 세로로 서 있습니다(진짜 프린터가 받는 방향).
+  - 바우아토(Luck Jingle)는 돌리지 않은 그림 그대로입니다.
   - S2(YXQ)는 압축(zlib 창 10비트)을 풀어 저장합니다. 창이 10비트가 아니면 화면에 "주의"가 뜹니다(진짜 프린터는 그런 그림을 버립니다).
 - `out/log.jsonl` — 한 줄에 하나씩:
   - `connect` / `disconnect`: 폰이 알림을 켬(이어짐) / 모두 끔(끊김). 다시 이으면 이어서 받습니다.
-  - `job`: 장마다 `firstWriteAt`(첫 쓰기) · `lastWriteAt`(마지막 쓰기) · `endReplyAt`(끝 응답: B1은 인쇄 끝 답, Marklife는 `AA`) · `totalMs` · `writes`(쓰기 조각 수) · `bytes` · `png`.
+  - `job`: 장마다 `firstWriteAt`(첫 쓰기) · `lastWriteAt`(마지막 쓰기) · `endReplyAt`(끝 응답: B1은 인쇄 끝 답, Marklife·바우아토는 `AA` — `--ack-ok`면 `OK`) · `totalMs` · `writes`(쓰기 조각 수) · `bytes` · `png`.
   - `job-incomplete`: 다 받기 전에 끊긴 장.
 
 ## 6. 자체 시험과 골든

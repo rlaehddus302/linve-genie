@@ -11,13 +11,14 @@ import {
   systemTimer,
   type ConnectionMethod,
   type ConnectionState,
+  type ModelProfile,
   type PrintOptions,
   type PrinterProfile,
   type PrinterTimer,
   type RememberedPrinter,
   type RememberingPrinterAdapter,
 } from './adapter.ts'
-import { OK, fail, type PrinterErrorCode, type PrinterResult } from './errors.ts'
+import { OK, densityMessage, fail, printerErrorWithMessage, type PrinterErrorCode, type PrinterResult } from './errors.ts'
 import { FAKE_B1_USB_PRODUCT_ID, FAKE_B1_USB_VENDOR_ID } from './fake-serial.ts'
 
 /** 시험용 프린터를 기억할 때의 값 (블루투스 기기 ID) */
@@ -36,6 +37,7 @@ export type FakePrintBehavior = 'disconnect' | 'fail' | { readonly delayMs: numb
 export interface FakePrintRecord {
   /** 받은 그림의 복사본 (받은 뒤 원본을 바꿔도 그대로) */
   readonly image: LabelBitmap
+  /** 보낸 농도 (농도가 없는 프로필은 0 — 쓰지 않음) */
   readonly density: number
 }
 
@@ -46,7 +48,11 @@ export interface FakePrinterOptions {
   readonly script?: Readonly<Record<number, FakePrintBehavior>>
   /** 연결하면 낼 오류 (없으면 연결 성공) */
   readonly connectError?: PrinterErrorCode
-  readonly profile?: PrinterProfile
+  /**
+   * 흉내 낼 프로필 (기본 B1). 켠 프로필 표의 어느 줄이든 된다(printerProfile('BAUATO_PPA2L') 등 — PRN2 실험 표시·크기 목록 시험용).
+   * 농도가 없는 프로필(L-12 테이프·바우아토)은 농도를 받아도 쓰지 않는다. 돌림이 있으면(CW90·left) 받은 그림의 높이를 헤드와 견준다
+   */
+  readonly profile?: PrinterProfile | ModelProfile
   readonly timer?: PrinterTimer
   readonly printTimeoutMs?: number
 }
@@ -212,10 +218,16 @@ export function createFakePrinter(options: FakePrinterOptions = {}): FakePrinter
     async print(image: LabelBitmap, printOptions: PrintOptions = {}): Promise<PrinterResult> {
       if (box.state === 'PRINTING') return fail('BUSY')
       if (box.state !== 'CONNECTED') return fail('NOT_CONNECTED')
-      const density = printOptions.density ?? profile.density.default
-      if (!Number.isInteger(density) || density < profile.density.min || density > profile.density.max) return fail('INVALID_DENSITY')
+      const range = profile.density
+      // 농도가 없는 프로필은 받은 농도를 쓰지 않는다(0으로 기록)
+      const density = range === null ? 0 : (printOptions.density ?? range.default)
+      if (range !== null && (!Number.isInteger(density) || density < range.min || density > range.max)) {
+        return { ok: false, error: printerErrorWithMessage('INVALID_DENSITY', densityMessage(range)) }
+      }
       if (!isLabelBitmap(image)) return fail('PRINT_FAILED', '그림 형식(L-1)이 아니다')
-      if (image.width > profile.headDots) return fail('IMAGE_TOO_WIDE')
+      // 보낼 그림의 폭(돌린 뒤 — 돌림이 있으면 받은 그림의 높이)이 헤드보다 넓으면 보내지 않는다 (L-7·L-12 2)
+      const turned = (profile as Partial<ModelProfile>).rotate === 'CW90' || (profile as Partial<PrinterProfile>).printDirection === 'left'
+      if ((turned ? image.height : image.width) > profile.headDots) return fail('IMAGE_TOO_WIDE')
       const copy = copyBitmap(image)
       calls++
       const behavior = script.get(calls)

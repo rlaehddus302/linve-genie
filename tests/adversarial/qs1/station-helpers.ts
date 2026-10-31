@@ -2,7 +2,7 @@
 // - 화면 파일은 DOM 타입으로 검사하므로(루트 tsconfig는 Node 타입) 경로를 값으로 불러온다(s05 console-store-race와 같은 방법).
 // - 저장소(localStorage·sessionStorage)는 메모리 저장소, 서버는 가짜 fetch(받기·결과), 출력 기록 자료층은 가짜 store다.
 // - 저절로 다시 잇기의 시간은 손으로 돌리는 타이머(진짜로 기다리지 않는다). 시각·난수를 쓰지 않는다.
-import { createBitmap, type LabelBitmap } from '@livejjim/label'
+import { createBitmap, defaultTemplate, type LabelBitmap } from '@livejjim/label'
 import type { PrinterAdapter, PrinterTimer } from '@livejjim/printer'
 import { vi } from 'vitest'
 
@@ -162,7 +162,9 @@ export class FakeServer {
           reason: 'auto',
           attempt: `attempt-${id}`,
           data: { no: 15, name: '핑크프릴', price: 10000, date: DATE, buyer: { kind: 'youtube', name: '우주천사' } },
-          template: {},
+          // 실제 서버는 늘 L-5 템플릿 전체(저장한 적이 없으면 50×30 기본 — L-11 13)를 준다. PRN2부터 출력 기기가 template.size를
+          // 이은 프린터 프로필의 크기 목록과 견주므로(D-PRN2-07) 크기 없는 {}는 라벨 오류가 된다 — 서버가 실제로 주는 모양으로 둔다
+          template: defaultTemplate('product'),
           page: null,
           pages: null,
           label: { key: `c-${id}@1`, claim: `c-${id}`, version: 1, broadcast: 'b1', no: 15, buyerId: null, buyer: { kind: 'youtube', name: '우주천사' } },

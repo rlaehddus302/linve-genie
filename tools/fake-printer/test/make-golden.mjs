@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createBitmap, setPixel } from '../../../packages/label/src/index.ts'
 import { createFakeB1, createFakeBleTransport, createNativeB1Adapter } from '../../../packages/mobile-ble/src/index.ts'
-import { MARKLIFE_P12, MARKLIFE_P50, MARKLIFE_S2, MARKLIFE_X2, buildPrintJob, createFakeBluetooth } from '../../../packages/printer/src/index.ts'
+import { BAUATO_PPA2L, MARKLIFE_P12, MARKLIFE_P50, MARKLIFE_S2, MARKLIFE_X2, buildPrintJob, createFakeBluetooth } from '../../../packages/printer/src/index.ts'
 import { rotateClockwise } from '../../../packages/printer/src/job.ts'
 import { GATT_BUNDLES } from '../../../packages/printer/src/bluetooth.ts'
 
@@ -100,15 +100,16 @@ async function b1Golden(mtu, name) {
 }
 
 /** Marklife: 작업 바이트를 조각으로 나눠 가짜 Web Bluetooth 기기에 쓰고, 조각마다 흐름 제어(ff03)·알림(ff01)으로 나온 것을 적는다 */
-async function marklifeGolden({ name, deviceName, profile, images, chunkSize, options, bundle = 'A' }) {
+async function marklifeGolden({ name, deviceName, profile, images, chunkSize, options, bundle = 'A', noFlow = false }) {
   const spec = GATT_BUNDLES[bundle]
-  const fake = createFakeBluetooth({ name: deviceName, bundle, ...options })
+  // noFlow: 꾸러미 A에 흐름 제어(ff03)가 없는 기기 (D-PRN2-03)
+  const fake = createFakeBluetooth({ name: deviceName, bundle, ...(noFlow ? { missingCharacteristics: ['ff03'] } : {}), ...options })
   const device = await fake.bluetooth.requestDevice({ filters: [{ namePrefix: profile.namePrefix }], optionalServices: [] })
   const server = await device.gatt.connect()
   const service = await server.getPrimaryService(spec.service)
   const write = await service.getCharacteristic(spec.write)
   const notify = await service.getCharacteristic(spec.notify)
-  const flow = spec.flow === null ? null : await service.getCharacteristic(spec.flow)
+  const flow = spec.flow === null || noFlow ? null : await service.getCharacteristic(spec.flow)
   let pending = []
   const listen = (char, label) =>
     char.addEventListener('characteristicvaluechanged', () => {
@@ -138,7 +139,12 @@ async function marklifeGolden({ name, deviceName, profile, images, chunkSize, op
     bundle,
     protocol: profile.protocol,
     deviceName,
-    options: { initialCredits: options.initialCredits === undefined ? 4 : options.initialCredits, creditsPerPacket: options.creditsPerPacket ?? 1, mtu: options.mtu ?? null },
+    options: {
+      initialCredits: options.initialCredits === undefined ? 4 : options.initialCredits,
+      creditsPerPacket: options.creditsPerPacket ?? 1,
+      mtu: options.mtu ?? null,
+      ...(options.ack === undefined ? {} : { ack: options.ack }),
+    },
     onSubscribe,
     steps,
     jobs,
@@ -162,6 +168,16 @@ await marklifeGolden({
 await marklifeGolden({ name: 'p50-yxq3', deviceName: 'P50_FAKE', profile: MARKLIFE_P50, images: [sampleImage(8, 384, 240), sampleImage(10, 384, 160)], chunkSize: 90, options: {} })
 await marklifeGolden({ name: 'x2-yxq8-c', deviceName: 'X2_FAKE', profile: MARKLIFE_X2, bundle: 'C', images: [sampleImage(9, 384, 240), sampleImage(11, 384, 200)], chunkSize: 90, options: { initialCredits: null, creditsPerPacket: 0 } })
 await marklifeGolden({ name: 'p12-l11', deviceName: 'P12_FAKE', profile: MARKLIFE_P12, images: [sampleImage(2, 320, 96), sampleImage(4, 240, 96)], chunkSize: 90, options: {} })
+// 바우아토 (Luck Jingle — D-PRN2-02): OK(4F 4B) 끝 알림, 흐름 제어(ff03) 없는 꾸러미 A (D-PRN2-03)
+await marklifeGolden({
+  name: 'bauato-luckjingle-ok-noflow',
+  deviceName: 'PPA2L_FAKE',
+  profile: BAUATO_PPA2L,
+  images: [sampleImage(12, 384, 240), sampleImage(13, 384, 120)],
+  chunkSize: 90,
+  noFlow: true,
+  options: { initialCredits: null, creditsPerPacket: 0, ack: 'ok' },
+})
 
 // 스스로 맞춰 보기: 골든의 첫 B1 쪽은 보낸 그림과 같은 점이어야 한다 (가짜 B1의 줄 풀기가 맞는지)
 const b1 = JSON.parse((await import('node:fs')).readFileSync(join(outDir, 'b1-mtu23.json'), 'utf8'))

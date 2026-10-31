@@ -3,8 +3,8 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   createFakeBleTransport,
+  defaultPrinterFamilies,
   createPrinterPicker,
-  enabledFamilies,
   familyOf,
   familyScanFilter,
   marklifeFamily,
@@ -49,12 +49,17 @@ function pickWhere(match: (device: BleDeviceInfo) => boolean, seen: (readonly Bl
 }
 
 describe('계열 표', () => {
-  it('표 순서대로 묻는다: Marklife 이름은 Marklife, 대소문자만 다른 Marklife 꼴은 받지 않음, 그 밖은 NIIMBOT', () => {
+  it('표 순서대로 묻는다: Marklife 이름은 Marklife, NIIMBOT 서비스·이름 꼴은 NIIMBOT, 그 밖은 목록에 없다 (PRN2 D-PRN2-04)', () => {
     const both = [marklifeFamily(), niimbotFamily()]
     expect(familyOf('P50_1234', both)).toBe('MARKLIFE')
+    expect(familyOf('PPA2L_1', both)).toBe('MARKLIFE')
     expect(familyOf('p50_1234', both)).toBeNull()
     expect(familyOf('B1-1234', both)).toBe('NIIMBOT')
-    expect(familyOf(null, both)).toBe('NIIMBOT')
+    // PRN2: 이름도 서비스도 없으면 목록에 없다(N1까지는 NIIMBOT 찾기 거르기를 지난 기기라 NIIMBOT으로 봤다 — 골든 G-PRT-PRN2-41)
+    expect(familyOf(null, both)).toBeNull()
+    expect(familyOf(null, both, ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'])).toBe('NIIMBOT')
+    // Marklife 이름이 NIIMBOT 서비스를 광고해도 Marklife (골든 G-PRT-PRN2-37)
+    expect(familyOf('P12_ZA15B', both, ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'])).toBe('MARKLIFE')
     // B1만 켜도 Marklife 이름 꼴은 B1로 가지 않는다
     const b1Only = [niimbotFamily()]
     expect(familyOf('P50_1234', b1Only)).toBeNull()
@@ -67,16 +72,22 @@ describe('계열 표', () => {
     expect(niimbotFamily().modelName('B1-1234')).toBe('NIIMBOT')
   })
 
-  it('앱 기본은 실험이 아닌 계열만 — Marklife는 숨김 스위치를 켜야 들어간다', () => {
-    const table = [marklifeFamily(), niimbotFamily()]
-    expect(enabledFamilies(table, false).map((f) => f.id)).toEqual(['NIIMBOT'])
-    expect(enabledFamilies(table, true).map((f) => f.id)).toEqual(['MARKLIFE', 'NIIMBOT'])
+  it('숨김 스위치는 없다 — 켠 계열이 모두 목록에 든다, 실험은 줄마다 표시 (PRN2 D-PRN2-08 — N1에서는 Marklife를 숨겼다)', () => {
+    expect(defaultPrinterFamilies().map((f) => f.id)).toEqual(['MARKLIFE', 'NIIMBOT'])
+    expect(marklifeFamily().isExperimental('P50_1')).toBe(true)
+    expect(marklifeFamily().isExperimental('PPA2L_1')).toBe(true)
+    // NIIMBOT 줄은 모델을 이은 뒤에 알아 목록에서 표시하지 않는다 (L-7)
+    expect(niimbotFamily().isExperimental('B21-1')).toBe(false)
   })
 
   it('찾기 거르기는 켠 계열의 거르기를 합친다 (같은 값은 한 번)', () => {
     const filter = familyScanFilter([marklifeFamily(), niimbotFamily()])
     expect(filter.namePrefixes).toContain('P50_')
-    expect(filter.namePrefixes).toContain('B')
+    expect(filter.namePrefixes).toContain('PPA2')
+    // PRN2 D-PRN2-04: 이름 첫 글자(`B`) 대신 모델 이름 꼴, 글자 그대로
+    expect(filter.namePrefixes).toContain('B1-')
+    expect(filter.namePrefixes).not.toContain('B')
+    expect(filter.matchCase).toBe(true)
     expect(new Set(filter.namePrefixes).size).toBe(filter.namePrefixes.length)
     expect(filter.serviceUuids).toEqual(['e7810a71-73ae-499d-8c15-faa9aef0c3f2'])
   })
@@ -112,7 +123,8 @@ describe('계열 표', () => {
       ...base,
       id: 'OTHER',
       label: '다른 프린터',
-      experimental: true,
+      // PRN2 D-PRN2-08: 계열 단위 experimental(숨김 스위치용)은 없어졌다 — 실험 표시는 줄마다
+      isExperimental: () => true,
       claim: (name) => (name?.startsWith('ZZ') === true ? 'mine' : 'pass'),
       modelName: () => '다른 프린터',
     }

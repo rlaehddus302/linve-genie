@@ -157,7 +157,8 @@ export function Notice({ tone, children, alert, label }: { readonly tone: Tone; 
   )
 }
 
-export function Tag({ tone, children }: { readonly tone: Tone; readonly children: ReactNode }) {
+/** big: 글자를 한 단계 키운다 (꼭 봐야 하는 꼬리표만, UX-PRN2-008) */
+export function Tag({ tone, children, big }: { readonly tone: Tone; readonly children: ReactNode; readonly big?: boolean }) {
   const { tones } = useKit()
   const pair = tones[tone]
   return (
@@ -167,7 +168,7 @@ export function Tag({ tone, children }: { readonly tone: Tone; readonly children
           {TONE_MARK[tone]}
         </Txt>
       </View>
-      <Txt step="caption" weight="bold" ink={pair.fg}>
+      <Txt step={big === true ? 'body' : 'caption'} weight="bold" ink={pair.fg}>
         {children}
       </Txt>
     </View>

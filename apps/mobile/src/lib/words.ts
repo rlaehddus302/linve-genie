@@ -166,3 +166,16 @@ export function awayLine(counts: { readonly labels: number; readonly claims: num
 }
 /** 블루투스를 쓸 수 없는 기기에서 프린터 연결을 눌렀을 때 (웹의 "이 브라우저에서는…" 대신) */
 export const APP_PRINTER_UNSUPPORTED = '이 휴대폰에서는 블루투스를 쓸 수 없어 프린터에 연결할 수 없어요. 블루투스가 되는 휴대폰에서 연결하거나, 컴퓨터 화면에서 라벨을 출력해 주세요.'
+/** 실험 기종 표시 — 고르기 목록 줄의 꼬리표, 연결 뒤 프린터 이름 뒤 "(실험)" (L-7 지원 단계, D-PRN2-01 — 웹과 같다) */
+export const EXPERIMENTAL_WORD = '실험'
+export const EXPERIMENTAL_MARK = '(실험)'
+/** 실험 기종: 테스트 인쇄 "예" 전에는 "이 기기에서 출력"이 없다 (L-7 지원 단계 — 웹 print-words와 같은 문장) */
+export const EXPERIMENTAL_WAIT_TEST = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'
+/** 이미 출력 기기인 기기에 실험 기종을 이었다: 테스트 "예" 전에는 받지 않는다 — 멈춘 까닭과 할 일 (D-PRN2-10, 웹과 같은 문장) */
+export const EXPERIMENTAL_PAUSED = '실험 중인 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.'
+/** 출력 기기 칸 — 실험 기종의 테스트 "예" 전 (D-PRN2-10, 웹과 같은 문장) */
+export const EXPERIMENTAL_WAIT_TEST_MINE = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.'
+/** 출력 기기에서 실험 기종의 테스트 "예"를 누른 뒤 (D-PRN2-10, 웹과 같은 문장) */
+export const EXPERIMENTAL_RESUMED = '좋아요. 멈췄던 출력을 이어서 해요.'
+/** "예" 뒤 다른 까닭으로 다시 멈췄을 때 — "이어서 해요"를 지난 일로 (UX-PRN2-006, 웹과 같은 문장) */
+export const TEST_CONFIRMED_PAST = '테스트 인쇄가 잘 나온 것을 확인했어요.'

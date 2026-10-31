@@ -1,6 +1,7 @@
 // 가짜 Marklife (YXQ·L11) — packages/printer/src/fake-bluetooth.ts의 createFakeBluetooth 응답 로직을 옮겼다.
 // 흐름 제어(ff03): 알림을 켜면 `01 n`(첫 크레딧, 기본 4) + (옵션) `02 lo hi`(MTU), 조각을 하나 받을 때마다 `01 m`(기본 1).
-// 끝 알림(ff01): 작업을 끝까지 받으면 `AA`. 작업의 시작은 방식마다의 시작 바이트, 끝은 래스터 머리로 계산한 길이(fakeJobLength).
+// 끝 알림(ff01): 작업을 끝까지 받으면 `AA`(또는 `.ok`이면 `4F 4B` — Luck Jingle 프린터의 다른 끝 알림, D-PRN2-03).
+// 작업의 시작은 방식마다의 시작 바이트, 끝은 래스터 머리로 계산한 길이(fakeJobLength). 바우아토는 Luck Jingle 방식(LUCKJINGLE, D-PRN2-02).
 // 앞 작업을 끝까지 받지 못한 채 다음 작업의 시작이 오면 앞 시도를 닫고 새 시도로 센다(조각 경계에서 나누기 포함).
 // 시각·블루투스를 모른다 — write()가 그 쓰기에 대한 알림을 돌려준다.
 
@@ -9,6 +10,10 @@ public enum MarklifeProtocol: String, CaseIterable {
     case yxq3 = "MARKLIFE_YXQ3"
     case yxq8 = "MARKLIFE_YXQ8"
     case l11 = "MARKLIFE_L11"
+    case luckJingle = "LUCKJINGLE"
+
+    /// 래스터가 `1D 76 30 00`(압축 없음) 모양인지 — L11·Luck Jingle
+    public var rawRaster: Bool { self == .l11 || self == .luckJingle }
 }
 
 /// GATT 꾸러미 A (16비트 UUID)
@@ -38,6 +43,14 @@ public struct MarklifeOutput: Equatable {
 /// 아무 값이나 받는 자리 (농도)
 private let any = -1
 
+/// ASCII `OK` 끝 알림 (Luck Jingle)
+public let okNotice: [UInt8] = [0x4F, 0x4B]
+
+/// 알림 값이 그 방식의 끝 알림인지 (packages/printer isEndNotice와 같다 — 정확히 `AA`, Luck Jingle만 정확히 `4F 4B`도)
+public func marklifeIsEndNotice(_ p: MarklifeProtocol, _ value: [UInt8]) -> Bool {
+    value == [0xAA] || (p == .luckJingle && value == okNotice)
+}
+
 private func jobStart(_ p: MarklifeProtocol) -> [Int] {
     let zeros = { (n: Int) in [Int](repeating: 0, count: n) }
     let yxq38: [Int] = [0x1F, 0x80, 0x02, 0x20, 0x1F, 0x70, 0x02, any] + zeros(6) + [0x1F, 0xC0, 0x01, 0x00, 0x1F, 0x11, 0x51, 0x1F, 0x10]
@@ -45,6 +58,7 @@ private func jobStart(_ p: MarklifeProtocol) -> [Int] {
     case .yxq2: return [0x1F, 0x70, 0x01, any, 0x10, 0xFF, 0xF1, 0x02, 0x1F, 0x10]
     case .yxq3, .yxq8: return yxq38
     case .l11: return zeros(15) + [0x10, 0xFF, 0xF1, 0x02, 0x1D, 0x76, 0x30, 0x00]
+    case .luckJingle: return [0x10, 0xFF, 0xF1, 0x03] + zeros(12) + [0x1F, 0x11, 0x51, 0x1D, 0x76, 0x30, 0x00]
     }
 }
 
@@ -66,13 +80,15 @@ public func marklifeJobStartAt(_ p: MarklifeProtocol, _ bytes: [UInt8], _ at: In
 /// 작업 길이 (fakeJobLength): nil = 래스터 머리를 아직 못 받음, -1 = 꼴이 틀림(NaN)
 public func marklifeJobLength(_ p: MarklifeProtocol, _ bytes: [UInt8]) -> Int? {
     func at(_ i: Int) -> Int { Int(bytes[i]) }
-    if p == .l11 {
+    if p.rawRaster {
+        // 래스터 머리 자리는 둘 다 19. 뒤: L11 = 1D 0C + 10 FF F1 45 · Luck Jingle = 1D 0C + 1F 11 50 + 10 FF F1 45
         let head = 19
+        let tail = p == .luckJingle ? 2 + 3 + 4 : 2 + 4
         if bytes.count < head + 8 { return nil }
         if at(head) != 0x1D || at(head + 1) != 0x76 || at(head + 2) != 0x30 || at(head + 3) != 0x00 { return -1 }
         let wb = at(head + 4) | (at(head + 5) << 8)
         let h = at(head + 6) | (at(head + 7) << 8)
-        return head + 8 + wb * h + 2 + 4
+        return head + 8 + wb * h + tail
     }
     let head = p == .yxq2 ? 8 : 21
     let tail = p == .yxq2 ? 2 + 4 : 4 + 4 + 3
@@ -110,6 +126,8 @@ public final class MarklifeAttempt {
 public enum MarklifeAckMode: Equatable {
     /// 작업을 다 받은 그 쓰기 안에서 `AA`
     case send
+    /// 작업을 다 받은 그 쓰기 안에서 `4F 4B`(ASCII OK) — Luck Jingle만 끝으로 센다(D-PRN2-03). Marklife 방식에 쓰면 시간 초과 흉내
+    case ok
     /// 보내지 않음
     case none
 }
@@ -210,9 +228,16 @@ public final class MarklifeEmulator {
         attempt.complete = true
         open = nil
         completedInLastWrite.append(attempt)
-        if ack == .send {
+        switch ack {
+        case .send:
             attempt.acked = true
             out.append(MarklifeOutput(.notify, [0xAA]))
+        case .ok:
+            // 끝 알림으로 세는 방식(Luck Jingle)에서만 acked
+            attempt.acked = proto == .luckJingle
+            out.append(MarklifeOutput(.notify, okNotice))
+        case .none:
+            break
         }
     }
 

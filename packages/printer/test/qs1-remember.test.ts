@@ -101,7 +101,8 @@ describe('AC-QS1-02 기억하는 것과 잊는 것', () => {
   })
 
   it('(b) WRONG_MODEL은 기억하지 않는다', async () => {
-    const { fake, adapter } = b1({ model: 'D110' })
+    // PRN2: D110은 켠 프로필 — 켠 프로필이 아닌 B1 Pro로 본다 (D-PRN2-05)
+    const { fake, adapter } = b1({ model: 'B1_PRO' })
     expect(await adapter.connect('bluetooth')).toMatchObject({ ok: false, error: { code: 'WRONG_MODEL' } })
     expect(adapter.hasRemembered).toBe(false)
     expect(adapter.remembered).toBeNull()
@@ -519,7 +520,7 @@ describe('AC-QS1-06 getAvailability()가 false여도 한 번 시도 (D-QS1-03)',
   })
 
   it('false여도 다른 모델을 고른 것은 WRONG_MODEL 그대로 (블루투스는 된 것)', async () => {
-    const { adapter } = b1({ available: false, adapterOff: false, model: 'D110' })
+    const { adapter } = b1({ available: false, adapterOff: false, model: 'B1_PRO' })
     expect(await adapter.connect('bluetooth')).toMatchObject({ ok: false, error: { code: 'WRONG_MODEL' } })
   })
 

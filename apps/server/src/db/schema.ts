@@ -587,6 +587,11 @@ export const printQueues = pgTable('print_queues', {
   deviceName: text('device_name'),
   /** 출력 기기가 알린 프린터 연결 여부 */
   printerConnected: boolean('printer_connected').notNull().default(false),
+  /**
+   * 출력 기기가 알린 프린터 프로필 ID (PRN2, L-11 10·16, D-PRN2-07). 켠 프로필 표(L-7·L-12)에 있는 값만 — 모르거나 끊겼으면 null.
+   * 프린터 기기 ID·이름·주소는 두지 않는다
+   */
+  printerProfileId: text('printer_profile_id'),
   /** 출력 그만하기를 눌렀고 출력 중인 장의 결과를 기다리는 중 */
   releasing: boolean('releasing').notNull().default(false),
   /** 멈춘 까닭: DISCONNECTED · PRINTER_ERROR · SELLER · LABEL_ERROR (멈추지 않았으면 null) */

@@ -21,7 +21,7 @@
 | `documents/*.json` | 확인서 품목 줄·판매대장 열과 행 (SPEC STL-04·STL-06·RCP-02, O3 — D-O3-05~D-O3-08). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/documents` 단위 테스트가 읽는다 — 아래 "문서 골든" |
 | `billing/*.json` | 요금 — 상태(정액제 기간 사슬·정량 잔량·새 실제 방송의 이용 방식·7일 환불 가능)·결제 확인 판단·부가세 나누기·사업자등록번호 읽기 (BILLING_RULES BL-2·BL-3·BL-4·BL-6·BL-7·BL-8, N5, D-N5-01). PL1 보강: `granted.json` 부여된 결제 다시 맞추기 — 환불 결과 모름·밖에서 취소(BL-7 5·6, D-PL1-08). PL1B 시작 때 초안 `drafts/pl1b/billing/`에서 옮겼다(AC-PL1B-00). **JSON이라 코어 골든 러너는 읽지 않는다.** 서버(`apps/server`) 단위 시험이 읽는다 — 아래 "요금 골든" |
 | `label/*.json` | 라벨 글·쪽 나누기·크기 (LABEL_RULES L-1~L-5, P1, D-P1-01. O3 보강: 옵션 글·수량 — `product-options.json`·`packing-options.json`, D-O3-01~D-O3-04). **JSON이라 코어 골든 러너는 읽지 않는다**(`*.yaml`만 읽는다). `packages/label` 단위 테스트가 읽는다 — 아래 "라벨 골든" |
-| `printer/*.json` | 프린터 작업 바이트·기기 이름으로 고르기·프로필 표·바로 연결할 수 없는 브라우저의 까닭 (LABEL_RULES L-7·L-12, N1 — D-N1-01·09). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/printer` 단위 테스트가 읽는다 — 아래 "프린터 골든" |
+| `printer/*.json` | 프린터 작업 바이트·기기 이름으로 고르기·프로필 표·바로 연결할 수 없는 브라우저의 까닭 (LABEL_RULES L-7·L-12, N1 — D-N1-01·09), 고르기 목록·끝 알림 (PRN2 — D-PRN2-03·04). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/printer` 단위 테스트가 읽는다 — 아래 "프린터 골든" |
 | `voice/*.json` | 음성 문자찜 문장 하나 → 문자찜 아님 또는 주문·뒤 4자리·이름·받은 시각·문제 (DOMAIN_RULES R-21, V1 — D-V1-01·02·04·08·12). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/voice` 단위 테스트가 읽는다 — 아래 "음성 문자찜 골든" |
 | `voice-register/*.json` | 음성 바로 등록 (V3 — D-V3-06·D-V3-09): 사전 밖 품종 추측(`variety-guess.json`, DOMAIN_RULES R-17 7)과 이미 있는 번호를 들었을 때 무시·바로 고침·묻기(`same-number.json`, R-22). **JSON이라 코어 골든 러너는 읽지 않는다.** `packages/voice` 단위 테스트가 읽는다 — 아래 "음성 바로 등록 골든" |
 | `tiktok/*.json` | 틱톡 아이디·방송 주소 해석, 웹캐스트 댓글 → 공통 댓글 레코드·중복 제거 (PLT-02, N2b-1, D-N2b-1-02~04), 공통 댓글 레코드 → `chat` 다섯 칸·댓글 붙여넣기 줄 읽기 (N2b-2, D-N2b-2-03·07), 크롬 확장이 보낸 틱톡 댓글 묶음 → 공통 댓글 레코드 (TTX, D-TTX-04~06·14 — `extension.json`). **JSON이라 코어 골든 러너는 읽지 않는다**. `apps/server` 시험이 읽는다 — 아래 "틱톡 골든" |
@@ -290,12 +290,12 @@ expect:
 | `receipt` | `date`(방송 날짜 `YYYY-MM-DD`), `buyer`(엔진 골든의 구매자 키 — 유튜브 = 채널 ID, 문자 = `sms:<ref>`. 테스트가 코어 어댑터와 같은 방법으로 구매자 ID로 바꾼다). 리허설 아님·가게 설정 없음·만든 시각은 아무 값 | `{ "lines", "itemCount", "subtotal" }` 정확히 세 키. `lines` = 확인서 상품 줄 순서대로 `{ "session", "no", "item", "price" }` — 회차(방송 제목), 번호, **품종 칸에 찍는 글**, **가격 칸에 찍는 글**(원 표기). `itemCount` = "상품 수" 정수(수량 합), `subtotal` = 상품 합계 정수(코어 값). 확인서를 만들지 않아야 하면 `{ "error": 코드 }`(코드는 문서 패키지 오류 코드 `NO_ITEMS`·`AMOUNT_MISMATCH`·`INVALID_INPUT`) |
 | `ledger` | `from`·`to`(기간 방송 날짜), 선택 `broadcasts`(고른 방송 ID 목록 — 없으면 기간 안 모든 방송). 범위 하나(리허설 아님), 배송 칸 값은 넘기지 않는다 | `{ "columns", "rows" }` 정확히 두 키. `columns` = 첫 줄 열 이름(순서·글자 그대로), `rows` = 행마다 열 순서의 값 배열(수 칸은 수, 빈칸은 `""`). 오류면 `{ "error": 코드 }` |
 
-## 프린터 골든 (`printer/*.json`, N1 — D-N1-01·09)
+## 프린터 골든 (`printer/*.json`, N1 — D-N1-01·09, PRN2 — D-PRN2-01~05)
 
-프린터 패키지가 프린터로 보내는 **바이트**, 블루투스 기기 **이름으로 프로필 고르기**, **프로필 표**, **바로 연결할 수 없는 브라우저의 까닭**을 고정한다. 규칙 문장은 `docs/spec/LABEL_RULES.md` L-7·L-12다.
+프린터 패키지가 프린터로 보내는 **바이트**, 블루투스 기기 **이름으로 프로필 고르기**, **프로필 표**(지원 단계 포함), **바로 연결할 수 없는 브라우저의 까닭**, **고르기 목록**(PRN2), **끝 알림**(PRN2)을 고정한다. 규칙 문장은 `docs/spec/LABEL_RULES.md` L-7·L-12다.
 
-- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만). `packages/printer` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 프린터 패키지의 순수 함수(작업 바이트 만들기·이름으로 고르기·프로필 목록·까닭 판단)로 돌리고 `out`과 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계를 고정값으로 단언한다 — 지금 파일 4(`browser.json` 15 · `job.json` 34 · `name.json` 27 · `profile.json` 11) · 사례 87(N1 감사 뒤 `name` 3사례 G-PRT-N1-76~78을 더함 — D-N1-11, 기존 사례는 그대로).
-- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `job`·`name`·`profile`·`browser`. 모르는 키·모르는 `kind`·겹친 `id`는 테스트 실패(읽기 오류)다.
+- **누가 읽나**: 코어 골든 러너는 읽지 않는다(`*.yaml`만). `packages/printer` 단위 테스트가 이 폴더의 모든 `*.json`을 읽어 프린터 패키지의 순수 함수(작업 바이트 만들기·이름으로 고르기·프로필 목록·까닭 판단·고르기 목록·끝 알림)로 돌리고 `out`과 비교한다(`pnpm test` 단계). 파일 수·사례 수 합계를 고정값으로 단언한다 — 지금 파일 6(`browser.json` 15 · `end.json` 14 · `job.json` 36 · `list.json` 24 · `name.json` 27 · `profile.json` 14) · 사례 130. N1 감사 뒤 87(`name` 3사례 G-PRT-N1-76~78을 더함 — D-N1-11). PRN2(D-PRN2-01·02·05)가 `job` 2·`profile` 3을 더하고 `list`·`end`를 새로 두었으며, 기존 사례 중 바우아토 바이트(G-PRT-N1-28·29·30·34 — Luck Jingle 방식)·Marklife 9종의 `experimental`(G-PRT-N1-66~74 — 실험)·바우아토의 `protocol`(G-PRT-N1-75)을 바꿨다 — 사례마다 `note`에 전 값과 근거.
+- **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` ∈ `job`·`name`·`profile`·`browser`·`list`·`end`(뒤 둘은 PRN2). 모르는 키·모르는 `kind`·겹친 `id`는 테스트 실패(읽기 오류)다.
 - **사례 공통 키**: `id`(`G-PRT-N1-` + 두 자리, 이 폴더 전체에서 유일 — 다음 스프린트는 `G-PRT-<스프린트>-`), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `out`.
 
 | `kind` | 사례 키 | `out` |
@@ -304,6 +304,8 @@ expect:
 | `name` | `name`(기기 이름 글 — 그대로 넘긴다. 앞뒤 공백도 지우지 않는다) | `{ "profile": 프로필 ID 또는 null }` — 목록은 Marklife 9종 + 바우아토(실험적) 전부 |
 | `profile` | `profile`(프로필 ID) | 그 프로필의 칸 `maker`·`displayName`·`protocol`·`dpi`·`headDots`·`rotate`·`sizes`·`defaultSize`·`density`(`{ min, max, default }` 또는 null)·`experimental`·`fallbackApp`·`namePrefix`(글 또는 null)와 깊은 같음(이 열두 칸이 모두 있어야 한다) |
 | `browser` | `ua`(사용자 에이전트 글), 선택 `maxTouchPoints`(정수, 없으면 0) | `{ "reason": 까닭 }` — 까닭 ∈ `IOS`·`IN_APP`·`OTHER` |
+| `list` (PRN2) | `name`(기기 이름 글 또는 `null` — 그대로 넘긴다), 선택 `services`(광고 서비스 UUID 글 목록, 없으면 빈 목록) | `{ "list": 값 }` — 값 = L-12 프로필 ID(그 어댑터로 잇는다) · `"NIIMBOT"`(NIIMBOT 어댑터 — 모델은 연결한 뒤) · `null`(목록에 없다). 켠 프로필은 기본 목록 전부(NIIMBOT `NIIMBOT_B1`·`NIIMBOT_B1_SE`·`NIIMBOT_B21`·`NIIMBOT_D110`, L-12 Marklife 9종 + 바우아토). 규칙은 L-7 "고르기 목록" |
+| `end` (PRN2) | `profile`(L-12 프로필 ID), `value`(알림 값 16진 글 — 빈 글 가능) | `{ "end": 참/거짓 }` — 끝 알림인지(L-12 5). 이번 출력의 첫 조각 뒤에 받았는지·모든 조각을 썼는지는 이 골든 밖(어댑터 수용 기준) |
 
 **그림** (`image`): `{ "width", "height", "rows" }` — `rows`는 줄마다 16진 글 하나(공백 허용), 한 줄 = `ceil(width/8)`바이트(L-1 형식: 왼쪽 점이 높은 비트, 1 = 검정). 폭 밖의 남는 비트는 아무 값이어도 점이 아니다 — 보내는 줄의 남는 비트는 늘 0이다(L-12 2). 또는 `{ "width", "height", "fill" }` — `width`는 8의 배수, `fill` ∈ `white`(모두 흰색)·`black`(모두 검정)·`border`(맨 위·맨 아래 줄과 맨 왼쪽·맨 오른쪽 열만 검정).
 
@@ -312,8 +314,9 @@ expect:
 - `{ "yxqRaster": { "widthBytes", "height", "rows" | "fill" } }` — `1F 10` + `widthBytes`(BE16) + `height`(BE16) + 압축 길이 L(BE32) + 압축 바이트 L개. 압축 바이트는 ① 첫 바이트(CMF)가 `28`(deflate, 창 1KiB), ② (CMF×256 + FLG)가 31의 배수이고 사전 비트(FDICT)가 0, ③ 창 1KiB(windowBits 10)로 풀면 오류 없이 `rows`(또는 `fill`을 `widthBytes×8`×`height` 그림으로 만든 줄)를 이어 붙인 바이트와 정확히 같고, ④ 풀기가 L바이트에서 정확히 끝난다(Adler-32 포함). 압축 바이트 자체는 비교하지 않는다(D-N1-09 — 압축기마다 다르다. 같은 그림이면 같은 바이트인지는 AC-N1-20).
 - `{ "rawRaster": { "widthBytes", "height", "rows" | "fill" } }` — `1D 76 30 00` + `widthBytes`(LE16) + `height`(LE16) + 줄 바이트 그대로(`widthBytes × height`바이트, 길이 칸 없음).
 
-- 프로필 ID: `NIIMBOT_B1`, `MARKLIFE_P50`·`MARKLIFE_S2`·`MARKLIFE_X2`(YXQ), `MARKLIFE_P11`·`MARKLIFE_P12`·`MARKLIFE_P15`·`MARKLIFE_L13`·`MARKLIFE_LP90`·`MARKLIFE_LP15`(L11), `BAUATO_PPA2L`(실험적). `job` 사례에 `NIIMBOT_B1`은 쓰지 않는다(B1 바이트는 niimbluelib이 만든다 — L-7).
-- 열거값: `protocol` ∈ `NIIMBOT_B1`·`MARKLIFE_YXQ2`·`MARKLIFE_YXQ3`·`MARKLIFE_YXQ8`·`MARKLIFE_L11`, `rotate` ∈ `NONE`·`CW90`.
+- 프로필 ID: `NIIMBOT_B1`(확인됨), `NIIMBOT_B1_SE`·`NIIMBOT_B21`·`NIIMBOT_D110`(실험 — PRN2), `MARKLIFE_P50`·`MARKLIFE_S2`·`MARKLIFE_X2`(YXQ), `MARKLIFE_P11`·`MARKLIFE_P12`·`MARKLIFE_P15`·`MARKLIFE_L13`·`MARKLIFE_LP90`·`MARKLIFE_LP15`(L11), `BAUATO_PPA2L`(Luck Jingle) — Marklife·바우아토는 모두 실험(PRN2). `job`·`end` 사례에 `NIIMBOT_*`는 쓰지 않는다(NIIMBOT 바이트·끝은 niimbluelib이 정한다 — L-7).
+- 열거값: `protocol` ∈ `NIIMBOT_B1`·`NIIMBOT_B21_V1`·`NIIMBOT_D110`·`MARKLIFE_YXQ2`·`MARKLIFE_YXQ3`·`MARKLIFE_YXQ8`·`MARKLIFE_L11`·`LUCKJINGLE`, `rotate` ∈ `NONE`·`CW90`. `experimental` = 지원 단계(`false` 확인됨 · `true` 실험 — L-7, D-PRN2-01). 그림 파일로만인 기종은 프로필이 없다.
+- 서비스 UUID(`list`의 `services`)는 16진 글자라 대소문자를 가리지 않고 비교한다. 기기 이름은 글자 그대로(대소문자를 가린다).
 
 ## 틱톡 골든 (`tiktok/*.json`, N2b-1 — D-N2b-1-02~04·D-N2b-1-07)
 

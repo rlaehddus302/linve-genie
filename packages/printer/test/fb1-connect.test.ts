@@ -212,13 +212,16 @@ describe('B1 첫 확인 시간 초과 — 같은 기기로 한 번 다시 잇기
     expect((await adapter.print(sampleImage())).ok).toBe(true)
   })
 
-  it('고르기 창 거르기는 niimbluelib과 같다 (모델 이름 첫 글자들 + 서비스)', async () => {
+  it('고르기 창 거르기 = NIIMBOT 서비스 + 켠 모델 이름 꼴, L-12 앞자리는 빼기 — 이름 첫 글자 거르기 없음 (PRN2 D-PRN2-04)', async () => {
     const { env, calls } = deviceEnv()
     await setupB1(new SequenceClient([]), env).adapter.connect('bluetooth')
     expect(calls).toEqual([niimbotRequestOptions()])
-    const filters = niimbotRequestOptions().filters
-    expect(filters).toContainEqual({ namePrefix: 'B' })
-    expect(filters.at(-1)).toEqual({ services: ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'] })
+    const options = niimbotRequestOptions()
+    // N1까지는 niimbluelib 기본(모델 이름 첫 글자 15종)이었다 — 이어폰·Phomemo가 섞였다
+    expect(options.filters).not.toContainEqual({ namePrefix: 'B' })
+    expect(options.filters[0]).toEqual({ services: ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'] })
+    expect(options.filters.slice(1)).toEqual(['B1-', 'B1_', 'B1_SE-', 'B1_SE_', 'B21-', 'B21_', 'D110-', 'D110_'].map((namePrefix) => ({ namePrefix })))
+    expect(options.exclusionFilters).toEqual(['P50_', 'S2_', 'X2_', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2'].map((namePrefix) => ({ namePrefix })))
   })
 
   it('두 번째도 실패하면 CONNECT_FAILED, 상세 "… 한 번 더 해 봤지만 안 됐어요." — 다시 잇기는 많아야 한 번', async () => {
@@ -287,14 +290,15 @@ describe('B1 첫 확인 시간 초과 — 같은 기기로 한 번 다시 잇기
     expect(client.seen).toHaveLength(2)
   })
 
-  it('다시 이은 기기가 B1이 아니면 WRONG_MODEL — 상세는 "모델: …"', async () => {
+  it('다시 이은 기기가 켠 모델이 아니면 WRONG_MODEL — 상세는 "모델: …"', async () => {
     const client = new SequenceClient([NEGOTIATE_TIMEOUT()])
-    client.model = 'D110'
+    // PRN2: D110은 켠 프로필이 되었다(D-PRN2-05) — 켠 프로필이 아닌 B1 Pro로 본다
+    client.model = 'B1_PRO'
     const { adapter, timer } = setupB1(client)
     const pending = adapter.connect('bluetooth')
     await timer.advance(1_000)
     const r = await pending
-    expect(!r.ok && r.error).toMatchObject({ code: 'WRONG_MODEL', detail: '모델: D110' })
+    expect(!r.ok && r.error).toMatchObject({ code: 'WRONG_MODEL', detail: '모델: B1_PRO' })
   })
 })
 

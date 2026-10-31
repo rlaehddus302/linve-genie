@@ -1,7 +1,7 @@
 // 앱 시작 때 실제 네이티브 모듈을 잇는다 (APP-03, LABEL_RULES L-7·L-11 8·L-11 15).
 // 프린터 = 한 목록 고르기(createPrinterPicker, 계열 표) → 저절로 다시 잇기(createReconnectingAdapter, L-11 8 정책) → 앱 프린터(블루투스·시험용 프린터).
-// - 켜는 계열: 기본은 실험이 아닌 계열(B1)만. 실험 계열(Marklife)은 빌드 때 EXPO_PUBLIC_PRINTER_EXPERIMENTAL=1일 때만(숨김 스위치 — 스펙 결정 전까지,
-//   L-7 "L-12의 다른 프린터를 검증 없이 지원 표시하지 않는다").
+// - 켜는 계열: 켠 프로필 표 전부(defaultPrinterFamilies — NIIMBOT·Marklife·바우아토, PRN2 D-PRN2-01·08). 숨김 스위치는 없다 —
+//   실험 기종은 고르기 목록에서 "실험", 연결 뒤 이름 뒤 "(실험)"과 안내 한 줄로 보인다(L-7 지원 단계, 웹과 같은 기준).
 // - 기억한 프린터는 앱 저장소(AsyncStorage)에 ID만 둔다 — 서버로 보내지 않는다. 앱을 다시 켜면 "다시 연결"이 고르기 창 없이 잇는다.
 // - 시험용 프린터는 L-7 가짜 프린터다. 서버가 시험 모드일 때 화면이 고를 때만 만든다(운영 서버에서는 고를 수 없다).
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -15,9 +15,6 @@ import {
   createPlxTransport,
   createPrinterPicker,
   createReconnectingAdapter,
-  enabledFamilies,
-  marklifeFamily,
-  niimbotFamily,
   type BleDeviceInfo,
   type BleTransport,
   type DevicePicker,
@@ -30,9 +27,6 @@ import { PrinterPickList } from '../screens/PrinterPickList.tsx'
 import { AppPrinter } from './app-printer.ts'
 import { LiveNativeAudio } from './live-audio.ts'
 import { setNativeModules } from './index.ts'
-
-/** 실험 계열 숨김 스위치 (빌드 때 정한다 — 화면에는 켜는 곳이 없다) */
-const SHOW_EXPERIMENTAL_PRINTERS = process.env.EXPO_PUBLIC_PRINTER_EXPERIMENTAL === '1'
 
 let picker: PrinterPicker | null = null
 let entries: readonly PickEntry[] | null = null
@@ -83,8 +77,8 @@ export function installProductionNative(): void {
       },
     }
   }
-  const families = enabledFamilies([marklifeFamily(), niimbotFamily()], SHOW_EXPERIMENTAL_PRINTERS)
-  const chooser = createPrinterPicker({ transport, pickDevice, families })
+  // 계열 표는 기본(켠 프로필 표 전부 — 앱·웹 같은 고르기 목록, L-7)
+  const chooser = createPrinterPicker({ transport, pickDevice })
   picker = chooser
   const connect = chooser.connect.bind(chooser)
   const reconnect = chooser.reconnect.bind(chooser)

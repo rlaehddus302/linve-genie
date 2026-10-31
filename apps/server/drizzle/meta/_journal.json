@@ -211,6 +211,13 @@
       "when": 1794960000003,
       "tag": "0029_inv1_youtube_broadcast_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794960000004,
+      "tag": "0030_prn2_printer_profile",
+      "breakpoints": true
     }
   ]
 }

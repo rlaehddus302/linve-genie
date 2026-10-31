@@ -56,7 +56,10 @@ describe('AC-N1-30 import·만들기만으로는 navigator를 읽지 않는다',
       vi.resetModules()
       const m = await import('@livejjim/printer')
       m.createMarklifeAdapter()
-      m.createMarklifeAdapter({ profiles: m.EXPERIMENTAL_PROFILES })
+      // PRN2: EXPERIMENTAL_PROFILES가 없어졌다(D-PRN2-01) — 같은 내용(바우아토만)으로. 웹 한 목록 어댑터·고르기 창 인자도 같은 성질(L-12 3)
+      m.createMarklifeAdapter({ profiles: [m.BAUATO_PPA2L] })
+      m.createWebPrinterAdapter()
+      m.printerRequestOptions()
       expect(reads).toBe(0)
     } finally {
       if (original) Object.defineProperty(globalThis, 'navigator', original)
