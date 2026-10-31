@@ -1,0 +1,81 @@
+{
+ "responseContext": {},
+ "contents": {
+  "twoColumnWatchNextResults": {
+   "results": {
+    "results": {
+     "contents": [
+      {
+       "ticketShelfRenderer": {}
+      },
+      {
+       "videoPrimaryInfoRenderer": {
+        "title": {
+         "runs": [
+          {
+           "text": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)"
+          }
+         ]
+        },
+        "viewCount": {
+         "videoViewCountRenderer": {
+          "viewCount": {
+           "simpleText": "1,832,378,807 views"
+          },
+          "originalViewCount": "1832378807"
+         }
+        },
+        "dateText": {
+         "simpleText": "Oct 24, 2009"
+        },
+        "relativeDateText": {
+         "simpleText": "17 years ago"
+        }
+       }
+      },
+      {
+       "videoSecondaryInfoRenderer": {
+        "owner": {
+         "videoOwnerRenderer": {
+          "title": {
+           "runs": [
+            {
+             "text": "Rick Astley",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UCuAXFkgsw1L7xaCfnd5JJOw",
+               "canonicalBaseUrl": "/channel/UCuAXFkgsw1L7xaCfnd5JJOw"
+              }
+             }
+            }
+           ]
+          },
+          "navigationEndpoint": {
+           "browseEndpoint": {
+            "browseId": "UCuAXFkgsw1L7xaCfnd5JJOw",
+            "canonicalBaseUrl": "/@RickAstleyYT"
+           }
+          }
+         }
+        }
+       }
+      },
+      {
+       "compositeVideoPrimaryInfoRenderer": {}
+      },
+      {
+       "itemSectionRenderer": {
+        "contents": []
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "currentVideoEndpoint": {
+  "watchEndpoint": {
+   "videoId": "dQw4w9WgXcQ"
+  }
+ }
+}

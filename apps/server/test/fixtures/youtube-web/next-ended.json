@@ -1,0 +1,95 @@
+{
+ "responseContext": {},
+ "contents": {
+  "twoColumnWatchNextResults": {
+   "results": {
+    "results": {
+     "contents": [
+      {
+       "videoPrimaryInfoRenderer": {
+        "title": {
+         "runs": [
+          {
+           "text": "lofi hip hop radio - beats to relax/study to"
+          }
+         ]
+        },
+        "viewCount": {
+         "videoViewCountRenderer": {
+          "viewCount": {
+           "simpleText": "668,023,718 views"
+          },
+          "originalViewCount": "0"
+         }
+        },
+        "dateText": {
+         "simpleText": "Streamed live on Feb 22, 2020"
+        },
+        "relativeDateText": {
+         "simpleText": "Streamed 6 years ago"
+        }
+       }
+      },
+      {
+       "videoSecondaryInfoRenderer": {
+        "owner": {
+         "videoOwnerRenderer": {
+          "title": {
+           "runs": [
+            {
+             "text": "Lofi Girl",
+             "navigationEndpoint": {
+              "browseEndpoint": {
+               "browseId": "UCSJ4gkVC6NrvII8umztf0Ow",
+               "canonicalBaseUrl": "/channel/UCSJ4gkVC6NrvII8umztf0Ow"
+              }
+             }
+            }
+           ]
+          },
+          "navigationEndpoint": {
+           "browseEndpoint": {
+            "browseId": "UCSJ4gkVC6NrvII8umztf0Ow",
+            "canonicalBaseUrl": "/@LofiGirl"
+           }
+          }
+         }
+        }
+       }
+      },
+      {
+       "compositeVideoPrimaryInfoRenderer": {}
+      },
+      {
+       "itemSectionRenderer": {
+        "contents": []
+       }
+      },
+      {
+       "itemSectionRenderer": {
+        "contents": []
+       }
+      }
+     ]
+    }
+   },
+   "conversationBar": {
+    "liveChatRenderer": {
+     "continuations": [
+      {
+       "reloadContinuationData": {
+        "continuation": "CONT-0001"
+       }
+      }
+     ],
+     "isReplay": true
+    }
+   }
+  }
+ },
+ "currentVideoEndpoint": {
+  "watchEndpoint": {
+   "videoId": "5qap5aO4i9A"
+  }
+ }
+}

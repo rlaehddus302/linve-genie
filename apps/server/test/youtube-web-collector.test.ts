@@ -87,7 +87,9 @@ describe('AC2 서버 잇기 — 구글 연결 없이 주소만', () => {
     const topOnly = w.web.addVideo()
     topOnly.topChatOnly = true
     expect((await tryLink(topOnly.videoId))[1]).toBe('NO_LIVE_CHAT')
+    // 방송 페이지와 대신 확인(next, D-YT-SRV-19)이 둘 다 막힘 — 방송 페이지만 막힌 때는 아래 'D-YT-SRV-19' 시험
     w.web.fail('watch', { kind: 'bot' })
+    w.web.fail('next', { kind: 'bot' })
     expect(await tryLink(w.web.addVideo().videoId)).toEqual([502, 'YOUTUBE_UNAVAILABLE', '유튜브에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.'])
     expect(w.logs.filter((log) => log.level !== 'alert' && log.code === 'YT_CHAT_BLOCKED')).toHaveLength(1)
     expect((await api.get(`/api/broadcasts/${b.id}/youtube`)).body).toEqual({ link: null, collector: null })

@@ -1,5 +1,6 @@
 // 유튜브 웹이 쓰는 내부 채팅 API 읽기 — 순수 함수만 (입출력·시계·난수 없음). YT-11 AC4, D-YT-SRV-04·05.
 // - 방송 페이지(watch?v=ID&hl=en) HTML → 상태(진행 중·예정·끝남·라이브 아님·없음·채팅 꺼짐·로그인 없이 못 봄·막힘·모르는 모양), 방송 채널, 제목, 시작 시각.
+// - next 응답(POST /youtubei/v1/next) JSON → 방송 페이지와 같은 모양 (방송 페이지가 봇 확인으로 막혔을 때 대신 확인 — D-YT-SRV-19, 시작 시각은 없음).
 // - 채팅 페이지(live_chat?v=ID&is_popout=1&hl=en) HTML → 호출 정보(클라이언트 판·키·익명 방문 값 — 페이지가 알려 준 값)와 **전체 채팅**("Live chat") 첫 지점.
 //   인기 채팅("Top chat" — 유튜브가 일부를 숨긴 보기)은 쓰지 않는다. 전체 채팅 지점이 없으면 모르는 모양이다.
 //   방송 페이지의 짧은 지점은 get_live_chat이 받지 않는다(2026-10-31 실제 확인: 400 INVALID_ARGUMENT).
@@ -261,6 +262,81 @@ export function parseWatchPage(html: string): WatchPage {
   return make('LIVE', base)
 }
 
+/**
+ * 페이지 HTML의 ytcfg → 호출 정보 (클라이언트 이름·판·키·익명 방문 값 — 페이지가 알려 준 값, D-YT-SRV-02). 클라이언트 판이 없으면 null.
+ * 채팅 페이지와 방송 페이지(봇 확인으로 막힌 페이지도 ytcfg는 있다) 모두 같은 이름을 쓴다
+ */
+export function parseInnertubeConfig(html: string): InnertubeSession | null {
+  const clientVersion = cfgString(html, 'INNERTUBE_CLIENT_VERSION') ?? cfgString(html, 'INNERTUBE_CONTEXT_CLIENT_VERSION')
+  if (clientVersion === null) return null
+  return { apiKey: cfgString(html, 'INNERTUBE_API_KEY'), clientName: cfgString(html, 'INNERTUBE_CLIENT_NAME') ?? 'WEB', clientVersion, visitorData: cfgString(html, 'VISITOR_DATA') }
+}
+
+// ── next 응답 (방송 페이지가 막혔을 때 대신 확인, D-YT-SRV-19) ─────────────
+
+/** 예정 방송의 날짜 글 앞머리 (hl=en) */
+const NEXT_UPCOMING_PREFIXES = ['Scheduled for', 'Premieres']
+/** 끝난 라이브의 날짜 글 앞머리 */
+const NEXT_ENDED_PREFIX = 'Streamed live'
+/** 진행 중 라이브의 날짜 글 앞머리 (isLive가 없는데 이것만 있으면 모르는 모양) */
+const NEXT_LIVE_PREFIX = 'Started streaming'
+
+/** browseEndpoint의 채널 ID (UC로 시작할 때만) */
+function channelOf(nav: unknown): string | null {
+  const id = str(rec(rec(nav).browseEndpoint).browseId)
+  return id !== null && id.startsWith('UC') ? id : null
+}
+
+/**
+ * `POST /youtubei/v1/next`(WEB, hl=en) 응답 JSON → 방송 페이지와 같은 모양 (2026-11-01 실제 응답 녹화본으로 확정한 경로).
+ * - 영상 ID: currentVideoEndpoint.watchEndpoint.videoId
+ * - contents.twoColumnWatchNextResults.results.results.contents[]의 videoPrimaryInfoRenderer: 제목(title), 진행 중 표시(viewCount.videoViewCountRenderer.isLive),
+ *   날짜 글(dateText — "Started streaming on …"·"Streamed live on …"·"Scheduled for …"·일반 영상은 날짜만)
+ * - videoSecondaryInfoRenderer.owner.videoOwnerRenderer: 채널 ID(navigationEndpoint.browseEndpoint.browseId — 없으면 title 첫 조각의 것)·채널 이름(title)
+ * - conversationBar.liveChatRenderer: 채팅 칸(isReplay면 다시 보기 = 끝남)
+ * - 없는 영상: videoPrimaryInfoRenderer 없이 itemSectionRenderer 안 backgroundPromoRenderer("This video isn't available anymore")
+ * 시작 시각은 날짜(일)까지만 있어 쓰지 않는다 — startedAt은 늘 null(부르는 쪽이 잇는·확인한 시각을 쓴다).
+ * 로그인 없이 볼 수 있는지(비공개·멤버 전용·연령 제한)는 이 응답으로 알 수 없다 — 진행 중이면 채팅 페이지가 마지막으로 거른다.
+ * 그 밖의 모양(진행 중 표시 없이 진행 중 날짜 글, 채팅 칸은 있는데 라이브 표시가 없음, 채널 ID 없음 등)은 UNKNOWN_SHAPE
+ */
+export function parseNextResponse(json: unknown): WatchPage {
+  const make = (state: PageState, extra: Partial<WatchPage> = {}): WatchPage => ({ state, videoId: null, channelId: null, channelTitle: null, title: null, startedAt: null, ...extra })
+  const root = record(json)
+  if (root === null) return make('UNKNOWN_SHAPE')
+  // 플레이어처럼 봇 확인을 알리면 막힘 (2026-11-01 측정에서는 없었다 — 대비)
+  const playability = rec(root.playabilityStatus)
+  if (str(playability.status) === 'LOGIN_REQUIRED' && (str(playability.reason) ?? '').toLowerCase().includes('bot')) return make('BLOCKED')
+  const two = record(rec(root.contents).twoColumnWatchNextResults)
+  if (two === null) return make('UNKNOWN_SHAPE')
+  const items = list(rec(rec(two.results).results).contents).map(rec)
+  const primary = items.map((item) => record(item.videoPrimaryInfoRenderer)).find((item) => item !== null) ?? null
+  if (primary === null) {
+    const promo = items.some((item) => list(rec(item.itemSectionRenderer).contents).some((entry) => record(rec(entry).backgroundPromoRenderer) !== null))
+    return make(promo ? 'NOT_FOUND' : 'UNKNOWN_SHAPE')
+  }
+  const owner = rec(rec(items.map((item) => record(item.videoSecondaryInfoRenderer)).find((item) => item !== null)?.owner).videoOwnerRenderer)
+  const ownerTitle = textOf(owner.title)
+  const title = textOf(primary.title)
+  const base: Partial<WatchPage> = {
+    videoId: str(rec(rec(root.currentVideoEndpoint).watchEndpoint).videoId),
+    channelId: channelOf(owner.navigationEndpoint) ?? channelOf(rec(list(rec(owner.title).runs)[0]).navigationEndpoint),
+    channelTitle: ownerTitle === '' ? null : ownerTitle,
+    title: title === '' ? null : title,
+  }
+  if (base.channelId === null || base.videoId === null) return make('UNKNOWN_SHAPE', base)
+  const live = rec(rec(primary.viewCount).videoViewCountRenderer).isLive === true
+  const date = textOf(primary.dateText).trim()
+  const chat = record(rec(two.conversationBar).liveChatRenderer)
+  if (live) {
+    if (chat !== null && chat.isReplay === true) return make('ENDED', base)
+    return make(chat === null ? 'CHAT_DISABLED' : 'LIVE', base)
+  }
+  if (NEXT_UPCOMING_PREFIXES.some((prefix) => date.startsWith(prefix))) return make('UPCOMING', base)
+  if (date.startsWith(NEXT_ENDED_PREFIX) || (chat !== null && chat.isReplay === true)) return make('ENDED', base)
+  if (date === '' || date.startsWith(NEXT_LIVE_PREFIX) || chat !== null) return make('UNKNOWN_SHAPE', base)
+  return make('NOT_LIVE', base)
+}
+
 /** 전체 채팅("Live chat") 지점 — 이름으로 찾고, 없으면 두 항목 이상일 때 마지막(유튜브 웹 순서: Top chat, Live chat). 없으면 null(인기 채팅 지점만 있음) */
 function fullChatContinuation(renderer: Record<string, unknown>): string | null {
   const items = list(rec(rec(rec(rec(renderer.header).liveChatHeaderRenderer).viewSelector).sortFilterSubMenuRenderer).subMenuItems).map(rec)
@@ -276,11 +352,7 @@ function fullChatContinuation(renderer: Record<string, unknown>): string | null 
 export function parseChatPage(html: string): ChatPage {
   const data = jsonAfter(html, 'window["ytInitialData"] = ') ?? jsonAfter(html, 'var ytInitialData = ')
   if (data === null) return { state: looksBlocked(html) ? 'BLOCKED' : 'UNKNOWN_SHAPE', session: null, continuation: null }
-  const clientVersion = cfgString(html, 'INNERTUBE_CLIENT_VERSION') ?? cfgString(html, 'INNERTUBE_CONTEXT_CLIENT_VERSION')
-  const session: InnertubeSession | null =
-    clientVersion === null
-      ? null
-      : { apiKey: cfgString(html, 'INNERTUBE_API_KEY'), clientName: cfgString(html, 'INNERTUBE_CLIENT_NAME') ?? 'WEB', clientVersion, visitorData: cfgString(html, 'VISITOR_DATA') }
+  const session = parseInnertubeConfig(html)
   const contents = record(data.contents)
   if (contents === null) return { state: 'UNKNOWN_SHAPE', session, continuation: null }
   const renderer = record(contents.liveChatRenderer)

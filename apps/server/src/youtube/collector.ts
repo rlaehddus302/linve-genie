@@ -954,8 +954,10 @@ export class CollectorManager {
   async #webConfirmEnd(row: CollectorRow, link: LinkRow, running: Running, signal: AbortSignal): Promise<{ kind: 'ended' } | { kind: 'stop' }> {
     const source = this.#options.web
     if (source == null) throw new WebChatError('OFF')
+    // 방송 페이지가 막히면 next로 대신 확인 — 들고 있던 채팅 페이지 호출 정보를 쓴다 (D-YT-SRV-19)
+    const known = running.web.session?.session ?? null
     running.web.session = null
-    const page = await source.page(link.videoId, signal)
+    const page = await source.pageOrNext(link.videoId, signal, known)
     if (page.state === 'ENDED' || page.state === 'NOT_LIVE') return { kind: 'ended' }
     if (page.state === 'BLOCKED') throw new WebChatError('BLOCKED')
     const stop = PAGE_STOPS[page.state]
@@ -1026,7 +1028,8 @@ export class CollectorManager {
     }
     let page: { state: PageState; startedAt: number | null }
     try {
-      page = await source.page(link.videoId)
+      // 방송 페이지가 막히면 next로 대신 확인 (D-YT-SRV-19). next에는 시작 시각이 없어 진행 중이면 확인한 지금을 시작으로 적는다(잇기 전 거르기 기준)
+      page = await source.pageOrNext(link.videoId)
     } catch (error) {
       if (error instanceof WebChatError && error.kind === 'BLOCKED') this.#webTrouble(row, 'BLOCKED')
       this.#options.log({ level: 'warn', code: 'COLLECTOR_ERROR', seller: row.sellerId, errorKind: error instanceof WebChatError ? `YoutubeWeb_${error.kind}` : errorKind(error) })
