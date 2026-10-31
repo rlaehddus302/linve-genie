@@ -160,7 +160,8 @@ test.describe('AC-KP1-15 끄는 설정', () => {
     await expect(chatRow(page, '비손님')).toContainText('안녕하세요 비')
     await expect(chatRow(page, '비손님')).not.toContainText('단골')
     await expect(chatRow(page, '에이손님')).not.toContainText('입금 늦음 주의')
-    await expect(card).not.toContainText('입금 늦음 주의')
+    // D-KP1-50: 정하지 않음이면 새 꼬리표는 숨기되 CRM1의 1등 옆 주의는 예전처럼 보인다
+    await expect(card).toContainText('입금 늦음 주의')
     // [보이기] → 띠가 사라지고 꼬리표·1등 옆 주의가 나온다
     await badgesAsk(page).getByRole('button', { name: '보이기', exact: true }).click()
     await expect(badgesAsk(page)).toHaveCount(0)
@@ -222,9 +223,15 @@ test.describe('AC-KP1-15 처음 묻기 (D-KP1-43)', () => {
       await expect(badgesAsk(page)).toContainText(BADGES_ASK)
       await expect(badgesAsk(page).getByRole('button', { name: '보이기', exact: true })).toBeVisible()
       await expect(badgesAsk(page).getByRole('button', { name: '안 보이기', exact: true })).toBeVisible()
+      // D-KP1-50: 물음 띠는 채팅 칸 맨 위 — 채팅 목록 바로 위(고정 영역 밖)
+      const askBox = await badgesAsk(page).boundingBox()
+      const listBox = await page.getByRole('list', { name: '채팅 메시지' }).boundingBox()
+      expect(askBox && listBox).toBeTruthy()
+      expect(askBox!.y, '물음 띠는 채팅 목록 위').toBeLessThan(listBox!.y)
       await expect(chatRow(page, '디손님')).toContainText('안녕하세요 디')
       for (const word of ['입금 늦음 주의', '단골', '누적', '처음']) await expect(chatList(page)).not.toContainText(word)
-      await expect(card).not.toContainText('입금 늦음 주의')
+      // D-KP1-50: 정하지 않음이면 새 꼬리표는 숨기되 CRM1의 1등 옆 주의는 예전처럼 보인다
+      await expect(card).toContainText('입금 늦음 주의')
       // (설정을 받기 전 첫 조회가 한 번 나갈 수 있다 — 서버가 정해지지 않음이면 글 없이 답하므로 화면만 본다. 스펙은 보이지 않음만 정한다)
       if (viewport.width === PHONE.width) {
         const size = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
