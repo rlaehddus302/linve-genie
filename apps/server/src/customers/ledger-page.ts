@@ -45,7 +45,8 @@ export function consentFieldHtml(consent: { shop: string; monthsWord: string }, 
   return [
     '<div class="consent">',
     // 체크 네모·제목·설명을 한 줄 큰 카드로 — 칸 전체가 누르는 칸 (UX-KP1-001)
-    `<label for="f-keep" class="check-card consent-label"><input id="f-keep" type="checkbox" name="keep" value="on"${checked ? ' checked' : ''} aria-describedby="keep-help"><span><span>${e(CR_CONSENT_2.title)}</span><br><span class="muted" id="keep-help" style="font-weight:400">${e(CR_CONSENT_2.body(consent.shop, consent.monthsWord))}</span></span></label>`,
+    // 이름은 제목만(접근 이름이 '받는 분' 칸과 겹치지 않게), 설명은 aria-describedby로 잇고 제목 라벨을 카드 전체로 펼친다
+    `<span class="check-card consent-label" style="position:relative"><input id="f-keep" type="checkbox" name="keep" value="on"${checked ? ' checked' : ''} aria-describedby="keep-help"><span><label for="f-keep" class="consent-title">${e(CR_CONSENT_2.title)}</label><br><span class="muted" id="keep-help" style="font-weight:400">${e(CR_CONSENT_2.body(consent.shop, consent.monthsWord))}</span></span></span>`,
     '</div>',
   ].join('\n')
 }

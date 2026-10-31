@@ -144,7 +144,8 @@ const STYLE = [
   'form .button{margin-top:16px;width:100%}',
   '.info{background:#eef5ee;border:1px solid #b9d3bc;border-radius:8px;padding:10px 12px;color:#1f4a28}',
   '.check-card{display:flex;align-items:flex-start;gap:14px;min-height:56px;padding:12px 14px;margin-top:12px;border:2px solid #9aa196;border-radius:10px;background:#fff;font-weight:600;cursor:pointer}',
-  '.check-card input[type="checkbox"]{flex:none;width:32px;min-width:32px;height:32px;min-height:32px;margin:0;padding:0}',
+  '.consent-label .consent-title::after{content:"";position:absolute;inset:0;cursor:pointer}',
+  '.check-card input[type="checkbox"]{position:relative;z-index:1;flex:none;width:32px;min-width:32px;height:32px;min-height:32px;margin:0;padding:0}',
   '.code-box{font-size:30px;font-weight:700;text-align:center;padding:16px 12px;margin:8px 0;background:#f4f5f2;border:2px dashed #2f6b3a;border-radius:10px;user-select:all;-webkit-user-select:all}',
 ].join('')
 

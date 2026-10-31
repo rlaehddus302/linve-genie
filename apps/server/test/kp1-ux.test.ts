@@ -39,13 +39,14 @@ describe('UX-KP1 확인서 링크 화면', () => {
     expect(done).not.toContain('class="alert" role="status">지웠어요.')
   })
 
-  it('동의 칸은 label 하나에 체크 네모·제목·설명이 모두 들어 있다', async () => {
+  it('동의 칸은 큰 카드 하나에 체크 네모·제목 라벨·설명이 있고 라벨 이름은 제목뿐이다', async () => {
     const { world, seller } = await ledgerWorld()
     await sell(world, seller, [['UC_A', '가람', 1]])
     const { linkFor } = await import('./kp1-ledger-support.ts')
     const token = await linkFor(world, seller, 'UC_A')
     const html = (await openLink(world, `/r/${token}?edit=1`)).text
-    expect(html).toMatch(/<label for="f-keep" class="check-card consent-label"><input id="f-keep" type="checkbox"[^>]*><span><span>[^<]+<\/span><br><span class="muted" id="keep-help"[^>]*>[^<]+<\/span><\/span><\/label>/)
+    expect(html).toMatch(/<span class="check-card consent-label"[^>]*><input id="f-keep" type="checkbox"[^>]*aria-describedby="keep-help"[^>]*><span><label for="f-keep" class="consent-title">[^<]+<\/label><br><span class="muted" id="keep-help"[^>]*>[^<]+<\/span><\/span><\/span>/)
+    expect(html).not.toMatch(/<label for="f-keep"[^>]*>[^<]*받는 분/)
   })
 })
 
