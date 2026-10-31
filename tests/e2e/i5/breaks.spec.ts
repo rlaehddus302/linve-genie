@@ -4,9 +4,11 @@ import { test, expect, type Page } from '@playwright/test'
 import { closePcmConnection, LG_FAILED, pcmCounts, reconnectPcm } from '../app1/support.ts'
 import {
   CONSENT_SENT,
+  LG_CONSENT,
   MSG,
   OLD_SENT,
   SENT,
+  SENT_SHORT,
   STANDALONE,
   boardItem,
   card,
@@ -69,11 +71,14 @@ test.describe('I5 크로미움 (기본 묶음)', () => {
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
     const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
-    await expect(dlg).toContainText(CONSENT_SENT)
+    // SRV1 (D-APP-22·D-APP-25 (3)): PC도 라이브지니 받아쓰기 — 창의 외부 전송 문장은 D-APP-08 첫 줄, 켜진 동안 고지는 받아쓰기 서버 한 줄
+    await expect(dlg).toContainText(LG_CONSENT)
+    await expect(dlg).not.toContainText(CONSENT_SENT)
     await expect(page.getByText(OLD_SENT)).toHaveCount(0)
     await dlg.getByRole('button', { name: '음성 켜기', exact: true }).click()
     await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
-    await expect(voiceRegion(page).getByText(SENT, { exact: true })).toBeVisible()
+    await expect(voiceRegion(page).getByText(SENT_SHORT, { exact: true })).toBeVisible()
+    await expect(page.getByText(SENT)).toHaveCount(0)
     await expect(page.getByText(OLD_SENT)).toHaveCount(0)
     // 크롬에는 홈 화면 앱 줄이 없다 (navigator.standalone 없음)
     await expect(page.getByText(STANDALONE)).toHaveCount(0)

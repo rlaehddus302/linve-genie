@@ -28,7 +28,11 @@ async function sms(mobile: Page, no: number, fill: { phone?: string; memo?: stri
   if (fill.memo !== undefined) await smsField(mobile, '메모').fill(fill.memo)
   await mobile.getByRole('button', { name: `${String(no)}번에 문자찜 넣기` }).click()
   const late = mobile.getByRole('dialog', { name: '받은 시각을 확인해 주세요' })
-  if (await late.isVisible()) await late.getByRole('button', { name: '이대로 넣기' }).click()
+  // SRV1 (D-APP-24): 받은 시각은 넣기를 누른 뒤 서버에 읽혀 늦은지 안다 — 확인 창이 곧바로가 아니라 답이 온 뒤 뜬다. 창이 뜨거나 칸이 비워질 때까지 기다린다
+  if (fill.received !== undefined) {
+    await expect.poll(async () => (await late.isVisible()) || (await smsField(mobile, '번호').inputValue()) === '', { message: '확인 창 또는 넣음' }).toBe(true)
+    if (await late.isVisible()) await late.getByRole('button', { name: '이대로 넣기' }).click()
+  }
   await expect(smsField(mobile, '번호')).toHaveValue('')
   await expect(mobile.getByRole('region', { name: '넣은 결과' })).toContainText(`${String(no)}번`)
 }

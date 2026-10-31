@@ -25,9 +25,12 @@ function recordRegisters(page: Page): Record<string, unknown>[] {
   return seen
 }
 
-function priceOf(body: Record<string, unknown>): unknown {
-  const fields = (body['fields'] ?? body['product'] ?? body) as Record<string, unknown>
-  return fields['price']
+/**
+ * 등록된 가격 (D-APP-24: 기기는 친 글을 원문 그대로 보내고 서버가 읽는다 — 본문에 숫자 가격이 없다).
+ * "미리 보기 가격 = 등록 가격"은 서버가 기록한 상품의 가격(보드)으로 본다.
+ */
+async function expectRegisteredPrice(page: Page, no: number, won: number): Promise<void> {
+  await expect(board(page).getByRole('button', { name: new RegExp(`^${String(no)}번 `) })).toContainText(`${won.toLocaleString('ko-KR')}원`)
 }
 
 test.describe('AC-FB1-02 천원 방송', () => {
@@ -57,7 +60,7 @@ test.describe('AC-FB1-02 천원 방송', () => {
     await expect(willRegister(page)).toHaveText('등록하면: 15번 엘레강스 10,000원')
     await input.press('Enter')
     await expect.poll(() => registers.length).toBe(1)
-    expect(priceOf(registers[0]!)).toBe(10000)
+    await expectRegisteredPrice(page, 15, 10000)
 
     // 같은 번호가 있으면 줄이 없다 (고칠까요)
     await input.fill('15 엘레강스 12')
@@ -76,7 +79,7 @@ test.describe('AC-FB1-02 천원 방송', () => {
     await expect(fix.getByText('= 15,000원', { exact: true })).toBeVisible()
     await price.press('Enter')
     await expect.poll(() => registers.length).toBe(2)
-    expect(priceOf(registers[1]!)).toBe(15000)
+    await expectRegisteredPrice(page, 21, 15000)
   })
 
   test('품종의 HTML은 글로만 (미리 보기)', async ({ page }) => {
@@ -109,7 +112,7 @@ test.describe('AC-FB1-02 원 방송', () => {
     const registers = recordRegisters(page)
     await input.press('Enter')
     await expect.poll(() => registers.length).toBe(1)
-    expect(priceOf(registers[0]!)).toBe(500)
+    await expectRegisteredPrice(page, 15, 500)
 
     // 설정 화면에서 천원으로 바꾸고 저장
     await page.goto('/settings')
@@ -171,7 +174,7 @@ test.describe('AC-FB1-02 만원 방송 (D-FB1-11)', () => {
     await expect(willRegister(page)).toHaveText('등록하면: 15번 엘레강스 150,000원')
     await input.press('Enter')
     await expect.poll(() => registers.length).toBe(1)
-    expect(priceOf(registers[0]!)).toBe(150000)
+    await expectRegisteredPrice(page, 15, 150000)
     await expect(board(page).getByRole('button', { name: /^15번 / })).toContainText('150,000원')
 
     await input.fill('21 홍옥')
@@ -185,7 +188,7 @@ test.describe('AC-FB1-02 만원 방송 (D-FB1-11)', () => {
     await price.fill('14')
     await price.press('Enter')
     await expect.poll(() => registers.length).toBe(2)
-    expect(priceOf(registers[1]!)).toBe(140000)
+    await expectRegisteredPrice(page, 21, 140000)
     expect(await page.locator('main').innerText()).not.toMatch(DEV_WORDS)
   })
 
@@ -197,7 +200,7 @@ test.describe('AC-FB1-02 만원 방송 (D-FB1-11)', () => {
     await input.fill('15 엘레강스 10')
     await input.press('Enter')
     await expect.poll(() => registers.length).toBe(1)
-    expect(priceOf(registers[0]!)).toBe(10000)
+    await expectRegisteredPrice(page, 15, 10000)
     await expect(board(page).getByRole('button', { name: /^15번 / })).toContainText('10,000원')
 
     await page.goto('/settings')

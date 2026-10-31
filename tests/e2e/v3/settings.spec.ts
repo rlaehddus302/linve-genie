@@ -100,33 +100,28 @@ test('AC-V3-41 R30 (D-V3-86): 설정 끔 — 실제 방송 1은 카드 "108번 B
 const FIRST_ON = '번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.'
 const FIRST_OFF = '말한 번호·품종·가격을 카드로 보여 줘요. 카드를 확인하고 등록해야 상품이 생겨요.'
 const INSTANT_LINE = '번호와 가격이 들리면 바로 등록돼요. 음성 설정에서 끌 수 있어요.'
+/**
+ * SRV1부터 PC 크롬 길이 없어(D-APP-22·D-APP-25, SPEC "크롬 받아쓰기 없음") 모든 기기의 첫 안내 창은 라이브지니 받아쓰기 창이다 —
+ * 세 줄 그대로(D-APP-08, SPEC VOC-06 "고지·안내", APP1 acceptance "창에 세 줄 그대로"). 옛 I4·V3 첫 줄(D-V3-36)은 크롬 창의 줄이라 없다.
+ */
+const SERVER_CONSENT = [
+  '음성 듣기를 켜면 이 기기 마이크 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.',
+  '와이파이에서 쓰세요. 휴대폰 데이터로는 1시간에 약 120MB를 써요.',
+  '방송 동안 충전기를 꽂아 두세요.',
+]
 
-test('AC-V3-42 (D-V3-36): 처음 켤 때(바로 등록 기본 켬) 안내 창 첫 줄이 바뀌고 그 아래 바로 등록 줄, 옛 첫 줄 없음, 나머지 줄 그대로', async ({ page }) => {
-  await installFakeSpeech(page, { consent: false, autoRegister: true })
-  await loginNewSeller(page)
-  await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
-  await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
-  const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
-  await expect(dlg).toBeVisible()
-  const lines = dlg.locator('p')
-  await expect(lines.nth(0)).toHaveText(FIRST_ON)
-  await expect(lines.nth(1)).toHaveText(INSTANT_LINE)
-  await expect(dlg).not.toContainText('카드를 확인하고 등록해야 상품이 생겨요.')
-  await expect(dlg).toContainText('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.')
-  await expect(dlg).toContainText('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
-})
-
-test('AC-V3-42 (D-V3-36): 저장소에 바로 등록 끔이면 I4 첫 줄 그대로, 바로 등록 줄 없음', async ({ page }) => {
-  await installFakeSpeech(page, { consent: false, autoRegister: true, settings: { 'voice.autoRegister': false } })
-  await loginNewSeller(page)
-  await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
-  await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
-  const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
-  await expect(dlg).toBeVisible()
-  await expect(dlg.locator('p').nth(0)).toHaveText(FIRST_OFF)
-  await expect(dlg).not.toContainText(INSTANT_LINE)
-  await expect(dlg).not.toContainText(FIRST_ON)
-})
+for (const [label, settings] of [['바로 등록 기본 켬', undefined], ['저장소에 바로 등록 끔', { 'voice.autoRegister': false }]] as const) {
+  test(`AC-V3-42 → D-APP-08·D-APP-25 (${label}): 처음 켤 때 안내 창은 라이브지니 받아쓰기 세 줄 그대로, 크롬 창의 I4·V3 첫 줄·바로 등록 줄·구글 고지는 없다`, async ({ page }) => {
+    await installFakeSpeech(page, { consent: false, autoRegister: true, ...(settings === undefined ? {} : { settings }) })
+    await loginNewSeller(page)
+    await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
+    await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
+    const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
+    await expect(dlg).toBeVisible()
+    await expect(dlg.locator('p')).toHaveText(SERVER_CONSENT)
+    for (const old of [FIRST_ON, FIRST_OFF, INSTANT_LINE, '크롬은 구글', '브라우저가 마이크 사용을 물으면']) await expect(dlg).not.toContainText(old)
+  })
+}
 
 test('AC-V3-43 (e) (D-V3-35·86): 끈 채 R1을 말하고 판매 이력 2초 기다림 도중 켜면 쓰기 0·카드 하나, 다음 덩어리부터 바로 등록', async ({ page }) => {
   await installFakeSpeech(page, { consent: true, autoRegister: true, settings: { 'voice.autoRegister': false } })

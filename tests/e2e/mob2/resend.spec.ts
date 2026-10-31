@@ -11,6 +11,8 @@ interface Sent {
   readonly requestId: string
   readonly type: string
   readonly no: number | null
+  /** 원문 줄 (D-APP-24 — 빠른 입력 등록 본문 `text`) */
+  readonly text: string | null
   readonly at: number
   done: number | null
   /** 응답 본문 (실패·끊김이면 null) — `changed`·`seq` (D-MOB2-14) */
@@ -29,7 +31,7 @@ function watchWrites(page: Page): Sent[] {
     } catch {
       body = {}
     }
-    const item: Sent = { requestId: String(body['requestId']), type: String(body['type']), no: typeof body['no'] === 'number' ? body['no'] : null, at: Date.now(), done: null, reply: null }
+    const item: Sent = { requestId: String(body['requestId']), type: String(body['type']), no: typeof body['no'] === 'number' ? body['no'] : null, text: typeof body['text'] === 'string' ? body['text'] : null, at: Date.now(), done: null, reply: null }
     list.push(item)
     byReq.set(r, item)
   })
@@ -50,6 +52,30 @@ function watchWrites(page: Page): Sent[] {
   })
   page.on('requestfailed', finish)
   return list
+}
+
+/**
+ * 서버 읽기 입구로 간 빠른 입력 줄 (SRV1 D-APP-24·AC-SRV1-06: Enter는 줄을 먼저 서버 읽기 입구에 읽힌다 —
+ * 끊긴 동안에는 읽기 입구에 닿지 못해 등록 쓰기가 나가지 않고, 연결이 돌아오면 같은 원문·같은 요청 번호로 한 번 보낸다).
+ */
+function watchQuickReads(page: Page): string[] {
+  const list: string[] = []
+  page.on('request', (r) => {
+    if (r.method() !== 'POST' || !/^\/api\/broadcasts\/[^/]+\/read$/.test(new URL(r.url()).pathname)) return
+    try {
+      const body = JSON.parse(r.postData() ?? '{}') as Record<string, unknown>
+      if (body['kind'] === 'quick' && typeof body['text'] === 'string') list.push(body['text'])
+    } catch {
+      // 본문이 JSON이 아니면 빠른 입력 읽기가 아니다
+    }
+  })
+  return list
+}
+
+/** 끊긴 동안 친 줄: 읽기 입구에 물었고(닿지 못함) 등록 쓰기는 나가지 않았다 */
+function expectUnreadWhileOffline(reads: readonly string[], sent: readonly Sent[], line: string): void {
+  expect(reads, '끊김 중 그 줄을 서버 읽기 입구에 물음').toContain(line)
+  expect(sent.filter((x) => x.type === 'product.register'), '읽지 못한 줄은 끊김 중 등록 쓰기가 없다').toHaveLength(0)
 }
 
 async function seller(browser: Browser, baseURL: string, viewport: { width: number; height: number }): Promise<{ page: Page; close: () => Promise<void> }> {
@@ -92,21 +118,22 @@ for (const [label, viewport] of [['375×812', PHONE], ['1440×900', PC]] as cons
         const b = await broadcastApi(s.page, date, false)
         await openConsole(s.page, b)
         const sent = watchWrites(s.page)
+        const reads = watchQuickReads(s.page)
         await goOffline(s.page)
         const input = s.page.getByLabel('빠른 입력')
         await input.fill('15 핑크프릴 10000')
         await input.press('Enter')
         await expectAutoFailed(s.page, '15 핑크프릴 10000')
-        const first = sent.filter((x) => x.type === 'product.register')
-        expect(first.length, '끊김 중 보낸 등록 요청').toBeGreaterThan(0)
-        const id = first[0]!.requestId
-        expect(new Set(first.map((x) => x.requestId)), '끊김 중 재시도도 같은 요청 번호').toEqual(new Set([id]))
+        expectUnreadWhileOffline(reads, sent, '15 핑크프릴 10000')
         const before = sent.length
         const back = await comeBack(s.page)
         await expect(boardItem(s.page, 15)).toBeVisible({ timeout: 5_000 })
         expect(Date.now() - back, '돌아온 뒤 5초 안').toBeLessThanOrEqual(5_500)
         const after = sent.slice(before).filter((x) => x.type === 'product.register')
-        expect(after.map((x) => x.requestId), '돌아온 뒤 등록 요청 — 처음 요청 번호 그대로 한 번').toEqual([id])
+        expect(after, '돌아온 뒤 등록 요청 — 한 번').toHaveLength(1)
+        // 저절로 보낸 줄은 친 원문 그대로 (D-APP-24)
+        expect(after[0]!.text, '돌아온 뒤 등록 본문 = 친 원문').toBe('15 핑크프릴 10000')
+        await expect.poll(() => sent.slice(before).filter((x) => x.type === 'product.register').length, { timeout: 3_000 }).toBe(1)
         await expect(bar(s.page).getByRole('status').filter({ hasText: '15번을 등록했어요' })).toHaveText(`${RESENT_PREFIX}15번을 등록했어요`)
         await expect(bar(s.page).getByRole('button', { name: '15번 등록 되돌리기' })).toBeVisible()
         await expect(s.page.getByText(autoFailedLine('15 핑크프릴 10000'), { exact: true }), '실패 줄은 사라진다').toHaveCount(0)
@@ -126,6 +153,7 @@ test.describe('AC-MOB2-40 두 줄 차례', () => {
       const b = await broadcastApi(s.page, date, false)
       await openConsole(s.page, b)
       const sent = watchWrites(s.page)
+      const reads = watchQuickReads(s.page)
       await goOffline(s.page)
       const input = s.page.getByLabel('빠른 입력')
       await input.fill('15 핑크프릴 10000')
@@ -134,14 +162,15 @@ test.describe('AC-MOB2-40 두 줄 차례', () => {
       await input.fill('16 청보석 20000')
       await input.press('Enter')
       await expectAutoFailed(s.page, '16 청보석 20000')
-      const id15 = sent.find((x) => x.no === 15)!.requestId
-      const id16 = sent.find((x) => x.no === 16)!.requestId
+      expectUnreadWhileOffline(reads, sent, '15 핑크프릴 10000')
+      expectUnreadWhileOffline(reads, sent, '16 청보석 20000')
       const before = sent.length
       await comeBack(s.page)
       await expect(boardItem(s.page, 15)).toBeVisible({ timeout: 10_000 })
       await expect(boardItem(s.page, 16)).toBeVisible({ timeout: 10_000 })
       const after = sent.slice(before).filter((x) => x.type === 'product.register')
-      expect(after.map((x) => x.requestId), '15 → 16 각 한 번, 처음 요청 번호').toEqual([id15, id16])
+      expect(after.map((x) => x.text), '15 → 16 각 한 번, 친 원문 그대로').toEqual(['15 핑크프릴 10000', '16 청보석 20000'])
+      expect(new Set(after.map((x) => x.requestId)).size, '두 줄은 서로 다른 요청 번호').toBe(2)
       expect(after[0]!.done, '15 응답').not.toBeNull()
       expect(after[1]!.at, '16 요청은 15 응답 뒤').toBeGreaterThanOrEqual(after[0]!.done!)
       expect((await history(s.page, date, false)).filter((e) => e.type === 'product.register')).toHaveLength(2)
@@ -196,16 +225,19 @@ for (const order of ORDERS) {
         const { b, date } = await makeBroadcast(other, withOptions)
         await openConsole(s.page, b)
         const sent = watchWrites(s.page)
-        const block = order === '앞' ? await blockWrites(s.page) : null
+        const reads = watchQuickReads(s.page)
+        const block = order === '앞' ? await blockWrites(s.page, { reads: false }) : null
         if (order !== '앞') await goOffline(s.page)
         const input = s.page.getByLabel('빠른 입력')
         await input.fill('15 핑크프릴 10000')
         if (withOptions) await attachSizes(s.page)
         await input.press('Enter')
         await expectAutoFailed(s.page, '15 핑크프릴 10000')
+        // 앞: 읽기 입구는 닿고 쓰기만 막혀 등록 요청이 실패한다. 뒤: 끊겨 읽기 입구에도 닿지 못해 등록 요청이 아직 없다 (D-APP-24·AC-SRV1-06)
         const first = sent.filter((x) => x.type === 'product.register')
-        expect(first.length, '실패한 등록 요청').toBeGreaterThan(0)
-        const id = first[0]!.requestId
+        if (order === '앞') expect(first.length, '실패한 등록 요청').toBeGreaterThan(0)
+        else expectUnreadWhileOffline(reads, sent, '15 핑크프릴 10000')
+        const id = first[0]?.requestId ?? null
         // 다른 기기에서 15번 등록
         const reg = await other.post('/api/events', { type: 'product.register', b, no: 15, name: '청보석', price: 20000 })
         expect(reg.status, JSON.stringify(reg.body)).toBeLessThan(300)
@@ -241,7 +273,9 @@ for (const order of ORDERS) {
         await expect(fixDialog(s.page), '"고칠까요?" 창 없음').toHaveCount(0)
         // 등록 요청은 처음 요청 번호로 한 번, 서버 답 changed:false
         const after = sent.slice(before).filter((x) => x.type === 'product.register')
-        expect(after.map((x) => x.requestId), '돌아온 뒤 등록 요청 — 처음 요청 번호로 한 번').toEqual([id])
+        expect(after, '돌아온 뒤 등록 요청 — 한 번').toHaveLength(1)
+        if (id !== null) expect(after[0]!.requestId, '처음 요청 번호 그대로').toBe(id)
+        expect(after[0]!.text, '등록 본문 = 친 원문').toBe('15 핑크프릴 10000')
         await expect.poll(() => after[0]!.reply?.['changed'], { message: '저절로 보낸 등록의 응답 changed' }).toBe(false)
         // 15번은 다른 기기 것 그대로
         await expect(boardItem(s.page, 15)).toContainText('청보석')

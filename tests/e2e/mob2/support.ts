@@ -61,13 +61,16 @@ export function isWrite(request: Request): boolean {
 
 /**
  * 쓰기를 네트워크 실패로 막는다 (D-MOB2-07 시험 — 연결이 돌아와 저절로 보낸 것도 실패하게).
- * `blocked()`는 막은 쓰기 수, `bodies()`는 막은 본문, `release()`는 막기를 푼다.
+ * SRV1(D-APP-24·AC-SRV1-06)부터 빠른 입력·고치기 칸 줄은 쓰기 전에 서버 읽기 입구(`/api/broadcasts/:id/read`)에 먼저 읽힌다 —
+ * 저절로 다시 보내는 줄도 읽기 입구부터 간다. 그래서 기본은 읽기 입구도 함께 막는다(막힌 다시 보내기 = 읽기 또는 쓰기 실패).
+ * `reads: false`면 쓰기(`/api/events`)만 막는다(읽기는 닿고 등록 쓰기가 실패하는 길).
+ * `blocked()`는 막은 요청 수, `bodies()`는 막은 본문, `release()`는 막기를 푼다.
  */
-export async function blockWrites(page: Page): Promise<{ blocked: () => number; bodies: () => Record<string, unknown>[]; release: () => Promise<void> }> {
+export async function blockWrites(page: Page, options: { reads?: boolean } = {}): Promise<{ blocked: () => number; bodies: () => Record<string, unknown>[]; release: () => Promise<void> }> {
   const seen: Record<string, unknown>[] = []
   const handler = async (route: Route) => {
     if (route.request().method() !== 'POST') {
-      await route.continue()
+      await route.fallback()
       return
     }
     try {
@@ -77,12 +80,16 @@ export async function blockWrites(page: Page): Promise<{ blocked: () => number; 
     }
     await route.abort('internetdisconnected')
   }
+  const reads = options.reads !== false
+  const readGate = (url: URL) => /^\/api\/broadcasts\/[^/]+\/read$/.test(url.pathname)
   await page.route('**/api/events**', handler)
+  if (reads) await page.route(readGate, handler)
   return {
     blocked: () => seen.length,
     bodies: () => [...seen],
     release: async () => {
       await page.unroute('**/api/events**', handler)
+      if (reads) await page.unroute(readGate, handler)
     },
   }
 }

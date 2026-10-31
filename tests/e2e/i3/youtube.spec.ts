@@ -247,7 +247,8 @@ test.describe('@youtube 콘솔 잇기·수집', () => {
     await expect(yt.getByRole('button', { name: '이 방송에 잇기' }).last()).toBeDisabled()
   })
 
-  test('AC-I3-23: 남의 채널 방송 → 서버 문장, 첫 응답이 끊기면 같은 요청 번호로 다시 보내 한 번만 잇는다', async ({ page }) => {
+  // INV1 (SPEC YT-02 "초대받은 방송", D-PHN-17): 남의 채널 방송은 거절 문장 대신 "초대받은 방송이 맞나요?" 확인 줄 — [취소]하면 잇지 않는다.
+  test('AC-I3-23 → AC-INV1-05: 남의 채널 방송 → 초대받은 방송 확인 줄([취소]면 잇지 않음), 첫 응답이 끊기면 같은 요청 번호로 다시 보내 한 번만 잇는다', async ({ page }) => {
     await loginNewSeller(page)
     const channel = await connectYoutube(page)
     const stranger = await fake<{ id: string }>(page.request, '/_fake/channels', { title: '남의 채널' })
@@ -258,7 +259,12 @@ test.describe('@youtube 콘솔 잇기·수집', () => {
     await field.fill(foreign.videoId)
     await field.press('Enter')
     await yt.getByRole('button', { name: '이 방송에 잇기' }).last().click()
-    await expect(yt.getByText('내 채널의 방송만 연결할 수 있어요.')).toBeVisible()
+    const invited = yt.getByRole('group', { name: '초대받은 방송 확인' })
+    await expect(invited.getByRole('alert')).toHaveText('내 채널 방송이 아니에요 (채널: 남의 채널). 초대받은 방송이 맞나요?')
+    await expect(yt.getByText('내 채널의 방송만 연결할 수 있어요.')).toHaveCount(0)
+    await invited.getByRole('button', { name: '취소' }).click()
+    await expect(invited).toHaveCount(0)
+    await expect(yt.getByRole('group', { name: '채팅 수집' })).toHaveCount(0)
     const mine = await fakeBroadcast(page.request, channel.id, { title: '내 라이브' })
     const bodies: string[] = []
     let cut = true

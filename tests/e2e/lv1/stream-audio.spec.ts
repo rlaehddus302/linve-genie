@@ -2,7 +2,7 @@
 // 기준: harness/sprints/LV1/acceptance.md AC-LV1-01·02·05·06·07·09·12·13. 문장은 acceptance 그대로.
 // 등록 시험은 콘솔의 조작 전용 음성 흐름이 hello를 "듣는 중"으로 보내야만 통과한다(그 줄이 깨지면 받아쓴 글이 버려져 15번이 생기지 않는다).
 import { expect, test, type Page } from '@playwright/test'
-import { audioLine, audioOp, connectYoutube, fake, linkAddress, newSellerLogin, openBroadcast, productItem, startAudioStack, type AudioStack } from './support.ts'
+import { audioWebUrl, audioLine, audioOp, connectYoutube, fake, linkAddress, newSellerLogin, openBroadcast, productItem, startAudioStack, type AudioStack } from './support.ts'
 
 const LOW_LATENCY = "유튜브 방송 설정에서 지연 시간을 '초저지연'으로 하면 더 빨리 등록돼요."
 const LISTENING = '방송 소리로 듣는 중'
@@ -18,7 +18,7 @@ let stack: AudioStack
 test.describe.configure({ mode: 'serial' })
 test.beforeAll(async () => { test.setTimeout(300_000); stack = await startAudioStack('fake') })
 test.afterAll(async () => { await stack.stop() })
-test.use({ baseURL: 'http://localhost:5195', permissions: ['microphone'], launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } })
+test.use({ baseURL: audioWebUrl('fake'), permissions: ['microphone'], launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } })
 // 시험용 모의 일꾼은 흐름 하나만 받는다. 다음 시험이 '바쁨'으로 다시 잇기에 빠지지 않게, 끝난 시험 판매자의 설정을 꺼 흐름을 바로 닫는다.
 test.afterEach(async ({ page, request }) => {
   await audioOp(request, stack, 'restore')

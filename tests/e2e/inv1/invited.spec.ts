@@ -62,7 +62,7 @@ function countLinkPosts(page: Page): { bodies: unknown[] } {
 
 test.describe('@youtube INV1 초대받은 방송', () => {
   test('AC-INV1-12: B 주소 → 확인 줄 → [맞아요, 잇기] → "초대받은 방송 · 다육이유튜버" → 시청자 "15" 찜·A 이름 감사 1건, B의 "16"은 찜 0', async ({ page }) => {
-    test.setTimeout(120_000)
+    test.setTimeout(240_000)
     await loginNewSeller(page)
     const a = await connectYoutube(page, '사장님채널')
     await consentLiveChat(page, a)
@@ -95,8 +95,8 @@ test.describe('@youtube INV1 초대받은 방송', () => {
     await expect(ownerRow.getByText('방송자', { exact: true })).toBeVisible()
     await expect(boardItem(page, 16)).not.toContainText(B_NAME)
 
-    // 감사 한 건이 A의 이름으로 그 방송 채팅에
-    await expect.poll(async () => (await fakeState(page.request)).posted.filter((p) => p.liveChatId === live.liveChatId && p.text === '15번 핑크프릴 10,000원 홍길동님 구매 감사합니다').map((p) => p.authorChannelId), { timeout: 30_000 }).toEqual([a.id])
+    // 감사 한 건이 A의 이름으로 그 방송 채팅에 — 초대 방송 회차의 실시간 채팅 감사 묶음 창은 60초 이상(D-YT-SRV-18, SPEC v0.1.74)이라 그 창이 지난 뒤까지 기다린다
+    await expect.poll(async () => (await fakeState(page.request)).posted.filter((p) => p.liveChatId === live.liveChatId && p.text === '15번 핑크프릴 10,000원 홍길동님 구매 감사합니다').map((p) => p.authorChannelId), { timeout: 90_000 }).toEqual([a.id])
     const state = await fakeState(page.request)
     expect(state.posted.filter((p) => p.liveChatId === live.liveChatId && p.text.includes('16번'))).toHaveLength(0)
     expect(state.posted.filter((p) => p.authorChannelId === b.id)).toHaveLength(0)

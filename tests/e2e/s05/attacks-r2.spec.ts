@@ -127,7 +127,9 @@ test('AC-S05-10·13: 보낸 등록이 다른 기기에 먼저 등록돼 changed:
   let raced = false
   await page.route('**/api/events**', async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown> | null
-    if (!raced && body !== null && body['type'] === 'product.register' && body['no'] === 81) {
+    // SRV1 D-APP-24: 빠른 입력 등록 본문은 친 줄 원문(`text`) — 숫자 `no` 대신 원문의 번호로 81번 등록을 알아본다
+    const line = body === null ? '' : String(body['text'] ?? '')
+    if (!raced && body !== null && body['type'] === 'product.register' && (body['no'] === 81 || /^81\s/.test(line))) {
       raced = true
       // 다른 기기(휴대폰)가 같은 번호를 먼저 등록한다
       const other = await postJson(page, '/api/events', { requestId: crypto.randomUUID(), type: 'product.register', b, no: 81, name: '수국', price: 30000 })

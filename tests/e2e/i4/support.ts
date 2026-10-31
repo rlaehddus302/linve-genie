@@ -5,6 +5,19 @@ import { installPcmMicrophone, pcmState, sayPcm, usesPcm } from '../app1/support
 
 export * from '../s06/support.ts'
 
+/**
+ * SRV1부터 모든 기기의 첫 안내 창·켜진 동안 고지 (D-APP-22·D-APP-25 — PC 크롬 길 없음, D-APP-08 세 줄, SPEC VOC-06 "고지·안내").
+ * 옛 크롬 창의 I4·V3 첫 줄, D-I5-06 "크롬은 구글" 고지, D-I5-11 "브라우저가 마이크 사용을 물으면" 줄은 크롬 길의 문장이라 없다.
+ */
+export const SERVER_CONSENT = [
+  '음성 듣기를 켜면 이 기기 마이크 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.',
+  '와이파이에서 쓰세요. 휴대폰 데이터로는 1시간에 약 120MB를 써요.',
+  '방송 동안 충전기를 꽂아 두세요.',
+] as const
+export const SERVER_NOTICE = '음성은 라이브지니 받아쓰기 서버로 보내져요.'
+/** 크롬 길에만 있던 고지·안내 조각 — 어디에도 없어야 한다 */
+export const CHROME_ONLY_WORDS = ['크롬은 구글', '구글·애플로 보내져요', '브라우저의 음성 인식 서버', '브라우저가 마이크 사용을 물으면', '크롬이 마이크 사용을 물으면'] as const
+
 export interface FakeSpeechOptions {
   /** 생성자를 둘 다 지운다 (지원하지 않는 브라우저) */
   readonly unsupported?: boolean

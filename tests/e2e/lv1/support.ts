@@ -9,6 +9,11 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test'
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const offset = Number(process.env['E2E_PORT_OFFSET'] ?? '0')
 
+/** 그 묶음 화면 주소 — E2E_PORT_OFFSET을 따른다(startAudioStack과 같은 포트) */
+export function audioWebUrl(mode: 'fake' | 'off'): string {
+  return `http://localhost:${String(5195 + (mode === 'fake' ? 0 : 1) + offset)}`
+}
+
 export interface AudioStack { api: string; web: string; youtube: string; stop(): Promise<void> }
 
 async function up(url: string): Promise<boolean> {

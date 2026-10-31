@@ -1,7 +1,11 @@
 import { historyProbe, pcmCounts } from '../app1/support.ts'
-// I4 음성 켜기·끄기 (AC-I4-10~14) — test-e2e. 가짜 SpeechRecognition(addInitScript)로 실제 브라우저에서 확인한다.
+// I4 음성 켜기·끄기 (AC-I4-10~14) — test-e2e. SRV1부터 PC도 서버 받아쓰기(D-APP-22·D-APP-25): 합성 마이크 → 서버 → 모의 일꾼(app1/support).
+// 가짜 SpeechRecognition은 "만들지 않는다"를 보려고만 둔다(AC-SRV1-10).
 import { test, expect } from '@playwright/test'
 import {
+  CHROME_ONLY_WORDS,
+  SERVER_CONSENT,
+  SERVER_NOTICE,
   board,
   boardItem,
   card,
@@ -49,8 +53,11 @@ test.describe('I4 음성 켜기·끄기', () => {
     await historyProbe(page, { fail: false, reset: true })
     await turnOnVoice(page, { consent: true })
     expect(chunks.length).toBeGreaterThanOrEqual(1)
+    // SRV1 (D-APP-25 (3), AC-SRV1-10): 브라우저 인식 객체 대신 마이크 한 번 → 서버 받아쓰기 흐름 하나
     counts = await speechCounts(page)
-    expect(counts.instances).toBe(1)
+    expect(counts.instances, '브라우저 인식 객체는 만들지 않는다').toBe(0)
+    expect((await pcmCounts(page)).starts, '마이크 한 번').toBe(1)
+    expect((await pcmCounts(page)).openSockets, '서버 받아쓰기 흐름 하나').toBe(1)
     await expect.poll(async () => (await historyProbe(page)).calls.filter((date) => date === null).length).toBe(1)
     expect(requests.filter((r) => new URL(r.url).pathname === '/api/days' && r.method === 'GET')).toEqual([])
 
@@ -60,15 +67,14 @@ test.describe('I4 음성 켜기·끄기', () => {
     await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toBeVisible()
     await expect(voiceRegion(page)).toHaveCount(0)
     expect((await speechCounts(page)).instances).toBe(0)
+    expect((await pcmCounts(page)).starts, '새로 고침 뒤 마이크를 열지 않는다').toBe(0)
 
-    // V3 교체(D-V3-52, AC-V3-58): 켜고 방송 목록에 다녀와도 음성은 켜진 채(인식을 멈추지 않음), 돌아오면 "듣는 중"
+    // V3 교체(D-V3-52, AC-V3-58): 켜고 방송 목록에 다녀와도 음성은 켜진 채(마이크를 멈추지 않음), 돌아오면 "듣는 중"
     await turnOnVoice(page)
-    counts = await speechCounts(page)
-    const stopped = counts.stops + counts.aborts
+    const stopped = (await pcmCounts(page)).stops
     await page.getByRole('link', { name: '방송 목록' }).click()
     await expect(page.getByRole('button', { name: '새 방송 시작' })).toBeVisible()
-    counts = await speechCounts(page)
-    expect(counts.stops + counts.aborts).toBe(stopped)
+    expect((await pcmCounts(page)).stops, '다른 화면에서도 마이크를 멈추지 않는다').toBe(stopped)
     await page.goBack()
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
     await expect(voiceRegion(page).getByRole('status').filter({ hasText: '음성: 듣는 중' })).toBeVisible()
@@ -86,15 +92,9 @@ test.describe('I4 음성 켜기·끄기', () => {
     await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
     const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
     await expect(dlg).toBeVisible()
-    // V3 교체(D-V3-36): 바로 등록이 켜져 있으면 첫 줄이 바뀌고 그 아래 바로 등록 줄(D-V3-17). 꺼진 경우는 tests/e2e/v3 AC-V3-42
-    await expect(dlg).toContainText('번호와 가격이 확실하지 않으면 카드로 보여 드려요. 카드를 확인하고 등록해요.')
-    await expect(dlg).toContainText('번호와 가격이 들리면 바로 등록돼요. 음성 설정에서 끌 수 있어요.')
-    await expect(dlg).not.toContainText('카드를 확인하고 등록해야 상품이 생겨요.')
-    // D-I5-06: 외부 전송 문장 교체 (I5)
-    await expect(dlg).toContainText('음성은 인식을 위해 브라우저의 음성 인식 서버(크롬은 구글, 아이폰은 애플)로 보내져요. 라이브지니는 음성을 녹음하거나 저장하지 않아요.')
-    // D-I5-11: 마이크 줄 "크롬이" → "브라우저가" (I5)
-    await expect(dlg).toContainText('다음에 브라우저가 마이크 사용을 물으면 "허용"을 눌러 주세요.')
-    await expect(page.getByText('크롬이 마이크 사용을 물으면')).toHaveCount(0)
+    // SRV1 (D-APP-25 (3)): 크롬 창의 I4·V3 첫 줄·바로 등록 줄·D-I5-06 고지·D-I5-11 마이크 줄 대신 라이브지니 받아쓰기 세 줄 그대로(D-APP-08)
+    await expect(dlg.locator('p')).toHaveText([...SERVER_CONSENT])
+    for (const old of ['카드를 확인하고 등록', '바로 등록돼요', ...CHROME_ONLY_WORDS]) await expect(dlg).not.toContainText(old)
     await expect(dlg.getByRole('button', { name: '닫기' })).toBeFocused()
     // 창이 열린 동안 "음성 켜기"는 창 안의 하나뿐
     await expect(page.getByRole('button', { name: '음성 켜기', exact: true })).toHaveCount(1)
@@ -102,6 +102,7 @@ test.describe('I4 음성 켜기·끄기', () => {
     await expect(dlg).toHaveCount(0)
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
     expect((await speechCounts(page)).instances).toBe(0)
+    expect((await pcmCounts(page)).starts, '닫으면 마이크를 열지 않는다').toBe(0)
 
     // Esc
     await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
@@ -110,15 +111,17 @@ test.describe('I4 음성 켜기·끄기', () => {
     await expect(dlg).toHaveCount(0)
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
     expect((await speechCounts(page)).instances).toBe(0)
+    expect((await pcmCounts(page)).starts, 'Esc도 마이크를 열지 않는다').toBe(0)
 
-    // 창의 "음성 켜기"
+    // 창의 "음성 켜기" — 인식 설정(ko-KR·continuous·interim)은 크롬 인식 객체의 것이라 없다: 브라우저 인식 객체는 0번, 마이크 한 번·서버 흐름 하나 (AC-SRV1-10)
     await turnOnVoice(page, { consent: true })
-    const counts = await speechCounts(page)
-    expect(counts.instances).toBe(1)
-    expect(counts.starts).toBe(1)
-    expect(counts.last).toEqual({ lang: 'ko-KR', continuous: true, interimResults: true })
-    // D-I5-06: 켜진 동안 고지 문장 교체 (I5)
-    await expect(voiceRegion(page)).toContainText('음성은 인식을 위해 크롬은 구글로, 아이폰은 애플로 보내져요.')
+    expect((await speechCounts(page)).instances, '브라우저 인식 객체를 만들지 않는다').toBe(0)
+    const counts = await pcmCounts(page)
+    expect(counts.starts, '마이크 한 번').toBe(1)
+    expect(counts.openSockets, '서버 받아쓰기 흐름 하나').toBe(1)
+    // 켜진 동안 고지 (D-APP-08 — 모든 기기 같은 문장)
+    await expect(voiceRegion(page)).toContainText(SERVER_NOTICE)
+    for (const old of CHROME_ONLY_WORDS) await expect(voiceRegion(page)).not.toContainText(old)
     await expect(page.getByLabel('빠른 입력')).toBeFocused()
 
     // 끄고 다시 켜면 창 없이

@@ -36,6 +36,7 @@ async function smsWorld(page: Page, opts: { rehearsal: boolean }): Promise<{ b: 
   return { b, date }
 }
 
+// SRV1 D-APP-24: 문자찜 받은 시각 칸은 원문 그대로 `receivedText`로 보낸다(서버가 읽는다 — 옛 `received` 값 칸 대신). 기록된 사건의 `received`는 그대로
 const smsBodies = (bodies: Record<string, unknown>[]) => bodies.filter((x) => x['type'] === 'sms')
 const failed = (page: Page) => page.getByText(/저장하지 못했어요/)
 
@@ -60,7 +61,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       const first = smsBodies(bodies)
       expect(first.length, '끊김 중 보낸 문자찜 요청').toBeGreaterThan(0)
       const id = String(first[0]!['requestId'])
-      expect(first[0]!['received'], '처음 요청은 받은 시각 없이 (비운 칸 — ORD-08 AC6)').toBeUndefined()
+      expect(first[0]!['receivedText'], '처음 요청은 받은 시각 없이 (비운 칸 — ORD-08 AC6)').toBeUndefined()
 
       // 20:01:30 판매자가 직접 "다시 보내기" (아직 끊김) — 다시 누른 시각이 아니라 처음 누른 시각
       await s.page.clock.setFixedTime(kstTodayAt('20:01:30'))
@@ -69,7 +70,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       await expect.poll(() => smsBodies(bodies).length, { timeout: 30_000 }).toBeGreaterThan(beforeManual)
       await expect(failed(s.page)).toBeVisible({ timeout: 30_000 })
       const manual = smsBodies(bodies).slice(beforeManual)
-      expect(manual.map((x) => x['received']), '직접 다시 보내기의 받은 시각').toEqual(manual.map(() => '20:01:05'))
+      expect(manual.map((x) => x['receivedText']), '직접 다시 보내기의 받은 시각').toEqual(manual.map(() => '20:01:05'))
       expect(new Set(manual.map((x) => x['requestId'])), '직접 다시 보내기도 처음 요청 번호').toEqual(new Set([id]))
       await expect(smsField(s.page, '받은 시각')).toHaveValue('20:01:05')
       // 받은 시각을 화면이 채운 것은 판매자가 칸을 바꾼 것이 아니다 — 직접 다시 보낸 뒤에도 저절로 보낼 문장 그대로 (D-MOB2-09·D-MOB2-18)
@@ -82,7 +83,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       const card = s.page.getByRole('region', { name: '넣은 결과' })
       await expect(card.locator('strong').first()).toHaveText(new RegExp(`^${RESENT_PREFIX}15번 · 문자찜\\(비움\\) · 1등 · 받은 시각 .*20:01:05$`), { timeout: 10_000 })
       const after = smsBodies(bodies).slice(before)
-      expect(after.map((x) => [x['requestId'], x['received']]), '돌아온 뒤 한 번, 처음 요청 번호·받은 시각 20:01:05').toEqual([[id, '20:01:05']])
+      expect(after.map((x) => [x['requestId'], x['receivedText']]), '돌아온 뒤 한 번, 처음 요청 번호·받은 시각 20:01:05').toEqual([[id, '20:01:05']])
       await expect(s.page.getByText(/늦게 들어갔어요/)).toHaveCount(0)
       await expect(s.page.getByText(/취소하고 받은 시각을 적어/)).toHaveCount(0)
       await expect(smsField(s.page, '받은 시각')).toHaveValue('')
@@ -178,7 +179,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       const before = smsBodies(bodies).length
       await comeBack(s.page)
       await expect(s.page.getByRole('region', { name: '넣은 결과' }).locator('strong').first()).toHaveText(new RegExp(`^${RESENT_PREFIX}15번 · 문자찜\\(먼저\\) · 1등`), { timeout: 10_000 })
-      expect(smsBodies(bodies).slice(before).map((x) => x['received'])).toEqual([kstClock(pressed)])
+      expect(smsBodies(bodies).slice(before).map((x) => x['receivedText'])).toEqual([kstClock(pressed)])
       const claims = (await scopeView(s.page, date, true)).claims.filter((c) => c.no === 15)
       expect(Object.fromEntries(claims.map((c) => [c.origin, c.status])), 'R-7 1 자동 역전').toEqual({ sms: 'CONFIRMED', chat: 'WAITLISTED' })
       const product = (await scopeView(s.page, date, true)).products.find((p) => p.no === 15)!

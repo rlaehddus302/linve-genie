@@ -338,8 +338,10 @@ test('AC-I5-26 PC 폭(1280): 카드가 고정 영역에 있어 내리지 않는�
 async function consentLine(page: Page): Promise<void> {
   await page.getByRole('button', { name: '음성 켜기', exact: true }).click()
   const dlg = page.getByRole('dialog', { name: '음성으로 상품 등록' })
-  if (test.info().project.name.includes('webkit')) await expect(dlg.locator('p')).toHaveText([LG_CONSENT, LG_DATA, LG_CHARGE])
-  else { await expect(dlg.getByText(CONSENT_MIC, { exact: true })).toBeVisible(); await expect(dlg).toContainText(CONSENT_SENT) }
+  // SRV1 (D-APP-22·D-APP-25 (3)): PC 크로미움도 라이브지니 받아쓰기 창 — 세 줄 그대로(D-APP-08). 크롬 창의 D-I5-11 권한 줄·D-I5-06 고지는 없다
+  await expect(dlg.locator('p')).toHaveText([LG_CONSENT, LG_DATA, LG_CHARGE])
+  await expect(dlg.getByText(CONSENT_MIC, { exact: true })).toHaveCount(0)
+  await expect(dlg).not.toContainText(CONSENT_SENT)
   await expect(page.getByText(OLD_CONSENT_MIC)).toHaveCount(0)
   await dlg.getByRole('button', { name: '음성 켜기', exact: true }).click()
   await expect(voiceStatus(page)).toHaveText('음성: 듣는 중')
@@ -350,7 +352,7 @@ async function consentLine(page: Page): Promise<void> {
   await expect(page.getByText(OLD_CONSENT_MIC)).toHaveCount(0)
 }
 
-test('AC-I5-27 크로미움: 첫 안내 창의 권한 줄은 "브라우저가 마이크 사용을 물으면", "크롬이…"는 없다', async ({ page }) => {
+test('AC-I5-27 → D-APP-25 크로미움: 첫 안내 창은 라이브지니 받아쓰기 세 줄, "크롬이…"·"브라우저가 마이크 사용을 물으면"은 없다', async ({ page }) => {
   await installFakeSpeech(page)
   await login(page)
   await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
@@ -498,14 +500,15 @@ test('AC-I5-31: 393px는 짧은 고지만, 켜진 동안 늘 보인다 @webkit',
 test.describe('AC-I5-31 PC 폭', () => {
   test.use({ viewport: { width: 1280, height: 800 } })
 
-  test('AC-I5-31 크로미움 1280: 긴 고지만, 켜진 동안 늘 보인다', async ({ page }) => {
+  // SRV1 (D-APP-08·D-APP-22): 모든 기기 같은 고지 "음성은 라이브지니 받아쓰기 서버로 보내져요." — 크롬 길의 긴 고지(D-I5-06)는 없다
+  test('AC-I5-31 → D-APP-08 크로미움 1280: 받아쓰기 서버 고지 한 줄, 켜진 동안 늘 보인다', async ({ page }) => {
     await installFakeSpeech(page, { consent: true })
     await login(page)
     await openNewBroadcast(page, { date: uniqueDate(), rehearsal: true })
     await turnOnVoice(page)
-    const long = voiceRegion(page).getByText(SENT, { exact: true })
+    const long = voiceRegion(page).getByText(SENT_SHORT, { exact: true })
     await expect(long).toBeVisible()
-    await expect(page.getByText(SENT_SHORT)).toHaveCount(0)
+    await expect(page.getByText(SENT)).toHaveCount(0)
     await expect(page.getByText(OLD_SENT)).toHaveCount(0)
     await speak(page, '16번 라울 만원')
     await expect(card(page, '16번 라울 10,000원')).toBeVisible()

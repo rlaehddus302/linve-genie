@@ -2,6 +2,7 @@
 // 기대 문장은 acceptance·D-V3 글자 그대로.
 import { test, expect, type Page } from '@playwright/test'
 import { menuLink } from '../menu.ts'
+import { pcmCounts } from '../app1/support.ts'
 import {
   boardItem,
   claimOne,
@@ -34,16 +35,19 @@ function band(page: Page) {
 test.describe('AC-V3-58 켠 음성 유지 (D-V3-52)', () => {
   test('(a) 콘솔에서 켜고 설정 → 구매자 → 라벨에 갔다 돌아와도 인식을 멈추지 않고 "듣는 중", 콘솔 밖엔 띠(듣는 중·외부 전송 고지·끄기)', async ({ page }) => {
     await setupV3(page)
-    const before = await speechCounts(page)
+    // SRV1 (D-APP-22·D-APP-25 (3)): 인식은 서버 받아쓰기 — "멈추지 않음"은 마이크(합성 PCM)를 멈추지 않는 것으로 본다. 띠의 고지는 D-APP-08 문장
+    const before = await pcmCounts(page)
     for (const name of ['설정', '구매자', '라벨']) {
       await menuLink(page, name).click()
       await expect(band(page)).toBeVisible()
       await expect(band(page)).toContainText('음성 듣는 중')
-      await expect(band(page)).toContainText('구글·애플로 보내져요')
+      await expect(band(page)).toContainText('라이브지니 받아쓰기 서버로 보내져요')
+      await expect(band(page)).not.toContainText('구글')
       await expect(band(page).getByRole('button', { name: '끄기' })).toBeVisible()
     }
-    const after = await speechCounts(page)
-    expect(after.stops + after.aborts).toBe(before.stops + before.aborts)
+    const after = await pcmCounts(page)
+    expect(after.stops, '마이크를 멈추지 않는다').toBe(before.stops)
+    expect(after.openSockets, '서버 받아쓰기 흐름 그대로').toBe(before.openSockets)
     await page.goBack()
     await page.goBack()
     await page.goBack()
@@ -96,11 +100,12 @@ test.describe('AC-V3-58 켠 음성 유지 (D-V3-52)', () => {
     await setupV3(page)
     await menuLink(page, '설정').click()
     await expect(band(page)).toBeVisible()
-    const before = await speechCounts(page)
+    // SRV1 (D-APP-25 (3)): 멈춤 = 마이크를 멈추고 서버 받아쓰기 흐름을 닫는다
+    const before = await pcmCounts(page)
     await band(page).getByRole('button', { name: '끄기' }).click()
     await expect(band(page)).toHaveCount(0)
-    const after = await speechCounts(page)
-    expect(after.stops + after.aborts).toBeGreaterThan(before.stops + before.aborts)
+    await expect.poll(async () => (await pcmCounts(page)).stops, { message: '마이크 멈춤' }).toBeGreaterThan(before.stops)
+    await expect.poll(async () => (await pcmCounts(page)).openSockets, { message: '받아쓰기 흐름 닫힘' }).toBe(0)
   })
 
   test('(e) 켠 채 새로 고침 — 마이크 권한이 granted면 안내 창 없이 다시 켜진다', async ({ page, context }) => {

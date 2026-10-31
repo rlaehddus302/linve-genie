@@ -1,12 +1,12 @@
 // LV1 AC-LV1-09: 운영자가 방송 소리를 껐으면(--stream-audio off) 설정 칸도, 콘솔 상태 줄도 없고 마이크는 그대로.
 import { expect, test } from '@playwright/test'
-import { audioLine, connectYoutube, fake, linkAddress, newSellerLogin, openBroadcast, startAudioStack, type AudioStack } from './support.ts'
+import { audioWebUrl, audioLine, connectYoutube, fake, linkAddress, newSellerLogin, openBroadcast, startAudioStack, type AudioStack } from './support.ts'
 
 let stack: AudioStack
 test.describe.configure({ mode: 'serial' })
 test.beforeAll(async () => { test.setTimeout(300_000); stack = await startAudioStack('off') })
 test.afterAll(async () => { await stack.stop() })
-test.use({ baseURL: 'http://localhost:5196' })
+test.use({ baseURL: audioWebUrl('off') })
 
 for (const size of [{ name: 'PC 1440', width: 1440, height: 900 }, { name: '휴대폰 375', width: 375, height: 812 }]) {
   test(`AC-LV1-09 ${size.name}: 운영자 끔 — 설정 칸 없음, 상태 줄 없음, 안내 창 없음, 음성 켜기는 있음`, async ({ page }) => {

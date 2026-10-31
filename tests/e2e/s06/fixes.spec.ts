@@ -21,7 +21,11 @@ test.describe('S05 지적 정리', () => {
     await expect(boardItem(page, 15)).toContainText('홍길동')
     await page.getByLabel('빠른 입력').focus()
     const keys = ['1', '5', 'Enter', 'Tab', 'Enter', '1', 'Enter']
-    for (const key of keys) await page.keyboard.press(key)
+    // SRV1 (D-APP-24): 번호 + Enter는 서버가 줄을 읽은 답으로 자세히를 연다 — 키 수는 그대로 두고, 창이 열린 뒤 다음 키를 누른다(사람도 창을 보고 누른다)
+    for (const [i, key] of keys.entries()) {
+      await page.keyboard.press(key)
+      if (i === 2) await expect(page.getByRole('dialog', { name: '15번 자세히' })).toBeVisible()
+    }
     expect(keys.length).toBeLessThanOrEqual(8)
     await expect(page.getByRole('region', { name: '보내기 전 조치' }).getByText(/초 뒤 보내요/)).toBeVisible()
     await expect(boardItem(page, 15)).not.toContainText('홍길동', { timeout: 15_000 })

@@ -2,7 +2,7 @@
 // 기본 E2E 서버: 인스타그램 서버 준비 안 됨 · 틱톡 막힘. @multi 묶음: 인스타그램 준비됨(연결 안 함) · 틱톡 운영자 켬.
 import { expect, test, type Page } from '@playwright/test'
 import { e2eDate, loginAs } from '../i3/support.ts'
-import { installFakeSpeech, speechCounts, turnOnVoice, voiceRegion } from '../i4/support.ts'
+import { installFakeSpeech, turnOnVoice, voiceRegion } from '../i4/support.ts'
 import { pcmCounts } from '../app1/support.ts'
 import { consoleInstagram, consoleTiktok, enableTiktokApi, newTiktokId, ttLive } from '../n2b2/support.ts'
 import { boardItem, history, uniqueDate } from '../s05/support.ts'
@@ -218,7 +218,8 @@ test.describe('AC-MOB1-17 끝난 방송 콘솔', () => {
       // APP1 ENDED·APP1b-16: 서버가 방송 종료와 함께 캡처/읽기 흐름을 끝낸다.
       await expect(voiceRegion(dev)).toHaveCount(0)
       await expect.poll(async () => (await pcmCounts(dev)).openSockets).toBe(0)
-      await expect.poll(async () => { const counts = await speechCounts(dev); return counts.stops + counts.aborts }).toBeGreaterThan(0)
+      // SRV1 (D-APP-25 (3)): 브라우저 인식 객체가 없다 — 음성 꺼짐 = 마이크(합성 PCM)를 멈춤
+      await expect.poll(async () => (await pcmCounts(dev)).stops, { message: '마이크 멈춤' }).toBeGreaterThan(0)
       await expect(dev.getByRole('button', { name: '음성 켜기', exact: true })).toHaveCount(0)
       await dev.keyboard.press('Enter')
       // 보내지 않았다 (치던 글은 버림)
@@ -226,10 +227,10 @@ test.describe('AC-MOB1-17 끝난 방송 콘솔', () => {
       await expect(boardItem(dev, 5)).toHaveCount(0)
       // 종료는 재시도 대상이 아니다. 새 연결/캡처와 늦은 쓰기가 없어야 한다.
       const connections = (await pcmCounts(dev)).sockets
-      const starts = (await speechCounts(dev)).starts
+      const starts = (await pcmCounts(dev)).starts
       await dev.clock.runFor(10_000)
       expect((await pcmCounts(dev)).sockets).toBe(connections)
-      expect((await speechCounts(dev)).starts).toBe(starts)
+      expect((await pcmCounts(dev)).starts, '마이크를 다시 열지 않는다').toBe(starts)
       expect((await history(dev, date, false)).filter((e) => e.type === 'product.register')).toEqual([])
       await expect(voiceRegion(dev)).toHaveCount(0)
       await expect(dev.getByRole('button', { name: '음성 켜기', exact: true })).toHaveCount(0)
