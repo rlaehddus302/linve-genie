@@ -1,3 +1,4 @@
+import { e2eServerUrl } from '../../../apps/web/playwright.config.ts'
 // 문자찜 입력 (AC-S06-10~15·81, ORD-08, R-0 5, R-6, R-11, D-089) — test-e2e.
 // 기대값은 스펙 문장·골든(G-ENG-169·170)에서 정한다. 기다림은 상태로.
 import { test, expect, type Page } from '@playwright/test'
@@ -116,6 +117,11 @@ test.describe('문자찜 입력', () => {
     // 브라우저 시계만 20:05 KST로 (시각이 흐른다)
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
     await page.clock.install({ time: new Date(`${today}T20:05:00+09:00`) })
+    // SRV1 (D-APP-24): 받은 시각은 서버 시계로 읽는다 — 서버 시계도 같은 20:05 KST에 맞춘다(E2E 서버 /_e2e/clock, REL1 dev-notes ## server). 끝에 반드시 되돌린다
+    const server = e2eServerUrl(test.info().project.name)!
+    const set = await page.request.post(`${server}/_e2e/clock`, { data: { at: `${today}T20:05:00+09:00` } })
+    expect(set.status(), await set.text()).toBe(200)
+    try {
     await login(page)
     const title = uniq('시각')
     const { b, date } = await rehearsalWithTitle(page, title)
@@ -166,6 +172,9 @@ test.describe('문자찜 입력', () => {
     const sms = (await history(page, date, true)).filter((e) => e.type === 'sms')
     expect(sms).toHaveLength(1)
     expect(sms[0]!.fields['received']).toBe('20:05')
+    } finally {
+      await page.request.post(`${server}/_e2e/clock`, { data: { reset: true } })
+    }
   })
 
   test('AC-S06-13: 전화번호 읽지 못함·메모의 휴대폰 번호는 막고, 보내지 않는다', async ({ page }) => {
