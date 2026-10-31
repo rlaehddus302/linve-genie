@@ -329,6 +329,37 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     expect(screen.queryByRole('region', { name: '넣은 결과' })).toBeNull()
   })
 
+  it('REL1: 받은 시각이 늦으면 "이대로 넣을까요?" — 고치기면 보내지 않고, 이대로 넣기면 receivedLateOk: true. 서버가 409 RECEIVED_LATE로 막아도 같은 창', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2')])
+    await open()
+    type(numberField(), '15')
+    type(field('받은 시각'), '20:00')
+    await flush(10)
+    fireEvent.click(screen.getByRole('button', { name: '15번에 문자찜 넣기' }))
+    const ask = await screen.findByRole('dialog', { name: '받은 시각을 확인해 주세요' })
+    expect(ask.textContent).toContain('이 지금보다 늦어요. 이대로 넣을까요?')
+    fireEvent.click(within(ask).getByRole('button', { name: '고치기' }))
+    await flush(5)
+    expect(engine.posts).toHaveLength(0)
+    // 화면이 확인한 뒤에도 서버가 막으면(시계 차이 등) 서버 문장의 시각으로 다시 묻는다
+    fireEvent.click(screen.getByRole('button', { name: '15번에 문자찜 넣기' }))
+    fireEvent.click(within(await screen.findByRole('dialog', { name: '받은 시각을 확인해 주세요' })).getByRole('button', { name: '이대로 넣기' }))
+    await screen.findByRole('region', { name: '넣은 결과' })
+    expect(engine.posts).toHaveLength(1)
+    expect(engine.posts[0]).toMatchObject({ type: 'sms', receivedText: '20:00', receivedLateOk: true })
+  })
+
+  it('REL1: 서버가 409 RECEIVED_LATE로 막으면 기록 없이 서버의 시각으로 "이대로 넣을까요?"', async () => {
+    setup([register(15, '핑크프릴', 10000, 'b2')])
+    await open()
+    type(numberField(), '15')
+    engine.failNext = { status: 409, body: { error: { code: 'RECEIVED_LATE', message: '늦어요', problems: [] }, received: { value: '20:00:00', day: '10/19' } } }
+    fireEvent.click(screen.getByRole('button', { name: '15번에 문자찜 넣기' }))
+    const ask = await screen.findByRole('dialog', { name: '받은 시각을 확인해 주세요' })
+    expect(ask.textContent).toContain('받은 시각(10/19 20:00:00)이 지금보다 늦어요. 이대로 넣을까요?')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('UX-S06-002: 결과 카드는 번호 칸 바로 위, 보내기 버튼·보내는 중·저장 실패는 화면 아래 보내기 막대 안', async () => {
     setup([register(15, '핑크프릴', 10000, 'b2')])
     await open()

@@ -439,7 +439,7 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   const eventOfRef = useRef(eventOf)
   eventOfRef.current = eventOf
 
-  const send = async (auto = false) => {
+  const send = async (auto = false, lateOk = false) => {
     if (api === undefined || number === null) return
     const at = Date.now()
     // 받은 시각은 ref에서 — 실패한 순간 채운 값이 다시 그리기 전에 눌린 "다시 보내기"에도 실리게 (D-MOB2-09)
@@ -447,8 +447,10 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
     // 같은 칸 내용으로 처음 누른 때 (다시 보내기·저절로 다시 보내기에서도 처음 것 — RA-MOB2-02)
     const pressKey = JSON.stringify([no, receivedText, phone, memo, buyer, picks, qtyText])
     if (pressRef.current?.key !== pressKey) pressRef.current = { key: pressKey, at }
-    const event = eventOf(receivedText.trim() === '' ? null : receivedText.trim())
-    if (event === null) return
+    const base = eventOf(receivedText.trim() === '' ? null : receivedText.trim())
+    if (base === null) return
+    // 판매자가 "이대로 넣을까요?"에 답했을 때만 늦은 받은 시각을 넣는다 (서버 409 RECEIVED_LATE, REL1)
+    const event = lateOk ? { ...base, receivedLateOk: true } : base
     const written = await sender.send(event)
     // 실패면 칸은 친 그대로 (AC-SMS-04)
     if (written === null) return
@@ -527,6 +529,17 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
   }
 
   const serverError = sender.error
+
+  // 서버가 받은 시각이 지금보다 늦다고 막았다(화면이 미리 읽지 못하고 보낸 때 등): 기록되지 않았으니 같은 확인 창을 띄운다 (REL1)
+  useEffect(() => {
+    if (serverError?.code !== 'RECEIVED_LATE') return
+    const raw: unknown = serverError.details.received
+    const value = typeof raw === 'object' && raw !== null ? (raw as { readonly value?: unknown; readonly day?: unknown }) : null
+    const words = value !== null && typeof value.value === 'string' ? (typeof value.day === 'string' ? `${value.day} ${value.value}` : value.value) : receivedRef.current
+    sender.clearError()
+    setLate({ words })
+    // sender는 그리는 때마다 새 묶음이다
+  }, [serverError])
 
   // 연결이 돌아오면 저절로 한 번 (D-MOB2-07): 같은 요청 번호로 다시 보내도 두 번 기록되지 않는 실패(D-MOB2-14)이고, 칸 내용이 실패한 때와 같을 때만.
   // 판매자가 번호·전화번호·메모·받은 시각·구매자(옵션·수량) 중 하나라도 바꿨으면 새로 보내는 것으로 보고 보내지 않는다
@@ -750,7 +763,8 @@ function SmsForm({ api, disabled = false, focusSignal, onSending }: SmsFormProps
               className="button button-primary"
               onClick={() => {
                 setLate(null)
-                void send()
+                // 판매자가 늦은 받은 시각을 확인했다 — 서버에도 알린다(receivedLateOk, 다시 막히지 않게)
+                void send(false, true)
               }}
             >
               이대로 넣기

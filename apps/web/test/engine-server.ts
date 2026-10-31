@@ -51,6 +51,8 @@ export class EngineServer {
   #refs = 0
   /** 다음 쓰기를 이 응답으로 대신한다 (한 번) */
   failNext: Reply | null = null
+  /** 받은 receivedLateOk 값들 (REL1) */
+  readonly lateOks: unknown[] = []
   /** 쓰기가 서버에 닿지 않는다 (네트워크 오류) */
   down = false
   /** 쓰기는 서버에 닿아 기록되지만 응답을 잃는다 (네트워크 오류로 보임 — 같은 요청 번호는 한 번만 기록, MOB2 D-MOB2-14) */
@@ -128,7 +130,9 @@ export class EngineServer {
 
   #handle(body: Record<string, unknown>): Reply {
     // voiceLog(R-25)는 엔진 필드가 아니다 — 실제 서버처럼 떼고 따로 남긴다
-    const { requestId, voiceLog, ...sent } = body
+    // receivedLateOk(REL1)는 판매자가 늦은 받은 시각을 확인했다는 원문 칸이다 — 서버처럼 읽고 엔진 필드로 넘기지 않는다
+    const { requestId, voiceLog, receivedLateOk, ...sent } = body
+    if (receivedLateOk !== undefined) this.lateOks.push(receivedLateOk)
     if (voiceLog !== undefined) this.voiceLogs.push(voiceLog)
     const prior = this.#results.get(String(requestId))
     if (prior !== undefined) return { body: prior }
