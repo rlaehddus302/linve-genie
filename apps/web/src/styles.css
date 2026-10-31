@@ -4810,4 +4810,4 @@ select.input {
 .stream-audio-button { min-height: 52px; font-size: 1.125rem; }
 .stream-audio-setting { font-size: 1.125rem; }
 .stream-audio-check { min-height: 52px; align-items: center; gap: 0.75rem; font-size: 1.125rem; }
-.stream-audio-check input { width: 28px; height: 28px; }
+.stream-audio-check input { height: 28px; aspect-ratio: 1 / 1; flex: none; }

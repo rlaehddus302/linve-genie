@@ -1,3 +1,4 @@
+import { SERVICE_NAME } from '../brand.ts'
 // 방송 소리로 듣기 (LV1, SPEC VOC-08, D-LV1-03~08) — 서버가 알려 준 상태를 화면 문장으로 바꾼다. 순수 함수.
 // 화면에는 쉬운 한국어만 — 소리 받는 방법의 기술 이름은 보이지 않는다(AC-LV1-12).
 
@@ -31,7 +32,7 @@ export const STREAM_AUDIO_UNSUPPORTED = '이 방송은 소리를 받을 수 없�
 export const STREAM_AUDIO_OFF = '방송 소리로 듣기가 꺼져 있어요. 설정에서 켤 수 있어요.'
 export const STREAM_AUDIO_IDLE = '방송을 이으면 방송 소리로 들어요.'
 export const STREAM_AUDIO_CONSENT_TITLE = '방송 소리로 듣기'
-export const STREAM_AUDIO_CONSENT = '방송 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.'
+export const STREAM_AUDIO_CONSENT = `방송 소리를 ${SERVICE_NAME} 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.`
 /** 초저지연 안내 (D-LV1-10, AC-LV1-13) — 설정 칸·첫 안내 창 */
 export const STREAM_AUDIO_LOW_LATENCY = "유튜브 방송 설정에서 지연 시간을 '초저지연'으로 하면 더 빨리 등록돼요."
 export const STREAM_AUDIO_SETTING_LABEL = '방송 소리로 듣기'
