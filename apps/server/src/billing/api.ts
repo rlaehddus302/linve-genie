@@ -15,6 +15,8 @@ type Env = { Variables: { body: Record<string, unknown> | null; session: Session
 
 /** 웹훅 경로 (세션·Origin 없이 받는다) */
 export const WEBHOOK_PATH = '/api/billing/webhook'
+/** 공개 요금 안내 경로 (PAY2 BL-12 — 로그인 없이, 요금 기능이 꺼져 있어도 있다) */
+export const PUBLIC_PRICING_PATH = '/api/pricing'
 
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 const invalidRequestId = () =>
@@ -153,6 +155,19 @@ export function registerBillingRoutes(api: Hono<Env>, billing: BillingService): 
     if (typeof lost === 'boolean') test.portone.cancelLost = lost
     if (typeof issue === 'boolean') test.issuer.fail = issue
     return c.json({ lookupFailure: test.portone.lookupFailure, cancelFailure: test.portone.cancelFailure, cancelLost: test.portone.cancelLost, issueFailure: test.issuer.fail })
+  })
+
+  /**
+   * 시험: 그 판매자의 결제 대기 자동 재확인을 지금 한 차례 돌린다 (PAY2 AC-PAY2-15 (3)). laterMs = 서버 시계에서 그만큼 뒤로 보고 칸을 정한다(0~8일, 기본 0).
+   * 다른 판매자의 주문은 건드리지 않는다
+   */
+  api.post('/billing/test/recheck', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['requestId', 'laterMs'])
+    if (extra !== null) return extra
+    const later = own(input, 'laterMs') ?? 0
+    if (typeof later !== 'number' || !Number.isSafeInteger(later) || later < 0 || later > 8 * DAY_MS) return invalid('laterMs', 'laterMs는 0부터 8일(밀리초)까지의 정수로 적어 주세요.')
+    return c.json(await billing.recheckDue({ now: billing.now() + later, sellerId: sellerOf(c) }))
   })
 
   /** 시험용 이용권 부여 (운영자 이용권 — at을 과거로 줄 수 있다, 400일 전까지) */

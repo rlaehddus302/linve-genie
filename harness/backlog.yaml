@@ -1311,6 +1311,18 @@ sprints:
     specIds: [BUY-08, RPT-01, RPT-02, RPT-03, RPT-04, RPT-05, RPT-06, RPT-07, RPT-08, SCH-01, SCH-02, SCH-03, MSG-01, BUY-06, PC-3, DAT-06]
     status: done
 
+  - id: PAY2
+    phase: 7
+    title: 결제는 웹에서만 — 앱 로그인 전용·앱에서 연 탭 요금 숨김, 결제 대기 자동 재확인, 포트원 현금영수증, 공개 요금 안내
+    dependsOn: [N5, APP2]
+    devs: [server, web]
+    tests: [domain, e2e]
+    uxReview: false
+    goal: >
+      D-PAY-01~D-PAY-12(AUTO). 판정 엔진·골든 변경 없음. 순서 server → web. 수용 기준: harness/sprints/PAY2/acceptance.md (AC-PAY2-01~16).
+    specIds: [BIL-01, BIL-02, BIL-03, SYS-01, SYS-05, APP-01]
+    status: todo
+
 techDebt:
   - "TD-S00-008: Host 헤더 두 개·absolute-form 요청을 200으로 처리"
   - "TD-S00-012: 골든 파일 탐색이 심볼릭 링크와 대문자 확장자를 조용히 건너뜀"

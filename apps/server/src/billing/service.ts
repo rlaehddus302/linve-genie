@@ -7,7 +7,9 @@
 //   결제 조회·취소(외부 호출)는 트랜잭션 밖에서 하고, 결과를 적는 짧은 트랜잭션만 락을 잡는다(BL-6 7 — 조회가 멈춰도 판매 쓰기가 늦지 않다).
 // - 이용권은 판정을 바꾸지 않는다: 엔진 이벤트·상태·효과에 요금 정보를 넣지 않는다(BL-INV-7). 막는 곳은 새 실제 방송 시작 하나(BL-4).
 // - 로그에는 정해진 코드만 남긴다(결제 ID·사업자 정보·조회 원문·비밀값 없음).
-import { randomBytes } from 'node:crypto'
+// - PAY2: 결제 대기 자동 재확인(만든 시각 + 1분·5분·30분·3시간·24시간, BL-6 9 — 칸은 조회 전에 DB에 잡는다, 조회는 락 밖),
+//   상태를 바꾸는 포트원 요청의 멱등 키(BL-6 10 — 환불 요청·금액 불일치 결제·증빙 요청·증빙 취소 요청마다 하나), 공개 요금 안내(BL-12).
+import { createHash, randomBytes } from 'node:crypto'
 import { containsPhoneRun, listProducts, type EngineState, type ProductInfo } from '@livejjim/core'
 import { hasControlChar, isPlainObject, own, ownKeys } from '../api-fields.ts'
 import type { Db } from '../db/database.ts'
@@ -25,6 +27,7 @@ import {
   DAY_WINDOW_MS,
   PASS_KINDS,
   billingBanners,
+  HOUR_MS,
   billingStatus,
   byCodeUnit,
   isQuantityKind,
@@ -62,8 +65,10 @@ import {
   lockBilling,
   modeOf,
   orderByRequest,
+  claimRecheck,
   orderSeller,
   ordersOf,
+  recheckCandidates,
   readBusiness,
   refundingOrders,
   updateDocument,
@@ -142,10 +147,40 @@ export function objectParticle(word: string): string {
 export const grantedMessage = (itemName: string): string => `결제했어요. ${itemName}${objectParticle(itemName)} 받았어요.`
 
 /**
- * 환불 요청이 결제 취소를 맡는 기한 (결제 취소·결제 조회 시간 제한의 합보다 길게). 그동안 다른 환불 요청은 '처리하는 중'이고 다른 맞추기는 환불 중을 풀지 않는다.
+ * 환불 요청이 결제 취소를 맡는 기한 2분 (BL-7 5, D-PAY-09 — 결제 취소 시간 한도 60초보다 길어 늦게 온 성공 응답이 기한 안에 마무리된다).
+ * 그동안 다른 환불 요청은 '처리하는 중'이고 다른 맞추기는 환불 중을 풀지 않는다.
  * 기한이 지나도 환불 중 표시는 남는다 — 결제 조회로 맞춘 뒤에만 마무리하거나 푼다(RA-N5-01)
  */
-export const REFUND_HOLD_MS = 60_000
+export const REFUND_HOLD_MS = 120_000
+/** 결제 대기 자동 재확인 칸: 주문을 만든 시각 + 1분·5분·30분·3시간·24시간 (BL-6 9, D-PAY-08). 이 다섯 칸이 전부다 */
+export const RECHECK_SLOTS_MS: readonly number[] = [60_000, 5 * 60_000, 30 * 60_000, 3 * HOUR_MS, 24 * HOUR_MS]
+/** 자동 재확인을 한꺼번에 돌리는 판매자 수 (한 판매자의 주문은 차례로) */
+export const RECHECK_SELLER_CONCURRENCY = 4
+
+/** 지금까지 지난 칸 수 (0~5) */
+export function slotsPassed(createdAt: number, now: number): number {
+  return RECHECK_SLOTS_MS.filter((slot) => createdAt + slot <= now).length
+}
+
+/**
+ * 멱등 키 (BL-6 10): 그 일을 맡은 우리 기록에서 만든다 — 같은 일이면 같은 키, 다른 일이면 다른 키. 비밀값·사업자등록번호를 넣지 않는다(해시 앞 40자)
+ */
+export function idempotencyKey(kind: 'refund' | 'mismatch' | 'receipt-issue' | 'receipt-cancel', ...parts: readonly string[]): string {
+  const prefix = { refund: 'ljr', mismatch: 'ljm', 'receipt-issue': 'ljc', 'receipt-cancel': 'ljx' }[kind]
+  return `${prefix}-${createHash('sha256').update([kind, ...parts].join('\n'), 'utf8').digest('hex').slice(0, 40)}`
+}
+
+/** 공개 요금 안내 (BL-12 1) — 누가 불러도 같은 답 */
+export interface PublicPricing {
+  readonly ready: boolean
+  readonly items: readonly { readonly id: string; readonly name: string; readonly kind: PassKind; readonly quantity: number | null; readonly price: number }[]
+}
+
+/** 자동 재확인 한 차례의 결과 (개수만) */
+export interface RecheckPass {
+  /** 결제 조회까지 간 주문 수 */
+  readonly checked: number
+}
 /** 결제 내역을 열 때 결제 조회로 맞추는 멈춘 환불 수 (응답이 늦어지지 않게) */
 export const REFUND_SETTLE_MAX = 3
 /** 결제 내역·쓴 내역 개수 (1~100) */
@@ -695,11 +730,15 @@ export class BillingService {
     return (await this.#confirm(sellerId, paymentId)).outcome
   }
 
-  /** retry = 결제 조회가 실패해 나중에 다시 해야 한다 (웹훅은 503 — 포트원이 다시 보낸다) */
-  async #confirm(sellerId: string, paymentId: string): Promise<{ outcome: BillingOutcome<ConfirmView>; retry: boolean }> {
+  /**
+   * retry = 결제 조회가 실패해 나중에 다시 해야 한다 (웹훅은 503 — 포트원이 다시 보낸다).
+   * auto = 자동 재확인 — 결제 대기가 아니면 아무것도 하지 않는다(조회도 없다, BL-6 9)
+   */
+  async #confirm(sellerId: string, paymentId: string, auto = false): Promise<{ outcome: BillingOutcome<ConfirmView>; retry: boolean }> {
     if (!PAYMENT_ID_RE.test(paymentId)) return { outcome: { kind: 'not_found' }, retry: false }
     const order = await findOrder(this.#db, sellerId, paymentId)
     if (order === null) return { outcome: { kind: 'not_found' }, retry: false }
+    if (auto && order.state !== 'PENDING') return { outcome: { kind: 'ok', value: this.#confirmView(order, 'NONE') }, retry: false }
     if (order.state === 'GRANTED') {
       const settled = await this.#settle(sellerId, paymentId, null)
       const current = (await findOrder(this.#db, sellerId, paymentId)) as OrderRow
@@ -791,9 +830,9 @@ export class BillingService {
    * 전액 결제 취소 요청. true = 취소됨. false = 모른다 — 실패·시간 초과·연결 끊김·'이미 취소됨' 응답 모두(취소는 됐는데 응답만 끊겼을 수 있다).
    * false면 부른 쪽이 결제 조회로 확인한다(RA-N5-01)
    */
-  async #cancel(paymentId: string, reason: string): Promise<boolean> {
+  async #cancel(paymentId: string, reason: string, key: string): Promise<boolean> {
     try {
-      const result = await this.#options.setup.gateway.cancel(paymentId, reason)
+      const result = await this.#options.setup.gateway.cancel(paymentId, reason, key)
       if (result.kind === 'ok') return true
       if (result.kind === 'error') this.#options.log({ level: 'warn', code: 'PAYMENT_CANCEL_FAILED' })
     } catch (error) {
@@ -878,7 +917,8 @@ export class BillingService {
 
   /** 금액이 다른 결제의 전액 취소 (BL-6 4). 성공하면 금액이 달라 취소함, 실패하면 확인 필요로 둔다 */
   async #cancelMismatch(sellerId: string, paymentId: string): Promise<void> {
-    let cancelled = await this.#cancel(paymentId, '결제 금액 불일치')
+    // 금액 불일치 취소는 결제마다 키 하나 (BL-6 10)
+    let cancelled = await this.#cancel(paymentId, '결제 금액 불일치', idempotencyKey('mismatch', sellerId, paymentId))
     if (!cancelled) {
       // 취소는 됐는데 응답만 끊겼을 수 있다 — 결제 조회로 확인한다 (RA-N5-01)
       const looked = await this.#lookup(paymentId)
@@ -901,10 +941,21 @@ export class BillingService {
     const doc = await documentOf(this.#db, sellerId, paymentId)
     if (doc === null || doc.status !== 'PENDING') return
     const recipient = this.#recipient(sellerId, doc.recipientSealed)
+    const order = await findOrder(this.#db, sellerId, paymentId)
     let status: 'ISSUED' | 'PENDING' | 'FAILED' = 'FAILED'
     let approval: string | null = null
     try {
-      const result = await this.#options.setup.issuer.issue({ paymentId, kind: doc.kind as ReceiptKind, amount: doc.amount, supply: doc.supply, vat: doc.vat, recipient })
+      const result = await this.#options.setup.issuer.issue({
+        paymentId,
+        kind: doc.kind as ReceiptKind,
+        amount: doc.amount,
+        supply: doc.supply,
+        vat: doc.vat,
+        recipient,
+        ...(order === null ? {} : { orderName: order.itemName }),
+        // 증빙 요청마다 키 하나 (BL-6 10)
+        idempotencyKey: idempotencyKey('receipt-issue', sellerId, paymentId, String(doc.id)),
+      })
       status = result.status
       if (result.status === 'ISSUED') approval = result.approval
     } catch (error) {
@@ -983,7 +1034,8 @@ export class BillingService {
       }
       this.#publish(sellerId, 'order')
       // 2. 전액 결제 취소 (트랜잭션 밖) → 3. 결과를 적는다 (취소됐으면 마무리, 모르면 결제 조회로 확인)
-      const cancelled = await this.#cancel(paymentId, '7일 환불')
+      // 환불 요청 하나에 키 하나 (BL-6 10 — 같은 환불 요청을 다시 보내면 같은 키)
+      const cancelled = await this.#cancel(paymentId, '7일 환불', idempotencyKey('refund', sellerId, requestId))
       return refundOutcome(paymentId, await this.#settle(sellerId, paymentId, owner, cancelled))
     }
     return { kind: 'rejected', rejection: rejection(409, 'REFUND_IN_PROGRESS', BILLING_MESSAGES.refundBusy) }
@@ -1002,6 +1054,8 @@ export class BillingService {
         vat: doc.vat,
         recipient: this.#recipient(sellerId, doc.recipientSealed),
         approval: doc.approval,
+        // 취소 요청마다 키 하나 (BL-6 10)
+        idempotencyKey: idempotencyKey('receipt-cancel', sellerId, paymentId, String(doc.id)),
       })
       cancel = result.cancel
     } catch (error) {
@@ -1143,6 +1197,61 @@ export class BillingService {
     })
     const last = page.at(-1)
     return { items, next: rows.length > limit && last !== undefined ? `${String(last.at.getTime())}.${String(last.id)}` : null }
+  }
+
+  // ── 결제 대기 자동 재확인 (BL-6 9, D-PAY-08, AC-PAY2-06~08) ──────────────
+
+  /**
+   * 때가 된 결제 대기 주문을 결제 조회로 다시 확인한다. 칸 = 만든 시각 + 1분·5분·30분·3시간·24시간.
+   * - 칸은 조회 전에 DB에 잡는다(쓴 칸 수 = 지금까지 지난 칸 수). 서버가 꺼져 지난 칸이 여럿이어도 한 번만 확인하고, 다시 켜도 칸을 두 번 하지 않는다.
+   *   조회가 실패해도 그 칸은 쓴 것이다(다음 칸에서 다시). 결제 대기가 아니게 된 주문은 건드리지 않는다.
+   * - 판단·기록은 결제 확인과 같다(#confirm) — 조회는 락 밖, 결과를 적을 때만 판매자 요금 락. 그래서 새 방송 시작을 늦추지 않는다.
+   * - 판매자마다 차례로(한 판매자의 주문은 하나씩), 판매자 여럿은 RECHECK_SELLER_CONCURRENCY만큼 함께.
+   * now = 기준 시각(기본 서버 시계), sellerId = 그 판매자만(시험 경로)
+   */
+  async recheckDue(options: { readonly now?: number; readonly sellerId?: string } = {}): Promise<RecheckPass> {
+    if (!this.enabled) return { checked: 0 }
+    const now = options.now ?? this.#options.clock.now()
+    const first = RECHECK_SLOTS_MS[0] as number
+    const candidates = await recheckCandidates(this.#db, { createdBefore: new Date(now - first), slots: RECHECK_SLOTS_MS.length, sellerId: options.sellerId ?? null })
+    const bySeller = new Map<string, OrderRow[]>()
+    for (const order of candidates) {
+      if (slotsPassed(order.createdAt.getTime(), now) <= order.recheckDone) continue
+      const list = bySeller.get(order.sellerId) ?? []
+      list.push(order)
+      bySeller.set(order.sellerId, list)
+    }
+    let checked = 0
+    const queue = [...bySeller.entries()]
+    const worker = async () => {
+      for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+        const [sellerId, orders] = next
+        for (const order of orders) {
+          try {
+            const to = slotsPassed(order.createdAt.getTime(), now)
+            if (!(await claimRecheck(this.#db, sellerId, order.paymentId, order.recheckDone, to, new Date(this.#options.clock.now())))) continue
+            checked += 1
+            await this.#confirm(sellerId, order.paymentId, true)
+          } catch (error) {
+            this.#options.log({ level: 'warn', code: 'BILLING_FAILED', errorKind: errorKind(error) })
+          }
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(RECHECK_SELLER_CONCURRENCY, queue.length) }, worker))
+    return { checked }
+  }
+
+  // ── 공개 요금 안내 (BL-12, D-PAY-11, AC-PAY2-12) ─────────────────────────
+
+  /**
+   * 로그인 없이 보는 요금 안내. ready = 요금 기능 켜짐 + 요금 표가 자리 표시가 아님. ready면 판매 중 항목만 요금 표 순서로(ID·이름·종류·양·가격), 아니면 빈 목록.
+   * 판매자·세션을 받지 않는다 — 누가 불러도 같은 답이다
+   */
+  publicPricing(): PublicPricing {
+    const { enabled, prices } = this.#options.setup
+    if (!enabled || prices.placeholder) return { ready: false, items: [] }
+    return { ready: true, items: prices.items.filter((item) => item.onSale).map((item) => ({ id: item.id, name: item.name, kind: item.kind, quantity: item.quantity, price: item.price })) }
   }
 
   // ── 운영자·시험 부여 (AC-N5-12·40) ────────────────────────────────────

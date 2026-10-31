@@ -188,7 +188,7 @@ describe('AC-N5-12 운영자 명령', () => {
     expect(await dumpAllTables(world.database)).not.toContain('1234567891')
   })
 
-  it('목록: 확인 필요·1시간 넘게 결제 대기·발행 대기 증빙(복호화한 사업자 정보 — 표준 출력용)', async () => {
+  it('목록: 확인 필요·자동 재확인을 마친 결제 대기(PAY2 — 옛 1시간 넘게)·발행 대기 증빙(복호화한 사업자 정보 — 표준 출력용)', async () => {
     const { noneIssuer } = await import('../src/billing/documents.ts')
     const { testBilling } = await import('../src/billing/fake.ts')
     const clock = fakeClock(kst('2026-10-20', '12:00'))
@@ -201,6 +201,11 @@ describe('AC-N5-12 운영자 명령', () => {
     const pending = (await order(world, seller, 'days-10')).body.paymentId as string
     const transfer = await buy(world, seller, 'flat-30', 'TRANSFER')
     clock.advance(HOUR_MS + 1)
+    // PAY2 D-PAY-08: "결제 대기"는 자동 재확인을 모두 마친 주문 — 1시간 넘게로는 아직 없다(옛 기준을 대체, dev-notes)
+    await world.server.billing.recheckDue()
+    expect((await operatorLists(world.database.db, Buffer.from(world.masterKey, 'base64'), clock.now())).stalePending).toEqual([])
+    clock.advance(24 * HOUR_MS)
+    await world.server.billing.recheckDue()
     const lists = await operatorLists(world.database.db, Buffer.from(world.masterKey, 'base64'), clock.now())
     expect(lists.review.map((row) => row.paymentId)).toEqual([review])
     expect(lists.stalePending.map((row) => row.paymentId)).toEqual([pending])

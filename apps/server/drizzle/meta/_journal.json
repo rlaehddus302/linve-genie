@@ -246,6 +246,13 @@
       "when": 1794960000008,
       "tag": "0034_ytsrv_thanks_official",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794960000009,
+      "tag": "0035_pay2_billing_recheck",
+      "breakpoints": true
     }
   ]
 }
