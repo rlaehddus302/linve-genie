@@ -73,6 +73,7 @@ import { RehearsalPanel } from './RehearsalPanel.tsx'
 import { NOT_APPLIED_MESSAGE, UndoBar, secondsWord } from './UndoBar.tsx'
 import { PasteDialog } from './PasteDialog.tsx'
 import { chatPlatformTags } from '../lib/platforms.ts'
+import { StreamAudioConsent, StreamAudioLine, useStreamAudio } from './StreamAudio.tsx'
 import { VoiceConsentDialog, VoiceExtras, VoiceLive, VoiceToggle, voiceLiveShown } from './VoicePanel.tsx'
 import { TodayReportLink } from './ReportPage.tsx' // KP1
 
@@ -490,6 +491,10 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   const voiceSnapshot = useSyncExternalStore(voice?.subscribe ?? noSubscribe, voice?.getSnapshot ?? idleVoice)
   // 음성이 듣는 동안 화면 꺼짐 막기 (MOB1 D-MOB1-07, AC-MOB1-10) — 출력 기기의 막기와 따로
   useScreenWake(voice !== null && voiceSnapshot.phase === 'on')
+  // 방송 소리로 듣기 (LV1 VOC-08): 콘솔이 열려 있는 동안만, 처음 한 번 안내 창 확인 뒤 (D-LV1-03)
+  const streamAudio = useStreamAudio(b, !ended && !sealed)
+  const [streamConsentClosed, setStreamConsentClosed] = useState(false)
+  const micOn = voiceSnapshot.phase === 'on'
   // 봉인한 날짜(AC-I3-41)는 등록할 수 없다 — 음성 켜기를 숨기고, 켜 둔 채 봉인되면 끈다(카드는 남고 자동 확정은 멈춘다)
   useEffect(() => {
     if (sealed) voice?.turnOff()
@@ -1398,6 +1403,15 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
     voice !== null && voiceLiveShown(voiceSnapshot) ? (
       <VoiceLive voice={voice} snapshot={voiceSnapshot} badge={enterBadge} onSubmitForm={submitCardForm} onRegister={registerCardClick} />
     ) : null
+  const streamAudioLine =
+    ended || sealed ? null : (
+      <>
+        <StreamAudioLine status={streamAudio.status} micOn={micOn} onRetry={streamAudio.retry} onUseMic={() => void voice?.turnOn()} />
+        {streamAudio.askConsent && !streamConsentClosed ? (
+          <StreamAudioConsent onAccept={streamAudio.accept} onClose={() => setStreamConsentClosed(true)} />
+        ) : null}
+      </>
+    )
 
   // 행동 줄 (방송 목록·상품 목록 가져오기·방송 끝내기 / 끝난 방송: "끝난 방송이에요"·영수증 보내기 / 음성 켜기).
   // PC는 제목 옆, 휴대폰은 채팅 아래 (QL3R1 D-QL3R1-03 — 안의 차례·문장·확인 창 그대로)
@@ -1620,12 +1634,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
               </p>
             ) : null}
           </div>
+          {wide ? streamAudioLine : null}
           {wide ? voiceLive : null}
         </div>
         {wide || ended || sealed ? null : <QuickUnitLine value={quickText} />}
         {/* 휴대폰 차례 (QL3R1 D-QL3R1-03 — D-QL2-01 (1)을 대신함): 고정 영역·단위 줄 → 현재 상품 → 음성 칸 → 상품 보드 → 채팅 → 행동 줄 → 리허설 조작판
             → 여러 플랫폼 안내 → 유튜브 칸 → 인스타그램·틱톡 칸. 방송 중 자주 보는 보드·채팅을 엄지 가까이, 드물게 누르는 "방송 끝내기"는 그 아래. PC는 그대로 */}
         {wide ? null : currentProduct}
+        {wide ? null : streamAudioLine}
         {wide ? null : voiceLive}
         {/* 음성 칸 바로 아래 접는 칸 "음성 설정과 기록" (D-V2-21) — PC는 고정 영역 바로 아래 */}
         {voice === null ? null : <VoiceExtras voice={voice} snapshot={voiceSnapshot} />}

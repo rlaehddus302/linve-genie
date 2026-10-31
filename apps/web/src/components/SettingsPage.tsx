@@ -40,6 +40,7 @@ import { AssistantsSection } from './AssistantsSection.tsx'
 import { DownloadButton } from './downloads.tsx'
 import { ExtensionSettings, useExtension } from './ExtensionConnection.tsx'
 import { ErrorNote, RequestError } from './ErrorNote.tsx'
+import { StreamAudioSetting } from './StreamAudio.tsx'
 import { LabelSwitchSection } from './LabelSwitchSection.tsx'
 import { ParcelSettingsSection } from './ParcelSettings.tsx'
 import { LoginMethodsPanel, showLoginMethods, useLoginMethods } from './LoginMethods.tsx'
@@ -228,6 +229,7 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
           <BandSettings handle={band} />
         </SettingsSection>
       )}
+      {assistant ? null : <StreamAudioSetting wrap={(children) => <SettingsSection title="방송 소리로 듣기">{children}</SettingsSection>} />}
       {showAssist ? (
         <SettingsSection title="AI 제안" focus={route.section === 'assist'}>
           <AssistSection />

@@ -4649,3 +4649,16 @@ select.input {
 .badges-ask .row {
   flex-wrap: wrap;
 }
+
+/* 방송 소리로 듣기 (LV1 VOC-08) — 글자 18px, 누르는 칸 52px, 글자 대비 4.5:1 이상 */
+.stream-audio { border: 2px solid; border-radius: 8px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; font-size: 1.125rem; }
+.stream-audio-text { margin: 0.25rem 0; font-size: 1.125rem; font-weight: 600; }
+.stream-audio-big { font-size: 1.375rem; }
+.stream-audio-ok { border-color: #1b6e3a; background: #eaf6ee; color: #14532d; }
+.stream-audio-warn { border-color: #8a5a00; background: #fff6e0; color: #6b4500; }
+.stream-audio-danger { border-color: #b42318; background: #fdecea; color: #8f1b12; }
+.stream-audio-info { border-color: #3b4a5a; background: #f1f4f7; color: #26323e; }
+.stream-audio-button { min-height: 52px; font-size: 1.125rem; }
+.stream-audio-setting { font-size: 1.125rem; }
+.stream-audio-check { min-height: 52px; align-items: center; gap: 0.75rem; font-size: 1.125rem; }
+.stream-audio-check input { width: 28px; height: 28px; }

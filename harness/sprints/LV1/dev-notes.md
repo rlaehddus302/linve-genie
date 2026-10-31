@@ -31,3 +31,11 @@
 - `pnpm try`: 연습 라이브가 가짜 방송 소리(정해진 말이 든 1초짜리 표지 소리, 12초마다)를 내고, 내장 모의 일꾼이 그 표지 소리에만 "15번 핑크프릴 이만 원"을 돌려준다(진짜 마이크 소리엔 아무 글도 안 돌려줌).
 - E2E 기동(`apps/server/src/e2e.ts` 옵션 `streamAudio: true`): 같은 가짜 소리 + 모의 일꾼. 조작 `POST /_e2e/stream-audio { op: 'cut'|'restore'|'delay'|'unsupported'|'say', ms? }`
   - `cut` 소리 끊기(되살릴 때까지 다시 잇기 실패) · `restore` · `delay {ms}` 조각을 그만큼 늦게 만든 것으로(늦음 시험) · `unsupported` 소리 못 받는 방송으로 · `say` 지금 표지 소리 한 번 내기
+
+## web
+웹이 기대하는 서버 모양(서버 메모가 오면 맞춘다):
+- `GET /api/broadcasts/:id/stream-audio` → `{ phase, lagMs? }`, phase는 `hidden`(운영자 끔·ffmpeg 없음) `off`(판매자 끔) `idle` `listening` `reconnecting` `stopped` `unsupported` `mic` `ended`. 콘솔이 1초마다 읽는다. 모르는 값은 숨김.
+- `POST /api/broadcasts/:id/stream-audio/watch` `{}` — 첫 안내 창 확인 뒤 콘솔이 열려 있는 동안 10초마다(D-LV1-03 "콘솔 열림" 신호). `POST .../stream-audio/restart` `{}` — [다시 켜기].
+- `GET /api/settings/stream-audio` → `{ available, enabled }`, `PUT` `{ enabled }` → 같은 모양. available false면 설정 칸 없음.
+- [휴대폰으로 듣기]는 이 기기의 음성(마이크) 켜기를 부른다. 마이크가 켜지면 서버 응답과 상관없이 "휴대폰 마이크로 듣는 중".
+- apps/mobile은 고치지 않음: 앱 콘솔은 그 자체가 휴대폰 마이크라 지금 상태 줄로 충분.
