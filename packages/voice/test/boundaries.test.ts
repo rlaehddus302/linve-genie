@@ -154,8 +154,10 @@ describe('AC-I4-04 apps/web/src는 한 파일에서 동적 import로만 @livejji
     expect(checkWebSources(webSources).violations).toEqual([])
   })
 
-  it('동적 import(\'@livejjim/voice\')는 정확히 한 파일에만 있다', () => {
-    expect(checkWebSources(webSources).loaders).toHaveLength(1)
+  // 받아쓰기는 늘 서버가 한다(D-APP-22·D-APP-24) — 웹은 지금 값 import 없이 타입만 쓰므로 0개도 맞다.
+  // 뜻은 그대로: 무거운 묶음은 많아야 한 곳에서만 늦게(동적) 부르고, 정적 값 import는 위 시험이 언제나 막는다.
+  it('동적 import(\'@livejjim/voice\')는 많아야 한 파일에만 있다 (0개 또는 1개, D-APP-22·D-APP-24)', () => {
+    expect(checkWebSources(webSources).loaders.length).toBeLessThanOrEqual(1)
   })
 
   it('검사 범위가 비어 있지 않다 (경로가 틀려 아무것도 안 보는 시험 방지)', () => {
