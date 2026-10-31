@@ -22,41 +22,42 @@ export const INBOX_PATHS = {
 export type InboxAction = 'insert' | 'approve' | 'ignore'
 
 // ── 설정 "휴대폰 알림 받기" (AC-SMS3-28) ────────────────────────────────────
+// D-SMS3-39: 판매자에게 보이는 말은 "토큰" 대신 "받기 열쇠"(코드·서버 이름 token은 그대로). Authorization·Bearer는 접힌 안내 안 코드 글꼴로만.
 
 export const INBOX_SECTION_TITLE = '휴대폰 알림 받기'
 export const INBOX_INTRO = `판매자 휴대폰에 온 손님 문자와 은행 입금 알림을 ${SERVICE_NAME}가 자동으로 받아요. 손님 문자는 문자찜으로, 은행 알림은 입금 확인으로 가요.`
 export const INBOX_OFF = '꺼져 있어요'
-export const INBOX_OFF_NEW = '꺼져 있어요. 켜면 받기 토큰이 만들어져요.'
+export const INBOX_OFF_NEW = '꺼져 있어요. 켜면 받기 열쇠가 만들어져요.'
 export const INBOX_ON = '켜져 있어요'
-export const INBOX_TURN_ON = '켜고 토큰 만들기'
+export const INBOX_TURN_ON = '켜고 받기 열쇠 만들기'
 export const INBOX_TURN_ON_AGAIN = '다시 켜기'
-export const INBOX_RENEW = '토큰 다시 만들기'
+export const INBOX_RENEW = '받기 열쇠 다시 만들기'
 export const INBOX_TURN_OFF = '끄기'
 export const INBOX_COPY = '복사하기'
 export const INBOX_COPIED = '복사했어요. 휴대폰 앱이나 단축어에 붙여 넣어 주세요.'
-export const INBOX_COPY_FAILED = '복사하지 못했어요. 토큰 글자를 길게 눌러 직접 복사해 주세요.'
-/** 토큰은 이 화면에서 한 번만 보인다 */
-export const INBOX_TOKEN_ONCE = '이 토큰은 지금 한 번만 보여요. 화면을 떠나면 다시 볼 수 없어요. 잃어버리면 "토큰 다시 만들기"를 눌러 주세요.'
+export const INBOX_COPY_FAILED = '복사하지 못했어요. 받기 열쇠 글자를 길게 눌러 직접 복사해 주세요.'
+/** 받기 열쇠(토큰)는 이 화면에서 한 번만 보인다 */
+export const INBOX_TOKEN_ONCE = '이 받기 열쇠는 지금 한 번만 보여요. 화면을 떠나면 다시 볼 수 없어요. 잃어버리면 "받기 열쇠 다시 만들기"를 눌러 주세요.'
 /** 다시 만들기 확인 창 (AC-SMS3-28 그대로) */
-export const INBOX_RENEW_QUESTION = '전에 쓰던 휴대폰·단축어는 더 이상 보내지 못해요. 새 토큰을 휴대폰 앱이나 단축어에 다시 넣어 주세요.'
+export const INBOX_RENEW_QUESTION = '전에 쓰던 휴대폰·단축어는 더 이상 보내지 못해요. 새 받기 열쇠를 휴대폰 앱이나 단축어에 다시 넣어 주세요.'
 export const INBOX_RENEW_CONFIRM = '새로 만들기'
-export const INBOX_OFF_QUESTION = '끄면 휴대폰에서 보낸 문자와 은행 알림을 받지 않아요. 다시 켜면 넣어 둔 토큰으로 다시 받아요.'
+export const INBOX_OFF_QUESTION = '끄면 휴대폰에서 보낸 문자와 은행 알림을 받지 않아요. 다시 켜면 넣어 둔 받기 열쇠로 다시 받아요.'
 export const INBOX_OFF_CONFIRM = '끌게요'
 export const INBOX_NEVER = '아직 받은 것이 없어요.'
-export const INBOX_ANDROID_HINT = `안드로이드: ${SERVICE_NAME} 앱 → 설정 → "휴대폰 알림 받기"에서 켜고, 알림 읽기를 허용해 주세요. 앱이 토큰을 알아서 넣어요.`
+export const INBOX_ANDROID_HINT = `안드로이드: ${SERVICE_NAME} 앱 → 설정 → "휴대폰 알림 받기"에서 켜고, 알림 읽기를 허용해 주세요. 앱이 받기 열쇠를 알아서 넣어요.`
 export const INBOX_IPHONE_HINT = '아이폰: 은행 앱 알림은 받을 수 없어요. 단축어로 손님 문자와 은행 문자만 보낼 수 있어요.'
 /**
  * 아이폰 단축어 안내 첫 줄 (UX-SMS3-002): 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없다 — 아이폰 사파리로 이 설정 화면을 열어
  * 토큰을 만들고 받는 주소·헤더 값을 복사해 붙여 넣는다(웹은 휴대폰 폭에서도 된다). 앱(apps/mobile PhoneNoticeCard)도 같은 뜻.
  */
-export const INBOX_IPHONE_FIRST = '아이폰 사파리로 이 설정 화면을 열어 복사해 붙여 넣으세요. 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없어요. 토큰도 아이폰에서 만들면 바로 복사할 수 있어요.'
+export const INBOX_IPHONE_FIRST = '아이폰 사파리로 이 설정 화면을 열어 복사해 붙여 넣으세요. 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없어요. 받기 열쇠도 아이폰에서 만들면 바로 복사할 수 있어요.'
 /** 단축어 안내의 값 글꼴 설명 (UX-SMS3-001) */
 export const INBOX_VALUE_NOTE = '회색 상자 안의 글자만 그대로 적어 주세요(따옴표는 적지 않아요).'
 export const INBOX_COPY_ADDRESS = '받는 주소 복사'
 /** 단축어 헤더 값 "Bearer <토큰>"을 한 번에 (띄어쓰기 실수 없이) */
 export const INBOX_COPY_HEADER = '헤더 값 복사 (Bearer 붙음)'
 export const INBOX_COPIED_ADDRESS = '받는 주소를 복사했어요. 단축어 URL 칸에 붙여 넣어 주세요.'
-export const INBOX_COPIED_HEADER = '헤더 값(Bearer와 토큰)을 복사했어요. 단축어 Authorization 값 칸에 붙여 넣어 주세요.'
+export const INBOX_COPIED_HEADER = '헤더 값을 복사했어요. 단축어에서 더한 헤더의 값 칸에 붙여 넣어 주세요.'
 export const INBOX_COPY_FAILED_ANY = '복사하지 못했어요. 글자를 길게 눌러 직접 복사해 주세요.'
 /** 이 칸은 누르면 바로 바뀐다 — 설정 아래 "저장"과 상관없다 (UX-SMS3-011) */
 export const INBOX_INSTANT = '이 칸은 누르면 바로 저장돼요. 아래 "저장"은 누르지 않아도 돼요.'
@@ -70,7 +71,7 @@ export const INBOX_SHORTCUT_STEPS: readonly string[] = [
   '단축어 앱 → 자동화 → 새로 만들기 → "메시지"를 고르세요. 보낸 사람·내용 조건은 비워 두고 "즉시 실행"을 켜세요.',
   `동작에 "URL 콘텐츠 가져오기"를 넣고, URL에 ${SERVICE_NAME} 설정 "휴대폰 알림 받기"의 받는 주소를 넣으세요.`,
   '동작을 펼쳐 방법을 `POST`로 바꾸세요.',
-  '헤더에 하나를 더하세요. 키는 `Authorization`, 값은 `Bearer` 뒤에 한 칸 띄고 설정에서 만든 받기 토큰을 붙여 넣으세요.',
+  '헤더에 하나를 더하세요. 키는 `Authorization`, 값은 `Bearer` 뒤에 한 칸 띄고 설정에서 만든 받기 열쇠를 붙여 넣으세요.',
   '요청 본문을 `JSON`으로 고르고 칸 두 개를 더하세요. `device`(텍스트) = 휴대폰 이름(예: 내 아이폰), `messages`(배열).',
   '`messages` 안에 "사전" 하나를 더하고, 그 안에 칸 다섯 개를 넣으세요.',
   '`id`(텍스트) = "현재 날짜"(날짜 형식 "사용자 지정" `yyyyMMddHHmmss` — 초까지)와 단축어 입력의 "보낸 사람"을 이어 붙인 글 — 문자마다 달라야 해요.',

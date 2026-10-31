@@ -6,7 +6,7 @@
 // - 아이폰: 다른 앱 알림을 읽을 수 없다 — 단축어로 문자만 보낸다는 안내와 "단축어 앱 열기". 안내는 웹 설정의 한 가지
 //   ("URL 콘텐츠 가져오기"에 받기 토큰 붙여 넣기)뿐이다(D-SMS3-23). 앱의 단축어 동작은 권하지 않고, 아이폰에서는 "켜기"를 두지 않는다
 //   (앱에서 켜면 토큰이 새로 만들어져 판매자가 단축어에 넣어 둔 토큰이 멈춘다). 이미 켜져 있으면 "끄기"만.
-// - 토큰 원문은 화면에 보이지 않는다(앱이 바로 넣는다). 서버가 토큰을 받지 않으면(401) "받기 토큰을 다시 넣어 주세요" + "토큰 다시 받기".
+// - 토큰 원문은 화면에 보이지 않는다(앱이 바로 넣는다). 서버가 토큰을 받지 않으면(401) "받기 열쇠를 다시 넣어 주세요" + "받기 열쇠 다시 받기"(D-SMS3-39).
 import { useCallback, useEffect, useState } from 'react'
 import { apiConfig } from '../api/config.ts'
 import { get, isApiError, post } from '../api/client.ts'
@@ -21,7 +21,10 @@ export const PHONE_NOTICE_SHEET = `문자와 은행 앱 알림만 ${SERVICE_NAME
 export const PHONE_NOTICE_GO = '알림 읽기 켜러 가기'
 export const PHONE_NOTICE_ACCESS_OFF = '알림 읽기가 꺼져 있어요'
 export const PHONE_NOTICE_SETTINGS_FAILED = `설정을 열지 못했어요. 휴대폰 설정 → 알림 → 기기 및 앱 알림(알림 읽기)에서 ${SERVICE_NAME}를 켜 주세요.`
-export const PHONE_NOTICE_TOKEN_AGAIN = '받기 토큰을 다시 넣어 주세요'
+/** D-SMS3-39: 판매자에게 보이는 말은 "토큰" 대신 "받기 열쇠" — @livejjim/mobile-notice NOTICE_TOKEN_AGAIN과 같은 글 */
+export const PHONE_NOTICE_TOKEN_AGAIN = '받기 열쇠를 다시 넣어 주세요'
+export const PHONE_NOTICE_TOKEN_RENEW = '받기 열쇠 다시 받기'
+export const PHONE_NOTICE_RENEW_TITLE = '받기 열쇠를 새로 만들까요?'
 /** 403 INBOX_OFF — 웹 설정에서 받기를 껐다. 토큰·모아 둔 알림은 그대로 (ORD-13 받기 상태, D-SMS3-27 — @livejjim/mobile-notice NOTICE_INBOX_OFF와 같은 글) */
 export const PHONE_NOTICE_INBOX_OFF = '웹 설정에서 휴대폰 알림 받기가 꺼져 있어요. 켜면 모아 둔 알림을 보내요'
 /** 대기열이 넘쳐 버린 알림 (D-SMS3-28 — @livejjim/mobile-notice NOTICE_DROPPED_TEMPLATE와 같은 글) */
@@ -36,7 +39,7 @@ export const PHONE_NOTICE_IPHONE = '아이폰은 다른 앱 알림을 읽을 수
  * 아이폰 단축어 안내 — 웹 설정의 한 가지만 (D-SMS3-23). 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없으니
  * 아이폰 사파리로 웹 설정을 열어 토큰을 만들고 받는 주소·헤더 값을 복사해 붙여 넣는다 (UX-SMS3-002 — 웹 INBOX_IPHONE_FIRST와 같은 뜻)
  */
-export const PHONE_NOTICE_SHORTCUT_GUIDE = `아이폰 사파리로 ${SERVICE_NAME} 웹 설정 → "휴대폰 알림 받기"를 열어 받기 토큰을 만들고, 받는 주소와 헤더 값을 복사해 붙여 넣으세요. 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없어요. 그다음 아래 순서대로 "URL 콘텐츠 가져오기" 단축어를 만들어 주세요.`
+export const PHONE_NOTICE_SHORTCUT_GUIDE = `아이폰 사파리로 ${SERVICE_NAME} 웹 설정 → "휴대폰 알림 받기"를 열어 받기 열쇠를 만들고, 받는 주소와 헤더 값을 복사해 붙여 넣으세요. 컴퓨터에서 복사한 글은 아이폰에 붙여 넣을 수 없어요. 그다음 아래 순서대로 "URL 콘텐츠 가져오기" 단축어를 만들어 주세요.`
 /** 값 글꼴 설명 (UX-SMS3-001 — 따옴표를 같이 적지 않게) */
 export const PHONE_NOTICE_VALUE_NOTE = '회색 상자 안의 글자만 그대로 적어 주세요(따옴표는 적지 않아요). 길게 누르면 복사할 수 있어요.'
 
@@ -52,7 +55,7 @@ export const PHONE_NOTICE_SHORTCUT_STEPS: readonly string[] = [
   '단축어 앱 → 자동화 → 새로 만들기 → "메시지"를 고르세요. 보낸 사람·내용 조건은 비워 두고 "즉시 실행"을 켜세요.',
   `동작에 "URL 콘텐츠 가져오기"를 넣고, URL에 ${SERVICE_NAME} 설정 "휴대폰 알림 받기"의 받는 주소를 넣으세요.`,
   '동작을 펼쳐 방법을 `POST`로 바꾸세요.',
-  '헤더에 하나를 더하세요. 키는 `Authorization`, 값은 `Bearer` 뒤에 한 칸 띄고 설정에서 만든 받기 토큰을 붙여 넣으세요.',
+  '헤더에 하나를 더하세요. 키는 `Authorization`, 값은 `Bearer` 뒤에 한 칸 띄고 설정에서 만든 받기 열쇠를 붙여 넣으세요.',
   '요청 본문을 `JSON`으로 고르고 칸 두 개를 더하세요. `device`(텍스트) = 휴대폰 이름(예: 내 아이폰), `messages`(배열).',
   '`messages` 안에 "사전" 하나를 더하고, 그 안에 칸 다섯 개를 넣으세요.',
   '`id`(텍스트) = "현재 날짜"(날짜 형식 "사용자 지정" `yyyyMMddHHmmss` — 초까지)와 단축어 입력의 "보낸 사람"을 이어 붙인 글 — 문자마다 달라야 해요.',
@@ -229,9 +232,9 @@ export function PhoneNoticeCard() {
           {droppedLine}
         </Notice>
       ) : null}
-      {tokenBad ? <BigButton label="토큰 다시 받기" disabled={busy} onPress={() => (server?.enabled === true ? setAsk(true) : void connect())} /> : null}
+      {tokenBad ? <BigButton label={PHONE_NOTICE_TOKEN_RENEW} disabled={busy} onPress={() => (server?.enabled === true ? setAsk(true) : void connect())} /> : null}
       {ask ? (
-        <Card label="토큰을 새로 만들까요?">
+        <Card label={PHONE_NOTICE_RENEW_TITLE}>
           <Body bold>{PHONE_NOTICE_RENEW_QUESTION}</Body>
           <BigButton primary label="이 휴대폰으로 받기" disabled={busy} onPress={() => void connect()} />
           <BigButton small label="그대로 두기" onPress={() => setAsk(false)} />

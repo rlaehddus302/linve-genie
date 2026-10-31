@@ -111,13 +111,15 @@ describe('휴대폰 알림 받기 칸 (AC-SMS3-29)', () => {
     expect(await screen.findByText('문자와 은행 앱 알림을 보내고 있어요')).toBeDefined()
   })
 
-  it('서버가 토큰을 받지 않으면 "받기 토큰을 다시 넣어 주세요"', async () => {
+  it('서버가 토큰을 받지 않으면 "받기 열쇠를 다시 넣어 주세요"', async () => {
     const world = makeWorld()
     const port = new FakePort({ enabled: true, hasToken: true, tokenRejected: true, access: 'granted' })
     setNoticeModule(port)
     render(world.wrap(<PhoneNoticeCard />))
     expect((await screen.findAllByText(PHONE_NOTICE_TOKEN_AGAIN)).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: '토큰 다시 받기' })).toBeDefined()
+    // D-SMS3-39: 판매자에게 보이는 말은 "토큰" 대신 "받기 열쇠"
+    expect(PHONE_NOTICE_TOKEN_AGAIN).toBe('받기 열쇠를 다시 넣어 주세요')
+    expect(screen.getByRole('button', { name: '받기 열쇠 다시 받기' })).toBeDefined()
   })
 
   it('아이폰: 다른 앱 알림을 읽을 수 없다는 안내와 단축어 앱 열기', async () => {

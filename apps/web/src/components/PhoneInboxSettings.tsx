@@ -1,5 +1,6 @@
 // 설정 "휴대폰 알림 받기" (SMS3 ORD-13 C-02, D-SMS3-04·14, AC-SMS3-28) — 판매자만(보조자는 칸이 없다).
-// - 꺼짐: "켜고 토큰 만들기". 켜짐: 마지막으로 받은 시각·기기 이름, "토큰 다시 만들기"(확인 창), "끄기"(확인 창).
+// - 꺼짐: "켜고 받기 열쇠 만들기". 켜짐: 마지막으로 받은 시각·기기 이름, "받기 열쇠 다시 만들기"(확인 창), "끄기"(확인 창).
+// - D-SMS3-39: 화면 낱말은 "토큰" 대신 "받기 열쇠". 이 칸의 단추는 모두 보조 모양 — 설정 화면의 주 버튼은 아래 "저장" 하나(AC-N4a-32).
 // - 토큰은 만든 응답에서만 한 번 보인다 — "복사하기". 화면을 떠나면 다시 볼 수 없다(서버는 해시만 둔다). 저장소·주소에 남기지 않는다.
 // - 아이폰 단축어 만들기 안내는 접는 칸(링크 모양 단추)으로.
 // - 상태는 SSE `inbox`(settings·received)와 다시 붙음에 다시 읽는다.
@@ -191,8 +192,8 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
         <InboxStaleBar stale={readStaleNotice(view.staleBroadcast)} banner={false} onClosed={(next) => (next === null ? void handle.reload() : handle.set(next))} />
       </div>
       {token !== null ? (
-        <div className="inbox-token stack-tight" role="group" aria-label="새로 만든 받기 토큰">
-          <label htmlFor={tokenId}>받기 토큰</label>
+        <div className="inbox-token stack-tight" role="group" aria-label="새로 만든 받기 열쇠">
+          <label htmlFor={tokenId}>받기 열쇠</label>
           {/* 여러 줄 칸 — 375px에서도 43자가 잘리지 않고 줄을 바꿔 다 보인다 (UX-SMS3-002) */}
           <textarea
             id={tokenId}
@@ -207,7 +208,7 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
           />
           <p className="warning">! {INBOX_TOKEN_ONCE}</p>
           <div className="row">
-            <button type="button" className="button button-primary" onClick={() => void copy('token')}>
+            <button type="button" className="button" onClick={() => void copy('token')}>
               {INBOX_COPY}
             </button>
             {/* 아이폰 단축어 헤더 값 — "Bearer " + 토큰을 한 번에 (띄어쓰기 실수 없이) */}
@@ -231,7 +232,7 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
           </>
         ) : view.hasToken ? (
           <>
-            <button type="button" className="button button-primary" disabled={busy} onClick={() => void toggle(true)}>
+            <button type="button" className="button" disabled={busy} onClick={() => void toggle(true)}>
               {INBOX_TURN_ON_AGAIN}
             </button>
             <button type="button" className="button" disabled={busy} onClick={() => setAsk('renew')}>
@@ -239,7 +240,7 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
             </button>
           </>
         ) : (
-          <button type="button" className="button button-primary" disabled={busy} onClick={() => void issue()}>
+          <button type="button" className="button" disabled={busy} onClick={() => void issue()}>
             {INBOX_TURN_ON}
           </button>
         )}
@@ -275,7 +276,7 @@ export function PhoneInboxSettings({ handle }: { readonly handle: InboxSettingsH
       </div>
       {ask === 'renew' ? (
         <Modal
-          title="토큰을 다시 만들까요?"
+          title="받기 열쇠를 다시 만들까요?"
           onClose={() => setAsk(null)}
           closeLabel="그대로 두기"
           actions={
