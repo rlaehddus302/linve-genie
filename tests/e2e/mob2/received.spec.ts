@@ -1,8 +1,9 @@
 // MOB2 수정 라운드 2 — 받은 시각을 비운 문자찜의 다시 보내기 (AC-MOB2-43 받은 시각, D-MOB2-09, RA-MOB2-02) — test-e2e.
 // 기대 문장·값은 acceptance.md AC-MOB2-43과 DECISIONS D-MOB2-09에서 정했다(구현을 보고 정하지 않음).
-// 화면 시계는 page.clock.setFixedTime으로 당긴다(타이머는 그대로 돈다). 서버 시계는 당길 수 없어 실제 시각 그대로다.
+// 화면 시계는 page.clock.setFixedTime으로 당긴다(타이머는 그대로 돈다). 받은 시각을 다루는 시험은 서버 시계도 /_e2e/clock으로 같은 시각에 둔다(끝에 되돌림).
 // "끊김" = context.setOffline(true), "돌아옴" = setOffline(false) 뒤 끊김 안내가 사라짐(resend.spec과 같음).
 import { expect, test, type Browser, type Page } from '@playwright/test'
+import { e2eServerUrl } from '../../../apps/web/playwright.config.ts'
 import { history, uniqueDate } from '../s05/support.ts'
 import { openSms, scopeView, smsField, writeEvent } from '../s06/support.ts'
 import { PHONE, broadcastApi, freshSeller } from '../mob1/support.ts'
@@ -37,10 +38,21 @@ async function smsWorld(page: Page, opts: { rehearsal: boolean }): Promise<{ b: 
 }
 
 // SRV1 D-APP-24: 문자찜 받은 시각 칸은 원문 그대로 `receivedText`로 보낸다(서버가 읽는다 — 옛 `received` 값 칸 대신). 기록된 사건의 `received`는 그대로
+/**
+ * 서버 시계도 화면 시계와 같은 시각에 둔다(E2E 서버 /_e2e/clock — REL1 dev-notes ## server). 받은 시각의 늦음은 서버가 서버 시계로 본다(D-APP-24).
+ * null이면 실제 시계로 되돌린다. 서버 시계는 서버 하나에 하나라 이 파일은 직렬로 돈다.
+ */
+async function serverClock(page: Page, at: number | null): Promise<void> {
+  const server = e2eServerUrl(test.info().project.name)!
+  const res = await page.request.post(`${server}/_e2e/clock`, { data: at === null ? { reset: true } : { at } })
+  expect(res.status(), await res.text()).toBe(200)
+}
+
 const smsBodies = (bodies: Record<string, unknown>[]) => bodies.filter((x) => x['type'] === 'sms')
 const failed = (page: Page) => page.getByText(/저장하지 못했어요/)
 
 test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => {
+  test.describe.configure({ mode: 'serial' })
   test('20:01:05에 비운 채 "넣기" → 끊김 실패 → 칸에 "20:01:05"·안내, 20:01:30 직접 "다시 보내기"도 20:01:05, 20:01:45 돌아오면 저절로 본문 "20:01:05"·처음 요청 번호, 결과 카드 받은 시각 20:01:05·"늦게 들어갔어요" 없음', async ({ browser, baseURL }) => {
     const s = await seller(browser, baseURL!)
     try {
@@ -51,6 +63,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       await expect(smsField(s.page, '받은 시각')).toHaveValue('')
       await goOffline(s.page)
       await s.page.clock.setFixedTime(kstTodayAt('20:01:05'))
+      await serverClock(s.page, kstTodayAt('20:01:05'))
       await s.page.getByRole('button', { name: '15번에 문자찜 넣기' }).click()
       await expect(failed(s.page)).toBeVisible({ timeout: 30_000 })
       await expect(s.page.getByText(AUTO_RESEND_NOTE, { exact: true })).toBeVisible()
@@ -65,6 +78,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
 
       // 20:01:30 판매자가 직접 "다시 보내기" (아직 끊김) — 다시 누른 시각이 아니라 처음 누른 시각
       await s.page.clock.setFixedTime(kstTodayAt('20:01:30'))
+      await serverClock(s.page, kstTodayAt('20:01:30'))
       const beforeManual = smsBodies(bodies).length
       await s.page.getByRole('button', { name: '다시 보내기' }).click()
       await expect.poll(() => smsBodies(bodies).length, { timeout: 30_000 }).toBeGreaterThan(beforeManual)
@@ -78,6 +92,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
 
       // 20:01:45 돌아옴 → 저절로
       await s.page.clock.setFixedTime(kstTodayAt('20:01:45'))
+      await serverClock(s.page, kstTodayAt('20:01:45'))
       const before = smsBodies(bodies).length
       await comeBack(s.page)
       const card = s.page.getByRole('region', { name: '넣은 결과' })
@@ -91,6 +106,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       const events = (await history(s.page, date, false)).filter((e) => e.type === 'sms')
       expect(events.map((e) => e.fields['received']), '기록된 받은 시각').toEqual(['20:01:05'])
     } finally {
+      await serverClock(s.page, null)
       await s.close()
     }
   })
@@ -127,6 +143,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       await smsField(s.page, '받은 시각').fill('20:00:30')
       await goOffline(s.page)
       await s.page.clock.setFixedTime(kstTodayAt('20:01:05'))
+      await serverClock(s.page, kstTodayAt('20:01:05'))
       await s.page.getByRole('button', { name: '15번에 문자찜 넣기' }).click()
       await expect(failed(s.page)).toBeVisible({ timeout: 30_000 })
       await expect(smsField(s.page, '받은 시각')).toHaveValue('20:00:30')
@@ -147,6 +164,7 @@ test.describe('AC-MOB2-43 받은 시각을 비운 문자찜 (D-MOB2-09)', () => 
       await expect(smsField(s.page, '받은 시각')).toHaveValue('')
       await expect(s.page.getByText(/받은 시각을 비워 두셔서/)).toHaveCount(0)
     } finally {
+      await serverClock(s.page, null)
       await s.page.unrouteAll({ behavior: 'ignoreErrors' })
       await s.close()
     }
