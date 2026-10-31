@@ -252,6 +252,17 @@ function releaseVoiceHistory(state: E2eVoiceHistoryState): void {
   for (const release of state.waiters) release()
   state.waiters.clear()
 }
+/** E2E 모의 받아쓰기 일꾼의 흐름 수 (중계 hello 상한과 같다 — REL1) */
+export const E2E_MOCK_WORKER_STREAMS = 64
+
+/** E2E 서버 시계: 실제 시계 + 조정값. POST /_e2e/clock로 정한다 (REL1, E2E 기동만) */
+export class E2eClock implements Clock {
+  offsetMs = 0
+  now(): number { return Date.now() + this.offsetMs }
+  set(at: number): void { this.offsetMs = at - Date.now() }
+  reset(): void { this.offsetMs = 0 }
+}
+
 type E2eVoiceHistory = Map<string, E2eVoiceHistoryState>
 export function e2eControl(
   server: LivejjimServer,
@@ -263,8 +274,23 @@ export function e2eControl(
   band?: FakeBand | null,
   voiceHistory?: E2eVoiceHistory,
   fakeAudio?: FakeBroadcastAudio | null,
+  clock?: E2eClock,
 ): Hono {
   const control = new Hono()
+  if (clock !== undefined) {
+    // REL1: 서버 시계 정하기 — { at: ISO 또는 UTC 밀리초 } 그 시각부터 흐른다 · { reset: true } 실제 시계로 → { now: ISO }
+    control.get('/_e2e/clock', (c) => c.json({ now: new Date(clock.now()).toISOString(), offsetMs: clock.offsetMs }))
+    control.post('/_e2e/clock', async (c) => {
+      const body = await read(c.req.raw)
+      if (body.reset === true) clock.reset()
+      else {
+        const at = typeof body.at === 'number' ? body.at : typeof body.at === 'string' ? Date.parse(body.at) : Number.NaN
+        if (!Number.isFinite(at)) return c.json({ error: 'input' }, 400)
+        clock.set(at)
+      }
+      return c.json({ now: new Date(clock.now()).toISOString(), offsetMs: clock.offsetMs })
+    })
+  }
   if (fakeAudio != null) {
     control.post('/_e2e/stream-audio', async (c) => {
       const body = await read(c.req.raw)
@@ -658,9 +684,11 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
         })
   const fakeLlm = options.assist === undefined ? null : await FakeLlm.start(options.assist.port === undefined ? {} : { port: options.assist.port })
   const voiceHistory: E2eVoiceHistory = new Map()
+  const e2eClock = new E2eClock()
   const fakeAudio = options.streamAudio === undefined ? null : new FakeBroadcastAudio(database.db)
   const server = createServer({
     database,
+    clock: e2eClock,
     ...(fakeAudio === null ? {} : { streamAudio: { on: options.streamAudio?.on !== false, feed: fakeAudio, locate: fakeAudio.locate } }),
     masterKey,
     appOrigin,
@@ -747,7 +775,7 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
   if (fakeBand !== null && fakeGoogle === null) void server.band.resume()
   // 결제 대기 자동 재확인 (PAY2 BL-6 9 — 요금 기능을 켠 기동만. 유튜브를 켠 기동은 server.start()가 이미 돌린다)
   if (fakeGoogle === null) server.billingRechecker.start()
-  const app = e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier, fakeBand, voiceHistory, fakeAudio)
+  const app = e2eControl(server, database, Buffer.from(masterKey, 'base64'), options.passwordCost, fakeWebcast, fakeCarrier, fakeBand, voiceHistory, fakeAudio, e2eClock)
   registerVoiceRelay(app, server.voice)
   const http = createNodeServer({ app })
   if (options.streamAudio?.mockWorker === true && options.transcribeWorkerToken !== undefined) {
@@ -755,7 +783,8 @@ export async function startE2eServer(options: E2eOptions = {}): Promise<E2eServe
     http.once('listening', () => {
       const address = http.address()
       if (address === null || typeof address === 'string') return
-      const worker = startMockWorker({ url: `ws://127.0.0.1:${String(address.port)}/api/voice/worker`, token })
+      // REL1: E2E는 여러 worker가 한 서버를 함께 쓴다 — 판매자·방송마다 흐름이 따로 열리게 흐름 수를 중계 상한(64)까지 넓힌다(운영 기본 1은 그대로)
+      const worker = startMockWorker({ url: `ws://127.0.0.1:${String(address.port)}/api/voice/worker`, token, maxStreams: E2E_MOCK_WORKER_STREAMS })
       http.once('close', () => worker.close())
     })
   }
