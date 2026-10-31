@@ -60,6 +60,33 @@ export interface NoticeState {
   readonly hasFilters: boolean
 }
 
+/**
+ * 문자 직접 받기 (SMS4) — 문자 저장소(SMS·LMS·MMS) 읽기와 새 문자 수신. RCS는 공개 저장소에 없어 기본 문자 앱 알림(알림 읽기)으로만 받는다.
+ * - available: 이 빌드에 문자 권한이 들어 있나 (LIVEGENIE_SMS=on 빌드만 true)
+ * - permission: 문자 읽기·받기 권한
+ * - enabled: 판매자가 문자 연동을 켰나 · active: 지금 읽고 있나(알림 받기 켜짐 + 연동 켬 + 권한 허용)
+ */
+export interface SmsLinkState {
+  readonly available: boolean
+  readonly permission: 'granted' | 'needed'
+  readonly enabled: boolean
+  readonly active: boolean
+  /** 마지막으로 문자 저장소를 읽은 시각 */
+  readonly lastScanAtMs: number | null
+}
+
+/** 네이티브가 넘기는 문자 상태 */
+export type NativeSmsState = { readonly [K in keyof SmsLinkState]?: unknown }
+
+/** 앱이 쓰는 문자 연동 */
+export interface SmsLink {
+  getState(): Promise<SmsLinkState>
+  /** 문자 읽기·받기 권한을 묻는다 (이미 허용·이 빌드에 없음이면 묻지 않는다) */
+  requestPermission(): Promise<SmsLinkState>
+  /** 켜면 바로 따라잡는다(처음이면 최근 24시간만) */
+  setEnabled(on: boolean): Promise<SmsLinkState>
+}
+
 /** 설정 화면 */
 export type NoticeSettingsTarget = 'notificationAccess' | 'battery' | 'app' | 'shortcuts'
 
@@ -101,6 +128,10 @@ export interface NativeNoticeModuleLike {
   clearToken(): Promise<NativeNoticeState>
   flush(): Promise<{ readonly sent?: unknown; readonly pending?: unknown; readonly stoppedBy?: unknown }>
   addListener(eventName: 'state', listener: (event: NativeNoticeState) => void): NativeEventSubscription
+  /** 문자 직접 받기 (SMS4) — 옛 모듈·아이폰에는 없다 */
+  getSmsState?(): Promise<NativeSmsState>
+  requestSmsPermission?(): Promise<NativeSmsState>
+  setSmsEnabled?(on: boolean): Promise<NativeSmsState>
 }
 
 export type NoticeStateListener = (state: NoticeState) => void
@@ -120,4 +151,6 @@ export interface NoticeIntake {
   setToken(config: NoticeTokenConfig | null): Promise<NoticeState>
   /** 대기열을 지금 보낸다(비었으면 0건 요청으로 filters만 새로 받는다) */
   flush(): Promise<NoticeFlushResult>
+  /** 문자 직접 받기 (SMS4) — 네이티브에 없으면(아이폰·옛 모듈) null */
+  readonly sms: SmsLink | null
 }

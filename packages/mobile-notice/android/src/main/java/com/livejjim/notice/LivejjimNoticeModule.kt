@@ -1,10 +1,12 @@
 // 문자찜·입금 알림 받기 모듈 (Expo Modules API, 이름 LivejjimNotice — SMS3).
 // JS에 보이는 것: start · stop · getState · openSettings · setToken · clearToken · flush · 사건 "state".
+// 문자 직접 받기(SMS4): getSmsState · requestSmsPermission · setSmsEnabled — LIVEGENIE_SMS=off 빌드는 available=false라 아무것도 읽지 않는다.
 // 무엇을 읽고 거를지는 서버 응답 filters를 저장해 쓴다(SPEC ORD-13 C-03) — JS가 넣지 않는다.
 // 알림을 읽고 보내는 일은 JS 없이 서비스·WorkManager가 한다. 이 모듈은 설정을 넣고 상태를 비출 뿐이다.
 // JS(src/notice.ts)가 먼저 검사하지만 네이티브도 한 번 더 검사한다(토큰·주소·기기 이름).
 package com.livejjim.notice
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
@@ -13,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -28,6 +31,8 @@ class LivejjimNoticeModule : Module() {
 
     OnCreate {
       NoticeBus.listener = { ctx -> sendEvent("state", NoticeStore.get(ctx).stateMap(ctx)) }
+      // 앱을 열 때 꺼져 있던 동안 온 문자를 따라잡는다 (SMS4, 최근 24시간만)
+      appContext.reactContext?.let { SmsLink.scanLater(it) }
     }
 
     OnDestroy {
@@ -41,6 +46,7 @@ class LivejjimNoticeModule : Module() {
         NotificationListenerService.requestRebind(ComponentName(context, NoticeListenerService::class.java))
       }
       NoticeSender.kick(context, fetchFilters = true)
+      SmsLink.scanLater(context)
       NoticeBus.changed(context)
       store.stateMap(context)
     }
@@ -77,6 +83,37 @@ class LivejjimNoticeModule : Module() {
       store.setToken(null)
       NoticeBus.changed(context)
       store.stateMap(context)
+    }
+
+    AsyncFunction("getSmsState") {
+      SmsLink.stateMap(context)
+    }
+
+    /** 문자 읽기·받기 권한을 묻는다 (이 빌드에 권한이 없으면 묻지 않는다). 답 뒤 문자 상태 */
+    AsyncFunction("requestSmsPermission") { promise: Promise ->
+      val permissions = appContext.permissions
+      if (!SmsLink.available(context) || SmsLink.granted(context) || permissions == null) {
+        promise.resolve(SmsLink.stateMap(context))
+      } else {
+        permissions.askForPermissions(
+          { _ -> promise.resolve(SmsLink.stateMap(context)) },
+          Manifest.permission.READ_SMS,
+          Manifest.permission.RECEIVE_SMS,
+        )
+      }
+    }
+
+    /** 문자 연동 켜기·끄기. 켜면 바로 따라잡는다(처음이면 최근 24시간) */
+    AsyncFunction("setSmsEnabled") { on: Boolean ->
+      SmsLink.setEnabled(context, on && SmsLink.available(context))
+      if (on) {
+        SmsLink.scanLater(context)
+        SmsLink.watch(context)
+      } else {
+        SmsLink.unwatch(context)
+      }
+      NoticeBus.changed(context)
+      SmsLink.stateMap(context)
     }
 
     AsyncFunction("flush") {

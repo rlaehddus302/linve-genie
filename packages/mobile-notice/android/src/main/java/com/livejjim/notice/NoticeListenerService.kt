@@ -30,9 +30,13 @@ class NoticeListenerService : NotificationListenerService() {
     }
     for (sbn in active) handle(sbn)
     NoticeSender.kick(this)
+    // 문자 직접 받기 (SMS4): 붙어 있는 동안 문자 저장소가 바뀌면 따라잡는다
+    SmsLink.watch(this)
+    SmsLink.scanLater(this)
   }
 
   override fun onListenerDisconnected() {
+    SmsLink.unwatch(this)
     NoticeStore.get(this).connected = false
     NoticeBus.changed(this)
     if (NoticeStore.get(this).isEnabled() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -115,6 +119,11 @@ internal object NoticeIntake {
           // skipWords가 든 문자는 휴대폰 밖으로 보내지 않는다(C-03) — 은행 대표번호 문자는 거르지 않는다(D-SMS3-26). 앱 알림은 bankApps로 이미 골랐다
           if (NoticeFilter.skipWordFor(message.channel, message.from, message.text, filters) != null) {
             store.bump("filtered")
+            continue
+          }
+          // 문자 직접 받기(SMS4)가 저장소·수신기로 이미 넣은 문자의 알림은 보내지 않는다 — 저장소에 없는 RCS 알림만 이 길로 간다
+          if (SmsLink.alreadyTaken(context, message)) {
+            store.bump("duplicates")
             continue
           }
           if (store.enqueue(message, System.currentTimeMillis()) == "queued") queued++

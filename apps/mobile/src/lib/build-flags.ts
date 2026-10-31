@@ -6,3 +6,9 @@ export function phoneNoticeBuilt(): boolean {
   const extra = Constants.expoConfig?.extra as { readonly noticeIntake?: unknown } | undefined
   return extra?.noticeIntake !== 'off'
 }
+
+/** 문자 직접 받기(문자 저장소 읽기·새 문자 수신, SMS4)가 이 빌드에 들어 있나 (LIVEGENIE_SMS) — 명시적으로 'on'일 때만 (기본 off, Play SMS 권한 정책) */
+export function phoneSmsBuilt(): boolean {
+  const extra = Constants.expoConfig?.extra as { readonly smsIntake?: unknown } | undefined
+  return extra?.smsIntake === 'on'
+}

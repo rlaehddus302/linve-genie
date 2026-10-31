@@ -214,5 +214,7 @@ class NoticeBootReceiver : BroadcastReceiver() {
     if (store.isEnabled() && NoticeAccess.isGranted(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
       NotificationListenerService.requestRebind(ComponentName(context, NoticeListenerService::class.java))
     }
+    // 문자 직접 받기 (SMS4): 꺼져 있던 동안 온 문자 따라잡기 (최근 24시간만)
+    SmsLink.scanLater(context)
   }
 }
