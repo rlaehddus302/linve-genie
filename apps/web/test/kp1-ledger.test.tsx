@@ -318,6 +318,27 @@ describe('"방송 화면에 손님 표시"를 아직 정하지 않음 (UX-KP1-00
     expect(h.seen.at(-1)?.badges.get('UC_B')?.text).toBe('단골 · 누적 125,000원')
   })
 
+  it('D-KP1-50: 안 정함이면 채팅 꼬리표는 숨겨도 1등 옆 "입금 늦음 주의"는 보이고(caution), 명시적으로 끄면 둘 다 숨긴다, 켬이면 둘 다 보인다', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const h = harness({ settings: () => Promise.resolve({ months: 12, consoleBadges: null }) })
+    render(<h.Probe buyers={['UC_A']} />)
+    await settle()
+    expect(h.seen.at(-1)?.undecided).toBe(true)
+    expect(h.seen.at(-1)?.show).toBe(false)
+    expect(h.seen.at(-1)?.caution).toBe(true)
+    await act(async () => {
+      await h.seen.at(-1)?.decide(false)
+    })
+    await settle()
+    expect(h.seen.at(-1)?.show).toBe(false)
+    expect(h.seen.at(-1)?.caution).toBe(false)
+    const on = harness()
+    render(<on.Probe buyers={['UC_A']} />)
+    await settle()
+    expect(on.seen.at(-1)?.show).toBe(true)
+    expect(on.seen.at(-1)?.caution).toBe(true)
+  })
+
   it('[안 보이기]로 정하면 거짓을 저장하고 계속 숨긴다', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     const h = harness({ settings: () => Promise.resolve({ months: 12, consoleBadges: null }) })

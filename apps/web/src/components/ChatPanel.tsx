@@ -30,6 +30,8 @@ export interface ChatPanelProps {
   readonly onReview?: (messageId: string) => void
   /** 줄마다 플랫폼 글자를 붙인다 (인스타그램·틱톡 채팅이 있거나 이어져 있을 때, AC-N2b-2-65) */
   readonly platformTags?: boolean
+  /** KP1 채팅 칸 맨 위(목록 위, 고정 영역 밖)에 두는 것 — 콘솔 첫 물음 "방송 화면에 손님 표시" (D-KP1-43) */
+  readonly top?: ReactNode
 }
 
 /** 옵션 방송의 메시지 표시 (D-O2-12, AC-O2-24) — 서버가 준 optionOrders·review가 있는 메시지만 */
@@ -74,7 +76,7 @@ export function highlightMentions(text: string, mentions: readonly number[]): Re
   })
 }
 
-export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null, onReview, platformTags = false }: ChatPanelProps) {
+export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertNotes, sealedMessage = null, onReview, platformTags = false, top = null }: ChatPanelProps) {
   const api = useConsoleApi()
   // 찜 낱말 "보류" / "보류 · 시간 지남"은 다른 화면과 같은 판단 (D-MOB2-15)
   const pendingNow = usePendingNow(api.data)
@@ -138,6 +140,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
   return (
     <section className="chat card" aria-label="채팅">
       <h2 className="section-title">채팅</h2>
+      {top}
       {older ? (
         <button type="button" className="button" disabled={loadingOlder} onClick={onLoadOlder}>
           {loadingOlder ? '불러오는 중…' : '이전 메시지 보기'}

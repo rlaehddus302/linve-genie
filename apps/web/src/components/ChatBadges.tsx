@@ -77,7 +77,7 @@ export function ConsoleBadgesAsk({ onDecide }: { readonly onDecide: (value: bool
         <button type="button" className="button" disabled={busy} onClick={() => void decide(true)}>
           {CONSOLE_BADGES_SHOW}
         </button>
-        <button type="button" className="button button-primary" disabled={busy} onClick={() => void decide(false)}>
+        <button type="button" className="button" disabled={busy} onClick={() => void decide(false)}>
           {CONSOLE_BADGES_HIDE}
         </button>
       </div>

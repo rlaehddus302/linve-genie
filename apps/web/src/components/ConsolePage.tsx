@@ -725,7 +725,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
 
   // 1등 옆 "입금 늦음 주의" (CRM1 D-CRM1-07): 실제 방송만, 판매자 전용 조회 — 받지 못하면 꼬리표 없이 그대로(오류 띠 없음)
   const caution = useConsoleCaution(data, broadcast.date, broadcast.rehearsal)
-  // KP1 채팅 손님 꼬리표 (CR-7): 새 채팅 구매자를 4초 이상 간격 50명씩 — 설정을 끄면 1등 옆 "입금 늦음 주의"까지 숨긴다
+  // KP1 채팅 손님 꼬리표 (CR-7): 새 채팅 구매자를 4초 이상 간격 50명씩 — 설정을 명시적으로 끄면 1등 옆 "입금 늦음 주의"까지 숨긴다(안 정함이면 그것은 보인다 — D-KP1-50)
   const badgeBuyers = useMemo(() => chatBuyers(snapshot.messages), [snapshot.messages])
   const chatBadges = useChatBadges(broadcast.date, broadcast.rehearsal, badgeBuyers)
   const badgeOf = useMemo(() => badgeLookup(chatBadges.badges), [chatBadges.badges])
@@ -1467,12 +1467,14 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       sealedMessage={snapshot.sealedMessage}
       {...(optionMode ? { onReview: () => navigate({ name: 'reviews', broadcast: b, rehearsal: broadcast.rehearsal }) } : {})}
       platformTags={platformTags}
+      // KP1 UX-KP1-006·D-KP1-43: "방송 화면에 손님 표시"를 아직 정하지 않았으면 처음 한 번 묻는다 (실제 방송·봉인 전만) — 고정 영역·요약 줄을 밀지 않게 채팅 칸 안, 꼬리표 자리 위
+      top={chatBadges.undecided && !sealed ? <ConsoleBadgesAsk onDecide={chatBadges.decide} /> : null}
     />
   )
 
   return (
     <ConsoleContext.Provider value={api}>
-      <CautionContext.Provider value={chatBadges.show ? caution : HIDDEN_CAUTION}>
+      <CautionContext.Provider value={chatBadges.caution ? caution : HIDDEN_CAUTION}>
       <ChatBadgesContext.Provider value={badgeOf}>
       <YoutubeContext.Provider value={yt}>
       <ReadOnlyContext.Provider value={sealed}>
@@ -1495,8 +1497,6 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
         </div>
         {endError !== null ? <ErrorNote error={endError} /> : null}
         {sealed ? <SealedNotice /> : null}
-        {/* KP1 UX-KP1-006: "방송 화면에 손님 표시"를 아직 정하지 않았으면 처음 한 번 묻는다 (실제 방송·봉인 전만) */}
-        {chatBadges.undecided && !sealed ? <ConsoleBadgesAsk onDecide={chatBadges.decide} /> : null}
         {otherVoice !== null ? (
           // 다른 방송에서 듣는 중 (D-V3-52)
           <div className="notice row" role="status">

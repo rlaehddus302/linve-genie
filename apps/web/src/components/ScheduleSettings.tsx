@@ -400,7 +400,7 @@ function ItemForm({ title, submitLabel, initial, fullNote, send, onSaved, onCanc
       })}
       {error !== null ? <RequestError error={error} omitFields={[...FIELDS]} /> : null}
       <div className="row">
-        <button type="submit" className="button button-primary kp1-button" disabled={sending}>
+        <button type="submit" className="button kp1-button" disabled={sending}>
           {sending ? '저장하는 중…' : submitLabel}
         </button>
         {onCancel !== undefined ? (

@@ -4518,7 +4518,8 @@ select.input {
 .badge-mark {
   font-size: 1.125rem;
   font-weight: 400;
-  white-space: nowrap;
+  /* 375px에서 줄바꿈 금지 없음 — 낱말 사이에서만 꺾인다 */
+  word-break: keep-all;
 }
 
 .tag-first {

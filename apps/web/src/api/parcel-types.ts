@@ -1,7 +1,6 @@
 // 택배 자동 접수 API 모양 (T1, PARCEL_RULES PC-1~PC-8 — 서버 계약은 harness/sprints/T1/dev-notes.md "[server] API").
 // 영어 값(state·reason·payment·address·shipping)은 화면에 그대로 내지 않는다 — 서버가 준 문장(message)·조회 낱말(status)·포장 상태 말(packing)을 쓴다.
 import type { PaymentStatus } from '@livejjim/core'
-import type { LedgerPrefill } from '../lib/ledger.ts' // KP1
 
 /** 접수 기록에 오는 택배사 (자동 접수 어댑터를 둘 수 있는 것 — FB1 D-FB1-04) */
 export type CarrierCode = 'FAKE' | 'EPOST' | 'CJ' | 'HANJIN' | 'LOGEN' | 'LOTTE'
@@ -84,6 +83,18 @@ export interface AddressFields {
 }
 
 export type AddressSource = 'BUYER' | 'SELLER' | 'LEDGER'
+
+/** KP1 묶음 자세히의 "지난 주문 배송지" (CR-4 — 판매자에겐 다섯 칸 전부). DOM 없는 타입 검사 설정도 이 파일을 읽으므로 여기 둔다 — lib/ledger.ts가 다시 내보낸다 */
+export interface LedgerPrefill {
+  readonly ledgerId: string
+  /** 장부 줄을 고친 시각 (UTC ISO — 확인 요청에 그대로 보낸다) */
+  readonly updatedAt: string
+  readonly name: string
+  readonly phone: string
+  readonly address: string
+  readonly detail: string
+  readonly zip: string
+}
 
 export interface AddressView extends AddressFields {
   /** LEDGER = 손님이 지난 주문에 저장한 배송지를 판매자가 확인함 (UX-KP1-004 — 서버 값 이름은 가정, 모르는 값은 SELLER 문구) */

@@ -39,17 +39,8 @@ export interface BadgesView {
   readonly badges: readonly CustomerBadge[]
 }
 
-/** 묶음 자세히의 "지난 주문 배송지" (CR-4 — 판매자에겐 다섯 칸 전부) */
-export interface LedgerPrefill {
-  readonly ledgerId: string
-  /** 장부 줄을 고친 시각 (UTC ISO — 확인 요청에 그대로 보낸다) */
-  readonly updatedAt: string
-  readonly name: string
-  readonly phone: string
-  readonly address: string
-  readonly detail: string
-  readonly zip: string
-}
+/** 묶음 자세히의 "지난 주문 배송지" — 타입은 api/parcel-types.ts에 둔다 (DOM 없는 타입 검사 설정이 그 파일을 읽는다) */
+export type { LedgerPrefill } from '../api/parcel-types.ts'
 
 /** 손님 자세히의 장부 칸 (CR-3·CR-5) — 가린 이름·끝 4자리만 */
 export interface CustomerLedgerView {
@@ -76,7 +67,8 @@ export const CONSOLE_BADGES_HELP = '방송 화면을 녹화하거나 송출 화�
 export const CONSOLE_BADGES_UNDECIDED = '아직 정하지 않았어요. 정하기 전에는 방송 화면에 보이지 않아요.'
 /** 콘솔에서 처음 한 번 묻는 띠 (UX-KP1-006) */
 export const CONSOLE_BADGES_ASK = '방송 화면에 손님 표시를 보일까요? 이 화면을 방송에 내보내면 손님도 볼 수 있어요.'
-export const CONSOLE_BADGES_ASK_DETAIL = '"단골 · 누적 금액"·"입금 늦음 주의"·"처음" 표시예요. 나중에 설정 "손님 관리"에서 바꿀 수 있어요.'
+// 꼬리표 글 그대로("단골"·"입금 늦음 주의"·"처음")를 쓰지 않는다 — 꼬리표가 없는 콘솔에 그 낱말이 보이면 손님 표시로 헷갈린다(CRM1 AC-CRM1-19)
+export const CONSOLE_BADGES_ASK_DETAIL = '채팅 이름 옆에 자주 사는 손님, 입금이 늦었던 손님, 처음 온 손님을 알려 주는 작은 표시예요. 나중에 설정 "손님 관리"에서 바꿀 수 있어요.'
 export const CONSOLE_BADGES_SHOW = '보이기'
 export const CONSOLE_BADGES_HIDE = '안 보이기'
 export const CONSOLE_BADGES_ASK_FAILED = '저장하지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.'
@@ -247,6 +239,11 @@ export interface ChatBadges {
    * 설정을 아직 모르거나 받지 못하면 거짓(D-KP1-40 — 알 때까지 숨김. 설정·꼬리표 응답이 오면 서버의 show로 정한다).
    */
   readonly show: boolean
+  /**
+   * 1등 옆 "입금 늦음 주의"(CRM1)를 보인다 — 판매자가 "방송 화면에 손님 표시"를 명시적으로 껐을 때만 거짓(D-KP1-50, AC-KP1-15).
+   * 아직 정하지 않았거나 설정을 모르면 예전처럼 보인다.
+   */
+  readonly caution: boolean
   /** 구매자 → 꼬리표 (글이 있는 것만) */
   readonly badges: ReadonlyMap<string, CustomerBadge>
   /** 설정을 받았고 판매자가 "방송 화면에 손님 표시"를 아직 정하지 않았다 — 콘솔이 한 번 묻는다(UX-KP1-006). 리허설은 늘 거짓 */
@@ -297,6 +294,8 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
   const [show, setShow] = useState<boolean | null>(null)
   const [months, setMonths] = useState<LedgerMonths | null>(null)
   const [undecided, setUndecided] = useState(false)
+  // 판매자가 명시적으로 껐다 (D-KP1-50 — 이때만 1등 옆 "입금 늦음 주의"도 숨긴다)
+  const [off, setOff] = useState(false)
   const [badges, setBadges] = useState<ReadonlyMap<string, CustomerBadge>>(NO_BADGES)
   const depsRef = useRef(deps)
   depsRef.current = deps
@@ -314,6 +313,7 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
     setBadges(NO_BADGES)
     setShow(null)
     setUndecided(false)
+    setOff(false)
   }, [scope])
 
   useEffect(() => {
@@ -329,6 +329,7 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
     if (state.current !== null) state.current.undecided = settings.consoleBadges === null
     setMonths(settings.months)
     setUndecided(settings.consoleBadges === null)
+    setOff(settings.consoleBadges === false)
     applyShow(settings.consoleBadges === true)
   }
 
@@ -408,6 +409,8 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
           // 그 사이 설정을 받아 아직 정하지 않은 것을 알았으면 꼬리표 응답의 show는 쓰지 않는다
           if (current.undecided) return
           if (view.show !== current.show) applyShow(view.show)
+          // 정한 뒤 서버가 꺼짐이라 하면 명시적 끔 (아직 안 정함이면 여기까지 오지 않는다)
+          setOff(!view.show)
           if (view.show) {
             const found = view.badges.filter((badge) => badge.text !== null && badge.text !== '')
             if (found.length > 0) {
@@ -441,8 +444,8 @@ export function useChatBadges(date: string, rehearsal: boolean, buyers: readonly
   const stableDecide = useMemo(() => (value: boolean) => decideRef.current(value), [])
 
   return useMemo(
-    () => ({ show: !enabled ? true : show === true, badges: !enabled || show !== true ? NO_BADGES : badges, undecided: enabled && undecided, decide: stableDecide }),
-    [enabled, show, badges, undecided, stableDecide],
+    () => ({ show: !enabled ? true : show === true, caution: !enabled || !off, badges: !enabled || show !== true ? NO_BADGES : badges, undecided: enabled && undecided, decide: stableDecide }),
+    [enabled, show, off, badges, undecided, stableDecide],
   )
 }
 
