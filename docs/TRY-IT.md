@@ -496,6 +496,34 @@ pnpm try
 
 ---
 
+### 아이폰 앱으로 해 보기 (개발자용)
+
+아이폰 앱은 자체 서명 주소(`https://<주소>:7701`)를 받지 않아요. 그래서 맥 미니의 Tailscale이 정식 인증서로 여는 주소 **`https://macmini.tail455617.ts.net:8443`** 를 씁니다. 이 주소는 같은 Tailscale 모임(tailnet)에 든 기기에서만 열려요. 공개 인터넷(Funnel)은 쓰지 않아요.
+
+**처음 한 번만 (맥 미니)**
+1. [사람] **사람이 할 일**: Tailscale 관리 화면에서 이 tailnet의 HTTPS(Serve)를 켜 주세요. `sh scripts/try/tailnet-app.sh on`을 처음 치면 켜는 주소가 나와요. 그 주소를 브라우저로 열어 허락합니다.
+2. 연습 모드를 앱 주소도 받게 켭니다: `LIVEGENIE_PHONE_EXTRA_ORIGINS=https://macmini.tail455617.ts.net:8443 pnpm try`
+3. `sh scripts/try/tailnet-app.sh on` → `sh scripts/try/tailnet-app.sh status`에 `:8443 (tailnet only)`가 보이면 됐어요. 끌 때는 `sh scripts/try/tailnet-app.sh off` (5173 설정은 그대로 둬요).
+4. 확인: 맥 미니에서 `curl -I https://macmini.tail455617.ts.net:8443/` 가 경고 없이 답하면 정식 인증서예요.
+
+**아이폰 준비**
+1. [사람] 아이폰에 App Store에서 Tailscale을 깔고, 맥 미니와 같은 계정으로 로그인해 켭니다.
+2. 아이폰 사파리에서 `https://macmini.tail455617.ts.net:8443` 이 열리는지 먼저 봅니다.
+
+**(A) 케이블 + Xcode 무료 애플 아이디 (7일짜리)**
+1. [사람] 맥 미니에 Xcode를 깔고, Xcode › Settings › Accounts에서 무료 애플 아이디로 로그인합니다.
+2. [사람] 아이폰을 케이블로 맥 미니에 꽂고, 아이폰에서 "이 컴퓨터를 신뢰하겠습니까?"에 **신뢰**를 누릅니다.
+3. [사람] 아이폰 설정 › 개인정보 보호 및 보안 › **개발자 모드**를 켜고 다시 켜진 뒤 "켜기"를 누릅니다(개발자 모드 메뉴는 Xcode에 한 번 꽂은 뒤 보여요).
+4. 맥 미니에서 `cd apps/mobile && pnpm ios:device:try` — 꽂힌 아이폰을 고르면 빌드해서 깔아 줘요. 처음엔 Xcode에서 서명 팀(내 이름 Personal Team)을 골라야 할 수 있어요 [사람].
+5. [사람] 아이폰 설정 › 일반 › VPN 및 기기 관리에서 내 애플 아이디 개발자 앱을 **신뢰**합니다.
+6. 무료 아이디로 깐 앱은 **7일 뒤 열리지 않아요.** 그때 4번을 다시 하면 돼요. 다른 주소를 쓰려면 `TRY_APP_SERVER_URL=https://... pnpm ios:device:try`.
+
+**(B) 애플 개발자 계정 + EAS (내부 배포)**
+1. [사람] 애플 개발자 프로그램(유료)에 가입하고, `npx eas login`으로 Expo 계정에 로그인합니다.
+2. [사람] `npx eas device:create`로 아이폰을 등록합니다(아이폰에서 링크를 열어 프로필 설치).
+3. 지금 `eas.json`에는 정해진 프로필 셋(development·preview·production)만 있어요(앱 시험이 셋을 확인해요). 연습 서버 주소용 프로필은 스펙 담당이 정한 뒤에 더합니다. 그 전까지는 `preview` 프로필의 서버 주소를 이 주소로 잠깐 바꿔 `npx eas build --profile preview --platform ios`를 하고, 바꾼 것은 커밋하지 마세요.
+4. [사람] 빌드가 끝나면 나오는 링크를 아이폰에서 열어 설치합니다(개발자 모드 켜기는 (A)의 3번과 같아요).
+
 ## 5. 끄는 법
 
 - 터미널 창을 누르고 `Control + C`를 누릅니다. (윈도우는 `Ctrl + C`, `(Y/N)?`이 나오면 `Y`)

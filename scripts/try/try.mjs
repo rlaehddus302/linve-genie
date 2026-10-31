@@ -121,6 +121,22 @@ const port = await findPorts(wanted)
 if (port === null) fail(`${String(wanted)}번부터 빈 포트를 찾지 못했어요. pnpm try --port 8800 처럼 다른 번호로 해 보세요.`)
 const phonePort = port + 1
 const appOrigin = `http://localhost:${String(port)}`
+/** 아이폰 앱용 정식 인증서 주소(tailnet 전용 tailscale serve, APP): LIVEGENIE_PHONE_EXTRA_ORIGINS=https://이름.ts.net:8443 (쉼표로 여럿). https 출처만 받는다 */
+function extraPhoneOrigins() {
+  const raw = process.env['LIVEGENIE_PHONE_EXTRA_ORIGINS'] ?? ''
+  const out = []
+  for (const item of raw.split(',').map((v) => v.trim()).filter((v) => v !== '')) {
+    let u
+    try {
+      u = new URL(item)
+    } catch {
+      fail(`LIVEGENIE_PHONE_EXTRA_ORIGINS 값이 주소가 아니에요: ${item}`)
+    }
+    if (u.protocol !== 'https:' || u.origin !== item.replace(/\/+$/, '')) fail(`LIVEGENIE_PHONE_EXTRA_ORIGINS에는 https://이름:포트 형태만 적어 주세요: ${item}`)
+    out.push(u.origin)
+  }
+  return out
+}
 /** 화면 빌드 폴더 — 포트마다 따로(연습 모드를 둘 켜도 서로의 화면 파일을 지우지 않게) */
 const WEB_DIR = join(CACHE, `web-${String(port)}`)
 
@@ -321,7 +337,7 @@ if (lan !== null) {
       ? { key: readFileSync(suppliedKey), cert: readFileSync(suppliedCert) }
       : phoneCertificate(lans)
     // 휴대폰 주소들과, 이 컴퓨터에서 https로 여는 주소(사파리에서 로그인이 안 될 때) 모두 화면 주소로 바꿔 넘긴다
-    const httpsOrigins = new Set([...lans.map((ip) => `https://${ip}:${String(phonePort)}`), `https://localhost:${String(phonePort)}`])
+    const httpsOrigins = new Set([...lans.map((ip) => `https://${ip}:${String(phonePort)}`), `https://localhost:${String(phonePort)}`, ...extraPhoneOrigins()])
     // 중계 규칙(Origin·Location·간편 로그인·유튜브 연결)은 apps/server/src/try/phone-relay.ts (MOB1 D-MOB1-06)
     const phoneOptions = { port, appOrigin, httpsOrigins, fakeGoogle: realGoogle === null ? { port: fake.port } : null, realYoutube: realGoogle !== null }
     phone = createHttpsServer({ key, cert }, createPhoneRelay(phoneOptions))
