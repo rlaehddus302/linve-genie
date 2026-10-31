@@ -201,7 +201,7 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
       if (disposed || born !== generation) return
       transport = create({
         broadcastId, device, capture: !commandsOnly,
-        hello: () => ({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { ...safeSettings(host.readSettings()), 'voice.archive': readArchive(host.readSettings()) }, smsSettings: safeSettings(host.readSmsSettings?.()), consent: true, listening: !commandsOnly, ...(resumeToken === null ? {} : { resumeToken }) } }),
+        hello: () => ({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { ...safeSettings(host.readSettings()), 'voice.archive': readArchive(host.readSettings()) }, smsSettings: safeSettings(host.readSmsSettings?.()), consent: true, listening: !commandsOnly || streamListen, ...(resumeToken === null ? {} : { resumeToken }) } }),
         onState: (state) => {
           if (disposed || born !== generation) return
           transportState = state
