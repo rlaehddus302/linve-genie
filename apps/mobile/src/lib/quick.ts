@@ -49,6 +49,17 @@ export function unitLine(unit: PriceUnit): string {
   return '가격 단위: 천원 — 10은 10,000원, 2만은 20,000원'
 }
 
+/**
+ * 빠른 입력칸 예시 (D-UX2-07): 아래 단위 줄과 같은 단위로 적은 예. 천원 단위에서 "10000"도 10,000원이지만(1000 이상은 원 그대로, R-14),
+ * 예시가 원 단위처럼 보이면 사장님이 단위를 헷갈린다 — 예시는 그 방송 단위의 대표 꼴로만.
+ */
+export function quickPlaceholder(unit: PriceUnit): string {
+  if (unit === 'WON') return '15 핑크프릴 10000'
+  if (unit === 'TEN_THOUSAND') return '15 핑크프릴 2'
+  if (unit === 'AUTO') return '15 핑크프릴 180'
+  return '15 핑크프릴 10'
+}
+
 /** 서버가 새 상품 등록으로 읽은 줄이면 "등록하면: 15번 엘레강스 10,000원"(서버 글), 아니면(답 없음 포함) null */
 export function registerPreview(reading: QuickReading | null): string | null {
   return reading?.preview ?? null

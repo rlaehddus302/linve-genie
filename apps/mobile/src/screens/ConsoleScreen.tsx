@@ -72,7 +72,10 @@ function AwayLine() {
   )
 }
 
-export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void }) {
+/**
+ * onEnded: 방송을 끝낸 뒤 (D-UX2-07) — 경로가 홈으로 돌려보내고 홈이 방송 목록을 다시 받는다. 없으면 이 화면에 "끝난 방송"으로 남는다.
+ */
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -82,6 +85,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
   const [sheet, setSheet] = useState<'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end'>('none')
   const [labels, setLabels] = useState<readonly LabelView[]>([])
   const [endError, setEndError] = useState<string | null>(null)
+  // 끝내기 성공 — 방송 목록을 다시 받지 않아도 바로 "끝난 방송"으로 (범위 기록의 방송 정보는 처음 한 번만 받는다)
+  const [endedHere, setEndedHere] = useState(false)
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
   const data = snapshot.data
   const broadcast = snapshot.broadcast
@@ -139,7 +144,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
     return map
   }, [labels])
 
-  const ended = broadcast?.ended ?? false
+  const ended = (broadcast?.ended ?? false) || endedHere
   const sealed = data?.sealed ?? false
   const command = useCallback(
     async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> => {
@@ -180,8 +185,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
     setEndError(null)
     try {
       const result = await withRetry(() => post<WriteResult>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/end`, { requestId: newRequestId() }))
-      await store.sync(result.seq)
+      setEndedHere(true)
       setSheet('none')
+      await store.sync(result.seq)
+      onEnded?.()
     } catch (caught) {
       setSheet('none')
       setEndError(isApiError(caught) ? caught.message : '끝내지 못했어요. 다시 눌러 주세요.')
@@ -264,8 +271,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
         {!closed ? (
           <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.sm, backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.line }}>
             {seller ? <ListenButton session={services.voice} broadcastId={broadcastId} title={title} /> : null}
-            <View style={{ width: seller ? 120 : undefined, flex: seller ? undefined : 1 }}>
-              <BigButton kind="outline" label={DIRECT_INPUT} onPress={() => setSheet('direct')} />
+            <View style={{ width: seller ? 136 : undefined, flex: seller ? undefined : 1 }}>
+              <BigButton kind="outline" oneLine label={DIRECT_INPUT} onPress={() => setSheet('direct')} />
             </View>
           </View>
         ) : null}
@@ -286,7 +293,17 @@ export function ConsoleScreen({ broadcastId, seller, onBack }: { readonly broadc
             {!closed ? <TodoRow title="방송 끝내기" onPress={() => setSheet('end')} /> : null}
           </RowGroup>
         </BottomSheet>
-        <BottomSheet visible={sheet === 'youtube'} onClose={close} title="유튜브 연결">
+        <BottomSheet
+          visible={sheet === 'youtube'}
+          onClose={close}
+          title="유튜브 연결"
+          actions={yt.link !== null && yt.link.link === null && !closed ? <BigButton kind="secondary" label="나중에 잇기" onPress={close} /> : undefined}
+        >
+          {yt.link !== null && yt.link.link === null && !closed ? (
+            <Txt step="caption" color="textSub">
+              잇지 않아도 문자찜·음성·직접 넣기로 찜을 받을 수 있어요. 방송 메뉴(⋯)에서 언제든 다시 열 수 있어요.
+            </Txt>
+          ) : null}
           <YoutubeSection yt={yt} closed={closed} />
         </BottomSheet>
         <BottomSheet visible={sheet === 'voice'} onClose={close} title="음성 설정">

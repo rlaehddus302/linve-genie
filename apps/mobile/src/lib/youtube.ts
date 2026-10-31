@@ -25,7 +25,14 @@ export const CHANNEL_NAME_MAX = 40
 export const INVITED_CONFIRM_CODE = 'INVITED_CONFIRM_NEEDED'
 /** 앱에서의 대비 경로 안내 — 휴대폰만 쓰는 판매자: 문자찜·음성·댓글 붙여넣기(웹) (D-YT-SRV-09, NFR-09) */
 export const MOBILE_FALLBACK_HINT = '"직접 넣기"의 문자찜 칸이나 음성으로 넣을 수 있어요.'
-export const OFFICIAL_LINK_HINT = '유튜브 방송 잇기는 웹에서 해 주세요.'
+/** 옛 공식 읽기 서버(구글 연결로 읽음)에서 연결이 없을 때 — 웹 CONSOLE_NOT_CONNECTED·RECONNECT_NEEDED_MESSAGE와 같은 문장 (D-UX2-07) */
+export const NOT_CONNECTED_FIRST = '유튜브 채널을 먼저 연결해 주세요.'
+export const RECONNECT_FIRST = '유튜브 연결을 다시 해 주세요.'
+export const NOT_CONNECTED_HELP = '연결은 웹 화면에서 한 번만 하면 돼요. 연결한 뒤 여기로 돌아와 [다시 확인]을 눌러 주세요.'
+/** 클립보드에 유튜브 주소가 있을 때 (D-UX2-07) */
+export const PASTE_COPIED = '복사한 유튜브 주소가 있어요'
+/** 옛 공식 읽기 서버의 목록 이름 (내 채널의 지금·예정 방송) */
+export const MY_CHANNEL_TITLE = '내 채널의 방송'
 
 export function channelName(title: unknown): string {
   const text = typeof title === 'string' ? title.trim() : ''

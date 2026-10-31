@@ -2,9 +2,11 @@
 // "유튜브 방송 · {이름}", "서버 연결로 받는 중", 막힘 바로 경고 + 대비 경로, 다시 받으면 한 줄, 운영자 끔, 거절 문장.
 // 새 시안(D-UX2-03): 유튜브 칸은 방송 메뉴(⋯) → "유튜브 연결" 시트로 옮겼다. 상품이 없는 새 방송이 이어져 있지 않으면 시트가 저절로 한 번 열린다.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { CollectorView, LinkView, LiveBroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
+import { setClipboardReader } from '../src/lib/clipboard.ts'
+import { setWebOpener } from '../src/lib/open-web.ts'
 import { makeWorld } from './screen-support.tsx'
 import { flush, fullView, product } from './support.ts'
 
@@ -22,10 +24,10 @@ const linked = (title: string, patch: Partial<CollectorView> = {}): LinkView => 
 })
 const item: LiveBroadcastItem = { videoId: 'LIVENOW0001', title: '오늘 경매', status: 'LIVE', scheduledStartTime: null, actualStartTime: null, linkedBroadcast: null, channelId: 'UC_K', channelTitle: '다육이네' }
 
-function youtubeWorld(options: { webChat?: { on: boolean } | null; recent?: LiveBroadcastItem[] } = {}) {
+function youtubeWorld(options: { webChat?: { on: boolean } | null; recent?: LiveBroadcastItem[]; status?: 'NOT_CONNECTED' | 'CONNECTED' | 'RECONNECT_NEEDED' } = {}) {
   const world = makeWorld({ products: [product(15)] })
   const state = { link: { link: null, collector: null } as LinkView }
-  world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: options.webChat === undefined ? { on: true } : options.webChat, oauth: true } }))
+  world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: options.status ?? 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: options.webChat === undefined ? { on: true } : options.webChat, oauth: true } }))
   world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: state.link }))
   world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: options.recent ?? [] } }))
   world.server.on('POST', /^\/api\/broadcasts\/b1\/youtube$/, (call) => {
@@ -54,6 +56,8 @@ async function openYoutube() {
 }
 
 describe('콘솔 유튜브 (앱)', () => {
+  afterEach(() => setClipboardReader(async () => ''))
+
   it('구글 연결 없이 최근 채널 [잇기] → "유튜브 방송 · 다육이네"·"서버 연결로 받는 중", 찾기는 칸을 열 때 한 번', async () => {
     const { world } = youtubeWorld({ recent: [item] })
     await open(world)
@@ -139,5 +143,46 @@ describe('콘솔 유튜브 (앱)', () => {
     await open(world)
     expect(world.server.calls.filter((call) => call.path.includes('youtube'))).toHaveLength(0)
     expect(screen.queryByRole('group', { name: '유튜브' })).toBeNull()
+  })
+
+  it('클립보드에 유튜브 주소가 있으면 [붙여 넣기] 하나로 잇는다 (방송 시작 주소 단계, D-UX2-07)', async () => {
+    setClipboardReader(async () => '  https://youtube.com/live/LIVENOW0001?si=x  ')
+    const { world } = youtubeWorld()
+    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=true)?$/, () => ({ body: fullView({ seq: world.seq, rehearsal: false, products: [] }) }))
+    await open(world)
+    const sheet = await screen.findByRole('dialog', { name: '유튜브 연결' })
+    expect(within(sheet).getByText('복사한 유튜브 주소가 있어요')).toBeTruthy()
+    expect(within(sheet).getByRole('button', { name: '나중에 잇기' })).toBeTruthy()
+    fireEvent.click(within(sheet).getByRole('button', { name: '복사한 주소 붙여 넣어 잇기' }))
+    await waitFor(() => expect(within(section()).getByText('유튜브 방송 · 다육이네')).toBeTruthy())
+    expect(world.server.callsTo('POST', /\/youtube$/)[0]?.body).toMatchObject({ video: 'https://youtube.com/live/LIVENOW0001?si=x' })
+  })
+
+  it('유튜브 주소가 아닌 클립보드는 버튼을 띄우지 않는다', async () => {
+    setClipboardReader(async () => '15 핑크프릴 10')
+    const { world } = youtubeWorld()
+    await open(world)
+    await openYoutube()
+    expect(await screen.findByRole('textbox', { name: '주소 붙여넣기' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '복사한 주소 붙여 넣어 잇기' })).toBeNull()
+  })
+
+  it('구글 연결로 읽는 서버: 연결돼 있으면 앱에서 주소를 붙여 잇고, 아니면 "먼저 연결" + 연결 화면(웹) + [다시 확인] (D-UX2-07)', async () => {
+    const opened: string[] = []
+    setWebOpener(async (url) => void opened.push(url))
+    const { world } = youtubeWorld({ webChat: null })
+    await open(world)
+    await openYoutube()
+    await waitFor(() => expect(within(section()).getByText('유튜브 채널을 먼저 연결해 주세요.')).toBeTruthy())
+    expect(screen.queryByText('유튜브 방송 잇기는 웹에서 해 주세요.')).toBeNull()
+    fireEvent.click(within(section()).getByRole('button', { name: '유튜브 연결하러 가기 (웹으로 열기)' }))
+    expect(opened).toEqual(['http://test.local/settings/youtube?from=app'])
+    // 웹에서 연결하고 돌아와 [다시 확인] → 잇기 칸
+    world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: 'CONNECTED', channel: { id: 'UC_K', title: '다육이네' }, permissions: { read: true, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: null, oauth: true } }))
+    fireEvent.click(within(section()).getByRole('button', { name: '다시 확인' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: '주소 붙여넣기' }), { target: { value: 'VIDEOKNOWN1' } })
+    expect(within(section()).getByText('내 채널의 방송')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '이 방송에 잇기' }))
+    await waitFor(() => expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(1))
   })
 })

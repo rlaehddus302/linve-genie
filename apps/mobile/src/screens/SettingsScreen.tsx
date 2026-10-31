@@ -108,7 +108,7 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, showPhoneNotic
             ) : (
               <ToggleRow title="라벨 기능" on={labels.enabled} disabled={busy} onChange={(next) => void run(() => setLabelEnabled(next, labels.enabled))} />
             )}
-            {auto !== null ? <ToggleRow title="1등 확정 때 라벨 자동 출력" subtitle="다음에 시작하는 방송부터 적용돼요." on={auto} disabled={busy} onChange={(next) => void run(() => setAutoPrint(next, auto))} /> : null}
+            {auto !== null ? <ToggleRow title="1등 확정 때 라벨 자동 출력" subtitle="다음 방송부터 적용돼요." on={auto} disabled={busy} onChange={(next) => void run(() => setAutoPrint(next, auto))} /> : null}
           </Card>
         </Section>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}

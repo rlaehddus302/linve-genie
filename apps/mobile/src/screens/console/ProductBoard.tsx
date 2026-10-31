@@ -1,5 +1,6 @@
 // 방송 중 상품 리스트·상품 자세히 (D-UX2-03, AC-S05-14, PRD-04, D-088). 값은 서버 조회(코어 조회 함수 결과) 그대로이고 낱말로만 바꾼다 — 앱은 판정하지 않는다.
-// 리스트: 최신이 위. 첫째 줄 번호·품종·가격을 크게, 둘째 줄 "예약 {1등} · 대기 n명". 확인이 필요한 상품(충돌·승계·일시 중지)은 주황 줄 + 쉬운 말,
+// 리스트: 최신이 위. 첫째 줄 번호·품종·가격을 크게, 둘째 줄 "예약 {1등} · 대기 n명". 확인이 필요한 상품(겹침·승계·일시 중지)은 주황 줄 + 쉬운 말,
+// 자세히 시트도 같은 말(예약·겹쳐요)을 쓰고, 정하지 않은 상품은 "판매 완료"·"1등" 대신 "아직 안 정했어요"로 보인다(D-UX2-07).
 // 방금 올라온 상품(가장 최근 등록 또는 방금 고른 상품)은 연한 초록. 줄을 누르면 자세히(찜 목록·판매 시작/중지/종료) 시트가 열린다.
 import { useState } from 'react'
 import { Pressable, View } from 'react-native'
@@ -16,18 +17,46 @@ import { useConsoleApi } from './context.ts'
 
 const STATUS_TONE: Readonly<Record<Product['status'], Tone>> = { READY: 'info', OPEN: 'success', SOLD: 'warning', HOLD: 'warning', CLOSED: 'info' }
 
-function claimTone(claim: Claim): Tone {
-  if (claim.status === 'CONFIRMED') return 'success'
-  if (claim.status === 'CONFLICT') return 'danger'
+function claimTone(claim: Claim, conflict: boolean): Tone {
+  // 겹침은 잘못이 아니라 정할 일이다 — 보드의 주황 줄과 같은 색
+  if (claim.status === 'CONFIRMED') return conflict ? 'warning' : 'success'
+  if (claim.status === 'CONFLICT') return 'warning'
   if (claim.status === 'WAITLISTED' || claim.status === 'PENDING') return 'info'
   return 'warning'
 }
 
-/** 상품 한 줄 요약: 번호·품종·가격·상태·1등·대기 수 (보조 기술용 이름·자세히 시트) */
+/** 상품 한 줄 요약: 번호·품종·가격·상태·1등·대기 수 (보조 기술용 이름) */
 export function productSummary(product: Product, nameOfBuyer: (id: string) => string): string {
   const slots = productSlots(product)
   const winners = product.hasOptions ? '변형별' : slots.winners.length === 0 ? '아직 없음' : slots.winners.map(nameOfBuyer).join(', ')
   return `${String(product.no)}번 ${nameOf(product)} ${formatWon(product.price)} · ${PRODUCT_STATUS_WORD[product.status]} · 1등 ${winners} · 대기 ${String(slots.waitlist.length)}명`
+}
+
+/** 아직 정하지 않은 상품 (겹침·다음 손님 정하기) — 시트는 "판매 완료"·"1등"처럼 끝난 말을 쓰지 않는다 (D-UX2-07) */
+export function undecided(product: Product): boolean {
+  const slots = productSlots(product)
+  return slots.conflict || slots.awaitingSuccession
+}
+
+/** 자세히 시트의 상태 배지 낱말: 정하지 않았으면 "아직 안 정했어요", 아니면 상품 상태 낱말 */
+export function sheetStatusWord(product: Product): string {
+  return undecided(product) ? '아직 안 정했어요' : PRODUCT_STATUS_WORD[product.status]
+}
+
+/** 자세히 시트의 찜 낱말 — 보드와 같은 말: 1등은 "예약", 겹친 상품의 예약·겹친 찜은 "겹침" (판정 값은 그대로, 낱말만) */
+export function sheetClaimWord(base: string, claim: Claim, product: Product): string {
+  if (claim.status === 'CONFLICT') return '겹침'
+  if (claim.status === 'CONFIRMED') return productSlots(product).conflict ? '겹침' : '예약'
+  return base
+}
+
+/** 자세히 시트 요약 한 줄 (제목·가격을 되풀이하지 않는다): 보드 둘째 줄과 같은 말 */
+export function sheetSummary(product: Product, conflictClaims: number, nameOfBuyer: (id: string) => string): string {
+  const slots = productSlots(product)
+  if (slots.conflict || conflictClaims > 0) return '예약이 겹쳐요. 아직 누가 살지 정하지 않았어요.'
+  if (slots.awaitingSuccession) return '다음 손님을 정해야 해요. 아직 정하지 않았어요.'
+  const words = rowWords(product, conflictClaims, nameOfBuyer)
+  return words.wait === '' ? words.who : `${words.who} ${words.wait}`
 }
 
 export interface RowWords {
@@ -65,7 +94,7 @@ function ClaimLines({ product }: { readonly product: Product }) {
         const label = api.labelWords.get(claim.id)
         return (
           <Row key={claim.id} wrap>
-            <Tag tone={claimTone(claim)}>{claimWord(api.data, claim)}</Tag>
+            <Tag tone={claimTone(claim, productSlots(product).conflict)}>{sheetClaimWord(claimWord(api.data, claim), claim, product)}</Tag>
             <Body>{api.names.name(claim.currentBuyer)}</Body>
             {claim.variant !== null ? <Body muted>{claim.variant}</Body> : null}
             {claim.qty > 1 ? <Body muted>{`${String(claim.qty)}개`}</Body> : null}
@@ -104,22 +133,31 @@ function ProductActions({ product }: { readonly product: Product }) {
   )
 }
 
-/** 상품 자세히 (시트 안): 가격·상태·찜 목록·판매 조작. 충돌·승계를 정하는 일은 웹과 같은 서버 처리 화면에서 한다. */
+/** 상품 자세히 (시트 안): 가격·상태·찜 목록·판매 조작. 겹침·승계를 정하는 일은 웹과 같은 서버 처리 화면에서 한다(버튼이 웹으로 연다고 알린다). */
 export function ProductDetail({ product }: { readonly product: Product }) {
   const api = useConsoleApi()
+  const open = undecided(product)
+  const conflicts = claimsOfProduct(api.data, product).filter((claim) => claim.status === 'CONFLICT').length
   return (
     <View role="group" aria-label="상품 자세히" style={{ gap: SPACE.md }}>
       <Row wrap>
         <Txt step="title" weight="heavy">
           {formatWon(product.price)}
         </Txt>
-        <Tag tone={STATUS_TONE[product.status]}>{PRODUCT_STATUS_WORD[product.status]}</Tag>
+        <Tag tone={open ? 'warning' : STATUS_TONE[product.status]}>{sheetStatusWord(product)}</Tag>
         {product.stock > 1 ? <Body muted>{`재고 ${String(product.stock)}`}</Body> : null}
       </Row>
-      <Hint>{productSummary(product, (id) => api.names.name(id))}</Hint>
+      {open ? (
+        <Notice tone="warning">{sheetSummary(product, conflicts, (id) => api.names.name(id))}</Notice>
+      ) : (
+        <Hint>{sheetSummary(product, conflicts, (id) => api.names.name(id))}</Hint>
+      )}
       <ClaimLines product={product} />
-      {productSlots(product).conflict || productSlots(product).awaitingSuccession ? (
-        <BigButton kind="secondary" label="누가 살지 정하기 (웹으로 열기)" onPress={() => void openWeb(`/broadcasts/${encodeURIComponent(api.b)}`)} />
+      {open ? (
+        <View style={{ gap: SPACE.xs }}>
+          <BigButton kind="secondary" label="누가 살지 정하기" ariaLabel="누가 살지 정하기 (웹으로 열기)" onPress={() => void openWeb(`/broadcasts/${encodeURIComponent(api.b)}`)} />
+          <Hint>누르면 휴대폰 브라우저의 방송 화면에서 정해요.</Hint>
+        </View>
       ) : null}
       <ProductActions product={product} />
     </View>

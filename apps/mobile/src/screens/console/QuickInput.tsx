@@ -7,9 +7,9 @@ import { View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError, newRequestId } from '../../api/client.ts'
 import { productKey } from '../../lib/derive.ts'
-import { decideQuick, editQuestion, priceUnitOf, registerPreview, unitLine } from '../../lib/quick.ts'
+import { decideQuick, editQuestion, priceUnitOf, quickPlaceholder, registerPreview, unitLine } from '../../lib/quick.ts'
 import { readQuickLine, useQuickReading, type QuickReading } from '../../lib/read.ts'
-import { QUICK_PLACEHOLDER, QUICK_SEND, UNDO, UNDONE_REGISTER, formatWon } from '../../lib/words.ts'
+import { QUICK_SEND, UNDO, UNDONE_REGISTER, formatWon } from '../../lib/words.ts'
 import { BigButton, Body, Card, Field, Hint, Notice, Row } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
 
@@ -131,7 +131,7 @@ export function QuickInput() {
   if (closed) return null
   return (
     <Card label="빠른 입력">
-      <Field label="빠른 입력" value={text} onChangeText={setText} placeholder={QUICK_PLACEHOLDER} autoCorrect={false} autoCapitalize="none" onSubmitEditing={() => void send()} returnKeyType="send" blurOnSubmit={false} problem={problem} hint={preview ?? unitLine(unit)} />
+      <Field label="빠른 입력" value={text} onChangeText={setText} placeholder={`예: ${quickPlaceholder(unit)}`} autoCorrect={false} autoCapitalize="none" onSubmitEditing={() => void send()} returnKeyType="send" blurOnSubmit={false} problem={problem} hint={preview ?? unitLine(unit)} />
       <Row>
         <BigButton label={QUICK_SEND} primary disabled={busy} onPress={() => void send()} />
         {undo !== null ? <BigButton label={`${String(undo.no)}번 등록 ${UNDO}`} onPress={() => void undoRegister()} /> : null}

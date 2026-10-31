@@ -61,7 +61,7 @@ export function PackingScreen({ initialDate }: { readonly initialDate?: string; 
           </Txt>
           {progress !== null ? (
             <Txt step="bodyLarge" weight="bold" color="textSub" aria-label={`포장 끝낸 손님 ${String(progress.done)}명, 전체 ${String(progress.total)}명`}>
-              {`${String(progress.done)} / ${String(progress.total)}`}
+              {`끝낸 손님 ${String(progress.done)} / ${String(progress.total)}`}
             </Txt>
           ) : null}
         </View>

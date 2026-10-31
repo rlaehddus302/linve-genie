@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { setWebOpener } from '../src/lib/open-web.ts'
 import { HomeScreen, broadcastLine } from '../src/screens/HomeScreen.tsx'
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
+import { SettleScreen } from '../src/screens/SettleScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST } from './support.ts'
 
@@ -65,6 +66,35 @@ describe('HomeScreen', () => {
     // 옛 기대: 홈 아래 "웹으로 열기" 줄. 새 기대(D-UX2-02): 더보기 탭의 "웹에서 보기"
     render(world.wrap(<MoreScreen nav={{ openLabels: vi.fn(), openSettings: vi.fn() }} />))
     fireEvent.click(await screen.findByRole('button', { name: '정산 — 웹으로 열기' }))
+    expect(opened).toEqual(['http://test.local/settlements?from=app'])
+  })
+
+  it('홈이 다시 보이면 방송 목록을 다시 받는다: 리허설을 시작하고 돌아오면 "방송으로 돌아가기", 끝내고 돌아오면 "방송 시작하기" (D-UX2-07)', async () => {
+    const world = makeWorld()
+    let broadcasts: unknown[] = []
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts } }))
+    const navigation = nav()
+    const view = render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={0} />))
+    expect(await screen.findByRole('button', { name: '방송 시작하기' })).toBeTruthy()
+    const rehearsal = { ...BROADCAST, id: 'r1', title: '리허설 1', rehearsal: true }
+    broadcasts = [rehearsal]
+    view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={1} />))
+    fireEvent.click(await screen.findByRole('button', { name: `방송으로 돌아가기 — ${broadcastLine(rehearsal)}` }))
+    expect(navigation.openConsole).toHaveBeenCalledWith('r1')
+    broadcasts = [{ ...rehearsal, ended: true, endedAt: '2026-10-29T12:00:00.000Z' }]
+    view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={2} />))
+    expect(await screen.findByRole('button', { name: '방송 시작하기' })).toBeTruthy()
+  })
+
+  it('정산 탭은 바로 브라우저로 나가지 않고 "정산은 웹 화면에서 열려요"와 [웹으로 열기]를 보인다 (D-UX2-07)', async () => {
+    const opened: string[] = []
+    setWebOpener(async (url) => {
+      opened.push(url)
+    })
+    render(<SettleScreen />)
+    expect(screen.getByText('정산은 웹 화면에서 열려요')).toBeTruthy()
+    expect(opened).toEqual([])
+    fireEvent.click(screen.getByRole('button', { name: '정산 — 웹으로 열기' }))
     expect(opened).toEqual(['http://test.local/settlements?from=app'])
   })
 })

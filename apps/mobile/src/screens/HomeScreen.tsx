@@ -70,7 +70,7 @@ function broadcastName(item: BroadcastItem): string {
   return title === '' ? `${dateWords(item.date)} 방송` : title
 }
 
-function usePacking(date: string | null): readonly PackingEntry[] | null {
+function usePacking(date: string | null, refresh: number): readonly PackingEntry[] | null {
   const [entries, setEntries] = useState<readonly PackingEntry[] | null>(null)
   useEffect(() => {
     if (date === null) return
@@ -86,11 +86,12 @@ function usePacking(date: string | null): readonly PackingEntry[] | null {
     return () => {
       alive = false
     }
-  }, [date])
+  }, [date, refresh])
   return entries
 }
 
-export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; readonly sellerName: string }) {
+/** refresh: 바뀌면 방송 목록·할 일 숫자를 다시 받는다 (경로가 홈이 다시 보일 때 올린다 — D-UX2-07) */
+export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: HomeNavigation; readonly sellerName: string; readonly refresh?: number }) {
   const { p } = useKit()
   const { labels } = useServices()
   const labelSnapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
@@ -121,7 +122,7 @@ export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; 
       (view) => setDay(view.days.find((item) => !item.rehearsal)?.date ?? null),
       () => setDay(null),
     )
-  }, [])
+  }, [refresh])
 
   const create = async (input: { title?: string; rehearsal?: boolean }) => {
     if (busy) return
@@ -149,8 +150,8 @@ export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; 
 
   const live = items?.find((item) => !item.ended && !item.rehearsal) ?? items?.find((item) => !item.ended)
   const lastEnded = items?.find((item) => item.ended && !item.rehearsal)
-  const entries = usePacking(day)
-  const endedEntries = usePacking(lastEnded !== undefined && lastEnded.date !== day ? lastEnded.date : null)
+  const entries = usePacking(day, refresh)
+  const endedEntries = usePacking(lastEnded !== undefined && lastEnded.date !== day ? lastEnded.date : null, refresh)
   const counts = useMemo(() => (entries === null ? null : todoCounts(entries)), [entries])
   const sold = lastEnded === undefined ? null : (() => {
     const source = lastEnded.date === day ? entries : endedEntries
@@ -250,7 +251,7 @@ export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; 
       >
         <Field label="방송 제목 (비워도 돼요)" value={title} onChangeText={setTitle} placeholder="예: 금요일 저녁 방송" />
         <Txt step="caption" color="textSub">
-          시작하면 유튜브 방송 주소를 붙여 넣는 칸이 나와요. 리허설은 연습이라 손님에게 보이지 않아요.
+          시작하면 유튜브 방송 주소를 붙여 넣는 칸이 나와요. 주소 없이 연습만 하려면 "리허설 해 보기"를 눌러 주세요. 리허설은 손님에게 보이지 않아요.
         </Txt>
         {createError !== null ? (
           <Notice tone="danger" alert>

@@ -122,7 +122,6 @@ export const RETRY_NOW = '지금 다시 불러오기'
 /** 콘솔 */
 export const CURRENT_PRODUCT = '현재 상품'
 export const NO_PRODUCTS_YET = '아직 올린 상품이 없어요. 말하거나 "직접 넣기"로 올려 주세요.'
-export const QUICK_PLACEHOLDER = '15 핑크프릴 10000'
 export const QUICK_SEND = '보내기'
 export const ALERTS_NONE = '알림 없음'
 export const NO_FOCUS_WORDS = '지금 상품 없음 — 상품 이름을 쓴 댓글만 받아요'

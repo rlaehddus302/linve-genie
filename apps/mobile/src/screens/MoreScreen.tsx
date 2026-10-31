@@ -23,7 +23,7 @@ export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavig
         <RowGroup label="앱에서">
           <TodoRow title="라벨·프린터" sub="프린터 잇기, 라벨 뽑기" onPress={nav.openLabels} />
           <RowDivider />
-          <TodoRow title="설정" sub="음성, 라벨, 알림 받기" onPress={nav.openSettings} />
+          <TodoRow title="설정" sub="음성, 라벨, 알림 받기, 문자 연동" onPress={nav.openSettings} />
         </RowGroup>
         <View style={{ gap: 10 }}>
           <GroupLabel>웹에서 보기</GroupLabel>

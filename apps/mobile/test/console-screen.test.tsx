@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { DIRECT_INPUT, LISTEN_START, LISTEN_STATE, LISTEN_STOP, VOICE_CONSENT_LINES, VOICE_SENT_LINE } from '../src/lib/words.ts'
 import { makeWorld } from './screen-support.tsx'
-import { changes, claim, flush, product } from './support.ts'
+import { buyer, changes, claim, flush, fullView, product } from './support.ts'
 
 function setVisibility(state: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
@@ -103,7 +103,9 @@ describe('ConsoleScreen', () => {
     expect(board.textContent).toContain('· 대기 1명')
     fireEvent.click(within(board).getByRole('button', { name: '상품 자세히 — 15번' }))
     const list = await screen.findByRole('list', { name: '15번 찜' })
-    expect(list.textContent).toContain('1등')
+    // 시트도 보드와 같은 말: 1등은 "예약" (D-UX2-07 — 옛 기대 '1등')
+    expect(list.textContent).toContain('예약')
+    expect(list.textContent).not.toContain('1등')
     expect(list.textContent).toContain('홍길동')
     expect(list.textContent).toContain('대기 1번')
     expect(list.textContent).toContain('김영희')
@@ -187,5 +189,55 @@ describe('ConsoleScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: '문자찜 넣기' }))
     await waitFor(() => expect(screen.getByText('상품 번호를 숫자로 적어 주세요.')).toBeTruthy())
     expect(world.events.length).toBe(0)
+  })
+
+  it('겹친 상품 시트: "판매 완료"·"1등" 대신 "아직 안 정했어요"·"겹침", 정하기 버튼은 웹으로 연다고 알린다 (D-UX2-07)', async () => {
+    const world = makeWorld({ products: [product(5, { status: 'SOLD', conflict: true, winners: ['u1'], winnerClaims: ['c1'] })] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=false)?$/, () => ({
+      body: fullView({ seq: world.seq, products: [product(5, { status: 'SOLD', conflict: true, winners: ['u1'], winnerClaims: ['c1'] })], claims: [claim('c1', 5, 'u1'), claim('c2', 5, 'u2', { status: 'CONFLICT', seq: 11 })], buyers: [buyer('u1', '꽃집언니'), buyer('u2', '문자손님')] }),
+    }))
+    await open(world)
+    const board = screen.getByRole('list', { name: '상품 목록' })
+    expect(board.textContent).toContain('예약이 겹쳐요')
+    fireEvent.click(within(board).getByRole('button', { name: '상품 자세히 — 5번' }))
+    const detail = await screen.findByRole('group', { name: '상품 자세히' })
+    expect(within(detail).getByText('아직 안 정했어요')).toBeTruthy()
+    expect(detail.textContent).not.toContain('판매 완료')
+    expect(detail.textContent).not.toContain('1등')
+    expect(detail.textContent).not.toContain('충돌')
+    expect(detail.textContent).toContain('예약이 겹쳐요. 아직 누가 살지 정하지 않았어요.')
+    const claims = within(detail).getByRole('list', { name: '5번 찜' }).textContent ?? ''
+    expect(claims.match(/겹침/g)).toHaveLength(2)
+    expect(claims).toContain('꽃집언니')
+    expect(claims).toContain('문자손님')
+    expect(within(detail).getByRole('button', { name: '누가 살지 정하기 (웹으로 열기)' })).toBeTruthy()
+    expect(within(detail).getByText('누르면 휴대폰 브라우저의 방송 화면에서 정해요.')).toBeTruthy()
+  })
+
+  it('방송을 끝내면 "끝난 방송"이 되고 홈으로 돌려보낸다 (D-UX2-07)', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    world.server.on('POST', /^\/api\/broadcasts\/b1\/end$/, () => ({ body: { seq: world.seq } }))
+    let home = 0
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} onEnded={() => home++} />))
+    await waitFor(() => expect(screen.getByTestId('console-screen')).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+    fireEvent.click(await screen.findByRole('button', { name: '방송 끝내기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '끝내기' }))
+    await waitFor(() => expect(home).toBe(1))
+    expect(screen.getByText('끝난 방송')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: DIRECT_INPUT })).toBeNull()
+  })
+
+  it('직접 넣기 예시는 그 방송 가격 단위와 같은 꼴이다 — 천원 단위면 "15 핑크프릴 10" (D-UX2-07)', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    await open(world)
+    openDirect()
+    const input = screen.getByRole('textbox', { name: '빠른 입력' })
+    expect(input.getAttribute('placeholder')).toBe('예: 15 핑크프릴 10')
+    expect(screen.getByText('가격 단위: 천원 — 10은 10,000원, 2만은 20,000원')).toBeTruthy()
   })
 })

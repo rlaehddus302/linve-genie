@@ -21,9 +21,11 @@ export interface BigButtonProps {
   /** 글자 앞에 붙는 그림 조각 (선 아이콘) — 보조 기술에는 읽히지 않는다 */
   readonly leading?: ReactNode
   readonly testID?: string
+  /** 좁은 자리의 짧은 글 ("직접 넣기"): 한 줄로만 — 안 들어가면 글자를 조금 줄인다(한글이 낱말 가운데서 끊기지 않게) */
+  readonly oneLine?: boolean
 }
 
-export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ariaLabel, icon, leading, testID }: BigButtonProps) {
+export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ariaLabel, icon, leading, testID, oneLine }: BigButtonProps) {
   const { p } = useKit()
   const off = disabled === true || busy === true
   const fill = kind === 'primary' ? p.primary : kind === 'danger' ? p.danger : kind === 'outline' ? p.surface : p.secondary
@@ -40,7 +42,7 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
       style={({ pressed }) => ({
         minHeight: TOUCH.button,
         borderRadius: RADIUS.lg,
-        paddingHorizontal: SPACE.xl,
+        paddingHorizontal: oneLine === true ? SPACE.md : SPACE.xl,
         paddingVertical: SPACE.md,
         backgroundColor: fill,
         borderWidth: kind === 'outline' ? 2 : 0,
@@ -54,7 +56,7 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
     >
       {busy === true ? <ActivityIndicator color={p[ink]} /> : null}
       {busy !== true && leading !== undefined ? leading : null}
-      <Txt step="bodyLarge" weight="heavy" color={ink} center>
+      <Txt step="bodyLarge" weight="heavy" color={ink} center {...(oneLine === true ? { numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.7 } : {})}>
         {icon === undefined ? label : `${icon} ${label}`}
       </Txt>
     </Pressable>

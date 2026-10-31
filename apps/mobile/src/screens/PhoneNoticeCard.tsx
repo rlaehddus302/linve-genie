@@ -241,7 +241,7 @@ export function PhoneNoticeCard() {
           <BigButton small label="그대로 두기" onPress={() => setAsk(false)} />
         </Card>
       ) : null}
-      {state !== null ? on ? <BigButton label="끄기" disabled={busy} onPress={() => void turnOff()} /> : ios ? null : <BigButton primary label="켜기" disabled={busy} onPress={turnOn} /> : null}
+      {state !== null ? on ? <BigButton label="알림 받기 끄기" disabled={busy} onPress={() => void turnOff()} /> : ios ? null : <BigButton primary label="켜기" disabled={busy} onPress={turnOn} /> : null}
       {state !== null && !ios ? <SmsLinkRow port={port} noticeOn={on && !tokenBad} accessNeeded={state.access === 'needed'} /> : null}
       {ios ? (
         <>

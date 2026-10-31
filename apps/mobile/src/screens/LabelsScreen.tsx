@@ -134,11 +134,13 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
         <Row wrap>
           {showReconnect ? <BigButton label={PRINT_ACTION.reconnect} primary disabled={busy} onPress={() => void run(() => labels.reconnect())} /> : null}
           {disconnected ? <BigButton label={BLUETOOTH_METHOD} primary={!showReconnect} disabled={busy} onPress={() => void run(() => labels.connect('bluetooth'))} /> : null}
-          {disconnected && snapshot.testPrinter ? <BigButton label={TEST_PRINTER_METHOD} disabled={busy} onPress={() => void run(() => labels.connect('test'))} /> : null}
+          {/* 보이는 글은 짧게(한글이 낱말 가운데서 끊기지 않게), 뜻 전체는 이름과 아래 한 줄로 */}
+          {disconnected && snapshot.testPrinter ? <BigButton label="시험용 프린터" ariaLabel={TEST_PRINTER_METHOD} disabled={busy} onPress={() => void run(() => labels.connect('test'))} /> : null}
           {snapshot.printer === 'CONNECTED' ? <BigButton label="연결 끊기" disabled={busy} onPress={() => void run(() => labels.disconnect())} /> : null}
           {snapshot.printer === 'CONNECTED' ? <BigButton label="테스트 인쇄" disabled={busy || snapshot.job !== null} onPress={printTest} /> : null}
           {showTestShare ? <BigButton label={testShareLabel(app)} disabled={busy} onPress={() => void run(async () => void (await labels.shareTest()))} /> : null}
         </Row>
+        {disconnected && snapshot.testPrinter ? <Hint>시험용 프린터는 실제로 출력되지 않아요.</Hint> : null}
         {snapshot.testPrinted && linked ? (
           <View role="group" aria-label="테스트 인쇄 결과" style={{ gap: 8 }}>
             <Notice tone="info">{TEST_QUESTION}</Notice>
@@ -171,12 +173,15 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
           </Notice>
         ) : null}
         {snapshot.densityRange !== null ? (
-          <Row wrap>
+          <View style={{ gap: 6 }}>
             <Body>인쇄 농도</Body>
-            {densityLevels(snapshot.densityRange).map((level) => (
-              <BigButton key={level} small primary={snapshot.density === level} label={String(level)} ariaLabel={`인쇄 농도 ${String(level)}`} onPress={() => labels.setDensity(level)} />
-            ))}
-          </Row>
+            {/* 숫자 단추는 한 줄에 — 마지막 숫자만 다음 줄로 떨어지지 않게 */}
+            <Row>
+              {densityLevels(snapshot.densityRange).map((level) => (
+                <BigButton key={level} small primary={snapshot.density === level} label={String(level)} ariaLabel={`인쇄 농도 ${String(level)}`} onPress={() => labels.setDensity(level)} />
+              ))}
+            </Row>
+          </View>
         ) : null}
       </Card>
 

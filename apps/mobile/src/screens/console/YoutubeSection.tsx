@@ -3,19 +3,27 @@
 // - 이은 방송: "유튜브 방송 · {채널 이름}", 수집 상태(서버 문장), "서버 연결로 받는 중", 받은 채팅 수, 끊긴 동안 빠짐.
 // - 막힘·형식 바뀜·운영자 끔은 바로 맨 위 경고 + 대비 경로(문자찜·음성 안내, 댓글 붙여넣기는 웹으로 열기). 다시 받으면 "다시 받고 있어요" 한 줄.
 // - 실시간 `youtube`(같은 연결)로 수집 상태가 바뀌면 다시 받는다. 리허설은 유튜브 요청을 보내지 않는다. 채널 이름·제목은 글자로만.
+// - 방송 시작의 "주소 붙여넣기" 단계 (D-UX2-07): 클립보드에 유튜브 주소가 있으면 [붙여 넣기] 하나로 잇는다(앱으로 돌아올 때 다시 본다).
+//   옛 공식 읽기 서버(구글 연결로 읽음)도 앱에서 잇는다 — 연결돼 있으면 같은 잇기 칸, 아니면 "먼저 연결" 안내와 연결 화면(웹으로 열기)·[다시 확인].
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { CollectorView, LinkView, LiveBroadcastItem, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
+import type { CollectorView, ConnectionStatus, LinkView, LiveBroadcastItem, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../../api/client.ts'
+import { clipboardYoutubeAddress } from '../../lib/clipboard.ts'
 import { openWeb } from '../../lib/open-web.ts'
+import { useAppForeground } from '../../lib/use-app-state.ts'
 import {
   FIRST_CHANNEL_GROUP,
   INVITED_CONFIRM_CODE,
   MOBILE_FALLBACK_HINT,
   NOT_CONFIGURED_MESSAGE,
-  OFFICIAL_LINK_HINT,
+  NOT_CONNECTED_FIRST,
+  NOT_CONNECTED_HELP,
+  PASTE_COPIED,
+  RECONNECT_FIRST,
   RECENT_AGAIN,
   RECENT_EMPTY,
   RECENT_SEARCHING,
+  MY_CHANNEL_TITLE,
   RECENT_TITLE,
   RETRYING_WARN_MS,
   SERVER_ROUTE_SERVER,
@@ -40,6 +48,8 @@ type Phase = 'loading' | 'hidden' | 'notConfigured' | 'ready'
 export interface MobileYoutube {
   readonly phase: Phase
   readonly webChat: YoutubeWebChat | null
+  /** 구글 연결 상태 (옛 공식 읽기 서버에서 잇기 칸을 열지 정한다) */
+  readonly connection: ConnectionStatus | null
   readonly link: LinkView | null
   readonly resumed: boolean
   readonly retryingLong: boolean
@@ -47,12 +57,15 @@ export interface MobileYoutube {
   dismissResumed(): void
   setLink(view: LinkView): void
   reloadLink(): Promise<void>
+  /** 연결 상태·잇기를 처음부터 다시 받는다 ("다시 확인") */
+  reload(): Promise<void>
 }
 
 export function useMobileYoutube(broadcastId: string, enabled: boolean): MobileYoutube {
   const services = useServices()
   const [phase, setPhase] = useState<Phase>('loading')
   const [webChat, setWebChat] = useState<YoutubeWebChat | null>(null)
+  const [connection, setConnection] = useState<ConnectionStatus | null>(null)
   const [link, setLinkState] = useState<LinkView | null>(null)
   const [resume, setResume] = useState<ResumeStep>({ trouble: false, resumed: false })
   const [retryingLong, setRetryingLong] = useState(false)
@@ -77,6 +90,7 @@ export function useMobileYoutube(broadcastId: string, enabled: boolean): MobileY
     try {
       const body = await get<YoutubeConnectionResponse>('/api/youtube/connection')
       setWebChat(readModeOf(body).webChat)
+      setConnection(body.connection?.status ?? null)
       setPhase('ready')
     } catch (error) {
       setPhase(isApiError(error) && error.code === 'YOUTUBE_NOT_CONFIGURED' ? 'notConfigured' : 'hidden')
@@ -127,7 +141,7 @@ export function useMobileYoutube(broadcastId: string, enabled: boolean): MobileY
   }, [status])
   const dismissResumed = useCallback(() => setResume((previous) => ({ ...previous, resumed: false })), [])
 
-  return { phase: enabled ? phase : 'hidden', webChat, link, resumed: enabled && resume.resumed, retryingLong, broadcastId, dismissResumed, setLink, reloadLink }
+  return { phase: enabled ? phase : 'hidden', webChat, connection, link, resumed: enabled && resume.resumed, retryingLong, broadcastId, dismissResumed, setLink, reloadLink, reload: loadAll }
 }
 
 /** 맨 위 경고 (AC5·AC6·AC8) — 휴대폰은 확장 안내 없이 문자찜·음성·댓글 붙여넣기(웹) */
@@ -170,7 +184,7 @@ export function YoutubeSection({ yt, closed }: { readonly yt: MobileYoutube; rea
     // 불러오는 중
   } else if (linked !== null) body = <LinkedStatus yt={yt} closed={closed} />
   else if (closed) body = <Body>이은 유튜브 방송이 없어요.</Body>
-  else if (yt.webChat === null) body = <Hint>{OFFICIAL_LINK_HINT}</Hint>
+  else if (yt.webChat === null) body = yt.connection === 'CONNECTED' ? <LinkPicker yt={yt} /> : <ConnectFirst yt={yt} />
   else if (!yt.webChat.on) body = <Notice tone="warning">{WEB_CHAT_OFF_MESSAGE}</Notice>
   else body = <LinkPicker yt={yt} />
   return (
@@ -226,6 +240,19 @@ function LinkedStatus({ yt, closed }: { readonly yt: MobileYoutube; readonly clo
   )
 }
 
+/** 옛 공식 읽기 서버에서 구글 연결이 없거나 끊김: 무엇을 하면 되는지 + 연결 화면(웹) + 다시 확인 */
+function ConnectFirst({ yt }: { readonly yt: MobileYoutube }) {
+  return (
+    <Stack tight>
+      <Notice tone="warning">{yt.connection === 'RECONNECT_NEEDED' ? RECONNECT_FIRST : NOT_CONNECTED_FIRST}</Notice>
+      <Hint>{NOT_CONNECTED_HELP}</Hint>
+      <BigButton label="유튜브 연결하러 가기" ariaLabel="유튜브 연결하러 가기 (웹으로 열기)" primary onPress={() => void openWeb('/settings/youtube')} />
+      <BigButton label="다시 확인" onPress={() => void yt.reload()} />
+      <Hint>{MOBILE_FALLBACK_HINT}</Hint>
+    </Stack>
+  )
+}
+
 function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   const [recentError, setRecentError] = useState<string | null>(null)
@@ -235,6 +262,16 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
   const [error, setError] = useState<ApiError | null>(null)
   const [ask, setAsk] = useState<{ video: string; name: string } | null>(null)
   const pending = useRef<{ video: string; confirmed: boolean; requestId: string } | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+
+  // 클립보드의 유튜브 주소 — 칸을 열 때, 그리고 유튜브 앱에서 주소를 복사하고 돌아올 때
+  const peek = useCallback(async () => {
+    setCopied(await clipboardYoutubeAddress())
+  }, [])
+  useEffect(() => {
+    void peek()
+  }, [peek])
+  useAppForeground({ onForeground: () => void peek() })
 
   const search = useCallback(async () => {
     setSearching(true)
@@ -279,11 +316,27 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
     }
   }
 
+  const recentTitle = yt.webChat === null ? MY_CHANNEL_TITLE : RECENT_TITLE
   return (
     <Stack tight>
-      <Body>이 방송에 유튜브 라이브를 이으면 그 채팅으로 찜을 받아요.</Body>
-      <Card label={RECENT_TITLE}>
-        <Body bold>{RECENT_TITLE}</Body>
+      <Body>유튜브 방송 주소를 붙여 넣으면 그 방송 채팅으로 찜을 받아요.</Body>
+      {copied !== null ? (
+        <Card label="복사한 주소">
+          <Body bold>{PASTE_COPIED}</Body>
+          <Hint>{copied}</Hint>
+          <BigButton label="붙여 넣기" ariaLabel="복사한 주소 붙여 넣어 잇기" primary disabled={busy} onPress={() => {
+            setAddress(copied)
+            void link(copied)
+          }} />
+        </Card>
+      ) : null}
+      <Field label="주소 붙여넣기" value={address} onChangeText={(text) => {
+        setAddress(text)
+        setAsk(null)
+      }} inputMode="url" autoCapitalize="none" autoCorrect={false} placeholder="예: https://youtube.com/live/…" />
+      <BigButton label="이 방송에 잇기" primary={copied === null} disabled={busy || address.trim() === ''} onPress={() => void link(address.trim())} />
+      <Card label={recentTitle}>
+        <Body bold>{recentTitle}</Body>
         {searching ? <Hint>{RECENT_SEARCHING}</Hint> : null}
         {recentError !== null ? (
           <Notice tone="danger" alert>
@@ -310,11 +363,6 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
           <BigButton small label={RECENT_AGAIN} disabled={searching} onPress={() => void search()} />
         </Row>
       </Card>
-      <Field label="주소 붙여넣기" value={address} onChangeText={(text) => {
-        setAddress(text)
-        setAsk(null)
-      }} inputMode="url" autoCapitalize="none" autoCorrect={false} placeholder="유튜브 방송 주소" />
-      <BigButton label="이 방송에 잇기" primary disabled={busy || address.trim() === ''} onPress={() => void link(address.trim())} />
       {ask !== null ? (
         <Card label={FIRST_CHANNEL_GROUP}>
           <Notice tone="warning" alert>
