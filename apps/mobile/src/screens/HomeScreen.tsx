@@ -1,13 +1,21 @@
-// 방송 목록·시작 (SPEC §7 화면 1, 웹 HomePage와 같은 흐름). 주 버튼은 하나(D-101): 새 방송 칸이 열리면 그 칸의 "이 방송 시작하기"가 주 버튼.
-// 정산·구매자·택배 같은 화면은 앱 첫 판에 없다 — "웹으로 열기"(기기 브라우저)로 잇는다(APP-01).
-import { useEffect, useRef, useState } from 'react'
-import type { BroadcastItem, WriteResult } from '@livejjim/web/src/api/types.ts'
+// 홈 "오늘 할 일" (D-UX2-02, SPEC §7 화면 1과 같은 흐름): 인사 한 줄 → 큰 초록 "방송 시작하기"(진행 중 방송이 있으면 "방송으로 돌아가기")
+// → 할 일 3줄(입금 확인·포장하기·라벨 뽑기, 숫자는 서버 값) → 지난 방송 한 줄. 새 방송은 시트에서 시작한다(주 버튼 하나, D-101).
+// - 입금 확인·포장하기 숫자: 가장 최근 판매 날짜의 포장 목록(GET /api/days/:date/packing) — 입금 전(미입금·부분 입금) 손님 수, 포장할 것(포장 대기·다시 확인) 손님 수.
+// - 라벨 뽑기 숫자: 라벨 대기열 요약의 대기 장 수(라벨 기능을 켰을 때만). 값을 모르면 그 줄을 숨긴다.
+// - 정산·구매자·택배 같은 화면은 앱에 없다 — "더보기"의 "웹으로 열기"(기기 브라우저)로 잇는다(APP-01).
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Pressable, ScrollView, View } from 'react-native'
+import type { BroadcastItem, PackingEntry, PackingList, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
-import { openWeb, WEB_SCREENS } from '../lib/open-web.ts'
-import { OPEN_IN_WEB, RETRY_NOW } from '../lib/words.ts'
-import { BigButton, Body, Card, Field, Hint, Loading, Notice, Row, Screen, SectionTitle, Stack } from '../ui/parts.tsx'
+import { inFilter, itemCount } from '../lib/packing.ts'
+import { openWeb } from '../lib/open-web.ts'
+import { formatWon, RETRY_NOW } from '../lib/words.ts'
+import { useServices } from '../services.tsx'
+import { BigButton, BottomSheet, GroupLabel, HeroButton, Icon, RowDivider, RowGroup, TodoRow, Txt, useKit } from '../ui/kit/index.ts'
+import { Field, Loading, Notice } from '../ui/parts.tsx'
+import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
@@ -29,10 +37,68 @@ export function startErrorMessage(error: ApiError): string {
   return error.code === 'NO_PASS' ? APP_NO_PASS_MESSAGE : error.message
 }
 
+/** 할 일 숫자 (포장 목록에서). 입금 전 = 미입금·부분 입금, 포장할 것 = 포장 대기·포장 다시 확인 */
+export function todoCounts(entries: readonly PackingEntry[]): { readonly unpaid: number; readonly toPack: number; readonly done: number } {
+  let unpaid = 0
+  let toPack = 0
+  let done = 0
+  for (const entry of entries) {
+    if (entry.payment === 'UNPAID' || entry.payment === 'PARTIAL') unpaid++
+    if (inFilter(entry, 'todo')) toPack++
+    else done++
+  }
+  return { unpaid, toPack, done }
+}
+
+/** 지난 방송 한 줄의 판 개수·금액 (그 방송 품목만, 정수 원) */
+export function soldOf(entries: readonly PackingEntry[], broadcastId: string): { readonly count: number; readonly amount: number } {
+  let count = 0
+  let amount = 0
+  for (const entry of entries)
+    for (const item of entry.items) {
+      if (item.broadcast !== broadcastId) continue
+      const qty = item.qty ?? 1
+      count += qty
+      amount += item.price * qty
+    }
+  return { count, amount }
+}
+
+/** 방송 이름 한 줄 ("10월 31일 저녁 방송") */
+function broadcastName(item: BroadcastItem): string {
+  const title = item.title.trim()
+  return title === '' ? `${dateWords(item.date)} 방송` : title
+}
+
+function usePacking(date: string | null): readonly PackingEntry[] | null {
+  const [entries, setEntries] = useState<readonly PackingEntry[] | null>(null)
+  useEffect(() => {
+    if (date === null) return
+    let alive = true
+    get<PackingList>(`/api/days/${date}/packing`).then(
+      (view) => {
+        if (alive) setEntries(view.entries)
+      },
+      () => {
+        // 숫자를 모르면 줄을 숨긴다
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [date])
+  return entries
+}
+
 export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; readonly sellerName: string }) {
+  const { p } = useKit()
+  const { labels } = useServices()
+  const labelSnapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
   const [items, setItems] = useState<BroadcastItem[] | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
-  const [formOpen, setFormOpen] = useState(false)
+  const [day, setDay] = useState<string | null>(null)
+  const [sheet, setSheet] = useState(false)
+  const [all, setAll] = useState(false)
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [createError, setCreateError] = useState<ApiError | null>(null)
@@ -51,6 +117,10 @@ export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; 
 
   useEffect(() => {
     void load()
+    get<{ days: { date: string; rehearsal: boolean }[] }>('/api/days').then(
+      (view) => setDay(view.days.find((item) => !item.rehearsal)?.date ?? null),
+      () => setDay(null),
+    )
   }, [])
 
   const create = async (input: { title?: string; rehearsal?: boolean }) => {
@@ -64,7 +134,10 @@ export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; 
       const result = await withRetry(() => post<WriteResult>('/api/broadcasts', { requestId, ...input }))
       pending.current = null
       const id = result.broadcast?.id
-      if (id !== undefined) nav.openConsole(id)
+      if (id !== undefined) {
+        setSheet(false)
+        nav.openConsole(id)
+      }
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       if (!caught.transient) pending.current = null
@@ -74,64 +147,126 @@ export function HomeScreen({ nav, sellerName }: { readonly nav: HomeNavigation; 
     }
   }
 
-  const live = items?.filter((item) => !item.ended) ?? []
-  const ended = items?.filter((item) => item.ended) ?? []
+  const live = items?.find((item) => !item.ended && !item.rehearsal) ?? items?.find((item) => !item.ended)
+  const lastEnded = items?.find((item) => item.ended && !item.rehearsal)
+  const entries = usePacking(day)
+  const endedEntries = usePacking(lastEnded !== undefined && lastEnded.date !== day ? lastEnded.date : null)
+  const counts = useMemo(() => (entries === null ? null : todoCounts(entries)), [entries])
+  const sold = lastEnded === undefined ? null : (() => {
+    const source = lastEnded.date === day ? entries : endedEntries
+    return source === null ? null : soldOf(source, lastEnded.id)
+  })()
+  const queue = labelSnapshot.queue
+  const labelCount = queue !== null && queue.labelsEnabled ? queue.waiting : null
 
   return (
-    <Screen title="어떤 방송을 열까요?" testID="home-screen">
-      <Hint>{sellerName} 사장님</Hint>
-      <Row wrap>
-        <BigButton label="새 방송 시작" primary={!formOpen} onPress={() => setFormOpen((open) => !open)} />
-        <BigButton label="리허설 해 보기" disabled={busy} onPress={() => void create({ rehearsal: true })} />
-      </Row>
-      {formOpen ? (
-        <Card label="새 방송">
-          <Field label="방송 제목 (비워도 돼요)" value={title} onChangeText={setTitle} placeholder="예: 10월 29일 저녁 방송" />
-          {createError !== null ? <Notice tone="danger" alert>{startErrorMessage(createError)}</Notice> : null}
-          <BigButton label="이 방송 시작하기" primary disabled={busy} onPress={() => void create(title.trim() === '' ? {} : { title: title.trim() })} />
-        </Card>
-      ) : createError !== null ? (
-        <Notice tone="danger" alert>
-          {startErrorMessage(createError)}
-        </Notice>
-      ) : null}
+    <View style={{ flex: 1, backgroundColor: p.background }} testID="home-screen">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: 28, paddingBottom: SPACE.xxxl, gap: SPACE.xl }}>
+        <View style={{ gap: SPACE.xs }}>
+          <Txt step="caption" color="textSub">{`${sellerName} 사장님, 안녕하세요`}</Txt>
+          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
+            오늘 할 일
+          </Txt>
+        </View>
 
-      <SectionTitle>진행 중인 방송</SectionTitle>
-      {items === null && error === null ? <Loading /> : null}
-      {error !== null ? (
-        <Stack tight>
+        {live !== undefined ? (
+          <HeroButton title="방송으로 돌아가기" sub={broadcastLine(live)} ariaLabel={`방송으로 돌아가기 — ${broadcastLine(live)}`} onPress={() => nav.openConsole(live.id)} />
+        ) : (
+          <HeroButton title="방송 시작하기" sub="유튜브 방송 주소만 붙여 넣으면 돼요" onPress={() => setSheet(true)} />
+        )}
+        {live !== undefined ? (
+          <Pressable role="button" aria-label="새 방송 시작" onPress={() => setSheet(true)} style={{ minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start', marginTop: -SPACE.sm }}>
+            <Txt weight="bold" color="primaryText">
+              새 방송 시작
+            </Txt>
+          </Pressable>
+        ) : null}
+        {createError !== null && !sheet ? (
           <Notice tone="danger" alert>
-            {error.message}
+            {startErrorMessage(createError)}
           </Notice>
-          <BigButton label={RETRY_NOW} onPress={() => void load()} />
-        </Stack>
-      ) : null}
-      {items !== null && live.length === 0 ? <Body muted>진행 중인 방송이 없어요.</Body> : null}
-      {live.map((item) => (
-        <BigButton key={item.id} label={broadcastLine(item)} ariaLabel={`콘솔 열기 — ${broadcastLine(item)}`} onPress={() => nav.openConsole(item.id)} />
-      ))}
-      {ended.length > 0 ? (
-        <>
-          <SectionTitle>끝난 방송</SectionTitle>
-          {ended.slice(0, 10).map((item) => (
-            <BigButton key={item.id} label={broadcastLine(item)} ariaLabel={`콘솔 열기 — ${broadcastLine(item)}`} onPress={() => nav.openConsole(item.id)} />
-          ))}
-        </>
-      ) : null}
+        ) : null}
 
-      <SectionTitle>할 일</SectionTitle>
-      <Row wrap>
-        <BigButton label="포장" onPress={nav.openPacking} />
-        <BigButton label="라벨·프린터" onPress={nav.openLabels} />
-        <BigButton label="설정" onPress={nav.openSettings} />
-      </Row>
-      <SectionTitle>{OPEN_IN_WEB}</SectionTitle>
-      <Hint>아래 화면은 기기 브라우저에서 열려요. 로그인이 필요할 수 있어요.</Hint>
-      <Row wrap>
-        {WEB_SCREENS.map((screen) => (
-          <BigButton key={screen.key} small label={screen.word} ariaLabel={`${screen.word} — ${OPEN_IN_WEB}`} onPress={() => void openWeb(screen.path)} />
+        {counts !== null || labelCount !== null ? (
+          <RowGroup label="할 일">
+            {counts !== null ? (
+              <>
+                <TodoRow count={counts.unpaid} tone="warn" title="입금 확인" sub="돈을 아직 안 보낸 손님" onPress={() => void openWeb('/settlements')} />
+                <RowDivider />
+                <TodoRow count={counts.toPack} tone="green" title="포장하기" sub="아직 포장 안 한 손님" onPress={nav.openPacking} />
+              </>
+            ) : null}
+            {counts !== null && labelCount !== null ? <RowDivider /> : null}
+            {labelCount !== null ? <TodoRow count={labelCount} tone="gray" title="라벨 뽑기" sub="아직 안 뽑은 라벨" onPress={nav.openLabels} /> : null}
+          </RowGroup>
+        ) : null}
+
+        {items === null && error === null ? <Loading /> : null}
+        {error !== null ? (
+          <View style={{ gap: SPACE.sm }}>
+            <Notice tone="danger" alert>
+              {error.message}
+            </Notice>
+            <BigButton kind="secondary" label={RETRY_NOW} onPress={() => void load()} />
+          </View>
+        ) : null}
+
+        {lastEnded !== undefined ? (
+          <View style={{ gap: 10 }}>
+            <GroupLabel>지난 방송</GroupLabel>
+            <Pressable role="button" aria-label={`지난 방송 열기 — ${broadcastLine(lastEnded)}`} onPress={() => nav.openConsole(lastEnded.id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, backgroundColor: p.surface, borderRadius: RADIUS.lg, paddingVertical: SPACE.lg, paddingHorizontal: SPACE.xl, opacity: pressed ? 0.6 : 1 })}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt weight="bold" numberOfLines={1}>
+                  {broadcastName(lastEnded)}
+                </Txt>
+                <Txt step="caption" color="textSub">
+                  {sold === null ? dateWords(lastEnded.date) : `${String(sold.count)}개 팔림`}
+                </Txt>
+              </View>
+              {sold === null ? <Icon name="chevron" color={p.textSub} size={20} /> : <Txt step="bodyLarge" weight="heavy">{formatWon(sold.amount)}</Txt>}
+            </Pressable>
+          </View>
+        ) : null}
+        {items !== null && items.length > 0 ? (
+          <Pressable role="button" aria-label="방송 모두 보기" onPress={() => setAll(true)} style={{ minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start' }}>
+            <Txt weight="bold" color="primaryText">
+              방송 모두 보기
+            </Txt>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+
+      <BottomSheet
+        visible={sheet}
+        onClose={() => setSheet(false)}
+        title="방송 시작"
+        actions={
+          <>
+            <BigButton label="이 방송 시작하기" disabled={busy} busy={busy} onPress={() => void create(title.trim() === '' ? {} : { title: title.trim() })} />
+            <BigButton kind="outline" label="리허설 해 보기" disabled={busy} onPress={() => void create({ rehearsal: true })} />
+            <BigButton kind="secondary" label="닫기" onPress={() => setSheet(false)} />
+          </>
+        }
+      >
+        <Field label="방송 제목 (비워도 돼요)" value={title} onChangeText={setTitle} placeholder="예: 금요일 저녁 방송" />
+        <Txt step="caption" color="textSub">
+          시작하면 유튜브 방송 주소를 붙여 넣는 칸이 나와요. 리허설은 연습이라 손님에게 보이지 않아요.
+        </Txt>
+        {createError !== null ? (
+          <Notice tone="danger" alert>
+            {startErrorMessage(createError)}
+          </Notice>
+        ) : null}
+      </BottomSheet>
+
+      <BottomSheet visible={all} onClose={() => setAll(false)} title="방송 모두 보기">
+        {(items ?? []).slice(0, 20).map((item) => (
+          <TodoRow key={item.id} title={broadcastName(item)} sub={broadcastLine(item)} ariaLabel={`콘솔 열기 — ${broadcastLine(item)}`} onPress={() => {
+            setAll(false)
+            nav.openConsole(item.id)
+          }} testID={`broadcast-${item.id}`} />
         ))}
-      </Row>
-    </Screen>
+      </BottomSheet>
+    </View>
   )
 }

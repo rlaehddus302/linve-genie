@@ -192,9 +192,9 @@ export function RowDivider() {
 }
 
 /** 할 일 줄: 숫자 배지 · 제목 · 짧은 설명 · 화살표 */
-export function TodoRow({ count, tone, title, sub, onPress, testID }: { readonly count?: number; readonly tone?: BadgeTone; readonly title: string; readonly sub?: string; readonly onPress: () => void; readonly testID?: string }) {
+export function TodoRow({ count, tone, title, sub, onPress, ariaLabel, testID }: { readonly count?: number; readonly tone?: BadgeTone; readonly title: string; readonly sub?: string; readonly onPress: () => void; readonly ariaLabel?: string; readonly testID?: string }) {
   const { p } = useKit()
-  const name = count === undefined ? title : `${title} ${String(count)}`
+  const name = ariaLabel ?? (count === undefined ? title : `${title} ${String(count)}`)
   return (
     <Pressable role="button" aria-label={name} onPress={onPress} testID={testID} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: SPACE.lg, paddingHorizontal: SPACE.xl, minHeight: TOUCH.min, opacity: pressed ? 0.6 : 1 })}>
       {count === undefined ? null : <CountBadge count={count} tone={tone ?? 'gray'} />}
