@@ -10,6 +10,7 @@ import {
   setupPaused,
   smsButton,
   smsCard,
+  smsEvents,
   smsResults,
   smsWrites,
   speak,
@@ -17,6 +18,8 @@ import {
 
 const C165 = '165번 핑크프릴 · 끝자리 1234 · 문자찜'
 const C166 = '166번 핑크프릴 · 끝자리 5678 · 문자찜'
+const C167 = '167번 핑크프릴 · 끝자리 1111 · 문자찜'
+const C168 = '168번 핑크프릴 · 끝자리 2222 · 문자찜'
 const TWO = '15번 핑크프릴 · 28번 핑크프릴 · 끝자리 1234 · 문자찜'
 
 async function background(button: Locator): Promise<string> {
@@ -69,17 +72,19 @@ test.describe('V1 버튼 자리·단축키', () => {
     expect(skip.y < send.y || (Math.abs(skip.y - send.y) < 1 && skip.x < send.x)).toBe(true)
   })
 
-  test('AC-V1-32: PC·창 없음·빠른 입력칸이 비고 포커스 → Esc는 맨 앞(가장 새) 기다리는 카드만 닫고 10초 뒤까지 쓰기 없음, 글자·창이 있으면 Esc는 그것 먼저, 번호 둘 카드는 닫지 않음', async ({ page }) => {
-    const { b } = await setupPaused(page)
-    for (const no of [165, 166, 15, 28]) await registerApi(page, b, no, '핑크프릴', 10000)
+  // SRV1 (D-APP-22): 문자찜 기다림(3초)은 서버 음성 흐름의 실제 시계 타이머로 흐른다 — 페이지 시계를 멈춰도 서지 않는다.
+  // 그래서 기다림을 10초로 두고(값만 바꿈 — Esc 뜻은 그대로, 3초 표시는 다른 V1 시험이 본다) 그 안에 Esc를 누르고, "닫은 카드는 넣지 않음"은 뒤에 말한 카드가 저절로 들어간 뒤(앞 카드들의 3초가 확실히 지난 뒤) 서버 기록으로 본다.
+  test('AC-V1-32: PC·창 없음·빠른 입력칸이 비고 포커스 → Esc는 맨 앞(가장 새) 기다리는 카드만 닫고 그 뒤에도 쓰기 없음, 글자·창이 있으면 Esc는 그것 먼저, 번호 둘 카드는 닫지 않음', async ({ page }) => {
+    // 페이지 시계를 멈추지 않는다(setupLive) — 남은 초 표시가 서버의 실제 기다림과 같은 시계로 흐르게
+    const { b, date } = await setupLive(page, { smsSettings: { 'voice.smsListen': true, 'voice.smsAutoSec': 10 } })
+    for (const no of [165, 166, 167, 168, 15, 28]) await registerApi(page, b, no, '핑크프릴', 10000)
     await expect(boardItem(page, 28)).toBeVisible()
-    const requests = recordRequests(page)
     const quick = page.getByLabel('빠른 입력')
     await quick.focus()
     await speak(page, '165번 문자찜 끝자리 1234')
-    await expect(smsCard(page, C165).getByText('3초 뒤 넣어요')).toBeVisible()
+    await expect(smsCard(page, C165).getByText(/^\d+초 뒤 넣어요$/)).toBeVisible()
     await speak(page, '166번 문자찜 끝자리 5678')
-    await expect(smsCard(page, C166).getByText('3초 뒤 넣어요')).toBeVisible()
+    await expect(smsCard(page, C166).getByText(/^\d+초 뒤 넣어요$/)).toBeVisible()
     // "Esc" 표시는 맨 앞(가장 새) 카드에만
     await expect(smsCard(page, C166).getByText('Esc', { exact: true })).toBeVisible()
     await expect(smsCard(page, C165).getByText('Esc', { exact: true })).toHaveCount(0)
@@ -88,35 +93,38 @@ test.describe('V1 버튼 자리·단축키', () => {
     await expect(smsCard(page, C166)).toHaveCount(0)
     await expect(smsCard(page, C165)).toBeVisible()
     await expect(smsCard(page, C165).getByText('Esc', { exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(smsCard(page, C165)).toHaveCount(0)
 
     // 빠른 입력칸에 글자가 있으면 카드는 남는다
+    await speak(page, '167번 문자찜 끝자리 1111')
+    await expect(smsCard(page, C167).getByText(/^\d+초 뒤 넣어요$/)).toBeVisible()
     await quick.focus()
     await quick.fill('20 라울')
     await page.keyboard.press('Escape')
-    await expect(smsCard(page, C165)).toBeVisible()
+    await expect(smsCard(page, C167)).toBeVisible()
     await quick.fill('')
 
     // 창이 열려 있으면 Esc는 창을 닫고 카드는 남는다
+    await speak(page, '168번 문자찜 끝자리 2222')
+    await expect(smsCard(page, C168).getByText(/^\d+초 뒤 넣어요$/)).toBeVisible()
     await boardItem(page, 15).click()
     await expect(page.getByRole('dialog').first()).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
-    await expect(smsCard(page, C165)).toBeVisible()
+    await expect(smsCard(page, C168)).toBeVisible()
 
-    // 이제 Esc → 165번 카드도 닫힌다
-    await quick.focus()
-    await page.keyboard.press('Escape')
-    await expect(smsCard(page, C165)).toHaveCount(0)
-
-    // 기다리는 카드가 없으면(번호 둘 카드만) Esc는 카드를 닫지 않는다
+    // 기다리는 카드가 없으면(번호 둘 카드만) Esc는 카드를 닫지 않는다 — 남은 카드는 저절로 들어갔다
+    await expect(smsResults(page, C168)).toHaveText(/^168번 · 문자찜 · /, { timeout: 20_000 })
     await speak(page, '15번 28번 문자찜 끝자리 1234')
     await expect(smsCard(page, TWO)).toBeVisible()
     await quick.focus()
     await page.keyboard.press('Escape')
     await expect(smsCard(page, TWO)).toBeVisible()
 
-    await page.clock.runFor(10_000)
-    expect(smsWrites(requests)).toEqual([])
+    // Esc로 닫은 165·166은 3초가 훨씬 지난 뒤에도 들어가지 않았다(남긴 167·168만 들어감)
+    const nos = (await smsEvents(page, date, false)).map((e) => e['no']).sort()
+    expect(nos).toEqual([167, 168])
   })
 
   test('AC-V1-33: 음성 문자찜 결과 카드가 열려 있고 되돌릴 것이 없을 때 Ctrl+Z → 쓰기 없이 "문자찜은 카드의 \'찜 취소하기\'로 취소해요."', async ({ page }) => {
