@@ -1,5 +1,5 @@
 // PRN2 적대 시험 (test-domain): 기기 쪽 경계 (AC-PRN2-03·04·05, L-7 고르기 목록·지원 단계, L-12 3·4·5, D-PRN2-03·04·05·16·22).
-// - 끝 알림: 무작위 알림 값 — 끝은 정확히 `AA` 한 바이트, Luck Jingle만 정확히 `4F 4B`도. 어댑터에서 `OK`가 두 알림으로 쪼개져 와도·출력 전에 와도 끝이 아니다.
+// - 끝 알림: 무작위 알림 값 — 끝은 정확히 `AA` 한 바이트, Luck Jingle과 Marklife X2(YXQ8, D-910)만 정확히 `4F 4B`도. 어댑터에서 `OK`가 두 알림으로 쪼개져 와도·출력 전에 와도 끝이 아니다.
 //   Marklife는 첫 조각 뒤 `OK`(YXQ 첫 명령의 답)를 받아도 끝까지 보내고 `AA`를 기다린다.
 // - ff03 없는 꾸러미 A: 크레딧을 기다리지 않고 30ms 간격으로 끝까지 보낸다 (1.03초 간격이 아니다), 바이트는 작업 그대로.
 // - 고르기 목록 이름 경계: 대소문자·앞 공백·전각·폭 없는 공백·이어폰·Phomemo·첫 글자만 같은 기기 — 웹·앱 같은 답 (속성 포함).
@@ -41,14 +41,14 @@ const PROTOCOLS: readonly LabelProtocol[] = ['MARKLIFE_YXQ2', 'MARKLIFE_YXQ3', '
 const imageFor = (p: ModelProfile, n = 40): LabelBitmap => (p.rotate === 'CW90' ? createBitmap(n * 8, 96) : createBitmap(384, n))
 
 describe('끝 알림 값 — 무작위 (L-12 5, D-PRN2-03)', () => {
-  it('끝 ⇔ 정확히 AA 한 바이트, 또는 Luck Jingle이고 정확히 4F 4B (속성)', () => {
+  it('끝 ⇔ 정확히 AA 한 바이트, 또는 Luck Jingle·X2(YXQ8, D-910)이고 정확히 4F 4B (속성)', () => {
     const interesting = fc.oneof(
       fc.uint8Array({ maxLength: 6 }),
       fc.constantFrom([0xaa], [0x4f, 0x4b], [0x6f, 0x6b], [0x4f, 0x6b], [0x4f, 0x4b, 0x0a], [0x4f, 0x4b, 0x0d, 0x0a], [0x0a, 0x4f, 0x4b], [0xaa, 0xaa], [0xaa, 0x00], [0x00, 0xaa], [0x4f], [0x4b], [], [0x20, 0x4f, 0x4b], [0x4f, 0x4b, 0x00]).map((a) => Uint8Array.from(a)),
     )
     fc.assert(
       fc.property(fc.constantFrom(...PROTOCOLS), interesting, (protocol, value) => {
-        const want = (value.length === 1 && value[0] === 0xaa) || (protocol === 'LUCKJINGLE' && value.length === 2 && value[0] === 0x4f && value[1] === 0x4b)
+        const want = (value.length === 1 && value[0] === 0xaa) || ((protocol === 'LUCKJINGLE' || protocol === 'MARKLIFE_YXQ8') && value.length === 2 && value[0] === 0x4f && value[1] === 0x4b)
         expect(isEndNotice(protocol, value), `${protocol} ${Buffer.from(value).toString('hex')}`).toBe(want)
       }),
       { numRuns: 1_500, seed: 0x9120 },
