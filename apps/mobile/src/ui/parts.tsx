@@ -11,7 +11,7 @@ const TONE_MARK: Readonly<Record<Tone, string>> = { info: 'i', success: '✓', w
 export function Screen({ title, children, testID }: { readonly title?: string; readonly children: ReactNode; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.background }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.xxl, gap: SPACE.lg, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" testID={testID}>
+    <ScrollView style={{ flex: 1, backgroundColor: p.background }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: title === undefined ? SPACE.sm : SPACE.xxl, gap: SPACE.lg, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" testID={testID}>
       {title !== undefined ? <Title>{title}</Title> : null}
       {children}
     </ScrollView>

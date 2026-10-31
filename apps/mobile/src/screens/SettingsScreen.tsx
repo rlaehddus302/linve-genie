@@ -8,7 +8,9 @@ import { get, isApiError, patch, put } from '../api/client.ts'
 import { openExternal, openWeb } from '../lib/open-web.ts'
 import { OPEN_IN_WEB, VOICE_INSTANT_LABEL } from '../lib/words.ts'
 import { useServices, useSession } from '../services.tsx'
-import { BigButton, BottomCTA, Card, ConfirmSheet, KitScreen, ListRow, Section, Toast, ToggleRow, Txt, useToast } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, Card, ConfirmSheet, ListRow, Section, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
+import { SPACE } from '../ui/kit/tokens.ts'
+import { ScrollView } from 'react-native'
 import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
 
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
@@ -34,6 +36,7 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, showPhoneNotic
   const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   const { toast, show, hide } = useToast()
+  const { p } = useKit()
 
   useEffect(() => {
     get<LabelSettings>('/api/settings/labels').then(setLabels, () => setLabels(null))
@@ -72,21 +75,14 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, showPhoneNotic
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      <KitScreen
-        title="무엇을 바꿀까요?"
-        testID="settings-screen"
-        footer={
-          <BottomCTA>
-            <BigButton label="방송 목록으로 돌아가기" ariaLabel="방송 목록으로" icon="←" onPress={onBack} />
-          </BottomCTA>
-        }
-      >
+    <View style={{ flex: 1, backgroundColor: p.background }} testID="settings-screen">
+      <AppHeader title="설정" onBack={onBack} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.xl }} keyboardShouldPersistTaps="handled">
         <Section title="음성">
           <Card label="음성">
             <ToggleRow
               title={VOICE_INSTANT_LABEL}
-              subtitle="끄면 들린 말은 카드로만 보이고, 등록을 누를 때 등록돼요."
+              subtitle="끄면 들린 말이 카드로 먼저 보이고, 등록을 눌러야 올라가요."
               on={view.instant}
               onChange={(next) => {
                 const previous = view.instant
@@ -117,7 +113,7 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, showPhoneNotic
         </Section>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
         {showPhoneNotice ? <PhoneNoticeCard /> : null}
-        <Section title="그 밖 설정" description="가게·감사 메시지·플랫폼 연결 같은 설정은 웹에서 해요.">
+        <Section title="그 밖 설정" description="가게 정보·감사 메시지·연결은 웹에서 바꿔요.">
           <Card label="그 밖">
             <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />
             {policyUrl !== undefined ? <ListRow title="개인정보처리방침" subtitle="기기 브라우저에서 열려요." onPress={() => void openExternal(policyUrl)} /> : null}
@@ -130,8 +126,8 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, showPhoneNotic
             <BigButton label="로그아웃" kind="secondary" onPress={() => setAsking(true)} />
           </Card>
         </Section>
-      </KitScreen>
-      <Toast toast={toast} onDismiss={hide} bottomOffset={96} />
+      </ScrollView>
+      <Toast toast={toast} onDismiss={hide} />
       <ConfirmSheet
         visible={asking}
         question="로그아웃할까요?"

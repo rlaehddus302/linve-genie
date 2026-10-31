@@ -13,9 +13,9 @@ export default function SettingsRoute() {
   if (session.state === 'out') return <Redirect href="/" />
   if (session.state !== 'in') return null
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F7F8F6' }} edges={['top']}>
       <KitInsets>
-        <SettingsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))} policyUrl={webUrl('/privacy')} onOpenDesign={__DEV__ ? () => router.push('/dev/design') : undefined} showPhoneNotice={phoneNoticeBuilt()} />
+        <SettingsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} policyUrl={webUrl('/privacy')} onOpenDesign={__DEV__ ? () => router.push('/dev/design') : undefined} showPhoneNotice={phoneNoticeBuilt()} />
       </KitInsets>
     </SafeAreaView>
   )

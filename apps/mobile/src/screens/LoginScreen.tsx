@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import { openWeb } from '../lib/open-web.ts'
 import { LOGIN_ACCOUNT_NOTE, LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, OPEN_IN_WEB, SERVICE_NAME, SESSION_EXPIRED_MESSAGE } from '../lib/words.ts'
+import { BigButton as KitButton } from '../ui/kit/index.ts'
 import { BigButton, Field, Hint, Notice, Screen, Stack } from '../ui/parts.tsx'
 
 export function LoginScreen({ expired, offline = false, onRecheck, onLogin }: { readonly expired: boolean; readonly offline?: boolean; readonly onRecheck?: () => Promise<void>; readonly onLogin: (loginId: string, password: string) => Promise<void> }) {
@@ -41,6 +42,7 @@ export function LoginScreen({ expired, offline = false, onRecheck, onLogin }: { 
 
   return (
     <Screen title={SERVICE_NAME} testID="login-screen">
+      <Hint>라이브 방송 찜을 대신 받아 드려요. 아이디와 비밀번호를 넣어 주세요.</Hint>
       {expired ? <Notice tone="warning">{SESSION_EXPIRED_MESSAGE}</Notice> : null}
       {offline ? <Notice tone="warning" alert>{OFFLINE_AT_START_MESSAGE}</Notice> : null}
       {offline && onRecheck !== undefined ? <BigButton label="다시 확인" disabled={rechecking} onPress={() => void recheck()} /> : null}
@@ -52,7 +54,7 @@ export function LoginScreen({ expired, offline = false, onRecheck, onLogin }: { 
         <BigButton label="로그인" primary disabled={busy} onPress={() => void submit()} />
       </Stack>
       <Hint>{LOGIN_ACCOUNT_NOTE}</Hint>
-      <BigButton label={`간편 로그인(카카오·네이버·구글) — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/login')} />
+      <KitButton kind="outline" label={`간편 로그인(카카오·네이버·구글) — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/login')} />
     </Screen>
   )
 }
