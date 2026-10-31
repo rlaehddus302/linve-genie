@@ -32,7 +32,7 @@ cd tools/fake-printer
 .build/sc/fake-printer --mode marklife-s2    # Marklife S2인 척 (이름 S2_FAKE_BLE)
 .build/sc/fake-printer --mode marklife-p12   # Marklife P12인 척 (이름 P12_FAKE)
 .build/sc/fake-printer --mode marklife-p50   # Marklife P50인 척 (YXQ3, 이름 P50_FAKE)
-.build/sc/fake-printer --mode marklife-x2    # Marklife X2인 척 (YXQ8, 꾸러미 C fd00, 이름 X2_FAKE)
+.build/sc/fake-printer --mode marklife-x2    # Marklife X2인 척 (YXQ8, 꾸러미 C fd00, 이름 X2-FAKE)
 .build/sc/fake-printer --mode bauato         # 바우아토 스티코팝인 척 (Luck Jingle, 이름 PPA2L_FAKE)
 .build/sc/fake-printer --mode bauato --ack-ok --no-flow   # 끝 알림 OK(4F 4B) · 흐름 제어 ff03 없는 기기
 ```
@@ -41,7 +41,7 @@ cd tools/fake-printer
 
 | 옵션 | 하는 일 |
 |---|---|
-| `--name 이름` | 광고 이름 바꾸기. 앱은 이름 앞자리로 고릅니다(B1은 `B1-…`·`B1_…` 또는 NIIMBOT 서비스, S2는 `S2_`, P50은 `P50_`, X2는 `X2_`, P12는 `P12_`, 바우아토는 `PPA2`). 글자 그대로(대소문자를 가립니다) |
+| `--name 이름` | 광고 이름 바꾸기. 앱은 이름 앞자리로 고릅니다(B1은 `B1-…`·`B1_…` 또는 NIIMBOT 서비스, S2는 `S2_`, P50은 `P50_`, X2는 `X2-`, P12는 `P12_`, 바우아토는 `PPA2`). 글자 그대로(대소문자를 가립니다) |
 | `--no-credit` | (Marklife) 흐름 제어 크레딧(`01 04`, `01 01`)을 보내지 않음 — 크레딧 없는 기기 흉내(D-N1-12) |
 | `--mtu auto` 또는 `--mtu 185` | (Marklife) 첫 크레딧 뒤에 MTU 알림 `02 lo hi`를 보냄 |
 | `--no-ack` | (Marklife) 다 받아도 끝 알림 `AA`를 보내지 않음 — 시간 초과 흉내 |

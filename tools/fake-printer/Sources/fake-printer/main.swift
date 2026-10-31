@@ -21,7 +21,7 @@ enum Mode: String {
         case .marklifeS2: return "S2_FAKE_BLE"
         case .marklifeP12: return "P12_FAKE"
         case .marklifeP50: return "P50_FAKE"
-        case .marklifeX2: return "X2_FAKE"
+        case .marklifeX2: return "X2-FAKE"
         case .bauato: return "PPA2L_FAKE"
         }
     }
@@ -73,7 +73,7 @@ let usage = """
   --mode marklife-s2     Marklife S2인 척 (YXQ 방식, 기본 이름 S2_FAKE_BLE)
   --mode marklife-p12    Marklife P12인 척 (L11 방식, 기본 이름 P12_FAKE)
   --mode marklife-p50    Marklife P50인 척 (YXQ3 방식, 기본 이름 P50_FAKE)
-  --mode marklife-x2     Marklife X2인 척 (YXQ8 방식, GATT 꾸러미 C fd00, 기본 이름 X2_FAKE)
+  --mode marklife-x2     Marklife X2인 척 (YXQ8 방식, GATT 꾸러미 C fd00, 기본 이름 X2-FAKE)
   --mode bauato          바우아토 스티코팝인 척 (Luck Jingle 방식, 기본 이름 PPA2L_FAKE)
   --name 이름            광고 이름 바꾸기 (앱이 이름 앞자리로 고른다: B1·S2_·P12_)
   --out 폴더             PNG·기록을 둘 폴더 (기본 ./out)

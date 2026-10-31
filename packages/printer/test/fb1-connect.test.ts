@@ -221,7 +221,7 @@ describe('B1 첫 확인 시간 초과 — 같은 기기로 한 번 다시 잇기
     expect(options.filters).not.toContainEqual({ namePrefix: 'B' })
     expect(options.filters[0]).toEqual({ services: ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'] })
     expect(options.filters.slice(1)).toEqual(['B1-', 'B1_', 'B1_SE-', 'B1_SE_', 'B21-', 'B21_', 'D110-', 'D110_'].map((namePrefix) => ({ namePrefix })))
-    expect(options.exclusionFilters).toEqual(['P50_', 'S2_', 'X2_', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2'].map((namePrefix) => ({ namePrefix })))
+    expect(options.exclusionFilters).toEqual(['P50_', 'S2_', 'X2-', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2'].map((namePrefix) => ({ namePrefix })))
   })
 
   it('두 번째도 실패하면 CONNECT_FAILED, 상세 "… 한 번 더 해 봤지만 안 됐어요." — 다시 잇기는 많아야 한 번', async () => {

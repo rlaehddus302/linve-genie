@@ -11,7 +11,7 @@
     {"id":"G-PRT-N1-47","title":"LP15(국내판) — P15_와 섞이지 않는다","refs":["PRT-01","L-12","D-N1-04"],"note":"L로 시작하므로 P15_와 맞지 않는다","name":"LP15_A1B2_BLE","out":{"profile":"MARKLIFE_LP15"}},
     {"id":"G-PRT-N1-48","title":"P50","refs":["PRT-01","L-12","D-N1-04"],"name":"P50_9F3C","out":{"profile":"MARKLIFE_P50"}},
     {"id":"G-PRT-N1-49","title":"S2","refs":["PRT-01","L-12","D-N1-04"],"name":"S2_1A2B_BLE","out":{"profile":"MARKLIFE_S2"}},
-    {"id":"G-PRT-N1-50","title":"X2","refs":["PRT-01","L-12","D-N1-04"],"name":"X2_ABCD","out":{"profile":"MARKLIFE_X2"}},
+    {"id":"G-PRT-N1-50","title":"X2","refs":["PRT-01","L-12","D-N1-04"],"name":"X2-ABCD","out":{"profile":"MARKLIFE_X2"}},
     {"id":"G-PRT-N1-51","title":"바우아토 스티코팝(실험적)은 앞자리 PPA2(밑줄 규칙 없음)","refs":["PRT-01","L-12","D-N1-04"],"note":"PPA2로 시작","name":"PPA2L_1234","out":{"profile":"BAUATO_PPA2L"}},
     {"id":"G-PRT-N1-52","title":"이름이 PPA2뿐이어도 바우아토","refs":["PRT-01","L-12","D-N1-04"],"name":"PPA2","out":{"profile":"BAUATO_PPA2L"}},
     {"id":"G-PRT-N1-53","title":"밑줄 없는 P12는 고르지 않는다(같은 이름 다른 기기 — Phomemo P12 등)","refs":["PRT-01","L-12","D-N1-04"],"note":"P12_로 시작하지 않는다","name":"P12","out":{"profile":null}},

@@ -166,7 +166,7 @@ await marklifeGolden({
   options: { initialCredits: null, creditsPerPacket: 0, mtu: 23 },
 })
 await marklifeGolden({ name: 'p50-yxq3', deviceName: 'P50_FAKE', profile: MARKLIFE_P50, images: [sampleImage(8, 384, 240), sampleImage(10, 384, 160)], chunkSize: 90, options: {} })
-await marklifeGolden({ name: 'x2-yxq8-c', deviceName: 'X2_FAKE', profile: MARKLIFE_X2, bundle: 'C', images: [sampleImage(9, 384, 240), sampleImage(11, 384, 200)], chunkSize: 90, options: { initialCredits: null, creditsPerPacket: 0 } })
+await marklifeGolden({ name: 'x2-yxq8-c', deviceName: 'X2-FAKE', profile: MARKLIFE_X2, bundle: 'C', images: [sampleImage(9, 384, 240), sampleImage(11, 384, 200)], chunkSize: 90, options: { initialCredits: null, creditsPerPacket: 0 } })
 await marklifeGolden({ name: 'p12-l11', deviceName: 'P12_FAKE', profile: MARKLIFE_P12, images: [sampleImage(2, 320, 96), sampleImage(4, 240, 96)], chunkSize: 90, options: {} })
 // 바우아토 (Luck Jingle — D-PRN2-02): OK(4F 4B) 끝 알림, 흐름 제어(ff03) 없는 꾸러미 A (D-PRN2-03)
 await marklifeGolden({

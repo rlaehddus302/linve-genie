@@ -228,7 +228,7 @@ describe('고르기 목록 이름 경계 — 웹·앱 같은 답 (AC-PRN2-04, L-
   })
 
   it('속성: 아무 이름 + 아무 서비스 → 웹 판정과 앱 계열이 같고, 목록에 들면 이름이 앞자리·모델 꼴로 시작하거나 NIIMBOT 서비스를 광고한다', () => {
-    const prefixes = ['P50_', 'S2_', 'X2_', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2', 'B1-', 'B1_', 'B1_SE-', 'B1_SE_', 'B21-', 'B21_', 'D110-', 'D110_']
+    const prefixes = ['P50_', 'S2_', 'X2-', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2', 'B1-', 'B1_', 'B1_SE-', 'B1_SE_', 'B21-', 'B21_', 'D110-', 'D110_']
     const nameArb = fc.oneof(
       fc.string({ maxLength: 12 }),
       fc.tuple(fc.constantFrom('', ' ', '​', '　', 'x', 'Phomemo ', 'Galaxy '), fc.constantFrom(...prefixes), fc.string({ maxLength: 6 })).map(([h, p, t]) => h + p + t),

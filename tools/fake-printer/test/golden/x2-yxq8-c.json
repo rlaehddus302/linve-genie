@@ -2,7 +2,7 @@
  "kind": "marklife",
  "bundle": "C",
  "protocol": "MARKLIFE_YXQ8",
- "deviceName": "X2_FAKE",
+ "deviceName": "X2-FAKE",
  "options": {
   "initialCredits": null,
   "creditsPerPacket": 0,

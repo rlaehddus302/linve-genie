@@ -124,7 +124,7 @@ describe('AC-N1-72 · D-N1-11 앞자리 뒤의 글은 보지 않는다 — 고�
     ['끝 공백', 'P12_ZA15B ', 'MARKLIFE_P12'],
     ['앞자리만', 'S2_', 'MARKLIFE_S2'],
     ['248자', `LP15_${'A'.repeat(243)}`, 'MARKLIFE_LP15'],
-    ['끝 탭·줄바꿈', 'X2_AB12\t\n', 'MARKLIFE_X2'],
+    ['끝 탭·줄바꿈', 'X2-AB12\t\n', 'MARKLIFE_X2'],
     ['P12_ + 1만 자', `P12_${'가'.repeat(10_000)}`, 'MARKLIFE_P12'],
     ['P50_ + 이모지·폭 없는 공백', 'P50_🌵​', 'MARKLIFE_P50'],
   ])('%s → %s', (_what, name, id) => {

@@ -203,7 +203,7 @@ describe('기기 고르기 창과 이름으로 고르기 (AC-N1-31·55)', () => 
     expect(fake.requests).toHaveLength(1)
     const request = fake.requests[0]
     // 기본 목록 = Marklife 9종 + 바우아토 (PRN2 D-PRN2-01 — N1에서는 바우아토 PPA2가 없었다)
-    expect(request?.filters).toEqual(['P50_', 'S2_', 'X2_', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2'].map((namePrefix) => ({ namePrefix })))
+    expect(request?.filters).toEqual(['P50_', 'S2_', 'X2-', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2'].map((namePrefix) => ({ namePrefix })))
     expect(request?.optionalServices).toEqual([SERVICE_A, SERVICE_C])
     expect(Object.keys(request ?? {}).sort()).toEqual(['filters', 'optionalServices'])
     expect(adapter.profile).toBe(MARKLIFE_P12)
@@ -263,7 +263,7 @@ describe('GATT 꾸러미 찾기 (AC-N1-32)', () => {
     expect((await a.adapter.connect('bluetooth')).ok).toBe(true)
     expect(a.adapter.bundle).toBe('A')
     expect(a.fake.notifying).toEqual(['ff01', 'ff03'])
-    const c = setup({ bundle: 'C', name: 'X2_ABCD' })
+    const c = setup({ bundle: 'C', name: 'X2-ABCD' })
     expect((await c.adapter.connect('bluetooth')).ok).toBe(true)
     expect(c.adapter.bundle).toBe('C')
     expect(c.fake.notifying).toEqual(['fd02'])
@@ -546,7 +546,7 @@ describe('흐름 제어 — 꾸러미 A (AC-N1-41)', () => {
   })
 
   it('꾸러미 C는 크레딧을 기다리지 않고 간격만 지켜 보낸다', async () => {
-    const { adapter, fake, timer } = setup({ bundle: 'C', name: 'X2_1', initialCredits: null, creditsPerPacket: 0 })
+    const { adapter, fake, timer } = setup({ bundle: 'C', name: 'X2-1', initialCredits: null, creditsPerPacket: 0 })
     await adapter.connect('bluetooth')
     const image = noisy(384, 40)
     const p = track(adapter.print(image))
@@ -906,7 +906,7 @@ describe('가짜 Web Bluetooth 기기 (AC-N1-50)', () => {
     const cases: readonly [ModelProfile, string, LabelBitmap, LabelBitmap][] = [
       [MARKLIFE_S2, 'S2_X', noisy(384, 24, 1), noisy(384, 12, 2)],
       [MARKLIFE_P50, 'P50_X', noisy(384, 24, 3), noisy(384, 12, 4)],
-      [MARKLIFE_X2, 'X2_X', noisy(384, 24, 5), noisy(384, 12, 6)],
+      [MARKLIFE_X2, 'X2-X', noisy(384, 24, 5), noisy(384, 12, 6)],
       [MARKLIFE_P12, 'P12_X', noisy(64, 96, 7), noisy(40, 96, 8)],
       [BAUATO_PPA2L, 'PPA2_X', noisy(384, 16, 9), noisy(384, 8, 10)],
     ]

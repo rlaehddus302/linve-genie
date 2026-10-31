@@ -193,7 +193,7 @@ describe('host.assign의 replace·replaceTo 한쪽만은 입력 오류 (AC-S03b-
 // ── 충돌이 풀릴 때 넘침 정리 (AC-S03b-31, R-7 7, D-068) ──────────────────
 
 describe('충돌이 자리가 비어 풀릴 때 넘침 정리는 승계·재고 뒤 (AC-S03b-31)', () => {
-  const FIVE = ['X1', 'X2', 'X3', 'X4', 'X5']
+  const FIVE = ['X1', 'X2-', 'X3', 'X4', 'X5']
 
   it('기본 설정(대기 5 꽉 참): 1등 방송자 취소·무효·취소 승인 — 충돌 찜이 1등이 되고 아무도 품절되지 않는다', () => {
     const base = convertConflict(FIVE)
@@ -216,7 +216,7 @@ describe('충돌이 자리가 비어 풀릴 때 넘침 정리는 승계·재고 
     expect(product(plus1.state, 15)?.waitlist).toEqual(FIVE)
     const plus2 = play([...base, update(15, { stock: 3 })])
     expect(product(plus2.state, 15)?.winners).toEqual(['W', 'A', 'X1'])
-    expect(product(plus2.state, 15)?.waitlist).toEqual(['X2', 'X3', 'X4', 'X5'])
+    expect(product(plus2.state, 15)?.waitlist).toEqual(['X2-', 'X3', 'X4', 'X5'])
     expect(newSoldOut(plus2, base.length, plus2.states.length - 1)).toEqual([])
   })
 
@@ -232,14 +232,14 @@ describe('충돌이 자리가 비어 풀릴 때 넘침 정리는 승계·재고 
   })
 
   it('ASK: 빈 자리는 방송자 결정으로 남고 한도를 넘는 맨 끝이 품절. REOPEN: 충돌 찜도 대기자와 함께 정리', () => {
-    const base = convertConflict(['X1', 'X2'])
+    const base = convertConflict(['X1', 'X2-'])
     const ask = play([...base, host('host.cancel', 15, 'W')], { 'waitlist.max': 2, 'cancel.succession': 'ASK' })
     expect(product(ask.state, 15)?.winners).toEqual([])
     expect(product(ask.state, 15)?.waitlist).toEqual(['A', 'X1'])
     expect(product(ask.state, 15)?.awaitingSuccession).toBe(true)
-    expect(statusOf(ask, 'X2')).toBe('REJECTED(SOLD_OUT)')
+    expect(statusOf(ask, 'X2-')).toBe('REJECTED(SOLD_OUT)')
     const reopen = play([...base, host('host.cancel', 15, 'W')], { 'waitlist.max': 2, 'cancel.succession': 'REOPEN' })
-    expect(['A', 'X1', 'X2'].map((w) => statusOf(reopen, w))).toEqual(Array(3).fill('REJECTED(WAITLIST_CLEARED)'))
+    expect(['A', 'X1', 'X2-'].map((w) => statusOf(reopen, w))).toEqual(Array(3).fill('REJECTED(WAITLIST_CLEARED)'))
   })
 
   it('RECEIVED_TIME: 충돌 중 들어온 더 앞선 대기자가 대기 1순위면 그가 승계하고 충돌 찜이 대기에 남는다 (한도 1, 품절 없음)', () => {

@@ -121,7 +121,8 @@ const tape = (model: string): ModelProfile =>
 
 export const MARKLIFE_P50 = yxq('P50', 'MARKLIFE_YXQ3')
 export const MARKLIFE_S2 = yxq('S2', 'MARKLIFE_YXQ2')
-export const MARKLIFE_X2 = yxq('X2', 'MARKLIFE_YXQ8')
+// 실물 X2는 `X2-8E2F-BLE`로 광고한다(HG-5, D-909) — 앞자리를 실물대로 `X2-`로 둔다(전의 `X2_`는 확인 전 추정, X2Pro 등은 고르지 않는다)
+export const MARKLIFE_X2: ModelProfile = deepFreeze({ ...yxq('X2', 'MARKLIFE_YXQ8'), namePrefix: 'X2-' })
 export const MARKLIFE_P11 = tape('P11')
 export const MARKLIFE_P12 = tape('P12')
 export const MARKLIFE_P15 = tape('P15')

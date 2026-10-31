@@ -134,7 +134,7 @@ describe('고르기 목록 — 앱·웹 같은 함수 (AC-PRN2-04, D-PRN2-04)', 
     expect(pickListFilter()).toEqual({
       serviceUuids: [NIIMBOT_SERVICE],
       niimbotNamePrefixes: ['B1-', 'B1_', 'B1_SE-', 'B1_SE_', 'B21-', 'B21_', 'D110-', 'D110_'],
-      labelNamePrefixes: ['P50_', 'S2_', 'X2_', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2'],
+      labelNamePrefixes: ['P50_', 'S2_', 'X2-', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2'],
     })
   })
 

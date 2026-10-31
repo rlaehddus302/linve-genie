@@ -290,7 +290,7 @@ Marklife 라벨프린터 9종과 바우아토 스티코팝(실험적)을 L-7 어
 |---|---|---|---|---|---|---|---|---|
 | `MARKLIFE_P50` | Marklife P50 | YXQ 3 | 384 | 없음 | 50×30·50×20·50×40·50×50 | 1~3 (기본 2) | `P50_` | Marklife 앱 |
 | `MARKLIFE_S2` | Marklife S2 | YXQ 2 | 384 | 없음 | 위와 같다 | 1~3 (기본 2) | `S2_` | Marklife 앱 |
-| `MARKLIFE_X2` | Marklife X2 | YXQ 8 | 384 | 없음 | 위와 같다 | 1~3 (기본 2) | `X2_` | Marklife 앱 |
+| `MARKLIFE_X2` | Marklife X2 | YXQ 8 | 384 | 없음 | 위와 같다 | 1~3 (기본 2) | `X2-` (실물 `X2-8E2F-BLE`, D-909) | Marklife 앱 |
 | `MARKLIFE_P11`·`MARKLIFE_P12`·`MARKLIFE_P15`·`MARKLIFE_L13`·`MARKLIFE_LP90`·`MARKLIFE_LP15` | Marklife P11 … LP15 | L11 | 96 | 시계 방향 90도 | 테이프 12×40·15×30·15×50 | 없음 | `P11_`·`P12_`·`P15_`·`L13_`·`LP90_`·`LP15_` | Marklife 앱 |
 | `BAUATO_PPA2L` | 바우아토 스티코팝 | Luck Jingle (`LUCKJINGLE`) | 384 | 없음 | 50×30·50×15·50×50 | 없음 | `PPA2` | Luck Jingle 앱 |
 

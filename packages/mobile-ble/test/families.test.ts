@@ -67,7 +67,7 @@ describe('계열 표', () => {
   })
 
   it('기종 이름: Marklife는 이름 앞자리의 프로필 이름, NIIMBOT은 계열 이름 (B1 확인은 이은 뒤)', () => {
-    expect(marklifeFamily().modelName('X2_ABCD')).toBe('Marklife X2')
+    expect(marklifeFamily().modelName('X2-ABCD')).toBe('Marklife X2')
     expect(marklifeFamily().modelName('P50_ABCD')).toBe('Marklife P50')
     expect(niimbotFamily().modelName('B1-1234')).toBe('NIIMBOT')
   })

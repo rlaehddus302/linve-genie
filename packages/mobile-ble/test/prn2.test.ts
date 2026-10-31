@@ -71,7 +71,7 @@ describe('골든 list를 앱 계열 표로 (AC-PRN2-04 — 앱·웹 같은 함�
   it('찾기 거르기: 서비스 + 모델 이름 꼴 + L-12 앞자리, 글자 그대로 (첫 글자 거르기 없음)', () => {
     const filter = familyScanFilter(defaultPrinterFamilies())
     expect(filter.serviceUuids).toEqual([NIIMBOT_SERVICE])
-    expect(filter.namePrefixes).toEqual(['P50_', 'S2_', 'X2_', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2', 'B1-', 'B1_', 'B1_SE-', 'B1_SE_', 'B21-', 'B21_', 'D110-', 'D110_'])
+    expect(filter.namePrefixes).toEqual(['P50_', 'S2_', 'X2-', 'P11_', 'P12_', 'P15_', 'L13_', 'LP90_', 'LP15_', 'PPA2', 'B1-', 'B1_', 'B1_SE-', 'B1_SE_', 'B21-', 'B21_', 'D110-', 'D110_'])
     expect(filter.matchCase).toBe(true)
   })
 })

@@ -106,8 +106,8 @@ describe('웹 가짜 기기와 같은 바이트 (L-12 4·5, 기종별 대표)', 
     {
       title: 'YXQ8 X2 · 꾸러미 C(fd00, 흐름 제어 없음)',
       profile: MARKLIFE_X2,
-      device: { id: 'ML:X2', localName: 'X2_9', printer: { protocol: 'MARKLIFE_YXQ8', bundle: 'C' } },
-      web: { name: 'X2_9', bundle: 'C' },
+      device: { id: 'ML:X2', localName: 'X2-9', printer: { protocol: 'MARKLIFE_YXQ8', bundle: 'C' } },
+      web: { name: 'X2-9', bundle: 'C' },
       image: sampleImage(7),
     },
     {
