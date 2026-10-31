@@ -3,7 +3,7 @@
 import type { Clock } from '../time.ts'
 import type { LogSink } from '../log.ts'
 import type { ExternalStream, VoiceRelay } from './relay.ts'
-import { STREAM_IDLE_RECHECK_MS, STREAM_LATE_MS, recordFailure, retryDelayMs, type AudioFeed, type StreamLocator } from './stream-audio.ts'
+import { STREAM_IDLE_RECHECK_MS, STREAM_LATE_MS, STREAM_STALL_CHECK_MS, STREAM_STALL_MS, recordFailure, retryDelayMs, type AudioFeed, type StreamLocator } from './stream-audio.ts'
 
 export type StreamAudioPhase = 'hidden' | 'off' | 'idle' | 'listening' | 'reconnecting' | 'stopped' | 'unsupported' | 'mic' | 'ended'
 /** late = lagMs가 30초를 넘음 (늦음 안내를 보일 때, D-LV1-10) */
@@ -26,7 +26,10 @@ interface Listen {
   readonly sellerId: string
   readonly broadcastId: string
   phase: StreamAudioPhase
-  lagMs: number
+  /** 모르면 null (소리 받기가 조각 시각을 주지 않음 — 늦음 안내를 숨긴다) */
+  lagMs: number | null
+  lastChunkAt: number
+  stall: (() => void) | null
   watchedUntil: number
   failures: number[]
   generation: number
@@ -74,14 +77,15 @@ export class StreamAudioService {
     const now = this.#o.clock.now()
     let listen = this.#listens.get(sellerId)
     if (listen !== undefined && listen.broadcastId !== broadcastId) {
-      // 다른 방송 콘솔이 열렸다: 앞의 것이 아직 열려 있으면 그대로 둔다(한 번에 하나), 닫혔으면 바꾼다
-      if (listen.watchedUntil > now) return { phase: 'idle' }
+      // 다른 방송 콘솔이 열렸다: 앞의 것이 아직 듣는 중이면 그대로 둔다(한 번에 하나). 닫혔거나 끝남·멈춤·못 받음이면 바로 바꾼다 (RA-LV1-03)
+      const settled = listen.phase === 'ended' || listen.phase === 'stopped' || listen.phase === 'unsupported'
+      if (listen.watchedUntil > now && !settled) return { phase: 'idle' }
       this.#stop(listen)
       this.#listens.delete(sellerId)
       listen = undefined
     }
     if (listen === undefined) {
-      listen = { sellerId, broadcastId, phase: 'idle', lagMs: 0, watchedUntil: now + WATCH_TTL_MS, failures: [], generation: 0, feed: null, worker: null, base: 0, cancel: null, delivered: false }
+      listen = { sellerId, broadcastId, phase: 'idle', lagMs: null, lastChunkAt: 0, stall: null, watchedUntil: now + WATCH_TTL_MS, failures: [], generation: 0, feed: null, worker: null, base: 0, cancel: null, delivered: false }
       this.#listens.set(sellerId, listen)
       this.#arrange(listen)
     } else listen.watchedUntil = now + WATCH_TTL_MS
@@ -102,7 +106,7 @@ export class StreamAudioService {
     if (!this.#o.available) return { phase: 'hidden' }
     const listen = this.#listens.get(sellerId)
     if (listen === undefined || listen.broadcastId !== broadcastId) return { phase: 'idle' }
-    if (listen.phase === 'listening') return { phase: 'listening', lagMs: listen.lagMs, late: listen.lagMs > STREAM_LATE_MS }
+    if (listen.phase === 'listening') return listen.lagMs === null ? { phase: 'listening' } : { phase: 'listening', lagMs: listen.lagMs, late: listen.lagMs > STREAM_LATE_MS }
     return { phase: listen.phase }
   }
   async viewFor(sellerId: string, broadcastId: string): Promise<StreamAudioView> {
@@ -167,6 +171,8 @@ export class StreamAudioService {
     listen.generation++
     listen.cancel?.()
     listen.cancel = null
+    listen.stall?.()
+    listen.stall = null
     listen.feed?.close()
     listen.feed = null
     listen.worker?.close()
@@ -225,11 +231,23 @@ export class StreamAudioService {
           listen.base = now - 100
         }
         if (!listen.worker.send(pcm)) { this.#fail(listen, generation); return }
-        listen.lagMs = producedAt === undefined ? 0 : Math.max(0, now - producedAt)
+        listen.lagMs = producedAt === undefined ? null : Math.max(0, now - producedAt)
+        listen.lastChunkAt = now
         if (first) { first = false; listen.phase = 'listening' }
       },
       fail: () => { if (this.#live(listen, generation)) this.#fail(listen, generation) },
     })
+    listen.lastChunkAt = this.#o.clock.now()
+    this.#watchStall(listen, generation)
+  }
+  /** HLS가 말없이 멈추면(조각이 8초 안 옴) 끊김으로 센다 */
+  #watchStall(listen: Listen, generation: number): void {
+    listen.stall = this.#schedule(() => {
+      listen.stall = null
+      if (!this.#live(listen, generation) || listen.feed === null) return
+      if (this.#o.clock.now() - listen.lastChunkAt >= STREAM_STALL_MS) this.#fail(listen, generation)
+      else this.#watchStall(listen, generation)
+    }, STREAM_STALL_CHECK_MS)
   }
   #result(listen: Listen, generation: number, result: { text: string; startMs: number; endMs: number }): void {
     if (!this.#live(listen, generation) || this.#relay === null) return

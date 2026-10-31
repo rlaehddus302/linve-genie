@@ -16,6 +16,10 @@ export const STREAM_RETRY_WINDOW_MS = 60_000
 export const STREAM_RETRY_LIMIT = 6
 /** 방송을 아직 잇지 않았을 때 다시 볼 간격 */
 export const STREAM_IDLE_RECHECK_MS = 3_000
+/** 이만큼 조각이 안 오면 HLS가 멈춘 것으로 보고 끊김으로 센다 (RA-LV1-01) */
+export const STREAM_STALL_MS = 8_000
+/** 멈춤 확인 간격 */
+export const STREAM_STALL_CHECK_MS = 2_500
 
 /** 끊김 n번째(창 안)의 다음 시도까지: 1·2·4·8초, 가장 길게 8초 */
 export function retryDelayMs(failures: number): number {
@@ -148,7 +152,7 @@ export class FfmpegAudioFeed implements AudioFeed {
     try {
       child = spawn(this.#command, [
         '-hide_banner', '-loglevel', 'quiet', '-nostdin',
-        '-protocol_whitelist', 'https,tls,tcp,crypto,hls,http',
+        '-protocol_whitelist', 'https,tls,tcp,crypto,hls',
         '-live_start_index', '-1', '-i', url,
         '-vn', '-ac', '1', '-ar', String(STREAM_SAMPLE_RATE), '-f', 's16le', 'pipe:1',
       ], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })

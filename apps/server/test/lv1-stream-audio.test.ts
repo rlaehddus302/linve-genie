@@ -35,9 +35,11 @@ class ManualFeed {
 class ManualSchedule {
   readonly jobs: { run: () => void; ms: number; live: boolean }[] = []
   schedule = (run: () => void, ms: number) => { const job = { run, ms, live: true }; this.jobs.push(job); return () => { job.live = false } }
+  /** 멈춤 확인만 */
+  runStall(): number { const due = this.jobs.filter((job) => job.live && job.ms === 2_500); for (const job of due) { job.live = false; job.run() } return due.length }
   /** 5초 쓸기 말고 다시 잇기 타이머만 */
   runRetries(): number[] {
-    const due = this.jobs.filter((job) => job.live && job.ms !== 5_000)
+    const due = this.jobs.filter((job) => job.live && job.ms !== 5_000 && job.ms !== 2_500)
     for (const job of due) { job.live = false; job.run() }
     return due.map((job) => job.ms)
   }
@@ -174,6 +176,51 @@ describe('LV1 방송 소리로 듣기 (서버)', () => {
     expect(await phase(world, seller.cookie, b.id)).toEqual({ phase: 'listening', lagMs: 29_000, late: false })
     feed.sink!.chunk(Buffer.alloc(3_200), world.clock.now() - 30_001)
     expect(await phase(world, seller.cookie, b.id)).toMatchObject({ phase: 'listening', late: true })
+  })
+  it('RA-LV1-01 조각 시각을 모르면 늦음을 숨기고, 조각이 8초 안 오면 끊김으로 다시 잇는다', async () => {
+    const { world, feed, timer, url } = await setup()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await worker(url, world)
+    await watch(world, seller.cookie, b.id)
+    await waitFor(() => feed.sink !== undefined)
+    feed.sink!.chunk(Buffer.alloc(3_200))
+    expect(await phase(world, seller.cookie, b.id)).toEqual({ phase: 'listening' })
+    world.clock.advance(7_000)
+    expect(timer.runStall()).toBe(1)
+    expect((await phase(world, seller.cookie, b.id)).phase).toBe('listening')
+    world.clock.advance(1_000)
+    expect(timer.runStall()).toBe(1)
+    expect((await phase(world, seller.cookie, b.id)).phase).toBe('reconnecting')
+    expect(feed.sinks).toEqual([])
+    expect(timer.runRetries()).toEqual([1_000])
+    await waitFor(() => feed.sink !== undefined)
+  })
+  it('RA-LV1-03 끝남·멈춤·못 받음인 흐름은 다른 방송 watch가 오면 바로 바꾼다', async () => {
+    const { world, feed, url, setLocation } = await setup({ location: () => ({ kind: 'unsupported' }) })
+    const seller = await addSeller(world)
+    const b1 = await createBroadcast(world, seller)
+    await worker(url, world)
+    await watch(world, seller.cookie, b1.id)
+    await waitFor(async () => (await phase(world, seller.cookie, b1.id)).phase === 'unsupported')
+    const b2 = await createBroadcast(world, seller, { title: '둘째' })
+    setLocation(() => ({ kind: 'ok', url: 'https://manifest.googlevideo.com/x' }))
+    await watch(world, seller.cookie, b2.id)
+    await waitFor(() => feed.sink !== undefined)
+    expect((await phase(world, seller.cookie, b1.id)).phase).toBe('idle')
+  })
+  it('RA-LV1-04 일꾼 연결이 닫힌 뒤 바깥 흐름을 닫아도 close를 보내지 않고 오류가 없다', async () => {
+    const { world, url } = await setup()
+    const w = await worker(url, world)
+    const lost: number[] = []
+    const stream = world.server.voice.openExternal(() => {}, () => lost.push(1))
+    if (typeof stream === 'string') throw new Error(stream)
+    await w.message('open')
+    w.ws.close()
+    await waitFor(() => lost.length === 1)
+    expect(stream.send(Buffer.alloc(3_200))).toBe(false)
+    expect(() => stream.close()).not.toThrow()
+    expect(w.messages.filter((m) => !m.binary && (m.body as { type: string }).type === 'close')).toEqual([])
   })
   it('늦은 조각은 lagMs로 알린다', async () => {
     const { world, feed, url } = await setup()
