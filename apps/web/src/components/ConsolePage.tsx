@@ -495,6 +495,12 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   const streamAudio = useStreamAudio(b, !ended && !sealed)
   const [streamConsentClosed, setStreamConsentClosed] = useState(false)
   const micOn = voiceSnapshot.phase === 'on'
+  // 방송 소리를 듣는 동안 조작 전용 음성 흐름을 열어 둔다 — 받아쓴 글이 마이크 때처럼 등록된다. 콘솔을 닫으면 닫는다
+  const streamOpen = streamAudio.consented && (streamAudio.status?.phase === 'listening' || streamAudio.status?.phase === 'reconnecting')
+  useEffect(() => {
+    voice?.listenStream?.(streamOpen)
+  }, [voice, streamOpen, streamAudio.status, voiceSnapshot.phase])
+  useEffect(() => () => voice?.listenStream?.(false), [voice])
   // 봉인한 날짜(AC-I3-41)는 등록할 수 없다 — 음성 켜기를 숨기고, 켜 둔 채 봉인되면 끈다(카드는 남고 자동 확정은 멈춘다)
   useEffect(() => {
     if (sealed) voice?.turnOff()

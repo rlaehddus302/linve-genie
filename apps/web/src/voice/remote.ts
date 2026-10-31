@@ -15,7 +15,11 @@ import { SERVICE_NAME } from '../brand.ts'
 import { supportsVoiceCapture } from './capabilities.ts'
 let transportFailures = 0
 
-export type VoiceControllerPort = Pick<VoiceController, keyof VoiceController> & { readonly captureEngine?: () => 'chrome' | 'livegenie' }
+export type VoiceControllerPort = Pick<VoiceController, keyof VoiceController> & {
+  readonly captureEngine?: () => 'chrome' | 'livegenie'
+  /** 방송 소리로 듣는 동안 조작 전용 흐름을 늘 열어 둔다 (LV1 VOC-08) — 서버가 받아쓴 글·효과를 이 흐름으로 보낸다 */
+  readonly listenStream?: (on: boolean) => void
+}
 export const VOICE_ENGINE_KEY = 'livejjim.voiceEngine'
 export const REMOTE_NOTICE = `음성은 ${SERVICE_NAME} 받아쓰기 서버로 보내져요.`
 export const REMOTE_CONSENT = [
@@ -66,6 +70,8 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   let resumeToken: string | null = null
   let readyForCommands = false
   let controlOnly = false
+  /** 방송 소리 흐름 (LV1): 조작 전용이지만 쉬어도 닫지 않고, 효과를 마이크 때처럼 처리한다 */
+  let streamListen = false
   let stopping = false
   let idleTimer: ReturnType<typeof setTimeout> | null = null
   let effectPending = 0
@@ -116,7 +122,7 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
   }
   const scheduleIdle = () => {
     if (idleTimer !== null) clearTimeout(idleTimer)
-    if (controlOnly) idleTimer = setTimeout(() => { idleTimer = null; if (effectPending === 0) stop(); else scheduleIdle() }, 1000)
+    if (controlOnly && !streamListen) idleTimer = setTimeout(() => { idleTimer = null; if (effectPending === 0) stop(); else scheduleIdle() }, 1000)
   }
   const stop = () => {
     generation++
@@ -135,7 +141,7 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
     const args = fromWire(message.args)
     if (!Array.isArray(args)) return null
     const end = message.spokenEndAt
-    const stale = message.automatic !== false && ((message.source !== 'chrome' && (typeof end !== 'number' || !Number.isFinite(end) || host.now() - end > 10_000 || end > host.now())) || transportState === 'HALTED' || transportState === 'RESTARTING' || stopping || controlOnly)
+    const stale = message.automatic !== false && ((message.source !== 'chrome' && (typeof end !== 'number' || !Number.isFinite(end) || host.now() - end > 10_000 || end > host.now())) || transportState === 'HALTED' || transportState === 'RESTARTING' || stopping || (controlOnly && !streamListen))
     if (stale && ['fixRecent', 'writeSms'].includes(String(message.method))) return { kind: 'failed', message: '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.' }
     if (stale && ['renumber', 'undoRecent'].includes(String(message.method))) return false
     let value: unknown = null
@@ -185,7 +191,7 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
     const born = ++generation
     connecting = true
     chromeMode = readVoiceEngine() === 'chrome'
-    controlOnly = commandsOnly; stopping = false; readyForCommands = false
+    controlOnly = commandsOnly; if (!commandsOnly) streamListen = false; stopping = false; readyForCommands = false
     transportState = null; transportError = null
     set({ phase: commandsOnly ? 'off' : 'loading', error: null, unsupported: false })
     try {
@@ -312,7 +318,22 @@ export function createRemoteVoiceController(host: VoiceHost, broadcastId: string
       set({ phase: 'off', stateLabel: null, hearing: null, interim: null, paused: new Map(), cards: snapshot.cards.map((card) => ({ ...card, autoConfirmAt: null })), sms: snapshot.sms.map((entry) => ({ ...entry, card: { ...entry.card, autoAt: null } })) })
       host.focusQuick()
     },
-    dispose() { disposed = true; stop(); listeners.clear(); masked.clear() },
+    listenStream(on: boolean) {
+      if (disposed) return
+      if (on) {
+        if (streamListen && (transport !== null || connecting)) return
+        // 마이크가 듣는 중이면 그 흐름이 글을 받는다 (D-LV1-06)
+        if (transport !== null && !controlOnly) return
+        streamListen = true
+        if (idleTimer !== null) { clearTimeout(idleTimer); idleTimer = null }
+        if (transport === null && !connecting) void start(true)
+        return
+      }
+      if (!streamListen) return
+      streamListen = false
+      if (controlOnly) scheduleIdle()
+    },
+    dispose() { disposed = true; streamListen = false; stop(); listeners.clear(); masked.clear() },
     refresh() { command('refresh', []) },
     instantScreen: () => display.instantScreen !== false,
     voiceLogFor(text: string, undo?: string) { const log = masked.get(text); return log === undefined ? null : { ...log, ...(undo === undefined ? {} : { undo }) } },
