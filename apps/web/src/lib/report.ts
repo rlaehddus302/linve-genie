@@ -1,8 +1,8 @@
 // 방송 리포트 (KP1 RPT-01~RPT-08, AC-KP1-19, D-KP1-09~14): 서버 `GET /api/days/:date/report`의 응답 모양과 화면 낱말.
-// 서버 모듈을 가져오지 않고 계약서(harness/sprints/KP1/contract.md §3.6·§4)의 모양을 여기 따로 적는다.
+// 앱(apps/mobile)도 이 모듈을 그대로 쓴다 — 코어는 포맷만 가져온다(APP-01 AC3). 서버 모듈을 가져오지 않고 계약서(harness/sprints/KP1/contract.md §3.6·§4)의 모양을 여기 따로 적는다.
 // 금액은 정수 원 — 화면에는 천 단위 쉼표로만 바꿔 보인다(계산하지 않는다). 손님 이름·연락처는 응답에 없다.
+import { formatWon } from '@livejjim/core/format'
 import { get } from '../api/client.ts'
-import { groupDigits } from './money.ts'
 
 /** RPT-02·RPT-03 (골든 report/summary.json의 out) */
 export interface ReportSummary {
@@ -105,7 +105,7 @@ export type CountUnit = '원' | '개' | '명'
 
 /** 수 + 단위: 금액은 천 단위 쉼표 ("12,000원"), 개수·사람도 쉼표 ("1,200개") */
 export function amountWords(value: number, unit: CountUnit): string {
-  return `${groupDigits(value)}${unit}`
+  return `${formatWon(Math.trunc(value)).replace(/원$/, '')}${unit}`
 }
 
 /**

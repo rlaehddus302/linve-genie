@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { setWebOpener } from '../src/lib/open-web.ts'
 import { HomeScreen, broadcastLine } from '../src/screens/HomeScreen.tsx'
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
-import { SettleScreen } from '../src/screens/SettleScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST } from './support.ts'
 
@@ -84,17 +83,5 @@ describe('HomeScreen', () => {
     broadcasts = [{ ...rehearsal, ended: true, endedAt: '2026-10-29T12:00:00.000Z' }]
     view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={2} />))
     expect(await screen.findByRole('button', { name: '방송 시작하기' })).toBeTruthy()
-  })
-
-  it('정산 탭은 바로 브라우저로 나가지 않고 "정산은 웹 화면에서 열려요"와 [웹으로 열기]를 보인다 (D-UX2-07)', async () => {
-    const opened: string[] = []
-    setWebOpener(async (url) => {
-      opened.push(url)
-    })
-    render(<SettleScreen />)
-    expect(screen.getByText('정산은 웹 화면에서 열려요')).toBeTruthy()
-    expect(opened).toEqual([])
-    fireEvent.click(screen.getByRole('button', { name: '정산 — 웹으로 열기' }))
-    expect(opened).toEqual(['http://test.local/settlements?from=app'])
   })
 })

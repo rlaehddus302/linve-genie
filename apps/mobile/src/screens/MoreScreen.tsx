@@ -9,7 +9,15 @@ import { SPACE } from '../ui/kit/tokens.ts'
 export interface MoreNavigation {
   readonly openLabels: () => void
   readonly openSettings: () => void
+  /** 앱 안 화면 열기 (리포트·손님·입금 확인 — D-APPX-01). 없으면 그 줄을 보이지 않는다 */
+  readonly openApp?: (path: InAppPath) => void
 }
+
+/** 웹에만 있던 화면 중 앱 화면으로 옮긴 것 (D-APPX-01) */
+export const IN_APP_SCREENS = [
+  { path: '/report', title: '방송 리포트', sub: '매출, 손님, 품종별·시간대별 판매' },
+] as const
+export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']
 
 export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavigation; readonly account?: string; readonly onLogout?: () => void }) {
   const { p } = useKit()
@@ -24,6 +32,14 @@ export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavig
           <TodoRow title="라벨·프린터" sub="프린터 잇기, 라벨 뽑기" onPress={nav.openLabels} />
           <RowDivider />
           <TodoRow title="설정" sub="음성, 라벨, 알림 받기, 문자 연동" onPress={nav.openSettings} />
+          {nav.openApp !== undefined
+            ? IN_APP_SCREENS.map((screen) => (
+                <View key={screen.path}>
+                  <RowDivider />
+                  <TodoRow title={screen.title} sub={screen.sub} onPress={() => nav.openApp?.(screen.path)} />
+                </View>
+              ))
+            : null}
         </RowGroup>
         <View style={{ gap: 10 }}>
           <GroupLabel>웹에서 보기</GroupLabel>

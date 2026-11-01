@@ -1,4 +1,4 @@
-// 정산 탭 경로 — 정산은 웹에서 열린다는 안내와 [웹으로 열기] (D-UX2-07).
+// 정산 탭 경로 — 앱 정산 화면 (D-APPX-01, 전에는 웹으로 열기 안내 D-UX2-07).
 import { Redirect, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { TAB_PATH } from '../src/lib/tab-routes.ts'
@@ -17,7 +17,7 @@ export default function SettleRoute() {
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
         <TabFrame active="settle" go={(key) => router.replace(TAB_PATH[key])}>
-          <SettleScreen />
+          <SettleScreen nav={{ openReport: (date) => router.push({ pathname: '/report', params: { date } }) }} />
         </TabFrame>
       </KitInsets>
     </SafeAreaView>

@@ -17,7 +17,7 @@ export default function MoreRoute() {
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
         <TabFrame active="more" go={(key) => router.replace(TAB_PATH[key])}>
-          <MoreScreen nav={{ openLabels: () => router.push('/labels'), openSettings: () => router.push('/settings') }} account={`${session.me.seller.name} · ${session.me.loginId}`} onLogout={() => void logout()} />
+          <MoreScreen nav={{ openLabels: () => router.push('/labels'), openSettings: () => router.push('/settings'), openApp: (path) => router.push(path) }} account={`${session.me.seller.name} · ${session.me.loginId}`} onLogout={() => void logout()} />
         </TabFrame>
       </KitInsets>
     </SafeAreaView>
