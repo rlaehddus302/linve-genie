@@ -167,7 +167,7 @@ test.describe('개인정보·말', () => {
     const kst = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(at))
     const part = (t: string) => kst.find((x) => x.type === t)!.value
     await page.goto(`/settlements?date=${date}&rehearsal=true&buyer=${encodeURIComponent(buyer)}`)
-    await expect(page.getByRole('region', { name: '정산 기록' })).toContainText(`기록한 때 ${part('month')}/${part('day')} ${part('hour')}:${part('minute')}`)
+    await expect(page.getByRole('region', { name: '정산 기록' })).toContainText(`기록한 때 ${String(Number(part('month')))}/${String(Number(part('day')))} ${part('hour')}:${part('minute')}`)
     // 문자찜: 받은 시각을 비우면 서버가 KST 도착 시각(초까지)을 적는다 — 최근 목록에 그대로
     const hist = await (await page.request.get(`/api/days/${date}/history?rehearsal=true`)).json() as { events: { type: string; fields: Record<string, unknown> }[] }
     const received = String(hist.events.find((e) => e.type === 'sms')!.fields['received'])

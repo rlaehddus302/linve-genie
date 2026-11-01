@@ -1321,6 +1321,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
           if (inChain && typedNext(line)) return undefined
           // 찾은 번호는 칸에서 지운다 — 창을 닫고 다음 줄을 치면 그 번호 뒤에 붙어 엉뚱한 번호로 등록되지 않게 (UX-S05-001)
           clearLine(line)
+          // 판단을 기다리는 사이 판매자가 다른 창(Alt+P 다시 출력 등)을 열었으면 그 위에 덮지 않는다 — 현재 상품으로 보인다
+          if (dialogCount.current > 0) return undefined
           openDialog({ kind: 'product', key: decision.product.key })
           return undefined
         }

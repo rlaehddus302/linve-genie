@@ -163,7 +163,7 @@ test.describe('V1 이름·확인 필요·받은 시각', () => {
     await expect(c).toBeVisible()
     await expect(c.getByText('3초 뒤 넣어요')).toBeVisible()
     await page.clock.runFor(3000)
-    await expect(c.getByRole('list').getByRole('status')).toHaveText(/^165번 · 문자찜\(확인 필요\) · 1등 · 받은 시각 \d\d\/\d\d 14:15/)
+    await expect(c.getByRole('list').getByRole('status')).toHaveText(/^165번 · 문자찜\(확인 필요\) · 1등 · 받은 시각 \d{1,2}\/\d{1,2} 14:15/)
     expect(smsWrites(requests)).toHaveLength(1)
     expect(smsWrites(requests)[0]).toMatchObject({ no: 165, received: '14:15' })
   })

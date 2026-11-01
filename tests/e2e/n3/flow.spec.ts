@@ -37,7 +37,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     const s = view.settlements.find((x) => x.buyer === sale.buyer)!
     expect(s.payment).toBe('PAID')
     // 엔진 기록: 메모에는 입금 번호만 (DP-INV-5)
-    const pays = (await history(page, sale.date, false)).filter((e) => e.type === 'settlement.payment')
+    const pays = (await history(page, sale.date, false)).filter((e) => e.type === 'settlement.payment' && e.fields['buyer'] === sale.buyer)
     expect(pays).toHaveLength(1)
     expect(pays[0]!.fields['memo']).toBe(`자동 입금 확인 · 입금 #${String(d!.no)}`)
     expect(pays[0]!.actor.kind).not.toBe('account')
@@ -62,7 +62,7 @@ test.describe('입금 확인 끝까지 흐름', () => {
     await expect(detail.getByRole('button', { name: '입금 확인 되돌리기' })).toHaveCount(0)
     await expect(detail).toContainText('미입금')
     expect((await depositOne(page, d!.no)).status).toBe('REVIEW')
-    const refunds = (await history(page, sale.date, false)).filter((e) => e.type === 'settlement.refund')
+    const refunds = (await history(page, sale.date, false)).filter((e) => e.type === 'settlement.refund' && e.fields['buyer'] === sale.buyer)
     expect(refunds.map((e) => e.reason ?? e.fields['reason'])).toEqual([`입금 확인 되돌림 · 입금 #${String(d!.no)}`])
 
     // 되돌린 입금은 확인 필요에 다시 — 볼 때 다시 계산하면 맞는 묶음 하나(ONE_MATCH)를 미리 고른다

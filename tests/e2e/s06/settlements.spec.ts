@@ -78,7 +78,7 @@ test.describe('정산', () => {
     await expect(records).toContainText('입금')
     await expect(records).toContainText('140,000원')
     await expect(records).toContainText('126,000원 · 입금액 잘못 적음')
-    await expect(records).toContainText(/기록한 때 \d{2}\/\d{2} \d{2}:\d{2}/)
+    await expect(records).toContainText(/기록한 때 \d{1,2}\/\d{1,2} \d{2}:\d{2}/)
     const view = await scopeView(page, date, true)
     const s = view.settlements.find((x) => x.total === 14000)!
     expect(s.received).toBe(14000)

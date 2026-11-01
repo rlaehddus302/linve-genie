@@ -34,11 +34,11 @@ export function kstIso(ms = 0): string {
   return `${k.toISOString().slice(0, 19)}+09:00`
 }
 
-/** "2026-10-18T21:03:15+09:00" → "10/18 21:03:15" (DP-8, 초까지 받은 입금) */
+/** "2026-10-18T21:03:15+09:00" → "10/18 21:03:15", "…11-01…" → "11/1 …" (DP-8, 초까지 받은 입금 — 월·일은 앞 0 없이, 화면 kstStamp와 같게) */
 export function shortKst(iso: string, seconds = true): string {
   const m = /^\d{4}-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(iso)
   if (m === null) throw new Error(iso)
-  return `${m[1]!}/${m[2]!} ${m[3]!}:${m[4]!}${seconds ? `:${m[5]!}` : ''}`
+  return `${String(Number(m[1]!))}/${String(Number(m[2]!))} ${m[3]!}:${m[4]!}${seconds ? `:${m[5]!}` : ''}`
 }
 
 export function won(n: number): string {
