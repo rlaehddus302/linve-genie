@@ -15,7 +15,11 @@
 // 2) 업로드 서명: 저장소 밖 속성 파일(storeFile·storePassword·keyAlias·keyPassword)을 읽는다.
 //    경로 = 환경변수 LIVEJJIM_UPLOAD_PROPERTIES → gradle 속성 livejjimUploadProperties → ~/.livejjim-release/upload.properties.
 //    파일이 없으면 출시(release) 작업을 멈춘다 — 개발용 열쇠로 서명된 파일을 사장님 폰·Play에 잘못 올리지 않게.
-const { withAndroidManifest, withAppBuildGradle, AndroidConfig } = require('expo/config-plugins')
+// 3) 코드 줄이기(R8) 지킴 규칙: 출시 빌드는 R8로 코드를 줄인다. WorkManager가 안에서 쓰는 Room 데이터베이스(WorkDatabase_Impl)는
+//    리플렉션으로 만들어서 R8이 생성자를 지우면 앱이 켜자마자 꺼진다(2026-11-01 연습 APK 0.1.2·0.1.3 실측, D-APPX-02).
+const { withAndroidManifest, withAppBuildGradle, withDangerousMod, AndroidConfig } = require('expo/config-plugins')
+const fs = require('node:fs')
+const path = require('node:path')
 
 const LEGACY_MAX_SDK = '30'
 
@@ -143,6 +147,20 @@ function addUploadSigning(gradle) {
   return out
 }
 
+/** R8 지킴 규칙 (android/app/proguard-rules.pro 끝에 한 번만 붙인다) */
+const KEEP_MARK = '# livejjim: R8 지킴 규칙 (with-android-release)'
+const KEEP_RULES = `
+${KEEP_MARK}
+# WorkManager·Room: 데이터베이스 구현은 리플렉션으로 만든다 — 생성자를 지우면 시작하자마자 꺼진다
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
+-keep class androidx.work.impl.WorkDatabase_Impl { *; }
+-keep class androidx.work.** { *; }
+`
+
+function addKeepRules(text) {
+  return text.includes(KEEP_MARK) ? text : `${text.trimEnd()}\n${KEEP_RULES}`
+}
+
 module.exports = function withAndroidRelease(config) {
   const noticeOn = config.extra?.noticeIntake !== 'off'
   // 문자 직접 받기는 명시적으로 on일 때만 (기본 off)
@@ -159,8 +177,20 @@ module.exports = function withAndroidRelease(config) {
     c.modResults.contents = addUploadSigning(c.modResults.contents)
     return c
   })
+  config = withDangerousMod(config, [
+    'android',
+    (c) => {
+      const file = path.join(c.modRequest.platformProjectRoot, 'app', 'proguard-rules.pro')
+      const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
+      fs.writeFileSync(file, addKeepRules(text))
+      return c
+    },
+  ])
   return config
 }
+
+module.exports.addKeepRules = addKeepRules
+module.exports.KEEP_MARK = KEEP_MARK
 
 module.exports.REMOVED_PERMISSIONS = REMOVED_PERMISSIONS
 module.exports.PERMISSION_OVERRIDES = PERMISSION_OVERRIDES

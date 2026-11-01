@@ -25,7 +25,6 @@ export function openExternal(url: string): Promise<void> {
 
 /** 앱에 아직 없는 화면의 웹 경로 (APP-01 "그 밖 화면은 웹으로 열기") */
 export const WEB_SCREENS: readonly { readonly key: string; readonly word: string; readonly path: string }[] = [
-  { key: 'settlements', word: '정산', path: '/settlements' },
   { key: 'buyers', word: '구매자', path: '/buyers' },
   { key: 'parcels', word: '택배', path: '/parcels' },
   { key: 'ledger', word: '판매대장·영수증', path: '/receipts' },

@@ -64,8 +64,9 @@ describe('HomeScreen', () => {
     })
     // 옛 기대: 홈 아래 "웹으로 열기" 줄. 새 기대(D-UX2-02): 더보기 탭의 "웹에서 보기"
     render(world.wrap(<MoreScreen nav={{ openLabels: vi.fn(), openSettings: vi.fn() }} />))
-    fireEvent.click(await screen.findByRole('button', { name: '정산 — 웹으로 열기' }))
-    expect(opened).toEqual(['http://test.local/settlements?from=app'])
+    // 정산은 앱 화면으로 옮겨 웹 목록에서 뺐다 (D-APPX-01·02) — 남은 웹 화면 하나로 확인
+    fireEvent.click(await screen.findByRole('button', { name: '구매자 — 웹으로 열기' }))
+    expect(opened).toEqual(['http://test.local/buyers?from=app'])
   })
 
   it('홈이 다시 보이면 방송 목록을 다시 받는다: 리허설을 시작하고 돌아오면 "방송으로 돌아가기", 끝내고 돌아오면 "방송 시작하기" (D-UX2-07)', async () => {
