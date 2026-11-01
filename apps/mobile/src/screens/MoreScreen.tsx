@@ -18,6 +18,7 @@ export const IN_APP_SCREENS = [
   { path: '/deposits', title: '입금 확인', sub: '은행 입금과 손님 맞추기, 붙여넣기' },
   { path: '/customers', title: '손님', sub: '단골, 입금 늦음, 메모, 저장한 배송지' },
   { path: '/report', title: '방송 리포트', sub: '매출, 손님, 품종별·시간대별 판매' },
+  { path: '/schedule', title: '방송 일정', sub: '다음 방송 알리기, 공개 일정 주소, 알림 신청 수' },
 ] as const
 export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']
 

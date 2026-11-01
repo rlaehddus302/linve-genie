@@ -64,6 +64,10 @@ export function patch<T>(path: string, body: unknown, options?: RequestOptions):
   return request<T>('PATCH', path, body, options)
 }
 
+export function del<T>(path: string, body: unknown, options?: RequestOptions): Promise<T> {
+  return request<T>('DELETE', path, body, options)
+}
+
 /** 서버가 만든 바이트(라벨 그림 등) 받기 — 실패하면 JSON 오류 본문의 쉬운 문장으로 ApiError */
 export async function getBytes(path: string, options: RequestOptions = {}): Promise<{ readonly bytes: Uint8Array; readonly type: string }> {
   let response: Response
