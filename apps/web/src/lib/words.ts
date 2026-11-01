@@ -1,5 +1,7 @@
 // 화면 낱말 (UX-01, D-088, AC-S05-70). 엔진 영어 값은 이 표의 낱말로만 보인다.
-import { formatWon, type BuyerKind, type ClaimOrigin, type ClaimReason, type ClaimStatus, type PaymentStatus, type ProductStatus, type ReviewReason, type ShippingMode } from '@livejjim/core'
+// 코어는 포맷만 실행 코드로 가져온다 — 앱(apps/mobile)도 이 낱말을 그대로 쓴다(APP-01 AC3, D-APPX-01)
+import { formatWon } from '@livejjim/core/format'
+import type { BuyerKind, ClaimOrigin, ClaimReason, ClaimStatus, PaymentStatus, ProductStatus, ReviewReason, ShippingMode } from '@livejjim/core'
 
 export const PRODUCT_STATUS_WORD: Readonly<Record<ProductStatus, string>> = {
   READY: '공개 전',

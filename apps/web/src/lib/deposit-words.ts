@@ -1,5 +1,5 @@
 // 입금 확인 화면 낱말 (DEPOSIT_RULES DP-8, AC-N3-41·44·45·46·47·50). 서버의 영어 값은 이 표의 낱말로만 보인다.
-import { formatWon } from '@livejjim/core'
+import { formatWon } from '@livejjim/core/format'
 import type { BundleView, DepositActionView, DepositLinkView, DepositPrecision, DepositStatus, PasteRowState, ReviewReason, SourceKind, UnreadableWhy } from '../api/deposit-types.ts'
 import { dateWords, dateYear, kstStamp } from './kst.ts'
 import { paymentWord } from './words.ts'

@@ -22,6 +22,8 @@ export interface HomeNavigation {
   readonly openPacking: () => void
   readonly openLabels: () => void
   readonly openSettings: () => void
+  /** 앱 정산 탭 (D-APPX-01) — 없으면 웹 정산 */
+  readonly openSettle?: () => void
 }
 
 export function broadcastLine(item: BroadcastItem): string {
@@ -192,7 +194,7 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
           <RowGroup label="할 일">
             {counts !== null ? (
               <>
-                <TodoRow count={counts.unpaid} tone="warn" title="입금 확인" sub="돈을 아직 안 보낸 손님" onPress={() => void openWeb('/settlements')} />
+                <TodoRow count={counts.unpaid} tone="warn" title="입금 확인" sub="돈을 아직 안 보낸 손님" onPress={() => (nav.openSettle !== undefined ? nav.openSettle() : void openWeb('/settlements'))} />
                 <RowDivider />
                 <TodoRow count={counts.toPack} tone="green" title="포장하기" sub="아직 포장 안 한 손님" onPress={nav.openPacking} />
               </>

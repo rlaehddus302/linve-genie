@@ -39,6 +39,7 @@ export default function IndexRoute() {
                 openPacking: () => router.replace('/packing'),
                 openLabels: () => router.push('/labels'),
                 openSettings: () => router.push('/settings'),
+                openSettle: () => router.replace('/settle'),
               }}
             />
           </TabFrame>

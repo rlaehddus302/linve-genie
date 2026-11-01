@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PaymentStatus } from '@livejjim/core'
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
 import type { Buyer } from '../api/types.ts'
-import { formatWon } from './derive.ts'
+import { formatWon } from '@livejjim/core/format'
 import { kstDate } from './kst.ts'
 import { PAYMENT_WORD } from './words.ts'
 

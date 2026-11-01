@@ -15,6 +15,8 @@ export interface MoreNavigation {
 
 /** 웹에만 있던 화면 중 앱 화면으로 옮긴 것 (D-APPX-01) */
 export const IN_APP_SCREENS = [
+  { path: '/deposits', title: '입금 확인', sub: '은행 입금과 손님 맞추기, 붙여넣기' },
+  { path: '/customers', title: '손님', sub: '단골, 입금 늦음, 메모, 저장한 배송지' },
   { path: '/report', title: '방송 리포트', sub: '매출, 손님, 품종별·시간대별 판매' },
 ] as const
 export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']
