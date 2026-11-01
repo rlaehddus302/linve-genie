@@ -467,7 +467,7 @@ function ConnectedPrinter({ answer, onAnswer: setAnswer, primary, inWizard }: Co
               아니요
             </button>
           </div>
-          {answer === 'yes' ? <p role="status">{mine && experimental ? (pausedAgain ? TEST_CONFIRMED_PAST : EXPERIMENTAL_RESUMED) : `좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}"를 눌러 주세요.`}</p> : null}
+          {answer === 'yes' ? <p role="status">{mine && experimental ? (pausedAgain ? TEST_CONFIRMED_PAST : EXPERIMENTAL_RESUMED) : `좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}" 버튼을 눌러 주세요.`}</p> : null}
           {answer === 'no' ? (
             <>
               <ul className="plain-list test-help" aria-label="테스트 인쇄 도움말">

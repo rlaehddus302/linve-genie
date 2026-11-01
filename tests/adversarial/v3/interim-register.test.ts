@@ -34,7 +34,8 @@ function beonValues(tokens: readonly string[]): number[] {
   const one = (t: string | undefined) => t !== undefined && t.length === 1 && (DIGITS.includes(t) || HANGUL.includes(t))
   const val = (c: string) => (DIGITS.includes(c) ? Number(c) : HANGUL.indexOf(c))
   const triple = (i: number): number | null => {
-    const third = formsOf(tokens[i] as string).find((f) => f.length === 2 && f.endsWith('번') && one(f.charAt(0)))
+    // 셋째가 `이번`이면 표시가 아니다 (R-17 3 — X가 `이` 한 글자인 표시는 받지 않는다, `이번` = '이번에')
+    const third = formsOf(tokens[i] as string).find((f) => f.length === 2 && f.endsWith('번') && one(f.charAt(0)) && f.charAt(0) !== '이')
     if (third === undefined || !one(tokens[i - 1]) || !one(tokens[i - 2]) || one(tokens[i - 3]) || one(tokens[i + 1])) return null
     const first = val(tokens[i - 2] as string)
     return first === 0 ? null : first * 100 + val(tokens[i - 1] as string) * 10 + val(third.charAt(0))

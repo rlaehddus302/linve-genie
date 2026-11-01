@@ -194,6 +194,8 @@ const p2DeviceSourceRules = {
 export default defineConfig(
   globalIgnores([
     '**/node_modules/',
+    // 파이썬 가상환경(받아쓰기 일꾼 — 깃 무시). 안의 JS는 남의 라이브러리다
+    '**/.venv/',
     // 빌드·측정 결과물은 저장소 루트와 각 패키지 바로 아래 폴더만 무시한다.
     // `**/build/`처럼 깊이와 상관없이 무시하면 apps/web/src/build/·packages/core/src/dist/ 같은 소스 폴더가
     // XSS 금지(AC-S00-06)·코어 순수성(AC-S00-05) 검사를 통째로 피한다.

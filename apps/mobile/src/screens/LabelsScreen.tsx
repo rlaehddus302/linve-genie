@@ -154,7 +154,7 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
                 }}
               />
             </Row>
-            {snapshot.testConfirmed ? <Body>{snapshot.mine && experimental ? (pausedAgain ? TEST_CONFIRMED_PAST : EXPERIMENTAL_RESUMED) : `좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}"를 눌러 주세요.`}</Body> : null}
+            {snapshot.testConfirmed ? <Body>{snapshot.mine && experimental ? (pausedAgain ? TEST_CONFIRMED_PAST : EXPERIMENTAL_RESUMED) : `좋아요. 이 기기에서 출력하려면 "${PRINT_ACTION.thisDevice}" 버튼을 눌러 주세요.`}</Body> : null}
             {/* "아니요" 뒤 이 프린터에 맞는 도움말 — 실험 기종이면 맨 위가 제조사 앱으로 그림 파일 (웹과 같은 목록, UX-PRN2-001) */}
             {answeredNo && !snapshot.testConfirmed ? (
               <View role="list" aria-label="테스트 인쇄 도움말" style={{ gap: 4 }}>
