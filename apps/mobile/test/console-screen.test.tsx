@@ -240,4 +240,23 @@ describe('ConsoleScreen', () => {
     expect(input.getAttribute('placeholder')).toBe('예: 15 핑크프릴 10')
     expect(screen.getByText('가격 단위: 천원 — 10은 10,000원, 2만은 20,000원')).toBeTruthy()
   })
+
+  it('1등 옆 손님 꼬리표(CR-7, D-APPX-01): 서버가 보이라고 하면(show) 첫 1등 옆에 "단골 · 누적 …"을 붙인다', async () => {
+    const world = makeWorld({ products: [product(15, { name: '핑크프릴', winners: ['u1'], winnerClaims: ['c1'] })] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/customer-badges\?buyer=u1$/, () => ({ body: { show: true, badges: [{ buyer: 'u1', text: '단골 · 누적 152,000원', spoken: null }] } }))
+    await open(world)
+    expect(await screen.findByText('단골 · 누적 152,000원')).toBeTruthy()
+  })
+
+  it('리허설 방송은 손님 꼬리표를 묻지 않는다', async () => {
+    const world = makeWorld({ rehearsal: true, products: [product(15, { name: '핑크프릴', winners: ['u1'], winnerClaims: ['c1'] })] })
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+    await waitFor(() => expect(screen.getByText('핑크프릴')).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: true, seq: world.seq }])
+      await flush()
+    })
+    await flush()
+    expect(world.server.callsTo('GET', /customer-badges/)).toHaveLength(0)
+  })
 })

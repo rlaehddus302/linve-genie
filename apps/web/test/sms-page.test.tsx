@@ -333,7 +333,9 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     setup([register(15, '핑크프릴', 10000, 'b2')])
     await open()
     type(numberField(), '15')
-    type(field('받은 시각'), '20:00')
+    // 지금(KST)보다 1시간 뒤 — 시험을 언제 돌려도 '지금보다 늦은' 시각 (D-VERIFY1-03: 20:00 고정이라 저녁 8시 뒤엔 깨졌다)
+    const later = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(Date.now() + 60 * 60_000)
+    type(field('받은 시각'), later)
     await flush(10)
     fireEvent.click(screen.getByRole('button', { name: '15번에 문자찜 넣기' }))
     const ask = await screen.findByRole('dialog', { name: '받은 시각을 확인해 주세요' })
@@ -346,7 +348,7 @@ describe('보내기·결과·같은 사람 하나 더 (AC-S06-14·81)', () => {
     fireEvent.click(within(await screen.findByRole('dialog', { name: '받은 시각을 확인해 주세요' })).getByRole('button', { name: '이대로 넣기' }))
     await screen.findByRole('region', { name: '넣은 결과' })
     expect(engine.posts).toHaveLength(1)
-    expect(engine.posts[0]).toMatchObject({ type: 'sms', receivedText: '20:00', receivedLateOk: true })
+    expect(engine.posts[0]).toMatchObject({ type: 'sms', receivedText: later, receivedLateOk: true })
   })
 
   it('REL1: 서버가 409 RECEIVED_LATE로 막으면 기록 없이 서버의 시각으로 "이대로 넣을까요?"', async () => {

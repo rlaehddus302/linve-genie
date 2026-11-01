@@ -98,7 +98,6 @@ export function CustomersScreen({ onBack }: { readonly onBack: () => void }) {
       alive = false
       clearTimeout(timer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- path는 sort·filter·query로만 정해진다
   }, [sort, filter, query, attempt])
 
   const loadMore = async () => {

@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { Pressable, View } from 'react-native'
 import type { Claim, Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
+import { useWinnerBadges } from '../../lib/customer-badges.ts'
 import { openWeb } from '../../lib/open-web.ts'
 import { boardProducts, claimWord, claimsOfProduct, nameOf, productSlots } from '../../lib/derive.ts'
 import { NO_PRODUCTS_YET, PRODUCT_STATUS_WORD, formatWon } from '../../lib/words.ts'
@@ -164,7 +165,7 @@ export function ProductDetail({ product }: { readonly product: Product }) {
   )
 }
 
-function ProductRow({ product, fresh, onOpen }: { readonly product: Product; readonly fresh: boolean; readonly onOpen: () => void }) {
+function ProductRow({ product, fresh, onOpen, badge }: { readonly product: Product; readonly fresh: boolean; readonly onOpen: () => void; readonly badge?: string }) {
   const { p } = useKit()
   const api = useConsoleApi()
   const conflicts = claimsOfProduct(api.data, product).filter((claim) => claim.status === 'CONFLICT').length
@@ -195,6 +196,7 @@ function ProductRow({ product, fresh, onOpen }: { readonly product: Product; rea
           {words.who}
         </Txt>
         {words.wait === '' ? null : <Txt ink={words.attention ? p.warnText : p.textSub}>{words.wait}</Txt>}
+        {badge !== undefined && !words.attention && !words.empty ? <Tag tone={badge === '입금 늦음 주의' ? 'warning' : badge.startsWith('단골') ? 'success' : 'info'}>{badge}</Tag> : null}
       </View>
     </Pressable>
   )
@@ -204,12 +206,14 @@ function ProductRow({ product, fresh, onOpen }: { readonly product: Product; rea
 export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void }) {
   const api = useConsoleApi()
   const products = boardProducts(api.data, api.b)
+  // 1등 옆 손님 꼬리표 (CR-7) — 첫 1등만 (줄에 보이는 이름)
+  const badges = useWinnerBadges(api.data.date, api.data.rehearsal, products.flatMap((product) => productSlots(product).winners.slice(0, 1)))
   if (products.length === 0) return <Txt color="textSub">{NO_PRODUCTS_YET}</Txt>
   const freshKey = api.selected !== null && api.data.products.has(api.selected) ? api.selected : products[0]?.key
   return (
     <View role="list" aria-label="상품 목록" style={{ gap: SPACE.sm }}>
       {products.map((product) => (
-        <ProductRow key={product.key} product={product} fresh={product.key === freshKey} onOpen={() => onOpen(product.key)} />
+        <ProductRow key={product.key} product={product} fresh={product.key === freshKey} onOpen={() => onOpen(product.key)} badge={badges.get(productSlots(product).winners[0] ?? '')} />
       ))}
     </View>
   )
