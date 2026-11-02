@@ -75,7 +75,7 @@ function AwayLine() {
 /**
  * onEnded: 방송을 끝낸 뒤 (D-UX2-07) — 경로가 홈으로 돌려보내고 홈이 방송 목록을 다시 받는다. 없으면 이 화면에 "끝난 방송"으로 남는다.
  */
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: (rehearsal: boolean) => void }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -263,7 +263,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded }: { readon
           <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
           {endError !== null ? <Notice tone="danger" alert>{endError}</Notice> : null}
-          <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} />
+          <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} {...(openReviews === undefined ? {} : { onReviews: () => openReviews(broadcast.rehearsal) })} />
           <YoutubeWarning yt={yt} closed={closed} />
           <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
           <ProductList onOpen={setDetail} />

@@ -15,6 +15,7 @@ export interface MoreNavigation {
 
 /** 웹에만 있던 화면 중 앱 화면으로 옮긴 것 (D-APPX-01) */
 export const IN_APP_SCREENS = [
+  { path: '/reviews', title: '확인 필요', sub: '주문인지 애매한 댓글·문자 주문으로 넣거나 빼기' },
   { path: '/deposits', title: '입금 확인', sub: '은행 입금과 손님 맞추기, 붙여넣기' },
   { path: '/parcels', title: '택배', sub: '택배 접수, 운송장 PDF, 접수 취소' },
   { path: '/receipts', title: '영수증·판매대장', sub: '구매 내역 확인서 링크·PDF, 판매대장 엑셀' },

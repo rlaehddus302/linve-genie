@@ -1,7 +1,7 @@
 // 포장 모드의 값 고르기 (STL-08, D-I2-05·D-I2-06, AC-I2-35~38). 상태는 서버가 정한 다섯 말을 그대로 쓰고 화면은 거르기·순서·안내 글만 만든다.
 // 옵션·수량 (O4 D-O4-04·05): 품목 줄 = `{번호}번 {품종}[ {옵션 글}]` + 수량 2 이상이면 `{수량}개`, "상품 n개" = 수량 합, 포장 완료는 `{ key, qty }`.
 //   옵션 없는 수량 1 품목은 글자 하나까지 이전 그대로다.
-import type { PackingEntry, PackingItem, PackingRemoved, PackingWord } from '../api/types.ts'
+import type { PackingEntry, PackingItem, PackingRemoved } from '../api/types.ts'
 import { quantitySum, saleLine } from './sale-line.ts'
 
 import { isChanged } from './packing-words.ts'
