@@ -12,7 +12,9 @@ DIR="$LG_ROOT/backups/db"
 KEEP_DAYS=7
 
 main() {
-  local bucket ts file part
+  local bucket ts file
+  # 끝날 때 지우는 trap이 함수 밖(EXIT)에서 읽으므로 전역 (set -u — local이면 "unbound variable"로 실패)
+  part=""
   bucket=$(sed -n 's/^LJ_BACKUP_BUCKET=//p' "$LG_ROOT/.env" | head -n1)
   install -d -m 0700 "$DIR"
   ts=$(date -u +%Y%m%d-%H%M%S)
