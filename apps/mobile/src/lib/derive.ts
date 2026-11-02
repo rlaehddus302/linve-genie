@@ -191,3 +191,49 @@ export function claimsOfProduct(data: ScopeData, product: Product): Claim[] {
   for (const claim of data.claims.values()) if (claim.product === product.key) out.push(claim)
   return out.sort((a, b) => rank(a) - rank(b) || (waitPosition(data, a) ?? 0) - (waitPosition(data, b) ?? 0) || a.seq - b.seq)
 }
+
+// ── 방송 중 정하기 (웹 lib/derive.ts와 같은 규칙 — 충돌·승계는 상품 → 변형 순서, D-O1-01·02, D-APPX-03) ──
+
+/** 찜 조치 이벤트에 붙일 변형 (옵션을 가진 찜만 — R-19 "찜을 가리키는 방송자 조치") */
+export function claimOptionsField(claim: Pick<Claim, 'options'>): { readonly options?: Readonly<Record<string, string>> } {
+  if (claim.options === null || claim.options.length === 0) return {}
+  return { options: Object.fromEntries(claim.options.map(([name, label]) => [name, label])) }
+}
+
+/** 변형을 가리키는 방송자 조치의 options 칸 (변형이 없으면 빈 객체) */
+export function variantOptionsField(variant: Product['variants'][number] | undefined): { readonly options?: Readonly<Record<string, string>> } {
+  if (variant === undefined || variant.options.length === 0) return {}
+  return { options: Object.fromEntries(variant.options.map(([name, label]) => [name, label])) }
+}
+
+/** 정할 단위: 상품 하나 또는 그 변형 하나 */
+export interface DecisionUnit {
+  readonly product: Product
+  readonly variant: Product['variants'][number] | undefined
+  readonly winnerClaims: readonly string[]
+  readonly waitlistClaims: readonly string[]
+  readonly waitlist: readonly string[]
+}
+
+const unitOf = (product: Product, variant: Product['variants'][number] | undefined): DecisionUnit =>
+  variant === undefined
+    ? { product, variant, winnerClaims: product.winnerClaims, waitlistClaims: product.waitlistClaims, waitlist: product.waitlist }
+    : { product, variant, winnerClaims: variant.winnerClaims, waitlistClaims: variant.waitlistClaims, waitlist: variant.waitlist }
+
+/** 승계 결정 필요한 단위 (상품 → 변형 순서) */
+export function successionUnits(product: Product): DecisionUnit[] {
+  const out: DecisionUnit[] = []
+  if (product.awaitingSuccession) out.push(unitOf(product, undefined))
+  if (!product.hasOptions) return out
+  for (const variant of product.variants) if (variant.awaitingSuccession) out.push(unitOf(product, variant))
+  return out
+}
+
+/** 충돌이 있는 단위 (상품 → 변형 순서) */
+export function conflictUnits(product: Product): DecisionUnit[] {
+  const out: DecisionUnit[] = []
+  if (product.conflict) out.push(unitOf(product, undefined))
+  if (!product.hasOptions) return out
+  for (const variant of product.variants) if (variant.conflict) out.push(unitOf(product, variant))
+  return out
+}

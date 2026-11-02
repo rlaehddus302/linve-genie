@@ -11,7 +11,6 @@ import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import { ApiError, get, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import { BuyerNames, alertCounts, boardProducts, nameOf } from '../lib/derive.ts'
-import { openWeb } from '../lib/open-web.ts'
 import { ScopeStore, type ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { DIRECT_INPUT, LISTEN_HELP, LISTEN_OFF_HELP, LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
@@ -24,6 +23,9 @@ import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { ProductDetail, ProductList } from './console/ProductBoard.tsx'
 import { QuickInput } from './console/QuickInput.tsx'
 import { SmsForm } from './console/SmsForm.tsx'
+import { ChatView, PasteView } from './console/ChatPaste.tsx'
+import { DecisionsView, hasDecisions } from './console/Decisions.tsx'
+import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { ListenButton, ListenStatus, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { YoutubeSection, YoutubeWarning, useMobileYoutube } from './console/YoutubeSection.tsx'
 
@@ -83,7 +85,12 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const inset = useBottomInset()
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end'>('none')
+  const [sheet, setSheet] = useState<'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide'>('none')
+  const [decideFor, setDecideFor] = useState<string | null>(null)
+  // 방송자 조치 5초 대기·되돌리기 (정하기 창 — D-APPX-03). 화면이 내려가면 기다리던 조치는 보내지 않는다
+  const hostQueue = useUndoQueue()
+  const hostItems = useSyncExternalStore(hostQueue?.subscribe ?? noSubscribe, hostQueue?.getSnapshot ?? noItems)
+  const [pasted, setPasted] = useState<string | null>(null)
   const [labels, setLabels] = useState<readonly LabelView[]>([])
   const [endError, setEndError] = useState<string | null>(null)
   // 끝내기 성공 — 방송 목록을 다시 받지 않아도 바로 "끝난 방송"으로 (범위 기록의 방송 정보는 처음 한 번만 받는다)
@@ -265,7 +272,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
           {endError !== null ? <Notice tone="danger" alert>{endError}</Notice> : null}
           <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} {...(openReviews === undefined ? {} : { onReviews: () => openReviews(broadcast.rehearsal) })} />
-          <YoutubeWarning yt={yt} closed={closed} />
+          {pasted !== null ? <Notice tone="success">{pasted}</Notice> : null}
+          {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
+          {seller && !sealed && hasDecisions(api) ? <SmallButton label="정하기 (충돌·취소 요청·승계)" onPress={() => { setDecideFor(null); setSheet('decide') }} /> : null}
+          <YoutubeWarning yt={yt} closed={closed} onPaste={() => setSheet('paste')} />
           <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
           <ProductList onOpen={setDetail} />
         </ScrollView>
@@ -283,14 +293,31 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           <SmsForm />
         </BottomSheet>
         <BottomSheet visible={detailProduct !== undefined} onClose={() => setDetail(null)} title={detailProduct === undefined ? '' : `${String(detailProduct.no)}번 ${nameOf(detailProduct)}`}>
-          {detailProduct !== undefined ? <ProductDetail product={detailProduct} /> : null}
+          {detailProduct !== undefined ? <ProductDetail product={detailProduct} {...(seller && !sealed ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} /> : null}
+        </BottomSheet>
+        <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
+          {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
+        </BottomSheet>
+        <BottomSheet visible={sheet === 'chat'} onClose={close} title="채팅">
+          {sheet === 'chat' ? <ChatView /> : null}
+        </BottomSheet>
+        <BottomSheet visible={sheet === 'paste'} onClose={close} title="댓글 붙여넣기">
+          {sheet === 'paste' ? (
+            <PasteView
+              onDone={(message) => {
+                setPasted(message)
+                close()
+              }}
+            />
+          ) : null}
         </BottomSheet>
         <BottomSheet visible={sheet === 'menu'} onClose={close} title="방송 메뉴">
           <Txt step="caption" color="textSub">{`${title}${broadcast.rehearsal ? ' · 리허설' : ''}`}</Txt>
           <RowGroup label="방송 메뉴">
             {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="유튜브 연결" sub="방송 주소 붙여 넣기, 채팅 받는 상태" onPress={() => setSheet('youtube')} /> : null}
             {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => setSheet('voice')} /> : null}
-            {!broadcast.rehearsal ? <TodoRow title="댓글 붙여넣기 (웹으로 열기)" onPress={() => void openWeb(`/broadcasts/${encodeURIComponent(broadcastId)}`)} /> : null}
+            <TodoRow title="채팅 보기" sub="최근 채팅 100줄, 주문·취소 표시" onPress={() => setSheet('chat')} />
+            {!broadcast.rehearsal && !closed ? <TodoRow title="댓글 붙여넣기" sub="틱톡·인스타그램 등 자동으로 못 받는 댓글" onPress={() => setSheet('paste')} /> : null}
             {!closed ? <TodoRow title="방송 끝내기" onPress={() => setSheet('end')} /> : null}
           </RowGroup>
         </BottomSheet>

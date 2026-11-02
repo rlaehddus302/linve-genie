@@ -10,9 +10,10 @@ import type { AssistResult, AssistSettings, AssistSuggestResponse, BroadcastView
 import { ASSIST_BUSY_RELOAD_MS, ASSIST_BUSY_RELOADS, ASSIST_FAILED, ASSIST_LIMIT, ASSIST_LIMIT_UNKNOWN, ASSIST_OFFER, ASSIST_READING, ASSIST_YOUTUBE_EXCLUDED, showsYoutubeExcluded, suggestionView, type SuggestionView } from '@livejjim/web/src/lib/assist-words.ts'
 import { dateWords, kstTime } from '@livejjim/web/src/lib/kst.ts'
 import { outcomeOf, pickFor, prefillOf, qtyProblemWords, readQty, remainingOf, variantTextOf, type LineOutcome, type ReviewPick } from '@livejjim/web/src/lib/review-pick.ts'
-import { HOST_ACTION_DELAY_MS, UndoQueue, type UndoItem } from '@livejjim/web/src/lib/undo-queue.ts'
+import type { UndoItem, UndoQueue } from '@livejjim/web/src/lib/undo-queue.ts'
+import { NO_ITEMS, UndoStrip, noItems, noSubscribe, secondsWord, useUndoQueue, waitingCount } from '../lib/host-queue.tsx'
 import { ORIGIN_WORD, REVIEW_REASON_WORD } from '@livejjim/web/src/lib/words.ts'
-import { get, isApiError, newRequestId, post, withQuery, type ApiError } from '../api/client.ts'
+import { get, isApiError, post, withQuery, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
@@ -24,7 +25,6 @@ export const REVIEWS_TITLE = '확인 필요'
 export const REVIEWS_HINT = '주문인지 애매한 댓글이에요. 상품·옵션·수량을 골라 "주문으로"를 누르거나, 주문이 아니면 "주문 아님"을 눌러 주세요.'
 export const REHEARSAL_BANNER = '리허설 방송의 확인 필요예요 — 실제 판매가 아니에요'
 export const NOTHING_TO_REVIEW = '확인할 댓글이 없어요.'
-export const NOT_APPLIED_MESSAGE = '적용되지 않았어요. 지금 상태를 확인해 주세요.'
 export const LEAVE_QUESTION = '아직 보내지 않은 것이 있어요'
 export const leaveWords = (n: number): string => `보내기 전인 조치 ${String(n)}개가 있어요. 지금 나가면 보내지 않아요.`
 export const BLANK_LINE = (n: number): string => `${String(n)}번째 줄에 빈 칸이 있어요`
@@ -34,16 +34,11 @@ export const DEFAULT_MAX_QTY = 10
 export const SUGGESTION_SETTLE_MS = 500
 const DONE_MS = 8000
 const RELOAD_MS = 250
-const NO_ITEMS: readonly UndoItem[] = []
 
 export const reviewKey = (review: Pick<ReviewItem, 'broadcast' | 'item'>): string => `${review.broadcast}|${review.item}`
 const choiceTail = (choice: string | undefined): string => (choice === undefined ? '' : ` → ${choice}`)
 const productName = (product: Product): string => `${String(product.no)}번 ${product.name.trim() === '' ? '품종 미입력' : product.name}`
 
-export function secondsWord(ms: number): string {
-  const seconds = Math.round(ms / 100) / 10
-  return `${Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1)}초`
-}
 
 export interface ReviewsQuery {
   readonly broadcast?: string
@@ -162,31 +157,6 @@ function useAssistOnOpen(query: ReviewsQuery, reload: () => Promise<unknown>) {
   return state
 }
 
-/** 화면이 열린 동안의 되돌리기 목록 (대기 시간은 서버 설정 — 못 읽으면 운영 5초). 화면이 내려가면 기다리던 조치는 보내지 않는다 */
-function useUndoQueue(): UndoQueue | null {
-  const [queue, setQueue] = useState<UndoQueue | null>(null)
-  useEffect(() => {
-    let alive = true
-    let made: UndoQueue | null = null
-    const start = (delayMs: number) => {
-      if (!alive) return
-      made = new UndoQueue({ delayMs, requestId: newRequestId })
-      setQueue(made)
-    }
-    get<{ hostActionDelayMs: number }>('/api/client-config').then(
-      (config) => start(Number.isFinite(config.hostActionDelayMs) && config.hostActionDelayMs >= 0 ? config.hostActionDelayMs : HOST_ACTION_DELAY_MS),
-      () => start(HOST_ACTION_DELAY_MS),
-    )
-    return () => {
-      alive = false
-      made?.cancelAll()
-    }
-  }, [])
-  return queue
-}
-
-const waitingCount = (items: readonly UndoItem[]): number => items.filter((item) => item.kind === 'action' && (item.status === 'waiting' || item.status === 'sending' || item.status === 'retrying')).length
-
 export function ReviewsScreen({ onBack, query = { rehearsal: false }, openSettings }: { readonly onBack: () => void; readonly query?: ReviewsQuery; readonly openSettings?: () => void }) {
   const { p } = useKit()
   const { broadcast: queryBroadcast, rehearsal: queryRehearsal } = query
@@ -233,58 +203,6 @@ export function ReviewsScreen({ onBack, query = { rehearsal: false }, openSettin
           onBack()
         }}
       />
-    </View>
-  )
-}
-
-const noSubscribe = () => () => undefined
-const noItems = (): readonly UndoItem[] => NO_ITEMS
-
-/** 되돌리기 띠 (웹 UndoBar와 같은 문장): 기다림 → 되돌리기, 보내는 중, 보냄, 적용 안 됨, 보내지 않음, 실패 → 다시 보내기 */
-function UndoStrip({ items, queue }: { readonly items: readonly UndoItem[]; readonly queue: UndoQueue }) {
-  const shown = items.filter((item) => item.kind === 'action')
-  if (shown.length === 0) return null
-  return (
-    <View style={{ gap: SPACE.xs }} aria-label="보내기 전·보낸 것" role="region">
-      {shown.map((item) => {
-        if (item.kind !== 'action') return null
-        switch (item.status) {
-          case 'waiting':
-            return (
-              <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-                <View style={{ flex: 1 }}>
-                  <Txt>{`${secondsWord(queue.delayMs)} 뒤 보내요: ${item.label}`}</Txt>
-                </View>
-                <BigButton kind="outline" label="되돌리기" ariaLabel={`${item.label} 되돌리기`} onPress={() => queue.undo(item.id)} />
-              </View>
-            )
-          case 'sending':
-          case 'retrying':
-            return <Txt key={item.id} color="textSub">{`보내는 중…: ${item.label}`}</Txt>
-          case 'done':
-          case 'outcome':
-            return <Notice key={item.id} tone="success">{`보냈어요: ${item.label}`}</Notice>
-          case 'notApplied':
-            return (
-              <View key={item.id} style={{ gap: SPACE.xs }}>
-                <Notice tone="warning">{`${item.label} — ${NOT_APPLIED_MESSAGE}`}</Notice>
-                <BigButton kind="secondary" label="확인" onPress={() => queue.dismiss(item.id)} />
-              </View>
-            )
-          case 'cancelled':
-            return <Txt key={item.id} color="textSub">{`보내지 않았어요: ${item.label}`}</Txt>
-          case 'failed':
-            return (
-              <View key={item.id} style={{ gap: SPACE.xs }}>
-                <Notice tone="danger" alert>{`${item.label} — ${item.error?.message ?? '보내지 못했어요.'}${item.error?.problems.map((problem) => ` ${problem.message}`).join('') ?? ''}`}</Notice>
-                <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-                  {item.error?.transient === true ? <BigButton kind="outline" label="다시 보내기" onPress={() => queue.resend(item.id)} /> : null}
-                  <BigButton kind="secondary" label="확인" onPress={() => queue.dismiss(item.id)} />
-                </View>
-              </View>
-            )
-        }
-      })}
     </View>
   )
 }

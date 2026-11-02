@@ -3,7 +3,7 @@
 //   접두어는 소문자 그대로만 — `BAND:`·쌍점 없는 `bandX`는 유튜브다.
 // - 서버가 응답에 문장을 주는 곳(수집 상태·오류)은 서버 문장을 그대로 쓴다. 여기 문장은 서버가 응답으로 주지 않는 자리
 //   (조회 결과만으로 정하는 안내·확인 창·화면 문장)이고 acceptance의 따옴표 문장과 글자가 같다.
-import type { Buyer, ChatMessage, InstagramDmRow, TikTokCollection, TikTokExtensionView, TikTokSettings } from '../api/types.ts'
+import type { Buyer, ChatMessage, InstagramDmRow, PastePlanView, TikTokCollection, TikTokExtensionView, TikTokSettings } from '../api/types.ts'
 
 export type KeyPlatform = 'YOUTUBE' | 'INSTAGRAM' | 'TIKTOK' | 'BAND' | 'SMS'
 
@@ -200,4 +200,27 @@ export function pasteOverlapCount(rows: readonly { readonly line: number; readon
     count += row.overlaps?.length ?? 0
   }
   return count
+}
+
+/**
+ * 같은 닉네임 묶음 (SA-N2b-2-012): 닉네임마다 서버 group.lines ∪ "그래도 넣기"를 고른 겹친 줄 중 같은 닉네임인 줄.
+ * 2줄 이상인 묶음만, 첫 줄 순서로.
+ */
+export function pasteGroups(plan: PastePlanView, include: ReadonlySet<number>): { readonly nickname: string; readonly lines: readonly number[] }[] {
+  const byNick = new Map<string, Set<number>>()
+  for (const group of plan.groups) {
+    const lines = byNick.get(group.nickname) ?? new Set<number>()
+    for (const line of group.lines) lines.add(line)
+    byNick.set(group.nickname, lines)
+  }
+  for (const row of plan.rows) {
+    if (row.nickname === undefined || !include.has(row.line) || row.overlaps === undefined || row.overlaps.length === 0) continue
+    const lines = byNick.get(row.nickname) ?? new Set<number>()
+    lines.add(row.line)
+    byNick.set(row.nickname, lines)
+  }
+  return [...byNick]
+    .map(([nickname, lines]) => ({ nickname, lines: [...lines].sort((a, b) => a - b) }))
+    .filter((group) => group.lines.length > 1)
+    .sort((a, b) => (a.lines[0] ?? 0) - (b.lines[0] ?? 0))
 }

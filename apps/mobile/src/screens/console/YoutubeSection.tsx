@@ -145,8 +145,8 @@ export function useMobileYoutube(broadcastId: string, enabled: boolean): MobileY
   return { phase: enabled ? phase : 'hidden', webChat, connection, link, resumed: enabled && resume.resumed, retryingLong, broadcastId, dismissResumed, setLink, reloadLink, reload: loadAll }
 }
 
-/** 맨 위 경고 (AC5·AC6·AC8) — 휴대폰은 확장 안내 없이 문자찜·음성·댓글 붙여넣기(웹) */
-export function YoutubeWarning({ yt, closed }: { readonly yt: MobileYoutube; readonly closed: boolean }) {
+/** 맨 위 경고 (AC5·AC6·AC8) — 휴대폰은 확장 안내 없이 문자찜·음성·댓글 붙여넣기(앱 안 창 — D-APPX-03) */
+export function YoutubeWarning({ yt, closed, onPaste }: { readonly yt: MobileYoutube; readonly closed: boolean; readonly onPaste?: () => void }) {
   if (closed || yt.phase !== 'ready') return null
   const line = warningLine(yt.link?.collector ?? null, yt.retryingLong)
   if (line === null) return null
@@ -160,7 +160,7 @@ export function YoutubeWarning({ yt, closed }: { readonly yt: MobileYoutube; rea
         <>
           <Hint>{MOBILE_FALLBACK_HINT}</Hint>
           <Row wrap>
-            <BigButton small label="댓글 붙여넣기 (웹으로 열기)" onPress={() => void openWeb(`/broadcasts/${encodeURIComponent(yt.broadcastId)}`)} />
+            {onPaste !== undefined ? <BigButton small label="댓글 붙여넣기" onPress={onPaste} /> : null}
           </Row>
         </>
       ) : null}

@@ -7,12 +7,14 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { Buyer, WriteResult } from '@livejjim/web/src/api/types.ts'
-import { HOST_ACTION_DELAY_MS, UndoQueue, type UndoItem } from '@livejjim/web/src/lib/undo-queue.ts'
+import type { UndoItem, UndoQueue } from '@livejjim/web/src/lib/undo-queue.ts'
+import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { UNKNOWN_SMS_DISPLAY, buyerList, channelTail, claimsOf, defaultInto, distinguishWords, isActive, isUnknownSms, mergeWords, sameNameCounts, searchBuyers, settlementOf, splitProductKey, type BuyerSort, type MergePreviewView } from '../lib/buyers.ts'
 import { useDayScope } from '../lib/day-scope.ts'
 import { BuyerNames, claimWord } from '../lib/derive.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
+import { QUICK_REASONS } from '@livejjim/web/src/lib/words.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, BottomSheet, Card, TextField, Txt, useKit } from '../ui/kit/index.ts'
@@ -31,7 +33,6 @@ export const blockWarning = (rehearsal: boolean): string => {
   return rehearsal ? base : `${base} 다음 날짜 방송에서도 차단돼요.`
 }
 const PAGE = 100
-const BLOCK_REASONS: readonly string[] = ['장난 주문', '입금 안 함']
 
 const productLabel = (data: ScopeData) => (broadcast: string, no: number): string => {
   const many = data.broadcasts.size > 1
@@ -56,32 +57,6 @@ export function BuyersScreen({ onBack, initialDate }: { readonly onBack: () => v
   )
 }
 
-/** 차단처럼 5초 뒤 보내는 조치 (대기 시간은 서버 설정) */
-function useQueue(): UndoQueue | null {
-  const [queue, setQueue] = useState<UndoQueue | null>(null)
-  useEffect(() => {
-    let alive = true
-    let made: UndoQueue | null = null
-    const start = (delayMs: number) => {
-      if (!alive) return
-      made = new UndoQueue({ delayMs, requestId: newRequestId })
-      setQueue(made)
-    }
-    get<{ hostActionDelayMs: number }>('/api/client-config').then(
-      (config) => start(Number.isFinite(config.hostActionDelayMs) && config.hostActionDelayMs >= 0 ? config.hostActionDelayMs : HOST_ACTION_DELAY_MS),
-      () => start(HOST_ACTION_DELAY_MS),
-    )
-    return () => {
-      alive = false
-      made?.cancelAll()
-    }
-  }, [])
-  return queue
-}
-const noSubscribe = () => () => undefined
-const NO_ITEMS: readonly UndoItem[] = []
-const noItems = (): readonly UndoItem[] => NO_ITEMS
-
 function BuyersDay({ date }: { readonly date: string }) {
   const { data, error, reload } = useDayScope(date)
   const [all, setAll] = useState(false)
@@ -89,7 +64,7 @@ function BuyersDay({ date }: { readonly date: string }) {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [limit, setLimit] = useState(PAGE)
-  const queue = useQueue()
+  const queue = useUndoQueue()
   const items = useSyncExternalStore(queue?.subscribe ?? noSubscribe, queue?.getSnapshot ?? noItems)
   const names = useMemo(() => (data === null ? null : new BuyerNames(data.buyers, data.claims)), [data])
   const counts = useMemo(() => (data === null ? new Map<string, number>() : sameNameCounts(data.buyers)), [data])
@@ -171,21 +146,10 @@ function BuyerDetail({ data, names, counts, buyer, queue, items, command, onClos
   const unknown = isUnknownSms(buyer)
   const sealed = data.sealed
   const label = productLabel(data)
-  const waiting = items.filter((item) => item.kind === 'action' && item.status === 'waiting')
   return (
     <View style={{ gap: SPACE.md }}>
       <BigButton kind="secondary" label="구매자 목록으로" onPress={onClose} />
-      {waiting.map((item) =>
-        item.kind === 'action' ? (
-          <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-            <View style={{ flex: 1 }}>
-              <Txt>{`5초 뒤 보내요: ${item.label}`}</Txt>
-            </View>
-            <BigButton kind="outline" label="되돌리기" ariaLabel={`${item.label} 되돌리기`} onPress={() => queue?.undo(item.id)} />
-          </View>
-        ) : null,
-      )}
-      {items.filter((item) => item.kind === 'action' && item.status === 'failed').map((item) => (item.kind === 'action' ? <Notice key={item.id} tone="danger" alert>{`${item.label} — ${item.error?.message ?? '보내지 못했어요.'}`}</Notice> : null))}
+      {queue !== null ? <UndoStrip items={items} queue={queue} /> : null}
       {notice !== null ? <Notice tone="success">{notice}</Notice> : null}
       {unknown ? <Notice tone="warning">{UNKNOWN_SMS_GUIDE}</Notice> : null}
       <Card label={`${name} 자세히`}>
@@ -271,7 +235,7 @@ function BuyerDetail({ data, names, counts, buyer, queue, items, command, onClos
         <ReasonSheet
           title={`${name} ${ask.block ? '차단' : '차단 풀기'}`}
           submitLabel={ask.block ? '차단하기' : '차단 풀기'}
-          reasons={ask.block ? BLOCK_REASONS : []}
+          reasons={QUICK_REASONS}
           warning={ask.block ? blockWarning(false) : null}
           danger={ask.block}
           onClose={() => setAsk(null)}

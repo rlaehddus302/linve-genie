@@ -89,6 +89,17 @@ describe('고르기 규칙이 웹과 같다', () => {
     expect(derive.latestProduct(mine, 'b1')?.no).toBe(webDerive.latestProduct(theirs, 'b1')?.no)
   })
 
+  it('정하기 단위·조치 options 칸 (D-APPX-03)', () => {
+    for (const key of mine.products.keys()) {
+      const a = mine.products.get(key)!
+      const b = theirs.products.get(key)!
+      expect(derive.successionUnits(a).map((unit) => [unit.product.key, unit.variant?.text ?? null, unit.waitlistClaims])).toEqual(webDerive.successionUnits(b).map((unit) => [unit.product.key, unit.variant?.text ?? null, unit.waitlistClaims]))
+      expect(derive.conflictUnits(a).map((unit) => [unit.product.key, unit.variant?.text ?? null])).toEqual(webDerive.conflictUnits(b).map((unit) => [unit.product.key, unit.variant?.text ?? null]))
+    }
+    for (const id of mine.claims.keys()) expect(derive.claimOptionsField(mine.claims.get(id)!)).toEqual(webDerive.claimOptionsField(theirs.claims.get(id)!))
+    expect(derive.variantOptionsField(undefined)).toEqual(webDerive.variantOptionsField(undefined))
+  })
+
   it('증분 덮기 결과가 같다', () => {
     const delta = changes(5, 9, { products: [product(15, { status: 'SOLD' })], claims: [claim('c6', 15, 'u3')], removed: { broadcasts: [], products: [], claims: ['c2'], pending: ['b1/20'], buyers: [], settlements: [], effects: [], cancelRequests: [] }, attention: [{ seq: 3, message: '확인' }, { seq: 8, message: '새 확인' }] })
     const a = scope.applyChanges(mine, delta)

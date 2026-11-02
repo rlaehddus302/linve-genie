@@ -113,7 +113,8 @@ describe('콘솔 유튜브 (앱)', () => {
     expect(warning.textContent).toBe(BLOCKED)
     // 옛 문장 "아래 문자찜 칸이나…" — 문자찜 칸은 "직접 넣기" 시트로 옮겼다 (D-UX2-03)
     expect(screen.getByText('"직접 넣기"의 문자찜 칸이나 음성으로 넣을 수 있어요.')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '댓글 붙여넣기 (웹으로 열기)' })).toBeTruthy()
+    // 옛 기대: "댓글 붙여넣기 (웹으로 열기)". 새 기대(D-APPX-03): 방송 화면 안 붙여넣기 창을 연다
+    expect(screen.getByRole('button', { name: '댓글 붙여넣기' })).toBeTruthy()
     await emit({ status: 'LIVE' })
     expect(screen.queryByRole('alert', { name: '유튜브 채팅 경고' })).toBeNull()
     expect(within(section()).getByText(RESUMED)).toBeTruthy()

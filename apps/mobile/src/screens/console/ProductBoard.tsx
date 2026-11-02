@@ -7,7 +7,6 @@ import { Pressable, View } from 'react-native'
 import type { Claim, Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { useWinnerBadges } from '../../lib/customer-badges.ts'
-import { openWeb } from '../../lib/open-web.ts'
 import { boardProducts, claimWord, claimsOfProduct, nameOf, productSlots } from '../../lib/derive.ts'
 import { NO_PRODUCTS_YET, PRODUCT_STATUS_WORD, formatWon } from '../../lib/words.ts'
 import type { Tone } from '../../ui/theme.ts'
@@ -134,8 +133,8 @@ function ProductActions({ product }: { readonly product: Product }) {
   )
 }
 
-/** 상품 자세히 (시트 안): 가격·상태·찜 목록·판매 조작. 겹침·승계를 정하는 일은 웹과 같은 서버 처리 화면에서 한다(버튼이 웹으로 연다고 알린다). */
-export function ProductDetail({ product }: { readonly product: Product }) {
+/** 상품 자세히 (시트 안): 가격·상태·찜 목록·판매 조작. 겹침·승계는 "누가 살지 정하기"가 방송 화면의 정하기 창을 그 상품으로 연다(D-APPX-03). */
+export function ProductDetail({ product, onDecide }: { readonly product: Product; readonly onDecide?: () => void }) {
   const api = useConsoleApi()
   const open = undecided(product)
   const conflicts = claimsOfProduct(api.data, product).filter((claim) => claim.status === 'CONFLICT').length
@@ -156,8 +155,7 @@ export function ProductDetail({ product }: { readonly product: Product }) {
       <ClaimLines product={product} />
       {open ? (
         <View style={{ gap: SPACE.xs }}>
-          <BigButton kind="secondary" label="누가 살지 정하기" ariaLabel="누가 살지 정하기 (웹으로 열기)" onPress={() => void openWeb(`/broadcasts/${encodeURIComponent(api.b)}`)} />
-          <Hint>누르면 휴대폰 브라우저의 방송 화면에서 정해요.</Hint>
+          {onDecide !== undefined ? <BigButton kind="secondary" label="누가 살지 정하기" onPress={onDecide} /> : <Hint>판매자 계정에서 정할 수 있어요.</Hint>}
         </View>
       ) : null}
       <ProductActions product={product} />

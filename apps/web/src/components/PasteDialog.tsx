@@ -18,7 +18,8 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import type { PastePlanView } from '../api/types.ts'
 import { groupDigits } from '../lib/money.ts'
-import { PASTE_GUIDE, PASTE_INCLUDE_OVERLAP, PASTE_STALE, pasteButtonLabel, pasteDoneMessage, pasteGroupMessage, pasteOverlapCount } from '../lib/platforms.ts'
+import { PASTE_GUIDE, PASTE_INCLUDE_OVERLAP, PASTE_STALE, pasteButtonLabel, pasteDoneMessage, pasteGroupMessage, pasteGroups, pasteOverlapCount } from '../lib/platforms.ts'
+export { pasteGroups } from '../lib/platforms.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 
@@ -198,29 +199,6 @@ export interface PastePreviewProps {
   /** 처음 넣기를 누른 뒤 — 고르기 잠금 */
   readonly locked?: boolean
   readonly onInclude?: (line: number, on: boolean) => void
-}
-
-/**
- * 같은 닉네임 묶음 (SA-N2b-2-012): 닉네임마다 서버 group.lines ∪ "그래도 넣기"를 고른 겹친 줄 중 같은 닉네임인 줄.
- * 2줄 이상인 묶음만, 첫 줄 순서로.
- */
-export function pasteGroups(plan: PastePlanView, include: ReadonlySet<number>): { readonly nickname: string; readonly lines: readonly number[] }[] {
-  const byNick = new Map<string, Set<number>>()
-  for (const group of plan.groups) {
-    const lines = byNick.get(group.nickname) ?? new Set<number>()
-    for (const line of group.lines) lines.add(line)
-    byNick.set(group.nickname, lines)
-  }
-  for (const row of plan.rows) {
-    if (row.nickname === undefined || !include.has(row.line) || row.overlaps === undefined || row.overlaps.length === 0) continue
-    const lines = byNick.get(row.nickname) ?? new Set<number>()
-    lines.add(row.line)
-    byNick.set(row.nickname, lines)
-  }
-  return [...byNick]
-    .map(([nickname, lines]) => ({ nickname, lines: [...lines].sort((a, b) => a - b) }))
-    .filter((group) => group.lines.length > 1)
-    .sort((a, b) => (a.lines[0] ?? 0) - (b.lines[0] ?? 0))
 }
 
 /** 미리 보기: 줄 결과(겹친 줄은 서버 문장 + "그래도 넣기") + 같은 닉네임 묶음 */

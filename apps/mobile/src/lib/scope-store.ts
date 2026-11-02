@@ -5,7 +5,7 @@
 //   서버가 "전체를 다시 받으세요"(410 RESYNC_REQUIRED)면 전체를 다시 받는다.
 // - 불러오기·따라잡기가 실패하면(네트워크·5xx) "최신으로 맞추지 못함"(stale)을 보이고 1초부터 두 배씩 최대 30초 간격으로 다시 시도한다.
 //   새 알림이 오면 바로 다시 시도한다.
-// 채팅 메시지는 받지 않는다(앱 콘솔은 상품·찜·알림을 보인다 — 채팅 글은 웹으로).
+// 채팅 메시지는 범위 자료로 받지 않는다 — 방송 화면의 "채팅 보기"가 열릴 때 따로 받는다(D-APPX-03).
 import type { BroadcastItem, Changes, FullView, ScopeSeq } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
 import { CLOSED, type EventSourceLike, type SseMessage } from '../api/sse.ts'

@@ -211,7 +211,64 @@ describe('ConsoleScreen', () => {
     expect(screen.getByLabelText('전화번호 (선택)')).toBeTruthy()
   })
 
-  it('겹친 상품 시트: "판매 완료"·"1등" 대신 "아직 안 정했어요"·"겹침", 정하기 버튼은 웹으로 연다고 알린다 (D-UX2-07)', async () => {
+  it('정하기 창 (D-APPX-03, 웹 알림 창과 같은 문구): 취소 요청은 승인·무시, 승계는 사유와 함께 1등으로 — 대기 뒤 보낸다', async () => {
+    const world = makeWorld()
+    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=false)?$/, () => ({
+      body: fullView({
+        seq: world.seq,
+        products: [product(5, { status: 'SOLD', winners: ['u1'], winnerClaims: ['c1'] }), product(6, { awaitingSuccession: true, waitlist: ['u3'], waitlistClaims: ['c3'] })],
+        claims: [claim('c1', 5, 'u1'), claim('c3', 6, 'u3', { status: 'WAITLISTED', seq: 12 })],
+        buyers: [buyer('u1', '꽃집언니'), buyer('u3', '초록손')],
+        cancelRequests: [{ product: 'b1/5', buyer: 'u1', currentBuyer: 'u1', claim: 'c1', chooseVariant: false, choices: ['c1'], seq: 13 } as never],
+      }),
+    }))
+    world.server.on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: 20 } }))
+    // 보낸 조치는 응답 seq까지 따라잡는다 — 따라잡기 응답은 바뀐 것 없이 seq만
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=(\d+)/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1] ?? 5), world.seq, {}) }))
+    await open(world)
+    fireEvent.click(await screen.findByRole('button', { name: '정하기 (충돌·취소 요청·승계)' }))
+    const cancel = await screen.findByRole('group', { name: '취소 요청 — 5번' })
+    expect(cancel.textContent).toContain('요청한 사람: 꽃집언니')
+    expect(cancel.textContent).toContain('승인하면 1등 자리가 비고 다시 판매 중이 돼요.')
+    fireEvent.click(within(cancel).getByRole('button', { name: '취소 승인' }))
+    await waitFor(() => expect(world.events.some((call) => call.body?.type === 'host.approveCancel')).toBe(true))
+    expect(world.events.find((call) => call.body?.type === 'host.approveCancel')?.body).toMatchObject({ b: 'b1', no: 5, buyer: 'u1' })
+    fireEvent.click(screen.getByRole('button', { name: '정하기 (충돌·취소 요청·승계)' }))
+    const succession = await screen.findByRole('group', { name: '승계 결정 — 6번' })
+    fireEvent.click(within(succession).getByRole('button', { name: '초록손 1등으로' }))
+    fireEvent.click(within(succession).getByRole('button', { name: '1등으로 올리기' }))
+    expect(within(succession).getByText(/사유를 적어 주세요/)).toBeTruthy()
+    fireEvent.click(within(succession).getByRole('button', { name: '사유 시청자 요청' }))
+    fireEvent.click(within(succession).getByRole('button', { name: '1등으로 올리기' }))
+    await waitFor(() => expect(world.events.some((call) => call.body?.type === 'host.promote')).toBe(true))
+    expect(world.events.find((call) => call.body?.type === 'host.promote')?.body).toMatchObject({ b: 'b1', no: 6, buyer: 'u3', reason: '시청자 요청' })
+  })
+
+  it('채팅 보기·댓글 붙여넣기 (D-APPX-03): 최근 채팅의 주문 표시, 붙여넣기는 미리 본 뒤 같은 요청 번호로 넣는다', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { date: '2026-10-29', rehearsal: false, seq: 5, more: false, messages: [{ id: 'm1', broadcast: 'b1', channel: 'ch1', nick: '꽃집언니', text: '15번이요', owner: false, seq: 4, at: '2026-10-29T11:00:00.000Z', publishedAt: '2026-10-29T11:00:00.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [15], converted: [], claims: [], failed: false }] } }))
+    const pastes: { path: string; body: Record<string, unknown> | null }[] = []
+    world.server.on('POST', /^\/api\/broadcasts\/b1\/paste/, (call) => {
+      pastes.push({ path: call.path, body: call.body })
+      return { body: { rows: [{ line: 1, nickname: '틱톡손님', result: 'ORDER', numbers: [15], message: '15번 찜' }], groups: [], total: 1, ...(call.path.endsWith('/preview') ? {} : { added: 1 }) } }
+    })
+    await open(world)
+    fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+    fireEvent.click(screen.getByRole('button', { name: /^채팅 보기/ }))
+    expect(await screen.findByText('15번이요')).toBeTruthy()
+    expect(screen.getByText('주문 15번')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+    fireEvent.click(screen.getByRole('button', { name: /^댓글 붙여넣기/ }))
+    fireEvent.change(screen.getByLabelText('붙여 넣을 댓글'), { target: { value: '틱톡손님: 15' } })
+    fireEvent.click(screen.getByRole('button', { name: '미리 보기' }))
+    expect(await screen.findByText('1줄 틱톡손님 15번 찜')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '찜 1개 넣기' }))
+    expect(await screen.findByText('찜 1개를 넣었어요.')).toBeTruthy()
+    expect(pastes.map((call) => call.path)).toEqual(['/api/broadcasts/b1/paste/preview', '/api/broadcasts/b1/paste'])
+    expect(pastes[1]!.body).toMatchObject({ text: '틱톡손님: 15', includeOverlaps: [] })
+  })
+
+  it('겹친 상품 시트: "판매 완료"·"1등" 대신 "아직 안 정했어요"·"겹침", 정하기 버튼은 앱 정하기 창을 연다 (D-UX2-07, D-APPX-03)', async () => {
     const world = makeWorld({ products: [product(5, { status: 'SOLD', conflict: true, winners: ['u1'], winnerClaims: ['c1'] })] })
     world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=false)?$/, () => ({
       body: fullView({ seq: world.seq, products: [product(5, { status: 'SOLD', conflict: true, winners: ['u1'], winnerClaims: ['c1'] })], claims: [claim('c1', 5, 'u1'), claim('c2', 5, 'u2', { status: 'CONFLICT', seq: 11 })], buyers: [buyer('u1', '꽃집언니'), buyer('u2', '문자손님')] }),
@@ -230,8 +287,12 @@ describe('ConsoleScreen', () => {
     expect(claims.match(/겹침/g)).toHaveLength(2)
     expect(claims).toContain('꽃집언니')
     expect(claims).toContain('문자손님')
-    expect(within(detail).getByRole('button', { name: '누가 살지 정하기 (웹으로 열기)' })).toBeTruthy()
-    expect(within(detail).getByText('누르면 휴대폰 브라우저의 방송 화면에서 정해요.')).toBeTruthy()
+    // 옛 기대: "누가 살지 정하기 (웹으로 열기)". 새 기대(D-APPX-03): 방송 화면의 정하기 창을 그 상품으로 열고, 고른 조치는 대기 뒤 보낸다
+    fireEvent.click(within(detail).getByRole('button', { name: '누가 살지 정하기' }))
+    const decide = await screen.findByRole('group', { name: '충돌 — 5번' })
+    expect(decide.textContent).toContain('지금 1등: 꽃집언니')
+    fireEvent.click(within(decide).getByRole('button', { name: '그대로 유지' }))
+    expect(await screen.findByText(/뒤 보내요: 5번 충돌 그대로 유지/)).toBeTruthy()
   })
 
   it('방송을 끝내면 "끝난 방송"이 되고 홈으로 돌려보낸다 (D-UX2-07)', async () => {
