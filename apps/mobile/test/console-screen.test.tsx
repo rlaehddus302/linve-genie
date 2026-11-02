@@ -80,6 +80,41 @@ describe('ConsoleScreen', () => {
     expect(world.events.length).toBe(0)
   })
 
+  it('D-LIVETEST-07 찜 기록: 채팅·문자찜이 시각·어디서·이름·번호·결과로, 이미 1등이 있는 상품을 찜하면 "이미 찜됨 · 1등"과 채팅 원문이 보이고, 보류 찜 칸을 누르면 보류 찜만 연다', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { messages: [{ id: 'm2', broadcast: 'b1', channel: 'ch2', nick: '김영희', text: '15번 저도요', owner: false, seq: 11, at: '2026-10-29T11:00:09.000Z', publishedAt: '2026-10-29T11:00:09.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: ['c2'], failed: false }], more: false } }))
+    await open(world)
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({
+      body: changes(5, 7, {
+        products: [product(15, { winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u2'], waitlistClaims: ['c2'] })],
+        claims: [claim('c1', 15, 'u1'), claim('c2', 15, 'u2', { status: 'WAITLISTED', seq: 11, rankTime: '2026-10-29T11:00:09.000Z' }), claim('c3', 88, 'u3', { status: 'PENDING', origin: 'sms', productId: null, seq: 12, rankTime: '2026-10-29T11:00:12.000Z' })],
+        pending: [{ product: 'b1/88', broadcast: 'b1', no: 88, buyers: ['u3'], claims: ['c3'] } as never],
+        buyers: [buyer('u1', '홍길동'), buyer('u2', '김영희'), buyer('u3', '문자손님')],
+      }),
+    }))
+    await act(async () => {
+      world.source().emit('change', { date: '2026-10-29', rehearsal: false, seq: 7, type: 'chat' })
+      await flush()
+    })
+    fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
+    const feed = await screen.findByRole('list', { name: '찜 기록' })
+    const rows = within(feed).getAllByRole('listitem')
+    // 최신이 위: 문자 보류 → 대기(이미 찜됨) → 1등
+    expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual(['88번 문자손님 보류', '15번 김영희 대기 1번', '15번 홍길동 1등'])
+    expect(rows[0]?.textContent).toContain('문자')
+    await waitFor(() => expect(rows[1]?.textContent).toContain('15번 저도요'))
+    expect(rows[1]?.textContent).toContain('이미 찜됨 · 1등 홍길동')
+    expect(rows[2]?.textContent).not.toContain('이미 찜됨')
+    fireEvent.click(screen.getByRole('button', { name: /^보류 찜 1/ }))
+    const pendingRows = await waitFor(() => {
+      const lists = screen.getAllByRole('list', { name: '찜 기록' })
+      const only = lists.find((list) => within(list).queryAllByRole('listitem').length === 1)
+      expect(only).toBeTruthy()
+      return within(only!).getAllByRole('listitem')
+    })
+    expect(pendingRows[0]?.getAttribute('aria-label')).toBe('88번 문자손님 보류')
+  })
+
   it('실시간 change가 오면 증분을 받아 1등·대기가 이름과 낱말로 보인다', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
@@ -226,14 +261,15 @@ describe('ConsoleScreen', () => {
     // 보낸 조치는 응답 seq까지 따라잡는다 — 따라잡기 응답은 바뀐 것 없이 seq만
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=(\d+)/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1] ?? 5), world.seq, {}) }))
     await open(world)
-    fireEvent.click(await screen.findByRole('button', { name: '정하기 (충돌·취소 요청·승계)' }))
+    // D-LIVETEST-07: 정하기 단추 대신 경고 칸(취소 요청·승계 결정 필요)을 누르면 정하기 창이 열린다
+    fireEvent.click(await screen.findByRole('button', { name: /^취소 요청 1/ }))
     const cancel = await screen.findByRole('group', { name: '취소 요청 — 5번' })
     expect(cancel.textContent).toContain('요청한 사람: 꽃집언니')
     expect(cancel.textContent).toContain('승인하면 1등 자리가 비고 다시 판매 중이 돼요.')
     fireEvent.click(within(cancel).getByRole('button', { name: '취소 승인' }))
     await waitFor(() => expect(world.events.some((call) => call.body?.type === 'host.approveCancel')).toBe(true))
     expect(world.events.find((call) => call.body?.type === 'host.approveCancel')?.body).toMatchObject({ b: 'b1', no: 5, buyer: 'u1' })
-    fireEvent.click(screen.getByRole('button', { name: '정하기 (충돌·취소 요청·승계)' }))
+    fireEvent.click(screen.getByRole('button', { name: /^승계 결정 필요 1/ }))
     const succession = await screen.findByRole('group', { name: '승계 결정 — 6번' })
     fireEvent.click(within(succession).getByRole('button', { name: '초록손 1등으로' }))
     fireEvent.click(within(succession).getByRole('button', { name: '1등으로 올리기' }))

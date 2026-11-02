@@ -1,11 +1,11 @@
 // 알림 (AC-S05-30, D-088·D-I1-08, D-UX2-03): 충돌 · 취소 요청 · 승계 결정 필요 · 출력 멈춤 · 버릴 라벨 · 보류 찜 · 확인 필요. 방송 중 화면은 상품 줄에 없는 것만 한 줄로 보이고 모두 0이면 숨긴다.
 // 출력 기기 없음(라벨이 쌓이는데 찍는 기기가 없음)은 띠 아래 짧은 줄 — "라벨이 안 나가요 · 프린터를 연결해 주세요"(D-QL3R1-04).
-import { View } from 'react-native'
+import { Pressable, View } from 'react-native'
 import type { QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import type { AlertCounts } from '../../lib/derive.ts'
 import { ALERT_WORD, NO_STATION_SHORT, PRINT_ALERT_WORD } from '../../lib/words.ts'
-import { BigButton } from '../../ui/kit/index.ts'
-import { Notice } from '../../ui/parts.tsx'
+import { Txt, useKit } from '../../ui/kit/index.ts'
+import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 
 export interface AlertItem {
   readonly key: string
@@ -35,25 +35,31 @@ export function noStation(queue: QueueSummary | null, rehearsal: boolean, ended:
   return queue.device === null || !queue.device.live || !queue.device.printerConnected
 }
 
+/** 눌렀을 때 할 일 — 보류 찜 목록·확인 필요 화면·정하기·라벨(프린터) 화면 */
+export type AlertAction = 'pending' | 'attention' | 'decide' | 'labels'
+
+const ACTION: Readonly<Record<string, AlertAction>> = { conflict: 'decide', cancel: 'decide', succession: 'decide', pause: 'labels', discard: 'labels', pending: 'pending', attention: 'attention', station: 'labels' }
+
 /**
- * 리스트 위 경고 한 줄 (D-UX2-03): 상품 줄에 이미 보이는 충돌·승계는 빼고, 나머지(취소 요청·출력 멈춤·버릴 라벨·보류 찜·확인 필요)만 한 줄로.
- * 모두 없으면 아무것도 그리지 않는다. 라벨이 안 나가면 그 아래 한 줄.
+ * 리스트 위 경고 칸 (D-LIVETEST-07): 한 줄에 작은 칸으로 — 칸마다 눌러서 바로 처리한다.
+ * 보류 찜 → 보류 찜 목록, 확인 필요 → 확인 필요 화면, 충돌·취소 요청·승계 → 정하기, 출력 멈춤·버릴 라벨·라벨 안 나감 → 라벨·프린터 화면.
+ * 모두 없으면 아무것도 그리지 않는다.
  */
-export function AlertStrip({ counts, queue, rehearsal, ended, onReviews }: { readonly counts: AlertCounts; readonly queue: QueueSummary | null; readonly rehearsal: boolean; readonly ended: boolean; readonly onReviews?: () => void }) {
-  const items = alertItems(counts, queue, rehearsal).filter((item) => item.key !== 'conflict' && item.key !== 'succession')
-  const station = noStation(queue, rehearsal, ended)
-  if (items.length === 0 && !station) return null
+export function AlertStrip({ counts, queue, rehearsal, ended, onAction }: { readonly counts: AlertCounts; readonly queue: QueueSummary | null; readonly rehearsal: boolean; readonly ended: boolean; readonly onAction: (action: AlertAction) => void }) {
+  const { tones } = useKit()
+  const items = alertItems(counts, queue, rehearsal)
+  if (noStation(queue, rehearsal, ended)) items.unshift({ key: 'station', text: `${NO_STATION_SHORT} ›`, tone: 'danger' })
+  if (items.length === 0) return null
   return (
-    <View aria-label="알림" role="region" style={{ gap: 6 }}>
-      {items.length > 0 ? (
-        <Notice tone={items.some((item) => item.tone === 'danger') ? 'danger' : 'warning'}>{`확인할 것: ${items.map((item) => item.text).join(' · ')}`}</Notice>
-      ) : null}
-      {counts.attention > 0 && onReviews !== undefined ? <BigButton kind="outline" label="확인 필요 보기" onPress={onReviews} /> : null}
-      {station ? (
-        <Notice tone="danger" alert>
-          {NO_STATION_SHORT}
-        </Notice>
-      ) : null}
+    <View aria-label="알림" role="region" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
+      {items.map((item) => {
+        const pair = tones[item.tone]
+        return (
+          <Pressable key={item.key} role="button" aria-label={item.text} onPress={() => onAction(ACTION[item.key] ?? 'pending')} style={{ paddingVertical: 6, paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill, backgroundColor: pair.bg }}>
+            <Txt step="caption" weight="bold" ink={pair.fg}>{item.text}</Txt>
+          </Pressable>
+        )
+      })}
     </View>
   )
 }

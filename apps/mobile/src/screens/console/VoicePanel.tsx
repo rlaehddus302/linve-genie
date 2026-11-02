@@ -12,16 +12,13 @@ import {
   VOICE_CARD_DISMISS,
   VOICE_CARD_REGISTER,
   VOICE_CONSENT_LINES,
-  VOICE_HEARD_EMPTY,
-  VOICE_HEARD_TITLE,
-  VOICE_HEARING,
   VOICE_LATE_NOTE,
   VOICE_RETRY,
   VOICE_SENT_LINE,
   VOICE_STOPPED_TITLE,
   UNDO,
 } from '../../lib/words.ts'
-import { BigButton as KitButton, DotStatus, Icon, Txt, useKit } from '../../ui/kit/index.ts'
+import { BigButton as KitButton, DotStatus, Icon, useKit } from '../../ui/kit/index.ts'
 import { SPACE } from '../../ui/kit/tokens.ts'
 import { BigButton, BigRed, Body, Card, Hint, Notice, Row } from '../../ui/parts.tsx'
 
@@ -60,7 +57,6 @@ export function VoicePanel({ session, broadcastId, title, seller, ended }: { rea
   useEffect(() => { if (seller && !ended) void session.resumeIfConsented(broadcastId, title) }, [session, seller, ended, broadcastId, title])
   if (!seller) return null
   const mine = view.broadcastId === broadcastId
-  const on = view.on && mine
   const stopped = view.state.kind === 'stopped' && mine
 
   return (
@@ -85,14 +81,6 @@ export function VoicePanel({ session, broadcastId, title, seller, ended }: { rea
         </>
       ) : null}
       {view.problem !== null && !stopped ? <Notice tone="danger" alert>{view.problem}</Notice> : null}
-      {on && (view.heard !== null || view.state.kind === 'listening') ? (
-        <View aria-label={VOICE_HEARD_TITLE} role="status" style={{ flexDirection: 'row', gap: SPACE.sm, alignItems: 'baseline', paddingHorizontal: SPACE.xs }}>
-          <Txt step="caption" color="textSub">{VOICE_HEARD_TITLE}</Txt>
-          <View style={{ flex: 1 }}>
-            <Txt weight="bold" numberOfLines={2}>{view.transcript.at(-1) ?? view.heard ?? (view.state.kind === 'listening' ? VOICE_HEARING : VOICE_HEARD_EMPTY)}</Txt>
-          </View>
-        </View>
-      ) : null}
       {mine && view.undo !== null ? (
         <Row>
           <BigButton small label={`${String(view.undo.no)}번 등록 ${UNDO}`} onPress={() => void session.undo()} />

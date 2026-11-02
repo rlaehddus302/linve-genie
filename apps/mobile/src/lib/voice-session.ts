@@ -310,7 +310,7 @@ export class VoiceSession {
     this.#options.onProcessed?.()
     const now = this.#now()
     const late = !Number.isFinite(result.endMs) || result.endMs > now || result.endMs < result.startMs || now - result.endMs > LATE_MS
-    this.#set({ heard: result.text })
+    this.#set({ heard: result.text, transcript: [...this.#view.transcript, result.text].slice(-TRANSCRIPT_LINES) })
     const reading = result.reading
     if (reading !== null && reading.instant && this.#view.instant && !late && reading.no !== null && reading.price !== null) {
       const b = this.#view.broadcastId
@@ -475,6 +475,15 @@ export class VoiceSession {
       for (const item of this.#commandQueue.splice(0)) this.command(item.method, item.args)
       this.#scheduleIdle()
     } else if (message.type === 'voice.error' && typeof message.message === 'string') {
+      const hold = this.#streamHold
+      if (message.code === 'RESUME_INVALID' && !this.#view.on && hold !== null) {
+        // 방송 소리로 듣는 중(마이크 없음): 서버가 다시 켜져 옛 대기 내용을 잇지 못한 것뿐이다 — 새 읽기로 바로 다시 연다.
+        // 화면의 카드는 그대로 두고, 듣기 멈춤으로 막지 않는다 (D-LIVETEST-06)
+        this.#resumeToken = null
+        this.#options.audio.updateSessionContext?.({ resumeToken: undefined })
+        void this.#start(hold.broadcastId, hold.title, true)
+        return
+      }
       this.#set({ problem: message.message })
       if (message.code === 'RESUME_INVALID') {
         this.#resumeToken = null

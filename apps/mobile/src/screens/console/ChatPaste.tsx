@@ -31,7 +31,8 @@ export function chatTags(message: Pick<ChatMessage, 'owner' | 'order' | 'cancel'
   return out
 }
 
-export function ChatView() {
+/** 이 방송의 최근 채팅 (창이 열린 동안 범위가 바뀌면 짧게 모아 다시 읽는다) — 채팅 보기·찜 기록이 함께 쓴다 */
+export function useMessages(): { readonly view: MessagesView | null; readonly error: ApiError | null } {
   const api = useConsoleApi()
   const { stream } = useServices()
   const [view, setView] = useState<MessagesView | null>(null)
@@ -67,6 +68,12 @@ export function ChatView() {
       source.close()
     }
   }, [path, stream])
+  return { view, error }
+}
+
+export function ChatView() {
+  const api = useConsoleApi()
+  const { view, error } = useMessages()
   if (view === null) return error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : <Hint>불러오는 중…</Hint>
   if (view.sealed === true) return <Notice tone="info">{view.sealedMessage ?? '봉인한 날짜라 채팅 내용을 지웠어요.'}</Notice>
   if (view.messages.length === 0) return <Hint>{NO_CHAT}</Hint>

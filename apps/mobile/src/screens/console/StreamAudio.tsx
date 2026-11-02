@@ -2,8 +2,8 @@
 // - 방송 화면이 열려 있는 동안 서버 상태를 1초마다 읽고, 처음 한 번 안내를 확인한 뒤에는 10초마다 "화면이 열려 있어요"를 알린다.
 //   서버가 방송 소리를 받아 받아쓰기 일꾼에 넣고, 받아쓴 글은 이 기기의 마이크 없는 연결(음성 세션의 조작 전용 흐름)로 온다.
 // - 휴대폰 마이크를 켜면 마이크가 대신 듣는다(서버는 쉰다, D-LV1-06). 상태 줄은 색 + 글자로.
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import { View } from 'react-native'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { Pressable, View } from 'react-native'
 import {
   STREAM_AUDIO_CONSENT,
   STREAM_AUDIO_CONSENT_TITLE,
@@ -13,7 +13,10 @@ import {
   type StreamAudioStatus,
 } from '@livejjim/web/src/lib/stream-audio.ts'
 import { get, post } from '../../api/client.ts'
-import type { VoiceSession } from '../../lib/voice-session.ts'
+import type { VoiceSession, VoiceView } from '../../lib/voice-session.ts'
+import { Icon, Txt, useKit } from '../../ui/kit/index.ts'
+import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
+import { listenState } from './VoicePanel.tsx'
 import { readVoicePreferences, writeVoicePreference } from '../../lib/voice-preferences.ts'
 import { BigButton, Body, Card, Hint, Notice, Row } from '../../ui/parts.tsx'
 
@@ -38,7 +41,18 @@ export function Transcript({ lines }: { readonly lines: readonly string[] }) {
   )
 }
 
-export function StreamAudioPanel({ session, broadcastId, title }: { readonly session: VoiceSession; readonly broadcastId: string; readonly title: string }) {
+export interface StreamAudio {
+  readonly status: StreamAudioStatus | null
+  /** 처음 한 번 안내를 보여야 한다 */
+  readonly consentNeeded: boolean
+  readonly accept: () => void
+  /** 방송 소리로 듣는 중 (받아쓴 글을 받을 연결을 열어 둠) */
+  readonly hold: boolean
+  readonly retry: () => void
+}
+
+/** 방송 화면이 열린 동안: 상태 읽기(1초)·안내 확인 뒤 watch(10초)·받아쓴 글을 받을 연결 유지 */
+export function useStreamAudio(session: VoiceSession, broadcastId: string, title: string, active: boolean): StreamAudio {
   const view = useSyncExternalStore(session.subscribe, session.getView)
   const micOn = view.on && view.broadcastId === broadcastId
   const [status, setStatus] = useState<StreamAudioStatus | null>(null)
@@ -49,51 +63,85 @@ export function StreamAudioPanel({ session, broadcastId, title }: { readonly ses
     return () => { stop = true }
   }, [])
   useEffect(() => {
+    if (!active) return
     let stop = false
     const read = () => { get<unknown>(streamAudioPath(broadcastId)).then((body) => { if (!stop) setStatus(readStreamAudioStatus(body)) }, () => undefined) }
     read()
     const timer = setInterval(read, POLL_MS)
     return () => { stop = true; clearInterval(timer) }
-  }, [broadcastId])
+  }, [broadcastId, active])
   useEffect(() => {
-    if (consented !== true) return
+    if (!active || consented !== true) return
     const watch = () => { post(`${streamAudioPath(broadcastId)}/watch`, {}).catch(() => undefined) }
     watch()
     const timer = setInterval(watch, WATCH_MS)
     return () => clearInterval(timer)
-  }, [broadcastId, consented])
-  const hold = consented === true && !micOn && holdsStream(status)
+  }, [broadcastId, consented, active])
+  const hold = active && consented === true && !micOn && holdsStream(status)
   useEffect(() => {
     session.holdStream(broadcastId, title, hold)
   }, [session, broadcastId, title, hold])
   useEffect(() => () => session.holdStream(broadcastId, title, false), [session, broadcastId, title])
-
-  const accept = () => {
+  const accept = useCallback(() => {
     setConsented(true)
     writeVoicePreference(CONSENT_KEY, true).catch(() => undefined)
-  }
-  if (consented === false && status !== null && !['hidden', 'off', 'ended'].includes(status.phase)) {
+  }, [])
+  const retry = useCallback(() => { post(`${streamAudioPath(broadcastId)}/restart`, {}).catch(() => undefined) }, [broadcastId])
+  const consentNeeded = active && consented === false && status !== null && !['hidden', 'off', 'ended'].includes(status.phase)
+  return { status, consentNeeded, accept, hold, retry }
+}
+
+/** 머리 오른쪽 듣기 상태 한 곳: 마이크가 켜져 있으면 마이크, 아니면 방송 소리, 둘 다 아니면 꺼짐 */
+export function listenChip(view: VoiceView, broadcastId: string, status: StreamAudioStatus | null): { readonly word: string; readonly tone: 'on' | 'off' | 'warn' } {
+  const mic = listenState(view, broadcastId)
+  if (view.on && view.broadcastId === broadcastId) return mic
+  if (status?.phase === 'listening') return { word: '방송 소리 듣는 중', tone: 'on' }
+  if (status?.phase === 'reconnecting') return { word: '방송 소리 다시 잇는 중', tone: 'warn' }
+  if (status?.phase === 'stopped') return { word: '방송 소리 멈춤', tone: 'warn' }
+  return mic
+}
+
+/**
+ * 들린 말 한 줄 (D-LIVETEST-07): 평소엔 마지막으로 들린 말 한 줄만 — 누르면 최근 줄·듣는 곳 상태·다시 켜기를 펼친다.
+ * 멈춤·못 받음 같은 문제는 접혀 있어도 보인다. 처음 한 번은 방송 소리 안내 카드.
+ */
+export function ListenLine({ session, broadcastId, title, stream }: { readonly session: VoiceSession; readonly broadcastId: string; readonly title: string; readonly stream: StreamAudio }) {
+  const { p } = useKit()
+  const view = useSyncExternalStore(session.subscribe, session.getView)
+  const [open, setOpen] = useState(false)
+  const micOn = view.on && view.broadcastId === broadcastId
+  if (stream.consentNeeded) {
     return (
       <Card label={STREAM_AUDIO_CONSENT_TITLE}>
         <View role="dialog" aria-label={STREAM_AUDIO_CONSENT_TITLE} style={{ gap: 8 }}>
           <Body bold>{STREAM_AUDIO_CONSENT_TITLE}</Body>
           <Body>{STREAM_AUDIO_CONSENT}</Body>
           <Hint>{STREAM_AUDIO_LOW_LATENCY}</Hint>
-          <BigButton primary label="확인하고 듣기" onPress={accept} />
+          <BigButton primary label="확인하고 듣기" onPress={stream.accept} />
         </View>
       </Card>
     )
   }
-  const line = streamAudioLine(status, micOn)
-  if (line === null) return null
+  const line = streamAudioLine(stream.status, micOn)
+  const hearing = micOn || stream.hold
+  if (!hearing && line === null) return null
+  const last = view.transcript.at(-1) ?? null
+  const problem = line !== null && (line.tone === 'danger' || line.tone === 'warn')
   return (
-    <View aria-label="듣는 곳" style={{ gap: 6 }}>
-      <Notice tone={TONE[line.tone]} alert={line.tone === 'danger'}>{line.text}</Notice>
-      {line.late !== null ? <Hint>{line.late}</Hint> : null}
-      {hold ? <Transcript lines={view.transcript} /> : null}
-      {line.retry || line.useMic ? (
+    <View style={{ gap: 6 }}>
+      <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, backgroundColor: p.surface }}>
+        <Icon name="mic" size={16} color={hearing ? p.primaryText : p.textSub} />
+        <View role="status" aria-label="지금 들리는 말" style={{ flex: 1 }}>
+          <Txt step="caption" numberOfLines={1} color={last === null ? 'textSub' : undefined}>{hearing ? (last ?? '아직 들린 말이 없어요.') : (line?.text ?? '')}</Txt>
+        </View>
+        <Txt step="caption" color="textSub">{open ? '접기' : '펼치기'}</Txt>
+      </Pressable>
+      {open && hearing ? <Transcript lines={view.transcript} /> : null}
+      {(open || problem) && line !== null && (open || line.tone !== 'ok') ? <Notice tone={TONE[line.tone]} alert={line.tone === 'danger'}>{line.text}</Notice> : null}
+      {open && line?.late != null ? <Hint>{line.late}</Hint> : null}
+      {line !== null && (line.retry || line.useMic) ? (
         <Row wrap>
-          {line.retry ? <BigButton small label="다시 켜기" onPress={() => { post(`${streamAudioPath(broadcastId)}/restart`, {}).catch(() => undefined) }} /> : null}
+          {line.retry ? <BigButton small label="다시 켜기" onPress={stream.retry} /> : null}
           {line.useMic ? <BigButton small label="휴대폰으로 듣기" onPress={() => void session.turnOn(broadcastId, title)} /> : null}
         </Row>
       ) : null}
