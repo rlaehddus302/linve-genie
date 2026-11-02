@@ -140,6 +140,27 @@ gh repo deploy-key add livegenie-ec2.pub --repo Port-051/livegenie --title "live
 
 `--allow-write`를 붙이지 않는다(읽기 전용이 기본). 웹이면 저장소 Settings → Deploy keys → Add deploy key(Allow write access 끔). 서버는 60분 동안 30초마다 다시 받아 본다. 60분을 넘기면 `LG-FAIL clone` — 인스턴스를 재부팅하지 말고 아래 "다시 돌리기"를 한다.
 
+### 7-1. 배포 키를 쓸 수 없을 때 (저장소·조직에서 배포 키가 꺼져 있음)
+
+`gh repo deploy-key add`가 `Deploy keys are disabled for this repository`로 거절되면, 코드를 git 묶음(bundle)으로 S3를 거쳐 넣는다(D-LIVETEST-11). 서버는 그대로 `git clone`을 되풀이하고 있으므로 시스템 git 설정으로 저장소 주소를 묶음 파일로 바꿔 준다.
+
+```bash
+# 맥(저장소)에서: 이미지에 안 쓰는 tests·harness를 빼고 한 커밋짜리 묶음 (CloudShell 파일 업로드는 한 번에 10MB 아래로)
+git archive main -- . ':!harness' ':!tests/e2e' ':!tests/adversarial' | gzip -9 > snap.tgz
+mkdir snap && tar -xzf snap.tgz -C snap && git -C snap init -q -b main && git -C snap add -A && git -C snap commit -qm "배포 스냅샷 $(git rev-parse --short main)"
+git -C snap bundle create ../lg.bundle main && split -b 6000000 lg.bundle lgpart.   # 조각을 CloudShell에 올린다
+```
+
+```bash
+# CloudShell에서
+cat lgpart.* > lg.bundle && aws s3 cp lg.bundle s3://$BUCKET/deploy/lg.bundle
+GETURL=$(aws s3 presign s3://$BUCKET/deploy/lg.bundle --expires-in 3600)
+python3 -c "import json,sys; print(json.dumps({'commands':['set -e','curl -fsSL -o /opt/livegenie/lg.bundle \"'+sys.argv[1]+'\"','git config --system url./opt/livegenie/lg.bundle.insteadOf git@github.com:Port-051/livegenie.git']}))" "$GETURL" > p.json
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript --parameters file://p.json
+```
+
+30초 안에 서버의 저장소 받기가 묶음에서 끝나고 설치가 이어진다. 새 버전도 같은 길이다 — 다음 스냅샷은 앞 스냅샷 커밋 위에 쌓아(`git -C snap` 그대로 두고 새 파일을 덮어 커밋) 빨리 감기가 되게 한 뒤 묶음을 다시 올리고 `update.sh`를 부른다. 배포 키를 켤 수 있게 되면 `git config --system --unset url./opt/livegenie/lg.bundle.insteadOf`.
+
 ### 8. 준비 확인
 
 ```bash

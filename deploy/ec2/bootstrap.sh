@@ -98,6 +98,8 @@ step_clone() {
     done
     mv "$LG_SRC.part" "$LG_SRC"
   fi
+  # umask 077로 받은 소스는 root만 읽는다 — 이미지의 앱(비 root)이 읽도록 (비밀값 없음, .env·키는 LG_ROOT 바로 아래)
+  chmod -R go+rX "$LG_SRC"
   git -C "$LG_SRC" config core.sshCommand "$ssh_cmd"
   chmod 0755 "$LG_SRC/deploy/ec2/"*.sh
   ln -sf "$LG_SRC/deploy/ec2/lg-compose.sh" /usr/local/bin/lg-compose

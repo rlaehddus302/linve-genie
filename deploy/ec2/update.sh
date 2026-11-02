@@ -23,6 +23,7 @@ main() {
   git -C "$LG_SRC" fetch -q origin "$LG_BRANCH"
   git -C "$LG_SRC" checkout -q "$LG_BRANCH"
   git -C "$LG_SRC" merge -q --ff-only "origin/$LG_BRANCH"
+  chmod -R go+rX "$LG_SRC"
   chmod 0755 "$LG_SRC/deploy/ec2/"*.sh
   STEP=build
   lg-compose build --pull app
