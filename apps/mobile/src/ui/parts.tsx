@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View, type TextInputProps } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOUCH, pressedFill } from './kit/tokens.ts'
 import { Txt, useKit, type TxtColor } from './kit/theme.tsx'
-import { UnderlineField } from './kit/inputs.tsx'
+import { AlertMark, UnderlineField } from './kit/inputs.tsx'
 import type { Tone } from './theme.ts'
 
 const TONE_MARK: Readonly<Record<Tone, string>> = { info: '•', success: '✓', warning: '!', danger: '✕' }
@@ -126,6 +126,8 @@ export interface FieldProps extends Omit<TextInputProps, 'style'> {
   readonly label: string
   readonly problem?: string | null
   readonly hint?: string | null
+  /** 빈 칸 오른쪽 조각 ([붙여넣기]) */
+  readonly trailing?: ReactNode
 }
 
 /** 입력 칸 — 공통 바탕의 토스식 칸 (UnderlineField, D-UX3-08). problem은 잘못일 때 문장, hint는 아래 도움말 */
@@ -137,10 +139,18 @@ export function Notice({ tone, children, alert, label }: { readonly tone: Tone; 
   const { tones } = useKit()
   const pair = tones[tone]
   return (
-    <View role={alert === true ? 'alert' : 'status'} aria-label={label} style={{ paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.md, backgroundColor: pair.bg }}>
-      <Txt step="body" weight="medium" ink={pair.fg}>
-        {children}
-      </Txt>
+    <View role={alert === true ? 'alert' : 'status'} aria-label={label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.md, backgroundColor: pair.bg }}>
+      {/* 잘못·주의 알림 앞에는 느낌표 (D-UX3-11) */}
+      {tone === 'danger' || tone === 'warning' ? (
+        <View style={{ paddingTop: 3 }}>
+          <AlertMark color={pair.fg} size={18} />
+        </View>
+      ) : null}
+      <View style={{ flex: 1 }}>
+        <Txt step="body" weight="medium" ink={pair.fg}>
+          {children}
+        </Txt>
+      </View>
     </View>
   )
 }

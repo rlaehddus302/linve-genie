@@ -5,7 +5,10 @@
 //    공유 → 링크 복사 후 돌아오면 주소가 저절로 들어간다. 틱톡·밴드는 주소가 아니라 가게 계정으로 잇는다 — 그 안내와 [방송 만들기].
 // 유튜브를 이을 수 없는 서버(읽기 꺼짐·구글 연결 없음)면 종류를 누르는 대로 방송을 만들고 방송 화면으로 간다(그 화면이 연결 안내를 보인다).
 import { useEffect, useRef, useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { Image, Pressable, Text, View, type ImageSourcePropType } from 'react-native'
+import youtubeLogo from '../../assets/platforms/youtube.png'
+import tiktokLogo from '../../assets/platforms/tiktok.png'
+import bandLogo from '../../assets/platforms/band.png'
 import type { WriteResult, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { kstToday } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
@@ -18,10 +21,10 @@ import { defaultBroadcastTitle, startErrorMessage } from './HomeScreen.tsx'
 import { markLinkAsked, useAddressLinker, type LinkBody } from './console/YoutubeSection.tsx'
 
 /** 판매 종류 — 늘릴 때는 여기에 한 줄 (word가 제목에 들어간다. 기타는 제목에 넣지 않는다) */
-export const SALE_CATEGORIES: readonly { readonly key: string; readonly word: string; readonly inTitle: boolean }[] = [
-  { key: 'succulent', word: '다육이', inTitle: true },
-  { key: 'pot', word: '화분', inTitle: true },
-  { key: 'other', word: '기타', inTitle: false },
+export const SALE_CATEGORIES: readonly { readonly key: string; readonly word: string; readonly inTitle: boolean; readonly icon: string }[] = [
+  { key: 'succulent', word: '다육이', inTitle: true, icon: '🌵' },
+  { key: 'pot', word: '화분', inTitle: true, icon: '🪴' },
+  { key: 'other', word: '기타', inTitle: false, icon: '📦' },
 ]
 
 export function categoryOf(key: string | undefined): (typeof SALE_CATEGORIES)[number] {
@@ -89,7 +92,7 @@ function useMakeBroadcast() {
       setBusy(false)
     }
   }
-  return { make, error, busy }
+  return { make, error, busy, clearError: () => setError(null) }
 }
 
 function MakeError({ error }: { readonly error: ApiError | null }) {
@@ -135,11 +138,19 @@ export function NewBroadcastCategoryScreen({ nav }: { readonly nav: NewBroadcast
             aria-busy={busy || picked === item.key}
             disabled={busy}
             onPress={() => (route === undefined ? setPicked(item.key) : void go(item.key))}
-            style={({ pressed }) => ({ minHeight: 64, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: pressed ? p.pressed : 'transparent' })}
+            style={({ pressed }) => ({ minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, backgroundColor: pressed ? p.pressed : 'transparent' })}
           >
-            <Txt step="lead" weight="bold">
-              {item.word}
-            </Txt>
+            {/* 토스처럼 둥근 바탕 위 그림 글자 (장식) */}
+            <View aria-hidden style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+              <Text allowFontScaling={false} style={{ fontSize: 24, lineHeight: 30 }}>
+                {item.icon}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Txt step="lead" weight="bold">
+                {item.word}
+              </Txt>
+            </View>
             <Icon name="chevron" color={p.textSub} size={20} />
           </Pressable>
         ))}
@@ -152,7 +163,7 @@ export function NewBroadcastCategoryScreen({ nav }: { readonly nav: NewBroadcast
 /** 2단계: 방송 주소 */
 export function NewBroadcastAddressScreen({ category, nav }: { readonly category: string | undefined; readonly nav: NewBroadcastNavigation }) {
   const route = useLinkRoute()
-  const { make, error, busy } = useMakeBroadcast()
+  const { make, error, busy, clearError } = useMakeBroadcast()
   const made = useRef<string | null>(null)
   const [madeId, setMadeId] = useState<string | null>(null)
   const [finder, setFinder] = useState(false)
@@ -180,18 +191,19 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
     const id = await ensureMade()
     if (id !== null) nav.openConsole(id)
   }
-  const linker = useAddressLinker({ enabled: route !== null && route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, autoFocus: true, disabled: busy })
+  const linker = useAddressLinker({ enabled: route !== null && route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, autoFocus: true, disabled: busy, onEdit: clearError })
 
   return (
     <FormPage
-      title="방송 주소를 넣어 주세요"
+      title="방송 링크를 넣어 주세요"
       name="새 방송"
       onBack={nav.back}
+      overlay={linker.popup}
       actions={route === null ? <BigButton label="방송 만들기" busy={busy} onPress={() => void makeOnly()} /> : linker.action}
     >
-      {route === null ? <Txt color="textSub">이 서버는 아직 방송 주소로 잇지 않아요. 방송을 만들면 방송 화면이 연결 방법을 알려 줘요.</Txt> : null}
+      {route === null ? <Txt color="textSub">지금은 링크로 이을 수 없어요. 방송을 만든 뒤 방송 화면에서 이어 주세요.</Txt> : null}
       {route !== null && route !== undefined ? linker.fields : null}
-      {route !== null ? <BigButton kind="outline" label="방송 주소를 모르겠어요" onPress={() => setFinder(true)} /> : null}
+      {route !== null ? <BigButton kind="outline" label="링크를 모르겠어요" onPress={() => setFinder(true)} /> : null}
       <MakeError error={error} />
       <PlatformFinder
         visible={finder}
@@ -230,16 +242,16 @@ export function PlatformFinder({ visible, onClose, busy = false, onReturned, onM
   if (account !== null) {
     return (
       <BottomSheet visible={visible} onClose={onClose} title={`${account.word} 방송`} actions={<>{onMakeWithoutAddress === undefined ? null : <BigButton label="이 방송 만들기" busy={busy} onPress={onMakeWithoutAddress} />}<BigButton kind="outline" label="뒤로" onPress={() => setAccount(null)} /></>}>
-        <Txt>{`${account.word} 방송은 주소가 아니라 가게 계정으로 이어요. ${onMakeWithoutAddress === undefined ? '' : '방송을 만든 뒤 '}컴퓨터의 방송 화면에서 ${account.word} 칸을 눌러 이어 주세요.`}</Txt>
+        <Txt>{`${account.word} 방송은 링크 대신 가게 계정으로 이어요.`}</Txt>
         <Txt step="caption" color="textSub">
-          앱에서 바로 잇는 기능은 준비 중이에요.
+          {onMakeWithoutAddress === undefined ? '컴퓨터의 방송 화면에서 이어 주세요.' : '방송을 만든 뒤 컴퓨터의 방송 화면에서 이어 주세요.'}
         </Txt>
       </BottomSheet>
     )
   }
   return (
     <BottomSheet visible={visible} onClose={onClose} title="어디서 방송하나요?">
-      <Txt color="textSub">앱이 열리면 내 방송에서 공유 → 링크 복사를 누르고 이 앱으로 돌아오세요. 주소가 저절로 들어가요.</Txt>
+      <Txt color="textSub">내 방송의 링크를 복사해 돌아오세요.</Txt>
       <View role="group" aria-label="방송 플랫폼" style={{ gap: SPACE.xs, marginHorizontal: -SPACE.sm }}>
         {LIVE_PLATFORMS.map((target) => (
           <Pressable key={target.key} role="button" aria-label={target.word} onPress={() => void pick(target)} style={({ pressed }) => ({ minHeight: TOUCH.min + 16, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, backgroundColor: pressed ? p.pressed : 'transparent' })}>
@@ -257,38 +269,15 @@ export function PlatformFinder({ visible, onClose, busy = false, onReturned, onM
   )
 }
 
-/** 플랫폼 아이콘 (그림 파일 없이 View로 — 장식, 이름은 옆 글자). 유튜브 빨간 재생, 틱톡 검은 음표, 밴드 초록 b */
+const PLATFORM_LOGO: Readonly<Record<LivePlatform, ImageSourcePropType | string>> = { youtube: youtubeLogo, tiktok: tiktokLogo, band: bandLogo }
+
+/** 플랫폼 아이콘 — 각 앱의 정식 앱 아이콘(앱스토어 그림, D-UX3-12). 장식이라 이름은 옆 글자 */
 export function PlatformIcon({ platform, size = 40 }: { readonly platform: LivePlatform; readonly size?: number }) {
-  const s = size
-  if (platform === 'youtube') {
-    return (
-      <View aria-hidden style={{ width: s, height: s, borderRadius: s * 0.28, backgroundColor: '#FF0033', alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{ width: 0, height: 0, marginLeft: s * 0.06, borderTopWidth: s * 0.15, borderBottomWidth: s * 0.15, borderLeftWidth: s * 0.24, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: '#FFFFFF' }} />
-      </View>
-    )
-  }
-  if (platform === 'tiktok') {
-    // 음표: 기둥 + 깃발 + 머리 (청록·분홍 그림자를 살짝)
-    const note = (color: string, dx: number, dy: number) => (
-      <View style={{ position: 'absolute', left: s * 0.36 + dx, top: s * 0.2 + dy, width: s * 0.36, height: s * 0.58 }}>
-        <View style={{ position: 'absolute', left: s * 0.12, top: 0, width: s * 0.08, height: s * 0.44, backgroundColor: color }} />
-        <View style={{ position: 'absolute', left: s * 0.12, top: 0, width: s * 0.2, height: s * 0.08, borderTopRightRadius: s * 0.1, borderBottomRightRadius: s * 0.1, backgroundColor: color }} />
-        <View style={{ position: 'absolute', left: -s * 0.04, top: s * 0.32, width: s * 0.22, height: s * 0.22, borderRadius: s, borderWidth: s * 0.07, borderColor: color }} />
-      </View>
-    )
-    return (
-      <View aria-hidden style={{ width: s, height: s, borderRadius: s * 0.28, backgroundColor: '#000000', overflow: 'hidden' }}>
-        {note('#25F4EE', -1.5, -1.5)}
-        {note('#FE2C55', 1.5, 1.5)}
-        {note('#FFFFFF', 0, 0)}
-      </View>
-    )
-  }
+  const { p } = useKit()
+  const logo = PLATFORM_LOGO[platform]
   return (
-    <View aria-hidden style={{ width: s, height: s, borderRadius: s * 0.28, backgroundColor: '#06C755', alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color: '#FFFFFF', fontSize: s * 0.55, lineHeight: s * 0.62, fontWeight: '900' }} allowFontScaling={false}>
-        b
-      </Text>
+    <View aria-hidden style={{ width: size, height: size, borderRadius: size * 0.24, overflow: 'hidden', borderWidth: 1, borderColor: p.line }}>
+      <Image source={typeof logo === 'string' ? { uri: logo } : logo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
     </View>
   )
 }

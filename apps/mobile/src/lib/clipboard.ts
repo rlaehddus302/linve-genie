@@ -1,11 +1,36 @@
-// 클립보드 읽기 (방송 시작 → 유튜브 주소 붙여넣기 단계). 읽는 함수는 바꿔 끼운다(앱은 expo-clipboard, 시험은 가짜).
-// 주소가 유튜브 방송 주소처럼 보일 때만 버튼 하나로 붙여 넣는다 — 진짜 주소인지는 서버가 정한다(잇기 API의 거절 문장 그대로).
+// 클립보드 (방송 링크 칸). 읽는 함수는 바꿔 끼운다(앱은 expo-clipboard, 시험은 가짜).
+// 아이폰은 앱이 클립보드를 읽을 때마다 "붙여넣기 허용" 창을 띄운다 — 그래서 저절로 읽지 않고, 글이 있는지만 본 뒤(probe, 창 없음)
+// 칸 옆 [붙여넣기](아이폰 기본 붙여넣기 단추 — 창 없음)를 보인다 (D-UX3-11). 진짜 방송 링크인지는 서버가 정한다.
 
 type Reader = () => Promise<string>
 type Writer = (text: string) => Promise<boolean>
+type Probe = () => Promise<boolean>
 
 let reader: Reader = async () => ''
 let writer: Writer = async () => false
+let probe: Probe | null = null
+
+/** 클립보드에 글이 있는지만 본다 (아이폰 hasStrings — 허용 창이 뜨지 않는다). 시험·기본은 읽어서 본다 */
+export function setClipboardProbe(next: Probe | null): void {
+  probe = next
+}
+
+export async function clipboardHasText(): Promise<boolean> {
+  try {
+    return probe === null ? (await reader()).trim() !== '' : await probe()
+  } catch {
+    return false
+  }
+}
+
+/** 클립보드 글 읽기 (붙여넣기 단추가 아이폰 기본 단추가 아닐 때만 — 안드로이드·옛 아이폰·시험) */
+export async function readClipboard(): Promise<string> {
+  try {
+    return await reader()
+  } catch {
+    return ''
+  }
+}
 
 export function setClipboardReader(next: Reader): void {
   reader = next

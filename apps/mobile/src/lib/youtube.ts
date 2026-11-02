@@ -30,7 +30,9 @@ export const NOT_CONNECTED_FIRST = '유튜브 채널을 먼저 연결해 주세�
 export const RECONNECT_FIRST = '유튜브 연결을 다시 해 주세요.'
 export const NOT_CONNECTED_HELP = '연결은 웹 화면에서 한 번만 하면 돼요. 연결한 뒤 여기로 돌아와 [다시 확인]을 눌러 주세요.'
 /** 클립보드에 유튜브 주소가 있을 때 (D-UX2-07) */
-export const PASTE_COPIED = '복사해 둔 주소를 넣었어요.'
+export const PASTE_COPIED = '복사한 링크를 넣었어요'
+/** 유튜브 방송 링크로 읽을 수 없을 때 (짧게, D-UX3-11) */
+export const UNKNOWN_LINK = '알 수 없는 링크예요.'
 /** 옛 공식 읽기 서버의 목록 이름 (내 채널의 지금·예정 방송) */
 export const MY_CHANNEL_TITLE = '내 채널에서 방송 중'
 

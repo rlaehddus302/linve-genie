@@ -8,7 +8,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CollectorView, ConnectionStatus, LinkView, LiveBroadcastItem, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../../api/client.ts'
-import { clipboardYoutubeAddress } from '../../lib/clipboard.ts'
+import { clipboardHasText, youtubeAddress } from '../../lib/clipboard.ts'
+import { PasteButton } from '../../native/paste.tsx'
+import { PopNote } from '../../ui/kit/index.ts'
 import { openWeb } from '../../lib/open-web.ts'
 import { useAppForeground } from '../../lib/use-app-state.ts'
 import {
@@ -20,6 +22,7 @@ import {
   NOT_CONNECTED_FIRST,
   NOT_CONNECTED_HELP,
   PASTE_COPIED,
+  UNKNOWN_LINK,
   RECONNECT_FIRST,
   MY_CHANNEL_TITLE,
   RECENT_TITLE,
@@ -262,11 +265,12 @@ export function wasLinkAsked(broadcastId: string): boolean {
 
 function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
   const path = `/api/broadcasts/${encodeURIComponent(yt.broadcastId)}/youtube`
-  const { fields, action } = useAddressLinker({ webChat: yt.webChat, broadcastId: yt.broadcastId, submit: async (body) => yt.setLink(await withRetry(() => post<LinkView>(path, body))) })
+  const { fields, action, popup } = useAddressLinker({ webChat: yt.webChat, broadcastId: yt.broadcastId, submit: async (body) => yt.setLink(await withRetry(() => post<LinkView>(path, body))) })
   return (
     <Stack tight>
       {fields}
       {action}
+      {popup}
     </Stack>
   )
 }
@@ -288,35 +292,47 @@ export interface AddressLinkerOptions {
   readonly disabled?: boolean
   /** false면 클립보드·내 채널 목록을 보지 않는다(화면이 닫혀 있을 때) */
   readonly enabled?: boolean
+  /** 링크 칸을 고치기 시작했을 때 (화면의 다른 오류 문장도 지우게) */
+  readonly onEdit?: () => void
+}
+
+/** 잇기 거절을 짧게 (D-UX3-11, 사용자 지시 2026-11-03 "구체적으로 말고 추상적으로 짧게"). 모르는 거절은 서버 문장 그대로 */
+const SHORT_LINK_ERRORS: Readonly<Record<string, string>> = {
+  INVALID_VIDEO_URL: UNKNOWN_LINK,
+  NO_LIVE_CHAT: '라이브 채팅을 받을 수 없는 방송이에요.',
+  YOUTUBE_NOT_PUBLIC: '공개 방송만 이을 수 있어요.',
+  YOUTUBE_UNAVAILABLE: '지금은 이을 수 없어요. 잠시 뒤 다시 눌러 주세요.',
+}
+export function shortLinkError(error: ApiError): string {
+  return SHORT_LINK_ERRORS[error.code] ?? error.message
 }
 
 /**
  * "방송 주소" 칸 + 내 채널 방송 목록 + 처음 잇는 채널 확인 (fields) 과 [이 방송에 잇기] (action — 주소를 넣기 전엔 null, D-UX3-07).
  * 방송 화면 연결과 새 방송 화면이 함께 쓴다 (D-UX3-06). 단추는 화면 맨 아래(키보드 위)에 두라고 따로 준다.
  */
-export function useAddressLinker({ webChat, broadcastId, submit, label = '이 방송에 잇기', autoFocus, disabled, enabled = true }: AddressLinkerOptions): { readonly fields: ReactNode; readonly action: ReactNode | null; readonly busy: boolean; readonly recheck: () => Promise<void> } {
+export function useAddressLinker({ webChat, broadcastId, submit, label = '이 방송에 잇기', autoFocus, disabled, enabled = true, onEdit }: AddressLinkerOptions): { readonly fields: ReactNode; readonly action: ReactNode | null; readonly popup: ReactNode; readonly busy: boolean; readonly recheck: () => Promise<void> } {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<ApiError | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [ask, setAsk] = useState<{ video: string; name: string } | null>(null)
   const pending = useRef<{ video: string; confirmed: boolean; requestId: string } | null>(null)
-  const [copied, setCopied] = useState<string | null>(null)
+  const [canPaste, setCanPaste] = useState(false)
+  const [note, setNote] = useState<{ id: number; message: string } | null>(null)
 
-  // 클립보드의 유튜브 주소 — 칸을 열 때, 그리고 유튜브 앱에서 주소를 복사하고 돌아올 때
-  // 복사한 주소가 있으면 칸을 미리 채운다 — 따로 묻는 카드 없이 [이 방송에 잇기] 하나로 (D-LIVETEST-09)
+  // 클립보드는 읽지 않고 글이 있는지만 본다 — 아이폰 "붙여넣기 허용" 창이 뜨지 않게 (D-UX3-11).
+  // 글이 있으면 빈 링크 칸 오른쪽에 [붙여넣기](아이폰 기본 단추 — 누르는 것이 허락). 칸을 열 때와 앱·브라우저에서 돌아올 때 다시 본다.
   const peek = useCallback(async () => {
     if (!enabled) return
-    const found = await clipboardYoutubeAddress()
-    setCopied(found)
-    if (found !== null) setAddress((now) => (now.trim() === '' ? found : now))
+    setCanPaste(await clipboardHasText())
   }, [enabled])
   useEffect(() => {
     void peek()
   }, [peek])
   useAppForeground({ onForeground: () => void peek() })
 
-  // 못 찾으면 목록만 감춘다 — 주소를 붙여 넣으면 된다 (D-LIVETEST-09)
+  // 못 찾으면 목록만 감춘다 — 링크를 붙여 넣으면 된다 (D-LIVETEST-09)
   const search = useCallback(async () => {
     if (!enabled) return
     setRecent(null)
@@ -331,6 +347,20 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '이 �
   useEffect(() => {
     void search()
   }, [search])
+
+  /** 고치기 시작하면 오류 문장·확인 줄을 걷는다 (D-UX3-11) */
+  const edit = (text: string) => {
+    setAddress(text)
+    setAsk(null)
+    setError(null)
+    onEdit?.()
+  }
+  const paste = (text: string) => {
+    const found = youtubeAddress(text)
+    edit(found ?? text.trim())
+    if (found === null) setError(UNKNOWN_LINK)
+    else setNote((now) => ({ id: (now?.id ?? 0) + 1, message: PASTE_COPIED }))
+  }
 
   const link = async (video: string, confirmed = false) => {
     if (busy || disabled === true || video.trim() === '') return
@@ -350,7 +380,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '이 �
         const channel = caught.details.channel
         const title = typeof channel === 'object' && channel !== null ? (channel as { title?: unknown }).title : undefined
         setAsk({ video, name: channelName(title) })
-      } else setError(caught)
+      } else setError(shortLinkError(caught))
     } finally {
       setBusy(false)
     }
@@ -360,12 +390,18 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '이 �
   const off = busy || disabled === true
   const fields = (
     <Stack tight>
-      <Field label="방송 주소" value={address} onChangeText={(text) => {
-        setAddress(text)
-        setAsk(null)
-      }} inputMode="url" autoCapitalize="none" autoCorrect={false} autoFocus={autoFocus} />
-      {copied !== null && address === copied ? <Hint>{PASTE_COPIED}</Hint> : null}
-      {/* 내 채널(최근 이은 채널)에서 지금 하는 방송 — 있을 때만, 주소를 붙이지 않고 바로 잇기 */}
+      <Field
+        label="방송 링크"
+        value={address}
+        onChangeText={edit}
+        problem={error}
+        inputMode="url"
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoFocus={autoFocus}
+        trailing={canPaste ? <PasteButton onPaste={paste} /> : null}
+      />
+      {/* 내 채널(최근 이은 채널)에서 지금 하는 방송 — 있을 때만, 링크를 붙이지 않고 바로 잇기 */}
       {(recent ?? []).length > 0 ? (
       <Card label={recentTitle}>
         <Body bold>{recentTitle}</Body>
@@ -398,15 +434,10 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '이 �
           </Row>
         </Card>
       ) : null}
-      {error !== null ? (
-        <Notice tone="danger" alert>
-          {error.message}
-        </Notice>
-      ) : null}
     </Stack>
   )
-  // 주소를 넣기 전엔 단추를 보이지 않는다 (D-UX3-07)
+  // 링크를 넣기 전엔 단추를 보이지 않는다 (D-UX3-07)
   const action = address.trim() === '' ? null : <BigButton label={label} primary disabled={off} onPress={() => void link(address.trim())} />
   // recheck: 앱 안 브라우저를 닫고 돌아왔을 때 클립보드를 다시 본다(앱이 뒤로 가지 않아 앞으로 옴 알림이 없다)
-  return { fields, action, busy, recheck: peek }
+  return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek }
 }

@@ -32,6 +32,28 @@ import { setNativeModules } from './index.ts'
 import { setNoticeModule } from './notice.ts'
 import { setHaptic } from './haptics.ts'
 import * as Haptics from 'expo-haptics'
+import { ClipboardPasteButton, hasStringAsync, isPasteButtonAvailable } from 'expo-clipboard'
+import { setClipboardProbe } from '../lib/clipboard.ts'
+import { setPasteControl, type PasteControlProps } from './paste.tsx'
+import { useKit } from '../ui/kit/theme.tsx'
+
+/** 아이폰 기본 붙여넣기 단추 — 누르는 것 자체가 허락이라 "붙여넣기 허용" 창이 뜨지 않는다 (D-UX3-11) */
+function NativePasteButton({ onPaste }: PasteControlProps) {
+  const { p } = useKit()
+  return (
+    <ClipboardPasteButton
+      onPress={(data) => {
+        if (data.type === 'text') onPaste(data.text)
+      }}
+      acceptedContentTypes={['plain-text', 'url']}
+      displayMode="labelOnly"
+      cornerStyle="medium"
+      backgroundColor={p.soft}
+      foregroundColor={p.text}
+      style={{ height: 36, width: 92 }}
+    />
+  )
+}
 
 let picker: PrinterPicker | null = null
 let entries: readonly PickEntry[] | null = null
@@ -71,6 +93,9 @@ export function installProductionNative(): void {
   installed = true
   // 아래 탭 손맛 (D-UX3-07)
   setHaptic(() => void Haptics.selectionAsync())
+  // 클립보드는 글이 있는지만 본다(창 없음). 아이폰 16 이상은 기본 붙여넣기 단추
+  setClipboardProbe(() => hasStringAsync())
+  if (Platform.OS === 'ios' && isPasteButtonAvailable) setPasteControl(NativePasteButton)
   let transport: BleTransport
   try {
     transport = createPlxTransport(new BleManager({ restoreStateIdentifier: BLE_RESTORE_IDENTIFIER, restoreStateFunction: () => undefined }))

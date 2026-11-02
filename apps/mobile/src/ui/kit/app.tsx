@@ -1,11 +1,12 @@
 // 새 시안 조각 (D-UX2-01): 선 아이콘, 화면 머리(뒤로·제목·오른쪽), 아래 탭 5개(D-UX3-01), 큰 초록 카드, 할 일 줄, 메뉴 줄.
 // 누르는 동안은 흐려지지 않고 바탕이 진해진다(D-UX3-03).
 // 아이콘은 그림 파일·글꼴 없이 View 선으로 그린다(새 패키지를 넣지 않는다). 아이콘만으로 뜻을 전하지 않고 늘 글자와 함께 둔다.
-import type { ReactNode } from 'react'
-import { Pressable, View, type ViewStyle } from 'react-native'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Animated, Easing, Platform, Pressable, View, type ViewStyle } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
 import { tapHaptic } from '../../native/haptics.ts'
+import { TabIcon, type TabIconName } from './tab-icons.tsx'
 
 export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus'
 
@@ -153,10 +154,10 @@ export function HeaderIconButton({ icon, label, onPress, testID }: { readonly ic
 export type TabKey = 'home' | 'labels' | 'settle' | 'packing' | 'more'
 
 /** 아래 탭 5개 (D-UX3-01): 일하는 순서대로 홈 · 라벨 · 정산 · 포장 · 전체 */
-export const TABS: readonly { readonly key: TabKey; readonly word: string; readonly icon: IconName }[] = [
+export const TABS: readonly { readonly key: TabKey; readonly word: string; readonly icon: TabIconName }[] = [
   { key: 'home', word: '홈', icon: 'home' },
-  { key: 'labels', word: '라벨', icon: 'label' },
-  { key: 'settle', word: '정산', icon: 'card' },
+  { key: 'labels', word: '라벨', icon: 'printer' },
+  { key: 'settle', word: '정산', icon: 'receipt' },
   { key: 'packing', word: '포장', icon: 'box' },
   { key: 'more', word: '전체', icon: 'menu' },
 ]
@@ -167,15 +168,29 @@ export function tabIndex(key: TabKey): number {
 }
 
 /**
- * 아래 탭 (토스식, D-UX3-01): 떠 있는 둥근 흰 막대. 고른 칸은 회색 둥근 바탕 + 속이 찬 아이콘 + 굵은 글자,
- * 나머지는 선 아이콘 + 회색 글자. 누르는 동안은 그 칸 바탕이 진해진다.
+ * 아래 탭 (토스식, D-UX3-01·12): 떠 있는 둥근 흰 막대. 고른 칸은 회색 둥근 바탕 + 속이 찬 아이콘 + 굵은 글자,
+ * 나머지는 선 아이콘 + 회색 글자. 누르는 동안은 그 칸 바탕이 진해진다. 탭을 바꾸면 회색 바탕이 전 탭 자리에서 새 탭으로 미끄러진다(from).
  */
-export function TabBar({ active, onSelect }: { readonly active: TabKey; readonly onSelect: (key: TabKey) => void }) {
+export function TabBar({ active, from = null, onSelect }: { readonly active: TabKey; readonly from?: TabKey | null; readonly onSelect: (key: TabKey) => void }) {
   const { p } = useKit()
   const inset = useBottomInset()
+  const [width, setWidth] = useState(0)
+  const target = tabIndex(active)
+  const start = from === null ? target : tabIndex(from)
+  const slide = useRef(new Animated.Value(start)).current
+  useEffect(() => {
+    if (start === target) return
+    Animated.timing(slide, { toValue: target, duration: 260, easing: Easing.bezier(0.2, 0.8, 0.2, 1), useNativeDriver: Platform.OS !== 'web' }).start()
+  }, [slide, start, target])
+  const gap = 2
+  const cell = width === 0 ? 0 : (width - gap * (TABS.length - 1)) / TABS.length
   return (
     <View style={{ backgroundColor: p.background, paddingHorizontal: SPACE.md, paddingTop: SPACE.xs, paddingBottom: Math.max(inset, SPACE.sm) }}>
-      <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', backgroundColor: p.surface, borderRadius: RADIUS.pill, borderWidth: 1, borderColor: p.line, padding: SPACE.xs, gap: 2, ...SHADOW.sheet, shadowOpacity: 0.06, shadowRadius: 12, elevation: 4 }}>
+      <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', backgroundColor: p.surface, borderRadius: RADIUS.pill, borderWidth: 1, borderColor: p.line, padding: SPACE.xs, gap, ...SHADOW.sheet, shadowOpacity: 0.06, shadowRadius: 12, elevation: 4 }}>
+        {/* 고른 칸 회색 바탕 — 칸들 뒤에서 미끄러진다 */}
+        <View pointerEvents="none" style={{ position: 'absolute', left: SPACE.xs, right: SPACE.xs, top: SPACE.xs, bottom: SPACE.xs }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+          {cell > 0 ? <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, width: cell, borderRadius: RADIUS.pill, backgroundColor: p.soft, transform: [{ translateX: slide.interpolate({ inputRange: [0, TABS.length - 1], outputRange: [0, (cell + gap) * (TABS.length - 1)] }) }] }} /> : null}
+        </View>
         {TABS.map((tab) => {
           const on = tab.key === active
           const ink = on ? p.text : p.textSub
@@ -183,10 +198,10 @@ export function TabBar({ active, onSelect }: { readonly active: TabKey; readonly
             <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
                 tapHaptic()
                 onSelect(tab.key)
-              }} style={({ pressed }) => ({ flex: 1, minHeight: 56, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on ? p.soft : 'transparent' })}>
+              }} style={({ pressed }) => ({ flex: 1, minHeight: 56, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
               {({ pressed }) => (
                 <>
-                  <Icon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : on ? p.soft : p.surface} />
+                  <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : on ? p.soft : p.surface} />
                   <Txt step="caption" weight={on ? 'bold' : 'medium'} ink={ink}>
                     {tab.word}
                   </Txt>

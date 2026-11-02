@@ -28,9 +28,10 @@ export function BroadcastLinkScreen({ broadcastId, closed, onBack }: { readonly 
   }
   return (
     <FormPage
-      title="방송 주소를 넣어 주세요"
+      title="방송 링크를 넣어 주세요"
       name="방송 연결"
       onBack={onBack}
+      overlay={linker.popup}
       actions={
         <>
           <BigButton kind="outline" label="나중에 잇기" onPress={onBack} />
@@ -41,7 +42,7 @@ export function BroadcastLinkScreen({ broadcastId, closed, onBack }: { readonly 
       <View role="group" aria-label="유튜브">
         {linker.fields}
       </View>
-      <BigButton kind="outline" label="방송 주소를 모르겠어요" onPress={() => setFinder(true)} />
+      <BigButton kind="outline" label="링크를 모르겠어요" onPress={() => setFinder(true)} />
       <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
     </FormPage>
   )

@@ -67,7 +67,8 @@ describe('글자 2배에서도 안 깨짐', () => {
     for (const text of ['묶음', '설명', '제목', '부제', '12,000원', '입금 기다려요', '도움말', '안내']) expect(screen.getByText(text)).toBeTruthy()
     expect(screen.getByRole('button', { name: '제목 — 12,000원' })).toBeTruthy()
     expect(screen.getByRole('switch', { name: '켜고 끄기 — 꺼짐' })).toBeTruthy()
-    expect(screen.getByRole('alert').textContent).toBe('⚠ 오류')
+    // 옛 기대: 글 앞 ⚠. 새 기대(D-UX3-11): 그림 느낌표(글이 아님) + 문장
+    expect(screen.getByRole('alert').textContent).toBe('오류')
     expect(screen.getByRole('button', { name: '시작' })).toBeTruthy()
     expect(screen.getByRole('toolbar', { name: '화면 아래 버튼' })).toBeTruthy()
   })
@@ -109,7 +110,8 @@ describe('TextField', () => {
     expect(screen.getByLabelText('가격')).toBeTruthy()
     expect(screen.getByText('원')).toBeTruthy()
     expect(screen.getByText('숫자만 적어요')).toBeTruthy()
-    expect(screen.getByRole('alert').textContent).toBe('⚠ 너무 커요')
+    // 옛 기대: 글 앞 ⚠. 새 기대(D-UX3-11): 그림 느낌표(글이 아님) + 문장
+    expect(screen.getByRole('alert').textContent).toBe('너무 커요')
   })
 
   it('오류가 없으면 알림이 없다', () => {

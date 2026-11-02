@@ -47,8 +47,14 @@ export function LoginScreen({ expired, offline = false, onRecheck, onLogin }: { 
       {offline ? <Notice tone="warning" alert>{OFFLINE_AT_START_MESSAGE}</Notice> : null}
       {offline && onRecheck !== undefined ? <BigButton label="다시 확인" disabled={rechecking} onPress={() => void recheck()} /> : null}
       <Stack>
-        <Field label="아이디" value={loginId} onChangeText={setLoginId} autoCapitalize="none" autoCorrect={false} autoComplete="username" textContentType="username" />
-        <Field label="비밀번호" value={password} onChangeText={setPassword} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={() => void submit()} />
+        <Field label="아이디" value={loginId} onChangeText={(text) => {
+          setLoginId(text)
+          setError(null)
+        }} autoCapitalize="none" autoCorrect={false} autoComplete="username" textContentType="username" />
+        <Field label="비밀번호" value={password} onChangeText={(text) => {
+          setPassword(text)
+          setError(null)
+        }} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={() => void submit()} />
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {error !== null && error.code === 'LOGIN_FAILED' ? <Hint>{LOGIN_FAILED_HINT}</Hint> : null}
         <BigButton label="로그인" primary disabled={busy} onPress={() => void submit()} />

@@ -5,6 +5,6 @@ export { BottomInsetProvider, ThemeOverrideProvider, Txt, useBottomInset, useKit
 export { BigButton, BottomCTA, type BigButtonProps, type ButtonKind } from './buttons.tsx'
 export { Card, EmptyState, KitScreen, ListRow, Section, ToggleRow, type ListRowProps } from './layout.tsx'
 export { BottomSheet, ConfirmSheet, FormPage, FullSheet, useKeyboardShown, type BottomSheetProps, type ConfirmSheetProps, type FormPageProps, type FullSheetProps } from './sheets.tsx'
-export { StatusChip, Toast, useToast, type ToastApi, type ToastData } from './feedback.tsx'
-export { applyPadKey, ClearButton, FIELD_ROW, NumberPad, TextField, UnderlineField, type PadKey, type TextFieldProps, type UnderlineFieldProps } from './inputs.tsx'
+export { POP_NOTE_MS, PopNote, StatusChip, Toast, useToast, type ToastApi, type ToastData } from './feedback.tsx'
+export { AlertMark, applyPadKey, ClearButton, ErrorLine, FIELD_LABEL_MS, FIELD_ROW, NumberPad, TextField, UnderlineField, type PadKey, type TextFieldProps, type UnderlineFieldProps } from './inputs.tsx'
 export { AppHeader, BACK_ICON, BackButton, CountBadge, DotStatus, GroupLabel, HeaderIconButton, HeroButton, Icon, RowDivider, RowGroup, TabBar, TABS, tabIndex, TodoRow, type BadgeTone, type IconName, type TabKey } from './app.tsx'

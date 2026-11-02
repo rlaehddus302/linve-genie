@@ -1,7 +1,7 @@
 // 입력 조각: TextField(큰 라벨·도움말·오류), NumberPad(큰 숫자판).
-import { useState } from 'react'
-import { Pressable, TextInput, View, type TextInputProps } from 'react-native'
-import { RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Animated, Easing, Platform, Pressable, Text, TextInput, View, type TextInputProps } from 'react-native'
+import { LINE, RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
 
 export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-label' | 'accessibilityLabel'> {
@@ -17,81 +17,135 @@ export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-lab
 
 /** 입력 칸 한 줄 높이 (값 줄) — 비었을 때·넣었을 때·초점일 때 모두 같다 (D-UX3-08) */
 export const FIELD_ROW = 52
+/** 라벨이 칸 안 ↔ 위로 움직이는 시간 (D-UX3-11) */
+export const FIELD_LABEL_MS = 180
 
 export interface UnderlineFieldProps extends Omit<TextInputProps, 'style' | 'aria-label' | 'accessibilityLabel'> {
   readonly label: string
   /** 칸 아래 도움말 */
   readonly help?: string | null
-  /** 잘못됐을 때 (밑줄·라벨 빨강 + 문장) */
+  /** 잘못됐을 때 (밑줄·라벨 빨강 + 느낌표와 문장) */
   readonly error?: string | null
   /** 칸 오른쪽 단위 ("원") */
   readonly unit?: string
+  /** 칸이 비었을 때 오른쪽에 붙는 조각 ([붙여넣기] 등) — 값이 있으면 [지우기]가 그 자리 */
+  readonly trailing?: ReactNode
 }
 
 /**
- * 입력 칸 (토스 "계좌번호 입력" 그대로, D-UX3-07·08):
- * - 비어 있고 초점이 없으면(예시 글이 없는 칸) 라벨이 칸 안에 값과 같은 크기의 회색 글자로 보인다(위 작은 라벨 자리는 비워 둔다 — 높이가 바뀌지 않게).
- * - 누르거나 값이 있으면 라벨이 위에 작게(초점이면 초록, 아니면 회색), 값은 칸 안에 같은 크기로.
- * - 밑줄 하나(초점이면 초록, 잘못이면 빨강). 값이 있고 고칠 수 있으면 오른쪽에 동그란 [지우기] — 줄 높이 안에 겹쳐 놓아 높이를 바꾸지 않는다.
+ * 입력 칸 (토스 "계좌번호 입력" 그대로, D-UX3-07·08·11):
+ * - 비어 있고 초점이 없으면 라벨이 칸 안에 값과 같은 크기의 회색 글자로 보이고, 누르거나 값이 있으면 위로 작게 부드럽게 올라간다(초점이면 초록).
+ *   라벨은 글자 하나가 움직이고 커졌다 작아질 뿐 — 위 라벨 자리와 값 줄(52)은 늘 그대로라 칸 높이가 바뀌지 않는다.
+ * - 예시 글(placeholder)이 있는 칸은 라벨을 늘 위에 두고 칸 안에 예시를 보인다(예: 빠른 입력 "예: 15 핑크프릴 10").
+ * - 밑줄 하나(초점이면 초록, 잘못이면 빨강). 값이 있고 고칠 수 있으면 오른쪽에 동그란 [지우기] — 줄 안에 겹쳐 놓는다.
  */
-export function UnderlineField({ label, help, error, unit, onFocus, onBlur, placeholder, ...input }: UnderlineFieldProps) {
+export function UnderlineField({ label, help, error, unit, trailing, onFocus, onBlur, placeholder, ...input }: UnderlineFieldProps) {
   const { p, fontScale, forced } = useKit()
   const [focused, setFocused] = useState(false)
   const bad = error !== undefined && error !== null
   const value = typeof input.value === 'string' ? input.value : ''
   const empty = value === ''
-  // 예시 글(placeholder)이 있는 칸은 라벨을 늘 위에 두고 칸 안에 예시를 보인다(예: 빠른 입력 "예: 15 핑크프릴 10")
-  const resting = empty && !focused && (placeholder === undefined || placeholder === '')
-  const size = forced ? TYPE.input * fontScale : TYPE.input
+  const example = placeholder !== undefined && placeholder !== ''
+  const resting = empty && !focused && !example
+  const scale = forced ? fontScale : 1
+  const size = TYPE.input * scale
+  const small = TYPE.caption * scale
+  const slot = Math.round(small * LINE)
+  const row = FIELD_ROW * scale
+  const gap = SPACE.xs
+  // 칸 안 자리: 위 라벨 자리 + 사이 + 값 줄 가운데
+  const insideY = slot + gap + (row - Math.round(size * LINE)) / 2
+  const motion = useRef(new Animated.Value(resting ? 0 : 1)).current
+  useEffect(() => {
+    Animated.timing(motion, { toValue: resting ? 0 : 1, duration: FIELD_LABEL_MS, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start()
+  }, [resting, motion])
   const clearable = !empty && input.onChangeText !== undefined && input.editable !== false
-  const accent = bad ? p.dangerText : focused ? p.primaryText : p.textSub
+  const accent = bad ? p.dangerText : focused ? p.primaryText : resting ? p.placeholder : p.textSub
   return (
     <View style={{ gap: SPACE.xs }}>
-      <View style={{ opacity: resting ? 0 : 1 }} aria-hidden={resting}>
-        <Txt step="caption" ink={accent}>
-          {label}
-        </Txt>
-      </View>
-      <View style={{ height: FIELD_ROW * (forced ? fontScale : 1), flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, borderBottomWidth: 2, borderBottomColor: bad ? p.dangerText : focused ? p.primary : p.line }}>
-        <TextInput
-          {...input}
-          aria-label={label}
-          aria-invalid={bad}
-          allowFontScaling={!forced}
-          maxFontSizeMultiplier={2}
-          placeholder={resting ? label : (placeholder ?? '')}
-          placeholderTextColor={p.placeholder}
-          onFocus={(event) => {
-            setFocused(true)
-            onFocus?.(event)
+      <View style={{ gap }}>
+        <View style={{ height: slot }} />
+        <View style={{ height: row, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, borderBottomWidth: 2, borderBottomColor: bad ? p.dangerText : focused ? p.primary : p.line }}>
+          <TextInput
+            {...input}
+            aria-label={label}
+            aria-invalid={bad}
+            allowFontScaling={!forced}
+            maxFontSizeMultiplier={2}
+            placeholder={example && !empty ? '' : (placeholder ?? '')}
+            placeholderTextColor={p.placeholder}
+            onFocus={(event) => {
+              setFocused(true)
+              onFocus?.(event)
+            }}
+            onBlur={(event) => {
+              setFocused(false)
+              onBlur?.(event)
+            }}
+            style={{ flex: 1, height: '100%', fontSize: size, fontWeight: WEIGHT.medium, color: p.text, padding: 0, paddingRight: clearable ? 40 : 0 }}
+          />
+          {unit === undefined ? null : (
+            <Txt step="bodyLarge" weight="medium" color="textSub">
+              {unit}
+            </Txt>
+          )}
+          {clearable ? (
+            <View style={{ position: 'absolute', right: unit === undefined ? 0 : 40, top: 0, bottom: 0, justifyContent: 'center' }}>
+              <ClearButton label={`${label} 지우기`} onPress={() => input.onChangeText?.('')} />
+            </View>
+          ) : empty && trailing !== undefined && trailing !== null ? (
+            trailing
+          ) : null}
+        </View>
+        {/* 움직이는 라벨 (보조 기술에는 칸 이름으로 읽힌다 — 글자는 숨김) */}
+        <Animated.View
+          aria-hidden
+          pointerEvents="none"
+          testID={resting ? 'field-label-resting' : 'field-label-floating'}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            transformOrigin: 'left top',
+            transform: [{ translateY: motion.interpolate({ inputRange: [0, 1], outputRange: [insideY, 0] }) }, { scale: motion.interpolate({ inputRange: [0, 1], outputRange: [1, small / size] }) }],
           }}
-          onBlur={(event) => {
-            setFocused(false)
-            onBlur?.(event)
-          }}
-          style={{ flex: 1, height: '100%', fontSize: size, fontWeight: WEIGHT.medium, color: p.text, padding: 0, paddingRight: clearable ? 40 : 0 }}
-        />
-        {unit === undefined ? null : (
-          <Txt step="bodyLarge" weight="medium" color="textSub">
-            {unit}
-          </Txt>
-        )}
-        {clearable ? (
-          <View style={{ position: 'absolute', right: unit === undefined ? 0 : 40, top: 0, bottom: 0, justifyContent: 'center' }}>
-            <ClearButton label={`${label} 지우기`} onPress={() => input.onChangeText?.('')} />
-          </View>
-        ) : null}
+        >
+          <Text allowFontScaling={false} numberOfLines={1} style={{ fontSize: size, lineHeight: Math.round(size * LINE), fontWeight: resting ? WEIGHT.medium : WEIGHT.regular, color: accent }}>
+            {label}
+          </Text>
+        </Animated.View>
       </View>
       {help === undefined || help === null ? null : (
         <Txt step="caption" color="textSub">
           {help}
         </Txt>
       )}
-      {bad ? (
-        <Txt step="caption" weight="bold" color="dangerText" role="alert">
-          {error}
+      {bad ? <ErrorLine>{error}</ErrorLine> : null}
+    </View>
+  )
+}
+
+/** 잘못일 때 한 줄: 빨간 동그라미 느낌표 + 짧은 문장 (D-UX3-11) */
+export function ErrorLine({ children }: { readonly children: ReactNode }) {
+  return (
+    <View role="alert" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+      <AlertMark />
+      <View style={{ flex: 1 }}>
+        <Txt step="caption" weight="bold" color="dangerText">
+          {children}
         </Txt>
-      ) : null}
+      </View>
+    </View>
+  )
+}
+
+/** 느낌표 동그라미 (장식 — 뜻은 옆 문장) */
+export function AlertMark({ color, size = 16 }: { readonly color?: string; readonly size?: number }) {
+  const { p } = useKit()
+  return (
+    <View aria-hidden style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color ?? p.dangerText, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: Math.max(2, size / 8), height: size * 0.36, borderRadius: 1, backgroundColor: p.surface, marginBottom: size * 0.08 }} />
+      <View style={{ width: Math.max(2, size / 8), height: Math.max(2, size / 8), borderRadius: 1, backgroundColor: p.surface }} />
     </View>
   )
 }
@@ -111,7 +165,7 @@ export function ClearButton({ label, onPress }: { readonly label: string; readon
 
 /** 큰 라벨 입력 칸 (옛 이름) — UnderlineField와 같은 모양 */
 export function TextField({ error, ...rest }: TextFieldProps) {
-  return <UnderlineField {...rest} error={error === null || error === undefined ? null : `⚠ ${error}`} />
+  return <UnderlineField {...rest} error={error ?? null} />
 }
 
 export type PadKey = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '00' | 'back' | 'clear'

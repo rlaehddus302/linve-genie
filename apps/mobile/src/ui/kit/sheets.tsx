@@ -104,6 +104,7 @@ export interface FullSheetProps {
   readonly closeLabel?: string
   /** 카드로 나뉜 내용이면 회색 바탕 */
   readonly cards?: boolean
+  readonly overlay?: ReactNode
   readonly testID?: string
 }
 
@@ -134,6 +135,8 @@ export interface FormPageProps {
   readonly actions?: ReactNode
   /** 내용이 카드로 나뉘면 회색 바탕, 입력 칸·단추만 있으면 흰 바탕 (D-UX3-08) */
   readonly cards?: boolean
+  /** 화면 위에 겹쳐 띄우는 것 (잠깐 뜨는 알림 PopNote 등) */
+  readonly overlay?: ReactNode
   readonly testID?: string
 }
 
@@ -142,7 +145,7 @@ export interface FormPageProps {
  * 바탕은 흰색(카드로 나뉜 내용이면 회색). 키보드가 뜨면 내용과 단추가 키보드 위로 올라와 입력 칸이 가려지지 않고, 단추와 키보드 사이는 12만 띈다.
  * 경로 화면(밀어서 뒤로 가기가 되는 쌓인 화면)과 FullSheet(앱 안 판)가 같이 쓴다.
  */
-export function FormPage({ title, name, onBack, backLabel = '뒤로', children, actions, cards = false, testID }: FormPageProps) {
+export function FormPage({ title, name, onBack, backLabel = '뒤로', children, actions, cards = false, overlay, testID }: FormPageProps) {
   const { p } = useKit()
   const inset = useBottomInset()
   const top = useTopInset()
@@ -162,15 +165,16 @@ export function FormPage({ title, name, onBack, backLabel = '뒤로', children, 
         </ScrollView>
         {actions === undefined || actions === null ? null : <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(inset, SPACE.md) + SPACE.xs, gap: SPACE.sm, backgroundColor: bg }}>{actions}</View>}
       </KeyboardAvoidingView>
+      {overlay}
     </View>
   )
 }
 
 /** 전체 화면 판 — FormPage를 앱 안 판(Modal)으로. 밀어서 뒤로 가기가 필요한 곳은 경로 화면으로 FormPage를 쓴다 */
-export function FullSheet({ visible, onClose, title, name, children, actions, closeLabel = '닫기', cards, testID }: FullSheetProps) {
+export function FullSheet({ visible, onClose, title, name, children, actions, closeLabel = '닫기', cards, overlay, testID }: FullSheetProps) {
   return (
     <Modal visible={visible} animationType={Platform.OS === 'web' ? 'none' : 'slide'} onRequestClose={onClose} statusBarTranslucent presentationStyle="fullScreen">
-      <FormPage title={title} name={name} onBack={onClose} backLabel={closeLabel} actions={actions} cards={cards} testID={testID}>
+      <FormPage title={title} name={name} onBack={onClose} backLabel={closeLabel} actions={actions} cards={cards} overlay={overlay} testID={testID}>
         {children}
       </FormPage>
     </Modal>

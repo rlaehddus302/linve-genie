@@ -1,8 +1,8 @@
-// 알려 주는 조각: 상태 꼬리표(StatusChip), 알림 막대(Toast + useToast).
+// 알려 주는 조각: 상태 꼬리표(StatusChip), 알림 막대(Toast + useToast), 잠깐 뜨는 알림(PopNote, D-UX3-11).
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Pressable, View } from 'react-native'
+import { Animated, Easing, Platform, Pressable, View } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOAST_MS, TOUCH, type Tone } from './tokens.ts'
-import { Txt, useBottomInset, useKit } from './theme.tsx'
+import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
 
 const TONE_MARK: Readonly<Record<Tone, string>> = { neutral: '•', info: '•', success: '✓', warning: '!', danger: '✕' }
 
@@ -92,6 +92,45 @@ export function Toast({ toast, onDismiss, bottomOffset = 0 }: { readonly toast: 
           </Pressable>
         )}
       </View>
+    </View>
+  )
+}
+
+/** 잠깐 뜨는 알림이 보이는 시간 */
+export const POP_NOTE_MS = 1800
+
+/**
+ * 잠깐 뜨는 알림 (D-UX3-11, "복사한 링크를 넣었어요"): 화면 위쪽 가운데에 둥근 검은 알약이 부드럽게 나타났다가 잠시 뒤 사라진다.
+ * 칸 아래에 문장을 계속 두지 않는다. note가 바뀔 때마다(같은 글이라도 id가 바뀌면) 다시 뜬다.
+ */
+export function PopNote({ note }: { readonly note: { readonly id: number; readonly message: string } | null }) {
+  const { p } = useKit()
+  const top = useTopInset()
+  const fade = useRef(new Animated.Value(0)).current
+  const [shown, setShown] = useState<string | null>(null)
+  const id = note?.id
+  useEffect(() => {
+    if (note === null) return undefined
+    setShown(note.message)
+    const native = Platform.OS !== 'web'
+    fade.setValue(0)
+    Animated.timing(fade, { toValue: 1, duration: 160, easing: Easing.out(Easing.cubic), useNativeDriver: native }).start()
+    const timer = setTimeout(() => {
+      Animated.timing(fade, { toValue: 0, duration: 220, easing: Easing.in(Easing.cubic), useNativeDriver: native }).start(({ finished }) => {
+        if (finished) setShown(null)
+      })
+    }, POP_NOTE_MS)
+    return () => clearTimeout(timer)
+    // 같은 알림 id면 다시 띄우지 않는다
+  }, [id])
+  if (shown === null) return null
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: top + SPACE.md, alignItems: 'center' }}>
+      <Animated.View role="status" aria-live="polite" style={{ opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) }], backgroundColor: p.toast, borderRadius: RADIUS.pill, paddingVertical: SPACE.sm + 2, paddingHorizontal: SPACE.lg, ...SHADOW.toast }}>
+        <Txt step="caption" weight="bold" color="onToast">
+          {shown}
+        </Txt>
+      </Animated.View>
     </View>
   )
 }

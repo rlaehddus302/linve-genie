@@ -198,7 +198,7 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
         {live !== undefined ? (
           <HeroButton title="방송으로 돌아가기" sub={broadcastLine(live)} ariaLabel={`방송으로 돌아가기 — ${broadcastLine(live)}`} onPress={() => nav.openConsole(live.id)} />
         ) : (
-          <HeroButton title="방송 시작하기" sub="유튜브 방송 주소만 붙여 넣으면 돼요" onPress={nav.openNewBroadcast} />
+          <HeroButton title="방송 시작하기" sub="유튜브 방송 링크만 붙여 넣으면 돼요" onPress={nav.openNewBroadcast} />
         )}
         {/* 새 방송·리허설은 테두리 단추 둘 (D-LIVETEST-09) — 방송 중이 아니면 큰 단추가 새 방송이라 리허설만 */}
         <View style={{ flexDirection: 'row', gap: SPACE.sm, marginTop: -SPACE.sm }}>
