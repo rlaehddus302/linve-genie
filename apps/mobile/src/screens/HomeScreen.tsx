@@ -1,30 +1,28 @@
 // 홈 "오늘 할 일" (D-UX2-02, SPEC §7 화면 1과 같은 흐름): 인사 한 줄 → 큰 초록 "방송 시작하기"(진행 중 방송이 있으면 "방송으로 돌아가기")
-// → 할 일 3줄(입금 확인·포장하기·라벨 뽑기, 숫자는 서버 값) → 지난 방송 한 줄. 새 방송은 전체 화면에서 시작한다(D-UX3-06·07):
-//   처음엔 "방송 제목" 칸 하나(비어 있고 오늘 날짜 제목이 예시 글 — 비워 두면 그 제목) + [다음] → 그 아래에 "방송 주소" 칸,
-//   주소를 넣으면 [이 방송에 잇기]가 나타나 방송을 만들고 바로 잇는다. 주소 없이 시작하는 단추는 없다(주소 없이는 채팅을 못 읽는다).
-//   유튜브를 이을 수 없는 서버(읽기 꺼짐·구글 연결 없음)면 주소 단계 없이 [다음]이 바로 방송을 만든다 — 방송 화면이 연결 안내를 보인다.
+// → 할 일 3줄(입금 확인·포장하기·라벨 뽑기, 숫자는 서버 값) → 지난 방송 한 줄. 새 방송은 쌓인 화면(판매 종류 → 방송 주소, NewBroadcastScreen)에서
+//   시작한다 — 밀어서 뒤로 가기가 된다(D-UX3-09).
 // - 입금 확인·포장하기 숫자: 가장 최근 판매 날짜의 포장 목록(GET /api/days/:date/packing) — 입금 전(미입금·부분 입금) 손님 수, 포장할 것(포장 대기·다시 확인) 손님 수.
 // - 라벨 뽑기 숫자: 라벨 대기열 요약의 대기 장 수(라벨 기능을 켰을 때만). 값을 모르면 그 줄을 숨긴다.
 // - 정산·구매자·택배·영수증·설정 등 웹 화면은 모두 앱 화면으로 옮겼다(D-APPX-01·03) — 더보기에서 연다. 실제 방송 전이면 "시작 준비" 줄.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
-import type { BroadcastItem, PackingEntry, PackingList, WizardState, WriteResult, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
-import { dateWords, kstToday } from '@livejjim/web/src/lib/kst.ts'
+import type { BroadcastItem, PackingEntry, PackingList, WizardState, WriteResult } from '@livejjim/web/src/api/types.ts'
+import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
-import { readModeOf } from '../lib/youtube.ts'
-import { markLinkAsked, useAddressLinker, type LinkBody } from './console/YoutubeSection.tsx'
 import { useServices } from '../services.tsx'
-import { BigButton, BottomSheet, FullSheet, GroupLabel, HeroButton, Icon, RowDivider, RowGroup, TodoRow, Txt, useKit } from '../ui/kit/index.ts'
-import { Field, Loading, Notice } from '../ui/parts.tsx'
+import { BigButton, BottomSheet, GroupLabel, HeroButton, Icon, RowDivider, RowGroup, TodoRow, Txt, useKit } from '../ui/kit/index.ts'
+import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
 import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
+  /** 새 방송 화면 (판매 종류 → 방송 주소, D-UX3-09) */
+  readonly openNewBroadcast: () => void
   readonly openPacking: () => void
   readonly openLabels: () => void
   readonly openSettings: () => void
@@ -116,18 +114,10 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
   const [items, setItems] = useState<BroadcastItem[] | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [day, setDay] = useState<string | null>(null)
-  const [sheet, setSheet] = useState(false)
   const [all, setAll] = useState(false)
-  const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [createError, setCreateError] = useState<ApiError | null>(null)
   const pending = useRef<{ key: string; requestId: string } | null>(null)
-  // 새 방송 화면 단계 (D-UX3-06): 제목 → 주소. route가 null이면 이을 수 없는 서버 — 주소 단계 없이 바로 만든다. undefined = 아직 확인 중
-  const [step, setStep] = useState<'title' | 'address'>('title')
-  const [route, setRoute] = useState<{ readonly webChat: YoutubeWebChat | null } | null | undefined>(undefined)
-  /** 주소 단계에서 이미 만든 방송 (잇기를 다시 눌러도 방송을 또 만들지 않는다) */
-  const made = useRef<string | null>(null)
-  const [madeId, setMadeId] = useState<string | null>(null)
   const [wizard, setWizard] = useState<WizardState | null>(null)
 
   const load = async () => {
@@ -171,84 +161,16 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
     }
   }
 
-  const finish = (id: string) => {
-    setSheet(false)
-    nav.openConsole(id)
-  }
-
   const create = async (input: { title?: string; rehearsal?: boolean }) => {
     if (busy) return
     setBusy(true)
     setCreateError(null)
     try {
       const id = await make(input)
-      if (id !== null) finish(id)
+      if (id !== null) nav.openConsole(id)
     } finally {
       setBusy(false)
     }
-  }
-
-  // 비워 두면 오늘 날짜 제목 (D-UX3-07 — 칸은 비어 있고 날짜 제목은 예시 글)
-  const titleInput = () => ({ title: title.trim() === '' ? placeholderTitle : title.trim() })
-
-  /** 주소 단계: 아직 안 만들었으면 만든다 (한 번만) */
-  const ensureMade = async (): Promise<string | null> => {
-    if (made.current !== null) return made.current
-    setCreateError(null)
-    const id = await make(titleInput())
-    if (id !== null) {
-      made.current = id
-      setMadeId(id)
-      // 주소 단계를 거쳤다 — 방송 화면이 연결 판을 다시 저절로 열지 않는다
-      markLinkAsked(id)
-    }
-    return id
-  }
-
-  /** [이 방송에 잇기]: 방송을 만들고 그 방송에 잇는다. 잇기 거절(처음 잇는 채널 확인 등)은 주소 칸이 보인다 */
-  const linkNew = async (body: LinkBody) => {
-    const id = await ensureMade()
-    if (id === null) return
-    await withRetry(() => post(`/api/broadcasts/${encodeURIComponent(id)}/youtube`, body))
-    finish(id)
-  }
-
-  // 확인이 끝나기 전에 [다음]을 누르면 확인이 끝나는 대로 이어 간다(눌렀는데 아무 일 없는 단추가 되지 않게)
-  const [waitingNext, setWaitingNext] = useState(false)
-  const next = () => {
-    if (route === undefined) setWaitingNext(true)
-    else if (route === null) void create(titleInput())
-    else setStep('address')
-  }
-  useEffect(() => {
-    if (!waitingNext || route === undefined) return
-    setWaitingNext(false)
-    if (route === null) void create(titleInput())
-    else setStep('address')
-    // create·title은 누른 그때 값으로 충분하다 — 확인이 끝날 때 한 번만
-  }, [waitingNext, route])
-
-  // 새 방송 제목은 오늘 날짜로 미리 채운다 ("2026-11-02 월요일 방송", D-LIVETEST-09) — 바꿔도 된다
-  const [placeholderTitle, setPlaceholderTitle] = useState('')
-  const linker = useAddressLinker({ enabled: sheet && step === 'address', webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, autoFocus: true, disabled: busy })
-  const openStart = () => {
-    setTitle('')
-    setPlaceholderTitle(defaultBroadcastTitle(kstToday()))
-    setStep('title')
-    setCreateError(null)
-    made.current = null
-    setMadeId(null)
-    setRoute(undefined)
-    setSheet(true)
-    // 이 서버에서 유튜브 방송을 이을 수 있나 — 이을 수 있을 때만 주소 단계를 둔다
-    get<YoutubeConnectionResponse>('/api/youtube/connection').then(
-      (body) => {
-        const { webChat } = readModeOf(body)
-        if (webChat !== null) setRoute(webChat.on ? { webChat } : null)
-        else setRoute(body.connection?.status === 'CONNECTED' ? { webChat: null } : null)
-      },
-      () => setRoute(null),
-    )
   }
 
   const live = items?.find((item) => !item.ended && !item.rehearsal) ?? items?.find((item) => !item.ended)
@@ -276,20 +198,20 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
         {live !== undefined ? (
           <HeroButton title="방송으로 돌아가기" sub={broadcastLine(live)} ariaLabel={`방송으로 돌아가기 — ${broadcastLine(live)}`} onPress={() => nav.openConsole(live.id)} />
         ) : (
-          <HeroButton title="방송 시작하기" sub="유튜브 방송 주소만 붙여 넣으면 돼요" onPress={openStart} />
+          <HeroButton title="방송 시작하기" sub="유튜브 방송 주소만 붙여 넣으면 돼요" onPress={nav.openNewBroadcast} />
         )}
         {/* 새 방송·리허설은 테두리 단추 둘 (D-LIVETEST-09) — 방송 중이 아니면 큰 단추가 새 방송이라 리허설만 */}
         <View style={{ flexDirection: 'row', gap: SPACE.sm, marginTop: -SPACE.sm }}>
           {live !== undefined ? (
             <View style={{ flex: 1 }}>
-              <BigButton kind="outline" label="새 방송 시작" onPress={openStart} />
+              <BigButton kind="outline" label="새 방송 시작" onPress={nav.openNewBroadcast} />
             </View>
           ) : null}
           <View style={{ flex: 1 }}>
             <BigButton kind="outline" label="리허설 해 보기" disabled={busy} onPress={() => void create({ rehearsal: true })} />
           </View>
         </View>
-        {createError !== null && !sheet ? (
+        {createError !== null ? (
           <Notice tone="danger" alert>
             {startErrorMessage(createError)}
           </Notice>
@@ -349,22 +271,6 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
           </Pressable>
         ) : null}
       </ScrollView>
-
-      <FullSheet
-        visible={sheet}
-        onClose={() => setSheet(false)}
-        name="새 방송"
-        title={step === 'title' ? '어떤 방송인가요?' : '방송 주소를 넣어 주세요'}
-        actions={step === 'title' ? <BigButton label="다음" disabled={busy} busy={busy || waitingNext} onPress={next} /> : linker.action}
-      >
-        <Field label="방송 제목" value={title} onChangeText={setTitle} placeholder={placeholderTitle} autoFocus={step === 'title'} editable={madeId === null} returnKeyType="next" onSubmitEditing={step === 'title' ? next : undefined} />
-        {step === 'address' && route !== null && route !== undefined ? linker.fields : null}
-        {createError !== null ? (
-          <Notice tone="danger" alert>
-            {startErrorMessage(createError)}
-          </Notice>
-        ) : null}
-      </FullSheet>
 
       <BottomSheet visible={all} onClose={() => setAll(false)} title="방송 모두 보기">
         {(items ?? []).slice(0, 20).map((item) => (

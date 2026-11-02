@@ -110,15 +110,25 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
   )
 }
 
+/** 뒤로 화살표 크기 — 모든 화면 머리·전체 화면 판이 같은 크기·색을 쓴다 (D-UX3-08) */
+export const BACK_ICON = 26
+
+/** 뒤로 단추 하나 (토스 ‹): 48×48 누름 자리, 글자색 화살표 26, 누르면 바탕이 진해진다. 어느 화면이든 이것만 쓴다 */
+export function BackButton({ label = '뒤로', onPress }: { readonly label?: string; readonly onPress: () => void }) {
+  const { p } = useKit()
+  return (
+    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <Icon name="back" size={BACK_ICON} color={p.text} />
+    </Pressable>
+  )
+}
+
 /** 화면 머리: 뒤로(44) · 제목 · 오른쪽 조각(상태·⋯). 뒤로가 없으면 제목만 크게. */
 export function AppHeader({ title, onBack, backLabel = '뒤로', right, testID }: { readonly title: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly testID?: string }) {
-  const { p } = useKit()
   return (
     <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingTop: SPACE.lg, paddingBottom: SPACE.xs, paddingLeft: onBack === undefined ? SPACE.xl : SPACE.md, paddingRight: SPACE.md, minHeight: 64 }}>
       {onBack === undefined ? null : (
-        <Pressable role="button" aria-label={backLabel} onPress={onBack} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
-          <Icon name="back" />
-        </Pressable>
+        <BackButton label={backLabel} onPress={onBack} />
       )}
       <View style={{ flex: 1 }}>
         <Txt step="title" weight="heavy" role="heading" aria-level={1} numberOfLines={1}>

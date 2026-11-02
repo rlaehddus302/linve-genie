@@ -4,6 +4,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { CollectorView, LinkView, LiveBroadcastItem } from '@livejjim/web/src/api/types.ts'
+import { BroadcastLinkScreen } from '../src/screens/BroadcastLinkScreen.tsx'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { setClipboardReader } from '../src/lib/clipboard.ts'
 import { setWebOpener } from '../src/lib/open-web.ts'
@@ -192,5 +193,37 @@ describe('콘솔 유튜브 (앱)', () => {
     expect(within(section()).queryByText('내 채널에서 방송 중')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '이 방송에 잇기' }))
     await waitFor(() => expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(1))
+  })
+})
+
+describe('방송 연결은 쌓인 화면 (D-UX3-09 — 밀어서 뒤로 가기)', () => {
+  it('경로가 openLink를 주면 저절로 여는 것도 메뉴 "방송 연결"도 그 화면을 연다 — 앱 안 판은 뜨지 않는다', async () => {
+    const { world } = youtubeWorld()
+    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=true)?$/, () => ({ body: fullView({ seq: world.seq, rehearsal: false, products: [] }) }))
+    const opened: boolean[] = []
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} openLink={(closed) => opened.push(closed)} />))
+    await waitFor(() => expect(screen.getByTestId('console-screen')).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush(10)
+    })
+    await waitFor(() => expect(opened).toEqual([false]))
+    expect(screen.queryByRole('dialog', { name: '방송 연결' })).toBeNull()
+    await openYoutube()
+    expect(opened).toEqual([false, false])
+    expect(screen.queryByRole('dialog', { name: '방송 연결' })).toBeNull()
+  })
+
+  it('방송 연결 화면: 주소를 넣어 잇고, 이은 뒤엔 받는 상태 카드 — [나중에 잇기]는 뒤로', async () => {
+    const { world } = youtubeWorld()
+    let back = 0
+    render(world.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => back++} />))
+    const page = await screen.findByRole('dialog', { name: '방송 연결' })
+    fireEvent.click(await within(page).findByRole('button', { name: '나중에 잇기' }))
+    expect(back).toBe(1)
+    fireEvent.change(within(page).getByRole('textbox', { name: '방송 주소' }), { target: { value: 'https://youtu.be/VIDEOKNOWN1' } })
+    fireEvent.click(within(page).getByRole('button', { name: '이 방송에 잇기' }))
+    await waitFor(() => expect(within(section()).getByText('유튜브 방송 · 다육이네')).toBeTruthy())
+    expect(screen.getByRole('heading', { name: '방송 연결' })).toBeTruthy()
   })
 })

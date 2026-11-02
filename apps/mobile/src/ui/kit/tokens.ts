@@ -51,6 +51,10 @@ export interface Palette {
   readonly dangerPressed: string
   /** 주의 줄 누름 (잠깐 보이는 색이라 대비 쌍에 넣지 않는다) */
   readonly warnPressed: string
+  /** 비어 있는 입력 칸 안의 라벨 글자 (토스 회색) */
+  readonly placeholder: string
+  /** 입력 칸 [지우기] 동그라미 (장식 — 이름은 aria-label) */
+  readonly clearCircle: string
   /** 확인이 필요한 줄 바탕·글자 */
   readonly warnBg: string
   readonly warnText: string
@@ -99,6 +103,8 @@ const LIGHT: Palette = {
   secondaryPressed: '#CFE5D8',
   dangerPressed: '#8E1B12',
   warnPressed: '#FCE6C6',
+  placeholder: '#8B95A1',
+  clearCircle: '#B0B8C1',
   warnBg: '#FFF4E5',
   warnText: '#B54708',
   warnStrong: '#8A3A06',
@@ -133,8 +139,10 @@ export const TYPE = {
   title: 22,
   /** 화면 맨 위 질문형 제목 ("어떤 계좌로 보낼까요?") */
   headline: 26,
-  /** 숫자 강조·입력 칸 값 */
+  /** 숫자 강조 */
   number: 28,
+  /** 입력 칸 값·비어 있을 때 칸 안 라벨 (토스 "계좌번호 입력"과 같은 크기, D-UX3-08) */
+  input: 24,
 } as const
 
 export type TypeStep = keyof typeof TYPE

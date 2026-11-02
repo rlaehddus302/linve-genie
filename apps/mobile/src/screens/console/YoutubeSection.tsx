@@ -294,7 +294,7 @@ export interface AddressLinkerOptions {
  * "방송 주소" 칸 + 내 채널 방송 목록 + 처음 잇는 채널 확인 (fields) 과 [이 방송에 잇기] (action — 주소를 넣기 전엔 null, D-UX3-07).
  * 방송 화면 연결과 새 방송 화면이 함께 쓴다 (D-UX3-06). 단추는 화면 맨 아래(키보드 위)에 두라고 따로 준다.
  */
-export function useAddressLinker({ webChat, broadcastId, submit, label = '이 방송에 잇기', autoFocus, disabled, enabled = true }: AddressLinkerOptions): { readonly fields: ReactNode; readonly action: ReactNode | null; readonly busy: boolean } {
+export function useAddressLinker({ webChat, broadcastId, submit, label = '이 방송에 잇기', autoFocus, disabled, enabled = true }: AddressLinkerOptions): { readonly fields: ReactNode; readonly action: ReactNode | null; readonly busy: boolean; readonly recheck: () => Promise<void> } {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
@@ -407,5 +407,6 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '이 �
   )
   // 주소를 넣기 전엔 단추를 보이지 않는다 (D-UX3-07)
   const action = address.trim() === '' ? null : <BigButton label={label} primary disabled={off} onPress={() => void link(address.trim())} />
-  return { fields, action, busy }
+  // recheck: 앱 안 브라우저를 닫고 돌아왔을 때 클립보드를 다시 본다(앱이 뒤로 가지 않아 앞으로 옴 알림이 없다)
+  return { fields, action, busy, recheck: peek }
 }

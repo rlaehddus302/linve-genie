@@ -6,7 +6,7 @@ import { AccessibilityInfo, Animated, Easing, Keyboard, KeyboardAvoidingView, Mo
 import { BigButton } from './buttons.tsx'
 import { BACKDROP_OPACITY, RADIUS, SHADOW, SPACE } from './tokens.ts'
 import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
-import { Icon } from './app.tsx'
+import { BackButton } from './app.tsx'
 
 export interface BottomSheetProps {
   readonly visible: boolean
@@ -102,6 +102,8 @@ export interface FullSheetProps {
   /** 화면 맨 아래 고정 단추 — 키보드가 뜨면 키보드 바로 위(여백 12)로 올라온다. null이면 자리도 없다 */
   readonly actions?: ReactNode
   readonly closeLabel?: string
+  /** 카드로 나뉜 내용이면 회색 바탕 */
+  readonly cards?: boolean
   readonly testID?: string
 }
 
@@ -120,33 +122,57 @@ export function useKeyboardShown(): boolean {
   return shown
 }
 
+export interface FormPageProps {
+  /** 큰 질문형 제목 ("어떤 방송인가요?") */
+  readonly title: string
+  /** 보조 기술에 읽히는 화면 이름 — 없으면 제목 */
+  readonly name?: string
+  readonly onBack: () => void
+  readonly backLabel?: string
+  readonly children?: ReactNode
+  /** 화면 맨 아래 고정 단추 — 키보드가 뜨면 키보드 바로 위(여백 12)로 올라온다. null이면 자리도 없다 */
+  readonly actions?: ReactNode
+  /** 내용이 카드로 나뉘면 회색 바탕, 입력 칸·단추만 있으면 흰 바탕 (D-UX3-08) */
+  readonly cards?: boolean
+  readonly testID?: string
+}
+
 /**
- * 전체 화면 판 (토스 "어떤 계좌로 보낼까요?" 화면 그대로, D-UX3-06·07): 왼쪽 위 뒤로(‹)만 있는 머리 → 큰 질문 제목 → 내용(스크롤) → 맨 아래 단추.
- * 키보드가 뜨면 내용과 단추가 키보드 위로 올라와 입력 칸이 가려지지 않고, 단추와 키보드 사이는 12만 띈다. 화면 전체가 아래에서 올라온다(뒤 막 없음).
+ * 입력 화면 틀 (토스 "어떤 계좌로 보낼까요?" 그대로, D-UX3-06·07·08): 왼쪽 위 뒤로(‹)만 있는 머리 → 큰 질문 제목 → 내용(스크롤) → 맨 아래 단추.
+ * 바탕은 흰색(카드로 나뉜 내용이면 회색). 키보드가 뜨면 내용과 단추가 키보드 위로 올라와 입력 칸이 가려지지 않고, 단추와 키보드 사이는 12만 띈다.
+ * 경로 화면(밀어서 뒤로 가기가 되는 쌓인 화면)과 FullSheet(앱 안 판)가 같이 쓴다.
  */
-export function FullSheet({ visible, onClose, title, name, children, actions, closeLabel = '닫기', testID }: FullSheetProps) {
+export function FormPage({ title, name, onBack, backLabel = '뒤로', children, actions, cards = false, testID }: FormPageProps) {
   const { p } = useKit()
   const inset = useBottomInset()
   const top = useTopInset()
   const keyboard = useKeyboardShown()
+  const bg = cards ? p.background : p.surface
+  return (
+    <View role="dialog" aria-label={name ?? title} testID={testID} style={{ flex: 1, backgroundColor: bg, paddingTop: top }}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={{ paddingHorizontal: SPACE.sm, paddingTop: SPACE.sm }}>
+          <BackButton label={backLabel} onPress={onBack} />
+        </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xxl, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled">
+          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
+            {title}
+          </Txt>
+          {children}
+        </ScrollView>
+        {actions === undefined || actions === null ? null : <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(inset, SPACE.md) + SPACE.xs, gap: SPACE.sm, backgroundColor: bg }}>{actions}</View>}
+      </KeyboardAvoidingView>
+    </View>
+  )
+}
+
+/** 전체 화면 판 — FormPage를 앱 안 판(Modal)으로. 밀어서 뒤로 가기가 필요한 곳은 경로 화면으로 FormPage를 쓴다 */
+export function FullSheet({ visible, onClose, title, name, children, actions, closeLabel = '닫기', cards, testID }: FullSheetProps) {
   return (
     <Modal visible={visible} animationType={Platform.OS === 'web' ? 'none' : 'slide'} onRequestClose={onClose} statusBarTranslucent presentationStyle="fullScreen">
-      <View role="dialog" aria-modal aria-label={name ?? title} testID={testID} style={{ flex: 1, backgroundColor: p.background, paddingTop: top }}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <View style={{ paddingHorizontal: SPACE.sm, paddingTop: SPACE.sm }}>
-            <Pressable role="button" aria-label={closeLabel} onPress={onClose} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
-              <Icon name="back" size={26} />
-            </Pressable>
-          </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xxxl, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled">
-            <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-              {title}
-            </Txt>
-            {children}
-          </ScrollView>
-          {actions === undefined || actions === null ? null : <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(inset, SPACE.md) + SPACE.xs, gap: SPACE.sm, backgroundColor: p.background }}>{actions}</View>}
-        </KeyboardAvoidingView>
-      </View>
+      <FormPage title={title} name={name} onBack={onClose} backLabel={closeLabel} actions={actions} cards={cards} testID={testID}>
+        {children}
+      </FormPage>
     </Modal>
   )
 }

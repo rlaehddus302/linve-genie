@@ -36,6 +36,7 @@ export default function IndexRoute() {
               sellerName={session.me.seller.name}
               nav={{
                 openConsole: (id) => router.push({ pathname: '/console/[id]', params: { id } }),
+                openNewBroadcast: () => router.push('/new-broadcast'),
                 openPacking: () => router.replace('/packing'),
                 openLabels: () => router.replace('/labels'),
                 openSettings: () => router.push('/settings'),

@@ -1,6 +1,6 @@
 // 홈 "오늘 할 일" (APP-01, D-UX2-02): 진행 중 방송은 "방송으로 돌아가기"로 한국어 한 줄과 함께 보이고, 새 방송 시작이 요청 번호와 함께 가며,
 // "웹으로 열기"는 더보기 탭에서 기기 브라우저로 연다 (AC4). 할 일 숫자는 포장 목록·라벨 대기열의 서버 값이다.
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { setWebOpener } from '../src/lib/open-web.ts'
 import { HomeScreen, broadcastLine } from '../src/screens/HomeScreen.tsx'
@@ -8,7 +8,7 @@ import { ConnectionsCard } from '../src/screens/settings/ShopExtras.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST } from './support.ts'
 
-const nav = () => ({ openConsole: vi.fn(), openPacking: vi.fn(), openLabels: vi.fn(), openSettings: vi.fn() })
+const nav = () => ({ openConsole: vi.fn(), openNewBroadcast: vi.fn(), openPacking: vi.fn(), openLabels: vi.fn(), openSettings: vi.fn() })
 
 describe('HomeScreen', () => {
   it('방송 한 줄과 콘솔 열기', async () => {
@@ -23,19 +23,15 @@ describe('HomeScreen', () => {
     expect(navigation.openConsole).toHaveBeenCalledWith('b1')
   })
 
-  it('새 방송 시작 → 제목 칸 → 다음이 요청 번호와 함께 가고 콘솔로 간다', async () => {
+  it('새 방송 시작은 새 방송 화면(쌓인 화면)을 연다 — 홈 안에 제목 칸·판이 없다 (D-UX3-09)', async () => {
     const world = makeWorld()
-    world.server.on('POST', /^\/api\/broadcasts$/, (call) => ({ body: { date: '2026-10-30', rehearsal: false, seq: 1, type: 'broadcast.start', changed: true, effects: [], broadcast: { id: 'b2', date: '2026-10-30', title: String(call.body?.title ?? ''), rehearsal: false } } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
+    // 옛 기대(D-UX3-07): 홈 위 전체 화면 판에 빈 "방송 제목" 칸 → [다음]. 새 기대(D-UX3-09): 제목 칸은 없고(판매 종류로 제목을 짓는다) 새 방송은 쌓인 화면 — 밀어서 뒤로 가기
     fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
-    // D-LIVETEST-09: 제목 칸에 오늘 날짜 제목("2026-11-02 월요일 방송" 꼴), 단추는 "다음". 새 기대(D-UX3-07): 칸은 비어 있고 날짜 제목은 예시 글
-    expect((screen.getByLabelText('방송 제목') as HTMLInputElement).value).toBe('')
-    expect(screen.getByLabelText('방송 제목').getAttribute('placeholder')).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 방송$/)
-    fireEvent.change(screen.getByLabelText('방송 제목'), { target: { value: '금요일 방송' } })
-    fireEvent.click(screen.getByRole('button', { name: '다음' }))
-    await waitFor(() => expect(navigation.openConsole).toHaveBeenCalledWith('b2'))
-    expect(world.server.callsTo('POST', /broadcasts/)[0]?.body).toEqual({ requestId: expect.any(String), title: '금요일 방송' })
+    expect(navigation.openNewBroadcast).toHaveBeenCalledTimes(1)
+    expect(screen.queryByLabelText('방송 제목')).toBeNull()
+    expect(world.server.callsTo('POST', /broadcasts/)).toHaveLength(0)
   })
 
   it('진행 중 방송이 없으면 큰 카드가 "방송 시작하기"이고, 할 일 숫자는 포장 목록·라벨 대기열 값이다 (D-UX2-02)', async () => {

@@ -5,12 +5,13 @@ import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { webUrl } from '../src/api/config.ts'
 import { openExternal, openWeb, setWebOpener, WEB_SCREENS } from '../src/lib/open-web.ts'
 import { HomeScreen } from '../src/screens/HomeScreen.tsx'
+import { NewBroadcastAddressScreen, NewBroadcastCategoryScreen } from '../src/screens/NewBroadcastScreen.tsx'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
 import { WEB_CONNECTIONS } from '../src/screens/settings/ShopExtras.tsx'
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 
-const nav = () => ({ openConsole: vi.fn(), openPacking: vi.fn(), openLabels: vi.fn(), openSettings: vi.fn() })
+const nav = () => ({ openConsole: vi.fn(), openNewBroadcast: vi.fn(), openPacking: vi.fn(), openLabels: vi.fn(), openSettings: vi.fn() })
 const SERVER_NO_PASS = '이용권이 없어 실제 방송을 시작할 수 없어요. 요금 화면에서 이용권을 산 뒤 다시 시작해 주세요. 리허설은 언제든 할 수 있어요.'
 
 function noPassWorld(status = 422, code = 'NO_PASS', message = SERVER_NO_PASS) {
@@ -30,41 +31,44 @@ function expectNoBillingWords() {
 }
 
 describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
-  it('새 방송 칸을 연 채 "다음"(D-LIVETEST-09, 옛 "이 방송 시작하기")이 NO_PASS로 거절되면 앱 문장만 — 서버 문장·링크·새 버튼 없음. 그 뒤 리허설은 한 번 간다', async () => {
+  it('새 방송 판매 종류를 누른 뒤(D-UX3-09, 옛 "다음"·"이 방송 시작하기") NO_PASS로 거절되면 앱 문장만 — 서버 문장·링크·새 버튼 없음. 홈의 리허설은 한 번 간다', async () => {
+    // 이 서버는 유튜브를 주소로 잇지 않는다(연결 응답 없음) — 판매 종류를 누르는 대로 방송을 만든다
     const world = noPassWorld()
-    const navigation = nav()
-    render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
+    const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
+    const view = render(world.wrap(<NewBroadcastCategoryScreen nav={newNav} />))
     const buttonsBefore = screen.getAllByRole('button').map((button) => button.getAttribute('aria-label') ?? button.textContent)
-    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    fireEvent.click(screen.getByRole('button', { name: '다육이' }))
     expect(await screen.findByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expect(APP_NO_PASS_MESSAGE).toBe('이용권이 없어 실제 방송을 시작할 수 없어요. 리허설은 언제든 할 수 있어요.')
     expectNoBillingWords()
     expect(screen.getAllByRole('button').map((button) => button.getAttribute('aria-label') ?? button.textContent)).toEqual(buttonsBefore)
-    fireEvent.click(screen.getByRole('button', { name: '리허설 해 보기' }))
+    expect(newNav.openConsole).not.toHaveBeenCalled()
+    view.unmount()
+    const navigation = nav()
+    render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
+    fireEvent.click(await screen.findByRole('button', { name: '리허설 해 보기' }))
     await waitFor(() => expect(navigation.openConsole).toHaveBeenCalledWith('r1'))
     expect(world.server.callsTo('POST', /broadcasts/).filter((call) => call.body?.rehearsal === true)).toHaveLength(1)
   })
 
-  it('칸을 닫은 상태에서도 같은 앱 문장이다', async () => {
+  it('주소 단계의 [이 방송에 잇기]가 거절돼도 같은 앱 문장이다', async () => {
+    // 옛 기대: 칸을 닫은 홈에도 같은 문장. 새 기대(D-UX3-09): 새 방송은 쌓인 화면 — 거절 문장은 그 화면(주소 단계)에 보인다
     const world = noPassWorld()
-    render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
-    fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
-    fireEvent.click(screen.getByRole('button', { name: '다음' }))
-    await screen.findByText(APP_NO_PASS_MESSAGE)
-    // 옛 기대: "새 방송 시작"을 다시 눌러 칸을 닫음. D-UX2-02: 시작은 시트 — "닫기"로 닫는다. D-LIVETEST-09: 시트에 단추는 "다음" 하나 — 바깥(판 닫기)으로 닫는다.
-    // 새 기대(D-UX3-06): 새 방송은 전체 화면 — 위 뒤로 단추("닫기")로 닫는다
-    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
-    expect(screen.queryByRole('button', { name: '다음' })).toBeNull()
-    expect(screen.getByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
+    world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: null, webChat: { on: true }, oauth: true } }))
+    world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
+    const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
+    render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={newNav} />))
+    fireEvent.change(await screen.findByLabelText('방송 주소'), { target: { value: 'https://youtu.be/tWnNGwvdN40' } })
+    fireEvent.click(await screen.findByRole('button', { name: '이 방송에 잇기' }))
+    expect(await screen.findByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expectNoBillingWords()
+    expect(newNav.openConsole).not.toHaveBeenCalled()
   })
 
   it('다른 거절은 서버 문장 그대로 (400 "시험 거절 문장이에요.")', async () => {
     const world = noPassWorld(400, 'INVALID_INPUT', '시험 거절 문장이에요.')
-    render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
-    fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
-    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    render(world.wrap(<NewBroadcastCategoryScreen nav={{ back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }} />))
+    fireEvent.click(screen.getByRole('button', { name: '화분' }))
     expect(await screen.findByText('시험 거절 문장이에요.')).toBeTruthy()
     expect(screen.queryByText(APP_NO_PASS_MESSAGE)).toBeNull()
   })

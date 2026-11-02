@@ -31,6 +31,7 @@ import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePan
 import { ListenLine, listenChip, useStreamAudio } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import type { LinkView } from '@livejjim/web/src/api/types.ts'
+import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
@@ -82,7 +83,11 @@ function AwayLine() {
 /**
  * onEnded: 방송을 끝낸 뒤 (D-UX2-07) — 경로가 홈으로 돌려보내고 홈이 방송 목록을 다시 받는다. 없으면 이 화면에 "끝난 방송"으로 남는다.
  */
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews, openLabels }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: (rehearsal: boolean) => void; readonly openLabels?: () => void }) {
+/**
+ * openLink: 방송 연결을 쌓인 화면으로 연다(밀어서 뒤로 가기, D-UX3-09) — 없으면 앱 안 전체 화면 판(시험·웹).
+ * refresh: 바뀌면 유튜브 잇기 상태를 다시 받는다(방송 연결 화면에서 돌아올 때 경로가 올린다).
+ */
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews, openLabels, openLink, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: (rehearsal: boolean) => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -162,7 +167,19 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const sealed = data?.sealed ?? false
   // 방송 연결 전체 화면 (D-UX3-06·07): 아직 잇지 않은 방송이면 주소 칸은 본문에, [이 방송에 잇기]는 맨 아래(주소를 넣어야 보인다) — 아니면 유튜브 칸 그대로.
   // 훅이라 이른 return보다 앞에 둔다
-  const linkable = yt.phase === 'ready' && yt.link !== null && yt.link.link === null && !(ended || sealed) && (yt.webChat === null ? yt.connection === 'CONNECTED' : yt.webChat.on)
+  const linkable = canLinkByAddress(yt, ended || sealed)
+  // 방송 연결 화면에서 돌아오면 잇기 상태를 다시 받는다
+  const { reload: reloadYoutube } = yt
+  useEffect(() => {
+    if (refresh > 0) void reloadYoutube()
+  }, [refresh, reloadYoutube])
+  const showLink = () => {
+    if (openLink === undefined) setSheet('youtube')
+    else {
+      setSheet('none')
+      openLink(ended || sealed)
+    }
+  }
   const linker = useAddressLinker({ enabled: sheet === 'youtube' && linkable, webChat: yt.webChat, broadcastId, submit: async (body) => yt.setLink(await withRetry(() => post<LinkView>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/youtube`, body))) })
   const command = useCallback(
     async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> => {
@@ -194,7 +211,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     if (askedLink.current || yt.phase !== 'ready' || yt.link === null || yt.link.link !== null) return
     if ((broadcast?.ended ?? true) || (data?.sealed ?? true) || productCount !== 0) return
     askedLink.current = true
-    setSheet((now) => (now === 'none' ? 'youtube' : now))
+    if (openLink !== undefined) openLink(false)
+    else setSheet((now) => (now === 'none' ? 'youtube' : now))
   }, [yt.phase, yt.link, broadcast?.ended, data?.sealed, productCount])
   useEffect(() => {
     if (ended && voiceView.on && voiceView.broadcastId === broadcastId) void services.voice.turnOff()
@@ -344,7 +362,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         <BottomSheet visible={sheet === 'menu'} onClose={close} title="방송 메뉴">
           <Txt step="caption" color="textSub">{`${title}${broadcast.rehearsal ? ' · 리허설' : ''}`}</Txt>
           <RowGroup label="방송 메뉴">
-            {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="방송 연결" sub="방송 주소 붙여 넣기, 채팅 받는 상태" onPress={() => setSheet('youtube')} /> : null}
+            {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="방송 연결" sub="방송 주소 붙여 넣기, 채팅 받는 상태" onPress={showLink} /> : null}
             {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => setSheet('voice')} /> : null}
             {openLabels !== undefined && !broadcast.rehearsal ? <TodoRow title="프린터·라벨" sub="프린터 연결, 라벨 대기·다시 찍기" onPress={() => { close(); openLabels() }} /> : null}
             <TodoRow title="채팅 보기" sub="최근 채팅 100줄, 주문·취소 표시" onPress={() => setSheet('chat')} />
@@ -353,7 +371,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           </RowGroup>
         </BottomSheet>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
-        <FullSheet visible={sheet === 'youtube'} onClose={close} name="방송 연결" title={linkable ? '방송 주소를 넣어 주세요' : '방송 연결'} actions={linkable ? (
+        <FullSheet visible={sheet === 'youtube'} onClose={close} name="방송 연결" title={linkable ? '방송 주소를 넣어 주세요' : '방송 연결'} cards={!linkable} actions={linkable ? (
             <>
               <BigButton kind="outline" label="나중에 잇기" onPress={close} />
               {linker.action}
