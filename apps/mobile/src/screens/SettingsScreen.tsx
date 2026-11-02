@@ -8,7 +8,7 @@ import { get, isApiError, patch, put } from '../api/client.ts'
 import { openExternal, openWeb } from '../lib/open-web.ts'
 import { OPEN_IN_WEB, VOICE_INSTANT_LABEL } from '../lib/words.ts'
 import { useServices, useSession } from '../services.tsx'
-import { AppHeader, BigButton, Card, ConfirmSheet, ListRow, Section, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, Card, ConfirmSheet, ListRow, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { ScrollView } from 'react-native'
 import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
@@ -77,9 +77,8 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, sh
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="settings-screen">
       <AppHeader title="설정" onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.xl }} keyboardShouldPersistTaps="handled">
-        <Section title="음성">
-          <Card label="음성">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+        <Card title="음성" label="음성">
             <ToggleRow
               title={VOICE_INSTANT_LABEL}
               subtitle="끄면 들린 말이 카드로 먼저 보이고, 등록을 눌러야 올라가요."
@@ -100,9 +99,7 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, sh
             <Txt step="caption" color="textSub">{`블루투스: ${PERMISSION_WORDS.bluetooth}`}</Txt>
             <Txt step="caption" color="textSub">{`알림(안드로이드): ${PERMISSION_WORDS.notification}`}</Txt>
           </Card>
-        </Section>
-        <Section title="라벨">
-          <Card label="라벨">
+        <Card title="라벨" label="라벨">
             {labels === null ? (
               <Txt color="textSub">라벨 설정을 불러오지 못했어요.</Txt>
             ) : (
@@ -110,22 +107,17 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, sh
             )}
             {auto !== null ? <ToggleRow title="1등 확정 때 라벨 자동 출력" subtitle="다음 방송부터 적용돼요." on={auto} disabled={busy} onChange={(next) => void run(() => setAutoPrint(next, auto))} /> : null}
           </Card>
-        </Section>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
         {showPhoneNotice ? <PhoneNoticeCard /> : null}
-        <Section title="그 밖 설정" description="가게 정보·판매 규칙·배송비·택배·손님 관리·보조자는 가게 설정에서 바꿔요.">
-          <Card label="그 밖">
+        <Card title="그 밖 설정" description="가게 정보·판매 규칙·배송비·택배·손님 관리·보조자는 가게 설정에서 바꿔요." label="그 밖">
             {onOpenShop !== undefined ? <ListRow title="가게 설정" subtitle="가게·계좌, 판매 규칙, 배송비, 감사 메시지, 택배, 손님 관리, 보조자, 백업" onPress={onOpenShop} /> : <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />}
             {policyUrl !== undefined ? <ListRow title="개인정보처리방침" subtitle="기기 브라우저에서 열려요." onPress={() => void openExternal(policyUrl)} /> : null}
             {onOpenDesign !== undefined ? <ListRow title="디자인 견본 (개발용)" onPress={onOpenDesign} /> : null}
           </Card>
-        </Section>
-        <Section title="계정">
-          <Card label="계정">
+        <Card title="계정" label="계정">
             {session.state === 'in' ? <Txt step="bodyLarge">{`${session.me.seller.name} · ${session.me.loginId}`}</Txt> : null}
             <BigButton label="로그아웃" kind="secondary" onPress={() => setAsking(true)} />
           </Card>
-        </Section>
       </ScrollView>
       <Toast toast={toast} onDismiss={hide} />
       <ConfirmSheet

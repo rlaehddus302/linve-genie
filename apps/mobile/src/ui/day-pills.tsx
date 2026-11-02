@@ -5,7 +5,7 @@ import { Pressable, ScrollView, View } from 'react-native'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, type ApiError } from '../api/client.ts'
 import { Txt, useKit } from './kit/index.ts'
-import { RADIUS, SPACE } from './kit/tokens.ts'
+import { RADIUS, SPACE, pressedFill } from './kit/tokens.ts'
 
 interface Day {
   readonly date: string
@@ -40,7 +40,7 @@ export function useRealDays(initial?: string): { days: readonly string[] | null;
 export function Pill({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonly label: string; readonly ariaLabel: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? p.primary : p.surface, borderWidth: on ? 0 : 1, borderColor: p.outline, opacity: pressed ? 0.7 : 1 })}>
+    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', borderWidth: on ? 0 : 1, borderColor: p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
       <Txt step="caption" weight="bold" color={on ? 'onPrimary' : 'text'}>
         {label}
       </Txt>

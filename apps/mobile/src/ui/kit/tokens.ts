@@ -41,6 +41,16 @@ export interface Palette {
   readonly outline: string
   /** 방금 올라온 상품 줄 바탕 */
   readonly freshBg: string
+  /** 테두리 없는 회색 단추 바탕 (토스식 "송금" 단추, D-UX3-02) */
+  readonly soft: string
+  /** 누르는 동안 바탕 (D-UX3-03): 흰 줄·옅은 바탕 → pressed, 각 단추 → 그 색의 진한 색 */
+  readonly pressed: string
+  readonly softPressed: string
+  readonly primaryPressed: string
+  readonly secondaryPressed: string
+  readonly dangerPressed: string
+  /** 주의 줄 누름 (잠깐 보이는 색이라 대비 쌍에 넣지 않는다) */
+  readonly warnPressed: string
   /** 확인이 필요한 줄 바탕·글자 */
   readonly warnBg: string
   readonly warnText: string
@@ -82,6 +92,13 @@ const LIGHT: Palette = {
   line: '#E3E6E1',
   outline: '#D5DAD3',
   freshBg: '#E6F2EB',
+  soft: '#E9ECE8',
+  pressed: '#E8EBE7',
+  softPressed: '#D9DED8',
+  primaryPressed: '#17603C',
+  secondaryPressed: '#CFE5D8',
+  dangerPressed: '#8E1B12',
+  warnPressed: '#FCE6C6',
   warnBg: '#FFF4E5',
   warnText: '#B54708',
   warnStrong: '#8A3A06',
@@ -149,6 +166,19 @@ export const SHADOW = {
   toast: { shadowColor: '#000000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
 } as const
 
+/**
+ * 누르는 동안 바탕 (D-UX3-03, 토스식): 흐리게 하지 않고 놓인 바탕보다 한 단계 진하게.
+ * 모르는 바탕이면 흰 줄 눌림 색.
+ */
+export function pressedFill(p: Palette, base: string): string {
+  if (base === p.primary) return p.primaryPressed
+  if (base === p.danger) return p.dangerPressed
+  if (base === p.soft) return p.softPressed
+  if (base === p.secondary || base === p.freshBg) return p.secondaryPressed
+  if (base === p.warnBg) return p.warnPressed
+  return p.pressed
+}
+
 /** 시트 뒤 반투명 막 투명도 */
 export const BACKDROP_OPACITY = 0.5
 
@@ -170,6 +200,7 @@ export function contrastPairs(scheme: Scheme): readonly ContrastPair[] {
     { name: '본문/바탕', fg: p.text, bg: p.background, min: 4.5 },
     { name: '본문/카드', fg: p.text, bg: p.surface, min: 4.5 },
     { name: '본문/옅은바탕', fg: p.text, bg: p.surfaceAlt, min: 4.5 },
+    { name: '설명/회색단추(아래 탭 고른 칸)', fg: p.textSub, bg: p.soft, min: 4.5 },
     { name: '설명/바탕', fg: p.textSub, bg: p.background, min: 4.5 },
     { name: '설명/카드', fg: p.textSub, bg: p.surface, min: 4.5 },
     { name: '설명/옅은바탕', fg: p.textSub, bg: p.surfaceAlt, min: 4.5 },
@@ -177,6 +208,13 @@ export function contrastPairs(scheme: Scheme): readonly ContrastPair[] {
     { name: '주색글자/카드', fg: p.primaryText, bg: p.surface, min: 4.5 },
     { name: '주색글자/바탕', fg: p.primaryText, bg: p.background, min: 4.5 },
     { name: '보조버튼', fg: p.onSecondary, bg: p.secondary, min: 4.5 },
+    { name: '보조버튼 눌림', fg: p.onSecondary, bg: p.secondaryPressed, min: 4.5 },
+    { name: '회색단추', fg: p.text, bg: p.soft, min: 4.5 },
+    { name: '회색단추 눌림', fg: p.text, bg: p.softPressed, min: 4.5 },
+    { name: '주버튼 눌림', fg: p.onPrimary, bg: p.primaryPressed, min: 4.5 },
+    { name: '위험버튼 눌림', fg: p.onDanger, bg: p.dangerPressed, min: 4.5 },
+    { name: '본문/눌림', fg: p.text, bg: p.pressed, min: 4.5 },
+    { name: '설명/눌림', fg: p.textSub, bg: p.pressed, min: 4.5 },
     { name: '위험버튼', fg: p.onDanger, bg: p.danger, min: 4.5 },
     { name: '위험글자/카드', fg: p.dangerText, bg: p.surface, min: 4.5 },
     { name: '위험글자/바탕', fg: p.dangerText, bg: p.background, min: 4.5 },

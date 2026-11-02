@@ -5,6 +5,10 @@ import { BottomInsetProvider } from './theme.tsx'
 
 /** 라우트 화면을 감싼다: 위쪽은 SafeAreaView(edges=['top'])가, 아래쪽은 BottomCTA·시트·알림 막대가 직접 피한다. */
 export function KitInsets({ children }: { readonly children: ReactNode }) {
-  const { bottom } = useSafeAreaInsets()
-  return <BottomInsetProvider bottom={bottom}>{children}</BottomInsetProvider>
+  const { bottom, top } = useSafeAreaInsets()
+  return (
+    <BottomInsetProvider bottom={bottom} top={top}>
+      {children}
+    </BottomInsetProvider>
+  )
 }

@@ -12,7 +12,7 @@ import { useAppForeground } from '../lib/use-app-state.ts'
 import { paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { BigButton, Icon, Txt, useKit } from '../ui/kit/index.ts'
-import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { RADIUS, SPACE, TOUCH, pressedFill } from '../ui/kit/tokens.ts'
 import { Field, Loading, Notice, Tag } from '../ui/parts.tsx'
 
 interface Day {
@@ -24,7 +24,7 @@ interface Day {
 function Pill({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonly label: string; readonly ariaLabel: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? p.primary : p.surface, borderWidth: on ? 0 : 1, borderColor: p.outline, opacity: pressed ? 0.7 : 1 })}>
+    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', borderWidth: on ? 0 : 1, borderColor: p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
       <Txt step="caption" weight="bold" color={on ? 'onPrimary' : 'text'}>
         {label}
       </Txt>
@@ -190,7 +190,7 @@ function PackingDay({ date, onProgress }: { readonly date: string; readonly onPr
       ) : null}
       <View role="list" aria-label="포장할 구매자" style={{ gap: 6 }}>
         {rest.map((entry) => (
-          <Pressable key={entry.buyer} role="button" aria-label={`포장 열기 — ${entry.name}`} onPress={() => setOpen(entry.buyer)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, minHeight: 56, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.md, backgroundColor: isChanged(entry.status) ? p.warnBg : p.surface, opacity: pressed ? 0.6 : 1 })}>
+          <Pressable key={entry.buyer} role="button" aria-label={`포장 열기 — ${entry.name}`} onPress={() => setOpen(entry.buyer)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, minHeight: 56, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.md, backgroundColor: pressed ? pressedFill(p, isChanged(entry.status) ? p.warnBg : p.surface) : isChanged(entry.status) ? p.warnBg : p.surface })}>
             <View style={{ flex: 1 }}>
               <Txt step="bodyLarge" weight="bold" numberOfLines={1}>
                 {entry.name}
@@ -280,7 +280,7 @@ function PackingCard({ date, entry, sealed, next, onDone }: { readonly date: str
                   return nextSet
                 })
               }
-              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingHorizontal: SPACE.md, borderRadius: RADIUS.sm, backgroundColor: on ? p.freshBg : p.surfaceAlt, opacity: pressed ? 0.7 : 1 })}
+              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingHorizontal: SPACE.md, borderRadius: RADIUS.sm, backgroundColor: pressed ? pressedFill(p, on ? p.freshBg : p.surfaceAlt) : on ? p.freshBg : p.surfaceAlt })}
             >
               <View aria-hidden style={{ width: 26, height: 26, borderRadius: 6, borderWidth: on ? 0 : 2, borderColor: p.borderStrong, backgroundColor: on ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
                 {on ? <Icon name="check" color={p.onPrimary} size={18} /> : null}

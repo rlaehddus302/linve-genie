@@ -42,10 +42,20 @@ export function Section({ title, description, children }: { readonly title: stri
   )
 }
 
-export function Card({ children, label, testID }: { readonly children?: ReactNode; readonly label?: string; readonly testID?: string }) {
+/** 흰 카드. title이 있으면 카드 안 맨 위에 묶음 이름(+ 설명) — 토스 설정 "인증 및 보안"처럼 (D-UX3-04) */
+export function Card({ children, label, title, description, testID }: { readonly children?: ReactNode; readonly label?: string; readonly title?: string; readonly description?: string; readonly testID?: string }) {
   const { p } = useKit()
+  const name = label ?? title
   return (
-    <View role={label === undefined ? undefined : 'group'} aria-label={label} testID={testID} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, padding: SPACE.xl, gap: SPACE.md, ...SHADOW.card }}>
+    <View role={name === undefined ? undefined : 'group'} aria-label={name} testID={testID} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, padding: SPACE.xl, gap: SPACE.md, ...SHADOW.card }}>
+      {title === undefined ? null : (
+        <View style={{ gap: SPACE.xs }}>
+          <Txt step="bodyLarge" weight="heavy" role="heading" aria-level={2}>
+            {title}
+          </Txt>
+          {description === undefined ? null : <Txt step="caption" color="textSub">{description}</Txt>}
+        </View>
+      )}
       {children}
     </View>
   )
@@ -65,7 +75,7 @@ export interface ListRowProps {
 
 /** 줄: 누를 수 있으면 오른쪽에 ›(눈에는 보이되 읽어 주지는 않음)를 둔다. 글자가 2배가 되면 값이 제목 아래로 내려간다. */
 export function ListRow({ title, subtitle, value, right, onPress, ariaLabel, testID }: ListRowProps) {
-  const { stacked } = useKit()
+  const { p, stacked } = useKit()
   const tail = (
     <>
       {value === undefined ? null : (
@@ -96,7 +106,7 @@ export function ListRow({ title, subtitle, value, right, onPress, ariaLabel, tes
     )
   }
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? [title, value].filter((x) => x !== undefined).join(' — ')} onPress={onPress} testID={testID} style={({ pressed }) => ({ ...frame, opacity: pressed ? 0.6 : 1, borderRadius: RADIUS.md })}>
+    <Pressable role="button" aria-label={ariaLabel ?? [title, value].filter((x) => x !== undefined).join(' — ')} onPress={onPress} testID={testID} style={({ pressed }) => ({ ...frame, backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, marginHorizontal: -SPACE.sm, paddingHorizontal: SPACE.sm })}>
       {body}
       <Icon name="chevron" size={20} />
     </Pressable>

@@ -94,7 +94,7 @@ export function NumberPad({ value, onChange, maxLength = 9, testID }: { readonly
       role="button"
       aria-label={KEY_NAME[key]}
       onPress={() => press(key)}
-      style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.key, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center', backgroundColor: key === 'back' ? p.secondary : p.surfaceAlt, opacity: pressed ? 0.6 : 1 })}
+      style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.key, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center', backgroundColor: key === 'back' ? (pressed ? p.secondaryPressed : p.secondary) : pressed ? p.softPressed : p.surfaceAlt })}
     >
       <Txt step="title" weight="bold" color={key === 'back' ? 'onSecondary' : 'text'}>
         {key === 'back' ? '← 지우기' : key}

@@ -52,8 +52,9 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
     await screen.findByText(APP_NO_PASS_MESSAGE)
-    // 옛 기대: "새 방송 시작"을 다시 눌러 칸을 닫음. D-UX2-02: 시작은 시트 — "닫기"로 닫는다. 새 기대(D-LIVETEST-09): 시트에 단추는 "다음" 하나 — 바깥(판 닫기)으로 닫는다
-    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
+    // 옛 기대: "새 방송 시작"을 다시 눌러 칸을 닫음. D-UX2-02: 시작은 시트 — "닫기"로 닫는다. D-LIVETEST-09: 시트에 단추는 "다음" 하나 — 바깥(판 닫기)으로 닫는다.
+    // 새 기대(D-UX3-06): 새 방송은 전체 화면 — 위 뒤로 단추("닫기")로 닫는다
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
     expect(screen.queryByRole('button', { name: '다음' })).toBeNull()
     expect(screen.getByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expectNoBillingWords()

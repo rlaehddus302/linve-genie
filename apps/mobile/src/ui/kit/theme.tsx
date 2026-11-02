@@ -40,14 +40,23 @@ export function useKit(): Kit {
 }
 
 const BottomInsetContext = createContext(0)
+const TopInsetContext = createContext(0)
 
-/** 아래쪽 안전 영역(홈 막대) 높이를 아래 조각들에 알린다. 기기 값은 safe-area.tsx(KitInsets)가 넣는다 — 시험에서는 0. */
-export function BottomInsetProvider({ bottom, children }: { readonly bottom: number; readonly children: ReactNode }) {
-  return <BottomInsetContext.Provider value={bottom}>{children}</BottomInsetContext.Provider>
+/** 아래쪽 안전 영역(홈 막대) 높이를 아래 조각들에 알린다. 기기 값은 safe-area.tsx(KitInsets)가 넣는다 — 시험에서는 0. top은 전체 화면 판(FullSheet)이 상태 막대를 피할 때 쓴다 */
+export function BottomInsetProvider({ bottom, top = 0, children }: { readonly bottom: number; readonly top?: number; readonly children: ReactNode }) {
+  return (
+    <TopInsetContext.Provider value={top}>
+      <BottomInsetContext.Provider value={bottom}>{children}</BottomInsetContext.Provider>
+    </TopInsetContext.Provider>
+  )
 }
 
 export function useBottomInset(): number {
   return useContext(BottomInsetContext)
+}
+
+export function useTopInset(): number {
+  return useContext(TopInsetContext)
 }
 
 export type TxtColor = keyof Pick<Palette, 'text' | 'textSub' | 'primaryText' | 'dangerText' | 'onPrimary' | 'onDanger' | 'onSecondary' | 'onToast' | 'warnText' | 'warnStrong'>

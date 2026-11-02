@@ -251,7 +251,31 @@ function ConnectFirst({ yt }: { readonly yt: MobileYoutube }) {
   )
 }
 
+/** 방송 시작 흐름에서 주소 단계를 이미 거친 방송 (D-UX3-06): 방송 화면이 연결 판을 다시 저절로 열지 않는다 */
+const linkAsked = new Set<string>()
+export function markLinkAsked(broadcastId: string): void {
+  linkAsked.add(broadcastId)
+}
+export function wasLinkAsked(broadcastId: string): boolean {
+  return linkAsked.has(broadcastId)
+}
+
 function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
+  const path = `/api/broadcasts/${encodeURIComponent(yt.broadcastId)}/youtube`
+  return <AddressLinker webChat={yt.webChat} broadcastId={yt.broadcastId} submit={async (body) => yt.setLink(await withRetry(() => post<LinkView>(path, body)))} />
+}
+
+export interface LinkBody {
+  readonly requestId: string
+  readonly video: string
+  readonly confirmInvited?: true
+}
+
+/**
+ * 방송 주소 붙여넣기 칸 + 내 채널 방송 목록 + 처음 잇는 채널 확인 + [잇기] (방송 화면 연결 판과 새 방송 화면이 함께 쓴다, D-UX3-06).
+ * submit이 잇기 요청을 보낸다 — 거절은 그대로 던지면 여기서 문장·확인 줄로 보인다. broadcastId가 없으면(아직 만들기 전) 다른 방송에 이어진 것만 막는다.
+ */
+export function AddressLinker({ webChat, broadcastId, submit, label = '이 방송에 잇기', autoFocus, disabled }: { readonly webChat: YoutubeWebChat | null; readonly broadcastId: string | null; readonly submit: (body: LinkBody) => Promise<void>; readonly label?: string; readonly autoFocus?: boolean; readonly disabled?: boolean }) {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
@@ -288,17 +312,16 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
   }, [search])
 
   const link = async (video: string, confirmed = false) => {
-    if (busy || video.trim() === '') return
+    if (busy || disabled === true || video.trim() === '') return
     if (pending.current?.video !== video || pending.current.confirmed !== confirmed) pending.current = { video, confirmed, requestId: newRequestId() }
     const { requestId } = pending.current
     setBusy(true)
     setError(null)
     setAsk(null)
     try {
-      const body = confirmed ? { requestId, video, confirmInvited: true } : { requestId, video }
-      const view = await withRetry(() => post<LinkView>(`/api/broadcasts/${encodeURIComponent(yt.broadcastId)}/youtube`, body))
+      const body: LinkBody = confirmed ? { requestId, video, confirmInvited: true } : { requestId, video }
+      await submit(body)
       pending.current = null
-      yt.setLink(view)
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       if (!caught.retryable) pending.current = null
@@ -312,22 +335,23 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
     }
   }
 
-  const recentTitle = yt.webChat === null ? MY_CHANNEL_TITLE : RECENT_TITLE
+  const recentTitle = webChat === null ? MY_CHANNEL_TITLE : RECENT_TITLE
+  const off = busy || disabled === true
   return (
     <Stack tight>
       <Field label="방송 주소 붙여넣기" value={address} onChangeText={(text) => {
         setAddress(text)
         setAsk(null)
-      }} inputMode="url" autoCapitalize="none" autoCorrect={false} />
+      }} inputMode="url" autoCapitalize="none" autoCorrect={false} autoFocus={autoFocus} />
       {copied !== null && address === copied ? <Hint>{PASTE_COPIED}</Hint> : null}
       {/* 내 채널(최근 이은 채널)에서 지금 하는 방송 — 있을 때만, 주소를 붙이지 않고 바로 잇기 */}
       {(recent ?? []).length > 0 ? (
       <Card label={recentTitle}>
         <Body bold>{recentTitle}</Body>
         {(recent ?? []).map((item) => {
-          const other = item.linkedBroadcast !== null && item.linkedBroadcast !== yt.broadcastId
+          const other = item.linkedBroadcast !== null && item.linkedBroadcast !== broadcastId
           // 내 채널 목록(구글 연결로 읽는 서버)에는 채널 이름이 없다 — 제목만 ("(이름 없음)"을 보이지 않게)
-          const line = yt.webChat === null ? (item.title.trim() === '' ? NO_BROADCAST_TITLE : item.title) : recentLine(item)
+          const line = webChat === null ? (item.title.trim() === '' ? NO_BROADCAST_TITLE : item.title) : recentLine(item)
           return (
             <Stack tight key={item.videoId}>
               <Body>
@@ -335,7 +359,7 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
                 {other ? ' · 다른 방송에 이어져 있어요' : ''}
               </Body>
               <Row>
-                <BigButton small label="잇기" ariaLabel={`${line} 잇기`} disabled={busy || other} onPress={() => void link(item.videoId)} />
+                <BigButton small label="잇기" ariaLabel={`${line} 잇기`} disabled={off || other} onPress={() => void link(item.videoId)} />
               </Row>
             </Stack>
           )
@@ -348,8 +372,8 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
             {firstChannelQuestion(ask.name)}
           </Notice>
           <Row wrap>
-            <BigButton small primary label="맞아요, 잇기" disabled={busy} onPress={() => void link(ask.video, true)} />
-            <BigButton small label="취소" disabled={busy} onPress={() => setAsk(null)} />
+            <BigButton small primary label="맞아요, 잇기" disabled={off} onPress={() => void link(ask.video, true)} />
+            <BigButton small label="취소" disabled={off} onPress={() => setAsk(null)} />
           </Row>
         </Card>
       ) : null}
@@ -358,7 +382,7 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
           {error.message}
         </Notice>
       ) : null}
-      <BigButton label="이 방송에 잇기" primary disabled={busy || address.trim() === ''} onPress={() => void link(address.trim())} />
+      <BigButton label={label} primary disabled={off || address.trim() === ''} onPress={() => void link(address.trim())} />
     </Stack>
   )
 }

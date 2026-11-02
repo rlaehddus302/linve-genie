@@ -15,7 +15,7 @@ import { ScopeStore, type ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { DIRECT_INPUT, LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, BigButton, BottomSheet, ConfirmSheet, DotStatus, HeaderIconButton, RowGroup, TodoRow, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, BottomSheet, ConfirmSheet, FullSheet, DotStatus, HeaderIconButton, RowGroup, TodoRow, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { BigButton as SmallButton, Loading, Notice, Row } from '../ui/parts.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
@@ -30,7 +30,7 @@ import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue
 import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { ListenLine, listenChip, useStreamAudio } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
-import { YoutubeSection, YoutubeWarning, useMobileYoutube } from './console/YoutubeSection.tsx'
+import { YoutubeSection, YoutubeWarning, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
 const RETURN_WAIT_MS = 3000
@@ -182,8 +182,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const live = seller && broadcast !== null && !(broadcast.ended || endedHere) && !(data?.sealed ?? false)
   const stream = useStreamAudio(services.voice, broadcastId, broadcast === null || broadcast.title.trim() === '' ? '제목 없음' : broadcast.title, live)
 
-  // 방송 시작 흐름의 "주소 붙여넣기" 단계: 상품이 없는 새 방송이 유튜브에 이어져 있지 않으면 잇기 시트를 한 번 연다
-  const askedLink = useRef(false)
+  // 상품이 없는 새 방송이 유튜브에 이어져 있지 않으면 연결 화면을 한 번 연다 — 새 방송 화면에서 주소 단계를 이미 거쳤으면 열지 않는다 (D-UX3-06)
+  const askedLink = useRef(wasLinkAsked(broadcastId))
   const productCount = data === null ? -1 : boardProducts(data, broadcastId).length
   useEffect(() => {
     if (askedLink.current || yt.phase !== 'ready' || yt.link === null || yt.link.link !== null) return
@@ -347,14 +347,15 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             {!closed ? <TodoRow title="방송 끝내기" onPress={() => setSheet('end')} /> : null}
           </RowGroup>
         </BottomSheet>
-        <BottomSheet
+        {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
+        <FullSheet
           visible={sheet === 'youtube'}
           onClose={close}
           title="방송 연결"
-          actions={yt.link !== null && yt.link.link === null && !closed ? <BigButton kind="secondary" label="나중에 잇기" onPress={close} /> : undefined}
+          actions={yt.link !== null && yt.link.link === null && !closed ? <BigButton kind="outline" label="나중에 잇기" onPress={close} /> : undefined}
         >
           <YoutubeSection yt={yt} closed={closed} />
-        </BottomSheet>
+        </FullSheet>
         <BottomSheet visible={sheet === 'voice'} onClose={close} title="음성 설정">
           <VoiceSettingsPanel session={services.voice} broadcastId={broadcastId} />
         </BottomSheet>

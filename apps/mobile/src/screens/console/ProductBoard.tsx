@@ -11,7 +11,7 @@ import { boardProducts, claimWord, claimsOfProduct, nameOf, productSlots } from 
 import { NO_PRODUCTS_YET, PRODUCT_STATUS_WORD, formatWon } from '../../lib/words.ts'
 import type { Tone } from '../../ui/theme.ts'
 import { BigButton, Txt, useKit } from '../../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
+import { RADIUS, SPACE, pressedFill } from '../../ui/kit/tokens.ts'
 import { Body, Hint, Notice, Row, Tag } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
 
@@ -176,7 +176,7 @@ function ProductRow({ product, fresh, onOpen, badge }: { readonly product: Produ
       role="button"
       aria-label={`상품 자세히 — ${String(product.no)}번`}
       onPress={onOpen}
-      style={({ pressed }) => ({ gap: 6, paddingVertical: 14, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: bg, opacity: pressed ? 0.7 : dim ? 0.6 : 1 })}
+      style={({ pressed }) => ({ gap: 6, paddingVertical: 14, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: pressed ? pressedFill(p, bg) : bg, opacity: dim ? 0.6 : 1 })}
     >
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
         <Txt step="title" weight="heavy">{`${String(product.no)}번`}</Txt>

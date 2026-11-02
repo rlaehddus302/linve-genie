@@ -2,7 +2,7 @@
 // 역할(role)·이름(aria-label)을 정확히 달아 시험·보조 기술이 잡기 쉽게 한다. (화면들이 쓰는 이 이름·인자는 그대로 둔다.)
 import type { ReactNode } from 'react'
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View, type TextInputProps } from 'react-native'
-import { RADIUS, SHADOW, SPACE, TOUCH } from './kit/tokens.ts'
+import { RADIUS, SHADOW, SPACE, TOUCH, pressedFill } from './kit/tokens.ts'
 import { Txt, useKit, type TxtColor } from './kit/theme.tsx'
 import type { Tone } from './theme.ts'
 
@@ -100,10 +100,10 @@ export function BigButton({ label, onPress, primary, danger, disabled, small, ar
         paddingHorizontal: small === true ? SPACE.lg : SPACE.xl,
         paddingVertical: SPACE.md,
         borderRadius: RADIUS.lg,
-        backgroundColor: fill,
+        backgroundColor: pressed && disabled !== true ? pressedFill(p, fill) : fill,
         alignItems: 'center',
         justifyContent: 'center',
-        opacity: disabled === true ? 0.45 : pressed ? 0.85 : 1,
+        opacity: disabled === true ? 0.45 : 1,
       })}
     >
       <Txt step="bodyLarge" weight="heavy" color={ink} center>

@@ -38,7 +38,7 @@ import { get, isApiError, post, put, withQuery, type ApiError } from '../api/cli
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
 /** 손님 자세히의 저장한 배송지 (CR-3·CR-5) — 가린 이름·끝 4자리만 (웹 lib/ledger.ts CustomerLedgerView와 같은 모양) */
@@ -143,7 +143,7 @@ export function CustomersScreen({ onBack }: { readonly onBack: () => void }) {
         {view !== null ? <Txt color="textSub">{`손님 ${String(view.count)}명`}</Txt> : null}
         {view !== null && view.customers.length === 0 ? <Txt color="textSub">맞는 손님이 없어요.</Txt> : null}
         {view?.customers.map((row) => (
-          <Pressable key={row.id} role="button" aria-label={`${row.name} · ${row.kindLabel}${row.regular ? ` · ${REGULAR_WORD}` : ''}${row.caution ? ` · ${CAUTION_WORD}` : ''}`} onPress={() => setOpen(row)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, backgroundColor: p.surface, borderRadius: RADIUS.lg, padding: SPACE.lg, opacity: pressed ? 0.6 : 1 })}>
+          <Pressable key={row.id} role="button" aria-label={`${row.name} · ${row.kindLabel}${row.regular ? ` · ${REGULAR_WORD}` : ''}${row.caution ? ` · ${CAUTION_WORD}` : ''}`} onPress={() => setOpen(row)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderRadius: RADIUS.lg, padding: SPACE.lg, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
             <View style={{ flex: 1, gap: SPACE.xs }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap' }}>
                 <Txt step="bodyLarge" weight="bold">{row.name}</Txt>

@@ -18,7 +18,7 @@ import { QUICK_REASONS } from '@livejjim/web/src/lib/words.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, BottomSheet, Card, TextField, Txt, useKit } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
 export const MERGE_REASONS: readonly string[] = ['같은 사람', '같은 집 배송']
@@ -111,7 +111,7 @@ function BuyerRow({ buyer, name, extra, onPress }: { readonly buyer: Buyer; read
   const { p } = useKit()
   const label = `${name}${extra.length > 0 ? ` · ${extra.join(' · ')}` : ''} · 상품 ${String(buyer.items.length)}개 · ${formatWon(buyer.subtotal)}`
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} style={({ pressed }) => ({ backgroundColor: p.surface, borderRadius: RADIUS.lg, padding: SPACE.md, gap: SPACE.xs, opacity: pressed ? 0.7 : 1 })}>
+    <Pressable role="button" aria-label={label} onPress={onPress} style={({ pressed }) => ({ borderRadius: RADIUS.lg, padding: SPACE.md, gap: SPACE.xs, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
         <Txt weight="bold">{name}</Txt>
         {isUnknownSms(buyer) ? <Tag tone="warning">확인 필요</Tag> : null}

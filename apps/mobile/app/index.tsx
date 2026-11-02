@@ -37,7 +37,7 @@ export default function IndexRoute() {
               nav={{
                 openConsole: (id) => router.push({ pathname: '/console/[id]', params: { id } }),
                 openPacking: () => router.replace('/packing'),
-                openLabels: () => router.push('/labels'),
+                openLabels: () => router.replace('/labels'),
                 openSettings: () => router.push('/settings'),
                 openSettle: () => router.replace('/settle'),
                 ...(session.me.role === 'ASSISTANT' ? {} : { openStart: () => router.push('/start') }),

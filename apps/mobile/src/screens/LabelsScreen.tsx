@@ -38,7 +38,8 @@ export const JOB_SHARE_HINT = '잘 안 찍히면 이 라벨 그림을 제조사 
 /** 농도 단추 (범위 안의 정수) */
 const densityLevels = (range: { readonly min: number; readonly max: number }): number[] => Array.from({ length: Math.max(0, range.max - range.min + 1) }, (_, i) => range.min + i)
 
-export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
+/** onBack이 없으면 아래 탭 화면(라벨 탭, D-UX3-01) — 뒤로 단추 없이 제목만 */
+export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
   const { labels } = useServices()
   const { p } = useKit()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
@@ -104,7 +105,7 @@ export function LabelsScreen({ onBack }: { readonly onBack: () => void }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }}>
-    <AppHeader title="라벨·프린터" onBack={onBack} />
+    <AppHeader title="라벨·프린터" {...(onBack === undefined ? {} : { onBack })} />
     <Screen testID="labels-screen">
       {snapshot.loadError !== null ? (
         <Row wrap>

@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, View } from 'react-native'
 import { RADIUS, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit, type TxtColor } from './theme.tsx'
 
-/** outline: 흰 바탕 + 테두리 (방송 중 "직접 넣기" 같은 둘째 버튼) */
+/** outline: 테두리 없는 회색 단추 (방송 중 "직접 넣기"·홈 "새 방송 시작" 같은 둘째 버튼 — 토스식, D-UX3-02. 옛 흰 바탕+테두리) */
 export type ButtonKind = 'primary' | 'secondary' | 'danger' | 'outline'
 
 export interface BigButtonProps {
@@ -28,7 +28,9 @@ export interface BigButtonProps {
 export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ariaLabel, icon, leading, testID, oneLine }: BigButtonProps) {
   const { p } = useKit()
   const off = disabled === true || busy === true
-  const fill = kind === 'primary' ? p.primary : kind === 'danger' ? p.danger : kind === 'outline' ? p.surface : p.secondary
+  const fill = kind === 'primary' ? p.primary : kind === 'danger' ? p.danger : kind === 'outline' ? p.soft : p.secondary
+  // 누르는 동안 바탕이 진해진다 (흐려지지 않는다 — D-UX3-03)
+  const fillPressed = kind === 'primary' ? p.primaryPressed : kind === 'danger' ? p.dangerPressed : kind === 'outline' ? p.softPressed : p.secondaryPressed
   const ink: TxtColor = kind === 'primary' ? 'onPrimary' : kind === 'danger' ? 'onDanger' : kind === 'outline' ? 'text' : 'onSecondary'
   return (
     <Pressable
@@ -44,14 +46,12 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
         borderRadius: RADIUS.lg,
         paddingHorizontal: oneLine === true ? SPACE.md : SPACE.xl,
         paddingVertical: SPACE.md,
-        backgroundColor: fill,
-        borderWidth: kind === 'outline' ? 2 : 0,
-        borderColor: p.outline,
+        backgroundColor: pressed && !off ? fillPressed : fill,
         alignItems: 'center',
         justifyContent: 'center',
         flexDirection: 'row',
         gap: SPACE.sm,
-        opacity: disabled === true ? 0.45 : pressed ? 0.85 : 1,
+        opacity: disabled === true ? 0.45 : 1,
       })}
     >
       {busy === true ? <ActivityIndicator color={p[ink]} /> : null}

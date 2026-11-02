@@ -15,6 +15,7 @@ import { configureApi } from '../src/api/config.ts'
 import { setWebOpener } from '../src/lib/open-web.ts'
 import { setClipboardReader, setClipboardWriter } from '../src/lib/clipboard.ts'
 import { createServices, ServicesProvider, SessionProvider } from '../src/services.tsx'
+import { TAB_SCREENS } from '../src/lib/tab-routes.ts'
 
 configureApi({ fetch: (input, init) => expoFetch(input, init as Parameters<typeof expoFetch>[1]) as unknown as Promise<Response>, newId: randomUUID })
 setWebOpener((url) => Linking.openURL(url))
@@ -31,7 +32,12 @@ export default function RootLayout() {
         <SessionProvider services={services}>
           <StatusBar style="dark" />
           <PrinterDevicePicker />
-          <Stack screenOptions={{ headerShown: false }} />
+          <Stack screenOptions={{ headerShown: false }}>
+            {/* 탭 화면끼리는 화면 전환 없이 바꿔 끼운다 — 짧은 좌우 밀림은 TabFrame이 낸다 (D-UX3-01) */}
+            {TAB_SCREENS.map((name) => (
+              <Stack.Screen key={name} name={name} options={{ animation: 'none' }} />
+            ))}
+          </Stack>
         </SessionProvider>
       </ServicesProvider>
     </SafeAreaProvider>
