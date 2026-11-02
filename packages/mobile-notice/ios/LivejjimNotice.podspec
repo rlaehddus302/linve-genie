@@ -11,5 +11,7 @@ Pod::Spec.new do |s|
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
   s.source_files   = '*.swift'
+  # Package.swift는 macOS `swift test`용 — 앱 빌드에 넣으면 PackageDescription을 못 찾아 실패한다
+  s.exclude_files  = 'Package.swift'
   s.frameworks     = 'AppIntents', 'Security', 'CryptoKit'
 end
