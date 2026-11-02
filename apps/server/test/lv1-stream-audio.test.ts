@@ -427,6 +427,16 @@ describe('D-LV1-11 페이지에 HLS가 없으면 yt-dlp로 소리 주소', () =>
     expect(JSON.stringify(logs)).not.toContain(ID)
   })
 
+  it('D-LIVETEST-12 방송 페이지가 봇 확인으로 막히면(데이터센터 IP) 페이지를 다시 보지 않고 yt-dlp(집 회선 프록시)로 묻는다. yt-dlp가 없으면 잠시 뒤 다시', async () => {
+    let asked = 0
+    const resolve = async (videoId: string): Promise<AudioUrlResult> => { asked++; expect(videoId).toBe(ID); return { kind: 'ok', url: HLS } }
+    const blockedPage = { page: async (videoId: string) => ({ state: 'BLOCKED' as const, videoId, channelId: null, channelTitle: null, title: null, startedAt: null }) }
+    expect(await locateFromPage(blockedPage, ID, { resolve })).toEqual({ kind: 'ok', url: HLS })
+    expect(asked).toBe(1)
+    expect(await locateFromPage(blockedPage, ID, { resolve: null })).toEqual({ kind: 'retry' })
+    expect(await locateFromPage(blockedPage, ID, { resolve: async () => ({ kind: 'proxy_down' }) })).toEqual({ kind: 'unsupported' })
+  })
+
   it('yt-dlp 주소로 소리를 열고, 끊기면(주소 만료) 다시 yt-dlp를 불러 새 주소로 이어 받는다. yt-dlp가 막히면 대비 안내', async () => {
     const urls: string[] = []
     const sinks: AudioSink[] = []

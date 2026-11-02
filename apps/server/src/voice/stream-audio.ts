@@ -231,16 +231,12 @@ export async function locateFromPage(
     case 'CHAT_DISABLED': {
       const url = safeHlsUrl(page.hlsUrl)
       if (url !== null) return { kind: 'ok', url }
-      if (options.resolve == null || !VIDEO_ID.test(videoId)) return { kind: 'unsupported' }
-      const found = await options.resolve(videoId)
-      if (found.kind === 'ok') return found
-      const seller = options.sellerId === undefined ? {} : { seller: options.sellerId }
-      // 집 회선 프록시가 끊김(D-LV1-13): 운영자 경보 한 줄 — 판매자에게는 아래처럼 휴대폰 마이크 안내
-      if (found.kind === 'proxy_down') options.log?.({ level: 'alert', code: 'STREAM_AUDIO_PROXY_DOWN', ...seller })
-      else options.log?.({ level: 'warn', code: 'STREAM_AUDIO_YTDLP_FAILED', reason: found.kind.toUpperCase(), ...seller })
-      // 시간 넘김만 끊김으로 세어 다시 본다. 없음·봇 확인 막힘·프록시 끊김·실패는 지금처럼 바로 꺼짐 + 휴대폰 마이크 안내
-      return found.kind === 'timeout' ? { kind: 'retry' } : { kind: 'unsupported' }
+      return byYtDlp(videoId, options)
     }
+    // 데이터센터 IP라 방송 페이지가 봇 확인으로 막힘(D-LIVETEST-12): 페이지를 다시 볼수록 같은 막힘이다 — yt-dlp(집 회선 프록시, D-LV1-13)로 바로 묻는다.
+    // yt-dlp가 없으면 지금처럼 잠시 뒤 다시 본다
+    case 'BLOCKED':
+      return options.resolve == null ? { kind: 'retry' } : byYtDlp(videoId, options)
     case 'UPCOMING':
       return { kind: 'none' }
     case 'ENDED':
@@ -252,6 +248,21 @@ export async function locateFromPage(
     default:
       return { kind: 'retry' }
   }
+}
+
+async function byYtDlp(
+  videoId: string,
+  options: { readonly resolve?: AudioUrlResolver | null; readonly log?: LogSink; readonly sellerId?: string },
+): Promise<StreamLocation> {
+  if (options.resolve == null || !VIDEO_ID.test(videoId)) return { kind: 'unsupported' }
+  const found = await options.resolve(videoId)
+  if (found.kind === 'ok') return found
+  const seller = options.sellerId === undefined ? {} : { seller: options.sellerId }
+  // 집 회선 프록시가 끊김(D-LV1-13): 운영자 경보 한 줄 — 판매자에게는 아래처럼 휴대폰 마이크 안내
+  if (found.kind === 'proxy_down') options.log?.({ level: 'alert', code: 'STREAM_AUDIO_PROXY_DOWN', ...seller })
+  else options.log?.({ level: 'warn', code: 'STREAM_AUDIO_YTDLP_FAILED', reason: found.kind.toUpperCase(), ...seller })
+  // 시간 넘김만 끊김으로 세어 다시 본다. 없음·봇 확인 막힘·프록시 끊김·실패는 지금처럼 바로 꺼짐 + 휴대폰 마이크 안내
+  return found.kind === 'timeout' ? { kind: 'retry' } : { kind: 'unsupported' }
 }
 
 /**
