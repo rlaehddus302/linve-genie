@@ -40,6 +40,7 @@ export default function IndexRoute() {
                 openLabels: () => router.push('/labels'),
                 openSettings: () => router.push('/settings'),
                 openSettle: () => router.replace('/settle'),
+                ...(session.me.role === 'ASSISTANT' ? {} : { openStart: () => router.push('/start') }),
               }}
             />
           </TabFrame>

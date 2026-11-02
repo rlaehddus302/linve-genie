@@ -5,7 +5,7 @@
 // - 정산·구매자·택배 같은 화면은 앱에 없다 — "더보기"의 "웹으로 열기"(기기 브라우저)로 잇는다(APP-01).
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
-import type { BroadcastItem, PackingEntry, PackingList, WriteResult } from '@livejjim/web/src/api/types.ts'
+import type { BroadcastItem, PackingEntry, PackingList, WizardState, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
@@ -15,6 +15,7 @@ import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { BigButton, BottomSheet, GroupLabel, HeroButton, Icon, RowDivider, RowGroup, TodoRow, Txt, useKit } from '../ui/kit/index.ts'
 import { Field, Loading, Notice } from '../ui/parts.tsx'
+import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 
 export interface HomeNavigation {
@@ -24,6 +25,8 @@ export interface HomeNavigation {
   readonly openSettings: () => void
   /** 앱 정산 탭 (D-APPX-01) — 없으면 웹 정산 */
   readonly openSettle?: () => void
+  /** 시작 안내 (D-APPX-03) — 없으면 줄을 보이지 않는다 */
+  readonly openStart?: () => void
 }
 
 export function broadcastLine(item: BroadcastItem): string {
@@ -106,6 +109,7 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
   const [busy, setBusy] = useState(false)
   const [createError, setCreateError] = useState<ApiError | null>(null)
   const pending = useRef<{ key: string; requestId: string } | null>(null)
+  const [wizard, setWizard] = useState<WizardState | null>(null)
 
   const load = async () => {
     setError(null)
@@ -123,6 +127,11 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
     get<{ days: { date: string; rehearsal: boolean }[] }>('/api/days').then(
       (view) => setDay(view.days.find((item) => !item.rehearsal)?.date ?? null),
       () => setDay(null),
+    )
+    // 시작 안내 줄 (웹 홈이 마법사를 여는 조건과 같다 — 보조자·옛 서버는 받지 못해 줄이 없다)
+    get<{ wizard: WizardState }>('/api/wizard').then(
+      (view) => setWizard(view.wizard),
+      () => setWizard(null),
     )
   }, [refresh])
 
@@ -188,6 +197,12 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
           <Notice tone="danger" alert>
             {startErrorMessage(createError)}
           </Notice>
+        ) : null}
+
+        {nav.openStart !== undefined && items !== null && showsStart(wizard, items.some((item) => !item.rehearsal)) ? (
+          <RowGroup label={START_ROW_TITLE}>
+            <TodoRow title={START_ROW_TITLE} sub={START_ROW_SUB} onPress={nav.openStart} />
+          </RowGroup>
         ) : null}
 
         {counts !== null || labelCount !== null ? (
