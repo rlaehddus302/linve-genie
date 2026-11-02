@@ -7,6 +7,7 @@ import * as webScope from '@livejjim/web/src/lib/scope-data.ts'
 import * as webQuick from '@livejjim/web/src/lib/quick.ts'
 import * as webPacking from '@livejjim/web/src/lib/packing.ts'
 import * as webYoutube from '@livejjim/web/src/lib/youtube.ts'
+import * as webBuyers from '@livejjim/web/src/lib/buyers.ts'
 import { SERVER_ROUTE } from '@livejjim/web/src/lib/extension.ts'
 import { PRINT_ACTION as WEB_PRINT_ACTION, PRINT_ALERT_WORD as WEB_PRINT_ALERT_WORD } from '@livejjim/web/src/lib/print-words.ts'
 import { CONNECTION_STATE_NAMES } from '@livejjim/printer'
@@ -18,6 +19,7 @@ import * as scope from '../src/lib/scope-data.ts'
 import * as quick from '../src/lib/quick.ts'
 import * as packing from '../src/lib/packing.ts'
 import * as youtube from '../src/lib/youtube.ts'
+import * as buyers from '../src/lib/buyers.ts'
 import { readText } from '../../../packages/voice-session/src/read/index.ts'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { buyer, changes, claim, fullView, product } from './support.ts'
@@ -62,6 +64,22 @@ describe('고르기 규칙이 웹과 같다', () => {
   it('구매자 이름 표기·찜 낱말', () => {
     expect([...derive.buyerLabels(mine.buyers, mine.claims)]).toEqual([...webDerive.buyerLabels(theirs.buyers, theirs.claims)])
     for (const id of ['c1', 'c2', 'c3', 'c4', 'c5']) expect(derive.claimWord(mine, mine.claims.get(id)!)).toBe(webDerive.claimWord(theirs, theirs.claims.get(id)!))
+  })
+
+  it('구매자 화면 고르기·합치기 낱말 (D-APPX-03 — 앱 lib/buyers.ts 사본)', () => {
+    const counts = buyers.sameNameCounts(mine.buyers)
+    expect([...counts]).toEqual([...webBuyers.sameNameCounts(theirs.buyers)])
+    for (const sort of ['name', 'total'] as const) for (const all of [true, false]) expect(buyers.buyerList(mine.buyers, { all, sort }).map((item) => item.id)).toEqual(webBuyers.buyerList(theirs.buyers, { all, sort }).map((item) => item.id))
+    for (const id of ['u1', 'u2', 'u3']) {
+      expect(buyers.distinguishWords(mine.buyers.get(id)!, counts)).toEqual(webBuyers.distinguishWords(theirs.buyers.get(id)!, webBuyers.sameNameCounts(theirs.buyers)))
+      expect(buyers.claimsOf(mine, id).map((item) => item.id)).toEqual(webBuyers.claimsOf(theirs, id).map((item) => item.id))
+      expect(buyers.isUnknownSms(mine.buyers.get(id)!)).toBe(webBuyers.isUnknownSms(theirs.buyers.get(id)!))
+    }
+    expect(buyers.searchBuyers(mine.buyers, '1234').map((hit) => hit.current.id)).toEqual(webBuyers.searchBuyers(theirs.buyers, '1234').map((hit) => hit.current.id))
+    expect(buyers.defaultInto(mine.buyers.get('u3')!, mine.buyers.get('u1')!).id).toBe(webBuyers.defaultInto(theirs.buyers.get('u3')!, theirs.buyers.get('u1')!).id)
+    const preview = { from: 'u2', into: 'u1', target: 'u1', blocked: null, bothConfirmed: [], duplicates: [{ claim: 'c2', product: 'b1/15', buyer: 'u2', status: 'WAITLISTED' }], moving: { items: ['b1/15'], subtotal: 10_000 }, after: { items: ['b1/15'], subtotal: 20_000 } } as unknown as Parameters<typeof buyers.mergeWords>[2]
+    const label = (_b: string, no: number) => `${String(no)}번`
+    expect(buyers.mergeWords(mine, new derive.BuyerNames(mine.buyers, mine.claims), preview, label)).toEqual(webBuyers.mergeWords(theirs, new webDerive.BuyerNames(theirs.buyers, theirs.claims), preview, label))
   })
 
   it('알림 수·상품 자리·보드 순서', () => {

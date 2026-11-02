@@ -6,6 +6,7 @@ import { webUrl } from '../src/api/config.ts'
 import { openExternal, openWeb, setWebOpener, WEB_SCREENS } from '../src/lib/open-web.ts'
 import { HomeScreen } from '../src/screens/HomeScreen.tsx'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
+import { WEB_CONNECTIONS } from '../src/screens/settings/ShopExtras.tsx'
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 
@@ -75,13 +76,15 @@ describe('앱이 여는 라이브지니 주소에 from=app (AC-PAY2-03)', () => 
     setWebOpener(async (url) => {
       opened.push(url)
     })
-    // 웹으로 여는 화면 목록은 더보기 탭으로 옮겼다 (D-UX2-02)
+    // 옛 기대: 더보기 "웹에서 보기" 줄(구매자·택배·…)마다 from=app. 새 기대(D-APPX-03): 웹 전용 화면을 모두 앱으로 옮겨 그 목록이 비었다 —
+    // 남은 웹 열기는 가게 설정 "연결"(바깥 로그인 창을 거치는 것)이고, 거기에도 from=app이 붙는다
     render(world.wrap(<MoreScreen nav={{ openLabels: vi.fn(), openSettings: vi.fn() }} />))
-    // 정산·택배·영수증·가게 설정·문자찜 입력은 앱 화면으로 옮겨 웹 목록에서 뺐다 (D-APPX-01·02·03)
-    await screen.findByRole('button', { name: '구매자 — 웹으로 열기' })
-    for (const item of WEB_SCREENS) fireEvent.click(screen.getByRole('button', { name: `${item.word} — 웹으로 열기` }))
-    expect(opened).toEqual(['/buyers'].map((path) => `http://test.local${path}?from=app`))
-    expect(WEB_SCREENS.map((item) => item.path).join(' ')).not.toMatch(/billing|pricing/)
+    await screen.findByTestId('more-screen')
+    expect(WEB_SCREENS).toEqual([])
+    expect(screen.queryByText('웹에서 보기')).toBeNull()
+    for (const row of WEB_CONNECTIONS) await openWeb(row.path)
+    expect(opened).toEqual(WEB_CONNECTIONS.map((row) => `http://test.local${row.path}?from=app`))
+    expect(WEB_CONNECTIONS.map((row) => row.path).join(' ')).not.toMatch(/billing|pricing/)
   })
 
   it('검색값이 있던 주소는 뒤에 더하고, 이미 붙었으면 한 번만, 라이브지니 밖 주소에는 붙지 않는다', async () => {

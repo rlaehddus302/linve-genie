@@ -23,7 +23,5 @@ export function openExternal(url: string): Promise<void> {
   return opener(withFromApp(url, apiConfig().baseUrl))
 }
 
-/** 앱에 아직 없는 화면의 웹 경로 (APP-01 "그 밖 화면은 웹으로 열기") */
-export const WEB_SCREENS: readonly { readonly key: string; readonly word: string; readonly path: string }[] = [
-  { key: 'buyers', word: '구매자', path: '/buyers' },
-]
+/** 앱에 아직 없는 화면의 웹 경로 (APP-01 "그 밖 화면은 웹으로 열기"). D-APPX-03에서 모두 앱 화면으로 옮겨 비었다 — 바깥 로그인 연결은 가게 설정 "연결" 칸 */
+export const WEB_SCREENS: readonly { readonly key: string; readonly word: string; readonly path: string }[] = []

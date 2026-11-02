@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { setWebOpener } from '../src/lib/open-web.ts'
 import { HomeScreen, broadcastLine } from '../src/screens/HomeScreen.tsx'
-import { MoreScreen } from '../src/screens/MoreScreen.tsx'
+import { ConnectionsCard } from '../src/screens/settings/ShopExtras.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST } from './support.ts'
 
@@ -62,11 +62,11 @@ describe('HomeScreen', () => {
     setWebOpener(async (url) => {
       opened.push(url)
     })
-    // 옛 기대: 홈 아래 "웹으로 열기" 줄. 새 기대(D-UX2-02): 더보기 탭의 "웹에서 보기"
-    render(world.wrap(<MoreScreen nav={{ openLabels: vi.fn(), openSettings: vi.fn() }} />))
-    // 정산은 앱 화면으로 옮겨 웹 목록에서 뺐다 (D-APPX-01·02) — 남은 웹 화면 하나로 확인
-    fireEvent.click(await screen.findByRole('button', { name: '구매자 — 웹으로 열기' }))
-    expect(opened).toEqual(['http://test.local/buyers?from=app'])
+    // 옛 기대: 홈 아래 "웹으로 열기" 줄 → (D-UX2-02) 더보기 탭의 "웹에서 보기".
+    // 새 기대(D-APPX-03): 웹 전용 화면을 모두 앱으로 옮겼다 — 남은 웹 열기는 가게 설정 "연결"(바깥 로그인 창을 거치는 것)
+    render(world.wrap(<ConnectionsCard />))
+    fireEvent.click(await screen.findByRole('button', { name: '유튜브 연결 — 웹으로 열기' }))
+    expect(opened).toEqual(['http://test.local/settings/youtube?from=app'])
   })
 
   it('홈이 다시 보이면 방송 목록을 다시 받는다: 리허설을 시작하고 돌아오면 "방송으로 돌아가기", 끝내고 돌아오면 "방송 시작하기" (D-UX2-07)', async () => {

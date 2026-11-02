@@ -2,13 +2,13 @@
 // 날짜 고르기 → 손님 목록(덜 받은 손님 먼저, 걸러 보기) → 손님 자세히(품목·금액·기록) → 입금 적기·배송비 바꾸기·할인·추가·환불 적기.
 // 금액은 서버(엔진)가 정한 정수 원 그대로 보인다. 쓰기는 웹과 같은 `/api/events`에 같은 요청 번호로(다시 보내도 한 번만 기록).
 // 입금 금액이 남은 금액과 다르면 한 번 더 묻는다(오타 방지 — AC-S06-30). 30일 지난 날짜(봉인)는 보기만 한다.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
-import type { FullView, Settlement, WriteResult } from '@livejjim/web/src/api/types.ts'
+import type { Settlement, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { dateWords, kstShort } from '@livejjim/web/src/lib/kst.ts'
-import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
+import { isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { BuyerNames } from '../lib/derive.ts'
-import { fromFull, type ScopeData } from '../lib/scope-data.ts'
+import type { ScopeData } from '../lib/scope-data.ts'
 import {
   ADJUST_RANGE,
   ADJUST_REASONS,
@@ -39,8 +39,8 @@ import {
   type ShippingChoice,
 } from '../lib/settle.ts'
 import { formatWon, PAYMENT_WORD, paymentWord, RETRY_NOW } from '../lib/words.ts'
-import { useServices } from '../services.tsx'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
+import { useDayScope } from '../lib/day-scope.ts'
 import { BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
@@ -80,49 +80,6 @@ export function SettleScreen({ initialDate, nav = {} }: { readonly initialDate?:
       </ScrollView>
     </View>
   )
-}
-
-/** 그날 범위 자료 — 처음 전체 조회, 실시간 알림이 오면 다시 받는다 */
-function useDayScope(date: string): { data: ScopeData | null; error: ApiError | null; reload: () => void } {
-  const { stream } = useServices()
-  const [data, setData] = useState<ScopeData | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [version, setVersion] = useState(0)
-  const reload = useCallback(() => setVersion((n) => n + 1), [])
-  useEffect(() => {
-    let alive = true
-    get<FullView>(withQuery(`/api/days/${date}`, { rehearsal: false })).then(
-      (view) => {
-        if (!alive) return
-        setData(fromFull(view))
-        setError(null)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [date, version])
-  useEffect(() => {
-    const view = stream.open()
-    let ready = 0
-    view.addEventListener('ready', () => {
-      ready++
-      if (ready > 1) reload()
-    })
-    view.addEventListener('change', (event) => {
-      try {
-        const scope = JSON.parse(event.data ?? '{}') as { date?: string; rehearsal?: boolean }
-        if (scope.date === date && scope.rehearsal !== true) reload()
-      } catch {
-        reload()
-      }
-    })
-    return () => view.close()
-  }, [date, reload, stream])
-  return { data, error, reload }
 }
 
 function SettleDay({ date, nav }: { readonly date: string; readonly nav: SettleNavigation }) {
