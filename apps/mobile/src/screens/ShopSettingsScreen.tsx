@@ -16,7 +16,7 @@ import { DETAIL_SETTINGS_NOTE, ONGOING_NOTICE, RULES_DETAIL, SHIPPING_HINT, THAN
 import { ACCOUNT_INCOMPLETE, NO_ACCOUNT_ON_RECEIPT, SHOP_FIELDS, accountPreview } from '@livejjim/web/src/lib/shop-words.ts'
 import { get, isApiError, patch, put, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { AppHeader, BigButton, Card, ConfirmSheet, Section, ToggleRow, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, Card, ConfirmSheet, Section, ToggleRow, TextField, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
@@ -78,6 +78,7 @@ function useLoad<T>(path: string) {
 
 export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () => void; readonly onRenamed?: (name: string) => void }) {
   const { p } = useKit()
+  const inset = useBottomInset()
   const shop = useLoad<{ shop: Shop }>('/api/shop')
   const settings = useLoad<{ settings: SaleSettings }>('/api/settings')
   const broadcasts = useLoad<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
@@ -376,7 +377,7 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
         <ExportCard />
       </ScrollView>
 
-      <View style={{ paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, gap: SPACE.xs, borderTopWidth: 1, borderTopColor: p.line, backgroundColor: p.surface }}>
+      <View style={{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: Math.max(inset, SPACE.sm), gap: SPACE.xs, borderTopWidth: 1, borderTopColor: p.line, backgroundColor: p.surface }}>
         {result !== null ? <Notice tone={result.tone} alert={result.tone === 'danger'}>{result.text}</Notice> : <Txt step="caption" color="textSub">{dirtyLine(dirty)}</Txt>}
         <BigButton label={SAVE_LABEL} busy={busy} disabled={dirty.length === 0} onPress={() => void saveAll()} />
       </View>

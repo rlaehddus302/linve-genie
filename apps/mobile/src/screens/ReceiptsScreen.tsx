@@ -87,7 +87,7 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
         const sorted = [...result.broadcasts].sort((a, b) => (a.date === b.date ? (b.endedAt ?? '').localeCompare(a.endedAt ?? '') : b.date.localeCompare(a.date)))
         setList(sorted)
         setError(null)
-        setPicked((current) => current ?? sorted.find((item) => item.ended && !item.rehearsal)?.id ?? sorted.find((item) => item.ended)?.id ?? null)
+        setPicked((current) => current ?? sorted.find((item) => item.ended && !item.rehearsal)?.id ?? sorted.find((item) => item.ended)?.id ?? sorted[0]?.id ?? null)
       },
       (caught: unknown) => {
         if (alive && isApiError(caught)) setError(caught)

@@ -14,7 +14,7 @@ export default function ParcelsRoute() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
-        <ParcelsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} nav={{ openSettle: () => router.replace('/settle'), openSettings: () => router.push('/settings') }} />
+        <ParcelsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} nav={{ openSettle: () => router.replace('/settle'), openSettings: () => router.push('/shop-settings') }} />
       </KitInsets>
     </SafeAreaView>
   )
