@@ -3,7 +3,7 @@
 import type { AddressFields, AddressSource, BoxKind, BundleView, ParcelBrief, ParcelRow } from '../api/parcel-types.ts'
 import type { PackingWord } from '../api/types.ts'
 import { kstShort } from './kst.ts'
-import { packingWords } from './packing.ts'
+import { packingWords } from './packing-words.ts'
 
 export const PARCEL_TITLE = '택배 접수'
 export const GROUP_READY = '보낼 수 있어요'
