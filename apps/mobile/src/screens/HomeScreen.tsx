@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { BroadcastItem, PackingEntry, PackingList, WizardState, WriteResult } from '@livejjim/web/src/api/types.ts'
-import { dateWords } from '@livejjim/web/src/lib/kst.ts'
+import { dateWords, kstToday } from '@livejjim/web/src/lib/kst.ts'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import { inFilter } from '../lib/packing.ts'
@@ -96,6 +96,14 @@ function usePacking(date: string | null, refresh: number): readonly PackingEntry
 }
 
 /** refresh: 바뀌면 방송 목록·할 일 숫자를 다시 받는다 (경로가 홈이 다시 보일 때 올린다 — D-UX2-07) */
+const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'] as const
+
+/** 새 방송 기본 제목: `2026-11-02 월요일 방송` (요일은 그 KST 날짜 자체로) */
+export function defaultBroadcastTitle(date: string): string {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  return `${date} ${WEEKDAY[day] ?? ''}요일 방송`
+}
+
 export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: HomeNavigation; readonly sellerName: string; readonly refresh?: number }) {
   const { p } = useKit()
   const { labels } = useServices()
@@ -159,6 +167,12 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
     }
   }
 
+  // 새 방송 제목은 오늘 날짜로 미리 채운다 ("2026-11-02 월요일 방송", D-LIVETEST-09) — 바꿔도 된다
+  const openStart = () => {
+    setTitle(defaultBroadcastTitle(kstToday()))
+    setSheet(true)
+  }
+
   const live = items?.find((item) => !item.ended && !item.rehearsal) ?? items?.find((item) => !item.ended)
   const lastEnded = items?.find((item) => item.ended && !item.rehearsal)
   const entries = usePacking(day, refresh)
@@ -184,15 +198,19 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
         {live !== undefined ? (
           <HeroButton title="방송으로 돌아가기" sub={broadcastLine(live)} ariaLabel={`방송으로 돌아가기 — ${broadcastLine(live)}`} onPress={() => nav.openConsole(live.id)} />
         ) : (
-          <HeroButton title="방송 시작하기" sub="유튜브 방송 주소만 붙여 넣으면 돼요" onPress={() => setSheet(true)} />
+          <HeroButton title="방송 시작하기" sub="유튜브 방송 주소만 붙여 넣으면 돼요" onPress={openStart} />
         )}
-        {live !== undefined ? (
-          <Pressable role="button" aria-label="새 방송 시작" onPress={() => setSheet(true)} style={{ minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start', marginTop: -SPACE.sm }}>
-            <Txt weight="bold" color="primaryText">
-              새 방송 시작
-            </Txt>
-          </Pressable>
-        ) : null}
+        {/* 새 방송·리허설은 테두리 단추 둘 (D-LIVETEST-09) — 방송 중이 아니면 큰 단추가 새 방송이라 리허설만 */}
+        <View style={{ flexDirection: 'row', gap: SPACE.sm, marginTop: -SPACE.sm }}>
+          {live !== undefined ? (
+            <View style={{ flex: 1 }}>
+              <BigButton kind="outline" label="새 방송 시작" onPress={openStart} />
+            </View>
+          ) : null}
+          <View style={{ flex: 1 }}>
+            <BigButton kind="outline" label="리허설 해 보기" disabled={busy} onPress={() => void create({ rehearsal: true })} />
+          </View>
+        </View>
         {createError !== null && !sheet ? (
           <Notice tone="danger" alert>
             {startErrorMessage(createError)}
@@ -257,19 +275,10 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
       <BottomSheet
         visible={sheet}
         onClose={() => setSheet(false)}
-        title="방송 시작"
-        actions={
-          <>
-            <BigButton label="이 방송 시작하기" disabled={busy} busy={busy} onPress={() => void create(title.trim() === '' ? {} : { title: title.trim() })} />
-            <BigButton kind="outline" label="리허설 해 보기" disabled={busy} onPress={() => void create({ rehearsal: true })} />
-            <BigButton kind="secondary" label="닫기" onPress={() => setSheet(false)} />
-          </>
-        }
+        title=""
+        actions={<BigButton label="다음" disabled={busy} busy={busy} onPress={() => void create(title.trim() === '' ? {} : { title: title.trim() })} />}
       >
-        <Field label="방송 제목 (비워도 돼요)" value={title} onChangeText={setTitle} placeholder="예: 금요일 저녁 방송" />
-        <Txt step="caption" color="textSub">
-          시작하면 유튜브 방송 주소를 붙여 넣는 칸이 나와요. 주소 없이 연습만 하려면 "리허설 해 보기"를 눌러 주세요. 리허설은 손님에게 보이지 않아요.
-        </Txt>
+        <Field label="방송 제목" value={title} onChangeText={setTitle} />
         {createError !== null ? (
           <Notice tone="danger" alert>
             {startErrorMessage(createError)}

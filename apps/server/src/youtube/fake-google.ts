@@ -818,8 +818,12 @@ export class FakeGoogle {
     json(res, 200, { kind: 'youtube#liveBroadcastListResponse', items })
   }
 
+  /** 모르는 영상 ID를 물으면 부른다 — true면 그 사이 방송을 만든 것으로 보고 다시 찾는다 (연습 옮겨 받기 전용, D-LIVETEST-08) */
+  onUnknownVideo: ((videoId: string) => boolean) | null = null
+
   #videosList(res: ServerResponse, url: URL): void {
     const ids = (url.searchParams.get('id') ?? '').split(',')
+    for (const videoId of ids) if (!this.#broadcasts.has(videoId) && /^[A-Za-z0-9_-]{11}$/.test(videoId)) this.onUnknownVideo?.(videoId)
     const items = ids.flatMap((videoId) => {
       const broadcast = this.#broadcasts.get(videoId)
       if (broadcast === undefined) return []

@@ -30,13 +30,13 @@ function expectNoBillingWords() {
 }
 
 describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
-  it('새 방송 칸을 연 채 "이 방송 시작하기"가 NO_PASS로 거절되면 앱 문장만 — 서버 문장·링크·새 버튼 없음. 그 뒤 리허설은 한 번 간다', async () => {
+  it('새 방송 칸을 연 채 "다음"(D-LIVETEST-09, 옛 "이 방송 시작하기")이 NO_PASS로 거절되면 앱 문장만 — 서버 문장·링크·새 버튼 없음. 그 뒤 리허설은 한 번 간다', async () => {
     const world = noPassWorld()
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
     fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
     const buttonsBefore = screen.getAllByRole('button').map((button) => button.getAttribute('aria-label') ?? button.textContent)
-    fireEvent.click(screen.getByRole('button', { name: '이 방송 시작하기' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
     expect(await screen.findByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expect(APP_NO_PASS_MESSAGE).toBe('이용권이 없어 실제 방송을 시작할 수 없어요. 리허설은 언제든 할 수 있어요.')
     expectNoBillingWords()
@@ -50,11 +50,11 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     const world = noPassWorld()
     render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
     fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
-    fireEvent.click(screen.getByRole('button', { name: '이 방송 시작하기' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
     await screen.findByText(APP_NO_PASS_MESSAGE)
-    // 옛 기대: "새 방송 시작"을 다시 눌러 칸을 닫음. 새 기대(D-UX2-02): 시작은 시트 — "닫기"로 닫는다
-    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
-    expect(screen.queryByRole('button', { name: '이 방송 시작하기' })).toBeNull()
+    // 옛 기대: "새 방송 시작"을 다시 눌러 칸을 닫음. D-UX2-02: 시작은 시트 — "닫기"로 닫는다. 새 기대(D-LIVETEST-09): 시트에 단추는 "다음" 하나 — 바깥(판 닫기)으로 닫는다
+    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
+    expect(screen.queryByRole('button', { name: '다음' })).toBeNull()
     expect(screen.getByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expectNoBillingWords()
   })
@@ -63,7 +63,7 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     const world = noPassWorld(400, 'INVALID_INPUT', '시험 거절 문장이에요.')
     render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
     fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
-    fireEvent.click(screen.getByRole('button', { name: '이 방송 시작하기' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
     expect(await screen.findByText('시험 거절 문장이에요.')).toBeTruthy()
     expect(screen.queryByText(APP_NO_PASS_MESSAGE)).toBeNull()
   })

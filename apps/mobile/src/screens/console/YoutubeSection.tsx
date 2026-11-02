@@ -21,9 +21,6 @@ import {
   NOT_CONNECTED_HELP,
   PASTE_COPIED,
   RECONNECT_FIRST,
-  RECENT_AGAIN,
-  RECENT_EMPTY,
-  RECENT_SEARCHING,
   MY_CHANNEL_TITLE,
   RECENT_TITLE,
   RETRYING_WARN_MS,
@@ -256,8 +253,6 @@ function ConnectFirst({ yt }: { readonly yt: MobileYoutube }) {
 
 function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
-  const [recentError, setRecentError] = useState<string | null>(null)
-  const [searching, setSearching] = useState(false)
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
@@ -266,25 +261,25 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
   const [copied, setCopied] = useState<string | null>(null)
 
   // 클립보드의 유튜브 주소 — 칸을 열 때, 그리고 유튜브 앱에서 주소를 복사하고 돌아올 때
+  // 복사한 주소가 있으면 칸을 미리 채운다 — 따로 묻는 카드 없이 [이 방송에 잇기] 하나로 (D-LIVETEST-09)
   const peek = useCallback(async () => {
-    setCopied(await clipboardYoutubeAddress())
+    const found = await clipboardYoutubeAddress()
+    setCopied(found)
+    if (found !== null) setAddress((now) => (now.trim() === '' ? found : now))
   }, [])
   useEffect(() => {
     void peek()
   }, [peek])
   useAppForeground({ onForeground: () => void peek() })
 
+  // 못 찾으면 목록만 감춘다 — 주소를 붙여 넣으면 된다 (D-LIVETEST-09)
   const search = useCallback(async () => {
-    setSearching(true)
-    setRecentError(null)
     setRecent(null)
     try {
       const { broadcasts } = await get<{ broadcasts: LiveBroadcastItem[] }>('/api/youtube/live-broadcasts')
       setRecent(broadcasts)
-    } catch (caught) {
-      setRecentError(isApiError(caught) ? caught.message : '찾지 못했어요. 다시 눌러 주세요.')
-    } finally {
-      setSearching(false)
+    } catch {
+      setRecent([])
     }
   }, [])
   // 잇기 칸을 열 때 한 번 (되풀이해 찾지 않는다, D-YT-SRV-03)
@@ -320,31 +315,15 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
   const recentTitle = yt.webChat === null ? MY_CHANNEL_TITLE : RECENT_TITLE
   return (
     <Stack tight>
-      <Body>유튜브 방송 주소를 붙여 넣으면 그 방송 채팅으로 찜을 받아요.</Body>
-      {copied !== null ? (
-        <Card label="복사한 주소">
-          <Body bold>{PASTE_COPIED}</Body>
-          <Hint>{copied}</Hint>
-          <BigButton label="붙여 넣기" ariaLabel="복사한 주소 붙여 넣어 잇기" primary disabled={busy} onPress={() => {
-            setAddress(copied)
-            void link(copied)
-          }} />
-        </Card>
-      ) : null}
-      <Field label="주소 붙여넣기" value={address} onChangeText={(text) => {
+      <Field label="방송 주소 붙여넣기" value={address} onChangeText={(text) => {
         setAddress(text)
         setAsk(null)
-      }} inputMode="url" autoCapitalize="none" autoCorrect={false} placeholder="예: https://youtube.com/live/…" />
-      <BigButton label="이 방송에 잇기" primary={copied === null} disabled={busy || address.trim() === ''} onPress={() => void link(address.trim())} />
+      }} inputMode="url" autoCapitalize="none" autoCorrect={false} />
+      {copied !== null && address === copied ? <Hint>{PASTE_COPIED}</Hint> : null}
+      {/* 내 채널(최근 이은 채널)에서 지금 하는 방송 — 있을 때만, 주소를 붙이지 않고 바로 잇기 */}
+      {(recent ?? []).length > 0 ? (
       <Card label={recentTitle}>
         <Body bold>{recentTitle}</Body>
-        {searching ? <Hint>{RECENT_SEARCHING}</Hint> : null}
-        {recentError !== null ? (
-          <Notice tone="danger" alert>
-            {recentError}
-          </Notice>
-        ) : null}
-        {!searching && recent !== null && recent.length === 0 ? <Body>{RECENT_EMPTY}</Body> : null}
         {(recent ?? []).map((item) => {
           const other = item.linkedBroadcast !== null && item.linkedBroadcast !== yt.broadcastId
           // 내 채널 목록(구글 연결로 읽는 서버)에는 채널 이름이 없다 — 제목만 ("(이름 없음)"을 보이지 않게)
@@ -361,10 +340,8 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
             </Stack>
           )
         })}
-        <Row>
-          <BigButton small label={RECENT_AGAIN} disabled={searching} onPress={() => void search()} />
-        </Row>
       </Card>
+      ) : null}
       {ask !== null ? (
         <Card label={FIRST_CHANNEL_GROUP}>
           <Notice tone="warning" alert>
@@ -381,6 +358,7 @@ function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
           {error.message}
         </Notice>
       ) : null}
+      <BigButton label="이 방송에 잇기" primary disabled={busy || address.trim() === ''} onPress={() => void link(address.trim())} />
     </Stack>
   )
 }

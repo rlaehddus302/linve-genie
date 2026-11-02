@@ -205,7 +205,7 @@ const llm = new FakeLlm({ practice: true, basePath: '/_try/llm' })
 // 방송 소리로 듣기 연습 (LV1 D-LV1-09): 연습 라이브는 가짜 방송 소리(정해진 말 "15번 핑크프릴 이만 원")를 내고, 모의 일꾼이 그 글을 돌려준다
 const fakeAudio = new FakeBroadcastAudio(database.db)
 const { parseVideoId } = await server('youtube/texts.ts')
-const relayVideoId = relayLive === null ? null : parseVideoId(relayLive)
+let relayVideoId = relayLive === null ? null : parseVideoId(relayLive)
 if (relayLive !== null && relayVideoId === null) fail('--relay-live 뒤에 유튜브 라이브 주소를 적어 주세요.')
 const { FfmpegAudioFeed, ytDlpResolver, readYtDlpPath } = await server('voice/stream-audio.ts')
 const resolveRelayAudio = relayVideoId === null ? null : ytDlpResolver(readYtDlpPath(process.env))
@@ -323,10 +323,22 @@ await new Promise((resolve, reject) => {
 }).catch(() => fail(`포트 ${String(port)}를 열지 못했어요. pnpm try --port 8800 처럼 다른 번호로 해 보세요.`))
 // 모의 받아쓰기 일꾼 (표지 소리만 알아듣는다 — 진짜 일꾼을 함께 띄우면 자리가 더 많은 진짜 일꾼이 마이크 흐름을 받는다)
 const mockWorker = relayVideoId === null ? startMockWorker({ url: `ws://127.0.0.1:${String(port)}/api/voice/worker`, token: transcribeWorkerToken }) : { close() {} }
-const relayChat = relayVideoId === null ? null : await startRelayChat(relayVideoId)
+let relayChat = relayVideoId === null ? null : await startRelayChat(relayVideoId, fakeLive.liveChatId)
+// 옮겨 받기 중에 앱·웹에서 다른 실제 라이브 주소를 붙여 넣으면(가짜 유튜브가 모르는 영상) 그 영상 ID로 연습 채널의 진행 중 방송을 만들고
+// 채팅·소리 옮겨 받기를 그 라이브로 바꾼다 (D-LIVETEST-08 — 주소만 붙여 넣으면 시험할 수 있게). 옮겨 받기 모드가 아니면 하지 않는다.
+if (relayVideoId !== null) {
+  fake.onUnknownVideo = (videoId) => {
+    const live = fake.addBroadcast(fakeChannel.id, { title: `실제 라이브 ${videoId}`, status: 'live', videoId })
+    relayChat?.close()
+    relayVideoId = videoId
+    void startRelayChat(videoId, live.liveChatId).then((next) => { relayChat = next })
+    say(`[옮겨 받기] 붙여 넣은 라이브로 바꿨어요: ${videoId}`)
+    return true
+  }
+}
 
 /** 실제 라이브의 공개 채팅을 읽어(get_live_chat, 로그인 없음) 연습 라이브에 넣는다. 켠 뒤에 올라온 글만 */
-async function startRelayChat(videoId) {
+async function startRelayChat(videoId, liveChatId) {
   const { WebChatSource, HttpWebTransport } = await server('youtube/web-chat-source.ts')
   const { realTimer } = await server('youtube/timer.ts')
   const timer = realTimer()
@@ -357,7 +369,7 @@ async function startRelayChat(videoId) {
           if (seen.has(chat.id) || BigInt(chat.timestampUsec) < BigInt(since)) continue
           seen.add(chat.id)
           added++
-          fake.addMessage(fakeLive.liveChatId, { author: chat.owner ? fakeChannel.id : `UCrelay${chat.ch.slice(-16)}`, name: chat.nick, text: chat.text, owner: chat.owner, id: `relay_${chat.id.slice(-24)}` })
+          fake.addMessage(liveChatId, { author: chat.owner ? fakeChannel.id : `UCrelay${chat.ch.slice(-16)}`, name: chat.nick, text: chat.text, owner: chat.owner, id: `relay_${chat.id.slice(-24)}` })
         }
         continuation = polled.next
         await nap(Math.min(Math.max(polled.timeoutMs ?? 5000, 1000), 10_000))

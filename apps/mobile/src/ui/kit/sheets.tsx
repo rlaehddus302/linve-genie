@@ -30,9 +30,11 @@ export function BottomSheet({ visible, onClose, title, children, actions, testID
           testID={testID}
           style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xxl, borderTopRightRadius: RADIUS.xxl, maxHeight: height * 0.9, paddingTop: SPACE.xxl, paddingHorizontal: SPACE.lg, paddingBottom: Math.max(inset, SPACE.md) + SPACE.md, gap: SPACE.lg, ...SHADOW.sheet }}
         >
-          <Txt step="title" weight="bold" role="heading" aria-level={2}>
-            {title}
-          </Txt>
+          {title !== '' ? (
+            <Txt step="title" weight="bold" role="heading" aria-level={2}>
+              {title}
+            </Txt>
+          ) : null}
           <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: SPACE.md }} keyboardShouldPersistTaps="handled">
             {children}
           </ScrollView>

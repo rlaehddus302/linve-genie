@@ -23,14 +23,16 @@ describe('HomeScreen', () => {
     expect(navigation.openConsole).toHaveBeenCalledWith('b1')
   })
 
-  it('새 방송 시작 → 제목 칸 → 이 방송 시작하기가 요청 번호와 함께 가고 콘솔로 간다', async () => {
+  it('새 방송 시작 → 제목 칸 → 다음이 요청 번호와 함께 가고 콘솔로 간다', async () => {
     const world = makeWorld()
     world.server.on('POST', /^\/api\/broadcasts$/, (call) => ({ body: { date: '2026-10-30', rehearsal: false, seq: 1, type: 'broadcast.start', changed: true, effects: [], broadcast: { id: 'b2', date: '2026-10-30', title: String(call.body?.title ?? ''), rehearsal: false } } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
     fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
-    fireEvent.change(screen.getByLabelText('방송 제목 (비워도 돼요)'), { target: { value: '금요일 방송' } })
-    fireEvent.click(screen.getByRole('button', { name: '이 방송 시작하기' }))
+    // D-LIVETEST-09: 시트 제목 없이 제목 칸이 오늘 날짜로 미리 채워지고("2026-11-02 월요일 방송" 꼴), 단추는 "다음"
+    expect((screen.getByLabelText('방송 제목') as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 방송$/)
+    fireEvent.change(screen.getByLabelText('방송 제목'), { target: { value: '금요일 방송' } })
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
     await waitFor(() => expect(navigation.openConsole).toHaveBeenCalledWith('b2'))
     expect(world.server.callsTo('POST', /broadcasts/)[0]?.body).toEqual({ requestId: expect.any(String), title: '금요일 방송' })
   })
