@@ -30,14 +30,15 @@ const files = [...walk(join(ROOT, 'src')), ...walk(join(ROOT, 'app'))]
 describe('앱 소스에 판정·추출·그리기 코드가 없다 (APP-01 AC3)', () => {
   // 옛 기대(APP-01 AC3): 코어는 입력 읽기(quick-input)·포맷(format)만. SRV1 새 기대(D-APP-23·24, AC-SRV1-05·13): 입력 읽기도 서버 — 포맷만
   it('@livejjim/core 전체·@livejjim/voice·@livejjim/label·@livejjim/printer를 실행 코드로 가져오지 않는다 — 코어는 포맷(format)만 (입력 읽기 quick-input도 없다)', () => {
-    const allowed = new Set(['@livejjim/core/format'])
+    // 가게 설정 화면(D-APPX-03)은 판매 규칙 값·기본값만 쓴다 — 판정·읽기 코드가 아니다
+    const allowed = new Set(['@livejjim/core/format', '@livejjim/core/settings'])
     for (const file of files) {
       const source = readFileSync(file, 'utf8')
       for (const spec of runtimeImports(source)) {
         if (spec === '@livejjim/core' || spec === '@livejjim/voice' || spec.startsWith('@livejjim/voice/') || spec === '@livejjim/label') throw new Error(`${file}: ${spec}를 실행 코드로 가져온다`)
         if (spec.startsWith('@livejjim/core/')) expect(allowed.has(spec), `${file}: ${spec}`).toBe(true)
         // 웹 모듈 중 코어 전체를 끌어오는 것(lib/words·derive·scope-data·quick…)은 가져오지 않는다
-        if (spec.startsWith('@livejjim/web/')) expect(['@livejjim/web/src/api/client.ts', '@livejjim/web/src/lib/kst.ts', '@livejjim/web/src/lib/app-tab.ts', '@livejjim/web/src/lib/report.ts', '@livejjim/web/src/lib/deposit-words.ts', '@livejjim/web/src/lib/words.ts', '@livejjim/web/src/lib/customers.ts', '@livejjim/web/src/lib/schedule.ts', '@livejjim/web/src/lib/parcel-words.ts', '@livejjim/web/src/lib/packing-words.ts', '@livejjim/web/src/lib/receipt-links.ts', '@livejjim/web/src/lib/assist-words.ts', '@livejjim/web/src/lib/review-pick.ts', '@livejjim/web/src/lib/undo-queue.ts'].includes(spec), `${file}: ${spec}`).toBe(true)
+        if (spec.startsWith('@livejjim/web/')) expect(['@livejjim/web/src/api/client.ts', '@livejjim/web/src/lib/kst.ts', '@livejjim/web/src/lib/app-tab.ts', '@livejjim/web/src/lib/report.ts', '@livejjim/web/src/lib/deposit-words.ts', '@livejjim/web/src/lib/words.ts', '@livejjim/web/src/lib/customers.ts', '@livejjim/web/src/lib/schedule.ts', '@livejjim/web/src/lib/parcel-words.ts', '@livejjim/web/src/lib/packing-words.ts', '@livejjim/web/src/lib/receipt-links.ts', '@livejjim/web/src/lib/assist-words.ts', '@livejjim/web/src/lib/review-pick.ts', '@livejjim/web/src/lib/undo-queue.ts', '@livejjim/web/src/lib/settings-fields.ts', '@livejjim/web/src/lib/shop-words.ts', '@livejjim/web/src/lib/ledger-words.ts', '@livejjim/web/src/lib/save-bar.ts'].includes(spec), `${file}: ${spec}`).toBe(true)
       }
     }
   })

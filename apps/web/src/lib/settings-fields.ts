@@ -1,7 +1,8 @@
 // 판매 규칙 칸 (SPEC §7 화면 8, DOMAIN_RULES 설정표, D-I3-08, AC-I3-45·46·10). 화면에는 설정 키·영문 값이 없다 — 칸 이름과 선택지 낱말만.
 // settlement.groupBy(직접 묶기, D-059)·print.autoOnConfirm(I1)은 보이지 않고 보내지도 않는다.
 // 숫자 칸은 적은 글자를 그대로 정수로 읽어 보낸다 — 범위 검사는 서버(코어 checkSettings)가 하고 그 문장을 칸 옆에 보인다.
-import { PRICE_UNITS, formatWon, isPriceUnit, type PriceUnit, type SaleSettings } from '@livejjim/core'
+import { formatWon } from '@livejjim/core/format'
+import { PRICE_UNITS, isPriceUnit, type PriceUnit, type SaleSettings } from '@livejjim/core/settings'
 
 /** 가격 단위 안내 (FB1 D-FB1-11 (5), AC-FB1-01) — 단위를 붙인 글은 설정과 상관없이 읽힌다(R-14 4) */
 export const PRICE_UNIT_HINT = "'2만'·'15000원'처럼 단위를 붙여 적으면 이 설정과 상관없이 적힌 대로 들어가요."

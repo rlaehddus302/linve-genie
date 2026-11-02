@@ -1,6 +1,6 @@
 // 택배 화면 낱말 (T1, PARCEL_RULES PC-3·PC-4·PC-8, D-T1-08·D-T1-12).
 // 영어 상태값(PENDING·BOOKED…)은 화면 글자에 넣지 않는다 — 서버가 준 문장·조회 낱말을 쓰고, 없을 때만 여기 문장으로 채운다.
-import type { AddressFields, AddressSource, BoxKind, BundleView, ParcelBrief, ParcelRow } from '../api/parcel-types.ts'
+import type { AddressFields, AddressSource, BoxKind, BundleView, ParcelBrief, ParcelRow, ParcelSender, ParcelSettings, SettingsCarrier } from '../api/parcel-types.ts'
 import type { PackingWord } from '../api/types.ts'
 import { kstShort } from './kst.ts'
 import { packingWords } from './packing-words.ts'
@@ -195,4 +195,64 @@ export function addressShape(bundle: BundleView): AddressShape {
 export function phoneWords(phone: string): string {
   if (/^01\d{8,9}$/.test(phone)) return phone.length === 11 ? `${phone.slice(0, 3)}-${phone.slice(3, 7)}-${phone.slice(7)}` : `${phone.slice(0, 3)}-${phone.slice(3, 6)}-${phone.slice(6)}`
   return phone
+}
+
+// ── 설정 "택배" 칸 값 (D-T1-09, FB1 D-FB1-04·05 — 웹 ParcelSettings·앱 가게 설정이 같이 쓴다, D-APPX-03) ──
+
+export const SENDER_KEYS = ['name', 'phone', 'address', 'detail', 'zip'] as const
+export const SENDER_LABELS: Readonly<Record<(typeof SENDER_KEYS)[number], string>> = {
+  name: '보내는 사람 이름',
+  phone: '보내는 사람 연락처',
+  address: '보내는 주소',
+  detail: '보내는 상세 주소',
+  zip: '보내는 우편번호(몰라도 돼요)',
+}
+
+export interface ParcelDraft {
+  readonly carrier: SettingsCarrier | ''
+  /** 직접 입력 택배사 이름 (carrier가 OTHER일 때만 쓴다) */
+  readonly carrierName: string
+  readonly customerNo: string
+  readonly sender: ParcelSender
+  readonly box: BoxKind
+}
+
+export function parcelDraftOf(settings: ParcelSettings): ParcelDraft {
+  const sender = settings.sender ?? { name: settings.shopName, phone: '', address: '', detail: '', zip: '' }
+  return {
+    carrier: settings.carrier ?? '',
+    carrierName: settings.carrier === OTHER_CARRIER ? (settings.carrierName ?? '') : '',
+    customerNo: '',
+    sender: { ...sender, name: sender.name === '' ? settings.shopName : sender.name },
+    box: settings.box,
+  }
+}
+
+export function sameParcelDraft(a: ParcelDraft, b: ParcelDraft): boolean {
+  return (
+    a.carrier === b.carrier &&
+    (a.carrier !== OTHER_CARRIER || a.carrierName === b.carrierName) &&
+    a.customerNo === b.customerNo &&
+    a.box === b.box &&
+    SENDER_KEYS.every((key) => a.sender[key] === b.sender[key])
+  )
+}
+
+/** 보내는 사람을 보낼지: 저장한 것이 없고 이름 말고 아무것도 적지 않았으면 보내지 않는다(빈 칸 오류를 내지 않게) */
+export function senderToSend(settings: ParcelSettings, draft: ParcelDraft): ParcelSender | undefined {
+  if (settings.sender !== null) return draft.sender
+  const touched = SENDER_KEYS.some((key) => key !== 'name' && draft.sender[key].trim() !== '') || draft.sender.name !== settings.shopName
+  return touched ? draft.sender : undefined
+}
+
+/** 보낼 본문 (직접 입력이면 이름도) */
+export function parcelBody(settings: ParcelSettings, draft: ParcelDraft): Record<string, unknown> {
+  const sender = senderToSend(settings, draft)
+  return {
+    carrier: draft.carrier === '' ? null : draft.carrier,
+    ...(draft.carrier === OTHER_CARRIER ? { carrierName: draft.carrierName } : {}),
+    box: draft.box,
+    ...(sender === undefined ? {} : { sender }),
+    ...(draft.customerNo.trim() === '' ? {} : { customerNo: draft.customerNo }),
+  }
 }

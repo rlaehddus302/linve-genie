@@ -77,10 +77,10 @@ describe('앱이 여는 라이브지니 주소에 from=app (AC-PAY2-03)', () => 
     })
     // 웹으로 여는 화면 목록은 더보기 탭으로 옮겼다 (D-UX2-02)
     render(world.wrap(<MoreScreen nav={{ openLabels: vi.fn(), openSettings: vi.fn() }} />))
-    // 정산·택배·영수증은 앱 화면으로 옮겨 웹 목록에서 뺐다 (D-APPX-01·02·03)
+    // 정산·택배·영수증·가게 설정은 앱 화면으로 옮겨 웹 목록에서 뺐다 (D-APPX-01·02·03)
     await screen.findByRole('button', { name: '구매자 — 웹으로 열기' })
     for (const item of WEB_SCREENS) fireEvent.click(screen.getByRole('button', { name: `${item.word} — 웹으로 열기` }))
-    expect(opened).toEqual(['/buyers', '/settings', '/sms'].map((path) => `http://test.local${path}?from=app`))
+    expect(opened).toEqual(['/buyers', '/sms'].map((path) => `http://test.local${path}?from=app`))
     expect(WEB_SCREENS.map((item) => item.path).join(' ')).not.toMatch(/billing|pricing/)
   })
 

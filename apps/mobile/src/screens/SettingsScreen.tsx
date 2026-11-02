@@ -1,4 +1,4 @@
-// 설정 중 음성·라벨·휴대폰 알림 받기(SMS3 AC-SMS3-29) (공통 디자인 바탕으로 개편한 본보기: 큰 질문 제목 · 묶음별 카드 · 켜고 끄기는 되돌리기 알림 · 로그아웃은 확인 판 · 맨 아래 큰 버튼) (APP-01 화면 범위). 나머지 설정은 "웹으로 열기". 로그아웃도 여기.
+// 설정 중 음성·라벨·휴대폰 알림 받기(SMS3 AC-SMS3-29) (공통 디자인 바탕으로 개편한 본보기: 큰 질문 제목 · 묶음별 카드 · 켜고 끄기는 되돌리기 알림 · 로그아웃은 확인 판 · 맨 아래 큰 버튼) (APP-01 화면 범위). 나머지 설정은 앱 "가게 설정"(D-APPX-03). 로그아웃도 여기.
 // - 음성: "번호와 가격이 들리면 바로 등록"(이 기기), 권한 설명 문장 보기.
 // - 라벨: 라벨 기능 켬/끔(PUT /api/settings/labels), 1등 확정 때 라벨 자동 출력(PATCH /api/settings print.autoOnConfirm — 다음 방송부터).
 import { View } from 'react-native'
@@ -27,7 +27,7 @@ interface Done {
 }
 
 /** showPhoneNotice: 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)면 false — 칸을 숨긴다 */
-export function SettingsScreen({ onBack, policyUrl, onOpenDesign, showPhoneNotice = true }: { readonly onBack: () => void; readonly policyUrl?: string; readonly onOpenDesign?: () => void; readonly showPhoneNotice?: boolean }) {
+export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, showPhoneNotice = true }: { readonly onBack: () => void; readonly policyUrl?: string; readonly onOpenDesign?: () => void; readonly onOpenShop?: () => void; readonly showPhoneNotice?: boolean }) {
   const { voice } = useServices()
   const { session, logout } = useSession()
   const view = useSyncExternalStore(voice.subscribe, voice.getView)
@@ -113,9 +113,9 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, showPhoneNotic
         </Section>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
         {showPhoneNotice ? <PhoneNoticeCard /> : null}
-        <Section title="그 밖 설정" description="가게 정보·감사 메시지·연결은 웹에서 바꿔요.">
+        <Section title="그 밖 설정" description="가게 정보·판매 규칙·배송비·택배·손님 관리·보조자는 가게 설정에서 바꿔요.">
           <Card label="그 밖">
-            <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />
+            {onOpenShop !== undefined ? <ListRow title="가게 설정" subtitle="가게·계좌, 판매 규칙, 배송비, 감사 메시지, 택배, 손님 관리, 보조자, 백업" onPress={onOpenShop} /> : <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />}
             {policyUrl !== undefined ? <ListRow title="개인정보처리방침" subtitle="기기 브라우저에서 열려요." onPress={() => void openExternal(policyUrl)} /> : null}
             {onOpenDesign !== undefined ? <ListRow title="디자인 견본 (개발용)" onPress={onOpenDesign} /> : null}
           </Card>

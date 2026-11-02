@@ -58,14 +58,7 @@ export function shareFile(file: File): Promise<ShareOutcome> {
   )
 }
 
-/** 파일 크기 "1.2MB" · "3.4KB" (설정 화면의 백업 목록) */
-export function sizeWords(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return ''
-  const mb = 1024 * 1024
-  if (bytes >= mb) return `${(Math.round((bytes / mb) * 10) / 10).toFixed(1)}MB`
-  const kb = Math.max(Math.round((bytes / 1024) * 10) / 10, 0.1)
-  return `${kb.toFixed(1)}KB`
-}
+export { sizeWords } from './shop-words.ts'
 
 /** File의 바이트를 base64로 (상품 목록 가져오기 미리 보기에 싣는다) */
 export async function fileBase64(file: Blob): Promise<string> {

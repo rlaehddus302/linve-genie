@@ -8,70 +8,15 @@
 // - 고객 번호 칸은 비워 두면 그대로 둔다(저장한 번호는 화면에 다시 오지 않는다 — 끝 4자리만).
 import { useEffect, useId, useRef, useState } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
-import type { BoxKind, ParcelSender, ParcelSettings, SettingsCarrier } from '../api/parcel-types.ts'
+import type { BoxKind, ParcelSettings, SettingsCarrier } from '../api/parcel-types.ts'
 import { useUnsavedGuard } from '../lib/leave-guard.ts'
 import { BOX_HINT, BOX_LABEL, CARRIER_NAME_LABEL, CARRIER_NAME_MAX, NO_AUTO_BOOK_NOTE, OTHER_CARRIER, boxWord } from '../lib/parcel-words.ts'
 import { useSaveStep, type StepResult } from '../lib/save-bar.ts'
 import { RequestError } from './ErrorNote.tsx'
 import { AddressInputs, fieldNames } from './ParcelParts.tsx'
 
-const SENDER_KEYS = ['name', 'phone', 'address', 'detail', 'zip'] as const
-const SENDER_LABELS: Readonly<Record<(typeof SENDER_KEYS)[number], string>> = {
-  name: '보내는 사람 이름',
-  phone: '보내는 사람 연락처',
-  address: '보내는 주소',
-  detail: '보내는 상세 주소',
-  zip: '보내는 우편번호(몰라도 돼요)',
-}
-
-export interface ParcelDraft {
-  readonly carrier: SettingsCarrier | ''
-  /** 직접 입력 택배사 이름 (carrier가 OTHER일 때만 쓴다) */
-  readonly carrierName: string
-  readonly customerNo: string
-  readonly sender: ParcelSender
-  readonly box: BoxKind
-}
-
-export function parcelDraftOf(settings: ParcelSettings): ParcelDraft {
-  const sender = settings.sender ?? { name: settings.shopName, phone: '', address: '', detail: '', zip: '' }
-  return {
-    carrier: settings.carrier ?? '',
-    carrierName: settings.carrier === OTHER_CARRIER ? (settings.carrierName ?? '') : '',
-    customerNo: '',
-    sender: { ...sender, name: sender.name === '' ? settings.shopName : sender.name },
-    box: settings.box,
-  }
-}
-
-export function sameParcelDraft(a: ParcelDraft, b: ParcelDraft): boolean {
-  return (
-    a.carrier === b.carrier &&
-    (a.carrier !== OTHER_CARRIER || a.carrierName === b.carrierName) &&
-    a.customerNo === b.customerNo &&
-    a.box === b.box &&
-    SENDER_KEYS.every((key) => a.sender[key] === b.sender[key])
-  )
-}
-
-/** 보내는 사람을 보낼지: 저장한 것이 없고 이름 말고 아무것도 적지 않았으면 보내지 않는다(빈 칸 오류를 내지 않게) */
-function senderToSend(settings: ParcelSettings, draft: ParcelDraft): ParcelSender | undefined {
-  if (settings.sender !== null) return draft.sender
-  const touched = SENDER_KEYS.some((key) => key !== 'name' && draft.sender[key].trim() !== '') || draft.sender.name !== settings.shopName
-  return touched ? draft.sender : undefined
-}
-
-/** 보낼 본문 (직접 입력이면 이름도) */
-export function parcelBody(settings: ParcelSettings, draft: ParcelDraft): Record<string, unknown> {
-  const sender = senderToSend(settings, draft)
-  return {
-    carrier: draft.carrier === '' ? null : draft.carrier,
-    ...(draft.carrier === OTHER_CARRIER ? { carrierName: draft.carrierName } : {}),
-    box: draft.box,
-    ...(sender === undefined ? {} : { sender }),
-    ...(draft.customerNo.trim() === '' ? {} : { customerNo: draft.customerNo }),
-  }
-}
+import { SENDER_KEYS, SENDER_LABELS, parcelBody, parcelDraftOf, sameParcelDraft, type ParcelDraft } from '../lib/parcel-words.ts'
+export { parcelBody, parcelDraftOf, sameParcelDraft, type ParcelDraft } from '../lib/parcel-words.ts'
 
 export function ParcelSettingsSection() {
   const id = useId()

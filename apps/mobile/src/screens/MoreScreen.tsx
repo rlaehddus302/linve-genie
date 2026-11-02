@@ -21,6 +21,7 @@ export const IN_APP_SCREENS = [
   { path: '/receipts', title: '영수증·판매대장', sub: '구매 내역 확인서 링크·PDF, 판매대장 엑셀' },
   { path: '/customers', title: '손님', sub: '단골, 입금 늦음, 메모, 저장한 배송지' },
   { path: '/report', title: '방송 리포트', sub: '매출, 손님, 품종별·시간대별 판매' },
+  { path: '/shop-settings', title: '가게 설정', sub: '가게·계좌, 판매 규칙, 배송비, 택배, 손님 관리, 보조자' },
   { path: '/schedule', title: '방송 일정', sub: '다음 방송 알리기, 공개 일정 주소, 알림 신청 수' },
 ] as const
 export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']
