@@ -74,4 +74,29 @@ describe('DepositsScreen (앱 입금 확인)', () => {
     fireEvent.click(await screen.findByRole('button', { name: '되돌리기' }))
     expect(screen.getByText('초록손 · 10월 29일 묶음에 적은 14,000원 입금을 되돌려요. 같은 금액의 환불 기록이 남고 이 입금은 확인 필요로 돌아가요.')).toBeTruthy()
   })
+
+  it('입금 받는 곳 (D-APPX-03, 웹 DepositSources와 같은 문구): 원천 켜고 끄기·주기, 계좌 비밀번호는 받지 않는다, 기억한 입금자명 지우기는 묻는다', async () => {
+    const { w } = world()
+    const writes: { method: string; path: string; body: Record<string, unknown> | null }[] = []
+    w.server.on('GET', /^\/api\/deposits\/sources$/, () => ({ body: { sources: [{ id: 's9', kind: 'POPBILL', label: '국민 1234', enabled: true, intervalMin: 3, bank: '0004', accountLast4: '1234', lastFetchedAt: null, lastError: null, lastErrorAt: null, lastNew: null, fetching: false, fetchable: true }], popbill: true, testMode: false } }))
+    w.server.on('PATCH', /^\/api\/deposits\/sources\/s9$/, (call) => {
+      writes.push({ method: 'PATCH', path: call.path, body: call.body })
+      return { body: {} }
+    })
+    w.server.on('GET', /^\/api\/deposits\/names$/, () => ({ body: { names: [{ id: 3, name: '이영희', buyerName: '다육맘', createdAt: '2026-10-29T12:00:00.000Z' }] } }))
+    w.server.on('DELETE', /^\/api\/deposits\/names\/3$/, (call) => {
+      writes.push({ method: 'DELETE', path: call.path, body: null })
+      return { body: {} }
+    })
+    render(w.wrap(<DepositsScreen onBack={() => undefined} />))
+    fireEvent.click(await screen.findByRole('button', { name: '입금 받는 곳' }))
+    expect(await screen.findByText('계좌 비밀번호는 여기에 적지 않아요. 팝빌 계좌 관리에서 등록해요.')).toBeTruthy()
+    expect(screen.getByText('아직 받아 오지 않았어요')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '국민 1234 끄기' }))
+    await waitFor(() => expect(writes[0]).toMatchObject({ method: 'PATCH', body: { enabled: false } }))
+    fireEvent.click(await screen.findByRole('button', { name: '이영희 지우기' }))
+    expect(writes).toHaveLength(1)
+    fireEvent.click(screen.getAllByRole('button', { name: '지우기' }).at(-1)!)
+    await waitFor(() => expect(writes.map((write) => write.method)).toEqual(['PATCH', 'DELETE']))
+  })
 })

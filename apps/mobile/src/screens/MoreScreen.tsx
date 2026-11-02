@@ -1,4 +1,5 @@
-// 더보기 (D-UX2-02): 라벨·프린터, 설정, 웹에서 여는 화면(정산·구매자·택배…), 로그아웃. 웹 화면은 기기 브라우저로 연다(APP-01 AC4).
+// 더보기 (D-UX2-02): 라벨·프린터, 설정, 앱 화면(확인 필요·입금 확인·택배·영수증·구매자·손님·리포트·가게 설정·방송 일정 — D-APPX-01·03), 로그아웃.
+// "웹에서 보기"는 웹에만 있는 화면이 생길 때만 보인다(지금은 비었다 — 바깥 로그인 연결은 가게 설정 "연결").
 import { useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { openWeb, WEB_SCREENS } from '../lib/open-web.ts'

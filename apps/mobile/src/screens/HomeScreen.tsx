@@ -2,7 +2,7 @@
 // → 할 일 3줄(입금 확인·포장하기·라벨 뽑기, 숫자는 서버 값) → 지난 방송 한 줄. 새 방송은 시트에서 시작한다(주 버튼 하나, D-101).
 // - 입금 확인·포장하기 숫자: 가장 최근 판매 날짜의 포장 목록(GET /api/days/:date/packing) — 입금 전(미입금·부분 입금) 손님 수, 포장할 것(포장 대기·다시 확인) 손님 수.
 // - 라벨 뽑기 숫자: 라벨 대기열 요약의 대기 장 수(라벨 기능을 켰을 때만). 값을 모르면 그 줄을 숨긴다.
-// - 정산·구매자·택배 같은 화면은 앱에 없다 — "더보기"의 "웹으로 열기"(기기 브라우저)로 잇는다(APP-01).
+// - 정산·구매자·택배·영수증·설정 등 웹 화면은 모두 앱 화면으로 옮겼다(D-APPX-01·03) — 더보기에서 연다. 실제 방송 전이면 "시작 준비" 줄.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { BroadcastItem, PackingEntry, PackingList, WizardState, WriteResult } from '@livejjim/web/src/api/types.ts'

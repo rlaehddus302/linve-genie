@@ -2,7 +2,7 @@
 // 목록: 확인 필요 · 자동 확인됨·확인함 · 무시함 · 붙여넣기. 확인 필요는 사유 문장과 제안 묶음을 보이고, 고른 묶음은 확정 판에서 한 번 더 본 뒤 적는다.
 // 다른 묶음은 이름으로 찾아 고른다. 처리 하나는 요청 번호 하나 — 네트워크 실패면 같은 번호로 다시 보낸다(서버가 한 번만 반영).
 // 묶음 금액이 그사이 바뀌면(BUNDLE_CHANGED) 서버 문장을 보이고 목록을 새로 받는다(같은 값으로 다시 보내지 않는다).
-// 계좌 연동(팝빌) 설정은 아직 웹에서만 — 더보기 "웹에서 보기"에 남긴다.
+// 입금 받는 곳(계좌 연동·휴대폰 알림)·기억한 입금자명은 "입금 받는 곳" 탭(DepositSources, D-APPX-03).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { BundleView, DepositActionResult, DepositList, DepositStatus, DepositView, PastePreview, PasteSummary } from '@livejjim/web/src/api/deposit-types.ts'
@@ -10,20 +10,22 @@ import { BEFORE_SALE, DEPOSIT_STATUS_WORD, PASTE_STATE_WORD, UNREADABLE_WORD, bu
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
+import { SourcesTab } from './DepositSources.tsx'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, BottomSheet, Card, ConfirmSheet, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
-type Tab = 'review' | 'done' | 'ignored' | 'paste'
+type Tab = 'review' | 'done' | 'ignored' | 'paste' | 'sources'
 const TABS: readonly { readonly key: Tab; readonly word: string }[] = [
   { key: 'review', word: '확인 필요' },
   { key: 'done', word: '자동 확인됨·확인함' },
   { key: 'ignored', word: '무시함' },
   { key: 'paste', word: '붙여넣기' },
+  { key: 'sources', word: '입금 받는 곳' },
 ]
-const STATUS_OF: Readonly<Record<Exclude<Tab, 'paste'>, readonly DepositStatus[]>> = { review: ['REVIEW'], done: ['AUTO_APPLIED', 'APPLIED'], ignored: ['IGNORED'] }
+const STATUS_OF: Readonly<Record<Exclude<Tab, 'paste' | 'sources'>, readonly DepositStatus[]>> = { review: ['REVIEW'], done: ['AUTO_APPLIED', 'APPLIED'], ignored: ['IGNORED'] }
 const BUNDLE_CHANGED_CODE = 'BUNDLE_CHANGED'
 
 interface Flash {
@@ -98,13 +100,13 @@ export function DepositsScreen({ onBack }: { readonly onBack: () => void }) {
           </ScrollView>
         </View>
         {notice !== null ? <Notice tone={notice.tone}>{notice.text}</Notice> : null}
-        {tab === 'paste' ? <PasteTab onNotice={setNotice} /> : <DepositTab key={tab} tab={tab} tick={tick} onNotice={setNotice} />}
+        {tab === 'paste' ? <PasteTab onNotice={setNotice} /> : tab === 'sources' ? <SourcesTab /> : <DepositTab key={tab} tab={tab} tick={tick} onNotice={setNotice} />}
       </ScrollView>
     </View>
   )
 }
 
-function DepositTab({ tab, tick, onNotice }: { readonly tab: Exclude<Tab, 'paste'>; readonly tick: number; readonly onNotice: (notice: Flash | null) => void }) {
+function DepositTab({ tab, tick, onNotice }: { readonly tab: Exclude<Tab, 'paste' | 'sources'>; readonly tick: number; readonly onNotice: (notice: Flash | null) => void }) {
   const [list, setList] = useState<readonly DepositView[] | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [version, setVersion] = useState(0)
@@ -160,7 +162,7 @@ function DepositHead({ deposit }: { readonly deposit: DepositView }) {
   )
 }
 
-function DepositCard({ deposit, tab, onDone }: { readonly deposit: DepositView; readonly tab: Exclude<Tab, 'paste'>; readonly onDone: (text: string, tone?: Flash['tone']) => void }) {
+function DepositCard({ deposit, tab, onDone }: { readonly deposit: DepositView; readonly tab: Exclude<Tab, 'paste' | 'sources'>; readonly onDone: (text: string, tone?: Flash['tone']) => void }) {
   const action = useAction()
   const [confirming, setConfirming] = useState<BundleView | null>(null)
   const [finding, setFinding] = useState(false)
