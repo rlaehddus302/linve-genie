@@ -22,7 +22,8 @@ import { BigButton as SmallButton, Loading, Notice, Row } from '../ui/parts.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { ProductDetail, ProductList } from './console/ProductBoard.tsx'
-import { QuickInput, SmsInput } from './console/QuickInput.tsx'
+import { QuickInput } from './console/QuickInput.tsx'
+import { SmsForm } from './console/SmsForm.tsx'
 import { ListenButton, ListenStatus, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { YoutubeSection, YoutubeWarning, useMobileYoutube } from './console/YoutubeSection.tsx'
 
@@ -279,7 +280,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
 
         <BottomSheet visible={sheet === 'direct'} onClose={close} title={DIRECT_INPUT}>
           <QuickInput />
-          <SmsInput />
+          <SmsForm />
         </BottomSheet>
         <BottomSheet visible={detailProduct !== undefined} onClose={() => setDetail(null)} title={detailProduct === undefined ? '' : `${String(detailProduct.no)}번 ${nameOf(detailProduct)}`}>
           {detailProduct !== undefined ? <ProductDetail product={detailProduct} /> : null}

@@ -170,11 +170,12 @@ describe('ConsoleScreen', () => {
     openDirect()
     fireEvent.change(screen.getByLabelText('번호'), { target: { value: '15' } })
     fireEvent.change(screen.getByLabelText('전화번호 (선택)'), { target: { value: '010-1234-5678' } })
-    fireEvent.click(screen.getByRole('button', { name: '문자찜 넣기' }))
+    fireEvent.click(screen.getByRole('button', { name: /문자찜 넣기$/ }))
     await waitFor(() => expect(world.events.length).toBe(1))
     // 옛 기대: 번호 숫자 no. 새 기대(D-APP-24): 번호 칸 원문 noText — 서버가 그 방송 번호 한도로 읽는다
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', noText: '15', phone: '010-1234-5678' })
-    await waitFor(() => expect(screen.getByText('15번 문자찜을 넣었어요.')).toBeTruthy())
+    // 옛 기대: "15번 문자찜을 넣었어요." 새 기대(D-APPX-03, 웹 SmsPage와 같은 결과 카드): 찜의 지금 상태 한 줄 + 같은 사람 하나 더
+    await waitFor(() => expect(screen.getByText(/^15번 · /)).toBeTruthy())
     expect((screen.getByLabelText('전화번호 (선택)') as HTMLInputElement).value).toBe('')
   })
 
@@ -183,12 +184,31 @@ describe('ConsoleScreen', () => {
     await open(world)
     openDirect()
     fireEvent.change(screen.getByLabelText('번호'), { target: { value: '21301000001234' } })
-    fireEvent.click(screen.getByRole('button', { name: '문자찜 넣기' }))
+    fireEvent.click(screen.getByRole('button', { name: /문자찜 넣기$/ }))
     await waitFor(() => expect(screen.getByText(/번호는 1부터 \d+까지예요\. 번호를 확인해 주세요\./)).toBeTruthy())
     fireEvent.change(screen.getByLabelText('번호'), { target: { value: '1e3' } })
-    fireEvent.click(screen.getByRole('button', { name: '문자찜 넣기' }))
+    fireEvent.click(screen.getByRole('button', { name: /문자찜 넣기$/ }))
     await waitFor(() => expect(screen.getByText('상품 번호를 숫자로 적어 주세요.')).toBeTruthy())
     expect(world.events.length).toBe(0)
+  })
+
+  it('문자찜 칸 (D-APPX-03, 웹 SmsPage와 같은 칸): 받은 시각·메모·구매자 고르기는 원문으로, 고르면 전화번호는 보내지 않는다, 되면 칸을 비운다', async () => {
+    const world = makeWorld({ products: [product(15), product(16)] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=false)?$/, () => ({ body: fullView({ seq: world.seq, products: [product(15), product(16)], claims: [claim('c1', 15, 'u1')], buyers: [buyer('u1', '꽃집언니', { phoneLast4: '5678' })] }) }))
+    await open(world)
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { claims: [claim('c2', 16, 'u1', { origin: 'sms', seq: 6 })] }) }))
+    openDirect()
+    fireEvent.change(screen.getByLabelText('번호'), { target: { value: '16' } })
+    fireEvent.change(screen.getByLabelText('받은 시각 (선택)'), { target: { value: '20:01' } })
+    fireEvent.change(screen.getByLabelText('메모 (선택)'), { target: { value: '현관 앞' } })
+    fireEvent.change(screen.getByLabelText('구매자 찾기 (선택)'), { target: { value: '5678' } })
+    fireEvent.click(screen.getByRole('button', { name: '구매자 꽃집언니 고르기' }))
+    expect(screen.queryByLabelText('전화번호 (선택)')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '16번에 문자찜 넣기' }))
+    await waitFor(() => expect(world.events.length).toBe(1))
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', noText: '16', receivedText: '20:01', memo: '현관 앞', buyer: 'u1' })
+    await waitFor(() => expect((screen.getByLabelText('번호') as HTMLInputElement).value).toBe(''))
+    expect(screen.getByLabelText('전화번호 (선택)')).toBeTruthy()
   })
 
   it('겹친 상품 시트: "판매 완료"·"1등" 대신 "아직 안 정했어요"·"겹침", 정하기 버튼은 웹으로 연다고 알린다 (D-UX2-07)', async () => {
