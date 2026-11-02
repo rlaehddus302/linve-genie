@@ -121,6 +121,22 @@ describe('AC-INV1-01 확인 표시 없이 남의 채널 방송 → 잇지 않고
   })
 })
 
+describe('D-LIVETEST-10 한 번 확인해 이은 유튜버 채널은 다음 방송에서 다시 묻지 않는다 (사장님은 보통 초대받은 채널에서 방송)', () => {
+  it('B 채널을 확인과 함께 한 번 이은 뒤 다른 날 B의 새 방송은 확인 없이 바로 잇고, 처음 보는 채널 C는 여전히 묻는다', async () => {
+    const { w, connected, api, channelB } = await linkInvited()
+    const next = await createBroadcast(w, connected.seller)
+    const liveB2 = w.fake.addBroadcast(channelB.id, { title: '다음 방송', status: 'live' })
+    const again = await api.post(`/api/broadcasts/${next.id}/youtube`, { requestId: 'again-1', video: liveB2.videoId })
+    expect(again.status, again.text).toBe(200)
+    expect(again.body).toMatchObject({ link: { broadcastChannelId: channelB.id, invited: true } })
+    const third = await createBroadcast(w, connected.seller)
+    const liveC = w.fake.addBroadcast(w.fake.addChannel(w.fake.addAccount(), '처음 보는 채널').id, { status: 'live' })
+    const asked = await api.post(`/api/broadcasts/${third.id}/youtube`, { requestId: 'c-1', video: liveC.videoId })
+    expect(asked.status).toBe(409)
+    expect(asked.body).toMatchObject({ error: { code: 'INVITED_CONFIRM_NEEDED', message: CONFIRM_MESSAGE } })
+  })
+})
+
 describe('AC-INV1-02 확인 표시와 함께 → 잇고 글 올리는 계정 A·방송 채널 B 따로 기록, 수집은 A의 토큰', () => {
   it('이은 기록·이은 사람·화면 보기, 수집기가 A의 토큰으로 B 방송 채팅을 읽어 시청자 채팅을 기록한다', async () => {
     const { w, connected, channelB, liveB, liveChatId, b, api } = await linkInvited()

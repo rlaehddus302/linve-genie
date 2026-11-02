@@ -682,7 +682,8 @@ export class FakeGoogle {
       case 'liveBroadcasts.list':
         return this.#broadcastsList(res, token)
       case 'videos.list':
-        return this.#videosList(res, url)
+        void this.#videosList(res, url).catch(() => googleError(res, 500, 'backendError', 'global'))
+        return
       case 'liveChatMessages.list':
         this.chatReads.push({ liveChatId: url.searchParams.get('liveChatId') ?? '', channel: token.channel })
         return this.#chatList(res, url)
@@ -818,12 +819,12 @@ export class FakeGoogle {
     json(res, 200, { kind: 'youtube#liveBroadcastListResponse', items })
   }
 
-  /** 모르는 영상 ID를 물으면 부른다 — true면 그 사이 방송을 만든 것으로 보고 다시 찾는다 (연습 옮겨 받기 전용, D-LIVETEST-08) */
-  onUnknownVideo: ((videoId: string) => boolean) | null = null
+  /** 모르는 영상 ID를 물으면 부른다 — 그 사이 만든 방송이 있으면 다시 찾는다 (연습 옮겨 받기 전용, D-LIVETEST-08·10 — 실제 방송 채널을 알아 오느라 기다릴 수 있다) */
+  onUnknownVideo: ((videoId: string) => boolean | Promise<boolean>) | null = null
 
-  #videosList(res: ServerResponse, url: URL): void {
+  async #videosList(res: ServerResponse, url: URL): Promise<void> {
     const ids = (url.searchParams.get('id') ?? '').split(',')
-    for (const videoId of ids) if (!this.#broadcasts.has(videoId) && /^[A-Za-z0-9_-]{11}$/.test(videoId)) this.onUnknownVideo?.(videoId)
+    for (const videoId of ids) if (!this.#broadcasts.has(videoId) && /^[A-Za-z0-9_-]{11}$/.test(videoId)) await this.onUnknownVideo?.(videoId)
     const items = ids.flatMap((videoId) => {
       const broadcast = this.#broadcasts.get(videoId)
       if (broadcast === undefined) return []

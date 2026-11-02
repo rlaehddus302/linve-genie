@@ -458,8 +458,9 @@ export class YoutubeSystem {
     const broadcastChannelId = typeof snippet.channelId === 'string' ? snippet.channelId : ''
     if (broadcastChannelId === '') return { kind: 'rejected', status: 409, code: 'NO_LIVE_CHAT' }
     const broadcastChannelTitle = typeof snippet.channelTitle === 'string' ? snippet.channelTitle : null
-    // 내 채널이 아니면 확인 표시(정확히 true)가 있을 때만 잇는다 — 없으면 아무것도 넣지 않고 채널 이름을 돌려준다 (D-PHN-17)
-    if (broadcastChannelId !== connection.channel.id && confirmInvited !== true) return { kind: 'confirm', channel: { id: broadcastChannelId, title: broadcastChannelTitle ?? '' } }
+    // 내 채널도, 전에 실제 회차에 이은 채널도 아니면 확인 표시(정확히 true)가 있을 때만 잇는다 — 없으면 아무것도 넣지 않고 채널 이름을 돌려준다
+    // (D-PHN-17 → D-LIVETEST-10: 사장님은 보통 초대받은 유튜버 채널에서 방송한다 — 한 번 확인해 이은 채널은 다시 묻지 않는다, 서버 읽기와 같음)
+    if (!(await this.#confirmedChannels(sellerId, connection.channel.id)).has(broadcastChannelId) && confirmInvited !== true) return { kind: 'confirm', channel: { id: broadcastChannelId, title: broadcastChannelTitle ?? '' } }
     // 유튜브 방송의 실제 시작 시각 — 예정이면 비워 둔다(수집기가 시작을 확인한다, AC-Y1-94)
     const actualStart = Date.parse(typeof details.actualStartTime === 'string' ? details.actualStartTime : '')
     const startedAt = content === 'upcoming' ? null : new Date(Number.isFinite(actualStart) ? actualStart : timer.now())

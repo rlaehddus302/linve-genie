@@ -324,21 +324,42 @@ await new Promise((resolve, reject) => {
 // 모의 받아쓰기 일꾼 (표지 소리만 알아듣는다 — 진짜 일꾼을 함께 띄우면 자리가 더 많은 진짜 일꾼이 마이크 흐름을 받는다)
 const mockWorker = relayVideoId === null ? startMockWorker({ url: `ws://127.0.0.1:${String(port)}/api/voice/worker`, token: transcribeWorkerToken }) : { close() {} }
 let relayChat = relayVideoId === null ? null : await startRelayChat(relayVideoId, fakeLive.liveChatId)
-// 옮겨 받기 중에 앱·웹에서 다른 실제 라이브 주소를 붙여 넣으면(가짜 유튜브가 모르는 영상) 그 영상 ID로 연습 채널의 진행 중 방송을 만들고
-// 채팅·소리 옮겨 받기를 그 라이브로 바꾼다 (D-LIVETEST-08 — 주소만 붙여 넣으면 시험할 수 있게). 옮겨 받기 모드가 아니면 하지 않는다.
+// 옮겨 받기 중에 앱·웹에서 다른 실제 라이브 주소를 붙여 넣으면(가짜 유튜브가 모르는 영상) 실제 방송 페이지를 읽어(로그인 없음)
+// 그 방송의 **실제 채널**(대개 사장님이 초대받은 다른 유튜버 채널)에 진행 중 방송을 만들고 채팅·소리 옮겨 받기를 그 라이브로 바꾼다.
+// 운영처럼 처음 잇는 채널이면 확인 한 줄이 뜬다 (D-LIVETEST-08·10). 진행 중이 아니면 만들지 않는다(채팅을 받을 수 없는 방송). 옮겨 받기 모드가 아니면 하지 않는다.
 if (relayVideoId !== null) {
-  fake.onUnknownVideo = (videoId) => {
-    const live = fake.addBroadcast(fakeChannel.id, { title: `실제 라이브 ${videoId}`, status: 'live', videoId })
+  const relayChannels = new Map()
+  fake.onUnknownVideo = async (videoId) => {
+    const { WebChatSource, HttpWebTransport } = await server('youtube/web-chat-source.ts')
+    const { realTimer } = await server('youtube/timer.ts')
+    const timer = realTimer()
+    let page
+    try {
+      page = await new WebChatSource({ transport: new HttpWebTransport({ timer }), timer }).pageOrNext(videoId)
+    } catch (error) {
+      say(`[옮겨 받기] 방송 페이지를 읽지 못했어요: ${String(error?.message ?? error)}`)
+      return false
+    }
+    if (page.state !== 'LIVE' || page.channelId === null || page.channelId === '') {
+      say(`[옮겨 받기] 지금 진행 중인 라이브가 아니에요(${page.state}): ${videoId}`)
+      return false
+    }
+    let channel = relayChannels.get(page.channelId)
+    if (channel === undefined) {
+      channel = fake.addChannel(fake.addAccount(), page.channelTitle ?? '다른 유튜버 채널', page.channelId)
+      relayChannels.set(page.channelId, channel)
+    }
+    const live = fake.addBroadcast(channel.id, { title: page.title ?? `실제 라이브 ${videoId}`, status: 'live', videoId })
     relayChat?.close()
     relayVideoId = videoId
-    void startRelayChat(videoId, live.liveChatId).then((next) => { relayChat = next })
-    say(`[옮겨 받기] 붙여 넣은 라이브로 바꿨어요: ${videoId}`)
+    relayChat = await startRelayChat(videoId, live.liveChatId, channel.id)
+    say(`[옮겨 받기] 붙여 넣은 라이브로 바꿨어요: ${videoId} (채널: ${page.channelTitle ?? '이름 없음'})`)
     return true
   }
 }
 
 /** 실제 라이브의 공개 채팅을 읽어(get_live_chat, 로그인 없음) 연습 라이브에 넣는다. 켠 뒤에 올라온 글만 */
-async function startRelayChat(videoId, liveChatId) {
+async function startRelayChat(videoId, liveChatId, ownerId = fakeChannel.id) {
   const { WebChatSource, HttpWebTransport } = await server('youtube/web-chat-source.ts')
   const { realTimer } = await server('youtube/timer.ts')
   const timer = realTimer()
@@ -369,7 +390,7 @@ async function startRelayChat(videoId, liveChatId) {
           if (seen.has(chat.id) || BigInt(chat.timestampUsec) < BigInt(since)) continue
           seen.add(chat.id)
           added++
-          fake.addMessage(liveChatId, { author: chat.owner ? fakeChannel.id : `UCrelay${chat.ch.slice(-16)}`, name: chat.nick, text: chat.text, owner: chat.owner, id: `relay_${chat.id.slice(-24)}` })
+          fake.addMessage(liveChatId, { author: chat.owner ? ownerId : `UCrelay${chat.ch.slice(-16)}`, name: chat.nick, text: chat.text, owner: chat.owner, id: `relay_${chat.id.slice(-24)}` })
         }
         continuation = polled.next
         await nap(Math.min(Math.max(polled.timeoutMs ?? 5000, 1000), 10_000))
