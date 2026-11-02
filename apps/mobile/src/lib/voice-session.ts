@@ -21,6 +21,8 @@ export const UNDO_MS = 5000
 /** 60초 안에 이 횟수째 끊김이면 멈춤 (D-APP-05) */
 export const STOP_AFTER_DISCONNECTS = 6
 export const DISCONNECT_WINDOW_MS = 60_000
+/** 화면에 남겨 두는 받아쓴 글 줄 수 */
+export const TRANSCRIPT_LINES = 6
 
 export interface VoiceCard {
   readonly id: number
@@ -41,6 +43,8 @@ export interface VoiceView {
   readonly instant: boolean
   /** 마지막으로 들린 글 */
   readonly heard: string | null
+  /** 받아쓴 글 그대로 (해석 문장 없이, 오래된 것 위·새것 아래, 최근 TRANSCRIPT_LINES줄) */
+  readonly transcript: readonly string[]
   readonly cards: readonly VoiceCard[]
   /** 바로 등록한 번호의 되돌리기 (5초) */
   readonly undo: { readonly no: number; readonly until: number } | null
@@ -76,7 +80,7 @@ export class VoiceSession {
   readonly #now: () => number
   readonly #timer: Timer
   readonly #listeners = new Set<() => void>()
-  #view: VoiceView = { on: false, broadcastId: null, title: '', state: OFF, askConsent: false, instant: true, heard: null, cards: [], undo: null, problem: null, log: [], remote: null, display: {}, manualRetries: [], openProduct: null, priceChoice: null }
+  #view: VoiceView = { on: false, broadcastId: null, title: '', state: OFF, askConsent: false, instant: true, heard: null, transcript: [], cards: [], undo: null, problem: null, log: [], remote: null, display: {}, manualRetries: [], openProduct: null, priceChoice: null }
   #contextTimer: ReturnType<typeof setInterval> | undefined
   #generation = 0
   #connection = 0
@@ -103,6 +107,9 @@ export class VoiceSession {
   #settingsRevision = 0
   #settingsWrite: Promise<void> = Promise.resolve()
   #unsub: (() => void)[] = []
+  /** 방송 소리로 듣기(D-LV1-03) 중인 방송 — 마이크가 꺼져 있으면 조작 전용 연결을 열어 둔다 */
+  #streamHold: { readonly broadcastId: string; readonly title: string } | null = null
+  #streamRetry: ReturnType<typeof setTimeout> | undefined
 
   constructor(options: VoiceSessionOptions) {
     this.#options = options
@@ -179,6 +186,29 @@ export class VoiceSession {
     this.#set({ askConsent: false })
   }
 
+  /**
+   * 방송 소리로 듣기 (VOC-08, D-LV1-03·06): 서버가 방송 소리를 받아쓴 글은 이 기기의 마이크 없는 조작 전용 연결의 읽기로 온다.
+   * 켜져 있는 동안 그 연결을 닫지 않는다(잠깐 쉬기 없음). 마이크를 켜면 마이크 흐름이 대신하고, 끄면 다시 조작 전용으로 연다.
+   */
+  /** 자동 쓰기를 받아도 되는 듣는 중 — 마이크가 듣거나, 방송 소리로 듣는 조작 전용 연결이 이어져 있다 */
+  #hearing(): boolean {
+    if (this.#view.on) return this.#view.state.kind === 'listening'
+    return this.#controlOnly && this.#streamHold !== null && this.#options.audio.state.kind === 'listening'
+  }
+
+  holdStream(broadcastId: string, title: string, on: boolean): void {
+    if (!on) {
+      if (this.#streamHold === null) return
+      this.#streamHold = null
+      clearTimeout(this.#streamRetry)
+      this.#scheduleIdle()
+      return
+    }
+    this.#streamHold = { broadcastId, title }
+    if (this.#view.on || (this.#controlOnly && this.#view.broadcastId === broadcastId)) return
+    void this.#start(broadcastId, title, true)
+  }
+
   async #start(broadcastId: string, title: string, commandsOnly = false): Promise<void> {
     clearTimeout(this.#idleTimer)
     clearInterval(this.#contextTimer)
@@ -196,7 +226,7 @@ export class VoiceSession {
       await this.#settingsWrite
       const preferences = await readVoicePreferences()
       if (born !== this.#generation) return
-      this.#options.audio.sendSession?.({ type: 'voice.session', op: 'hello', context: { ...preferences, now: this.#now(), dialogOpen: false, smsAutoAllowed: !commandsOnly, consent: true, listening: !commandsOnly, ...(this.#resumeToken === null ? {} : { resumeToken: this.#resumeToken }) } })
+      this.#options.audio.sendSession?.({ type: 'voice.session', op: 'hello', context: { ...preferences, now: this.#now(), dialogOpen: false, smsAutoAllowed: !commandsOnly, consent: true, listening: !commandsOnly || this.#streamHold !== null, ...(this.#resumeToken === null ? {} : { resumeToken: this.#resumeToken }) } })
       const url = new URL(ticket.wsUrl)
       if (commandsOnly) url.searchParams.set('capture', 'false')
       await this.#options.audio.startListening({ wsUrl: url.toString(), capture: !commandsOnly, ...(ticket.token === undefined ? {} : { token: ticket.token }), ...(ticket.origin === undefined ? {} : { origin: ticket.origin }), notificationTitle: `${SERVICE_NAME} · 음성 듣는 중`, notificationBody: '눌러서 돌아가기' })
@@ -227,6 +257,8 @@ export class VoiceSession {
     this.#options.audio.sendSession?.({ type: 'voice.session', op: 'command', method: 'turnOff', args: [] })
     this.#set({ on: false, state: OFF, askConsent: false })
     await this.#options.audio.stopListening()
+    const hold = this.#streamHold
+    if (hold !== null) void this.#start(hold.broadcastId, hold.title, true)
   }
 
   /** 듣기 멈춤 뒤 [다시 켜기] */
@@ -239,7 +271,14 @@ export class VoiceSession {
   #onState(state: AudioState): void {
     if (state.kind !== 'listening') this.#readyForCommands = false
     if (this.#controlOnly) {
-      if (state.kind === 'stopped') { this.#controlOnly = false; this.#commandQueue = []; clearInterval(this.#contextTimer); this.#set({ problem: state.message }) }
+      if (state.kind === 'stopped') {
+        this.#controlOnly = false; this.#commandQueue = []; clearInterval(this.#contextTimer); this.#set({ problem: state.message })
+        clearTimeout(this.#streamRetry)
+        if (this.#streamHold !== null) this.#streamRetry = setTimeout(() => {
+          const hold = this.#streamHold
+          if (hold !== null && !this.#view.on && !this.#controlOnly) void this.#start(hold.broadcastId, hold.title, true)
+        }, 3000)
+      }
       return
     }
     if (!this.#view.on) {
@@ -381,18 +420,20 @@ export class VoiceSession {
   #manualView(): void { this.#set({ manualRetries: [...this.#manual].map(([id, item]) => ({ id, label: item.label, error: item.error, busy: item.busy })) }) }
   #scheduleIdle(): void {
     clearTimeout(this.#idleTimer)
-    if (!this.#controlOnly || this.#effectsPending > 0 || this.#commandQueue.length > 0) return
+    if (!this.#controlOnly || this.#effectsPending > 0 || this.#commandQueue.length > 0 || this.#streamHold !== null) return
     this.#idleTimer = setTimeout(() => {
-      if (!this.#controlOnly || this.#effectsPending > 0) return
+      if (!this.#controlOnly || this.#effectsPending > 0 || this.#streamHold !== null) return
       this.#controlOnly = false; this.#readyForCommands = false
       clearInterval(this.#contextTimer)
       void this.#options.audio.stopListening()
     }, 1500)
   }
   async shutdown(): Promise<void> {
+    this.#streamHold = null
+    clearTimeout(this.#streamRetry)
     await this.turnOff()
     this.#resumeToken = null; this.#serverSession = null; this.#options.audio.updateSessionContext?.({ resumeToken: undefined }); this.#manual.clear(); this.#consumed.clear()
-    this.#set({ broadcastId: null, remote: null, display: {}, cards: [], log: [], heard: null, undo: null, manualRetries: [] })
+    this.#set({ broadcastId: null, remote: null, display: {}, cards: [], log: [], heard: null, transcript: [], undo: null, manualRetries: [] })
   }
   showProduct(key: string): void { this.#set({ openProduct: key }) }
   clearProduct(): void { this.#set({ openProduct: null }) }
@@ -408,7 +449,11 @@ export class VoiceSession {
   noteRegistered(no: number): void { this.#setUndo(no); this.#options.onProcessed?.() }
   #message(message: unknown): void {
     if ((!this.#view.on && !this.#controlOnly) || !isRecord(message)) return
-    if (message.type === 'result') { this.#disconnects = []; return }
+    if (message.type === 'result') {
+      this.#disconnects = []
+      if (typeof message.text === 'string' && message.text.trim() !== '') this.#set({ transcript: [...this.#view.transcript, message.text.trim()].slice(-TRANSCRIPT_LINES) })
+      return
+    }
     if (message.type === 'ready') { this.#connection++; this.#effects.clear(); this.#readyForCommands = false; this.#serverSession = null; this.#pendingCards.clear(); if (this.#view.display.confirmations instanceof Map) this.#view.display.confirmations.clear(); return }
     if (message.type === 'voice.state') {
       if (typeof message.sessionId !== 'string') return
@@ -483,7 +528,7 @@ export class VoiceSession {
         case 'focusQuick': break
         case 'openProduct': this.showProduct(String(args[0])); break
         default: value = await this.#options.effect?.(b, message.method, args, this, (firstAttempt) => {
-          if (born !== this.#generation || connection !== this.#connection || (message.automatic === true && (!this.#view.on || !this.#readyForCommands || this.#view.state.kind !== 'listening'))) return '음성 연결이 바뀌어 보내지 않았어요. 확인하고 다시 눌러 주세요.'
+          if (born !== this.#generation || connection !== this.#connection || (message.automatic === true && (!this.#readyForCommands || !this.#hearing()))) return '음성 연결이 바뀌어 보내지 않았어요. 확인하고 다시 눌러 주세요.'
           if (firstAttempt && message.automatic === true) {
             const end = message.spokenEndAt
             if (typeof end !== 'number' || !Number.isFinite(end) || this.#now() - end > LATE_MS || end > this.#now() || (message.method === 'register' && args[2] === 'instant' && !this.#view.instant)) return '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.'

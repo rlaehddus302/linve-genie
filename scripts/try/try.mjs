@@ -20,6 +20,10 @@
 //   유튜브 연결(MOB1 D-MOB1-06): 가짜 구글이면 승인·돌아오기·마지막 주소가 모두 휴대폰 https 주소로 이어지고(연습 전용 경로 /_try/google),
 //   진짜 구글(--real-youtube)이면 휴대폰에서는 연결하지 않고 이 컴퓨터에서 먼저 연결하라고 안내한다(apps/server/src/try/phone-relay.ts).
 //   E2E 서버와 달리 같은 와이파이에 열린다(휴대폰 때문). 연습 데이터뿐이고 비밀번호는 실행마다 무작위다.
+// - 실제 라이브 옮겨 받기(pnpm try --relay-live <유튜브 주소>, D-LIVETEST-01): 그 라이브의 공개 채팅을 읽기만 해 "연습 라이브"에 넣고,
+//   방송 소리는 서버 경로(yt-dlp → ffmpeg)로 그 라이브에서 받는다. 모의 일꾼을 띄우지 않는다 — 진짜 받아쓰기 일꾼을 붙인다.
+//   유튜브에는 아무것도 쓰지 않는다(채팅·감사 메시지는 가짜 유튜브에만). 남의 채널이라 실제 잇기(채널 확인)는 거치지 않는다.
+//   휴대폰이 다른 https 주소(테일스케일 등)로 들어오면 LIVEGENIE_PHONE_EXTRA_ORIGINS(쉼표로 여럿, https://호스트:포트만)에 적는다.
 // - 기본 포트를 다른 프로그램이 쓰고 있으면 다음 빈 포트로 옮긴다.
 // 기본 모드의 비밀번호·마스터 키는 저장하지 않는다. 영구 모드는 지정한 비공개 폴더에 키·비밀번호를 보관한다.
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -53,6 +57,7 @@ let wanted = DEFAULT_PORT
 let realYoutube = false
 let realLoginWanted = false
 let realTiktok = false
+let relayLive = null
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port' && /^\d{2,5}$/.test(args[i + 1] ?? '')) {
     wanted = Number(args[i + 1])
@@ -60,8 +65,12 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === '--real-youtube') realYoutube = true
   else if (args[i] === '--real-login') realLoginWanted = true
   else if (args[i] === '--real-tiktok') realTiktok = true
+  else if (args[i] === '--relay-live' && (args[i + 1] ?? '') !== '') {
+    relayLive = args[i + 1]
+    i++
+  }
   else if (args[i] === '--') continue
-  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube 또는 pnpm try --real-login 또는 pnpm try --real-tiktok (함께 써도 돼요)')
+  else fail('쓰는 법: pnpm try 또는 pnpm try --port 7800 또는 pnpm try --real-youtube 또는 pnpm try --real-login 또는 pnpm try --real-tiktok 또는 pnpm try --relay-live <유튜브 라이브 주소> (함께 써도 돼요)')
 }
 // 실제 유튜브 시험: 운영자가 만든 구글 OAuth 클라이언트 값을 저장소 밖에 커밋되지 않는 .env.youtube.local에서 읽는다(대화·로그에 남기지 않음)
 let realGoogle = null
@@ -195,9 +204,22 @@ const llm = new FakeLlm({ practice: true, basePath: '/_try/llm' })
 
 // 방송 소리로 듣기 연습 (LV1 D-LV1-09): 연습 라이브는 가짜 방송 소리(정해진 말 "15번 핑크프릴 이만 원")를 내고, 모의 일꾼이 그 글을 돌려준다
 const fakeAudio = new FakeBroadcastAudio(database.db)
+const { parseVideoId } = await server('youtube/texts.ts')
+const relayVideoId = relayLive === null ? null : parseVideoId(relayLive)
+if (relayLive !== null && relayVideoId === null) fail('--relay-live 뒤에 유튜브 라이브 주소를 적어 주세요.')
+const { FfmpegAudioFeed, ytDlpResolver, readYtDlpPath } = await server('voice/stream-audio.ts')
+const resolveRelayAudio = relayVideoId === null ? null : ytDlpResolver(readYtDlpPath(process.env))
+/** 옮겨 받기: 연습 라이브에 이어진 회차면 실제 라이브의 소리 주소 (yt-dlp) */
+const relayLocate = async (sellerId, broadcastId) => {
+  const found = await fakeAudio.locate(sellerId, broadcastId)
+  if (found.kind !== 'ok') return found
+  const result = await resolveRelayAudio(relayVideoId)
+  if (result.kind === 'ok') return { kind: 'ok', url: result.url }
+  return result.kind === 'timeout' ? { kind: 'retry' } : { kind: 'unsupported' }
+}
 const livejjim = createServer({
   database,
-  streamAudio: { on: readStreamAudioSwitch(process.env), feed: fakeAudio, locate: fakeAudio.locate },
+  streamAudio: relayVideoId === null ? { on: readStreamAudioSwitch(process.env), feed: fakeAudio, locate: fakeAudio.locate } : { on: true, feed: new FfmpegAudioFeed(), locate: relayLocate },
   transcribeWorkerToken,
   masterKey,
   appOrigin,
@@ -300,7 +322,57 @@ await new Promise((resolve, reject) => {
   http.listen(port, '127.0.0.1', resolve)
 }).catch(() => fail(`포트 ${String(port)}를 열지 못했어요. pnpm try --port 8800 처럼 다른 번호로 해 보세요.`))
 // 모의 받아쓰기 일꾼 (표지 소리만 알아듣는다 — 진짜 일꾼을 함께 띄우면 자리가 더 많은 진짜 일꾼이 마이크 흐름을 받는다)
-const mockWorker = startMockWorker({ url: `ws://127.0.0.1:${String(port)}/api/voice/worker`, token: transcribeWorkerToken })
+const mockWorker = relayVideoId === null ? startMockWorker({ url: `ws://127.0.0.1:${String(port)}/api/voice/worker`, token: transcribeWorkerToken }) : { close() {} }
+const relayChat = relayVideoId === null ? null : await startRelayChat(relayVideoId)
+
+/** 실제 라이브의 공개 채팅을 읽어(get_live_chat, 로그인 없음) 연습 라이브에 넣는다. 켠 뒤에 올라온 글만 */
+async function startRelayChat(videoId) {
+  const { WebChatSource, HttpWebTransport } = await server('youtube/web-chat-source.ts')
+  const { realTimer } = await server('youtube/timer.ts')
+  const timer = realTimer()
+  const web = new WebChatSource({ transport: new HttpWebTransport({ timer }), timer })
+  const since = Date.now() * 1000
+  const seen = new Set()
+  let added = 0
+  let stopped = false
+  let wake = null
+  const nap = (ms) => new Promise((resolve) => { wake = setTimeout(resolve, ms) })
+  const loop = async () => {
+    let page = null
+    let continuation = null
+    while (!stopped) {
+      try {
+        if (continuation === null) {
+          page = await web.chatPage(videoId)
+          if (page.state !== 'OK') {
+            say(`[옮겨 받기] 채팅을 열지 못했어요 (${page.state}). 10초 뒤 다시 해요.`)
+            await nap(10_000)
+            continue
+          }
+          continuation = page.continuation
+        }
+        const polled = await web.poll(page.session, continuation)
+        if (polled.kind !== 'ok') { continuation = null; await nap(5000); continue }
+        for (const chat of polled.chats) {
+          if (seen.has(chat.id) || BigInt(chat.timestampUsec) < BigInt(since)) continue
+          seen.add(chat.id)
+          added++
+          fake.addMessage(fakeLive.liveChatId, { author: chat.owner ? fakeChannel.id : `UCrelay${chat.ch.slice(-16)}`, name: chat.nick, text: chat.text, owner: chat.owner, id: `relay_${chat.id.slice(-24)}` })
+        }
+        continuation = polled.next
+        await nap(Math.min(Math.max(polled.timeoutMs ?? 5000, 1000), 10_000))
+      } catch (error) {
+        say(`[옮겨 받기] 채팅 읽기가 잠깐 멈췄어요 (${error instanceof Error ? error.name : '알 수 없음'}). 10초 뒤 다시 해요.`)
+        continuation = null
+        await nap(10_000)
+      }
+    }
+  }
+  void loop()
+  const report = setInterval(() => say(`[옮겨 받기] 넣은 채팅 ${String(added)}줄`), 60_000)
+  report.unref()
+  return { close() { clearInterval(report); stopped = true; if (wake !== null) clearTimeout(wake) } }
+}
 
 // ── 휴대폰용 https (같은 와이파이) ──────────────────────────
 /**
@@ -335,7 +407,7 @@ if (lan !== null) {
       ? { key: readFileSync(suppliedKey), cert: readFileSync(suppliedCert) }
       : phoneCertificate(lans)
     // 휴대폰 주소들과, 이 컴퓨터에서 https로 여는 주소(사파리에서 로그인이 안 될 때) 모두 화면 주소로 바꿔 넘긴다
-    const httpsOrigins = new Set([...lans.map((ip) => `https://${ip}:${String(phonePort)}`), `https://localhost:${String(phonePort)}`])
+    const httpsOrigins = new Set([...lans.map((ip) => `https://${ip}:${String(phonePort)}`), `https://localhost:${String(phonePort)}`, ...(process.env['LIVEGENIE_PHONE_EXTRA_ORIGINS'] ?? '').split(',').map((v) => v.trim()).filter((v) => /^https:\/\/[a-z0-9.-]+:\d+$/i.test(v))])
     // 중계 규칙(Origin·Location·간편 로그인·유튜브 연결)은 apps/server/src/try/phone-relay.ts (MOB1 D-MOB1-06)
     const phoneOptions = { port, appOrigin, httpsOrigins, fakeGoogle: realGoogle === null ? { port: fake.port } : null, realYoutube: realGoogle !== null }
     phone = createHttpsServer({ key, cert }, createPhoneRelay(phoneOptions))
@@ -381,6 +453,7 @@ say('    (비밀번호는 켤 때마다 바뀌어요. 이 창에만 보여요.)'
 say('')
 say(` 받아쓰기 일꾼 연결 파일: --token-file ${workerTokenPath}`)
 say(` 받아쓰기 일꾼 주소: ws://127.0.0.1:${String(port)}/api/voice/worker`)
+if (relayVideoId !== null) say(` 실제 라이브 옮겨 받기: ${relayVideoId} — 채팅은 읽기만, 소리는 서버가 받아요. 진짜 받아쓰기 일꾼을 위 주소로 붙여 주세요.`)
 say(` 2) 연습용 시청자 채팅     : ${appOrigin}/_try/chat`)
 say('    (가짜 유튜브 "연습 라이브"에 시청자 채팅을 넣어요)')
 say('')
@@ -445,6 +518,7 @@ async function stop() {
   livejjim.close()
   await livejjim.stop().catch(() => {})
   mockWorker.close()
+  relayChat?.close()
   await fake.close().catch(() => {})
   await database.close().catch(() => {})
   if (persistentDir === null) rmSync(backupDir, { recursive: true, force: true })

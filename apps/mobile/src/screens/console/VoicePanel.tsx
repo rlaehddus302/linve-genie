@@ -89,7 +89,7 @@ export function VoicePanel({ session, broadcastId, title, seller, ended }: { rea
         <View aria-label={VOICE_HEARD_TITLE} role="status" style={{ flexDirection: 'row', gap: SPACE.sm, alignItems: 'baseline', paddingHorizontal: SPACE.xs }}>
           <Txt step="caption" color="textSub">{VOICE_HEARD_TITLE}</Txt>
           <View style={{ flex: 1 }}>
-            <Txt weight="bold" numberOfLines={2}>{view.heard ?? (view.state.kind === 'listening' ? VOICE_HEARING : VOICE_HEARD_EMPTY)}</Txt>
+            <Txt weight="bold" numberOfLines={2}>{view.transcript.at(-1) ?? view.heard ?? (view.state.kind === 'listening' ? VOICE_HEARING : VOICE_HEARD_EMPTY)}</Txt>
           </View>
         </View>
       ) : null}

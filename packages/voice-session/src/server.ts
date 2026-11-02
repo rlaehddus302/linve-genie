@@ -298,6 +298,13 @@ export function createReadingSession(options: ReadingSessionOptions) {
 
   return {
     onMessage,
+    /**
+     * 서버가 받은 방송 소리(VOC-08)의 시각 0 — 서버 시계 기준이다. 말 끝 시각(now)은 기기 시계 기준이라 기기 시계 차이를 더해 맞춘다.
+     * 그러지 않으면 기기 시계가 서버보다 늦을 때 말 끝이 "미래"가 되어 모든 말이 늦은 말로 빠진다(D-LIVETEST-05).
+     */
+    onServerCapture(at: number): void {
+      if (capturedAt === null && Number.isFinite(at)) capturedAt = at + clockOffset
+    },
     onResult(text: string, _startMs: number, endMs: number): void {
       if (closed || !initialized || text.length > 2000) return
       const spokenEndAt = capturedAt === null ? undefined : capturedAt + endMs

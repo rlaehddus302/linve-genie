@@ -112,6 +112,7 @@ export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWr
     return {
       async onResult(result) { await refresh(); if (!closed) reader.onResult(result.text, result.startMs, result.endMs) },
       async onMessage(value) { await refresh(); if (!closed) reader.onMessage(value) },
+      async onServerCapture(at) { await refresh(); if (!closed) reader.onServerCapture(at) },
       refresh,
       close() { closed = true; reader.close(); learned = []; names = []; numbers = new Map(); lastDevices.clear() },
     }

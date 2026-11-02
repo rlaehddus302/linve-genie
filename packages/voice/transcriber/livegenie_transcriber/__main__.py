@@ -1,4 +1,4 @@
-# python3 -m livegenie_transcriber --server <주소> --token-file <파일> [--model cohere|whisper] [--max-streams 4]
+# python3 -m livegenie_transcriber --server <주소> --token-file <파일> [--model cohere|whisper] [--max-streams 4] [--max-segment-ms 20000]
 # 설정이 틀리면 시작하지 않고 쉬운 문장으로 끝낸다(끝 번호 2). 토큰 값은 어디에도 찍지 않는다.
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     from .runner import run_worker, stderr_log
+    from .segmenter import worker_segmenter
     from .runtime import MissingPackage, load_transcriber, load_vad_factory
 
     try:
@@ -52,7 +53,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             return loop.run_in_executor(executor, job)
 
         stderr_log("준비됐어요. 라이브지니 서버에 붙어요.")
-        await run_worker(config.worker_url, token, config.max_streams, transcribe, vad_factory, run_blocking=run_blocking)
+        await run_worker(config.worker_url, token, config.max_streams, transcribe, vad_factory, run_blocking=run_blocking, segmenter_factory=lambda: worker_segmenter(config.max_segment_ms))
 
     try:
         asyncio.run(go())

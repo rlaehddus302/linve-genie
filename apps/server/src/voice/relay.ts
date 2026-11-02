@@ -15,6 +15,8 @@ export type VoiceCloseReason = 'OTHER_DEVICE' | 'BUSY' | 'NO_WORKER' | 'ENDED' |
 export interface VoiceReadingSession {
   onResult(result: { text: string; startMs: number; endMs: number }): void | Promise<void>
   onMessage(message: unknown): void | Promise<void>
+  /** 서버가 받은 방송 소리의 시각 0 (서버 시계) — 없으면 기기가 보낸 capture처럼 쓴다 */
+  onServerCapture?(at: number): void | Promise<void>
   close(): void
   refresh?(): Promise<void>
 }
@@ -326,7 +328,7 @@ export class VoiceRelay {
     if (device.captureAt === null) {
       const at = result.startAt
       device.captureAt = at
-      this.#enqueue(device, () => device.reading?.onMessage({ type: 'voice.session', op: 'capture', at }))
+      this.#enqueue(device, () => device.reading?.onServerCapture ? device.reading.onServerCapture(at) : device.reading?.onMessage({ type: 'voice.session', op: 'capture', at }))
     }
     const base = device.captureAt
     const shifted = { text: result.text, startMs: Math.max(0, result.startAt - base), endMs: Math.max(0, result.endAt - base) }

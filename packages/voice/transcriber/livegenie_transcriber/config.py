@@ -8,6 +8,7 @@ from typing import Dict, List, Mapping, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from .protocol import DEFAULT_MAX_STREAMS, MAX_STREAMS_MAX, MAX_STREAMS_MIN, WORKER_PATH
+from .segmenter import MAX_SEGMENT_MS
 
 MODELS: Dict[str, str] = {
     "cohere": "CohereLabs/cohere-transcribe-03-2026",
@@ -27,9 +28,14 @@ USAGE = """라이브지니 받아쓰기 일꾼
   --token-file <파일>    일꾼 토큰이 든 파일 (없으면 환경변수 LIVEJJIM_TRANSCRIBE_WORKER_TOKEN)
   --model cohere|whisper 받아쓰기 모델 (기본 cohere = CohereLabs/cohere-transcribe-03-2026, whisper = large-v3-turbo)
   --max-streams <수>     동시에 받아쓰는 흐름 수 한도 1~64 (기본 4)
+  --max-segment-ms <수>  쉬지 않고 이어지는 말을 자르는 길이(밀리초) 5000~20000 (기본 20000) — 짧을수록 글이 빨리 나와요
   --device auto|mps|cuda|cpu  모델을 돌릴 장치 (기본 auto)
   --vad-model <파일>     silero VAD onnx 파일 (기본: silero-vad 꾸러미 안의 파일)
 """
+
+
+# 이보다 짧게 자르면 번호·가격이 자주 갈린다
+MIN_SEGMENT_LIMIT_MS = 5000
 
 
 class ConfigError(Exception):
@@ -50,6 +56,7 @@ class Config:
     max_streams: int
     device: str
     vad_model: Optional[str]
+    max_segment_ms: int = 20000
 
 
 def worker_url(server: str) -> str:
@@ -70,7 +77,7 @@ def worker_url(server: str) -> str:
 def parse_args(argv: List[str], env: Optional[Mapping[str, str]] = None) -> Config:
     env = os.environ if env is None else env
     values: Dict[str, str] = {}
-    names = {"--server", "--token-file", "--model", "--max-streams", "--device", "--vad-model"}
+    names = {"--server", "--token-file", "--model", "--max-streams", "--device", "--vad-model", "--max-segment-ms"}
     i = 0
     while i < len(argv):
         arg = argv[i]
@@ -103,6 +110,10 @@ def parse_args(argv: List[str], env: Optional[Mapping[str, str]] = None) -> Conf
     if not raw_max.isdigit() or not (MAX_STREAMS_MIN <= int(raw_max) <= MAX_STREAMS_MAX):
         raise ConfigError("--max-streams는 1부터 64까지의 수로 적어 주세요.")
 
+    raw_segment = values.get("--max-segment-ms", str(MAX_SEGMENT_MS)).strip()
+    if not raw_segment.isdigit() or not (MIN_SEGMENT_LIMIT_MS <= int(raw_segment) <= MAX_SEGMENT_MS):
+        raise ConfigError("--max-segment-ms는 5000부터 20000까지의 수로 적어 주세요.")
+
     device = values.get("--device", "auto").strip().lower()
     if device not in DEVICES:
         raise ConfigError("--device는 auto, mps, cuda, cpu 중 하나로 적어 주세요.")
@@ -120,6 +131,7 @@ def parse_args(argv: List[str], env: Optional[Mapping[str, str]] = None) -> Conf
         max_streams=int(raw_max),
         device=device,
         vad_model=values.get("--vad-model"),
+        max_segment_ms=int(raw_segment),
     )
 
 

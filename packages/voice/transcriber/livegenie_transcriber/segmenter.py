@@ -222,6 +222,6 @@ class Segmenter:
         self._remember(bytes(pending[tail:]))
 
 
-def worker_segmenter() -> Segmenter:
-    """일꾼 흐름 하나의 자르기 (고른 여유·틈 범위)"""
-    return Segmenter(pre_roll_ms=WORKER_PRE_ROLL_MS, post_roll_ms=WORKER_POST_ROLL_MS, cut_lookback_ms=WORKER_CUT_LOOKBACK_MS)
+def worker_segmenter(max_segment_ms: int = MAX_SEGMENT_MS) -> Segmenter:
+    """일꾼 흐름 하나의 자르기 (고른 여유·틈 범위). 자르는 길이를 줄이면 틈 찾는 범위도 그 절반 안으로 줄어든다"""
+    return Segmenter(max_segment_ms=max_segment_ms, pre_roll_ms=WORKER_PRE_ROLL_MS, post_roll_ms=WORKER_POST_ROLL_MS, cut_lookback_ms=WORKER_CUT_LOOKBACK_MS)

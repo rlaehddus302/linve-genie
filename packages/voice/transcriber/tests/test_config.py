@@ -52,6 +52,16 @@ class StreamsTest(unittest.TestCase):
                 parse_args(args("--max-streams", bad), NO_ENV)
 
 
+class SegmentTest(unittest.TestCase):
+    def test_max_segment_default_and_range(self):
+        # D-LIVETEST-04: 이어지는 말을 자르는 길이 (기본 20초 그대로)
+        self.assertEqual(parse_args(args(), NO_ENV).max_segment_ms, 20000)
+        self.assertEqual(parse_args(args("--max-segment-ms", "8000"), NO_ENV).max_segment_ms, 8000)
+        for bad in ("4999", "20001", "eight", ""):
+            with self.assertRaises(ConfigError):
+                parse_args(args("--max-segment-ms", bad), NO_ENV)
+
+
 class ServerTest(unittest.TestCase):
     def test_worker_url(self):
         self.assertEqual(worker_url("https://live.example.com"), "wss://live.example.com/api/voice/worker")

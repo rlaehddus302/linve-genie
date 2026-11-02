@@ -3,7 +3,7 @@
 import type { Clock } from '../time.ts'
 import type { LogSink } from '../log.ts'
 import type { ExternalStream, VoiceRelay } from './relay.ts'
-import { STREAM_IDLE_RECHECK_MS, STREAM_LATE_MS, STREAM_STALL_CHECK_MS, STREAM_STALL_MS, recordFailure, retryDelayMs, type AudioFeed, type StreamLocator } from './stream-audio.ts'
+import { STREAM_IDLE_RECHECK_MS, STREAM_SAMPLE_RATE, STREAM_LATE_MS, STREAM_STALL_CHECK_MS, STREAM_STALL_MS, recordFailure, retryDelayMs, type AudioFeed, type StreamLocator } from './stream-audio.ts'
 
 export type StreamAudioPhase = 'hidden' | 'off' | 'idle' | 'listening' | 'reconnecting' | 'stopped' | 'unsupported' | 'mic' | 'ended'
 /** late = lagMs가 30초를 넘음 (늦음 안내를 보일 때, D-LV1-10) */
@@ -35,8 +35,10 @@ interface Listen {
   generation: number
   feed: { close(): void } | null
   worker: ExternalStream | null
-  /** 지금 일꾼 흐름의 첫 조각을 받은 서버 시각 */
+  /** 지금 일꾼 흐름의 시각 0에 해당하는 서버 시각 (소리가 늦게 도착하면 앞으로 옮긴다) */
   base: number
+  /** 지금 일꾼 흐름에 보낸 소리 길이(밀리초) */
+  sentMs: number
   cancel: (() => void) | null
   delivered: boolean
 }
@@ -85,7 +87,7 @@ export class StreamAudioService {
       listen = undefined
     }
     if (listen === undefined) {
-      listen = { sellerId, broadcastId, phase: 'idle', lagMs: null, lastChunkAt: 0, stall: null, watchedUntil: now + WATCH_TTL_MS, failures: [], generation: 0, feed: null, worker: null, base: 0, cancel: null, delivered: false }
+      listen = { sellerId, broadcastId, phase: 'idle', lagMs: null, lastChunkAt: 0, stall: null, watchedUntil: now + WATCH_TTL_MS, failures: [], generation: 0, feed: null, worker: null, base: 0, sentMs: 0, cancel: null, delivered: false }
       this.#listens.set(sellerId, listen)
       this.#arrange(listen)
     } else listen.watchedUntil = now + WATCH_TTL_MS
@@ -229,8 +231,13 @@ export class StreamAudioService {
           listen.worker = opened
           // 첫 조각(100ms)은 도착한 순간 끝난 소리다 — 일꾼의 시각 0은 그보다 100ms 앞 (말 끝이 미래 시각이 되어 늦은 글로 빠지지 않게)
           listen.base = now - 100
+          listen.sentMs = 0
         }
         if (!listen.worker.send(pcm)) { this.#fail(listen, generation); return }
+        // 방송 소리가 제 시간보다 늦게 도착하면(HLS 멈칫·끊김) 그만큼 기준을 옮긴다 — 소리 시각이 실제 도착보다 뒤처져
+        // 받아쓴 말이 모두 "늦은 말"로 빠지지 않게(D-LIVETEST-03). 일찍 온 소리(첫 조각 몰림)는 그대로 둔다(말 끝은 now로 자른다).
+        listen.sentMs += (pcm.length / 2 / STREAM_SAMPLE_RATE) * 1000
+        if (now > listen.base + listen.sentMs) listen.base = now - listen.sentMs
         listen.lagMs = producedAt === undefined ? null : Math.max(0, now - producedAt)
         listen.lastChunkAt = now
         if (first) { first = false; listen.phase = 'listening' }

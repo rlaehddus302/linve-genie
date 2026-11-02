@@ -27,6 +27,7 @@ import { ChatView, PasteView } from './console/ChatPaste.tsx'
 import { DecisionsView, hasDecisions } from './console/Decisions.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { ListenButton, ListenStatus, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
+import { StreamAudioPanel } from './console/StreamAudio.tsx'
 import { YoutubeSection, YoutubeWarning, useMobileYoutube } from './console/YoutubeSection.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
@@ -276,6 +277,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
           {seller && !sealed && hasDecisions(api) ? <SmallButton label="정하기 (충돌·취소 요청·승계)" onPress={() => { setDecideFor(null); setSheet('decide') }} /> : null}
           <YoutubeWarning yt={yt} closed={closed} onPaste={() => setSheet('paste')} />
+          {seller && !closed && !sealed ? <StreamAudioPanel session={services.voice} broadcastId={broadcastId} title={title} /> : null}
           <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
           <ProductList onOpen={setDetail} />
         </ScrollView>

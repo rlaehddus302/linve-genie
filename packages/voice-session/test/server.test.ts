@@ -261,6 +261,18 @@ describe('APP1b server reading session', () => {
     expect((fromWire(state?.snapshot) as { cards: { autoConfirmAt: unknown }[] }).cards).toEqual([expect.objectContaining({ no: 15, price: 15000, autoConfirmAt: null })])
     session.close()
   })
+  it('D-LIVETEST-05 서버가 받은 방송 소리 시각은 기기 시계 차이를 더해 맞춘다 — 기기 시계가 늦어도 늦은 말로 빠지지 않는다', async () => {
+    const messages: VoiceServerMessage[] = []
+    const session = createReadingSession({ host: { ...data(), existingProduct: () => null }, device: 'test', send: (message) => messages.push(message) })
+    // 기기 시계가 서버보다 0.5초 늦다
+    session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), now: Date.now() - 500, settings: { 'voice.instant': true } } }); await settle()
+    session.onServerCapture(Date.now() - 1000)
+    session.onResult('15번 엘레강스 만오천원', 900, 1000)
+    await vi.advanceTimersByTimeAsync(2000)
+    const state = messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)
+    expect((fromWire(state?.snapshot) as { cards: { flushedAtEnd?: boolean }[] }).cards.every((card) => card.flushedAtEnd !== true)).toBe(true)
+    session.close()
+  })
 })
 
 describe('wire boundary', () => {
