@@ -30,7 +30,8 @@ import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue
 import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { ListenLine, listenChip, useStreamAudio } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
-import { YoutubeSection, YoutubeWarning, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
+import type { LinkView } from '@livejjim/web/src/api/types.ts'
+import { YoutubeSection, YoutubeWarning, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
 const RETURN_WAIT_MS = 3000
@@ -159,6 +160,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
 
   const ended = (broadcast?.ended ?? false) || endedHere
   const sealed = data?.sealed ?? false
+  // 방송 연결 전체 화면 (D-UX3-06·07): 아직 잇지 않은 방송이면 주소 칸은 본문에, [이 방송에 잇기]는 맨 아래(주소를 넣어야 보인다) — 아니면 유튜브 칸 그대로.
+  // 훅이라 이른 return보다 앞에 둔다
+  const linkable = yt.phase === 'ready' && yt.link !== null && yt.link.link === null && !(ended || sealed) && (yt.webChat === null ? yt.connection === 'CONNECTED' : yt.webChat.on)
+  const linker = useAddressLinker({ enabled: sheet === 'youtube' && linkable, webChat: yt.webChat, broadcastId, submit: async (body) => yt.setLink(await withRetry(() => post<LinkView>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/youtube`, body))) })
   const command = useCallback(
     async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> => {
       const current = store.getSnapshot()
@@ -348,13 +353,19 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           </RowGroup>
         </BottomSheet>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
-        <FullSheet
-          visible={sheet === 'youtube'}
-          onClose={close}
-          title="방송 연결"
-          actions={yt.link !== null && yt.link.link === null && !closed ? <BigButton kind="outline" label="나중에 잇기" onPress={close} /> : undefined}
-        >
-          <YoutubeSection yt={yt} closed={closed} />
+        <FullSheet visible={sheet === 'youtube'} onClose={close} name="방송 연결" title={linkable ? '방송 주소를 넣어 주세요' : '방송 연결'} actions={linkable ? (
+            <>
+              <BigButton kind="outline" label="나중에 잇기" onPress={close} />
+              {linker.action}
+            </>
+          ) : undefined}>
+          {linkable ? (
+            <View role="group" aria-label="유튜브">
+              {linker.fields}
+            </View>
+          ) : (
+            <YoutubeSection yt={yt} closed={closed} />
+          )}
         </FullSheet>
         <BottomSheet visible={sheet === 'voice'} onClose={close} title="음성 설정">
           <VoiceSettingsPanel session={services.voice} broadcastId={broadcastId} />

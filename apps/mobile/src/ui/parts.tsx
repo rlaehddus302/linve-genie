@@ -1,8 +1,8 @@
 // 공통 조각: 큰 단추·입력칸·알림 상자·꼬리표·화면 틀. 모양은 공통 디자인 바탕(ui/kit)에서 가져오고,
 // 역할(role)·이름(aria-label)을 정확히 달아 시험·보조 기술이 잡기 쉽게 한다. (화면들이 쓰는 이 이름·인자는 그대로 둔다.)
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View, type TextInputProps } from 'react-native'
-import { RADIUS, SHADOW, SPACE, TOUCH, pressedFill } from './kit/tokens.ts'
+import { RADIUS, SHADOW, SPACE, TOUCH, TYPE, pressedFill } from './kit/tokens.ts'
 import { Txt, useKit, type TxtColor } from './kit/theme.tsx'
 import type { Tone } from './theme.ts'
 
@@ -127,38 +127,59 @@ export interface FieldProps extends Omit<TextInputProps, 'style'> {
   readonly hint?: string | null
 }
 
-export function Field({ label, problem, hint, ...input }: FieldProps) {
+/**
+ * 입력 칸 (토스식, D-UX3-07): 작은 라벨(초점이면 초록) · 큰 값 · 밑줄 하나(초점이면 초록, 잘못이면 빨강). 테두리 상자 없음.
+ * 값이 있으면 오른쪽에 동그란 [지우기]. 라벨이 칸 이름(aria-label)이다.
+ */
+export function Field({ label, problem, hint, onFocus, onBlur, ...input }: FieldProps) {
   const { p, fontScale, forced } = useKit()
+  const [focused, setFocused] = useState(false)
   const bad = problem !== undefined && problem !== null
+  const clearable = typeof input.value === 'string' && input.value !== '' && input.onChangeText !== undefined && input.editable !== false
   return (
-    <View style={{ gap: SPACE.sm }}>
-      <Txt step="bodyLarge" weight="bold">
+    <View style={{ gap: SPACE.xs }}>
+      <Txt step="caption" ink={bad ? p.dangerText : focused ? p.primaryText : p.textSub}>
         {label}
       </Txt>
-      <TextInput
-        aria-label={label}
-        aria-invalid={bad}
-        maxFontSizeMultiplier={2}
-        placeholderTextColor={p.textSub}
-        {...input}
-        style={{ minHeight: TOUCH.button, fontSize: forced ? 22 * fontScale : 22, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.md, borderWidth: bad ? 3 : 2, borderColor: bad ? p.dangerText : p.borderStrong, borderRadius: RADIUS.md, color: p.text, backgroundColor: p.surface }}
-      />
+      <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 2, borderBottomColor: bad ? p.dangerText : focused ? p.primary : p.line }}>
+        <TextInput
+          aria-label={label}
+          aria-invalid={bad}
+          maxFontSizeMultiplier={2}
+          placeholderTextColor={p.borderStrong}
+          {...input}
+          onFocus={(event) => {
+            setFocused(true)
+            onFocus?.(event)
+          }}
+          onBlur={(event) => {
+            setFocused(false)
+            onBlur?.(event)
+          }}
+          style={{ flex: 1, minHeight: TOUCH.min, fontSize: forced ? TYPE.number * fontScale : TYPE.number, paddingHorizontal: 0, paddingVertical: SPACE.sm, color: p.text }}
+        />
+        {clearable ? <ClearButton label={`${label} 지우기`} onPress={() => input.onChangeText?.('')} /> : null}
+      </View>
       {hint !== undefined && hint !== null ? <Hint>{hint}</Hint> : null}
       {bad ? (
-        <View style={{ flexDirection: 'row', gap: SPACE.xs }}>
-          <View aria-hidden>
-            <Txt step="caption" weight="bold" color="dangerText">
-              ⚠
-            </Txt>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Txt step="caption" weight="bold" color="dangerText" role="alert">
-              {problem}
-            </Txt>
-          </View>
-        </View>
+        <Txt step="caption" weight="bold" color="dangerText" role="alert">
+          {problem}
+        </Txt>
       ) : null}
     </View>
+  )
+}
+
+/** 입력 칸 오른쪽 동그란 지우기 (회색 원 + ×) */
+export function ClearButton({ label, onPress }: { readonly label: string; readonly onPress: () => void }) {
+  const { p } = useKit()
+  return (
+    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={8} style={({ pressed }) => ({ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <View aria-hidden style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: p.borderStrong, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ position: 'absolute', width: 11, height: 2, backgroundColor: p.surface, transform: [{ rotate: '45deg' }] }} />
+        <View style={{ position: 'absolute', width: 11, height: 2, backgroundColor: p.surface, transform: [{ rotate: '-45deg' }] }} />
+      </View>
+    </Pressable>
   )
 }
 

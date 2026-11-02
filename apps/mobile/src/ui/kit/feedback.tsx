@@ -84,7 +84,7 @@ export function Toast({ toast, onDismiss, bottomOffset = 0 }: { readonly toast: 
               if (hasAction) toast.onAction?.()
               onDismiss()
             }}
-            style={{ minHeight: TOUCH.min, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: SPACE.sm }}
+            style={({ pressed }) => ({ minHeight: TOUCH.min, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent' })}
           >
             <Txt step="bodyLarge" weight="bold" ink={p.toastAction}>
               {actionLabel}

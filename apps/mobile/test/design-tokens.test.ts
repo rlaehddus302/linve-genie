@@ -27,12 +27,13 @@ describe.each(SCHEMES)('색 쌍 대비 (%s)', (scheme) => {
 })
 
 describe('크기 약속', () => {
-  it('본문 18 이상, 가장 작은 글자 16, 누르는 곳 52 이상', () => {
-    expect(TYPE.body).toBeGreaterThanOrEqual(18)
-    expect(Math.min(...Object.values(TYPE))).toBeGreaterThanOrEqual(16)
-    expect(TOUCH.min).toBeGreaterThanOrEqual(52)
-    expect(TOUCH.button).toBeGreaterThanOrEqual(60)
-    expect(TOUCH.key).toBeGreaterThanOrEqual(64)
+  // 옛 약속(D-UX2-01): 본문 18·최소 16·누름 52·버튼 60·키 64. 새 약속(D-UX3-07, 사용자 지시 "토스 치수 그대로"): 본문 16·최소 14·줄 48·버튼 54·키 60
+  it('본문 16 이상, 가장 작은 글자 14, 누르는 줄 48·큰 버튼 54·숫자판 키 60 이상', () => {
+    expect(TYPE.body).toBeGreaterThanOrEqual(16)
+    expect(Math.min(...Object.values(TYPE))).toBeGreaterThanOrEqual(14)
+    expect(TOUCH.min).toBeGreaterThanOrEqual(48)
+    expect(TOUCH.button).toBeGreaterThanOrEqual(54)
+    expect(TOUCH.key).toBeGreaterThanOrEqual(60)
     expect(TOUCH.gap).toBeGreaterThanOrEqual(8)
   })
 })

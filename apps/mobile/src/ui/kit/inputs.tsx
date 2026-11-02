@@ -15,24 +15,25 @@ export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-lab
   readonly unit?: string
 }
 
+/** 입력 칸 (토스식, D-UX3-07): 작은 라벨 · 큰 값 · 밑줄. parts.tsx의 Field와 같은 모양 — 도움말·단위가 더 있다 */
 export function TextField({ label, help, error, unit, onFocus, onBlur, ...input }: TextFieldProps) {
   const { p, fontScale, forced } = useKit()
   const [focused, setFocused] = useState(false)
   const bad = error !== undefined && error !== null
-  const size = forced ? TYPE.bodyLarge * fontScale : TYPE.bodyLarge
+  const size = forced ? TYPE.number * fontScale : TYPE.number
   return (
-    <View style={{ gap: SPACE.sm }}>
-      <Txt step="bodyLarge" weight="bold">
+    <View style={{ gap: SPACE.xs }}>
+      <Txt step="caption" ink={bad ? p.dangerText : focused ? p.primaryText : p.textSub}>
         {label}
       </Txt>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, borderBottomWidth: 2, borderBottomColor: bad ? p.dangerText : focused ? p.primary : p.line }}>
         <TextInput
           {...input}
           aria-label={label}
           aria-invalid={bad}
           allowFontScaling={!forced}
           maxFontSizeMultiplier={2}
-          placeholderTextColor={p.textSub}
+          placeholderTextColor={p.borderStrong}
           onFocus={(event) => {
             setFocused(true)
             onFocus?.(event)
@@ -41,10 +42,10 @@ export function TextField({ label, help, error, unit, onFocus, onBlur, ...input 
             setFocused(false)
             onBlur?.(event)
           }}
-          style={{ flex: 1, minHeight: TOUCH.button, fontSize: size, color: p.text, backgroundColor: p.surface, borderRadius: RADIUS.md, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.md, borderWidth: focused || bad ? 3 : 2, borderColor: bad ? p.dangerText : focused ? p.focus : p.borderStrong }}
+          style={{ flex: 1, minHeight: TOUCH.min, fontSize: size, color: p.text, paddingHorizontal: 0, paddingVertical: SPACE.sm }}
         />
         {unit === undefined ? null : (
-          <Txt step="bodyLarge" weight="medium">
+          <Txt step="bodyLarge" weight="medium" color="textSub">
             {unit}
           </Txt>
         )}
@@ -108,7 +109,7 @@ export function NumberPad({ value, onChange, maxLength = 9, testID }: { readonly
           {row.map(keyButton)}
         </View>
       ))}
-      <Pressable role="button" aria-label="모두 지우기" onPress={() => press('clear')} style={{ minHeight: TOUCH.min, alignItems: 'center', justifyContent: 'center' }}>
+      <Pressable role="button" aria-label="모두 지우기" onPress={() => press('clear')} style={({ pressed }) => ({ backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, minHeight: TOUCH.min, alignItems: 'center', justifyContent: 'center' })}>
         <Txt weight="bold" color="primaryText">
           모두 지우기
         </Txt>

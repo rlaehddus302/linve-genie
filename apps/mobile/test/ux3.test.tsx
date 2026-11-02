@@ -68,18 +68,22 @@ describe('새 방송 전체 화면 (D-UX3-06)', () => {
     return world
   }
 
-  it('처음엔 제목 칸만, [다음]을 누르면 그 아래 주소 칸 — 아직 방송을 만들지 않는다. [이 방송에 잇기]가 방송을 만들고 바로 잇는다', async () => {
+  it('처음엔 빈 제목 칸만(오늘 날짜 제목은 예시 글), [다음]을 누르면 그 아래 "방송 주소" 칸 — 아직 방송을 만들지 않고 [이 방송에 잇기]도 없다. 주소를 넣으면 단추가 나타나 방송을 만들고 바로 잇는다 (D-UX3-07)', async () => {
     const world = linkableWorld()
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
     fireEvent.click(await screen.findByRole('button', { name: '방송 시작하기' }))
     const page = screen.getByRole('dialog', { name: '새 방송' })
-    expect(within(page).getByLabelText('방송 제목')).toBeTruthy()
-    expect(within(page).queryByLabelText('방송 주소 붙여넣기')).toBeNull()
-    fireEvent.change(within(page).getByLabelText('방송 제목'), { target: { value: '화요일 저녁' } })
+    const titleField = within(page).getByLabelText('방송 제목') as HTMLInputElement
+    expect(titleField.value).toBe('')
+    expect(titleField.getAttribute('placeholder')).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 방송$/)
+    expect(within(page).queryByLabelText('방송 주소')).toBeNull()
+    fireEvent.change(titleField, { target: { value: '화요일 저녁' } })
     fireEvent.click(within(page).getByRole('button', { name: '다음' }))
-    const address = await within(page).findByLabelText('방송 주소 붙여넣기')
+    const address = await within(page).findByLabelText('방송 주소')
     expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(0)
+    expect(within(page).queryByRole('button', { name: '이 방송에 잇기' })).toBeNull()
+    expect(within(page).queryByRole('button', { name: '주소 없이 시작' })).toBeNull()
     expect((within(page).getByLabelText('방송 제목') as HTMLInputElement).value).toBe('화요일 저녁')
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
     fireEvent.click(within(page).getByRole('button', { name: '이 방송에 잇기' }))
@@ -88,15 +92,16 @@ describe('새 방송 전체 화면 (D-UX3-06)', () => {
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)[0]?.body).toEqual({ requestId: expect.any(String), video: 'https://www.youtube.com/watch?v=tWnNGwvdN40' })
   })
 
-  it('[주소 없이 시작]은 방송만 만들고 방송 화면으로', async () => {
+  it('제목을 비워 두면 오늘 날짜 제목으로 만든다', async () => {
     const world = linkableWorld()
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
     fireEvent.click(await screen.findByRole('button', { name: '방송 시작하기' }))
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
-    fireEvent.click(await screen.findByRole('button', { name: '주소 없이 시작' }))
+    fireEvent.change(await screen.findByLabelText('방송 주소'), { target: { value: 'https://youtu.be/tWnNGwvdN40' } })
+    fireEvent.click(await screen.findByRole('button', { name: '이 방송에 잇기' }))
     await waitFor(() => expect(navigation.openConsole).toHaveBeenCalledWith('b9'))
-    expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)).toHaveLength(0)
+    expect(String(world.server.callsTo('POST', /^\/api\/broadcasts$/)[0]?.body?.title)).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 방송$/)
   })
 })
 

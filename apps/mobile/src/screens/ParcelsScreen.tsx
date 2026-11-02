@@ -378,7 +378,7 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
 function PickRow({ on, name, disabled, onPress }: { readonly on: boolean; readonly name: string; readonly disabled: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="checkbox" aria-checked={on} aria-label={`${name} 고르기`} disabled={disabled} onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 }}>
+    <Pressable role="checkbox" aria-checked={on} aria-label={`${name} 고르기`} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <View style={{ width: 28, height: 28, borderRadius: RADIUS.sm, borderWidth: 2, borderColor: on ? p.primary : p.outline, backgroundColor: on ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
         {on ? <Icon name="check" color={p.onPrimary} size={18} /> : null}
       </View>

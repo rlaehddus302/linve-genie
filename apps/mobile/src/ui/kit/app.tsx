@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { Pressable, View, type ViewStyle } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
+import { tapHaptic } from '../../native/haptics.ts'
 
 export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus'
 
@@ -32,61 +33,36 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
             <View style={{ width: 0, height: 0, marginLeft: s * 0.08, borderTopWidth: s * 0.17, borderBottomWidth: s * 0.17, borderLeftWidth: s * 0.26, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: c }} />
           </View>
         )
-      case 'home':
-        if (filled)
-          return (
-            <View style={{ alignItems: 'center' }}>
-              <View style={{ width: s * 0.56, height: s * 0.56, backgroundColor: c, borderRadius: 2, transform: [{ rotate: '45deg' }], marginBottom: -s * 0.36 }} />
-              <View style={{ width: s * 0.68, height: s * 0.46, backgroundColor: c, borderBottomLeftRadius: 3, borderBottomRightRadius: 3, alignItems: 'center', justifyContent: 'flex-end' }}>
-                <View style={{ width: s * 0.18, height: s * 0.22, backgroundColor: hole, borderTopLeftRadius: s, borderTopRightRadius: s }} />
-              </View>
-            </View>
-          )
+      case 'home': {
+        // 지붕(돌린 네모) + 몸통. 찬 모양도 같은 치수 — 몸통 가운데 아래에 문(놓인 바탕 색)만 뚫는다 (D-UX3-07)
+        const roof = s * 0.52
         return (
           <View style={{ alignItems: 'center' }}>
-            <View style={{ width: s * 0.52, height: s * 0.52, borderTopWidth: stroke, borderLeftWidth: stroke, borderColor: c, transform: [{ rotate: '45deg' }], marginBottom: -s * 0.3 }} />
-            <View style={{ width: s * 0.62, height: s * 0.42, borderLeftWidth: stroke, borderRightWidth: stroke, borderBottomWidth: stroke, borderColor: c, borderBottomLeftRadius: 2, borderBottomRightRadius: 2 }} />
+            <View style={{ width: roof, height: roof, borderTopWidth: stroke, borderLeftWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderRadius: 2, transform: [{ rotate: '45deg' }], marginBottom: -s * 0.3 }} />
+            <View style={{ width: s * 0.62, height: s * 0.42, borderLeftWidth: stroke, borderRightWidth: stroke, borderBottomWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderBottomLeftRadius: 2, borderBottomRightRadius: 2, alignItems: 'center', justifyContent: 'flex-end' }}>
+              {filled ? <View style={{ width: s * 0.16, height: s * 0.2, backgroundColor: hole, borderTopLeftRadius: s, borderTopRightRadius: s }} /> : null}
+            </View>
           </View>
         )
+      }
       case 'box':
-        if (filled)
-          return (
-            <View style={{ width: s * 0.8, height: s * 0.72, backgroundColor: c, borderRadius: 3, alignItems: 'center' }}>
-              <View style={{ position: 'absolute', top: s * 0.18, left: 0, right: 0, height: stroke, backgroundColor: hole }} />
-              <View style={{ width: s * 0.2, height: s * 0.18, backgroundColor: hole, opacity: 0.6 }} />
-            </View>
-          )
         return (
-          <View style={{ width: s * 0.78, height: s * 0.7, borderWidth: stroke, borderColor: c, borderRadius: 3, alignItems: 'center' }}>
-            <View style={{ position: 'absolute', top: s * 0.16, left: 0, right: 0, height: stroke, backgroundColor: c }} />
-            <View style={{ width: stroke, height: s * 0.2, backgroundColor: c }} />
+          <View style={{ width: s * 0.78, height: s * 0.7, borderWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderRadius: 3, alignItems: 'center' }}>
+            <View style={{ position: 'absolute', top: s * 0.16, left: 0, right: 0, height: stroke, backgroundColor: filled ? hole : c }} />
+            <View style={{ width: stroke, height: s * 0.2, backgroundColor: filled ? hole : c }} />
           </View>
         )
       case 'card':
-        if (filled)
-          return (
-            <View style={{ width: s * 0.82, height: s * 0.62, backgroundColor: c, borderRadius: 3 }}>
-              <View style={{ marginTop: s * 0.14, height: stroke, backgroundColor: hole }} />
-            </View>
-          )
         return (
-          <View style={{ width: s * 0.8, height: s * 0.6, borderWidth: stroke, borderColor: c, borderRadius: 3 }}>
-            <View style={{ marginTop: s * 0.12, height: stroke, backgroundColor: c }} />
-          </View>
-        )
-      case 'more':
-        return (
-          <View style={{ flexDirection: 'row', gap: s * 0.16 }}>
-            {[0, 1, 2].map((n) => (
-              <View key={n} style={{ width: s * 0.15, height: s * 0.15, borderRadius: s, backgroundColor: c }} />
-            ))}
+          <View style={{ width: s * 0.8, height: s * 0.6, borderWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderRadius: 3 }}>
+            <View style={{ marginTop: s * 0.12, height: stroke, backgroundColor: filled ? hole : c }} />
           </View>
         )
       case 'label': {
-        // 라벨 한 장: 네모 + 글줄 둘
+        // 라벨 한 장: 네모 + 글줄 둘 (찬 모양은 네모를 채우고 글줄을 뚫는다)
         const lines = filled ? hole : c
         return (
-          <View style={{ width: s * 0.8, height: s * 0.66, borderRadius: 3, borderWidth: filled ? 0 : stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', justifyContent: 'center', paddingLeft: s * 0.14, gap: s * 0.09 }}>
+          <View style={{ width: s * 0.8, height: s * 0.66, borderRadius: 3, borderWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', justifyContent: 'center', paddingLeft: s * 0.14, gap: s * 0.09 }}>
             <View style={{ width: s * 0.42, height: stroke, backgroundColor: lines }} />
             <View style={{ width: s * 0.26, height: stroke, backgroundColor: lines }} />
           </View>
@@ -94,9 +70,17 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
       }
       case 'menu':
         return (
-          <View style={{ gap: s * 0.16 }}>
+          <View style={{ gap: s * 0.17 }}>
             {[0, 1, 2].map((n) => (
-              <View key={n} style={{ width: s * 0.72, height: filled ? stroke + 1 : stroke, borderRadius: stroke, backgroundColor: c }} />
+              <View key={n} style={{ width: s * 0.72, height: stroke, borderRadius: stroke, backgroundColor: c }} />
+            ))}
+          </View>
+        )
+      case 'more':
+        return (
+          <View style={{ flexDirection: 'row', gap: s * 0.16 }}>
+            {[0, 1, 2].map((n) => (
+              <View key={n} style={{ width: s * 0.15, height: s * 0.15, borderRadius: s, backgroundColor: c }} />
             ))}
           </View>
         )
@@ -186,11 +170,14 @@ export function TabBar({ active, onSelect }: { readonly active: TabKey; readonly
           const on = tab.key === active
           const ink = on ? p.text : p.textSub
           return (
-            <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => onSelect(tab.key)} style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.min + 4, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on ? p.soft : 'transparent' })}>
+            <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
+                tapHaptic()
+                onSelect(tab.key)
+              }} style={({ pressed }) => ({ flex: 1, minHeight: 56, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on ? p.soft : 'transparent' })}>
               {({ pressed }) => (
                 <>
-                  <Icon name={tab.icon} color={ink} filled={on} cut={pressed ? p.softPressed : on ? p.soft : p.surface} />
-                  <Txt step="caption" weight={on ? 'heavy' : 'medium'} ink={ink}>
+                  <Icon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : on ? p.soft : p.surface} />
+                  <Txt step="caption" weight={on ? 'bold' : 'medium'} ink={ink}>
                     {tab.word}
                   </Txt>
                 </>

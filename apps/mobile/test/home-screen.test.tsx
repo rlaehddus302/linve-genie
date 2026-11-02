@@ -29,8 +29,9 @@ describe('HomeScreen', () => {
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
     fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
-    // D-LIVETEST-09: 시트 제목 없이 제목 칸이 오늘 날짜로 미리 채워지고("2026-11-02 월요일 방송" 꼴), 단추는 "다음"
-    expect((screen.getByLabelText('방송 제목') as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 방송$/)
+    // D-LIVETEST-09: 제목 칸에 오늘 날짜 제목("2026-11-02 월요일 방송" 꼴), 단추는 "다음". 새 기대(D-UX3-07): 칸은 비어 있고 날짜 제목은 예시 글
+    expect((screen.getByLabelText('방송 제목') as HTMLInputElement).value).toBe('')
+    expect(screen.getByLabelText('방송 제목').getAttribute('placeholder')).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 방송$/)
     fireEvent.change(screen.getByLabelText('방송 제목'), { target: { value: '금요일 방송' } })
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
     await waitFor(() => expect(navigation.openConsole).toHaveBeenCalledWith('b2'))

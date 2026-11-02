@@ -30,6 +30,8 @@ import { AppPrinter } from './app-printer.ts'
 import { LiveNativeAudio } from './live-audio.ts'
 import { setNativeModules } from './index.ts'
 import { setNoticeModule } from './notice.ts'
+import { setHaptic } from './haptics.ts'
+import * as Haptics from 'expo-haptics'
 
 let picker: PrinterPicker | null = null
 let entries: readonly PickEntry[] | null = null
@@ -67,6 +69,8 @@ let installed = false
 export function installProductionNative(): void {
   if (installed) return
   installed = true
+  // 아래 탭 손맛 (D-UX3-07)
+  setHaptic(() => void Haptics.selectionAsync())
   let transport: BleTransport
   try {
     transport = createPlxTransport(new BleManager({ restoreStateIdentifier: BLE_RESTORE_IDENTIFIER, restoreStateFunction: () => undefined }))

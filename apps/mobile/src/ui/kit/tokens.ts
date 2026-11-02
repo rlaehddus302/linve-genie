@@ -65,17 +65,17 @@ export interface TonePair {
 }
 
 /**
- * 색 (D-UX2-01, 사장님이 고른 새 시안): 밝은 테마 하나만 쓴다. 바탕 옅은 회색-초록, 카드 흰색, 강조 초록, 주의 주황.
+ * 색 (D-UX2-01, 사장님이 고른 새 시안 → D-UX3-07 토스 치수 그대로): 밝은 테마 하나만 쓴다. 바탕 회색(#F2F4F6), 카드 흰색, 글자 진회색, 강조 초록, 주의 주황.
  * 어두운 모드도 같은 밝은 색을 쓴다 — 방송 중 화면이 휴대폰 설정에 따라 바뀌지 않게.
  */
 const LIGHT: Palette = {
-  background: '#F7F8F6',
+  background: '#F2F4F6',
   surface: '#FFFFFF',
-  surfaceAlt: '#F2F3F1',
-  text: '#16201A',
-  textSub: '#5B665E',
-  border: '#EEF0EC',
-  borderStrong: '#7D8780',
+  surfaceAlt: '#F2F4F6',
+  text: '#191F28',
+  textSub: '#4E5968',
+  border: '#F2F4F6',
+  borderStrong: '#6B7684',
   primary: '#1F7A4D',
   onPrimary: '#FFFFFF',
   primaryText: '#1F7A4D',
@@ -85,16 +85,16 @@ const LIGHT: Palette = {
   onDanger: '#FFFFFF',
   dangerText: '#B42318',
   backdrop: '#000000',
-  toast: '#16201A',
+  toast: '#191F28',
   onToast: '#FFFFFF',
   toastAction: '#8FD3AE',
   focus: '#1F7A4D',
-  line: '#E3E6E1',
-  outline: '#D5DAD3',
+  line: '#E5E8EB',
+  outline: '#E5E8EB',
   freshBg: '#E6F2EB',
-  soft: '#E9ECE8',
-  pressed: '#E8EBE7',
-  softPressed: '#D9DED8',
+  soft: '#E5E8EB',
+  pressed: '#E8EBED',
+  softPressed: '#D1D6DB',
   primaryPressed: '#17603C',
   secondaryPressed: '#CFE5D8',
   dangerPressed: '#8E1B12',
@@ -117,24 +117,24 @@ const LIGHT_TONES: Readonly<Record<Tone, TonePair>> = {
 /** 상태 꼬리표·알림 상자 색 쌍 (바탕 + 글자) */
 export const TONES: Readonly<Record<Scheme, Readonly<Record<Tone, TonePair>>>> = { light: LIGHT_TONES, dark: LIGHT_TONES }
 
-/** 글자 크기 단계 (dp, 시스템 큰 글자 배율 전). 본문은 18 이상. */
+/** 글자 크기 단계 (dp, 시스템 큰 글자 배율 전). 토스 화면 치수 그대로 (D-UX3-07, 사용자 지시 2026-11-03 "똑같이"). */
 export const TYPE = {
-  /** 꼬리표·도움말 — 가장 작은 글자 */
-  caption: 16,
+  /** 꼬리표·도움말·입력 칸 라벨·아래 탭 글자 */
+  caption: 14,
   /** 본문 */
-  body: 18,
-  /** 강조 본문·버튼·입력 */
-  bodyLarge: 20,
-  /** 묶음 제목 */
-  section: 20,
-  /** 방송 중 상품 줄의 품종·가격 (멀리서도 읽히게) */
-  lead: 22,
+  body: 16,
+  /** 줄 제목·단추·입력 */
+  bodyLarge: 18,
+  /** 카드 안 묶음 이름 */
+  section: 18,
+  /** 방송 중 상품 줄의 품종·가격 */
+  lead: 20,
   /** 카드·시트 제목 */
-  title: 24,
-  /** 화면 맨 위 질문형 제목 */
-  headline: 28,
-  /** 숫자 강조 (가격·건수) */
-  number: 36,
+  title: 22,
+  /** 화면 맨 위 질문형 제목 ("어떤 계좌로 보낼까요?") */
+  headline: 26,
+  /** 숫자 강조·입력 칸 값 */
+  number: 28,
 } as const
 
 export type TypeStep = keyof typeof TYPE
@@ -147,11 +147,11 @@ export const WEIGHT = { regular: '400', medium: '600', bold: '700', heavy: '800'
 /** 간격 (4·8 단위) */
 export const SPACE = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const
 
-/** 모서리: 숫자 배지 14 · 줄·버튼 16 · 카드 20 · 시트 24 */
-export const RADIUS = { sm: 10, md: 14, lg: 16, xl: 20, xxl: 24, pill: 999 } as const
+/** 모서리: 숫자 배지 12 · 줄·버튼 16 · 카드 20 · 시트 24 (토스) */
+export const RADIUS = { sm: 10, md: 12, lg: 16, xl: 20, xxl: 24, pill: 999 } as const
 
-/** 누르는 크기: 최소 52, 큰 버튼 60, 숫자판 키 64. 서로 붙은 것은 gap(8) 이상 띄운다. */
-export const TOUCH = { min: 52, button: 60, key: 64, gap: 8 } as const
+/** 누르는 크기: 줄 최소 48, 큰 버튼 54(토스 "확인"), 숫자판 키 60. 서로 붙은 것은 gap(8) 이상 띄운다. */
+export const TOUCH = { min: 48, button: 54, key: 60, gap: 8 } as const
 
 /** 시스템 큰 글자를 이 배율까지만 따른다 (안드로이드 최대 200%). */
 export const MAX_FONT_SCALE = 2

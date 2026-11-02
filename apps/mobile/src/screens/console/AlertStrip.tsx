@@ -5,7 +5,7 @@ import type { QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import type { AlertCounts } from '../../lib/derive.ts'
 import { ALERT_WORD, NO_STATION_SHORT, PRINT_ALERT_WORD } from '../../lib/words.ts'
 import { Txt, useKit } from '../../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
+import { RADIUS, SPACE, pressedFill } from '../../ui/kit/tokens.ts'
 
 export interface AlertItem {
   readonly key: string
@@ -46,7 +46,7 @@ const ACTION: Readonly<Record<string, AlertAction>> = { conflict: 'decide', canc
  * 모두 없으면 아무것도 그리지 않는다.
  */
 export function AlertStrip({ counts, queue, rehearsal, ended, onAction }: { readonly counts: AlertCounts; readonly queue: QueueSummary | null; readonly rehearsal: boolean; readonly ended: boolean; readonly onAction: (action: AlertAction) => void }) {
-  const { tones } = useKit()
+  const { p, tones } = useKit()
   const items = alertItems(counts, queue, rehearsal)
   if (noStation(queue, rehearsal, ended)) items.unshift({ key: 'station', text: `${NO_STATION_SHORT} ›`, tone: 'danger' })
   if (items.length === 0) return null
@@ -55,7 +55,7 @@ export function AlertStrip({ counts, queue, rehearsal, ended, onAction }: { read
       {items.map((item) => {
         const pair = tones[item.tone]
         return (
-          <Pressable key={item.key} role="button" aria-label={item.text} onPress={() => onAction(ACTION[item.key] ?? 'pending')} style={{ paddingVertical: 6, paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill, backgroundColor: pair.bg }}>
+          <Pressable key={item.key} role="button" aria-label={item.text} onPress={() => onAction(ACTION[item.key] ?? 'pending')} style={({ pressed }) => ({ paddingVertical: 6, paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill, backgroundColor: pressed ? pressedFill(p, pair.bg) : pair.bg })}>
             <Txt step="caption" weight="bold" ink={pair.fg}>{item.text}</Txt>
           </Pressable>
         )

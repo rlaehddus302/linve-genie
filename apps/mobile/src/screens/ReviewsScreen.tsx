@@ -474,7 +474,7 @@ function ReviewRow({ n, review, state, broadcast, many, products, selected, pend
   return (
     <Card label={lineName}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
-        <Pressable role="checkbox" aria-checked={selected} aria-label={`${lineName} 고르기`} disabled={pending} onPress={() => onSelect(!selected)} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44, minWidth: 44 }}>
+        <Pressable role="checkbox" aria-checked={selected} aria-label={`${lineName} 고르기`} disabled={pending} onPress={() => onSelect(!selected)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44, minWidth: 44, borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
           <View style={{ width: 28, height: 28, borderRadius: RADIUS.sm, borderWidth: 2, borderColor: selected ? p.primary : p.outline, backgroundColor: selected ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
             {selected ? <Icon name="check" color={p.onPrimary} size={18} /> : null}
           </View>

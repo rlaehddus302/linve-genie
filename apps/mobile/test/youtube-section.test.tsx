@@ -76,7 +76,7 @@ describe('콘솔 유튜브 (앱)', () => {
     const { world } = youtubeWorld()
     await open(world)
     await openYoutube()
-    fireEvent.change(await screen.findByRole('textbox', { name: '방송 주소 붙여넣기' }), { target: { value: 'NEWCHAN0001' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: '방송 주소' }), { target: { value: 'NEWCHAN0001' } })
     fireEvent.click(screen.getByRole('button', { name: '이 방송에 잇기' }))
     const ask = await screen.findByRole('group', { name: '처음 잇는 채널 확인' })
     expect(ask.textContent).toContain('처음 잇는 채널이에요 (채널: <b>새채널</b>). 이 방송이 맞나요?')
@@ -90,7 +90,7 @@ describe('콘솔 유튜브 (앱)', () => {
     const { world } = youtubeWorld()
     await open(world)
     await openYoutube()
-    fireEvent.change(await screen.findByRole('textbox', { name: '방송 주소 붙여넣기' }), { target: { value: 'PRIVATE0001' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: '방송 주소' }), { target: { value: 'PRIVATE0001' } })
     fireEvent.click(screen.getByRole('button', { name: '이 방송에 잇기' }))
     await waitFor(() => expect(within(section()).getByRole('alert').textContent).toBe(NOT_PUBLIC))
   })
@@ -127,7 +127,7 @@ describe('콘솔 유튜브 (앱)', () => {
     await open(world)
     await openYoutube()
     await waitFor(() => expect(within(section()).getByText(OFF)).toBeTruthy())
-    expect(screen.queryByRole('textbox', { name: '방송 주소 붙여넣기' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: '방송 주소' })).toBeNull()
     expect(world.server.callsTo('GET', /live-broadcasts/)).toHaveLength(0)
   })
 
@@ -135,7 +135,7 @@ describe('콘솔 유튜브 (앱)', () => {
     const { world } = youtubeWorld()
     world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=true)?$/, () => ({ body: fullView({ seq: world.seq, rehearsal: false, products: [] }) }))
     await open(world)
-    expect(await screen.findByRole('textbox', { name: '방송 주소 붙여넣기' })).toBeTruthy()
+    expect(await screen.findByRole('textbox', { name: '방송 주소' })).toBeTruthy()
     expect(screen.getByRole('dialog', { name: '방송 연결' })).toBeTruthy()
   })
 
@@ -153,7 +153,7 @@ describe('콘솔 유튜브 (앱)', () => {
     await open(world)
     const sheet = await screen.findByRole('dialog', { name: '방송 연결' })
     // D-LIVETEST-09: 복사해 둔 주소는 칸에 미리 채우고 [이 방송에 잇기] 하나로 (따로 묻는 카드 없음)
-    const field = await within(sheet).findByRole('textbox', { name: '방송 주소 붙여넣기' })
+    const field = await within(sheet).findByRole('textbox', { name: '방송 주소' })
     await waitFor(() => expect((field as HTMLInputElement).value).toBe('https://youtube.com/live/LIVENOW0001?si=x'))
     expect(within(sheet).getByText('복사해 둔 주소를 넣었어요.')).toBeTruthy()
     expect(within(sheet).getByRole('button', { name: '나중에 잇기' })).toBeTruthy()
@@ -168,7 +168,7 @@ describe('콘솔 유튜브 (앱)', () => {
     await open(world)
     await openYoutube()
     // D-LIVETEST-09: 유튜브 주소가 아니면 칸을 채우지 않는다
-    const field = await screen.findByRole('textbox', { name: '방송 주소 붙여넣기' })
+    const field = await screen.findByRole('textbox', { name: '방송 주소' })
     await flush()
     expect((field as HTMLInputElement).value).toBe('')
     expect(screen.queryByText('복사해 둔 주소를 넣었어요.')).toBeNull()
@@ -187,7 +187,7 @@ describe('콘솔 유튜브 (앱)', () => {
     // 웹에서 연결하고 돌아와 [다시 확인] → 잇기 칸
     world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: 'CONNECTED', channel: { id: 'UC_K', title: '다육이네' }, permissions: { read: true, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: null, oauth: true } }))
     fireEvent.click(within(section()).getByRole('button', { name: '다시 확인' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: '방송 주소 붙여넣기' }), { target: { value: 'VIDEOKNOWN1' } })
+    fireEvent.change(await screen.findByRole('textbox', { name: '방송 주소' }), { target: { value: 'VIDEOKNOWN1' } })
     // D-LIVETEST-09: 내 채널에 지금 하는 방송이 없으면 목록을 숨긴다
     expect(within(section()).queryByText('내 채널에서 방송 중')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '이 방송에 잇기' }))

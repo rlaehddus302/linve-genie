@@ -2,11 +2,11 @@
 // 움직임 (D-UX3-05): 뒤 어두운 막은 제자리에서 서서히 짙어지고(페이드), 판만 아래에서 올라온다 — 막이 판과 함께 밀려 올라오지 않게.
 // 닫을 때도 막은 서서히 걷히고 판은 내려간 뒤 사라진다. 키보드가 뜨면 판이 키보드 위로 올라간다(입력 칸이 가려지지 않게).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AccessibilityInfo, Animated, Easing, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native'
+import { AccessibilityInfo, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native'
 import { BigButton } from './buttons.tsx'
 import { BACKDROP_OPACITY, RADIUS, SHADOW, SPACE } from './tokens.ts'
 import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
-import { AppHeader } from './app.tsx'
+import { Icon } from './app.tsx'
 
 export interface BottomSheetProps {
   readonly visible: boolean
@@ -94,31 +94,57 @@ export function BottomSheet({ visible, onClose, title, children, actions, testID
 export interface FullSheetProps {
   readonly visible: boolean
   readonly onClose: () => void
+  /** 큰 질문형 제목 ("어떤 방송인가요?") */
   readonly title: string
+  /** 보조 기술에 읽히는 화면 이름 — 없으면 제목 */
+  readonly name?: string
   readonly children?: ReactNode
-  /** 화면 맨 아래 고정 단추들 — 키보드가 뜨면 키보드 바로 위로 올라온다 */
+  /** 화면 맨 아래 고정 단추 — 키보드가 뜨면 키보드 바로 위(여백 12)로 올라온다. null이면 자리도 없다 */
   readonly actions?: ReactNode
   readonly closeLabel?: string
   readonly testID?: string
 }
 
+/** 키보드가 떠 있는지 (기기에서만 바뀐다 — 웹·시험은 늘 false) */
+export function useKeyboardShown(): boolean {
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    if (Platform.OS === 'web') return
+    const on = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setShown(true))
+    const off = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setShown(false))
+    return () => {
+      on.remove()
+      off.remove()
+    }
+  }, [])
+  return shown
+}
+
 /**
- * 전체 화면 판 (D-UX3-06): 입력이 있는 일(새 방송·방송 연결)은 아래 판 대신 화면 전체로 — 위에 뒤로 단추와 제목, 가운데 내용(스크롤),
- * 맨 아래 단추. 키보드가 뜨면 내용과 단추가 키보드 위로 올라와 입력 칸이 가려지지 않는다. 화면 전체가 아래에서 올라온다(뒤 막 없음).
+ * 전체 화면 판 (토스 "어떤 계좌로 보낼까요?" 화면 그대로, D-UX3-06·07): 왼쪽 위 뒤로(‹)만 있는 머리 → 큰 질문 제목 → 내용(스크롤) → 맨 아래 단추.
+ * 키보드가 뜨면 내용과 단추가 키보드 위로 올라와 입력 칸이 가려지지 않고, 단추와 키보드 사이는 12만 띈다. 화면 전체가 아래에서 올라온다(뒤 막 없음).
  */
-export function FullSheet({ visible, onClose, title, children, actions, closeLabel = '닫기', testID }: FullSheetProps) {
+export function FullSheet({ visible, onClose, title, name, children, actions, closeLabel = '닫기', testID }: FullSheetProps) {
   const { p } = useKit()
   const inset = useBottomInset()
   const top = useTopInset()
+  const keyboard = useKeyboardShown()
   return (
     <Modal visible={visible} animationType={Platform.OS === 'web' ? 'none' : 'slide'} onRequestClose={onClose} statusBarTranslucent presentationStyle="fullScreen">
-      <View role="dialog" aria-modal aria-label={title} testID={testID} style={{ flex: 1, backgroundColor: p.background, paddingTop: top }}>
+      <View role="dialog" aria-modal aria-label={name ?? title} testID={testID} style={{ flex: 1, backgroundColor: p.background, paddingTop: top }}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <AppHeader title={title} onBack={onClose} backLabel={closeLabel} />
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
+          <View style={{ paddingHorizontal: SPACE.sm, paddingTop: SPACE.sm }}>
+            <Pressable role="button" aria-label={closeLabel} onPress={onClose} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+              <Icon name="back" size={26} />
+            </Pressable>
+          </View>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xxxl, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled">
+            <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
+              {title}
+            </Txt>
             {children}
           </ScrollView>
-          {actions === undefined ? null : <View style={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xs, gap: SPACE.sm, backgroundColor: p.background }}>{actions}</View>}
+          {actions === undefined || actions === null ? null : <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(inset, SPACE.md) + SPACE.xs, gap: SPACE.sm, backgroundColor: p.background }}>{actions}</View>}
         </KeyboardAvoidingView>
       </View>
     </Modal>

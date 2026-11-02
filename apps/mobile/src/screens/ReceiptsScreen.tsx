@@ -444,7 +444,7 @@ function LedgerSheet({ initial, onClose }: { readonly initial: string | null; re
                       return next
                     })
                   }
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 }}
+                  style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}
                 >
                   <View style={{ width: 28, height: 28, borderRadius: RADIUS.sm, borderWidth: 2, borderColor: on ? p.primary : p.outline, backgroundColor: on ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
                     {on ? <Icon name="check" color={p.onPrimary} size={18} /> : null}

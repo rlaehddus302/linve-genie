@@ -3,7 +3,7 @@
 // - 005 실험 기종 "예" 기다림 멈춤 줄 아래 "테스트 인쇄"
 // - 006 "예" 뒤 다른 까닭으로 다시 멈추면 "이어서 해요" 대신 지난 일
 // - 007 두 보내기 단추의 보이는 글이 무엇을·어디로, 테스트 라벨 단추는 쓸 때만
-// - 008 "실험" 꼬리표 18px, 실험 기다림 안내·작업 보내기 안내는 본문(18px)
+// - 008 "실험" 꼬리표는 본문 크기, 실험 기다림 안내·작업 보내기 안내는 본문. (옛 본문 18px → D-UX3-07 토스 치수로 본문 16px·꼬리표 14px)
 import { BAUATO_PPA2L, B1_PROFILE, MARKLIFE_P12 } from '@livejjim/printer'
 import { ALL_LABEL_SIZES } from '@livejjim/label'
 import { testHelp as webTestHelp } from '@livejjim/web/src/lib/test-help.ts'
@@ -157,8 +157,8 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
   })
 })
 
-describe('UX-PRN2-008 글자 18px', () => {
-  it('"실험" 꼬리표(big)는 18px, 기본 꼬리표는 16px 그대로', () => {
+describe('UX-PRN2-008 글자 크기 (본문 16px·꼬리표 14px, D-UX3-07)', () => {
+  it('"실험" 꼬리표(big)는 본문 16px, 기본 꼬리표는 14px 그대로', () => {
     render(
       <>
         <Tag tone="warning" big>
@@ -167,15 +167,15 @@ describe('UX-PRN2-008 글자 18px', () => {
         <Tag tone="info">보통</Tag>
       </>,
     )
-    expect(getComputedStyle(screen.getByText('실험')).fontSize).toBe('18px')
-    expect(getComputedStyle(screen.getByText('보통')).fontSize).toBe('16px')
+    expect(getComputedStyle(screen.getByText('실험')).fontSize).toBe('16px')
+    expect(getComputedStyle(screen.getByText('보통')).fontSize).toBe('14px')
   })
 
-  it('실험 기다림 안내는 본문 크기(18px)', async () => {
+  it('실험 기다림 안내는 본문 크기(16px)', async () => {
     const world = await connected(BAUATO_PPA2L)
     fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
-    expect(getComputedStyle(screen.getByText('실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.')).fontSize).toBe('18px')
+    expect(getComputedStyle(screen.getByText('실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.')).fontSize).toBe('16px')
     world.services.labels.stop()
   })
 })

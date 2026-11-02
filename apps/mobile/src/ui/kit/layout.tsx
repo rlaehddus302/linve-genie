@@ -132,7 +132,7 @@ export function ToggleRow({ title, subtitle, on, onChange, disabled, testID }: {
         disabled={disabled === true}
         onPress={() => onChange(!on)}
         testID={testID}
-        style={{ minHeight: TOUCH.min, minWidth: 96, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? p.primary : p.surfaceAlt, borderWidth: on ? 0 : 2, borderColor: p.borderStrong, opacity: disabled === true ? 0.45 : 1 }}
+        style={({ pressed }) => ({ minHeight: TOUCH.min, minWidth: 96, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? (pressed ? p.primaryPressed : p.primary) : pressed ? p.softPressed : p.soft, opacity: disabled === true ? 0.45 : 1 })}
       >
         <Txt step="bodyLarge" weight="bold" color={on ? 'onPrimary' : 'text'}>
           {on ? '켜짐' : '꺼짐'}

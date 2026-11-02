@@ -14,7 +14,7 @@ import { SourcesTab } from './DepositSources.tsx'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, BottomSheet, Card, ConfirmSheet, TextField, Txt, useKit } from '../ui/kit/index.ts'
-import { SPACE } from '../ui/kit/tokens.ts'
+import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
 type Tab = 'review' | 'done' | 'ignored' | 'paste' | 'sources'
@@ -163,6 +163,7 @@ function DepositHead({ deposit }: { readonly deposit: DepositView }) {
 }
 
 function DepositCard({ deposit, tab, onDone }: { readonly deposit: DepositView; readonly tab: Exclude<Tab, 'paste' | 'sources'>; readonly onDone: (text: string, tone?: Flash['tone']) => void }) {
+  const { p } = useKit()
   const action = useAction()
   const [confirming, setConfirming] = useState<BundleView | null>(null)
   const [finding, setFinding] = useState(false)
@@ -177,8 +178,8 @@ function DepositCard({ deposit, tab, onDone }: { readonly deposit: DepositView; 
         <>
           <Notice tone="warning">{reasonWords(deposit.review.reason, deposit.review.twin)}</Notice>
           {deposit.review.suggestions.map((bundle) => (
-            <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`이 묶음으로 확정 — ${bundleWords(bundle)}`} onPress={() => setConfirming(bundle)}>
-              <View style={{ paddingVertical: SPACE.sm, gap: 2 }}>
+            <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`이 묶음으로 확정 — ${bundleWords(bundle)}`} onPress={() => setConfirming(bundle)} style={({ pressed }) => ({ borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+              <View style={{ paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xs, gap: 2 }}>
                 <Txt weight="bold">{bundleWords(bundle)}</Txt>
                 {bundle.beforeSale ? <Txt step="caption" color="textSub">{BEFORE_SALE}</Txt> : null}
                 <Txt step="caption" weight="bold" color="primaryText">이 묶음으로 확정 ›</Txt>
@@ -261,6 +262,7 @@ function DepositCard({ deposit, tab, onDone }: { readonly deposit: DepositView; 
 }
 
 function ConfirmBundle({ deposit, bundle, onClose, onDone }: { readonly deposit: DepositView; readonly bundle: BundleView; readonly onClose: () => void; readonly onDone: (text: string, tone?: Flash['tone']) => void }) {
+  const { p } = useKit()
   const action = useAction()
   const [remember, setRemember] = useState(bundle.canRemember)
   const change = bundleChange(bundle)
@@ -296,7 +298,7 @@ function ConfirmBundle({ deposit, bundle, onClose, onDone }: { readonly deposit:
         {change !== null && change.warning ? <Notice tone="warning">과입금이 생겨요. 확정한 뒤 정산에서 환불을 적어 주세요.</Notice> : null}
         {bundle.beforeSale ? <Notice tone="warning">{BEFORE_SALE}</Notice> : null}
         {bundle.canRemember ? (
-          <Pressable role="checkbox" aria-checked={remember} aria-label="이 입금자명을 이 손님 이름으로 기억하기" onPress={() => setRemember((value) => !value)} style={{ minHeight: 48, justifyContent: 'center' }}>
+          <Pressable role="checkbox" aria-checked={remember} aria-label="이 입금자명을 이 손님 이름으로 기억하기" onPress={() => setRemember((value) => !value)} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <Txt>{`${remember ? '☑' : '☐'} 다음부터 이 입금자명을 이 손님으로 알아보기`}</Txt>
           </Pressable>
         ) : null}
@@ -307,6 +309,7 @@ function ConfirmBundle({ deposit, bundle, onClose, onDone }: { readonly deposit:
 }
 
 function FindBundle({ deposit, onClose, onPick }: { readonly deposit: DepositView; readonly onClose: () => void; readonly onPick: (bundle: BundleView) => void }) {
+  const { p } = useKit()
   const [query, setQuery] = useState('')
   const [bundles, setBundles] = useState<readonly BundleView[] | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
@@ -338,7 +341,7 @@ function FindBundle({ deposit, onClose, onPick }: { readonly deposit: DepositVie
         {bundles === null && error === null ? <Loading /> : null}
         {bundles !== null && bundles.length === 0 ? <Txt color="textSub">맞는 묶음이 없어요.</Txt> : null}
         {bundles?.map((bundle) => (
-          <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`고르기 — ${bundleWords(bundle)}`} onPress={() => onPick(bundle)} style={{ minHeight: 48, justifyContent: 'center', paddingVertical: SPACE.sm }}>
+          <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`고르기 — ${bundleWords(bundle)}`} onPress={() => onPick(bundle)} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', paddingVertical: SPACE.sm, borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <Txt weight="bold">{bundleWords(bundle)}</Txt>
           </Pressable>
         ))}

@@ -262,7 +262,13 @@ export function wasLinkAsked(broadcastId: string): boolean {
 
 function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
   const path = `/api/broadcasts/${encodeURIComponent(yt.broadcastId)}/youtube`
-  return <AddressLinker webChat={yt.webChat} broadcastId={yt.broadcastId} submit={async (body) => yt.setLink(await withRetry(() => post<LinkView>(path, body)))} />
+  const { fields, action } = useAddressLinker({ webChat: yt.webChat, broadcastId: yt.broadcastId, submit: async (body) => yt.setLink(await withRetry(() => post<LinkView>(path, body))) })
+  return (
+    <Stack tight>
+      {fields}
+      {action}
+    </Stack>
+  )
 }
 
 export interface LinkBody {
@@ -271,11 +277,24 @@ export interface LinkBody {
   readonly confirmInvited?: true
 }
 
+export interface AddressLinkerOptions {
+  readonly webChat: YoutubeWebChat | null
+  /** 아직 만들기 전이면 null — 다른 방송에 이어진 것만 막는다 */
+  readonly broadcastId: string | null
+  /** 잇기 요청. 거절은 그대로 던지면 여기서 문장·확인 줄로 보인다 */
+  readonly submit: (body: LinkBody) => Promise<void>
+  readonly label?: string
+  readonly autoFocus?: boolean
+  readonly disabled?: boolean
+  /** false면 클립보드·내 채널 목록을 보지 않는다(화면이 닫혀 있을 때) */
+  readonly enabled?: boolean
+}
+
 /**
- * 방송 주소 붙여넣기 칸 + 내 채널 방송 목록 + 처음 잇는 채널 확인 + [잇기] (방송 화면 연결 판과 새 방송 화면이 함께 쓴다, D-UX3-06).
- * submit이 잇기 요청을 보낸다 — 거절은 그대로 던지면 여기서 문장·확인 줄로 보인다. broadcastId가 없으면(아직 만들기 전) 다른 방송에 이어진 것만 막는다.
+ * "방송 주소" 칸 + 내 채널 방송 목록 + 처음 잇는 채널 확인 (fields) 과 [이 방송에 잇기] (action — 주소를 넣기 전엔 null, D-UX3-07).
+ * 방송 화면 연결과 새 방송 화면이 함께 쓴다 (D-UX3-06). 단추는 화면 맨 아래(키보드 위)에 두라고 따로 준다.
  */
-export function AddressLinker({ webChat, broadcastId, submit, label = '이 방송에 잇기', autoFocus, disabled }: { readonly webChat: YoutubeWebChat | null; readonly broadcastId: string | null; readonly submit: (body: LinkBody) => Promise<void>; readonly label?: string; readonly autoFocus?: boolean; readonly disabled?: boolean }) {
+export function useAddressLinker({ webChat, broadcastId, submit, label = '이 방송에 잇기', autoFocus, disabled, enabled = true }: AddressLinkerOptions): { readonly fields: ReactNode; readonly action: ReactNode | null; readonly busy: boolean } {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
@@ -287,10 +306,11 @@ export function AddressLinker({ webChat, broadcastId, submit, label = '이 방�
   // 클립보드의 유튜브 주소 — 칸을 열 때, 그리고 유튜브 앱에서 주소를 복사하고 돌아올 때
   // 복사한 주소가 있으면 칸을 미리 채운다 — 따로 묻는 카드 없이 [이 방송에 잇기] 하나로 (D-LIVETEST-09)
   const peek = useCallback(async () => {
+    if (!enabled) return
     const found = await clipboardYoutubeAddress()
     setCopied(found)
     if (found !== null) setAddress((now) => (now.trim() === '' ? found : now))
-  }, [])
+  }, [enabled])
   useEffect(() => {
     void peek()
   }, [peek])
@@ -298,6 +318,7 @@ export function AddressLinker({ webChat, broadcastId, submit, label = '이 방�
 
   // 못 찾으면 목록만 감춘다 — 주소를 붙여 넣으면 된다 (D-LIVETEST-09)
   const search = useCallback(async () => {
+    if (!enabled) return
     setRecent(null)
     try {
       const { broadcasts } = await get<{ broadcasts: LiveBroadcastItem[] }>('/api/youtube/live-broadcasts')
@@ -305,7 +326,7 @@ export function AddressLinker({ webChat, broadcastId, submit, label = '이 방�
     } catch {
       setRecent([])
     }
-  }, [])
+  }, [enabled])
   // 잇기 칸을 열 때 한 번 (되풀이해 찾지 않는다, D-YT-SRV-03)
   useEffect(() => {
     void search()
@@ -337,9 +358,9 @@ export function AddressLinker({ webChat, broadcastId, submit, label = '이 방�
 
   const recentTitle = webChat === null ? MY_CHANNEL_TITLE : RECENT_TITLE
   const off = busy || disabled === true
-  return (
+  const fields = (
     <Stack tight>
-      <Field label="방송 주소 붙여넣기" value={address} onChangeText={(text) => {
+      <Field label="방송 주소" value={address} onChangeText={(text) => {
         setAddress(text)
         setAsk(null)
       }} inputMode="url" autoCapitalize="none" autoCorrect={false} autoFocus={autoFocus} />
@@ -382,7 +403,9 @@ export function AddressLinker({ webChat, broadcastId, submit, label = '이 방�
           {error.message}
         </Notice>
       ) : null}
-      <BigButton label={label} primary disabled={off || address.trim() === ''} onPress={() => void link(address.trim())} />
     </Stack>
   )
+  // 주소를 넣기 전엔 단추를 보이지 않는다 (D-UX3-07)
+  const action = address.trim() === '' ? null : <BigButton label={label} primary disabled={off} onPress={() => void link(address.trim())} />
+  return { fields, action, busy }
 }
