@@ -120,6 +120,16 @@ describe('AC-V3-99 번호가 붙은 가격은 확정 아님 (D-V3-113)', () => {
     expect(numberInPriceOf(227, '2000만 원', 20000000)).toBeNull()
     for (const bad of [null, undefined, 42, '', '   ']) expect(numberInPriceOf(227, bad, 22750000)).toBeNull()
   })
+  it('(13) 실방송 "369만원 371번" — "삼육구" 번호가 만원에 붙어 적힘 → 확정 아님 (D-LIVETEST-14)', () => {
+    const note = '369만 원으로 들렸어요. 371번 가격을 확인해 주세요'
+    expect(one('369만원 371번')).toMatchObject({ no: 371, price: 3690000, check: { kind: 'NUMBER_IN_PRICE', note } })
+    expect(readRegistration('369만원 371번', { dictionary: DICT, final: true })).toMatchObject({ ready: null, blocked: 'NUMBER_IN_PRICE' })
+    expect(numberInPriceOf(371, '369 만원', 3690000)).toBe(note)
+    // 끝자리가 0인 계수(`350만`)·번호와 자릿수가 다른 계수(38번 `605만`)는 분명히 들은 큰 가격 그대로 (D-V3-64)
+    expect(numberInPriceOf(371, '350만 원', 3500000)).toBeNull()
+    expect(numberInPriceOf(38, '605만 원', 6050000)).toBeNull()
+    expect(numberInPriceOf(371, '369만 원', 3000000)).toBeNull()
+  })
   it('안내 글: 쉼표 계수·나머지 0', () => {
     expect(numberInPriceNote(227, ['2275만', '원'], 22750000)).toBe(NOTE)
     expect(numberInPriceNote(227, ['2,275만', '원'], 22750000)).toBe(NOTE)

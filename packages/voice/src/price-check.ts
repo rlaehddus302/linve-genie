@@ -42,6 +42,7 @@ export function isSmallQuickNumber(numberToken: string, unit: PriceUnit): boolea
  * D-V3-113 번호가 붙은 가격: 원 가격 줄 글(토큰을 공백 없이 이은 것)의 만 계수가 숫자이고, 번호 no의 숫자로 시작하면서 더 길고,
  * 읽은 값이 3,000,000원을 넘으면 안내 글, 아니면 null. 한글 계수(`이천이백칠십오만`)는 보지 않는다.
  * 안내: "2275만 원으로 들렸어요. 227번 5만 원인지 확인해 주세요" (뒤 가격 = 만 계수에서 번호 숫자를 뗀 나머지 + 만 — 안내 글뿐)
+ * D-LIVETEST-14: 번호와 자릿수가 같고 끝자리가 0이 아닌 계수(`369만` 371번)도 "369만 원으로 들렸어요. 371번 가격을 확인해 주세요"
  */
 export function numberInPriceNote(no: number, lineTokens: readonly string[], value: number | null): string | null {
   if (value === null || !Number.isSafeInteger(value) || value <= BIG_PRICE) return null
@@ -51,9 +52,14 @@ export function numberInPriceNote(no: number, lineTokens: readonly string[], val
   if (match === null) return null
   const coefficient = (match[1] as string).split(',').join('')
   const head = String(no)
-  if (!/^[0-9]+$/.test(coefficient) || coefficient.length <= head.length || !coefficient.startsWith(head)) return null
+  if (!/^[0-9]+$/.test(coefficient)) return null
   const restOfLine = value - Number(coefficient) * 10_000
   const heard = restOfLine > 0 && Number.isSafeInteger(restOfLine) ? `${coefficient}만 ${formatWon(restOfLine)}` : `${coefficient}만 원`
+  if (coefficient.length <= head.length || !coefficient.startsWith(head)) {
+    // D-LIVETEST-14: 번호와 자릿수가 같고 끝자리까지 말한 만 계수(`369만` 371번 ← "삼육구 만원")는 다른 번호가 붙어 적힌 흔적.
+    // 끝자리 0(`350만`)·자릿수가 다른 계수(38번 `605만`)는 분명히 들은 큰 가격으로 둔다 (D-V3-64)
+    return coefficient.length !== head.length || coefficient.endsWith('0') ? null : `${heard}으로 들렸어요. ${head}번 가격을 확인해 주세요`
+  }
   const left = Number(coefficient.slice(head.length))
   // 나머지가 0이면(`2270만` ← 227) 뒤 가격을 지어내지 않는다 — 가격만 확인해 달라고 한다
   if (left === 0) return `${heard}으로 들렸어요. ${head}번 가격을 확인해 주세요`
