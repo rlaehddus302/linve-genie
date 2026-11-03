@@ -251,7 +251,7 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
         {lastEnded !== undefined ? (
           <View style={{ gap: 10 }}>
             <GroupLabel>지난 방송</GroupLabel>
-            <Pressable role="button" aria-label={`지난 방송 열기 — ${broadcastLine(lastEnded)}`} onPress={() => nav.openConsole(lastEnded.id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, borderRadius: RADIUS.lg, paddingVertical: SPACE.lg, paddingHorizontal: SPACE.xl, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
+            <Pressable role="button" aria-label={`지난 방송 열기 — ${broadcastLine(lastEnded)}`} onPress={() => nav.openConsole(lastEnded.id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', paddingVertical: SPACE.lg, paddingHorizontal: SPACE.xl, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt weight="bold" numberOfLines={1}>
                   {broadcastName(lastEnded)}
@@ -265,7 +265,7 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
           </View>
         ) : null}
         {items !== null && items.length > 0 ? (
-          <Pressable role="button" aria-label="방송 모두 보기" onPress={() => setAll(true)} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start', paddingHorizontal: SPACE.sm, marginLeft: -SPACE.sm, borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Pressable role="button" aria-label="방송 모두 보기" onPress={() => setAll(true)} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start', paddingHorizontal: SPACE.sm, marginLeft: -SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <Txt weight="bold" color="primaryText">
               방송 모두 보기
             </Txt>

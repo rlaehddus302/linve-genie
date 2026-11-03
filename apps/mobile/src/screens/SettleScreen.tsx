@@ -130,7 +130,7 @@ function SettleRow({ settlement, name, onPress }: { readonly settlement: Settlem
   const left = remainingOf(settlement)
   const word = paymentWord(settlement.payment, settlement.refundDue)
   return (
-    <Pressable role="button" aria-label={`${name} · ${word} · 최종 ${formatWon(settlement.total)}${left > 0 ? ` · 남은 금액 ${formatWon(left)}` : ''}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderRadius: RADIUS.lg, paddingVertical: SPACE.lg, paddingHorizontal: SPACE.lg, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
+    <Pressable role="button" aria-label={`${name} · ${word} · 최종 ${formatWon(settlement.total)}${left > 0 ? ` · 남은 금액 ${formatWon(left)}` : ''}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', paddingVertical: SPACE.lg, paddingHorizontal: SPACE.lg, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
       <View style={{ flex: 1, gap: SPACE.xs }}>
         <Txt step="bodyLarge" weight="bold">{name}</Txt>
         <Tag tone={PAY_TONE[settlement.payment]}>{word}</Tag>

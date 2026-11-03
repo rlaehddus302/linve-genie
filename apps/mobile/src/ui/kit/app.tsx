@@ -26,11 +26,11 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
       case 'chevron':
       case 'back': {
         const arm = s * 0.38
-        return <View style={{ width: arm, height: arm, borderTopWidth: stroke, borderRightWidth: stroke, borderColor: c, borderRadius: 1, transform: [{ rotate: name === 'chevron' ? '45deg' : '-135deg' }], marginLeft: name === 'chevron' ? -arm * 0.35 : arm * 0.35 }} />
+        return <View style={{ width: arm, height: arm, borderTopWidth: stroke, borderRightWidth: stroke, borderColor: c, borderRadius: 1, borderCurve: 'continuous', transform: [{ rotate: name === 'chevron' ? '45deg' : '-135deg' }], marginLeft: name === 'chevron' ? -arm * 0.35 : arm * 0.35 }} />
       }
       case 'play':
         return (
-          <View style={{ width: s * 0.9, height: s * 0.9, borderRadius: s, borderWidth: stroke, borderColor: c, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: s * 0.9, height: s * 0.9, borderRadius: s, borderCurve: 'continuous', borderWidth: stroke, borderColor: c, alignItems: 'center', justifyContent: 'center' }}>
             <View style={{ width: 0, height: 0, marginLeft: s * 0.08, borderTopWidth: s * 0.17, borderBottomWidth: s * 0.17, borderLeftWidth: s * 0.26, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderLeftColor: c }} />
           </View>
         )
@@ -39,7 +39,7 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
         const roof = s * 0.52
         return (
           <View style={{ alignItems: 'center' }}>
-            <View style={{ width: roof, height: roof, borderTopWidth: stroke, borderLeftWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderRadius: 2, transform: [{ rotate: '45deg' }], marginBottom: -s * 0.3 }} />
+            <View style={{ width: roof, height: roof, borderTopWidth: stroke, borderLeftWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderRadius: 2, borderCurve: 'continuous', transform: [{ rotate: '45deg' }], marginBottom: -s * 0.3 }} />
             <View style={{ width: s * 0.62, height: s * 0.42, borderLeftWidth: stroke, borderRightWidth: stroke, borderBottomWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderBottomLeftRadius: 2, borderBottomRightRadius: 2, alignItems: 'center', justifyContent: 'flex-end' }}>
               {filled ? <View style={{ width: s * 0.16, height: s * 0.2, backgroundColor: hole, borderTopLeftRadius: s, borderTopRightRadius: s }} /> : null}
             </View>
@@ -48,14 +48,14 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
       }
       case 'box':
         return (
-          <View style={{ width: s * 0.78, height: s * 0.7, borderWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderRadius: 3, alignItems: 'center' }}>
+          <View style={{ width: s * 0.78, height: s * 0.7, borderWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderRadius: 3, borderCurve: 'continuous', alignItems: 'center' }}>
             <View style={{ position: 'absolute', top: s * 0.16, left: 0, right: 0, height: stroke, backgroundColor: filled ? hole : c }} />
             <View style={{ width: stroke, height: s * 0.2, backgroundColor: filled ? hole : c }} />
           </View>
         )
       case 'card':
         return (
-          <View style={{ width: s * 0.8, height: s * 0.6, borderWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderRadius: 3 }}>
+          <View style={{ width: s * 0.8, height: s * 0.6, borderWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', borderRadius: 3, borderCurve: 'continuous' }}>
             <View style={{ marginTop: s * 0.12, height: stroke, backgroundColor: filled ? hole : c }} />
           </View>
         )
@@ -63,7 +63,7 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
         // 라벨 한 장: 네모 + 글줄 둘 (찬 모양은 네모를 채우고 글줄을 뚫는다)
         const lines = filled ? hole : c
         return (
-          <View style={{ width: s * 0.8, height: s * 0.66, borderRadius: 3, borderWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', justifyContent: 'center', paddingLeft: s * 0.14, gap: s * 0.09 }}>
+          <View style={{ width: s * 0.8, height: s * 0.66, borderRadius: 3, borderCurve: 'continuous', borderWidth: stroke, borderColor: c, backgroundColor: filled ? c : 'transparent', justifyContent: 'center', paddingLeft: s * 0.14, gap: s * 0.09 }}>
             <View style={{ width: s * 0.42, height: stroke, backgroundColor: lines }} />
             <View style={{ width: s * 0.26, height: stroke, backgroundColor: lines }} />
           </View>
@@ -73,7 +73,7 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
         return (
           <View style={{ gap: s * 0.17 }}>
             {[0, 1, 2].map((n) => (
-              <View key={n} style={{ width: s * 0.72, height: stroke, borderRadius: stroke, backgroundColor: c }} />
+              <View key={n} style={{ width: s * 0.72, height: stroke, borderRadius: stroke, borderCurve: 'continuous', backgroundColor: c }} />
             ))}
           </View>
         )
@@ -81,14 +81,14 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
         return (
           <View style={{ flexDirection: 'row', gap: s * 0.16 }}>
             {[0, 1, 2].map((n) => (
-              <View key={n} style={{ width: s * 0.15, height: s * 0.15, borderRadius: s, backgroundColor: c }} />
+              <View key={n} style={{ width: s * 0.15, height: s * 0.15, borderRadius: s, borderCurve: 'continuous', backgroundColor: c }} />
             ))}
           </View>
         )
       case 'mic':
         return (
           <View style={{ alignItems: 'center' }}>
-            <View style={{ width: s * 0.3, height: s * 0.48, borderRadius: s, borderWidth: stroke, borderColor: c }} />
+            <View style={{ width: s * 0.3, height: s * 0.48, borderRadius: s, borderCurve: 'continuous', borderWidth: stroke, borderColor: c }} />
             <View style={{ width: s * 0.58, height: s * 0.3, marginTop: -s * 0.2, borderLeftWidth: stroke, borderRightWidth: stroke, borderBottomWidth: stroke, borderColor: c, borderBottomLeftRadius: s, borderBottomRightRadius: s }} />
             <View style={{ width: stroke, height: s * 0.14, backgroundColor: c }} />
           </View>
@@ -118,7 +118,7 @@ export const BACK_ICON = 26
 export function BackButton({ label = '뒤로', onPress }: { readonly label?: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <Icon name="back" size={BACK_ICON} color={p.text} />
     </Pressable>
   )
@@ -145,7 +145,7 @@ export function AppHeader({ title, onBack, backLabel = '뒤로', right, testID }
 export function HeaderIconButton({ icon, label, onPress, testID }: { readonly icon: IconName; readonly label: string; readonly onPress: () => void; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Pressable role="button" aria-label={label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <Icon name={icon} />
     </Pressable>
   )
@@ -194,15 +194,15 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
   return (
     <View pointerEvents="box-none" onLayout={(event) => onHeight?.(event.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: SPACE.md, paddingTop: SPACE.xs, paddingBottom: Math.max(inset, SPACE.sm) }}>
       {/* 그림자는 겉에(둥글게 자르면 그림자도 잘린다), 흐림·반투명은 안에서 둥글게 자른다 */}
-      <View style={{ borderRadius: RADIUS.pill, ...SHADOW.sheet, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 }}>
-        <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', borderRadius: RADIUS.pill, overflow: 'hidden', borderWidth: 1, borderColor: p.line, padding: SPACE.xs, gap }}>
+      <View style={{ borderRadius: RADIUS.pill, borderCurve: 'continuous', ...SHADOW.sheet, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 }}>
+        <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', borderRadius: RADIUS.pill, borderCurve: 'continuous', overflow: 'hidden', borderWidth: 1, borderColor: p.line, padding: SPACE.xs, gap }}>
           <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
             {Backdrop === null ? null : <Backdrop />}
             <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: p.glass }} />
           </View>
           {/* 고른 칸 회색 바탕 — 칸들 뒤에서 미끄러진다 */}
           <View pointerEvents="none" style={{ position: 'absolute', left: SPACE.xs, right: SPACE.xs, top: SPACE.xs, bottom: SPACE.xs }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-            {cell > 0 ? <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, width: cell, borderRadius: RADIUS.pill, backgroundColor: p.soft, transform: [{ translateX: slide.interpolate({ inputRange: [0, TABS.length - 1], outputRange: [0, (cell + gap) * (TABS.length - 1)] }) }] }} /> : null}
+            {cell > 0 ? <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, width: cell, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.soft, transform: [{ translateX: slide.interpolate({ inputRange: [0, TABS.length - 1], outputRange: [0, (cell + gap) * (TABS.length - 1)] }) }] }} /> : null}
           </View>
           {TABS.map((tab) => {
             const on = tab.key === active
@@ -211,7 +211,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
               <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
                   tapHaptic()
                   onSelect(tab.key)
-                }} style={({ pressed }) => ({ flex: 1, minHeight: 56, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
+                }} style={({ pressed }) => ({ flex: 1, minHeight: 56, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
                 {({ pressed }) => (
                   <>
                     <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : p.soft} />
@@ -233,7 +233,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
 export function HeroButton({ title, sub, icon = 'play', onPress, disabled, ariaLabel, testID }: { readonly title: string; readonly sub?: string; readonly icon?: IconName; readonly onPress: () => void; readonly disabled?: boolean; readonly ariaLabel?: string; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? title} aria-disabled={disabled === true} disabled={disabled === true} onPress={onPress} testID={testID} style={({ pressed }) => ({ borderRadius: RADIUS.xl, paddingVertical: 22, paddingHorizontal: SPACE.xl, gap: 6, backgroundColor: pressed && disabled !== true ? p.primaryPressed : p.primary, opacity: disabled === true ? 0.5 : 1 })}>
+    <Pressable role="button" aria-label={ariaLabel ?? title} aria-disabled={disabled === true} disabled={disabled === true} onPress={onPress} testID={testID} style={({ pressed }) => ({ borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: 22, paddingHorizontal: SPACE.xl, gap: 6, backgroundColor: pressed && disabled !== true ? p.primaryPressed : p.primary, opacity: disabled === true ? 0.5 : 1 })}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <Icon name={icon} color={p.onPrimary} size={26} />
         <Txt step="title" weight="heavy" color="onPrimary">
@@ -257,7 +257,7 @@ export function CountBadge({ count, tone }: { readonly count: number; readonly t
   const bg = tone === 'warn' ? p.warnBg : tone === 'green' ? p.freshBg : p.border
   const fg = tone === 'warn' ? p.warnText : tone === 'green' ? p.primaryText : p.text
   return (
-    <View aria-hidden style={{ minWidth: 48, height: 48, paddingHorizontal: 6, borderRadius: RADIUS.md, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+    <View aria-hidden style={{ minWidth: 48, height: 48, paddingHorizontal: 6, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
       <Txt step="bodyLarge" weight="heavy" ink={fg}>
         {String(count)}
       </Txt>
@@ -270,7 +270,7 @@ export function RowGroup({ children, label, title }: { readonly children?: React
   const { p } = useKit()
   const name = label ?? title
   return (
-    <View role={name === undefined ? undefined : 'group'} aria-label={name} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, paddingVertical: SPACE.xs }}>
+    <View role={name === undefined ? undefined : 'group'} aria-label={name} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.xs }}>
       {title === undefined ? null : (
         <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg, paddingBottom: SPACE.xs }}>
           <Txt step="caption" weight="bold" color="textSub" role="heading" aria-level={2}>
@@ -293,7 +293,7 @@ export function TodoRow({ count, tone, title, sub, onPress, ariaLabel, testID }:
   const { p } = useKit()
   const name = ariaLabel ?? (count === undefined ? title : `${title} ${String(count)}`)
   return (
-    <Pressable role="button" aria-label={name} onPress={onPress} testID={testID} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: SPACE.lg, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Pressable role="button" aria-label={name} onPress={onPress} testID={testID} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: SPACE.lg, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {count === undefined ? null : <CountBadge count={count} tone={tone ?? 'gray'} />}
       <View style={{ flex: 1, gap: 2 }}>
         <Txt step="bodyLarge" weight="bold">
@@ -325,7 +325,7 @@ export function DotStatus({ word, tone }: { readonly word: string; readonly tone
   const ink = tone === 'on' ? p.primaryText : tone === 'warn' ? p.warnText : p.textSub
   return (
     <View role="status" aria-label={word} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: SPACE.xs }}>
-      <View aria-hidden style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: ink }} />
+      <View aria-hidden style={{ width: 10, height: 10, borderRadius: 5, borderCurve: 'continuous', backgroundColor: ink }} />
       <Txt step="caption" weight="bold" ink={ink}>
         {word}
       </Txt>

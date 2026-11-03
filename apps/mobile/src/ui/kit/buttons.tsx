@@ -43,7 +43,7 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
       testID={testID}
       style={({ pressed }) => ({
         minHeight: TOUCH.button,
-        borderRadius: RADIUS.lg,
+        borderRadius: RADIUS.lg, borderCurve: 'continuous',
         paddingHorizontal: oneLine === true ? SPACE.md : SPACE.xl,
         paddingVertical: SPACE.md,
         backgroundColor: pressed && !off ? fillPressed : fill,

@@ -41,7 +41,7 @@ import type { LiveTimer } from './instagram/notices.ts'
 import { createWebhookApp } from './instagram/routes.ts'
 import { SellerLocks } from './seller-locks.ts'
 import { routeThanks } from './thanks-route.ts'
-import { libraryWebcast, type TikTokAttemptLimiter, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
+import { libraryWebcast, type ShortLinkResolver, type TikTokAttemptLimiter, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
 import { TikTokLive } from './tiktok-live/live.ts'
 import { TikTokExtension } from './tiktok-live/extension.ts'
 import { PasteService } from './tiktok-live/paste-service.ts'
@@ -208,6 +208,8 @@ export interface ServerOptions {
     readonly clock?: TikTokClock
     readonly limiter?: TikTokAttemptLimiter
     readonly noticeVersion?: string
+    /** 짧은 공유 링크 풀기 (시험·E2E는 가짜 — 틱톡에 나가지 않게, D-UX3-14) */
+    readonly shortLinks?: ShortLinkResolver
   }
   /** 백업 저장소 (I2 D-I2-10 — 없으면 자동 백업이 꺼진다. 판매는 그대로) */
   readonly backupStorage?: BackupStorage | null
@@ -661,6 +663,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(tiktokOptions.clock === undefined ? {} : { tiktokClock: tiktokOptions.clock }),
     ...(tiktokOptions.limiter === undefined ? {} : { limiter: tiktokOptions.limiter }),
     ...(tiktokOptions.noticeVersion === undefined ? {} : { noticeVersion: tiktokOptions.noticeVersion }),
+    ...(tiktokOptions.shortLinks === undefined ? {} : { shortLinks: tiktokOptions.shortLinks }),
   })
   const tiktokLive = tiktok
   const bandOptions = options.band ?? {}

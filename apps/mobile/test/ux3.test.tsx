@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setClipboardProbe, setClipboardReader } from '../src/lib/clipboard.ts'
 import { shortLinkError } from '../src/screens/console/YoutubeSection.tsx'
 import { LIVE_PLATFORMS, setPlatformOpener } from '../src/lib/open-app.ts'
+import { liveLinkOf } from '../src/lib/live-link.ts'
 import { NewBroadcastAddressScreen, NewBroadcastCategoryScreen, SALE_CATEGORIES, categoryBroadcastTitle } from '../src/screens/NewBroadcastScreen.tsx'
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
 import { TabFrame, tabEnterSide } from '../src/screens/TabFrame.tsx'
@@ -63,12 +64,14 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     // 집은 문 홈이 든 한 줄 모양(따로 그린 문 없음)
     expect(home?.querySelectorAll('path')).toHaveLength(1)
     expect(home?.querySelector('path')?.getAttribute('d')).toContain('H14.1 V16.2')
-    // 프린터 몸통은 종이 앞(7~17)에서 끊긴 열린 모양
-    const bodyLine = printer?.querySelectorAll('path')[0]?.getAttribute('d') ?? ''
+    // 프린터 몸통은 종이 앞(7~17)에서 끊긴 열린 모양 (D-UX3-15: 첫 줄은 위 받침 — 몸통은 둘째)
+    const bodyLine = printer?.querySelectorAll('path')[1]?.getAttribute('d') ?? ''
     expect(bodyLine.startsWith('M7 17.4')).toBe(true)
     expect(bodyLine.endsWith('H17')).toBe(true)
     // 고른 상자: 테이프 뚫기가 윗선 위(2.4)부터
-    expect(box?.querySelector('path')?.getAttribute('d')).toContain('M10.2 2.4')
+    expect([...(box?.querySelectorAll('path') ?? [])].some((path) => path.getAttribute('d')?.startsWith('M10.2 2.4') === true)).toBe(true)
+    // 모서리는 원호(A)가 아니라 아이폰 연속 곡률 곡선(C) — 집 문 홈만 원호 (D-UX3-15)
+    for (const svg of [printer, box]) for (const path of svg?.querySelectorAll('path') ?? []) expect(path.getAttribute('d')).not.toMatch(/A/)
   })
 
   it('오른쪽 탭으로 가면 오른쪽에서, 왼쪽 탭으로 가면 왼쪽에서 들어온다. 처음·같은 탭은 그대로', () => {
@@ -200,35 +203,100 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     expect(screen.getByRole('button', { name: '확인' })).toBeTruthy()
   })
 
-  it('틱톡·밴드는 링크로 잇지 않는다 — 계정으로 잇는다는 안내와 [이 방송 만들기](앱을 열지 않는다)', async () => {
+  // D-UX3-14 (사용자 지시 2026-11-03 "왜 틱톡과 밴드는 링크를 통해 못해? 할 수 있게"): 옛 기대 — 틱톡·밴드는 계정 안내와 [이 방송 만들기],
+  // 유튜브를 잇지 않는 서버면 종류를 누르는 대로 방송을 만듦. 새 기대 — 세 플랫폼 모두 앱을 열고 링크로 잇는다, 종류는 늘 링크 단계로.
+  it('[링크를 모르겠어요]의 틱톡·밴드도 그 앱을 연다 (D-UX3-14)', async () => {
     const world = linkableWorld()
     const opened: string[] = []
     setPlatformOpener(async (target) => {
       opened.push(target.key)
       return 'app'
     })
-    const nav = newNav()
-    render(world.wrap(<NewBroadcastAddressScreen category="pot" nav={nav} />))
+    render(world.wrap(<NewBroadcastAddressScreen category="pot" nav={newNav()} />))
     await screen.findByLabelText('방송 링크')
     fireEvent.click(screen.getByRole('button', { name: '링크를 모르겠어요' }))
     fireEvent.click(screen.getByRole('button', { name: '틱톡' }))
-    expect(screen.getByText('틱톡 방송은 링크 대신 가게 계정으로 이어요.')).toBeTruthy()
-    expect(opened).toEqual([])
-    fireEvent.click(screen.getByRole('button', { name: '이 방송 만들기' }))
+    fireEvent.click(screen.getByRole('button', { name: '링크를 모르겠어요' }))
+    fireEvent.click(screen.getByRole('button', { name: '밴드' }))
+    await waitFor(() => expect(opened).toEqual(['tiktok', 'band']))
+    expect(screen.queryByText(/가게 계정으로/)).toBeNull()
+  })
+
+  it('틱톡 공유 글을 붙여 넣으면 링크만 넣고, [확인]은 종류 제목으로 방송을 만든 뒤 그 링크로 틱톡을 잇는다. 동의 전이면 안내 → [동의하고 잇기]', async () => {
+    const world = linkableWorld()
+    let tries = 0
+    world.server.on('POST', /^\/api\/broadcasts\/b9\/tiktok\/link-url$/, () => {
+      tries += 1
+      return tries === 1 ? { status: 409, body: { error: { code: 'NO_CONSENT', message: '틱톡 연결이 꺼져 있어요. 설정에서 안내를 읽고 켜 주세요.' } } } : { body: { link: { state: 'LINKED' } } }
+    })
+    world.server.on('GET', /^\/api\/tiktok$/, () => ({ body: { tiktok: { notice: { version: 'TT-BETA-1', title: '틱톡 라이브 연결(베타) 안내', lines: ['안내 첫 줄', '안내 둘째 줄'], checkbox: '안내를 읽었고, 위 내용에 동의해요', button: '켜기' } } } }))
+    world.server.on('POST', /^\/api\/tiktok\/consent$/, () => ({ body: { tiktok: {} } }))
+    setClipboardProbe(async () => true)
+    setClipboardReader(async () => '김다육님의 라이브를 보러 오세요! https://vt.tiktok.com/ZSabc123/ 복사해서 틱톡에서 열어 보세요')
+    const nav = newNav()
+    render(world.wrap(<NewBroadcastAddressScreen category="pot" nav={nav} />))
+    const field = (await screen.findByLabelText('방송 링크')) as HTMLInputElement
+    fireEvent.click(await screen.findByRole('button', { name: '붙여넣기' }))
+    await waitFor(() => expect(field.value).toBe('https://vt.tiktok.com/ZSabc123/'))
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    expect(await screen.findByText('· 안내 첫 줄')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '안내를 읽었고, 위 내용에 동의해요' }))
     await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
+    expect(world.server.callsTo('POST', /^\/api\/tiktok\/consent$/)[0]?.body).toMatchObject({ on: true, version: 'TT-BETA-1' })
+    const links = world.server.callsTo('POST', /tiktok\/link-url$/)
+    expect(links.map((call) => call.body?.url)).toEqual(['https://vt.tiktok.com/ZSabc123/', 'https://vt.tiktok.com/ZSabc123/'])
+    // 방송은 한 번만, 유튜브로는 보내지 않는다
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(1)
     expect(String(world.server.callsTo('POST', /^\/api\/broadcasts$/)[0]?.body?.title)).toMatch(/ 화분 방송$/)
     expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(0)
   })
 
-  it('유튜브를 주소로 잇지 않는 서버면 종류를 누르는 대로 방송을 만들고 방송 화면으로', async () => {
+  it('밴드 링크는 [확인]하면 내 밴드 글을 보이고, 고른 글로 잇는다 (밴드 공식 방법은 링크로 글을 찾지 못한다)', async () => {
+    const world = linkableWorld()
+    world.server.on('GET', /^\/api\/band$/, () => ({ body: { band: { status: 'CONNECTED', message: null } } }))
+    world.server.on('GET', /^\/api\/band\/bands$/, () => ({ body: { bands: [{ bandKey: 'BANDKEY0001', name: '다육 가게', memberCount: 30 }], chosenBand: null, message: null } }))
+    world.server.on('GET', /^\/api\/band\/posts/, () => ({ body: { posts: [{ postKey: 'POSTKEY0001', createdAt: '2026-11-03T01:05:00.000Z', firstLine: '오늘 저녁 라이브 찜 받아요', commentCount: 3 }], page: 1, more: false, cursor: null } }))
+    world.server.on('POST', /^\/api\/broadcasts\/b9\/band\/link$/, () => ({ body: { link: {} } }))
+    const nav = newNav()
+    render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
+    fireEvent.change(await screen.findByLabelText('방송 링크'), { target: { value: 'https://band.us/band/12345678/post/42' } })
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(await screen.findByRole('button', { name: '오늘 저녁 라이브 찜 받아요 · 11/3 10:05 잇기' }))
+    await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
+    expect(world.server.callsTo('POST', /band\/link$/)[0]?.body).toMatchObject({ bandKey: 'BANDKEY0001', postKey: 'POSTKEY0001' })
+  })
+
+  it('밴드 계정을 잇지 않았으면 서버 문장, 모르는 링크는 "알 수 없는 링크예요."', async () => {
+    const world = linkableWorld()
+    world.server.on('GET', /^\/api\/band$/, () => ({ body: { band: { status: 'NOT_CONNECTED', message: '설정에서 밴드를 먼저 연결해 주세요.' } } }))
+    render(world.wrap(<NewBroadcastAddressScreen category="other" nav={newNav()} />))
+    const field = await screen.findByLabelText('방송 링크')
+    fireEvent.change(field, { target: { value: 'band.us/band/1/post/2' } })
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    expect(await screen.findByText('설정에서 밴드를 먼저 연결해 주세요.')).toBeTruthy()
+    fireEvent.change(field, { target: { value: 'https://example.com/live/1' } })
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    expect(await screen.findByText('알 수 없는 링크예요.')).toBeTruthy()
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(0)
+  })
+
+  it('유튜브를 주소로 잇지 않는 서버도 종류를 누르면 링크 단계로 (방송은 [확인] 때 만든다)', () => {
     const world = linkableWorld()
     world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: null, webChat: { on: false }, oauth: true } }))
     const nav = newNav()
     render(world.wrap(<NewBroadcastCategoryScreen nav={nav} />))
     fireEvent.click(screen.getByRole('button', { name: '기타' }))
-    await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
-    expect(nav.openAddress).not.toHaveBeenCalled()
-    expect(String(world.server.callsTo('POST', /^\/api\/broadcasts$/)[0]?.body?.title)).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 방송$/)
+    expect(nav.openAddress).toHaveBeenCalledWith('other')
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(0)
+  })
+
+  it('붙여 넣은 글에서 방송 링크 찾기: 유튜브·틱톡(짧은 링크 포함)·밴드, 그 밖은 null', () => {
+    expect(liveLinkOf('https://youtu.be/abc')).toEqual({ platform: 'youtube', url: 'https://youtu.be/abc' })
+    expect(liveLinkOf('https://www.tiktok.com/@shop/live?x=1')).toEqual({ platform: 'tiktok', url: 'https://www.tiktok.com/@shop/live?x=1' })
+    expect(liveLinkOf('라이브 보러 와요 https://vm.tiktok.com/ZS1/.')).toEqual({ platform: 'tiktok', url: 'https://vm.tiktok.com/ZS1/' })
+    expect(liveLinkOf('[다육 가게] https://band.us/band/1/post/2')).toEqual({ platform: 'band', url: 'https://band.us/band/1/post/2' })
+    expect(liveLinkOf('https://example.com/a')).toBeNull()
+    expect(liveLinkOf('그냥 글')).toBeNull()
   })
 })
 
@@ -302,3 +370,24 @@ function luma(hex: string): number {
   const n = Number.parseInt(hex.slice(1), 16)
   return ((n >> 16) & 255) * 0.299 + ((n >> 8) & 255) * 0.587 + (n & 255) * 0.114
 }
+
+describe('아이폰 모서리 곡률 (D-UX3-15)', () => {
+  it('앱의 모든 둥근 모서리(borderRadius)는 아이폰 연속 곡률(borderCurve continuous)과 함께 쓴다', async () => {
+    const { readdirSync, readFileSync, statSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const walk = (dir: string): string[] => readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name)
+      return statSync(path).isDirectory() ? walk(path) : /\.tsx?$/.test(name) ? [path] : []
+    })
+    const root = join(__dirname, '..')
+    const missing: string[] = []
+    for (const file of [...walk(join(root, 'src')), ...walk(join(root, 'app'))]) {
+      readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+        const radii = line.match(/borderRadius:/g)?.length ?? 0
+        const curves = line.match(/borderCurve: 'continuous'/g)?.length ?? 0
+        if (radii > curves) missing.push(`${file.slice(root.length + 1)}:${String(index + 1)}`)
+      })
+    }
+    expect(missing).toEqual([])
+  })
+})

@@ -8,7 +8,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CollectorView, ConnectionStatus, LinkView, LiveBroadcastItem, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../../api/client.ts'
-import { clipboardHasText, youtubeAddress } from '../../lib/clipboard.ts'
+import { clipboardHasText } from '../../lib/clipboard.ts'
+import { liveLinkOf } from '../../lib/live-link.ts'
+import { BandPostPicker, TiktokConsentCard } from './OtherLinks.tsx'
 import { PasteButton } from '../../native/paste.tsx'
 import { PopNote } from '../../ui/kit/index.ts'
 import { openWeb } from '../../lib/open-web.ts'
@@ -264,8 +266,10 @@ export function wasLinkAsked(broadcastId: string): boolean {
 }
 
 function LinkPicker({ yt }: { readonly yt: MobileYoutube }) {
-  const path = `/api/broadcasts/${encodeURIComponent(yt.broadcastId)}/youtube`
-  const { fields, action, popup } = useAddressLinker({ webChat: yt.webChat, broadcastId: yt.broadcastId, submit: async (body) => yt.setLink(await withRetry(() => post<LinkView>(path, body))) })
+  const { fields, action, popup } = useAddressLinker({ webChat: yt.webChat, broadcastId: yt.broadcastId, submit: async (request) => {
+      const view = await sendLiveLink(yt.broadcastId, request)
+      if (view !== null) yt.setLink(view)
+    } })
   return (
     <Stack tight>
       {fields}
@@ -281,12 +285,26 @@ export interface LinkBody {
   readonly confirmInvited?: true
 }
 
+/** 어느 플랫폼에 무엇을 보내 잇나 (D-UX3-14) */
+export type LiveLinkRequest =
+  | { readonly platform: 'youtube'; readonly body: LinkBody }
+  | { readonly platform: 'tiktok'; readonly body: { readonly requestId: string; readonly url: string } }
+  | { readonly platform: 'band'; readonly body: { readonly requestId: string; readonly bandKey: string; readonly postKey: string } }
+
+/** 잇기 요청 보내기 — 유튜브면 받은 연결 보기, 틱톡·밴드는 null */
+export async function sendLiveLink(broadcastId: string, request: LiveLinkRequest): Promise<LinkView | null> {
+  const base = `/api/broadcasts/${encodeURIComponent(broadcastId)}`
+  if (request.platform === 'youtube') return withRetry(() => post<LinkView>(`${base}/youtube`, request.body))
+  await withRetry(() => post(request.platform === 'tiktok' ? `${base}/tiktok/link-url` : `${base}/band/link`, request.body))
+  return null
+}
+
 export interface AddressLinkerOptions {
   readonly webChat: YoutubeWebChat | null
   /** 아직 만들기 전이면 null — 다른 방송에 이어진 것만 막는다 */
   readonly broadcastId: string | null
-  /** 잇기 요청. 거절은 그대로 던지면 여기서 문장·확인 줄로 보인다 */
-  readonly submit: (body: LinkBody) => Promise<void>
+  /** 잇기 요청 (유튜브·틱톡·밴드, D-UX3-14). 거절은 그대로 던지면 여기서 문장·확인 줄로 보인다 */
+  readonly submit: (request: LiveLinkRequest) => Promise<void>
   readonly label?: string
   readonly autoFocus?: boolean
   readonly disabled?: boolean
@@ -302,6 +320,7 @@ const SHORT_LINK_ERRORS: Readonly<Record<string, string>> = {
   NO_LIVE_CHAT: '라이브 채팅을 받을 수 없는 방송이에요.',
   YOUTUBE_NOT_PUBLIC: '공개 방송만 이을 수 있어요.',
   YOUTUBE_UNAVAILABLE: '지금은 이을 수 없어요. 잠시 뒤 다시 눌러 주세요.',
+  INVALID_TIKTOK_LINK: UNKNOWN_LINK,
 }
 export function shortLinkError(error: ApiError): string {
   return SHORT_LINK_ERRORS[error.code] ?? error.message
@@ -320,6 +339,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
   const pending = useRef<{ video: string; confirmed: boolean; requestId: string } | null>(null)
   const [canPaste, setCanPaste] = useState(false)
   const [note, setNote] = useState<{ id: number; message: string } | null>(null)
+  /** 틱톡 동의 안내·밴드 글 고르기 (D-UX3-14) */
+  const [step, setStep] = useState<'none' | 'tiktokConsent' | 'bandPick'>('none')
 
   // 클립보드는 읽지 않고 글이 있는지만 본다 — 아이폰 "붙여넣기 허용" 창이 뜨지 않게 (D-UX3-11).
   // 글이 있으면 빈 링크 칸 오른쪽에 [붙여넣기](아이폰 기본 단추 — 누르는 것이 허락). 칸을 열 때와 앱·브라우저에서 돌아올 때 다시 본다.
@@ -353,13 +374,54 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
     setAddress(text)
     setAsk(null)
     setError(null)
+    setStep('none')
     onEdit?.()
   }
   const paste = (text: string) => {
-    const found = youtubeAddress(text)
-    edit(found ?? text.trim())
+    const found = liveLinkOf(text)
+    edit(found?.url ?? text.trim())
     if (found === null) setError(UNKNOWN_LINK)
     else setNote((now) => ({ id: (now?.id ?? 0) + 1, message: PASTE_COPIED }))
+  }
+
+  /** 틱톡·밴드 잇기 요청 (요청 번호는 같은 것을 다시 보낼 때 그대로) */
+  const other = useRef<{ key: string; requestId: string } | null>(null)
+  const sendOther = async (request: (requestId: string) => LiveLinkRequest, key: string) => {
+    if (busy || disabled === true) return
+    if (other.current?.key !== key) other.current = { key, requestId: newRequestId() }
+    setBusy(true)
+    setError(null)
+    try {
+      await submit(request(other.current.requestId))
+      other.current = null
+      setStep('none')
+    } catch (caught) {
+      if (!isApiError(caught)) throw caught
+      if (!caught.retryable) other.current = null
+      if (caught.code === 'NO_CONSENT') setStep('tiktokConsent')
+      else {
+        setStep('none')
+        setError(shortLinkError(caught))
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+  /** [확인]: 링크가 어느 플랫폼인지 보고 잇는다 — 유튜브는 그대로, 틱톡은 서버가 아이디를 읽고, 밴드는 글을 고르게 한다 */
+  const confirm = (text: string) => {
+    const found = liveLinkOf(text)
+    if (found === null) {
+      // 유튜브 영상 번호만 넣은 것도 서버가 판정한다 (전과 같다)
+      if (!/[/.\s]/.test(text)) void link(text)
+      else setError(UNKNOWN_LINK)
+      return
+    }
+    if (found.platform === 'youtube') void link(found.url)
+    else if (found.platform === 'tiktok') void sendOther((requestId) => ({ platform: 'tiktok', body: { requestId, url: found.url } }), `tiktok ${found.url}`)
+    else {
+      setError(null)
+      setStep('bandPick')
+    }
   }
 
   const link = async (video: string, confirmed = false) => {
@@ -371,7 +433,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
     setAsk(null)
     try {
       const body: LinkBody = confirmed ? { requestId, video, confirmInvited: true } : { requestId, video }
-      await submit(body)
+      await submit({ platform: 'youtube', body })
       pending.current = null
     } catch (caught) {
       if (!isApiError(caught)) throw caught
@@ -423,6 +485,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
         })}
       </Card>
       ) : null}
+      {step === 'tiktokConsent' ? <TiktokConsentCard disabled={off} onAgreed={() => confirm(address.trim())} onCancel={() => setStep('none')} /> : null}
+      {step === 'bandPick' ? <BandPostPicker disabled={off} onCancel={() => setStep('none')} onPick={(bandKey, postKey) => void sendOther((requestId) => ({ platform: 'band', body: { requestId, bandKey, postKey } }), `band ${bandKey} ${postKey}`)} /> : null}
       {ask !== null ? (
         <Card label={FIRST_CHANNEL_GROUP}>
           <Notice tone="warning" alert>
@@ -437,7 +501,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
     </Stack>
   )
   // 링크를 넣기 전엔 단추를 보이지 않는다 (D-UX3-07)
-  const action = address.trim() === '' ? null : <BigButton label={label} primary disabled={off} onPress={() => void link(address.trim())} />
+  const action = address.trim() === '' || step !== 'none' ? null : <BigButton label={label} primary disabled={off} onPress={() => confirm(address.trim())} />
   // recheck: 앱 안 브라우저를 닫고 돌아왔을 때 클립보드를 다시 본다(앱이 뒤로 가지 않아 앞으로 옴 알림이 없다)
   return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek }
 }

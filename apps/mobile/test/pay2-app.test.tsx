@@ -31,18 +31,15 @@ function expectNoBillingWords() {
 }
 
 describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
-  it('새 방송 판매 종류를 누른 뒤(D-UX3-09, 옛 "다음"·"이 방송 시작하기") NO_PASS로 거절되면 앱 문장만 — 서버 문장·링크·새 버튼 없음. 홈의 리허설은 한 번 간다', async () => {
-    // 이 서버는 유튜브를 주소로 잇지 않는다(연결 응답 없음) — 판매 종류를 누르는 대로 방송을 만든다
+  it('새 방송 판매 종류는 방송을 만들지 않고 링크 단계로 간다 — 이용권 거절은 링크 단계에서(다음 시험). 홈의 리허설은 한 번 간다', async () => {
+    // 옛 기대(D-UX3-09): 유튜브를 주소로 잇지 않는 서버면 종류를 누르는 대로 방송을 만들고 거절 문장. 새 기대(D-UX3-14): 틱톡·밴드도 링크로 이어 늘 링크 단계로 간다
     const world = noPassWorld()
     const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
     const view = render(world.wrap(<NewBroadcastCategoryScreen nav={newNav} />))
-    const buttonsBefore = screen.getAllByRole('button').map((button) => button.getAttribute('aria-label') ?? button.textContent)
     fireEvent.click(screen.getByRole('button', { name: '다육이' }))
-    expect(await screen.findByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
+    expect(newNav.openAddress).toHaveBeenCalledWith('succulent')
+    expect(world.server.callsTo('POST', /broadcasts/)).toHaveLength(0)
     expect(APP_NO_PASS_MESSAGE).toBe('이용권이 없어 실제 방송을 시작할 수 없어요. 리허설은 언제든 할 수 있어요.')
-    expectNoBillingWords()
-    expect(screen.getAllByRole('button').map((button) => button.getAttribute('aria-label') ?? button.textContent)).toEqual(buttonsBefore)
-    expect(newNav.openConsole).not.toHaveBeenCalled()
     view.unmount()
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
@@ -65,12 +62,15 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     expect(newNav.openConsole).not.toHaveBeenCalled()
   })
 
-  it('다른 거절은 서버 문장 그대로 (400 "시험 거절 문장이에요.")', async () => {
+  it('다른 거절은 서버 문장 그대로 (400 "시험 거절 문장이에요.") — 유튜브를 잇지 않은 서버에서 틱톡 링크로 (D-UX3-14)', async () => {
     const world = noPassWorld(400, 'INVALID_INPUT', '시험 거절 문장이에요.')
-    render(world.wrap(<NewBroadcastCategoryScreen nav={{ back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }} />))
-    fireEvent.click(screen.getByRole('button', { name: '화분' }))
+    const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
+    render(world.wrap(<NewBroadcastAddressScreen category="pot" nav={newNav} />))
+    fireEvent.change(await screen.findByLabelText('방송 링크'), { target: { value: 'https://www.tiktok.com/@shop_a/live' } })
+    fireEvent.click(await screen.findByRole('button', { name: '확인' }))
     expect(await screen.findByText('시험 거절 문장이에요.')).toBeTruthy()
     expect(screen.queryByText(APP_NO_PASS_MESSAGE)).toBeNull()
+    expect(newNav.openConsole).not.toHaveBeenCalled()
   })
 })
 

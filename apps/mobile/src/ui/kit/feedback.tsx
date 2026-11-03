@@ -11,7 +11,7 @@ export function StatusChip({ tone, label, testID }: { readonly tone: Tone; reado
   const { tones } = useKit()
   const pair = tones[tone]
   return (
-    <View testID={testID} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, backgroundColor: pair.bg }}>
+    <View testID={testID} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: pair.bg }}>
       <View aria-hidden>
         <Txt step="caption" weight="heavy" ink={pair.fg}>
           {TONE_MARK[tone]}
@@ -74,7 +74,7 @@ export function Toast({ toast, onDismiss, bottomOffset = 0 }: { readonly toast: 
   const actionLabel = hasAction ? toast.actionLabel : sticky ? '닫기' : undefined
   return (
     <View pointerEvents="box-none" style={{ position: 'absolute', left: SPACE.lg, right: SPACE.lg, bottom: bottomOffset + Math.max(inset, SPACE.md) + SPACE.md }}>
-      <View role={sticky ? 'alert' : 'status'} aria-live={sticky ? 'assertive' : 'polite'} style={{ backgroundColor: p.toast, borderRadius: RADIUS.lg, padding: SPACE.lg, gap: SPACE.sm, ...SHADOW.toast }}>
+      <View role={sticky ? 'alert' : 'status'} aria-live={sticky ? 'assertive' : 'polite'} style={{ backgroundColor: p.toast, borderRadius: RADIUS.lg, borderCurve: 'continuous', padding: SPACE.lg, gap: SPACE.sm, ...SHADOW.toast }}>
         <Txt color="onToast">{toast.message}</Txt>
         {actionLabel === undefined ? null : (
           <Pressable
@@ -84,7 +84,7 @@ export function Toast({ toast, onDismiss, bottomOffset = 0 }: { readonly toast: 
               if (hasAction) toast.onAction?.()
               onDismiss()
             }}
-            style={({ pressed }) => ({ minHeight: TOUCH.min, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent' })}
+            style={({ pressed }) => ({ minHeight: TOUCH.min, alignSelf: 'flex-start', justifyContent: 'center', paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? 'rgba(255,255,255,0.14)' : 'transparent' })}
           >
             <Txt step="bodyLarge" weight="bold" ink={p.toastAction}>
               {actionLabel}
@@ -126,7 +126,7 @@ export function PopNote({ note }: { readonly note: { readonly id: number; readon
   if (shown === null) return null
   return (
     <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: top + SPACE.md, alignItems: 'center' }}>
-      <Animated.View role="status" aria-live="polite" style={{ opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) }], backgroundColor: p.toast, borderRadius: RADIUS.pill, paddingVertical: SPACE.sm + 2, paddingHorizontal: SPACE.lg, ...SHADOW.toast }}>
+      <Animated.View role="status" aria-live="polite" style={{ opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) }], backgroundColor: p.toast, borderRadius: RADIUS.pill, borderCurve: 'continuous', paddingVertical: SPACE.sm + 2, paddingHorizontal: SPACE.lg, ...SHADOW.toast }}>
         <Txt step="caption" weight="bold" color="onToast">
           {shown}
         </Txt>

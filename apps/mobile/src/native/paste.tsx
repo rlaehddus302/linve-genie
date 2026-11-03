@@ -13,7 +13,7 @@ export interface PasteControlProps {
 function PlainPasteButton({ onPaste }: PasteControlProps) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label="붙여넣기" onPress={() => void readClipboard().then(onPaste)} hitSlop={6} style={({ pressed }) => ({ height: 36, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, justifyContent: 'center', backgroundColor: pressed ? p.softPressed : p.soft })}>
+    <Pressable role="button" aria-label="붙여넣기" onPress={() => void readClipboard().then(onPaste)} hitSlop={6} style={({ pressed }) => ({ height: 36, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.softPressed : p.soft })}>
       <Txt step="caption" weight="bold">
         붙여넣기
       </Txt>

@@ -9,6 +9,7 @@ import {
   FakeWebcast,
   readTikTokSettings,
   type FakeChatFields,
+  type ShortLinkResolver,
   type TikTokAttemptLimiter,
   type WebcastFactory,
 } from '../src/tiktok/index.ts'
@@ -37,6 +38,8 @@ export interface TtOptions {
   readonly factory?: WebcastFactory
   readonly tclock?: FakeTikTokClock
   readonly overrides?: Partial<ServerOptions>
+  /** 짧은 공유 링크 풀기 (기본: 언제나 못 품 — 시험은 틱톡에 나가지 않는다, D-UX3-14) */
+  readonly shortLinks?: ShortLinkResolver
 }
 
 export async function ttWorld(options: TtOptions = {}): Promise<TtWorld> {
@@ -54,6 +57,7 @@ export async function ttWorld(options: TtOptions = {}): Promise<TtWorld> {
       ...(options.libraryEnv === undefined ? {} : { libraryEnv: options.libraryEnv }),
       ...(options.noticeVersion === undefined ? {} : { noticeVersion: options.noticeVersion }),
       ...(options.limiter === undefined ? {} : { limiter: options.limiter }),
+      shortLinks: options.shortLinks ?? (async () => null),
     },
     ...(options.overrides as Partial<ServerOptions> & { clock?: FakeClock }),
   })

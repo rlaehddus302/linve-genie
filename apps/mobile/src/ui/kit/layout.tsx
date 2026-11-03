@@ -47,7 +47,7 @@ export function Card({ children, label, title, description, testID }: { readonly
   const { p } = useKit()
   const name = label ?? title
   return (
-    <View role={name === undefined ? undefined : 'group'} aria-label={name} testID={testID} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, padding: SPACE.xl, gap: SPACE.md, ...SHADOW.card }}>
+    <View role={name === undefined ? undefined : 'group'} aria-label={name} testID={testID} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', padding: SPACE.xl, gap: SPACE.md, ...SHADOW.card }}>
       {title === undefined ? null : (
         <View style={{ gap: SPACE.xs }}>
           <Txt step="bodyLarge" weight="heavy" role="heading" aria-level={2}>
@@ -106,7 +106,7 @@ export function ListRow({ title, subtitle, value, right, onPress, ariaLabel, tes
     )
   }
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? [title, value].filter((x) => x !== undefined).join(' — ')} onPress={onPress} testID={testID} style={({ pressed }) => ({ ...frame, backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, marginHorizontal: -SPACE.sm, paddingHorizontal: SPACE.sm })}>
+    <Pressable role="button" aria-label={ariaLabel ?? [title, value].filter((x) => x !== undefined).join(' — ')} onPress={onPress} testID={testID} style={({ pressed }) => ({ ...frame, backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, borderCurve: 'continuous', marginHorizontal: -SPACE.sm, paddingHorizontal: SPACE.sm })}>
       {body}
       <Icon name="chevron" size={20} />
     </Pressable>
@@ -132,7 +132,7 @@ export function ToggleRow({ title, subtitle, on, onChange, disabled, testID }: {
         disabled={disabled === true}
         onPress={() => onChange(!on)}
         testID={testID}
-        style={({ pressed }) => ({ minHeight: TOUCH.min, minWidth: 96, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? (pressed ? p.primaryPressed : p.primary) : pressed ? p.softPressed : p.soft, opacity: disabled === true ? 0.45 : 1 })}
+        style={({ pressed }) => ({ minHeight: TOUCH.min, minWidth: 96, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: on ? (pressed ? p.primaryPressed : p.primary) : pressed ? p.softPressed : p.soft, opacity: disabled === true ? 0.45 : 1 })}
       >
         <Txt step="bodyLarge" weight="bold" color={on ? 'onPrimary' : 'text'}>
           {on ? '켜짐' : '꺼짐'}

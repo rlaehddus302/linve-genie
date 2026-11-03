@@ -55,7 +55,7 @@ export function AlertStrip({ counts, queue, rehearsal, ended, onAction }: { read
       {items.map((item) => {
         const pair = tones[item.tone]
         return (
-          <Pressable key={item.key} role="button" aria-label={item.text} onPress={() => onAction(ACTION[item.key] ?? 'pending')} style={({ pressed }) => ({ paddingVertical: 6, paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill, backgroundColor: pressed ? pressedFill(p, pair.bg) : pair.bg })}>
+          <Pressable key={item.key} role="button" aria-label={item.text} onPress={() => onAction(ACTION[item.key] ?? 'pending')} style={({ pressed }) => ({ paddingVertical: 6, paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: pressed ? pressedFill(p, pair.bg) : pair.bg })}>
             <Txt step="caption" weight="bold" ink={pair.fg}>{item.text}</Txt>
           </Pressable>
         )

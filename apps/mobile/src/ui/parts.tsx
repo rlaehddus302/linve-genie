@@ -102,7 +102,7 @@ export function BigButton({ label, onPress, primary, danger, disabled, small, ar
         flexShrink: 1,
         paddingHorizontal: small === true ? SPACE.lg : SPACE.xl,
         paddingVertical: SPACE.md,
-        borderRadius: RADIUS.lg,
+        borderRadius: RADIUS.lg, borderCurve: 'continuous',
         backgroundColor: pressed && disabled !== true ? pressedFill(p, fill) : fill,
         alignItems: 'center',
         justifyContent: 'center',
@@ -141,7 +141,7 @@ export function Notice({ tone, children, alert, label }: { readonly tone: Tone; 
   const { tones } = useKit()
   const pair = tones[tone]
   return (
-    <View role={alert === true ? 'alert' : 'status'} aria-label={label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.md, backgroundColor: pair.bg }}>
+    <View role={alert === true ? 'alert' : 'status'} aria-label={label} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pair.bg }}>
       {/* 잘못·주의 알림 앞에는 느낌표 (D-UX3-11) */}
       {tone === 'danger' || tone === 'warning' ? (
         <View style={{ paddingTop: 3 }}>
@@ -162,7 +162,7 @@ export function Tag({ tone, children, big }: { readonly tone: Tone; readonly chi
   const { tones } = useKit()
   const pair = tones[tone]
   return (
-    <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, backgroundColor: pair.bg }}>
+    <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: pair.bg }}>
       <View aria-hidden>
         <Txt step="caption" weight="heavy" ink={pair.fg}>
           {TONE_MARK[tone]}
@@ -178,7 +178,7 @@ export function Tag({ tone, children, big }: { readonly tone: Tone; readonly chi
 export function Card({ children, label }: { readonly children: ReactNode; readonly label?: string }) {
   const { p } = useKit()
   return (
-    <View aria-label={label} role={label === undefined ? undefined : 'group'} style={{ padding: SPACE.lg, borderRadius: RADIUS.xl, backgroundColor: p.surface, gap: SPACE.md, ...SHADOW.card }}>
+    <View aria-label={label} role={label === undefined ? undefined : 'group'} style={{ padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.surface, gap: SPACE.md, ...SHADOW.card }}>
       {children}
     </View>
   )
@@ -198,7 +198,7 @@ export function Loading({ text }: { readonly text?: string }) {
 export function BigRed({ title, body }: { readonly title: string; readonly body: string }) {
   const { p, tones } = useKit()
   return (
-    <View role="alert" style={{ padding: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: tones.danger.bg, borderWidth: 2, borderColor: p.dangerText, gap: SPACE.sm }}>
+    <View role="alert" style={{ padding: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: tones.danger.bg, borderWidth: 2, borderColor: p.dangerText, gap: SPACE.sm }}>
       <Txt step="title" weight="heavy" color="dangerText">
         {title}
       </Txt>

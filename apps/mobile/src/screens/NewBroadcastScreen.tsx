@@ -18,7 +18,7 @@ import { BigButton, BottomSheet, FormPage, Icon, Txt, useKit } from '../ui/kit/i
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Notice } from '../ui/parts.tsx'
 import { defaultBroadcastTitle, startErrorMessage } from './HomeScreen.tsx'
-import { markLinkAsked, useAddressLinker, type LinkBody } from './console/YoutubeSection.tsx'
+import { markLinkAsked, sendLiveLink, useAddressLinker, type LiveLinkRequest } from './console/YoutubeSection.tsx'
 
 /** 판매 종류 — 늘릴 때는 여기에 한 줄 (word가 제목에 들어간다. 기타는 제목에 넣지 않는다) */
 export const SALE_CATEGORIES: readonly { readonly key: string; readonly word: string; readonly inTitle: boolean; readonly icon: string }[] = [
@@ -106,27 +106,7 @@ function MakeError({ error }: { readonly error: ApiError | null }) {
 /** 1단계: 판매 종류 고르기 */
 export function NewBroadcastCategoryScreen({ nav }: { readonly nav: NewBroadcastNavigation }) {
   const { p } = useKit()
-  const route = useLinkRoute()
-  const { make, error, busy } = useMakeBroadcast()
-  const [picked, setPicked] = useState<string | null>(null)
-
-  const go = async (key: string) => {
-    if (route !== null) {
-      nav.openAddress(key)
-      return
-    }
-    // 주소로 이을 수 없는 서버 — 바로 만들고 방송 화면이 연결 안내를 보인다
-    const id = await make(categoryBroadcastTitle(kstToday(), key))
-    if (id !== null) nav.openConsole(id)
-  }
-  // 확인이 끝나기 전에 눌렀으면 끝나는 대로 이어 간다(눌렀는데 아무 일 없는 단추가 되지 않게)
-  useEffect(() => {
-    if (picked === null || route === undefined) return
-    setPicked(null)
-    void go(picked)
-    // go는 누른 그때 값으로 충분하다 — 확인이 끝날 때 한 번만
-  }, [picked, route])
-
+  // 유튜브·틱톡·밴드 모두 링크로 이을 수 있어 늘 링크 단계로 간다 (D-UX3-14 — 전에는 유튜브를 이을 수 없는 서버면 바로 만들었다)
   return (
     <FormPage title="어떤 방송인가요?" name="새 방송" onBack={nav.back}>
       <View role="group" aria-label="판매 종류" style={{ gap: SPACE.sm, marginHorizontal: -SPACE.sm }}>
@@ -135,13 +115,11 @@ export function NewBroadcastCategoryScreen({ nav }: { readonly nav: NewBroadcast
             key={item.key}
             role="button"
             aria-label={item.word}
-            aria-busy={busy || picked === item.key}
-            disabled={busy}
-            onPress={() => (route === undefined ? setPicked(item.key) : void go(item.key))}
-            style={({ pressed }) => ({ minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, backgroundColor: pressed ? p.pressed : 'transparent' })}
+            onPress={() => nav.openAddress(item.key)}
+            style={({ pressed }) => ({ minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}
           >
             {/* 토스처럼 둥근 바탕 위 그림 글자 (장식) */}
-            <View aria-hidden style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+            <View aria-hidden style={{ width: 44, height: 44, borderRadius: 22, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
               <Text allowFontScaling={false} style={{ fontSize: 24, lineHeight: 30 }}>
                 {item.icon}
               </Text>
@@ -155,7 +133,6 @@ export function NewBroadcastCategoryScreen({ nav }: { readonly nav: NewBroadcast
           </Pressable>
         ))}
       </View>
-      <MakeError error={error} />
     </FormPage>
   )
 }
@@ -181,17 +158,13 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
     }
     return id
   }
-  const linkNew = async (body: LinkBody) => {
+  const linkNew = async (request: LiveLinkRequest) => {
     const id = await ensureMade()
     if (id === null) return
-    await withRetry(() => post(`/api/broadcasts/${encodeURIComponent(id)}/youtube`, body))
+    await sendLiveLink(id, request)
     nav.openConsole(id)
   }
-  const makeOnly = async () => {
-    const id = await ensureMade()
-    if (id !== null) nav.openConsole(id)
-  }
-  const linker = useAddressLinker({ enabled: route !== null && route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, autoFocus: true, disabled: busy, onEdit: clearError })
+  const linker = useAddressLinker({ enabled: route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, autoFocus: true, disabled: busy, onEdit: clearError })
 
   return (
     <FormPage
@@ -199,62 +172,34 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
       name="새 방송"
       onBack={nav.back}
       overlay={linker.popup}
-      actions={route === null ? <BigButton label="방송 만들기" busy={busy} onPress={() => void makeOnly()} /> : linker.action}
+      actions={linker.action}
     >
-      {route === null ? <Txt color="textSub">지금은 링크로 이을 수 없어요. 방송을 만든 뒤 방송 화면에서 이어 주세요.</Txt> : null}
-      {route !== null && route !== undefined ? linker.fields : null}
-      {route !== null ? <BigButton kind="outline" label="링크를 모르겠어요" onPress={() => setFinder(true)} /> : null}
+      {route !== undefined ? linker.fields : null}
+      <BigButton kind="outline" label="링크를 모르겠어요" onPress={() => setFinder(true)} />
       <MakeError error={error} />
-      <PlatformFinder
-        visible={finder}
-        onClose={() => setFinder(false)}
-        busy={busy}
-        onReturned={() => void linker.recheck()}
-        onMakeWithoutAddress={() => {
-          setFinder(false)
-          void makeOnly()
-        }}
-      />
+      <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
     </FormPage>
   )
 }
 
 /**
- * [방송 주소를 모르겠어요] 판 (D-UX3-10): 플랫폼 셋(아이콘 + 이름). 유튜브는 앱(없으면 앱 안 브라우저)을 열고, 내 방송에서
- * 공유 → 링크 복사 후 돌아오면 주소 칸이 저절로 채워진다. 틱톡·밴드는 주소로 잇지 않는다 — 계정으로 잇는다는 안내와 [이 방송 만들기].
+ * [링크를 모르겠어요] 판 (D-UX3-10·14): 플랫폼 셋(아이콘 + 이름). 누르면 그 앱(없으면 앱 안 브라우저)을 열고, 내 방송에서
+ * 공유 → 링크 복사 후 돌아오면 [붙여넣기]로 넣는다. 유튜브·틱톡·밴드 모두 같다(전에는 틱톡·밴드는 계정으로 잇는다는 안내만).
  */
-export function PlatformFinder({ visible, onClose, busy = false, onReturned, onMakeWithoutAddress }: { readonly visible: boolean; readonly onClose: () => void; readonly busy?: boolean; readonly onReturned: () => void; readonly onMakeWithoutAddress?: () => void }) {
+export function PlatformFinder({ visible, onClose, onReturned }: { readonly visible: boolean; readonly onClose: () => void; readonly onReturned: () => void }) {
   const { p } = useKit()
-  const [account, setAccount] = useState<PlatformTarget | null>(null)
-  useEffect(() => {
-    if (!visible) setAccount(null)
-  }, [visible])
   const pick = async (target: PlatformTarget) => {
-    if (target.key !== 'youtube') {
-      setAccount(target)
-      return
-    }
     onClose()
     const opened = await openPlatform(target)
     // 앱 안 브라우저는 닫힐 때 끝난다 — 앱이 뒤로 가지 않았으니 여기서 클립보드를 다시 본다(앱으로 갔다 오면 앞으로 옴 알림이 본다)
     if (opened === 'browser') onReturned()
-  }
-  if (account !== null) {
-    return (
-      <BottomSheet visible={visible} onClose={onClose} title={`${account.word} 방송`} actions={<>{onMakeWithoutAddress === undefined ? null : <BigButton label="이 방송 만들기" busy={busy} onPress={onMakeWithoutAddress} />}<BigButton kind="outline" label="뒤로" onPress={() => setAccount(null)} /></>}>
-        <Txt>{`${account.word} 방송은 링크 대신 가게 계정으로 이어요.`}</Txt>
-        <Txt step="caption" color="textSub">
-          {onMakeWithoutAddress === undefined ? '컴퓨터의 방송 화면에서 이어 주세요.' : '방송을 만든 뒤 컴퓨터의 방송 화면에서 이어 주세요.'}
-        </Txt>
-      </BottomSheet>
-    )
   }
   return (
     <BottomSheet visible={visible} onClose={onClose} title="어디서 방송하나요?">
       <Txt color="textSub">내 방송의 링크를 복사해 돌아오세요.</Txt>
       <View role="group" aria-label="방송 플랫폼" style={{ gap: SPACE.xs, marginHorizontal: -SPACE.sm }}>
         {LIVE_PLATFORMS.map((target) => (
-          <Pressable key={target.key} role="button" aria-label={target.word} onPress={() => void pick(target)} style={({ pressed }) => ({ minHeight: TOUCH.min + 16, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Pressable key={target.key} role="button" aria-label={target.word} onPress={() => void pick(target)} style={({ pressed }) => ({ minHeight: TOUCH.min + 16, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <PlatformIcon platform={target.key} />
             <View style={{ flex: 1 }}>
               <Txt step="bodyLarge" weight="bold">
@@ -276,7 +221,7 @@ export function PlatformIcon({ platform, size = 40 }: { readonly platform: LiveP
   const { p } = useKit()
   const logo = PLATFORM_LOGO[platform]
   return (
-    <View aria-hidden style={{ width: size, height: size, borderRadius: size * 0.24, overflow: 'hidden', borderWidth: 1, borderColor: p.line }}>
+    <View aria-hidden style={{ width: size, height: size, borderRadius: size * 0.2237, borderCurve: 'continuous', overflow: 'hidden', borderWidth: 1, borderColor: p.line }}>
       <Image source={typeof logo === 'string' ? { uri: logo } : logo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
     </View>
   )

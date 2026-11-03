@@ -30,9 +30,8 @@ import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue
 import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { ListenLine, listenChip, useStreamAudio } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
-import type { LinkView } from '@livejjim/web/src/api/types.ts'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
-import { YoutubeSection, YoutubeWarning, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
+import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
 const RETURN_WAIT_MS = 3000
@@ -180,7 +179,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
       openLink(ended || sealed)
     }
   }
-  const linker = useAddressLinker({ enabled: sheet === 'youtube' && linkable, webChat: yt.webChat, broadcastId, submit: async (body) => yt.setLink(await withRetry(() => post<LinkView>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/youtube`, body))) })
+  const linker = useAddressLinker({ enabled: sheet === 'youtube' && linkable, webChat: yt.webChat, broadcastId, submit: async (request) => {
+      const view = await sendLiveLink(broadcastId, request)
+      if (view === null) setSheet('none')
+      else yt.setLink(view)
+    } })
   const command = useCallback(
     async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> => {
       const current = store.getSnapshot()

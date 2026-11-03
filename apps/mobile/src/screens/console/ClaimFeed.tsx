@@ -79,7 +79,7 @@ export function FeedLine({ row }: { readonly row: FeedRow }) {
   const { p } = useKit()
   const taken = row.takenBy !== null
   return (
-    <View role="listitem" aria-label={`${String(row.no)}번 ${row.buyer} ${row.word}`} style={{ paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, backgroundColor: taken ? p.warnBg : p.surface, gap: 2 }}>
+    <View role="listitem" aria-label={`${String(row.no)}번 ${row.buyer} ${row.word}`} style={{ paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: taken ? p.warnBg : p.surface, gap: 2 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
         <Txt step="caption" color="textSub">{kstTime(row.at)}</Txt>
         <Tag tone="info">{row.origin}</Tag>

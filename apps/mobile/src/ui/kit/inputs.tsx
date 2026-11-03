@@ -143,9 +143,9 @@ export function ErrorLine({ children }: { readonly children: ReactNode }) {
 export function AlertMark({ color, size = 16 }: { readonly color?: string; readonly size?: number }) {
   const { p } = useKit()
   return (
-    <View aria-hidden style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color ?? p.dangerText, alignItems: 'center', justifyContent: 'center' }}>
-      <View style={{ width: Math.max(2, size / 8), height: size * 0.36, borderRadius: 1, backgroundColor: p.surface, marginBottom: size * 0.08 }} />
-      <View style={{ width: Math.max(2, size / 8), height: Math.max(2, size / 8), borderRadius: 1, backgroundColor: p.surface }} />
+    <View aria-hidden style={{ width: size, height: size, borderRadius: size / 2, borderCurve: 'continuous', backgroundColor: color ?? p.dangerText, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: Math.max(2, size / 8), height: size * 0.36, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface, marginBottom: size * 0.08 }} />
+      <View style={{ width: Math.max(2, size / 8), height: Math.max(2, size / 8), borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface }} />
     </View>
   )
 }
@@ -154,10 +154,10 @@ export function AlertMark({ color, size = 16 }: { readonly color?: string; reado
 export function ClearButton({ label, onPress }: { readonly label: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={8} style={({ pressed }) => ({ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: pressed ? p.pressed : 'transparent' })}>
-      <View aria-hidden style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: p.clearCircle, alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, backgroundColor: p.surface, transform: [{ rotate: '45deg' }] }} />
-        <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, backgroundColor: p.surface, transform: [{ rotate: '-45deg' }] }} />
+    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={8} style={({ pressed }) => ({ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <View aria-hidden style={{ width: 22, height: 22, borderRadius: 11, borderCurve: 'continuous', backgroundColor: p.clearCircle, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface, transform: [{ rotate: '45deg' }] }} />
+        <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface, transform: [{ rotate: '-45deg' }] }} />
       </View>
     </Pressable>
   )
@@ -199,7 +199,7 @@ export function NumberPad({ value, onChange, maxLength = 9, testID }: { readonly
       role="button"
       aria-label={KEY_NAME[key]}
       onPress={() => press(key)}
-      style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.key, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center', backgroundColor: key === 'back' ? (pressed ? p.secondaryPressed : p.secondary) : pressed ? p.softPressed : p.surfaceAlt })}
+      style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.key, borderRadius: RADIUS.md, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: key === 'back' ? (pressed ? p.secondaryPressed : p.secondary) : pressed ? p.softPressed : p.surfaceAlt })}
     >
       <Txt step="title" weight="bold" color={key === 'back' ? 'onSecondary' : 'text'}>
         {key === 'back' ? '← 지우기' : key}
@@ -213,7 +213,7 @@ export function NumberPad({ value, onChange, maxLength = 9, testID }: { readonly
           {row.map(keyButton)}
         </View>
       ))}
-      <Pressable role="button" aria-label="모두 지우기" onPress={() => press('clear')} style={({ pressed }) => ({ backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, minHeight: TOUCH.min, alignItems: 'center', justifyContent: 'center' })}>
+      <Pressable role="button" aria-label="모두 지우기" onPress={() => press('clear')} style={({ pressed }) => ({ backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, borderCurve: 'continuous', minHeight: TOUCH.min, alignItems: 'center', justifyContent: 'center' })}>
         <Txt weight="bold" color="primaryText">
           모두 지우기
         </Txt>

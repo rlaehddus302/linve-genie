@@ -176,7 +176,7 @@ function ProductRow({ product, fresh, onOpen, badge }: { readonly product: Produ
       role="button"
       aria-label={`상품 자세히 — ${String(product.no)}번`}
       onPress={onOpen}
-      style={({ pressed }) => ({ gap: 6, paddingVertical: 14, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.lg, backgroundColor: pressed ? pressedFill(p, bg) : bg, opacity: dim ? 0.6 : 1 })}
+      style={({ pressed }) => ({ gap: 6, paddingVertical: 14, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? pressedFill(p, bg) : bg, opacity: dim ? 0.6 : 1 })}
     >
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
         <Txt step="title" weight="heavy">{`${String(product.no)}번`}</Txt>

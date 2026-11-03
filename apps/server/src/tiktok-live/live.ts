@@ -31,6 +31,8 @@ import {
   createTikTokSignMeter,
   TIKTOK_SIGN_MESSAGES,
   type TikTokSignMeter,
+  fetchShortLinkResolver,
+  type ShortLinkResolver,
 } from '../tiktok/index.ts'
 import type { Draft, Rejection, ScopeWriter, TxHookContext } from '../writer.ts'
 import { tiktokChatFields } from './chat.ts'
@@ -90,6 +92,8 @@ export const TIKTOK_MESSAGES = {
   TOO_SOON: '잠시 뒤 다시 눌러 주세요.',
   TIKTOK_LINKED: '먼저 틱톡 연결을 끊어 주세요.',
   NOTICE_CHANGED: '안내가 바뀌었어요. 새 안내를 읽고 다시 켜 주세요.',
+  /** 링크로 잇기에서 틱톡 아이디를 찾지 못함 (D-UX3-14) */
+  INVALID_TIKTOK_LINK: '알 수 없는 링크예요.',
   /** 운영자 스위치 꺼짐 — 설정 화면 (AC-N2b-2-25) */
   OPERATOR_OFF: '지금은 틱톡 연결을 쓸 수 없어요.',
   RECEIVED_TIME: '틱톡 라이브는 댓글마다의 시각이 없어 실제 시각순으로 판정할 수 없어요.',
@@ -171,6 +175,8 @@ export interface TikTokLiveOptions {
   readonly publish: (sellerId: string, data: Readonly<Record<string, unknown>>) => void
   /** 지금 고지 판 (시험만 바꾼다) */
   readonly noticeVersion?: string
+  /** 짧은 공유 링크 풀기 (기본: 틱톡에 GET으로 넘겨주는 곳만 따라감 — 시험은 가짜, D-UX3-14) */
+  readonly shortLinks?: ShortLinkResolver
 }
 
 interface Entry {
@@ -417,6 +423,29 @@ export class TikTokLive {
   async #prior(sellerId: string, requestId: string): Promise<LinkOutcome | null> {
     const stored = await findRequest(this.#options.db, sellerId, requestId)
     return stored === null ? null : (JSON.parse(stored) as LinkOutcome)
+  }
+
+  /**
+   * 링크로 틱톡 잇기 (D-UX3-14): 방송 링크(또는 짧은 공유 링크를 푼 주소)에서 틱톡 아이디를 읽어, 저장한 아이디와 다르면 바꿔 두고 잇는다.
+   * 같은 요청 번호는 처음 응답 그대로. 동의·운영자 스위치·회차 검사는 link()와 같다(NO_CONSENT면 화면이 안내를 보이고 동의를 받는다)
+   */
+  async linkByUrl(sellerId: string, accountId: string, requestId: string, broadcastId: string, url: unknown): Promise<LinkOutcome> {
+    const prior = await this.#prior(sellerId, requestId)
+    if (prior !== null) return prior
+    if ((await findBroadcast(this.#options.db, sellerId, broadcastId)) === null) return notFound
+    const invalid = fail(400, 'INVALID_TIKTOK_LINK')
+    let parsed = checkTikTokTarget(url)
+    if (!parsed.ok && parsed.error === 'SHORT_LINK' && typeof url === 'string') {
+      const opened = await (this.#options.shortLinks ?? fetchShortLinkResolver())(url)
+      if (opened === null) return invalid
+      parsed = checkTikTokTarget(opened)
+    }
+    if (!parsed.ok) return invalid
+    if ((await findTiktokId(this.#options.db, sellerId)) !== parsed.target.uniqueId) {
+      const saved = await this.setTiktokId(sellerId, accountId, parsed.target.uniqueId)
+      if (saved.status !== 200) return saved
+    }
+    return this.link(sellerId, accountId, requestId, broadcastId)
   }
 
   /** 틱톡 잇기 (AC-N2b-2-30): 받으면 연결을 만들고 바로 start() */

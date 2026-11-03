@@ -104,3 +104,4 @@ export {
   type TikTokSignLevel,
   type TikTokSignMeter,
 } from './sign-usage.ts'
+export { fetchShortLinkResolver, SHORT_LINK_HOPS, SHORT_LINK_TIMEOUT_MS, type ShortLinkResolver } from './short-link.ts'

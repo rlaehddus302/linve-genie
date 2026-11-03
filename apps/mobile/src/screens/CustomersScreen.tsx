@@ -143,7 +143,7 @@ export function CustomersScreen({ onBack }: { readonly onBack: () => void }) {
         {view !== null ? <Txt color="textSub">{`손님 ${String(view.count)}명`}</Txt> : null}
         {view !== null && view.customers.length === 0 ? <Txt color="textSub">맞는 손님이 없어요.</Txt> : null}
         {view?.customers.map((row) => (
-          <Pressable key={row.id} role="button" aria-label={`${row.name} · ${row.kindLabel}${row.regular ? ` · ${REGULAR_WORD}` : ''}${row.caution ? ` · ${CAUTION_WORD}` : ''}`} onPress={() => setOpen(row)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderRadius: RADIUS.lg, padding: SPACE.lg, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
+          <Pressable key={row.id} role="button" aria-label={`${row.name} · ${row.kindLabel}${row.regular ? ` · ${REGULAR_WORD}` : ''}${row.caution ? ` · ${CAUTION_WORD}` : ''}`} onPress={() => setOpen(row)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', padding: SPACE.lg, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
             <View style={{ flex: 1, gap: SPACE.xs }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap' }}>
                 <Txt step="bodyLarge" weight="bold">{row.name}</Txt>

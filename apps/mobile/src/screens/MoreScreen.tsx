@@ -43,7 +43,7 @@ export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavig
           <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
             전체
           </Txt>
-          <Pressable role="button" aria-label="설정" onPress={nav.openSettings} hitSlop={6} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Pressable role="button" aria-label="설정" onPress={nav.openSettings} hitSlop={6} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <Txt step="bodyLarge" weight="medium" color="textSub">
               설정
             </Txt>

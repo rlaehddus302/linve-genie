@@ -129,7 +129,7 @@ export function ListenLine({ session, broadcastId, title, stream }: { readonly s
   const problem = line !== null && (line.tone === 'danger' || line.tone === 'warn')
   return (
     <View style={{ gap: 6 }}>
-      <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, backgroundColor: pressed ? p.pressed : p.surface })}>
+      <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surface })}>
         <Icon name="mic" size={16} color={hearing ? p.primaryText : p.textSub} />
         <View role="status" aria-label="지금 들리는 말" style={{ flex: 1 }}>
           <Txt step="caption" numberOfLines={1} color={last === null ? 'textSub' : undefined}>{hearing ? (last ?? '아직 들린 말이 없어요.') : (line?.text ?? '')}</Txt>

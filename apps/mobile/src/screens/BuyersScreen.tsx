@@ -111,7 +111,7 @@ function BuyerRow({ buyer, name, extra, onPress }: { readonly buyer: Buyer; read
   const { p } = useKit()
   const label = `${name}${extra.length > 0 ? ` · ${extra.join(' · ')}` : ''} · 상품 ${String(buyer.items.length)}개 · ${formatWon(buyer.subtotal)}`
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} style={({ pressed }) => ({ borderRadius: RADIUS.lg, padding: SPACE.md, gap: SPACE.xs, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
+    <Pressable role="button" aria-label={label} onPress={onPress} style={({ pressed }) => ({ borderRadius: RADIUS.lg, borderCurve: 'continuous', padding: SPACE.md, gap: SPACE.xs, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
         <Txt weight="bold">{name}</Txt>
         {isUnknownSms(buyer) ? <Tag tone="warning">확인 필요</Tag> : null}

@@ -204,8 +204,8 @@ function Buckets({ view }: { readonly view: ReportView }) {
       {rows.map((row) => (
         <View key={row.start} style={{ gap: SPACE.xs }}>
           <Txt>{bucketLine(row, view.date)}</Txt>
-          <View aria-hidden style={{ height: 10, borderRadius: RADIUS.pill, backgroundColor: p.outline }}>
-            <View style={{ height: 10, borderRadius: RADIUS.pill, backgroundColor: p.primary, width: `${String(barPercent(row.amount, max))}%` }} />
+          <View aria-hidden style={{ height: 10, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.outline }}>
+            <View style={{ height: 10, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.primary, width: `${String(barPercent(row.amount, max))}%` }} />
           </View>
         </View>
       ))}

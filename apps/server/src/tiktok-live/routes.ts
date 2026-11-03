@@ -68,6 +68,16 @@ export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: 
     return outcomeResponse(await tiktok.reconnect(session(c).sellerId, c.req.param('id')))
   })
 
+  // ── 링크로 잇기 (D-UX3-14): 틱톡 방송 링크·짧은 공유 링크 → 아이디를 읽어 저장하고 잇는다 ───
+  api.post('/broadcasts/:id/tiktok/link-url', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'url'])
+    if (extra !== null) return extra
+    return outcomeResponse(await tiktok.linkByUrl(session(c).sellerId, session(c).accountId, requestId, c.req.param('id'), own(input, 'url')))
+  })
+
   // ── 저장 실패 확인 (AC-N2b-2-74, D-N2b-2-16) — 판매자만(보조자 허용 목록 밖 → 403) ─────────
   api.post('/broadcasts/:id/tiktok/save-failed-seen', async (c) => {
     const input = body(c)
