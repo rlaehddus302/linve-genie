@@ -72,6 +72,29 @@ describe('링크로 틱톡 잇기 (D-UX3-14)', () => {
     expect(res.status).toBe(409)
     expect((res.body.error as { code: string }).code).toBe('NO_CONSENT')
   })
+
+  it('D-UX3-17 다른 방송에 틱톡이 이어져 있으면 묻고(TIKTOK_ELSEWHERE, 아무것도 바꾸지 않음), move면 그 연결을 끊고 여기로 옮긴다', async () => {
+    const w = await world()
+    const seller = await addSeller(w)
+    await consentOn(w, seller)
+    w.webcast.account('shop_one', 'LIVE')
+    w.webcast.account('shop_two', 'LIVE')
+    const first = await realBroadcast(w, seller)
+    expect((await linkUrl(w, seller.cookie, first, 'https://www.tiktok.com/@shop_one/live')).status).toBe(200)
+    const second = await realBroadcast(w, seller)
+    const state = async (b: string) => ((await client(w, seller.cookie).get(`/api/broadcasts/${b}/tiktok`)).body as { link: { state: string; tiktokId: string | null } }).link
+    for (const url of ['https://www.tiktok.com/@shop_one/live', 'https://www.tiktok.com/@shop_two/live']) {
+      const asked = await linkUrl(w, seller.cookie, second, url)
+      expect(asked.status, asked.text).toBe(409)
+      expect(asked.body.error).toMatchObject({ code: 'TIKTOK_ELSEWHERE', message: '다른 방송에 틱톡이 이어져 있어요. 이 방송으로 옮길까요?' })
+    }
+    expect(((await client(w, seller.cookie).get('/api/tiktok')).body.tiktok as { tiktokId: string }).tiktokId).toBe('shop_one')
+    const moved = await client(w, seller.cookie).post(`/api/broadcasts/${second}/tiktok/link-url`, { requestId: rid('lu'), url: 'https://www.tiktok.com/@shop_two/live', move: true })
+    expect(moved.status, moved.text).toBe(200)
+    expect(((await client(w, seller.cookie).get('/api/tiktok')).body.tiktok as { tiktokId: string }).tiktokId).toBe('shop_two')
+    expect((await state(first)).state).toBe('NONE')
+    expect(await state(second)).toMatchObject({ state: 'LINKED', tiktokId: 'shop_two' })
+  })
 })
 
 describe('짧은 링크 풀기 (D-UX3-14)', () => {

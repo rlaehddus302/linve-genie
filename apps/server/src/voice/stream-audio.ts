@@ -4,7 +4,7 @@ import { execFile, spawn, spawnSync, type ChildProcessByStdio } from 'node:child
 import type { Readable } from 'node:stream'
 import { activeLink } from '../youtube/store.ts'
 import { latestTiktokLink } from '../tiktok-live/store.ts'
-import { parseTikTokTarget } from '../tiktok/target.ts'
+import { parseTikTokTarget } from '../tiktok/index.ts'
 import type { WebChatSource } from '../youtube/web-chat-source.ts'
 import type { Db } from '../db/database.ts'
 import type { LogSink } from '../log.ts'

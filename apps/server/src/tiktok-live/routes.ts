@@ -73,9 +73,9 @@ export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: 
     const input = body(c)
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
-    const extra = onlyKeys(input, ['requestId', 'url'])
+    const extra = onlyKeys(input, ['requestId', 'url', 'move'])
     if (extra !== null) return extra
-    return outcomeResponse(await tiktok.linkByUrl(session(c).sellerId, session(c).accountId, requestId, c.req.param('id'), own(input, 'url')))
+    return outcomeResponse(await tiktok.linkByUrl(session(c).sellerId, session(c).accountId, requestId, c.req.param('id'), own(input, 'url'), own(input, 'move') === true))
   })
 
   // ── 저장 실패 확인 (AC-N2b-2-74, D-N2b-2-16) — 판매자만(보조자 허용 목록 밖 → 403) ─────────

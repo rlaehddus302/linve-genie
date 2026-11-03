@@ -94,6 +94,8 @@ export const TIKTOK_MESSAGES = {
   NOTICE_CHANGED: '안내가 바뀌었어요. 새 안내를 읽고 다시 켜 주세요.',
   /** 링크로 잇기에서 틱톡 아이디를 찾지 못함 (D-UX3-14) */
   INVALID_TIKTOK_LINK: '알 수 없는 링크예요.',
+  /** 링크로 잇기에서 다른 방송에 틱톡이 이어져 있음 — 화면이 옮길지 묻는다 (D-UX3-17) */
+  TIKTOK_ELSEWHERE: '다른 방송에 틱톡이 이어져 있어요. 이 방송으로 옮길까요?',
   /** 운영자 스위치 꺼짐 — 설정 화면 (AC-N2b-2-25) */
   OPERATOR_OFF: '지금은 틱톡 연결을 쓸 수 없어요.',
   RECEIVED_TIME: '틱톡 라이브는 댓글마다의 시각이 없어 실제 시각순으로 판정할 수 없어요.',
@@ -197,6 +199,7 @@ const fail = (status: number, code: TikTokLinkCode | 'NOT_FOUND', message?: stri
   body: { error: { code, message: message ?? (code === 'NOT_FOUND' ? '찾을 수 없어요.' : TIKTOK_MESSAGES[code]) } },
 })
 const notFound = fail(404, 'NOT_FOUND')
+const errorCodeOf = (outcome: LinkOutcome): unknown => (outcome.body as { error?: { code?: unknown } }).error?.code
 const rejection = (status: number, code: Rejection['code'], message: string): Rejection => ({ status, code, message, problems: [] })
 
 function systemClockOf(clock: Clock): TikTokClock {
@@ -427,9 +430,10 @@ export class TikTokLive {
 
   /**
    * 링크로 틱톡 잇기 (D-UX3-14): 방송 링크(또는 짧은 공유 링크를 푼 주소)에서 틱톡 아이디를 읽어, 저장한 아이디와 다르면 바꿔 두고 잇는다.
-   * 같은 요청 번호는 처음 응답 그대로. 동의·운영자 스위치·회차 검사는 link()와 같다(NO_CONSENT면 화면이 안내를 보이고 동의를 받는다)
+   * 같은 요청 번호는 처음 응답 그대로. 동의·운영자 스위치·회차 검사는 link()와 같다(NO_CONSENT면 화면이 안내를 보이고 동의를 받는다).
+   * 다른 방송에 틱톡이 이어져 있으면 TIKTOK_ELSEWHERE — 판매자가 [옮기기]로 move를 보내면 그 연결을 끊고 여기 잇는다 (D-UX3-17)
    */
-  async linkByUrl(sellerId: string, accountId: string, requestId: string, broadcastId: string, url: unknown): Promise<LinkOutcome> {
+  async linkByUrl(sellerId: string, accountId: string, requestId: string, broadcastId: string, url: unknown, move = false): Promise<LinkOutcome> {
     const prior = await this.#prior(sellerId, requestId)
     if (prior !== null) return prior
     if ((await findBroadcast(this.#options.db, sellerId, broadcastId)) === null) return notFound
@@ -441,6 +445,12 @@ export class TikTokLive {
       parsed = checkTikTokTarget(opened)
     }
     if (!parsed.ok) return invalid
+    const open = await sellerOpenTiktokLink(this.#options.db, sellerId)
+    if (open !== null && open.broadcastId !== broadcastId) {
+      if (!move) return fail(409, 'TIKTOK_ELSEWHERE')
+      const off = await this.unlink(sellerId, accountId, `mv-${requestId}`.slice(0, 64), open.broadcastId)
+      if (off.status !== 200 && !(off.status === 409 && errorCodeOf(off) === 'NOT_LINKED')) return off
+    }
     if ((await findTiktokId(this.#options.db, sellerId)) !== parsed.target.uniqueId) {
       const saved = await this.setTiktokId(sellerId, accountId, parsed.target.uniqueId)
       if (saved.status !== 200) return saved

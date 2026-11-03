@@ -251,6 +251,28 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(0)
   })
 
+  it('D-UX3-17 다른 방송에 틱톡이 이어져 있으면 옮길지 묻고, [옮기기]면 move로 다시 보내 잇는다', async () => {
+    const world = linkableWorld()
+    let tries = 0
+    world.server.on('POST', /^\/api\/broadcasts\/b9\/tiktok\/link-url$/, () => {
+      tries += 1
+      return tries === 1 ? { status: 409, body: { error: { code: 'TIKTOK_ELSEWHERE', message: '다른 방송에 틱톡이 이어져 있어요. 이 방송으로 옮길까요?' } } } : { body: { link: { state: 'LINKED' } } }
+    })
+    const nav = newNav()
+    render(world.wrap(<NewBroadcastAddressScreen category="pot" nav={nav} />))
+    const field = (await screen.findByLabelText('방송 링크')) as HTMLInputElement
+    fireEvent.change(field, { target: { value: 'https://www.tiktok.com/@shop_two/live' } })
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    expect(await screen.findByText('다른 방송에 틱톡이 이어져 있어요. 이 방송으로 옮길까요?')).toBeTruthy()
+    expect(nav.openConsole).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '옮기기' }))
+    await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
+    const links = world.server.callsTo('POST', /tiktok\/link-url$/)
+    expect(links.map((call) => call.body?.move)).toEqual([undefined, true])
+    expect(links[1]?.body?.url).toBe('https://www.tiktok.com/@shop_two/live')
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(1)
+  })
+
   it('밴드 링크는 [확인]하면 내 밴드 글을 보이고, 고른 글로 잇는다 (밴드 공식 방법은 링크로 글을 찾지 못한다)', async () => {
     const world = linkableWorld()
     world.server.on('GET', /^\/api\/band$/, () => ({ body: { band: { status: 'CONNECTED', message: null } } }))

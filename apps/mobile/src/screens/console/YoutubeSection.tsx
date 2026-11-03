@@ -288,7 +288,7 @@ export interface LinkBody {
 /** 어느 플랫폼에 무엇을 보내 잇나 (D-UX3-14) */
 export type LiveLinkRequest =
   | { readonly platform: 'youtube'; readonly body: LinkBody }
-  | { readonly platform: 'tiktok'; readonly body: { readonly requestId: string; readonly url: string } }
+  | { readonly platform: 'tiktok'; readonly body: { readonly requestId: string; readonly url: string; readonly move?: true } }
   | { readonly platform: 'band'; readonly body: { readonly requestId: string; readonly bandKey: string; readonly postKey: string } }
 
 /** 잇기 요청 보내기 — 유튜브면 받은 연결 보기, 틱톡·밴드는 null */
@@ -313,6 +313,9 @@ export interface AddressLinkerOptions {
   /** 링크 칸을 고치기 시작했을 때 (화면의 다른 오류 문장도 지우게) */
   readonly onEdit?: () => void
 }
+
+/** 다른 방송에 틱톡이 이어져 있을 때 (D-UX3-17) — 서버 TIKTOK_ELSEWHERE 문장과 같다 */
+export const TIKTOK_MOVE_QUESTION = '다른 방송에 틱톡이 이어져 있어요. 이 방송으로 옮길까요?'
 
 /** 잇기 거절을 짧게 (D-UX3-11, 사용자 지시 2026-11-03 "구체적으로 말고 추상적으로 짧게"). 모르는 거절은 서버 문장 그대로 */
 const SHORT_LINK_ERRORS: Readonly<Record<string, string>> = {
@@ -339,8 +342,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
   const pending = useRef<{ video: string; confirmed: boolean; requestId: string } | null>(null)
   const [canPaste, setCanPaste] = useState(false)
   const [note, setNote] = useState<{ id: number; message: string } | null>(null)
-  /** 틱톡 동의 안내·밴드 글 고르기 (D-UX3-14) */
-  const [step, setStep] = useState<'none' | 'tiktokConsent' | 'bandPick'>('none')
+  /** 틱톡 동의 안내·밴드 글 고르기 (D-UX3-14), 다른 방송의 틱톡을 옮길지 묻기 (D-UX3-17) */
+  const [step, setStep] = useState<'none' | 'tiktokConsent' | 'tiktokMove' | 'bandPick'>('none')
 
   // 클립보드는 읽지 않고 글이 있는지만 본다 — 아이폰 "붙여넣기 허용" 창이 뜨지 않게 (D-UX3-11).
   // 글이 있으면 빈 링크 칸 오른쪽에 [붙여넣기](아이폰 기본 단추 — 누르는 것이 허락). 칸을 열 때와 앱·브라우저에서 돌아올 때 다시 본다.
@@ -399,6 +402,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
       if (!isApiError(caught)) throw caught
       if (!caught.retryable) other.current = null
       if (caught.code === 'NO_CONSENT') setStep('tiktokConsent')
+      else if (caught.code === 'TIKTOK_ELSEWHERE') setStep('tiktokMove')
       else {
         setStep('none')
         setError(shortLinkError(caught))
@@ -486,6 +490,17 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
       </Card>
       ) : null}
       {step === 'tiktokConsent' ? <TiktokConsentCard disabled={off} onAgreed={() => confirm(address.trim())} onCancel={() => setStep('none')} /> : null}
+      {step === 'tiktokMove' ? (
+        <Card>
+          <Notice tone="warning" alert>
+            {TIKTOK_MOVE_QUESTION}
+          </Notice>
+          <Row wrap>
+            <BigButton small primary label="옮기기" disabled={off} onPress={() => { const url = liveLinkOf(address.trim())?.url ?? address.trim(); void sendOther((requestId) => ({ platform: 'tiktok', body: { requestId, url, move: true } }), `tiktok-move ${url}`) }} />
+            <BigButton small label="취소" disabled={off} onPress={() => setStep('none')} />
+          </Row>
+        </Card>
+      ) : null}
       {step === 'bandPick' ? <BandPostPicker disabled={off} onCancel={() => setStep('none')} onPick={(bandKey, postKey) => void sendOther((requestId) => ({ platform: 'band', body: { requestId, bandKey, postKey } }), `band ${bandKey} ${postKey}`)} /> : null}
       {ask !== null ? (
         <Card label={FIRST_CHANNEL_GROUP}>
