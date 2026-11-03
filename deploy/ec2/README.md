@@ -197,7 +197,7 @@ aws ssm get-parameter --name /livegenie/prod/transcribe-worker-token --with-decr
 | 상태·기록 | 세션에서 `sudo lg-compose ps` · `sudo lg-compose logs --tail 100 app` |
 | 운영 상태 | `curl -H "Authorization: Bearer <ops-token>" https://$LJ_DOMAIN/ops/status` (토큰은 SSM `/livegenie/prod/ops-token`) |
 | 백업 바로 하기·확인 | `sudo systemctl start livegenie-backup.service` · `systemctl list-timers livegenie-backup.timer` · `journalctl -u livegenie-backup` |
-| 도메인 바꾸기 | DNS A 레코드를 탄력적 IP로 → `sudo vi /opt/livegenie/.env`에서 `LJ_DOMAIN`과 `LIVEJJIM_APP_ORIGIN`만 바꿈 → `sudo lg-compose up -d`. 구글·밴드 등 돌아오는 주소를 쓰면 함께 바꾼다 |
+| 도메인 바꾸기 | DNS A 레코드를 탄력적 IP로 → `sudo vi /opt/livegenie/.env`에서 `LJ_DOMAIN`과 `LIVEJJIM_APP_ORIGIN`을 새 주소로, 옛 주소는 `LJ_OLD_DOMAINS=<옛 이름>`·`LIVEJJIM_OLD_APP_ORIGINS=https://<옛 이름>`에 남겨 깔린 앱·음성 일꾼이 끊기지 않게 함(D-OPS-DOMAIN) → `sudo lg-compose up -d`. 구글·밴드 등 돌아오는 주소를 쓰면 함께 바꾼다. 앱을 새 주소로 다시 깔고 일꾼을 옮긴 뒤 옛 값 두 줄을 지운다 |
 | 다시 돌리기 | 세션에서 `sudo bash /var/lib/cloud/instance/user-data.txt` (이미 있는 키·`.env`·저장소는 그대로 둔다) |
 | 복구 | S3에서 받아 `gunzip -c livejjim-….dump.gz > x.dump` 뒤 DEPLOY.md 6절 "복구" |
 

@@ -116,6 +116,8 @@ export interface ServerOptions {
   readonly masterKey: Buffer | string
   /** 화면 앱 주소 (상태를 바꾸는 요청의 Origin과 같아야 한다) */
   readonly appOrigin: string
+  /** 옛 앱 주소들 (도메인을 옮기는 동안 Origin 검사만 함께 받는다, D-OPS-DOMAIN) */
+  readonly oldAppOrigins?: readonly string[]
   readonly clock?: Clock
   readonly ids?: Partial<IdSource>
   readonly hooks?: WriterHooks
@@ -422,7 +424,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     sellerOn: (sellerId) => sellerStreamAudioOn(db, sellerId),
     ...(streamSetting?.schedule === undefined ? {} : { schedule: streamSetting.schedule }),
   })
-  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
+  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
   let print: PrintService | null = null
   let writerRef: ScopeWriter | null = null
   const billing = new BillingService({
@@ -760,6 +762,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       inbox,
       parcels: { service: parcels, db },
       appOrigin: options.appOrigin,
+      oldAppOrigins: options.oldAppOrigins ?? [],
       clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
       receiptAtParam: options.receiptAtParam === true,
       youtube,

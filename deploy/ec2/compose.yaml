@@ -59,6 +59,7 @@ services:
     restart: unless-stopped
     environment:
       LJ_DOMAIN: ${LJ_DOMAIN:?LJ_DOMAIN이 .env에 없어요}
+      LJ_OLD_DOMAINS: ${LJ_OLD_DOMAINS:-}
     ports:
       - "80:80"
       - "443:443"

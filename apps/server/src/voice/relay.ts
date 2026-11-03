@@ -6,6 +6,7 @@ import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer, type RawData } from 'ws'
 import { isVoiceClientMessage, type VoiceFlowMode } from '@livejjim/voice-session/wire'
 import type { Auth, SessionContext } from '../auth.ts'
+import { originAllowed } from '../config.ts'
 import type { Db } from '../db/database.ts'
 import type { LogSink } from '../log.ts'
 import { findBroadcast } from '../store.ts'
@@ -24,6 +25,8 @@ export interface VoiceRelayOptions {
   readonly auth: Auth
   readonly db: Db
   readonly appOrigin: string
+  /** 옛 앱 주소들 (D-OPS-DOMAIN) */
+  readonly oldAppOrigins?: readonly string[]
   readonly clock: Clock
   readonly log: LogSink
   readonly workerToken?: string
@@ -122,7 +125,7 @@ export class VoiceRelay {
       if (!workerTokenMatches(this.#options.workerToken, value?.startsWith('Bearer ') ? value.slice(7) : undefined)) { reject(socket, 401); return }
       this.#wss.handleUpgrade(req, socket, head, (ws) => this.#worker(ws))
     } else if (url.pathname === '/api/voice/stream') {
-      if (req.headers.origin !== this.#options.appOrigin) { reject(socket, 403); return }
+      if (!originAllowed(req.headers.origin, this.#options.appOrigin, this.#options.oldAppOrigins)) { reject(socket, 403); return }
       this.#wss.handleUpgrade(req, socket, head, (ws) => this.#device(ws, req, url))
     } else reject(socket, 404)
   }

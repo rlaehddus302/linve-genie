@@ -7,6 +7,7 @@
 	admin off
 }
 
-{$LJ_DOMAIN} {
+# - LJ_OLD_DOMAINS(빈칸으로 여럿, 비어도 됨): 도메인을 옮기는 동안 옛 주소에도 인증서를 받아 같은 앱으로 넘긴다(D-OPS-DOMAIN).
+{$LJ_DOMAIN} {$LJ_OLD_DOMAINS} {
 	reverse_proxy app:3000
 }

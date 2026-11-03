@@ -22,7 +22,7 @@ import { readBillingEnv, readReceiptIssuerEnv } from './billing/config.ts'
 import { noneIssuer } from './billing/documents.ts'
 import { PortOneGateway } from './billing/portone.ts'
 import type { BillingSetup } from './billing/service.ts'
-import { readAppOrigin } from './config.ts'
+import { readAppOrigin, readOldAppOrigins } from './config.ts'
 import type { Database } from './db/database.ts'
 import { readInstagramConfig } from './instagram/config.ts'
 import { readBandConfig } from './band/config.ts'
@@ -51,6 +51,8 @@ export function productionServerOptions(
   if (!masterKey.ok) return { ok: false, message: masterKey.message }
   const origin = readAppOrigin(env)
   if (!origin.ok) return { ok: false, message: origin.message }
+  const oldOrigins = readOldAppOrigins(env)
+  if (!oldOrigins.ok) return { ok: false, message: oldOrigins.message }
   const instagram = readInstagramConfig(env)
   if (!instagram.ok) return { ok: false, message: instagram.message }
   const billingEnv = readBillingEnv(env, readFile)
@@ -88,6 +90,7 @@ export function productionServerOptions(
       database,
       masterKey: masterKey.key,
       appOrigin: origin.origin,
+      ...(oldOrigins.origins.length === 0 ? {} : { oldAppOrigins: oldOrigins.origins }),
       testPrinter: false,
       ...((env['LIVEJJIM_TRANSCRIBE_WORKER_TOKEN'] ?? '').trim() === '' ? {} : { transcribeWorkerToken: env['LIVEJJIM_TRANSCRIBE_WORKER_TOKEN']!.trim() }),
       instagram: instagram.settings,

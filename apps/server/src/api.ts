@@ -47,6 +47,7 @@ import type { InboxService } from './inbox/service.ts'
 import { registerExtensionRoutes } from './extension/routes.ts'
 import type { ExtensionService } from './extension/service.ts'
 import type { DepositService } from './deposit/service.ts'
+import { originAllowed } from './config.ts'
 import { registerParcelRoutes } from './parcel/api.ts'
 import type { ParcelBrief, ParcelService } from './parcel/service.ts'
 import type { Actor, WriteOutcome, WriteResult } from './writer.ts'
@@ -96,6 +97,8 @@ export interface ApiDeps {
   readonly inbox?: InboxService
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
+  /** 옛 앱 주소들 (도메인을 옮기는 동안 Origin 검사만 함께 받는다, D-OPS-DOMAIN) */
+  readonly oldAppOrigins?: readonly string[]
   /** 화면 설정 (방송자 조치 대기 시간 — 운영 5000, E2E 기동만 줄인다 / 시험 모드 신호 testPrinter — E2E 기동만 켠다, I1) */
   readonly clientConfig?: { readonly hostActionDelayMs: number; readonly testPrinter?: boolean }
   /** 요금 (N5). 없거나 꺼져 있으면 /api/billing/**는 404 */
@@ -244,7 +247,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   api.use(async (c, next) => {
     c.set('body', null)
     if (!STATE_CHANGING.has(c.req.method) || isWebhook(c)) return next()
-    if (c.req.header('origin') !== deps.appOrigin) return apiError(403, 'FORBIDDEN_ORIGIN', '허용하지 않은 곳에서 온 요청이에요.')
+    if (!originAllowed(c.req.header('origin'), deps.appOrigin, deps.oldAppOrigins)) return apiError(403, 'FORBIDDEN_ORIGIN', '허용하지 않은 곳에서 온 요청이에요.')
     const contentType = (c.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
     if (contentType !== JSON_CONTENT_TYPE) return apiError(415, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
     return next()
