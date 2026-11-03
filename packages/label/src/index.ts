@@ -146,3 +146,4 @@ export {
 export { renderPackingLabels, renderProductLabel } from './label.ts'
 export { PNG_DOTS_PER_METER, encodeLabelPng, type PngResult } from './png.ts'
 export { CUT_LINE_GRAY, CUT_LINE_MM, PT_PER_MM, createA4Pdf, createLabelPdf, type PdfResult } from './pdf.ts'
+export { LONGEST_PRODUCT, SAMPLE_PRODUCT, WIDEST_DATE } from './samples.ts'

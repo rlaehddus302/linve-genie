@@ -166,6 +166,17 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)[0]?.body).toEqual({ requestId: expect.any(String), video: 'https://www.youtube.com/watch?v=tWnNGwvdN40' })
   })
 
+  it('링크를 이으면 방송 화면 전에 라벨 단계로 (D-UX3-19, 사용자 지시 2026-11-03 "링크 붙여넣은 다음에 라벨 프린트 할건지 물어보고")', async () => {
+    const world = linkableWorld()
+    const nav = { ...newNav(), openLabelSetup: vi.fn() }
+    render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
+    const page = screen.getByRole('dialog', { name: '새 방송' })
+    fireEvent.change(await within(page).findByLabelText('방송 링크'), { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
+    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledWith('b9'))
+    expect(nav.openConsole).not.toHaveBeenCalled()
+  })
+
   it('[링크를 모르겠어요] → 유튜브·틱톡·밴드(정식 앱 아이콘). 유튜브는 앱(없으면 앱 안 브라우저)을 열고, 돌아오면 [붙여넣기] 한 번으로 링크가 들어가고 잠깐 알림이 뜬다 (D-UX3-11)', async () => {
     const world = linkableWorld()
     const opened: string[] = []

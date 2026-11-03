@@ -19,8 +19,10 @@ import { PrinterPickList } from '../src/screens/PrinterPickList.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { FakeClock, FakeEventSource, FakeServer, flush } from './support.ts'
 
+// D-UX3-19: 옛 기대 — 연결 뒤 이 안내 한 줄. 새 기대 — 안내 없음
 const NOTICE_BAUATO = '실험 중인 프린터예요. 테스트 인쇄가 잘 나오는지 꼭 확인해 주세요. 잘 안 나오면 라벨을 그림 파일로 Luck Jingle 앱에서 인쇄해 주세요.'
-const WAIT_TEST = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'
+// D-UX3-19: 옛 문장 '실험 중인 프린터는 테스트 인쇄를 하고 "예"를…'
+const WAIT_TEST = '이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
 const APP_ROOT = join(__dirname, '..')
 
@@ -40,8 +42,9 @@ describe('숨김 스위치 없음 (AC-PRN2-07, D-PRN2-08)', () => {
     expect(hits).toEqual([])
   })
 
-  it('고르기 목록: 실험 줄은 "실험" 꼬리표, NIIMBOT 줄은 표시 없음 — 기기 이름은 글자 그대로', () => {
-    // 실제 고르기 줄 만들기(pickEntries) 결과 그대로 — "실험"은 꼬리표로 한 번만, detail에는 없다 (D-PRN2-33)
+  // D-UX3-19 (사용자 지시 2026-11-03 "기본 프린터, 실험 프린터 그런게 어딨어"): 옛 기대 — 실험 줄은 "실험" 꼬리표 하나. 새 기대 — 어느 줄에도 꼬리표 없음
+  it('고르기 목록: 어느 줄에도 "실험" 꼬리표가 없다 — 기기 이름은 글자 그대로', () => {
+    // 실제 고르기 줄 만들기(pickEntries) 결과 그대로 — detail에도 없다 (D-PRN2-33)
     const devices = [
       { id: 'AA:01', name: 'P50_1234', rssi: -50 },
       { id: 'AA:02', name: '<b>B1-G325</b>', rssi: -70 },
@@ -49,8 +52,7 @@ describe('숨김 스위치 없음 (AC-PRN2-07, D-PRN2-08)', () => {
     const entries = pickEntries(devices, (device) => (device.id === 'AA:01' ? 'Marklife P50' : 'NIIMBOT'), { experimental: (device) => device.id === 'AA:01' })
     expect(entries.map((entry) => entry.detail)).toEqual(['Marklife P50 · 신호 강함', 'NIIMBOT · 신호 보통'])
     render(<PrinterPickList entries={entries} onPick={() => {}} onClose={() => {}} />)
-    expect(screen.getAllByText('실험')).toHaveLength(1)
-    expect(screen.queryByText(/실험 ·|· 실험/)).toBeNull()
+    expect(screen.queryByText(/실험/)).toBeNull()
     expect(screen.getByRole('button', { name: 'P50_1234 — Marklife P50 · 신호 강함' })).toBeTruthy()
     expect(screen.getByText('<b>B1-G325</b>')).toBeTruthy()
   })
@@ -161,7 +163,8 @@ describe('앱 대기열 (AC-PRN2-08·10, L-11 10·13·17)', () => {
 })
 
 describe('앱 라벨 화면 실험 표시 (AC-PRN2-06)', () => {
-  it('실험(바우아토): 이름 뒤 "(실험)" + 안내, 테스트 인쇄 "예" 뒤에만 "이 기기에서 출력" — 등록에 프로필 ID', async () => {
+  // D-UX3-19: 옛 기대 — 이름 뒤 "(실험)" + 안내. 새 기대 — 이름만, 테스트 "예" 뒤에만 "이 기기에서 출력"은 그대로
+  it('바우아토: 이름만("(실험)"·안내 없음), 테스트 인쇄 "예" 뒤에만 "이 기기에서 출력" — 등록에 프로필 ID', async () => {
     const world = makeWorld()
     world.ble.profile = BAUATO_PPA2L
     world.server.on('POST', /^\/api\/print\/device$/, () => ({ body: { queue: {}, waiting: 0, backlog: false } }))
@@ -174,8 +177,9 @@ describe('앱 라벨 화면 실험 표시 (AC-PRN2-06)', () => {
     expect(screen.queryByText(/\(실험\)/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
-    expect(screen.getByText('프린터 이름: 바우아토 스티코팝 (실험)')).toBeTruthy()
-    expect(screen.getByText(NOTICE_BAUATO)).toBeTruthy()
+    expect(screen.getByText('프린터 이름: 바우아토 스티코팝')).toBeTruthy()
+    expect(screen.queryByText(NOTICE_BAUATO)).toBeNull()
+    expect(screen.queryByText(/\(실험\)/)).toBeNull()
     expect(screen.queryByRole('button', { name: '이 기기에서 출력' })).toBeNull()
     expect(screen.getByText(WAIT_TEST)).toBeTruthy()
     // "출력 그만하기"는 출력 기기일 때만
@@ -325,16 +329,18 @@ describe('출력 기기의 실험 기종: 그 연결에서 테스트 "예" 전 �
     await waitFor(() => expect(screen.getByText('이 기기가 출력 기기예요 · 내 휴대폰')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
-    expect(screen.getByText('실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.')).toBeTruthy()
+    // D-UX3-19: 옛 문장 '실험 중인 프린터는…'
+    expect(screen.getByText('이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.')).toBeTruthy()
     await world.services.labels.reload()
-    await waitFor(() => expect(screen.getByText('출력 멈춤 · 실험 중인 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.')).toBeTruthy())
+    // D-UX3-19: 옛 문장 '실험 중인 프린터라 출력을 잠시 멈췄어요…'
+    await waitFor(() => expect(screen.getByText('출력 멈춤 · 새로 이은 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.')).toBeTruthy())
     // 멈춤 줄 아래에도 "테스트 인쇄"가 있다(UX-PRN2-005) — 여기서는 프린터 칸의 것을 누른다
     fireEvent.click(within(screen.getByRole('group', { name: '프린터' })).getByRole('button', { name: '테스트 인쇄' }))
     const result = await screen.findByRole('group', { name: '테스트 인쇄 결과' })
     fireEvent.click(within(result).getByRole('button', { name: '예' }))
     await waitFor(() => expect(screen.getByText('좋아요. 멈췄던 출력을 이어서 해요.')).toBeTruthy())
     await waitFor(() => expect(world.server.callsTo('POST', /device\/state/).at(-1)?.body).toEqual({ deviceId: 'app-test', connected: true, profileId: 'MARKLIFE_P12' }))
-    expect(screen.queryByText('실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.')).toBeNull()
+    expect(screen.queryByText('이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.')).toBeNull()
     world.services.labels.stop()
   })
 })

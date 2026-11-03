@@ -3,16 +3,16 @@
 // - "다시 연결"은 기억한 프린터로(앱을 다시 켠 뒤에도 고르기 창 없이), "블루투스로 연결"은 늘 고르기 창(다른 프린터로 바꾸는 길) — L-7.
 // - 서버가 시험 모드일 때만 "시험용 프린터 — 실제로 출력되지 않아요"(L-11 15).
 // - 저절로 다시 잇는 동안·그친 뒤 한 줄(웹과 같은 문장, L-11 8). 인쇄 농도 칸은 연결한 프린터의 범위(B1 1~5 · YXQ 1~3), 농도가 없는 프린터면 숨긴다.
-// - 지원 단계 (PRN2 L-7, 웹과 같은 기준): 연결 뒤 프린터 이름, 실험 기종이면 이름 뒤 "(실험)"과 안내 한 줄. 실험 기종이 이어져 있으면
+// - 지원 단계 (PRN2 L-7): 연결 뒤 프린터 이름만 — '기본·실험'으로 나눠 보이지 않는다(D-UX3-19, 옛: 이름 뒤 "(실험)"과 안내 한 줄). 확인이 덜 된 기종이 이어져 있으면
 //   "이 기기에서 출력"은 그 연결에서 테스트 인쇄를 하고 "예"를 누른 뒤에만 보인다. "제조사 앱으로 보내기"는 서버가 만든 그림 파일을 공유 창으로
 //   (테스트 라벨, 그리고 이 기기가 받은 작업이 있으면 "찍는 중인 라벨" 칸에서 그 작업 — 상태·결과는 그대로, D-PRN2-28).
-import { experimentalNotice, printerProfile, printerSupportStage } from '@livejjim/printer'
+import { printerProfile, printerSupportStage } from '@livejjim/printer'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import { isApiError } from '../api/client.ts'
 import { awaitingTest } from '../lib/label-queue.ts'
 import { testHelp } from '../lib/test-help.ts'
-import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, EXPERIMENTAL_MARK, EXPERIMENTAL_PAUSED, EXPERIMENTAL_RESUMED, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, PRINT_ACTION, RETRY_NOW, TEST_CONFIRMED_PAST, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
+import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, EXPERIMENTAL_PAUSED, EXPERIMENTAL_RESUMED, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, PRINT_ACTION, RETRY_NOW, TEST_CONFIRMED_PAST, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import type { Tone } from '../ui/theme.ts'
 import { AppHeader, useKit } from '../ui/kit/index.ts'
@@ -124,8 +124,7 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
           {snapshot.target === 'test' && snapshot.printer !== 'DISCONNECTED' ? <Body muted>시험용 프린터</Body> : null}
           <Body muted>{snapshot.job === null ? '' : '라벨을 찍는 중이에요'}</Body>
         </Row>
-        {profile !== undefined ? <Body>{`프린터 이름: ${experimental ? `${profile.displayName} ${EXPERIMENTAL_MARK}` : profile.displayName}`}</Body> : null}
-        {profile !== undefined && experimental ? <Notice tone="warning">{experimentalNotice(profile)}</Notice> : null}
+        {profile !== undefined ? <Body>{`프린터 이름: ${profile.displayName}`}</Body> : null}
         {snapshot.autoReconnect?.kind === 'trying' && snapshot.autoReconnect.total !== null ? <Notice tone="info">{autoReconnectingMessage(snapshot.autoReconnect.attempt, snapshot.autoReconnect.total)}</Notice> : null}
         {snapshot.autoReconnect?.kind === 'gaveUp' && disconnected ? (
           <Notice tone="danger" alert>

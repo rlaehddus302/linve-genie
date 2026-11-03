@@ -7,6 +7,7 @@ export function newBroadcastNav(router: ReturnType<typeof useRouter>): NewBroadc
   return {
     back: () => (router.canGoBack() ? router.back() : router.replace('/')),
     openAddress: (category) => router.push({ pathname: '/new-broadcast/address', params: { category } }),
+    openLabelSetup: (id) => router.push({ pathname: '/new-broadcast/labels', params: { id } }),
     openConsole: (id) => {
       router.dismissTo('/')
       router.push({ pathname: '/console/[id]', params: { id } })

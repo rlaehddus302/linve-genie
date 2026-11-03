@@ -5,7 +5,7 @@
 // - 라벨 기능 켬/끔 (N4a, L-13): GET·PUT /api/settings/labels. 꺼져 있으면 출력을 새로 시작하거나 라벨을 새로 만드는 요청은 409 LABELS_OFF.
 //   계약은 harness/sprints/N4a/dev-notes.md "dev-server > 바뀐 계약". 켬/끔 요청 본문·로그인 아이디는 로그에 남기지 않는다(NFR-06).
 import { isValidDate } from '@livejjim/core'
-import { encodeLabelPng } from '@livejjim/label'
+import { encodeLabelPng, isLabelSize } from '@livejjim/label'
 import type { Context, Hono } from 'hono'
 import { REQUEST_ID_RE, hasControlChar, own, ownKeys } from './api-fields.ts'
 import type { SessionContext } from './auth.ts'
@@ -168,6 +168,20 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     const version = own(input, 'version')
     if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 0) return invalid([{ field: 'version', message: '읽은 라벨 설정의 판 번호를 0 이상의 정수로 적어 주세요.' }])
     return outcome(c, await print.saveTemplate(sellerOf(c), kind, own(input, 'template'), version))
+  })
+
+  // 저장 전 상품 라벨 초안 미리 보기 (D-UX3-19): 받은 템플릿 + 견본 값 → 203dpi PNG(base64). 쓰지 않는다
+  api.post('/print/templates/product/preview', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['template', 'resize'])
+    if (extra !== null) return extra
+    const resize = own(input, 'resize')
+    if (resize !== undefined && !(typeof resize === 'string' && isLabelSize(resize))) return invalid([{ field: 'resize', message: '라벨 크기를 골라 주세요.' }])
+    const result = await print.draftPreview(sellerOf(c), own(input, 'template'), resize)
+    if (result.kind !== 'ok') return outcome(c, result)
+    const png = encodeLabelPng(result.value.image)
+    if (!png.ok) return imageError({ kind: 'error', error: png.error })
+    return c.json({ template: result.value.template, width: result.value.image.width, height: result.value.image.height, png: Buffer.from(png.bytes).toString('base64'), longest: result.value.longest })
   })
 
   // ── 출력 기기 (L-11 8·10) ──────────────────────────────────────────────

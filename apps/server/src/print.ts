@@ -10,7 +10,10 @@
 import { randomBytes } from 'node:crypto'
 import { containsPhoneRun, currentBuyerOf, getProduct, listBroadcasts, listEffects, listProducts, type EngineState } from '@livejjim/core'
 import {
+  LONGEST_PRODUCT,
+  SAMPLE_PRODUCT,
   computePackingText,
+  doesNotFitMessage,
   renderProductLabel,
   renderPackingLabels,
   renderTestLabel,
@@ -26,6 +29,9 @@ import {
   type LabelTemplate,
   type PackingLabelData,
   type ProductLabelData,
+  type ProductTemplate,
+  PRODUCT_ITEMS,
+  PRODUCT_LOCKED,
 } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
 import { labelSizesForProfileId, printerProfile } from '@livejjim/printer'
@@ -1558,6 +1564,38 @@ export class PrintService {
   }
 
   /**
+   * 저장 전 상품 라벨 초안 미리 보기 (D-UX3-19, 앱 방송 시작 라벨 단계 — 앱에는 캔버스가 없어 서버가 그린다).
+   * 받은 초안을 저장과 같은 검사(형식·16KB·가게 이름 길이)로 보고 견본 값(194번 왕비뇌신금)으로 그린다. 가게 이름이 비면 설정 "가게"의 이름.
+   * 가장 긴 값(번호 9999·99,999,999원·긴 품종·닉네임)이 칸에 들어가지 않으면 그 항목의 문장을 longest로 — 저장은 막지 않는다(웹과 같다). 아무것도 쓰지 않는다
+   */
+  async draftPreview(sellerId: string, value: unknown, resize?: LabelSizeId): Promise<ActionOutcome<{ template: LabelTemplate; image: LabelBitmap; longest: string | null }>> {
+    let text: string
+    try {
+      text = JSON.stringify(value)
+    } catch {
+      return rejected(400, 'INVALID_TEMPLATE', PRINT_MESSAGES.templateInvalid)
+    }
+    if (text === undefined || Buffer.byteLength(text, 'utf8') > TEMPLATE_MAX_BYTES) return rejected(400, 'TEMPLATE_TOO_LARGE', PRINT_MESSAGES.templateTooLarge)
+    const checked = validateTemplate(value)
+    const problems: FieldProblem[] = []
+    if (!checked.ok) for (const problem of checked.error.problems ?? []) problems.push({ field: templateField(problem.path), message: problem.message })
+    else {
+      if (checked.template.kind !== 'product') problems.push({ field: 'template.kind', message: '라벨 종류를 읽을 수 없어요.' })
+      if (splitGraphemes(trimLabelText(checked.template.shopName)).length > SHOP_NAME_MAX) problems.push({ field: 'template.shopName', message: PRINT_MESSAGES.shopNameTooLong })
+    }
+    if (problems.length > 0 || !checked.ok) return { kind: 'rejected', rejection: rejection(400, 'INVALID_TEMPLATE', PRINT_MESSAGES.templateInvalid, problems) }
+    // 크기 바꾸기 (웹 라벨 설정과 같다): 새 크기의 기본 칸 배치 + 켜고 끈 항목·가게 이름·가격 표기는 그대로
+    const draft = resize === undefined || resize === checked.template.size || checked.template.kind !== 'product' ? checked.template : resizedProduct(checked.template, resize)
+    const shop = await readShop(this.#db, sellerId)
+    const template = fillShopName(draft, shop.name)
+    const env = createNodeRenderEnv()
+    const sample = renderProductLabel(env, template, { ...SAMPLE_PRODUCT, date: kstDate(this.#now().getTime()) })
+    if (!sample.ok) return rejected(422, 'LABEL_INVALID', sample.error.code === 'DOES_NOT_FIT' && sample.error.item !== undefined ? doesNotFitMessage(sample.error.item) : sample.error.message)
+    const longest = renderProductLabel(env, template, LONGEST_PRODUCT)
+    return { kind: 'ok', value: { template: draft, image: sample.image, longest: longest.ok ? null : longest.error.item !== undefined ? doesNotFitMessage(longest.error.item) : longest.error.message } }
+  }
+
+  /**
    * 템플릿 저장: validateTemplate 오류 없음·JSON 16KB 이하·가게 이름(다듬은 뒤) 40자 이하만. version = 읽은 판(저장한 적이 없으면 0) —
    * 서버 판이 더 새것이면 거절. 가게 이름에는 휴대폰 번호 검사를 하지 않는다(D-I1-05)
    */
@@ -1668,6 +1706,13 @@ export class PrintService {
  * 라벨 가게 이름 채우기 (LABEL_RULES L-11 13, FB1 D-FB1-07): 템플릿의 가게 이름을 L-2로 다듬은 결과가 빈 글이면 그 판매자의 가게 이름(설정 "가게")을 넣는다.
  * 글 계산(L-3 shop — 비면 찍지 않음)은 그대로다 — 채우는 것은 서버가 템플릿을 내주는 곳뿐. 저장된 본문·판은 바꾸지 않는다
  */
+/** 상품 템플릿 크기 바꾸기 (웹 LabelSettings changeSize와 같다): 새 크기의 기본 칸 + 켜고 끈 항목(끌 수 없는 칸은 켬)·가게 이름·가격 표기 */
+export function resizedProduct(template: ProductTemplate, size: LabelSizeId): ProductTemplate {
+  const fresh = defaultTemplate('product', size)
+  const items = Object.fromEntries(PRODUCT_ITEMS.map((id) => [id, { ...fresh.items[id], visible: PRODUCT_LOCKED.includes(id) ? true : template.items[id].visible }])) as ProductTemplate['items']
+  return { ...fresh, shopName: template.shopName, priceStyle: template.priceStyle, items }
+}
+
 export function fillShopName(template: LabelTemplate, shopName: string): LabelTemplate {
   return trimLabelText(template.shopName) === '' ? { ...template, shopName } : template
 }

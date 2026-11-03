@@ -42,6 +42,8 @@ export interface NewBroadcastNavigation {
   readonly openAddress: (category: string) => void
   /** 만든 방송 화면으로 — 새 방송 화면들은 걷어 내고 홈 위에 쌓는다 */
   readonly openConsole: (id: string) => void
+  /** 링크를 이은 뒤 라벨 단계로 (D-UX3-19, 쌓인 화면) — 없으면 바로 방송 화면 */
+  readonly openLabelSetup?: (id: string) => void
 }
 
 /** 이 서버에서 유튜브 방송을 주소로 이을 수 있나. undefined = 확인 중, null = 못 잇는다 */
@@ -160,7 +162,9 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
     const id = await ensureMade()
     if (id === null) return
     await sendLiveLink(id, request)
-    nav.openConsole(id)
+    // 방송 화면 전에 라벨을 뽑을지 묻는다 (D-UX3-19)
+    if (nav.openLabelSetup !== undefined) nav.openLabelSetup(id)
+    else nav.openConsole(id)
   }
   const linker = useAddressLinker({ enabled: route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, autoFocus: true, disabled: busy, onEdit: clearError })
 
