@@ -8,11 +8,14 @@ interface Entry {
   readonly aliases: readonly string[]
   readonly exactOnly?: boolean
   readonly receipt?: boolean
+  readonly source?: string
 }
 const file = JSON.parse(readFileSync(new URL('../data/varieties.ko.json', import.meta.url), 'utf8')) as { varieties: Entry[] }
 // 영수증 거래명은 데이터 끝에 이어 붙였다 — 그 앞 마지막 이름은 실방송 3회 영수증의 '황소'
 const start = file.varieties.findIndex((item) => item.name === '황소') + 1
-const added = file.varieties.slice(start)
+// 영수증 이름 뒤에는 엑스플랜트 유통명이 이어진다(D-V3-121, v3-xplant-dictionary.test.ts) — 영수증 이름은 그 앞까지
+const xplant = file.varieties.findIndex((item) => item.source === 'xplant')
+const added = file.varieties.slice(start, xplant === -1 ? undefined : xplant)
 const DICT = prepareVoiceDictionary()
 const nameOf = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => p.name)
 
