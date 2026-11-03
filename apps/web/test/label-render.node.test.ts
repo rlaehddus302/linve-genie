@@ -49,8 +49,9 @@ describe('미리 보기 = 출력 그림 (AC-I1-25)', () => {
     expect(missing.ok).toBe(false)
   })
 
-  it('견본: 판매자 샘플(194번 · 왕비뇌신금 · 8,000원)과 가장 긴 값 — 포장은 첫 쪽·마지막 쪽', () => {
-    expect(SAMPLE_PRODUCT).toEqual({ no: 194, name: '왕비뇌신금', price: 8000, date: '2026-10-08', buyer: { kind: 'youtube', name: '우주천사' } })
+  // 옛 기대: 견본 = 194번 · 왕비뇌신금 · 8,000원 · 2026-10-08 · 우주천사. 새 기대 D-UX4-07: 앱 라벨 예시와 같은 365번 · 삼광색금 · 300,000원 · 2026-11-03 · 지니다육
+  it('견본: 판매자 샘플(365번 · 삼광색금 · 30만원)과 가장 긴 값 — 포장은 첫 쪽·마지막 쪽', () => {
+    expect(SAMPLE_PRODUCT).toEqual({ no: 365, name: '삼광색금', price: 300_000, date: '2026-11-03', buyer: { kind: 'youtube', name: '지니다육' } })
     expect(renderSample(env, defaultTemplate('product'), false).ok).toBe(true)
     expect(renderSample(env, defaultTemplate('product'), true).ok).toBe(true)
     const packing = renderSample(env, defaultTemplate('packing'), true)
@@ -63,7 +64,7 @@ describe('미리 보기 = 출력 그림 (AC-I1-25)', () => {
 describe('저장 전 검사 (AC-I1-26)', () => {
   it('기본 템플릿(네 크기)은 최악값이 들어간다', () => {
     for (const size of ['50x30', '50x20', '50x40', '50x50'] as const) {
-      for (const style of ['THOUSAND', 'WON'] as const) expect(checkTemplate(env, { ...defaultTemplate('product', size), priceStyle: style, shopName: '다육농장' }).ok, `${size} ${style}`).toBe(true)
+      for (const style of ['THOUSAND', 'WON', 'TEN_THOUSAND'] as const) expect(checkTemplate(env, { ...defaultTemplate('product', size), priceStyle: style, shopName: '다육농장' }).ok, `${size} ${style}`).toBe(true)
       expect(checkTemplate(env, { ...defaultTemplate('packing', size), shopName: '다육농장' }).ok, size).toBe(true)
     }
   })

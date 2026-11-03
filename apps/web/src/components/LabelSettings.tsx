@@ -111,8 +111,10 @@ function useHasOptionBroadcasts(ask: boolean): boolean {
 }
 
 const PRICE_CHOICES: readonly { readonly value: PriceStyle; readonly word: string }[] = [
-  { value: 'THOUSAND', word: '천원 단위 (예: 8 천원)' },
-  { value: 'WON', word: '원 단위 (예: 8,000원)' },
+  { value: 'THOUSAND', word: '천원 단위 (예: 300 천원)' },
+  { value: 'WON', word: '원 단위 (예: 300,000원)' },
+  // 만원 단위 (D-UX4-07) — 견본 값(300,000원)과 같은 예
+  { value: 'TEN_THOUSAND', word: '만원 단위 (예: 30만원)' },
 ]
 
 type Kind = 'product' | 'packing'

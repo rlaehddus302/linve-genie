@@ -37,8 +37,9 @@ export const RESCAN_MS = 10_000
 /** 라벨 칸 이름과 차례 (번호·닉네임은 늘 찍힌다 — L-3 PRODUCT_LOCKED) */
 export const ITEM_WORDS: Readonly<Record<ProductItemId, string>> = { shop: '가게 이름', number: '번호', price: '가격', date: '날짜', name: '품종', buyer: '닉네임' }
 const ITEM_ORDER: readonly ProductItemId[] = ['shop', 'number', 'price', 'date', 'name', 'buyer']
-/** 가격 표기 (앱 예시 30만원 — D-UX4-03) */
+/** 가격 표기 (앱 예시 30만원 — D-UX4-03, 만원 단위 D-UX4-07) */
 export const PRICE_CHOICES: readonly { readonly style: ProductTemplate['priceStyle']; readonly word: string }[] = [
+  { style: 'TEN_THOUSAND', word: '30만원' },
   { style: 'THOUSAND', word: '300 천원' },
   { style: 'WON', word: '300,000원' },
 ]

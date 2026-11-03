@@ -104,15 +104,22 @@ export function groupDigits(value: number): string {
   return out
 }
 
-export const PRICE_STYLES = ['THOUSAND', 'WON'] as const
+export const PRICE_STYLES = ['THOUSAND', 'WON', 'TEN_THOUSAND'] as const
 export type PriceStyle = (typeof PRICE_STYLES)[number]
 
 /**
  * 상품 라벨 가격 표기 (L-3, D-007).
  * THOUSAND: 1,000의 배수이고 0보다 크면 `N 천원`(N은 세 자리 쉼표), 아니면 원 표기. WON: 언제나 원 표기 = 코어 formatWon.
+ * TEN_THOUSAND (D-UX4-07): 1,000의 배수이고 0보다 크면 만·천 단위 — `30만원`, `3만 5천원`, `8천원`(만 자리는 세 자리 쉼표), 아니면 원 표기.
  */
 export function formatLabelPrice(price: number, style: PriceStyle): string {
   if (style === 'THOUSAND' && price > 0 && price % 1000 === 0) return `${groupDigits(price / 1000)} 천원`
+  if (style === 'TEN_THOUSAND' && price > 0 && price % 1000 === 0) {
+    const man = Math.floor(price / 10000)
+    const cheon = (price % 10000) / 1000
+    if (man === 0) return `${String(cheon)}천원`
+    return cheon === 0 ? `${groupDigits(man)}만원` : `${groupDigits(man)}만 ${String(cheon)}천원`
+  }
   return formatWon(price)
 }
 

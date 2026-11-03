@@ -1565,7 +1565,7 @@ export class PrintService {
 
   /**
    * 저장 전 상품 라벨 초안 미리 보기 (D-UX3-19, 앱 방송 시작 라벨 단계 — 앱에는 캔버스가 없어 서버가 그린다).
-   * 받은 초안을 저장과 같은 검사(형식·16KB·가게 이름 길이)로 보고 견본 값(194번 왕비뇌신금)으로 그린다. 가게 이름이 비면 설정 "가게"의 이름.
+   * 받은 초안을 저장과 같은 검사(형식·16KB·가게 이름 길이)로 보고 견본 값(365번 삼광색금 — 앱 예시와 같다, D-UX4-07)으로 그린다. 가게 이름이 비면 설정 "가게"의 이름.
    * 가장 긴 값(번호 9999·99,999,999원·긴 품종·닉네임)이 칸에 들어가지 않으면 그 항목의 문장을 longest로 — 저장은 막지 않는다(웹과 같다). 아무것도 쓰지 않는다
    */
   async draftPreview(sellerId: string, value: unknown, resize?: LabelSizeId): Promise<ActionOutcome<{ template: LabelTemplate; image: LabelBitmap; longest: string | null }>> {

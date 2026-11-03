@@ -1,6 +1,6 @@
 // 맥북 화면 다듬기 넷째 판 (D-UX4-01~06, 사용자 지시 2026-11-03): 단추는 늘 좌우(부정 왼쪽·긍정 오른쪽), 확인은 가운데 팝업,
 // 곁길 단추는 작은 회색 단추, 켜고 끄기는 토스식 스위치, 프린터 고르기는 화면이 목록을 직접 그릴 수 있다, 라벨 칸 옮기기·키우기 계산.
-import { FONT_SIZE_MAX as LABEL_FONT_MAX, FONT_SIZE_MIN as LABEL_FONT_MIN, ALL_LABEL_SIZES, defaultTemplate, labelSizeInfo } from '@livejjim/label'
+import { FONT_SIZE_MAX as LABEL_FONT_MAX, FONT_SIZE_MIN as LABEL_FONT_MIN, ALL_LABEL_SIZES, SAMPLE_PRODUCT, defaultTemplate, formatLabelPrice, labelSizeInfo } from '@livejjim/label'
 import type { BleDeviceInfo, DevicePicker, PickEntry } from '@livejjim/mobile-ble'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
@@ -108,6 +108,14 @@ describe('D-UX4-03 라벨 예시', () => {
   it('라이브다육 · 26.11.03 · 365번 · 30만원 · 삼광색금 · 지니다육', () => {
     expect(EXAMPLE_LABEL).toEqual({ shop: '라이브다육', date: '26.11.03', no: 365, price: '30만원', name: '삼광색금', buyer: '지니다육' })
     expect(Object.values(EXAMPLE_LINES)).toEqual(['-라이브다육-', '번호: 365', '가격: 30만원', '26.11.03', '품종: 삼광색금', '닉네임: 지니다육'])
+  })
+
+  it('서버 미리 보기 견본 값도 같은 예시다 (D-UX4-07)', () => {
+    expect(SAMPLE_PRODUCT.no).toBe(EXAMPLE_LABEL.no)
+    expect(SAMPLE_PRODUCT.name).toBe(EXAMPLE_LABEL.name)
+    expect(formatLabelPrice(SAMPLE_PRODUCT.price, 'TEN_THOUSAND')).toBe(EXAMPLE_LABEL.price)
+    expect(SAMPLE_PRODUCT.date.slice(2).replaceAll('-', '.')).toBe(EXAMPLE_LABEL.date)
+    expect(SAMPLE_PRODUCT.buyer).toEqual({ kind: 'youtube', name: EXAMPLE_LABEL.buyer })
   })
 })
 

@@ -49,7 +49,7 @@ describe('D-UX3-19 방송 시작 라벨 단계', () => {
   })
 
   // 옛 기대: 연결 화면에서 [프린터 찾기]를 눌러야 찾았다, 가격 표기 '8,000원', 날짜 스위치 '날짜 — 켜짐'.
-  // 새 기대 D-UX4-04·05: 연결 화면은 들어오면 바로 찾는다(단추는 [새로고침] 하나), 가격 표기는 앱 예시(30만원)로 '300,000원', 칸마다 설정 카드의 [찍기] 스위치
+  // 새 기대 D-UX4-04·05·07: 연결 화면은 들어오면 바로 찾는다(단추는 [새로고침] 하나), 가격 표기는 앱 예시(30만원)로 '30만원'·'300 천원'·'300,000원', 칸마다 설정 카드의 [찍기] 스위치
   it('[뽑을게요] → 바로 연결 → 꾸미기(크기·가격·항목, 서버 미리 보기) → 저장 → 테스트 "예" → 이 기기를 출력 기기로 → 방송', async () => {
     const world = labelWorld()
     const onDone = vi.fn()
@@ -74,6 +74,7 @@ describe('D-UX3-19 방송 시작 라벨 단계', () => {
     fireEvent.click(within(design).getByRole('radio', { name: '50×40mm' }))
     await waitFor(() => expect(within(design).getByRole('radio', { name: '50×40mm' }).getAttribute('aria-checked')).toBe('true'))
     expect(world.server.callsTo('POST', /\/preview$/).at(-1)?.body).toMatchObject({ resize: '50x40' })
+    expect(within(within(design).getByRole('radiogroup', { name: '가격 표기' })).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual(['30만원', '300 천원', '300,000원'])
     fireEvent.click(within(design).getByRole('radio', { name: '300,000원' }))
     fireEvent.click(within(within(design).getByRole('group', { name: '날짜 설정' })).getByRole('switch', { name: '찍기 — 켜짐' }))
     fireEvent.click(within(design).getByRole('button', { name: '저장하고 다음' }))

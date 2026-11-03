@@ -1,5 +1,5 @@
 // 앱 화면의 라벨 예시 (D-UX4-03, 사용자 지시 2026-11-03 "이 예시는 뒤에도 써줘"): 라벨 단계 그림·안내에 늘 이 값을 쓴다.
-// 실제 인쇄 그림(서버가 그린 미리 보기)의 견본 값은 packages/label SAMPLE_PRODUCT — 앱은 그 값을 바꾸지 않는다.
+// 서버가 그리는 미리 보기의 견본 값(packages/label SAMPLE_PRODUCT)도 같은 값이다 (D-UX4-07 — 시험이 둘이 같은지 본다).
 
 export const EXAMPLE_LABEL = {
   shop: '라이브다육',
