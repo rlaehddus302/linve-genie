@@ -177,6 +177,30 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     expect(nav.openConsole).not.toHaveBeenCalled()
   })
 
+  it('라벨 단계에서 뒤로 와도 링크를 다시 이을 수 있다: 같은 링크는 다시 보내지 않고 다음으로, 다른 링크면 먼저 끊고 잇는다 (D-UX3-19 고침)', async () => {
+    const world = linkableWorld()
+    world.server.on('POST', /^\/api\/broadcasts\/b9\/youtube\/unlink$/, () => ({ body: {} }))
+    const nav = { ...newNav(), openLabelSetup: vi.fn() }
+    render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
+    const page = screen.getByRole('dialog', { name: '새 방송' })
+    const address = await within(page).findByLabelText('방송 링크')
+    fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
+    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(1))
+    // 뒤로 와서 같은 링크로 [확인] — 방송을 또 만들지 않고, 잇기 요청도 다시 보내지 않는다
+    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(2))
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(1)
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)).toHaveLength(1)
+    // 다른 링크로 바꾸면 먼저 이은 것을 끊고 새 링크를 잇는다
+    fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=AAAAAAAAAAA' } })
+    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(3))
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube\/unlink$/)).toHaveLength(1)
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/).map((call) => (call.body as { video: string }).video)).toEqual(['https://www.youtube.com/watch?v=tWnNGwvdN40', 'https://www.youtube.com/watch?v=AAAAAAAAAAA'])
+    expect(nav.openConsole).not.toHaveBeenCalled()
+  })
+
   it('[링크를 모르겠어요] → 유튜브·틱톡·밴드(정식 앱 아이콘). 유튜브는 앱(없으면 앱 안 브라우저)을 열고, 돌아오면 [붙여넣기] 한 번으로 링크가 들어가고 잠깐 알림이 뜬다 (D-UX3-11)', async () => {
     const world = linkableWorld()
     const opened: string[] = []

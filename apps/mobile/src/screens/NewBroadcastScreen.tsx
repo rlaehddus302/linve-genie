@@ -158,10 +158,22 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
     }
     return id
   }
+  // 이 방송에 이은 링크 (D-UX3-19 고침, 사용자 지시 2026-11-03 "다음 화면 넘어갔다가 다시 뒤로가면 다시 그 링크로 연결을 못하는 버그 —
+  // 방송이 확정돼 홈에 보이기 전까지는 링크 막으면 안 돼"): 라벨 단계에서 뒤로 와 [확인]을 다시 누르면 같은 링크는 다시 보내지 않고(서버는
+  // '이미 이어져 있어요'로 거절한다) 그대로 다음으로, 다른 링크면 먼저 이은 것을 끊고 새 링크를 잇는다.
+  const linked = useRef<{ readonly key: string; readonly platform: LiveLinkRequest['platform'] } | null>(null)
   const linkNew = async (request: LiveLinkRequest) => {
     const id = await ensureMade()
     if (id === null) return
-    await sendLiveLink(id, request)
+    const key = linkKey(request)
+    if (linked.current?.key !== key) {
+      if (linked.current !== null) {
+        await unlinkLive(id, linked.current.platform)
+        linked.current = null
+      }
+      await sendLiveLink(id, request)
+      linked.current = { key, platform: request.platform }
+    }
     // 방송 화면 전에 라벨을 뽑을지 묻는다 (D-UX3-19)
     if (nav.openLabelSetup !== undefined) nav.openLabelSetup(id)
     else nav.openConsole(id)
@@ -182,6 +194,22 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
       <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
     </FormPage>
   )
+}
+
+/** 같은 링크인지 견줄 열쇠 (요청 번호는 빼고) */
+export function linkKey(request: LiveLinkRequest): string {
+  if (request.platform === 'youtube') return `youtube ${request.body.video}`
+  if (request.platform === 'tiktok') return `tiktok ${request.body.url}`
+  return `band ${request.body.bandKey}/${request.body.postKey}`
+}
+
+/** 새 방송 화면에서 먼저 이은 연결 끊기 (다른 링크로 바꿀 때) */
+async function unlinkLive(broadcastId: string, platform: LiveLinkRequest['platform']): Promise<void> {
+  const base = `/api/broadcasts/${encodeURIComponent(broadcastId)}`
+  const requestId = newRequestId()
+  if (platform === 'youtube') await withRetry(() => post(`${base}/youtube/unlink`, { requestId }))
+  else if (platform === 'tiktok') await withRetry(() => post(`${base}/live/unlink`, { requestId, platform: 'TIKTOK' }))
+  else await withRetry(() => post(`${base}/band/unlink`, { requestId }))
 }
 
 /**
