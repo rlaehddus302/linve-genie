@@ -1,5 +1,6 @@
-// 버튼: 큰 버튼(주·보조·위험)과 화면 아래 고정 영역(BottomCTA).
-import type { ReactNode } from 'react'
+// 버튼: 큰 버튼(주·보조·위험), 단추 묶음(ButtonRow), 작은 회색 단추(SmallButton), 화면 아래 고정 영역(BottomCTA).
+// 단추 둘 이상은 늘 좌우로 놓고, 부정(취소·아니에요)은 왼쪽, 긍정(확인·맞아요)은 오른쪽 (D-UX4-01, 사용자 지시 2026-11-03 "모든 작업에서").
+import { Children, Fragment, isValidElement, type ReactNode } from 'react'
 import { ActivityIndicator, Pressable, View } from 'react-native'
 import { RADIUS, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit, type TxtColor } from './theme.tsx'
@@ -63,6 +64,60 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
   )
 }
 
+/** 조각(<>…</>)을 풀어 단추 하나하나로 */
+function flatButtons(node: ReactNode): ReactNode[] {
+  return Children.toArray(node).flatMap((child) => (isValidElement(child) && child.type === Fragment ? flatButtons((child.props as { readonly children?: ReactNode }).children) : [child]))
+}
+
+/**
+ * 단추 묶음 (D-UX4-01): 위아래로 쌓지 않고 좌우로 같은 폭씩 나눈다. 놓는 순서 그대로 왼쪽부터 —
+ * 부정(취소·아니에요·안 뽑아요)을 먼저, 긍정(확인·맞아요)을 마지막에 둔다. 단추가 하나면 한 줄 가득.
+ */
+export function ButtonRow({ children }: { readonly children?: ReactNode }) {
+  const items = flatButtons(children)
+  if (items.length === 0) return null
+  return (
+    <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+      {items.map((item, index) => (
+        <View key={isValidElement(item) && item.key !== null ? item.key : index} style={{ flex: 1 }}>
+          {item}
+        </View>
+      ))}
+    </View>
+  )
+}
+
+/**
+ * 작은 회색 단추 (D-UX4-04, 토스 "내 NH투자증권 … 입력"처럼): 글자만큼의 폭으로 가운데, 옅은 회색 바탕, 높이 44.
+ * 화면의 주 일이 아닌 곁길("링크를 모르겠어요")에 쓴다.
+ */
+export function SmallButton({ label, onPress, disabled, testID }: { readonly label: string; readonly onPress: () => void; readonly disabled?: boolean; readonly testID?: string }) {
+  const { p } = useKit()
+  return (
+    <Pressable
+      role="button"
+      aria-label={label}
+      aria-disabled={disabled === true}
+      disabled={disabled === true}
+      onPress={onPress}
+      testID={testID}
+      style={({ pressed }) => ({
+        alignSelf: 'center',
+        minHeight: 44,
+        paddingHorizontal: SPACE.lg,
+        justifyContent: 'center',
+        borderRadius: RADIUS.md, borderCurve: 'continuous',
+        backgroundColor: pressed ? p.pressed : p.surfaceAlt,
+        opacity: disabled === true ? 0.45 : 1,
+      })}
+    >
+      <Txt weight="medium" color="textSub" center>
+        {label}
+      </Txt>
+    </Pressable>
+  )
+}
+
 export interface BottomCTAProps {
   readonly children?: ReactNode
   /** 한 줄 도움말 (버튼 위) */
@@ -70,8 +125,8 @@ export interface BottomCTAProps {
 }
 
 /**
- * 화면 맨 아래에 붙는 큰 버튼 자리. 홈 막대(안전 영역)를 피하고, 버튼은 세로로 쌓는다(한 손·큰 글자에서도 안 깨짐).
- * 주 버튼이 가장 아래, 보조 버튼은 그 위. children 순서대로 위에서 아래로 놓이니 주 버튼을 마지막에 둔다.
+ * 화면 맨 아래에 붙는 큰 버튼 자리. 홈 막대(안전 영역)를 피하고, 버튼은 좌우로 놓는다(D-UX4-01 — 옛: 세로로 쌓음).
+ * children 순서대로 왼쪽부터 놓이니 주 버튼을 마지막(오른쪽)에 둔다.
  */
 export function BottomCTA({ children, note }: BottomCTAProps) {
   const { p } = useKit()
@@ -87,7 +142,7 @@ export function BottomCTA({ children, note }: BottomCTAProps) {
           {note}
         </Txt>
       )}
-      {children}
+      <ButtonRow>{children}</ButtonRow>
     </View>
   )
 }

@@ -2,7 +2,7 @@
 // 아직 잇지 않았고 이을 수 있으면 흰 바탕 입력 화면(방송 주소 칸 + [방송 주소를 모르겠어요] + 맨 아래 [나중에 잇기]·[확인]),
 // 이었거나 이을 수 없으면 회색 바탕에 유튜브 카드(받는 상태·연결 안내 — YoutubeSection 그대로).
 import { useState } from 'react'
-import { BigButton, FormPage } from '../ui/kit/index.ts'
+import { BigButton, FormPage, SmallButton } from '../ui/kit/index.ts'
 import { View } from 'react-native'
 import { PlatformFinder } from './NewBroadcastScreen.tsx'
 import { YoutubeSection, sendLiveLink, useAddressLinker, useMobileYoutube, type MobileYoutube } from './console/YoutubeSection.tsx'
@@ -45,7 +45,7 @@ export function BroadcastLinkScreen({ broadcastId, closed, onBack }: { readonly 
       <View role="group" aria-label="유튜브">
         {linker.fields}
       </View>
-      <BigButton kind="outline" label="링크를 모르겠어요" onPress={() => setFinder(true)} />
+      <SmallButton label="링크를 모르겠어요" onPress={() => setFinder(true)} />
       <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
     </FormPage>
   )

@@ -12,7 +12,7 @@ import { kstToday } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import { LIVE_PLATFORMS, openPlatform, type PlatformTarget } from '../lib/open-app.ts'
 import { readModeOf } from '../lib/youtube.ts'
-import { BigButton, BottomSheet, FormPage, Icon, Txt, useKit } from '../ui/kit/index.ts'
+import { BottomSheet, FormPage, Icon, SmallButton, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Notice } from '../ui/parts.tsx'
 import { defaultBroadcastTitle, startErrorMessage } from './HomeScreen.tsx'
@@ -189,7 +189,7 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
       actions={linker.action}
     >
       {route !== undefined ? linker.fields : null}
-      <BigButton kind="outline" label="링크를 모르겠어요" onPress={() => setFinder(true)} />
+      <SmallButton label="링크를 모르겠어요" onPress={() => setFinder(true)} />
       <MakeError error={error} />
       <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
     </FormPage>

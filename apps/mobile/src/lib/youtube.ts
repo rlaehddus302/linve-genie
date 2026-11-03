@@ -44,6 +44,8 @@ export function channelName(title: unknown): string {
 }
 
 export const firstChannelQuestion = (name: string): string => `처음 잇는 채널이에요 (채널: ${name}). 이 방송이 맞나요?`
+/** 앱의 처음 잇는 채널 팝업 (D-UX4-02, 사용자 지시 2026-11-03) — 웹 줄 문장(firstChannelQuestion)과 따로, 줄을 나눠 보인다 */
+export const firstChannelPopup = (name: string): string => `처음 연결하는 채널이에요.\n채널명: ${name}\n이 방송이 맞나요?`
 export const broadcastChannelLine = (name: string): string => `유튜브 방송 · ${name}`
 
 export function linkedChannelName(link: LinkRecordView | null): string | null {

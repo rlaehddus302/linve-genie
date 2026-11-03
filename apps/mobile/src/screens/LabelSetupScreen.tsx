@@ -1,43 +1,100 @@
 // 방송 시작 라벨 단계 (D-UX3-19, 사용자 지시 2026-11-03 "링크 붙여넣은 다음에 라벨 프린트 할건지 물어보고 한다 하면 프린터 연결 도와주고
 // 연결 확인하고 라벨 디자인 커스텀 한 다음에 테스트 출력한다음에 본방송으로"): 링크를 이은 뒤 방송 화면 전에 한 장씩.
-// 1) "라벨을 뽑을까요?" — [안 뽑아요]는 라벨 기능을 끄고(L-13, 찜이 확정돼도 라벨이 쌓이지 않는다) 방송으로. [네]는 꺼져 있으면 켠다.
-// 2) 프린터 연결 — 기억한 프린터면 [다시 연결], 아니면 [프린터 찾기](고르기 창). 이어지면 "연결됐어요 · 이름"으로 확인.
-// 3) 라벨 꾸미기 — 크기·가게 이름·가격 표기·항목 켜고 끄기. 앱에는 라벨 그리기 코드가 없어(APP-01 AC3) 서버가 초안을 견본 값으로 그려 준다.
+// 1) "라벨을 뽑을까요?" — 설명 세 줄 + 라벨이 뽑혀 나오는 그림(D-UX4-03). [괜찮아요](왼쪽)는 라벨 기능을 끄고(L-13) 방송으로, [뽑을게요](오른쪽)는 꺼져 있으면 켠다.
+// 2) "라벨 프린터를 연결해 주세요" — 전원·블루투스 그림(D-UX4-04). 들어오면 바로 찾기 시작: 기억한 프린터면 고르기 없이 다시 잇고,
+//    아니면 주변 프린터 목록을 이 화면에 바로 보인다(찾는 동안 계속 늘어나고, 아무것도 없으면 10초마다 다시 찾음). 단추는 [새로고침] 하나.
+// 3) "출력될 라벨을 꾸며 주세요" (D-UX4-05) — 미리 보기는 위에 붙어 있고, 라벨 안 칸을 누르면 그 칸이 골라지며 아래 그 칸 설정으로 옮겨 간다.
+//    골라진 칸은 끌어서 옮기고 오른쪽 아래 손잡이로 크기(글자 크기도 같이)를 바꾼다. 앱에는 라벨 그리기 코드가 없어(APP-01 AC3) 서버가 초안을 견본 값으로 그려 준다.
 // 4) 테스트 인쇄 → "또렷하게 보이나요?" [예]면 이 기기를 출력 기기로 하고 방송으로. [아니요]면 도움말과 다시 인쇄.
-// 프린터를 '기본·실험'으로 나눠 보이지 않는다 — 어느 프린터든 이 흐름에서 테스트 "예"를 거친다.
+// 단추 둘은 늘 좌우 — 부정 왼쪽, 긍정 오른쪽 (D-UX4-01). 프린터를 '기본·실험'으로 나눠 보이지 않는다.
 import { printerProfile, labelSizesForProfileId } from '@livejjim/printer'
-import type { ProductTemplate } from '@livejjim/label'
+import type { ProductItemId, ProductTemplate, TemplateItem } from '@livejjim/label'
 import type { QueueSummary, StoredTemplate, Templates } from '@livejjim/web/src/api/print-types.ts'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Image, Pressable, View } from 'react-native'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { ActivityIndicator, Image, PanResponder, Pressable, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native'
 import { get, isApiError, post, put } from '../api/client.ts'
+import { cancelPrinterPick, pickPrinter, useInlinePrinterPick } from '../native/printer-pick.ts'
 import { sizeWordMm, testHelp } from '../lib/test-help.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, FormPage, Icon, RowGroup, TextField, ToggleRow, Txt, useKit } from '../ui/kit/index.ts'
+import { BigButton, FormPage, Icon, ListRow, RowGroup, SmallButton, TextField, ToggleRow, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
 import { Notice } from '../ui/parts.tsx'
 import { DEVICE_NAME_MAX, TEST_QUESTION, replaceQuestion } from './LabelsScreen.tsx'
 
 export const LABEL_ASK_TITLE = '라벨을 뽑을까요?'
-export const LABEL_ASK_BODY = '찜이 확정되면 상품 라벨을 프린터로 바로 뽑아요. 번호·구매자 이름이 찍혀 포장할 때 헷갈리지 않아요.'
-export const CONNECT_TITLE = '프린터를 연결해 주세요'
-export const DESIGN_TITLE = '라벨을 꾸며 주세요'
+/** 설명은 읽기 쉽게 줄을 나눈다 (D-UX4-03, 사용자 지시 2026-11-03 그대로) */
+export const LABEL_ASK_BODY = '찜이 확정되면 라벨 프린터로 바로 출력해요.\n상품 번호, 가격, 구매자 이름 등을 기록할 수 있어서\n나중에 포장할 때 헷갈리지 않아요.'
+export const CONNECT_TITLE = '라벨 프린터를 연결해 주세요'
+export const CONNECT_BODY = '프린터 전원을 켜고 휴대폰 가까이 두세요.\n블루투스가 켜져 있어야 해요.'
+export const DESIGN_TITLE = '출력될 라벨을 꾸며 주세요'
 export const TEST_TITLE = '테스트 라벨을 뽑아 볼게요'
 /** 출력 기기 이름 (라벨 화면 기본과 같다) */
 const DEVICE_NAME = '내 휴대폰'
-/** 끌 수 있는 항목 (번호·구매자는 늘 찍힌다 — L-3 PRODUCT_LOCKED) */
-export const OPTIONAL_ITEMS: readonly { readonly id: 'shop' | 'price' | 'date' | 'name'; readonly word: string }[] = [
-  { id: 'shop', word: '가게 이름' },
-  { id: 'name', word: '품종' },
-  { id: 'price', word: '가격' },
-  { id: 'date', word: '날짜' },
-]
-/** 가격 표기 (견본 8,000원) */
+/** 아무 프린터도 못 찾으면 다시 찾는 간격 (D-UX4-04) */
+export const RESCAN_MS = 10_000
+/** 라벨 칸 이름과 차례 (번호·닉네임은 늘 찍힌다 — L-3 PRODUCT_LOCKED) */
+export const ITEM_WORDS: Readonly<Record<ProductItemId, string>> = { shop: '가게 이름', number: '번호', price: '가격', date: '날짜', name: '품종', buyer: '닉네임' }
+const ITEM_ORDER: readonly ProductItemId[] = ['shop', 'number', 'price', 'date', 'name', 'buyer']
+/** 가격 표기 (앱 예시 30만원 — D-UX4-03) */
 export const PRICE_CHOICES: readonly { readonly style: ProductTemplate['priceStyle']; readonly word: string }[] = [
-  { style: 'THOUSAND', word: '8 천원' },
-  { style: 'WON', word: '8,000원' },
+  { style: 'THOUSAND', word: '300 천원' },
+  { style: 'WON', word: '300,000원' },
 ]
+
+// 앱은 라벨 실행 코드를 가져오지 않는다(APP-01 AC3) — 칸을 고칠 때 필요한 숫자만 LABEL_RULES 그대로 옮겨 둔다. 저장 때 서버가 다시 검사한다.
+/** 글자 크기 범위 (L-5, 점) */
+export const FONT_SIZE_MIN = 16
+export const FONT_SIZE_MAX = 120
+/** 끌 수 없는 칸 (L-3) */
+const PRODUCT_LOCKED: readonly ProductItemId[] = ['number', 'buyer']
+
+/** 라벨 크기의 mm·점 (L-1: 50mm 라벨 = 폭 min(폭×8, 384)·높이×8, 테이프 tape<폭>x<길이> = 길이×8 · 96). 모르는 글이면 null */
+export function labelDots(size: string): { readonly widthMm: number; readonly heightMm: number; readonly widthDots: number; readonly heightDots: number } | null {
+  const tape = /^tape(\d+)x(\d+)$/.exec(size)
+  if (tape !== null) return { widthMm: Number(tape[2]), heightMm: Number(tape[1]), widthDots: Number(tape[2]) * 8, heightDots: 96 }
+  const label = /^(\d+)x(\d+)$/.exec(size)
+  if (label === null) return null
+  const widthMm = Number(label[1])
+  const heightMm = Number(label[2])
+  return { widthMm, heightMm, widthDots: Math.min(widthMm * 8, 384), heightDots: heightMm * 8 }
+}
+
+const clamp = (value: number, low: number, high: number): number => Math.min(Math.max(value, low), Math.max(low, high))
+
+/** 칸 옮기기: 라벨 밖으로 나가지 않게 (점 단위 정수 — L-5) */
+export function movedItem(item: TemplateItem, dx: number, dy: number, labelW: number, labelH: number): TemplateItem {
+  return { ...item, x: clamp(Math.round(item.x + dx), 0, labelW - item.width), y: clamp(Math.round(item.y + dy), 0, labelH - item.height) }
+}
+
+/** 칸 크기 바꾸기: 상자를 키우면 글자 크기도 높이만큼 같이 (16~120점) */
+export function resizedItem(item: TemplateItem, dw: number, dh: number, labelW: number, labelH: number): TemplateItem {
+  const width = clamp(Math.round(item.width + dw), 24, labelW - item.x)
+  const height = clamp(Math.round(item.height + dh), 20, labelH - item.y)
+  const fontSize = clamp(Math.round((item.fontSize * height) / item.height), FONT_SIZE_MIN, FONT_SIZE_MAX)
+  return { ...item, width, height, fontSize, minFontSize: Math.min(item.minFontSize, fontSize) }
+}
+
+/** 글자 크기 한 단계: 커지면 상자 높이도 글자가 들어가게 (라벨 안에서) */
+export function fontStepped(item: TemplateItem, delta: number, labelH: number): TemplateItem {
+  const fontSize = clamp(item.fontSize + delta, FONT_SIZE_MIN, FONT_SIZE_MAX)
+  const height = clamp(Math.max(item.height, Math.ceil(fontSize * 1.25)), 1, labelH - item.y)
+  return { ...item, fontSize, height, minFontSize: Math.min(item.minFontSize, fontSize) }
+}
+
+/** 라벨 크기는 작은 것부터 (넓이 → 폭) */
+export function sortedSizes(sizes: readonly string[]): string[] {
+  const area = (size: string): [number, number] => {
+    const info = labelDots(size)
+    return info === null ? [Number.MAX_SAFE_INTEGER, 0] : [info.widthMm * info.heightMm, info.widthMm]
+  }
+  return [...sizes].sort((a, b) => {
+    const [aa, aw] = area(a)
+    const [ba, bw] = area(b)
+    return aa - ba || aw - bw
+  })
+}
 
 type Step = 'ask' | 'connect' | 'design' | 'test'
 
@@ -95,52 +152,82 @@ export function LabelSetupScreen({ onBack, onDone }: { readonly onBack: () => vo
         testID="label-setup-ask"
         actions={
           <>
-            <BigButton label="네, 뽑을게요" busy={busy} onPress={() => void run(async () => {
-              await setLabels(true)
-              go('connect')
-            })} />
-            <BigButton kind="outline" label="안 뽑아요" disabled={busy} onPress={() => void run(async () => {
+            <BigButton kind="outline" label="괜찮아요" disabled={busy} onPress={() => void run(async () => {
               await setLabels(false)
               onDone()
+            })} />
+            <BigButton label="뽑을게요" busy={busy} onPress={() => void run(async () => {
+              await setLabels(true)
+              go('connect')
             })} />
           </>
         }
       >
-        <Txt color="textSub">{LABEL_ASK_BODY}</Txt>
+        <Txt step="bodyLarge" color="textSub">
+          {LABEL_ASK_BODY}
+        </Txt>
         {errorLine}
+        <LabelPrintArt />
       </FormPage>
     )
   }
-  if (step === 'connect') return <ConnectStep busy={busy} run={run} onBack={() => go('ask')} onNext={() => go('design')} error={errorLine} />
+  if (step === 'connect') return <ConnectStep onBack={() => go('ask')} onNext={() => go('design')} />
   if (step === 'design') return <DesignStep queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => go('connect')} onSaved={() => go('test')} />
   return <TestStep busy={busy} run={run} onBack={() => go('design')} onDone={onDone} error={errorLine} />
 }
 
-/** 2) 프린터 연결과 확인 */
-function ConnectStep({ busy, run, onBack, onNext, error }: { readonly busy: boolean; readonly run: (work: () => Promise<void>) => Promise<void>; readonly onBack: () => void; readonly onNext: () => void; readonly error: React.ReactNode }) {
+/** 2) 프린터 연결과 확인 — 들어오면 바로 찾고, 찾은 프린터를 이 화면에 줄로 (D-UX4-04) */
+function ConnectStep({ onBack, onNext }: { readonly onBack: () => void; readonly onNext: () => void }) {
   const { labels } = useServices()
   const { p } = useKit()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
+  const found = useInlinePrinterPick()
   const linked = snapshot.printer === 'CONNECTED' || snapshot.printer === 'PRINTING'
   const name = linked ? ((snapshot.profileId === null ? undefined : printerProfile(snapshot.profileId))?.displayName ?? (snapshot.target === 'test' ? '시험용 프린터' : '라벨 프린터')) : null
-  const disconnected = snapshot.printer === 'DISCONNECTED'
+  const attempt = useRef<Promise<void> | null>(null)
+
+  /** 찾기 시작 — 기억한 프린터면 고르기 없이 다시 잇고, 아니면 주변 프린터를 찾는다 (label-queue reconnect) */
+  const start = useCallback(() => {
+    if (attempt.current !== null) return
+    attempt.current = labels.reconnect().finally(() => {
+      attempt.current = null
+    })
+  }, [labels])
+  /** [새로고침]: 지금 찾기를 그만두고 처음부터 다시 */
+  const refresh = useCallback(async () => {
+    cancelPrinterPick()
+    await attempt.current
+    start()
+  }, [start])
+  const useTest = async () => {
+    cancelPrinterPick()
+    await attempt.current
+    await labels.connect('test')
+  }
+
+  // 들어오면 바로 찾는다 (이미 잇는 중이거나 이어져 있으면 그대로)
+  useEffect(() => {
+    if (labels.getSnapshot().printer === 'DISCONNECTED') start()
+  }, [labels, start])
+  // 아무것도 못 찾으면 잠깐마다 다시 찾는다 — 찾은 것이 있으면 찾기가 이어지며 목록이 저절로 늘어난다
+  const nothingYet = !linked && (found === null || found.length === 0)
+  useEffect(() => {
+    if (!nothingYet) return
+    const timer = setInterval(() => {
+      if (labels.getSnapshot().printer !== 'CONNECTED') void refresh()
+    }, RESCAN_MS)
+    return () => clearInterval(timer)
+  }, [nothingYet, labels, refresh])
+
+  // 그만둔 고르기(NOT_SELECTED)는 판매자가 한 일이 아니라 다시 찾는 중이라 보이지 않는다
+  const problem = snapshot.printerError !== null && snapshot.printerError.code !== 'NOT_SELECTED' && !linked ? snapshot.printerError.message : null
   return (
     <FormPage
       title={CONNECT_TITLE}
       name="프린터 연결"
       onBack={onBack}
       testID="label-setup-connect"
-      actions={
-        linked ? (
-          <BigButton label="다음" onPress={onNext} />
-        ) : (
-          <>
-            {snapshot.hasRemembered ? <BigButton label="다시 연결" busy={busy || snapshot.printer === 'CONNECTING'} disabled={!disconnected} onPress={() => void run(() => labels.reconnect())} /> : null}
-            <BigButton kind={snapshot.hasRemembered ? 'outline' : 'primary'} label={snapshot.hasRemembered ? '다른 프린터 찾기' : '프린터 찾기'} busy={!snapshot.hasRemembered && (busy || snapshot.printer === 'CONNECTING')} disabled={!disconnected || busy} onPress={() => void run(() => labels.connect('bluetooth'))} />
-            {snapshot.testPrinter ? <BigButton kind="outline" label="시험용 프린터" ariaLabel="시험용 프린터 (실제로 출력되지 않아요)" disabled={!disconnected || busy} onPress={() => void run(() => labels.connect('test'))} /> : null}
-          </>
-        )
-      }
+      actions={linked ? <BigButton label="다음" onPress={onNext} /> : <BigButton kind="outline" label="새로고침" onPress={() => void refresh()} />}
     >
       {linked ? (
         <View role="status" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.soft }}>
@@ -154,29 +241,47 @@ function ConnectStep({ busy, run, onBack, onNext, error }: { readonly busy: bool
         </View>
       ) : (
         <>
-          <Txt color="textSub">프린터 전원을 켜고 휴대폰 가까이 두세요. 블루투스가 켜져 있어야 해요.</Txt>
-          {snapshot.printer === 'CONNECTING' ? <Notice tone="info">프린터에 연결하는 중이에요…</Notice> : null}
+          <Txt step="bodyLarge" color="textSub">
+            {CONNECT_BODY}
+          </Txt>
+          <PrinterConnectArt />
+          <View role="group" aria-label="주변 프린터" style={{ gap: SPACE.xs }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+              <Txt step="caption" weight="bold" color="textSub">
+                주변 프린터
+              </Txt>
+              <ActivityIndicator size="small" color={p.textSub} />
+            </View>
+            {found === null || found.length === 0 ? (
+              <Txt color="textSub">가까운 프린터를 찾고 있어요…</Txt>
+            ) : (
+              found.map((entry) => <ListRow key={entry.device.id} title={entry.title} subtitle={entry.detail} ariaLabel={`${entry.title} — ${entry.detail}`} onPress={() => pickPrinter(entry.device)} />)
+            )}
+          </View>
+          {snapshot.testPrinter ? <SmallButton label="시험용 프린터" onPress={() => void useTest()} /> : null}
         </>
       )}
-      {snapshot.printerError !== null && !linked ? (
+      {problem !== null ? (
         <Notice tone="danger" alert>
-          {snapshot.printerError.message}
+          {problem}
         </Notice>
       ) : null}
-      {error}
     </FormPage>
   )
 }
 
-/** 3) 라벨 꾸미기 — 서버가 그린 초안 미리 보기 */
+/** 3) 라벨 꾸미기 — 서버가 그린 초안 미리 보기를 위에 붙여 두고, 라벨 안 칸을 눌러 고르고·옮기고·키운다 (D-UX4-05) */
 function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: QueueSummary | null; readonly profileId: string | null; readonly onBack: () => void; readonly onSaved: () => void }) {
-  const { p } = useKit()
   const [stored, setStored] = useState<StoredTemplate<ProductTemplate> | null>(null)
   const [draft, setDraft] = useState<ProductTemplate | null>(null)
   const [preview, setPreview] = useState<DraftPreview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [picked, setPicked] = useState<ProductItemId | null>(null)
   const asked = useRef(0)
+  const scroll = useRef<ScrollViewInstance>(null)
+  const sectionY = useRef<Partial<Record<ProductItemId, number>>>({})
+  const stickyH = useRef(0)
 
   const load = () => {
     setError(null)
@@ -206,7 +311,7 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
       },
     )
   }
-  // 가게 이름은 칠 때마다가 아니라 잠깐 멈춘 뒤에 그린다
+  // 칠 때·끌 때마다가 아니라 잠깐 멈춘 뒤에 그린다
   useEffect(() => {
     if (draft === null) return
     const timer = setTimeout(() => draw(draft), 250)
@@ -214,7 +319,7 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
   }, [draft])
 
   const listed = queue?.labelSizes
-  const sizes = listed !== undefined && listed.length > 0 ? listed : labelSizesForProfileId(profileId)
+  const sizes = sortedSizes(listed !== undefined && listed.length > 0 ? listed : labelSizesForProfileId(profileId))
   const save = async () => {
     if (draft === null || stored === null || saving) return
     setSaving(true)
@@ -230,6 +335,14 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
       setSaving(false)
     }
   }
+  const setItem = (id: ProductItemId, item: TemplateItem) => setDraft((now) => (now === null ? now : { ...now, items: { ...now.items, [id]: item } }))
+  /** 라벨 안 칸을 누르면 그 칸을 고르고 아래 그 칸 설정으로 옮겨 간다 */
+  const focusItem = (id: ProductItemId) => {
+    setPicked(id)
+    const y = sectionY.current[id]
+    if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - stickyH.current - SPACE.lg), animated: true })
+  }
+  const dots = draft === null ? null : labelDots(draft.size)
 
   return (
     <FormPage
@@ -238,18 +351,14 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
       onBack={onBack}
       cards
       testID="label-setup-design"
+      scrollRef={scroll}
+      sticky={
+        <View onLayout={(event: LayoutChangeEvent) => (stickyH.current = event.nativeEvent.layout.height)}>
+          {draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} widthDots={dots.widthDots} heightDots={dots.heightDots} picked={picked} onFocus={focusItem} onPick={setPicked} onItem={setItem} /> : null}
+        </View>
+      }
       actions={<BigButton label="저장하고 다음" busy={saving} disabled={draft === null} onPress={() => void save()} />}
     >
-      {preview !== null ? (
-        <View aria-label="라벨 미리 보기" style={{ alignItems: 'center', padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.surface }}>
-          <Image accessibilityIgnoresInvertColors source={{ uri: `data:image/png;base64,${preview.png}` }} resizeMode="contain" style={{ width: '100%', aspectRatio: preview.width / preview.height, borderWidth: 1, borderColor: p.border, borderRadius: RADIUS.sm, borderCurve: 'continuous' }} />
-          <View style={{ marginTop: SPACE.sm }}>
-            <Txt step="caption" color="textSub">
-              견본: 194번 · 왕비뇌신금 · 8,000원 · 우주천사
-            </Txt>
-          </View>
-        </View>
-      ) : null}
       {preview?.longest != null ? <Notice tone="warning">{`이름이 아주 길면 잘릴 수 있어요. ${preview.longest}`}</Notice> : null}
       {error !== null ? (
         <View style={{ gap: SPACE.sm }}>
@@ -259,47 +368,209 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
           {draft === null ? <BigButton kind="outline" label={RETRY_NOW} onPress={load} /> : null}
         </View>
       ) : null}
-      {draft === null ? null : (
+      {draft === null || dots === null ? null : (
         <>
           <RowGroup title="라벨 크기">
-            <View role="radiogroup" aria-label="라벨 크기" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, paddingHorizontal: SPACE.xl, paddingVertical: SPACE.sm }}>
-              {sizes.map((size) => (
-                <Choice key={size} word={sizeWordMm(size)} on={draft.size === size} onPress={() => draw(draft, size)} />
+            <View role="radiogroup" aria-label="라벨 크기" style={{ gap: SPACE.sm, paddingHorizontal: SPACE.xl, paddingVertical: SPACE.sm }}>
+              {rowsOf(sizes, 3).map((row) => (
+                <View key={row.join(' ')} style={{ flexDirection: 'row', gap: SPACE.sm }}>
+                  {[0, 1, 2].map((index) => {
+                    const size = row[index]
+                    return (
+                      <View key={size ?? `빈칸${String(index)}`} style={{ flex: 1 }}>
+                        {size === undefined ? null : <Choice word={sizeWordMm(size)} on={draft.size === size} onPress={() => draw(draft, size)} />}
+                      </View>
+                    )
+                  })}
+                </View>
               ))}
             </View>
           </RowGroup>
-          <RowGroup>
-            <View style={{ paddingHorizontal: SPACE.xl, paddingBottom: SPACE.sm }}>
-              <TextField label="가게 이름" value={draft.shopName} maxLength={40} help={draft.shopName.trim() === '' ? '비우면 가게 설정의 이름을 찍어요.' : undefined} onChangeText={(text) => setDraft({ ...draft, shopName: text })} />
-            </View>
-          </RowGroup>
-          <RowGroup title="가격 표기">
-            <View role="radiogroup" aria-label="가격 표기" style={{ flexDirection: 'row', gap: SPACE.sm, paddingHorizontal: SPACE.xl, paddingVertical: SPACE.sm }}>
-              {PRICE_CHOICES.map((choice) => (
-                <Choice key={choice.style} word={choice.word} on={draft.priceStyle === choice.style} onPress={() => setDraft({ ...draft, priceStyle: choice.style })} />
-              ))}
-            </View>
-          </RowGroup>
-          <RowGroup title="찍을 항목">
-            <View style={{ paddingHorizontal: SPACE.xl }}>
-              <Txt step="caption" color="textSub">
-                번호와 구매자 이름은 늘 찍혀요.
-              </Txt>
-              {OPTIONAL_ITEMS.map((item) => (
-                <ToggleRow key={item.id} title={item.word} on={draft.items[item.id].visible} onChange={(on) => setDraft({ ...draft, items: { ...draft.items, [item.id]: { ...draft.items[item.id], visible: on } } })} />
-              ))}
-            </View>
-          </RowGroup>
+          {ITEM_ORDER.map((id) => {
+            const item = draft.items[id]
+            const locked = PRODUCT_LOCKED.includes(id)
+            return (
+              <View key={id} onLayout={(event: LayoutChangeEvent) => (sectionY.current[id] = event.nativeEvent.layout.y)}>
+                <ItemSection word={ITEM_WORDS[id]} picked={picked === id}>
+                  {locked ? (
+                    <Txt step="caption" color="textSub">
+                      늘 찍혀요.
+                    </Txt>
+                  ) : (
+                    <ToggleRow title="찍기" on={item.visible} onChange={(on) => setItem(id, { ...item, visible: on })} />
+                  )}
+                  {id === 'shop' && item.visible ? (
+                    <TextField label="가게 이름" value={draft.shopName} maxLength={40} help={draft.shopName.trim() === '' ? '비우면 가게 설정의 이름을 찍어요.' : undefined} onChangeText={(text) => setDraft({ ...draft, shopName: text })} />
+                  ) : null}
+                  {id === 'price' && item.visible ? (
+                    <View role="radiogroup" aria-label="가격 표기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
+                      {PRICE_CHOICES.map((choice) => (
+                        <View key={choice.style} style={{ flex: 1 }}>
+                          <Choice word={choice.word} on={draft.priceStyle === choice.style} onPress={() => setDraft({ ...draft, priceStyle: choice.style })} />
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                  {item.visible ? <FontStepper word={ITEM_WORDS[id]} size={item.fontSize} onStep={(delta) => setItem(id, fontStepped(item, delta, dots.heightDots))} /> : null}
+                </ItemSection>
+              </View>
+            )
+          })}
         </>
       )}
     </FormPage>
   )
 }
 
+/** n개씩 줄로 */
+function rowsOf<T>(list: readonly T[], n: number): T[][] {
+  const rows: T[][] = []
+  for (let i = 0; i < list.length; i += n) rows.push(list.slice(i, i + n))
+  return rows
+}
+
+/** 칸 하나의 설정 카드 (라벨에서 고른 칸이면 주색 테두리) */
+function ItemSection({ word, picked, children }: { readonly word: string; readonly picked: boolean; readonly children?: React.ReactNode }) {
+  const { p } = useKit()
+  return (
+    <View role="group" aria-label={`${word} 설정`} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', borderWidth: 2, borderColor: picked ? p.primary : p.surface, paddingHorizontal: SPACE.xl, paddingVertical: SPACE.lg, gap: SPACE.sm }}>
+      <Txt step="bodyLarge" weight="bold" role="heading" aria-level={2}>
+        {word}
+      </Txt>
+      {children}
+    </View>
+  )
+}
+
+/** 글자 크기 − 숫자 + */
+function FontStepper({ word, size, onStep }: { readonly word: string; readonly size: number; readonly onStep: (delta: number) => void }) {
+  const { p } = useKit()
+  const key = (sign: string, delta: number, name: string, off: boolean) => (
+    <Pressable role="button" aria-label={`${word} 글자 ${name}`} aria-disabled={off} disabled={off} onPress={() => onStep(delta)} style={({ pressed }) => ({ width: TOUCH.min, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt, opacity: off ? 0.45 : 1 })}>
+      <Txt step="bodyLarge" weight="bold">
+        {sign}
+      </Txt>
+    </Pressable>
+  )
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TOUCH.min }}>
+      <View style={{ flex: 1 }}>
+        <Txt step="bodyLarge" weight="medium">
+          글자 크기
+        </Txt>
+      </View>
+      {key('−', -2, '작게', size <= FONT_SIZE_MIN)}
+      <View style={{ minWidth: 36, alignItems: 'center' }}>
+        <Txt weight="bold" aria-label={`${word} 글자 크기 ${String(size)}`}>
+          {String(size)}
+        </Txt>
+      </View>
+      {key('+', 2, '크게', size >= FONT_SIZE_MAX)}
+    </View>
+  )
+}
+
+/**
+ * 위에 붙은 라벨 미리 보기 + 칸 고르기·옮기기·크기 (D-UX4-05). 칸 자리는 템플릿 점(8점 = 1mm)을 화면 폭에 맞춰 그린다.
+ * 칸을 누르면 고르고 그 설정으로 옮겨 가고, 고른 칸은 끌면 옮겨지고 오른쪽 아래 동그라미를 끌면 크기가 바뀐다.
+ */
+function LabelEditor({ draft, preview, widthDots, heightDots, picked, onFocus, onPick, onItem }: {
+  readonly draft: ProductTemplate
+  readonly preview: DraftPreview | null
+  readonly widthDots: number
+  readonly heightDots: number
+  readonly picked: ProductItemId | null
+  readonly onFocus: (id: ProductItemId) => void
+  readonly onPick: (id: ProductItemId | null) => void
+  readonly onItem: (id: ProductItemId, item: TemplateItem) => void
+}) {
+  const { p } = useKit()
+  const [width, setWidth] = useState(0)
+  const scale = width > 0 ? width / widthDots : 0
+  const pickedItem = picked === null ? null : draft.items[picked]
+  return (
+    <View aria-label="라벨 미리 보기" style={{ padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.surface, gap: SPACE.sm }}>
+      <View onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)} style={{ width: '100%', aspectRatio: widthDots / heightDots, borderWidth: 1, borderColor: p.line, borderRadius: RADIUS.sm, borderCurve: 'continuous', overflow: 'hidden', backgroundColor: '#FFFFFF' }}>
+        {preview !== null ? <Image accessibilityIgnoresInvertColors source={{ uri: `data:image/png;base64,${preview.png}` }} resizeMode="stretch" style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} /> : null}
+        {ITEM_ORDER.filter((id) => draft.items[id].visible).map((id) => {
+          const item = draft.items[id]
+          const on = picked === id
+          return (
+            <Pressable
+              key={id}
+              role="button"
+              aria-label={`라벨의 ${ITEM_WORDS[id]}`}
+              aria-pressed={on}
+              onPress={() => onFocus(id)}
+              style={{ position: 'absolute', left: item.x * scale, top: item.y * scale, width: item.width * scale, height: item.height * scale, borderRadius: 4, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderStyle: on ? 'solid' : 'dashed', borderColor: on ? p.primary : 'rgba(31,122,77,0.35)', backgroundColor: on ? 'rgba(31,122,77,0.08)' : 'transparent' }}
+            />
+          )
+        })}
+        {picked !== null && pickedItem !== null && pickedItem.visible && scale > 0 ? (
+          <ItemHandles key={picked} item={pickedItem} scale={scale} widthDots={widthDots} heightDots={heightDots} onTap={() => onFocus(picked)} onChange={(next) => onItem(picked, next)} />
+        ) : null}
+      </View>
+      <Txt step="caption" color="textSub" center>
+        {picked === null ? '라벨 안 칸을 누르면 옮기거나 크기를 바꿀 수 있어요.' : `${ITEM_WORDS[picked]} — 끌어서 옮기고, 동그라미를 끌어 크기를 바꿔요.`}
+      </Txt>
+      {picked !== null ? <SmallButton label="고르기 끝" onPress={() => onPick(null)} /> : null}
+    </View>
+  )
+}
+
+/** 고른 칸 위의 끌기 자리와 크기 손잡이 (손가락 움직임 → 점 단위) */
+function ItemHandles({ item, scale, widthDots, heightDots, onTap, onChange }: {
+  readonly item: TemplateItem
+  readonly scale: number
+  readonly widthDots: number
+  readonly heightDots: number
+  readonly onTap: () => void
+  readonly onChange: (item: TemplateItem) => void
+}) {
+  const { p } = useKit()
+  const latest = useRef({ item, scale, onTap, onChange })
+  latest.current = { item, scale, onTap, onChange }
+  const start = useRef(item)
+  const make = (kind: 'move' | 'size') =>
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        start.current = latest.current.item
+      },
+      onPanResponderMove: (_, gesture) => {
+        const k = latest.current.scale
+        if (k <= 0) return
+        const dx = gesture.dx / k
+        const dy = gesture.dy / k
+        latest.current.onChange(kind === 'move' ? movedItem(start.current, dx, dy, widthDots, heightDots) : resizedItem(start.current, dx, dy, widthDots, heightDots))
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (kind === 'move' && Math.abs(gesture.dx) < 4 && Math.abs(gesture.dy) < 4) latest.current.onTap()
+      },
+    })
+  const mover = useRef(make('move')).current
+  const sizer = useRef(make('size')).current
+  const knob = 22
+  return (
+    <>
+      <View {...mover.panHandlers} aria-hidden style={{ position: 'absolute', left: item.x * scale, top: item.y * scale, width: item.width * scale, height: item.height * scale }} />
+      <View
+        {...sizer.panHandlers}
+        aria-hidden
+        hitSlop={12}
+        style={{ position: 'absolute', left: (item.x + item.width) * scale - knob / 2, top: (item.y + item.height) * scale - knob / 2, width: knob, height: knob, borderRadius: knob / 2, borderCurve: 'continuous', backgroundColor: p.primary, borderWidth: 3, borderColor: '#FFFFFF' }}
+      />
+    </>
+  )
+}
+
 function Choice({ word, on, onPress }: { readonly word: string; readonly on: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="radio" aria-checked={on} aria-label={word} onPress={onPress} style={({ pressed }) => ({ minHeight: TOUCH.min, paddingHorizontal: SPACE.lg, justifyContent: 'center', borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderColor: on ? p.primary : p.border, backgroundColor: pressed ? p.pressed : on ? p.freshBg : p.surface })}>
+    <Pressable role="radio" aria-checked={on} aria-label={word} onPress={onPress} style={({ pressed }) => ({ minHeight: TOUCH.min, paddingHorizontal: SPACE.md, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderColor: on ? p.primary : p.border, backgroundColor: pressed ? p.pressed : on ? p.freshBg : p.surface })}>
       <Txt weight={on ? 'bold' : 'medium'} color={on ? 'primaryText' : 'text'}>
         {word}
       </Txt>
@@ -348,21 +619,21 @@ function TestStep({ busy, run, onBack, onDone, error }: { readonly busy: boolean
       actions={
         taken !== null ? (
           <>
+            <BigButton kind="outline" label="그대로 두기" ariaLabel="그대로 두고 방송 시작" disabled={busy} onPress={onDone} />
             <BigButton label="이 기기로 바꾸기" busy={busy} onPress={() => finish(true)} />
-            <BigButton kind="outline" label="그대로 두고 방송 시작" disabled={busy} onPress={onDone} />
           </>
         ) : snapshot.testPrinted && !answeredNo ? (
           <>
-            <BigButton label="예" busy={busy} onPress={yes} />
             <BigButton kind="outline" label="아니요" disabled={busy} onPress={() => {
               setAnsweredNo(true)
               labels.answerTest(false)
             }} />
+            <BigButton label="예" busy={busy} onPress={yes} />
           </>
         ) : (
           <>
-            <BigButton label={answeredNo ? '다시 테스트 인쇄' : '테스트 인쇄'} busy={busy || snapshot.testing} disabled={!linked || snapshot.job !== null} onPress={printTest} />
-            {answeredNo ? <BigButton kind="outline" label="라벨은 나중에 하고 방송 시작" disabled={busy} onPress={onDone} /> : null}
+            {answeredNo ? <BigButton kind="outline" label="나중에 하기" ariaLabel="라벨은 나중에 하고 방송 시작" disabled={busy} onPress={onDone} /> : null}
+            <BigButton label={answeredNo ? '다시 인쇄' : '테스트 인쇄'} ariaLabel={answeredNo ? '다시 테스트 인쇄' : '테스트 인쇄'} busy={busy || snapshot.testing} disabled={!linked || snapshot.job !== null} onPress={printTest} />
           </>
         )
       }

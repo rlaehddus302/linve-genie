@@ -1,9 +1,9 @@
 // 아래에서 올라오는 판: BottomSheet(내용 자유), ConfirmSheet(확인 질문). 닫기 단추가 늘 있다 — 끌어내리기만으로 되는 일은 없다.
 // 움직임 (D-UX3-05): 뒤 어두운 막은 제자리에서 서서히 짙어지고(페이드), 판만 아래에서 올라온다 — 막이 판과 함께 밀려 올라오지 않게.
 // 닫을 때도 막은 서서히 걷히고 판은 내려간 뒤 사라진다. 키보드가 뜨면 판이 키보드 위로 올라간다(입력 칸이 가려지지 않게).
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AccessibilityInfo, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native'
-import { BigButton } from './buttons.tsx'
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
+import { AccessibilityInfo, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View, useWindowDimensions, type ScrollViewInstance } from 'react-native'
+import { BigButton, ButtonRow } from './buttons.tsx'
 import { BACKDROP_OPACITY, RADIUS, SHADOW, SPACE } from './tokens.ts'
 import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
 import { BackButton } from './app.tsx'
@@ -84,7 +84,7 @@ export function BottomSheet({ visible, onClose, title, children, actions, testID
           <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: SPACE.md }} keyboardShouldPersistTaps="handled">
             {children}
           </ScrollView>
-          <View style={{ gap: SPACE.sm }}>{actions ?? <BigButton kind="secondary" label="닫기" onPress={onClose} />}</View>
+          <ButtonRow>{actions ?? <BigButton kind="secondary" label="닫기" onPress={onClose} />}</ButtonRow>
         </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
@@ -137,6 +137,10 @@ export interface FormPageProps {
   readonly cards?: boolean
   /** 화면 위에 겹쳐 띄우는 것 (잠깐 뜨는 알림 PopNote 등) */
   readonly overlay?: ReactNode
+  /** 제목 아래에서 스크롤해도 위에 붙어 있는 것 (라벨 꾸미기의 미리 보기 — D-UX4-05) */
+  readonly sticky?: ReactNode
+  /** 내용 스크롤 (눌러서 그 설정으로 옮겨 갈 때) */
+  readonly scrollRef?: Ref<ScrollViewInstance>
   readonly testID?: string
 }
 
@@ -145,7 +149,7 @@ export interface FormPageProps {
  * 바탕은 흰색(카드로 나뉜 내용이면 회색). 키보드가 뜨면 내용과 단추가 키보드 위로 올라와 입력 칸이 가려지지 않고, 단추와 키보드 사이는 12만 띈다.
  * 경로 화면(밀어서 뒤로 가기가 되는 쌓인 화면)과 FullSheet(앱 안 판)가 같이 쓴다.
  */
-export function FormPage({ title, name, onBack, backLabel = '뒤로', children, actions, cards = false, overlay, testID }: FormPageProps) {
+export function FormPage({ title, name, onBack, backLabel = '뒤로', children, actions, cards = false, overlay, sticky, scrollRef, testID }: FormPageProps) {
   const { p } = useKit()
   const inset = useBottomInset()
   const top = useTopInset()
@@ -157,13 +161,18 @@ export function FormPage({ title, name, onBack, backLabel = '뒤로', children, 
         <View style={{ paddingHorizontal: SPACE.sm, paddingTop: SPACE.sm }}>
           <BackButton label={backLabel} onPress={onBack} />
         </View>
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xxl, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xxl, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled" stickyHeaderIndices={sticky === undefined ? undefined : [1]}>
           <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
             {title}
           </Txt>
+          {sticky === undefined ? null : <View style={{ backgroundColor: bg, marginHorizontal: -SPACE.xl, paddingHorizontal: SPACE.xl, paddingBottom: SPACE.sm }}>{sticky}</View>}
           {children}
         </ScrollView>
-        {actions === undefined || actions === null ? null : <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(inset, SPACE.md) + SPACE.xs, gap: SPACE.sm, backgroundColor: bg }}>{actions}</View>}
+        {actions === undefined || actions === null ? null : (
+          <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(inset, SPACE.md) + SPACE.xs, backgroundColor: bg }}>
+            <ButtonRow>{actions}</ButtonRow>
+          </View>
+        )}
       </KeyboardAvoidingView>
       {overlay}
     </View>
@@ -212,5 +221,55 @@ export function ConfirmSheet({ visible, question, description, confirmLabel, can
     >
       {description === undefined ? null : <Txt color="textSub">{description}</Txt>}
     </BottomSheet>
+  )
+}
+
+export interface PopupDialogProps {
+  readonly visible: boolean
+  /** 묻는 말 — 줄바꿈(\n)을 그대로 보인다 */
+  readonly message: string
+  /** 보조 기술에 읽히는 이름 — 없으면 묻는 말 */
+  readonly name?: string
+  /** 긍정 단추 (오른쪽) */
+  readonly confirmLabel: string
+  /** 부정 단추 (왼쪽) */
+  readonly cancelLabel: string
+  readonly busy?: boolean
+  readonly onConfirm: () => void
+  readonly onCancel: () => void
+}
+
+/**
+ * 가운데 뜨는 확인 팝업 (D-UX4-02, 사용자 지시 2026-11-03 "이러한 알림은 별도 팝업으로"): 화면 안에 확인 줄을 끼워 넣지 않고 그 위에 띄운다.
+ * 흰 둥근 판에 묻는 말, 아래 단추 둘 — 왼쪽 부정(회색), 오른쪽 긍정(주색) (D-UX4-01). 뒤 막은 서서히 짙어지고 판은 살짝 커지며 나타난다.
+ * 바깥을 누르거나 뒤로 가기는 부정과 같다.
+ */
+export function PopupDialog({ visible, message, name, confirmLabel, cancelLabel, busy, onConfirm, onCancel }: PopupDialogProps) {
+  const { p } = useKit()
+  const { mounted, progress } = useSheetMotion(visible)
+  const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, BACKDROP_OPACITY] })
+  const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] })
+  return (
+    <Modal visible={mounted} transparent animationType="none" onRequestClose={onCancel} statusBarTranslucent>
+      <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: SPACE.xxl }}>
+        <Animated.View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: p.backdrop, opacity: backdrop }}>
+          <Pressable aria-label="팝업 닫기" role="button" onPress={onCancel} style={{ flex: 1 }} />
+        </Animated.View>
+        <Animated.View
+          role="alertdialog"
+          aria-modal
+          aria-label={name ?? message}
+          style={{ backgroundColor: p.surface, borderRadius: RADIUS.xxl, borderCurve: 'continuous', paddingTop: SPACE.xxl, paddingHorizontal: SPACE.xl, paddingBottom: SPACE.lg, gap: SPACE.xxl, opacity: progress, transform: [{ scale }], ...SHADOW.sheet }}
+        >
+          <Txt step="bodyLarge" weight="bold">
+            {message}
+          </Txt>
+          <ButtonRow>
+            <BigButton kind="outline" label={cancelLabel} disabled={busy} onPress={onCancel} />
+            <BigButton label={confirmLabel} busy={busy} onPress={onConfirm} />
+          </ButtonRow>
+        </Animated.View>
+      </View>
+    </Modal>
   )
 }

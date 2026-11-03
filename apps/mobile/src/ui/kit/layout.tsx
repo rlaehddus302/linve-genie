@@ -1,6 +1,6 @@
 // 자리 잡는 조각: 화면 틀(KitScreen), 묶음(Section), 카드(Card), 줄(ListRow·ToggleRow), 빈 화면(EmptyState).
-import type { ReactNode } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { Animated, Easing, Platform, Pressable, ScrollView, View } from 'react-native'
 import { Icon } from './app.tsx'
 import { BigButton } from './buttons.tsx'
 import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
@@ -113,32 +113,48 @@ export function ListRow({ title, subtitle, value, right, onPress, ariaLabel, tes
   )
 }
 
-/** 켜고 끄는 줄: 스위치 모양 대신 "켜짐/꺼짐" 글자가 든 큰 알약. 한 번 눌러 바뀐다. */
+/** 스위치 치수 (토스·아이폰 스위치 비율) */
+export const SWITCH = { width: 52, height: 32, knob: 26 } as const
+const SWITCH_MS = 180
+
+/**
+ * 켜고 끄는 줄 (D-UX4-06, 사용자 지시 2026-11-03 "온오프 스위치는 토스처럼" — 옛: "켜짐/꺼짐" 글자가 든 큰 알약):
+ * 오른쪽 스위치 — 켜면 주색 바탕에 흰 동그라미가 오른쪽으로 미끄러진다. 줄 어디를 눌러도 바뀐다. 보조 기술에는 "제목 — 켜짐/꺼짐".
+ */
 export function ToggleRow({ title, subtitle, on, onChange, disabled, testID }: { readonly title: string; readonly subtitle?: string; readonly on: boolean; readonly onChange: (next: boolean) => void; readonly disabled?: boolean; readonly testID?: string }) {
-  const { p, stacked } = useKit()
+  const { p } = useKit()
+  const move = useRef(new Animated.Value(on ? 1 : 0)).current
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      move.setValue(on ? 1 : 0)
+      return
+    }
+    Animated.timing(move, { toValue: on ? 1 : 0, duration: SWITCH_MS, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start()
+  }, [on, move])
+  const gap = (SWITCH.height - SWITCH.knob) / 2
+  const knobX = move.interpolate({ inputRange: [0, 1], outputRange: [gap, SWITCH.width - SWITCH.knob - gap] })
+  const track = move.interpolate({ inputRange: [0, 1], outputRange: [p.soft, p.primary] })
   return (
-    <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingVertical: SPACE.sm }}>
-      <View style={{ flex: stacked ? undefined : 1, gap: SPACE.xs }}>
+    <Pressable
+      role="switch"
+      aria-checked={on}
+      aria-label={`${title} — ${on ? '켜짐' : '꺼짐'}`}
+      aria-disabled={disabled === true}
+      disabled={disabled === true}
+      onPress={() => onChange(!on)}
+      testID={testID}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingVertical: SPACE.sm, opacity: disabled === true ? 0.45 : 1 }}
+    >
+      <View style={{ flex: 1, gap: SPACE.xs }}>
         <Txt step="bodyLarge" weight="medium">
           {title}
         </Txt>
         {subtitle === undefined ? null : <Txt step="caption" color="textSub">{subtitle}</Txt>}
       </View>
-      <Pressable
-        role="switch"
-        aria-checked={on}
-        aria-label={`${title} — ${on ? '켜짐' : '꺼짐'}`}
-        aria-disabled={disabled === true}
-        disabled={disabled === true}
-        onPress={() => onChange(!on)}
-        testID={testID}
-        style={({ pressed }) => ({ minHeight: TOUCH.min, minWidth: 96, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: on ? (pressed ? p.primaryPressed : p.primary) : pressed ? p.softPressed : p.soft, opacity: disabled === true ? 0.45 : 1 })}
-      >
-        <Txt step="bodyLarge" weight="bold" color={on ? 'onPrimary' : 'text'}>
-          {on ? '켜짐' : '꺼짐'}
-        </Txt>
-      </Pressable>
-    </View>
+      <Animated.View aria-hidden style={{ width: SWITCH.width, height: SWITCH.height, borderRadius: SWITCH.height / 2, borderCurve: 'continuous', backgroundColor: track, justifyContent: 'center' }}>
+        <Animated.View style={{ position: 'absolute', left: 0, width: SWITCH.knob, height: SWITCH.knob, borderRadius: SWITCH.knob / 2, borderCurve: 'continuous', backgroundColor: '#FFFFFF', transform: [{ translateX: knobX }], shadowColor: '#000000', shadowOpacity: 0.15, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 }} />
+      </Animated.View>
+    </Pressable>
   )
 }
 

@@ -76,15 +76,19 @@ describe('콘솔 유튜브 (앱)', () => {
     expect(world.server.callsTo('POST', /\/youtube$/)[0]?.body).not.toHaveProperty('confirmInvited')
   })
 
-  it('처음 잇는 채널: 확인 줄 → [맞아요, 잇기]는 확인 표시로 다시 보낸다, 이름은 글자로만', async () => {
+  // 옛 기대: 칸 아래 확인 줄 "처음 잇는 채널이에요 (채널: …). 이 방송이 맞나요?" + [맞아요, 잇기]·[취소].
+  // 새 기대 D-UX4-01·02: 가운데 팝업 "처음 연결하는 채널이에요.\n채널명: …\n이 방송이 맞나요?", 왼쪽 [아니에요]·오른쪽 [맞아요]
+  it('처음 잇는 채널: 팝업 → [맞아요]는 확인 표시로 다시 보낸다, 이름은 글자로만 (D-UX4-02)', async () => {
     const { world } = youtubeWorld()
     await open(world)
     await openYoutube()
     fireEvent.change(await screen.findByRole('textbox', { name: '방송 링크' }), { target: { value: 'NEWCHAN0001' } })
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
-    const ask = await screen.findByRole('group', { name: '처음 잇는 채널 확인' })
-    expect(ask.textContent).toContain('처음 잇는 채널이에요 (채널: <b>새채널</b>). 이 방송이 맞나요?')
-    fireEvent.click(within(ask).getByRole('button', { name: '맞아요, 잇기' }))
+    const ask = await screen.findByRole('alertdialog', { name: '처음 잇는 채널 확인' })
+    expect(ask.textContent).toContain('처음 연결하는 채널이에요.\n채널명: <b>새채널</b>\n이 방송이 맞나요?')
+    // 부정은 왼쪽, 긍정은 오른쪽 (D-UX4-01)
+    expect(within(ask).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['아니에요', '맞아요'])
+    fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
     await waitFor(() => expect(within(section()).getByText('유튜브 방송 · <b>새채널</b>')).toBeTruthy())
     expect(document.querySelector('b')).toBeNull()
     expect(world.server.callsTo('POST', /\/youtube$/)[1]?.body).toMatchObject({ video: 'NEWCHAN0001', confirmInvited: true })

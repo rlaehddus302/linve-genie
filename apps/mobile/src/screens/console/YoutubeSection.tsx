@@ -12,7 +12,7 @@ import { clipboardHasText } from '../../lib/clipboard.ts'
 import { liveLinkOf } from '../../lib/live-link.ts'
 import { BandPostPicker, TiktokConsentCard } from './OtherLinks.tsx'
 import { PasteButton } from '../../native/paste.tsx'
-import { PopNote } from '../../ui/kit/index.ts'
+import { PopNote, PopupDialog } from '../../ui/kit/index.ts'
 import { openWeb } from '../../lib/open-web.ts'
 import { useAppForeground } from '../../lib/use-app-state.ts'
 import {
@@ -34,7 +34,7 @@ import {
   WEB_CHAT_RESUMED,
   broadcastChannelLine,
   channelName,
-  firstChannelQuestion,
+  firstChannelPopup,
   linkedChannelName,
   readModeOf,
   recentLine,
@@ -314,8 +314,8 @@ export interface AddressLinkerOptions {
   readonly onEdit?: () => void
 }
 
-/** 다른 방송에 틱톡이 이어져 있을 때 (D-UX3-17) — 서버 TIKTOK_ELSEWHERE 문장과 같다 */
-export const TIKTOK_MOVE_QUESTION = '다른 방송에 틱톡이 이어져 있어요. 이 방송으로 옮길까요?'
+/** 다른 방송에 틱톡이 이어져 있을 때 (D-UX3-17) — 서버 TIKTOK_ELSEWHERE 문장과 같은 뜻, 팝업이라 줄을 나눈다 (D-UX4-02) */
+export const TIKTOK_MOVE_QUESTION = '다른 방송에 틱톡이 이어져 있어요.\n이 방송으로 옮길까요?'
 
 /** 잇기 거절을 짧게 (D-UX3-11, 사용자 지시 2026-11-03 "구체적으로 말고 추상적으로 짧게"). 모르는 거절은 서버 문장 그대로 */
 const SHORT_LINK_ERRORS: Readonly<Record<string, string>> = {
@@ -339,6 +339,9 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ask, setAsk] = useState<{ video: string; name: string } | null>(null)
+  // 팝업이 닫히는 동안에도 채널 이름이 남아 있게
+  const shownAsk = useRef(ask)
+  if (ask !== null) shownAsk.current = ask
   const pending = useRef<{ video: string; confirmed: boolean; requestId: string } | null>(null)
   const [canPaste, setCanPaste] = useState(false)
   const [note, setNote] = useState<{ id: number; message: string } | null>(null)
@@ -490,29 +493,32 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
       </Card>
       ) : null}
       {step === 'tiktokConsent' ? <TiktokConsentCard disabled={off} onAgreed={() => confirm(address.trim())} onCancel={() => setStep('none')} /> : null}
-      {step === 'tiktokMove' ? (
-        <Card>
-          <Notice tone="warning" alert>
-            {TIKTOK_MOVE_QUESTION}
-          </Notice>
-          <Row wrap>
-            <BigButton small primary label="옮기기" disabled={off} onPress={() => { const url = liveLinkOf(address.trim())?.url ?? address.trim(); void sendOther((requestId) => ({ platform: 'tiktok', body: { requestId, url, move: true } }), `tiktok-move ${url}`) }} />
-            <BigButton small label="취소" disabled={off} onPress={() => setStep('none')} />
-          </Row>
-        </Card>
-      ) : null}
       {step === 'bandPick' ? <BandPostPicker disabled={off} onCancel={() => setStep('none')} onPick={(bandKey, postKey) => void sendOther((requestId) => ({ platform: 'band', body: { requestId, bandKey, postKey } }), `band ${bandKey} ${postKey}`)} /> : null}
-      {ask !== null ? (
-        <Card label={FIRST_CHANNEL_GROUP}>
-          <Notice tone="warning" alert>
-            {firstChannelQuestion(ask.name)}
-          </Notice>
-          <Row wrap>
-            <BigButton small primary label="맞아요, 잇기" disabled={off} onPress={() => void link(ask.video, true)} />
-            <BigButton small label="취소" disabled={off} onPress={() => setAsk(null)} />
-          </Row>
-        </Card>
-      ) : null}
+      {/* 확인은 화면 안 줄이 아니라 가운데 팝업으로 — 왼쪽 부정, 오른쪽 긍정 (D-UX4-01·02) */}
+      <PopupDialog
+        visible={step === 'tiktokMove'}
+        message={TIKTOK_MOVE_QUESTION}
+        cancelLabel="취소"
+        confirmLabel="옮기기"
+        busy={off}
+        onCancel={() => setStep('none')}
+        onConfirm={() => {
+          const url = liveLinkOf(address.trim())?.url ?? address.trim()
+          void sendOther((requestId) => ({ platform: 'tiktok', body: { requestId, url, move: true } }), `tiktok-move ${url}`)
+        }}
+      />
+      <PopupDialog
+        visible={ask !== null}
+        name={FIRST_CHANNEL_GROUP}
+        message={firstChannelPopup(shownAsk.current?.name ?? '')}
+        cancelLabel="아니에요"
+        confirmLabel="맞아요"
+        busy={off}
+        onCancel={() => setAsk(null)}
+        onConfirm={() => {
+          if (ask !== null) void link(ask.video, true)
+        }}
+      />
     </Stack>
   )
   // 링크를 넣기 전엔 단추를 보이지 않는다 (D-UX3-07)

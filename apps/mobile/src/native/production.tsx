@@ -5,7 +5,6 @@
 // - 기억한 프린터는 앱 저장소(AsyncStorage)에 ID만 둔다 — 서버로 보내지 않는다. 앱을 다시 켜면 "다시 연결"이 고르기 창 없이 잇는다.
 // - 시험용 프린터는 L-7 가짜 프린터다. 서버가 시험 모드일 때 화면이 고를 때만 만든다(운영 서버에서는 고를 수 없다).
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { useSyncExternalStore } from 'react'
 import { Modal, PermissionsAndroid, Platform, ScrollView } from 'react-native'
 import { BleManager } from 'react-native-ble-plx'
 import { getAudioCapture } from '@livejjim/mobile-audio/native'
@@ -16,16 +15,13 @@ import {
   createPlxTransport,
   createPrinterPicker,
   createReconnectingAdapter,
-  type BleDeviceInfo,
   type BleTransport,
-  type DevicePicker,
-  type PickEntry,
-  type PrinterPicker,
 } from '@livejjim/mobile-ble'
 import { createFakePrinter } from '@livejjim/printer'
 import { phoneNoticeBuilt, phoneSmsBuilt } from '../lib/build-flags.ts'
 import { wirePrinterMemory } from '../lib/printer-memory.ts'
 import { PrinterPickList } from '../screens/PrinterPickList.tsx'
+import { cancelPrinterPick, pickDevice, pickPrinter, setPickEntries, usePickWindowShown } from './printer-pick.ts'
 import { AppPrinter } from './app-printer.ts'
 import { LiveNativeAudio } from './live-audio.ts'
 import { setNativeModules } from './index.ts'
@@ -56,31 +52,6 @@ function NativePasteButton({ onPaste }: PasteControlProps) {
     />
   )
 }
-
-let picker: PrinterPicker | null = null
-let entries: readonly PickEntry[] | null = null
-let finish: ((device: BleDeviceInfo | null) => void) | null = null
-const listeners = new Set<() => void>()
-const emit = (): void => {
-  for (const listener of listeners) listener()
-}
-const pickDevice: DevicePicker = async (scan) =>
-  new Promise((resolve) => {
-    finish?.(null)
-    entries = []
-    emit()
-    const off = scan.onDevices((next) => {
-      entries = picker === null ? [] : picker.entries(next)
-      emit()
-    })
-    finish = (device) => {
-      off()
-      entries = null
-      finish = null
-      emit()
-      resolve(device)
-    }
-  })
 
 async function permission(): Promise<boolean> {
   if (Platform.OS !== 'android') return true
@@ -119,7 +90,7 @@ export function installProductionNative(): void {
   }
   // 계열 표는 기본(켠 프로필 표 전부 — 앱·웹 같은 고르기 목록, L-7)
   const chooser = createPrinterPicker({ transport, pickDevice })
-  picker = chooser
+  setPickEntries((devices) => chooser.entries(devices))
   const connect = chooser.connect.bind(chooser)
   const reconnect = chooser.reconnect.bind(chooser)
   const refused = { ok: false as const, error: { code: 'BLUETOOTH_OFF' as const, message: '블루투스 권한이 없어요. 설정에서 주변 기기 사용을 허용해 주세요.', action: '설정 확인' } }
@@ -139,17 +110,13 @@ export function installProductionNative(): void {
   setNoticeModule(intake === null ? null : phoneSmsBuilt() ? intake : { ...intake, sms: null })
 }
 
-const subscribe = (cb: () => void): (() => void) => {
-  listeners.add(cb)
-  return () => listeners.delete(cb)
-}
-
+/** 앱 위 고르기 창 — 목록을 직접 그리는 화면(라벨 단계 연결, D-UX4-04)이 떠 있으면 띄우지 않는다 */
 export function PrinterDevicePicker() {
-  const shown = useSyncExternalStore(subscribe, () => entries)
+  const shown = usePickWindowShown()
   return (
-    <Modal visible={shown !== null} onRequestClose={() => finish?.(null)} animationType="slide">
+    <Modal visible={shown !== null} onRequestClose={cancelPrinterPick} animationType="slide">
       <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 64, gap: 12 }}>
-        <PrinterPickList entries={shown ?? []} onPick={(entry) => finish?.(entry.device)} onClose={() => finish?.(null)} />
+        <PrinterPickList entries={shown ?? []} onPick={(entry) => pickPrinter(entry.device)} onClose={cancelPrinterPick} />
       </ScrollView>
     </Modal>
   )
