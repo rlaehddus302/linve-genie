@@ -17,6 +17,9 @@
 //   한글(앞 SP 하나 허용) 아닌 것, 공백 뺀 2글자 이하, 속 이름·일반 낱말, 흔한 낱말·사람 이름·상표(손으로 고름), 지금 이름·별칭과 같거나
 //   지금 더 긴 이름의 앞부분인 것, 11글자 이상, 막는 낱말과 같거나 R-17 0.8로 맞는 것은 뺐다. 별칭 없이, 모두 exactOnly(D-V3-116과 같게).
 //   데이터에 `source: "xplant"`로 가른다.
+// - 심폴 유통명 (D-V3-122, AC-V3-102): 엑스플랜트 이름 다음, 데이터 맨 끝의 이름들. 사용자가 조사한 심폴 상품명(2026-11-03) 중 하위 분류가
+//   다육인 것에서 엑스플랜트와 같은 기준으로 골랐다(꾸밈 낱말·붙은 선인장·바위솔·목대 꼬리도 뗌). 상품 수가 엑스플랜트의 1/5쯤이라 5건 이상,
+//   다육 아닌 식물·꾸밈 말은 손으로 더 뺐다. 지금 이름(엑스플랜트 포함)과 겹치면 뺐다. 모두 exactOnly, 데이터에 `source: "simpol"`.
 //
 // 규칙(단위 시험이 지킨다): 300개 이상, 이름·별칭의 공백 뺀 모양이 서로 겹치지 않음, 공백 뺀 1글자 없음, 별칭 0~5개,
 // 막는 낱말(stopWords)과 같거나 R-17 0.8로 맞는 이름·별칭 없음.
@@ -33,8 +36,9 @@ export interface VarietySource {
   readonly exactOnly?: boolean
 }
 
-/** 항목마다 exactOnly를 거는 출처 — 판매 영수증 거래명(D-V3-116)·엑스플랜트 유통명(D-V3-121) */
-const isPerItem = (item: { receipt?: boolean; source?: string }): boolean => item.receipt === true || item.source === 'xplant'
+/** 항목마다 exactOnly를 거는 출처 — 판매 영수증 거래명(D-V3-116)·엑스플랜트 유통명(D-V3-121)·심폴 유통명(D-V3-122) */
+const isPerItem = (item: { receipt?: boolean; source?: string }): boolean =>
+  item.receipt === true || item.source === 'xplant' || item.source === 'simpol'
 
 const freezeSource = (item: { name: string; aliases?: string[]; exactOnly?: boolean; receipt?: boolean; source?: string }): VarietySource =>
   Object.freeze({ name: item.name, aliases: Object.freeze([...(item.aliases ?? [])]), ...(isPerItem(item) && item.exactOnly === true ? { exactOnly: true } : {}) })
@@ -56,7 +60,7 @@ export const DEFAULT_COMMON_ALIASES: ReadonlyMap<string, string> = new Map(
 /**
  * 적은 모양으로만 맞추는 이름 (손으로 고른 실방송 영수증의 짧은 이름 — 콜리·퍼플·창금·황소): 한 자모 다른 흔한 낱말(콜라·퍼즐·창극·황수)이
  * 비슷함으로 이 이름이 되지 않게 한다. 이름·별칭과 공백만 다른 모양은 그대로 맞는다. 이름으로 가르므로 판매 이력의 같은 이름에도 걸린다(지금 그대로).
- * 판매 영수증 거래명(`receipt`, D-V3-116)·엑스플랜트 유통명(`source: "xplant"`, D-V3-121)은 여기 넣지 않고 항목마다(VarietySource.exactOnly) 건다 — 판매 이력의 같은 이름은 지금처럼 맞춘다
+ * 판매 영수증 거래명(`receipt`, D-V3-116)·엑스플랜트·심폴 유통명(`source: "xplant"`·`"simpol"`, D-V3-121·122)은 여기 넣지 않고 항목마다(VarietySource.exactOnly) 건다 — 판매 이력의 같은 이름은 지금처럼 맞춘다
  */
 export const DEFAULT_EXACT_ONLY: ReadonlySet<string> = new Set(
   (data.varieties as { name: string; exactOnly?: boolean; receipt?: boolean; source?: string }[]).filter((item) => item.exactOnly === true && !isPerItem(item)).map((item) => item.name),

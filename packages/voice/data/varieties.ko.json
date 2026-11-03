@@ -11077,6 +11077,774 @@
    "aliases": [],
    "exactOnly": true,
    "source": "xplant"
+  },
+  {
+   "name": "목기린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "패리도트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "취운금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "괴룡환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "호리다",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "헤르난데지",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "다화옥금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "피쉬본",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "분화룡",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "귀갑난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "귀면각",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "금양환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "나나후쿠미니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "단자작약환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "루비포트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "테레사에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "화이트 고스트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "그린브리트니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "금련옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "나나후크미니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "단자금호",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "롱기마마",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "하베러보이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "소인의모자",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "슈가젤리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "아쿠아픽타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "야곱세니금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "여배각",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "외가시밧데리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "향기단애",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "립살리스 트리고나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "광자능파",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "구름쇠",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "데블스푸드",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "도미닉스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "디스코홀스티금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "롱기브렉텍튬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "만손초",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "사자왕",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "신선옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "오이보투구",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "우주전",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "자목단",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "체리블러썸",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "퀸마릴린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "해왕철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "향화환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "헤디오토이데스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "홍대화금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "홍페페",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "자트로바",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "태양금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "거봉진주",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "금마차",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "레네카",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "머니메이크금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "모스로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "무용환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백신환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백신환철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백운각",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "붉은섬털",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "브레비폴리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "브리티움",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "비모란",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "사자두",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "삼봉빌로붐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "세계지도금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "수정마계",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "스타투구",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "시아키",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "엑시몬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "엘리쉐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "오절무",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "왕관룡",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "자옥로",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "청각전",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "퍼플가든",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "펜덴스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "폴로렌센스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "학봉용",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "화차 금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "희성미인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "청페페",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "국수철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "금황성",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "낙동기러기",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "델라스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "돌기난봉옥금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "듀웨이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "라운드미드나잇",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "로즈봉황",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "루이사에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "립살리스 부사완",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "마그마금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "미기울",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백설황",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백제성뮤턴트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백태양",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "봉랑금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "뷰티릴리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "브레비칼릭스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "브론즈 파스텔",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "빌로붐 핑크",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "성영철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "수정옵투사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "슈가고리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "스타피타튬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "썬로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "푸른고래",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "아멜룽가",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "플리카틸리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "어파인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "에르니아눔",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "영화환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "잉글랜드칼카리움",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "자이언트드래곤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "종귀옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "진주목걸이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "체리톱스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "캔디볼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "퍼큘라리어스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "품명환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "피그니즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "핑크아악무",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "옵투사금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "환엽핑크픽타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "황소정",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
   }
  ]
 }

@@ -13,7 +13,9 @@ interface Entry {
 }
 const file = JSON.parse(readFileSync(new URL('../data/varieties.ko.json', import.meta.url), 'utf8')) as { varieties: Entry[] }
 const start = file.varieties.findIndex((item) => item.source === 'xplant')
-const added = file.varieties.slice(start)
+// 엑스플랜트 이름 뒤에는 심폴 유통명이 이어진다(D-V3-122, v3-simpol-dictionary.test.ts) — 엑스플랜트 이름은 그 앞까지
+const simpol = file.varieties.findIndex((item) => item.source === 'simpol')
+const added = file.varieties.slice(start, simpol === -1 ? undefined : simpol)
 const before = file.varieties.slice(0, start)
 const DICT = prepareVoiceDictionary()
 const nameOf = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => p.name)
@@ -48,7 +50,7 @@ describe('AC-V3-101 엑스플랜트 유통명 사전 (D-V3-121)', () => {
 
   it('(c) 모두 exactOnly — 공백만 다른 모양으로 맞고, 한 자모 다른 모양·0.8로는 맞지 않는다', () => {
     for (const item of added) expect(item.exactOnly, item.name).toBe(true)
-    for (const item of DEFAULT_VARIETIES.slice(start)) expect(item.exactOnly, item.name).toBe(true)
+    for (const item of DEFAULT_VARIETIES.slice(start, start + added.length)) expect(item.exactOnly, item.name).toBe(true)
     for (const item of added) expect(DEFAULT_EXACT_ONLY.has(item.name), item.name).toBe(false)
     expect(nameOf('10번 토스카넬리 5만 원')).toEqual(['토스카넬리'])
     expect(nameOf('10번 토스카 넬리 5만 원')).toEqual(['토스카넬리'])
