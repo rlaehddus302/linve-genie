@@ -93,6 +93,18 @@ export function useServices(): Services {
 
 // ── 세션 ──
 
+/**
+ * 로그인 확인이 실패한 뒤의 세션: 401만 '로그인 안 됨'. 그 밖(인터넷 끊김·서버를 새로 올리는 동안의 502·503)은 로그인이 풀린 게 아니라
+ * 서버에 닿지 못한 것 — 이미 들어와 있으면 그대로, 아니면 offline (D-UX3-21)
+ */
+export function sessionAfterCheckError(error: unknown, current: Session): Session {
+  if (isApiError(error) && error.status === 401) return { state: 'out', expired: false }
+  return current.state === 'in' ? current : { state: 'out', expired: false, offline: true }
+}
+
+/** 서버에 닿지 못했을 때 다시 확인하는 간격 */
+export const OFFLINE_RECHECK_MS = 5_000
+
 /** offline: 첫 확인 때 서버에 닿지 못했다 — 로그인이 풀린 것이 아닐 수 있어 "다시 확인"을 보인다 (APP2 실기기: 서버가 안 닿으면 말없이 로그인 화면이 떠 로그아웃된 줄 알았다) */
 export type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean; readonly offline?: boolean } | { readonly state: 'in'; readonly me: Me }
 
@@ -114,8 +126,7 @@ export function SessionProvider({ children, services }: { readonly children: Rea
       setVoiceAccount(me.loginId)
       setSession({ state: 'in', me })
     } catch (error) {
-      if (isApiError(error) && error.status === 401) setSession({ state: 'out', expired: false })
-      else setSession((current) => (current.state === 'in' ? current : { state: 'out', expired: false, offline: isApiError(error) && error.network === true }))
+      setSession((current) => sessionAfterCheckError(error, current))
     }
   }
 
@@ -130,6 +141,14 @@ export function SessionProvider({ children, services }: { readonly children: Rea
     return () => onUnauthorized(null)
     // eslint 주석 없이: 처음 한 번만
   }, [])
+
+  // 서버에 닿지 못한 동안은 5초마다 다시 확인한다 — 서버가 돌아오면 판매자가 아무것도 누르지 않아도 그대로 들어간다 (D-UX3-21)
+  const offline = session.state === 'out' && session.offline === true
+  useEffect(() => {
+    if (!offline) return
+    const timer = setInterval(() => void recheck(), OFFLINE_RECHECK_MS)
+    return () => clearInterval(timer)
+  }, [offline])
 
   // 로그인한 동안 라벨 대기열(실시간 포함)을 켠다
   useEffect(() => {

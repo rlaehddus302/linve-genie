@@ -7,9 +7,11 @@ export { loginNewSeller, openRealBroadcast } from '../i3/support.ts'
 export { postJson, registerApi, smsApi } from '../i1/support.ts'
 export { gotoLabels, printed, printedCount, region, scopeLabels, TEST_PRINTER, waitPrinted } from '../i1/support.ts'
 
-/** L-7 "지원 단계" 안내 한 줄 — {앱}은 프로필의 대체 경로 앱 */
+/** L-7 "지원 단계" 안내 한 줄 — {앱}은 프로필의 대체 경로 앱 (D-UX3-22 옛 기대: 앞에 "실험 중인 프린터예요. ") */
 export const experimentalNotice = (app: string): string =>
-  `실험 중인 프린터예요. 테스트 인쇄가 잘 나오는지 꼭 확인해 주세요. 잘 안 나오면 라벨을 그림 파일로 ${app}에서 인쇄해 주세요.`
+  `테스트 인쇄가 잘 나오는지 꼭 확인해 주세요. 잘 안 나오면 라벨을 그림 파일로 ${app}에서 인쇄해 주세요.`
+/** 확인되지 않은 기종 안내의 이름 (D-UX3-22 옛 이름: "실험 중인 프린터 안내") */
+export const CHECK_NOTE = '프린터 확인 안내'
 export const BAUATO_APP = 'Luck Jingle 앱'
 /** L-7 PRN2 개정 — 켠 프로필 ID와 화면 이름 */
 export const BAUATO = { id: 'BAUATO_PPA2L', name: '바우아토 스티코팝', sizes: ['50×30mm', '50×15mm', '50×50mm'] } as const

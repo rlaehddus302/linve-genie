@@ -59,9 +59,10 @@ export function TiktokConsentCard({ onAgreed, onCancel, disabled }: { readonly o
           {error}
         </Notice>
       )}
-      <Row wrap>
-        <BigButton small primary label="동의하고 잇기" ariaLabel={notice?.checkbox ?? '동의하고 잇기'} disabled={notice === null || disabled === true || busy} onPress={() => void agree()} />
+      {/* 단추는 한 줄에 부정 왼쪽·긍정 오른쪽 (CLAUDE.md 절대 규칙 8, D-UX4-01) */}
+      <Row>
         <BigButton small label="취소" disabled={busy} onPress={onCancel} />
+        <BigButton small primary label="동의하고 잇기" ariaLabel={notice?.checkbox ?? '동의하고 잇기'} disabled={notice === null || disabled === true || busy} onPress={() => void agree()} />
       </Row>
     </Card>
   )

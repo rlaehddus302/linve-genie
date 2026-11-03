@@ -231,7 +231,8 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
     window.livejjimTestPrinter?.setTestProfile('MARKLIFE_P50')
     await connectTest(printer)
     const band = await screen.findByRole('region', { name: '출력 멈춤' })
-    await waitFor(() => expect(band.textContent).toContain('실험 중인 프린터라 출력을 잠시 멈췄어요.'))
+    // D-UX3-22 옛 기대: '실험 중인 프린터라 출력을 잠시 멈췄어요.'
+    await waitFor(() => expect(band.textContent).toContain('새로 이은 프린터라 출력을 잠시 멈췄어요.'))
     const test = within(band).getByRole('button', { name: '테스트 인쇄' })
     expect(test.classList.contains('button-primary')).toBe(true)
     fireEvent.click(test)
