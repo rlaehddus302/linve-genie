@@ -218,11 +218,13 @@ describe('AC-S04-52 조회·이력 API', () => {
     const b20 = await createBroadcast(world, seller, { date: '2026-10-20', title: '둘째 날' })
     const b19a = await createBroadcast(world, seller, { date: '2026-10-19' })
     const b19b = await createBroadcast(world, seller, { date: '2026-10-19' })
+    // D-UX3-18: 만든 시각(createdAt)·이은 플랫폼(platforms)을 덧붙였다 — 옛 기대는 앞 여섯 칸만이었다
+    const made = { createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/) as unknown as string, platforms: [] }
     expect((await client(world, seller.cookie).get('/api/broadcasts')).body).toEqual({
       broadcasts: [
-        { id: b19a.id, date: '2026-10-19', title: '1부', rehearsal: false, ended: false, endedAt: null },
-        { id: b19b.id, date: '2026-10-19', title: '2부', rehearsal: false, ended: false, endedAt: null },
-        { id: b20.id, date: '2026-10-20', title: '둘째 날', rehearsal: false, ended: false, endedAt: null },
+        { id: b19a.id, date: '2026-10-19', title: '1부', rehearsal: false, ended: false, endedAt: null, ...made },
+        { id: b19b.id, date: '2026-10-19', title: '2부', rehearsal: false, ended: false, endedAt: null, ...made },
+        { id: b20.id, date: '2026-10-20', title: '둘째 날', rehearsal: false, ended: false, endedAt: null, ...made },
       ],
     })
   })

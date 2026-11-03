@@ -94,6 +94,10 @@ describe('링크로 틱톡 잇기 (D-UX3-14)', () => {
     expect(((await client(w, seller.cookie).get('/api/tiktok')).body.tiktok as { tiktokId: string }).tiktokId).toBe('shop_two')
     expect((await state(first)).state).toBe('NONE')
     expect(await state(second)).toMatchObject({ state: 'LINKED', tiktokId: 'shop_two' })
+    // D-UX3-18: 방송 목록에 이은 플랫폼 (끊은 것도 그 방송의 플랫폼으로 남는다)
+    const list = (await client(w, seller.cookie).get('/api/broadcasts')).body.broadcasts as { id: string; platforms: string[] }[]
+    expect(list.find((item) => item.id === first)?.platforms).toEqual(['tiktok'])
+    expect(list.find((item) => item.id === second)?.platforms).toEqual(['tiktok'])
   })
 })
 

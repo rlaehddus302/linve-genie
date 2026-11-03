@@ -1,5 +1,5 @@
 // 홈 "오늘 할 일" (D-UX2-02, SPEC §7 화면 1과 같은 흐름): 인사 한 줄 → 큰 초록 "방송 시작하기"(진행 중 방송이 있으면 "방송으로 돌아가기")
-// → 할 일 3줄(입금 확인·포장하기·라벨 뽑기, 숫자는 서버 값) → 지난 방송 한 줄. 새 방송은 쌓인 화면(판매 종류 → 방송 주소, NewBroadcastScreen)에서
+// → 할 일 3줄(입금 확인·포장하기·라벨 뽑기, 숫자는 서버 값) → 내 방송 최근 4개(플랫폼 아이콘·날짜·지난 시간, [모두보기]는 쌓인 화면 — D-UX3-18). 새 방송은 쌓인 화면(판매 종류 → 방송 주소, NewBroadcastScreen)에서
 //   시작한다 — 밀어서 뒤로 가기가 된다(D-UX3-09).
 // - 입금 확인·포장하기 숫자: 가장 최근 판매 날짜의 포장 목록(GET /api/days/:date/packing) — 입금 전(미입금·부분 입금) 손님 수, 포장할 것(포장 대기·다시 확인) 손님 수.
 // - 라벨 뽑기 숫자: 라벨 대기열 요약의 대기 장 수(라벨 기능을 켰을 때만). 값을 모르면 그 줄을 숨긴다.
@@ -14,10 +14,11 @@ import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, BottomSheet, GroupLabel, HeroButton, Icon, RowDivider, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { BigButton, HeroButton, RowDivider, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
-import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
+import { BroadcastRow, HOME_BROADCASTS, liveBroadcast, newestFirst } from './BroadcastList.tsx'
+import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
@@ -28,6 +29,8 @@ export interface HomeNavigation {
   readonly openSettings: () => void
   /** 앱 정산 탭 (D-APPX-01) — 없으면 웹 정산 */
   readonly openSettle?: () => void
+  /** 내 방송 모두 보기 (쌓인 화면, D-UX3-18) */
+  readonly openAllBroadcasts?: () => void
   /** 시작 안내 (D-APPX-03) — 없으면 줄을 보이지 않는다 */
   readonly openStart?: () => void
 }
@@ -72,12 +75,6 @@ export function soldOf(entries: readonly PackingEntry[], broadcastId: string): {
   return { count, amount }
 }
 
-/** 방송 이름 한 줄 ("10월 31일 저녁 방송") */
-function broadcastName(item: BroadcastItem): string {
-  const title = item.title.trim()
-  return title === '' ? `${dateWords(item.date)} 방송` : title
-}
-
 function usePacking(date: string | null, refresh: number): readonly PackingEntry[] | null {
   const [entries, setEntries] = useState<readonly PackingEntry[] | null>(null)
   useEffect(() => {
@@ -115,7 +112,6 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
   const [items, setItems] = useState<BroadcastItem[] | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [day, setDay] = useState<string | null>(null)
-  const [all, setAll] = useState(false)
   const [busy, setBusy] = useState(false)
   const [createError, setCreateError] = useState<ApiError | null>(null)
   const pending = useRef<{ key: string; requestId: string } | null>(null)
@@ -174,8 +170,11 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
     }
   }
 
-  const live = items?.find((item) => !item.ended && !item.rehearsal) ?? items?.find((item) => !item.ended)
-  const lastEnded = items?.find((item) => item.ended && !item.rehearsal)
+  // 서버 목록은 오래된 순 — 가장 최근 것을 고른다 (D-UX3-18, 옛 동작은 가장 오래된 열린 방송으로 돌아갔다)
+  const live = items === null ? undefined : liveBroadcast(items)
+  const recent = items === null ? [] : newestFirst(items)
+  const lastEnded = recent.find((item) => item.ended && !item.rehearsal)
+  const now = Date.now()
   const entries = usePacking(day, refresh)
   const endedEntries = usePacking(lastEnded !== undefined && lastEnded.date !== day ? lastEnded.date : null, refresh)
   const counts = useMemo(() => (entries === null ? null : todoCounts(entries)), [entries])
@@ -248,39 +247,18 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
           </View>
         ) : null}
 
-        {lastEnded !== undefined ? (
-          <View style={{ gap: 10 }}>
-            <GroupLabel>지난 방송</GroupLabel>
-            <Pressable role="button" aria-label={`지난 방송 열기 — ${broadcastLine(lastEnded)}`} onPress={() => nav.openConsole(lastEnded.id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', paddingVertical: SPACE.lg, paddingHorizontal: SPACE.xl, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Txt weight="bold" numberOfLines={1}>
-                  {broadcastName(lastEnded)}
-                </Txt>
-                <Txt step="caption" color="textSub">
-                  {sold === null ? dateWords(lastEnded.date) : `${String(sold.count)}개 팔림`}
-                </Txt>
-              </View>
-              {sold === null ? <Icon name="chevron" color={p.textSub} size={20} /> : <Txt step="bodyLarge" weight="heavy">{formatWon(sold.amount)}</Txt>}
-            </Pressable>
-          </View>
-        ) : null}
-        {items !== null && items.length > 0 ? (
-          <Pressable role="button" aria-label="방송 모두 보기" onPress={() => setAll(true)} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start', paddingHorizontal: SPACE.sm, marginLeft: -SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-            <Txt weight="bold" color="primaryText">
-              방송 모두 보기
-            </Txt>
-          </Pressable>
+        {recent.length > 0 ? (
+          <RowGroup label="내 방송">
+            {recent.slice(0, HOME_BROADCASTS).map((item) => (
+              <BroadcastRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} sold={item.id === lastEnded?.id ? sold : null} amountWords={formatWon} />
+            ))}
+            {nav.openAllBroadcasts === undefined ? null : <View aria-hidden style={{ height: 1, backgroundColor: p.border, marginTop: SPACE.xs }} />}
+            {nav.openAllBroadcasts === undefined ? null : <Pressable role="button" aria-label="방송 모두 보기" onPress={nav.openAllBroadcasts} style={({ pressed }) => ({ minHeight: 52, justifyContent: 'center', alignItems: 'flex-end', paddingHorizontal: SPACE.xl, borderBottomLeftRadius: RADIUS.xl, borderBottomRightRadius: RADIUS.xl, borderCurve: 'continuous', marginBottom: -SPACE.xs, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+              <Txt color="textSub">모두보기</Txt>
+            </Pressable>}
+          </RowGroup>
         ) : null}
       </ScrollView>
-
-      <BottomSheet visible={all} onClose={() => setAll(false)} title="방송 모두 보기">
-        {(items ?? []).slice(0, 20).map((item) => (
-          <TodoRow key={item.id} title={broadcastName(item)} sub={broadcastLine(item)} ariaLabel={`콘솔 열기 — ${broadcastLine(item)}`} onPress={() => {
-            setAll(false)
-            nav.openConsole(item.id)
-          }} testID={`broadcast-${item.id}`} />
-        ))}
-      </BottomSheet>
     </View>
   )
 }

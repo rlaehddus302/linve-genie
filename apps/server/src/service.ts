@@ -90,6 +90,8 @@ import {
   historyRows,
   insertBroadcast,
   listBroadcastRows,
+  broadcastListExtras,
+  type BroadcastPlatform,
   markBroadcastEnded,
   optionScopes,
   previousScopeDate,
@@ -1197,8 +1199,8 @@ export class Service {
   }
 
 
-  async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null }[]> {
-    const rows = await listBroadcastRows(this.#options.db, sellerId)
+  async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null; createdAt: string | null; platforms: BroadcastPlatform[] }[]> {
+    const [rows, extras] = await Promise.all([listBroadcastRows(this.#options.db, sellerId), broadcastListExtras(this.#options.db, sellerId)])
     return rows.map((row) => ({
       id: row.id,
       date: row.date,
@@ -1206,6 +1208,9 @@ export class Service {
       rehearsal: row.rehearsal,
       ended: row.endedAt !== null,
       endedAt: row.endedAt === null ? null : row.endedAt.toISOString(),
+      // 홈 '내 방송' 줄의 "2시간 전"과 플랫폼 아이콘 (D-UX3-18)
+      createdAt: extras.createdAt.get(row.id)?.toISOString() ?? null,
+      platforms: extras.platforms.get(row.id) ?? [],
     }))
   }
 

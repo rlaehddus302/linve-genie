@@ -5,14 +5,12 @@
 //    공유 → 링크 복사 후 돌아오면 주소가 저절로 들어간다. 틱톡·밴드는 주소가 아니라 가게 계정으로 잇는다 — 그 안내와 [방송 만들기].
 // 유튜브를 이을 수 없는 서버(읽기 꺼짐·구글 연결 없음)면 종류를 누르는 대로 방송을 만들고 방송 화면으로 간다(그 화면이 연결 안내를 보인다).
 import { useEffect, useRef, useState } from 'react'
-import { Image, Pressable, Text, View, type ImageSourcePropType } from 'react-native'
-import youtubeLogo from '../../assets/platforms/youtube.png'
-import tiktokLogo from '../../assets/platforms/tiktok.png'
-import bandLogo from '../../assets/platforms/band.png'
+import { Pressable, Text, View } from 'react-native'
+import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import type { WriteResult, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { kstToday } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
-import { LIVE_PLATFORMS, openPlatform, type LivePlatform, type PlatformTarget } from '../lib/open-app.ts'
+import { LIVE_PLATFORMS, openPlatform, type PlatformTarget } from '../lib/open-app.ts'
 import { readModeOf } from '../lib/youtube.ts'
 import { BigButton, BottomSheet, FormPage, Icon, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
@@ -214,15 +212,4 @@ export function PlatformFinder({ visible, onClose, onReturned }: { readonly visi
   )
 }
 
-const PLATFORM_LOGO: Readonly<Record<LivePlatform, ImageSourcePropType | string>> = { youtube: youtubeLogo, tiktok: tiktokLogo, band: bandLogo }
-
-/** 플랫폼 아이콘 — 각 앱의 정식 앱 아이콘(앱스토어 그림, D-UX3-12). 장식이라 이름은 옆 글자 */
-export function PlatformIcon({ platform, size = 40 }: { readonly platform: LivePlatform; readonly size?: number }) {
-  const { p } = useKit()
-  const logo = PLATFORM_LOGO[platform]
-  return (
-    <View aria-hidden style={{ width: size, height: size, borderRadius: size * 0.2237, borderCurve: 'continuous', overflow: 'hidden', borderWidth: 1, borderColor: p.line }}>
-      <Image source={typeof logo === 'string' ? { uri: logo } : logo} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-    </View>
-  )
-}
+export { PlatformIcon } from '../ui/PlatformIcon.tsx'

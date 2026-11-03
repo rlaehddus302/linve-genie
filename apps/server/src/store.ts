@@ -3,7 +3,7 @@
 // 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다(PGlite는 연결이 하나라 트랜잭션 밖 객체를 쓰면 기다리다 멈춘다).
 import { and, asc, desc, eq, gt, inArray, isNull, like, lt, lte, or, sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
-import { accounts, broadcasts, chatRaw, events, loginLimits, outbox, scopes, sellers, sessions, snapshots } from './db/schema.ts'
+import { accounts, bandLinks, broadcasts, chatRaw, events, loginLimits, outbox, scopes, sellers, sessions, snapshots, tiktokLinks, youtubeLinks } from './db/schema.ts'
 
 // ── 판매자·계정·세션 ─────────────────────────────────────────────────────
 
@@ -374,6 +374,25 @@ export async function listBroadcastRows(db: Db, sellerId: string): Promise<Broad
     .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, sellerId)))
     .where(eq(broadcasts.sellerId, sellerId))
     .orderBy(asc(broadcasts.date), asc(scopes.rehearsal), asc(broadcasts.startSeq))
+}
+
+/** 방송 목록 덧붙임 (D-UX3-18): 방송마다 만든 시각과, 한 번이라도 이은 플랫폼(유튜브·틱톡·밴드 — 끊은 것 포함) */
+export type BroadcastPlatform = 'youtube' | 'tiktok' | 'band'
+export async function broadcastListExtras(db: Db, sellerId: string): Promise<{ createdAt: Map<string, Date>; platforms: Map<string, BroadcastPlatform[]> }> {
+  const [made, youtube, tiktok, band] = await Promise.all([
+    db.select({ id: broadcasts.id, createdAt: broadcasts.createdAt }).from(broadcasts).where(eq(broadcasts.sellerId, sellerId)),
+    db.selectDistinct({ id: youtubeLinks.broadcastId }).from(youtubeLinks).where(eq(youtubeLinks.sellerId, sellerId)),
+    db.selectDistinct({ id: tiktokLinks.broadcastId }).from(tiktokLinks).where(eq(tiktokLinks.sellerId, sellerId)),
+    db.selectDistinct({ id: bandLinks.broadcastId }).from(bandLinks).where(eq(bandLinks.sellerId, sellerId)),
+  ])
+  const platforms = new Map<string, BroadcastPlatform[]>()
+  const add = (rows: readonly { id: string }[], platform: BroadcastPlatform) => {
+    for (const row of rows) platforms.set(row.id, [...(platforms.get(row.id) ?? []), platform])
+  }
+  add(youtube, 'youtube')
+  add(tiktok, 'tiktok')
+  add(band, 'band')
+  return { createdAt: new Map(made.map((row) => [row.id, row.createdAt])), platforms }
 }
 
 export async function insertBroadcast(

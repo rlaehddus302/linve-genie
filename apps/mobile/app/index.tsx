@@ -37,6 +37,7 @@ export default function IndexRoute() {
               nav={{
                 openConsole: (id) => router.push({ pathname: '/console/[id]', params: { id } }),
                 openNewBroadcast: () => router.push('/new-broadcast'),
+                openAllBroadcasts: () => router.push('/broadcasts'),
                 openPacking: () => router.replace('/packing'),
                 openLabels: () => router.replace('/labels'),
                 openSettings: () => router.push('/settings'),
