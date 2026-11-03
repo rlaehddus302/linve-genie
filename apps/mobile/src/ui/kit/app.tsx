@@ -1,7 +1,7 @@
 // 새 시안 조각 (D-UX2-01): 선 아이콘, 화면 머리(뒤로·제목·오른쪽), 아래 탭 5개(D-UX3-01), 큰 초록 카드, 할 일 줄, 메뉴 줄.
 // 누르는 동안은 흐려지지 않고 바탕이 진해진다(D-UX3-03).
 // 아이콘은 그림 파일·글꼴 없이 View 선으로 그린다(새 패키지를 넣지 않는다). 아이콘만으로 뜻을 전하지 않고 늘 글자와 함께 둔다.
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { Animated, Easing, Platform, Pressable, View, type ViewStyle } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
@@ -167,11 +167,18 @@ export function tabIndex(key: TabKey): number {
   return TABS.findIndex((tab) => tab.key === key)
 }
 
+/** 아래 탭 뒤 흐림 (D-UX3-13): 앱은 시작 때 기기 흐림(expo-blur)을 끼운다. 시험·웹은 없음(반투명 흰색만) */
+let Backdrop: ComponentType | null = null
+export function setTabBarBackdrop(next: ComponentType | null): void {
+  Backdrop = next
+}
+
 /**
- * 아래 탭 (토스식, D-UX3-01·12): 떠 있는 둥근 흰 막대. 고른 칸은 회색 둥근 바탕 + 속이 찬 아이콘 + 굵은 글자,
- * 나머지는 선 아이콘 + 회색 글자. 누르는 동안은 그 칸 바탕이 진해진다. 탭을 바꾸면 회색 바탕이 전 탭 자리에서 새 탭으로 미끄러진다(from).
+ * 아래 탭 (토스식, D-UX3-01·12·13): 내용 위에 떠 있는 둥근 막대 — 따로 바탕 띠를 두지 않아 뒤 내용이 흐리게 비친다(반투명 흰색 + 흐림).
+ * 고른 칸은 회색 둥근 바탕 + 속이 찬 아이콘 + 굵은 글자, 나머지는 선 아이콘 + 회색 글자. 누르는 동안은 그 칸 바탕이 진해진다.
+ * 탭을 바꾸면 회색 바탕이 전 탭 자리에서 새 탭으로 미끄러진다(from). onHeight로 차지하는 높이를 알린다(내용 아래 여백).
  */
-export function TabBar({ active, from = null, onSelect }: { readonly active: TabKey; readonly from?: TabKey | null; readonly onSelect: (key: TabKey) => void }) {
+export function TabBar({ active, from = null, onSelect, onHeight }: { readonly active: TabKey; readonly from?: TabKey | null; readonly onSelect: (key: TabKey) => void; readonly onHeight?: (height: number) => void }) {
   const { p } = useKit()
   const inset = useBottomInset()
   const [width, setWidth] = useState(0)
@@ -185,31 +192,38 @@ export function TabBar({ active, from = null, onSelect }: { readonly active: Tab
   const gap = 2
   const cell = width === 0 ? 0 : (width - gap * (TABS.length - 1)) / TABS.length
   return (
-    <View style={{ backgroundColor: p.background, paddingHorizontal: SPACE.md, paddingTop: SPACE.xs, paddingBottom: Math.max(inset, SPACE.sm) }}>
-      <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', backgroundColor: p.surface, borderRadius: RADIUS.pill, borderWidth: 1, borderColor: p.line, padding: SPACE.xs, gap, ...SHADOW.sheet, shadowOpacity: 0.06, shadowRadius: 12, elevation: 4 }}>
-        {/* 고른 칸 회색 바탕 — 칸들 뒤에서 미끄러진다 */}
-        <View pointerEvents="none" style={{ position: 'absolute', left: SPACE.xs, right: SPACE.xs, top: SPACE.xs, bottom: SPACE.xs }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-          {cell > 0 ? <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, width: cell, borderRadius: RADIUS.pill, backgroundColor: p.soft, transform: [{ translateX: slide.interpolate({ inputRange: [0, TABS.length - 1], outputRange: [0, (cell + gap) * (TABS.length - 1)] }) }] }} /> : null}
+    <View pointerEvents="box-none" onLayout={(event) => onHeight?.(event.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: SPACE.md, paddingTop: SPACE.xs, paddingBottom: Math.max(inset, SPACE.sm) }}>
+      {/* 그림자는 겉에(둥글게 자르면 그림자도 잘린다), 흐림·반투명은 안에서 둥글게 자른다 */}
+      <View style={{ borderRadius: RADIUS.pill, ...SHADOW.sheet, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 }}>
+        <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', borderRadius: RADIUS.pill, overflow: 'hidden', borderWidth: 1, borderColor: p.line, padding: SPACE.xs, gap }}>
+          <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
+            {Backdrop === null ? null : <Backdrop />}
+            <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: p.glass }} />
+          </View>
+          {/* 고른 칸 회색 바탕 — 칸들 뒤에서 미끄러진다 */}
+          <View pointerEvents="none" style={{ position: 'absolute', left: SPACE.xs, right: SPACE.xs, top: SPACE.xs, bottom: SPACE.xs }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+            {cell > 0 ? <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, width: cell, borderRadius: RADIUS.pill, backgroundColor: p.soft, transform: [{ translateX: slide.interpolate({ inputRange: [0, TABS.length - 1], outputRange: [0, (cell + gap) * (TABS.length - 1)] }) }] }} /> : null}
+          </View>
+          {TABS.map((tab) => {
+            const on = tab.key === active
+            const ink = on ? p.text : p.textSub
+            return (
+              <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
+                  tapHaptic()
+                  onSelect(tab.key)
+                }} style={({ pressed }) => ({ flex: 1, minHeight: 56, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
+                {({ pressed }) => (
+                  <>
+                    <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : p.soft} />
+                    <Txt step="caption" weight={on ? 'bold' : 'medium'} ink={ink}>
+                      {tab.word}
+                    </Txt>
+                  </>
+                )}
+              </Pressable>
+            )
+          })}
         </View>
-        {TABS.map((tab) => {
-          const on = tab.key === active
-          const ink = on ? p.text : p.textSub
-          return (
-            <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
-                tapHaptic()
-                onSelect(tab.key)
-              }} style={({ pressed }) => ({ flex: 1, minHeight: 56, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
-              {({ pressed }) => (
-                <>
-                  <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : on ? p.soft : p.surface} />
-                  <Txt step="caption" weight={on ? 'bold' : 'medium'} ink={ink}>
-                    {tab.word}
-                  </Txt>
-                </>
-              )}
-            </Pressable>
-          )
-        })}
       </View>
     </View>
   )

@@ -308,10 +308,10 @@ export function shortLinkError(error: ApiError): string {
 }
 
 /**
- * "방송 주소" 칸 + 내 채널 방송 목록 + 처음 잇는 채널 확인 (fields) 과 [이 방송에 잇기] (action — 주소를 넣기 전엔 null, D-UX3-07).
+ * "방송 주소" 칸 + 내 채널 방송 목록 + 처음 잇는 채널 확인 (fields) 과 [확인] (action — D-UX3-13, 전 [이 방송에 잇기] — 주소를 넣기 전엔 null, D-UX3-07).
  * 방송 화면 연결과 새 방송 화면이 함께 쓴다 (D-UX3-06). 단추는 화면 맨 아래(키보드 위)에 두라고 따로 준다.
  */
-export function useAddressLinker({ webChat, broadcastId, submit, label = '이 방송에 잇기', autoFocus, disabled, enabled = true, onEdit }: AddressLinkerOptions): { readonly fields: ReactNode; readonly action: ReactNode | null; readonly popup: ReactNode; readonly busy: boolean; readonly recheck: () => Promise<void> } {
+export function useAddressLinker({ webChat, broadcastId, submit, label = '확인', autoFocus, disabled, enabled = true, onEdit }: AddressLinkerOptions): { readonly fields: ReactNode; readonly action: ReactNode | null; readonly popup: ReactNode; readonly busy: boolean; readonly recheck: () => Promise<void> } {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)

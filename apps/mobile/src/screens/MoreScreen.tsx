@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import { openWeb, WEB_SCREENS } from '../lib/open-web.ts'
 import { OPEN_IN_WEB } from '../lib/words.ts'
-import { ConfirmSheet, RowDivider, RowGroup, TodoRow, Txt, useKit } from '../ui/kit/index.ts'
+import { ConfirmSheet, RowDivider, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 
 export interface MoreNavigation {
@@ -33,10 +33,11 @@ export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']
 
 export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavigation; readonly account?: string; readonly onLogout?: () => void }) {
   const { p } = useKit()
+  const room = useTabBarRoom()
   const [asking, setAsking] = useState(false)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="more-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.xl, paddingBottom: SPACE.xxxl, gap: SPACE.md }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.xl, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }}>
         {/* 맨 위: 제목 + 오른쪽 위 설정 (토스 "고객센터 | 설정" 자리) */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: SPACE.xs, marginBottom: SPACE.xs }}>
           <Txt step="headline" weight="heavy" role="heading" aria-level={1}>

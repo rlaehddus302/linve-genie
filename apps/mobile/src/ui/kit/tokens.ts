@@ -55,6 +55,8 @@ export interface Palette {
   readonly placeholder: string
   /** 입력 칸 [지우기] 동그라미 (장식 — 이름은 aria-label) */
   readonly clearCircle: string
+  /** 내용 위에 뜬 아래 탭 바탕 — 은은한 반투명 흰색(흐림 위에 얹는다, D-UX3-13) */
+  readonly glass: string
   /** 확인이 필요한 줄 바탕·글자 */
   readonly warnBg: string
   readonly warnText: string
@@ -105,6 +107,7 @@ const LIGHT: Palette = {
   warnPressed: '#FCE6C6',
   placeholder: '#8B95A1',
   clearCircle: '#B0B8C1',
+  glass: 'rgba(255,255,255,0.72)',
   warnBg: '#FFF4E5',
   warnText: '#B54708',
   warnStrong: '#8A3A06',

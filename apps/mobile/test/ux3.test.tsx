@@ -1,5 +1,6 @@
 // 앱 화면 다듬기 (D-UX3-01~06, 사용자 지시 2026-11-03 "토스처럼"): 아래 탭 5개와 좌우 밀림 방향, 누르면 바탕이 진해짐,
 // 전체 탭 묶음, 새 방송 쌓인 화면(판매 종류 → 주소 → 만들고 바로 잇기, D-UX3-09·10), 토스 뜬 라벨 입력 칸(D-UX3-08).
+// D-UX3-13: 아래 탭은 내용 위에 반투명하게 뜨고, 링크 잇기 단추 이름은 [이 방송에 잇기] → [확인].
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,8 +9,8 @@ import { shortLinkError } from '../src/screens/console/YoutubeSection.tsx'
 import { LIVE_PLATFORMS, setPlatformOpener } from '../src/lib/open-app.ts'
 import { NewBroadcastAddressScreen, NewBroadcastCategoryScreen, SALE_CATEGORIES, categoryBroadcastTitle } from '../src/screens/NewBroadcastScreen.tsx'
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
-import { tabEnterSide } from '../src/screens/TabFrame.tsx'
-import { BACK_ICON, FIELD_LABEL_MS, FIELD_ROW, PALETTE, TABS, TabBar, UnderlineField, pressedFill } from '../src/ui/kit/index.ts'
+import { TabFrame, tabEnterSide } from '../src/screens/TabFrame.tsx'
+import { BACK_ICON, FIELD_LABEL_MS, FIELD_ROW, PALETTE, TABS, TabBar, UnderlineField, pressedFill, useTabBarRoom } from '../src/ui/kit/index.ts'
 import { TYPE } from '../src/ui/kit/tokens.ts'
 import { makeWorld } from './screen-support.tsx'
 
@@ -32,6 +33,42 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'false', 'true', 'false', 'false'])
     fireEvent.click(screen.getByRole('tab', { name: '라벨' }))
     expect(onSelect).toHaveBeenCalledWith('labels')
+  })
+
+  it('아래 탭은 따로 바탕 띠 없이 내용 위에 뜨고(반투명 흰색), 내용은 탭 높이만큼 아래를 더 비운다 (D-UX3-13)', () => {
+    const world = makeWorld()
+    function Content() {
+      return <span data-testid="room">{String(useTabBarRoom())}</span>
+    }
+    const { container } = render(world.wrap(
+      <TabFrame active="home" go={() => {}}>
+        <Content />
+      </TabFrame>,
+    ))
+    expect(Number(screen.getByTestId('room').textContent)).toBeGreaterThan(56)
+    const list = screen.getByRole('tablist', { name: '아래 메뉴' })
+    const bar = list.parentElement?.parentElement as HTMLElement
+    expect(getComputedStyle(bar).position).toBe('absolute')
+    expect(PALETTE.light.glass).toMatch(/^rgba\(255, ?255, ?255, ?0\.\d+\)$/)
+    // 탭 밖 화면은 더 비우지 않는다
+    render(world.wrap(<Content />))
+    expect(screen.getAllByTestId('room').at(-1)?.textContent).toBe('0')
+    expect(container).toBeTruthy()
+  })
+
+  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 상자는 테이프 자리 윗선까지 뚫린다 (D-UX3-13)', () => {
+    const world = makeWorld()
+    const { container } = render(world.wrap(<TabBar active="packing" onSelect={() => {}} />))
+    const [home, printer, , box] = [...container.querySelectorAll('svg')]
+    // 집은 문 홈이 든 한 줄 모양(따로 그린 문 없음)
+    expect(home?.querySelectorAll('path')).toHaveLength(1)
+    expect(home?.querySelector('path')?.getAttribute('d')).toContain('H14.1 V16.2')
+    // 프린터 몸통은 종이 앞(7~17)에서 끊긴 열린 모양
+    const bodyLine = printer?.querySelectorAll('path')[0]?.getAttribute('d') ?? ''
+    expect(bodyLine.startsWith('M7 17.4')).toBe(true)
+    expect(bodyLine.endsWith('H17')).toBe(true)
+    // 고른 상자: 테이프 뚫기가 윗선 위(2.4)부터
+    expect(box?.querySelector('path')?.getAttribute('d')).toContain('M10.2 2.4')
   })
 
   it('오른쪽 탭으로 가면 오른쪽에서, 왼쪽 탭으로 가면 왼쪽에서 들어온다. 처음·같은 탭은 그대로', () => {
@@ -109,7 +146,7 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     expect(nav.back).toHaveBeenCalled()
   })
 
-  it('링크 단계: 링크를 넣기 전엔 [이 방송에 잇기]가 없고, 넣으면 종류 제목으로 방송을 만들고 바로 잇는다', async () => {
+  it('링크 단계: 링크를 넣기 전엔 [확인]가 없고, 넣으면 종류 제목으로 방송을 만들고 바로 잇는다', async () => {
     const world = linkableWorld()
     const nav = newNav()
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
@@ -117,10 +154,10 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     expect(within(page).getByRole('heading', { name: '방송 링크를 넣어 주세요' })).toBeTruthy()
     const address = await within(page).findByLabelText('방송 링크')
     expect(within(page).queryByLabelText('방송 제목')).toBeNull()
-    expect(within(page).queryByRole('button', { name: '이 방송에 잇기' })).toBeNull()
+    expect(within(page).queryByRole('button', { name: '확인' })).toBeNull()
     expect(within(page).queryByRole('button', { name: '주소 없이 시작' })).toBeNull()
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
-    fireEvent.click(within(page).getByRole('button', { name: '이 방송에 잇기' }))
+    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
     await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
     expect(String(world.server.callsTo('POST', /^\/api\/broadcasts$/)[0]?.body?.title)).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 다육이 방송$/)
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)[0]?.body).toEqual({ requestId: expect.any(String), video: 'https://www.youtube.com/watch?v=tWnNGwvdN40' })
@@ -153,13 +190,14 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     fireEvent.click(screen.getByRole('button', { name: '유튜브' }))
     // 돌아와도 클립보드를 저절로 읽지 않는다 — [붙여넣기]만 나타난다
     fireEvent.click(await screen.findByRole('button', { name: '붙여넣기' }))
-    await waitFor(() => expect(field.value).toBe('https://youtube.com/live/LIVENOW0001?si=x'))
+    // 알림은 약 2초 뒤 사라지므로(POP_NOTE_MS) 누른 바로 뒤에 본다 — 느린 시험 기계에서 지나가 버리지 않게
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('복사한 링크를 넣었어요'))
+    expect(field.value).toBe('https://youtube.com/live/LIVENOW0001?si=x')
     expect(reads).toBe(1)
     expect(opened).toEqual(['youtube'])
-    expect(screen.getByRole('status').textContent).toBe('복사한 링크를 넣었어요')
     // 칸 아래에 계속 남는 문장은 없다
     expect(screen.queryByText('복사해 둔 주소를 넣었어요.')).toBeNull()
-    expect(screen.getByRole('button', { name: '이 방송에 잇기' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '확인' })).toBeTruthy()
   })
 
   it('틱톡·밴드는 링크로 잇지 않는다 — 계정으로 잇는다는 안내와 [이 방송 만들기](앱을 열지 않는다)', async () => {
@@ -232,13 +270,13 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={{ back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }} />))
     const field = await screen.findByLabelText('방송 링크')
     fireEvent.change(field, { target: { value: 'https://youtu.be/NOCHAT00001' } })
-    fireEvent.click(screen.getByRole('button', { name: '이 방송에 잇기' }))
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('라이브 채팅을 받을 수 없는 방송이에요.')
     expect(alert.querySelector('[aria-hidden="true"]')).not.toBeNull()
     fireEvent.change(field, { target: { value: 'https://youtu.be/NOCHAT0000' } })
     expect(screen.queryByRole('alert')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '이 방송에 잇기' }))
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
     expect((await screen.findByRole('alert')).textContent).toBe('알 수 없는 링크예요.')
     expect(shortLinkError({ code: 'YOUTUBE_NOT_PUBLIC', message: '긴 문장' } as never)).toBe('공개 방송만 이을 수 있어요.')
   })

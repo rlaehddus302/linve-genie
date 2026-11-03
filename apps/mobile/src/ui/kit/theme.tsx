@@ -59,6 +59,17 @@ export function useTopInset(): number {
   return useContext(TopInsetContext)
 }
 
+const TabBarRoomContext = createContext(0)
+
+/** 아래 탭이 내용 위에 떠 있을 때(D-UX3-13) 그 높이 — 스크롤 내용은 이만큼 아래를 더 비워 마지막 줄이 탭에 가리지 않게 한다. 탭 밖 화면은 0 */
+export function TabBarRoomProvider({ room, children }: { readonly room: number; readonly children: ReactNode }) {
+  return <TabBarRoomContext.Provider value={room}>{children}</TabBarRoomContext.Provider>
+}
+
+export function useTabBarRoom(): number {
+  return useContext(TabBarRoomContext)
+}
+
 export type TxtColor = keyof Pick<Palette, 'text' | 'textSub' | 'primaryText' | 'dangerText' | 'onPrimary' | 'onDanger' | 'onSecondary' | 'onToast' | 'warnText' | 'warnStrong'>
 
 export interface TxtProps extends Omit<TextProps, 'style'> {

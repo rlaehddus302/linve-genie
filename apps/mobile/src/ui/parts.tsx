@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View, type TextInputProps } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOUCH, pressedFill } from './kit/tokens.ts'
-import { Txt, useKit, type TxtColor } from './kit/theme.tsx'
+import { Txt, useKit, useTabBarRoom, type TxtColor } from './kit/theme.tsx'
 import { AlertMark, UnderlineField } from './kit/inputs.tsx'
 import type { Tone } from './theme.ts'
 
@@ -11,8 +11,10 @@ const TONE_MARK: Readonly<Record<Tone, string>> = { info: '•', success: '✓',
 
 export function Screen({ title, children, testID }: { readonly title?: string; readonly children: ReactNode; readonly testID?: string }) {
   const { p } = useKit()
+  // 아래 탭 위에서는(라벨 탭) 탭 높이만큼 더 비운다 (D-UX3-13)
+  const room = useTabBarRoom()
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.background }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: title === undefined ? SPACE.sm : SPACE.xxl, gap: SPACE.lg, paddingBottom: 48 }} keyboardShouldPersistTaps="handled" testID={testID}>
+    <ScrollView style={{ flex: 1, backgroundColor: p.background }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: title === undefined ? SPACE.sm : SPACE.xxl, gap: SPACE.lg, paddingBottom: 48 + room }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled" testID={testID}>
       {title !== undefined ? <Title>{title}</Title> : null}
       {children}
     </ScrollView>

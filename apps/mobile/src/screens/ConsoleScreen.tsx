@@ -165,7 +165,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
 
   const ended = (broadcast?.ended ?? false) || endedHere
   const sealed = data?.sealed ?? false
-  // 방송 연결 전체 화면 (D-UX3-06·07): 아직 잇지 않은 방송이면 주소 칸은 본문에, [이 방송에 잇기]는 맨 아래(주소를 넣어야 보인다) — 아니면 유튜브 칸 그대로.
+  // 방송 연결 전체 화면 (D-UX3-06·07): 아직 잇지 않은 방송이면 주소 칸은 본문에, [확인]는 맨 아래(주소를 넣어야 보인다) — 아니면 유튜브 칸 그대로.
   // 훅이라 이른 return보다 앞에 둔다
   const linkable = canLinkByAddress(yt, ended || sealed)
   // 방송 연결 화면에서 돌아오면 잇기 상태를 다시 받는다

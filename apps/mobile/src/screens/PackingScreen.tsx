@@ -11,7 +11,7 @@ import { ALL_CHECKED_HINT, PACKED_NOTICE, PACKING_FILTERS, PACKING_TONE, SEALED_
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, Icon, Txt, useKit } from '../ui/kit/index.ts'
+import { BigButton, Icon, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH, pressedFill } from '../ui/kit/tokens.ts'
 import { Field, Loading, Notice, Tag } from '../ui/parts.tsx'
 
@@ -34,6 +34,7 @@ function Pill({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonl
 
 export function PackingScreen({ initialDate }: { readonly initialDate?: string; readonly onBack?: () => void }) {
   const { p } = useKit()
+  const room = useTabBarRoom()
   const [days, setDays] = useState<Day[] | null>(null)
   const [date, setDate] = useState<string | null>(initialDate ?? null)
   const [error, setError] = useState<ApiError | null>(null)
@@ -54,7 +55,7 @@ export function PackingScreen({ initialDate }: { readonly initialDate?: string; 
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="packing-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: 28, paddingBottom: SPACE.xxxl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.sm }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SPACE.sm }}>
           <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
             포장

@@ -36,6 +36,8 @@ import { ClipboardPasteButton, hasStringAsync, isPasteButtonAvailable } from 'ex
 import { setClipboardProbe } from '../lib/clipboard.ts'
 import { setPasteControl, type PasteControlProps } from './paste.tsx'
 import { useKit } from '../ui/kit/theme.tsx'
+import { BlurView } from 'expo-blur'
+import { setTabBarBackdrop } from '../ui/kit/app.tsx'
 
 /** 아이폰 기본 붙여넣기 단추 — 누르는 것 자체가 허락이라 "붙여넣기 허용" 창이 뜨지 않는다 (D-UX3-11) */
 function NativePasteButton({ onPaste }: PasteControlProps) {
@@ -87,6 +89,10 @@ async function permission(): Promise<boolean> {
   return names.every((name) => results[name] === PermissionsAndroid.RESULTS.GRANTED)
 }
 
+function TabBarBlur() {
+  return <BlurView tint="systemChromeMaterialLight" intensity={60} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
+}
+
 let installed = false
 export function installProductionNative(): void {
   if (installed) return
@@ -96,6 +102,8 @@ export function installProductionNative(): void {
   // 클립보드는 글이 있는지만 본다(창 없음). 아이폰 16 이상은 기본 붙여넣기 단추
   setClipboardProbe(() => hasStringAsync())
   if (Platform.OS === 'ios' && isPasteButtonAvailable) setPasteControl(NativePasteButton)
+  // 아래 탭 뒤 흐림 (D-UX3-13): 아이폰만 — 안드로이드 흐림은 느려 반투명 흰색만 둔다
+  if (Platform.OS === 'ios') setTabBarBackdrop(TabBarBlur)
   let transport: BleTransport
   try {
     transport = createPlxTransport(new BleManager({ restoreStateIdentifier: BLE_RESTORE_IDENTIFIER, restoreStateFunction: () => undefined }))

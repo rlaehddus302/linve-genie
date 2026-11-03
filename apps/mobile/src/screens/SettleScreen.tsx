@@ -41,7 +41,7 @@ import {
 import { formatWon, PAYMENT_WORD, paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { useDayScope } from '../lib/day-scope.ts'
-import { BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
@@ -64,10 +64,11 @@ export interface SettleNavigation {
 
 export function SettleScreen({ initialDate, nav = {} }: { readonly initialDate?: string; readonly nav?: SettleNavigation }) {
   const { p } = useKit()
+  const room = useTabBarRoom()
   const { days, date, setDate, error } = useRealDays(initialDate)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="settle-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: 28, paddingBottom: SPACE.xxxl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.sm }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
         <View style={{ paddingHorizontal: SPACE.sm }}>
           <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
             정산

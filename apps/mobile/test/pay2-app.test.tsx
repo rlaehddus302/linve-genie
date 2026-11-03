@@ -51,7 +51,7 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     expect(world.server.callsTo('POST', /broadcasts/).filter((call) => call.body?.rehearsal === true)).toHaveLength(1)
   })
 
-  it('링크 단계의 [이 방송에 잇기]가 거절돼도 같은 앱 문장이다', async () => {
+  it('링크 단계의 [확인]가 거절돼도 같은 앱 문장이다', async () => {
     // 옛 기대: 칸을 닫은 홈에도 같은 문장. 새 기대(D-UX3-09): 새 방송은 쌓인 화면 — 거절 문장은 그 화면(주소 단계)에 보인다
     const world = noPassWorld()
     world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: null, webChat: { on: true }, oauth: true } }))
@@ -59,7 +59,7 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={newNav} />))
     fireEvent.change(await screen.findByLabelText('방송 링크'), { target: { value: 'https://youtu.be/tWnNGwvdN40' } })
-    fireEvent.click(await screen.findByRole('button', { name: '이 방송에 잇기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '확인' }))
     expect(await screen.findByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expectNoBillingWords()
     expect(newNav.openConsole).not.toHaveBeenCalled()

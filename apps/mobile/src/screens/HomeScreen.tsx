@@ -14,7 +14,7 @@ import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, BottomSheet, GroupLabel, HeroButton, Icon, RowDivider, RowGroup, TodoRow, Txt, useKit } from '../ui/kit/index.ts'
+import { BigButton, BottomSheet, GroupLabel, HeroButton, Icon, RowDivider, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
 import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
@@ -109,6 +109,7 @@ export function defaultBroadcastTitle(date: string): string {
 
 export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: HomeNavigation; readonly sellerName: string; readonly refresh?: number }) {
   const { p } = useKit()
+  const room = useTabBarRoom()
   const { labels } = useServices()
   const labelSnapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
   const [items, setItems] = useState<BroadcastItem[] | null>(null)
@@ -187,7 +188,7 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="home-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: 28, paddingBottom: SPACE.xxxl, gap: SPACE.xl }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.xl }} scrollIndicatorInsets={{ bottom: room }}>
         <View style={{ gap: SPACE.xs }}>
           <Txt step="caption" color="textSub">{`${sellerName} 사장님, 안녕하세요`}</Txt>
           <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
