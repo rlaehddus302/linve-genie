@@ -3,6 +3,8 @@
 import { execFile, spawn, spawnSync, type ChildProcessByStdio } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import { activeLink } from '../youtube/store.ts'
+import { latestTiktokLink } from '../tiktok-live/store.ts'
+import { parseTikTokTarget } from '../tiktok/target.ts'
 import type { WebChatSource } from '../youtube/web-chat-source.ts'
 import type { Db } from '../db/database.ts'
 import type { LogSink } from '../log.ts'
@@ -144,6 +146,8 @@ export type AudioUrlResult =
   | { readonly kind: 'failed' }
   /** 출력이 유튜브 영상 서버의 https 주소가 아님 */
   | { readonly kind: 'bad_output' }
+  /** 틱톡: 그 계정이 지금 라이브 중이 아님 (아직 시작 전·끝남 — 잠시 뒤 다시 본다, D-UX3-16) */
+  | { readonly kind: 'not_live' }
 /** 검증된 영상 ID로 소리 주소를 얻는 함수 (시험은 가짜) */
 export type AudioUrlResolver = (videoId: string) => Promise<AudioUrlResult>
 
@@ -196,9 +200,15 @@ export function readMediaProxy(env: Readonly<Record<string, string | undefined>>
 
 /** 실제: `yt-dlp -g -f bestaudio/best <방송 주소>` 출력 첫 줄. 셸 없이 인자 배열, 60초 제한, 설정 파일 무시. proxy가 있으면 `--proxy` */
 export function ytDlpResolver(command = 'yt-dlp', run: ExecFileRunner = defaultRunner, proxy: string | null = null): AudioUrlResolver {
-  return (videoId) => new Promise((resolve) => {
-    if (!VIDEO_ID.test(videoId)) { resolve({ kind: 'failed' }); return }
-    const args = ['--ignore-config', '--no-playlist', '--no-warnings', ...(proxy === null ? [] : ['--proxy', proxy]), '-g', '-f', 'bestaudio/best', '--', `https://www.youtube.com/watch?v=${videoId}`]
+  return (videoId) => {
+    if (!VIDEO_ID.test(videoId)) return Promise.resolve({ kind: 'failed' })
+    return askYtDlp(command, run, proxy, ['-f', 'bestaudio/best', '--', `https://www.youtube.com/watch?v=${videoId}`], safeHlsUrl)
+  }
+}
+
+function askYtDlp(command: string, run: ExecFileRunner, proxy: string | null, target: readonly string[], accept: (url: string) => string | null): Promise<AudioUrlResult> {
+  return new Promise((resolve) => {
+    const args = ['--ignore-config', '--no-playlist', '--no-warnings', ...(proxy === null ? [] : ['--proxy', proxy]), '-g', ...target]
     try {
       run(command, args, { timeout: YTDLP_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: YTDLP_MAX_BUFFER, windowsHide: true, shell: false }, (error, stdout, stderr) => {
         if (error !== null) {
@@ -206,11 +216,12 @@ export function ytDlpResolver(command = 'yt-dlp', run: ExecFileRunner = defaultR
           else if (error.killed === true) resolve({ kind: 'timeout' })
           else if (proxy !== null && YTDLP_PROXY_DOWN.test(stderr)) resolve({ kind: 'proxy_down' })
           else if (YTDLP_BLOCKED.test(stderr)) resolve({ kind: 'blocked' })
+          else if (YTDLP_NOT_LIVE.test(stderr)) resolve({ kind: 'not_live' })
           else resolve({ kind: 'failed' })
           return
         }
         const first = stdout.split(/\r?\n/, 1)[0]?.trim() ?? ''
-        const url = safeHlsUrl(first)
+        const url = accept(first)
         resolve(url === null ? { kind: 'bad_output' } : { kind: 'ok', url })
       })
     } catch {
@@ -218,6 +229,50 @@ export function ytDlpResolver(command = 'yt-dlp', run: ExecFileRunner = defaultR
     }
   })
 }
+
+// ── 틱톡 라이브 소리 (D-UX3-16) ──────────────────────────────────────────
+// 회차에 이은 틱톡 계정(tiktok_links LINKED — 동의·운영자 스위치를 거친 것)의 라이브 소리를 yt-dlp로 묻는다. 로그인·쿠키 없음.
+// 집 회선 프록시는 쓰지 않는다 — 프록시 허용 목록은 유튜브뿐이고(deploy/home-proxy/filter), 틱톡은 서버에서 바로 열린다.
+
+/** yt-dlp가 '지금 라이브 아님'을 알리는 stderr 표지 (분류에만 쓴다) */
+const YTDLP_NOT_LIVE = /not currently live/i
+const TIKTOK_MEDIA_HOSTS = /(^|\.)(tiktokcdn\.com|tiktokcdn-us\.com|tiktokcdn-eu\.com|ttlivecdn\.com)$/
+/** 틱톡 라이브 영상 서버의 https 주소만 연다 */
+export function safeTiktokMediaUrl(value: string | null | undefined): string | null {
+  if (typeof value !== 'string' || value.length > 4_096) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && TIKTOK_MEDIA_HOSTS.test(url.hostname) ? url.href : null
+  } catch {
+    return null
+  }
+}
+/** 검증된 틱톡 아이디로 라이브 소리 주소를 얻는 함수 (시험은 가짜) */
+export type TiktokAudioUrlResolver = (uniqueId: string) => Promise<AudioUrlResult>
+
+/** 실제: `yt-dlp -g https://www.tiktok.com/@<아이디>/live`. HLS(m3u8)를 먼저 고른다 — ffmpeg가 끝에서부터 읽는다 */
+export function ytDlpTiktokResolver(command = 'yt-dlp', run: ExecFileRunner = defaultRunner): TiktokAudioUrlResolver {
+  return (uniqueId) => {
+    const parsed = parseTikTokTarget(uniqueId)
+    if (!('uniqueId' in parsed) || parsed.uniqueId !== uniqueId) return Promise.resolve({ kind: 'failed' })
+    return askYtDlp(command, run, null, ['-f', 'bestaudio[protocol^=m3u8]/best[protocol^=m3u8]/bestaudio/best', '--', `https://www.tiktok.com/@${uniqueId}/live`], safeTiktokMediaUrl)
+  }
+}
+
+/** 틱톡 라이브 시작 전에는 3초마다 yt-dlp를 띄우지 않게: '라이브 아님'을 받은 아이디는 waitMs 동안 다시 묻지 않고 '라이브 아님' */
+export function notLiveBackoff(resolve: TiktokAudioUrlResolver, now: () => number, waitMs = TIKTOK_NOT_LIVE_WAIT_MS): TiktokAudioUrlResolver {
+  const until = new Map<string, number>()
+  return async (uniqueId) => {
+    const t = now()
+    for (const [id, end] of until) if (end <= t) until.delete(id)
+    if ((until.get(uniqueId) ?? 0) > t) return { kind: 'not_live' }
+    const found = await resolve(uniqueId)
+    if (found.kind === 'not_live') until.set(uniqueId, now() + waitMs)
+    return found
+  }
+}
+/** 틱톡 '라이브 아님' 뒤 다시 묻기까지 */
+export const TIKTOK_NOT_LIVE_WAIT_MS = 15_000
 
 /** 방송 페이지 하나로 소리 주소 찾기: 페이지의 HLS가 있으면 그것, 없으면 yt-dlp (D-LV1-11) */
 export async function locateFromPage(
@@ -269,10 +324,15 @@ async function byYtDlp(
  * 실제: 수집기와 같은 방송 페이지 응답(innertube)의 라이브 HLS 주소 (D-LV1-02), 없으면 yt-dlp (D-LV1-11). 계정·쿠키 없음.
  * 끊기면 서비스가 다시 부르므로 만료된 주소 대신 새 주소를 얻는다.
  */
-export function webStreamLocator(db: Db, web: WebChatSource | null, options: { readonly resolve?: AudioUrlResolver | null; readonly log?: LogSink } = {}): StreamLocator {
+export function webStreamLocator(
+  db: Db,
+  web: WebChatSource | null,
+  options: { readonly resolve?: AudioUrlResolver | null; readonly tiktok?: TiktokAudioUrlResolver | null; readonly log?: LogSink } = {},
+): StreamLocator {
   return async (sellerId, broadcastId) => {
     const link = await activeLink(db, sellerId, broadcastId)
-    if (link === null) return { kind: 'none' }
+    // 유튜브를 먼저 — 같은 방송을 함께 내보내면 소리를 두 번 듣지 않는다 (D-UX3-16)
+    if (link === null) return locateTiktok(db, sellerId, broadcastId, options)
     if (web === null || web.off) return { kind: 'unsupported' }
     try {
       return await locateFromPage(web, link.videoId, { ...options, sellerId })
@@ -280,6 +340,27 @@ export function webStreamLocator(db: Db, web: WebChatSource | null, options: { r
       return { kind: 'retry' }
     }
   }
+}
+
+async function locateTiktok(
+  db: Db,
+  sellerId: string,
+  broadcastId: string,
+  options: { readonly tiktok?: TiktokAudioUrlResolver | null; readonly log?: LogSink },
+): Promise<StreamLocation> {
+  const link = await latestTiktokLink(db, sellerId, broadcastId)
+  if (link === null || link.state !== 'LINKED') return { kind: 'none' }
+  if (options.tiktok == null) return { kind: 'unsupported' }
+  let found: AudioUrlResult
+  try {
+    found = await options.tiktok(link.tiktokId)
+  } catch {
+    return { kind: 'retry' }
+  }
+  if (found.kind === 'ok') return found
+  if (found.kind === 'not_live') return { kind: 'none' }
+  options.log?.({ level: 'warn', code: 'STREAM_AUDIO_YTDLP_FAILED', reason: `TIKTOK_${found.kind.toUpperCase()}`, seller: sellerId })
+  return found.kind === 'timeout' ? { kind: 'retry' } : { kind: 'unsupported' }
 }
 
 /**
@@ -292,9 +373,19 @@ export function ffmpegArgs(url: string, proxy: string | null = null): string[] {
     '-hide_banner', '-loglevel', 'quiet', '-nostdin',
     ...(proxy === null ? [] : ['-http_proxy', proxy]),
     '-protocol_whitelist', proxy === null ? 'https,tls,tcp,crypto,hls' : 'https,tls,tcp,crypto,hls,httpproxy',
-    '-live_start_index', '-1', '-i', url,
+    // HLS 전용 옵션 — 틱톡 flv에 주면 ffmpeg가 열지 못한다 (실측 2026-11-03)
+    ...(isHlsUrl(url) ? ['-live_start_index', '-1'] : []),
+    '-i', url,
     '-vn', '-ac', '1', '-ar', String(STREAM_SAMPLE_RATE), '-f', 's16le', 'pipe:1',
   ]
+}
+
+function isHlsUrl(value: string): boolean {
+  try {
+    return new URL(value).pathname.endsWith('.m3u8') || safeHlsUrl(value) !== null
+  } catch {
+    return false
+  }
 }
 
 /** 실제: ffmpeg로 HLS를 열어 16kHz 모노 s16le로 바꾼다. 표준 오류는 버린다(주소·내용을 로그에 남기지 않음) */
@@ -308,7 +399,8 @@ export class FfmpegAudioFeed implements AudioFeed {
     let child: ChildProcessByStdio<null, Readable, null> | null = null
     const end = () => { if (done) return; done = true; chunker.clear(); sink.fail() }
     try {
-      child = spawn(this.#command, ffmpegArgs(url, this.#proxy), { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+      // 프록시는 유튜브 영상 서버에만 — 틱톡 주소는 서버에서 바로 받았으므로 바로 연다 (D-UX3-16)
+      child = spawn(this.#command, ffmpegArgs(url, safeHlsUrl(url) === null ? null : this.#proxy), { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
     } catch {
       queueMicrotask(end)
       return { close: () => { done = true } }

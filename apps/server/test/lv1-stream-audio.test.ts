@@ -8,10 +8,14 @@ import { startMockWorker } from '../src/voice/mock-worker.ts'
 import {
   FakeBroadcastAudio, MARKER_CHUNKS, PRACTICE_SPEECH, Rechunker, SILENT_CHUNK, markerChunk, readStreamAudioSwitch, recordFailure, retryDelayMs, safeHlsUrl,
   locateFromPage, readYtDlpPath, ytDlpResolver, readMediaProxy, ffmpegArgs, type AudioUrlResult, type ExecFileRunner,
+  ytDlpTiktokResolver, notLiveBackoff, safeTiktokMediaUrl, webStreamLocator, TIKTOK_NOT_LIVE_WAIT_MS, type TiktokAudioUrlResolver,
   type AudioSink, type StreamLocation,
 } from '../src/voice/stream-audio.ts'
 import { generateMasterKey } from '../src/secrets.ts'
 import type { LogRecord } from '../src/log.ts'
+import { eq } from 'drizzle-orm'
+import { broadcasts } from '../src/db/schema.ts'
+import { insertTiktokLink, unlinkTiktokLink } from '../src/tiktok-live/store.ts'
 import { addSeller, client, createBroadcast, dumpAllTables, newWorld, openTestDb, ORIGIN, startServer, waitFor, type TestServer } from './support.ts'
 
 const TOKEN = 'test-worker-token-not-used-outside-tests'
@@ -532,5 +536,79 @@ describe('D-LV1-13 집 회선 프록시 (yt-dlp·ffmpeg 같은 출구)', () => {
     worlds.push(world)
     expect(world.logs.filter((l) => l.code === 'STREAM_AUDIO_PROXY_IGNORED')).toEqual([{ level: 'warn', code: 'STREAM_AUDIO_PROXY_IGNORED' }])
     expect(JSON.stringify(world.logs)).not.toContain('proxy.example.com')
+  })
+})
+
+describe('D-UX3-16 틱톡 라이브 소리 (yt-dlp, 프록시 없이)', () => {
+  const TT = 'https://pull-hls-f16-va01.tiktokcdn.com/stage/stream-1_ld/index.m3u8?expire=1'
+  it('틱톡 아이디만 넘겨 HLS를 먼저 고르고, 라이브 아님·이상한 출력·틀린 아이디는 종류만. 프록시를 붙이지 않는다', async () => {
+    const calls: (readonly string[])[] = []
+    let reply: Parameters<Parameters<ExecFileRunner>[3]> = [null, `${TT}\n`, '']
+    const run: ExecFileRunner = (_file, args, _options, callback) => { calls.push(args); queueMicrotask(() => callback(...reply)) }
+    const resolve = ytDlpTiktokResolver('yt-dlp', run)
+    expect(await resolve('my.shop_1')).toEqual({ kind: 'ok', url: TT })
+    expect(calls[0]).toEqual(['--ignore-config', '--no-playlist', '--no-warnings', '-g', '-f', 'bestaudio[protocol^=m3u8]/best[protocol^=m3u8]/bestaudio/best', '--', 'https://www.tiktok.com/@my.shop_1/live'])
+    reply = [Object.assign(new Error('x'), { code: 1 }), '', 'ERROR: [tiktok:live] my.shop_1: The channel is not currently live']
+    expect(await resolve('my.shop_1')).toEqual({ kind: 'not_live' })
+    reply = [null, 'https://evil.test/a.m3u8\n', '']
+    expect(await resolve('my.shop_1')).toEqual({ kind: 'bad_output' })
+    const before = calls.length
+    expect(await resolve('@x y')).toEqual({ kind: 'failed' })
+    expect(await resolve('--exec=rm')).toEqual({ kind: 'failed' })
+    expect(calls.length).toBe(before)
+    expect(safeTiktokMediaUrl('http://pull-f5.tiktokcdn.com/a.flv')).toBeNull()
+    expect(safeTiktokMediaUrl('https://pull-f5-tt03.fcdn.eu.tiktokcdn-eu.com/a.flv')).not.toBeNull()
+    expect(safeTiktokMediaUrl('https://tiktokcdn.com.evil.test/a.flv')).toBeNull()
+  })
+  it('라이브 시작 전에는 같은 아이디를 15초 동안 다시 묻지 않는다', async () => {
+    let now = 1_000_000
+    let asked = 0
+    let live = false
+    const inner: TiktokAudioUrlResolver = async () => { asked++; return live ? { kind: 'ok', url: TT } : { kind: 'not_live' } }
+    const resolve = notLiveBackoff(inner, () => now)
+    expect(await resolve('a')).toEqual({ kind: 'not_live' })
+    now += 3_000
+    expect(await resolve('a')).toEqual({ kind: 'not_live' })
+    expect(asked).toBe(1)
+    live = true
+    now += TIKTOK_NOT_LIVE_WAIT_MS
+    expect(await resolve('a')).toEqual({ kind: 'ok', url: TT })
+    expect(asked).toBe(2)
+  })
+  it('ffmpeg: HLS가 아닌 틱톡 주소(flv)에는 HLS 전용 옵션을 주지 않는다', () => {
+    expect(ffmpegArgs(TT)).toContain('-live_start_index')
+    const flv = ffmpegArgs('https://pull-flv-l1-va01.tiktokcdn.com/stage/stream-1.flv')
+    expect(flv).not.toContain('-live_start_index')
+    expect(flv.slice(flv.indexOf('-i'))[1]).toBe('https://pull-flv-l1-va01.tiktokcdn.com/stage/stream-1.flv')
+  })
+  it('유튜브를 잇지 않은 회차에 틱톡이 이어져 있으면 그 계정 소리. 라이브 전은 기다림, 끊으면 없음', async () => {
+    const world = await newWorld({})
+    worlds.push(world)
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    const asked: string[] = []
+    let reply: AudioUrlResult = { kind: 'not_live' }
+    const tiktok: TiktokAudioUrlResolver = async (id) => { asked.push(id); return reply }
+    const logs: LogRecord[] = []
+    const locate = webStreamLocator(world.database.db, null, { tiktok, log: (r) => logs.push(r) })
+    expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'none' })
+    expect(asked).toEqual([])
+    const [row] = await world.database.db.select({ scopeId: broadcasts.scopeId }).from(broadcasts).where(eq(broadcasts.id, b.id))
+    const linkId = await insertTiktokLink(world.database.db, { sellerId: seller.sellerId, broadcastId: b.id, scopeId: row!.scopeId, tiktokId: 'my.shop', actorAccountId: seller.accountId, now: new Date() })
+    expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'none' })
+    expect(asked).toEqual(['my.shop'])
+    reply = { kind: 'ok', url: TT }
+    expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'ok', url: TT })
+    reply = { kind: 'timeout' }
+    expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'retry' })
+    reply = { kind: 'failed' }
+    expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'unsupported' })
+    expect(logs.at(-1)).toMatchObject({ code: 'STREAM_AUDIO_YTDLP_FAILED', reason: 'TIKTOK_FAILED' })
+    expect(JSON.stringify(logs)).not.toContain('my.shop')
+    expect(await webStreamLocator(world.database.db, null, {})(seller.sellerId, b.id)).toEqual({ kind: 'unsupported' })
+    await unlinkTiktokLink(world.database.db, seller.sellerId, linkId, seller.accountId, new Date())
+    asked.length = 0
+    expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'none' })
+    expect(asked).toEqual([])
   })
 })

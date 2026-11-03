@@ -11,7 +11,7 @@
 import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
 import { VoiceAliases } from './voice/aliases.ts'
 import { VoiceRelay, registerVoiceRelay } from './voice/relay.ts'
-import { FfmpegAudioFeed, ffmpegAvailable, webStreamLocator, ytDlpResolver, type AudioFeed, type MediaProxySetting, type StreamLocator } from './voice/stream-audio.ts'
+import { FfmpegAudioFeed, ffmpegAvailable, notLiveBackoff, webStreamLocator, ytDlpResolver, ytDlpTiktokResolver, type AudioFeed, type MediaProxySetting, type StreamLocator } from './voice/stream-audio.ts'
 import { StreamAudioService } from './voice/stream-service.ts'
 import { sellerStreamAudioOn } from './voice/stream-routes.ts'
 import { readFileSync } from 'node:fs'
@@ -411,10 +411,12 @@ export function createServer(options: ServerOptions): LivejjimServer {
     else log({ level: 'warn', code: 'STREAM_AUDIO_NO_FFMPEG' })
   }
   const streamResolve = streamSetting?.ytDlpPath === undefined ? null : ytDlpResolver(streamSetting.ytDlpPath, undefined, mediaProxy)
+  // 틱톡 라이브 소리 (D-UX3-16): 프록시 없이 바로. 라이브 시작 전에는 15초마다만 묻는다
+  const tiktokResolve = streamSetting?.ytDlpPath === undefined ? null : notLiveBackoff(ytDlpTiktokResolver(streamSetting.ytDlpPath), () => clock.now())
   const streamAudio = new StreamAudioService({
     available: streamSetting?.on === true && streamFeed !== null,
     feed: streamFeed ?? { open: (_url, sink) => { queueMicrotask(() => sink.fail()); return { close: () => {} } } },
-    locate: streamSetting?.locate ?? ((sellerId, b) => webStreamLocator(db, youtube?.web ?? null, { resolve: streamResolve, log })(sellerId, b)),
+    locate: streamSetting?.locate ?? ((sellerId, b) => webStreamLocator(db, youtube?.web ?? null, { resolve: streamResolve, tiktok: tiktokResolve, log })(sellerId, b)),
     clock,
     log,
     sellerOn: (sellerId) => sellerStreamAudioOn(db, sellerId),
