@@ -88,7 +88,7 @@ EAS 없이 Play 업로드용 AAB와 직접 설치용 APK를 만들어요. 필요
 
 ```sh
 cd android
-EXPO_PUBLIC_SERVER_URL=https://<운영 서버> NODE_ENV=production ./gradlew bundleRelease     # Play용 → app/build/outputs/bundle/release/app-release.aab
+EXPO_PUBLIC_SERVER_URL=https://livegenie.kr NODE_ENV=production ./gradlew bundleRelease     # Play용 (운영 서버 주소, D-OPS-DOMAIN-2) → app/build/outputs/bundle/release/app-release.aab
 EXPO_PUBLIC_SERVER_URL=https://<연습 서버> NODE_ENV=production ./gradlew assembleRelease   # 폰 설치용 → app/build/outputs/apk/release/app-release.apk
 ```
 
