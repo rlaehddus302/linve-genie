@@ -6,7 +6,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { ScrollView, View } from 'react-native'
+import { Platform, ScrollView, View } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import { ApiError, get, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
@@ -25,6 +25,9 @@ import { QuickInput } from './console/QuickInput.tsx'
 import { SmsForm } from './console/SmsForm.tsx'
 import { ChatView, PasteView } from './console/ChatPaste.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
+
+/** 메뉴 판이 다 닫힌 뒤 다음 판을 연다 — 판 닫힘(SHEET_OUT_MS 200) + 아이폰이 판을 내리는 시간 */
+const MENU_HANDOFF_MS = 400
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
@@ -97,7 +100,27 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const inset = useBottomInset()
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide' | 'pending'>('none')
+  type SheetName = 'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide' | 'pending'
+  const [sheet, setSheet] = useState<SheetName>('none')
+  // 방송 메뉴에서 다른 판으로 갈 때 (D-UX3-26): 아이폰은 판(Modal)이 닫히는 동안 새 판을 띄우지 못해 '방송을 끝낼까요?' 등이 아예 뜨지 않았다.
+  // 메뉴를 먼저 닫고, 닫히는 움직임이 끝난 뒤에 다음 판을 연다.
+  const menuTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (menuTimer.current !== null) clearTimeout(menuTimer.current)
+  }, [])
+  const fromMenu = (next: () => void) => {
+    setSheet('none')
+    // 웹의 판은 움직임 없이 바로 닫혀(겹쳐 띄우는 문제가 없다) 곧바로 연다
+    if (Platform.OS === 'web') {
+      next()
+      return
+    }
+    if (menuTimer.current !== null) clearTimeout(menuTimer.current)
+    menuTimer.current = setTimeout(() => {
+      menuTimer.current = null
+      next()
+    }, MENU_HANDOFF_MS)
+  }
   // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07)
   const [tab, setTab] = useState<'products' | 'feed'>('products')
   const [decideFor, setDecideFor] = useState<string | null>(null)
@@ -369,12 +392,12 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         <BottomSheet visible={sheet === 'menu'} onClose={close} title="방송 메뉴">
           <Txt step="caption" color="textSub">{`${title}${broadcast.rehearsal ? ' · 리허설' : ''}`}</Txt>
           <RowGroup label="방송 메뉴">
-            {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="방송 연결" sub="방송 링크 붙여 넣기, 채팅 받는 상태" onPress={showLink} /> : null}
-            {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => setSheet('voice')} /> : null}
-            {openLabels !== undefined && !broadcast.rehearsal ? <TodoRow title="프린터·라벨" sub="프린터 연결, 라벨 대기·다시 찍기" onPress={() => { close(); openLabels() }} /> : null}
-            <TodoRow title="채팅 보기" sub="최근 채팅 100줄, 주문·취소 표시" onPress={() => setSheet('chat')} />
-            {!broadcast.rehearsal && !closed ? <TodoRow title="댓글 붙여넣기" sub="틱톡·인스타그램 등 자동으로 못 받는 댓글" onPress={() => setSheet('paste')} /> : null}
-            {!closed ? <TodoRow title="방송 끝내기" onPress={() => setSheet('end')} /> : null}
+            {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="방송 연결" sub="방송 링크 붙여 넣기, 채팅 받는 상태" onPress={() => fromMenu(showLink)} /> : null}
+            {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => fromMenu(() => setSheet('voice'))} /> : null}
+            {openLabels !== undefined && !broadcast.rehearsal ? <TodoRow title="프린터·라벨" sub="프린터 연결, 라벨 대기·다시 찍기" onPress={() => fromMenu(openLabels)} /> : null}
+            <TodoRow title="채팅 보기" sub="최근 채팅 100줄, 주문·취소 표시" onPress={() => fromMenu(() => setSheet('chat'))} />
+            {!broadcast.rehearsal && !closed ? <TodoRow title="댓글 붙여넣기" sub="틱톡·인스타그램 등 자동으로 못 받는 댓글" onPress={() => fromMenu(() => setSheet('paste'))} /> : null}
+            {!closed ? <TodoRow title="방송 끝내기" onPress={() => fromMenu(() => setSheet('end'))} /> : null}
           </RowGroup>
         </BottomSheet>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
