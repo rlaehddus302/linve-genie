@@ -486,6 +486,9 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const extra = onlyKeys(body(c), [])
     if (extra !== null) return extra
     if (!(await service.openBroadcast(sellerOf(c), c.req.param('id')))) return notFound()
+    // 만드는 중에 이어 둔 연결은 이제부터 받는다 (D-UX3-27)
+    deps.youtube?.collectors.wake()
+    await deps.tiktok?.live.opened(sellerOf(c), c.req.param('id'))
     return c.json({ ok: true })
   })
   api.post('/broadcasts/:id/end', async (c) => {
