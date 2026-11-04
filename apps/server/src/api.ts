@@ -474,12 +474,19 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (requestId === null) return invalidRequestId()
     const prior = await service.priorResult(sellerOf(c), requestId)
     if (prior !== null) return outcomeResponse(c, { kind: 'duplicate', result: prior }, await billingOf(c, prior))
-    const extra = onlyKeys(input, ['requestId', 'date', 'title', 'rehearsal', 'saleMode'])
+    const extra = onlyKeys(input, ['requestId', 'date', 'title', 'rehearsal', 'saleMode', 'draft'])
     if (extra !== null) return extra
     const parsed = Service.broadcastInput(input)
     if (!parsed.ok) return apiError(parsed.rejection.status, parsed.rejection.code, parsed.rejection.message, parsed.rejection.problems)
     const created = await service.createBroadcast(sellerOf(c), actorOf(c), requestId, parsed)
     return outcomeResponse(c, created, created.kind === 'ok' ? await billingOf(c, created.result) : {})
+  })
+  // 방송 화면에 들어왔다 (D-UX3-25): 만드는 중이던 방송이 그때부터 목록에 보인다. 화면 상태라 요청 번호 없이 몇 번 불러도 같다
+  api.post('/broadcasts/:id/open', async (c) => {
+    const extra = onlyKeys(body(c), [])
+    if (extra !== null) return extra
+    if (!(await service.openBroadcast(sellerOf(c), c.req.param('id')))) return notFound()
+    return c.json({ ok: true })
   })
   api.post('/broadcasts/:id/end', async (c) => {
     const input = body(c)

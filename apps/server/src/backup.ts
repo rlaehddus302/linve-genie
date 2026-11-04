@@ -1982,6 +1982,8 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
                 startSeq: broadcast.startSeq,
                 endedAt: broadcast.endedAt === null ? null : new Date(broadcast.endedAt),
                 createdAt: new Date(broadcast.createdAt),
+                // 백업 파일에는 '들어온 때'가 없다 — 되살린 방송은 모두 목록에 보인다 (D-UX3-25)
+                openedAt: new Date(broadcast.createdAt),
               })),
             )
           }

@@ -89,6 +89,10 @@ function AwayLine() {
 export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews, openLabels, openLink, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: (rehearsal: boolean) => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
+  // 방송 화면에 들어왔다 — 새 방송 단계에서 만든 방송은 이때부터 방송 목록에 보인다 (D-UX3-25). 실패해도 화면은 그대로(다음에 들어올 때 다시)
+  useEffect(() => {
+    void withRetry(() => post(`/api/broadcasts/${encodeURIComponent(broadcastId)}/open`, {})).catch(() => undefined)
+  }, [broadcastId])
   const { p } = useKit()
   const inset = useBottomInset()
   const [selected, setSelected] = useState<string | null>(null)

@@ -204,6 +204,8 @@ export const broadcasts = pgTable(
     startSeq: integer('start_seq').notNull(),
     endedAt: timestamptz('ended_at'),
     createdAt: timestamptz('created_at').notNull(),
+    /** 판매자가 방송 화면에 처음 들어온 때 (D-UX3-25). null이면 아직 만드는 중 — 방송 목록에 보이지 않는다 */
+    openedAt: timestamptz('opened_at'),
   },
   (t) => [index('broadcasts_seller_idx').on(t.sellerId, t.date, t.startSeq)],
 )

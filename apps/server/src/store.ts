@@ -345,6 +345,8 @@ export interface BroadcastRow {
   readonly title: string
   readonly startSeq: number
   readonly endedAt: Date | null
+  /** 방송 화면에 처음 들어온 때 — null이면 만드는 중이라 목록에 보이지 않는다 (D-UX3-25) */
+  readonly openedAt: Date | null
 }
 
 const broadcastColumns = {
@@ -355,6 +357,7 @@ const broadcastColumns = {
   title: broadcasts.title,
   startSeq: broadcasts.startSeq,
   endedAt: broadcasts.endedAt,
+  openedAt: broadcasts.openedAt,
 }
 
 export async function findBroadcast(db: Db, sellerId: string, broadcastId: string): Promise<BroadcastRow | null> {
@@ -397,7 +400,7 @@ export async function broadcastListExtras(db: Db, sellerId: string): Promise<{ c
 
 export async function insertBroadcast(
   db: Db,
-  row: { id: string; sellerId: string; scopeId: string; date: string; title: string; startSeq: number; now: Date },
+  row: { id: string; sellerId: string; scopeId: string; date: string; title: string; startSeq: number; now: Date; draft?: boolean },
 ): Promise<void> {
   await db.insert(broadcasts).values({
     id: row.id,
@@ -407,7 +410,23 @@ export async function insertBroadcast(
     title: row.title,
     startSeq: row.startSeq,
     createdAt: row.now,
+    // 앱 새 방송 단계에서 만든 방송은 방송 화면에 들어올 때까지 목록에서 숨긴다 (D-UX3-25)
+    openedAt: row.draft === true ? null : row.now,
   })
+}
+
+/** 방송 화면에 들어왔다 — 처음 한 번만 적는다. 그 판매자의 방송이 아니면 false (D-UX3-25) */
+export async function markBroadcastOpened(db: Db, sellerId: string, broadcastId: string, now: Date): Promise<boolean> {
+  const found = await db.select({ openedAt: broadcasts.openedAt }).from(broadcasts).where(and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, broadcastId))).limit(1)
+  const row = found[0]
+  if (row === undefined) return false
+  if (row.openedAt === null) {
+    await db
+      .update(broadcasts)
+      .set({ openedAt: now })
+      .where(and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, broadcastId), isNull(broadcasts.openedAt)))
+  }
+  return true
 }
 
 export async function markBroadcastEnded(db: Db, sellerId: string, broadcastId: string, endedAt: Date): Promise<void> {

@@ -90,6 +90,7 @@ import {
   historyRows,
   insertBroadcast,
   listBroadcastRows,
+  markBroadcastOpened,
   broadcastListExtras,
   type BroadcastPlatform,
   markBroadcastEnded,
@@ -467,7 +468,7 @@ export class Service {
 
   // ── 방송 만들기·끝내기 (AC-S04-21·27) ─────────────────────────────────
 
-  async createBroadcast(sellerId: string, actor: Actor, requestId: string, input: { date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode }): Promise<WriteOutcome> {
+  async createBroadcast(sellerId: string, actor: Actor, requestId: string, input: { date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode; draft?: boolean }): Promise<WriteOutcome> {
     const { writer, db, ids } = this.#options
     const date = input.date ?? kstDate(this.#options.clock.now())
     const rehearsal = input.rehearsal === true
@@ -511,7 +512,7 @@ export class Service {
         const first = records[0]
         if (first === undefined || !first.changed) return
         const event = first.event as unknown as { b: string; date: string; title: string }
-        await insertBroadcast(tx, { id: event.b, sellerId, scopeId, date: event.date, title: event.title, startSeq: first.seq, now })
+        await insertBroadcast(tx, { id: event.b, sellerId, scopeId, date: event.date, title: event.title, startSeq: first.seq, now, draft: input.draft === true })
         if (billing !== null) {
           await billing.decideStart(tx, { sellerId, scopeId, broadcastId: event.b, date: event.date, now })
           billed = true
@@ -523,12 +524,14 @@ export class Service {
   }
 
   /** 방송 만들기 요청 본문 검사 (날짜·제목·리허설인지) */
-  static broadcastInput(body: Record<string, unknown>): { ok: true; date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode } | { ok: false; rejection: Rejection } {
+  static broadcastInput(body: Record<string, unknown>): { ok: true; date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode; draft?: boolean } | { ok: false; rejection: Rejection } {
     const problems: FieldProblem[] = []
     const date = own(body, 'date')
     const title = own(body, 'title')
     const rehearsal = own(body, 'rehearsal')
     const saleMode = own(body, 'saleMode')
+    const draft = own(body, 'draft')
+    if (draft !== undefined && typeof draft !== 'boolean') problems.push({ field: 'draft', message: '만드는 중인지는 예나 아니오로만 정할 수 있어요.' })
     if (saleMode !== undefined && !SALE_MODES.includes(saleMode as SaleMode)) problems.push({ field: 'saleMode', message: SALE_MODE_MESSAGE })
     if (date !== undefined && !isValidDate(date)) problems.push({ field: 'date', message: fieldMessage('date') })
     if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > TITLE_MAX || hasControlChar(title))) {
@@ -542,7 +545,13 @@ export class Service {
       ...(title === undefined ? {} : { title: (title as string).trim() }),
       ...(rehearsal === undefined ? {} : { rehearsal: rehearsal as boolean }),
       ...(saleMode === undefined ? {} : { saleMode: saleMode as SaleMode }),
+      ...(draft === undefined ? {} : { draft: draft as boolean }),
     }
+  }
+
+  /** 방송 화면에 들어왔다 (D-UX3-25) — 그때부터 방송 목록에 보인다. 몇 번 불러도 처음 한 번만 적는다 */
+  async openBroadcast(sellerId: string, broadcastId: string): Promise<boolean> {
+    return markBroadcastOpened(this.#options.db, sellerId, broadcastId, new Date(this.#options.clock.now()))
   }
 
   async endBroadcast(sellerId: string, actor: Actor, requestId: string, broadcastId: string): Promise<WriteOutcome> {
@@ -1201,7 +1210,8 @@ export class Service {
 
   async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null; createdAt: string | null; platforms: BroadcastPlatform[] }[]> {
     const [rows, extras] = await Promise.all([listBroadcastRows(this.#options.db, sellerId), broadcastListExtras(this.#options.db, sellerId)])
-    return rows.map((row) => ({
+    // 방송 화면에 아직 들어오지 않은(앱에서 만드는 중인) 방송은 목록에 넣지 않는다 (D-UX3-25)
+    return rows.filter((row) => row.openedAt !== null).map((row) => ({
       id: row.id,
       date: row.date,
       title: row.title,
