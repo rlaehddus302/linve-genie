@@ -44,7 +44,8 @@ export default function RootLayout() {
         <SessionProvider services={services}>
           <StatusBar style="dark" />
           <PrinterDevicePicker />
-          <Stack screenOptions={{ headerShown: false }}>
+          {/* 뒤로 가기는 왼쪽 가장자리에서 밀 때만 (D-UX3-24): iOS 26부터 기본이 '화면 어디서 밀어도 뒤로'라 라벨 끌기·가로 밀기까지 뒤로 갔다 */}
+          <Stack screenOptions={{ headerShown: false, fullScreenGestureEnabled: false }}>
             {/* 탭 화면끼리는 화면 전환 없이 바꿔 끼운다 — 짧은 좌우 밀림은 TabFrame이 낸다 (D-UX3-01) */}
             {TAB_SCREENS.map((name) => (
               <Stack.Screen key={name} name={name} options={{ animation: 'none' }} />
