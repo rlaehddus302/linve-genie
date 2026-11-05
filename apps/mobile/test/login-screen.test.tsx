@@ -130,6 +130,87 @@ describe('LoginScreen', () => {
       await waitFor(() => expect(screen.queryByTestId('social-kakao-pressed')).toBeNull())
     })
 
+    // D-UX3-30 (사용자 지시 2026-11-05 "같은 사람이면 하나의 계정으로"): 문자 인증이 켜진 서버면 번호부터
+    describe('D-UX3-30 휴대폰 번호로 같은 사람 묶기', () => {
+      /** 로그인 창이 차례로 돌려줄 주소들 */
+      const installQueue = (backs: string[], replies: Record<string, unknown>) => {
+        const t = install(null, replies)
+        setSocialNative({
+          openAuthSession: async (url) => {
+            t.opened.push(url)
+            return backs.shift() ?? null
+          },
+          randomVerifier: () => 'V'.repeat(43),
+          sha256: async () => 'C'.repeat(43),
+          storage: { getItem: async () => null, setItem: async (key, value) => void (t.stored[key] = value) },
+        })
+        return t
+      }
+      const T1 = 'T'.repeat(43)
+      const T2 = 'U'.repeat(43)
+
+      it('새 번호: 번호 → 인증번호 → 확인하면 가입하고 들어간다', async () => {
+        const t = installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {
+          '/api/auth/app/finish': { result: 'SIGNUP', provider: 'google', phoneRequired: true },
+          '/api/auth/signup/phone': { phone: '010-****-5678' },
+          '/api/auth/signup/phone/verify': { next: 'SIGNUP', phone: '010-****-5678' },
+          '/api/auth/signup': { seller: { name: '내 가게' } },
+        })
+        const onSocialDone = vi.fn(async () => {})
+        render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
+        fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
+        expect(await screen.findByText('휴대폰 번호를 확인할게요')).toBeTruthy()
+        // 처음 화면으로 돌아가는 단추(왼쪽)와 인증번호 받기(오른쪽)가 한 줄에
+        expect(screen.getByRole('button', { name: '처음으로' })).toBeTruthy()
+        fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '010-1234-5678' } })
+        fireEvent.click(screen.getByRole('button', { name: '인증번호 받기' }))
+        expect(await screen.findByText('010-****-5678 번호로 인증번호를 보냈어요.')).toBeTruthy()
+        fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '123456' } })
+        fireEvent.click(screen.getByRole('button', { name: '확인' }))
+        await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1))
+        expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup/phone'))?.body).toEqual({ phone: '010-1234-5678', ticket: T1, verifier: 'V'.repeat(43) })
+        expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup/phone/verify'))?.body).toEqual({ code: '123456', ticket: T1, verifier: 'V'.repeat(43) })
+        expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup'))?.body).toEqual({ agree: true, ticket: T1, verifier: 'V'.repeat(43) })
+        expect(t.stored['livejjim:last-login']).toBe('google')
+      })
+
+      it('있는 번호: 새 계정을 만들지 않고, 그 계정의 카카오로 다시 로그인하면 구글을 잇는다', async () => {
+        const t = installQueue([`livejjim://auth?ticket=${T1}&provider=google`, `livejjim://auth?ticket=${T2}&provider=kakao`], {
+          '/api/auth/app/finish': { result: 'SIGNUP', provider: 'google', phoneRequired: true },
+          '/api/auth/signup/phone': { phone: '010-****-6666' },
+          '/api/auth/signup/phone/verify': { next: 'LOGIN_EXISTING', phone: '010-****-6666', providers: ['kakao'], password: false },
+          '/api/auth/signup/link': { provider: 'google' },
+        })
+        const onSocialDone = vi.fn(async () => {})
+        render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
+        fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
+        fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '01055556666' } })
+        fireEvent.click(screen.getByRole('button', { name: '인증번호 받기' }))
+        fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '654321' } })
+        fireEvent.click(screen.getByRole('button', { name: '확인' }))
+        expect(await screen.findByText('이미 가입한 계정이 있어요')).toBeTruthy()
+        expect(screen.getByText('010-****-6666 번호로 가입한 계정이에요. 카카오로 로그인하면 구글도 함께 이어져요.')).toBeTruthy()
+        expect(screen.queryByRole('button', { name: '구글로 로그인' })).toBeNull()
+        // 두 번째 로그인은 기존 계정(LOGGED_IN)
+        const finishReplies = [{ result: 'LOGGED_IN', me: {} }]
+        configureApi({
+          baseUrl: 'https://livegenie.test',
+          fetch: async (input, init) => {
+            const url = String(input)
+            t.calls.push({ url, body: init?.body === undefined ? null : JSON.parse(String(init.body)) })
+            const path = new URL(url).pathname
+            const reply = path === '/api/auth/app/finish' ? finishReplies.shift() : path === '/api/auth/signup/link' ? { provider: 'google' } : undefined
+            return new Response(JSON.stringify(reply ?? {}), { status: reply === undefined ? 404 : 200, headers: { 'Content-Type': 'application/json' } })
+          },
+        })
+        fireEvent.click(screen.getByRole('button', { name: '카카오로 로그인' }))
+        await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1))
+        expect(t.calls.filter((c) => c.url.endsWith('/api/auth/signup'))).toHaveLength(0)
+        expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup/link'))?.body).toEqual({ ticket: T1, verifier: 'V'.repeat(43) })
+        expect(t.stored['livejjim:last-login']).toBe('kakao')
+      })
+    })
+
     it('취소하고 돌아오면 정한 문장, 창을 닫으면 아무 문장 없음. 마지막 방법에 "최근 로그인"', async () => {
       install('livejjim://auth?login=CANCELLED&provider=google', {}, { 'livejjim:last-login': 'google' })
       render(<LoginScreen expired={false} onLogin={async () => {}} />)

@@ -138,7 +138,8 @@ describe('AC-S04-40 로그인·세션', () => {
     }
     for (const path of ['/api/logout', '/api/events', '/api/broadcasts', '/api/broadcasts/x/end']) expect((await anonymous.post(path, { requestId: rid() })).status, path).toBe(401)
     expect((await anonymous.get('/api/health')).body).toEqual({ status: 'ok' })
-    expect((await client(world, seller.cookie).get('/api/me')).body).toEqual({ seller: { name: '가게 meshop' }, loginId: 'meshop', role: 'SELLER', assistant: null })
+    // D-UX3-30: 번호(phone)·번호 확인 필요(phoneRequired)를 함께 준다 — 문자 발송이 없는 서버라 false
+    expect((await client(world, seller.cookie).get('/api/me')).body).toEqual({ seller: { name: '가게 meshop' }, loginId: 'meshop', role: 'SELLER', assistant: null, phone: null, phoneRequired: false })
   })
 
   it('로그인 요청 형식: 아이디·비밀번호가 문자열이 아니거나 모르는 필드면 400', async () => {

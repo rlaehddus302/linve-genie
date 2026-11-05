@@ -3,11 +3,20 @@
 // 바로 가입한다. 단추는 공식 로고를 왼쪽에 둔 긴 단추이고, 그 기기에서 마지막으로 로그인한 방법에 "최근 로그인" 말풍선.
 // D-UX3-29 (사용자 지시 2026-11-05): 단추 이름 "…로 로그인", 크기·두께·간격은 KREAM 참고 사진(높이 52·글자 16 보통 굵게·사이 12·구글 테두리 옅게),
 // 누르면 그 단추 안이 진해지고 다른 단추는 그대로. 동의 판은 없다 — 단추 아래 안내 한 줄을 보고 누른 것으로 동의, 처음 계정이면 바로 가입.
+// D-UX3-30 (사용자 지시 2026-11-05 "같은 사람이면 하나의 계정으로"): 문자 인증이 켜진 서버에서 처음 계정이면 휴대폰 번호를 먼저 확인한다.
+// 새 번호면 가입, 이미 있는 번호면 "이미 가입한 계정이 있어요" — 그 계정의 간편 로그인으로 다시 로그인하면 방금 공급자가 그 계정에 이어진다.
 import { useEffect, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import {
   continueLabel,
+  EXISTING_LOST,
+  EXISTING_TITLE,
+  existingBody,
+  NOT_THAT_ACCOUNT,
+  PHONE_BODY,
+  PHONE_TITLE,
+  START_OVER,
   RECENT_LOGIN,
   resultMessage,
   SIGNUP_MAKING,
@@ -17,12 +26,36 @@ import {
   type LoginProvider,
 } from '@livejjim/web/src/lib/social-login.ts'
 import { SOCIAL_COLORS, SOCIAL_LOGOS } from '@livejjim/web/src/lib/social-logos.ts'
-import { isApiError, type ApiError } from '../api/client.ts'
+import { isApiError, post, type ApiError } from '../api/client.ts'
 import { openWeb } from '../lib/open-web.ts'
-import { appSignup, appSocialLogin, APP_LOGIN_FAILED, fetchAppLoginProviders, readAppLastLogin, rememberAppLastLogin } from '../lib/social-auth.ts'
+import {
+  appSignup,
+  appSignupLink,
+  appSignupPhoneSend,
+  appSignupPhoneVerify,
+  appSocialLogin,
+  APP_LOGIN_FAILED,
+  fetchAppLoginProviders,
+  readAppLastLogin,
+  rememberAppLastLogin,
+} from '../lib/social-auth.ts'
+import { PhoneVerify } from './PhoneVerify.tsx'
 import { LOGIN_ACCOUNT_NOTE, LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SERVICE_NAME, SESSION_EXPIRED_MESSAGE } from '../lib/words.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
-import { BigButton, Field, Hint, Notice, Screen, Stack } from '../ui/parts.tsx'
+import { BigButton, Body, Field, Hint, Notice, Screen, Stack, Title } from '../ui/parts.tsx'
+
+/** 간편 가입의 단계 (D-UX3-30): 처음 화면 → 번호 확인 → (있는 번호면) 그 계정으로 다시 로그인 */
+type SignupStage =
+  | { readonly kind: 'main' }
+  | { readonly kind: 'phone'; readonly provider: LoginProvider; readonly ticket: string; readonly verifier: string }
+  | {
+      readonly kind: 'existing'
+      readonly provider: LoginProvider
+      readonly ticket: string
+      readonly verifier: string
+      readonly phone: string
+      readonly providers: readonly LoginProvider[]
+    }
 
 export function LoginScreen({
   expired,
@@ -48,6 +81,7 @@ export function LoginScreen({
   const [moving, setMoving] = useState<LoginProvider | null>(null)
   const [socialMessage, setSocialMessage] = useState<string | null>(null)
   const [making, setMaking] = useState(false)
+  const [stage, setStage] = useState<SignupStage>({ kind: 'main' })
 
   useEffect(() => {
     let alive = true
@@ -97,6 +131,9 @@ export function LoginScreen({
       if (outcome.kind === 'logged_in') {
         await rememberAppLastLogin(provider)
         await onSocialDone?.()
+      } else if (outcome.kind === 'signup' && outcome.phoneRequired) {
+        // 처음 계정: 휴대폰 번호부터 확인한다 (D-UX3-30)
+        setStage({ kind: 'phone', provider: outcome.provider, ticket: outcome.ticket, verifier: outcome.verifier })
       } else if (outcome.kind === 'signup') {
         // 처음 계정: 단추 아래 안내를 보고 누른 것이 동의 — 바로 만든다 (D-UX3-29)
         setMaking(true)
@@ -118,6 +155,97 @@ export function LoginScreen({
     } finally {
       setMoving(null)
     }
+  }
+
+  /** 번호를 확인했다: 새 번호면 가입, 있는 번호면 다시 로그인 단계로 */
+  const phoneVerified = async (current: Extract<SignupStage, { kind: 'phone' }>, code: string) => {
+    const next = await appSignupPhoneVerify(current.ticket, current.verifier, code)
+    if (next.next === 'LOGIN_EXISTING') {
+      setStage({ kind: 'existing', provider: current.provider, ticket: current.ticket, verifier: current.verifier, phone: next.phone, providers: next.providers })
+      return
+    }
+    setMaking(true)
+    try {
+      await appSignup(current.ticket, current.verifier)
+    } finally {
+      setMaking(false)
+    }
+    await rememberAppLastLogin(current.provider)
+    await onSocialDone?.()
+  }
+
+  /** 있는 번호의 계정으로 다시 로그인하고, 방금 공급자를 그 계정에 잇는다 */
+  const relogin = async (current: Extract<SignupStage, { kind: 'existing' }>, provider: LoginProvider) => {
+    if (moving !== null) return
+    setMoving(provider)
+    setSocialMessage(null)
+    try {
+      const outcome = await appSocialLogin(provider)
+      if (outcome.kind === 'signup') setSocialMessage(NOT_THAT_ACCOUNT)
+      else if (outcome.kind === 'result') {
+        const known = (LOGIN_CODES as readonly string[]).includes(outcome.code)
+        setSocialMessage(known ? resultMessage({ code: outcome.code as (typeof LOGIN_CODES)[number], provider: outcome.provider }).text : APP_LOGIN_FAILED)
+      } else if (outcome.kind === 'failed') setSocialMessage(outcome.message)
+      else if (outcome.kind === 'logged_in') {
+        try {
+          await appSignupLink(current.ticket, current.verifier)
+        } catch (caught) {
+          // 다른 계정으로 들어갔으면 그 세션을 닫고 다시 고르게 한다. 그 밖(이미 이어짐·표 만료)은 맞는 계정이라 그대로 들어간다
+          if (isApiError(caught) && caught.code === 'LINK_MISMATCH') {
+            await post('/api/logout', {}).catch(() => undefined)
+            setSocialMessage(caught.message)
+            return
+          }
+        }
+        await rememberAppLastLogin(provider)
+        await onSocialDone?.()
+      }
+    } catch (caught) {
+      setSocialMessage(isApiError(caught) && !caught.network ? caught.message : APP_LOGIN_FAILED)
+    } finally {
+      setMoving(null)
+    }
+  }
+
+  const startOver = () => {
+    setStage({ kind: 'main' })
+    setSocialMessage(null)
+  }
+
+  if (stage.kind === 'phone') {
+    const current = stage
+    return (
+      <Screen title={SERVICE_NAME} testID="login-phone">
+        <PhoneVerify
+          title={PHONE_TITLE}
+          body={PHONE_BODY}
+          send={(phone) => appSignupPhoneSend(current.ticket, current.verifier, phone)}
+          verify={(code) => phoneVerified(current, code)}
+          back={{ label: START_OVER, onPress: startOver }}
+          busyText={making ? SIGNUP_MAKING : null}
+        />
+      </Screen>
+    )
+  }
+
+  if (stage.kind === 'existing') {
+    const current = stage
+    return (
+      <Screen title={SERVICE_NAME} testID="login-existing">
+        <Stack>
+          <Title>{EXISTING_TITLE}</Title>
+          <Body muted>{existingBody(current.phone, current.providers, current.provider)}</Body>
+          <View style={{ gap: 12 }}>
+            {current.providers.map((provider) => (
+              <SocialButton key={provider} provider={provider} recent={false} busy={moving === provider} onPress={() => void relogin(current, provider)} />
+            ))}
+          </View>
+          {socialMessage !== null ? <Notice tone="danger" alert>{socialMessage}</Notice> : null}
+          <Hint>{EXISTING_LOST}</Hint>
+          <BigButton label={START_OVER} onPress={startOver} />
+        </Stack>
+      </Screen>
+    )
   }
 
   return (

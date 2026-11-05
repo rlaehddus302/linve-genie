@@ -32,6 +32,7 @@ import type { ServerOptions } from './server.ts'
 import { readTikTokSettings } from './tiktok/index.ts'
 import { TIKTOK_LIBRARY_ENV_NAMES } from './tiktok-live/live.ts'
 import { readSocialLoginEnv } from './social/providers.ts'
+import { readSmsEnv, solapiSender } from './social/phone.ts'
 import { readAssistEnv } from './assist/service.ts'
 
 export type ProductionOptions = { readonly ok: true; readonly options: ServerOptions } | { readonly ok: false; readonly message: string }
@@ -73,6 +74,9 @@ export function productionServerOptions(
   }
   const social = readSocialLoginEnv(env)
   if (!social.ok) return { ok: false, message: social.message }
+  // 가입 문자 인증 (D-UX3-30): 솔라피 키·비밀값·보내는 번호 셋 다 있을 때만 켠다
+  const sms = readSmsEnv(env)
+  if (!sms.ok) return { ok: false, message: sms.message }
   const assist = readAssistEnv(env)
   if (!assist.ok) return { ok: false, message: assist.message }
   const libraryEnv = TIKTOK_LIBRARY_ENV_NAMES.filter((name) => (env[name] ?? '').trim() !== '')
@@ -102,6 +106,7 @@ export function productionServerOptions(
       // 택배사 어댑터 없음 (T1 — 가짜 택배사는 고를 수 없고 바깥으로 나가는 택배사 연결이 없다)
       parcel: { carriers: {} },
       socialLogin: { providers: social.providers },
+      sms: sms.setup === null ? null : solapiSender(sms.setup),
       assist: assist.setup,
     },
   }

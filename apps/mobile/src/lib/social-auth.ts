@@ -3,7 +3,7 @@
 // GET /api/auth/app/start?provider&challenge를 연다. 공급자에서 돌아오면 서버가 `livejjim://auth?ticket=…`(또는 `?login=<결과>`)로 보내 창이 닫힌다.
 // 앱은 그 표와 처음에 만든 검증 값으로 POST /api/auth/app/finish를 불러 세션 쿠키를 받는다(LOGGED_IN), 처음 계정이면 SIGNUP — 판 없이 바로 POST /api/auth/signup (D-UX3-29).
 // 기기 기능(로그인 창·무작위 값·SHA-256·저장소)은 app/_layout.tsx가 끼운다 — 시험은 가짜.
-import { isLoginProvider, type LastLogin, type LoginProvider } from '@livejjim/web/src/lib/social-login.ts'
+import { isLoginProvider, signupPhoneNextOf, type LastLogin, type LoginProvider, type SignupPhoneNext } from '@livejjim/web/src/lib/social-login.ts'
 import { post } from '../api/client.ts'
 import { absoluteUrl, apiConfig } from '../api/config.ts'
 
@@ -43,7 +43,8 @@ export async function fetchAppLoginProviders(): Promise<LoginProvider[]> {
 /** 앱 로그인 한 번의 결과 */
 export type AppSocialOutcome =
   | { readonly kind: 'logged_in' }
-  | { readonly kind: 'signup'; readonly provider: LoginProvider; readonly ticket: string; readonly verifier: string }
+  /** 처음 계정. phoneRequired면 문자 인증부터 (D-UX3-30) */
+  | { readonly kind: 'signup'; readonly provider: LoginProvider; readonly ticket: string; readonly verifier: string; readonly phoneRequired: boolean }
   | { readonly kind: 'result'; readonly code: string; readonly provider: LoginProvider }
   | { readonly kind: 'closed' }
   | { readonly kind: 'failed'; readonly message: string }
@@ -69,14 +70,45 @@ export async function appSocialLogin(provider: LoginProvider): Promise<AppSocial
   if (code !== null) return { kind: 'result', code, provider: from }
   const ticket = url.searchParams.get('ticket')
   if (ticket === null) return { kind: 'failed', message: APP_LOGIN_FAILED }
-  const done = await post<{ result?: unknown }>('/api/auth/app/finish', { ticket, verifier })
-  if (done.result === 'SIGNUP') return { kind: 'signup', provider: from, ticket, verifier }
+  const done = await post<{ result?: unknown; phoneRequired?: unknown }>('/api/auth/app/finish', { ticket, verifier })
+  if (done.result === 'SIGNUP') return { kind: 'signup', provider: from, ticket, verifier, phoneRequired: done.phoneRequired === true }
   return { kind: 'logged_in' }
 }
 
 /** 처음 계정이면 바로 가입 (D-UX3-29 — 단추 아래 안내를 보고 누른 것이 동의) */
 export async function appSignup(ticket: string, verifier: string): Promise<void> {
   await post('/api/auth/signup', { agree: true, ticket, verifier })
+}
+
+// ── 휴대폰 번호 (D-UX3-30) ───────────────────────────────────────────
+// 가입 표·검증 값과 함께 번호를 확인한다. 있는 번호면 그 계정으로 다시 로그인한 뒤 appSignupLink로 잇는다
+
+/** 가입 중 인증번호 받기 → 가린 번호 */
+export async function appSignupPhoneSend(ticket: string, verifier: string, phone: string): Promise<string> {
+  const sent = await post<{ phone?: unknown }>('/api/auth/signup/phone', { phone, ticket, verifier })
+  return typeof sent.phone === 'string' ? sent.phone : phone
+}
+
+/** 가입 중 인증번호 확인 → 새 번호(SIGNUP)인지 있는 번호(LOGIN_EXISTING)인지 */
+export async function appSignupPhoneVerify(ticket: string, verifier: string, code: string): Promise<SignupPhoneNext> {
+  const next = signupPhoneNextOf(await post('/api/auth/signup/phone/verify', { code, ticket, verifier }))
+  if (next === null) throw new Error('알 수 없는 답')
+  return next
+}
+
+/** 방금 로그인한 기존 계정에 가입 표의 간편 로그인을 잇는다 */
+export async function appSignupLink(ticket: string, verifier: string): Promise<void> {
+  await post('/api/auth/signup/link', { ticket, verifier })
+}
+
+/** 로그인한 계정의 번호 등록: 인증번호 받기 → 가린 번호 */
+export async function accountPhoneSend(phone: string): Promise<string> {
+  const sent = await post<{ phone?: unknown }>('/api/auth/phone', { phone })
+  return typeof sent.phone === 'string' ? sent.phone : phone
+}
+
+export async function accountPhoneVerify(code: string): Promise<void> {
+  await post('/api/auth/phone/verify', { code })
 }
 
 // ── 최근 로그인 (그 기기) ──────────────────────────────────────────────

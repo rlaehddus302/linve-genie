@@ -226,7 +226,8 @@ describe('AC-I3-61 보조자 권한 — 허용 목록 밖은 기본으로 막힘
     await createBroadcast(w, seller, { rehearsal: true })
     const helper = await assistantSession(w, seller, '엄마')
     const api = client(w, helper.cookie)
-    expect((await api.get('/api/me')).body).toEqual({ seller: { name: `가게 ${seller.loginId}` }, loginId: helper.loginId, role: 'ASSISTANT', assistant: { name: '엄마' } })
+    // D-UX3-30: phone·phoneRequired 추가 — 보조자는 번호 없음
+    expect((await api.get('/api/me')).body).toEqual({ seller: { name: `가게 ${seller.loginId}` }, loginId: helper.loginId, role: 'ASSISTANT', assistant: { name: '엄마' }, phone: null, phoneRequired: false })
     expect((await api.get('/api/days')).status).toBe(200)
     expect((await api.get(`/api/days/${b.date}`)).status).toBe(200)
     expect((await api.get(`/api/days/${b.date}/changes?since=0`)).status).toBe(200)

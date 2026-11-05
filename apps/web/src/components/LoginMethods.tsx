@@ -197,6 +197,12 @@ export function LoginMethodsPanel({ handle, result }: { readonly handle: LoginMe
           <li className="login-method">
             <p>아이디 로그인 · 아이디 {state.methods.loginId} · 늘 켜져 있어요</p>
           </li>
+          {(state.methods.phone ?? null) !== null ? (
+            <li className="login-method">
+              {/* D-UX3-30: 문자로 확인한 번호 — 같은 번호면 어느 간편 로그인으로 와도 이 계정으로 이어진다 */}
+              <p>휴대폰 번호 · {state.methods.phone}</p>
+            </li>
+          ) : null}
           {state.methods.providers.map((item) => (
             <MethodRow key={item.provider} item={item} moving={moving} locked={moving !== null || unlinking} onLink={() => void link(item.provider)} onUnlink={() => {
               setUnlinkError(null)

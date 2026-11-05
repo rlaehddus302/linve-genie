@@ -4859,3 +4859,12 @@ select.input {
 @media (max-width: 47.99rem) {
   .inbox-actions .button { min-height: 52px; }
 }
+
+/* 휴대폰 번호 확인 단추 (D-UX3-30): 좌우로 같은 폭 — 부정 왼쪽, 긍정 오른쪽 */
+.phone-buttons {
+  flex-wrap: nowrap;
+}
+.phone-buttons > .button {
+  flex: 1 1 0;
+  min-width: 0;
+}

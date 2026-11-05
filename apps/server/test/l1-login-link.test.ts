@@ -169,6 +169,8 @@ describe('AC-L1-07 목록·끊기·보조자', () => {
         { provider: 'naver', enabled: true, linked: false, label: '', linkedAt: null },
         { provider: 'google', enabled: true, linked: false, label: '', linkedAt: null },
       ],
+      // D-UX3-30: 문자로 확인한 번호(가린 것)도 준다 — 이 계정은 번호 없음
+      phone: null,
     })
     const theirs = await client(w, b.cookie).get('/api/auth/methods')
     expect((theirs.body.providers as unknown[])[0]).toEqual({ provider: 'kakao', enabled: true, linked: true, label: 'a***@kakao.com', linkedAt: new Date(w.clock.now()).toISOString() })

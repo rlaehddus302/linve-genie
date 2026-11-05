@@ -16,11 +16,15 @@
 // - 돌아오는 주소 검사 순서(AC-L1-04): IP 한도 → 공급자 error → state·쿠키 검사와 쓴 표시(한 문장) → 연결이면 세션 → 코드 교환·사용자 정보 → 연결 표.
 // - 돌아간 뒤 가는 곳은 앱 주소 + 고정 경로(`/` 또는 `/settings`) + login·provider 두 매개변수뿐이다(요청의 Host·매개변수로 바꾸지 않는다).
 // - 로그·응답에 코드·state·토큰·비밀값·공급자 계정 ID·이메일을 남기지 않는다(공급자 이름·결과 코드·오류 종류만).
+// - 휴대폰 번호로 같은 사람 묶기 (D-UX3-30, 문자 발송이 설정됐을 때): 가입 표로는 바로 계정을 만들지 않는다. 먼저 문자 인증을 하고
+//   ① 처음 보는 번호면 가입(계정에 번호를 단다) ② 이미 있는 번호면 그 계정의 로그인 방법으로 새로 로그인한 뒤(번호 확인 뒤에 만든 세션,
+//   그 계정과 같아야) POST /api/auth/signup/link가 이 공급자 계정을 그 계정에 잇는다. 번호만으로는 잇지 않는다(번호는 다른 사람에게 다시 배정된다).
+//   잇거나 만들 계정 ID·공급자 계정 ID·확인한 번호는 모두 서버(가입 표)에서 읽는다 — 요청 본문으로 받지 않는다.
 import { createHash, randomBytes } from 'node:crypto'
-import { and, eq, gt, isNull, lt, ne, sql } from 'drizzle-orm'
+import { and, count, eq, gt, isNull, lt, ne, sql } from 'drizzle-orm'
 import type { Auth } from '../auth.ts'
 import type { Db } from '../db/database.ts'
-import { accounts, loginLinks, loginStates, loginTickets, sellers, sessions } from '../db/schema.ts'
+import { accounts, loginLinks, loginStates, loginTickets, phoneChecks, phoneSends, sellers, sessions } from '../db/schema.ts'
 import { randomIds } from '../ids.ts'
 import { newSealedSellerKey } from '../secrets.ts'
 import { loginIdTaken } from '../store.ts'
@@ -30,6 +34,23 @@ import type { LogSink } from '../log.ts'
 import { openText, sealText } from '../secrets.ts'
 import type { Clock } from '../time.ts'
 import { maskedLabel } from './masked.ts'
+import {
+  accountPhoneHash,
+  CHECK_MAX_SENDS,
+  CODE_MAX_ATTEMPTS,
+  CODE_TTL_MS,
+  codeHash,
+  codeText,
+  DAY_MS,
+  maskedMobile,
+  newCode,
+  normalizeMobile,
+  PHONE_DAY_MAX_SENDS,
+  RESEND_GAP_MS,
+  sameHash,
+  SmsSendError,
+  type SmsSender,
+} from './phone.ts'
 import {
   CANCEL_ERRORS,
   PROVIDER_METHOD,
@@ -66,7 +87,9 @@ export const callbackPath = (provider: ProviderId): string => `/api/auth/${provi
 /** 웹 가입 표 쿠키 (D-UX3-28) — 약관 동의 화면에서 POST /api/auth/signup이 읽는다 */
 export const SIGNUP_COOKIE = '__Host-lj_signup'
 export const TICKET_TTL_MS = 10 * 60 * 1000
-export const signupCookie = (value: string): string => `${SIGNUP_COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${String(TICKET_TTL_MS / 1000)}`
+/** 가입 표는 30분 (D-UX3-30: 문자 인증·기존 계정 로그인까지 마칠 시간) */
+export const SIGNUP_TTL_MS = 30 * 60 * 1000
+export const signupCookie = (value: string): string => `${SIGNUP_COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${String(SIGNUP_TTL_MS / 1000)}`
 export const CLEAR_SIGNUP_COOKIE = `${SIGNUP_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`
 /** 앱으로 돌아가는 주소 (앱 scheme `livejjim` — app.json) */
 export const APP_RETURN = 'livejjim://auth'
@@ -110,6 +133,8 @@ export interface ProviderMethodView {
 export interface MethodsView {
   readonly loginId: string
   readonly providers: readonly ProviderMethodView[]
+  /** 문자로 확인한 휴대폰 번호(가린 것) — 없으면 null (D-UX3-30) */
+  readonly phone: string | null
 }
 
 export interface CallbackOutcome {
@@ -131,11 +156,64 @@ export interface TicketSession {
 
 export type AppFinishOutcome =
   | { readonly kind: 'logged_in'; readonly session: TicketSession }
-  | { readonly kind: 'signup'; readonly provider: ProviderId }
+  | { readonly kind: 'signup'; readonly provider: ProviderId; readonly phoneRequired: boolean }
   | { readonly kind: 'expired' }
   | { readonly kind: 'rate_limited' }
 
-export type SignupOutcome = { readonly kind: 'ok'; readonly session: TicketSession } | { readonly kind: 'expired' } | { readonly kind: 'rate_limited' } | { readonly kind: 'not_agreed' }
+export type SignupOutcome =
+  | { readonly kind: 'ok'; readonly session: TicketSession }
+  | { readonly kind: 'expired' }
+  | { readonly kind: 'rate_limited' }
+  | { readonly kind: 'not_agreed' }
+  /** 문자 인증을 아직 하지 않았거나, 확인한 번호가 이미 있는 계정의 것이다 (D-UX3-30) */
+  | { readonly kind: 'phone_required' }
+  /** 그 사이 같은 번호로 다른 가입이 끝났다 */
+  | { readonly kind: 'phone_taken' }
+
+/** 문자 보내기 결과 (D-UX3-30) */
+export type PhoneSendOutcome =
+  | { readonly kind: 'ok'; readonly phone: string }
+  | { readonly kind: 'invalid_phone' }
+  | { readonly kind: 'too_soon'; readonly waitSeconds: number }
+  | { readonly kind: 'too_many' }
+  | { readonly kind: 'expired' }
+  | { readonly kind: 'rate_limited' }
+  | { readonly kind: 'send_failed' }
+  | { readonly kind: 'unavailable' }
+
+export type CodeCheck = { readonly kind: 'ok'; readonly phoneHash: string; readonly phoneLabel: string } | { readonly kind: 'wrong'; readonly left: number } | { readonly kind: 'expired' }
+
+/** 가입 중 인증번호 확인 결과: 새 번호면 가입, 있는 번호면 그 계정으로 로그인해 잇기 */
+export type SignupPhoneOutcome =
+  | { readonly kind: 'new'; readonly phone: string }
+  | { readonly kind: 'existing'; readonly phone: string; readonly providers: readonly ProviderId[]; readonly password: boolean }
+  | { readonly kind: 'wrong'; readonly left: number }
+  | { readonly kind: 'expired' }
+  | { readonly kind: 'rate_limited' }
+  | { readonly kind: 'unavailable' }
+
+/** 기존 계정에 잇기 결과 */
+export type SignupLinkOutcome =
+  | { readonly kind: 'ok'; readonly provider: ProviderId }
+  | { readonly kind: 'expired' }
+  /** 로그인한 계정이 그 번호의 계정이 아니거나, 번호 확인 전에 만든 세션이다 */
+  | { readonly kind: 'mismatch' }
+  | { readonly kind: 'linked_elsewhere'; readonly provider: ProviderId }
+  | { readonly kind: 'already_linked'; readonly provider: ProviderId }
+
+/** 로그인한 계정의 번호 등록 결과 */
+export type AccountPhoneOutcome =
+  | { readonly kind: 'ok'; readonly phone: string }
+  | { readonly kind: 'wrong'; readonly left: number }
+  | { readonly kind: 'expired' }
+  | { readonly kind: 'taken' }
+  | { readonly kind: 'rate_limited' }
+  | { readonly kind: 'unavailable' }
+
+/** 잇기·번호 등록에 쓰는 로그인 세션 */
+export interface PhoneSessionInfo extends SessionInfo {
+  readonly createdAt: Date
+}
 
 export interface SocialLoginOptions {
   readonly db: Db
@@ -151,6 +229,8 @@ export interface SocialLoginOptions {
   readonly onChanged: (sellerId: string) => void
   /** 지운 세션의 실시간 연결을 닫는다 */
   readonly closeSessions: (hashes: readonly string[]) => void
+  /** 문자 보내기 (D-UX3-30). null이면 문자 인증을 끄고 가입 표로 바로 가입한다 */
+  readonly sms?: SmsSender | null
   /** 시험 주입점: afterClaim = 쓴 표시를 단 직후·공급자를 부르기 전, beforeLoginSession = 로그인 연결을 찾은 뒤·세션 거래 전 (TD-L1-001) */
   readonly hooks?: { readonly afterClaim?: () => void | Promise<void>; readonly beforeLoginSession?: () => void | Promise<void> }
 }
@@ -163,12 +243,19 @@ export class SocialLogin {
   readonly #options: SocialLoginOptions
   readonly #enabled: readonly ProviderId[]
   readonly #startLimiter: IpLimiter
+  readonly #smsLimiter: IpLimiter
 
   constructor(options: SocialLoginOptions) {
     this.#options = options
     this.#enabled = enabledProviders(options.setup)
     const limits = options.loginLimits ?? {}
     this.#startLimiter = new IpLimiter(options.clock, { ...limits, ipMaxAttempts: (limits.ipMaxAttempts ?? IP_MAX_ATTEMPTS) * 5 })
+    this.#smsLimiter = new IpLimiter(options.clock, limits)
+  }
+
+  /** 문자 인증을 하는지 (D-UX3-30) */
+  get phoneRequired(): boolean {
+    return (this.#options.sms ?? null) !== null
   }
 
   /** 켜진 공급자 (카카오·네이버·구글 순) */
@@ -492,6 +579,8 @@ export class SocialLogin {
     const now = clock.now()
     const ticket = randomBytes(32).toString('base64url')
     const ticketHash = sha256(ticket)
+    // 끝난 표 정리 — 문자 확인 행이 먼저 (키가 표 해시라 외래 키는 없다)
+    await db.delete(phoneChecks).where(lt(phoneChecks.createdAt, new Date(now - DAY_MS)))
     await db.delete(loginTickets).where(lt(loginTickets.expiresAt, new Date(now)))
     await db.insert(loginTickets).values({
       ticketHash,
@@ -503,7 +592,7 @@ export class SocialLogin {
       providerUserEnc: input.providerUserId === undefined ? null : sealText(masterKey, ticketAad(input.provider, ticketHash), input.providerUserId),
       label: input.label ?? '',
       createdAt: new Date(now),
-      expiresAt: new Date(now + TICKET_TTL_MS),
+      expiresAt: new Date(now + (input.kind === 'SIGNUP' ? SIGNUP_TTL_MS : TICKET_TTL_MS)),
     })
     return ticket
   }
@@ -558,7 +647,7 @@ export class SocialLogin {
     const row = await this.#findTicket(ticket, verifier)
     if (row === null || !isProviderId(row.provider)) return { kind: 'expired' }
     const provider = row.provider
-    if (row.kind === 'SIGNUP') return { kind: 'signup', provider }
+    if (row.kind === 'SIGNUP') return { kind: 'signup', provider, phoneRequired: this.phoneRequired }
     if (row.sellerId === null || row.accountId === null) return { kind: 'expired' }
     const { sellerId, accountId } = row
     const session = await this.#options.db.transaction(async (raw): Promise<TicketSession | null> => {
@@ -590,6 +679,9 @@ export class SocialLogin {
     const row = await this.#findTicket(input.ticket, input.verifier)
     if (row === null || row.kind !== 'SIGNUP' || row.providerUserEnc === null || !isProviderId(row.provider)) return { kind: 'expired' }
     const provider = row.provider
+    // 문자 인증 (D-UX3-30): 확인한 번호가 있어야 하고, 이미 있는 계정의 번호면 새로 만들지 않는다(그 계정에 잇는다)
+    const phone = this.phoneRequired ? (row.phoneHash !== null && row.phoneLabel !== null && row.phoneVerifiedAt !== null && row.targetAccountId === null ? { hash: row.phoneHash, label: row.phoneLabel, at: row.phoneVerifiedAt } : null) : undefined
+    if (phone === null) return { kind: 'phone_required' }
     let providerUserId: string
     try {
       providerUserId = openText(this.#options.masterKey, ticketAad(provider, row.ticketHash), row.providerUserEnc)
@@ -615,7 +707,15 @@ export class SocialLogin {
           const sellerId = randomIds.seller()
           const accountId = randomIds.account()
           await tx.insert(sellers).values({ id: sellerId, name: SIGNUP_SHOP_NAME, phoneKeyEnc: newSealedSellerKey(masterKey, sellerId), settings: '{}', createdAt: now })
-          await tx.insert(accounts).values({ id: accountId, sellerId, loginId, passwordHash: '', createdAt: now, termsAgreedAt: now })
+          await tx.insert(accounts).values({
+            id: accountId,
+            sellerId,
+            loginId,
+            passwordHash: '',
+            createdAt: now,
+            termsAgreedAt: now,
+            ...(phone === undefined ? {} : { phoneHash: phone.hash, phoneLabel: phone.label, phoneVerifiedAt: phone.at }),
+          })
           await tx.insert(loginLinks).values({ sellerId, accountId, provider, providerUserId, label: row.label, linkedAt: now, lastLoginAt: now })
           return this.#ticketSession(tx, sellerId, accountId, provider)
         })
@@ -623,8 +723,10 @@ export class SocialLogin {
         this.#options.log({ level: 'info', code: 'SOCIAL_LOGIN', provider, reason: 'SIGNED_UP' })
         return { kind: 'ok', session }
       } catch (error) {
-        // 아이디가 같은 순간 겹쳤다 — 새 아이디로 다시 (표는 거래가 되돌아가 아직 쓰지 않음)
-        if (uniqueViolation(error) === null) throw error
+        // 아이디가 같은 순간 겹쳤다 — 새 아이디로 다시 (표는 거래가 되돌아가 아직 쓰지 않음). 번호가 겹쳤으면 다시 하지 않는다
+        const violated = uniqueViolation(error)
+        if (violated === null) throw error
+        if (violated === 'accounts_phone_uq') return { kind: 'phone_taken' }
       }
     }
     return { kind: 'expired' }
@@ -650,7 +752,12 @@ export class SocialLogin {
       const row = linked.get(provider)
       return { provider, enabled: this.#enabled.includes(provider), linked: row !== undefined, label: row?.label ?? '', linkedAt: row?.linkedAt.toISOString() ?? null }
     })
-    return { loginId: session.loginId, providers }
+    const phone = await this.#options.db
+      .select({ phoneLabel: accounts.phoneLabel })
+      .from(accounts)
+      .where(and(eq(accounts.id, session.accountId), eq(accounts.sellerId, session.sellerId)))
+      .limit(1)
+    return { loginId: session.loginId, providers, phone: phone[0]?.phoneLabel ?? null }
   }
 
   /**
@@ -695,5 +802,211 @@ export class SocialLogin {
     this.#options.log({ level: 'info', code: 'SOCIAL_LOGIN', provider, reason: 'UNLINKED', count: outcome.hashes.length })
     this.#notify(session.sellerId)
     return { kind: 'ok', view: await this.methods(session) }
+  }
+
+  // ── 휴대폰 번호 (D-UX3-30) ─────────────────────────────────────────────
+
+  /** 인증번호를 만들어 보낸다 (확인 키마다 60초 간격·5번, 번호마다 하루 10번, IP 한도) */
+  async #sendCode(key: string, phoneInput: unknown, address: string | null, sellerId: string | null = null): Promise<PhoneSendOutcome> {
+    const sms = this.#options.sms ?? null
+    if (sms === null) return { kind: 'unavailable' }
+    const normalized = normalizeMobile(phoneInput)
+    if (normalized === null) return { kind: 'invalid_phone' }
+    if (!this.#smsLimiter.take(address === null ? null : ipKey(address))) return { kind: 'rate_limited' }
+    const { db, clock, masterKey } = this.#options
+    const now = clock.now()
+    const hash = accountPhoneHash(masterKey, normalized)
+    const label = maskedMobile(normalized)
+    await db.delete(phoneSends).where(lt(phoneSends.sentAt, new Date(now - DAY_MS)))
+    const code = newCode()
+    const decided = await db.transaction(async (raw): Promise<PhoneSendOutcome | null> => {
+      const tx = raw as unknown as Db
+      await raw.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`phone-check/${key}`}, 0))`)
+      const previous = (await tx.select().from(phoneChecks).where(eq(phoneChecks.key, key)).limit(1))[0]
+      const fresh = previous !== undefined && previous.createdAt.getTime() > now - DAY_MS ? previous : undefined
+      if (fresh !== undefined) {
+        const wait = fresh.sentAt.getTime() + RESEND_GAP_MS - now
+        if (wait > 0) return { kind: 'too_soon', waitSeconds: Math.ceil(wait / 1000) }
+        if (fresh.sends >= CHECK_MAX_SENDS) return { kind: 'too_many' }
+      }
+      const sent = await tx
+        .select({ n: count() })
+        .from(phoneSends)
+        .where(and(eq(phoneSends.phoneHash, hash), gt(phoneSends.sentAt, new Date(now - DAY_MS))))
+      if ((sent[0]?.n ?? 0) >= PHONE_DAY_MAX_SENDS) return { kind: 'too_many' }
+      const values = {
+        sellerId,
+        phoneHash: hash,
+        phoneLabel: label,
+        codeHash: codeHash(masterKey, key, code),
+        codeExpiresAt: new Date(now + CODE_TTL_MS),
+        attempts: 0,
+        sends: (fresh?.sends ?? 0) + 1,
+        sentAt: new Date(now),
+        createdAt: fresh?.createdAt ?? new Date(now),
+      }
+      await tx.insert(phoneChecks).values({ key, ...values }).onConflictDoUpdate({ target: phoneChecks.key, set: values })
+      await tx.insert(phoneSends).values({ sellerId, phoneHash: hash, sentAt: new Date(now) })
+      return null
+    })
+    if (decided !== null) return decided
+    try {
+      await sms.send(normalized, codeText(code))
+    } catch (error) {
+      const kind = error instanceof SmsSendError ? error.kind : 'unknown'
+      this.#options.log({ level: 'warn', code: 'SMS_SEND_FAILED', errorKind: `Sms_${kind}`, ...(error instanceof SmsSendError && error.status !== null ? { status: error.status } : {}) })
+      return { kind: 'send_failed' }
+    }
+    this.#options.log({ level: 'info', code: 'SMS_CODE_SENT' })
+    return { kind: 'ok', phone: label }
+  }
+
+  /** 인증번호 확인 (틀린 수를 먼저 올린다 — 동시에 여러 번 넣어도 5번을 넘지 못한다). 맞으면 확인 행을 지운다 */
+  async #checkCode(key: string, code: unknown): Promise<CodeCheck> {
+    const { db, clock, masterKey } = this.#options
+    const now = clock.now()
+    const rows = await db
+      .update(phoneChecks)
+      .set({ attempts: sql`${phoneChecks.attempts} + 1` })
+      .where(and(eq(phoneChecks.key, key), lt(phoneChecks.attempts, CODE_MAX_ATTEMPTS), gt(phoneChecks.codeExpiresAt, new Date(now))))
+      .returning()
+    const row = rows[0]
+    if (row === undefined) return { kind: 'expired' }
+    const text = typeof code === 'string' ? code.replace(/\s/g, '') : ''
+    if (!/^\d{6}$/.test(text) || !sameHash(codeHash(masterKey, key, text), row.codeHash)) {
+      const left = CODE_MAX_ATTEMPTS - row.attempts
+      return left <= 0 ? { kind: 'expired' } : { kind: 'wrong', left }
+    }
+    await db.delete(phoneChecks).where(eq(phoneChecks.key, key))
+    return { kind: 'ok', phoneHash: row.phoneHash, phoneLabel: row.phoneLabel }
+  }
+
+  /** 그 번호의 판매자 계정 (지우지 않은 것) */
+  async #accountByPhone(db: Db, phoneHash: string): Promise<{ readonly id: string; readonly sellerId: string; readonly passwordHash: string } | null> {
+    const rows = await db
+      .select({ id: accounts.id, sellerId: accounts.sellerId, passwordHash: accounts.passwordHash })
+      .from(accounts)
+      .where(and(eq(accounts.phoneHash, phoneHash), eq(accounts.role, 'SELLER'), isNull(accounts.deletedAt)))
+      .limit(1)
+    return rows[0] ?? null
+  }
+
+  async #signupTicket(ticket: unknown, verifier: unknown): Promise<(typeof loginTickets.$inferSelect) | null> {
+    const row = await this.#findTicket(ticket, verifier)
+    return row !== null && row.kind === 'SIGNUP' && isProviderId(row.provider) ? row : null
+  }
+
+  /** 가입 중 인증번호 보내기 (POST /api/auth/signup/phone) */
+  async signupPhoneSend(input: { readonly ticket: unknown; readonly verifier: unknown; readonly phone: unknown }, address: string | null): Promise<PhoneSendOutcome> {
+    if (!this.phoneRequired) return { kind: 'unavailable' }
+    const row = await this.#signupTicket(input.ticket, input.verifier)
+    if (row === null) return { kind: 'expired' }
+    return this.#sendCode(`t:${row.ticketHash}`, input.phone, address)
+  }
+
+  /**
+   * 가입 중 인증번호 확인 (POST /api/auth/signup/phone/verify). 맞으면 그 번호를 가입 표에 단다.
+   * 처음 보는 번호면 new(그다음 signup), 있는 번호면 existing — 그 계정의 로그인 방법(켜진 공급자·비밀번호)을 알려 준다(계정 ID·아이디는 내지 않는다)
+   */
+  async signupPhoneVerify(input: { readonly ticket: unknown; readonly verifier: unknown; readonly code: unknown }, address: string | null): Promise<SignupPhoneOutcome> {
+    if (!this.phoneRequired) return { kind: 'unavailable' }
+    if (!this.#smsLimiter.take(address === null ? null : ipKey(address))) return { kind: 'rate_limited' }
+    const row = await this.#signupTicket(input.ticket, input.verifier)
+    if (row === null) return { kind: 'expired' }
+    const checked = await this.#checkCode(`t:${row.ticketHash}`, input.code)
+    if (checked.kind !== 'ok') return checked
+    const { db, clock } = this.#options
+    const target = await this.#accountByPhone(db, checked.phoneHash)
+    const updated = await db
+      .update(loginTickets)
+      .set({ phoneHash: checked.phoneHash, phoneLabel: checked.phoneLabel, phoneVerifiedAt: new Date(clock.now()), targetAccountId: target?.id ?? null })
+      .where(and(eq(loginTickets.ticketHash, row.ticketHash), isNull(loginTickets.usedAt)))
+      .returning({ ticketHash: loginTickets.ticketHash })
+    if (updated.length === 0) return { kind: 'expired' }
+    if (target === null) return { kind: 'new', phone: checked.phoneLabel }
+    const links = await db.select({ provider: loginLinks.provider }).from(loginLinks).where(and(eq(loginLinks.accountId, target.id), eq(loginLinks.sellerId, target.sellerId)))
+    const providers = PROVIDER_ORDER.filter((provider) => this.#enabled.includes(provider) && links.some((link) => link.provider === provider))
+    this.#options.log({ level: 'info', code: 'SOCIAL_LOGIN', provider: row.provider as ProviderId, reason: 'PHONE_EXISTING' })
+    return { kind: 'existing', phone: checked.phoneLabel, providers, password: target.passwordHash !== '' }
+  }
+
+  /**
+   * 기존 계정에 잇기 (POST /api/auth/signup/link, 로그인 세션 필요): 가입 표의 공급자 계정을 지금 로그인한 계정에 잇는다.
+   * 그 계정이 번호로 찾은 계정이어야 하고, 세션은 번호 확인 뒤에 새로 만든 것이어야 한다(이미 열려 있던 세션으로는 잇지 않는다)
+   */
+  async signupLink(input: { readonly ticket: unknown; readonly verifier: unknown }, session: PhoneSessionInfo): Promise<SignupLinkOutcome> {
+    const row = await this.#signupTicket(input.ticket, input.verifier)
+    if (row === null || row.providerUserEnc === null || row.phoneVerifiedAt === null || row.targetAccountId === null) return { kind: 'expired' }
+    const provider = row.provider as ProviderId
+    if (session.role !== 'SELLER' || session.accountId !== row.targetAccountId || session.createdAt.getTime() < row.phoneVerifiedAt.getTime()) return { kind: 'mismatch' }
+    let providerUserId: string
+    try {
+      providerUserId = openText(this.#options.masterKey, ticketAad(provider, row.ticketHash), row.providerUserEnc)
+    } catch {
+      return { kind: 'expired' }
+    }
+    const { db, clock } = this.#options
+    const outcome = await db.transaction(async (raw): Promise<SignupLinkOutcome> => {
+      const tx = raw as unknown as Db
+      await raw.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`login-links/${session.accountId}`}, 0))`)
+      const account = await tx
+        .select({ phoneHash: accounts.phoneHash })
+        .from(accounts)
+        .where(and(eq(accounts.id, session.accountId), eq(accounts.sellerId, session.sellerId), eq(accounts.role, 'SELLER'), isNull(accounts.deletedAt)))
+        .limit(1)
+      if (account[0] === undefined || account[0].phoneHash !== row.phoneHash) return { kind: 'mismatch' }
+      if (!(await this.#useTicket(tx, row.ticketHash))) return { kind: 'expired' }
+      const taken = await tx
+        .select({ accountId: loginLinks.accountId })
+        .from(loginLinks)
+        .where(and(eq(loginLinks.provider, provider), eq(loginLinks.providerUserId, providerUserId)))
+        .limit(1)
+      if (taken[0] !== undefined) return taken[0].accountId === session.accountId ? { kind: 'ok', provider } : { kind: 'linked_elsewhere', provider }
+      const mine = await tx
+        .select({ id: loginLinks.id })
+        .from(loginLinks)
+        .where(and(eq(loginLinks.sellerId, session.sellerId), eq(loginLinks.accountId, session.accountId), eq(loginLinks.provider, provider)))
+        .limit(1)
+      if (mine.length > 0) return { kind: 'already_linked', provider }
+      const now = new Date(clock.now())
+      const inserted = await tx
+        .insert(loginLinks)
+        .values({ sellerId: session.sellerId, accountId: session.accountId, provider, providerUserId, label: row.label, linkedAt: now })
+        .onConflictDoNothing()
+        .returning({ id: loginLinks.id })
+      return inserted.length > 0 ? { kind: 'ok', provider } : { kind: 'linked_elsewhere', provider }
+    })
+    this.#options.log({ level: 'info', code: 'SOCIAL_LOGIN', provider, reason: outcome.kind === 'ok' ? 'PHONE_LINKED' : `PHONE_LINK_${outcome.kind.toUpperCase()}` })
+    if (outcome.kind === 'ok') this.#notify(session.sellerId)
+    return outcome
+  }
+
+  /** 로그인한 판매자 계정의 번호 등록·바꾸기: 인증번호 보내기 (POST /api/auth/phone) */
+  async accountPhoneSend(session: SessionInfo, phone: unknown, address: string | null): Promise<PhoneSendOutcome> {
+    if (session.role !== 'SELLER') return { kind: 'unavailable' }
+    return this.#sendCode(`a:${session.accountId}`, phone, address, session.sellerId)
+  }
+
+  /** 로그인한 판매자 계정의 번호 확인 (POST /api/auth/phone/verify). 다른 계정의 번호면 바꾸지 않는다(계정은 합치지 않는다) */
+  async accountPhoneVerify(session: SessionInfo, code: unknown, address: string | null): Promise<AccountPhoneOutcome> {
+    if (session.role !== 'SELLER' || !this.phoneRequired) return { kind: 'unavailable' }
+    if (!this.#smsLimiter.take(address === null ? null : ipKey(address))) return { kind: 'rate_limited' }
+    const checked = await this.#checkCode(`a:${session.accountId}`, code)
+    if (checked.kind !== 'ok') return checked
+    const { db, clock } = this.#options
+    const other = await this.#accountByPhone(db, checked.phoneHash)
+    if (other !== null && other.id !== session.accountId) return { kind: 'taken' }
+    try {
+      await db
+        .update(accounts)
+        .set({ phoneHash: checked.phoneHash, phoneLabel: checked.phoneLabel, phoneVerifiedAt: new Date(clock.now()) })
+        .where(and(eq(accounts.id, session.accountId), eq(accounts.sellerId, session.sellerId)))
+    } catch (error) {
+      if (uniqueViolation(error) === 'accounts_phone_uq') return { kind: 'taken' }
+      throw error
+    }
+    this.#options.log({ level: 'info', code: 'SOCIAL_LOGIN', reason: 'PHONE_SAVED' })
+    this.#notify(session.sellerId)
+    return { kind: 'ok', phone: checked.phoneLabel }
   }
 }

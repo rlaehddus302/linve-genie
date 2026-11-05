@@ -38,7 +38,8 @@ import { HomePage } from './components/HomePage.tsx'
 import { LabelsPage } from './components/LabelsPage.tsx'
 import { RefusalReset } from './components/LabelsOff.tsx'
 import { LandingPage } from './components/LandingPage.tsx'
-import { commitPendingLogin } from './lib/social-login.ts'
+import { ACCOUNT_PHONE_BODY, ACCOUNT_PHONE_TITLE, commitPendingLogin, LOGOUT_LABEL, setLoginFlash, takePendingLink } from './lib/social-login.ts'
+import { PhoneVerify } from './components/PhoneVerify.tsx'
 import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
 import { PackingPage } from './components/PackingPage.tsx'
@@ -139,6 +140,20 @@ export function App() {
       const me = await get<Me>('/api/me')
       // 공급자에서 돌아와 로그인됐다 — 누른 공급자를 "최근 로그인"으로 (D-UX3-28)
       if (!isAssistant(me)) commitPendingLogin()
+      // 있는 번호의 계정으로 다시 로그인하고 돌아왔다 — 가입 표의 간편 로그인을 이 계정에 잇는다 (D-UX3-30).
+      // 다른 계정으로 들어갔으면 로그아웃하고 로그인 화면에 까닭을 보인다
+      if (!isAssistant(me) && takePendingLink()) {
+        try {
+          await post('/api/auth/signup/link', {})
+        } catch (error) {
+          if (isApiError(error) && error.code === 'LINK_MISMATCH') {
+            await post('/api/logout', {}).catch(() => undefined)
+            setLoginFlash(error.message)
+            setSession({ state: 'out', expired: false })
+            return
+          }
+        }
+      }
       setSession({ state: 'in', me })
     } catch (error) {
       if (!isApiError(error)) throw error
@@ -420,6 +435,27 @@ export function App() {
   // 음성 인식 기록은 판매자마다 따로 (RA-V3-008)
   setArchiveSeller(me.loginId)
   const assistant = isAssistant(me)
+  // 문자 인증이 켜진 서버에서 번호가 없는 판매자 계정은 번호부터 한 번 확인한다 (D-UX3-30)
+  if (!assistant && me.phoneRequired === true) {
+    return (
+      <main className="page">
+        <h1>{SERVICE_NAME}</h1>
+        <PhoneVerify
+          title={ACCOUNT_PHONE_TITLE}
+          body={ACCOUNT_PHONE_BODY}
+          send={async (phone) => {
+            const sent = await post<{ phone?: unknown }>('/api/auth/phone', { phone })
+            return typeof sent.phone === 'string' ? sent.phone : phone
+          }}
+          verify={async (code) => {
+            await post('/api/auth/phone/verify', { code })
+            await check()
+          }}
+          back={{ label: LOGOUT_LABEL, onPress: () => void logout() }}
+        />
+      </main>
+    )
+  }
   const shell = (
     <>
       <TopBar shopName={me.seller.name} assistant={assistant} onLogout={() => void logout()} route={route} navigate={navigate} />

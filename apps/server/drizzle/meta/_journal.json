@@ -288,6 +288,13 @@
       "when": 1794960000014,
       "tag": "0040_ux3_social_signup",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794960000015,
+      "tag": "0041_ux3_phone_identity",
+      "breakpoints": true
     }
   ]
 }

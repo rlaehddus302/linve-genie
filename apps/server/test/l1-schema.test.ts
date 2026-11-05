@@ -35,9 +35,12 @@ describe('AC-L1-02 표', () => {
     expect(await columns(pg, 'login_states')).toEqual(['state_hash', 'browser_hash', 'provider', 'purpose', 'seller_id', 'account_id', 'session_hash', 'verifier_enc', 'created_at', 'expires_at', 'used_at', 'app_challenge'])
     expect(await columns(pg, 'sessions')).toEqual(['token_hash', 'seller_id', 'account_id', 'created_at', 'expires_at', 'extended_at', 'method'])
     // D-UX3-28: 앱 로그인 challenge(검증 값의 해시)·가입 표 (표는 해시, 공급자 계정 ID는 암호화 칸)
-    expect(await columns(pg, 'login_tickets')).toEqual(['ticket_hash', 'kind', 'provider', 'app_challenge', 'seller_id', 'account_id', 'provider_user_enc', 'label', 'created_at', 'expires_at', 'used_at'])
-    for (const table of ['login_links', 'login_states', 'login_tickets', 'sessions', 'accounts']) {
-      for (const name of await columns(pg, table)) expect(name, `${table}.${name}`).not.toMatch(/access|refresh|id_token|^code$|auth_code|email|nickname|^token$/)
+    // D-UX3-30: 가입 표에 확인한 번호(해시·가린 번호·확인 시각)와 그 번호의 기존 계정. 문자 인증 표는 인증번호·번호 모두 해시만 — 원문 칸이 없다
+    expect(await columns(pg, 'login_tickets')).toEqual(['ticket_hash', 'kind', 'provider', 'app_challenge', 'seller_id', 'account_id', 'provider_user_enc', 'label', 'created_at', 'expires_at', 'used_at', 'phone_hash', 'phone_label', 'phone_verified_at', 'target_account_id'])
+    expect(await columns(pg, 'phone_checks')).toEqual(['key', 'seller_id', 'phone_hash', 'phone_label', 'code_hash', 'code_expires_at', 'attempts', 'sends', 'sent_at', 'created_at'])
+    expect(await columns(pg, 'phone_sends')).toEqual(['id', 'seller_id', 'phone_hash', 'sent_at'])
+    for (const table of ['login_links', 'login_states', 'login_tickets', 'sessions', 'accounts', 'phone_checks', 'phone_sends']) {
+      for (const name of await columns(pg, table)) expect(name, `${table}.${name}`).not.toMatch(/access|refresh|id_token|^code$|auth_code|email|nickname|^token$|^phone$|^phone_number$/)
     }
   })
 

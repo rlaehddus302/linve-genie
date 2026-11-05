@@ -179,6 +179,9 @@ export type LogCode =
   | 'PARCEL_CARRIER_NOT_READY'
   // L1 간편 로그인 (D-L1-04): 공급자 이름·결과 코드(reason)·오류 종류·HTTP 상태만
   | 'SOCIAL_LOGIN'
+  // D-UX3-30 문자 인증: 오류 종류·HTTP 상태만 — 번호·인증번호·본문은 남기지 않는다
+  | 'SMS_CODE_SENT'
+  | 'SMS_SEND_FAILED'
   // A1 AI 제안 (D-A1-06): 정해진 코드·판매자 ID·HTTP 상태·개수만. 키·댓글 글(원문·가린 것)·요청·응답 본문·모델이 돌려준 글은 남기지 않는다
   | 'ASSIST_HTTP_ERROR'
   | 'ASSIST_TIMEOUT'
@@ -325,6 +328,8 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   PARCEL_ADDRESSES_SWEPT: '보관 기간(주문 날짜 + 30일)이 지난 배송지를 지웠어요',
   PARCEL_CARRIER_NOT_READY: '우체국 택배 연동 키가 있지만 실제 택배사 연결은 아직 없어 쓰지 않았어요(가짜 택배사는 시험 모드에서만)',
   SOCIAL_LOGIN: '간편 로그인 결과',
+  SMS_CODE_SENT: '가입 인증번호 문자를 보냈어요',
+  SMS_SEND_FAILED: '가입 인증번호 문자를 보내지 못했어요(솔라피 키·보내는 번호·잔액을 확인해 주세요)',
   ASSIST_HTTP_ERROR: 'AI 제안 요청이 오류로 끝났어요(규칙 제안은 그대로)',
   ASSIST_TIMEOUT: 'AI 제안 요청이 15초 안에 끝나지 않았어요(규칙 제안은 그대로)',
   ASSIST_NETWORK: 'AI 제안 요청을 보내지 못했어요(규칙 제안은 그대로)',

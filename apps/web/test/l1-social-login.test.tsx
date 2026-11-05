@@ -206,6 +206,37 @@ describe('돌아온 결과 문장 (AC-L1-21)', () => {
     expect(server.callsTo('POST', /^\/api\/auth\/signup$/)).toHaveLength(1)
   })
 
+  // D-UX3-30 (사용자 지시 2026-11-05 "같은 사람이면 하나의 계정으로"): 문자 인증이 켜진 서버면 가입이 PHONE_REQUIRED → 번호 확인
+  it('D-UX3-30 있는 번호: 번호 확인 → "이미 가입한 계정이 있어요" → 그 계정의 네이버로 다녀오면 돌아와서 한 번 잇는다', async () => {
+    server
+      .on('POST', /^\/api\/auth\/signup$/, (): Reply => apiError(409, 'PHONE_REQUIRED', '휴대폰 번호를 먼저 확인해 주세요.'))
+      .on('POST', /^\/api\/auth\/signup\/phone$/, (): Reply => ({ body: { phone: '010-****-6666' } }))
+      .on('POST', /^\/api\/auth\/signup\/phone\/verify$/, (): Reply => ({ body: { next: 'LOGIN_EXISTING', phone: '010-****-6666', providers: ['naver'], password: false } }))
+      .on('POST', /^\/api\/auth\/signup\/link$/, (): Reply => ({ body: { provider: 'kakao' } }))
+    window.history.replaceState(null, '', '/?login=SIGNUP&provider=kakao')
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: '휴대폰 번호를 확인할게요' })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '010-5555-6666' } })
+    fireEvent.click(screen.getByRole('button', { name: '인증번호 받기' }))
+    expect(await screen.findByText('010-****-6666 번호로 인증번호를 보냈어요.')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    expect(await screen.findByRole('heading', { name: '이미 가입한 계정이 있어요' })).toBeTruthy()
+    expect(screen.getByText('010-****-6666 번호로 가입한 계정이에요. 네이버로 로그인하면 카카오도 함께 이어져요.')).toBeTruthy()
+    expect(socialButtons().map((button) => button.textContent)).toEqual(['네이버로 로그인'])
+    fireEvent.click(screen.getByRole('button', { name: '네이버로 로그인' }))
+    await waitFor(() => expect(assigned).toEqual([AUTHORIZE('naver')]))
+    expect(window.sessionStorage.getItem('livejjim:pending-link')).toBe('1')
+    // 네이버에서 로그인되어 돌아왔다
+    cleanup()
+    loggedIn = true
+    window.history.replaceState(null, '', '/')
+    render(<App />)
+    await waitFor(() => expect(server.callsTo('POST', /^\/api\/auth\/signup\/link$/)).toHaveLength(1))
+    expect(window.sessionStorage.getItem('livejjim:pending-link')).toBeNull()
+    expect(server.callsTo('POST', /^\/api\/auth\/signup$/)).toHaveLength(1)
+  })
+
   it('D-UX3-28 최근 로그인: 마지막으로 로그인한 공급자 단추에만 "최근 로그인"', async () => {
     window.localStorage.setItem('livejjim:last-login', 'naver')
     await openLogin()

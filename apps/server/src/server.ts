@@ -81,6 +81,7 @@ import { Sealer } from './youtube/seal.ts'
 import { YoutubeSystem, checkYoutubeConfig, type LinkHooks, type YoutubeConfig } from './youtube/system.ts'
 import { realTimer, type Timer } from './youtube/timer.ts'
 import { checkSocialSetup, type SocialLoginSetup } from './social/providers.ts'
+import type { SmsSender } from './social/phone.ts'
 import { SocialLogin } from './social/service.ts'
 import { AssistService, checkAssistSetup, type AssistSetup } from './assist/service.ts'
 
@@ -240,6 +241,8 @@ export interface ServerOptions {
    * 공급자 주소 바꾸기·http 허용·HTTP 함수·시간 제한은 시험·E2E·연습 기동만(가짜 OAuth 서버). 없거나 공급자가 없으면 꺼짐(지금과 같다)
    */
   readonly socialLogin?: SocialLoginSetup
+  /** 가입 문자 인증 발송 (D-UX3-30). 없으면 문자 인증 없이 가입 표로 바로 가입한다 */
+  readonly sms?: SmsSender | null
   /** 간편 로그인 시험 주입점 (쓴 표시 직후·로그인 연결을 찾은 뒤 세션 거래 전 — 동시 사용 시험) */
   readonly socialHooks?: { readonly afterClaim?: () => void | Promise<void>; readonly beforeLoginSession?: () => void | Promise<void> }
   /**
@@ -734,6 +737,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     clock,
     appOrigin: options.appOrigin,
     setup: options.socialLogin ?? { providers: {} },
+    sms: options.sms ?? null,
     auth,
     log,
     ...(options.loginLimits === undefined ? {} : { loginLimits: options.loginLimits }),

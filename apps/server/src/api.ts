@@ -376,7 +376,16 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   api.get('/me', (c) => {
     const session = c.get('session')
     const assistant = session.role === 'ASSISTANT'
-    return c.json({ seller: { name: session.sellerName }, loginId: session.loginId, role: assistant ? 'ASSISTANT' : 'SELLER', assistant: assistant ? { name: session.accountName ?? '' } : null })
+    // phone·phoneRequired (D-UX3-30): 문자 인증이 켜진 서버에서 번호가 없는 판매자 계정은 화면이 번호 확인을 먼저 받는다
+    const phoneRequired = !assistant && social !== null && social.phoneRequired && session.phoneLabel === null
+    return c.json({
+      seller: { name: session.sellerName },
+      loginId: session.loginId,
+      role: assistant ? 'ASSISTANT' : 'SELLER',
+      assistant: assistant ? { name: session.accountName ?? '' } : null,
+      phone: assistant ? null : session.phoneLabel,
+      phoneRequired,
+    })
   })
 
   // ── 가게 (I3 AC-I3-47 가게 이름 · I2 AC-I2-01 가게 설정) ──────────────────

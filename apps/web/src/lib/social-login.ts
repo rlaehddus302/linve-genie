@@ -172,6 +172,8 @@ export interface LoginMethodItem {
 export interface LoginMethods {
   readonly loginId: string
   readonly providers: readonly LoginMethodItem[]
+  /** 문자로 확인한 휴대폰 번호(가린 것, D-UX3-30) — 없으면 null */
+  readonly phone?: string | null
 }
 
 /** 서버 응답 → 목록 (모르는 공급자·모양이 틀린 줄은 버리고, 카카오·네이버·구글 순) */
@@ -190,7 +192,7 @@ export function methodsOf(value: unknown): LoginMethods {
       linkedAt: typeof found.linkedAt === 'string' ? found.linkedAt : null,
     })
   }
-  return { loginId: typeof record.loginId === 'string' ? record.loginId : '', providers: items }
+  return { loginId: typeof record.loginId === 'string' ? record.loginId : '', providers: items, phone: typeof record.phone === 'string' ? record.phone : null }
 }
 
 /** 연결한 날짜 (KST) `2026. 10. 22.` — 읽을 수 없으면 빈 글 */
@@ -265,3 +267,86 @@ export function dropPendingLogin(): void {
 }
 
 export const RECENT_LOGIN = '최근 로그인'
+
+// ── 휴대폰 번호로 같은 사람 묶기 (D-UX3-30) ─────────────────────────────
+// 처음 온 간편 로그인은 문자 인증을 해야 계정이 생긴다. 이미 있는 번호면 그 계정으로 다시 로그인해야 이어진다.
+export const PHONE_TITLE = '휴대폰 번호를 확인할게요'
+export const PHONE_BODY = '같은 사람이면 카카오·네이버·구글 어느 것으로 들어와도 한 계정으로 이어져요.'
+export const ACCOUNT_PHONE_TITLE = '휴대폰 번호를 확인해 주세요'
+export const ACCOUNT_PHONE_BODY = '번호를 한 번 확인해 두면 어느 간편 로그인으로 들어와도 이 계정으로 이어져요.'
+export const PHONE_FIELD = '휴대폰 번호'
+export const PHONE_PLACEHOLDER = '010-0000-0000'
+export const PHONE_SEND = '인증번호 받기'
+export const CODE_FIELD = '인증번호 6자리'
+export const CODE_RESEND = '다시 받기'
+export const CODE_CONFIRM = '확인'
+export const PHONE_CHANGE = '번호 바꾸기'
+export const START_OVER = '처음으로'
+export const LOGOUT_LABEL = '로그아웃'
+export const codeSentMessage = (phone: string): string => `${phone} 번호로 인증번호를 보냈어요.`
+export const EXISTING_TITLE = '이미 가입한 계정이 있어요'
+/** 있는 번호: 그 계정의 간편 로그인으로 다시 로그인하면 지금 공급자가 이어진다 */
+export function existingBody(phone: string, providers: readonly LoginProvider[], next: LoginProvider): string {
+  if (providers.length === 0) return `${phone} 번호로 가입한 계정이에요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 ${PROVIDER_NAMES[next]} 로그인을 연결해 주세요.`
+  const names = providers.map((provider) => PROVIDER_NAMES[provider]).join('·')
+  return `${phone} 번호로 가입한 계정이에요. ${names}로 로그인하면 ${PROVIDER_NAMES[next]}도 함께 이어져요.`
+}
+export const EXISTING_LOST = '예전 로그인 방법을 쓸 수 없으면 운영자에게 문의해 주세요.'
+export const NOT_THAT_ACCOUNT = '이 번호로 가입한 계정에 연결된 계정이 아니에요. 위 단추로 다시 로그인해 주세요.'
+export const linkedNow = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}도 이 계정에 이었어요.`
+
+/** 가입 중 인증번호 확인 결과 (POST /api/auth/signup/phone/verify) */
+export type SignupPhoneNext =
+  | { readonly next: 'SIGNUP'; readonly phone: string }
+  | { readonly next: 'LOGIN_EXISTING'; readonly phone: string; readonly providers: readonly LoginProvider[]; readonly password: boolean }
+
+export function signupPhoneNextOf(value: unknown): SignupPhoneNext | null {
+  if (typeof value !== 'object' || value === null) return null
+  const record = value as Record<string, unknown>
+  const phone = typeof record.phone === 'string' ? record.phone : ''
+  if (record.next === 'SIGNUP') return { next: 'SIGNUP', phone }
+  if (record.next === 'LOGIN_EXISTING') return { next: 'LOGIN_EXISTING', phone, providers: providersOf(record.providers), password: record.password === true }
+  return null
+}
+
+// 웹: 있는 번호의 계정으로 다시 로그인하러 공급자에 다녀온다 — 돌아와 로그인되면 가입 표 쿠키로 잇는다 (D-UX3-30)
+const PENDING_LINK_KEY = 'livejjim:pending-link'
+const LOGIN_FLASH_KEY = 'livejjim:login-flash'
+
+export function markPendingLink(): void {
+  try {
+    window.sessionStorage.setItem(PENDING_LINK_KEY, '1')
+  } catch {
+    // 잇기만 못 한다 — 설정 → 로그인 방법에서 다시 연결할 수 있다
+  }
+}
+
+/** 잇기를 기다리는지 (읽으면 지운다) */
+export function takePendingLink(): boolean {
+  try {
+    const pending = window.sessionStorage.getItem(PENDING_LINK_KEY) === '1'
+    window.sessionStorage.removeItem(PENDING_LINK_KEY)
+    return pending
+  } catch {
+    return false
+  }
+}
+
+/** 로그인 화면에 한 번 보일 문장 (다른 계정으로 들어가 로그아웃한 뒤) */
+export function setLoginFlash(text: string): void {
+  try {
+    window.sessionStorage.setItem(LOGIN_FLASH_KEY, text)
+  } catch {
+    // 문장만 없다
+  }
+}
+
+export function takeLoginFlash(): string | null {
+  try {
+    const text = window.sessionStorage.getItem(LOGIN_FLASH_KEY)
+    window.sessionStorage.removeItem(LOGIN_FLASH_KEY)
+    return text
+  } catch {
+    return null
+  }
+}

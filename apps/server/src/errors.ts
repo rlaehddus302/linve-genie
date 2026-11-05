@@ -182,6 +182,17 @@ export type ErrorCode =
   // L1 간편 로그인
   | 'LOGIN_METHOD_LAST'
   | 'LOGIN_EXPIRED'
+  // D-UX3-30 휴대폰 번호로 같은 사람 묶기
+  | 'PHONE_REQUIRED'
+  | 'PHONE_TAKEN'
+  | 'PHONE_TOO_SOON'
+  | 'PHONE_TOO_MANY'
+  | 'PHONE_SEND_FAILED'
+  | 'CODE_WRONG'
+  | 'CODE_EXPIRED'
+  | 'LINK_MISMATCH'
+  | 'LOGIN_LINKED_ELSEWHERE'
+  | 'LOGIN_ALREADY_LINKED'
   | 'PREVIEW_UNAVAILABLE'
   // X1 크롬 확장으로 채팅 읽기 (YT-10)
   | 'EXT_DISCONNECTED'

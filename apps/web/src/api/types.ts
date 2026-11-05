@@ -55,6 +55,10 @@ export interface Me {
   readonly role?: Role
   /** 보조자 계정일 때만 그 이름 */
   readonly assistant?: { readonly name: string } | null
+  /** 문자로 확인한 휴대폰 번호(가린 것, D-UX3-30) */
+  readonly phone?: string | null
+  /** 번호를 먼저 확인해야 한다 (문자 인증이 켜진 서버의 번호 없는 판매자 계정) */
+  readonly phoneRequired?: boolean
 }
 
 /** 보조자 계정인가 */

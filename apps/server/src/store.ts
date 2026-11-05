@@ -205,6 +205,10 @@ export interface SessionRow {
   readonly role: string
   /** 보조자 이름 (판매자 계정은 null) */
   readonly accountName: string | null
+  /** 세션을 만든 때 (D-UX3-30: 가입 중 번호 확인 뒤 새로 로그인했는지 본다) */
+  readonly createdAt: Date
+  /** 문자로 확인한 휴대폰 번호(가린 것). 없으면 null (D-UX3-30) */
+  readonly phoneLabel: string | null
 }
 
 /** 세션을 만든 방법 (L1, D-L1-03) */
@@ -235,6 +239,8 @@ export async function findSession(db: Db, tokenHashValue: string, now: Date): Pr
       sellerName: sellers.name,
       role: accounts.role,
       accountName: accounts.name,
+      createdAt: sessions.createdAt,
+      phoneLabel: accounts.phoneLabel,
     })
     .from(sessions)
     .innerJoin(accounts, and(eq(accounts.id, sessions.accountId), eq(accounts.sellerId, sessions.sellerId), isNull(accounts.deletedAt)))

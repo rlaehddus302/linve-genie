@@ -76,7 +76,7 @@ describe('D-UX3-28 간편 로그인으로 가입', () => {
     expect(unlink.status).toBe(409)
   })
 
-  it('웹: 10분이 지난 가입 표·모르는 표는 410이고 아무것도 만들지 않는다. 같은 공급자 계정이 두 탭에서 가입해도 계정은 하나', async () => {
+  it('웹: 30분이 지난 가입 표·모르는 표는 410이고 아무것도 만들지 않는다. 같은 공급자 계정이 두 탭에서 가입해도 계정은 하나', async () => {
     const w = await world()
     const user = w.fake.addUser('naver')
     const first = cookieValue((await runFlow(w, 'naver', user.id)).response.headers, '__Host-lj_signup') as string
@@ -87,7 +87,8 @@ describe('D-UX3-28 간편 로그인으로 가입', () => {
     expect(other.status).toBe(200)
     expect(await count(w, 'sellers')).toBe(1)
     const late = cookieValue((await runFlow(w, 'google', w.fake.addUser('google').id)).response.headers, '__Host-lj_signup') as string
-    w.clock.advance(10 * 60 * 1000)
+    // D-UX3-30: 가입 표는 30분 (전: 10분 — 문자 인증·기존 계정 로그인까지 마칠 시간)
+    w.clock.advance(30 * 60 * 1000)
     expect((await client(w, `__Host-lj_signup=${late}`).post('/api/auth/signup', { agree: true })).status).toBe(410)
     expect(await count(w, 'sellers')).toBe(1)
   })
@@ -108,7 +109,8 @@ describe('D-UX3-28 앱 안 간편 로그인', () => {
     expect((await app.post('/api/auth/app/finish', { ticket, verifier: verifierPair().verifier })).status).toBe(410)
     expect((await app.post('/api/auth/signup', { agree: true, ticket, verifier: verifierPair().verifier })).status).toBe(410)
     const finish = await app.post('/api/auth/app/finish', { ticket, verifier })
-    expect(finish.body).toEqual({ result: 'SIGNUP', provider: 'google' })
+    // D-UX3-30: 문자 인증을 하는지 함께 알린다 (전: { result, provider }) — 이 서버는 문자 발송이 없어 false
+    expect(finish.body).toEqual({ result: 'SIGNUP', provider: 'google', phoneRequired: false })
     expect(cookieValue(finish.headers, 'lj_session')).toBeNull()
     const made = await app.post('/api/auth/signup', { agree: true, ticket, verifier })
     expect(made.status, made.text).toBe(200)

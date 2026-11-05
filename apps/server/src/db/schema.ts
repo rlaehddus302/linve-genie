@@ -55,8 +55,17 @@ export const accounts = pgTable(
     deletedAt: timestamptz('deleted_at'),
     /** 간편 로그인으로 가입하며 이용약관·개인정보처리방침에 동의한 때 (D-UX3-28). 운영자가 만든 계정은 null */
     termsAgreedAt: timestamptz('terms_agreed_at'),
+    /** 문자로 확인한 휴대폰 번호 (D-UX3-30): 찾기용 HMAC — 원문은 두지 않는다. 판매자 계정 하나에 번호 하나, 번호 하나에 계정 하나 */
+    phoneHash: text('phone_hash'),
+    /** 화면용 가린 번호 (010-****-5678) */
+    phoneLabel: text('phone_label'),
+    phoneVerifiedAt: timestamptz('phone_verified_at'),
   },
-  (t) => [unique('accounts_login_id_uq').on(t.loginId), index('accounts_seller_idx').on(t.sellerId)],
+  (t) => [
+    unique('accounts_login_id_uq').on(t.loginId),
+    index('accounts_seller_idx').on(t.sellerId),
+    uniqueIndex('accounts_phone_uq').on(t.phoneHash).where(sql`phone_hash IS NOT NULL AND deleted_at IS NULL`),
+  ],
 )
 
 /**
@@ -178,8 +187,49 @@ export const loginTickets = pgTable(
     createdAt: timestamptz('created_at').notNull(),
     expiresAt: timestamptz('expires_at').notNull(),
     usedAt: timestamptz('used_at'),
+    /** 가입 표에서 문자로 확인한 번호 (D-UX3-30) — 해시·가린 번호·확인 시각 */
+    phoneHash: text('phone_hash'),
+    phoneLabel: text('phone_label'),
+    phoneVerifiedAt: timestamptz('phone_verified_at'),
+    /** 그 번호가 이미 있는 계정: 그 계정으로 다시 로그인해야 이 공급자 계정을 잇는다 */
+    targetAccountId: text('target_account_id').references(() => accounts.id),
   },
   (t) => [index('login_tickets_expires_idx').on(t.expiresAt)],
+)
+
+/**
+ * 문자 인증 진행 (D-UX3-30). key = `t:<가입 표 해시>`(가입 중) 또는 `a:<계정 ID>`(로그인한 계정의 번호 등록).
+ * 인증번호는 해시만, 3분·5번 틀리면 끝, 한 확인에 5번까지 보낸다
+ */
+export const phoneChecks = pgTable(
+  'phone_checks',
+  {
+    key: text('key').primaryKey(),
+    /** 로그인한 계정의 번호 등록이면 그 판매자 (가입 중이면 판매자를 모른다 — null) */
+    sellerId: text('seller_id').references(() => sellers.id),
+    phoneHash: text('phone_hash').notNull(),
+    phoneLabel: text('phone_label').notNull(),
+    codeHash: text('code_hash').notNull(),
+    codeExpiresAt: timestamptz('code_expires_at').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    sends: integer('sends').notNull().default(1),
+    sentAt: timestamptz('sent_at').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [index('phone_checks_created_idx').on(t.createdAt)],
+)
+
+/** 번호마다 보낸 문자 기록 (하루 한도 — D-UX3-30). 번호 원문 없이 해시만 */
+export const phoneSends = pgTable(
+  'phone_sends',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    /** 로그인한 계정의 번호 등록이면 그 판매자 (가입 중이면 null) */
+    sellerId: text('seller_id').references(() => sellers.id),
+    phoneHash: text('phone_hash').notNull(),
+    sentAt: timestamptz('sent_at').notNull(),
+  },
+  (t) => [index('phone_sends_phone_idx').on(t.phoneHash, t.sentAt)],
 )
 
 /** 엔진 범위 = (판매자, 방송 날짜, 리허설인지) (R-0 6, D-069, D-081) */
@@ -2610,6 +2660,8 @@ export const schema = {
   loginLinks,
   loginStates,
   loginTickets,
+  phoneChecks,
+  phoneSends,
   scopes,
   broadcasts,
   events,

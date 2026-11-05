@@ -6,6 +6,8 @@
 // 주소에서 지운다.
 // D-UX3-28·29: 연결 안 된 공급자 계정이면 `/?login=SIGNUP` — 동의 판 없이 바로 가입한다(단추 아래 안내 한 줄과 이용약관·개인정보처리방침 링크를 보고 누른 것이 동의).
 // 단추는 공식 로고를 왼쪽에 둔 긴 단추이고, 이 브라우저에서 마지막으로 로그인한 방법에 "최근 로그인" 표시(사용자 지시 2026-11-05).
+// D-UX3-30: 가입이 PHONE_REQUIRED(문자 인증이 켜진 서버)면 휴대폰 번호를 확인한다. 새 번호면 가입, 있는 번호면 "이미 가입한 계정이 있어요" —
+// 그 계정의 간편 로그인으로 다녀오면(잇기 표시를 남겨 둔다) App이 돌아와서 가입 표 쿠키로 잇는다.
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { isApiError, post, type ApiError } from '../api/client.ts'
 import type { Me } from '../api/types.ts'
@@ -14,7 +16,16 @@ import {
   commitPendingLogin,
   continueLabel,
   dropPendingLogin,
+  EXISTING_LOST,
+  EXISTING_TITLE,
+  existingBody,
   fetchLoginProviders,
+  markPendingLink,
+  PHONE_BODY,
+  PHONE_TITLE,
+  signupPhoneNextOf,
+  START_OVER,
+  takeLoginFlash,
   markPendingLogin,
   movingLabel,
   parseLoginResult,
@@ -35,6 +46,14 @@ import {
 import { SOCIAL_LOGOS } from '../lib/social-logos.ts'
 import { SERVICE_NAME } from '../brand.ts'
 import { isAppTab } from '../lib/app-tab.ts'
+import { PhoneVerify } from './PhoneVerify.tsx'
+
+/** 간편 가입 단계 (D-UX3-30) */
+type SignupStage =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'making' }
+  | { readonly kind: 'phone'; readonly provider: LoginProvider }
+  | { readonly kind: 'existing'; readonly provider: LoginProvider; readonly phone: string; readonly providers: readonly LoginProvider[] }
 
 export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그인해 주세요.'
 /** 주소가 `/login`일 때만 로그인 칸 아래 (D-LND1-10 (2)) */
@@ -63,6 +82,8 @@ export function LoginPage({
   const idField = useRef<HTMLInputElement>(null)
   // 공급자에서 돌아온 결과 (주소에서 한 번 읽는다 — 지우는 것은 아래 효과에서)
   const [result, setResult] = useState<LoginResult | null>(() => parseLoginResult(window.location.pathname, window.location.search, 'login'))
+  const [stage, setStage] = useState<SignupStage>(() => (result !== null && result.code === 'SIGNUP' ? { kind: 'making' } : { kind: 'none' }))
+  const [flash] = useState(takeLoginFlash)
 
   // 로그인 화면을 열면 "아이디" 칸에 커서 (AC-S06-66 015 — NOT_LINKED·SESSION_GONE으로 돌아와도 같다, AC-L1-21)
   useEffect(() => {
@@ -99,17 +120,75 @@ export function LoginPage({
 
   const signup = result !== null && result.code === 'SIGNUP' ? result.provider : null
   const message = result === null || signup !== null ? null : resultMessage(result)
+  const startOver = () => {
+    dropPendingLogin()
+    setResult(null)
+    setStage({ kind: 'none' })
+  }
+
+  if (stage.kind === 'phone') {
+    const provider = stage.provider
+    return (
+      <main className="page">
+        <h1>{SERVICE_NAME}</h1>
+        <PhoneVerify
+          title={PHONE_TITLE}
+          body={PHONE_BODY}
+          send={async (phone) => {
+            const sent = await post<{ phone?: unknown }>('/api/auth/signup/phone', { phone })
+            return typeof sent.phone === 'string' ? sent.phone : phone
+          }}
+          verify={async (code) => {
+            const next = signupPhoneNextOf(await post('/api/auth/signup/phone/verify', { code }))
+            if (next === null) throw new Error('알 수 없는 답')
+            if (next.next === 'LOGIN_EXISTING') {
+              setStage({ kind: 'existing', provider, phone: next.phone, providers: next.providers })
+              return
+            }
+            const me = await post<Me>('/api/auth/signup', { agree: true })
+            commitPendingLogin()
+            onLoggedIn(me)
+          }}
+          back={{ label: START_OVER, onPress: startOver }}
+        />
+      </main>
+    )
+  }
+
+  if (stage.kind === 'existing') {
+    return (
+      <main className="page">
+        <h1>{SERVICE_NAME}</h1>
+        <div className="stack">
+          <h2>{EXISTING_TITLE}</h2>
+          <p>{existingBody(stage.phone, stage.providers, stage.provider)}</p>
+          {stage.providers.length > 0 ? <SocialLogin only={stage.providers} onStart={markPendingLink} /> : null}
+          <p className="field-hint">{EXISTING_LOST}</p>
+          <button type="button" className="button" onClick={startOver}>
+            {START_OVER}
+          </button>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="page">
       <h1>{SERVICE_NAME}</h1>
-      {signup !== null ? (
+      {stage.kind === 'making' && signup !== null ? (
         <SignupNow
           onDone={(me) => {
             commitPendingLogin()
             onLoggedIn(me)
           }}
           onFail={() => dropPendingLogin()}
+          onPhone={() => setStage({ kind: 'phone', provider: signup })}
         />
+      ) : null}
+      {flash !== null ? (
+        <p className="notice" role="alert" data-tone="warning">
+          {flash}
+        </p>
       ) : null}
       {message !== null ? (
         <p className="notice" role={message.tone === 'success' ? 'status' : 'alert'} data-tone={message.tone === 'success' ? 'success' : 'warning'}>
@@ -178,12 +257,14 @@ export function LoginPage({
 }
 
 /** 간편 로그인 버튼 (켜진 공급자만 — 하나도 없으면 아무것도 그리지 않는다, AC-L1-20) */
-function SocialLogin({ onStart }: { readonly onStart: () => void }) {
-  const [providers, setProviders] = useState<readonly LoginProvider[]>([])
+function SocialLogin({ onStart, only }: { readonly onStart: () => void; readonly only?: readonly LoginProvider[] }) {
+  const [providers, setProviders] = useState<readonly LoginProvider[]>(only ?? [])
   const [moving, setMoving] = useState<LoginProvider | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // 있는 계정으로 다시 로그인할 때는 그 계정의 공급자만 (D-UX3-30)
+    if (only !== undefined) return
     const controller = new AbortController()
     void fetchLoginProviders(controller.signal).then((list) => {
       if (!controller.signal.aborted) setProviders(list)
@@ -224,12 +305,14 @@ function SocialLogin({ onStart }: { readonly onStart: () => void }) {
   if (providers.length === 0) return null
   return (
     <div className="social-login stack-tight">
-      <p className="or-line">
-        <span>또는</span>
-      </p>
+      {only === undefined ? (
+        <p className="or-line">
+          <span>또는</span>
+        </p>
+      ) : null}
       <SocialButtons providers={providers} moving={moving} onPress={(provider) => void start(provider)} />
       {/* 이용약관·개인정보처리방침 링크는 바로 아래 꼬리 줄에 있다 */}
-      <p className="social-terms">{SOCIAL_TERMS_NOTE}</p>
+      {only === undefined ? <p className="social-terms">{SOCIAL_TERMS_NOTE}</p> : null}
       {error !== null ? (
         <p className="field-error" role="alert">
           {error}
@@ -240,13 +323,18 @@ function SocialLogin({ onStart }: { readonly onStart: () => void }) {
 }
 
 /** 처음 계정 (D-UX3-29): 돌아오자마자 한 번 가입한다. 표가 오래됐으면 서버 문장 */
-function SignupNow({ onDone, onFail }: { readonly onDone: (me: Me) => void; readonly onFail: () => void }) {
+function SignupNow({ onDone, onFail, onPhone }: { readonly onDone: (me: Me) => void; readonly onFail: () => void; readonly onPhone: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const sent = useRef(false)
   useEffect(() => {
     if (sent.current) return
     sent.current = true
     post<Me>('/api/auth/signup', { agree: true }).then(onDone, (caught: unknown) => {
+      // 문자 인증이 켜진 서버: 번호부터 (D-UX3-30)
+      if (isApiError(caught) && caught.code === 'PHONE_REQUIRED') {
+        onPhone()
+        return
+      }
       onFail()
       setError(isApiError(caught) ? caught.message : START_FAILED)
     })

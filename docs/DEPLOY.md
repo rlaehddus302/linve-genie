@@ -27,6 +27,7 @@
 | `LIVEJJIM_PGLITE_DIR` | 개발만 | `./.data/pglite` | 내 컴퓨터용 파일 데이터베이스. `DATABASE_URL`과 함께 쓰지 않는다 | 운영에서는 쓰지 않는다 |
 | `LIVEJJIM_MASTER_KEY` | 필수 | (32바이트 base64) | `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"` — 판매자 전화번호 키·구글 토큰을 암호화한다 | **잃으면 구글 토큰을 풀 수 없어 모든 판매자가 유튜브를 다시 연결해야 하고, 이후 문자찜이 이전 문자 구매자와 이어지지 않는다.** 백업과 다른 곳에 따로 보관한다(7절) |
 | `LIVEJJIM_APP_ORIGIN` | 필수 | `https://app.example.com` | 화면 앱 주소(경로 없이). 상태를 바꾸는 요청의 Origin이 이 값과 같아야 한다 | https가 아니면 시작하지 않는다. 실제 주소와 다르면 모든 저장이 403 |
+| `LIVEJJIM_OLD_APP_ORIGINS` | 선택 | `https://old.example.com` | 도메인을 옮기는 동안 옛 주소로 깔린 앱·웹의 Origin도 받는다(D-OPS-DOMAIN — Origin 검사만). 경로 없이 쉼표로 여럿 | 모양이 틀리면 시작하지 않는다. 옮기기를 마치면 비운다 |
 | `LIVEJJIM_WEB_DIR` | 선택 | `/app/apps/web/dist` | 화면 빌드 폴더. 적으면 서버가 화면을 같은 출처로 함께 낸다(이미지는 정해 둠) | 그 폴더에 `index.html`이 없으면 시작하지 않는다 |
 | `LIVEJJIM_OPS_TOKEN` | 선택 | (32자 이상) | `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` — 운영 상태 `/ops/status`를 연다 | 비우면 `/ops/status`는 없다(404). 32자 미만이면 시작하지 않는다. 새면 바꾼다(합친 숫자만 보여 판매 정보는 새지 않는다) |
 | `LIVEJJIM_TRANSCRIBE_WORKER_TOKEN` | 자체 받아쓰기면 필수 | (무작위 비밀값) | 서버와 일꾼만 공유한다. 일꾼에는 권한 0600 파일과 `--token-file`로 전달한다 | 비우거나 다르면 일꾼 연결이 401. 연결된 일꾼이 없으면 기기에 받아쓰기 서버가 꺼졌다고 알린다 |
@@ -48,6 +49,9 @@
 | `LIVEJJIM_LOGIN_KAKAO_CLIENT_SECRET` | 선택 | (카카오가 준 값) | 카카오 앱에서 "클라이언트 시크릿"을 켰을 때만 적는다. 로그·화면에 나오지 않는다 | REST API 키 없이 이것만 적으면 시작하지 않는다. 카카오 앱에서 켰는데 비우면 로그인이 실패한다 |
 | `LIVEJJIM_LOGIN_NAVER_CLIENT_ID` | 선택 | (네이버가 준 값) | 간편 로그인 "네이버로 계속하기"의 클라이언트 ID(4-3절). 비밀값과 둘 다 비우면 네이버 로그인 버튼이 없다 | 하나만 적으면 시작하지 않는다 |
 | `LIVEJJIM_LOGIN_NAVER_CLIENT_SECRET` | 네이버 로그인이면 필수 | (네이버가 준 값) | 네이버 클라이언트 시크릿. 로그·화면에 나오지 않는다 | 새면 네이버 개발자 센터에서 새로 받는다 |
+| `LIVEJJIM_SMS_SOLAPI_API_KEY` | 가입 문자 인증이면 필수 | (솔라피가 준 값) | 솔라피 API 키(D-UX3-30). 셋(키·비밀값·보내는 번호)을 다 적으면 간편 로그인 가입 때 휴대폰 번호를 문자로 확인해 같은 사람을 한 계정으로 묶는다. 셋 다 비우면 끔(바로 가입) | 일부만 적으면 서버가 시작하지 않는다. 문자가 안 가면 로그 `SMS_SEND_FAILED`(종류·HTTP 상태만) — 키·잔액·발신번호 등록을 본다 |
+| `LIVEJJIM_SMS_SOLAPI_API_SECRET` | 가입 문자 인증이면 필수 | (솔라피가 준 값) | 솔라피 API 비밀값. 로그·화면에 나오지 않는다 | 새면 솔라피 콘솔에서 새로 받는다 |
+| `LIVEJJIM_SMS_FROM` | 가입 문자 인증이면 필수 | `0212345678` | 인증번호 문자를 보내는 번호 — 솔라피 콘솔에 미리 등록(발신번호 사전 등록, 전기통신사업법)한 번호, 숫자 8~12자리(하이픈 허용) | 등록하지 않은 번호면 솔라피가 거절한다(`SMS_SEND_FAILED`) |
 | `LIVEJJIM_ASSIST_API_KEY` | 선택 | `여기에-키` | AI 확인 필요 제안의 Anthropic API 키(4-5절). 비우면 AI 제안을 쓸 수 없다 — 비슷한 글자로 찾는 규칙 제안만 보이고 바깥 호출은 0번이다. 값은 로그·화면에 나오지 않는다 | 틀리면 AI 제안 요청이 모두 실패한다(화면 "AI 제안을 지금 받지 못했어요. 직접 골라 주세요.", 로그 `ASSIST_HTTP_ERROR` status=401). 새면 Anthropic 콘솔에서 지우고 새로 만든다 |
 | `LIVEJJIM_ASSIST_MODEL` | 선택 | `claude-haiku-5-5` | AI 제안 모델(비우면 `claude-haiku-5-5` — 가장 싼 Haiku). 영문·숫자·`.`·`_`·`-`·`:`만 | 모양이 틀리면 시작하지 않는다. 없는 모델이면 요청이 실패한다(로그 `ASSIST_HTTP_ERROR` status=404) |
 | `LIVEJJIM_ASSIST_DAILY_CALLS` | 선택 | `20` | 판매자 한 명의 하루(KST 0시 기준) AI 호출 상한(기본 20). 실패한 호출도 센다 | 0~1000000 정수가 아니면 시작하지 않는다. 다 쓰면 그날은 규칙 제안만 |
