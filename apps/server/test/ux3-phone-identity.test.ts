@@ -3,7 +3,7 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import type { PGlite } from '@electric-sql/pglite'
 import { afterAll, describe, expect, it } from 'vitest'
-import { maskedMobile, normalizeMobile, readSmsEnv, solapiAuthorization, solapiSender, type SmsSender } from '../src/social/phone.ts'
+import { codeText, maskedMobile, normalizeMobile, readSmsEnv, sensSender, sensSignature, smsBytes, type SmsSender } from '../src/social/phone.ts'
 import { ORIGIN, addSeller, client } from './support.ts'
 import { approve, cookieValue, newSocialWorld, openCallback, runFlow, type SocialWorld } from './l1-support.ts'
 
@@ -74,26 +74,43 @@ describe('D-UX3-30 번호', () => {
     expect(maskedMobile('01012345678')).toBe('010-****-5678')
   })
 
-  it('솔라피: 공식 SDK와 같은 서명, 발송 주소·본문, 접수 실패면 던진다. 설정은 셋 다 있거나 셋 다 없어야', async () => {
-    const signature = createHmac('sha256', 'secret').update('2026-11-05T00:00:00Zsalt').digest('hex')
-    expect(solapiAuthorization('key', 'secret', '2026-11-05T00:00:00Z', 'salt')).toBe(`HMAC-SHA256 apiKey=key, date=2026-11-05T00:00:00Z, salt=salt, signature=${signature}`)
+  // D-REAL-07로 바뀐 기대: 옛 "솔라피 send-many 주소·HMAC-SHA256 hex 서명·키 셋" → 새 "SENS v2 주소·base64 서명 머리 셋·키 넷"
+  it('SENS: 공식 서명 v2, 발송 주소·본문(80바이트 넘으면 장문), 접수 실패면 던진다. 설정은 넷 다 있거나 넷 다 없어야', async () => {
+    const path = '/sms/v2/services/ncp:sms:kr:1:svc/messages'
+    const expected = createHmac('sha256', 'secret').update(`POST ${path}\n1762300000000\nkey`).digest('base64')
+    expect(sensSignature('secret', 'POST', path, '1762300000000', 'key')).toBe(expected)
     const calls: { url: string; init: RequestInit }[] = []
-    let reply: unknown = { groupInfo: {}, failedMessageList: [] }
+    let reply: unknown = { requestId: 'r', statusCode: '202', statusName: 'success' }
+    let status = 202
     const fetchStub = (async (url: string, init: RequestInit) => {
       calls.push({ url, init })
-      return new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      return new Response(JSON.stringify(reply), { status, headers: { 'Content-Type': 'application/json' } })
     }) as unknown as typeof fetch
-    const sender = solapiSender({ apiKey: 'k', apiSecret: 's', from: '0212345678', fetch: fetchStub })
+    const sender = sensSender({ accessKey: 'k', secretKey: 's', serviceId: 'ncp:sms:kr:1:svc', from: '0212345678', fetch: fetchStub })
     await sender.send('01012345678', '본문')
-    expect(calls[0]?.url).toBe('https://api.solapi.com/messages/v4/send-many/detail')
-    expect(JSON.parse(calls[0]?.init.body as string)).toEqual({ messages: [{ to: '01012345678', from: '0212345678', text: '본문' }] })
-    expect((calls[0]?.init.headers as Record<string, string>).Authorization).toMatch(/^HMAC-SHA256 apiKey=k, date=\S+Z, salt=[A-Za-z0-9]{32}, signature=[0-9a-f]{64}$/)
-    reply = { groupInfo: {}, failedMessageList: [{ to: '01012345678' }] }
+    expect(calls[0]?.url).toBe('https://sens.apigw.ntruss.com/sms/v2/services/ncp%3Asms%3Akr%3A1%3Asvc/messages')
+    expect(JSON.parse(calls[0]?.init.body as string)).toEqual({ type: 'SMS', contentType: 'COMM', countryCode: '82', from: '0212345678', content: '본문', messages: [{ to: '01012345678' }] })
+    const headers = calls[0]?.init.headers as Record<string, string>
+    expect(headers['x-ncp-iam-access-key']).toBe('k')
+    expect(headers['x-ncp-apigw-timestamp']).toMatch(/^\d{13}$/)
+    expect(headers['x-ncp-apigw-signature-v2']).toBe(sensSignature('s', 'POST', '/sms/v2/services/ncp%3Asms%3Akr%3A1%3Asvc/messages', headers['x-ncp-apigw-timestamp'] ?? '', 'k'))
+    // 인증번호 글은 단문(80바이트)에 들어간다
+    expect(smsBytes(codeText('123456'))).toBeLessThanOrEqual(80)
+    await sender.send('01012345678', '가'.repeat(41))
+    expect(JSON.parse(calls[1]?.init.body as string).type).toBe('LMS')
+    reply = { statusCode: '202', statusName: 'fail' }
+    await expect(sender.send('01012345678', '본문')).rejects.toThrow()
+    status = 401
+    reply = { error: { errorCode: '200' } }
     await expect(sender.send('01012345678', '본문')).rejects.toThrow()
 
     expect(readSmsEnv({})).toEqual({ ok: true, setup: null })
-    expect(readSmsEnv({ LIVEJJIM_SMS_SOLAPI_API_KEY: 'k' }).ok).toBe(false)
-    expect(readSmsEnv({ LIVEJJIM_SMS_SOLAPI_API_KEY: 'k', LIVEJJIM_SMS_SOLAPI_API_SECRET: 's', LIVEJJIM_SMS_FROM: '02-1234-5678' })).toEqual({ ok: true, setup: { apiKey: 'k', apiSecret: 's', from: '0212345678' } })
+    expect(readSmsEnv({ LIVEJJIM_SMS_NCP_ACCESS_KEY: 'k' }).ok).toBe(false)
+    expect(readSmsEnv({ LIVEJJIM_SMS_NCP_ACCESS_KEY: 'k', LIVEJJIM_SMS_NCP_SECRET_KEY: 's', LIVEJJIM_SMS_FROM: '02-1234-5678' }).ok).toBe(false)
+    expect(readSmsEnv({ LIVEJJIM_SMS_NCP_ACCESS_KEY: 'k', LIVEJJIM_SMS_NCP_SECRET_KEY: 's', LIVEJJIM_SMS_SENS_SERVICE_ID: 'ncp:sms:kr:1:svc', LIVEJJIM_SMS_FROM: '02-1234-5678' })).toEqual({
+      ok: true,
+      setup: { accessKey: 'k', secretKey: 's', serviceId: 'ncp:sms:kr:1:svc', from: '0212345678' },
+    })
   })
 })
 

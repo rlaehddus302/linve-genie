@@ -33,7 +33,7 @@ import type { ServerOptions } from './server.ts'
 import { readTikTokSettings } from './tiktok/index.ts'
 import { TIKTOK_LIBRARY_ENV_NAMES } from './tiktok-live/live.ts'
 import { readSocialLoginEnv } from './social/providers.ts'
-import { readSmsEnv, solapiSender } from './social/phone.ts'
+import { readSmsEnv, sensSender } from './social/phone.ts'
 import { readAssistEnv } from './assist/service.ts'
 
 export type ProductionOptions = { readonly ok: true; readonly options: ServerOptions } | { readonly ok: false; readonly message: string }
@@ -75,10 +75,10 @@ export function productionServerOptions(
   }
   const social = readSocialLoginEnv(env)
   if (!social.ok) return { ok: false, message: social.message }
-  // 가입 문자 인증 (D-UX3-30): 솔라피 키·비밀값·보내는 번호 셋 다 있을 때만 켠다
+  // 가입 문자 인증 (D-UX3-30 → D-REAL-07): SENS 인증키 둘·서비스 ID·보내는 번호 넷 다 있을 때만 켠다
   const sms = readSmsEnv(env)
   if (!sms.ok) return { ok: false, message: sms.message }
-  const smsSender = sms.setup === null ? null : solapiSender(sms.setup)
+  const smsSender = sms.setup === null ? null : sensSender(sms.setup)
   const assist = readAssistEnv(env)
   if (!assist.ok) return { ok: false, message: assist.message }
   const libraryEnv = TIKTOK_LIBRARY_ENV_NAMES.filter((name) => (env[name] ?? '').trim() !== '')
