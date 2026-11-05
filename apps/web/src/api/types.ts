@@ -653,11 +653,21 @@ export interface ReceiptBuyerRow {
   readonly remaining: number
   /** 리허설 범위면 null */
   readonly link: ReceiptLink | null
+  /** 영수증 문자 (D-REAL-03): 아는 번호 끝 4자리·마지막으로 보낸 시각. 문자 칸이 없는 서버·리허설이면 null(옛 서버는 없음) */
+  readonly sms?: ReceiptSmsState | null
+}
+
+/** 영수증 문자 상태 한 줄 (D-REAL-03) */
+export interface ReceiptSmsState {
+  readonly last4: string | null
+  readonly sentAt: string | null
 }
 
 export interface ReceiptBuyers {
   readonly date: string
   readonly rehearsal: boolean
+  /** 서버가 문자를 보낼 수 있나 (D-REAL-03 — 옛 서버는 없음) */
+  readonly smsReady?: boolean
   readonly buyers: readonly ReceiptBuyerRow[]
 }
 

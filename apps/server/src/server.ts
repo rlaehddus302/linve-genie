@@ -33,6 +33,7 @@ import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import { realTimer as realGeneratorTimer, type GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
+import { ReceiptSmsService, type ReceiptSmsSender } from './receipt-sms.ts'
 import { ReceiptLinkService } from './receipt-links.ts'
 import { registerReceiptPage } from './receipt-page.ts'
 import type { InstagramSettings } from './instagram/config.ts'
@@ -104,6 +105,8 @@ export const SERVER_VERSION: string = (() => {
 })()
 
 export interface ServerOptions {
+  /** 영수증 문자 보내기 (D-REAL-03, 솔라피). 없으면 문자 보내기를 끈다 */
+  readonly smsSender?: ReceiptSmsSender | null
   /** 이력 저장소 관측/장애 시험 포트. 운영 기동은 제공하지 않는다. */
   readonly voiceHistoryObserver?: VoiceHistoryObserver
   readonly transcribeWorkerToken?: string
@@ -280,6 +283,8 @@ export interface LivejjimServer {
   readonly closing: ClosingService
   /** 구매자 확인서 공유 링크 (N4b) */
   readonly receiptLinks: ReceiptLinkService
+  /** 영수증 문자 (D-REAL-03) */
+  readonly receiptSms: ReceiptSmsService
   /** 매일 자동 백업 (I2 D-I2-10 — 시작은 backups.start(), 시험은 check()를 직접 부른다) */
   readonly backups: BackupScheduler
   /** 무거운 파일 작업의 워커 풀 (확인서 그림·PDF·전원 PDF·판매대장 엑셀·.xlsx 읽기) */
@@ -547,13 +552,25 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // KP1 손님 장부 — 손님 자세히에 장부 칸을 건다
   const ledger = new LedgerService({ db, clock, masterKey, hub, log, customers, readState: async (sellerId, date) => (await writer.read(sellerId, date, false)).state, work: work.documents }) // KP1 RA-KP1-008 손님 엑셀은 documents 풀
   customers.useLedger((sellerId, marker) => ledger.customerLedger(sellerId, marker))
-  const ledgerSweeper = new LedgerSweeper({ ledger, timer, log, schedule: (now) => sweepSchedule(db, now) })
+  const ledgerSweeper = new LedgerSweeper({
+    ledger,
+    timer,
+    log,
+    schedule: async (now) => {
+      await sweepSchedule(db, now)
+      const swept = await receiptSms.sweep()
+      if (swept > 0) log({ level: 'info', code: 'BUYER_PHONES_SWEPT', count: swept })
+    },
+  })
   // KP1 방송 리포트·방송 일정
   const report = new ReportService({ db, writer, log, facts: customers.factsDeps() })
   const schedule = new ScheduleService({ db, clock, masterKey, appOrigin: options.appOrigin })
   const billingRechecker = new BillingRechecker({ billing, timer, log })
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
+  // 영수증 문자 (D-REAL-03) — 문자찜 손님 번호를 기억하고, 1년 넘게 쓰지 않은 번호는 손님 장부 청소 때 지운다
+  const receiptSms = new ReceiptSmsService({ db, writer, clock, masterKey, links: receiptLinks, sender: options.smsSender ?? null, log })
+  service.usePhoneMemory((sellerId, phoneKey, phone) => receiptSms.remember(sellerId, phoneKey, phone))
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   // 크롬 확장으로 감사 채팅 올리기 (X1 AC11~AC17) — 공식 발송함 실행기가 공식으로 올릴 수 없는 회차의 감사를 맡긴다
   const extensionThanks = new ExtensionThanks({ db, timer, log, writer, publishOutbox: publishYoutube })
@@ -753,6 +770,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       service,
       closing,
       receiptLinks,
+      receiptSms,
       auth,
       hub,
       print: printService,
@@ -827,6 +845,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     band: bandService,
     closing,
     receiptLinks,
+    receiptSms,
     backups,
     work,
     deposits,

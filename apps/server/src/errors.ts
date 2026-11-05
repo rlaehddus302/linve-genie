@@ -194,6 +194,9 @@ export type ErrorCode =
   | 'LOGIN_LINKED_ELSEWHERE'
   | 'LOGIN_ALREADY_LINKED'
   | 'PREVIEW_UNAVAILABLE'
+  // D-REAL-03 영수증 문자
+  | 'NO_PHONE'
+  | 'SMS_FAILED'
   // X1 크롬 확장으로 채팅 읽기 (YT-10)
   | 'EXT_DISCONNECTED'
   | 'EXT_CODE_INVALID'

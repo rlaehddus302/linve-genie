@@ -37,6 +37,7 @@ import {
   isSettingsCarrier,
   type CarrierAdapter,
   type CarrierCode,
+  type CarrierAccount,
   type ParcelSender,
   type SettingsCarrier,
 } from './carrier.ts'
@@ -111,6 +112,8 @@ export const BOOK_CONCURRENCY = 4
 const TRACK_CHUNK = 100
 /** 택배사 고객 번호 길이 상한 */
 export const CUSTOMER_NO_MAX = 30
+/** 우체국 인증키·보안키 길이 상한 (D-REAL-04) */
+export const EPOST_KEY_MAX = 100
 
 export interface ParcelOptions {
   /** 이어진 택배사 어댑터 (T1: 가짜 택배사 FAKE — 시험 모드·서버 시험만. 운영 기동에는 없다 — 쓰는 택배사는 고를 수 있고 자동 접수만 막힌다, FB1 D-FB1-04) */
@@ -238,6 +241,8 @@ export interface ParcelSettingsView {
   readonly carriers: readonly CarrierChoice[]
   /** 고객 번호 끝 4자리 (없으면 null) */
   readonly customerNoLast4: string | null
+  /** 우체국 인증키·보안키를 저장했다 (값은 내지 않는다 — D-REAL-04) */
+  readonly epostReady: boolean
   readonly sender: ParcelSender | null
   /** 보내는 사람 이름 기본값 (가게 이름) */
   readonly shopName: string
@@ -452,8 +457,16 @@ export class ParcelService {
     if (settings.carrier === null || (settings.carrier === 'FAKE' && !this.available('FAKE'))) return { code: 'NO_CARRIER', message: PARCEL_MESSAGES.noCarrier }
     // 쓰는 택배사를 골랐지만 자동 접수 어댑터가 없다 — 택배사에 아무것도 보내지 않는다(FB1 D-FB1-04)
     if (!this.available(settings.carrier)) return { code: 'NO_AUTO_BOOK', message: PARCEL_MESSAGES.noAutoBook }
+    // 계약 정보가 있어야 하는 택배사(우체국)는 정보가 없으면 보내지 않는다 (D-REAL-04)
+    if (this.#carriers[settings.carrier as CarrierCode]?.needsAccount === true && ParcelService.accountOf(settings) === null) return { code: 'NO_AUTO_BOOK', message: PARCEL_MESSAGES.noEpostAccount }
     if (settings.sender === null) return { code: 'NO_SENDER', message: PARCEL_MESSAGES.noSender }
     return null
+  }
+
+  /** 택배사 계약 정보 (우체국 인증키·보안키 + 고객 번호 — 하나라도 없으면 null) */
+  static accountOf(settings: StoredSettings): CarrierAccount | null {
+    if (settings.epost === null || settings.customerNo === null || settings.customerNo === '') return null
+    return { key: settings.epost.key, secret: settings.epost.secret, customerNo: settings.customerNo }
   }
 
   // ── 설정 "택배" (PC-6, AC-T1-23) ─────────────────────────────────────
@@ -470,6 +483,7 @@ export class ParcelService {
         autoBook: this.available(code),
       })),
       customerNoLast4: stored.customerNo === null || stored.customerNo === '' ? null : [...stored.customerNo].slice(-4).join(''),
+      epostReady: stored.epost !== null,
       sender: stored.sender,
       shopName: shop.name,
       box: stored.box,
@@ -483,7 +497,7 @@ export class ParcelService {
    * FAKE는 시험 모드에서만. OTHER가 아닌 코드와 함께 온 carrierName은 저장하지 않는다. 이름은 로그에 남기지 않는다
    */
   async updateSettings(sellerId: string, body: Record<string, unknown>): Promise<Outcome<ParcelSettingsView>> {
-    const allowed = ['carrier', 'carrierName', 'customerNo', 'sender', 'box']
+    const allowed = ['carrier', 'carrierName', 'customerNo', 'sender', 'box', 'epostKey', 'epostSecret']
     const extra = Object.keys(body).filter((key) => !allowed.includes(key))
     if (extra.length > 0) return problem(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra))
     const current = await readSettings(this.#deps.db, this.#deps.masterKey, sellerId)
@@ -541,8 +555,39 @@ export class ParcelService {
       if ('box' in read) box = read.box
       else problems.push({ field: 'box', message: PARCEL_MESSAGES.boxInvalid })
     }
+    // 우체국 인증키·보안키 (D-REAL-04 — 적지 않으면 그대로, 둘 다 빈 글이면 지운다, 하나만 바꾸면 다른 하나는 저장한 것)
+    let epost = current.epost
+    if (body.epostKey !== undefined || body.epostSecret !== undefined) {
+      const read = (value: unknown, kept: string): string | null => {
+        if (value === undefined) return kept
+        if (typeof value !== 'string') return null
+        return value.replace(/\s+/g, '')
+      }
+      const key = read(body.epostKey, current.epost?.key ?? '')
+      const secret = read(body.epostSecret, current.epost?.secret ?? '')
+      if (key === null || secret === null || key.length > EPOST_KEY_MAX || secret.length > EPOST_KEY_MAX) problems.push({ field: 'epostKey', message: PARCEL_MESSAGES.epostKeyTooLong })
+      else if (key === '' && secret === '') epost = null
+      else if (key === '') problems.push({ field: 'epostKey', message: PARCEL_MESSAGES.noEpostAccount })
+      else if (secret === '') problems.push({ field: 'epostSecret', message: PARCEL_MESSAGES.noEpostAccount })
+      else epost = { key, secret }
+    }
     if (problems.length > 0) return problem(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems, codes.length > 0 ? { codes } : undefined)
-    await writeSettings(this.#deps.db, this.#deps.masterKey, sellerId, { carrier, carrierName, customerNo, sender, box }, new Date(this.#deps.clock.now()))
+    // 우체국을 쓰고 계약 정보가 바뀌었으면 우체국에 맞는지 물어 본 뒤 저장한다 (틀린 정보로 접수 날에 막히지 않게)
+    const next: StoredSettings = { carrier, carrierName, customerNo, sender, box, epost }
+    const adapter = carrier === null || carrier === OTHER_CARRIER ? undefined : this.#carriers[carrier]
+    const account = ParcelService.accountOf(next)
+    const changed = epost?.key !== current.epost?.key || epost?.secret !== current.epost?.secret || customerNo !== current.customerNo || carrier !== current.carrier
+    if (adapter?.verify !== undefined && account !== null && changed) {
+      let check
+      try {
+        check = await adapter.verify(account)
+      } catch {
+        check = 'UNKNOWN' as const
+      }
+      if (check === 'REJECTED') return problem(400, 'INVALID_INPUT', PARCEL_MESSAGES.epostRejected, [{ field: 'epostKey', message: PARCEL_MESSAGES.epostRejected }])
+      if (check === 'UNKNOWN') return problem(503, 'CARRIER_UNAVAILABLE', PARCEL_MESSAGES.epostUnknown)
+    }
+    await writeSettings(this.#deps.db, this.#deps.masterKey, sellerId, next, new Date(this.#deps.clock.now()))
     this.#deps.hub.publishNamed(sellerId, 'parcel', { settings: true })
     return ok(await this.settings(sellerId))
   }
@@ -1009,7 +1054,7 @@ export class ParcelService {
     const sender = settings.sender as ParcelSender
     let answer
     try {
-      answer = await adapter.book({ requestKey: attempt.requestKey, customerNo: settings.customerNo, receiver: prepared.receiver, sender, box: attempt.box, count: attempt.qty })
+      answer = await adapter.book({ requestKey: attempt.requestKey, customerNo: settings.customerNo, receiver: prepared.receiver, sender, box: attempt.box, count: attempt.qty, account: ParcelService.accountOf(settings) })
     } catch {
       answer = { kind: 'UNKNOWN' as const }
     }
@@ -1120,7 +1165,8 @@ export class ParcelService {
     if (adapter === undefined) return problem(503, 'CARRIER_UNAVAILABLE', PARCEL_MESSAGES.cancelUnknown)
     let answer
     try {
-      answer = await adapter.cancel(attempt.invoice as string)
+      const stored = await readSettings(db, this.#deps.masterKey, sellerId)
+      answer = await adapter.cancel(attempt.invoice as string, { requestKey: attempt.requestKey, bookedAt: attempt.bookedAt, account: ParcelService.accountOf(stored) })
     } catch {
       answer = { kind: 'UNKNOWN' as const }
     }

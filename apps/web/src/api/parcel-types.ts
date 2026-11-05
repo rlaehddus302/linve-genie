@@ -141,6 +141,8 @@ export interface ParcelSettings {
   /** 고를 수 있는 택배사 (autoBook = 이 서버에 자동 접수 어댑터가 있음) */
   readonly carriers: readonly { readonly code: SettingsCarrier; readonly name: string; readonly autoBook: boolean }[]
   readonly customerNoLast4: string | null
+  /** 우체국 인증키·보안키를 저장했다 (값은 오지 않는다 — D-REAL-04) */
+  readonly epostReady?: boolean
   readonly sender: ParcelSender | null
   /** 보내는 사람 이름 기본값 (가게 이름) */
   readonly shopName: string

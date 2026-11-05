@@ -99,6 +99,8 @@ import {
   loginTickets,
   phoneChecks,
   phoneSends,
+  buyerPhones,
+  receiptSmsSends,
   outbox,
   packingRecords,
   parcelAddresses,
@@ -1754,6 +1756,9 @@ export const RESTORE_REPLACED_TABLES = [
 export const RESTORE_KEPT_TABLES = [
   // APP1b: 판매 범위 복구는 계정에 명시적으로 배운 별칭을 지우지 않는다.
   voiceAliases,
+  // D-REAL-03: 손님 휴대폰 번호(암호화)·영수증 문자 보낸 기록 — 백업 파일에 없고(번호를 파일로 내보내지 않는다), 복구가 지우지 않는다
+  buyerPhones,
+  receiptSmsSends,
   sellers,
   accounts,
   sessions,

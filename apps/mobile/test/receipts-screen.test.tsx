@@ -12,7 +12,7 @@ import { makeWorld } from './screen-support.tsx'
 const rowOf = (buyer: string, name: string, patch: Partial<ReceiptBuyerRow> = {}): ReceiptBuyerRow => ({ buyer, name, phoneLast4: null, itemCount: 2, total: 14_000, payment: 'PAID', received: 14_000, remaining: 0, link: null, ...patch })
 const active = { buyer: 'u2', status: 'ACTIVE' as const, url: 'https://live.test/r/abc', expiresAt: '2026-11-05T11:31:00.000Z', revokedAt: null }
 
-function world() {
+function world(sms = false) {
   const w = makeWorld()
   const posts: { path: string; body: Record<string, unknown> | null }[] = []
   const pulled: string[] = []
@@ -26,7 +26,16 @@ function world() {
   }))
   w.server.on('GET', /^\/api\/days$/, () => ({ body: { days: [{ date: '2026-10-29', rehearsal: false, seq: 5 }] } }))
   w.server.on('GET', /^\/api\/shop$/, () => ({ body: { shop: { name: '초록가게' } } }))
-  w.server.on('GET', /^\/api\/days\/2026-10-29\/receipt-buyers/, () => ({ body: { buyers: [rowOf('u1', '다육맘'), rowOf('u2', '초록손', { link: active })] } }))
+  w.server.on('GET', /^\/api\/days\/2026-10-29\/receipt-buyers/, () => ({
+    body: sms
+      ? { smsReady: true, buyers: [rowOf('u1', '다육맘', { sms: { last4: '5678', sentAt: null } }), rowOf('u2', '초록손', { link: active, sms: { last4: null, sentAt: null } })] }
+      : { buyers: [rowOf('u1', '다육맘'), rowOf('u2', '초록손', { link: active })] },
+  }))
+  w.server.on('POST', /^\/api\/days\/2026-10-29\/receipt-sms/, (call) => {
+    posts.push({ path: call.path, body: call.body })
+    if (call.body?.['buyer'] === 'u2' && call.body['phone'] === undefined) return { status: 409, body: { error: { code: 'NO_PHONE', message: '이 손님의 휴대폰 번호를 몰라요. 번호를 넣어 주세요.' } } }
+    return { body: { sms: { buyer: call.body?.['buyer'], last4: '5678', sentAt: '2026-10-29T14:00:00.000Z' } } }
+  })
   w.server.on('POST', /^\/api\/days\/2026-10-29\/receipt-links/, (call) => {
     posts.push({ path: call.path, body: call.body })
     return { body: { link: { ...active, buyer: String(call.body?.['buyer']) } } }
@@ -63,6 +72,32 @@ describe('ReceiptsScreen (앱 영수증·판매대장)', () => {
     fireEvent.click(screen.getByRole('button', { name: '초록손 링크 끊기' }))
     expect(screen.getByText('초록손님의 링크를 끊으면 그 링크로는 더 이상 열 수 없어요. 필요하면 새 링크를 만들어 보내 주세요.')).toBeTruthy()
     expect(posts).toHaveLength(1)
+  })
+
+  it('D-REAL-03 문자 보내기: 번호 아는 손님은 한 번 더 묻고 보내고, 모르는 손님은 번호를 넣어 보낸다. 문자 칸이 없는 서버면 단추가 없다', async () => {
+    const { w, posts } = world(true)
+    render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
+    expect(await screen.findByText('문자 보낼 번호 끝자리 5678')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '다육맘 문자 보내기' }))
+    expect(await screen.findByText('다육맘님(끝자리 5678)에게 확인서 문자를 보낼까요?')).toBeTruthy()
+    expect(posts).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    await waitFor(() => expect(posts.map((post) => post.path)).toEqual(['/api/days/2026-10-29/receipt-sms']))
+    expect(posts[0]!.body).toMatchObject({ buyer: 'u1' })
+    expect(await screen.findByText('확인서 문자를 보냈어요.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '초록손 문자 보내기' }))
+    const field = await screen.findByLabelText('손님 휴대폰 번호')
+    fireEvent.change(field, { target: { value: '010-9876-5432' } })
+    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    await waitFor(() => expect(posts).toHaveLength(2))
+    expect(posts[1]!.body).toMatchObject({ buyer: 'u2', phone: '010-9876-5432' })
+  })
+
+  it('D-REAL-03 문자 칸이 없는 서버(smsReady 없음)면 문자 단추가 없다', async () => {
+    const { w } = world()
+    render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
+    expect(await screen.findByRole('button', { name: '다육맘 PDF' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '다육맘 문자 보내기' })).toBeNull()
   })
 
   it('확인서 PDF는 공유 시트로, 기간 판매대장은 모두 고르면 b 없이', async () => {

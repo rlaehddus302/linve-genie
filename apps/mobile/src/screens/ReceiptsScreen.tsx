@@ -1,13 +1,15 @@
 // 영수증 보내기·판매대장 (D-APPX-03 — 웹 ReceiptsPage·LedgerDialog와 같은 규칙·문구, RCP-02, STL-04·05·06, D-N4b-04·05).
 // 끝난 방송을 고른다(최근 먼저) → 한 번에: "링크 전부 만들기"(실제만)·전원 확인서 PDF·전원 이미지 묶음·이 방송 판매대장 엑셀.
 // 구매자 줄: 이름·상품 수·최종 금액·입금 상태·링크 상태, 링크 만들기·복사·보내기(휴대폰 공유)·끊기(한 번 더 묻기), 이미지·PDF.
-// 우리는 링크를 채팅·문자로 보내지 않는다 — 판매자가 한 사람씩 복사하거나 공유 시트로 보낸다(D-N4b-05). 한꺼번에 복사·공유하는 버튼은 없다.
+// 링크는 판매자가 복사·공유 시트로 보내거나, 서버가 문자를 보낼 수 있으면 [문자 보내기]로 우리가 문자로 보낸다(D-REAL-03 — D-N4b-05를 바꿈).
+// 번호를 아는 손님(문자찜)은 한 번 더 묻고 보내고, 모르는 손님은 번호를 넣어 보낸다. 번호 아는 손님 모두 보내기는 한 번 더 묻는다.
 // 파일(PDF·JPG·ZIP·엑셀)은 휴대폰 공유 시트로 넘긴다. 리허설 방송은 링크·판매대장 없이 확인서만.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, Share, View } from 'react-native'
 import type { BroadcastItem, ReceiptBuyerRow, ReceiptBuyers, ReceiptLink } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { linkWords, shareText, usableLink } from '@livejjim/web/src/lib/receipt-links.ts'
+import { SMS_NOTE, SMS_PHONE_HELP, SMS_PHONE_LABEL, SMS_SEND, SMS_SEND_ALL, SMS_SENT, smsAllQuestion, smsAllResult, smsConfirmQuestion, smsTargets, smsWords } from '@livejjim/web/src/lib/receipt-sms.ts'
 import { get, getBytes, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { copyToClipboard } from '../lib/clipboard.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
@@ -138,6 +140,7 @@ function useReceiptRows(date: string, rehearsal: boolean) {
   const { stream } = useServices()
   const [rows, setRows] = useState<readonly ReceiptBuyerRow[] | null>(null)
   const [shopName, setShopName] = useState('')
+  const [smsReady, setSmsReady] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [version, setVersion] = useState(0)
   const latest = useRef(0)
@@ -148,6 +151,7 @@ function useReceiptRows(date: string, rehearsal: boolean) {
       ([result, shop]) => {
         if (mine !== latest.current) return
         setRows(result.buyers)
+        setSmsReady(result.smsReady === true)
         if (shop !== null && typeof shop.shop.name === 'string') setShopName(shop.shop.name)
         setError(null)
       },
@@ -172,12 +176,15 @@ function useReceiptRows(date: string, rehearsal: boolean) {
     const byBuyer = new Map(links.map((link) => [link.buyer, link]))
     setRows((current) => current?.map((row) => ({ ...row, link: byBuyer.get(row.buyer) ?? row.link })) ?? current)
   }, [])
-  return { rows, shopName, error, reload, applyLinks }
+  return { rows, shopName, smsReady, error, reload, applyLinks }
 }
 
 function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem; readonly sameDay: boolean }) {
   const { date, rehearsal } = broadcast
-  const { rows, shopName, error, reload, applyLinks } = useReceiptRows(date, rehearsal)
+  const { rows, shopName, smsReady, error, reload, applyLinks } = useReceiptRows(date, rehearsal)
+  const [smsAsk, setSmsAsk] = useState(false)
+  const [smsBusy, setSmsBusy] = useState(false)
+  const [smsResult, setSmsResult] = useState<string | null>(null)
   const [allBusy, setAllBusy] = useState(false)
   const [allResult, setAllResult] = useState<string | null>(null)
   const [allError, setAllError] = useState<ApiError | null>(null)
@@ -208,6 +215,28 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
     }
   }
 
+  const targets = rows === null || rehearsal || !smsReady ? [] : smsTargets(rows)
+  const sendAll = async () => {
+    if (smsBusy) return
+    setSmsAsk(false)
+    setSmsBusy(true)
+    setSmsResult(null)
+    let sent = 0
+    let failed = 0
+    for (const row of targets) {
+      try {
+        await withRetry(() => post(`/api/days/${date}/receipt-sms`, { requestId: newRequestId(), buyer: row.buyer }))
+        sent++
+      } catch (caught: unknown) {
+        if (!isApiError(caught)) throw caught
+        failed++
+      }
+    }
+    setSmsBusy(false)
+    setSmsResult(smsAllResult(sent, failed))
+    reload()
+  }
+
   if (rows === null) {
     return error !== null ? (
       <View style={{ gap: SPACE.sm }}>
@@ -227,6 +256,8 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
       {count > 0 ? (
         <Card label="한 번에 하기">
           {!rehearsal ? <BigButton label="링크 전부 만들기" busy={allBusy} onPress={() => void makeAll()} /> : null}
+          {targets.length > 0 ? <BigButton kind="outline" label={`${SMS_SEND_ALL} (${String(targets.length)}명)`} busy={smsBusy} onPress={() => setSmsAsk(true)} /> : null}
+          {smsResult !== null ? <Notice tone="success">{smsResult}</Notice> : null}
           <BigButton kind={rehearsal ? 'primary' : 'outline'} label="전원 확인서 PDF" busy={files.busy === 'all-pdf'} onPress={() => void files.run('all-pdf', withQuery(`/api/days/${date}/receipts.pdf`, query), `${prefix}receipts-${date}-all.pdf`)} />
           <BigButton kind="outline" label="전원 이미지(JPG) 묶음" busy={files.busy === 'all-zip'} onPress={() => void files.run('all-zip', withQuery(`/api/days/${date}/receipts.zip`, query), `${prefix}receipts-${date}-images.zip`)} />
           {!rehearsal ? <BigButton kind="outline" label="이 방송 판매대장 엑셀" busy={files.busy === 'ledger'} onPress={() => void files.run('ledger', ledgerPath(date, date, [broadcast.id], false), `ledger-${date}.xlsx`)} /> : null}
@@ -237,6 +268,16 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
       ) : (
         <Txt color="textSub">{NO_RECEIPT_ROWS}</Txt>
       )}
+      <ConfirmSheet
+        visible={smsAsk}
+        question={smsAllQuestion(targets.length)}
+        description={SMS_NOTE}
+        confirmLabel="보내기"
+        cancelLabel="닫기"
+        busy={smsBusy}
+        onCancel={() => setSmsAsk(false)}
+        onConfirm={() => void sendAll()}
+      />
       {rows.map((row) => (
         <BuyerRow
           key={row.buyer}
@@ -244,7 +285,8 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
           date={date}
           rehearsal={rehearsal}
           shopName={shopName}
-          locked={allBusy}
+          smsReady={smsReady && !rehearsal}
+          locked={allBusy || smsBusy}
           onLink={(link) => {
             applyLinks([link])
             reload()
@@ -255,7 +297,27 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
   )
 }
 
-function BuyerRow({ row, date, rehearsal, shopName, locked, onLink }: { readonly row: ReceiptBuyerRow; readonly date: string; readonly rehearsal: boolean; readonly shopName: string; readonly locked: boolean; readonly onLink: (link: ReceiptLink) => void }) {
+function BuyerRow({
+  row,
+  date,
+  rehearsal,
+  shopName,
+  smsReady,
+  locked,
+  onLink,
+}: {
+  readonly row: ReceiptBuyerRow
+  readonly date: string
+  readonly rehearsal: boolean
+  readonly shopName: string
+  readonly smsReady: boolean
+  readonly locked: boolean
+  readonly onLink: (link: ReceiptLink) => void
+}) {
+  const [smsSheet, setSmsSheet] = useState<'confirm' | 'phone' | null>(null)
+  const [phone, setPhone] = useState('')
+  const [phoneError, setPhoneError] = useState<string | null>(null)
+  const smsRequest = useRef<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [result, setResult] = useState<string | null>(null)
@@ -315,6 +377,38 @@ function BuyerRow({ row, date, rehearsal, shopName, locked, onLink }: { readonly
     }
   }
 
+  const last4 = row.sms?.last4 ?? null
+  const sendSms = async (typed: string | null) => {
+    if (busy) return
+    const requestId = smsRequest.current ?? newRequestId()
+    smsRequest.current = requestId
+    setBusy(true)
+    setError(null)
+    setResult(null)
+    setPhoneError(null)
+    try {
+      await withRetry(() => post(`/api/days/${date}/receipt-sms`, { requestId, buyer: row.buyer, ...(typed === null ? {} : { phone: typed }) }))
+      smsRequest.current = null
+      setSmsSheet(null)
+      setPhone('')
+      setResult(SMS_SENT)
+      onLink(row.link ?? { buyer: row.buyer, status: 'NONE', url: null, expiresAt: null, revokedAt: null })
+    } catch (caught: unknown) {
+      if (!isApiError(caught)) throw caught
+      if (!caught.network) smsRequest.current = null
+      if (caught.code === 'NO_PHONE') {
+        setSmsSheet('phone')
+      } else if (smsSheet === 'phone') {
+        setPhoneError(caught.message)
+      } else {
+        setSmsSheet(null)
+        setError(caught)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Card label={name}>
       <Txt weight="bold">{name}</Txt>
@@ -324,7 +418,9 @@ function BuyerRow({ row, date, rehearsal, shopName, locked, onLink }: { readonly
         <Tag tone={row.payment === 'PAID' ? 'success' : row.payment === 'UNPAID' ? 'danger' : 'warning'}>{PAYMENT_WORD[row.payment]}</Tag>
       </View>
       {rehearsal ? null : <Txt step="caption" color="textSub">{linkWords(link)}</Txt>}
+      {smsReady && smsWords(row.sms) !== null ? <Txt step="caption" color="textSub">{smsWords(row.sms)}</Txt> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
+        {smsReady ? <BigButton label={SMS_SEND} ariaLabel={`${name} ${SMS_SEND}`} disabled={linkLocked} onPress={() => setSmsSheet(last4 === null ? 'phone' : 'confirm')} /> : null}
         {!rehearsal && !usable ? <BigButton kind="outline" label="링크 만들기" ariaLabel={`${name} 링크 만들기`} busy={linkLocked} onPress={() => void send('create')} /> : null}
         {!rehearsal && usable ? (
           <>
@@ -340,6 +436,30 @@ function BuyerRow({ row, date, rehearsal, shopName, locked, onLink }: { readonly
       {manual !== null ? <TextField label={COPY_BY_HAND} value={manual} onChangeText={() => undefined} selectTextOnFocus /> : null}
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {files.error !== null ? <Notice tone="danger" alert>{files.error}</Notice> : null}
+      <ConfirmSheet
+        visible={smsSheet === 'confirm'}
+        question={smsConfirmQuestion(name, last4 ?? '')}
+        description={SMS_NOTE}
+        confirmLabel="보내기"
+        cancelLabel="닫기"
+        busy={busy}
+        onCancel={() => setSmsSheet(null)}
+        onConfirm={() => void sendSms(null)}
+      />
+      <BottomSheet
+        visible={smsSheet === 'phone'}
+        title={`${name}님에게 ${SMS_SEND}`}
+        onClose={() => setSmsSheet(null)}
+        actions={
+          <>
+            <BigButton kind="secondary" label="닫기" onPress={() => setSmsSheet(null)} />
+            <BigButton label="보내기" busy={busy} disabled={phone.replace(/\D/g, '').length < 10} onPress={() => void sendSms(phone)} />
+          </>
+        }
+      >
+        <TextField label={SMS_PHONE_LABEL} help={SMS_PHONE_HELP} error={phoneError} value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" maxLength={20} />
+        <Txt step="caption" color="textSub">{SMS_NOTE}</Txt>
+      </BottomSheet>
       <ConfirmSheet
         visible={confirming}
         question="링크를 끊을까요?"

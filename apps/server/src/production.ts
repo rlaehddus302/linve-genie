@@ -10,13 +10,14 @@
 // - 입금 확인(N3): 시험 모드(가짜 원천·시험용 입금 넣기 경로)는 늘 끈다(D-N3-12). 받아 오기 주기는 원천의 1~5분 그대로다.
 //   팝빌 연동 키(LIVEJJIM_POPBILL_LINK_ID·LIVEJJIM_POPBILL_SECRET_KEY, 선택 LIVEJJIM_POPBILL_TEST_BED=true)가 둘 다 있을 때만 실제 팝빌 전송을 쓴다 — 없으면 계좌조회 원천을 만들 수 없다.
 // - 택배 자동 접수(T1, D-T1-02): 운영 기동에는 택배사 어댑터가 없다(가짜 택배사는 E2E 기동·서버 시험만 — 쓰는 택배사는 고를 수 있지만 자동 접수는 막힌다 — FB1 D-FB1-04).
-//   우체국 택배 연동 키(LIVEJJIM_EPOST_API_KEY — 계약 뒤 실제 어댑터를 만든 다음에 쓴다)는 값이 있는지만 본다: 있으면 "아직 쓰지 않음" 경고를 남긴다(값은 읽지 않는다).
+//   우체국 택배 연동 키(LIVEJJIM_EPOST_API_KEY)는 쓰지 않는다 — 우체국 계약 정보는 판매자마다 설정에 넣는다(D-REAL-04). 값이 있으면 "쓰지 않음" 경고만 남긴다(값은 읽지 않는다).
 // - 간편 로그인(L1, D-L1-07): LIVEJJIM_LOGIN_GOOGLE_*·LIVEJJIM_LOGIN_KAKAO_*·LIVEJJIM_LOGIN_NAVER_*. 값이 모두 있는 공급자만 켜고, 반만 적었으면 기동하지 않는다.
 //   공급자 주소는 고정값(https)이다 — 주소를 바꾸는 환경 변수는 없다(가짜 OAuth 서버는 시험·E2E·연습 기동만).
 // - AI 확인 필요 제안(A1, D-A1-04·D-A1-08): LIVEJJIM_ASSIST_API_KEY(없으면 AI 제안을 쓸 수 없음 — 규칙 제안만)·LIVEJJIM_ASSIST_MODEL·
 //   LIVEJJIM_ASSIST_DAILY_CALLS(판매자 하루, 기본 20)·LIVEJJIM_ASSIST_GLOBAL_DAILY_CALLS(서버 전체 하루, 기본 500). 주소는 https://api.anthropic.com 고정이다 —
 //   주소를 바꾸는 환경 변수는 없다(다른 이름의 변수를 적어도 읽지 않는다). 가짜 LLM 서버는 시험·E2E·연습 기동만.
 // - 오류 문장에 환경변수 값을 넣지 않는다.
+import { epostCarrier } from './parcel/epost.ts'
 import { PortOneCashReceiptIssuer } from './billing/cash-receipt.ts'
 import { readBillingEnv, readReceiptIssuerEnv } from './billing/config.ts'
 import { noneIssuer } from './billing/documents.ts'
@@ -77,6 +78,7 @@ export function productionServerOptions(
   // 가입 문자 인증 (D-UX3-30): 솔라피 키·비밀값·보내는 번호 셋 다 있을 때만 켠다
   const sms = readSmsEnv(env)
   if (!sms.ok) return { ok: false, message: sms.message }
+  const smsSender = sms.setup === null ? null : solapiSender(sms.setup)
   const assist = readAssistEnv(env)
   if (!assist.ok) return { ok: false, message: assist.message }
   const libraryEnv = TIKTOK_LIBRARY_ENV_NAMES.filter((name) => (env[name] ?? '').trim() !== '')
@@ -103,10 +105,12 @@ export function productionServerOptions(
       band: { settings: band.settings },
       deposits: { testMode: false, popbill: popbill === null ? null : popbillHttpTransport(popbill) },
       billing,
-      // 택배사 어댑터 없음 (T1 — 가짜 택배사는 고를 수 없고 바깥으로 나가는 택배사 연결이 없다)
-      parcel: { carriers: {} },
+      // 우체국 계약소포 (D-REAL-04 — 판매자마다 설정에 넣은 계약 정보로. 가짜 택배사는 고를 수 없다)
+      parcel: { carriers: { EPOST: epostCarrier({ now: () => Date.now() }) } },
       socialLogin: { providers: social.providers },
-      sms: sms.setup === null ? null : solapiSender(sms.setup),
+      sms: smsSender,
+      // 영수증 문자 (D-REAL-03) — 가입 인증과 같은 솔라피 발송
+      smsSender,
       assist: assist.setup,
     },
   }

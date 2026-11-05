@@ -39,6 +39,14 @@ export const ROW_BOX_LABEL = '택배 크기'
 /** 자동 접수가 안 되는 택배사를 골랐거나 고르지 않았을 때 (FB1 D-FB1-04) */
 export const NO_AUTO_BOOK_NOTE = '자동 접수는 아직 준비 중이에요. 지금은 포장 화면에서 송장번호를 직접 적어요.'
 export const OTHER_CARRIER = 'OTHER'
+/** 우체국 계약소포 (D-REAL-04) — 판매자가 우체국과 계약하고 OpenAPI를 신청해 받은 값을 넣는다 */
+export const EPOST_CARRIER = 'EPOST'
+export const EPOST_CUSTOMER_LABEL = '우체국 고객 번호'
+export const EPOST_KEY_LABEL = '우체국 인증키'
+export const EPOST_SECRET_LABEL = '우체국 보안키'
+export const EPOST_GUIDE = '우체국 계약소포 고객이면 자동 접수를 쓸 수 있어요. 우체국 계약고객전용시스템(biz.epost.go.kr) > 오픈API 사용 신청에서 받은 인증키·보안키를 넣어 주세요.'
+export const EPOST_PRINT_NOTE = '접수하면 우체국이 가지러 와요. 운송장은 우체국 계약고객전용시스템에서 뽑아 붙여 주세요.'
+export const epostKeyHelp = (ready: boolean): string => (ready ? '저장돼 있어요 · 바꿀 때만 새로 적어 주세요.' : '저장하면 우체국에 맞는지 바로 확인해요.')
 export const CARRIER_NAME_LABEL = '택배사 이름'
 /** 택배사 이름 칸 상한 (서버와 같다 — 코드 포인트) */
 export const CARRIER_NAME_MAX = 20
@@ -215,6 +223,9 @@ export interface ParcelDraft {
   readonly customerNo: string
   readonly sender: ParcelSender
   readonly box: BoxKind
+  /** 우체국 인증키·보안키 (새로 적을 때만 — 저장한 값은 오지 않는다, D-REAL-04) */
+  readonly epostKey: string
+  readonly epostSecret: string
 }
 
 export function parcelDraftOf(settings: ParcelSettings): ParcelDraft {
@@ -225,6 +236,8 @@ export function parcelDraftOf(settings: ParcelSettings): ParcelDraft {
     customerNo: '',
     sender: { ...sender, name: sender.name === '' ? settings.shopName : sender.name },
     box: settings.box,
+    epostKey: '',
+    epostSecret: '',
   }
 }
 
@@ -234,6 +247,8 @@ export function sameParcelDraft(a: ParcelDraft, b: ParcelDraft): boolean {
     (a.carrier !== OTHER_CARRIER || a.carrierName === b.carrierName) &&
     a.customerNo === b.customerNo &&
     a.box === b.box &&
+    a.epostKey === b.epostKey &&
+    a.epostSecret === b.epostSecret &&
     SENDER_KEYS.every((key) => a.sender[key] === b.sender[key])
   )
 }
@@ -254,5 +269,7 @@ export function parcelBody(settings: ParcelSettings, draft: ParcelDraft): Record
     box: draft.box,
     ...(sender === undefined ? {} : { sender }),
     ...(draft.customerNo.trim() === '' ? {} : { customerNo: draft.customerNo }),
+    ...(draft.carrier === EPOST_CARRIER && draft.epostKey.trim() !== '' ? { epostKey: draft.epostKey } : {}),
+    ...(draft.carrier === EPOST_CARRIER && draft.epostSecret.trim() !== '' ? { epostSecret: draft.epostSecret } : {}),
   }
 }

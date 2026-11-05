@@ -315,6 +315,17 @@ export class Service {
   readonly #voiceRepeats = new VoiceRepeats()
   /** 리허설 가짜 채팅 생성기 (D-082) */
   readonly generators: ChatGenerators
+  /** 문자찜 손님 번호 기억 (D-REAL-03 영수증 문자) — 서버 조립이 건다. 실제 범위에서 기록했을 때만 부른다 */
+  #phoneMemory: ((sellerId: string, phoneKey: string, phone: string) => Promise<void>) | null = null
+
+  usePhoneMemory(memory: (sellerId: string, phoneKey: string, phone: string) => Promise<void>): void {
+    this.#phoneMemory = memory
+  }
+
+  async #rememberPhone(sellerId: string, rehearsal: boolean, outcome: WriteOutcome, fields: { phoneKey?: string }, normalized: string | null): Promise<void> {
+    if (rehearsal || outcome.kind !== 'ok' || normalized === null || fields.phoneKey === undefined || this.#phoneMemory === null) return
+    await this.#phoneMemory(sellerId, fields.phoneKey, normalized)
+  }
 
   constructor(options: ServiceOptions) {
     this.#options = options
@@ -791,6 +802,7 @@ export class Service {
     })
     // 이 요청이 등록했는데 커밋되지 않았으면 뺀다 (같은 요청 번호의 처음 응답(duplicate)은 이 요청이 등록하지 않았으니 그대로 둔다)
     if (remembered && outcome.kind !== 'ok') this.#voiceRepeats.forget(voiceScope, requestId)
+    await this.#rememberPhone(sellerId, rehearsal, outcome, phoneFields, normalized)
     return { kind: 'phone', outcome: await this.#smsOutcome(sellerId, outcome, ref), phoneLast4: normalized === null ? null : phoneLast4(normalized) }
   }
 
@@ -857,6 +869,7 @@ export class Service {
         ]
       },
     })
+    await this.#rememberPhone(sellerId, row.rehearsal, outcome, phoneFields, normalized)
     return this.#smsOutcome(sellerId, outcome, ref)
   }
 

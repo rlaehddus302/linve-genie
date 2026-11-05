@@ -177,6 +177,11 @@ export type LogCode =
   | 'PARCEL_JOB_FAILED'
   | 'PARCEL_ADDRESSES_SWEPT'
   | 'PARCEL_CARRIER_NOT_READY'
+  // D-REAL-03 영수증 문자: 판매자 ID·날짜·오류 종류·개수만. 번호·본문·링크는 남기지 않는다
+  | 'BUYER_PHONE_SAVE_FAILED'
+  | 'BUYER_PHONES_SWEPT'
+  | 'RECEIPT_SMS_SENT'
+  | 'RECEIPT_SMS_FAILED'
   // L1 간편 로그인 (D-L1-04): 공급자 이름·결과 코드(reason)·오류 종류·HTTP 상태만
   | 'SOCIAL_LOGIN'
   // D-UX3-30 문자 인증: 오류 종류·HTTP 상태만 — 번호·인증번호·본문은 남기지 않는다
@@ -326,7 +331,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   PARCEL_TRACK_FAILED: '택배 배송 조회가 실패했어요(마지막 상태 그대로, 다음 주기에 다시 해요)',
   PARCEL_JOB_FAILED: '택배 작업(조회·배송지 정리) 중 오류가 생겼어요(다음 주기에 다시 해요)',
   PARCEL_ADDRESSES_SWEPT: '보관 기간(주문 날짜 + 30일)이 지난 배송지를 지웠어요',
-  PARCEL_CARRIER_NOT_READY: '우체국 택배 연동 키가 있지만 실제 택배사 연결은 아직 없어 쓰지 않았어요(가짜 택배사는 시험 모드에서만)',
+  PARCEL_CARRIER_NOT_READY: '서버의 우체국 택배 연동 키는 쓰지 않아요 — 우체국 계약 정보는 판매자마다 설정 > 택배에 넣어요(D-REAL-04)',
+  BUYER_PHONE_SAVE_FAILED: '영수증 문자용 손님 번호를 저장하지 못했어요(문자찜은 그대로)',
+  BUYER_PHONES_SWEPT: '1년 넘게 쓰지 않은 손님 번호를 지웠어요',
+  RECEIPT_SMS_SENT: '영수증 문자를 보냈어요',
+  RECEIPT_SMS_FAILED: '영수증 문자를 보내지 못했어요(판매자에게 다시 누르라고 알림)',
   SOCIAL_LOGIN: '간편 로그인 결과',
   SMS_CODE_SENT: '가입 인증번호 문자를 보냈어요',
   SMS_SEND_FAILED: '가입 인증번호 문자를 보내지 못했어요(솔라피 키·보내는 번호·잔액을 확인해 주세요)',

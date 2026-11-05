@@ -378,6 +378,13 @@ export async function dropRequest(db: Db, sellerId: string, requestId: string): 
 
 const senderAad = (sellerId: string) => `livejjim/parcel-sender/v1/${sellerId}`
 const customerAad = (sellerId: string) => `livejjim/parcel-customer/v1/${sellerId}`
+const epostAad = (sellerId: string) => `livejjim/parcel-epost/v1/${sellerId}`
+
+/** 우체국 계약소포 인증키·보안키 (D-REAL-04 — 고객 번호는 customerNo) */
+export interface EpostKeys {
+  readonly key: string
+  readonly secret: string
+}
 
 export interface StoredSettings {
   /** 쓰는 택배사 (자동 접수는 그 코드의 어댑터가 있을 때만 — FB1 D-FB1-04) */
@@ -387,12 +394,13 @@ export interface StoredSettings {
   readonly customerNo: string | null
   readonly sender: ParcelSender | null
   readonly box: BoxKind
+  readonly epost: EpostKeys | null
 }
 
 export async function readSettings(db: Db, masterKey: Buffer, sellerId: string): Promise<StoredSettings> {
   const rows = await db.select().from(parcelSettings).where(eq(parcelSettings.sellerId, sellerId)).limit(1)
   const row = rows[0]
-  if (row === undefined) return { carrier: null, carrierName: null, customerNo: null, sender: null, box: DEFAULT_BOX }
+  if (row === undefined) return { carrier: null, carrierName: null, customerNo: null, sender: null, box: DEFAULT_BOX, epost: null }
   const open = (aad: string, sealed: string | null): string | null => {
     if (sealed === null) return null
     try {
@@ -419,6 +427,17 @@ export async function readSettings(db: Db, masterKey: Buffer, sellerId: string):
     customerNo: open(customerAad(sellerId), row.customerEnc),
     sender,
     box: storedBox(row.box),
+    epost: readEpostKeys(open(epostAad(sellerId), row.epostEnc)),
+  }
+}
+
+function readEpostKeys(text: string | null): EpostKeys | null {
+  if (text === null) return null
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    return typeof parsed.key === 'string' && typeof parsed.secret === 'string' && parsed.key !== '' && parsed.secret !== '' ? { key: parsed.key, secret: parsed.secret } : null
+  } catch {
+    return null
   }
 }
 
@@ -429,6 +448,7 @@ export async function writeSettings(db: Db, masterKey: Buffer, sellerId: string,
     customerEnc: value.customerNo === null || value.customerNo === '' ? null : sealText(masterKey, customerAad(sellerId), value.customerNo),
     senderEnc: value.sender === null ? null : sealText(masterKey, senderAad(sellerId), JSON.stringify(value.sender)),
     box: value.box,
+    epostEnc: value.epost === null ? null : sealText(masterKey, epostAad(sellerId), JSON.stringify({ key: value.epost.key, secret: value.epost.secret })),
     updatedAt: now,
   }
   await db

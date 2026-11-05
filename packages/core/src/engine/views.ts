@@ -316,6 +316,20 @@ export function currentBuyerOf(state: EngineState, id: string): string | null {
   return pget(state.buyers, id) === undefined ? null : reader(state).root(id)
 }
 
+/**
+ * 지금의 구매자 묶음(자신과 합쳐진 구매자)에 이어진 전화번호 키, 기록 순서와 상관없이 글자 순 (D-REAL-03 — 영수증 문자를 보낼 번호 찾기).
+ * 엔진이 모르는 구매자면 빈 목록
+ */
+export function buyerPhoneKeys(state: EngineState, id: string): string[] {
+  if (pget(state.buyers, id) === undefined) return []
+  const r = reader(state)
+  const root = r.root(id)
+  return pentries(state.phoneKeys)
+    .filter(([, buyer]) => pget(state.buyers, buyer) !== undefined && r.root(buyer) === root)
+    .map(([key]) => key)
+    .sort()
+}
+
 // ── 합치기 미리 보기 (R-11 "미리 보기", BUY-03, D-100) ──────────────────
 
 /** 확정 찜의 상품 키(생성 순서)와 합 — buyerInfo의 items·subtotal과 같은 계산 */

@@ -1485,6 +1485,44 @@ export const receiptLinkRequests = pgTable(
   (t) => [unique('receipt_link_requests_uq').on(t.sellerId, t.requestId)],
 )
 
+/**
+ * 손님 휴대폰 번호 (D-REAL-03): 영수증 문자를 보내려고 판매자 키로 암호화해 둔다(원문·로그 없음).
+ * key = 문자찜 구매자의 전화번호 키(엔진 phoneKey — 날짜를 넘어 같다) 또는 판매자가 넣은 번호의 `d:<날짜>:<구매자 ID>`.
+ * 마지막으로 쓴 지 1년이 지나면 지운다
+ */
+export const buyerPhones = pgTable(
+  'buyer_phones',
+  {
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    key: text('key').notNull(),
+    phoneEnc: text('phone_enc').notNull(),
+    last4: text('last4').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('buyer_phones_uq').on(t.sellerId, t.key), index('buyer_phones_updated_idx').on(t.updatedAt)],
+)
+
+/** 영수증 문자 보낸 기록 (D-REAL-03). 요청 번호로 한 번만, 번호는 끝 4자리만 */
+export const receiptSmsSends = pgTable(
+  'receipt_sms_sends',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    date: text('date').notNull(),
+    buyer: text('buyer').notNull(),
+    last4: text('last4').notNull(),
+    ok: boolean('ok').notNull(),
+    sentAt: timestamptz('sent_at').notNull(),
+    sentBy: text('sent_by').references(() => accounts.id),
+  },
+  (t) => [unique('receipt_sms_sends_uq').on(t.sellerId, t.requestId), index('receipt_sms_sends_buyer_idx').on(t.sellerId, t.date, t.buyer, t.sentAt), index('receipt_sms_sends_seller_idx').on(t.sellerId, t.sentAt)],
+)
+
 // ── 요금 (N5, BILLING_RULES BL-0~BL-8, D-N5-01~D-N5-14) ─────────────────────
 // 엔진 밖 서버 원장이다(BL-0 2). 이벤트·발송함·스냅샷·출력 작업 표는 바꾸지 않는다.
 // 이용권(billing_grants)·회수(billing_revocations)·쓴 기록(billing_usage)·이용 방식(billing_modes)은 덧붙이기만 한다(BL-0 4, BL-INV-5 —
@@ -1987,6 +2025,8 @@ export const parcelSettings = pgTable('parcel_settings', {
   customerEnc: text('customer_enc'),
   /** 보내는 사람 다섯 칸 JSON 암호문 (없으면 null) */
   senderEnc: text('sender_enc'),
+  /** 우체국 계약소포 인증키·보안키 JSON 암호문 (없으면 null — D-REAL-04) */
+  epostEnc: text('epost_enc'),
   /** 기본 택배 크기 코드 (FB1 D-FB1-05) */
   box: text('box').notNull().default('80'),
   updatedAt: timestamptz('updated_at').notNull(),
@@ -2710,6 +2750,8 @@ export const schema = {
   billingRequests,
   receiptLinks,
   receiptLinkRequests,
+  buyerPhones,
+  receiptSmsSends,
   depositSources,
   deposits,
   depositLinks,

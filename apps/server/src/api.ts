@@ -32,6 +32,7 @@ import { registerReadRoutes } from './read-routes.ts'
 import type { InstagramModule } from './instagram/index.ts'
 import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.ts'
 import type { ReceiptLinkService } from './receipt-links.ts'
+import type { ReceiptSmsService } from './receipt-sms.ts'
 import type { TikTokLive } from './tiktok-live/live.ts'
 import type { PasteService } from './tiktok-live/paste-service.ts'
 import { registerTiktokRoutes } from './tiktok-live/routes.ts'
@@ -85,6 +86,8 @@ export interface ApiDeps {
   readonly closing: ClosingService
   /** 구매자 확인서 공유 링크 (N4b). 없으면 /api/days/:date/receipt-links 경로가 없다 */
   readonly receiptLinks?: ReceiptLinkService
+  /** 영수증 문자 (D-REAL-03). 없으면 문자 칸이 없다 */
+  readonly receiptSms?: ReceiptSmsService
   readonly auth: Auth
   readonly hub: StreamHub
   /** 출력 기록과 출력 기기 (I1). 없으면 /api/print 경로가 없다 */
@@ -801,7 +804,14 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       if (outcome.kind !== 'ok') return linkOutcome(c, outcome, () => ({}))
       const rows = outcome.value.rows
       const statuses = scope.rehearsal ? null : await links.statuses(sellerOf(c), scope.date, rows.map((row) => row.buyer))
-      return c.json({ date: scope.date, rehearsal: scope.rehearsal, buyers: rows.map((row) => ({ ...row, link: statuses?.get(row.buyer) ?? null })) })
+      // 영수증 문자 (D-REAL-03): 문자를 보낼 수 있는 서버면 smsReady, 줄마다 아는 번호 끝 4자리·마지막으로 보낸 시각
+      const sms = deps.receiptSms === undefined || scope.rehearsal ? null : await deps.receiptSms.statuses(sellerOf(c), scope.date, rows.map((row) => row.buyer))
+      return c.json({
+        date: scope.date,
+        rehearsal: scope.rehearsal,
+        smsReady: deps.receiptSms?.available === true && !scope.rehearsal,
+        buyers: rows.map((row) => ({ ...row, link: statuses?.get(row.buyer) ?? null, sms: sms?.get(row.buyer) ?? null })),
+      })
     })
     // 링크 목록 (AC-N4b-12): 리허설 범위는 빈 목록
     api.get('/days/:date/receipt-links', async (c) => {
@@ -833,6 +843,24 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       if (!scope.ok) return scope.response
       return linkOutcome(c, await links.createAll(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId), (value) => ({ date: scope.date, ...value }))
     })
+    // 영수증 문자 보내기 (D-REAL-03): { requestId, buyer, phone? } — phone이 없으면 아는 번호로
+    const receiptSms = deps.receiptSms
+    if (receiptSms !== undefined) {
+      api.post('/days/:date/receipt-sms', async (c) => {
+        const input = body(c)
+        const requestId = requestIdOf(input)
+        if (requestId === null) return invalidRequestId()
+        const extra = onlyKeys(input, ['requestId', 'buyer', 'phone'])
+        if (extra !== null) return extra
+        const buyer = buyerParam(typeof own(input, 'buyer') === 'string' ? (own(input, 'buyer') as string) : undefined)
+        if (!buyer.ok) return problemResponse(buyer.error)
+        const phone = own(input, 'phone')
+        if (phone !== undefined && phone !== null && (typeof phone !== 'string' || phone.length > 40)) return problemResponse({ status: 400, code: 'BAD_REQUEST', message: '휴대폰 번호를 010으로 시작하는 숫자로 적어 주세요.' })
+        const scope = scopeParams(c)
+        if (!scope.ok) return scope.response
+        return linkOutcome(c, await receiptSms.send(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId, buyer.buyer, typeof phone === 'string' ? phone : null), (value) => ({ date: scope.date, sms: value }))
+      })
+    }
     // 링크 끊기 (AC-N4b-13): { requestId, buyer }
     api.post('/days/:date/receipt-links/revoke', async (c) => {
       const input = body(c)

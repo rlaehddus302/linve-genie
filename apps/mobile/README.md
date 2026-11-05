@@ -92,7 +92,7 @@ EXPO_PUBLIC_SERVER_URL=https://livegenie.kr NODE_ENV=production ./gradlew bundle
 EXPO_PUBLIC_SERVER_URL=https://<연습 서버> NODE_ENV=production ./gradlew assembleRelease   # 폰 설치용 → app/build/outputs/apk/release/app-release.apk
 ```
 
-- **알림 받기 스위치** `LIVEGENIE_NOTICE`: `on`일 때만 휴대폰 알림 받기(문자찜·입금 알림 읽기)가 들어가요. 비우면 `off` — 1차 Play 출시 기본(SMS 정책 거절 위험). off면 알림 읽기 서비스·재부팅 수신기·`RECEIVE_BOOT_COMPLETED`가 빠지고 설정 화면의 알림 받기 칸이 숨어요. **prebuild와 gradle 둘 다 같은 값**으로 돌려요(개발 때 쓰려면 `LIVEGENIE_NOTICE=on npx expo start`).
+- **알림 받기 스위치** `LIVEGENIE_NOTICE`: 기본 `on` — 출시 빌드도 휴대폰 알림 받기(문자찜·입금 알림 읽기)가 들어가요(D-REAL-02). `off`로 줄 때만 빠져요. off면 알림 읽기 서비스·재부팅 수신기·`RECEIVE_BOOT_COMPLETED`가 빠지고 설정 화면의 알림 받기 칸이 숨어요. **prebuild와 gradle 둘 다 같은 값**으로 돌려요(개발 때 쓰려면 `LIVEGENIE_NOTICE=on npx expo start`).
 - 아이콘·스플래시는 임시 그림이에요: `node apps/mobile/scripts/make-icons.mjs [Play 그림 폴더]`로 다시 만들어요(Play 512 아이콘·1024×500 그래픽은 폴더를 줄 때만).
 - 서버의 `LIVEJJIM_APP_ORIGIN`이 서버 주소의 origin과 다르면 `EXPO_PUBLIC_APP_ORIGIN`도 같이 넣어요.
 - 버전은 `app.json`의 `version`(versionName)·`android.versionCode`. Play에 새로 올릴 때마다 versionCode를 1씩 올려요.
