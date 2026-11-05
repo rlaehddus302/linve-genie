@@ -53,14 +53,14 @@ describe('LoginScreen', () => {
   describe('D-UX3-28 앱 안 간편 로그인', () => {
     afterEach(() => setSocialNative(null))
 
-    const install = (back: string | null, replies: Record<string, unknown>, stored: Record<string, string> = {}) => {
+    const install = (back: string | null, replies: Record<string, unknown>, stored: Record<string, string> = {}, providers: readonly string[] = ['kakao', 'naver', 'google']) => {
       const calls: { url: string; body: unknown }[] = []
       configureApi({
         baseUrl: 'https://livegenie.test',
         fetch: async (input, init) => {
           const url = String(input)
           calls.push({ url, body: init?.body === undefined ? null : JSON.parse(String(init.body)) })
-          if (url.endsWith('/api/client-config')) return new Response(JSON.stringify({ loginProviders: ['kakao', 'naver', 'google'] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+          if (url.endsWith('/api/client-config')) return new Response(JSON.stringify({ loginProviders: providers }), { status: 200, headers: { 'Content-Type': 'application/json' } })
           const path = new URL(url).pathname
           const reply = replies[path]
           return new Response(JSON.stringify(reply ?? {}), { status: reply === undefined ? 404 : 200, headers: { 'Content-Type': 'application/json' } })
@@ -91,6 +91,16 @@ describe('LoginScreen', () => {
       expect(t.opened).toEqual([`https://livegenie.test/api/auth/app/start?provider=kakao&challenge=${'C'.repeat(43)}`])
       expect(t.calls.find((c) => c.url.endsWith('/api/auth/app/finish'))?.body).toEqual({ ticket: 'T'.repeat(43), verifier: 'V'.repeat(43) })
       expect(t.stored['livejjim:last-login']).toBe('kakao')
+    })
+
+    it('D-UX3-34 서버가 Apple을 켜면 맨 아래에 검은 "Apple로 로그인" 단추, 누르면 provider=apple로 앱 로그인 창을 연다', async () => {
+      const t = install(null, {}, {}, ['apple', 'kakao', 'naver', 'google'])
+      render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={async () => {}} />)
+      const apple = await screen.findByRole('button', { name: 'Apple로 로그인' })
+      const names = screen.getAllByRole('button').map((item) => item.getAttribute('aria-label')).filter((name) => name?.endsWith('로 로그인'))
+      expect(names).toEqual(['카카오로 로그인', '네이버로 로그인', '구글로 로그인', 'Apple로 로그인'])
+      fireEvent.click(apple)
+      await waitFor(() => expect(t.opened).toEqual([`https://livegenie.test/api/auth/app/start?provider=apple&challenge=${'C'.repeat(43)}`]))
     })
 
     // 옛 기대 D-UX3-28: 처음 계정이면 동의 판(체크 → "동의하고 시작하기") 뒤 가입.

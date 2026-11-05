@@ -3852,6 +3852,13 @@ select.input {
   border: 1px solid #e5e8eb;
 }
 
+/* Apple: 검은 바탕·흰 글자 (D-UX3-34, Apple 지침) */
+.social-apple {
+  color: #ffffff;
+  background-color: #000000;
+  border: 1px solid #000000;
+}
+
 .login-method-list {
   display: grid;
   gap: 0.75rem;
@@ -4139,6 +4146,10 @@ select.input {
 
   .social-google:hover:not(:disabled) {
     background-color: #f1f3f4;
+  }
+
+  .social-apple:hover:not(:disabled) {
+    background-color: #1f1f1f;
   }
 
   .button:disabled:hover {

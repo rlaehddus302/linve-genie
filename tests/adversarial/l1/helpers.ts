@@ -2,7 +2,8 @@
 // 실제 구글·카카오·네이버 주소로 나가는 요청은 막는다(acceptance 공통 전제).
 import { expect } from 'vitest'
 import { FakeOAuth, type FakeOAuthOptions } from '../../../apps/server/src/social/fake-oauth.ts'
-import type { ProviderId, SocialLoginSetup } from '../../../apps/server/src/social/providers.ts'
+import type { SocialLoginSetup } from '../../../apps/server/src/social/providers.ts'
+import type { CoveredProvider as ProviderId } from '../../../apps/server/src/social/fake-oauth.ts'
 import { installGoogleBlock } from '../../../apps/server/src/youtube/network-guard.ts'
 import { installOutboundGuard } from '../../../apps/server/test/outbound-guard.ts'
 import { ORIGIN, addSeller, client, login, newWorld, type Seller, type TestServer } from '../../../apps/server/test/support.ts'

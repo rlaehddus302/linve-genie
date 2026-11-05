@@ -3,7 +3,7 @@
 // GET /api/auth/app/start?provider&challenge를 연다. 공급자에서 돌아오면 서버가 `livejjim://auth?ticket=…`(또는 `?login=<결과>`)로 보내 창이 닫힌다.
 // 앱은 그 표와 처음에 만든 검증 값으로 POST /api/auth/app/finish를 불러 세션 쿠키를 받는다(LOGGED_IN), 처음 계정이면 SIGNUP — 판 없이 바로 POST /api/auth/signup (D-UX3-29).
 // 기기 기능(로그인 창·무작위 값·SHA-256·저장소)은 app/_layout.tsx가 끼운다 — 시험은 가짜.
-import { isLoginProvider, signupPhoneNextOf, type LastLogin, type LoginProvider, type SignupPhoneNext } from '@livejjim/web/src/lib/social-login.ts'
+import { LOGIN_PROVIDERS, isLoginProvider, signupPhoneNextOf, type LastLogin, type LoginProvider, type SignupPhoneNext } from '@livejjim/web/src/lib/social-login.ts'
 import { post } from '../api/client.ts'
 import { absoluteUrl, apiConfig } from '../api/config.ts'
 
@@ -34,7 +34,7 @@ export async function fetchAppLoginProviders(): Promise<LoginProvider[]> {
     const response = await apiConfig().fetch(absoluteUrl('/api/client-config'), { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } })
     if (!response.ok) return []
     const body = (await response.json()) as { loginProviders?: unknown }
-    return Array.isArray(body.loginProviders) ? (['kakao', 'naver', 'google'] as const).filter((p) => (body.loginProviders as unknown[]).includes(p)) : []
+    return Array.isArray(body.loginProviders) ? LOGIN_PROVIDERS.filter((p) => (body.loginProviders as unknown[]).includes(p)) : []
   } catch {
     return []
   }

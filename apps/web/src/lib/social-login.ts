@@ -1,5 +1,5 @@
 // 간편 로그인 (L1, SYS-01, D-L1-01~07, AC-L1-20~23): 공급자 이름·결과 문장·돌아온 주소 읽기.
-// - 공급자는 카카오·네이버·구글 순서로만 보인다. 서버가 켜진 공급자를 client-config의 loginProviders로 알린다.
+// - 공급자는 카카오·네이버·구글·Apple 순서로만 보인다(Apple D-UX3-34). 서버가 켜진 공급자를 client-config의 loginProviders로 알린다.
 // - 공급자에서 돌아오면 서버가 `/?login=<코드>&provider=<p>`(로그인 화면) 또는 `/settings?login=…`(설정)으로 보낸다.
 //   코드·공급자는 정해진 값만 받고 정해진 문장만 보인다 — 주소의 글을 화면에 넣지 않는다(AC-L1-21).
 //   보인 뒤에는 주소에서 두 값을 지운다(history.replaceState — 새로 고침해도 다시 나오지 않게).
@@ -7,16 +7,16 @@ import { isApiError } from '../api/client.ts'
 import { kstDate } from './kst.ts'
 import { SERVICE_NAME } from '../brand.ts'
 
-export const LOGIN_PROVIDERS = ['kakao', 'naver', 'google'] as const
+export const LOGIN_PROVIDERS = ['kakao', 'naver', 'google', 'apple'] as const
 export type LoginProvider = (typeof LOGIN_PROVIDERS)[number]
 
-export const PROVIDER_NAMES: Readonly<Record<LoginProvider, string>> = { kakao: '카카오', naver: '네이버', google: '구글' }
+export const PROVIDER_NAMES: Readonly<Record<LoginProvider, string>> = { kakao: '카카오', naver: '네이버', google: '구글', apple: 'Apple' }
 
 export function isLoginProvider(value: unknown): value is LoginProvider {
   return typeof value === 'string' && (LOGIN_PROVIDERS as readonly string[]).includes(value)
 }
 
-/** 켜진 공급자 목록 → 정해진 순서(카카오·네이버·구글)의 아는 공급자만 */
+/** 켜진 공급자 목록 → 정해진 순서(카카오·네이버·구글·Apple)의 아는 공급자만 */
 export function providersOf(value: unknown): LoginProvider[] {
   if (!Array.isArray(value)) return []
   return LOGIN_PROVIDERS.filter((provider) => value.includes(provider))

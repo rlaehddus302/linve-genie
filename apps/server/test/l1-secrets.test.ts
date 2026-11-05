@@ -4,7 +4,7 @@
 import type { PGlite } from '@electric-sql/pglite'
 import { afterAll, describe, expect, it } from 'vitest'
 import { formatLog } from '../src/log.ts'
-import type { ProviderId } from '../src/social/providers.ts'
+import type { CoveredProvider as ProviderId } from '../src/social/fake-oauth.ts'
 import { addSeller, client } from './support.ts'
 import { ALL_PROVIDERS, approve, cookieValue, newSocialWorld, openCallback, resultOf, startFlow, type SocialWorld } from './l1-support.ts'
 import { dumpText } from './youtube-support.ts'

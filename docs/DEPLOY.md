@@ -49,6 +49,10 @@
 | `LIVEJJIM_LOGIN_KAKAO_CLIENT_SECRET` | 선택 | (카카오가 준 값) | 카카오 앱에서 "클라이언트 시크릿"을 켰을 때만 적는다. 로그·화면에 나오지 않는다 | REST API 키 없이 이것만 적으면 시작하지 않는다. 카카오 앱에서 켰는데 비우면 로그인이 실패한다 |
 | `LIVEJJIM_LOGIN_NAVER_CLIENT_ID` | 선택 | (네이버가 준 값) | 간편 로그인 "네이버로 계속하기"의 클라이언트 ID(4-3절). 비밀값과 둘 다 비우면 네이버 로그인 버튼이 없다 | 하나만 적으면 시작하지 않는다 |
 | `LIVEJJIM_LOGIN_NAVER_CLIENT_SECRET` | 네이버 로그인이면 필수 | (네이버가 준 값) | 네이버 클라이언트 시크릿. 로그·화면에 나오지 않는다 | 새면 네이버 개발자 센터에서 새로 받는다 |
+| `LIVEJJIM_LOGIN_APPLE_CLIENT_ID` | 선택 | `kr.livegenie.signin` | 간편 로그인 "Apple로 계속하기"의 Services ID(4-3절, D-UX3-34). 아래 셋과 함께 넷 다 적어야 켜진다 | 일부만 적으면 시작하지 않는다("Apple 로그인 설정이 일부만 적혀 있어요…") |
+| `LIVEJJIM_LOGIN_APPLE_TEAM_ID` | Apple 로그인이면 필수 | `8UR4Y9DY8H` | Apple Developer 팀 ID(영문 대문자·숫자 10자) | 모양이 틀리면 시작하지 않는다 |
+| `LIVEJJIM_LOGIN_APPLE_KEY_ID` | Apple 로그인이면 필수 | (키 화면의 Key ID 10자) | Sign in with Apple 키의 ID | 모양이 틀리면 시작하지 않는다 |
+| `LIVEJJIM_LOGIN_APPLE_PRIVATE_KEY` | Apple 로그인이면 필수 | (.p8 가운데 글자 한 줄) | 받은 .p8 파일에서 BEGIN·END 줄을 뺀 가운데 글자를 한 줄로 붙인 값(`\n`을 넣은 PEM도 받는다). 서버가 이 키로 Apple에 낼 비밀값(5분짜리 서명)을 매번 만든다. 로그·화면에 나오지 않는다 | 읽을 수 없으면 시작하지 않는다. 새면 Apple Developer에서 그 키를 지우고(Revoke) 새로 만든다 |
 | `LIVEJJIM_SMS_NCP_ACCESS_KEY` | 가입 문자 인증이면 필수 | (네이버 클라우드가 준 값) | 네이버 클라우드 인증키의 Access Key ID(D-UX3-30·D-REAL-07 — SENS). 넷(인증키 둘·서비스 ID·보내는 번호)을 다 적으면 간편 로그인 가입 때 휴대폰 번호를 문자로 확인해 같은 사람을 한 계정으로 묶는다. 넷 다 비우면 끔(바로 가입) | 일부만 적으면 서버가 시작하지 않는다. 문자가 안 가면 로그 `SMS_SEND_FAILED`(종류·HTTP 상태만) — 인증키·발신번호 등록을 본다 |
 | `LIVEJJIM_SMS_NCP_SECRET_KEY` | 가입 문자 인증이면 필수 | (네이버 클라우드가 준 값) | 인증키의 Secret Key — 요청 서명(HMAC-SHA256)에 쓴다. 로그·화면에 나오지 않는다 | 새면 네이버 클라우드 인증키 관리에서 새로 만든다 |
 | `LIVEJJIM_SMS_SENS_SERVICE_ID` | 가입 문자 인증이면 필수 | `ncp:sms:kr:…` | SENS 프로젝트의 SMS 서비스 ID | 틀리면 SENS가 거절한다(`SMS_SEND_FAILED`) |
@@ -136,7 +140,7 @@
    `node apps/server/src/commands/popbill-corp.ts --login 아이디 --corp 사업자번호` (풀기: `--clear yes`). 묶지 않은 판매자는 계좌조회 원천을 쓸 수 없다.
 3. 계좌 비밀번호·빠른조회 비밀번호는 이 서비스가 받지 않는다 — 판매자가 화면의 "계좌 관리" 주소(팝빌 화면)에서 직접 등록한다.
 
-## 4-3. 간편 로그인 설정 (구글·카카오·네이버, L1 D-L1-01~D-L1-07)
+## 4-3. 간편 로그인 설정 (구글·카카오·네이버·Apple, L1 D-L1-01~D-L1-07, D-UX3-34)
 
 판매자가 아이디·비밀번호 대신 구글·카카오·네이버 계정으로 로그인하게 한다. **가입은 받지 않는다** — 판매자 계정은 지금처럼 운영자가 만들고(3절 5), 판매자가 아이디로 한 번 로그인한 뒤 설정 → "로그인 방법"에서 공급자 계정을 연결해야 그 계정으로 들어올 수 있다. 공급자마다 따로 켜고 끈다. 아이디·비밀번호 로그인은 늘 남는다.
 
@@ -145,9 +149,10 @@
 | 구글 | 구글 클라우드 콘솔 → OAuth 클라이언트(웹 애플리케이션). 유튜브 연결(4절)과 같은 프로젝트·동의 화면을 써도 된다 | `<앱 주소>/api/auth/google/callback` | `openid email`만(유튜브 권한은 묻지 않는다 — 유튜브 연결은 따로 묻는다) | `LIVEJJIM_LOGIN_GOOGLE_CLIENT_ID`·`LIVEJJIM_LOGIN_GOOGLE_CLIENT_SECRET` |
 | 카카오 | 카카오 디벨로퍼스 → 내 애플리케이션 → 카카오 로그인 켜기. (선택) 보안 → 클라이언트 시크릿 켜기 | `<앱 주소>/api/auth/kakao/callback` | 추가 권한 없음(회원 번호, 받으면 닉네임). 이메일은 비즈 앱으로 바꾼 뒤에만 받을 수 있는데, **이메일이 없어도 연결·로그인이 된다**(설정에는 "카카오 계정"으로 보인다) | `LIVEJJIM_LOGIN_KAKAO_REST_API_KEY`(필수)·`LIVEJJIM_LOGIN_KAKAO_CLIENT_SECRET`(시크릿을 켰을 때만) |
 | 네이버 | 네이버 개발자 센터 → 애플리케이션 등록 → 네이버 로그인. 서비스 URL = `<앱 주소>` | `<앱 주소>/api/auth/naver/callback` | 회원 ID(필수 항목만, 받으면 이메일·별명). 판매자 여럿에게 열기 전에 **네이버 검수**를 받는다(검수 전에는 등록한 테스트 아이디만 된다) | `LIVEJJIM_LOGIN_NAVER_CLIENT_ID`·`LIVEJJIM_LOGIN_NAVER_CLIENT_SECRET` |
+| Apple | Apple Developer → Identifiers: 앱 ID(`app.livejjim.mobile`)에 Sign in with Apple 켜기 → Services ID 새로 만들기(예: `kr.livegenie.signin`)·Sign in with Apple 켜고 Configure에서 기본 앱 ID 고르기·Domains `livegenie.kr`·Return URL 적기 → Keys: 새 키에 Sign in with Apple 켜기(기본 앱 ID) → .p8 내려받기(한 번만 받을 수 있다) | `<앱 주소>/api/auth/apple/callback` | 권한 없음(사용자 ID만 — 이름·이메일은 묻지 않는다, 그래서 Apple 화면에서 돌아올 때 GET 질의로 받는다) | `LIVEJJIM_LOGIN_APPLE_CLIENT_ID`·`LIVEJJIM_LOGIN_APPLE_TEAM_ID`·`LIVEJJIM_LOGIN_APPLE_KEY_ID`·`LIVEJJIM_LOGIN_APPLE_PRIVATE_KEY` |
 
 - **비밀값 보관**: 클라이언트 비밀·시크릿은 업체의 비밀값 설정에만 넣는다(이미지·저장소·로그에 넣지 않는다). 서버는 공급자가 준 토큰을 저장하지 않는다 — 로그인할 때 사용자 정보를 읽는 데만 쓰고 버린다. 저장하는 것은 공급자 계정 번호와 가린 이메일(예: `se***@gmail.com`)뿐이다.
-- **반만 적으면 시작하지 않는다**: 구글·네이버는 ID와 비밀을 둘 다, 카카오는 REST API 키를 적어야 한다("○○ 로그인 설정이 반만 적혀 있어요. 둘 다 적거나 둘 다 지워 주세요."). 공급자 주소는 서버에 고정되어 있어 바꾸는 설정이 없다.
+- **반만 적으면 시작하지 않는다**: 구글·네이버는 ID와 비밀을 둘 다, 카카오는 REST API 키를, Apple은 넷 다 적어야 한다("○○ 로그인 설정이 반만 적혀 있어요. 둘 다 적거나 둘 다 지워 주세요."). 공급자 주소는 서버에 고정되어 있어 바꾸는 설정이 없다.
 - **끄는 법**: 그 공급자의 환경 변수를 지우고 서버를 다시 켠다. 로그인 화면의 그 버튼이 사라지고, 이미 연결한 판매자는 설정에서 "지금은 쓸 수 없어요"와 [연결 끊기]만 보인다(아이디 로그인은 그대로).
 - **확인**: 서버를 다시 켠 뒤 로그인 화면 아래 "또는" 줄과 버튼이 보이는지, 시험 판매자로 설정 → 로그인 방법 → [연결하기] → 로그아웃 → "…로 계속하기"가 되는지 본다.
 - 각 공급자의 디자인 지침(공식 로고 그림 요구 여부)·실제 앱 등록·검수·개인정보처리방침의 수집 항목 검토는 사용자 몫이다(DECISIONS "사용자 확인 필요").

@@ -1,14 +1,14 @@
 // 연습 모드의 실제 간편 로그인 파일 읽기 (RL1): 저장소 맨 위 `.env.login.local`(깃에 올리지 않는 파일)의 글을 읽어
-// 운영과 같은 환경 변수 이름(SOCIAL_ENV)·같은 규칙(readSocialLoginEnv — 반만 적으면 멈춤)으로 공급자 설정을 만든다.
+// 운영과 같은 환경 변수 이름(SOCIAL_ENV — Apple은 넷, D-UX3-34)·같은 규칙(readSocialLoginEnv — 반만 적으면 멈춤)으로 공급자 설정을 만든다.
 // - 값이 있는 공급자만 켜고, 없는 공급자는 끈다(가짜를 섞지 않는다). 공급자 주소는 운영과 같은 고정 주소다(주소 바꾸기 없음).
 // - 형식: 한 줄에 `이름=값`. 빈 줄·`#` 줄은 건너뛴다. 맨 앞 `export `, 값 양끝의 같은 따옴표 한 쌍은 허용한다.
 // - 문제가 있으면 쉬운 문장을 돌려준다. 문장에는 줄 번호와 (아는 모양의) 이름만 넣고 값은 절대 넣지 않는다.
-import { SOCIAL_ENV, readSocialLoginEnv, type SocialProviders } from './providers.ts'
+import { SOCIAL_ENV_NAMES, readSocialLoginEnv, type SocialProviders } from './providers.ts'
 
 export const LOGIN_ENV_FILE = '.env.login.local'
 
 /** 이 파일에 적을 수 있는 이름 (운영 환경 변수와 같다) */
-export const LOGIN_ENV_NAMES: readonly string[] = Object.freeze((['kakao', 'naver', 'google'] as const).flatMap((provider) => [SOCIAL_ENV[provider].id, SOCIAL_ENV[provider].secret]))
+export const LOGIN_ENV_NAMES: readonly string[] = SOCIAL_ENV_NAMES
 
 export type LoginEnvFileResult = { readonly ok: true; readonly providers: SocialProviders } | { readonly ok: false; readonly message: string }
 

@@ -29,8 +29,8 @@ export interface LogRecord {
   readonly claim?: string
   /** 같은 코드를 횟수 제한으로 남기지 않은 수 (틱톡 연결 객체 — 그 코드를 다음에 남길 때 함께, D-N2b-2-11 (마)) */
   readonly suppressed?: number
-  /** 간편 로그인 공급자 이름 (L1 — google · kakao · naver만. 공급자 계정 ID·이메일·코드·토큰은 남기지 않는다) */
-  readonly provider?: 'google' | 'kakao' | 'naver'
+  /** 간편 로그인 공급자 이름 (L1 — google · kakao · naver · apple만. 공급자 계정 ID·이메일·코드·토큰은 남기지 않는다) */
+  readonly provider?: 'google' | 'kakao' | 'naver' | 'apple'
 }
 
 export type LogCode =
@@ -376,7 +376,7 @@ export function formatLog(record: LogRecord): string {
 }
 
 const CLAIM_RE = /^c[0-9]{1,15}$/
-const PROVIDERS = new Set(['google', 'kakao', 'naver'])
+const PROVIDERS = new Set(['google', 'kakao', 'naver', 'apple'])
 const SELLER_RE = /^[A-Za-z0-9_-]{1,80}$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const WORKERS = new Set(['collector', 'outbox', 'sealer'])

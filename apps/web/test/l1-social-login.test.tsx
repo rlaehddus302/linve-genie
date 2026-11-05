@@ -88,7 +88,9 @@ describe('결과 코드·문장 (lib)', () => {
     expect(parseLoginResult('/settings', '?login=NOT_LINKED&provider=kakao', 'settings')).toBeNull()
     expect(parseLoginResult('/', '?login=%3Cscript%3Ealert(1)%3C%2Fscript%3E&provider=kakao', 'login')).toBeNull()
     expect(parseLoginResult('/', `?login=${'A'.repeat(5000)}&provider=kakao`, 'login')).toBeNull()
-    expect(parseLoginResult('/', '?login=CANCELLED&provider=apple', 'login')).toBeNull()
+    // D-UX3-34: Apple이 공급자가 되어 모르는 값의 예를 line으로 바꾼다 (옛 기대: provider=apple → null)
+    expect(parseLoginResult('/', '?login=CANCELLED&provider=line', 'login')).toBeNull()
+    expect(parseLoginResult('/', '?login=CANCELLED&provider=apple', 'login')).toEqual({ code: 'CANCELLED', provider: 'apple' })
     expect(parseLoginResult('/', '?login=CANCELLED', 'login')).toBeNull()
     expect(parseLoginResult('/buyers', '?login=CANCELLED&provider=kakao', 'login')).toBeNull()
   })
@@ -105,8 +107,9 @@ describe('결과 코드·문장 (lib)', () => {
     expect(resultMessage({ code: 'PROVIDER_ERROR', provider: 'naver' }).text).toBe('네이버에서 로그인을 마치지 못했어요. 잠시 뒤에 다시 해 주세요.')
   })
 
-  it('공급자 순서는 카카오·네이버·구글, 모르는 값은 버린다; 승인 주소는 http(s)만; 날짜는 KST "YYYY. M. D."', () => {
-    expect(providersOf(['google', 'apple', 'kakao'])).toEqual(['kakao', 'google'])
+  // D-UX3-34: 순서 끝에 Apple (옛 기대: apple은 모르는 값이라 버림)
+  it('공급자 순서는 카카오·네이버·구글·Apple, 모르는 값은 버린다; 승인 주소는 http(s)만; 날짜는 KST "YYYY. M. D."', () => {
+    expect(providersOf(['google', 'apple', 'line', 'kakao'])).toEqual(['kakao', 'google', 'apple'])
     expect(providersOf('kakao')).toEqual([])
     expect(safeAuthorizeUrl('javascript:alert(1)')).toBeNull()
     expect(safeAuthorizeUrl(42)).toBeNull()

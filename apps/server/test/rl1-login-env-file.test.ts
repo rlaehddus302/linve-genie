@@ -18,7 +18,8 @@ const failMessage = (text: string): string => {
 }
 
 describe('RL1 .env.login.local 읽기', () => {
-  it('이름은 운영 환경 변수(SOCIAL_ENV)와 같은 여섯 개다', () => {
+  // D-UX3-34: Apple 넷이 더해져 열 개 (옛 기대: 여섯 개)
+  it('이름은 운영 환경 변수(SOCIAL_ENV)와 같은 열 개다', () => {
     expect(LOGIN_ENV_FILE).toBe('.env.login.local')
     expect([...LOGIN_ENV_NAMES].sort()).toEqual(
       [
@@ -28,6 +29,10 @@ describe('RL1 .env.login.local 읽기', () => {
         'LIVEJJIM_LOGIN_KAKAO_REST_API_KEY',
         'LIVEJJIM_LOGIN_NAVER_CLIENT_ID',
         'LIVEJJIM_LOGIN_NAVER_CLIENT_SECRET',
+        'LIVEJJIM_LOGIN_APPLE_CLIENT_ID',
+        'LIVEJJIM_LOGIN_APPLE_TEAM_ID',
+        'LIVEJJIM_LOGIN_APPLE_KEY_ID',
+        'LIVEJJIM_LOGIN_APPLE_PRIVATE_KEY',
       ].sort(),
     )
     expect(LOGIN_ENV_NAMES).toContain(SOCIAL_ENV.kakao.id)

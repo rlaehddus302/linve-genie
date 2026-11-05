@@ -2,7 +2,7 @@
 // 근거: D-L1-02·D-L1-04, SYS-02, AC-L1-03~09. 비밀 표시 값(TOKEN-SENTINEL- 등)은 맨 끝 묶음에서 공격 전부 뒤에 다시 본다.
 import { afterAll, describe, expect, it } from 'vitest'
 import { formatLog } from '../../../apps/server/src/log.ts'
-import type { ProviderId } from '../../../apps/server/src/social/providers.ts'
+import type { CoveredProvider as ProviderId } from '../../../apps/server/src/social/fake-oauth.ts'
 import { ALL, ORIGIN, addSeller, client, closeAll, consent, count, counts, dumpAll, flow, l1World, open, outcome, record, rows, start } from './helpers.ts'
 
 afterAll(closeAll)
