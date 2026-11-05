@@ -1,11 +1,12 @@
 // 로그인 화면 (APP-01 AC1 "앱을 열면 로그인 화면"): 아이디·비밀번호 칸, 틀리면 서버 문장 그대로 + 안내, 맞으면 onLogin.
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/api/client.ts'
 import { configureApi } from '../src/api/config.ts'
 import { setSocialNative } from '../src/lib/social-auth.ts'
 import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SESSION_EXPIRED_MESSAGE } from '../src/lib/words.ts'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
+import { flush } from './support.ts'
 
 describe('LoginScreen', () => {
   it('아이디·비밀번호를 적고 로그인을 누르면 onLogin을 부른다', async () => {
@@ -79,9 +80,9 @@ describe('LoginScreen', () => {
       const t = install('livejjim://auth?ticket=' + 'T'.repeat(43) + '&provider=kakao', { '/api/auth/app/finish': { result: 'LOGGED_IN', me: {} } })
       const onSocialDone = vi.fn(async () => {})
       render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
-      const kakao = await screen.findByRole('button', { name: '카카오로 계속하기' })
-      expect(screen.getByRole('button', { name: '네이버로 계속하기' })).toBeTruthy()
-      expect(screen.getByRole('button', { name: '구글로 계속하기' })).toBeTruthy()
+      const kakao = await screen.findByRole('button', { name: '카카오로 로그인' })
+      expect(screen.getByRole('button', { name: '네이버로 로그인' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '구글로 로그인' })).toBeTruthy()
       fireEvent.click(kakao)
       await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1))
       expect(t.opened).toEqual([`https://livegenie.test/api/auth/app/start?provider=kakao&challenge=${'C'.repeat(43)}`])
@@ -89,25 +90,50 @@ describe('LoginScreen', () => {
       expect(t.stored['livejjim:last-login']).toBe('kakao')
     })
 
-    it('처음 계정이면 동의 판: 체크 없이는 안내, 체크하고 "동의하고 시작하기"면 표·검증 값으로 가입', async () => {
+    // 옛 기대 D-UX3-28: 처음 계정이면 동의 판(체크 → "동의하고 시작하기") 뒤 가입.
+    // 새 기대 D-UX3-29 (사용자 지시 2026-11-05 "저런 화면이 필수임?"): 동의 판 없이 바로 가입 — 단추 아래 안내 한 줄과 약관 링크
+    it('처음 계정이면 동의 판 없이 바로 표·검증 값으로 가입, 단추 아래 안내와 약관 링크', async () => {
       const t = install('livejjim://auth?ticket=' + 'T'.repeat(43) + '&provider=naver', { '/api/auth/app/finish': { result: 'SIGNUP', provider: 'naver' }, '/api/auth/signup': { seller: { name: '내 가게' } } })
       const onSocialDone = vi.fn(async () => {})
       render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
-      fireEvent.click(await screen.findByRole('button', { name: '네이버로 계속하기' }))
-      await screen.findByText('네이버 계정으로 처음 오셨어요')
-      fireEvent.click(screen.getByRole('button', { name: '동의하고 시작하기' }))
-      await screen.findByText('동의에 체크해 주세요.')
-      fireEvent.click(screen.getByRole('checkbox', { name: '이용약관과 개인정보처리방침에 동의해요 (필수)' }))
-      fireEvent.click(screen.getByRole('button', { name: '동의하고 시작하기' }))
+      fireEvent.click(await screen.findByRole('button', { name: '네이버로 로그인' }))
+      expect(screen.getByText('처음이면 바로 라이브지니 계정이 만들어져요. 계속하면 만 14세 이상이며 이용약관과 개인정보처리방침에 동의한 것으로 봐요.')).toBeTruthy()
+      expect(screen.getByRole('link', { name: '이용약관' })).toBeTruthy()
+      expect(screen.getByRole('link', { name: '개인정보처리방침' })).toBeTruthy()
       await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1))
       expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup'))?.body).toEqual({ agree: true, ticket: 'T'.repeat(43), verifier: 'V'.repeat(43) })
       expect(t.stored['livejjim:last-login']).toBe('naver')
+      expect(screen.queryByRole('checkbox')).toBeNull()
+      expect(screen.queryByText('동의하고 시작하기')).toBeNull()
+    })
+
+    // D-UX3-29 (사용자 지시 2026-11-05 "하나 누르면 전체가 다 눌린 상태로 팝업이 뜸", "꾹 눌렀을 때 버튼 안 진해짐")
+    it('누른 단추만 안이 진해지고 다른 단추는 그대로·잠기지 않는다', async () => {
+      let back: (value: string | null) => void = () => {}
+      install(null, {})
+      setSocialNative({
+        openAuthSession: () => new Promise((resolve) => (back = resolve)),
+        randomVerifier: () => 'V'.repeat(43),
+        sha256: async () => 'C'.repeat(43),
+        storage: { getItem: async () => null, setItem: async () => {} },
+      })
+      render(<LoginScreen expired={false} onLogin={async () => {}} />)
+      fireEvent.click(await screen.findByRole('button', { name: '카카오로 로그인' }))
+      await waitFor(() => expect(screen.getByTestId('social-kakao-pressed')).toBeTruthy())
+      expect(screen.queryByTestId('social-naver-pressed')).toBeNull()
+      expect(screen.queryByTestId('social-google-pressed')).toBeNull()
+      for (const name of ['네이버로 로그인', '구글로 로그인']) expect(screen.getByRole('button', { name }).getAttribute('aria-disabled')).not.toBe('true')
+      await act(async () => {
+        back(null)
+        await flush()
+      })
+      await waitFor(() => expect(screen.queryByTestId('social-kakao-pressed')).toBeNull())
     })
 
     it('취소하고 돌아오면 정한 문장, 창을 닫으면 아무 문장 없음. 마지막 방법에 "최근 로그인"', async () => {
       install('livejjim://auth?login=CANCELLED&provider=google', {}, { 'livejjim:last-login': 'google' })
       render(<LoginScreen expired={false} onLogin={async () => {}} />)
-      const google = await screen.findByRole('button', { name: '구글로 계속하기, 최근 로그인' })
+      const google = await screen.findByRole('button', { name: '구글로 로그인, 최근 로그인' })
       fireEvent.click(google)
       await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('구글 로그인을 취소했어요. 다시 하려면 버튼을 눌러 주세요.'))
     })

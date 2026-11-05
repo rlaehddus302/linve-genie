@@ -1,7 +1,7 @@
 // 홈 '내 방송' (D-UX3-18, 사용자 지시 2026-11-03): 서버 목록(오래된 순)을 뒤집어 최근 것이 위, 돌아갈 방송은 가장 최근의 열린 방송,
 // 홈 카드는 최근 4개(플랫폼 아이콘·날짜·지난 시간) + [모두보기], 모두 보기 화면은 날짜마다 흰 카드.
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { AllBroadcastsScreen, agoWords, byDate, liveBroadcast } from '../src/screens/BroadcastList.tsx'
 import { HomeScreen } from '../src/screens/HomeScreen.tsx'
@@ -35,6 +35,12 @@ describe('내 방송 (D-UX3-18)', () => {
   })
 
   it('홈 카드: 최근 4개만, 최근 것이 위, 진행 중 표시, [모두보기]는 쌓인 화면을 연다. 큰 단추는 오늘 틱톡 방송으로', async () => {
+    // 지난 시간은 그날 기준 — 실제 시계로 돌면 날이 지나 '2일 전'이 된다. 시계만 NOW로 고정(타이머는 그대로)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
     const world = makeWorld()
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: LIST } }))
     const navigation = nav()

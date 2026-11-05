@@ -38,8 +38,9 @@ export const SOCIAL_LOGOS: Readonly<Record<LoginProvider, SocialLogo>> = {
 }
 
 /** 단추 색 (공급자 안내서) */
-export const SOCIAL_COLORS: Readonly<Record<LoginProvider, { readonly background: string; readonly text: string; readonly border: string }>> = {
-  kakao: { background: '#FEE500', text: '#191919', border: '#FEE500' },
-  naver: { background: '#03C75A', text: '#FFFFFF', border: '#03C75A' },
-  google: { background: '#FFFFFF', text: '#1F1F1F', border: '#747775' },
+export const SOCIAL_COLORS: Readonly<Record<LoginProvider, { readonly background: string; readonly text: string; readonly border: string; readonly pressed: string }>> = {
+  kakao: { background: '#FEE500', text: '#191919', border: '#FEE500', pressed: 'rgba(0, 0, 0, 0.08)' },
+  naver: { background: '#03C75A', text: '#FFFFFF', border: '#03C75A', pressed: 'rgba(0, 0, 0, 0.12)' },
+  // 구글 테두리는 옅게 (D-UX3-29 — 사용자 지시 "구글 로그인 버튼 테두리 너무 진함", KREAM 흰 단추처럼)
+  google: { background: '#FFFFFF', text: '#1F1F1F', border: '#E5E8EB', pressed: 'rgba(0, 0, 0, 0.06)' },
 }

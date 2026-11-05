@@ -1,7 +1,7 @@
 // 앱 안 간편 로그인 (D-UX3-28 — 사용자 지시 2026-11-05 "앱에서 바로 소셜로그인이 안 되고 웹으로 넘어감").
 // 웹으로 넘기지 않고 앱 위에 뜨는 로그인 창(아이폰 ASWebAuthenticationSession·안드로이드 Custom Tabs — expo-web-browser openAuthSessionAsync)으로
 // GET /api/auth/app/start?provider&challenge를 연다. 공급자에서 돌아오면 서버가 `livejjim://auth?ticket=…`(또는 `?login=<결과>`)로 보내 창이 닫힌다.
-// 앱은 그 표와 처음에 만든 검증 값으로 POST /api/auth/app/finish를 불러 세션 쿠키를 받는다(LOGGED_IN), 처음 계정이면 SIGNUP — 동의 판 뒤 POST /api/auth/signup.
+// 앱은 그 표와 처음에 만든 검증 값으로 POST /api/auth/app/finish를 불러 세션 쿠키를 받는다(LOGGED_IN), 처음 계정이면 SIGNUP — 판 없이 바로 POST /api/auth/signup (D-UX3-29).
 // 기기 기능(로그인 창·무작위 값·SHA-256·저장소)은 app/_layout.tsx가 끼운다 — 시험은 가짜.
 import { isLoginProvider, type LastLogin, type LoginProvider } from '@livejjim/web/src/lib/social-login.ts'
 import { post } from '../api/client.ts'
@@ -74,7 +74,7 @@ export async function appSocialLogin(provider: LoginProvider): Promise<AppSocial
   return { kind: 'logged_in' }
 }
 
-/** 동의 판에서 "동의하고 시작하기" */
+/** 처음 계정이면 바로 가입 (D-UX3-29 — 단추 아래 안내를 보고 누른 것이 동의) */
 export async function appSignup(ticket: string, verifier: string): Promise<void> {
   await post('/api/auth/signup', { agree: true, ticket, verifier })
 }

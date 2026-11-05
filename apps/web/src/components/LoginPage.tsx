@@ -1,10 +1,10 @@
 // 로그인 화면 (AC-S05-01, SYS-01). 계정은 운영자가 만든다 — 가입 화면·링크는 없다.
 // 틀리면 서버 문장을 그대로 보이고 아이디는 남긴다. 세션이 끝나 돌아왔으면 "로그인이 풀렸어요"를 보인다.
 // 로그인 제한(429 LOGIN_RATE_LIMITED·LOGIN_BUSY)도 서버 문장 그대로. 아래에 정책 초안 링크(AC-I3-77).
-// L1 간편 로그인(AC-L1-20·21): 서버가 공급자를 켜 두었으면 로그인 칸 아래 "또는" 줄과 "카카오로 계속하기"·"네이버로 계속하기"·"구글로 계속하기"
-// (켜진 것만, 이 순서). 누르면 버튼 셋이 잠기고 같은 탭에서 승인 주소로 간다. 돌아온 결과(`/?login=<코드>&provider=<p>`)는 정해진 문장을 한 번 보이고
+// L1 간편 로그인(AC-L1-20·21): 서버가 공급자를 켜 두었으면 로그인 칸 아래 "또는" 줄과 "카카오로 로그인"·"네이버로 로그인"·"구글로 로그인"
+// (켜진 것만, 이 순서 — 이름은 D-UX3-29). 누르면 같은 탭에서 승인 주소로 간다(누른 단추만 진해지고 다른 단추는 흐려지지 않으며 겹쳐 누르기는 무시). 돌아온 결과(`/?login=<코드>&provider=<p>`)는 정해진 문장을 한 번 보이고
 // 주소에서 지운다.
-// D-UX3-28: 연결 안 된 공급자 계정이면 `/?login=SIGNUP` — 동의 판(이용약관·개인정보처리방침 필수 체크, 취소|동의하고 시작하기)에서 바로 가입한다.
+// D-UX3-28·29: 연결 안 된 공급자 계정이면 `/?login=SIGNUP` — 동의 판 없이 바로 가입한다(단추 아래 안내 한 줄과 이용약관·개인정보처리방침 링크를 보고 누른 것이 동의).
 // 단추는 공식 로고를 왼쪽에 둔 긴 단추이고, 이 브라우저에서 마지막으로 로그인한 방법에 "최근 로그인" 표시(사용자 지시 2026-11-05).
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { isApiError, post, type ApiError } from '../api/client.ts'
@@ -23,12 +23,8 @@ import {
   rememberLastLogin,
   resultMessage,
   safeAuthorizeUrl,
-  SIGNUP_AGREE,
-  SIGNUP_BODY,
-  SIGNUP_BUTTON,
-  SIGNUP_HAVE_ID,
-  SIGNUP_NEED_AGREE,
-  signupTitle,
+  SIGNUP_MAKING,
+  SOCIAL_TERMS_NOTE,
   startErrorMessage,
   START_FAILED,
   stripLoginParams,
@@ -107,16 +103,12 @@ export function LoginPage({
     <main className="page">
       <h1>{SERVICE_NAME}</h1>
       {signup !== null ? (
-        <SignupPanel
-          provider={signup}
-          onCancel={() => {
-            dropPendingLogin()
-            setResult(null)
-          }}
+        <SignupNow
           onDone={(me) => {
             commitPendingLogin()
             onLoggedIn(me)
           }}
+          onFail={() => dropPendingLogin()}
         />
       ) : null}
       {message !== null ? (
@@ -236,6 +228,8 @@ function SocialLogin({ onStart }: { readonly onStart: () => void }) {
         <span>또는</span>
       </p>
       <SocialButtons providers={providers} moving={moving} onPress={(provider) => void start(provider)} />
+      {/* 이용약관·개인정보처리방침 링크는 바로 아래 꼬리 줄에 있다 */}
+      <p className="social-terms">{SOCIAL_TERMS_NOTE}</p>
       {error !== null ? (
         <p className="field-error" role="alert">
           {error}
@@ -245,57 +239,26 @@ function SocialLogin({ onStart }: { readonly onStart: () => void }) {
   )
 }
 
-/** 가입 판 (D-UX3-28): 동의 체크(필수) → 동의하고 시작하기. 표가 오래됐으면 서버 문장 */
-function SignupPanel({ provider, onCancel, onDone }: { readonly provider: LoginProvider; readonly onCancel: () => void; readonly onDone: (me: Me) => void }) {
-  const [agree, setAgree] = useState(false)
-  const [busy, setBusy] = useState(false)
+/** 처음 계정 (D-UX3-29): 돌아오자마자 한 번 가입한다. 표가 오래됐으면 서버 문장 */
+function SignupNow({ onDone, onFail }: { readonly onDone: (me: Me) => void; readonly onFail: () => void }) {
   const [error, setError] = useState<string | null>(null)
-  const submit = async () => {
-    if (busy) return
-    if (!agree) {
-      setError(SIGNUP_NEED_AGREE)
-      return
-    }
-    setBusy(true)
-    setError(null)
-    try {
-      onDone(await post<Me>('/api/auth/signup', { agree: true }))
-    } catch (caught) {
-      if (!isApiError(caught)) throw caught
-      setError(caught.message)
-      setBusy(false)
-    }
-  }
-  return (
-    <section className="notice signup-panel stack-tight" aria-labelledby="signup-title">
-      <h2 id="signup-title">{signupTitle(provider)}</h2>
-      <p>{SIGNUP_BODY}</p>
-      <label className="check-row">
-        <input type="checkbox" checked={agree} onChange={(event) => {
-          setAgree(event.target.checked)
-          setError(null)
-        }} />
-        <span>{SIGNUP_AGREE}</span>
-      </label>
-      <p className="row policy-links">
-        <a href="/terms" target="_blank" rel="noreferrer">이용약관 보기</a>
-        <a href="/privacy" target="_blank" rel="noreferrer">개인정보처리방침 보기</a>
-      </p>
-      {error !== null ? (
-        <p className="field-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      <div className="button-pair">
-        <button type="button" className="button" disabled={busy} onClick={onCancel}>
-          취소
-        </button>
-        <button type="button" className="button button-primary" disabled={busy} onClick={() => void submit()}>
-          {SIGNUP_BUTTON}
-        </button>
-      </div>
-      <p className="field-hint">{SIGNUP_HAVE_ID}</p>
-    </section>
+  const sent = useRef(false)
+  useEffect(() => {
+    if (sent.current) return
+    sent.current = true
+    post<Me>('/api/auth/signup', { agree: true }).then(onDone, (caught: unknown) => {
+      onFail()
+      setError(isApiError(caught) ? caught.message : START_FAILED)
+    })
+  }, [])
+  return error === null ? (
+    <p className="notice" role="status">
+      {SIGNUP_MAKING}
+    </p>
+  ) : (
+    <p className="notice" role="alert" data-tone="warning">
+      {error}
+    </p>
   )
 }
 
@@ -312,7 +275,7 @@ export function SocialLogo({ provider }: { readonly provider: LoginProvider }) {
 }
 
 /**
- * "카카오로 계속하기"·"네이버로 계속하기"·"구글로 계속하기": 폭 가득한 긴 단추, 왼쪽에 공식 로고, 가운데 글 (공급자 안내서 색 — D-UX3-28).
+ * "카카오로 로그인"·"네이버로 로그인"·"구글로 로그인"(D-UX3-29): 폭 가득한 긴 단추, 왼쪽에 공식 로고, 가운데 글 (공급자 안내서 색 — D-UX3-28).
  * last = 이 브라우저에서 마지막으로 로그인한 방법 — 그 단추에 "최근 로그인" 말풍선
  */
 export function SocialButtons({
@@ -329,7 +292,7 @@ export function SocialButtons({
   return (
     <div className="social-buttons">
       {providers.map((provider) => (
-        <button key={provider} type="button" className={`button social-button social-${provider}`} disabled={moving !== null} onClick={() => onPress(provider)}>
+        <button key={provider} type="button" className={`button social-button social-${provider}`} aria-busy={moving === provider} data-busy={moving === provider ? 'true' : undefined} onClick={() => onPress(provider)}>
           <SocialLogo provider={provider} />
           <span className="social-label">{moving === provider ? movingLabel(provider) : continueLabel(provider)}</span>
           {last === provider ? <span className="recent-login">{RECENT_LOGIN}</span> : null}

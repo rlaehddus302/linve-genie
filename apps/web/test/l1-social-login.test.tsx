@@ -97,13 +97,14 @@ describe('결과 코드·문장 (lib)', () => {
     expect(parseLoginResult('/buyers', '?login=CANCELLED&provider=kakao', 'login')).toBeNull()
   })
 
+  // D-UX3-29: 단추 이름이 "…로 로그인"이 되어 연결 문장도 '다음부터 "카카오로 로그인" 단추로 들어올 수 있어요.' (옛: '"카카오로 계속하기"로 로그인할 수 있어요.')
   it('문장: 공급자 이름·"로" 조사, 성공만 status', () => {
     for (const code of [...LOGIN_CODES, ...SETTINGS_CODES]) {
       const message = resultMessage({ code, provider: 'google' })
       expect(message.text).not.toMatch(/[A-Z_]{4,}|google/)
       expect(message.tone).toBe(code === 'LINKED' || code === 'SIGNUP' ? 'success' : 'error')
     }
-    expect(resultMessage({ code: 'LINKED', provider: 'kakao' }).text).toBe('카카오 계정을 연결했어요. 다음부터 "카카오로 계속하기"로 로그인할 수 있어요.')
+    expect(resultMessage({ code: 'LINKED', provider: 'kakao' }).text).toBe('카카오 계정을 연결했어요. 다음부터 "카카오로 로그인" 단추로 들어올 수 있어요.')
     expect(resultMessage({ code: 'RATE_LIMITED', provider: 'naver' }).text).toBe('로그인 시도가 너무 많아요. 10분 뒤에 다시 해 주세요.')
     expect(resultMessage({ code: 'PROVIDER_ERROR', provider: 'naver' }).text).toBe('네이버에서 로그인을 마치지 못했어요. 잠시 뒤에 다시 해 주세요.')
   })
@@ -123,9 +124,9 @@ describe('결과 코드·문장 (lib)', () => {
 describe('로그인 화면 버튼 (AC-L1-20)', () => {
   it('로그인 칸 아래 "또는"과 카카오·네이버·구글 순 버튼, 아이디 칸에 커서, 가입 글 없음, 공식 로고 그림만 (D-UX3-28)', async () => {
     await openLogin()
-    await screen.findByRole('button', { name: '카카오로 계속하기' })
-    expect(socialButtons().map((button) => button.textContent)).toEqual(['카카오로 계속하기', '네이버로 계속하기', '구글로 계속하기'])
-    expect(screen.getByRole('button', { name: '네이버로 계속하기' })).toBeDefined()
+    await screen.findByRole('button', { name: '카카오로 로그인' })
+    expect(socialButtons().map((button) => button.textContent)).toEqual(['카카오로 로그인', '네이버로 로그인', '구글로 로그인'])
+    expect(screen.getByRole('button', { name: '네이버로 로그인' })).toBeDefined()
     expect(screen.getByText('또는')).toBeDefined()
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '아이디' }))
     expect(document.body.textContent).not.toMatch(/회원가입|가입/)
@@ -141,7 +142,7 @@ describe('로그인 화면 버튼 (AC-L1-20)', () => {
   it('켜진 공급자만 (구글 하나), 하나도 없으면 "또는"도 없고 로그인 풀림 문장도 없다', async () => {
     enabledProviders = ['google']
     await openLogin()
-    await screen.findByRole('button', { name: '구글로 계속하기' })
+    await screen.findByRole('button', { name: '구글로 로그인' })
     expect(socialButtons()).toHaveLength(1)
     cleanup()
     enabledProviders = []
@@ -152,16 +153,20 @@ describe('로그인 화면 버튼 (AC-L1-20)', () => {
     expect(screen.queryByText('로그인이 풀렸어요. 다시 로그인해 주세요.')).toBeNull()
   })
 
-  it('누르면 셋이 잠기고 "카카오로 이동하는 중…", 서버가 준 승인 주소로 같은 탭 이동', async () => {
+  // 옛 기대: 누르면 셋이 잠긴다(disabled). 새 기대 D-UX3-29 (사용자 지시 2026-11-05 "하나 누르면 전체가 다 눌린 상태"): 누른 것만 바쁨 표시, 다른 단추는 흐려지지 않고 겹쳐 누르기는 무시
+  it('누르면 그 단추만 바쁨 "카카오로 이동하는 중…", 서버가 준 승인 주소로 같은 탭 이동', async () => {
     let release: (() => void) | undefined
     server.on('POST', /^\/api\/auth\/start$/, async (call) => {
       await new Promise<void>((resolve) => (release = resolve))
       return { body: { authorizeUrl: AUTHORIZE(String(call.body?.provider)) } }
     })
     await openLogin()
-    fireEvent.click(await screen.findByRole('button', { name: '카카오로 계속하기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '카카오로 로그인' }))
     await screen.findByRole('button', { name: '카카오로 이동하는 중…' })
-    for (const button of socialButtons()) expect((button as HTMLButtonElement).disabled).toBe(true)
+    expect(socialButtons().map((button) => button.getAttribute('aria-busy'))).toEqual(['true', 'false', 'false'])
+    for (const button of socialButtons()) expect((button as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '네이버로 로그인' }))
+    expect(server.callsTo('POST', /^\/api\/auth\/start$/)).toHaveLength(1)
     expect(server.callsTo('POST', /^\/api\/auth\/start$/)[0]?.body).toEqual({ provider: 'kakao' })
     release?.()
     await waitFor(() => expect(assigned).toEqual([AUTHORIZE('kakao')]))
@@ -170,46 +175,42 @@ describe('로그인 화면 버튼 (AC-L1-20)', () => {
   it('시작이 실패하면 잠금이 풀리고 서버 문장, 서버에 닿지 못하면 정한 문장; 이상한 승인 주소로는 가지 않는다', async () => {
     server.on('POST', /^\/api\/auth\/start$/, () => apiError(429, 'LOGIN_RATE_LIMITED', '로그인 시도가 너무 많아요. 10분 뒤에 다시 해 주세요.'))
     await openLogin()
-    fireEvent.click(await screen.findByRole('button', { name: '네이버로 계속하기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '네이버로 로그인' }))
     expect((await screen.findByRole('alert')).textContent).toBe('로그인 시도가 너무 많아요. 10분 뒤에 다시 해 주세요.')
     for (const button of socialButtons()) expect((button as HTMLButtonElement).disabled).toBe(false)
     server.on('POST', /^\/api\/auth\/start$/, () => ({ network: true }))
-    fireEvent.click(screen.getByRole('button', { name: '구글로 계속하기' }))
+    fireEvent.click(screen.getByRole('button', { name: '구글로 로그인' }))
     await screen.findByText('지금 연결하지 못했어요. 잠시 뒤에 다시 해 주세요.')
     server.on('POST', /^\/api\/auth\/start$/, () => ({ body: { authorizeUrl: 'javascript:alert(1)' } }))
-    fireEvent.click(screen.getByRole('button', { name: '구글로 계속하기' }))
+    fireEvent.click(screen.getByRole('button', { name: '구글로 로그인' }))
     await flush()
     expect(assigned).toEqual([])
   })
 })
 
 describe('돌아온 결과 문장 (AC-L1-21)', () => {
-  it('D-UX3-28 가입 판: `/?login=SIGNUP` → 동의 체크 없이 누르면 안내, 체크하고 누르면 POST /api/auth/signup {agree:true}로 들어가고 그 공급자가 최근 로그인', async () => {
+  // 옛 기대 D-UX3-28: 가입 판(동의 체크 → [동의하고 시작하기]). 새 기대 D-UX3-29: 판 없이 돌아오자마자 한 번 가입 — 로그인 화면 단추 아래 안내 한 줄을 보고 누른 것이 동의
+  it('D-UX3-29 처음 계정: `/?login=SIGNUP` → 판 없이 바로 POST /api/auth/signup {agree:true} 한 번, 그 공급자가 최근 로그인', async () => {
     window.localStorage.setItem('livejjim:last-login-pending', 'kakao')
     server.on('POST', /^\/api\/auth\/signup$/, (call): Reply => {
       loggedIn = true
       return call.body?.agree === true ? { body: { seller: { name: '내 가게' }, loginId: 'lg-abcdefgh', role: 'SELLER' } } : apiError(400, 'INVALID_INPUT', '이용약관과 개인정보처리방침에 동의해 주세요.')
     })
     await openLogin('/?login=SIGNUP&provider=kakao')
-    expect(screen.getByRole('heading', { name: '카카오 계정으로 처음 오셨어요' })).toBeDefined()
-    const buttons = [screen.getByRole('button', { name: '취소' }), screen.getByRole('button', { name: '동의하고 시작하기' })]
-    // 단추는 좌우 — 취소가 왼쪽(앞), 동의가 오른쪽 (CLAUDE.md 8)
-    expect(buttons[0]?.compareDocumentPosition(buttons[1] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    fireEvent.click(buttons[1] as HTMLElement)
-    expect(screen.getByRole('alert').textContent).toBe('동의에 체크해 주세요.')
-    expect(server.callsTo('POST', /^\/api\/auth\/signup$/)).toHaveLength(0)
-    fireEvent.click(screen.getByRole('checkbox', { name: '이용약관과 개인정보처리방침에 동의해요 (필수)' }))
-    fireEvent.click(buttons[1] as HTMLElement)
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(screen.queryByRole('button', { name: '동의하고 시작하기' })).toBeNull()
     await waitFor(() => expect(server.callsTo('POST', /^\/api\/auth\/signup$/)).toHaveLength(1))
     expect(server.callsTo('POST', /^\/api\/auth\/signup$/)[0]?.body).toEqual({ agree: true })
     await waitFor(() => expect(window.localStorage.getItem('livejjim:last-login')).toBe('kakao'))
+    await flush()
+    expect(server.callsTo('POST', /^\/api\/auth\/signup$/)).toHaveLength(1)
   })
 
   it('D-UX3-28 최근 로그인: 마지막으로 로그인한 공급자 단추에만 "최근 로그인"', async () => {
     window.localStorage.setItem('livejjim:last-login', 'naver')
     await openLogin()
-    await screen.findByRole('button', { name: /네이버로 계속하기/ })
-    expect(socialButtons().map((button) => button.textContent)).toEqual(['카카오로 계속하기', '네이버로 계속하기최근 로그인', '구글로 계속하기'])
+    await screen.findByRole('button', { name: /네이버로 로그인/ })
+    expect(socialButtons().map((button) => button.textContent)).toEqual(['카카오로 로그인', '네이버로 로그인최근 로그인', '구글로 로그인'])
   })
 
   it('로그인 화면: NOT_LINKED 문장을 alert로 한 번, 주소에서 지운다, 아이디 칸 커서', async () => {
@@ -308,7 +309,7 @@ describe('설정 "로그인 방법" (AC-L1-22·23)', () => {
     links = { naver: { label: 'ab***@naver.com', linkedAt: '2026-10-22T01:00:00.000Z' } }
     await openSettings('/settings?login=LINKED&provider=naver')
     const region = await screen.findByRole('region', { name: '로그인 방법' })
-    expect(within(region).getByRole('status').textContent).toBe('네이버 계정을 연결했어요. 다음부터 "네이버로 계속하기"로 로그인할 수 있어요.')
+    expect(within(region).getByRole('status').textContent).toBe('네이버 계정을 연결했어요. 다음부터 "네이버로 로그인" 단추로 들어올 수 있어요.')
     expect(window.location.search).toBe('')
     cleanup()
     await openSettings('/settings?login=LINKED_ELSEWHERE&provider=google')

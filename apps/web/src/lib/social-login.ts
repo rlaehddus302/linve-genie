@@ -22,8 +22,8 @@ export function providersOf(value: unknown): LoginProvider[] {
   return LOGIN_PROVIDERS.filter((provider) => value.includes(provider))
 }
 
-/** "카카오로 계속하기" */
-export const continueLabel = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}로 계속하기`
+/** "카카오로 로그인" — 처음이든 아니든 같은 이름 (D-UX3-29, 사용자 지시 2026-11-05 "…로 로그인으로 전부 통일") */
+export const continueLabel = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}로 로그인`
 /** "카카오로 이동하는 중…" */
 export const movingLabel = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}로 이동하는 중…`
 /** 이동을 시작했는데 페이지가 떠나지 않았다 (FB1 D-FB1-08 (3)): "카카오로 가지 못했어요. 다시 눌러 주세요." */
@@ -73,7 +73,7 @@ export function resultMessage({ code, provider }: LoginResult): ResultMessage {
     case 'SESSION_GONE':
       return { tone: 'error', text: '로그인이 풀려 연결하지 못했어요. 다시 로그인한 뒤 연결해 주세요.' }
     case 'LINKED':
-      return { tone: 'success', text: `${p} 계정을 연결했어요. 다음부터 "${p}로 계속하기"로 로그인할 수 있어요.` }
+      return { tone: 'success', text: `${p} 계정을 연결했어요. 다음부터 "${p}로 로그인" 단추로 들어올 수 있어요.` }
     case 'LINKED_ELSEWHERE':
       return { tone: 'error', text: `이 ${p} 계정은 이미 다른 ${SERVICE_NAME} 계정에 연결돼 있어요. 다른 ${p} 계정으로 해 주세요.` }
     case 'ALREADY_LINKED':
@@ -202,13 +202,12 @@ export function linkedDate(value: string | null): string {
 
 // ── 가입 (D-UX3-28) ─────────────────────────────────────────────────
 
-/** 가입 판 제목·안내·동의 문장 (웹·앱 같은 문장) */
-export const signupTitle = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]} 계정으로 처음 오셨어요`
-export const SIGNUP_BODY = `동의하면 바로 ${SERVICE_NAME} 계정이 만들어지고, 다음부터는 같은 단추로 로그인돼요.`
-export const SIGNUP_HAVE_ID = '이미 아이디가 있으면 "취소"를 누르고 아이디로 로그인한 뒤 설정 → 로그인 방법에서 연결해 주세요.'
-export const SIGNUP_AGREE = '이용약관과 개인정보처리방침에 동의해요 (필수)'
-export const SIGNUP_BUTTON = '동의하고 시작하기'
-export const SIGNUP_NEED_AGREE = '동의에 체크해 주세요.'
+// 동의 판은 없앴다 (D-UX3-29, 사용자 지시 2026-11-05 "저런 화면이 필수임?"): 간편 로그인 단추 아래 한 줄 안내(+ 이용약관·개인정보처리방침 링크)를 보고
+// 단추를 누른 것으로 동의를 받고, 처음 계정이면 돌아오자마자 가입한다(서버는 그대로 agree:true와 동의 시각을 남긴다).
+/** 간편 로그인 단추 아래 안내 (웹·앱 같은 문장) */
+export const SOCIAL_TERMS_NOTE = `처음이면 바로 ${SERVICE_NAME} 계정이 만들어져요. 계속하면 만 14세 이상이며 이용약관과 개인정보처리방침에 동의한 것으로 봐요.`
+/** 처음 계정을 만드는 동안 */
+export const SIGNUP_MAKING = '계정을 만들고 있어요…'
 
 // ── 최근 로그인 (D-UX3-28 — 사용자 지시 "최근 로그인도") ─────────────────
 // 그 기기(브라우저)에서 마지막으로 로그인에 성공한 방법. 공급자 단추를 누르면 "누른 것"으로 적어 두고, 로그인된 화면이 열리면 "마지막"으로 옮긴다.
