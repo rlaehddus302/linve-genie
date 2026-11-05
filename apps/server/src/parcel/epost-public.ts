@@ -2,6 +2,7 @@
 // - 배송 조회: 국내우편물 종적 조회(getLongitudinalDomesticList) — 등기번호 하나씩. 처리현황 낱말을 우리 조회 상태(PC-8)로 옮긴다.
 //   접수·집하 → 집하, 발송·도착·배달준비·미배달 → 배송 중, 배달완료 → 도착. 종적이 없으면(아직 안 가져감) 빼서 접수됨 그대로.
 // - 우편번호 찾기: 도로명주소 우편번호 조회(getNewAddressListAreaCd) — 받는 분 우편번호가 비었을 때 주소로 찾는다. 답이 우편번호 하나로 모일 때만 쓴다.
+//   검색어는 "도로명 건물번호"(또는 "동 번지")만 — 시·도까지 붙인 전체 주소는 "검색결과가 없습니다"(03)가 온다(2026-11-05 확인).
 // - 주소는 http만 열려 있다(https 없음 — 2026-11-05 확인). 키는 공공데이터포털 "일반 인증키"(Decoding 값 또는 Encoding 값 아무거나).
 // - 답의 이름·주소(발송인·수취인 — 가린 이름)는 읽지 않고 저장·로그에 내지 않는다. 처리현황·우편번호 칸만 본다.
 import type { TrackResult } from './carrier.ts'
@@ -199,15 +200,17 @@ export function epostZipFinder(options: EpostPublicOptions): (address: string) =
     const keyText = squash(key)
     const districts = districtWords(text)
     const region = regionOf(text.split(' ')[0] ?? '')
-    const fits = rows.filter((row) => {
-      const target = squash(road !== null ? row.road : row.lot)
-      if (!target.includes(keyText)) return false
+    // 실제 답은 설명서와 칸이 뒤바뀌어 있다(lnmAdres에 도로명, rnAdres에 지번 — 2026-11-05 확인). 두 칸 중 하나라도 맞으면 그 줄
+    const fitsOne = (address: string): boolean => {
+      const target = squash(address)
+      const at = target.indexOf(keyText)
+      if (at < 0) return false
       // 건물번호 뒤에 숫자가 더 붙은 다른 번지(예: 20 → 201)는 빼기
-      const after = target.slice(target.indexOf(keyText) + keyText.length)
-      if (/^[0-9-]/.test(after)) return false
-      if (region !== null && regionOf((road !== null ? row.road : row.lot).trim().split(/\s+/)[0] ?? '') !== region) return false
+      if (/^[0-9-]/.test(target.slice(at + keyText.length))) return false
+      if (region !== null && regionOf(address.trim().split(/\s+/)[0] ?? '') !== region) return false
       return districts.every((word) => target.includes(word))
-    })
+    }
+    const fits = rows.filter((row) => fitsOne(row.road) || fitsOne(row.lot))
     const zips = new Set(fits.map((row) => row.zip).filter((zip) => /^[0-9]{5}$/.test(zip)))
     if (zips.size !== 1) return { kind: 'NONE' }
     return { kind: 'ZIP', zip: [...zips][0] as string }

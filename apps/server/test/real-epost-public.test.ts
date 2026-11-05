@@ -55,6 +55,11 @@ describe('D-REAL-08 우체국 배송 조회', () => {
     expect(readPublicHeader(gateway('12'))).toBe('OTHER')
   })
 
+  it('실제 "조회결과 없음" 답(03 — 2026-11-05 운영 서버)은 그 건만 빼고 성공', async () => {
+    const none = '<?xml version="1.0" encoding="utf-8" standalone="yes"?><LongitudinalDomesticListResponse>' + head('N', '03') + '</LongitudinalDomesticListResponse>'
+    expect(await epostTracker({ serviceKey: 'k', fetch: fakePublic(() => none).fetch })(['6013082362377'])).toEqual({ ok: true, items: new Map() })
+  })
+
   it('등기번호마다 묻고 종적이 있는 것만 담는다. 종적 없음·오류 답인 건은 빼고, 송장 모양이 아니면 묻지 않는다. 키는 serviceKey로 인코딩해 보낸다', async () => {
     const fake = fakePublic((_path, params) => {
       const rgist = params.get('rgist')
@@ -115,6 +120,15 @@ describe('D-REAL-08 우편번호 찾기', () => {
     expect(fake.calls[0]?.pathname).toBe('/postal/retrieveNewAdressAreaCdService/retrieveNewAdressAreaCdService/getNewAddressListAreaCd')
     expect(fake.calls[0]?.searchParams.get('searchSe')).toBe('road')
     expect(fake.calls[0]?.searchParams.get('srchwrd')).toBe('세종대로 110')
+  })
+
+  it('실제 답 모양(2026-11-05 운영 서버에서 받은 답 — lnmAdres에 도로명, rnAdres에 지번)에서도 찾는다', async () => {
+    const real =
+      '<?xml version="1.0" encoding="utf-8" standalone="yes"?><NewAddressListResponse><cmmMsgHeader><requestMsgId></requestMsgId><responseMsgId></responseMsgId><responseTime>20261105:224747612</responseTime><successYN>Y</successYN><returnCode>00</returnCode><errMsg></errMsg><totalCount>1</totalCount><countPerPage>50</countPerPage><totalPage>1</totalPage><currentPage>1</currentPage></cmmMsgHeader><newAddressListAreaCd><zipNo>04524</zipNo><lnmAdres>서울특별시 중구 세종대로 110 (태평로1가, 서울특별시청)</lnmAdres><rnAdres>서울특별시 중구 태평로1가 31 서울특별시청</rnAdres></newAddressListAreaCd></NewAddressListResponse>'
+    const find = epostZipFinder({ serviceKey: 'k', fetch: fakePublic(() => real).fetch })
+    expect(await find('서울특별시 중구 세종대로 110')).toEqual({ kind: 'ZIP', zip: '04524' })
+    expect(await find('서울 중구 태평로1가 31')).toEqual({ kind: 'ZIP', zip: '04524' })
+    expect(await find('부산 중구 세종대로 110')).toEqual({ kind: 'NONE' })
   })
 
   it('시·군·구가 없어 여러 우편번호로 갈리면, 답이 없으면, 주소 모양이 아니면 못 찾음. 연결 실패·키 문제는 물어보지 못함', async () => {
