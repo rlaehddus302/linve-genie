@@ -95,12 +95,13 @@ describe('LoginScreen', () => {
 
     // 옛 기대 D-UX3-28: 처음 계정이면 동의 판(체크 → "동의하고 시작하기") 뒤 가입.
     // 새 기대 D-UX3-29 (사용자 지시 2026-11-05 "저런 화면이 필수임?"): 동의 판 없이 바로 가입 — 단추 아래 안내 한 줄과 약관 링크
-    it('처음 계정이면 동의 판 없이 바로 표·검증 값으로 가입, 단추 아래 안내와 약관 링크', async () => {
+    // D-UX3-33 (사용자 지시 2026-11-06 "처음이면 ... 동의한것으로 봐요 이 설명도 필요없어 지워"): 옛 기대 "단추 아래 안내 한 줄이 있다" → 새 기대 "안내 한 줄은 없고 약관 링크는 맨 아래에"
+    it('처음 계정이면 동의 판 없이 바로 표·검증 값으로 가입, 동의 안내 한 줄은 없고 약관 링크는 있다', async () => {
       const t = install('livejjim://auth?ticket=' + 'T'.repeat(43) + '&provider=naver', { '/api/auth/app/finish': { result: 'SIGNUP', provider: 'naver' }, '/api/auth/signup': { seller: { name: '내 가게' } } })
       const onSocialDone = vi.fn(async () => {})
       render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
       fireEvent.click(await screen.findByRole('button', { name: '네이버로 로그인' }))
-      expect(screen.getByText('처음이면 바로 라이브지니 계정이 만들어져요. 계속하면 만 14세 이상이며 이용약관과 개인정보처리방침에 동의한 것으로 봐요.')).toBeTruthy()
+      expect(screen.queryByText(/동의한 것으로 봐요/)).toBeNull()
       expect(screen.getByRole('link', { name: '이용약관' })).toBeTruthy()
       expect(screen.getByRole('link', { name: '개인정보처리방침' })).toBeTruthy()
       await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1))
@@ -136,7 +137,7 @@ describe('LoginScreen', () => {
     // D-UX3-31 (사용자 지시 2026-11-05 "아이디 비밀번호 방식 다 지우고 소셜 로그인만 남기고 밑에 쓸데 없는 설명은 지우고 필수적인거만")
     // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어 … 로그인 화면은 첨부 사진과 같이"): 옛 기대 "[아이디로 로그인]을 누르면 칸이 열린다"
     // → 새 기대 "그 링크는 없고, 서비스명을 2초 안에 다섯 번 누르면 칸이 열린다"
-    it('간편 로그인이 켜진 서버면 첫 화면은 서비스명·단추 셋·동의 안내·맨 아래 약관과 고객센터뿐, 아이디 칸·[아이디로 로그인]은 없다', async () => {
+    it('간편 로그인이 켜진 서버면 첫 화면은 서비스명·단추 셋·맨 아래 약관과 고객센터뿐(동의 안내 한 줄 없음 — D-UX3-33), 아이디 칸·[아이디로 로그인]은 없다', async () => {
       install(null, {})
       render(<LoginScreen expired={false} onLogin={async () => {}} />)
       await screen.findByRole('button', { name: '카카오로 로그인' })

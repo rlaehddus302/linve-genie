@@ -12,6 +12,7 @@
 // 빈칸은 flex 비율로 나눠 휴대폰 높이와 상관없이 같은 모양이고, 작은 화면에서는 최소 높이를 지키고 스크롤된다.
 // 도우미(보조자)를 없애 [아이디로 로그인] 링크도 뺐다. 운영자가 만든 계정·심사용 계정은 서비스명을 2초 안에 다섯 번 누르면 아이디 칸이 열린다(숨은 길).
 // 마지막으로 아이디로 들어온 기기이거나 간편 로그인이 켜지지 않은 서버면 처음부터 칸을 연다.
+// D-UX3-33 (사용자 지시 2026-11-06 "처음이면 ... 동의한것으로 봐요 이 설명도 필요없어 지워"): 단추 아래 동의 안내 한 줄도 뺐다 — 약관 두 링크는 맨 아래에 그대로.
 import { useEffect, useRef, useState } from 'react'
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
@@ -27,7 +28,6 @@ import {
   RECENT_LOGIN,
   resultMessage,
   SIGNUP_MAKING,
-  SOCIAL_TERMS_NOTE,
   LOGIN_CODES,
   type LastLogin,
   type LoginProvider,
@@ -304,9 +304,6 @@ export function LoginScreen({
         ))}
         {making ? <Notice tone="info">{SIGNUP_MAKING}</Notice> : null}
         {socialMessage !== null ? <Notice tone="danger" alert>{socialMessage}</Notice> : null}
-        {providers.length > 0 ? (
-          <Text style={{ color: '#6B7684', fontSize: 12, lineHeight: 18, textAlign: 'center', paddingHorizontal: 8 }}>{SOCIAL_TERMS_NOTE}</Text>
-        ) : null}
         {idForm ? (
           <Stack>
             <Field label="아이디" value={loginId} onChangeText={(text) => {
