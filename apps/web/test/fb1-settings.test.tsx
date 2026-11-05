@@ -37,7 +37,7 @@ function baseParcel(): ParcelSettings {
 
 function setup() {
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: meName }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: meName }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: 5000, loginProviders: ['kakao'] } }))
     .on('GET', /^\/api\/settings$/, () => ({ body: { settings } }))
     .on('PATCH', /^\/api\/settings$/, async (call): Promise<Reply> => {
@@ -53,7 +53,6 @@ function setup() {
     })
     .on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
     .on('GET', /^\/api\/youtube\/connection$/, () => youtubeNotConfigured)
-    .on('GET', /^\/api\/assistants$/, () => ({ body: { assistants: [], limit: 5 } }))
     .on('GET', /^\/api\/shop$/, () => ({ body: { shop } }))
     .on('PUT', /^\/api\/shop$/, (call) => {
       shop = { ...shop, ...(call.body as Partial<Shop>) }

@@ -1,11 +1,11 @@
 // 영수증 문자 (D-REAL-03 → D-REAL-05): 우리 서버는 보내지 않고, 받는 번호·글을 판매자 앱에 준다(판매자 휴대폰 문자 앱이 판매자 번호로 보낸다).
-// 문자찜 손님은 기억한 번호로, 모르는 손님은 판매자가 넣은 번호로. 보냄 표시는 요청 번호로 한 번만. 리허설·보조자·번호 없음, DB에 번호 원문 없음.
+// 문자찜 손님은 기억한 번호로, 모르는 손님은 판매자가 넣은 번호로. 보냄 표시는 요청 번호로 한 번만. 리허설·번호 없음, DB에 번호 원문 없음.
 // D-REAL-05로 바뀐 기대: 옛 "서버가 솔라피로 보냄·1분 안 다시 보내기 429·문자 키 없는 서버 503·smsReady false·보내기 실패 502"
 // → 새 "준비가 번호·글을 돌려줌·보냄 표시는 따로·문자 키와 상관없이 smsReady true·발송 상한 없음(판매자 요금제)".
 import { describe, expect, it } from 'vitest'
 import { RECEIPT_SMS_MESSAGES, receiptSmsText } from '../src/receipt-sms.ts'
 import { chat, ok } from './i2-support.ts'
-import { ORIGIN, addSeller, client, createBroadcast, dumpAllTables, login, newWorld, rid, type Seller, type TestServer } from './support.ts'
+import { ORIGIN, addSeller, client, createBroadcast, dumpAllTables, newWorld, rid, type Seller, type TestServer } from './support.ts'
 
 const DATE = '2026-10-19'
 
@@ -84,16 +84,13 @@ describe('D-REAL-05 영수증 문자 (판매자 휴대폰으로)', () => {
     expect(((await prepare(world, seller.cookie, { buyer: 'UC_B' })).body.sms as { phone: string }).phone).toBe('01098765432')
   })
 
-  it('리허설 409, 보조자 403', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('리허설 409', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const smsBuyer = await setup(world, seller)
     expect((await prepare(world, seller.cookie, { buyer: smsBuyer }, '?rehearsal=true')).status).toBe(409)
     expect((await markSent(world, seller.cookie, { buyer: smsBuyer }, '?rehearsal=true')).status).toBe(409)
-    const created = await client(world, seller.cookie).post('/api/assistants', { name: '엄마' })
-    const assistant = await login(world, (created.body.assistant as { loginId: string }).loginId, created.body.password as string)
-    expect((await prepare(world, assistant, { buyer: smsBuyer })).status).toBe(403)
-    expect((await markSent(world, assistant, { buyer: smsBuyer })).status).toBe(403)
   })
 
   it('보내는 글 모양', () => {

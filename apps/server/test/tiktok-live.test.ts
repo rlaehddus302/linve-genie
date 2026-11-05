@@ -5,7 +5,6 @@ import { FakeWebcast, flushTikTokTasks, libraryWebcast, TIKTOK_MISSED_MESSAGE, t
 import { TIKTOK_NOTICE } from '../src/tiktok-live/notice.ts'
 import { addSeller, client, rid, waitFor } from './support.ts'
 import {
-  assistantSession,
   chats,
   connected,
   consentOn,
@@ -89,14 +88,10 @@ describe('AC-N2b-2-21·22 동의 기록 — 켬·끔을 쌓는다, 동의 확인
     expect(((await client(changed, seller.cookie).get('/api/tiktok')).body.tiktok as { notice: { version: string } }).notice.version).toBe('TT-BETA-2')
   })
 
-  it('보조자는 켜기·끄기·조회·아이디 모두 403, 다른 판매자의 기록은 보이지 않는다', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('다른 판매자의 기록은 보이지 않는다', async () => {
     const w = await world()
     const seller = await addSeller(w)
-    const helper = await assistantSession(w, seller)
-    const api = client(w, helper.cookie)
-    expect((await api.get('/api/tiktok')).status).toBe(403)
-    expect((await api.post('/api/tiktok/consent', { requestId: rid('x'), on: true, version: 'TT-BETA-1' })).status).toBe(403)
-    expect((await api.put('/api/tiktok/account', { tiktokId: '@a_b' })).status).toBe(403)
     await consentOn(w, seller)
     const other = await addSeller(w)
     expect(((await client(w, other.cookie).get('/api/tiktok')).body.tiktok as Record<string, unknown>).consent).toBeNull()
@@ -304,7 +299,8 @@ describe('AC-N2b-2-31~33 연결 보기·상태 알림·끊기·회차를 끝내�
 })
 
 describe('AC-N2b-2-34 다시 연결 — 30초에 한 번', () => {
-  it('이어져 있지 않으면 NOT_LINKED, 잇기·다시 연결 뒤 30,000ms 전에는 TOO_SOON(start 없음), 30,000ms 정각부터 받는다. 보조자 403', async () => {
+  it('이어져 있지 않으면 NOT_LINKED, 잇기·다시 연결 뒤 30,000ms 전에는 TOO_SOON(start 없음), 30,000ms 정각부터 받는다', async () => {
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
     const w = await world()
     const { seller } = await tiktokSeller(w, { account: 'OFFLINE' })
     const b = await realBroadcast(w, seller)
@@ -322,10 +318,6 @@ describe('AC-N2b-2-34 다시 연결 — 30초에 한 번', () => {
     await w.tclock.advance(0)
     await waitFor(() => w.webcast.attempts === attempts + 1)
     expect((await api.post(`/api/broadcasts/${b}/tiktok/reconnect`, {})).body.error).toMatchObject({ code: 'TOO_SOON' })
-    const helper = await assistantSession(w, seller)
-    expect((await client(w, helper.cookie).post(`/api/broadcasts/${b}/tiktok/reconnect`, {})).status).toBe(403)
-    expect((await client(w, helper.cookie).post(`/api/broadcasts/${b}/live/unlink`, { requestId: rid('u'), platform: 'TIKTOK' })).status).toBe(403)
-    expect((await client(w, helper.cookie).post(`/api/broadcasts/${b}/live/link`, { requestId: rid('u'), platform: 'TIKTOK' })).status).toBe(403)
   })
 })
 

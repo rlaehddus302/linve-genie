@@ -9,7 +9,6 @@
 //   모든 구매자의 링크를 한꺼번에 복사·공유하는 버튼은 없다. 우리는 링크를 채팅·DM으로 보내지 않는다(D-N4b-05).
 // - 보내는 동안 그 줄의 버튼은 잠긴다(같은 요청 번호로만 다시 보낸다). 조치를 마치거나 창을 닫으면 포커스는 그 줄의 바뀐 버튼으로.
 // - 결과("복사했어요." 등)는 화면 읽기 프로그램이 읽는 알림 영역(role=status)에 나온다.
-// 보조자 계정은 App이 이 화면을 막는다(데이터 요청 없음, SYS-04).
 import { formatWon } from '@livejjim/core'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'

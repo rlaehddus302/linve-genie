@@ -11,11 +11,9 @@ import { isPlainObject, own, ownKeys } from './api-fields.ts'
 import type { Env } from './api.ts'
 import { apiError } from './errors.ts'
 import { unknownFieldProblems } from './messages.ts'
-import { ASSISTANT_FORBIDDEN_MESSAGE } from './roles.ts'
 import type { Service } from './service.ts'
 
 /** 보조자가 읽을 수 있는 칸 (문자찜 화면) */
-const ASSISTANT_READ_KINDS: readonly ReadKind[] = ['received', 'phone']
 const TEXT_MESSAGE = `글자로 ${String(READ_TEXT_MAX)}자까지 적어 주세요.`
 
 const invalid = (field: string, message: string) => apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field, message }])
@@ -44,19 +42,12 @@ function parseReadBody(body: Record<string, unknown>): ParsedRead {
 }
 
 export function registerReadRoutes(api: Hono<Env>, deps: { readonly service: Service }): void {
-  const assistantRefused = (role: string, kind: ReadKind): Response | null =>
-    role === 'ASSISTANT' && !ASSISTANT_READ_KINDS.includes(kind) ? apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE) : null
-
   api.post('/broadcasts/:id/read', async (c) => {
     const parsed = parseReadBody(c.get('body') ?? {})
     if (!parsed.ok) return parsed.response
     const session = c.get('session')
-    const refused = assistantRefused(session.role, parsed.kind)
-    if (refused !== null) return refused
     const scope = await deps.service.readScope(session.sellerId, c.req.param('id'))
     if (scope === null) return apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
-    // 보조자는 실제 방송만 (리허설은 판매자 몫 — 이벤트 쓰기와 같다)
-    if (session.role === 'ASSISTANT' && scope.rehearsal) return apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
     const read = readText(parsed.kind, parsed.text, { settings: { 'price.unit': scope.settings['price.unit'], 'claim.maxNumber': scope.settings['claim.maxNumber'] }, findProduct: scope.findProduct, now: deps.service.now() })
     return c.json({ read })
   })
@@ -65,8 +56,6 @@ export function registerReadRoutes(api: Hono<Env>, deps: { readonly service: Ser
     const parsed = parseReadBody(c.get('body') ?? {})
     if (!parsed.ok) return parsed.response
     if (BROADCAST_READ_KINDS.includes(parsed.kind)) return invalid('kind', '이 칸은 방송을 골라 읽어요.')
-    const refused = assistantRefused(c.get('session').role, parsed.kind)
-    if (refused !== null) return refused
     return c.json({ read: readText(parsed.kind, parsed.text, { now: deps.service.now() }) })
   })
 }

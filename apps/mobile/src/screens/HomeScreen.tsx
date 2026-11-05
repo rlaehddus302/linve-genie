@@ -134,7 +134,7 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
       (view) => setDay(view.days.find((item) => !item.rehearsal)?.date ?? null),
       () => setDay(null),
     )
-    // 시작 안내 줄 (웹 홈이 마법사를 여는 조건과 같다 — 보조자·옛 서버는 받지 못해 줄이 없다)
+    // 시작 안내 줄 (웹 홈이 마법사를 여는 조건과 같다 — 옛 서버는 받지 못해 줄이 없다)
     get<{ wizard: WizardState }>('/api/wizard').then(
       (view) => setWizard(view.wizard),
       () => setWizard(null),

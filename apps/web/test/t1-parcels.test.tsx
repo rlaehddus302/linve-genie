@@ -96,7 +96,7 @@ let day: ParcelDay
 
 function setup() {
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '다육이네' }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '다육이네' }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/parcels\/days$/, () => ({ body: { dates: [{ date: D, ready: 1, booked: 1 }], selected: D } }))
     .on('GET', /^\/api\/parcels\/days\/(\d{4}-\d{2}-\d{2})$/, () => ({ body: day }))
 }
@@ -131,19 +131,18 @@ const region = (name: RegExp) => screen.getByRole('region', { name })
 const exact = (name: string) => new RegExp(`^${name}$`)
 
 describe('메뉴·주소 (AC-T1-60)', () => {
-  it('"택배"는 "설정" 바로 앞(PC·휴대폰 목록 같은 순서), 막대 네 칸 그대로, 보조자에게는 없다', () => {
-    const layout = menuLayout({ route: { name: 'home' }, assistant: false, labels: true, review: null, billing: true })
+  it('"택배"는 "설정" 바로 앞(PC·휴대폰 목록 같은 순서), 막대 네 칸 그대로', () => {
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자에게는 없다"를 뺐다
+    const layout = menuLayout({ route: { name: 'home' }, labels: true, review: null, billing: true })
     expect(layout.bar.map(menuName)).toEqual(['방송', '문자찜 입력', '구매자', '정산'])
     expect(layout.more.map(menuName)).toEqual(['입금 확인', '포장', '라벨', '요금', '택배', '설정'])
     expect(menuAll(layout).at(-2)?.key).toBe('parcels')
-    const assistant = menuLayout({ route: { name: 'home' }, assistant: true, labels: true, review: null })
-    expect(menuAll(assistant).map(menuName)).toEqual(['문자찜 입력'])
   })
 
   it('실제 날짜를 보고 있었으면 그 날짜로, 리허설이면 날짜 없이', () => {
-    const real = menuLayout({ route: { name: 'settlements', date: D, rehearsal: false }, assistant: false, labels: true, review: null })
+    const real = menuLayout({ route: { name: 'settlements', date: D, rehearsal: false }, labels: true, review: null })
     expect(routePath(real.more.find((item) => item.key === 'parcels')!.to)).toBe(`/parcels?date=${D}`)
-    const rehearsal = menuLayout({ route: { name: 'settlements', date: D, rehearsal: true }, assistant: false, labels: true, review: null })
+    const rehearsal = menuLayout({ route: { name: 'settlements', date: D, rehearsal: true }, labels: true, review: null })
     expect(routePath(rehearsal.more.find((item) => item.key === 'parcels')!.to)).toBe('/parcels')
   })
 

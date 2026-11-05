@@ -45,24 +45,14 @@ export interface ApiProblem {
   readonly hint?: string
 }
 
-/** 계정 역할 (I3 — 판매자 계정·보조자 계정, SYS-04) */
-export type Role = 'SELLER' | 'ASSISTANT'
-
 export interface Me {
   readonly seller: { readonly name: string }
   readonly loginId: string
-  /** 없으면 판매자 계정 (앞 버전 서버) */
-  readonly role?: Role
-  /** 보조자 계정일 때만 그 이름 */
-  readonly assistant?: { readonly name: string } | null
   /** 문자로 확인한 휴대폰 번호(가린 것, D-UX3-30) */
   readonly phone?: string | null
   /** 번호를 먼저 확인해야 한다 (문자 인증이 켜진 서버의 번호 없는 판매자 계정) */
   readonly phoneRequired?: boolean
 }
-
-/** 보조자 계정인가 */
-export const isAssistant = (me: Pick<Me, 'role'>): boolean => me.role === 'ASSISTANT'
 
 /** 범위 목록 한 줄 (GET /api/days) — 봉인 예정 시각(유튜브 채팅이 있는 실제 범위만)·봉인 여부 (Y1 계약 5) */
 export interface DayRow {
@@ -610,20 +600,13 @@ export type YoutubeEvent =
   | { readonly kind: 'notice'; readonly date: string; readonly notice: YoutubeNotice }
   | { readonly kind: 'sealed'; readonly date: string }
 
-// ── 시작 마법사·보조자 (I3 dev-notes "화면에게" 2·4) ──────────────────────
+// ── 시작 마법사 (I3 dev-notes "화면에게" 2·4) ──────────────────────
 
 export type WizardStatus = 'NEW' | 'IN_PROGRESS' | 'DONE' | 'DISMISSED'
 
 export interface WizardState {
   readonly status: WizardStatus
   readonly step: number | null
-}
-
-export interface AssistantItem {
-  readonly id: string
-  readonly name: string
-  readonly loginId: string
-  readonly createdAt: string
 }
 
 // ── 영수증 보내기·구매자 공유 링크 (N4b dev-notes "dev-server" API) ──────────

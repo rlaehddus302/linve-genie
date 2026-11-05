@@ -1,4 +1,4 @@
-// L1 간편 로그인 화면 (AC-L1-20~23, D-L1-01·03·06): 로그인 화면 버튼·돌아온 결과 문장·설정 "로그인 방법" 칸·보조자.
+// L1 간편 로그인 화면 (AC-L1-20~23, D-L1-01·03·06): 로그인 화면 버튼·돌아온 결과 문장·설정 "로그인 방법" 칸.
 import { DEFAULT_SETTINGS } from '@livejjim/core'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,7 +12,6 @@ import { FakeEventSource, FakeServer, apiError, flush, youtubeNotConfigured, typ
 let server: FakeServer
 let assigned: string[]
 let loggedIn: boolean
-let role: 'SELLER' | 'ASSISTANT'
 let enabledProviders: LoginProvider[]
 let links: Partial<Record<LoginProvider, { label: string; linkedAt: string; enabled?: boolean }>>
 
@@ -27,15 +26,14 @@ function methodsBody() {
 
 function setup() {
   server
-    .on('GET', /^\/api\/me$/, (): Reply => (loggedIn ? { body: { seller: { name: '구피 가게' }, loginId: role === 'SELLER' ? 'shop1' : 'bo-1', role, assistant: role === 'ASSISTANT' ? { id: 'as1', name: '보조1' } : null } } : apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')))
+    .on('GET', /^\/api\/me$/, (): Reply => (loggedIn ? { body: { seller: { name: '구피 가게' }, loginId: 'shop1' } } : apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')))
     .on('GET', /^\/api\/client-config$/, (): Reply => {
       if (!loggedIn) return enabledProviders.length === 0 ? apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.') : { body: { loginProviders: enabledProviders } }
       return { body: { hostActionDelayMs: 5000, ...(enabledProviders.length === 0 ? {} : { loginProviders: enabledProviders }) } }
     })
     .on('POST', /^\/api\/auth\/start$/, (call): Reply => (enabledProviders.includes(call.body?.provider as LoginProvider) ? { body: { authorizeUrl: AUTHORIZE(String(call.body?.provider)) } } : apiError(404, 'NOT_FOUND', '찾을 수 없어요.')))
-    .on('POST', /^\/api\/auth\/link$/, (call): Reply => (role === 'ASSISTANT' ? apiError(403, 'ASSISTANT_FORBIDDEN', '보조자 계정으로는 할 수 없어요.') : { body: { authorizeUrl: AUTHORIZE(String(call.body?.provider)) } }))
+    .on('POST', /^\/api\/auth\/link$/, (call): Reply => ({ body: { authorizeUrl: AUTHORIZE(String(call.body?.provider)) } }))
     .on('GET', /^\/api\/auth\/methods$/, (): Reply => {
-      if (role === 'ASSISTANT') return apiError(403, 'ASSISTANT_FORBIDDEN', '보조자 계정으로는 할 수 없어요.')
       if (enabledProviders.length === 0) return apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
       return { body: methodsBody() }
     })
@@ -48,14 +46,12 @@ function setup() {
     .on('GET', /^\/api\/settings$/, () => ({ body: { settings: DEFAULT_SETTINGS } }))
     .on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
     .on('GET', /^\/api\/youtube\/connection$/, () => youtubeNotConfigured)
-    .on('GET', /^\/api\/assistants$/, () => ({ body: { assistants: [], limit: 5 } }))
 }
 
 beforeEach(() => {
   server = new FakeServer()
   assigned = []
   loggedIn = false
-  role = 'SELLER'
   enabledProviders = ['kakao', 'naver', 'google']
   links = {}
   setTopLevelNavigation((url) => assigned.push(url))
@@ -194,7 +190,7 @@ describe('돌아온 결과 문장 (AC-L1-21)', () => {
     window.localStorage.setItem('livejjim:last-login-pending', 'kakao')
     server.on('POST', /^\/api\/auth\/signup$/, (call): Reply => {
       loggedIn = true
-      return call.body?.agree === true ? { body: { seller: { name: '내 가게' }, loginId: 'lg-abcdefgh', role: 'SELLER' } } : apiError(400, 'INVALID_INPUT', '이용약관과 개인정보처리방침에 동의해 주세요.')
+      return call.body?.agree === true ? { body: { seller: { name: '내 가게' }, loginId: 'lg-abcdefgh', } } : apiError(400, 'INVALID_INPUT', '이용약관과 개인정보처리방침에 동의해 주세요.')
     })
     await openLogin('/?login=SIGNUP&provider=kakao')
     expect(screen.queryByRole('checkbox')).toBeNull()
@@ -396,19 +392,9 @@ describe('설정 "로그인 방법" (AC-L1-22·23)', () => {
     await openSettings()
     await flush()
     expect(screen.queryByRole('region', { name: '로그인 방법' })).toBeNull()
-    expect(screen.getByRole('region', { name: '보조자' })).toBeDefined()
   })
 
-  it('보조자: 설정에 칸이 없고 목록을 부르지 않는다', async () => {
-    loggedIn = true
-    role = 'ASSISTANT'
-    window.history.replaceState(null, '', '/settings')
-    render(<App />)
-    await screen.findByText('보조자 계정으로는 쓸 수 없는 화면이에요.')
-    await flush()
-    expect(screen.queryByRole('region', { name: '로그인 방법' })).toBeNull()
-    expect(server.callsTo('GET', /^\/api\/auth\//)).toHaveLength(0)
-  })
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 시험 "보조자: 설정에 칸이 없고 목록을 부르지 않는다"를 뺐다
 })
 
 it('개인정보처리방침 초안에 간편 로그인 연결 정보 (AC-L1-13)', () => {

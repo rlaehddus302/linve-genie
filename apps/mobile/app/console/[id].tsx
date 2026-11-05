@@ -22,13 +22,12 @@ export default function ConsoleRoute() {
   )
   if (session.state === 'out') return <Redirect href="/" />
   if (session.state !== 'in' || typeof id !== 'string') return null
-  const seller = session.me.role !== 'ASSISTANT'
   // 홈으로: 홈 위에 쌓였으면 돌아가고(홈이 다시 보일 때 방송 목록을 다시 받는다), 아니면 홈으로 바꾼다. 방송을 끝낸 뒤에도 같은 길 (D-UX2-07)
   const home = () => (router.canGoBack() ? router.back() : router.replace('/'))
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
-        <ConsoleScreen broadcastId={id} seller={seller} onBack={home} onEnded={home} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} {...(seller ? { openReviews: (rehearsal: boolean) => router.push(`/reviews?broadcast=${encodeURIComponent(id)}${rehearsal ? '&rehearsal=true' : ''}`), openLabels: () => router.push('/labels?from=console') } : {})} />
+        <ConsoleScreen broadcastId={id} seller onBack={home} onEnded={home} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} openReviews={(rehearsal: boolean) => router.push(`/reviews?broadcast=${encodeURIComponent(id)}${rehearsal ? '&rehearsal=true' : ''}`)} openLabels={() => router.push('/labels?from=console')} />
       </KitInsets>
     </SafeAreaView>
   )

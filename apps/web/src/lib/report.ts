@@ -82,7 +82,7 @@ export interface ReportView {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-/** 그 날짜의 리포트 (판매자만 — 보조자는 서버가 403) */
+/** 그 날짜의 리포트  */
 export function fetchReport(date: string): Promise<ReportView> {
   if (!DATE_RE.test(date)) return Promise.reject(new RangeError('날짜 모양이 아니다'))
   return get<ReportView>(`/api/days/${date}/report`)

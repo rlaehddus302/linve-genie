@@ -6,7 +6,6 @@
 //   "잇기"를 누르면 잠기고 "글을 읽는 중이에요…". 같은 글은 같은 요청 번호(응답이 늦어 다시 보내도 연결 하나). 거절은 서버 문장 그대로.
 //   고르기 창의 "더 보기"·"잇기"는 창 아래 단추 줄(휴대폰에서는 화면 아래쪽 — 엄지 쪽)에 있다.
 // - 휴대폰 폭(48rem 미만)에서는 "쓸 수 없음·설정으로"뿐인 칸을 그리지 않는다(D-MOB1-09). 이었거나 이을 수 있는 칸, 알림·오류가 있는 칸은 그린다.
-// - 보조자는 콘솔을 열 수 없다(앱이 문자찜 입력 화면만 연다) — 이 칸의 쓰기 단추도 판매자만 본다.
 // 서버 문장·글 첫 줄·밴드 이름·알림 글은 고치지 않고 글자로만 보인다(React 이스케이프).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'

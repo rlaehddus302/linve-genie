@@ -84,7 +84,8 @@ test.describe('AC-T1-60 메뉴 "택배"', () => {
     await expect(page.getByRole('heading', { level: 1, name: '택배 접수' })).toBeVisible()
   })
 
-  test('휴대폰: 막대 다섯 칸 그대로, "더보기" 목록의 "설정" 바로 앞 — 보조자 계정에는 없다', async ({ page, browser }) => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 계정 메뉴에 택배 없음, /parcels는 안내만"을 뺐다
+  test('휴대폰: 막대 다섯 칸 그대로, "더보기" 목록의 "설정" 바로 앞', async ({ page, browser }) => {
     const seller = await parcelSeller(page)
     const phone = await phoneOf(browser, page, seller)
     try {
@@ -97,24 +98,6 @@ test.describe('AC-T1-60 메뉴 "택배"', () => {
       await expect(menuLink(phone, '택배')).toHaveAttribute('aria-current', 'page')
     } finally {
       await phone.context().close()
-    }
-    // 보조자 (SYS-04): 메뉴에 "택배"가 없고 /parcels는 안내만
-    const created = await page.request.post('/api/assistants', { data: { name: '도우미' }, headers: { Origin: new URL(page.url()).origin } })
-    expect(created.ok(), await created.text()).toBe(true)
-    const { assistant, password } = (await created.json()) as { assistant: { loginId: string }; password: string }
-    const helper = await phoneOf(browser, page, { loginId: assistant.loginId, password })
-    try {
-      await helper.goto('/sms')
-      await expect(helper.getByRole('button', { name: '로그아웃' })).toBeVisible()
-      await expect(helper.getByRole('link', { name: '택배', exact: true, includeHidden: true })).toHaveCount(0)
-      if (await menu(helper).getByRole('button', { name: '더보기' }).count() > 0) {
-        await openMore(helper)
-        await expect(helper.getByRole('link', { name: '택배', exact: true })).toHaveCount(0)
-      }
-      await helper.goto('/parcels')
-      await expect(helper.getByText('보조자 계정으로는 쓸 수 없는 화면이에요.')).toBeVisible()
-    } finally {
-      await helper.context().close()
     }
   })
 })

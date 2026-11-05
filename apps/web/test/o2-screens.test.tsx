@@ -403,7 +403,7 @@ describe('설정의 판매 방식 (AC-O2-01·02)', () => {
     settings = { ...DEFAULT_SETTINGS, 'contention.policy': 'RECEIVED_TIME' }
     server = new FakeServer()
     server
-      .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+      .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
       .on('GET', /^\/api\/settings$/, () => ({ body: { settings } }))
       .on('PATCH', /^\/api\/settings$/, (call) => {
         settings = { ...settings, ...((call.body?.settings ?? {}) as object) } as SaleSettings

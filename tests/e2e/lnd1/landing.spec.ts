@@ -1,7 +1,6 @@
 // LND1 공개 소개 화면 (test-e2e) — AC-LND1-01·02·03·08·09·10·11(화면 쪽)·13. 기대값은 acceptance.md "확정 문장" 표·D-LND1-01~05·08에서 정했다.
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 계정으로 /login에서 로그인 → /sms (AC-I3-63)"을 뺐다
 import { expect, test, type Page } from '@playwright/test'
-import { newSeller } from '../i3/support.ts'
-import { expectSignedIn } from '../menu.ts'
 import {
   DAY_STEPS,
   ENGLISH,
@@ -21,7 +20,6 @@ import {
   expectLanding,
   expectLoginScreen,
   fillLogin,
-  freshTab,
   landingTitle,
   section,
 } from './support.ts'
@@ -109,27 +107,6 @@ test.describe('AC-LND1-02 "로그인"·"시작하기"', () => {
     await expect(home(page)).toBeVisible()
     await expect(page).toHaveURL(/\/$/)
     expect(await page.evaluate(() => history.length)).toBe(before)
-  })
-
-  test('보조자 계정으로 /login에서 로그인 → /sms (AC-I3-63 그대로)', async ({ page, browser, baseURL }) => {
-    const seller = await newSeller(page.request)
-    await page.goto('/login')
-    await fillLogin(page, seller)
-    await expectSignedIn(page)
-    const created = await page.request.post('/api/assistants', { data: { name: '소개보조' }, headers: { Origin: new URL(page.url()).origin } })
-    expect(created.ok(), await created.text()).toBe(true)
-    const { assistant, password } = (await created.json()) as { assistant: { loginId: string }; password: string }
-    const { ctx, page: helper } = await freshTab(browser, baseURL ?? '')
-    try {
-      await helper.goto('/')
-      await expectLanding(helper)
-      await helper.getByRole('link', { name: '로그인', exact: true }).click()
-      await fillLogin(helper, { loginId: assistant.loginId, password })
-      await expect(helper).toHaveURL(/\/sms$/)
-      await expect(helper.getByRole('banner')).toContainText('보조자')
-    } finally {
-      await ctx.close()
-    }
   })
 
   test('"시작하기" → 경로·검색값·해시 그대로, "시작하려면" 제목과 문장이 화면 안 · 로그인·가입 화면으로 가지 않음 (375×812, 키보드 Enter도)', async ({ page }) => {

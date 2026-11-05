@@ -109,8 +109,8 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, sh
           </Card>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
         {showPhoneNotice ? <PhoneNoticeCard /> : null}
-        <Card title="그 밖 설정" description="가게 정보·판매 규칙·배송비·택배·손님 관리·보조자는 가게 설정에서 바꿔요." label="그 밖">
-            {onOpenShop !== undefined ? <ListRow title="가게 설정" subtitle="가게·계좌, 판매 규칙, 배송비, 감사 메시지, 택배, 손님 관리, 보조자, 백업" onPress={onOpenShop} /> : <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />}
+        <Card title="그 밖 설정" description="가게 정보·판매 규칙·배송비·택배·손님 관리는 가게 설정에서 바꿔요." label="그 밖">
+            {onOpenShop !== undefined ? <ListRow title="가게 설정" subtitle="가게·계좌, 판매 규칙, 배송비, 감사 메시지, 택배, 손님 관리, 백업" onPress={onOpenShop} /> : <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />}
             {policyUrl !== undefined ? <ListRow title="개인정보처리방침" subtitle="기기 브라우저에서 열려요." onPress={() => void openExternal(policyUrl)} /> : null}
             {onOpenDesign !== undefined ? <ListRow title="디자인 견본 (개발용)" onPress={onOpenDesign} /> : null}
           </Card>

@@ -3,7 +3,7 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { formatLog } from '../../../apps/server/src/log.ts'
 import type { ProviderId } from '../../../apps/server/src/social/providers.ts'
-import { ALL, ORIGIN, addSeller, assistant, client, closeAll, consent, count, counts, dumpAll, flow, l1World, open, outcome, record, rows, start } from './helpers.ts'
+import { ALL, ORIGIN, addSeller, client, closeAll, consent, count, counts, dumpAll, flow, l1World, open, outcome, record, rows, start } from './helpers.ts'
 
 afterAll(closeAll)
 
@@ -451,24 +451,17 @@ describe('AC-L1-31 열린 리디렉션 없음', () => {
   })
 })
 
-describe('AC-L1-31 보조자', () => {
-  it('보조자 세션으로 연결 시작·목록·끊기 403 — 아무것도 생기지 않는다', async () => {
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 세션으로 연결 시작·목록·끊기 403, 보조자 쿠키로 간편 로그인을 시작해도 보조자 그대로"를 뺐다.
+// 옛 보조자 행은 DB에 남아 있을 수 있으므로, 그 계정 ID로 넣어 둔 연결 행(손상)으로 세션이 생기지 않는지는 그대로 본다.
+describe('AC-L1-31 옛 보조자 행', () => {
+  it('옛 보조자 계정 ID로 연결 행을 직접 넣어 두어도(손상) 간편 로그인은 그 계정 세션을 만들지 않는다', async () => {
     const w = await l1World()
     const seller = await addSeller(w)
-    const helper = await assistant(w, seller)
-    for (const provider of ALL) {
-      expect((await client(w, helper).post('/api/auth/link', { provider })).status).toBe(403)
-      expect((await client(w, helper).post('/api/auth/unlink', { provider })).status).toBe(403)
-    }
-    expect((await client(w, helper).get('/api/auth/methods')).status).toBe(403)
-    expect(await count(w, 'login_states')).toBe(0)
-  })
-
-  it('보조자 계정 ID로 연결 행을 직접 넣어 두어도(손상) 간편 로그인은 그 보조자 세션을 만들지 않는다', async () => {
-    const w = await l1World()
-    const seller = await addSeller(w)
-    await assistant(w, seller)
-    const helperId = String((await rows(w, `select id from accounts where role = 'ASSISTANT'`))[0]?.id)
+    const helperId = 'acc_old_helper'
+    await w.pg.query(
+      `insert into accounts (id, seller_id, login_id, password_hash, created_at, role, name) select $1, seller_id, 'oldhelper', password_hash, now(), 'ASSISTANT', '보조' from accounts where id = $2`,
+      [helperId, seller.accountId],
+    )
     for (const provider of ALL) {
       const user = w.fake.addUser(provider)
       await w.pg.query(`insert into login_links (seller_id, account_id, provider, provider_user_id, label, linked_at) values ($1, $2, $3, $4, '', now())`, [
@@ -479,32 +472,10 @@ describe('AC-L1-31 보조자', () => {
       ])
       const before = await count(w, 'sessions')
       const r = await flow(w, provider, user.id)
-      expect(r).toMatchObject({ login: 'NOT_LINKED', session: null })
+      // 판매자 계정 연결이 없으니 가입 표(D-UX3-28)지만, 옛 보조자 계정으로 세션을 만들지 않는다 (apps/server/test/l1-login-link.test.ts와 같은 기대)
+      expect(r).toMatchObject({ login: 'SIGNUP', session: null })
       expect(await count(w, 'sessions')).toBe(before)
     }
-  })
-
-  it('보조자가 로그인 화면에서 간편 로그인을 시작할 수는 있지만 보조자로는 들어오지 못한다', async () => {
-    const w = await l1World()
-    const seller = await addSeller(w)
-    const helper = await assistant(w, seller)
-    const user = w.fake.addUser('kakao')
-    const r = await flow(w, 'kakao', user.id, null)
-    expect(r.login).toBe('NOT_LINKED')
-    // 보조자 세션 쿠키를 가진 채 로그인 시작 → 돌아와도 보조자 세션이 판매자로 바뀌지 않는다
-    const s = await w.server.app.request('/api/auth/start', {
-      method: 'POST',
-      headers: {
-        Origin: ORIGIN,
-        'Content-Type': 'application/json',
-        Cookie: helper,
-      },
-      body: '{"provider":"kakao"}',
-    })
-    expect(s.status).toBe(200)
-    expect((await client(w, helper).get('/api/me')).body).toMatchObject({
-      role: 'ASSISTANT',
-    })
   })
 })
 

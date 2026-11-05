@@ -111,7 +111,8 @@ describe('마이그레이션 명령 (AC-S04-20)', () => {
     //   + SMS3 휴대폰 알림 받기: 받기 설정·받은 id·같은 문자 표지·문자 확인 카드·은행 알림 줄·잔액 기록 6개를 더해 더함 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
     //   int/next 합치기: KP1 90 + SMS3 6 = 96 — 약화 아님
     //   + D-UX3-28 가입 표(login_tickets) 1개 + D-UX3-30 문자 인증(phone_checks·phone_sends) 2개 = 99 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
-    expect(tables?.rows).toHaveLength(99)
+    //   + D-REAL-03·05 영수증 문자: 손님 번호(buyer_phones)·보낸 기록(receipt_sms_sends) 2개 = 101 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
+    expect(tables?.rows).toHaveLength(101)
     const none = await run(script('commands/migrate.ts'), [], {})
     expect(none.code).toBe(1)
     expect(none.out).toContain('데이터베이스 연결 설정이 없어요')

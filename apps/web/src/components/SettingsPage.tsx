@@ -1,14 +1,14 @@
 // 설정 (SPEC §7 화면 8, D-I3-08·D-I3-10, AC-I3-44~47·01~05·10~14·37·64).
-// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 라벨 · 택배(T1 AC-T1-66 — `/settings/parcel`은 그 칸으로) · 유튜브 · 인스타그램 · 틱톡 라이브(베타) · 보조자 · 그 밖. 칸마다 "저장"(바뀐 키만).
+// 칸: 가게 · 판매 규칙(자주 쓰는 칸 + "더 보기") · 배송비 · 구매 감사 메시지 · 라벨 · 택배(T1 AC-T1-66 — `/settings/parcel`은 그 칸으로) · 유튜브 · 인스타그램 · 틱톡 라이브(베타) · 그 밖. 칸마다 "저장"(바뀐 키만).
 // - "라벨" 칸은 라벨 기능 켜기/끄기·바꾼 기록이다(N4a AC-N4a-10, D-N4a-05) — 저장 버튼 없이 누르면 바로 바뀐다(끌 때는 묻는다).
 // - N2b-2: `/settings/instagram`·`/settings/tiktok`은 그 칸이 보이게 연다. 인스타그램에서 돌아온 결과(`?instagram=`)는 한 번 보이고 주소에서 지운다.
-// - BND1 (AC-BND1-70): 틱톡 칸 뒤에 "네이버 밴드"(판매자만 — 보조자에게는 칸이 없다). `/settings/band`는 그 칸이 보이게 열고,
+// - BND1 (AC-BND1-70): 틱톡 칸 뒤에 "네이버 밴드". `/settings/band`는 그 칸이 보이게 열고,
 //   밴드에서 돌아온 결과(`?band=`)는 한 번 보이고 주소에서 지운다. 계정 알림(SSE `band` ACCOUNT)·다시 붙음에 바로 바뀐다.
 // - `/settings/youtube`는 같은 화면에서 유튜브 칸이 보이게(스크롤·포커스) 연다. 구글에서 돌아온 결과(`?youtube=`)는 한 번 보이고 주소에서 지운다.
 // - 끝나지 않은 실제 방송이 있으면 위에 "진행 중인 방송에는 바뀐 규칙이 적용되지 않아요."
 // - 저장하지 않은 값이 있으면 다른 화면으로 가기 전에 같은 떠나기 창이 묻는다.
 // - FB1 D-FB1-06 (AC-FB1-22~25): 값을 적는 다섯 칸(가게·판매 규칙·배송비·구매 감사 메시지 만들기·택배)은 칸마다 "저장" 대신 화면 아래 저장 막대 하나.
-//   연결·동의·켜기 칸(라벨·유튜브·크롬 확장·인스타그램·틱톡·AI 제안·보조자·로그인 방법)은 지금처럼 누르면 바로.
+//   연결·동의·켜기 칸(라벨·유튜브·크롬 확장·인스타그램·틱톡·AI 제안·로그인 방법)은 지금처럼 누르면 바로.
 // - 유튜브 연결·동의·사용량은 실시간 알림으로 1초 안에 바뀐다(다른 기기 포함). 끊겼다 이어지면 다시 받는다.
 // I2 (STL-04, DAT-03·04, D-I2-02·D-I2-10~12, AC-I2-02·65) — 합친 화면(main I3 + I2)에서 양쪽 칸을 모두 둔다:
 // - 가게: "가게 이름"(위 줄 이름 — 시작 마법사와 같은 값)·"은행"·"계좌번호"·"예금주"·"입금 안내 문장"과 "저장". 칸 아래에 확인서에 나올 모양을 미리 보인다
@@ -18,7 +18,7 @@
 //   복구·백업 파일 내려받기 버튼은 없다(운영자에게 날짜를 알려 되돌린다 — D-I2-11).
 // - 전체 기록 내려받기: "전체 기록 파일 (옮기기·보관용)"(MOB1 D-MOB1-11 — 옛 "전체 기록(JSON)")·"전체 판매대장(엑셀)" — 만드는 동안 그 버튼이 잠기고 "만드는 중이에요…".
 // A1 (AC-A1-22): 틱톡 칸 뒤에 "AI 제안"(옵션 방송을 쓰는 판매자에게만 — 판매 방식 기본이 옵션이거나 옵션 방송 기록이 있다). `/settings/assist`는 그 칸이 보이게 연다.
-// L1 (AC-L1-21~23): 보조자 칸 뒤에 "로그인 방법"(판매자에게만 — 간편 로그인이 꺼진 서버면 칸이 없다). 공급자에서 돌아온 `?login=<코드>&provider=<p>`는
+// L1 (AC-L1-21~23): AI 제안 칸 뒤에 "로그인 방법"(간편 로그인이 꺼진 서버면 칸이 없다). 보조자 칸은 없앴다(D-UX3-32). 공급자에서 돌아온 `?login=<코드>&provider=<p>`는
 //   그 칸에 정해진 문장을 한 번 보이고 주소에서 지운다. 연결·끊기 알림(`login`)과 다시 붙음에 목록을 다시 읽는다.
 import type { SaleSettings } from '@livejjim/core'
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -36,7 +36,6 @@ import { SaveBarArea } from './SaveBar.tsx'
 import { CustomerSettingsSection } from './CustomerSettings.tsx'
 import { hasChannel } from '../lib/youtube.ts'
 import { AssistSection, useShowAssist } from './AssistSection.tsx'
-import { AssistantsSection } from './AssistantsSection.tsx'
 import { DownloadButton } from './downloads.tsx'
 import { ExtensionSettings, useExtension } from './ExtensionConnection.tsx'
 import { ErrorNote, RequestError } from './ErrorNote.tsx'
@@ -73,11 +72,9 @@ export interface SettingsPageProps {
   readonly navigate: Navigate
   readonly shopName: string
   readonly onRenamed: (name: string) => void
-  /** 보조자 계정 — "로그인 방법" 칸이 없고 목록을 부르지 않는다 (AC-L1-23) */
-  readonly assistant?: boolean
 }
 
-export function SettingsPage({ route, navigate, shopName, onRenamed, assistant = false }: SettingsPageProps) {
+export function SettingsPage({ route, navigate, shopName, onRenamed }: SettingsPageProps) {
   const [settings, setSettings] = useState<SaleSettings | null>(null)
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [ongoing, setOngoing] = useState(false)
@@ -89,18 +86,18 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
   const [instagramResult] = useState<string | null>(route.instagramResult ?? null)
   const instagram = useInstagramConnection()
   const tiktok = useTikTokSettings()
-  // 밴드에서 돌아온 결과도 한 번만 (BND1) — 보조자는 칸이 없고 부르지 않는다
-  const [bandResult] = useState<string | null>(assistant ? null : (route.bandResult ?? null))
-  const band = useBandAccount(!assistant)
+  // 밴드에서 돌아온 결과도 한 번만 (BND1)
+  const [bandResult] = useState<string | null>(route.bandResult ?? null)
+  const band = useBandAccount(true)
   // 간편 로그인 연결에서 돌아온 결과도 한 번만 (L1 AC-L1-21)
-  const [loginResult] = useState(() => (assistant ? null : parseLoginResult(window.location.pathname, window.location.search, 'settings')))
-  const loginMethods = useLoginMethods(!assistant)
-  // 크롬 확장 연결 (X1 — 판매자만, 보조자는 코드를 만들 수 없다)
-  const extension = useExtension(!assistant)
+  const [loginResult] = useState(() => parseLoginResult(window.location.pathname, window.location.search, 'settings'))
+  const loginMethods = useLoginMethods(true)
+  // 크롬 확장 연결 (X1)
+  const extension = useExtension(true)
   // 휴대폰 알림 받기 (SMS3 AC-SMS3-28 — 판매자만, 받기 토큰은 판매자가 만든다)
-  const inbox = useInboxSettings(!assistant)
+  const inbox = useInboxSettings(true)
   // AI 제안 칸 (A1): 저장된 판매 방식이 옵션이면 바로, 아니면 옵션 방송 기록을 물어서
-  const showAssist = useShowAssist(settings === null ? (loadError === null ? null : false) : settings['claim.parseMode'] === 'OPTIONS', assistant)
+  const showAssist = useShowAssist(settings === null ? (loadError === null ? null : false) : settings['claim.parseMode'] === 'OPTIONS')
   useEffect(() => {
     stripLoginParams()
   }, [])
@@ -135,7 +132,7 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
     },
     onPlatform: (event) => {
       if (event.type === 'instagram' && event.event.kind === 'CONNECTION') instagram.set(event.event.connection)
-      if (event.type === 'band' && event.event.kind === 'ACCOUNT' && !assistant) band.set(event.event.band)
+      if (event.type === 'band' && event.event.kind === 'ACCOUNT') band.set(event.event.band)
     },
     onLogin: () => void loginMethods.reload(),
     onReconnect: () => {
@@ -144,7 +141,7 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
       void quota.reload()
       void instagram.reload()
       void tiktok.reload()
-      if (!assistant) void band.reload()
+      void band.reload()
     },
   })
 
@@ -167,25 +164,21 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
       <SettingsSection title="택배" focus={route.section === 'parcel' && (settings !== null || loadError !== null)}>
         <ParcelSettingsSection />
       </SettingsSection>
-      {/* 손님 기록의 단골·입금 늦음 주의 기준 (CRM1 D-CRM1-05) — 판매자 계정만 */}
-      {assistant ? null : (
-        <SettingsSection title="손님 관리">
-          <CustomerSettingsSection />
-        </SettingsSection>
-      )}
-      {/* KP1 방송 일정·방송 알림(수만) — 판매자 계정만 */}
-      {assistant ? null : <SettingsSection title="방송 일정"><ScheduleSettings /></SettingsSection>}
-      {assistant ? null : <SettingsSection title="방송 알림"><AlertCountsSection /></SettingsSection>}
+      {/* 손님 기록의 단골·입금 늦음 주의 기준 (CRM1 D-CRM1-05) */}
+      <SettingsSection title="손님 관리">
+        <CustomerSettingsSection />
+      </SettingsSection>
+      {/* KP1 방송 일정·방송 알림(수만) */}
+      <SettingsSection title="방송 일정"><ScheduleSettings /></SettingsSection>
+      <SettingsSection title="방송 알림"><AlertCountsSection /></SettingsSection>
       <SettingsSection title="유튜브" focus={route.section === 'youtube' && (settings !== null || loadError !== null)}>
         <CallbackResult code={result} />
         <YoutubeStatus handle={youtube} quota={quota.quota} navigate={navigate} place="settings" />
       </SettingsSection>
-      {assistant ? null : (
-        <SettingsSection title="크롬 확장으로 채팅 받기" focus={route.section === 'extension' && (settings !== null || loadError !== null)}>
-          <ExtensionSettings handle={extension} />
-        </SettingsSection>
-      )}
-      {assistant || inbox.missing ? null : (
+      <SettingsSection title="크롬 확장으로 채팅 받기" focus={route.section === 'extension' && (settings !== null || loadError !== null)}>
+        <ExtensionSettings handle={extension} />
+      </SettingsSection>
+      {inbox.missing ? null : (
         <SettingsSection title={INBOX_SECTION_TITLE} focus={route.section === 'inbox' && (settings !== null || loadError !== null)}>
           <PhoneInboxSettings handle={inbox} />
         </SettingsSection>
@@ -197,21 +190,16 @@ export function SettingsPage({ route, navigate, shopName, onRenamed, assistant =
       <SettingsSection title="틱톡 라이브(베타)" focus={route.section === 'tiktok' && (settings !== null || loadError !== null)}>
         <TikTokSettingsSection handle={tiktok} />
       </SettingsSection>
-      {assistant ? null : (
-        <SettingsSection title="네이버 밴드" focus={route.section === 'band' && (settings !== null || loadError !== null)}>
-          <BandCallbackResult code={bandResult} />
-          <BandSettings handle={band} />
-        </SettingsSection>
-      )}
-      {assistant ? null : <StreamAudioSetting wrap={(children) => <SettingsSection title="방송 소리로 듣기">{children}</SettingsSection>} />}
+      <SettingsSection title="네이버 밴드" focus={route.section === 'band' && (settings !== null || loadError !== null)}>
+        <BandCallbackResult code={bandResult} />
+        <BandSettings handle={band} />
+      </SettingsSection>
+      <StreamAudioSetting wrap={(children) => <SettingsSection title="방송 소리로 듣기">{children}</SettingsSection>} />
       {showAssist ? (
         <SettingsSection title="AI 제안" focus={route.section === 'assist'}>
           <AssistSection />
         </SettingsSection>
       ) : null}
-      <SettingsSection title="보조자">
-        <AssistantsSection />
-      </SettingsSection>
       {showLoginMethods(loginMethods.current, loginResult) ? (
         <SettingsSection title="로그인 방법" focus={loginResult !== null && loginMethods.current.state !== 'loading'}>
           <LoginMethodsPanel handle={loginMethods} result={loginResult} />

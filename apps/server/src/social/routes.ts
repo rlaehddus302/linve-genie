@@ -60,7 +60,7 @@ export function registerSocialRoutes(api: Hono<Env>, social: SocialLogin, addres
   const body = (c: Context<Env>) => c.get('body') ?? {}
   const info = (c: Context<Env>): SessionInfo => {
     const session = c.get('session')
-    return { sellerId: session.sellerId, accountId: session.accountId, tokenHash: session.tokenHash, loginId: session.loginId, role: session.role }
+    return { sellerId: session.sellerId, accountId: session.accountId, tokenHash: session.tokenHash, loginId: session.loginId }
   }
   const onlyProvider = (input: Record<string, unknown>): Response | null => {
     const extra = ownKeys(input).filter((key) => key !== 'provider')

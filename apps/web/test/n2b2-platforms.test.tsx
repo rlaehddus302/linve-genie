@@ -123,9 +123,8 @@ let seq: number
 
 function setup() {
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/settings$/, () => ({ body: { settings: fullView().broadcasts[0]?.settings ?? {} } }))
-    .on('GET', /^\/api\/assistants$/, () => ({ body: { assistants: [], limit: 5 } }))
     .on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [broadcastItem({ rehearsal, ended, endedAt: ended ? '2026-10-19T12:00:00.000Z' : null })] } }))
     .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: 50 } }))
     .on('GET', new RegExp(`^/api/days/${DATE}(\\?rehearsal=true)?$`), () => ({
@@ -1226,10 +1225,11 @@ describe('붙여넣기 창 (AC-64)', () => {
   })
 })
 
-describe('문자찜 화면의 붙여넣기 (AC-64, 보조자 AC-N2b-2-80 7)', () => {
-  it('보조자도 고른 실제 방송에 "댓글 붙여넣기" → 같은 창, 넣으면 문장', async () => {
+describe('문자찜 화면의 붙여넣기 (AC-64)', () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 이 시험을 보조자 대신 판매자로 돈다
+  it('고른 실제 방송에 "댓글 붙여넣기" → 같은 창, 넣으면 문장', async () => {
     server
-      .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'bo-1', role: 'ASSISTANT', assistant: { name: '도우미' } } }))
+      .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
       .on('POST', /^\/api\/broadcasts\/b1\/paste\/preview$/, () => ({ body: { rows: [{ line: 1, nickname: '철수', text: '15', result: 'ORDER', numbers: [15], message: '15번 찜' }], groups: [{ nickname: '철수', lines: [1], claims: 1, message: null }], total: 1 } }))
       .on('POST', /^\/api\/broadcasts\/b1\/paste$/, () => ({ body: { rows: [], groups: [], total: 1, added: 1 } }))
     window.history.replaceState(null, '', '/sms')
@@ -1241,7 +1241,5 @@ describe('문자찜 화면의 붙여넣기 (AC-64, 보조자 AC-N2b-2-80 7)', ()
     fireEvent.click(await within(dialog).findByRole('button', { name: '찜 1개 넣기' }))
     expect(await screen.findByText('찜 1개를 넣었어요.')).toBeDefined()
     expect(screen.queryByRole('dialog', { name: '댓글 붙여넣기' })).toBeNull()
-    // 보조자 화면은 인스타그램·틱톡 설정 요청을 보내지 않는다
-    expect(server.calls.filter((call) => /\/api\/(tiktok|instagram|platforms)/.test(call.path))).toEqual([])
   })
 })

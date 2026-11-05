@@ -1,6 +1,6 @@
 // 가게 설정 (D-APPX-03 — 웹 SettingsPage와 같은 칸·문구·저장 규칙, D-I3-08, FB1 D-FB1-06, I2 AC-I2-02·65·66).
 // 값을 적는 칸(가게·판매 규칙·배송비·구매 감사 메시지·택배·손님 관리)은 화면 아래 "저장" 하나로 바뀐 칸만 보낸다.
-// 켜고 끄는 칸(AI 제안·보조자)은 누르면 바로. 백업 상태와 전체 기록 내려받기(공유 시트). 구글·인스타그램·틱톡·밴드 연결,
+// 켜고 끄는 칸(AI 제안)은 누르면 바로. 백업 상태와 전체 기록 내려받기(공유 시트). 구글·인스타그램·틱톡·밴드 연결,
 // 자동 게시 동의, 간편 로그인처럼 바깥 로그인 창을 거치는 것은 기기 브라우저로 연다(그쪽 로그인 창이 앱 안에서 열리지 않는다).
 // 저장하지 않은 값이 있으면 나가기 전에 묻는다. 칸 검사는 서버가 하고 그 문장을 칸 아래에 보인다.
 import { useCallback, useEffect, useState } from 'react'
@@ -20,7 +20,7 @@ import { AppHeader, BigButton, Card, ConfirmSheet, Section, ToggleRow, TextField
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
-import { AssistCard, AssistantsCard, BackupCard, ConnectionsCard, ExportCard } from './settings/ShopExtras.tsx'
+import { AssistCard, BackupCard, ConnectionsCard, ExportCard } from './settings/ShopExtras.tsx'
 
 const RULE_FIELDS = [...fieldsAt('basic'), ...fieldsAt('more')]
 const BASIC_FIELDS = fieldsAt('basic')
@@ -371,7 +371,6 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
         </Section>
 
         <AssistCard />
-        <AssistantsCard />
         <ConnectionsCard />
         <BackupCard />
         <ExportCard />

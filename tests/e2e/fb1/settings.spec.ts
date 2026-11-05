@@ -284,12 +284,13 @@ test.describe('AC-FB1-22·23 저장 막대 하나', () => {
 
   test('라벨·로그인 방법 등 바로 저장 칸은 막대의 "바뀐 칸"에 들지 않는다', async ({ page }) => {
     await openSettings(page)
-    for (const title of ['유튜브', '보조자', '로그인 방법', '그 밖']) {
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 칸도 바로 저장 칸"을 뺐다
+    for (const title of ['유튜브', '로그인 방법', '그 밖']) {
       const region = settingsRegion(page, title)
       if ((await region.count()) === 0) continue
       await expect(saveBar(page)).toContainText(NO_CHANGES)
     }
-    await expect(saveBar(page)).not.toContainText(/라벨|유튜브|보조자|로그인/)
+    await expect(saveBar(page)).not.toContainText(/라벨|유튜브|로그인/)
   })
 })
 

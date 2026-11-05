@@ -121,7 +121,8 @@ describe('봉인한 날짜 (AC-I3-41)', () => {
     expect(within(detail).getByRole('button', { name: '구매자 목록으로' }).matches(':disabled')).toBe(false)
   })
 
-  it('문자찜 입력: 봉인한 날짜의 방송은 고를 수 없고 기본으로도 고르지 않는다, 보조자는 리허설 방송도 고르지 않는다', async () => {
+  it('문자찜 입력: 봉인한 날짜의 방송은 고를 수 없고 기본으로도 고르지 않는다', async () => {
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자는 리허설 방송도 고르지 않는다"를 뺐다
     const SEALED = '2026-09-01'
     engine.server.on('GET', /^\/api\/broadcasts$/, () => ({
       body: { broadcasts: [broadcastItem({ id: 'old', date: SEALED, title: '지난 방송' }), broadcastItem({ id: 'r1', rehearsal: true, title: '리허설' })] },
@@ -131,17 +132,9 @@ describe('봉인한 날짜 (AC-I3-41)', () => {
     await flush(10)
     expect(screen.getByText('문자찜을 넣을 방송을 골라 주세요.')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '방송 고르기' }))
-    let dialog = screen.getByRole('dialog', { name: '방송 고르기' })
+    const dialog = screen.getByRole('dialog', { name: '방송 고르기' })
     await flush()
     expect(within(dialog).queryByText(/지난 방송/)).toBeNull()
     expect(within(dialog).getByText(/리허설/, { selector: 'strong' })).toBeDefined()
-    cleanup()
-    render(<SmsPage navigate={() => {}} assistant />)
-    await flush(10)
-    fireEvent.click(screen.getByRole('button', { name: '방송 고르기' }))
-    dialog = screen.getByRole('dialog', { name: '방송 고르기' })
-    await flush()
-    expect(within(dialog).getByText('문자찜을 넣을 방송이 없어요. 판매자가 방송을 시작하면 고를 수 있어요.')).toBeDefined()
-    expect(within(dialog).queryByRole('button', { name: '방송 목록으로' })).toBeNull()
   })
 })

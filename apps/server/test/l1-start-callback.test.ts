@@ -3,7 +3,7 @@ import type { PGlite } from '@electric-sql/pglite'
 import { afterAll, describe, expect, it } from 'vitest'
 import { PROVIDER_TIMEOUT_MS } from '../src/social/providers.ts'
 import { STATE_TTL_MS } from '../src/social/service.ts'
-import { ORIGIN, addSeller, client, login } from './support.ts'
+import { ORIGIN, addSeller, client } from './support.ts'
 import { ALL_PROVIDERS, approve, cookieValue, newSocialWorld, openCallback, resultOf, runFlow, startFlow, type SocialWorld } from './l1-support.ts'
 
 const worlds: SocialWorld[] = []
@@ -116,15 +116,11 @@ describe('AC-L1-03 시작 — 승인 주소·state·쿠키', () => {
     expect(link.headers.getSetCookie()).toContain('__Host-lj_oauth=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0')
   })
 
-  it('연결 시작: 세션 없음 401 · 보조자 403 · 판매자는 그 계정·세션에 묶인 state', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('연결 시작: 세션 없음 401 · 판매자는 그 계정·세션에 묶인 state', async () => {
     const w = await world()
     const seller = await addSeller(w)
     expect((await client(w, null).post('/api/auth/link', { provider: 'google' })).status).toBe(401)
-    const made = await client(w, seller.cookie).post('/api/assistants', { name: '보조' })
-    const assistant = await login(w, made.body.assistant ? (made.body.assistant as { loginId: string }).loginId : '', made.body.password as string)
-    const denied = await client(w, assistant).post('/api/auth/link', { provider: 'google' })
-    expect(denied.status).toBe(403)
-    expect((denied.body.error as { code: string }).code).toBe('ASSISTANT_FORBIDDEN')
     await startFlow(w, 'google', { session: seller.cookie })
     const rows = (await (w.database.pglite as PGlite).query<{ purpose: string; seller_id: string; account_id: string; session_hash: string | null }>(`select purpose, seller_id, account_id, session_hash from login_states`)).rows
     expect(rows).toHaveLength(1)

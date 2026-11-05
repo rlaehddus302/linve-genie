@@ -1,8 +1,8 @@
-// AC-L1-05 간편 로그인 결과(가입 없음), AC-L1-06 연결 결과, AC-L1-07 목록·끊기·보조자 (D-L1-01~D-L1-03, D-074, SYS-04).
+// AC-L1-05 간편 로그인 결과(가입 없음), AC-L1-06 연결 결과, AC-L1-07 목록·끊기, 옛 보조자 행 막기 (D-L1-01~D-L1-03, D-074, SYS-04, D-UX3-32).
 import type { PGlite } from '@electric-sql/pglite'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { sessionCookie } from '../src/auth.ts'
-import { ORIGIN, addSeller, client, login, rid, startServer, type Seller } from './support.ts'
+import { ORIGIN, addSeller, client, login, rid, startServer } from './support.ts'
 import { approve, cookieValue, newSocialWorld, openCallback, resultOf, runFlow, startFlow, type SocialWorld } from './l1-support.ts'
 
 const worlds: SocialWorld[] = []
@@ -22,11 +22,6 @@ const counts = async (w: SocialWorld) => {
 }
 const linkRows = async (w: SocialWorld) =>
   (await pgOf(w).query<{ seller_id: string; account_id: string; provider: string; provider_user_id: string; label: string; last_login_at: Date | null }>(`select seller_id, account_id, provider, provider_user_id, label, last_login_at from login_links order by id`)).rows
-const assistantOf = async (w: SocialWorld, seller: Seller): Promise<string> => {
-  const made = await client(w, seller.cookie).post('/api/assistants', { name: '보조' })
-  expect(made.status).toBe(200)
-  return login(w, (made.body.assistant as { loginId: string }).loginId, made.body.password as string)
-}
 
 describe('AC-L1-05 간편 로그인 — 가입 없음', () => {
   it('연결한 카카오 계정으로 로그인하면 A의 세션(쿠키 D-074와 같음·만든 방법 KAKAO)이 생기고 홈으로 간다. 마지막 로그인 시각·가린 이름을 새로 고친다', async () => {
@@ -43,14 +38,13 @@ describe('AC-L1-05 간편 로그인 — 가입 없음', () => {
     expect(flow.response.headers.getSetCookie()).toContain(sessionCookie(token))
     expect(sessionCookie(token)).toMatch(/HttpOnly; Secure; SameSite=Lax; Max-Age=2592000$/)
     const me = await client(w, flow.session).get('/api/me')
-    expect(me.body).toMatchObject({ loginId: a.loginId, role: 'SELLER' })
+    expect(me.body).toMatchObject({ loginId: a.loginId })
     const methods = (await pgOf(w).query<{ method: string; account_id: string }>(`select method, account_id from sessions where method <> 'PASSWORD'`)).rows
     expect(methods).toEqual([{ method: 'KAKAO', account_id: a.accountId }])
     const row = (await linkRows(w))[0]
     expect(row?.label).toBe('se***@kakao.com')
     expect(row?.last_login_at?.getTime()).toBe(w.clock.now())
-    // 판매자 권한이 아이디 로그인과 같다 (보조자 허용 목록 밖 경로도 된다)
-    expect((await client(w, flow.session).get('/api/assistants')).status).toBe(200)
+    // 판매자 권한이 아이디 로그인과 같다
     expect((await client(w, flow.session).post('/api/broadcasts', { requestId: rid('bc'), title: '간편 로그인 방송' })).status).toBe(200)
     expect((await client(w, flow.session).get('/api/auth/methods')).status).toBe(200)
   })
@@ -154,7 +148,7 @@ describe('AC-L1-06 연결 결과', () => {
   })
 })
 
-describe('AC-L1-07 목록·끊기·보조자', () => {
+describe('AC-L1-07 목록·끊기·옛 보조자 행', () => {
   it('목록은 그 판매자 계정의 것만 — 켜진 공급자 전부, 공급자 계정 ID 없음', async () => {
     const w = await world()
     const a = await addSeller(w)
@@ -272,21 +266,28 @@ describe('AC-L1-07 목록·끊기·보조자', () => {
     expect((await api.post('/api/auth/unlink', { provider: 'kakao' })).status).toBe(200)
   })
 
-  it('보조자: 목록·연결 시작·끊기 403 — 보조자 계정 ID로 넣어 둔 연결 행(손상)으로도 세션이 생기지 않는다', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 목록·연결 시작·끊기 403"을 뺐다.
+  // 옛 보조자 행은 DB에 남아 있어도 아이디 로그인도, 그 계정 ID로 넣어 둔 연결 행(손상)으로도 세션이 생기지 않는다
+  it('옛 보조자 행: 아이디 로그인 401 — 그 계정 ID로 넣어 둔 연결 행(손상)으로도 세션이 생기지 않는다', async () => {
     const w = await world()
     const seller = await addSeller(w)
-    const assistant = await assistantOf(w, seller)
-    for (const [method, path] of [['GET', '/api/auth/methods'], ['POST', '/api/auth/link'], ['POST', '/api/auth/unlink']] as const) {
-      const response = method === 'GET' ? await client(w, assistant).get(path) : await client(w, assistant).post(path, { provider: 'kakao' })
-      expect(response.status, path).toBe(403)
-      expect((response.body.error as { code: string }).code).toBe('ASSISTANT_FORBIDDEN')
-    }
-    const assistantId = (await pgOf(w).query<{ id: string }>(`select id from accounts where role = 'ASSISTANT'`)).rows[0]?.id as string
+    const assistantId = 'acc_old_helper'
+    await pgOf(w).query(
+      `insert into accounts (id, seller_id, login_id, password_hash, created_at, role, name) select $1, seller_id, 'oldhelper', password_hash, now(), 'ASSISTANT', '보조' from accounts where id = $2`,
+      [assistantId, seller.accountId],
+    )
+    const idLogin = await w.server.app.request('/api/login', {
+      method: 'POST',
+      headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loginId: 'oldhelper', password: 'correct-horse-1' }),
+    })
+    expect(idLogin.status).toBe(401)
+    expect(idLogin.headers.get('set-cookie') ?? '').not.toContain('lj_session=')
     const user = w.fake.addUser('kakao')
     await pgOf(w).query(`insert into login_links (seller_id, account_id, provider, provider_user_id, linked_at) values ($1, $2, 'kakao', $3, now())`, [seller.sellerId, assistantId, user.id])
     const before = (await counts(w)).sessions
     const flow = await runFlow(w, 'kakao', user.id)
-    // 판매자 계정 연결이 없으니 가입 표(D-UX3-28)지만, 동의해도 보조자 계정으로 세션을 만들거나 새 계정을 만들지 않는다
+    // 판매자 계정 연결이 없으니 가입 표(D-UX3-28)지만, 동의해도 옛 보조자 계정으로 세션을 만들거나 새 계정을 만들지 않는다
     expect(flow.result.login).toBe('SIGNUP')
     expect(flow.session).toBeNull()
     const ticket = cookieValue(flow.response.headers, '__Host-lj_signup') as string

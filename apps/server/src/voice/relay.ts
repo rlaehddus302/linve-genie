@@ -207,7 +207,7 @@ export class VoiceRelay {
     const { auth, db } = this.#options
     const session = await auth.session(token)
     if (!this.#devices.has(device)) return
-    if (session === null || session.role !== 'SELLER') { this.#finish(device, 'AUTH'); return }
+    if (session === null) { this.#finish(device, 'AUTH'); return }
     device.session = session
     if (!/^[A-Za-z0-9]{8,64}$/.test(device.device)) { this.#finish(device, 'AUTH'); return }
     const broadcast = await findBroadcast(db, session.sellerId, device.broadcastId)

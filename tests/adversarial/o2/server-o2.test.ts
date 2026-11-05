@@ -2,10 +2,11 @@
 // - 판매자 입력 오류는 400 쉬운 한국어이고 로그·상태가 바뀌지 않는다
 // - 아무 일도 없는 조치는 changed=false이고 상태가 같다
 // - 판매자 경계·방송 경계를 넘지 않는다, 같은 요청 ID는 한 번만 기록된다(동시 요청 포함)
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자는 실제 범위의 확인 필요 조회도 403"을 뺐다
 import { listClaims, listProducts, listReviews, type EngineState } from '@livejjim/core'
 import { OPTION_MESSAGES, SALE_MODE_MESSAGE, type ReviewsView } from '@livejjim/server'
 import { describe, expect, it } from 'vitest'
-import { addSeller, client, countRows, expectOk, login, newWorld, rid, writeEvent, type JsonResponse, type Seller, type TestServer } from '../../../apps/server/test/support.ts'
+import { addSeller, client, countRows, expectOk, newWorld, rid, writeEvent, type JsonResponse, type Seller, type TestServer } from '../../../apps/server/test/support.ts'
 
 const SIZES = [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M' }, { label: 'L' }] }]
 
@@ -146,15 +147,6 @@ describe('판매자 경계·방송 경계 (AC-O2-30·31·63)', () => {
     expect((await expectOk(writeEvent(world, seller, { type: 'host.resolveReview', b: b2.id, no: 5, item: 'm1', qty: 1, options: { 사이즈: 'M' } }))).body.changed).toBe(false)
     expect((await expectOk(writeEvent(world, seller, { type: 'host.dismissReview', b: b2.id, item: 'm2' }))).body.changed).toBe(false)
     expect(view(await stateOf(world, seller, b.date))).toBe(before)
-  })
-
-  it('보조자는 실제 범위의 확인 필요 조회도(rehearsal=false·방송 지정) 403이다', async () => {
-    const { world, seller, b } = await world3()
-    const created = await client(world, seller.cookie).post('/api/assistants', { name: '도우미' })
-    expect(created.status, created.text).toBe(200)
-    const cookie = await login(world, (created.body.assistant as { loginId: string }).loginId, created.body.password as string)
-    const helper = client(world, cookie)
-    for (const path of ['/api/reviews?rehearsal=false', `/api/reviews?broadcast=${b.id}`, `/api/reviews?broadcast=${b.id}&rehearsal=false`]) expect((await helper.get(path)).status, path).toBe(403)
   })
 })
 

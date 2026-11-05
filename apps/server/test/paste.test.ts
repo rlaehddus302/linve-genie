@@ -3,7 +3,7 @@ import { getBuyer, listBuyers, listClaims, listProducts } from '@livejjim/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import { pasteRef } from '../src/tiktok-live/paste-service.ts'
 import { addSeller, client, rid } from './support.ts'
-import { assistantSession, connected, DATE, linkTiktok, logText, realBroadcast, tiktokComment, tiktokSeller, ttWorld, type TtWorld } from './tiktok-live-support.ts'
+import { connected, DATE, linkTiktok, logText, realBroadcast, tiktokComment, tiktokSeller, ttWorld, type TtWorld } from './tiktok-live-support.ts'
 
 const worlds: TtWorld[] = []
 async function world(options: Parameters<typeof ttWorld>[0] = {}): Promise<TtWorld> {
@@ -203,7 +203,8 @@ describe('AC-N2b-2-58 다른 구매자에게 저절로 잇지 않는다', () => 
 })
 
 describe('AC-N2b-2-59 권한·회차', () => {
-  it('판매자는 실제·리허설(리허설 범위로), 보조자는 실제만(리허설 403), 끝난 회차도 받고 틱톡이 이어져 있지 않아도 쓸 수 있다, 다른 판매자 404', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('판매자는 실제·리허설(리허설 범위로), 끝난 회차도 받고 틱톡이 이어져 있지 않아도 쓸 수 있다, 다른 판매자 404', async () => {
     const w = await world()
     const seller = await addSeller(w)
     const api = client(w, seller.cookie)
@@ -215,15 +216,6 @@ describe('AC-N2b-2-59 권한·회차', () => {
     expect(inRehearsal.status, inRehearsal.text).toBe(200)
     const rehearsalState = (await w.server.writer.read(seller.sellerId, DATE, true)).state
     expect(listClaims(rehearsalState)).toHaveLength(1)
-    const helper = await assistantSession(w, seller)
-    const assistant = client(w, helper.cookie)
-    expect((await assistant.post(`/api/broadcasts/${b}/paste/preview`, { text: '가나: 1' })).status).toBe(200)
-    const byHelper = await assistant.post(`/api/broadcasts/${b}/paste`, { requestId: rid('p'), text: '다라: 1' })
-    expect(byHelper.status).toBe(200)
-    const helperRow = await w.database.pglite?.query<{ n: number }>(`select count(*)::int as n from events where seller_id = $1 and type = 'sms' and account_id = $2`, [seller.sellerId, helper.accountId])
-    expect(helperRow?.rows[0]?.n).toBe(1)
-    expect((await assistant.post(`/api/broadcasts/${rehearsal}/paste/preview`, { text: '가나: 1' })).status).toBe(403)
-    expect((await assistant.post(`/api/broadcasts/${rehearsal}/paste`, { requestId: rid('p'), text: '가나: 1' })).status).toBe(403)
     await api.post(`/api/broadcasts/${b}/end`, { requestId: rid('end') })
     expect((await api.post(`/api/broadcasts/${b}/paste`, { requestId: rid('p'), text: '마바: 1' })).status).toBe(200)
     const other = await addSeller(w)

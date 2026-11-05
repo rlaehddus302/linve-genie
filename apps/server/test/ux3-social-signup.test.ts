@@ -51,7 +51,9 @@ describe('D-UX3-28 간편 로그인으로 가입', () => {
     expect(await count(w, 'sellers')).toBe(0)
     const made = await client(w, cookie).post('/api/auth/signup', { agree: true })
     expect(made.status, made.text).toBe(200)
-    expect(made.body).toMatchObject({ seller: { name: '내 가게' }, role: 'SELLER' })
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 역할(role) 칸을 없애 옛 기대 role: 'SELLER'를 뺐다
+    expect(made.body).toMatchObject({ seller: { name: '내 가게' } })
+    expect(made.body).not.toHaveProperty('role')
     expect(made.body.loginId as string).toMatch(/^lg-[a-z2-9]{8}$/)
     const session = cookieValue(made.headers, 'lj_session') as string
     expect(cookieValue(made.headers, '__Host-lj_signup')).toBe('')
@@ -122,7 +124,8 @@ describe('D-UX3-28 앱 안 간편 로그인', () => {
     const loginTicket = loginBack.searchParams.get('ticket') as string
     const done = await app.post('/api/auth/app/finish', { ticket: loginTicket, verifier: next.verifier })
     expect(done.status).toBe(200)
-    expect(done.body).toMatchObject({ result: 'LOGGED_IN', me: { seller: { name: '내 가게' }, role: 'SELLER' } })
+    // D-UX3-32: 옛 기대 me.role 'SELLER'를 뺐다
+    expect(done.body).toMatchObject({ result: 'LOGGED_IN', me: { seller: { name: '내 가게' } } })
     const token = cookieValue(done.headers, 'lj_session') as string
     expect((await client(w, `lj_session=${token}`).get('/api/me')).status).toBe(200)
     expect((await app.post('/api/auth/app/finish', { ticket: loginTicket, verifier: next.verifier })).status).toBe(410)

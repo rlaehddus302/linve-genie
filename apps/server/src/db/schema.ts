@@ -34,7 +34,7 @@ export const sellers = pgTable('sellers', {
 
 /**
  * 로그인 계정 (D-074). 비밀번호는 scrypt 해시만 둔다. 연속 실패·잠금은 login_limits에 둔다.
- * 역할 (SYS-04, D-I3-11): SELLER 판매자 · ASSISTANT 보조자(판매자가 만든다 — 문자찜 입력만). 보조자를 지우면 행은 남기고 지운 시각만 적는다
+ * 역할 (SYS-04, D-I3-11): SELLER 판매자. 옛 ASSISTANT 보조자 행은 남아 있어도 로그인·세션이 되지 않는다(D-UX3-32 — 보조자 기능을 없앰, 데이터는 지우지 않음)
  * (이벤트의 조치자가 이 행을 가리킨다, 같은 아이디를 다시 만들지 않는다). 지운 계정은 로그인·세션이 되지 않는다
  */
 export const accounts = pgTable(

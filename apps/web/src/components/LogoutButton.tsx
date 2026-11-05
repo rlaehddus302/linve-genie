@@ -1,8 +1,8 @@
 // 로그아웃 버튼과 확인 창 (MOB1 D-MOB1-05, AC-MOB1-05·06).
-// - 자리: 휴대폰(48rem 미만) 판매자는 "더보기" 목록 맨 끝("설정" 다음), PC·보조자는 위 줄 그대로 — 자리는 TopBar가 정한다.
+// - 자리: 휴대폰(48rem 미만) "더보기" 목록 맨 끝("설정" 다음), PC는 위 줄 그대로 — 자리는 TopBar가 정한다.
 // - 누르면 끝내지 않은 방송(실제·리허설)이 있는지 그때 한 번 받아 본다. 위험하면(끝내지 않은 방송이 있음 · 이 기기가 출력 기기 · 확인하지 못함)
 //   창 "로그아웃할까요?"를 띄운다 — 처음 포커스는 "로그인 유지"(누르거나 Esc면 닫기만). 그 밖이면 지금처럼 바로 로그아웃한다.
-// - 확인하지 못하면 묻는 쪽이 안전하다 — 묻지 않고 로그아웃하지 않는다. 보조자 계정은 묻지 않는다(지금 그대로).
+// - 확인하지 못하면 묻는 쪽이 안전하다 — 묻지 않고 로그아웃하지 않는다.
 // - 답을 기다리는 동안 (D-MOB1-15, AC-MOB1-06): LOGOUT_WAIT_MS 안에 답이 오면(실패 포함) 위 규칙 그대로. 그 안에 답이 없으면
 //   그때 바로 "확인하지 못했어요." 창을 띄운다. 창이 뜬 뒤에는 어떤 답이 와도 저절로 로그아웃하지 않는다 — 본문만 바꾼다
 //   (위험하면 그 문장들, 위험이 없으면 "끝내지 않은 방송이 없어요."). 제목·버튼·포커스는 그대로이고 판매자가 "로그아웃"을 눌러야 끝난다.
@@ -43,12 +43,10 @@ export function logoutRisks({ broadcasts, station }: LogoutRiskInput): readonly 
 
 export interface LogoutButtonProps {
   readonly onLogout: () => void
-  /** 보조자 계정 — 묻지 않는다 */
-  readonly assistant: boolean
   readonly className: string
 }
 
-export function LogoutButton({ onLogout, assistant, className }: LogoutButtonProps) {
+export function LogoutButton({ onLogout, className }: LogoutButtonProps) {
   const api = usePrintApi()
   const print = usePrintState()
   const [checking, setChecking] = useState(false)
@@ -88,10 +86,6 @@ export function LogoutButton({ onLogout, assistant, className }: LogoutButtonPro
 
   const press = async () => {
     if (checking || lines !== null) return
-    if (assistant) {
-      onLogout()
-      return
-    }
     turn.current += 1
     const mine = turn.current
     shown.current = false

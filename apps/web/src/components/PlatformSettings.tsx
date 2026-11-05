@@ -4,7 +4,6 @@
 //   서버가 준 주소로 이동).
 // - 틱톡 라이브(베타): 운영자 스위치가 꺼져 있으면 "지금은 틱톡 연결을 쓸 수 없어요."만. 켜기 전에는 위험 고지 전문 + 체크 상자 + "켜기"
 //   (체크 전에는 누를 수 없음). 켠 뒤에는 "켜져 있어요 (YYYY년 M월 D일 켬)", "내 틱톡 아이디" 칸(저장 — 실패 문장은 칸 아래), "끄기"(확인 창).
-// - 보조자는 설정 화면을 열 수 없다(앱이 막는다) — 이 칸들도 보이지 않는다.
 // 서버 문장(고지·오류)은 고치지 않고 글자 그대로 보인다. 아이디·계정 이름은 글자로만 보인다.
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, put, withRetry, type ApiError } from '../api/client.ts'

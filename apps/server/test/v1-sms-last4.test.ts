@@ -265,6 +265,9 @@ describe('AC-V1-12 로그·응답에 남지 않음', () => {
     // DB에도 원 전화번호는 없다 (뒤 4자리는 phoneLast4로만)
     const dump = await dumpAllTables(world.database)
     expect(dump).not.toContain('01077779395')
-    expect(dump).not.toContain('last4')
+    // D-REAL-03·05: 영수증 문자용 손님 번호 표(buyer_phones)는 화면에 보일 끝 4자리 칸(last4)을 둔다(원 번호는 암호화) — 그 표만 빼고 본다.
+    // 옛 기대 "DB 어디에도 last4 없음" → 새 기대 "buyer_phones 밖에는 last4 없음"
+    const outside = dump.split('\n').filter((line) => !line.startsWith('buyer_phones:')).join('\n')
+    expect(outside).not.toContain('last4')
   })
 })

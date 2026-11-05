@@ -27,7 +27,7 @@ describe('AC-S05-91 E2E 서버 기동 (프로그램)', () => {
       const cookie = await loginTo(e2e.server.app, account.loginId, account.password)
       const get = async (path: string) => (await e2e.server.app.request(path, { headers: { Cookie: cookie } })).json() as Promise<Record<string, unknown>>
       // D-UX3-30: phone·phoneRequired 추가
-      expect(await get('/api/me')).toEqual({ seller: { name: account.shopName }, loginId: account.loginId, role: 'SELLER', assistant: null, phone: null, phoneRequired: false })
+      expect(await get('/api/me')).toEqual({ seller: { name: account.shopName }, loginId: account.loginId, phone: null, phoneRequired: false })
       expect(e2e.fill).toMatchObject({ date: '2026-10-19', products: 20, chats: 300, seq: 1 + 20 + 300 })
       // Y1: 범위마다 봉인 예정 시각·봉인 여부 (AC-Y1-62). AIY1(RA-AIY1-01): 채우기 채팅은 유튜브 흉내라 출처 youtube로 적혀
       // 봉인 예정이 생긴다 — 방송 날짜 + 30일의 한국 0시(2026-11-18 00:00 KST)

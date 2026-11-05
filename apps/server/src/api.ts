@@ -11,7 +11,7 @@ import { isValidDate } from '@livejjim/core'
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { getCookie } from 'hono/cookie'
-import { ASSISTANT_LIMIT, ASSISTANT_LIMIT_MESSAGE, ASSISTANT_NAME_MESSAGE, SHOP_NAME_MESSAGE } from './accounts.ts'
+import { SHOP_NAME_MESSAGE } from './accounts.ts'
 import { REQUEST_ID_RE, isPlainObject, own, ownKeys } from './api-fields.ts'
 import { VOICE_LOG_MESSAGES } from './voice-log.ts'
 import { CLEAR_SESSION_COOKIE, SESSION_COOKIE, sessionCookie, type Auth, type SessionContext } from './auth.ts'
@@ -22,7 +22,6 @@ import type { StreamHub } from './hub.ts'
 import { IMPORT_FILE_MESSAGES, IMPORT_PREVIEW_BODY_LIMIT_BYTES, IMPORT_REGISTER_BODY_LIMIT_BYTES } from './import-files.ts'
 import { LOGIN_BUSY_MESSAGE, LOGIN_RATE_LIMITED_MESSAGE, clientAddress } from './login-limit.ts'
 import { unknownFieldProblems } from './messages.ts'
-import { ASSISTANT_EVENT_TYPES, ASSISTANT_FORBIDDEN_MESSAGE, assistantMayCall } from './roles.ts'
 import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerVoiceAliasRoutes, type VoiceAliases } from './voice/aliases.ts'
 import { registerStreamAudioRoutes } from './voice/stream-routes.ts'
@@ -150,7 +149,6 @@ const PUBLIC_PATHS = new Set(['POST /api/login', 'GET /api/health', 'HEAD /api/h
 
 const notFound = () => apiError(404, 'NOT_FOUND', '찾을 수 없어요.')
 const unauthorized = () => apiError(401, 'UNAUTHORIZED', '로그인이 필요해요.')
-const assistantForbidden = () => apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
 const invalidRequestId = () =>
   apiError(400, 'INVALID_REQUEST_ID', '보내는 중 문제가 생겼어요. 화면을 새로고침한 뒤 다시 해 주세요.', [{ field: 'requestId', message: '화면을 새로고침한 뒤 다시 해 주세요.' }])
 
@@ -255,13 +253,12 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (contentType !== JSON_CONTENT_TYPE) return apiError(415, 'NOT_JSON', '보낸 내용의 형식이 올바르지 않아요.')
     return next()
   })
-  // 세션 확인: 로그인·헬스체크 밖 전부. 보조자 계정은 허용 목록 밖이면 모두 403 — 처리기에 닿기 전에(아무것도 기록하지 않는다, AC-I3-61). 목록은 roles.ts(기본 거부)
+  // 세션 확인: 로그인·헬스체크 밖 전부 (보조자 계정은 D-UX3-32로 없앴다 — 옛 보조자 세션은 auth.session이 없는 것으로 본다)
   const checkSession = async (c: Context<Env>): Promise<Response | null> => {
     const session = await auth.session(getCookie(c, SESSION_COOKIE))
     if (session === null) return unauthorized()
     c.set('session', session)
     sessionChecked.add(c.req.raw)
-    if (session.role === 'ASSISTANT' && !assistantMayCall(c.req.method, c.req.path, c.req.query('rehearsal'))) return assistantForbidden()
     return null
   }
   /** 세션을 이미 본 요청 (가져오기 두 경로 — 아래 세션 단계가 두 번 보지 않게) */
@@ -364,7 +361,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (outcome.kind === 'failed') return apiError(401, 'LOGIN_FAILED', '아이디나 비밀번호가 맞지 않아요.')
     const session = await auth.session(outcome.token)
     c.header('Set-Cookie', sessionCookie(outcome.token))
-    return c.json({ seller: { name: session?.sellerName ?? '' }, loginId: outcome.loginId, role: session?.role ?? 'SELLER' })
+    return c.json({ seller: { name: session?.sellerName ?? '' }, loginId: outcome.loginId })
   })
 
   api.post('/logout', async (c) => {
@@ -375,18 +372,15 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     return c.json({ ok: true })
   })
 
-  // 내 정보: 가게 이름·아이디·역할 (보조자면 그 이름도, AC-I3-61·63)
+  // 내 정보: 가게 이름·아이디 (역할·보조자 이름은 D-UX3-32로 없앴다 — 판매자 계정만 있다)
   api.get('/me', (c) => {
     const session = c.get('session')
-    const assistant = session.role === 'ASSISTANT'
     // phone·phoneRequired (D-UX3-30): 문자 인증이 켜진 서버에서 번호가 없는 판매자 계정은 화면이 번호 확인을 먼저 받는다
-    const phoneRequired = !assistant && social !== null && social.phoneRequired && session.phoneLabel === null
+    const phoneRequired = social !== null && social.phoneRequired && session.phoneLabel === null
     return c.json({
       seller: { name: session.sellerName },
       loginId: session.loginId,
-      role: assistant ? 'ASSISTANT' : 'SELLER',
-      assistant: assistant ? { name: session.accountName ?? '' } : null,
-      phone: assistant ? null : session.phoneLabel,
+      phone: session.phoneLabel,
       phoneRequired,
     })
   })
@@ -420,35 +414,6 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       ])
     }
     return c.json({ wizard })
-  })
-
-  // ── 보조자 계정 (AC-I3-60·62 — 판매자 계정만, 보조자 세션은 위에서 403) ────
-  api.get('/assistants', async (c) => {
-    const list = await service.assistants(sellerOf(c))
-    return c.json({ assistants: list.map((row) => ({ id: row.id, name: row.name, loginId: row.loginId, createdAt: row.createdAt.toISOString() })), limit: ASSISTANT_LIMIT })
-  })
-  api.post('/assistants', async (c) => {
-    const input = body(c)
-    const extra = onlyKeys(input, ['name'])
-    if (extra !== null) return extra
-    const created = await auth.createAssistant(sellerOf(c), own(input, 'name'))
-    if (!created.ok) {
-      if (created.reason === 'limit') return apiError(409, 'ASSISTANT_LIMIT', ASSISTANT_LIMIT_MESSAGE)
-      if (created.reason === 'name') return apiError(400, 'INVALID_INPUT', ASSISTANT_NAME_MESSAGE, [{ field: 'name', message: ASSISTANT_NAME_MESSAGE }])
-      return notFound()
-    }
-    const { assistant, password } = created
-    // 비밀번호는 이 응답에만 (DB엔 해시만, 로그 없음)
-    return c.json({ assistant: { id: assistant.id, name: assistant.name, loginId: assistant.loginId, createdAt: assistant.createdAt.toISOString() }, password })
-  })
-  api.post('/assistants/:id/delete', async (c) => {
-    const extra = onlyKeys(body(c), [])
-    if (extra !== null) return extra
-    const hashes = await auth.deleteAssistant(sellerOf(c), c.req.param('id'))
-    if (hashes === null) return notFound()
-    // 그 보조자의 열린 실시간 연결을 바로 닫는다 (다음 요청은 401)
-    for (const hash of hashes) hub.closeSession(hash)
-    return c.json({ ok: true })
   })
 
   // 화면 설정 (방송자 조치 대기 시간, D-083 — 운영 5000밀리초 / 시험 모드 신호 — 시험용 프린터를 켠다, E2E 기동만 true, L-11 15)
@@ -517,24 +482,16 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // ── 이벤트 쓰기 (AC-S04-31·51) ────────────────────────────────────────
   api.post('/events', async (c) => {
     const input = body(c)
-    // 보조자: 문자찜·방송자 취소만 (종류를 먼저 본다 — 그 밖은 요청 번호와 상관없이 403, 아무것도 기록하지 않는다, AC-I3-61)
-    const assistant = c.get('session').role === 'ASSISTANT'
-    if (assistant) {
-      const type = own(input, 'type')
-      if (typeof type !== 'string' || !ASSISTANT_EVENT_TYPES.includes(type)) return assistantForbidden()
-    }
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
     // 같은 요청 번호로 이미 기록했으면(내용이 달라도) 처음 결과 (AC-S04-25). 동시에 온 경우는 기록 경로가 트랜잭션 안에서 다시 확인한다
     const prior = await service.priorResult(sellerOf(c), requestId)
     if (prior !== null) {
-      // 보조자에게는 문자찜·방송자 취소의 결과만 다시 보여 준다 (판매자의 다른 조치 결과를 요청 번호로 꺼내 보지 못하게)
-      if (assistant && !ASSISTANT_EVENT_TYPES.includes(prior.type)) return assistantForbidden()
       return outcomeResponse(c, { kind: 'duplicate', result: prior })
     }
     const rehearsal = rehearsalOf(c)
     if (!rehearsal.ok) return rehearsal.response
-    const outcome = await service.writeEvent(sellerOf(c), actorOf(c), requestId, input, c.req.query('date'), rehearsal.value, { assistant })
+    const outcome = await service.writeEvent(sellerOf(c), actorOf(c), requestId, input, c.req.query('date'), rehearsal.value)
     return outcomeResponse(c, outcome.kind === 'phone' ? outcome.outcome : outcome)
   })
 
@@ -1005,10 +962,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'device', message: '이 기기를 알아보지 못했어요. 화면을 새로고침한 뒤 다시 해 주세요.' }])
     }
     // 연결을 먼저 등록한 뒤 범위별 seq를 읽는다 — 그 사이 커밋된 변경도 알림으로 받는다 (RA-S04-003)
-    // 보조자 연결은 유튜브·리허설 생성기·출력 기록 알림을 받지 않는다 (범위 변경 알림만 — 문자찜 입력 화면이 쓰는 것).
-    // 보조자는 출력 기기가 될 수 없으므로(출력 API는 403) 기기 ID도 받지 않는다
-    const assistant = session.role === 'ASSISTANT'
-    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId), { named: !assistant, deviceId: assistant ? null : (device ?? null) })
+    return hub.open(session.sellerId, session.tokenHash, () => service.scopes(session.sellerId), { named: true, deviceId: device ?? null })
   })
 
   // ── 유튜브 (Y1) ──────────────────────────────────────────────────────

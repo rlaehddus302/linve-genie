@@ -9,7 +9,6 @@ import { REQUEST_ID_RE, own, ownKeys } from '../api-fields.ts'
 import { SESSION_COOKIE, type Auth, type SessionContext } from '../auth.ts'
 import { apiError, type ErrorCode } from '../errors.ts'
 import { unknownFieldProblems } from '../messages.ts'
-import { ASSISTANT_FORBIDDEN_MESSAGE } from '../roles.ts'
 import type { Service } from '../service.ts'
 import { CALLBACK_MESSAGES, NOT_CONNECTED_MESSAGE, type CallbackResult } from './connect.ts'
 import { SELLER_OUTBOX_MESSAGES } from './outbox.ts'
@@ -80,8 +79,6 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
   // 돌아오는 주소: 공개 경로(api.ts가 세션을 강제하지 않는다) — 세션 쿠키와 state로 판매자를 정한다
   api.get('/youtube/oauth/callback', async (c) => {
     const current = await auth.session(getCookie(c, SESSION_COOKIE))
-    // 보조자 계정은 유튜브 경로를 쓰지 않는다 (AC-I3-61 — 세션을 강제하지 않는 이 경로도)
-    if (current?.role === 'ASSISTANT') return apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
     if (youtube === null || !youtube.oauthReady) return notConfigured()
     const code = c.req.query('code')
     const state = c.req.query('state')

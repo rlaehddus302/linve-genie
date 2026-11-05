@@ -1,4 +1,4 @@
-// 설정 "휴대폰 알림 받기" (SMS3 ORD-13 C-02, D-SMS3-04·14, AC-SMS3-28) — 판매자만(보조자는 칸이 없다).
+// 설정 "휴대폰 알림 받기" (SMS3 ORD-13 C-02, D-SMS3-04·14, AC-SMS3-28).
 // - 꺼짐: "켜고 받기 열쇠 만들기". 켜짐: 마지막으로 받은 시각·기기 이름, "받기 열쇠 다시 만들기"(확인 창), "끄기"(확인 창).
 // - D-SMS3-39: 화면 낱말은 "토큰" 대신 "받기 열쇠". 이 칸의 단추는 모두 보조 모양 — 설정 화면의 주 버튼은 아래 "저장" 하나(AC-N4a-32).
 // - 토큰은 만든 응답에서만 한 번 보인다 — "복사하기". 화면을 떠나면 다시 볼 수 없다(서버는 해시만 둔다). 저장소·주소에 남기지 않는다.
@@ -58,7 +58,7 @@ export function inboxAddress(origin: string = typeof location === 'undefined' ? 
 export interface InboxSettingsHandle {
   readonly view: InboxSettingsView | null
   readonly error: ApiError | null
-  /** 서버에 이 칸이 없다(옛 서버 404·보조자 403) — 칸을 그리지 않는다 */
+  /** 서버에 이 칸이 없다(옛 서버 404·권한 없음 403) — 칸을 그리지 않는다 */
   readonly missing: boolean
   readonly reload: () => Promise<void>
   readonly set: (view: InboxSettingsView) => void

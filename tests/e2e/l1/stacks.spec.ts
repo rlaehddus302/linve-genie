@@ -58,7 +58,8 @@ test.describe('AC-L1-20·22 공급자를 하나도 켜지 않은 기존 기동 (
     expect((await page.request.post('/api/auth/link', { data: { provider: 'kakao' }, headers: { Origin: origin } })).status()).toBe(404)
     expect((await page.request.post('/api/auth/unlink', { data: { provider: 'kakao' }, headers: { Origin: origin } })).status()).toBe(404)
     await page.goto('/settings')
-    await expect(page.getByRole('region', { name: '보조자', exact: true })).toBeVisible()
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "설정 화면이 열린 표시로 보조자 칸이 보인다"를 늘 있는 "그 밖" 칸으로 바꿨다
+    await expect(page.getByRole('region', { name: '그 밖', exact: true })).toBeVisible()
     await expect(methodsRegion(page)).toHaveCount(0)
     await expect(page.getByText('아이디 로그인 · 아이디')).toHaveCount(0)
   })

@@ -5,7 +5,7 @@
 //   FB1 D-FB1-08 (AC-FB1-31~33): 저장하지 않은 값이 있으면 연결 요청 전에 앱 떠나기 창으로 먼저 묻는다(없으면 묻지 않는다). 떠나기로 했으면
 //   브라우저 떠나기 확인은 다시 묻지 않는다. 5초 안에 페이지가 떠나지 않으면 버튼을 되돌리고 "카카오로 가지 못했어요. 다시 눌러 주세요.".
 // - [연결 끊기]: 확인 창(기본 포커스 "그만두기", Esc = 그만두기) → 끊으면 "카카오 연결을 끊었어요."와 새 목록. 지금 화면은 로그인된 채다.
-// - 공급자가 하나도 켜져 있지 않은 서버는 목록 경로가 404 — 칸을 그리지 않는다(L1 전과 같다). 보조자는 목록을 부르지 않는다(403을 보지 않는다).
+// - 공급자가 하나도 켜져 있지 않은 서버는 목록 경로가 404 — 칸을 그리지 않는다(L1 전과 같다).
 // - 다른 기기에서 연결·끊으면 실시간 알림(`login`)으로 목록을 다시 읽는다(설정 화면이 부른다).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, post, type ApiError } from '../api/client.ts'
@@ -34,7 +34,7 @@ import { Modal } from './Modal.tsx'
 
 export type LoginMethodsState =
   | { readonly state: 'loading' }
-  /** 간편 로그인이 꺼진 서버(404) 또는 보조자 — 칸이 없다 */
+  /** 간편 로그인이 꺼진 서버(404) — 칸이 없다 */
   | { readonly state: 'hidden' }
   | { readonly state: 'ready'; readonly methods: LoginMethods }
   | { readonly state: 'error'; readonly error: ApiError }
@@ -45,7 +45,7 @@ export interface LoginMethodsHandle {
   readonly set: (methods: LoginMethods) => void
 }
 
-/** 로그인 방법 목록 (enabled가 거짓이면 부르지 않는다 — 보조자) */
+/** 로그인 방법 목록 (enabled가 거짓이면 부르지 않는다) */
 export function useLoginMethods(enabled: boolean): LoginMethodsHandle {
   const [current, setCurrent] = useState<LoginMethodsState>(enabled ? { state: 'loading' } : { state: 'hidden' })
   const alive = useRef(true)
@@ -72,7 +72,7 @@ export function useLoginMethods(enabled: boolean): LoginMethodsHandle {
   return { current, reload, set }
 }
 
-/** 칸을 그릴지: 공급자 줄이 하나라도 있거나, 불러오지 못했거나, 돌아온 결과가 있을 때. 꺼진 서버·보조자(hidden)는 그리지 않는다 */
+/** 칸을 그릴지: 공급자 줄이 하나라도 있거나, 불러오지 못했거나, 돌아온 결과가 있을 때. 꺼진 서버(hidden)는 그리지 않는다 */
 export function showLoginMethods(state: LoginMethodsState, result: LoginResult | null): boolean {
   switch (state.state) {
     case 'hidden':

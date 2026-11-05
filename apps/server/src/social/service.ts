@@ -119,7 +119,6 @@ export interface SessionInfo {
   readonly accountId: string
   readonly tokenHash: string
   readonly loginId: string
-  readonly role: string
 }
 
 export interface ProviderMethodView {
@@ -151,7 +150,7 @@ export interface CallbackOutcome {
 /** 가입·앱 로그인을 마친 결과: 세션 토큰과 화면에 줄 내 정보 */
 export interface TicketSession {
   readonly token: string
-  readonly me: { readonly seller: { readonly name: string }; readonly loginId: string; readonly role: 'SELLER' }
+  readonly me: { readonly seller: { readonly name: string }; readonly loginId: string }
 }
 
 export type AppFinishOutcome =
@@ -280,7 +279,7 @@ export class SocialLogin {
   /** 승인 주소를 만들고 state(해시)·검증 값(암호화)·브라우저 쿠키(해시)를 둔다. 연결이면 그 판매자 계정·세션에 묶는다 */
   async start(provider: unknown, purpose: SocialPurpose, browserCookie: string | undefined, session: SessionInfo | null, address: string | null, appChallenge: string | null = null): Promise<StartOutcome> {
     if (!this.isEnabled(provider)) return { kind: 'not_found' }
-    if (purpose === 'LINK' && (session === null || session.role !== 'SELLER')) return { kind: 'not_found' }
+    if (purpose === 'LINK' && session === null) return { kind: 'not_found' }
     if (appChallenge !== null && (purpose !== 'LOGIN' || !CHALLENGE_RE.test(appChallenge))) return { kind: 'not_found' }
     if (!this.#startLimiter.take(address === null ? null : ipKey(address))) return { kind: 'rate_limited' }
     const { db, masterKey, clock } = this.#options
@@ -414,7 +413,7 @@ export class SocialLogin {
     // 5. 연결: 시작한 그 세션이 아직 살아 있고 같은 판매자 계정이어야 한다
     if (purpose === 'LINK') {
       const current = await auth.session(sessionToken)
-      if (current === null || current.tokenHash !== row.sessionHash || current.accountId !== row.accountId || current.sellerId !== row.sellerId || current.role !== 'SELLER') {
+      if (current === null || current.tokenHash !== row.sessionHash || current.accountId !== row.accountId || current.sellerId !== row.sellerId) {
         return this.#finish(provider, purpose, 'SESSION_GONE')
       }
     }
@@ -634,7 +633,7 @@ export class SocialLogin {
     const row = rows[0]
     if (row === undefined) return null
     const token = await this.#options.auth.createSession({ sellerId, accountId }, PROVIDER_METHOD[provider], db)
-    return { token, me: { seller: { name: row.name }, loginId: row.loginId, role: 'SELLER' } }
+    return { token, me: { seller: { name: row.name }, loginId: row.loginId } }
   }
 
   /**
@@ -938,7 +937,7 @@ export class SocialLogin {
     const row = await this.#signupTicket(input.ticket, input.verifier)
     if (row === null || row.providerUserEnc === null || row.phoneVerifiedAt === null || row.targetAccountId === null) return { kind: 'expired' }
     const provider = row.provider as ProviderId
-    if (session.role !== 'SELLER' || session.accountId !== row.targetAccountId || session.createdAt.getTime() < row.phoneVerifiedAt.getTime()) return { kind: 'mismatch' }
+    if (session.accountId !== row.targetAccountId || session.createdAt.getTime() < row.phoneVerifiedAt.getTime()) return { kind: 'mismatch' }
     let providerUserId: string
     try {
       providerUserId = openText(this.#options.masterKey, ticketAad(provider, row.ticketHash), row.providerUserEnc)
@@ -983,13 +982,12 @@ export class SocialLogin {
 
   /** 로그인한 판매자 계정의 번호 등록·바꾸기: 인증번호 보내기 (POST /api/auth/phone) */
   async accountPhoneSend(session: SessionInfo, phone: unknown, address: string | null): Promise<PhoneSendOutcome> {
-    if (session.role !== 'SELLER') return { kind: 'unavailable' }
     return this.#sendCode(`a:${session.accountId}`, phone, address, session.sellerId)
   }
 
   /** 로그인한 판매자 계정의 번호 확인 (POST /api/auth/phone/verify). 다른 계정의 번호면 바꾸지 않는다(계정은 합치지 않는다) */
   async accountPhoneVerify(session: SessionInfo, code: unknown, address: string | null): Promise<AccountPhoneOutcome> {
-    if (session.role !== 'SELLER' || !this.phoneRequired) return { kind: 'unavailable' }
+    if (!this.phoneRequired) return { kind: 'unavailable' }
     if (!this.#smsLimiter.take(address === null ? null : ipKey(address))) return { kind: 'rate_limited' }
     const checked = await this.#checkCode(`a:${session.accountId}`, code)
     if (checked.kind !== 'ok') return checked

@@ -233,7 +233,8 @@ describe('AC-I3-36 알림에서 빼기', () => {
 })
 
 describe('AC-I3-36·97 판매자만·격리·리허설·봉인', () => {
-  it('남의·없는 행 404, 리허설 행 409, 봉인한 범위 409 SEALED, 보조자 403, 모르는 필드 400', async () => {
+  it('남의·없는 행 404, 리허설 행 409, 봉인한 범위 409 SEALED, 모르는 필드 400', async () => {
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
     const w = await world()
     const { connected, b, list } = await unconfirmedPair(w)
     const other = await connectSeller(w)
@@ -258,11 +259,6 @@ describe('AC-I3-36·97 판매자만·격리·리허설·봉인', () => {
       expect(response.status, path).toBe(409)
       expect(response.body).toEqual({ error: { code: 'REHEARSAL_OUTBOX', message: '리허설 감사 메시지는 유튜브에 올리지 않아요.' } })
     }
-    // 보조자
-    const helper = await api.post('/api/assistants', { name: '엄마' })
-    const helperCookie = await login(w, (helper.body.assistant as { loginId: string }).loginId, helper.body.password as string)
-    expect((await client(w, helperCookie).post(`/api/outbox/${String(list[0]?.id)}/dismiss`, {})).status).toBe(403)
-    expect((await client(w, helperCookie).post(`/api/outbox/${String(list[0]?.id)}/confirm-posted`, { requestId: 'h-1' })).status).toBe(403)
     // 봉인한 범위 (30일 뒤)
     await w.timer.advance(31 * 24 * 60 * 60 * 1000)
     expect(await w.server.sealer.runOnce()).toBe(1)

@@ -1,7 +1,7 @@
 // 휴대폰 알림 받기 화면이 쓰는 서버 응답 모양 (SMS3 ORD-13·PAY-02, D-SMS3-04·12·14, D-DEP2-06, AC-SMS3-28~32).
 // 서버 약속 v1(dev-server "SMS3 서버 API 약속") 그대로. 시각은 UTC ISO 문자열. 영어 값(종류·사유·은행 코드)은 화면에 내지 않는다.
 //
-//   GET  /api/inbox/settings                 → { inbox: InboxSettingsView }          (판매자만 — 보조자 403)
+//   GET  /api/inbox/settings                 → { inbox: InboxSettingsView }
 //   POST /api/inbox/token          {}         → { token, inbox }                      만들기·다시 만들기(옛 토큰 바로 무효). 토큰 원문은 이 응답에만
 //   PUT  /api/inbox/settings  { enabled }     → { inbox }                             켜기·끄기 (토큰 없이 켜기 409 NO_TOKEN)
 //   GET  /api/inbox/cards?b=<방송 ID>         → { cards, inboxClaimIds, startedAt, staleBroadcast }   콘솔 "문자 확인" 칸 (받은 순서)

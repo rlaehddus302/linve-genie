@@ -106,7 +106,7 @@ export function LoginPage({
     setResult(null)
     try {
       const me = await post<Me>('/api/login', { loginId, password })
-      if (me.role !== 'ASSISTANT') rememberLastLogin('id')
+      rememberLastLogin('id')
       onLoggedIn(me)
     } catch (caught) {
       if (!isApiError(caught)) throw caught

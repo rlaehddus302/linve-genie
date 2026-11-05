@@ -6,10 +6,14 @@
 // D-UX3-30 (사용자 지시 2026-11-05 "같은 사람이면 하나의 계정으로"): 문자 인증이 켜진 서버에서 처음 계정이면 휴대폰 번호를 먼저 확인한다.
 // 새 번호면 가입, 이미 있는 번호면 "이미 가입한 계정이 있어요" — 그 계정의 간편 로그인으로 다시 로그인하면 방금 공급자가 그 계정에 이어진다.
 // D-UX3-31 (사용자 지시 2026-11-05 "아이디 비밀번호 방식 다 지우고 소셜 로그인만 남기고 밑에 쓸데 없는 설명은 지우고 필수적인거만"): 첫 화면은 간편 로그인 단추와
-// 약관 안내만. 아이디·비밀번호 칸·"또는" 줄·아래 설명은 없앤다. 도우미 계정(아이디로만 들어옴)이 막히지 않게 맨 아래 작은 [아이디로 로그인]을 누르면 칸이 열린다.
+// 약관 안내만. 아이디·비밀번호 칸·"또는" 줄·아래 설명은 없앤다.
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어 … 로그인 화면은 첨부 사진과 같이"): KREAM 참고 배치 — 화면 높이를 나눠 위 칸 가운데에 큰 서비스명,
+// 그 아래 간편 로그인 단추와 동의 안내, 일정한 빈칸, 맨 아래(안전 영역 안)에 이용약관·개인정보처리방침과 고객센터 번호·이메일.
+// 빈칸은 flex 비율로 나눠 휴대폰 높이와 상관없이 같은 모양이고, 작은 화면에서는 최소 높이를 지키고 스크롤된다.
+// 도우미(보조자)를 없애 [아이디로 로그인] 링크도 뺐다. 운영자가 만든 계정·심사용 계정은 서비스명을 2초 안에 다섯 번 누르면 아이디 칸이 열린다(숨은 길).
 // 마지막으로 아이디로 들어온 기기이거나 간편 로그인이 켜지지 않은 서버면 처음부터 칸을 연다.
-import { useEffect, useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import {
   continueLabel,
@@ -43,8 +47,13 @@ import {
   rememberAppLastLogin,
 } from '../lib/social-auth.ts'
 import { PhoneVerify } from './PhoneVerify.tsx'
-import { ID_LOGIN_OPEN, LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SERVICE_NAME, SESSION_EXPIRED_MESSAGE } from '../lib/words.ts'
+import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SERVICE_NAME, SESSION_EXPIRED_MESSAGE, SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/words.ts'
+import { useBottomInset, useKit } from '../ui/kit/theme.tsx'
 import { BigButton, Body, Field, Hint, Notice, Screen, Stack, Title } from '../ui/parts.tsx'
+
+/** 숨은 아이디 칸: 서비스명을 이 시간 안에 이만큼 누르면 연다 */
+const ID_TAPS = 5
+const ID_TAPS_MS = 2000
 
 /** 간편 가입의 단계 (D-UX3-30): 처음 화면 → 번호 확인 → (있는 번호면) 그 계정으로 다시 로그인 */
 type SignupStage =
@@ -86,6 +95,19 @@ export function LoginScreen({
   const [socialMessage, setSocialMessage] = useState<string | null>(null)
   const [making, setMaking] = useState(false)
   const [stage, setStage] = useState<SignupStage>({ kind: 'main' })
+  const taps = useRef<number[]>([])
+  const { p } = useKit()
+  const bottom = useBottomInset()
+
+  /** 서비스명 누름: 2초 안에 다섯 번이면 아이디 칸을 연다 (운영자·심사용 계정, D-UX3-32) */
+  const tapTitle = () => {
+    const now = Date.now()
+    taps.current = [...taps.current.filter((at) => now - at < ID_TAPS_MS), now]
+    if (taps.current.length >= ID_TAPS) {
+      taps.current = []
+      setIdOpen(true)
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -256,61 +278,78 @@ export function LoginScreen({
     )
   }
 
+  const idForm = idOpen || (providersLoaded && providers.length === 0)
   return (
-    <Screen title={SERVICE_NAME} testID="login-screen">
+    <ScrollView
+      style={{ flex: 1, backgroundColor: p.background }}
+      contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 16, paddingBottom: bottom + 20 }}
+      keyboardShouldPersistTaps="handled"
+      testID="login-screen"
+    >
       {expired ? <Notice tone="warning">{SESSION_EXPIRED_MESSAGE}</Notice> : null}
       {offline ? <Notice tone="warning" alert>{OFFLINE_AT_START_MESSAGE}</Notice> : null}
       {offline && onRecheck !== undefined ? <BigButton label="다시 확인" disabled={rechecking} onPress={() => void recheck()} /> : null}
-      {providers.length > 0 ? (
-        <Stack tight>
-          <View style={{ gap: 12 }}>
-            {providers.map((provider) => (
-              // 누른 단추만 눌린 모양으로 — 다른 단추는 흐리게 하지 않는다. 겹쳐 누르기는 social()이 막는다 (D-UX3-29)
-              <SocialButton key={provider} provider={provider} recent={last === provider} busy={moving === provider} onPress={() => void social(provider)} />
-            ))}
-          </View>
-          {making ? <Notice tone="info">{SIGNUP_MAKING}</Notice> : null}
-          {socialMessage !== null ? <Notice tone="danger" alert>{socialMessage}</Notice> : null}
-          <TermsNote />
-        </Stack>
-      ) : null}
-      {idOpen || (providersLoaded && providers.length === 0) ? (
-        <Stack>
-          <Field label="아이디" value={loginId} onChangeText={(text) => {
-            setLoginId(text)
-            setError(null)
-          }} autoCapitalize="none" autoCorrect={false} autoComplete="username" textContentType="username" />
-          <Field label="비밀번호" value={password} onChangeText={(text) => {
-            setPassword(text)
-            setError(null)
-          }} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={() => void submit()} />
-          {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
-          {error !== null && error.code === 'LOGIN_FAILED' ? <Hint>{LOGIN_FAILED_HINT}</Hint> : null}
-          <BigButton label="로그인" primary disabled={busy} onPress={() => void submit()} />
-        </Stack>
-      ) : providersLoaded ? (
-        <Pressable role="button" onPress={() => setIdOpen(true)} testID="login-id-open" hitSlop={12} style={{ alignSelf: 'center', paddingVertical: 8 }}>
-          <Text style={{ color: '#6B7684', fontSize: 14, textDecorationLine: 'underline' }}>{ID_LOGIN_OPEN}</Text>
+      {/* 위 칸: 남은 높이를 나눠 가운데에 서비스명 (작은 화면에서도 최소 높이) */}
+      <View style={{ flex: 3, minHeight: 140, justifyContent: 'center', alignItems: 'center' }}>
+        <Pressable onPress={tapTitle} testID="login-title" accessible={false}>
+          <Text role="heading" aria-level={1} allowFontScaling={false} style={{ color: p.text, fontSize: 44, fontWeight: '900', letterSpacing: -1.5 }}>
+            {SERVICE_NAME}
+          </Text>
         </Pressable>
-      ) : null}
-    </Screen>
+      </View>
+      <View style={{ gap: 12 }}>
+        {providers.map((provider) => (
+          // 누른 단추만 눌린 모양으로 — 다른 단추는 흐리게 하지 않는다. 겹쳐 누르기는 social()이 막는다 (D-UX3-29)
+          <SocialButton key={provider} provider={provider} recent={last === provider} busy={moving === provider} onPress={() => void social(provider)} />
+        ))}
+        {making ? <Notice tone="info">{SIGNUP_MAKING}</Notice> : null}
+        {socialMessage !== null ? <Notice tone="danger" alert>{socialMessage}</Notice> : null}
+        {providers.length > 0 ? (
+          <Text style={{ color: '#6B7684', fontSize: 12, lineHeight: 18, textAlign: 'center', paddingHorizontal: 8 }}>{SOCIAL_TERMS_NOTE}</Text>
+        ) : null}
+        {idForm ? (
+          <Stack>
+            <Field label="아이디" value={loginId} onChangeText={(text) => {
+              setLoginId(text)
+              setError(null)
+            }} autoCapitalize="none" autoCorrect={false} autoComplete="username" textContentType="username" />
+            <Field label="비밀번호" value={password} onChangeText={(text) => {
+              setPassword(text)
+              setError(null)
+            }} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={() => void submit()} />
+            {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
+            {error !== null && error.code === 'LOGIN_FAILED' ? <Hint>{LOGIN_FAILED_HINT}</Hint> : null}
+            <BigButton label="로그인" primary disabled={busy} onPress={() => void submit()} />
+          </Stack>
+        ) : null}
+      </View>
+      {/* 단추와 맨 아래 사이 일정한 빈칸 (위 칸의 절반 비율, 최소 40) */}
+      <View style={{ flex: 2, minHeight: 40 }} />
+      <LoginFooter />
+    </ScrollView>
   )
 }
 
-/** 간편 로그인 아래 안내 한 줄과 이용약관·개인정보처리방침 링크 (D-UX3-29) */
-function TermsNote() {
-  const link = (label: string, path: string) => (
-    <Text role="link" aria-label={label} onPress={() => void openWeb(path)} style={{ color: '#4E5968', fontSize: 13, textDecorationLine: 'underline' }}>
+/** 맨 아래: 이용약관·개인정보처리방침, 고객센터 번호·이메일 (D-UX3-32 — 번호는 임시) */
+function LoginFooter() {
+  const { p } = useKit()
+  const link = (label: string, onPress: () => void, size: number, color: string, ariaLabel = label) => (
+    <Text role="link" aria-label={ariaLabel} onPress={onPress} suppressHighlighting={false} style={{ color, fontSize: size }}>
       {label}
     </Text>
   )
   return (
-    <View style={{ gap: 6, alignItems: 'center', paddingTop: 4 }}>
-      <Text style={{ color: '#6B7684', fontSize: 13, lineHeight: 19, textAlign: 'center' }}>{SOCIAL_TERMS_NOTE}</Text>
-      <View style={{ flexDirection: 'row', gap: 16 }}>
-        {link('이용약관', '/terms')}
-        {link('개인정보처리방침', '/privacy')}
+    <View style={{ alignItems: 'center', gap: 8 }} testID="login-footer">
+      <View style={{ flexDirection: 'row', gap: 20 }}>
+        {link('이용약관', () => void openWeb('/terms'), 13, p.textSub)}
+        {link('개인정보처리방침', () => void openWeb('/privacy'), 13, p.textSub)}
       </View>
+      <Text style={{ color: '#6B7684', fontSize: 12 }}>
+        {'고객센터 '}
+        {link(SUPPORT_PHONE, () => void Linking.openURL(`tel:${SUPPORT_PHONE.replaceAll('-', '')}`), 12, '#6B7684', `고객센터 전화 ${SUPPORT_PHONE}`)}
+        {'  |  '}
+        {link(SUPPORT_EMAIL, () => void Linking.openURL(`mailto:${SUPPORT_EMAIL}`), 12, '#6B7684', `고객센터 이메일 ${SUPPORT_EMAIL}`)}
+      </Text>
     </View>
   )
 }

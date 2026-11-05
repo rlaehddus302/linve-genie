@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { TIKTOK_MISSED_MESSAGE } from '../src/tiktok/index.ts'
 import type { Draft, WriteJob } from '../src/writer.ts'
 import { addSeller, client, rid, waitFor } from './support.ts'
-import { assistantSession, chats, connected, linkTiktok, logText, msgId, realBroadcast, restart, tiktokComment, tiktokSeller, ttWorld, unlinkTiktok, type TtWorld } from './tiktok-live-support.ts'
+import { chats, connected, linkTiktok, logText, msgId, realBroadcast, restart, tiktokComment, tiktokSeller, ttWorld, unlinkTiktok, type TtWorld } from './tiktok-live-support.ts'
 
 const worlds: TtWorld[] = []
 async function world(options: Parameters<typeof ttWorld>[0] = {}): Promise<TtWorld> {
@@ -99,7 +99,8 @@ describe('AC-N2b-2-74 저장 실패 확인 (D-N2b-2-16)', () => {
     expect((second.body.link as { collection: Collection }).collection).toMatchObject({ saveFailed: 5, saveFailedSeen: 4, missed: true, missedMessage: saveFailedText(1) })
   })
 
-  it('upTo가 0 이상의 정수가 아니면 400, 이어진 연결이 없으면 409 NOT_LINKED, 다른 판매자의 회차는 404, 보조자는 403', async () => {
+  it('upTo가 0 이상의 정수가 아니면 400, 이어진 연결이 없으면 409 NOT_LINKED, 다른 판매자의 회차는 404', async () => {
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
     const w = await world()
     const { seller } = await tiktokSeller(w)
     const b = await realBroadcast(w, seller)
@@ -120,10 +121,6 @@ describe('AC-N2b-2-74 저장 실패 확인 (D-N2b-2-16)', () => {
     const foreign = await seen(w, other.cookie, b, { upTo: 0 })
     expect([foreign.status, (foreign.body.error as { code: string }).code]).toEqual([404, 'NOT_FOUND'])
     expect((await seen(w, seller.cookie, 'b-none', { upTo: 0 })).status).toBe(404)
-
-    const helper = await assistantSession(w, seller)
-    const assistant = await seen(w, helper.cookie, b, { upTo: 0 })
-    expect([assistant.status, (assistant.body.error as { code: string }).code]).toEqual([403, 'ASSISTANT_FORBIDDEN'])
 
     // 끊은 뒤·끝낸 뒤 = 이어진 연결 없음
     await unlinkTiktok(w, seller, b)

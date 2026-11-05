@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/App.tsx'
 import { onUnauthorized } from '../src/api/client.ts'
-import type { AssistantItem, BroadcastItem, YoutubeConnection } from '../src/api/types.ts'
+import type { BroadcastItem, YoutubeConnection } from '../src/api/types.ts'
 import { setTopLevelNavigation } from '../src/lib/google-return.ts'
 import { FakeEventSource, FakeServer, apiError, broadcastItem, connection, flush, youtubeNotConfigured, type Reply } from './support.ts'
 import { menuNav, openMore } from './menu-support.ts'
@@ -13,14 +13,13 @@ let server: FakeServer
 let settings: SaleSettings
 let youtube: YoutubeConnection | null
 let broadcasts: BroadcastItem[]
-let assistants: AssistantItem[]
 let assigned: string[]
 
 const AUTH_URL = 'http://127.0.0.1:4100/o/oauth2/v2/auth?client_id=x&state=s1'
 
 function setup() {
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/settings$/, () => ({ body: { settings } }))
     .on('PATCH', /^\/api\/settings$/, (call) => {
       const changes = (call.body?.settings ?? {}) as Record<string, unknown>
@@ -49,17 +48,6 @@ function setup() {
       youtube = { ...youtube, consent: { ...youtube.consent, [key]: { enabled, at: enabled ? '2026-10-25T11:01:00.000Z' : null } } }
       return { body: { connection: youtube } }
     })
-    .on('GET', /^\/api\/assistants$/, () => ({ body: { assistants, limit: 5 } }))
-    .on('POST', /^\/api\/assistants$/, (call) => {
-      if (assistants.length >= 5) return apiError(409, 'ASSISTANT_LIMIT', '보조자는 5명까지 만들 수 있어요.')
-      const assistant = { id: `as${String(assistants.length + 1)}`, name: String(call.body?.name), loginId: 'bo-abcd2345', createdAt: '2026-10-20T01:00:00.000Z' }
-      assistants = [...assistants, assistant]
-      return { body: { assistant, password: 'Xk7pQ9mZr4tW8vY3ns' } }
-    })
-    .on('POST', /^\/api\/assistants\/([^/]+)\/delete$/, (_call, match) => {
-      assistants = assistants.filter((item) => item.id !== match[1])
-      return { body: { ok: true } }
-    })
     .on('PUT', /^\/api\/shop$/, (call) => {
       const name = String(call.body?.name ?? '').trim()
       if (name === '' || [...name].length > 30) return apiError(400, 'INVALID_INPUT', '가게 이름은 1~30자로 적어 주세요.', [{ field: 'name', message: '가게 이름은 1~30자로 적어 주세요.' }])
@@ -72,7 +60,6 @@ beforeEach(() => {
   settings = { ...DEFAULT_SETTINGS }
   youtube = connection({ status: 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false } })
   broadcasts = []
-  assistants = []
   assigned = []
   setTopLevelNavigation((url) => assigned.push(url))
   vi.stubGlobal('fetch', server.fetch)
@@ -106,12 +93,13 @@ const saveBar = () => screen.getByRole('region', { name: '저장' })
 const clickSave = () => fireEvent.click(within(saveBar()).getByRole('button', { name: '저장' }))
 
 describe('메뉴·칸 (AC-I3-44)', () => {
-  it('메뉴에 "설정"(지금 화면), 칸 제목 일곱, "그 밖"의 링크, 진행 중인 방송이 있으면 안내', async () => {
+  it('메뉴에 "설정"(지금 화면), 칸 제목 여섯, "그 밖"의 링크, 진행 중인 방송이 있으면 안내', async () => {
     broadcasts = [broadcastItem({ id: 'b1', rehearsal: false, ended: false }), broadcastItem({ id: 'b2', rehearsal: true, ended: false })]
     await open()
     expect(within(menuNav()).getByRole('button', { name: '더보기' }).getAttribute('aria-current')).toBe('page')
     expect(within(openMore()).getByRole('link', { name: '설정' }).getAttribute('aria-current')).toBe('page')
-    for (const name of ['가게', '판매 규칙', '배송비', '구매 감사 메시지', '유튜브', '보조자', '그 밖']) expect(section(name)).toBeDefined()
+    for (const name of ['가게', '판매 규칙', '배송비', '구매 감사 메시지', '유튜브', '그 밖']) expect(section(name)).toBeDefined()
+    expect(screen.queryByRole('region', { name: '보조자' })).toBeNull() // D-UX3-32
     const other = section('그 밖')
     expect(within(other).getByRole('link', { name: '시작 마법사 다시 하기' }).getAttribute('href')).toBe('/start')
     expect(within(other).getByRole('link', { name: '개인정보처리방침' }).getAttribute('href')).toBe('/privacy')
@@ -391,42 +379,4 @@ describe('가게 이름 (AC-I3-47)', () => {
   })
 })
 
-describe('보조자 (AC-I3-64)', () => {
-  it('만들면 한 번만 보이는 창(처음 포커스 "아이디 복사"), 닫으면 비밀번호가 화면·저장소에 없다', async () => {
-    await open()
-    const box = section('보조자')
-    expect(await within(box).findByText('아직 보조자가 없어요.')).toBeDefined()
-    fireEvent.change(within(box).getByLabelText('보조자 이름'), { target: { value: '<b>철수</b>' } })
-    fireEvent.click(within(box).getByRole('button', { name: '보조자 만들기' }))
-    const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('이 아이디와 비밀번호는 지금 한 번만 보여요. 보조자에게 전해 주세요.')).toBeDefined()
-    expect(within(dialog).getByText('bo-abcd2345')).toBeDefined()
-    expect(within(dialog).getByText('Xk7pQ9mZr4tW8vY3ns')).toBeDefined()
-    expect(document.activeElement?.textContent).toBe('아이디 복사')
-    expect(within(dialog).getByRole('button', { name: '비밀번호 복사' })).toBeDefined()
-    fireEvent.click(within(dialog).getByRole('button', { name: '다 적었어요' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.body.innerHTML).not.toContain('Xk7pQ9mZr4tW8vY3ns')
-    expect(JSON.stringify({ ...window.localStorage }) + JSON.stringify({ ...window.sessionStorage })).not.toContain('Xk7pQ9mZr4tW8vY3ns')
-    expect(within(box).getByText('<b>철수</b>')).toBeDefined()
-    expect(document.querySelector('b')).toBeNull()
-    expect(within(box).getByText('아이디 bo-abcd2345')).toBeDefined()
-    expect(within(box).getByText('만든 때 10월 20일 오전 10:00')).toBeDefined()
-  })
-
-  it('5명이면 만들기가 잠긴다, 지우기는 확인 창(처음 포커스 "그대로 두기")', async () => {
-    assistants = Array.from({ length: 5 }, (_, i) => ({ id: `as${String(i)}`, name: `보조${String(i)}`, loginId: `bo-aaaa000${String(i)}`, createdAt: '2026-10-20T01:00:00.000Z' }))
-    await open()
-    const box = section('보조자')
-    expect(await within(box).findByText('보조자는 5명까지 만들 수 있어요.')).toBeDefined()
-    expect((within(box).getByRole('button', { name: '보조자 만들기' }) as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(within(box).getByRole('button', { name: '보조0 지우기' }))
-    const dialog = screen.getByRole('dialog', { name: '보조자 보조0을(를) 지울까요?' })
-    expect(within(dialog).getByText('그 기기에서 바로 로그아웃돼요.')).toBeDefined()
-    expect(document.activeElement?.textContent).toBe('그대로 두기')
-    fireEvent.click(within(dialog).getByRole('button', { name: '지우기' }))
-    await waitFor(() => expect(within(box).queryByText('보조0')).toBeNull())
-    expect(server.callsTo('POST', /assistants\/as0\/delete/)).toHaveLength(1)
-    expect((within(box).getByRole('button', { name: '보조자 만들기' }) as HTMLButtonElement).disabled).toBe(false)
-  })
-})
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 "보조자 (AC-I3-64)" 만들기·지우기 시험을 뺐다

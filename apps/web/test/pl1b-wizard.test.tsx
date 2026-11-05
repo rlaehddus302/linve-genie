@@ -42,7 +42,7 @@ beforeEach(() => {
   window.sessionStorage.clear()
   setTopLevelNavigation(() => {})
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/wizard$/, () => ({ body: { wizard } }))
     .on('PUT', /^\/api\/wizard$/, (call) => {
       wizard = { status: call.body?.status as WizardState['status'], step: (call.body?.step as number | undefined) ?? null }

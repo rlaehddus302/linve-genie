@@ -5,7 +5,7 @@ import { SMS_EXCLUDED_WORDS, getBuyer, listClaims } from '@livejjim/core'
 import { describe, expect, it, vi } from 'vitest'
 import { kst } from './deposit-support.ts'
 import { readBankNotice } from '../src/deposit/notice.ts'
-import { addSeller, client, createBroadcast, dumpAllTables, expectOk, fakeClock, login, newWorld, rid, writeEvent } from './support.ts'
+import { addSeller, client, createBroadcast, dumpAllTables, expectOk, fakeClock, newWorld, rid, writeEvent } from './support.ts'
 import { SMS3_DAY, SMS3_T0, app, cards, claimsOf, inboxWorld, liveSale, makeToken, send, sendRaw, sms, statuses } from './sms3-support.ts'
 
 /** DP-9 1 표의 대표번호 16개, 숫자만 (C-04 filters.bankNumbers, D-SMS3-26) */
@@ -77,7 +77,7 @@ describe('AC-SMS3-05 받기 토큰 (C-02)', () => {
     expect(await cards(world, a, saleA.id)).toEqual([])
   })
 
-  it('토큰 없이 켜기는 409 NO_TOKEN, 설정은 보조자에게 403', async () => {
+  it('토큰 없이 켜기는 409 NO_TOKEN', async () => {
     const { world } = await inboxWorld()
     const fresh = await addSeller(world)
     const on = await client(world, fresh.cookie).put('/api/inbox/settings', { enabled: true })
@@ -467,18 +467,7 @@ describe('AC-SMS3-17 확인 필요 고르기', () => {
     expect(await claimsOf(world, seller)).toEqual([])
   })
 
-  it('보조자도 카드를 보고 처리한다', async () => {
-    const { world, seller, token } = await inboxWorld()
-    const sale = await liveSale(world, seller, [15])
-    await statuses(world, token, [sms('as', '010-1234-5678', '15 있나요?')])
-    const made = await expectOk(client(world, seller.cookie).post('/api/assistants', { name: '도우미' }))
-    const assistant = made.body.assistant as { loginId: string }
-    const cookie = await login(world, assistant.loginId, made.body.password as string)
-    const view = await expectOk(client(world, cookie).get(`/api/inbox/cards?b=${sale.id}`))
-    const [card] = view.body.cards as { id: string }[]
-    await expectOk(client(world, cookie).post(`/api/inbox/cards/${card?.id as string}/insert`, { requestId: rid('in'), no: 15 }))
-    expect((await client(world, cookie).post('/api/inbox/token', {})).status).toBe(403)
-  })
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 시험 "보조자도 카드를 보고 처리한다"를 뺐다
 })
 
 describe('AC-SMS3-18 본문 보관', () => {
@@ -741,11 +730,7 @@ describe('SMS3 고치기 2라운드 — 12시간 넘은 방송·엔진이 받지
     expect(dump).not.toContain('01022223333')
     // 입금 알림은 그대로
     expect(await statuses(world, token, [sms('dep', '1588-9999', '[KB] 홍길동 입금 14,000')])).toEqual(['SAVED'])
-    // 보조자는 닫지 못한다(판매자만)
-    const made = await expectOk(api.post('/api/assistants', { name: '도우미' }))
-    const helper = client(world, await login(world, (made.body.assistant as { loginId: string }).loginId, made.body.password as string))
-    expect((await helper.post('/api/inbox/stale/close', {})).status).toBe(403)
-    expect((await expectOk(helper.get(`/api/inbox/cards?b=${sale.id}`))).body.staleBroadcast).toMatchObject({ count: 1 })
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
     // 닫으면 사라지고, 또 넣지 않은 문자가 오면 다시 나온다
     expect((await expectOk(api.post('/api/inbox/stale/close', {}))).body.inbox).toMatchObject({ staleBroadcast: null })
     expect(await statuses(world, token, [sms('s4', '010-2222-3333', '16')])).toEqual(['IGNORED'])

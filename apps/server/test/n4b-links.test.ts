@@ -11,7 +11,7 @@ import { formatLog } from '../src/log.ts'
 import { RECEIPT_LINK_TTL_MS, receiptTokenHash } from '../src/receipt-links.ts'
 import { chat, getFile, ok } from './i2-support.ts'
 import { linkApi, linkRows, openLink, sellMany, tokenOf } from './n4b-support.ts'
-import { ORIGIN, addSeller, client, createBroadcast, dumpAllTables, fakeClock, login, newWorld, rid, type Seller, type TestServer } from './support.ts'
+import { ORIGIN, addSeller, client, createBroadcast, dumpAllTables, fakeClock, newWorld, rid } from './support.ts'
 
 const DATE = '2026-10-19'
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -20,13 +20,6 @@ const dirs: string[] = []
 afterAll(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
 })
-
-async function assistantOf(world: TestServer, seller: Seller): Promise<string> {
-  const created = await client(world, seller.cookie).post('/api/assistants', { name: '엄마' })
-  expect(created.status, created.text).toBe(200)
-  const assistant = created.body.assistant as { loginId: string }
-  return login(world, assistant.loginId, created.body.password as string)
-}
 
 describe('AC-N4b-10 링크 만들기', () => {
   it('저장된 뒤 링크 주소·끝나는 시각, DB에는 해시·암호화한 토큰만(원문 없음), 같은 요청 번호·다른 요청 번호 모두 새 기록 없음', async () => {
@@ -303,17 +296,16 @@ describe('AC-N4b-13 링크 끊기', () => {
 })
 
 describe('AC-N4b-14 권한·복구·백업', () => {
-  it('로그인 없음 401, 보조자 403(아무것도 기록하지 않음), 다른 출처 403', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('로그인 없음 401(아무것도 기록하지 않음), 다른 출처 403', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     await sellMany(world, seller, DATE, [['UC_A', '가람', 1]])
-    const assistantCookie = await assistantOf(world, seller)
-    for (const cookie of [null, assistantCookie]) {
+    for (const cookie of [null]) {
       const links = linkApi(world, cookie)
-      const expected = cookie === null ? 401 : 403
+      const expected = 401
       for (const response of [await links.create(DATE, 'UC_A'), await links.all(DATE), await links.revoke(DATE, 'UC_A'), await links.list(DATE), await links.buyers(DATE)]) {
         expect(response.status).toBe(expected)
-        if (cookie !== null) expect(response.body.error).toEqual({ code: 'ASSISTANT_FORBIDDEN', message: '보조자 계정으로는 할 수 없는 일이에요.' })
       }
       for (const path of ['receipt.jpg?buyer=UC_A', 'receipts.zip']) expect((await getFile(world, cookie, `/api/days/${DATE}/${path}`)).status).toBe(expected)
     }

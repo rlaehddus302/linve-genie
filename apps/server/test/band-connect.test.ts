@@ -1,7 +1,7 @@
 // 밴드 계정 연결 (BND1, AC-BND1-11~15) — 경로 표 OAuth·토큰 받기·다시 연결·끊기·권한·격리. 가짜 밴드 서버.
 import { afterEach, describe, expect, it } from 'vitest'
 import { addSeller, client, ORIGIN, rid } from './support.ts'
-import { approve, assistantSession, bandSeller, bandView, bandWorld, callback, connectBand, guestComment, linkBand, realBroadcast, REDIRECT, tick, type BandWorld } from './band-support.ts'
+import { approve, bandSeller, bandView, bandWorld, callback, connectBand, guestComment, linkBand, realBroadcast, REDIRECT, tick, type BandWorld } from './band-support.ts'
 
 let w: BandWorld | null = null
 afterEach(async () => {
@@ -35,15 +35,14 @@ describe('AC-BND1-11 연결 시작', () => {
     expect(dump).not.toContain(state)
   })
 
-  it('설정이 없으면 409 NOT_CONFIGURED · 로그인 안 함 401 · 보조자 403 — 아무것도 만들지 않는다', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('설정이 없으면 409 NOT_CONFIGURED · 로그인 안 함 401 — 아무것도 만들지 않는다', async () => {
     const w = await world({ notConfigured: true })
     const seller = await addSeller(w)
     const refused = await client(w, seller.cookie).post('/api/band/connect', {})
     expect(refused.status).toBe(409)
     expect(refused.body.error).toEqual({ code: 'NOT_CONFIGURED', message: '밴드 연동이 아직 준비되지 않았어요. 운영자에게 문의해 주세요.' })
     expect((await client(w, null).post('/api/band/connect', {})).status).toBe(401)
-    const helper = await assistantSession(w, seller)
-    expect((await client(w, helper.cookie).post('/api/band/connect', {})).status).toBe(403)
     expect(await states(w)).toBe(0)
     expect((await client(w, seller.cookie).get('/api/band')).body.band).toEqual({ status: 'NOT_CONFIGURED', message: '밴드 연동이 아직 준비되지 않았어요. 운영자에게 문의해 주세요.', profileName: null, connectedAt: null, chosenBand: null })
   })
@@ -155,14 +154,12 @@ describe('AC-BND1-12 돌아오기 — 다섯 갈래', () => {
     expect((await client(w, seller.cookie).get('/api/band')).body.band).toMatchObject({ status: 'CONNECTED', profileName: null })
   })
 
-  it('돌아오기는 보조자 세션이면 403, 결과는 화면 주소의 ?band=<코드>만 (토큰·code 없음)', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('돌아오기 결과는 화면 주소의 ?band=<코드>만 (토큰·code 없음)', async () => {
     const w = await world()
     const { seller, userKey, url } = await started(w)
-    const helper = await assistantSession(w, seller)
     w.fake.nextLogin({ decision: 'approve', userKey })
     const back = await approve(w, url)
-    const response = await client(w, helper.cookie).raw(back, { method: 'GET' })
-    expect(response.status).toBe(403)
     const ok = await client(w, seller.cookie).raw(back, { method: 'GET' })
     const location = ok.headers.get('location') as string
     expect(location).toBe(`${ORIGIN}/settings/band?band=connected`)
@@ -245,29 +242,7 @@ describe('AC-BND1-14 다시 연결·끊기', () => {
 })
 
 describe('AC-BND1-15 권한·격리', () => {
-  it('보조자: 연결·목록·잇기·끊기·알림 확인은 403, 회차의 밴드 연결 보기만 된다', async () => {
-    const w = await world()
-    const { seller, userKey, bandKey } = await bandSeller(w)
-    const postKey = w.fake.addPost({ bandKey, authorUserKey: userKey })
-    const b = await realBroadcast(w, seller)
-    expect((await linkBand(w, seller, b, bandKey, postKey)).status).toBe(200)
-    const helper = client(w, (await assistantSession(w, seller)).cookie)
-    for (const call of [
-      () => helper.get('/api/band'),
-      () => helper.post('/api/band/connect', {}),
-      () => helper.post('/api/band/disconnect', { requestId: rid('x') }),
-      () => helper.get('/api/band/bands'),
-      () => helper.get(`/api/band/posts?band=${bandKey}`),
-      () => helper.post(`/api/broadcasts/${b}/band/link`, { requestId: rid('x'), bandKey, postKey }),
-      () => helper.post(`/api/broadcasts/${b}/band/unlink`, { requestId: rid('x') }),
-      () => helper.post(`/api/broadcasts/${b}/band/notices-seen`, { upTo: 1 }),
-    ]) {
-      expect((await call()).status).toBe(403)
-    }
-    const view = await helper.get(`/api/broadcasts/${b}/band`)
-    expect(view.status).toBe(200)
-    expect(view.body.link).toMatchObject({ state: 'READING' })
-  })
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다 — 이 자리의 시험(보조자: 밴드 연결 보기만)도 함께 뺐다
 
   it('판매자 B는 A의 표·연결·회차를 쓰거나 볼 수 없다 (404·expired)', async () => {
     const w = await world()

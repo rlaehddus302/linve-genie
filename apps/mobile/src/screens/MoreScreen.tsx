@@ -26,7 +26,7 @@ export const IN_APP_SCREENS = [
   { path: '/customers', title: '손님', sub: '단골, 입금 늦음, 메모, 저장한 배송지', group: '주문·입금' },
   { path: '/parcels', title: '택배', sub: '택배 접수, 운송장 PDF, 접수 취소', group: '배송' },
   { path: '/receipts', title: '영수증·판매대장', sub: '구매 내역 확인서 링크·PDF, 판매대장 엑셀', group: '배송' },
-  { path: '/shop-settings', title: '가게 설정', sub: '가게·계좌, 판매 규칙, 배송비, 택배, 손님 관리, 보조자', group: '가게' },
+  { path: '/shop-settings', title: '가게 설정', sub: '가게·계좌, 판매 규칙, 배송비, 택배, 손님 관리', group: '가게' },
 ] as const
 export const MORE_GROUPS = ['방송', '주문·입금', '배송', '가게'] as const
 export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']

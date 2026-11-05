@@ -2,7 +2,7 @@
 import { STATE_FORMAT, getBroadcast, getProduct, listReviews } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { OPTION_MESSAGES } from '../src/messages-options.ts'
-import { addSeller, client, countRows, expectOk, login, newWorld, rid, sseReader, startServer, writeEvent, type JsonResponse, type Seller, type TestServer } from './support.ts'
+import { addSeller, client, countRows, expectOk, newWorld, rid, sseReader, startServer, writeEvent, type JsonResponse, type Seller, type TestServer } from './support.ts'
 
 const SIZES = [{ name: '사이즈', choices: [{ label: 'S' }, { label: 'M' }, { label: 'L' }] }]
 
@@ -337,35 +337,7 @@ describe('AC-O2-31 바로잡기·지우기 쓰기', () => {
     expect(types.slice(-5)).toEqual(['chat', 'chat', 'host.resolveReview', 'host.resolveReview', 'host.dismissReview'])
   })
 
-  it('보조자는 바로잡기·지우기·지금 상품·확인 필요 조회를 할 수 없다 (지금 방송자 조치 권한 그대로)', async () => {
-    const { world, seller, b } = await optionWorld()
-    await world.server.ingestChat(seller.sellerId, { b: b.id, id: 'm1', ch: 'UC1', nick: '홍길동', text: '반바지' })
-    const created = await client(world, seller.cookie).post('/api/assistants', { name: '도우미' })
-    expect(created.status, created.text).toBe(200)
-    const { loginId } = created.body.assistant as { loginId: string }
-    const password = created.body.password as string
-    const cookie = await login(world, loginId, password)
-    const helper = client(world, cookie)
-    const before = await countRows(world.database, 'events')
-    for (const event of [
-      { type: 'host.resolveReview', b: b.id, no: 21, item: 'm1', qty: 1, options: { 사이즈: 'M' } },
-      { type: 'host.dismissReview', b: b.id, item: 'm1' },
-      { type: 'product.focus', b: b.id, no: 21 },
-    ]) {
-      expect((await helper.post('/api/events', { requestId: rid('as'), ...event })).status).toBe(403)
-    }
-    expect((await helper.get('/api/reviews')).status).toBe(403)
-    expect(await countRows(world.database, 'events')).toBe(before)
-    // 보조자 문자찜의 옵션·수량은 받는다
-    const sms = await helper.post('/api/events', { requestId: rid('as'), type: 'sms', b: b.id, no: 21, options: { 사이즈: 'S' }, qty: 1 })
-    expect(sms.status, sms.text).toBe(200)
-    const buyer = sms.body.buyer as string
-    // 문자찜으로 생긴 옵션 찜의 방송자 취소는 변형을 적어 할 수 있고, 채팅 찜(UC1 — 확인 필요라 찜 없음)은 안 된다
-    expect((await helper.post('/api/events', { requestId: rid('as'), type: 'host.cancel', b: b.id, no: 21, buyer, reason: '전화 취소', options: { 사이즈: 'M' } })).status).toBe(403)
-    const cancel = await helper.post('/api/events', { requestId: rid('as'), type: 'host.cancel', b: b.id, no: 21, buyer, reason: '전화 취소', options: { 사이즈: 'S' } })
-    expect(cancel.status, cancel.text).toBe(200)
-    expect(cancel.body.changed).toBe(true)
-  })
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다 — 이 자리의 시험(보조자는 바로잡기·지우기·지금 상품·확인 필요 조회 403, 문자찜으로 생긴 찜만 취소)도 함께 뺐다
 })
 
 describe('AC-O2-24 옵션 방송 채팅 항목', () => {

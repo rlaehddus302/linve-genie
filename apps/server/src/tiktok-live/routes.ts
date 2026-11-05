@@ -96,7 +96,6 @@ export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: 
     if (typeof text !== 'string') return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'text', message: '붙여 넣은 글을 보내 주세요.' }])
     return text
   }
-  const assistant = (c: Context<Env>) => session(c).role === 'ASSISTANT'
 
   api.post('/broadcasts/:id/paste/preview', async (c) => {
     const input = body(c)
@@ -104,7 +103,7 @@ export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: 
     if (extra !== null) return extra
     const text = textOf(input)
     if (typeof text !== 'string') return text
-    return outcomeResponse(await paste.preview(session(c).sellerId, c.req.param('id'), text, assistant(c)))
+    return outcomeResponse(await paste.preview(session(c).sellerId, c.req.param('id'), text))
   })
 
   api.post('/broadcasts/:id/paste', async (c) => {
@@ -121,7 +120,7 @@ export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: 
       return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'includeOverlaps', message: '고른 줄을 확인해 주세요.' }])
     }
     return outcomeResponse(
-      await paste.insert(session(c).sellerId, { kind: 'account', accountId: session(c).accountId }, requestId, c.req.param('id'), text, assistant(c), (include ?? []) as number[]),
+      await paste.insert(session(c).sellerId, { kind: 'account', accountId: session(c).accountId }, requestId, c.req.param('id'), text, (include ?? []) as number[]),
     )
   })
 }

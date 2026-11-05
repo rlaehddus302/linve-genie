@@ -1,4 +1,4 @@
-// 시작 마법사(AC-I3-50~56)·보조자 화면(AC-I3-63)·정책 초안 페이지(AC-I3-77·78). 앱 전체를 그린다.
+// 시작 마법사(AC-I3-50~56)·정책 초안 페이지(AC-I3-77·78). 앱 전체를 그린다.
 import { DEFAULT_SETTINGS } from '@livejjim/core'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,8 +14,7 @@ let broadcasts: BroadcastItem[]
 let me: Me | null
 let youtube: YoutubeConnection | null
 
-const seller: Me = { seller: { name: '구피 가게' }, loginId: 'shop1', role: 'SELLER', assistant: null }
-const assistant: Me = { seller: { name: '구피 가게' }, loginId: 'bo-abcd2345', role: 'ASSISTANT', assistant: { name: '철수' } }
+const seller: Me = { seller: { name: '구피 가게' }, loginId: 'shop1' }
 
 beforeEach(() => {
   server = new FakeServer()
@@ -443,7 +442,6 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
 
   it('설정 "시작 마법사 다시 하기"는 상태와 상관없이 1단계부터', async () => {
     wizard = { status: 'DONE', step: null }
-    server.on('GET', /^\/api\/assistants$/, () => ({ body: { assistants: [], limit: 5 } }))
     await open('/settings')
     fireEvent.click(await screen.findByRole('link', { name: '시작 마법사 다시 하기' }))
     expect(await heading('1/5 가게 이름')).toBeDefined()
@@ -451,39 +449,7 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
   })
 })
 
-describe('보조자 화면 (AC-I3-63)', () => {
-  it('위 줄은 가게 이름 + "보조자", 메뉴는 문자찜 입력뿐, 다른 화면은 안내만(그 화면 데이터 요청 없음)', async () => {
-    me = assistant
-    await open('/settings')
-    expect(await screen.findByText('보조자 계정으로는 쓸 수 없는 화면이에요.')).toBeDefined()
-    expect(screen.getByRole('link', { name: '문자찜 입력으로 가기' }).getAttribute('href')).toBe('/sms')
-    const menu = screen.getByRole('navigation', { name: '메뉴' })
-    expect(within(menu).getAllByRole('link').map((link) => link.textContent)).toEqual(['문자찜']) // MOB1 D-MOB1-04
-    expect(document.querySelector('.shop-name')?.textContent).toBe('구피 가게보조자')
-    for (const path of ['/start', '/buyers', '/settlements', '/broadcasts/b1', '/']) {
-      cleanup()
-      await open(path)
-      expect(await screen.findByText('보조자 계정으로는 쓸 수 없는 화면이에요.')).toBeDefined()
-    }
-    const paths = server.calls.map((call) => call.path)
-    expect(paths.filter((path) => path !== '/api/me')).toEqual([])
-  })
-
-  it('로그인하면 문자찜 입력으로 간다, 마법사는 열리지 않는다', async () => {
-    me = null
-    server.on('POST', /^\/api\/login$/, () => {
-      me = assistant
-      return { body: { seller: { name: '구피 가게' }, loginId: 'bo-abcd2345', role: 'ASSISTANT' } }
-    })
-    await open('/login') // LND1 D-LND1-01
-    fireEvent.change(await screen.findByLabelText('아이디'), { target: { value: 'bo-abcd2345' } })
-    fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'x' } })
-    fireEvent.click(screen.getByRole('button', { name: '로그인' }))
-    expect(await screen.findByRole('heading', { name: '문자찜 입력' })).toBeDefined()
-    expect(window.location.pathname).toBe('/sms')
-    expect(server.callsTo('GET', /wizard/)).toHaveLength(0)
-  })
-})
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 "보조자 화면 (AC-I3-63)" 시험을 뺐다
 
 describe('정책 초안 페이지 (AC-I3-77·78)', () => {
   it('로그인 없이 열린다 — 세션이 없어도 로그인 화면으로 바꾸지 않는다', async () => {

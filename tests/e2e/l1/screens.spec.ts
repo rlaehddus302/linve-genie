@@ -1,4 +1,5 @@
-// AC-L1-20·21·22·23 화면 (로그인 화면 버튼·돌아온 결과 문장·설정 "로그인 방법"·보조자). 제목 @social → chromium-social 묶음(세 공급자).
+// AC-L1-20·21·22 화면 (로그인 화면 버튼·돌아온 결과 문장·설정 "로그인 방법"). 제목 @social → chromium-social 묶음(세 공급자).
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "AC-L1-23 보조자 설정에 로그인 방법 칸 없음·목록 API 안 부름·간편 로그인은 NOT_LINKED"를 뺐다
 // 기대값은 acceptance.md에서 정했다.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { expectLanding } from '../lnd1/support.ts'
@@ -7,7 +8,6 @@ import {
   NAME,
   PROVIDERS,
   decideOnFakePage,
-  expectLoggedOut,
   fakeUser,
   linkFromSettings,
   loginAs,
@@ -433,40 +433,6 @@ test.describe('AC-L1-22 설정 "로그인 방법" @social', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(methodsRegion(page).getByRole('status').filter({ hasText: MSG.UNLINKED('kakao') })).toBeVisible()
     await expect(methodsList(page).getByRole('listitem').filter({ hasText: '카카오' })).toHaveText('카카오 · 연결 안 됨연결하기')
-  })
-})
-
-test.describe('AC-L1-23 보조자 @social', () => {
-  test('보조자 설정에 "로그인 방법" 칸 없음 · 목록 API를 부르지 않음 · 로그인 화면 버튼은 같고 간편 로그인은 NOT_LINKED', async ({ page, browser, baseURL }) => {
-    await loginNewSeller(page)
-    const created = await page.request.post('/api/assistants', { data: { name: '도우미' }, headers: { Origin: new URL(page.url()).origin } })
-    expect(created.ok()).toBe(true)
-    const { assistant, password } = await created.json() as { assistant: { loginId: string }; password: string }
-    const ctx = await browser.newContext({ baseURL })
-    const p = await ctx.newPage()
-    const authCalls: string[] = []
-    const forbidden: string[] = []
-    p.on('request', (r) => {
-      if (new URL(r.url()).pathname.startsWith('/api/auth/')) authCalls.push(r.url())
-    })
-    p.on('response', (r) => {
-      if (r.status() === 403) forbidden.push(r.url())
-    })
-    await p.goto('/login') // LND1 D-LND1-01
-    for (const prov of PROVIDERS) await expect(continueButton(p, prov)).toBeVisible()
-    await loginAs(p, { loginId: assistant.loginId, password })
-    await p.goto('/settings')
-    await expect(p.getByText('보조자 계정으로는 쓸 수 없는 화면이에요.')).toBeVisible()
-    await expect(methodsRegion(p)).toHaveCount(0)
-    expect(authCalls).toEqual([])
-    expect(forbidden).toEqual([])
-    await logout(p)
-    const user = await fakeUser(p.request, 'kakao')
-    await pressContinue(p, 'kakao')
-    await decideOnFakePage(p, 'kakao', user)
-    await expect(p.getByRole('alert')).toHaveText(MSG.NOT_LINKED('kakao'))
-    await expectLoggedOut(p)
-    await ctx.close()
   })
 })
 

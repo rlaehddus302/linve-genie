@@ -177,14 +177,6 @@ export async function dumpAll(w: L1World): Promise<string> {
   return out
 }
 
-export async function assistant(w: L1World, seller: Seller): Promise<string> {
-  const made = await client(w, seller.cookie).post('/api/assistants', {
-    name: '보조',
-  })
-  expect(made.status).toBe(200)
-  return login(w, (made.body.assistant as { loginId: string }).loginId, made.body.password as string)
-}
-
 export const ip = (address: string) => ({
   incoming: { socket: { remoteAddress: address } },
 })

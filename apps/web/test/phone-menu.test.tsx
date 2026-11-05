@@ -17,7 +17,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function phoneTopBar(route: Route, { labels = true, assistant = false, navigate = vi.fn<Navigate>() }: { labels?: boolean | null; assistant?: boolean; navigate?: Navigate } = {}) {
+async function phoneTopBar(route: Route, { labels = true, navigate = vi.fn<Navigate>() }: { labels?: boolean | null; navigate?: Navigate } = {}) {
   const { TopBar } = await import('../src/components/TopBar.tsx')
   const { PrintContext } = await import('../src/components/print-context.tsx')
   const { PrintStore } = await import('../src/lib/print-store.ts')
@@ -28,7 +28,7 @@ async function phoneTopBar(route: Route, { labels = true, assistant = false, nav
   }
   const view = (to: Route) => (
     <PrintContext.Provider value={{ store, station: {} as never }}>
-      <TopBar shopName="구피 가게" assistant={assistant} onLogout={() => {}} route={to} navigate={navigate} />
+      <TopBar shopName="구피 가게" onLogout={() => {}} route={to} navigate={navigate} />
     </PrintContext.Provider>
   )
   const result = render(view(route))
@@ -192,10 +192,4 @@ describe('지금 위치·수 (AC-NAV-04·05)', () => {
   })
 })
 
-describe('보조자 (AC-NAV-08)', () => {
-  it('"문자찜 입력" 한 칸, "더보기" 없음', async () => {
-    await phoneTopBar({ name: 'sms' }, { assistant: true })
-    expect(barCells().map((cell) => cell.textContent)).toEqual(['문자찜']) // MOB1 D-MOB1-04
-    expect(within(menuNav()).queryByRole('button', { name: '더보기' })).toBeNull()
-  })
-})
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 "보조자 (AC-NAV-08)" 시험을 뺐다

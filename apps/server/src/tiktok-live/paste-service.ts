@@ -14,7 +14,6 @@ import { createHash } from 'node:crypto'
 import { getBroadcast, listClaims, type EngineState } from '@livejjim/core'
 import type { Db } from '../db/database.ts'
 import type { LinkOutcome } from '../live-links.ts'
-import { ASSISTANT_FORBIDDEN_MESSAGE } from '../roles.ts'
 import { sha256Hex } from '../secrets.ts'
 import { findBroadcast, type BroadcastRow } from '../store.ts'
 import { kstTime } from '../time.ts'
@@ -97,17 +96,16 @@ export class PasteService {
     this.#options = options
   }
 
-  /** 회차·권한 (문자찜 입력과 같다) */
-  async #broadcast(sellerId: string, broadcastId: string, assistant: boolean): Promise<BroadcastRow | LinkOutcome> {
+  /** 회차 */
+  async #broadcast(sellerId: string, broadcastId: string): Promise<BroadcastRow | LinkOutcome> {
     const row = await findBroadcast(this.#options.db, sellerId, broadcastId)
     if (row === null) return notFound
-    if (assistant && row.rehearsal) return error(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
     return row
   }
 
   /** 미리 보기 (AC-N2b-2-56): 기록하지 않는다 */
-  async preview(sellerId: string, broadcastId: string, text: string, assistant: boolean): Promise<LinkOutcome> {
-    const row = await this.#broadcast(sellerId, broadcastId, assistant)
+  async preview(sellerId: string, broadcastId: string, text: string): Promise<LinkOutcome> {
+    const row = await this.#broadcast(sellerId, broadcastId)
     if ('status' in row) return row
     const parsed = parsePaste(text)
     if ('error' in parsed) return error(400, parsed.error, PASTE_MESSAGES[parsed.error])
@@ -136,10 +134,9 @@ export class PasteService {
     requestId: string,
     broadcastId: string,
     text: string,
-    assistant: boolean,
     includeOverlaps: readonly number[] = [],
   ): Promise<LinkOutcome> {
-    const row = await this.#broadcast(sellerId, broadcastId, assistant)
+    const row = await this.#broadcast(sellerId, broadcastId)
     if ('status' in row) return row
     const include = [...new Set(includeOverlaps)].sort((a, b) => a - b)
     // 고른 줄이 없으면 예전 요약값과 같다 (고른 줄이 있을 때만 더한다)

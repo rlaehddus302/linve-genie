@@ -1,10 +1,9 @@
 // 영수증 보내기 화면 (N4b AC-N4b-30~35): 실제 코어로 도는 가짜 서버 + 가짜 링크 서버(receipt-buyers·receipt-links).
-// 클립보드·navigator.share는 가짜로 바꾼다. 콘솔의 "영수증 보내기"·보조자 막힘·개인정보처리방침 문단도 본다.
+// 클립보드·navigator.share는 가짜로 바꾼다. 콘솔의 "영수증 보내기"·개인정보처리방침 문단도 본다.
 import { formatWon, listBuyers, listSettlements } from '@livejjim/core'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ASSISTANT_BLOCKED, App } from '../src/App.tsx'
 import { onUnauthorized } from '../src/api/client.ts'
 import { ConsolePage } from '../src/components/ConsolePage.tsx'
 import type { ReceiptBuyerRow, ReceiptLink } from '../src/api/types.ts'
@@ -452,19 +451,7 @@ describe('콘솔의 "영수증 보내기" (AC-N4b-30)', () => {
     expect(screen.queryByRole('button', { name: '영수증 보내기' })).toBeNull()
   })
 
-  it('보조자 계정이 주소로 열면 막힌 안내만 — 구매자 줄·링크 요청을 보내지 않는다', async () => {
-    const engine = new EngineServer(BASE, { ended: ['b1'] })
-    new FakeReceipts(engine)
-    engine.server.on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'helper', role: 'ASSISTANT', assistant: { name: '도우미' } } }))
-    vi.stubGlobal('fetch', engine.server.fetch)
-    window.history.replaceState(null, '', '/broadcasts/b1/receipts')
-    render(<App />)
-    await flush(15)
-    expect(screen.getByText(ASSISTANT_BLOCKED)).toBeDefined()
-    expect(engine.server.callsTo('GET', /receipt/)).toHaveLength(0)
-    window.history.replaceState(null, '', '/')
-  })
-
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 시험 "보조자 계정이 주소로 열면 막힌 안내만"을 뺐다
   it('주소 /broadcasts/<ID>/receipts ↔ 화면', () => {
     expect(parseRoute('/broadcasts/b%201/receipts')).toEqual({ name: 'receipts', id: 'b 1' })
     expect(parseRoute('/broadcasts/b1/receipts/')).toEqual({ name: 'receipts', id: 'b1' })

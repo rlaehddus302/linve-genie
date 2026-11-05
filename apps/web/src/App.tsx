@@ -1,7 +1,7 @@
 // 앱 (AC-S05-01·02, AC-S06-01, AC-S06b-42·43, AC-I1-20, AC-N4a-10, I2 AC-I2-02·35, AC-N3-40): 로그인 확인 → 메뉴(방송·문자찜 입력·구매자·정산·입금 확인·포장·라벨·설정)와 그 화면.
 // 라벨 기능이 꺼져 있으면 메뉴 "라벨"이 숨고 라벨 화면은 안내만 보인다(N4a L-13 9).
 // 로그인한 동안 출력 기록·이 기기의 프린터(PrintProvider)는 앱 전체에 하나다 — 화면을 옮겨도 출력 기기의 출력이 이어진다(AC-I1-23).
-// 입금 확인 신호(DepositProvider — 메뉴의 확인 필요 수)도 앱 전체에 하나다(판매자 계정만 — 보조자는 입금 확인 API가 403).
+// 입금 확인 신호(DepositProvider — 메뉴의 확인 필요 수)도 앱 전체에 하나다.
 // 설정에서 가게 이름을 저장하면 화면 위 가게 이름이 바로 바뀐다.
 // 쓰는 중에 세션이 끝나면(어떤 API든 401) 로그인 화면으로 가고, 다시 로그인하면 보던 화면(주소·검색값 그대로)으로 돌아간다.
 // 그때 화면이 닫히며 5초 대기 중이던 방송자 조치는 보내지 않는다(D-083).
@@ -12,18 +12,18 @@
 // 묻는다. 웹이 막을 수 없는 닫기(앱을 위로 밀어 닫기)로 떠나면 보내지 않는다 (D-103, AC-S06b-42·43).
 // 인터넷이 끊긴 채 열면(서비스 워커가 저장한 껍데기) "인터넷 연결이 없어요. 연결되면 다시 불러와요." — 연결되면 저절로 다시 불러온다(D-093).
 // 요금(N5, AC-N5-50): 로그인한 동안 요금 기능 설정을 한 번 받는다. 켜져 있으면 메뉴 "요금"과 /billing 화면, 꺼져 있으면 /billing은 없는 화면이다.
-// T1: 메뉴 "택배"와 택배 접수 화면 `/parcels`(AC-T1-60·61) — 보조자는 다른 화면처럼 안내만.
+// T1: 메뉴 "택배"와 택배 접수 화면 `/parcels`(AC-T1-60·61).
 // I3: 메뉴에 "설정"(AC-I3-44), 시작 마법사 `/start`(AC-I3-50), 정책 페이지 `/privacy`·`/terms`는 로그인 없이(AC-I3-77),
-// N4b: 끝난 방송의 영수증 보내기 `/broadcasts/<ID>/receipts`(AC-N4b-30) — 보조자는 다른 화면처럼 안내만.
-// 보조자 계정은 문자찜 입력만 — 로그인하면 `/sms`로, 다른 화면 주소는 안내만 보이고 그 화면의 데이터를 부르지 않는다(AC-I3-63).
+// N4b: 끝난 방송의 영수증 보내기 `/broadcasts/<ID>/receipts`(AC-N4b-30).
+// 보조자 계정은 없앴다(D-UX3-32) — 판매자 계정만 로그인한다.
 // 저장하지 않은 설정 값이 있으면 같은 떠나기 창이 그 문장으로 묻는다(AC-I3-46).
-// LND1(D-LND1-01·02): 로그아웃 상태의 `/`는 브라우저 탭에서 처음 열면 공개 소개 화면, 로그인 화면은 `/login`(로그인하면 `/`로 바꿔 간다 — 보조자는 `/sms`).
+// LND1(D-LND1-01·02): 로그아웃 상태의 `/`는 브라우저 탭에서 처음 열면 공개 소개 화면, 로그인 화면은 `/login`(로그인하면 `/`로 바꿔 간다).
 // PAY2(BL-11 3, D-PAY-04): `from=app`(값이 정확히 app)으로 열린 탭은 탭이 닫힐 때까지 "앱에서 연 탭" — 요금 메뉴·띠·"요금 화면 열기"·"요금 안내" 링크가 없고,
 // `/pricing`은 늘, `/billing`은 요금 기능이 켜져 있을 때 `/`로 바꿔 간다(꺼져 있으면 지금처럼 없는 화면, BL-11 3.5). 공개 요금 안내 `/pricing`은 로그인 없이(§7 화면 18).
 // `/?login=` 결과가 붙어 왔거나, 이 탭에서 로그아웃·풀린 뒤(새로고침 전까지), 홈 화면 앱으로 열었으면 `/`에서도 바로 로그인 화면. 그 밖의 앱 주소는 지금처럼 그 자리에 로그인 화면.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { get, isApiError, onUnauthorized, post, type ApiError } from './api/client.ts'
-import { isAssistant, type Me } from './api/types.ts'
+import type { Me } from './api/types.ts'
 import { BillingConfigProvider, useBillingConfigState } from './components/billing-context.tsx'
 import { BillingPage } from './components/BillingPage.tsx'
 import { BuyersPage } from './components/BuyersPage.tsx'
@@ -87,9 +87,6 @@ interface Leaving {
   readonly save?: () => Promise<boolean>
 }
 
-/** 보조자 계정이 쓸 수 없는 화면 (AC-I3-63) */
-export const ASSISTANT_BLOCKED = '보조자 계정으로는 쓸 수 없는 화면이에요.'
-
 export function App() {
   // 앱에서 연 탭인지 처음 연 주소로 기억한다 — 자식 화면이 그리기 전에 (PAY2 BL-11 3.2)
   const [appTab] = useState(() => rememberAppTab(window.location.search))
@@ -139,10 +136,10 @@ export function App() {
     try {
       const me = await get<Me>('/api/me')
       // 공급자에서 돌아와 로그인됐다 — 누른 공급자를 "최근 로그인"으로 (D-UX3-28)
-      if (!isAssistant(me)) commitPendingLogin()
+      commitPendingLogin()
       // 있는 번호의 계정으로 다시 로그인하고 돌아왔다 — 가입 표의 간편 로그인을 이 계정에 잇는다 (D-UX3-30).
       // 다른 계정으로 들어갔으면 로그아웃하고 로그인 화면에 까닭을 보인다
-      if (!isAssistant(me) && takePendingLink()) {
+      if (takePendingLink()) {
         try {
           await post('/api/auth/signup/link', {})
         } catch (error) {
@@ -359,18 +356,16 @@ export function App() {
     stripLoginParams()
   }, [signedIn, route.name])
 
-  /** 로그인: 보조자 계정은 문자찜 입력으로 (AC-I3-63). `/login`에서 로그인하면 방송 목록으로 바꿔 간다 — 뒤로 가기가 로그인 화면으로 가지 않는다 (D-LND1-01) */
+  /** 로그인: `/login`에서 로그인하면 방송 목록으로 바꿔 간다 — 뒤로 가기가 로그인 화면으로 가지 않는다 (D-LND1-01) */
   const loggedIn = (me: Me) => {
     setSession({ state: 'in', me })
-    if (isAssistant(me) && route.name !== 'sms') go({ name: 'sms' }, { replace: true })
-    else if (route.name === 'login') go({ name: 'home' }, { replace: true })
+    if (route.name === 'login') go({ name: 'home' }, { replace: true })
   }
 
-  // 로그인한 채 `/login`을 열면 로그인 화면 없이 방송 목록으로(보조자는 문자찜 입력) — 기록을 쌓지 않는다 (D-LND1-01 (3))
-  const assistantSignedIn = session.state === 'in' && isAssistant(session.me)
+  // 로그인한 채 `/login`을 열면 로그인 화면 없이 방송 목록으로 — 기록을 쌓지 않는다 (D-LND1-01 (3))
   useEffect(() => {
-    if (signedIn && route.name === 'login') go(assistantSignedIn ? { name: 'sms' } : { name: 'home' }, { replace: true })
-  }, [signedIn, assistantSignedIn, route.name, go])
+    if (signedIn && route.name === 'login') go({ name: 'home' }, { replace: true })
+  }, [signedIn, route.name, go])
 
   /** 가게 이름을 바꾸면 이 기기의 위 줄이 바로 바뀐다 (AC-I3-47) */
   const renamed = useCallback((name: string) => {
@@ -434,9 +429,8 @@ export function App() {
   const me = session.me
   // 음성 인식 기록은 판매자마다 따로 (RA-V3-008)
   setArchiveSeller(me.loginId)
-  const assistant = isAssistant(me)
   // 문자 인증이 켜진 서버에서 번호가 없는 판매자 계정은 번호부터 한 번 확인한다 (D-UX3-30)
-  if (!assistant && me.phoneRequired === true) {
+  if (me.phoneRequired === true) {
     return (
       <main className="page">
         <h1>{SERVICE_NAME}</h1>
@@ -458,9 +452,9 @@ export function App() {
   }
   const shell = (
     <>
-      <TopBar shopName={me.seller.name} assistant={assistant} onLogout={() => void logout()} route={route} navigate={navigate} />
-      {assistant ? null : <VoiceBand route={route} navigate={navigate} />}
-      {assistant ? null : <RefusalReset screen={routePath(route)} />}
+      <TopBar shopName={me.seller.name} onLogout={() => void logout()} route={route} navigate={navigate} />
+      <VoiceBand route={route} navigate={navigate} />
+      <RefusalReset screen={routePath(route)} />
       {logoutError !== null ? <ErrorNote error={logoutError} /> : null}
       {homeNotice !== null ? (
         <div className="notice row login-result-notice">
@@ -470,7 +464,7 @@ export function App() {
           </button>
         </div>
       ) : null}
-      {assistant && route.name !== 'sms' && !isPublicRoute(route) ? <AssistantBlocked navigate={navigate} /> : <Screen route={route} navigate={navigate} me={me} onRenamed={renamed} />}
+      <Screen route={route} navigate={navigate} me={me} onRenamed={renamed} />
       {leaving !== null ? (
         <Modal
           title={LEAVE_TITLE}
@@ -499,44 +493,15 @@ export function App() {
     <LeaveGuardContext.Provider value={register}>
       <ExternalLeaveContext.Provider value={external}>
       <NavigateContext.Provider value={navigate}>
-        {/* 출력 기록·이 기기의 프린터(PrintProvider)·입금 확인 신호(DepositProvider)·요금 기능 설정(BillingConfigProvider)은 판매자 계정만 —
-            보조자는 출력·입금 확인·요금을 쓰지 않는다(그 API는 403, SYS-04). 보조자 화면은 다른 화면의 데이터를 부르지 않는다(AC-I3-63) */}
-        {assistant ? (
-          shell
-        ) : (
-          <BillingConfigProvider>
-            <PrintProvider>
-              <DepositProvider>{shell}</DepositProvider>
-            </PrintProvider>
-          </BillingConfigProvider>
-        )}
+        {/* 출력 기록·이 기기의 프린터(PrintProvider)·입금 확인 신호(DepositProvider)·요금 기능 설정(BillingConfigProvider) */}
+        <BillingConfigProvider>
+          <PrintProvider>
+            <DepositProvider>{shell}</DepositProvider>
+          </PrintProvider>
+        </BillingConfigProvider>
       </NavigateContext.Provider>
       </ExternalLeaveContext.Provider>
     </LeaveGuardContext.Provider>
-  )
-}
-
-/** 보조자 계정이 다른 화면 주소를 열었다: 안내만 (그 화면의 데이터 요청을 보내지 않는다) */
-function AssistantBlocked({ navigate }: { readonly navigate: Navigate }) {
-  return (
-    <main className="page">
-      <h1>문자찜 입력만 쓸 수 있어요</h1>
-      <p className="notice" role="status">
-        {ASSISTANT_BLOCKED}
-      </p>
-      <p>
-        <a
-          className="button button-primary"
-          href={routePath({ name: 'sms' })}
-          onClick={(event) => {
-            event.preventDefault()
-            navigate({ name: 'sms' })
-          }}
-        >
-          문자찜 입력으로 가기
-        </a>
-      </p>
-    </main>
   )
 }
 
@@ -554,7 +519,7 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
     case 'receipts':
       return <ReceiptsPage key={route.id} broadcastId={route.id} navigate={navigate} shopName={me.seller.name} />
     case 'sms':
-      return <SmsPage navigate={navigate} assistant={isAssistant(me)} />
+      return <SmsPage navigate={navigate} />
     case 'buyers':
       return <BuyersPage route={route} navigate={navigate} />
     case 'settlements':
@@ -586,7 +551,7 @@ function Screen({ route, navigate, me, onRenamed }: ScreenProps) {
     case 'home':
       return <HomePage navigate={navigate} />
     case 'login':
-      // 로그인한 채 연 `/login`: 효과가 곧 방송 목록(보조자는 문자찜 입력)으로 바꿔 간다
+      // 로그인한 채 연 `/login`: 효과가 곧 방송 목록으로 바꿔 간다
       return null
   }
 }
@@ -654,5 +619,5 @@ function SettingsRoute({ route, navigate, me, onRenamed }: ScreenProps & { reado
     if (toWizard && route.youtubeResult !== undefined) navigate({ name: 'start', youtubeResult: route.youtubeResult }, { replace: true })
   }, [toWizard, route.youtubeResult, navigate])
   if (toWizard) return null
-  return <SettingsPage route={route} navigate={navigate} shopName={me.seller.name} onRenamed={onRenamed} assistant={isAssistant(me)} />
+  return <SettingsPage route={route} navigate={navigate} shopName={me.seller.name} onRenamed={onRenamed} />
 }

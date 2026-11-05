@@ -95,13 +95,11 @@ let rehearsal: boolean
 let messages: ChatMessage[]
 let navigate: Navigate
 let assigned: string[]
-let role: 'SELLER' | 'ASSISTANT'
 
 function setup() {
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1', role, assistant: role === 'ASSISTANT' ? { name: '보조' } : null } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/settings$/, () => ({ body: { settings: fullView().broadcasts[0]?.settings ?? {} } }))
-    .on('GET', /^\/api\/assistants$/, () => ({ body: { assistants: [], limit: 5 } }))
     .on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [broadcastItem({ rehearsal })] } }))
     .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: 50 } }))
     .on('GET', new RegExp(`^/api/days/${DATE}(\\?rehearsal=true)?$`), () => ({
@@ -136,7 +134,6 @@ beforeEach(() => {
   messages = []
   navigate = vi.fn()
   assigned = []
-  role = 'SELLER'
   setTopLevelNavigation((url) => assigned.push(url))
   vi.stubGlobal('fetch', server.fetch)
   vi.stubGlobal('EventSource', FakeEventSource)
@@ -343,14 +340,7 @@ describe('설정 — 네이버 밴드 (AC-BND1-70)', () => {
     expect(bandRegion().querySelector('img')).toBeNull()
   })
 
-  it('보조자: 밴드 칸도, 밴드 요청도 없다', async () => {
-    role = 'ASSISTANT'
-    window.history.replaceState(null, '', '/settings/band?band=connected')
-    render(<App />)
-    await flush(20)
-    expect(screen.queryByRole('region', { name: '네이버 밴드' })).toBeNull()
-    expect(server.calls.filter((call) => call.path.startsWith('/api/band'))).toEqual([])
-  })
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 시험 "보조자: 밴드 칸도, 밴드 요청도 없다"를 뺐다
 })
 
 describe('개인정보처리방침 (AC-BND1-78)', () => {

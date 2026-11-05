@@ -5,7 +5,6 @@
 //   다시 누르기·Esc(포커스는 "더보기"로)·목록 밖 누르기(아무 데도 가지 않는다)·항목 고르기·화면 바뀜이면 닫힌다. 닫힌 목록은 그리지 않는다(화면 읽기에도 없다).
 //   지금 화면이 목록 안이면 "더보기"와 그 항목이 aria-current="page". "더보기"에는 수를 붙이지 않는다 — "입금 확인 3"은 목록 안에서 보인다.
 // 확인 필요 입금이 있으면 "입금 확인 3"처럼 수를 글자로 붙인다(색만으로 알리지 않는다).
-// 보조자 계정은 가게 이름 + "보조자", 메뉴는 "문자찜 입력"뿐이다(프린터 상태·더보기도 없다 — 보조자는 출력·입금 확인을 쓰지 않는다).
 // 요금 기능이 켜져 있으면 판매자 메뉴에 "요금"(N5, AC-N5-50) — 새 메뉴 규칙(D-NAV-01 (9))대로 더보기 목록·PC 모두 "설정" 바로 앞(AC-NAV-09). 꺼져 있으면 메뉴가 그대로다.
 // 라벨 기능이 꺼져 있거나 켬/끔을 아직 모르면 프린터 상태와 메뉴 "라벨"을 만들지 않는다(L-13 9) — "설정"을 비롯한 다른 메뉴는 그대로다.
 // 이 기기가 출력 기기이고 끊김으로 멈췄으면 프린터 상태 옆에 보통 버튼 "다시 연결" — 한 번 누르면 마지막으로 쓴 연결 방법으로 그 누름 안에서 다시 잇는다
@@ -28,8 +27,6 @@ import { useLabelsEnabled, usePrintApi, usePrintState, useStationState } from '.
 
 export interface TopBarProps {
   readonly shopName: string
-  /** 보조자 계정 (메뉴는 문자찜 입력뿐) */
-  readonly assistant?: boolean
   readonly onLogout: () => void
   readonly route: Route
   readonly navigate: Navigate
@@ -37,7 +34,7 @@ export interface TopBarProps {
 
 type Go = (event: MouseEvent<HTMLAnchorElement>, to: Route) => void
 
-export function TopBar({ shopName, assistant = false, onLogout, route, navigate }: TopBarProps) {
+export function TopBar({ shopName, onLogout, route, navigate }: TopBarProps) {
   const review = useDepositReview()
   // 앱에서 연 탭에는 메뉴 "요금"이 없다 (PAY2 BL-11 3)
   const billing = useBillingConfig()?.enabled === true && !isAppTab()
@@ -48,7 +45,7 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
     event.preventDefault()
     navigate(to)
   }
-  const layout = menuLayout({ route, assistant, labels, review, billing })
+  const layout = menuLayout({ route, labels, review, billing })
   const current = menuOf(route)
   return (
     <>
@@ -56,14 +53,9 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
       <header className="topbar">
         <p className="shop-name">
           {shopName}
-          {assistant ? <span className="tag tag-assistant">보조자</span> : null}
         </p>
-        {assistant || !labels ? null : <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />}
-        {assistant ? (
-          <nav className="menu menu-single" aria-label="메뉴">
-            <MenuLinks items={layout.bar} current={current} go={go} short={!wide} />
-          </nav>
-        ) : wide ? (
+        {!labels ? null : <PrinterStatus onOpen={(event) => go(event, { name: 'labels' })} />}
+        {wide ? (
           <nav className="menu" aria-label="메뉴">
             <MenuLinks items={menuAll(layout)} current={current} go={go} />
           </nav>
@@ -72,8 +64,8 @@ export function TopBar({ shopName, assistant = false, onLogout, route, navigate 
         )}
         <div className="topbar-actions">
           <InstallButton />
-          {/* 휴대폰 판매자는 "더보기" 목록 맨 끝에 (D-MOB1-05) — PC·보조자는 여기 그대로 */}
-          {wide || assistant ? <LogoutButton onLogout={onLogout} assistant={assistant} className="button" /> : null}
+          {/* 휴대폰은 "더보기" 목록 맨 끝에 (D-MOB1-05) — PC는 여기 그대로 */}
+          {wide ? <LogoutButton onLogout={onLogout} className="button" /> : null}
         </div>
       </header>
       {/* 휴대폰 라이브 콘솔에서는 띄우지 않는다: 위 고정 영역을 밀어 스크롤 0에서 빠른 입력칸이 아래 메뉴에 가려진다(U-MOB2-01, D-MOB2-03).
@@ -177,7 +169,7 @@ function PhoneMenu({
             ))}
             {/* 로그아웃은 맨 끝("설정" 다음) 버튼 — 링크가 아니다(AC-NAV-02는 링크만 센다). 위험할 때만 확인 창(D-MOB1-05) */}
             <li>
-              <LogoutButton onLogout={onLogout} assistant={false} className="menu-link menu-logout" />
+              <LogoutButton onLogout={onLogout} className="menu-link menu-logout" />
             </li>
           </ul>
         ) : null}

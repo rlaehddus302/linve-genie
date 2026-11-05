@@ -1,70 +1,7 @@
-// I3 — 보조자 계정·시작 마법사·설정 화면 (기본 묶음, 유튜브 준비 안 됨). AC-I3-44~47·50~56·63·64·77
+// I3 — 시작 마법사·설정 화면 (기본 묶음, 유튜브 준비 안 됨). AC-I3-44~47·50~56·77
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 만들기·로그인·지우기·다른 화면은 안내만·두 번 눌러도 한 명 (AC-I3-63·64), 설정의 보조자 칸"을 뺐다
 import { expect, test } from '@playwright/test'
-import { loginAs, loginNewSeller, newSeller, noHorizontalScroll, settingsRegion, smsUi } from './support.ts'
-
-test.describe('보조자', () => {
-  test('AC-I3-64·63: 만들기 → 다른 컨텍스트로 로그인 → 문자찜 → 판매자가 지움 → 보조자 화면이 로그인 화면으로', async ({ page, browser }) => {
-    await loginNewSeller(page)
-    const res = await page.request.post('/api/broadcasts', { data: { requestId: crypto.randomUUID(), rehearsal: false, title: '보조자 방송' }, headers: { Origin: new URL(page.url()).origin } })
-    expect(res.ok(), await res.text()).toBe(true)
-    await page.goto('/settings')
-    const section = settingsRegion(page, '보조자')
-    await section.getByLabel('보조자 이름').fill('민지')
-    await section.getByRole('button', { name: '보조자 만들기' }).click()
-    const dialog = page.getByRole('dialog', { name: '보조자 민지을(를) 만들었어요' })
-    await expect(dialog).toContainText('이 아이디와 비밀번호는 지금 한 번만 보여요. 보조자에게 전해 주세요.')
-    const [idText, pwText] = await dialog.locator('dd').allInnerTexts()
-    const loginId = (idText ?? '').trim()
-    const password = (pwText ?? '').trim()
-    expect(loginId).toMatch(/^bo-/)
-    expect(password.length).toBeGreaterThanOrEqual(16)
-    await dialog.getByRole('button', { name: '다 적었어요' }).click()
-    await expect(dialog).toHaveCount(0)
-    // 비밀번호는 창을 닫은 뒤 화면·저장소 어디에도 없다
-    expect(await page.locator('body').innerText()).not.toContain(password)
-    const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + location.href)
-    expect(stored).not.toContain(password)
-
-    const ctx = await browser.newContext({ viewport: { width: 375, height: 812 } })
-    const phone = await ctx.newPage()
-    await loginAs(phone, { loginId, password })
-    await expect(phone).toHaveURL(/\/sms$/)
-    await expect(phone.getByRole('banner')).toContainText('보조자')
-    await expect(phone.getByRole('region', { name: '고른 방송' })).toContainText('보조자 방송')
-    await expect(phone.getByRole('region', { name: '최근 넣은 문자찜' })).toBeVisible()
-    await smsUi(phone, { no: 7, phone: '010-1234-5678' })
-
-    await section.getByRole('button', { name: '민지 지우기' }).click()
-    const confirm = page.getByRole('dialog', { name: '보조자 민지을(를) 지울까요?' })
-    await expect(confirm.getByRole('button', { name: '그대로 두기' })).toBeFocused()
-    await confirm.getByRole('button', { name: '지우기' }).click()
-    await expect(confirm).toHaveCount(0)
-    // 판매자가 지우면 보조자 화면은 (아무것도 누르지 않아도) 로그인 화면이 된다 — 열린 실시간 연결은 1초 안에 닫힌다
-    await expect(phone.getByRole('button', { name: '로그인' })).toBeVisible({ timeout: 15_000 })
-    await ctx.close()
-  })
-
-  test('AC-I3-63: 보조자가 다른 화면 주소를 열면 안내만 — 데이터 요청 없음', async ({ page, browser }) => {
-    await loginNewSeller(page)
-    const created = await page.request.post('/api/assistants', { data: { name: '도우미' }, headers: { Origin: new URL(page.url()).origin } })
-    expect(created.ok()).toBe(true)
-    const { assistant, password } = await created.json() as { assistant: { loginId: string }; password: string }
-    const ctx = await browser.newContext()
-    const p = await ctx.newPage()
-    await loginAs(p, { loginId: assistant.loginId, password })
-    for (const path of ['/', '/buyers', '/settlements', '/settings', '/start', '/broadcasts/x']) {
-      const forbidden: string[] = []
-      p.on('response', (r) => {
-        if (r.status() === 403) forbidden.push(r.url())
-      })
-      await p.goto(path)
-      await expect(p.getByText('보조자 계정으로는 쓸 수 없는 화면이에요.')).toBeVisible()
-      await expect(p.getByRole('link', { name: '문자찜 입력으로 가기' })).toBeVisible()
-      expect(forbidden, path).toEqual([])
-    }
-    await ctx.close()
-  })
-})
+import { loginAs, loginNewSeller, newSeller, noHorizontalScroll, settingsRegion } from './support.ts'
 
 test.describe('시작 마법사', () => {
   test('AC-I3-50: 새 판매자 → 처음 로그인에 저절로 열림 → 나중에 할게요 → 다른 컨텍스트로 로그인해도 안 열림', async ({ page, browser }) => {
@@ -171,10 +108,11 @@ test.describe('시작 마법사', () => {
 })
 
 test.describe('설정 화면', () => {
-  test('AC-I3-44: 칸 제목 일곱·그 밖 링크·/settings/youtube는 유튜브 칸 제목에 포커스', async ({ page }) => {
+  test('AC-I3-44: 칸 제목 여섯·그 밖 링크·/settings/youtube는 유튜브 칸 제목에 포커스', async ({ page }) => {
     await loginNewSeller(page)
     await page.goto('/settings')
-    for (const title of ['가게', '판매 규칙', '배송비', '구매 감사 메시지', '유튜브', '보조자', '그 밖']) await expect(settingsRegion(page, title)).toBeVisible()
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "칸 제목 일곱 중 보조자"를 뺐다
+    for (const title of ['가게', '판매 규칙', '배송비', '구매 감사 메시지', '유튜브', '그 밖']) await expect(settingsRegion(page, title)).toBeVisible()
     const other = settingsRegion(page, '그 밖')
     await expect(other.getByRole('link', { name: '시작 마법사 다시 하기' })).toHaveAttribute('href', '/start')
     await expect(other.getByRole('link', { name: '개인정보처리방침' })).toHaveAttribute('href', '/privacy')
@@ -251,7 +189,8 @@ test.describe('설정 화면', () => {
     await page.setViewportSize({ width: 375, height: 812 })
     await loginNewSeller(page)
     await page.goto('/settings')
-    await expect(settingsRegion(page, '보조자')).toBeVisible()
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "화면이 열린 표시로 보조자 칸이 보인다"를 늘 있는 "그 밖" 칸으로 바꿨다
+    await expect(settingsRegion(page, '그 밖')).toBeVisible()
     await noHorizontalScroll(page)
     const text = await page.locator('main').innerText()
     for (const word of ['OAuth', '토큰', 'API', '스트림', '폴링', 'SSE', '할당량 단위', 'CONNECTED', 'NOT_', '503']) expect(text, word).not.toContain(word)
@@ -273,24 +212,5 @@ test.describe('정책 페이지', () => {
     await expect(p.getByLabel('아이디')).toHaveCount(0)
     await noHorizontalScroll(p)
     await ctx.close()
-  })
-})
-
-test.describe('보조자 — 두 번 누르기', () => {
-  test('AC-I3-64: "보조자 만들기"를 빠르게 두 번 눌러도 보조자는 한 명 (비밀번호를 본 적 없는 계정이 생기지 않는다)', async ({ page }) => {
-    await loginNewSeller(page)
-    await page.goto('/settings')
-    const section = settingsRegion(page, '보조자')
-    await section.getByLabel('보조자 이름').fill('두번')
-    const posts: string[] = []
-    page.on('request', (r) => {
-      if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/assistants') posts.push(r.url())
-    })
-    await section.getByRole('button', { name: '보조자 만들기' }).dblclick()
-    await expect(page.getByRole('dialog', { name: '보조자 두번을(를) 만들었어요' })).toBeVisible()
-    await page.getByRole('dialog', { name: '보조자 두번을(를) 만들었어요' }).getByRole('button', { name: '다 적었어요' }).click()
-    const list = await (await page.request.get('/api/assistants')).json() as { assistants: { name: string }[] }
-    expect(list.assistants.filter((a) => a.name === '두번')).toHaveLength(1)
-    expect(posts).toHaveLength(1)
   })
 })

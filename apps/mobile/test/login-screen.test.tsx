@@ -1,12 +1,13 @@
 // 로그인 화면 (APP-01 AC1 "앱을 열면 로그인 화면"): 아이디·비밀번호 칸, 틀리면 서버 문장 그대로 + 안내, 맞으면 onLogin.
 // D-UX3-31로 바뀐 기대: 옛 "첫 화면에 아이디·비밀번호 칸이 늘 있다" → 새 "간편 로그인이 켜진 서버면 [아이디로 로그인]을 눌러야 칸이 열린다
-// (간편 로그인이 없는 서버·마지막으로 아이디로 들어온 기기는 처음부터 열림)". 아래 두 시험은 간편 로그인이 없는 서버라 칸이 바로 열린다(나타날 때까지 기다린다).
+// (간편 로그인이 없는 서버·마지막으로 아이디로 들어온 기기는 처음부터 열림)".
+// D-UX3-32로 바뀐 기대: 옛 "[아이디로 로그인] 링크를 누르면 칸이 열린다" → 새 "링크는 없고 서비스명을 2초 안에 다섯 번 누르면 열린다(숨은 길)". 아래 두 시험은 간편 로그인이 없는 서버라 칸이 바로 열린다(나타날 때까지 기다린다).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/api/client.ts'
 import { configureApi } from '../src/api/config.ts'
 import { setSocialNative } from '../src/lib/social-auth.ts'
-import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SESSION_EXPIRED_MESSAGE } from '../src/lib/words.ts'
+import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SESSION_EXPIRED_MESSAGE, SUPPORT_EMAIL, SUPPORT_PHONE } from '../src/lib/words.ts'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
 import { flush } from './support.ts'
 
@@ -133,31 +134,48 @@ describe('LoginScreen', () => {
     })
 
     // D-UX3-31 (사용자 지시 2026-11-05 "아이디 비밀번호 방식 다 지우고 소셜 로그인만 남기고 밑에 쓸데 없는 설명은 지우고 필수적인거만")
-    it('간편 로그인이 켜진 서버면 첫 화면은 단추 셋과 약관 안내뿐, 아이디 칸·"또는"·아래 설명은 없고 [아이디로 로그인]을 누르면 칸이 열린다', async () => {
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어 … 로그인 화면은 첨부 사진과 같이"): 옛 기대 "[아이디로 로그인]을 누르면 칸이 열린다"
+    // → 새 기대 "그 링크는 없고, 서비스명을 2초 안에 다섯 번 누르면 칸이 열린다"
+    it('간편 로그인이 켜진 서버면 첫 화면은 서비스명·단추 셋·동의 안내·맨 아래 약관과 고객센터뿐, 아이디 칸·[아이디로 로그인]은 없다', async () => {
+      install(null, {})
+      render(<LoginScreen expired={false} onLogin={async () => {}} />)
+      await screen.findByRole('button', { name: '카카오로 로그인' })
+      expect(screen.getByRole('heading', { name: '라이브지니' })).toBeTruthy()
+      expect(screen.queryByLabelText('아이디')).toBeNull()
+      expect(screen.queryByLabelText('비밀번호')).toBeNull()
+      expect(screen.queryByRole('button', { name: '아이디로 로그인' })).toBeNull()
+      expect(screen.queryByText('또는')).toBeNull()
+      expect(screen.queryByText(/운영자에게 물어봐/)).toBeNull()
+      const footer = screen.getByTestId('login-footer')
+      expect(footer.textContent).toBe(`이용약관개인정보처리방침고객센터 ${SUPPORT_PHONE}  |  ${SUPPORT_EMAIL}`)
+      expect(SUPPORT_PHONE).toBe('070-1234-5678')
+      expect(SUPPORT_EMAIL).toBe('help@livegenie.kr')
+      expect(screen.getByRole('link', { name: '이용약관' })).toBeTruthy()
+      expect(screen.getByRole('link', { name: '개인정보처리방침' })).toBeTruthy()
+      expect(screen.getByRole('link', { name: `고객센터 전화 ${SUPPORT_PHONE}` })).toBeTruthy()
+      expect(screen.getByRole('link', { name: `고객센터 이메일 ${SUPPORT_EMAIL}` })).toBeTruthy()
+    })
+
+    it('서비스명을 다섯 번 누르면 아이디 칸이 열린다(운영자·심사용 계정) — 네 번은 열리지 않는다', async () => {
       install(null, {})
       const onLogin = vi.fn(async () => {})
       render(<LoginScreen expired={false} onLogin={onLogin} />)
       await screen.findByRole('button', { name: '카카오로 로그인' })
-      const open = await screen.findByRole('button', { name: '아이디로 로그인' })
+      const title = screen.getByTestId('login-title')
+      for (let i = 0; i < 4; i += 1) fireEvent.click(title)
       expect(screen.queryByLabelText('아이디')).toBeNull()
-      expect(screen.queryByLabelText('비밀번호')).toBeNull()
-      expect(screen.queryByText('또는')).toBeNull()
-      expect(screen.queryByText(/운영자에게 물어봐/)).toBeNull()
-      expect(screen.getByRole('link', { name: '이용약관' })).toBeTruthy()
-      fireEvent.click(open)
-      fireEvent.change(screen.getByLabelText('아이디'), { target: { value: 'helper1' } })
+      fireEvent.click(title)
+      fireEvent.change(screen.getByLabelText('아이디'), { target: { value: 'review1' } })
       fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'pw' } })
       fireEvent.click(screen.getByRole('button', { name: '로그인' }))
-      await waitFor(() => expect(onLogin).toHaveBeenCalledWith('helper1', 'pw'))
-      expect(screen.queryByRole('button', { name: '아이디로 로그인' })).toBeNull()
+      await waitFor(() => expect(onLogin).toHaveBeenCalledWith('review1', 'pw'))
     })
 
-    it('마지막으로 아이디로 들어온 기기는 처음부터 아이디 칸이 열려 있다 (도우미 계정)', async () => {
+    it('마지막으로 아이디로 들어온 기기는 처음부터 아이디 칸이 열려 있다', async () => {
       install(null, {}, { 'livejjim:last-login': 'id' })
       render(<LoginScreen expired={false} onLogin={async () => {}} />)
       await screen.findByRole('button', { name: '카카오로 로그인' })
       expect(await screen.findByLabelText('아이디')).toBeTruthy()
-      expect(screen.queryByRole('button', { name: '아이디로 로그인' })).toBeNull()
     })
 
     // D-UX3-30 (사용자 지시 2026-11-05 "같은 사람이면 하나의 계정으로"): 문자 인증이 켜진 서버면 번호부터

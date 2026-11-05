@@ -1,6 +1,6 @@
 // 설정의 "AI 제안" 칸 (A1 CMT-06, D-A1-06·07, AC-A1-22).
 // - 옵션 방송을 쓰는 판매자에게만 보인다: 판매 방식 기본이 "상품명·옵션도 받기"(claim.parseMode = OPTIONS)이거나 옵션 방송 기록이 있다
-//   (GET /api/option-broadcasts/exists). 번호로만 받는 판매자의 설정 화면은 지금과 같다(CMT-07). 보조자에게는 칸이 없다.
+//   (GET /api/option-broadcasts/exists). 번호로만 받는 판매자의 설정 화면은 지금과 같다(CMT-07).
 // - 서버에 키가 없으면 "지금은 쓸 수 없어요."만(스위치 없음).
 // - 꺼짐: 상태 글 "꺼져 있어요" + 고지 문장 + 동의 칸 "위 내용을 읽었고 동의해요" + 스위치(접근성 이름 "AI 제안 받기", 보이는 글은 누르면 될 일 [켜기] — D-A1-18,
 //   동의 전엔 누를 수 없다). 켜면 동의를 함께 보낸다.
@@ -32,10 +32,8 @@ function useHasOptionBroadcasts(ask: boolean): boolean | null {
 }
 
 /** 이 판매자에게 AI 제안 칸을 보이는가 (판매 방식이 옵션이면 바로, 아니면 옵션 방송 기록을 물어서) */
-export function useShowAssist(optionsMode: boolean | null, assistant: boolean): boolean {
-  const ask = !assistant && optionsMode === false
-  const has = useHasOptionBroadcasts(ask)
-  if (assistant) return false
+export function useShowAssist(optionsMode: boolean | null): boolean {
+  const has = useHasOptionBroadcasts(optionsMode === false)
   return optionsMode === true || has === true
 }
 
