@@ -1,4 +1,6 @@
 // 로그인 화면 (APP-01 AC1 "앱을 열면 로그인 화면"): 아이디·비밀번호 칸, 틀리면 서버 문장 그대로 + 안내, 맞으면 onLogin.
+// D-UX3-31로 바뀐 기대: 옛 "첫 화면에 아이디·비밀번호 칸이 늘 있다" → 새 "간편 로그인이 켜진 서버면 [아이디로 로그인]을 눌러야 칸이 열린다
+// (간편 로그인이 없는 서버·마지막으로 아이디로 들어온 기기는 처음부터 열림)". 아래 두 시험은 간편 로그인이 없는 서버라 칸이 바로 열린다(나타날 때까지 기다린다).
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/api/client.ts'
@@ -13,7 +15,7 @@ describe('LoginScreen', () => {
     const onLogin = vi.fn(async () => {})
     render(<LoginScreen expired={false} onLogin={onLogin} />)
     expect(screen.getByRole('heading', { name: '라이브지니' })).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('아이디'), { target: { value: 'seller1' } })
+    fireEvent.change(await screen.findByLabelText('아이디'), { target: { value: 'seller1' } })
     fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'pw' } })
     fireEvent.click(screen.getByRole('button', { name: '로그인' }))
     await waitFor(() => expect(onLogin).toHaveBeenCalledWith('seller1', 'pw'))
@@ -24,7 +26,7 @@ describe('LoginScreen', () => {
       throw new ApiError({ status: 401, code: 'LOGIN_FAILED', message: '아이디 또는 비밀번호가 맞지 않아요.' })
     })
     render(<LoginScreen expired={false} onLogin={onLogin} />)
-    fireEvent.change(screen.getByLabelText('아이디'), { target: { value: 'seller1' } })
+    fireEvent.change(await screen.findByLabelText('아이디'), { target: { value: 'seller1' } })
     fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'wrong' } })
     fireEvent.click(screen.getByRole('button', { name: '로그인' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('아이디 또는 비밀번호가 맞지 않아요.'))
@@ -128,6 +130,34 @@ describe('LoginScreen', () => {
         await flush()
       })
       await waitFor(() => expect(screen.queryByTestId('social-kakao-pressed')).toBeNull())
+    })
+
+    // D-UX3-31 (사용자 지시 2026-11-05 "아이디 비밀번호 방식 다 지우고 소셜 로그인만 남기고 밑에 쓸데 없는 설명은 지우고 필수적인거만")
+    it('간편 로그인이 켜진 서버면 첫 화면은 단추 셋과 약관 안내뿐, 아이디 칸·"또는"·아래 설명은 없고 [아이디로 로그인]을 누르면 칸이 열린다', async () => {
+      install(null, {})
+      const onLogin = vi.fn(async () => {})
+      render(<LoginScreen expired={false} onLogin={onLogin} />)
+      await screen.findByRole('button', { name: '카카오로 로그인' })
+      const open = await screen.findByRole('button', { name: '아이디로 로그인' })
+      expect(screen.queryByLabelText('아이디')).toBeNull()
+      expect(screen.queryByLabelText('비밀번호')).toBeNull()
+      expect(screen.queryByText('또는')).toBeNull()
+      expect(screen.queryByText(/운영자에게 물어봐/)).toBeNull()
+      expect(screen.getByRole('link', { name: '이용약관' })).toBeTruthy()
+      fireEvent.click(open)
+      fireEvent.change(screen.getByLabelText('아이디'), { target: { value: 'helper1' } })
+      fireEvent.change(screen.getByLabelText('비밀번호'), { target: { value: 'pw' } })
+      fireEvent.click(screen.getByRole('button', { name: '로그인' }))
+      await waitFor(() => expect(onLogin).toHaveBeenCalledWith('helper1', 'pw'))
+      expect(screen.queryByRole('button', { name: '아이디로 로그인' })).toBeNull()
+    })
+
+    it('마지막으로 아이디로 들어온 기기는 처음부터 아이디 칸이 열려 있다 (도우미 계정)', async () => {
+      install(null, {}, { 'livejjim:last-login': 'id' })
+      render(<LoginScreen expired={false} onLogin={async () => {}} />)
+      await screen.findByRole('button', { name: '카카오로 로그인' })
+      expect(await screen.findByLabelText('아이디')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: '아이디로 로그인' })).toBeNull()
     })
 
     // D-UX3-30 (사용자 지시 2026-11-05 "같은 사람이면 하나의 계정으로"): 문자 인증이 켜진 서버면 번호부터

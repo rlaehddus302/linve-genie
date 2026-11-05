@@ -112,7 +112,8 @@ export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그
 /** 앱을 켤 때 서버에 닿지 못함 — 로그인이 풀린 것이 아닐 수 있다 (APP2) */
 export const OFFLINE_AT_START_MESSAGE = '서버에 연결하지 못했어요. 로그인이 풀린 건 아니에요. 연결되면 저절로 들어가요.'
 export const LOGIN_FAILED_HINT = '아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
-export const LOGIN_ACCOUNT_NOTE = '처음이면 카카오·네이버·구글로 바로 시작할 수 있어요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
+/** 로그인 첫 화면 맨 아래 작은 글씨 단추 — 도우미 계정처럼 아이디로만 들어오는 사람용 (D-UX3-31) */
+export const ID_LOGIN_OPEN = '아이디로 로그인'
 
 /** 실시간 연결 문장 (웹 LiveNotices와 같은 뜻) */
 export const LIVE_RECONNECTING = '다시 연결하는 중…'

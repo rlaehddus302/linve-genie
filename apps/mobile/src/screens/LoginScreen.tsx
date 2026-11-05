@@ -5,6 +5,9 @@
 // 누르면 그 단추 안이 진해지고 다른 단추는 그대로. 동의 판은 없다 — 단추 아래 안내 한 줄을 보고 누른 것으로 동의, 처음 계정이면 바로 가입.
 // D-UX3-30 (사용자 지시 2026-11-05 "같은 사람이면 하나의 계정으로"): 문자 인증이 켜진 서버에서 처음 계정이면 휴대폰 번호를 먼저 확인한다.
 // 새 번호면 가입, 이미 있는 번호면 "이미 가입한 계정이 있어요" — 그 계정의 간편 로그인으로 다시 로그인하면 방금 공급자가 그 계정에 이어진다.
+// D-UX3-31 (사용자 지시 2026-11-05 "아이디 비밀번호 방식 다 지우고 소셜 로그인만 남기고 밑에 쓸데 없는 설명은 지우고 필수적인거만"): 첫 화면은 간편 로그인 단추와
+// 약관 안내만. 아이디·비밀번호 칸·"또는" 줄·아래 설명은 없앤다. 도우미 계정(아이디로만 들어옴)이 막히지 않게 맨 아래 작은 [아이디로 로그인]을 누르면 칸이 열린다.
+// 마지막으로 아이디로 들어온 기기이거나 간편 로그인이 켜지지 않은 서버면 처음부터 칸을 연다.
 import { useEffect, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
@@ -40,8 +43,7 @@ import {
   rememberAppLastLogin,
 } from '../lib/social-auth.ts'
 import { PhoneVerify } from './PhoneVerify.tsx'
-import { LOGIN_ACCOUNT_NOTE, LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SERVICE_NAME, SESSION_EXPIRED_MESSAGE } from '../lib/words.ts'
-import { SPACE } from '../ui/kit/tokens.ts'
+import { ID_LOGIN_OPEN, LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SERVICE_NAME, SESSION_EXPIRED_MESSAGE } from '../lib/words.ts'
 import { BigButton, Body, Field, Hint, Notice, Screen, Stack, Title } from '../ui/parts.tsx'
 
 /** 간편 가입의 단계 (D-UX3-30): 처음 화면 → 번호 확인 → (있는 번호면) 그 계정으로 다시 로그인 */
@@ -77,6 +79,8 @@ export function LoginScreen({
   const [busy, setBusy] = useState(false)
   const [rechecking, setRechecking] = useState(false)
   const [providers, setProviders] = useState<readonly LoginProvider[]>([])
+  const [providersLoaded, setProvidersLoaded] = useState(false)
+  const [idOpen, setIdOpen] = useState(false)
   const [last, setLast] = useState<LastLogin | null>(null)
   const [moving, setMoving] = useState<LoginProvider | null>(null)
   const [socialMessage, setSocialMessage] = useState<string | null>(null)
@@ -86,10 +90,14 @@ export function LoginScreen({
   useEffect(() => {
     let alive = true
     void fetchAppLoginProviders().then((list) => {
-      if (alive) setProviders(list)
+      if (!alive) return
+      setProviders(list)
+      setProvidersLoaded(true)
     })
     void readAppLastLogin().then((value) => {
-      if (alive) setLast(value)
+      if (!alive) return
+      setLast(value)
+      if (value === 'id') setIdOpen(true)
     })
     return () => {
       alive = false
@@ -253,22 +261,8 @@ export function LoginScreen({
       {expired ? <Notice tone="warning">{SESSION_EXPIRED_MESSAGE}</Notice> : null}
       {offline ? <Notice tone="warning" alert>{OFFLINE_AT_START_MESSAGE}</Notice> : null}
       {offline && onRecheck !== undefined ? <BigButton label="다시 확인" disabled={rechecking} onPress={() => void recheck()} /> : null}
-      <Stack>
-        <Field label="아이디" value={loginId} onChangeText={(text) => {
-          setLoginId(text)
-          setError(null)
-        }} autoCapitalize="none" autoCorrect={false} autoComplete="username" textContentType="username" />
-        <Field label="비밀번호" value={password} onChangeText={(text) => {
-          setPassword(text)
-          setError(null)
-        }} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={() => void submit()} />
-        {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
-        {error !== null && error.code === 'LOGIN_FAILED' ? <Hint>{LOGIN_FAILED_HINT}</Hint> : null}
-        <BigButton label="로그인" primary disabled={busy} onPress={() => void submit()} />
-      </Stack>
       {providers.length > 0 ? (
         <Stack tight>
-          <OrLine />
           <View style={{ gap: 12 }}>
             {providers.map((provider) => (
               // 누른 단추만 눌린 모양으로 — 다른 단추는 흐리게 하지 않는다. 겹쳐 누르기는 social()이 막는다 (D-UX3-29)
@@ -280,7 +274,25 @@ export function LoginScreen({
           <TermsNote />
         </Stack>
       ) : null}
-      <Hint>{LOGIN_ACCOUNT_NOTE}</Hint>
+      {idOpen || (providersLoaded && providers.length === 0) ? (
+        <Stack>
+          <Field label="아이디" value={loginId} onChangeText={(text) => {
+            setLoginId(text)
+            setError(null)
+          }} autoCapitalize="none" autoCorrect={false} autoComplete="username" textContentType="username" />
+          <Field label="비밀번호" value={password} onChangeText={(text) => {
+            setPassword(text)
+            setError(null)
+          }} secureTextEntry autoComplete="current-password" textContentType="password" onSubmitEditing={() => void submit()} />
+          {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
+          {error !== null && error.code === 'LOGIN_FAILED' ? <Hint>{LOGIN_FAILED_HINT}</Hint> : null}
+          <BigButton label="로그인" primary disabled={busy} onPress={() => void submit()} />
+        </Stack>
+      ) : providersLoaded ? (
+        <Pressable role="button" onPress={() => setIdOpen(true)} testID="login-id-open" hitSlop={12} style={{ alignSelf: 'center', paddingVertical: 8 }}>
+          <Text style={{ color: '#6B7684', fontSize: 14, textDecorationLine: 'underline' }}>{ID_LOGIN_OPEN}</Text>
+        </Pressable>
+      ) : null}
     </Screen>
   )
 }
@@ -299,16 +311,6 @@ function TermsNote() {
         {link('이용약관', '/terms')}
         {link('개인정보처리방침', '/privacy')}
       </View>
-    </View>
-  )
-}
-
-function OrLine() {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginVertical: SPACE.sm }}>
-      <View style={{ flex: 1, height: 1, backgroundColor: '#C7CAD1' }} />
-      <Text style={{ color: '#5F6368', fontSize: 15 }}>또는</Text>
-      <View style={{ flex: 1, height: 1, backgroundColor: '#C7CAD1' }} />
     </View>
   )
 }
