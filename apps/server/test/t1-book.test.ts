@@ -107,7 +107,7 @@ describe('AC-T1-21 어댑터 결과 나누기', () => {
     await makeReady(world, seller, 'UC_E', { ...ADDRESS, address: '서울 [송장이상] 1' })
     const results = await bookOk(world, seller, ['UC_A', 'UC_B', 'UC_C', 'UC_D', 'UC_E'].map((buyer) => ({ buyer })))
     expect(results).toEqual([
-      { buyer: 'UC_A', ok: false, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' },
+      { buyer: 'UC_A', ok: false, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' },
       { buyer: 'UC_B', ok: false, reason: 'REJECTED', message: '택배사가 접수를 받지 않았어요.' },
       { buyer: 'UC_C', ok: false, reason: 'UNAVAILABLE', message: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.' },
       { buyer: 'UC_D', ok: false, reason: 'UNAVAILABLE', message: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.' },

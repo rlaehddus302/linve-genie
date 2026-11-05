@@ -1,9 +1,9 @@
-// D-REAL-08 우체국 공개 OpenAPI(공공데이터포털): 배송 조회(종적 → 조회 상태)·우편번호 찾기(하나로 모일 때만)·키 문제는 전체 실패·
+// D-REAL-08 우체국 공개 OpenAPI(공공데이터포털): 배송 조회(종적 → 조회 상태)·우편번호 찾기(우편접수용 — 범위 번지까지, 하나로 모일 때만)·키 문제는 전체 실패·
 // 우체국 어댑터가 우편번호 없는 주소를 찾아 접수하고, 찾기를 묻지 못하면 넣지 않고 모름.
 import { describe, expect, it } from 'vitest'
 import type { CarrierAccount } from '../src/parcel/carrier.ts'
 import { epostCarrier } from '../src/parcel/epost.ts'
-import { epostTracker, epostZipFinder, readDataGoKrKey, readPublicHeader, traceCode, traceWord } from '../src/parcel/epost-public.ts'
+import { epostTracker, epostZipFinder, readDataGoKrKey, readPublicHeader, traceCode, traceWord, zipRowFits, zipTarget } from '../src/parcel/epost-public.ts'
 
 const head = (yn: string, code: string) => `<cmmMsgHeader><requestMsgId></requestMsgId><responseMsgId></responseMsgId><responseTime>20261105:221121756</responseTime><successYN>${yn}</successYN><returnCode>${code}</returnCode><errMsg>메시지</errMsg></cmmMsgHeader>`
 const trace = (rows: readonly string[], dlvy = '') =>
@@ -12,10 +12,12 @@ const trace = (rows: readonly string[], dlvy = '') =>
     .join('')}</LongitudinalDomesticListResponse>`
 const failed = (code: string) => `<?xml version="1.0" encoding="utf-8" standalone="yes"?><LongitudinalDomesticListResponse>${head('N', code)}</LongitudinalDomesticListResponse>`
 const gateway = (reason: string) => `<OpenAPI_ServiceResponse><cmmMsgHeader><errMsg>SERVICE ERROR</errMsg><returnAuthMsg>X</returnAuthMsg><returnReasonCode>${reason}</returnReasonCode></cmmMsgHeader></OpenAPI_ServiceResponse>`
-const zipRows = (rows: readonly (readonly [string, string, string])[]) =>
-  `<?xml version="1.0" encoding="utf-8" standalone="yes"?><NewAddressListResponse>${head('Y', '00')}${rows
-    .map(([zip, road, lot]) => `<newAddressListAreaCd><zipNo>${zip}</zipNo><lnmAdres>${lot}</lnmAdres><rnAdres>${road}</rnAdres></newAddressListAreaCd>`)
-    .join('')}<totalCount>${String(rows.length)}</totalCount></NewAddressListResponse>`
+const zipRows = (rows: readonly (readonly [string, string, string?])[]) =>
+  `<?xml version="1.0" encoding="utf-8" standalone="yes"?><NewZipCdListResponse>${head('Y', '00')}${rows
+    .map(([zip, address, kind]) => `<newZipCdList><zipNo>${zip}</zipNo><address>${address}</address><rangeKind>${kind ?? ''}</rangeKind></newZipCdList>`)
+    .join('')}</NewZipCdListResponse>`
+/** 2026-11-05 운영 서버에서 "증산리 1034"로 받은 실제 답 */
+const REAL_JEUNGSAN = `<?xml version="1.0" encoding="utf-8" standalone="yes"?><NewZipCdListResponse><cmmMsgHeader><requestMsgId></requestMsgId><responseMsgId></responseMsgId><responseTime>20261105:232449533</responseTime><successYN>Y</successYN><returnCode>00</returnCode><errMsg></errMsg><totalCount>5</totalCount><countPerPage>50</countPerPage><totalPage>1</totalPage><currentPage>1</currentPage></cmmMsgHeader><newZipCdList><zipNo>50603</zipNo><address>경상남도 양산시 물금읍 증산리 985~1141</address><rangeKind>전체</rangeKind></newZipCdList><newZipCdList><zipNo>50363</zipNo><address>경상남도 창녕군 길곡면 증산리 16~1315-7</address><rangeKind>전체</rangeKind></newZipCdList><newZipCdList><zipNo>55561</zipNo><address>전북특별자치도 무주군 무풍면 증산리 4~1346</address><rangeKind>전체</rangeKind></newZipCdList><newZipCdList><zipNo>33518</zipNo><address>충청남도 보령시 주산면 증산리 28~1272</address><rangeKind>전체</rangeKind></newZipCdList><newZipCdList><zipNo>33176</zipNo><address>충청남도 부여군 석성면 증산리 947-1~1659-4</address><rangeKind>전체</rangeKind></newZipCdList></NewZipCdListResponse>`
 
 /** 공개 API 흉내: 경로·물음마다 답을 정한다. null은 연결 실패 */
 function fakePublic(answer: (path: string, params: URLSearchParams) => string | null) {
@@ -102,48 +104,71 @@ describe('D-REAL-08 우체국 배송 조회', () => {
   })
 })
 
-describe('D-REAL-08 우편번호 찾기', () => {
-  const rows = zipRows([
-    ['04524', '서울특별시 중구 세종대로 110 (태평로1가)', '서울특별시 중구 태평로1가 31'],
-    ['04525', '서울특별시 중구 세종대로 1101 (가상동)', '서울특별시 중구 가상동 1'],
-    ['47100', '부산광역시 부산진구 세종대로 110 (가상동)', '부산광역시 부산진구 가상동 2'],
-    ['48900', '부산광역시 중구 세종대로 110 (가상동)', '부산광역시 중구 가상동 3'],
-  ])
-
-  it('도로명 + 건물번호로 묻고, 시·군·구가 맞고 번호가 꼭 맞는 줄의 우편번호가 하나면 그 번호', async () => {
-    const fake = fakePublic(() => rows)
+describe('D-REAL-08 우편번호 찾기 (우편접수용 우편번호조회)', () => {
+  it('외진 곳 범위 번지: 실제 답 "증산리 985~1141" — 1034는 그 범위라 50603. 시·군·읍이 없으면 여러 곳(창녕·무주·보령·부여 증산리)으로 갈려 못 찾음', async () => {
+    const fake = fakePublic(() => REAL_JEUNGSAN)
     const find = epostZipFinder({ serviceKey: 'k', fetch: fake.fetch })
-    expect(await find('서울특별시 중구 세종대로 110 (태평로1가)')).toEqual({ kind: 'ZIP', zip: '04524' })
-    // 광역 이름 줄임·같은 이름 구(부산 중구)는 광역으로 가른다
-    expect(await find('서울 중구 세종대로 110')).toEqual({ kind: 'ZIP', zip: '04524' })
-    expect(await find('부산 중구 세종대로110')).toEqual({ kind: 'ZIP', zip: '48900' })
-    expect(fake.calls[0]?.pathname).toBe('/postal/retrieveNewAdressAreaCdService/retrieveNewAdressAreaCdService/getNewAddressListAreaCd')
-    expect(fake.calls[0]?.searchParams.get('searchSe')).toBe('road')
-    expect(fake.calls[0]?.searchParams.get('srchwrd')).toBe('세종대로 110')
+    expect(await find('경상남도 양산시 물금읍 증산리 1034')).toEqual({ kind: 'ZIP', zip: '50603' })
+    expect(fake.calls[0]?.pathname).toBe('/postal/retrieveNewZipCdService/retrieveNewZipCdService/getNewZipCdList')
+    expect(fake.calls[0]?.searchParams.get('srchwrd')).toBe('경상남도 양산시 물금읍 증산리 1034')
+    expect(await find('경남 양산시 증산리 1034번지')).toEqual({ kind: 'ZIP', zip: '50603' })
+    expect(await find('양산시 물금읍 증산리 1034')).toEqual({ kind: 'ZIP', zip: '50603' })
+    // 범위 밖 번지는 그 줄이 아니다
+    expect(await find('경상남도 양산시 물금읍 증산리 900')).toEqual({ kind: 'NONE' })
+    expect(await find('증산리 1034')).toEqual({ kind: 'NONE' })
   })
 
-  it('실제 답 모양(2026-11-05 운영 서버에서 받은 답 — lnmAdres에 도로명, rnAdres에 지번)에서도 찾는다', async () => {
-    const real =
-      '<?xml version="1.0" encoding="utf-8" standalone="yes"?><NewAddressListResponse><cmmMsgHeader><requestMsgId></requestMsgId><responseMsgId></responseMsgId><responseTime>20261105:224747612</responseTime><successYN>Y</successYN><returnCode>00</returnCode><errMsg></errMsg><totalCount>1</totalCount><countPerPage>50</countPerPage><totalPage>1</totalPage><currentPage>1</currentPage></cmmMsgHeader><newAddressListAreaCd><zipNo>04524</zipNo><lnmAdres>서울특별시 중구 세종대로 110 (태평로1가, 서울특별시청)</lnmAdres><rnAdres>서울특별시 중구 태평로1가 31 서울특별시청</rnAdres></newAddressListAreaCd></NewAddressListResponse>'
-    const find = epostZipFinder({ serviceKey: 'k', fetch: fakePublic(() => real).fetch })
+  it('범위 맞추기: 본번-부번 차례, 홀수·짝수, 산 번지, 건물 하나(범위 없음)는 같은 번호만', () => {
+    const t = zipTarget('충청남도 부여군 석성면 증산리 947-3')
+    expect(t).not.toBeNull()
+    const target = t as NonNullable<typeof t>
+    expect(zipRowFits(target, '충청남도 부여군 석성면 증산리 947-1~1659-4', '전체')).toBe(true)
+    expect(zipRowFits({ ...target, number: [947, 0] }, '충청남도 부여군 석성면 증산리 947-1~1659-4', '전체')).toBe(false)
+    expect(zipRowFits({ ...target, number: [1659, 5] }, '충청남도 부여군 석성면 증산리 947-1~1659-4', '전체')).toBe(false)
+    const road = zipTarget('경기도 여주시 세종로 7') as NonNullable<ReturnType<typeof zipTarget>>
+    expect(zipRowFits(road, '경기도 여주시 세종로 3~23', '홀수')).toBe(true)
+    expect(zipRowFits(road, '경기도 여주시 세종로 2~24', '짝수')).toBe(false)
+    expect(zipRowFits(road, '경기도 여주시 세종로 7 (가상동)', '')).toBe(true)
+    expect(zipRowFits(road, '경기도 여주시 세종로 77', '')).toBe(false)
+    // 이름은 낱말 하나로: "세종로"가 "북세종로"·"세종로12길"에 걸리지 않는다
+    expect(zipRowFits(road, '경기도 여주시 북세종로 7', '')).toBe(false)
+    expect(zipRowFits({ ...road, number: [12, 0] }, '경기도 여주시 세종로12길 5', '')).toBe(false)
+    const mountain = zipTarget('경상남도 양산시 물금읍 증산리 산 5') as NonNullable<ReturnType<typeof zipTarget>>
+    expect(mountain.mountain).toBe(true)
+    expect(zipRowFits(mountain, '경상남도 양산시 물금읍 증산리 산5', '전체')).toBe(true)
+    expect(zipRowFits(mountain, '경상남도 양산시 물금읍 증산리 4~10', '전체')).toBe(false)
+    expect(zipRowFits({ ...mountain, mountain: false }, '경상남도 양산시 물금읍 증산리 산5', '전체')).toBe(false)
+    // 광역이 다르면 아니다
+    expect(zipRowFits(road, '경상남도 여주시 세종로 7', '')).toBe(false)
+  })
+
+  it('도로명 주소: 실제 답(세종대로 110 두 줄, 같은 우편번호) → 04524. 덧붙인 건물 이름으로 못 찾으면 "도로명 번호"만으로 다시 묻는다', async () => {
+    const seoul = zipRows([
+      ['04524', '서울특별시 중구 세종대로 110 (태평로1가, 서울시청)'],
+      ['04524', '서울특별시 중구 세종대로 110 (태평로1가, 서울특별시청)'],
+    ])
+    const asked: string[] = []
+    const fake = fakePublic((_path, params) => {
+      const word = params.get('srchwrd') ?? ''
+      asked.push(word)
+      return word.includes('시청별관') ? zipRows([]) : seoul
+    })
+    const find = epostZipFinder({ serviceKey: 'k', fetch: fake.fetch })
     expect(await find('서울특별시 중구 세종대로 110')).toEqual({ kind: 'ZIP', zip: '04524' })
-    expect(await find('서울 중구 태평로1가 31')).toEqual({ kind: 'ZIP', zip: '04524' })
-    expect(await find('부산 중구 세종대로 110')).toEqual({ kind: 'NONE' })
+    expect(await find('서울 중구 세종대로 110 시청별관')).toEqual({ kind: 'ZIP', zip: '04524' })
+    expect(asked).toEqual(['서울특별시 중구 세종대로 110', '서울 중구 세종대로 110 시청별관', '세종대로 110'])
   })
 
-  it('시·군·구가 없어 여러 우편번호로 갈리면, 답이 없으면, 주소 모양이 아니면 못 찾음. 연결 실패·키 문제는 물어보지 못함', async () => {
-    expect(await epostZipFinder({ serviceKey: 'k', fetch: fakePublic(() => rows).fetch })('세종대로 110')).toEqual({ kind: 'NONE' })
+  it('우편번호가 둘 이상으로 갈리면·답이 없으면·주소 모양이 아니면 못 찾음. 연결 실패·키 문제는 물어보지 못함', async () => {
+    const split = zipRows([
+      ['04524', '서울특별시 중구 세종대로 110'],
+      ['04599', '서울특별시 중구 세종대로 110'],
+    ])
+    expect(await epostZipFinder({ serviceKey: 'k', fetch: fakePublic(() => split).fetch })('서울 중구 세종대로 110')).toEqual({ kind: 'NONE' })
     expect(await epostZipFinder({ serviceKey: 'k', fetch: fakePublic(() => zipRows([])).fetch })('서울 중구 세종대로 110')).toEqual({ kind: 'NONE' })
-    expect(await epostZipFinder({ serviceKey: 'k', fetch: fakePublic(() => rows).fetch })('그냥 아무 글')).toEqual({ kind: 'NONE' })
+    expect(await epostZipFinder({ serviceKey: 'k', fetch: fakePublic(() => split).fetch })('그냥 아무 글')).toEqual({ kind: 'NONE' })
     expect(await epostZipFinder({ serviceKey: 'k', fetch: fakePublic(() => null).fetch })('서울 중구 세종대로 110')).toEqual({ kind: 'ERROR' })
     expect(await epostZipFinder({ serviceKey: 'k', fetch: fakePublic(() => failed('30')).fetch })('서울 중구 세종대로 110')).toEqual({ kind: 'ERROR' })
-  })
-
-  it('지번 주소는 동 + 번지로 묻는다', async () => {
-    const fake = fakePublic(() => rows)
-    expect(await epostZipFinder({ serviceKey: 'k', fetch: fake.fetch })('서울특별시 중구 태평로1가 31번지')).toEqual({ kind: 'ZIP', zip: '04524' })
-    expect(fake.calls[0]?.searchParams.get('searchSe')).toBe('dong')
-    expect(fake.calls[0]?.searchParams.get('srchwrd')).toBe('태평로1가 31')
   })
 })
 

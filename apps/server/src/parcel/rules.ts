@@ -266,7 +266,7 @@ export const FAILURE_REASONS = ['ADDRESS', 'REJECTED', 'UNAVAILABLE'] as const
 export type FailureReason = (typeof FAILURE_REASONS)[number]
 
 export const FAILURE_MESSAGES: Readonly<Record<FailureReason, string>> = {
-  ADDRESS: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.',
+  ADDRESS: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.',
   REJECTED: '택배사가 접수를 받지 않았어요.',
   UNAVAILABLE: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.',
 }

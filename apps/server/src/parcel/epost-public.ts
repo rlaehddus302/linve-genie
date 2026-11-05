@@ -1,8 +1,9 @@
 // 우체국 공개 OpenAPI (공공데이터포털 — 무료, 서버 키 하나, D-REAL-08). 판매자 계약 없이 쓸 수 있는 우체국 기능 둘:
 // - 배송 조회: 국내우편물 종적 조회(getLongitudinalDomesticList) — 등기번호 하나씩. 처리현황 낱말을 우리 조회 상태(PC-8)로 옮긴다.
 //   접수·집하 → 집하, 발송·도착·배달준비·미배달 → 배송 중, 배달완료 → 도착. 종적이 없으면(아직 안 가져감) 빼서 접수됨 그대로.
-// - 우편번호 찾기: 도로명주소 우편번호 조회(getNewAddressListAreaCd) — 받는 분 우편번호가 비었을 때 주소로 찾는다. 답이 우편번호 하나로 모일 때만 쓴다.
-//   검색어는 "도로명 건물번호"(또는 "동 번지")만 — 시·도까지 붙인 전체 주소는 "검색결과가 없습니다"(03)가 온다(2026-11-05 확인).
+// - 우편번호 찾기: 우편접수용 우편번호조회(getNewZipCdList) — 받는 분 우편번호가 비었을 때 주소로 찾는다. 답이 우편번호 하나로 모일 때만 쓴다.
+//   외진 곳은 건물·번지 하나가 아니라 범위로 온다("증산리 985~1141", 홀수·짝수 — 우체국 앱이 "범위 안 번지 지정"을 묻는 경우).
+//   받는 분 번지가 그 범위 안(홀수·짝수까지)에 들 때만 그 줄로 친다. 전체 주소로 먼저 묻고, 없으면 "도로명 건물번호"(또는 "동 번지")만으로 다시 묻는다.
 // - 주소는 http만 열려 있다(https 없음 — 2026-11-05 확인). 키는 공공데이터포털 "일반 인증키"(Decoding 값 또는 Encoding 값 아무거나).
 // - 답의 이름·주소(발송인·수취인 — 가린 이름)는 읽지 않고 저장·로그에 내지 않는다. 처리현황·우편번호 칸만 본다.
 import type { TrackResult } from './carrier.ts'
@@ -12,7 +13,7 @@ import { INVOICE_RE } from './rules.ts'
 export const EPOST_PUBLIC_BASE = 'http://openapi.epost.go.kr'
 export const EPOST_PUBLIC_ENV = 'LIVEJJIM_DATA_GO_KR_KEY'
 const TRACE_PATH = '/trace/retrieveLongitudinalService/retrieveLongitudinalService/getLongitudinalDomesticList'
-const ZIP_PATH = '/postal/retrieveNewAdressAreaCdService/retrieveNewAdressAreaCdService/getNewAddressListAreaCd'
+const ZIP_PATH = '/postal/retrieveNewZipCdService/retrieveNewZipCdService/getNewZipCdList'
 const PUBLIC_TIMEOUT_MS = 10_000
 /** 한 번에 같이 묻는 등기번호 수 */
 const TRACE_PARALLEL = 4
@@ -145,7 +146,7 @@ export function epostTracker(options: EpostPublicOptions): (invoices: readonly s
 /** 찾기 결과: 우편번호 하나 · 못 찾음(없거나 여럿) · 물어보지 못함 */
 export type ZipFound = { readonly kind: 'ZIP'; readonly zip: string } | { readonly kind: 'NONE' } | { readonly kind: 'ERROR' }
 
-/** 주소 다듬기: 괄호 안(참고 항목)·쉼표 빼고 빈칸 하나로 */
+/** 주소 다듬기: 괄호 안(참고 항목)·쉼표 빼고, "번지"는 떼고, 빈칸 하나로 */
 const tidyAddress = (address: string): string =>
   address
     .replace(/\([^)]*\)/g, ' ')
@@ -155,7 +156,7 @@ const tidyAddress = (address: string): string =>
     .trim()
 
 const ROAD_RE = /([가-힣A-Za-z0-9.]+(?:로|길))\s*(\d+(?:-\d+)?)(?![0-9가-힣])/
-const LOT_RE = /([가-힣0-9]+(?:동|리|가))\s*(?:산\s*)?(\d+(?:-\d+)?)(?!\d)/
+const LOT_RE = /([가-힣0-9]+(?:동|리|가))\s*(산\s*)?(\d+(?:-\d+)?)(?![0-9가-힣])/
 
 /** 광역 이름 줄임 (서울특별시·서울 → 서울, 충청북도·충북 → 충북). 광역 이름이 아니면 null */
 const REGIONS = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주']
@@ -165,54 +166,102 @@ export function regionOf(word: string): string | null {
   return REGIONS.includes(short) && (word.length === 2 || word in LONG_REGIONS || /(?:특별시|광역시|특별자치시|특별자치도|도)$/.test(word)) ? short : null
 }
 
-/** 시·군·구 낱말 (첫 낱말 광역 이름은 줄여 쓰는 일이 많아 따로 본다 — regionOf) */
+/** 시·군·구·읍·면 낱말 (첫 낱말 광역 이름은 줄여 쓰는 일이 많아 따로 본다 — regionOf) */
 const districtWords = (address: string): string[] =>
   address
     .split(' ')
     .slice(1)
-    .filter((word) => /^[가-힣]+(?:시|군|구)$/.test(word))
+    .filter((word) => /^[가-힣]+(?:시|군|구|읍|면)$/.test(word))
+
+/** 번지·건물번호 "본번-부번" → [본번, 부번] */
+const numberOf = (text: string): readonly [number, number] => {
+  const [main, sub] = text.split('-')
+  return [Number(main), sub === undefined ? 0 : Number(sub)]
+}
+const compare = (a: readonly [number, number], b: readonly [number, number]): number => a[0] - b[0] || a[1] - b[1]
+
+/** 받는 분 주소에서 뽑은 찾을 거리 */
+export interface ZipTarget {
+  /** 도로명(…로·…길) 또는 동·리·가 이름 */
+  readonly name: string
+  /** 산 번지 */
+  readonly mountain: boolean
+  readonly number: readonly [number, number]
+  /** 번지 원문 (다시 묻는 검색어) */
+  readonly numberText: string
+  readonly region: string | null
+  readonly districts: readonly string[]
+}
+
+export function zipTarget(address: string): ZipTarget | null {
+  const text = tidyAddress(address)
+  const road = ROAD_RE.exec(text)
+  const lot = road === null ? LOT_RE.exec(text) : null
+  if (road === null && lot === null) return null
+  const name = (road ?? lot)?.[1] as string
+  const numberText = (road !== null ? road[2] : lot?.[3]) as string
+  return { name, mountain: lot !== null && lot[2] !== undefined, number: numberOf(numberText), numberText, region: regionOf(text.split(' ')[0] ?? ''), districts: districtWords(text) }
+}
+
+/**
+ * 답 한 줄(주소·범위 종류)이 찾을 거리에 맞는지: 광역·시군구읍면이 맞고, 이름 바로 뒤 번지가 같거나(건물 하나) 범위 안이어야 한다.
+ * 범위 종류 홀수·짝수는 본번으로 가른다. 산 번지는 산 번지 줄만, 아니면 산 아닌 줄만
+ */
+export function zipRowFits(target: ZipTarget, address: string, rangeKind: string): boolean {
+  const words = address.trim().split(/\s+/)
+  if (target.region !== null && regionOf(words[0] ?? '') !== target.region) return false
+  const squashed = address.replace(/\s/g, '')
+  if (!target.districts.every((word) => squashed.includes(word))) return false
+  // 이름은 낱말 하나로 맞아야 한다("중앙로"가 "북중앙로"에, "세종대로"가 "세종대로12길"에 걸리지 않게)
+  let rest: string | null = null
+  for (let index = 0; index < words.length && rest === null; index += 1) {
+    const word = words[index] as string
+    if (word === target.name) rest = `${words[index + 1] ?? ''}${words[index + 1] === '산' ? (words[index + 2] ?? '') : ''}`
+    else if (word.startsWith(target.name) && /^산?\d/.test(word.slice(target.name.length))) rest = word.slice(target.name.length)
+  }
+  if (rest === null) return false
+  const match = /^(산)?(\d+(?:-\d+)?)(?:~(\d+(?:-\d+)?))?(?![0-9가-힣])/.exec(rest)
+  if (match === null) return false
+  if ((match[1] !== undefined) !== target.mountain) return false
+  const low = numberOf(match[2] as string)
+  const high = match[3] === undefined ? low : numberOf(match[3])
+  if (compare(target.number, low) < 0 || compare(target.number, high) > 0) return false
+  const kind = rangeKind.trim()
+  if (kind === '홀수' && target.number[0] % 2 !== 1) return false
+  if (kind === '짝수' && target.number[0] % 2 !== 0) return false
+  return true
+}
 
 /** 우편번호 찾기 함수 (받는 분 주소 한 줄 → 우편번호) */
 export function epostZipFinder(options: EpostPublicOptions): (address: string) => Promise<ZipFound> {
   const get = getter(options)
-  const ask = async (searchSe: 'road' | 'dong', word: string): Promise<{ zip: string; road: string; lot: string }[] | null> => {
-    const got = await get(ZIP_PATH, { searchSe, srchwrd: [...word].slice(0, 200).join(''), countPerPage: '50', currentPage: '1' })
+  const ask = async (word: string): Promise<{ zip: string; address: string; rangeKind: string }[] | null> => {
+    const got = await get(ZIP_PATH, { srchwrd: [...word].slice(0, 200).join(''), countPerPage: '50', currentPage: '1' })
     if (got.kind === 'fail') return null
     const header = readPublicHeader(got.xml)
     if (header === 'AUTH') return null
     if (header !== 'OK') return []
-    const zips = fieldsOf(got.xml, 'zipNo')
-    const roads = fieldsOf(got.xml, 'rnAdres')
-    const lots = fieldsOf(got.xml, 'lnmAdres')
-    return zips.map((zip, index) => ({ zip, road: roads[index] ?? '', lot: lots[index] ?? '' }))
+    return fieldsOf(got.xml, 'newZipCdList').map((row) => ({ zip: firstOf(row, 'zipNo') ?? '', address: firstOf(row, 'address') ?? '', rangeKind: firstOf(row, 'rangeKind') ?? '' }))
+  }
+  const decide = (target: ZipTarget, rows: readonly { zip: string; address: string; rangeKind: string }[]): string | null => {
+    const zips = new Set(rows.filter((row) => /^[0-9]{5}$/.test(row.zip) && zipRowFits(target, row.address, row.rangeKind)).map((row) => row.zip))
+    return zips.size === 1 ? ([...zips][0] as string) : null
   }
   return async (address) => {
+    const target = zipTarget(address)
+    if (target === null) return { kind: 'NONE' }
     const text = tidyAddress(address)
-    if (text === '') return { kind: 'NONE' }
-    const road = ROAD_RE.exec(text)
-    const lot = road === null ? LOT_RE.exec(text) : null
-    if (road === null && lot === null) return { kind: 'NONE' }
-    const match = (road ?? lot) as RegExpExecArray
-    const key = `${match[1] as string} ${match[2] as string}`
-    const rows = await ask(road !== null ? 'road' : 'dong', key)
+    // 1) 받은 주소 그대로 (시·도까지 붙어도 된다)
+    const whole = await ask(text)
+    if (whole === null) return { kind: 'ERROR' }
+    const first = decide(target, whole)
+    if (first !== null) return { kind: 'ZIP', zip: first }
+    // 2) 건물 이름 같은 덧붙임 때문에 못 찾았으면 "이름 번지"만으로
+    const short = `${target.name} ${target.mountain ? '산' : ''}${target.numberText}`
+    if (short === text) return { kind: 'NONE' }
+    const rows = await ask(short)
     if (rows === null) return { kind: 'ERROR' }
-    const squash = (value: string) => value.replace(/\s/g, '')
-    const keyText = squash(key)
-    const districts = districtWords(text)
-    const region = regionOf(text.split(' ')[0] ?? '')
-    // 실제 답은 설명서와 칸이 뒤바뀌어 있다(lnmAdres에 도로명, rnAdres에 지번 — 2026-11-05 확인). 두 칸 중 하나라도 맞으면 그 줄
-    const fitsOne = (address: string): boolean => {
-      const target = squash(address)
-      const at = target.indexOf(keyText)
-      if (at < 0) return false
-      // 건물번호 뒤에 숫자가 더 붙은 다른 번지(예: 20 → 201)는 빼기
-      if (/^[0-9-]/.test(target.slice(at + keyText.length))) return false
-      if (region !== null && regionOf(address.trim().split(/\s+/)[0] ?? '') !== region) return false
-      return districts.every((word) => target.includes(word))
-    }
-    const fits = rows.filter((row) => fitsOne(row.road) || fitsOne(row.lot))
-    const zips = new Set(fits.map((row) => row.zip).filter((zip) => /^[0-9]{5}$/.test(zip)))
-    if (zips.size !== 1) return { kind: 'NONE' }
-    return { kind: 'ZIP', zip: [...zips][0] as string }
+    const second = decide(target, rows)
+    return second === null ? { kind: 'NONE' } : { kind: 'ZIP', zip: second }
   }
 }

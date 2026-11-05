@@ -173,14 +173,14 @@ describe('낱말 (PC-8, D-T1-12)', () => {
   })
 
   it('실패한 시도는 "아직 못 보내요"로, 실패·모름은 다시 보낼 줄 — 기다리는 중은 아니다', () => {
-    const failed = row('UC_X', '실패', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' }) })
+    const failed = row('UC_X', '실패', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' }) })
     const unknown = row('UC_Y', '모름', { ready: false, reason: 'BOOKING', message: '접수 결과를 기다리고 있어요', parcel: brief({ state: 'UNKNOWN', invoice: null, invoiceText: null, status: null, message: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.' }) })
     const pending = row('UC_Z', '기다림', { ready: false, reason: 'BOOKING', message: '접수 결과를 기다리고 있어요', parcel: brief({ state: 'PENDING', invoice: null, invoiceText: null, status: null }) })
     const groups = parcelGroups({ ready: [row('UC_A', '김하나'), failed], excluded: [unknown, pending], booked: [] })
     expect(groups.ready.map((item) => item.buyer)).toEqual(['UC_A'])
     expect(groups.excluded.map((item) => item.buyer)).toEqual(['UC_X', 'UC_Y', 'UC_Z'])
     expect(retryRows({ ready: [failed], excluded: [unknown, pending] }).map((item) => item.buyer)).toEqual(['UC_X', 'UC_Y'])
-    expect(rowReason(failed)).toBe('택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.')
+    expect(rowReason(failed)).toBe('택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.')
     expect(rowReason(unknown)).toBe('접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.')
   })
 })
@@ -270,16 +270,16 @@ describe('택배 화면 (AC-T1-61~64)', () => {
   it('일부 실패: 줄마다 문장, "실패한 것만 다시"는 실패·모름만 보낸다(기다리는 중은 빼고)', async () => {
     day = {
       ...sixRows(),
-      ready: [row('UC_A', '김하나', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' }) })],
+      ready: [row('UC_A', '김하나', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' }) })],
       excluded: [
         row('UC_C', '박셋', { ready: false, reason: 'BOOKING', message: '접수 결과를 기다리고 있어요', parcel: brief({ state: 'UNKNOWN', invoice: null, invoiceText: null, status: null, message: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.' }) }),
         row('UC_P', '대기', { ready: false, reason: 'BOOKING', message: '접수 결과를 기다리고 있어요', parcel: brief({ state: 'PENDING', invoice: null, invoiceText: null, status: null, message: null }) }),
       ],
     }
-    server.on('POST', /\/book$/, () => ({ body: { date: D, results: [{ buyer: 'UC_A', ok: false, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' }, { buyer: 'UC_C', ok: true, invoice: '900000000003', invoiceText: '9000-0000-0003' }] } }))
+    server.on('POST', /\/book$/, () => ({ body: { date: D, results: [{ buyer: 'UC_A', ok: false, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' }, { buyer: 'UC_C', ok: true, invoice: '900000000003', invoiceText: '9000-0000-0003' }] } }))
     await open()
     const excluded = region(exact('아직 못 보내요'))
-    expect(within(excluded).getByText('택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.')).toBeDefined()
+    expect(within(excluded).getByText('택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.')).toBeDefined()
     // 모름: 긴 안내와 바로 누를 수 있는 "다시 확인", 기다림: 긴 안내와 "다시 확인" 없음 (D-T1-18)
     const unknownRow = within(excluded).getByText(UNKNOWN_WAIT).closest('li') as HTMLElement
     expect(within(unknownRow).getByRole('button', { name: '다시 확인' })).toHaveProperty('disabled', false)
@@ -387,7 +387,7 @@ describe('기다림·다시 확인·결과 문장 (D-T1-18, U-T1-05·09·10·12)
   })
 
   it('날짜 고르기의 "보낼 수 있어요" 수는 화면 무리와 같다 — 실패한 묶음은 세지 않는다 (U-T1-09)', async () => {
-    day = { ...sixRows(), ready: [row('UC_A', '김하나', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' }) })] }
+    day = { ...sixRows(), ready: [row('UC_A', '김하나', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' }) })] }
     await open()
     expect(within(region(exact('보낼 수 있어요'))).getByText(NOTHING_READY_TEXT)).toBeDefined()
     await waitFor(() => expect(screen.getByRole('combobox', { name: '날짜' }).textContent).toContain('보낼 수 있어요 0 · 접수 1'))
