@@ -53,6 +53,8 @@ export const accounts = pgTable(
     name: text('name'),
     /** 지운 시각 (보조자) */
     deletedAt: timestamptz('deleted_at'),
+    /** 간편 로그인으로 가입하며 이용약관·개인정보처리방침에 동의한 때 (D-UX3-28). 운영자가 만든 계정은 null */
+    termsAgreedAt: timestamptz('terms_agreed_at'),
   },
   (t) => [unique('accounts_login_id_uq').on(t.loginId), index('accounts_seller_idx').on(t.sellerId)],
 )
@@ -147,11 +149,37 @@ export const loginStates = pgTable(
     accountId: text('account_id').references(() => accounts.id),
     sessionHash: text('session_hash'),
     verifierEnc: text('verifier_enc'),
+    /** 앱에서 시작한 로그인 (D-UX3-28): 앱이 가진 검증 값의 SHA-256(base64url). 웹이면 null */
+    appChallenge: text('app_challenge'),
     createdAt: timestamptz('created_at').notNull(),
     expiresAt: timestamptz('expires_at').notNull(),
     usedAt: timestamptz('used_at'),
   },
   (t) => [index('login_states_expires_idx').on(t.expiresAt)],
+)
+
+/**
+ * 간편 로그인 표 (D-UX3-28): 공급자에서 돌아온 뒤 한 번만 쓰는 무작위 값(서버엔 해시만, 10분).
+ * - LOGIN: 앱에서 시작한 로그인 — 앱이 검증 값과 함께 내면 그 앱에 세션을 준다(브라우저에는 세션을 주지 않는다)
+ * - SIGNUP: 연결되지 않은 공급자 계정 — 약관에 동의하면 새 판매자 계정을 만든다. 공급자 계정 ID는 암호화해 둔다
+ */
+export const loginTickets = pgTable(
+  'login_tickets',
+  {
+    ticketHash: text('ticket_hash').primaryKey(),
+    /** LOGIN · SIGNUP */
+    kind: text('kind').notNull(),
+    provider: text('provider').notNull(),
+    appChallenge: text('app_challenge'),
+    sellerId: text('seller_id').references(() => sellers.id),
+    accountId: text('account_id').references(() => accounts.id),
+    providerUserEnc: text('provider_user_enc'),
+    label: text('label').notNull().default(''),
+    createdAt: timestamptz('created_at').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    usedAt: timestamptz('used_at'),
+  },
+  (t) => [index('login_tickets_expires_idx').on(t.expiresAt)],
 )
 
 /** 엔진 범위 = (판매자, 방송 날짜, 리허설인지) (R-0 6, D-069, D-081) */
@@ -2581,6 +2609,7 @@ export const schema = {
   sessions,
   loginLinks,
   loginStates,
+  loginTickets,
   scopes,
   broadcasts,
   events,

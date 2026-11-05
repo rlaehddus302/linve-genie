@@ -36,7 +36,7 @@ export const START_FAILED = '지금 연결하지 못했어요. 잠시 뒤에 다
 export const RATE_LIMITED_MESSAGE = '로그인 시도가 너무 많아요. 10분 뒤에 다시 해 주세요.'
 
 /** 로그인 화면에 보이는 결과 */
-export const LOGIN_CODES = ['CANCELLED', 'EXPIRED', 'NOT_LINKED', 'PROVIDER_ERROR', 'RATE_LIMITED', 'SESSION_GONE'] as const
+export const LOGIN_CODES = ['CANCELLED', 'EXPIRED', 'NOT_LINKED', 'SIGNUP', 'PROVIDER_ERROR', 'RATE_LIMITED', 'SESSION_GONE'] as const
 /** 설정 "로그인 방법" 칸에 보이는 결과 */
 export const SETTINGS_CODES = ['LINKED', 'LINKED_ELSEWHERE', 'ALREADY_LINKED', 'CANCELLED', 'EXPIRED', 'PROVIDER_ERROR'] as const
 export type LoginResultCode = (typeof LOGIN_CODES)[number] | (typeof SETTINGS_CODES)[number]
@@ -62,6 +62,8 @@ export function resultMessage({ code, provider }: LoginResult): ResultMessage {
       return { tone: 'error', text: `${p} 로그인을 취소했어요. 다시 하려면 버튼을 눌러 주세요.` }
     case 'EXPIRED':
       return { tone: 'error', text: '로그인 요청이 오래됐거나 다른 창에서 시작한 요청이에요. 처음부터 다시 해 주세요.' }
+    case 'SIGNUP':
+      return { tone: 'success', text: `${p} 계정으로 ${SERVICE_NAME}를 처음 시작해요.` }
     case 'NOT_LINKED':
       return { tone: 'error', text: `이 ${p} 계정에 연결된 ${SERVICE_NAME} 계정이 없어요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 ${p} 계정을 연결해 주세요.` }
     case 'PROVIDER_ERROR':
@@ -197,3 +199,70 @@ export function linkedDate(value: string | null): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(kstDate(value))
   return m === null ? '' : `${m[1] ?? ''}. ${String(Number(m[2]))}. ${String(Number(m[3]))}.`
 }
+
+// ── 가입 (D-UX3-28) ─────────────────────────────────────────────────
+
+/** 가입 판 제목·안내·동의 문장 (웹·앱 같은 문장) */
+export const signupTitle = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]} 계정으로 처음 오셨어요`
+export const SIGNUP_BODY = `동의하면 바로 ${SERVICE_NAME} 계정이 만들어지고, 다음부터는 같은 단추로 로그인돼요.`
+export const SIGNUP_HAVE_ID = '이미 아이디가 있으면 "취소"를 누르고 아이디로 로그인한 뒤 설정 → 로그인 방법에서 연결해 주세요.'
+export const SIGNUP_AGREE = '이용약관과 개인정보처리방침에 동의해요 (필수)'
+export const SIGNUP_BUTTON = '동의하고 시작하기'
+export const SIGNUP_NEED_AGREE = '동의에 체크해 주세요.'
+
+// ── 최근 로그인 (D-UX3-28 — 사용자 지시 "최근 로그인도") ─────────────────
+// 그 기기(브라우저)에서 마지막으로 로그인에 성공한 방법. 공급자 단추를 누르면 "누른 것"으로 적어 두고, 로그인된 화면이 열리면 "마지막"으로 옮긴다.
+
+export type LastLogin = LoginProvider | 'id'
+const LAST_KEY = 'livejjim:last-login'
+const PENDING_KEY = 'livejjim:last-login-pending'
+
+const isLastLogin = (value: unknown): value is LastLogin => value === 'id' || isLoginProvider(value)
+
+export function readLastLogin(): LastLogin | null {
+  try {
+    const value = window.localStorage.getItem(LAST_KEY)
+    return isLastLogin(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function rememberLastLogin(method: LastLogin): void {
+  try {
+    window.localStorage.setItem(LAST_KEY, method)
+    window.localStorage.removeItem(PENDING_KEY)
+  } catch {
+    // 저장할 수 없는 브라우저 — 표시만 없다
+  }
+}
+
+/** 공급자 단추를 눌렀다 (돌아와 로그인되면 commitPendingLogin이 옮긴다) */
+export function markPendingLogin(provider: LoginProvider): void {
+  try {
+    window.localStorage.setItem(PENDING_KEY, provider)
+  } catch {
+    // 표시만 없다
+  }
+}
+
+/** 로그인된 화면이 열렸다: 누른 공급자가 있으면 그것을 마지막으로 */
+export function commitPendingLogin(): void {
+  try {
+    const pending = window.localStorage.getItem(PENDING_KEY)
+    if (isLoginProvider(pending)) rememberLastLogin(pending)
+  } catch {
+    // 표시만 없다
+  }
+}
+
+/** 로그인되지 않고 로그인 화면으로 돌아왔다(취소·실패) — 누른 것을 지운다 */
+export function dropPendingLogin(): void {
+  try {
+    window.localStorage.removeItem(PENDING_KEY)
+  } catch {
+    // 표시만 없다
+  }
+}
+
+export const RECENT_LOGIN = '최근 로그인'

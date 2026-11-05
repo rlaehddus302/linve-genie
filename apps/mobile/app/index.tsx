@@ -28,7 +28,7 @@ export default function IndexRoute() {
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
         {session.state === 'checking' ? <Loading text="로그인을 확인하는 중…" /> : null}
-        {session.state === 'out' ? <LoginScreen expired={session.expired} offline={session.offline === true} onRecheck={recheck} onLogin={login} /> : null}
+        {session.state === 'out' ? <LoginScreen expired={session.expired} offline={session.offline === true} onRecheck={recheck} onLogin={login} onSocialDone={recheck} /> : null}
         {session.state === 'in' ? (
           <TabFrame active="home" go={(key) => router.replace(TAB_PATH[key])}>
             <HomeScreen

@@ -101,7 +101,7 @@ describe('결과 코드·문장 (lib)', () => {
     for (const code of [...LOGIN_CODES, ...SETTINGS_CODES]) {
       const message = resultMessage({ code, provider: 'google' })
       expect(message.text).not.toMatch(/[A-Z_]{4,}|google/)
-      expect(message.tone).toBe(code === 'LINKED' ? 'success' : 'error')
+      expect(message.tone).toBe(code === 'LINKED' || code === 'SIGNUP' ? 'success' : 'error')
     }
     expect(resultMessage({ code: 'LINKED', provider: 'kakao' }).text).toBe('카카오 계정을 연결했어요. 다음부터 "카카오로 계속하기"로 로그인할 수 있어요.')
     expect(resultMessage({ code: 'RATE_LIMITED', provider: 'naver' }).text).toBe('로그인 시도가 너무 많아요. 10분 뒤에 다시 해 주세요.')
@@ -121,15 +121,17 @@ describe('결과 코드·문장 (lib)', () => {
 })
 
 describe('로그인 화면 버튼 (AC-L1-20)', () => {
-  it('로그인 칸 아래 "또는"과 카카오·네이버·구글 순 버튼, 아이디 칸에 커서, 가입 글 없음, 그림 없음', async () => {
+  it('로그인 칸 아래 "또는"과 카카오·네이버·구글 순 버튼, 아이디 칸에 커서, 가입 글 없음, 공식 로고 그림만 (D-UX3-28)', async () => {
     await openLogin()
     await screen.findByRole('button', { name: '카카오로 계속하기' })
-    expect(socialButtons().map((button) => button.textContent)).toEqual(['카카오로 계속하기', 'N네이버로 계속하기', '구글로 계속하기'])
+    expect(socialButtons().map((button) => button.textContent)).toEqual(['카카오로 계속하기', '네이버로 계속하기', '구글로 계속하기'])
     expect(screen.getByRole('button', { name: '네이버로 계속하기' })).toBeDefined()
     expect(screen.getByText('또는')).toBeDefined()
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '아이디' }))
     expect(document.body.textContent).not.toMatch(/회원가입|가입/)
-    expect(document.querySelectorAll('img, svg')).toHaveLength(0)
+    // D-UX3-28: 단추마다 공식 로고 SVG 하나(글 읽기에서 숨김), 그 밖의 그림은 없다
+    expect(document.querySelectorAll('img')).toHaveLength(0)
+    expect(socialButtons().map((button) => button.querySelectorAll('svg[aria-hidden="true"]').length)).toEqual([1, 1, 1])
     // 순서: 로그인 버튼 → 카카오 → 네이버 → 구글 → 정책 링크 (문서 순서 = Tab 순서)
     const order = [screen.getByRole('button', { name: '로그인' }), ...socialButtons(), screen.getByRole('link', { name: '개인정보처리방침' })]
     for (let i = 1; i < order.length; i++) expect(order[i - 1]?.compareDocumentPosition(order[i] as Node) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
@@ -182,6 +184,34 @@ describe('로그인 화면 버튼 (AC-L1-20)', () => {
 })
 
 describe('돌아온 결과 문장 (AC-L1-21)', () => {
+  it('D-UX3-28 가입 판: `/?login=SIGNUP` → 동의 체크 없이 누르면 안내, 체크하고 누르면 POST /api/auth/signup {agree:true}로 들어가고 그 공급자가 최근 로그인', async () => {
+    window.localStorage.setItem('livejjim:last-login-pending', 'kakao')
+    server.on('POST', /^\/api\/auth\/signup$/, (call): Reply => {
+      loggedIn = true
+      return call.body?.agree === true ? { body: { seller: { name: '내 가게' }, loginId: 'lg-abcdefgh', role: 'SELLER' } } : apiError(400, 'INVALID_INPUT', '이용약관과 개인정보처리방침에 동의해 주세요.')
+    })
+    await openLogin('/?login=SIGNUP&provider=kakao')
+    expect(screen.getByRole('heading', { name: '카카오 계정으로 처음 오셨어요' })).toBeDefined()
+    const buttons = [screen.getByRole('button', { name: '취소' }), screen.getByRole('button', { name: '동의하고 시작하기' })]
+    // 단추는 좌우 — 취소가 왼쪽(앞), 동의가 오른쪽 (CLAUDE.md 8)
+    expect(buttons[0]?.compareDocumentPosition(buttons[1] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    fireEvent.click(buttons[1] as HTMLElement)
+    expect(screen.getByRole('alert').textContent).toBe('동의에 체크해 주세요.')
+    expect(server.callsTo('POST', /^\/api\/auth\/signup$/)).toHaveLength(0)
+    fireEvent.click(screen.getByRole('checkbox', { name: '이용약관과 개인정보처리방침에 동의해요 (필수)' }))
+    fireEvent.click(buttons[1] as HTMLElement)
+    await waitFor(() => expect(server.callsTo('POST', /^\/api\/auth\/signup$/)).toHaveLength(1))
+    expect(server.callsTo('POST', /^\/api\/auth\/signup$/)[0]?.body).toEqual({ agree: true })
+    await waitFor(() => expect(window.localStorage.getItem('livejjim:last-login')).toBe('kakao'))
+  })
+
+  it('D-UX3-28 최근 로그인: 마지막으로 로그인한 공급자 단추에만 "최근 로그인"', async () => {
+    window.localStorage.setItem('livejjim:last-login', 'naver')
+    await openLogin()
+    await screen.findByRole('button', { name: /네이버로 계속하기/ })
+    expect(socialButtons().map((button) => button.textContent)).toEqual(['카카오로 계속하기', '네이버로 계속하기최근 로그인', '구글로 계속하기'])
+  })
+
   it('로그인 화면: NOT_LINKED 문장을 alert로 한 번, 주소에서 지운다, 아이디 칸 커서', async () => {
     await openLogin('/?login=NOT_LINKED&provider=kakao')
     expect(screen.getByRole('alert').textContent).toBe('이 카카오 계정에 연결된 라이브지니 계정이 없어요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 카카오 계정을 연결해 주세요.')

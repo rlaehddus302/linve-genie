@@ -3770,7 +3770,7 @@ select.input {
 
 /* ── 간편 로그인 (L1 AC-L1-20·22, D-L1-06) ─────────────────────
  * 로그인 칸 아래 "또는" 줄, 그 아래 카카오·네이버·구글 버튼 (폭 가득, 44px 이상, 글 16px 이상, 그림 파일 없음).
- * 글 명암비: 카카오 #191919/#FEE500 ≈ 15:1, 네이버·구글 #1F1F1F/흰 바탕 ≈ 16:1 (네이버 흰 글/초록 바탕 2.2:1은 쓰지 않는다).
+ * 글 명암비: 카카오 #191919/#FEE500 ≈ 15:1, 구글 #1F1F1F/흰 바탕 ≈ 16:1. 네이버는 공식 초록 바탕·흰 글(D-UX3-28 사용자 지시 — 굵은 17px, 로고와 함께).
  * 잠긴 버튼은 공통 잠금 모양(.button:disabled)이 앞선다. */
 .social-login {
   margin-top: 1.5rem;
@@ -3795,43 +3795,91 @@ select.input {
   gap: 0.75rem;
 }
 
+/* 긴 단추: 왼쪽 공식 로고, 가운데 글, 오른쪽 "최근 로그인" 말풍선 (D-UX3-28 — 사용자 지시, 공급자 안내서 색) */
 .social-button {
+  position: relative;
   width: 100%;
-  min-height: 3rem;
+  min-height: 3.25rem;
+  padding: 0 3rem;
   font-size: 1.0625rem;
   font-weight: 700;
+  border-radius: 0.75rem;
   gap: 0.5rem;
+}
+
+.social-logo {
+  position: absolute;
+  left: 1.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.recent-login {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #ffffff;
+  background-color: #333333;
+  border-radius: 0.5rem;
+}
+
+.recent-login::before {
+  content: '';
+  position: absolute;
+  left: -0.3rem;
+  top: 50%;
+  transform: translateY(-50%);
+  border-top: 0.3rem solid transparent;
+  border-bottom: 0.3rem solid transparent;
+  border-right: 0.35rem solid #333333;
 }
 
 .social-kakao {
   color: #191919;
   background-color: #fee500;
-  border: 2px solid #fee500;
+  border: 1px solid #fee500;
 }
 
 .social-naver {
-  color: #1f1f1f;
-  background-color: #ffffff;
-  border: 2px solid #03c75a;
-}
-
-.social-naver-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.125rem 0.4375rem;
-  font-size: 1rem;
-  font-weight: 800;
-  line-height: 1;
   color: #ffffff;
   background-color: #03c75a;
-  border-radius: 0.25rem;
+  border: 1px solid #03c75a;
 }
 
 .social-google {
   color: #1f1f1f;
   background-color: #ffffff;
   border: 1px solid #747775;
+}
+
+/* 가입 판 (D-UX3-28) */
+.signup-panel h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  font-weight: 600;
+}
+
+.check-row input {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.button-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
 }
 
 .login-method-list {
@@ -4115,7 +4163,10 @@ select.input {
     background-color: #f5dc00;
   }
 
-  .social-naver:hover:not(:disabled),
+  .social-naver:hover:not(:disabled) {
+    background-color: #02b350;
+  }
+
   .social-google:hover:not(:disabled) {
     background-color: #f1f3f4;
   }

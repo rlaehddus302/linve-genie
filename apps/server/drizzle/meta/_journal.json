@@ -281,6 +281,13 @@
       "when": 1794960000013,
       "tag": "0039_ux3_broadcast_opened",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794960000014,
+      "tag": "0040_ux3_social_signup",
+      "breakpoints": true
     }
   ]
 }

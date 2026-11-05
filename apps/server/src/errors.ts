@@ -181,6 +181,7 @@ export type ErrorCode =
   | 'WAYBILL_TOO_LONG'
   // L1 간편 로그인
   | 'LOGIN_METHOD_LAST'
+  | 'LOGIN_EXPIRED'
   // X1 크롬 확장으로 채팅 읽기 (YT-10)
   | 'EXT_DISCONNECTED'
   | 'EXT_CODE_INVALID'

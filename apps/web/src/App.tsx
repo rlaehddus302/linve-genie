@@ -38,6 +38,7 @@ import { HomePage } from './components/HomePage.tsx'
 import { LabelsPage } from './components/LabelsPage.tsx'
 import { RefusalReset } from './components/LabelsOff.tsx'
 import { LandingPage } from './components/LandingPage.tsx'
+import { commitPendingLogin } from './lib/social-login.ts'
 import { LoginPage } from './components/LoginPage.tsx'
 import { Modal } from './components/Modal.tsx'
 import { PackingPage } from './components/PackingPage.tsx'
@@ -135,7 +136,10 @@ export function App() {
   const check = useCallback(async () => {
     setCheckError(null)
     try {
-      setSession({ state: 'in', me: await get<Me>('/api/me') })
+      const me = await get<Me>('/api/me')
+      // 공급자에서 돌아와 로그인됐다 — 누른 공급자를 "최근 로그인"으로 (D-UX3-28)
+      if (!isAssistant(me)) commitPendingLogin()
+      setSession({ state: 'in', me })
     } catch (error) {
       if (!isApiError(error)) throw error
       if (error.status === 401) setSession({ state: 'out', expired: false })

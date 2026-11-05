@@ -60,7 +60,7 @@ describe('AC-L1-09 비밀 보호', () => {
       expect((await flow(provider, user.id)).result.login).toBe('PROVIDER_ERROR')
       // 연결 안 된 표시 계정·이미 다른 판매자
       const stranger = w.fake.addUser(provider, { id: `ID-SENTINEL-x-${provider}`, email: 'email-sentinel-x@example.com' })
-      expect((await flow(provider, stranger.id)).result.login).toBe('NOT_LINKED')
+      expect((await flow(provider, stranger.id)).result.login).toBe('SIGNUP')
       const unlink = await client(w, seller.cookie).post('/api/auth/unlink', { provider })
       responses.push(unlink.text)
     }

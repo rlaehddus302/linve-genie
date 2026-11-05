@@ -32,9 +32,11 @@ describe('AC-L1-02 표', () => {
     worlds.push(world)
     const pg = world.database.pglite as PGlite
     expect(await columns(pg, 'login_links')).toEqual(['id', 'seller_id', 'account_id', 'provider', 'provider_user_id', 'label', 'linked_at', 'last_login_at'])
-    expect(await columns(pg, 'login_states')).toEqual(['state_hash', 'browser_hash', 'provider', 'purpose', 'seller_id', 'account_id', 'session_hash', 'verifier_enc', 'created_at', 'expires_at', 'used_at'])
+    expect(await columns(pg, 'login_states')).toEqual(['state_hash', 'browser_hash', 'provider', 'purpose', 'seller_id', 'account_id', 'session_hash', 'verifier_enc', 'created_at', 'expires_at', 'used_at', 'app_challenge'])
     expect(await columns(pg, 'sessions')).toEqual(['token_hash', 'seller_id', 'account_id', 'created_at', 'expires_at', 'extended_at', 'method'])
-    for (const table of ['login_links', 'login_states', 'sessions', 'accounts']) {
+    // D-UX3-28: 앱 로그인 challenge(검증 값의 해시)·가입 표 (표는 해시, 공급자 계정 ID는 암호화 칸)
+    expect(await columns(pg, 'login_tickets')).toEqual(['ticket_hash', 'kind', 'provider', 'app_challenge', 'seller_id', 'account_id', 'provider_user_enc', 'label', 'created_at', 'expires_at', 'used_at'])
+    for (const table of ['login_links', 'login_states', 'login_tickets', 'sessions', 'accounts']) {
       for (const name of await columns(pg, table)) expect(name, `${table}.${name}`).not.toMatch(/access|refresh|id_token|^code$|auth_code|email|nickname|^token$/)
     }
   })

@@ -55,7 +55,7 @@ describe('AC-L1-05 간편 로그인 — 가입 없음', () => {
     expect((await client(w, flow.session).get('/api/auth/methods')).status).toBe(200)
   })
 
-  it('어느 판매자에게도 연결되지 않은 계정은 NOT_LINKED — 계정·판매자·연결·세션 어느 것도 생기지 않는다 (같은 이메일이어도)', async () => {
+  it('어느 판매자에게도 연결되지 않은 계정은 가입 표(SIGNUP, D-UX3-28 — 전에는 NOT_LINKED) — 동의 전에는 계정·판매자·연결·세션 어느 것도 생기지 않는다 (같은 이메일이어도)', async () => {
     const w = await world()
     const a = await addSeller(w)
     const linked = w.fake.addUser('google', { email: 'same@example.com' })
@@ -65,7 +65,7 @@ describe('AC-L1-05 간편 로그인 — 가입 없음', () => {
     const kakaoSame = w.fake.addUser('kakao', { email: 'same@example.com' })
     for (const [provider, user] of [['google', sameEmail], ['kakao', kakaoSame]] as const) {
       const flow = await runFlow(w, provider, user.id)
-      expect(flow.result.location).toBe(`${ORIGIN}/?login=NOT_LINKED&provider=${provider}`)
+      expect(flow.result.location).toBe(`${ORIGIN}/?login=SIGNUP&provider=${provider}`)
       expect(flow.session).toBeNull()
     }
     expect(await counts(w)).toEqual(before)
@@ -200,8 +200,8 @@ describe('AC-L1-07 목록·끊기·보조자', () => {
     expect((await client(w, a.cookie).get('/api/me')).status).toBe(200)
     expect(closed).toHaveBeenCalledTimes(1)
     expect(publish).toHaveBeenCalledWith(a.sellerId, 'login', { kind: 'methods' })
-    // 끊은 뒤 그 계정으로 로그인하면 NOT_LINKED, 다른 판매자가 새로 연결할 수 있다
-    expect((await runFlow(w, 'kakao', kakao.id)).result.login).toBe('NOT_LINKED')
+    // 끊은 뒤 그 계정으로 로그인하면 가입 표(SIGNUP — D-UX3-28), 다른 판매자가 새로 연결할 수 있다
+    expect((await runFlow(w, 'kakao', kakao.id)).result.login).toBe('SIGNUP')
     const b = await addSeller(w)
     expect((await runFlow(w, 'kakao', kakao.id, { session: b.cookie })).result.login).toBe('LINKED')
   })
@@ -284,8 +284,12 @@ describe('AC-L1-07 목록·끊기·보조자', () => {
     await pgOf(w).query(`insert into login_links (seller_id, account_id, provider, provider_user_id, linked_at) values ($1, $2, 'kakao', $3, now())`, [seller.sellerId, assistantId, user.id])
     const before = (await counts(w)).sessions
     const flow = await runFlow(w, 'kakao', user.id)
-    expect(flow.result.login).toBe('NOT_LINKED')
+    // 판매자 계정 연결이 없으니 가입 표(D-UX3-28)지만, 동의해도 보조자 계정으로 세션을 만들거나 새 계정을 만들지 않는다
+    expect(flow.result.login).toBe('SIGNUP')
     expect(flow.session).toBeNull()
+    const ticket = cookieValue(flow.response.headers, '__Host-lj_signup') as string
+    const signup = await client(w, `__Host-lj_signup=${ticket}`).post('/api/auth/signup', { agree: true })
+    expect(signup.status).toBe(410)
     expect((await counts(w)).sessions).toBe(before)
   })
 })

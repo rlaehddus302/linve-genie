@@ -4,10 +4,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { configureVoiceStorage } from '../src/lib/voice-preferences.ts'
 import { fetch as expoFetch } from 'expo/fetch'
 import { getStringAsync, setStringAsync } from 'expo-clipboard'
-import { randomUUID } from 'expo-crypto'
+import { CryptoDigestAlgorithm, CryptoEncoding, digestStringAsync, getRandomBytes, randomUUID } from 'expo-crypto'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import { openBrowserAsync } from 'expo-web-browser'
+import { openAuthSessionAsync, openBrowserAsync } from 'expo-web-browser'
 import { useMemo } from 'react'
 import { Linking } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -16,6 +16,7 @@ import { configureApi } from '../src/api/config.ts'
 import { setWebOpener } from '../src/lib/open-web.ts'
 import { setPlatformOpener } from '../src/lib/open-app.ts'
 import { setClipboardReader, setClipboardWriter } from '../src/lib/clipboard.ts'
+import { setSocialNative, toBase64Url } from '../src/lib/social-auth.ts'
 import { createServices, ServicesProvider, SessionProvider } from '../src/services.tsx'
 import { TAB_SCREENS } from '../src/lib/tab-routes.ts'
 
@@ -35,6 +36,16 @@ setClipboardReader(() => getStringAsync())
 setClipboardWriter((text) => setStringAsync(text))
 installProductionNative()
 configureVoiceStorage(AsyncStorage)
+// 앱 안 간편 로그인 (D-UX3-28): 앱 위 로그인 창(ASWebAuthenticationSession·Custom Tabs) — 사파리·웹으로 넘기지 않는다
+setSocialNative({
+  openAuthSession: async (url, returnUrl) => {
+    const result = await openAuthSessionAsync(url, returnUrl)
+    return result.type === 'success' ? result.url : null
+  },
+  randomVerifier: () => toBase64Url(btoa(String.fromCharCode(...getRandomBytes(32)))),
+  sha256: async (text) => toBase64Url(await digestStringAsync(CryptoDigestAlgorithm.SHA256, text, { encoding: CryptoEncoding.BASE64 })),
+  storage: AsyncStorage,
+})
 
 export default function RootLayout() {
   const services = useMemo(() => createServices(), [])

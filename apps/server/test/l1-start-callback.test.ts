@@ -195,7 +195,7 @@ describe('AC-L1-04 돌아오는 주소 — 검사 순서·한 번만', () => {
     for (const [name, run] of cases) expect(resultOf(await run()).login, name).toBe('EXPIRED')
     expect(w.fake.exchanges).toEqual({ google: 0, kakao: 0, naver: 0 })
     // 원래 짝은 아직 쓸 수 있다 (틀린 시도가 그 state를 쓰지 않았다)
-    expect(resultOf(await openCallback(w, location, { browser: started.browser })).login).toBe('NOT_LINKED')
+    expect(resultOf(await openCallback(w, location, { browser: started.browser })).login).toBe('SIGNUP')
     // 이미 씀
     expect(resultOf(await openCallback(w, location, { browser: started.browser })).login).toBe('EXPIRED')
     // 10분 지남
@@ -232,10 +232,10 @@ describe('AC-L1-04 돌아오는 주소 — 검사 순서·한 번만', () => {
     const evil = `${location}&next=//evil.example&redirect=https://evil.example&return_to=%2F%2Fevil.example&login=LINKED&provider=google`
     const response = await openCallback(w, evil, { browser: started.browser, headers: { Host: 'evil.example', 'X-Forwarded-Host': 'evil.example' } })
     const result = resultOf(response)
-    expect(result.location).toBe(`${ORIGIN}/?login=NOT_LINKED&provider=naver`)
+    expect(result.location).toBe(`${ORIGIN}/?login=SIGNUP&provider=naver`)
     expect(response.headers.get('cache-control')).toBe('no-store')
     expect(response.headers.get('referrer-policy')).toBe('no-referrer')
-    // NOT_LINKED(실패)는 쿠키를 지우지 않는다 — Max-Age 만료에 맡긴다 (RA-L1-01)
+    // 연결 안 된 계정(D-UX3-28 가입 표 — 전에는 NOT_LINKED)은 확인 쿠키를 지우지 않는다 — Max-Age 만료에 맡긴다 (RA-L1-01)
     expect(cookieValue(response.headers, '__Host-lj_oauth')).toBeNull()
     expect(await response.text()).toBe('')
   })
@@ -355,7 +355,7 @@ describe('AC-L1-10 속도 제한·시간 제한', () => {
     const me = await client(slow, other.cookie).get('/api/me')
     const meDone = Date.now()
     expect(me.status).toBe(200)
-    expect((await flow).result.login).toBe('NOT_LINKED')
+    expect((await flow).result.login).toBe('SIGNUP')
     expect(meDone).toBeLessThan(callbackDone)
     expect(seller.loginId).not.toBe(other.loginId)
   })

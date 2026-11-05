@@ -3,18 +3,46 @@
 // 로그인 제한(429 LOGIN_RATE_LIMITED·LOGIN_BUSY)도 서버 문장 그대로. 아래에 정책 초안 링크(AC-I3-77).
 // L1 간편 로그인(AC-L1-20·21): 서버가 공급자를 켜 두었으면 로그인 칸 아래 "또는" 줄과 "카카오로 계속하기"·"네이버로 계속하기"·"구글로 계속하기"
 // (켜진 것만, 이 순서). 누르면 버튼 셋이 잠기고 같은 탭에서 승인 주소로 간다. 돌아온 결과(`/?login=<코드>&provider=<p>`)는 정해진 문장을 한 번 보이고
-// 주소에서 지운다. 가입 화면·링크는 여전히 없다(D-L1-01).
+// 주소에서 지운다.
+// D-UX3-28: 연결 안 된 공급자 계정이면 `/?login=SIGNUP` — 동의 판(이용약관·개인정보처리방침 필수 체크, 취소|동의하고 시작하기)에서 바로 가입한다.
+// 단추는 공식 로고를 왼쪽에 둔 긴 단추이고, 이 브라우저에서 마지막으로 로그인한 방법에 "최근 로그인" 표시(사용자 지시 2026-11-05).
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { isApiError, post, type ApiError } from '../api/client.ts'
 import type { Me } from '../api/types.ts'
 import { goTopLevel } from '../lib/google-return.ts'
-import { continueLabel, fetchLoginProviders, movingLabel, parseLoginResult, resultMessage, safeAuthorizeUrl, startErrorMessage, START_FAILED, stripLoginParams, type LoginProvider, type LoginResult } from '../lib/social-login.ts'
+import {
+  commitPendingLogin,
+  continueLabel,
+  dropPendingLogin,
+  fetchLoginProviders,
+  markPendingLogin,
+  movingLabel,
+  parseLoginResult,
+  readLastLogin,
+  RECENT_LOGIN,
+  rememberLastLogin,
+  resultMessage,
+  safeAuthorizeUrl,
+  SIGNUP_AGREE,
+  SIGNUP_BODY,
+  SIGNUP_BUTTON,
+  SIGNUP_HAVE_ID,
+  SIGNUP_NEED_AGREE,
+  signupTitle,
+  startErrorMessage,
+  START_FAILED,
+  stripLoginParams,
+  type LastLogin,
+  type LoginProvider,
+  type LoginResult,
+} from '../lib/social-login.ts'
+import { SOCIAL_LOGOS } from '../lib/social-logos.ts'
 import { SERVICE_NAME } from '../brand.ts'
 import { isAppTab } from '../lib/app-tab.ts'
 
 export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그인해 주세요.'
 /** 주소가 `/login`일 때만 로그인 칸 아래 (D-LND1-10 (2)) */
-export const LOGIN_ACCOUNT_NOTE = '계정은 운영자가 만들어 드려요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
+export const LOGIN_ACCOUNT_NOTE = '처음이면 카카오·네이버·구글로 바로 시작할 수 있어요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
 export const LOGIN_BACK_HOME = '처음 화면으로'
 /** 아이디·비밀번호가 틀렸을 때(LOGIN_FAILED) 서버 문장 바로 아래, alert 밖 — 모든 로그인 화면 (D-LND1-10 (3)) */
 export const LOGIN_FAILED_HINT = '아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
@@ -49,6 +77,8 @@ export function LoginPage({
   useEffect(() => {
     const path = window.location.pathname.replace(/\/+$/, '')
     if (path === '') stripLoginParams()
+    // 공급자에서 로그인되지 않고 돌아왔다 — "최근 로그인"으로 옮기지 않는다 (가입 판은 가입하면 옮긴다)
+    if (result !== null && result.code !== 'SIGNUP') dropPendingLogin()
   }, [])
 
   const submit = async (event: FormEvent) => {
@@ -59,6 +89,7 @@ export function LoginPage({
     setResult(null)
     try {
       const me = await post<Me>('/api/login', { loginId, password })
+      if (me.role !== 'ASSISTANT') rememberLastLogin('id')
       onLoggedIn(me)
     } catch (caught) {
       if (!isApiError(caught)) throw caught
@@ -70,10 +101,24 @@ export function LoginPage({
     }
   }
 
-  const message = result === null ? null : resultMessage(result)
+  const signup = result !== null && result.code === 'SIGNUP' ? result.provider : null
+  const message = result === null || signup !== null ? null : resultMessage(result)
   return (
     <main className="page">
       <h1>{SERVICE_NAME}</h1>
+      {signup !== null ? (
+        <SignupPanel
+          provider={signup}
+          onCancel={() => {
+            dropPendingLogin()
+            setResult(null)
+          }}
+          onDone={(me) => {
+            commitPendingLogin()
+            onLoggedIn(me)
+          }}
+        />
+      ) : null}
       {message !== null ? (
         <p className="notice" role={message.tone === 'success' ? 'status' : 'alert'} data-tone={message.tone === 'success' ? 'success' : 'warning'}>
           {message.text}
@@ -168,6 +213,7 @@ function SocialLogin({ onStart }: { readonly onStart: () => void }) {
     setMoving(provider)
     setError(null)
     onStart()
+    markPendingLogin(provider)
     try {
       const { authorizeUrl } = await post<{ authorizeUrl?: unknown }>('/api/auth/start', { provider })
       const target = safeAuthorizeUrl(authorizeUrl)
@@ -199,18 +245,94 @@ function SocialLogin({ onStart }: { readonly onStart: () => void }) {
   )
 }
 
-/** "카카오로 계속하기"·"네이버로 계속하기"·"구글로 계속하기" (공급자 색 — 명암비 4.5:1 이상, 그림 파일 없음, D-L1-06) */
-export function SocialButtons({ providers, moving, onPress }: { readonly providers: readonly LoginProvider[]; readonly moving: LoginProvider | null; readonly onPress: (provider: LoginProvider) => void }) {
+/** 가입 판 (D-UX3-28): 동의 체크(필수) → 동의하고 시작하기. 표가 오래됐으면 서버 문장 */
+function SignupPanel({ provider, onCancel, onDone }: { readonly provider: LoginProvider; readonly onCancel: () => void; readonly onDone: (me: Me) => void }) {
+  const [agree, setAgree] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async () => {
+    if (busy) return
+    if (!agree) {
+      setError(SIGNUP_NEED_AGREE)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      onDone(await post<Me>('/api/auth/signup', { agree: true }))
+    } catch (caught) {
+      if (!isApiError(caught)) throw caught
+      setError(caught.message)
+      setBusy(false)
+    }
+  }
+  return (
+    <section className="notice signup-panel stack-tight" aria-labelledby="signup-title">
+      <h2 id="signup-title">{signupTitle(provider)}</h2>
+      <p>{SIGNUP_BODY}</p>
+      <label className="check-row">
+        <input type="checkbox" checked={agree} onChange={(event) => {
+          setAgree(event.target.checked)
+          setError(null)
+        }} />
+        <span>{SIGNUP_AGREE}</span>
+      </label>
+      <p className="row policy-links">
+        <a href="/terms" target="_blank" rel="noreferrer">이용약관 보기</a>
+        <a href="/privacy" target="_blank" rel="noreferrer">개인정보처리방침 보기</a>
+      </p>
+      {error !== null ? (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="button-pair">
+        <button type="button" className="button" disabled={busy} onClick={onCancel}>
+          취소
+        </button>
+        <button type="button" className="button button-primary" disabled={busy} onClick={() => void submit()}>
+          {SIGNUP_BUTTON}
+        </button>
+      </div>
+      <p className="field-hint">{SIGNUP_HAVE_ID}</p>
+    </section>
+  )
+}
+
+/** 공급자 공식 로고 (그림 파일 없이 SVG 경로) */
+export function SocialLogo({ provider }: { readonly provider: LoginProvider }) {
+  const logo = SOCIAL_LOGOS[provider]
+  return (
+    <svg className="social-logo" viewBox={logo.viewBox} width="22" height="22" aria-hidden="true" focusable="false">
+      {logo.paths.map((path) => (
+        <path key={path.d} d={path.d} fill={path.fill} />
+      ))}
+    </svg>
+  )
+}
+
+/**
+ * "카카오로 계속하기"·"네이버로 계속하기"·"구글로 계속하기": 폭 가득한 긴 단추, 왼쪽에 공식 로고, 가운데 글 (공급자 안내서 색 — D-UX3-28).
+ * last = 이 브라우저에서 마지막으로 로그인한 방법 — 그 단추에 "최근 로그인" 말풍선
+ */
+export function SocialButtons({
+  providers,
+  moving,
+  onPress,
+  last = readLastLogin(),
+}: {
+  readonly providers: readonly LoginProvider[]
+  readonly moving: LoginProvider | null
+  readonly onPress: (provider: LoginProvider) => void
+  readonly last?: LastLogin | null
+}) {
   return (
     <div className="social-buttons">
       {providers.map((provider) => (
         <button key={provider} type="button" className={`button social-button social-${provider}`} disabled={moving !== null} onClick={() => onPress(provider)}>
-          {provider === 'naver' ? (
-            <span className="social-naver-mark" aria-hidden="true">
-              N
-            </span>
-          ) : null}
-          <span>{moving === provider ? movingLabel(provider) : continueLabel(provider)}</span>
+          <SocialLogo provider={provider} />
+          <span className="social-label">{moving === provider ? movingLabel(provider) : continueLabel(provider)}</span>
+          {last === provider ? <span className="recent-login">{RECENT_LOGIN}</span> : null}
         </button>
       ))}
     </div>

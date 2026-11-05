@@ -1,7 +1,9 @@
 // 로그인 화면 (APP-01 AC1 "앱을 열면 로그인 화면"): 아이디·비밀번호 칸, 틀리면 서버 문장 그대로 + 안내, 맞으면 onLogin.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../src/api/client.ts'
+import { configureApi } from '../src/api/config.ts'
+import { setSocialNative } from '../src/lib/social-auth.ts'
 import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SESSION_EXPIRED_MESSAGE } from '../src/lib/words.ts'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
 
@@ -42,5 +44,72 @@ describe('LoginScreen', () => {
     expect(screen.queryByText(SESSION_EXPIRED_MESSAGE)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '다시 확인' }))
     await waitFor(() => expect(onRecheck).toHaveBeenCalledTimes(1))
+  })
+
+  describe('D-UX3-28 앱 안 간편 로그인', () => {
+    afterEach(() => setSocialNative(null))
+
+    const install = (back: string | null, replies: Record<string, unknown>, stored: Record<string, string> = {}) => {
+      const calls: { url: string; body: unknown }[] = []
+      configureApi({
+        baseUrl: 'https://livegenie.test',
+        fetch: async (input, init) => {
+          const url = String(input)
+          calls.push({ url, body: init?.body === undefined ? null : JSON.parse(String(init.body)) })
+          if (url.endsWith('/api/client-config')) return new Response(JSON.stringify({ loginProviders: ['kakao', 'naver', 'google'] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+          const path = new URL(url).pathname
+          const reply = replies[path]
+          return new Response(JSON.stringify(reply ?? {}), { status: reply === undefined ? 404 : 200, headers: { 'Content-Type': 'application/json' } })
+        },
+      })
+      const opened: string[] = []
+      setSocialNative({
+        openAuthSession: async (url) => {
+          opened.push(url)
+          return back
+        },
+        randomVerifier: () => 'V'.repeat(43),
+        sha256: async () => 'C'.repeat(43),
+        storage: { getItem: async (key) => stored[key] ?? null, setItem: async (key, value) => void (stored[key] = value) },
+      })
+      return { calls, opened, stored }
+    }
+
+    it('공식 로고 긴 단추 셋, 웹으로 열지 않고 앱 로그인 창으로 시작 주소를 연다. 돌아온 표로 로그인되면 onSocialDone·최근 로그인', async () => {
+      const t = install('livejjim://auth?ticket=' + 'T'.repeat(43) + '&provider=kakao', { '/api/auth/app/finish': { result: 'LOGGED_IN', me: {} } })
+      const onSocialDone = vi.fn(async () => {})
+      render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
+      const kakao = await screen.findByRole('button', { name: '카카오로 계속하기' })
+      expect(screen.getByRole('button', { name: '네이버로 계속하기' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '구글로 계속하기' })).toBeTruthy()
+      fireEvent.click(kakao)
+      await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1))
+      expect(t.opened).toEqual([`https://livegenie.test/api/auth/app/start?provider=kakao&challenge=${'C'.repeat(43)}`])
+      expect(t.calls.find((c) => c.url.endsWith('/api/auth/app/finish'))?.body).toEqual({ ticket: 'T'.repeat(43), verifier: 'V'.repeat(43) })
+      expect(t.stored['livejjim:last-login']).toBe('kakao')
+    })
+
+    it('처음 계정이면 동의 판: 체크 없이는 안내, 체크하고 "동의하고 시작하기"면 표·검증 값으로 가입', async () => {
+      const t = install('livejjim://auth?ticket=' + 'T'.repeat(43) + '&provider=naver', { '/api/auth/app/finish': { result: 'SIGNUP', provider: 'naver' }, '/api/auth/signup': { seller: { name: '내 가게' } } })
+      const onSocialDone = vi.fn(async () => {})
+      render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
+      fireEvent.click(await screen.findByRole('button', { name: '네이버로 계속하기' }))
+      await screen.findByText('네이버 계정으로 처음 오셨어요')
+      fireEvent.click(screen.getByRole('button', { name: '동의하고 시작하기' }))
+      await screen.findByText('동의에 체크해 주세요.')
+      fireEvent.click(screen.getByRole('checkbox', { name: '이용약관과 개인정보처리방침에 동의해요 (필수)' }))
+      fireEvent.click(screen.getByRole('button', { name: '동의하고 시작하기' }))
+      await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1))
+      expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup'))?.body).toEqual({ agree: true, ticket: 'T'.repeat(43), verifier: 'V'.repeat(43) })
+      expect(t.stored['livejjim:last-login']).toBe('naver')
+    })
+
+    it('취소하고 돌아오면 정한 문장, 창을 닫으면 아무 문장 없음. 마지막 방법에 "최근 로그인"', async () => {
+      install('livejjim://auth?login=CANCELLED&provider=google', {}, { 'livejjim:last-login': 'google' })
+      render(<LoginScreen expired={false} onLogin={async () => {}} />)
+      const google = await screen.findByRole('button', { name: '구글로 계속하기, 최근 로그인' })
+      fireEvent.click(google)
+      await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('구글 로그인을 취소했어요. 다시 하려면 버튼을 눌러 주세요.'))
+    })
   })
 })
