@@ -154,6 +154,19 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     const video = typeof raw === 'string' && raw.length <= 2048 ? raw : ''
     return linkResponse(c, await youtube.link(info(c), c.req.param('id'), video, requestId, confirm === true))
   })
+  // 잇기 전 미리 보기 (D-UX4-08): { video } → { title, channelTitle }. 아무것도 넣지 않는다. 서버 읽기가 아니면 404 PREVIEW_UNAVAILABLE(화면은 옛 흐름)
+  api.post('/youtube/preview', async (c) => {
+    if (youtube === null) return notConfigured()
+    const input = body(c)
+    const extra = onlyKeys(input, ['video'])
+    if (extra !== null) return extra
+    const raw = own(input, 'video')
+    const video = typeof raw === 'string' && raw.length <= 2048 ? raw : ''
+    const outcome = await youtube.preview(sellerOf(c), video)
+    if (outcome === null) return apiError(404, 'PREVIEW_UNAVAILABLE', '찾을 수 없어요.')
+    if (outcome.kind === 'rejected') return apiError(outcome.status, outcome.code as ErrorCode, LINK_MESSAGES[outcome.code])
+    return c.json({ title: outcome.title, channelTitle: outcome.channelTitle })
+  })
   api.post('/broadcasts/:id/youtube/unlink', async (c) => {
     if (youtube === null) return notConfigured()
     const input = body(c)

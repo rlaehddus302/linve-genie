@@ -35,6 +35,9 @@ import {
   broadcastChannelLine,
   channelName,
   firstChannelPopup,
+  broadcastTitleText,
+  LINK_CHECK_GROUP,
+  linkCheckPopup,
   linkedChannelName,
   readModeOf,
   recentLine,
@@ -338,7 +341,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [ask, setAsk] = useState<{ video: string; name: string } | null>(null)
+  /** 잇기 전 확인 (D-UX4-08): title이 있으면 미리 본 방송(제목·채널), 없으면 서버가 처음 잇는 채널이라고 알린 것 */
+  const [ask, setAsk] = useState<{ video: string; name: string; title: string | null } | null>(null)
   // 팝업이 닫히는 동안에도 채널 이름이 남아 있게
   const shownAsk = useRef(ask)
   if (ask !== null) shownAsk.current = ask
@@ -419,16 +423,40 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
     const found = liveLinkOf(text)
     if (found === null) {
       // 유튜브 영상 번호만 넣은 것도 서버가 판정한다 (전과 같다)
-      if (!/[/.\s]/.test(text)) void link(text)
+      if (!/[/.\s]/.test(text)) void check(text)
       else setError(UNKNOWN_LINK)
       return
     }
-    if (found.platform === 'youtube') void link(found.url)
+    if (found.platform === 'youtube') void check(found.url)
     else if (found.platform === 'tiktok') void sendOther((requestId) => ({ platform: 'tiktok', body: { requestId, url: found.url } }), `tiktok ${found.url}`)
     else {
       setError(null)
       setStep('bandPick')
     }
+  }
+
+  /** 서버 읽기면 잇기 전에 늘 방송 제목·채널 이름을 미리 보고 확인 팝업을 띄운다 (D-UX4-08 — 처음이든 아니든). 미리 보기가 없는 서버면 옛 흐름 */
+  const check = async (video: string) => {
+    if (busy || disabled === true || video.trim() === '') return
+    if (webChat === null) {
+      void link(video)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setAsk(null)
+    let fallback = false
+    try {
+      const seen = await withRetry(() => post<{ title?: unknown; channelTitle?: unknown }>('/api/youtube/preview', { video }))
+      setAsk({ video, name: channelName(seen.channelTitle), title: broadcastTitleText(seen.title) })
+    } catch (caught) {
+      if (!isApiError(caught)) throw caught
+      if (caught.code === 'PREVIEW_UNAVAILABLE') fallback = true
+      else setError(shortLinkError(caught))
+    } finally {
+      setBusy(false)
+    }
+    if (fallback) void link(video)
   }
 
   const link = async (video: string, confirmed = false) => {
@@ -448,7 +476,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
       if (!confirmed && caught.code === INVITED_CONFIRM_CODE) {
         const channel = caught.details.channel
         const title = typeof channel === 'object' && channel !== null ? (channel as { title?: unknown }).title : undefined
-        setAsk({ video, name: channelName(title) })
+        setAsk({ video, name: channelName(title), title: null })
       } else setError(shortLinkError(caught))
     } finally {
       setBusy(false)
@@ -485,7 +513,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
                 {other ? ' · 다른 방송에 이어져 있어요' : ''}
               </Body>
               <Row>
-                <BigButton small label="잇기" ariaLabel={`${line} 잇기`} disabled={off || other} onPress={() => void link(item.videoId)} />
+                <BigButton small label="잇기" ariaLabel={`${line} 잇기`} disabled={off || other} onPress={() => void check(item.videoId)} />
               </Row>
             </Stack>
           )
@@ -509,8 +537,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
       />
       <PopupDialog
         visible={ask !== null}
-        name={FIRST_CHANNEL_GROUP}
-        message={firstChannelPopup(shownAsk.current?.name ?? '')}
+        name={shownAsk.current?.title == null ? FIRST_CHANNEL_GROUP : LINK_CHECK_GROUP}
+        message={shownAsk.current?.title == null ? firstChannelPopup(shownAsk.current?.name ?? '') : linkCheckPopup(shownAsk.current.title, shownAsk.current.name)}
         cancelLabel="아니에요"
         confirmLabel="맞아요"
         busy={off}

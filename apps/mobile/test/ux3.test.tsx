@@ -117,7 +117,15 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
     world.server.on('POST', /^\/api\/broadcasts$/, (call) => ({ body: { date: '2026-11-03', rehearsal: false, seq: 1, type: 'broadcast.start', changed: true, effects: [], broadcast: { id: 'b9', date: '2026-11-03', title: String(call.body?.title ?? ''), rehearsal: false } } }))
     world.server.on('POST', /^\/api\/broadcasts\/b9\/youtube$/, () => ({ body: { link: null, collector: null } }))
+    // 잇기 전 미리 보기 (D-UX4-08)
+    world.server.on('POST', /^\/api\/youtube\/preview$/, () => ({ body: { title: '오늘의 다육이', channelTitle: '다육이네' } }))
     return world
+  }
+  /** 잇기 전 확인 팝업 (D-UX4-08 — 처음이든 아니든): 제목·채널을 보고 [맞아요] */
+  const agree = async () => {
+    const ask = await screen.findByRole('alertdialog', { name: '이을 방송 확인' })
+    expect(ask.textContent).toContain('제목: 오늘의 다육이\n채널: 다육이네')
+    fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
   }
   const newNav = () => ({ back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() })
   afterEach(() => {
@@ -161,9 +169,13 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     expect(within(page).queryByRole('button', { name: '주소 없이 시작' })).toBeNull()
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    // 확인 팝업에서 [맞아요]를 누르기 전엔 방송을 만들지 않는다 (D-UX4-08)
+    await screen.findByRole('alertdialog', { name: '이을 방송 확인' })
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(0)
+    await agree()
     await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
     expect(String(world.server.callsTo('POST', /^\/api\/broadcasts$/)[0]?.body?.title)).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 다육이 방송$/)
-    expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)[0]?.body).toEqual({ requestId: expect.any(String), video: 'https://www.youtube.com/watch?v=tWnNGwvdN40' })
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)[0]?.body).toEqual({ requestId: expect.any(String), video: 'https://www.youtube.com/watch?v=tWnNGwvdN40', confirmInvited: true })
   })
 
   it('링크를 이으면 방송 화면 전에 라벨 단계로 (D-UX3-19, 사용자 지시 2026-11-03 "링크 붙여넣은 다음에 라벨 프린트 할건지 물어보고")', async () => {
@@ -173,6 +185,7 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     const page = screen.getByRole('dialog', { name: '새 방송' })
     fireEvent.change(await within(page).findByLabelText('방송 링크'), { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledWith('b9'))
     expect(nav.openConsole).not.toHaveBeenCalled()
   })
@@ -186,15 +199,20 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     const address = await within(page).findByLabelText('방송 링크')
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(1))
     // 뒤로 와서 같은 링크로 [확인] — 방송을 또 만들지 않고, 잇기 요청도 다시 보내지 않는다
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '이을 방송 확인' })).toBeNull())
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(2))
     expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(1)
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)).toHaveLength(1)
     // 다른 링크로 바꾸면 먼저 이은 것을 끊고 새 링크를 잇는다
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=AAAAAAAAAAA' } })
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '이을 방송 확인' })).toBeNull())
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(3))
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube\/unlink$/)).toHaveLength(1)
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/).map((call) => (call.body as { video: string }).video)).toEqual(['https://www.youtube.com/watch?v=tWnNGwvdN40', 'https://www.youtube.com/watch?v=AAAAAAAAAAA'])
@@ -387,7 +405,8 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: null, webChat: { on: true }, oauth: true } }))
     world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
     world.server.on('POST', /^\/api\/broadcasts$/, () => ({ body: { date: '2026-11-03', rehearsal: false, seq: 1, type: 'broadcast.start', changed: true, effects: [], broadcast: { id: 'b9', date: '2026-11-03', title: 't', rehearsal: false } } }))
-    world.server.on('POST', /^\/api\/broadcasts\/b9\/youtube$/, (call) =>
+    // 거절은 잇기 전 미리 보기에서 온다 (D-UX4-08)
+    world.server.on('POST', /^\/api\/youtube\/preview$/, (call) =>
       call.body?.video === 'https://youtu.be/NOCHAT00001'
         ? { status: 409, body: { error: { code: 'NO_LIVE_CHAT', message: '이 영상에는 실시간 채팅이 없어요. 라이브 방송이 시작됐는지, 채팅이 켜져 있는지 확인해 주세요.' } } }
         : { status: 400, body: { error: { code: 'INVALID_VIDEO_URL', message: '유튜브 영상 주소를 알아볼 수 없어요. 주소를 다시 확인해 주세요.' } } },

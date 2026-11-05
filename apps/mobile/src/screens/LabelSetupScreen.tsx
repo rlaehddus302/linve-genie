@@ -2,10 +2,13 @@
 // 연결 확인하고 라벨 디자인 커스텀 한 다음에 테스트 출력한다음에 본방송으로"): 링크를 이은 뒤 방송 화면 전에 한 장씩.
 // 1) "라벨을 뽑을까요?" — 설명 세 줄 + 라벨이 뽑혀 나오는 그림(D-UX4-03). [괜찮아요](왼쪽)는 라벨 기능을 끄고(L-13) 방송으로, [뽑을게요](오른쪽)는 꺼져 있으면 켠다.
 // 2) "라벨 프린터를 연결해 주세요" — 전원·블루투스 그림(D-UX4-04). 들어오면 바로 찾기 시작: 기억한 프린터면 고르기 없이 다시 잇고,
-//    아니면 주변 프린터 목록을 이 화면에 바로 보인다(찾는 동안 계속 늘어나고, 아무것도 없으면 10초마다 다시 찾음). 단추는 [새로고침] 하나.
+//    아니면 주변 프린터 목록을 이 화면에 바로 보인다(찾는 동안 계속 늘어나고, 아무것도 없으면 10초마다 다시 찾음).
+//    그림은 왼쪽 휴대폰(블루투스)·오른쪽 프린터(전원)가 이어지는 모습, [새로고침]은 없다(저절로 다시 찾음). 줄을 누르면 이 화면에서 그 줄에
+//    "연결하는 중…" → "연결됐어요"를 보이고, 이어진 뒤에야 아래 [다음] (D-UX4-10).
 // 3) "출력될 라벨을 꾸며 주세요" (D-UX4-05) — 미리 보기는 위에 붙어 있고, 라벨 안 칸을 누르면 그 칸이 골라지며 아래 그 칸 설정으로 옮겨 간다.
 //    골라진 칸은 끌어서 옮기고 오른쪽 아래 손잡이로 크기(글자 크기도 같이)를 바꾼다. 앱에는 라벨 그리기 코드가 없어(APP-01 AC3) 서버가 초안을 견본 값으로 그려 준다.
-// 4) 테스트 인쇄 → "또렷하게 보이나요?" [예]면 이 기기를 출력 기기로 하고 방송으로. [아니요]면 도움말과 다시 인쇄.
+// 4) 테스트 라벨은 골라서 — [건너뛰기](왼쪽)는 바로 이 기기를 출력 기기로 하고 방송으로, [테스트 인쇄](오른쪽) (D-UX4-11).
+//    뽑으면 "또렷하게 보이나요?" [예]면 출력 기기로 하고 방송으로. [아니요]면 도움말과 다시 인쇄.
 // 단추 둘은 늘 좌우 — 부정 왼쪽, 긍정 오른쪽 (D-UX4-01). 프린터를 '기본·실험'으로 나눠 보이지 않는다.
 import { printerProfile, labelSizesForProfileId } from '@livejjim/printer'
 import type { ProductItemId, ProductTemplate, TemplateItem } from '@livejjim/label'
@@ -13,6 +16,7 @@ import type { QueueSummary, StoredTemplate, Templates } from '@livejjim/web/src/
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Image, PanResponder, Pressable, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native'
 import { get, isApiError, post, put } from '../api/client.ts'
+import type { PickEntry } from '@livejjim/mobile-ble'
 import { cancelPrinterPick, pickPrinter, useInlinePrinterPick } from '../native/printer-pick.ts'
 import { sizeWordMm, testHelp } from '../lib/test-help.ts'
 import { RETRY_NOW } from '../lib/words.ts'
@@ -27,9 +31,12 @@ export const LABEL_ASK_TITLE = '라벨을 뽑을까요?'
 /** 설명은 읽기 쉽게 줄을 나눈다 (D-UX4-03, 사용자 지시 2026-11-03 그대로) */
 export const LABEL_ASK_BODY = '찜이 확정되면 라벨 프린터로 바로 출력해요.\n상품 번호, 가격, 구매자 이름 등을 기록할 수 있어서\n나중에 포장할 때 헷갈리지 않아요.'
 export const CONNECT_TITLE = '라벨 프린터를 연결해 주세요'
-export const CONNECT_BODY = '프린터 전원을 켜고 휴대폰 가까이 두세요.\n블루투스가 켜져 있어야 해요.'
+/** 휴대폰 블루투스를 켜라는 것을 분명히 (D-UX4-10, 사용자 지시 2026-11-05) */
+export const CONNECT_BODY = '프린터 전원을 켜고 휴대폰 가까이 두세요.\n휴대폰 블루투스가 켜져 있어야 해요.'
 export const DESIGN_TITLE = '출력될 라벨을 꾸며 주세요'
-export const TEST_TITLE = '테스트 라벨을 뽑아 볼게요'
+export const TEST_TITLE = '테스트 라벨을 뽑아 볼까요?'
+/** 테스트는 골라서 (D-UX4-11) */
+export const TEST_BODY = '뽑아 보면 프린터와 라벨이 잘 맞는지 알 수 있어요.\n테두리와 한글이 있는 테스트 라벨이 한 장 나와요.'
 /** 출력 기기 이름 (라벨 화면 기본과 같다) */
 const DEVICE_NAME = '내 휴대폰'
 /** 아무 프린터도 못 찾으면 다시 찾는 간격 (D-UX4-04) */
@@ -177,7 +184,7 @@ export function LabelSetupScreen({ onBack, onDone }: { readonly onBack: () => vo
   return <TestStep busy={busy} run={run} onBack={() => go('design')} onDone={onDone} error={errorLine} />
 }
 
-/** 2) 프린터 연결과 확인 — 들어오면 바로 찾고, 찾은 프린터를 이 화면에 줄로 (D-UX4-04) */
+/** 2) 프린터 연결과 확인 — 들어오면 바로 찾고, 찾은 프린터를 이 화면에 줄로 (D-UX4-04). 고른 줄에서 바로 연결 확인, 이어지면 [다음] (D-UX4-10) */
 function ConnectStep({ onBack, onNext }: { readonly onBack: () => void; readonly onNext: () => void }) {
   const { labels } = useServices()
   const { p } = useKit()
@@ -186,6 +193,8 @@ function ConnectStep({ onBack, onNext }: { readonly onBack: () => void; readonly
   const linked = snapshot.printer === 'CONNECTED' || snapshot.printer === 'PRINTING'
   const name = linked ? ((snapshot.profileId === null ? undefined : printerProfile(snapshot.profileId))?.displayName ?? (snapshot.target === 'test' ? '시험용 프린터' : '라벨 프린터')) : null
   const attempt = useRef<Promise<void> | null>(null)
+  /** 판매자가 고른 줄 — 고르면 찾기 목록이 닫혀도 그 줄은 남겨 연결 상태를 보인다 */
+  const [picked, setPicked] = useState<PickEntry | null>(null)
 
   /** 찾기 시작 — 기억한 프린터면 고르기 없이 다시 잇고, 아니면 주변 프린터를 찾는다 (label-queue reconnect) */
   const start = useCallback(() => {
@@ -194,7 +203,7 @@ function ConnectStep({ onBack, onNext }: { readonly onBack: () => void; readonly
       attempt.current = null
     })
   }, [labels])
-  /** [새로고침]: 지금 찾기를 그만두고 처음부터 다시 */
+  /** 지금 찾기를 그만두고 처음부터 다시 (아무것도 못 찾았을 때 잠깐마다) */
   const refresh = useCallback(async () => {
     cancelPrinterPick()
     await attempt.current
@@ -205,13 +214,17 @@ function ConnectStep({ onBack, onNext }: { readonly onBack: () => void; readonly
     await attempt.current
     await labels.connect('test')
   }
+  const choose = (entry: PickEntry) => {
+    setPicked(entry)
+    pickPrinter(entry.device)
+  }
 
   // 들어오면 바로 찾는다 (이미 잇는 중이거나 이어져 있으면 그대로)
   useEffect(() => {
     if (labels.getSnapshot().printer === 'DISCONNECTED') start()
   }, [labels, start])
-  // 아무것도 못 찾으면 잠깐마다 다시 찾는다 — 찾은 것이 있으면 찾기가 이어지며 목록이 저절로 늘어난다
-  const nothingYet = !linked && (found === null || found.length === 0)
+  // 아무것도 못 찾으면 잠깐마다 다시 찾는다 — 찾은 것이 있으면 찾기가 이어지며 목록이 저절로 늘어난다. 고른 줄을 잇는 동안은 기다린다
+  const nothingYet = !linked && picked === null && (found === null || found.length === 0)
   useEffect(() => {
     if (!nothingYet) return
     const timer = setInterval(() => {
@@ -222,15 +235,20 @@ function ConnectStep({ onBack, onNext }: { readonly onBack: () => void; readonly
 
   // 그만둔 고르기(NOT_SELECTED)는 판매자가 한 일이 아니라 다시 찾는 중이라 보이지 않는다
   const problem = snapshot.printerError !== null && snapshot.printerError.code !== 'NOT_SELECTED' && !linked ? snapshot.printerError.message : null
+  // 고른 프린터로 잇지 못하면 고른 줄을 풀고 다시 찾는다
+  useEffect(() => {
+    if (problem !== null && snapshot.printer === 'DISCONNECTED') setPicked(null)
+  }, [problem, snapshot.printer])
+
+  const rows = found !== null && found.length > 0 ? found : picked === null ? [] : [picked]
+  const stateOf = (entry: PickEntry) => (picked === null || picked.device.id !== entry.device.id ? null : linked ? 'done' : 'busy')
   return (
-    <FormPage
-      title={CONNECT_TITLE}
-      name="프린터 연결"
-      onBack={onBack}
-      testID="label-setup-connect"
-      actions={linked ? <BigButton label="다음" onPress={onNext} /> : <BigButton kind="outline" label="새로고침" onPress={() => void refresh()} />}
-    >
-      {linked ? (
+    <FormPage title={CONNECT_TITLE} name="프린터 연결" onBack={onBack} testID="label-setup-connect" actions={linked ? <BigButton label="다음" onPress={onNext} /> : null}>
+      <Txt step="bodyLarge" color="textSub">
+        {CONNECT_BODY}
+      </Txt>
+      <PrinterConnectArt />
+      {linked && rows.length === 0 ? (
         <View role="status" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.soft }}>
           <Icon name="check" color={p.primary} size={24} />
           <View style={{ flex: 1, gap: 2 }}>
@@ -241,27 +259,40 @@ function ConnectStep({ onBack, onNext }: { readonly onBack: () => void; readonly
           </View>
         </View>
       ) : (
-        <>
-          <Txt step="bodyLarge" color="textSub">
-            {CONNECT_BODY}
-          </Txt>
-          <PrinterConnectArt />
-          <View role="group" aria-label="주변 프린터" style={{ gap: SPACE.xs }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-              <Txt step="caption" weight="bold" color="textSub">
-                주변 프린터
-              </Txt>
-              <ActivityIndicator size="small" color={p.textSub} />
-            </View>
-            {found === null || found.length === 0 ? (
-              <Txt color="textSub">가까운 프린터를 찾고 있어요…</Txt>
-            ) : (
-              found.map((entry) => <ListRow key={entry.device.id} title={entry.title} subtitle={entry.detail} ariaLabel={`${entry.title} — ${entry.detail}`} onPress={() => pickPrinter(entry.device)} />)
-            )}
+        <View role="group" aria-label="주변 프린터" style={{ gap: SPACE.xs }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+            <Txt step="caption" weight="bold" color="textSub">
+              주변 프린터
+            </Txt>
+            {linked ? null : <ActivityIndicator size="small" color={p.textSub} />}
           </View>
-          {snapshot.testPrinter ? <SmallButton label="시험용 프린터" onPress={() => void useTest()} /> : null}
-        </>
+          {rows.length === 0 ? (
+            <Txt color="textSub">가까운 프린터를 찾고 있어요…</Txt>
+          ) : (
+            rows.map((entry) => {
+              const state = stateOf(entry)
+              const right =
+                state === 'done' ? (
+                  <View role="status" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+                    <Icon name="check" color={p.primary} size={20} />
+                    <Txt weight="bold" color="primaryText">
+                      연결됐어요
+                    </Txt>
+                  </View>
+                ) : state === 'busy' ? (
+                  <View role="status" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+                    <ActivityIndicator size="small" color={p.textSub} />
+                    <Txt color="textSub">연결하는 중…</Txt>
+                  </View>
+                ) : undefined
+              // 고른 뒤에는 다른 줄을 눌러도 바꾸지 않는다 — 잇는 중에 또 고르면 꼬인다
+              const onPress = picked === null && !linked ? () => choose(entry) : undefined
+              return <ListRow key={entry.device.id} title={entry.title} subtitle={entry.detail} ariaLabel={`${entry.title} — ${entry.detail}`} right={right} onPress={onPress} />
+            })
+          )}
+        </View>
       )}
+      {snapshot.testPrinter && !linked ? <SmallButton label="시험용 프린터" onPress={() => void useTest()} /> : null}
       {problem !== null ? (
         <Notice tone="danger" alert>
           {problem}
@@ -633,7 +664,12 @@ function TestStep({ busy, run, onBack, onDone, error }: { readonly busy: boolean
           </>
         ) : (
           <>
-            {answeredNo ? <BigButton kind="outline" label="나중에 하기" ariaLabel="라벨은 나중에 하고 방송 시작" disabled={busy} onPress={onDone} /> : null}
+            {answeredNo ? (
+              <BigButton kind="outline" label="나중에 하기" ariaLabel="라벨은 나중에 하고 방송 시작" disabled={busy} onPress={onDone} />
+            ) : (
+              // 테스트 라벨은 골라서 — 건너뛰어도 이 기기를 출력 기기로 하고 방송으로 (D-UX4-11). 확인이 덜 된 기종은 테스트 "예" 전까지 받지 않는다(D-PRN2-10)
+              <BigButton kind="outline" label="건너뛰기" ariaLabel="테스트 인쇄 없이 방송 시작" disabled={busy || snapshot.testing} onPress={() => finish(false)} />
+            )}
             <BigButton label={answeredNo ? '다시 인쇄' : '테스트 인쇄'} ariaLabel={answeredNo ? '다시 테스트 인쇄' : '테스트 인쇄'} busy={busy || snapshot.testing} disabled={!linked || snapshot.job !== null} onPress={printTest} />
           </>
         )
@@ -646,7 +682,9 @@ function TestStep({ busy, run, onBack, onDone, error }: { readonly busy: boolean
           {TEST_QUESTION}
         </Txt>
       ) : (
-        <Txt color="textSub">프린터에서 테두리와 한글이 있는 테스트 라벨이 한 장 나와요.</Txt>
+        <Txt step="bodyLarge" color="textSub">
+          {TEST_BODY}
+        </Txt>
       )}
       {!linked ? <Notice tone="warning">프린터 연결이 끊겼어요. 뒤로 가서 다시 연결해 주세요.</Notice> : null}
       {answeredNo ? (

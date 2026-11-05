@@ -182,6 +182,7 @@ export type ErrorCode =
   // L1 간편 로그인
   | 'LOGIN_METHOD_LAST'
   | 'LOGIN_EXPIRED'
+  | 'PREVIEW_UNAVAILABLE'
   // X1 크롬 확장으로 채팅 읽기 (YT-10)
   | 'EXT_DISCONNECTED'
   | 'EXT_CODE_INVALID'
