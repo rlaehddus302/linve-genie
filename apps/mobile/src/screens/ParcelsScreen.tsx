@@ -3,7 +3,7 @@
 // (택배 꼬리표·마지막 확인 시각·운송장 PDF·접수 취소). 주 버튼 "N개 택배 접수하기" → 한 번 더 묻기 → 같은 요청 번호로 한 번(끊기면 같은 번호로 다시).
 // 운송장 PDF는 휴대폰 공유 시트로 넘긴다(프린트·카톡 등). 다른 기기의 접수·포장·입금은 실시간 알림으로 다시 읽고, 기다리는 줄이 있으면 30초마다 다시 읽는다.
 // 이름은 서버가 정한 표시 이름(BUY-01)을 그대로, 글자로만 그린다.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { BookResponse, BookResult, BoxKind, ParcelDay, ParcelDays, ParcelRow } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
@@ -41,7 +41,7 @@ import type { PackingWord } from '@livejjim/web/src/api/types.ts'
 import { get, getBytes, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile } from '../native/index.ts'
-import { useServices } from '../services.tsx'
+import { useParcelVersion } from '../lib/parcel-version.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, Card, ConfirmSheet, Icon, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
@@ -60,45 +60,10 @@ export function bookSummary(results: readonly BookResult[]): string {
 }
 
 export interface ParcelsNavigation {
-  /** 배송지 보기 → 정산(그날) */
-  readonly openSettle?: (date: string) => void
+  /** 배송지 보기 → 정산(그날 그 손님 자세히의 배송지 칸, D-UX3-35) */
+  readonly openSettle?: (date: string, buyer: string) => void
   /** 택배 설정(보내는 사람·택배사) */
   readonly openSettings?: () => void
-}
-
-/** 실시간 알림(택배·포장·정산 바뀜·다시 붙음)으로 늘어나는 값 */
-function useParcelVersion(date: string | null): [number, () => void] {
-  const { stream } = useServices()
-  const [version, setVersion] = useState(0)
-  const bump = useCallback(() => setVersion((n) => n + 1), [])
-  useEffect(() => {
-    const view = stream.open()
-    let ready = 0
-    const parse = (data: string | undefined): { date?: string; rehearsal?: boolean; settings?: boolean } => {
-      try {
-        return JSON.parse(data ?? '{}') as { date?: string; rehearsal?: boolean; settings?: boolean }
-      } catch {
-        return {}
-      }
-    }
-    view.addEventListener('ready', () => {
-      ready++
-      if (ready > 1) bump()
-    })
-    view.addEventListener('parcel', (event) => {
-      const scope = parse(event.data)
-      if (scope.settings === true || scope.date === undefined || scope.date === date) bump()
-    })
-    view.addEventListener('packing', (event) => {
-      if (parse(event.data).date === date) bump()
-    })
-    view.addEventListener('change', (event) => {
-      const scope = parse(event.data)
-      if (scope.rehearsal !== true && scope.date === date) bump()
-    })
-    return () => view.close()
-  }, [date, bump, stream])
-  return [version, bump]
 }
 
 export function ParcelsScreen({ onBack, initialDate, nav = {} }: { readonly onBack: () => void; readonly initialDate?: string; readonly nav?: ParcelsNavigation }) {
@@ -338,7 +303,7 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
               <RowFacts row={row} />
               {text !== '' ? <Txt color={row.parcel?.state === 'FAILED' ? 'dangerText' : 'text'}>{text}</Txt> : null}
               {unknown && isRetryable(row.parcel) ? <BigButton kind="outline" label="다시 확인" ariaLabel={`${row.name} 다시 확인`} disabled={busy || blocked !== null} onPress={() => void book([row])} /> : null}
-              {addressReason(row) && nav.openSettle !== undefined ? <BigButton kind="outline" label="배송지 보기" ariaLabel={`${row.name} 배송지 보기`} onPress={() => nav.openSettle?.(date)} /> : null}
+              {addressReason(row) && nav.openSettle !== undefined ? <BigButton kind="outline" label="배송지 보기" ariaLabel={`${row.name} 배송지 보기`} onPress={() => nav.openSettle?.(date, row.buyer)} /> : null}
             </View>
           )
         })}

@@ -17,7 +17,7 @@ export default function PackingRoute() {
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
         <TabFrame active="packing" go={(key) => router.replace(TAB_PATH[key])}>
-          <PackingScreen />
+          <PackingScreen openParcels={(date) => router.push({ pathname: '/parcels', params: { date } })} />
         </TabFrame>
       </KitInsets>
     </SafeAreaView>
