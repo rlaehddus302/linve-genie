@@ -187,6 +187,45 @@
 3. 밴드 모듈이 부르는 주소는 읽기 일곱 개뿐이다(모두 GET): `/oauth2/authorize`(브라우저)·`/oauth2/token`·`/v2/profile`·`/v2.1/bands`·`/v2/band/posts`·`/v2.1/band/post`·`/v2/band/post/comments`. 밴드에 글·댓글을 쓰지 않는다.
 4. 밴드 토큰은 주소 질의에 실린다 — 앞단 프록시·로드 밸런서의 요청 주소 로그가 밴드로 나가는 요청을 남기지 않게 한다(서버는 바깥으로 나가는 주소를 로그에 쓰지 않는다, D-BND1-14).
 
+## 4-7. 고객센터 메일 help@livegenie.kr (D-OPS-MAIL-01, 2026-11-06)
+
+앱 로그인 화면 맨 아래의 고객센터 이메일(`SUPPORT_EMAIL`, D-UX3-32)이다. 서버 코드와는 관계없고 DNS와 외부 서비스로만 동작한다. **비용 0원**(가비아 도메인 연장비 말고 없음).
+
+```
+보내는 사람 → help@livegenie.kr → 가비아 DNS의 MX → ImprovMX(무료) → yuh001205@gmail.com
+답장: Gmail "다른 주소에서 메일 보내기"(smtp.gmail.com:587, 앱 비밀번호) → 보내는 사람 help@livegenie.kr
+```
+
+| 위치 | 설정 |
+|---|---|
+| 가비아 DNS (livegenie.kr) | `MX @ mx1.improvmx.com. 10` · `MX @ mx2.improvmx.com. 20` · `TXT @ "v=spf1 include:spf.improvmx.com include:_spf.google.com ~all"` (A `@`·`www`는 서버용, 따로) |
+| ImprovMX (계정 yuh001205@gmail.com) | 도메인 livegenie.kr · `help@` → yuh001205@gmail.com · `*@`(나머지 주소 전부) → yuh001205@gmail.com |
+| Gmail | 설정 → 계정 → 다른 주소에서 메일 보내기: help@livegenie.kr, SMTP `smtp.gmail.com` 587 TLS, 사용자 = Gmail 주소, 비밀번호 = 구글 앱 비밀번호(2단계 인증 필요). "메일을 받은 주소에서 답장"을 켠다 |
+
+**무료 한도**
+
+| 항목 | 한도 |
+|---|---|
+| ImprovMX 도메인·주소 | 도메인 1개, 주소 25개 |
+| 넘겨 받기 | 하루 500통 |
+| ImprovMX 기록 | 7일 |
+| ImprovMX로 직접 보내기 | 안 됨(유료 Premium 월 $9부터) — 그래서 Gmail로 보낸다 |
+| Gmail 보내기 | 개인 Gmail 하루 약 500명 |
+| 저장 | Gmail 15GB(드라이브·사진과 같이 씀) |
+
+**주의**
+1. 가비아의 MX 두 줄·TXT 한 줄을 지우거나 바꾸지 않는다(MX가 빠지면 그때부터 메일이 안 온다). 다른 메일 발송 서비스를 더할 때는 SPF 줄을 새로 만들지 말고 지금 줄에 `include:…`를 덧붙인다 — SPF 줄이 둘이면 둘 다 무효다. SPF는 DNS 조회 10번까지만 된다.
+2. 보낸 메일은 Gmail 서버로 나가 받는 쪽에 "gmail.com 경유"로 보이거나 가끔 스팸함에 갈 수 있다. DMARC 줄(`p=quarantine`·`p=reject`)은 넣지 않는다 — 우리 답장이 막힌다.
+3. 구글 비밀번호를 바꾸면 앱 비밀번호가 무효가 되어 보내기만 멈춘다(받기는 된다). 새 앱 비밀번호를 만들어 Gmail 설정에 다시 넣는다.
+4. ImprovMX 무료는 가동 보장이 없다(유료 99%). 드물게 늦거나 빠질 수 있으니 문자·전화 연락 길도 남긴다.
+5. `*@` 넘기기 때문에 스팸이 늘면 ImprovMX에서 `*` 줄만 지운다(help@는 남는다).
+6. 개인 메일과 섞이므로 Gmail 필터(받는 사람 help@livegenie.kr → 라벨 "고객센터")를 둔다. 답장할 때 보내는 사람이 help@인지 본다.
+7. 손님 메일이 해외 서비스(ImprovMX·Google)를 지나 개인 Gmail에 저장된다 — 개인정보처리방침의 처리 위탁·국외 이전 항목 검토가 필요하다(사용자 확인 필요).
+8. ImprovMX 계정을 잃으면 넘기기를 바꿀 수 없다. ImprovMX 계정에 2단계 인증을 켠다.
+9. **받는 사람 더하기**(예: 함께 보는 사람): ImprovMX → livegenie.kr → help@ 줄에 받는 주소를 더한다. 그 사람도 자기 Gmail에서 위 보내기 설정을 하면 help@로 답장할 수 있다.
+10. "gmail.com 경유" 없이 보내려면 ImprovMX 유료(월 $9)나 Zoho Mail Lite(1인 월 약 $1~1.25)로 옮긴다.
+11. **확인**: 다른 주소에서 help@livegenie.kr로 보내 Gmail에 오는지 본다(2026-11-06 확인함). DNS 확인은 `dig +short MX livegenie.kr`·`dig +short TXT livegenie.kr` 또는 ImprovMX → DNS Records의 ✓.
+
 ## 5. 운영 토큰·앞단 프록시
 
 - **운영 토큰** `LIVEJJIM_OPS_TOKEN`(32자 이상)이 있으면 `/ops/status`가 열린다: `curl -H "Authorization: Bearer <토큰>" https://app.example.com/ops/status`. 토큰이 다르거나 없으면 401(힌트 없음), 설정이 없으면 404.
