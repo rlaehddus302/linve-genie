@@ -95,6 +95,43 @@ export class ReceiptSmsService {
     }
   }
 
+  /** 그 키에 번호가 없을 때만 기억 (손님 정보 문자 ORD-14 — 판매자가 적은 번호는 덮지 않는다, D-REAL-11). 넣었으면 true */
+  async rememberIfNone(sellerId: string, key: string, phone: string): Promise<boolean> {
+    const normalized = normalizePhone(phone)
+    if (normalized === null) return false
+    try {
+      const phoneEnc = sealSellerText(this.#deps.masterKey, PHONE_PURPOSE, sellerId, normalized)
+      const rows = await this.#deps.db
+        .insert(buyerPhones)
+        .values({ sellerId, key, phoneEnc, last4: normalized.slice(-4), updatedAt: new Date(this.#deps.clock.now()) })
+        .onConflictDoNothing({ target: [buyerPhones.sellerId, buyerPhones.key] })
+        .returning({ key: buyerPhones.key })
+      return rows.length > 0
+    } catch (error) {
+      this.#deps.log({ level: 'warn', code: 'BUYER_PHONE_SAVE_FAILED', seller: sellerId, errorKind: errorKind(error) })
+      return false
+    }
+  }
+
+  /** 이 번호를 기억한 키 전부 (손님 정보 문자 맞추기 — 끝 4자리로 줄인 뒤 열어 본다, ORD-14) */
+  async keysWith(sellerId: string, phone: string): Promise<Set<string>> {
+    const out = new Set<string>()
+    const normalized = normalizePhone(phone)
+    if (normalized === null) return out
+    const rows = await this.#deps.db
+      .select({ key: buyerPhones.key, phoneEnc: buyerPhones.phoneEnc })
+      .from(buyerPhones)
+      .where(and(eq(buyerPhones.sellerId, sellerId), eq(buyerPhones.last4, normalized.slice(-4))))
+    for (const row of rows) {
+      try {
+        if (openSellerText(this.#deps.masterKey, PHONE_PURPOSE, sellerId, row.phoneEnc) === normalized) out.add(row.key)
+      } catch {
+        // 열 수 없는 행은 건너뛴다
+      }
+    }
+    return out
+  }
+
   /**
    * 봉인 직전: 문자찜 번호(전화번호 키)를 그 손님 키(`d:<날짜>:<구매자>`)로도 옮겨 둔다 — 봉인 상태에는 전화번호 키가 없어 봉인 뒤에도
    * 같은 번호로 보내고 줄에 끝자리를 보이게(봉인 직전과 같게). 판매자가 넣은 번호가 이미 있으면 그대로, 옮긴 행은 원래 시각을 지킨다

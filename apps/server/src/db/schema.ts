@@ -2691,6 +2691,35 @@ export const bankBalances = pgTable(
   (t) => [index('bank_balances_seller_idx').on(t.sellerId, t.bank, t.at)],
 )
 
+/**
+ * 방송 뒤 손님 정보 문자 카드 (ORD-14, D-REAL-11). 본문·번호·이름·주소·후보는 판매자 키로 암호화한 sealed 하나에만 있다.
+ * 받은 지 7일 뒤 카드째 지운다(C-07 예외)
+ */
+export const buyerInfoCards = pgTable(
+  'buyer_info_cards',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** OPEN 확인할 것 · APPLIED 넣음(보임) · CLOSED 넣고 닫음 · IGNORED 무시 */
+    status: text('status').notNull(),
+    /** 서버가 바로 넣었는지 */
+    auto: boolean('auto').notNull().default(false),
+    /** 넣은 손님 (방송 날짜·구매자) */
+    date: text('date'),
+    buyer: text('buyer'),
+    /** 배송지 결과 (SAVED · KEPT · REFUSED · NO_PHONE) — 넣었을 때만 */
+    note: text('note'),
+    last4: text('last4'),
+    sealed: text('sealed').notNull(),
+    receivedAt: timestamptz('received_at').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    handledAt: timestamptz('handled_at'),
+  },
+  (t) => [index('buyer_info_cards_seller_idx').on(t.sellerId, t.status, t.createdAt), index('buyer_info_cards_created_idx').on(t.createdAt)],
+)
+
 export const schema = {
   voiceAliases,
   sellers,
@@ -2752,6 +2781,7 @@ export const schema = {
   receiptLinkRequests,
   buyerPhones,
   receiptSmsSends,
+  buyerInfoCards,
   depositSources,
   deposits,
   depositLinks,
@@ -2814,3 +2844,4 @@ export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean)
 
 /** 판매자 입금 처리 직렬화용 어드바이저리 락 키 (입금 저장·번호 붙이기 — 여러 인스턴스에서도 번호가 겹치지 않게, DP-7) */
 export const depositLockKey = (sellerId: string) => sql`hashtextextended(${`${sellerId}/deposits`}, 0)`
+

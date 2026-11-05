@@ -48,6 +48,7 @@ import { BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKi
 import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 import { AddressCard, ParcelTag } from './ParcelAddress.tsx'
+import { BuyerInfoBanner } from './BuyerInfoScreen.tsx'
 
 const FILTERS: readonly { readonly key: PaymentFilter; readonly word: string }[] = [
   { key: 'ALL', word: '전체' },
@@ -64,6 +65,8 @@ export interface SettleNavigation {
   readonly openReport?: (date: string) => void
   /** 입금 확인 화면 */
   readonly openDeposits?: () => void
+  /** 손님 정보 문자 화면 (ORD-14) */
+  readonly openBuyerInfo?: () => void
 }
 
 export function SettleScreen({ initialDate, initialBuyer, nav = {} }: { readonly initialDate?: string; readonly initialBuyer?: string; readonly nav?: SettleNavigation }) {
@@ -78,6 +81,7 @@ export function SettleScreen({ initialDate, initialBuyer, nav = {} }: { readonly
             정산
           </Txt>
         </View>
+        {nav.openBuyerInfo !== undefined ? <BuyerInfoBanner onOpen={nav.openBuyerInfo} /> : null}
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
         {days !== null ? <DayPills days={days} date={date} onPick={setDate} /> : null}

@@ -61,6 +61,7 @@ import { recordPlatformChats } from './platform-record.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { registerInboxIntake } from './inbox/routes.ts'
+import { BuyerInfoService } from './inbox/buyer-info-service.ts'
 import { InboxService } from './inbox/service.ts'
 import { ParcelService, type ParcelOptions } from './parcel/service.ts'
 import { createExtensionApp } from './extension/routes.ts'
@@ -290,6 +291,8 @@ export interface LivejjimServer {
   /** 입금 확인 (N3) */
   readonly deposits: DepositService
   readonly inbox: InboxService
+  /** 방송 뒤 손님 정보 문자 (ORD-14) */
+  readonly buyerInfo: BuyerInfoService
   /** 택배 자동 접수 (T1) — 주기 작업(조회·배송지 정리)은 start()가 돌린다 */
   readonly parcels: ParcelService
   /** 간편 로그인 (L1 — 설정이 없으면 켜진 공급자가 없다) */
@@ -558,6 +561,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       await sweepSchedule(db, now)
       const swept = await receiptSms.sweep()
       if (swept > 0) log({ level: 'info', code: 'BUYER_PHONES_SWEPT', count: swept })
+      const cards = await buyerInfo.sweep()
+      if (cards > 0) log({ level: 'info', code: 'BUYER_INFO_SWEPT', count: cards })
     },
   })
   // KP1 방송 리포트·방송 일정
@@ -731,6 +736,19 @@ export function createServer(options: ServerOptions): LivejjimServer {
     timer: options.inbox?.sweepTimer ?? realGeneratorTimer,
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {}, ledger })
+  // 방송 뒤 손님 정보 문자 (ORD-14, D-REAL-11): 받기(inbox)가 택배보다 먼저 만들어져 처리기를 여기서 넘긴다
+  const buyerInfo = new BuyerInfoService({
+    db,
+    writer,
+    masterKey,
+    clock,
+    log,
+    receiptSms,
+    parcels,
+    phoneKeyFor: (sellerId, phone) => service.phoneKeyFor(sellerId, phone),
+    publish: (sellerId) => hub.publishInbox(sellerId, { kind: 'buyerInfo' }),
+  })
+  inbox.useBuyerInfo((sellerId, input) => buyerInfo.receive(sellerId, input))
   // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
   // 크롬 확장으로 틱톡 댓글 읽기 (TTX — 직접 연결의 대비책, 같은 '채팅' 이벤트·같은 틱톡 연결 조건)
   const tiktokExtension = new TikTokExtension({ db, writer, clock, log, live: tiktokLive })
@@ -781,6 +799,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       band: bandService,
       deposits,
       inbox,
+      buyerInfo,
       parcels: { service: parcels, db },
       appOrigin: options.appOrigin,
       oldAppOrigins: options.oldAppOrigins ?? [],
@@ -849,6 +868,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     work,
     deposits,
     inbox,
+    buyerInfo,
     parcels,
     social,
     extension,

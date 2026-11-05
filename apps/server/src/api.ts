@@ -7,6 +7,8 @@
 // - 받은 값은 오류 응답에 되돌려 보내지 않는다(문제에는 필드 이름과 서버가 정한 문장만).
 // - N3: /api/deposits 경로(deposit/api.ts). 날짜 범위 조회(/days/:date·/changes)에 입금 연결(depositLinks)을 붙인다(AC-N3-32).
 //   엔진 요청 번호 `dep-`는 입금 확인이 쓴다(dep-<번호>-pay-<차례>) — 화면 이벤트 쓰기의 요청 번호로는 받지 않는다(같은 번호로 미리 막지 못하게).
+import type { BuyerInfoService } from './inbox/buyer-info-service.ts'
+import { registerBuyerInfoRoutes } from './inbox/buyer-info-routes.ts'
 import { isValidDate } from '@livejjim/core'
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
@@ -97,6 +99,8 @@ export interface ApiDeps {
   readonly deposits?: DepositService
   /** 휴대폰 알림 받기 설정·문자 확인 카드 (SMS3). 없으면 /api/inbox/** 화면 경로가 없다 */
   readonly inbox?: InboxService
+  /** 방송 뒤 손님 정보 문자 (ORD-14) */
+  readonly buyerInfo?: BuyerInfoService
   /** 화면 앱 주소 (Origin 검사, 예: https://app.livejjim.kr) */
   readonly appOrigin: string
   /** 옛 앱 주소들 (도메인을 옮기는 동안 Origin 검사만 함께 받는다, D-OPS-DOMAIN) */
@@ -998,6 +1002,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // ── 입금 확인 (N3, DEPOSIT_RULES) ─────────────────────────────────────
   if (deps.deposits !== undefined) registerDepositRoutes(api, deps.deposits)
   if (deps.inbox !== undefined) registerInboxRoutes(api, deps.inbox)
+  if (deps.buyerInfo !== undefined) registerBuyerInfoRoutes(api, deps.buyerInfo)
 
   // ── 택배 자동 접수 (T1, PARCEL_RULES) — 판매자만(보조자는 roles.ts 허용 목록 밖이라 403) ──
   if (deps.parcels !== undefined) registerParcelRoutes(api, deps.parcels.service, deps.parcels.db)
