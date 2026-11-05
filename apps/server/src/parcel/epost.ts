@@ -9,6 +9,7 @@
 // - 배송 조회·우편번호 찾기는 공공데이터포털 공개 API(epost-public.ts — 서버 키 하나, D-REAL-08)를 옵션으로 받는다.
 import type { AccountCheck, BookRequest, BookResult, CancelContext, CancelResult, CarrierAccount, CarrierAdapter, TrackResult } from './carrier.ts'
 import type { ZipFound } from './epost-public.ts'
+import { zipTarget } from './epost-public.ts'
 import { CARRIER_TIMEOUT_MS, itemText } from './carrier.ts'
 import { epostEncrypt } from './seed.ts'
 import { INVOICE_RE } from './rules.ts'
@@ -169,7 +170,9 @@ export function epostCarrier(options: EpostOptions): CarrierAdapter {
       if (options.findZip === undefined) return { kind: 'FAILED', reason: 'ADDRESS' }
       let found: ZipFound
       try {
-        found = await options.findZip(receiver.address)
+        // 우체국 앱처럼 번지를 상세 주소 칸에 따로 적은 손님도 있다("…증산리" + "1034") — 주소 칸에 번지가 없으면 상세 주소를 이어 붙여 찾는다 (D-REAL-10)
+        const query = zipTarget(receiver.address) === null && receiver.detail.trim() !== '' ? `${receiver.address} ${receiver.detail}` : receiver.address
+        found = await options.findZip(query)
       } catch {
         found = { kind: 'ERROR' }
       }

@@ -220,6 +220,19 @@ describe('D-REAL-08 우체국 어댑터와 함께', () => {
     expect([...noneSent, ...downSent]).toEqual([])
   })
 
+  it('주소 칸에 번지가 없고 상세 주소에 따로 적었으면 이어 붙여 찾는다(외진 곳 번지 범위), 주소 칸에 번지가 있으면 주소 칸만 (D-REAL-10)', async () => {
+    const asked: string[] = []
+    const carrier = epostCarrier({ fetch: epostFetch([]), now: () => Date.parse('2026-11-05T01:00:00Z'), findZip: async (address) => (asked.push(address), { kind: 'ZIP', zip: '50603' }) })
+    const split = { ...request(''), receiver: { ...request('').receiver, address: '경상남도 양산시 물금읍 증산리', detail: '1034' } }
+    expect(await carrier.book(split)).toEqual({ kind: 'BOOKED', invoice: '6013082362377' })
+    const noDetail = { ...request(''), receiver: { ...request('').receiver, address: '경상남도 양산시 물금읍 증산리', detail: '' } }
+    await carrier.book(noDetail)
+    expect(asked).toEqual(['경상남도 양산시 물금읍 증산리 1034', '경상남도 양산시 물금읍 증산리'])
+    // 실제 우체국 답(증산리 985~1141)으로도 이어 붙인 주소가 50603
+    const finder = epostZipFinder({ serviceKey: 'k', fetch: async () => new Response(REAL_JEUNGSAN, { status: 200 }) })
+    expect(await finder('경상남도 양산시 물금읍 증산리 1034')).toEqual({ kind: 'ZIP', zip: '50603' })
+  })
+
   it('조회는 옵션이 있을 때만 붙는다', () => {
     expect(epostCarrier({ now: () => 0 }).track).toBeUndefined()
     const track = async () => ({ ok: true as const, items: new Map() })
