@@ -809,7 +809,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       return c.json({
         date: scope.date,
         rehearsal: scope.rehearsal,
-        smsReady: deps.receiptSms?.available === true && !scope.rehearsal,
+        smsReady: deps.receiptSms !== undefined && !scope.rehearsal,
         buyers: rows.map((row) => ({ ...row, link: statuses?.get(row.buyer) ?? null, sms: sms?.get(row.buyer) ?? null })),
       })
     })
@@ -843,10 +843,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       if (!scope.ok) return scope.response
       return linkOutcome(c, await links.createAll(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId), (value) => ({ date: scope.date, ...value }))
     })
-    // 영수증 문자 보내기 (D-REAL-03): { requestId, buyer, phone? } — phone이 없으면 아는 번호로
+    // 영수증 문자 (D-REAL-05): 준비 { requestId, buyer, phone? } → 받는 번호·글(판매자 문자 앱에 채운다), 보냄 { requestId, buyer }
     const receiptSms = deps.receiptSms
     if (receiptSms !== undefined) {
-      api.post('/days/:date/receipt-sms', async (c) => {
+      api.post('/days/:date/receipt-sms/prepare', async (c) => {
         const input = body(c)
         const requestId = requestIdOf(input)
         if (requestId === null) return invalidRequestId()
@@ -858,7 +858,19 @@ export function createApi(deps: ApiDeps): Hono<Env> {
         if (phone !== undefined && phone !== null && (typeof phone !== 'string' || phone.length > 40)) return problemResponse({ status: 400, code: 'BAD_REQUEST', message: '휴대폰 번호를 010으로 시작하는 숫자로 적어 주세요.' })
         const scope = scopeParams(c)
         if (!scope.ok) return scope.response
-        return linkOutcome(c, await receiptSms.send(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId, buyer.buyer, typeof phone === 'string' ? phone : null), (value) => ({ date: scope.date, sms: value }))
+        return linkOutcome(c, await receiptSms.prepare(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId, buyer.buyer, typeof phone === 'string' ? phone : null), (value) => ({ date: scope.date, sms: value }))
+      })
+      api.post('/days/:date/receipt-sms/sent', async (c) => {
+        const input = body(c)
+        const requestId = requestIdOf(input)
+        if (requestId === null) return invalidRequestId()
+        const extra = onlyKeys(input, ['requestId', 'buyer'])
+        if (extra !== null) return extra
+        const buyer = buyerParam(typeof own(input, 'buyer') === 'string' ? (own(input, 'buyer') as string) : undefined)
+        if (!buyer.ok) return problemResponse(buyer.error)
+        const scope = scopeParams(c)
+        if (!scope.ok) return scope.response
+        return linkOutcome(c, await receiptSms.markSent(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId, buyer.buyer), (value) => ({ date: scope.date, sms: value }))
       })
     }
     // 링크 끊기 (AC-N4b-13): { requestId, buyer }

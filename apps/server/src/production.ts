@@ -109,8 +109,6 @@ export function productionServerOptions(
       parcel: { carriers: { EPOST: epostCarrier({ now: () => Date.now() }) } },
       socialLogin: { providers: social.providers },
       sms: smsSender,
-      // 영수증 문자 (D-REAL-03) — 가입 인증과 같은 솔라피 발송
-      smsSender,
       assist: assist.setup,
     },
   }

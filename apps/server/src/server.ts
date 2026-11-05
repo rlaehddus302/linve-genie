@@ -33,7 +33,7 @@ import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import { realTimer as realGeneratorTimer, type GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
-import { ReceiptSmsService, type ReceiptSmsSender } from './receipt-sms.ts'
+import { ReceiptSmsService } from './receipt-sms.ts'
 import { ReceiptLinkService } from './receipt-links.ts'
 import { registerReceiptPage } from './receipt-page.ts'
 import type { InstagramSettings } from './instagram/config.ts'
@@ -105,8 +105,6 @@ export const SERVER_VERSION: string = (() => {
 })()
 
 export interface ServerOptions {
-  /** 영수증 문자 보내기 (D-REAL-03, 솔라피). 없으면 문자 보내기를 끈다 */
-  readonly smsSender?: ReceiptSmsSender | null
   /** 이력 저장소 관측/장애 시험 포트. 운영 기동은 제공하지 않는다. */
   readonly voiceHistoryObserver?: VoiceHistoryObserver
   readonly transcribeWorkerToken?: string
@@ -569,7 +567,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   // 영수증 문자 (D-REAL-03) — 문자찜 손님 번호를 기억하고, 1년 넘게 쓰지 않은 번호는 손님 장부 청소 때 지운다
-  const receiptSms = new ReceiptSmsService({ db, writer, clock, masterKey, links: receiptLinks, sender: options.smsSender ?? null, log })
+  const receiptSms = new ReceiptSmsService({ db, writer, clock, masterKey, links: receiptLinks, log })
   service.usePhoneMemory((sellerId, phoneKey, phone) => receiptSms.remember(sellerId, phoneKey, phone))
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   // 크롬 확장으로 감사 채팅 올리기 (X1 AC11~AC17) — 공식 발송함 실행기가 공식으로 올릴 수 없는 회차의 감사를 맡긴다
@@ -605,6 +603,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     timer,
     log,
     onSealed: (sellerId, date) => publishYoutube(sellerId, { kind: 'sealed', date }),
+    beforeSeal: (tx, sellerId, date, state, buyers) => receiptSms.pinBeforeSeal(tx, sellerId, date, state, buyers),
     ...(options.sealHooks === undefined ? {} : { hooks: options.sealHooks }),
     onPass: (ok) => health.pass('sealer', ok),
   })

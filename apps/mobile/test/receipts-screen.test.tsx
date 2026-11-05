@@ -6,6 +6,7 @@ import type { ReceiptBuyerRow } from '@livejjim/web/src/api/types.ts'
 import { setClipboardWriter } from '../src/lib/clipboard.ts'
 import { shareFile } from '../src/native/share.ts'
 import { setNativeModules } from '../src/native/index.ts'
+import { deviceSms, type SmsResult } from '../src/native/sms.ts'
 import { ReceiptsScreen } from '../src/screens/ReceiptsScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 
@@ -31,9 +32,14 @@ function world(sms = false) {
       ? { smsReady: true, buyers: [rowOf('u1', '다육맘', { sms: { last4: '5678', sentAt: null } }), rowOf('u2', '초록손', { link: active, sms: { last4: null, sentAt: null } })] }
       : { buyers: [rowOf('u1', '다육맘'), rowOf('u2', '초록손', { link: active })] },
   }))
-  w.server.on('POST', /^\/api\/days\/2026-10-29\/receipt-sms/, (call) => {
+  w.server.on('POST', /^\/api\/days\/2026-10-29\/receipt-sms\/prepare/, (call) => {
     posts.push({ path: call.path, body: call.body })
     if (call.body?.['buyer'] === 'u2' && call.body['phone'] === undefined) return { status: 409, body: { error: { code: 'NO_PHONE', message: '이 손님의 휴대폰 번호를 몰라요. 번호를 넣어 주세요.' } } }
+    const phone = call.body?.['buyer'] === 'u2' ? '01098765432' : '01012345678'
+    return { body: { sms: { buyer: call.body?.['buyer'], phone, last4: phone.slice(-4), text: `[초록가게] 주문 확인서예요.\nhttps://live.test/r/${String(call.body?.['buyer'])}` } } }
+  })
+  w.server.on('POST', /^\/api\/days\/2026-10-29\/receipt-sms\/sent/, (call) => {
+    posts.push({ path: call.path, body: call.body })
     return { body: { sms: { buyer: call.body?.['buyer'], last4: '5678', sentAt: '2026-10-29T14:00:00.000Z' } } }
   })
   w.server.on('POST', /^\/api\/days\/2026-10-29\/receipt-links/, (call) => {
@@ -47,8 +53,23 @@ function world(sms = false) {
   return { w, posts, pulled }
 }
 
+/** 가짜 문자 앱: 연 번호·글을 적고, 정한 결과를 돌려준다 */
+function fakeSms(results: SmsResult[] = []) {
+  const opened: { phone: string; text: string }[] = []
+  setNativeModules({
+    sms: {
+      available: async () => true,
+      compose: async (phone, text) => {
+        opened.push({ phone, text })
+        return results.shift() ?? 'sent'
+      },
+    },
+  })
+  return opened
+}
+
 afterEach(() => {
-  setNativeModules({ shareFile })
+  setNativeModules({ shareFile, sms: deviceSms })
   setClipboardWriter(async () => false)
 })
 
@@ -74,23 +95,56 @@ describe('ReceiptsScreen (앱 영수증·판매대장)', () => {
     expect(posts).toHaveLength(1)
   })
 
-  it('D-REAL-03 문자 보내기: 번호 아는 손님은 한 번 더 묻고 보내고, 모르는 손님은 번호를 넣어 보낸다. 문자 칸이 없는 서버면 단추가 없다', async () => {
+  // D-REAL-05로 바뀐 기대: 옛 "한 번 더 묻고 서버가 보냄(receipt-sms 한 번)" → 새 "바로 판매자 문자 앱을 채워 열고, 보냈으면 보냄 표시"
+  it('D-REAL-05 문자 보내기: 번호 아는 손님은 바로 문자 앱을 손님 번호·확인서 링크로 열고, 보내면 보냄 표시. 모르는 손님은 번호를 넣고 연다', async () => {
+    const opened = fakeSms()
     const { w, posts } = world(true)
     render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
     expect(await screen.findByText('문자 보낼 번호 끝자리 5678')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '다육맘 문자 보내기' }))
-    expect(await screen.findByText('다육맘님(끝자리 5678)에게 확인서 문자를 보낼까요?')).toBeTruthy()
-    expect(posts).toHaveLength(0)
-    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
-    await waitFor(() => expect(posts.map((post) => post.path)).toEqual(['/api/days/2026-10-29/receipt-sms']))
-    expect(posts[0]!.body).toMatchObject({ buyer: 'u1' })
+    fireEvent.click(await screen.findByRole('button', { name: '다육맘 문자 보내기' }))
+    await waitFor(() => expect(opened).toHaveLength(1))
+    expect(opened[0]).toEqual({ phone: '01012345678', text: '[초록가게] 주문 확인서예요.\nhttps://live.test/r/u1' })
     expect(await screen.findByText('확인서 문자를 보냈어요.')).toBeTruthy()
+    expect(posts.map((post) => post.path)).toEqual(['/api/days/2026-10-29/receipt-sms/prepare', '/api/days/2026-10-29/receipt-sms/sent'])
+    expect(posts[1]!.body).toMatchObject({ buyer: 'u1' })
     fireEvent.click(screen.getByRole('button', { name: '초록손 문자 보내기' }))
     const field = await screen.findByLabelText('손님 휴대폰 번호')
     fireEvent.change(field, { target: { value: '010-9876-5432' } })
+    fireEvent.click(screen.getByRole('button', { name: '문자 앱 열기' }))
+    await waitFor(() => expect(opened).toHaveLength(2))
+    expect(opened[1]!.phone).toBe('01098765432')
+    expect(posts[2]!.body).toMatchObject({ buyer: 'u2', phone: '010-9876-5432' })
+  })
+
+  it('D-REAL-05 문자 앱을 닫으면 보냄 표시를 하지 않는다', async () => {
+    const opened = fakeSms(['cancelled'])
+    const { w, posts } = world(true)
+    render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
+    fireEvent.click(await screen.findByRole('button', { name: '다육맘 문자 보내기' }))
+    await waitFor(() => expect(opened).toHaveLength(1))
+    await waitFor(() => expect(posts.map((post) => post.path)).toEqual(['/api/days/2026-10-29/receipt-sms/prepare']))
+    expect(screen.queryByText('확인서 문자를 보냈어요.')).toBeNull()
+  })
+
+  it('D-REAL-05 모두 보내기: 한 번 묻고 번호 아는 손님마다 문자 앱을 차례로 연다', async () => {
+    const opened = fakeSms()
+    const { w, posts } = world(true)
+    render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
+    fireEvent.click(await screen.findByRole('button', { name: '번호 아는 손님 모두 문자 보내기 (1명)' }))
+    expect(await screen.findByText('1명에게 차례로 확인서 문자를 보낼까요?')).toBeTruthy()
+    expect(opened).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: '보내기' }))
-    await waitFor(() => expect(posts).toHaveLength(2))
-    expect(posts[1]!.body).toMatchObject({ buyer: 'u2', phone: '010-9876-5432' })
+    expect(await screen.findByText('1명에게 문자를 보냈어요.', undefined, { timeout: 3000 })).toBeTruthy()
+    expect(opened.map((item) => item.phone)).toEqual(['01012345678'])
+    expect(posts.filter((post) => post.path.endsWith('/sent')).map((post) => post.body?.['buyer'])).toEqual(['u1'])
+  })
+
+  it('D-REAL-05 문자를 보낼 수 없는 기기면 문자 단추 대신 안내', async () => {
+    setNativeModules({ sms: { available: async () => false, compose: async () => 'cancelled' } })
+    const { w } = world(true)
+    render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
+    expect(await screen.findByText('이 기기에서는 문자를 보낼 수 없어요. 링크 보내기로 보내 주세요.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '다육맘 문자 보내기' })).toBeNull()
   })
 
   it('D-REAL-03 문자 칸이 없는 서버(smsReady 없음)면 문자 단추가 없다', async () => {
