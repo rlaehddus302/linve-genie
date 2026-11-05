@@ -6,7 +6,9 @@
 //   이미 있으면 그 등기번호를 돌려주고, 확인이 안 되면(응답 없음) 새로 넣지 않고 모름으로 둔다(두 번 접수 막기).
 // - 운송장은 우체국 계약고객전용시스템에서 뽑는다(printYn=N — 우체국 운송장 양식·바코드 인증 없이). 집하 전까지 취소할 수 있다.
 // - 계약 승인번호·공급지 코드는 고객 번호로 우체국에 물어 1시간 기억한다(판매자가 적을 칸을 줄인다).
-import type { AccountCheck, BookRequest, BookResult, CancelContext, CancelResult, CarrierAccount, CarrierAdapter } from './carrier.ts'
+// - 배송 조회·우편번호 찾기는 공공데이터포털 공개 API(epost-public.ts — 서버 키 하나, D-REAL-08)를 옵션으로 받는다.
+import type { AccountCheck, BookRequest, BookResult, CancelContext, CancelResult, CarrierAccount, CarrierAdapter, TrackResult } from './carrier.ts'
+import type { ZipFound } from './epost-public.ts'
 import { CARRIER_TIMEOUT_MS, itemText } from './carrier.ts'
 import { epostEncrypt } from './seed.ts'
 import { INVOICE_RE } from './rules.ts'
@@ -27,6 +29,10 @@ export interface EpostOptions {
   readonly fetch?: typeof fetch
   /** 지금 시각 (밀리초) — 소포신청 등록일자(KST) 계산 */
   readonly now: () => number
+  /** 배송 조회 (공공데이터포털 종적 조회 — epost-public.ts, D-REAL-08). 없으면 접수됨에서 멈춘다 */
+  readonly track?: (invoices: readonly string[]) => Promise<TrackResult>
+  /** 받는 분 우편번호가 비었을 때 주소로 찾기 (D-REAL-08). 없으면 우편번호 없는 주소는 주소 확인으로 돌려보낸다 */
+  readonly findZip?: (address: string) => Promise<ZipFound>
 }
 
 /** 값 하나 다듬기: 줄바꿈·제어 문자는 빈칸, &·=는 전각 */
@@ -156,8 +162,21 @@ export function epostCarrier(options: EpostOptions): CarrierAdapter {
     const account = request.account ?? null
     if (account === null) return { kind: 'FAILED', reason: 'REJECTED' }
     const { receiver, sender } = request
-    // 우편번호 5자리가 없으면 우체국이 받지 않는다 — 주소 확인으로 돌려보낸다
-    if (!/^[0-9]{5}$/.test(receiver.zip)) return { kind: 'FAILED', reason: 'ADDRESS' }
+    // 우편번호 5자리가 없으면 우체국이 받지 않는다 — 주소로 찾아보고(D-REAL-08), 하나로 모이지 않으면 주소 확인으로 돌려보낸다.
+    // 찾기를 묻지 못했으면 아직 아무것도 넣지 않았으니 모름(다시 확인하면 다시 찾는다)
+    let recZip = receiver.zip
+    if (!/^[0-9]{5}$/.test(recZip)) {
+      if (options.findZip === undefined) return { kind: 'FAILED', reason: 'ADDRESS' }
+      let found: ZipFound
+      try {
+        found = await options.findZip(receiver.address)
+      } catch {
+        found = { kind: 'ERROR' }
+      }
+      if (found.kind === 'ERROR') return { kind: 'UNKNOWN' }
+      if (found.kind === 'NONE') return { kind: 'FAILED', reason: 'ADDRESS' }
+      recZip = found.zip
+    }
     // 두 번 접수 막기: 같은 주문번호가 이미 있으면 그 등기번호
     const prior = await findRecent(account, request.requestKey, options.now())
     if (prior === null) return { kind: 'UNKNOWN' }
@@ -187,7 +206,7 @@ export function epostCarrier(options: EpostOptions): CarrierAdapter {
       ['ordAddr2', sender.detail],
       [sender.phone.startsWith('01') ? 'ordMob' : 'ordTel', sender.phone],
       ['recNm', receiver.name],
-      ['recZip', receiver.zip],
+      ['recZip', recZip],
       ['recAddr1', receiver.address],
       ['recAddr2', receiver.detail === '' ? '-' : receiver.detail],
       [mobile ? 'recMob' : 'recTel', receiver.phone],
@@ -243,5 +262,5 @@ export function epostCarrier(options: EpostOptions): CarrierAdapter {
     return 'code' in contract ? 'REJECTED' : 'OK'
   }
 
-  return { code: 'EPOST', needsAccount: true, verify, book, cancel, trackUrl: epostTrackUrl }
+  return { code: 'EPOST', needsAccount: true, verify, book, cancel, ...(options.track === undefined ? {} : { track: options.track }), trackUrl: epostTrackUrl }
 }
