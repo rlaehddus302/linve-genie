@@ -33,6 +33,7 @@ import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue
 import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { ListenLine, listenChip, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
+import { APP_IMPORT_TITLE, ImportView } from './console/ImportSheet.tsx'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
@@ -106,7 +107,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const inset = useBottomInset()
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
-  type SheetName = 'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide' | 'pending'
+  type SheetName = 'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide' | 'pending' | 'import'
   const [sheet, setSheet] = useState<SheetName>('none')
   // 방송 메뉴에서 다른 판으로 갈 때 (D-UX3-26): 아이폰은 판(Modal)이 닫히는 동안 새 판을 띄우지 못해 '방송을 끝낼까요?' 등이 아예 뜨지 않았다.
   // 메뉴를 먼저 닫고, 닫히는 움직임이 끝난 뒤에 다음 판을 연다.
@@ -311,7 +312,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     )
   }
 
-  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, select: setSelected, selected, labelWords }
+  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), select: setSelected, selected, labelWords }
   const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed
@@ -385,6 +386,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
         </BottomSheet>
+        <FullSheet visible={sheet === 'import'} onClose={close} name={APP_IMPORT_TITLE} title={APP_IMPORT_TITLE}>
+          {sheet === 'import' ? <ImportView /> : null}
+        </FullSheet>
         <BottomSheet visible={sheet === 'pending'} onClose={close} title="보류 찜">
           <Txt step="caption" color="textSub">아직 상품이 없는 번호의 찜이에요. 그 번호 상품을 올리면 먼저 온 순서대로 정해져요.</Txt>
           {sheet === 'pending' ? <ClaimFeed only="PENDING" /> : null}
@@ -410,6 +414,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             {openLabels !== undefined && !broadcast.rehearsal ? <TodoRow title="프린터·라벨" sub="프린터 연결, 라벨 대기·다시 찍기" onPress={() => fromMenu(openLabels)} /> : null}
             <TodoRow title="채팅 보기" sub="최근 채팅 100줄, 주문·취소 표시" onPress={() => fromMenu(() => setSheet('chat'))} />
             {!broadcast.rehearsal && !closed ? <TodoRow title="댓글 붙여넣기" sub="틱톡·인스타그램 등 자동으로 못 받는 댓글" onPress={() => fromMenu(() => setSheet('paste'))} /> : null}
+            {/* 방송 전 상품 미리 등록 (PRD-05 앱, D-V3-128) */}
+            {seller && !closed ? <TodoRow title={APP_IMPORT_TITLE} sub="번호·품종·가격을 붙여 넣어 공개 전 상품으로" onPress={() => fromMenu(() => setSheet('import'))} /> : null}
             {!closed ? <TodoRow title="방송 끝내기" onPress={() => fromMenu(() => setSheet('end'))} /> : null}
           </RowGroup>
         </BottomSheet>
