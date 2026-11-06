@@ -368,11 +368,17 @@ describe('LoginScreen', () => {
           fireEvent.click(within(over).getByRole('button', { name: '닫기' }))
           expect(screen.queryByText('인증 문자를 다시 받을까요?')).toBeNull()
           await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
-          expect(screen.getByText('남은 시간 00:00')).toBeTruthy()
-          // 다시 받으면 남은 시간이 3분으로, 시간 지남 팝업은 다시 뜨지 않는다
-          fireEvent.click(screen.getByRole('button', { name: '문자가 안 오나요?' }))
-          fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '다시 받기' }))
+          // D-UX3-55로 바뀐 기대 (사용자 지시 2026-11-07 "시간 초과 시 팝업에서 닫기를 누르면 그 화면에 남는게 아니라 이전 화면으로"):
+          // 옛 — 그 화면에 남아 "남은 시간 00:00"·[문자가 안 오나요?] → 새 — 넣었던 번호가 남은 번호 화면으로, [다음]이면 새 3분
+          const phone = (await screen.findByLabelText('휴대폰 번호')) as HTMLInputElement
+          expect(phone.value).toBe('010-1234-5678')
+          fireEvent.click(screen.getByRole('button', { name: '다음' }))
           await waitFor(() => expect(sends).toHaveLength(2))
+          expect(await screen.findByText(/남은 시간 0(3:00|2:59)/)).toBeTruthy()
+          // 시간 지남 팝업의 [다시 받기]로 받아도 남은 시간이 3분으로, 팝업은 다시 뜨지 않는다
+          vi.setSystemTime(Date.now() + 181_000)
+          fireEvent.click(within(await screen.findByRole('alertdialog', undefined, { timeout: 2500 })).getByRole('button', { name: '다시 받기' }))
+          await waitFor(() => expect(sends).toHaveLength(3))
           await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
           expect(screen.getByText(/남은 시간 0(3:00|2:59)/)).toBeTruthy()
           await new Promise((resolve) => setTimeout(resolve, 1200))
@@ -381,6 +387,51 @@ describe('LoginScreen', () => {
         } finally {
           vi.useRealTimers()
         }
+      })
+
+      it('뒤로는 "다음에 할까요?" 팝업: [닫기]면 그대로, [나가기]면 인증번호 화면은 번호 화면으로·번호 화면은 처음으로. 서버가 빨리 답해도 0.5초는 확인 중 (D-UX3-55)', async () => {
+        installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {})
+        configureApi({
+          baseUrl: 'https://livegenie.test',
+          fetch: async (input) => {
+            const url = String(input)
+            const path = new URL(url).pathname
+            if (path === '/api/auth/signup/phone/verify') {
+              return new Response(JSON.stringify({ error: { code: 'CODE_WRONG', message: '인증번호가 맞지 않아요.' } }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+            }
+            const reply = path === '/api/auth/app/finish' ? { result: 'SIGNUP', provider: 'google', phoneRequired: true } : path === '/api/auth/signup/phone' ? { phone: '010-****-5678' } : url.endsWith('/api/client-config') ? { loginProviders: ['kakao', 'naver', 'google'] } : undefined
+            return new Response(JSON.stringify(reply ?? {}), { status: reply === undefined ? 404 : 200, headers: { 'Content-Type': 'application/json' } })
+          },
+        })
+        render(<LoginScreen expired={false} onLogin={async () => {}} />)
+        fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
+        fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '010-1234-5678' } })
+        fireEvent.click(screen.getByRole('button', { name: '다음' }))
+        // 0.5초 동안은 합친 칸으로 확인 중, 그 뒤에 틀림
+        const started = Date.now()
+        fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '000000' } })
+        expect(screen.getByTestId('code-checking')).toBeTruthy()
+        await screen.findByRole('alert')
+        expect(Date.now() - started).toBeGreaterThanOrEqual(480)
+        // 인증번호 화면의 뒤로 → 팝업, [닫기]면 그 화면 그대로
+        fireEvent.click(screen.getByRole('button', { name: '번호 다시 넣기' }))
+        const ask = await screen.findByRole('alertdialog')
+        expect(ask.textContent).toContain('다음에 할까요?')
+        expect(ask.textContent).toContain('여기서 나가면 처음부터 다시 해야 해요')
+        expect(within(ask).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['닫기', '나가기'])
+        fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+        expect(screen.getByLabelText('인증번호 6자리')).toBeTruthy()
+        // [나가기] → 빈 번호 화면
+        fireEvent.click(screen.getByRole('button', { name: '번호 다시 넣기' }))
+        fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '나가기' }))
+        const phone = (await screen.findByLabelText('휴대폰 번호')) as HTMLInputElement
+        expect(phone.value).toBe('')
+        await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+        // 번호 화면의 뒤로 → 같은 팝업, [나가기]면 처음 로그인 화면
+        fireEvent.click(screen.getByRole('button', { name: '처음으로' }))
+        fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '나가기' }))
+        expect(await screen.findByRole('button', { name: '구글로 로그인' })).toBeTruthy()
       })
 
       it('가입 표가 없어졌으면 시간 지남이 아니라 서버 문장과 [처음으로] 팝업 (D-UX3-54)', async () => {
@@ -449,13 +500,18 @@ describe('LoginScreen', () => {
         expect(screen.getByTestId('code-wrong')).toBeTruthy()
         fireEvent.click(within(locked).getByRole('button', { name: '닫기' }))
         await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+        // D-UX3-55로 바뀐 기대 (사용자 지시 2026-11-07 "입력횟수 초과 … 닫기를 누르면 그 화면에 남는게 아니라 이전 화면으로"):
+        // 옛 — 인증번호 화면에 남아 다시 넣기 → 새 — 넣었던 번호가 남은 번호 화면으로 밀려 돌아간다
+        const phone = (await screen.findByLabelText('휴대폰 번호')) as HTMLInputElement
+        expect(phone.value).toBe('010-1234-5678')
+        expect(screen.queryByLabelText('인증번호 6자리')).toBeNull()
+        fireEvent.click(screen.getByRole('button', { name: '다음' }))
         // 시간 지남(서버 판정): 팝업 "입력할 수 있는 시간이 지났어요" / "문자를 다시 받을까요?"
-        fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '00000' } })
-        fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '000002' } })
+        fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '000002' } })
         const over = await screen.findByRole('alertdialog')
         expect(over.textContent).toContain('입력할 수 있는 시간이 지났어요')
         expect(over.textContent).toContain('문자를 다시 받을까요?')
-        expect(sends).toHaveLength(1)
+        expect(sends).toHaveLength(2)
       })
 
       it('있는 번호: 새 계정을 만들지 않고, 그 계정의 카카오로 다시 로그인하면 구글을 잇는다', async () => {

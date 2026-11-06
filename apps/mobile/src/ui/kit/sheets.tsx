@@ -2,9 +2,9 @@
 // 움직임 (D-UX3-05): 뒤 어두운 막은 제자리에서 서서히 짙어지고(페이드), 판만 아래에서 올라온다 — 막이 판과 함께 밀려 올라오지 않게.
 // 닫을 때도 막은 서서히 걷히고 판은 내려간 뒤 사라진다. 키보드가 뜨면 판이 키보드 위로 올라간다(입력 칸이 가려지지 않게).
 import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
-import { AccessibilityInfo, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View, useWindowDimensions, type ScrollViewInstance } from 'react-native'
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type ScrollViewInstance } from 'react-native'
 import { BigButton, ButtonRow } from './buttons.tsx'
-import { BACKDROP_OPACITY, PAGE, RADIUS, SHADOW, SPACE } from './tokens.ts'
+import { BACKDROP_OPACITY, PAGE, RADIUS, SHADOW, SPACE, WEIGHT } from './tokens.ts'
 import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
 import { BackButton } from './app.tsx'
 
@@ -254,11 +254,39 @@ export interface PopupDialogProps {
 /** 가운데 팝업 크기 (D-UX3-54, 토스 사진을 재어 — 폭 292·단추 둘레 14) */
 const POPUP_WIDTH = 292
 const POPUP_EDGE = 14
+/** 팝업 뒤 어둡기·단추 (D-UX3-55, 사용자 지시 2026-11-07 "팝업 띄울 때 배경 어두워지는 정도, 팝업 및 버튼 가로세로, 버튼 색깔, 버튼 안 글자 크기, 두께, 색깔 다 맞춰" — 토스 사진을 재어: 뒤 0.22, 단추 높이 44·모서리 12·글자 17 두께 600, 왼쪽 단추 연회색 바탕 #F2F4F6에 회색 글자) */
+export const POPUP_DIM = 0.22
+const POPUP_BUTTON_HEIGHT = 44
+const POPUP_BUTTON_TEXT = 17
+
+/** 팝업 안 단추 — 큰 단추보다 낮고 글자가 덜 굵다 (토스 팝업 단추) */
+function PopupButton({ label, kind, disabled, busy, onPress }: { readonly label: string; readonly kind: 'cancel' | 'confirm'; readonly disabled?: boolean; readonly busy?: boolean; readonly onPress: () => void }) {
+  const { p } = useKit()
+  const off = disabled === true || busy === true
+  const fill = kind === 'confirm' ? p.primary : p.surfaceAlt
+  const fillPressed = kind === 'confirm' ? p.primaryPressed : p.pressed
+  return (
+    <Pressable
+      role="button"
+      aria-label={label}
+      aria-disabled={off}
+      aria-busy={busy === true}
+      disabled={off}
+      onPress={onPress}
+      style={({ pressed }) => ({ height: POPUP_BUTTON_HEIGHT, borderRadius: RADIUS.md, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: SPACE.sm, backgroundColor: pressed && !off ? fillPressed : fill, opacity: disabled === true ? 0.45 : 1 })}
+    >
+      {busy === true ? <ActivityIndicator color={kind === 'confirm' ? p.onPrimary : p.textSub} /> : null}
+      <Text allowFontScaling={false} numberOfLines={1} style={{ fontSize: POPUP_BUTTON_TEXT, lineHeight: Math.round(POPUP_BUTTON_TEXT * 1.3), fontWeight: WEIGHT.medium, color: kind === 'confirm' ? p.onPrimary : p.textSub }}>
+        {label}
+      </Text>
+    </Pressable>
+  )
+}
 
 export function PopupDialog({ visible, message, name, description, confirmDisabled, confirmLabel, cancelLabel, busy, onConfirm, onCancel }: PopupDialogProps) {
   const { p } = useKit()
   const { mounted, progress } = useSheetMotion(visible)
-  const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, BACKDROP_OPACITY] })
+  const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, POPUP_DIM] })
   const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] })
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onCancel} statusBarTranslucent>
@@ -270,7 +298,7 @@ export function PopupDialog({ visible, message, name, description, confirmDisabl
           role="alertdialog"
           aria-modal
           aria-label={name ?? message}
-          style={{ width: '100%', maxWidth: POPUP_WIDTH, alignSelf: 'center', backgroundColor: p.surface, borderRadius: RADIUS.xxl, borderCurve: 'continuous', paddingTop: SPACE.lg + SPACE.xs, paddingHorizontal: POPUP_EDGE, paddingBottom: POPUP_EDGE, gap: SPACE.lg + SPACE.xs, opacity: progress, transform: [{ scale }], ...SHADOW.sheet }}
+          style={{ width: '100%', maxWidth: POPUP_WIDTH, alignSelf: 'center', backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xl, paddingHorizontal: POPUP_EDGE, paddingBottom: POPUP_EDGE, gap: SPACE.xxl - SPACE.xs, opacity: progress, transform: [{ scale }] }}
         >
           {/* 제목 20 굵게 (D-UX3-54, 사용자 지시 2026-11-07 "팝업 안에 제목 글자 크기가 내가 보내줬던 사진과 다름" — 토스 사진을 재어, 옛 18) */}
           <View style={{ gap: SPACE.sm, paddingHorizontal: SPACE.xl - POPUP_EDGE }}>
@@ -280,8 +308,8 @@ export function PopupDialog({ visible, message, name, description, confirmDisabl
             {description === undefined || description === null ? null : <Txt color="textSub">{description}</Txt>}
           </View>
           <ButtonRow>
-            <BigButton kind="outline" label={cancelLabel} disabled={busy} onPress={onCancel} />
-            <BigButton label={confirmLabel} busy={busy} disabled={confirmDisabled} onPress={onConfirm} />
+            <PopupButton kind="cancel" label={cancelLabel} disabled={busy} onPress={onCancel} />
+            <PopupButton kind="confirm" label={confirmLabel} busy={busy} disabled={confirmDisabled} onPress={onConfirm} />
           </ButtonRow>
         </Animated.View>
       </View>

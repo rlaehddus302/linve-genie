@@ -3,6 +3,7 @@
 // 아이콘은 그림 파일·글꼴 없이 View 선으로 그린다(새 패키지를 넣지 않는다). 아이콘만으로 뜻을 전하지 않고 늘 글자와 함께 둔다.
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { Animated, Easing, Platform, Pressable, View, type ViewStyle } from 'react-native'
+import Svg, { Path } from 'react-native-svg'
 import { PAGE, RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
 import { tapHaptic } from '../../native/haptics.ts'
@@ -23,12 +24,18 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
   const box: ViewStyle = { width: s, height: s, alignItems: 'center', justifyContent: 'center' }
   const shape = (() => {
     switch (name) {
-      case 'chevron':
-      case 'back': {
+      case 'back':
+        // 뒤로 ‹는 선 끝과 꺾인 곳을 둥글게, 선은 2.4 (D-UX3-55, 사용자 지시 2026-11-07 "뒤로가기 아이콘 살짝만 더 두껍게, 더 라운드지게" — 옛 각진 2)
+        return (
+          <Svg width={s} height={s} viewBox="0 0 24 24">
+            <Path d="M15.2 5.4 L8.6 12 L15.2 18.6" stroke={c} strokeWidth={(BACK_STROKE * 24) / s} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </Svg>
+        )
+      case 'chevron': {
         const arm = s * 0.38
         // 화살표는 커져도 선은 가늘게 (토스 ‹와 같은 2, D-UX3-51)
         const line = Math.max(2, Math.round(s / 14))
-        return <View style={{ width: arm, height: arm, borderTopWidth: line, borderRightWidth: line, borderColor: c, borderRadius: 1, borderCurve: 'continuous', transform: [{ rotate: name === 'chevron' ? '45deg' : '-135deg' }], marginLeft: name === 'chevron' ? -arm * 0.35 : arm * 0.35 }} />
+        return <View style={{ width: arm, height: arm, borderTopWidth: line, borderRightWidth: line, borderColor: c, borderRadius: 1, borderCurve: 'continuous', transform: [{ rotate: '45deg' }], marginLeft: -arm * 0.35 }} />
       }
       case 'play':
         return (
@@ -116,6 +123,8 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
 /** 뒤로 화살표 크기 — 모든 화면 머리·전체 화면 판이 같은 크기·색을 쓴다 (D-UX3-08) */
 /** 뒤로 화살표 크기 — 토스 사진을 재어 33(선 두께는 2 그대로, D-UX3-51 — 옛 26) */
 export const BACK_ICON = 33
+/** 뒤로 ‹ 선 두께 (D-UX3-55) */
+export const BACK_STROKE = 2.4
 
 /** 뒤로 단추 하나 (토스 ‹): 48×48 누름 자리, 글자색 화살표 33. 누르면 바탕은 그대로 두고 화살표만 연해진다(D-UX3-51). 어느 화면이든 이것만 쓴다 */
 export function BackButton({ label = '뒤로', onPress }: { readonly label?: string; readonly onPress: () => void }) {

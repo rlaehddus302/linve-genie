@@ -14,7 +14,7 @@
 // ③ "인증 성공" 2초 뒤 다음(홈·있는 계정 안내)으로. 화면 사이는 밀어 넘긴다(SlideSwitch).
 // 가입 중(가입 표)과 로그인한 계정(번호 등록)이 같이 쓴다. 왼쪽 위 ‹는 ①에서 처음으로·로그아웃, ②에서 번호 다시 넣기.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { Animated, Easing, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View, type TextInputInstance } from 'react-native'
+import { Animated, Easing, Keyboard, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View, type TextInputInstance } from 'react-native'
 import {
   CODE_ASK_TITLE,
   CODE_FIELD,
@@ -37,11 +37,15 @@ import {
   PHONE_RECHECK,
   PHONE_VERIFIED,
   START_OVER,
+  VERIFY_LEAVE_GO,
+  VERIFY_LEAVE_TEXT,
+  VERIFY_LEAVE_TITLE,
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
 import { BackButton, BigButton, ErrorLine, Icon, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
-import { SlideSwitch } from '../ui/kit/slide.tsx'
+import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
+import { EdgeSwipeBack, SlideSwitch } from '../ui/kit/slide.tsx'
 import { PAGE, RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
 
 /** 인증번호 유효 시간 — 서버(CODE_TTL_MS)와 같다 */
@@ -67,16 +71,23 @@ const clock = (seconds: number): string => `${String(Math.floor(seconds / 60)).p
 type Step = 'phone' | 'code' | 'done'
 /** 인증번호 칸 표시: 틀림(합친 빨간 칸 + 문장), 횟수 초과(합친 빨간 칸), 시간 지남(칸마다 옅은 빨강) */
 type CodeMark = 'wrong' | 'locked' | 'expired' | null
-/** gone: 가입 표가 없어져 처음부터 (D-UX3-54) */
-type CodePopup = 'expired' | 'locked' | 'resend' | 'gone' | null
+/** gone: 가입 표가 없어져 처음부터 (D-UX3-54). leave: 뒤로·밀어서 뒤로 할 때 "다음에 할까요?" (D-UX3-55) */
+type CodePopup = 'expired' | 'locked' | 'resend' | 'gone' | 'leave' | null
 /** 부드럽게 (D-UX3-53 "애니메이션은 항상 부드럽게") */
 const SOFT_MS = 220
 /** 숫자 한 칸이 채워지는 시간 */
 const CELL_MS = 300
-/** 틀렸을 때 합친 빨간 칸을 보이는 시간 — 그 뒤 여섯 칸으로 나눈다 (D-UX3-54, 토스 사진 17~19) */
-export const WRONG_HOLD_MS = 1300
-/** 틀리고 키보드를 다시 올리는 때 (빨간 칸이 아직 합쳐져 있을 때, 토스 사진 18) */
-const WRONG_KEYBOARD_MS = 650
+/** 여섯 칸이 합쳐지고·빨개지는 시간 (D-UX3-55 — 옛 0.22초는 끊겨 보였다) */
+const MERGE_MS = 320
+/**
+ * 시간 (D-UX3-55, 사용자 지시 2026-11-07 "아무리 빨라도 0.5초 동안 인증결과를 기다리다가, 틀리면 0.4초 뒤에 키보드 다시 올리고, 1초뒤에 버튼 다시 쪼개기 및 문자가 안 오나요 버튼 다시 페이드인"
+ * — 옛 D-UX3-54 기다림 없음·0.65초·1.3초)
+ */
+export const MIN_CHECK_MS = 500
+const WRONG_KEYBOARD_MS = 400
+export const WRONG_HOLD_MS = 1000
+/** 팝업이 흐려져 사라진 뒤에 이전 화면으로 넘긴다 */
+const AFTER_POPUP_MS = SHEET_OUT_MS + 40
 /** 확인하는 동안 합친 칸 크기 (토스 사진 16 — 살짝 줄어든다) */
 const CHECKING_SCALE = 0.96
 const native = Platform.OS !== 'web'
@@ -164,29 +175,65 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     if (next.length !== CODE_LENGTH) return
     setChecking(true)
     setNote(null)
-    verify(next)
-      .then((then) => {
-        after.current = typeof then === 'function' ? then : null
-        go('done')
-      })
-      .catch((caught: unknown) => {
-        const kind = isApiError(caught) ? caught.code : null
-        if (kind === 'CODE_EXPIRED') {
-          setCodeMark('expired')
-          setPopup('expired')
-        } else if (kind === 'CODE_LOCKED') {
-          setCodeMark('locked')
-          setPopup('locked')
-        } else if (kind === 'LOGIN_EXPIRED') {
-          setGoneText(messageOf(caught))
-          setPopup('gone')
-        } else {
-          setCodeMark('wrong')
-          setCodeError(messageOf(caught))
-          setHeld(true)
-        }
-      })
-      .finally(() => setChecking(false))
+    // 서버가 빨리 답해도 0.5초는 합친 칸으로 기다린다 (D-UX3-55)
+    const started = Date.now()
+    const settle = (run: () => void) => setTimeout(run, Math.max(0, MIN_CHECK_MS - (Date.now() - started)))
+    verify(next).then(
+      (then) =>
+        settle(() => {
+          after.current = typeof then === 'function' ? then : null
+          setChecking(false)
+          go('done')
+        }),
+      (caught: unknown) =>
+        settle(() => {
+          setChecking(false)
+          const kind = isApiError(caught) ? caught.code : null
+          if (kind === 'CODE_EXPIRED') {
+            setCodeMark('expired')
+            setPopup('expired')
+          } else if (kind === 'CODE_LOCKED') {
+            setCodeMark('locked')
+            setPopup('locked')
+          } else if (kind === 'LOGIN_EXPIRED') {
+            setGoneText(messageOf(caught))
+            setPopup('gone')
+          } else {
+            setCodeMark('wrong')
+            setCodeError(messageOf(caught))
+            setHeld(true)
+          }
+        }),
+    )
+  }
+
+  /** 팝업을 흐려 닫은 뒤 이전 화면(번호 넣기)으로 밀어 넘긴다 — 넣었던 번호는 남긴다 (D-UX3-55) */
+  const backToPhone = (keepNumber: boolean) => {
+    setPopup(null)
+    setTimeout(() => {
+      if (!keepNumber) setDigits('')
+      setCode('')
+      setCodeError(null)
+      setCodeMark(null)
+      setHeld(false)
+      setExpiresAt(0)
+      setNote(null)
+      go('phone', true)
+    }, AFTER_POPUP_MS)
+  }
+  /** "다음에 할까요?"에서 [나가기] */
+  const leave = () => {
+    if (step === 'code') {
+      backToPhone(false)
+      return
+    }
+    setPopup(null)
+    setTimeout(back.onPress, AFTER_POPUP_MS)
+  }
+  const closePopup = () => {
+    // 시간 지남·횟수 초과 팝업은 닫으면 이전 화면으로 (D-UX3-55, 사용자 지시 "그 화면에 남는게 아니라 이전 화면으로")
+    if (popup === 'expired' || popup === 'locked') backToPhone(true)
+    else setPopup(null)
   }
 
   const resendLeft = Math.max(0, Math.ceil((sentAt + CODE_RESEND_WAIT_SECONDS * 1000 - now) / 1000))
@@ -264,82 +311,89 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
         ? { message: CODE_LOCKED_TEXT, description: resendLeft > 0 ? codeResendIn(resendLeft) : null }
         : shownPopup === 'gone'
           ? { message: goneText ?? APP_LOGIN_FAILED, description: null }
-          : { message: CODE_RESEND_TITLE, description: resendLeft > 0 ? codeResendIn(resendLeft) : CODE_RESEND_NOW }
+          : shownPopup === 'leave'
+            ? { message: VERIFY_LEAVE_TITLE, description: VERIFY_LEAVE_TEXT }
+            : { message: CODE_RESEND_TITLE, description: resendLeft > 0 ? codeResendIn(resendLeft) : CODE_RESEND_NOW }
+  const confirmLabel = shownPopup === 'gone' ? START_OVER : shownPopup === 'leave' ? VERIFY_LEAVE_GO : CODE_RESEND_GO
+  const onConfirm = shownPopup === 'gone' ? back.onPress : shownPopup === 'leave' ? leave : resend
+  // 뒤로·밀어서 뒤로: 나가면 처음부터 다시라 먼저 묻는다 (D-UX3-55, 사용자 지시 "뒤로가기 시 \"다음에 할까요?\"")
+  const askLeave = () => {
+    if (checking || popup !== null) return
+    Keyboard.dismiss()
+    setPopup('leave')
+  }
 
   return (
-    <SlideSwitch id={step} back={goingBack} testID="phone-verify">
-      {step === 'phone' ? (
-        <Page
-          onBack={back.onPress}
-          backLabel={back.label}
-          title={PHONE_ASK_TITLE}
-          testID="phone-step"
-          footer={<BigButton label={PHONE_NEXT} onPress={nextFromPhone} disabled={digits.length !== 11} busy={sending} testID="phone-next" />}
-        >
-          <View style={{ marginTop: PAGE.titleGap }}>
-            <UnderlineField
-              label={PHONE_FIELD}
-              value={formatMobileInput(digits)}
-              onChangeText={typePhone}
-              error={wrongStart ? PHONE_RECHECK : sendError}
-              again={phoneAgain}
-              keyboardType="number-pad"
-              textContentType="telephoneNumber"
-              autoComplete="tel"
-              autoFocus
-              maxLength={13}
-              testID="phone-input"
-            />
-          </View>
-        </Page>
-      ) : step === 'code' ? (
-        <Page
-          onBack={() => {
-            setDigits('')
-            setCode('')
-            setCodeError(null)
-            go('phone', true)
-          }}
-          backLabel="번호 다시 넣기"
-          title={CODE_ASK_TITLE}
-          testID="code-step"
-          footer={<NotComing hidden={checking || held} onPress={() => setPopup('resend')} />}
-        >
-          <View style={{ marginTop: SPACE.lg }}>
-            <Txt step="body" color="textSub">{`${CODE_LEFT} ${clock(left)}`}</Txt>
-          </View>
-          <CodeBoxes value={code} error={codeError} mark={timeOver && codeMark === null ? 'expired' : codeMark} checking={checking} held={held} onChange={typeCode} inputRef={codeInput} />
-          {/* 확인 중 표시는 합친 칸이 살짝 줄어드는 것 (토스 사진 16) — 돌림표는 없다. 오래 걸리는 일 안내만 글로 */}
-          {checking && busyText !== undefined && busyText !== null ? (
-            <View style={{ marginTop: SPACE.lg }} aria-live="polite">
-              <Txt step="caption" color="textSub" center>
-                {busyText}
-              </Txt>
+    <>
+      <SlideSwitch id={step} back={goingBack} testID="phone-verify">
+        {step === 'phone' ? (
+          <Page
+            onBack={askLeave}
+            backLabel={back.label}
+            title={PHONE_ASK_TITLE}
+            testID="phone-step"
+            footer={<BigButton label={PHONE_NEXT} onPress={nextFromPhone} disabled={digits.length !== 11} busy={sending} testID="phone-next" />}
+          >
+            <View style={{ marginTop: PAGE.titleGap }}>
+              <UnderlineField
+                label={PHONE_FIELD}
+                value={formatMobileInput(digits)}
+                onChangeText={typePhone}
+                error={wrongStart ? PHONE_RECHECK : sendError}
+                again={phoneAgain}
+                keyboardType="number-pad"
+                textContentType="telephoneNumber"
+                autoComplete="tel"
+                autoFocus
+                maxLength={13}
+                testID="phone-input"
+              />
             </View>
-          ) : null}
-          {note === null ? null : (
-            <View style={{ marginTop: SPACE.md }} aria-live="polite">
-              <Txt step="caption" color="textSub" center>
-                {note}
-              </Txt>
+          </Page>
+        ) : step === 'code' ? (
+          <Page
+            onBack={askLeave}
+            backLabel="번호 다시 넣기"
+            title={CODE_ASK_TITLE}
+            testID="code-step"
+            footer={<NotComing hidden={checking || held} onPress={() => setPopup('resend')} />}
+          >
+            <View style={{ marginTop: SPACE.lg }}>
+              <Txt step="body" color="textSub">{`${CODE_LEFT} ${clock(left)}`}</Txt>
             </View>
-          )}
-          <PopupDialog
-            visible={popup !== null}
-            message={popupText.message}
-            description={popupText.description}
-            cancelLabel={POPUP_CLOSE}
-            confirmLabel={shownPopup === 'gone' ? START_OVER : CODE_RESEND_GO}
-            confirmDisabled={shownPopup !== 'gone' && resendLeft > 0}
-            busy={sending}
-            onCancel={() => setPopup(null)}
-            onConfirm={shownPopup === 'gone' ? back.onPress : resend}
-          />
-        </Page>
-      ) : (
-        <Verified />
-      )}
-    </SlideSwitch>
+            <CodeBoxes value={code} error={codeError} mark={timeOver && codeMark === null ? 'expired' : codeMark} checking={checking} held={held} onChange={typeCode} inputRef={codeInput} />
+            {/* 확인 중 표시는 합친 칸이 살짝 줄어드는 것 (토스 사진 16) — 돌림표는 없다. 오래 걸리는 일 안내만 글로 */}
+            {checking && busyText !== undefined && busyText !== null ? (
+              <View style={{ marginTop: SPACE.lg }} aria-live="polite">
+                <Txt step="caption" color="textSub" center>
+                  {busyText}
+                </Txt>
+              </View>
+            ) : null}
+            {note === null ? null : (
+              <View style={{ marginTop: SPACE.md }} aria-live="polite">
+                <Txt step="caption" color="textSub" center>
+                  {note}
+                </Txt>
+              </View>
+            )}
+          </Page>
+        ) : (
+          <Verified />
+        )}
+      </SlideSwitch>
+      <PopupDialog
+        visible={popup !== null}
+        message={popupText.message}
+        description={popupText.description}
+        cancelLabel={POPUP_CLOSE}
+        confirmLabel={confirmLabel}
+        confirmDisabled={(shownPopup === 'resend' || shownPopup === 'expired' || shownPopup === 'locked') && resendLeft > 0}
+        busy={sending}
+        onCancel={closePopup}
+        onConfirm={onConfirm}
+      />
+    </>
   )
 }
 
@@ -351,20 +405,22 @@ function Page({ onBack, backLabel, title, children, footer, testID }: { readonly
   // 이 틀은 상태 막대 아래(SafeAreaView 위 여백)에서 시작한다 — 키보드 피하기는 부모 기준 자리로 재므로 그만큼 더해야 단추가 키보드에 가리지 않는다
   const top = useTopInset()
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={top} style={{ flex: 1, backgroundColor: p.surface }} testID={testID}>
-      <View style={{ paddingLeft: PAGE.backLeft }}>
-        <BackButton label={backLabel} onPress={onBack} />
-      </View>
-      <View style={{ flex: 1, paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop }}>
-        <Txt step="headline" weight="bold" role="heading" aria-level={1}>
-          {title}
-        </Txt>
-        {children}
-      </View>
-      {footer === undefined || footer === null ? null : (
-        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(bottom, SPACE.md) + SPACE.xs }}>{footer}</View>
-      )}
-    </KeyboardAvoidingView>
+    <EdgeSwipeBack onBack={onBack}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={top} style={{ flex: 1, backgroundColor: p.surface }} testID={testID}>
+        <View style={{ paddingLeft: PAGE.backLeft }}>
+          <BackButton label={backLabel} onPress={onBack} />
+        </View>
+        <View style={{ flex: 1, paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop }}>
+          <Txt step="headline" weight="bold" role="heading" aria-level={1}>
+            {title}
+          </Txt>
+          {children}
+        </View>
+        {footer === undefined || footer === null ? null : (
+          <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(bottom, SPACE.md) + SPACE.xs }}>{footer}</View>
+        )}
+      </KeyboardAvoidingView>
+    </EdgeSwipeBack>
   )
 }
 
@@ -412,8 +468,10 @@ function useEased(target: number, ms: number): Animated.Value {
   return value
 }
 
-/** 칸 사이 */
-const CELL_GAP = SPACE.sm
+/** 칸 사이·칸 높이·여섯 칸 폭 (D-UX3-55, 사용자 지시 "숫자 크기, 각 칸 가로 세로 너비 다시 맞출 것" — 토스 사진을 재어 칸 44×54·사이 7·줄 301, 숫자 30. 옛 칸 51×64·사이 8) */
+const CELL_GAP = 7
+const CELL_HEIGHT = 54
+const ROW_WIDTH = 301
 /** 합칠 때 칸들이 가운데로 모이는 거리의 바깥 끝 (칸 사이를 다 메운다) */
 const GATHER = ((CODE_LENGTH - 1) / 2) * CELL_GAP
 const COVER = { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 } as const
@@ -520,16 +578,16 @@ function CodeBoxes({
   const red = mark === 'locked' || (mark === 'wrong' && held)
   const merged = checking || red
   const pink = !merged && (mark === 'expired' || mark === 'wrong')
-  const together = useEased(merged ? 1 : 0, SOFT_MS)
-  const redness = useEased(red ? 1 : 0, SOFT_MS)
-  const size = useEased(checking ? CHECKING_SCALE : 1, SOFT_MS + 60)
+  const together = useEased(merged ? 1 : 0, MERGE_MS)
+  const redness = useEased(red ? 1 : 0, MERGE_MS)
+  const size = useEased(checking ? CHECKING_SCALE : 1, MERGE_MS)
   const cells = Array.from({ length: CODE_LENGTH }, (_, index) => value[index] ?? '')
   const shake = useWrongShake(mark === 'wrong' ? error : mark === 'locked' ? CODE_LOCKED_TEXT : null)
   const wrongLine = useSoftShow(mark === 'wrong' && held && error !== null)
   const shape = { ...COVER, borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: 2 } as const
   return (
     <Animated.View style={{ marginTop: SPACE.xxxl, alignItems: 'center', transform: [{ translateX: shake }] }}>
-      <View style={{ width: '100%', maxWidth: 360, height: 64 }}>
+      <View style={{ width: '100%', maxWidth: ROW_WIDTH, height: CELL_HEIGHT }}>
         <Animated.View style={{ flex: 1, flexDirection: 'row', gap: CELL_GAP, opacity: together.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
           {cells.map((cell, index) => (
             <CodeCell key={index} index={index} char={cell} pink={pink} together={together} active={focused && !merged && value.length < CODE_LENGTH && index === value.length} />

@@ -295,6 +295,10 @@ export const CODE_RESEND_ASK = '문자를 다시 받을까요?'
 /** [문자가 안 오나요?] 팝업 제목과, 다시 받을 수 있게 된 뒤 설명 (D-UX3-54, 사용자 지시 2026-11-07) */
 export const CODE_RESEND_TITLE = '인증 문자를 다시 받을까요?'
 export const CODE_RESEND_NOW = '지금 바로 다시 받을 수 있어요'
+/** 번호 확인 중 뒤로·밀어서 뒤로 할 때 묻는 팝업 (D-UX3-55, 사용자 지시 2026-11-07) */
+export const VERIFY_LEAVE_TITLE = '다음에 할까요?'
+export const VERIFY_LEAVE_TEXT = '여기서 나가면 처음부터 다시 해야 해요'
+export const VERIFY_LEAVE_GO = '나가기'
 export const CODE_RESEND_GO = '다시 받기'
 export const POPUP_CLOSE = '닫기'
 /** 3분이 지났을 때 팝업 제목 (D-UX3-53, 토스 사진 1) */
