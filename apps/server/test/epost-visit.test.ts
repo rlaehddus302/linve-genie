@@ -71,4 +71,30 @@ describe('우체국 방문접수 파일 (D-UX3-36)', () => {
     // 80cm 상자 → 5kg·80cm
     expect(rowValues(sheet, 3).slice(5, 7)).toEqual([5, 80])
   })
+
+  it('빈 우편번호는 서버 우편번호 찾기로 채운다 — 번지를 상세 주소에 따로 적었으면 이어 붙여 묻고, 못 찾으면 빈 칸 그대로', async () => {
+    const asked: string[] = []
+    const world = await parcelWorld({
+      overrides: {
+        parcel: {
+          findZip: async (query: string) => {
+            asked.push(query)
+            return query === '경상남도 양산시 물금읍 증산리 1034' ? { kind: 'ZIP', zip: '50603' } : { kind: 'NONE' }
+          },
+        },
+      },
+    })
+    const seller = await parcelSeller(world, { carrier: 'EPOST', sender: SENDER, box: '80' })
+    await sell(world, seller, [
+      ['UC_A', '가람', 1],
+      ['UC_B', '나래', 1],
+      ['UC_C', '다솜', 1],
+    ])
+    await makeReady(world, seller, 'UC_A')
+    await makeReady(world, seller, 'UC_B', { name: '김다육', phone: '01098765432', address: '경상남도 양산시 물금읍 증산리', detail: '1034', zip: '', memo: '' })
+    await makeReady(world, seller, 'UC_C', { name: '이모름', phone: '01011112222', address: '어딘가 모르는 길', detail: '', zip: '', memo: '' })
+    const sheet = await sheetOf(await fileOf(world, seller.cookie))
+    expect(asked.sort()).toEqual(['경상남도 양산시 물금읍 증산리 1034', '어딘가 모르는 길'])
+    expect([rowValues(sheet, 3)[1], rowValues(sheet, 4)[1], rowValues(sheet, 5)[1]]).toEqual([ADDRESS.zip, '50603', null])
+  })
 })

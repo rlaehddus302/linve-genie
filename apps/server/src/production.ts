@@ -110,7 +110,7 @@ export function productionServerOptions(
       deposits: { testMode: false, popbill: popbill === null ? null : popbillHttpTransport(popbill) },
       billing,
       // 우체국 계약소포 (D-REAL-04 — 판매자마다 설정에 넣은 계약 정보로. 가짜 택배사는 고를 수 없다)
-      parcel: { carriers: { EPOST: epostCarrier({ now: () => Date.now(), ...epostPublic }) } },
+      parcel: { carriers: { EPOST: epostCarrier({ now: () => Date.now(), ...epostPublic }) }, ...(epostPublic.findZip === undefined ? {} : { findZip: epostPublic.findZip }) },
       socialLogin: { providers: social.providers },
       sms: smsSender,
       assist: assist.setup,

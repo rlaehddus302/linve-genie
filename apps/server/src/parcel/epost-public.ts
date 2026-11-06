@@ -265,3 +265,10 @@ export function epostZipFinder(options: EpostPublicOptions): (address: string) =
     return second === null ? { kind: 'NONE' } : { kind: 'ZIP', zip: second }
   }
 }
+
+/**
+ * 우편번호 찾기 질의 (D-REAL-10): 주소 칸에 번지가 없고 상세 주소에 따로 적었으면("…증산리" + "1034") 이어 붙인다.
+ * 우체국 자동 접수(epost.ts)와 우체국 방문접수 파일(D-UX3-36)이 같이 쓴다
+ */
+export const zipQuery = (receiver: { readonly address: string; readonly detail: string }): string =>
+  zipTarget(receiver.address) === null && receiver.detail.trim() !== '' ? `${receiver.address} ${receiver.detail}` : receiver.address

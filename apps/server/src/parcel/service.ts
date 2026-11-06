@@ -102,6 +102,7 @@ import {
   type RequestRow,
   type StoredSettings,
 } from './store.ts'
+import { zipQuery, type ZipFound } from './epost-public.ts'
 
 /** 배송지 보관 날 수 (PC-3 "보관" — 봉인 D-Y11과 같은 때) */
 export const ADDRESS_KEEP_DAYS = 30
@@ -125,6 +126,8 @@ export interface ParcelOptions {
   readonly sweepEveryMs?: number
   /** 한 번에 접수할 때 동시에 보내는 수 (기본 4) */
   readonly concurrency?: number
+  /** 우편번호 찾기 (공공데이터포털 우체국 — D-REAL-08). 우체국 방문접수 파일의 빈 우편번호를 채운다(D-UX3-36). 없으면 빈 칸(우체국 [주소검증]) */
+  readonly findZip?: (address: string) => Promise<ZipFound>
 }
 
 export interface ParcelDeps {
@@ -1283,6 +1286,7 @@ export class ParcelService {
     }
     if (rows.length === 0) return problem(409, 'NO_PARCELS', PARCEL_MESSAGES.noEpostRows)
     if (rows.length > EPOST_VISIT_MAX_ROWS) return problem(422, 'TOO_MANY', PARCEL_MESSAGES.tooManyEpostRows)
+    await this.#fillZips(rows, signal)
     let bytes: Uint8Array
     try {
       bytes = await this.#deps.work.documents.run<Uint8Array>(sellerId, 'epostVisitXlsx', { rows }, signal === undefined ? {} : { signal })
@@ -1301,6 +1305,30 @@ export class ParcelService {
       fallback: `epost-visit-${date}.xlsx`,
       headers: { 'X-Epost-Count': String(rows.length) },
     })
+  }
+
+  /**
+   * 우체국 방문접수 파일의 빈 우편번호를 서버 우편번호 찾기로 채운다 (D-UX3-36 — 우체국은 빈 칸을 받지만 [주소검증]에서 판매자가 다시 골라야 한다).
+   * 하나로 모일 때만 넣고, 못 찾거나 묻지 못하면 빈 칸 그대로(파일은 그래도 만든다). 동시에 묻는 수는 접수와 같다
+   */
+  async #fillZips(rows: EpostVisitRow[], signal?: AbortSignal): Promise<void> {
+    const findZip = this.#deps.options.findZip
+    if (findZip === undefined) return
+    const missing = rows.map((row, index) => ({ row, index })).filter(({ row }) => !/^[0-9]{5}$/.test(row.zip))
+    let next = 0
+    const lane = async (): Promise<void> => {
+      while (next < missing.length && signal?.aborted !== true) {
+        const item = missing[next++] as { row: EpostVisitRow; index: number }
+        try {
+          const found = await findZip(zipQuery(item.row))
+          if (found.kind === 'ZIP') rows[item.index] = { ...item.row, zip: found.zip }
+        } catch {
+          // 묻지 못했다 — 빈 칸 그대로 (우체국 [주소검증])
+        }
+      }
+    }
+    const lanes = Math.max(1, Math.min(this.#deps.options.concurrency ?? BOOK_CONCURRENCY, missing.length))
+    await Promise.all(Array.from({ length: lanes }, lane))
   }
 
   // ── 합치기 (PC-3 "합치기·떼어 내기", AC-T1-05) ───────────────────────
