@@ -284,6 +284,23 @@ export const PHONE_CHANGE = '번호 바꾸기'
 export const START_OVER = '처음으로'
 export const LOGOUT_LABEL = '로그아웃'
 export const codeSentMessage = (phone: string): string => `${phone} 번호로 인증번호를 보냈어요.`
+// 앱 번호 확인 화면 (D-UX3-49, 사용자 지시 2026-11-07 사진대로): 번호 11자리가 차면 바로 보내고, 6자리가 차면 바로 확인한다
+export const PHONE_ASK_TITLE = '본인 확인을 위해\n휴대폰 번호를 알려 주세요'
+export const PHONE_RECHECK = '휴대폰 번호를 다시 확인해 주세요.'
+export const CODE_ASK_TITLE = '문자로 받은\n인증번호 6자리를 입력해 주세요'
+export const CODE_LEFT = '남은 시간'
+export const CODE_NOT_COMING = '문자가 안 오나요?'
+export const CODE_RESENT = '인증번호를 다시 보냈어요.'
+export const CODE_TIME_OVER = '시간이 지났어요. 문자가 안 오나요?를 눌러 다시 받아 주세요.'
+export const PHONE_VERIFIED = '인증 성공'
+/** 숫자만 받아 010-0000-0000 모양으로 (치는 중에는 000-000-00처럼 3·3, 11자리가 차면 3·4·4) */
+export function formatMobileInput(digits: string): string {
+  const d = digits.replace(/\D/g, '').slice(0, 11)
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`
+  if (d.length <= 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`
+  return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`
+}
 export const EXISTING_TITLE = '이미 가입한 계정이 있어요'
 /** 있는 번호: 그 계정의 간편 로그인으로 다시 로그인하면 지금 공급자가 이어진다 */
 export function existingBody(phone: string, providers: readonly LoginProvider[], next: LoginProvider): string {

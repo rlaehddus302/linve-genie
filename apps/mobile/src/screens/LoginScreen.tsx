@@ -12,8 +12,9 @@
 // 빈칸은 flex 비율로 나눠 휴대폰 높이와 상관없이 같은 모양이고, 작은 화면에서는 최소 높이를 지키고 스크롤된다.
 // 도우미(보조자)를 없애 [아이디로 로그인] 링크도 뺐다. 운영자가 만든 계정·심사용 계정은 서비스명을 2초 안에 다섯 번 누르면 아이디 칸이 열린다(숨은 길).
 // 마지막으로 아이디로 들어온 기기이거나 간편 로그인이 켜지지 않은 서버면 처음부터 칸을 연다.
+// D-UX3-49 (사용자 지시 2026-11-07 사진): 번호 확인은 사진대로 세 화면(번호 → 인증번호 6칸 → 인증 성공 2초)이고, 단계 사이는 밀어 넘긴다.
 // D-UX3-33 (사용자 지시 2026-11-06 "처음이면 ... 동의한것으로 봐요 이 설명도 필요없어 지워"): 단추 아래 동의 안내 한 줄도 뺐다 — 약관 두 링크는 맨 아래에 그대로.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import {
@@ -22,8 +23,6 @@ import {
   EXISTING_TITLE,
   existingBody,
   NOT_THAT_ACCOUNT,
-  PHONE_BODY,
-  PHONE_TITLE,
   START_OVER,
   RECENT_LOGIN,
   resultMessage,
@@ -47,6 +46,7 @@ import {
   rememberAppLastLogin,
 } from '../lib/social-auth.ts'
 import { PhoneVerify } from './PhoneVerify.tsx'
+import { SlideSwitch } from '../ui/kit/slide.tsx'
 import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SERVICE_NAME, SESSION_EXPIRED_MESSAGE, SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/words.ts'
 import { useBottomInset, useKit } from '../ui/kit/theme.tsx'
 import { BigButton, Body, Field, Hint, Notice, Screen, Stack, Title } from '../ui/parts.tsx'
@@ -187,12 +187,11 @@ export function LoginScreen({
     }
   }
 
-  /** 번호를 확인했다: 새 번호면 가입, 있는 번호면 다시 로그인 단계로 */
-  const phoneVerified = async (current: Extract<SignupStage, { kind: 'phone' }>, code: string) => {
+  /** 번호를 확인했다: 새 번호면 가입, 있는 번호면 다시 로그인 단계로 — 할 일은 "인증 성공" 화면 2초 뒤에 (D-UX3-49) */
+  const phoneVerified = async (current: Extract<SignupStage, { kind: 'phone' }>, code: string): Promise<() => Promise<void>> => {
     const next = await appSignupPhoneVerify(current.ticket, current.verifier, code)
     if (next.next === 'LOGIN_EXISTING') {
-      setStage({ kind: 'existing', provider: current.provider, ticket: current.ticket, verifier: current.verifier, phone: next.phone, providers: next.providers })
-      return
+      return async () => setStage({ kind: 'existing', provider: current.provider, ticket: current.ticket, verifier: current.verifier, phone: next.phone, providers: next.providers })
     }
     setMaking(true)
     try {
@@ -200,8 +199,10 @@ export function LoginScreen({
     } finally {
       setMaking(false)
     }
-    await rememberAppLastLogin(current.provider)
-    await onSocialDone?.()
+    return async () => {
+      await rememberAppLastLogin(current.provider)
+      await onSocialDone?.()
+    }
   }
 
   /** 있는 번호의 계정으로 다시 로그인하고, 방금 공급자를 그 계정에 잇는다 */
@@ -242,25 +243,30 @@ export function LoginScreen({
     setSocialMessage(null)
   }
 
+  // 단계 사이는 밀어 넘긴다 — 처음 화면으로 돌아갈 때만 반대 방향 (D-UX3-49)
+  const slide = (node: ReactNode) => (
+    <SlideSwitch id={stage.kind} back={stage.kind === 'main'}>
+      {node}
+    </SlideSwitch>
+  )
+
   if (stage.kind === 'phone') {
     const current = stage
-    return (
-      <Screen title={SERVICE_NAME} testID="login-phone">
+    return slide(
+      <View style={{ flex: 1 }} testID="login-phone">
         <PhoneVerify
-          title={PHONE_TITLE}
-          body={PHONE_BODY}
           send={(phone) => appSignupPhoneSend(current.ticket, current.verifier, phone)}
           verify={(code) => phoneVerified(current, code)}
           back={{ label: START_OVER, onPress: startOver }}
           busyText={making ? SIGNUP_MAKING : null}
         />
-      </Screen>
+      </View>,
     )
   }
 
   if (stage.kind === 'existing') {
     const current = stage
-    return (
+    return slide(
       <Screen title={SERVICE_NAME} testID="login-existing">
         <Stack>
           <Title>{EXISTING_TITLE}</Title>
@@ -274,12 +280,12 @@ export function LoginScreen({
           <Hint>{EXISTING_LOST}</Hint>
           <BigButton label={START_OVER} onPress={startOver} />
         </Stack>
-      </Screen>
+      </Screen>,
     )
   }
 
   const idForm = idOpen || (providersLoaded && providers.length === 0)
-  return (
+  return slide(
     <ScrollView
       style={{ flex: 1, backgroundColor: p.background }}
       contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 16, paddingBottom: bottom + 20 }}
@@ -323,7 +329,7 @@ export function LoginScreen({
       {/* 단추와 맨 아래 사이 일정한 빈칸 (위 칸의 절반 비율, 최소 40) */}
       <View style={{ flex: 2, minHeight: 40 }} />
       <LoginFooter />
-    </ScrollView>
+    </ScrollView>,
   )
 }
 

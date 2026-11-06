@@ -9,6 +9,7 @@ import { configureApi } from '../src/api/config.ts'
 import { setSocialNative } from '../src/lib/social-auth.ts'
 import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SESSION_EXPIRED_MESSAGE, SUPPORT_EMAIL, SUPPORT_PHONE } from '../src/lib/words.ts'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
+import { CODE_ASK_TITLE, PHONE_ASK_TITLE, PHONE_RECHECK } from '@livejjim/web/src/lib/social-login.ts'
 import { flush } from './support.ts'
 
 describe('LoginScreen', () => {
@@ -208,7 +209,9 @@ describe('LoginScreen', () => {
       const T1 = 'T'.repeat(43)
       const T2 = 'U'.repeat(43)
 
-      it('새 번호: 번호 → 인증번호 → 확인하면 가입하고 들어간다', async () => {
+      // D-UX3-49로 바뀐 기대 (사용자 지시 2026-11-07 사진): 옛 "번호 → [인증번호 받기] → 6자리 → [확인]" →
+      // 새 "번호 11자리가 차면 바로 보내고 인증번호 화면, 6자리가 차면 바로 확인, '인증 성공'을 2초 보인 뒤 들어간다". 단추 대신 왼쪽 위 ‹(처음으로).
+      it('새 번호: 11자리가 차면 바로 보내고, 6자리가 차면 바로 확인하고, 인증 성공 2초 뒤 가입하고 들어간다', async () => {
         const t = installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {
           '/api/auth/app/finish': { result: 'SIGNUP', provider: 'google', phoneRequired: true },
           '/api/auth/signup/phone': { phone: '010-****-5678' },
@@ -218,19 +221,73 @@ describe('LoginScreen', () => {
         const onSocialDone = vi.fn(async () => {})
         render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
         fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
-        expect(await screen.findByText('휴대폰 번호를 확인할게요')).toBeTruthy()
-        // 처음 화면으로 돌아가는 단추(왼쪽)와 인증번호 받기(오른쪽)가 한 줄에
+        expect(await screen.findByText(PHONE_ASK_TITLE.replace('\n', ' '))).toBeTruthy()
         expect(screen.getByRole('button', { name: '처음으로' })).toBeTruthy()
-        fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '010-1234-5678' } })
-        fireEvent.click(screen.getByRole('button', { name: '인증번호 받기' }))
-        expect(await screen.findByText('010-****-5678 번호로 인증번호를 보냈어요.')).toBeTruthy()
+        expect(screen.queryByRole('button', { name: '인증번호 받기' })).toBeNull()
+        fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '0101234567' } })
+        expect(t.calls.filter((c) => c.url.endsWith('/api/auth/signup/phone'))).toHaveLength(0)
+        fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '01012345678' } })
+        expect(await screen.findByText(CODE_ASK_TITLE.replace('\n', ' '))).toBeTruthy()
+        expect(screen.getByText(/남은 시간 0[23]:\d\d/)).toBeTruthy()
+        expect(screen.queryByRole('button', { name: '확인' })).toBeNull()
         fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '123456' } })
-        fireEvent.click(screen.getByRole('button', { name: '확인' }))
-        await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1))
+        expect(await screen.findByText('인증 성공')).toBeTruthy()
+        expect(onSocialDone).not.toHaveBeenCalled()
+        await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1), { timeout: 4000 })
         expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup/phone'))?.body).toEqual({ phone: '010-1234-5678', ticket: T1, verifier: 'V'.repeat(43) })
         expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup/phone/verify'))?.body).toEqual({ code: '123456', ticket: T1, verifier: 'V'.repeat(43) })
         expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup'))?.body).toEqual({ agree: true, ticket: T1, verifier: 'V'.repeat(43) })
         expect(t.stored['livejjim:last-login']).toBe('google')
+      })
+
+      it('앞 세 자리가 010이 아니면 바로 "다시 확인해 주세요"를 보이고 보내지 않는다 (D-UX3-49)', async () => {
+        const t = installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {
+          '/api/auth/app/finish': { result: 'SIGNUP', provider: 'google', phoneRequired: true },
+          '/api/auth/signup/phone': { phone: '011-****-5678' },
+        })
+        render(<LoginScreen expired={false} onLogin={async () => {}} />)
+        fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
+        fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '011' } })
+        expect(screen.getByRole('alert').textContent).toContain(PHONE_RECHECK)
+        expect(screen.queryByRole('button', { name: '다음' })).toBeNull()
+        fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '01112345678' } })
+        await flush()
+        expect(t.calls.filter((c) => c.url.endsWith('/api/auth/signup/phone'))).toHaveLength(0)
+        // 지우기는 그대로 — 누르면 비고 경고도 사라진다
+        fireEvent.click(screen.getByRole('button', { name: '휴대폰 번호 지우기' }))
+        expect(screen.queryByRole('alert')).toBeNull()
+      })
+
+      it('인증번호가 틀리면 칸을 하나로 합쳐 빨갛게 하고 서버 문장을 보이며 들어가지 않는다 (D-UX3-49)', async () => {
+        const t = installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {
+          '/api/auth/app/finish': { result: 'SIGNUP', provider: 'google', phoneRequired: true },
+          '/api/auth/signup/phone': { phone: '010-****-5678' },
+        })
+        configureApi({
+          baseUrl: 'https://livegenie.test',
+          fetch: async (input, init) => {
+            const url = String(input)
+            t.calls.push({ url, body: init?.body === undefined ? null : JSON.parse(String(init.body)) })
+            const path = new URL(url).pathname
+            if (path === '/api/auth/signup/phone/verify') {
+              return new Response(JSON.stringify({ error: { code: 'CODE_WRONG', message: '인증번호가 맞지 않아요. 4번 더 넣을 수 있어요.' } }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+            }
+            const reply = path === '/api/auth/app/finish' ? { result: 'SIGNUP', provider: 'google', phoneRequired: true } : path === '/api/auth/signup/phone' ? { phone: '010-****-5678' } : url.endsWith('/api/client-config') ? { loginProviders: ['kakao', 'naver', 'google'] } : undefined
+            return new Response(JSON.stringify(reply ?? {}), { status: reply === undefined ? 404 : 200, headers: { 'Content-Type': 'application/json' } })
+          },
+        })
+        const onSocialDone = vi.fn(async () => {})
+        render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
+        fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
+        fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '010-1234-5678' } })
+        fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '000000' } })
+        expect((await screen.findByRole('alert')).textContent).toContain('인증번호가 맞지 않아요.')
+        expect(screen.getByTestId('code-wrong')).toBeTruthy()
+        expect(screen.queryByText('인증 성공')).toBeNull()
+        // 고쳐 넣으면 빨간 표시가 풀린다
+        fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '00000' } })
+        expect(screen.queryByTestId('code-wrong')).toBeNull()
+        expect(onSocialDone).not.toHaveBeenCalled()
       })
 
       it('있는 번호: 새 계정을 만들지 않고, 그 계정의 카카오로 다시 로그인하면 구글을 잇는다', async () => {
@@ -243,11 +300,10 @@ describe('LoginScreen', () => {
         const onSocialDone = vi.fn(async () => {})
         render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
         fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
+        // D-UX3-49: 단추 없이 11자리·6자리가 차면 넘어가고, "인증 성공" 2초 뒤 있는 계정 안내
         fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '01055556666' } })
-        fireEvent.click(screen.getByRole('button', { name: '인증번호 받기' }))
         fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '654321' } })
-        fireEvent.click(screen.getByRole('button', { name: '확인' }))
-        expect(await screen.findByText('이미 가입한 계정이 있어요')).toBeTruthy()
+        expect(await screen.findByText('이미 가입한 계정이 있어요', undefined, { timeout: 4000 })).toBeTruthy()
         expect(screen.getByText('010-****-6666 번호로 가입한 계정이에요. 카카오로 로그인하면 구글도 함께 이어져요.')).toBeTruthy()
         expect(screen.queryByRole('button', { name: '구글로 로그인' })).toBeNull()
         // 두 번째 로그인은 기존 계정(LOGGED_IN)

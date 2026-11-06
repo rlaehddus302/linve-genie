@@ -5,7 +5,7 @@ import { useCallback, useRef, useState } from 'react'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { TAB_PATH } from '../src/lib/tab-routes.ts'
 import { HomeScreen } from '../src/screens/HomeScreen.tsx'
-import { ACCOUNT_PHONE_BODY, ACCOUNT_PHONE_TITLE, LOGOUT_LABEL } from '@livejjim/web/src/lib/social-login.ts'
+import { LOGOUT_LABEL } from '@livejjim/web/src/lib/social-login.ts'
 import { accountPhoneSend, accountPhoneVerify } from '../src/lib/social-auth.ts'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
 import { PhoneVerify } from '../src/screens/PhoneVerify.tsx'
@@ -13,7 +13,9 @@ import { TabFrame } from '../src/screens/TabFrame.tsx'
 import { useSession } from '../src/services.tsx'
 import { PALETTE } from '../src/ui/kit/tokens.ts'
 import { KitInsets } from '../src/ui/kit/safe-area.tsx'
-import { Loading, Screen } from '../src/ui/parts.tsx'
+import { SlideSwitch } from '../src/ui/kit/slide.tsx'
+import { Loading } from '../src/ui/parts.tsx'
+import { View } from 'react-native'
 
 export default function IndexRoute() {
   const { session, login, logout, recheck } = useSession()
@@ -32,41 +34,44 @@ export default function IndexRoute() {
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
         {session.state === 'checking' ? <Loading text="로그인을 확인하는 중…" /> : null}
-        {session.state === 'out' ? <LoginScreen expired={session.expired} offline={session.offline === true} onRecheck={recheck} onLogin={login} onSocialDone={recheck} /> : null}
-        {session.state === 'in' && session.me.phoneRequired === true ? (
-          <Screen title="휴대폰 번호" testID="phone-required">
-            <PhoneVerify
-              title={ACCOUNT_PHONE_TITLE}
-              body={ACCOUNT_PHONE_BODY}
-              send={accountPhoneSend}
-              verify={async (code) => {
-                await accountPhoneVerify(code)
-                await recheck()
-              }}
-              back={{ label: LOGOUT_LABEL, onPress: () => void logout() }}
-            />
-          </Screen>
-        ) : null}
-        {session.state === 'in' && session.me.phoneRequired !== true ? (
-          <TabFrame active="home" go={(key) => router.replace(TAB_PATH[key])}>
-            <HomeScreen
-              refresh={visits}
-              sellerName={session.me.seller.name}
-              nav={{
-                openConsole: (id) => router.push({ pathname: '/console/[id]', params: { id } }),
-                openNewBroadcast: () => router.push('/new-broadcast'),
-                openAllBroadcasts: () => router.push('/broadcasts'),
-                openPacking: () => router.replace('/packing'),
-                openLabels: () => router.push('/labels'),
-                openSettings: () => router.push('/settings'),
-                openSettle: () => router.replace('/settle'),
-                openParcels: (date) => router.replace({ pathname: '/parcels', params: { date } }),
-                openReceipts: () => router.push('/receipts'),
-                openStart: () => router.push('/start'),
-              }}
-            />
-          </TabFrame>
-        ) : null}
+        {session.state === 'checking' ? null : (
+          // 로그인 ↔ 번호 확인 ↔ 홈 사이도 밀어 넘긴다 (D-UX3-49)
+          <SlideSwitch id={session.state === 'out' ? 'login' : session.me.phoneRequired === true ? 'phone' : 'home'} back={session.state === 'out'}>
+            {session.state === 'out' ? <LoginScreen expired={session.expired} offline={session.offline === true} onRecheck={recheck} onLogin={login} onSocialDone={recheck} /> : null}
+            {session.state === 'in' && session.me.phoneRequired === true ? (
+              <View style={{ flex: 1 }} testID="phone-required">
+                <PhoneVerify
+                  send={accountPhoneSend}
+                  verify={async (code) => {
+                    await accountPhoneVerify(code)
+                    return recheck
+                  }}
+                  back={{ label: LOGOUT_LABEL, onPress: () => void logout() }}
+                />
+              </View>
+            ) : null}
+            {session.state === 'in' && session.me.phoneRequired !== true ? (
+              <TabFrame active="home" go={(key) => router.replace(TAB_PATH[key])}>
+                <HomeScreen
+                  refresh={visits}
+                  sellerName={session.me.seller.name}
+                  nav={{
+                    openConsole: (id) => router.push({ pathname: '/console/[id]', params: { id } }),
+                    openNewBroadcast: () => router.push('/new-broadcast'),
+                    openAllBroadcasts: () => router.push('/broadcasts'),
+                    openPacking: () => router.replace('/packing'),
+                    openLabels: () => router.push('/labels'),
+                    openSettings: () => router.push('/settings'),
+                    openSettle: () => router.replace('/settle'),
+                    openParcels: (date) => router.replace({ pathname: '/parcels', params: { date } }),
+                    openReceipts: () => router.push('/receipts'),
+                    openStart: () => router.push('/start'),
+                  }}
+                />
+              </TabFrame>
+            ) : null}
+          </SlideSwitch>
+        )}
       </KitInsets>
     </SafeAreaView>
   )
