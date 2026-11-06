@@ -19,7 +19,7 @@ export default function SettleRoute() {
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
         <TabFrame active="settle" go={(key) => router.replace(TAB_PATH[key])}>
-          <SettleScreen initialDate={typeof params.date === 'string' ? params.date : undefined} initialBuyer={typeof params.buyer === 'string' ? params.buyer : undefined} nav={{ openReport: (date) => router.push({ pathname: '/report', params: { date } }), openDeposits: () => router.push('/deposits'), openBuyerInfo: () => router.push('/buyer-info') }} />
+          <SettleScreen initialDate={typeof params.date === 'string' ? params.date : undefined} initialBuyer={typeof params.buyer === 'string' ? params.buyer : undefined} nav={{ openReport: (date) => router.push({ pathname: '/report', params: { date } }), openDeposits: () => router.push('/deposits'), openBuyerInfo: () => router.push('/buyer-info'), openReceipts: () => router.push('/receipts') }} />
         </TabFrame>
       </KitInsets>
     </SafeAreaView>

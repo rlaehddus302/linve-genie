@@ -80,6 +80,12 @@ export function PackingScreen({ initialDate, openParcels }: { readonly initialDa
             {days.length === 0 ? <Txt color="textSub">아직 판매 기록이 없어요.</Txt> : null}
           </View>
         ) : null}
+        {/* 흐름의 다음 단계 (D-UX3-39): 포장이 끝난 손님은 택배 탭에서 접수한다 */}
+        {openParcels !== undefined && date !== null ? (
+          <View style={{ paddingHorizontal: SPACE.xs }}>
+            <BigButton kind="outline" label="택배 접수로" ariaLabel="택배 접수로 — 포장 끝난 손님 접수하기" onPress={() => openParcels(date)} />
+          </View>
+        ) : null}
         {date !== null ? <PackingDay key={date} date={date} onProgress={setProgress} openParcels={openParcels} /> : null}
       </ScrollView>
     </View>

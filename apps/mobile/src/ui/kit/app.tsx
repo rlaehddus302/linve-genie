@@ -151,14 +151,17 @@ export function HeaderIconButton({ icon, label, onPress, testID }: { readonly ic
   )
 }
 
-export type TabKey = 'home' | 'labels' | 'settle' | 'packing' | 'more'
+export type TabKey = 'home' | 'settle' | 'packing' | 'parcels' | 'more'
 
-/** 아래 탭 5개 (D-UX3-01): 일하는 순서대로 홈 · 라벨 · 정산 · 포장 · 전체 */
+/**
+ * 아래 탭 5개 (D-UX3-01 → D-UX3-39, 사용자 지시 2026-11-06 "우리 서비스 이용 플로우대로"): 방송 뒤 일하는 순서 그대로 —
+ * 홈(방송·다음 할 일) · 주문(예약자별 정리 → 손님 정보 받기 → 확인서 보내기 → 입금 확인) · 포장(포장·라벨 부착) · 택배(접수) · 전체. 라벨 프린터는 전체 안(장치 설정)
+ */
 export const TABS: readonly { readonly key: TabKey; readonly word: string; readonly icon: TabIconName }[] = [
   { key: 'home', word: '홈', icon: 'home' },
-  { key: 'labels', word: '라벨', icon: 'printer' },
-  { key: 'settle', word: '정산', icon: 'receipt' },
+  { key: 'settle', word: '주문', icon: 'receipt' },
   { key: 'packing', word: '포장', icon: 'box' },
+  { key: 'parcels', word: '택배', icon: 'truck' },
   { key: 'more', word: '전체', icon: 'menu' },
 ]
 

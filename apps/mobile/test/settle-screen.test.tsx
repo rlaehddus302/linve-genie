@@ -1,7 +1,7 @@
 // 앱 정산 화면 (D-APPX-01 — 웹 SettlementsPage와 같은 규칙): 날짜 → 덜 받은 손님 먼저 → 자세히 → 입금 적기(같은 요청 번호, amountText) → 남은 금액과 다르면 한 번 더 묻기.
 // 옛 정산 탭은 "정산은 웹 화면에서 열려요"와 [웹으로 열기]만 있었다(D-UX2-07) — 앱 화면으로 옮겼다.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Settlement } from '@livejjim/web/src/api/types.ts'
 import { SettleScreen } from '../src/screens/SettleScreen.tsx'
 import { ReportScreen } from '../src/screens/ReportScreen.tsx'
@@ -47,6 +47,23 @@ describe('SettleScreen (앱 정산)', () => {
     expect(screen.queryByRole('button', { name: /날짜 10월 28일/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '입금 완료 1명' }))
     expect(screen.queryByRole('button', { name: /^다육맘/ })).toBeNull()
+  })
+
+  it('주문 탭 (D-UX3-39): 제목 "주문", 손님마다 정보 받음·확인서 전 꼬리표, 위에 [확인서 보내기]', async () => {
+    const w = world()
+    const prow = (buyer: string, address: string) => ({ buyer, name: buyer, phoneLast4: null, itemCount: 1, qty: 1, total: 14_000, payment: 'PAID', packing: '포장 완료', shipping: 'NONE', address, ready: false, reason: null, message: null, box: '80', parcel: null })
+    w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29$/, () => ({ body: { date: '2026-10-29', seq: 5, blocked: null, carrier: null, box: '80', ready: [], excluded: [prow('u1', 'NONE'), prow('u2', 'CONFIRMED')], booked: [] } }))
+    const rrow = (buyer: string, link: string) => ({ buyer, name: buyer, phoneLast4: null, itemCount: 1, total: 14_000, payment: 'PAID', received: 0, remaining: 0, link: { buyer, status: link, url: null, expiresAt: null, revokedAt: null }, sms: null })
+    w.server.on('GET', /^\/api\/days\/2026-10-29\/receipt-buyers$/, () => ({ body: { date: '2026-10-29', rehearsal: false, buyers: [rrow('u1', 'NONE'), rrow('u2', 'ACTIVE')] } }))
+    const openReceipts = vi.fn()
+    render(w.wrap(<SettleScreen nav={{ openReceipts }} />))
+    expect(await screen.findByRole('heading', { name: '주문' })).toBeTruthy()
+    expect(await screen.findByText('정보 전')).toBeTruthy()
+    expect(screen.getByText('확인서 전')).toBeTruthy()
+    expect(screen.getByText('정보 받음')).toBeTruthy()
+    expect(screen.getByText('확인서 보냄')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '확인서 보내기' }))
+    expect(openReceipts).toHaveBeenCalled()
   })
 
   it('자세히: 금액·기록(입금 #3 → 입금 번호 3), 입금 적기는 남은 금액이 미리 들어가고 같은 요청 번호로 한 번 보낸다', async () => {

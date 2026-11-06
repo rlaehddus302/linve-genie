@@ -4,8 +4,8 @@
 // 입금 금액이 남은 금액과 다르면 한 번 더 묻는다(오타 방지 — AC-S06-30). 30일 지난 날짜(봉인)는 보기만 한다.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
-import type { PackingList, Settlement, WriteResult } from '@livejjim/web/src/api/types.ts'
-import type { ParcelBrief } from '@livejjim/web/src/api/parcel-types.ts'
+import type { PackingList, ReceiptBuyers, Settlement, WriteResult } from '@livejjim/web/src/api/types.ts'
+import type { ParcelBrief, ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { parcelLine } from '@livejjim/web/src/lib/parcel-words.ts'
 import { dateWords, kstShort } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
@@ -67,6 +67,26 @@ export interface SettleNavigation {
   readonly openDeposits?: () => void
   /** 손님 정보 문자 화면 (ORD-14) */
   readonly openBuyerInfo?: () => void
+  /** 확인서 보내기 화면 (D-UX3-39) */
+  readonly openReceipts?: () => void
+}
+
+/** 손님마다 방송 뒤 단계 (D-UX3-39): 배송지를 받았는지(택배 화면 줄의 배송지 상태), 확인서를 보냈는지(링크 또는 문자) */
+export interface OrderSteps {
+  readonly info: boolean
+  readonly receipt: boolean
+}
+
+export function orderStepsOf(parcels: ParcelDay | null, receipts: ReceiptBuyers | null): ReadonlyMap<string, OrderSteps> {
+  const out = new Map<string, OrderSteps>()
+  if (parcels === null || receipts === null) return out
+  const addressOf = new Map([...parcels.ready, ...parcels.excluded, ...parcels.booked].map((row) => [row.buyer, row] as const))
+  for (const row of receipts.buyers) {
+    const parcel = addressOf.get(row.buyer)
+    if (parcel === undefined || parcel.shipping === 'PICKUP' || parcel.shipping === 'COMBINED') continue
+    out.set(row.buyer, { info: parcel.address !== 'NONE', receipt: (row.link !== null && row.link.status !== 'NONE') || (row.sms != null && row.sms.sentAt !== null) })
+  }
+  return out
 }
 
 export function SettleScreen({ initialDate, initialBuyer, nav = {} }: { readonly initialDate?: string; readonly initialBuyer?: string; readonly nav?: SettleNavigation }) {
@@ -78,8 +98,9 @@ export function SettleScreen({ initialDate, initialBuyer, nav = {} }: { readonly
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.sm }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
         <View style={{ paddingHorizontal: SPACE.sm }}>
           <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-            정산
+            주문
           </Txt>
+          <Txt step="caption" color="textSub">손님마다 정리 → 정보 받기 → 확인서 보내기 → 입금 확인</Txt>
         </View>
         {nav.openBuyerInfo !== undefined ? <BuyerInfoBanner onOpen={nav.openBuyerInfo} /> : null}
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
@@ -98,6 +119,7 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
   const [open, setOpen] = useState<string | null>(initialBuyer === undefined ? null : JSON.stringify([initialBuyer, date]))
   const [parcelVersion] = useParcelVersion(date)
   const parcels = useParcelMarks(date, parcelVersion)
+  const steps = useOrderSteps(date, parcelVersion)
   const names = useMemo(() => (data === null ? null : new BuyerNames(data.buyers, data.claims)), [data])
   if (error !== null && data === null) {
     return (
@@ -116,6 +138,7 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
     <View style={{ gap: SPACE.md }}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, paddingHorizontal: SPACE.xs }}>
         {nav.openReport !== undefined ? <BigButton kind="outline" label="방송 리포트" onPress={() => nav.openReport?.(date)} /> : null}
+        {nav.openReceipts !== undefined ? <BigButton kind="outline" label="확인서 보내기" onPress={() => nav.openReceipts?.()} /> : null}
         {nav.openDeposits !== undefined ? <BigButton kind="outline" label="입금 확인" onPress={() => nav.openDeposits?.()} /> : null}
       </View>
       {data.sealed ? <Notice tone="info">{SEALED_SETTLEMENT}</Notice> : null}
@@ -130,7 +153,7 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
       </View>
       {shown.length === 0 ? <Txt color="textSub">{all.length === 0 ? '이 날짜에 정산할 손님이 없어요.' : '이 상태의 손님이 없어요.'}</Txt> : null}
       {shown.map((s) => (
-        <SettleRow key={`${s.buyer}/${s.date}`} settlement={s} name={names.name(s.buyer)} parcel={parcels.get(s.buyer) ?? null} onPress={() => setOpen(JSON.stringify([s.buyer, s.date]))} />
+        <SettleRow key={`${s.buyer}/${s.date}`} settlement={s} name={names.name(s.buyer)} parcel={parcels.get(s.buyer) ?? null} steps={steps.get(s.buyer) ?? null} onPress={() => setOpen(JSON.stringify([s.buyer, s.date]))} />
       ))}
     </View>
   )
@@ -157,7 +180,22 @@ function useParcelMarks(date: string, version: number): ReadonlyMap<string, Parc
   return marks
 }
 
-function SettleRow({ settlement, name, parcel, onPress }: { readonly settlement: Settlement; readonly name: string; readonly parcel: ParcelBrief | null; readonly onPress: () => void }) {
+/** 손님마다 단계 (D-UX3-39) — 택배 줄·영수증 줄을 받으면 그때 채운다 (못 받으면 꼬리표 없이) */
+function useOrderSteps(date: string, version: number): ReadonlyMap<string, OrderSteps> {
+  const [steps, setSteps] = useState<ReadonlyMap<string, OrderSteps>>(new Map())
+  useEffect(() => {
+    let alive = true
+    Promise.all([get<ParcelDay>(`/api/parcels/days/${date}`).catch(() => null), get<ReceiptBuyers>(`/api/days/${date}/receipt-buyers`).catch(() => null)]).then(([parcels, receipts]) => {
+      if (alive) setSteps(orderStepsOf(parcels, receipts))
+    })
+    return () => {
+      alive = false
+    }
+  }, [date, version])
+  return steps
+}
+
+function SettleRow({ settlement, name, parcel, steps, onPress }: { readonly settlement: Settlement; readonly name: string; readonly parcel: ParcelBrief | null; readonly steps: OrderSteps | null; readonly onPress: () => void }) {
   const { p } = useKit()
   const left = remainingOf(settlement)
   const word = paymentWord(settlement.payment, settlement.refundDue)
@@ -165,7 +203,11 @@ function SettleRow({ settlement, name, parcel, onPress }: { readonly settlement:
     <Pressable role="button" aria-label={`${name} · ${word} · 최종 ${formatWon(settlement.total)}${left > 0 ? ` · 남은 금액 ${formatWon(left)}` : ''}${parcel !== null ? ` · ${parcelLine(parcel)}` : ''}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', paddingVertical: SPACE.lg, paddingHorizontal: SPACE.lg, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
       <View style={{ flex: 1, gap: SPACE.xs }}>
         <Txt step="bodyLarge" weight="bold">{name}</Txt>
-        <Tag tone={PAY_TONE[settlement.payment]}>{word}</Tag>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
+          {steps !== null ? <Tag tone={steps.info ? 'success' : 'warning'}>{steps.info ? '정보 받음' : '정보 전'}</Tag> : null}
+          {steps !== null ? <Tag tone={steps.receipt ? 'success' : 'warning'}>{steps.receipt ? '확인서 보냄' : '확인서 전'}</Tag> : null}
+          <Tag tone={PAY_TONE[settlement.payment]}>{word}</Tag>
+        </View>
         {parcel !== null ? <ParcelTag parcel={parcel} /> : null}
       </View>
       <View style={{ alignItems: 'flex-end', gap: 2 }}>

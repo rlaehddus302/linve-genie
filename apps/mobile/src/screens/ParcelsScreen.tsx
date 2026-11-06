@@ -64,7 +64,7 @@ import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile } from '../native/index.ts'
 import { useParcelVersion } from '../lib/parcel-version.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 import { ExtraCard, ExtraFacts, ExtraRowActions } from './ParcelExtra.tsx'
@@ -90,8 +90,10 @@ export interface ParcelsNavigation {
   readonly openEpost?: (date: string, kind: EpostDirectKind) => void
 }
 
-export function ParcelsScreen({ onBack, initialDate, nav = {} }: { readonly onBack: () => void; readonly initialDate?: string; readonly nav?: ParcelsNavigation }) {
+/** onBack이 없으면 아래 탭 "택배"(D-UX3-39) — 다른 탭과 같은 제목 줄, 아래 여백은 탭 막대만큼 */
+export function ParcelsScreen({ onBack, initialDate, nav = {} }: { readonly onBack?: () => void; readonly initialDate?: string; readonly nav?: ParcelsNavigation }) {
   const { p } = useKit()
+  const room = useTabBarRoom()
   const [days, setDays] = useState<ParcelDays | null>(null)
   const [date, setDate] = useState<string | null>(initialDate ?? null)
   const [error, setError] = useState<ApiError | null>(null)
@@ -116,8 +118,16 @@ export function ParcelsScreen({ onBack, initialDate, nav = {} }: { readonly onBa
   }, [attempt, version])
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="parcels-screen">
-      <AppHeader title={PARCEL_TITLE} onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+      {onBack !== undefined ? (
+        <AppHeader title={PARCEL_TITLE} onBack={onBack} />
+      ) : (
+        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: 28, paddingBottom: SPACE.sm }}>
+          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
+            택배
+          </Txt>
+        </View>
+      )}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>

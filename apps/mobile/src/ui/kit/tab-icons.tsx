@@ -2,10 +2,10 @@
 // 홈 = 토스식 둥근 집(가운데 문), 라벨 = 프린터, 정산 = 영수증(아래 톱니), 포장 = 상자 + 가운데 박스테이프 한 줄, 전체 = 세 줄.
 // 고른 탭은 같은 치수에서 속을 채우고 안쪽 선(종이·글줄·테이프)은 놓인 바탕 색으로 뚫는다 — 선 모양과 겉 크기가 같다.
 // D-UX3-13: 집 문은 바닥 선을 끊고 그 자리를 비운 홈(문 아래 선 없음), 프린터 몸통 아래 선은 종이 앞에서 끊고(겹치는 선 없음), 고른 상자는 테이프 자리의 윗선까지 뚫는다.
-import Svg, { Line, Path } from 'react-native-svg'
+import Svg, { Circle, Line, Path } from 'react-native-svg'
 import { View } from 'react-native'
 
-export type TabIconName = 'home' | 'printer' | 'receipt' | 'box' | 'menu'
+export type TabIconName = 'home' | 'printer' | 'receipt' | 'box' | 'truck' | 'menu'
 
 const STROKE = 1.9
 
@@ -53,6 +53,12 @@ const PRINTER_PAPER = (() => {
 })()
 const PRINTER_TRAY = smoothRect(7, 3.4, 10, 5, 1.2)
 const BOX = smoothRect(3.4, 3.8, 17.2, 16.6, 2.6)
+/** 택배 트럭 (D-UX3-39): 짐칸 + 운전석 + 바퀴 둘 — 상자와 같은 모서리 곡률, 겉 크기는 다른 아이콘과 같다 */
+const TRUCK_CARGO = smoothRect(2.4, 5.4, 12.2, 11, 2)
+const TRUCK_CAB = (() => {
+  const corner = smoothCorner(21.6, 13.2, [0.6, 0.8], [0, 1], 1.4)
+  return `M14.6 9.2 H18.2 L${corner.start} ${corner.curve} V16.4 H14.6 Z`
+})()
 /** 박스테이프 (위에서 가운데까지, 아래 두 모서리 둥글게). top: 시작 높이 — 고른 때는 윗선 위(2.4)부터 뚫는다, closed: 칠할 모양 */
 function tape(top: number, closed: boolean): string {
   const left = smoothCorner(10.2, 11.4, [0, 1], [1, 0], 0.8)
@@ -100,6 +106,15 @@ export function TabIcon({ name, color, size = 26, filled = false, cut }: { reado
             {/* 가운데 박스테이프 한 줄 (위에서 가운데까지) */}
             {/* 고른 때는 테이프 자리 윗선까지 뚫는다 */}
             <Path d={filled ? TAPE_CUT : TAPE_LINE} {...inner} />
+          </>
+        )
+      case 'truck':
+        return (
+          <>
+            <Path d={TRUCK_CARGO} {...body} />
+            <Path d={TRUCK_CAB} {...body} />
+            <Circle cx={7.2} cy={18.4} r={2} {...body} fill={filled ? cut : 'none'} stroke={color} />
+            <Circle cx={17.4} cy={18.4} r={2} {...body} fill={filled ? cut : 'none'} stroke={color} />
           </>
         )
       case 'menu':

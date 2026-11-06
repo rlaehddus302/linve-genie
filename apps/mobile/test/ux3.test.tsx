@@ -13,11 +13,12 @@ import { MoreScreen } from '../src/screens/MoreScreen.tsx'
 import { TabFrame, tabEnterSide } from '../src/screens/TabFrame.tsx'
 import { BACK_ICON, FIELD_LABEL_MS, FIELD_ROW, PALETTE, TABS, TabBar, UnderlineField, pressedFill, useTabBarRoom } from '../src/ui/kit/index.ts'
 import { TYPE } from '../src/ui/kit/tokens.ts'
+import { TabIcon } from '../src/ui/kit/tab-icons.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 describe('아래 탭 (D-UX3-01·12)', () => {
-  it('아이콘은 홈·프린터·영수증·상자·세 줄로 서로 다르고, 모두 가로세로가 같은 칸이다', () => {
-    expect(TABS.map((tab) => tab.icon)).toEqual(['home', 'printer', 'receipt', 'box', 'menu'])
+  it('아이콘은 홈·영수증·상자·트럭·세 줄로 서로 다르고, 모두 가로세로가 같은 칸이다 (D-UX3-39: 라벨 프린터 탭 → 택배 탭)', () => {
+    expect(TABS.map((tab) => tab.icon)).toEqual(['home', 'receipt', 'box', 'truck', 'menu'])
     const world = makeWorld()
     const { container } = render(world.wrap(<TabBar active="home" onSelect={() => {}} />))
     const svgs = [...container.querySelectorAll('svg')]
@@ -25,15 +26,15 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     for (const svg of svgs) expect(svg.getAttribute('width')).toBe(svg.getAttribute('height'))
   })
 
-  it('탭은 홈 · 라벨 · 정산 · 포장 · 전체 다섯이고 고른 탭만 골라져 있다', () => {
+  it('탭은 일하는 순서대로 홈 · 주문 · 포장 · 택배 · 전체 다섯이고 고른 탭만 골라져 있다 (D-UX3-39, 사용자 지시 2026-11-06 "이용 플로우대로")', () => {
     const world = makeWorld()
     const onSelect = vi.fn()
     render(world.wrap(<TabBar active="settle" onSelect={onSelect} />))
     const tabs = within(screen.getByRole('tablist', { name: '아래 메뉴' })).getAllByRole('tab')
-    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual(['홈', '라벨', '정산', '포장', '전체'])
-    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'false', 'true', 'false', 'false'])
-    fireEvent.click(screen.getByRole('tab', { name: '라벨' }))
-    expect(onSelect).toHaveBeenCalledWith('labels')
+    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual(['홈', '주문', '포장', '택배', '전체'])
+    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false', 'false', 'false'])
+    fireEvent.click(screen.getByRole('tab', { name: '택배' }))
+    expect(onSelect).toHaveBeenCalledWith('parcels')
   })
 
   it('아래 탭은 따로 바탕 띠 없이 내용 위에 뜨고(반투명 흰색), 내용은 탭 높이만큼 아래를 더 비운다 (D-UX3-13)', () => {
@@ -59,8 +60,11 @@ describe('아래 탭 (D-UX3-01·12)', () => {
 
   it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 상자는 테이프 자리 윗선까지 뚫린다 (D-UX3-13)', () => {
     const world = makeWorld()
-    const { container } = render(world.wrap(<TabBar active="packing" onSelect={() => {}} />))
-    const [home, printer, , box] = [...container.querySelectorAll('svg')]
+    // D-UX3-39: 프린터 아이콘은 막대에 없다(라벨 프린터는 전체 안) — 아이콘 자체는 그대로라 따로 그려 본다
+    const { container } = render(world.wrap(<><TabBar active="packing" onSelect={() => {}} /><TabIcon name="printer" color="#000" cut="#fff" /></>))
+    const svgs = [...container.querySelectorAll('svg')]
+    const [home, , box] = svgs
+    const printer = svgs[5]
     // 집은 문 홈이 든 한 줄 모양(따로 그린 문 없음)
     expect(home?.querySelectorAll('path')).toHaveLength(1)
     expect(home?.querySelector('path')?.getAttribute('d')).toContain('H14.1 V16.2')
@@ -76,7 +80,7 @@ describe('아래 탭 (D-UX3-01·12)', () => {
 
   it('오른쪽 탭으로 가면 오른쪽에서, 왼쪽 탭으로 가면 왼쪽에서 들어온다. 처음·같은 탭은 그대로', () => {
     expect(tabEnterSide('home', 'packing')).toBe(1)
-    expect(tabEnterSide('more', 'labels')).toBe(-1)
+    expect(tabEnterSide('more', 'parcels')).toBe(-1)
     expect(tabEnterSide(null, 'home')).toBe(0)
     expect(tabEnterSide('settle', 'settle')).toBe(0)
   })
@@ -94,7 +98,7 @@ describe('누르는 동안 바탕 (D-UX3-03)', () => {
 })
 
 describe('전체 탭 (D-UX3-04)', () => {
-  it('맨 위에 설정, 화면들은 묶음 이름이 든 카드로, 라벨·프린터 줄은 없다(아래 탭으로 옮김)', () => {
+  it('맨 위에 설정, 화면들은 묶음 이름이 든 카드로, 택배 줄은 없고(아래 탭으로 옮김) 라벨 프린터 줄이 가게 묶음에 있다 (D-UX3-39)', () => {
     const world = makeWorld()
     const openSettings = vi.fn()
     const openApp = vi.fn()
@@ -103,8 +107,8 @@ describe('전체 탭 (D-UX3-04)', () => {
     fireEvent.click(screen.getByRole('button', { name: '설정' }))
     expect(openSettings).toHaveBeenCalled()
     for (const group of ['방송', '주문·입금', '배송', '가게', '계정']) expect(screen.getByRole('group', { name: group })).toBeTruthy()
-    expect(within(screen.getByRole('group', { name: '배송' })).getByRole('button', { name: '택배' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '라벨·프린터' })).toBeNull()
+    expect(within(screen.getByRole('group', { name: '배송' })).queryByRole('button', { name: '택배' })).toBeNull()
+    expect(within(screen.getByRole('group', { name: '가게' })).getByRole('button', { name: '라벨 프린터' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '입금 확인' }))
     expect(openApp).toHaveBeenCalledWith('/deposits')
   })

@@ -57,9 +57,11 @@ export default function IndexRoute() {
                 openNewBroadcast: () => router.push('/new-broadcast'),
                 openAllBroadcasts: () => router.push('/broadcasts'),
                 openPacking: () => router.replace('/packing'),
-                openLabels: () => router.replace('/labels'),
+                openLabels: () => router.push('/labels'),
                 openSettings: () => router.push('/settings'),
                 openSettle: () => router.replace('/settle'),
+                openParcels: (date) => router.replace({ pathname: '/parcels', params: { date } }),
+                openReceipts: () => router.push('/receipts'),
                 openStart: () => router.push('/start'),
               }}
             />
