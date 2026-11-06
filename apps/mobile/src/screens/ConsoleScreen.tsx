@@ -42,10 +42,20 @@ const RETURN_WAIT_MS = 3000
 export function useScopeStore(broadcastId: string): { store: ScopeStore; snapshot: ScopeSnapshot } {
   const services = useServices()
   const store = useMemo(() => new ScopeStore({ broadcastId, openStream: () => services.stream.open() }), [broadcastId, services])
+  // 방송 화면에 들어왔다는 기록을 먼저 끝낸 뒤 방송 목록을 받는다 (D-UX3-25 고침): 새 방송 단계에서 만든 방송은 이 기록 전에는 목록에 없어,
+  // 둘을 함께 보내면 목록이 먼저 와 "그 방송을 찾지 못했어요"가 떴다(라벨 [괜찮아요]로 바로 넘어올 때). 기록이 실패해도 그대로 불러온다.
   useEffect(() => {
-    void store.start()
-    return () => store.stop()
-  }, [store])
+    let live = true
+    void withRetry(() => post(`/api/broadcasts/${encodeURIComponent(broadcastId)}/open`, {}))
+      .catch(() => undefined)
+      .then(() => {
+        if (live) void store.start()
+      })
+    return () => {
+      live = false
+      store.stop()
+    }
+  }, [store, broadcastId])
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
   return { store, snapshot }
 }
@@ -92,10 +102,6 @@ function AwayLine() {
 export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews, openLabels, openLink, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: (rehearsal: boolean) => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
-  // 방송 화면에 들어왔다 — 새 방송 단계에서 만든 방송은 이때부터 방송 목록에 보인다 (D-UX3-25). 실패해도 화면은 그대로(다음에 들어올 때 다시)
-  useEffect(() => {
-    void withRetry(() => post(`/api/broadcasts/${encodeURIComponent(broadcastId)}/open`, {})).catch(() => undefined)
-  }, [broadcastId])
   const { p } = useKit()
   const inset = useBottomInset()
   const [selected, setSelected] = useState<string | null>(null)
