@@ -78,10 +78,14 @@ export interface PhoneVerifyProps {
  */
 export function nextCode(prev: string, text: string): string {
   const digits = text.replace(/\D/g, '')
-  const added = digits.startsWith(prev) ? digits.slice(prev.length) : null
-  if (added !== null && added.length >= CODE_LENGTH) return added.slice(-CODE_LENGTH)
-  if (added !== null && added.length > 0 && prev.length === CODE_LENGTH) return added
-  if (added === null && digits.length > CODE_LENGTH) return digits.slice(-CODE_LENGTH)
+  // 새로 들어온 토막: 옛 값과 앞·뒤가 같은 부분을 뺀 가운데 (입력 자리가 끝이 아니어도 — D-UX3-61)
+  let head = 0
+  while (head < prev.length && head < digits.length && prev[head] === digits[head]) head += 1
+  let tail = 0
+  while (tail < prev.length - head && tail < digits.length - head && prev[prev.length - 1 - tail] === digits[digits.length - 1 - tail]) tail += 1
+  const added = digits.length > prev.length ? digits.slice(head, digits.length - tail) : ''
+  if (added.length >= CODE_LENGTH) return added.slice(-CODE_LENGTH)
+  if (added.length > 0 && prev.length === CODE_LENGTH) return added
   return digits.slice(0, CODE_LENGTH)
 }
 
@@ -777,8 +781,10 @@ function CodeBoxes({
           textContentType="oneTimeCode"
           autoComplete="sms-otp"
           autoFocus
-          caretHidden
-          contextMenuHidden
+          // caretHidden·contextMenuHidden을 쓰지 않는다 (D-UX3-61): contextMenuHidden은 칸이 모든 편집 동작에 "못 함"(canPerformAction NO)이라 답하게 해
+          // 키보드 위 인증번호 누르기가 들어가지 않을 수 있고, caretHidden은 입력 자리를 지운다. 입력 자리는 색을 투명하게 해 숨긴다
+          selectionColor="transparent"
+          cursorColor="transparent"
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           testID="code-input"

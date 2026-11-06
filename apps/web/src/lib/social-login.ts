@@ -84,6 +84,14 @@ export function resultMessage({ code, provider }: LoginResult): ResultMessage {
 /** "카카오 연결을 끊었어요." */
 export const unlinkedMessage = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]} 연결을 끊었어요.`
 
+// ── 앱 설정 → 연동된 소셜 계정 (D-UX3-61, 사용자 지시 2026-11-07 "계정 설정에서 연동된 소셜 계정 보여주고 해지할 수 있도록") ──
+export const LINKED_TITLE = '연동된 소셜 계정'
+export const LINKED_NONE = '연동된 소셜 계정이 없어요.'
+export const UNLINK_GO = '해지'
+export const unlinkAskTitle = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]} 연결을 해지할까요?`
+export const unlinkAskText = (provider: LoginProvider): string => `해지하면 ${PROVIDER_NAMES[provider]}로 로그인할 수 없고, ${PROVIDER_NAMES[provider]}로 로그인해 둔 다른 기기는 로그아웃돼요.`
+export const unlinkDone = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]} 연결을 해지했어요.`
+
 /** 끊기 확인 창 문장 */
 export const unlinkQuestion = (provider: LoginProvider): string => {
   const p = PROVIDER_NAMES[provider]

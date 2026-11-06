@@ -26,6 +26,11 @@ describe('nextCode — 문자 자동 채우기가 늘 들어간다 (D-UX3-60)', 
     expect(nextCode('123', '12')).toBe('12')
     expect(nextCode('12345', '123456')).toBe('123456')
   })
+  it('입력 자리가 끝이 아니어도(앞·가운데) 들어온 번호가 그대로 (D-UX3-61)', () => {
+    expect(nextCode('000000', '659019000000')).toBe('659019')
+    expect(nextCode('000000', '000659019000')).toBe('659019')
+    expect(nextCode('12', '65901912')).toBe('659019')
+  })
   it('틀린 6자리 뒤에 더 치면 새로 친 숫자부터 다시', () => {
     expect(nextCode('000000', '0000007')).toBe('7')
   })

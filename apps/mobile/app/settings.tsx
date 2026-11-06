@@ -1,5 +1,6 @@
 // 설정(음성·라벨) 경로.
-import { Redirect, useRouter } from 'expo-router'
+import { Redirect, useFocusEffect, useRouter } from 'expo-router'
+import { useCallback, useState } from 'react'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { webUrl } from '../src/api/config.ts'
 import { phoneNoticeBuilt } from '../src/lib/build-flags.ts'
@@ -10,12 +11,15 @@ import { useSession } from '../src/services.tsx'
 export default function SettingsRoute() {
   const { session } = useSession()
   const router = useRouter()
+  // 연동된 소셜 계정 화면에서 돌아오면 줄의 로고를 다시 읽는다 (D-UX3-61)
+  const [linkedRefresh, setLinkedRefresh] = useState(0)
+  useFocusEffect(useCallback(() => setLinkedRefresh((count) => count + 1), []))
   if (session.state === 'out') return <Redirect href="/" />
   if (session.state !== 'in') return null
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F7F8F6' }} edges={['top']}>
       <KitInsets>
-        <SettingsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} policyUrl={webUrl('/privacy')} onOpenDesign={__DEV__ ? () => router.push('/dev/design') : undefined} onOpenShop={() => router.push('/shop-settings')} onOpenVarieties={() => router.push('/varieties')} showPhoneNotice={phoneNoticeBuilt()} />
+        <SettingsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} policyUrl={webUrl('/privacy')} onOpenDesign={__DEV__ ? () => router.push('/dev/design') : undefined} onOpenShop={() => router.push('/shop-settings')} onOpenVarieties={() => router.push('/varieties')} onOpenLinked={() => router.push('/linked-accounts')} linkedRefresh={linkedRefresh} showPhoneNotice={phoneNoticeBuilt()} />
       </KitInsets>
     </SafeAreaView>
   )

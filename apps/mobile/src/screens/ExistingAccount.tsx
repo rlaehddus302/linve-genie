@@ -4,7 +4,6 @@
 // (번호만으로 잇지 않는다 — 다시 배정된 번호로 남의 판매자 계정을 가져가지 못하게, D-UX3-30).
 import { useEffect, useRef, useState } from 'react'
 import { View } from 'react-native'
-import Svg, { Path } from 'react-native-svg'
 import {
   EXISTING_BODY,
   EXISTING_GO,
@@ -21,10 +20,10 @@ import {
   type ExistingLogin,
   type LoginProvider,
 } from '@livejjim/web/src/lib/social-login.ts'
-import { SOCIAL_COLORS, SOCIAL_LOGOS } from '@livejjim/web/src/lib/social-logos.ts'
 import { BigButton, ErrorLine, PopupDialog, Txt, useKit, useWhiteTop } from '../ui/kit/index.ts'
 import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
 import { PAGE, RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { SocialTile } from '../ui/SocialTile.tsx'
 import { QuestionPage } from './PhoneVerify.tsx'
 
 export interface ExistingAccountProps {
@@ -102,7 +101,7 @@ function AccountCard({ accounts }: { readonly accounts: readonly ExistingLogin[]
       {accounts.map((account) => (
         <View key={account.provider} style={{ gap: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-            <Logo provider={account.provider} />
+            <SocialTile provider={account.provider} testID={`existing-logo-${account.provider}`} />
             <Txt step="meta" color="textSub">
               {PROVIDER_NAMES[account.provider]}
             </Txt>
@@ -121,34 +120,3 @@ function AccountCard({ accounts }: { readonly accounts: readonly ExistingLogin[]
   )
 }
 
-/** 앱 아이콘 모양 바탕 (D-UX3-60, 사용자 지시 2026-11-07 "소셜 아이콘 뒤에 1*1 앱 아이콘 모양 배경도"): 1:1 둥근 네모(모서리 비율은 아이폰 앱 아이콘), 공급자 단추 색. 흰 바탕(구글)은 얇은 테 */
-const LOGO_TILE = 22
-const LOGO_MARK = 13
-
-function Logo({ provider }: { readonly provider: LoginProvider }) {
-  const logo = SOCIAL_LOGOS[provider]
-  const color = SOCIAL_COLORS[provider]
-  return (
-    <View
-      aria-hidden
-      testID={`existing-logo-${provider}`}
-      style={{
-        width: LOGO_TILE,
-        height: LOGO_TILE,
-        borderRadius: Math.round(LOGO_TILE * 0.225),
-        borderCurve: 'continuous',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: color.background,
-        borderWidth: color.background === color.border ? 0 : 1,
-        borderColor: color.border,
-      }}
-    >
-      <Svg width={LOGO_MARK} height={LOGO_MARK} viewBox={logo.viewBox}>
-        {logo.paths.map((path) => (
-          <Path key={path.d} d={path.d} fill={path.fill} />
-        ))}
-      </Svg>
-    </View>
-  )
-}

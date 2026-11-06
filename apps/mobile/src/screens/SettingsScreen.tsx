@@ -13,6 +13,8 @@ import { SPACE } from '../ui/kit/tokens.ts'
 import { ScrollView } from 'react-native'
 import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
 import { VARIETIES_TITLE } from './VarietiesScreen.tsx'
+import { LINKED_TITLE, methodsOf, PROVIDER_NAMES, type LoginProvider } from '@livejjim/web/src/lib/social-login.ts'
+import { SocialTile } from '../ui/SocialTile.tsx'
 
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
 export const PERMISSION_WORDS = {
@@ -28,7 +30,27 @@ interface Done {
 }
 
 /** showPhoneNotice: 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)면 false — 칸을 숨긴다 */
-export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, onOpenVarieties, showPhoneNotice = true }: { readonly onBack: () => void; readonly policyUrl?: string; readonly onOpenDesign?: () => void; readonly onOpenShop?: () => void; readonly onOpenVarieties?: () => void; readonly showPhoneNotice?: boolean }) {
+export function SettingsScreen({
+  onBack,
+  policyUrl,
+  onOpenDesign,
+  onOpenShop,
+  onOpenVarieties,
+  onOpenLinked,
+  linkedRefresh = 0,
+  showPhoneNotice = true,
+}: {
+  readonly onBack: () => void
+  readonly policyUrl?: string
+  readonly onOpenDesign?: () => void
+  readonly onOpenShop?: () => void
+  readonly onOpenVarieties?: () => void
+  /** 연동된 소셜 계정 화면 (D-UX3-61) */
+  readonly onOpenLinked?: () => void
+  /** 바뀌면 연동된 계정을 다시 읽는다 (그 화면에서 돌아올 때) */
+  readonly linkedRefresh?: number
+  readonly showPhoneNotice?: boolean
+}) {
   const { voice } = useServices()
   const { session, logout } = useSession()
   const view = useSyncExternalStore(voice.subscribe, voice.getView)
@@ -38,6 +60,16 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, on
   const [asking, setAsking] = useState(false)
   const { toast, show, hide } = useToast()
   const { p } = useKit()
+  /** 연결된 간편 로그인 (null: 모름·간편 로그인을 안 쓰는 서버) */
+  const [linked, setLinked] = useState<readonly LoginProvider[] | null>(null)
+
+  useEffect(() => {
+    if (onOpenLinked === undefined) return
+    get<unknown>('/api/auth/methods').then(
+      (value) => setLinked(methodsOf(value).providers.filter((item) => item.linked).map((item) => item.provider)),
+      () => setLinked(null),
+    )
+  }, [onOpenLinked === undefined, linkedRefresh])
 
   useEffect(() => {
     get<LabelSettings>('/api/settings/labels').then(setLabels, () => setLabels(null))
@@ -118,6 +150,24 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, on
           </Card>
         <Card title="계정" label="계정">
             {session.state === 'in' ? <Txt step="bodyLarge">{`${session.me.seller.name} · ${session.me.loginId}`}</Txt> : null}
+            {/* 연동된 소셜 계정 (D-UX3-61) — 오른쪽에 연결된 로고들 */}
+            {onOpenLinked !== undefined && linked !== null ? (
+              <ListRow
+                title={LINKED_TITLE}
+                ariaLabel={`${LINKED_TITLE} — ${linked.length === 0 ? '없음' : linked.map((provider) => PROVIDER_NAMES[provider]).join(', ')}`}
+                right={
+                  linked.length === 0 ? undefined : (
+                    <View style={{ flexDirection: 'row', gap: SPACE.xs }}>
+                      {linked.map((provider) => (
+                        <SocialTile key={provider} provider={provider} size={24} />
+                      ))}
+                    </View>
+                  )
+                }
+                onPress={onOpenLinked}
+                testID="settings-linked"
+              />
+            ) : null}
             <BigButton label="로그아웃" kind="secondary" onPress={() => setAsking(true)} />
           </Card>
       </ScrollView>
