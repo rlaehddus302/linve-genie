@@ -7,6 +7,7 @@ import { View } from 'react-native'
 
 export type TabIconName = 'home' | 'printer' | 'receipt' | 'box' | 'truck' | 'menu'
 
+// D-UX3-46: 고른 칸 안쪽 선(영수증 글줄·상자 테이프·트럭 칸막이·바퀴 테두리)은 흰색으로 뒤집는다(토스 사진).
 // D-UX3-44: 선은 1.8로 가늘게, 모서리·꼭짓점은 더 둥글게. D-UX3-45: 고른 칸은 다시 채운다 — 상자 테이프는 윗선을 남기고 좁게 뚫고, 트럭 바퀴도 같은 색으로 채운다
 const STROKE = 1.8
 
@@ -68,7 +69,8 @@ function tape(top: number, closed: boolean): string {
   return `M10.5 ${num(top)} L${left.start} ${left.curve} L${right.start} ${right.curve} L13.5 ${num(top)}${closed ? ' Z' : ''}`
 }
 const TAPE_LINE = tape(3.8, false)
-const TAPE_CUT = tape(4.7, true)
+/** 고른 상자 안 테이프 (D-UX3-46): 윗선 아래에서 시작하는 흰 선 — 토스처럼 안쪽 선만 흰색으로 뒤집는다 */
+const TAPE_INNER = tape(5.4, false)
 
 export function TabIcon({ name, color, size = 26, filled = false, cut }: { readonly name: TabIconName; readonly color: string; readonly size?: number; readonly filled?: boolean; readonly cut: string }) {
   const line = { stroke: color, strokeWidth: STROKE, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -107,7 +109,7 @@ export function TabIcon({ name, color, size = 26, filled = false, cut }: { reado
             <Path d={BOX} {...body} />
             {/* 가운데 박스테이프 한 줄 (위에서 가운데까지) */}
             {/* 고른 때는 테이프 자리 윗선까지 뚫는다 */}
-            <Path d={filled ? TAPE_CUT : TAPE_LINE} {...inner} {...(filled ? { stroke: 'none' } : {})} />
+            <Path d={filled ? TAPE_INNER : TAPE_LINE} {...line} fill="none" stroke={filled ? cut : color} />
           </>
         )
       case 'truck':
@@ -115,8 +117,10 @@ export function TabIcon({ name, color, size = 26, filled = false, cut }: { reado
           <>
             <Path d={TRUCK_CARGO} {...body} />
             <Path d={TRUCK_CAB} {...body} />
-            <Circle cx={7.2} cy={18.4} r={2} {...body} />
-            <Circle cx={17.4} cy={18.4} r={2} {...body} />
+            {/* 고른 때 (D-UX3-46): 짐칸·운전석 사이 선과 바퀴 테두리는 흰색으로 뒤집어 몸통과 갈라 보이게 */}
+            {filled ? <Line x1={14.6} y1={10.6} x2={14.6} y2={15} {...line} stroke={cut} /> : null}
+            <Circle cx={7.2} cy={18.4} r={2} {...body} {...(filled ? { stroke: cut, strokeWidth: 1.4 } : {})} />
+            <Circle cx={17.4} cy={18.4} r={2} {...body} {...(filled ? { stroke: cut, strokeWidth: 1.4 } : {})} />
           </>
         )
       case 'menu':
