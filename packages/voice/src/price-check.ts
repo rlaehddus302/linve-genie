@@ -10,9 +10,10 @@ const BIG_PRICE = 3_000_000
  * 확정 아닌 까닭 (화면은 이 조각을 바로 등록하지 않는다 — 없는 번호면 제안 카드, 있는 번호면 R-22 묻기)
  * - SMALL_QUICK: 천원 단위 방송의 원 없는 빠른 꼴 수가 1~2자리 (D-V3-112) — 카드 가격 칸 = 읽은 값
  * - NUMBER_IN_PRICE: 번호 숫자가 만 계수 앞에 붙은 300만 원 넘는 가격 (D-V3-113) — 카드 가격 칸 비움
+ * - PRICE_AS_NUMBER: 번호가 같은 조각 가격의 만·천 계수와 같고 앞 번호 흐름에서 멀다 (D-V3-125 — "18번입니다 18만원"이 291번) — 카드 가격 칸 = 읽은 값
  */
 export interface SegmentCheck {
-  readonly kind: 'SMALL_QUICK' | 'NUMBER_IN_PRICE'
+  readonly kind: 'SMALL_QUICK' | 'NUMBER_IN_PRICE' | 'PRICE_AS_NUMBER'
   /** 카드·묻기에 보일 안내 글 */
   readonly note: string
 }
@@ -86,3 +87,15 @@ export function numberInPriceOf(no: number, priceText: unknown, price: number, o
     return null
   }
 }
+
+/**
+ * 번호가 가격의 만·천 계수와 같은가 (D-V3-125, 실방송 2026-11-06 291번: 가격 "열여덟"을 인식기가 "18번입니다 18만원"으로 적음).
+ * 이것만으로는 막지 않는다 — 앞 번호 흐름에서 멀 때만 화면이 카드로 돌린다.
+ */
+export function priceEchoesNumber(no: number, price: number): boolean {
+  if (!Number.isSafeInteger(no) || !Number.isSafeInteger(price) || no < 1 || price <= 0) return false
+  return (price % 10_000 === 0 && price / 10_000 === no) || (price % 1_000 === 0 && price / 1_000 === no)
+}
+
+/** 번호·가격 계수 같음 안내 (D-V3-125): "18만 원의 18이 번호로 들렸을 수 있어요. 번호를 확인해 주세요" */
+export const priceAsNumberNote = (no: number, price: number): string => `${formatWon(price)}의 ${String(no)}이 번호로 들렸을 수 있어요. 번호를 확인해 주세요`

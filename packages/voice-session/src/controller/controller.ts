@@ -2087,7 +2087,9 @@ export class VoiceController {
     let priceText = chunk.text
     const now = this.#host.now()
     const pending = this.#pendingPrice !== null && now - this.#pendingPrice.at <= PENDING_PRICE_MS && now >= this.#pendingPrice.at ? this.#pendingPrice : null
-    if (take === null && pending !== null && !piece.paired && piece.markerNo !== null && piece.wonPrice === null && this.#waiting?.no === piece.markerNo) {
+    // 값을 묻는 말(`얼마`)이 끼면 앞에 들린 가격은 이 번호의 값이 아니다 — 앞 상품 말 꼬리일 수 있다 (D-V3-125, 실방송 153번 "20만원 이거 아까 얼마였죠 사장님? 153번")
+    const asked = chunk.text.includes('얼마') || (pending?.text.includes('얼마') ?? false)
+    if (take === null && pending !== null && !asked && !piece.paired && piece.markerNo !== null && piece.wonPrice === null && this.#waiting?.no === piece.markerNo) {
       // 앞에 번호 없이 들린 가격 + 가격 없는 'N번' → 그 번호의 가격 (기다리는 번호는 끝)
       take = { no: piece.markerNo, price: pending.price }
       priceText = pending.text
@@ -2651,7 +2653,7 @@ export class VoiceController {
       if (this.#pickDone.has(key)) continue
       // 빠진 0 되살리기 (실방송 "36번" = 306번): 앞 번호 맥락이 뚜렷할 때만 X0Y로
       const fixedNo = this.#droppedZero(module, raw)
-      const pick: SegmentPick = fixedNo === null ? raw : { ...raw, no: fixedNo }
+      let pick: SegmentPick = fixedNo === null ? raw : { ...raw, no: fixedNo }
       // newOnly(기다리는 가격 조각): 없는 번호의 새 등록만 — 있는·판매 종료·거절·고치는 중인 번호는 손대지 않고 뒤 낱말을 기다린다
       if (newOnly && (this.#existingOf(pick.no) !== null || this.#rejected.has(pick.no) || this.#instantNos.has(pick.no))) continue
       const zeroNote = fixedNo === null ? null : droppedZeroNote(raw.no, fixedNo)
@@ -2660,6 +2662,10 @@ export class VoiceController {
         this.#pickDone.add(key)
         work.log = module.addLogEntry(work.log, module.createLogEntry({ at: this.#host.now(), pieces: [{ text: whole }], read: { no: pick.no, name: pick.name, price: pick.price, candidates: [] }, action: 'discard', reason: LOG_BARE_OFF_RUN }))
         continue
+      }
+      // 번호가 같은 조각 가격의 계수와 같고(`18번입니다 18만원`) 앞 번호 흐름에서 멀면 바로 등록하지 않고 카드로 (D-V3-125, 실방송 291번)
+      if (pick.numberFrom === 'marker' && (pick.check ?? null) === null && typeof module.priceEchoesNumber === 'function' && module.priceEchoesNumber(pick.no, pick.price) && this.#bareOffRun(module, pick.no)) {
+        pick = { ...pick, check: { kind: 'PRICE_AS_NUMBER', note: module.priceAsNumberNote(pick.no, pick.price) } }
       }
       if (fixedNo !== null) this.#zeroRaw.add(raw.no)
       this.#lastHeardNo = pick.no

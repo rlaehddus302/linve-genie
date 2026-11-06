@@ -335,7 +335,10 @@ function readPicks(
       const r = after[after.length - 1]
       if (r !== undefined && r.value !== null) {
         const m = segMarkers.find((marker) => marker.start > r.end) as (typeof segMarkers)[number]
-        if (!m.split && m.value <= maxNumber && !correctionBetween(s, m.last)) {
+        // 가격과 번호 사이에 값을 묻는 말(`얼마`)이 있으면 그 가격은 이 번호의 값이 아니다 — 앞 상품 말 꼬리일 수 있다
+        // (D-V3-125, 실방송 2026-11-06 "단수존요아이는 20만원 이거 아까 얼마였죠 사장님? 153번 …" → 153번이 20만 원으로 등록됨)
+        const asked = tokens.slice(r.end + 1, m.start).some((token) => token.includes('얼마'))
+        if (!asked && !m.split && m.value <= maxNumber && !correctionBetween(s, m.last)) {
           const reading = analyzeSentence(tokens.slice(s, m.last + 1).join(' '), { dictionary: options.dictionary ?? [], maxNumber })
           pick({ no: m.value, price: r.value, name: reading.reading.extraction.name, numberFrom: 'marker', priceFrom: 'won', start: s, end: m.last, blocked: null, bigChange: isBigChange(null, r.value), ...numberInPriceCheck(m.value, tokens, r) })
           continue

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Deque, Dict, List, Optional, Protocol, Set, Tuple
 from collections import deque
 
+from .cleanup import clean_text
 from .protocol import hello_message, parse_server_message, result_message, unpack_audio
 from .segmenter import BYTES_PER_SAMPLE, Segment, Segmenter
 
@@ -214,7 +215,8 @@ class WorkerSession:
             if not stream.open or self._closed:
                 self.stats.dropped_segments += 1
                 continue
-            text = text.strip() if isinstance(text, str) else ""
+            # 위스퍼 헛소리(같은 말 끝없는 되풀이·일본 글자)는 보내지 않는다 (D-V3-126)
+            text = clean_text(text) if isinstance(text, str) else ""
             if not text:
                 continue
             proc_ms = int(round((self._clock() - cut_at) * 1000))
