@@ -80,3 +80,13 @@ describe('앱 소스에 판정·추출·그리기 코드가 없다 (APP-01 AC3)'
     }
   })
 })
+
+describe('밀어서 뒤로는 왼쪽 가장자리에서만 (D-UX3-24·58)', () => {
+  it('앱 Stack은 화면 어디서나 밀기를 끄고, 화면마다 다시 켜지 않는다', () => {
+    const layout = readFileSync(join(ROOT, 'app', '_layout.tsx'), 'utf8')
+    expect(layout).toMatch(/<Stack screenOptions=\{\{[^}]*fullScreenGestureEnabled: false/)
+    for (const file of walk(join(ROOT, 'app')).concat(walk(join(ROOT, 'src')))) {
+      expect(readFileSync(file, 'utf8'), file).not.toMatch(/fullScreenGestureEnabled: true|fullScreenSwipeEnabled: true/)
+    }
+  })
+})
