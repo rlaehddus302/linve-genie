@@ -3,7 +3,7 @@
 // 아이콘은 그림 파일·글꼴 없이 View 선으로 그린다(새 패키지를 넣지 않는다). 아이콘만으로 뜻을 전하지 않고 늘 글자와 함께 둔다.
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { Animated, Easing, Platform, Pressable, View, type ViewStyle } from 'react-native'
-import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
+import { PAGE, RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
 import { tapHaptic } from '../../native/haptics.ts'
 import { TabIcon, type TabIconName } from './tab-icons.tsx'
@@ -26,7 +26,9 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
       case 'chevron':
       case 'back': {
         const arm = s * 0.38
-        return <View style={{ width: arm, height: arm, borderTopWidth: stroke, borderRightWidth: stroke, borderColor: c, borderRadius: 1, borderCurve: 'continuous', transform: [{ rotate: name === 'chevron' ? '45deg' : '-135deg' }], marginLeft: name === 'chevron' ? -arm * 0.35 : arm * 0.35 }} />
+        // 화살표는 커져도 선은 가늘게 (토스 ‹와 같은 2, D-UX3-51)
+        const line = Math.max(2, Math.round(s / 14))
+        return <View style={{ width: arm, height: arm, borderTopWidth: line, borderRightWidth: line, borderColor: c, borderRadius: 1, borderCurve: 'continuous', transform: [{ rotate: name === 'chevron' ? '45deg' : '-135deg' }], marginLeft: name === 'chevron' ? -arm * 0.35 : arm * 0.35 }} />
       }
       case 'play':
         return (
@@ -112,14 +114,15 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
 }
 
 /** 뒤로 화살표 크기 — 모든 화면 머리·전체 화면 판이 같은 크기·색을 쓴다 (D-UX3-08) */
-export const BACK_ICON = 26
+/** 뒤로 화살표 크기 — 토스 사진을 재어 33(선 두께는 2 그대로, D-UX3-51 — 옛 26) */
+export const BACK_ICON = 33
 
-/** 뒤로 단추 하나 (토스 ‹): 48×48 누름 자리, 글자색 화살표 26, 누르면 바탕이 진해진다. 어느 화면이든 이것만 쓴다 */
+/** 뒤로 단추 하나 (토스 ‹): 48×48 누름 자리, 글자색 화살표 33. 누르면 바탕은 그대로 두고 화살표만 연해진다(D-UX3-51). 어느 화면이든 이것만 쓴다 */
 export function BackButton({ label = '뒤로', onPress }: { readonly label?: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-      <Icon name="back" size={BACK_ICON} color={p.text} />
+    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={6} style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>
+      {({ pressed }) => <Icon name="back" size={BACK_ICON} color={pressed ? p.iconPressed : p.text} />}
     </Pressable>
   )
 }
@@ -127,7 +130,7 @@ export function BackButton({ label = '뒤로', onPress }: { readonly label?: str
 /** 화면 머리: 뒤로(44) · 제목 · 오른쪽 조각(상태·⋯). 뒤로가 없으면 제목만 크게. */
 export function AppHeader({ title, onBack, backLabel = '뒤로', right, testID }: { readonly title: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly testID?: string }) {
   return (
-    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingTop: SPACE.lg, paddingBottom: SPACE.xs, paddingLeft: onBack === undefined ? SPACE.xl : SPACE.md, paddingRight: SPACE.md, minHeight: 64 }}>
+    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingTop: onBack === undefined ? SPACE.lg : 0, paddingBottom: SPACE.xs, paddingLeft: onBack === undefined ? SPACE.xl : PAGE.backLeft, paddingRight: SPACE.md, minHeight: onBack === undefined ? 64 : 52 }}>
       {onBack === undefined ? null : (
         <BackButton label={backLabel} onPress={onBack} />
       )}

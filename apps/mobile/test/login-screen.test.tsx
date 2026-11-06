@@ -10,6 +10,7 @@ import { setSocialNative } from '../src/lib/social-auth.ts'
 import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SESSION_EXPIRED_MESSAGE, SUPPORT_EMAIL, SUPPORT_PHONE } from '../src/lib/words.ts'
 import { LoginScreen } from '../src/screens/LoginScreen.tsx'
 import { CODE_ASK_TITLE, PHONE_ASK_TITLE, PHONE_RECHECK } from '@livejjim/web/src/lib/social-login.ts'
+import { setErrorHaptic } from '../src/native/haptics.ts'
 import { flush } from './support.ts'
 
 describe('LoginScreen', () => {
@@ -252,8 +253,12 @@ describe('LoginScreen', () => {
       })
 
       // D-UX3-50으로 바뀐 기대 (사용자 지시 2026-11-07 사진 7 "010 예외처리는 바로 하는게 아니라 11자리 다 입력하고 나서"):
-      // 옛 "앞 세 자리가 010이 아니면 바로 경고" → 새 "11자리를 다 넣은 뒤에 경고". 경고 때 [다음] 없음·[지우기]는 그대로.
-      it('11자리를 다 넣었는데 010이 아니면 "다시 확인해 주세요"를 보이고 보내지 않는다 (D-UX3-50)', async () => {
+      // 옛 "앞 세 자리가 010이 아니면 바로 경고" → 새 "11자리를 다 넣은 뒤에 경고". [지우기]는 그대로.
+      // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 "휴대폰 번호 잘못 입력했을 때 다음 버튼이 사라지는 문제"): 옛 "경고 때 [다음] 없음" →
+      // 새 "[다음]은 그대로, 누르면 보내지 않고 다시 흔들고 진동". 경고가 처음 뜰 때도 진동 한 번.
+      it('11자리를 다 넣었는데 010이 아니면 "다시 확인해 주세요"와 진동, [다음]을 눌러도 보내지 않고 다시 진동 (D-UX3-50·51)', async () => {
+        const buzz = vi.fn()
+        setErrorHaptic(buzz)
         const t = installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {
           '/api/auth/app/finish': { result: 'SIGNUP', provider: 'google', phoneRequired: true },
           '/api/auth/signup/phone': { phone: '011-****-5678' },
@@ -266,12 +271,17 @@ describe('LoginScreen', () => {
         expect(screen.queryByRole('alert')).toBeNull()
         fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '01112345678' } })
         expect(screen.getByRole('alert').textContent).toContain(PHONE_RECHECK)
-        expect(screen.queryByRole('button', { name: '다음' })).toBeNull()
+        expect(buzz).toHaveBeenCalledTimes(1)
+        fireEvent.click(screen.getByRole('button', { name: '다음' }))
+        expect(buzz).toHaveBeenCalledTimes(2)
+        expect(screen.getByRole('alert').textContent).toContain(PHONE_RECHECK)
         await flush()
         expect(t.calls.filter((c) => c.url.endsWith('/api/auth/signup/phone'))).toHaveLength(0)
         // 지우기는 그대로 — 누르면 비고 경고도 사라진다
         fireEvent.click(screen.getByRole('button', { name: '휴대폰 번호 지우기' }))
         expect(screen.queryByRole('alert')).toBeNull()
+        expect(buzz).toHaveBeenCalledTimes(2)
+        setErrorHaptic(() => {})
       })
 
       it('인증번호가 틀리면 칸을 하나로 합쳐 빨갛게 하고 서버 문장을 보이며 들어가지 않는다 (D-UX3-49)', async () => {

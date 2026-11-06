@@ -23,7 +23,7 @@ export function Screen({ title, children, testID }: { readonly title?: string; r
 
 export function Title({ children }: { readonly children: ReactNode }) {
   return (
-    <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
+    <Txt step="headline" weight="bold" role="heading" aria-level={1}>
       {children}
     </Txt>
   )

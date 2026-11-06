@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { AccessibilityInfo, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View, useWindowDimensions, type ScrollViewInstance } from 'react-native'
 import { BigButton, ButtonRow } from './buttons.tsx'
-import { BACKDROP_OPACITY, RADIUS, SHADOW, SPACE } from './tokens.ts'
+import { BACKDROP_OPACITY, PAGE, RADIUS, SHADOW, SPACE } from './tokens.ts'
 import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
 import { BackButton } from './app.tsx'
 
@@ -158,14 +158,17 @@ export function FormPage({ title, name, onBack, backLabel = '뒤로', children, 
   return (
     <View role="dialog" aria-label={name ?? title} testID={testID} style={{ flex: 1, backgroundColor: bg, paddingTop: top }}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <View style={{ paddingHorizontal: SPACE.sm, paddingTop: SPACE.sm }}>
+        {/* 뒤로·제목 자리는 토스와 같게 (D-UX3-51) */}
+        <View style={{ paddingLeft: PAGE.backLeft }}>
           <BackButton label={backLabel} onPress={onBack} />
         </View>
-        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xxl, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled" stickyHeaderIndices={sticky === undefined ? undefined : [1]}>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-            {title}
-          </Txt>
-          {sticky === undefined ? null : <View style={{ backgroundColor: bg, marginHorizontal: -SPACE.xl, paddingHorizontal: SPACE.xl, paddingBottom: SPACE.sm }}>{sticky}</View>}
+        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled" stickyHeaderIndices={sticky === undefined ? undefined : [1]}>
+          <View style={{ paddingBottom: PAGE.titleGap - SPACE.xxl }}>
+            <Txt step="headline" weight="bold" role="heading" aria-level={1}>
+              {title}
+            </Txt>
+          </View>
+          {sticky === undefined ? null : <View style={{ backgroundColor: bg, marginHorizontal: -PAGE.side, paddingHorizontal: PAGE.side, paddingBottom: SPACE.sm }}>{sticky}</View>}
           {children}
         </ScrollView>
         {actions === undefined || actions === null ? null : (

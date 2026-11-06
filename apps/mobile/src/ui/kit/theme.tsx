@@ -2,7 +2,7 @@
 // 시스템 큰 글자는 MAX_FONT_SCALE(2배)까지만 따라가고, 배율이 크면 가로로 놓던 것을 세로로 쌓는다.
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { Text, useWindowDimensions, type TextProps } from 'react-native'
-import { LINE, MAX_FONT_SCALE, PALETTE, STACK_AT_SCALE, TONES, TYPE, WEIGHT, type Palette, type Scheme, type TypeStep } from './tokens.ts'
+import { HEADLINE_LINE, LINE, MAX_FONT_SCALE, PALETTE, STACK_AT_SCALE, TONES, TYPE, WEIGHT, type Palette, type Scheme, type TypeStep } from './tokens.ts'
 
 interface ThemeOverride {
   readonly scheme?: Scheme
@@ -114,7 +114,7 @@ export function Txt({ step = 'body', weight = 'regular', color = 'text', ink, ce
       {...rest}
       allowFontScaling={!forced}
       maxFontSizeMultiplier={MAX_FONT_SCALE}
-      style={{ fontSize: size, lineHeight: Math.round(size * LINE), fontWeight: WEIGHT[weight], color: ink ?? p[color], textAlign: center === true ? 'center' : undefined }}
+      style={{ fontSize: size, lineHeight: Math.round(size * (step === 'headline' ? HEADLINE_LINE : LINE)), fontWeight: WEIGHT[weight], color: ink ?? p[color], textAlign: center === true ? 'center' : undefined }}
     >
       {children}
     </Text>

@@ -12,7 +12,7 @@ import { NewBroadcastAddressScreen, NewBroadcastCategoryScreen, SALE_CATEGORIES,
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
 import { TabFrame, tabEnterSide } from '../src/screens/TabFrame.tsx'
 import { BACK_ICON, FIELD_LABEL_MS, FIELD_ROW, PALETTE, TABS, TabBar, UnderlineField, pressedFill, useTabBarRoom } from '../src/ui/kit/index.ts'
-import { TYPE } from '../src/ui/kit/tokens.ts'
+import { TYPE, WEIGHT } from '../src/ui/kit/tokens.ts'
 import { TabIcon } from '../src/ui/kit/tab-icons.tsx'
 import { makeWorld } from './screen-support.tsx'
 
@@ -412,14 +412,16 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     fireEvent.change(input, { target: { value: 'abc' } })
     fireEvent.blur(input)
     expect(state()).toBe('floating')
-    expect(FIELD_ROW).toBe(52)
+    // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 토스 사진 비교): 옛 값 줄 52 → 새 40 (토스 칸을 재어)
+    expect(FIELD_ROW).toBe(40)
     expect(FIELD_LABEL_MS).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: '방송 링크 지우기' }))
     expect(input.value).toBe('')
     expect(state()).toBe('resting')
   })
 
-  it('잘못일 때는 느낌표와 짧은 문장, 고치기 시작하면 문장이 사라진다 (D-UX3-11)', async () => {
+  // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 "오류 메시지의 형태"): 옛 "느낌표 + 짧은 문장"(D-UX3-11) → 새 "느낌표 없이 빨간 문장만"(토스)
+  it('잘못일 때는 빨간 짧은 문장만(느낌표 없음), 고치기 시작하면 문장이 사라진다 (D-UX3-11·51)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: null, webChat: { on: true }, oauth: true } }))
     world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
@@ -436,7 +438,7 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('라이브 채팅을 받을 수 없는 방송이에요.')
-    expect(alert.querySelector('[aria-hidden="true"]')).not.toBeNull()
+    expect(alert.querySelector('[aria-hidden="true"]')).toBeNull()
     fireEvent.change(field, { target: { value: 'https://youtu.be/NOCHAT0000' } })
     expect(screen.queryByRole('alert')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
@@ -455,9 +457,12 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     setClipboardReader(async () => '')
   })
 
-  it('입력 글자는 토스 계좌 입력과 같은 24, 뒤로 화살표는 어느 화면이든 26 하나', () => {
-    expect(TYPE.input).toBe(24)
-    expect(BACK_ICON).toBe(26)
+  // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 토스 사진 비교 "입력필드 안 폰트의 두께가 다름 … 뒤로가기 버튼의 크기"): 옛 입력 24·뒤로 26 → 새 입력 22(두께 500)·뒤로 33·제목 22
+  it('입력 글자는 토스 휴대폰 번호 칸과 같은 22, 뒤로 화살표는 어느 화면이든 33 하나, 제목 22', () => {
+    expect(TYPE.input).toBe(22)
+    expect(WEIGHT.book).toBe('500')
+    expect(TYPE.headline).toBe(22)
+    expect(BACK_ICON).toBe(33)
   })
 })
 

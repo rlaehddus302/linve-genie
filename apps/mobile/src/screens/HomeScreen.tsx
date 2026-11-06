@@ -243,7 +243,7 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.xl }} scrollIndicatorInsets={{ bottom: room }}>
         <View style={{ gap: SPACE.xs }}>
           <Txt step="caption" color="textSub">{`${sellerName} 사장님, 안녕하세요`}</Txt>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
+          <Txt step="headline" weight="bold" role="heading" aria-level={1}>
             오늘 할 일
           </Txt>
         </View>

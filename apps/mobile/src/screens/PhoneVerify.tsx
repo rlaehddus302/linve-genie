@@ -1,13 +1,14 @@
 // 휴대폰 번호 확인 (D-UX3-30 → 모양·흐름은 D-UX3-49, 사용자 지시 2026-11-07 사진대로):
 // ① "본인 확인을 위해 휴대폰 번호를 입력해 주세요" — 밑줄 칸 하나. 11자리가 차면 아래 [다음]이 켜지고, 눌러야 인증번호를 보내고 다음 화면으로 (D-UX3-50).
-//    11자리를 다 넣었는데 010으로 시작하지 않으면 빨간 밑줄·라벨과 "휴대폰 번호를 다시 확인해 주세요." ([다음] 없음, [지우기]·키보드는 그대로)
+//    11자리를 다 넣었는데 010으로 시작하지 않으면 빨간 밑줄·라벨과 "휴대폰 번호를 다시 확인해 주세요." ([다음]·[지우기]·키보드는 그대로)
 // ② "문자로 받은 인증번호 6자리를 입력해 주세요" — 남은 시간, 6칸. 6자리가 차면 바로 확인. 틀리면 한 칸으로 합쳐 빨갛게 + 서버 문장.
 //    아래 [다시 문자 받을게요]는 보낸 지 30초가 지나야 켜진다(D-UX3-50). 칸은 문자 자동 채우기(아이폰 oneTimeCode·안드로이드 sms-otp)를 켠다.
 // 아래 단추는 키보드가 뜨면 키보드 바로 위로 올라온다. 이 화면이 떠 있는 동안 맨 위 상태 막대 자리도 흰색이다(D-UX3-50).
+// D-UX3-51: 잘못이어도 [다음]은 그대로 — 누르면 칸이 다시 흔들리고 진동한다. 뒤로·제목 자리와 잘못 모양은 공통 부품(PAGE·ErrorLine·useWrongShake).
 // ③ "인증 성공" 2초 뒤 다음(홈·있는 계정 안내)으로. 화면 사이는 밀어 넘긴다(SlideSwitch).
 // 가입 중(가입 표)과 로그인한 계정(번호 등록)이 같이 쓴다. 왼쪽 위 ‹는 ①에서 처음으로·로그아웃, ②에서 번호 다시 넣기.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Animated, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native'
 import {
   CODE_ASK_TITLE,
   CODE_FIELD,
@@ -26,9 +27,9 @@ import {
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
-import { AlertMark, BackButton, BigButton, Icon, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop } from '../ui/kit/index.ts'
+import { BackButton, BigButton, ErrorLine, Icon, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
 import { SlideSwitch } from '../ui/kit/slide.tsx'
-import { RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
+import { PAGE, RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
 
 /** 인증번호 유효 시간 — 서버(CODE_TTL_MS)와 같다 */
 export const CODE_TTL_SECONDS = 180
@@ -64,6 +65,8 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
   const [note, setNote] = useState<string | null>(null)
   const [expiresAt, setExpiresAt] = useState(0)
   const [sentAt, setSentAt] = useState(0)
+  /** 잘못인 번호에서 [다음]을 누른 횟수 — 누를 때마다 다시 흔든다 */
+  const [phoneAgain, setPhoneAgain] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const after = useRef<(() => void | Promise<void>) | null>(null)
   useWhiteTop()
@@ -98,6 +101,10 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
   // 11자리가 차도 저절로 넘어가지 않는다 — [다음]을 눌러야 보낸다 (D-UX3-50, 옛 D-UX3-49는 바로 보냈다)
   const phoneReady = digits.length === 11 && digits.startsWith('010')
   const nextFromPhone = () => {
+    if (digits.length === 11 && !phoneReady) {
+      setPhoneAgain((count) => count + 1)
+      return
+    }
     if (!phoneReady || sending) return
     void deliver(formatMobileInput(digits))
       .then(() => {
@@ -159,14 +166,15 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
           backLabel={back.label}
           title={PHONE_ASK_TITLE}
           testID="phone-step"
-          footer={wrongStart ? null : <BigButton label={PHONE_NEXT} onPress={nextFromPhone} disabled={!phoneReady} busy={sending} testID="phone-next" />}
+          footer={<BigButton label={PHONE_NEXT} onPress={nextFromPhone} disabled={digits.length !== 11} busy={sending} testID="phone-next" />}
         >
-          <View style={{ marginTop: SPACE.xxxl + SPACE.xxl }}>
+          <View style={{ marginTop: PAGE.titleGap }}>
             <UnderlineField
               label={PHONE_FIELD}
               value={formatMobileInput(digits)}
               onChangeText={typePhone}
               error={wrongStart ? PHONE_RECHECK : sendError}
+              again={phoneAgain}
               keyboardType="number-pad"
               textContentType="telephoneNumber"
               autoComplete="tel"
@@ -239,10 +247,10 @@ function Page({ onBack, backLabel, title, children, footer, testID }: { readonly
   const top = useTopInset()
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={top} style={{ flex: 1, backgroundColor: p.surface }} testID={testID}>
-      <View style={{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm }}>
+      <View style={{ paddingLeft: PAGE.backLeft }}>
         <BackButton label={backLabel} onPress={onBack} />
       </View>
-      <View style={{ flex: 1, paddingHorizontal: SPACE.xxl, paddingTop: SPACE.xxxl }}>
+      <View style={{ flex: 1, paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop }}>
         <Txt step="headline" weight="bold" role="heading" aria-level={1}>
           {title}
         </Txt>
@@ -261,9 +269,10 @@ function CodeBoxes({ value, error, onChange }: { readonly value: string; readonl
   const [focused, setFocused] = useState(true)
   const bad = error !== null
   const cells = Array.from({ length: CODE_LENGTH }, (_, index) => value[index] ?? '')
-  const digit = { fontSize: TYPE.headline + 4, fontWeight: WEIGHT.bold, color: p.text } as const
+  const digit = { fontSize: TYPE.headline + 8, fontWeight: WEIGHT.bold, color: p.text } as const
+  const shake = useWrongShake(error)
   return (
-    <View style={{ marginTop: SPACE.xxxl, alignItems: 'center' }}>
+    <Animated.View style={{ marginTop: SPACE.xxxl, alignItems: 'center', transform: [{ translateX: shake }] }}>
       <View style={{ width: '100%', maxWidth: 360, height: 64 }}>
         {bad ? (
           <View testID="code-wrong" style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: 2, borderColor: p.dangerText, backgroundColor: TONES.light.danger.bg }}>
@@ -310,14 +319,11 @@ function CodeBoxes({ value, error, onChange }: { readonly value: string; readonl
         />
       </View>
       {bad ? (
-        <View role="alert" style={{ marginTop: SPACE.lg, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.md }}>
-          <AlertMark size={22} />
-          <Txt step="bodyLarge" weight="bold" color="dangerText">
-            {error}
-          </Txt>
+        <View style={{ marginTop: SPACE.md, alignSelf: 'stretch', alignItems: 'center' }}>
+          <ErrorLine>{error}</ErrorLine>
         </View>
       ) : null}
-    </View>
+    </Animated.View>
   )
 }
 

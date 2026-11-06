@@ -5,6 +5,21 @@ export function setHaptic(fn: () => void): void {
   tap = fn
 }
 
+let wrong: () => void = () => {}
+
+/** 잘못일 때의 오류 진동 (D-UX3-51) — production이 expo-haptics 오류 알림을 끼운다 */
+export function setErrorHaptic(fn: () => void): void {
+  wrong = fn
+}
+
+export function errorHaptic(): void {
+  try {
+    wrong()
+  } catch {
+    // 손맛은 못 줘도 된다
+  }
+}
+
 export function tapHaptic(): void {
   try {
     tap()

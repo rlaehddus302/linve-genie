@@ -8,7 +8,7 @@ import { get, isApiError, patch, put } from '../api/client.ts'
 import { openExternal, openWeb } from '../lib/open-web.ts'
 import { OPEN_IN_WEB, VOICE_INSTANT_LABEL } from '../lib/words.ts'
 import { useServices, useSession } from '../services.tsx'
-import { AppHeader, BigButton, Card, ConfirmSheet, ListRow, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, Card, ConfirmSheet, ErrorLine, ListRow, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { ScrollView } from 'react-native'
 import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
@@ -91,9 +91,8 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, sh
               }}
             />
             {view.problem !== null ? (
-              <Txt color="dangerText" weight="bold" role="alert">
-                {`⚠ ${view.problem}`}
-              </Txt>
+              // 잘못 문장은 어디서나 같은 모양 (D-UX3-51)
+              <ErrorLine>{view.problem}</ErrorLine>
             ) : null}
             <Txt step="caption" color="textSub">{`마이크: ${PERMISSION_WORDS.microphone}`}</Txt>
             <Txt step="caption" color="textSub">{`블루투스: ${PERMISSION_WORDS.bluetooth}`}</Txt>

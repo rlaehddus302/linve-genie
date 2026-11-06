@@ -28,11 +28,13 @@ describe.each(SCHEMES)('색 쌍 대비 (%s)', (scheme) => {
 
 describe('크기 약속', () => {
   // 옛 약속(D-UX2-01): 본문 18·최소 16·누름 52·버튼 60·키 64. 새 약속(D-UX3-07, 사용자 지시 "토스 치수 그대로"): 본문 16·최소 14·줄 48·버튼 54·키 60
-  it('본문 16 이상, 가장 작은 글자 14(아래 탭 글자만 12 — D-UX3-41 "글자 크기도 좀 더 줄이고"), 누르는 줄 48·큰 버튼 54·숫자판 키 60 이상', () => {
+  // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 토스 사진 비교): 옛 "탭 12 말고는 14 이상" → 새 "탭 12, 입력 칸 위 라벨·칸 아래 문장 13(토스 재기), 나머지 14 이상"
+  it('본문 16 이상, 가장 작은 글자 14(아래 탭 12 — D-UX3-41, 입력 칸 라벨·문장 13 — D-UX3-51), 누르는 줄 48·큰 버튼 54·숫자판 키 60 이상', () => {
     expect(TYPE.body).toBeGreaterThanOrEqual(16)
-    const { tab, ...rest } = TYPE
+    const { tab, note, ...rest } = TYPE
     expect(Math.min(...Object.values(rest))).toBeGreaterThanOrEqual(14)
     expect(tab).toBe(12)
+    expect(note).toBe(13)
     expect(TOUCH.min).toBeGreaterThanOrEqual(48)
     expect(TOUCH.button).toBeGreaterThanOrEqual(54)
     expect(TOUCH.key).toBeGreaterThanOrEqual(60)
