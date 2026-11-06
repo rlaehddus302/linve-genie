@@ -1,6 +1,6 @@
 // 앱 안 우체국 화면에 넣는 스크립트 (D-UX3-37). 판매자 휴대폰의 웹뷰 안, 우체국 화면 위에서만 돈다.
 // - 하는 일: 판매자가 손으로 하던 입력(보내는 분 칸, [파일(주소) 등록]에 파일 올리기)을 대신한다. 우체국 화면 자체의 확인(보내는 분·방문 정보·목록 검사)을 그대로 거친다.
-// - 하지 않는 일: [신청]·결제·비밀번호·동의 체크는 누르거나 넣지 않는다 — 판매자가 화면을 보고 직접 한다.
+// - 하지 않는 일: [신청]·결제는 누르지 않고 비밀번호는 넣지 않는다 — 판매자가 화면을 보고 직접 한다. 들고 가기 동의 두 칸은 판매자 지시로 체크한다(D-UX3-40).
 // - 결과는 window.ReactNativeWebView.postMessage(JSON)로 앱에 알린다 (글 칸 값은 보내지 않는다 — 종류·단계·건수만).
 import { splitPhone, type EpostKit } from './kit.ts'
 
@@ -131,13 +131,49 @@ true;`
 }
 
 /** 들고 가기 스크립트 값: 보내는 분 + 받는 분 칸 (이름·우편번호·주소·상세 주소·전화 세 칸) */
+/** 들고 가기 입력 화면은 상세 주소가 비면 목록에 넣지 않는다 — 빈 상세 주소는 "-" (D-UX3-40) */
+const detailOf = (detail: string): string => (detail.trim() === '' ? '-' : detail)
+
 function counterPayload(kit: EpostKit): string {
   const sender = kit.sender
   return JSON.stringify({
-    sender: sender === null ? null : { name: sender.name, zip: sender.zip, address: sender.address, detail: sender.detail, phone: splitPhone(sender.phone) },
-    receivers: kit.receivers.map((receiver) => ({ name: receiver.name, zip: receiver.zip, address: receiver.address, detail: receiver.detail, phone: splitPhone(receiver.phone) })),
+    sender: sender === null ? null : { name: sender.name, zip: sender.zip, address: sender.address, detail: detailOf(sender.detail), phone: splitPhone(sender.phone) },
+    receivers: kit.receivers.map((receiver) => ({ name: receiver.name, zip: receiver.zip, address: receiver.address, detail: detailOf(receiver.detail), phone: splitPhone(receiver.phone) })),
   }).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
 }
+
+/**
+ * 창구소포 간편사전접수 동의 화면(commonpostplus.ParcelRetrieveAcceptPlusAgree) (D-UX3-40, 사용자 지시 "약관 체크도 안해주고"):
+ * ① 동의 두 칸(agree1·agree2)과 모두 동의(allAgree)를 체크한다 — 화면의 change 처리도 부른다
+ * ② 조회용 비밀번호는 넣지 않는다. 판매자가 첫 칸에 숫자 4자리를 적으면 확인 칸에 같은 값을 넣고 화면의 [다음](goNextPage — 화면의 확인을 그대로 거친다)을 부른다
+ */
+export const COUNTER_AGREE_SCRIPT = `(function () {
+  var post = function (message) { try { window.ReactNativeWebView.postMessage(JSON.stringify(message)) } catch (e) {} };
+  var byId = function (id) { return document.getElementById(id) };
+  var pw = byId('guest_orderpw');
+  var pw2 = byId('guest_orderpw2');
+  if (!byId('agree1') || !byId('agree2') || !pw || !pw2) { post({ type: 'agree', ok: false, reason: 'PAGE' }); return true }
+  ['allAgree', 'agree1', 'agree2'].forEach(function (id) {
+    var box = byId(id);
+    if (!box || box.checked) return;
+    box.checked = true;
+    try { if (window.jQuery) window.jQuery(box).trigger('change'); else box.dispatchEvent(new Event('change', { bubbles: true })) } catch (e) {}
+  });
+  if (!window.__ljAgree) {
+    window.__ljAgree = true;
+    var sent = '';
+    pw.addEventListener('input', function () {
+      var value = pw.value.replace(/[^0-9]/g, '').slice(0, 4);
+      if (value !== pw.value) pw.value = value;
+      pw2.value = value;
+      if (value.length === 4 && value !== sent && typeof goNextPage === 'function') { sent = value; post({ type: 'agree', step: 'next' }); goNextPage() }
+    });
+  }
+  try { pw.setAttribute('inputmode', 'numeric'); pw.scrollIntoView({ block: 'center' }); pw.focus() } catch (e) {}
+  post({ type: 'agree', ok: true });
+  return true;
+})();
+true;`
 
 /**
  * 창구소포 간편사전접수 입력 화면(commonpostplus.ParcelRetrieveAcceptPlus — 판매자가 동의·비밀번호를 넣은 뒤) 채우기:

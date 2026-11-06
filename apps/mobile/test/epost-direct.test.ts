@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { splitPhone, type EpostKit } from '../src/epost/kit.ts'
 import { hasName, invoiceCandidates, matchInvoices } from '../src/epost/match.ts'
-import { ROWS_SCRIPT, counterFillScript, visitFillScript } from '../src/epost/scripts.ts'
+import { COUNTER_AGREE_SCRIPT, ROWS_SCRIPT, counterFillScript, visitFillScript } from '../src/epost/scripts.ts'
 
 const receivers = [
   { buyer: 'u1', name: '홍길동', phone: '01012345678' },
@@ -251,5 +251,55 @@ describe('들고 가기(창구소포 간편사전접수) 화면 자동 채우기
     document.body.innerHTML = '<input id="guest_orderpw" />'
     window.eval(counterFillScript(counterKit))
     expect(calls.messages.at(-1)).toEqual({ type: 'fill', ok: false, reason: 'PAGE' })
+  })
+})
+
+describe('들고 가기 동의 화면 (D-UX3-40)', () => {
+  function agreePage() {
+    document.body.innerHTML = '<input type="checkbox" id="allAgree" /><input type="checkbox" id="agree1" /><input type="checkbox" id="agree2" /><input type="password" id="guest_orderpw" /><input type="password" id="guest_orderpw2" />'
+    const w = window as unknown as Win
+    const calls: { messages: Record<string, unknown>[]; next: number; changes: string[] } = { messages: [], next: 0, changes: [] }
+    w['ReactNativeWebView'] = { postMessage: (data: string) => calls.messages.push(JSON.parse(data) as Record<string, unknown>) }
+    w['goNextPage'] = () => void calls.next++
+    w['__ljAgree'] = undefined
+    for (const id of ['allAgree', 'agree1', 'agree2']) document.getElementById(id)!.addEventListener('change', () => calls.changes.push(id))
+    return calls
+  }
+  const box = (id: string) => (document.getElementById(id) as HTMLInputElement)
+
+  it('동의 세 칸을 체크하고(화면 change도), 비밀번호는 넣지 않는다 — 판매자가 4자리를 적으면 확인 칸에 같은 값 → [다음]', () => {
+    const calls = agreePage()
+    window.eval(COUNTER_AGREE_SCRIPT)
+    expect([box('allAgree').checked, box('agree1').checked, box('agree2').checked]).toEqual([true, true, true])
+    expect(calls.changes).toEqual(['allAgree', 'agree1', 'agree2'])
+    expect([box('guest_orderpw').value, box('guest_orderpw2').value]).toEqual(['', ''])
+    expect(calls.messages).toEqual([{ type: 'agree', ok: true }])
+    const pw = box('guest_orderpw')
+    pw.value = '12'
+    pw.dispatchEvent(new Event('input'))
+    expect(box('guest_orderpw2').value).toBe('12')
+    expect(calls.next).toBe(0)
+    pw.value = '12a34'
+    pw.dispatchEvent(new Event('input'))
+    expect([pw.value, box('guest_orderpw2').value, calls.next]).toEqual(['1234', '1234', 1])
+    expect(calls.messages.at(-1)).toEqual({ type: 'agree', step: 'next' })
+    // 다시 넣어도 듣는 곳은 하나
+    window.eval(COUNTER_AGREE_SCRIPT)
+    pw.dispatchEvent(new Event('input'))
+    expect(calls.next).toBe(1)
+  })
+
+  it('동의 칸이 없으면 PAGE', () => {
+    const calls = agreePage()
+    document.body.innerHTML = '<p>다른 화면</p>'
+    window.eval(COUNTER_AGREE_SCRIPT)
+    expect(calls.messages).toEqual([{ type: 'agree', ok: false, reason: 'PAGE' }])
+  })
+
+  it('입력 화면: 비어 있는 상세 주소는 "-" (우체국 화면이 빈 상세 주소를 받지 않는다)', () => {
+    const { calls, value } = counterPage()
+    window.eval(counterFillScript({ ...kit, sender: { ...kit.sender!, detail: '' }, receivers: [{ ...kit.receivers[0]!, detail: ' ' }] }))
+    expect(value('tSndAddr2')).toBe('-')
+    expect(calls.added).toEqual([['홍길동', '04524', '서울특별시 중구 세종대로 110', '-', '01012345678', '']])
   })
 })

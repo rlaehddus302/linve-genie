@@ -89,17 +89,43 @@ describe('EpostScreen (앱 안 우체국 화면)', () => {
     expect(screen.getByText(/이미 다른 묶음에 적은 송장번호예요/)).toBeTruthy()
   })
 
-  it('들고 가기: 동의 화면에서는 채우지 않고, 입력 화면을 읽으면 채우기 스크립트 → 넣은·못 넣은 수 문장', async () => {
+  it('들고 가기: 동의 화면에서는 동의 체크 스크립트(받는 분은 채우지 않음, D-UX3-40), 입력 화면을 읽으면 채우기 스크립트 → 넣은·못 넣은 수 문장', async () => {
     const { w } = world()
     render(w.wrap(<EpostScreen date="2026-10-29" kind="COUNTER" onBack={() => undefined} />))
     await waitFor(() => expect(web.props).not.toBeNull())
     expect(screen.getByText('우체국에 들고 가기')).toBeTruthy()
     act(() => web.props!.onLoaded('https://service.epost.go.kr/front.commonpostplus.ParcelRetrieveAcceptPlusAgree.postal'))
     expect(web.injected.filter((script) => script.includes('inputReceiver'))).toHaveLength(0)
+    expect(web.injected.filter((script) => script.includes('guest_orderpw2'))).toHaveLength(1)
+    act(() => web.props!.onMessage(JSON.stringify({ type: 'agree', ok: true })))
+    expect(screen.getByText(/동의 두 칸을 체크했어요/)).toBeTruthy()
     act(() => web.props!.onLoaded('https://service.epost.go.kr/front.commonpostplus.ParcelRetrieveAcceptPlus.postal'))
     expect(web.injected.filter((script) => script.includes('inputReceiver'))).toHaveLength(1)
     act(() => web.props!.onMessage(JSON.stringify({ type: 'fill', ok: true, sender: true, added: 1, skipped: 1 })))
     expect(screen.getByText(/받는 분 1명을 목록에 넣었어요/)).toBeTruthy()
     expect(screen.getByText(/1명은 우편번호나 연락처가 맞지 않아 넣지 못했어요/)).toBeTruthy()
+  })
+
+  it('보내는 분 설정이 없으면 바로 넣는 창 → 설정에 저장(PUT sender) → 자료를 다시 받아 지금 화면에 다시 채운다 (D-UX3-40)', async () => {
+    const w = makeWorld()
+    let kitCalls = 0
+    const puts: Record<string, unknown>[] = []
+    w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29\/epost-kit$/, () => (kitCalls++, { body: { kit: kitCalls === 1 ? { ...kit, sender: null } : kit } }))
+    w.server.on('GET', /^\/api\/parcels\/settings$/, () => ({ body: { settings: { carrier: 'EPOST', carrierName: null, carriers: [], customerNoLast4: null, sender: null, shopName: '다육이네', box: '80' } } }))
+    w.server.on('PUT', /^\/api\/parcels\/settings$/, (call) => (puts.push(call.body ?? {}), { body: { settings: {} } }))
+    render(w.wrap(<EpostScreen date="2026-10-29" kind="COUNTER" onBack={() => undefined} />))
+    expect(await screen.findByText(/우체국 화면에 채울 보내는 분이에요/)).toBeTruthy()
+    expect(screen.getByText(/보내는 분 정보가 없어서/)).toBeTruthy()
+    await waitFor(() => expect((screen.getByLabelText('보내는 사람 이름') as HTMLInputElement).value).toBe('다육이네'))
+    act(() => web.props!.onLoaded('https://service.epost.go.kr/front.commonpostplus.ParcelRetrieveAcceptPlus.postal'))
+    const before = web.injected.filter((script) => script.includes('inputReceiver')).length
+    fireEvent.change(screen.getByLabelText('보내는 사람 연락처'), { target: { value: '031-123-4567' } })
+    fireEvent.change(screen.getByLabelText('보내는 주소'), { target: { value: '경기도 수원시 팔달구 효원로 1' } })
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(puts).toEqual([{ sender: { name: '다육이네', phone: '031-123-4567', address: '경기도 수원시 팔달구 효원로 1', detail: '', zip: '' } }]))
+    expect(await screen.findByText('보내는 분을 저장했어요. 우체국 화면에 채울게요.')).toBeTruthy()
+    await waitFor(() => expect(web.injected.filter((script) => script.includes('inputReceiver')).length).toBe(before + 1))
+    expect(kitCalls).toBe(2)
+    expect(screen.queryByRole('button', { name: '보내는 분 넣기' })).toBeNull()
   })
 })

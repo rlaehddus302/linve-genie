@@ -128,6 +128,28 @@ describe('ParcelsScreen (앱 택배 접수)', () => {
     ])
   })
 
+  it('계약 인증키가 없으면 (D-UX3-40): 키 안내 경고·고르기·[N개 택배 접수하기] 대신 "보낼 수 있어요" 칸에 들고 가기·가지러 오기, 인증키 넣기는 작은 길로', async () => {
+    const { w } = world()
+    w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29$/, () => ({ body: { ...day, blocked: { code: 'NO_AUTO_BOOK', message: '우체국 계약 정보(인증키·보안키·고객 번호)를 넣어야 자동 접수돼요.' } } }))
+    const opened: [string, string][] = []
+    let settings = 0
+    render(w.wrap(<ParcelsScreen onBack={() => undefined} nav={{ openEpost: (date, kind) => void opened.push([date, kind]), openSettings: () => void settings++ }} />))
+    expect(await screen.findByText('다육맘')).toBeTruthy()
+    expect(screen.queryByText(/인증키·보안키·고객 번호/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /개 택배 접수하기/ })).toBeNull()
+    expect(screen.queryByRole('checkbox', { name: '다육맘 고르기' })).toBeNull()
+    const counter = screen.getByRole('button', { name: '우체국에 들고 가기' })
+    expect(counter.compareDocumentPosition(screen.getByText('다육맘')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: '우체국에 들고 가기' })).toHaveLength(1)
+    fireEvent.click(counter)
+    expect(opened).toEqual([['2026-10-29', 'COUNTER']])
+    expect(screen.getByText(/자동 접수는 꺼져 있어요/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '계약했다면 인증키 넣기' }))
+    expect(settings).toBe(1)
+    expect(screen.getByText('PC에서 접수하기')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '우체국 파일 받기 (2개)' })).toBeTruthy()
+  })
+
   it('우체국 직접 접수 묶음: "우체국 직접 접수" 꼬리표, 운송장 PDF 없음, [기록 지우기]는 라이브찜 기록만 지운다고 묻는다', async () => {
     const { w, posts } = world()
     w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29$/, () => ({ body: { ...day, booked: [row('u4', '금황', { packing: '배송 완료', parcel: { ...booked, direct: 'COUNTER' } })] } }))

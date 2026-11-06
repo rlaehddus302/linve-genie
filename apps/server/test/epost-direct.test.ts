@@ -32,6 +32,26 @@ describe('앱 안 우체국 화면 자료 (D-UX3-37)', () => {
     const none = await kitOf(world, (await parcelSeller(world, { carrier: 'EPOST', sender: SENDER, box: '80' })).cookie)
     expect(none.status).toBe(404)
   })
+
+  it('보내는 분 우편번호가 비었으면 우편번호 찾기로 채운다 — 못 찾으면 빈 칸 그대로 (D-UX3-40)', async () => {
+    const asked: string[] = []
+    const world = await parcelWorld({
+      overrides: { parcel: { findZip: async (query: string) => (asked.push(query), query === '경기도 수원시 팔달구 효원로 1' ? { kind: 'ZIP', zip: '16490' } : { kind: 'NONE' }) } },
+    })
+    const seller = await parcelSeller(world, { carrier: 'EPOST', sender: { ...SENDER, zip: '' }, box: '80' })
+    await sell(world, seller, [['UC_A', '가람', 1]])
+    await makeReady(world, seller, 'UC_A')
+    const response = await kitOf(world, seller.cookie)
+    expect(response.status, response.text).toBe(200)
+    expect((response.body.kit as { sender: { zip: string } }).sender.zip).toBe('16490')
+    expect(asked).toEqual(['경기도 수원시 팔달구 효원로 1'])
+
+    const other = await parcelSeller(world, { carrier: 'EPOST', sender: { ...SENDER, address: '어딘가 모르는 길', detail: '', zip: '' }, box: '80' })
+    await sell(world, other, [['UC_B', '나래', 1]])
+    await makeReady(world, other, 'UC_B')
+    const missing = await kitOf(world, other.cookie)
+    expect((missing.body.kit as { sender: { zip: string } }).sender.zip).toBe('')
+  })
 })
 
 describe('직접 접수 송장 적기 (D-UX3-37)', () => {

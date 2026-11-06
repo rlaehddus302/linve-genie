@@ -28,9 +28,12 @@ import {
   DIRECT_CANCEL_LABEL,
   DIRECT_CANCEL_QUESTION,
   DIRECT_TAG,
+  DIRECT_FIRST_KEY,
+  DIRECT_FIRST_NOTE,
   EPOST_DIRECT_HOW,
   EPOST_FILE_AFTER,
   EPOST_FILE_PC,
+  EPOST_FILE_PC_TITLE,
   EPOST_KIND_HOW,
   EPOST_KIND_LABEL,
   EPOST_FILE_HOW,
@@ -225,6 +228,8 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
   const chosen = groups === null ? [] : groups.ready.filter((row) => !unchecked.has(row.buyer))
   const boxOf = (row: ParcelRow): BoxKind => boxes.get(row.buyer) ?? row.box
   const blocked = day?.blocked ?? null
+  // 계약 인증키가 없거나 택배사를 고르지 않았으면 자동 접수 대신 우체국 직접 접수가 먼저 (D-UX3-40): 키 안내 경고·고르기·상자 고르기·[N개 택배 접수하기]를 감추고 그 자리에 들고 가기·가지러 오기
+  const directFirst = day !== null && (blocked?.code === 'NO_AUTO_BOOK' || blocked?.code === 'NO_CARRIER') && showsEpostFile(day) && nav.openEpost !== undefined
 
   // 택배사 답을 기다리는 줄이 있는 동안 30초마다 다시 읽는다 (D-T1-18)
   const waiting = day !== null && hasPending(day)
@@ -292,7 +297,7 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
   return (
     <View style={{ gap: SPACE.md }}>
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
-      {blocked !== null ? (
+      {directFirst ? null : blocked !== null ? (
         <View style={{ gap: SPACE.sm }}>
           <Notice tone="warning">{blocked.message}</Notice>
           {nav.openSettings !== undefined ? <BigButton kind="outline" label="설정으로" onPress={nav.openSettings} /> : null}
@@ -303,7 +308,28 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
       <Card label={GROUP_READY}>
         <Txt step="section" weight="bold">{`${GROUP_READY} · ${String(groups.ready.length)}개`}</Txt>
         {groups.ready.length === 0 ? <Txt color="textSub">{NOTHING_READY}</Txt> : null}
-        {groups.ready.map((row) => (
+        {directFirst ? (
+          <View style={{ gap: SPACE.sm }}>
+            <Txt>{EPOST_DIRECT_HOW}</Txt>
+            <Txt step="caption" color="textSub">{`${EPOST_KIND_LABEL.COUNTER}: ${EPOST_KIND_HOW.COUNTER}`}</Txt>
+            <Txt step="caption" color="textSub">{`${EPOST_KIND_LABEL.VISIT}: ${EPOST_KIND_HOW.VISIT}`}</Txt>
+            <ButtonRow>
+              <BigButton kind="outline" label={EPOST_KIND_LABEL.VISIT} onPress={() => nav.openEpost?.(date, 'VISIT')} />
+              <BigButton label={EPOST_KIND_LABEL.COUNTER} onPress={() => nav.openEpost?.(date, 'COUNTER')} />
+            </ButtonRow>
+            <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
+          </View>
+        ) : null}
+        {directFirst
+          ? groups.ready.map((row) => (
+              <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
+                <Txt weight="bold">{row.name}</Txt>
+                {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
+                {isExtraRow(row) ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
+              </View>
+            ))
+          : null}
+        {directFirst ? null : groups.ready.map((row) => (
           <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
             <PickRow on={!unchecked.has(row.buyer)} name={row.name} disabled={busy} onPress={() => toggle(row.buyer)} />
             {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
@@ -327,7 +353,14 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
             {isExtraRow(row) ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
           </View>
         ))}
-        <BigButton label={`${String(chosen.length)}개 택배 접수하기`} disabled={blocked !== null || chosen.length === 0} busy={busy} onPress={() => setAsking(true)} />
+        {directFirst ? (
+          <View style={{ gap: SPACE.xs }}>
+            <Txt step="caption" color="textSub">{DIRECT_FIRST_NOTE}</Txt>
+            {nav.openSettings !== undefined ? <BigButton kind="outline" label={DIRECT_FIRST_KEY} onPress={nav.openSettings} /> : null}
+          </View>
+        ) : (
+          <BigButton label={`${String(chosen.length)}개 택배 접수하기`} disabled={blocked !== null || chosen.length === 0} busy={busy} onPress={() => setAsking(true)} />
+        )}
         {busy ? <Txt step="caption" color="textSub">{BOOKING_NOW}</Txt> : null}
         {summary !== null ? <Notice tone={results.size === 0 ? 'success' : 'warning'}>{summary}</Notice> : null}
         {bookError !== null ? (
@@ -339,9 +372,14 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
       </Card>
 
       {showsEpostFile(day) ? (
-        <Card label={EPOST_FILE_TITLE}>
-          <Txt step="section" weight="bold">{EPOST_FILE_TITLE}</Txt>
-          {nav.openEpost !== undefined ? (
+        <Card label={directFirst ? EPOST_FILE_PC_TITLE : EPOST_FILE_TITLE}>
+          <Txt step="section" weight="bold">{directFirst ? EPOST_FILE_PC_TITLE : EPOST_FILE_TITLE}</Txt>
+          {directFirst ? (
+            <>
+              <Txt>{EPOST_FILE_PC}</Txt>
+              <BigButton kind="outline" label={epostFileLabel(groups.ready.length)} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
+            </>
+          ) : nav.openEpost !== undefined ? (
             <>
               <Txt>{EPOST_DIRECT_HOW}</Txt>
               <Txt step="caption" color="textSub">{`${EPOST_KIND_LABEL.COUNTER}: ${EPOST_KIND_HOW.COUNTER}`}</Txt>

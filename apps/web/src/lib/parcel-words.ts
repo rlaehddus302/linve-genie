@@ -293,22 +293,32 @@ export const showsEpostFile = (day: { readonly carrier: { readonly code: Setting
 
 // ── 앱 안 우체국 화면 (D-UX3-37) — 들고 가기(창구소포 간편사전접수)·가지러 오기(방문접수소포) ──
 export type EpostDirectKind = 'VISIT' | 'COUNTER'
-export const EPOST_DIRECT_HOW = '계약하지 않아도 돼요. 앱 안에서 인터넷우체국을 열면 보내는 분과 받는 분을 라이브찜이 채워요. 비밀번호·동의·[신청]은 우체국 화면에서 직접 해 주세요.'
+export const EPOST_DIRECT_HOW = '계약하지 않아도 돼요. 앱 안에서 인터넷우체국을 열면 동의·보내는 분·받는 분을 라이브찜이 채워요. [신청]만 우체국 화면에서 직접 눌러 주세요.'
 export const EPOST_KIND_LABEL: Readonly<Record<EpostDirectKind, string>> = { COUNTER: '우체국에 들고 가기', VISIT: '집으로 가지러 오기' }
 export const EPOST_KIND_HOW: Readonly<Record<EpostDirectKind, string>> = {
   COUNTER: '창구소포 간편사전접수예요. 신청한 뒤 우체국 창구에 들고 가서 결제해요.',
   VISIT: '방문접수소포예요. 우체국 직원이 가지러 오고, 신청할 때 카드로 결제해요.',
 }
+export const EPOST_FILE_PC_TITLE = 'PC에서 접수하기'
 export const EPOST_FILE_PC = 'PC에서 접수하려면 파일을 받아 방문접수 화면의 [파일(주소) 등록]에 올려도 돼요.'
 export const EPOST_REFILL = '다시 채우기'
 export const EPOST_FIND = '송장번호 찾기'
 export const EPOST_SAFARI = '사파리로 열기'
 export const EPOST_LOADING = '우체국 화면에 넣을 내용을 준비하는 중이에요…'
 export const EPOST_STEP: Readonly<Record<EpostDirectKind, string>> = {
-  COUNTER: '동의하고 비밀번호 4자리를 정하면 입력 화면이 열려요. 보내는 분·받는 분은 라이브찜이 채우고, [신청]은 직접 눌러 주세요.',
+  COUNTER: '동의는 라이브찜이 체크해요. 조회용 비밀번호 숫자 4자리만 적으면 입력 화면이 열리고, 보내는 분·받는 분을 채워요. [신청]은 직접 눌러 주세요.',
   VISIT: '보내는 분과 받는 분은 라이브찜이 채워요. 목록을 확인한 뒤 결제와 [신청]은 직접 해 주세요.',
 }
-export const EPOST_NO_SENDER = '설정에 보내는 사람 정보가 없어요. 우체국 화면에 직접 적어 주세요.'
+export const EPOST_NO_SENDER = '보내는 분 정보가 없어서 우체국 화면에 채우지 못해요. [보내는 분 넣기]로 한 번 저장해 주세요.'
+export const EPOST_SENDER_ADD = '보내는 분 넣기'
+export const EPOST_SENDER_TITLE = '보내는 분'
+export const EPOST_SENDER_HOW = '우체국 화면에 채울 보내는 분이에요. 한 번 저장하면 다음부터 그대로 써요.'
+export const EPOST_SENDER_SAVED = '보내는 분을 저장했어요. 우체국 화면에 채울게요.'
+export const EPOST_AGREED = '동의 두 칸을 체크했어요. 조회용 비밀번호 숫자 4자리를 적으면 다음 화면으로 넘어가요.'
+export const EPOST_AGREE_NEXT = '입력 화면을 여는 중이에요…'
+/** 택배 화면: 계약 인증키가 없을 때 — 자동 접수 대신 우체국 직접 접수가 먼저 (D-UX3-40) */
+export const DIRECT_FIRST_NOTE = '우체국 계약 인증키가 없어 자동 접수는 꺼져 있어요. 아래 단추로 우체국에 바로 접수해요.'
+export const DIRECT_FIRST_KEY = '계약했다면 인증키 넣기'
 export const EPOST_NEED_DATE = '방문 날짜와 시간을 고른 뒤 [파일(주소) 등록]을 눌러 주세요. 받는 분은 라이브찜이 넣어요.'
 export const epostUploading = (count: number): string => `받는 분 ${String(count)}명을 우체국 목록에 넣는 중이에요…`
 export const epostUploaded = (count: number): string => `받는 분 ${String(count)}명을 넣었어요. 우체국 목록을 확인하고 [신청]을 눌러 주세요.`
