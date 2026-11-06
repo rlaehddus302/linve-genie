@@ -292,6 +292,9 @@ export const CODE_LEFT = '남은 시간'
 /** 키보드 위 밑줄 글자 단추 — 누르면 팝업 (D-UX3-53, 토스와 같은 문구 — 옛 D-UX3-50 '다시 문자 받을게요' 단추) */
 export const CODE_NOT_COMING = '문자가 안 오나요?'
 export const CODE_RESEND_ASK = '문자를 다시 받을까요?'
+/** [문자가 안 오나요?] 팝업 제목과, 다시 받을 수 있게 된 뒤 설명 (D-UX3-54, 사용자 지시 2026-11-07) */
+export const CODE_RESEND_TITLE = '인증 문자를 다시 받을까요?'
+export const CODE_RESEND_NOW = '지금 바로 다시 받을 수 있어요'
 export const CODE_RESEND_GO = '다시 받기'
 export const POPUP_CLOSE = '닫기'
 /** 3분이 지났을 때 팝업 제목 (D-UX3-53, 토스 사진 1) */

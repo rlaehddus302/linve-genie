@@ -91,7 +91,8 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
     Animated.timing(motion, { toValue: resting ? 0 : 1, duration: FIELD_LABEL_MS, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start()
   }, [resting, motion])
   const clearable = !empty && input.onChangeText !== undefined && input.editable !== false
-  const accent = bad ? p.dangerText : focused ? p.primaryText : resting ? p.placeholder : p.textSub
+  // 비어 있으면 눌러도 라벨은 기본 회색 (D-UX3-54, 사용자 지시 2026-11-07 "아무것도 입력하지 않았을 때 라벨 색깔 … 포인트 컬러가 아니라 그냥 회색 기본 색" — 옛 D-UX3-53은 누르면 초록)
+  const accent = bad ? p.dangerText : resting ? p.placeholder : focused ? p.primaryText : p.textSub
   return (
     <Animated.View style={{ gap: 6, transform: [{ translateX: shake }] }}>
       <View style={{ gap }}>
@@ -160,17 +161,19 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
  * 잘못일 때 한 줄: 빨간 동그라미 느낌표 + 빨간 문장 (D-UX3-53, 사용자 지시 2026-11-07 "에러 문구 앞에는 원래 있던 느낌표 원 아이콘"·"라벨과 에러 문구 … 10초 뒤에 다시 받을 수 있어요 그 폰트랑 크기, 두께 맞춰줘")
  * — 글자는 설명 글자(caption 14·보통)와 같다. 옛 D-UX3-51은 느낌표 없는 13.
  */
-export function ErrorLine({ children }: { readonly children: ReactNode }) {
+export function ErrorLine({ children, large }: { readonly children: ReactNode; readonly large?: boolean }) {
   const { fontScale, forced } = useKit()
-  const line = Math.round(TYPE.caption * (forced ? fontScale : 1) * LINE)
-  const mark = 15
+  // large: 인증번호 칸 아래처럼 칸이 큰 곳 — 토스 사진을 재어 글자 16·느낌표 19 (D-UX3-54)
+  const step = large === true ? 'body' : 'caption'
+  const line = Math.round(TYPE[step] * (forced ? fontScale : 1) * LINE)
+  const mark = large === true ? 19 : 15
   return (
-    <View role="alert" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 5 }}>
+    <View role="alert" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: large === true ? 6 : 5 }}>
       <View style={{ height: line, justifyContent: 'center' }}>
         <AlertMark size={mark} />
       </View>
       <View style={{ flexShrink: 1 }}>
-        <Txt step="caption" color="dangerText">
+        <Txt step={step} color="dangerText">
           {children}
         </Txt>
       </View>

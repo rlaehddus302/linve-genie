@@ -251,6 +251,10 @@ export interface PopupDialogProps {
  * 흰 둥근 판에 묻는 말, 아래 단추 둘 — 왼쪽 부정(회색), 오른쪽 긍정(주색) (D-UX4-01). 뒤 막은 서서히 짙어지고 판은 살짝 커지며 나타난다.
  * 바깥을 누르거나 뒤로 가기는 부정과 같다.
  */
+/** 가운데 팝업 크기 (D-UX3-54, 토스 사진을 재어 — 폭 292·단추 둘레 14) */
+const POPUP_WIDTH = 292
+const POPUP_EDGE = 14
+
 export function PopupDialog({ visible, message, name, description, confirmDisabled, confirmLabel, cancelLabel, busy, onConfirm, onCancel }: PopupDialogProps) {
   const { p } = useKit()
   const { mounted, progress } = useSheetMotion(visible)
@@ -266,10 +270,11 @@ export function PopupDialog({ visible, message, name, description, confirmDisabl
           role="alertdialog"
           aria-modal
           aria-label={name ?? message}
-          style={{ backgroundColor: p.surface, borderRadius: RADIUS.xxl, borderCurve: 'continuous', paddingTop: SPACE.xxl, paddingHorizontal: SPACE.xl, paddingBottom: SPACE.lg, gap: SPACE.xxl, opacity: progress, transform: [{ scale }], ...SHADOW.sheet }}
+          style={{ width: '100%', maxWidth: POPUP_WIDTH, alignSelf: 'center', backgroundColor: p.surface, borderRadius: RADIUS.xxl, borderCurve: 'continuous', paddingTop: SPACE.lg + SPACE.xs, paddingHorizontal: POPUP_EDGE, paddingBottom: POPUP_EDGE, gap: SPACE.lg + SPACE.xs, opacity: progress, transform: [{ scale }], ...SHADOW.sheet }}
         >
-          <View style={{ gap: SPACE.sm }}>
-            <Txt step="bodyLarge" weight="bold">
+          {/* 제목 20 굵게 (D-UX3-54, 사용자 지시 2026-11-07 "팝업 안에 제목 글자 크기가 내가 보내줬던 사진과 다름" — 토스 사진을 재어, 옛 18) */}
+          <View style={{ gap: SPACE.sm, paddingHorizontal: SPACE.xl - POPUP_EDGE }}>
+            <Txt step="lead" weight="bold">
               {message}
             </Txt>
             {description === undefined || description === null ? null : <Txt color="textSub">{description}</Txt>}

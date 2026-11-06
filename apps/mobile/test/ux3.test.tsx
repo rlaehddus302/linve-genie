@@ -410,8 +410,12 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     fireEvent.focus(input)
     // D-UX3-53으로 바뀐 기대 (사용자 지시 2026-11-07 "아무것도 입력하지 않았다면 라벨 위치를 아직 필드 안에"): 옛 누르면 위로(floating) → 새 비어 있으면 눌러도 칸 안(resting)
     expect(state()).toBe('resting')
+    // D-UX3-54로 바뀐 기대 (사용자 지시 2026-11-07 "아무것도 입력하지 않았을 때 라벨 색깔 … 포인트 컬러가 아니라 그냥 회색 기본 색"): 옛 눌렀으면 초록 → 새 비어 있으면 회색
+    const labelColor = () => ((screen.queryByTestId('field-label-resting') ?? screen.getByTestId('field-label-floating')).firstElementChild as HTMLElement).style.color
+    expect(labelColor()).toBe('rgb(139, 149, 161)')
     fireEvent.change(input, { target: { value: 'abc' } })
     expect(state()).toBe('floating')
+    expect(labelColor()).toBe('rgb(31, 122, 77)')
     fireEvent.blur(input)
     expect(state()).toBe('floating')
     // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 토스 사진 비교): 옛 값 줄 52 → 새 40 (토스 칸을 재어)

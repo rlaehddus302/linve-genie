@@ -243,6 +243,9 @@ describe('LoginScreen', () => {
         fireEvent.click(screen.getByRole('button', { name: '문자가 안 오나요?' }))
         const ask = await screen.findByRole('alertdialog')
         expect(ask.textContent).toMatch(/(30|29|28)초 뒤에 받을 수 있어요/)
+        // D-UX3-54로 바뀐 기대 (사용자 지시 2026-11-07 "제목은 \"인증 문자를 다시 받을까요?\""): 옛 제목 "문자가 안 오나요?" → 새 "인증 문자를 다시 받을까요?"
+        expect(ask.textContent).toContain('인증 문자를 다시 받을까요?')
+        expect(ask.textContent).not.toContain('문자가 안 오나요?')
         expect(within(ask).getByRole('button', { name: '다시 받기' }).getAttribute('aria-disabled')).toBe('true')
         fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
         await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
@@ -320,6 +323,90 @@ describe('LoginScreen', () => {
         fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '00000' } })
         expect(screen.queryByTestId('code-wrong')).toBeNull()
         expect(onSocialDone).not.toHaveBeenCalled()
+        // D-UX3-54 (사용자 지시 2026-11-07 토스 사진 17~19): 합친 빨간 칸은 잠깐 — 여섯 칸(옅은 빨강)으로 나뉘고 문장은 사라지며 [문자가 안 오나요?]가 다시 보인다
+        fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '000000' } })
+        expect((await screen.findByRole('alert')).textContent).toContain('인증번호가 맞지 않아요.')
+        expect(screen.getByTestId('code-wrong')).toBeTruthy()
+        await waitFor(() => expect(screen.queryByTestId('code-wrong')).toBeNull(), { timeout: 3000 })
+        await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+        expect(screen.getByLabelText('인증번호 6자리').getAttribute('aria-invalid')).toBe('true')
+        expect(screen.getByRole('button', { name: '문자가 안 오나요?' })).toBeTruthy()
+      })
+
+      it('시간이 지나 다시 받으면 남은 시간이 3분으로 돌아가고 팝업이 다시 뜨지 않는다. 닫는 동안 글이 바뀌지 않고, 30초 뒤에는 "지금 바로" (D-UX3-54)', async () => {
+        const sends: string[] = []
+        installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {})
+        configureApi({
+          baseUrl: 'https://livegenie.test',
+          fetch: async (input) => {
+            const url = String(input)
+            const path = new URL(url).pathname
+            if (path === '/api/auth/signup/phone') sends.push(path)
+            const reply = path === '/api/auth/app/finish' ? { result: 'SIGNUP', provider: 'google', phoneRequired: true } : path === '/api/auth/signup/phone' ? { phone: '010-****-5678' } : url.endsWith('/api/client-config') ? { loginProviders: ['kakao', 'naver', 'google'] } : undefined
+            return new Response(JSON.stringify(reply ?? {}), { status: reply === undefined ? 404 : 200, headers: { 'Content-Type': 'application/json' } })
+          },
+        })
+        vi.useFakeTimers({ toFake: ['Date'] })
+        try {
+          render(<LoginScreen expired={false} onLogin={async () => {}} />)
+          fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
+          fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '010-1234-5678' } })
+          fireEvent.click(screen.getByRole('button', { name: '다음' }))
+          expect(await screen.findByText(CODE_ASK_TITLE.replace('\n', ' '))).toBeTruthy()
+          // 30초가 지나면 "지금 바로 다시 받을 수 있어요"와 켜진 [다시 받기]
+          vi.setSystemTime(Date.now() + 31_000)
+          fireEvent.click(screen.getByRole('button', { name: '문자가 안 오나요?' }))
+          const ask = await screen.findByRole('alertdialog')
+          await waitFor(() => expect(ask.textContent).toContain('지금 바로 다시 받을 수 있어요'), { timeout: 2500 })
+          expect(within(ask).getByRole('button', { name: '다시 받기' }).getAttribute('aria-disabled')).not.toBe('true')
+          fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
+          await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+          // 3분이 지나면 시간 지남 팝업 — 닫는 동안 [문자가 안 오나요?] 팝업 글로 바뀌지 않는다
+          vi.setSystemTime(Date.now() + 180_000)
+          const over = await screen.findByRole('alertdialog', undefined, { timeout: 2500 })
+          expect(over.textContent).toContain('입력할 수 있는 시간이 지났어요')
+          fireEvent.click(within(over).getByRole('button', { name: '닫기' }))
+          expect(screen.queryByText('인증 문자를 다시 받을까요?')).toBeNull()
+          await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+          expect(screen.getByText('남은 시간 00:00')).toBeTruthy()
+          // 다시 받으면 남은 시간이 3분으로, 시간 지남 팝업은 다시 뜨지 않는다
+          fireEvent.click(screen.getByRole('button', { name: '문자가 안 오나요?' }))
+          fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: '다시 받기' }))
+          await waitFor(() => expect(sends).toHaveLength(2))
+          await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+          expect(screen.getByText(/남은 시간 0(3:00|2:59)/)).toBeTruthy()
+          await new Promise((resolve) => setTimeout(resolve, 1200))
+          expect(screen.queryByRole('alertdialog')).toBeNull()
+          expect(screen.getByText(/남은 시간 0(3:00|2:59)/)).toBeTruthy()
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it('가입 표가 없어졌으면 시간 지남이 아니라 서버 문장과 [처음으로] 팝업 (D-UX3-54)', async () => {
+        installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {})
+        configureApi({
+          baseUrl: 'https://livegenie.test',
+          fetch: async (input) => {
+            const url = String(input)
+            const path = new URL(url).pathname
+            if (path === '/api/auth/signup/phone/verify') {
+              return new Response(JSON.stringify({ error: { code: 'LOGIN_EXPIRED', message: '로그인 요청이 오래됐어요. 처음부터 다시 해 주세요.' } }), { status: 410, headers: { 'Content-Type': 'application/json' } })
+            }
+            const reply = path === '/api/auth/app/finish' ? { result: 'SIGNUP', provider: 'google', phoneRequired: true } : path === '/api/auth/signup/phone' ? { phone: '010-****-5678' } : url.endsWith('/api/client-config') ? { loginProviders: ['kakao', 'naver', 'google'] } : undefined
+            return new Response(JSON.stringify(reply ?? {}), { status: reply === undefined ? 404 : 200, headers: { 'Content-Type': 'application/json' } })
+          },
+        })
+        render(<LoginScreen expired={false} onLogin={async () => {}} />)
+        fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
+        fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '010-1234-5678' } })
+        fireEvent.click(screen.getByRole('button', { name: '다음' }))
+        fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '123456' } })
+        const gone = await screen.findByRole('alertdialog')
+        expect(gone.textContent).toContain('로그인 요청이 오래됐어요. 처음부터 다시 해 주세요.')
+        expect(gone.textContent).not.toContain('입력할 수 있는 시간이 지났어요')
+        fireEvent.click(within(gone).getByRole('button', { name: '처음으로' }))
+        expect(await screen.findByRole('button', { name: '구글로 로그인' })).toBeTruthy()
       })
 
       it('틀린 문장에는 남은 횟수가 없고, 다섯 번째에 서버가 횟수 초과라 하면 팝업 [닫기]·[다시 받기], 시간 지남도 팝업 (D-UX3-53)', async () => {

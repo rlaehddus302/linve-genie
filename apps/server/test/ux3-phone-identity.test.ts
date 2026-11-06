@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { codeText, maskedMobile, normalizeMobile, readSmsEnv, sensSender, sensSignature, smsBytes, type SmsSender } from '../src/social/phone.ts'
 import { ORIGIN, addSeller, client } from './support.ts'
 import { approve, cookieValue, newSocialWorld, openCallback, runFlow, type SocialWorld } from './l1-support.ts'
+import { SIGNUP_TTL_MS } from '../src/social/service.ts'
 
 /** 보낸 문자를 모아 두는 발송기 (시험에서 인증번호를 읽는다) */
 class RecordingSms implements SmsSender {
@@ -163,6 +164,23 @@ describe('D-UX3-30 가입은 문자 인증 뒤', () => {
     sms.fail = true
     expect((await client(w, cookie).post('/api/auth/signup/phone', { phone: '01022223333' })).status).toBe(502)
     expect(await count(w, 'sellers')).toBe(0)
+  })
+
+  it('다시 받으면 시간이 처음부터 다시 3분이고, 가입 표가 없어지면 시간 지남이 아니라 처음부터 (D-UX3-54)', async () => {
+    const { w, sms } = await world()
+    const cookie = await webSignupCookie(w, 'naver', w.fake.addUser('naver').id)
+    await client(w, cookie).post('/api/auth/signup/phone', { phone: '01022223333' })
+    w.clock.advance(2 * 60 * 1000 + 30 * 1000)
+    expect((await client(w, cookie).post('/api/auth/signup/phone', { phone: '01022223333' })).status).toBe(200)
+    // 다시 받은 뒤 2분 50초 — 처음 보낸 때로는 5분 20초가 지났지만 아직 시간 안
+    w.clock.advance(2 * 60 * 1000 + 50 * 1000)
+    const ok = await client(w, cookie).post('/api/auth/signup/phone/verify', { code: sms.lastCode() })
+    expect(ok.status, ok.text).toBe(200)
+    // 가입 표(30분)가 지나면 410 LOGIN_EXPIRED (옛: CODE_EXPIRED와 같아 앱이 시간 지남 팝업을 띄웠다)
+    const late = await webSignupCookie(w, 'kakao', w.fake.addUser('kakao').id)
+    await client(w, late).post('/api/auth/signup/phone', { phone: '01044445555' })
+    w.clock.advance(SIGNUP_TTL_MS + 1)
+    expect(errorOf(await client(w, late).post('/api/auth/signup/phone/verify', { code: sms.lastCode() })).code).toBe('LOGIN_EXPIRED')
   })
 
   it('문자 발송이 설정되지 않은 서버는 전처럼 바로 가입한다 (번호 경로는 404)', async () => {

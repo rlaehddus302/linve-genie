@@ -4,14 +4,17 @@
 // ② "문자로 받은 인증번호 6자리를 입력해 주세요" — 남은 시간, 6칸. 6자리가 차면 키보드와 아래 글자 단추를 숨기고 서버에 확인한다.
 //    틀리면 한 칸으로 부드럽게 합쳐 빨갛게 + "인증번호가 맞지 않아요."(남은 횟수는 알리지 않는다), 키보드·단추가 다시 나온다 (D-UX3-53).
 //    3분이 지나면 "입력할 수 있는 시간이 지났어요" 팝업, 5번 틀리면 "입력 횟수를 초과했어요" 팝업 — 둘 다 [닫기]·[다시 받기] (D-UX3-53, 토스 사진 1·2).
-//    키보드 위 밑줄 글자 [문자가 안 오나요?]를 누르면 팝업 — 보낸 지 30초 전이면 "N초 뒤에 받을 수 있어요"와 꺼진 [다시 받기]가 30초에 켜진다 (D-UX3-53).
-//    숫자는 들어올 때 살짝 떠오르며 나타난다. 칸은 문자 자동 채우기(아이폰 oneTimeCode·안드로이드 sms-otp)를 켠다.
+//    키보드 위 밑줄 글자 [문자가 안 오나요?]를 누르면 팝업 "인증 문자를 다시 받을까요?" — 보낸 지 30초 전이면 "N초 뒤에 받을 수 있어요"와 꺼진 [다시 받기],
+//    30초가 되면 "지금 바로 다시 받을 수 있어요"와 켜진 [다시 받기] (D-UX3-54). 가입 표(30분)가 없어졌으면 시간 지남이 아니라 [처음으로] 팝업 (D-UX3-54).
+//    칸 움직임은 토스 사진 13~20 순서대로 (D-UX3-54): 빈 칸 회색 → 숫자가 들어오면 흰 칸·가운데서 커지는 초록 숫자 → 6자리면 키보드·글자 단추가 서서히 사라지고
+//    여섯 칸이 한 칸(흰 바탕·연한 초록 테)으로 합쳐 살짝 줄어든 채 확인 → 틀리면 빨개지며 다시 커지고 흔들기·진동 → 키보드가 다시 올라오고 → 여섯 칸(옅은 빨강)으로 나뉜다.
+//    칸은 문자 자동 채우기(아이폰 oneTimeCode·안드로이드 sms-otp)를 켠다.
 // 아래 단추는 키보드가 뜨면 키보드 바로 위로 올라온다. 이 화면이 떠 있는 동안 맨 위 상태 막대 자리도 흰색이다(D-UX3-50).
 // D-UX3-51: 잘못이어도 [다음]은 그대로 — 누르면 칸이 다시 흔들리고 진동한다. 뒤로·제목 자리와 잘못 모양은 공통 부품(PAGE·ErrorLine·useWrongShake).
 // ③ "인증 성공" 2초 뒤 다음(홈·있는 계정 안내)으로. 화면 사이는 밀어 넘긴다(SlideSwitch).
 // 가입 중(가입 표)과 로그인한 계정(번호 등록)이 같이 쓴다. 왼쪽 위 ‹는 ①에서 처음으로·로그아웃, ②에서 번호 다시 넣기.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { ActivityIndicator, Animated, Easing, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View, type TextInputInstance } from 'react-native'
+import { Animated, Easing, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View, type TextInputInstance } from 'react-native'
 import {
   CODE_ASK_TITLE,
   CODE_FIELD,
@@ -20,6 +23,8 @@ import {
   CODE_NOT_COMING,
   CODE_RESEND_ASK,
   CODE_RESEND_GO,
+  CODE_RESEND_NOW,
+  CODE_RESEND_TITLE,
   CODE_RESEND_WAIT_SECONDS,
   CODE_RESENT,
   CODE_TIME_OVER_TITLE,
@@ -31,6 +36,7 @@ import {
   POPUP_CLOSE,
   PHONE_RECHECK,
   PHONE_VERIFIED,
+  START_OVER,
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
@@ -61,9 +67,18 @@ const clock = (seconds: number): string => `${String(Math.floor(seconds / 60)).p
 type Step = 'phone' | 'code' | 'done'
 /** 인증번호 칸 표시: 틀림(합친 빨간 칸 + 문장), 횟수 초과(합친 빨간 칸), 시간 지남(칸마다 옅은 빨강) */
 type CodeMark = 'wrong' | 'locked' | 'expired' | null
-type CodePopup = 'expired' | 'locked' | 'resend' | null
+/** gone: 가입 표가 없어져 처음부터 (D-UX3-54) */
+type CodePopup = 'expired' | 'locked' | 'resend' | 'gone' | null
 /** 부드럽게 (D-UX3-53 "애니메이션은 항상 부드럽게") */
 const SOFT_MS = 220
+/** 숫자 한 칸이 채워지는 시간 */
+const CELL_MS = 300
+/** 틀렸을 때 합친 빨간 칸을 보이는 시간 — 그 뒤 여섯 칸으로 나눈다 (D-UX3-54, 토스 사진 17~19) */
+export const WRONG_HOLD_MS = 1300
+/** 틀리고 키보드를 다시 올리는 때 (빨간 칸이 아직 합쳐져 있을 때, 토스 사진 18) */
+const WRONG_KEYBOARD_MS = 650
+/** 확인하는 동안 합친 칸 크기 (토스 사진 16 — 살짝 줄어든다) */
+const CHECKING_SCALE = 0.96
 const native = Platform.OS !== 'web'
 
 export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) {
@@ -76,6 +91,12 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
   const [codeError, setCodeError] = useState<string | null>(null)
   const [codeMark, setCodeMark] = useState<CodeMark>(null)
   const [popup, setPopup] = useState<CodePopup>(null)
+  // 닫히며 흐려지는 동안에도 같은 글을 보인다 — 옛: 닫는 순간 [문자가 안 오나요?] 글로 바뀌어 겹쳐 보였다 (D-UX3-54)
+  const [shownPopup, setShownPopup] = useState<Exclude<CodePopup, null>>('resend')
+  if (popup !== null && popup !== shownPopup) setShownPopup(popup)
+  const [goneText, setGoneText] = useState<string | null>(null)
+  /** 틀린 뒤 합친 빨간 칸을 보이는 동안 */
+  const [held, setHeld] = useState(false)
   const codeInput = useRef<TextInputInstance | null>(null)
   const [checking, setChecking] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -102,6 +123,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
       setCode('')
       setCodeError(null)
       setCodeMark(null)
+      setHeld(false)
       return true
     } finally {
       setSending(false)
@@ -138,6 +160,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     setCode(next)
     setCodeError(null)
     setCodeMark(null)
+    setHeld(false)
     if (next.length !== CODE_LENGTH) return
     setChecking(true)
     setNote(null)
@@ -154,9 +177,13 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
         } else if (kind === 'CODE_LOCKED') {
           setCodeMark('locked')
           setPopup('locked')
+        } else if (kind === 'LOGIN_EXPIRED') {
+          setGoneText(messageOf(caught))
+          setPopup('gone')
         } else {
           setCodeMark('wrong')
           setCodeError(messageOf(caught))
+          setHeld(true)
         }
       })
       .finally(() => setChecking(false))
@@ -167,10 +194,27 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     if (sending || checking || resendLeft > 0) return
     setNote(null)
     deliver(formatMobileInput(digits))
-      .then(() => setNote(CODE_RESENT))
-      .catch((caught: unknown) => setNote(messageOf(caught)))
-      .finally(() => setPopup(null))
+      .then(() => {
+        setNote(CODE_RESENT)
+        setPopup(null)
+      })
+      .catch((caught: unknown) => {
+        if (isApiError(caught) && caught.code === 'LOGIN_EXPIRED') {
+          setGoneText(messageOf(caught))
+          setPopup('gone')
+          return
+        }
+        setNote(messageOf(caught))
+        setPopup(null)
+      })
   }
+
+  // 틀린 뒤 합친 빨간 칸은 잠깐만 — 그 뒤 여섯 칸으로 나눈다 (D-UX3-54)
+  useEffect(() => {
+    if (!held) return
+    const timer = setTimeout(() => setHeld(false), WRONG_HOLD_MS)
+    return () => clearTimeout(timer)
+  }, [held])
 
   // 남은 시간
   useEffect(() => {
@@ -191,26 +235,36 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
   const left = Math.max(0, Math.ceil((expiresAt - now) / 1000))
   const timeOver = step === 'code' && expiresAt > 0 && left === 0
 
-  // 3분이 지나면 팝업 (D-UX3-53, 토스 사진 1)
+  // 3분이 지나면 팝업 (D-UX3-53, 토스 사진 1). 다시 보내는 중에는 띄우지 않는다
   useEffect(() => {
-    if (!timeOver) return
+    if (!timeOver || sending) return
     setCodeMark((mark) => (mark === 'locked' ? mark : 'expired'))
     setPopup((open) => open ?? 'expired')
-  }, [timeOver])
+  }, [timeOver, sending])
 
-  // 확인하는 동안·팝업이 떠 있는 동안 키보드를 숨기고, 틀리거나 팝업을 닫으면 다시 띄운다 (D-UX3-53)
+  // 확인하는 동안·팝업이 떠 있는 동안 키보드를 숨기고, 팝업을 닫으면 다시 띄운다 (D-UX3-53). 틀리면 빨간 칸이 흔들린 뒤에 올린다 (D-UX3-54)
   useEffect(() => {
     if (step !== 'code') return
-    if (checking || popup !== null) codeInput.current?.blur()
-    else codeInput.current?.focus()
-  }, [step, checking, popup])
+    if (checking || popup !== null) {
+      codeInput.current?.blur()
+      return
+    }
+    if (!held) {
+      codeInput.current?.focus()
+      return
+    }
+    const timer = setTimeout(() => codeInput.current?.focus(), WRONG_KEYBOARD_MS)
+    return () => clearTimeout(timer)
+  }, [step, checking, popup, held])
 
   const popupText =
-    popup === 'expired'
+    shownPopup === 'expired'
       ? { message: CODE_TIME_OVER_TITLE, description: CODE_RESEND_ASK }
-      : popup === 'locked'
+      : shownPopup === 'locked'
         ? { message: CODE_LOCKED_TEXT, description: resendLeft > 0 ? codeResendIn(resendLeft) : null }
-        : { message: CODE_NOT_COMING, description: resendLeft > 0 ? codeResendIn(resendLeft) : CODE_RESEND_ASK }
+        : shownPopup === 'gone'
+          ? { message: goneText ?? APP_LOGIN_FAILED, description: null }
+          : { message: CODE_RESEND_TITLE, description: resendLeft > 0 ? codeResendIn(resendLeft) : CODE_RESEND_NOW }
 
   return (
     <SlideSwitch id={step} back={goingBack} testID="phone-verify">
@@ -249,16 +303,18 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
           backLabel="번호 다시 넣기"
           title={CODE_ASK_TITLE}
           testID="code-step"
-          footer={<NotComing hidden={checking} onPress={() => setPopup('resend')} />}
+          footer={<NotComing hidden={checking || held} onPress={() => setPopup('resend')} />}
         >
           <View style={{ marginTop: SPACE.lg }}>
             <Txt step="body" color="textSub">{`${CODE_LEFT} ${clock(left)}`}</Txt>
           </View>
-          <CodeBoxes value={code} error={codeError} mark={timeOver && codeMark === null ? 'expired' : codeMark} onChange={typeCode} inputRef={codeInput} />
-          {checking ? (
-            <View style={{ marginTop: SPACE.lg, flexDirection: 'row', justifyContent: 'center', gap: SPACE.sm, alignItems: 'center' }}>
-              <ActivityIndicator />
-              {busyText === undefined || busyText === null ? null : <Txt step="caption" color="textSub">{busyText}</Txt>}
+          <CodeBoxes value={code} error={codeError} mark={timeOver && codeMark === null ? 'expired' : codeMark} checking={checking} held={held} onChange={typeCode} inputRef={codeInput} />
+          {/* 확인 중 표시는 합친 칸이 살짝 줄어드는 것 (토스 사진 16) — 돌림표는 없다. 오래 걸리는 일 안내만 글로 */}
+          {checking && busyText !== undefined && busyText !== null ? (
+            <View style={{ marginTop: SPACE.lg }} aria-live="polite">
+              <Txt step="caption" color="textSub" center>
+                {busyText}
+              </Txt>
             </View>
           ) : null}
           {note === null ? null : (
@@ -273,11 +329,11 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
             message={popupText.message}
             description={popupText.description}
             cancelLabel={POPUP_CLOSE}
-            confirmLabel={CODE_RESEND_GO}
-            confirmDisabled={resendLeft > 0}
+            confirmLabel={shownPopup === 'gone' ? START_OVER : CODE_RESEND_GO}
+            confirmDisabled={shownPopup !== 'gone' && resendLeft > 0}
             busy={sending}
             onCancel={() => setPopup(null)}
-            onConfirm={resend}
+            onConfirm={shownPopup === 'gone' ? back.onPress : resend}
           />
         </Page>
       ) : (
@@ -345,62 +401,148 @@ function useSoftShow(on: boolean): { readonly mounted: boolean; readonly value: 
   return { mounted: on || mounted, value }
 }
 
-/** 칸에 들어온 숫자 — 살짝 아래에서 떠오르며 서서히 나타난다 (D-UX3-53 "딱딱하지 않게") */
-function RisingDigit({ children, style }: { readonly children: string; readonly style: object }) {
-  const rise = useRef(new Animated.Value(0)).current
+/** 값이 바뀌면 그 값으로 부드럽게 옮겨 간다 */
+function useEased(target: number, ms: number): Animated.Value {
+  const value = useRef(new Animated.Value(target)).current
   useEffect(() => {
-    Animated.timing(rise, { toValue: 1, duration: SOFT_MS, easing: Easing.out(Easing.cubic), useNativeDriver: native }).start()
-  }, [rise])
+    const run = Animated.timing(value, { toValue: target, duration: ms, easing: Easing.out(Easing.cubic), useNativeDriver: native })
+    run.start()
+    return () => run.stop()
+  }, [target, ms, value])
+  return value
+}
+
+/** 칸 사이 */
+const CELL_GAP = SPACE.sm
+/** 합칠 때 칸들이 가운데로 모이는 거리의 바깥 끝 (칸 사이를 다 메운다) */
+const GATHER = ((CODE_LENGTH - 1) / 2) * CELL_GAP
+const COVER = { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 } as const
+
+/**
+ * 인증번호 한 칸 (D-UX3-54, 토스 사진 13·14): 비면 회색. 숫자가 들어오면 칸이 살짝 줄었다 돌아오며 흰 바탕(얇은 회색 테)이 되고,
+ * 숫자(초록)는 가운데서부터 서서히 커지며 나타난다. pink면 옅은 빨강 바탕·진한 숫자(틀린 뒤·시간 지남).
+ */
+function CodeCell({ char, active, pink, index, together }: { readonly char: string; readonly active: boolean; readonly pink: boolean; readonly index: number; readonly together: Animated.Value }) {
+  const { p } = useKit()
+  const filled = char !== ''
+  const fill = useEased(filled ? 1 : 0, CELL_MS)
+  const pinkness = useEased(pink ? 1 : 0, SOFT_MS)
+  const pop = useRef(new Animated.Value(filled ? 1 : 0)).current
+  const last = useRef(char)
+  useEffect(() => {
+    if (last.current === char) return
+    last.current = char
+    pop.setValue(0)
+    if (char === '') return
+    const run = Animated.timing(pop, { toValue: 1, duration: CELL_MS, easing: Easing.out(Easing.cubic), useNativeDriver: native })
+    run.start()
+    return () => run.stop()
+  }, [char, pop])
+  const shape = { ...COVER, borderRadius: RADIUS.md, borderCurve: 'continuous' } as const
   return (
-    <Animated.Text
-      allowFontScaling={false}
-      style={[style, { opacity: rise, transform: [{ translateY: rise.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }, { scale: rise.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] }) }] }]}
+    <Animated.View
+      style={{
+        flex: 1,
+        transform: [
+          // 합칠 때 가운데로 모인다 (사이가 메워지며 한 칸이 된다)
+          { translateX: together.interpolate({ inputRange: [0, 1], outputRange: [0, ((CODE_LENGTH - 1) / 2 - index) * CELL_GAP] }) },
+          { scale: pop.interpolate({ inputRange: [0, 0.3, 1], outputRange: [1, 0.88, 1] }) },
+        ],
+      }}
     >
-      {children}
-    </Animated.Text>
+      <View style={[shape, { backgroundColor: p.surfaceAlt }]} />
+      <Animated.View style={[shape, { backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, opacity: fill }]} />
+      <Animated.View style={[shape, { backgroundColor: TONES.light.danger.bg, opacity: pinkness }]} />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        {filled ? (
+          <Animated.Text
+            allowFontScaling={false}
+            style={{
+              ...DIGIT,
+              color: pink ? p.text : p.primaryText,
+              opacity: pop.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 1, 1] }),
+              transform: [{ scale: pop.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }],
+            }}
+          >
+            {char}
+          </Animated.Text>
+        ) : active ? (
+          <Caret />
+        ) : null}
+      </View>
+    </Animated.View>
+  )
+}
+
+/** 숫자 (토스 사진을 재어 두께 600, D-UX3-53) */
+const DIGIT = { fontSize: TYPE.headline + 8, fontWeight: WEIGHT.medium } as const
+
+/** 합친 한 칸 안 숫자 — 모인 칸들의 숫자 자리와 같다 */
+function MergedDigits({ cells, color }: { readonly cells: readonly string[]; readonly color: string }) {
+  return (
+    <View style={{ flex: 1, flexDirection: 'row', paddingHorizontal: GATHER }}>
+      {cells.map((cell, index) => (
+        <View key={index} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text allowFontScaling={false} style={{ ...DIGIT, color }}>
+            {cell}
+          </Text>
+        </View>
+      ))}
+    </View>
   )
 }
 
 /**
- * 인증번호 6칸. 보이지 않는 입력 칸 하나를 칸들 위에 겹쳐 놓는다(누르면 키보드, 문자 자동 채우기).
- * 틀림·횟수 초과면 여섯 칸이 한 칸으로 부드럽게 합쳐 빨갛게(토스 사진 2), 시간 지남이면 칸마다 옅은 빨강(토스 사진 1).
- * 숫자 두께는 토스 사진을 재어 600 (D-UX3-53 — 옛 700).
+ * 인증번호 6칸 (D-UX3-54, 토스 사진 13~20 순서대로). 보이지 않는 입력 칸 하나를 칸들 위에 겹쳐 놓는다(누르면 키보드, 문자 자동 채우기).
+ * 확인 중: 여섯 칸이 가운데로 모이며 한 칸(흰 바탕·연한 초록 테·초록 숫자)이 되어 살짝 줄어든다.
+ * 틀림(held 동안)·횟수 초과: 합친 칸이 빨개지며(빨간 테·옅은 빨강 바탕·진한 숫자) 다시 커지고 흔들기·진동, 아래 "! 인증번호가 맞지 않아요."
+ * 틀림(held 뒤): 여섯 칸(옅은 빨강·진한 숫자)으로 나뉘고 문장은 사라진다. 고쳐 넣으면 보통 칸으로. 시간 지남: 칸마다 옅은 빨강.
  */
-function CodeBoxes({ value, error, mark, onChange, inputRef }: { readonly value: string; readonly error: string | null; readonly mark: CodeMark; readonly onChange: (text: string) => void; readonly inputRef: RefObject<TextInputInstance | null> }) {
+function CodeBoxes({
+  value,
+  error,
+  mark,
+  checking,
+  held,
+  onChange,
+  inputRef,
+}: {
+  readonly value: string
+  readonly error: string | null
+  readonly mark: CodeMark
+  readonly checking: boolean
+  readonly held: boolean
+  readonly onChange: (text: string) => void
+  readonly inputRef: RefObject<TextInputInstance | null>
+}) {
   const { p } = useKit()
   const [focused, setFocused] = useState(true)
-  const merged = mark === 'wrong' || mark === 'locked'
-  const together = useSoftShow(merged)
+  const red = mark === 'locked' || (mark === 'wrong' && held)
+  const merged = checking || red
+  const pink = !merged && (mark === 'expired' || mark === 'wrong')
+  const together = useEased(merged ? 1 : 0, SOFT_MS)
+  const redness = useEased(red ? 1 : 0, SOFT_MS)
+  const size = useEased(checking ? CHECKING_SCALE : 1, SOFT_MS + 60)
   const cells = Array.from({ length: CODE_LENGTH }, (_, index) => value[index] ?? '')
-  const digit = { fontSize: TYPE.headline + 8, fontWeight: WEIGHT.medium, color: p.text } as const
   const shake = useWrongShake(mark === 'wrong' ? error : mark === 'locked' ? CODE_LOCKED_TEXT : null)
-  const cellBg = mark === 'expired' ? TONES.light.danger.bg : p.surfaceAlt
+  const wrongLine = useSoftShow(mark === 'wrong' && held && error !== null)
+  const shape = { ...COVER, borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: 2 } as const
   return (
     <Animated.View style={{ marginTop: SPACE.xxxl, alignItems: 'center', transform: [{ translateX: shake }] }}>
       <View style={{ width: '100%', maxWidth: 360, height: 64 }}>
-        <Animated.View style={{ flex: 1, flexDirection: 'row', gap: SPACE.sm, opacity: together.value.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
-          {cells.map((cell, index) => {
-            const active = focused && !merged && index === Math.min(value.length, CODE_LENGTH - 1) && value.length < CODE_LENGTH
-            return (
-              <View key={index} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: cellBg }}>
-                {cell !== '' ? <RisingDigit style={digit}>{cell}</RisingDigit> : active ? <Caret /> : null}
-              </View>
-            )
-          })}
+        <Animated.View style={{ flex: 1, flexDirection: 'row', gap: CELL_GAP, opacity: together.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
+          {cells.map((cell, index) => (
+            <CodeCell key={index} index={index} char={cell} pink={pink} together={together} active={focused && !merged && value.length < CODE_LENGTH && index === value.length} />
+          ))}
         </Animated.View>
-        {together.mounted ? (
-          <Animated.View
-            testID={merged ? 'code-wrong' : undefined}
-            pointerEvents="none"
-            style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: together.value, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: 2, borderColor: p.dangerText, backgroundColor: TONES.light.danger.bg }}
-          >
-            {cells.map((cell, index) => (
-              <Text key={index} allowFontScaling={false} style={digit}>
-                {cell}
-              </Text>
-            ))}
+        <Animated.View aria-hidden pointerEvents="none" testID={red ? 'code-wrong' : checking ? 'code-checking' : undefined} style={{ ...COVER, opacity: together, transform: [{ scale: size }] }}>
+          <View style={[shape, { backgroundColor: p.surface, borderColor: `${p.primary}99` }]}>
+            <MergedDigits cells={cells} color={p.primaryText} />
+          </View>
+          <Animated.View style={[shape, { backgroundColor: TONES.light.danger.bg, borderColor: p.dangerText, opacity: redness }]}>
+            <MergedDigits cells={cells} color={p.text} />
           </Animated.View>
-        ) : null}
+        </Animated.View>
         <TextInput
           ref={inputRef}
           value={value}
@@ -417,13 +559,13 @@ function CodeBoxes({ value, error, mark, onChange, inputRef }: { readonly value:
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           testID="code-input"
-          style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, opacity: 0.02, color: 'transparent', fontSize: 1 }}
+          style={{ ...COVER, opacity: 0.02, color: 'transparent', fontSize: 1 }}
         />
       </View>
-      {mark === 'wrong' && error !== null ? (
-        <View style={{ marginTop: SPACE.md, alignSelf: 'stretch', alignItems: 'center' }}>
-          <ErrorLine>{error}</ErrorLine>
-        </View>
+      {wrongLine.mounted && error !== null ? (
+        <Animated.View style={{ marginTop: SPACE.md, alignSelf: 'stretch', alignItems: 'center', opacity: wrongLine.value }}>
+          <ErrorLine large>{error}</ErrorLine>
+        </Animated.View>
       ) : null}
     </Animated.View>
   )

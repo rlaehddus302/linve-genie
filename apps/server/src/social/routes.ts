@@ -157,10 +157,10 @@ export function registerSocialRoutes(api: Hono<Env>, social: SocialLogin, addres
         return notFound()
     }
   }
-  const codeReply = (outcome: { readonly kind: 'wrong'; readonly left: number } | { readonly kind: 'expired' } | { readonly kind: 'locked' }, ticketGone = false): Response => {
+  const codeReply = (outcome: { readonly kind: 'wrong'; readonly left: number } | { readonly kind: 'expired' } | { readonly kind: 'locked' }): Response => {
     if (outcome.kind === 'wrong') return apiError(400, 'CODE_WRONG', CODE_WRONG_MESSAGE, [{ field: 'code', message: CODE_WRONG_MESSAGE }])
     if (outcome.kind === 'locked') return apiError(429, 'CODE_LOCKED', CODE_LOCKED_MESSAGE)
-    return ticketGone ? apiError(410, 'LOGIN_EXPIRED', TICKET_EXPIRED_MESSAGE) : apiError(410, 'CODE_EXPIRED', CODE_EXPIRED_MESSAGE)
+    return apiError(410, 'CODE_EXPIRED', CODE_EXPIRED_MESSAGE)
   }
 
   // 가입 중 인증번호 받기: { phone } (+ 앱이면 ticket·verifier) → { phone: 가린 번호 }
@@ -181,6 +181,8 @@ export function registerSocialRoutes(api: Hono<Env>, social: SocialLogin, addres
     if (outcome.kind === 'existing') return c.json({ next: 'LOGIN_EXISTING', phone: outcome.phone, providers: outcome.providers, password: outcome.password })
     if (outcome.kind === 'rate_limited') return apiError(429, 'LOGIN_RATE_LIMITED', LOGIN_RATE_LIMITED_MESSAGE)
     if (outcome.kind === 'unavailable') return notFound()
+    // 가입 표가 없어졌으면 인증번호 시간 지남(CODE_EXPIRED)이 아니라 처음부터 (D-UX3-54)
+    if (outcome.kind === 'ticket_gone') return apiError(410, 'LOGIN_EXPIRED', TICKET_EXPIRED_MESSAGE)
     return codeReply(outcome)
   })
 

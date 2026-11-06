@@ -190,6 +190,8 @@ export type SignupPhoneOutcome =
   | { readonly kind: 'wrong'; readonly left: number }
   | { readonly kind: 'expired' }
   | { readonly kind: 'locked' }
+  /** 가입 표(30분)가 없어졌다 — 인증번호 시간 지남과 따로 알린다 (D-UX3-54) */
+  | { readonly kind: 'ticket_gone' }
   | { readonly kind: 'rate_limited' }
   | { readonly kind: 'unavailable' }
 
@@ -918,7 +920,8 @@ export class SocialLogin {
     if (!this.phoneRequired) return { kind: 'unavailable' }
     if (!this.#smsLimiter.take(address === null ? null : ipKey(address))) return { kind: 'rate_limited' }
     const row = await this.#signupTicket(input.ticket, input.verifier)
-    if (row === null) return { kind: 'expired' }
+    // 가입 표가 없어진 것을 '인증번호 시간 지남'으로 알리면 남은 시간이 보이는데 시간 지남 팝업이 뜬다 (D-UX3-54)
+    if (row === null) return { kind: 'ticket_gone' }
     const checked = await this.#checkCode(`t:${row.ticketHash}`, input.code)
     if (checked.kind !== 'ok') return checked
     const { db, clock } = this.#options
@@ -928,7 +931,7 @@ export class SocialLogin {
       .set({ phoneHash: checked.phoneHash, phoneLabel: checked.phoneLabel, phoneVerifiedAt: new Date(clock.now()), targetAccountId: target?.id ?? null })
       .where(and(eq(loginTickets.ticketHash, row.ticketHash), isNull(loginTickets.usedAt)))
       .returning({ ticketHash: loginTickets.ticketHash })
-    if (updated.length === 0) return { kind: 'expired' }
+    if (updated.length === 0) return { kind: 'ticket_gone' }
     if (target === null) return { kind: 'new', phone: checked.phoneLabel }
     const links = await db.select({ provider: loginLinks.provider }).from(loginLinks).where(and(eq(loginLinks.accountId, target.id), eq(loginLinks.sellerId, target.sellerId)))
     const providers = PROVIDER_ORDER.filter((provider) => this.#enabled.includes(provider) && links.some((link) => link.provider === provider))
