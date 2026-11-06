@@ -1401,12 +1401,12 @@ export class VoiceController {
     this.#interimNos = [...fresh, ...nos.map((no) => ({ no, at: now }))].slice(-20)
   }
 
-  /** 빠진 0 되살리기 (음성 패키지 fixDroppedZero): 두 자리 XY를 앞 번호 맥락으로 X0Y로. 거절한 번호로는 바꾸지 않는다 */
+  /** 빠진 0 되살리기 (음성 패키지 fixDroppedZero): 두 자리 XY를 앞 번호 맥락으로 X0Y로. 겹친 자리 걷어 내기(fixDoubledDigit, D-V3-123): 557을 57로. 거절한 번호로는 바꾸지 않는다 */
   #droppedZero(module: VoiceModule, pick: SegmentPick): number | null {
     if (typeof module.fixDroppedZero !== 'function') return null
     const now = this.#host.now()
     try {
-      const fix = module.fixDroppedZero({
+      const input: Parameters<VoiceModule['fixDroppedZero']>[0] = {
         no: pick.no,
         price: pick.price,
         recent: this.#contextNos.filter((item) => now - item.at <= 600_000).map((item) => item.no),
@@ -1416,7 +1416,8 @@ export class VoiceController {
           const found = this.#existingOf(no)
           return found === null ? null : found === 'closed' ? 'closed' : { price: found.price }
         },
-      })
+      }
+      const fix = module.fixDroppedZero(input) ?? (typeof module.fixDoubledDigit === 'function' ? module.fixDoubledDigit(input) : null)
       return fix === null || this.#rejected.has(fix.no) ? null : fix.no
     } catch {
       return null

@@ -406,7 +406,7 @@ export { WAITING_MS, stepWaiting, waitingExpired, type WaitingNumber, type Waiti
 // V3 중간 결과 안정 (R-17 8, D-V3-71)
 export { INTERIM_STABLE_MS, interimCandidate, interimFallback, trackInterim, type InterimCandidate, type InterimSeen } from './interim.ts'
 // V3 빠진 0 되살리기 (실방송 "36번" = 306번)
-export { DROPPED_ZERO_NEAR, DROPPED_ZERO_RECENT, bareNumberFits, fixDroppedZero, type DroppedZeroFix, type DroppedZeroInput, type DroppedZeroProduct } from './number-context.ts'
+export { DROPPED_ZERO_NEAR, DROPPED_ZERO_RECENT, bareNumberFits, fixDoubledDigit, fixDroppedZero, type DroppedZeroFix, type DroppedZeroInput, type DroppedZeroProduct } from './number-context.ts'
 // V3 번호 없이 가격만 고쳐 말함 (실방송 "55만 원" 뒤 "50만 원")
 export { NAME_ONLY_FILL_MS, PRICE_ONLY_FIX_MS, nameOnlyFill, priceOnlyFix, type NameOnlyInput, type PriceOnlyFix, type PriceOnlyInput } from './price-only.ts'
 // V3 굳은 중간 글 (사용자 결정: 1초 넘게 그대로인 낱말은 최종처럼)

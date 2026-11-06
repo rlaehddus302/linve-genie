@@ -70,6 +70,39 @@ export function fixDroppedZero(input: DroppedZeroInput): DroppedZeroFix | null {
 }
 
 /**
+ * 겹친 자리 걷어 내기 (D-V3-123, 실방송 2026-11-06 "57번을 오오십칠번 뭐 이렇게 알아들었는지 557번으로"): 세 자리 AAB… 꼴(첫 두 자리가 같음 —
+ * "오 오십칠" → 557)을 두 자리 AB로 바꿀지 (바꾸지 않으면 null). 빠진 0 되살리기(fixDroppedZero)를 거꾸로 한 것이라 조건도 같다.
+ * 1. 들린 세 자리 번호 자체가 상품으로 있으면(판매 종료 포함) 바꾸지 않는다.
+ * 2. 두 자리 번호가 판매 종료이거나, 이미 있는데 가격이 다르거나 가격을 못 들었으면 바꾸지 않는다(같은 가격이면 바꾼다 — 같은 번호 무시 규칙이 받는다).
+ * 3. 증거 HEARD(바로 앞에 들린 번호에 두 자리 번호) 또는 RECENT(최근 2개가 모두 두 자리 번호 ±20 안이고 어느 것도 세 자리 번호 ±20 안이 아님).
+ */
+export function fixDoubledDigit(input: DroppedZeroInput): DroppedZeroFix | null {
+  try {
+    const { no } = input
+    if (!isNo(no) || no < 110 || no > 999) return null
+    const hundreds = Math.floor(no / 100)
+    const tens = Math.floor(no / 10) % 10
+    if (hundreds !== tens) return null
+    const fixed = no % 100
+    if (fixed < 10) return null
+    if (input.product(no) !== null) return null
+    const there = input.product(fixed)
+    if (there === 'closed') return null
+    if (there !== null && (input.price === null || there.price !== input.price)) return null
+    const heard = Array.isArray(input.heardBefore) ? input.heardBefore.filter(isNo) : []
+    if (heard.includes(fixed)) return { no: fixed, why: 'HEARD' }
+    const recent = Array.isArray(input.recent) ? input.recent.filter(isNo) : []
+    if (recent.length < DROPPED_ZERO_RECENT) return null
+    const last = recent.slice(-DROPPED_ZERO_RECENT)
+    if (!last.every((item) => Math.abs(item - fixed) <= DROPPED_ZERO_NEAR)) return null
+    if (recent.some((item) => Math.abs(item - no) <= DROPPED_ZERO_NEAR)) return null
+    return { no: fixed, why: 'RECENT' }
+  } catch {
+    return null
+  }
+}
+
+/**
  * '번' 없는 번호가 앞 번호 흐름에 맞는가 (실방송 V3: 312…349를 팔다 "얼마 드릴까 50 … 10만 원" → 50번, "너무예쁜데 25 자 25만 원" → 25번).
  * 최근 음성 등록 2개 이상이 있고 가장 최근 2개가 모두 그 번호에서 ±20 밖이면 맞지 않는다(false). 맥락이 모자라면 맞는다고 본다(true — 지금 규칙 그대로).
  */
