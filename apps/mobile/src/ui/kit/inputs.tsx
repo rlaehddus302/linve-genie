@@ -19,8 +19,9 @@ export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-lab
 /** 입력 칸 한 줄 높이 (값 줄) — 비었을 때·넣었을 때·초점일 때 모두 같다 (D-UX3-08). 토스 칸을 재어 40 (D-UX3-51 — 옛 52) */
 export const FIELD_ROW = 40
 /** 틀렸을 때 칸이 좌우로 흔들리는 시간 (D-UX3-51) */
-export const SHAKE_MS = 320
-const SHAKE_STEPS = [9, -9, 6, -6, 3, 0] as const
+export const SHAKE_MS = 360
+/** 흔들기 폭 — 아주 살짝 (D-UX3-52, 사용자 지시 2026-11-07 "흔들림이 너무 쎄. 아주 살짝만 부드럽게" — 옛 ±9·6·3) */
+const SHAKE_STEPS = [3, -3, 2, -2, 1, 0] as const
 
 /**
  * 틀렸다는 손맛 (D-UX3-51, 사용자 지시 2026-11-07 "입력필드 전체가 좌우로 살짝 흔들고 햅틱도 … 틀렸다는게 잘 느껴지게"):
@@ -36,7 +37,7 @@ export function useWrongShake(error: string | null | undefined, again = 0): Anim
     x.setValue(0)
     const native = Platform.OS !== 'web'
     const step = SHAKE_MS / SHAKE_STEPS.length
-    const run = Animated.sequence(SHAKE_STEPS.map((to) => Animated.timing(x, { toValue: to, duration: step, easing: Easing.inOut(Easing.quad), useNativeDriver: native })))
+    const run = Animated.sequence(SHAKE_STEPS.map((to) => Animated.timing(x, { toValue: to, duration: step, easing: Easing.inOut(Easing.sin), useNativeDriver: native })))
     run.start()
     return () => run.stop()
   }, [bad, error, again, x])
