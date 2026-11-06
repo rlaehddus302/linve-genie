@@ -288,8 +288,8 @@ export const epostFileBox = (box: BoxKind): string => `상자 크기는 모두 �
 export const epostFileName = (date: string): string => `우체국-방문접수-${date}.xlsx`
 export const epostFilePath = (date: string): string => `/api/parcels/days/${date}/epost-visit.xlsx`
 /** 우체국 파일 칸을 보이는지: 우체국을 골랐거나 아직 택배사를 고르지 않았고, 보낼 수 있는 묶음이 있다 */
-export const showsEpostFile = (day: { readonly carrier: { readonly code: SettingsCarrier } | null; readonly ready: readonly unknown[] }): boolean =>
-  day.ready.length > 0 && (day.carrier === null || day.carrier.code === 'EPOST')
+/** 우체국 직접 접수·자료 칸 — 보낼 묶음이 없어도 보인다(D-UX3-64, 판매 전에도 기능을 써 볼 수 있게. 0개면 우체국 쪽에서 쉬운 문장으로 알린다) */
+export const showsEpostFile = (day: { readonly carrier: { readonly code: SettingsCarrier } | null }): boolean => day.carrier === null || day.carrier.code === 'EPOST'
 
 // ── 앱 안 우체국 화면 (D-UX3-37) — 들고 가기(창구소포 간편사전접수)·가지러 오기(방문접수소포) ──
 export type EpostDirectKind = 'VISIT' | 'COUNTER'

@@ -53,7 +53,7 @@ describe('우체국 방문접수 파일 (D-UX3-36)', () => {
     expect(world.carrier.requests).toEqual([])
   })
 
-  it('보낼 묶음이 없으면 409와 쉬운 문장, 다른 판매자·리허설은 404', async () => {
+  it('보낼 묶음이 없으면 409와 쉬운 문장(판매 기록이 없는 판매자도 — D-UX3-64), 리허설은 404', async () => {
     const world = await parcelWorld()
     const seller = await parcelSeller(world, { carrier: 'EPOST', sender: SENDER, box: '80' })
     await sell(world, seller, [['UC_A', '가람', 1]])
@@ -65,7 +65,7 @@ describe('우체국 방문접수 파일 (D-UX3-36)', () => {
 
     await makeReady(world, seller, 'UC_A')
     const other = await parcelSeller(world, { carrier: 'EPOST', sender: SENDER, box: '80' })
-    expect((await fileOf(world, other.cookie)).status).toBe(404)
+    expect((await fileOf(world, other.cookie)).status).toBe(409)
     expect((await fileOf(world, seller.cookie, D, '?rehearsal=true')).status).toBe(404)
     const sheet = await sheetOf(await fileOf(world, seller.cookie))
     // 80cm 상자 → 5kg·80cm

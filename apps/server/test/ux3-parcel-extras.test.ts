@@ -14,7 +14,8 @@ describe('직접 넣은 택배 (D-UX3-38)', () => {
   it('판매 기록이 없는 날짜에 받는 분을 넣으면 그 날짜가 목록에 생기고 "보낼 수 있어요"에 들어간다 — 자동 접수·취소·운송장, 포장 기록 없음', async () => {
     const world = await parcelWorld()
     const seller = await parcelSeller(world)
-    expect((await parcelApi(world, seller.cookie).day(E)).status).toBe(404)
+    // D-UX3-64: 판매 기록도 직접 넣은 택배도 없는 날짜는 404가 아니라 빈 목록
+    expect(await dayRows(world, seller, E)).toMatchObject({ ready: [], booked: [], excluded: [] })
 
     const requestId = rid('pe')
     const made = await putExtra(world, seller.cookie, { address: ADDRESS, qty: 3 }, E, requestId)
@@ -64,7 +65,8 @@ describe('직접 넣은 택배 (D-UX3-38)', () => {
     const dropped = await dropExtra(world, seller.cookie, bundle.buyer)
     expect(dropped.status, dropped.text).toBe(200)
     expect(dropped.body).toEqual({ buyer: bundle.buyer })
-    expect((await parcelApi(world, seller.cookie).day(E)).status).toBe(404)
+    // D-UX3-64: 판매 기록도 직접 넣은 택배도 없는 날짜는 404가 아니라 빈 목록
+    expect(await dayRows(world, seller, E)).toMatchObject({ ready: [], booked: [], excluded: [] })
     expect((await expect200(parcelApi(world, seller.cookie).days())).body.dates).toEqual([])
   })
 

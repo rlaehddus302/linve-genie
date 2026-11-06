@@ -6,6 +6,7 @@ import type { ParcelBrief, ParcelDay, ParcelRow } from '@livejjim/web/src/api/pa
 import { shareFile } from '../src/native/share.ts'
 import { setNativeModules } from '../src/native/index.ts'
 import { ParcelsScreen } from '../src/screens/ParcelsScreen.tsx'
+import { kstToday } from '@livejjim/web/src/lib/kst.ts'
 import { makeWorld } from './screen-support.tsx'
 
 const row = (buyer: string, name: string, patch: Partial<ParcelRow> = {}): ParcelRow => ({
@@ -61,6 +62,24 @@ function world() {
 afterEach(() => setNativeModules({ shareFile }))
 
 describe('ParcelsScreen (앱 택배 접수)', () => {
+  it('판매 기록이 하나도 없어도 오늘 날짜로 택배사·우체국 직접 접수·받는 분 직접 넣기를 다 보인다 (D-UX3-64)', async () => {
+    const w = makeWorld()
+    const today = kstToday()
+    w.server.on('GET', /^\/api\/parcels\/days$/, () => ({ body: { dates: [], selected: null } }))
+    const asked: string[] = []
+    w.server.on('GET', /^\/api\/parcels\/days\/\d{4}-\d{2}-\d{2}$/, (call) => {
+      asked.push(call.path)
+      return { body: { ...day, date: today, seq: 0, blocked: { code: 'NO_AUTO_BOOK', message: '계약 인증키가 없어요' }, ready: [], excluded: [], booked: [] } }
+    })
+    const opened: [string, string][] = []
+    render(w.wrap(<ParcelsScreen nav={{ openEpost: (date, kind) => void opened.push([date, kind]) }} />))
+    await waitFor(() => expect(asked).toEqual([`/api/parcels/days/${today}`]))
+    fireEvent.click(await screen.findByRole('button', { name: '우체국에 들고 가기' }))
+    expect(opened).toEqual([[today, 'COUNTER']])
+    expect(screen.getByRole('button', { name: '집으로 가지러 오기' })).toBeTruthy()
+    expect(screen.queryByText('아직 판매 기록이 없어요.')).toBeNull()
+  })
+
   it('세 무리 · 고른 것만 묻고 같은 요청 번호로 한 번 접수 · 결과 요약', async () => {
     const { w, posts } = world()
     render(w.wrap(<ParcelsScreen onBack={() => undefined} />))

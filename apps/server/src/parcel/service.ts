@@ -727,15 +727,15 @@ export class ParcelService {
     return { dates: list, selected: list.find((item) => item.ready > 0)?.date ?? list[0]?.date ?? null }
   }
 
-  /** 그 날짜의 접수 목록 (AC-T1-22): 고를 수 있음·빠짐(이유)·접수함. 없는 범위·봉인한 범위는 404 */
+  /** 그 날짜의 접수 목록 (AC-T1-22): 고를 수 있음·빠짐(이유)·접수함. 봉인한 범위는 404.
+   *  판매 기록도 직접 넣은 택배도 없는 날짜는 빈 목록(D-UX3-64 — 판매 전에도 택배사·우체국 직접 접수·받는 분 직접 넣기를 써 볼 수 있게) */
   async day(sellerId: string, date: string): Promise<Outcome<ParcelDay>> {
     const scope = await this.#scopeOf(sellerId, date)
     if (scope.sealed) return NOT_FOUND
     const { db, masterKey } = this.#deps
-    // 직접 넣은 택배만 있는 날짜는 범위 없이 그 줄들만 (D-UX3-38). 둘 다 없으면 404
+    // 직접 넣은 택배만 있는 날짜는 범위 없이 그 줄들만 (D-UX3-38). 둘 다 없으면 빈 목록 (D-UX3-64)
     const extras = await this.#extrasOf(db, sellerId, date)
     const runtime = scope.runtime
-    if (runtime === null && extras.size === 0) return NOT_FOUND
     const settings = await readSettings(db, masterKey, sellerId)
     const addresses = await addressRowsOf(db, sellerId, date)
     const attempts = await latestAttempts(db, sellerId, date)

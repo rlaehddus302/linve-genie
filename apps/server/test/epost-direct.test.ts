@@ -30,7 +30,8 @@ describe('앱 안 우체국 화면 자료 (D-UX3-37)', () => {
     expect(world.carrier.requests).toEqual([])
 
     const none = await kitOf(world, (await parcelSeller(world, { carrier: 'EPOST', sender: SENDER, box: '80' })).cookie)
-    expect(none.status).toBe(404)
+    // D-UX3-64: 판매 기록이 없는 판매자도 날짜는 빈 목록이라 404가 아니라 "넣을 묶음이 없어요"(409)
+    expect(none.status).toBe(409)
   })
 
   it('보내는 분 우편번호가 비었으면 우편번호 찾기로 채운다 — 못 찾으면 빈 칸 그대로 (D-UX3-40)', async () => {

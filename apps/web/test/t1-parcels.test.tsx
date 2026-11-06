@@ -670,13 +670,13 @@ describe('우체국 방문접수 파일 (D-UX3-36)', () => {
     await waitFor(() => expect(downloads).toEqual(['우체국-방문접수-2026-10-22.xlsx']))
   })
 
-  it('다른 택배사를 골랐거나 보낼 묶음이 없으면 보이지 않는다', async () => {
+  it('다른 택배사를 골랐으면 보이지 않고, 보낼 묶음이 없어도 우체국이면 보인다 (D-UX3-64)', async () => {
     await open()
     expect(screen.queryByRole('region', { name: '우체국에 직접 접수하기' })).toBeNull()
     cleanup()
     day = { ...sixRows(), carrier: { code: 'EPOST', name: '우체국택배' }, ready: [] }
     await open()
-    expect(screen.queryByRole('region', { name: '우체국에 직접 접수하기' })).toBeNull()
+    expect(screen.getByRole('region', { name: '우체국에 직접 접수하기' })).toBeTruthy()
   })
 })
 

@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { linkApi, openLink, tokenOf } from './n4b-support.ts'
 import { ORIGIN, client, dumpAllTables, rid, type TestServer } from './support.ts'
-import { ADDRESS, D, SENDER, bookOk, expect200, expectNoSecret, makeReady, parcelApi, parcelSeller, parcelWorld, sell } from './t1-support.ts'
+import { ADDRESS, D, SENDER, bookOk, dayRows, expect200, expectNoSecret, makeReady, parcelApi, parcelSeller, parcelWorld, sell } from './t1-support.ts'
 
 /** 택배 API 전부 (읽기·쓰기) — 상태 코드 목록 */
 async function everyCall(world: TestServer, cookie: string, buyer: string, updatedAt: string): Promise<{ name: string; status: number }[]> {
@@ -48,10 +48,13 @@ describe('AC-T1-07 권한과 판매자 나눔', () => {
     const other = await parcelSeller(world)
     const results = await everyCall(world, other.cookie, 'UC_A', updatedAt)
     for (const call of results) {
-      if (['설정 읽기', '설정 쓰기', '날짜 목록'].includes(call.name)) expect(call.status, call.name).toBe(200)
+      // D-UX3-64: 접수 목록은 빈 목록(200) — S의 줄은 아래에서 하나도 없음을 본다
+      if (['설정 읽기', '설정 쓰기', '날짜 목록', '접수 목록'].includes(call.name)) expect(call.status, call.name).toBe(200)
       else expect(call.status, call.name).toBe(404)
     }
-    for (const call of await everyCall(world, other.cookie, 'UC_B', updatedAt)) if (!['설정 읽기', '설정 쓰기', '날짜 목록'].includes(call.name)) expect(call.status, call.name).toBe(404)
+    // D-UX3-64: 판매 기록이 없는 날짜의 접수 목록은 404가 아니라 빈 목록 — 다른 판매자에게는 S의 줄이 하나도 없는 빈 목록
+    for (const call of await everyCall(world, other.cookie, 'UC_B', updatedAt)) if (!['설정 읽기', '설정 쓰기', '날짜 목록', '접수 목록'].includes(call.name)) expect(call.status, call.name).toBe(404)
+    expect(await dayRows(world, other)).toMatchObject({ ready: [], booked: [], excluded: [] })
     // 다른 판매자가 같은 날짜에 자기 방송이 있어도 S의 구매자는 404
     await sell(world, other, [['UC_Z', '제트', 1]])
     for (const call of await everyCall(world, other.cookie, 'UC_A', updatedAt)) if (!['설정 읽기', '설정 쓰기', '날짜 목록', '접수 목록', '운송장 전부'].includes(call.name)) expect(call.status, call.name).toBe(404)

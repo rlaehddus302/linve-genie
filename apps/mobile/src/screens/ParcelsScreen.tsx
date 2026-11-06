@@ -13,7 +13,6 @@ import {
   GROUP_BOOKED,
   GROUP_EXCLUDED,
   GROUP_READY,
-  NO_PARCEL_DATES,
   NOT_CANCELLABLE,
   NOTHING_BOOKED,
   NOTHING_EXCLUDED,
@@ -109,7 +108,8 @@ export function ParcelsScreen({ onBack, initialDate, nav = {}, topGap = 28 }: { 
         if (!alive) return
         setDays(result)
         setError(null)
-        setDate((current) => current ?? result.selected ?? result.dates[0]?.date ?? null)
+        // 판매 기록이 없어도 오늘 날짜로 택배 화면을 다 보인다 (D-UX3-64)
+        setDate((current) => current ?? result.selected ?? result.dates[0]?.date ?? kstToday())
       },
       (caught: unknown) => {
         if (alive && isApiError(caught)) setError(caught)
@@ -130,7 +130,6 @@ export function ParcelsScreen({ onBack, initialDate, nav = {}, topGap = 28 }: { 
           </View>
         ) : null}
         {days === null && error === null ? <Loading /> : null}
-        {days !== null && days.dates.length === 0 ? <Txt color="textSub">{NO_PARCEL_DATES}</Txt> : null}
         {days !== null && days.dates.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm }}>
             {days.dates.map((day) => (
