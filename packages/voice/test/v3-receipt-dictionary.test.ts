@@ -35,7 +35,7 @@ describe('AC-V3-100 영수증 거래명 사전 (D-V3-115)', () => {
     const keys = file.varieties.map((item) => compact(item.name).toLowerCase())
     expect(new Set(keys).size).toBe(keys.length)
     const names = new Set(file.varieties.map((item) => item.name))
-    for (const word of ['환엽', '돌기', '핏줄', '쪽빛', '골드빛', '골드', '크랙', '손톱', '수박', '복륜금', '군생', '특이종', '교배종', '수입종', '명품', '순수', '아래', '이름표', '접시', '망치', '사각롱분', '핀셋 소형', '색금 자구'])
+    for (const word of ['환엽', '돌기', '핏줄', '쪽빛', '골드빛', '골드', '크랙', '손톱', '수박', '복륜금', '군생', '특이종', '교배종', '수입종', '명품', '아래', '이름표', '접시', '망치', '사각롱분', '핀셋 소형', '색금 자구'])
       expect(names.has(word), word).toBe(false)
   })
 
@@ -43,7 +43,8 @@ describe('AC-V3-100 영수증 거래명 사전 (D-V3-115)', () => {
   it('(c)·(g) 이번에 더한 영수증 이름은 길이와 상관없이 모두 exactOnly, 손으로 고른 이름의 exactOnly 표시는 그대로(콜리·퍼플·창금·황소·레다·SP)', () => {
     for (const item of added) expect(item.exactOnly, item.name).toBe(true)
     const hand = file.varieties.slice(0, start).filter((item) => item.exactOnly === true).map((item) => item.name)
-    expect(hand.sort()).toEqual(['SP', '레다', '창금', '콜리', '퍼플', '황소'].sort())
+    // D-V3-124: 사용자가 실방송에서 품종이라 한 '황도'·'순수'(흔한 말이기도 해 적은 모양으로만)를 손으로 더했다. '순수'는 (b)의 일반 낱말 목록에서 뺐다
+    expect(hand.sort()).toEqual(['SP', '레다', '순수', '창금', '콜리', '퍼플', '황도', '황소'].sort())
     for (const item of DEFAULT_VARIETIES.slice(start)) expect(item.exactOnly, item.name).toBe(true)
     for (const item of DEFAULT_VARIETIES.slice(0, start)) expect(item.exactOnly, item.name).toBeUndefined()
     expect(nameOf('10번 슈빌 5만 원')).toEqual(['슈빌'])

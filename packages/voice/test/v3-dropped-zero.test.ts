@@ -106,3 +106,18 @@ describe('fixDoubledDigit', () => {
     expect(fixDoubledDigit({ no: 505, price: 50_000, recent: [4, 6], product: products({}) })).toBeNull()
   })
 })
+
+// 실방송 2026-11-06 품종 (D-V3-123·124): 사용자가 말한 품종이 사전에 없어 비거나(71번 황도) 틀렸다(52번·72번·76번)
+describe('실방송 2026-11-06 — 사전에 더한 품종', () => {
+  const DICT = prepareVoiceDictionary()
+  const pick = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.name, p.price])
+  it('황도·순수·골드문·아사달금을 들린 그대로 품종으로', () => {
+    expect(pick('이렇게 빨간 손톱이 황도입니다 황도는 3만원 71번')).toEqual([[71, '황도', 30_000]])
+    expect(pick('연수조 다육에서 인사드리고요 순수 요아이 만원 72번')).toEqual([[72, '순수', 10_000]])
+    expect(pick('골드문 UI 20,000원 76번')).toEqual([[76, '골드문', 20_000]])
+    expect(pick('30만원 자 아사달금 52번')).toEqual([[52, '아사달금', 300_000]])
+  })
+  it('순수는 적은 모양으로만 — "순수하게"는 품종이 아니다', () => {
+    expect(pick('자 이거 순수하게 예뻐요 3만원 80번')).toEqual([[80, null, 30_000]])
+  })
+})

@@ -1802,6 +1802,20 @@
    "aliases": []
   },
   {
+   "name": "황도",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "순수",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "골드문",
+   "aliases": []
+  },
+  {
    "name": "황소",
    "aliases": [],
    "exactOnly": true
