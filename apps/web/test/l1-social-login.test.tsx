@@ -228,7 +228,8 @@ describe('돌아온 결과 문장 (AC-L1-21)', () => {
     const list = screen.getByTestId('existing-accounts')
     expect(list.textContent).toContain('네이버')
     expect(list.textContent).toContain('ab***@naver.com')
-    expect(list.textContent).toContain('2026년 11월 06일 마지막 로그인')
+    // D-UX3-60으로 바뀐 기대 (사용자 지시 2026-11-07 "07일 이런 형식이 아니라 그냥 7일로"): 옛 '2026년 11월 06일' → 새 '2026년 11월 6일'
+    expect(list.textContent).toContain('2026년 11월 6일 마지막 로그인')
     expect(socialButtons().map((button) => button.textContent)).toEqual(['네이버로 로그인'])
     fireEvent.click(screen.getByRole('button', { name: '네이버로 로그인' }))
     await waitFor(() => expect(assigned).toEqual([AUTHORIZE('naver')]))

@@ -545,7 +545,10 @@ describe('LoginScreen', () => {
         expect(await screen.findByText('이미 가입한 적이 있어요', undefined, { timeout: 4000 })).toBeTruthy()
         expect(screen.getByText('해당 계정에 연결하고 로그인할게요')).toBeTruthy()
         const card = screen.getByTestId('existing-accounts')
-        for (const word of ['카카오', 'uh***@kakao.com', '네이버', 'uh***@naver.com', '2026년 11월 06일 마지막 로그인']) expect(card.textContent).toContain(word)
+        // D-UX3-60으로 바뀐 기대 (사용자 지시 2026-11-07 "07일 이런 형식이 아니라 그냥 7일로"): 옛 '2026년 11월 06일' → 새 '2026년 11월 6일'
+        for (const word of ['카카오', 'uh***@kakao.com', '네이버', 'uh***@naver.com', '2026년 11월 6일 마지막 로그인']) expect(card.textContent).toContain(word)
+        // 로고는 앱 아이콘 모양(둥근 네모) 바탕 위에 (D-UX3-60)
+        expect(screen.getByTestId('existing-logo-kakao')).toBeTruthy()
         expect(screen.queryByRole('button', { name: '구글로 로그인' })).toBeNull()
         expect(screen.queryByRole('button', { name: '카카오로 로그인' })).toBeNull()
         // 두 번째 로그인은 기존 계정(LOGGED_IN)

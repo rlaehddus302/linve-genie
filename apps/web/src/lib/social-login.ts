@@ -332,13 +332,15 @@ export interface ExistingLogin {
   readonly label: string
   readonly lastLoginAt: string | null
 }
-/** "2026년 11월 06일 마지막 로그인" — 한국 시간으로 (기기 시간대와 상관없이) */
+/**
+ * "2026년 11월 6일 마지막 로그인" — 한국 시간으로 (기기 시간대와 상관없이).
+ * 달·날은 앞에 0을 붙이지 않는다 (D-UX3-60, 사용자 지시 2026-11-07 "07일 이런 형식이 아니라 그냥 7일로" — 옛 D-UX3-59 "11월 06일")
+ */
 export function lastLoginText(iso: string): string | null {
   const time = Date.parse(iso)
   if (!Number.isFinite(time)) return null
   const korea = new Date(time + 9 * 60 * 60 * 1000)
-  const two = (value: number): string => String(value).padStart(2, '0')
-  return `${String(korea.getUTCFullYear())}년 ${two(korea.getUTCMonth() + 1)}월 ${two(korea.getUTCDate())}일 마지막 로그인`
+  return `${String(korea.getUTCFullYear())}년 ${String(korea.getUTCMonth() + 1)}월 ${String(korea.getUTCDate())}일 마지막 로그인`
 }
 /** 가장 최근에 로그인한 것 (모두 없으면 첫째) — [연결하기]가 이것으로 다시 로그인한다 */
 export function latestLogin(accounts: readonly ExistingLogin[]): ExistingLogin | null {

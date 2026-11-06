@@ -11,9 +11,12 @@
 //    칸은 문자 자동 채우기(아이폰 oneTimeCode·안드로이드 sms-otp)를 켠다.
 // 아래 단추는 키보드가 뜨면 키보드 바로 위로 올라온다. 이 화면이 떠 있는 동안 맨 위 상태 막대 자리도 흰색이다(D-UX3-50).
 // D-UX3-51: 잘못이어도 [다음]은 그대로 — 누르면 칸이 다시 흔들리고 진동한다. 뒤로·제목 자리와 잘못 모양은 공통 부품(PAGE·ErrorLine·useWrongShake).
-// ③ "인증 성공" 2초 뒤 다음(홈·있는 계정 안내)으로. 화면 사이는 밀어 넘긴다(SlideSwitch).
+// ③ 맞으면 화면을 넘기지 않고 그 자리에서 (D-UX3-60, 사용자 지시 2026-11-07 토스 사진 27~34): 합친 칸이 초록으로 차며 숫자가 흐려지고, 알약을 거쳐 작은 원이 되는 동안
+//    제목·남은 시간·뒤로가 흐려진다. 원이 다시 커지며(살짝 넘쳤다 제 크기) 안에 체크가 그려지고 아래 "인증 성공"이 나타난다. 다 그려진 뒤 2초 보이고 다음(홈·있는 계정 안내)으로.
+//    (옛 D-UX3-49: 다음 화면 "인증 성공"으로 밀어 넘겼다.) ①·② 사이는 밀어 넘긴다(SlideSwitch).
 // 가입 중(가입 표)과 로그인한 계정(번호 등록)이 같이 쓴다. 왼쪽 위 ‹는 ①에서 처음으로·로그아웃, ②에서 번호 다시 넣기.
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import Svg, { Path } from 'react-native-svg'
 import { Animated, Easing, Keyboard, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View, type TextInputInstance } from 'react-native'
 import {
   CODE_ASK_TITLE,
@@ -43,7 +46,7 @@ import {
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
-import { BackButton, BigButton, ErrorLine, Icon, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
+import { BackButton, BigButton, ErrorLine, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
 import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
 import { EdgeSwipeBack, SlideSwitch } from '../ui/kit/slide.tsx'
 import { PAGE, RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
@@ -65,10 +68,27 @@ export interface PhoneVerifyProps {
   readonly busyText?: string | null
 }
 
+/**
+ * 인증번호 칸에 새로 들어온 글로 다음 값을 정한다 (D-UX3-60, 사용자 지시 2026-11-07 "인증번호 키보드에 자동으로 뜨는거 눌렀을 때 자동으로 안 들어가는 경우가 있어").
+ * 옛: 입력 칸에 6자리 제한(maxLength)을 걸어, 아이폰이 문자 속 번호를 넣을 때 칸에 숫자가 이미 있으면 넘치는 글을 통째로 거절하거나(틀린 6자리가 남아 있을 때)
+ * 앞쪽만 잘라 넣어 틀린 번호가 됐다. 이제 제한 없이 받고 여기서 고른다.
+ * - 새로 붙은 숫자가 6자리 이상이면(자동 채우기·붙여 넣기, 두 번 들어온 경우 포함) 그 마지막 6자리
+ * - 이미 6자리(틀린 번호)가 있는데 더 치면 새로 친 숫자부터 다시
+ * - 그 밖에는 숫자만 앞 6자리
+ */
+export function nextCode(prev: string, text: string): string {
+  const digits = text.replace(/\D/g, '')
+  const added = digits.startsWith(prev) ? digits.slice(prev.length) : null
+  if (added !== null && added.length >= CODE_LENGTH) return added.slice(-CODE_LENGTH)
+  if (added !== null && added.length > 0 && prev.length === CODE_LENGTH) return added
+  if (added === null && digits.length > CODE_LENGTH) return digits.slice(-CODE_LENGTH)
+  return digits.slice(0, CODE_LENGTH)
+}
+
 const messageOf = (caught: unknown): string => (isApiError(caught) && !caught.network ? caught.message : APP_LOGIN_FAILED)
 const clock = (seconds: number): string => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
 
-type Step = 'phone' | 'code' | 'done'
+type Step = 'phone' | 'code'
 /** 인증번호 칸 표시: 틀림(합친 빨간 칸 + 문장), 횟수 초과(합친 빨간 칸), 시간 지남(칸마다 옅은 빨강) */
 type CodeMark = 'wrong' | 'locked' | 'expired' | null
 /** gone: 가입 표가 없어져 처음부터 (D-UX3-54). leave: 뒤로·밀어서 뒤로 할 때 "다음에 할까요?" (D-UX3-55) */
@@ -113,6 +133,9 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
   const [held, setHeld] = useState(false)
   const codeInput = useRef<TextInputInstance | null>(null)
   const [checking, setChecking] = useState(false)
+  /** 맞았다 — 그 자리에서 원·체크로 바뀌는 중 (D-UX3-60) */
+  const [passed, setPassed] = useState(false)
+  const away = useEased(passed ? 0 : 1, WIN_AWAY_MS)
   const [note, setNote] = useState<string | null>(null)
   const [expiresAt, setExpiresAt] = useState(0)
   const [sentAt, setSentAt] = useState(0)
@@ -169,8 +192,8 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
 
   // 맞는지는 서버가 판정한다 — 앱은 6자리가 찼는지만 본다
   const typeCode = (text: string) => {
-    if (checking) return
-    const next = text.replace(/\D/g, '').slice(0, CODE_LENGTH)
+    if (checking || passed) return
+    const next = nextCode(code, text)
     setCode(next)
     setCodeError(null)
     setCodeMark(null)
@@ -185,8 +208,8 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
       (then) =>
         settle(() => {
           after.current = typeof then === 'function' ? then : null
+          setPassed(true)
           setChecking(false)
-          go('done')
         }),
       (caught: unknown) =>
         settle(() => {
@@ -273,12 +296,12 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     return () => clearInterval(timer)
   }, [step])
 
-  // 성공 화면 2초 뒤 다음으로
+  // 인증 성공이 다 그려지고 2초 뒤 다음으로 (D-UX3-60 — 옛 D-UX3-49는 성공 화면이 뜨고 2초)
   useEffect(() => {
-    if (step !== 'done') return
-    const timer = setTimeout(() => void after.current?.(), VERIFIED_HOLD_MS)
+    if (!passed) return
+    const timer = setTimeout(() => void after.current?.(), WIN_MS + VERIFIED_HOLD_MS)
     return () => clearTimeout(timer)
-  }, [step])
+  }, [passed])
 
   // 010 검사는 11자리를 다 넣은 뒤에 (D-UX3-50 — 옛 D-UX3-49는 앞 세 자리에서 바로)
   const wrongStart = digits.length === 11 && !digits.startsWith('010')
@@ -287,7 +310,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
 
   // 3분이 지나면 팝업 (D-UX3-53, 토스 사진 1). 다시 보내는 중에는 띄우지 않는다
   useEffect(() => {
-    if (!timeOver || sending) return
+    if (!timeOver || sending || passed) return
     setCodeMark((mark) => (mark === 'locked' ? mark : 'expired'))
     setPopup((open) => open ?? 'expired')
   }, [timeOver, sending])
@@ -295,7 +318,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
   // 확인하는 동안·팝업이 떠 있는 동안 키보드를 숨기고, 팝업을 닫으면 다시 띄운다 (D-UX3-53). 틀리면 빨간 칸이 흔들린 뒤에 올린다 (D-UX3-54)
   useEffect(() => {
     if (step !== 'code') return
-    if (checking || popup !== null) {
+    if (checking || passed || popup !== null) {
       codeInput.current?.blur()
       return
     }
@@ -305,7 +328,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     }
     const timer = setTimeout(() => codeInput.current?.focus(), WRONG_KEYBOARD_MS)
     return () => clearTimeout(timer)
-  }, [step, checking, popup, held])
+  }, [step, checking, passed, popup, held])
 
   const popupText =
     shownPopup === 'expired'
@@ -321,7 +344,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
   const onConfirm = shownPopup === 'gone' ? back.onPress : shownPopup === 'leave' ? leave : resend
   // 뒤로·밀어서 뒤로: 나가면 처음부터 다시라 먼저 묻는다 (D-UX3-55, 사용자 지시 "뒤로가기 시 \"다음에 할까요?\"")
   const askLeave = () => {
-    if (checking || popup !== null) return
+    if (checking || passed || popup !== null) return
     Keyboard.dismiss()
     setPopup('leave')
   }
@@ -353,18 +376,19 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
               />
             </View>
           </QuestionPage>
-        ) : step === 'code' ? (
+        ) : (
           <QuestionPage
             onBack={askLeave}
             backLabel="번호 다시 넣기"
             title={CODE_ASK_TITLE}
             testID="code-step"
-            footer={<NotComing hidden={checking || held} onPress={() => setPopup('resend')} />}
+            away={away}
+            footer={<NotComing hidden={checking || held || passed} onPress={() => setPopup('resend')} />}
           >
-            <View style={{ marginTop: CODE_LEFT_TOP }}>
+            <Animated.View style={{ marginTop: CODE_LEFT_TOP, opacity: away }}>
               <Txt step="meta" color="textSub">{`${CODE_LEFT} ${clock(left)}`}</Txt>
-            </View>
-            <CodeBoxes value={code} error={codeError} mark={timeOver && codeMark === null ? 'expired' : codeMark} checking={checking} held={held} onChange={typeCode} inputRef={codeInput} />
+            </Animated.View>
+            <CodeBoxes value={code} error={codeError} mark={timeOver && codeMark === null ? 'expired' : codeMark} checking={checking} passed={passed} held={held} onChange={typeCode} inputRef={codeInput} />
             {/* 확인 중 표시는 합친 칸이 살짝 줄어드는 것 (토스 사진 16) — 돌림표는 없다. 오래 걸리는 일 안내만 글로 */}
             {checking && busyText !== undefined && busyText !== null ? (
               <View style={{ marginTop: SPACE.lg }} aria-live="polite">
@@ -381,8 +405,6 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
               </View>
             )}
           </QuestionPage>
-        ) : (
-          <Verified />
         )}
       </SlideSwitch>
       <PopupDialog
@@ -402,7 +424,24 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
 
 /** 한 화면 틀: 왼쪽 위 ‹, 두 줄 제목, 내용, 아래 단추(키보드가 뜨면 키보드 바로 위 — 사이 12) */
 /** 질문 화면 틀 (‹·제목·내용·아래 단추, 왼쪽 끝 밀기로 뒤로) — 번호 확인과 "이미 가입한 적이 있어요"가 같이 쓴다 (D-UX3-59) */
-export function QuestionPage({ onBack, backLabel, title, children, footer, testID }: { readonly onBack: () => void; readonly backLabel: string; readonly title: string; readonly children: ReactNode; readonly footer?: ReactNode; readonly testID: string }) {
+export function QuestionPage({
+  onBack,
+  backLabel,
+  title,
+  children,
+  footer,
+  away,
+  testID,
+}: {
+  readonly onBack: () => void
+  readonly backLabel: string
+  readonly title: string
+  readonly children: ReactNode
+  readonly footer?: ReactNode
+  /** 1 → 0으로 뒤로·제목을 흐린다 (인증 성공 때, D-UX3-60) */
+  readonly away?: Animated.Value
+  readonly testID: string
+}) {
   const { p } = useKit()
   const bottom = useBottomInset()
   const keyboard = useKeyboardShown()
@@ -411,13 +450,15 @@ export function QuestionPage({ onBack, backLabel, title, children, footer, testI
   return (
     <EdgeSwipeBack onBack={onBack}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={top} style={{ flex: 1, backgroundColor: p.surface }} testID={testID}>
-        <View style={{ paddingLeft: PAGE.backLeft }}>
+        <Animated.View style={{ paddingLeft: PAGE.backLeft, opacity: away ?? 1 }}>
           <BackButton label={backLabel} onPress={onBack} />
-        </View>
+        </Animated.View>
         <View style={{ flex: 1, paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop }}>
-          <Txt step="headline" weight="bold" role="heading" aria-level={1}>
-            {title}
-          </Txt>
+          <Animated.View style={{ opacity: away ?? 1 }}>
+            <Txt step="headline" weight="bold" role="heading" aria-level={1}>
+              {title}
+            </Txt>
+          </Animated.View>
           {children}
         </View>
         {footer === undefined || footer === null ? null : (
@@ -494,6 +535,109 @@ const FRAME_FROM = 1.08
 /** 바깥 테가 나타나는 시간 (바로에 가깝게) */
 const FRAME_IN_MS = 100
 const COVER = { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 } as const
+
+/**
+ * 인증 성공 움직임 (D-UX3-60, 사용자 지시 2026-11-07 "입력칸이 점점 원으로 되고 나머지 글자는 다 페이드아웃되고 원이 다시 커지면서 안에 체크가 되는", 토스 사진 27~34).
+ * 시각(밀리초)마다: ~WIN_FILL 합친 칸이 초록으로 차고 숫자가 흐려짐 → ~WIN_SHRINK 폭·높이가 줄며 알약을 거쳐 작은 원(WIN_DOT)
+ * → ~WIN_GROW 원이 커지며 살짝 넘침(WIN_OVER) → WIN_MS 제 크기(WIN_CIRCLE). 체크는 원이 커지기 시작할 때부터 선을 따라 그려진다.
+ * 크기는 폭 430 휴대폰 토스 사진을 재어(작은 원 32px·다 큰 원 62px → 약 38·72). 색은 토스 파랑이 아니라 우리 주색(초록).
+ */
+const WIN_FILL = 140
+const WIN_SHRINK = 520
+const WIN_GROW = 820
+export const WIN_MS = 1000
+/** 제목·남은 시간·뒤로가 흐려지는 시간 (작은 원이 될 때쯤 다 사라진다) */
+const WIN_AWAY_MS = 420
+const WIN_DOT = 38
+const WIN_OVER = 78
+const WIN_CIRCLE = 72
+/** 원 아래 "인증 성공"까지 (사진 34px → 약 40에서 글자 위 여백을 빼) */
+const WIN_TEXT_GAP = 32
+/** 체크 (24 칸 기준) — 선 길이는 두 토막을 더한 값 */
+const CHECK_D = 'M6.5 12.5 L10.3 16.2 L17.5 8.6'
+const CHECK_LENGTH = Math.hypot(3.8, 3.7) + Math.hypot(7.2, 7.6)
+const CHECK_SIZE = 38
+const AnimatedPath = Animated.createAnimatedComponent(Path)
+
+const lerp = (from: number, to: number, k: number): number => from + (to - from) * k
+const clamp01 = (k: number): number => Math.min(1, Math.max(0, k))
+const easeInOut = Easing.inOut(Easing.cubic)
+const easeOut = Easing.out(Easing.cubic)
+
+/** 시각 t의 초록 모양 (폭·높이·모서리) — 처음 크기는 합친 칸(바깥 테) */
+export function winShape(t: number, width: number, height: number): { readonly w: number; readonly h: number; readonly r: number } {
+  if (t <= WIN_FILL) return { w: width, h: height, r: RADIUS.lg }
+  if (t <= WIN_SHRINK) {
+    const k = easeInOut(clamp01((t - WIN_FILL) / (WIN_SHRINK - WIN_FILL)))
+    const w = lerp(width, WIN_DOT, k)
+    const h = lerp(height, WIN_DOT, k)
+    // 모서리는 일찍 다 둥글어져 알약이 된다
+    return { w, h, r: lerp(RADIUS.lg, h / 2, clamp01(k * 3)) }
+  }
+  const d = t <= WIN_GROW ? lerp(WIN_DOT, WIN_OVER, easeOut(clamp01((t - WIN_SHRINK) / (WIN_GROW - WIN_SHRINK)))) : lerp(WIN_OVER, WIN_CIRCLE, easeInOut(clamp01((t - WIN_GROW) / (WIN_MS - WIN_GROW))))
+  return { w: d, h: d, r: d / 2 }
+}
+
+/** 시각 표(20밀리초마다)로 값을 미리 재 둔다 — Animated는 직선 이음이라 촘촘히 */
+function winTable(pick: (t: number) => number): { readonly inputRange: number[]; readonly outputRange: number[] } {
+  const inputRange: number[] = []
+  for (let t = 0; t < WIN_MS; t += 20) inputRange.push(t)
+  inputRange.push(WIN_MS)
+  return { inputRange, outputRange: inputRange.map(pick) }
+}
+
+/** 합친 칸 → 알약 → 원 → 커지며 체크, 아래 "인증 성공" (D-UX3-60) */
+function WinMark({ width, height }: { readonly width: number; readonly height: number }) {
+  const { p } = useKit()
+  const win = useRef(new Animated.Value(0)).current
+  useEffect(() => {
+    const run = Animated.timing(win, { toValue: WIN_MS, duration: WIN_MS, easing: Easing.linear, useNativeDriver: false })
+    run.start()
+    return () => run.stop()
+  }, [win])
+  const tables = useMemo(
+    () => ({
+      w: winTable((t) => winShape(t, width, height).w),
+      h: winTable((t) => winShape(t, width, height).h),
+      r: winTable((t) => winShape(t, width, height).r),
+      // 체크 그림은 원 크기를 따라 커진다
+      k: winTable((t) => winShape(t, width, height).h / WIN_CIRCLE),
+    }),
+    [width, height],
+  )
+  const fill = win.interpolate({ inputRange: [0, WIN_FILL], outputRange: [0, 1], extrapolate: 'clamp' })
+  const draw = win.interpolate({ inputRange: [WIN_SHRINK + 60, WIN_MS - 40], outputRange: [CHECK_LENGTH, 0], extrapolate: 'clamp' })
+  const words = win.interpolate({ inputRange: [WIN_SHRINK, WIN_GROW + 80], outputRange: [0, 1], extrapolate: 'clamp' })
+  return (
+    <>
+      <View pointerEvents="none" style={[COVER, { alignItems: 'center', justifyContent: 'center' }]} testID="code-passed">
+        <Animated.View
+          style={{
+            width: win.interpolate(tables.w),
+            height: win.interpolate(tables.h),
+            borderRadius: win.interpolate(tables.r),
+            borderCurve: 'continuous',
+            backgroundColor: p.primary,
+            opacity: fill,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Animated.View style={{ width: CHECK_SIZE, height: CHECK_SIZE, transform: [{ scale: win.interpolate(tables.k) }] }}>
+            <Svg width={CHECK_SIZE} height={CHECK_SIZE} viewBox="0 0 24 24" aria-hidden>
+              <AnimatedPath d={CHECK_D} stroke={p.onPrimary} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" fill="none" strokeDasharray={[CHECK_LENGTH, CHECK_LENGTH]} strokeDashoffset={draw} />
+            </Svg>
+          </Animated.View>
+        </Animated.View>
+      </View>
+      <Animated.View pointerEvents="none" style={{ position: 'absolute', left: -PAGE.side, right: -PAGE.side, top: height / 2 + WIN_CIRCLE / 2 + WIN_TEXT_GAP, alignItems: 'center', opacity: words }} aria-live="polite">
+        <Txt step="headline" weight="bold" role="heading" aria-level={2}>
+          {PHONE_VERIFIED}
+        </Txt>
+      </Animated.View>
+    </>
+  )
+}
 
 /**
  * 인증번호 한 칸 (D-UX3-54, 토스 사진 13·14): 비면 회색. 숫자가 들어오면 칸이 살짝 줄었다 돌아오며 흰 바탕(얇은 회색 테)이 되고,
@@ -574,6 +718,7 @@ function CodeBoxes({
   error,
   mark,
   checking,
+  passed,
   held,
   onChange,
   inputRef,
@@ -582,6 +727,8 @@ function CodeBoxes({
   readonly error: string | null
   readonly mark: CodeMark
   readonly checking: boolean
+  /** 맞았다 — 합친 칸이 원·체크로 바뀐다 (D-UX3-60) */
+  readonly passed: boolean
   readonly held: boolean
   readonly onChange: (text: string) => void
   readonly inputRef: RefObject<TextInputInstance | null>
@@ -589,32 +736,37 @@ function CodeBoxes({
   const { p } = useKit()
   const [focused, setFocused] = useState(true)
   const red = mark === 'locked' || (mark === 'wrong' && held)
-  const merged = checking || red
+  const merged = checking || red || passed
+  const [rowWidth, setRowWidth] = useState(ROW_WIDTH)
+  // 맞으면 숫자가 흐려진다 (초록이 차는 동안)
+  const digits = useEased(passed ? 0 : 1, passed ? WIN_FILL : 0)
   const pink = !merged && (mark === 'expired' || mark === 'wrong')
   const together = useEased(merged ? 1 : 0, MERGE_MS)
   // 칸마다 있던 테·바탕(skin)은 합칠 때 바로 없어지고 나눌 때 바로 돌아온다 (D-UX3-59, 사용자 지시 "기존 박스별로 있던 테두리는 바로 사라지기" — 옛 D-UX3-56 서서히).
   // 바깥 테(frame)는 큰 채로 곧바로 나타나 칸이 모이는 동안 줄어들고("큰 상태로 나타났다가 점점 작아지는"), 나눌 때는 빨강과 함께 바로 없어진다
   const skin = useEased(merged ? 0 : 1, 0)
-  const frame = useEased(merged ? 1 : 0, merged ? FRAME_IN_MS : 0)
+  // 맞으면 바깥 테는 차오르는 초록 아래로 같이 사라진다 (D-UX3-60)
+  const frame = useEased(merged && !passed ? 1 : 0, passed ? WIN_FILL : merged ? FRAME_IN_MS : 0)
   const redness = useEased(red ? 1 : 0, red ? MERGE_MS : 0)
-  const size = useEased(checking ? CHECKING_SCALE : 1, MERGE_MS)
+  const size = useEased(checking || passed ? CHECKING_SCALE : 1, MERGE_MS)
   const cells = Array.from({ length: CODE_LENGTH }, (_, index) => value[index] ?? '')
   const shake = useWrongShake(mark === 'wrong' ? error : mark === 'locked' ? CODE_LOCKED_TEXT : null)
   const wrongLine = useSoftShow(mark === 'wrong' && held && error !== null)
   const shape = { ...COVER, borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: 2 } as const
   return (
     <Animated.View style={{ marginTop: CODE_BOXES_TOP, alignItems: 'center', transform: [{ translateX: shake }] }}>
-      <Animated.View style={{ width: '100%', maxWidth: ROW_WIDTH, height: CELL_HEIGHT, transform: [{ scale: size }] }}>
+      <Animated.View style={{ width: '100%', maxWidth: ROW_WIDTH, height: CELL_HEIGHT, transform: [{ scale: size }] }} onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}>
         {/* 모인 칸들을 감싸는 바깥 테 하나 (칸들 뒤) */}
         <Animated.View aria-hidden pointerEvents="none" testID={red ? 'code-wrong' : checking ? 'code-checking' : undefined} style={{ ...COVER, left: FRAME_SIDE, right: FRAME_SIDE, opacity: frame, transform: [{ scale: together.interpolate({ inputRange: [0, 1], outputRange: [FRAME_FROM, 1] }) }] }}>
           <View style={[shape, { backgroundColor: p.surface, borderColor: `${p.primary}99` }]} />
           <Animated.View style={[shape, { backgroundColor: TONES.light.danger.bg, borderColor: p.dangerText, opacity: redness }]} />
         </Animated.View>
-        <View style={{ flex: 1, flexDirection: 'row', gap: CELL_GAP }}>
+        <Animated.View style={{ flex: 1, flexDirection: 'row', gap: CELL_GAP, opacity: digits }}>
           {cells.map((cell, index) => (
             <CodeCell key={index} index={index} char={cell} pink={pink} dark={red} together={together} skin={skin} active={focused && !merged && value.length < CODE_LENGTH && index === value.length} />
           ))}
-        </View>
+        </Animated.View>
+        {passed ? <WinMark width={Math.max(WIN_DOT, rowWidth - 2 * FRAME_SIDE)} height={CELL_HEIGHT} /> : null}
         <TextInput
           ref={inputRef}
           value={value}
@@ -624,7 +776,6 @@ function CodeBoxes({
           keyboardType="number-pad"
           textContentType="oneTimeCode"
           autoComplete="sms-otp"
-          maxLength={CODE_LENGTH}
           autoFocus
           caretHidden
           contextMenuHidden
@@ -654,17 +805,3 @@ function Caret() {
   return <View aria-hidden style={{ width: 2, height: 30, borderRadius: 1, borderCurve: 'continuous', backgroundColor: on ? p.primary : 'transparent' }} />
 }
 
-/** 인증 성공 (2초 보인 뒤 다음으로) */
-function Verified() {
-  const { p } = useKit()
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACE.xxl, backgroundColor: p.surface }} testID="phone-verified">
-      <View aria-hidden style={{ width: 76, height: 76, borderRadius: 38, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: p.primary }}>
-        <Icon name="check" size={40} color={p.onPrimary} />
-      </View>
-      <Txt step="headline" weight="bold" role="heading" aria-level={1}>
-        {PHONE_VERIFIED}
-      </Txt>
-    </View>
-  )
-}
