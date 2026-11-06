@@ -232,3 +232,32 @@ class WorkerSegmenterTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HintTest(unittest.IsolatedAsyncioTestCase):
+    """D-V3-127: 흐름을 열 때 받은 힌트를 그 흐름의 조각마다 모델에 같이 준다. 힌트를 안 받는 모델(pcm 하나)은 그대로"""
+
+    async def test_hint_reaches_model_per_stream(self):
+        seen = []
+
+        def model(pcm, hint):
+            seen.append(hint)
+            return f"표본 {len(pcm) // 2}"
+
+        session, recorder = make(model=model)
+        await session.handle_text(json.dumps({"type": "open", "stream": 1, "hint": "이백팔번 오만 원. 아사달금."}))
+        await session.handle_text(json.dumps({"type": "open", "stream": 2}))
+        await feed(session, 1, speech_then_pause())
+        await feed(session, 2, speech_then_pause())
+        await session.drain()
+        self.assertEqual(sorted(seen), ["", "이백팔번 오만 원. 아사달금."])
+        self.assertEqual(len(recorder.results()), 2)
+        await session.close()
+
+    async def test_model_without_hint_parameter_still_runs(self):
+        session, recorder = make()
+        await session.handle_text(json.dumps({"type": "open", "stream": 1, "hint": "녹금"}))
+        await feed(session, 1, speech_then_pause())
+        await session.drain()
+        self.assertEqual(len(recorder.results(1)), 1)
+        await session.close()

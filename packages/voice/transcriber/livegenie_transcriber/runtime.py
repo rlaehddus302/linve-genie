@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from .config import LANGUAGE, Config
 from .segmenter import SAMPLE_RATE
@@ -111,8 +111,24 @@ def _cached_first(load: Callable[[bool], Any]) -> Any:
         return load(False)
 
 
-def load_transcriber(config: Config) -> Callable[[bytes], str]:
-    """조각 소리(PCM16 16kHz 모노) → 글. 한 번에 하나씩만 부른다(일꾼이 실행기 하나로 줄 세운다)"""
+# 위스퍼 앞 문장 한도는 224토큰 — 시작 표시 몫을 빼고 넉넉히
+HINT_TOKEN_MAX = 190
+
+
+def strip_prompt_echo(text: str, prompt: str) -> str:
+    """앞 문장이 결과 앞에 그대로 붙어 오면 떼고, 결과 전체가 앞 문장의 한 토막(8글자 넘게)이면 들은 것이 아니라 베낀 것이라 비운다"""
+    if not prompt:
+        return text
+    out = text.strip()
+    if out.startswith(prompt):
+        out = out[len(prompt):].strip()
+    if len(out) > 8 and out in prompt:
+        return ""
+    return out
+
+
+def load_transcriber(config: Config) -> Callable[..., str]:
+    """조각 소리(PCM16 16kHz 모노) → 글, (pcm, hint). 한 번에 하나씩만 부른다(일꾼이 실행기 하나로 줄 세운다)"""
     quiet_libraries()
     np = _require("numpy")
     torch = _require("torch")
@@ -138,7 +154,8 @@ def load_transcriber(config: Config) -> Callable[[bytes], str]:
         ).to(device)
         model.eval()
 
-        def transcribe(pcm: bytes) -> str:
+        def transcribe(pcm: bytes, hint: str = "") -> str:
+            # 코히어는 앞 문장 힌트를 받지 않는다 — 힌트는 쓰지 않는다
             inputs = processor([to_float(pcm)], sampling_rate=SAMPLE_RATE, return_tensors="pt", language=LANGUAGE)
             inputs.to(model.device, dtype=model.dtype)
             with torch.inference_mode():
@@ -162,13 +179,32 @@ def load_transcriber(config: Config) -> Callable[[bytes], str]:
             feature_extractor=processor.feature_extractor, dtype=dtype, device=device,
         )
 
-        def transcribe(pcm: bytes) -> str:
-            result = recognizer(
-                {"raw": to_float(pcm), "sampling_rate": SAMPLE_RATE},
-                generate_kwargs={"language": "korean", "task": "transcribe"},
-            )
+        # 힌트(D-V3-127): 한글 수 보기 + 판매자 품종 이름을 앞 문장(prompt)으로 — 토큰 한도 안으로 자르고, 같은 힌트는 한 번만 만든다
+        prompts: Dict[str, Tuple[str, Any]] = {}
+
+        def prompt_for(hint: str) -> Tuple[str, Any]:
+            cached = prompts.get(hint)
+            if cached is not None:
+                return cached
+            tokenizer = processor.tokenizer
+            ids = tokenizer(hint, add_special_tokens=False).input_ids
+            text = hint if len(ids) <= HINT_TOKEN_MAX else str(tokenizer.decode(ids[:HINT_TOKEN_MAX]))
+            prompt_ids = processor.get_prompt_ids(text, return_tensors="pt")
+            if len(prompts) >= 16:
+                prompts.clear()
+            prompts[hint] = (text, prompt_ids)
+            return prompts[hint]
+
+        def transcribe(pcm: bytes, hint: str = "") -> str:
+            generate_kwargs: Dict[str, Any] = {"language": "korean", "task": "transcribe"}
+            used = ""
+            if hint:
+                used, prompt_ids = prompt_for(hint)
+                generate_kwargs["prompt_ids"] = prompt_ids
+            result = recognizer({"raw": to_float(pcm), "sampling_rate": SAMPLE_RATE}, generate_kwargs=generate_kwargs)
             sync()
-            return str(result.get("text", "") if isinstance(result, dict) else "")
+            text = str(result.get("text", "") if isinstance(result, dict) else "")
+            return strip_prompt_echo(text, used)
 
     # 처음 한 번은 느리다 — 조용한 1초로 미리 데운다
     transcribe(bytes(SAMPLE_RATE * 2))

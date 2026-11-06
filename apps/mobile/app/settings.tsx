@@ -15,7 +15,7 @@ export default function SettingsRoute() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F7F8F6' }} edges={['top']}>
       <KitInsets>
-        <SettingsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} policyUrl={webUrl('/privacy')} onOpenDesign={__DEV__ ? () => router.push('/dev/design') : undefined} onOpenShop={() => router.push('/shop-settings')} showPhoneNotice={phoneNoticeBuilt()} />
+        <SettingsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} policyUrl={webUrl('/privacy')} onOpenDesign={__DEV__ ? () => router.push('/dev/design') : undefined} onOpenShop={() => router.push('/shop-settings')} onOpenVarieties={() => router.push('/varieties')} showPhoneNotice={phoneNoticeBuilt()} />
       </KitInsets>
     </SafeAreaView>
   )

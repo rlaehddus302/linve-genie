@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Deque, Dict, List, Optional, Protocol, Set, Tuple
 from collections import deque
@@ -25,8 +26,9 @@ class Vad(Protocol):
 
 
 VadFactory = Callable[[], Vad]
-# 조각 소리(PCM16 16kHz) → 받아쓴 글. 무거운 일이라 따로 된 실행기에서 돈다
-Transcribe = Callable[[bytes], str]
+# 조각 소리(PCM16 16kHz) → 받아쓴 글. 무거운 일이라 따로 된 실행기에서 돈다.
+# (pcm) 또는 (pcm, hint) — 힌트를 받는 모델에는 그 흐름의 힌트(D-V3-127)를 같이 준다
+Transcribe = Callable[..., str]
 SendText = Callable[[str], Awaitable[None]]
 
 
@@ -45,12 +47,13 @@ class Stats:
 
 
 class _Stream:
-    def __init__(self, stream_id: int, vad: Vad, segmenter: Segmenter) -> None:
+    def __init__(self, stream_id: int, vad: Vad, segmenter: Segmenter, hint: str = "") -> None:
         self.id = stream_id
         self.vad = vad
         self.segmenter = segmenter
         self.pending = bytearray()
         self.open = True
+        self.hint = hint
 
     def window_bytes(self) -> int:
         window = int(getattr(self.vad, "window", 512) or 512)
@@ -74,6 +77,7 @@ class WorkerSession:
         self._send_text = send_text
         self._segmenter_factory = segmenter_factory
         self._transcribe = transcribe
+        self._takes_hint = _takes_hint(transcribe)
         self._vad_factory = vad_factory
         self._max_streams = max_streams
         self._clock = clock
@@ -107,7 +111,7 @@ class WorkerSession:
             self.stats.bad_frames += 1
             return
         if message.type == "open":
-            self._open(message.stream)
+            self._open(message.stream, message.hint)
         else:
             self._close(message.stream)
 
@@ -164,7 +168,7 @@ class WorkerSession:
 
     # 안쪽 ---------------------------------------------------------------
 
-    def _open(self, stream_id: int) -> None:
+    def _open(self, stream_id: int, hint: str = "") -> None:
         if stream_id in self._streams:
             return
         if len(self._streams) >= self._max_streams:
@@ -178,7 +182,7 @@ class WorkerSession:
             self.stats.streams_refused += 1
             return
         self._refused.discard(stream_id)
-        self._streams[stream_id] = _Stream(stream_id, vad, self._segmenter_factory())
+        self._streams[stream_id] = _Stream(stream_id, vad, self._segmenter_factory(), hint)
         self.stats.streams_opened += 1
 
     def _close(self, stream_id: int) -> None:
@@ -205,7 +209,7 @@ class WorkerSession:
                 self.stats.dropped_segments += 1
                 continue
             try:
-                text = await self._call_model(segment.pcm)
+                text = await self._call_model(segment.pcm, stream.hint)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -232,8 +236,21 @@ class WorkerSession:
             if len(self.stats.proc_ms) > 1000:
                 del self.stats.proc_ms[:500]
 
-    async def _call_model(self, pcm: bytes) -> str:
-        if self._run_blocking is None:
-            return self._transcribe(pcm)
+    async def _call_model(self, pcm: bytes, hint: str = "") -> str:
         transcribe = self._transcribe
-        return await self._run_blocking(lambda: transcribe(pcm))
+        call = (lambda: transcribe(pcm, hint)) if self._takes_hint else (lambda: transcribe(pcm))
+        if self._run_blocking is None:
+            return call()
+        return await self._run_blocking(call)
+
+
+def _takes_hint(transcribe: Transcribe) -> bool:
+    """(pcm, hint)를 받는 모델인가 — 시험용 가짜(pcm 하나)도 그대로 돈다"""
+    try:
+        params = list(inspect.signature(transcribe).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    if any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in params):
+        return True
+    positional = [p for p in params if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+    return len(positional) >= 2

@@ -61,3 +61,21 @@ class MessageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HintTest(unittest.TestCase):
+    """D-V3-127: open에 실린 받아쓰기 힌트 — 글이 아니거나 없으면 빈 글, 길면 한도까지만"""
+
+    def test_open_carries_hint(self):
+        message = parse_server_message('{"type":"open","stream":2,"hint":"이백팔번 오만 원. 아사달금, 녹금."}')
+        self.assertEqual((message.type, message.stream, message.hint), ("open", 2, "이백팔번 오만 원. 아사달금, 녹금."))
+
+    def test_missing_or_bad_hint_is_empty(self):
+        self.assertEqual(parse_server_message('{"type":"open","stream":1}').hint, "")
+        self.assertEqual(parse_server_message('{"type":"open","stream":1,"hint":5}').hint, "")
+        self.assertEqual(parse_server_message('{"type":"close","stream":1,"hint":"x"}').hint, "")
+
+    def test_long_hint_is_cut(self):
+        from livegenie_transcriber.protocol import HINT_MAX
+        message = parse_server_message(json.dumps({"type": "open", "stream": 1, "hint": "가" * (HINT_MAX + 50)}))
+        self.assertEqual(len(message.hint), HINT_MAX)

@@ -53,3 +53,42 @@ class WhisperLoadingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HintPromptTest(unittest.TestCase):
+    """D-V3-127: 위스퍼는 힌트를 앞 문장(prompt_ids)으로 받고, 토큰 한도로 자르며, 결과 앞에 되풀이된 앞 문장은 뗀다"""
+
+    def test_whisper_gets_prompt_ids_and_strips_echo(self):
+        from livegenie_transcriber.runtime import HINT_TOKEN_MAX, strip_prompt_echo
+        config = parse_args(["--server", "http://localhost:7700", "--token-file", "/test/token", "--model", "whisper", "--device", "cpu"], {})
+
+        class Tokenizer:
+            def __call__(self, text, add_special_tokens=False):
+                return SimpleNamespace(input_ids=list(range(len(text))))
+
+            def decode(self, ids):
+                return "잘림" + str(len(ids))
+
+        prompt_calls = []
+        processor = SimpleNamespace(tokenizer=Tokenizer(), feature_extractor=object(), get_prompt_ids=lambda text, return_tensors: prompt_calls.append(text) or ("ids", text))
+        recognizer = Mock(return_value={"text": "이백팔번 오만 원. 녹금. 십오번 이만 원"})
+        transformers = SimpleNamespace(AutoProcessor=SimpleNamespace(from_pretrained=Mock(return_value=processor)),
+                                       AutoModelForSpeechSeq2Seq=SimpleNamespace(from_pretrained=Mock(return_value=object())),
+                                       pipeline=lambda *a, **k: recognizer)
+        numpy = SimpleNamespace(frombuffer=Mock(return_value=FloatSamples()), float32="float32")
+        torch = SimpleNamespace(float32="float32", float16="float16")
+        with patch.dict("sys.modules", {"numpy": numpy, "torch": torch, "transformers": transformers}), patch("livegenie_transcriber.runtime.quiet_libraries"):
+            transcribe = load_transcriber(config)
+            self.assertEqual(transcribe(bytes(3200), "이백팔번 오만 원. 녹금."), "십오번 이만 원")
+            self.assertEqual(recognizer.call_args.kwargs["generate_kwargs"], {"language": "korean", "task": "transcribe", "prompt_ids": ("ids", "이백팔번 오만 원. 녹금.")})
+            # 같은 힌트는 한 번만 만든다
+            transcribe(bytes(3200), "이백팔번 오만 원. 녹금.")
+            self.assertEqual(prompt_calls, ["이백팔번 오만 원. 녹금."])
+            # 토큰 한도를 넘는 힌트는 잘라 쓴다
+            transcribe(bytes(3200), "가" * (HINT_TOKEN_MAX + 20))
+            self.assertEqual(prompt_calls[-1], f"잘림{HINT_TOKEN_MAX}")
+            # 힌트 없이도 그대로
+            transcribe(bytes(3200))
+            self.assertNotIn("prompt_ids", recognizer.call_args.kwargs["generate_kwargs"])
+        self.assertEqual(strip_prompt_echo("아사달금, 녹금.", "이백팔번 오만 원. 아사달금, 녹금."), "")
+        self.assertEqual(strip_prompt_echo("오만 원", "이백팔번 오만 원."), "오만 원")

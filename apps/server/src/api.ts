@@ -26,6 +26,7 @@ import { LOGIN_BUSY_MESSAGE, LOGIN_RATE_LIMITED_MESSAGE, clientAddress } from '.
 import { unknownFieldProblems } from './messages.ts'
 import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerVoiceAliasRoutes, type VoiceAliases } from './voice/aliases.ts'
+import { registerVoiceVarietyRoutes, type VoiceVarieties } from './voice/varieties.ts'
 import { registerStreamAudioRoutes } from './voice/stream-routes.ts'
 import type { StreamAudioService } from './voice/stream-service.ts'
 import { registerPrintRoutes } from './print-api.ts'
@@ -81,6 +82,8 @@ const HISTORY_LIMIT_MAX = 500
 
 export interface ApiDeps {
   readonly voiceAliases?: VoiceAliases
+  /** D-V3-127 내 품종 장부. 없으면 /api/voice/varieties 경로가 없다 */
+  readonly voiceVarieties?: VoiceVarieties
   readonly streamAudio?: { readonly db: Db; readonly service: StreamAudioService }
   readonly service: Service
   /** 정산 마무리 (I2 — 가게 설정·확인서·판매대장·포장·지난 구매·가져오기·백업·내려받기) */
@@ -984,6 +987,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // ── 출력 기록 (I1, LABEL_RULES L-11) ──────────────────────────────────
   if (deps.print !== undefined) registerPrintRoutes(api, deps.print)
   if (deps.voiceAliases !== undefined) registerVoiceAliasRoutes(api, deps.voiceAliases)
+  if (deps.voiceVarieties !== undefined && deps.voiceAliases !== undefined) { const aliases = deps.voiceAliases; registerVoiceVarietyRoutes(api, deps.voiceVarieties, { service: deps.service, learned: (sellerId) => aliases.read(sellerId) }) }
   if (deps.streamAudio !== undefined) registerStreamAudioRoutes(api, deps.streamAudio.db, deps.streamAudio.service)
 
   // ── 플랫폼 공통 라이브 연결·인스타그램 (N2) ────────────────────────────

@@ -12,6 +12,7 @@ import { AppHeader, BigButton, Card, ConfirmSheet, ErrorLine, ListRow, Toast, To
 import { SPACE } from '../ui/kit/tokens.ts'
 import { ScrollView } from 'react-native'
 import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
+import { VARIETIES_TITLE } from './VarietiesScreen.tsx'
 
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
 export const PERMISSION_WORDS = {
@@ -27,7 +28,7 @@ interface Done {
 }
 
 /** showPhoneNotice: 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)면 false — 칸을 숨긴다 */
-export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, showPhoneNotice = true }: { readonly onBack: () => void; readonly policyUrl?: string; readonly onOpenDesign?: () => void; readonly onOpenShop?: () => void; readonly showPhoneNotice?: boolean }) {
+export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, onOpenVarieties, showPhoneNotice = true }: { readonly onBack: () => void; readonly policyUrl?: string; readonly onOpenDesign?: () => void; readonly onOpenShop?: () => void; readonly onOpenVarieties?: () => void; readonly showPhoneNotice?: boolean }) {
   const { voice } = useServices()
   const { session, logout } = useSession()
   const view = useSyncExternalStore(voice.subscribe, voice.getView)
@@ -94,6 +95,8 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, sh
               // 잘못 문장은 어디서나 같은 모양 (D-UX3-51)
               <ErrorLine>{view.problem}</ErrorLine>
             ) : null}
+            {/* 내 품종 장부 (D-V3-127) — 직접 지은 이름도 알아듣게 */}
+            {onOpenVarieties !== undefined ? <ListRow title={VARIETIES_TITLE} subtitle="키우는 품종 이름을 적어 두면 더 잘 알아들어요." onPress={onOpenVarieties} /> : null}
             <Txt step="caption" color="textSub">{`마이크: ${PERMISSION_WORDS.microphone}`}</Txt>
             <Txt step="caption" color="textSub">{`블루투스: ${PERMISSION_WORDS.bluetooth}`}</Txt>
             <Txt step="caption" color="textSub">{`알림(안드로이드): ${PERMISSION_WORDS.notification}`}</Txt>

@@ -32,6 +32,10 @@ export interface VoiceRelayOptions {
   readonly workerToken?: string
   /** LV1: 휴대폰 마이크 흐름이 생기기 직전·끝난 뒤 (방송 소리는 마이크에 자리를 내준다, D-LV1-06) */
   readonly onMicChange?: (sellerId: string, active: boolean) => void
+  /** D-V3-127 받아쓰기 힌트(한글 수 보기 + 그 판매자 품종). 흐름을 열 때 open에 실어 보낸다 */
+  readonly hint?: (sellerId: string) => string
+  /** 흐름을 열기 전에 장부를 읽어 둔다 */
+  readonly warmHint?: (sellerId: string) => Promise<void>
   readonly reading?: (context: { session: SessionContext; broadcastId: string; device: string; mode: VoiceFlowMode; send: (message: unknown) => void }) => VoiceReadingSession | Promise<VoiceReadingSession>
 }
 interface Peer { readonly ws: WebSocket; pongAt: number }
@@ -250,12 +254,13 @@ export class VoiceRelay {
     }
     // 인증 조회 동안 로그아웃·방송 종료가 일어났으면 시작하지 않는다.
     if (!(await auth.alive(session.tokenHash))) { this.#finish(device, 'AUTH'); return }
+    await this.#options.warmHint?.(session.sellerId)
     const stillOpen = await findBroadcast(db, session.sellerId, device.broadcastId)
     if (!this.#devices.has(device)) return
     if (stillOpen?.endedAt !== null) { this.#finish(device, 'ENDED'); return }
     if (device.worker !== null) {
       if (device.worker.ws.readyState !== WebSocket.OPEN) { this.#finish(device, 'WORKER_LOST'); return }
-      send(device.worker.ws, { type: 'open', stream: device.stream })
+      send(device.worker.ws, { type: 'open', stream: device.stream, ...this.#hintField(session.sellerId) })
     }
     device.ready = true
     send(device.ws, { type: 'ready' })
@@ -287,12 +292,16 @@ export class VoiceRelay {
     if (reason !== undefined) send(device.ws, { type: 'closing', reason })
     if (device.ws.readyState === WebSocket.OPEN) device.ws.close()
   }
+  #hintField(sellerId: string): { hint?: string } {
+    const hint = this.#options.hint?.(sellerId)
+    return hint === undefined || hint === '' ? {} : { hint }
+  }
   /** 그 판매자의 휴대폰 마이크(받아쓰기 흐름)가 듣는 중인가 */
   micActive(sellerId: string): boolean {
     return this.#owners.get(sellerId)?.mode === 'livegenie'
   }
   /** 서버가 직접 소리를 넣는 흐름을 연다 (방송 소리). 일꾼이 없거나 다 차면 까닭 */
-  openExternal(onResult: External['onResult'], onLost: () => void): ExternalStream | 'NO_WORKER' | 'BUSY' {
+  openExternal(onResult: External['onResult'], onLost: () => void, sellerId?: string): ExternalStream | 'NO_WORKER' | 'BUSY' {
     if (this.#closed) return 'NO_WORKER'
     const worker = [...this.#workers].filter((candidate) => candidate.ws.readyState === WebSocket.OPEN && candidate.streams.size < candidate.capacity && candidate.nextStream <= 4_294_967_295)
       .sort((a, b) => (b.capacity - b.streams.size) - (a.capacity - a.streams.size))[0]
@@ -303,7 +312,7 @@ export class VoiceRelay {
     const stream = worker.nextStream++
     const entry: External = { external: true, onResult, onLost }
     worker.streams.set(stream, entry)
-    send(worker.ws, { type: 'open', stream })
+    send(worker.ws, { type: 'open', stream, ...(sellerId === undefined ? {} : this.#hintField(sellerId)) })
     const header = Buffer.allocUnsafe(4)
     header.writeUInt32BE(stream)
     let open = true

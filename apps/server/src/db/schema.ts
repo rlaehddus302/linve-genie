@@ -2387,6 +2387,13 @@ export const voiceAliases = pgTable('voice_aliases', {
   aliases: text('aliases').notNull().default('[]'),
 })
 
+/** D-V3-127 내 품종 장부: 판매자가 직접 적은 품종 이름 목록(JSON 배열). 음성 사전 맨 앞 + 받아쓰기 힌트. 백업 파일에 없고 복구가 지우지 않는다 */
+export const voiceVarieties = pgTable('voice_varieties', {
+  sellerId: text('seller_id').primaryKey().references(() => sellers.id),
+  names: text('names').notNull().default('[]'),
+  updatedAt: timestamptz('updated_at').notNull(),
+})
+
 // KP1 손님 장부 (CUSTOMER_RULES CR-1~CR-6, 마이그레이션 0031). 모두 판매자 ID 조건으로만 읽는다. 백업 파일에 없고 복구·가져오기가 지우지 않는다(RESTORE_KEPT_TABLES).
 /** 설정 "손님 관리"의 장부 칸 (판매자마다 한 줄, 없으면 12개월·손님 표시 켬) */
 export const ledgerSettings = pgTable('ledger_settings', {

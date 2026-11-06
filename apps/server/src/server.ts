@@ -10,6 +10,7 @@
 // N4a: 라벨 기능 켬/끔 알림(labels)을 허브에 잇는다.
 import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
 import { VoiceAliases } from './voice/aliases.ts'
+import { VoiceVarieties } from './voice/varieties.ts'
 import { VoiceRelay, registerVoiceRelay } from './voice/relay.ts'
 import { FfmpegAudioFeed, ffmpegAvailable, notLiveBackoff, webStreamLocator, ytDlpResolver, ytDlpTiktokResolver, type AudioFeed, type MediaProxySetting, type StreamLocator } from './voice/stream-audio.ts'
 import { StreamAudioService } from './voice/stream-service.ts'
@@ -412,6 +413,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.passwordVerifier === undefined ? {} : { verify: options.passwordVerifier }),
   })
   const voiceAliases = new VoiceAliases(db)
+  // D-V3-127 내 품종 장부 — 음성 사전 맨 앞·받아쓰기 힌트
+  const voiceVarieties = new VoiceVarieties(db, clock)
   const streamSetting = options.streamAudio
   // 허용하지 않는 프록시 값은 쓰지 않고(바로 나감 → 데이터센터면 막힘 → 휴대폰 마이크 안내) 시작 기록 한 줄. 판매는 그대로 한다
   if (streamSetting?.on === true && streamSetting.mediaProxy?.kind === 'rejected') log({ level: 'warn', code: 'STREAM_AUDIO_PROXY_IGNORED' })
@@ -431,9 +434,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
     clock,
     log,
     sellerOn: (sellerId) => sellerStreamAudioOn(db, sellerId),
+    warmHint: (sellerId) => voiceVarieties.warm(sellerId),
     ...(streamSetting?.schedule === undefined ? {} : { schedule: streamSetting.schedule }),
   })
-  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
+  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), hint: (sellerId) => voiceVarieties.hint(sellerId), warmHint: (sellerId) => voiceVarieties.warm(sellerId), reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, varieties: voiceVarieties, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
   let print: PrintService | null = null
   let writerRef: ScopeWriter | null = null
   const billing = new BillingService({
@@ -792,6 +796,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       hub,
       print: printService,
       voiceAliases,
+      voiceVarieties,
       streamAudio: { db, service: streamAudio },
       billing,
       instagram: instagramModule,
