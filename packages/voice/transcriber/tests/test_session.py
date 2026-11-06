@@ -261,3 +261,28 @@ class HintTest(unittest.IsolatedAsyncioTestCase):
         await session.drain()
         self.assertEqual(len(recorder.results(1)), 1)
         await session.close()
+
+
+class ConfidenceTest(unittest.IsolatedAsyncioTestCase):
+    """D-V3-130: 모델이 Transcript(글, 확신도)를 주면 result에 conf가 실리고, 글만 주면 conf가 없다"""
+
+    async def test_conf_is_sent_when_model_gives_it(self):
+        from livegenie_transcriber.session import Transcript
+
+        def model(pcm):
+            return Transcript(f"표본 {len(pcm) // 2}", 0.8349)
+
+        session, recorder = make(model=model)
+        await session.handle_text('{"type":"open","stream":1}')
+        await feed(session, 1, speech_then_pause())
+        await session.drain()
+        self.assertEqual(recorder.results(1)[0]["conf"], 0.83)
+        await session.close()
+
+    async def test_plain_text_has_no_conf(self):
+        session, recorder = make()
+        await session.handle_text('{"type":"open","stream":1}')
+        await feed(session, 1, speech_then_pause())
+        await session.drain()
+        self.assertNotIn("conf", recorder.results(1)[0])
+        await session.close()

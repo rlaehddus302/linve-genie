@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Deque, Dict, List, Optional, Protocol, Set, Tuple
+from typing import Any, Awaitable, Callable, Deque, Dict, List, NamedTuple, Optional, Protocol, Set, Tuple
 from collections import deque
 
 from .cleanup import clean_text
@@ -26,9 +26,16 @@ class Vad(Protocol):
 
 
 VadFactory = Callable[[], Vad]
-# 조각 소리(PCM16 16kHz) → 받아쓴 글. 무거운 일이라 따로 된 실행기에서 돈다.
+# 조각 소리(PCM16 16kHz) → 받아쓴 글(str) 또는 Transcript(글, 확신도 0~1). 무거운 일이라 따로 된 실행기에서 돈다.
 # (pcm) 또는 (pcm, hint) — 힌트를 받는 모델에는 그 흐름의 힌트(D-V3-127)를 같이 준다
-Transcribe = Callable[..., str]
+Transcribe = Callable[..., Any]
+
+
+class Transcript(NamedTuple):
+    """모델이 글과 함께 주는 확신도 (D-V3-130) — conf가 None이면 모름"""
+
+    text: str
+    conf: Optional[float] = None
 SendText = Callable[[str], Awaitable[None]]
 
 
@@ -209,7 +216,7 @@ class WorkerSession:
                 self.stats.dropped_segments += 1
                 continue
             try:
-                text = await self._call_model(segment.pcm, stream.hint)
+                produced = await self._call_model(segment.pcm, stream.hint)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -219,13 +226,18 @@ class WorkerSession:
             if not stream.open or self._closed:
                 self.stats.dropped_segments += 1
                 continue
+            conf: Optional[float] = None
+            if isinstance(produced, Transcript):
+                text, conf = produced.text, produced.conf
+            else:
+                text = produced
             # 위스퍼 헛소리(같은 말 끝없는 되풀이·일본 글자)는 보내지 않는다 (D-V3-126)
             text = clean_text(text) if isinstance(text, str) else ""
             if not text:
                 continue
             proc_ms = int(round((self._clock() - cut_at) * 1000))
             try:
-                await self._send_text(result_message(stream.id, text, segment.start_ms, segment.end_ms, proc_ms))
+                await self._send_text(result_message(stream.id, text, segment.start_ms, segment.end_ms, proc_ms, conf))
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -236,7 +248,7 @@ class WorkerSession:
             if len(self.stats.proc_ms) > 1000:
                 del self.stats.proc_ms[:500]
 
-    async def _call_model(self, pcm: bytes, hint: str = "") -> str:
+    async def _call_model(self, pcm: bytes, hint: str = "") -> Any:
         transcribe = self._transcribe
         call = (lambda: transcribe(pcm, hint)) if self._takes_hint else (lambda: transcribe(pcm))
         if self._run_blocking is None:

@@ -47,6 +47,8 @@ export function createReadingSession(options: ReadingSessionOptions) {
   const resumeScope = JSON.stringify([options.accountId ?? '', options.broadcastId ?? '', options.device])
   let clockOffset = 0
   let capturedAt: number | null = null
+  /** 마지막 결과의 받아쓰기 확신도 (D-V3-130) */
+  let lastConf: number | null = null
   let settings: unknown = null
   let smsSettings: unknown = null
   let consent = false
@@ -139,7 +141,8 @@ export function createReadingSession(options: ReadingSessionOptions) {
       const done = new Promise<boolean>((resolve) => { finish = resolve })
       const timer = setTimeout(() => finishRegistration(registration.no, false), 30_000)
       registering.set(registration.no, { cardId: card.id, card: toWire(card), name: registration.name, price: registration.price, done, finish, timer })
-      void effect('register', [card, registration, source, controller.voiceLogFor(card.text)])
+      const log = controller.voiceLogFor(card.text)
+      void effect('register', [card, registration, source, log === null || lastConf === null ? log : { ...log, conf: lastConf }])
     },
     focusQuick: () => { void effect('focusQuick', []) },
     newRequestId: () => globalThis.crypto.randomUUID(),
@@ -305,8 +308,10 @@ export function createReadingSession(options: ReadingSessionOptions) {
     onServerCapture(at: number): void {
       if (capturedAt === null && Number.isFinite(at)) capturedAt = at + clockOffset
     },
-    onResult(text: string, _startMs: number, endMs: number): void {
+    onResult(text: string, _startMs: number, endMs: number, conf?: number): void {
       if (closed || !initialized || text.length > 2000) return
+      // 확신도(D-V3-130): 등록은 거의 늘 마지막 결과로 일어나므로 그 조각의 확신도를 등록 기록에 붙인다(측정용)
+      lastConf = typeof conf === 'number' && Number.isFinite(conf) ? conf : null
       const spokenEndAt = capturedAt === null ? undefined : capturedAt + endMs
       const late = spokenEndAt === undefined || !Number.isFinite(spokenEndAt) || now() - spokenEndAt > 10_000 || spokenEndAt > now()
       automaticContext.run({ automatic: true, ...(spokenEndAt === undefined ? {} : { spokenEndAt }) }, () => engine.receive({ text, final: true, ...(late ? { flushedAtEnd: true } : {}) }))

@@ -14,7 +14,7 @@ import type { Clock } from '../time.ts'
 
 export type VoiceCloseReason = 'OTHER_DEVICE' | 'BUSY' | 'NO_WORKER' | 'ENDED' | 'AUTH' | 'RATE' | 'WORKER_LOST'
 export interface VoiceReadingSession {
-  onResult(result: { text: string; startMs: number; endMs: number }): void | Promise<void>
+  onResult(result: { text: string; startMs: number; endMs: number; conf?: number }): void | Promise<void>
   onMessage(message: unknown): void | Promise<void>
   /** 서버가 받은 방송 소리의 시각 0 (서버 시계) — 없으면 기기가 보낸 capture처럼 쓴다 */
   onServerCapture?(at: number): void | Promise<void>
@@ -40,7 +40,7 @@ export interface VoiceRelayOptions {
 }
 interface Peer { readonly ws: WebSocket; pongAt: number }
 /** 서버가 직접 여는 흐름 (방송 소리, LV1) — 기기 대신 서버가 소리를 넣고 글을 받는다 */
-interface External { readonly external: true; readonly onResult: (result: { text: string; startMs: number; endMs: number }) => void; readonly onLost: () => void }
+interface External { readonly external: true; readonly onResult: (result: { text: string; startMs: number; endMs: number; conf?: number }) => void; readonly onLost: () => void }
 interface Worker extends Peer { capacity: number; nextStream: number; readonly streams: Map<number, Device | External> }
 export interface ExternalStream { send(pcm: Buffer): boolean; close(): void }
 const isExternal = (x: Device | External): x is External => 'external' in x
@@ -164,7 +164,9 @@ export class VoiceRelay {
         !natural(value.startMs) || !natural(value.endMs) || value.startMs > value.endMs || !natural(value.procMs)) return
       const device = worker.streams.get(value.stream)
       if (device === undefined) return
-      const result = { text: value.text, startMs: value.startMs, endMs: value.endMs }
+      // conf(D-V3-130): 모델 확신도 0~1 — 있을 때만 그대로 넘긴다(기록·측정용, 판정을 바꾸지 않는다)
+      const conf = typeof value.conf === 'number' && Number.isFinite(value.conf) && value.conf >= 0 && value.conf <= 1 ? value.conf : undefined
+      const result = { text: value.text, startMs: value.startMs, endMs: value.endMs, ...(conf === undefined ? {} : { conf }) }
       if (isExternal(device)) {
         this.#samples.push({ at: this.#options.clock.now(), ms: value.procMs })
         this.#trimSamples()
@@ -334,7 +336,7 @@ export class VoiceRelay {
    * 방송 소리에서 받아쓴 글을 그 방송 콘솔(마이크 아닌 조작 흐름)의 읽기로 넘긴다. 시각은 서버가 조각을 받은 시각(밀리초, UTC).
    * 넘길 콘솔이 없으면 false — 아무도 못 보는 바로 등록은 하지 않는다 (D-LV1-03)
    */
-  deliver(sellerId: string, broadcastId: string, result: { text: string; startAt: number; endAt: number }): boolean {
+  deliver(sellerId: string, broadcastId: string, result: { text: string; startAt: number; endAt: number; conf?: number }): boolean {
     const device = this.#owners.get(sellerId)
     if (device === undefined || device.mode === 'livegenie' || device.broadcastId !== broadcastId || !device.ready || device.reading === null) return false
     if (device.captureAt === null) {
@@ -343,7 +345,7 @@ export class VoiceRelay {
       this.#enqueue(device, () => device.reading?.onServerCapture ? device.reading.onServerCapture(at) : device.reading?.onMessage({ type: 'voice.session', op: 'capture', at }))
     }
     const base = device.captureAt
-    const shifted = { text: result.text, startMs: Math.max(0, result.startAt - base), endMs: Math.max(0, result.endAt - base) }
+    const shifted = { text: result.text, startMs: Math.max(0, result.startAt - base), endMs: Math.max(0, result.endAt - base), ...(result.conf === undefined ? {} : { conf: result.conf }) }
     send(device.ws, { type: 'result', ...shifted })
     this.#enqueue(device, () => device.reading?.onResult(shifted))
     return true

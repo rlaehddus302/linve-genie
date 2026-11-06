@@ -3,7 +3,7 @@
 #  - 서버 → 일꾼: {"type":"open","stream":n,"hint":"…"} · {"type":"close","stream":n} (n = 1 ~ 4,294,967,295)
 #    hint(D-V3-127, 없어도 됨): 받아쓰기 힌트 — 한글 수 보기 + 그 판매자 품종 이름. HINT_MAX 글자까지만 쓴다
 #  - 이진 틀 = 흐름 번호 4바이트(big-endian 부호 없는 정수) + PCM16 little-endian 16kHz 모노
-#  - 일꾼 → 서버: {"type":"result","stream":n,"text":"…","startMs":정수,"endMs":정수,"procMs":정수} (빈 글은 보내지 않는다)
+#  - 일꾼 → 서버: {"type":"result","stream":n,"text":"…","startMs":정수,"endMs":정수,"procMs":정수,"conf":0~1} (빈 글은 보내지 않는다, conf는 모델이 줄 때만)
 # 받은 것이 약속과 다르면 예외를 던지지 않고 None을 돌려준다(버린다).
 from __future__ import annotations
 
@@ -82,9 +82,9 @@ def hello_message(max_streams: int) -> str:
     return json.dumps({"type": "hello", "maxStreams": max_streams}, separators=(",", ":"))
 
 
-def result_message(stream: int, text: str, start_ms: int, end_ms: int, proc_ms: int) -> str:
-    return json.dumps(
-        {"type": "result", "stream": stream, "text": text, "startMs": start_ms, "endMs": end_ms, "procMs": max(0, proc_ms)},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
+def result_message(stream: int, text: str, start_ms: int, end_ms: int, proc_ms: int, conf: Optional[float] = None) -> str:
+    """conf(D-V3-130, 없어도 됨): 모델이 그 글을 얼마나 확신하는지 0~1 (토큰 평균 확률) — 서버가 음성 기록에 남겨 애매함을 잰다"""
+    message = {"type": "result", "stream": stream, "text": text, "startMs": start_ms, "endMs": end_ms, "procMs": max(0, proc_ms)}
+    if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= float(conf) <= 1.0:
+        message["conf"] = round(float(conf), 2)
+    return json.dumps(message, ensure_ascii=False, separators=(",", ":"))

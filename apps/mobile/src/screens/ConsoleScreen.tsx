@@ -39,6 +39,8 @@ import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobi
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
 const RETURN_WAIT_MS = 3000
+/** 채팅 의심 표시 읽는 간격 (D-V3-129) */
+const DOUBT_POLL_MS = 20_000
 
 export function useScopeStore(broadcastId: string): { store: ScopeStore; snapshot: ScopeSnapshot } {
   const services = useServices()
@@ -248,6 +250,21 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   }, [live, knownOver, broadcastId, streamTitle, services])
   const stream = useKeptStream(services.streamKeep, broadcastId)
 
+  // 채팅 의심 표시 (D-V3-129): 방송 중·판매자일 때 20초마다 읽는다 — 등록을 바꾸지 않고 줄에 문장만
+  const [doubts, setDoubts] = useState<ReadonlyMap<number, string>>(new Map())
+  useEffect(() => {
+    if (!live) return
+    let stop = false
+    const read = () => {
+      get<{ doubts: readonly { no: number; text: string }[] }>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/voice-doubts`).then((body) => {
+        if (!stop) setDoubts(new Map(body.doubts.map((doubt) => [doubt.no, doubt.text])))
+      }, () => undefined)
+    }
+    read()
+    const timer = setInterval(read, DOUBT_POLL_MS)
+    return () => { stop = true; clearInterval(timer) }
+  }, [live, broadcastId])
+
   // 상품이 없는 새 방송이 유튜브에 이어져 있지 않으면 연결 화면을 한 번 연다 — 새 방송 화면에서 주소 단계를 이미 거쳤으면 열지 않는다 (D-UX3-06)
   const askedLink = useRef(wasLinkAsked(broadcastId))
   const productCount = data === null ? -1 : boardProducts(data, broadcastId).length
@@ -312,7 +329,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     )
   }
 
-  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), select: setSelected, selected, labelWords }
+  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), select: setSelected, selected, labelWords, doubts }
   const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed

@@ -400,6 +400,8 @@ export interface VoiceLogInput {
   readonly source?: 'voice'
   readonly undo?: string
   readonly device?: string
+  /** 받아쓰기 모델 확신도 0~1 (D-V3-130, 서버 읽기 경로만) */
+  readonly conf?: number
 }
 
 /** 음성 고치기·옮기기 쓰기의 덧붙임 */

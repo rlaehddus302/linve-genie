@@ -2,11 +2,14 @@
 # 단위 시험은 이 파일을 불러오지 않는다. 모델은 한국어로 고정한다. 소리·글을 디스크·로그에 남기지 않는다.
 from __future__ import annotations
 
+import math
 import os
+import sys
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from .config import LANGUAGE, Config
 from .segmenter import SAMPLE_RATE
+from .session import Transcript
 
 SILERO_WINDOW = 512  # 16kHz에서 32ms
 SILERO_CONTEXT = 64
@@ -113,6 +116,23 @@ def _cached_first(load: Callable[[bool], Any]) -> Any:
 
 # 위스퍼 앞 문장 한도는 224토큰 — 시작 표시 몫을 빼고 넉넉히
 HINT_TOKEN_MAX = 190
+# 조각 하나(8초까지)의 글 토큰 상한 — 소리 없는 조각에 힌트를 끝없이 베끼는 것을 끊는다 (D-V3-130; 8초 말은 40토큰 안팎)
+MAX_NEW_TOKENS = 96
+
+
+def confidence_of(log_probs: Any) -> Optional[float]:
+    """토큰 로그 확률 목록 → 평균 확률 0~1 (무한·NaN은 뺀다). 토큰이 없으면 None"""
+    values = []
+    for value in log_probs if isinstance(log_probs, (list, tuple)) else []:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            values.append(number)
+    if not values:
+        return None
+    return max(0.0, min(1.0, math.exp(sum(values) / len(values))))
 
 
 def strip_prompt_echo(text: str, prompt: str) -> str:
@@ -174,11 +194,6 @@ def load_transcriber(config: Config) -> Callable[..., str]:
         model = _cached_first(
             lambda local: AutoModelForSpeechSeq2Seq.from_pretrained(config.model_id, dtype=dtype, local_files_only=local)
         )
-        recognizer = pipeline(
-            "automatic-speech-recognition", model=model, tokenizer=processor.tokenizer,
-            feature_extractor=processor.feature_extractor, dtype=dtype, device=device,
-        )
-
         # 힌트(D-V3-127): 한글 수 보기 + 판매자 품종 이름을 앞 문장(prompt)으로 — 토큰 한도 안으로 자르고, 같은 힌트는 한 번만 만든다
         prompts: Dict[str, Tuple[str, Any]] = {}
 
@@ -190,12 +205,47 @@ def load_transcriber(config: Config) -> Callable[..., str]:
             ids = tokenizer(hint, add_special_tokens=False).input_ids
             text = hint if len(ids) <= HINT_TOKEN_MAX else str(tokenizer.decode(ids[:HINT_TOKEN_MAX]))
             prompt_ids = processor.get_prompt_ids(text, return_tensors="pt")
+            if hasattr(prompt_ids, "to"):
+                prompt_ids = prompt_ids.to(device)
             if len(prompts) >= 16:
                 prompts.clear()
             prompts[hint] = (text, prompt_ids)
             return prompts[hint]
 
-        def transcribe(pcm: bytes, hint: str = "") -> str:
+        # 확신도(D-V3-130): pipeline 대신 generate를 바로 불러 토큰 확률을 받는다(정적 캐시 — 맥 mps에서 동적 캐시는 scores와 함께 못 돈다).
+        # 이 길이 막히면(다른 transformers·장치) 예전 pipeline 길로 돌아가고 확신도는 없다.
+        scored = model.to(device) if hasattr(model, "to") else model
+        if hasattr(scored, "eval"):
+            scored.eval()
+
+        def transcribe_scored(pcm: bytes, hint: str = "") -> Transcript:
+            generate_kwargs: Dict[str, Any] = {
+                "language": "korean", "task": "transcribe", "return_dict_in_generate": True, "output_scores": True,
+                "cache_implementation": "static", "max_new_tokens": MAX_NEW_TOKENS,
+            }
+            used = ""
+            if hint:
+                used, prompt_ids = prompt_for(hint)
+                generate_kwargs["prompt_ids"] = prompt_ids
+            features = processor.feature_extractor(to_float(pcm), sampling_rate=SAMPLE_RATE, return_tensors="pt").input_features
+            features = features.to(device, dtype=dtype)
+            with torch.inference_mode():
+                out = scored.generate(features, **generate_kwargs)
+            text = str(processor.batch_decode(out.sequences, skip_special_tokens=True)[0])
+            rows = scored.compute_transition_scores(out.sequences, out.scores, normalize_logits=True)
+            conf = confidence_of(rows[0].tolist())
+            sync()
+            return Transcript(strip_prompt_echo(text, used), conf)
+
+        recognizer: Any = None
+
+        def transcribe_plain(pcm: bytes, hint: str = "") -> Transcript:
+            nonlocal recognizer
+            if recognizer is None:
+                recognizer = pipeline(
+                    "automatic-speech-recognition", model=model, tokenizer=processor.tokenizer,
+                    feature_extractor=processor.feature_extractor, dtype=dtype, device=device,
+                )
             generate_kwargs: Dict[str, Any] = {"language": "korean", "task": "transcribe"}
             used = ""
             if hint:
@@ -204,7 +254,22 @@ def load_transcriber(config: Config) -> Callable[..., str]:
             result = recognizer({"raw": to_float(pcm), "sampling_rate": SAMPLE_RATE}, generate_kwargs=generate_kwargs)
             sync()
             text = str(result.get("text", "") if isinstance(result, dict) else "")
-            return strip_prompt_echo(text, used)
+            return Transcript(strip_prompt_echo(text, used), None)
+
+        chosen: Dict[str, Callable[..., Transcript]] = {}
+
+        def transcribe(pcm: bytes, hint: str = "") -> Transcript:
+            run = chosen.get("run")
+            if run is None:
+                try:
+                    produced = transcribe_scored(pcm, hint)
+                    chosen["run"] = transcribe_scored
+                    return produced
+                except Exception as error:  # noqa: BLE001 — 어떤 까닭이든 예전 길로
+                    sys.stderr.write(f"확신도 길을 못 써서 예전 길로 돌아가요: {type(error).__name__}\n")
+                    chosen["run"] = transcribe_plain
+                    return transcribe_plain(pcm, hint)
+            return run(pcm, hint)
 
     # 처음 한 번은 느리다 — 조용한 1초로 미리 데운다
     transcribe(bytes(SAMPLE_RATE * 2))

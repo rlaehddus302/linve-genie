@@ -260,11 +260,11 @@ export class StreamAudioService {
       else this.#watchStall(listen, generation)
     }, STREAM_STALL_CHECK_MS)
   }
-  #result(listen: Listen, generation: number, result: { text: string; startMs: number; endMs: number }): void {
+  #result(listen: Listen, generation: number, result: { text: string; startMs: number; endMs: number; conf?: number }): void {
     if (!this.#live(listen, generation) || this.#relay === null) return
     const now = this.#o.clock.now()
     const endAt = Math.min(listen.base + result.endMs, now)
-    const delivered = this.#relay.deliver(listen.sellerId, listen.broadcastId, { text: result.text, startAt: Math.min(listen.base + result.startMs, endAt), endAt })
+    const delivered = this.#relay.deliver(listen.sellerId, listen.broadcastId, { text: result.text, startAt: Math.min(listen.base + result.startMs, endAt), endAt, ...(result.conf === undefined ? {} : { conf: result.conf }) })
     if (!delivered && !listen.delivered) {
       listen.delivered = true
       this.#o.log({ level: 'info', code: 'STREAM_AUDIO_NO_CONSOLE', seller: listen.sellerId })

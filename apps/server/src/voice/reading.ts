@@ -114,7 +114,7 @@ export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWr
       },
     })
     return {
-      async onResult(result) { await refresh(); if (!closed) reader.onResult(result.text, result.startMs, result.endMs) },
+      async onResult(result) { await refresh(); if (!closed) reader.onResult(result.text, result.startMs, result.endMs, result.conf) },
       async onMessage(value) { await refresh(); if (!closed) reader.onMessage(value) },
       async onServerCapture(at) { await refresh(); if (!closed) reader.onServerCapture(at) },
       refresh,

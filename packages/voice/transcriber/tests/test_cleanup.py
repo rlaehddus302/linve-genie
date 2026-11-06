@@ -25,3 +25,14 @@ class CleanupTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LongRepeatTest(unittest.TestCase):
+    """D-V3-130: 힌트를 준 위스퍼가 소리 없는 조각에 힌트 문장을 수백 번 베낀다 — 긴 문장 되풀이도 거른다"""
+
+    def test_repeated_hint_sentence_is_dropped(self):
+        self.assertEqual(clean_text("삼백육번 십이만 원. " * 40), "")
+        self.assertEqual(clean_text("이백팔번 오만 원. 삼백육번 십이만 원. 삼백육번 십이만 원. 삼백육번 십이만 원. 삼백육번 십이만 원."), "이백팔번 오만 원.")
+
+    def test_twice_is_not_a_loop(self):
+        self.assertEqual(clean_text("삼백육번 십이만 원. 삼백육번 십이만 원."), "삼백육번 십이만 원. 삼백육번 십이만 원.")

@@ -163,7 +163,7 @@ export function ProductDetail({ product, onDecide }: { readonly product: Product
   )
 }
 
-function ProductRow({ product, fresh, onOpen, badge }: { readonly product: Product; readonly fresh: boolean; readonly onOpen: () => void; readonly badge?: string }) {
+function ProductRow({ product, fresh, onOpen, badge, doubt }: { readonly product: Product; readonly fresh: boolean; readonly onOpen: () => void; readonly badge?: string; readonly doubt?: string }) {
   const { p } = useKit()
   const api = useConsoleApi()
   const conflicts = claimsOfProduct(api.data, product).filter((claim) => claim.status === 'CONFLICT').length
@@ -196,6 +196,8 @@ function ProductRow({ product, fresh, onOpen, badge }: { readonly product: Produ
         {words.wait === '' ? null : <Txt ink={words.attention ? p.warnText : p.textSub}>{words.wait}</Txt>}
         {badge !== undefined && !words.attention && !words.empty ? <Tag tone={badge === '입금 늦음 주의' ? 'warning' : badge.startsWith('단골') ? 'success' : 'info'}>{badge}</Tag> : null}
       </View>
+      {/* 채팅 의심 표시 (D-V3-129): 자동으로 고치지 않고 판매자가 확인한다 */}
+      {doubt === undefined ? null : <Txt step="caption" weight="bold" ink={p.warnText} role="note" aria-label={`번호 확인 — ${String(product.no)}번`}>{doubt}</Txt>}
     </Pressable>
   )
 }
@@ -211,7 +213,7 @@ export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void
   return (
     <View role="list" aria-label="상품 목록" style={{ gap: SPACE.sm }}>
       {products.map((product) => (
-        <ProductRow key={product.key} product={product} fresh={product.key === freshKey} onOpen={() => onOpen(product.key)} badge={badges.get(productSlots(product).winners[0] ?? '')} />
+        <ProductRow key={product.key} product={product} fresh={product.key === freshKey} onOpen={() => onOpen(product.key)} badge={badges.get(productSlots(product).winners[0] ?? '')} doubt={api.doubts?.get(product.no)} />
       ))}
     </View>
   )

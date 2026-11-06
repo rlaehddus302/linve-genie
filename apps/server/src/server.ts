@@ -797,6 +797,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       print: printService,
       voiceAliases,
       voiceVarieties,
+      voiceDoubts: { db, clock },
       streamAudio: { db, service: streamAudio },
       billing,
       instagram: instagramModule,

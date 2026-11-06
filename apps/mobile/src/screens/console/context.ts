@@ -12,6 +12,8 @@ export interface ConsoleApi {
   readonly sealed: boolean
   /** 쓰기: 요청 번호를 붙여 보내고 응답 seq까지 따라잡는다 */
   readonly command: (event: Readonly<Record<string, unknown>>, requestId?: string) => Promise<WriteResult>
+  /** 채팅 의심 표시 (D-V3-129): 번호 → 문장 ("채팅은 81번을 찾아요 …") */
+  readonly doubts?: ReadonlyMap<number, string>
   /** 다른 길로 쓴 뒤(상품 목록 가져오기) 응답 seq까지 따라잡는다 */
   readonly sync?: (seq: number) => Promise<void>
   /** 상품 고르기 (현재 상품 칸) */

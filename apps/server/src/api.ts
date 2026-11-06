@@ -27,6 +27,7 @@ import { unknownFieldProblems } from './messages.ts'
 import { DEVICE_ID_RE, type PrintService } from './print.ts'
 import { registerVoiceAliasRoutes, type VoiceAliases } from './voice/aliases.ts'
 import { registerVoiceVarietyRoutes, type VoiceVarieties } from './voice/varieties.ts'
+import { registerChatDoubtRoutes } from './voice/doubts.ts'
 import { registerStreamAudioRoutes } from './voice/stream-routes.ts'
 import type { StreamAudioService } from './voice/stream-service.ts'
 import { registerPrintRoutes } from './print-api.ts'
@@ -41,6 +42,7 @@ import { registerTiktokRoutes } from './tiktok-live/routes.ts'
 import type { BandService } from './band/service.ts'
 import { isBandPublicPath, registerBandRoutes } from './band-routes.ts'
 import type { Db } from './db/database.ts'
+import type { Clock } from './time.ts'
 import { MESSAGES_LIMIT_DEFAULT, MESSAGES_LIMIT_MAX, Service } from './service.ts'
 import { PUBLIC_PRICING_PATH, WEBHOOK_PATH, registerBillingRoutes } from './billing/api.ts'
 import type { BillingService } from './billing/service.ts'
@@ -84,6 +86,8 @@ export interface ApiDeps {
   readonly voiceAliases?: VoiceAliases
   /** D-V3-127 내 품종 장부. 없으면 /api/voice/varieties 경로가 없다 */
   readonly voiceVarieties?: VoiceVarieties
+  /** D-V3-129 채팅 의심 표시. 없으면 /api/broadcasts/:id/voice-doubts 경로가 없다 */
+  readonly voiceDoubts?: { readonly db: Db; readonly clock: Clock }
   readonly streamAudio?: { readonly db: Db; readonly service: StreamAudioService }
   readonly service: Service
   /** 정산 마무리 (I2 — 가게 설정·확인서·판매대장·포장·지난 구매·가져오기·백업·내려받기) */
@@ -989,6 +993,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   if (deps.voiceAliases !== undefined) registerVoiceAliasRoutes(api, deps.voiceAliases)
   if (deps.voiceVarieties !== undefined && deps.voiceAliases !== undefined) { const aliases = deps.voiceAliases; registerVoiceVarietyRoutes(api, deps.voiceVarieties, { service: deps.service, learned: (sellerId) => aliases.read(sellerId) }) }
   if (deps.streamAudio !== undefined) registerStreamAudioRoutes(api, deps.streamAudio.db, deps.streamAudio.service)
+  if (deps.voiceDoubts !== undefined) registerChatDoubtRoutes(api, { db: deps.voiceDoubts.db, clock: deps.voiceDoubts.clock, service: deps.service })
 
   // ── 플랫폼 공통 라이브 연결·인스타그램 (N2) ────────────────────────────
   // 플랫폼 능력 조회의 YOUTUBE.ready = 유튜브 연동 설정(Y1)이 있는지. 유튜브 잇기 자체는 /api/youtube 경로(Y1)가 맡는다
