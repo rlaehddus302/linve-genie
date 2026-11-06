@@ -58,7 +58,7 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     expect(container).toBeTruthy()
   })
 
-  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 상자는 테이프 자리 윗선까지 뚫린다 (D-UX3-13)', () => {
+  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 칸도 채우지 않고 선만 그린다 (D-UX3-13·44)', () => {
     const world = makeWorld()
     // D-UX3-39: 프린터 아이콘은 막대에 없다(라벨 프린터는 전체 안) — 아이콘 자체는 그대로라 따로 그려 본다
     const { container } = render(world.wrap(<><TabBar active="packing" onSelect={() => {}} /><TabIcon name="printer" color="#000" cut="#fff" /></>))
@@ -67,13 +67,15 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     const printer = svgs[5]
     // 집은 문 홈이 든 한 줄 모양(따로 그린 문 없음)
     expect(home?.querySelectorAll('path')).toHaveLength(1)
-    expect(home?.querySelector('path')?.getAttribute('d')).toContain('H14.1 V16.2')
+    // D-UX3-44: 문 너비 5.2 (9.4~14.6)
+    expect(home?.querySelector('path')?.getAttribute('d')).toContain('H14.6 V16.4')
     // 프린터 몸통은 종이 앞(7~17)에서 끊긴 열린 모양 (D-UX3-15: 첫 줄은 위 받침 — 몸통은 둘째)
     const bodyLine = printer?.querySelectorAll('path')[1]?.getAttribute('d') ?? ''
     expect(bodyLine.startsWith('M7 17.4')).toBe(true)
     expect(bodyLine.endsWith('H17')).toBe(true)
-    // 고른 상자: 테이프 뚫기가 윗선 위(2.4)부터
-    expect([...(box?.querySelectorAll('path') ?? [])].some((path) => path.getAttribute('d')?.startsWith('M10.2 2.4') === true)).toBe(true)
+    // D-UX3-44: 고른 상자(포장)도 채우지 않는다 — 테이프는 윗선(3.8)에서 내려오는 선
+    expect([...(box?.querySelectorAll('path') ?? [])].some((path) => path.getAttribute('d')?.startsWith('M10.5 3.8') === true)).toBe(true)
+    for (const svg of svgs.slice(0, 5)) for (const shape of svg.querySelectorAll('path, circle')) expect(shape.getAttribute('fill')).toBe('none')
     // 모서리는 원호(A)가 아니라 아이폰 연속 곡률 곡선(C) — 집 문 홈만 원호 (D-UX3-15)
     for (const svg of [printer, box]) for (const path of svg?.querySelectorAll('path') ?? []) expect(path.getAttribute('d')).not.toMatch(/A/)
   })

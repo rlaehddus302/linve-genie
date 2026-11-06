@@ -224,8 +224,8 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
                 }} style={({ pressed }) => ({ flex: 1, minHeight: TAB_CELL, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
                 {({ pressed }) => (
                   <>
-                    <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : p.soft} />
-                    <Txt step="tab" weight={on ? 'bold' : 'medium'} ink={ink}>
+                    <TabIcon name={tab.icon} color={ink} size={26} cut={pressed ? p.softPressed : p.soft} />
+                    <Txt step="tab" weight="medium" ink={ink}>
                       {tab.word}
                     </Txt>
                   </>
