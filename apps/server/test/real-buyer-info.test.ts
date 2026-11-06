@@ -34,6 +34,57 @@ describe('ORD-14 손님 정보 문자 읽기', () => {
   })
 })
 
+// 손님이 실제로 보낼 법한 여러 모양 (D-REAL-12): 띄어쓰기 없음·줄 가운데 꼬리표·이모지·우편번호·인사말·부탁 말·주소 뒤 이름.
+// 새로 못 읽은 모양이 나오면 여기에 더한다 — 고칠 때 전에 읽던 모양이 깨지지 않게.
+const SHAPES: readonly (readonly [string, { address: string; detail: string; name?: string | null; nickname?: string | null; word?: string }])[] = [
+  ['닉네임 나래 김나래 부산 해운대구 우동 1408-3 101동 1203호', { nickname: '나래', word: '김나래', address: '부산 해운대구 우동 1408-3', detail: '101동 1203호' }],
+  ['김나래\n부산광역시 해운대구 센텀중앙로 79\n센텀아이파크 101동 1203호\n010-1234-5678', { word: '김나래', address: '부산광역시 해운대구 센텀중앙로 79', detail: '센텀아이파크 101동 1203호' }],
+  ['서울시강남구테헤란로12 3층 홍길동', { word: '홍길동', address: '서울시 강남구 테헤란로12', detail: '3층' }],
+  ['서울 강남 테헤란로 12 홍길동', { word: '홍길동', address: '서울 강남 테헤란로 12', detail: '' }],
+  ['경기 성남시 분당구 판교로228번길 15 판교세븐벤처밸리 3층', { address: '경기 성남시 분당구 판교로228번길 15', detail: '판교세븐벤처밸리 3층' }],
+  ['홍길동 010.1234.5678 경기도 성남시 분당구 판교역로 235', { word: '홍길동', address: '경기도 성남시 분당구 판교역로 235', detail: '' }],
+  ['(06234) 서울특별시 강남구 테헤란로 152 강남파이낸스센터 21층 / 이민수 / 닉 민수짱', { nickname: '민수짱', word: '이민수', address: '서울특별시 강남구 테헤란로 152', detail: '강남파이낸스센터 21층' }],
+  ['주소는 대전광역시 유성구 대학로 99 이고요 받는분은 박지성입니다', { name: '박지성', address: '대전광역시 유성구 대학로 99', detail: '' }],
+  ['충북 청주시 흥덕구 오송읍 오송생명로 187 식약처 정문 경비실 앞에 놔주세요', { address: '충북 청주시 흥덕구 오송읍 오송생명로 187', detail: '식약처 정문 경비실 앞에 놔주세요' }],
+  ['제주 제주시 첨단로 242 카카오 스페이스닷원', { address: '제주 제주시 첨단로 242', detail: '카카오 스페이스닷원' }],
+  ['세종 한누리대로 2130 정부청사 정민호', { word: '정민호', address: '세종 한누리대로 2130', detail: '정부청사' }],
+  ['세종시한누리대로2130 정민호', { word: '정민호', address: '세종시 한누리대로2130', detail: '' }],
+  ['충청남도 공주시 우성면 증산리 1034 박민수 01098765432', { word: '박민수', address: '충청남도 공주시 우성면 증산리 1034', detail: '' }],
+  ['충청남도공주시우성면증산리1034', { address: '충청남도 공주시 우성면 증산리1034', detail: '' }],
+  ['서울 송파구 잠실동 40-1 잠실엘스 112동 802호 최유진', { word: '최유진', address: '서울 송파구 잠실동 40-1', detail: '잠실엘스 112동 802호' }],
+  ['인천 연수구 송도동 24-5 송도더샵 101-1502 김하늘', { word: '김하늘', address: '인천 연수구 송도동 24-5', detail: '송도더샵 101-1502' }],
+  ['이름 : 김철수\n주소 : 광주 북구 용봉로 77 전남대 기숙사 8동\n폰 : 010 2222 3333', { name: '김철수', address: '광주 북구 용봉로 77', detail: '전남대 기숙사 8동' }],
+  ['안녕하세요 사장님~ 아까 3번 찜한 다육맘이에요ㅎㅎ 서울 마포구 월드컵북로 396 누리꿈스퀘어 10층 이수진 앞으로 보내주세요!!', { word: '이수진', address: '서울 마포구 월드컵북로 396', detail: '누리꿈스퀘어 10층' }],
+  ['😊닉:초록이😊 경남 창원시 의창구 중앙대로 151 / 010-3333-4444 / 이영희', { nickname: '초록이', word: '이영희', address: '경남 창원시 의창구 중앙대로 151', detail: '' }],
+  ['울산 남구 삼산로 274 강민지', { word: '강민지', address: '울산 남구 삼산로 274', detail: '' }],
+  ['경북 포항시 남구 지곡로 80 포스텍 학생회관 우편함 김연아', { word: '김연아', address: '경북 포항시 남구 지곡로 80', detail: '포스텍 학생회관 우편함' }],
+  ['서울 관악구 관악로 1 서울대학교 301동 1층', { address: '서울 관악구 관악로 1', detail: '서울대학교 301동 1층' }],
+  ['받는사람 정우성 서울 종로구 세종대로 209', { name: '정우성', address: '서울 종로구 세종대로 209', detail: '' }],
+  ['강원특별자치도 춘천시 중앙로 1 이지은', { word: '이지은', address: '강원특별자치도 춘천시 중앙로 1', detail: '' }],
+  ['전북특별자치도 전주시 완산구 효자로 225 박서준', { word: '박서준', address: '전북특별자치도 전주시 완산구 효자로 225', detail: '' }],
+  ['경기도 수원시 영통구 매탄동 129 삼성디지털시티', { address: '경기도 수원시 영통구 매탄동 129', detail: '삼성디지털시티' }],
+  ['서울특별시 중구 세종대로110 시청', { address: '서울특별시 중구 세종대로110', detail: '시청' }],
+  ['부산 사하구 다대로 1 다대포 해수욕장앞 민박', { address: '부산 사하구 다대로 1', detail: '다대포 해수욕장앞 민박' }],
+  ['경기 화성시 동탄대로 446-11 동탄호수공원아파트 1001동 1001호', { address: '경기 화성시 동탄대로 446-11', detail: '동탄호수공원아파트 1001동 1001호' }],
+  ['gildong / 서울 강서구 공항대로 247 / 홍길동', { word: '홍길동', address: '서울 강서구 공항대로 247', detail: '' }],
+  ['대구 수성구 범어동 177-3 범어아이파크 2단지', { address: '대구 수성구 범어동 177-3', detail: '범어아이파크 2단지' }],
+  ['대구수성구범어동177-3', { address: '대구 수성구 범어동177-3', detail: '' }],
+  ['경기 고양시 일산동구 중앙로 1275번길 38-10', { address: '경기 고양시 일산동구 중앙로 1275번길 38-10', detail: '' }],
+  ['제 이름은 홍길동이고 주소는 경기도남양주시화도읍마석로12 입니다', { name: '홍길동', address: '경기도 남양주시 화도읍 마석로12', detail: '' }],
+  ['서울 강서구 공항대로 247 우체국 앞 경비실', { address: '서울 강서구 공항대로 247', detail: '우체국 앞 경비실' }],
+]
+
+describe('ORD-14 손님 정보 문자 여러 모양 (D-REAL-12)', () => {
+  for (const [text, want] of SHAPES) {
+    it(text.replace(/\n/g, ' / '), () => {
+      const read = readBuyerInfo(text)
+      expect(read).not.toBeNull()
+      expect(read).toMatchObject({ address: want.address, detail: want.detail, ...(want.name === undefined ? {} : { name: want.name }), ...(want.nickname === undefined ? {} : { nickname: want.nickname }) })
+      if (want.word !== undefined) expect(read?.words).toContain(want.word)
+    })
+  }
+})
+
 async function setup(world: TestServer, seller: Seller): Promise<{ b: string; smsBuyer: string }> {
   const sale = await liveSale(world, seller, [1, 2, 3, 4])
   const smsClaim = await expectOk(writeEvent(world, seller, { type: 'sms', b: sale.id, no: 1, phone: '010-1234-5678' }))
@@ -118,6 +169,14 @@ describe('ORD-14 손님 정보 문자 받기', () => {
     expect(await statuses(world, token, [sms('i2', '010-8888-9999', '또다른 / 대전 유성구 대학로 100')])).toEqual(['SAVED'])
     world.clock.advance(7 * 24 * 60 * 60_000 + 1)
     expect(await world.server.buyerInfo.sweep()).toBe(2)
+  })
+
+  it('주소 뒤에 붙인 이름은 받는 분 이름으로, 상세 주소에는 넣지 않는다 (D-REAL-12)', async () => {
+    const { world, seller, token } = await inboxWorld()
+    await setup(world, seller)
+    expect(await statuses(world, token, [sms('i1', '010-5555-7777', '😊닉:나래😊 부산 해운대구 우동 1408-3 101동 1203호 김나래 앞으로 보내주세요~')])).toEqual(['SAVED'])
+    expect((await list(world, seller)).cards[0]).toMatchObject({ status: 'APPLIED', applied: { buyer: 'UC_NARAE' } })
+    expect((await bundle(world, seller, 'UC_NARAE')).address).toMatchObject({ name: '김나래', address: '부산 해운대구 우동 1408-3', detail: '101동 1203호', confirmed: false })
   })
 
   it('방송이 없을 때 주소 없는 문자는 지금처럼 IGNORED', async () => {
