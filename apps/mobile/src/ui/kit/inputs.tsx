@@ -62,8 +62,8 @@ export interface UnderlineFieldProps extends Omit<TextInputProps, 'style' | 'ari
 
 /**
  * 입력 칸 (토스 "계좌번호 입력" 그대로, D-UX3-07·08·11):
- * - 비어 있고 초점이 없으면 라벨이 칸 안에 값과 같은 크기의 회색 글자로 보이고, 누르거나 값이 있으면 위로 작게 부드럽게 올라간다(초점이면 초록).
- *   라벨은 글자 하나가 움직이고 커졌다 작아질 뿐 — 위 라벨 자리와 값 줄(52)은 늘 그대로라 칸 높이가 바뀌지 않는다.
+ * - 비어 있으면(눌러 초점이 있어도) 라벨이 칸 안에 값과 같은 크기의 회색 글자로 남고, 값이 생기면 위로 작게 부드럽게 올라간다(초점이면 초록) — D-UX3-53.
+ *   위 라벨은 "N초 뒤에 받을 수 있어요" 같은 설명 글자와 같은 14·보통 두께. 라벨은 글자 하나가 움직이고 커졌다 작아질 뿐 — 위 라벨 자리와 값 줄(40)은 늘 그대로라 칸 높이가 바뀌지 않는다.
  * - 예시 글(placeholder)이 있는 칸은 라벨을 늘 위에 두고 칸 안에 예시를 보인다(예: 빠른 입력 "예: 15 핑크프릴 10").
  * - 밑줄 하나(초점이면 초록, 잘못이면 빨강). 값이 있고 고칠 수 있으면 오른쪽에 동그란 [지우기] — 줄 안에 겹쳐 놓는다.
  */
@@ -74,11 +74,12 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
   const value = typeof input.value === 'string' ? input.value : ''
   const empty = value === ''
   const example = placeholder !== undefined && placeholder !== ''
-  const resting = empty && !focused && !example
+  // 비어 있으면 눌러도 라벨은 칸 안에 (D-UX3-53, 사용자 지시 2026-11-07 "아무것도 입력하지 않았다면 라벨 위치를 아직 필드 안에" — 옛 D-UX3-11은 누르면 위로)
+  const resting = empty && !example
   const scale = forced ? fontScale : 1
   const size = TYPE.input * scale
-  // 위 라벨은 13 (토스 "휴대폰 번호"), 라벨과 값 줄 사이는 띄우지 않는다 (D-UX3-51)
-  const small = TYPE.note * scale
+  // 위 라벨은 설명 글자(caption 14·보통)와 같게 (D-UX3-53 — 옛 13, D-UX3-51), 라벨과 값 줄 사이는 띄우지 않는다
+  const small = TYPE.caption * scale
   const slot = Math.round(small * LINE)
   const row = FIELD_ROW * scale
   const gap = 0
@@ -155,13 +156,24 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
   )
 }
 
-/** 잘못일 때 한 줄: 빨간 13 글자 문장만 (토스 "휴대폰 번호를 다시 확인해주세요.", D-UX3-51 — 옛 D-UX3-11은 앞에 느낌표·굵게) */
+/**
+ * 잘못일 때 한 줄: 빨간 동그라미 느낌표 + 빨간 문장 (D-UX3-53, 사용자 지시 2026-11-07 "에러 문구 앞에는 원래 있던 느낌표 원 아이콘"·"라벨과 에러 문구 … 10초 뒤에 다시 받을 수 있어요 그 폰트랑 크기, 두께 맞춰줘")
+ * — 글자는 설명 글자(caption 14·보통)와 같다. 옛 D-UX3-51은 느낌표 없는 13.
+ */
 export function ErrorLine({ children }: { readonly children: ReactNode }) {
+  const { fontScale, forced } = useKit()
+  const line = Math.round(TYPE.caption * (forced ? fontScale : 1) * LINE)
+  const mark = 15
   return (
-    <View role="alert">
-      <Txt step="note" color="dangerText">
-        {children}
-      </Txt>
+    <View role="alert" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 5 }}>
+      <View style={{ height: line, justifyContent: 'center' }}>
+        <AlertMark size={mark} />
+      </View>
+      <View style={{ flexShrink: 1 }}>
+        <Txt step="caption" color="dangerText">
+          {children}
+        </Txt>
+      </View>
     </View>
   )
 }

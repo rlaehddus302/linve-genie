@@ -32,7 +32,10 @@ export const PHONE_TOO_MANY_MESSAGE = '인증번호를 너무 많이 보냈어�
 export const PHONE_SEND_FAILED_MESSAGE = '문자를 보내지 못했어요. 잠시 뒤 다시 해 주세요.'
 export const PHONE_UNAVAILABLE_MESSAGE = '지금은 문자 인증을 할 수 없어요.'
 export const CODE_EXPIRED_MESSAGE = '인증번호가 만료됐어요. 인증번호를 다시 받아 주세요.'
-export const codeWrongMessage = (left: number): string => `인증번호가 맞지 않아요. ${String(left)}번 더 넣을 수 있어요.`
+/** 틀렸을 때 — 몇 번 더 넣을 수 있는지는 알리지 않는다 (D-UX3-53, 사용자 지시 2026-11-07 "몇번 더 넣을수있는지는 알려주지 말고 그냥 인증번호가 맞지 않아요.") */
+export const CODE_WRONG_MESSAGE = '인증번호가 맞지 않아요.'
+/** 틀리기 5번을 다 썼을 때 (D-UX3-53, 사용자 지시 2026-11-07 토스 사진 2) */
+export const CODE_LOCKED_MESSAGE = '입력 횟수를 초과했어요\n처음부터 다시 시도해 주세요'
 export const tooSoonMessage = (seconds: number): string => `${String(seconds)}초 뒤에 다시 받을 수 있어요.`
 export const PHONE_OTHER_ACCOUNT_MESSAGE = '이 번호는 다른 계정에서 쓰고 있어요. 그 계정으로 로그인해 주세요.'
 export const LINK_MISMATCH_MESSAGE = '이 번호로 가입한 계정이 아니에요. 그 계정의 로그인 방법으로 다시 로그인해 주세요.'
@@ -154,8 +157,9 @@ export function registerSocialRoutes(api: Hono<Env>, social: SocialLogin, addres
         return notFound()
     }
   }
-  const codeReply = (outcome: { readonly kind: 'wrong'; readonly left: number } | { readonly kind: 'expired' }, ticketGone = false): Response => {
-    if (outcome.kind === 'wrong') return apiError(400, 'CODE_WRONG', codeWrongMessage(outcome.left), [{ field: 'code', message: codeWrongMessage(outcome.left) }])
+  const codeReply = (outcome: { readonly kind: 'wrong'; readonly left: number } | { readonly kind: 'expired' } | { readonly kind: 'locked' }, ticketGone = false): Response => {
+    if (outcome.kind === 'wrong') return apiError(400, 'CODE_WRONG', CODE_WRONG_MESSAGE, [{ field: 'code', message: CODE_WRONG_MESSAGE }])
+    if (outcome.kind === 'locked') return apiError(429, 'CODE_LOCKED', CODE_LOCKED_MESSAGE)
     return ticketGone ? apiError(410, 'LOGIN_EXPIRED', TICKET_EXPIRED_MESSAGE) : apiError(410, 'CODE_EXPIRED', CODE_EXPIRED_MESSAGE)
   }
 

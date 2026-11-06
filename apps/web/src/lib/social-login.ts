@@ -289,13 +289,20 @@ export const PHONE_ASK_TITLE = '본인 확인을 위해\n휴대폰 번호를 입
 export const PHONE_RECHECK = '휴대폰 번호를 다시 확인해 주세요.'
 export const CODE_ASK_TITLE = '문자로 받은\n인증번호 6자리를 입력해 주세요'
 export const CODE_LEFT = '남은 시간'
-export const CODE_NOT_COMING = '다시 문자 받을게요'
+/** 키보드 위 밑줄 글자 단추 — 누르면 팝업 (D-UX3-53, 토스와 같은 문구 — 옛 D-UX3-50 '다시 문자 받을게요' 단추) */
+export const CODE_NOT_COMING = '문자가 안 오나요?'
+export const CODE_RESEND_ASK = '문자를 다시 받을까요?'
+export const CODE_RESEND_GO = '다시 받기'
+export const POPUP_CLOSE = '닫기'
+/** 3분이 지났을 때 팝업 제목 (D-UX3-53, 토스 사진 1) */
+export const CODE_TIME_OVER_TITLE = '입력할 수 있는 시간이 지났어요'
+/** 5번 틀렸을 때 팝업 (서버 CODE_LOCKED 문장과 같다, D-UX3-53 사용자 지시) */
+export const CODE_LOCKED_TEXT = '입력 횟수를 초과했어요\n처음부터 다시 시도해 주세요'
 /** 다시 받기 단추가 켜지기까지 (서버 RESEND_GAP_MS와 같다, D-UX3-50) */
 export const CODE_RESEND_WAIT_SECONDS = 30
-export const codeResendIn = (seconds: number): string => `${String(seconds)}초 뒤에 다시 받을 수 있어요`
+export const codeResendIn = (seconds: number): string => `${String(seconds)}초 뒤에 받을 수 있어요`
 export const PHONE_NEXT = '다음'
 export const CODE_RESENT = '인증번호를 다시 보냈어요.'
-export const CODE_TIME_OVER = '시간이 지났어요. 아래 [다시 문자 받을게요]를 눌러 주세요.'
 export const PHONE_VERIFIED = '인증 성공'
 /** 숫자만 받아 010-0000-0000 모양으로 (치는 중에는 000-000-00처럼 3·3, 11자리가 차면 3·4·4) */
 export function formatMobileInput(digits: string): string {

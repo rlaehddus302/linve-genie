@@ -180,7 +180,8 @@ export type PhoneSendOutcome =
   | { readonly kind: 'send_failed' }
   | { readonly kind: 'unavailable' }
 
-export type CodeCheck = { readonly kind: 'ok'; readonly phoneHash: string; readonly phoneLabel: string } | { readonly kind: 'wrong'; readonly left: number } | { readonly kind: 'expired' }
+/** locked: 틀리기 5번을 다 썼다 — 시간 지남(expired)과 따로 알린다 (D-UX3-53) */
+export type CodeCheck = { readonly kind: 'ok'; readonly phoneHash: string; readonly phoneLabel: string } | { readonly kind: 'wrong'; readonly left: number } | { readonly kind: 'expired' } | { readonly kind: 'locked' }
 
 /** 가입 중 인증번호 확인 결과: 새 번호면 가입, 있는 번호면 그 계정으로 로그인해 잇기 */
 export type SignupPhoneOutcome =
@@ -188,6 +189,7 @@ export type SignupPhoneOutcome =
   | { readonly kind: 'existing'; readonly phone: string; readonly providers: readonly ProviderId[]; readonly password: boolean }
   | { readonly kind: 'wrong'; readonly left: number }
   | { readonly kind: 'expired' }
+  | { readonly kind: 'locked' }
   | { readonly kind: 'rate_limited' }
   | { readonly kind: 'unavailable' }
 
@@ -205,6 +207,7 @@ export type AccountPhoneOutcome =
   | { readonly kind: 'ok'; readonly phone: string }
   | { readonly kind: 'wrong'; readonly left: number }
   | { readonly kind: 'expired' }
+  | { readonly kind: 'locked' }
   | { readonly kind: 'taken' }
   | { readonly kind: 'rate_limited' }
   | { readonly kind: 'unavailable' }
@@ -870,11 +873,15 @@ export class SocialLogin {
       .where(and(eq(phoneChecks.key, key), lt(phoneChecks.attempts, CODE_MAX_ATTEMPTS), gt(phoneChecks.codeExpiresAt, new Date(now))))
       .returning()
     const row = rows[0]
-    if (row === undefined) return { kind: 'expired' }
+    if (row === undefined) {
+      // 시간 안인데 틀리기를 다 썼으면 '횟수 초과', 아니면 '시간 지남' (D-UX3-53)
+      const used = await db.select({ attempts: phoneChecks.attempts }).from(phoneChecks).where(and(eq(phoneChecks.key, key), gt(phoneChecks.codeExpiresAt, new Date(now)))).limit(1)
+      return used[0] !== undefined && used[0].attempts >= CODE_MAX_ATTEMPTS ? { kind: 'locked' } : { kind: 'expired' }
+    }
     const text = typeof code === 'string' ? code.replace(/\s/g, '') : ''
     if (!/^\d{6}$/.test(text) || !sameHash(codeHash(masterKey, key, text), row.codeHash)) {
       const left = CODE_MAX_ATTEMPTS - row.attempts
-      return left <= 0 ? { kind: 'expired' } : { kind: 'wrong', left }
+      return left <= 0 ? { kind: 'locked' } : { kind: 'wrong', left }
     }
     await db.delete(phoneChecks).where(eq(phoneChecks.key, key))
     return { kind: 'ok', phoneHash: row.phoneHash, phoneLabel: row.phoneLabel }

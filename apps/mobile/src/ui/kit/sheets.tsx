@@ -231,6 +231,10 @@ export interface PopupDialogProps {
   readonly visible: boolean
   /** 묻는 말 — 줄바꿈(\n)을 그대로 보인다 */
   readonly message: string
+  /** 묻는 말 아래 회색 설명 (토스 "문자를 다시 받을까요?") */
+  readonly description?: string | null
+  /** 긍정 단추를 잠시 끈다 (예: 다시 받기까지 남은 초) */
+  readonly confirmDisabled?: boolean
   /** 보조 기술에 읽히는 이름 — 없으면 묻는 말 */
   readonly name?: string
   /** 긍정 단추 (오른쪽) */
@@ -247,7 +251,7 @@ export interface PopupDialogProps {
  * 흰 둥근 판에 묻는 말, 아래 단추 둘 — 왼쪽 부정(회색), 오른쪽 긍정(주색) (D-UX4-01). 뒤 막은 서서히 짙어지고 판은 살짝 커지며 나타난다.
  * 바깥을 누르거나 뒤로 가기는 부정과 같다.
  */
-export function PopupDialog({ visible, message, name, confirmLabel, cancelLabel, busy, onConfirm, onCancel }: PopupDialogProps) {
+export function PopupDialog({ visible, message, name, description, confirmDisabled, confirmLabel, cancelLabel, busy, onConfirm, onCancel }: PopupDialogProps) {
   const { p } = useKit()
   const { mounted, progress } = useSheetMotion(visible)
   const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, BACKDROP_OPACITY] })
@@ -264,12 +268,15 @@ export function PopupDialog({ visible, message, name, confirmLabel, cancelLabel,
           aria-label={name ?? message}
           style={{ backgroundColor: p.surface, borderRadius: RADIUS.xxl, borderCurve: 'continuous', paddingTop: SPACE.xxl, paddingHorizontal: SPACE.xl, paddingBottom: SPACE.lg, gap: SPACE.xxl, opacity: progress, transform: [{ scale }], ...SHADOW.sheet }}
         >
-          <Txt step="bodyLarge" weight="bold">
-            {message}
-          </Txt>
+          <View style={{ gap: SPACE.sm }}>
+            <Txt step="bodyLarge" weight="bold">
+              {message}
+            </Txt>
+            {description === undefined || description === null ? null : <Txt color="textSub">{description}</Txt>}
+          </View>
           <ButtonRow>
             <BigButton kind="outline" label={cancelLabel} disabled={busy} onPress={onCancel} />
-            <BigButton label={confirmLabel} busy={busy} onPress={onConfirm} />
+            <BigButton label={confirmLabel} busy={busy} disabled={confirmDisabled} onPress={onConfirm} />
           </ButtonRow>
         </Animated.View>
       </View>

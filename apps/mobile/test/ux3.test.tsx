@@ -408,8 +408,10 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     // 라벨은 칸 안 예시 글(placeholder)이 아니라 따로 움직이는 글자 — 칸 안 예시 글은 비어 있다
     expect(input.getAttribute('placeholder')).toBe('')
     fireEvent.focus(input)
-    expect(state()).toBe('floating')
+    // D-UX3-53으로 바뀐 기대 (사용자 지시 2026-11-07 "아무것도 입력하지 않았다면 라벨 위치를 아직 필드 안에"): 옛 누르면 위로(floating) → 새 비어 있으면 눌러도 칸 안(resting)
+    expect(state()).toBe('resting')
     fireEvent.change(input, { target: { value: 'abc' } })
+    expect(state()).toBe('floating')
     fireEvent.blur(input)
     expect(state()).toBe('floating')
     // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 토스 사진 비교): 옛 값 줄 52 → 새 40 (토스 칸을 재어)
@@ -421,7 +423,7 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
   })
 
   // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 "오류 메시지의 형태"): 옛 "느낌표 + 짧은 문장"(D-UX3-11) → 새 "느낌표 없이 빨간 문장만"(토스)
-  it('잘못일 때는 빨간 짧은 문장만(느낌표 없음), 고치기 시작하면 문장이 사라진다 (D-UX3-11·51)', async () => {
+  it('잘못일 때는 느낌표 그림 + 빨간 짧은 문장, 고치기 시작하면 문장이 사라진다 (D-UX3-11·51·53)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: null, webChat: { on: true }, oauth: true } }))
     world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
@@ -438,7 +440,8 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('라이브 채팅을 받을 수 없는 방송이에요.')
-    expect(alert.querySelector('[aria-hidden="true"]')).toBeNull()
+    // D-UX3-53으로 다시 바뀐 기대 (사용자 지시 2026-11-07 "에러 문구 앞에는 원래 있던 느낌표 원 아이콘을 넣어줘"): 옛 D-UX3-51 느낌표 없음 → 새 앞에 느낌표 그림(장식, 숨김)
+    expect(alert.querySelector('[aria-hidden="true"]')).not.toBeNull()
     fireEvent.change(field, { target: { value: 'https://youtu.be/NOCHAT0000' } })
     expect(screen.queryByRole('alert')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '확인' }))

@@ -128,7 +128,8 @@ describe('D-UX3-30 가입은 문자 인증 뒤', () => {
     expect((await client(w, cookie).post('/api/auth/signup/phone', { phone: '010-1234-5678' })).status).toBe(429)
     const wrong = await client(w, cookie).post('/api/auth/signup/phone/verify', { code: sms.lastCode() === '000000' ? '111111' : '000000' })
     expect(wrong.status).toBe(400)
-    expect(errorOf(wrong).message).toBe('인증번호가 맞지 않아요. 4번 더 넣을 수 있어요.')
+    // D-UX3-53로 바뀐 기대 (사용자 지시 2026-11-07 "몇번 더 넣을수있는지는 알려주지 말고"): 옛 '… 4번 더 넣을 수 있어요.' → 새 남은 횟수 없이
+    expect(errorOf(wrong).message).toBe('인증번호가 맞지 않아요.')
     const ok = await client(w, cookie).post('/api/auth/signup/phone/verify', { code: sms.lastCode() })
     expect(ok.body).toEqual({ next: 'SIGNUP', phone: '010-****-5678' })
     const made = await client(w, cookie).post('/api/auth/signup', { agree: true })
@@ -150,8 +151,14 @@ describe('D-UX3-30 가입은 문자 인증 뒤', () => {
     await client(w, cookie).post('/api/auth/signup/phone', { phone: '01022223333' })
     const right = sms.lastCode()
     const bad = right === '000000' ? '111111' : '000000'
-    for (let i = 0; i < 5; i++) await client(w, cookie).post('/api/auth/signup/phone/verify', { code: bad })
-    expect((await client(w, cookie).post('/api/auth/signup/phone/verify', { code: right })).status).toBe(410)
+    for (let i = 0; i < 4; i++) await client(w, cookie).post('/api/auth/signup/phone/verify', { code: bad })
+    // D-UX3-53로 바뀐 기대 (사용자 지시 2026-11-07 토스 사진 2 "입력 횟수를 초과했어요"): 옛 5번째 틀림·그 뒤 맞는 번호 모두 410 시간 지남 → 새 429 CODE_LOCKED(횟수 초과)
+    const fifth = await client(w, cookie).post('/api/auth/signup/phone/verify', { code: bad })
+    expect(fifth.status).toBe(429)
+    expect(errorOf(fifth)).toMatchObject({ code: 'CODE_LOCKED', message: '입력 횟수를 초과했어요\n처음부터 다시 시도해 주세요' })
+    const after = await client(w, cookie).post('/api/auth/signup/phone/verify', { code: right })
+    expect(after.status).toBe(429)
+    expect(errorOf(after).code).toBe('CODE_LOCKED')
     w.clock.advance(61 * 1000)
     sms.fail = true
     expect((await client(w, cookie).post('/api/auth/signup/phone', { phone: '01022223333' })).status).toBe(502)
