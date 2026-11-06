@@ -26,12 +26,12 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     for (const svg of svgs) expect(svg.getAttribute('width')).toBe(svg.getAttribute('height'))
   })
 
-  it('탭은 홈 · 주문 · 포장 · 고객 · 전체 다섯이고 고른 탭만 골라져 있다 (D-UX3-39 → D-UX3-60, 사용자 지시 2026-11-07 "포장, 택배 한 탭으로")', () => {
+  it('탭은 홈 · 주문 · 택배 · 고객 · 전체 다섯이고 고른 탭만 골라져 있다 (D-UX3-39 → D-UX3-60·61, 사용자 지시 2026-11-07 "포장, 택배 한 탭으로" → "포장 -> 택배로 이름 바꾸고")', () => {
     const world = makeWorld()
     const onSelect = vi.fn()
     render(world.wrap(<TabBar active="settle" onSelect={onSelect} />))
     const tabs = within(screen.getByRole('tablist', { name: '아래 메뉴' })).getAllByRole('tab')
-    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual(['홈', '주문', '포장', '고객', '전체'])
+    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual(['홈', '주문', '택배', '고객', '전체'])
     expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false', 'false', 'false'])
     fireEvent.click(screen.getByRole('tab', { name: '고객' }))
     expect(onSelect).toHaveBeenCalledWith('customers')
@@ -73,17 +73,24 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     const bodyLine = printer?.querySelectorAll('path')[1]?.getAttribute('d') ?? ''
     expect(bodyLine.startsWith('M7 17.4')).toBe(true)
     expect(bodyLine.endsWith('H17')).toBe(true)
-    // D-UX3-60 (사용자 사진): 고른 상자(포장)는 채우고, 위 가운데에서 내려오는 찢긴 끝 테이프만 흰 선 — 상자 윗선 안쪽(4.9)에서 시작해 윗선은 끊지 않는다
+    // D-UX3-61: 상자는 겉선과 테이프 선이 한 줄 — 위 가운데(10.2~13.8)는 닫지 않고 테이프 선이 찢긴 끝까지 들어갔다 나온다
     const boxPaths = [...(box?.querySelectorAll('path') ?? [])]
+    const boxLine = boxPaths[0]?.getAttribute('d') ?? ''
+    expect(boxLine.startsWith('M13.8 3.8 ')).toBe(true)
+    expect(boxLine.endsWith('L10.2 3.8 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 Z')).toBe(true)
+    // 고른 상자(택배 탭)는 채우고 테이프 자리를 통째로 흰색으로 칠한다
     expect(boxPaths[0]?.getAttribute('fill')).not.toBe('none')
-    expect(boxPaths[1]?.getAttribute('d')).toBe('M10.2 4.9 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 V4.9')
-    expect(boxPaths[1]?.getAttribute('stroke')).toBe(PALETTE.light.surface)
-    // 고르지 않은 상자의 테이프는 같은 색 선으로 윗선(3.8)에 붙는다
+    expect(boxPaths[1]?.getAttribute('fill')).toBe(PALETTE.light.surface)
+    // 고르지 않은 상자는 한 줄 선만
     render(world.wrap(<TabIcon name="box" color="#111" cut="#fff" />))
     const all = container.ownerDocument.querySelectorAll('svg')
-    const plainTape = all.item(all.length - 1).querySelectorAll('path')[1]
-    expect(plainTape?.getAttribute('d')).toBe('M10.2 3.8 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 V3.8')
-    expect(plainTape?.getAttribute('stroke')).toBe('#111')
+    expect(all.item(all.length - 1).querySelectorAll('path')).toHaveLength(1)
+    // D-UX3-61: 고객은 머리·목·몸이 붙은 한 덩어리(한 줄 모양)
+    render(world.wrap(<TabIcon name="person" color="#111" cut="#fff" />))
+    const people = container.ownerDocument.querySelectorAll('svg')
+    const person = people.item(people.length - 1)
+    expect(person.querySelectorAll('path')).toHaveLength(1)
+    expect(person.querySelectorAll('circle')).toHaveLength(0)
     // 모서리는 원호(A)가 아니라 아이폰 연속 곡률 곡선(C) — 집 문 홈만 원호 (D-UX3-15)
     for (const svg of [printer, box]) for (const path of svg?.querySelectorAll('path') ?? []) expect(path.getAttribute('d')).not.toMatch(/A/)
   })

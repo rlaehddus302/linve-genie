@@ -55,18 +55,26 @@ const PRINTER_PAPER = (() => {
   return `M7 13.6 L${left.start} ${left.curve} L${right.start} ${right.curve} L17 13.6 Z`
 })()
 const PRINTER_TRAY = smoothRect(7, 3.4, 10, 5, 1.2)
-const BOX = smoothRect(3.4, 3.8, 17.2, 16.6, 3.2)
 /** 택배 트럭 (D-UX3-39): 짐칸 + 운전석 + 바퀴 둘 — 상자와 같은 모서리 곡률, 겉 크기는 다른 아이콘과 같다 */
 const TRUCK_CARGO = smoothRect(2.4, 5.4, 12.2, 11, 2.6)
 const TRUCK_CAB = (() => {
   const corner = smoothCorner(21.6, 13.2, [0.6, 0.8], [0, 1], 1.4)
   return `M14.6 9.2 H18.2 L${corner.start} ${corner.curve} V16.4 H14.6 Z`
 })()
-/** 포장 상자 테이프 (D-UX3-60, 사용자 사진 — 위 가운데에서 내려오는 테이프, 끝은 찢긴 톱니): 위는 상자 윗선에 붙어 열려 있다.
- * 고른 때는 흰 선이 상자 윗선을 끊지 않게 윗선 안쪽(4.9)에서 시작한다 */
-const boxTape = (top: number) => `M10.2 ${num(top)} V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 V${num(top)}`
-/** 고객 (D-UX3-60): 머리 동그라미 + 둥근 어깨 */
-const PERSON_BODY = 'M4.6 20.4 C4.6 16.6 7.9 14.2 12 14.2 C16.1 14.2 19.4 16.6 19.4 20.4 Z'
+/** 택배 상자 (D-UX3-61, 사용자 지시 2026-11-07 "테이프 부분 그냥 선으로, 맨 위에 검정선으로 닫지 말고"): 상자 겉선이 위 가운데에서 끊기고
+ * 그 자리에서 테이프 선(끝은 찢긴 톱니)이 안으로 들어갔다 나오는 한 줄 — 테이프 위는 열려 있다 */
+const BOX_LINE = (() => {
+  const c = [smoothCorner(20.6, 3.8, [1, 0], [0, 1], 3.2), smoothCorner(20.6, 20.4, [0, 1], [-1, 0], 3.2), smoothCorner(3.4, 20.4, [-1, 0], [0, -1], 3.2), smoothCorner(3.4, 3.8, [0, -1], [1, 0], 3.2)]
+  return `M13.8 3.8 ${c.map((corner) => `L${corner.start} ${corner.curve}`).join(' ')} L10.2 3.8 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 Z`
+})()
+/** 고른 상자의 테이프 자리 (D-UX3-61): 흰색으로 칠해 테이프가 통째로 하얗게 보인다 */
+const BOX_TAPE_FILL = 'M10.2 3.8 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 V3.8 Z'
+/** 고객 (D-UX3-61, 사용자 지시 "홈 아이콘처럼 둥글게, 목이랑 몸 붙여서 한 덩어리"): 머리에서 목·어깨로 이어지는 한 줄 모양, 아래 두 모서리는 집과 같은 곡률 */
+const PERSON = (() => {
+  const right = smoothCorner(19.4, 20.6, [0, 1], [-1, 0], 2.2)
+  const left = smoothCorner(4.6, 20.6, [-1, 0], [0, -1], 2.2)
+  return `M9.6 11.2 A4 4 0 1 1 14.4 11.2 C15.4 12.6 19.4 13.2 19.4 17 L${right.start} ${right.curve} L${left.start} ${left.curve} L4.6 17 C4.6 13.2 8.6 12.6 9.6 11.2 Z`
+})()
 
 export function TabIcon({ name, color, size = 26, filled = false, cut }: { readonly name: TabIconName; readonly color: string; readonly size?: number; readonly filled?: boolean; readonly cut: string }) {
   const line = { stroke: color, strokeWidth: STROKE, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -102,18 +110,13 @@ export function TabIcon({ name, color, size = 26, filled = false, cut }: { reado
       case 'box':
         return (
           <>
-            <Path d={BOX} {...body} />
-            {/* 테이프 (D-UX3-60): 평소엔 같은 색 선, 고르면 상자를 채우고 테이프 선만 흰색으로 뒤집는다 */}
-            <Path d={boxTape(filled ? 4.9 : 3.8)} {...line} fill="none" stroke={filled ? cut : color} />
+            <Path d={BOX_LINE} {...body} />
+            {/* 고른 때는 상자를 채우고 테이프 자리만 흰색 (D-UX3-61) */}
+            {filled ? <Path d={BOX_TAPE_FILL} fill={cut} stroke="none" /> : null}
           </>
         )
       case 'person':
-        return (
-          <>
-            <Circle cx={12} cy={8} r={3.8} {...body} />
-            <Path d={PERSON_BODY} {...body} />
-          </>
-        )
+        return <Path d={PERSON} {...body} />
       case 'truck':
         return (
           <>

@@ -173,7 +173,7 @@ export type TabKey = 'home' | 'settle' | 'packing' | 'customers' | 'more'
 export const TABS: readonly { readonly key: TabKey; readonly word: string; readonly icon: TabIconName }[] = [
   { key: 'home', word: '홈', icon: 'home' },
   { key: 'settle', word: '주문', icon: 'receipt' },
-  { key: 'packing', word: '포장', icon: 'box' },
+  { key: 'packing', word: '택배', icon: 'box' },
   { key: 'customers', word: '고객', icon: 'person' },
   { key: 'more', word: '전체', icon: 'menu' },
 ]
