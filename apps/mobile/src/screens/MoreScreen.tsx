@@ -23,7 +23,6 @@ export const IN_APP_SCREENS = [
   { path: '/report', title: '방송 리포트', sub: '매출, 손님, 품종별·시간대별 판매', group: '방송' },
   { path: '/deposits', title: '입금 확인', sub: '은행 입금과 손님 맞추기, 붙여넣기', group: '주문·입금' },
   { path: '/buyers', title: '구매자', sub: '날짜별 구매자, 합치기·떼어 내기·차단', group: '주문·입금' },
-  { path: '/customers', title: '손님', sub: '단골, 입금 늦음, 메모, 저장한 배송지', group: '주문·입금' },
   { path: '/receipts', title: '영수증·판매대장', sub: '구매 내역 확인서 링크·PDF, 판매대장 엑셀', group: '배송' },
   { path: '/labels', title: '라벨 프린터', sub: '라벨 켜기·끄기, 프린터 연결, 라벨 꾸미기', group: '가게' },
   { path: '/shop-settings', title: '가게 설정', sub: '가게·계좌, 판매 규칙, 배송비, 택배, 손님 관리', group: '가게' },

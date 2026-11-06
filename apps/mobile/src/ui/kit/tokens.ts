@@ -61,6 +61,7 @@ export interface Palette {
   readonly glass: string
   readonly tabLine: string
   readonly tabInk: string
+  readonly segmentOff: string
   /** 확인이 필요한 줄 바탕·글자 */
   readonly warnBg: string
   readonly warnText: string
@@ -119,6 +120,8 @@ const LIGHT: Palette = {
   tabLine: '#DDE1E6',
   /** 아래 탭 안 고른 칸 아이콘·글자 (토스처럼 진한 회색, D-UX3-43) */
   tabInk: '#333D4B',
+  // 탭 안 위쪽 나누기(포장 · 택배)의 고르지 않은 이름 (D-UX3-60, 토스 "시장 뉴스"처럼 큰 글자 회색 — 큰 글자 대비 3 이상)
+  segmentOff: '#6B7684',
   warnBg: '#FFF4E5',
   warnText: '#B54708',
   warnStrong: '#8A3A06',

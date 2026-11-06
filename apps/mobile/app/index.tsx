@@ -67,7 +67,7 @@ export default function IndexRoute() {
                     openLabels: () => router.push('/labels'),
                     openSettings: () => router.push('/settings'),
                     openSettle: () => router.replace('/settle'),
-                    openParcels: (date) => router.replace({ pathname: '/parcels', params: { date } }),
+                    openParcels: (date) => router.replace({ pathname: '/packing', params: { view: 'parcels', date } }),
                     openReceipts: () => router.push('/receipts'),
                     openStart: () => router.push('/start'),
                   }}

@@ -5,7 +5,7 @@
 import Svg, { Circle, Line, Path } from 'react-native-svg'
 import { View } from 'react-native'
 
-export type TabIconName = 'home' | 'printer' | 'receipt' | 'box' | 'truck' | 'menu'
+export type TabIconName = 'home' | 'printer' | 'receipt' | 'box' | 'truck' | 'person' | 'menu'
 
 // D-UX3-46: 고른 칸 안쪽 선(영수증 글줄·상자 테이프·트럭 칸막이·바퀴 테두리)은 흰색으로 뒤집는다(토스 사진).
 // D-UX3-44: 선은 1.8로 가늘게, 모서리·꼭짓점은 더 둥글게. D-UX3-45: 고른 칸은 다시 채운다 — 상자 테이프는 윗선을 남기고 좁게 뚫고, 트럭 바퀴도 같은 색으로 채운다
@@ -62,15 +62,11 @@ const TRUCK_CAB = (() => {
   const corner = smoothCorner(21.6, 13.2, [0.6, 0.8], [0, 1], 1.4)
   return `M14.6 9.2 H18.2 L${corner.start} ${corner.curve} V16.4 H14.6 Z`
 })()
-/** 박스테이프 (위에서 가운데까지, 아래 두 모서리 둥글게). top: 시작 높이 — 고른 때는 윗선 위(2.4)부터 뚫는다, closed: 칠할 모양 */
-function tape(top: number, closed: boolean): string {
-  const left = smoothCorner(10.5, 10.2, [0, 1], [1, 0], 0.8)
-  const right = smoothCorner(13.5, 10.2, [1, 0], [0, -1], 0.8)
-  return `M10.5 ${num(top)} L${left.start} ${left.curve} L${right.start} ${right.curve} L13.5 ${num(top)}${closed ? ' Z' : ''}`
-}
-const TAPE_LINE = tape(3.8, false)
-/** 고른 상자 안 테이프 (D-UX3-46): 윗선 아래에서 시작하는 흰 선 — 토스처럼 안쪽 선만 흰색으로 뒤집는다 */
-const TAPE_INNER = tape(5.4, false)
+/** 포장 상자 테이프 (D-UX3-60, 사용자 사진 — 위 가운데에서 내려오는 테이프, 끝은 찢긴 톱니): 위는 상자 윗선에 붙어 열려 있다.
+ * 고른 때는 흰 선이 상자 윗선을 끊지 않게 윗선 안쪽(4.9)에서 시작한다 */
+const boxTape = (top: number) => `M10.2 ${num(top)} V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 V${num(top)}`
+/** 고객 (D-UX3-60): 머리 동그라미 + 둥근 어깨 */
+const PERSON_BODY = 'M4.6 20.4 C4.6 16.6 7.9 14.2 12 14.2 C16.1 14.2 19.4 16.6 19.4 20.4 Z'
 
 export function TabIcon({ name, color, size = 26, filled = false, cut }: { readonly name: TabIconName; readonly color: string; readonly size?: number; readonly filled?: boolean; readonly cut: string }) {
   const line = { stroke: color, strokeWidth: STROKE, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -107,9 +103,15 @@ export function TabIcon({ name, color, size = 26, filled = false, cut }: { reado
         return (
           <>
             <Path d={BOX} {...body} />
-            {/* 가운데 박스테이프 한 줄 (위에서 가운데까지) */}
-            {/* 고른 때는 테이프 자리 윗선까지 뚫는다 */}
-            <Path d={filled ? TAPE_INNER : TAPE_LINE} {...line} fill="none" stroke={filled ? cut : color} />
+            {/* 테이프 (D-UX3-60): 평소엔 같은 색 선, 고르면 상자를 채우고 테이프 선만 흰색으로 뒤집는다 */}
+            <Path d={boxTape(filled ? 4.9 : 3.8)} {...line} fill="none" stroke={filled ? cut : color} />
+          </>
+        )
+      case 'person':
+        return (
+          <>
+            <Circle cx={12} cy={8} r={3.8} {...body} />
+            <Path d={PERSON_BODY} {...body} />
           </>
         )
       case 'truck':

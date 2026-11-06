@@ -17,8 +17,8 @@ import { TabIcon } from '../src/ui/kit/tab-icons.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 describe('아래 탭 (D-UX3-01·12)', () => {
-  it('아이콘은 홈·영수증·상자·트럭·세 줄로 서로 다르고, 모두 가로세로가 같은 칸이다 (D-UX3-39: 라벨 프린터 탭 → 택배 탭)', () => {
-    expect(TABS.map((tab) => tab.icon)).toEqual(['home', 'receipt', 'box', 'truck', 'menu'])
+  it('아이콘은 홈·영수증·상자·사람·세 줄로 서로 다르고, 모두 가로세로가 같은 칸이다 (D-UX3-39 → D-UX3-60: 택배 탭 → 고객 탭)', () => {
+    expect(TABS.map((tab) => tab.icon)).toEqual(['home', 'receipt', 'box', 'person', 'menu'])
     const world = makeWorld()
     const { container } = render(world.wrap(<TabBar active="home" onSelect={() => {}} />))
     const svgs = [...container.querySelectorAll('svg')]
@@ -26,15 +26,15 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     for (const svg of svgs) expect(svg.getAttribute('width')).toBe(svg.getAttribute('height'))
   })
 
-  it('탭은 일하는 순서대로 홈 · 주문 · 포장 · 택배 · 전체 다섯이고 고른 탭만 골라져 있다 (D-UX3-39, 사용자 지시 2026-11-06 "이용 플로우대로")', () => {
+  it('탭은 홈 · 주문 · 포장 · 고객 · 전체 다섯이고 고른 탭만 골라져 있다 (D-UX3-39 → D-UX3-60, 사용자 지시 2026-11-07 "포장, 택배 한 탭으로")', () => {
     const world = makeWorld()
     const onSelect = vi.fn()
     render(world.wrap(<TabBar active="settle" onSelect={onSelect} />))
     const tabs = within(screen.getByRole('tablist', { name: '아래 메뉴' })).getAllByRole('tab')
-    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual(['홈', '주문', '포장', '택배', '전체'])
+    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual(['홈', '주문', '포장', '고객', '전체'])
     expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false', 'false', 'false'])
-    fireEvent.click(screen.getByRole('tab', { name: '택배' }))
-    expect(onSelect).toHaveBeenCalledWith('parcels')
+    fireEvent.click(screen.getByRole('tab', { name: '고객' }))
+    expect(onSelect).toHaveBeenCalledWith('customers')
   })
 
   it('아래 탭은 따로 바탕 띠 없이 내용 위에 뜨고(반투명 흰색), 내용은 탭 높이만큼 아래를 더 비운다 (D-UX3-13)', () => {
@@ -58,7 +58,7 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     expect(container).toBeTruthy()
   })
 
-  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 칸은 채우고 안쪽 선만 흰색으로 뒤집는다 (D-UX3-13·44·46)', () => {
+  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 칸은 채우고 안쪽 선만 흰색으로 뒤집는다 (D-UX3-13·44·46·60)', () => {
     const world = makeWorld()
     // D-UX3-39: 프린터 아이콘은 막대에 없다(라벨 프린터는 전체 안) — 아이콘 자체는 그대로라 따로 그려 본다
     const { container } = render(world.wrap(<><TabBar active="packing" onSelect={() => {}} /><TabIcon name="printer" color="#000" cut="#fff" /></>))
@@ -73,28 +73,24 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     const bodyLine = printer?.querySelectorAll('path')[1]?.getAttribute('d') ?? ''
     expect(bodyLine.startsWith('M7 17.4')).toBe(true)
     expect(bodyLine.endsWith('H17')).toBe(true)
-    // D-UX3-46: 고른 상자(포장)는 채우고, 테이프는 윗선 아래(5.4)에서 시작하는 흰 선 — 윗선은 끊지 않는다
+    // D-UX3-60 (사용자 사진): 고른 상자(포장)는 채우고, 위 가운데에서 내려오는 찢긴 끝 테이프만 흰 선 — 상자 윗선 안쪽(4.9)에서 시작해 윗선은 끊지 않는다
     const boxPaths = [...(box?.querySelectorAll('path') ?? [])]
     expect(boxPaths[0]?.getAttribute('fill')).not.toBe('none')
-    expect(boxPaths.some((path) => path.getAttribute('d')?.startsWith('M10.5 5.4') === true && path.getAttribute('stroke') === PALETTE.light.surface)).toBe(true)
-    // D-UX3-46: 고른 트럭은 바퀴를 같은 색으로 채우고 테두리·칸막이는 흰색
-    render(world.wrap(<TabIcon name="truck" color="#111" cut="#fff" filled />))
+    expect(boxPaths[1]?.getAttribute('d')).toBe('M10.2 4.9 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 V4.9')
+    expect(boxPaths[1]?.getAttribute('stroke')).toBe(PALETTE.light.surface)
+    // 고르지 않은 상자의 테이프는 같은 색 선으로 윗선(3.8)에 붙는다
+    render(world.wrap(<TabIcon name="box" color="#111" cut="#fff" />))
     const all = container.ownerDocument.querySelectorAll('svg')
-    const truck = all.item(all.length - 1)
-    const wheels = [...truck.querySelectorAll('circle')]
-    expect(wheels).toHaveLength(2)
-    for (const wheel of wheels) {
-      expect(wheel.getAttribute('fill')).toBe('#111')
-      expect(wheel.getAttribute('stroke')).toBe('#fff')
-    }
-    expect(truck.querySelector('line')?.getAttribute('stroke')).toBe('#fff')
+    const plainTape = all.item(all.length - 1).querySelectorAll('path')[1]
+    expect(plainTape?.getAttribute('d')).toBe('M10.2 3.8 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 V3.8')
+    expect(plainTape?.getAttribute('stroke')).toBe('#111')
     // 모서리는 원호(A)가 아니라 아이폰 연속 곡률 곡선(C) — 집 문 홈만 원호 (D-UX3-15)
     for (const svg of [printer, box]) for (const path of svg?.querySelectorAll('path') ?? []) expect(path.getAttribute('d')).not.toMatch(/A/)
   })
 
   it('오른쪽 탭으로 가면 오른쪽에서, 왼쪽 탭으로 가면 왼쪽에서 들어온다. 처음·같은 탭은 그대로', () => {
     expect(tabEnterSide('home', 'packing')).toBe(1)
-    expect(tabEnterSide('more', 'parcels')).toBe(-1)
+    expect(tabEnterSide('more', 'customers')).toBe(-1)
     expect(tabEnterSide(null, 'home')).toBe(0)
     expect(tabEnterSide('settle', 'settle')).toBe(0)
   })

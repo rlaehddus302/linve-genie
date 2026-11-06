@@ -37,7 +37,7 @@ import { kstDate } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, post, put, withQuery, type ApiError } from '../api/client.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, Card, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
@@ -68,8 +68,10 @@ function CustomerTags({ row, blocked }: { readonly row: Pick<CustomerRow, 'regul
   )
 }
 
-export function CustomersScreen({ onBack }: { readonly onBack: () => void }) {
+/** onBack이 없으면 아래 탭 "고객"(D-UX3-60) — 제목 줄 없이(다른 탭처럼), 아래 여백은 탭 막대만큼 */
+export function CustomersScreen({ onBack }: { readonly onBack?: () => void }) {
   const { p } = useKit()
+  const room = useTabBarRoom()
   const [sort, setSort] = useState<CustomerSort>('total')
   const [filter, setFilter] = useState<CustomerFilter>('all')
   const [query, setQuery] = useState('')
@@ -116,8 +118,8 @@ export function CustomersScreen({ onBack }: { readonly onBack: () => void }) {
   if (open !== null) return <CustomerDetail row={open} today={view?.today ?? ''} onBack={() => setOpen(null)} />
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="customers-screen">
-      <AppHeader title="손님" onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+      {onBack !== undefined ? <AppHeader title="손님" onBack={onBack} /> : null}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: onBack === undefined ? 28 : 0, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
         <TextField label="이름으로 찾기" value={query} onChangeText={setQuery} autoCorrect={false} />
         <View role="radiogroup" aria-label="정렬">
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingVertical: SPACE.xs }}>
