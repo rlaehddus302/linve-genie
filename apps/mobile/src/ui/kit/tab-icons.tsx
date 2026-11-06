@@ -7,7 +7,7 @@ import { View } from 'react-native'
 
 export type TabIconName = 'home' | 'printer' | 'receipt' | 'box' | 'truck' | 'menu'
 
-// D-UX3-44: 고른 칸도 채우지 않고 선만(채우면 어색함), 선은 1.8로 가늘게, 모서리·꼭짓점은 더 둥글게
+// D-UX3-44: 선은 1.8로 가늘게, 모서리·꼭짓점은 더 둥글게. D-UX3-45: 고른 칸은 다시 채운다 — 상자 테이프는 윗선을 남기고 좁게 뚫고, 트럭 바퀴도 같은 색으로 채운다
 const STROKE = 1.8
 
 // 아이폰 모서리 곡률 (D-UX3-15, 사용자 지시 2026-11-03 "모든 아이콘·상자·터치 영역의 곡률을 아이폰 곡률로"): 원호 대신 연속 곡률 모서리.
@@ -68,7 +68,7 @@ function tape(top: number, closed: boolean): string {
   return `M10.5 ${num(top)} L${left.start} ${left.curve} L${right.start} ${right.curve} L13.5 ${num(top)}${closed ? ' Z' : ''}`
 }
 const TAPE_LINE = tape(3.8, false)
-const TAPE_CUT = tape(2.4, true)
+const TAPE_CUT = tape(4.7, true)
 
 export function TabIcon({ name, color, size = 26, filled = false, cut }: { readonly name: TabIconName; readonly color: string; readonly size?: number; readonly filled?: boolean; readonly cut: string }) {
   const line = { stroke: color, strokeWidth: STROKE, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -107,7 +107,7 @@ export function TabIcon({ name, color, size = 26, filled = false, cut }: { reado
             <Path d={BOX} {...body} />
             {/* 가운데 박스테이프 한 줄 (위에서 가운데까지) */}
             {/* 고른 때는 테이프 자리 윗선까지 뚫는다 */}
-            <Path d={filled ? TAPE_CUT : TAPE_LINE} {...inner} />
+            <Path d={filled ? TAPE_CUT : TAPE_LINE} {...inner} {...(filled ? { stroke: 'none' } : {})} />
           </>
         )
       case 'truck':
@@ -115,8 +115,8 @@ export function TabIcon({ name, color, size = 26, filled = false, cut }: { reado
           <>
             <Path d={TRUCK_CARGO} {...body} />
             <Path d={TRUCK_CAB} {...body} />
-            <Circle cx={7.2} cy={18.4} r={2} {...body} fill={filled ? cut : 'none'} stroke={color} />
-            <Circle cx={17.4} cy={18.4} r={2} {...body} fill={filled ? cut : 'none'} stroke={color} />
+            <Circle cx={7.2} cy={18.4} r={2} {...body} />
+            <Circle cx={17.4} cy={18.4} r={2} {...body} />
           </>
         )
       case 'menu':

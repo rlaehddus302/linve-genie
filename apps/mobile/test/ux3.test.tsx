@@ -58,7 +58,7 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     expect(container).toBeTruthy()
   })
 
-  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 칸도 채우지 않고 선만 그린다 (D-UX3-13·44)', () => {
+  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 상자는 윗선을 남기고 테이프만 좁게 뚫리고, 고른 트럭 바퀴는 채워진다 (D-UX3-13·44·45)', () => {
     const world = makeWorld()
     // D-UX3-39: 프린터 아이콘은 막대에 없다(라벨 프린터는 전체 안) — 아이콘 자체는 그대로라 따로 그려 본다
     const { container } = render(world.wrap(<><TabBar active="packing" onSelect={() => {}} /><TabIcon name="printer" color="#000" cut="#fff" /></>))
@@ -73,9 +73,14 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     const bodyLine = printer?.querySelectorAll('path')[1]?.getAttribute('d') ?? ''
     expect(bodyLine.startsWith('M7 17.4')).toBe(true)
     expect(bodyLine.endsWith('H17')).toBe(true)
-    // D-UX3-44: 고른 상자(포장)도 채우지 않는다 — 테이프는 윗선(3.8)에서 내려오는 선
-    expect([...(box?.querySelectorAll('path') ?? [])].some((path) => path.getAttribute('d')?.startsWith('M10.5 3.8') === true)).toBe(true)
-    for (const svg of svgs.slice(0, 5)) for (const shape of svg.querySelectorAll('path, circle')) expect(shape.getAttribute('fill')).toBe('none')
+    // D-UX3-45: 고른 상자(포장)는 채우고, 테이프는 윗선 아래(4.7)부터 좁게 뚫는다 — 윗선은 끊지 않는다
+    expect([...(box?.querySelectorAll('path') ?? [])].some((path) => path.getAttribute('d')?.startsWith('M10.5 4.7') === true)).toBe(true)
+    expect(box?.querySelector('path')?.getAttribute('fill')).not.toBe('none')
+    // D-UX3-45: 고른 트럭 바퀴는 흰색으로 남기지 않고 같은 색으로 채운다
+    render(world.wrap(<TabIcon name="truck" color="#111" cut="#fff" filled />))
+    const wheels = [...(container.ownerDocument.querySelectorAll('svg').item(container.ownerDocument.querySelectorAll('svg').length - 1)?.querySelectorAll('circle') ?? [])]
+    expect(wheels).toHaveLength(2)
+    for (const wheel of wheels) expect(wheel.getAttribute('fill')).toBe('#111')
     // 모서리는 원호(A)가 아니라 아이폰 연속 곡률 곡선(C) — 집 문 홈만 원호 (D-UX3-15)
     for (const svg of [printer, box]) for (const path of svg?.querySelectorAll('path') ?? []) expect(path.getAttribute('d')).not.toMatch(/A/)
   })
