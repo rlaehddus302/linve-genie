@@ -58,7 +58,7 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     expect(container).toBeTruthy()
   })
 
-  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 칸은 채우고 안쪽 선만 흰색으로 뒤집는다 (D-UX3-13·44·46·60)', () => {
+  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 칸은 채우고 안쪽 선만 흰색으로 뒤집는다 (D-UX3-13·44·46·60·62)', () => {
     const world = makeWorld()
     // D-UX3-39: 프린터 아이콘은 막대에 없다(라벨 프린터는 전체 안) — 아이콘 자체는 그대로라 따로 그려 본다
     const { container } = render(world.wrap(<><TabBar active="packing" onSelect={() => {}} /><TabIcon name="printer" color="#000" cut="#fff" /></>))
@@ -73,18 +73,18 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     const bodyLine = printer?.querySelectorAll('path')[1]?.getAttribute('d') ?? ''
     expect(bodyLine.startsWith('M7 17.4')).toBe(true)
     expect(bodyLine.endsWith('H17')).toBe(true)
-    // D-UX3-61: 상자는 겉선과 테이프 선이 한 줄 — 위 가운데(10.2~13.8)는 닫지 않고 테이프 선이 찢긴 끝까지 들어갔다 나온다
+    // D-UX3-62 (사용자 손그림): 상자는 비스듬히 깎인 겉모양 하나 + 테이프 선 하나(윗선에서 비스듬히 내려와 곧게)
     const boxPaths = [...(box?.querySelectorAll('path') ?? [])]
-    const boxLine = boxPaths[0]?.getAttribute('d') ?? ''
-    expect(boxLine.startsWith('M13.8 3.8 ')).toBe(true)
-    expect(boxLine.endsWith('L10.2 3.8 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 Z')).toBe(true)
-    // 고른 상자(택배 탭)는 채우고 테이프 자리를 통째로 흰색으로 칠한다
+    expect(boxPaths).toHaveLength(2)
+    expect(boxPaths[1]?.getAttribute('d')).toBe('M14.6 3.8 L11.4 6.3 Q10.2 7.2 10.2 8.6 V12')
+    // 고른 상자(택배 탭)는 겉모양을 채우고 테이프 선만 흰색
     expect(boxPaths[0]?.getAttribute('fill')).not.toBe('none')
-    expect(boxPaths[1]?.getAttribute('fill')).toBe(PALETTE.light.surface)
-    // 고르지 않은 상자는 한 줄 선만
+    expect(boxPaths[1]?.getAttribute('fill')).toBe('none')
+    expect(boxPaths[1]?.getAttribute('stroke')).toBe(PALETTE.light.surface)
+    // 고르지 않은 상자는 테이프도 같은 색 선
     render(world.wrap(<TabIcon name="box" color="#111" cut="#fff" />))
     const all = container.ownerDocument.querySelectorAll('svg')
-    expect(all.item(all.length - 1).querySelectorAll('path')).toHaveLength(1)
+    expect(all.item(all.length - 1).querySelectorAll('path')[1]?.getAttribute('stroke')).toBe('#111')
     // D-UX3-61: 고객은 머리·목·몸이 붙은 한 덩어리(한 줄 모양)
     render(world.wrap(<TabIcon name="person" color="#111" cut="#fff" />))
     const people = container.ownerDocument.querySelectorAll('svg')

@@ -61,14 +61,26 @@ const TRUCK_CAB = (() => {
   const corner = smoothCorner(21.6, 13.2, [0.6, 0.8], [0, 1], 1.4)
   return `M14.6 9.2 H18.2 L${corner.start} ${corner.curve} V16.4 H14.6 Z`
 })()
-/** 택배 상자 (D-UX3-61, 사용자 지시 2026-11-07 "테이프 부분 그냥 선으로, 맨 위에 검정선으로 닫지 말고"): 상자 겉선이 위 가운데에서 끊기고
- * 그 자리에서 테이프 선(끝은 찢긴 톱니)이 안으로 들어갔다 나오는 한 줄 — 테이프 위는 열려 있다 */
-const BOX_LINE = (() => {
-  const c = [smoothCorner(20.6, 3.8, [1, 0], [0, 1], 3.2), smoothCorner(20.6, 20.4, [0, 1], [-1, 0], 3.2), smoothCorner(3.4, 20.4, [-1, 0], [0, -1], 3.2), smoothCorner(3.4, 3.8, [0, -1], [1, 0], 3.2)]
-  return `M13.8 3.8 ${c.map((corner) => `L${corner.start} ${corner.curve}`).join(' ')} L10.2 3.8 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 Z`
-})()
-/** 고른 상자의 테이프 자리 (D-UX3-61): 흰색으로 칠해 테이프가 통째로 하얗게 보인다 */
-const BOX_TAPE_FILL = 'M10.2 3.8 V11.6 L11.1 10.7 L12 11.6 L12.9 10.7 L13.8 11.6 V3.8 Z'
+/** 꼭짓점마다 반지름 r만큼 둥글린 닫힌 다각형 */
+function roundPoly(points: readonly (readonly [number, number])[], r: number): string {
+  const n = points.length
+  const parts = points.map((point, i) => {
+    const prev = points[(i + n - 1) % n] as readonly [number, number]
+    const next = points[(i + 1) % n] as readonly [number, number]
+    const toward = (to: readonly [number, number]) => {
+      const dx = to[0] - point[0]
+      const dy = to[1] - point[1]
+      const length = Math.hypot(dx, dy)
+      return `${num(point[0] + (dx / length) * r)} ${num(point[1] + (dy / length) * r)}`
+    }
+    return { from: toward(prev), corner: `${num(point[0])} ${num(point[1])}`, to: toward(next) }
+  })
+  return `M${parts.map((part) => `${part.from} Q${part.corner} ${part.to}`).join(' L')} Z`
+}
+/** 택배 상자 (D-UX3-62, 사용자 손그림 2026-11-07): 비스듬히 본 상자 — 왼쪽 위·오른쪽 아래 모서리가 비스듬히 깎인 겉모양 하나 */
+const BOX_LINE = roundPoly([[3.4, 8.4], [8.6, 3.8], [20.6, 3.8], [20.6, 15.6], [15.6, 20.4], [3.4, 20.4]], 1.6)
+/** 테이프는 선 하나 (D-UX3-62): 윗선에서 왼쪽 아래로 비스듬히(왼쪽 위 모서리와 나란히) 내려와 둥글게 꺾여 곧게 내려간다. 고르면 이 선만 흰색 */
+const BOX_TAPE = 'M14.6 3.8 L11.4 6.3 Q10.2 7.2 10.2 8.6 V12'
 /** 고객 (D-UX3-61, 사용자 지시 "홈 아이콘처럼 둥글게, 목이랑 몸 붙여서 한 덩어리"): 머리에서 목·어깨로 이어지는 한 줄 모양, 아래 두 모서리는 집과 같은 곡률 */
 const PERSON = (() => {
   const right = smoothCorner(19.4, 20.6, [0, 1], [-1, 0], 2.2)
@@ -111,8 +123,7 @@ export function TabIcon({ name, color, size = 26, filled = false, cut }: { reado
         return (
           <>
             <Path d={BOX_LINE} {...body} />
-            {/* 고른 때는 상자를 채우고 테이프 자리만 흰색 (D-UX3-61) */}
-            {filled ? <Path d={BOX_TAPE_FILL} fill={cut} stroke="none" /> : null}
+            <Path d={BOX_TAPE} {...line} fill="none" stroke={filled ? cut : color} />
           </>
         )
       case 'person':
