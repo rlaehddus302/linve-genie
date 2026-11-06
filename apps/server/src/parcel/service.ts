@@ -7,7 +7,7 @@
 // - 배송지 원문은 로그·오류·감사 메시지·발송함·이벤트 로그·요청 번호 기록에 남기지 않는다. 택배사 원래 응답 글은 읽지 않는다(carrier.ts).
 // - 판매자 ID 조건은 늘 세션의 판매자다. 없는 범위·모르는 구매자는 404(다른 판매자의 묶음이 있는지 드러내지 않는다).
 import { currentBuyerOf, getBuyer, getSettlement, isValidDate, type EngineState } from '@livejjim/core'
-import { formatInvoiceNumber, type WaybillData, type WaybillsPdfResult } from '@livejjim/documents'
+import { EPOST_VISIT_MAX_ROWS, formatInvoiceNumber, type EpostVisitRow, type WaybillData, type WaybillsPdfResult } from '@livejjim/documents'
 import { trimLabelText } from '@livejjim/label'
 import { and, eq, sql } from 'drizzle-orm'
 import { ClosingService, type ApiProblem, type FileResult, type Outcome } from '../closing.ts'
@@ -35,6 +35,7 @@ import {
   OTHER_CARRIER_LABEL,
   SETTINGS_CARRIER_ORDER,
   isSettingsCarrier,
+  itemText,
   type CarrierAdapter,
   type CarrierCode,
   type CarrierAccount,
@@ -1260,6 +1261,45 @@ export class ParcelService {
       fileName: `운송장-${date}-${name}.pdf`,
       fallback: buyer === null ? `waybills-${date}-all.pdf` : `waybill-${date}.pdf`,
       headers: { 'X-Waybill-Count': String(list.length - skipped.length), 'X-Waybill-Skipped': String(skipped.length + (booked.length - list.length)) },
+    })
+  }
+
+  /**
+   * 우체국 방문접수소포 파일접수 엑셀 (D-UX3-36 — 계약 없는 판매자가 인터넷우체국 [파일(주소) 등록]에 올린다. 결제·[신청]은 판매자가 우체국 화면에서 직접).
+   * 그 날짜의 "고를 수 있음" 묶음(입금·포장·배송지 확인 끝, 아직 접수·배송 완료 아님) 전부, 목록 순서. 상자 = 설정의 기본 상자.
+   * 택배사에는 아무것도 보내지 않고 상태도 바꾸지 않는다 — 판매자가 포장 화면에 송장번호를 적으면 배송 완료가 되어 다음 파일에서 빠진다.
+   * 없으면 409, 999개 넘으면 422(우체국이 1000건 미만만 받는다). 만들기는 작업 워커(바쁘면 429)
+   */
+  async epostVisitFile(sellerId: string, date: string, signal?: AbortSignal): Promise<Outcome<FileResult>> {
+    const day = await this.day(sellerId, date)
+    if (day.kind !== 'ok') return day
+    const { db } = this.#deps
+    const addresses = await addressRowsOf(db, sellerId, date)
+    const rows: EpostVisitRow[] = []
+    for (const row of day.value.ready) {
+      const receiver = this.#open(sellerId, addresses.get(row.buyer))
+      if (receiver === null) continue
+      rows.push({ name: receiver.name, zip: receiver.zip, address: receiver.address, detail: receiver.detail, phone: receiver.phone, box: day.value.box, content: itemText(row.qty), memo: receiver.memo })
+    }
+    if (rows.length === 0) return problem(409, 'NO_PARCELS', PARCEL_MESSAGES.noEpostRows)
+    if (rows.length > EPOST_VISIT_MAX_ROWS) return problem(422, 'TOO_MANY', PARCEL_MESSAGES.tooManyEpostRows)
+    let bytes: Uint8Array
+    try {
+      bytes = await this.#deps.work.documents.run<Uint8Array>(sellerId, 'epostVisitXlsx', { rows }, signal === undefined ? {} : { signal })
+    } catch (error) {
+      if (error instanceof WorkBusy) return problem(429, 'BUSY', '지금 다른 파일을 만들고 있어요. 잠시 뒤 다시 눌러 주세요.')
+      if (error instanceof WorkFailed) {
+        this.#deps.log({ level: error.reason === 'aborted' ? 'info' : 'error', code: 'DOCUMENT_WORK_FAILED', seller: sellerId, date, errorKind: error.reason })
+        return problem(500, 'FILE_FAILED', '파일을 만들지 못했어요. 잠시 뒤 다시 눌러 주세요.')
+      }
+      throw error
+    }
+    return ok({
+      bytes,
+      type: MIME.xlsx,
+      fileName: `우체국-방문접수-${date}.xlsx`,
+      fallback: `epost-visit-${date}.xlsx`,
+      headers: { 'X-Epost-Count': String(rows.length) },
     })
   }
 

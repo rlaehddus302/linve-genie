@@ -273,3 +273,20 @@ export function parcelBody(settings: ParcelSettings, draft: ParcelDraft): Record
     ...(draft.carrier === EPOST_CARRIER && draft.epostSecret.trim() !== '' ? { epostSecret: draft.epostSecret } : {}),
   }
 }
+
+// ── 우체국 방문접수 파일 (D-UX3-36) — 계약 없이 인터넷우체국에 직접 접수 ──
+export const EPOST_FILE_TITLE = '우체국에 직접 접수하기'
+export const EPOST_FILE_HOW = '계약하지 않아도 돼요. 이 파일을 인터넷우체국 [방문접수소포 예약] 화면의 [파일(주소) 등록]에 올리면 받는 분이 한 번에 채워져요. 결제와 [신청]은 우체국 화면에서 직접 눌러 주세요.'
+export const EPOST_FILE_AFTER = '우체국에서 받은 송장번호를 포장 화면에 적으면 배송 완료가 되고, 다음 파일에서 빠져요.'
+export const EPOST_FILE_BUSY = '우체국 파일을 만드는 중이에요…'
+export const EPOST_FILE_OPEN = '인터넷우체국 열기'
+/** 인터넷우체국 방문접수소포 예약 (로그인하거나 비회원으로) */
+export const EPOST_VISIT_URL = 'https://parcel.epost.go.kr/general.RetrieveGeneralNewGubun.parcel?isGuest=true&isAllDelete=true&userType=5'
+export const epostFileLabel = (count: number): string => `우체국 파일 받기 (${String(count)}개)`
+/** 상자 크기 안내: 파일은 설정의 기본 상자로 넣는다 */
+export const epostFileBox = (box: BoxKind): string => `상자 크기는 모두 기본 상자(${boxWord(box)})로 넣어요. 다른 묶음은 우체국 목록에서 바꿔 주세요.`
+export const epostFileName = (date: string): string => `우체국-방문접수-${date}.xlsx`
+export const epostFilePath = (date: string): string => `/api/parcels/days/${date}/epost-visit.xlsx`
+/** 우체국 파일 칸을 보이는지: 우체국을 골랐거나 아직 택배사를 고르지 않았고, 보낼 수 있는 묶음이 있다 */
+export const showsEpostFile = (day: { readonly carrier: { readonly code: SettingsCarrier } | null; readonly ready: readonly unknown[] }): boolean =>
+  day.ready.length > 0 && (day.carrier === null || day.carrier.code === 'EPOST')

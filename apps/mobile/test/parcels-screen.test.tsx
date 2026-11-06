@@ -54,6 +54,7 @@ function world() {
     return { body: { bundle: {} } }
   })
   w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29\/waybill\.pdf/, () => ({ bytes: new Uint8Array([37, 80, 68, 70]), contentType: 'application/pdf' }))
+  w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29\/epost-visit\.xlsx$/, () => ({ bytes: new Uint8Array([80, 75, 3, 4, 0]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
   return { w, posts }
 }
 
@@ -93,5 +94,19 @@ describe('ParcelsScreen (앱 택배 접수)', () => {
     await waitFor(() => expect(posts.map((post) => post.path)).toEqual(['/api/parcels/days/2026-10-29/cancel']))
     expect(posts[0]!.body).toMatchObject({ buyer: 'u4' })
     expect(await screen.findByText('접수를 취소했어요.')).toBeTruthy()
+  })
+
+  it('우체국을 골랐으면 "우체국에 직접 접수하기" — [인터넷우체국 열기] 왼쪽, [우체국 파일 받기 (2개)] 오른쪽, 파일은 공유 시트로 (D-UX3-36)', async () => {
+    const { w } = world()
+    const shared: { name: string; type: string; size: number }[] = []
+    setNativeModules({ shareFile: async (bytes, name, type) => void shared.push({ name, type, size: bytes.length }) })
+    render(w.wrap(<ParcelsScreen onBack={() => undefined} />))
+    expect(await screen.findByText('우체국에 직접 접수하기')).toBeTruthy()
+    expect(screen.getByText(/계약하지 않아도 돼요/)).toBeTruthy()
+    const open = screen.getByRole('button', { name: '인터넷우체국 열기' })
+    const file = screen.getByRole('button', { name: '우체국 파일 받기 (2개)' })
+    expect(open.compareDocumentPosition(file) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(file)
+    await waitFor(() => expect(shared).toEqual([{ name: '우체국-방문접수-2026-10-29.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 5 }]))
   })
 })

@@ -34,7 +34,18 @@ import {
   PENDING_POLL_MS,
   RETRY_FAILED,
   WAYBILL_NOTE,
+  EPOST_FILE_AFTER,
+  EPOST_FILE_BUSY,
+  EPOST_FILE_HOW,
+  EPOST_FILE_OPEN,
+  EPOST_FILE_TITLE,
+  EPOST_VISIT_URL,
   addressReason,
+  epostFileBox,
+  epostFileLabel,
+  epostFileName,
+  epostFilePath,
+  showsEpostFile,
   checkedWords,
   hasPending,
   hidesPackingTag,
@@ -220,6 +231,7 @@ function ParcelDayView({
   const running = useRef(false)
   const pending = useRef<{ key: string; requestId: string } | null>(null)
   const waybills = useDownload()
+  const epostFile = useDownload()
 
   const day = state.day
   const groups = useMemo(() => (day === null ? null : parcelGroups(day)), [day])
@@ -378,6 +390,27 @@ function ParcelDayView({
         ) : null}
         {bookError !== null ? <RequestError error={bookError} onRetry={() => void book(chosen)} retryLabel="다시 보내기" /> : null}
       </section>
+
+      {showsEpostFile(day) ? (
+        <section className="card stack" aria-labelledby={`epost-${date}`}>
+          <h2 id={`epost-${date}`} className="section-title">
+            {EPOST_FILE_TITLE}
+          </h2>
+          <p>{EPOST_FILE_HOW}</p>
+          <p className="hint">{epostFileBox(day.box)}</p>
+          <p className="hint">{EPOST_FILE_AFTER}</p>
+          <div className="row">
+            <a className="button" href={EPOST_VISIT_URL} target="_blank" rel="noopener noreferrer">
+              {EPOST_FILE_OPEN}
+            </a>
+            <button type="button" className="button button-primary" disabled={epostFile.busy} onClick={() => void epostFile.run(epostFilePath(date), epostFileName(date))}>
+              {epostFileLabel(groups.ready.length)}
+            </button>
+            {epostFile.busy ? <span role="status">{EPOST_FILE_BUSY}</span> : null}
+          </div>
+          {epostFile.error !== null ? <RequestError error={epostFile.error} /> : null}
+        </section>
+      ) : null}
 
       <section className="card stack" aria-labelledby={`excluded-${date}`}>
         <h2 id={`excluded-${date}`} className="section-title">

@@ -624,3 +624,43 @@ describe('개인정보처리방침 (AC-T1-80)', () => {
     expect(screen.getByRole('region', { name: '5. 제3자 제공' }).textContent).toContain('택배사')
   })
 })
+
+describe('우체국 방문접수 파일 (D-UX3-36)', () => {
+  it('우체국을 골랐으면 "우체국에 직접 접수하기": [인터넷우체국 열기] 왼쪽·[우체국 파일 받기 (N개)] 오른쪽, 누르면 파일을 받는다', async () => {
+    const downloads: string[] = []
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:epost')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      if (this.download !== '') downloads.push(this.download)
+    })
+    day = {
+      ...sixRows(),
+      carrier: { code: 'EPOST', name: '우체국택배' },
+      blocked: { code: 'NO_AUTO_BOOK', message: '우체국 자동 접수를 쓰려면 설정 > 택배에 우체국 고객 번호·인증키·보안키를 넣어 주세요.' },
+      box: '100',
+      ready: [row('UC_A', '김하나'), row('UC_G', '오일곱')],
+    }
+    server.on('GET', /^\/api\/parcels\/days\/2026-10-22\/epost-visit\.xlsx$/, () => ({ body: {} }))
+    await open()
+    const card = region(exact('우체국에 직접 접수하기'))
+    expect(within(card).getByText(/계약하지 않아도 돼요/)).toBeDefined()
+    expect(within(card).getByText('상자 크기는 모두 기본 상자(100cm 이하)로 넣어요. 다른 묶음은 우체국 목록에서 바꿔 주세요.')).toBeDefined()
+    const actions = [...card.querySelectorAll('a.button, button')].map((element) => element.textContent)
+    expect(actions).toEqual(['인터넷우체국 열기', '우체국 파일 받기 (2개)'])
+    const link = within(card).getByRole('link', { name: '인터넷우체국 열기' })
+    expect(link.getAttribute('href')).toContain('https://parcel.epost.go.kr/')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    fireEvent.click(within(card).getByRole('button', { name: '우체국 파일 받기 (2개)' }))
+    await waitFor(() => expect(server.callsTo('GET', /epost-visit\.xlsx$/)).toHaveLength(1))
+    await waitFor(() => expect(downloads).toEqual(['우체국-방문접수-2026-10-22.xlsx']))
+  })
+
+  it('다른 택배사를 골랐거나 보낼 묶음이 없으면 보이지 않는다', async () => {
+    await open()
+    expect(screen.queryByRole('region', { name: '우체국에 직접 접수하기' })).toBeNull()
+    cleanup()
+    day = { ...sixRows(), carrier: { code: 'EPOST', name: '우체국택배' }, ready: [] }
+    await open()
+    expect(screen.queryByRole('region', { name: '우체국에 직접 접수하기' })).toBeNull()
+  })
+})

@@ -13,6 +13,14 @@ export function documentFont(): DocumentFont {
   return documentFontCache
 }
 
+let epostVisitCache: Uint8Array | null = null
+
+/** 우체국 방문접수소포 파일접수 공식 양식 (D-UX3-36 — packages/documents/src/templates, 처음 한 번 읽는다) */
+export function epostVisitTemplate(): Uint8Array {
+  epostVisitCache ??= new Uint8Array(readFileSync(fileURLToPath(import.meta.resolve('@livejjim/documents/templates/epost-visit.xlsx'))))
+  return epostVisitCache
+}
+
 /** 파일 이름에 못 쓰는 글자 (D-I2-01) */
 const FORBIDDEN_IN_NAME = new Set(['\\', '/', ':', '*', '?', '"', '<', '>', '|'])
 export const FILE_NAME_PART_MAX = 40

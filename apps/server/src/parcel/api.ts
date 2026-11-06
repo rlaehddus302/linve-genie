@@ -185,4 +185,11 @@ export function registerParcelRoutes(api: Hono<Env>, parcels: ParcelService, db:
     if (!date.ok) return date.response
     return fileOf(await parcels.waybill(sellerOf(c), date.date, null, c.req.raw.signal))
   })
+
+  // ── 우체국 방문접수 파일 (D-UX3-36): 인터넷우체국 [파일(주소) 등록]에 올리는 엑셀 ─────
+  api.get('/parcels/days/:date/epost-visit.xlsx', async (c) => {
+    const date = await dateOf(c, false)
+    if (!date.ok) return date.response
+    return fileOf(await parcels.epostVisitFile(sellerOf(c), date.date, c.req.raw.signal))
+  })
 }

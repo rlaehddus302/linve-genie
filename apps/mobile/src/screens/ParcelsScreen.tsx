@@ -4,7 +4,7 @@
 // 운송장 PDF는 휴대폰 공유 시트로 넘긴다(프린트·카톡 등). 다른 기기의 접수·포장·입금은 실시간 알림으로 다시 읽고, 기다리는 줄이 있으면 30초마다 다시 읽는다.
 // 이름은 서버가 정한 표시 이름(BUY-01)을 그대로, 글자로만 그린다.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { Linking, Pressable, ScrollView, View } from 'react-native'
 import type { BookResponse, BookResult, BoxKind, ParcelDay, ParcelDays, ParcelRow } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import {
@@ -24,7 +24,17 @@ import {
   RETRY_FAILED,
   ROW_BOX_LABEL,
   WAYBILL_NOTE,
+  EPOST_FILE_AFTER,
+  EPOST_FILE_HOW,
+  EPOST_FILE_OPEN,
+  EPOST_FILE_TITLE,
+  EPOST_VISIT_URL,
   addressReason,
+  epostFileBox,
+  epostFileLabel,
+  epostFileName,
+  epostFilePath,
+  showsEpostFile,
   boxWord,
   checkedWords,
   hasPending,
@@ -43,7 +53,7 @@ import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile } from '../native/index.ts'
 import { useParcelVersion } from '../lib/parcel-version.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, Card, ConfirmSheet, Icon, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
@@ -137,17 +147,19 @@ function useParcelDay(date: string, version: number) {
 }
 
 /** 운송장 PDF 받아 공유 시트로 */
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
 function useWaybill() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const run = async (path: string, name: string) => {
+  const run = async (path: string, name: string, type = 'application/pdf') => {
     if (busy) return
     setBusy(true)
     setError(null)
     try {
       const { bytes } = await getBytes(path)
       try {
-        await nativeShareFile()(bytes, name, 'application/pdf')
+        await nativeShareFile()(bytes, name, type)
       } catch {
         setError(SHARE_FAILED)
       }
@@ -172,6 +184,7 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
   const running = useRef(false)
   const pending = useRef<{ key: string; requestId: string } | null>(null)
   const waybills = useWaybill()
+  const epostFile = useWaybill()
 
   const groups = useMemo(() => (day === null ? null : parcelGroups(day)), [day])
   const retry = useMemo(() => (day === null ? [] : retryRows(day)), [day])
@@ -289,6 +302,20 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
           </View>
         ) : null}
       </Card>
+
+      {showsEpostFile(day) ? (
+        <Card label={EPOST_FILE_TITLE}>
+          <Txt step="section" weight="bold">{EPOST_FILE_TITLE}</Txt>
+          <Txt>{EPOST_FILE_HOW}</Txt>
+          <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
+          <Txt step="caption" color="textSub">{EPOST_FILE_AFTER}</Txt>
+          <ButtonRow>
+            <BigButton kind="outline" label={EPOST_FILE_OPEN} onPress={() => void Linking.openURL(EPOST_VISIT_URL)} />
+            <BigButton label={epostFileLabel(groups.ready.length)} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
+          </ButtonRow>
+          {epostFile.error !== null ? <Notice tone="danger" alert>{epostFile.error}</Notice> : null}
+        </Card>
+      ) : null}
 
       <Card label={GROUP_EXCLUDED}>
         <Txt step="section" weight="bold">{`${GROUP_EXCLUDED} · ${String(groups.excluded.length)}개`}</Txt>

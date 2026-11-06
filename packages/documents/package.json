@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./fonts/Pretendard-Regular.ttf": "./fonts/Pretendard-Regular.ttf"
+    "./fonts/Pretendard-Regular.ttf": "./fonts/Pretendard-Regular.ttf",
+    "./templates/epost-visit.xlsx": "./src/templates/epost-visit.xlsx"
   },
   "dependencies": {
     "@livejjim/core": "workspace:*",

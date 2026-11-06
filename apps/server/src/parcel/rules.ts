@@ -346,6 +346,9 @@ export const PARCEL_MESSAGES = {
   epostUnknown: '우체국에 지금 연결되지 않아요. 잠시 뒤 다시 저장해 주세요.',
   epostKeyTooLong: '인증키·보안키는 100자까지 적어 주세요.',
   busy: '아직 접수하고 있어요. 잠시 뒤 다시 확인해 주세요.',
+  // D-UX3-36 우체국 방문접수 파일
+  noEpostRows: '우체국 파일에 넣을 묶음이 없어요. 입금·포장·배송지 확인이 끝난 묶음만 들어가요.',
+  tooManyEpostRows: '우체국 파일은 한 번에 999개까지 만들 수 있어요.',
   request: '이미 받은 입력이에요.',
   unmergeBooking: '택배 접수 결과를 기다리는 구매자에게서는 떼어 낼 수 없어요. 택배 화면에서 접수 결과를 먼저 확인해 주세요.',
   saved: '저장했어요',
