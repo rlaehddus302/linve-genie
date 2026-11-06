@@ -49,7 +49,7 @@ describe('SettleScreen (앱 정산)', () => {
     expect(screen.queryByRole('button', { name: /^다육맘/ })).toBeNull()
   })
 
-  it('주문 탭 (D-UX3-39): 제목 "주문", 손님마다 정보 받음·확인서 전 꼬리표, 위에 [확인서 보내기]', async () => {
+  it('주문 탭 (D-UX3-39, 제목은 D-UX3-41로 없음): 손님마다 정보 받음·확인서 전 꼬리표, 위에 [확인서 보내기]', async () => {
     const w = world()
     const prow = (buyer: string, address: string) => ({ buyer, name: buyer, phoneLast4: null, itemCount: 1, qty: 1, total: 14_000, payment: 'PAID', packing: '포장 완료', shipping: 'NONE', address, ready: false, reason: null, message: null, box: '80', parcel: null })
     w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29$/, () => ({ body: { date: '2026-10-29', seq: 5, blocked: null, carrier: null, box: '80', ready: [], excluded: [prow('u1', 'NONE'), prow('u2', 'CONFIRMED')], booked: [] } }))
@@ -57,7 +57,8 @@ describe('SettleScreen (앱 정산)', () => {
     w.server.on('GET', /^\/api\/days\/2026-10-29\/receipt-buyers$/, () => ({ body: { date: '2026-10-29', rehearsal: false, buyers: [rrow('u1', 'NONE'), rrow('u2', 'ACTIVE')] } }))
     const openReceipts = vi.fn()
     render(w.wrap(<SettleScreen nav={{ openReceipts }} />))
-    expect(await screen.findByRole('heading', { name: '주문' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '확인서 보내기' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '주문' })).toBeNull()
     expect(await screen.findByText('정보 전')).toBeTruthy()
     expect(screen.getByText('확인서 전')).toBeTruthy()
     expect(screen.getByText('정보 받음')).toBeTruthy()

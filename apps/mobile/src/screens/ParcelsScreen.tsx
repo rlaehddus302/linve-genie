@@ -121,16 +121,8 @@ export function ParcelsScreen({ onBack, initialDate, nav = {} }: { readonly onBa
   }, [attempt, version])
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="parcels-screen">
-      {onBack !== undefined ? (
-        <AppHeader title={PARCEL_TITLE} onBack={onBack} />
-      ) : (
-        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: 28, paddingBottom: SPACE.sm }}>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-            택배
-          </Txt>
-        </View>
-      )}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
+      {onBack !== undefined ? <AppHeader title={PARCEL_TITLE} onBack={onBack} /> : null}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: onBack === undefined ? 28 : 0, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>

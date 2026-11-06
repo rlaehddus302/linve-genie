@@ -39,10 +39,7 @@ export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavig
     <View style={{ flex: 1, backgroundColor: p.background }} testID="more-screen">
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.xl, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }}>
         {/* 맨 위: 제목 + 오른쪽 위 설정 (토스 "고객센터 | 설정" 자리) */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: SPACE.xs, marginBottom: SPACE.xs }}>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-            전체
-          </Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingLeft: SPACE.xs, marginBottom: SPACE.xs }}>
           <Pressable role="button" aria-label="설정" onPress={nav.openSettings} hitSlop={6} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <Txt step="bodyLarge" weight="medium" color="textSub">
               설정

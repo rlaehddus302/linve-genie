@@ -7,4 +7,4 @@ export { Card, EmptyState, KitScreen, ListRow, Section, ToggleRow, type ListRowP
 export { BottomSheet, ConfirmSheet, FormPage, FullSheet, PopupDialog, useKeyboardShown, type BottomSheetProps, type ConfirmSheetProps, type FormPageProps, type FullSheetProps, type PopupDialogProps } from './sheets.tsx'
 export { POP_NOTE_MS, PopNote, StatusChip, Toast, useToast, type ToastApi, type ToastData } from './feedback.tsx'
 export { AlertMark, applyPadKey, ClearButton, ErrorLine, FIELD_LABEL_MS, FIELD_ROW, NumberPad, TextField, UnderlineField, type PadKey, type TextFieldProps, type UnderlineFieldProps } from './inputs.tsx'
-export { AppHeader, BACK_ICON, BackButton, CountBadge, DotStatus, GroupLabel, HeaderIconButton, HeroButton, Icon, RowDivider, RowGroup, setTabBarBackdrop, TabBar, TABS, tabIndex, TodoRow, type BadgeTone, type IconName, type TabKey } from './app.tsx'
+export { AppHeader, BACK_ICON, BackButton, CountBadge, DotStatus, GroupLabel, HeaderIconButton, HeroButton, Icon, RowDivider, RowGroup, setTabBarBackdrop, TAB_CELL, TabBar, tabBarBottom, TABS, tabIndex, TodoRow, type BadgeTone, type IconName, type TabKey } from './app.tsx'

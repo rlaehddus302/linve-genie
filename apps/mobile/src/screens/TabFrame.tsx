@@ -4,7 +4,7 @@
 // 탭끼리는 화면 전환 없이(animation 'none') 바꿔 끼우고, 움직임은 여기서만 낸다.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccessibilityInfo, Animated, Easing, Platform, View } from 'react-native'
-import { SPACE, TabBar, TabBarRoomProvider, tabIndex, useBottomInset, useKit, type TabKey } from '../ui/kit/index.ts'
+import { SPACE, TAB_CELL, TabBar, tabBarBottom, TabBarRoomProvider, tabIndex, useBottomInset, useKit, type TabKey } from '../ui/kit/index.ts'
 
 /** 밀려 들어오는 거리 (화면 너비가 아니라 살짝) */
 export const TAB_SHIFT = 48
@@ -21,8 +21,8 @@ export function tabEnterSide(from: TabKey | null, to: TabKey): -1 | 0 | 1 {
 export function TabFrame({ active, go, children }: { readonly active: TabKey; readonly go: (key: TabKey) => void; readonly children: ReactNode }) {
   const { p } = useKit()
   const inset = useBottomInset()
-  // 재기 전 짐작: 칸 56 + 안쪽 여백·테두리 + 위 여백 + 홈 막대
-  const [room, setRoom] = useState(56 + SPACE.xs * 3 + 2 + Math.max(inset, SPACE.sm))
+  // 재기 전 짐작: 칸 높이 + 안쪽 여백·테두리 + 위 여백 + 홈 막대
+  const [room, setRoom] = useState(TAB_CELL + SPACE.xs * 3 + 2 + tabBarBottom(inset))
   const from = useRef(lastTab).current
   const side = useRef(tabEnterSide(from, active)).current
   const shift = useRef(new Animated.Value(side)).current

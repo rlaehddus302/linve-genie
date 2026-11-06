@@ -61,7 +61,7 @@ async function permission(): Promise<boolean> {
 }
 
 function TabBarBlur() {
-  return <BlurView tint="systemChromeMaterialLight" intensity={60} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
+  return <BlurView tint="systemUltraThinMaterialLight" intensity={40} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
 }
 
 let installed = false

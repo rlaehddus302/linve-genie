@@ -170,6 +170,13 @@ export function tabIndex(key: TabKey): number {
   return TABS.findIndex((tab) => tab.key === key)
 }
 
+/** 아래 탭 칸 높이 (D-UX3-41) */
+export const TAB_CELL = 52
+/** 아래 탭 아래 여백 (토스처럼 홈 막대 자리까지 내려 앉는다, D-UX3-41): 홈 막대가 있으면 그 높이보다 14 작게, 없으면 8 */
+export function tabBarBottom(inset: number): number {
+  return Math.max(inset - 14, SPACE.sm)
+}
+
 /** 아래 탭 뒤 흐림 (D-UX3-13): 앱은 시작 때 기기 흐림(expo-blur)을 끼운다. 시험·웹은 없음(반투명 흰색만) */
 let Backdrop: ComponentType | null = null
 export function setTabBarBackdrop(next: ComponentType | null): void {
@@ -195,7 +202,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
   const gap = 2
   const cell = width === 0 ? 0 : (width - gap * (TABS.length - 1)) / TABS.length
   return (
-    <View pointerEvents="box-none" onLayout={(event) => onHeight?.(event.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: SPACE.md, paddingTop: SPACE.xs, paddingBottom: Math.max(inset, SPACE.sm) }}>
+    <View pointerEvents="box-none" onLayout={(event) => onHeight?.(event.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: SPACE.md, paddingTop: SPACE.xs, paddingBottom: tabBarBottom(inset) }}>
       {/* 그림자는 겉에(둥글게 자르면 그림자도 잘린다), 흐림·반투명은 안에서 둥글게 자른다 */}
       <View style={{ borderRadius: RADIUS.pill, borderCurve: 'continuous', ...SHADOW.sheet, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 }}>
         <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', borderRadius: RADIUS.pill, borderCurve: 'continuous', overflow: 'hidden', borderWidth: 1, borderColor: p.line, padding: SPACE.xs, gap }}>
@@ -214,11 +221,11 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
               <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
                   tapHaptic()
                   onSelect(tab.key)
-                }} style={({ pressed }) => ({ flex: 1, minHeight: 56, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
+                }} style={({ pressed }) => ({ flex: 1, minHeight: TAB_CELL, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
                 {({ pressed }) => (
                   <>
-                    <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : p.soft} />
-                    <Txt step="caption" weight={on ? 'bold' : 'medium'} ink={ink}>
+                    <TabIcon name={tab.icon} color={ink} size={24} filled={on} cut={pressed ? p.softPressed : p.soft} />
+                    <Txt step="tab" weight={on ? 'bold' : 'medium'} ink={ink}>
                       {tab.word}
                     </Txt>
                   </>

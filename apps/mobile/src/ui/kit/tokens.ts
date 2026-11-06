@@ -107,7 +107,7 @@ const LIGHT: Palette = {
   warnPressed: '#FCE6C6',
   placeholder: '#8B95A1',
   clearCircle: '#B0B8C1',
-  glass: 'rgba(255,255,255,0.72)',
+  glass: 'rgba(255,255,255,0.5)',
   warnBg: '#FFF4E5',
   warnText: '#B54708',
   warnStrong: '#8A3A06',
@@ -128,7 +128,9 @@ export const TONES: Readonly<Record<Scheme, Readonly<Record<Tone, TonePair>>>> =
 
 /** 글자 크기 단계 (dp, 시스템 큰 글자 배율 전). 토스 화면 치수 그대로 (D-UX3-07, 사용자 지시 2026-11-03 "똑같이"). */
 export const TYPE = {
-  /** 꼬리표·도움말·입력 칸 라벨·아래 탭 글자 */
+  /** 아래 탭 글자 (토스 아래 탭처럼 작게, D-UX3-41) */
+  tab: 12,
+  /** 꼬리표·도움말·입력 칸 라벨 */
   caption: 14,
   /** 본문 */
   body: 16,

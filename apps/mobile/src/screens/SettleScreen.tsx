@@ -96,12 +96,6 @@ export function SettleScreen({ initialDate, initialBuyer, nav = {} }: { readonly
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="settle-screen">
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.sm }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
-        <View style={{ paddingHorizontal: SPACE.sm }}>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-            주문
-          </Txt>
-          <Txt step="caption" color="textSub">손님마다 정리 → 정보 받기 → 확인서 보내기 → 입금 확인</Txt>
-        </View>
         {nav.openBuyerInfo !== undefined ? <BuyerInfoBanner onOpen={nav.openBuyerInfo} /> : null}
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}

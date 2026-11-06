@@ -58,10 +58,7 @@ export function PackingScreen({ initialDate, openParcels }: { readonly initialDa
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="packing-screen">
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.sm }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SPACE.sm }}>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-            포장
-          </Txt>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: SPACE.sm }}>
           {progress !== null ? (
             <Txt step="bodyLarge" weight="bold" color="textSub" aria-label={`포장 끝낸 손님 ${String(progress.done)}명, 전체 ${String(progress.total)}명`}>
               {`끝낸 손님 ${String(progress.done)} / ${String(progress.total)}`}
