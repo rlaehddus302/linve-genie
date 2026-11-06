@@ -290,3 +290,43 @@ export const epostFilePath = (date: string): string => `/api/parcels/days/${date
 /** 우체국 파일 칸을 보이는지: 우체국을 골랐거나 아직 택배사를 고르지 않았고, 보낼 수 있는 묶음이 있다 */
 export const showsEpostFile = (day: { readonly carrier: { readonly code: SettingsCarrier } | null; readonly ready: readonly unknown[] }): boolean =>
   day.ready.length > 0 && (day.carrier === null || day.carrier.code === 'EPOST')
+
+// ── 앱 안 우체국 화면 (D-UX3-37) — 들고 가기(창구소포 간편사전접수)·가지러 오기(방문접수소포) ──
+export type EpostDirectKind = 'VISIT' | 'COUNTER'
+export const EPOST_DIRECT_HOW = '계약하지 않아도 돼요. 앱 안에서 인터넷우체국을 열면 보내는 분과 받는 분을 라이브찜이 채워요. 비밀번호·동의·[신청]은 우체국 화면에서 직접 해 주세요.'
+export const EPOST_KIND_LABEL: Readonly<Record<EpostDirectKind, string>> = { COUNTER: '우체국에 들고 가기', VISIT: '집으로 가지러 오기' }
+export const EPOST_KIND_HOW: Readonly<Record<EpostDirectKind, string>> = {
+  COUNTER: '창구소포 간편사전접수예요. 신청한 뒤 우체국 창구에 들고 가서 결제해요.',
+  VISIT: '방문접수소포예요. 우체국 직원이 가지러 오고, 신청할 때 카드로 결제해요.',
+}
+export const EPOST_FILE_PC = 'PC에서 접수하려면 파일을 받아 방문접수 화면의 [파일(주소) 등록]에 올려도 돼요.'
+export const EPOST_REFILL = '다시 채우기'
+export const EPOST_FIND = '송장번호 찾기'
+export const EPOST_SAFARI = '사파리로 열기'
+export const EPOST_LOADING = '우체국 화면에 넣을 내용을 준비하는 중이에요…'
+export const EPOST_STEP: Readonly<Record<EpostDirectKind, string>> = {
+  COUNTER: '동의하고 비밀번호 4자리를 정하면 입력 화면이 열려요. 보내는 분·받는 분은 라이브찜이 채우고, [신청]은 직접 눌러 주세요.',
+  VISIT: '보내는 분과 받는 분은 라이브찜이 채워요. 목록을 확인한 뒤 결제와 [신청]은 직접 해 주세요.',
+}
+export const EPOST_NO_SENDER = '설정에 보내는 사람 정보가 없어요. 우체국 화면에 직접 적어 주세요.'
+export const EPOST_NEED_DATE = '방문 날짜와 시간을 고른 뒤 [파일(주소) 등록]을 눌러 주세요. 받는 분은 라이브찜이 넣어요.'
+export const epostUploading = (count: number): string => `받는 분 ${String(count)}명을 우체국 목록에 넣는 중이에요…`
+export const epostUploaded = (count: number): string => `받는 분 ${String(count)}명을 넣었어요. 우체국 목록을 확인하고 [신청]을 눌러 주세요.`
+export const EPOST_UPLOAD_FAILED = '받는 분을 넣지 못했어요. [다시 채우기]를 누르거나, 우체국 화면의 [파일(주소) 등록]에 파일을 직접 올려 주세요.'
+export const EPOST_POPUP = '이 단추는 앱 안에서 창을 열 수 없어요. 앱에서 막히면 [사파리로 열기]로 이어서 해 주세요.'
+export const epostCounterAdded = (count: number): string => `받는 분 ${String(count)}명을 목록에 넣었어요. 목록을 확인하고 [신청]을 눌러 주세요.`
+export const epostCounterSkipped = (count: number): string => `${String(count)}명은 우편번호나 연락처가 맞지 않아 넣지 못했어요. 우체국 화면에서 직접 넣어 주세요.`
+export const epostCounterExisting = (count: number): string => `목록에 이미 ${String(count)}명이 있어서 받는 분은 다시 넣지 않았어요.`
+export const EPOST_FIND_NONE = '이 화면에서 송장번호를 찾지 못했어요. 접수 완료 화면이나 이용내역 화면에서 눌러 주세요.'
+export const epostFound = (count: number): string => `송장번호 ${String(count)}개를 찾았어요`
+export const EPOST_FOUND_HOW = '이름과 송장번호가 맞는지 확인해 주세요. 넣으면 접수함으로 옮기고 배송 완료로 적어요.'
+export const epostFoundSave = (count: number): string => `${String(count)}개 넣기`
+export const epostUnmatched = (count: number): string => `이름을 맞추지 못한 송장번호 ${String(count)}개는 넣지 않았어요. 포장 화면에서 직접 적어 주세요.`
+export const epostSaved = (count: number): string => `${String(count)}개 묶음에 송장번호를 넣었어요.`
+
+// 직접 접수한 묶음 (택배 화면 접수함 줄)
+export const DIRECT_TAG = '우체국 직접 접수'
+export const DIRECT_CANCEL_LABEL = '기록 지우기'
+export const DIRECT_CANCEL_QUESTION = '송장 기록을 지울까요?'
+export const directCancelDescription = (name: string): string => `${name}님 묶음에 적은 송장번호만 지워요. 우체국 접수는 그대로라, 취소하려면 인터넷우체국에서 해 주세요.`
+export const DIRECT_CANCEL_DONE = '송장 기록을 지웠어요.'

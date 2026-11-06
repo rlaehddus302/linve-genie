@@ -250,10 +250,19 @@ export async function hasLiveAttempt(db: Db, sellerId: string, date: string, buy
 /** 무작위 택배사 요청 번호 (전화번호·이름을 담지 않는다) */
 export const newRequestKey = (): string => `lj-${randomBytes(16).toString('base64url')}`
 
+/** 판매자가 인터넷우체국에서 직접 접수한 묶음 (D-UX3-37): 방문접수소포(VISIT)·창구소포 간편사전접수(COUNTER) */
+export type DirectKind = 'VISIT' | 'COUNTER'
+const DIRECT_PREFIX: Readonly<Record<DirectKind, string>> = { VISIT: 'direct-visit-', COUNTER: 'direct-counter-' }
+/** 직접 접수 시도의 요청 키 — 택배사에 보내지 않는 키라 앞말로 직접 접수를 표시한다 */
+export const directRequestKey = (kind: DirectKind): string => `${DIRECT_PREFIX[kind]}${randomBytes(16).toString('base64url')}`
+/** 요청 키 → 직접 접수 종류 (택배사 자동 접수면 null) */
+export const directOf = (requestKey: string): DirectKind | null =>
+  requestKey.startsWith(DIRECT_PREFIX.VISIT) ? 'VISIT' : requestKey.startsWith(DIRECT_PREFIX.COUNTER) ? 'COUNTER' : null
+
 /** 새 시도 PENDING (살아 있는 시도가 이미 있으면 DB 고유 색인이 막아 null — PC-INV-1) */
 export async function insertAttempt(
   tx: Db,
-  input: { sellerId: string; date: string; buyer: string; carrier: CarrierCode; box: BoxKind; qty: number; accountId: string; now: Date },
+  input: { sellerId: string; date: string; buyer: string; carrier: CarrierCode; box: BoxKind; qty: number; accountId: string; now: Date; requestKey?: string },
 ): Promise<AttemptRow | null> {
   const id = `pc_${randomUUID()}`
   const inserted = await tx
@@ -264,7 +273,7 @@ export async function insertAttempt(
       date: input.date,
       buyer: input.buyer,
       carrier: input.carrier,
-      requestKey: newRequestKey(),
+      requestKey: input.requestKey ?? newRequestKey(),
       state: 'PENDING',
       box: input.box,
       qty: input.qty,
@@ -321,7 +330,7 @@ export function addressState(row: AddressRow | null | undefined, opened: boolean
 
 // ── 화면 요청 번호 ───────────────────────────────────────────────────────
 
-export type ParcelRequestKind = 'BOOK' | 'CANCEL' | 'ADDRESS' | 'CONFIRM' | 'DELETE' | 'LEDGER' // KP1 LEDGER = 장부 배송지 확인(CR-4)
+export type ParcelRequestKind = 'BOOK' | 'CANCEL' | 'ADDRESS' | 'CONFIRM' | 'DELETE' | 'LEDGER' | 'DIRECT' // KP1 LEDGER = 장부 배송지 확인(CR-4), DIRECT = 우체국 직접 접수 송장(D-UX3-37)
 
 export interface RequestRow {
   readonly date: string

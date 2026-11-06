@@ -16,7 +16,7 @@ export default function ParcelsRoute() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
-        <ParcelsScreen initialDate={typeof params.date === 'string' ? params.date : undefined} onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} nav={{ openSettle: (date, buyer) => router.replace({ pathname: '/settle', params: { date, buyer } }), openSettings: () => router.push('/shop-settings') }} />
+        <ParcelsScreen initialDate={typeof params.date === 'string' ? params.date : undefined} onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} nav={{ openSettle: (date, buyer) => router.replace({ pathname: '/settle', params: { date, buyer } }), openSettings: () => router.push('/shop-settings'), openEpost: (date, kind) => router.push({ pathname: '/epost', params: { date, kind } }) }} />
       </KitInsets>
     </SafeAreaView>
   )

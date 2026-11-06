@@ -192,4 +192,23 @@ export function registerParcelRoutes(api: Hono<Env>, parcels: ParcelService, db:
     if (!date.ok) return date.response
     return fileOf(await parcels.epostVisitFile(sellerOf(c), date.date, c.req.raw.signal))
   })
+
+  // ── 앱 안 우체국 화면 (D-UX3-37): 자동 채우기 자료, 직접 접수한 송장번호 적기 ─────
+  api.get('/parcels/days/:date/epost-kit', async (c) => {
+    const date = await dateOf(c, false)
+    if (!date.ok) return date.response
+    c.header('Cache-Control', 'no-store')
+    return json(c, await parcels.epostKit(sellerOf(c), date.date, c.req.raw.signal), (kit) => ({ kit }))
+  })
+  // { requestId, kind: VISIT·COUNTER, items: [{ buyer, invoice }] } (1~200). 답은 한 번에 접수와 같은 { date, results }
+  api.post('/parcels/days/:date/direct', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const parsed = ParcelService.directInput(input)
+    if (!parsed.ok) return problemResponse(parsed.error)
+    const date = await dateOf(c, true)
+    if (!date.ok) return date.response
+    return json(c, await parcels.recordDirect(sellerOf(c), accountOf(c), date.date, requestId, parsed.kind, parsed.items), (value) => ({ date: date.date, ...value }))
+  })
 }

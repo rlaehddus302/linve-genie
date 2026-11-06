@@ -34,6 +34,11 @@ import {
   PENDING_POLL_MS,
   RETRY_FAILED,
   WAYBILL_NOTE,
+  DIRECT_CANCEL_DONE,
+  DIRECT_CANCEL_LABEL,
+  DIRECT_CANCEL_QUESTION,
+  DIRECT_TAG,
+  directCancelDescription,
   EPOST_FILE_AFTER,
   EPOST_FILE_BUSY,
   EPOST_FILE_HOW,
@@ -574,6 +579,9 @@ function BookedRow({
   const checked = parcel === null ? null : checkedWords(parcel)
   /** 집하 뒤면 버튼 대신 안내 (서버 cancellable — U-T1-05). 그 사이 집하된 경우는 취소 응답 문장(AC-T1-64) */
   const cancellable = parcel === null || parcel.cancellable
+  // 우체국 직접 접수(D-UX3-37): 운송장은 우체국이 붙인다 — 운송장 PDF 없음, [기록 지우기]는 라이브찜 기록만
+  const direct = parcel?.direct === 'VISIT' || parcel?.direct === 'COUNTER'
+  const cancelLabel = direct ? DIRECT_CANCEL_LABEL : '접수 취소'
 
   const cancel = async () => {
     if (running.current) return
@@ -606,23 +614,26 @@ function BookedRow({
       {parcel !== null ? (
         <p className="row">
           <ParcelTag parcel={parcel} />
+          {direct ? <span className="tag">{DIRECT_TAG}</span> : null}
           {checked !== null ? <span className="hint">{checked}</span> : null}
         </p>
       ) : null}
       <div className="row" role="group" aria-label={`${name} 택배`}>
-        <button
-          type="button"
-          className="button"
-          disabled={waybill.busy}
-          onClick={() => {
-            onAction()
-            setDone(false)
-            setError(null)
-            void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)
-          }}
-        >
-          운송장 PDF
-        </button>
+        {direct ? null : (
+          <button
+            type="button"
+            className="button"
+            disabled={waybill.busy}
+            onClick={() => {
+              onAction()
+              setDone(false)
+              setError(null)
+              void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)
+            }}
+          >
+            운송장 PDF
+          </button>
+        )}
         {cancellable ? (
           <button
             type="button"
@@ -635,7 +646,7 @@ function BookedRow({
               setAsking(true)
             }}
           >
-            접수 취소
+            {cancelLabel}
           </button>
         ) : null}
         {busy ? <span role="status">취소하는 중…</span> : null}
@@ -648,14 +659,14 @@ function BookedRow({
       ) : null}
       {done ? (
         <p className="notice" role="status" data-tone="success">
-          접수를 취소했어요.
+          {direct ? DIRECT_CANCEL_DONE : '접수를 취소했어요.'}
         </p>
       ) : null}
       {error !== null ? <RequestError error={error} /> : null}
       {waybill.error !== null ? <RequestError error={waybill.error} /> : null}
       {asking ? (
         <Modal
-          title="접수 취소"
+          title={direct ? DIRECT_CANCEL_QUESTION : '접수 취소'}
           onClose={() => setAsking(false)}
           actions={
             <button
@@ -667,11 +678,11 @@ function BookedRow({
                 void cancel()
               }}
             >
-              취소하기
+              {direct ? '지우기' : '취소하기'}
             </button>
           }
         >
-          <p>{`${name}님의 택배 접수를 취소할까요? 택배사가 아직 가져가지 않았을 때만 취소돼요.`}</p>
+          <p>{direct ? directCancelDescription(name) : `${name}님의 택배 접수를 취소할까요? 택배사가 아직 가져가지 않았을 때만 취소돼요.`}</p>
         </Modal>
       ) : null}
     </li>

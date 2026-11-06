@@ -7,7 +7,7 @@
 // - 배송지 원문은 로그·오류·감사 메시지·발송함·이벤트 로그·요청 번호 기록에 남기지 않는다. 택배사 원래 응답 글은 읽지 않는다(carrier.ts).
 // - 판매자 ID 조건은 늘 세션의 판매자다. 없는 범위·모르는 구매자는 404(다른 판매자의 묶음이 있는지 드러내지 않는다).
 import { currentBuyerOf, getBuyer, getSettlement, isValidDate, type EngineState } from '@livejjim/core'
-import { EPOST_VISIT_MAX_ROWS, formatInvoiceNumber, type EpostVisitRow, type WaybillData, type WaybillsPdfResult } from '@livejjim/documents'
+import { EPOST_VISIT_CLASS, EPOST_VISIT_MAX_ROWS, formatInvoiceNumber, type EpostVisitRow, type WaybillData, type WaybillsPdfResult } from '@livejjim/documents'
 import { trimLabelText } from '@livejjim/label'
 import { and, eq, sql } from 'drizzle-orm'
 import { ClosingService, type ApiProblem, type FileResult, type Outcome } from '../closing.ts'
@@ -36,6 +36,7 @@ import {
   SETTINGS_CARRIER_ORDER,
   isSettingsCarrier,
   itemText,
+  type CancelResult,
   type CarrierAdapter,
   type CarrierCode,
   type CarrierAccount,
@@ -81,6 +82,8 @@ import {
   claimRequest,
   confirmAddress,
   deleteAddress,
+  directOf,
+  directRequestKey,
   insertAttempt,
   latestAttempt,
   latestAttempts,
@@ -98,6 +101,7 @@ import {
   writeSettings,
   type AddressRow,
   type AttemptRow,
+  type DirectKind,
   type ParcelRequestKind,
   type RequestRow,
   type StoredSettings,
@@ -165,6 +169,8 @@ export interface ParcelBrief {
   readonly bookedAt: string | null
   /** 접수 취소를 보낼 수 있는지 (BOOKED이고 집하 전) */
   readonly cancellable: boolean
+  /** 판매자가 인터넷우체국에서 직접 접수하고 송장번호만 적은 묶음 (D-UX3-37 — VISIT 방문접수·COUNTER 창구 간편사전접수, 자동 접수면 null) */
+  readonly direct: DirectKind | null
 }
 
 /** 택배 화면의 묶음 한 줄 */
@@ -257,6 +263,34 @@ export interface ParcelSettingsView {
 export type BookItemResult =
   | { readonly buyer: string; readonly ok: true; readonly invoice: string; readonly invoiceText: string }
   | { readonly buyer: string; readonly ok: false; readonly reason: EligibilityReason | FailureReason | 'BUYER' | 'SEALED' | 'ADDRESS_EXPIRED'; readonly message: string }
+
+/** 앱 안 우체국 화면 자동 채우기 자료 (D-UX3-37) */
+export interface EpostKit {
+  readonly date: string
+  readonly sender: ParcelSender | null
+  readonly receivers: readonly {
+    readonly buyer: string
+    readonly name: string
+    /** 숫자만 */
+    readonly phone: string
+    /** 숫자 5자리 또는 "" */
+    readonly zip: string
+    readonly address: string
+    readonly detail: string
+    readonly memo: string
+    readonly qty: number
+    /** 내용물 (예: "물품 3개") */
+    readonly content: string
+    /** 상자 기본값의 우체국 중량(kg)·크기(cm) */
+    readonly kg: number
+    readonly cm: number
+  }[]
+  /** 방문접수 [파일(주소) 등록]에 넣는 파일 */
+  readonly file: { readonly name: string; readonly base64: string }
+}
+
+/** 우체국 등기번호 (숫자 13자리) */
+export const EPOST_REGI_RE = /^[0-9]{13}$/
 
 /** 구매자 링크 쪽의 배송지 칸 (PC-3·PC-8) */
 export type LinkSection =
@@ -393,6 +427,7 @@ export class ParcelService {
       qty: row.qty,
       bookedAt: row.bookedAt === null ? null : iso(row.bookedAt.getTime()),
       cancellable: state === 'BOOKED' && (row.track === null || row.track === 'ACCEPTED'),
+      direct: directOf(row.requestKey),
     }
   }
 
@@ -1066,7 +1101,7 @@ export class ParcelService {
     return this.#finish(sellerId, accountId, date, attempt, answer)
   }
 
-  async #prepare(sellerId: string, accountId: string, date: string, buyer: string, box: BoxKind, carrier: CarrierCode): Promise<Prepared> {
+  async #prepare(sellerId: string, accountId: string, date: string, buyer: string, box: BoxKind, carrier: CarrierCode, direct: DirectKind | null = null): Promise<Prepared> {
     const { db, writer } = this.#deps
     const skip = (result: BookItemResult): Prepared => ({ kind: 'skip', result })
     // KP1 SA-KP1-001: 장부 "확인 전" 묶음은 목록과 같이 UNCONFIRMED로 판단한다 — 표지는 범위 줄 밖에서 미리
@@ -1082,6 +1117,8 @@ export class ParcelService {
         const now = this.#deps.clock.now()
         const latest = await latestAttempt(tx, sellerId, date, buyer)
         const address = await addressRow(tx, sellerId, date, buyer)
+        // 직접 접수(D-UX3-37)는 택배사 결과를 기다리는 자동 접수 시도를 건드리지 않는다
+        if (direct !== null && latest !== null && ['PENDING', 'UNKNOWN'].includes(stateNow(latest, now))) return skip({ buyer, ok: false, reason: 'BOOKING', message: ELIGIBILITY_MESSAGES.BOOKING })
         if (latest !== null && stateNow(latest, now) === 'UNKNOWN') {
           // 다시 확인: 다시 판단하지 않고 같은 요청 번호로 (배송지는 잠겨 있어 그때와 같다). 다른 기기가 함께 다시 보내지 않게 PENDING으로 돌려 둔다
           const receiver = this.#open(sellerId, address)
@@ -1094,7 +1131,7 @@ export class ParcelService {
         const row = this.#row(state, date, buyer, records, address, latest, box, sellerId, ledgered)
         if (!row.ready) return skip({ buyer, ok: false, reason: row.reason as EligibilityReason, message: row.message as string })
         const receiver = this.#open(sellerId, address) as ParcelAddress
-        const attempt = await insertAttempt(tx, { sellerId, date, buyer, carrier, box, qty: row.qty, accountId, now: new Date(now) })
+        const attempt = await insertAttempt(tx, { sellerId, date, buyer, carrier, box, qty: row.qty, accountId, now: new Date(now), ...(direct === null ? {} : { requestKey: directRequestKey(direct) }) })
         if (attempt === null) return skip({ buyer, ok: false, reason: 'BOOKING', message: ELIGIBILITY_MESSAGES.BOOKING })
         return { kind: 'send', attempt, receiver }
       })
@@ -1166,14 +1203,18 @@ export class ParcelService {
     if (checked.kind !== 'ok') return checked
     const attempt = checked.value
     const adapter = this.#carriers[attempt.carrier]
-    if (adapter === undefined) return problem(503, 'CARRIER_UNAVAILABLE', PARCEL_MESSAGES.cancelUnknown)
-    let answer
-    try {
-      const stored = await readSettings(db, this.#deps.masterKey, sellerId)
-      answer = await adapter.cancel(attempt.invoice as string, { requestKey: attempt.requestKey, bookedAt: attempt.bookedAt, account: ParcelService.accountOf(stored) })
-    } catch {
-      answer = { kind: 'UNKNOWN' as const }
-    }
+    // 직접 접수(D-UX3-37)는 라이브찜 기록만 지운다 — 우체국 접수 취소는 판매자가 인터넷우체국에서 (택배사에 아무것도 보내지 않는다)
+    const direct = directOf(attempt.requestKey) !== null
+    if (adapter === undefined && !direct) return problem(503, 'CARRIER_UNAVAILABLE', PARCEL_MESSAGES.cancelUnknown)
+    let answer: CancelResult
+    if (direct) answer = { kind: 'CANCELLED' }
+    else
+      try {
+        const stored = await readSettings(db, this.#deps.masterKey, sellerId)
+        answer = await (adapter as CarrierAdapter).cancel(attempt.invoice as string, { requestKey: attempt.requestKey, bookedAt: attempt.bookedAt, account: ParcelService.accountOf(stored) })
+      } catch {
+        answer = { kind: 'UNKNOWN' as const }
+      }
     if (answer.kind === 'UNKNOWN') {
       this.#deps.log({ level: 'warn', code: 'PARCEL_CANCEL_UNKNOWN', seller: sellerId, date, reason: attempt.carrier })
       return problem(503, 'CARRIER_UNAVAILABLE', PARCEL_MESSAGES.cancelUnknown)
@@ -1274,22 +1315,44 @@ export class ParcelService {
    * 없으면 409, 999개 넘으면 422(우체국이 1000건 미만만 받는다). 만들기는 작업 워커(바쁘면 429)
    */
   async epostVisitFile(sellerId: string, date: string, signal?: AbortSignal): Promise<Outcome<FileResult>> {
+    const visit = await this.#visitRows(sellerId, date, signal)
+    if (visit.kind !== 'ok') return visit
+    const built = await this.#visitXlsx(sellerId, date, visit.value.rows, signal)
+    if (built.kind !== 'ok') return built
+    return ok({
+      bytes: built.value,
+      type: MIME.xlsx,
+      fileName: `우체국-방문접수-${date}.xlsx`,
+      fallback: `epost-visit-${date}.xlsx`,
+      headers: { 'X-Epost-Count': String(visit.value.rows.length) },
+    })
+  }
+
+  /** 그 날짜의 "고를 수 있음" 묶음 → 우체국 파일 줄 (배송지를 풀지 못한 묶음은 뺀다, 빈 우편번호는 서버가 찾아 채운다). 없으면 409, 999개 넘으면 422 */
+  async #visitRows(sellerId: string, date: string, signal?: AbortSignal): Promise<Outcome<{ rows: EpostVisitRow[]; buyers: string[]; qty: number[] }>> {
     const day = await this.day(sellerId, date)
     if (day.kind !== 'ok') return day
-    const { db } = this.#deps
-    const addresses = await addressRowsOf(db, sellerId, date)
+    const addresses = await addressRowsOf(this.#deps.db, sellerId, date)
     const rows: EpostVisitRow[] = []
+    const buyers: string[] = []
+    const qty: number[] = []
     for (const row of day.value.ready) {
       const receiver = this.#open(sellerId, addresses.get(row.buyer))
       if (receiver === null) continue
       rows.push({ name: receiver.name, zip: receiver.zip, address: receiver.address, detail: receiver.detail, phone: receiver.phone, box: day.value.box, content: itemText(row.qty), memo: receiver.memo })
+      buyers.push(row.buyer)
+      qty.push(row.qty)
     }
     if (rows.length === 0) return problem(409, 'NO_PARCELS', PARCEL_MESSAGES.noEpostRows)
     if (rows.length > EPOST_VISIT_MAX_ROWS) return problem(422, 'TOO_MANY', PARCEL_MESSAGES.tooManyEpostRows)
     await this.#fillZips(rows, signal)
-    let bytes: Uint8Array
+    return ok({ rows, buyers, qty })
+  }
+
+  /** 방문접수 파일 바이트 (작업 워커 — 바쁘면 429) */
+  async #visitXlsx(sellerId: string, date: string, rows: readonly EpostVisitRow[], signal?: AbortSignal): Promise<Outcome<Uint8Array>> {
     try {
-      bytes = await this.#deps.work.documents.run<Uint8Array>(sellerId, 'epostVisitXlsx', { rows }, signal === undefined ? {} : { signal })
+      return ok(await this.#deps.work.documents.run<Uint8Array>(sellerId, 'epostVisitXlsx', { rows }, signal === undefined ? {} : { signal }))
     } catch (error) {
       if (error instanceof WorkBusy) return problem(429, 'BUSY', '지금 다른 파일을 만들고 있어요. 잠시 뒤 다시 눌러 주세요.')
       if (error instanceof WorkFailed) {
@@ -1298,13 +1361,103 @@ export class ParcelService {
       }
       throw error
     }
+  }
+
+  /**
+   * 앱 안 우체국 화면 자동 채우기 자료 (D-UX3-37): 보내는 사람(설정 — 없으면 null), 받는 분 줄(방문접수 파일과 같은 묶음·순서·우편번호 채우기),
+   * 방문접수 [파일(주소) 등록]에 넣을 파일(base64). 앱이 판매자 휴대폰 안의 우체국 화면에 채울 때만 쓴다 — 택배사에 아무것도 보내지 않고 상태도 바꾸지 않는다
+   */
+  async epostKit(sellerId: string, date: string, signal?: AbortSignal): Promise<Outcome<EpostKit>> {
+    const visit = await this.#visitRows(sellerId, date, signal)
+    if (visit.kind !== 'ok') return visit
+    const built = await this.#visitXlsx(sellerId, date, visit.value.rows, signal)
+    if (built.kind !== 'ok') return built
+    const settings = await readSettings(this.#deps.db, this.#deps.masterKey, sellerId)
+    const { rows, buyers, qty } = visit.value
     return ok({
-      bytes,
-      type: MIME.xlsx,
-      fileName: `우체국-방문접수-${date}.xlsx`,
-      fallback: `epost-visit-${date}.xlsx`,
-      headers: { 'X-Epost-Count': String(rows.length) },
+      date,
+      sender: settings.sender === null ? null : { ...settings.sender },
+      receivers: rows.map((row, index) => {
+        const size = EPOST_VISIT_CLASS[row.box]
+        return { buyer: buyers[index] as string, name: row.name, phone: row.phone, zip: row.zip, address: row.address, detail: row.detail, memo: row.memo, qty: qty[index] as number, content: row.content, kg: size.kg, cm: size.cm }
+      }),
+      file: { name: `우체국-방문접수-${date}.xlsx`, base64: Buffer.from(built.value).toString('base64') },
     })
+  }
+
+  /** 직접 접수 송장 본문: kind VISIT·COUNTER, items = [{ buyer, invoice }] 1~200개 (겹치는 구매자·송장번호 없음, 송장번호는 우체국 등기번호 숫자 13자리 — 공백·`-`는 뺀다) */
+  static directInput(body: Record<string, unknown>): { ok: true; kind: DirectKind; items: { buyer: string; invoice: string }[] } | { ok: false; error: ApiProblem } {
+    const bad = (message: string, field = 'items') => ({ ok: false as const, error: { status: 400, code: 'INVALID_INPUT' as const, message, problems: [{ field, message }] } })
+    if (Object.keys(body).some((key) => key !== 'requestId' && key !== 'kind' && key !== 'items')) return { ok: false, error: { status: 400, code: 'UNKNOWN_FIELD', message: '받을 수 없는 항목이 있어요.', problems: [] } }
+    const kind = body.kind
+    if (kind !== 'VISIT' && kind !== 'COUNTER') return bad('우체국 접수 방법을 확인해 주세요.', 'kind')
+    const items = body.items
+    if (!Array.isArray(items) || items.length === 0) return bad('송장번호를 넣을 묶음을 골라 주세요.')
+    if (items.length > BOOK_MAX) return bad(PARCEL_MESSAGES.tooMany)
+    const out: { buyer: string; invoice: string }[] = []
+    const buyers = new Set<string>()
+    const invoices = new Set<string>()
+    for (const item of items as unknown[]) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) return bad('송장번호를 넣을 묶음을 확인해 주세요.')
+      const keys = Object.keys(item)
+      if (keys.length !== 2 || !keys.includes('buyer') || !keys.includes('invoice')) return bad('송장번호를 넣을 묶음을 확인해 주세요.')
+      const { buyer, invoice } = item as { buyer: unknown; invoice: unknown }
+      if (typeof buyer !== 'string' || buyer === '' || [...buyer].length > 128 || buyers.has(buyer)) return bad('송장번호를 넣을 묶음을 확인해 주세요.')
+      const digits = typeof invoice === 'string' ? invoice.replace(/[\s-]/g, '') : ''
+      if (!EPOST_REGI_RE.test(digits)) return bad(PARCEL_MESSAGES.directInvoice)
+      if (invoices.has(digits)) return bad(PARCEL_MESSAGES.directDuplicate)
+      buyers.add(buyer)
+      invoices.add(digits)
+      out.push({ buyer, invoice: digits })
+    }
+    return { ok: true, kind, items: out }
+  }
+
+  /**
+   * 직접 접수 송장 적기 (D-UX3-37): 판매자가 인터넷우체국에서 직접 접수(방문접수·창구 간편사전접수)한 묶음에 우체국 송장번호를 붙인다.
+   * 묶음마다 자동 접수와 같은 판단(PC-4 — 고를 수 있음만) → 시도 BOOKED(요청 키 앞말 direct-…) + 포장 기록 배송 완료(송장번호). 택배사에는 아무것도 보내지 않는다.
+   * 배송 조회는 자동 접수와 같이 우체국 조회로, [접수 취소]는 라이브찜 기록만 지운다. 같은 날 다른 묶음에 이미 적은 송장번호는 그 묶음만 거절. 같은 요청 번호면 처음 결과
+   */
+  async recordDirect(sellerId: string, accountId: string, date: string, requestId: string, kind: DirectKind, items: readonly { buyer: string; invoice: string }[]): Promise<Outcome<{ results: BookItemResult[] }>> {
+    if (!isValidDate(date)) return NOT_FOUND
+    const { db, masterKey } = this.#deps
+    const answerPrior = async (prior: RequestRow): Promise<Outcome<{ results: BookItemResult[] }>> => {
+      if (prior.kind !== 'DIRECT' || prior.date !== date) return problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request)
+      if (prior.result !== null) return ok({ results: JSON.parse(prior.result) as BookItemResult[] })
+      const flight = this.#flights.get(JSON.stringify([sellerId, requestId]))
+      if (flight !== undefined) return ok({ results: await flight })
+      const attempts = await latestAttempts(db, sellerId, date)
+      return ok({ results: ParcelService.bookTargets(prior.targets).map((item) => this.#resultOf(item.buyer, attempts.get(item.buyer) ?? null)) })
+    }
+    const prior = await requestRow(db, sellerId, requestId)
+    if (prior !== null) return answerPrior(prior)
+    const runtime = await this.#deps.writer.read(sellerId, date, false)
+    if (runtime.seq === 0 || runtime.scopeId === null) return NOT_FOUND
+    if (await this.#sealed(db, sellerId, runtime.scopeId)) return problem(409, 'SEALED', SEALED_MESSAGE)
+    if (items.some((item) => getBuyer(runtime.state, item.buyer) === null)) return NOT_FOUND
+    const settings = await readSettings(db, masterKey, sellerId)
+    if (!(await claimRequest(db, { sellerId, requestId, date, kind: 'DIRECT', targets: items.map((item) => ({ buyer: item.buyer })), result: null, now: new Date(this.#deps.clock.now()) }))) {
+      const again = await requestRow(db, sellerId, requestId)
+      return again === null ? problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request) : answerPrior(again)
+    }
+    const results = await this.#fly(sellerId, requestId, async () => {
+      const out: BookItemResult[] = []
+      for (const item of items) {
+        const used = [...(await latestAttempts(db, sellerId, date)).values()].some((attempt) => attempt.buyer !== item.buyer && attempt.state === 'BOOKED' && attempt.invoice === item.invoice)
+        if (used) {
+          out.push({ buyer: item.buyer, ok: false, reason: 'REJECTED', message: PARCEL_MESSAGES.directUsed })
+          continue
+        }
+        const prepared = await this.#prepare(sellerId, accountId, date, item.buyer, settings.box, 'EPOST', kind)
+        if (prepared.kind === 'skip') {
+          out.push(prepared.result)
+          continue
+        }
+        out.push(await this.#finish(sellerId, accountId, date, prepared.attempt, { kind: 'BOOKED', invoice: item.invoice }))
+      }
+      return out
+    })
+    return ok({ results })
   }
 
   /**

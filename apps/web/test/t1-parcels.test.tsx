@@ -307,6 +307,21 @@ describe('택배 화면 (AC-T1-61~64)', () => {
     expect(within(region(exact('접수했어요'))).getByText('한여섯')).toBeDefined()
   })
 
+  it('우체국 직접 접수 묶음 (D-UX3-37): "우체국 직접 접수" 꼬리표, 운송장 PDF 없음, [기록 지우기]는 라이브찜 기록만 지운다고 묻는다', async () => {
+    day = { ...sixRows(), booked: [row('UC_F', '한여섯', { ready: false, reason: 'BOOKED', packing: '배송 완료', parcel: brief({ carrier: 'EPOST', direct: 'VISIT' }) })] }
+    server.on('POST', /\/cancel$/, () => ({ body: { bundle: {} } }))
+    await open()
+    const booked = region(exact('접수했어요'))
+    expect(within(booked).getByText('우체국 직접 접수')).toBeDefined()
+    expect(within(booked).queryByRole('button', { name: '운송장 PDF' })).toBeNull()
+    fireEvent.click(within(booked).getByRole('button', { name: '기록 지우기' }))
+    const dialog = screen.getByRole('dialog', { name: '송장 기록을 지울까요?' })
+    expect(within(dialog).getByText(/우체국 접수는 그대로라, 취소하려면 인터넷우체국에서 해 주세요/)).toBeDefined()
+    fireEvent.click(within(dialog).getByRole('button', { name: '지우기' }))
+    expect(await screen.findByText('송장 기록을 지웠어요.')).toBeDefined()
+    expect(server.callsTo('POST', /\/cancel$/)[0]?.body).toMatchObject({ buyer: 'UC_F' })
+  })
+
   it('다른 기기의 접수(실시간 parcel 알림)면 새로고침 없이 다시 읽는다', async () => {
     await open()
     const before = server.callsTo('GET', /\/api\/parcels\/days\/2026-10-22$/).length

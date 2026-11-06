@@ -31,6 +31,8 @@ export interface ParcelBrief {
   readonly bookedAt: string | null
   /** 접수 취소를 보낼 수 있는지 (접수됐고 집하 전) */
   readonly cancellable: boolean
+  /** 판매자가 인터넷우체국에서 직접 접수하고 송장번호만 적은 묶음 (D-UX3-37 — VISIT 가지러 오기·COUNTER 들고 가기, 자동 접수면 null. 예전 서버는 보내지 않는다) */
+  readonly direct?: 'VISIT' | 'COUNTER' | null
 }
 
 /** 택배 화면의 묶음 한 줄 */

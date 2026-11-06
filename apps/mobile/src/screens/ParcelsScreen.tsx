@@ -24,13 +24,23 @@ import {
   RETRY_FAILED,
   ROW_BOX_LABEL,
   WAYBILL_NOTE,
+  DIRECT_CANCEL_DONE,
+  DIRECT_CANCEL_LABEL,
+  DIRECT_CANCEL_QUESTION,
+  DIRECT_TAG,
+  EPOST_DIRECT_HOW,
   EPOST_FILE_AFTER,
+  EPOST_FILE_PC,
+  EPOST_KIND_HOW,
+  EPOST_KIND_LABEL,
   EPOST_FILE_HOW,
   EPOST_FILE_OPEN,
   EPOST_FILE_TITLE,
   EPOST_VISIT_URL,
   addressReason,
+  directCancelDescription,
   epostFileBox,
+  type EpostDirectKind,
   epostFileLabel,
   epostFileName,
   epostFilePath,
@@ -74,6 +84,8 @@ export interface ParcelsNavigation {
   readonly openSettle?: (date: string, buyer: string) => void
   /** 택배 설정(보내는 사람·택배사) */
   readonly openSettings?: () => void
+  /** 앱 안 우체국 화면 (D-UX3-37 — COUNTER 들고 가기·VISIT 가지러 오기) */
+  readonly openEpost?: (date: string, kind: EpostDirectKind) => void
 }
 
 export function ParcelsScreen({ onBack, initialDate, nav = {} }: { readonly onBack: () => void; readonly initialDate?: string; readonly nav?: ParcelsNavigation }) {
@@ -306,13 +318,30 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
       {showsEpostFile(day) ? (
         <Card label={EPOST_FILE_TITLE}>
           <Txt step="section" weight="bold">{EPOST_FILE_TITLE}</Txt>
-          <Txt>{EPOST_FILE_HOW}</Txt>
-          <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
-          <Txt step="caption" color="textSub">{EPOST_FILE_AFTER}</Txt>
-          <ButtonRow>
-            <BigButton kind="outline" label={EPOST_FILE_OPEN} onPress={() => void Linking.openURL(EPOST_VISIT_URL)} />
-            <BigButton label={epostFileLabel(groups.ready.length)} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
-          </ButtonRow>
+          {nav.openEpost !== undefined ? (
+            <>
+              <Txt>{EPOST_DIRECT_HOW}</Txt>
+              <Txt step="caption" color="textSub">{`${EPOST_KIND_LABEL.COUNTER}: ${EPOST_KIND_HOW.COUNTER}`}</Txt>
+              <Txt step="caption" color="textSub">{`${EPOST_KIND_LABEL.VISIT}: ${EPOST_KIND_HOW.VISIT}`}</Txt>
+              <ButtonRow>
+                <BigButton kind="outline" label={EPOST_KIND_LABEL.VISIT} onPress={() => nav.openEpost?.(date, 'VISIT')} />
+                <BigButton label={EPOST_KIND_LABEL.COUNTER} onPress={() => nav.openEpost?.(date, 'COUNTER')} />
+              </ButtonRow>
+              <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
+              <Txt step="caption" color="textSub">{EPOST_FILE_PC}</Txt>
+              <BigButton kind="outline" label={epostFileLabel(groups.ready.length)} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
+            </>
+          ) : (
+            <>
+              <Txt>{EPOST_FILE_HOW}</Txt>
+              <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
+              <Txt step="caption" color="textSub">{EPOST_FILE_AFTER}</Txt>
+              <ButtonRow>
+                <BigButton kind="outline" label={EPOST_FILE_OPEN} onPress={() => void Linking.openURL(EPOST_VISIT_URL)} />
+                <BigButton label={epostFileLabel(groups.ready.length)} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
+              </ButtonRow>
+            </>
+          )}
           {epostFile.error !== null ? <Notice tone="danger" alert>{epostFile.error}</Notice> : null}
         </Card>
       ) : null}
@@ -401,6 +430,8 @@ function BookedRow({ date, row, onChanged, onAction }: { readonly date: string; 
   const waybill = useWaybill()
   const checked = parcel === null ? null : checkedWords(parcel)
   const cancellable = parcel === null || parcel.cancellable
+  // 우체국 직접 접수(D-UX3-37): 운송장은 우체국이 붙인다 — 라이브찜 운송장 PDF는 없고, [기록 지우기]는 라이브찜 기록만 지운다
+  const direct = parcel?.direct === 'VISIT' || parcel?.direct === 'COUNTER'
 
   const cancel = async () => {
     if (running.current) return
@@ -430,8 +461,10 @@ function BookedRow({ date, row, onChanged, onAction }: { readonly date: string; 
       <Txt weight="bold">{row.name}</Txt>
       <RowFacts row={row} />
       {parcel !== null ? <Tag tone={parcelTone(parcel)}>{parcelLine(parcel)}</Tag> : null}
+      {direct ? <Tag tone="info">{DIRECT_TAG}</Tag> : null}
       {checked !== null ? <Txt step="caption" color="textSub">{checked}</Txt> : null}
       <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+        {direct ? null : (
         <BigButton
           kind="outline"
           label="운송장 PDF"
@@ -444,11 +477,12 @@ function BookedRow({ date, row, onChanged, onAction }: { readonly date: string; 
             void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)
           }}
         />
+        )}
         {cancellable ? (
           <BigButton
             kind="outline"
-            label="접수 취소"
-            ariaLabel={`${row.name} 접수 취소`}
+            label={direct ? DIRECT_CANCEL_LABEL : '접수 취소'}
+            ariaLabel={`${row.name} ${direct ? DIRECT_CANCEL_LABEL : '접수 취소'}`}
             busy={busy}
             onPress={() => {
               onAction()
@@ -460,14 +494,14 @@ function BookedRow({ date, row, onChanged, onAction }: { readonly date: string; 
         ) : null}
       </View>
       {!cancellable ? <Txt step="caption" color="textSub">{NOT_CANCELLABLE}</Txt> : null}
-      {done ? <Notice tone="success">접수를 취소했어요.</Notice> : null}
+      {done ? <Notice tone="success">{direct ? DIRECT_CANCEL_DONE : '접수를 취소했어요.'}</Notice> : null}
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {waybill.error !== null ? <Notice tone="danger" alert>{waybill.error}</Notice> : null}
       <ConfirmSheet
         visible={asking}
-        question="택배 접수를 취소할까요?"
-        description={`${row.name}님의 택배 접수를 취소할까요? 택배사가 아직 가져가지 않았을 때만 취소돼요.`}
-        confirmLabel="취소하기"
+        question={direct ? DIRECT_CANCEL_QUESTION : '택배 접수를 취소할까요?'}
+        description={direct ? directCancelDescription(row.name) : `${row.name}님의 택배 접수를 취소할까요? 택배사가 아직 가져가지 않았을 때만 취소돼요.`}
+        confirmLabel={direct ? '지우기' : '취소하기'}
         cancelLabel="닫기"
         danger
         busy={busy}

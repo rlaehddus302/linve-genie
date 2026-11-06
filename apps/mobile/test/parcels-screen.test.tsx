@@ -109,4 +109,37 @@ describe('ParcelsScreen (앱 택배 접수)', () => {
     fireEvent.click(file)
     await waitFor(() => expect(shared).toEqual([{ name: '우체국-방문접수-2026-10-29.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 5 }]))
   })
+
+  it('앱 안 우체국 화면 (D-UX3-37): [집으로 가지러 오기] 왼쪽 · [우체국에 들고 가기] 오른쪽, 누르면 그 날짜·방법으로 연다. PC용 파일 받기도 남는다', async () => {
+    const { w } = world()
+    const opened: [string, string][] = []
+    render(w.wrap(<ParcelsScreen onBack={() => undefined} nav={{ openEpost: (date, kind) => void opened.push([date, kind]) }} />))
+    expect(await screen.findByText('우체국에 직접 접수하기')).toBeTruthy()
+    const visit = screen.getByRole('button', { name: '집으로 가지러 오기' })
+    const counter = screen.getByRole('button', { name: '우체국에 들고 가기' })
+    expect(visit.compareDocumentPosition(counter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '인터넷우체국 열기' })).toBeNull()
+    expect(screen.getByRole('button', { name: '우체국 파일 받기 (2개)' })).toBeTruthy()
+    fireEvent.click(counter)
+    fireEvent.click(visit)
+    expect(opened).toEqual([
+      ['2026-10-29', 'COUNTER'],
+      ['2026-10-29', 'VISIT'],
+    ])
+  })
+
+  it('우체국 직접 접수 묶음: "우체국 직접 접수" 꼬리표, 운송장 PDF 없음, [기록 지우기]는 라이브찜 기록만 지운다고 묻는다', async () => {
+    const { w, posts } = world()
+    w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29$/, () => ({ body: { ...day, booked: [row('u4', '금황', { packing: '배송 완료', parcel: { ...booked, direct: 'COUNTER' } })] } }))
+    render(w.wrap(<ParcelsScreen onBack={() => undefined} />))
+    expect(await screen.findByText('우체국 직접 접수')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '금황 운송장 PDF' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '금황 기록 지우기' }))
+    expect(screen.getByText('송장 기록을 지울까요?')).toBeTruthy()
+    expect(screen.getByText(/우체국 접수는 그대로라, 취소하려면 인터넷우체국에서 해 주세요/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '지우기' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]!.path).toContain('/cancel')
+    expect(await screen.findByText('송장 기록을 지웠어요.')).toBeTruthy()
+  })
 })
