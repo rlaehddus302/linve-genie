@@ -20,6 +20,20 @@ import {
   ToggleRow,
   useToast,
 } from '../src/ui/kit/index.ts'
+import { isEdgeSwipe } from '../src/ui/kit/slide.tsx'
+
+describe('밀어서 뒤로 (D-UX3-57)', () => {
+  it('왼쪽 끝 24 안에서 닿아 오른쪽으로 민 것만 뒤로, 화면 가운데서 민 것은 아니다', () => {
+    expect(isEdgeSwipe(10, 20, 2)).toBe(true)
+    expect(isEdgeSwipe(24, 13, 0)).toBe(true)
+    expect(isEdgeSwipe(30, 40, 0)).toBe(false)
+    expect(isEdgeSwipe(200, 80, 0)).toBe(false)
+    expect(isEdgeSwipe(Number.POSITIVE_INFINITY, 80, 0)).toBe(false)
+    expect(isEdgeSwipe(10, 8, 0)).toBe(false)
+    expect(isEdgeSwipe(10, -30, 0)).toBe(false)
+    expect(isEdgeSwipe(10, 20, 20)).toBe(false)
+  })
+})
 
 describe('BigButton', () => {
   it('세 종류 모두 버튼이고 누르면 불린다. 쉬거나 처리 중이면 안 불린다', () => {

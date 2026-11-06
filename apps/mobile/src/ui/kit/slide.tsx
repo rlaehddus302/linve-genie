@@ -81,6 +81,14 @@ export const EDGE_SWIPE_WIDTH = 24
 const EDGE_SWIPE_START = 12
 
 /**
+ * 뒤로 밀기인가: 화면 왼쪽 끝 24 안에서 손이 닿아 오른쪽으로 12 넘게, 세로보다 확실히 가로로 밀었을 때만
+ * (D-UX3-57, 사용자 지시 2026-11-07 "왼쪽 끄트머리에서 스와이프 했을 때만 뒤로가기로 읽어야 하는데" — 옛: 화면 어디서 밀어도 뒤로)
+ */
+export function isEdgeSwipe(startX: number, dx: number, dy: number): boolean {
+  return startX <= EDGE_SWIPE_WIDTH && dx > EDGE_SWIPE_START && Math.abs(dx) > Math.abs(dy) * 1.5
+}
+
+/**
  * 왼쪽 가장자리에서 오른쪽으로 밀면 뒤로 (D-UX3-55, 사용자 지시 2026-11-07 "스와이프로 뒤로 가기가 안 됨").
  * 쌓인 화면(expo-router Stack)은 원래 되지만, 한 화면 안에서 넘기는 곳(SlideSwitch — 번호 확인)은 이것으로 한다.
  * 밀기가 잡히는 순간(손을 떼기 전) 바로 onBack 한 번 — 화면은 따라 움직이지 않는다. 나가기 전에 묻는 팝업을 곧바로 띄우려고
@@ -91,11 +99,20 @@ export function EdgeSwipeBack({ onBack, children }: { readonly onBack: () => voi
   useEffect(() => {
     latest.current = onBack
   })
+  // 손이 처음 닿은 자리 — PanResponder의 x0은 잡기 전에는 0이라 쓸 수 없다(그래서 어디서 밀어도 뒤로가 됐다, D-UX3-57)
+  const startX = useRef(Number.POSITIVE_INFINITY)
   const responder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_, g) => g.x0 <= EDGE_SWIPE_WIDTH && g.dx > EDGE_SWIPE_START && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
-        onPanResponderGrant: () => latest.current(),
+        onStartShouldSetPanResponderCapture: (event) => {
+          startX.current = event.nativeEvent.touches.length > 1 ? Number.POSITIVE_INFINITY : event.nativeEvent.pageX
+          return false
+        },
+        onMoveShouldSetPanResponderCapture: (_, g) => isEdgeSwipe(startX.current, g.dx, g.dy),
+        onPanResponderGrant: () => {
+          startX.current = Number.POSITIVE_INFINITY
+          latest.current()
+        },
         onPanResponderTerminationRequest: () => true,
       }),
     [],
