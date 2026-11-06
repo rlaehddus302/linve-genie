@@ -58,6 +58,7 @@ export interface Palette {
   /** 내용 위에 뜬 아래 탭 바탕 — 은은한 반투명 흰색(흐림 위에 얹는다, D-UX3-13) */
   readonly glass: string
   readonly tabLine: string
+  readonly tabInk: string
   /** 확인이 필요한 줄 바탕·글자 */
   readonly warnBg: string
   readonly warnText: string
@@ -111,6 +112,8 @@ const LIGHT: Palette = {
   glass: 'rgba(255,255,255,0.82)',
   /** 아래 탭 테두리 (토스처럼 또렷한 얇은 회색 선, D-UX3-42) */
   tabLine: '#DDE1E6',
+  /** 아래 탭 안 고른 칸 아이콘·글자 (토스처럼 진한 회색, D-UX3-43) */
+  tabInk: '#333D4B',
   warnBg: '#FFF4E5',
   warnText: '#B54708',
   warnStrong: '#8A3A06',

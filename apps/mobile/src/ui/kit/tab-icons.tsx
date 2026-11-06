@@ -7,7 +7,7 @@ import { View } from 'react-native'
 
 export type TabIconName = 'home' | 'printer' | 'receipt' | 'box' | 'truck' | 'menu'
 
-const STROKE = 1.9
+const STROKE = 2.1
 
 // 아이폰 모서리 곡률 (D-UX3-15, 사용자 지시 2026-11-03 "모든 아이콘·상자·터치 영역의 곡률을 아이폰 곡률로"): 원호 대신 연속 곡률 모서리.
 // 반지름 r 모서리가 변을 따라 1.528r에서 시작해 세 개의 3차 곡선으로 돈다(UIKit 연속 모서리 근사 계수). u = 들어오는 변을 거슬러 간 거리, v = 나가는 변을 따라간 거리(r 배)

@@ -171,7 +171,7 @@ export function tabIndex(key: TabKey): number {
 }
 
 /** 아래 탭 칸 높이 (D-UX3-41) */
-export const TAB_CELL = 52
+export const TAB_CELL = 55
 /** 아래 탭 아래 여백 (토스처럼 홈 막대 자리까지 내려 앉는다, D-UX3-41): 홈 막대가 있으면 그 높이보다 14 작게, 없으면 8 */
 export function tabBarBottom(inset: number): number {
   return Math.max(inset - 14, SPACE.sm)
@@ -216,7 +216,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
           </View>
           {TABS.map((tab) => {
             const on = tab.key === active
-            const ink = on ? p.text : p.textSub
+            const ink = on ? p.text : p.tabInk
             return (
               <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
                   tapHaptic()
@@ -224,7 +224,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
                 }} style={({ pressed }) => ({ flex: 1, minHeight: TAB_CELL, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
                 {({ pressed }) => (
                   <>
-                    <TabIcon name={tab.icon} color={ink} size={24} filled={on} cut={pressed ? p.softPressed : p.soft} />
+                    <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : p.soft} />
                     <Txt step="tab" weight={on ? 'bold' : 'medium'} ink={ink}>
                       {tab.word}
                     </Txt>
