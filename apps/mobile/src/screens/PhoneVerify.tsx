@@ -86,6 +86,9 @@ const MERGE_MS = 320
 export const MIN_CHECK_MS = 500
 const WRONG_KEYBOARD_MS = 400
 export const WRONG_HOLD_MS = 1000
+/** 제목과 "남은 시간" 사이·"남은 시간"과 칸 사이 (D-UX3-56, 폭 430 휴대폰 토스 사진을 재어 — 옛 16·32) */
+const CODE_LEFT_TOP = 25
+const CODE_BOXES_TOP = 40
 /** 팝업이 흐려져 사라진 뒤에 이전 화면으로 넘긴다 */
 const AFTER_POPUP_MS = SHEET_OUT_MS + 40
 /** 확인하는 동안 합친 칸 크기 (토스 사진 16 — 살짝 줄어든다) */
@@ -358,8 +361,8 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
             testID="code-step"
             footer={<NotComing hidden={checking || held} onPress={() => setPopup('resend')} />}
           >
-            <View style={{ marginTop: SPACE.lg }}>
-              <Txt step="body" color="textSub">{`${CODE_LEFT} ${clock(left)}`}</Txt>
+            <View style={{ marginTop: CODE_LEFT_TOP }}>
+              <Txt step="meta" color="textSub">{`${CODE_LEFT} ${clock(left)}`}</Txt>
             </View>
             <CodeBoxes value={code} error={codeError} mark={timeOver && codeMark === null ? 'expired' : codeMark} checking={checking} held={held} onChange={typeCode} inputRef={codeInput} />
             {/* 확인 중 표시는 합친 칸이 살짝 줄어드는 것 (토스 사진 16) — 돌림표는 없다. 오래 걸리는 일 안내만 글로 */}
@@ -468,10 +471,13 @@ function useEased(target: number, ms: number): Animated.Value {
   return value
 }
 
-/** 칸 사이·칸 높이·여섯 칸 폭 (D-UX3-55, 사용자 지시 "숫자 크기, 각 칸 가로 세로 너비 다시 맞출 것" — 토스 사진을 재어 칸 44×54·사이 7·줄 301, 숫자 30. 옛 칸 51×64·사이 8) */
-const CELL_GAP = 7
-const CELL_HEIGHT = 54
-const ROW_WIDTH = 301
+/**
+ * 칸 크기 (D-UX3-56, 사용자 지시 "숫자 크기, 각 칸 가로 세로 너비 다시 맞출 것"): 사진을 찍은 휴대폰이 폭 430(15 Pro Max)이라 다시 재어
+ * 칸 48×60·사이 8·여섯 칸 328 가운데, 숫자 32 (옛 D-UX3-55 칸 44×54·사이 7·줄 301·숫자 30 — 폭을 393으로 알고 재 9% 작았다)
+ */
+const CELL_GAP = 8
+const CELL_HEIGHT = 60
+const ROW_WIDTH = 328
 /** 합칠 때 칸들이 가운데로 모이는 거리의 바깥 끝 (칸 사이를 다 메운다) */
 const GATHER = ((CODE_LENGTH - 1) / 2) * CELL_GAP
 const COVER = { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 } as const
@@ -479,12 +485,15 @@ const COVER = { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 } as 
 /**
  * 인증번호 한 칸 (D-UX3-54, 토스 사진 13·14): 비면 회색. 숫자가 들어오면 칸이 살짝 줄었다 돌아오며 흰 바탕(얇은 회색 테)이 되고,
  * 숫자(초록)는 가운데서부터 서서히 커지며 나타난다. pink면 옅은 빨강 바탕·진한 숫자(틀린 뒤·시간 지남).
+ * 숫자는 이 칸 안에만 있다 — 합칠 때도 칸이 숫자를 데리고 움직인다(같은 숫자를 두 겹으로 그리지 않는다, D-UX3-56).
+ * skin: 칸 자체의 바탕·테(1 보임, 0 숨김 — 합쳐진 동안은 숨기고 바깥 테 하나만 보인다).
  */
-function CodeCell({ char, active, pink, index, together }: { readonly char: string; readonly active: boolean; readonly pink: boolean; readonly index: number; readonly together: Animated.Value }) {
+function CodeCell({ char, active, pink, dark, index, together, skin }: { readonly char: string; readonly active: boolean; readonly pink: boolean; readonly dark: boolean; readonly index: number; readonly together: Animated.Value; readonly skin: Animated.Value }) {
   const { p } = useKit()
   const filled = char !== ''
   const fill = useEased(filled ? 1 : 0, CELL_MS)
-  const pinkness = useEased(pink ? 1 : 0, SOFT_MS)
+  // 나뉠 때 옅은 빨강은 바로 (서서히 물들지 않는다), 고쳐 넣어 없어질 때는 서서히
+  const pinkness = useEased(pink ? 1 : 0, pink ? 0 : SOFT_MS)
   const pop = useRef(new Animated.Value(filled ? 1 : 0)).current
   const last = useRef(char)
   useEffect(() => {
@@ -502,22 +511,24 @@ function CodeCell({ char, active, pink, index, together }: { readonly char: stri
       style={{
         flex: 1,
         transform: [
-          // 합칠 때 가운데로 모인다 (사이가 메워지며 한 칸이 된다)
+          // 합칠 때 가운데로 모인다 (사이가 메워지며 한 칸이 된다), 나눌 때 좌우로 갈라진다
           { translateX: together.interpolate({ inputRange: [0, 1], outputRange: [0, ((CODE_LENGTH - 1) / 2 - index) * CELL_GAP] }) },
           { scale: pop.interpolate({ inputRange: [0, 0.3, 1], outputRange: [1, 0.88, 1] }) },
         ],
       }}
     >
-      <View style={[shape, { backgroundColor: p.surfaceAlt }]} />
-      <Animated.View style={[shape, { backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, opacity: fill }]} />
-      <Animated.View style={[shape, { backgroundColor: TONES.light.danger.bg, opacity: pinkness }]} />
+      <Animated.View style={[COVER, { opacity: skin }]}>
+        <View style={[shape, { backgroundColor: p.soft }]} />
+        <Animated.View style={[shape, { backgroundColor: p.surface, borderWidth: 1, borderColor: p.line, opacity: fill }]} />
+        <Animated.View style={[shape, { backgroundColor: TONES.light.danger.bg, opacity: pinkness }]} />
+      </Animated.View>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         {filled ? (
           <Animated.Text
             allowFontScaling={false}
             style={{
               ...DIGIT,
-              color: pink ? p.text : p.primaryText,
+              color: dark || pink ? p.text : p.primaryText,
               opacity: pop.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 1, 1] }),
               transform: [{ scale: pop.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }],
             }}
@@ -532,29 +543,17 @@ function CodeCell({ char, active, pink, index, together }: { readonly char: stri
   )
 }
 
-/** 숫자 (토스 사진을 재어 두께 600, D-UX3-53) */
-const DIGIT = { fontSize: TYPE.headline + 8, fontWeight: WEIGHT.medium } as const
-
-/** 합친 한 칸 안 숫자 — 모인 칸들의 숫자 자리와 같다 */
-function MergedDigits({ cells, color }: { readonly cells: readonly string[]; readonly color: string }) {
-  return (
-    <View style={{ flex: 1, flexDirection: 'row', paddingHorizontal: GATHER }}>
-      {cells.map((cell, index) => (
-        <View key={index} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text allowFontScaling={false} style={{ ...DIGIT, color }}>
-            {cell}
-          </Text>
-        </View>
-      ))}
-    </View>
-  )
-}
+/** 숫자 (토스 사진을 재어 32·두께 600, D-UX3-56 — 옛 30) */
+const DIGIT = { fontSize: 32, fontWeight: WEIGHT.medium } as const
 
 /**
- * 인증번호 6칸 (D-UX3-54, 토스 사진 13~20 순서대로). 보이지 않는 입력 칸 하나를 칸들 위에 겹쳐 놓는다(누르면 키보드, 문자 자동 채우기).
- * 확인 중: 여섯 칸이 가운데로 모이며 한 칸(흰 바탕·연한 초록 테·초록 숫자)이 되어 살짝 줄어든다.
- * 틀림(held 동안)·횟수 초과: 합친 칸이 빨개지며(빨간 테·옅은 빨강 바탕·진한 숫자) 다시 커지고 흔들기·진동, 아래 "! 인증번호가 맞지 않아요."
- * 틀림(held 뒤): 여섯 칸(옅은 빨강·진한 숫자)으로 나뉘고 문장은 사라진다. 고쳐 넣으면 보통 칸으로. 시간 지남: 칸마다 옅은 빨강.
+ * 인증번호 6칸 (D-UX3-54 순서, D-UX3-56 움직임). 보이지 않는 입력 칸 하나를 칸들 위에 겹쳐 놓는다(누르면 키보드, 문자 자동 채우기).
+ * 칸은 한 벌뿐이고 실제로 움직인다 — 사라지는 것과 생기는 것을 겹쳐 바꾸지 않는다
+ * (사용자 지시 2026-11-07 "요소가 전환되는게 아니라 자연스럽게 사라지고 생기고 서로 붙고 … 다 쳤을 때는 박스 테두리가 사라지고 박스들이 서로 모이면서 새로운 테두리가 생기는거고,
+ * 다시 나눠질 때는 그 반대로 합쳐졌던 박스가 다시 좌우로 움직이면서 갈라지는거고 빨간 테두리와 좌우에 박스 외에 빨간 배경은 바로 사라지는거고").
+ * 확인 중: 칸마다 테·바탕이 서서히 사라지며 가운데로 모이고, 모인 자리에 바깥 테(흰 바탕·연한 초록) 하나가 서서히 생겨 살짝 줄어든다.
+ * 틀림(held 동안)·횟수 초과: 바깥 테가 빨개지며(빨간 테·옅은 빨강 바탕·진한 숫자) 다시 커지고 흔들기·진동, 아래 "! 인증번호가 맞지 않아요."
+ * 틀림(held 뒤): 빨간 테와 칸 밖 빨간 바탕은 바로 없어지고, 칸(옅은 빨강·진한 숫자)이 좌우로 움직이며 갈라진다. 문장은 사라진다. 시간 지남: 칸마다 옅은 빨강.
  */
 function CodeBoxes({
   value,
@@ -579,28 +578,28 @@ function CodeBoxes({
   const merged = checking || red
   const pink = !merged && (mark === 'expired' || mark === 'wrong')
   const together = useEased(merged ? 1 : 0, MERGE_MS)
-  const redness = useEased(red ? 1 : 0, MERGE_MS)
+  // 합칠 때는 서서히, 나눌 때는 바로: 칸 테·바탕(skin)은 바로 돌아오고, 바깥 테(frame)·빨강은 바로 없어진다
+  const skin = useEased(merged ? 0 : 1, merged ? MERGE_MS : 0)
+  const frame = useEased(merged ? 1 : 0, merged ? MERGE_MS : 0)
+  const redness = useEased(red ? 1 : 0, red ? MERGE_MS : 0)
   const size = useEased(checking ? CHECKING_SCALE : 1, MERGE_MS)
   const cells = Array.from({ length: CODE_LENGTH }, (_, index) => value[index] ?? '')
   const shake = useWrongShake(mark === 'wrong' ? error : mark === 'locked' ? CODE_LOCKED_TEXT : null)
   const wrongLine = useSoftShow(mark === 'wrong' && held && error !== null)
   const shape = { ...COVER, borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: 2 } as const
   return (
-    <Animated.View style={{ marginTop: SPACE.xxxl, alignItems: 'center', transform: [{ translateX: shake }] }}>
-      <View style={{ width: '100%', maxWidth: ROW_WIDTH, height: CELL_HEIGHT }}>
-        <Animated.View style={{ flex: 1, flexDirection: 'row', gap: CELL_GAP, opacity: together.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
+    <Animated.View style={{ marginTop: CODE_BOXES_TOP, alignItems: 'center', transform: [{ translateX: shake }] }}>
+      <Animated.View style={{ width: '100%', maxWidth: ROW_WIDTH, height: CELL_HEIGHT, transform: [{ scale: size }] }}>
+        {/* 모인 칸들을 감싸는 바깥 테 하나 (칸들 뒤) */}
+        <Animated.View aria-hidden pointerEvents="none" testID={red ? 'code-wrong' : checking ? 'code-checking' : undefined} style={{ ...COVER, left: GATHER, right: GATHER, opacity: frame }}>
+          <View style={[shape, { backgroundColor: p.surface, borderColor: `${p.primary}99` }]} />
+          <Animated.View style={[shape, { backgroundColor: TONES.light.danger.bg, borderColor: p.dangerText, opacity: redness }]} />
+        </Animated.View>
+        <View style={{ flex: 1, flexDirection: 'row', gap: CELL_GAP }}>
           {cells.map((cell, index) => (
-            <CodeCell key={index} index={index} char={cell} pink={pink} together={together} active={focused && !merged && value.length < CODE_LENGTH && index === value.length} />
+            <CodeCell key={index} index={index} char={cell} pink={pink} dark={red} together={together} skin={skin} active={focused && !merged && value.length < CODE_LENGTH && index === value.length} />
           ))}
-        </Animated.View>
-        <Animated.View aria-hidden pointerEvents="none" testID={red ? 'code-wrong' : checking ? 'code-checking' : undefined} style={{ ...COVER, opacity: together, transform: [{ scale: size }] }}>
-          <View style={[shape, { backgroundColor: p.surface, borderColor: `${p.primary}99` }]}>
-            <MergedDigits cells={cells} color={p.primaryText} />
-          </View>
-          <Animated.View style={[shape, { backgroundColor: TONES.light.danger.bg, borderColor: p.dangerText, opacity: redness }]}>
-            <MergedDigits cells={cells} color={p.text} />
-          </Animated.View>
-        </Animated.View>
+        </View>
         <TextInput
           ref={inputRef}
           value={value}
@@ -619,7 +618,7 @@ function CodeBoxes({
           testID="code-input"
           style={{ ...COVER, opacity: 0.02, color: 'transparent', fontSize: 1 }}
         />
-      </View>
+      </Animated.View>
       {wrongLine.mounted && error !== null ? (
         <Animated.View style={{ marginTop: SPACE.md, alignSelf: 'stretch', alignItems: 'center', opacity: wrongLine.value }}>
           <ErrorLine large>{error}</ErrorLine>

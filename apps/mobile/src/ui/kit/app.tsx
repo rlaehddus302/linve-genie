@@ -26,9 +26,10 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
     switch (name) {
       case 'back':
         // 뒤로 ‹는 선 끝과 꺾인 곳을 둥글게, 선은 2.4 (D-UX3-55, 사용자 지시 2026-11-07 "뒤로가기 아이콘 살짝만 더 두껍게, 더 라운드지게" — 옛 각진 2)
+        // 크기·자리는 토스 사진(폭 430 휴대폰)과 픽셀로 같게: 높이 37px·폭 21px, 왼쪽 51px·위 155px (D-UX3-56 — 옛 ‹는 16% 컸다)
         return (
           <Svg width={s} height={s} viewBox="0 0 24 24">
-            <Path d="M15.2 5.4 L8.6 12 L15.2 18.6" stroke={c} strokeWidth={(BACK_STROKE * 24) / s} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <Path d="M12.31 4.95 L6.93 10.33 L12.31 15.71" stroke={c} strokeWidth={(BACK_STROKE * 24) / s} strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </Svg>
         )
       case 'chevron': {

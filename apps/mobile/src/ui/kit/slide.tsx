@@ -77,36 +77,32 @@ export function SlideSwitch({ id, back = false, children, testID }: { readonly i
 
 /** 왼쪽 가장자리 폭 — 여기서 시작해 오른쪽으로 밀어야 뒤로 (D-UX3-24와 같다: 화면 가운데 가로 밀기는 뒤로가 아니다) */
 export const EDGE_SWIPE_WIDTH = 24
+/** 이만큼 오른쪽으로 밀면 뒤로 밀기로 본다 */
+const EDGE_SWIPE_START = 12
 
 /**
  * 왼쪽 가장자리에서 오른쪽으로 밀면 뒤로 (D-UX3-55, 사용자 지시 2026-11-07 "스와이프로 뒤로 가기가 안 됨").
- * 쌓인 화면(expo-router Stack)은 원래 되지만, 한 화면 안에서 넘기는 곳(SlideSwitch — 로그인·번호 확인)은 이것으로 한다.
- * 미는 동안 화면이 손가락을 따라오고, 화면 폭 30% 넘게(또는 빠르게) 밀고 놓으면 onBack — 덜 밀면 제자리로 돌아간다.
- * onBack이 확인 팝업을 띄우면 화면은 제자리로 돌아가며 팝업이 뜬다.
+ * 쌓인 화면(expo-router Stack)은 원래 되지만, 한 화면 안에서 넘기는 곳(SlideSwitch — 번호 확인)은 이것으로 한다.
+ * 밀기가 잡히는 순간(손을 떼기 전) 바로 onBack 한 번 — 화면은 따라 움직이지 않는다. 나가기 전에 묻는 팝업을 곧바로 띄우려고
+ * (D-UX3-56, 사용자 지시 2026-11-07 "경고 팝업 띄우기 전까지 슬라이드 애니메이션이 되면 안 됨 … 손 떼지 않아도 제스처 작동하면 바로 팝업 띄우기" — 옛 D-UX3-55 화면이 손가락을 따라오고 30% 넘게 밀고 놓으면).
  */
 export function EdgeSwipeBack({ onBack, children }: { readonly onBack: () => void; readonly children: ReactNode }) {
-  const { width } = useWindowDimensions()
-  const x = useRef(new Animated.Value(0)).current
   const latest = useRef(onBack)
   useEffect(() => {
     latest.current = onBack
   })
-  const responder = useMemo(() => {
-    const settle = (go: boolean) => {
-      Animated.timing(x, { toValue: 0, duration: go ? SLIDE_MS : 200, easing: EASE, useNativeDriver: Platform.OS !== 'web' }).start()
-      if (go) latest.current()
-    }
-    return PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_, g) => g.x0 <= EDGE_SWIPE_WIDTH && g.dx > 8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderMove: (_, g) => x.setValue(Math.max(0, g.dx)),
-      onPanResponderRelease: (_, g) => settle(g.dx > width * 0.3 || (g.vx > 0.5 && g.dx > 30)),
-      onPanResponderTerminate: () => settle(false),
-    })
-  }, [width, x])
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_, g) => g.x0 <= EDGE_SWIPE_WIDTH && g.dx > EDGE_SWIPE_START && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+        onPanResponderGrant: () => latest.current(),
+        onPanResponderTerminationRequest: () => true,
+      }),
+    [],
+  )
   return (
-    <Animated.View style={{ flex: 1, transform: [{ translateX: x }] }} {...responder.panHandlers}>
+    <View style={{ flex: 1 }} {...responder.panHandlers}>
       {children}
-    </Animated.View>
+    </View>
   )
 }

@@ -251,12 +251,18 @@ export interface PopupDialogProps {
  * 흰 둥근 판에 묻는 말, 아래 단추 둘 — 왼쪽 부정(회색), 오른쪽 긍정(주색) (D-UX4-01). 뒤 막은 서서히 짙어지고 판은 살짝 커지며 나타난다.
  * 바깥을 누르거나 뒤로 가기는 부정과 같다.
  */
-/** 가운데 팝업 크기 (D-UX3-54, 토스 사진을 재어 — 폭 292·단추 둘레 14) */
-const POPUP_WIDTH = 292
-const POPUP_EDGE = 14
+/**
+ * 가운데 팝업 크기 (D-UX3-56, 사용자 지시 2026-11-07 "팝업 안 버튼 크기가 토스보다 작음"): 사진을 찍은 휴대폰이 폭 430(15 Pro Max)인데 393으로 재 9% 작았다.
+ * 다시 재어 폭 320·둘레 16·모서리 24·제목 위 22·글 왼쪽 22 (옛 D-UX3-54 폭 292·둘레 14·모서리 20).
+ */
+const POPUP_WIDTH = 320
+const POPUP_EDGE = 16
+const POPUP_TOP = 22
+const POPUP_TEXT_SIDE = 22
 /** 팝업 뒤 어둡기·단추 (D-UX3-55, 사용자 지시 2026-11-07 "팝업 띄울 때 배경 어두워지는 정도, 팝업 및 버튼 가로세로, 버튼 색깔, 버튼 안 글자 크기, 두께, 색깔 다 맞춰" — 토스 사진을 재어: 뒤 0.22, 단추 높이 44·모서리 12·글자 17 두께 600, 왼쪽 단추 연회색 바탕 #F2F4F6에 회색 글자) */
 export const POPUP_DIM = 0.22
-const POPUP_BUTTON_HEIGHT = 44
+/** 단추 높이 47 (D-UX3-56 다시 재어 — 옛 44). 폭은 둘이 나눠 140 */
+const POPUP_BUTTON_HEIGHT = 47
 const POPUP_BUTTON_TEXT = 17
 
 /** 팝업 안 단추 — 큰 단추보다 낮고 글자가 덜 굵다 (토스 팝업 단추) */
@@ -298,10 +304,10 @@ export function PopupDialog({ visible, message, name, description, confirmDisabl
           role="alertdialog"
           aria-modal
           aria-label={name ?? message}
-          style={{ width: '100%', maxWidth: POPUP_WIDTH, alignSelf: 'center', backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xl, paddingHorizontal: POPUP_EDGE, paddingBottom: POPUP_EDGE, gap: SPACE.xxl - SPACE.xs, opacity: progress, transform: [{ scale }] }}
+          style={{ width: '100%', maxWidth: POPUP_WIDTH, alignSelf: 'center', backgroundColor: p.surface, borderRadius: RADIUS.xxl, borderCurve: 'continuous', paddingTop: POPUP_TOP, paddingHorizontal: POPUP_EDGE, paddingBottom: POPUP_EDGE, gap: SPACE.xxl - SPACE.xs, opacity: progress, transform: [{ scale }] }}
         >
           {/* 제목 20 굵게 (D-UX3-54, 사용자 지시 2026-11-07 "팝업 안에 제목 글자 크기가 내가 보내줬던 사진과 다름" — 토스 사진을 재어, 옛 18) */}
-          <View style={{ gap: SPACE.sm, paddingHorizontal: SPACE.xl - POPUP_EDGE }}>
+          <View style={{ gap: SPACE.sm, paddingHorizontal: POPUP_TEXT_SIDE - POPUP_EDGE }}>
             <Txt step="lead" weight="bold">
               {message}
             </Txt>

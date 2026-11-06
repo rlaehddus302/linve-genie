@@ -411,7 +411,10 @@ describe('LoginScreen', () => {
         const started = Date.now()
         fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '000000' } })
         expect(screen.getByTestId('code-checking')).toBeTruthy()
+        // 합쳐도 숫자는 칸 안의 한 벌뿐 — 겹쳐 그리지 않는다 (D-UX3-56, 사용자 지시 "애니메이션이 겹쳐보여서 매우 이상함")
+        expect(screen.getAllByText('0')).toHaveLength(6)
         await screen.findByRole('alert')
+        expect(screen.getAllByText('0')).toHaveLength(6)
         expect(Date.now() - started).toBeGreaterThanOrEqual(480)
         // 인증번호 화면의 뒤로 → 팝업, [닫기]면 그 화면 그대로
         fireEvent.click(screen.getByRole('button', { name: '번호 다시 넣기' }))
