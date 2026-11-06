@@ -5,6 +5,7 @@ import { LiveStream } from '../src/lib/live.ts'
 import { FakeNativeAudio } from '../src/native/audio.ts'
 import { FakeBlePrinter } from '../src/native/ble.ts'
 import { createServices, ServicesProvider, type Services } from '../src/services.tsx'
+import { KeptStreamAudio } from '../src/screens/console/StreamAudio.tsx'
 import { quickErrorMessage } from '../../../packages/voice-session/src/read/quick.ts'
 import { READ_KINDS, readText, type ReadKind } from '../../../packages/voice-session/src/read/index.ts'
 import { BROADCAST, FakeEventSource, FakeServer, SETTINGS, fullView, type Call } from './support.ts'
@@ -48,7 +49,8 @@ export function makeWorld(options: { readonly products?: ReturnType<typeof fullV
     ble,
     services,
     source: () => sources[sources.length - 1]!,
-    wrap: (children) => <ServicesProvider services={services}>{children}</ServicesProvider>,
+    // 앱 뿌리처럼 방송 소리 붙잡기(D-UX3-48)를 함께 둔다
+    wrap: (children) => <ServicesProvider services={services}><KeptStreamAudio session={services.voice} keep={services.streamKeep} signedIn />{children}</ServicesProvider>,
     seq: 5,
     events: [],
     reads: [],

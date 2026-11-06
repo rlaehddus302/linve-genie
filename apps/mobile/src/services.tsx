@@ -12,6 +12,7 @@ import { VoiceSession } from './lib/voice-session.ts'
 import { nativeAudio, nativeBle, nativeShare } from './native/index.ts'
 import type { NativeAudio } from './native/audio.ts'
 import type { NativeBlePrinter } from './native/ble.ts'
+import { StreamKeep } from './lib/stream-keep.ts'
 
 export interface Services {
   readonly deviceId: string
@@ -19,6 +20,8 @@ export interface Services {
   readonly labels: LabelQueue
   readonly voice: VoiceSession
   readonly away: AwayTracker
+  /** 방송 화면을 나가도 듣는 방송 (D-UX3-48) */
+  readonly streamKeep: StreamKeep
 }
 
 /** 기기 ID (영문·숫자·'_'·'-' 8~64자). 앱이 켜져 있는 동안 하나 — 출력 기기 역할은 다시 열면 다시 고른다 */
@@ -76,7 +79,7 @@ export function createServices(input: { readonly audio?: NativeAudio; readonly b
     undoRegister: closeFromVoice,
     onProcessed: () => away.noteVoice(),
   })
-  return { deviceId, stream, labels, voice, away }
+  return { deviceId, stream, labels, voice, away, streamKeep: new StreamKeep() }
 }
 
 const ServicesContext = createContext<Services | null>(null)
@@ -133,6 +136,7 @@ export function SessionProvider({ children, services }: { readonly children: Rea
   useEffect(() => {
     void recheck()
     onUnauthorized(() => {
+      services.streamKeep.release()
       void services.voice.shutdown()
       void clearVoiceArchive()
       services.stream.shutdown()
@@ -167,6 +171,7 @@ export function SessionProvider({ children, services }: { readonly children: Rea
         setSession({ state: 'in', me })
       },
       logout: async () => {
+        services.streamKeep.release()
         await services.voice.shutdown()
         await clearVoiceArchive()
         try {

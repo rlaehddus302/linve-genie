@@ -1,5 +1,5 @@
 // 방송 소리로 듣기 (LV1, SPEC VOC-08, D-LV1-03·05·06·08 — 웹 StreamAudio와 같은 규칙·문구, D-LIVETEST-02).
-// - 방송 화면이 열려 있는 동안 서버 상태를 1초마다 읽고, 처음 한 번 안내를 확인한 뒤에는 10초마다 "화면이 열려 있어요"를 알린다.
+// - 마지막으로 연 방송 중인 방송을 앱 뿌리(KeptStreamAudio)가 붙잡아, 방송 화면을 나가도 서버 상태를 1초마다 읽고, 처음 한 번 안내를 확인한 뒤에는 10초마다 "화면이 열려 있어요"를 알린다.
 //   서버가 방송 소리를 받아 받아쓰기 일꾼에 넣고, 받아쓴 글은 이 기기의 마이크 없는 연결(음성 세션의 조작 전용 흐름)로 온다.
 // - 휴대폰 마이크를 켜면 마이크가 대신 듣는다(서버는 쉰다, D-LV1-06). 상태 줄은 색 + 글자로.
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
@@ -19,6 +19,7 @@ import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { listenState } from './VoicePanel.tsx'
 import { readVoicePreferences, writeVoicePreference } from '../../lib/voice-preferences.ts'
 import { BigButton, Body, Card, Hint, Notice, Row } from '../../ui/parts.tsx'
+import type { StreamKeep } from '../../lib/stream-keep.ts'
 
 const POLL_MS = 1000
 const WATCH_MS = 10_000
@@ -89,6 +90,31 @@ export function useStreamAudio(session: VoiceSession, broadcastId: string, title
   const retry = useCallback(() => { post(`${streamAudioPath(broadcastId)}/restart`, {}).catch(() => undefined) }, [broadcastId])
   const consentNeeded = active && consented === false && status !== null && !['hidden', 'off', 'ended'].includes(status.phase)
   return { status, consentNeeded, accept, hold, retry }
+}
+
+const NO_STREAM: StreamAudio = { status: null, consentNeeded: false, accept: () => undefined, hold: false, retry: () => undefined }
+
+/** 방송 화면이 읽는 방송 소리 — 앱 뿌리가 듣고 있는 그 방송이면 그것, 아니면 아직 없음 */
+export function useKeptStream(keep: StreamKeep, broadcastId: string): StreamAudio {
+  const audio = useSyncExternalStore(keep.subscribe, keep.getAudio)
+  return audio?.broadcastId === broadcastId ? audio.stream : NO_STREAM
+}
+
+function KeptRunner({ session, keep, broadcastId, title }: { readonly session: VoiceSession; readonly keep: StreamKeep; readonly broadcastId: string; readonly title: string }) {
+  const stream = useStreamAudio(session, broadcastId, title, true)
+  const { status, consentNeeded, accept, hold, retry } = stream
+  useEffect(() => { keep.publish(broadcastId, { status, consentNeeded, accept, hold, retry }) }, [keep, broadcastId, status, consentNeeded, accept, hold, retry])
+  // 방송이 끝나면(서버가 끝을 앎) 놓는다
+  useEffect(() => { if (status?.phase === 'ended') keep.release(broadcastId) }, [keep, broadcastId, status?.phase])
+  return null
+}
+
+/** 앱 뿌리에 하나: 로그인한 동안, 마지막으로 연 방송 중인 방송의 소리를 화면과 상관없이 계속 듣는다 */
+export function KeptStreamAudio({ session, keep, signedIn }: { readonly session: VoiceSession; readonly keep: StreamKeep; readonly signedIn: boolean }) {
+  const kept = useSyncExternalStore(keep.subscribe, keep.getKept)
+  useEffect(() => { if (!signedIn) keep.release() }, [keep, signedIn])
+  if (!signedIn || kept === null) return null
+  return <KeptRunner key={kept.broadcastId} session={session} keep={keep} broadcastId={kept.broadcastId} title={kept.title} />
 }
 
 /** 머리 오른쪽 듣기 상태 한 곳: 마이크가 켜져 있으면 마이크, 아니면 방송 소리, 둘 다 아니면 꺼짐 */

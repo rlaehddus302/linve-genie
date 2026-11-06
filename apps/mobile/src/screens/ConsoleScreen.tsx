@@ -31,7 +31,7 @@ const MENU_HANDOFF_MS = 400
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
-import { ListenLine, listenChip, useStreamAudio } from './console/StreamAudio.tsx'
+import { ListenLine, listenChip, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
@@ -238,7 +238,14 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 방송이 끝나면 음성도 끈다 (APP-02 "방송 끝")
   const voiceView = useSyncExternalStore(services.voice.subscribe, services.voice.getView)
   const live = seller && broadcast !== null && !(broadcast.ended || endedHere) && !(data?.sealed ?? false)
-  const stream = useStreamAudio(services.voice, broadcastId, broadcast === null || broadcast.title.trim() === '' ? '제목 없음' : broadcast.title, live)
+  // 방송 소리 듣기는 앱 뿌리가 붙잡는다 — 이 화면을 나가도 계속 듣는다 (D-UX3-48). 방송이 끝났거나 닫혔으면 놓는다
+  const streamTitle = broadcast === null || broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
+  const knownOver = broadcast !== null && !live
+  useEffect(() => {
+    if (live) services.streamKeep.keep(broadcastId, streamTitle)
+    else if (knownOver) services.streamKeep.release(broadcastId)
+  }, [live, knownOver, broadcastId, streamTitle, services])
+  const stream = useKeptStream(services.streamKeep, broadcastId)
 
   // 상품이 없는 새 방송이 유튜브에 이어져 있지 않으면 연결 화면을 한 번 연다 — 새 방송 화면에서 주소 단계를 이미 거쳤으면 열지 않는다 (D-UX3-06)
   const askedLink = useRef(wasLinkAsked(broadcastId))
