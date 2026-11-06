@@ -57,6 +57,7 @@ export interface Palette {
   readonly clearCircle: string
   /** 내용 위에 뜬 아래 탭 바탕 — 은은한 반투명 흰색(흐림 위에 얹는다, D-UX3-13) */
   readonly glass: string
+  readonly tabLine: string
   /** 확인이 필요한 줄 바탕·글자 */
   readonly warnBg: string
   readonly warnText: string
@@ -107,7 +108,9 @@ const LIGHT: Palette = {
   warnPressed: '#FCE6C6',
   placeholder: '#8B95A1',
   clearCircle: '#B0B8C1',
-  glass: 'rgba(255,255,255,0.5)',
+  glass: 'rgba(255,255,255,0.82)',
+  /** 아래 탭 테두리 (토스처럼 또렷한 얇은 회색 선, D-UX3-42) */
+  tabLine: '#DDE1E6',
   warnBg: '#FFF4E5',
   warnText: '#B54708',
   warnStrong: '#8A3A06',
