@@ -207,7 +207,9 @@ describe('D-UX3-30 이미 있는 번호면 그 계정에 잇기', () => {
     const google = w.fake.addUser('google')
     const second = await webSignupCookie(w, 'google', google.id)
     const verified = await verifyPhone(w, sms, second, '01055556666')
-    expect(verified.body).toEqual({ next: 'LOGIN_EXISTING', phone: '010-****-6666', providers: ['kakao'], password: false })
+    // D-UX3-59로 바뀐 기대 (사용자 지시 2026-11-07 "이미 존재하는 소셜 계정 보여주고 각각의 이메일. 그리고 마지막 로그인 언젠지도"):
+    // 옛 — { next, phone, providers, password } → 새 — 공급자마다 가린 이름·마지막 로그인(accounts)을 더한다
+    expect(verified.body).toEqual({ next: 'LOGIN_EXISTING', phone: '010-****-6666', providers: ['kakao'], accounts: [{ provider: 'kakao', label: '', lastLoginAt: '2026-10-19T03:00:00.000Z' }], password: false })
     // 그 번호의 계정이 있으면 새로 만들지 않는다
     expect((await client(w, second).post('/api/auth/signup', { agree: true })).status).toBe(409)
     // 번호 확인 전에 열려 있던 세션으로는 잇지 않는다

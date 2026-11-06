@@ -171,14 +171,14 @@ export function registerSocialRoutes(api: Hono<Env>, social: SocialLogin, addres
     return sendReply(c, await social.signupPhoneSend({ ...ticketOf(c, input), phone: own(input, 'phone') }, addressOf(c)))
   })
 
-  // 가입 중 인증번호 확인: { code } → { next: 'SIGNUP', phone } 또는 { next: 'LOGIN_EXISTING', phone, providers, password }
+  // 가입 중 인증번호 확인: { code } → { next: 'SIGNUP', phone } 또는 { next: 'LOGIN_EXISTING', phone, providers, accounts: [{ provider, label, lastLoginAt }], password }
   api.post('/auth/signup/phone/verify', async (c) => {
     const input = body(c)
     const extra = only(input, ['code', 'ticket', 'verifier'])
     if (extra !== null) return extra
     const outcome = await social.signupPhoneVerify({ ...ticketOf(c, input), code: own(input, 'code') }, addressOf(c))
     if (outcome.kind === 'new') return c.json({ next: 'SIGNUP', phone: outcome.phone })
-    if (outcome.kind === 'existing') return c.json({ next: 'LOGIN_EXISTING', phone: outcome.phone, providers: outcome.providers, password: outcome.password })
+    if (outcome.kind === 'existing') return c.json({ next: 'LOGIN_EXISTING', phone: outcome.phone, providers: outcome.providers, accounts: outcome.accounts, password: outcome.password })
     if (outcome.kind === 'rate_limited') return apiError(429, 'LOGIN_RATE_LIMITED', LOGIN_RATE_LIMITED_MESSAGE)
     if (outcome.kind === 'unavailable') return notFound()
     // 가입 표가 없어졌으면 인증번호 시간 지남(CODE_EXPIRED)이 아니라 처음부터 (D-UX3-54)

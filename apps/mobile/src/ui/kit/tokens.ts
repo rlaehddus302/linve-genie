@@ -91,10 +91,11 @@ const LIGHT: Palette = {
   primaryText: '#1F7A4D',
   secondary: '#E6F2EB',
   onSecondary: '#155C39',
-  // 잘못 빨강 (D-UX3-51, 사용자 지시 2026-11-07 "오입력시 빨갛게 되는 색깔이 다름"): 토스 빨강(#E43947)과 같은 색상, 글자 대비 4.5를 지키는 만큼만 진하게 — 옛 #B42318
-  danger: '#CF3441',
+  // 잘못 빨강 (D-UX3-59, 사용자 지시 2026-11-07 "오류 아이콘, 메시지 보면 색이 살짝 탁해. 좀 더 선명한 빨간색으로 … 전역 설정으로"):
+  // 토스 빨강과 같은 색상(356°)에서 글자 대비 4.5(옅은 회색 바탕 #F2F4F6에서도)를 지키며 가장 맑게 — 회색기를 빼고 채도만 올렸다. 옛 #CF3441(D-UX3-51)·#B42318
+  danger: '#DD1824',
   onDanger: '#FFFFFF',
-  dangerText: '#CF3441',
+  dangerText: '#DD1824',
   backdrop: '#000000',
   toast: '#191F28',
   onToast: '#FFFFFF',

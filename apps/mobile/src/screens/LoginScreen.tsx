@@ -19,15 +19,13 @@ import { Linking, Pressable, ScrollView, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import {
   continueLabel,
-  EXISTING_LOST,
-  EXISTING_TITLE,
-  existingBody,
   NOT_THAT_ACCOUNT,
   START_OVER,
   RECENT_LOGIN,
   resultMessage,
   SIGNUP_MAKING,
   LOGIN_CODES,
+  type ExistingLogin,
   type LastLogin,
   type LoginProvider,
 } from '@livejjim/web/src/lib/social-login.ts'
@@ -45,11 +43,12 @@ import {
   readAppLastLogin,
   rememberAppLastLogin,
 } from '../lib/social-auth.ts'
+import { ExistingAccount } from './ExistingAccount.tsx'
 import { PhoneVerify } from './PhoneVerify.tsx'
 import { SlideSwitch } from '../ui/kit/slide.tsx'
 import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SERVICE_NAME, SESSION_EXPIRED_MESSAGE, SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/words.ts'
 import { useBottomInset, useKit } from '../ui/kit/theme.tsx'
-import { BigButton, Body, Field, Hint, Notice, Screen, Stack, Title } from '../ui/parts.tsx'
+import { BigButton, Field, Hint, Notice, Stack } from '../ui/parts.tsx'
 
 /** 숨은 아이디 칸: 서비스명을 이 시간 안에 이만큼 누르면 연다 */
 const ID_TAPS = 5
@@ -65,7 +64,7 @@ type SignupStage =
       readonly ticket: string
       readonly verifier: string
       readonly phone: string
-      readonly providers: readonly LoginProvider[]
+      readonly accounts: readonly ExistingLogin[]
     }
 
 export function LoginScreen({
@@ -191,7 +190,7 @@ export function LoginScreen({
   const phoneVerified = async (current: Extract<SignupStage, { kind: 'phone' }>, code: string): Promise<() => Promise<void>> => {
     const next = await appSignupPhoneVerify(current.ticket, current.verifier, code)
     if (next.next === 'LOGIN_EXISTING') {
-      return async () => setStage({ kind: 'existing', provider: current.provider, ticket: current.ticket, verifier: current.verifier, phone: next.phone, providers: next.providers })
+      return async () => setStage({ kind: 'existing', provider: current.provider, ticket: current.ticket, verifier: current.verifier, phone: next.phone, accounts: next.accounts })
     }
     setMaking(true)
     try {
@@ -266,21 +265,17 @@ export function LoginScreen({
 
   if (stage.kind === 'existing') {
     const current = stage
+    // D-UX3-59: 토스 질문 화면 — 제목·설명·있는 계정 카드·[연결하기] (옛 D-UX3-30 공급자 단추 목록·[처음으로])
     return slide(
-      <Screen title={SERVICE_NAME} testID="login-existing">
-        <Stack>
-          <Title>{EXISTING_TITLE}</Title>
-          <Body muted>{existingBody(current.phone, current.providers, current.provider)}</Body>
-          <View style={{ gap: 12 }}>
-            {current.providers.map((provider) => (
-              <SocialButton key={provider} provider={provider} recent={false} busy={moving === provider} onPress={() => void relogin(current, provider)} />
-            ))}
-          </View>
-          {socialMessage !== null ? <Notice tone="danger" alert>{socialMessage}</Notice> : null}
-          <Hint>{EXISTING_LOST}</Hint>
-          <BigButton label={START_OVER} onPress={startOver} />
-        </Stack>
-      </Screen>,
+      <ExistingAccount
+        phone={current.phone}
+        provider={current.provider}
+        accounts={current.accounts}
+        moving={moving}
+        message={socialMessage}
+        onLink={(provider) => void relogin(current, provider)}
+        onLeave={startOver}
+      />,
     )
   }
 

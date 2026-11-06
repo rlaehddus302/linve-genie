@@ -330,7 +330,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     <>
       <SlideSwitch id={step} back={goingBack} testID="phone-verify">
         {step === 'phone' ? (
-          <Page
+          <QuestionPage
             onBack={askLeave}
             backLabel={back.label}
             title={PHONE_ASK_TITLE}
@@ -352,9 +352,9 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
                 testID="phone-input"
               />
             </View>
-          </Page>
+          </QuestionPage>
         ) : step === 'code' ? (
-          <Page
+          <QuestionPage
             onBack={askLeave}
             backLabel="번호 다시 넣기"
             title={CODE_ASK_TITLE}
@@ -380,7 +380,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
                 </Txt>
               </View>
             )}
-          </Page>
+          </QuestionPage>
         ) : (
           <Verified />
         )}
@@ -401,7 +401,8 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
 }
 
 /** 한 화면 틀: 왼쪽 위 ‹, 두 줄 제목, 내용, 아래 단추(키보드가 뜨면 키보드 바로 위 — 사이 12) */
-function Page({ onBack, backLabel, title, children, footer, testID }: { readonly onBack: () => void; readonly backLabel: string; readonly title: string; readonly children: ReactNode; readonly footer?: ReactNode; readonly testID: string }) {
+/** 질문 화면 틀 (‹·제목·내용·아래 단추, 왼쪽 끝 밀기로 뒤로) — 번호 확인과 "이미 가입한 적이 있어요"가 같이 쓴다 (D-UX3-59) */
+export function QuestionPage({ onBack, backLabel, title, children, footer, testID }: { readonly onBack: () => void; readonly backLabel: string; readonly title: string; readonly children: ReactNode; readonly footer?: ReactNode; readonly testID: string }) {
   const { p } = useKit()
   const bottom = useBottomInset()
   const keyboard = useKeyboardShown()
@@ -480,6 +481,18 @@ const CELL_HEIGHT = 60
 const ROW_WIDTH = 328
 /** 합칠 때 칸들이 가운데로 모이는 거리의 바깥 끝 (칸 사이를 다 메운다) */
 const GATHER = ((CODE_LENGTH - 1) / 2) * CELL_GAP
+const CELL_WIDTH = (ROW_WIDTH - (CODE_LENGTH - 1) * CELL_GAP) / CODE_LENGTH
+/** 숫자 0 하나의 폭 (32·600을 사진으로 재어 약 18) */
+const DIGIT_WIDTH = 18
+/**
+ * 모인 칸을 감싸는 바깥 테의 양옆 자리 (D-UX3-59, 사용자 지시 2026-11-07 "0과 0 사이 간격보다 맨 바깥쪽 0과 바깥 여백이 작아서 좀 답답해보이지 … 0과 0 사이 간격만큼 벌려줘야"):
+ * 테에서 맨 바깥 숫자까지 = 숫자와 숫자 사이(칸 폭 − 숫자 폭). 옛 D-UX3-56은 모인 칸 끝(GATHER)에 붙어 바깥 여백이 숫자 사이의 절반이었다
+ */
+const FRAME_SIDE = GATHER - (CELL_WIDTH - DIGIT_WIDTH) / 2
+/** 바깥 테는 이만큼 큰 채로 나타나 칸이 모이는 동안 제 크기로 줄어든다 (D-UX3-59) */
+const FRAME_FROM = 1.08
+/** 바깥 테가 나타나는 시간 (바로에 가깝게) */
+const FRAME_IN_MS = 100
 const COVER = { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 } as const
 
 /**
@@ -551,7 +564,8 @@ const DIGIT = { fontSize: 32, fontWeight: WEIGHT.medium } as const
  * 칸은 한 벌뿐이고 실제로 움직인다 — 사라지는 것과 생기는 것을 겹쳐 바꾸지 않는다
  * (사용자 지시 2026-11-07 "요소가 전환되는게 아니라 자연스럽게 사라지고 생기고 서로 붙고 … 다 쳤을 때는 박스 테두리가 사라지고 박스들이 서로 모이면서 새로운 테두리가 생기는거고,
  * 다시 나눠질 때는 그 반대로 합쳐졌던 박스가 다시 좌우로 움직이면서 갈라지는거고 빨간 테두리와 좌우에 박스 외에 빨간 배경은 바로 사라지는거고").
- * 확인 중: 칸마다 테·바탕이 서서히 사라지며 가운데로 모이고, 모인 자리에 바깥 테(흰 바탕·연한 초록) 하나가 서서히 생겨 살짝 줄어든다.
+ * 확인 중: 칸마다 테·바탕은 바로 없어지고 칸(숫자)이 가운데로 모이며, 바깥 테(흰 바탕·연한 초록) 하나가 큰 채로 바로 나타나 모이는 동안 제 크기로 줄어든다(D-UX3-59).
+ * 바깥 테에서 맨 바깥 숫자까지는 숫자 사이와 같다(D-UX3-59).
  * 틀림(held 동안)·횟수 초과: 바깥 테가 빨개지며(빨간 테·옅은 빨강 바탕·진한 숫자) 다시 커지고 흔들기·진동, 아래 "! 인증번호가 맞지 않아요."
  * 틀림(held 뒤): 빨간 테와 칸 밖 빨간 바탕은 바로 없어지고, 칸(옅은 빨강·진한 숫자)이 좌우로 움직이며 갈라진다. 문장은 사라진다. 시간 지남: 칸마다 옅은 빨강.
  */
@@ -578,9 +592,10 @@ function CodeBoxes({
   const merged = checking || red
   const pink = !merged && (mark === 'expired' || mark === 'wrong')
   const together = useEased(merged ? 1 : 0, MERGE_MS)
-  // 합칠 때는 서서히, 나눌 때는 바로: 칸 테·바탕(skin)은 바로 돌아오고, 바깥 테(frame)·빨강은 바로 없어진다
-  const skin = useEased(merged ? 0 : 1, merged ? MERGE_MS : 0)
-  const frame = useEased(merged ? 1 : 0, merged ? MERGE_MS : 0)
+  // 칸마다 있던 테·바탕(skin)은 합칠 때 바로 없어지고 나눌 때 바로 돌아온다 (D-UX3-59, 사용자 지시 "기존 박스별로 있던 테두리는 바로 사라지기" — 옛 D-UX3-56 서서히).
+  // 바깥 테(frame)는 큰 채로 곧바로 나타나 칸이 모이는 동안 줄어들고("큰 상태로 나타났다가 점점 작아지는"), 나눌 때는 빨강과 함께 바로 없어진다
+  const skin = useEased(merged ? 0 : 1, 0)
+  const frame = useEased(merged ? 1 : 0, merged ? FRAME_IN_MS : 0)
   const redness = useEased(red ? 1 : 0, red ? MERGE_MS : 0)
   const size = useEased(checking ? CHECKING_SCALE : 1, MERGE_MS)
   const cells = Array.from({ length: CODE_LENGTH }, (_, index) => value[index] ?? '')
@@ -591,7 +606,7 @@ function CodeBoxes({
     <Animated.View style={{ marginTop: CODE_BOXES_TOP, alignItems: 'center', transform: [{ translateX: shake }] }}>
       <Animated.View style={{ width: '100%', maxWidth: ROW_WIDTH, height: CELL_HEIGHT, transform: [{ scale: size }] }}>
         {/* 모인 칸들을 감싸는 바깥 테 하나 (칸들 뒤) */}
-        <Animated.View aria-hidden pointerEvents="none" testID={red ? 'code-wrong' : checking ? 'code-checking' : undefined} style={{ ...COVER, left: GATHER, right: GATHER, opacity: frame }}>
+        <Animated.View aria-hidden pointerEvents="none" testID={red ? 'code-wrong' : checking ? 'code-checking' : undefined} style={{ ...COVER, left: FRAME_SIDE, right: FRAME_SIDE, opacity: frame, transform: [{ scale: together.interpolate({ inputRange: [0, 1], outputRange: [FRAME_FROM, 1] }) }] }}>
           <View style={[shape, { backgroundColor: p.surface, borderColor: `${p.primary}99` }]} />
           <Animated.View style={[shape, { backgroundColor: TONES.light.danger.bg, borderColor: p.dangerText, opacity: redness }]} />
         </Animated.View>

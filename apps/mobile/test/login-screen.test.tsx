@@ -517,11 +517,20 @@ describe('LoginScreen', () => {
         expect(sends).toHaveLength(2)
       })
 
-      it('있는 번호: 새 계정을 만들지 않고, 그 계정의 카카오로 다시 로그인하면 구글을 잇는다', async () => {
+      it('있는 번호: 새 계정을 만들지 않고 "이미 가입한 적이 있어요"에 있는 계정을 보인 뒤, [연결하기]로 가장 최근 카카오로 다시 로그인하면 구글을 잇는다', async () => {
         const t = installQueue([`livejjim://auth?ticket=${T1}&provider=google`, `livejjim://auth?ticket=${T2}&provider=kakao`], {
           '/api/auth/app/finish': { result: 'SIGNUP', provider: 'google', phoneRequired: true },
           '/api/auth/signup/phone': { phone: '010-****-6666' },
-          '/api/auth/signup/phone/verify': { next: 'LOGIN_EXISTING', phone: '010-****-6666', providers: ['kakao'], password: false },
+          '/api/auth/signup/phone/verify': {
+            next: 'LOGIN_EXISTING',
+            phone: '010-****-6666',
+            providers: ['kakao', 'naver'],
+            accounts: [
+              { provider: 'kakao', label: 'uh***@kakao.com', lastLoginAt: '2026-11-05T15:30:00.000Z' },
+              { provider: 'naver', label: 'uh***@naver.com', lastLoginAt: '2026-10-01T00:00:00.000Z' },
+            ],
+            password: false,
+          },
           '/api/auth/signup/link': { provider: 'google' },
         })
         const onSocialDone = vi.fn(async () => {})
@@ -531,9 +540,14 @@ describe('LoginScreen', () => {
         fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '01055556666' } })
         fireEvent.click(screen.getByRole('button', { name: '다음' }))
         fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '654321' } })
-        expect(await screen.findByText('이미 가입한 계정이 있어요', undefined, { timeout: 4000 })).toBeTruthy()
-        expect(screen.getByText('010-****-6666 번호로 가입한 계정이에요. 카카오로 로그인하면 구글도 함께 이어져요.')).toBeTruthy()
+        // D-UX3-59로 바뀐 기대 (사용자 지시 2026-11-07 "이미 존재하는 소셜 계정 보여주고 각각의 이메일. 그리고 마지막 로그인 언젠지도 … 아이디를 선택하라고 하는데 우린 그럴 필요없어"):
+        // 옛 — "이미 가입한 계정이 있어요"·번호 문장·[카카오로 로그인] 단추 → 새 — 제목·설명·있는 계정 카드(공급자·가린 이메일·마지막 로그인)·[연결하기] 하나
+        expect(await screen.findByText('이미 가입한 적이 있어요', undefined, { timeout: 4000 })).toBeTruthy()
+        expect(screen.getByText('해당 계정에 연결하고 로그인할게요')).toBeTruthy()
+        const card = screen.getByTestId('existing-accounts')
+        for (const word of ['카카오', 'uh***@kakao.com', '네이버', 'uh***@naver.com', '2026년 11월 06일 마지막 로그인']) expect(card.textContent).toContain(word)
         expect(screen.queryByRole('button', { name: '구글로 로그인' })).toBeNull()
+        expect(screen.queryByRole('button', { name: '카카오로 로그인' })).toBeNull()
         // 두 번째 로그인은 기존 계정(LOGGED_IN)
         const finishReplies = [{ result: 'LOGGED_IN', me: {} }]
         configureApi({
@@ -546,7 +560,7 @@ describe('LoginScreen', () => {
             return new Response(JSON.stringify(reply ?? {}), { status: reply === undefined ? 404 : 200, headers: { 'Content-Type': 'application/json' } })
           },
         })
-        fireEvent.click(screen.getByRole('button', { name: '카카오로 로그인' }))
+        fireEvent.click(screen.getByRole('button', { name: '연결하기' }))
         await waitFor(() => expect(onSocialDone).toHaveBeenCalledTimes(1))
         expect(t.calls.filter((c) => c.url.endsWith('/api/auth/signup'))).toHaveLength(0)
         expect(t.calls.find((c) => c.url.endsWith('/api/auth/signup/link'))?.body).toEqual({ ticket: T1, verifier: 'V'.repeat(43) })

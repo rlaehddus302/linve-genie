@@ -16,9 +16,14 @@ import {
   commitPendingLogin,
   continueLabel,
   dropPendingLogin,
+  EXISTING_BODY,
   EXISTING_LOST,
   EXISTING_TITLE,
   existingBody,
+  lastLoginText,
+  latestLogin,
+  PROVIDER_NAMES,
+  type ExistingLogin,
   fetchLoginProviders,
   markPendingLink,
   PHONE_BODY,
@@ -53,7 +58,7 @@ type SignupStage =
   | { readonly kind: 'none' }
   | { readonly kind: 'making' }
   | { readonly kind: 'phone'; readonly provider: LoginProvider }
-  | { readonly kind: 'existing'; readonly provider: LoginProvider; readonly phone: string; readonly providers: readonly LoginProvider[] }
+  | { readonly kind: 'existing'; readonly provider: LoginProvider; readonly phone: string; readonly providers: readonly LoginProvider[]; readonly accounts: readonly ExistingLogin[] }
 
 export const SESSION_EXPIRED_MESSAGE = '로그인이 풀렸어요. 다시 로그인해 주세요.'
 /** 주소가 `/login`일 때만 로그인 칸 아래 (D-LND1-10 (2)) */
@@ -142,7 +147,7 @@ export function LoginPage({
             const next = signupPhoneNextOf(await post('/api/auth/signup/phone/verify', { code }))
             if (next === null) throw new Error('알 수 없는 답')
             if (next.next === 'LOGIN_EXISTING') {
-              setStage({ kind: 'existing', provider, phone: next.phone, providers: next.providers })
+              setStage({ kind: 'existing', provider, phone: next.phone, providers: next.providers, accounts: next.accounts })
               return
             }
             const me = await post<Me>('/api/auth/signup', { agree: true })
@@ -161,7 +166,9 @@ export function LoginPage({
         <h1>{SERVICE_NAME}</h1>
         <div className="stack">
           <h2>{EXISTING_TITLE}</h2>
-          <p>{existingBody(stage.phone, stage.providers, stage.provider)}</p>
+          {/* D-UX3-59: 앱과 같은 문장·있는 계정 목록(공급자·가린 이메일·마지막 로그인) */}
+          <p>{stage.accounts.length > 0 ? EXISTING_BODY : existingBody(stage.phone, stage.providers, stage.provider)}</p>
+          {stage.accounts.length > 0 ? <ExistingList accounts={stage.accounts} /> : null}
           {stage.providers.length > 0 ? <SocialLogin only={stage.providers} onStart={markPendingLink} /> : null}
           <p className="field-hint">{EXISTING_LOST}</p>
           <button type="button" className="button" onClick={startOver}>
@@ -386,6 +393,26 @@ export function SocialButtons({
           {last === provider ? <span className="recent-login">{RECENT_LOGIN}</span> : null}
         </button>
       ))}
+    </div>
+  )
+}
+
+/** 있는 계정 목록 (D-UX3-59) */
+function ExistingList({ accounts }: { readonly accounts: readonly ExistingLogin[] }) {
+  const latest = latestLogin(accounts)
+  const last = latest === null || latest.lastLoginAt === null ? null : lastLoginText(latest.lastLoginAt)
+  return (
+    <div className="card stack" data-testid="existing-accounts">
+      <ul className="plain-list">
+        {accounts.map((account) => (
+          <li key={account.provider}>
+            <span className="field-hint">{PROVIDER_NAMES[account.provider]}</span>
+            <br />
+            <strong>{account.label === '' ? `${PROVIDER_NAMES[account.provider]} 계정` : account.label}</strong>
+          </li>
+        ))}
+      </ul>
+      {last !== null ? <p className="field-hint">{last}</p> : null}
     </div>
   )
 }

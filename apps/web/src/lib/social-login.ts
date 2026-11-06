@@ -319,7 +319,47 @@ export function formatMobileInput(digits: string): string {
   if (d.length <= 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`
   return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`
 }
-export const EXISTING_TITLE = '이미 가입한 계정이 있어요'
+/**
+ * 있는 번호 화면 (D-UX3-59, 사용자 지시 2026-11-07 "제목에는 "이미 가입한 적이 있어요" 그 아래에는 "해당 계정에 연결하고 로그인할게요" 하고 그 아래에는 이미 존재하는 계정들 나열"
+ * — 옛 D-UX3-30 "이미 가입한 계정이 있어요" + 공급자 단추). 아이디를 고르게 하지 않는다: [연결하기] 하나
+ */
+export const EXISTING_TITLE = '이미 가입한 적이 있어요'
+export const EXISTING_BODY = '해당 계정에 연결하고 로그인할게요'
+export const EXISTING_GO = '연결하기'
+/** 있는 번호 계정의 간편 로그인 하나: 공급자·가린 이름(se***@gmail.com, 없으면 빈 값)·마지막 로그인(ISO) */
+export interface ExistingLogin {
+  readonly provider: LoginProvider
+  readonly label: string
+  readonly lastLoginAt: string | null
+}
+/** "2026년 11월 06일 마지막 로그인" — 한국 시간으로 (기기 시간대와 상관없이) */
+export function lastLoginText(iso: string): string | null {
+  const time = Date.parse(iso)
+  if (!Number.isFinite(time)) return null
+  const korea = new Date(time + 9 * 60 * 60 * 1000)
+  const two = (value: number): string => String(value).padStart(2, '0')
+  return `${String(korea.getUTCFullYear())}년 ${two(korea.getUTCMonth() + 1)}월 ${two(korea.getUTCDate())}일 마지막 로그인`
+}
+/** 가장 최근에 로그인한 것 (모두 없으면 첫째) — [연결하기]가 이것으로 다시 로그인한다 */
+export function latestLogin(accounts: readonly ExistingLogin[]): ExistingLogin | null {
+  let best: ExistingLogin | null = null
+  for (const account of accounts) {
+    if (best === null || (account.lastLoginAt ?? '') > (best.lastLoginAt ?? '')) best = account
+  }
+  return best
+}
+function existingLoginsOf(value: unknown): ExistingLogin[] {
+  if (!Array.isArray(value)) return []
+  const out: ExistingLogin[] = []
+  for (const item of value as unknown[]) {
+    if (typeof item !== 'object' || item === null) continue
+    const record = item as Record<string, unknown>
+    const provider = providersOf([record.provider])[0]
+    if (provider === undefined || out.some((account) => account.provider === provider)) continue
+    out.push({ provider, label: typeof record.label === 'string' ? record.label : '', lastLoginAt: typeof record.lastLoginAt === 'string' ? record.lastLoginAt : null })
+  }
+  return out
+}
 /** 있는 번호: 그 계정의 간편 로그인으로 다시 로그인하면 지금 공급자가 이어진다 */
 export function existingBody(phone: string, providers: readonly LoginProvider[], next: LoginProvider): string {
   if (providers.length === 0) return `${phone} 번호로 가입한 계정이에요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 ${PROVIDER_NAMES[next]} 로그인을 연결해 주세요.`
@@ -327,20 +367,27 @@ export function existingBody(phone: string, providers: readonly LoginProvider[],
   return `${phone} 번호로 가입한 계정이에요. ${names}로 로그인하면 ${PROVIDER_NAMES[next]}도 함께 이어져요.`
 }
 export const EXISTING_LOST = '예전 로그인 방법을 쓸 수 없으면 운영자에게 문의해 주세요.'
-export const NOT_THAT_ACCOUNT = '이 번호로 가입한 계정에 연결된 계정이 아니에요. 위 단추로 다시 로그인해 주세요.'
+/** 다른 간편 로그인 계정으로 들어갔을 때 — 앱은 아래 [연결하기], 웹은 위 단추라 자리를 말하지 않는다 (D-UX3-59, 옛 "위 단추로") */
+export const NOT_THAT_ACCOUNT = '이 번호로 가입한 계정이 아니에요. 다시 로그인해 주세요.'
 export const linkedNow = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}도 이 계정에 이었어요.`
 
 /** 가입 중 인증번호 확인 결과 (POST /api/auth/signup/phone/verify) */
 export type SignupPhoneNext =
   | { readonly next: 'SIGNUP'; readonly phone: string }
-  | { readonly next: 'LOGIN_EXISTING'; readonly phone: string; readonly providers: readonly LoginProvider[]; readonly password: boolean }
+  | { readonly next: 'LOGIN_EXISTING'; readonly phone: string; readonly providers: readonly LoginProvider[]; readonly accounts: readonly ExistingLogin[]; readonly password: boolean }
 
 export function signupPhoneNextOf(value: unknown): SignupPhoneNext | null {
   if (typeof value !== 'object' || value === null) return null
   const record = value as Record<string, unknown>
   const phone = typeof record.phone === 'string' ? record.phone : ''
   if (record.next === 'SIGNUP') return { next: 'SIGNUP', phone }
-  if (record.next === 'LOGIN_EXISTING') return { next: 'LOGIN_EXISTING', phone, providers: providersOf(record.providers), password: record.password === true }
+  if (record.next === 'LOGIN_EXISTING') {
+    const providers = providersOf(record.providers)
+    // 옛 서버(accounts 없음)면 공급자만으로 — 이름·마지막 로그인 없이
+    const listed = existingLoginsOf(record.accounts).filter((account) => providers.includes(account.provider))
+    const accounts = providers.map((provider) => listed.find((account) => account.provider === provider) ?? { provider, label: '', lastLoginAt: null })
+    return { next: 'LOGIN_EXISTING', phone, providers, accounts, password: record.password === true }
+  }
   return null
 }
 

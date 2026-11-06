@@ -173,7 +173,8 @@ export function ErrorLine({ children, large }: { readonly children: ReactNode; r
         <AlertMark size={mark} />
       </View>
       <View style={{ flexShrink: 1 }}>
-        <Txt step={step} color="dangerText">
+        {/* 잘못 문장은 보통보다 아주 살짝 굵게 500 (D-UX3-59, 사용자 지시 "폰트 두께도 아주 살짝 늘리고" — 옛 400) */}
+        <Txt step={step} weight="book" color="dangerText">
           {children}
         </Txt>
       </View>

@@ -69,6 +69,13 @@ import {
 } from './providers.ts'
 
 /** 돌아오기 결과 코드 (acceptance "결과 문장" 표 — 화면이 정해진 문장으로 바꾼다) */
+/** 있는 번호 계정의 간편 로그인 하나 (D-UX3-59): 공급자·가린 이름(se***@gmail.com)·마지막 로그인(ISO, 없으면 null). 공급자 계정 ID는 내지 않는다 */
+export interface ExistingLogin {
+  readonly provider: ProviderId
+  readonly label: string
+  readonly lastLoginAt: string | null
+}
+
 export type SocialResult = 'CANCELLED' | 'EXPIRED' | 'NOT_LINKED' | 'SIGNUP' | 'PROVIDER_ERROR' | 'RATE_LIMITED' | 'LINKED' | 'LINKED_ELSEWHERE' | 'ALREADY_LINKED' | 'SESSION_GONE'
 export type SocialPurpose = 'LOGIN' | 'LINK'
 
@@ -186,7 +193,7 @@ export type CodeCheck = { readonly kind: 'ok'; readonly phoneHash: string; reado
 /** 가입 중 인증번호 확인 결과: 새 번호면 가입, 있는 번호면 그 계정으로 로그인해 잇기 */
 export type SignupPhoneOutcome =
   | { readonly kind: 'new'; readonly phone: string }
-  | { readonly kind: 'existing'; readonly phone: string; readonly providers: readonly ProviderId[]; readonly password: boolean }
+  | { readonly kind: 'existing'; readonly phone: string; readonly providers: readonly ProviderId[]; readonly accounts: readonly ExistingLogin[]; readonly password: boolean }
   | { readonly kind: 'wrong'; readonly left: number }
   | { readonly kind: 'expired' }
   | { readonly kind: 'locked' }
@@ -933,10 +940,18 @@ export class SocialLogin {
       .returning({ ticketHash: loginTickets.ticketHash })
     if (updated.length === 0) return { kind: 'ticket_gone' }
     if (target === null) return { kind: 'new', phone: checked.phoneLabel }
-    const links = await db.select({ provider: loginLinks.provider }).from(loginLinks).where(and(eq(loginLinks.accountId, target.id), eq(loginLinks.sellerId, target.sellerId)))
+    const links = await db
+      .select({ provider: loginLinks.provider, label: loginLinks.label, lastLoginAt: loginLinks.lastLoginAt })
+      .from(loginLinks)
+      .where(and(eq(loginLinks.accountId, target.id), eq(loginLinks.sellerId, target.sellerId)))
     const providers = PROVIDER_ORDER.filter((provider) => this.#enabled.includes(provider) && links.some((link) => link.provider === provider))
+    // "이미 가입한 적이 있어요" 화면에 보일 것 (D-UX3-59): 켜진 공급자마다 가린 이름과 마지막 로그인
+    const existing = providers.map((provider): ExistingLogin => {
+      const link = links.find((item) => item.provider === provider)
+      return { provider, label: link?.label ?? '', lastLoginAt: link?.lastLoginAt?.toISOString() ?? null }
+    })
     this.#options.log({ level: 'info', code: 'SOCIAL_LOGIN', provider: row.provider as ProviderId, reason: 'PHONE_EXISTING' })
-    return { kind: 'existing', phone: checked.phoneLabel, providers, password: target.passwordHash !== '' }
+    return { kind: 'existing', phone: checked.phoneLabel, providers, accounts: existing, password: target.passwordHash !== '' }
   }
 
   /**

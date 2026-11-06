@@ -210,7 +210,7 @@ describe('돌아온 결과 문장 (AC-L1-21)', () => {
     server
       .on('POST', /^\/api\/auth\/signup$/, (): Reply => apiError(409, 'PHONE_REQUIRED', '휴대폰 번호를 먼저 확인해 주세요.'))
       .on('POST', /^\/api\/auth\/signup\/phone$/, (): Reply => ({ body: { phone: '010-****-6666' } }))
-      .on('POST', /^\/api\/auth\/signup\/phone\/verify$/, (): Reply => ({ body: { next: 'LOGIN_EXISTING', phone: '010-****-6666', providers: ['naver'], password: false } }))
+      .on('POST', /^\/api\/auth\/signup\/phone\/verify$/, (): Reply => ({ body: { next: 'LOGIN_EXISTING', phone: '010-****-6666', providers: ['naver'], accounts: [{ provider: 'naver', label: 'ab***@naver.com', lastLoginAt: '2026-11-05T15:30:00.000Z' }], password: false } }))
       .on('POST', /^\/api\/auth\/signup\/link$/, (): Reply => ({ body: { provider: 'kakao' } }))
     window.history.replaceState(null, '', '/?login=SIGNUP&provider=kakao')
     render(<App />)
@@ -220,8 +220,15 @@ describe('돌아온 결과 문장 (AC-L1-21)', () => {
     expect(await screen.findByText('010-****-6666 번호로 인증번호를 보냈어요.')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
-    expect(await screen.findByRole('heading', { name: '이미 가입한 계정이 있어요' })).toBeTruthy()
-    expect(screen.getByText('010-****-6666 번호로 가입한 계정이에요. 네이버로 로그인하면 카카오도 함께 이어져요.')).toBeTruthy()
+    // D-UX3-59로 바뀐 기대 (사용자 지시 2026-11-07 "제목에는 "이미 가입한 적이 있어요" 그 아래에는 "해당 계정에 연결하고 로그인할게요" … 이미 존재하는 계정들 나열"):
+    // 옛 — 제목 "이미 가입한 계정이 있어요"·"010-****-6666 번호로 가입한 계정이에요. 네이버로 로그인하면 카카오도 함께 이어져요."
+    // 새 — 제목·설명이 바뀌고 있는 계정(공급자·가린 이메일·마지막 로그인 한국 날짜)을 보인다
+    expect(await screen.findByRole('heading', { name: '이미 가입한 적이 있어요' })).toBeTruthy()
+    expect(screen.getByText('해당 계정에 연결하고 로그인할게요')).toBeTruthy()
+    const list = screen.getByTestId('existing-accounts')
+    expect(list.textContent).toContain('네이버')
+    expect(list.textContent).toContain('ab***@naver.com')
+    expect(list.textContent).toContain('2026년 11월 06일 마지막 로그인')
     expect(socialButtons().map((button) => button.textContent)).toEqual(['네이버로 로그인'])
     fireEvent.click(screen.getByRole('button', { name: '네이버로 로그인' }))
     await waitFor(() => expect(assigned).toEqual([AUTHORIZE('naver')]))
