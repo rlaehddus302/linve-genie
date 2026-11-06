@@ -14,6 +14,7 @@ import { useSession } from '../src/services.tsx'
 import { PALETTE } from '../src/ui/kit/tokens.ts'
 import { KitInsets } from '../src/ui/kit/safe-area.tsx'
 import { SlideSwitch } from '../src/ui/kit/slide.tsx'
+import { TopWhiteProvider, useTopWhiteCount } from '../src/ui/kit/index.ts'
 import { Loading } from '../src/ui/parts.tsx'
 import { View } from 'react-native'
 
@@ -22,6 +23,8 @@ export default function IndexRoute() {
   const router = useRouter()
   // 홈이 다시 보일 때마다(방송에서 돌아옴·방송을 끝냄) 방송 목록·할 일 숫자를 다시 받는다 — 진행 중 방송(리허설 포함)이 "방송으로 돌아가기"로 보이게 (D-UX2-07)
   const [visits, setVisits] = useState(0)
+  // 번호 확인처럼 흰 화면이 떠 있으면 맨 위 상태 막대 자리도 흰색 (D-UX3-50 — 회색 띠가 보이던 것)
+  const [whiteTop, changeWhiteTop] = useTopWhiteCount()
   const first = useRef(true)
   useFocusEffect(
     useCallback(() => {
@@ -31,7 +34,8 @@ export default function IndexRoute() {
     }, []),
   )
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: whiteTop > 0 ? PALETTE.light.surface : PALETTE.light.background }} edges={['top']}>
+      <TopWhiteProvider change={changeWhiteTop}>
       <KitInsets>
         {session.state === 'checking' ? <Loading text="로그인을 확인하는 중…" /> : null}
         {session.state === 'checking' ? null : (
@@ -73,6 +77,7 @@ export default function IndexRoute() {
           </SlideSwitch>
         )}
       </KitInsets>
+      </TopWhiteProvider>
     </SafeAreaView>
   )
 }

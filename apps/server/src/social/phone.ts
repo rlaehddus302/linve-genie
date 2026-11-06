@@ -1,6 +1,6 @@
 // 휴대폰 번호로 같은 사람 묶기 (D-UX3-30): 간편 로그인으로 처음 온 사람은 문자 인증을 마쳐야 계정이 생긴다.
 // - 번호는 원문을 두지 않는다: 찾기용 HMAC(마스터 키에서 나눈 키)과 화면용 가린 번호(010-****-5678)만.
-// - 인증번호는 6자리(암호학적 난수), 3분, 틀리기 5번까지, 다시 보내기 60초 간격, 한 확인에 5번·한 번호에 하루 10번까지.
+// - 인증번호는 6자리(암호학적 난수), 3분, 틀리기 5번까지, 다시 보내기 30초 간격(D-UX3-50), 한 확인에 5번·한 번호에 하루 10번까지.
 // - 문자는 네이버 클라우드 SENS(https://sens.apigw.ntruss.com, 공식 서명 v2 = HMAC-SHA256 base64)로 보낸다(D-REAL-07, 솔라피에서 바꿈).
 //   키·서비스 ID·보내는 번호가 없으면 문자 인증을 끈다(가입은 전처럼 바로).
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto'
@@ -8,7 +8,8 @@ import { SERVICE_NAME } from '../brand.ts'
 
 export const CODE_TTL_MS = 3 * 60 * 1000
 export const CODE_MAX_ATTEMPTS = 5
-export const RESEND_GAP_MS = 60 * 1000
+/** 다시 보내기 간격 — 앱 [다시 문자 받을게요]가 켜지는 때와 같다 (D-UX3-50, 사용자 지시 2026-11-07 "30초 지나야 요청할 수 있도록" — 옛 60초) */
+export const RESEND_GAP_MS = 30 * 1000
 export const CHECK_MAX_SENDS = 5
 export const PHONE_DAY_MAX_SENDS = 10
 export const DAY_MS = 24 * 60 * 60 * 1000

@@ -210,8 +210,10 @@ describe('LoginScreen', () => {
       const T2 = 'U'.repeat(43)
 
       // D-UX3-49로 바뀐 기대 (사용자 지시 2026-11-07 사진): 옛 "번호 → [인증번호 받기] → 6자리 → [확인]" →
-      // 새 "번호 11자리가 차면 바로 보내고 인증번호 화면, 6자리가 차면 바로 확인, '인증 성공'을 2초 보인 뒤 들어간다". 단추 대신 왼쪽 위 ‹(처음으로).
-      it('새 번호: 11자리가 차면 바로 보내고, 6자리가 차면 바로 확인하고, 인증 성공 2초 뒤 가입하고 들어간다', async () => {
+      // "번호 11자리가 차면 바로 보내고 인증번호 화면, 6자리가 차면 바로 확인, '인증 성공'을 2초 보인 뒤 들어간다". 왼쪽 위 ‹(처음으로).
+      // D-UX3-50으로 다시 바뀐 기대 (사용자 지시 2026-11-07 사진 7 "다 채웠다고 바로 넘어가지 말고 아래에 다음 버튼"):
+      // 옛 "11자리가 차면 바로 보낸다" → 새 "11자리가 차면 [다음]이 켜지고, 눌러야 보낸다". 6자리 바로 확인·인증 성공 2초는 그대로.
+      it('새 번호: 11자리를 넣고 [다음]을 누르면 보내고, 6자리가 차면 바로 확인하고, 인증 성공 2초 뒤 가입하고 들어간다', async () => {
         const t = installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {
           '/api/auth/app/finish': { result: 'SIGNUP', provider: 'google', phoneRequired: true },
           '/api/auth/signup/phone': { phone: '010-****-5678' },
@@ -224,11 +226,20 @@ describe('LoginScreen', () => {
         expect(await screen.findByText(PHONE_ASK_TITLE.replace('\n', ' '))).toBeTruthy()
         expect(screen.getByRole('button', { name: '처음으로' })).toBeTruthy()
         expect(screen.queryByRole('button', { name: '인증번호 받기' })).toBeNull()
+        expect(PHONE_ASK_TITLE).toBe('본인 확인을 위해\n휴대폰 번호를 입력해 주세요')
         fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '0101234567' } })
-        expect(t.calls.filter((c) => c.url.endsWith('/api/auth/signup/phone'))).toHaveLength(0)
+        expect(screen.getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).toBe('true')
         fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '01012345678' } })
+        await flush()
+        // 다 채워도 저절로 넘어가지 않는다
+        expect(t.calls.filter((c) => c.url.endsWith('/api/auth/signup/phone'))).toHaveLength(0)
+        expect(screen.queryByText(CODE_ASK_TITLE.replace('\n', ' '))).toBeNull()
+        fireEvent.click(screen.getByRole('button', { name: '다음' }))
         expect(await screen.findByText(CODE_ASK_TITLE.replace('\n', ' '))).toBeTruthy()
         expect(screen.getByText(/남은 시간 0[23]:\d\d/)).toBeTruthy()
+        // 다시 받기는 키보드 위 단추이고 보낸 지 30초 전에는 꺼져 있다 (D-UX3-50)
+        expect(screen.getByRole('button', { name: '다시 문자 받을게요' }).getAttribute('aria-disabled')).toBe('true')
+        expect(screen.getByText(/^(30|29|28)초 뒤에 다시 받을 수 있어요$/)).toBeTruthy()
         expect(screen.queryByRole('button', { name: '확인' })).toBeNull()
         fireEvent.change(screen.getByLabelText('인증번호 6자리'), { target: { value: '123456' } })
         expect(await screen.findByText('인증 성공')).toBeTruthy()
@@ -240,7 +251,9 @@ describe('LoginScreen', () => {
         expect(t.stored['livejjim:last-login']).toBe('google')
       })
 
-      it('앞 세 자리가 010이 아니면 바로 "다시 확인해 주세요"를 보이고 보내지 않는다 (D-UX3-49)', async () => {
+      // D-UX3-50으로 바뀐 기대 (사용자 지시 2026-11-07 사진 7 "010 예외처리는 바로 하는게 아니라 11자리 다 입력하고 나서"):
+      // 옛 "앞 세 자리가 010이 아니면 바로 경고" → 새 "11자리를 다 넣은 뒤에 경고". 경고 때 [다음] 없음·[지우기]는 그대로.
+      it('11자리를 다 넣었는데 010이 아니면 "다시 확인해 주세요"를 보이고 보내지 않는다 (D-UX3-50)', async () => {
         const t = installQueue([`livejjim://auth?ticket=${T1}&provider=google`], {
           '/api/auth/app/finish': { result: 'SIGNUP', provider: 'google', phoneRequired: true },
           '/api/auth/signup/phone': { phone: '011-****-5678' },
@@ -248,9 +261,12 @@ describe('LoginScreen', () => {
         render(<LoginScreen expired={false} onLogin={async () => {}} />)
         fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
         fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '011' } })
+        expect(screen.queryByRole('alert')).toBeNull()
+        fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '0111234567' } })
+        expect(screen.queryByRole('alert')).toBeNull()
+        fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '01112345678' } })
         expect(screen.getByRole('alert').textContent).toContain(PHONE_RECHECK)
         expect(screen.queryByRole('button', { name: '다음' })).toBeNull()
-        fireEvent.change(screen.getByLabelText('휴대폰 번호'), { target: { value: '01112345678' } })
         await flush()
         expect(t.calls.filter((c) => c.url.endsWith('/api/auth/signup/phone'))).toHaveLength(0)
         // 지우기는 그대로 — 누르면 비고 경고도 사라진다
@@ -280,6 +296,7 @@ describe('LoginScreen', () => {
         render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
         fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
         fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '010-1234-5678' } })
+        fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX3-50
         fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '000000' } })
         expect((await screen.findByRole('alert')).textContent).toContain('인증번호가 맞지 않아요.')
         expect(screen.getByTestId('code-wrong')).toBeTruthy()
@@ -300,8 +317,9 @@ describe('LoginScreen', () => {
         const onSocialDone = vi.fn(async () => {})
         render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={onSocialDone} />)
         fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
-        // D-UX3-49: 단추 없이 11자리·6자리가 차면 넘어가고, "인증 성공" 2초 뒤 있는 계정 안내
+        // D-UX3-49·50: 11자리를 넣고 [다음], 6자리가 차면 바로 확인, "인증 성공" 2초 뒤 있는 계정 안내
         fireEvent.change(await screen.findByLabelText('휴대폰 번호'), { target: { value: '01055556666' } })
+        fireEvent.click(screen.getByRole('button', { name: '다음' }))
         fireEvent.change(await screen.findByLabelText('인증번호 6자리'), { target: { value: '654321' } })
         expect(await screen.findByText('이미 가입한 계정이 있어요', undefined, { timeout: 4000 })).toBeTruthy()
         expect(screen.getByText('010-****-6666 번호로 가입한 계정이에요. 카카오로 로그인하면 구글도 함께 이어져요.')).toBeTruthy()

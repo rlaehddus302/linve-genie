@@ -1,28 +1,32 @@
 // 휴대폰 번호 확인 (D-UX3-30 → 모양·흐름은 D-UX3-49, 사용자 지시 2026-11-07 사진대로):
-// ① "본인 확인을 위해 휴대폰 번호를 알려 주세요" — 밑줄 칸 하나. 11자리가 차면 단추 없이 바로 인증번호를 보내고 다음 화면으로.
-//    앞 세 자리가 010이 아니면 바로 빨간 밑줄·라벨과 "휴대폰 번호를 다시 확인해 주세요." (다음 단추 없음, [지우기]·키보드는 그대로)
+// ① "본인 확인을 위해 휴대폰 번호를 입력해 주세요" — 밑줄 칸 하나. 11자리가 차면 아래 [다음]이 켜지고, 눌러야 인증번호를 보내고 다음 화면으로 (D-UX3-50).
+//    11자리를 다 넣었는데 010으로 시작하지 않으면 빨간 밑줄·라벨과 "휴대폰 번호를 다시 확인해 주세요." ([다음] 없음, [지우기]·키보드는 그대로)
 // ② "문자로 받은 인증번호 6자리를 입력해 주세요" — 남은 시간, 6칸. 6자리가 차면 바로 확인. 틀리면 한 칸으로 합쳐 빨갛게 + 서버 문장.
-//    아래 "문자가 안 오나요?"는 다시 보내기. 칸은 문자 자동 채우기(아이폰 oneTimeCode·안드로이드 sms-otp)를 켠다.
+//    아래 [다시 문자 받을게요]는 보낸 지 30초가 지나야 켜진다(D-UX3-50). 칸은 문자 자동 채우기(아이폰 oneTimeCode·안드로이드 sms-otp)를 켠다.
+// 아래 단추는 키보드가 뜨면 키보드 바로 위로 올라온다. 이 화면이 떠 있는 동안 맨 위 상태 막대 자리도 흰색이다(D-UX3-50).
 // ③ "인증 성공" 2초 뒤 다음(홈·있는 계정 안내)으로. 화면 사이는 밀어 넘긴다(SlideSwitch).
 // 가입 중(가입 표)과 로그인한 계정(번호 등록)이 같이 쓴다. 왼쪽 위 ‹는 ①에서 처음으로·로그아웃, ②에서 번호 다시 넣기.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native'
 import {
   CODE_ASK_TITLE,
   CODE_FIELD,
   CODE_LEFT,
   CODE_NOT_COMING,
+  CODE_RESEND_WAIT_SECONDS,
   CODE_RESENT,
   CODE_TIME_OVER,
+  codeResendIn,
   formatMobileInput,
   PHONE_ASK_TITLE,
   PHONE_FIELD,
+  PHONE_NEXT,
   PHONE_RECHECK,
   PHONE_VERIFIED,
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
-import { AlertMark, BackButton, Icon, TONES, Txt, UnderlineField, useBottomInset, useKit } from '../ui/kit/index.ts'
+import { AlertMark, BackButton, BigButton, Icon, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop } from '../ui/kit/index.ts'
 import { SlideSwitch } from '../ui/kit/slide.tsx'
 import { RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
 
@@ -59,8 +63,10 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
   const [checking, setChecking] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [expiresAt, setExpiresAt] = useState(0)
+  const [sentAt, setSentAt] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const after = useRef<(() => void | Promise<void>) | null>(null)
+  useWhiteTop()
 
   const go = (next: Step, backward = false) => {
     setGoingBack(backward)
@@ -72,6 +78,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     try {
       await send(phone)
       setExpiresAt(Date.now() + CODE_TTL_SECONDS * 1000)
+      setSentAt(Date.now())
       setNow(Date.now())
       setCode('')
       setCodeError(null)
@@ -86,14 +93,18 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     const next = text.replace(/\D/g, '').slice(0, 11)
     setDigits(next)
     setSendError(null)
-    if (next.length === 11 && next.startsWith('010')) {
-      void deliver(formatMobileInput(next))
-        .then(() => {
-          setNote(null)
-          go('code')
-        })
-        .catch((caught: unknown) => setSendError(messageOf(caught)))
-    }
+  }
+
+  // 11자리가 차도 저절로 넘어가지 않는다 — [다음]을 눌러야 보낸다 (D-UX3-50, 옛 D-UX3-49는 바로 보냈다)
+  const phoneReady = digits.length === 11 && digits.startsWith('010')
+  const nextFromPhone = () => {
+    if (!phoneReady || sending) return
+    void deliver(formatMobileInput(digits))
+      .then(() => {
+        setNote(null)
+        go('code')
+      })
+      .catch((caught: unknown) => setSendError(messageOf(caught)))
   }
 
   const typeCode = (text: string) => {
@@ -113,8 +124,9 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
       .finally(() => setChecking(false))
   }
 
+  const resendLeft = Math.max(0, Math.ceil((sentAt + CODE_RESEND_WAIT_SECONDS * 1000 - now) / 1000))
   const resend = () => {
-    if (sending || checking) return
+    if (sending || checking || resendLeft > 0) return
     setNote(null)
     deliver(formatMobileInput(digits))
       .then(() => setNote(CODE_RESENT))
@@ -135,13 +147,20 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     return () => clearTimeout(timer)
   }, [step])
 
-  const wrongStart = digits.length >= 3 && !digits.startsWith('010')
+  // 010 검사는 11자리를 다 넣은 뒤에 (D-UX3-50 — 옛 D-UX3-49는 앞 세 자리에서 바로)
+  const wrongStart = digits.length === 11 && !digits.startsWith('010')
   const left = Math.max(0, Math.ceil((expiresAt - now) / 1000))
 
   return (
     <SlideSwitch id={step} back={goingBack} testID="phone-verify">
       {step === 'phone' ? (
-        <Page onBack={back.onPress} backLabel={back.label} title={PHONE_ASK_TITLE} testID="phone-step">
+        <Page
+          onBack={back.onPress}
+          backLabel={back.label}
+          title={PHONE_ASK_TITLE}
+          testID="phone-step"
+          footer={wrongStart ? null : <BigButton label={PHONE_NEXT} onPress={nextFromPhone} disabled={!phoneReady} busy={sending} testID="phone-next" />}
+        >
           <View style={{ marginTop: SPACE.xxxl + SPACE.xxl }}>
             <UnderlineField
               label={PHONE_FIELD}
@@ -156,7 +175,6 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
               testID="phone-input"
             />
           </View>
-          {sending ? <ActivityIndicator style={{ marginTop: SPACE.xl }} /> : null}
         </Page>
       ) : step === 'code' ? (
         <Page
@@ -170,7 +188,14 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
           title={CODE_ASK_TITLE}
           testID="code-step"
           footer={
-            <ResendLink onPress={resend} />
+            <View style={{ gap: SPACE.sm }}>
+              {resendLeft > 0 ? (
+                <Txt step="caption" color="textSub" center>
+                  {codeResendIn(resendLeft)}
+                </Txt>
+              ) : null}
+              <BigButton label={CODE_NOT_COMING} kind="secondary" onPress={resend} disabled={resendLeft > 0} busy={sending} testID="code-resend" />
+            </View>
           }
         >
           <View style={{ marginTop: SPACE.lg }}>
@@ -205,12 +230,15 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
   )
 }
 
-/** 한 화면 틀: 왼쪽 위 ‹, 두 줄 제목, 내용, 아래(키보드 위) 조각 */
+/** 한 화면 틀: 왼쪽 위 ‹, 두 줄 제목, 내용, 아래 단추(키보드가 뜨면 키보드 바로 위 — 사이 12) */
 function Page({ onBack, backLabel, title, children, footer, testID }: { readonly onBack: () => void; readonly backLabel: string; readonly title: string; readonly children: ReactNode; readonly footer?: ReactNode; readonly testID: string }) {
   const { p } = useKit()
   const bottom = useBottomInset()
+  const keyboard = useKeyboardShown()
+  // 이 틀은 상태 막대 아래(SafeAreaView 위 여백)에서 시작한다 — 키보드 피하기는 부모 기준 자리로 재므로 그만큼 더해야 단추가 키보드에 가리지 않는다
+  const top = useTopInset()
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: p.surface }} testID={testID}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={top} style={{ flex: 1, backgroundColor: p.surface }} testID={testID}>
       <View style={{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm }}>
         <BackButton label={backLabel} onPress={onBack} />
       </View>
@@ -220,7 +248,9 @@ function Page({ onBack, backLabel, title, children, footer, testID }: { readonly
         </Txt>
         {children}
       </View>
-      {footer === undefined ? null : <View style={{ paddingBottom: Math.max(SPACE.md, bottom) }}>{footer}</View>}
+      {footer === undefined || footer === null ? null : (
+        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(bottom, SPACE.md) + SPACE.xs }}>{footer}</View>
+      )}
     </KeyboardAvoidingView>
   )
 }
@@ -288,16 +318,6 @@ function CodeBoxes({ value, error, onChange }: { readonly value: string; readonl
         </View>
       ) : null}
     </View>
-  )
-}
-
-/** "문자가 안 오나요?" — 다시 보내기 글 링크 */
-function ResendLink({ onPress }: { readonly onPress: () => void }) {
-  const { p } = useKit()
-  return (
-    <Pressable role="link" onPress={onPress} hitSlop={8} style={{ alignSelf: 'center', paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg }}>
-      <Text style={{ color: p.primaryText, fontSize: TYPE.body, textDecorationLine: 'underline' }}>{CODE_NOT_COMING}</Text>
-    </Pressable>
   )
 }
 

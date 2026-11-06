@@ -284,14 +284,18 @@ export const PHONE_CHANGE = '번호 바꾸기'
 export const START_OVER = '처음으로'
 export const LOGOUT_LABEL = '로그아웃'
 export const codeSentMessage = (phone: string): string => `${phone} 번호로 인증번호를 보냈어요.`
-// 앱 번호 확인 화면 (D-UX3-49, 사용자 지시 2026-11-07 사진대로): 번호 11자리가 차면 바로 보내고, 6자리가 차면 바로 확인한다
-export const PHONE_ASK_TITLE = '본인 확인을 위해\n휴대폰 번호를 알려 주세요'
+// 앱 번호 확인 화면 (D-UX3-49·50, 사용자 지시 2026-11-07 사진대로): 번호 11자리를 넣고 [다음]을 누르면 보내고, 6자리가 차면 바로 확인한다
+export const PHONE_ASK_TITLE = '본인 확인을 위해\n휴대폰 번호를 입력해 주세요'
 export const PHONE_RECHECK = '휴대폰 번호를 다시 확인해 주세요.'
 export const CODE_ASK_TITLE = '문자로 받은\n인증번호 6자리를 입력해 주세요'
 export const CODE_LEFT = '남은 시간'
-export const CODE_NOT_COMING = '문자가 안 오나요?'
+export const CODE_NOT_COMING = '다시 문자 받을게요'
+/** 다시 받기 단추가 켜지기까지 (서버 RESEND_GAP_MS와 같다, D-UX3-50) */
+export const CODE_RESEND_WAIT_SECONDS = 30
+export const codeResendIn = (seconds: number): string => `${String(seconds)}초 뒤에 다시 받을 수 있어요`
+export const PHONE_NEXT = '다음'
 export const CODE_RESENT = '인증번호를 다시 보냈어요.'
-export const CODE_TIME_OVER = '시간이 지났어요. 문자가 안 오나요?를 눌러 다시 받아 주세요.'
+export const CODE_TIME_OVER = '시간이 지났어요. 아래 [다시 문자 받을게요]를 눌러 주세요.'
 export const PHONE_VERIFIED = '인증 성공'
 /** 숫자만 받아 010-0000-0000 모양으로 (치는 중에는 000-000-00처럼 3·3, 11자리가 차면 3·4·4) */
 export function formatMobileInput(digits: string): string {
