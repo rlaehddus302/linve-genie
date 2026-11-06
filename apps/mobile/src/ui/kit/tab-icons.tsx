@@ -2,7 +2,8 @@
 // 홈 = 토스식 둥근 집(가운데 문), 라벨 = 프린터, 정산 = 영수증(아래 톱니), 포장 = 상자 + 가운데 박스테이프 한 줄, 전체 = 세 줄.
 // 고른 탭은 같은 치수에서 속을 채우고 안쪽 선(종이·글줄·테이프)은 놓인 바탕 색으로 뚫는다 — 선 모양과 겉 크기가 같다.
 // D-UX3-13: 집 문은 바닥 선을 끊고 그 자리를 비운 홈(문 아래 선 없음), 프린터 몸통 아래 선은 종이 앞에서 끊고(겹치는 선 없음), 고른 상자는 테이프 자리의 윗선까지 뚫는다.
-import Svg, { Circle, Line, Path } from 'react-native-svg'
+import { useId } from 'react'
+import Svg, { Circle, Defs, Line, Mask, Path, Rect } from 'react-native-svg'
 import { View } from 'react-native'
 
 export type TabIconName = 'home' | 'printer' | 'receipt' | 'box' | 'truck' | 'person' | 'menu'
@@ -77,10 +78,15 @@ function roundPoly(points: readonly (readonly [number, number])[], r: number): s
   })
   return `M${parts.map((part) => `${part.from} Q${part.corner} ${part.to}`).join(' L')} Z`
 }
-/** 택배 상자 (D-UX3-62, 사용자 손그림 2026-11-07): 비스듬히 본 상자 — 왼쪽 위·오른쪽 아래 모서리가 비스듬히 깎인 겉모양 하나 */
-const BOX_LINE = roundPoly([[3.4, 8.4], [8.6, 3.8], [20.6, 3.8], [20.6, 15.6], [15.6, 20.4], [3.4, 20.4]], 1.6)
-/** 테이프는 선 하나 (D-UX3-62): 윗선에서 왼쪽 아래로 비스듬히(왼쪽 위 모서리와 나란히) 내려와 둥글게 꺾여 곧게 내려간다. 고르면 이 선만 흰색 */
-const BOX_TAPE = 'M14.6 3.8 L11.4 6.3 Q10.2 7.2 10.2 8.6 V12'
+/** 택배 상자 (D-UX3-63, 좌표를 맞춤): 비스듬히 본 상자. 앞면 = x 3.4~15.4, y 8.4~20.4. 두 깎인 변은 같은 방향(가로 5.2, 세로 4.6) —
+ * 왼쪽 위 (3.4,8.4)→(8.6,3.8), 오른쪽 아래 (20.6,15.8)→(15.4,20.4). 꼭짓점은 1.6만큼 둥글게 */
+const BOX_LINE = roundPoly([[3.4, 8.4], [8.6, 3.8], [20.6, 3.8], [20.6, 15.8], [15.4, 20.4], [3.4, 20.4]], 1.6)
+/** 테이프 선: 앞면 가운데(x 9.4)에서 꺾인다 — 꺾이는 높이는 앞면 윗변(왼쪽 깎인 변 아래 끝)과 같은 8.4, 사선은 깎인 변과 나란히 윗선(14.6,3.8)까지.
+ * 꺾임은 둥글게(1.3), 아래 끝은 13 */
+const TAPE_BEND = 'L10.374 7.538 Q9.4 8.4 9.4 9.7 V13'
+const BOX_TAPE = `M14.6 3.8 ${TAPE_BEND}`
+/** 고른 상자에서 비울 테이프 (D-UX3-63, 사용자 지시 "흰색 선을 칠하라는 게 아니라 그 선을 투명하게 비우라"): 같은 사선을 겉선 밖(1.4 더)까지 늘려 윗선까지 끊는다 */
+const BOX_TAPE_CUT = `M15.649 2.872 ${TAPE_BEND}`
 /** 고객 (D-UX3-61, 사용자 지시 "홈 아이콘처럼 둥글게, 목이랑 몸 붙여서 한 덩어리"): 머리에서 목·어깨로 이어지는 한 줄 모양, 아래 두 모서리는 집과 같은 곡률 */
 const PERSON = (() => {
   const right = smoothCorner(19.4, 20.6, [0, 1], [-1, 0], 2.2)
@@ -89,6 +95,7 @@ const PERSON = (() => {
 })()
 
 export function TabIcon({ name, color, size = 26, filled = false, cut }: { readonly name: TabIconName; readonly color: string; readonly size?: number; readonly filled?: boolean; readonly cut: string }) {
+  const maskId = `tape${useId().replace(/[^a-zA-Z0-9]/g, '')}`
   const line = { stroke: color, strokeWidth: STROKE, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
   const body = { ...line, fill: filled ? color : 'none' }
   // 찬 모양 안쪽: 바탕 색으로 채우고(뚫기) 가장자리는 같은 색 선
@@ -120,10 +127,21 @@ export function TabIcon({ name, color, size = 26, filled = false, cut }: { reado
           </>
         )
       case 'box':
-        return (
+        return filled ? (
+          <>
+            {/* 채운 상자에서 테이프 선 자리를 투명하게 뚫는다(뒤 바탕이 보인다) */}
+            <Defs>
+              <Mask id={maskId} maskUnits="userSpaceOnUse" x={0} y={0} width={24} height={24}>
+                <Rect x={0} y={0} width={24} height={24} fill="#FFFFFF" />
+                <Path d={BOX_TAPE_CUT} fill="none" stroke="#000000" strokeWidth={STROKE} strokeLinecap="round" strokeLinejoin="round" />
+              </Mask>
+            </Defs>
+            <Path d={BOX_LINE} {...body} mask={`url(#${maskId})`} />
+          </>
+        ) : (
           <>
             <Path d={BOX_LINE} {...body} />
-            <Path d={BOX_TAPE} {...line} fill="none" stroke={filled ? cut : color} />
+            <Path d={BOX_TAPE} {...line} fill="none" />
           </>
         )
       case 'person':

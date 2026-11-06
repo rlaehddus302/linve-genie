@@ -58,7 +58,7 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     expect(container).toBeTruthy()
   })
 
-  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 칸은 채우고 안쪽 선만 흰색으로 뒤집는다 (D-UX3-13·44·46·60·62)', () => {
+  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 칸은 채우고 안쪽 선만 흰색으로 뒤집는다 (D-UX3-13·44·46·60·63)', () => {
     const world = makeWorld()
     // D-UX3-39: 프린터 아이콘은 막대에 없다(라벨 프린터는 전체 안) — 아이콘 자체는 그대로라 따로 그려 본다
     const { container } = render(world.wrap(<><TabBar active="packing" onSelect={() => {}} /><TabIcon name="printer" color="#000" cut="#fff" /></>))
@@ -73,18 +73,23 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     const bodyLine = printer?.querySelectorAll('path')[1]?.getAttribute('d') ?? ''
     expect(bodyLine.startsWith('M7 17.4')).toBe(true)
     expect(bodyLine.endsWith('H17')).toBe(true)
-    // D-UX3-62 (사용자 손그림): 상자는 비스듬히 깎인 겉모양 하나 + 테이프 선 하나(윗선에서 비스듬히 내려와 곧게)
+    // D-UX3-63: 테이프는 앞면 윗변 높이(8.4 — 왼쪽 깎인 변 아래 끝과 같은 높이)에서 꺾이고, 사선은 깎인 변과 나란히 윗선까지
     const boxPaths = [...(box?.querySelectorAll('path') ?? [])]
-    expect(boxPaths).toHaveLength(2)
-    expect(boxPaths[1]?.getAttribute('d')).toBe('M14.6 3.8 L11.4 6.3 Q10.2 7.2 10.2 8.6 V12')
-    // 고른 상자(택배 탭)는 겉모양을 채우고 테이프 선만 흰색
-    expect(boxPaths[0]?.getAttribute('fill')).not.toBe('none')
-    expect(boxPaths[1]?.getAttribute('fill')).toBe('none')
-    expect(boxPaths[1]?.getAttribute('stroke')).toBe(PALETTE.light.surface)
-    // 고르지 않은 상자는 테이프도 같은 색 선
+    const bend = 'L10.374 7.538 Q9.4 8.4 9.4 9.7 V13'
+    // 고른 상자(택배 탭)는 겉모양을 채우고 테이프 선 자리를 투명하게 뚫는다 — 흰색으로 칠하지 않고, 뚫는 선은 겉선 밖까지 이어진다
+    const mask = box?.querySelector('mask')
+    expect(mask?.querySelector('path')?.getAttribute('d')).toBe(`M15.649 2.872 ${bend}`)
+    const filledBox = boxPaths.find((path) => path.getAttribute('mask') !== null)
+    expect(filledBox?.getAttribute('fill')).not.toBe('none')
+    expect(filledBox?.getAttribute('mask')).toBe(`url(#${mask?.getAttribute('id') ?? ''})`)
+    expect(boxPaths.some((path) => path.getAttribute('stroke') === PALETTE.light.surface)).toBe(false)
+    // 고르지 않은 상자는 겉선 + 같은 색 테이프 선(윗선에서 시작)
     render(world.wrap(<TabIcon name="box" color="#111" cut="#fff" />))
     const all = container.ownerDocument.querySelectorAll('svg')
-    expect(all.item(all.length - 1).querySelectorAll('path')[1]?.getAttribute('stroke')).toBe('#111')
+    const plain = [...all.item(all.length - 1).querySelectorAll('path')]
+    expect(plain).toHaveLength(2)
+    expect(plain[1]?.getAttribute('d')).toBe(`M14.6 3.8 ${bend}`)
+    expect(plain[1]?.getAttribute('stroke')).toBe('#111')
     // D-UX3-61: 고객은 머리·목·몸이 붙은 한 덩어리(한 줄 모양)
     render(world.wrap(<TabIcon name="person" color="#111" cut="#fff" />))
     const people = container.ownerDocument.querySelectorAll('svg')
