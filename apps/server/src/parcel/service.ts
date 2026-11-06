@@ -19,7 +19,7 @@ import type { StreamHub } from '../hub.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import { lookupOf, packingRows, packingStatusOf, replayPacking, type PackingRecordRow } from '../packing.ts'
-import type { ScopeRuntime } from '../runtime.ts'
+import { emptyState, type ScopeRuntime } from '../runtime.ts'
 import { readShop } from '../shop.ts'
 import { iso, kstDate, type Clock } from '../time.ts'
 import { WorkBusy, WorkFailed, type WorkPools } from '../work-pool.ts'
@@ -48,6 +48,7 @@ import {
   BOX_KINDS,
   CANCELLED_WORD,
   ELIGIBILITY_MESSAGES,
+  EXTRA_DAY_MAX,
   FAILURE_MESSAGES,
   PARCEL_MESSAGES,
   SENDER_FIELDS,
@@ -61,6 +62,7 @@ import {
   readAddress,
   readAddressInput,
   readBox,
+  readQty,
   readSender,
   senderProblems,
   tidyText,
@@ -82,17 +84,25 @@ import {
   claimRequest,
   confirmAddress,
   deleteAddress,
+  deleteExtra,
   directOf,
   directRequestKey,
+  extraDates,
+  extraRow,
+  extrasOf,
   insertAttempt,
+  insertExtra,
+  isExtraBuyer,
   latestAttempt,
   latestAttempts,
   moveAttempt,
+  newExtraId,
   openAddress,
   putAddress,
   readSettings,
   requestRow,
   saveRequestResult,
+  setExtraQty,
   setTrack,
   stateNow,
   sweepAddresses,
@@ -102,6 +112,7 @@ import {
   type AddressRow,
   type AttemptRow,
   type DirectKind,
+  type ExtraRow,
   type ParcelRequestKind,
   type RequestRow,
   type StoredSettings,
@@ -197,6 +208,8 @@ export interface ParcelRow {
   /** 상자 크기 (고를 수 있으면 설정의 기본값, 아니면 시도의 것 또는 기본값) */
   readonly box: BoxKind
   readonly parcel: ParcelBrief | null
+  /** 직접 넣은 택배 (D-UX3-38 — 방송 판매 기록 없음, 입금·포장 판단 없음) */
+  readonly extra: boolean
 }
 
 export interface ParcelDay {
@@ -334,6 +347,9 @@ export function lastExpiredDate(now: number): string {
   return new Date(Date.UTC(y, m - 1, d - ADDRESS_KEEP_DAYS)).toISOString().slice(0, 10)
 }
 
+/** 직접 넣은 택배의 배송지 쓰기에 넘기는 빈 범위 (엔진 상태를 읽지 않는 쓰기만 온다 — D-UX3-38) */
+const EMPTY_STATE = emptyState()
+
 /** 같은 트랜잭션에서 요청 번호를 이미 다른 요청이 적었다 — 되돌린다 */
 class RequestTaken extends Error {
   constructor() {
@@ -385,11 +401,21 @@ export class ParcelService {
 
   /** 실제 범위 (없는 범위·봉인한 범위는 null — 봉인한 날짜는 접수 목록에 나오지 않는다) */
   async #realScope(sellerId: string, date: string): Promise<ScopeRuntime | null> {
-    if (!isValidDate(date)) return null
+    return (await this.#scopeOf(sellerId, date)).runtime
+  }
+
+  /** 실제 범위와 봉인 여부 (직접 넣은 택배만 있는 날짜는 범위가 없다 — D-UX3-38) */
+  async #scopeOf(sellerId: string, date: string): Promise<{ runtime: ScopeRuntime | null; sealed: boolean }> {
+    if (!isValidDate(date)) return { runtime: null, sealed: false }
     const runtime = await this.#deps.writer.read(sellerId, date, false)
-    if (runtime.seq === 0 || runtime.scopeId === null) return null
-    if (await this.#sealed(this.#deps.db, sellerId, runtime.scopeId)) return null
-    return runtime
+    if (runtime.seq === 0 || runtime.scopeId === null) return { runtime: null, sealed: false }
+    if (await this.#sealed(this.#deps.db, sellerId, runtime.scopeId)) return { runtime: null, sealed: true }
+    return { runtime, sealed: false }
+  }
+
+  /** 그 날짜의 직접 넣은 택배 (날짜가 틀리면 빈 표) */
+  async #extrasOf(db: Db, sellerId: string, date: string): Promise<Map<string, ExtraRow>> {
+    return isValidDate(date) ? extrasOf(db, sellerId, date) : new Map()
   }
 
   /** 지금의 구매자인지 */
@@ -480,6 +506,39 @@ export class ParcelService {
       message: reason === null ? null : ELIGIBILITY_MESSAGES[reason],
       box: reason === null || attempt === null || attempt === undefined ? defaultBox : attempt.box,
       parcel: this.#brief(attempt),
+      extra: false,
+    }
+  }
+
+  /**
+   * 직접 넣은 택배 한 줄 (D-UX3-38): 판매 기록이 없어 입금·포장 판단이 없다 — 배송지(판매자가 적어 확인함)가 남아 있으면 고를 수 있고,
+   * 시도 상태(기다림·접수함)와 배송지 보관 기간만 본다. 이름 = 받는 분
+   */
+  #extraRow(sellerId: string, date: string, extra: ExtraRow, address: AddressRow | null | undefined, attempt: AttemptRow | null | undefined, defaultBox: BoxKind): ParcelRow {
+    const opened = this.#open(sellerId, address)
+    const now = this.#deps.clock.now()
+    const parcelState = attempt === null || attempt === undefined ? 'NONE' : stateNow(attempt, now)
+    const addressKind: AddressState = opened === null ? 'NONE' : 'CONFIRMED'
+    const packing = parcelState === 'BOOKED' ? '배송 완료' : '포장 완료'
+    const eligibility = parcelEligibility({ items: 1, shipping: 'NONE', payment: 'PAID', packing, parcel: parcelState, address: addressKind })
+    const reason = 'reason' in eligibility ? eligibility.reason : null
+    return {
+      buyer: extra.id,
+      name: opened?.name ?? '받는 분',
+      phoneLast4: opened === null ? null : phoneLast4(opened.phone),
+      itemCount: 0,
+      qty: extra.qty,
+      total: 0,
+      payment: 'PAID',
+      packing,
+      shipping: 'NONE',
+      address: addressKind,
+      ready: reason === null,
+      reason,
+      message: reason === null ? null : ELIGIBILITY_MESSAGES[reason],
+      box: reason === null || attempt === null || attempt === undefined ? defaultBox : attempt.box,
+      parcel: this.#brief(attempt),
+      extra: true,
     }
   }
 
@@ -640,11 +699,9 @@ export class ParcelService {
       .select({ date: scopes.date, sealedAt: scopes.sealedAt })
       .from(scopes)
       .where(and(eq(scopes.sellerId, sellerId), eq(scopes.rehearsal, false), sql`${scopes.seq} > 0`))
-    const dates = rows
-      .filter((row) => row.sealedAt === null)
-      .map((row) => row.date)
-      .sort()
-      .reverse()
+    // 직접 넣은 택배만 있는 날짜도 목록에 (D-UX3-38 — 봉인한 날짜는 그대로 뺀다)
+    const sealedDates = new Set(rows.filter((row) => row.sealedAt !== null).map((row) => row.date))
+    const dates = [...new Set([...rows.filter((row) => row.sealedAt === null).map((row) => row.date), ...(await extraDates(db, sellerId)).filter((date) => !sealedDates.has(date))])].sort().reverse()
     const counts = new Map<string, { ready: number; booked: number }>()
     // 고를 수 있으려면 확인한 배송지가 있어야 한다 — 그런 날짜(보관 기간 30일 안)만 목록을 계산한다
     const withAddress = await db
@@ -672,20 +729,28 @@ export class ParcelService {
 
   /** 그 날짜의 접수 목록 (AC-T1-22): 고를 수 있음·빠짐(이유)·접수함. 없는 범위·봉인한 범위는 404 */
   async day(sellerId: string, date: string): Promise<Outcome<ParcelDay>> {
-    const runtime = await this.#realScope(sellerId, date)
-    if (runtime === null) return NOT_FOUND
+    const scope = await this.#scopeOf(sellerId, date)
+    if (scope.sealed) return NOT_FOUND
     const { db, masterKey } = this.#deps
-    const { state } = runtime
+    // 직접 넣은 택배만 있는 날짜는 범위 없이 그 줄들만 (D-UX3-38). 둘 다 없으면 404
+    const extras = await this.#extrasOf(db, sellerId, date)
+    const runtime = scope.runtime
+    if (runtime === null && extras.size === 0) return NOT_FOUND
     const settings = await readSettings(db, masterKey, sellerId)
-    const records = await packingRows(db, sellerId, runtime.scopeId as string)
     const addresses = await addressRowsOf(db, sellerId, date)
     const attempts = await latestAttempts(db, sellerId, date)
-    const buyers = ParcelService.buyersOf(state, date, attempts)
-    const ledgered = await this.#prefills(db, sellerId, date, state, buyers, addresses, await this.#known(sellerId, date))
-    const rows = buyers.map((buyer) => this.#row(state, date, buyer, records, addresses.get(buyer), attempts.get(buyer), settings.box, sellerId, ledgered.has(buyer)))
+    const rows: ParcelRow[] = []
+    if (runtime !== null) {
+      const { state } = runtime
+      const records = await packingRows(db, sellerId, runtime.scopeId as string)
+      const buyers = ParcelService.buyersOf(state, date, attempts).filter((buyer) => !isExtraBuyer(buyer))
+      const ledgered = await this.#prefills(db, sellerId, date, state, buyers, addresses, await this.#known(sellerId, date))
+      for (const buyer of buyers) rows.push(this.#row(state, date, buyer, records, addresses.get(buyer), attempts.get(buyer), settings.box, sellerId, ledgered.has(buyer)))
+    }
+    for (const extra of extras.values()) rows.push(this.#extraRow(sellerId, date, extra, addresses.get(extra.id), attempts.get(extra.id), settings.box))
     return ok({
       date,
-      seq: runtime.seq,
+      seq: runtime?.seq ?? 0,
       blocked: this.#blocked(settings),
       carrier: settings.carrier === null ? null : { code: settings.carrier, name: ParcelService.carrierNameOf(settings) ?? '' },
       box: settings.box,
@@ -736,8 +801,32 @@ export class ParcelService {
     return ledger.prefills(db, sellerId, date, state, bundles, known)
   }
 
+  /** 직접 넣은 택배의 자세히 (D-UX3-38): 배송지·택배 줄, 장부 없음 */
+  async #extraBundle(db: Db, sellerId: string, date: string, extra: ExtraRow): Promise<BundleView> {
+    const settings = await readSettings(db, this.#deps.masterKey, sellerId)
+    const address = await addressRow(db, sellerId, date, extra.id)
+    const attempt = await latestAttempt(db, sellerId, date, extra.id)
+    const opened = this.#open(sellerId, address)
+    const row = this.#extraRow(sellerId, date, extra, address, attempt, settings.box)
+    const live = row.parcel !== null && (row.parcel.state === 'PENDING' || row.parcel.state === 'UNKNOWN' || row.parcel.state === 'BOOKED')
+    return {
+      date,
+      buyer: extra.id,
+      address: opened === null || address === null ? null : { ...opened, source: address.source, confirmed: address.confirmed, updatedAt: iso(address.updatedAt.getTime()) },
+      locked: live,
+      expired: this.#expired(date),
+      row,
+      ledger: null,
+    }
+  }
+
   /** 묶음 자세히 (배송지 여섯 칸 전부·출처·확인 여부, 택배 줄). 모르는 구매자 404 */
   async bundle(sellerId: string, date: string, buyer: string): Promise<Outcome<BundleView>> {
+    if (isExtraBuyer(buyer)) {
+      if (!isValidDate(date) || (await this.#scopeOf(sellerId, date)).sealed) return NOT_FOUND
+      const extra = await extraRow(this.#deps.db, sellerId, date, buyer)
+      return extra === null ? NOT_FOUND : ok(await this.#extraBundle(this.#deps.db, sellerId, date, extra))
+    }
     const runtime = await this.#realScope(sellerId, date)
     if (runtime === null || getBuyer(runtime.state, buyer) === null) return NOT_FOUND
     return ok(await this.#bundleView(this.#deps.db, sellerId, runtime, date, buyer, await this.#known(sellerId, date)))
@@ -753,9 +842,10 @@ export class ParcelService {
     requestId: string,
     kind: ParcelRequestKind,
     buyer: string,
-    work: (tx: Db, runtime: ScopeRuntime, now: Date, known: ReadonlyMap<string, string>) => Promise<{ kind: 'error'; error: ApiProblem } | null>,
+    work: (tx: Db, runtime: Pick<ScopeRuntime, 'state' | 'scopeId' | 'seq'>, now: Date, known: ReadonlyMap<string, string>) => Promise<{ kind: 'error'; error: ApiProblem } | null>,
   ): Promise<Outcome<BundleView>> {
     if (!isValidDate(date)) return NOT_FOUND
+    if (isExtraBuyer(buyer)) return this.#extraWrite(sellerId, date, requestId, kind, buyer, (tx, extra, now) => work(tx, { scopeId: null, state: EMPTY_STATE, seq: 0 }, now, new Map()).then((failed) => failed ?? (kind === 'DELETE' ? deleteExtra(tx, sellerId, date, extra.id).then(() => null) : null)))
     const { db, writer } = this.#deps
     const prior = await requestRow(db, sellerId, requestId)
     if (prior !== null) {
@@ -818,7 +908,7 @@ export class ParcelService {
    */
   async confirmFromLedger(sellerId: string, accountId: string, date: string, requestId: string, buyer: string, ledgerId: string, updatedAt: string): Promise<Outcome<BundleView>> {
     const ledger = this.#deps.ledger
-    if (ledger === undefined) return NOT_FOUND
+    if (ledger === undefined || isExtraBuyer(buyer)) return NOT_FOUND
     return this.#addressWrite(sellerId, date, requestId, 'LEDGER', buyer, async (tx, runtime, now, known) => {
       if (this.#expired(date)) return problem(409, 'ADDRESS_EXPIRED', PARCEL_MESSAGES.addressClosed)
       if (this.#open(sellerId, await addressRow(tx, sellerId, date, buyer)) !== null) return problem(409, 'ADDRESS_EXISTS', LEDGER_PARCEL_MESSAGES.exists)
@@ -832,12 +922,122 @@ export class ParcelService {
     })
   }
 
-  /** 배송지 지우기 (행이 없어지고 NO_ADDRESS) */
+  /** 배송지 지우기 (행이 없어지고 NO_ADDRESS). 직접 넣은 택배면 그 줄째 지운다(D-UX3-38) */
   async removeAddress(sellerId: string, date: string, requestId: string, buyer: string): Promise<Outcome<BundleView>> {
     return this.#addressWrite(sellerId, date, requestId, 'DELETE', buyer, async (tx) => {
       await deleteAddress(tx, sellerId, date, buyer)
       return null
     })
+  }
+
+  // ── 직접 넣은 택배 (D-UX3-38) ───────────────────────────────────────────
+
+  /**
+   * 직접 넣은 택배 쓰기 공통 (범위 줄 없이 — 엔진 기록과 잇지 않는다): 없는 줄 404, 살아 있는 시도면 409, 같은 요청 번호면 처음 결과(지금 모습).
+   * 요청 번호는 쓰기와 같은 트랜잭션에 적는다. 줄을 지운 쓰기는 지우기 전 모습을 돌려준다
+   */
+  async #extraWrite(
+    sellerId: string,
+    date: string,
+    requestId: string,
+    kind: ParcelRequestKind,
+    buyer: string,
+    work: (tx: Db, extra: ExtraRow, now: Date) => Promise<{ kind: 'error'; error: ApiProblem } | null>,
+  ): Promise<Outcome<BundleView>> {
+    const { db } = this.#deps
+    const prior = await requestRow(db, sellerId, requestId)
+    if (prior !== null) {
+      if (prior.kind !== kind || prior.date !== date) return problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request)
+      return this.bundle(sellerId, date, buyer)
+    }
+    if ((await this.#scopeOf(sellerId, date)).sealed) return problem(409, 'SEALED', SEALED_MESSAGE)
+    try {
+      const outcome = await db.transaction(async (tx): Promise<Outcome<BundleView>> => {
+        const extra = await extraRow(tx, sellerId, date, buyer)
+        if (extra === null) return NOT_FOUND
+        const now = this.#deps.clock.now()
+        const attempt = await latestAttempt(tx, sellerId, date, buyer)
+        if (attempt !== null && ['PENDING', 'UNKNOWN', 'BOOKED'].includes(stateNow(attempt, now))) return problem(409, 'PARCEL_LOCKED', PARCEL_MESSAGES.extraLocked)
+        const before = await this.#extraBundle(tx, sellerId, date, extra)
+        const failed = await work(tx, extra, new Date(now))
+        if (failed !== null) return failed
+        if (!(await claimRequest(tx, { sellerId, requestId, date, kind, targets: [buyer], result: null, now: new Date(now) }))) throw new RequestTaken()
+        const after = await extraRow(tx, sellerId, date, buyer)
+        return ok(after === null ? before : await this.#extraBundle(tx, sellerId, date, after))
+      })
+      if (outcome.kind === 'ok') this.#deps.hub.publishNamed(sellerId, 'parcel', { date, buyer })
+      return outcome
+    } catch (error) {
+      if (error instanceof RequestTaken) return problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request)
+      throw error
+    }
+  }
+
+  /**
+   * 받는 분 직접 넣기·고치기 (D-UX3-38): { address(여섯 칸), qty }. buyer가 있으면 그 줄을 고친다(살아 있는 시도면 409).
+   * 새 줄은 그 날짜(실제 범위가 없어도 된다 — 봉인한 날짜는 409, 보관 기간이 지난 날짜는 409)에 넣고 배송지는 판매자 출처·확인함으로 저장한다.
+   * 같은 요청 번호면 처음 만든 줄의 지금 모습
+   */
+  async upsertExtra(sellerId: string, accountId: string, date: string, requestId: string, buyer: string | null, rawAddress: unknown, rawQty: unknown): Promise<Outcome<BundleView>> {
+    if (!isValidDate(date)) return NOT_FOUND
+    const input = readAddressInput(rawAddress)
+    if (input === null) return invalid('address', '배송지 칸을 확인해 주세요.')
+    const read = readAddress(input)
+    if ('errors' in read) return problem(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', addressProblems(read.errors, 'address.'), { codes: read.errors })
+    const qty = readQty(rawQty)
+    if (qty === null) return invalid('qty', PARCEL_MESSAGES.extraQty)
+    const address = read.ok
+    if (buyer !== null) {
+      if (!isExtraBuyer(buyer)) return NOT_FOUND
+      return this.#extraWrite(sellerId, date, requestId, 'EXTRA', buyer, async (tx, extra, now) => {
+        if (this.#expired(date)) return problem(409, 'ADDRESS_EXPIRED', PARCEL_MESSAGES.extraClosed)
+        await putAddress(tx, this.#deps.masterKey, { sellerId, date, buyer: extra.id, address, source: 'SELLER', accountId, confirmed: true, now })
+        await setExtraQty(tx, sellerId, date, extra.id, qty)
+        return null
+      })
+    }
+    const { db } = this.#deps
+    const prior = await requestRow(db, sellerId, requestId)
+    const answerPrior = (row: RequestRow): Promise<Outcome<BundleView>> | Outcome<BundleView> => {
+      if (row.kind !== 'EXTRA' || row.date !== date || row.result === null) return problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request)
+      const made = JSON.parse(row.result) as { buyer?: unknown }
+      return typeof made.buyer === 'string' ? this.bundle(sellerId, date, made.buyer) : problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request)
+    }
+    if (prior !== null) return answerPrior(prior)
+    if (this.#expired(date)) return problem(409, 'ADDRESS_EXPIRED', PARCEL_MESSAGES.extraClosed)
+    if ((await this.#scopeOf(sellerId, date)).sealed) return problem(409, 'SEALED', SEALED_MESSAGE)
+    try {
+      const outcome = await db.transaction(async (tx): Promise<Outcome<BundleView>> => {
+        const now = new Date(this.#deps.clock.now())
+        if ((await extrasOf(tx, sellerId, date)).size >= EXTRA_DAY_MAX) return problem(409, 'TOO_MANY', PARCEL_MESSAGES.extraTooMany)
+        const id = newExtraId()
+        if (!(await claimRequest(tx, { sellerId, requestId, date, kind: 'EXTRA', targets: [id], result: JSON.stringify({ buyer: id }), now }))) throw new RequestTaken()
+        await insertExtra(tx, { sellerId, date, id, qty, accountId, now })
+        await putAddress(tx, this.#deps.masterKey, { sellerId, date, buyer: id, address, source: 'SELLER', accountId, confirmed: true, now })
+        return ok(await this.#extraBundle(tx, sellerId, date, (await extraRow(tx, sellerId, date, id)) as ExtraRow))
+      })
+      if (outcome.kind === 'ok') this.#deps.hub.publishNamed(sellerId, 'parcel', { date, buyer: outcome.value.buyer })
+      return outcome
+    } catch (error) {
+      if (error instanceof RequestTaken) {
+        const again = await requestRow(db, sellerId, requestId)
+        return again === null ? problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request) : answerPrior(again)
+      }
+      throw error
+    }
+  }
+
+  /** 직접 넣은 택배 지우기 (D-UX3-38): 배송지와 줄을 지운다. 살아 있는 시도(접수함 포함)면 409 — 접수 취소가 먼저 */
+  async removeExtra(sellerId: string, date: string, requestId: string, buyer: string): Promise<Outcome<{ buyer: string }>> {
+    if (!isValidDate(date) || !isExtraBuyer(buyer)) return NOT_FOUND
+    const prior = await requestRow(this.#deps.db, sellerId, requestId)
+    if (prior !== null) return prior.kind === 'EXTRA_DELETE' && prior.date === date ? ok({ buyer }) : problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request)
+    const outcome = await this.#extraWrite(sellerId, date, requestId, 'EXTRA_DELETE', buyer, async (tx, extra) => {
+      await deleteAddress(tx, sellerId, date, extra.id)
+      await deleteExtra(tx, sellerId, date, extra.id)
+      return null
+    })
+    return outcome.kind === 'ok' ? ok({ buyer }) : outcome
   }
 
   // ── 구매자 링크 (PC-3·PC-8, AC-T1-10~12) ─────────────────────────────
@@ -948,11 +1148,8 @@ export class ParcelService {
     const { db, masterKey } = this.#deps
     const prior = await requestRow(db, sellerId, requestId)
     if (prior !== null) return this.#priorBook(sellerId, accountId, date, requestId, prior)
-    const runtime = await this.#deps.writer.read(sellerId, date, false)
-    if (runtime.seq === 0 || runtime.scopeId === null) return NOT_FOUND
-    // 봉인한 범위는 상태를 재생하지 않아 구매자가 보이지 않는다 — 봉인을 먼저 본다(지금 포장 명령과 같은 문장)
-    if (await this.#sealed(db, sellerId, runtime.scopeId)) return problem(409, 'SEALED', SEALED_MESSAGE)
-    if (items.some((item) => getBuyer(runtime.state, item.buyer) === null)) return NOT_FOUND
+    const known = await this.#knownBuyers(sellerId, date, items)
+    if (known.kind !== 'ok') return known
     const settings = await readSettings(db, masterKey, sellerId)
     const blocked = this.#blocked(settings)
     if (blocked !== null) return problem(409, 'PARCEL_BLOCKED', blocked.message)
@@ -964,6 +1161,27 @@ export class ParcelService {
       return again === null ? problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request) : this.#priorBook(sellerId, accountId, date, requestId, again)
     }
     return ok({ results: await this.#fly(sellerId, requestId, () => this.#runBook(sellerId, accountId, date, items, adapter, settings)) })
+  }
+
+  /**
+   * 접수·직접 접수 송장의 구매자 검사: 엔진 구매자는 실제 범위(봉인 409)의 구매자여야 하고, 직접 넣은 택배(D-UX3-38)는 그 날짜 줄이어야 한다.
+   * 모르는 구매자가 섞이면 404(아무것도 하지 않음)
+   */
+  async #knownBuyers(sellerId: string, date: string, items: readonly { buyer: string }[]): Promise<Outcome<null>> {
+    const { db } = this.#deps
+    const engine = items.filter((item) => !isExtraBuyer(item.buyer))
+    const runtime = await this.#deps.writer.read(sellerId, date, false)
+    if (engine.length > 0) {
+      if (runtime.seq === 0 || runtime.scopeId === null) return NOT_FOUND
+      // 봉인한 범위는 상태를 재생하지 않아 구매자가 보이지 않는다 — 봉인을 먼저 본다(지금 포장 명령과 같은 문장)
+      if (await this.#sealed(db, sellerId, runtime.scopeId)) return problem(409, 'SEALED', SEALED_MESSAGE)
+      if (engine.some((item) => getBuyer(runtime.state, item.buyer) === null)) return NOT_FOUND
+    } else if (runtime.scopeId !== null && (await this.#sealed(db, sellerId, runtime.scopeId))) return problem(409, 'SEALED', SEALED_MESSAGE)
+    if (engine.length < items.length) {
+      const extras = await this.#extrasOf(db, sellerId, date)
+      if (items.some((item) => isExtraBuyer(item.buyer) && !extras.has(item.buyer))) return NOT_FOUND
+    }
+    return ok(null)
   }
 
   /** 접수 하나를 돌리고 결과를 요청 번호에 적는다. 도중에 예외가 나면 결과 없이 남고, STALE_PENDING_MS 뒤 같은 요청 번호가 이어받는다 */
@@ -1104,6 +1322,7 @@ export class ParcelService {
   async #prepare(sellerId: string, accountId: string, date: string, buyer: string, box: BoxKind, carrier: CarrierCode, direct: DirectKind | null = null): Promise<Prepared> {
     const { db, writer } = this.#deps
     const skip = (result: BookItemResult): Prepared => ({ kind: 'skip', result })
+    if (isExtraBuyer(buyer)) return this.#prepareExtra(sellerId, accountId, date, buyer, box, carrier, direct)
     // KP1 SA-KP1-001: 장부 "확인 전" 묶음은 목록과 같이 UNCONFIRMED로 판단한다 — 표지는 범위 줄 밖에서 미리
     const known = await this.#known(sellerId, date)
     return writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Prepared> => {
@@ -1138,34 +1357,65 @@ export class ParcelService {
     })
   }
 
-  /** 택배사 답을 적는다 (같은 트랜잭션에 포장 기록 "배송 완료 — 송장번호", 누가 = 접수한 계정) */
+  /** 직접 넣은 택배의 준비 (D-UX3-38): 범위 줄 없이 — 줄이 있고 배송지가 남아 있으면 PENDING 시도(살아 있는 시도는 DB 고유 색인이 막는다). 포장 기록은 없다 */
+  async #prepareExtra(sellerId: string, accountId: string, date: string, buyer: string, box: BoxKind, carrier: CarrierCode, direct: DirectKind | null): Promise<Prepared> {
+    const { db } = this.#deps
+    const skip = (result: BookItemResult): Prepared => ({ kind: 'skip', result })
+    return db.transaction(async (tx) => {
+      const extra = await extraRow(tx, sellerId, date, buyer)
+      if (extra === null) return skip({ buyer, ok: false, reason: 'BUYER', message: '받는 분을 다시 확인해 주세요.' })
+      const now = this.#deps.clock.now()
+      const latest = await latestAttempt(tx, sellerId, date, buyer)
+      const address = await addressRow(tx, sellerId, date, buyer)
+      if (direct !== null && latest !== null && ['PENDING', 'UNKNOWN'].includes(stateNow(latest, now))) return skip({ buyer, ok: false, reason: 'BOOKING', message: ELIGIBILITY_MESSAGES.BOOKING })
+      if (latest !== null && stateNow(latest, now) === 'UNKNOWN') {
+        const receiver = this.#open(sellerId, address)
+        if (receiver === null) return skip({ buyer, ok: false, reason: 'ADDRESS_EXPIRED', message: PARCEL_MESSAGES.addressExpired })
+        if (!(await moveAttempt(tx, sellerId, latest.id, ['PENDING', 'UNKNOWN'], { state: 'PENDING', updatedAt: new Date(now) }))) return skip(this.#resultOf(buyer, await attemptById(tx, sellerId, latest.id)))
+        return { kind: 'send', attempt: latest, receiver }
+      }
+      const row = this.#extraRow(sellerId, date, extra, address, latest, box)
+      if (!row.ready) return skip({ buyer, ok: false, reason: row.reason as EligibilityReason, message: row.message as string })
+      const receiver = this.#open(sellerId, address) as ParcelAddress
+      const attempt = await insertAttempt(tx, { sellerId, date, buyer, carrier, box, qty: extra.qty, accountId, now: new Date(now), ...(direct === null ? {} : { requestKey: directRequestKey(direct) }) })
+      if (attempt === null) return skip({ buyer, ok: false, reason: 'BOOKING', message: ELIGIBILITY_MESSAGES.BOOKING })
+      return { kind: 'send', attempt, receiver }
+    })
+  }
+
+  /** 택배사 답을 적는다 (같은 트랜잭션에 포장 기록 "배송 완료 — 송장번호", 누가 = 접수한 계정). 직접 넣은 택배는 범위 줄·포장 기록 없이(D-UX3-38) */
   async #finish(sellerId: string, accountId: string, date: string, attempt: AttemptRow, answer: { kind: 'BOOKED'; invoice: string } | { kind: 'FAILED'; reason: 'ADDRESS' | 'REJECTED' } | { kind: 'UNKNOWN' }): Promise<BookItemResult> {
     const { db, writer } = this.#deps
-    const result = await writer.withScope(sellerId, date, false, async (runtime, catchUpIn) =>
-      db.transaction(async (tx) => {
-        await catchUpIn(tx)
-        const now = new Date(this.#deps.clock.now())
-        let shipped = false
-        if (answer.kind === 'BOOKED') {
-          const moved = await moveAttempt(tx, sellerId, attempt.id, ['PENDING', 'UNKNOWN'], { state: 'BOOKED', reason: null, invoice: answer.invoice, bookedAt: now, track: 'ACCEPTED', trackedAt: now, updatedAt: now })
-          if (moved && runtime.scopeId !== null) {
-            const packing = replayPacking(await packingRows(tx, sellerId, runtime.scopeId, attempt.buyer))
-            if (!(packing.phase === 'SHIPPED' && packing.invoice === answer.invoice)) {
-              await tx
-                .insert(packingRecords)
-                .values({ sellerId, scopeId: runtime.scopeId, date, buyer: attempt.buyer, kind: 'SHIPPED', items: null, invoice: answer.invoice, accountId, requestId: `parcel:${attempt.id}:book`, createdAt: now })
-                .onConflictDoNothing({ target: [packingRecords.sellerId, packingRecords.requestId] })
-              shipped = true
-            }
+    const apply = async (tx: Db, scopeId: string | null) => {
+      const now = new Date(this.#deps.clock.now())
+      let shipped = false
+      if (answer.kind === 'BOOKED') {
+        const moved = await moveAttempt(tx, sellerId, attempt.id, ['PENDING', 'UNKNOWN'], { state: 'BOOKED', reason: null, invoice: answer.invoice, bookedAt: now, track: 'ACCEPTED', trackedAt: now, updatedAt: now })
+        if (moved && scopeId !== null) {
+          const packing = replayPacking(await packingRows(tx, sellerId, scopeId, attempt.buyer))
+          if (!(packing.phase === 'SHIPPED' && packing.invoice === answer.invoice)) {
+            await tx
+              .insert(packingRecords)
+              .values({ sellerId, scopeId, date, buyer: attempt.buyer, kind: 'SHIPPED', items: null, invoice: answer.invoice, accountId, requestId: `parcel:${attempt.id}:book`, createdAt: now })
+              .onConflictDoNothing({ target: [packingRecords.sellerId, packingRecords.requestId] })
+            shipped = true
           }
-        } else if (answer.kind === 'FAILED') {
-          await moveAttempt(tx, sellerId, attempt.id, ['PENDING', 'UNKNOWN'], { state: 'FAILED', reason: answer.reason, updatedAt: now })
-        } else {
-          await moveAttempt(tx, sellerId, attempt.id, ['PENDING', 'UNKNOWN'], { state: 'UNKNOWN', reason: 'UNAVAILABLE', updatedAt: now })
         }
-        return { row: await attemptById(tx, sellerId, attempt.id), shipped }
-      }),
-    )
+      } else if (answer.kind === 'FAILED') {
+        await moveAttempt(tx, sellerId, attempt.id, ['PENDING', 'UNKNOWN'], { state: 'FAILED', reason: answer.reason, updatedAt: now })
+      } else {
+        await moveAttempt(tx, sellerId, attempt.id, ['PENDING', 'UNKNOWN'], { state: 'UNKNOWN', reason: 'UNAVAILABLE', updatedAt: now })
+      }
+      return { row: await attemptById(tx, sellerId, attempt.id), shipped }
+    }
+    const result = isExtraBuyer(attempt.buyer)
+      ? await db.transaction((tx) => apply(tx, null))
+      : await writer.withScope(sellerId, date, false, async (runtime, catchUpIn) =>
+          db.transaction(async (tx) => {
+            await catchUpIn(tx)
+            return apply(tx, runtime.scopeId)
+          }),
+        )
     this.#deps.hub.publishNamed(sellerId, 'parcel', { date, buyer: attempt.buyer })
     if (result.shipped) this.#deps.hub.publishNamed(sellerId, 'packing', { date, buyer: attempt.buyer })
     return this.#resultOf(attempt.buyer, result.row)
@@ -1185,21 +1435,33 @@ export class ParcelService {
       if (prior.kind !== 'CANCEL' || prior.date !== date) return problem(409, 'REQUEST_ERROR', PARCEL_MESSAGES.request)
       return this.bundle(sellerId, date, buyer)
     }
-    const runtime0 = await writer.read(sellerId, date, false)
-    if (runtime0.seq === 0 || runtime0.scopeId === null) return NOT_FOUND
-    if (await this.#sealed(db, sellerId, runtime0.scopeId)) return problem(409, 'SEALED', SEALED_MESSAGE)
-    if (getBuyer(runtime0.state, buyer) === null) return NOT_FOUND
-    const checked = await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<AttemptRow>> =>
-      db.transaction(async (tx) => {
-        await catchUpIn(tx)
-        if (runtime.scopeId === null) return NOT_FOUND
-        if (await this.#sealed(tx, sellerId, runtime.scopeId)) return problem(409, 'SEALED', SEALED_MESSAGE)
-        const attempt = await latestAttempt(tx, sellerId, date, buyer)
-        if (attempt === null || attempt.state !== 'BOOKED' || attempt.invoice === null) return problem(409, 'NO_PARCELS', PARCEL_MESSAGES.noBooked)
-        if (attempt.track !== null && attempt.track !== 'ACCEPTED') return problem(409, 'PICKED_UP', PARCEL_MESSAGES.pickedUp)
-        return ok(attempt)
-      }),
-    )
+    // 직접 넣은 택배(D-UX3-38)는 범위 줄·포장 기록 없이 같은 절차
+    const extra = isExtraBuyer(buyer)
+    if (extra) {
+      if ((await this.#scopeOf(sellerId, date)).sealed) return problem(409, 'SEALED', SEALED_MESSAGE)
+      if ((await extraRow(db, sellerId, date, buyer)) === null) return NOT_FOUND
+    } else {
+      const runtime0 = await writer.read(sellerId, date, false)
+      if (runtime0.seq === 0 || runtime0.scopeId === null) return NOT_FOUND
+      if (await this.#sealed(db, sellerId, runtime0.scopeId)) return problem(409, 'SEALED', SEALED_MESSAGE)
+      if (getBuyer(runtime0.state, buyer) === null) return NOT_FOUND
+    }
+    const check = async (tx: Db, scopeId: string | null): Promise<Outcome<AttemptRow>> => {
+      if (!extra && scopeId === null) return NOT_FOUND
+      if (scopeId !== null && (await this.#sealed(tx, sellerId, scopeId))) return problem(409, 'SEALED', SEALED_MESSAGE)
+      const attempt = await latestAttempt(tx, sellerId, date, buyer)
+      if (attempt === null || attempt.state !== 'BOOKED' || attempt.invoice === null) return problem(409, 'NO_PARCELS', PARCEL_MESSAGES.noBooked)
+      if (attempt.track !== null && attempt.track !== 'ACCEPTED') return problem(409, 'PICKED_UP', PARCEL_MESSAGES.pickedUp)
+      return ok(attempt)
+    }
+    const checked = extra
+      ? await db.transaction((tx) => check(tx, null))
+      : await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<AttemptRow>> =>
+          db.transaction(async (tx) => {
+            await catchUpIn(tx)
+            return check(tx, runtime.scopeId)
+          }),
+        )
     if (checked.kind !== 'ok') return checked
     const attempt = checked.value
     const adapter = this.#carriers[attempt.carrier]
@@ -1221,22 +1483,31 @@ export class ParcelService {
     }
     if (answer.kind === 'REFUSED') return problem(409, 'PICKED_UP', PARCEL_MESSAGES.pickedUp)
     try {
-      const known = await this.#known(sellerId, date) // KP1 (범위 줄 밖에서)
-      const outcome = await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<BundleView>> =>
-        db.transaction(async (tx) => {
-          await catchUpIn(tx)
-          const now = new Date(this.#deps.clock.now())
-          const moved = await moveAttempt(tx, sellerId, attempt.id, ['BOOKED'], { state: 'CANCELLED', cancelledAt: now, cancelledBy: accountId, updatedAt: now })
-          if (moved && runtime.scopeId !== null && replayPacking(await packingRows(tx, sellerId, runtime.scopeId, buyer)).phase === 'SHIPPED') {
-            await tx
-              .insert(packingRecords)
-              .values({ sellerId, scopeId: runtime.scopeId, date, buyer, kind: 'UNSHIPPED', items: null, invoice: null, accountId, requestId: `parcel:${attempt.id}:cancel`, createdAt: now })
-              .onConflictDoNothing({ target: [packingRecords.sellerId, packingRecords.requestId] })
-          }
-          if (!(await claimRequest(tx, { sellerId, requestId, date, kind: 'CANCEL', targets: [buyer], result: null, now }))) throw new RequestTaken()
-          return ok(await this.#bundleView(tx, sellerId, runtime, date, buyer, known))
-        }),
-      )
+      const known = extra ? new Map<string, string>() : await this.#known(sellerId, date) // KP1 (범위 줄 밖에서)
+      const finish = async (tx: Db, runtime: ScopeRuntime | null): Promise<Outcome<BundleView>> => {
+        const now = new Date(this.#deps.clock.now())
+        const moved = await moveAttempt(tx, sellerId, attempt.id, ['BOOKED'], { state: 'CANCELLED', cancelledAt: now, cancelledBy: accountId, updatedAt: now })
+        if (moved && runtime !== null && runtime.scopeId !== null && replayPacking(await packingRows(tx, sellerId, runtime.scopeId, buyer)).phase === 'SHIPPED') {
+          await tx
+            .insert(packingRecords)
+            .values({ sellerId, scopeId: runtime.scopeId, date, buyer, kind: 'UNSHIPPED', items: null, invoice: null, accountId, requestId: `parcel:${attempt.id}:cancel`, createdAt: now })
+            .onConflictDoNothing({ target: [packingRecords.sellerId, packingRecords.requestId] })
+        }
+        if (!(await claimRequest(tx, { sellerId, requestId, date, kind: 'CANCEL', targets: [buyer], result: null, now }))) throw new RequestTaken()
+        if (runtime === null) {
+          const row = await extraRow(tx, sellerId, date, buyer)
+          return row === null ? NOT_FOUND : ok(await this.#extraBundle(tx, sellerId, date, row))
+        }
+        return ok(await this.#bundleView(tx, sellerId, runtime, date, buyer, known))
+      }
+      const outcome = extra
+        ? await db.transaction((tx) => finish(tx, null))
+        : await writer.withScope(sellerId, date, false, async (runtime, catchUpIn): Promise<Outcome<BundleView>> =>
+            db.transaction(async (tx) => {
+              await catchUpIn(tx)
+              return finish(tx, runtime)
+            }),
+          )
       this.#deps.hub.publishNamed(sellerId, 'parcel', { date, buyer })
       this.#deps.hub.publishNamed(sellerId, 'packing', { date, buyer })
       return outcome
@@ -1253,16 +1524,19 @@ export class ParcelService {
    * BOOKED이고 배송지가 남은 묶음만. 접수함이 없으면 409, 배송지를 지운 묶음 하나짜리는 409. 그리기는 작업 워커(I2 파일 작업 한도 — 바쁘면 429)
    */
   async waybill(sellerId: string, date: string, buyer: string | null, signal?: AbortSignal): Promise<Outcome<FileResult>> {
-    const runtime = await this.#realScope(sellerId, date)
-    if (runtime === null) return NOT_FOUND
-    const { state } = runtime
-    if (buyer !== null && getBuyer(state, buyer) === null) return NOT_FOUND
+    const scope = await this.#scopeOf(sellerId, date)
+    if (scope.sealed) return NOT_FOUND
     const { db } = this.#deps
+    // 직접 넣은 택배(D-UX3-38)는 목록 끝에 — 범위 없는 날짜는 그 줄들만
+    const extras = await this.#extrasOf(db, sellerId, date)
+    const state = scope.runtime?.state ?? null
+    if (state === null && extras.size === 0) return NOT_FOUND
+    if (buyer !== null && !(isExtraBuyer(buyer) ? extras.has(buyer) : state !== null && getBuyer(state, buyer) !== null)) return NOT_FOUND
     const settings = await readSettings(db, this.#deps.masterKey, sellerId)
     if (settings.sender === null) return problem(409, 'PARCEL_BLOCKED', PARCEL_MESSAGES.noSender)
     const attempts = await latestAttempts(db, sellerId, date)
     const addresses = await addressRowsOf(db, sellerId, date)
-    const order = buyer === null ? ParcelService.buyersOf(state, date, attempts) : [buyer]
+    const order = buyer === null ? [...(state === null ? [] : ParcelService.buyersOf(state, date, attempts).filter((id) => !isExtraBuyer(id))), ...extras.keys()] : [buyer]
     const booked = order.filter((id) => attempts.get(id)?.state === 'BOOKED' && attempts.get(id)?.invoice !== null)
     if (booked.length === 0) return problem(409, 'NO_PARCELS', PARCEL_MESSAGES.noBooked)
     const sender = settings.sender
@@ -1298,7 +1572,7 @@ export class ParcelService {
       const tooLong = skipped.some((outcome) => outcome.error?.code === 'TOO_LONG')
       return problem(422, 'WAYBILL_TOO_LONG', tooLong ? (skipped[0]?.error?.message ?? '주소가 길어 운송장에 다 들어가지 않아요.') : '운송장에 넣을 수 없는 값이 있어요.')
     }
-    const name = buyer === null ? '전부' : fileNamePart(getBuyer(state, buyer)?.display ?? '')
+    const name = buyer === null ? '전부' : fileNamePart(isExtraBuyer(buyer) ? (this.#open(sellerId, addresses.get(buyer))?.name ?? '') : (state === null ? null : getBuyer(state, buyer))?.display ?? '')
     return ok({
       bytes: rendered.pdf,
       type: MIME.pdf,
@@ -1431,10 +1705,8 @@ export class ParcelService {
     }
     const prior = await requestRow(db, sellerId, requestId)
     if (prior !== null) return answerPrior(prior)
-    const runtime = await this.#deps.writer.read(sellerId, date, false)
-    if (runtime.seq === 0 || runtime.scopeId === null) return NOT_FOUND
-    if (await this.#sealed(db, sellerId, runtime.scopeId)) return problem(409, 'SEALED', SEALED_MESSAGE)
-    if (items.some((item) => getBuyer(runtime.state, item.buyer) === null)) return NOT_FOUND
+    const known = await this.#knownBuyers(sellerId, date, items)
+    if (known.kind !== 'ok') return known
     const settings = await readSettings(db, masterKey, sellerId)
     if (!(await claimRequest(db, { sellerId, requestId, date, kind: 'DIRECT', targets: items.map((item) => ({ buyer: item.buyer })), result: null, now: new Date(this.#deps.clock.now()) }))) {
       const again = await requestRow(db, sellerId, requestId)

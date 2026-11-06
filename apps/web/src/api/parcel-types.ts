@@ -56,6 +56,8 @@ export interface ParcelRow {
   readonly message: string | null
   readonly box: BoxKind
   readonly parcel: ParcelBrief | null
+  /** 직접 넣은 택배 (D-UX3-38 — 방송 판매 기록 없음, 받는 분 이름이 name). 옛 서버엔 없다 */
+  readonly extra?: boolean
 }
 
 export interface ParcelDay {

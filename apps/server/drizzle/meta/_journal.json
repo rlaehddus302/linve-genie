@@ -309,6 +309,13 @@
       "when": 1794960000017,
       "tag": "0043_real_buyer_info",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794960000018,
+      "tag": "0044_ux3_parcel_extras",
+      "breakpoints": true
     }
   ]
 }

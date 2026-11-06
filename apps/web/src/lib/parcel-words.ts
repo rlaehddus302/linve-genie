@@ -2,7 +2,7 @@
 // 영어 상태값(PENDING·BOOKED…)은 화면 글자에 넣지 않는다 — 서버가 준 문장·조회 낱말을 쓰고, 없을 때만 여기 문장으로 채운다.
 import type { AddressFields, AddressSource, BoxKind, BundleView, ParcelBrief, ParcelRow, ParcelSender, ParcelSettings, SettingsCarrier } from '../api/parcel-types.ts'
 import type { PackingWord } from '../api/types.ts'
-import { kstShort } from './kst.ts'
+import { dateWords, kstShort } from './kst.ts'
 import { packingWords } from './packing-words.ts'
 
 export const PARCEL_TITLE = '택배 접수'
@@ -330,3 +330,22 @@ export const DIRECT_CANCEL_LABEL = '기록 지우기'
 export const DIRECT_CANCEL_QUESTION = '송장 기록을 지울까요?'
 export const directCancelDescription = (name: string): string => `${name}님 묶음에 적은 송장번호만 지워요. 우체국 접수는 그대로라, 취소하려면 인터넷우체국에서 해 주세요.`
 export const DIRECT_CANCEL_DONE = '송장 기록을 지웠어요.'
+
+// ── 직접 넣은 택배 (D-UX3-38) — 방송 판매 기록 없이 받는 분을 적어 접수 ──
+export const EXTRA_TITLE = '받는 분 직접 넣기'
+export const EXTRA_HOW = '방송 판매 기록이 없어도 보낼 수 있어요. 받는 분과 물품 수를 적으면 그 날짜의 "보낼 수 있어요"에 들어가고, 다른 묶음과 똑같이 접수해요.'
+export const EXTRA_ADD = '받는 분 넣기'
+export const EXTRA_EDIT = '고치기'
+export const EXTRA_DELETE = '지우기'
+export const EXTRA_TAG = '직접 넣음'
+export const EXTRA_QTY_LABEL = '물품 수'
+export const EXTRA_SAVED = '받는 분을 넣었어요. "보낼 수 있어요"에서 접수해 주세요.'
+export const EXTRA_EDITED = '받는 분을 고쳤어요.'
+export const EXTRA_DELETED = '받는 분을 지웠어요.'
+export const EXTRA_DELETE_QUESTION = '받는 분을 지울까요?'
+export const extraDeleteDescription = (name: string): string => `${name}님을 접수 목록에서 지워요. 지우면 되돌릴 수 없어요.`
+/** "물품 3개 · 직접 넣음" */
+export const extraFacts = (qty: number): string => `물품 ${String(qty)}개 · ${EXTRA_TAG}`
+/** 넣을 날짜 안내 */
+export const extraDateNote = (date: string): string => `${dateWords(date)} 목록에 넣어요.`
+export const isExtraRow = (row: { readonly extra?: boolean }): boolean => row.extra === true

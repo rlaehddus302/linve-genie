@@ -13,7 +13,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import type { BookResponse, BookResult, BoxKind, BundleView, ParcelDay, ParcelDays, ParcelRow } from '../api/parcel-types.ts'
 import { BuyerNames } from '../lib/derive.ts'
-import { dateLong } from '../lib/kst.ts'
+import { dateLong, kstToday } from '../lib/kst.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { PACKING_TONE } from '../lib/packing.ts'
 import {
@@ -54,6 +54,7 @@ import {
   checkedWords,
   hasPending,
   hidesPackingTag,
+  isExtraRow,
   isRetryable,
   parcelGroups,
   retryRows,
@@ -66,6 +67,7 @@ import type { PackingWord } from '../api/types.ts'
 import { useDownload } from './downloads.tsx'
 import { RequestError } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
+import { ExtraCard, ExtraFacts, ExtraRowActions } from './ParcelExtra.tsx'
 import { ParcelTag } from './ParcelParts.tsx'
 import { SpaLink } from './SettingsPage.tsx'
 
@@ -178,6 +180,15 @@ export function ParcelsPage({ route, navigate }: { readonly route: ParcelsRoute;
         )}
       </div>
       {date === null ? dates.days !== null && dates.days.dates.length === 0 ? <p>{NO_PARCEL_DATES}</p> : null : <ParcelDayView key={date} date={date} navigate={navigate} version={version} onChanged={bump} onCount={setShown} />}
+      {dates.days !== null ? (
+        <ExtraCard
+          date={date ?? kstToday()}
+          onSaved={(saved) => {
+            bump()
+            if (saved !== date) navigate({ name: 'parcels', date: saved })
+          }}
+        />
+      ) : null}
     </main>
   )
 }
@@ -356,7 +367,7 @@ function ParcelDayView({
                   <input type="checkbox" checked={!unchecked.has(row.buyer)} disabled={busy} onChange={() => toggle(row.buyer)} />
                   <strong className="buyer-name">{nameOf(row)}</strong>
                 </label>
-                <RowFacts row={row} />
+                {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
                 <div className="field parcel-box">
                   <label htmlFor={`box-${date}-${row.buyer}`}>{ROW_BOX_LABEL}</label>
                   <select
@@ -378,6 +389,7 @@ function ParcelDayView({
                   </select>
                 </div>
                 {row.parcel?.state === 'CANCELLED' ? <ParcelTag parcel={row.parcel} /> : null}
+                {isExtraRow(row) ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
               </li>
             ))}
           </ul>
@@ -426,7 +438,7 @@ function ParcelDayView({
         {groups.excluded.length > 0 ? (
           <ul className="plain-list stack-tight parcel-list">
             {groups.excluded.map((row) => (
-              <ExcludedRow key={row.buyer} date={date} row={row} name={nameOf(row)} navigate={navigate} result={results.get(row.buyer) ?? null} busy={busy} onRetry={() => void book([row])} blocked={blocked !== null} />
+              <ExcludedRow key={row.buyer} date={date} row={row} name={nameOf(row)} navigate={navigate} result={results.get(row.buyer) ?? null} busy={busy} onRetry={() => void book([row])} blocked={blocked !== null} onChanged={onChanged} />
             ))}
           </ul>
         ) : null}
@@ -515,6 +527,7 @@ function ExcludedRow({
   busy,
   blocked,
   onRetry,
+  onChanged,
 }: {
   readonly date: string
   readonly row: ParcelRow
@@ -524,6 +537,7 @@ function ExcludedRow({
   readonly busy: boolean
   readonly blocked: boolean
   readonly onRetry: () => void
+  readonly onChanged: () => void
 }) {
   const reason = screenReason(row)
   const text = reason === '' ? (result ?? '') : reason
@@ -532,7 +546,7 @@ function ExcludedRow({
   return (
     <li className="parcel-row stack-tight">
       <strong className="buyer-name">{name}</strong>
-      <RowFacts row={row} />
+      {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
       {text !== '' ? (
         <p className="parcel-reason" data-tone={failed ? 'danger' : unknown ? 'warning' : undefined}>
           {text}
@@ -544,12 +558,13 @@ function ExcludedRow({
             다시 확인
           </button>
         ) : null}
-        {addressReason(row) ? (
+        {addressReason(row) && !isExtraRow(row) ? (
           <SpaLink navigate={navigate} to={{ name: 'settlements', date, rehearsal: false, buyer: row.buyer }} className="button">
             배송지 보기
           </SpaLink>
         ) : null}
       </div>
+      {isExtraRow(row) && !isRetryable(row.parcel) && row.parcel?.state !== 'PENDING' ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
     </li>
   )
 }
@@ -610,7 +625,7 @@ function BookedRow({
   return (
     <li className="parcel-row stack-tight">
       <strong className="buyer-name">{name}</strong>
-      <RowFacts row={row} />
+      {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
       {parcel !== null ? (
         <p className="row">
           <ParcelTag parcel={parcel} />

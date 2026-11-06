@@ -679,3 +679,45 @@ describe('우체국 방문접수 파일 (D-UX3-36)', () => {
     expect(screen.queryByRole('region', { name: '우체국에 직접 접수하기' })).toBeNull()
   })
 })
+
+describe('받는 분 직접 넣기 (D-UX3-38)', () => {
+  it('판매 기록이 없어도 받는 분·물품 수를 적어 그 날짜에 넣고, 직접 넣은 줄은 "물품 N개 · 직접 넣음"에 [지우기] 왼쪽·[고치기] 오른쪽', async () => {
+    day = { ...sixRows(), ready: [row('UC_A', '김하나'), row('extra:abc', '나래', { extra: true, qty: 3, itemCount: 0, total: 0 })] }
+    const puts: Record<string, unknown>[] = []
+    server.on('PUT', /^\/api\/parcels\/days\/2026-10-22\/extra$/, (call) => {
+      puts.push(call.body as Record<string, unknown>)
+      return { body: { bundle: { date: D, buyer: 'extra:new', address: null, locked: false, expired: false, row: row('extra:new', '다솜', { extra: true, qty: 2 }) } } }
+    })
+    server.on('POST', /^\/api\/parcels\/days\/2026-10-22\/extra\/delete$/, (call) => {
+      puts.push(call.body as Record<string, unknown>)
+      return { body: { buyer: 'extra:abc' } }
+    })
+    await open()
+    const ready = region(exact('보낼 수 있어요'))
+    expect(within(ready).getByText('물품 3개 · 직접 넣음')).toBeDefined()
+    const group = within(ready).getByRole('group', { name: '나래 직접 넣은 택배' })
+    expect([...group.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['지우기', '고치기'])
+
+    const card = region(exact('받는 분 직접 넣기'))
+    expect(within(card).getByText(/방송 판매 기록이 없어도 보낼 수 있어요/)).toBeDefined()
+    expect(within(card).getByText('10월 22일 목록에 넣어요.')).toBeDefined()
+    fireEvent.click(within(card).getByRole('button', { name: '받는 분 넣기' }))
+    const dialog = await screen.findByRole('dialog', { name: '받는 분 직접 넣기' })
+    fireEvent.change(within(dialog).getByLabelText('받는 분'), { target: { value: '다솜' } })
+    fireEvent.change(within(dialog).getByLabelText('연락처'), { target: { value: '010-1111-2222' } })
+    fireEvent.change(within(dialog).getByLabelText('주소'), { target: { value: '부산광역시 해운대구 1' } })
+    fireEvent.change(within(dialog).getByLabelText('물품 수'), { target: { value: '2' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0]).toMatchObject({ address: { name: '다솜', phone: '010-1111-2222', address: '부산광역시 해운대구 1', detail: '', zip: '', memo: '' }, qty: 2 })
+    expect(typeof puts[0]?.['requestId']).toBe('string')
+    expect(await within(card).findByText('받는 분을 넣었어요. "보낼 수 있어요"에서 접수해 주세요.')).toBeDefined()
+
+    fireEvent.click(within(group).getByRole('button', { name: '지우기' }))
+    const ask = await screen.findByRole('dialog', { name: '받는 분을 지울까요?' })
+    expect(within(ask).getByText('나래님을 접수 목록에서 지워요. 지우면 되돌릴 수 없어요.')).toBeDefined()
+    fireEvent.click(within(ask).getByRole('button', { name: '지우기' }))
+    await waitFor(() => expect(puts).toHaveLength(2))
+    expect(puts[1]).toMatchObject({ buyer: 'extra:abc' })
+  })
+})

@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Linking, Pressable, ScrollView, View } from 'react-native'
 import type { BookResponse, BookResult, BoxKind, ParcelDay, ParcelDays, ParcelRow } from '@livejjim/web/src/api/parcel-types.ts'
-import { dateWords } from '@livejjim/web/src/lib/kst.ts'
+import { dateWords, kstToday } from '@livejjim/web/src/lib/kst.ts'
 import {
   BOOKING_NOW,
   BOX_KINDS,
@@ -49,6 +49,7 @@ import {
   checkedWords,
   hasPending,
   hidesPackingTag,
+  isExtraRow,
   isRetryable,
   parcelGroups,
   parcelLine,
@@ -66,6 +67,7 @@ import { Pill } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { ExtraCard, ExtraFacts, ExtraRowActions } from './ParcelExtra.tsx'
 
 export const DATE_NOT_FOUND = '그 날짜는 택배를 접수할 수 없어요. 다른 날짜를 골라 주세요.'
 export const SHARE_FAILED = '파일을 넘기지 못했어요. 다시 눌러 주세요.'
@@ -132,6 +134,16 @@ export function ParcelsScreen({ onBack, initialDate, nav = {} }: { readonly onBa
           </ScrollView>
         ) : null}
         {date !== null ? <ParcelDayView key={date} date={date} version={version} onChanged={bump} nav={nav} /> : null}
+        {days !== null ? (
+          <ExtraCard
+            date={date ?? kstToday()}
+            onSaved={(saved) => {
+              bump()
+              setAttempt((n) => n + 1)
+              if (saved !== date) setDate(saved)
+            }}
+          />
+        ) : null}
       </ScrollView>
     </View>
   )
@@ -284,7 +296,7 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
         {groups.ready.map((row) => (
           <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
             <PickRow on={!unchecked.has(row.buyer)} name={row.name} disabled={busy} onPress={() => toggle(row.buyer)} />
-            <RowFacts row={row} />
+            {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
             <Txt step="caption" color="textSub">{ROW_BOX_LABEL}</Txt>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.xs }}>
               {BOX_KINDS.map((box) => (
@@ -302,6 +314,7 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
               ))}
             </ScrollView>
             {row.parcel?.state === 'CANCELLED' ? <Tag tone={parcelTone(row.parcel)}>{parcelLine(row.parcel)}</Tag> : null}
+            {isExtraRow(row) ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
           </View>
         ))}
         <BigButton label={`${String(chosen.length)}개 택배 접수하기`} disabled={blocked !== null || chosen.length === 0} busy={busy} onPress={() => setAsking(true)} />
@@ -356,10 +369,11 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
           return (
             <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
               <Txt weight="bold">{row.name}</Txt>
-              <RowFacts row={row} />
+              {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
               {text !== '' ? <Txt color={row.parcel?.state === 'FAILED' ? 'dangerText' : 'text'}>{text}</Txt> : null}
               {unknown && isRetryable(row.parcel) ? <BigButton kind="outline" label="다시 확인" ariaLabel={`${row.name} 다시 확인`} disabled={busy || blocked !== null} onPress={() => void book([row])} /> : null}
-              {addressReason(row) && nav.openSettle !== undefined ? <BigButton kind="outline" label="배송지 보기" ariaLabel={`${row.name} 배송지 보기`} onPress={() => nav.openSettle?.(date, row.buyer)} /> : null}
+              {addressReason(row) && !isExtraRow(row) && nav.openSettle !== undefined ? <BigButton kind="outline" label="배송지 보기" ariaLabel={`${row.name} 배송지 보기`} onPress={() => nav.openSettle?.(date, row.buyer)} /> : null}
+              {isExtraRow(row) && !isRetryable(row.parcel) && row.parcel?.state !== 'PENDING' ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
             </View>
           )
         })}
@@ -459,7 +473,7 @@ function BookedRow({ date, row, onChanged, onAction }: { readonly date: string; 
   return (
     <View style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
       <Txt weight="bold">{row.name}</Txt>
-      <RowFacts row={row} />
+      {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
       {parcel !== null ? <Tag tone={parcelTone(parcel)}>{parcelLine(parcel)}</Tag> : null}
       {direct ? <Tag tone="info">{DIRECT_TAG}</Tag> : null}
       {checked !== null ? <Txt step="caption" color="textSub">{checked}</Txt> : null}

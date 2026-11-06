@@ -1939,6 +1939,28 @@ export const parcelAddresses = pgTable(
 )
 
 /**
+ * 직접 넣은 택배 (D-UX3-38): 방송 판매 기록 없이 판매자가 받는 분을 적어 접수하는 묶음. 구매자 ID 자리에는 `extra:<무작위>`가 들어가고
+ * 배송지는 parcel_addresses(같은 날짜·그 ID, 판매자 출처·확인함)에, 접수 시도는 parcels에 그대로 쌓인다. 정산·포장 기록과는 잇지 않는다.
+ * 보관은 배송지와 같다(날짜 + 30일에 지운다). 복구·가져오기 때는 배송지와 같이 지운다
+ */
+export const parcelExtras = pgTable(
+  'parcel_extras',
+  {
+    /** `extra:<무작위>` — parcels·parcel_addresses의 buyer 칸에 그대로 쓴다 */
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    date: text('date').notNull(),
+    /** 물품 수 (1~999) */
+    qty: integer('qty').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    createdBy: text('created_by').references(() => accounts.id),
+  },
+  (t) => [index('parcel_extras_seller_idx').on(t.sellerId, t.date, t.createdAt), index('parcel_extras_date_idx').on(t.date)],
+)
+
+/**
  * 택배 접수 시도 (T1 PC-5, D-T1-11): 묶음마다 덧붙여 가는 시도들. 한 묶음에 살아 있는(PENDING·UNKNOWN·BOOKED) 시도는 많아야 하나 — DB 고유 색인(parcels_live_uq, PC-INV-1).
  * request_key = 서버가 무작위로 만든 택배사 멱등 키(전화번호·이름을 담지 않는다). 택배사 원래 응답 글은 두지 않는다(사유는 ADDRESS·REJECTED·UNAVAILABLE 셋).
  * 배송지 원문이 없다. 복구·가져오기는 그대로 둔다(같은 묶음을 다시 접수하지 않게 — 복구한 포장 기록이 접수 전이어도 "이미 접수했어요"가 남는다)
@@ -2790,6 +2812,7 @@ export const schema = {
   depositCorpBindings,
   depositRequests,
   parcelAddresses,
+  parcelExtras,
   parcels,
   parcelRequests,
   parcelSettings,

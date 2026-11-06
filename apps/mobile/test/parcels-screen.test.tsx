@@ -142,4 +142,44 @@ describe('ParcelsScreen (앱 택배 접수)', () => {
     expect(posts[0]!.path).toContain('/cancel')
     expect(await screen.findByText('송장 기록을 지웠어요.')).toBeTruthy()
   })
+
+  it('받는 분 직접 넣기 (D-UX3-38): 판매 기록이 없어도 받는 분·물품 수를 적어 그 날짜에 넣고, 직접 넣은 줄은 "물품 N개 · 직접 넣음"과 [지우기] 왼쪽·[고치기] 오른쪽', async () => {
+    const { w } = world()
+    const sent: { path: string; body: Record<string, unknown> | null }[] = []
+    w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29$/, () => ({ body: { ...day, ready: [row('u1', '다육맘'), row('extra:abc', '나래', { extra: true, qty: 3, itemCount: 0, total: 0 })] } }))
+    w.server.on('PUT', /^\/api\/parcels\/days\/2026-10-29\/extra$/, (call) => {
+      sent.push({ path: call.path, body: call.body })
+      return { body: { bundle: { date: '2026-10-29', buyer: 'extra:new', address: null, locked: false, expired: false, row: row('extra:new', '다솜', { extra: true, qty: 2 }) } } }
+    })
+    w.server.on('POST', /^\/api\/parcels\/days\/2026-10-29\/extra\/delete$/, (call) => {
+      sent.push({ path: call.path, body: call.body })
+      return { body: { buyer: 'extra:abc' } }
+    })
+    render(w.wrap(<ParcelsScreen onBack={() => undefined} />))
+    expect(await screen.findByText('물품 3개 · 직접 넣음')).toBeTruthy()
+    const remove = screen.getByRole('button', { name: '나래 지우기' })
+    const edit = screen.getByRole('button', { name: '나래 고치기' })
+    expect(remove.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    expect(screen.getByText('받는 분 직접 넣기')).toBeTruthy()
+    expect(screen.getByText('10월 29일 목록에 넣어요.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '받는 분 넣기' }))
+    fireEvent.change(screen.getByLabelText('받는 분'), { target: { value: '다솜' } })
+    fireEvent.change(screen.getByLabelText('연락처'), { target: { value: '010-1111-2222' } })
+    fireEvent.change(screen.getByLabelText('주소'), { target: { value: '부산광역시 해운대구 1' } })
+    fireEvent.change(screen.getByLabelText('물품 수'), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(sent).toHaveLength(1))
+    expect(sent[0]!.body).toMatchObject({ address: { name: '다솜', phone: '010-1111-2222', address: '부산광역시 해운대구 1', detail: '', zip: '', memo: '' }, qty: 2 })
+    expect(typeof sent[0]!.body?.['requestId']).toBe('string')
+    expect(await screen.findByText('받는 분을 넣었어요. "보낼 수 있어요"에서 접수해 주세요.')).toBeTruthy()
+
+    fireEvent.click(remove)
+    expect(screen.getByText('받는 분을 지울까요?')).toBeTruthy()
+    expect(screen.getByText(/나래님을 접수 목록에서 지워요/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '지우기' }))
+    await waitFor(() => expect(sent).toHaveLength(2))
+    expect(sent[1]!.body).toMatchObject({ buyer: 'extra:abc' })
+    expect(await screen.findByText('받는 분을 지웠어요.')).toBeTruthy()
+  })
 })

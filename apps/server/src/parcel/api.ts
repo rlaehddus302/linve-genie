@@ -145,6 +145,39 @@ export function registerParcelRoutes(api: Hono<Env>, parcels: ParcelService, db:
     return json(c, await parcels.removeAddress(sellerOf(c), date.date, requestId, buyer.buyer), (bundle) => ({ bundle }))
   })
 
+  // ── 직접 넣은 택배 (D-UX3-38): 방송 판매 기록 없이 받는 분을 적어 접수 목록에 넣는다 ─────
+  // 넣기·고치기: { requestId, buyer?(고칠 줄 — extra:…), address: { name, phone, address, detail, zip, memo }, qty }. 답 { bundle }
+  api.put('/parcels/days/:date/extra', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'buyer', 'address', 'qty'])
+    if (extra !== null) return extra
+    const buyerRaw = own(input, 'buyer')
+    let buyer: string | null = null
+    if (buyerRaw !== undefined && buyerRaw !== null) {
+      const read = buyerOf(buyerRaw)
+      if (!read.ok) return read.response
+      buyer = read.buyer
+    }
+    const date = await dateOf(c, true)
+    if (!date.ok) return date.response
+    return json(c, await parcels.upsertExtra(sellerOf(c), accountOf(c), date.date, requestId, buyer, own(input, 'address'), own(input, 'qty')), (bundle) => ({ bundle }))
+  })
+  // 지우기: { requestId, buyer }. 접수한 줄은 409(접수 취소가 먼저). 답 { buyer }
+  api.post('/parcels/days/:date/extra/delete', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'buyer'])
+    if (extra !== null) return extra
+    const buyer = buyerOf(own(input, 'buyer'))
+    if (!buyer.ok) return buyer.response
+    const date = await dateOf(c, true)
+    if (!date.ok) return date.response
+    return json(c, await parcels.removeExtra(sellerOf(c), date.date, requestId, buyer.buyer), (value) => ({ ...value }))
+  })
+
   // ── 한 번에 접수·다시 확인·실패한 것만 다시 (AC-T1-30~34) ───────────────
   // { requestId, items: [{ buyer, box? }] } (1~200). 답 { date, results: [{ buyer, ok, invoice?, invoiceText?, reason?, message? }] }
   api.post('/parcels/days/:date/book', async (c) => {

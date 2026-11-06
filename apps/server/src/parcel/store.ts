@@ -4,7 +4,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { parcelAddresses, parcelRequests, parcelSettings, parcels } from '../db/schema.ts'
+import { parcelAddresses, parcelExtras, parcelRequests, parcelSettings, parcels } from '../db/schema.ts'
 import { SecretError, openText, sealText } from '../secrets.ts'
 import { CARRIER_CODES, OTHER_CARRIER, isSettingsCarrier, type CarrierCode, type ParcelSender, type SettingsCarrier } from './carrier.ts'
 import {
@@ -153,10 +153,68 @@ export async function mergeAddress(tx: Db, masterKey: Buffer, sellerId: string, 
   await deleteAddress(tx, sellerId, date, from)
 }
 
-/** 보관 기간이 끝난 배송지를 지운다 (PC-3 "보관" — 날짜 + 30일의 0시 KST. lastDate = 지울 마지막 날짜). 지운 수 */
+/** 보관 기간이 끝난 배송지를 지운다 (PC-3 "보관" — 날짜 + 30일의 0시 KST. lastDate = 지울 마지막 날짜). 직접 넣은 택배 줄도 함께. 지운 수 */
 export async function sweepAddresses(db: Db, lastDate: string): Promise<number> {
   const deleted = await db.delete(parcelAddresses).where(lte(parcelAddresses.date, lastDate)).returning({ id: parcelAddresses.id })
+  await db.delete(parcelExtras).where(lte(parcelExtras.date, lastDate))
   return deleted.length
+}
+
+// ── 직접 넣은 택배 (D-UX3-38) ───────────────────────────────────────────
+
+/** 직접 넣은 택배의 구매자 ID 앞말 — 엔진 구매자 ID(채널 ID·문자 ID)와 겹치지 않는다 */
+export const EXTRA_PREFIX = 'extra:'
+export const isExtraBuyer = (buyer: string): boolean => buyer.startsWith(EXTRA_PREFIX)
+export const newExtraId = (): string => `${EXTRA_PREFIX}${randomBytes(9).toString('base64url')}`
+
+export interface ExtraRow {
+  readonly id: string
+  readonly date: string
+  readonly qty: number
+  readonly createdAt: Date
+}
+
+const extraColumns = { id: parcelExtras.id, date: parcelExtras.date, qty: parcelExtras.qty, createdAt: parcelExtras.createdAt }
+
+/** 그 날짜의 직접 넣은 택배 (넣은 순서) */
+export async function extrasOf(db: Db, sellerId: string, date: string): Promise<Map<string, ExtraRow>> {
+  const rows = await db
+    .select(extraColumns)
+    .from(parcelExtras)
+    .where(and(eq(parcelExtras.sellerId, sellerId), eq(parcelExtras.date, date)))
+    .orderBy(asc(parcelExtras.createdAt), asc(parcelExtras.id))
+  return new Map(rows.map((row) => [row.id, row]))
+}
+
+export async function extraRow(db: Db, sellerId: string, date: string, id: string): Promise<ExtraRow | null> {
+  const rows = await db
+    .select(extraColumns)
+    .from(parcelExtras)
+    .where(and(eq(parcelExtras.sellerId, sellerId), eq(parcelExtras.date, date), eq(parcelExtras.id, id)))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+/** 직접 넣은 택배가 있는 날짜들 (판매자) */
+export async function extraDates(db: Db, sellerId: string): Promise<string[]> {
+  const rows = await db.selectDistinct({ date: parcelExtras.date }).from(parcelExtras).where(eq(parcelExtras.sellerId, sellerId))
+  return rows.map((row) => row.date)
+}
+
+export async function insertExtra(tx: Db, input: { sellerId: string; date: string; id: string; qty: number; accountId: string; now: Date }): Promise<void> {
+  await tx.insert(parcelExtras).values({ id: input.id, sellerId: input.sellerId, date: input.date, qty: input.qty, createdAt: input.now, createdBy: input.accountId })
+}
+
+export async function setExtraQty(tx: Db, sellerId: string, date: string, id: string, qty: number): Promise<void> {
+  await tx
+    .update(parcelExtras)
+    .set({ qty })
+    .where(and(eq(parcelExtras.sellerId, sellerId), eq(parcelExtras.date, date), eq(parcelExtras.id, id)))
+}
+
+/** 직접 넣은 택배 줄을 지운다 (배송지는 deleteAddress로 따로) */
+export async function deleteExtra(tx: Db, sellerId: string, date: string, id: string): Promise<void> {
+  await tx.delete(parcelExtras).where(and(eq(parcelExtras.sellerId, sellerId), eq(parcelExtras.date, date), eq(parcelExtras.id, id)))
 }
 
 // ── 접수 시도 ────────────────────────────────────────────────────────────
@@ -330,7 +388,7 @@ export function addressState(row: AddressRow | null | undefined, opened: boolean
 
 // ── 화면 요청 번호 ───────────────────────────────────────────────────────
 
-export type ParcelRequestKind = 'BOOK' | 'CANCEL' | 'ADDRESS' | 'CONFIRM' | 'DELETE' | 'LEDGER' | 'DIRECT' // KP1 LEDGER = 장부 배송지 확인(CR-4), DIRECT = 우체국 직접 접수 송장(D-UX3-37)
+export type ParcelRequestKind = 'BOOK' | 'CANCEL' | 'ADDRESS' | 'CONFIRM' | 'DELETE' | 'LEDGER' | 'DIRECT' | 'EXTRA' | 'EXTRA_DELETE' // KP1 LEDGER = 장부 배송지 확인(CR-4), DIRECT = 우체국 직접 접수 송장(D-UX3-37), EXTRA·EXTRA_DELETE = 직접 넣은 택배(D-UX3-38)
 
 export interface RequestRow {
   readonly date: string

@@ -105,6 +105,7 @@ import {
   outbox,
   packingRecords,
   parcelAddresses,
+  parcelExtras,
   parcelRequests,
   parcelSettings,
   parcels,
@@ -1713,6 +1714,7 @@ export const RESTORE_REPLACED_TABLES = [
   // X1 확장 감사 올리기의 회차별 상태(실패 수·멈춤·주인 채널): 회차에 딸려 지운다
   extPostLanes,
   parcelAddresses,
+  parcelExtras,
   parcelRequests,
   assistCache,
   receiptLinks,
