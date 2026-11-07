@@ -4,7 +4,7 @@ import type { Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { createNodeServer } from '../src/node-server.ts'
-import { HINT_CHAR_LIMIT, HINT_NUMBER_SAMPLE, VARIETY_LIMIT, VARIETY_MESSAGES, VoiceVarieties, checkVarietyNames, composeHint } from '../src/voice/varieties.ts'
+import { HINT_CHAR_LIMIT, VARIETY_LIMIT, VARIETY_MESSAGES, VoiceVarieties, checkVarietyNames, composeHint } from '../src/voice/varieties.ts'
 import { addSeller, client, createBroadcast, fakeClock, newWorld, ORIGIN, waitFor, type TestServer } from './support.ts'
 
 const TOKEN = 'test-worker-token-not-used-outside-tests'
@@ -57,14 +57,14 @@ describe('D-V3-127 내 품종 장부', () => {
     expect(checkVarietyNames(['가'.repeat(41)])).toEqual({ error: VARIETY_MESSAGES.tooLong })
     expect(checkVarietyNames(Array.from({ length: VARIETY_LIMIT + 1 }, (_, i) => `품종${String(i)}`))).toEqual({ error: VARIETY_MESSAGES.tooMany })
   })
-  it('힌트: 한글 수 보기 문장이 늘 앞에 오고, 장부 이름 → 최근 판 이름 차례로 같은 이름 없이 글자 한도 안에서 붙는다', () => {
-    expect(composeHint([])).toBe(HINT_NUMBER_SAMPLE)
-    expect(composeHint(['아사달금', '킹나이트금'], ['킹 나이트금', '청개구리금'])).toBe(`${HINT_NUMBER_SAMPLE} 아사달금, 킹나이트금, 청개구리금.`)
+  it('힌트: 품종 이름만 — 장부 이름 → 최근 판 이름 차례로 같은 이름 없이 글자 한도 안에서 붙고, 이름이 없으면 빈 글(힌트 없음) (D-V3-132)', () => {
+    expect(composeHint([])).toBe('')
+    expect(composeHint(['아사달금', '킹나이트금'], ['킹 나이트금', '청개구리금'])).toBe('아사달금, 킹나이트금, 청개구리금.')
     const many = composeHint(Array.from({ length: 200 }, (_, i) => `품종이름${String(i)}`))
     expect(many.length).toBeLessThanOrEqual(HINT_CHAR_LIMIT + 2)
-    expect(many.startsWith(HINT_NUMBER_SAMPLE)).toBe(true)
-    // 숫자(1·2·3…)가 아니라 한글 수로 쓴 보기 — 위스퍼가 들리는 대로 적게
-    expect(/\d/.test(HINT_NUMBER_SAMPLE)).toBe(false)
+    expect(many.startsWith('품종이름0, 품종이름1')).toBe(true)
+    // 한글 수 보기 문장은 넣지 않는다(D-V3-132: 효과 없이 되풀이만 늘림)
+    expect(many.includes('번')).toBe(false)
   })
   it('GET·PUT: 계정마다 따로이고, 다시 켠 저장소에서도 읽히며, 틀린 목록은 400으로 저장하지 않는다', async () => {
     const w = await setup(), a = await addSeller(w), b = await addSeller(w)
@@ -93,7 +93,7 @@ describe('D-V3-127 내 품종 장부', () => {
     await waitFor(() => device.messages.length > 0)
     expect(device.messages[0]).toEqual({ type: 'ready' })
     const open = await worker.message('open')
-    expect(open).toMatchObject({ type: 'open', hint: `${HINT_NUMBER_SAMPLE} 아사달금, 킹나이트금.` })
+    expect(open).toMatchObject({ type: 'open', hint: '아사달금, 킹나이트금.' })
     // 장부를 바꾸면 다음 흐름부터 새 힌트
     await client(w, a.cookie).put('/api/voice/varieties', { names: ['순수'] })
     expect(w.server.voice.status().streams).toBe(1)
@@ -101,6 +101,6 @@ describe('D-V3-127 내 품종 장부', () => {
     await waitFor(() => w.server.voice.status().streams === 0)
     const again = await new Peer(`${url}/api/voice/stream?broadcastId=${encodeURIComponent(ba.id)}&device=testdevice01`, { Cookie: a.cookie, Origin: ORIGIN }).open()
     await again.message('ready')
-    expect(await worker.message('open')).toMatchObject({ hint: `${HINT_NUMBER_SAMPLE} 순수.` })
+    expect(await worker.message('open')).toMatchObject({ hint: '순수.' })
   })
 })

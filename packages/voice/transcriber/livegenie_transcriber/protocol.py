@@ -1,7 +1,7 @@
 # 일꾼 ↔ 라이브지니 서버 약속 (D-APP1-01, harness/sprints/APP1/acceptance.md "약속" 절) — 표준 라이브러리만.
 #  - 일꾼 → 서버 첫 틀: {"type":"hello","maxStreams":4}
 #  - 서버 → 일꾼: {"type":"open","stream":n,"hint":"…"} · {"type":"close","stream":n} (n = 1 ~ 4,294,967,295)
-#    hint(D-V3-127, 없어도 됨): 받아쓰기 힌트 — 한글 수 보기 + 그 판매자 품종 이름. HINT_MAX 글자까지만 쓴다
+#    hint(D-V3-127·132, 없어도 됨): 받아쓰기 힌트 — 그 판매자 품종 이름. HINT_MAX 글자까지만 쓴다
 #  - 이진 틀 = 흐름 번호 4바이트(big-endian 부호 없는 정수) + PCM16 little-endian 16kHz 모노
 #  - 일꾼 → 서버: {"type":"result","stream":n,"text":"…","startMs":정수,"endMs":정수,"procMs":정수,"conf":0~1} (빈 글은 보내지 않는다, conf는 모델이 줄 때만)
 # 받은 것이 약속과 다르면 예외를 던지지 않고 None을 돌려준다(버린다).

@@ -50,15 +50,15 @@ export function checkVarietyNames(value: unknown): { names: string[] } | { error
 }
 
 /** 한글 수로 쓴 판매 말 보기 — 위스퍼가 숫자로 바꾸지 않고 들리는 대로 적게 (D-V3-127, 사용자 "발음 그대로 이공팔, 이백팔 … 인식하는 모델") */
-export const HINT_NUMBER_SAMPLE = '이백팔번 오만 원. 삼백육번 십이만 원. 육십오번 삼만 원까지. 백오십번 십팔만 원이요.'
+// 한글 수 보기 문장은 재생 시험(D-V3-132)에서 번호·가격 맞음을 올리지 못하고 되풀이·힌트 베끼기만 늘려 뺐다. 힌트는 품종 이름만.
 /** 힌트 글자 한도 — 위스퍼 힌트는 224토큰, 한글은 글자당 1~2토큰이라 넉넉히 자른다(일꾼이 토큰으로 한 번 더 자른다) */
 export const HINT_CHAR_LIMIT = 260
 
-/** 받아쓰기 힌트 한 줄: 한글 수 보기 + 품종 이름(장부 먼저, 그다음 최근 판 이름). 빈 목록이면 보기만 */
+/** 받아쓰기 힌트 한 줄: 품종 이름만(장부 먼저, 그다음 최근 판 이름). 빈 목록이면 빈 글(힌트 없음) */
 export function composeHint(names: readonly string[], recent: readonly string[] = []): string {
   const seen = new Set<string>()
   const parts: string[] = []
-  let length = HINT_NUMBER_SAMPLE.length + 1
+  let length = 0
   for (const name of [...names, ...recent]) {
     const key = varietyKey(name)
     if (key === '' || seen.has(key)) continue
@@ -67,7 +67,7 @@ export function composeHint(names: readonly string[], recent: readonly string[] 
     parts.push(name)
     length += name.length + 2
   }
-  return parts.length === 0 ? HINT_NUMBER_SAMPLE : `${HINT_NUMBER_SAMPLE} ${parts.join(', ')}.`
+  return parts.length === 0 ? '' : `${parts.join(', ')}.`
 }
 
 export class VoiceVarieties {
