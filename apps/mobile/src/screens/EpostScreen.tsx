@@ -14,6 +14,7 @@ import {
   EPOST_LOADING,
   EPOST_NEED_DATE,
   EPOST_NO_SENDER,
+  EPOST_PAGE_CHANGED,
   EPOST_POPUP,
   EPOST_REFILL,
   EPOST_SAFARI,
@@ -119,6 +120,7 @@ export function EpostScreen({ date, kind, onBack }: { readonly date: string; rea
     if (message.type === 'agree') {
       if (message.ok === true) setStatus({ tone: 'info', text: EPOST_AGREED })
       else if (message.step === 'next') setStatus({ tone: 'info', text: EPOST_AGREE_NEXT })
+      else if (message.ok === false) setStatus({ tone: 'warning', text: EPOST_PAGE_CHANGED })
     } else if (message.type === 'fill') {
       if (message.ok === true && message.sender === false) setStatus({ tone: 'warning', text: EPOST_NO_SENDER })
       else if (message.step === 'need-date') setStatus({ tone: 'info', text: EPOST_NEED_DATE })
@@ -198,6 +200,7 @@ export function EpostScreen({ date, kind, onBack }: { readonly date: string; rea
           onLoaded={(next) => {
             url.current = next
             loaded.current = true
+            if (next.startsWith('https://m.epost.go.kr/')) setStatus({ tone: 'warning', text: EPOST_PAGE_CHANGED })
             fill()
             scan(false)
           }}

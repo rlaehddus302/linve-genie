@@ -1,8 +1,10 @@
 // 앱 안 우체국 화면의 웹뷰 (D-UX3-37). 화면(EpostScreen)은 이 얇은 껍데기만 쓴다 — 시험에서는 이 파일을 가짜로 바꾼다.
+// 컴퓨터 사파리처럼 연다(휴대폰 전용 화면으로 넘어가지 않게, D-UX3-65). 스크립트가 비밀번호 칸에 둔 커서에 바로 자판이 뜬다.
 // 우체국 화면이 여는 새 창은 앱 안에서 열 수 없다(웹뷰에는 opener가 이어진 창이 없다) → 알리기만 한다. 우체국 [파일(주소) 등록] 창은 스크립트가 대신한다.
 import { useImperativeHandle, useRef, type ComponentType, type Ref } from 'react'
 import type { StyleProp, ViewStyle } from 'react-native'
 import { WebView } from 'react-native-webview'
+import { EPOST_DESKTOP_AGENT } from './kit.ts'
 
 /** 웹뷰에서 쓰는 것만 (이 판의 타입 정의는 RN 0.88 타입과 겹쳐 props가 never가 된다 — 쓰는 속성만 적어 둔다) */
 interface NativeWebViewHandle {
@@ -14,6 +16,8 @@ interface NativeWebViewProps {
   readonly source: { readonly uri: string }
   readonly style?: StyleProp<ViewStyle>
   readonly originWhitelist?: readonly string[]
+  readonly userAgent?: string
+  readonly keyboardDisplayRequiresUserAction?: boolean
   readonly javaScriptEnabled?: boolean
   readonly domStorageEnabled?: boolean
   readonly sharedCookiesEnabled?: boolean
@@ -53,6 +57,8 @@ export function EpostWeb({ uri, onMessage, onLoaded, onPopup, ref }: EpostWebPro
       source={{ uri }}
       style={{ flex: 1 }}
       originWhitelist={['https://*']}
+      userAgent={EPOST_DESKTOP_AGENT}
+      keyboardDisplayRequiresUserAction={false}
       javaScriptEnabled
       domStorageEnabled
       sharedCookiesEnabled

@@ -316,6 +316,8 @@ export const EPOST_SENDER_HOW = '우체국 화면에 채울 보내는 분이에�
 export const EPOST_SENDER_SAVED = '보내는 분을 저장했어요. 우체국 화면에 채울게요.'
 export const EPOST_AGREED = '동의 두 칸을 체크했어요. 조회용 비밀번호 숫자 4자리를 적으면 다음 화면으로 넘어가요.'
 export const EPOST_AGREE_NEXT = '입력 화면을 여는 중이에요…'
+/** 동의 칸을 못 찾았거나 우체국이 휴대폰 전용 화면으로 넘겼을 때 (D-UX3-65) */
+export const EPOST_PAGE_CHANGED = '우체국 화면이 달라 라이브찜이 채우지 못했어요. 화면에서 직접 하거나 [사파리로 열기]로 이어서 해 주세요.'
 /** 택배 화면: 계약 인증키가 없을 때 — 자동 접수 대신 우체국 직접 접수가 먼저 (D-UX3-40) */
 export const DIRECT_FIRST_NOTE = '우체국 계약 인증키가 없어 자동 접수는 꺼져 있어요. 아래 단추로 우체국에 바로 접수해요.'
 export const DIRECT_FIRST_KEY = '계약했다면 인증키 넣기'

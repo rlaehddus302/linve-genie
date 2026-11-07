@@ -145,6 +145,7 @@ function counterPayload(kit: EpostKit): string {
 /**
  * 창구소포 간편사전접수 동의 화면(commonpostplus.ParcelRetrieveAcceptPlusAgree) (D-UX3-40, 사용자 지시 "약관 체크도 안해주고"):
  * ① 동의 두 칸(agree1·agree2)과 모두 동의(allAgree)를 체크한다 — 화면의 change 처리도 부른다
+ * ① 펼쳐진 약관 글 두 상자는 접어 비밀번호 칸·[다음]이 바로 보이게 한다 — [약관보기]를 누르면 다시 펼쳐진다 (D-UX3-65)
  * ② 조회용 비밀번호는 넣지 않는다. 판매자가 첫 칸에 숫자 4자리를 적으면 확인 칸에 같은 값을 넣고 화면의 [다음](goNextPage — 화면의 확인을 그대로 거친다)을 부른다
  */
 export const COUNTER_AGREE_SCRIPT = `(function () {
@@ -159,6 +160,8 @@ export const COUNTER_AGREE_SCRIPT = `(function () {
     box.checked = true;
     try { if (window.jQuery) window.jQuery(box).trigger('change'); else box.dispatchEvent(new Event('change', { bubbles: true })) } catch (e) {}
   });
+  var wraps = document.querySelectorAll('.agree_wrap.on');
+  for (var w = 0; w < wraps.length; w++) wraps[w].classList.remove('on');
   if (!window.__ljAgree) {
     window.__ljAgree = true;
     var sent = '';

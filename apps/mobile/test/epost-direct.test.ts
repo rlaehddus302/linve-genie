@@ -2,7 +2,7 @@
 // 스크립트는 우체국 화면과 같은 칸 이름·함수(genAmtForm, setCommOpenerMemAddress, getWishDay·getWishTime, #fncRegFile, setGridRowsToAddressFile)를 가진 시험 화면에서 돌린다.
 // [신청]·결제·비밀번호는 건드리지 않고, 보내는 요청은 우체국 [파일(주소) 등록] 창이 보내던 세 요청뿐이어야 한다.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { splitPhone, type EpostKit } from '../src/epost/kit.ts'
+import { EPOST_DESKTOP_AGENT, splitPhone, type EpostKit } from '../src/epost/kit.ts'
 import { hasName, invoiceCandidates, matchInvoices } from '../src/epost/match.ts'
 import { COUNTER_AGREE_SCRIPT, ROWS_SCRIPT, counterFillScript, visitFillScript } from '../src/epost/scripts.ts'
 
@@ -254,6 +254,14 @@ describe('들고 가기(창구소포 간편사전접수) 화면 자동 채우기
   })
 })
 
+describe('앱 안 우체국 화면은 컴퓨터 사파리처럼 연다 (D-UX3-65)', () => {
+  it('우체국 휴대폰 넘김 규칙(pageRedirect.js의 isMobile)에 걸리지 않는 이름', () => {
+    const isMobile = /iphone|ipod|android|blackberry|rim|galaxy|android|windows ce|windows mobile|lg|mot|samsung|sonyericsson|htc|sky/i
+    expect(isMobile.test(EPOST_DESKTOP_AGENT.toLowerCase())).toBe(false)
+    expect(EPOST_DESKTOP_AGENT).toContain('Safari')
+  })
+})
+
 describe('들고 가기 동의 화면 (D-UX3-40)', () => {
   function agreePage() {
     document.body.innerHTML = '<input type="checkbox" id="allAgree" /><input type="checkbox" id="agree1" /><input type="checkbox" id="agree2" /><input type="password" id="guest_orderpw" /><input type="password" id="guest_orderpw2" />'
@@ -287,6 +295,13 @@ describe('들고 가기 동의 화면 (D-UX3-40)', () => {
     window.eval(COUNTER_AGREE_SCRIPT)
     pw.dispatchEvent(new Event('input'))
     expect(calls.next).toBe(1)
+  })
+
+  it('펼쳐진 약관 글 상자는 접어 비밀번호 칸·[다음]이 바로 보이게 한다 (D-UX3-65)', () => {
+    agreePage()
+    document.body.insertAdjacentHTML('beforeend', '<div class="agree_wrap on" id="w1"></div><div class="agree_wrap on" id="w2"></div>')
+    window.eval(COUNTER_AGREE_SCRIPT)
+    expect(['w1', 'w2'].map((id) => document.getElementById(id)!.className)).toEqual(['agree_wrap', 'agree_wrap'])
   })
 
   it('동의 칸이 없으면 PAGE', () => {

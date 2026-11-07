@@ -33,6 +33,12 @@ export const EPOST_VISIT_PAGE = 'https://parcel.epost.go.kr/general.RetrieveGene
 /** 창구소포 간편사전접수 — 판매자가 우체국에 들고 가서 창구에서 결제 (비회원은 동의·조회용 비밀번호 4자리를 판매자가 넣는다) */
 export const EPOST_COUNTER_PAGE = 'https://service.epost.go.kr/front.commonpostplus.ParcelRetrieveAcceptPlus.postal?gubun=2'
 
+/**
+ * 앱 안 우체국 화면은 컴퓨터 사파리처럼 연다 (D-UX3-65). 우체국 사이트는 아이폰을 알아보면 들고 가기 동의 화면을 휴대폰 전용 화면(m.epost.go.kr)으로 넘기는데,
+ * 그 화면은 칸 이름·흐름이 달라 라이브찜이 동의 체크·입력을 할 수 없다 — 자동 채우기는 컴퓨터 화면 기준이다.
+ */
+export const EPOST_DESKTOP_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'
+
 /** 전화번호 숫자 → 세 칸 (02는 두 자리 지역번호). 휴대전화(01x)인지 */
 export function splitPhone(digits: string): { readonly mobile: boolean; readonly parts: readonly [string, string, string] } | null {
   const d = digits.replace(/[^0-9]/g, '')

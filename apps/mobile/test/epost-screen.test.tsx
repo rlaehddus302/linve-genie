@@ -106,6 +106,17 @@ describe('EpostScreen (앱 안 우체국 화면)', () => {
     expect(screen.getByText(/1명은 우편번호나 연락처가 맞지 않아 넣지 못했어요/)).toBeTruthy()
   })
 
+  it('우체국이 휴대폰 전용 화면으로 넘기거나 동의 칸을 못 찾으면 직접 하라고 알린다 (D-UX3-65)', async () => {
+    const { w } = world()
+    render(w.wrap(<EpostScreen date="2026-10-29" kind="COUNTER" onBack={() => undefined} />))
+    await waitFor(() => expect(web.props).not.toBeNull())
+    act(() => web.props!.onLoaded('https://m.epost.go.kr/postal/mobile/mobile.RetrieveAcceptRn.postal?ctype=c2'))
+    expect(screen.getByText(/우체국 화면이 달라 라이브찜이 채우지 못했어요/)).toBeTruthy()
+    act(() => web.props!.onLoaded('https://service.epost.go.kr/front.commonpostplus.ParcelRetrieveAcceptPlusAgree.postal'))
+    act(() => web.props!.onMessage(JSON.stringify({ type: 'agree', ok: false, reason: 'PAGE' })))
+    expect(screen.getByText(/우체국 화면이 달라 라이브찜이 채우지 못했어요/)).toBeTruthy()
+  })
+
   it('보내는 분 설정이 없으면 바로 넣는 창 → 설정에 저장(PUT sender) → 자료를 다시 받아 지금 화면에 다시 채운다 (D-UX3-40)', async () => {
     const w = makeWorld()
     let kitCalls = 0
