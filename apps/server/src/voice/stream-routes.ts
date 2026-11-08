@@ -7,13 +7,14 @@ import { sellers } from '../db/schema.ts'
 import { apiError } from '../errors.ts'
 import { findBroadcast } from '../store.ts'
 import type { StreamAudioService } from './stream-service.ts'
+import type { HeadlessVoice } from './headless.ts'
 
 export async function sellerStreamAudioOn(db: Db, sellerId: string): Promise<boolean> {
   const rows = await db.select({ on: sellers.streamAudio }).from(sellers).where(eq(sellers.id, sellerId)).limit(1)
   return rows[0]?.on ?? false
 }
 
-export function registerStreamAudioRoutes(api: Hono<Env>, db: Db, service: StreamAudioService): void {
+export function registerStreamAudioRoutes(api: Hono<Env>, db: Db, service: StreamAudioService, heard: HeadlessVoice | null = null): void {
   const settings = async (sellerId: string) => ({ available: service.available, enabled: await sellerStreamAudioOn(db, sellerId) })
   api.get('/settings/stream-audio', async (c) => c.json(await settings(c.get('session').sellerId)))
   api.put('/settings/stream-audio', async (c) => {
@@ -35,6 +36,20 @@ export function registerStreamAudioRoutes(api: Hono<Env>, db: Db, service: Strea
     if (row === null) return missing()
     if (row.endedAt !== null) return c.json(service.available ? { phase: 'ended' } : { phase: 'hidden' })
     return c.json(await service.viewFor(sellerId, row.id))
+  })
+  // D-LV1-14 앱이 없는 동안 서버가 들은 말·한 일 (메모리, 최근 300줄). 앱이 다 보면 지운다
+  api.get('/broadcasts/:b/stream-audio/heard', async (c) => {
+    const sellerId = c.get('session').sellerId
+    const row = await broadcastOf(sellerId, c.req.param('b'))
+    if (row === null) return missing()
+    return c.json(heard === null ? { entries: [], pending: [] } : heard.view(sellerId, row.id))
+  })
+  api.post('/broadcasts/:b/stream-audio/heard/clear', async (c) => {
+    const sellerId = c.get('session').sellerId
+    const row = await broadcastOf(sellerId, c.req.param('b'))
+    if (row === null) return missing()
+    heard?.clear(sellerId, row.id)
+    return c.json({ entries: [], pending: [] })
   })
   for (const op of ['watch', 'restart'] as const) {
     api.post(`/broadcasts/:b/stream-audio/${op}`, async (c) => {

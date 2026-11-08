@@ -45,6 +45,8 @@ export type LogCode =
   | 'STREAM_AUDIO_PROXY_IGNORED'
   | 'STREAM_AUDIO_UNSUPPORTED'
   | 'STREAM_AUDIO_NO_CONSOLE'
+  | 'STREAM_AUDIO_SERVER_READING'
+  | 'STREAM_AUDIO_SERVER_READING_FAILED'
   | 'STREAM_AUDIO_STOPPED'
   | 'ENGINE_FAILED'
   | 'REPLAY_SKIPPED'
@@ -224,6 +226,8 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   STREAM_AUDIO_PROXY_IGNORED: '방송 소리 프록시 값이 이 기계 안 주소가 아니라 쓰지 않았어요',
   STREAM_AUDIO_UNSUPPORTED: '소리를 받을 수 없는 방송이에요',
   STREAM_AUDIO_NO_CONSOLE: '방송 소리 글을 넘길 콘솔 연결이 없어요',
+  STREAM_AUDIO_SERVER_READING: '앱이 없어 방송 소리 글을 서버가 직접 읽고 등록해요',
+  STREAM_AUDIO_SERVER_READING_FAILED: '방송 소리 글을 서버가 읽을 준비를 하지 못했어요',
   STREAM_AUDIO_STOPPED: '방송 소리 듣기가 여러 번 끊겨 멈췄어요',
   ENGINE_FAILED: '엔진이 처리하지 못한 입력을 실패로 표시하고 건너뛰었어요',
   REPLAY_SKIPPED: '다시 불러오는 중 처리하지 못한 입력을 건너뛰었어요',

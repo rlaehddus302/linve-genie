@@ -36,7 +36,7 @@ export const STREAM_AUDIO_CONSENT = `방송 소리를 ${SERVICE_NAME} 받아쓰�
 /** 초저지연 안내 (D-LV1-10, AC-LV1-13) — 설정 칸·첫 안내 창 */
 export const STREAM_AUDIO_LOW_LATENCY = "유튜브 방송 설정에서 지연 시간을 '초저지연'으로 하면 더 빨리 등록돼요."
 export const STREAM_AUDIO_SETTING_LABEL = '방송 소리로 듣기'
-export const STREAM_AUDIO_SETTING_HELP = '켜 두면 방송 주소만 이어도 콘솔이 열려 있는 동안 방송 소리를 듣고 상품을 등록해요. 휴대폰 마이크를 켜면 마이크가 대신 들어요.'
+export const STREAM_AUDIO_SETTING_HELP = '켜 두면 방송 화면을 한 번 연 뒤로는 앱을 닫아도 방송이 끝날 때까지 방송 소리를 듣고 상품을 등록해요. 휴대폰 마이크를 켜면 마이크가 대신 들어요.'
 
 export type StreamAudioTone = 'ok' | 'warn' | 'danger' | 'info'
 

@@ -612,3 +612,70 @@ describe('D-UX3-16 틱톡 라이브 소리 (yt-dlp, 프록시 없이)', () => {
     expect(asked).toEqual([])
   })
 })
+
+describe('D-LV1-14 앱 없이 서버가 방송 소리를 읽고 등록 (사용자 지시 2026-11-08)', () => {
+  async function practice() {
+    const database = await openTestDb()
+    const fake = new FakeBroadcastAudio(database.db)
+    const logs: LogRecord[] = []
+    const live = startServer(database, generateMasterKey(), { transcribeWorkerToken: TOKEN, log: (record) => logs.push(record), streamAudio: { on: true, feed: fake, locate: async () => ({ kind: 'ok', url: 'fake:live' }) } })
+    worlds.push(live)
+    const server = createNodeServer({ app: live.server.app })
+    servers.push(server)
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw new Error('주소 없음')
+    const url = `ws://127.0.0.1:${address.port}`
+    const w = startMockWorker({ url: `${url}/api/voice/worker`, token: TOKEN })
+    cleanups.push(() => w.close())
+    await waitFor(() => live.server.voice.status().workers === 1)
+    const seller = await addSeller(live)
+    const b = await createBroadcast(live, seller)
+    return { live, url, seller, b, logs }
+  }
+  const products = async (world: TestServer, cookie: string, date: string) =>
+    ((await client(world, cookie).get(`/api/days/${date}`)).body.products as { no: number; name: string; price: number }[]).map((p) => ({ no: p.no, name: p.name, price: p.price }))
+  const heard = async (world: TestServer, cookie: string, b: string) => (await client(world, cookie).get(`/api/broadcasts/${b}/stream-audio/heard`)).body as { entries: { kind: string; text?: string; no?: number; price?: number }[]; pending: string[] }
+
+  it('앱(콘솔)이 없으면 서버가 "15번 핑크프릴 이만 원"을 읽어 바로 등록하고, 앱이 돌아오면 들은 말·등록한 상품을 보여 준다. 글은 로그에 없다', async () => {
+    const { live, seller, b, logs } = await practice()
+    // 앱이 방송 화면을 한 번 열었다(watch) — 그 뒤 앱은 없다
+    await watch(live, seller.cookie, b.id)
+    await waitFor(async () => (await products(live, seller.cookie, b.date)).some((p) => p.no === 15), 10_000)
+    expect(await products(live, seller.cookie, b.date)).toContainEqual({ no: 15, name: '핑크프릴', price: 20_000 })
+    const view = await heard(live, seller.cookie, b.id)
+    expect(view.entries).toContainEqual(expect.objectContaining({ kind: 'heard', text: PRACTICE_SPEECH }))
+    expect(view.entries).toContainEqual(expect.objectContaining({ kind: 'registered', no: 15, price: 20_000 }))
+    expect(logs.some((record) => record.code === 'STREAM_AUDIO_SERVER_READING')).toBe(true)
+    expect(JSON.stringify(logs)).not.toContain(PRACTICE_SPEECH)
+    // 앱이 다 봤다 — 지운다
+    expect((await client(live, seller.cookie).post(`/api/broadcasts/${b.id}/stream-audio/heard/clear`, {})).body).toEqual({ entries: [], pending: [] })
+    expect((await heard(live, seller.cookie, b.id)).entries).toEqual([])
+  })
+
+  it('앱(콘솔)이 받으면 서버는 등록하지 않는다 — 등록은 앱이 한다(한 곳에서만)', async () => {
+    const { live, url, seller, b } = await practice()
+    const consoleFlow = device(url, seller.cookie, b.id, 'consolepc01', false)
+    await consoleFlow.message('ready')
+    consoleFlow.send({ type: 'voice.session', op: 'hello', context: { now: live.clock.now(), dialogOpen: false, smsAutoAllowed: true, consent: true } })
+    await watch(live, seller.cookie, b.id)
+    await consoleFlow.matching((value) => value.type === 'voice.effect' && value.method === 'register')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(await products(live, seller.cookie, b.date)).toEqual([])
+    expect((await heard(live, seller.cookie, b.id)).entries).toEqual([])
+  })
+
+  it('콘솔 신호가 끊겨도(앱을 닫음) 흐름을 닫지 않고 듣는다 — 마지막 신호 뒤 12시간이 지나야 닫는다', async () => {
+    const { world, feed, seller, b } = await (async () => { const s = await setup(); const seller = await addSeller(s.world); const b = await createBroadcast(s.world, seller); return { ...s, seller, b } })()
+    await watch(world, seller.cookie, b.id)
+    await waitFor(() => feed.sink !== undefined)
+    world.clock.advance(60_000)
+    world.server.streamAudio.sweep()
+    expect(feed.sinks).toHaveLength(1)
+    expect(world.server.streamAudio.status().listening).toBe(1)
+    world.clock.advance(12 * 60 * 60 * 1000)
+    world.server.streamAudio.sweep()
+    expect(feed.sinks).toHaveLength(0)
+  })
+})

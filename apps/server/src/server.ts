@@ -9,9 +9,10 @@
 //   deposits.testMode(가짜 원천·시험용 입금 넣기)는 E2E 기동만 켠다 — 운영 기동은 production.ts가 늘 끈다(D-N3-12).
 // N4a: 라벨 기능 켬/끔 알림(labels)을 허브에 잇는다.
 import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
+import { HeadlessVoice } from './voice/headless.ts'
 import { VoiceAliases } from './voice/aliases.ts'
 import { VoiceVarieties } from './voice/varieties.ts'
-import { VoiceRelay, registerVoiceRelay } from './voice/relay.ts'
+import { VoiceRelay, registerVoiceRelay, type VoiceRelayOptions } from './voice/relay.ts'
 import { FfmpegAudioFeed, ffmpegAvailable, notLiveBackoff, webStreamLocator, ytDlpResolver, ytDlpTiktokResolver, type AudioFeed, type MediaProxySetting, type StreamLocator } from './voice/stream-audio.ts'
 import { StreamAudioService } from './voice/stream-service.ts'
 import { sellerStreamAudioOn } from './voice/stream-routes.ts'
@@ -433,7 +434,11 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const streamResolve = streamSetting?.ytDlpPath === undefined ? null : ytDlpResolver(streamSetting.ytDlpPath, undefined, mediaProxy)
   // 틱톡 라이브 소리 (D-UX3-16): 프록시 없이 바로. 라이브 시작 전에는 15초마다만 묻는다
   const tiktokResolve = streamSetting?.ytDlpPath === undefined ? null : notLiveBackoff(ytDlpTiktokResolver(streamSetting.ytDlpPath), () => clock.now())
+  // D-LV1-14 앱 없이 서버가 방송 소리를 읽고 등록 — 읽기는 앱과 같은 서버 읽기 세션, 등록은 같은 기록 경로 (service·writer는 아래에서 만든다 — 부를 때 쓴다)
+  const readVoice: NonNullable<VoiceRelayOptions['reading']> = (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, varieties: voiceVarieties, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context)
+  const serverReading = new HeadlessVoice({ reading: readVoice, service: { writeEvent: (...args) => service.writeEvent(...args) }, clock, log })
   const streamAudio = new StreamAudioService({
+    serverReading,
     available: streamSetting?.on === true && streamFeed !== null,
     feed: streamFeed ?? { open: (_url, sink) => { queueMicrotask(() => sink.fail()); return { close: () => {} } } },
     locate: streamSetting?.locate ?? ((sellerId, b) => webStreamLocator(db, youtube?.web ?? null, { resolve: streamResolve, tiktok: tiktokResolve, log })(sellerId, b)),
@@ -443,7 +448,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     warmHint: (sellerId) => voiceVarieties.warm(sellerId),
     ...(streamSetting?.schedule === undefined ? {} : { schedule: streamSetting.schedule }),
   })
-  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), hint: (sellerId) => voiceVarieties.hint(sellerId), warmHint: (sellerId) => voiceVarieties.warm(sellerId), reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, varieties: voiceVarieties, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
+  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), hint: (sellerId) => voiceVarieties.hint(sellerId), warmHint: (sellerId) => voiceVarieties.warm(sellerId), reading: readVoice, ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
   let print: PrintService | null = null
   let writerRef: ScopeWriter | null = null
   const billing = new BillingService({
@@ -804,7 +809,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       voiceAliases,
       voiceVarieties,
       voiceDoubts: { db, clock },
-      streamAudio: { db, service: streamAudio },
+      streamAudio: { db, service: streamAudio, heard: serverReading },
       billing,
       instagram: instagramModule,
       tiktok: { db, live: tiktokLive, paste },
@@ -915,6 +920,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     stop,
     close: () => {
       streamAudio.close()
+      serverReading.close()
       voice.close()
       service.generators.closeAll()
       printService.close()

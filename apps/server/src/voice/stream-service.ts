@@ -1,4 +1,5 @@
-// LV1 방송 소리로 듣기 (VOC-08): 콘솔이 열려 있는 동안(watch 신호) 그 방송의 소리를 받아 일꾼에 넣고, 받아쓴 글은 그 방송 콘솔의 읽기로 넘긴다.
+// LV1 방송 소리로 듣기 (VOC-08): 콘솔이 한 번 열리면(watch 신호) 그 방송의 소리를 받아 일꾼에 넣고, 받아쓴 글은 그 방송 콘솔의 읽기로 넘긴다.
+// D-LV1-14: 콘솔(앱)이 닫혀도 방송이 끝날 때까지 듣는다 — 받을 콘솔이 없으면 서버 읽기(HeadlessVoice)가 읽고 등록한다. 마지막 watch 뒤 12시간이면 닫는다(잊힌 흐름).
 // 판매자 하나에 흐름 하나 — 휴대폰 마이크가 켜지면 쉬고, 꺼지면 돌아온다(D-LV1-06). 소리·글은 메모리에서만(로그·DB 없음).
 import type { Clock } from '../time.ts'
 import type { LogSink } from '../log.ts'
@@ -9,8 +10,17 @@ export type StreamAudioPhase = 'hidden' | 'off' | 'idle' | 'listening' | 'reconn
 /** late = lagMs가 30초를 넘음 (늦음 안내를 보일 때, D-LV1-10) */
 export interface StreamAudioView { readonly phase: StreamAudioPhase; readonly lagMs?: number; readonly late?: boolean }
 
-/** 콘솔 열림 신호가 이만큼 끊기면 콘솔이 닫힌 것으로 본다 (콘솔은 10초마다 보낸다) */
+/** 콘솔 열림 신호가 이만큼 끊기면 콘솔이 닫힌 것으로 본다 (콘솔은 10초마다 보낸다) — 다른 방송으로 바꿀 때 */
 export const WATCH_TTL_MS = 25_000
+/** 콘솔이 닫혀도 이만큼은 듣는다 (D-LV1-14 — 방송 끝·유튜브 끝이 먼저 오는 것이 보통, 이건 잊힌 흐름을 닫는 상한) */
+export const UNWATCHED_MAX_MS = 12 * 60 * 60 * 1000
+
+/** 앱 없이 서버가 읽기 (D-LV1-14) */
+export interface ServerReading {
+  deliver(sellerId: string, broadcastId: string, result: { text: string; startAt: number; endAt: number; conf?: number }): void
+  release(sellerId: string): void
+  endBroadcast(sellerId: string, broadcastId: string): void
+}
 
 export interface StreamAudioServiceOptions {
   readonly available: boolean
@@ -22,6 +32,8 @@ export interface StreamAudioServiceOptions {
   /** D-V3-127 받아쓰기 힌트는 중계가 open에 싣는다 — 흐름을 열기 전에 장부를 읽어 둔다 */
   readonly warmHint?: (sellerId: string) => Promise<void>
   readonly schedule?: (run: () => void, ms: number) => () => void
+  /** 받을 콘솔이 없을 때 서버가 읽고 등록 (D-LV1-14). 없으면 지금처럼 버린다 */
+  readonly serverReading?: ServerReading
 }
 
 interface Listen {
@@ -127,6 +139,7 @@ export class StreamAudioService {
   }
   /** 판매자 설정 끔 */
   stopSeller(sellerId: string): void {
+    this.#o.serverReading?.release(sellerId)
     const listen = this.#listens.get(sellerId)
     if (listen === undefined) return
     this.#listens.delete(sellerId)
@@ -134,18 +147,21 @@ export class StreamAudioService {
   }
   /** 방송 끝 (D-LV1-05) */
   endBroadcast(sellerId: string, broadcastId: string): void {
+    this.#o.serverReading?.endBroadcast(sellerId, broadcastId)
     const listen = this.#listens.get(sellerId)
     if (listen === undefined || listen.broadcastId !== broadcastId) return
     this.#stop(listen)
     listen.phase = 'ended'
   }
-  /** 콘솔이 닫힌 흐름을 닫는다 */
+  /** 잊힌 흐름을 닫는다: 서버 읽기가 없으면 콘솔이 닫힌 흐름(옛 동작), 있으면 마지막 콘솔 뒤 12시간 (D-LV1-14) */
   sweep(): void {
     const now = this.#o.clock.now()
+    const keep = this.#o.serverReading === undefined ? 0 : UNWATCHED_MAX_MS
     for (const listen of [...this.#listens.values()]) {
-      if (listen.watchedUntil > now) continue
+      if (listen.watchedUntil + keep > now) continue
       this.#listens.delete(listen.sellerId)
       this.#stop(listen)
+      this.#o.serverReading?.release(listen.sellerId)
     }
   }
   status(): { listening: number } {
@@ -264,10 +280,19 @@ export class StreamAudioService {
     if (!this.#live(listen, generation) || this.#relay === null) return
     const now = this.#o.clock.now()
     const endAt = Math.min(listen.base + result.endMs, now)
-    const delivered = this.#relay.deliver(listen.sellerId, listen.broadcastId, { text: result.text, startAt: Math.min(listen.base + result.startMs, endAt), endAt, ...(result.conf === undefined ? {} : { conf: result.conf }) })
-    if (!delivered && !listen.delivered) {
-      listen.delivered = true
-      this.#o.log({ level: 'info', code: 'STREAM_AUDIO_NO_CONSOLE', seller: listen.sellerId })
+    const text = { text: result.text, startAt: Math.min(listen.base + result.startMs, endAt), endAt, ...(result.conf === undefined ? {} : { conf: result.conf }) }
+    const delivered = this.#relay.deliver(listen.sellerId, listen.broadcastId, text)
+    const reading = this.#o.serverReading
+    // 앱이 받았으면 서버 읽기는 닫는다(두 곳에서 등록하지 않게). 받을 앱이 없으면 서버가 읽고 등록한다 (D-LV1-14)
+    if (delivered) {
+      reading?.release(listen.sellerId)
+      listen.delivered = false
+    } else {
+      reading?.deliver(listen.sellerId, listen.broadcastId, text)
+      if (!listen.delivered) {
+        listen.delivered = true
+        this.#o.log({ level: 'info', code: reading === undefined ? 'STREAM_AUDIO_NO_CONSOLE' : 'STREAM_AUDIO_SERVER_READING', seller: listen.sellerId })
+      }
     }
   }
   /** 끊김: 소리는 버리고(따라잡지 않음) 1·2·4·8초 뒤 다시, 60초 안 여섯 번째면 멈춤 */
