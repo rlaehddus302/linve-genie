@@ -12,24 +12,26 @@ import type { VoiceSession, VoiceView } from '../../lib/voice-session.ts'
 import { Icon, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { listenState } from './VoicePanel.tsx'
-import { BigButton, Body, Card, Hint, Notice } from '../../ui/parts.tsx'
+import { BigButton, Body, Card, Hint } from '../../ui/parts.tsx'
 import type { StreamKeep } from '../../lib/stream-keep.ts'
 
 const POLL_MS = 1000
 const WATCH_MS = 10_000
-const TONE = { ok: 'success', warn: 'warning', danger: 'danger', info: 'info' } as const
 
 export const streamAudioPath = (broadcastId: string): string => `/api/broadcasts/${encodeURIComponent(broadcastId)}/stream-audio`
 /** 서버가 듣고 있거나 들으려는 상태 — 이때만 받아쓴 글을 받을 연결을 열어 둔다 */
 export const holdsStream = (status: StreamAudioStatus | null): boolean => status !== null && ['idle', 'listening', 'reconnecting'].includes(status.phase)
 
-/** 받아쓴 글 그대로 — 해석(번호·가격) 문장은 카드에만. 새 줄이 아래, 지난 줄은 남겨 둔다 */
-export function Transcript({ lines }: { readonly lines: readonly string[] }) {
+/** 받아쓴 글 그대로 — 해석(번호·가격) 문장은 카드에만. 새 줄이 아래, 지난 줄은 남겨 둔다. small: 들린 말 카드처럼 모든 줄을 작은 글자 한 크기로 (D-UX3-76) */
+export function Transcript({ lines, small = false }: { readonly lines: readonly string[]; readonly small?: boolean }) {
   return (
     <View aria-label="들린 말" role="log" style={{ gap: 2 }}>
-      {lines.length === 0 ? <Hint>아직 들린 말이 없어요.</Hint> : lines.map((line, index) => (
-        index === lines.length - 1 ? <Body key={`${String(index)}:${line}`} bold>{line}</Body> : <Hint key={`${String(index)}:${line}`}>{line}</Hint>
-      ))}
+      {lines.length === 0 ? <Hint>아직 들린 말이 없어요.</Hint> : lines.map((line, index) => {
+        const key = `${String(index)}:${line}`
+        const last = index === lines.length - 1
+        if (small) return <Txt key={key} step="caption" color={last ? undefined : 'textSub'} weight={last ? 'bold' : undefined}>{line}</Txt>
+        return last ? <Body key={key} bold>{line}</Body> : <Hint key={key}>{line}</Hint>
+      })}
     </View>
   )
 }
@@ -174,13 +176,16 @@ export function ServerHeard({ broadcastId }: { readonly broadcastId: string }) {
 }
 
 /**
- * 들린 말 한 줄 (D-LIVETEST-07): 평소엔 마지막으로 들린 말 한 줄만 — 누르면 최근 줄·듣는 곳 상태·다시 켜기를 펼친다.
- * 상태 문장은 머리 오른쪽 듣기 상태와 겹쳐 펼쳤을 때만 보인다(D-UX3-72). 다시 켜기·휴대폰 마이크는 방송 메뉴(⋯)에만 있다(D-UX3-73).
+ * 들린 말 한 줄 (D-LIVETEST-07): 평소엔 마지막으로 들린 말 한 줄만 — 오른쪽 ⌄를 누르면 최근 줄을 펼친다.
+ * D-UX3-76(사용자 지시 2026-11-09): 펼치기·접기 글자 대신 ⌄/⌃ 아이콘, 펼치면 흰 바탕이 늘어나 들린 말까지 한 카드에 담고, 글자는 모두 caption 한 크기.
+ * 듣는 곳 상태 문장("방송 소리로 듣는 중" 등)은 머리 오른쪽 듣기 상태와 겹쳐 없앴다 — 늦음 안내만 펼쳤을 때 남긴다(머리에 없는 말).
+ * 다시 켜기·휴대폰 마이크는 방송 메뉴(⋯)에만 있다(D-UX3-73).
  */
 export function ListenLine({ session, broadcastId, stream }: { readonly session: VoiceSession; readonly broadcastId: string; readonly stream: StreamAudio }) {
   const { p } = useKit()
   const view = useSyncExternalStore(session.subscribe, session.getView)
   const [open, setOpen] = useState(false)
+  const [pressed, setPressed] = useState(false)
   const micOn = view.on && view.broadcastId === broadcastId
   const serverHeard = <ServerHeard broadcastId={broadcastId} />
   const line = streamAudioLine(stream.status, micOn)
@@ -190,17 +195,17 @@ export function ListenLine({ session, broadcastId, stream }: { readonly session:
   return (
     <View style={{ gap: 6 }}>
       {serverHeard}
-      <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surface })}>
-        <Icon name="mic" size={16} color={hearing ? p.primaryText : p.textSub} />
-        <View role="status" aria-label="지금 들리는 말" style={{ flex: 1 }}>
-          <Txt step="caption" numberOfLines={1} color={last === null ? 'textSub' : undefined}>{hearing ? (last ?? '아직 들린 말이 없어요.') : (line?.text ?? '')}</Txt>
-        </View>
-        <Txt step="caption" color="textSub">{open ? '접기' : '펼치기'}</Txt>
-      </Pressable>
-      {open && hearing ? <Transcript lines={view.transcript} /> : null}
-      {/* 상태 문장은 펼쳤을 때만 — 접혀 있으면 머리 오른쪽 듣기 상태가 같은 말을 보인다 (D-UX3-72) */}
-      {open && line !== null ? <Notice tone={TONE[line.tone]} alert={line.tone === 'danger'}>{line.text}</Notice> : null}
-      {open && line?.late != null ? <Hint>{line.late}</Hint> : null}
+      <View style={{ borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surface, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, gap: SPACE.xs }}>
+        <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)} onPressIn={() => setPressed(true)} onPressOut={() => setPressed(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+          <Icon name="mic" size={16} color={hearing ? p.primaryText : p.textSub} />
+          <View role="status" aria-label="지금 들리는 말" style={{ flex: 1 }}>
+            <Txt step="caption" numberOfLines={1} color={last === null ? 'textSub' : undefined}>{hearing ? (last ?? '아직 들린 말이 없어요.') : (line?.text ?? '')}</Txt>
+          </View>
+          <Icon name={open ? 'up' : 'down'} size={16} color={p.textSub} />
+        </Pressable>
+        {open && hearing ? <Transcript lines={view.transcript} small /> : null}
+        {open && line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
+      </View>
     </View>
   )
 }
