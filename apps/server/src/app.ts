@@ -31,6 +31,8 @@ export interface AppOptions {
   readonly inbox?: (app: Hono) => void
   /** 구매자 확인서 링크 화면 `/r/<토큰>` (N4b — 로그인·Origin 검사 밖, 화면 문서보다 먼저) */
   readonly receiptPage?: (app: Hono) => void
+  /** 화면 일꾼 입구 `POST /internal/screen/register` (D-SCR-01 — 로그인·Origin 검사 밖, 일꾼 토큰으로만) */
+  readonly screen?: (app: Hono) => void
 }
 
 /** 모든 응답의 보안 머리글 (AC-I3-71) */
@@ -131,6 +133,7 @@ export function createApp(options: AppOptions = {}): Hono {
   }
 
   options.inbox?.(app)
+  options.screen?.(app)
   if (options.api !== undefined) app.route('/api', createApi(options.api))
   if (options.webhooks !== undefined) app.route('/webhooks', options.webhooks)
   if (options.extension !== undefined) app.route('/ext', options.extension)

@@ -64,6 +64,7 @@ import { recordPlatformChats } from './platform-record.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { registerInboxIntake } from './inbox/routes.ts'
+import { registerScreenIntake } from './screen/routes.ts'
 import { BuyerInfoService } from './inbox/buyer-info-service.ts'
 import { InboxService } from './inbox/service.ts'
 import { ParcelService, type ParcelOptions } from './parcel/service.ts'
@@ -112,6 +113,8 @@ export interface ServerOptions {
   /** 이력 저장소 관측/장애 시험 포트. 운영 기동은 제공하지 않는다. */
   readonly voiceHistoryObserver?: VoiceHistoryObserver
   readonly transcribeWorkerToken?: string
+  /** 화면 일꾼 토큰 (LIVEJJIM_SCREEN_WORKER_TOKEN, 32자 이상 — 없으면 /internal/screen/register는 404, D-SCR-01) */
+  readonly screenWorkerToken?: string
   /**
    * 방송 소리로 듣기 (LV1, D-LV1-08). 없으면 꺼짐. `on: false`는 운영자 끔(LIVEJJIM_STREAM_AUDIO=off).
    * feed를 주지 않으면 ffmpeg를 쓰고, 없으면 시작 기록 한 줄 남기고 꺼진 것처럼. locate를 주지 않으면 유튜브 웹 방송 페이지의 HLS 주소
@@ -383,6 +386,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   }
 
   if (options.opsToken !== undefined && options.opsToken.trim().length < 32) throw new TypeError('운영 토큰은 32자 이상이어야 해요.')
+  if (options.screenWorkerToken !== undefined && options.screenWorkerToken.trim().length < 32) throw new TypeError('화면 일꾼 토큰은 32자 이상이어야 해요.')
   if (options.webDir !== undefined && webDirProblem(options.webDir) !== null) throw new TypeError('화면 폴더에 index.html이 없어요.')
   const readyTimeoutMs = options.readyTimeoutMs ?? READY_TIMEOUT_MS
 
@@ -846,6 +850,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     webhooks: createWebhookApp(instagramModule),
     inbox: (app) =>
       registerInboxIntake(app, inbox, log, { clock, trustedProxies, address: connectionAddress, ...(options.inbox?.authLimits === undefined ? {} : { authLimits: options.inbox.authLimits }) }),
+    screen: (app) => registerScreenIntake(app, { token: options.screenWorkerToken === undefined ? null : options.screenWorkerToken.trim(), db, service }),
     receiptPage: (app) => {
       registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer, ledger })
       // KP1 공개 방송 일정 페이지 /s/<토큰> (화면 문서보다 먼저)
