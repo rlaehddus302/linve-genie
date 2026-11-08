@@ -4,7 +4,7 @@
 import type { PGlite } from '@electric-sql/pglite'
 import { afterAll, describe, expect, it } from 'vitest'
 import { formatLog } from '../src/log.ts'
-import type { ProviderId } from '../src/social/providers.ts'
+import type { CoveredProvider as ProviderId } from '../src/social/fake-oauth.ts'
 import { addSeller, client } from './support.ts'
 import { ALL_PROVIDERS, approve, cookieValue, newSocialWorld, openCallback, resultOf, startFlow, type SocialWorld } from './l1-support.ts'
 import { dumpText } from './youtube-support.ts'
@@ -60,7 +60,7 @@ describe('AC-L1-09 비밀 보호', () => {
       expect((await flow(provider, user.id)).result.login).toBe('PROVIDER_ERROR')
       // 연결 안 된 표시 계정·이미 다른 판매자
       const stranger = w.fake.addUser(provider, { id: `ID-SENTINEL-x-${provider}`, email: 'email-sentinel-x@example.com' })
-      expect((await flow(provider, stranger.id)).result.login).toBe('NOT_LINKED')
+      expect((await flow(provider, stranger.id)).result.login).toBe('SIGNUP')
       const unlink = await client(w, seller.cookie).post('/api/auth/unlink', { provider })
       responses.push(unlink.text)
     }

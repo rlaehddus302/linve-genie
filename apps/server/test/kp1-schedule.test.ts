@@ -130,19 +130,13 @@ describe('AC-KP1-20 일정 적기 경로', () => {
     expect((await api.put(`/api/schedule/items/${old[0] as string}`, item('2026-11-25', '20:00'))).status).toBe(404)
   })
 
-  it('AC-KP1-26 일정·알림 수 경로: 로그인 없음 401, 보조자 403, 다른 판매자 일정 404', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('AC-KP1-26 일정·알림 수 경로: 로그인 없음 401, 다른 판매자 일정 404', async () => {
     const { world: w, seller } = await world()
     const view = (await expectOk(client(w, seller.cookie).post('/api/schedule/items', item('2026-11-07', '20:00')))).body as unknown as View
     const id = (view.items[0] as View['items'][number]).id
     const anonymous = client(w, null)
     for (const response of [await anonymous.get('/api/schedule'), await anonymous.get('/api/schedule/alerts'), await anonymous.post('/api/schedule/items', item('2026-11-08', '20:00'))]) expect(response.status).toBe(401)
-    const created = await expectOk(client(w, seller.cookie).post('/api/assistants', { name: '엄마' }))
-    const assistant = created.body as { assistant: { loginId: string }; password: string }
-    const helper = client(w, await login(w, assistant.assistant.loginId, assistant.password))
-    for (const response of [await helper.get('/api/schedule'), await helper.get('/api/schedule/alerts'), await helper.put('/api/schedule/page', { enabled: true, channelUrl: null }), await helper.post('/api/schedule/items', item('2026-11-08', '20:00'))]) {
-      expect(response.status).toBe(403)
-      expect((response.body.error as { code: string }).code).toBe('ASSISTANT_FORBIDDEN')
-    }
     const other = client(w, (await addSeller(w)).cookie)
     expect((await other.put(`/api/schedule/items/${id}`, item('2026-11-08', '20:00'))).status).toBe(404)
     expect((await other.get('/api/schedule')).body).toMatchObject({ items: [] })

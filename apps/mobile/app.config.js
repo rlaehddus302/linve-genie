@@ -1,7 +1,8 @@
 // app.json 위에 빌드 스위치만 얹는다 (rel/android-build).
 // LIVEGENIE_NOTICE: 휴대폰 알림 받기(문자찜·입금 알림 읽기, packages/mobile-notice).
-//   on 일 때만 켠다. 그 밖(빈 값 포함)은 off — 1차 출시 빌드 기본값.
-//   이유: Play SMS·통화 기록 정책의 "대체 방법으로 문자 데이터 얻기"로 거절될 위험. 정식 출시 뒤 업데이트로 넣는다.
+//   기본 on(D-REAL-02 — D-REL2-01을 바꿈: 출시 빌드부터 손님 문자를 실제로 받는다). off 일 때만 뺀다.
+//   안드로이드는 알림 읽기(문자 권한 아님)로 받고, 켜기 전에 "문자와 은행 앱 알림만 보내요" 안내 한 장을 먼저 보인다.
+//   아이폰은 단축어 자동화가 앱 동작 "라이브지니에 문자 보내기"를 부른다(D-REAL-01).
 //   off면 plugins/with-android-release.js가 알림 읽기 서비스·재부팅 수신기·권한을 매니페스트에서 빼고,
 //   앱은 알림 받기 모듈을 끼우지 않고 설정 화면의 알림 받기 칸을 숨긴다(코드는 그대로).
 //   prebuild와 gradle 빌드(앱 설정이 앱 안에 들어갈 때) 둘 다 같은 값으로 돌려야 한다.
@@ -13,7 +14,7 @@ module.exports = ({ config }) => ({
   ...config,
   extra: {
     ...config.extra,
-    noticeIntake: process.env.LIVEGENIE_NOTICE === 'on' ? 'on' : 'off',
-    smsIntake: process.env.LIVEGENIE_NOTICE === 'on' && process.env.LIVEGENIE_SMS === 'on' ? 'on' : 'off',
+    noticeIntake: process.env.LIVEGENIE_NOTICE === 'off' ? 'off' : 'on',
+    smsIntake: process.env.LIVEGENIE_NOTICE !== 'off' && process.env.LIVEGENIE_SMS === 'on' ? 'on' : 'off',
   },
 })

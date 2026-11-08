@@ -38,8 +38,10 @@ describe('앱 소스에 판정·추출·그리기 코드가 없다 (APP-01 AC3)'
       for (const spec of runtimeImports(source)) {
         if (spec === '@livejjim/core' || spec === '@livejjim/voice' || spec.startsWith('@livejjim/voice/') || spec === '@livejjim/label') throw new Error(`${file}: ${spec}를 실행 코드로 가져온다`)
         if (spec.startsWith('@livejjim/core/')) expect(allowed.has(spec), `${file}: ${spec}`).toBe(true)
+        // 간편 로그인 문구·공급자 목록(D-UX3-28)은 웹 lib/social-login.ts·social-logos.ts — 글·로고 경로와 작은 함수만(client·kst·brand)
+        // 영수증 문자 문구(D-REAL-03·05)는 웹 lib/receipt-sms.ts — 문장·작은 함수만(kst)
         // 웹 모듈 중 코어 전체를 끌어오는 것(lib/words·derive·scope-data·quick…)은 가져오지 않는다
-        if (spec.startsWith('@livejjim/web/')) expect(['@livejjim/web/src/api/client.ts', '@livejjim/web/src/lib/kst.ts', '@livejjim/web/src/lib/app-tab.ts', '@livejjim/web/src/lib/report.ts', '@livejjim/web/src/lib/deposit-words.ts', '@livejjim/web/src/lib/words.ts', '@livejjim/web/src/lib/customers.ts', '@livejjim/web/src/lib/schedule.ts', '@livejjim/web/src/lib/parcel-words.ts', '@livejjim/web/src/lib/packing-words.ts', '@livejjim/web/src/lib/receipt-links.ts', '@livejjim/web/src/lib/assist-words.ts', '@livejjim/web/src/lib/review-pick.ts', '@livejjim/web/src/lib/undo-queue.ts', '@livejjim/web/src/lib/settings-fields.ts', '@livejjim/web/src/lib/shop-words.ts', '@livejjim/web/src/lib/ledger-words.ts', '@livejjim/web/src/lib/save-bar.ts', '@livejjim/web/src/lib/platforms.ts', '@livejjim/web/src/lib/stream-audio.ts'].includes(spec), `${file}: ${spec}`).toBe(true)
+        if (spec.startsWith('@livejjim/web/')) expect(['@livejjim/web/src/api/client.ts', '@livejjim/web/src/lib/kst.ts', '@livejjim/web/src/lib/social-login.ts', '@livejjim/web/src/lib/social-logos.ts', '@livejjim/web/src/lib/app-tab.ts', '@livejjim/web/src/lib/report.ts', '@livejjim/web/src/lib/deposit-words.ts', '@livejjim/web/src/lib/words.ts', '@livejjim/web/src/lib/customers.ts', '@livejjim/web/src/lib/schedule.ts', '@livejjim/web/src/lib/parcel-words.ts', '@livejjim/web/src/lib/packing-words.ts', '@livejjim/web/src/lib/receipt-links.ts', '@livejjim/web/src/lib/receipt-sms.ts', '@livejjim/web/src/lib/assist-words.ts', '@livejjim/web/src/lib/review-pick.ts', '@livejjim/web/src/lib/undo-queue.ts', '@livejjim/web/src/lib/settings-fields.ts', '@livejjim/web/src/lib/shop-words.ts', '@livejjim/web/src/lib/ledger-words.ts', '@livejjim/web/src/lib/save-bar.ts', '@livejjim/web/src/lib/platforms.ts', '@livejjim/web/src/lib/stream-audio.ts', '@livejjim/web/src/lib/import-words.ts'].includes(spec), `${file}: ${spec}`).toBe(true)
       }
     }
   })
@@ -75,6 +77,16 @@ describe('앱 소스에 판정·추출·그리기 코드가 없다 (APP-01 AC3)'
         const text = readFileSync(join(dir, platform, name), 'latin1')
         for (const pattern of [/cohere/i, /whisper/i, /varieties\.ko/i]) expect(pattern.test(text), `${platform}/${name}: ${String(pattern)}`).toBe(false)
       }
+    }
+  })
+})
+
+describe('밀어서 뒤로는 왼쪽 가장자리에서만 (D-UX3-24·58)', () => {
+  it('앱 Stack은 화면 어디서나 밀기를 끄고, 화면마다 다시 켜지 않는다', () => {
+    const layout = readFileSync(join(ROOT, 'app', '_layout.tsx'), 'utf8')
+    expect(layout).toMatch(/<Stack screenOptions=\{\{[^}]*fullScreenGestureEnabled: false/)
+    for (const file of walk(join(ROOT, 'app')).concat(walk(join(ROOT, 'src')))) {
+      expect(readFileSync(file, 'utf8'), file).not.toMatch(/fullScreenGestureEnabled: true|fullScreenSwipeEnabled: true/)
     }
   })
 })

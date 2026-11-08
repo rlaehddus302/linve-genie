@@ -2,8 +2,10 @@
 // 연결 확인하고 라벨 디자인 커스텀 한 다음에 테스트 출력한다음에 본방송으로"): 묻기 → 연결·확인 → 꾸미기(서버 초안 미리 보기) → 테스트 "예" → 출력 기기 → 방송.
 import { B1_PROFILE } from '@livejjim/printer'
 import { defaultTemplate, type ProductTemplate } from '@livejjim/label'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import type { BleDeviceInfo, PickEntry } from '@livejjim/mobile-ble'
 import { describe, expect, it, vi } from 'vitest'
+import { pickDevice, setPickEntries } from '../src/native/printer-pick.ts'
 import { LabelSetupScreen } from '../src/screens/LabelSetupScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { flush } from './support.ts'
@@ -92,6 +94,31 @@ describe('D-UX3-19 방송 시작 라벨 단계', () => {
     world.services.labels.stop()
   })
 
+  // 새 기대 D-UX4-11 (사용자 지시 2026-11-05 "테스트 라벨은 선택적으로 뽑기로"): 테스트 화면 [건너뛰기](왼쪽)·[테스트 인쇄](오른쪽)
+  it('테스트 라벨은 골라서: [건너뛰기]는 뽑지 않고 이 기기를 출력 기기로 하고 방송으로', async () => {
+    const world = labelWorld()
+    const onDone = vi.fn()
+    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
+    const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
+    await waitFor(() => expect(within(connect).getByText('연결됐어요')).toBeTruthy())
+    fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
+    const design = await screen.findByRole('dialog', { name: '라벨 꾸미기' })
+    await within(design).findByRole('group', { name: '번호 설정' })
+    fireEvent.click(within(design).getByRole('button', { name: '저장하고 다음' }))
+    const test = await screen.findByRole('dialog', { name: '테스트 인쇄' })
+    expect(within(test).getByRole('heading', { name: '테스트 라벨을 뽑아 볼까요?' })).toBeTruthy()
+    expect(test.textContent).toContain('뽑아 보면 프린터와 라벨이 잘 맞는지 알 수 있어요.\n테두리와 한글이 있는 테스트 라벨이 한 장 나와요.')
+    expect(within(test).getAllByRole('button').map((button) => button.getAttribute('aria-label')).slice(-2)).toEqual(['테스트 인쇄 없이 방송 시작', '테스트 인쇄'])
+    fireEvent.click(within(test).getByRole('button', { name: '테스트 인쇄 없이 방송 시작' }))
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
+    expect(world.server.callsTo('POST', /\/api\/print\/device$/)[0]?.body).toMatchObject({ name: '내 휴대폰' })
+    expect(world.server.callsTo('GET', /test-bitmap/)).toHaveLength(0)
+    expect(world.ble.printed).toHaveLength(0)
+    world.services.labels.stop()
+  })
+
   it('라벨 기능이 꺼져 있으면 [뽑을게요]가 켠다', async () => {
     const world = labelWorld(false)
     render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={() => {}} />))
@@ -118,7 +145,9 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     return { world, design }
   }
 
-  it('연결 화면: 단추는 [새로고침] 하나, 전원·블루투스 그림, 찾는 동안 주변 프린터 칸', async () => {
+  // 옛 기대 D-UX4-04: 단추는 [새로고침] 하나, 설명 '블루투스가 켜져 있어야 해요.', 그림 '프린터 전원이 켜지고 블루투스로 이어지는 그림'.
+  // 새 기대 D-UX4-10 (사용자 지시 2026-11-05 "새로고침은 어차피 주기적으로 하니까 없애자", "'휴대폰' 블루투스"): 단추 없음, 휴대폰·프린터 그림
+  it('연결 화면: 단추 없음(저절로 다시 찾음), 휴대폰·프린터 그림, 찾는 동안 주변 프린터 칸', async () => {
     const world = labelWorld()
     // 고르기 창을 닫은 것처럼 (찾기를 그만둠)
     const notSelected = { ok: false as const, error: { code: 'NOT_SELECTED' as const, message: '프린터를 고르지 않았어요.' } }
@@ -129,14 +158,64 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
     const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
     await flush()
-    expect(connect.textContent).toContain('프린터 전원을 켜고 휴대폰 가까이 두세요.\n블루투스가 켜져 있어야 해요.')
-    expect(within(connect).getByRole('img', { name: '프린터 전원이 켜지고 블루투스로 이어지는 그림' })).toBeTruthy()
+    expect(connect.textContent).toContain('프린터 전원을 켜고 휴대폰 가까이 두세요.\n휴대폰 블루투스가 켜져 있어야 해요.')
+    expect(within(connect).getByRole('img', { name: '휴대폰 블루투스와 프린터 전원이 켜지고 서로 이어지는 그림' })).toBeTruthy()
     expect(within(connect).getByRole('group', { name: '주변 프린터' })).toBeTruthy()
     expect(within(connect).queryByRole('button', { name: '다시 연결' })).toBeNull()
     expect(within(connect).queryByRole('button', { name: '다른 프린터 찾기' })).toBeNull()
-    expect(within(connect).getByRole('button', { name: '새로고침' })).toBeTruthy()
+    expect(within(connect).queryByRole('button', { name: '새로고침' })).toBeNull()
+    expect(within(connect).queryByRole('button', { name: '다음' })).toBeNull()
     // 그만둔 고르기는 잘못 알림으로 보이지 않는다
     expect(within(connect).queryByRole('alert')).toBeNull()
+    world.services.labels.stop()
+  })
+
+  it('줄을 고르면 다음 화면으로 넘어가지 않고 그 줄에 "연결하는 중…" → "연결됐어요", 이어진 뒤에야 [다음] (D-UX4-10)', async () => {
+    const world = labelWorld()
+    setPickEntries((devices) => devices.map((device): PickEntry => ({ device, title: device.name ?? '', model: 'NIIMBOT', signal: null, experimental: false, detail: 'NIIMBOT' })))
+    let found: ((devices: readonly BleDeviceInfo[]) => void) | null = null
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const realConnect = world.ble.connect.bind(world.ble)
+    // 찾기 → 고르기 → (잠깐 잇는 중) → 이어짐
+    vi.spyOn(world.ble, 'connect').mockImplementation(async (method) => {
+      world.ble.setState('CONNECTING')
+      const device = await pickDevice({ onDevices: (cb) => {
+        found = cb
+        return () => {
+          found = null
+        }
+      } } as Parameters<typeof pickDevice>[0])
+      if (device === null) {
+        world.ble.setState('DISCONNECTED')
+        return { ok: false as const, error: { code: 'NOT_SELECTED' as const, message: '프린터를 고르지 않았어요.' } }
+      }
+      await gate
+      return realConnect(method)
+    })
+    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={() => {}} />))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
+    const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
+    await waitFor(() => expect(found).not.toBeNull())
+    act(() => found?.([{ id: 'd1', name: 'B1-1234' } as BleDeviceInfo, { id: 'd2', name: 'B1-5678' } as BleDeviceInfo]))
+    fireEvent.click(within(connect).getByRole('button', { name: 'B1-1234 — NIIMBOT' }))
+    // 같은 화면: 그림·고른 줄이 그대로, 그 줄에 잇는 중
+    await waitFor(() => expect(within(connect).getByText('연결하는 중…')).toBeTruthy())
+    expect(screen.getByRole('dialog', { name: '프린터 연결' })).toBe(connect)
+    expect(within(connect).getByRole('img', { name: '휴대폰 블루투스와 프린터 전원이 켜지고 서로 이어지는 그림' })).toBeTruthy()
+    expect(within(connect).getByText('B1-1234')).toBeTruthy()
+    expect(within(connect).queryByRole('button', { name: '다음' })).toBeNull()
+    await act(async () => {
+      release()
+      await flush()
+    })
+    await waitFor(() => expect(within(connect).getByText('연결됐어요')).toBeTruthy())
+    expect(within(connect).getByText('B1-1234')).toBeTruthy()
+    fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
+    await screen.findByRole('dialog', { name: '라벨 꾸미기' })
     world.services.labels.stop()
   })
 

@@ -23,10 +23,9 @@ export const IN_APP_SCREENS = [
   { path: '/report', title: '방송 리포트', sub: '매출, 손님, 품종별·시간대별 판매', group: '방송' },
   { path: '/deposits', title: '입금 확인', sub: '은행 입금과 손님 맞추기, 붙여넣기', group: '주문·입금' },
   { path: '/buyers', title: '구매자', sub: '날짜별 구매자, 합치기·떼어 내기·차단', group: '주문·입금' },
-  { path: '/customers', title: '손님', sub: '단골, 입금 늦음, 메모, 저장한 배송지', group: '주문·입금' },
-  { path: '/parcels', title: '택배', sub: '택배 접수, 운송장 PDF, 접수 취소', group: '배송' },
   { path: '/receipts', title: '영수증·판매대장', sub: '구매 내역 확인서 링크·PDF, 판매대장 엑셀', group: '배송' },
-  { path: '/shop-settings', title: '가게 설정', sub: '가게·계좌, 판매 규칙, 배송비, 택배, 손님 관리, 보조자', group: '가게' },
+  { path: '/labels', title: '라벨 프린터', sub: '라벨 켜기·끄기, 프린터 연결, 라벨 꾸미기', group: '가게' },
+  { path: '/shop-settings', title: '가게 설정', sub: '가게·계좌, 판매 규칙, 배송비, 택배, 손님 관리', group: '가게' },
 ] as const
 export const MORE_GROUPS = ['방송', '주문·입금', '배송', '가게'] as const
 export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']
@@ -39,10 +38,7 @@ export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavig
     <View style={{ flex: 1, backgroundColor: p.background }} testID="more-screen">
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.xl, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }}>
         {/* 맨 위: 제목 + 오른쪽 위 설정 (토스 "고객센터 | 설정" 자리) */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: SPACE.xs, marginBottom: SPACE.xs }}>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-            전체
-          </Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingLeft: SPACE.xs, marginBottom: SPACE.xs }}>
           <Pressable role="button" aria-label="설정" onPress={nav.openSettings} hitSlop={6} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <Txt step="bodyLarge" weight="medium" color="textSub">
               설정

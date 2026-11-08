@@ -8,10 +8,13 @@ import { get, isApiError, patch, put } from '../api/client.ts'
 import { openExternal, openWeb } from '../lib/open-web.ts'
 import { OPEN_IN_WEB, VOICE_INSTANT_LABEL } from '../lib/words.ts'
 import { useServices, useSession } from '../services.tsx'
-import { AppHeader, BigButton, Card, ConfirmSheet, ListRow, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, Card, ConfirmSheet, ErrorLine, ListRow, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { ScrollView } from 'react-native'
 import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
+import { VARIETIES_TITLE } from './VarietiesScreen.tsx'
+import { LINKED_TITLE, methodsOf, PROVIDER_NAMES, type LoginProvider } from '@livejjim/web/src/lib/social-login.ts'
+import { SocialTile } from '../ui/SocialTile.tsx'
 
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
 export const PERMISSION_WORDS = {
@@ -27,7 +30,27 @@ interface Done {
 }
 
 /** showPhoneNotice: 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)면 false — 칸을 숨긴다 */
-export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, showPhoneNotice = true }: { readonly onBack: () => void; readonly policyUrl?: string; readonly onOpenDesign?: () => void; readonly onOpenShop?: () => void; readonly showPhoneNotice?: boolean }) {
+export function SettingsScreen({
+  onBack,
+  policyUrl,
+  onOpenDesign,
+  onOpenShop,
+  onOpenVarieties,
+  onOpenLinked,
+  linkedRefresh = 0,
+  showPhoneNotice = true,
+}: {
+  readonly onBack: () => void
+  readonly policyUrl?: string
+  readonly onOpenDesign?: () => void
+  readonly onOpenShop?: () => void
+  readonly onOpenVarieties?: () => void
+  /** 연동된 소셜 계정 화면 (D-UX3-61) */
+  readonly onOpenLinked?: () => void
+  /** 바뀌면 연동된 계정을 다시 읽는다 (그 화면에서 돌아올 때) */
+  readonly linkedRefresh?: number
+  readonly showPhoneNotice?: boolean
+}) {
   const { voice } = useServices()
   const { session, logout } = useSession()
   const view = useSyncExternalStore(voice.subscribe, voice.getView)
@@ -37,6 +60,16 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, sh
   const [asking, setAsking] = useState(false)
   const { toast, show, hide } = useToast()
   const { p } = useKit()
+  /** 연결된 간편 로그인 (null: 모름·간편 로그인을 안 쓰는 서버) */
+  const [linked, setLinked] = useState<readonly LoginProvider[] | null>(null)
+
+  useEffect(() => {
+    if (onOpenLinked === undefined) return
+    get<unknown>('/api/auth/methods').then(
+      (value) => setLinked(methodsOf(value).providers.filter((item) => item.linked).map((item) => item.provider)),
+      () => setLinked(null),
+    )
+  }, [onOpenLinked === undefined, linkedRefresh])
 
   useEffect(() => {
     get<LabelSettings>('/api/settings/labels').then(setLabels, () => setLabels(null))
@@ -91,10 +124,11 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, sh
               }}
             />
             {view.problem !== null ? (
-              <Txt color="dangerText" weight="bold" role="alert">
-                {`⚠ ${view.problem}`}
-              </Txt>
+              // 잘못 문장은 어디서나 같은 모양 (D-UX3-51)
+              <ErrorLine>{view.problem}</ErrorLine>
             ) : null}
+            {/* 내 품종 장부 (D-V3-127) — 직접 지은 이름도 알아듣게 */}
+            {onOpenVarieties !== undefined ? <ListRow title={VARIETIES_TITLE} subtitle="키우는 품종 이름을 적어 두면 더 잘 알아들어요." onPress={onOpenVarieties} /> : null}
             <Txt step="caption" color="textSub">{`마이크: ${PERMISSION_WORDS.microphone}`}</Txt>
             <Txt step="caption" color="textSub">{`블루투스: ${PERMISSION_WORDS.bluetooth}`}</Txt>
             <Txt step="caption" color="textSub">{`알림(안드로이드): ${PERMISSION_WORDS.notification}`}</Txt>
@@ -109,13 +143,31 @@ export function SettingsScreen({ onBack, policyUrl, onOpenDesign, onOpenShop, sh
           </Card>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
         {showPhoneNotice ? <PhoneNoticeCard /> : null}
-        <Card title="그 밖 설정" description="가게 정보·판매 규칙·배송비·택배·손님 관리·보조자는 가게 설정에서 바꿔요." label="그 밖">
-            {onOpenShop !== undefined ? <ListRow title="가게 설정" subtitle="가게·계좌, 판매 규칙, 배송비, 감사 메시지, 택배, 손님 관리, 보조자, 백업" onPress={onOpenShop} /> : <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />}
+        <Card title="그 밖 설정" description="가게 정보·판매 규칙·배송비·택배·손님 관리는 가게 설정에서 바꿔요." label="그 밖">
+            {onOpenShop !== undefined ? <ListRow title="가게 설정" subtitle="가게·계좌, 판매 규칙, 배송비, 감사 메시지, 택배, 손님 관리, 백업" onPress={onOpenShop} /> : <ListRow title="설정 전체" value={OPEN_IN_WEB} ariaLabel={`설정 전체 — ${OPEN_IN_WEB}`} onPress={() => void openWeb('/settings')} />}
             {policyUrl !== undefined ? <ListRow title="개인정보처리방침" subtitle="기기 브라우저에서 열려요." onPress={() => void openExternal(policyUrl)} /> : null}
             {onOpenDesign !== undefined ? <ListRow title="디자인 견본 (개발용)" onPress={onOpenDesign} /> : null}
           </Card>
         <Card title="계정" label="계정">
             {session.state === 'in' ? <Txt step="bodyLarge">{`${session.me.seller.name} · ${session.me.loginId}`}</Txt> : null}
+            {/* 연동된 소셜 계정 (D-UX3-61) — 오른쪽에 연결된 로고들 */}
+            {onOpenLinked !== undefined && linked !== null ? (
+              <ListRow
+                title={LINKED_TITLE}
+                ariaLabel={`${LINKED_TITLE} — ${linked.length === 0 ? '없음' : linked.map((provider) => PROVIDER_NAMES[provider]).join(', ')}`}
+                right={
+                  linked.length === 0 ? undefined : (
+                    <View style={{ flexDirection: 'row', gap: SPACE.xs }}>
+                      {linked.map((provider) => (
+                        <SocialTile key={provider} provider={provider} size={24} />
+                      ))}
+                    </View>
+                  )
+                }
+                onPress={onOpenLinked}
+                testID="settings-linked"
+              />
+            ) : null}
             <BigButton label="로그아웃" kind="secondary" onPress={() => setAsking(true)} />
           </Card>
       </ScrollView>

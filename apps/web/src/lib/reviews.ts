@@ -1,6 +1,6 @@
 // 확인 필요 목록 받기 (CMT-04, D-O2-14 — O2 dev-notes "화면에게" 5). GET /api/reviews[?broadcast=][&rehearsal=true].
 // 새 SSE 이름은 없다: 같은 리허설 구분의 `change` 알림을 받으면 첫 알림부터 짧게 모아(REVIEW_RELOAD_MS, 최대 대기) 다시 읽는다. 끊겼다 다시 붙어도 다시 읽는다.
-// 보조자(403)·옵션 방송이 없는 판매자는 빈 목록으로 본다 — 화면은 "확인 필요"를 보이지 않는다.
+// 권한 없음(403)·옵션 방송이 없는 판매자는 빈 목록으로 본다 — 화면은 "확인 필요"를 보이지 않는다.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
 import type { ReviewsView } from '../api/types.ts'
@@ -47,7 +47,7 @@ export function useReviews(query: ReviewsQuery | null): ReviewsState {
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       if (mine === version.current) {
-        // 보조자·없는 방송: 목록 없음으로 본다
+        // 권한 없음·없는 방송: 목록 없음으로 본다
         if (caught.status === 403 || caught.status === 404) setView(null)
         else setError(caught)
       }

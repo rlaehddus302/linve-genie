@@ -13,7 +13,7 @@ export function KitScreen({ title, lead, children, footer, testID }: { readonly 
     <View style={{ flex: 1, backgroundColor: p.background }} testID={testID}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: SPACE.lg, paddingTop: SPACE.xxl, gap: SPACE.xl, paddingBottom: SPACE.xxxl }} keyboardShouldPersistTaps="handled">
         <View style={{ gap: SPACE.sm }}>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
+          <Txt step="headline" weight="bold" role="heading" aria-level={1}>
             {title}
           </Txt>
           {lead === undefined ? null : (

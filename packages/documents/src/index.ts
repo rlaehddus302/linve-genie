@@ -134,3 +134,14 @@ export {
   type CustomersXlsxInput,
   type CustomersXlsxResult,
 } from './customers.ts'
+export {
+  EPOST_VISIT_CLASS,
+  EPOST_VISIT_CONTENT_CODE,
+  EPOST_VISIT_DELIVERY,
+  EPOST_VISIT_MAX_BYTES,
+  EPOST_VISIT_MAX_ROWS,
+  buildEpostVisitXlsx,
+  epostPhoneText,
+  epostVisitCells,
+  type EpostVisitRow,
+} from './epost-visit.ts'

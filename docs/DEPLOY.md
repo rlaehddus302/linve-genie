@@ -27,6 +27,7 @@
 | `LIVEJJIM_PGLITE_DIR` | 개발만 | `./.data/pglite` | 내 컴퓨터용 파일 데이터베이스. `DATABASE_URL`과 함께 쓰지 않는다 | 운영에서는 쓰지 않는다 |
 | `LIVEJJIM_MASTER_KEY` | 필수 | (32바이트 base64) | `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"` — 판매자 전화번호 키·구글 토큰을 암호화한다 | **잃으면 구글 토큰을 풀 수 없어 모든 판매자가 유튜브를 다시 연결해야 하고, 이후 문자찜이 이전 문자 구매자와 이어지지 않는다.** 백업과 다른 곳에 따로 보관한다(7절) |
 | `LIVEJJIM_APP_ORIGIN` | 필수 | `https://app.example.com` | 화면 앱 주소(경로 없이). 상태를 바꾸는 요청의 Origin이 이 값과 같아야 한다 | https가 아니면 시작하지 않는다. 실제 주소와 다르면 모든 저장이 403 |
+| `LIVEJJIM_OLD_APP_ORIGINS` | 선택 | `https://old.example.com` | 도메인을 옮기는 동안 옛 주소로 깔린 앱·웹의 Origin도 받는다(D-OPS-DOMAIN — Origin 검사만). 경로 없이 쉼표로 여럿 | 모양이 틀리면 시작하지 않는다. 옮기기를 마치면 비운다 |
 | `LIVEJJIM_WEB_DIR` | 선택 | `/app/apps/web/dist` | 화면 빌드 폴더. 적으면 서버가 화면을 같은 출처로 함께 낸다(이미지는 정해 둠) | 그 폴더에 `index.html`이 없으면 시작하지 않는다 |
 | `LIVEJJIM_OPS_TOKEN` | 선택 | (32자 이상) | `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` — 운영 상태 `/ops/status`를 연다 | 비우면 `/ops/status`는 없다(404). 32자 미만이면 시작하지 않는다. 새면 바꾼다(합친 숫자만 보여 판매 정보는 새지 않는다) |
 | `LIVEJJIM_TRANSCRIBE_WORKER_TOKEN` | 자체 받아쓰기면 필수 | (무작위 비밀값) | 서버와 일꾼만 공유한다. 일꾼에는 권한 0600 파일과 `--token-file`로 전달한다 | 비우거나 다르면 일꾼 연결이 401. 연결된 일꾼이 없으면 기기에 받아쓰기 서버가 꺼졌다고 알린다 |
@@ -56,6 +57,14 @@
 | `LIVEJJIM_LOGIN_KAKAO_CLIENT_SECRET` | 선택 | (카카오가 준 값) | 카카오 앱에서 "클라이언트 시크릿"을 켰을 때만 적는다. 로그·화면에 나오지 않는다 | REST API 키 없이 이것만 적으면 시작하지 않는다. 카카오 앱에서 켰는데 비우면 로그인이 실패한다 |
 | `LIVEJJIM_LOGIN_NAVER_CLIENT_ID` | 선택 | (네이버가 준 값) | 간편 로그인 "네이버로 계속하기"의 클라이언트 ID(4-3절). 비밀값과 둘 다 비우면 네이버 로그인 버튼이 없다 | 하나만 적으면 시작하지 않는다 |
 | `LIVEJJIM_LOGIN_NAVER_CLIENT_SECRET` | 네이버 로그인이면 필수 | (네이버가 준 값) | 네이버 클라이언트 시크릿. 로그·화면에 나오지 않는다 | 새면 네이버 개발자 센터에서 새로 받는다 |
+| `LIVEJJIM_LOGIN_APPLE_CLIENT_ID` | 선택 | `kr.livegenie.signin` | 간편 로그인 "Apple로 계속하기"의 Services ID(4-3절, D-UX3-34). 아래 셋과 함께 넷 다 적어야 켜진다 | 일부만 적으면 시작하지 않는다("Apple 로그인 설정이 일부만 적혀 있어요…") |
+| `LIVEJJIM_LOGIN_APPLE_TEAM_ID` | Apple 로그인이면 필수 | `8UR4Y9DY8H` | Apple Developer 팀 ID(영문 대문자·숫자 10자) | 모양이 틀리면 시작하지 않는다 |
+| `LIVEJJIM_LOGIN_APPLE_KEY_ID` | Apple 로그인이면 필수 | (키 화면의 Key ID 10자) | Sign in with Apple 키의 ID | 모양이 틀리면 시작하지 않는다 |
+| `LIVEJJIM_LOGIN_APPLE_PRIVATE_KEY` | Apple 로그인이면 필수 | (.p8 가운데 글자 한 줄) | 받은 .p8 파일에서 BEGIN·END 줄을 뺀 가운데 글자를 한 줄로 붙인 값(`\n`을 넣은 PEM도 받는다). 서버가 이 키로 Apple에 낼 비밀값(5분짜리 서명)을 매번 만든다. 로그·화면에 나오지 않는다 | 읽을 수 없으면 시작하지 않는다. 새면 Apple Developer에서 그 키를 지우고(Revoke) 새로 만든다 |
+| `LIVEJJIM_SMS_NCP_ACCESS_KEY` | 가입 문자 인증이면 필수 | (네이버 클라우드가 준 값) | 네이버 클라우드 인증키의 Access Key ID(D-UX3-30·D-REAL-07 — SENS). 넷(인증키 둘·서비스 ID·보내는 번호)을 다 적으면 간편 로그인 가입 때 휴대폰 번호를 문자로 확인해 같은 사람을 한 계정으로 묶는다. 넷 다 비우면 끔(바로 가입) | 일부만 적으면 서버가 시작하지 않는다. 문자가 안 가면 로그 `SMS_SEND_FAILED`(종류·HTTP 상태만) — 인증키·발신번호 등록을 본다 |
+| `LIVEJJIM_SMS_NCP_SECRET_KEY` | 가입 문자 인증이면 필수 | (네이버 클라우드가 준 값) | 인증키의 Secret Key — 요청 서명(HMAC-SHA256)에 쓴다. 로그·화면에 나오지 않는다 | 새면 네이버 클라우드 인증키 관리에서 새로 만든다 |
+| `LIVEJJIM_SMS_SENS_SERVICE_ID` | 가입 문자 인증이면 필수 | `ncp:sms:kr:…` | SENS 프로젝트의 SMS 서비스 ID | 틀리면 SENS가 거절한다(`SMS_SEND_FAILED`) |
+| `LIVEJJIM_SMS_FROM` | 가입 문자 인증이면 필수 | `0212345678` | 인증번호 문자를 보내는 번호 — SENS에 미리 등록(발신번호 사전 등록, 전기통신사업법)한 번호, 숫자 8~12자리(하이픈 허용) | 등록하지 않은 번호면 SENS가 거절한다(`SMS_SEND_FAILED`) |
 | `LIVEJJIM_ASSIST_API_KEY` | 선택 | `여기에-키` | AI 확인 필요 제안의 Anthropic API 키(4-5절). 비우면 AI 제안을 쓸 수 없다 — 비슷한 글자로 찾는 규칙 제안만 보이고 바깥 호출은 0번이다. 값은 로그·화면에 나오지 않는다 | 틀리면 AI 제안 요청이 모두 실패한다(화면 "AI 제안을 지금 받지 못했어요. 직접 골라 주세요.", 로그 `ASSIST_HTTP_ERROR` status=401). 새면 Anthropic 콘솔에서 지우고 새로 만든다 |
 | `LIVEJJIM_ASSIST_MODEL` | 선택 | `claude-haiku-5-5` | AI 제안 모델(비우면 `claude-haiku-5-5` — 가장 싼 Haiku). 영문·숫자·`.`·`_`·`-`·`:`만 | 모양이 틀리면 시작하지 않는다. 없는 모델이면 요청이 실패한다(로그 `ASSIST_HTTP_ERROR` status=404) |
 | `LIVEJJIM_ASSIST_DAILY_CALLS` | 선택 | `20` | 판매자 한 명의 하루(KST 0시 기준) AI 호출 상한(기본 20). 실패한 호출도 센다 | 0~1000000 정수가 아니면 시작하지 않는다. 다 쓰면 그날은 규칙 제안만 |
@@ -96,6 +105,7 @@
 | `PORTONE_WEBHOOK_SECRET` | 요금이면 필수 | (포트원이 준 값) | 포트원 웹훅 서명 비밀값. 포트원 콘솔의 웹훅 주소는 `<앱 주소>/api/billing/webhook` | 틀리면 웹훅을 받지 않는다(결제는 화면의 "다시 확인"·결제 조회로 맞춘다). 새면 새로 만든다 |
 | `LIVEJJIM_RECEIPT_ISSUER` | 선택 | `none` | 계좌이체 증빙 발행기(PAY2 D-PAY-10). 비우거나 `none` = 없음(운영 기본 — "발행 대기"로 남고 `billing-list`로 보고 손으로 발행). `portone` = 포트원 현금영수증(지출증빙) 자동 발급 — 먼저 그 결제의 현금영수증을 조회해 PG가 이미 낸 것과 겹치지 않게 한다. **금액 칸(공급가액·세액) 세무 확인 뒤에만 켠다** | `none`·`portone`·빈 값이 아니면 시작하지 않는다. `portone`인데 `PORTONE_STORE_ID`·`PORTONE_CHANNEL_KEY`·`PORTONE_API_SECRET` 중 하나라도 비면 시작하지 않는다. 사업자등록번호는 로그에 남지 않는다 |
 | `LIVEJJIM_EPOST_API_KEY` | 비워 둔다 | (비움) | 우체국 택배 연동 키 자리(4-4절) — 우체국 택배 계약 뒤 실제 택배사 어댑터를 만든 다음에 쓴다. T1 서버는 이 값을 쓰지 않는다 | 값이 있으면 서버는 정상으로 시작하되 쓰지 않고 경고 `PARCEL_CARRIER_NOT_READY`를 남긴다 |
+| `LIVEJJIM_DATA_GO_KR_KEY` | 선택 | (공공데이터포털이 준 일반 인증키) | 우체국 배송 상태 자동 조회(종적 조회)와 받는 분 우편번호 찾기(D-REAL-08). "우정사업본부_국내우편물 종적 조회 서비스"·"우정사업본부_도로명주소조회서비스" 둘 다 활용신청한 키 하나. 비우면 둘 다 꺼짐(접수됨에서 멈춤·우편번호 없는 주소는 주소 확인) | 틀리면 조회가 실패하고 상태가 그대로 남는다. 새면 공공데이터포털에서 재발급 |
 
 ## 3. 처음 배포
 
@@ -138,7 +148,7 @@
    `node apps/server/src/commands/popbill-corp.ts --login 아이디 --corp 사업자번호` (풀기: `--clear yes`). 묶지 않은 판매자는 계좌조회 원천을 쓸 수 없다.
 3. 계좌 비밀번호·빠른조회 비밀번호는 이 서비스가 받지 않는다 — 판매자가 화면의 "계좌 관리" 주소(팝빌 화면)에서 직접 등록한다.
 
-## 4-3. 간편 로그인 설정 (구글·카카오·네이버, L1 D-L1-01~D-L1-07)
+## 4-3. 간편 로그인 설정 (구글·카카오·네이버·Apple, L1 D-L1-01~D-L1-07, D-UX3-34)
 
 판매자가 아이디·비밀번호 대신 구글·카카오·네이버 계정으로 로그인하게 한다. **가입은 받지 않는다** — 판매자 계정은 지금처럼 운영자가 만들고(3절 5), 판매자가 아이디로 한 번 로그인한 뒤 설정 → "로그인 방법"에서 공급자 계정을 연결해야 그 계정으로 들어올 수 있다. 공급자마다 따로 켜고 끈다. 아이디·비밀번호 로그인은 늘 남는다.
 
@@ -147,9 +157,10 @@
 | 구글 | 구글 클라우드 콘솔 → OAuth 클라이언트(웹 애플리케이션). 유튜브 연결(4절)과 같은 프로젝트·동의 화면을 써도 된다 | `<앱 주소>/api/auth/google/callback` | `openid email`만(유튜브 권한은 묻지 않는다 — 유튜브 연결은 따로 묻는다) | `LIVEJJIM_LOGIN_GOOGLE_CLIENT_ID`·`LIVEJJIM_LOGIN_GOOGLE_CLIENT_SECRET` |
 | 카카오 | 카카오 디벨로퍼스 → 내 애플리케이션 → 카카오 로그인 켜기. (선택) 보안 → 클라이언트 시크릿 켜기 | `<앱 주소>/api/auth/kakao/callback` | 추가 권한 없음(회원 번호, 받으면 닉네임). 이메일은 비즈 앱으로 바꾼 뒤에만 받을 수 있는데, **이메일이 없어도 연결·로그인이 된다**(설정에는 "카카오 계정"으로 보인다) | `LIVEJJIM_LOGIN_KAKAO_REST_API_KEY`(필수)·`LIVEJJIM_LOGIN_KAKAO_CLIENT_SECRET`(시크릿을 켰을 때만) |
 | 네이버 | 네이버 개발자 센터 → 애플리케이션 등록 → 네이버 로그인. 서비스 URL = `<앱 주소>` | `<앱 주소>/api/auth/naver/callback` | 회원 ID(필수 항목만, 받으면 이메일·별명). 판매자 여럿에게 열기 전에 **네이버 검수**를 받는다(검수 전에는 등록한 테스트 아이디만 된다) | `LIVEJJIM_LOGIN_NAVER_CLIENT_ID`·`LIVEJJIM_LOGIN_NAVER_CLIENT_SECRET` |
+| Apple | Apple Developer → Identifiers: 앱 ID(`app.livejjim.mobile`)에 Sign in with Apple 켜기 → Services ID 새로 만들기(예: `kr.livegenie.signin`)·Sign in with Apple 켜고 Configure에서 기본 앱 ID 고르기·Domains `livegenie.kr`·Return URL 적기 → Keys: 새 키에 Sign in with Apple 켜기(기본 앱 ID) → .p8 내려받기(한 번만 받을 수 있다) | `<앱 주소>/api/auth/apple/callback` | 권한 없음(사용자 ID만 — 이름·이메일은 묻지 않는다, 그래서 Apple 화면에서 돌아올 때 GET 질의로 받는다) | `LIVEJJIM_LOGIN_APPLE_CLIENT_ID`·`LIVEJJIM_LOGIN_APPLE_TEAM_ID`·`LIVEJJIM_LOGIN_APPLE_KEY_ID`·`LIVEJJIM_LOGIN_APPLE_PRIVATE_KEY` |
 
 - **비밀값 보관**: 클라이언트 비밀·시크릿은 업체의 비밀값 설정에만 넣는다(이미지·저장소·로그에 넣지 않는다). 서버는 공급자가 준 토큰을 저장하지 않는다 — 로그인할 때 사용자 정보를 읽는 데만 쓰고 버린다. 저장하는 것은 공급자 계정 번호와 가린 이메일(예: `se***@gmail.com`)뿐이다.
-- **반만 적으면 시작하지 않는다**: 구글·네이버는 ID와 비밀을 둘 다, 카카오는 REST API 키를 적어야 한다("○○ 로그인 설정이 반만 적혀 있어요. 둘 다 적거나 둘 다 지워 주세요."). 공급자 주소는 서버에 고정되어 있어 바꾸는 설정이 없다.
+- **반만 적으면 시작하지 않는다**: 구글·네이버는 ID와 비밀을 둘 다, 카카오는 REST API 키를, Apple은 넷 다 적어야 한다("○○ 로그인 설정이 반만 적혀 있어요. 둘 다 적거나 둘 다 지워 주세요."). 공급자 주소는 서버에 고정되어 있어 바꾸는 설정이 없다.
 - **끄는 법**: 그 공급자의 환경 변수를 지우고 서버를 다시 켠다. 로그인 화면의 그 버튼이 사라지고, 이미 연결한 판매자는 설정에서 "지금은 쓸 수 없어요"와 [연결 끊기]만 보인다(아이디 로그인은 그대로).
 - **확인**: 서버를 다시 켠 뒤 로그인 화면 아래 "또는" 줄과 버튼이 보이는지, 시험 판매자로 설정 → 로그인 방법 → [연결하기] → 로그아웃 → "…로 계속하기"가 되는지 본다.
 - 각 공급자의 디자인 지침(공식 로고 그림 요구 여부)·실제 앱 등록·검수·개인정보처리방침의 수집 항목 검토는 사용자 몫이다(DECISIONS "사용자 확인 필요").
@@ -183,6 +194,45 @@
 2. 돌아오는 주소(Redirect URI)로 `<앱 주소>/api/band/callback`을 등록하고 같은 값을 `LIVEJJIM_BAND_REDIRECT_URI`에 넣는다. 서버는 그 뒤에 한 번 쓰는 표를 붙여 보낸다(공식 문서: 등록한 주소의 하위 경로로만 돌아온다 — 실물 확인 HG-BND1 2).
 3. 밴드 모듈이 부르는 주소는 읽기 일곱 개뿐이다(모두 GET): `/oauth2/authorize`(브라우저)·`/oauth2/token`·`/v2/profile`·`/v2.1/bands`·`/v2/band/posts`·`/v2.1/band/post`·`/v2/band/post/comments`. 밴드에 글·댓글을 쓰지 않는다.
 4. 밴드 토큰은 주소 질의에 실린다 — 앞단 프록시·로드 밸런서의 요청 주소 로그가 밴드로 나가는 요청을 남기지 않게 한다(서버는 바깥으로 나가는 주소를 로그에 쓰지 않는다, D-BND1-14).
+
+## 4-7. 고객센터 메일 help@livegenie.kr (D-OPS-MAIL-01, 2026-11-06)
+
+앱 로그인 화면 맨 아래의 고객센터 이메일(`SUPPORT_EMAIL`, D-UX3-32)이다. 서버 코드와는 관계없고 DNS와 외부 서비스로만 동작한다. **비용 0원**(가비아 도메인 연장비 말고 없음).
+
+```
+보내는 사람 → help@livegenie.kr → 가비아 DNS의 MX → ImprovMX(무료) → yuh001205@gmail.com
+답장: Gmail "다른 주소에서 메일 보내기"(smtp.gmail.com:587, 앱 비밀번호) → 보내는 사람 help@livegenie.kr
+```
+
+| 위치 | 설정 |
+|---|---|
+| 가비아 DNS (livegenie.kr) | `MX @ mx1.improvmx.com. 10` · `MX @ mx2.improvmx.com. 20` · `TXT @ "v=spf1 include:spf.improvmx.com include:_spf.google.com ~all"` (A `@`·`www`는 서버용, 따로) |
+| ImprovMX (계정 yuh001205@gmail.com) | 도메인 livegenie.kr · `help@` → yuh001205@gmail.com · `*@`(나머지 주소 전부) → yuh001205@gmail.com |
+| Gmail | 설정 → 계정 → 다른 주소에서 메일 보내기: help@livegenie.kr, SMTP `smtp.gmail.com` 587 TLS, 사용자 = Gmail 주소, 비밀번호 = 구글 앱 비밀번호(2단계 인증 필요). "메일을 받은 주소에서 답장"을 켠다 |
+
+**무료 한도**
+
+| 항목 | 한도 |
+|---|---|
+| ImprovMX 도메인·주소 | 도메인 1개, 주소 25개 |
+| 넘겨 받기 | 하루 500통 |
+| ImprovMX 기록 | 7일 |
+| ImprovMX로 직접 보내기 | 안 됨(유료 Premium 월 $9부터) — 그래서 Gmail로 보낸다 |
+| Gmail 보내기 | 개인 Gmail 하루 약 500명 |
+| 저장 | Gmail 15GB(드라이브·사진과 같이 씀) |
+
+**주의**
+1. 가비아의 MX 두 줄·TXT 한 줄을 지우거나 바꾸지 않는다(MX가 빠지면 그때부터 메일이 안 온다). 다른 메일 발송 서비스를 더할 때는 SPF 줄을 새로 만들지 말고 지금 줄에 `include:…`를 덧붙인다 — SPF 줄이 둘이면 둘 다 무효다. SPF는 DNS 조회 10번까지만 된다.
+2. 보낸 메일은 Gmail 서버로 나가 받는 쪽에 "gmail.com 경유"로 보이거나 가끔 스팸함에 갈 수 있다. DMARC 줄(`p=quarantine`·`p=reject`)은 넣지 않는다 — 우리 답장이 막힌다.
+3. 구글 비밀번호를 바꾸면 앱 비밀번호가 무효가 되어 보내기만 멈춘다(받기는 된다). 새 앱 비밀번호를 만들어 Gmail 설정에 다시 넣는다.
+4. ImprovMX 무료는 가동 보장이 없다(유료 99%). 드물게 늦거나 빠질 수 있으니 문자·전화 연락 길도 남긴다.
+5. `*@` 넘기기 때문에 스팸이 늘면 ImprovMX에서 `*` 줄만 지운다(help@는 남는다).
+6. 개인 메일과 섞이므로 Gmail 필터(받는 사람 help@livegenie.kr → 라벨 "고객센터")를 둔다. 답장할 때 보내는 사람이 help@인지 본다.
+7. 손님 메일이 해외 서비스(ImprovMX·Google)를 지나 개인 Gmail에 저장된다 — 개인정보처리방침의 처리 위탁·국외 이전 항목 검토가 필요하다(사용자 확인 필요).
+8. ImprovMX 계정을 잃으면 넘기기를 바꿀 수 없다. ImprovMX 계정에 2단계 인증을 켠다.
+9. **받는 사람 더하기**(예: 함께 보는 사람): ImprovMX → livegenie.kr → help@ 줄에 받는 주소를 더한다. 그 사람도 자기 Gmail에서 위 보내기 설정을 하면 help@로 답장할 수 있다.
+10. "gmail.com 경유" 없이 보내려면 ImprovMX 유료(월 $9)나 Zoho Mail Lite(1인 월 약 $1~1.25)로 옮긴다.
+11. **확인**: 다른 주소에서 help@livegenie.kr로 보내 Gmail에 오는지 본다(2026-11-06 확인함). DNS 확인은 `dig +short MX livegenie.kr`·`dig +short TXT livegenie.kr` 또는 ImprovMX → DNS Records의 ✓.
 
 ## 5. 운영 토큰·앞단 프록시
 

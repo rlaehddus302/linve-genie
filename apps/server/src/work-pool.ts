@@ -10,7 +10,7 @@ import { availableParallelism } from 'node:os'
 import { Worker } from 'node:worker_threads'
 import type { LedgerRow, VoiceLedgerRow } from '@livejjim/documents'
 
-export type WorkKind = 'receiptPdf' | 'receiptPng' | 'receiptJpg' | 'receiptJpgZip' | 'ledgerXlsx' | 'xlsxRows' | 'waybillPdf' | 'customersXlsx' // KP1 손님 엑셀 (RA-KP1-008)
+export type WorkKind = 'receiptPdf' | 'receiptPng' | 'receiptJpg' | 'receiptJpgZip' | 'ledgerXlsx' | 'xlsxRows' | 'waybillPdf' | 'customersXlsx' | 'epostVisitXlsx' // KP1 손님 엑셀 (RA-KP1-008), 우체국 방문접수 파일 (D-UX3-36)
 
 /** 판매대장 엑셀 조각 하나 = 날짜 하나의 대장 행과 그 날짜 대장에 옵션 방송이 있는지 (O3 D-O3-07) */
 export interface LedgerChunk {

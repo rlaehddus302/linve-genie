@@ -1,21 +1,8 @@
-// 택배 접수 경로 (더보기에서 연다, D-APPX-01).
-import { Redirect, useRouter } from 'expo-router'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { ParcelsScreen } from '../src/screens/ParcelsScreen.tsx'
-import { useSession } from '../src/services.tsx'
-import { PALETTE } from '../src/ui/kit/tokens.ts'
-import { KitInsets } from '../src/ui/kit/safe-area.tsx'
+// 옛 택배 탭 주소 (D-UX3-39 → D-UX3-60): 택배는 포장 탭 안으로 합쳤다 — 포장 탭의 택배 쪽으로 돌린다(날짜 그대로).
+import { Redirect, useLocalSearchParams } from 'expo-router'
 
 export default function ParcelsRoute() {
-  const { session } = useSession()
-  const router = useRouter()
-  if (session.state === 'out') return <Redirect href="/" />
-  if (session.state !== 'in') return null
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
-      <KitInsets>
-        <ParcelsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} nav={{ openSettle: () => router.replace('/settle'), openSettings: () => router.push('/shop-settings') }} />
-      </KitInsets>
-    </SafeAreaView>
-  )
+  const params = useLocalSearchParams<{ date?: string }>()
+  const date = typeof params.date === 'string' ? params.date : undefined
+  return <Redirect href={{ pathname: '/packing', params: date === undefined ? { view: 'parcels' } : { view: 'parcels', date } }} />
 }

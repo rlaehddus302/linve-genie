@@ -2,7 +2,7 @@
 // 연결 코드·토큰(해시로만·끊기·다시 만들기·30일), 묶음·속도 제한·중복 없음, 회차 잇기(자동·고르기·거절), 받는 범위, 다른 경로 중복(ID·3초 규칙),
 // 이름 정리·로그에 남기지 않기, 상태 경고(30초·뒤로 간 탭·1분 읽지 못함).
 import { afterEach, describe, expect, it } from 'vitest'
-import { MERGED_BODY, RAW_JOIN, addSeller, client, createBroadcast, expectOk, login, rid, writeEvent, type Seller } from './support.ts'
+import { MERGED_BODY, RAW_JOIN, addSeller, client, createBroadcast, expectOk, rid, writeEvent, type Seller } from './support.ts'
 import { connectSeller, dumpText, linkedBroadcast, youtubeWorld, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
@@ -91,18 +91,7 @@ describe('AC-X1-08 연결 코드 (YT-10 AC4, D-X1-07)', () => {
     expect((expired.body.error as { message: string }).message).not.toMatch(/[A-Za-z]/)
   })
 
-  it('보조자 세션은 코드를 받을 수 없다(403)', async () => {
-    const w = await world()
-    const seller = await addSeller(w)
-    const created = await client(w, seller.cookie).post('/api/assistants', { name: '엄마' })
-    expect(created.status, created.text).toBe(200)
-    const assistant = await login(w, (created.body.assistant as { loginId: string }).loginId, created.body.password as string)
-    const refused = await client(w, assistant).post('/api/extension/code', {})
-    expect(refused.status).toBe(403)
-    expect((refused.body.error as { code: string }).code).toBe('ASSISTANT_FORBIDDEN')
-    expect((await client(w, assistant).post('/api/extension/disconnect', {})).status).toBe(403)
-  })
-
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 시험 "보조자 세션은 코드를 받을 수 없다(403)"을 뺐다
   it('새 코드를 받으면 앞 코드는 쓸 수 없다', async () => {
     const w = await world()
     const seller = await addSeller(w)

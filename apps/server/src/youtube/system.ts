@@ -553,6 +553,26 @@ export class YoutubeSystem {
   }
 
   /**
+   * 잇기 전 미리 보기 (D-UX4-08 — 사용자 지시 2026-11-05 "처음이든 아니든 무조건 확인창, 방송 제목·채널명"): 아무것도 넣지 않고 방송 제목·채널 이름만 읽는다.
+   * 새 방송을 만들기 전에도 부른다 — 회차는 보지 않고(잇기가 본다) 주소·방송 페이지 상태만 잇기와 같은 거절 코드로 거른다. 서버 읽기(웹)일 때만, 아니면 null(화면은 옛 흐름)
+   */
+  async preview(sellerId: string, video: string): Promise<{ kind: 'ok'; title: string; channelTitle: string } | { kind: 'rejected'; status: number; code: LinkCode } | null> {
+    const web = this.web
+    if (web === null) return null
+    const videoId = parseVideoId(video)
+    if (videoId === null) return { kind: 'rejected', status: 400, code: 'INVALID_VIDEO_URL' }
+    if (web.off) return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
+    try {
+      const page = await web.pageOrNext(videoId)
+      const refused = this.#pageRefusal(sellerId, page)
+      if (refused !== null) return { kind: 'rejected', ...refused }
+      return { kind: 'ok', title: page.title ?? '', channelTitle: page.channelTitle ?? '' }
+    } catch (error) {
+      return { kind: 'rejected', ...this.#webFailure(sellerId, error) }
+    }
+  }
+
+  /**
    * 서버 잇기 (YT-11 AC2): 구글 연결 없이 주소만. 서버가 로그인 없이 공개 페이지로 영상이 있고 로그인 없이 볼 수 있으며(공개·일부공개) 진행 중·예정이고,
    * 진행 중이면 전체 채팅 지점을 얻을 수 있는지 본다(예정은 시작할 때 수집기가 본다). 처음 잇는 채널이면 확인 표시(true)가 있을 때만 잇는다(상태 없음, D-INV1-02).
    * 실제 회차·끝나지 않음·리허설 안 됨·한 영상 한 회차(D-Y1-08)·같은 요청 번호 한 번은 옛 잇기와 같다. 공식 Data API를 부르지 않는다.

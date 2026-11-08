@@ -10,8 +10,7 @@ import {
   PHONE_NOTICE_IPHONE,
   PHONE_NOTICE_SHORTCUT_GUIDE,
   PHONE_NOTICE_SHORTCUT_STEPS,
-  PHONE_NOTICE_VALUE_NOTE,
-  phoneNoticeAddress,
+  PHONE_NOTICE_INTENT_NAME,
   PHONE_NOTICE_RENEW_QUESTION,
   PHONE_NOTICE_SHEET,
   PHONE_NOTICE_TOKEN_AGAIN,
@@ -132,31 +131,27 @@ describe('휴대폰 알림 받기 칸 (AC-SMS3-29)', () => {
     await waitFor(() => expect(port.opened).toEqual(['shortcuts']))
   })
 
-  it('아이폰 단축어 안내는 웹 설정의 한 가지("URL 콘텐츠 가져오기"에 토큰)뿐이고, 꺼져 있으면 앱에서 켜지 않는다 (D-SMS3-23)', async () => {
+  // D-REAL-01이 D-SMS3-23을 바꿈: 옛 기대 = 웹 설정의 "URL 콘텐츠 가져오기"(받는 주소·받기 열쇠를 옮겨 적는 14단계) 하나, 아이폰에서는 [켜기] 없음.
+  // 새 기대 = 앱 동작 "라이브지니에 문자 보내기" 하나(5단계), [켜기]로 앱이 받기 열쇠를 넣는다. 주소·열쇠는 화면에 없다.
+  it('아이폰 단축어 안내는 앱 동작 "라이브지니에 문자 보내기" 하나이고, [켜기]로 앱이 받기 열쇠를 넣는다 (D-REAL-01)', async () => {
     const world = makeWorld()
+    world.server.on('GET', /^\/api\/inbox\/settings$/, () => ({ body: { inbox: { enabled: false, lastReceivedAt: null } } }))
+    world.server.on('POST', /^\/api\/inbox\/token$/, () => ({ body: { token: 'tok_IOS_1', inbox: {} } }))
     const port = new FakePort({ platform: 'ios', access: 'shortcut', enabled: false, hasToken: false })
     setNoticeModule(port)
     render(world.wrap(<PhoneNoticeCard />))
     expect(await screen.findByText(PHONE_NOTICE_SHORTCUT_GUIDE)).toBeDefined()
-    expect(PHONE_NOTICE_SHORTCUT_GUIDE).toContain('URL 콘텐츠 가져오기')
-    expect(PHONE_NOTICE_SHORTCUT_GUIDE).not.toContain('문자 보내기')
-    // 웹 설정 안내와 같은 순서: 기기 입구 JSON 칸 이름 그대로 (SA-SMS3-004)
+    expect(PHONE_NOTICE_INTENT_NAME).toBe('라이브지니에 문자 보내기')
     const all = PHONE_NOTICE_SHORTCUT_STEPS.join('\n')
-    for (const value of ['`POST`', '`Authorization`', '`Bearer`', '`JSON`', '`device`', '`messages`', '`id`', '`channel`', '`SMS`', '`from`', '`text`', '`receivedAt`']) expect(all).toContain(value)
-    // id = "현재 날짜(초까지)" + "보낸 사람" 한 가지, 고정 글을 쓰지 말라는 한 줄 — 웹 안내와 같은 글 (D-SMS3-32)
-    expect(all).toContain('"현재 날짜"(날짜 형식 "사용자 지정" `yyyyMMddHHmmss` — 초까지)와 단축어 입력의 "보낸 사람"')
-    expect(PHONE_NOTICE_SHORTCUT_STEPS.some((step) => step.includes('고정 글') && step.includes('넣지 마세요'))).toBe(true)
-    // 값은 따옴표 없이 회색 상자(길게 눌러 복사) — 따옴표까지 적으면 문자를 하나도 받지 못한다 (UX-SMS3-001)
-    expect(screen.getByText(/키는/).textContent).toContain('Authorization')
-    expect(screen.getByText(/키는/).textContent).not.toContain('"Authorization"')
-    expect(screen.getByText(/^9\. /).textContent).toBe('9. channel(텍스트) = SMS')
-    expect(screen.getByText(PHONE_NOTICE_VALUE_NOTE)).toBeDefined()
-    // 아이폰 사파리로 웹 설정을 열어 복사해 붙여 넣는다 — 웹 안내와 같은 뜻 (UX-SMS3-002), 받는 주소도 보인다
-    expect(PHONE_NOTICE_SHORTCUT_GUIDE.startsWith('아이폰 사파리로')).toBe(true)
-    expect(PHONE_NOTICE_SHORTCUT_GUIDE).not.toContain('컴퓨터에서 라이브')
-    expect(screen.getByLabelText('받는 주소').textContent).toMatch(/\/api\/inbox\/messages$/)
-    expect(phoneNoticeAddress('https://a.example/')).toBe('https://a.example/api/inbox/messages')
-    expect(screen.queryByRole('button', { name: '켜기' })).toBeNull()
+    expect(all).toContain(`"${PHONE_NOTICE_INTENT_NAME}"`)
+    expect(all).toContain('즉시 실행')
+    expect(all).not.toContain('URL 콘텐츠 가져오기')
+    expect(all).not.toContain('Authorization')
+    expect(screen.queryByLabelText('받는 주소')).toBeNull()
+    expect(PHONE_NOTICE_SHORTCUT_STEPS.length).toBeLessThanOrEqual(5)
+    fireEvent.click(await screen.findByRole('button', { name: '켜기' }))
+    await waitFor(() => expect(port.tokens).toHaveLength(1))
+    expect(world.server.callsTo('POST', /inbox\/token/)).toHaveLength(1)
   })
 
   it('상태 한 줄', () => {

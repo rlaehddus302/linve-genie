@@ -1,8 +1,9 @@
 # 일꾼 ↔ 라이브지니 서버 약속 (D-APP1-01, harness/sprints/APP1/acceptance.md "약속" 절) — 표준 라이브러리만.
 #  - 일꾼 → 서버 첫 틀: {"type":"hello","maxStreams":4}
-#  - 서버 → 일꾼: {"type":"open","stream":n} · {"type":"close","stream":n} (n = 1 ~ 4,294,967,295)
+#  - 서버 → 일꾼: {"type":"open","stream":n,"hint":"…"} · {"type":"close","stream":n} (n = 1 ~ 4,294,967,295)
+#    hint(D-V3-127·132, 없어도 됨): 받아쓰기 힌트 — 그 판매자 품종 이름. HINT_MAX 글자까지만 쓴다
 #  - 이진 틀 = 흐름 번호 4바이트(big-endian 부호 없는 정수) + PCM16 little-endian 16kHz 모노
-#  - 일꾼 → 서버: {"type":"result","stream":n,"text":"…","startMs":정수,"endMs":정수,"procMs":정수} (빈 글은 보내지 않는다)
+#  - 일꾼 → 서버: {"type":"result","stream":n,"text":"…","startMs":정수,"endMs":정수,"procMs":정수,"conf":0~1} (빈 글은 보내지 않는다, conf는 모델이 줄 때만)
 # 받은 것이 약속과 다르면 예외를 던지지 않고 None을 돌려준다(버린다).
 from __future__ import annotations
 
@@ -19,6 +20,8 @@ DEFAULT_MAX_STREAMS = 4
 WORKER_PATH = "/api/voice/worker"
 # 서버가 받는 글 길이 한도(D-APP1-14). 넘는 글은 서버가 버리므로 일꾼도 잘라 보내지 않고 그대로 둔다(셈만)
 TEXT_MAX = 2000
+# 힌트 글자 한도 — 더 길면 잘라 쓴다(모델은 토큰으로 한 번 더 자른다)
+HINT_MAX = 1000
 
 
 def is_stream_id(value: object) -> bool:
@@ -49,6 +52,7 @@ def unpack_audio(data: object) -> Optional[Tuple[int, bytes]]:
 class ServerMessage:
     type: str  # "open" | "close"
     stream: int
+    hint: str = ""
 
 
 def parse_server_message(raw: object) -> Optional[ServerMessage]:
@@ -70,16 +74,17 @@ def parse_server_message(raw: object) -> Optional[ServerMessage]:
     stream = message.get("stream")
     if kind not in ("open", "close") or not is_stream_id(stream):
         return None
-    return ServerMessage(kind, stream)
+    hint = message.get("hint") if kind == "open" else None
+    return ServerMessage(kind, stream, hint[:HINT_MAX] if isinstance(hint, str) else "")
 
 
 def hello_message(max_streams: int) -> str:
     return json.dumps({"type": "hello", "maxStreams": max_streams}, separators=(",", ":"))
 
 
-def result_message(stream: int, text: str, start_ms: int, end_ms: int, proc_ms: int) -> str:
-    return json.dumps(
-        {"type": "result", "stream": stream, "text": text, "startMs": start_ms, "endMs": end_ms, "procMs": max(0, proc_ms)},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
+def result_message(stream: int, text: str, start_ms: int, end_ms: int, proc_ms: int, conf: Optional[float] = None) -> str:
+    """conf(D-V3-130, 없어도 됨): 모델이 그 글을 얼마나 확신하는지 0~1 (토큰 평균 확률) — 서버가 음성 기록에 남겨 애매함을 잰다"""
+    message = {"type": "result", "stream": stream, "text": text, "startMs": start_ms, "endMs": end_ms, "procMs": max(0, proc_ms)}
+    if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= float(conf) <= 1.0:
+        message["conf"] = round(float(conf), 2)
+    return json.dumps(message, ensure_ascii=False, separators=(",", ":"))

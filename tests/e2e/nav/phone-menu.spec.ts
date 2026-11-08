@@ -1,4 +1,5 @@
 // 휴대폰 메뉴 — 아래 막대 다섯 칸 + "더보기" 목록 (UX-04, D-NAV-01, AC-NAV-01~08) — test-e2e.
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 계정 375×812 — 메뉴는 문자찜 한 칸, 더보기 없음 (AC-NAV-08)"을 뺐다
 // 기대값은 SPEC UX-04 "휴대폰 메뉴"의 AC-NAV 표에서 정한다. 막대 밖 메뉴는 "더보기"를 연 뒤에 찾는다(AC-NAV-10).
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { loginAs, loginNewSeller, login, noHorizontalScroll, openNewBroadcast, registerApi, sendViewerChat, settingsRegion, smsApi, uniqueDate, viewerClaim } from '../i3/support.ts'
@@ -443,7 +444,7 @@ test.describe('AC-NAV-07: 콘솔 고정 영역', () => {
   })
 })
 
-test.describe('AC-NAV-08: PC·경계·보조자', () => {
+test.describe('AC-NAV-08: PC·경계', () => {
   test('1440·768은 PC 모양(모든 메뉴가 위 줄 링크, "더보기" 없음), 767은 휴대폰 모양', async ({ page }) => {
     await login(page)
     for (const width of [1440, 768]) {
@@ -462,21 +463,5 @@ test.describe('AC-NAV-08: PC·경계·보조자', () => {
     await expectPhoneBar(page)
     await page.setViewportSize({ width: 768, height: 900 })
     await expect(moreButton(page)).toHaveCount(0)
-  })
-
-  test('보조자 계정 375×812 — 메뉴는 "문자찜" 한 칸, "더보기" 없음', async ({ page, browser }) => { // MOB1 D-MOB1-04
-    await loginNewSeller(page)
-    const res = await page.request.post('/api/assistants', { data: { name: '메뉴보조' }, headers: { Origin: new URL(page.url()).origin } })
-    expect(res.ok(), await res.text()).toBe(true)
-    const { assistant, password } = await res.json() as { assistant: { loginId: string }; password: string }
-    const phone = await phoneOf(browser, page, { loginId: assistant.loginId, password })
-    try {
-      await expect(menu(phone).getByRole('link')).toHaveText(['문자찜']) // MOB1 D-MOB1-04
-      await expect(menu(phone).getByRole('button')).toHaveCount(0)
-      await expect(phone.getByRole('button', { name: '더보기' })).toHaveCount(0)
-      await expectTarget(phone, menuLink(phone, '문자찜')) // MOB1 D-MOB1-04
-    } finally {
-      await phone.context().close()
-    }
   })
 })

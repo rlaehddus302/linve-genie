@@ -6,7 +6,7 @@
 // - 전화번호 원문·정규화한 번호는 어디에도 두지 않는다. 판매자 전화번호 키는 마스터 키로 암호화한 값만 둔다(D-073).
 // - 이 파일과 마이그레이션이 어긋나지 않는지는 test/schema.test.ts가 실제 DB 구조와 대조한다.
 import { and, eq, sql, type SQL } from 'drizzle-orm'
-import { bigint, bigserial, boolean, index, integer, pgTable, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
+import { bigint, bigserial, boolean, index, integer, pgTable, real, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
@@ -34,7 +34,7 @@ export const sellers = pgTable('sellers', {
 
 /**
  * 로그인 계정 (D-074). 비밀번호는 scrypt 해시만 둔다. 연속 실패·잠금은 login_limits에 둔다.
- * 역할 (SYS-04, D-I3-11): SELLER 판매자 · ASSISTANT 보조자(판매자가 만든다 — 문자찜 입력만). 보조자를 지우면 행은 남기고 지운 시각만 적는다
+ * 역할 (SYS-04, D-I3-11): SELLER 판매자. 옛 ASSISTANT 보조자 행은 남아 있어도 로그인·세션이 되지 않는다(D-UX3-32 — 보조자 기능을 없앰, 데이터는 지우지 않음)
  * (이벤트의 조치자가 이 행을 가리킨다, 같은 아이디를 다시 만들지 않는다). 지운 계정은 로그인·세션이 되지 않는다
  */
 export const accounts = pgTable(
@@ -53,8 +53,19 @@ export const accounts = pgTable(
     name: text('name'),
     /** 지운 시각 (보조자) */
     deletedAt: timestamptz('deleted_at'),
+    /** 간편 로그인으로 가입하며 이용약관·개인정보처리방침에 동의한 때 (D-UX3-28). 운영자가 만든 계정은 null */
+    termsAgreedAt: timestamptz('terms_agreed_at'),
+    /** 문자로 확인한 휴대폰 번호 (D-UX3-30): 찾기용 HMAC — 원문은 두지 않는다. 판매자 계정 하나에 번호 하나, 번호 하나에 계정 하나 */
+    phoneHash: text('phone_hash'),
+    /** 화면용 가린 번호 (010-****-5678) */
+    phoneLabel: text('phone_label'),
+    phoneVerifiedAt: timestamptz('phone_verified_at'),
   },
-  (t) => [unique('accounts_login_id_uq').on(t.loginId), index('accounts_seller_idx').on(t.sellerId)],
+  (t) => [
+    unique('accounts_login_id_uq').on(t.loginId),
+    index('accounts_seller_idx').on(t.sellerId),
+    uniqueIndex('accounts_phone_uq').on(t.phoneHash).where(sql`phone_hash IS NOT NULL AND deleted_at IS NULL`),
+  ],
 )
 
 /**
@@ -147,11 +158,78 @@ export const loginStates = pgTable(
     accountId: text('account_id').references(() => accounts.id),
     sessionHash: text('session_hash'),
     verifierEnc: text('verifier_enc'),
+    /** 앱에서 시작한 로그인 (D-UX3-28): 앱이 가진 검증 값의 SHA-256(base64url). 웹이면 null */
+    appChallenge: text('app_challenge'),
     createdAt: timestamptz('created_at').notNull(),
     expiresAt: timestamptz('expires_at').notNull(),
     usedAt: timestamptz('used_at'),
   },
   (t) => [index('login_states_expires_idx').on(t.expiresAt)],
+)
+
+/**
+ * 간편 로그인 표 (D-UX3-28): 공급자에서 돌아온 뒤 한 번만 쓰는 무작위 값(서버엔 해시만, 10분).
+ * - LOGIN: 앱에서 시작한 로그인 — 앱이 검증 값과 함께 내면 그 앱에 세션을 준다(브라우저에는 세션을 주지 않는다)
+ * - SIGNUP: 연결되지 않은 공급자 계정 — 약관에 동의하면 새 판매자 계정을 만든다. 공급자 계정 ID는 암호화해 둔다
+ */
+export const loginTickets = pgTable(
+  'login_tickets',
+  {
+    ticketHash: text('ticket_hash').primaryKey(),
+    /** LOGIN · SIGNUP */
+    kind: text('kind').notNull(),
+    provider: text('provider').notNull(),
+    appChallenge: text('app_challenge'),
+    sellerId: text('seller_id').references(() => sellers.id),
+    accountId: text('account_id').references(() => accounts.id),
+    providerUserEnc: text('provider_user_enc'),
+    label: text('label').notNull().default(''),
+    createdAt: timestamptz('created_at').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+    usedAt: timestamptz('used_at'),
+    /** 가입 표에서 문자로 확인한 번호 (D-UX3-30) — 해시·가린 번호·확인 시각 */
+    phoneHash: text('phone_hash'),
+    phoneLabel: text('phone_label'),
+    phoneVerifiedAt: timestamptz('phone_verified_at'),
+    /** 그 번호가 이미 있는 계정: 그 계정으로 다시 로그인해야 이 공급자 계정을 잇는다 */
+    targetAccountId: text('target_account_id').references(() => accounts.id),
+  },
+  (t) => [index('login_tickets_expires_idx').on(t.expiresAt)],
+)
+
+/**
+ * 문자 인증 진행 (D-UX3-30). key = `t:<가입 표 해시>`(가입 중) 또는 `a:<계정 ID>`(로그인한 계정의 번호 등록).
+ * 인증번호는 해시만, 3분·5번 틀리면 끝, 한 확인에 5번까지 보낸다
+ */
+export const phoneChecks = pgTable(
+  'phone_checks',
+  {
+    key: text('key').primaryKey(),
+    /** 로그인한 계정의 번호 등록이면 그 판매자 (가입 중이면 판매자를 모른다 — null) */
+    sellerId: text('seller_id').references(() => sellers.id),
+    phoneHash: text('phone_hash').notNull(),
+    phoneLabel: text('phone_label').notNull(),
+    codeHash: text('code_hash').notNull(),
+    codeExpiresAt: timestamptz('code_expires_at').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    sends: integer('sends').notNull().default(1),
+    sentAt: timestamptz('sent_at').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [index('phone_checks_created_idx').on(t.createdAt)],
+)
+
+/** 번호마다 보낸 문자 기록 (하루 한도 — D-UX3-30). 번호 원문 없이 해시만 */
+export const phoneSends = pgTable(
+  'phone_sends',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    /** 로그인한 계정의 번호 등록이면 그 판매자 (가입 중이면 null) */
+    sellerId: text('seller_id').references(() => sellers.id),
+    phoneHash: text('phone_hash').notNull(),
+    sentAt: timestamptz('sent_at').notNull(),
+  },
+  (t) => [index('phone_sends_phone_idx').on(t.phoneHash, t.sentAt)],
 )
 
 /** 엔진 범위 = (판매자, 방송 날짜, 리허설인지) (R-0 6, D-069, D-081) */
@@ -204,6 +282,8 @@ export const broadcasts = pgTable(
     startSeq: integer('start_seq').notNull(),
     endedAt: timestamptz('ended_at'),
     createdAt: timestamptz('created_at').notNull(),
+    /** 판매자가 방송 화면에 처음 들어온 때 (D-UX3-25). null이면 아직 만드는 중 — 방송 목록에 보이지 않는다 */
+    openedAt: timestamptz('opened_at'),
   },
   (t) => [index('broadcasts_seller_idx').on(t.sellerId, t.date, t.startSeq)],
 )
@@ -1405,6 +1485,44 @@ export const receiptLinkRequests = pgTable(
   (t) => [unique('receipt_link_requests_uq').on(t.sellerId, t.requestId)],
 )
 
+/**
+ * 손님 휴대폰 번호 (D-REAL-03): 영수증 문자를 보내려고 판매자 키로 암호화해 둔다(원문·로그 없음).
+ * key = 문자찜 구매자의 전화번호 키(엔진 phoneKey — 날짜를 넘어 같다) 또는 판매자가 넣은 번호의 `d:<날짜>:<구매자 ID>`.
+ * 마지막으로 쓴 지 1년이 지나면 지운다
+ */
+export const buyerPhones = pgTable(
+  'buyer_phones',
+  {
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    key: text('key').notNull(),
+    phoneEnc: text('phone_enc').notNull(),
+    last4: text('last4').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('buyer_phones_uq').on(t.sellerId, t.key), index('buyer_phones_updated_idx').on(t.updatedAt)],
+)
+
+/** 영수증 문자 보낸 기록 (D-REAL-03). 요청 번호로 한 번만, 번호는 끝 4자리만 */
+export const receiptSmsSends = pgTable(
+  'receipt_sms_sends',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    requestId: text('request_id').notNull(),
+    date: text('date').notNull(),
+    buyer: text('buyer').notNull(),
+    last4: text('last4').notNull(),
+    ok: boolean('ok').notNull(),
+    sentAt: timestamptz('sent_at').notNull(),
+    sentBy: text('sent_by').references(() => accounts.id),
+  },
+  (t) => [unique('receipt_sms_sends_uq').on(t.sellerId, t.requestId), index('receipt_sms_sends_buyer_idx').on(t.sellerId, t.date, t.buyer, t.sentAt), index('receipt_sms_sends_seller_idx').on(t.sellerId, t.sentAt)],
+)
+
 // ── 요금 (N5, BILLING_RULES BL-0~BL-8, D-N5-01~D-N5-14) ─────────────────────
 // 엔진 밖 서버 원장이다(BL-0 2). 이벤트·발송함·스냅샷·출력 작업 표는 바꾸지 않는다.
 // 이용권(billing_grants)·회수(billing_revocations)·쓴 기록(billing_usage)·이용 방식(billing_modes)은 덧붙이기만 한다(BL-0 4, BL-INV-5 —
@@ -1821,6 +1939,28 @@ export const parcelAddresses = pgTable(
 )
 
 /**
+ * 직접 넣은 택배 (D-UX3-38): 방송 판매 기록 없이 판매자가 받는 분을 적어 접수하는 묶음. 구매자 ID 자리에는 `extra:<무작위>`가 들어가고
+ * 배송지는 parcel_addresses(같은 날짜·그 ID, 판매자 출처·확인함)에, 접수 시도는 parcels에 그대로 쌓인다. 정산·포장 기록과는 잇지 않는다.
+ * 보관은 배송지와 같다(날짜 + 30일에 지운다). 복구·가져오기 때는 배송지와 같이 지운다
+ */
+export const parcelExtras = pgTable(
+  'parcel_extras',
+  {
+    /** `extra:<무작위>` — parcels·parcel_addresses의 buyer 칸에 그대로 쓴다 */
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    date: text('date').notNull(),
+    /** 물품 수 (1~999) */
+    qty: integer('qty').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    createdBy: text('created_by').references(() => accounts.id),
+  },
+  (t) => [index('parcel_extras_seller_idx').on(t.sellerId, t.date, t.createdAt), index('parcel_extras_date_idx').on(t.date)],
+)
+
+/**
  * 택배 접수 시도 (T1 PC-5, D-T1-11): 묶음마다 덧붙여 가는 시도들. 한 묶음에 살아 있는(PENDING·UNKNOWN·BOOKED) 시도는 많아야 하나 — DB 고유 색인(parcels_live_uq, PC-INV-1).
  * request_key = 서버가 무작위로 만든 택배사 멱등 키(전화번호·이름을 담지 않는다). 택배사 원래 응답 글은 두지 않는다(사유는 ADDRESS·REJECTED·UNAVAILABLE 셋).
  * 배송지 원문이 없다. 복구·가져오기는 그대로 둔다(같은 묶음을 다시 접수하지 않게 — 복구한 포장 기록이 접수 전이어도 "이미 접수했어요"가 남는다)
@@ -1907,6 +2047,8 @@ export const parcelSettings = pgTable('parcel_settings', {
   customerEnc: text('customer_enc'),
   /** 보내는 사람 다섯 칸 JSON 암호문 (없으면 null) */
   senderEnc: text('sender_enc'),
+  /** 우체국 계약소포 인증키·보안키 JSON 암호문 (없으면 null — D-REAL-04) */
+  epostEnc: text('epost_enc'),
   /** 기본 택배 크기 코드 (FB1 D-FB1-05) */
   box: text('box').notNull().default('80'),
   updatedAt: timestamptz('updated_at').notNull(),
@@ -2228,6 +2370,8 @@ export const voiceLog = pgTable(
     claims: integer('claims').notNull(),
     /** 들은 말 (가린 한 줄) */
     heard: text('heard').notNull(),
+    /** 받아쓰기 모델 확신도 0~1 (D-V3-130) — 없으면 null */
+    conf: real('conf'),
     big: boolean('big').notNull(),
     withClaims: boolean('with_claims').notNull(),
     undone: boolean('undone').notNull().default(false),
@@ -2243,6 +2387,13 @@ export const voiceLog = pgTable(
 export const voiceAliases = pgTable('voice_aliases', {
   sellerId: text('seller_id').primaryKey().references(() => sellers.id),
   aliases: text('aliases').notNull().default('[]'),
+})
+
+/** D-V3-127 내 품종 장부: 판매자가 직접 적은 품종 이름 목록(JSON 배열). 음성 사전 맨 앞 + 받아쓰기 힌트. 백업 파일에 없고 복구가 지우지 않는다 */
+export const voiceVarieties = pgTable('voice_varieties', {
+  sellerId: text('seller_id').primaryKey().references(() => sellers.id),
+  names: text('names').notNull().default('[]'),
+  updatedAt: timestamptz('updated_at').notNull(),
 })
 
 // KP1 손님 장부 (CUSTOMER_RULES CR-1~CR-6, 마이그레이션 0031). 모두 판매자 ID 조건으로만 읽는다. 백업 파일에 없고 복구·가져오기가 지우지 않는다(RESTORE_KEPT_TABLES).
@@ -2571,6 +2722,35 @@ export const bankBalances = pgTable(
   (t) => [index('bank_balances_seller_idx').on(t.sellerId, t.bank, t.at)],
 )
 
+/**
+ * 방송 뒤 손님 정보 문자 카드 (ORD-14, D-REAL-11). 본문·번호·이름·주소·후보는 판매자 키로 암호화한 sealed 하나에만 있다.
+ * 받은 지 7일 뒤 카드째 지운다(C-07 예외)
+ */
+export const buyerInfoCards = pgTable(
+  'buyer_info_cards',
+  {
+    id: text('id').primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** OPEN 확인할 것 · APPLIED 넣음(보임) · CLOSED 넣고 닫음 · IGNORED 무시 */
+    status: text('status').notNull(),
+    /** 서버가 바로 넣었는지 */
+    auto: boolean('auto').notNull().default(false),
+    /** 넣은 손님 (방송 날짜·구매자) */
+    date: text('date'),
+    buyer: text('buyer'),
+    /** 배송지 결과 (SAVED · KEPT · REFUSED · NO_PHONE) — 넣었을 때만 */
+    note: text('note'),
+    last4: text('last4'),
+    sealed: text('sealed').notNull(),
+    receivedAt: timestamptz('received_at').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    handledAt: timestamptz('handled_at'),
+  },
+  (t) => [index('buyer_info_cards_seller_idx').on(t.sellerId, t.status, t.createdAt), index('buyer_info_cards_created_idx').on(t.createdAt)],
+)
+
 export const schema = {
   voiceAliases,
   sellers,
@@ -2579,6 +2759,9 @@ export const schema = {
   sessions,
   loginLinks,
   loginStates,
+  loginTickets,
+  phoneChecks,
+  phoneSends,
   scopes,
   broadcasts,
   events,
@@ -2627,6 +2810,9 @@ export const schema = {
   billingRequests,
   receiptLinks,
   receiptLinkRequests,
+  buyerPhones,
+  receiptSmsSends,
+  buyerInfoCards,
   depositSources,
   deposits,
   depositLinks,
@@ -2635,6 +2821,7 @@ export const schema = {
   depositCorpBindings,
   depositRequests,
   parcelAddresses,
+  parcelExtras,
   parcels,
   parcelRequests,
   parcelSettings,
@@ -2689,3 +2876,4 @@ export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean)
 
 /** 판매자 입금 처리 직렬화용 어드바이저리 락 키 (입금 저장·번호 붙이기 — 여러 인스턴스에서도 번호가 겹치지 않게, DP-7) */
 export const depositLockKey = (sellerId: string) => sql`hashtextextended(${`${sellerId}/deposits`}, 0)`
+

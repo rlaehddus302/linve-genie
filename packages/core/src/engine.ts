@@ -19,6 +19,7 @@ export {
   getBuyer,
   listBuyers,
   currentBuyerOf,
+  buyerPhoneKeys,
   previewMerge,
   buyerOfRef,
   listSmsRefs,

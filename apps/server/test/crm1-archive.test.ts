@@ -6,7 +6,7 @@ import { mergeArchive, readArchiveMembers, type DayFacts } from '../src/customer
 import { RESTORE_KEPT_TABLES } from '../src/backup.ts'
 import { customerArchiveDays, customerArchiveRows } from '../src/db/schema.ts'
 import { at, buy, chat, countOf, crm, crmWorld, kst, ok, payAll, type Row } from './crm1-support.ts'
-import { addSeller, client, createBroadcast, expectOk, login, type Seller, type TestServer } from './support.ts'
+import { addSeller, createBroadcast, expectOk, login, type Seller, type TestServer } from './support.ts'
 
 const D = '2026-09-11'
 
@@ -188,15 +188,5 @@ describe('AC-CRM1-33 봉인 뒤에도 노쇼 기록이 남는다', () => {
     for (const bad of ['', '[]', '{}', '[1]', '[{"id":1,"marker":null,"display":"a","phoneLast4":null}]', 'nope']) expect(readArchiveMembers(bad)).toBeNull()
   })
 
-  it('보조자는 손님 기록 경로 403 그대로 (보관 행도 판매자 전용 계산에만)', async () => {
-    const { world, seller } = await crmWorld(kst(D, '09:00:00'))
-    await sellDay(world, seller)
-    at(world, '2026-09-12', '12:00:00')
-    await world.server.customerArchiver.runOnce()
-    const created = await expectOk(client(world, seller.cookie).post('/api/assistants', { name: '엄마' }))
-    const assistant = created.body as { assistant: { loginId: string }; password: string }
-    const helper = await login(world, assistant.assistant.loginId, assistant.password)
-    expect((await client(world, helper).get('/api/customers')).status).toBe(403)
-    expect((await client(world, seller.cookie).get('/api/customers')).status).toBe(200)
-  })
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다 — 이 자리의 시험(보조자는 손님 기록 403)도 함께 뺐다
 })

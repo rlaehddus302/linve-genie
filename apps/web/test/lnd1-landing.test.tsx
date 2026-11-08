@@ -118,7 +118,7 @@ describe('소개 화면 문장 (AC-LND1-01·09·13)', () => {
     const day = screen.getByRole('region', { name: '판매자의 하루' })
     expect(day.querySelector('ol')).not.toBeNull()
     expect(within(day).getAllByRole('listitem').map((item) => item.textContent)).toEqual(DAY)
-    expect(screen.getByText('라이브지니 계정은 운영자가 만들어 드려요. 받은 아이디로 로그인해 주세요.')).toBeDefined()
+    expect(screen.getByText('카카오·네이버·구글 계정으로 라이브지니를 바로 시작할 수 있어요.')).toBeDefined() // D-UX3-28
     const google = screen.getByRole('region', { name: '구글 사용자 데이터를 쓰는 곳' })
     expect(google.querySelector('ul')).not.toBeNull()
     expect(within(google).getAllByRole('listitem').map((item) => item.textContent)).toEqual(GOOGLE)
@@ -372,7 +372,7 @@ describe('앱 흐름 (AC-LND1-01~03·05~08, D-LND1-01·02·08)', () => {
   })
 
   it('`/login`: 계정 안내와 "처음 화면으로"(`/` 소개 화면) — 그 자리 로그인 화면(`/settings`)엔 없음 (AC-LND1-17)', async () => {
-    const NOTE = '계정은 운영자가 만들어 드려요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.'
+    const NOTE = '처음이면 카카오·네이버·구글로 바로 시작할 수 있어요. 아이디·비밀번호를 잊었으면 운영자에게 물어봐 주세요.' // D-UX3-28
     window.history.replaceState(null, '', '/login')
     render(<App />)
     expect(await screen.findByRole('textbox', { name: '아이디' })).toBeDefined()

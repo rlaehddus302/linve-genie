@@ -1,6 +1,6 @@
 // 손님 장부 (KP1, CUSTOMER_RULES CR-2~CR-7, D-KP1-02~D-KP1-08·D-KP1-21) — 웹이 쓰는 타입·부르는 함수·문구·콘솔 꼬리표 받기.
 // - 서버 계약: harness/sprints/KP1/contract.md §3.1~3.5·§4. 서버 모듈은 가져오지 않고 모양을 여기 따로 적는다.
-// - 판매자 계정만(보조자 403). 판정·대기·승계·라벨·감사 메시지·정산과 상관없다 — 표시만 한다(CR-0 3).
+// - 판정·대기·승계·라벨·감사 메시지·정산과 상관없다 — 표시만 한다(CR-0 3).
 // - 이름·주소는 React 기본 이스케이프로만 그린다. 연락처·주소는 주소창·로그에 넣지 않는다.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { get, post, put } from '../api/client.ts'

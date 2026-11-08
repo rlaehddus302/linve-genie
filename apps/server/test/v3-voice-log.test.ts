@@ -1,6 +1,6 @@
 // AC-V3-70 서버 몫 (DOMAIN_RULES R-25, D-V3-64·D-V3-65): 음성 등록·고침 기록.
 // 음성 바로 등록·바로 고침·번호 옮기기·되돌리기마다 서버 기록 한 줄이 상품 명령보다 먼저(같은 트랜잭션) 남고,
-// 명령이 실패하면 줄에 실패 표시. 크게 바뀜 판단(정수 비교), 들은 말 가리기·300글자, 조회 API(방송·날짜·상품, 판매자 자기 것만, 보조자 403),
+// 명령이 실패하면 줄에 실패 표시. 크게 바뀜 판단(정수 비교), 들은 말 가리기·300글자, 조회 API(방송·날짜·상품, 판매자 자기 것만),
 // 백업·복구 뒤에도 같음, 판매대장 "음성 기록" 시트 데이터, 로그에 들은 말 없음.
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,7 +14,7 @@ import { randomIds } from '../src/ids.ts'
 import { formatLog } from '../src/log.ts'
 import { bigPriceChange, bigRegister, cleanHeard, maskHeard } from '../src/voice-log.ts'
 import { getFile } from './i2-support.ts'
-import { addSeller, client, createBroadcast, expectOk, login, newWorld, rid, writeEvent, type Seller, type TestServer } from './support.ts'
+import { addSeller, client, createBroadcast, expectOk, newWorld, rid, writeEvent, type Seller, type TestServer } from './support.ts'
 
 interface Entry {
   readonly id: number
@@ -407,7 +407,8 @@ describe('D-V3-75·77 한글 수 전화번호 가리기 · 봉인 때 들은 말
 })
 
 describe('AC-V3-70 조회 API', () => {
-  it('방송·날짜로 거르고, 시각순, 판매자 자기 것만 — 다른 판매자·로그인 없음·보조자는 못 본다, 거르기 없으면 400', async () => {
+  it('방송·날짜로 거르고, 시각순, 판매자 자기 것만 — 다른 판매자·로그인 없음은 못 본다, 거르기 없으면 400', async () => {
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
     const world = await newWorld()
     const seller = await addSeller(world)
     const other = await addSeller(world)
@@ -433,12 +434,6 @@ describe('AC-V3-70 조회 API', () => {
     expect((await client(world, seller.cookie).get('/api/voice/log')).status).toBe(400)
     expect((await client(world, seller.cookie).get('/api/voice/log?date=2026-13-01')).status).toBe(400)
     expect((await client(world, seller.cookie).get(`/api/voice/log?b=${b.id}&no=0`)).status).toBe(400)
-    // 보조자는 403
-    const made = await expectOk(client(world, seller.cookie).post('/api/assistants', { name: '도우미' }))
-    const assistant = made.body.assistant as { loginId: string }
-    const cookie = await login(world, assistant.loginId, made.body.password as string)
-    const forbidden = await client(world, cookie).get(`/api/voice/log?b=${b.id}`)
-    expect(forbidden.status).toBe(403)
   })
 })
 

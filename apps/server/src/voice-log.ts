@@ -56,6 +56,8 @@ export interface VoiceLogInput {
   readonly heard: string
   readonly undo: string | null
   readonly device: string | null
+  /** 받아쓰기 모델 확신도 0~1 (D-V3-130) — 없으면 null */
+  readonly conf: number | null
 }
 
 /** 상품 값 (전·후) */
@@ -96,6 +98,8 @@ export interface VoiceLogEntry {
   readonly device: string | null
   readonly claims: number
   readonly heard: string
+  /** 받아쓰기 모델 확신도 0~1 (D-V3-130) — 없으면 null */
+  readonly conf: number | null
   readonly big: boolean
   readonly withClaims: boolean
   readonly undone: boolean
@@ -157,7 +161,7 @@ export function cleanHeard(text: string): string {
 export function parseVoiceLogInput(raw: unknown): { ok: true; value: VoiceLogInput } | { ok: false; problems: FieldProblem[] } {
   const fail = (message: string): { ok: false; problems: FieldProblem[] } => ({ ok: false, problems: [{ field: 'voiceLog', message }] })
   if (!isPlainObject(raw)) return fail(VOICE_LOG_MESSAGES.shape)
-  if (ownKeys(raw).some((key) => !['heard', 'source', 'undo', 'device'].includes(key))) return fail(VOICE_LOG_MESSAGES.shape)
+  if (ownKeys(raw).some((key) => !['heard', 'source', 'undo', 'device', 'conf'].includes(key))) return fail(VOICE_LOG_MESSAGES.shape)
   const heard = own(raw, 'heard')
   if (typeof heard !== 'string' || codePoints(heard) > VOICE_LOG_HEARD_MAX) return fail(VOICE_LOG_MESSAGES.heard)
   const source = own(raw, 'source')
@@ -166,7 +170,9 @@ export function parseVoiceLogInput(raw: unknown): { ok: true; value: VoiceLogInp
   if (undo !== undefined && (typeof undo !== 'string' || !UNDO_RE.test(undo))) return fail(VOICE_LOG_MESSAGES.undo)
   const device = own(raw, 'device')
   if (device !== undefined && (typeof device !== 'string' || !DEVICE_RE.test(device))) return fail(VOICE_LOG_MESSAGES.device)
-  return { ok: true, value: { source: 'voice', heard: cleanHeard(heard), undo: typeof undo === 'string' ? undo : null, device: typeof device === 'string' ? device : null } }
+  const conf = own(raw, 'conf')
+  if (conf !== undefined && (typeof conf !== 'number' || !Number.isFinite(conf) || conf < 0 || conf > 1)) return fail(VOICE_LOG_MESSAGES.shape)
+  return { ok: true, value: { source: 'voice', heard: cleanHeard(heard), undo: typeof undo === 'string' ? undo : null, device: typeof device === 'string' ? device : null, conf: typeof conf === 'number' ? Math.round(conf * 100) / 100 : null } }
 }
 
 /** 쓰기 종류와 기록 칸이 맞는지 (판매 종료는 되돌리기만, 등록은 되돌리기가 아님) */
@@ -300,6 +306,7 @@ function rowsOf(ctx: VoiceLogContext, plans: readonly VoiceLogPlan[], at: Date, 
     device: ctx.input.device,
     claims: plan.claims,
     heard: ctx.input.heard,
+    conf: ctx.input.conf,
     big: plan.big,
     withClaims: plan.withClaims,
     undone: false,
@@ -400,6 +407,7 @@ export function entryOf(row: VoiceLogRow): VoiceLogEntry {
     device: row.device,
     claims: row.claims,
     heard: row.heard,
+    conf: row.conf,
     big: row.big,
     withClaims: row.withClaims,
     undone: row.undone,

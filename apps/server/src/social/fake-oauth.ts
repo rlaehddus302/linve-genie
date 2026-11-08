@@ -16,10 +16,13 @@ import { createNodeServer } from '../node-server.ts'
 import { PROVIDER_NAMES, isProviderId, type ProviderEndpoints, type ProviderId, type SocialLoginSetup, type SocialProviders } from './providers.ts'
 
 export const FAKE_OAUTH_HOST = '127.0.0.1'
-const PROVIDERS: readonly ProviderId[] = ['google', 'kakao', 'naver']
+/** 이 대역이 답하는 공급자 (Apple은 넣지 않는다 — 실제 Apple로 확인, D-UX3-34) */
+export type CoveredProvider = Exclude<ProviderId, 'apple'>
+const isCovered = (value: unknown): value is CoveredProvider => isProviderId(value) && value !== 'apple'
+const PROVIDERS: readonly CoveredProvider[] = ['google', 'kakao', 'naver']
 
 export interface FakeUser {
-  readonly provider: ProviderId
+  readonly provider: CoveredProvider
   readonly id: string
   readonly email: string | null
   readonly nickname: string | null
@@ -40,7 +43,7 @@ export interface FakeFault {
 export type FakeStep = 'token' | 'userinfo'
 
 export interface FakeRequestRecord {
-  readonly provider: ProviderId
+  readonly provider: CoveredProvider
   readonly kind: 'authorize' | 'token' | 'userinfo'
   readonly at: number
   /** authorize: 받은 질의 그대로 · token: 받은 항목의 요약(비밀값·코드·검증 값은 맞는지만) · userinfo: Bearer가 있었는지 */
@@ -53,9 +56,9 @@ export interface FakeOAuthOptions {
   readonly basePath?: string
   readonly practice?: boolean
   /** 등록한 클라이언트 (기본: fake-<p>-client / fake-<p>-secret — 카카오도 비밀값 있음) */
-  readonly clients?: Partial<Record<ProviderId, { readonly clientId: string; readonly clientSecret: string | null }>>
+  readonly clients?: Partial<Record<CoveredProvider, { readonly clientId: string; readonly clientSecret: string | null }>>
   /** 등록한 돌아오는 주소 (공급자마다 하나) */
-  readonly redirectUris?: Partial<Record<ProviderId, string>>
+  readonly redirectUris?: Partial<Record<CoveredProvider, string>>
   /** 만드는 코드·토큰의 앞머리 (비밀 누출 시험의 표시 값) */
   readonly codePrefix?: string
   readonly tokenPrefix?: string
@@ -64,7 +67,7 @@ export interface FakeOAuthOptions {
 }
 
 interface CodeRecord {
-  readonly provider: ProviderId
+  readonly provider: CoveredProvider
   readonly clientId: string
   readonly redirectUri: string
   readonly challenge: string | null
@@ -75,20 +78,20 @@ interface CodeRecord {
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch] as string)
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } })
-const subject = (provider: ProviderId) => (provider === 'google' ? '구글이' : `${PROVIDER_NAMES[provider]}가`)
+const subject = (provider: CoveredProvider) => (provider === 'google' ? '구글이' : `${PROVIDER_NAMES[provider]}가`)
 
 export class FakeOAuth {
   readonly #options: FakeOAuthOptions
   readonly basePath: string
-  readonly clients: Record<ProviderId, { clientId: string; clientSecret: string | null }>
-  readonly #redirects = new Map<ProviderId, string>()
-  readonly #users = new Map<ProviderId, FakeUser[]>()
+  readonly clients: Record<CoveredProvider, { clientId: string; clientSecret: string | null }>
+  readonly #redirects = new Map<CoveredProvider, string>()
+  readonly #users = new Map<CoveredProvider, FakeUser[]>()
   readonly #codes = new Map<string, CodeRecord>()
-  readonly #tokens = new Map<string, { provider: ProviderId; userId: string }>()
+  readonly #tokens = new Map<string, { provider: CoveredProvider; userId: string }>()
   readonly #faults = new Map<string, { fault: FakeFault; times: number }[]>()
   readonly requests: FakeRequestRecord[] = []
   /** 토큰 교환을 받은 수 (공급자마다) */
-  readonly exchanges: Record<ProviderId, number> = { google: 0, kakao: 0, naver: 0 }
+  readonly exchanges: Record<CoveredProvider, number> = { google: 0, kakao: 0, naver: 0 }
   #http: Server | null = null
   #url = ''
 
@@ -141,7 +144,7 @@ export class FakeOAuth {
   }
 
   /** 그 주소 밑의 공급자 주소 (base 기본 = 연 주소) */
-  endpoints(provider: ProviderId, base: string = this.#url): ProviderEndpoints {
+  endpoints(provider: CoveredProvider, base: string = this.#url): ProviderEndpoints {
     const root = `${base}${this.basePath}/${provider}`
     return { authUrl: `${root}/authorize`, tokenUrl: `${root}/token`, userInfoUrl: `${root}/userinfo` }
   }
@@ -150,10 +153,10 @@ export class FakeOAuth {
    * 서버 설정 (createServer의 socialLogin): 등록한 클라이언트와 이 서버의 주소. providers로 켤 공급자를 고른다(기본 셋 다).
    * authBase: 승인 화면 주소의 앞(브라우저가 여는 곳 — 연습 모드는 앱 주소), apiBase: 토큰·사용자 정보 주소의 앞(서버가 부르는 곳)
    */
-  setup(options: { readonly providers?: readonly ProviderId[]; readonly authBase?: string; readonly apiBase?: string; readonly timeoutMs?: number } = {}): SocialLoginSetup {
+  setup(options: { readonly providers?: readonly CoveredProvider[]; readonly authBase?: string; readonly apiBase?: string; readonly timeoutMs?: number } = {}): SocialLoginSetup {
     const chosen = options.providers ?? PROVIDERS
-    const providers: { -readonly [K in ProviderId]?: { clientId: string; clientSecret: string | null } } = {}
-    const endpoints: { -readonly [K in ProviderId]?: ProviderEndpoints } = {}
+    const providers: { -readonly [K in CoveredProvider]?: { clientId: string; clientSecret: string | null } } = {}
+    const endpoints: { -readonly [K in CoveredProvider]?: ProviderEndpoints } = {}
     for (const provider of chosen) {
       providers[provider] = { ...this.clients[provider] }
       const api = this.endpoints(provider, options.apiBase ?? this.#url)
@@ -165,7 +168,7 @@ export class FakeOAuth {
   // ── 시험 조작 ────────────────────────────────────────────────────────
 
   /** 가짜 사용자 (id 기본: 구글·카카오 숫자, 네이버 영문·숫자) */
-  addUser(provider: ProviderId, user: { readonly id?: string; readonly email?: string | null; readonly nickname?: string | null } = {}): FakeUser {
+  addUser(provider: CoveredProvider, user: { readonly id?: string; readonly email?: string | null; readonly nickname?: string | null } = {}): FakeUser {
     const id = user.id ?? (provider === 'naver' ? randomBytes(16).toString('base64url') : String(randomInt(1_000_000_000, 2 ** 47)))
     const made: FakeUser = { provider, id, email: user.email ?? null, nickname: user.nickname ?? null }
     const list = this.#users.get(provider) as FakeUser[]
@@ -175,12 +178,12 @@ export class FakeOAuth {
     return made
   }
 
-  users(provider: ProviderId): readonly FakeUser[] {
+  users(provider: CoveredProvider): readonly FakeUser[] {
     return this.#users.get(provider) ?? []
   }
 
   /** 다음 times번의 그 단계 호출에 실패를 넣는다 */
-  failNext(provider: ProviderId, step: FakeStep, fault: FakeFault, times = 1): void {
+  failNext(provider: CoveredProvider, step: FakeStep, fault: FakeFault, times = 1): void {
     const key = `${provider}/${step}`
     const list = this.#faults.get(key) ?? []
     list.push({ fault, times })
@@ -188,11 +191,11 @@ export class FakeOAuth {
   }
 
   /** 등록한 돌아오는 주소를 바꾼다 */
-  registerRedirect(provider: ProviderId, redirectUri: string): void {
+  registerRedirect(provider: CoveredProvider, redirectUri: string): void {
     this.#redirects.set(provider, redirectUri)
   }
 
-  registeredRedirect(provider: ProviderId): string | null {
+  registeredRedirect(provider: CoveredProvider): string | null {
     return this.#redirects.get(provider) ?? null
   }
 
@@ -203,7 +206,7 @@ export class FakeOAuth {
     for (const provider of PROVIDERS) this.exchanges[provider] = 0
   }
 
-  #takeFault(provider: ProviderId, step: FakeStep): FakeFault | null {
+  #takeFault(provider: CoveredProvider, step: FakeStep): FakeFault | null {
     const list = this.#faults.get(`${provider}/${step}`)
     const first = list?.[0]
     if (list === undefined || first === undefined) return null
@@ -213,7 +216,7 @@ export class FakeOAuth {
   }
 
   /** 승인 요청 검사: 맞으면 null, 아니면 오류 이름 */
-  #checkAuthorize(provider: ProviderId, query: URLSearchParams): string | null {
+  #checkAuthorize(provider: CoveredProvider, query: URLSearchParams): string | null {
     if (query.get('client_id') !== this.clients[provider].clientId) return 'invalid_client'
     const registered = this.#redirects.get(provider)
     if (registered === undefined || query.get('redirect_uri') !== registered) return 'redirect_uri_mismatch'
@@ -234,11 +237,11 @@ export class FakeOAuth {
     }
     const match = new RegExp(`^${this.basePath}/(google|kakao|naver)/authorize$`).exec(url.pathname)
     if (match === null) return { error: 'invalid_request' }
-    const provider = match[1] as ProviderId
+    const provider = match[1] as CoveredProvider
     return this.#decide(provider, url.searchParams, action)
   }
 
-  #decide(provider: ProviderId, query: URLSearchParams, action: { readonly approve: true; readonly user: string } | { readonly approve: false }): { readonly location: string } | { readonly error: string } {
+  #decide(provider: CoveredProvider, query: URLSearchParams, action: { readonly approve: true; readonly user: string } | { readonly approve: false }): { readonly location: string } | { readonly error: string } {
     const problem = this.#checkAuthorize(provider, query)
     if (problem !== null) return { error: problem }
     const back = new URL(query.get('redirect_uri') as string)
@@ -281,14 +284,14 @@ export class FakeOAuth {
     }
     const match = /^\/(google|kakao|naver)\/(authorize|token|userinfo)$/.exec(path)
     if (match === null) return jsonResponse({ error: 'not_found' }, 404)
-    const provider = match[1] as ProviderId
+    const provider = match[1] as CoveredProvider
     const kind = match[2] as 'authorize' | 'token' | 'userinfo'
     if (kind === 'authorize') return this.#authorize(provider, request, url)
     if (kind === 'token') return this.#token(provider, request)
     return this.#userinfo(provider, request)
   }
 
-  async #authorize(provider: ProviderId, request: Request, url: URL): Promise<Response> {
+  async #authorize(provider: CoveredProvider, request: Request, url: URL): Promise<Response> {
     if (request.method === 'POST') {
       const form = new URLSearchParams(await request.text())
       const action = form.get('_action')
@@ -305,7 +308,7 @@ export class FakeOAuth {
     return this.#consentPage(provider, query)
   }
 
-  #page(provider: ProviderId, body: string, status = 200): Response {
+  #page(provider: CoveredProvider, body: string, status = 200): Response {
     const banner = this.#options.practice === true ? `<p class="practice" role="note">연습용 가짜 화면이에요. 실제 ${subject(provider)} 아니에요.</p>` : ''
     const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>가짜 ${PROVIDER_NAMES[provider]} 로그인</title>
 <style>body{font-family:system-ui,sans-serif;max-width:28rem;margin:1rem auto;padding:0 1rem;font-size:16px;line-height:1.5}.practice{background:#fff3cd;border:2px solid #b58100;padding:.75rem;font-weight:700}label{display:block;padding:.75rem;border:1px solid #888;margin:.5rem 0;min-height:44px}button{display:block;width:100%;min-height:48px;font-size:16px;margin:.5rem 0}</style></head>
@@ -316,11 +319,11 @@ export class FakeOAuth {
     })
   }
 
-  #errorPage(provider: ProviderId, error: string): Response {
+  #errorPage(provider: CoveredProvider, error: string): Response {
     return this.#page(provider, `<p role="alert" data-error="${escapeHtml(error)}">요청이 올바르지 않아 앱으로 돌려보내지 않았어요. (${escapeHtml(error)})</p>`, 400)
   }
 
-  #consentPage(provider: ProviderId, query: URLSearchParams): Response {
+  #consentPage(provider: CoveredProvider, query: URLSearchParams): Response {
     const hidden = [...query].map(([key, value]) => `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}">`).join('')
     const users = this.users(provider)
     const choices =
@@ -338,7 +341,7 @@ export class FakeOAuth {
     return this.#page(provider, body)
   }
 
-  async #faulted(provider: ProviderId, step: FakeStep): Promise<Response | FakeFault | null> {
+  async #faulted(provider: CoveredProvider, step: FakeStep): Promise<Response | FakeFault | null> {
     const fault = this.#takeFault(provider, step)
     if (fault === null) return null
     if (fault.delayMs !== undefined) await new Promise((resolve) => setTimeout(resolve, fault.delayMs))
@@ -347,13 +350,13 @@ export class FakeOAuth {
     return fault
   }
 
-  #grantError(provider: ProviderId, error: string): Response {
+  #grantError(provider: CoveredProvider, error: string): Response {
     // 네이버는 실패도 200 + { error } (실제 동작)
     if (provider === 'naver') return jsonResponse({ error: error === 'invalid_grant' ? 'invalid_request' : error, error_description: 'no valid data in session' })
     return jsonResponse({ error, error_description: 'Bad Request' }, error === 'invalid_client' ? 401 : 400)
   }
 
-  async #token(provider: ProviderId, request: Request): Promise<Response> {
+  async #token(provider: CoveredProvider, request: Request): Promise<Response> {
     if (request.method !== 'POST') return jsonResponse({ error: 'invalid_request' }, 405)
     const contentType = (request.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase()
     const form = new URLSearchParams(await request.text())
@@ -403,7 +406,7 @@ export class FakeOAuth {
     return jsonResponse(body)
   }
 
-  async #userinfo(provider: ProviderId, request: Request): Promise<Response> {
+  async #userinfo(provider: CoveredProvider, request: Request): Promise<Response> {
     const auth = /^Bearer (\S+)$/.exec(request.headers.get('authorization') ?? '')
     this.requests.push({ provider, kind: 'userinfo', at: Date.now(), params: { bearer: auth !== null } })
     const faulted = await this.#faulted(provider, 'userinfo')
@@ -446,18 +449,18 @@ export class FakeOAuth {
     const text = (value: unknown): string | null => (typeof value === 'string' ? value : null)
     if (path === '/_fake/users' && request.method === 'GET') {
       const provider = url.searchParams.get('provider')
-      return jsonResponse({ users: isProviderId(provider) ? this.users(provider) : PROVIDERS.flatMap((item) => this.users(item)) })
+      return jsonResponse({ users: isCovered(provider) ? this.users(provider) : PROVIDERS.flatMap((item) => this.users(item)) })
     }
     if (path === '/_fake/users' && request.method === 'POST') {
       const body = await read()
-      if (!isProviderId(body.provider)) return jsonResponse({ error: 'provider' }, 400)
+      if (!isCovered(body.provider)) return jsonResponse({ error: 'provider' }, 400)
       const id = text(body.id)
       const user = this.addUser(body.provider, { ...(id === null ? {} : { id }), email: text(body.email), nickname: text(body.nickname) })
       return jsonResponse({ user })
     }
     if (path === '/_fake/fail' && request.method === 'POST') {
       const body = await read()
-      if (!isProviderId(body.provider) || (body.step !== 'token' && body.step !== 'userinfo')) return jsonResponse({ error: 'input' }, 400)
+      if (!isCovered(body.provider) || (body.step !== 'token' && body.step !== 'userinfo')) return jsonResponse({ error: 'input' }, 400)
       const fault: FakeFault = {
         ...(typeof body.status === 'number' ? { status: body.status } : {}),
         ...(typeof body.delayMs === 'number' ? { delayMs: body.delayMs } : {}),
@@ -471,13 +474,13 @@ export class FakeOAuth {
     if (path === '/_fake/redirect' && request.method === 'POST') {
       const body = await read()
       const uri = text(body.redirectUri)
-      if (!isProviderId(body.provider) || uri === null) return jsonResponse({ error: 'input' }, 400)
+      if (!isCovered(body.provider) || uri === null) return jsonResponse({ error: 'input' }, 400)
       this.registerRedirect(body.provider, uri)
       return jsonResponse({ ok: true })
     }
     if (path === '/_fake/requests' && request.method === 'GET') {
       const provider = url.searchParams.get('provider')
-      return jsonResponse({ requests: this.requests.filter((item) => !isProviderId(provider) || item.provider === provider), exchanges: this.exchanges })
+      return jsonResponse({ requests: this.requests.filter((item) => !isCovered(provider) || item.provider === provider), exchanges: this.exchanges })
     }
     if (path === '/_fake/approve' && request.method === 'POST') {
       const body = await read()

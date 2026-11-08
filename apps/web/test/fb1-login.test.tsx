@@ -19,12 +19,11 @@ beforeEach(() => {
   assigned = []
   setTopLevelNavigation((url) => assigned.push(url))
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: 5000, loginProviders: ['kakao', 'naver', 'google'] } }))
     .on('GET', /^\/api\/settings$/, () => ({ body: { settings: DEFAULT_SETTINGS } }))
     .on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
     .on('GET', /^\/api\/youtube\/connection$/, () => youtubeNotConfigured)
-    .on('GET', /^\/api\/assistants$/, () => ({ body: { assistants: [], limit: 5 } }))
     .on('GET', /^\/api\/auth\/methods$/, () => ({
       body: { loginId: 'shop1', providers: (['kakao', 'naver', 'google'] as const).map((provider) => ({ provider, enabled: true, linked: false, label: '', linkedAt: null })) },
     }))

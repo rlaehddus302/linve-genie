@@ -145,6 +145,39 @@ export function registerParcelRoutes(api: Hono<Env>, parcels: ParcelService, db:
     return json(c, await parcels.removeAddress(sellerOf(c), date.date, requestId, buyer.buyer), (bundle) => ({ bundle }))
   })
 
+  // ── 직접 넣은 택배 (D-UX3-38): 방송 판매 기록 없이 받는 분을 적어 접수 목록에 넣는다 ─────
+  // 넣기·고치기: { requestId, buyer?(고칠 줄 — extra:…), address: { name, phone, address, detail, zip, memo }, qty }. 답 { bundle }
+  api.put('/parcels/days/:date/extra', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'buyer', 'address', 'qty'])
+    if (extra !== null) return extra
+    const buyerRaw = own(input, 'buyer')
+    let buyer: string | null = null
+    if (buyerRaw !== undefined && buyerRaw !== null) {
+      const read = buyerOf(buyerRaw)
+      if (!read.ok) return read.response
+      buyer = read.buyer
+    }
+    const date = await dateOf(c, true)
+    if (!date.ok) return date.response
+    return json(c, await parcels.upsertExtra(sellerOf(c), accountOf(c), date.date, requestId, buyer, own(input, 'address'), own(input, 'qty')), (bundle) => ({ bundle }))
+  })
+  // 지우기: { requestId, buyer }. 접수한 줄은 409(접수 취소가 먼저). 답 { buyer }
+  api.post('/parcels/days/:date/extra/delete', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'buyer'])
+    if (extra !== null) return extra
+    const buyer = buyerOf(own(input, 'buyer'))
+    if (!buyer.ok) return buyer.response
+    const date = await dateOf(c, true)
+    if (!date.ok) return date.response
+    return json(c, await parcels.removeExtra(sellerOf(c), date.date, requestId, buyer.buyer), (value) => ({ ...value }))
+  })
+
   // ── 한 번에 접수·다시 확인·실패한 것만 다시 (AC-T1-30~34) ───────────────
   // { requestId, items: [{ buyer, box? }] } (1~200). 답 { date, results: [{ buyer, ok, invoice?, invoiceText?, reason?, message? }] }
   api.post('/parcels/days/:date/book', async (c) => {
@@ -184,5 +217,31 @@ export function registerParcelRoutes(api: Hono<Env>, parcels: ParcelService, db:
     const date = await dateOf(c, false)
     if (!date.ok) return date.response
     return fileOf(await parcels.waybill(sellerOf(c), date.date, null, c.req.raw.signal))
+  })
+
+  // ── 우체국 방문접수 파일 (D-UX3-36): 인터넷우체국 [파일(주소) 등록]에 올리는 엑셀 ─────
+  api.get('/parcels/days/:date/epost-visit.xlsx', async (c) => {
+    const date = await dateOf(c, false)
+    if (!date.ok) return date.response
+    return fileOf(await parcels.epostVisitFile(sellerOf(c), date.date, c.req.raw.signal))
+  })
+
+  // ── 앱 안 우체국 화면 (D-UX3-37): 자동 채우기 자료, 직접 접수한 송장번호 적기 ─────
+  api.get('/parcels/days/:date/epost-kit', async (c) => {
+    const date = await dateOf(c, false)
+    if (!date.ok) return date.response
+    c.header('Cache-Control', 'no-store')
+    return json(c, await parcels.epostKit(sellerOf(c), date.date, c.req.raw.signal), (kit) => ({ kit }))
+  })
+  // { requestId, kind: VISIT·COUNTER, items: [{ buyer, invoice }] } (1~200). 답은 한 번에 접수와 같은 { date, results }
+  api.post('/parcels/days/:date/direct', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const parsed = ParcelService.directInput(input)
+    if (!parsed.ok) return problemResponse(parsed.error)
+    const date = await dateOf(c, true)
+    if (!date.ok) return date.response
+    return json(c, await parcels.recordDirect(sellerOf(c), accountOf(c), date.date, requestId, parsed.kind, parsed.items), (value) => ({ date: date.date, ...value }))
   })
 }

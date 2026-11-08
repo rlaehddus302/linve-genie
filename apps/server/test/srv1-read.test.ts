@@ -7,7 +7,7 @@ import { listClaims, listProducts } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { PHONE_NUMBER_MESSAGE } from '../src/messages.ts'
 import { optionBroadcast } from './a1-support.ts'
-import { ORIGIN, addSeller, client, countRows, createBroadcast, dumpAllTables, expectOk, login, newWorld, rid, writeEvent, type Seller, type TestServer } from './support.ts'
+import { ORIGIN, addSeller, client, countRows, createBroadcast, dumpAllTables, expectOk, newWorld, rid, writeEvent, type Seller, type TestServer } from './support.ts'
 import { chats, msgId, tiktokSeller, ttWorld } from './tiktok-live-support.ts'
 
 const GOLDEN = new URL('../../../tests/golden/parser/', import.meta.url)
@@ -298,20 +298,7 @@ describe('AC-SRV1-07 문자찜 칸 원문 (APP-05 AC12, ORD-08)', () => {
     expect(listClaims((await world.server.writer.read(seller.sellerId, b.date)).state)).toHaveLength(1)
   })
 
-  it('보조자는 문자찜 칸(받은 시각·전화번호)만 읽는다 — 빠른 입력·가격은 403', async () => {
-    const world = await newWorld()
-    const seller = await addSeller(world)
-    const b = await createBroadcast(world, seller)
-    const created = await client(world, seller.cookie).post('/api/assistants', { name: '엄마' })
-    const helper = await login(world, (created.body.assistant as { loginId: string }).loginId, created.body.password as string)
-    const helperApi = client(world, helper)
-    expect((await helperApi.post(`/api/broadcasts/${b.id}/read`, { kind: 'received', text: '3:10' })).status).toBe(200)
-    expect((await helperApi.post('/api/read', { kind: 'phone', text: '010-1234-5678' })).status).toBe(200)
-    expect((await helperApi.post(`/api/broadcasts/${b.id}/read`, { kind: 'quick', text: '15 a 10' })).status).toBe(403)
-    expect((await helperApi.post('/api/read', { kind: 'money', text: '1만' })).status).toBe(403)
-    // 보조자 문자찜도 원문 칸으로 넣는다
-    await expectOk(helperApi.post('/api/events', { requestId: rid(), type: 'sms', b: b.id, noText: '7', receivedText: '11:30' }))
-  })
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다 — 이 자리의 시험(보조자는 문자찜 칸만 읽기)도 함께 뺐다
 })
 
 describe('AC-SRV1-08 정산 금액 원문·메모·사유의 전화번호 (조사 13)', () => {

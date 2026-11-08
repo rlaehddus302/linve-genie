@@ -47,7 +47,7 @@ export interface ReviewsQuery {
 
 const reviewsPath = (query: ReviewsQuery): string => withQuery('/api/reviews', { broadcast: query.broadcast, rehearsal: query.rehearsal })
 
-/** 목록 받기: 같은 리허설 구분의 바뀜 알림을 짧게 모아 다시 읽는다. 다시 붙어도 다시 읽는다. 보조자·없는 방송은 빈 목록 */
+/** 목록 받기: 같은 리허설 구분의 바뀜 알림을 짧게 모아 다시 읽는다. 다시 붙어도 다시 읽는다. 권한 없음·없는 방송은 빈 목록 */
 function useReviewList(query: ReviewsQuery) {
   const { stream } = useServices()
   const [view, setView] = useState<ReviewsView | null>(null)

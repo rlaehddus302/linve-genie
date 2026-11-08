@@ -6,14 +6,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { PackingAction, PackingEntry, PackingList, PackingResult } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
+import { PACKING_LOCKED_BOOKED, PACKING_LOCKED_WAITING, hidesPackingTag, isLive, packingTagWords } from '@livejjim/web/src/lib/parcel-words.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
-import { ALL_CHECKED_HINT, PACKED_NOTICE, PACKING_FILTERS, PACKING_TONE, SEALED_VIEW_ONLY, inFilter, isChanged, itemCount, itemLineWords, packItems, packingWords, sortEntries, type PackingFilter } from '../lib/packing.ts'
+import { ALL_CHECKED_HINT, PACKED_NOTICE, PACKING_FILTERS, PACKING_TONE, SEALED_VIEW_ONLY, inFilter, isChanged, itemCount, itemLineWords, packItems, sortEntries, type PackingFilter } from '../lib/packing.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { BigButton, Icon, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH, pressedFill } from '../ui/kit/tokens.ts'
 import { Field, Loading, Notice, Tag } from '../ui/parts.tsx'
+import { ParcelTag, ParcelTagLine } from './ParcelAddress.tsx'
 
 interface Day {
   readonly date: string
@@ -32,7 +34,7 @@ function Pill({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonl
   )
 }
 
-export function PackingScreen({ initialDate }: { readonly initialDate?: string; readonly onBack?: () => void }) {
+export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { readonly initialDate?: string; readonly onBack?: () => void; readonly openParcels?: (date: string) => void; readonly topGap?: number }) {
   const { p } = useKit()
   const room = useTabBarRoom()
   const [days, setDays] = useState<Day[] | null>(null)
@@ -55,11 +57,8 @@ export function PackingScreen({ initialDate }: { readonly initialDate?: string; 
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="packing-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.sm }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SPACE.sm }}>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-            포장
-          </Txt>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: topGap, paddingBottom: SPACE.xxxl + room, gap: SPACE.sm }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: SPACE.sm }}>
           {progress !== null ? (
             <Txt step="bodyLarge" weight="bold" color="textSub" aria-label={`포장 끝낸 손님 ${String(progress.done)}명, 전체 ${String(progress.total)}명`}>
               {`끝낸 손님 ${String(progress.done)} / ${String(progress.total)}`}
@@ -78,13 +77,19 @@ export function PackingScreen({ initialDate }: { readonly initialDate?: string; 
             {days.length === 0 ? <Txt color="textSub">아직 판매 기록이 없어요.</Txt> : null}
           </View>
         ) : null}
-        {date !== null ? <PackingDay key={date} date={date} onProgress={setProgress} /> : null}
+        {/* 흐름의 다음 단계 (D-UX3-39): 포장이 끝난 손님은 택배 탭에서 접수한다 */}
+        {openParcels !== undefined && date !== null ? (
+          <View style={{ paddingHorizontal: SPACE.xs }}>
+            <BigButton kind="outline" label="택배 접수로" ariaLabel="택배 접수로 — 포장 끝난 손님 접수하기" onPress={() => openParcels(date)} />
+          </View>
+        ) : null}
+        {date !== null ? <PackingDay key={date} date={date} onProgress={setProgress} openParcels={openParcels} /> : null}
       </ScrollView>
     </View>
   )
 }
 
-function PackingDay({ date, onProgress }: { readonly date: string; readonly onProgress: (value: { done: number; total: number } | null) => void }) {
+function PackingDay({ date, onProgress, openParcels }: { readonly date: string; readonly onProgress: (value: { done: number; total: number } | null) => void; readonly openParcels?: (date: string) => void }) {
   const { p } = useKit()
   const { stream } = useServices()
   const [list, setList] = useState<PackingList | null>(null)
@@ -117,6 +122,15 @@ function PackingDay({ date, onProgress }: { readonly date: string; readonly onPr
     view.addEventListener('ready', () => {
       ready++
       if (ready > 1) setVersion((n) => n + 1)
+    })
+    // 택배 접수·조회가 바뀌면 꼬리표·잠금이 바뀐다 (D-UX3-35)
+    view.addEventListener('parcel', (event) => {
+      try {
+        const data = JSON.parse(event.data) as { date?: string; settings?: boolean }
+        if (data.settings !== true && (data.date === undefined || data.date === date)) setVersion((n) => n + 1)
+      } catch {
+        // 버린다
+      }
     })
     view.addEventListener('packing', (event) => {
       try {
@@ -182,6 +196,7 @@ function PackingDay({ date, onProgress }: { readonly date: string; readonly onPr
           date={date}
           entry={current}
           sealed={list.sealed === true}
+          openParcels={openParcels === undefined ? undefined : () => openParcels(date)}
           next={nextTodo === undefined ? undefined : () => setOpen(nextTodo.buyer)}
           onDone={(entry) => {
             setOpen(entry.buyer)
@@ -196,11 +211,12 @@ function PackingDay({ date, onProgress }: { readonly date: string; readonly onPr
               <Txt step="bodyLarge" weight="bold" numberOfLines={1}>
                 {entry.name}
               </Txt>
-              {entry.status !== '포장 대기' ? (
+              {entry.status !== '포장 대기' && !hidesPackingTag(entry.status, entry.parcel) ? (
                 <Txt step="caption" ink={isChanged(entry.status) ? p.warnText : p.textSub}>
-                  {packingWords(entry.status, entry.invoice)}
+                  {packingTagWords(entry.status, entry.invoice, entry.parcel)}
                 </Txt>
               ) : null}
+              {entry.parcel != null ? <ParcelTag parcel={entry.parcel} /> : null}
             </View>
             <Txt color="textSub">{`${String(itemCount(entry.items))}개`}</Txt>
           </Pressable>
@@ -210,7 +226,7 @@ function PackingDay({ date, onProgress }: { readonly date: string; readonly onPr
   )
 }
 
-function PackingCard({ date, entry, sealed, next, onDone }: { readonly date: string; readonly entry: PackingEntry; readonly sealed: boolean; readonly next?: () => void; readonly onDone: (entry: PackingEntry) => void }) {
+function PackingCard({ date, entry, sealed, next, onDone, openParcels }: { readonly date: string; readonly entry: PackingEntry; readonly sealed: boolean; readonly next?: () => void; readonly onDone: (entry: PackingEntry) => void; readonly openParcels?: () => void }) {
   const { p } = useKit()
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set())
   const [invoice, setInvoice] = useState(entry.invoice ?? '')
@@ -220,6 +236,8 @@ function PackingCard({ date, entry, sealed, next, onDone }: { readonly date: str
   const allChecked = entry.items.length > 0 && entry.items.every((item) => checked.has(item.key))
   const changed = isChanged(entry.status)
   const canPack = entry.status === '포장 대기' || changed
+  // 살아 있는 택배 접수가 있으면 포장·배송 기록을 바꾸지 못한다 (서버도 409 — PC-5, U-T1-07). 포장 끝은 그대로
+  const parcelLocked = isLive(entry.parcel)
 
   const send = async (body: { readonly action: PackingAction; readonly items?: readonly { readonly key: string; readonly qty: number }[]; readonly invoice?: string | null }) => {
     if (busy || sealed) return
@@ -253,11 +271,16 @@ function PackingCard({ date, entry, sealed, next, onDone }: { readonly date: str
         <Txt color="textSub">{`${String(itemCount(entry.items))}개`}</Txt>
       </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.xs }}>
-        <Tag tone={PACKING_TONE[entry.status]}>{packingWords(entry.status, entry.invoice)}</Tag>
+        {hidesPackingTag(entry.status, entry.parcel) ? null : <Tag tone={PACKING_TONE[entry.status]}>{packingTagWords(entry.status, entry.invoice, entry.parcel)}</Tag>}
         <Txt step="caption" color="textSub">
           {`${paymentWord(entry.payment, 0)}${entry.phoneLast4 !== null ? ` · 뒤 4자리 ${entry.phoneLast4}` : ''}`}
         </Txt>
       </View>
+      {entry.parcel != null ? (
+        <View style={{ paddingHorizontal: SPACE.xs }}>
+          <ParcelTagLine parcel={entry.parcel} />
+        </View>
+      ) : null}
       {changed ? (
         <Notice tone="warning" alert>
           {`그 사이 구매 내역이 바뀌었어요.${entry.add.length > 0 ? ` 새로 담을 것: ${entry.add.map((item) => itemLineWords(item)).join(', ')}.` : ''}${entry.remove.length > 0 ? ` 뺄 것: ${entry.remove.map((item) => `${String(item.no)}번`).join(', ')}.` : ''}`}
@@ -303,14 +326,20 @@ function PackingCard({ date, entry, sealed, next, onDone }: { readonly date: str
       {!sealed ? (
         <View role="group" aria-label="포장·배송" style={{ gap: SPACE.sm, marginTop: SPACE.xs }}>
           {canPack ? <BigButton label="포장 끝" disabled={!allChecked || busy} onPress={() => void send({ action: 'pack', items: packItems(entry.items) })} /> : null}
-          {entry.status === '포장 완료' ? (
+          {entry.status === '포장 완료' && !parcelLocked ? (
             <>
               <Field label="송장번호 (선택)" value={invoice} onChangeText={setInvoice} inputMode="numeric" keyboardType="number-pad" />
               <BigButton kind="secondary" label="배송 완료" disabled={busy} onPress={() => void send({ action: 'ship', invoice: invoice.trim() === '' ? null : invoice.trim() })} />
               <BigButton kind="outline" label="포장 완료 되돌리기" disabled={busy} onPress={() => void send({ action: 'unpack' })} />
             </>
           ) : null}
-          {entry.status === '배송 완료' || entry.status === '배송 뒤 바뀜' ? <BigButton kind="outline" label="배송 완료 되돌리기" disabled={busy} onPress={() => void send({ action: 'unship' })} /> : null}
+          {(entry.status === '배송 완료' || entry.status === '배송 뒤 바뀜') && !parcelLocked ? <BigButton kind="outline" label="배송 완료 되돌리기" disabled={busy} onPress={() => void send({ action: 'unship' })} /> : null}
+        </View>
+      ) : null}
+      {parcelLocked && !sealed ? (
+        <View style={{ gap: SPACE.sm }}>
+          <Notice tone="info">{entry.parcel?.state === 'BOOKED' ? PACKING_LOCKED_BOOKED : PACKING_LOCKED_WAITING}</Notice>
+          {openParcels !== undefined ? <BigButton kind="outline" label="택배 화면으로" onPress={openParcels} /> : null}
         </View>
       ) : null}
       {notice !== null ? (

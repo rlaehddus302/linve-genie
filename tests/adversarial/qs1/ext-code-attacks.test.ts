@@ -1,12 +1,13 @@
 // QS1 적대 시험 (test-domain): 확장 연결 코드 넣기 한도 공격 (AC-QS1-32, D-QS1-06, SPEC YT-10 AC4 "코드 넣기 한도").
 // - 위조 X-Forwarded-For(믿는 수 밖)·IPv6 같은 /64·IPv4를 담은 IPv6 표기로 주소 한도를 피하지 못한다(같은 키).
-// - 보조자·로그인하지 않은 요청은 코드를 만들 수 없어 믿는 주소를 만들 수 없다. 한 판매자가 수십 번 다시 만들어도 믿는 주소는 3개 이하.
+// - 로그인하지 않은 요청은 코드를 만들 수 없어 믿는 주소를 만들 수 없다. 한 판매자가 수십 번 다시 만들어도 믿는 주소는 3개 이하.
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 계정은 코드를 만들지 못한다(403)"를 뺐다
 // - 믿는 주소에서 틀린 코드를 맞혀 보면 주소 한도 20번에 막힌다 — 다른 주소를 많이 써서 주소 기록을 밀어내도.
 // 주소는 요청 정보(env.incoming.socket.remoteAddress)로 넣는다. 형식이 틀린 코드('x')도 한도에는 센다(DB는 보지 않는다).
 import { afterEach, describe, expect, it } from 'vitest'
 import { EXT_CODE_GLOBAL_MAX } from '../../../apps/server/src/extension/routes.ts'
 import { IP_MAX_ATTEMPTS, IP_TRACK_MAX } from '../../../apps/server/src/login-limit.ts'
-import { ORIGIN, addSeller, client, login, type Seller } from '../../../apps/server/test/support.ts'
+import { ORIGIN, addSeller, type Seller } from '../../../apps/server/test/support.ts'
 import { youtubeWorld, type YoutubeWorld } from '../../../apps/server/test/youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
@@ -90,19 +91,14 @@ describe('주소 한도를 피하지 못한다 (AC-QS1-32 회귀)', () => {
     expect(accepted).toBe(IP_MAX_ATTEMPTS)
   })
 
-  it('보조자 계정·로그인하지 않은 요청은 코드를 만들지 못해 믿는 주소가 생기지 않는다 — 전체 한도를 다 쓰면 그 주소도 막힌다', async () => {
+  it('로그인하지 않은 요청은 코드를 만들지 못해 믿는 주소가 생기지 않는다 — 전체 한도를 다 쓰면 그 주소도 막힌다', async () => {
     const w = await world()
     const seller: Seller = await addSeller(w)
-    const helper = await client(w, seller.cookie).post('/api/assistants', { name: '엄마' })
-    expect(helper.status).toBe(200)
-    const helperCookie = await login(w, (helper.body.assistant as { loginId: string }).loginId, helper.body.password as string)
-    const H = '192.0.2.77'
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 쿠키로 코드 만들기 403·그 주소도 전체 한도에 막힘"을 뺐다
     const N = '192.0.2.78'
-    expect((await issue(w, helperCookie, H)).status).toBe(403)
     expect((await issue(w, '', N)).status).toBe(401)
     expect(w.server.extension.trustedAddresses.countFor(seller.sellerId)).toBe(0)
     await exhaustGlobal(w)
-    expect(await enter(w, H, WRONG)).toBe(429)
     expect(await enter(w, N, WRONG)).toBe(429)
   }, 60_000)
 

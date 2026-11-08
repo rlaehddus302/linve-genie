@@ -8,7 +8,6 @@ import { REQUEST_ID_RE, own, ownKeys } from './api-fields.ts'
 import { SESSION_COOKIE, type Auth, type SessionContext } from './auth.ts'
 import { apiError, JSON_CONTENT_TYPE } from './errors.ts'
 import { unknownFieldProblems } from './messages.ts'
-import { ASSISTANT_FORBIDDEN_MESSAGE } from './roles.ts'
 import type { BandOutcome, BandService } from './band/service.ts'
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
@@ -53,7 +52,6 @@ export function registerBandRoutes(api: Hono<Env>, band: BandService, auth: Auth
   // 돌아오기 (로그인 없이 닿는다 — 경로의 표와 쿠키 세션으로만 처리, 결과는 코드로만 화면 주소에 붙인다)
   api.get('/band/callback/:state', async (c) => {
     const found = await auth.session(getCookie(c, SESSION_COOKIE))
-    if (found?.role === 'ASSISTANT') return apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
     const result = await band.callback(c.req.param('state'), c.req.queries('code') ?? [], found === null ? null : { sellerId: found.sellerId, accountId: found.accountId, tokenHash: found.tokenHash })
     const response = c.redirect(band.returnUrl(result), 302)
     response.headers.set('Referrer-Policy', 'no-referrer')

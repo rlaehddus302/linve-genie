@@ -237,7 +237,7 @@ export async function cleanupBand(page: Page): Promise<void> {
       }
     }
   } catch {
-    // 세션이 없는 시험(보조자 등)은 넘어간다
+    // 세션이 없는 시험은 넘어간다
   }
   await band(page.request, 'clear')
   await band(page.request, 'delay', { op: 'post', ms: 0 })

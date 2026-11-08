@@ -1,6 +1,6 @@
 // 가게 설정 (D-APPX-03 — 웹 SettingsPage와 같은 칸·문구·저장 규칙, D-I3-08, FB1 D-FB1-06, I2 AC-I2-02·65·66).
 // 값을 적는 칸(가게·판매 규칙·배송비·구매 감사 메시지·택배·손님 관리)은 화면 아래 "저장" 하나로 바뀐 칸만 보낸다.
-// 켜고 끄는 칸(AI 제안·보조자)은 누르면 바로. 백업 상태와 전체 기록 내려받기(공유 시트). 구글·인스타그램·틱톡·밴드 연결,
+// 켜고 끄는 칸(AI 제안)은 누르면 바로. 백업 상태와 전체 기록 내려받기(공유 시트). 구글·인스타그램·틱톡·밴드 연결,
 // 자동 게시 동의, 간편 로그인처럼 바깥 로그인 창을 거치는 것은 기기 브라우저로 연다(그쪽 로그인 창이 앱 안에서 열리지 않는다).
 // 저장하지 않은 값이 있으면 나가기 전에 묻는다. 칸 검사는 서버가 하고 그 문장을 칸 아래에 보인다.
 import { useCallback, useEffect, useState } from 'react'
@@ -10,7 +10,7 @@ import type { BroadcastItem, Shop } from '@livejjim/web/src/api/types.ts'
 import type { ParcelSettings } from '@livejjim/web/src/api/parcel-types.ts'
 import type { CustomerSettings } from '@livejjim/web/src/lib/customers.ts'
 import { CONSOLE_BADGES_DETAIL, CONSOLE_BADGES_HELP, CONSOLE_BADGES_LABEL, CONSOLE_BADGES_UNDECIDED, LEDGER_MONTH_WORDS, LEDGER_MONTHS, LEDGER_MONTHS_HELP, LEDGER_MONTHS_LABEL, type LedgerSettings } from '@livejjim/web/src/lib/ledger-words.ts'
-import { BOX_HINT, BOX_LABEL, CARRIER_NAME_LABEL, CARRIER_NAME_MAX, NO_AUTO_BOOK_NOTE, OTHER_CARRIER, SENDER_KEYS, SENDER_LABELS, boxWord, parcelBody, parcelDraftOf, sameParcelDraft, type ParcelDraft } from '@livejjim/web/src/lib/parcel-words.ts'
+import { BOX_HINT, BOX_LABEL, CARRIER_NAME_LABEL, CARRIER_NAME_MAX, EPOST_CARRIER, EPOST_CUSTOMER_LABEL, EPOST_GUIDE, EPOST_KEY_LABEL, EPOST_PRINT_NOTE, EPOST_SECRET_LABEL, NO_AUTO_BOOK_NOTE, OTHER_CARRIER, SENDER_KEYS, epostKeyHelp, SENDER_LABELS, boxWord, parcelBody, parcelDraftOf, sameParcelDraft, type ParcelDraft } from '@livejjim/web/src/lib/parcel-words.ts'
 import { dirtyLine, failedMessage, savedMessage, SAVE_LABEL, type SaveBlock } from '@livejjim/web/src/lib/save-bar.ts'
 import { DETAIL_SETTINGS_NOTE, ONGOING_NOTICE, RULES_DETAIL, SHIPPING_HINT, THANKS_DETAIL, changedSettings, draftOf, fieldChangeNote, fieldsAt, fieldWarning, type Draft, type FieldDef } from '@livejjim/web/src/lib/settings-fields.ts'
 import { ACCOUNT_INCOMPLETE, NO_ACCOUNT_ON_RECEIPT, SHOP_FIELDS, accountPreview } from '@livejjim/web/src/lib/shop-words.ts'
@@ -21,7 +21,7 @@ import { SPACE } from '../ui/kit/tokens.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { BOT_THANKS_NOTE } from '@livejjim/web/src/lib/youtube.ts'
-import { AssistCard, AssistantsCard, BackupCard, ConnectionsCard, ExportCard, useBotThanks } from './settings/ShopExtras.tsx'
+import { AssistCard, BackupCard, ConnectionsCard, ExportCard, useBotThanks } from './settings/ShopExtras.tsx'
 
 const RULE_FIELDS = [...fieldsAt('basic'), ...fieldsAt('more')]
 const BASIC_FIELDS = fieldsAt('basic')
@@ -374,7 +374,6 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
         </Section>
 
         <AssistCard />
-        <AssistantsCard />
         <ConnectionsCard />
         <BackupCard />
         <ExportCard />
@@ -451,13 +450,20 @@ function ParcelFields({ settings, draft, error, onChange }: { readonly settings:
       {error?.problemFor('carrier') !== undefined ? <Notice tone="danger" alert>{error.problemFor('carrier')?.message}</Notice> : null}
       {draft.carrier === OTHER_CARRIER ? <TextField label={CARRIER_NAME_LABEL} value={draft.carrierName} maxLength={CARRIER_NAME_MAX * 2} onChangeText={(carrierName) => onChange({ carrierName })} error={error?.problemFor('carrierName')?.message ?? null} /> : null}
       {chosen === undefined || !chosen.autoBook ? <Notice tone="info">{NO_AUTO_BOOK_NOTE}</Notice> : null}
+      {draft.carrier === EPOST_CARRIER && chosen?.autoBook === true ? <Notice tone="info">{settings.epostReady === true ? EPOST_PRINT_NOTE : EPOST_GUIDE}</Notice> : null}
       <TextField
-        label="택배사 고객 번호"
+        label={draft.carrier === EPOST_CARRIER ? EPOST_CUSTOMER_LABEL : '택배사 고객 번호'}
         value={draft.customerNo}
         onChangeText={(customerNo) => onChange({ customerNo })}
         help={settings.customerNoLast4 === null ? '택배사와 계약하면 받는 번호예요. 없으면 비워 두세요.' : `저장한 번호 끝 ${settings.customerNoLast4} · 바꿀 때만 새로 적어 주세요.`}
         error={error?.problemFor('customerNo')?.message ?? null}
       />
+      {draft.carrier === EPOST_CARRIER && chosen?.autoBook === true ? (
+        <>
+          <TextField label={EPOST_KEY_LABEL} value={draft.epostKey} autoCapitalize="none" autoCorrect={false} secureTextEntry onChangeText={(epostKey) => onChange({ epostKey })} help={epostKeyHelp(settings.epostReady === true)} error={error?.problemFor('epostKey')?.message ?? null} />
+          <TextField label={EPOST_SECRET_LABEL} value={draft.epostSecret} autoCapitalize="none" autoCorrect={false} secureTextEntry onChangeText={(epostSecret) => onChange({ epostSecret })} error={error?.problemFor('epostSecret')?.message ?? null} />
+        </>
+      ) : null}
       <Txt weight="bold">보내는 사람</Txt>
       {SENDER_KEYS.map((key) => (
         <TextField

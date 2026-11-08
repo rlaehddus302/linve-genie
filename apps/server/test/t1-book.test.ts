@@ -48,22 +48,26 @@ describe('AC-T1-20 가짜 택배사', () => {
     expect(adapter.trackUrl('900000000001')).toBe(`${world.carrier.url}/track/900000000001`)
   })
 
-  it('운영 기동 옵션에는 택배사 어댑터가 없고, 우체국 연동 키가 있어도 쓰지 않고 경고만 남긴다', async () => {
+  // D-REAL-04: 운영 기동 옵션에 우체국 계약소포 어댑터가 있다(판매자마다 계약 정보로) — 옛 기대: carriers {}·available('EPOST') false.
+  // 서버 연동 키(LIVEJJIM_EPOST_API_KEY)는 여전히 쓰지 않고 경고만 남긴다
+  it('운영 기동 옵션에는 우체국 어댑터만 있고, 우체국 연동 키가 있어도 쓰지 않고 경고만 남긴다', async () => {
     const world = await parcelWorld()
     const env = { LIVEJJIM_MASTER_KEY: generateMasterKey(), LIVEJJIM_APP_ORIGIN: 'https://app.example.com', LIVEJJIM_EPOST_API_KEY: 'epost-secret-value' }
     const assembled = productionServerOptions(env, world.database)
     expect(assembled.ok).toBe(true)
     if (!assembled.ok) return
-    expect(assembled.options.parcel).toEqual({ carriers: {} })
+    expect(Object.keys(assembled.options.parcel?.carriers ?? {})).toEqual(['EPOST'])
     expect(assembled.options.startupWarnings).toEqual(['PARCEL_CARRIER_NOT_READY'])
     const logs: unknown[] = []
     const server = createServer({ ...assembled.options, log: (record) => logs.push(record) })
     expect(server.parcels.available('FAKE')).toBe(false)
-    expect(server.parcels.available('EPOST')).toBe(false)
+    expect(server.parcels.available('EPOST')).toBe(true)
     expect(logs).toContainEqual({ level: 'warn', code: 'PARCEL_CARRIER_NOT_READY' })
     expect(JSON.stringify(logs)).not.toContain('epost-secret-value')
     server.close()
-    expect(productionServerOptions({ ...env, LIVEJJIM_EPOST_API_KEY: '' }, world.database)).toMatchObject({ ok: true, options: { parcel: { carriers: {} } } })
+    const plain = productionServerOptions({ ...env, LIVEJJIM_EPOST_API_KEY: '' }, world.database)
+    expect(plain.ok && Object.keys(plain.options.parcel?.carriers ?? {})).toEqual(['EPOST'])
+    expect(plain.ok && plain.options.startupWarnings).toBeUndefined()
   })
 
   // FB1 D-FB1-04: 우체국택배는 "준비 중"으로 잠그지 않고 고를 수 있다 — 자동 접수 어댑터가 없어 접수만 막힌다
@@ -103,7 +107,7 @@ describe('AC-T1-21 어댑터 결과 나누기', () => {
     await makeReady(world, seller, 'UC_E', { ...ADDRESS, address: '서울 [송장이상] 1' })
     const results = await bookOk(world, seller, ['UC_A', 'UC_B', 'UC_C', 'UC_D', 'UC_E'].map((buyer) => ({ buyer })))
     expect(results).toEqual([
-      { buyer: 'UC_A', ok: false, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' },
+      { buyer: 'UC_A', ok: false, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' },
       { buyer: 'UC_B', ok: false, reason: 'REJECTED', message: '택배사가 접수를 받지 않았어요.' },
       { buyer: 'UC_C', ok: false, reason: 'UNAVAILABLE', message: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.' },
       { buyer: 'UC_D', ok: false, reason: 'UNAVAILABLE', message: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.' },

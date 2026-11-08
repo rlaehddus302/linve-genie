@@ -6,6 +6,7 @@ import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer, type RawData } from 'ws'
 import { isVoiceClientMessage, type VoiceFlowMode } from '@livejjim/voice-session/wire'
 import type { Auth, SessionContext } from '../auth.ts'
+import { originAllowed } from '../config.ts'
 import type { Db } from '../db/database.ts'
 import type { LogSink } from '../log.ts'
 import { findBroadcast } from '../store.ts'
@@ -13,7 +14,7 @@ import type { Clock } from '../time.ts'
 
 export type VoiceCloseReason = 'OTHER_DEVICE' | 'BUSY' | 'NO_WORKER' | 'ENDED' | 'AUTH' | 'RATE' | 'WORKER_LOST'
 export interface VoiceReadingSession {
-  onResult(result: { text: string; startMs: number; endMs: number }): void | Promise<void>
+  onResult(result: { text: string; startMs: number; endMs: number; conf?: number }): void | Promise<void>
   onMessage(message: unknown): void | Promise<void>
   /** 서버가 받은 방송 소리의 시각 0 (서버 시계) — 없으면 기기가 보낸 capture처럼 쓴다 */
   onServerCapture?(at: number): void | Promise<void>
@@ -24,16 +25,22 @@ export interface VoiceRelayOptions {
   readonly auth: Auth
   readonly db: Db
   readonly appOrigin: string
+  /** 옛 앱 주소들 (D-OPS-DOMAIN) */
+  readonly oldAppOrigins?: readonly string[]
   readonly clock: Clock
   readonly log: LogSink
   readonly workerToken?: string
   /** LV1: 휴대폰 마이크 흐름이 생기기 직전·끝난 뒤 (방송 소리는 마이크에 자리를 내준다, D-LV1-06) */
   readonly onMicChange?: (sellerId: string, active: boolean) => void
+  /** D-V3-127 받아쓰기 힌트(한글 수 보기 + 그 판매자 품종). 흐름을 열 때 open에 실어 보낸다 */
+  readonly hint?: (sellerId: string) => string
+  /** 흐름을 열기 전에 장부를 읽어 둔다 */
+  readonly warmHint?: (sellerId: string) => Promise<void>
   readonly reading?: (context: { session: SessionContext; broadcastId: string; device: string; mode: VoiceFlowMode; send: (message: unknown) => void }) => VoiceReadingSession | Promise<VoiceReadingSession>
 }
 interface Peer { readonly ws: WebSocket; pongAt: number }
 /** 서버가 직접 여는 흐름 (방송 소리, LV1) — 기기 대신 서버가 소리를 넣고 글을 받는다 */
-interface External { readonly external: true; readonly onResult: (result: { text: string; startMs: number; endMs: number }) => void; readonly onLost: () => void }
+interface External { readonly external: true; readonly onResult: (result: { text: string; startMs: number; endMs: number; conf?: number }) => void; readonly onLost: () => void }
 interface Worker extends Peer { capacity: number; nextStream: number; readonly streams: Map<number, Device | External> }
 export interface ExternalStream { send(pcm: Buffer): boolean; close(): void }
 const isExternal = (x: Device | External): x is External => 'external' in x
@@ -122,7 +129,7 @@ export class VoiceRelay {
       if (!workerTokenMatches(this.#options.workerToken, value?.startsWith('Bearer ') ? value.slice(7) : undefined)) { reject(socket, 401); return }
       this.#wss.handleUpgrade(req, socket, head, (ws) => this.#worker(ws))
     } else if (url.pathname === '/api/voice/stream') {
-      if (req.headers.origin !== this.#options.appOrigin) { reject(socket, 403); return }
+      if (!originAllowed(req.headers.origin, this.#options.appOrigin, this.#options.oldAppOrigins)) { reject(socket, 403); return }
       this.#wss.handleUpgrade(req, socket, head, (ws) => this.#device(ws, req, url))
     } else reject(socket, 404)
   }
@@ -157,7 +164,9 @@ export class VoiceRelay {
         !natural(value.startMs) || !natural(value.endMs) || value.startMs > value.endMs || !natural(value.procMs)) return
       const device = worker.streams.get(value.stream)
       if (device === undefined) return
-      const result = { text: value.text, startMs: value.startMs, endMs: value.endMs }
+      // conf(D-V3-130): 모델 확신도 0~1 — 있을 때만 그대로 넘긴다(기록·측정용, 판정을 바꾸지 않는다)
+      const conf = typeof value.conf === 'number' && Number.isFinite(value.conf) && value.conf >= 0 && value.conf <= 1 ? value.conf : undefined
+      const result = { text: value.text, startMs: value.startMs, endMs: value.endMs, ...(conf === undefined ? {} : { conf }) }
       if (isExternal(device)) {
         this.#samples.push({ at: this.#options.clock.now(), ms: value.procMs })
         this.#trimSamples()
@@ -204,7 +213,7 @@ export class VoiceRelay {
     const { auth, db } = this.#options
     const session = await auth.session(token)
     if (!this.#devices.has(device)) return
-    if (session === null || session.role !== 'SELLER') { this.#finish(device, 'AUTH'); return }
+    if (session === null) { this.#finish(device, 'AUTH'); return }
     device.session = session
     if (!/^[A-Za-z0-9]{8,64}$/.test(device.device)) { this.#finish(device, 'AUTH'); return }
     const broadcast = await findBroadcast(db, session.sellerId, device.broadcastId)
@@ -247,12 +256,13 @@ export class VoiceRelay {
     }
     // 인증 조회 동안 로그아웃·방송 종료가 일어났으면 시작하지 않는다.
     if (!(await auth.alive(session.tokenHash))) { this.#finish(device, 'AUTH'); return }
+    await this.#options.warmHint?.(session.sellerId)
     const stillOpen = await findBroadcast(db, session.sellerId, device.broadcastId)
     if (!this.#devices.has(device)) return
     if (stillOpen?.endedAt !== null) { this.#finish(device, 'ENDED'); return }
     if (device.worker !== null) {
       if (device.worker.ws.readyState !== WebSocket.OPEN) { this.#finish(device, 'WORKER_LOST'); return }
-      send(device.worker.ws, { type: 'open', stream: device.stream })
+      send(device.worker.ws, { type: 'open', stream: device.stream, ...this.#hintField(session.sellerId) })
     }
     device.ready = true
     send(device.ws, { type: 'ready' })
@@ -284,12 +294,16 @@ export class VoiceRelay {
     if (reason !== undefined) send(device.ws, { type: 'closing', reason })
     if (device.ws.readyState === WebSocket.OPEN) device.ws.close()
   }
+  #hintField(sellerId: string): { hint?: string } {
+    const hint = this.#options.hint?.(sellerId)
+    return hint === undefined || hint === '' ? {} : { hint }
+  }
   /** 그 판매자의 휴대폰 마이크(받아쓰기 흐름)가 듣는 중인가 */
   micActive(sellerId: string): boolean {
     return this.#owners.get(sellerId)?.mode === 'livegenie'
   }
   /** 서버가 직접 소리를 넣는 흐름을 연다 (방송 소리). 일꾼이 없거나 다 차면 까닭 */
-  openExternal(onResult: External['onResult'], onLost: () => void): ExternalStream | 'NO_WORKER' | 'BUSY' {
+  openExternal(onResult: External['onResult'], onLost: () => void, sellerId?: string): ExternalStream | 'NO_WORKER' | 'BUSY' {
     if (this.#closed) return 'NO_WORKER'
     const worker = [...this.#workers].filter((candidate) => candidate.ws.readyState === WebSocket.OPEN && candidate.streams.size < candidate.capacity && candidate.nextStream <= 4_294_967_295)
       .sort((a, b) => (b.capacity - b.streams.size) - (a.capacity - a.streams.size))[0]
@@ -300,7 +314,7 @@ export class VoiceRelay {
     const stream = worker.nextStream++
     const entry: External = { external: true, onResult, onLost }
     worker.streams.set(stream, entry)
-    send(worker.ws, { type: 'open', stream })
+    send(worker.ws, { type: 'open', stream, ...(sellerId === undefined ? {} : this.#hintField(sellerId)) })
     const header = Buffer.allocUnsafe(4)
     header.writeUInt32BE(stream)
     let open = true
@@ -322,7 +336,7 @@ export class VoiceRelay {
    * 방송 소리에서 받아쓴 글을 그 방송 콘솔(마이크 아닌 조작 흐름)의 읽기로 넘긴다. 시각은 서버가 조각을 받은 시각(밀리초, UTC).
    * 넘길 콘솔이 없으면 false — 아무도 못 보는 바로 등록은 하지 않는다 (D-LV1-03)
    */
-  deliver(sellerId: string, broadcastId: string, result: { text: string; startAt: number; endAt: number }): boolean {
+  deliver(sellerId: string, broadcastId: string, result: { text: string; startAt: number; endAt: number; conf?: number }): boolean {
     const device = this.#owners.get(sellerId)
     if (device === undefined || device.mode === 'livegenie' || device.broadcastId !== broadcastId || !device.ready || device.reading === null) return false
     if (device.captureAt === null) {
@@ -331,7 +345,7 @@ export class VoiceRelay {
       this.#enqueue(device, () => device.reading?.onServerCapture ? device.reading.onServerCapture(at) : device.reading?.onMessage({ type: 'voice.session', op: 'capture', at }))
     }
     const base = device.captureAt
-    const shifted = { text: result.text, startMs: Math.max(0, result.startAt - base), endMs: Math.max(0, result.endAt - base) }
+    const shifted = { text: result.text, startMs: Math.max(0, result.startAt - base), endMs: Math.max(0, result.endAt - base), ...(result.conf === undefined ? {} : { conf: result.conf }) }
     send(device.ws, { type: 'result', ...shifted })
     this.#enqueue(device, () => device.reading?.onResult(shifted))
     return true

@@ -1,4 +1,4 @@
-// 시작 안내 경로 (홈 "시작 준비"에서 연다, D-APPX-03). 보조자는 열지 않는다(SYS-04).
+// 시작 안내 경로 (홈 "시작 준비"에서 연다, D-APPX-03).
 import { Redirect, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { StartScreen } from '../src/screens/StartScreen.tsx'
@@ -11,7 +11,6 @@ export default function StartRoute() {
   const router = useRouter()
   if (session.state === 'out') return <Redirect href="/" />
   if (session.state !== 'in') return null
-  if (session.me.role === 'ASSISTANT') return <Redirect href="/" />
   const home = () => (router.canGoBack() ? router.back() : router.replace('/'))
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>

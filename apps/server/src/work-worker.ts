@@ -65,6 +65,12 @@ const handlers: Readonly<Record<WorkKind, Handler>> = {
     const { buildCustomersXlsx } = await import('@livejjim/documents')
     return buildCustomersXlsx(input as Parameters<typeof buildCustomersXlsx>[0])
   },
+  /** 우체국 방문접수소포 파일접수 엑셀 (D-UX3-36 — 공식 양식에 받는 분 줄만 채운다). 답 = 파일 바이트 */
+  epostVisitXlsx: async (input) => {
+    const { buildEpostVisitXlsx } = await import('@livejjim/documents')
+    const { epostVisitTemplate } = await import('./files.ts')
+    return buildEpostVisitXlsx((input as { rows: Parameters<typeof buildEpostVisitXlsx>[0] }).rows, epostVisitTemplate())
+  },
   /** 상품 목록 .xlsx → 첫 시트의 행 (압축 해제·시트·행·칸 상한 — import-files.ts) */
   xlsxRows: async (input) => {
     const { readXlsxRowsBounded } = await import('./import-files.ts')

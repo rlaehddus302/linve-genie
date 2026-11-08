@@ -171,6 +171,8 @@ export interface SealerOptions {
   /** 봉인했다 (SSE) */
   readonly onSealed: (sellerId: string, date: string) => void
   readonly hooks?: { readonly beforeCommit?: () => void | Promise<void> }
+  /** 봉인 거래 안에서 봉인 직전 상태로 할 일 (영수증 문자 번호를 손님에 옮겨 두기 — 봉인 상태에는 전화번호 키가 없다, D-REAL-05) */
+  readonly beforeSeal?: (tx: Db, sellerId: string, date: string, state: EngineState, buyers: readonly string[]) => Promise<void>
   /** 바퀴마다 성공·실패 (워커 건강, AC-I3-82) */
   readonly onPass?: (ok: boolean) => void
 }
@@ -255,6 +257,7 @@ export class Sealer {
         const { state, times } = confirmTimes(events)
         const built = buildLedger(date, state, times, now)
         const ledger = JSON.stringify(built)
+        if (this.#options.beforeSeal !== undefined) await this.#options.beforeSeal(tx, sellerId, date, state, built.buyers.flatMap((buyer) => (typeof buyer.id === 'string' ? [buyer.id] : [])))
         // (2-1) 산 적도 정산 기록도 없는 시청자의 채널 ID — 이름·본문처럼 개인정보라 남의 방송(초대받은 방송) 채팅까지 함께 지운다 (CH-12).
         // 장부에 있는 구매자(합쳐진 이전 구매자 포함)의 채팅만 채널 ID를 남긴다 (지난 구매·손님 기록이 그 표지로 잇는다)
         const kept = new Set<string>()

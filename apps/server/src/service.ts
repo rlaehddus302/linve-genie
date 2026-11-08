@@ -57,7 +57,6 @@ import { AssistService } from './assist/service.ts'
 import { mergePackingCheck } from './packing.ts'
 import { ParcelService } from './parcel/service.ts'
 import { mergeAddress } from './parcel/store.ts'
-import { ASSISTANT_EVENT_TYPES, assistantCancelCheck, assistantForbidden } from './roles.ts'
 import { openSellerKey, phoneKeyOf } from './secrets.ts'
 import {
   ambiguousMessage,
@@ -85,11 +84,11 @@ import {
   findScopeId,
   findSeller,
   findWizard,
-  listAssistants,
   updateWizard,
   historyRows,
   insertBroadcast,
   listBroadcastRows,
+  markBroadcastOpened,
   broadcastListExtras,
   type BroadcastPlatform,
   markBroadcastEnded,
@@ -99,7 +98,6 @@ import {
   scopeSealInfo,
   scopeSealRows,
   scopeSeqs,
-  type AssistantRow,
   type BroadcastRow,
   type ChatRow,
   type HistoryRow,
@@ -314,6 +312,17 @@ export class Service {
   readonly #voiceRepeats = new VoiceRepeats()
   /** 리허설 가짜 채팅 생성기 (D-082) */
   readonly generators: ChatGenerators
+  /** 문자찜 손님 번호 기억 (D-REAL-03 영수증 문자) — 서버 조립이 건다. 실제 범위에서 기록했을 때만 부른다 */
+  #phoneMemory: ((sellerId: string, phoneKey: string, phone: string) => Promise<void>) | null = null
+
+  usePhoneMemory(memory: (sellerId: string, phoneKey: string, phone: string) => Promise<void>): void {
+    this.#phoneMemory = memory
+  }
+
+  async #rememberPhone(sellerId: string, rehearsal: boolean, outcome: WriteOutcome, fields: { phoneKey?: string }, normalized: string | null): Promise<void> {
+    if (rehearsal || outcome.kind !== 'ok' || normalized === null || fields.phoneKey === undefined || this.#phoneMemory === null) return
+    await this.#phoneMemory(sellerId, fields.phoneKey, normalized)
+  }
 
   constructor(options: ServiceOptions) {
     this.#options = options
@@ -415,11 +424,6 @@ export class Service {
     return { rehearsal: row.rehearsal, settings, findProduct: readProductOf(state, b) }
   }
 
-  /** 판매자의 보조자 목록 (지우지 않은 것, AC-I3-60) */
-  assistants(sellerId: string): Promise<AssistantRow[]> {
-    return listAssistants(this.#options.db, sellerId)
-  }
-
   /** 시작 마법사 상태 */
   async wizard(sellerId: string): Promise<WizardState> {
     const row = await findWizard(this.#options.db, sellerId)
@@ -467,7 +471,7 @@ export class Service {
 
   // ── 방송 만들기·끝내기 (AC-S04-21·27) ─────────────────────────────────
 
-  async createBroadcast(sellerId: string, actor: Actor, requestId: string, input: { date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode }): Promise<WriteOutcome> {
+  async createBroadcast(sellerId: string, actor: Actor, requestId: string, input: { date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode; draft?: boolean }): Promise<WriteOutcome> {
     const { writer, db, ids } = this.#options
     const date = input.date ?? kstDate(this.#options.clock.now())
     const rehearsal = input.rehearsal === true
@@ -511,7 +515,7 @@ export class Service {
         const first = records[0]
         if (first === undefined || !first.changed) return
         const event = first.event as unknown as { b: string; date: string; title: string }
-        await insertBroadcast(tx, { id: event.b, sellerId, scopeId, date: event.date, title: event.title, startSeq: first.seq, now })
+        await insertBroadcast(tx, { id: event.b, sellerId, scopeId, date: event.date, title: event.title, startSeq: first.seq, now, draft: input.draft === true })
         if (billing !== null) {
           await billing.decideStart(tx, { sellerId, scopeId, broadcastId: event.b, date: event.date, now })
           billed = true
@@ -523,12 +527,14 @@ export class Service {
   }
 
   /** 방송 만들기 요청 본문 검사 (날짜·제목·리허설인지) */
-  static broadcastInput(body: Record<string, unknown>): { ok: true; date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode } | { ok: false; rejection: Rejection } {
+  static broadcastInput(body: Record<string, unknown>): { ok: true; date?: string; title?: string; rehearsal?: boolean; saleMode?: SaleMode; draft?: boolean } | { ok: false; rejection: Rejection } {
     const problems: FieldProblem[] = []
     const date = own(body, 'date')
     const title = own(body, 'title')
     const rehearsal = own(body, 'rehearsal')
     const saleMode = own(body, 'saleMode')
+    const draft = own(body, 'draft')
+    if (draft !== undefined && typeof draft !== 'boolean') problems.push({ field: 'draft', message: '만드는 중인지는 예나 아니오로만 정할 수 있어요.' })
     if (saleMode !== undefined && !SALE_MODES.includes(saleMode as SaleMode)) problems.push({ field: 'saleMode', message: SALE_MODE_MESSAGE })
     if (date !== undefined && !isValidDate(date)) problems.push({ field: 'date', message: fieldMessage('date') })
     if (title !== undefined && (typeof title !== 'string' || title.trim() === '' || title.length > TITLE_MAX || hasControlChar(title))) {
@@ -542,7 +548,13 @@ export class Service {
       ...(title === undefined ? {} : { title: (title as string).trim() }),
       ...(rehearsal === undefined ? {} : { rehearsal: rehearsal as boolean }),
       ...(saleMode === undefined ? {} : { saleMode: saleMode as SaleMode }),
+      ...(draft === undefined ? {} : { draft: draft as boolean }),
     }
+  }
+
+  /** 방송 화면에 들어왔다 (D-UX3-25) — 그때부터 방송 목록에 보인다. 몇 번 불러도 처음 한 번만 적는다 */
+  async openBroadcast(sellerId: string, broadcastId: string): Promise<boolean> {
+    return markBroadcastOpened(this.#options.db, sellerId, broadcastId, new Date(this.#options.clock.now()))
   }
 
   async endBroadcast(sellerId: string, actor: Actor, requestId: string, broadcastId: string): Promise<WriteOutcome> {
@@ -569,7 +581,6 @@ export class Service {
   /**
    * 화면이 보낸 이벤트 쓰기. body = { requestId, type, ...그 종류의 필드 }, queryDate = 방송이 없는 종류의 범위 날짜.
    * 요청 번호는 호출하는 쪽(API)이 이미 확인했다.
-   * 보조자 계정(options.assistant)은 실제 방송의 문자찜과 문자찜으로 생긴 찜의 방송자 취소만 — 그 밖은 403이고 아무것도 기록하지 않는다 (AC-I3-61)
    */
   async writeEvent(
     sellerId: string,
@@ -578,11 +589,8 @@ export class Service {
     body: Record<string, unknown>,
     queryDate: string | undefined,
     queryRehearsal?: boolean,
-    options: { readonly assistant?: boolean } = {},
   ): Promise<WriteOutcome | { kind: 'phone'; outcome: WriteOutcome; phoneLast4: string | null }> {
     const type = own(body, 'type')
-    const assistant = options.assistant === true
-    if (assistant && (typeof type !== 'string' || !ASSISTANT_EVENT_TYPES.includes(type))) return { kind: 'rejected', rejection: assistantForbidden() }
     const spec = typeof type === 'string' && Object.hasOwn(API_EVENTS, type) ? API_EVENTS[type] : undefined
     if (spec === undefined || typeof type !== 'string') return { kind: 'rejected', rejection: invalidInput([{ field: 'type', message: fieldMessage('type') }]) }
     // 원문 필드 (SRV1 D-APP-24 — 빠른 입력 한 줄·고치기 칸·문자찜 번호/받은 시각·정산 금액): 엔진 필드가 아니고 기록 경로 안에서 읽어 엔진 필드로 바꾼다
@@ -610,8 +618,6 @@ export class Service {
       if (typeof b !== 'string' || b === '') return { kind: 'rejected', rejection: invalidInput([{ field: 'b', message: fieldMessage('b') }]) }
       const row = await findBroadcast(this.#options.db, sellerId, b)
       if (row === null) return { kind: 'not_found' }
-      // 보조자는 실제 방송에만 (리허설은 판매자 몫)
-      if (assistant && row.rehearsal) return { kind: 'rejected', rejection: assistantForbidden() }
       date = row.date
       rehearsal = row.rehearsal
     } else {
@@ -677,7 +683,7 @@ export class Service {
           const outOfRange = smsNumberProblem(ctx.state, resolved.fields.b, resolved.fields.no, 'no')
           if (outOfRange !== null) return outOfRange
         }
-        return [{ fields: resolved.fields, actor, requestId, ...(assistant ? { validate: assistantCancelCheck } : {}) }]
+        return [{ fields: resolved.fields, actor, requestId }]
       },
     })
   }
@@ -782,6 +788,7 @@ export class Service {
     })
     // 이 요청이 등록했는데 커밋되지 않았으면 뺀다 (같은 요청 번호의 처음 응답(duplicate)은 이 요청이 등록하지 않았으니 그대로 둔다)
     if (remembered && outcome.kind !== 'ok') this.#voiceRepeats.forget(voiceScope, requestId)
+    await this.#rememberPhone(sellerId, rehearsal, outcome, phoneFields, normalized)
     return { kind: 'phone', outcome: await this.#smsOutcome(sellerId, outcome, ref), phoneLast4: normalized === null ? null : phoneLast4(normalized) }
   }
 
@@ -848,6 +855,7 @@ export class Service {
         ]
       },
     })
+    await this.#rememberPhone(sellerId, row.rehearsal, outcome, phoneFields, normalized)
     return this.#smsOutcome(sellerId, outcome, ref)
   }
 
@@ -1201,7 +1209,8 @@ export class Service {
 
   async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null; createdAt: string | null; platforms: BroadcastPlatform[] }[]> {
     const [rows, extras] = await Promise.all([listBroadcastRows(this.#options.db, sellerId), broadcastListExtras(this.#options.db, sellerId)])
-    return rows.map((row) => ({
+    // 방송 화면에 아직 들어오지 않은(앱에서 만드는 중인) 방송은 목록에 넣지 않는다 (D-UX3-25)
+    return rows.filter((row) => row.openedAt !== null).map((row) => ({
       id: row.id,
       date: row.date,
       title: row.title,

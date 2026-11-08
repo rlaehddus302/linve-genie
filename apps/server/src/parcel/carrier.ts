@@ -3,7 +3,8 @@
 // - 결과는 셋으로만 나눈다: 접수됨(송장번호) · 실패(ADDRESS 주소 거절 · REJECTED 그 밖 거절) · 모름(응답 없음·시간 초과·서버 오류·알 수 없는 답).
 //   송장번호가 숫자 8~20자리가 아니면 모름이다(같은 요청 번호로 다시 확인한다).
 // - 택배사가 준 원래 글(오류 문장 — 주소가 들어 있을 수 있다)은 읽지 않고 저장·로그·화면에 내지 않는다. 답에서 정해진 칸(error 코드·invoice·status)만 본다.
-// - T1에는 실제 택배사(우체국) 어댑터가 없다. httpCarrier는 가짜 택배사(fake-carrier.ts — 127.0.0.1, 시험 모드만)의 약속을 말한다.
+// - httpCarrier는 가짜 택배사(fake-carrier.ts — 127.0.0.1, 시험 모드만)의 약속을 말한다. 실제 택배사는 우체국 계약소포(epost.ts, D-REAL-04) —
+//   우체국은 요청 번호로 멱등이 아니어서 어댑터가 접수 전에 같은 주문번호를 먼저 묻는다.
 import type { BoxKind, ParcelAddress, TrackCode } from './rules.ts'
 import { INVOICE_RE, TRACK_CODES } from './rules.ts'
 
@@ -46,6 +47,23 @@ export interface ParcelSender {
   readonly zip: string
 }
 
+/** 판매자의 택배사 계약 정보 (D-REAL-04 — 우체국: 인증키·보안키·고객 번호). 서버에서만 쓰고 화면·로그에 내지 않는다 */
+export interface CarrierAccount {
+  readonly key: string
+  readonly secret: string
+  readonly customerNo: string
+}
+
+/** 계약 정보 확인 결과: 맞음 · 틀림(택배사가 거절) · 모름(응답 없음) */
+export type AccountCheck = 'OK' | 'REJECTED' | 'UNKNOWN'
+
+/** 취소에 함께 주는 접수 정보 (우체국은 송장번호만으로 취소할 수 없다) */
+export interface CancelContext {
+  readonly requestKey: string
+  readonly bookedAt: Date | null
+  readonly account: CarrierAccount | null
+}
+
 /** 택배사에 보내는 접수 하나 — 받는 분 여섯 칸·보내는 사람·상자 크기·물품 수만 (품종·가격·구매자 ID·닉네임은 없다, PC-6) */
 export interface BookRequest {
   readonly requestKey: string
@@ -55,6 +73,8 @@ export interface BookRequest {
   readonly box: BoxKind
   /** 물품 수 N ("물품 N개") */
   readonly count: number
+  /** 판매자 계약 정보 (계약 정보가 필요한 택배사만 — 없으면 null) */
+  readonly account?: CarrierAccount | null
 }
 
 export type BookResult = { readonly kind: 'BOOKED'; readonly invoice: string } | { readonly kind: 'FAILED'; readonly reason: 'ADDRESS' | 'REJECTED' } | { readonly kind: 'UNKNOWN' }
@@ -64,8 +84,12 @@ export type TrackResult = { readonly ok: true; readonly items: ReadonlyMap<strin
 
 export interface CarrierAdapter {
   readonly code: CarrierCode
+  /** 판매자 계약 정보가 있어야 접수할 수 있다 (없으면 자동 접수를 막는다, D-REAL-04) */
+  readonly needsAccount?: boolean
+  /** 계약 정보 확인 (설정에 저장할 때) */
+  readonly verify?: (account: CarrierAccount) => Promise<AccountCheck>
   book(request: BookRequest): Promise<BookResult>
-  cancel(invoice: string): Promise<CancelResult>
+  cancel(invoice: string, context?: CancelContext): Promise<CancelResult>
   /** 조회 API가 없는 택배사는 두지 않는다 (그러면 접수됨에서 멈춘다, PC-8) */
   readonly track?: (invoices: readonly string[]) => Promise<TrackResult>
   /** 송장번호를 넣은 조회 주소 */

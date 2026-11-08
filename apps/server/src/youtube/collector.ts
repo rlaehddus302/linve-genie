@@ -349,6 +349,8 @@ export class CollectorManager {
     if (row.status === 'FINISHED' || row.status === 'CHAT_ENDED') return { run: false, change: null }
     if (row.status === 'STOPPED' && row.reason !== null && (MANUAL_REASONS.has(row.reason) || FINAL_REASONS.has(row.reason))) return { run: false, change: null }
     if (broadcast.endedAt !== null && now >= broadcast.endedAt.getTime() + AFTER_END_MS) return { run: false, change: { status: 'FINISHED', reason: null } }
+    // 만드는 중인 방송(방송 화면에 들어오기 전)은 받지 않는다 — 들어오면 다음 훑기에서 시작한다 (D-UX3-27)
+    if (broadcast.openedAt === null) return { run: false, change: null }
     // 서버 웹 읽기는 구글 연결과 상관없다 — 운영자 끄기만 본다 (D-YT-SRV-10)
     if (row.mode === WEB_MODE) return this.#options.web == null || this.#options.web.off ? stop('OPERATOR_OFF') : { run: true }
     if (connection === null) return stop('NOT_CONNECTED')

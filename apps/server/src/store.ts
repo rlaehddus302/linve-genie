@@ -46,7 +46,8 @@ export async function findAccountByLogin(db: Db, loginId: string): Promise<Accou
       passwordHash: accounts.passwordHash,
     })
     .from(accounts)
-    .where(and(eq(accounts.loginId, loginId), isNull(accounts.deletedAt)))
+    // 판매자 계정만 — 옛 보조자 계정은 로그인하지 못한다 (D-UX3-32, 보조자 기능을 없앰)
+    .where(and(eq(accounts.loginId, loginId), eq(accounts.role, 'SELLER'), isNull(accounts.deletedAt)))
     .limit(1)
   return rows[0] ?? null
 }
@@ -57,53 +58,10 @@ export async function loginIdTaken(db: Db, loginId: string): Promise<boolean> {
   return rows.length > 0
 }
 
-// ── 보조자 계정 (SYS-04, AC-I3-60~62) ─────────────────────────────────────
-
-export interface AssistantRow {
-  readonly id: string
-  readonly name: string
-  readonly loginId: string
-  readonly createdAt: Date
-}
-
-/** 판매자의 보조자 (지우지 않은 것, 만든 순서) */
-export async function listAssistants(db: Db, sellerId: string): Promise<AssistantRow[]> {
-  const rows = await db
-    .select({ id: accounts.id, name: accounts.name, loginId: accounts.loginId, createdAt: accounts.createdAt })
-    .from(accounts)
-    .where(and(eq(accounts.sellerId, sellerId), eq(accounts.role, 'ASSISTANT'), isNull(accounts.deletedAt)))
-    .orderBy(asc(accounts.createdAt), asc(accounts.id))
-  return rows.map((row) => ({ ...row, name: row.name ?? '' }))
-}
-
 /** 판매자 행을 잠근다 (같은 판매자의 보조자 만들기를 하나씩 — 5명 한도) */
 export async function lockSeller(db: Db, sellerId: string): Promise<boolean> {
   const rows = await db.select({ id: sellers.id }).from(sellers).where(eq(sellers.id, sellerId)).for('update')
   return rows.length > 0
-}
-
-export async function insertAssistant(db: Db, row: { id: string; sellerId: string; loginId: string; passwordHash: string; name: string; now: Date }): Promise<void> {
-  await db.insert(accounts).values({ id: row.id, sellerId: row.sellerId, loginId: row.loginId, passwordHash: row.passwordHash, createdAt: row.now, role: 'ASSISTANT', name: row.name })
-}
-
-/**
- * 보조자를 지운다 (행은 남기고 지운 시각만 — 이벤트의 조치자 기록은 그대로). 그 계정의 세션을 모두 지우고 그 세션 해시를 돌려준다(실시간 연결 닫기).
- * 그 판매자의 지우지 않은 보조자가 아니면 null
- */
-export async function deleteAssistant(db: Db, sellerId: string, accountId: string, now: Date): Promise<string[] | null> {
-  return db.transaction(async (tx) => {
-    const marked = await tx
-      .update(accounts)
-      .set({ deletedAt: now })
-      .where(and(eq(accounts.sellerId, sellerId), eq(accounts.id, accountId), eq(accounts.role, 'ASSISTANT'), isNull(accounts.deletedAt)))
-      .returning({ id: accounts.id })
-    if (marked.length === 0) return null
-    const gone = await tx
-      .delete(sessions)
-      .where(and(eq(sessions.sellerId, sellerId), eq(sessions.accountId, accountId)))
-      .returning({ tokenHash: sessions.tokenHash })
-    return gone.map((row) => row.tokenHash)
-  })
 }
 
 // ── 가게 이름·시작 마법사 (AC-I3-47·50) ────────────────────────────────────
@@ -201,14 +159,14 @@ export interface SessionRow {
   readonly extendedAt: Date
   readonly loginId: string
   readonly sellerName: string
-  /** 계정 역할 (SELLER · ASSISTANT, AC-I3-61) */
-  readonly role: string
-  /** 보조자 이름 (판매자 계정은 null) */
-  readonly accountName: string | null
+  /** 세션을 만든 때 (D-UX3-30: 가입 중 번호 확인 뒤 새로 로그인했는지 본다) */
+  readonly createdAt: Date
+  /** 문자로 확인한 휴대폰 번호(가린 것). 없으면 null (D-UX3-30) */
+  readonly phoneLabel: string | null
 }
 
 /** 세션을 만든 방법 (L1, D-L1-03) */
-export type SessionMethod = 'PASSWORD' | 'GOOGLE' | 'KAKAO' | 'NAVER'
+export type SessionMethod = 'PASSWORD' | 'GOOGLE' | 'KAKAO' | 'NAVER' | 'APPLE'
 
 export async function insertSession(db: Db, row: { tokenHash: string; sellerId: string; accountId: string; now: Date; expiresAt: Date; method?: SessionMethod }): Promise<void> {
   await db.insert(sessions).values({
@@ -222,7 +180,7 @@ export async function insertSession(db: Db, row: { tokenHash: string; sellerId: 
   })
 }
 
-/** 만료되지 않은 세션 (계정·판매자 이름과 함께). 지운 계정의 세션은 없는 것과 같다 (AC-I3-62) */
+/** 만료되지 않은 세션 (계정·판매자 이름과 함께). 지운 계정·옛 보조자 계정의 세션은 없는 것과 같다 (AC-I3-62, D-UX3-32) */
 export async function findSession(db: Db, tokenHashValue: string, now: Date): Promise<SessionRow | null> {
   const rows = await db
     .select({
@@ -233,11 +191,11 @@ export async function findSession(db: Db, tokenHashValue: string, now: Date): Pr
       extendedAt: sessions.extendedAt,
       loginId: accounts.loginId,
       sellerName: sellers.name,
-      role: accounts.role,
-      accountName: accounts.name,
+      createdAt: sessions.createdAt,
+      phoneLabel: accounts.phoneLabel,
     })
     .from(sessions)
-    .innerJoin(accounts, and(eq(accounts.id, sessions.accountId), eq(accounts.sellerId, sessions.sellerId), isNull(accounts.deletedAt)))
+    .innerJoin(accounts, and(eq(accounts.id, sessions.accountId), eq(accounts.sellerId, sessions.sellerId), eq(accounts.role, 'SELLER'), isNull(accounts.deletedAt)))
     .innerJoin(sellers, eq(sellers.id, sessions.sellerId))
     .where(and(eq(sessions.tokenHash, tokenHashValue), gt(sessions.expiresAt, now)))
     .limit(1)
@@ -345,6 +303,8 @@ export interface BroadcastRow {
   readonly title: string
   readonly startSeq: number
   readonly endedAt: Date | null
+  /** 방송 화면에 처음 들어온 때 — null이면 만드는 중이라 목록에 보이지 않는다 (D-UX3-25) */
+  readonly openedAt: Date | null
 }
 
 const broadcastColumns = {
@@ -355,6 +315,7 @@ const broadcastColumns = {
   title: broadcasts.title,
   startSeq: broadcasts.startSeq,
   endedAt: broadcasts.endedAt,
+  openedAt: broadcasts.openedAt,
 }
 
 export async function findBroadcast(db: Db, sellerId: string, broadcastId: string): Promise<BroadcastRow | null> {
@@ -397,7 +358,7 @@ export async function broadcastListExtras(db: Db, sellerId: string): Promise<{ c
 
 export async function insertBroadcast(
   db: Db,
-  row: { id: string; sellerId: string; scopeId: string; date: string; title: string; startSeq: number; now: Date },
+  row: { id: string; sellerId: string; scopeId: string; date: string; title: string; startSeq: number; now: Date; draft?: boolean },
 ): Promise<void> {
   await db.insert(broadcasts).values({
     id: row.id,
@@ -407,7 +368,23 @@ export async function insertBroadcast(
     title: row.title,
     startSeq: row.startSeq,
     createdAt: row.now,
+    // 앱 새 방송 단계에서 만든 방송은 방송 화면에 들어올 때까지 목록에서 숨긴다 (D-UX3-25)
+    openedAt: row.draft === true ? null : row.now,
   })
+}
+
+/** 방송 화면에 들어왔다 — 처음 한 번만 적는다. 그 판매자의 방송이 아니면 false (D-UX3-25) */
+export async function markBroadcastOpened(db: Db, sellerId: string, broadcastId: string, now: Date): Promise<boolean> {
+  const found = await db.select({ openedAt: broadcasts.openedAt }).from(broadcasts).where(and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, broadcastId))).limit(1)
+  const row = found[0]
+  if (row === undefined) return false
+  if (row.openedAt === null) {
+    await db
+      .update(broadcasts)
+      .set({ openedAt: now })
+      .where(and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, broadcastId), isNull(broadcasts.openedAt)))
+  }
+  return true
 }
 
 export async function markBroadcastEnded(db: Db, sellerId: string, broadcastId: string, endedAt: Date): Promise<void> {

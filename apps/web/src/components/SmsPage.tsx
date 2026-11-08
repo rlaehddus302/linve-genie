@@ -7,9 +7,8 @@
 // - 보낸 뒤 칸을 모두 비운다(전화번호 원문을 화면 상태에 남기지 않는다). 아래에 고른 방송의 최근 문자찜 10개.
 // - D-SMS-01 (AC-SMS-01~04): 보내는 동안(응답 전) 칸을 읽기 전용으로 잠그고 "보내는 중이라 잠시 고칠 수 없어요.", 성공 응답이 오면
 //   화면 따라잡기를 기다리지 않고 바로 칸을 비운다. 실패하면 칸은 친 그대로. 결과 카드는 그 seq를 따라잡기 전에는 "상태 확인 중…".
-// - I3: 30일이 지나 봉인한 날짜의 방송은 고를 수 없다(기본 방송으로도 고르지 않는다, AC-I3-41). 보조자 계정은 실제 방송만 고르고
-//   허용된 요청(방송 목록·범위 목록·범위 조회·실시간)만 보낸다(AC-I3-63).
-// - N2b-2: "댓글 붙여넣기" — 콘솔과 같은 붙여넣기 창(번호마다 문자찜). 보조자도 실제 방송에서 쓴다(서버 권한이 문자찜 입력과 같다).
+// - I3: 30일이 지나 봉인한 날짜의 방송은 고를 수 없다(기본 방송으로도 고르지 않는다, AC-I3-41).
+// - N2b-2: "댓글 붙여넣기" — 콘솔과 같은 붙여넣기 창(번호마다 문자찜).
 // - SRV1 (D-APP-23·24, AC-SRV1-07): 받은 시각·전화번호 칸은 서버가 읽는다 — 미리 보기("오늘 15:10"·뒤 4자리)는 서버 읽기 입구의 답이고
 //   보내는 본문은 친 글 원문(received·phone). 메모의 전화번호는 서버가 지금 문장으로 거절하고 칸 글은 그대로 둔다(화면이 먼저 막지 않는다).
 import { DEFAULT_SETTINGS, type ClaimStatus } from '@livejjim/core'
@@ -64,9 +63,9 @@ function digitsOnly(text: string): string {
   return text.replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/\D/g, '').slice(0, 4)
 }
 
-/** 문자찜을 넣을 수 있는 방송: 봉인한 날짜 빼고, 보조자면 실제 방송만 */
-export function smsChoices(items: readonly BroadcastItem[], sealedDates: ReadonlySet<string>, assistant: boolean): BroadcastItem[] {
-  return items.filter((item) => !(sealedDates.has(item.date) && !item.rehearsal) && !(assistant && item.rehearsal))
+/** 문자찜을 넣을 수 있는 방송: 봉인한 날짜 빼고 */
+export function smsChoices(items: readonly BroadcastItem[], sealedDates: ReadonlySet<string>): BroadcastItem[] {
+  return items.filter((item) => !(sealedDates.has(item.date) && !item.rehearsal))
 }
 
 async function sealedDates(): Promise<ReadonlySet<string>> {
@@ -78,7 +77,7 @@ async function sealedDates(): Promise<ReadonlySet<string>> {
   }
 }
 
-export function SmsPage({ navigate, assistant = false }: { readonly navigate: Navigate; readonly assistant?: boolean }) {
+export function SmsPage({ navigate }: { readonly navigate: Navigate }) {
   const [broadcasts, setBroadcasts] = useState<BroadcastItem[] | null>(null)
   const [listError, setListError] = useState<ApiError | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -96,13 +95,13 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
     setListError(null)
     try {
       const [{ broadcasts: all }, sealed] = await Promise.all([get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts'), sealedDates()])
-      const items = smsChoices(all, sealed, assistant)
+      const items = smsChoices(all, sealed)
       setBroadcasts(sortBroadcasts(items))
       if (first) setSelected((current) => current ?? defaultSmsBroadcast(items)?.id ?? null)
     } catch (error) {
       if (isApiError(error)) setListError(error)
     }
-  }, [assistant])
+  }, [])
 
   useEffect(() => {
     void load(true)
@@ -193,7 +192,7 @@ export function SmsPage({ navigate, assistant = false }: { readonly navigate: Na
           onChoose={choose}
           onClose={() => setChoosing(false)}
           onReload={() => void load(false)}
-          {...(assistant ? {} : { onHome: () => navigate({ name: 'home' }) })}
+          onHome={() => navigate({ name: 'home' })}
         />
       ) : null}
     </main>
@@ -226,8 +225,8 @@ function BroadcastChooser(props: {
   readonly onChoose: (id: string) => void
   readonly onClose: () => void
   readonly onReload: () => void
-  /** 방송 목록으로 (보조자 계정은 없다) */
-  readonly onHome?: () => void
+  /** 방송 목록으로 */
+  readonly onHome: () => void
 }) {
   useEffect(() => {
     props.onReload()
@@ -237,12 +236,10 @@ function BroadcastChooser(props: {
     <Modal title="방송 고르기" onClose={props.onClose}>
       {props.items.length === 0 ? (
         <div className="stack-tight">
-          <p>{props.onHome === undefined ? '문자찜을 넣을 방송이 없어요. 판매자가 방송을 시작하면 고를 수 있어요.' : '아직 방송이 없어요. 방송 목록에서 먼저 방송을 시작해 주세요.'}</p>
-          {props.onHome !== undefined ? (
-            <button type="button" className="button" onClick={props.onHome}>
-              방송 목록으로
-            </button>
-          ) : null}
+          <p>아직 방송이 없어요. 방송 목록에서 먼저 방송을 시작해 주세요.</p>
+          <button type="button" className="button" onClick={props.onHome}>
+            방송 목록으로
+          </button>
         </div>
       ) : (
         <ul className="plain-list stack-tight" aria-label="방송">
@@ -1037,7 +1034,7 @@ function RecentSms({ api }: { readonly api: ConsoleApi }) {
 
 /**
  * 옵션 방송에서 찜이 생기지 않은 문자찜이 확인 필요로 갔는지 (AC-O2-40, 서버 계약 3): 그 방송의 확인 필요에 같은 seq 항목이 있으면 참.
- * 보조자는 확인 필요를 볼 수 없다(403) — 그때는 거짓(지금 문장).
+ * 확인 필요를 볼 수 없으면(403) 거짓(지금 문장).
  */
 export function useSentToReview(api: ConsoleApi, result: Pick<SmsOutcomeRef, 'b' | 'seq'>, missing: boolean): boolean {
   const [found, setFound] = useState(false)

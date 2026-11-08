@@ -2,7 +2,7 @@
 // 영어 상태값(PENDING·BOOKED…)은 화면 글자에 넣지 않는다 — 서버가 준 문장·조회 낱말을 쓰고, 없을 때만 여기 문장으로 채운다.
 import type { AddressFields, AddressSource, BoxKind, BundleView, ParcelBrief, ParcelRow, ParcelSender, ParcelSettings, SettingsCarrier } from '../api/parcel-types.ts'
 import type { PackingWord } from '../api/types.ts'
-import { kstShort } from './kst.ts'
+import { dateWords, kstShort } from './kst.ts'
 import { packingWords } from './packing-words.ts'
 
 export const PARCEL_TITLE = '택배 접수'
@@ -39,6 +39,14 @@ export const ROW_BOX_LABEL = '택배 크기'
 /** 자동 접수가 안 되는 택배사를 골랐거나 고르지 않았을 때 (FB1 D-FB1-04) */
 export const NO_AUTO_BOOK_NOTE = '자동 접수는 아직 준비 중이에요. 지금은 포장 화면에서 송장번호를 직접 적어요.'
 export const OTHER_CARRIER = 'OTHER'
+/** 우체국 계약소포 (D-REAL-04) — 판매자가 우체국과 계약하고 OpenAPI를 신청해 받은 값을 넣는다 */
+export const EPOST_CARRIER = 'EPOST'
+export const EPOST_CUSTOMER_LABEL = '우체국 고객 번호'
+export const EPOST_KEY_LABEL = '우체국 인증키'
+export const EPOST_SECRET_LABEL = '우체국 보안키'
+export const EPOST_GUIDE = '우체국 계약소포 고객이면 자동 접수를 쓸 수 있어요. 우체국 계약고객전용시스템(biz.epost.go.kr) > 오픈API 사용 신청에서 받은 인증키·보안키를 넣어 주세요.'
+export const EPOST_PRINT_NOTE = '접수하면 우체국이 가지러 와요. 운송장은 우체국 계약고객전용시스템에서 뽑아 붙여 주세요.'
+export const epostKeyHelp = (ready: boolean): string => (ready ? '저장돼 있어요 · 바꿀 때만 새로 적어 주세요.' : '저장하면 우체국에 맞는지 바로 확인해요.')
 export const CARRIER_NAME_LABEL = '택배사 이름'
 /** 택배사 이름 칸 상한 (서버와 같다 — 코드 포인트) */
 export const CARRIER_NAME_MAX = 20
@@ -215,6 +223,9 @@ export interface ParcelDraft {
   readonly customerNo: string
   readonly sender: ParcelSender
   readonly box: BoxKind
+  /** 우체국 인증키·보안키 (새로 적을 때만 — 저장한 값은 오지 않는다, D-REAL-04) */
+  readonly epostKey: string
+  readonly epostSecret: string
 }
 
 export function parcelDraftOf(settings: ParcelSettings): ParcelDraft {
@@ -225,6 +236,8 @@ export function parcelDraftOf(settings: ParcelSettings): ParcelDraft {
     customerNo: '',
     sender: { ...sender, name: sender.name === '' ? settings.shopName : sender.name },
     box: settings.box,
+    epostKey: '',
+    epostSecret: '',
   }
 }
 
@@ -234,6 +247,8 @@ export function sameParcelDraft(a: ParcelDraft, b: ParcelDraft): boolean {
     (a.carrier !== OTHER_CARRIER || a.carrierName === b.carrierName) &&
     a.customerNo === b.customerNo &&
     a.box === b.box &&
+    a.epostKey === b.epostKey &&
+    a.epostSecret === b.epostSecret &&
     SENDER_KEYS.every((key) => a.sender[key] === b.sender[key])
   )
 }
@@ -254,5 +269,95 @@ export function parcelBody(settings: ParcelSettings, draft: ParcelDraft): Record
     box: draft.box,
     ...(sender === undefined ? {} : { sender }),
     ...(draft.customerNo.trim() === '' ? {} : { customerNo: draft.customerNo }),
+    ...(draft.carrier === EPOST_CARRIER && draft.epostKey.trim() !== '' ? { epostKey: draft.epostKey } : {}),
+    ...(draft.carrier === EPOST_CARRIER && draft.epostSecret.trim() !== '' ? { epostSecret: draft.epostSecret } : {}),
   }
 }
+
+// ── 우체국 방문접수 파일 (D-UX3-36) — 계약 없이 인터넷우체국에 직접 접수 ──
+export const EPOST_FILE_TITLE = '우체국에 직접 접수하기'
+export const EPOST_FILE_HOW = '계약하지 않아도 돼요. 이 파일을 인터넷우체국 [방문접수소포 예약] 화면의 [파일(주소) 등록]에 올리면 받는 분이 한 번에 채워져요. 결제와 [신청]은 우체국 화면에서 직접 눌러 주세요.'
+export const EPOST_FILE_AFTER = '우체국에서 받은 송장번호를 포장 화면에 적으면 배송 완료가 되고, 다음 파일에서 빠져요.'
+export const EPOST_FILE_BUSY = '우체국 파일을 만드는 중이에요…'
+export const EPOST_FILE_OPEN = '인터넷우체국 열기'
+/** 인터넷우체국 방문접수소포 예약 (로그인하거나 비회원으로) */
+export const EPOST_VISIT_URL = 'https://parcel.epost.go.kr/general.RetrieveGeneralNewGubun.parcel?isGuest=true&isAllDelete=true&userType=5'
+export const epostFileLabel = (count: number): string => `우체국 파일 받기 (${String(count)}개)`
+/** 상자 크기 안내: 파일은 설정의 기본 상자로 넣는다 */
+export const epostFileBox = (box: BoxKind): string => `상자 크기는 모두 기본 상자(${boxWord(box)})로 넣어요. 다른 묶음은 우체국 목록에서 바꿔 주세요.`
+export const epostFileName = (date: string): string => `우체국-방문접수-${date}.xlsx`
+export const epostFilePath = (date: string): string => `/api/parcels/days/${date}/epost-visit.xlsx`
+/** 우체국 파일 칸을 보이는지: 우체국을 골랐거나 아직 택배사를 고르지 않았고, 보낼 수 있는 묶음이 있다 */
+/** 우체국 직접 접수·자료 칸 — 보낼 묶음이 없어도 보인다(D-UX3-64, 판매 전에도 기능을 써 볼 수 있게. 0개면 우체국 쪽에서 쉬운 문장으로 알린다) */
+export const showsEpostFile = (day: { readonly carrier: { readonly code: SettingsCarrier } | null }): boolean => day.carrier === null || day.carrier.code === 'EPOST'
+
+// ── 앱 안 우체국 화면 (D-UX3-37) — 들고 가기(창구소포 간편사전접수)·가지러 오기(방문접수소포) ──
+export type EpostDirectKind = 'VISIT' | 'COUNTER'
+export const EPOST_DIRECT_HOW = '계약하지 않아도 돼요. 앱 안에서 인터넷우체국을 열면 동의·보내는 분·받는 분을 라이브찜이 채워요. [신청]만 우체국 화면에서 직접 눌러 주세요.'
+export const EPOST_KIND_LABEL: Readonly<Record<EpostDirectKind, string>> = { COUNTER: '우체국에 들고 가기', VISIT: '집으로 가지러 오기' }
+export const EPOST_KIND_HOW: Readonly<Record<EpostDirectKind, string>> = {
+  COUNTER: '창구소포 간편사전접수예요. 신청한 뒤 우체국 창구에 들고 가서 결제해요.',
+  VISIT: '방문접수소포예요. 우체국 직원이 가지러 오고, 신청할 때 카드로 결제해요.',
+}
+export const EPOST_FILE_PC_TITLE = 'PC에서 접수하기'
+export const EPOST_FILE_PC = 'PC에서 접수하려면 파일을 받아 방문접수 화면의 [파일(주소) 등록]에 올려도 돼요.'
+export const EPOST_REFILL = '다시 채우기'
+export const EPOST_FIND = '송장번호 찾기'
+export const EPOST_SAFARI = '사파리로 열기'
+export const EPOST_LOADING = '우체국 화면에 넣을 내용을 준비하는 중이에요…'
+export const EPOST_STEP: Readonly<Record<EpostDirectKind, string>> = {
+  COUNTER: '동의는 라이브찜이 체크해요. 조회용 비밀번호 숫자 4자리만 적으면 입력 화면이 열리고, 보내는 분·받는 분을 채워요. [신청]은 직접 눌러 주세요.',
+  VISIT: '보내는 분과 받는 분은 라이브찜이 채워요. 목록을 확인한 뒤 결제와 [신청]은 직접 해 주세요.',
+}
+export const EPOST_NO_SENDER = '보내는 분 정보가 없어서 우체국 화면에 채우지 못해요. [보내는 분 넣기]로 한 번 저장해 주세요.'
+export const EPOST_SENDER_ADD = '보내는 분 넣기'
+export const EPOST_SENDER_TITLE = '보내는 분'
+export const EPOST_SENDER_HOW = '우체국 화면에 채울 보내는 분이에요. 한 번 저장하면 다음부터 그대로 써요.'
+export const EPOST_SENDER_SAVED = '보내는 분을 저장했어요. 우체국 화면에 채울게요.'
+export const EPOST_AGREED = '동의 두 칸을 체크했어요. 조회용 비밀번호 숫자 4자리를 적으면 다음 화면으로 넘어가요.'
+export const EPOST_AGREE_NEXT = '입력 화면을 여는 중이에요…'
+/** 동의 칸을 못 찾았거나 우체국이 휴대폰 전용 화면으로 넘겼을 때 (D-UX3-65) */
+export const EPOST_PAGE_CHANGED = '우체국 화면이 달라 라이브찜이 채우지 못했어요. 화면에서 직접 하거나 [사파리로 열기]로 이어서 해 주세요.'
+/** 택배 화면: 계약 인증키가 없을 때 — 자동 접수 대신 우체국 직접 접수가 먼저 (D-UX3-40) */
+export const DIRECT_FIRST_NOTE = '우체국 계약 인증키가 없어 자동 접수는 꺼져 있어요. 아래 단추로 우체국에 바로 접수해요.'
+export const DIRECT_FIRST_KEY = '계약했다면 인증키 넣기'
+export const EPOST_NEED_DATE = '방문 날짜와 시간을 고른 뒤 [파일(주소) 등록]을 눌러 주세요. 받는 분은 라이브찜이 넣어요.'
+export const epostUploading = (count: number): string => `받는 분 ${String(count)}명을 우체국 목록에 넣는 중이에요…`
+export const epostUploaded = (count: number): string => `받는 분 ${String(count)}명을 넣었어요. 우체국 목록을 확인하고 [신청]을 눌러 주세요.`
+export const EPOST_UPLOAD_FAILED = '받는 분을 넣지 못했어요. [다시 채우기]를 누르거나, 우체국 화면의 [파일(주소) 등록]에 파일을 직접 올려 주세요.'
+export const EPOST_POPUP = '이 단추는 앱 안에서 창을 열 수 없어요. 앱에서 막히면 [사파리로 열기]로 이어서 해 주세요.'
+export const epostCounterAdded = (count: number): string => `받는 분 ${String(count)}명을 목록에 넣었어요. 목록을 확인하고 [신청]을 눌러 주세요.`
+export const epostCounterSkipped = (count: number): string => `${String(count)}명은 우편번호나 연락처가 맞지 않아 넣지 못했어요. 우체국 화면에서 직접 넣어 주세요.`
+export const epostCounterExisting = (count: number): string => `목록에 이미 ${String(count)}명이 있어서 받는 분은 다시 넣지 않았어요.`
+export const EPOST_FIND_NONE = '이 화면에서 송장번호를 찾지 못했어요. 접수 완료 화면이나 이용내역 화면에서 눌러 주세요.'
+export const epostFound = (count: number): string => `송장번호 ${String(count)}개를 찾았어요`
+export const EPOST_FOUND_HOW = '이름과 송장번호가 맞는지 확인해 주세요. 넣으면 접수함으로 옮기고 배송 완료로 적어요.'
+export const epostFoundSave = (count: number): string => `${String(count)}개 넣기`
+export const epostUnmatched = (count: number): string => `이름을 맞추지 못한 송장번호 ${String(count)}개는 넣지 않았어요. 포장 화면에서 직접 적어 주세요.`
+export const epostSaved = (count: number): string => `${String(count)}개 묶음에 송장번호를 넣었어요.`
+
+// 직접 접수한 묶음 (택배 화면 접수함 줄)
+export const DIRECT_TAG = '우체국 직접 접수'
+export const DIRECT_CANCEL_LABEL = '기록 지우기'
+export const DIRECT_CANCEL_QUESTION = '송장 기록을 지울까요?'
+export const directCancelDescription = (name: string): string => `${name}님 묶음에 적은 송장번호만 지워요. 우체국 접수는 그대로라, 취소하려면 인터넷우체국에서 해 주세요.`
+export const DIRECT_CANCEL_DONE = '송장 기록을 지웠어요.'
+
+// ── 직접 넣은 택배 (D-UX3-38) — 방송 판매 기록 없이 받는 분을 적어 접수 ──
+export const EXTRA_TITLE = '받는 분 직접 넣기'
+export const EXTRA_HOW = '방송 판매 기록이 없어도 보낼 수 있어요. 받는 분과 물품 수를 적으면 그 날짜의 "보낼 수 있어요"에 들어가고, 다른 묶음과 똑같이 접수해요.'
+export const EXTRA_ADD = '받는 분 넣기'
+export const EXTRA_EDIT = '고치기'
+export const EXTRA_DELETE = '지우기'
+export const EXTRA_TAG = '직접 넣음'
+export const EXTRA_QTY_LABEL = '물품 수'
+export const EXTRA_SAVED = '받는 분을 넣었어요. "보낼 수 있어요"에서 접수해 주세요.'
+export const EXTRA_EDITED = '받는 분을 고쳤어요.'
+export const EXTRA_DELETED = '받는 분을 지웠어요.'
+export const EXTRA_DELETE_QUESTION = '받는 분을 지울까요?'
+export const extraDeleteDescription = (name: string): string => `${name}님을 접수 목록에서 지워요. 지우면 되돌릴 수 없어요.`
+/** "물품 3개 · 직접 넣음" */
+export const extraFacts = (qty: number): string => `물품 ${String(qty)}개 · ${EXTRA_TAG}`
+/** 넣을 날짜 안내 */
+export const extraDateNote = (date: string): string => `${dateWords(date)} 목록에 넣어요.`
+export const isExtraRow = (row: { readonly extra?: boolean }): boolean => row.extra === true

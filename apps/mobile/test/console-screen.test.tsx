@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { DIRECT_INPUT, LISTEN_START, LISTEN_STATE, LISTEN_STOP, VOICE_CONSENT_LINES, VOICE_SENT_LINE } from '../src/lib/words.ts'
 import { makeWorld } from './screen-support.tsx'
-import { buyer, changes, claim, flush, fullView, product } from './support.ts'
+import { BROADCAST, buyer, changes, claim, flush, fullView, product } from './support.ts'
 
 function setVisibility(state: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
@@ -375,5 +375,18 @@ describe('ConsoleScreen', () => {
     })
     await flush()
     expect(world.server.callsTo('GET', /customer-badges/)).toHaveLength(0)
+  })
+
+  it('새 방송 단계에서 막 넘어오면 "들어왔다" 기록을 먼저 끝낸 뒤 방송 목록을 받는다 — 기록 전엔 목록에 없어 "찾지 못했어요"가 뜨면 안 된다 (D-UX3-25 고침)', async () => {
+    const world = makeWorld({ products: [] })
+    let opened = false
+    world.server.on('POST', /^\/api\/broadcasts\/b1\/open$/, () => {
+      opened = true
+      return { body: { ok: true } }
+    })
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: opened ? [BROADCAST] : [] } }))
+    await open(world)
+    expect(screen.queryByText('그 방송을 찾지 못했어요. 홈에서 다시 골라 주세요.')).toBeNull()
+    expect(opened).toBe(true)
   })
 })

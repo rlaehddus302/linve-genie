@@ -94,7 +94,7 @@ describe('AC-KP1-26 같은 사람이 두 가게에서 사도 섞이지 않는다
     expect(((await apiB.bundle('UC_A', D)).body.bundle as { ledger: { name: string } | null }).ledger?.name).toBe('나다른')
   })
 
-  it('판매자 장부 경로 전부: 로그인 없음 401·보조자 403·다른 판매자 404·no-store (손님 자세히 장부 칸·배송지 확인·지우기)', async () => {
+  it('판매자 장부 경로 전부: 로그인 없음 401·다른 판매자 404·no-store (손님 자세히 장부 칸·배송지 확인·지우기)', async () => {
     const { world, seller } = await ledgerWorld()
     await sell(world, seller, [['UC_A', '가람', 1]])
     await consent(world, seller, 'UC_A', D, SECRET)
@@ -103,9 +103,6 @@ describe('AC-KP1-26 같은 사람이 두 가게에서 사도 섞이지 않는다
     const api = ledgerApi(world, seller.cookie)
     const prefill = (await api.bundle('UC_A', D2)).body.bundle as { ledger: { ledgerId: string; updatedAt: string } }
     const id = ((await api.customers()).body.customers as { id: string }[])[0]?.id as string
-    const created = (await client(world, seller.cookie).post('/api/assistants', { name: '엄마' })).body as { assistant: { loginId: string }; password: string }
-    const { login } = await import('../../../apps/server/test/support.ts')
-    const helper = await login(world, created.assistant.loginId, created.password)
     const other = await parcelSeller(world)
     const calls = (cookie: string | null) => {
       const x = ledgerApi(world, cookie)
@@ -118,7 +115,7 @@ describe('AC-KP1-26 같은 사람이 두 가게에서 사도 섞이지 않는다
       ]
     }
     for (const response of await Promise.all(calls(null))) expect(response.status, response.text).toBe(401)
-    for (const response of await Promise.all(calls(helper))) expect(response.status, response.text).toBe(403)
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 세션은 장부 경로 전부 403"를 뺐다
     for (const response of await Promise.all(calls(other.cookie))) {
       expect([404, 200]).toContain(response.status)
       expect(response.headers.get('cache-control')).toContain('no-store')
@@ -132,16 +129,13 @@ describe('AC-KP1-26 같은 사람이 두 가게에서 사도 섞이지 않는다
 })
 
 describe('UX-KP1-002 보관 기간 줄이기 미리보기 (적대)', () => {
-  it('판매자만(로그인 없음 401·보조자 403)·no-store·이상한 months는 400, 개인정보 없이 수만 나온다', async () => {
+  it('판매자만(로그인 없음 401)·no-store·이상한 months는 400, 개인정보 없이 수만 나온다', async () => {
     const { world, seller } = await ledgerWorld()
     await sell(world, seller, [['UC_A', '가람', 1]])
     await consent(world, seller, 'UC_A', D, SECRET)
-    const created = (await client(world, seller.cookie).post('/api/assistants', { name: '엄마' })).body as { assistant: { loginId: string }; password: string }
-    const { login } = await import('../../../apps/server/test/support.ts')
-    const helper = await login(world, created.assistant.loginId, created.password)
     const get = (cookie: string | null, query: string) => client(world, cookie).get(`/api/ledger-settings/preview${query}`)
     expect((await get(null, '?months=6')).status).toBe(401)
-    expect((await get(helper, '?months=6')).status).toBe(403)
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자는 보관 기간 미리보기 403"를 뺐다
     const good = await get(seller.cookie, '?months=6')
     expect(good.status, good.text).toBe(200)
     expect(good.headers.get('cache-control')).toContain('no-store')

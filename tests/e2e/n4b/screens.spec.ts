@@ -1,4 +1,5 @@
 // 영수증 보내기 화면 (AC-N4b-30·31·32·33·34·35·41·42) — test-e2e.
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자: 끝난 방송 콘솔에 영수증 보내기 없음, 주소로 열면 안내만, 링크 API 403 (AC-N4b-42)"을 뺐다
 import { test, expect, type Page } from '@playwright/test'
 import { directApi } from '../i3/support.ts'
 import {
@@ -290,7 +291,7 @@ test.describe('AC-N4b-33 링크 만들기·복사·보내기·끊기', () => {
   })
 })
 
-test.describe('AC-N4b-42 리허설·보조자', () => {
+test.describe('AC-N4b-42 리허설', () => {
   test('리허설: 링크·판매대장 없이 안내, 주 버튼 "전원 확인서 PDF", ZIP 이름 리허설-확인서-…-전원-이미지.zip', async ({ page }) => {
     await login(page)
     const date = uniqueDate()
@@ -310,47 +311,6 @@ test.describe('AC-N4b-42 리허설·보조자', () => {
     const [zip] = await Promise.all([page.waitForEvent('download'), all.getByRole('button', { name: '전원 이미지(JPG) 묶음' }).click()])
     expect(zip.suggestedFilename()).toBe(`리허설-확인서-${date}-전원-이미지.zip`)
     expect(readZip(await downloadBytes(zip))).toHaveLength(1)
-  })
-
-  test('보조자: 끝난 방송 콘솔에 "영수증 보내기" 없음, 주소로 열면 안내만(데이터 요청 없음), 링크 API 403', async ({ page, browser }) => {
-    await login(page)
-    const day = await endedDay(page)
-    const res = await postJson(page, '/api/assistants', { name: uniq('보조') })
-    expect(res.status, JSON.stringify(res.body)).toBeLessThan(300)
-    const { assistant, password } = res.body as unknown as { assistant: { loginId: string }; password: string }
-    const ctx = await browser.newContext({ baseURL: new URL(page.url()).origin })
-    const helper = await ctx.newPage()
-    try {
-      const asked: string[] = []
-      helper.on('request', (r) => {
-        if (/receipt-(buyers|links)/.test(r.url())) asked.push(r.url())
-      })
-      await helper.goto('/login') // LND1 D-LND1-01
-      await helper.getByLabel('아이디').fill(assistant.loginId)
-      await helper.getByLabel('비밀번호').fill(password)
-      await helper.getByRole('button', { name: '로그인' }).click()
-      await expect(helper.getByRole('button', { name: '로그아웃' })).toBeVisible()
-      await helper.goto(`/broadcasts/${encodeURIComponent(day.b)}`)
-      await expect(helper.getByRole('link', { name: '영수증 보내기' })).toHaveCount(0)
-      await helper.goto(receiptsPath(day.b))
-      await expect(helper.getByText('보조자 계정으로는 쓸 수 없는 화면이에요.')).toBeVisible()
-      await expect(helper.getByRole('heading', { name: '영수증 보내기' })).toHaveCount(0)
-      expect(asked).toEqual([])
-      const origin = new URL(helper.url()).origin
-      for (const [method, path, data] of [
-        ['GET', `/api/days/${day.date}/receipt-buyers`, undefined],
-        ['GET', `/api/days/${day.date}/receipt-links`, undefined],
-        ['POST', `/api/days/${day.date}/receipt-links/all`, { requestId: crypto.randomUUID() }],
-        ['POST', `/api/days/${day.date}/receipt-links`, { requestId: crypto.randomUUID(), buyer: day.phoneBuyer }],
-        ['GET', `/api/days/${day.date}/receipts.zip`, undefined],
-        ['GET', `/api/days/${day.date}/receipt.jpg?buyer=${encodeURIComponent(day.phoneBuyer)}`, undefined],
-      ] as const) {
-        const r = method === 'GET' ? await helper.request.get(path) : await helper.request.post(path, { data, headers: { Origin: origin } })
-        expect(r.status(), `${method} ${path}`).toBe(403)
-      }
-    } finally {
-      await ctx.close()
-    }
   })
 })
 

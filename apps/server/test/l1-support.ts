@@ -1,7 +1,7 @@
 // L1 간편 로그인 시험 도우미: 가짜 OAuth 서버(127.0.0.1)와 함께 서버를 띄우고, 시작 → 가짜 승인 → 돌아오는 주소를 HTTP 모양 그대로 돈다.
 import { expect } from 'vitest'
 import { FakeOAuth, type FakeOAuthOptions } from '../src/social/fake-oauth.ts'
-import type { ProviderId } from '../src/social/providers.ts'
+import type { CoveredProvider as ProviderId } from '../src/social/fake-oauth.ts'
 import type { ServerOptions } from '../src/server.ts'
 import { ORIGIN, client, newWorld, type FakeClock, type TestServer } from './support.ts'
 

@@ -55,7 +55,7 @@ const NO_IDS: ReadonlySet<string> = new Set()
 export interface InboxConsoleHandle {
   /** 처리 안 한 카드 (받은 순서) — 읽기 전·칸이 없는 서버는 빈 목록 */
   readonly cards: readonly InboxCardView[]
-  /** 받기 설정 (보조자·칸이 없는 서버는 null — 받기 멈춤 알림을 보이지 않는다) */
+  /** 받기 설정 (칸이 없는 서버는 null — 받기 멈춤 알림을 보이지 않는다) */
   readonly settings: InboxSettingsView | null
   /** 휴대폰 알림으로 넣은 찜 ID ("문자로 받음", 서버 cards 응답 `inboxClaimIds`) */
   readonly claimIds: ReadonlySet<string>
@@ -108,7 +108,7 @@ export function useInboxConsole(broadcast: string, enabled: boolean, clock: () =
     try {
       setSettings(await fetchInboxSettings())
     } catch (caught) {
-      // 보조자(403)·옛 서버(404)는 받기 멈춤 알림이 없다
+      // 권한 없음(403)·옛 서버(404)는 받기 멈춤 알림이 없다
       if (!isApiError(caught)) throw caught
       if (caught.status === 403 || caught.status === 404) setSettings(null)
     }

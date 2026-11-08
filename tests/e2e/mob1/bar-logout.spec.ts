@@ -2,7 +2,6 @@
 // 기대 문장은 acceptance.md 따옴표 그대로.
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test'
 import { becomeDevice, cleanupPrint, gotoLabels } from '../i1/support.ts'
-import { loginAs } from '../i3/support.ts'
 import { BAR_CELLS, barCells, expectPhoneBar, expectTarget, menu, menuLink, moreButton, moreList, openMore } from '../menu.ts'
 import { uniqueDate } from '../s05/support.ts'
 import { ANDROID, IPHONE_UA, PC, PHONE, baseUrlOf, bigText, broadcastApi, endBroadcastApi, expectBig, freshSeller, newDevice, setLabelsApi } from './support.ts'
@@ -95,7 +94,8 @@ test.describe('AC-MOB1-04 아래 막대 "문자찜"', () => {
     })
   }
 
-  test('1440×900: 위 줄 메뉴의 링크는 "문자찜 입력" 그대로, 제목도 "문자찜 입력" — 보조자 375는 막대 한 칸 "문자찜"', async ({ page, browser }) => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 375는 막대 한 칸 '문자찜'"을 뺐다
+  test('1440×900: 위 줄 메뉴의 링크는 "문자찜 입력" 그대로, 제목도 "문자찜 입력"', async ({ page, browser }) => {
     await page.goto('/')
     const { page: pc, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PC })
     try {
@@ -103,19 +103,6 @@ test.describe('AC-MOB1-04 아래 막대 "문자찜"', () => {
       await expect(menuLink(pc, '문자찜 입력')).toBeVisible()
       await expect(menuLink(pc, '문자찜')).toHaveCount(0)
       await expect(pc.getByRole('heading', { level: 1, name: '문자찜 입력' })).toBeVisible()
-      // 보조자
-      const created = await pc.request.post('/api/assistants', { data: { name: '막대보조' }, headers: { Origin: baseUrlOf(pc) } })
-      expect(created.ok(), await created.text()).toBe(true)
-      const { assistant, password } = (await created.json()) as { assistant: { loginId: string }; password: string }
-      const helper = await newDevice(browser, baseUrlOf(pc), { viewport: PHONE, touch: true })
-      try {
-        await loginAs(helper.page, { loginId: assistant.loginId, password }, '/sms')
-        await expect(menu(helper.page).getByRole('link')).toHaveText(['문자찜'])
-        await expectTarget(helper.page, menuLink(helper.page, '문자찜'))
-        await expect(helper.page.getByRole('heading', { level: 1, name: '문자찜 입력' })).toBeVisible()
-      } finally {
-        await helper.context.close()
-      }
     } finally {
       await context.close()
     }
@@ -155,24 +142,12 @@ test.describe('AC-MOB1-05 휴대폰 로그아웃 자리', () => {
     }
   })
 
-  test('1440 판매자·보조자(375·1440): 위 줄의 "로그아웃" 그대로', async ({ page, browser }) => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자(375·1440)도 위 줄의 로그아웃"을 뺐다
+  test('1440 판매자: 위 줄의 "로그아웃" 그대로', async ({ page, browser }) => {
     await page.goto('/')
     const { page: pc, context } = await freshSeller(browser, baseUrlOf(page), { viewport: PC })
     try {
       await expect(banner(pc).getByRole('button', { name: '로그아웃', exact: true })).toBeVisible()
-      const created = await pc.request.post('/api/assistants', { data: { name: '자리보조' }, headers: { Origin: baseUrlOf(pc) } })
-      expect(created.ok(), await created.text()).toBe(true)
-      const { assistant, password } = (await created.json()) as { assistant: { loginId: string }; password: string }
-      for (const viewport of [PHONE, PC]) {
-        const helper = await newDevice(browser, baseUrlOf(pc), { viewport, touch: viewport === PHONE })
-        try {
-          await loginAs(helper.page, { loginId: assistant.loginId, password }, '/sms')
-          await expect(banner(helper.page).getByRole('button', { name: '로그아웃', exact: true }), `보조자 ${String(viewport.width)}`).toBeVisible()
-          // 보조자는 묻지 않는다 (방송이 있어도 — 지금 그대로)
-        } finally {
-          await helper.context.close()
-        }
-      }
     } finally {
       await context.close()
     }

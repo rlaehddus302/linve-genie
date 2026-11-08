@@ -139,16 +139,11 @@ describe('AC-KP1-17·18 방송 리포트 숫자', () => {
 })
 
 describe('AC-KP1-26 리포트 경로 권한', () => {
-  it('로그인 없음 401, 보조자 403, 다른 판매자 404, 리허설·범위 없는 날짜 404', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('로그인 없음 401, 다른 판매자 404, 리허설·범위 없는 날짜 404', async () => {
     const { world: w, seller } = await world()
     await sellTwoDays(w, seller)
     expect((await client(w, null).get('/api/days/2026-10-08/report')).status).toBe(401)
-    const created = await expectOk(client(w, seller.cookie).post('/api/assistants', { name: '엄마' }))
-    const assistant = created.body as { assistant: { loginId: string }; password: string }
-    const helper = await login(w, assistant.assistant.loginId, assistant.password)
-    const forbidden = await client(w, helper).get('/api/days/2026-10-08/report')
-    expect(forbidden.status).toBe(403)
-    expect(forbidden.body).toEqual({ error: { code: 'ASSISTANT_FORBIDDEN', message: '보조자 계정으로는 할 수 없는 일이에요.' } })
     const other = await addSeller(w)
     const stranger = await client(w, other.cookie).get('/api/days/2026-10-08/report')
     expect(stranger.status).toBe(404)

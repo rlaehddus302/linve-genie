@@ -13,7 +13,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import type { BookResponse, BookResult, BoxKind, BundleView, ParcelDay, ParcelDays, ParcelRow } from '../api/parcel-types.ts'
 import { BuyerNames } from '../lib/derive.ts'
-import { dateLong } from '../lib/kst.ts'
+import { dateLong, kstToday } from '../lib/kst.ts'
 import { useLiveEvents } from '../lib/live-events.ts'
 import { PACKING_TONE } from '../lib/packing.ts'
 import {
@@ -34,10 +34,27 @@ import {
   PENDING_POLL_MS,
   RETRY_FAILED,
   WAYBILL_NOTE,
+  DIRECT_CANCEL_DONE,
+  DIRECT_CANCEL_LABEL,
+  DIRECT_CANCEL_QUESTION,
+  DIRECT_TAG,
+  directCancelDescription,
+  EPOST_FILE_AFTER,
+  EPOST_FILE_BUSY,
+  EPOST_FILE_HOW,
+  EPOST_FILE_OPEN,
+  EPOST_FILE_TITLE,
+  EPOST_VISIT_URL,
   addressReason,
+  epostFileBox,
+  epostFileLabel,
+  epostFileName,
+  epostFilePath,
+  showsEpostFile,
   checkedWords,
   hasPending,
   hidesPackingTag,
+  isExtraRow,
   isRetryable,
   parcelGroups,
   retryRows,
@@ -50,6 +67,7 @@ import type { PackingWord } from '../api/types.ts'
 import { useDownload } from './downloads.tsx'
 import { RequestError } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
+import { ExtraCard, ExtraFacts, ExtraRowActions } from './ParcelExtra.tsx'
 import { ParcelTag } from './ParcelParts.tsx'
 import { SpaLink } from './SettingsPage.tsx'
 
@@ -162,6 +180,15 @@ export function ParcelsPage({ route, navigate }: { readonly route: ParcelsRoute;
         )}
       </div>
       {date === null ? dates.days !== null && dates.days.dates.length === 0 ? <p>{NO_PARCEL_DATES}</p> : null : <ParcelDayView key={date} date={date} navigate={navigate} version={version} onChanged={bump} onCount={setShown} />}
+      {dates.days !== null ? (
+        <ExtraCard
+          date={date ?? kstToday()}
+          onSaved={(saved) => {
+            bump()
+            if (saved !== date) navigate({ name: 'parcels', date: saved })
+          }}
+        />
+      ) : null}
     </main>
   )
 }
@@ -220,6 +247,7 @@ function ParcelDayView({
   const running = useRef(false)
   const pending = useRef<{ key: string; requestId: string } | null>(null)
   const waybills = useDownload()
+  const epostFile = useDownload()
 
   const day = state.day
   const groups = useMemo(() => (day === null ? null : parcelGroups(day)), [day])
@@ -339,7 +367,7 @@ function ParcelDayView({
                   <input type="checkbox" checked={!unchecked.has(row.buyer)} disabled={busy} onChange={() => toggle(row.buyer)} />
                   <strong className="buyer-name">{nameOf(row)}</strong>
                 </label>
-                <RowFacts row={row} />
+                {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
                 <div className="field parcel-box">
                   <label htmlFor={`box-${date}-${row.buyer}`}>{ROW_BOX_LABEL}</label>
                   <select
@@ -361,6 +389,7 @@ function ParcelDayView({
                   </select>
                 </div>
                 {row.parcel?.state === 'CANCELLED' ? <ParcelTag parcel={row.parcel} /> : null}
+                {isExtraRow(row) ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
               </li>
             ))}
           </ul>
@@ -379,6 +408,27 @@ function ParcelDayView({
         {bookError !== null ? <RequestError error={bookError} onRetry={() => void book(chosen)} retryLabel="다시 보내기" /> : null}
       </section>
 
+      {showsEpostFile(day) ? (
+        <section className="card stack" aria-labelledby={`epost-${date}`}>
+          <h2 id={`epost-${date}`} className="section-title">
+            {EPOST_FILE_TITLE}
+          </h2>
+          <p>{EPOST_FILE_HOW}</p>
+          <p className="hint">{epostFileBox(day.box)}</p>
+          <p className="hint">{EPOST_FILE_AFTER}</p>
+          <div className="row">
+            <a className="button" href={EPOST_VISIT_URL} target="_blank" rel="noopener noreferrer">
+              {EPOST_FILE_OPEN}
+            </a>
+            <button type="button" className="button button-primary" disabled={epostFile.busy} onClick={() => void epostFile.run(epostFilePath(date), epostFileName(date))}>
+              {epostFileLabel(groups.ready.length)}
+            </button>
+            {epostFile.busy ? <span role="status">{EPOST_FILE_BUSY}</span> : null}
+          </div>
+          {epostFile.error !== null ? <RequestError error={epostFile.error} /> : null}
+        </section>
+      ) : null}
+
       <section className="card stack" aria-labelledby={`excluded-${date}`}>
         <h2 id={`excluded-${date}`} className="section-title">
           {GROUP_EXCLUDED}
@@ -388,7 +438,7 @@ function ParcelDayView({
         {groups.excluded.length > 0 ? (
           <ul className="plain-list stack-tight parcel-list">
             {groups.excluded.map((row) => (
-              <ExcludedRow key={row.buyer} date={date} row={row} name={nameOf(row)} navigate={navigate} result={results.get(row.buyer) ?? null} busy={busy} onRetry={() => void book([row])} blocked={blocked !== null} />
+              <ExcludedRow key={row.buyer} date={date} row={row} name={nameOf(row)} navigate={navigate} result={results.get(row.buyer) ?? null} busy={busy} onRetry={() => void book([row])} blocked={blocked !== null} onChanged={onChanged} />
             ))}
           </ul>
         ) : null}
@@ -477,6 +527,7 @@ function ExcludedRow({
   busy,
   blocked,
   onRetry,
+  onChanged,
 }: {
   readonly date: string
   readonly row: ParcelRow
@@ -486,6 +537,7 @@ function ExcludedRow({
   readonly busy: boolean
   readonly blocked: boolean
   readonly onRetry: () => void
+  readonly onChanged: () => void
 }) {
   const reason = screenReason(row)
   const text = reason === '' ? (result ?? '') : reason
@@ -494,7 +546,7 @@ function ExcludedRow({
   return (
     <li className="parcel-row stack-tight">
       <strong className="buyer-name">{name}</strong>
-      <RowFacts row={row} />
+      {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
       {text !== '' ? (
         <p className="parcel-reason" data-tone={failed ? 'danger' : unknown ? 'warning' : undefined}>
           {text}
@@ -506,12 +558,13 @@ function ExcludedRow({
             다시 확인
           </button>
         ) : null}
-        {addressReason(row) ? (
+        {addressReason(row) && !isExtraRow(row) ? (
           <SpaLink navigate={navigate} to={{ name: 'settlements', date, rehearsal: false, buyer: row.buyer }} className="button">
             배송지 보기
           </SpaLink>
         ) : null}
       </div>
+      {isExtraRow(row) && !isRetryable(row.parcel) && row.parcel?.state !== 'PENDING' ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
     </li>
   )
 }
@@ -541,6 +594,9 @@ function BookedRow({
   const checked = parcel === null ? null : checkedWords(parcel)
   /** 집하 뒤면 버튼 대신 안내 (서버 cancellable — U-T1-05). 그 사이 집하된 경우는 취소 응답 문장(AC-T1-64) */
   const cancellable = parcel === null || parcel.cancellable
+  // 우체국 직접 접수(D-UX3-37): 운송장은 우체국이 붙인다 — 운송장 PDF 없음, [기록 지우기]는 라이브찜 기록만
+  const direct = parcel?.direct === 'VISIT' || parcel?.direct === 'COUNTER'
+  const cancelLabel = direct ? DIRECT_CANCEL_LABEL : '접수 취소'
 
   const cancel = async () => {
     if (running.current) return
@@ -569,27 +625,30 @@ function BookedRow({
   return (
     <li className="parcel-row stack-tight">
       <strong className="buyer-name">{name}</strong>
-      <RowFacts row={row} />
+      {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
       {parcel !== null ? (
         <p className="row">
           <ParcelTag parcel={parcel} />
+          {direct ? <span className="tag">{DIRECT_TAG}</span> : null}
           {checked !== null ? <span className="hint">{checked}</span> : null}
         </p>
       ) : null}
       <div className="row" role="group" aria-label={`${name} 택배`}>
-        <button
-          type="button"
-          className="button"
-          disabled={waybill.busy}
-          onClick={() => {
-            onAction()
-            setDone(false)
-            setError(null)
-            void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)
-          }}
-        >
-          운송장 PDF
-        </button>
+        {direct ? null : (
+          <button
+            type="button"
+            className="button"
+            disabled={waybill.busy}
+            onClick={() => {
+              onAction()
+              setDone(false)
+              setError(null)
+              void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)
+            }}
+          >
+            운송장 PDF
+          </button>
+        )}
         {cancellable ? (
           <button
             type="button"
@@ -602,7 +661,7 @@ function BookedRow({
               setAsking(true)
             }}
           >
-            접수 취소
+            {cancelLabel}
           </button>
         ) : null}
         {busy ? <span role="status">취소하는 중…</span> : null}
@@ -615,14 +674,14 @@ function BookedRow({
       ) : null}
       {done ? (
         <p className="notice" role="status" data-tone="success">
-          접수를 취소했어요.
+          {direct ? DIRECT_CANCEL_DONE : '접수를 취소했어요.'}
         </p>
       ) : null}
       {error !== null ? <RequestError error={error} /> : null}
       {waybill.error !== null ? <RequestError error={waybill.error} /> : null}
       {asking ? (
         <Modal
-          title="접수 취소"
+          title={direct ? DIRECT_CANCEL_QUESTION : '접수 취소'}
           onClose={() => setAsking(false)}
           actions={
             <button
@@ -634,11 +693,11 @@ function BookedRow({
                 void cancel()
               }}
             >
-              취소하기
+              {direct ? '지우기' : '취소하기'}
             </button>
           }
         >
-          <p>{`${name}님의 택배 접수를 취소할까요? 택배사가 아직 가져가지 않았을 때만 취소돼요.`}</p>
+          <p>{direct ? directCancelDescription(name) : `${name}님의 택배 접수를 취소할까요? 택배사가 아직 가져가지 않았을 때만 취소돼요.`}</p>
         </Modal>
       ) : null}
     </li>

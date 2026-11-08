@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
 import type { BoxKind, ParcelSettings, SettingsCarrier } from '../api/parcel-types.ts'
 import { useUnsavedGuard } from '../lib/leave-guard.ts'
-import { BOX_HINT, BOX_LABEL, CARRIER_NAME_LABEL, CARRIER_NAME_MAX, NO_AUTO_BOOK_NOTE, OTHER_CARRIER, boxWord } from '../lib/parcel-words.ts'
+import { BOX_HINT, BOX_LABEL, CARRIER_NAME_LABEL, CARRIER_NAME_MAX, EPOST_CARRIER, EPOST_CUSTOMER_LABEL, EPOST_GUIDE, EPOST_KEY_LABEL, EPOST_PRINT_NOTE, EPOST_SECRET_LABEL, NO_AUTO_BOOK_NOTE, OTHER_CARRIER, boxWord, epostKeyHelp } from '../lib/parcel-words.ts'
 import { useSaveStep, type StepResult } from '../lib/save-bar.ts'
 import { RequestError } from './ErrorNote.tsx'
 import { AddressInputs, fieldNames } from './ParcelParts.tsx'
@@ -75,6 +75,7 @@ export function ParcelSettingsSection() {
     setDraft((current) => (current === null ? current : { ...current, ...patch }))
   }
   const chosen = settings.carriers.find((carrier) => carrier.code === draft.carrier)
+  const epost = draft.carrier === EPOST_CARRIER && chosen?.autoBook === true
   const carrierProblem = error?.problemFor('carrier')
   const customerProblem = error?.problemFor('customerNo')
   const boxProblem = error?.problemFor('box')
@@ -133,8 +134,9 @@ export function ParcelSettingsSection() {
       ) : null}
       {/* 안내는 하나 (FB1 D-FB1-18 (f)): 택배사 이름 칸 아래. 자동 접수가 되는 택배사면 없음 */}
       {chosen === undefined || !chosen.autoBook ? <p className="notice">{NO_AUTO_BOOK_NOTE}</p> : null}
+      {epost ? <p className="notice">{settings.epostReady === true ? EPOST_PRINT_NOTE : EPOST_GUIDE}</p> : null}
       <div className="field">
-        <label htmlFor={`${id}-customer`}>택배사 고객 번호</label>
+        <label htmlFor={`${id}-customer`}>{draft.carrier === EPOST_CARRIER ? EPOST_CUSTOMER_LABEL : '택배사 고객 번호'}</label>
         <input
           id={`${id}-customer`}
           className="input"
@@ -153,6 +155,36 @@ export function ParcelSettingsSection() {
           </p>
         ) : null}
       </div>
+      {epost
+        ? (
+            [
+              ['epostKey', EPOST_KEY_LABEL],
+              ['epostSecret', EPOST_SECRET_LABEL],
+            ] as const
+          ).map(([field, label]) => {
+            const fieldProblem = error?.problemFor(field)
+            return (
+              <div className="field" key={field}>
+                <label htmlFor={`${id}-${field}`}>{label}</label>
+                <input
+                  id={`${id}-${field}`}
+                  className="input"
+                  type="password"
+                  autoComplete="off"
+                  value={draft[field]}
+                  aria-invalid={fieldProblem !== undefined}
+                  onChange={(event) => change({ [field]: event.target.value })}
+                />
+                {field === 'epostKey' ? <p className="hint">{epostKeyHelp(settings.epostReady === true)}</p> : null}
+                {fieldProblem !== undefined ? (
+                  <p className="field-error" role="alert">
+                    {fieldProblem.message}
+                  </p>
+                ) : null}
+              </div>
+            )
+          })
+        : null}
       <fieldset className="stack-tight parcel-sender">
         <legend>보내는 사람</legend>
         <AddressInputs prefix="sender" keys={SENDER_KEYS} labels={SENDER_LABELS} value={draft.sender} onChange={(key, value) => change({ sender: { ...draft.sender, [key]: value } })} error={error} />
@@ -181,7 +213,7 @@ export function ParcelSettingsSection() {
         </p>
         <p className="hint">택배 화면에서 묶음마다 바꿀 수 있어요.</p>
       </div>
-      {error !== null ? <RequestError error={error} omitFields={['carrier', 'carrierName', 'customerNo', 'box', 'sender', ...fieldNames('sender', SENDER_KEYS)]} /> : null}
+      {error !== null ? <RequestError error={error} omitFields={['carrier', 'carrierName', 'customerNo', 'epostKey', 'epostSecret', 'box', 'sender', ...fieldNames('sender', SENDER_KEYS)]} /> : null}
     </form>
   )
 }

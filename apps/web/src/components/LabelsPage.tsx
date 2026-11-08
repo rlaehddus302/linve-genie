@@ -6,7 +6,7 @@
 //   아니면 프린터 단계의 다음 할 일(연결 전: 첫 연결 방법 → 연결 뒤: 테스트 인쇄 → 테스트 결과 "예" 뒤: 이 기기에서 출력). 이 기기가 이미 출력 기기면
 //   프린터 단계에 주 버튼이 없다. "버렸어요"·"라벨 설정 저장"은 이 화면에서 늘 보통 버튼이다(알림 창의 "버렸어요"는 그대로 주 버튼).
 import { a4Layout, type LabelBitmap, type LabelSizeId } from '@livejjim/label'
-import { CONNECTION_STATE_NAMES, PRINTER_MESSAGES, RECONNECT_ACTION, experimentalNotice, printerProfile, printerSupportStage, type PrinterError } from '@livejjim/printer'
+import { CONNECTION_STATE_NAMES, PRINTER_MESSAGES, RECONNECT_ACTION, printerProfile, printerSupportStage, type PrinterError } from '@livejjim/printer'
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { get, isApiError, patch, type ApiError } from '../api/client.ts'
 import type { JobView, LabelView, QueueSummary } from '../api/print-types.ts'
@@ -18,7 +18,7 @@ import { canShareFile, downloadBytes, shareBytes } from '../lib/label-files.ts'
 import { bringIntoView, onLabelFiles, requestLabelFiles, requestPickLabelSize } from '../lib/label-jump.ts'
 import { a4PdfBytes, broadcastA4Name, labelErrorMessage, packingPngName, pngBytes, productPngName, waitingA4Name } from '../lib/label-render.ts'
 import { sizeWordMm, testHelp } from '../lib/test-help.ts'
-import { EXPERIMENTAL_MARK, EXPERIMENTAL_PICK_NOTE, EXPERIMENTAL_RESUMED, TEST_CONFIRMED_PAST, jobNameWord, jobNumberWord, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
+import { EXPERIMENTAL_PICK_NOTE, printerCheckNotice, EXPERIMENTAL_RESUMED, TEST_CONFIRMED_PAST, jobNameWord, jobNumberWord, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, KEEP_SCREEN_ON, PRINT_ACTION, connectTips, IPHONE_TEST_PRINTER, isAndroid, isIphone, isWindows, showsConnectTips, SETTING_NEXT_BROADCAST, TEST_QUESTION, buyerWord, deviceLostMessage, deviceWord, historyWord, labelOptionWords, replaceQuestion } from '../lib/print-words.ts'
 import { awaitingTest, testLabelSize, type PrinterMethod } from '../lib/printer-station.ts'
 import type { Navigate } from '../lib/router.ts'
 import { ErrorNote } from './ErrorNote.tsx'
@@ -293,12 +293,12 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
           </p>
           {profile !== undefined ? (
             <p>
-              프린터 이름: <strong>{experimental ? `${profile.displayName} ${EXPERIMENTAL_MARK}` : profile.displayName}</strong>
+              프린터 이름: <strong>{profile.displayName}</strong>
             </p>
           ) : null}
           {profile !== undefined && experimental ? (
-            <div className="notice stack-tight" role="note" aria-label="실험 중인 프린터 안내">
-              <p>{experimentalNotice(profile)}</p>
+            <div className="notice stack-tight" role="note" aria-label="프린터 확인 안내">
+              <p>{printerCheckNotice(profile)}</p>
               {inWizard ? null : <FilesLink />}
             </div>
           ) : null}
@@ -320,7 +320,7 @@ export function PrinterSection({ inWizard = false, stepPrimary = true }: { reado
           ) : null}
           {/* 아이폰에서 시험용 프린터가 보이면 그 바로 아래 한 줄 — 실제 아이폰에서도 될 것처럼 보이지 않게 (MOB1 D-MOB1-11, AC-MOB1-20) */}
           {!connected && methods.includes('test') && isIphone() ? <p className="hint">{IPHONE_TEST_PRINTER}</p> : null}
-          {/* 웹의 프린터 고르기는 브라우저 창이라 줄마다 "실험"을 달 수 없다 — 연결하기 전에 한 줄로 알린다 (L-7 지원 단계) */}
+          {/* 웹의 프린터 고르기는 브라우저 창이라 줄마다 꼬리표를 달 수 없다 — 연결하기 전에 한 줄로 알린다 (L-7 지원 단계) */}
           {!connected && (station.methods.includes('bluetooth') || station.methods.includes('serial')) ? <p className="hint">{EXPERIMENTAL_PICK_NOTE}</p> : null}
           {station.connecting ? (
             <p role="status">{lastMethod === 'test' ? '연결하는 중…' : '연결하는 중… 브라우저 창에서 프린터를 골라 주세요.'}</p>

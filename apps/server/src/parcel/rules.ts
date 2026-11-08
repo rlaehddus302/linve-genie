@@ -266,7 +266,7 @@ export const FAILURE_REASONS = ['ADDRESS', 'REJECTED', 'UNAVAILABLE'] as const
 export type FailureReason = (typeof FAILURE_REASONS)[number]
 
 export const FAILURE_MESSAGES: Readonly<Record<FailureReason, string>> = {
-  ADDRESS: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.',
+  ADDRESS: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.',
   REJECTED: '택배사가 접수를 받지 않았어요.',
   UNAVAILABLE: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.',
 }
@@ -305,6 +305,16 @@ export const storedBox = (value: string): BoxKind => boxSizeOf(value) ?? DEFAULT
 /** 한 번에 접수할 수 있는 묶음 수 (PC-5) */
 export const BOOK_MAX = 200
 
+/** 직접 넣은 택배(D-UX3-38)의 물품 수 상한·하루 상한 (한 번에 접수 상한과 같다) */
+export const EXTRA_QTY_MAX = 999
+export const EXTRA_DAY_MAX = BOOK_MAX
+
+/** 물품 수 읽기 (정수 1~999 — 글로 와도 받는다) */
+export function readQty(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && /^[0-9]{1,4}$/.test(value.trim()) ? Number(value.trim()) : NaN
+  return Number.isInteger(n) && n >= 1 && n <= EXTRA_QTY_MAX ? n : null
+}
+
 /** 택배사가 준 송장번호 모양 (숫자 8~20자리 — 아니면 접수됐는지 모름, PC-1) */
 export const INVOICE_RE = /^[0-9]{8,20}$/
 
@@ -340,7 +350,23 @@ export const PARCEL_MESSAGES = {
   rehearsal: '리허설 방송은 택배를 접수하지 않아요.',
   noAutoBook: '고른 택배사는 아직 자동 접수를 할 수 없어요. 포장 화면에서 송장번호를 직접 적어 주세요.',
   fakeTestOnly: '가짜 택배는 시험 모드에서만 고를 수 있어요.',
+  // D-REAL-04 우체국 계약소포
+  noEpostAccount: '우체국 자동 접수를 쓰려면 설정 > 택배에 우체국 고객 번호·인증키·보안키를 넣어 주세요.',
+  epostRejected: '우체국이 계약 정보를 받지 않았어요. 고객 번호·인증키·보안키를 다시 확인해 주세요.',
+  epostUnknown: '우체국에 지금 연결되지 않아요. 잠시 뒤 다시 저장해 주세요.',
+  epostKeyTooLong: '인증키·보안키는 100자까지 적어 주세요.',
   busy: '아직 접수하고 있어요. 잠시 뒤 다시 확인해 주세요.',
+  // D-UX3-36 우체국 방문접수 파일
+  noEpostRows: '우체국 파일에 넣을 묶음이 없어요. 입금·포장·배송지 확인이 끝난 묶음만 들어가요.',
+  tooManyEpostRows: '우체국 파일은 한 번에 999개까지 만들 수 있어요.',
+  directInvoice: '우체국 송장번호는 숫자 13자리예요. 다시 확인해 주세요.',
+  directDuplicate: '같은 송장번호가 두 번 들어 있어요. 다시 확인해 주세요.',
+  directUsed: '이미 다른 묶음에 적은 송장번호예요. 다시 확인해 주세요.',
+  // D-UX3-38 직접 넣은 택배
+  extraQty: `물품 수는 1~${String(EXTRA_QTY_MAX)}개로 적어 주세요.`,
+  extraLocked: '접수한 택배는 지울 수 없어요. 접수를 먼저 취소해 주세요.',
+  extraClosed: '주문 날짜로부터 30일이 지나 받는 분을 넣을 수 없어요.',
+  extraTooMany: `직접 넣는 택배는 하루 ${String(EXTRA_DAY_MAX)}개까지예요.`,
   request: '이미 받은 입력이에요.',
   unmergeBooking: '택배 접수 결과를 기다리는 구매자에게서는 떼어 낼 수 없어요. 택배 화면에서 접수 결과를 먼저 확인해 주세요.',
   saved: '저장했어요',

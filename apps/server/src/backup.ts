@@ -55,6 +55,7 @@ import {
   assistCalls,
   voiceLog,
   voiceAliases,
+  voiceVarieties,
   assistSettings,
   customerArchiveDays,
   customerArchiveRows,
@@ -72,6 +73,7 @@ import {
   inboxSeen,
   inboxSmsSeen,
   inboxCards,
+  buyerInfoCards,
   bankAlerts,
   bankBalances,
   deposits,
@@ -96,9 +98,15 @@ import {
   loginLimits,
   loginLinks,
   loginStates,
+  loginTickets,
+  phoneChecks,
+  phoneSends,
+  buyerPhones,
+  receiptSmsSends,
   outbox,
   packingRecords,
   parcelAddresses,
+  parcelExtras,
   parcelRequests,
   parcelSettings,
   parcels,
@@ -1697,6 +1705,8 @@ const BATCH = 500
 export const RESTORE_REPLACED_TABLES = [
   // SMS3 문자 확인 카드: 방송에 딸린 처리 전 카드(본문은 암호화) — 파일에 없고 지운다(복구한 지난 방송의 카드를 다시 보이지 않는다 — 본문을 더 두지 않는 쪽, C-07)
   inboxCards,
+  // ORD-14 손님 정보 문자 카드(D-REAL-11): 넣은 손님(구매자 ID)·본문(암호화) — 파일에 없고 지운다(복구한 구매자 ID가 다른 사람을 가리킬 수 있다, C-07)
+  buyerInfoCards,
   // V3 음성 등록·고침 기록(R-25): 파일의 voiceLog 칸으로 다시 만든다(옛 파일엔 칸이 없어 비워진다 — 바꾸기 전 안전 백업에 남는다)
   voiceLog,
   // X1 확장 회차 잇기·마지막 상태: 회차(방송 ID)에 딸린 연결이라 지운다(복구한 지난 회차를 다시 잇지 않는다 — 라이브 연결과 같음)
@@ -1705,6 +1715,7 @@ export const RESTORE_REPLACED_TABLES = [
   // X1 확장 감사 올리기의 회차별 상태(실패 수·멈춤·주인 채널): 회차에 딸려 지운다
   extPostLanes,
   parcelAddresses,
+  parcelExtras,
   parcelRequests,
   assistCache,
   receiptLinks,
@@ -1751,11 +1762,19 @@ export const RESTORE_REPLACED_TABLES = [
 export const RESTORE_KEPT_TABLES = [
   // APP1b: 판매 범위 복구는 계정에 명시적으로 배운 별칭을 지우지 않는다.
   voiceAliases,
+  // D-V3-127: 내 품종 장부도 계정 것 — 복구가 지우지 않는다
+  voiceVarieties,
+  // D-REAL-03: 손님 휴대폰 번호(암호화)·영수증 문자 보낸 기록 — 백업 파일에 없고(번호를 파일로 내보내지 않는다), 복구가 지우지 않는다
+  buyerPhones,
+  receiptSmsSends,
   sellers,
   accounts,
   sessions,
   loginLinks,
   loginStates,
+  loginTickets,
+  phoneChecks,
+  phoneSends,
   labelTemplates,
   youtubeConnections,
   youtubeOauthStates,
@@ -1982,6 +2001,8 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
                 startSeq: broadcast.startSeq,
                 endedAt: broadcast.endedAt === null ? null : new Date(broadcast.endedAt),
                 createdAt: new Date(broadcast.createdAt),
+                // 백업 파일에는 '들어온 때'가 없다 — 되살린 방송은 모두 목록에 보인다 (D-UX3-25)
+                openedAt: new Date(broadcast.createdAt),
               })),
             )
           }

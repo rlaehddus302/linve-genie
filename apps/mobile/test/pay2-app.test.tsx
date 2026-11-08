@@ -53,10 +53,13 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     const world = noPassWorld()
     world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: null, webChat: { on: true }, oauth: true } }))
     world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
+    // D-UX4-08: 잇기 전에 늘 방송 제목·채널 확인 팝업 — [맞아요] 뒤에 방송을 만들다 거절된다 (옛 기대: [확인]이 바로 거절)
+    world.server.on('POST', /^\/api\/youtube\/preview$/, () => ({ body: { title: '오늘 경매', channelTitle: '다육이네' } }))
     const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={newNav} />))
     fireEvent.change(await screen.findByLabelText('방송 링크'), { target: { value: 'https://youtu.be/tWnNGwvdN40' } })
     fireEvent.click(await screen.findByRole('button', { name: '확인' }))
+    fireEvent.click(await screen.findByRole('button', { name: '맞아요' }))
     expect(await screen.findByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expectNoBillingWords()
     expect(newNav.openConsole).not.toHaveBeenCalled()
@@ -112,14 +115,17 @@ describe('앱이 여는 라이브지니 주소에 from=app (AC-PAY2-03)', () => 
     ])
   })
 
-  it('간편 로그인(기기 브라우저)도 from=app', async () => {
+  // 옛 기대: [간편 로그인]이 기기 브라우저로 '/login?from=app'을 열었다.
+  // 새 기대 D-UX3-28 (사용자 지시 2026-11-05 "앱에서 바로 소셜로그인이 안 되고 웹으로 넘어감"): 웹 로그인 화면을 열지 않고 앱 위 로그인 창으로 — login-screen 시험이 본다
+  it('간편 로그인은 기기 브라우저로 웹 로그인 화면을 열지 않는다', async () => {
     const world = makeWorld()
     const opened: string[] = []
     setWebOpener(async (url) => {
       opened.push(url)
     })
     render(world.wrap(<LoginScreen expired={false} onLogin={vi.fn(async () => {})} />))
-    fireEvent.click(await screen.findByRole('button', { name: /간편 로그인/ }))
-    expect(opened).toEqual(['http://test.local/login?from=app'])
+    await screen.findByRole('button', { name: '로그인' })
+    expect(screen.queryByRole('button', { name: /간편 로그인/ })).toBeNull()
+    expect(opened.filter((url) => url.includes('/login'))).toEqual([])
   })
 })

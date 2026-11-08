@@ -3,7 +3,8 @@
 // 아이콘은 그림 파일·글꼴 없이 View 선으로 그린다(새 패키지를 넣지 않는다). 아이콘만으로 뜻을 전하지 않고 늘 글자와 함께 둔다.
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { Animated, Easing, Platform, Pressable, View, type ViewStyle } from 'react-native'
-import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
+import Svg, { Path } from 'react-native-svg'
+import { PAGE, RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
 import { tapHaptic } from '../../native/haptics.ts'
 import { TabIcon, type TabIconName } from './tab-icons.tsx'
@@ -23,10 +24,19 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
   const box: ViewStyle = { width: s, height: s, alignItems: 'center', justifyContent: 'center' }
   const shape = (() => {
     switch (name) {
-      case 'chevron':
-      case 'back': {
+      case 'back':
+        // 뒤로 ‹는 선 끝과 꺾인 곳을 둥글게, 선은 2.4 (D-UX3-55, 사용자 지시 2026-11-07 "뒤로가기 아이콘 살짝만 더 두껍게, 더 라운드지게" — 옛 각진 2)
+        // 크기·자리는 토스 사진(폭 430 휴대폰)과 픽셀로 같게: 높이 37px·폭 21px, 왼쪽 51px·위 155px (D-UX3-56 — 옛 ‹는 16% 컸다)
+        return (
+          <Svg width={s} height={s} viewBox="0 0 24 24">
+            <Path d="M12.31 4.95 L6.93 10.33 L12.31 15.71" stroke={c} strokeWidth={(BACK_STROKE * 24) / s} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </Svg>
+        )
+      case 'chevron': {
         const arm = s * 0.38
-        return <View style={{ width: arm, height: arm, borderTopWidth: stroke, borderRightWidth: stroke, borderColor: c, borderRadius: 1, borderCurve: 'continuous', transform: [{ rotate: name === 'chevron' ? '45deg' : '-135deg' }], marginLeft: name === 'chevron' ? -arm * 0.35 : arm * 0.35 }} />
+        // 화살표는 커져도 선은 가늘게 (토스 ‹와 같은 2, D-UX3-51)
+        const line = Math.max(2, Math.round(s / 14))
+        return <View style={{ width: arm, height: arm, borderTopWidth: line, borderRightWidth: line, borderColor: c, borderRadius: 1, borderCurve: 'continuous', transform: [{ rotate: '45deg' }], marginLeft: -arm * 0.35 }} />
       }
       case 'play':
         return (
@@ -112,14 +122,17 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
 }
 
 /** 뒤로 화살표 크기 — 모든 화면 머리·전체 화면 판이 같은 크기·색을 쓴다 (D-UX3-08) */
-export const BACK_ICON = 26
+/** 뒤로 화살표 크기 — 토스 사진을 재어 33(선 두께는 2 그대로, D-UX3-51 — 옛 26) */
+export const BACK_ICON = 33
+/** 뒤로 ‹ 선 두께 (D-UX3-55) */
+export const BACK_STROKE = 2.4
 
-/** 뒤로 단추 하나 (토스 ‹): 48×48 누름 자리, 글자색 화살표 26, 누르면 바탕이 진해진다. 어느 화면이든 이것만 쓴다 */
+/** 뒤로 단추 하나 (토스 ‹): 48×48 누름 자리, 글자색 화살표 33. 누르면 바탕은 그대로 두고 화살표만 연해진다(D-UX3-51). 어느 화면이든 이것만 쓴다 */
 export function BackButton({ label = '뒤로', onPress }: { readonly label?: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-      <Icon name="back" size={BACK_ICON} color={p.text} />
+    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={6} style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>
+      {({ pressed }) => <Icon name="back" size={BACK_ICON} color={pressed ? p.iconPressed : p.text} />}
     </Pressable>
   )
 }
@@ -127,7 +140,7 @@ export function BackButton({ label = '뒤로', onPress }: { readonly label?: str
 /** 화면 머리: 뒤로(44) · 제목 · 오른쪽 조각(상태·⋯). 뒤로가 없으면 제목만 크게. */
 export function AppHeader({ title, onBack, backLabel = '뒤로', right, testID }: { readonly title: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly testID?: string }) {
   return (
-    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingTop: SPACE.lg, paddingBottom: SPACE.xs, paddingLeft: onBack === undefined ? SPACE.xl : SPACE.md, paddingRight: SPACE.md, minHeight: 64 }}>
+    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingTop: onBack === undefined ? SPACE.lg : 0, paddingBottom: SPACE.xs, paddingLeft: onBack === undefined ? SPACE.xl : PAGE.backLeft, paddingRight: SPACE.md, minHeight: onBack === undefined ? 64 : 52 }}>
       {onBack === undefined ? null : (
         <BackButton label={backLabel} onPress={onBack} />
       )}
@@ -151,20 +164,30 @@ export function HeaderIconButton({ icon, label, onPress, testID }: { readonly ic
   )
 }
 
-export type TabKey = 'home' | 'labels' | 'settle' | 'packing' | 'more'
+export type TabKey = 'home' | 'settle' | 'packing' | 'customers' | 'more'
 
-/** 아래 탭 5개 (D-UX3-01): 일하는 순서대로 홈 · 라벨 · 정산 · 포장 · 전체 */
+/**
+ * 아래 탭 5개 (D-UX3-01 → D-UX3-39, 사용자 지시 2026-11-06 "우리 서비스 이용 플로우대로"): 방송 뒤 일하는 순서 그대로 —
+ * 홈(방송·다음 할 일) · 주문(예약자별 정리 → 손님 정보 받기 → 확인서 보내기 → 입금 확인) · 포장(포장·라벨 부착 + 택배 접수, 위에서 나눔 — D-UX3-60) · 고객 · 전체. 라벨 프린터는 전체 안(장치 설정)
+ */
 export const TABS: readonly { readonly key: TabKey; readonly word: string; readonly icon: TabIconName }[] = [
   { key: 'home', word: '홈', icon: 'home' },
-  { key: 'labels', word: '라벨', icon: 'printer' },
-  { key: 'settle', word: '정산', icon: 'receipt' },
-  { key: 'packing', word: '포장', icon: 'box' },
+  { key: 'settle', word: '주문', icon: 'receipt' },
+  { key: 'packing', word: '택배', icon: 'box' },
+  { key: 'customers', word: '고객', icon: 'person' },
   { key: 'more', word: '전체', icon: 'menu' },
 ]
 
 /** 탭 순서 (화면 바뀔 때 왼쪽·오른쪽 어느 쪽에서 들어올지 정한다) */
 export function tabIndex(key: TabKey): number {
   return TABS.findIndex((tab) => tab.key === key)
+}
+
+/** 아래 탭 칸 높이 (D-UX3-41) */
+export const TAB_CELL = 55
+/** 아래 탭 아래 여백 (토스처럼 홈 막대 자리까지 내려 앉는다, D-UX3-41): 홈 막대가 있으면 그 높이보다 14 작게, 없으면 8 */
+export function tabBarBottom(inset: number): number {
+  return Math.max(inset - 14, SPACE.sm)
 }
 
 /** 아래 탭 뒤 흐림 (D-UX3-13): 앱은 시작 때 기기 흐림(expo-blur)을 끼운다. 시험·웹은 없음(반투명 흰색만) */
@@ -192,10 +215,10 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
   const gap = 2
   const cell = width === 0 ? 0 : (width - gap * (TABS.length - 1)) / TABS.length
   return (
-    <View pointerEvents="box-none" onLayout={(event) => onHeight?.(event.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: SPACE.md, paddingTop: SPACE.xs, paddingBottom: Math.max(inset, SPACE.sm) }}>
+    <View pointerEvents="box-none" onLayout={(event) => onHeight?.(event.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs, paddingBottom: tabBarBottom(inset) }}>
       {/* 그림자는 겉에(둥글게 자르면 그림자도 잘린다), 흐림·반투명은 안에서 둥글게 자른다 */}
-      <View style={{ borderRadius: RADIUS.pill, borderCurve: 'continuous', ...SHADOW.sheet, shadowOpacity: 0.08, shadowRadius: 16, elevation: 4 }}>
-        <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', borderRadius: RADIUS.pill, borderCurve: 'continuous', overflow: 'hidden', borderWidth: 1, borderColor: p.line, padding: SPACE.xs, gap }}>
+      <View style={{ borderRadius: RADIUS.pill, borderCurve: 'continuous', ...SHADOW.sheet, shadowOpacity: 0.03, shadowRadius: 8, elevation: 1 }}>
+        <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', borderRadius: RADIUS.pill, borderCurve: 'continuous', overflow: 'hidden', borderWidth: 1, borderColor: p.tabLine, padding: SPACE.xs, gap }}>
           <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
             {Backdrop === null ? null : <Backdrop />}
             <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: p.glass }} />
@@ -206,16 +229,16 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
           </View>
           {TABS.map((tab) => {
             const on = tab.key === active
-            const ink = on ? p.text : p.textSub
+            const ink = on ? p.text : p.tabInk
             return (
               <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
                   tapHaptic()
                   onSelect(tab.key)
-                }} style={({ pressed }) => ({ flex: 1, minHeight: 56, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
-                {({ pressed }) => (
+                }} style={({ pressed }) => ({ flex: 1, minHeight: TAB_CELL, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
+                {() => (
                   <>
-                    <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={pressed ? p.softPressed : p.soft} />
-                    <Txt step="caption" weight={on ? 'bold' : 'medium'} ink={ink}>
+                    <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={p.surface} />
+                    <Txt step="tab" weight="medium" ink={ink}>
                       {tab.word}
                     </Txt>
                   </>

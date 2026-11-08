@@ -2,10 +2,10 @@
 // 늦게 온 문자 LATE 카드(D-SMS3-30), 엔진이 받지 않은 REJECTED 카드(D-SMS3-31), 12시간 넘은 방송 알림(D-SMS3-29),
 // 잔액 이어짐이 확인되지 않은 첫 입금은 확인 필요(D-DEP2-13), 이름 없는 입금 취소 줄 "이름 모름"(D-DEP2-15),
 // 화면에 영어 상태값(LATE·REJECTED·INBOX_OFF 등)이 보이지 않음.
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "12시간 넘은 방송 알림 닫기: 보조자 요청은 403, 보조자 화면에 닫기 없음"을 뺐다
 // 기대값: SPEC ORD-13 "화면 문구"·받기 상태, DEPOSIT_RULES DP-8·DP-9 9, acceptance.md AC-SMS3-*, 서버 약속 v4. 화면 코드를 보고 정하지 않는다.
 import { test, expect, type Page, type Route } from '@playwright/test'
 import { sealNow } from '../i3/support.ts'
-import { loginAs, settingsRegion } from '../i3/support.ts'
 import {
   boardItem,
   claimsOf,
@@ -21,7 +21,6 @@ import {
   onSale,
   openConsole,
   phoneNo,
-  postJson,
   realBroadcast,
   scopeView,
   sellerAt,
@@ -247,33 +246,3 @@ for (const width of WIDTHS) {
     await context.close()
   })
 }
-
-test('D-SMS3-29 12시간 넘은 방송 알림 닫기는 판매자만: 보조자 요청은 403, 보조자 화면에 닫기 없음 (375)', async ({ browser, baseURL }) => {
-  test.setTimeout(120_000)
-  const { page, context } = await sellerAt(browser, baseURL!, 'PC')
-  await makeTokenApi(page)
-  const b = await realBroadcast(page)
-  await page.goto('/settings')
-  const section = settingsRegion(page, '보조자')
-  await section.getByLabel('보조자 이름').fill('민지')
-  await section.getByRole('button', { name: '보조자 만들기' }).click()
-  const dialog = page.getByRole('dialog', { name: '보조자 민지을(를) 만들었어요' })
-  await expect(dialog.locator('dd')).toHaveCount(2)
-  await expect(dialog.locator('dd').first()).toHaveText(/^bo-/)
-  const [idText, pwText] = await dialog.locator('dd').allInnerTexts()
-  await dialog.getByRole('button', { name: '다 적었어요' }).click()
-
-  const ctx = await browser.newContext({ baseURL, viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, locale: 'ko-KR', timezoneId: 'Asia/Seoul' })
-  const phone = await ctx.newPage()
-  await fakeStale(phone, b)
-  await loginAs(phone, { loginId: (idText ?? '').trim(), password: (pwText ?? '').trim() })
-  await expect(phone).toHaveURL(/\/sms$/)
-  // 보조자 화면 어디에도 12시간 알림의 닫기는 없다
-  await expect(phone.getByRole('alert').filter({ hasText: STALE_TEXT }).getByRole('button', { name: '닫기' })).toHaveCount(0)
-  // 보조자가 직접 닫기 요청을 보내도 403
-  const res = await postJson(phone, '/api/inbox/stale/close', {})
-  expect(res.status, JSON.stringify(res.body)).toBe(403)
-  await phone.unrouteAll({ behavior: 'ignoreErrors' })
-  await ctx.close()
-  await context.close()
-})

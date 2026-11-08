@@ -4,9 +4,10 @@
 // - 입금 확인·포장하기 숫자: 가장 최근 판매 날짜의 포장 목록(GET /api/days/:date/packing) — 입금 전(미입금·부분 입금) 손님 수, 포장할 것(포장 대기·다시 확인) 손님 수.
 // - 라벨 뽑기 숫자: 라벨 대기열 요약의 대기 장 수(라벨 기능을 켰을 때만). 값을 모르면 그 줄을 숨긴다.
 // - 정산·구매자·택배·영수증·설정 등 웹 화면은 모두 앱 화면으로 옮겼다(D-APPX-01·03) — 더보기에서 연다. 실제 방송 전이면 "시작 준비" 줄.
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
-import type { BroadcastItem, PackingEntry, PackingList, WizardState, WriteResult } from '@livejjim/web/src/api/types.ts'
+import type { BroadcastItem, PackingEntry, PackingList, ReceiptBuyers, WizardState, WriteResult } from '@livejjim/web/src/api/types.ts'
+import type { ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
@@ -27,7 +28,11 @@ export interface HomeNavigation {
   readonly openPacking: () => void
   readonly openLabels: () => void
   readonly openSettings: () => void
-  /** 앱 정산 탭 (D-APPX-01) — 없으면 웹 정산 */
+  /** 택배 탭 — 그 날짜부터 (D-UX3-39) */
+  readonly openParcels?: (date: string) => void
+  /** 확인서 보내기 화면 (D-UX3-39) */
+  readonly openReceipts?: () => void
+  /** 앱 정산(주문) 탭 (D-APPX-01) — 없으면 웹 정산 */
   readonly openSettle?: () => void
   /** 내 방송 모두 보기 (쌓인 화면, D-UX3-18) */
   readonly openAllBroadcasts?: () => void
@@ -73,6 +78,38 @@ export function soldOf(entries: readonly PackingEntry[], broadcastId: string): {
       amount += item.price * qty
     }
   return { count, amount }
+}
+
+/**
+ * 방송 뒤 흐름의 나머지 수 (D-UX3-39): 손님 정보 못 받음 = 품목 있는 묶음 중 배송지가 없는 것(직접 수령·합배송·직접 넣은 택배 뺌),
+ * 확인서 안 보냄 = 링크도 문자도 보내지 않은 손님, 택배 접수 전 = 보낼 수 있는 묶음. 값을 모르면 null(그 줄을 숨긴다)
+ */
+export function flowCounts(parcels: ParcelDay | null, receipts: ReceiptBuyers | null): { readonly info: number | null; readonly receipt: number | null; readonly parcel: number | null } {
+  const rows = parcels === null ? null : [...parcels.ready, ...parcels.excluded, ...parcels.booked]
+  const info = rows === null ? null : rows.filter((row) => row.extra !== true && row.itemCount > 0 && row.shipping !== 'PICKUP' && row.shipping !== 'COMBINED' && row.address === 'NONE').length
+  const receipt = receipts === null ? null : receipts.buyers.filter((row) => (row.link === null || row.link.status === 'NONE') && (row.sms == null || row.sms.sentAt === null)).length
+  return { info, receipt, parcel: parcels === null ? null : parcels.ready.length }
+}
+
+/** 그 날짜 하나를 받는다 — 못 받으면 null (줄을 숨긴다) */
+function useDayView<T>(path: string | null, refresh: number): T | null {
+  const [view, setView] = useState<T | null>(null)
+  useEffect(() => {
+    if (path === null) return
+    let alive = true
+    get<T>(path).then(
+      (result) => {
+        if (alive) setView(result)
+      },
+      () => {
+        if (alive) setView(null)
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [path, refresh])
+  return view
 }
 
 function usePacking(date: string | null, refresh: number): readonly PackingEntry[] | null {
@@ -134,7 +171,7 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
       (view) => setDay(view.days.find((item) => !item.rehearsal)?.date ?? null),
       () => setDay(null),
     )
-    // 시작 안내 줄 (웹 홈이 마법사를 여는 조건과 같다 — 보조자·옛 서버는 받지 못해 줄이 없다)
+    // 시작 안내 줄 (웹 홈이 마법사를 여는 조건과 같다 — 옛 서버는 받지 못해 줄이 없다)
     get<{ wizard: WizardState }>('/api/wizard').then(
       (view) => setWizard(view.wizard),
       () => setWizard(null),
@@ -184,13 +221,29 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
   })()
   const queue = labelSnapshot.queue
   const labelCount = queue !== null && queue.labelsEnabled ? queue.waiting : null
+  // 방송 뒤 흐름 (D-UX3-39): 정보 받기 → 확인서 → 입금 → 포장 → 택배 접수
+  const parcelDay = useDayView<ParcelDay>(day === null ? null : `/api/parcels/days/${day}`, refresh)
+  const receiptDay = useDayView<ReceiptBuyers>(day === null ? null : `/api/days/${day}/receipt-buyers`, refresh)
+  const flow = useMemo(() => flowCounts(parcelDay, receiptDay), [parcelDay, receiptDay])
+  const todoRows: { readonly key: string; readonly node: ReactNode }[] = []
+  if (flow.info !== null) todoRows.push({ key: 'info', node: <TodoRow count={flow.info} tone="warn" title="손님 정보 받기" sub="배송지를 아직 못 받은 손님" onPress={() => (nav.openSettle !== undefined ? nav.openSettle() : void openWeb('/settlements'))} /> })
+  if (flow.receipt !== null && nav.openReceipts !== undefined) todoRows.push({ key: 'receipt', node: <TodoRow count={flow.receipt} tone="warn" title="확인서 보내기" sub="주문 확인서를 아직 안 보낸 손님" onPress={nav.openReceipts} /> })
+  if (counts !== null) {
+    todoRows.push({ key: 'unpaid', node: <TodoRow count={counts.unpaid} tone="warn" title="입금 확인" sub="돈을 아직 안 보낸 손님" onPress={() => (nav.openSettle !== undefined ? nav.openSettle() : void openWeb('/settlements'))} /> })
+    todoRows.push({ key: 'pack', node: <TodoRow count={counts.toPack} tone="green" title="포장하기" sub="아직 포장 안 한 손님" onPress={nav.openPacking} /> })
+  }
+  if (flow.parcel !== null && nav.openParcels !== undefined && day !== null) {
+    const openParcels = nav.openParcels
+    todoRows.push({ key: 'parcel', node: <TodoRow count={flow.parcel} tone="green" title="택배 접수" sub="포장이 끝나 보낼 수 있는 택배" onPress={() => openParcels(day)} /> })
+  }
+  if (labelCount !== null) todoRows.push({ key: 'labels', node: <TodoRow count={labelCount} tone="gray" title="라벨 뽑기" sub="아직 안 뽑은 라벨" onPress={nav.openLabels} /> })
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="home-screen">
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.xl }} scrollIndicatorInsets={{ bottom: room }}>
         <View style={{ gap: SPACE.xs }}>
           <Txt step="caption" color="textSub">{`${sellerName} 사장님, 안녕하세요`}</Txt>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
+          <Txt step="headline" weight="bold" role="heading" aria-level={1}>
             오늘 할 일
           </Txt>
         </View>
@@ -223,17 +276,14 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
           </RowGroup>
         ) : null}
 
-        {counts !== null || labelCount !== null ? (
-          <RowGroup label="할 일">
-            {counts !== null ? (
-              <>
-                <TodoRow count={counts.unpaid} tone="warn" title="입금 확인" sub="돈을 아직 안 보낸 손님" onPress={() => (nav.openSettle !== undefined ? nav.openSettle() : void openWeb('/settlements'))} />
-                <RowDivider />
-                <TodoRow count={counts.toPack} tone="green" title="포장하기" sub="아직 포장 안 한 손님" onPress={nav.openPacking} />
-              </>
-            ) : null}
-            {counts !== null && labelCount !== null ? <RowDivider /> : null}
-            {labelCount !== null ? <TodoRow count={labelCount} tone="gray" title="라벨 뽑기" sub="아직 안 뽑은 라벨" onPress={nav.openLabels} /> : null}
+        {todoRows.length > 0 ? (
+          <RowGroup label="다음 할 일">
+            {todoRows.map((row, index) => (
+              <View key={row.key}>
+                {index > 0 ? <RowDivider /> : null}
+                {row.node}
+              </View>
+            ))}
           </RowGroup>
         ) : null}
 

@@ -61,7 +61,7 @@ export function useAssistOnOpen(query: ReviewsQuery, reload: () => Promise<unkno
     try {
       code = (await post<AssistSuggestResponse>('/api/assist/suggest', body)).result
     } catch (error) {
-      // 서버에 닿지 못했거나 서버 오류면 실패 문장, 그 밖(보조자·없는 방송)은 아무 말 없음
+      // 서버에 닿지 못했거나 서버 오류면 실패 문장, 그 밖(권한 없음·없는 방송)은 아무 말 없음
       code = isApiError(error) && (error.network || error.status >= 500) ? 'ERROR' : 'QUIET'
     }
     const current = await settings
@@ -109,7 +109,7 @@ export type AssistSettingsState =
   | { readonly state: 'error'; readonly error: ApiError }
   | { readonly state: 'ready'; readonly settings: AssistSettings }
 
-/** 설정의 AI 제안 칸 (GET /api/assist/settings) — 보조자(403)·없는 경로(404)면 칸이 없다 */
+/** 설정의 AI 제안 칸 (GET /api/assist/settings) — 권한 없음(403)·없는 경로(404)면 칸이 없다 */
 export function useAssistSettings(on: boolean): {
   readonly current: AssistSettingsState
   readonly reload: () => Promise<void>

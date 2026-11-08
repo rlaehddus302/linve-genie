@@ -1,10 +1,10 @@
-// AC-CRM1-21~23·25·27 손님 메모(표지마다·덧붙이기·검사)와 권한(판매자만·보조자 403·다른 판매자 404·로그인 401·no-store)·로그에 메모·표지 없음.
+// AC-CRM1-21~23·25·27 손님 메모(표지마다·덧붙이기·검사)와 권한(판매자만·다른 판매자 404·로그인 401·no-store)·로그에 메모·표지 없음.
 import { gunzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { MEMO_MAX } from '../src/customers/rules.ts'
 import { at, buy, chat, countOf, crm, crmWorld, ok, payAll } from './crm1-support.ts'
 import { getFile } from './i2-support.ts'
-import { addSeller, client, createBroadcast, expectOk, login, type Seller, type TestServer } from './support.ts'
+import { addSeller, client, createBroadcast, expectOk, type Seller, type TestServer } from './support.ts'
 
 async function twoDays(world: TestServer, seller: Seller): Promise<void> {
   await buy(world, seller, '2026-10-08', 'UC_A', '다육이맘', 10_000)
@@ -110,7 +110,8 @@ describe('AC-CRM1-23 합친 묶음 — 구성원마다 메모 칸, 글자 그대
 })
 
 describe('AC-CRM1-25 판매자 계정만', () => {
-  it('S1 200 + no-store, 보조자 403, S2는 S1의 날짜·손님·메모 404, 로그인 없으면 401. 보조자의 날짜 조회에 손님 기록 칸 없음', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403·보조자의 날짜 조회에 손님 기록 칸 없음"을 뺐다
+  it('S1 200 + no-store, S2는 S1의 날짜·손님·메모 404, 로그인 없으면 401', async () => {
     const { world, seller } = await crmWorld()
     const c = crm(world, seller)
     await twoDays(world, seller)
@@ -119,23 +120,18 @@ describe('AC-CRM1-25 판매자 계정만', () => {
     at(world, '2026-10-26', '13:00:00')
     await createBroadcast(world, other, { date: '2026-10-26' })
     const id = (await c.members('2026-10-08', 'UC_A'))[0]?.customer as string
-    const created = await expectOk(client(world, seller.cookie).post('/api/assistants', { name: '엄마' }))
-    const assistant = created.body as { assistant: { loginId: string }; password: string }
-    const helperCookie = await login(world, assistant.assistant.loginId, assistant.password)
     const gets = ['/api/customer-settings', '/api/days/2026-10-08/customers', '/api/days/2026-10-08/customer?buyer=UC_A', '/api/customers', `/api/customers/${id}`]
     const puts: [string, unknown][] = [
       ['/api/customer-settings', { regularCount: 3, regularAmount: null, waitDays: 3 }],
-      [`/api/customers/${id}/memo`, { text: '보조자 메모' }],
+      [`/api/customers/${id}/memo`, { text: '남이 쓴 메모' }],
     ]
     for (const path of gets) {
       const mine = await client(world, seller.cookie).get(path)
       expect(mine.status, path).toBe(200)
       expect(mine.headers.get('cache-control'), path).toBe('no-store')
-      expect((await client(world, helperCookie).get(path)).body, path).toEqual({ error: { code: 'ASSISTANT_FORBIDDEN', message: '보조자 계정으로는 할 수 없는 일이에요.' } })
       expect((await client(world, null).get(path)).status, path).toBe(401)
     }
     for (const [path, body] of puts) {
-      expect((await client(world, helperCookie).put(path, body)).status, path).toBe(403)
       expect((await client(world, null).put(path, body)).status, path).toBe(401)
     }
     expect(await countOf(world, 'customer_memos')).toBe(0)
@@ -146,12 +142,6 @@ describe('AC-CRM1-25 판매자 계정만', () => {
     expect((await s2.customer(id)).status).toBe(404)
     expect((await s2.memo(id, '남의 메모')).status).toBe(404)
     expect(await countOf(world, 'customer_memos')).toBe(0)
-    // 보조자가 부르는 기존 날짜 조회·증분 조회에 손님 기록·메모·꼬리표 칸이 없다
-    await expectOk(c.memo(id, '판매자만 보는 메모'))
-    for (const path of ['/api/days/2026-10-08', '/api/days/2026-10-08/changes?since=1']) {
-      const response = await expectOk(client(world, helperCookie).get(path))
-      for (const word of ['purchaseTotal', 'unpaidDays', 'caution', 'regular"', '판매자만 보는 메모', 'customer']) expect(response.text, `${path} ${word}`).not.toContain(word)
-    }
   })
 })
 

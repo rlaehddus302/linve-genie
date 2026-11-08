@@ -1077,12 +1077,19 @@ export function analyzeSentence(text: unknown, options: ExtractOptions = {}, int
   // 끊어 말한 번호가 있으면 번호·가격을 모두 비운다 — 앞 조각이 가격으로도 읽힐 수 있다(`백 오번`의 `백` = 100원, D-I4-01)
   const no = !markers.split && markers.trailing !== true && !(beonValues.length === 0 && bundles.bareSplit) && onlyNumber !== null && onlyNumber >= 1 && onlyNumber <= maxNumber ? onlyNumber : null
 
-  const price = markers.split ? null : bundles.price
+  // 가격 뒤·번호 앞에 값을 묻는 말(`얼마`)이 있으면 그 가격은 이 번호의 값이 아니다 (D-V3-125, 실방송 153번 "20만원 이거 아까 얼마였죠 사장님? 153번")
+  const priceEnd = Math.max(-1, ...bundles.tokens)
+  const firstMarker = Math.min(tokens.length, ...markers.tokens)
+  const askedBetween = priceEnd >= 0 && priceEnd < firstMarker && tokens.slice(priceEnd + 1, firstMarker).some((token) => token.includes('얼마'))
+  const price = markers.split || askedBetween ? null : bundles.price
   // 가격을 비워도 묶음 토큰은 품종 창에서 뺀다 (R-17 4·5)
   const excluded = (i: number): boolean => isMarker(i) || bundles.tokens.has(i) || bundles.bare.has(i)
   // 군말 토큰(`자`·`요`·`얘는`·`요거` 등)은 품종 창에서 뺀다 — 군말이 끼거나 군말로 시작한 창이 사전 이름에 맞지 않게(실방송: `자`+`보…` → 자보)
   const windowFormList = tokens.map(windowForms)
-  const windowExcluded = (i: number): boolean => excluded(i) || isWindowFiller(tokens[i] as string)
+  // 바로 뒤가 `되는`·`될`·`된`·`돼`면 그 토큰은 지금 이름이 아니라 자라서 될 모습이다 — 품종 창에서 뺀다
+  // (D-V3-125, 실방송 2026-11-06 "153번 찐독금이 되는 전개구리금입니다" → 찐녹금이 아니라 청개구리금)
+  const becomes = (i: number): boolean => /^(되는|될|된|돼)/.test(tokens[i + 1] ?? '')
+  const windowExcluded = (i: number): boolean => excluded(i) || isWindowFiller(tokens[i] as string) || becomes(i)
   const windows = windowTexts(tokens, windowFormList, windowExcluded)
   // 품종 창 마지막 토큰의 끝 `입니다요`를 뗀 모양은 정확한 맞춤에만 (D-V3-98) — 맥락 점수(R-17 8 1b)를 셀 때는 쓰지 않는다
   const extraForms = internal.doubleEnding === false ? tokens.map(() => []) : doubleEndingForms(tokens)

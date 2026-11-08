@@ -462,7 +462,7 @@ export class TikTokLive {
   async link(sellerId: string, accountId: string, requestId: string, broadcastId: string): Promise<LinkOutcome> {
     const prior = await this.#prior(sellerId, requestId)
     if (prior !== null) return prior
-    let created: { linkId: number; date: string; tiktokId: string } | null = null
+    let created: { linkId: number; date: string; tiktokId: string; draft: boolean } | null = null
     const outcome = await this.#options.locks.run(sellerId, async () => {
       const again = await this.#prior(sellerId, requestId)
       if (again !== null) return again
@@ -491,12 +491,13 @@ export class TikTokLive {
         const view = await this.#viewOf(sellerId, broadcastId, await findTiktokLink(tx, sellerId, linkId), tx)
         const result: LinkOutcome = { status: 200, body: { link: { ...view, collection: view.collection === null ? null : { ...view.collection, state: 'CONNECTING', message: '틱톡에 연결하는 중이에요.' } } } }
         await insertRequest(tx, sellerId, requestId, JSON.stringify(result), now)
-        created = { linkId, date: current.date, tiktokId }
+        created = { linkId, date: current.date, tiktokId, draft: current.openedAt === null }
         return result
       })
     })
-    const made = created as { linkId: number; date: string; tiktokId: string } | null
-    if (made !== null) {
+    const made = created as { linkId: number; date: string; tiktokId: string; draft: boolean } | null
+    // 만드는 중인 방송(방송 화면에 들어오기 전)은 잇기만 적어 두고 받기 시작하지 않는다 — 화면에 들어오면 opened()가 시작한다 (D-UX3-27)
+    if (made !== null && !made.draft) {
       const entry = this.#open(sellerId, made.linkId, broadcastId, made.date, made.tiktokId)
       entry?.conn.start()
       this.#publish(sellerId, broadcastId)
@@ -580,6 +581,21 @@ export class TikTokLive {
       this.#publish(sellerId, broadcastId)
     }
     return outcome
+  }
+
+  /** 방송 화면에 들어왔다 (D-UX3-27): 만드는 중에 이어 둔 틱톡 연결을 그때 시작한다. 이미 받고 있으면 그대로 */
+  async opened(sellerId: string, broadcastId: string): Promise<void> {
+    await this.#options.locks.run(sellerId, async () => {
+      const broadcast = await findBroadcast(this.#options.db, sellerId, broadcastId)
+      if (broadcast === null || broadcast.rehearsal || broadcast.endedAt !== null || broadcast.openedAt === null) return
+      const link = await latestTiktokLink(this.#options.db, sellerId, broadcastId)
+      if (link === null || link.state !== 'LINKED') return
+      const existing = this.#entries.get(sellerId)
+      if (existing !== undefined && existing.linkId === link.id) return
+      const entry = this.#open(sellerId, link.id, broadcastId, broadcast.date, link.tiktokId)
+      entry?.conn.start()
+      this.#publish(sellerId, broadcastId)
+    })
   }
 
   /** 다시 연결 (AC-N2b-2-34): 판매자마다 30초에 한 번. 운영자 스위치·동의는 모듈이 다시 본다 */
@@ -747,7 +763,8 @@ export class TikTokLive {
       for (const link of await resumableTiktokLinks(this.#options.db)) {
         if (this.#closed) break
         const broadcast = await findBroadcast(this.#options.db, link.sellerId, link.broadcastId)
-        if (broadcast === null || broadcast.rehearsal || broadcast.endedAt !== null) continue
+        // 만드는 중인 방송은 화면에 들어올 때까지 받지 않는다 (D-UX3-27)
+        if (broadcast === null || broadcast.rehearsal || broadcast.endedAt !== null || broadcast.openedAt === null) continue
         const entry = this.#open(link.sellerId, link.id, link.broadcastId, broadcast.date, link.tiktokId)
         if (entry === null) continue
         entry.conn.resume()

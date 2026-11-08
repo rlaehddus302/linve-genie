@@ -29,9 +29,9 @@ export interface LogRecord {
   readonly claim?: string
   /** 같은 코드를 횟수 제한으로 남기지 않은 수 (틱톡 연결 객체 — 그 코드를 다음에 남길 때 함께, D-N2b-2-11 (마)) */
   readonly suppressed?: number
-  /** 간편 로그인 공급자 이름 (L1 — google · kakao · naver만. 공급자 계정 ID·이메일·코드·토큰은 남기지 않는다) */
-  readonly provider?: 'google' | 'kakao' | 'naver'
-  /** 감사 채팅 다른 길 이름 (D-YT-SEND — innertube · browser · nightbot만. 쿠키·토큰은 남기지 않는다) */
+  /** 간편 로그인 공급자 이름 (L1 — google · kakao · naver · apple만. 공급자 계정 ID·이메일·코드·토큰은 남기지 않는다) */
+  readonly provider?: 'google' | 'kakao' | 'naver' | 'apple'
+  /** 감사 채팅 다른 길 이름 (D-YT-SEND — innertube · browser · nightbot · official만. 쿠키·토큰은 남기지 않는다) */
   readonly route?: 'innertube' | 'browser' | 'nightbot' | 'official'
 }
 
@@ -183,8 +183,20 @@ export type LogCode =
   | 'PARCEL_JOB_FAILED'
   | 'PARCEL_ADDRESSES_SWEPT'
   | 'PARCEL_CARRIER_NOT_READY'
+  // D-REAL-03 영수증 문자: 판매자 ID·날짜·오류 종류·개수만. 번호·본문·링크는 남기지 않는다
+  | 'BUYER_PHONE_SAVE_FAILED'
+  | 'BUYER_PHONES_SWEPT'
+  // ORD-14 방송 뒤 손님 정보 문자 (D-REAL-11)
+  | 'BUYER_INFO_FAILED'
+  | 'BUYER_INFO_ADDRESS_FAILED'
+  | 'BUYER_INFO_SWEPT'
+  | 'RECEIPT_SMS_SENT'
+  | 'RECEIPT_SMS_FAILED'
   // L1 간편 로그인 (D-L1-04): 공급자 이름·결과 코드(reason)·오류 종류·HTTP 상태만
   | 'SOCIAL_LOGIN'
+  // D-UX3-30 문자 인증: 오류 종류·HTTP 상태만 — 번호·인증번호·본문은 남기지 않는다
+  | 'SMS_CODE_SENT'
+  | 'SMS_SEND_FAILED'
   // A1 AI 제안 (D-A1-06): 정해진 코드·판매자 ID·HTTP 상태·개수만. 키·댓글 글(원문·가린 것)·요청·응답 본문·모델이 돌려준 글은 남기지 않는다
   | 'ASSIST_HTTP_ERROR'
   | 'ASSIST_TIMEOUT'
@@ -333,8 +345,17 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   PARCEL_TRACK_FAILED: '택배 배송 조회가 실패했어요(마지막 상태 그대로, 다음 주기에 다시 해요)',
   PARCEL_JOB_FAILED: '택배 작업(조회·배송지 정리) 중 오류가 생겼어요(다음 주기에 다시 해요)',
   PARCEL_ADDRESSES_SWEPT: '보관 기간(주문 날짜 + 30일)이 지난 배송지를 지웠어요',
-  PARCEL_CARRIER_NOT_READY: '우체국 택배 연동 키가 있지만 실제 택배사 연결은 아직 없어 쓰지 않았어요(가짜 택배사는 시험 모드에서만)',
+  PARCEL_CARRIER_NOT_READY: '서버의 우체국 택배 연동 키는 쓰지 않아요 — 우체국 계약 정보는 판매자마다 설정 > 택배에 넣어요(D-REAL-04)',
+  BUYER_PHONE_SAVE_FAILED: '영수증 문자용 손님 번호를 저장하지 못했어요(문자찜은 그대로)',
+  BUYER_PHONES_SWEPT: '1년 넘게 쓰지 않은 손님 번호를 지웠어요',
+  BUYER_INFO_FAILED: '손님 정보 문자를 처리하지 못해 보통 문자로 다뤘어요',
+  BUYER_INFO_ADDRESS_FAILED: '손님 정보 문자의 배송지를 넣지 못했어요',
+  BUYER_INFO_SWEPT: '7일 지난 손님 정보 문자를 지웠어요',
+  RECEIPT_SMS_SENT: '영수증 문자를 보냈어요',
+  RECEIPT_SMS_FAILED: '영수증 문자를 보내지 못했어요(판매자에게 다시 누르라고 알림)',
   SOCIAL_LOGIN: '간편 로그인 결과',
+  SMS_CODE_SENT: '가입 인증번호 문자를 보냈어요',
+  SMS_SEND_FAILED: '가입 인증번호 문자를 보내지 못했어요(솔라피 키·보내는 번호·잔액을 확인해 주세요)',
   ASSIST_HTTP_ERROR: 'AI 제안 요청이 오류로 끝났어요(규칙 제안은 그대로)',
   ASSIST_TIMEOUT: 'AI 제안 요청이 15초 안에 끝나지 않았어요(규칙 제안은 그대로)',
   ASSIST_NETWORK: 'AI 제안 요청을 보내지 못했어요(규칙 제안은 그대로)',
@@ -373,7 +394,7 @@ export function formatLog(record: LogRecord): string {
 }
 
 const CLAIM_RE = /^c[0-9]{1,15}$/
-const PROVIDERS = new Set(['google', 'kakao', 'naver'])
+const PROVIDERS = new Set(['google', 'kakao', 'naver', 'apple'])
 const ROUTES = new Set(['innertube', 'browser', 'nightbot', 'official'])
 const SELLER_RE = /^[A-Za-z0-9_-]{1,80}$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/

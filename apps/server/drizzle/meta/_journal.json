@@ -274,6 +274,62 @@
       "when": 1794960000012,
       "tag": "0038_lv1_stream_audio",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794960000013,
+      "tag": "0039_ux3_broadcast_opened",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794960000014,
+      "tag": "0040_ux3_social_signup",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794960000015,
+      "tag": "0041_ux3_phone_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794960000016,
+      "tag": "0042_real_receipt_sms",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794960000017,
+      "tag": "0043_real_buyer_info",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794960000018,
+      "tag": "0044_ux3_parcel_extras",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794960000019,
+      "tag": "0045_v3_voice_varieties",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794960000020,
+      "tag": "0046_v3_voice_log_conf",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import { VoiceSession } from './lib/voice-session.ts'
 import { nativeAudio, nativeBle, nativeShare } from './native/index.ts'
 import type { NativeAudio } from './native/audio.ts'
 import type { NativeBlePrinter } from './native/ble.ts'
+import { StreamKeep } from './lib/stream-keep.ts'
 
 export interface Services {
   readonly deviceId: string
@@ -19,6 +20,8 @@ export interface Services {
   readonly labels: LabelQueue
   readonly voice: VoiceSession
   readonly away: AwayTracker
+  /** 방송 화면을 나가도 듣는 방송 (D-UX3-48) */
+  readonly streamKeep: StreamKeep
 }
 
 /** 기기 ID (영문·숫자·'_'·'-' 8~64자). 앱이 켜져 있는 동안 하나 — 출력 기기 역할은 다시 열면 다시 고른다 */
@@ -76,7 +79,7 @@ export function createServices(input: { readonly audio?: NativeAudio; readonly b
     undoRegister: closeFromVoice,
     onProcessed: () => away.noteVoice(),
   })
-  return { deviceId, stream, labels, voice, away }
+  return { deviceId, stream, labels, voice, away, streamKeep: new StreamKeep() }
 }
 
 const ServicesContext = createContext<Services | null>(null)
@@ -92,6 +95,18 @@ export function useServices(): Services {
 }
 
 // ── 세션 ──
+
+/**
+ * 로그인 확인이 실패한 뒤의 세션: 401만 '로그인 안 됨'. 그 밖(인터넷 끊김·서버를 새로 올리는 동안의 502·503)은 로그인이 풀린 게 아니라
+ * 서버에 닿지 못한 것 — 이미 들어와 있으면 그대로, 아니면 offline (D-UX3-21)
+ */
+export function sessionAfterCheckError(error: unknown, current: Session): Session {
+  if (isApiError(error) && error.status === 401) return { state: 'out', expired: false }
+  return current.state === 'in' ? current : { state: 'out', expired: false, offline: true }
+}
+
+/** 서버에 닿지 못했을 때 다시 확인하는 간격 */
+export const OFFLINE_RECHECK_MS = 5_000
 
 /** offline: 첫 확인 때 서버에 닿지 못했다 — 로그인이 풀린 것이 아닐 수 있어 "다시 확인"을 보인다 (APP2 실기기: 서버가 안 닿으면 말없이 로그인 화면이 떠 로그아웃된 줄 알았다) */
 export type Session = { readonly state: 'checking' } | { readonly state: 'out'; readonly expired: boolean; readonly offline?: boolean } | { readonly state: 'in'; readonly me: Me }
@@ -114,14 +129,14 @@ export function SessionProvider({ children, services }: { readonly children: Rea
       setVoiceAccount(me.loginId)
       setSession({ state: 'in', me })
     } catch (error) {
-      if (isApiError(error) && error.status === 401) setSession({ state: 'out', expired: false })
-      else setSession((current) => (current.state === 'in' ? current : { state: 'out', expired: false, offline: isApiError(error) && error.network === true }))
+      setSession((current) => sessionAfterCheckError(error, current))
     }
   }
 
   useEffect(() => {
     void recheck()
     onUnauthorized(() => {
+      services.streamKeep.release()
       void services.voice.shutdown()
       void clearVoiceArchive()
       services.stream.shutdown()
@@ -130,6 +145,14 @@ export function SessionProvider({ children, services }: { readonly children: Rea
     return () => onUnauthorized(null)
     // eslint 주석 없이: 처음 한 번만
   }, [])
+
+  // 서버에 닿지 못한 동안은 5초마다 다시 확인한다 — 서버가 돌아오면 판매자가 아무것도 누르지 않아도 그대로 들어간다 (D-UX3-21)
+  const offline = session.state === 'out' && session.offline === true
+  useEffect(() => {
+    if (!offline) return
+    const timer = setInterval(() => void recheck(), OFFLINE_RECHECK_MS)
+    return () => clearInterval(timer)
+  }, [offline])
 
   // 로그인한 동안 라벨 대기열(실시간 포함)을 켠다
   useEffect(() => {
@@ -148,6 +171,7 @@ export function SessionProvider({ children, services }: { readonly children: Rea
         setSession({ state: 'in', me })
       },
       logout: async () => {
+        services.streamKeep.release()
         await services.voice.shutdown()
         await clearVoiceArchive()
         try {

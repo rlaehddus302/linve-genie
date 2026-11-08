@@ -55,6 +55,32 @@ describe('HomeScreen', () => {
     world.services.labels.stop()
   })
 
+  it('방송 뒤 "다음 할 일"은 흐름 순서 — 손님 정보 받기 → 확인서 보내기 → 입금 확인 → 포장하기 → 택배 접수 → 라벨 뽑기, 숫자는 택배 목록·영수증 목록 값 (D-UX3-39)', async () => {
+    const world = makeWorld()
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, ended: true, endedAt: '2026-10-29T12:00:00.000Z' }] } }))
+    world.server.on('GET', /^\/api\/days$/, () => ({ body: { days: [{ date: '2026-10-29', rehearsal: false, seq: 5 }] } }))
+    const entry = (buyer: string, payment: string, status: string) => ({ buyer, name: buyer, phoneLast4: null, payment, items: [], status, invoice: null, add: [], remove: [] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/packing$/, () => ({ body: { date: '2026-10-29', seq: 5, entries: [entry('u1', 'UNPAID', '포장 대기'), entry('u2', 'PAID', '포장 대기'), entry('u3', 'PAID', '포장 완료')] } }))
+    const prow = (buyer: string, address: string, patch: Record<string, unknown> = {}) => ({ buyer, name: buyer, phoneLast4: null, itemCount: 1, qty: 1, total: 1000, payment: 'PAID', packing: '포장 완료', shipping: 'NONE', address, ready: address === 'CONFIRMED', reason: null, message: null, box: '80', parcel: null, ...patch })
+    world.server.on('GET', /^\/api\/parcels\/days\/2026-10-29$/, () => ({ body: { date: '2026-10-29', seq: 5, blocked: null, carrier: null, box: '80', ready: [prow('u3', 'CONFIRMED')], excluded: [prow('u1', 'NONE'), prow('u2', 'NONE', { shipping: 'PICKUP' }), prow('extra:a', 'NONE', { extra: true, itemCount: 0 })], booked: [] } }))
+    const rrow = (buyer: string, link: string, sentAt: string | null) => ({ buyer, name: buyer, phoneLast4: null, itemCount: 1, total: 1000, payment: 'PAID', received: 1000, remaining: 0, link: { buyer, status: link, url: null, expiresAt: null, revokedAt: null }, sms: { last4: null, sentAt } })
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/receipt-buyers$/, () => ({ body: { date: '2026-10-29', rehearsal: false, buyers: [rrow('u1', 'NONE', null), rrow('u2', 'NONE', null), rrow('u3', 'ACTIVE', null)] } }))
+    world.services.labels.start()
+    const navigation = { ...nav(), openSettle: vi.fn(), openParcels: vi.fn(), openReceipts: vi.fn() }
+    render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
+    expect(await screen.findByRole('button', { name: '택배 접수 1' })).toBeTruthy()
+    const todo = screen.getByRole('group', { name: '다음 할 일' })
+    const names = [...todo.querySelectorAll('[role="button"]')].map((button) => button.getAttribute('aria-label'))
+    expect(names).toEqual(['손님 정보 받기 1', '확인서 보내기 2', '입금 확인 1', '포장하기 2', '택배 접수 1', '라벨 뽑기 0'])
+    fireEvent.click(screen.getByRole('button', { name: '손님 정보 받기 1' }))
+    expect(navigation.openSettle).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '택배 접수 1' }))
+    expect(navigation.openParcels).toHaveBeenCalledWith('2026-10-29')
+    fireEvent.click(screen.getByRole('button', { name: '확인서 보내기 2' }))
+    expect(navigation.openReceipts).toHaveBeenCalled()
+    world.services.labels.stop()
+  })
+
   it('"웹으로 열기"는 앱 안이 아니라 기기 브라우저로 그 서버의 웹 주소를 연다 (APP-01 AC4)', async () => {
     const world = makeWorld()
     const opened: string[] = []

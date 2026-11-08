@@ -20,24 +20,18 @@ afterEach(() => {
 })
 
 describe('아래 막대 "문자찜" (AC-MOB1-04)', () => {
-  const input = { route: { name: 'home' } as const, assistant: false, labels: true, review: null }
+  const input = { route: { name: 'home' } as const, labels: true, review: null }
 
   it('휴대폰 막대 낱말은 "방송"·"문자찜"·"구매자"·"정산", PC 메뉴는 "문자찜 입력" 그대로', () => {
     const layout = menuLayout(input)
     expect(layout.bar.map(barLabel)).toEqual(['방송', SMS_BAR_LABEL, '구매자', '정산'])
     expect(SMS_BAR_LABEL).toBe('문자찜')
     expect(menuAll(layout).map((item) => item.label)).toContain('문자찜 입력')
-    expect(menuLayout({ ...input, assistant: true }).bar.map(barLabel)).toEqual(['문자찜'])
   })
   it('그려진 휴대폰 막대 글이 barLabel 그대로 — 화면과 시험이 같은 길 (D-MOB1-17 (4))', async () => {
     await topBar({ broadcasts: [] })
     const links = within(menuNav()).getAllByRole('link').map((link) => link.textContent)
     expect(links).toEqual(menuLayout(input).bar.map(barLabel))
-    cleanup()
-    vi.unstubAllGlobals()
-    vi.resetModules()
-    await topBar({ broadcasts: [], assistant: true })
-    expect(within(menuNav()).getAllByRole('link').map((link) => link.textContent)).toEqual(menuLayout({ ...input, assistant: true }).bar.map(barLabel))
   })
 })
 
@@ -69,11 +63,10 @@ interface World {
   /** 주면 방송 목록 답을 이것이 풀릴 때까지 늦춘다 (느린 망 — 응답 전) */
   readonly hold?: Promise<void>
   readonly mine?: boolean
-  readonly assistant?: boolean
   readonly wide?: boolean
 }
 
-async function topBar({ broadcasts, hold, mine = false, assistant = false, wide = false }: World) {
+async function topBar({ broadcasts, hold, mine = false, wide = false }: World) {
   if (wide) vi.stubGlobal('matchMedia', (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }))
   const { TopBar } = await import('../src/components/TopBar.tsx')
   const { PrintContext } = await import('../src/components/print-context.tsx')
@@ -93,7 +86,7 @@ async function topBar({ broadcasts, hold, mine = false, assistant = false, wide 
   const onLogout = vi.fn()
   render(
     <PrintContext.Provider value={{ store, station: { isMine: () => mine } as never }}>
-      <TopBar shopName="구피 가게" assistant={assistant} onLogout={onLogout} route={{ name: 'home' }} navigate={vi.fn()} />
+      <TopBar shopName="구피 가게" onLogout={onLogout} route={{ name: 'home' }} navigate={vi.fn()} />
     </PrintContext.Provider>,
   )
   return { onLogout, calls }
@@ -120,21 +113,13 @@ describe('휴대폰 로그아웃 자리 (AC-MOB1-05)', () => {
     expect(within(list).queryByRole('link', { name: '로그아웃' })).toBeNull()
   })
 
-  it('PC는 위 줄 그대로, 보조자는 어느 폭이든 위 줄 그대로(묻지 않는다)', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자는 어느 폭이든 위 줄 그대로(묻지 않는다)"를 뺐다
+  it('PC는 위 줄 그대로', async () => {
     const pc = await topBar({ broadcasts: [], wide: true })
     expect(within(menuNav()).queryByRole('button', { name: '더보기' })).toBeNull()
     expect(screen.getByRole('button', { name: '로그아웃' })).toBeDefined()
     expect(within(menuNav()).getByRole('link', { name: '문자찜 입력' })).toBeDefined()
     expect(pc.onLogout).not.toHaveBeenCalled()
-    cleanup()
-    vi.unstubAllGlobals()
-    vi.resetModules()
-    const helper = await topBar({ broadcasts: [broadcastItem({ ended: false })], assistant: true })
-    expect(within(menuNav()).getByRole('link').textContent).toBe('문자찜')
-    await press(screen.getByRole('button', { name: '로그아웃' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(helper.onLogout).toHaveBeenCalledTimes(1)
-    expect(helper.calls.filter((url) => url.startsWith('/api/broadcasts'))).toEqual([])
   })
 })
 

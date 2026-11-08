@@ -12,12 +12,13 @@ import { NewBroadcastAddressScreen, NewBroadcastCategoryScreen, SALE_CATEGORIES,
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
 import { TabFrame, tabEnterSide } from '../src/screens/TabFrame.tsx'
 import { BACK_ICON, FIELD_LABEL_MS, FIELD_ROW, PALETTE, TABS, TabBar, UnderlineField, pressedFill, useTabBarRoom } from '../src/ui/kit/index.ts'
-import { TYPE } from '../src/ui/kit/tokens.ts'
+import { TYPE, WEIGHT } from '../src/ui/kit/tokens.ts'
+import { TabIcon } from '../src/ui/kit/tab-icons.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 describe('아래 탭 (D-UX3-01·12)', () => {
-  it('아이콘은 홈·프린터·영수증·상자·세 줄로 서로 다르고, 모두 가로세로가 같은 칸이다', () => {
-    expect(TABS.map((tab) => tab.icon)).toEqual(['home', 'printer', 'receipt', 'box', 'menu'])
+  it('아이콘은 홈·영수증·상자·사람·세 줄로 서로 다르고, 모두 가로세로가 같은 칸이다 (D-UX3-39 → D-UX3-60: 택배 탭 → 고객 탭)', () => {
+    expect(TABS.map((tab) => tab.icon)).toEqual(['home', 'receipt', 'box', 'person', 'menu'])
     const world = makeWorld()
     const { container } = render(world.wrap(<TabBar active="home" onSelect={() => {}} />))
     const svgs = [...container.querySelectorAll('svg')]
@@ -25,15 +26,15 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     for (const svg of svgs) expect(svg.getAttribute('width')).toBe(svg.getAttribute('height'))
   })
 
-  it('탭은 홈 · 라벨 · 정산 · 포장 · 전체 다섯이고 고른 탭만 골라져 있다', () => {
+  it('탭은 홈 · 주문 · 택배 · 고객 · 전체 다섯이고 고른 탭만 골라져 있다 (D-UX3-39 → D-UX3-60·61, 사용자 지시 2026-11-07 "포장, 택배 한 탭으로" → "포장 -> 택배로 이름 바꾸고")', () => {
     const world = makeWorld()
     const onSelect = vi.fn()
     render(world.wrap(<TabBar active="settle" onSelect={onSelect} />))
     const tabs = within(screen.getByRole('tablist', { name: '아래 메뉴' })).getAllByRole('tab')
-    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual(['홈', '라벨', '정산', '포장', '전체'])
-    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'false', 'true', 'false', 'false'])
-    fireEvent.click(screen.getByRole('tab', { name: '라벨' }))
-    expect(onSelect).toHaveBeenCalledWith('labels')
+    expect(tabs.map((tab) => tab.getAttribute('aria-label'))).toEqual(['홈', '주문', '택배', '고객', '전체'])
+    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false', 'false', 'false'])
+    fireEvent.click(screen.getByRole('tab', { name: '고객' }))
+    expect(onSelect).toHaveBeenCalledWith('customers')
   })
 
   it('아래 탭은 따로 바탕 띠 없이 내용 위에 뜨고(반투명 흰색), 내용은 탭 높이만큼 아래를 더 비운다 (D-UX3-13)', () => {
@@ -57,26 +58,51 @@ describe('아래 탭 (D-UX3-01·12)', () => {
     expect(container).toBeTruthy()
   })
 
-  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 상자는 테이프 자리 윗선까지 뚫린다 (D-UX3-13)', () => {
+  it('집 문 아래·프린터 종이 위로 지나는 선이 없고, 고른 칸은 채우고 안쪽 선만 흰색으로 뒤집는다 (D-UX3-13·44·46·60·63)', () => {
     const world = makeWorld()
-    const { container } = render(world.wrap(<TabBar active="packing" onSelect={() => {}} />))
-    const [home, printer, , box] = [...container.querySelectorAll('svg')]
+    // D-UX3-39: 프린터 아이콘은 막대에 없다(라벨 프린터는 전체 안) — 아이콘 자체는 그대로라 따로 그려 본다
+    const { container } = render(world.wrap(<><TabBar active="packing" onSelect={() => {}} /><TabIcon name="printer" color="#000" cut="#fff" /></>))
+    const svgs = [...container.querySelectorAll('svg')]
+    const [home, , box] = svgs
+    const printer = svgs[5]
     // 집은 문 홈이 든 한 줄 모양(따로 그린 문 없음)
     expect(home?.querySelectorAll('path')).toHaveLength(1)
-    expect(home?.querySelector('path')?.getAttribute('d')).toContain('H14.1 V16.2')
+    // D-UX3-44: 문 너비 5.2 (9.4~14.6)
+    expect(home?.querySelector('path')?.getAttribute('d')).toContain('H14.6 V16.4')
     // 프린터 몸통은 종이 앞(7~17)에서 끊긴 열린 모양 (D-UX3-15: 첫 줄은 위 받침 — 몸통은 둘째)
     const bodyLine = printer?.querySelectorAll('path')[1]?.getAttribute('d') ?? ''
     expect(bodyLine.startsWith('M7 17.4')).toBe(true)
     expect(bodyLine.endsWith('H17')).toBe(true)
-    // 고른 상자: 테이프 뚫기가 윗선 위(2.4)부터
-    expect([...(box?.querySelectorAll('path') ?? [])].some((path) => path.getAttribute('d')?.startsWith('M10.2 2.4') === true)).toBe(true)
+    // D-UX3-63: 테이프는 앞면 윗변 높이(8.4 — 왼쪽 깎인 변 아래 끝과 같은 높이)에서 꺾이고, 사선은 깎인 변과 나란히 윗선까지
+    const boxPaths = [...(box?.querySelectorAll('path') ?? [])]
+    const bend = 'L10.374 7.538 Q9.4 8.4 9.4 9.7 V13'
+    // 고른 상자(택배 탭)는 겉모양을 채우고 테이프 선 자리를 투명하게 뚫는다 — 흰색으로 칠하지 않고, 뚫는 선은 겉선 밖까지 이어진다
+    const mask = box?.querySelector('mask')
+    expect(mask?.querySelector('path')?.getAttribute('d')).toBe(`M15.649 2.872 ${bend}`)
+    const filledBox = boxPaths.find((path) => path.getAttribute('mask') !== null)
+    expect(filledBox?.getAttribute('fill')).not.toBe('none')
+    expect(filledBox?.getAttribute('mask')).toBe(`url(#${mask?.getAttribute('id') ?? ''})`)
+    expect(boxPaths.some((path) => path.getAttribute('stroke') === PALETTE.light.surface)).toBe(false)
+    // 고르지 않은 상자는 겉선 + 같은 색 테이프 선(윗선에서 시작)
+    render(world.wrap(<TabIcon name="box" color="#111" cut="#fff" />))
+    const all = container.ownerDocument.querySelectorAll('svg')
+    const plain = [...all.item(all.length - 1).querySelectorAll('path')]
+    expect(plain).toHaveLength(2)
+    expect(plain[1]?.getAttribute('d')).toBe(`M14.6 3.8 ${bend}`)
+    expect(plain[1]?.getAttribute('stroke')).toBe('#111')
+    // D-UX3-61: 고객은 머리·목·몸이 붙은 한 덩어리(한 줄 모양)
+    render(world.wrap(<TabIcon name="person" color="#111" cut="#fff" />))
+    const people = container.ownerDocument.querySelectorAll('svg')
+    const person = people.item(people.length - 1)
+    expect(person.querySelectorAll('path')).toHaveLength(1)
+    expect(person.querySelectorAll('circle')).toHaveLength(0)
     // 모서리는 원호(A)가 아니라 아이폰 연속 곡률 곡선(C) — 집 문 홈만 원호 (D-UX3-15)
     for (const svg of [printer, box]) for (const path of svg?.querySelectorAll('path') ?? []) expect(path.getAttribute('d')).not.toMatch(/A/)
   })
 
   it('오른쪽 탭으로 가면 오른쪽에서, 왼쪽 탭으로 가면 왼쪽에서 들어온다. 처음·같은 탭은 그대로', () => {
     expect(tabEnterSide('home', 'packing')).toBe(1)
-    expect(tabEnterSide('more', 'labels')).toBe(-1)
+    expect(tabEnterSide('more', 'customers')).toBe(-1)
     expect(tabEnterSide(null, 'home')).toBe(0)
     expect(tabEnterSide('settle', 'settle')).toBe(0)
   })
@@ -94,17 +120,18 @@ describe('누르는 동안 바탕 (D-UX3-03)', () => {
 })
 
 describe('전체 탭 (D-UX3-04)', () => {
-  it('맨 위에 설정, 화면들은 묶음 이름이 든 카드로, 라벨·프린터 줄은 없다(아래 탭으로 옮김)', () => {
+  it('맨 위에 설정, 화면들은 묶음 이름이 든 카드로, 택배 줄은 없고(아래 탭으로 옮김) 라벨 프린터 줄이 가게 묶음에 있다 (D-UX3-39)', () => {
     const world = makeWorld()
     const openSettings = vi.fn()
     const openApp = vi.fn()
     render(world.wrap(<MoreScreen nav={{ openSettings, openApp }} account="김다육 · kim" onLogout={() => {}} />))
-    expect(screen.getByRole('heading', { name: '전체' })).toBeTruthy()
+    // 탭 이름과 같은 맨 위 제목은 없다 (D-UX3-41)
+    expect(screen.queryByRole('heading', { name: '전체' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '설정' }))
     expect(openSettings).toHaveBeenCalled()
     for (const group of ['방송', '주문·입금', '배송', '가게', '계정']) expect(screen.getByRole('group', { name: group })).toBeTruthy()
-    expect(within(screen.getByRole('group', { name: '배송' })).getByRole('button', { name: '택배' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '라벨·프린터' })).toBeNull()
+    expect(within(screen.getByRole('group', { name: '배송' })).queryByRole('button', { name: '택배' })).toBeNull()
+    expect(within(screen.getByRole('group', { name: '가게' })).getByRole('button', { name: '라벨 프린터' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '입금 확인' }))
     expect(openApp).toHaveBeenCalledWith('/deposits')
   })
@@ -117,7 +144,15 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
     world.server.on('POST', /^\/api\/broadcasts$/, (call) => ({ body: { date: '2026-11-03', rehearsal: false, seq: 1, type: 'broadcast.start', changed: true, effects: [], broadcast: { id: 'b9', date: '2026-11-03', title: String(call.body?.title ?? ''), rehearsal: false } } }))
     world.server.on('POST', /^\/api\/broadcasts\/b9\/youtube$/, () => ({ body: { link: null, collector: null } }))
+    // 잇기 전 미리 보기 (D-UX4-08)
+    world.server.on('POST', /^\/api\/youtube\/preview$/, () => ({ body: { title: '오늘의 다육이', channelTitle: '다육이네' } }))
     return world
+  }
+  /** 잇기 전 확인 팝업 (D-UX4-08 — 처음이든 아니든): 제목·채널을 보고 [맞아요] */
+  const agree = async () => {
+    const ask = await screen.findByRole('alertdialog', { name: '이을 방송 확인' })
+    expect(ask.textContent).toContain('제목: 오늘의 다육이\n채널: 다육이네')
+    fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
   }
   const newNav = () => ({ back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() })
   afterEach(() => {
@@ -161,9 +196,13 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     expect(within(page).queryByRole('button', { name: '주소 없이 시작' })).toBeNull()
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    // 확인 팝업에서 [맞아요]를 누르기 전엔 방송을 만들지 않는다 (D-UX4-08)
+    await screen.findByRole('alertdialog', { name: '이을 방송 확인' })
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(0)
+    await agree()
     await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
     expect(String(world.server.callsTo('POST', /^\/api\/broadcasts$/)[0]?.body?.title)).toMatch(/^\d{4}-\d{2}-\d{2} [일월화수목금토]요일 다육이 방송$/)
-    expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)[0]?.body).toEqual({ requestId: expect.any(String), video: 'https://www.youtube.com/watch?v=tWnNGwvdN40' })
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)[0]?.body).toEqual({ requestId: expect.any(String), video: 'https://www.youtube.com/watch?v=tWnNGwvdN40', confirmInvited: true })
   })
 
   it('링크를 이으면 방송 화면 전에 라벨 단계로 (D-UX3-19, 사용자 지시 2026-11-03 "링크 붙여넣은 다음에 라벨 프린트 할건지 물어보고")', async () => {
@@ -173,6 +212,7 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     const page = screen.getByRole('dialog', { name: '새 방송' })
     fireEvent.change(await within(page).findByLabelText('방송 링크'), { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledWith('b9'))
     expect(nav.openConsole).not.toHaveBeenCalled()
   })
@@ -186,15 +226,20 @@ describe('새 방송: 판매 종류 → 방송 주소 (D-UX3-09·10)', () => {
     const address = await within(page).findByLabelText('방송 링크')
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(1))
     // 뒤로 와서 같은 링크로 [확인] — 방송을 또 만들지 않고, 잇기 요청도 다시 보내지 않는다
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '이을 방송 확인' })).toBeNull())
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(2))
     expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(1)
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)).toHaveLength(1)
     // 다른 링크로 바꾸면 먼저 이은 것을 끊고 새 링크를 잇는다
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=AAAAAAAAAAA' } })
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '이을 방송 확인' })).toBeNull())
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(3))
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube\/unlink$/)).toHaveLength(1)
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/).map((call) => (call.body as { video: string }).video)).toEqual(['https://www.youtube.com/watch?v=tWnNGwvdN40', 'https://www.youtube.com/watch?v=AAAAAAAAAAA'])
@@ -371,23 +416,32 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     // 라벨은 칸 안 예시 글(placeholder)이 아니라 따로 움직이는 글자 — 칸 안 예시 글은 비어 있다
     expect(input.getAttribute('placeholder')).toBe('')
     fireEvent.focus(input)
-    expect(state()).toBe('floating')
+    // D-UX3-53으로 바뀐 기대 (사용자 지시 2026-11-07 "아무것도 입력하지 않았다면 라벨 위치를 아직 필드 안에"): 옛 누르면 위로(floating) → 새 비어 있으면 눌러도 칸 안(resting)
+    expect(state()).toBe('resting')
+    // D-UX3-54로 바뀐 기대 (사용자 지시 2026-11-07 "아무것도 입력하지 않았을 때 라벨 색깔 … 포인트 컬러가 아니라 그냥 회색 기본 색"): 옛 눌렀으면 초록 → 새 비어 있으면 회색
+    const labelColor = () => ((screen.queryByTestId('field-label-resting') ?? screen.getByTestId('field-label-floating')).firstElementChild as HTMLElement).style.color
+    expect(labelColor()).toBe('rgb(139, 149, 161)')
     fireEvent.change(input, { target: { value: 'abc' } })
+    expect(state()).toBe('floating')
+    expect(labelColor()).toBe('rgb(31, 122, 77)')
     fireEvent.blur(input)
     expect(state()).toBe('floating')
-    expect(FIELD_ROW).toBe(52)
+    // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 토스 사진 비교): 옛 값 줄 52 → 새 40 (토스 칸을 재어)
+    expect(FIELD_ROW).toBe(40)
     expect(FIELD_LABEL_MS).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: '방송 링크 지우기' }))
     expect(input.value).toBe('')
     expect(state()).toBe('resting')
   })
 
-  it('잘못일 때는 느낌표와 짧은 문장, 고치기 시작하면 문장이 사라진다 (D-UX3-11)', async () => {
+  // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 "오류 메시지의 형태"): 옛 "느낌표 + 짧은 문장"(D-UX3-11) → 새 "느낌표 없이 빨간 문장만"(토스)
+  it('잘못일 때는 느낌표 그림 + 빨간 짧은 문장, 고치기 시작하면 문장이 사라진다 (D-UX3-11·51·53)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: null, webChat: { on: true }, oauth: true } }))
     world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
     world.server.on('POST', /^\/api\/broadcasts$/, () => ({ body: { date: '2026-11-03', rehearsal: false, seq: 1, type: 'broadcast.start', changed: true, effects: [], broadcast: { id: 'b9', date: '2026-11-03', title: 't', rehearsal: false } } }))
-    world.server.on('POST', /^\/api\/broadcasts\/b9\/youtube$/, (call) =>
+    // 거절은 잇기 전 미리 보기에서 온다 (D-UX4-08)
+    world.server.on('POST', /^\/api\/youtube\/preview$/, (call) =>
       call.body?.video === 'https://youtu.be/NOCHAT00001'
         ? { status: 409, body: { error: { code: 'NO_LIVE_CHAT', message: '이 영상에는 실시간 채팅이 없어요. 라이브 방송이 시작됐는지, 채팅이 켜져 있는지 확인해 주세요.' } } }
         : { status: 400, body: { error: { code: 'INVALID_VIDEO_URL', message: '유튜브 영상 주소를 알아볼 수 없어요. 주소를 다시 확인해 주세요.' } } },
@@ -398,6 +452,7 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('라이브 채팅을 받을 수 없는 방송이에요.')
+    // D-UX3-53으로 다시 바뀐 기대 (사용자 지시 2026-11-07 "에러 문구 앞에는 원래 있던 느낌표 원 아이콘을 넣어줘"): 옛 D-UX3-51 느낌표 없음 → 새 앞에 느낌표 그림(장식, 숨김)
     expect(alert.querySelector('[aria-hidden="true"]')).not.toBeNull()
     fireEvent.change(field, { target: { value: 'https://youtu.be/NOCHAT0000' } })
     expect(screen.queryByRole('alert')).toBeNull()
@@ -417,9 +472,12 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     setClipboardReader(async () => '')
   })
 
-  it('입력 글자는 토스 계좌 입력과 같은 24, 뒤로 화살표는 어느 화면이든 26 하나', () => {
-    expect(TYPE.input).toBe(24)
-    expect(BACK_ICON).toBe(26)
+  // D-UX3-51로 바뀐 기대 (사용자 지시 2026-11-07 토스 사진 비교 "입력필드 안 폰트의 두께가 다름 … 뒤로가기 버튼의 크기"): 옛 입력 24·뒤로 26 → 새 입력 22(두께 500)·뒤로 33·제목 22
+  it('입력 글자는 토스 휴대폰 번호 칸과 같은 22, 뒤로 화살표는 어느 화면이든 33 하나, 제목 22', () => {
+    expect(TYPE.input).toBe(22)
+    expect(WEIGHT.book).toBe('500')
+    expect(TYPE.headline).toBe(22)
+    expect(BACK_ICON).toBe(33)
   })
 })
 

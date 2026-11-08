@@ -1,5 +1,6 @@
 // A1 확인 필요 줄의 제안·화면을 열 때 한 번·설정 칸 (AC-A1-20·21·22·31) — test-e2e, 묶음 chromium-assist(@assist).
 // 기대값은 acceptance.md에서 정했다(구현을 보고 정하지 않음). 시험마다 새 판매자를 쓰고 가짜 AI를 비운다.
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 화면엔 AI 제안 칸이 없고, 보조자의 AI 제안 요청은 403 (AC-A1-22·08)"을 뺐다
 import { expect, test } from '@playwright/test'
 import {
   CONSENT,
@@ -20,7 +21,6 @@ import {
   fakeLlm,
   fakeRequests,
   history,
-  loginAs,
   noHorizontalScroll,
   openReviews,
   reviewLine,
@@ -311,32 +311,6 @@ test('AC-A1-20 @assist: 휴대폰 폭 390px — 제안 줄이 넘치지 않고 �
   }
   const source = await group.getByText(/비슷한 글자로 찾음/).evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize))
   expect(source).toBeGreaterThanOrEqual(16)
-})
-
-test('AC-A1-22·08 @assist: 보조자 화면엔 AI 제안 칸이 없고, 보조자의 AI 제안 요청은 403', async ({ page, browser }) => {
-  await assistWorld(page)
-  const origin = new URL(page.url()).origin
-  const res = await page.request.post('/api/assistants', { data: { name: '작업자' }, headers: { Origin: origin } })
-  expect(res.ok(), await res.text()).toBe(true)
-  const { assistant, password } = await res.json() as { assistant: { loginId: string }; password: string }
-  const ctx = await browser.newContext()
-  try {
-    const helper = await ctx.newPage()
-    const assistCalls: string[] = []
-    helper.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/api/assist/')) assistCalls.push(r.url()) })
-    await loginAs(helper, { loginId: assistant.loginId, password })
-    await helper.goto('/settings')
-    await expect(helper.getByRole('heading', { level: 1 })).toBeVisible()
-    await expect(helper.getByRole('region', { name: 'AI 제안' })).toHaveCount(0)
-    expect(assistCalls).toEqual([])
-    for (const [method, path, data] of [['GET', '/api/assist/settings', undefined], ['PUT', '/api/assist/settings', { enabled: true, consent: true }], ['POST', '/api/assist/suggest', { rehearsal: true }]] as const) {
-      const r = await helper.request.fetch(path, { method, headers: { Origin: origin }, ...(data === undefined ? {} : { data }) })
-      expect(r.status(), `${method} ${path}`).toBe(403)
-    }
-  } finally {
-    await ctx.close()
-  }
-  expect((await assistSettingsApi(page)).enabled).toBe(false)
 })
 
 test('AC-A1-07 @assist: 화면 열기·AI 제안·켜기/끄기는 기록을 늘리지 않는다', async ({ page, request }) => {

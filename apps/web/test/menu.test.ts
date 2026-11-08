@@ -1,9 +1,9 @@
-// 메뉴 정의 한 곳 (D-NAV-01, AC-NAV-01·02·08·09): 막대 앞 네 칸 → 더보기 목록 → "설정"(늘 마지막), 보조자는 한 칸
+// 메뉴 정의 한 곳 (D-NAV-01, AC-NAV-01·02·08·09): 막대 앞 네 칸 → 더보기 목록 → "설정"(늘 마지막)
 import { describe, expect, it } from 'vitest'
 import { menuAll, menuLayout, menuName, type MenuInput } from '../src/lib/menu.ts'
 import { routePath } from '../src/lib/router.ts'
 
-const input = (patch: Partial<MenuInput> = {}): MenuInput => ({ route: { name: 'home' }, assistant: false, labels: true, review: null, ...patch })
+const input = (patch: Partial<MenuInput> = {}): MenuInput => ({ route: { name: 'home' }, labels: true, review: null, ...patch })
 const names = (items: ReturnType<typeof menuAll>) => items.map(menuName)
 
 describe('메뉴 정의 (D-NAV-01)', () => {
@@ -44,12 +44,7 @@ describe('메뉴 정의 (D-NAV-01)', () => {
     expect(names(menuAll(on))).toEqual(['방송', '문자찜 입력', '구매자', '정산', '입금 확인 3', '포장', '라벨', '요금', '택배', '설정'])
     expect(names(menuLayout(input({ billing: true, labels: false })).more)).toEqual(['입금 확인', '포장', '요금', '택배', '설정'])
     expect(names(menuLayout(input({ billing: false })).more)).toEqual(['입금 확인', '포장', '라벨', '택배', '설정'])
-    expect(menuLayout(input({ assistant: true, billing: true }))).toEqual({ bar: [{ key: 'sms', label: '문자찜 입력', to: { name: 'sms' } }], more: [] })
   })
 
-  it('보조자는 "문자찜 입력" 한 칸, 더보기 목록 없음', () => {
-    const layout = menuLayout(input({ assistant: true, review: 3 }))
-    expect(names(layout.bar)).toEqual(['문자찜 입력'])
-    expect(layout.more).toEqual([])
-  })
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 "보조자는 문자찜 입력 한 칸" 시험을 뺐다
 })

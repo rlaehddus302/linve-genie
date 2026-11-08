@@ -5,6 +5,7 @@
 // - 방송 창: 끝난 뒤 10분 경계, 휴대폰 시각(receivedAt)으로 창을 속이기, 방송 시작 직전에 온 문자의 재전송
 // - 저장 실패 뒤 같은 id로 다시 보내면 들어간다(유실 없음)
 // 기대는 SPEC ORD-13 C-02·C-04~C-07, DOMAIN_RULES R-26, D-SMS3-07·08·12 문장으로 정한다.
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자는 토큰을 만들거나 끄지 못하고(403), 설정 읽기에도 토큰이 없다"를 뺐다
 import type { ClaimInfo } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { kst } from '../../../apps/server/test/deposit-support.ts'
@@ -17,11 +18,6 @@ const seqOf = async (world: TestServer, seller: Seller): Promise<number> => (awa
 
 async function endBroadcast(world: TestServer, seller: Seller, b: string): Promise<void> {
   await expectOk(client(world, seller.cookie).post(`/api/broadcasts/${b}/end`, { requestId: rid('end') }))
-}
-
-async function assistantCookie(world: TestServer, seller: Seller): Promise<string> {
-  const made = await expectOk(client(world, seller.cookie).post('/api/assistants', { name: '도우미' }))
-  return login(world, (made.body.assistant as { loginId: string }).loginId, made.body.password as string)
 }
 
 describe('토큰 경계 (C-02)', () => {
@@ -117,19 +113,6 @@ describe('토큰 경계 (C-02)', () => {
     }
     expect(JSON.stringify((await expectOk(api.get('/api/inbox/settings'))).body)).not.toContain(t3)
   })
-
-  it('보조자는 토큰을 만들거나 끄지 못하고(403), 설정 읽기에도 토큰이 없다 — 토큰도 그대로 통한다', async () => {
-    const { world, seller, token } = await inboxWorld()
-    await liveSale(world, seller, [15])
-    const cookie = await assistantCookie(world, seller)
-    const helper = client(world, cookie)
-    expect((await helper.post('/api/inbox/token', {})).status).toBe(403)
-    expect((await helper.put('/api/inbox/settings', { enabled: false })).status).toBe(403)
-    const view = await expectOk(helper.get('/api/inbox/settings'))
-    expect(view.text).not.toContain(token)
-    expect(Object.keys(view.body.inbox as object).sort()).toEqual(['enabled', 'hasToken', 'lastDevice', 'lastReceivedAt', 'staleBroadcast', 'tokenCreatedAt']) // D-SMS3-29
-    expect(await statuses(world, token, [sms('as1', '010-1234-5678', '15')])).toEqual(['SAVED'])
-  })
 })
 
 describe('같은 id·같은 문자 동시 요청 (C-06)', () => {
@@ -160,12 +143,13 @@ describe('같은 id·같은 문자 동시 요청 (C-06)', () => {
 })
 
 describe('같은 카드 동시 처리', () => {
-  it('이름만 온 문자 카드(NO_NUMBER)를 판매자와 보조자가 동시에 "넣기" → 찜 하나, 하나는 이미 처리함', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "판매자와 보조자가 동시에 넣기"를 판매자의 두 기기(로그인 두 번)로 바꿨다
+  it('이름만 온 문자 카드(NO_NUMBER)를 판매자가 두 기기에서 동시에 "넣기" → 찜 하나, 하나는 이미 처리함', async () => {
     const { world, seller, token } = await inboxWorld()
     const sale = await liveSale(world, seller, [15])
     expect(await statuses(world, token, [sms('nn', '홍길동', '15')])).toEqual(['SAVED'])
     const [card] = await cards(world, seller, sale.id)
-    const helper = client(world, await assistantCookie(world, seller))
+    const helper = client(world, await login(world, seller.loginId, seller.password))
     const owner = client(world, seller.cookie)
     const results = await Promise.all([
       owner.post(`/api/inbox/cards/${card?.id as string}/insert`, { requestId: rid('in'), no: 15 }),

@@ -21,7 +21,7 @@ export const LANDING_DAY_STEPS: readonly string[] = [
   '포장: 손님별 목록을 보며 담고 포장 라벨을 붙여요.',
 ]
 
-export const LANDING_START_TEXT = `${SERVICE_NAME} 계정은 운영자가 만들어 드려요. 받은 아이디로 로그인해 주세요.`
+export const LANDING_START_TEXT = `카카오·네이버·구글 계정으로 ${SERVICE_NAME}를 바로 시작할 수 있어요.`
 
 /** 점 목록 여섯 줄 (D-LND1-11) — 넷째·다섯째 줄은 지우는 범위·AI 제안. 한국어엔 "제3자" 문장을 두지 않는다 */
 export const LANDING_GOOGLE_ITEMS: readonly string[] = [

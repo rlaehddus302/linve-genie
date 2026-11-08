@@ -10,6 +10,7 @@
 // N4a: 라벨 기능 켬/끔 알림(labels)을 허브에 잇는다.
 import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
 import { VoiceAliases } from './voice/aliases.ts'
+import { VoiceVarieties } from './voice/varieties.ts'
 import { VoiceRelay, registerVoiceRelay } from './voice/relay.ts'
 import { FfmpegAudioFeed, ffmpegAvailable, notLiveBackoff, webStreamLocator, ytDlpResolver, ytDlpTiktokResolver, type AudioFeed, type MediaProxySetting, type StreamLocator } from './voice/stream-audio.ts'
 import { StreamAudioService } from './voice/stream-service.ts'
@@ -33,6 +34,7 @@ import type { LoginLimitOptions } from './login-limit.ts'
 import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts'
 import { realTimer as realGeneratorTimer, type GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
+import { ReceiptSmsService } from './receipt-sms.ts'
 import { ReceiptLinkService } from './receipt-links.ts'
 import { registerReceiptPage } from './receipt-page.ts'
 import type { InstagramSettings } from './instagram/config.ts'
@@ -60,6 +62,7 @@ import { recordPlatformChats } from './platform-record.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { registerInboxIntake } from './inbox/routes.ts'
+import { BuyerInfoService } from './inbox/buyer-info-service.ts'
 import { InboxService } from './inbox/service.ts'
 import { ParcelService, type ParcelOptions } from './parcel/service.ts'
 import { createExtensionApp } from './extension/routes.ts'
@@ -81,6 +84,7 @@ import { Sealer } from './youtube/seal.ts'
 import { YoutubeSystem, checkYoutubeConfig, type LinkHooks, type YoutubeConfig } from './youtube/system.ts'
 import { realTimer, type Timer } from './youtube/timer.ts'
 import { checkSocialSetup, type SocialLoginSetup } from './social/providers.ts'
+import type { SmsSender } from './social/phone.ts'
 import { SocialLogin } from './social/service.ts'
 import { AssistService, checkAssistSetup, type AssistSetup } from './assist/service.ts'
 
@@ -116,6 +120,8 @@ export interface ServerOptions {
   readonly masterKey: Buffer | string
   /** 화면 앱 주소 (상태를 바꾸는 요청의 Origin과 같아야 한다) */
   readonly appOrigin: string
+  /** 옛 앱 주소들 (도메인을 옮기는 동안 Origin 검사만 함께 받는다, D-OPS-DOMAIN) */
+  readonly oldAppOrigins?: readonly string[]
   readonly clock?: Clock
   readonly ids?: Partial<IdSource>
   readonly hooks?: WriterHooks
@@ -238,6 +244,8 @@ export interface ServerOptions {
    * 공급자 주소 바꾸기·http 허용·HTTP 함수·시간 제한은 시험·E2E·연습 기동만(가짜 OAuth 서버). 없거나 공급자가 없으면 꺼짐(지금과 같다)
    */
   readonly socialLogin?: SocialLoginSetup
+  /** 가입 문자 인증 발송 (D-UX3-30). 없으면 문자 인증 없이 가입 표로 바로 가입한다 */
+  readonly sms?: SmsSender | null
   /** 간편 로그인 시험 주입점 (쓴 표시 직후·로그인 연결을 찾은 뒤 세션 거래 전 — 동시 사용 시험) */
   readonly socialHooks?: { readonly afterClaim?: () => void | Promise<void>; readonly beforeLoginSession?: () => void | Promise<void> }
   /**
@@ -275,6 +283,8 @@ export interface LivejjimServer {
   readonly closing: ClosingService
   /** 구매자 확인서 공유 링크 (N4b) */
   readonly receiptLinks: ReceiptLinkService
+  /** 영수증 문자 (D-REAL-03) */
+  readonly receiptSms: ReceiptSmsService
   /** 매일 자동 백업 (I2 D-I2-10 — 시작은 backups.start(), 시험은 check()를 직접 부른다) */
   readonly backups: BackupScheduler
   /** 무거운 파일 작업의 워커 풀 (확인서 그림·PDF·전원 PDF·판매대장 엑셀·.xlsx 읽기) */
@@ -282,6 +292,8 @@ export interface LivejjimServer {
   /** 입금 확인 (N3) */
   readonly deposits: DepositService
   readonly inbox: InboxService
+  /** 방송 뒤 손님 정보 문자 (ORD-14) */
+  readonly buyerInfo: BuyerInfoService
   /** 택배 자동 접수 (T1) — 주기 작업(조회·배송지 정리)은 start()가 돌린다 */
   readonly parcels: ParcelService
   /** 간편 로그인 (L1 — 설정이 없으면 켜진 공급자가 없다) */
@@ -401,6 +413,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.passwordVerifier === undefined ? {} : { verify: options.passwordVerifier }),
   })
   const voiceAliases = new VoiceAliases(db)
+  // D-V3-127 내 품종 장부 — 음성 사전 맨 앞·받아쓰기 힌트
+  const voiceVarieties = new VoiceVarieties(db, clock)
   const streamSetting = options.streamAudio
   // 허용하지 않는 프록시 값은 쓰지 않고(바로 나감 → 데이터센터면 막힘 → 휴대폰 마이크 안내) 시작 기록 한 줄. 판매는 그대로 한다
   if (streamSetting?.on === true && streamSetting.mediaProxy?.kind === 'rejected') log({ level: 'warn', code: 'STREAM_AUDIO_PROXY_IGNORED' })
@@ -420,9 +434,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
     clock,
     log,
     sellerOn: (sellerId) => sellerStreamAudioOn(db, sellerId),
+    warmHint: (sellerId) => voiceVarieties.warm(sellerId),
     ...(streamSetting?.schedule === undefined ? {} : { schedule: streamSetting.schedule }),
   })
-  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
+  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), hint: (sellerId) => voiceVarieties.hint(sellerId), warmHint: (sellerId) => voiceVarieties.warm(sellerId), reading: (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, varieties: voiceVarieties, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context), ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
   let print: PrintService | null = null
   let writerRef: ScopeWriter | null = null
   const billing = new BillingService({
@@ -542,13 +557,27 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // KP1 손님 장부 — 손님 자세히에 장부 칸을 건다
   const ledger = new LedgerService({ db, clock, masterKey, hub, log, customers, readState: async (sellerId, date) => (await writer.read(sellerId, date, false)).state, work: work.documents }) // KP1 RA-KP1-008 손님 엑셀은 documents 풀
   customers.useLedger((sellerId, marker) => ledger.customerLedger(sellerId, marker))
-  const ledgerSweeper = new LedgerSweeper({ ledger, timer, log, schedule: (now) => sweepSchedule(db, now) })
+  const ledgerSweeper = new LedgerSweeper({
+    ledger,
+    timer,
+    log,
+    schedule: async (now) => {
+      await sweepSchedule(db, now)
+      const swept = await receiptSms.sweep()
+      if (swept > 0) log({ level: 'info', code: 'BUYER_PHONES_SWEPT', count: swept })
+      const cards = await buyerInfo.sweep()
+      if (cards > 0) log({ level: 'info', code: 'BUYER_INFO_SWEPT', count: cards })
+    },
+  })
   // KP1 방송 리포트·방송 일정
   const report = new ReportService({ db, writer, log, facts: customers.factsDeps() })
   const schedule = new ScheduleService({ db, clock, masterKey, appOrigin: options.appOrigin })
   const billingRechecker = new BillingRechecker({ billing, timer, log })
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
+  // 영수증 문자 (D-REAL-03) — 문자찜 손님 번호를 기억하고, 1년 넘게 쓰지 않은 번호는 손님 장부 청소 때 지운다
+  const receiptSms = new ReceiptSmsService({ db, writer, clock, masterKey, links: receiptLinks, log })
+  service.usePhoneMemory((sellerId, phoneKey, phone) => receiptSms.remember(sellerId, phoneKey, phone))
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   // 크롬 확장으로 감사 채팅 올리기 (X1 AC11~AC17) — 공식 발송함 실행기가 공식으로 올릴 수 없는 회차의 감사를 맡긴다
   const extensionThanks = new ExtensionThanks({ db, timer, log, writer, publishOutbox: publishYoutube })
@@ -583,6 +612,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     timer,
     log,
     onSealed: (sellerId, date) => publishYoutube(sellerId, { kind: 'sealed', date }),
+    beforeSeal: (tx, sellerId, date, state, buyers) => receiptSms.pinBeforeSeal(tx, sellerId, date, state, buyers),
     ...(options.sealHooks === undefined ? {} : { hooks: options.sealHooks }),
     onPass: (ok) => health.pass('sealer', ok),
   })
@@ -710,6 +740,19 @@ export function createServer(options: ServerOptions): LivejjimServer {
     timer: options.inbox?.sweepTimer ?? realGeneratorTimer,
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {}, ledger })
+  // 방송 뒤 손님 정보 문자 (ORD-14, D-REAL-11): 받기(inbox)가 택배보다 먼저 만들어져 처리기를 여기서 넘긴다
+  const buyerInfo = new BuyerInfoService({
+    db,
+    writer,
+    masterKey,
+    clock,
+    log,
+    receiptSms,
+    parcels,
+    phoneKeyFor: (sellerId, phone) => service.phoneKeyFor(sellerId, phone),
+    publish: (sellerId) => hub.publishInbox(sellerId, { kind: 'buyerInfo' }),
+  })
+  inbox.useBuyerInfo((sellerId, input) => buyerInfo.receive(sellerId, input))
   // 크롬 확장으로 채팅 읽기 (X1 YT-10 — 읽기만, 공식 수집기와 같은 '채팅' 이벤트)
   // 크롬 확장으로 틱톡 댓글 읽기 (TTX — 직접 연결의 대비책, 같은 '채팅' 이벤트·같은 틱톡 연결 조건)
   const tiktokExtension = new TikTokExtension({ db, writer, clock, log, live: tiktokLive })
@@ -732,6 +775,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     clock,
     appOrigin: options.appOrigin,
     setup: options.socialLogin ?? { providers: {} },
+    sms: options.sms ?? null,
     auth,
     log,
     ...(options.loginLimits === undefined ? {} : { loginLimits: options.loginLimits }),
@@ -747,10 +791,13 @@ export function createServer(options: ServerOptions): LivejjimServer {
       service,
       closing,
       receiptLinks,
+      receiptSms,
       auth,
       hub,
       print: printService,
       voiceAliases,
+      voiceVarieties,
+      voiceDoubts: { db, clock },
       streamAudio: { db, service: streamAudio },
       billing,
       instagram: instagramModule,
@@ -758,8 +805,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
       band: bandService,
       deposits,
       inbox,
+      buyerInfo,
       parcels: { service: parcels, db },
       appOrigin: options.appOrigin,
+      oldAppOrigins: options.oldAppOrigins ?? [],
       clientConfig: { hostActionDelayMs, testPrinter: options.testPrinter === true },
       receiptAtParam: options.receiptAtParam === true,
       youtube,
@@ -820,10 +869,12 @@ export function createServer(options: ServerOptions): LivejjimServer {
     band: bandService,
     closing,
     receiptLinks,
+    receiptSms,
     backups,
     work,
     deposits,
     inbox,
+    buyerInfo,
     parcels,
     social,
     extension,

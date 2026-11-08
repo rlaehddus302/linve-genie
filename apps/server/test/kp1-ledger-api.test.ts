@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
 import { buy, payAll } from './crm1-support.ts'
 import { at } from './i2-support.ts'
-import { addSeller, client, createBroadcast, expectOk, fakeClock, login } from './support.ts'
+import { addSeller, createBroadcast, fakeClock } from './support.ts'
 import { ADDRESS, consent, kst, ledgerApi, logText, parcelSeller, parcelWorld, rowsOf } from './kp1-ledger-support.ts'
 
 const D1 = '2026-10-12'
@@ -140,21 +140,18 @@ describe('AC-KP1-12·13 손님 엑셀 (서버)', () => {
 })
 
 describe('AC-KP1-26 판매자만·판매자마다', () => {
-  it('로그인 없음 401, 보조자 403, 다른 판매자 것 404, 다른 판매자의 꼬리표에 장부가 없다', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('로그인 없음 401, 다른 판매자 것 404, 다른 판매자의 꼬리표에 장부가 없다', async () => {
     const { world, seller } = await world4()
     at(world, D, '21:00:00')
     await consent(world, seller, 'UC_A', D)
     const id = ((await ledgerApi(world, seller.cookie).customers()).body.customers as { id: string; name: string }[]).find((row) => row.name === '가람')?.id as string
     const ledgerId = (await rowsOf(world, 'select id from ledger_lines'))[0]?.id as string
-    const created = await expectOk(client(world, seller.cookie).post('/api/assistants', { name: '엄마' }))
-    const assistant = created.body as { assistant: { loginId: string }; password: string }
-    const helper = await login(world, assistant.assistant.loginId, assistant.password)
     const calls = (cookie: string | null) => {
       const api = ledgerApi(world, cookie)
       return [api.settings(), api.saveSettings({ months: 6, consoleBadges: true }), api.badges(D, ['UC_A']), Promise.resolve(api.xlsx('1')).then((response: Response) => ({ status: response.status })), api.deleteLedger(id, ledgerId)]
     }
     for (const response of await Promise.all(calls(null))) expect(response.status).toBe(401)
-    for (const response of await Promise.all(calls(helper))) expect(response.status).toBe(403)
     const other = await addSeller(world)
     const otherApi = ledgerApi(world, other.cookie)
     expect((await otherApi.badges(D, ['UC_A'])).status).toBe(404)

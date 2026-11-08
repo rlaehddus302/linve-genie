@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { onUnauthorized } from '../src/api/client.ts'
 import type { AssistSettings, Product, ReviewSuggestion } from '../src/api/types.ts'
-import { AssistSection, useShowAssist } from '../src/components/AssistSection.tsx'
+import { AssistSection } from '../src/components/AssistSection.tsx'
 import { PrivacyPage } from '../src/components/PolicyPages.tsx'
 import { ReviewsPage, SUGGESTION_SETTLE_MS } from '../src/components/ReviewsPage.tsx'
 import { SettingsPage } from '../src/components/SettingsPage.tsx'
@@ -412,11 +412,11 @@ describe('화면을 열 때 AI 제안 받기 한 번 (AC-A1-21)', () => {
     expect(navigate).toHaveBeenCalledWith({ name: 'settings', section: 'assist' })
   })
 
-  it('키 없는 서버(UNAVAILABLE)·진행 중(BUSY)·보조자(403)는 아무 말도 없다', async () => {
+  it('키 없는 서버(UNAVAILABLE)·진행 중(BUSY)·권한 없음(403)은 아무 말도 없다', async () => {
     for (const [reply, available] of [
       [{ body: { result: 'UNAVAILABLE', called: 0 } }, false],
       [{ body: { result: 'BUSY', called: 0 } }, true],
-      [apiError(403, 'ASSISTANT_FORBIDDEN', '판매자만 할 수 있어요.'), true],
+      [apiError(403, 'FORBIDDEN', '판매자만 할 수 있어요.'), true],
       [{ body: { result: 'OFF', called: 0 } }, false],
     ] as const) {
       settings = { ...settings, available, enabled: false }
@@ -439,7 +439,7 @@ describe('설정의 "AI 제안" 칸 (AC-A1-22)', () => {
     exists = false
     server = new FakeServer()
     server
-      .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+      .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
       .on('GET', /^\/api\/settings$/, () => ({ body: { settings: sale } }))
       .on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
       .on('GET', /^\/api\/option-broadcasts\/exists$/, () => ({ body: { exists } }))
@@ -454,14 +454,13 @@ describe('설정의 "AI 제안" 칸 (AC-A1-22)', () => {
     vi.stubGlobal('fetch', server.fetch)
   })
 
-  const openSettings = async (props: { section?: 'assist'; assistant?: boolean } = {}) => {
+  const openSettings = async (props: { section?: 'assist' } = {}) => {
     render(
       <SettingsPage
         route={{ name: 'settings', ...(props.section === undefined ? {} : { section: props.section }) }}
         navigate={vi.fn()}
         shopName="구피 가게"
         onRenamed={vi.fn()}
-        assistant={props.assistant ?? false}
       />,
     )
     await screen.findByRole('region', { name: '판매 규칙' })
@@ -534,16 +533,9 @@ describe('설정의 "AI 제안" 칸 (AC-A1-22)', () => {
     expect(within(region).queryByRole('checkbox')).toBeNull()
   })
 
-  it('보조자에게는 칸이 없다', async () => {
-    sale = { ...DEFAULT_SETTINGS, ...OPTIONS }
-    function Probe() {
-      return <p>{useShowAssist(true, true) ? '보임' : '안 보임'}</p>
-    }
-    render(<Probe />)
-    expect(screen.getByText('안 보임')).toBeDefined()
-    cleanup()
-    // 서버가 403이면 칸 안의 내용도 없다
-    server.on('GET', /^\/api\/assist\/settings$/, () => apiError(403, 'ASSISTANT_FORBIDDEN', '판매자만 할 수 있어요.'))
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자에게는 칸이 없다"(useShowAssist 보조자 인자)를 뺐다
+  it('서버가 403이면 칸 안의 내용도 없다', async () => {
+    server.on('GET', /^\/api\/assist\/settings$/, () => apiError(403, 'FORBIDDEN', '판매자만 할 수 있어요.'))
     const { container } = render(<AssistSection />)
     await flush(10)
     expect(container.textContent).toBe('')

@@ -69,7 +69,7 @@ function useLinkRoute(): { readonly webChat: YoutubeWebChat | null } | null | un
   return route
 }
 
-/** 방송 만들기 (요청 번호는 같은 입력을 다시 보낼 때 그대로 — 두 번 만들지 않는다). 거절이면 문장을 남기고 null */
+/** 방송 만들기 — 방송 화면에 들어오기 전까지 목록에 보이지 않게 만드는 중으로 (D-UX3-25). (요청 번호는 같은 입력을 다시 보낼 때 그대로 — 두 번 만들지 않는다). 거절이면 문장을 남기고 null */
 function useMakeBroadcast() {
   const pending = useRef<{ key: string; requestId: string } | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
@@ -80,7 +80,7 @@ function useMakeBroadcast() {
     setError(null)
     setBusy(true)
     try {
-      const result = await withRetry(() => post<WriteResult>('/api/broadcasts', { requestId, title }))
+      const result = await withRetry(() => post<WriteResult>('/api/broadcasts', { requestId, title, draft: true }))
       pending.current = null
       return result.broadcast?.id ?? null
     } catch (caught) {

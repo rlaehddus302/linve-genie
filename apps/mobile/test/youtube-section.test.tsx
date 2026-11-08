@@ -31,6 +31,11 @@ function youtubeWorld(options: { webChat?: { on: boolean } | null; recent?: Live
   world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: options.status ?? 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: options.webChat === undefined ? { on: true } : options.webChat, oauth: true } }))
   world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: state.link }))
   world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: options.recent ?? [] } }))
+  // 잇기 전 미리 보기 (D-UX4-08): 제목·채널 이름만
+  world.server.on('POST', /^\/api\/youtube\/preview$/, (call) => {
+    if (call.body?.video === 'PRIVATE0001') return { status: 409, body: { error: { code: 'YOUTUBE_NOT_PUBLIC', message: NOT_PUBLIC } } }
+    return { body: { title: '오늘 경매', channelTitle: call.body?.video === 'NEWCHAN0001' ? '<b>새채널</b>' : '다육이네' } }
+  })
   world.server.on('POST', /^\/api\/broadcasts\/b1\/youtube$/, (call) => {
     if (call.body?.video === 'PRIVATE0001') return { status: 409, body: { error: { code: 'YOUTUBE_NOT_PUBLIC', message: NOT_PUBLIC } } }
     if (call.body?.video === 'NEWCHAN0001' && call.body.confirmInvited !== true) return { status: 409, body: { error: { code: 'INVITED_CONFIRM_NEEDED', message: '처음 잇는 채널이에요. 이 방송이 맞나요?' }, channel: { id: 'UC_N', title: '<b>새채널</b>' } } }
@@ -50,6 +55,12 @@ async function open(world: ReturnType<typeof makeWorld>) {
 }
 
 const section = () => screen.getByRole('group', { name: '유튜브' })
+/** 잇기 전 확인 팝업 (D-UX4-08 — 처음이든 아니든): 제목·채널을 보이고 [맞아요] */
+async function agree(channel = '다육이네') {
+  const ask = await screen.findByRole('alertdialog', { name: '이을 방송 확인' })
+  expect(ask.textContent).toContain(`이 방송이 맞나요?\n\n제목: 오늘 경매\n채널: ${channel}`)
+  fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
+}
 /** 방송 메뉴 → 유튜브 연결 */
 async function openYoutube() {
   fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
@@ -70,28 +81,36 @@ describe('콘솔 유튜브 (앱)', () => {
     expect(within(box).getByText(/다육이네 · 오늘 경매 · 방송 중/)).toBeTruthy()
     expect(world.server.callsTo('GET', /live-broadcasts/)).toHaveLength(1)
     fireEvent.click(within(box).getByRole('button', { name: '다육이네 · 오늘 경매 잇기' }))
+    await agree()
     await waitFor(() => expect(within(section()).getByText('유튜브 방송 · 다육이네')).toBeTruthy())
     expect(section().textContent).toContain('서버 연결로 받는 중')
     expect(section().textContent).not.toMatch(/WEB|LIVE|STREAM/)
-    expect(world.server.callsTo('POST', /\/youtube$/)[0]?.body).not.toHaveProperty('confirmInvited')
+    // 확인 팝업에서 [맞아요]를 눌렀으니 확인 표시와 함께 보낸다 (D-UX4-08 — 전에는 아는 채널이면 표시 없이)
+    expect(world.server.callsTo('POST', /\/youtube$/)[0]?.body).toMatchObject({ confirmInvited: true })
   })
 
-  // 옛 기대: 칸 아래 확인 줄 "처음 잇는 채널이에요 (채널: …). 이 방송이 맞나요?" + [맞아요, 잇기]·[취소].
-  // 새 기대 D-UX4-01·02: 가운데 팝업 "처음 연결하는 채널이에요.\n채널명: …\n이 방송이 맞나요?", 왼쪽 [아니에요]·오른쪽 [맞아요]
-  it('처음 잇는 채널: 팝업 → [맞아요]는 확인 표시로 다시 보낸다, 이름은 글자로만 (D-UX4-02)', async () => {
+  // 옛 기대 D-UX4-02: 처음 잇는 채널만 "처음 연결하는 채널이에요.\n채널명: …" 팝업.
+  // 새 기대 D-UX4-08 (사용자 지시 2026-11-05 "처음이든 아니든 무조건 확인창, 방송 제목·채널명"): 늘 미리 보고 "이 방송이 맞나요?\n\n제목: …\n채널: …", 왼쪽 [아니에요]·오른쪽 [맞아요]
+  it('잇기 전 늘 확인 팝업(제목·채널) → [맞아요]는 확인 표시로 한 번 보낸다, [아니에요]는 아무것도 보내지 않는다, 이름은 글자로만 (D-UX4-08)', async () => {
     const { world } = youtubeWorld()
     await open(world)
     await openYoutube()
     fireEvent.change(await screen.findByRole('textbox', { name: '방송 링크' }), { target: { value: 'NEWCHAN0001' } })
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
-    const ask = await screen.findByRole('alertdialog', { name: '처음 잇는 채널 확인' })
-    expect(ask.textContent).toContain('처음 연결하는 채널이에요.\n채널명: <b>새채널</b>\n이 방송이 맞나요?')
+    let ask = await screen.findByRole('alertdialog', { name: '이을 방송 확인' })
     // 부정은 왼쪽, 긍정은 오른쪽 (D-UX4-01)
     expect(within(ask).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['아니에요', '맞아요'])
+    fireEvent.click(within(ask).getByRole('button', { name: '아니에요' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '이을 방송 확인' })).toBeNull())
+    expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    ask = await screen.findByRole('alertdialog', { name: '이을 방송 확인' })
+    expect(ask.textContent).toContain('이 방송이 맞나요?\n\n제목: 오늘 경매\n채널: <b>새채널</b>')
     fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
     await waitFor(() => expect(within(section()).getByText('유튜브 방송 · <b>새채널</b>')).toBeTruthy())
     expect(document.querySelector('b')).toBeNull()
-    expect(world.server.callsTo('POST', /\/youtube$/)[1]?.body).toMatchObject({ video: 'NEWCHAN0001', confirmInvited: true })
+    expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(1)
+    expect(world.server.callsTo('POST', /\/youtube$/)[0]?.body).toMatchObject({ video: 'NEWCHAN0001', confirmInvited: true })
   })
 
   it('비공개 방송은 짧은 문장으로 거절 (옛 기대: 서버 문장 그대로. 새 기대 D-UX3-11: 거절은 짧고 추상적으로)', async () => {
@@ -173,6 +192,7 @@ describe('콘솔 유튜브 (앱)', () => {
     await waitFor(() => expect((field as HTMLInputElement).value).toBe('https://youtube.com/live/LIVENOW0001?si=x'))
     expect(within(sheet).getByRole('button', { name: '나중에 잇기' })).toBeTruthy()
     fireEvent.click(within(sheet).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(within(section()).getByText('유튜브 방송 · 다육이네')).toBeTruthy())
     expect(world.server.callsTo('POST', /\/youtube$/)[0]?.body).toMatchObject({ video: 'https://youtube.com/live/LIVENOW0001?si=x' })
   })
@@ -235,6 +255,7 @@ describe('방송 연결은 쌓인 화면 (D-UX3-09 — 밀어서 뒤로 가기)'
     expect(back).toBe(1)
     fireEvent.change(within(page).getByRole('textbox', { name: '방송 링크' }), { target: { value: 'https://youtu.be/VIDEOKNOWN1' } })
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    await agree()
     await waitFor(() => expect(within(section()).getByText('유튜브 방송 · 다육이네')).toBeTruthy())
     expect(screen.getByRole('heading', { name: '방송 연결' })).toBeTruthy()
   })

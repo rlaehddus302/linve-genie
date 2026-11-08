@@ -1,7 +1,7 @@
 // X1 크롬 확장으로 감사 채팅 올리기 — 서버 (YT-10 AC11~AC17, D-X1-17~D-X1-24): AC-X1-26·28·29·31·32의 서버 몫과 AC-X1-27의 서버 확인,
 // AC-X1-25 (다른 경로 중복은 서버 도착 시각 차 10초 이하만, D-X1-28).
 import { afterEach, describe, expect, it } from 'vitest'
-import { addSeller, client, createBroadcast, expectOk, login, writeEvent } from './support.ts'
+import { addSeller, client, createBroadcast, expectOk, writeEvent } from './support.ts'
 import { connectSeller, drive, linkedBroadcast, youtubeWorld, type Connected, type YoutubeWorld } from './youtube-support.ts'
 
 const worlds: YoutubeWorld[] = []
@@ -93,15 +93,13 @@ async function setup(options: { thanks?: boolean; consent?: boolean; connect?: b
 const take = (w: YoutubeWorld, token: string, me: string | null, owner: string | null = me) => ext(w, '/ext/thanks/take', token, { v: VIDEO, meIsOwner: me !== null, owner })
 
 describe('AC-X1-26 스위치 (YT-10 AC11, D-X1-17·18)', () => {
-  it('새 판매자는 꺼짐. 켜기는 agreed 없이 400, 보조자는 403. 꺼져 있으면 확장에 0건이고 감사는 공식 규칙대로(이은 방송 없음) 끝난다', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('새 판매자는 꺼짐. 켜기는 agreed 없이 400. 꺼져 있으면 확장에 0건이고 감사는 공식 규칙대로(이은 방송 없음) 끝난다', async () => {
     const { w, connected, b, token, me, api } = await setup({ thanks: false })
     const view = (await api.get('/api/extension')).body.extension as { thanks: { enabled: boolean } }
     expect(view.thanks.enabled).toBe(false)
     const noAgree = await api.post('/api/extension/thanks', { enabled: true })
     expect(noAgree.status).toBe(400)
-    const created = await api.post('/api/assistants', { name: '엄마' })
-    const assistant = await login(w, (created.body.assistant as { loginId: string }).loginId, created.body.password as string)
-    expect((await client(w, assistant).post('/api/extension/thanks', { enabled: true, agreed: true })).status).toBe(403)
 
     await chat(w, token, '3')
     await run(w)

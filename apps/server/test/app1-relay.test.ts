@@ -5,7 +5,7 @@ import { WebSocket } from 'ws'
 import { createNodeServer } from '../src/node-server.ts'
 import { workerTokenMatches } from '../src/voice/relay.ts'
 import { createPhoneVoiceUpgrade } from '../src/try/phone-relay.ts'
-import { addSeller, client, createBroadcast, dumpAllTables, login, newWorld, ORIGIN, waitFor, type TestServer } from './support.ts'
+import { addSeller, client, createBroadcast, dumpAllTables, newWorld, ORIGIN, waitFor, type TestServer } from './support.ts'
 
 const TOKEN = 'test-worker-token-not-used-outside-tests'
 const worlds: TestServer[] = []
@@ -190,15 +190,10 @@ describe('APP1 받아쓰기 서버 실제 WebSocket', () => {
     first.ws.close()
     expect(await large.message('close')).toMatchObject({ stream: 1 })
   })
-  it('보조자는 음성·계정 별칭을 읽거나 쓸 수 없고 인증 만료도 닫는다', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다 (음성·별칭 403). 인증 만료로 닫는 확인은 그대로
+  it('인증이 만료되면 흐름을 닫는다', async () => {
     const { world, url } = await setup()
     const seller = await addSeller(world), b = await createBroadcast(world, seller)
-    const created = await client(world, seller.cookie).post('/api/assistants', { name: '엄마' })
-    const helper = created.body.assistant as { loginId: string }
-    const cookie = await login(world, helper.loginId, created.body.password as string)
-    expect(await device(url, cookie, b.id).message('closing')).toMatchObject({ reason: 'AUTH' })
-    expect((await client(world, cookie).get('/api/voice/aliases')).status).toBe(403)
-    expect((await client(world, cookie).post('/api/voice/aliases', { aliases: [] })).status).toBe(403)
     const stream = new Peer(`${url}/api/voice/stream?broadcastId=${b.id}&device=chromedev1&mode=chrome`, { Origin: ORIGIN, Cookie: seller.cookie })
     await stream.message('ready')
     await world.database.pglite!.exec('delete from sessions')

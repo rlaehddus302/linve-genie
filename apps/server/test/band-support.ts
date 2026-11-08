@@ -8,7 +8,7 @@ import type { BandHooks, BandTiming } from '../src/band/service.ts'
 import type { BandClock } from '../src/band/service.ts'
 import { ORIGIN, T0, addSeller, client, openTestDb, rid, startServer, type FakeClock, type JsonResponse, type Seller, type TestServer } from './support.ts'
 
-export { DATE, chats, realBroadcast, assistantSession } from './tiktok-live-support.ts'
+export { DATE, chats, realBroadcast } from './tiktok-live-support.ts'
 
 export const REDIRECT = `${ORIGIN}/api/band/callback`
 

@@ -46,6 +46,13 @@ export function channelName(title: unknown): string {
 export const firstChannelQuestion = (name: string): string => `처음 잇는 채널이에요 (채널: ${name}). 이 방송이 맞나요?`
 /** 앱의 처음 잇는 채널 팝업 (D-UX4-02, 사용자 지시 2026-11-03) — 웹 줄 문장(firstChannelQuestion)과 따로, 줄을 나눠 보인다 */
 export const firstChannelPopup = (name: string): string => `처음 연결하는 채널이에요.\n채널명: ${name}\n이 방송이 맞나요?`
+/** 잇기 전 확인 팝업 (D-UX4-08, 사용자 지시 2026-11-05 "처음이든 아니든 무조건 확인창, 방송 제목·채널명") */
+export const LINK_CHECK_GROUP = '이을 방송 확인'
+export const linkCheckPopup = (title: string, channel: string): string => `이 방송이 맞나요?\n\n제목: ${title}\n채널: ${channel}`
+export function broadcastTitleText(title: unknown): string {
+  const text = typeof title === 'string' ? title.trim() : ''
+  return text === '' ? NO_BROADCAST_TITLE : text
+}
 export const broadcastChannelLine = (name: string): string => `유튜브 방송 · ${name}`
 
 export function linkedChannelName(link: LinkRecordView | null): string | null {

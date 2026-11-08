@@ -108,11 +108,11 @@ export async function expectSignedIn(page: Page): Promise<void> {
 }
 
 /**
- * "로그아웃" 버튼 (MOB1 D-MOB1-05): 휴대폰 판매자는 "더보기" 목록 맨 끝(먼저 연다), PC·보조자는 위 줄.
- * 보조자 휴대폰 메뉴에는 "더보기"가 없으므로 그때는 위 줄에서 찾는다.
+ * "로그아웃" 버튼 (MOB1 D-MOB1-05): 휴대폰 판매자는 "더보기" 목록 맨 끝(먼저 연다), PC는 위 줄.
+ * D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 휴대폰 메뉴엔 더보기가 없어 위 줄에서 찾는다"를 뺐다
  */
 export async function logoutButton(page: Page): Promise<Locator> {
-  if (isPhone(page) && (await moreButton(page).count()) > 0) {
+  if (isPhone(page)) {
     await openMore(page)
     return moreList(page).getByRole('button', { name: '로그아웃', exact: true })
   }

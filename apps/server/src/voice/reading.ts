@@ -13,10 +13,11 @@ import { fullView } from '../views.ts'
 import { findBroadcast } from '../store.ts'
 import type { Clock } from '../time.ts'
 import type { VoiceAliases } from './aliases.ts'
+import type { VoiceVarieties } from './varieties.ts'
 import type { VoiceRelayOptions, VoiceReadingSession } from './relay.ts'
 
 export type VoiceHistoryObserver = (sellerId: string, date: string | null, phase: 'start' | 'complete') => void | Promise<void>
-export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWriter; clock: Clock; aliases: VoiceAliases; historyObserver?: VoiceHistoryObserver }): NonNullable<VoiceRelayOptions['reading']> {
+export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWriter; clock: Clock; aliases: VoiceAliases; varieties?: VoiceVarieties; historyObserver?: VoiceHistoryObserver }): NonNullable<VoiceRelayOptions['reading']> {
   return async ({ session, broadcastId, device, send, mode }): Promise<VoiceReadingSession> => {
     const sellerId = session.sellerId
     const broadcast = await findBroadcast(deps.db, sellerId, broadcastId)
@@ -71,11 +72,14 @@ export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWr
         },
         fetchHistory: async () => {
           const days = pickHistoryDays(await historyRead(null, () => deps.service.days(sellerId, false)), broadcast)
-          return Promise.all(days.map(async (date) => {
+          // D-V3-127 내 품종 장부는 판매 이력 맨 앞 — 날짜 자리의 '내 품종'은 숫자 날짜보다 커서 최근 것 먼저 정렬에서 맨 앞에 선다
+          const mine = deps.varieties === undefined ? [] : await deps.varieties.read(sellerId)
+          const own = mine.length === 0 ? [] : [{ date: '내 품종', names: mine }]
+          return [...own, ...await Promise.all(days.map(async (date) => {
             const view = await historyRead(date, () => deps.service.scopeView(sellerId, date))
             const products = view?.products
             return { date, names: Array.isArray(products) ? products.flatMap((item: unknown) => typeof item === 'object' && item !== null && 'name' in item && typeof item.name === 'string' ? [item.name] : []) : [] }
-          }))
+          }))]
         },
         smsReadOptions: () => {
           const own = settings()
@@ -110,7 +114,7 @@ export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWr
       },
     })
     return {
-      async onResult(result) { await refresh(); if (!closed) reader.onResult(result.text, result.startMs, result.endMs) },
+      async onResult(result) { await refresh(); if (!closed) reader.onResult(result.text, result.startMs, result.endMs, result.conf) },
       async onMessage(value) { await refresh(); if (!closed) reader.onMessage(value) },
       async onServerCapture(at) { await refresh(); if (!closed) reader.onServerCapture(at) },
       refresh,

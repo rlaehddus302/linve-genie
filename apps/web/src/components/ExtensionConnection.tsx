@@ -45,7 +45,7 @@ export interface ExtensionHandle {
   readonly set: (view: ExtensionView) => void
 }
 
-/** 확장 상태 (GET /api/extension + SSE `extension`). 보조자(403)면 조용히 비운다 */
+/** 확장 상태 (GET /api/extension + SSE `extension`). 403이면 조용히 비운다 */
 export function useExtension(enabled = true): ExtensionHandle {
   const [view, setView] = useState<ExtensionView | null>(null)
   const [error, setError] = useState<ApiError | null>(null)

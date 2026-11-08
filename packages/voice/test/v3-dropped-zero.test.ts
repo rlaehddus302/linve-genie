@@ -1,6 +1,6 @@
 // 빠진 0 되살리기 (실방송: "36번도 2만 원" = 306번, "38번 … 2만 원" = 308번)
 import { describe, expect, it } from 'vitest'
-import { fixDroppedZero, prepareVoiceDictionary, readSegments, type DroppedZeroProduct } from '../src/index.ts'
+import { fixDoubledDigit, fixDroppedZero, prepareVoiceDictionary, readSegments, type DroppedZeroProduct } from '../src/index.ts'
 
 const products =
   (map: Record<number, number | 'closed'>) =>
@@ -79,5 +79,45 @@ describe('실방송 V3 306번 — 읽기는 그대로, 몰디브 사전', () => 
     expect(pick('306번 몰디브 2만 원')).toEqual([[306, 20_000, '몰디브']])
     expect(pick('304번 몰디부 2만 원')).toEqual([[304, 20_000, '몰디브']])
     expect(pick('305번 몰 디브 2만 원')).toEqual([[305, 20_000, '몰디브']])
+  })
+})
+
+// 겹친 자리 걷어 내기 (D-V3-123, 실방송 2026-11-06: 52·54·56·57번을 팔다 "57번이구요 5만원" 뒤 "557번 녹금 요아이 5만원"이 새 상품 557번으로 등록됨)
+describe('fixDoubledDigit', () => {
+  const NOW = { 52: 300_000, 54: 50_000, 56: 10_000, 57: 50_000 }
+  it('실방송: 557번 5만 원은 같은 가격 57번이 있고 최근 흐름이 50번대면 57번으로 본다', () => {
+    expect(fixDoubledDigit({ no: 557, price: 50_000, recent: [52, 54, 56, 57], product: products(NOW) })).toEqual({ no: 57, why: 'RECENT' })
+  })
+  it('57번이 아직 없어도 흐름이 50번대면 57번 (새 등록)', () => {
+    expect(fixDoubledDigit({ no: 557, price: 50_000, recent: [54, 56], product: products({ 54: 1, 56: 1 }) })).toEqual({ no: 57, why: 'RECENT' })
+  })
+  it('바로 앞에 57이 들렸으면 흐름이 모자라도 57번', () => {
+    expect(fixDoubledDigit({ no: 557, price: 50_000, recent: [], heardBefore: [57], product: products({}) })).toEqual({ no: 57, why: 'HEARD' })
+  })
+  it('바꾸지 않는다: 557번이 있음 · 첫 두 자리가 다름 · 57번 가격이 다르거나 못 들음 · 57번 판매 종료 · 흐름이 500번대 · 흐름이 모자람', () => {
+    expect(fixDoubledDigit({ no: 557, price: 50_000, recent: [52, 56], product: products({ ...NOW, 557: 50_000 }) })).toBeNull()
+    expect(fixDoubledDigit({ no: 457, price: 50_000, recent: [52, 56], product: products(NOW) })).toBeNull()
+    expect(fixDoubledDigit({ no: 557, price: 30_000, recent: [52, 56], product: products(NOW) })).toBeNull()
+    expect(fixDoubledDigit({ no: 557, price: null, recent: [52, 56], product: products(NOW) })).toBeNull()
+    expect(fixDoubledDigit({ no: 557, price: 50_000, recent: [52, 56], product: products({ ...NOW, 57: 'closed' }) })).toBeNull()
+    expect(fixDoubledDigit({ no: 557, price: 50_000, recent: [550, 556], product: products({}) })).toBeNull()
+    expect(fixDoubledDigit({ no: 557, price: 50_000, recent: [56], product: products({}) })).toBeNull()
+    // 끝 두 자리가 한 자리 수(505 → 5)는 다루지 않는다
+    expect(fixDoubledDigit({ no: 505, price: 50_000, recent: [4, 6], product: products({}) })).toBeNull()
+  })
+})
+
+// 실방송 2026-11-06 품종 (D-V3-123·124): 사용자가 말한 품종이 사전에 없어 비거나(71번 황도) 틀렸다(52번·72번·76번)
+describe('실방송 2026-11-06 — 사전에 더한 품종', () => {
+  const DICT = prepareVoiceDictionary()
+  const pick = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => [p.no, p.name, p.price])
+  it('황도·순수·골드문·아사달금을 들린 그대로 품종으로', () => {
+    expect(pick('이렇게 빨간 손톱이 황도입니다 황도는 3만원 71번')).toEqual([[71, '황도', 30_000]])
+    expect(pick('연수조 다육에서 인사드리고요 순수 요아이 만원 72번')).toEqual([[72, '순수', 10_000]])
+    expect(pick('골드문 UI 20,000원 76번')).toEqual([[76, '골드문', 20_000]])
+    expect(pick('30만원 자 아사달금 52번')).toEqual([[52, '아사달금', 300_000]])
+  })
+  it('순수는 적은 모양으로만 — "순수하게"는 품종이 아니다', () => {
+    expect(pick('자 이거 순수하게 예뻐요 3만원 80번')).toEqual([[80, null, 30_000]])
   })
 })

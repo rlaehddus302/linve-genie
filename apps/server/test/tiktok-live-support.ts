@@ -14,7 +14,7 @@ import {
   type WebcastFactory,
 } from '../src/tiktok/index.ts'
 import { TIKTOK_NOTICE_VERSION } from '../src/tiktok-live/notice.ts'
-import { T0, addSeller, client, login, openTestDb, rid, startServer, waitFor, type FakeClock, type JsonResponse, type Seller, type TestServer } from './support.ts'
+import { T0, addSeller, client, openTestDb, rid, startServer, waitFor, type FakeClock, type JsonResponse, type Seller, type TestServer } from './support.ts'
 
 export const DATE = '2026-10-19'
 
@@ -156,11 +156,3 @@ export function logText(logs: readonly LogRecord[]): string {
   return JSON.stringify(logs)
 }
 
-/** 보조자를 만들고 그 계정으로 로그인한 세션 */
-export async function assistantSession(w: TestServer, seller: Seller, name = '엄마'): Promise<Seller> {
-  const response = await client(w, seller.cookie).post('/api/assistants', { name })
-  expect(response.status, response.text).toBe(200)
-  const created = response.body as { assistant: { id: string; loginId: string }; password: string }
-  const cookie = await login(w, created.assistant.loginId, created.password)
-  return { sellerId: seller.sellerId, accountId: created.assistant.id, loginId: created.assistant.loginId, password: created.password, cookie }
-}

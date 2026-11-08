@@ -1,6 +1,7 @@
 // PRN2 프린터 지원 단계 — 웹 (AC-PRN2-04·06·08·10, LABEL_RULES L-7 지원 단계·고르기 목록, L-11 10·13, D-PRN2-01·04·07):
 // - 실제 프린터 어댑터는 한 목록 어댑터(requestDevice 하나 — NIIMBOT·Marklife·바우아토)
-// - 실험 기종: 프린터 이름 뒤 "(실험)" + 안내 한 줄(L-7 문장 그대로), "이 기기에서 출력"은 그 연결의 테스트 인쇄 "예" 뒤에만. 확인됨(B1)은 그대로
+// - 확인되지 않은 기종: 안내 한 줄, "이 기기에서 출력"은 그 연결의 테스트 인쇄 "예" 뒤에만. 확인됨(B1)은 그대로
+//   D-UX3-22: 화면에서 '실험'을 없앴다 — 옛 기대: 이름 뒤 "(실험)", 안내 "실험 중인 프린터예요. …", note 이름 "실험 중인 프린터 안내"
 // - 연결 알림·"이 기기에서 출력"에 프로필 ID만 (이름·기기 ID 없음)
 // - 받은 작업의 크기가 이은 프린터 목록에 없으면 찍지 않고 라벨 오류(INVALID_TEMPLATE, size) + L-11 13 문장
 // - 라벨 설정 크기 목록 = 서버 queue.labelSizes (없으면 출력 기기 프로필 ID로, 모르면 B1 목록)
@@ -39,12 +40,14 @@ import { DATE, FakeEventSource, FakeServer, flush } from "./support.ts";
 
 const ME = "device-me-1234";
 const IMAGE: LabelBitmap = createBitmap(384, 240);
+// D-UX3-22: 옛 기대는 "실험 중인 프린터예요. " 앞머리와 '실험 중인 프린터는 …'
 const NOTICE_BAUATO =
-  "실험 중인 프린터예요. 테스트 인쇄가 잘 나오는지 꼭 확인해 주세요. 잘 안 나오면 라벨을 그림 파일로 Luck Jingle 앱에서 인쇄해 주세요.";
+  "테스트 인쇄가 잘 나오는지 꼭 확인해 주세요. 잘 안 나오면 라벨을 그림 파일로 Luck Jingle 앱에서 인쇄해 주세요.";
 const NOTICE_MARKLIFE =
-  "실험 중인 프린터예요. 테스트 인쇄가 잘 나오는지 꼭 확인해 주세요. 잘 안 나오면 라벨을 그림 파일로 Marklife 앱에서 인쇄해 주세요.";
+  "테스트 인쇄가 잘 나오는지 꼭 확인해 주세요. 잘 안 나오면 라벨을 그림 파일로 Marklife 앱에서 인쇄해 주세요.";
+const NOTE = "프린터 확인 안내";
 const WAIT_TEST =
-  '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.';
+  '이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.';
 
 let server: FakeServer;
 let current: PrintOverview;
@@ -140,10 +143,10 @@ describe("한 목록 고르기 창 (AC-PRN2-04, L-7 고르기 목록)", () => {
           "프린터를 고르지 않았어요. 다시 연결을 누르고 목록에서 프린터를 골라 주세요.",
         ),
       ).toBeTruthy();
-      // 브라우저 창은 줄마다 "실험"을 달 수 없다 — 연결 전 한 줄 안내
+      // 브라우저 창은 줄마다 꼬리표를 달 수 없다 — 연결 전 한 줄 안내 (D-UX3-22 옛 기대: "…다른 모델)는 실험 중이에요")
       expect(
         within(printer).getByText(
-          /NIIMBOT B1이 아닌 프린터\(Marklife·바우아토·NIIMBOT 다른 모델\)는 실험 중이에요/,
+          /NIIMBOT B1이 아닌 프린터\(Marklife·바우아토·NIIMBOT 다른 모델\)는 연결한 뒤 테스트 인쇄가 잘 나오는지/,
         ),
       ).toBeTruthy();
     } finally {
@@ -153,7 +156,7 @@ describe("한 목록 고르기 창 (AC-PRN2-04, L-7 고르기 목록)", () => {
 });
 
 describe('실험 표시와 "이 기기에서 출력" (AC-PRN2-06, L-7 지원 단계)', () => {
-  it('확인됨(B1): 이름 뒤 "(실험)"·안내가 없고 "이 기기에서 출력"이 바로 보인다 — 알림에 프로필 ID', async () => {
+  it('확인됨(B1): 확인 안내가 없고 "이 기기에서 출력"이 바로 보인다 — 알림에 프로필 ID', async () => {
     window.sessionStorage.setItem("livejjim.deviceId", ME);
     current = overview({
       queue: queue({
@@ -166,10 +169,8 @@ describe('실험 표시와 "이 기기에서 출력" (AC-PRN2-06, L-7 지원 단
     const printer = await openLabels();
     await connectTest(printer);
     expect(within(printer).getByText("NIIMBOT B1")).toBeTruthy();
-    expect(within(printer).queryByText(/\(실험\)/)).toBeNull();
-    expect(
-      within(printer).queryByRole("note", { name: "실험 중인 프린터 안내" }),
-    ).toBeNull();
+    expect(within(printer).queryByText(/실험/)).toBeNull();
+    expect(within(printer).queryByRole("note", { name: NOTE })).toBeNull();
     expect(within(printer).queryByText(WAIT_TEST)).toBeNull();
     // 출력 기기라 "이 기기에서 출력"은 없지만 알림은 프로필 ID 하나만 담는다 (이름·기기 ID 없음)
     await waitFor(() =>
@@ -179,7 +180,7 @@ describe('실험 표시와 "이 기기에서 출력" (AC-PRN2-06, L-7 지원 단
     );
   });
 
-  it('실험(바우아토): "바우아토 스티코팝 (실험)" + 안내 한 줄, 테스트 인쇄 "예" 뒤에만 "이 기기에서 출력" — 보낼 때 프로필 ID', async () => {
+  it('확인되지 않은 기종(바우아토): "바우아토 스티코팝" + 안내 한 줄(실험 표시 없음), 테스트 인쇄 "예" 뒤에만 "이 기기에서 출력" — 보낼 때 프로필 ID', async () => {
     let becomeBody: Record<string, unknown> | null = null;
     server.on("POST", /^\/api\/print\/device$/, (call) => {
       becomeBody = call.body;
@@ -198,15 +199,15 @@ describe('실험 표시와 "이 기기에서 출력" (AC-PRN2-06, L-7 지원 단
       true,
     );
     await connectTest(printer);
-    expect(within(printer).getByText("바우아토 스티코팝 (실험)")).toBeTruthy();
+    expect(within(printer).getByText("바우아토 스티코팝")).toBeTruthy();
+    expect(within(printer).queryByText(/실험/)).toBeNull();
     expect(
-      within(printer).getByRole("note", { name: "실험 중인 프린터 안내" })
-        .textContent,
+      within(printer).getByRole("note", { name: NOTE }).textContent,
     ).toContain(NOTICE_BAUATO);
     // 그림 파일로 대체 (웹은 LBL-07 PNG 저장·공유 그대로)
     expect(
       within(
-        within(printer).getByRole("note", { name: "실험 중인 프린터 안내" }),
+        within(printer).getByRole("note", { name: NOTE }),
       )
         .getByRole("link", { name: "그림 파일로 저장하기" })
         .getAttribute("href"),
@@ -247,10 +248,9 @@ describe('실험 표시와 "이 기기에서 출력" (AC-PRN2-06, L-7 지원 단
     const printer = await openLabels();
     window.livejjimTestPrinter?.setTestProfile("MARKLIFE_P50");
     await connectTest(printer);
-    expect(within(printer).getByText("Marklife P50 (실험)")).toBeTruthy();
+    expect(within(printer).getByText("Marklife P50")).toBeTruthy();
     expect(
-      within(printer).getByRole("note", { name: "실험 중인 프린터 안내" })
-        .textContent,
+      within(printer).getByRole("note", { name: NOTE }).textContent,
     ).toContain(NOTICE_MARKLIFE);
     // YXQ 농도 1~3만
     expect(
@@ -688,14 +688,16 @@ describe('출력 기기 화면: 실험 기종 테스트 "예" 기다림 (D-PRN2-
     await waitFor(() =>
       expect(
         within(band).getByText(
-          '실험 중인 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.',
+          // D-UX3-22 옛 기대: '실험 중인 프린터라 출력을 잠시 멈췄어요. …'
+          '새로 이은 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.',
         ),
       ).toBeTruthy(),
     );
     expect(within(band).queryByRole("button", { name: "다시 연결" })).toBeNull();
     expect(
       within(printer).getByText(
-        '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.',
+        // D-UX3-22 옛 기대: '실험 중인 프린터는 …'
+        '이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.',
       ),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "다시 연결" })).toBeNull();

@@ -76,7 +76,10 @@ describe('AC-L1-01 환경 변수 읽기', () => {
   })
 
   it('공급자 주소는 고정 https 값이다', () => {
-    for (const endpoints of Object.values(PROVIDER_ENDPOINTS)) for (const url of Object.values(endpoints)) expect(url.startsWith('https://'), url).toBe(true)
+    // D-UX3-34: Apple은 사용자 정보 주소가 없다(빈 글자 — id_token에서 읽는다). 옛 기대: 모든 주소가 https. 새 기대: 빈 Apple 사용자 정보 주소 말고 모두 https
+    for (const [provider, endpoints] of Object.entries(PROVIDER_ENDPOINTS))
+      for (const [name, url] of Object.entries(endpoints)) if (!(provider === 'apple' && name === 'userInfoUrl')) expect(url.startsWith('https://'), url).toBe(true)
+    expect(PROVIDER_ENDPOINTS.apple).toEqual({ authUrl: 'https://appleid.apple.com/auth/authorize', tokenUrl: 'https://appleid.apple.com/auth/token', userInfoUrl: '' })
     expect(PROVIDER_ENDPOINTS.google.authUrl).toBe('https://accounts.google.com/o/oauth2/v2/auth')
     expect(PROVIDER_ENDPOINTS.kakao.tokenUrl).toBe('https://kauth.kakao.com/oauth/token')
     expect(PROVIDER_ENDPOINTS.naver.userInfoUrl).toBe('https://openapi.naver.com/v1/nid/me')
@@ -137,7 +140,8 @@ describe('AC-L1-01 client-config · 꺼진 서버는 L1 전과 같다', () => {
 })
 
 describe('AC-L1-13 환경 변수 목록·배포 문서', () => {
-  const names = Object.values(SOCIAL_ENV).flatMap((pair) => [pair.id, pair.secret])
+  // D-UX3-34: Apple은 넷(Services ID·팀 ID·키 ID·개인 키) — 옛 기대: 공급자마다 id·secret 둘
+  const names = Object.values(SOCIAL_ENV).flatMap((names) => Object.values(names) as string[])
 
   it('.env.example에 새 변수가 모두 빈 값으로 있다', () => {
     const example = readFileSync(`${ROOT}/.env.example`, 'utf8')
@@ -150,6 +154,6 @@ describe('AC-L1-13 환경 변수 목록·배포 문서', () => {
     expect(start).toBeGreaterThan(-1)
     const section = doc.slice(start)
     for (const name of names) expect(section, name).toContain(`\`${name}\``)
-    for (const text of ['/api/auth/google/callback', '/api/auth/kakao/callback', '/api/auth/naver/callback', 'openid email', '비즈 앱', '검수', '지우']) expect(section, text).toContain(text)
+    for (const text of ['/api/auth/google/callback', '/api/auth/kakao/callback', '/api/auth/naver/callback', '/api/auth/apple/callback', 'openid email', '비즈 앱', '검수', '지우']) expect(section, text).toContain(text)
   })
 })

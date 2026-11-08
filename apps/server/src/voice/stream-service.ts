@@ -19,6 +19,8 @@ export interface StreamAudioServiceOptions {
   readonly clock: Clock
   readonly log: LogSink
   readonly sellerOn: (sellerId: string) => Promise<boolean>
+  /** D-V3-127 받아쓰기 힌트는 중계가 open에 싣는다 — 흐름을 열기 전에 장부를 읽어 둔다 */
+  readonly warmHint?: (sellerId: string) => Promise<void>
   readonly schedule?: (run: () => void, ms: number) => () => void
 }
 
@@ -76,6 +78,7 @@ export class StreamAudioService {
   async watch(sellerId: string, broadcastId: string): Promise<StreamAudioView> {
     if (!this.#o.available) return { phase: 'hidden' }
     if (!(await this.#o.sellerOn(sellerId))) { this.stopSeller(sellerId); return { phase: 'off' } }
+    await this.#o.warmHint?.(sellerId)
     const now = this.#o.clock.now()
     let listen = this.#listens.get(sellerId)
     if (listen !== undefined && listen.broadcastId !== broadcastId) {
@@ -226,6 +229,7 @@ export class StreamAudioService {
           const opened = this.#relay?.openExternal(
             (result) => this.#result(listen, generation, result),
             () => { if (this.#live(listen, generation)) { listen.worker = null; this.#fail(listen, generation) } },
+            listen.sellerId,
           ) ?? 'NO_WORKER'
           if (typeof opened === 'string') { this.#fail(listen, generation); return }
           listen.worker = opened
@@ -256,11 +260,11 @@ export class StreamAudioService {
       else this.#watchStall(listen, generation)
     }, STREAM_STALL_CHECK_MS)
   }
-  #result(listen: Listen, generation: number, result: { text: string; startMs: number; endMs: number }): void {
+  #result(listen: Listen, generation: number, result: { text: string; startMs: number; endMs: number; conf?: number }): void {
     if (!this.#live(listen, generation) || this.#relay === null) return
     const now = this.#o.clock.now()
     const endAt = Math.min(listen.base + result.endMs, now)
-    const delivered = this.#relay.deliver(listen.sellerId, listen.broadcastId, { text: result.text, startAt: Math.min(listen.base + result.startMs, endAt), endAt })
+    const delivered = this.#relay.deliver(listen.sellerId, listen.broadcastId, { text: result.text, startAt: Math.min(listen.base + result.startMs, endAt), endAt, ...(result.conf === undefined ? {} : { conf: result.conf }) })
     if (!delivered && !listen.delivered) {
       listen.delivered = true
       this.#o.log({ level: 'info', code: 'STREAM_AUDIO_NO_CONSOLE', seller: listen.sellerId })

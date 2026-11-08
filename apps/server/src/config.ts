@@ -54,6 +54,21 @@ export function readAppOrigin(env: Readonly<Record<string, string | undefined>>)
   return { ok: true, origin }
 }
 
+/**
+ * 옛 앱 주소 (LIVEJJIM_OLD_APP_ORIGINS, 쉼표로 여럿 — D-OPS-DOMAIN): 도메인을 옮기는 동안 옛 주소로 깔린 앱·웹의 Origin도 받는다.
+ * 돌아오는 주소·링크는 늘 새 주소(LIVEJJIM_APP_ORIGIN)로 만든다. 형식이 틀린 값은 기동하지 않는다
+ */
+export function readOldAppOrigins(env: Readonly<Record<string, string | undefined>>): { readonly ok: true; readonly origins: readonly string[] } | { readonly ok: false; readonly message: string } {
+  const origins = (env['LIVEJJIM_OLD_APP_ORIGINS'] ?? '').split(',').map((value) => value.trim()).filter((value) => value !== '')
+  if (origins.some((value) => !/^https?:\/\/[^/\s]+$/.test(value))) return { ok: false, message: '옛 앱 주소(LIVEJJIM_OLD_APP_ORIGINS)는 https://example.com 처럼 경로 없이 쉼표로 나눠 적어 주세요.' }
+  return { ok: true, origins }
+}
+
+/** 상태를 바꾸는 요청·마이크 흐름의 Origin 검사: 새 앱 주소 또는 옛 앱 주소 중 하나와 정확히 같을 때만 */
+export function originAllowed(origin: string | undefined, appOrigin: string, oldAppOrigins: readonly string[] = []): boolean {
+  return origin !== undefined && (origin === appOrigin || oldAppOrigins.includes(origin))
+}
+
 // ── Y1: 유튜브 연동 (AC-Y1-72, D-Y02·D-Y13) ───────────────────────────────
 
 export interface YoutubeEnvSetting {

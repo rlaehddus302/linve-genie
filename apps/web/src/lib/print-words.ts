@@ -43,16 +43,20 @@ export const PRINT_ACTION = {
 export const REHEARSAL_NO_LABELS = '리허설 방송은 라벨을 출력하지 않아요.'
 export const KEEP_SCREEN_ON = '출력하는 동안 이 화면을 켜 두세요.'
 export const TEST_QUESTION = '테스트 라벨의 네 변 테두리와 한글이 모두 또렷하게 보이나요?'
-/** 실험 기종 표시 — 프린터 이름 뒤 (L-7 지원 단계, D-PRN2-01) */
-export const EXPERIMENTAL_MARK = '(실험)'
-/** 웹 고르기 창(브라우저 창)에는 "실험"을 달 수 없어 연결 전에 한 줄로 알린다 (L-7 지원 단계) */
-export const EXPERIMENTAL_PICK_NOTE = 'NIIMBOT B1이 아닌 프린터(Marklife·바우아토·NIIMBOT 다른 모델)는 실험 중이에요. 연결한 뒤 테스트 인쇄가 잘 나오는지 꼭 확인해 주세요.'
-/** 실험 기종: 테스트 인쇄 "예" 전에는 "이 기기에서 출력"이 없다 (L-7 지원 단계) */
-export const EXPERIMENTAL_WAIT_TEST = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'
-/** 이미 출력 기기인 기기에 실험 기종을 이었다: 테스트 "예" 전에는 받지 않는다 — 멈춘 까닭과 할 일 (D-PRN2-10) */
-export const EXPERIMENTAL_PAUSED = '실험 중인 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.'
-/** 프린터 칸 — 이미 출력 기기인 기기의 실험 기종: 테스트 "예" 전 (D-PRN2-10) */
-export const EXPERIMENTAL_WAIT_TEST_MINE = '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.'
+// 화면에는 '실험'을 쓰지 않는다 (D-UX3-22, 앱 D-UX3-19와 같게 — 사용자 지시 "기본 프린터, 실험 프린터 그런게 어딨어").
+// 확인되지 않은 기종의 게이트(테스트 인쇄 "예" 전에는 출력하지 않음, D-PRN2-10)는 그대로이고 까닭만 쉬운 말로 알린다.
+/** 웹 고르기 창(브라우저 창)에 줄마다 꼬리표를 달 수 없어 연결 전에 한 줄로 알린다 (L-7 지원 단계) */
+export const EXPERIMENTAL_PICK_NOTE = 'NIIMBOT B1이 아닌 프린터(Marklife·바우아토·NIIMBOT 다른 모델)는 연결한 뒤 테스트 인쇄가 잘 나오는지 꼭 확인해 주세요.'
+/** 확인되지 않은 기종: 테스트 인쇄 "예" 전에는 "이 기기에서 출력"이 없다 (L-7 지원 단계) */
+export const EXPERIMENTAL_WAIT_TEST = '이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'
+/** 이미 출력 기기인 기기에 확인되지 않은 기종을 이었다: 테스트 "예" 전에는 받지 않는다 — 멈춘 까닭과 할 일 (D-PRN2-10) */
+export const EXPERIMENTAL_PAUSED = '새로 이은 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.'
+/** 프린터 칸 — 이미 출력 기기인 기기의 확인되지 않은 기종: 테스트 "예" 전 (D-PRN2-10) */
+export const EXPERIMENTAL_WAIT_TEST_MINE = '이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.'
+/** 확인되지 않은 기종을 이었을 때의 안내 (그림 파일로 대신 인쇄하는 길) */
+export function printerCheckNotice(profile: { readonly fallbackApp: string }): string {
+  return `테스트 인쇄가 잘 나오는지 꼭 확인해 주세요. 잘 안 나오면 라벨을 그림 파일로 ${profile.fallbackApp}에서 인쇄해 주세요.`
+}
 /** 출력 기기에서 실험 기종의 테스트 "예"를 누른 뒤 (D-PRN2-10) */
 export const EXPERIMENTAL_RESUMED = '좋아요. 멈췄던 출력을 이어서 해요.'
 /** "예" 뒤 다른 까닭으로 다시 멈췄을 때 — "이어서 해요"를 지난 일로 (UX-PRN2-006) */

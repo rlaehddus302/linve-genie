@@ -53,10 +53,15 @@ export interface Palette {
   readonly warnPressed: string
   /** 비어 있는 입력 칸 안의 라벨 글자 (토스 회색) */
   readonly placeholder: string
+  /** 누르는 동안의 뒤로 화살표 — 바탕은 그대로, 화살표만 연하게 (D-UX3-51) */
+  readonly iconPressed: string
   /** 입력 칸 [지우기] 동그라미 (장식 — 이름은 aria-label) */
   readonly clearCircle: string
   /** 내용 위에 뜬 아래 탭 바탕 — 은은한 반투명 흰색(흐림 위에 얹는다, D-UX3-13) */
   readonly glass: string
+  readonly tabLine: string
+  readonly tabInk: string
+  readonly segmentOff: string
   /** 확인이 필요한 줄 바탕·글자 */
   readonly warnBg: string
   readonly warnText: string
@@ -87,9 +92,11 @@ const LIGHT: Palette = {
   primaryText: '#1F7A4D',
   secondary: '#E6F2EB',
   onSecondary: '#155C39',
-  danger: '#B42318',
+  // 잘못 빨강 (D-UX3-59, 사용자 지시 2026-11-07 "오류 아이콘, 메시지 보면 색이 살짝 탁해. 좀 더 선명한 빨간색으로 … 전역 설정으로"):
+  // 토스 빨강과 같은 색상(356°)에서 글자 대비 4.5(옅은 회색 바탕 #F2F4F6에서도)를 지키며 가장 맑게 — 회색기를 빼고 채도만 올렸다. 옛 #CF3441(D-UX3-51)·#B42318
+  danger: '#DD1824',
   onDanger: '#FFFFFF',
-  dangerText: '#B42318',
+  dangerText: '#DD1824',
   backdrop: '#000000',
   toast: '#191F28',
   onToast: '#FFFFFF',
@@ -103,11 +110,18 @@ const LIGHT: Palette = {
   softPressed: '#D1D6DB',
   primaryPressed: '#17603C',
   secondaryPressed: '#CFE5D8',
-  dangerPressed: '#8E1B12',
+  dangerPressed: '#A42835',
   warnPressed: '#FCE6C6',
   placeholder: '#8B95A1',
+  iconPressed: '#B0B8C1',
   clearCircle: '#B0B8C1',
-  glass: 'rgba(255,255,255,0.72)',
+  glass: 'rgba(255,255,255,0.82)',
+  /** 아래 탭 테두리 (토스처럼 또렷한 얇은 회색 선, D-UX3-42) */
+  tabLine: '#DDE1E6',
+  /** 아래 탭 안 고른 칸 아이콘·글자 (토스처럼 진한 회색, D-UX3-43) */
+  tabInk: '#333D4B',
+  // 탭 안 위쪽 나누기(포장 · 택배)의 고르지 않은 이름 (D-UX3-60, 토스 "시장 뉴스"처럼 큰 글자 회색 — 큰 글자 대비 3 이상)
+  segmentOff: '#6B7684',
   warnBg: '#FFF4E5',
   warnText: '#B54708',
   warnStrong: '#8A3A06',
@@ -128,8 +142,14 @@ export const TONES: Readonly<Record<Scheme, Readonly<Record<Tone, TonePair>>>> =
 
 /** 글자 크기 단계 (dp, 시스템 큰 글자 배율 전). 토스 화면 치수 그대로 (D-UX3-07, 사용자 지시 2026-11-03 "똑같이"). */
 export const TYPE = {
-  /** 꼬리표·도움말·입력 칸 라벨·아래 탭 글자 */
+  /** 아래 탭 글자 (토스 아래 탭처럼 작게, D-UX3-41) */
+  tab: 12,
+  /** 입력 칸 위 라벨·칸 아래 잘못 문장·도움말 (토스 "휴대폰 번호"·"…다시 확인해주세요.", D-UX3-51) */
+  note: 13,
+  /** 꼬리표·도움말 */
   caption: 14,
+  /** 인증번호 "남은 시간" (토스 사진을 재어 15, D-UX3-56) */
+  meta: 15,
   /** 본문 */
   body: 16,
   /** 줄 제목·단추·입력 */
@@ -140,20 +160,29 @@ export const TYPE = {
   lead: 20,
   /** 카드·시트 제목 */
   title: 22,
-  /** 화면 맨 위 질문형 제목 ("어떤 계좌로 보낼까요?") */
-  headline: 26,
+  /** 화면 맨 위 질문형 제목 ("어떤 계좌로 보낼까요?") — 토스 사진 재기 22·굵게·줄 간격 1.24 (D-UX3-51, 옛 26) */
+  headline: 22,
   /** 숫자 강조 */
   number: 28,
-  /** 입력 칸 값·비어 있을 때 칸 안 라벨 (토스 "계좌번호 입력"과 같은 크기, D-UX3-08) */
-  input: 24,
+  /** 입력 칸 값·비어 있을 때 칸 안 라벨 (토스 "휴대폰 번호" 칸을 재어 22, D-UX3-51 — 옛 24) */
+  input: 22,
 } as const
 
 export type TypeStep = keyof typeof TYPE
 
 /** 줄 높이 배수 */
 export const LINE = 1.4
+/** 질문형 제목의 줄 간격 (토스 두 줄 제목 재기 — 두 줄 사이 63px = 29.3, D-UX3-56. 옛 D-UX3-51 1.24는 폭을 393으로 잘못 알고 쟀다) */
+export const HEADLINE_LINE = 1.33
 
-export const WEIGHT = { regular: '400', medium: '600', bold: '700', heavy: '800' } as const
+/** book: 입력 칸 값 (토스 입력 글자 두께, D-UX3-51) */
+export const WEIGHT = { regular: '400', book: '500', medium: '600', bold: '700', heavy: '800' } as const
+
+/**
+ * 입력 화면 틀 자리 (토스 사진을 재어, D-UX3-51 — 사용자 지시 2026-11-07 "뒤로가기 버튼의 크기, 위치 다름 … 제목의 크기, 위치가 다름"):
+ * 뒤로(48 누름 자리)는 안전 영역 바로 아래에서 왼쪽 8, 제목은 뒤로 아래 31(D-UX3-56 — 폭 430 휴대폰 사진을 다시 재어, 옛 28)·왼쪽 24, 제목과 첫 입력 칸 사이 36.
+ */
+export const PAGE = { backLeft: 8, titleTop: 31, side: 24, titleGap: 36 } as const
 
 /** 간격 (4·8 단위) */
 export const SPACE = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const

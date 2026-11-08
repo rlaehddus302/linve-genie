@@ -1,7 +1,7 @@
 // 손님 (D-APPX-01 — 웹 "모든 손님"·손님 자세히와 같은 규칙·문구, BUY-06·BUY-07·BUY-08, CUSTOMER_RULES CR-3·CR-5).
 // 목록: 정렬(누적 큰 순·최근 산 순·미입금 많은 순)·거르기(단골만·입금 늦음 주의만)·이름 찾기, 줄마다 단골·입금 늦음 주의·차단 꼬리표.
 // 자세히: 손님 기록(누적·마지막 구매·미입금·취소), 메모(200자, 연락처 금지, 비우면 한 번 묻기), 저장한 배송지(가린 이름·끝 4자리, 지우기),
-// 날짜별 기록(그날 이름·상품 합계·입금 상태). 판매자 계정만 — 서버가 보조자를 막는다. 판매자 사이에 손님 정보를 나누지 않는다(D-KP1-21).
+// 날짜별 기록(그날 이름·상품 합계·입금 상태). 판매자 사이에 손님 정보를 나누지 않는다(D-KP1-21).
 import { useEffect, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import {
@@ -37,7 +37,7 @@ import { kstDate } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, post, put, withQuery, type ApiError } from '../api/client.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, Card, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
@@ -68,8 +68,10 @@ function CustomerTags({ row, blocked }: { readonly row: Pick<CustomerRow, 'regul
   )
 }
 
-export function CustomersScreen({ onBack }: { readonly onBack: () => void }) {
+/** onBack이 없으면 아래 탭 "고객"(D-UX3-60) — 제목 줄 없이(다른 탭처럼), 아래 여백은 탭 막대만큼 */
+export function CustomersScreen({ onBack }: { readonly onBack?: () => void }) {
   const { p } = useKit()
+  const room = useTabBarRoom()
   const [sort, setSort] = useState<CustomerSort>('total')
   const [filter, setFilter] = useState<CustomerFilter>('all')
   const [query, setQuery] = useState('')
@@ -116,8 +118,8 @@ export function CustomersScreen({ onBack }: { readonly onBack: () => void }) {
   if (open !== null) return <CustomerDetail row={open} today={view?.today ?? ''} onBack={() => setOpen(null)} />
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="customers-screen">
-      <AppHeader title="손님" onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+      {onBack !== undefined ? <AppHeader title="손님" onBack={onBack} /> : null}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: onBack === undefined ? 28 : 0, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
         <TextField label="이름으로 찾기" value={query} onChangeText={setQuery} autoCorrect={false} />
         <View role="radiogroup" aria-label="정렬">
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingVertical: SPACE.xs }}>

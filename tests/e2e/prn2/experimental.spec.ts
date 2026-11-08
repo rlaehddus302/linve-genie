@@ -1,26 +1,27 @@
-// AC-PRN2-06 (실험 표시·테스트 인쇄 "예" 뒤 출력)·AC-PRN2-08 (크기 목록·목록 밖 크기) — 시험용 프린터가 실험 기종을 흉내 낸다.
+// AC-PRN2-06 (확인되지 않은 기종 안내·테스트 인쇄 "예" 뒤 출력 — D-UX3-22: 화면의 '실험' 표시는 없앴다)·AC-PRN2-08 (크기 목록·목록 밖 크기) — 시험용 프린터가 실험 기종을 흉내 낸다.
 import { expect, test } from '@playwright/test'
-import { B1_SIZES, BAUATO, BAUATO_APP, becomeOutputDevice, confirmTestPrint, connectAs, D110, setTestProfile, experimentalNotice, gotoLabels, loginNewSeller, openRealBroadcast, postJson, printed, queueOf, region, registerApi, smsApi } from './support.ts'
+import { B1_SIZES, BAUATO, BAUATO_APP, becomeOutputDevice, confirmTestPrint, connectAs, D110, setTestProfile, experimentalNotice, CHECK_NOTE, gotoLabels, loginNewSeller, openRealBroadcast, postJson, printed, queueOf, region, registerApi, smsApi } from './support.ts'
 
-test('AC-PRN2-06: 실험 기종(바우아토)은 이름 뒤 "(실험)"과 안내 한 줄 (L-7 문장 그대로)', async ({ page }) => {
+test('AC-PRN2-06: 확인되지 않은 기종(바우아토)은 이름 그대로와 안내 한 줄 (D-UX3-22 옛 기대: 이름 뒤 "(실험)")', async ({ page }) => {
   await loginNewSeller(page)
   await connectAs(page, BAUATO.id)
   const printer = region(page, '프린터')
-  await expect(printer.getByText(`${BAUATO.name} (실험)`, { exact: true })).toBeVisible()
-  const note = printer.getByRole('note', { name: '실험 중인 프린터 안내' })
+  await expect(printer.getByText(BAUATO.name, { exact: true })).toBeVisible()
+  await expect(printer.getByText(/실험/)).toHaveCount(0)
+  const note = printer.getByRole('note', { name: CHECK_NOTE })
   await expect(note).toBeVisible()
   await expect(note).toContainText(experimentalNotice(BAUATO_APP))
   const text = await page.locator('main').innerText()
   expect(text).not.toMatch(/BAUATO|LUCKJINGLE|experimental|undefined|null/)
 })
 
-test('AC-PRN2-06: 확인됨(B1)에는 "(실험)"도 실험 안내도 없다', async ({ page }) => {
+test('AC-PRN2-06: 확인됨(B1)에는 확인 안내가 없다', async ({ page }) => {
   await loginNewSeller(page)
   await connectAs(page, null)
   const printer = region(page, '프린터')
   await expect(printer.getByText('NIIMBOT B1', { exact: true })).toBeVisible()
-  await expect(printer.getByText('(실험)')).toHaveCount(0)
-  await expect(printer.getByRole('note', { name: '실험 중인 프린터 안내' })).toHaveCount(0)
+  await expect(printer.getByText(/실험/)).toHaveCount(0)
+  await expect(printer.getByRole('note', { name: CHECK_NOTE })).toHaveCount(0)
   await expect(printer.getByRole('button', { name: '이 기기에서 출력' })).toBeVisible()
 })
 
@@ -30,7 +31,7 @@ test('AC-PRN2-06: 실험 기종은 테스트 인쇄 "예" 뒤에만 "이 기기�
   const printer = region(page, '프린터')
   const output = printer.getByRole('button', { name: '이 기기에서 출력' })
   await expect(output).toHaveCount(0)
-  await expect(printer.getByText('실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.')).toBeVisible()
+  await expect(printer.getByText('이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.')).toBeVisible()
   await printer.getByRole('button', { name: '테스트 인쇄' }).click()
   const result = printer.getByRole('group', { name: '테스트 인쇄 결과' })
   // 인쇄만 하고 "예"를 누르기 전에는 아직 숨김
@@ -123,10 +124,10 @@ test('AC-PRN2-06 (D-PRN2-10·15): 출력 기기에 실험 프린터를 이으면
   await printer.getByRole('button', { name: /시험용 프린터/ }).click()
   await expect(printer.getByText(/이 기기의 프린터: 연결됨/)).toBeVisible()
   const pause = region(page, '출력 멈춤')
-  await expect(pause).toContainText('실험 중인 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.')
+  await expect(pause).toContainText('새로 이은 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.')
   await expect(pause.getByRole('button', { name: '다시 연결' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '다시 연결' })).toHaveCount(0)
-  await expect(printer.getByRole('status').filter({ hasText: '실험 중인 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.' })).toBeVisible()
+  await expect(printer.getByRole('status').filter({ hasText: '이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.' })).toBeVisible()
   // "예" 전에 들어온 작업은 찍히지 않는다
   const before = (await printed(page)).length
   await registerApi(page, b, 1, '품종1', 1000)
@@ -148,5 +149,5 @@ test('AC-PRN2-06 (D-PRN2-15): 끊었다 다시 이으면 "예"는 지워지고 �
   await printer.getByRole('button', { name: '연결 끊기' }).click()
   await printer.getByRole('button', { name: /시험용 프린터/ }).click()
   await expect(printer.getByText(/이 기기의 프린터: 연결됨/)).toBeVisible()
-  await expect(region(page, '출력 멈춤')).toContainText('실험 중인 프린터라 출력을 잠시 멈췄어요.')
+  await expect(region(page, '출력 멈춤')).toContainText('새로 이은 프린터라 출력을 잠시 멈췄어요.')
 })

@@ -133,10 +133,10 @@ describe('설정 — 확장 연결 (AC-X1-08)', () => {
   })
 
   it('코드를 받지 못하면 서버 문장', async () => {
-    server.on('POST', /^\/api\/extension\/code$/, () => apiError(403, 'ASSISTANT_FORBIDDEN', '보조자 계정으로는 할 수 없어요.'))
+    server.on('POST', /^\/api\/extension\/code$/, () => apiError(403, 'FORBIDDEN', '지금은 할 수 없어요.'))
     render(<Settings />)
     fireEvent.click(await screen.findByRole('button', { name: '확장 연결' }))
-    expect(await screen.findByText('보조자 계정으로는 할 수 없어요.')).toBeTruthy()
+    expect(await screen.findByText('지금은 할 수 없어요.')).toBeTruthy()
   })
 
   it('U-TTX-02·AC-TTX-33 (3): 확장 칸 설명에 표의 틱톡 문장이 글자 그대로 있고 "서버" 낱말이 없다', async () => {

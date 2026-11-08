@@ -41,9 +41,10 @@ class WhisperLoadingTest(unittest.TestCase):
         numpy = SimpleNamespace(frombuffer=Mock(return_value=FloatSamples()), float32="float32")
         torch = SimpleNamespace(float32="float32", float16="float16")
         modules = {"numpy": numpy, "torch": torch, "transformers": transformers}
-        with patch.dict("sys.modules", modules), patch("livegenie_transcriber.runtime.quiet_libraries"):
+        with patch.dict("sys.modules", modules), patch("livegenie_transcriber.runtime.quiet_libraries"), patch("sys.stderr"):
             transcribe = load_transcriber(config)
-            self.assertEqual(transcribe(bytes(3200)), "15번 이만 원")
+            # 가짜 전처리기(object)로는 확신도 길이 안 열려 예전 pipeline 길로 — 글은 같고 확신도는 없다
+            self.assertEqual(transcribe(bytes(3200)).text, "15번 이만 원")
         self.assertEqual([call.kwargs["local_files_only"] for call in processor_loader.call_args_list], [True, False])
         model_loader.assert_called_once_with(config.model_id, dtype="float32", local_files_only=True)
         self.assertEqual(recognizer.call_count, 2)  # 워밍업 한 번 + 실제 조각 한 번
@@ -53,3 +54,117 @@ class WhisperLoadingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HintPromptTest(unittest.TestCase):
+    """D-V3-127: 위스퍼는 힌트를 앞 문장(prompt_ids)으로 받고, 토큰 한도로 자르며, 결과 앞에 되풀이된 앞 문장은 뗀다"""
+
+    def test_whisper_gets_prompt_ids_and_strips_echo(self):
+        from livegenie_transcriber.runtime import HINT_TOKEN_MAX, strip_prompt_echo
+        config = parse_args(["--server", "http://localhost:7700", "--token-file", "/test/token", "--model", "whisper", "--device", "cpu"], {})
+
+        class Tokenizer:
+            def __call__(self, text, add_special_tokens=False):
+                return SimpleNamespace(input_ids=list(range(len(text))))
+
+            def decode(self, ids):
+                return "잘림" + str(len(ids))
+
+        prompt_calls = []
+        processor = SimpleNamespace(tokenizer=Tokenizer(), feature_extractor=object(), get_prompt_ids=lambda text, return_tensors: prompt_calls.append(text) or ("ids", text))
+        recognizer = Mock(return_value={"text": "이백팔번 오만 원. 녹금. 십오번 이만 원"})
+        transformers = SimpleNamespace(AutoProcessor=SimpleNamespace(from_pretrained=Mock(return_value=processor)),
+                                       AutoModelForSpeechSeq2Seq=SimpleNamespace(from_pretrained=Mock(return_value=object())),
+                                       pipeline=lambda *a, **k: recognizer)
+        numpy = SimpleNamespace(frombuffer=Mock(return_value=FloatSamples()), float32="float32")
+        torch = SimpleNamespace(float32="float32", float16="float16")
+        with patch.dict("sys.modules", {"numpy": numpy, "torch": torch, "transformers": transformers}), patch("livegenie_transcriber.runtime.quiet_libraries"), patch("sys.stderr"):
+            transcribe = load_transcriber(config)
+            self.assertEqual(transcribe(bytes(3200), "이백팔번 오만 원. 녹금.").text, "십오번 이만 원")
+            self.assertEqual(recognizer.call_args.kwargs["generate_kwargs"], {"language": "korean", "task": "transcribe", "prompt_ids": ("ids", "이백팔번 오만 원. 녹금.")})
+            # 같은 힌트는 한 번만 만든다
+            transcribe(bytes(3200), "이백팔번 오만 원. 녹금.")
+            self.assertEqual(prompt_calls, ["이백팔번 오만 원. 녹금."])
+            # 토큰 한도를 넘는 힌트는 잘라 쓴다
+            transcribe(bytes(3200), "가" * (HINT_TOKEN_MAX + 20))
+            self.assertEqual(prompt_calls[-1], f"잘림{HINT_TOKEN_MAX}")
+            # 힌트 없이도 그대로
+            transcribe(bytes(3200))
+            self.assertNotIn("prompt_ids", recognizer.call_args.kwargs["generate_kwargs"])
+        self.assertEqual(strip_prompt_echo("아사달금, 녹금.", "이백팔번 오만 원. 아사달금, 녹금."), "")
+        self.assertEqual(strip_prompt_echo("오만 원", "이백팔번 오만 원."), "오만 원")
+
+
+class ScoredPathTest(unittest.TestCase):
+    """D-V3-130: 위스퍼는 generate(정적 캐시·토큰 확률)로 돌아 Transcript(글, 확신도)를 주고, 그 길이 막히면 pipeline 길(확신도 없음)로 돌아간다"""
+
+    def _modules(self, generate):
+        class Row:
+            def __init__(self, values): self.values = values
+            def tolist(self): return self.values
+
+        class Model:
+            def to(self, device): return self
+            def eval(self): return self
+            def generate(self, features, **kw): return generate(features, kw)
+            def compute_transition_scores(self, sequences, scores, normalize_logits): return [Row(scores)]
+
+        class Feats:
+            input_features = SimpleNamespace(to=lambda device, dtype: "feats")
+
+        class Tokenizer:
+            def __call__(self, text, add_special_tokens=False): return SimpleNamespace(input_ids=list(range(len(text))))
+            def decode(self, ids): return "잘림"
+
+        processor = SimpleNamespace(tokenizer=Tokenizer(), feature_extractor=lambda audio, sampling_rate, return_tensors: Feats(),
+                                    batch_decode=lambda seqs, skip_special_tokens: [seqs], get_prompt_ids=lambda text, return_tensors: "ids")
+        recognizer = Mock(return_value={"text": "옛 길 15번 이만 원"})
+        transformers = SimpleNamespace(AutoProcessor=SimpleNamespace(from_pretrained=Mock(return_value=processor)),
+                                       AutoModelForSpeechSeq2Seq=SimpleNamespace(from_pretrained=Mock(return_value=Model())),
+                                       pipeline=lambda *a, **k: recognizer)
+        numpy = SimpleNamespace(frombuffer=Mock(return_value=FloatSamples()), float32="float32")
+        torch = SimpleNamespace(float32="float32", float16="float16", inference_mode=lambda: __import__("contextlib").nullcontext())
+        return {"numpy": numpy, "torch": torch, "transformers": transformers}, recognizer
+
+    def test_scores_become_confidence(self):
+        from livegenie_transcriber.session import Transcript
+        config = parse_args(["--server", "http://localhost:7700", "--token-file", "/test/token", "--model", "whisper", "--device", "cpu"], {})
+        calls = []
+
+        def generate(features, kw):
+            calls.append(kw)
+            return SimpleNamespace(sequences=" 15번 이만 원", scores=[-0.1, -0.2, float("-inf"), -0.3])
+
+        modules, recognizer = self._modules(generate)
+        with patch.dict("sys.modules", modules), patch("livegenie_transcriber.runtime.quiet_libraries"):
+            transcribe = load_transcriber(config)
+            result = transcribe(bytes(3200), "이백팔번 오만 원.")
+        self.assertIsInstance(result, Transcript)
+        self.assertEqual(result.text, "15번 이만 원")
+        self.assertAlmostEqual(result.conf, __import__("math").exp(-0.2), places=3)
+        self.assertEqual(calls[-1]["cache_implementation"], "static")
+        self.assertTrue(calls[-1]["output_scores"])
+        self.assertEqual(calls[-1]["prompt_ids"], "ids")
+        self.assertLessEqual(calls[-1]["max_new_tokens"], 128)
+        recognizer.assert_not_called()
+
+    def test_falls_back_to_pipeline_when_scored_path_fails(self):
+        from livegenie_transcriber.session import Transcript
+        config = parse_args(["--server", "http://localhost:7700", "--token-file", "/test/token", "--model", "whisper", "--device", "cpu"], {})
+
+        def generate(features, kw):
+            raise AttributeError("'EncoderDecoderCache' object has no attribute 'layers'")
+
+        modules, recognizer = self._modules(generate)
+        with patch.dict("sys.modules", modules), patch("livegenie_transcriber.runtime.quiet_libraries"), patch("sys.stderr"):
+            transcribe = load_transcriber(config)
+            result = transcribe(bytes(3200))
+        self.assertEqual(result, Transcript("옛 길 15번 이만 원", None))
+        self.assertGreaterEqual(recognizer.call_count, 1)
+
+    def test_confidence_helper(self):
+        from livegenie_transcriber.runtime import confidence_of
+        self.assertIsNone(confidence_of([]))
+        self.assertIsNone(confidence_of([float("nan")]))
+        self.assertAlmostEqual(confidence_of([0.0, 0.0]), 1.0)
+        self.assertAlmostEqual(confidence_of([-1.0, float("-inf")]), __import__("math").exp(-1.0))

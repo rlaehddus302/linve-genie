@@ -1,6 +1,6 @@
 // AC-PRN2-11 E2E — 가짜 프린터로 출력 한 장 끝까지(B1·바우아토), 휴대폰 폭 390에서 실험 표시와 글자·누르는 칸 크기.
 import { expect, test } from '@playwright/test'
-import { BAUATO, becomeOutputDevice, connectAs, loginNewSeller, openRealBroadcast, printed, queueOf, region, registerApi, scopeLabels, smsApi, waitPrinted } from './support.ts'
+import { BAUATO, becomeOutputDevice, CHECK_NOTE, connectAs, loginNewSeller, openRealBroadcast, printed, queueOf, region, registerApi, scopeLabels, smsApi, waitPrinted } from './support.ts'
 
 test('AC-PRN2-11: B1 — 접수 → 라벨 한 장이 시험용 프린터에 384×240으로 찍히고 "라벨 출력됨"', async ({ page }) => {
   await loginNewSeller(page)
@@ -29,7 +29,7 @@ test('AC-PRN2-11: 바우아토(실험) — 테스트 인쇄 "예" 뒤 출력 기
   expect({ w: all.at(-1)!.width, h: all.at(-1)!.height }).toEqual({ w: 384, h: 240 })
   await expect.poll(async () => (await scopeLabels(page, date)).filter((l) => l.winner).map((l) => l.printed)).toEqual([1])
   expect((await queueOf(page)).pause).toBeNull()
-  await expect(region(page, '프린터').getByText(`${BAUATO.name} (실험)`, { exact: true })).toBeVisible()
+  await expect(region(page, '프린터').getByText(BAUATO.name, { exact: true })).toBeVisible() // D-UX3-22 옛 기대: 이름 뒤 "(실험)"
 })
 
 test.describe('휴대폰 폭 390', () => {
@@ -39,7 +39,7 @@ test.describe('휴대폰 폭 390', () => {
     await loginNewSeller(page)
     await connectAs(page, BAUATO.id)
     const printer = region(page, '프린터')
-    const note = printer.getByRole('note', { name: '실험 중인 프린터 안내' })
+    const note = printer.getByRole('note', { name: CHECK_NOTE })
     await expect(note).toBeVisible()
     await printer.getByRole('button', { name: '테스트 인쇄' }).click()
     const yes = printer.getByRole('group', { name: '테스트 인쇄 결과' }).getByRole('button', { name: '예' })

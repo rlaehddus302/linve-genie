@@ -1,17 +1,35 @@
 // 영수증 보내기·판매대장 (D-APPX-03 — 웹 ReceiptsPage·LedgerDialog와 같은 규칙·문구, RCP-02, STL-04·05·06, D-N4b-04·05).
 // 끝난 방송을 고른다(최근 먼저) → 한 번에: "링크 전부 만들기"(실제만)·전원 확인서 PDF·전원 이미지 묶음·이 방송 판매대장 엑셀.
 // 구매자 줄: 이름·상품 수·최종 금액·입금 상태·링크 상태, 링크 만들기·복사·보내기(휴대폰 공유)·끊기(한 번 더 묻기), 이미지·PDF.
-// 우리는 링크를 채팅·문자로 보내지 않는다 — 판매자가 한 사람씩 복사하거나 공유 시트로 보낸다(D-N4b-05). 한꺼번에 복사·공유하는 버튼은 없다.
+// 링크는 판매자가 복사·공유 시트로 보내거나, [문자 보내기]로 판매자 휴대폰 문자 앱을 손님 번호·확인서 링크로 채워 연다 — 판매자는 보내기만
+// 누르고 문자는 판매자 번호로 간다(답장·전화가 판매자에게, D-REAL-05 — D-REAL-03을 바꿈). 번호를 아는 손님(문자찜)은 바로 열고, 모르는 손님은
+// 번호를 넣고 연다. 번호 아는 손님 모두 보내기는 한 번 묻고 손님마다 문자 앱을 차례로 연다(보내면 다음, 닫으면 멈춤).
 // 파일(PDF·JPG·ZIP·엑셀)은 휴대폰 공유 시트로 넘긴다. 리허설 방송은 링크·판매대장 없이 확인서만.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, Share, View } from 'react-native'
 import type { BroadcastItem, ReceiptBuyerRow, ReceiptBuyers, ReceiptLink } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { linkWords, shareText, usableLink } from '@livejjim/web/src/lib/receipt-links.ts'
+import {
+  SMS_ALL_NOTE,
+  SMS_NOTE,
+  SMS_OPEN,
+  SMS_PHONE_HELP,
+  SMS_PHONE_LABEL,
+  SMS_SEND,
+  SMS_SEND_ALL,
+  SMS_SENT,
+  SMS_UNAVAILABLE,
+  smsAllQuestion,
+  smsAllResult,
+  smsProgress,
+  smsTargets,
+  smsWords,
+} from '@livejjim/web/src/lib/receipt-sms.ts'
 import { get, getBytes, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { copyToClipboard } from '../lib/clipboard.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
-import { nativeShareFile } from '../native/index.ts'
+import { nativeShareFile, nativeSms } from '../native/index.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
@@ -133,11 +151,55 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
   )
 }
 
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+/** 시트·문자 창이 닫히는 동안 다음 창을 띄우지 않게 (아이폰은 창이 겹치면 열리지 않는다) */
+const SHEET_GAP_MS = 450
+
+interface SmsDraft {
+  readonly phone: string
+  readonly text: string
+}
+
+/** 서버에서 받는 번호·글(확인서 링크)을 받는다 (D-REAL-05). 번호를 넣으면 기억한다 */
+async function prepareSms(date: string, buyer: string, phone: string | null): Promise<SmsDraft> {
+  const requestId = newRequestId()
+  const result = await withRetry(() => post<{ sms: SmsDraft }>(`/api/days/${date}/receipt-sms/prepare`, { requestId, buyer, ...(phone === null ? {} : { phone }) }))
+  return result.sms
+}
+
+/** 문자 앱을 채워 열고, 보냈으면 보냄 표시 (안드로이드는 결과를 알 수 없어 열고 돌아오면 보낸 것으로) */
+async function composeSms(date: string, buyer: string, draft: SmsDraft): Promise<'sent' | 'cancelled'> {
+  const result = await nativeSms().compose(draft.phone, draft.text)
+  if (result === 'cancelled') return 'cancelled'
+  const requestId = newRequestId()
+  await withRetry(() => post(`/api/days/${date}/receipt-sms/sent`, { requestId, buyer }))
+  return 'sent'
+}
+
+/** 이 기기에서 문자를 보낼 수 있나 (서버가 문자 칸을 줄 때만 묻는다) */
+function useSmsDevice(wanted: boolean): boolean | null {
+  const [ok, setOk] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!wanted || ok !== null) return
+    let live = true
+    void nativeSms()
+      .available()
+      .then((value) => {
+        if (live) setOk(value)
+      })
+    return () => {
+      live = false
+    }
+  }, [wanted, ok])
+  return ok
+}
+
 /** 구매자 줄: 처음·조치 뒤·그날 정산이 바뀌면(실시간 알림) 다시 받는다. 가게 이름(복사 글 앞말)도 같이 */
 function useReceiptRows(date: string, rehearsal: boolean) {
   const { stream } = useServices()
   const [rows, setRows] = useState<readonly ReceiptBuyerRow[] | null>(null)
   const [shopName, setShopName] = useState('')
+  const [smsReady, setSmsReady] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [version, setVersion] = useState(0)
   const latest = useRef(0)
@@ -148,6 +210,7 @@ function useReceiptRows(date: string, rehearsal: boolean) {
       ([result, shop]) => {
         if (mine !== latest.current) return
         setRows(result.buyers)
+        setSmsReady(result.smsReady === true)
         if (shop !== null && typeof shop.shop.name === 'string') setShopName(shop.shop.name)
         setError(null)
       },
@@ -172,12 +235,19 @@ function useReceiptRows(date: string, rehearsal: boolean) {
     const byBuyer = new Map(links.map((link) => [link.buyer, link]))
     setRows((current) => current?.map((row) => ({ ...row, link: byBuyer.get(row.buyer) ?? row.link })) ?? current)
   }, [])
-  return { rows, shopName, error, reload, applyLinks }
+  return { rows, shopName, smsReady, error, reload, applyLinks }
 }
 
 function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem; readonly sameDay: boolean }) {
   const { date, rehearsal } = broadcast
-  const { rows, shopName, error, reload, applyLinks } = useReceiptRows(date, rehearsal)
+  const { rows, shopName, smsReady, error, reload, applyLinks } = useReceiptRows(date, rehearsal)
+  const [smsAsk, setSmsAsk] = useState(false)
+  const [smsBusy, setSmsBusy] = useState(false)
+  const [smsResult, setSmsResult] = useState<string | null>(null)
+  const [smsProgressText, setSmsProgressText] = useState<string | null>(null)
+  const [smsError, setSmsError] = useState<string | null>(null)
+  const smsDevice = useSmsDevice(smsReady && !rehearsal)
+  const smsOk = smsReady && !rehearsal && smsDevice === true
   const [allBusy, setAllBusy] = useState(false)
   const [allResult, setAllResult] = useState<string | null>(null)
   const [allError, setAllError] = useState<ApiError | null>(null)
@@ -208,6 +278,39 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
     }
   }
 
+  const targets = rows === null || !smsOk ? [] : smsTargets(rows)
+  // 모두 보내기: 손님마다 문자 앱을 차례로 연다. 보내면 다음 손님, 닫거나 서버가 막으면 거기서 멈춘다(다시 누르면 남은 손님부터)
+  const sendAll = async () => {
+    if (smsBusy) return
+    const list = [...targets]
+    setSmsAsk(false)
+    setSmsBusy(true)
+    setSmsResult(null)
+    setSmsError(null)
+    let sent = 0
+    let stoppedAt: string | null = null
+    for (const [index, row] of list.entries()) {
+      setSmsProgressText(smsProgress(index + 1, list.length, row.name))
+      await wait(SHEET_GAP_MS)
+      try {
+        const outcome = await composeSms(date, row.buyer, await prepareSms(date, row.buyer, null))
+        if (outcome === 'cancelled') {
+          stoppedAt = row.name
+          break
+        }
+        sent++
+      } catch (caught: unknown) {
+        stoppedAt = row.name
+        setSmsError(isApiError(caught) ? caught.message : SMS_UNAVAILABLE)
+        break
+      }
+    }
+    setSmsProgressText(null)
+    setSmsBusy(false)
+    setSmsResult(smsAllResult(sent, stoppedAt))
+    reload()
+  }
+
   if (rows === null) {
     return error !== null ? (
       <View style={{ gap: SPACE.sm }}>
@@ -227,6 +330,11 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
       {count > 0 ? (
         <Card label="한 번에 하기">
           {!rehearsal ? <BigButton label="링크 전부 만들기" busy={allBusy} onPress={() => void makeAll()} /> : null}
+          {targets.length > 0 || smsBusy ? <BigButton kind="outline" label={`${SMS_SEND_ALL} (${String(targets.length)}명)`} busy={smsBusy} onPress={() => setSmsAsk(true)} /> : null}
+          {smsProgressText !== null ? <Notice tone="info">{smsProgressText}</Notice> : null}
+          {smsResult !== null ? <Notice tone="success">{smsResult}</Notice> : null}
+          {smsError !== null ? <Notice tone="danger" alert>{smsError}</Notice> : null}
+          {smsReady && !rehearsal && smsDevice === false ? <Txt step="caption" color="textSub">{SMS_UNAVAILABLE}</Txt> : null}
           <BigButton kind={rehearsal ? 'primary' : 'outline'} label="전원 확인서 PDF" busy={files.busy === 'all-pdf'} onPress={() => void files.run('all-pdf', withQuery(`/api/days/${date}/receipts.pdf`, query), `${prefix}receipts-${date}-all.pdf`)} />
           <BigButton kind="outline" label="전원 이미지(JPG) 묶음" busy={files.busy === 'all-zip'} onPress={() => void files.run('all-zip', withQuery(`/api/days/${date}/receipts.zip`, query), `${prefix}receipts-${date}-images.zip`)} />
           {!rehearsal ? <BigButton kind="outline" label="이 방송 판매대장 엑셀" busy={files.busy === 'ledger'} onPress={() => void files.run('ledger', ledgerPath(date, date, [broadcast.id], false), `ledger-${date}.xlsx`)} /> : null}
@@ -237,6 +345,16 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
       ) : (
         <Txt color="textSub">{NO_RECEIPT_ROWS}</Txt>
       )}
+      <ConfirmSheet
+        visible={smsAsk}
+        question={smsAllQuestion(targets.length)}
+        description={SMS_ALL_NOTE}
+        confirmLabel="보내기"
+        cancelLabel="닫기"
+        busy={smsBusy}
+        onCancel={() => setSmsAsk(false)}
+        onConfirm={() => void sendAll()}
+      />
       {rows.map((row) => (
         <BuyerRow
           key={row.buyer}
@@ -244,7 +362,8 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
           date={date}
           rehearsal={rehearsal}
           shopName={shopName}
-          locked={allBusy}
+          smsReady={smsOk}
+          locked={allBusy || smsBusy}
           onLink={(link) => {
             applyLinks([link])
             reload()
@@ -255,7 +374,26 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
   )
 }
 
-function BuyerRow({ row, date, rehearsal, shopName, locked, onLink }: { readonly row: ReceiptBuyerRow; readonly date: string; readonly rehearsal: boolean; readonly shopName: string; readonly locked: boolean; readonly onLink: (link: ReceiptLink) => void }) {
+function BuyerRow({
+  row,
+  date,
+  rehearsal,
+  shopName,
+  smsReady,
+  locked,
+  onLink,
+}: {
+  readonly row: ReceiptBuyerRow
+  readonly date: string
+  readonly rehearsal: boolean
+  readonly shopName: string
+  readonly smsReady: boolean
+  readonly locked: boolean
+  readonly onLink: (link: ReceiptLink) => void
+}) {
+  const [smsSheet, setSmsSheet] = useState(false)
+  const [phone, setPhone] = useState('')
+  const [phoneError, setPhoneError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [result, setResult] = useState<string | null>(null)
@@ -315,6 +453,43 @@ function BuyerRow({ row, date, rehearsal, shopName, locked, onLink }: { readonly
     }
   }
 
+  const last4 = row.sms?.last4 ?? null
+  // 문자 보내기 (D-REAL-05): 번호·글을 받아(번호를 넣었으면 그 번호) 시트를 닫고 문자 앱을 연다. 판매자는 보내기만 누른다
+  const sendSms = async (typed: string | null) => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    setResult(null)
+    setPhoneError(null)
+    try {
+      const draft = await prepareSms(date, row.buyer, typed)
+      if (smsSheet) {
+        setSmsSheet(false)
+        setPhone('')
+        await wait(SHEET_GAP_MS)
+      }
+      const outcome = await composeSms(date, row.buyer, draft)
+      if (outcome === 'sent') {
+        setResult(SMS_SENT)
+        onLink(row.link ?? { buyer: row.buyer, status: 'NONE', url: null, expiresAt: null, revokedAt: null })
+      }
+    } catch (caught: unknown) {
+      if (!isApiError(caught)) {
+        setResult(SMS_UNAVAILABLE)
+        return
+      }
+      if (caught.code === 'NO_PHONE') {
+        setSmsSheet(true)
+      } else if (smsSheet) {
+        setPhoneError(caught.message)
+      } else {
+        setError(caught)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Card label={name}>
       <Txt weight="bold">{name}</Txt>
@@ -324,7 +499,20 @@ function BuyerRow({ row, date, rehearsal, shopName, locked, onLink }: { readonly
         <Tag tone={row.payment === 'PAID' ? 'success' : row.payment === 'UNPAID' ? 'danger' : 'warning'}>{PAYMENT_WORD[row.payment]}</Tag>
       </View>
       {rehearsal ? null : <Txt step="caption" color="textSub">{linkWords(link)}</Txt>}
+      {smsReady && smsWords(row.sms) !== null ? <Txt step="caption" color="textSub">{smsWords(row.sms)}</Txt> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
+        {smsReady ? (
+          <BigButton
+            label={SMS_SEND}
+            ariaLabel={`${name} ${SMS_SEND}`}
+            busy={busy && !smsSheet}
+            disabled={linkLocked}
+            onPress={() => {
+              if (last4 === null) setSmsSheet(true)
+              else void sendSms(null)
+            }}
+          />
+        ) : null}
         {!rehearsal && !usable ? <BigButton kind="outline" label="링크 만들기" ariaLabel={`${name} 링크 만들기`} busy={linkLocked} onPress={() => void send('create')} /> : null}
         {!rehearsal && usable ? (
           <>
@@ -340,6 +528,20 @@ function BuyerRow({ row, date, rehearsal, shopName, locked, onLink }: { readonly
       {manual !== null ? <TextField label={COPY_BY_HAND} value={manual} onChangeText={() => undefined} selectTextOnFocus /> : null}
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {files.error !== null ? <Notice tone="danger" alert>{files.error}</Notice> : null}
+      <BottomSheet
+        visible={smsSheet}
+        title={`${name}님에게 ${SMS_SEND}`}
+        onClose={() => setSmsSheet(false)}
+        actions={
+          <>
+            <BigButton kind="secondary" label="닫기" onPress={() => setSmsSheet(false)} />
+            <BigButton label={SMS_OPEN} busy={busy} disabled={phone.replace(/\D/g, '').length < 10} onPress={() => void sendSms(phone)} />
+          </>
+        }
+      >
+        <TextField label={SMS_PHONE_LABEL} help={SMS_PHONE_HELP} error={phoneError} value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" maxLength={20} />
+        <Txt step="caption" color="textSub">{SMS_NOTE}</Txt>
+      </BottomSheet>
       <ConfirmSheet
         visible={confirming}
         question="링크를 끊을까요?"

@@ -1,5 +1,5 @@
 // 간편 로그인 (L1, SYS-01, D-L1-01~07, AC-L1-20~23): 공급자 이름·결과 문장·돌아온 주소 읽기.
-// - 공급자는 카카오·네이버·구글 순서로만 보인다. 서버가 켜진 공급자를 client-config의 loginProviders로 알린다.
+// - 공급자는 카카오·네이버·구글·Apple 순서로만 보인다(Apple D-UX3-34). 서버가 켜진 공급자를 client-config의 loginProviders로 알린다.
 // - 공급자에서 돌아오면 서버가 `/?login=<코드>&provider=<p>`(로그인 화면) 또는 `/settings?login=…`(설정)으로 보낸다.
 //   코드·공급자는 정해진 값만 받고 정해진 문장만 보인다 — 주소의 글을 화면에 넣지 않는다(AC-L1-21).
 //   보인 뒤에는 주소에서 두 값을 지운다(history.replaceState — 새로 고침해도 다시 나오지 않게).
@@ -7,23 +7,23 @@ import { isApiError } from '../api/client.ts'
 import { kstDate } from './kst.ts'
 import { SERVICE_NAME } from '../brand.ts'
 
-export const LOGIN_PROVIDERS = ['kakao', 'naver', 'google'] as const
+export const LOGIN_PROVIDERS = ['kakao', 'naver', 'google', 'apple'] as const
 export type LoginProvider = (typeof LOGIN_PROVIDERS)[number]
 
-export const PROVIDER_NAMES: Readonly<Record<LoginProvider, string>> = { kakao: '카카오', naver: '네이버', google: '구글' }
+export const PROVIDER_NAMES: Readonly<Record<LoginProvider, string>> = { kakao: '카카오', naver: '네이버', google: '구글', apple: 'Apple' }
 
 export function isLoginProvider(value: unknown): value is LoginProvider {
   return typeof value === 'string' && (LOGIN_PROVIDERS as readonly string[]).includes(value)
 }
 
-/** 켜진 공급자 목록 → 정해진 순서(카카오·네이버·구글)의 아는 공급자만 */
+/** 켜진 공급자 목록 → 정해진 순서(카카오·네이버·구글·Apple)의 아는 공급자만 */
 export function providersOf(value: unknown): LoginProvider[] {
   if (!Array.isArray(value)) return []
   return LOGIN_PROVIDERS.filter((provider) => value.includes(provider))
 }
 
-/** "카카오로 계속하기" */
-export const continueLabel = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}로 계속하기`
+/** "카카오로 로그인" — 처음이든 아니든 같은 이름 (D-UX3-29, 사용자 지시 2026-11-05 "…로 로그인으로 전부 통일") */
+export const continueLabel = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}로 로그인`
 /** "카카오로 이동하는 중…" */
 export const movingLabel = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}로 이동하는 중…`
 /** 이동을 시작했는데 페이지가 떠나지 않았다 (FB1 D-FB1-08 (3)): "카카오로 가지 못했어요. 다시 눌러 주세요." */
@@ -36,7 +36,7 @@ export const START_FAILED = '지금 연결하지 못했어요. 잠시 뒤에 다
 export const RATE_LIMITED_MESSAGE = '로그인 시도가 너무 많아요. 10분 뒤에 다시 해 주세요.'
 
 /** 로그인 화면에 보이는 결과 */
-export const LOGIN_CODES = ['CANCELLED', 'EXPIRED', 'NOT_LINKED', 'PROVIDER_ERROR', 'RATE_LIMITED', 'SESSION_GONE'] as const
+export const LOGIN_CODES = ['CANCELLED', 'EXPIRED', 'NOT_LINKED', 'SIGNUP', 'PROVIDER_ERROR', 'RATE_LIMITED', 'SESSION_GONE'] as const
 /** 설정 "로그인 방법" 칸에 보이는 결과 */
 export const SETTINGS_CODES = ['LINKED', 'LINKED_ELSEWHERE', 'ALREADY_LINKED', 'CANCELLED', 'EXPIRED', 'PROVIDER_ERROR'] as const
 export type LoginResultCode = (typeof LOGIN_CODES)[number] | (typeof SETTINGS_CODES)[number]
@@ -62,6 +62,8 @@ export function resultMessage({ code, provider }: LoginResult): ResultMessage {
       return { tone: 'error', text: `${p} 로그인을 취소했어요. 다시 하려면 버튼을 눌러 주세요.` }
     case 'EXPIRED':
       return { tone: 'error', text: '로그인 요청이 오래됐거나 다른 창에서 시작한 요청이에요. 처음부터 다시 해 주세요.' }
+    case 'SIGNUP':
+      return { tone: 'success', text: `${p} 계정으로 ${SERVICE_NAME}를 처음 시작해요.` }
     case 'NOT_LINKED':
       return { tone: 'error', text: `이 ${p} 계정에 연결된 ${SERVICE_NAME} 계정이 없어요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 ${p} 계정을 연결해 주세요.` }
     case 'PROVIDER_ERROR':
@@ -71,7 +73,7 @@ export function resultMessage({ code, provider }: LoginResult): ResultMessage {
     case 'SESSION_GONE':
       return { tone: 'error', text: '로그인이 풀려 연결하지 못했어요. 다시 로그인한 뒤 연결해 주세요.' }
     case 'LINKED':
-      return { tone: 'success', text: `${p} 계정을 연결했어요. 다음부터 "${p}로 계속하기"로 로그인할 수 있어요.` }
+      return { tone: 'success', text: `${p} 계정을 연결했어요. 다음부터 "${p}로 로그인" 단추로 들어올 수 있어요.` }
     case 'LINKED_ELSEWHERE':
       return { tone: 'error', text: `이 ${p} 계정은 이미 다른 ${SERVICE_NAME} 계정에 연결돼 있어요. 다른 ${p} 계정으로 해 주세요.` }
     case 'ALREADY_LINKED':
@@ -81,6 +83,14 @@ export function resultMessage({ code, provider }: LoginResult): ResultMessage {
 
 /** "카카오 연결을 끊었어요." */
 export const unlinkedMessage = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]} 연결을 끊었어요.`
+
+// ── 앱 설정 → 연동된 소셜 계정 (D-UX3-61, 사용자 지시 2026-11-07 "계정 설정에서 연동된 소셜 계정 보여주고 해지할 수 있도록") ──
+export const LINKED_TITLE = '연동된 소셜 계정'
+export const LINKED_NONE = '연동된 소셜 계정이 없어요.'
+export const UNLINK_GO = '해지'
+export const unlinkAskTitle = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]} 연결을 해지할까요?`
+export const unlinkAskText = (provider: LoginProvider): string => `해지하면 ${PROVIDER_NAMES[provider]}로 로그인할 수 없고, ${PROVIDER_NAMES[provider]}로 로그인해 둔 다른 기기는 로그아웃돼요.`
+export const unlinkDone = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]} 연결을 해지했어요.`
 
 /** 끊기 확인 창 문장 */
 export const unlinkQuestion = (provider: LoginProvider): string => {
@@ -170,6 +180,8 @@ export interface LoginMethodItem {
 export interface LoginMethods {
   readonly loginId: string
   readonly providers: readonly LoginMethodItem[]
+  /** 문자로 확인한 휴대폰 번호(가린 것, D-UX3-30) — 없으면 null */
+  readonly phone?: string | null
 }
 
 /** 서버 응답 → 목록 (모르는 공급자·모양이 틀린 줄은 버리고, 카카오·네이버·구글 순) */
@@ -188,7 +200,7 @@ export function methodsOf(value: unknown): LoginMethods {
       linkedAt: typeof found.linkedAt === 'string' ? found.linkedAt : null,
     })
   }
-  return { loginId: typeof record.loginId === 'string' ? record.loginId : '', providers: items }
+  return { loginId: typeof record.loginId === 'string' ? record.loginId : '', providers: items, phone: typeof record.phone === 'string' ? record.phone : null }
 }
 
 /** 연결한 날짜 (KST) `2026. 10. 22.` — 읽을 수 없으면 빈 글 */
@@ -196,4 +208,237 @@ export function linkedDate(value: string | null): string {
   if (value === null) return ''
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(kstDate(value))
   return m === null ? '' : `${m[1] ?? ''}. ${String(Number(m[2]))}. ${String(Number(m[3]))}.`
+}
+
+// ── 가입 (D-UX3-28) ─────────────────────────────────────────────────
+
+// 동의 판은 없앴다 (D-UX3-29, 사용자 지시 2026-11-05 "저런 화면이 필수임?"): 간편 로그인 단추 아래 한 줄 안내(+ 이용약관·개인정보처리방침 링크)를 보고
+// 단추를 누른 것으로 동의를 받고, 처음 계정이면 돌아오자마자 가입한다(서버는 그대로 agree:true와 동의 시각을 남긴다).
+/** 간편 로그인 단추 아래 안내 (웹·앱 같은 문장) */
+export const SOCIAL_TERMS_NOTE = `처음이면 바로 ${SERVICE_NAME} 계정이 만들어져요. 계속하면 만 14세 이상이며 이용약관과 개인정보처리방침에 동의한 것으로 봐요.`
+/** 처음 계정을 만드는 동안 */
+export const SIGNUP_MAKING = '계정을 만들고 있어요…'
+
+// ── 최근 로그인 (D-UX3-28 — 사용자 지시 "최근 로그인도") ─────────────────
+// 그 기기(브라우저)에서 마지막으로 로그인에 성공한 방법. 공급자 단추를 누르면 "누른 것"으로 적어 두고, 로그인된 화면이 열리면 "마지막"으로 옮긴다.
+
+export type LastLogin = LoginProvider | 'id'
+const LAST_KEY = 'livejjim:last-login'
+const PENDING_KEY = 'livejjim:last-login-pending'
+
+const isLastLogin = (value: unknown): value is LastLogin => value === 'id' || isLoginProvider(value)
+
+export function readLastLogin(): LastLogin | null {
+  try {
+    const value = window.localStorage.getItem(LAST_KEY)
+    return isLastLogin(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function rememberLastLogin(method: LastLogin): void {
+  try {
+    window.localStorage.setItem(LAST_KEY, method)
+    window.localStorage.removeItem(PENDING_KEY)
+  } catch {
+    // 저장할 수 없는 브라우저 — 표시만 없다
+  }
+}
+
+/** 공급자 단추를 눌렀다 (돌아와 로그인되면 commitPendingLogin이 옮긴다) */
+export function markPendingLogin(provider: LoginProvider): void {
+  try {
+    window.localStorage.setItem(PENDING_KEY, provider)
+  } catch {
+    // 표시만 없다
+  }
+}
+
+/** 로그인된 화면이 열렸다: 누른 공급자가 있으면 그것을 마지막으로 */
+export function commitPendingLogin(): void {
+  try {
+    const pending = window.localStorage.getItem(PENDING_KEY)
+    if (isLoginProvider(pending)) rememberLastLogin(pending)
+  } catch {
+    // 표시만 없다
+  }
+}
+
+/** 로그인되지 않고 로그인 화면으로 돌아왔다(취소·실패) — 누른 것을 지운다 */
+export function dropPendingLogin(): void {
+  try {
+    window.localStorage.removeItem(PENDING_KEY)
+  } catch {
+    // 표시만 없다
+  }
+}
+
+export const RECENT_LOGIN = '최근 로그인'
+
+// ── 휴대폰 번호로 같은 사람 묶기 (D-UX3-30) ─────────────────────────────
+// 처음 온 간편 로그인은 문자 인증을 해야 계정이 생긴다. 이미 있는 번호면 그 계정으로 다시 로그인해야 이어진다.
+export const PHONE_TITLE = '휴대폰 번호를 확인할게요'
+export const PHONE_BODY = '같은 사람이면 카카오·네이버·구글 어느 것으로 들어와도 한 계정으로 이어져요.'
+export const ACCOUNT_PHONE_TITLE = '휴대폰 번호를 확인해 주세요'
+export const ACCOUNT_PHONE_BODY = '번호를 한 번 확인해 두면 어느 간편 로그인으로 들어와도 이 계정으로 이어져요.'
+export const PHONE_FIELD = '휴대폰 번호'
+export const PHONE_PLACEHOLDER = '010-0000-0000'
+export const PHONE_SEND = '인증번호 받기'
+export const CODE_FIELD = '인증번호 6자리'
+export const CODE_RESEND = '다시 받기'
+export const CODE_CONFIRM = '확인'
+export const PHONE_CHANGE = '번호 바꾸기'
+export const START_OVER = '처음으로'
+export const LOGOUT_LABEL = '로그아웃'
+export const codeSentMessage = (phone: string): string => `${phone} 번호로 인증번호를 보냈어요.`
+// 앱 번호 확인 화면 (D-UX3-49·50, 사용자 지시 2026-11-07 사진대로): 번호 11자리를 넣고 [다음]을 누르면 보내고, 6자리가 차면 바로 확인한다
+export const PHONE_ASK_TITLE = '본인 확인을 위해\n휴대폰 번호를 입력해 주세요'
+export const PHONE_RECHECK = '휴대폰 번호를 다시 확인해 주세요.'
+export const CODE_ASK_TITLE = '문자로 받은\n인증번호 6자리를 입력해 주세요'
+export const CODE_LEFT = '남은 시간'
+/** 키보드 위 밑줄 글자 단추 — 누르면 팝업 (D-UX3-53, 토스와 같은 문구 — 옛 D-UX3-50 '다시 문자 받을게요' 단추) */
+export const CODE_NOT_COMING = '문자가 안 오나요?'
+export const CODE_RESEND_ASK = '문자를 다시 받을까요?'
+/** [문자가 안 오나요?] 팝업 제목과, 다시 받을 수 있게 된 뒤 설명 (D-UX3-54, 사용자 지시 2026-11-07) */
+export const CODE_RESEND_TITLE = '인증 문자를 다시 받을까요?'
+export const CODE_RESEND_NOW = '지금 바로 다시 받을 수 있어요'
+/** 번호 확인 중 뒤로·밀어서 뒤로 할 때 묻는 팝업 (D-UX3-55, 사용자 지시 2026-11-07) */
+export const VERIFY_LEAVE_TITLE = '다음에 할까요?'
+export const VERIFY_LEAVE_TEXT = '여기서 나가면 처음부터 다시 해야 해요'
+export const VERIFY_LEAVE_GO = '나가기'
+export const CODE_RESEND_GO = '다시 받기'
+export const POPUP_CLOSE = '닫기'
+/** 3분이 지났을 때 팝업 제목 (D-UX3-53, 토스 사진 1) */
+export const CODE_TIME_OVER_TITLE = '입력할 수 있는 시간이 지났어요'
+/** 5번 틀렸을 때 팝업 (서버 CODE_LOCKED 문장과 같다, D-UX3-53 사용자 지시) */
+export const CODE_LOCKED_TEXT = '입력 횟수를 초과했어요\n처음부터 다시 시도해 주세요'
+/** 다시 받기 단추가 켜지기까지 (서버 RESEND_GAP_MS와 같다, D-UX3-50) */
+export const CODE_RESEND_WAIT_SECONDS = 30
+export const codeResendIn = (seconds: number): string => `${String(seconds)}초 뒤에 받을 수 있어요`
+export const PHONE_NEXT = '다음'
+export const CODE_RESENT = '인증번호를 다시 보냈어요.'
+export const PHONE_VERIFIED = '인증 성공'
+/** 숫자만 받아 010-0000-0000 모양으로 (치는 중에는 000-000-00처럼 3·3, 11자리가 차면 3·4·4) */
+export function formatMobileInput(digits: string): string {
+  const d = digits.replace(/\D/g, '').slice(0, 11)
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`
+  if (d.length <= 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`
+  return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`
+}
+/**
+ * 있는 번호 화면 (D-UX3-59, 사용자 지시 2026-11-07 "제목에는 "이미 가입한 적이 있어요" 그 아래에는 "해당 계정에 연결하고 로그인할게요" 하고 그 아래에는 이미 존재하는 계정들 나열"
+ * — 옛 D-UX3-30 "이미 가입한 계정이 있어요" + 공급자 단추). 아이디를 고르게 하지 않는다: [연결하기] 하나
+ */
+export const EXISTING_TITLE = '이미 가입한 적이 있어요'
+export const EXISTING_BODY = '해당 계정에 연결하고 로그인할게요'
+export const EXISTING_GO = '연결하기'
+/** 있는 번호 계정의 간편 로그인 하나: 공급자·가린 이름(se***@gmail.com, 없으면 빈 값)·마지막 로그인(ISO) */
+export interface ExistingLogin {
+  readonly provider: LoginProvider
+  readonly label: string
+  readonly lastLoginAt: string | null
+}
+/**
+ * "2026년 11월 6일 마지막 로그인" — 한국 시간으로 (기기 시간대와 상관없이).
+ * 달·날은 앞에 0을 붙이지 않는다 (D-UX3-60, 사용자 지시 2026-11-07 "07일 이런 형식이 아니라 그냥 7일로" — 옛 D-UX3-59 "11월 06일")
+ */
+export function lastLoginText(iso: string): string | null {
+  const time = Date.parse(iso)
+  if (!Number.isFinite(time)) return null
+  const korea = new Date(time + 9 * 60 * 60 * 1000)
+  return `${String(korea.getUTCFullYear())}년 ${String(korea.getUTCMonth() + 1)}월 ${String(korea.getUTCDate())}일 마지막 로그인`
+}
+/** 가장 최근에 로그인한 것 (모두 없으면 첫째) — [연결하기]가 이것으로 다시 로그인한다 */
+export function latestLogin(accounts: readonly ExistingLogin[]): ExistingLogin | null {
+  let best: ExistingLogin | null = null
+  for (const account of accounts) {
+    if (best === null || (account.lastLoginAt ?? '') > (best.lastLoginAt ?? '')) best = account
+  }
+  return best
+}
+function existingLoginsOf(value: unknown): ExistingLogin[] {
+  if (!Array.isArray(value)) return []
+  const out: ExistingLogin[] = []
+  for (const item of value as unknown[]) {
+    if (typeof item !== 'object' || item === null) continue
+    const record = item as Record<string, unknown>
+    const provider = providersOf([record.provider])[0]
+    if (provider === undefined || out.some((account) => account.provider === provider)) continue
+    out.push({ provider, label: typeof record.label === 'string' ? record.label : '', lastLoginAt: typeof record.lastLoginAt === 'string' ? record.lastLoginAt : null })
+  }
+  return out
+}
+/** 있는 번호: 그 계정의 간편 로그인으로 다시 로그인하면 지금 공급자가 이어진다 */
+export function existingBody(phone: string, providers: readonly LoginProvider[], next: LoginProvider): string {
+  if (providers.length === 0) return `${phone} 번호로 가입한 계정이에요. 아이디로 로그인한 뒤 설정 → 로그인 방법에서 ${PROVIDER_NAMES[next]} 로그인을 연결해 주세요.`
+  const names = providers.map((provider) => PROVIDER_NAMES[provider]).join('·')
+  return `${phone} 번호로 가입한 계정이에요. ${names}로 로그인하면 ${PROVIDER_NAMES[next]}도 함께 이어져요.`
+}
+export const EXISTING_LOST = '예전 로그인 방법을 쓸 수 없으면 운영자에게 문의해 주세요.'
+/** 다른 간편 로그인 계정으로 들어갔을 때 — 앱은 아래 [연결하기], 웹은 위 단추라 자리를 말하지 않는다 (D-UX3-59, 옛 "위 단추로") */
+export const NOT_THAT_ACCOUNT = '이 번호로 가입한 계정이 아니에요. 다시 로그인해 주세요.'
+export const linkedNow = (provider: LoginProvider): string => `${PROVIDER_NAMES[provider]}도 이 계정에 이었어요.`
+
+/** 가입 중 인증번호 확인 결과 (POST /api/auth/signup/phone/verify) */
+export type SignupPhoneNext =
+  | { readonly next: 'SIGNUP'; readonly phone: string }
+  | { readonly next: 'LOGIN_EXISTING'; readonly phone: string; readonly providers: readonly LoginProvider[]; readonly accounts: readonly ExistingLogin[]; readonly password: boolean }
+
+export function signupPhoneNextOf(value: unknown): SignupPhoneNext | null {
+  if (typeof value !== 'object' || value === null) return null
+  const record = value as Record<string, unknown>
+  const phone = typeof record.phone === 'string' ? record.phone : ''
+  if (record.next === 'SIGNUP') return { next: 'SIGNUP', phone }
+  if (record.next === 'LOGIN_EXISTING') {
+    const providers = providersOf(record.providers)
+    // 옛 서버(accounts 없음)면 공급자만으로 — 이름·마지막 로그인 없이
+    const listed = existingLoginsOf(record.accounts).filter((account) => providers.includes(account.provider))
+    const accounts = providers.map((provider) => listed.find((account) => account.provider === provider) ?? { provider, label: '', lastLoginAt: null })
+    return { next: 'LOGIN_EXISTING', phone, providers, accounts, password: record.password === true }
+  }
+  return null
+}
+
+// 웹: 있는 번호의 계정으로 다시 로그인하러 공급자에 다녀온다 — 돌아와 로그인되면 가입 표 쿠키로 잇는다 (D-UX3-30)
+const PENDING_LINK_KEY = 'livejjim:pending-link'
+const LOGIN_FLASH_KEY = 'livejjim:login-flash'
+
+export function markPendingLink(): void {
+  try {
+    window.sessionStorage.setItem(PENDING_LINK_KEY, '1')
+  } catch {
+    // 잇기만 못 한다 — 설정 → 로그인 방법에서 다시 연결할 수 있다
+  }
+}
+
+/** 잇기를 기다리는지 (읽으면 지운다) */
+export function takePendingLink(): boolean {
+  try {
+    const pending = window.sessionStorage.getItem(PENDING_LINK_KEY) === '1'
+    window.sessionStorage.removeItem(PENDING_LINK_KEY)
+    return pending
+  } catch {
+    return false
+  }
+}
+
+/** 로그인 화면에 한 번 보일 문장 (다른 계정으로 들어가 로그아웃한 뒤) */
+export function setLoginFlash(text: string): void {
+  try {
+    window.sessionStorage.setItem(LOGIN_FLASH_KEY, text)
+  } catch {
+    // 문장만 없다
+  }
+}
+
+export function takeLoginFlash(): string | null {
+  try {
+    const text = window.sessionStorage.getItem(LOGIN_FLASH_KEY)
+    window.sessionStorage.removeItem(LOGIN_FLASH_KEY)
+    return text
+  } catch {
+    return null
+  }
 }

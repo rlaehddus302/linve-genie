@@ -32,8 +32,8 @@
       }
     },
     "android": {
-      "package": "app.livejjim.mobile",
-      "versionCode": 6,
+      "package": "kr.livegenie.app",
+      "versionCode": 9,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1F8A4C"

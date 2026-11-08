@@ -6,7 +6,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { ScrollView, View } from 'react-native'
+import { Platform, ScrollView, View } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import { ApiError, get, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
@@ -25,24 +25,40 @@ import { QuickInput } from './console/QuickInput.tsx'
 import { SmsForm } from './console/SmsForm.tsx'
 import { ChatView, PasteView } from './console/ChatPaste.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
+
+/** 메뉴 판이 다 닫힌 뒤 다음 판을 연다 — 판 닫힘(SHEET_OUT_MS 200) + 아이폰이 판을 내리는 시간 */
+const MENU_HANDOFF_MS = 400
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
-import { ListenLine, listenChip, useStreamAudio } from './console/StreamAudio.tsx'
+import { ListenLine, listenChip, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
+import { APP_IMPORT_TITLE, ImportView } from './console/ImportSheet.tsx'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
 const RETURN_WAIT_MS = 3000
+/** 채팅 의심 표시 읽는 간격 (D-V3-129) */
+const DOUBT_POLL_MS = 20_000
 
 export function useScopeStore(broadcastId: string): { store: ScopeStore; snapshot: ScopeSnapshot } {
   const services = useServices()
   const store = useMemo(() => new ScopeStore({ broadcastId, openStream: () => services.stream.open() }), [broadcastId, services])
+  // 방송 화면에 들어왔다는 기록을 먼저 끝낸 뒤 방송 목록을 받는다 (D-UX3-25 고침): 새 방송 단계에서 만든 방송은 이 기록 전에는 목록에 없어,
+  // 둘을 함께 보내면 목록이 먼저 와 "그 방송을 찾지 못했어요"가 떴다(라벨 [괜찮아요]로 바로 넘어올 때). 기록이 실패해도 그대로 불러온다.
   useEffect(() => {
-    void store.start()
-    return () => store.stop()
-  }, [store])
+    let live = true
+    void withRetry(() => post(`/api/broadcasts/${encodeURIComponent(broadcastId)}/open`, {}))
+      .catch(() => undefined)
+      .then(() => {
+        if (live) void store.start()
+      })
+    return () => {
+      live = false
+      store.stop()
+    }
+  }, [store, broadcastId])
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
   return { store, snapshot }
 }
@@ -93,7 +109,27 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const inset = useBottomInset()
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide' | 'pending'>('none')
+  type SheetName = 'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide' | 'pending' | 'import'
+  const [sheet, setSheet] = useState<SheetName>('none')
+  // 방송 메뉴에서 다른 판으로 갈 때 (D-UX3-26): 아이폰은 판(Modal)이 닫히는 동안 새 판을 띄우지 못해 '방송을 끝낼까요?' 등이 아예 뜨지 않았다.
+  // 메뉴를 먼저 닫고, 닫히는 움직임이 끝난 뒤에 다음 판을 연다.
+  const menuTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (menuTimer.current !== null) clearTimeout(menuTimer.current)
+  }, [])
+  const fromMenu = (next: () => void) => {
+    setSheet('none')
+    // 웹의 판은 움직임 없이 바로 닫혀(겹쳐 띄우는 문제가 없다) 곧바로 연다
+    if (Platform.OS === 'web') {
+      next()
+      return
+    }
+    if (menuTimer.current !== null) clearTimeout(menuTimer.current)
+    menuTimer.current = setTimeout(() => {
+      menuTimer.current = null
+      next()
+    }, MENU_HANDOFF_MS)
+  }
   // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07)
   const [tab, setTab] = useState<'products' | 'feed'>('products')
   const [decideFor, setDecideFor] = useState<string | null>(null)
@@ -205,7 +241,29 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 방송이 끝나면 음성도 끈다 (APP-02 "방송 끝")
   const voiceView = useSyncExternalStore(services.voice.subscribe, services.voice.getView)
   const live = seller && broadcast !== null && !(broadcast.ended || endedHere) && !(data?.sealed ?? false)
-  const stream = useStreamAudio(services.voice, broadcastId, broadcast === null || broadcast.title.trim() === '' ? '제목 없음' : broadcast.title, live)
+  // 방송 소리 듣기는 앱 뿌리가 붙잡는다 — 이 화면을 나가도 계속 듣는다 (D-UX3-48). 방송이 끝났거나 닫혔으면 놓는다
+  const streamTitle = broadcast === null || broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
+  const knownOver = broadcast !== null && !live
+  useEffect(() => {
+    if (live) services.streamKeep.keep(broadcastId, streamTitle)
+    else if (knownOver) services.streamKeep.release(broadcastId)
+  }, [live, knownOver, broadcastId, streamTitle, services])
+  const stream = useKeptStream(services.streamKeep, broadcastId)
+
+  // 채팅 의심 표시 (D-V3-129): 방송 중·판매자일 때 20초마다 읽는다 — 등록을 바꾸지 않고 줄에 문장만
+  const [doubts, setDoubts] = useState<ReadonlyMap<number, string>>(new Map())
+  useEffect(() => {
+    if (!live) return
+    let stop = false
+    const read = () => {
+      get<{ doubts: readonly { no: number; text: string }[] }>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/voice-doubts`).then((body) => {
+        if (!stop) setDoubts(new Map(body.doubts.map((doubt) => [doubt.no, doubt.text])))
+      }, () => undefined)
+    }
+    read()
+    const timer = setInterval(read, DOUBT_POLL_MS)
+    return () => { stop = true; clearInterval(timer) }
+  }, [live, broadcastId])
 
   // 상품이 없는 새 방송이 유튜브에 이어져 있지 않으면 연결 화면을 한 번 연다 — 새 방송 화면에서 주소 단계를 이미 거쳤으면 열지 않는다 (D-UX3-06)
   const askedLink = useRef(wasLinkAsked(broadcastId))
@@ -271,7 +329,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     )
   }
 
-  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, select: setSelected, selected, labelWords }
+  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), select: setSelected, selected, labelWords, doubts }
   const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed
@@ -345,6 +403,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
         </BottomSheet>
+        <FullSheet visible={sheet === 'import'} onClose={close} name={APP_IMPORT_TITLE} title={APP_IMPORT_TITLE}>
+          {sheet === 'import' ? <ImportView /> : null}
+        </FullSheet>
         <BottomSheet visible={sheet === 'pending'} onClose={close} title="보류 찜">
           <Txt step="caption" color="textSub">아직 상품이 없는 번호의 찜이에요. 그 번호 상품을 올리면 먼저 온 순서대로 정해져요.</Txt>
           {sheet === 'pending' ? <ClaimFeed only="PENDING" /> : null}
@@ -365,12 +426,14 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         <BottomSheet visible={sheet === 'menu'} onClose={close} title="방송 메뉴">
           <Txt step="caption" color="textSub">{`${title}${broadcast.rehearsal ? ' · 리허설' : ''}`}</Txt>
           <RowGroup label="방송 메뉴">
-            {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="방송 연결" sub="방송 링크 붙여 넣기, 채팅 받는 상태" onPress={showLink} /> : null}
-            {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => setSheet('voice')} /> : null}
-            {openLabels !== undefined && !broadcast.rehearsal ? <TodoRow title="프린터·라벨" sub="프린터 연결, 라벨 대기·다시 찍기" onPress={() => { close(); openLabels() }} /> : null}
-            <TodoRow title="채팅 보기" sub="최근 채팅 100줄, 주문·취소 표시" onPress={() => setSheet('chat')} />
-            {!broadcast.rehearsal && !closed ? <TodoRow title="댓글 붙여넣기" sub="틱톡·인스타그램 등 자동으로 못 받는 댓글" onPress={() => setSheet('paste')} /> : null}
-            {!closed ? <TodoRow title="방송 끝내기" onPress={() => setSheet('end')} /> : null}
+            {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="방송 연결" sub="방송 링크 붙여 넣기, 채팅 받는 상태" onPress={() => fromMenu(showLink)} /> : null}
+            {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => fromMenu(() => setSheet('voice'))} /> : null}
+            {openLabels !== undefined && !broadcast.rehearsal ? <TodoRow title="프린터·라벨" sub="프린터 연결, 라벨 대기·다시 찍기" onPress={() => fromMenu(openLabels)} /> : null}
+            <TodoRow title="채팅 보기" sub="최근 채팅 100줄, 주문·취소 표시" onPress={() => fromMenu(() => setSheet('chat'))} />
+            {!broadcast.rehearsal && !closed ? <TodoRow title="댓글 붙여넣기" sub="틱톡·인스타그램 등 자동으로 못 받는 댓글" onPress={() => fromMenu(() => setSheet('paste'))} /> : null}
+            {/* 방송 전 상품 미리 등록 (PRD-05 앱, D-V3-128) */}
+            {seller && !closed ? <TodoRow title={APP_IMPORT_TITLE} sub="번호·품종·가격을 붙여 넣어 공개 전 상품으로" onPress={() => fromMenu(() => setSheet('import'))} /> : null}
+            {!closed ? <TodoRow title="방송 끝내기" onPress={() => fromMenu(() => setSheet('end'))} /> : null}
           </RowGroup>
         </BottomSheet>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}

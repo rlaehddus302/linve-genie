@@ -1,4 +1,5 @@
-// N2b-2 E2E — 막힘 → 알림 줄 → 붙여넣기 창 (AC-N2b-2-62·64·80 ④⑥⑦⑧). 여러 플랫폼 묶음(@multi).
+// N2b-2 E2E — 막힘 → 알림 줄 → 붙여넣기 창 (AC-N2b-2-62·64·80 ④⑥⑧). 여러 플랫폼 묶음(@multi).
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "AC-N2b-2-80 ⑦ 보조자가 문자찜 화면에서 붙여넣기, 틱톡·인스타 설정 칸 없음"을 뺐다
 import { expect, test } from '@playwright/test'
 import {
   PASTE_ALERT,
@@ -6,7 +7,6 @@ import {
   consoleTiktok,
   history,
   linkTiktokUi,
-  loginAs,
   noHorizontalScroll,
   openRealBroadcast,
   pasteDialog,
@@ -133,34 +133,6 @@ test.describe('N2b-2 붙여넣기 @multi', () => {
     expect(await page.evaluate(() => (window as unknown as { __xss: number }).__xss)).toBe(0)
     expect(await page.locator('img[src="x"]').count()).toBe(0)
     expect(dialogs).toEqual([])
-  })
-
-  test('AC-N2b-2-80 ⑦ 보조자: 문자찜 화면에서 붙여넣기(실제 방송), 틱톡·인스타 설정 칸은 없음 @multi', async ({ page, browser }) => {
-    await tiktokSeller(page)
-    const title = `보조자 붙여넣기 ${String(Date.now())}`
-    const { b, date } = await openRealBroadcast(page, { title })
-    await registerApi(page, b, 15, '라울', 10_000)
-    const created = await page.request.post('/api/assistants', { data: { name: '도우미' }, headers: { Origin: new URL(page.url()).origin } })
-    expect(created.ok(), await created.text()).toBe(true)
-    const { assistant, password } = (await created.json()) as { assistant: { loginId: string }; password: string }
-    const ctx = await browser.newContext({ viewport: { width: 375, height: 812 } })
-    const p = await ctx.newPage()
-    await loginAs(p, { loginId: assistant.loginId, password })
-    await p.goto('/sms')
-    const region = p.getByRole('region', { name: '고른 방송' })
-    await expect(region).toContainText(title)
-    await region.getByRole('button', { name: '댓글 붙여넣기' }).click()
-    const dlg = pasteDialog(p)
-    await dlg.getByLabel('붙여 넣을 댓글').fill('보조손님: 15')
-    await dlg.getByRole('button', { name: '미리 보기' }).click()
-    await dlg.getByRole('button', { name: '찜 1개 넣기' }).click()
-    await expect(p.getByText('찜 1개를 넣었어요.')).toBeVisible()
-    const view = await scopeView(page, date, false)
-    expect(view.claims.filter((c) => c.no === 15)).toHaveLength(1)
-    await p.goto('/settings/tiktok')
-    await expect(p.getByRole('region', { name: '틱톡 라이브(베타)', exact: true })).toHaveCount(0)
-    await expect(p.getByRole('region', { name: '인스타그램', exact: true })).toHaveCount(0)
-    await ctx.close()
   })
 
   test('AC-N2b-2-80 ⑧ 375×812: 붙여넣기 창 가로 스크롤 없음·누르는 곳 44px @multi', async ({ page }) => {

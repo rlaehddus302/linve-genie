@@ -427,19 +427,12 @@ describe('AC-A1-08 켜기·동의·끄기', () => {
     expect(fake.calls).toBe(1)
   })
 
-  it('판매자마다 따로 — A가 켜도 B는 꺼짐. 보조자는 보기·바꾸기·받기 모두 403', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('판매자마다 따로 — A가 켜도 B는 꺼짐', async () => {
     const { world, seller } = await assistWorld()
     const other = await addSeller(world)
     await enableAssist(world, seller)
     expect((await expectOk(client(world, other.cookie).get('/api/assist/settings'))).body.enabled).toBe(false)
-    const created = await expectOk(client(world, seller.cookie).post('/api/assistants', { name: '도우미' }))
-    const assistant = created.body.assistant as { loginId: string }
-    const { login } = await import('./support.ts')
-    const cookie = await login(world, assistant.loginId, created.body.password as string)
-    const helper = client(world, cookie)
-    expect((await helper.get('/api/assist/settings')).status).toBe(403)
-    expect((await helper.put('/api/assist/settings', { enabled: false })).status).toBe(403)
-    expect((await helper.post('/api/assist/suggest', { rehearsal: false })).status).toBe(403)
   })
 })
 

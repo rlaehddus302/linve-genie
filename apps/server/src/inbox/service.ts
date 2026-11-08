@@ -298,6 +298,13 @@ export class InboxService {
     this.#deps = deps
   }
 
+  /** 방송 뒤 손님 정보 문자 처리기 (ORD-14 — 택배 서비스가 이 서비스보다 뒤에 만들어져 조립에서 넘긴다). 주소를 못 읽으면 false */
+  #buyerInfo: ((sellerId: string, input: { readonly text: string; readonly sender: string | null; readonly receivedMs: number; readonly nowMs: number }) => Promise<boolean>) | null = null
+
+  useBuyerInfo(handler: (sellerId: string, input: { readonly text: string; readonly sender: string | null; readonly receivedMs: number; readonly nowMs: number }) => Promise<boolean>): void {
+    this.#buyerInfo = handler
+  }
+
   /**
    * 주기 정리를 건다 (C-07·D-SMS3-17·AC-SMS3-18): 요청·화면 열기가 없어도 처리 안 한 카드(본문)는 방송 끝나고 24시간,
    * 은행 알림 줄은 받은 지 30일, 받은 id·같은 문자 표지는 24시간 뒤 지운다
@@ -499,7 +506,8 @@ export class InboxService {
     const { receivedMs, phoneMs } = at
     // 방송 창 (D-SMS3-07): 끝나지 않은 실제 방송, 없으면 끝난 지 10분 안의 실제 방송 (서버 도착 시각 기준)
     const broadcast = await windowBroadcast(db, sellerId, new Date(nowMs - INBOX_AFTER_END_MS))
-    if (broadcast === null) return 'IGNORED'
+    // 방송 창 밖: 손님 정보 문자(닉네임·성함·주소)만 받는다 (ORD-14, D-REAL-11)
+    if (broadcast === null) return (await this.#takeBuyerInfo(sellerId, text, phone, receivedMs, nowMs)) ? 'SAVED' : 'IGNORED'
     // 실제로 시작한 지 12시간이 넘은 방송은 창이 아니다 — 다른 방송으로 넘기지 않는다 (D-SMS3-29)
     const stale = nowMs - broadcast.startedAt.getTime() > INBOX_WINDOW_MAX_MS
     const runtime = await this.#deps.writer.read(sellerId, broadcast.date, false)
@@ -511,6 +519,8 @@ export class InboxService {
     const claims = 'claims' in result && Array.isArray(result.claims) ? (result.claims as readonly number[]) : null
     const cancels = 'cancels' in result && Array.isArray(result.cancels) ? (result.cancels as readonly number[]) : null
     const review = 'review' in result && Array.isArray(result.review) ? (result.review as readonly number[]) : null
+    // 문자찜·취소가 아니고 주소를 읽으면 손님 정보 문자 — 번지 숫자로 "확인 필요" 카드를 만들지 않는다 (ORD-14)
+    if (claims === null && cancels === null && (await this.#takeBuyerInfo(sellerId, text, phone, receivedMs, nowMs))) return 'SAVED'
     if (claims === null && cancels === null && review === null) return 'IGNORED'
     if (stale) {
       // 넣지 않은 일만 적는다(방송·시각·건수 — 본문 없음). 끝낸 방송(끝난 지 10분 안)이면 알릴 것이 없다
@@ -575,6 +585,17 @@ export class InboxService {
     }
     if (cards.length > 0) this.#deps.publish(sellerId, { kind: 'cards', b: broadcast.id })
     return 'SAVED'
+  }
+
+  /** 손님 정보 문자로 받았는지 (처리기가 없거나 실패하면 false — 지금 그대로 처리, 로그엔 종류만) */
+  async #takeBuyerInfo(sellerId: string, text: string, phone: string | null, receivedMs: number, nowMs: number): Promise<boolean> {
+    if (this.#buyerInfo === null) return false
+    try {
+      return await this.#buyerInfo(sellerId, { text, sender: phone, receivedMs, nowMs })
+    } catch (error) {
+      this.#deps.log({ level: 'warn', code: 'BUYER_INFO_FAILED', seller: sellerId, errorKind: errorKind(error) })
+      return false
+    }
   }
 
   // ── 문자 확인 카드 ─────────────────────────────────────────────────────

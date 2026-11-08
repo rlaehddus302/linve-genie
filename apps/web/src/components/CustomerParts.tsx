@@ -1,7 +1,6 @@
 // 손님 기록 화면 조각 (CRM1, SPEC BUY-06·BUY-07, D-CRM1-06·D-CRM1-08): 꼬리표, 구매자 자세히의 "손님 기록" 칸, 메모 칸.
 // - 꼬리표는 글자 + 색(UX-04): "단골"(차분한 색)·"입금 늦음 주의"(주의 색)·"차단".
 // - 메모·이름은 늘 글자로만(React 기본 이스케이프, 절대 규칙 7). 메모 저장은 바로(5초 대기 조치 아님), 이벤트가 아니다.
-// - 판매자 계정만 부르는 경로다(보조자 403) — 보조자 화면은 구매자 화면에 오지 않는다.
 import { useEffect, useId, useState } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
 import {

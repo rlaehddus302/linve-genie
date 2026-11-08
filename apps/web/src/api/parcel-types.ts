@@ -31,6 +31,8 @@ export interface ParcelBrief {
   readonly bookedAt: string | null
   /** 접수 취소를 보낼 수 있는지 (접수됐고 집하 전) */
   readonly cancellable: boolean
+  /** 판매자가 인터넷우체국에서 직접 접수하고 송장번호만 적은 묶음 (D-UX3-37 — VISIT 가지러 오기·COUNTER 들고 가기, 자동 접수면 null. 예전 서버는 보내지 않는다) */
+  readonly direct?: 'VISIT' | 'COUNTER' | null
 }
 
 /** 택배 화면의 묶음 한 줄 */
@@ -54,6 +56,8 @@ export interface ParcelRow {
   readonly message: string | null
   readonly box: BoxKind
   readonly parcel: ParcelBrief | null
+  /** 직접 넣은 택배 (D-UX3-38 — 방송 판매 기록 없음, 받는 분 이름이 name). 옛 서버엔 없다 */
+  readonly extra?: boolean
 }
 
 export interface ParcelDay {
@@ -141,6 +145,8 @@ export interface ParcelSettings {
   /** 고를 수 있는 택배사 (autoBook = 이 서버에 자동 접수 어댑터가 있음) */
   readonly carriers: readonly { readonly code: SettingsCarrier; readonly name: string; readonly autoBook: boolean }[]
   readonly customerNoLast4: string | null
+  /** 우체국 인증키·보안키를 저장했다 (값은 오지 않는다 — D-REAL-04) */
+  readonly epostReady?: boolean
   readonly sender: ParcelSender | null
   /** 보내는 사람 이름 기본값 (가게 이름) */
   readonly shopName: string

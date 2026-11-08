@@ -4,10 +4,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { configureVoiceStorage } from '../src/lib/voice-preferences.ts'
 import { fetch as expoFetch } from 'expo/fetch'
 import { getStringAsync, setStringAsync } from 'expo-clipboard'
-import { randomUUID } from 'expo-crypto'
+import { CryptoDigestAlgorithm, CryptoEncoding, digestStringAsync, getRandomBytes, randomUUID } from 'expo-crypto'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import { openBrowserAsync } from 'expo-web-browser'
+import { openAuthSessionAsync, openBrowserAsync } from 'expo-web-browser'
 import { useMemo } from 'react'
 import { Linking } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -16,7 +16,9 @@ import { configureApi } from '../src/api/config.ts'
 import { setWebOpener } from '../src/lib/open-web.ts'
 import { setPlatformOpener } from '../src/lib/open-app.ts'
 import { setClipboardReader, setClipboardWriter } from '../src/lib/clipboard.ts'
-import { createServices, ServicesProvider, SessionProvider } from '../src/services.tsx'
+import { setSocialNative, toBase64Url } from '../src/lib/social-auth.ts'
+import { createServices, ServicesProvider, SessionProvider, useServices, useSession } from '../src/services.tsx'
+import { KeptStreamAudio } from '../src/screens/console/StreamAudio.tsx'
 import { TAB_SCREENS } from '../src/lib/tab-routes.ts'
 
 configureApi({ fetch: (input, init) => expoFetch(input, init as Parameters<typeof expoFetch>[1]) as unknown as Promise<Response>, newId: randomUUID })
@@ -35,6 +37,23 @@ setClipboardReader(() => getStringAsync())
 setClipboardWriter((text) => setStringAsync(text))
 installProductionNative()
 configureVoiceStorage(AsyncStorage)
+// 앱 안 간편 로그인 (D-UX3-28): 앱 위 로그인 창(ASWebAuthenticationSession·Custom Tabs) — 사파리·웹으로 넘기지 않는다
+setSocialNative({
+  openAuthSession: async (url, returnUrl) => {
+    const result = await openAuthSessionAsync(url, returnUrl)
+    return result.type === 'success' ? result.url : null
+  },
+  randomVerifier: () => toBase64Url(btoa(String.fromCharCode(...getRandomBytes(32)))),
+  sha256: async (text) => toBase64Url(await digestStringAsync(CryptoDigestAlgorithm.SHA256, text, { encoding: CryptoEncoding.BASE64 })),
+  storage: AsyncStorage,
+})
+
+/** 방송 화면을 나가도 방송 소리를 계속 듣는다 (D-UX3-48) */
+function StreamKeeper() {
+  const services = useServices()
+  const { session } = useSession()
+  return <KeptStreamAudio session={services.voice} keep={services.streamKeep} signedIn={session.state === 'in'} />
+}
 
 export default function RootLayout() {
   const services = useMemo(() => createServices(), [])
@@ -44,7 +63,9 @@ export default function RootLayout() {
         <SessionProvider services={services}>
           <StatusBar style="dark" />
           <PrinterDevicePicker />
-          <Stack screenOptions={{ headerShown: false }}>
+          <StreamKeeper />
+          {/* 뒤로 가기는 왼쪽 가장자리에서 밀 때만 (D-UX3-24): iOS 26부터 기본이 '화면 어디서 밀어도 뒤로'라 라벨 끌기·가로 밀기까지 뒤로 갔다 */}
+          <Stack screenOptions={{ headerShown: false, fullScreenGestureEnabled: false }}>
             {/* 탭 화면끼리는 화면 전환 없이 바꿔 끼운다 — 짧은 좌우 밀림은 TabFrame이 낸다 (D-UX3-01) */}
             {TAB_SCREENS.map((name) => (
               <Stack.Screen key={name} name={name} options={{ animation: 'none' }} />

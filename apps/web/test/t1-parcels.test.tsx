@@ -96,7 +96,7 @@ let day: ParcelDay
 
 function setup() {
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '다육이네' }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '다육이네' }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/parcels\/days$/, () => ({ body: { dates: [{ date: D, ready: 1, booked: 1 }], selected: D } }))
     .on('GET', /^\/api\/parcels\/days\/(\d{4}-\d{2}-\d{2})$/, () => ({ body: day }))
 }
@@ -131,19 +131,18 @@ const region = (name: RegExp) => screen.getByRole('region', { name })
 const exact = (name: string) => new RegExp(`^${name}$`)
 
 describe('메뉴·주소 (AC-T1-60)', () => {
-  it('"택배"는 "설정" 바로 앞(PC·휴대폰 목록 같은 순서), 막대 네 칸 그대로, 보조자에게는 없다', () => {
-    const layout = menuLayout({ route: { name: 'home' }, assistant: false, labels: true, review: null, billing: true })
+  it('"택배"는 "설정" 바로 앞(PC·휴대폰 목록 같은 순서), 막대 네 칸 그대로', () => {
+    // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자에게는 없다"를 뺐다
+    const layout = menuLayout({ route: { name: 'home' }, labels: true, review: null, billing: true })
     expect(layout.bar.map(menuName)).toEqual(['방송', '문자찜 입력', '구매자', '정산'])
     expect(layout.more.map(menuName)).toEqual(['입금 확인', '포장', '라벨', '요금', '택배', '설정'])
     expect(menuAll(layout).at(-2)?.key).toBe('parcels')
-    const assistant = menuLayout({ route: { name: 'home' }, assistant: true, labels: true, review: null })
-    expect(menuAll(assistant).map(menuName)).toEqual(['문자찜 입력'])
   })
 
   it('실제 날짜를 보고 있었으면 그 날짜로, 리허설이면 날짜 없이', () => {
-    const real = menuLayout({ route: { name: 'settlements', date: D, rehearsal: false }, assistant: false, labels: true, review: null })
+    const real = menuLayout({ route: { name: 'settlements', date: D, rehearsal: false }, labels: true, review: null })
     expect(routePath(real.more.find((item) => item.key === 'parcels')!.to)).toBe(`/parcels?date=${D}`)
-    const rehearsal = menuLayout({ route: { name: 'settlements', date: D, rehearsal: true }, assistant: false, labels: true, review: null })
+    const rehearsal = menuLayout({ route: { name: 'settlements', date: D, rehearsal: true }, labels: true, review: null })
     expect(routePath(rehearsal.more.find((item) => item.key === 'parcels')!.to)).toBe('/parcels')
   })
 
@@ -173,14 +172,14 @@ describe('낱말 (PC-8, D-T1-12)', () => {
   })
 
   it('실패한 시도는 "아직 못 보내요"로, 실패·모름은 다시 보낼 줄 — 기다리는 중은 아니다', () => {
-    const failed = row('UC_X', '실패', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' }) })
+    const failed = row('UC_X', '실패', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' }) })
     const unknown = row('UC_Y', '모름', { ready: false, reason: 'BOOKING', message: '접수 결과를 기다리고 있어요', parcel: brief({ state: 'UNKNOWN', invoice: null, invoiceText: null, status: null, message: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.' }) })
     const pending = row('UC_Z', '기다림', { ready: false, reason: 'BOOKING', message: '접수 결과를 기다리고 있어요', parcel: brief({ state: 'PENDING', invoice: null, invoiceText: null, status: null }) })
     const groups = parcelGroups({ ready: [row('UC_A', '김하나'), failed], excluded: [unknown, pending], booked: [] })
     expect(groups.ready.map((item) => item.buyer)).toEqual(['UC_A'])
     expect(groups.excluded.map((item) => item.buyer)).toEqual(['UC_X', 'UC_Y', 'UC_Z'])
     expect(retryRows({ ready: [failed], excluded: [unknown, pending] }).map((item) => item.buyer)).toEqual(['UC_X', 'UC_Y'])
-    expect(rowReason(failed)).toBe('택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.')
+    expect(rowReason(failed)).toBe('택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.')
     expect(rowReason(unknown)).toBe('접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.')
   })
 })
@@ -270,16 +269,16 @@ describe('택배 화면 (AC-T1-61~64)', () => {
   it('일부 실패: 줄마다 문장, "실패한 것만 다시"는 실패·모름만 보낸다(기다리는 중은 빼고)', async () => {
     day = {
       ...sixRows(),
-      ready: [row('UC_A', '김하나', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' }) })],
+      ready: [row('UC_A', '김하나', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' }) })],
       excluded: [
         row('UC_C', '박셋', { ready: false, reason: 'BOOKING', message: '접수 결과를 기다리고 있어요', parcel: brief({ state: 'UNKNOWN', invoice: null, invoiceText: null, status: null, message: '접수됐는지 아직 몰라요. 잠시 뒤 다시 확인해 주세요.' }) }),
         row('UC_P', '대기', { ready: false, reason: 'BOOKING', message: '접수 결과를 기다리고 있어요', parcel: brief({ state: 'PENDING', invoice: null, invoiceText: null, status: null, message: null }) }),
       ],
     }
-    server.on('POST', /\/book$/, () => ({ body: { date: D, results: [{ buyer: 'UC_A', ok: false, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' }, { buyer: 'UC_C', ok: true, invoice: '900000000003', invoiceText: '9000-0000-0003' }] } }))
+    server.on('POST', /\/book$/, () => ({ body: { date: D, results: [{ buyer: 'UC_A', ok: false, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' }, { buyer: 'UC_C', ok: true, invoice: '900000000003', invoiceText: '9000-0000-0003' }] } }))
     await open()
     const excluded = region(exact('아직 못 보내요'))
-    expect(within(excluded).getByText('택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.')).toBeDefined()
+    expect(within(excluded).getByText('택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.')).toBeDefined()
     // 모름: 긴 안내와 바로 누를 수 있는 "다시 확인", 기다림: 긴 안내와 "다시 확인" 없음 (D-T1-18)
     const unknownRow = within(excluded).getByText(UNKNOWN_WAIT).closest('li') as HTMLElement
     expect(within(unknownRow).getByRole('button', { name: '다시 확인' })).toHaveProperty('disabled', false)
@@ -306,6 +305,21 @@ describe('택배 화면 (AC-T1-61~64)', () => {
     expect(await screen.findByText('택배사가 이미 가져갔어요. 택배사에 직접 문의해 주세요.')).toBeDefined()
     expect(server.callsTo('POST', /\/cancel$/)[0]?.body).toMatchObject({ buyer: 'UC_F' })
     expect(within(region(exact('접수했어요'))).getByText('한여섯')).toBeDefined()
+  })
+
+  it('우체국 직접 접수 묶음 (D-UX3-37): "우체국 직접 접수" 꼬리표, 운송장 PDF 없음, [기록 지우기]는 라이브찜 기록만 지운다고 묻는다', async () => {
+    day = { ...sixRows(), booked: [row('UC_F', '한여섯', { ready: false, reason: 'BOOKED', packing: '배송 완료', parcel: brief({ carrier: 'EPOST', direct: 'VISIT' }) })] }
+    server.on('POST', /\/cancel$/, () => ({ body: { bundle: {} } }))
+    await open()
+    const booked = region(exact('접수했어요'))
+    expect(within(booked).getByText('우체국 직접 접수')).toBeDefined()
+    expect(within(booked).queryByRole('button', { name: '운송장 PDF' })).toBeNull()
+    fireEvent.click(within(booked).getByRole('button', { name: '기록 지우기' }))
+    const dialog = screen.getByRole('dialog', { name: '송장 기록을 지울까요?' })
+    expect(within(dialog).getByText(/우체국 접수는 그대로라, 취소하려면 인터넷우체국에서 해 주세요/)).toBeDefined()
+    fireEvent.click(within(dialog).getByRole('button', { name: '지우기' }))
+    expect(await screen.findByText('송장 기록을 지웠어요.')).toBeDefined()
+    expect(server.callsTo('POST', /\/cancel$/)[0]?.body).toMatchObject({ buyer: 'UC_F' })
   })
 
   it('다른 기기의 접수(실시간 parcel 알림)면 새로고침 없이 다시 읽는다', async () => {
@@ -387,7 +401,7 @@ describe('기다림·다시 확인·결과 문장 (D-T1-18, U-T1-05·09·10·12)
   })
 
   it('날짜 고르기의 "보낼 수 있어요" 수는 화면 무리와 같다 — 실패한 묶음은 세지 않는다 (U-T1-09)', async () => {
-    day = { ...sixRows(), ready: [row('UC_A', '김하나', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지를 확인해 주세요.' }) })] }
+    day = { ...sixRows(), ready: [row('UC_A', '김하나', { parcel: brief({ state: 'FAILED', invoice: null, invoiceText: null, status: null, reason: 'ADDRESS', message: '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.' }) })] }
     await open()
     expect(within(region(exact('보낼 수 있어요'))).getByText(NOTHING_READY_TEXT)).toBeDefined()
     await waitFor(() => expect(screen.getByRole('combobox', { name: '날짜' }).textContent).toContain('보낼 수 있어요 0 · 접수 1'))
@@ -623,5 +637,87 @@ describe('개인정보처리방침 (AC-T1-80)', () => {
     const text = section.textContent ?? ''
     for (const phrase of ['받는 분', '연락처', '주소', '배송 메모', '택배로 보내는 데', '택배사에 보내요', '주문 날짜로부터 30일', '초안']) expect(text).toContain(phrase)
     expect(screen.getByRole('region', { name: '5. 제3자 제공' }).textContent).toContain('택배사')
+  })
+})
+
+describe('우체국 방문접수 파일 (D-UX3-36)', () => {
+  it('우체국을 골랐으면 "우체국에 직접 접수하기": [인터넷우체국 열기] 왼쪽·[우체국 파일 받기 (N개)] 오른쪽, 누르면 파일을 받는다', async () => {
+    const downloads: string[] = []
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:epost')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      if (this.download !== '') downloads.push(this.download)
+    })
+    day = {
+      ...sixRows(),
+      carrier: { code: 'EPOST', name: '우체국택배' },
+      blocked: { code: 'NO_AUTO_BOOK', message: '우체국 자동 접수를 쓰려면 설정 > 택배에 우체국 고객 번호·인증키·보안키를 넣어 주세요.' },
+      box: '100',
+      ready: [row('UC_A', '김하나'), row('UC_G', '오일곱')],
+    }
+    server.on('GET', /^\/api\/parcels\/days\/2026-10-22\/epost-visit\.xlsx$/, () => ({ body: {} }))
+    await open()
+    const card = region(exact('우체국에 직접 접수하기'))
+    expect(within(card).getByText(/계약하지 않아도 돼요/)).toBeDefined()
+    expect(within(card).getByText('상자 크기는 모두 기본 상자(100cm 이하)로 넣어요. 다른 묶음은 우체국 목록에서 바꿔 주세요.')).toBeDefined()
+    const actions = [...card.querySelectorAll('a.button, button')].map((element) => element.textContent)
+    expect(actions).toEqual(['인터넷우체국 열기', '우체국 파일 받기 (2개)'])
+    const link = within(card).getByRole('link', { name: '인터넷우체국 열기' })
+    expect(link.getAttribute('href')).toContain('https://parcel.epost.go.kr/')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    fireEvent.click(within(card).getByRole('button', { name: '우체국 파일 받기 (2개)' }))
+    await waitFor(() => expect(server.callsTo('GET', /epost-visit\.xlsx$/)).toHaveLength(1))
+    await waitFor(() => expect(downloads).toEqual(['우체국-방문접수-2026-10-22.xlsx']))
+  })
+
+  it('다른 택배사를 골랐으면 보이지 않고, 보낼 묶음이 없어도 우체국이면 보인다 (D-UX3-64)', async () => {
+    await open()
+    expect(screen.queryByRole('region', { name: '우체국에 직접 접수하기' })).toBeNull()
+    cleanup()
+    day = { ...sixRows(), carrier: { code: 'EPOST', name: '우체국택배' }, ready: [] }
+    await open()
+    expect(screen.getByRole('region', { name: '우체국에 직접 접수하기' })).toBeTruthy()
+  })
+})
+
+describe('받는 분 직접 넣기 (D-UX3-38)', () => {
+  it('판매 기록이 없어도 받는 분·물품 수를 적어 그 날짜에 넣고, 직접 넣은 줄은 "물품 N개 · 직접 넣음"에 [지우기] 왼쪽·[고치기] 오른쪽', async () => {
+    day = { ...sixRows(), ready: [row('UC_A', '김하나'), row('extra:abc', '나래', { extra: true, qty: 3, itemCount: 0, total: 0 })] }
+    const puts: Record<string, unknown>[] = []
+    server.on('PUT', /^\/api\/parcels\/days\/2026-10-22\/extra$/, (call) => {
+      puts.push(call.body as Record<string, unknown>)
+      return { body: { bundle: { date: D, buyer: 'extra:new', address: null, locked: false, expired: false, row: row('extra:new', '다솜', { extra: true, qty: 2 }) } } }
+    })
+    server.on('POST', /^\/api\/parcels\/days\/2026-10-22\/extra\/delete$/, (call) => {
+      puts.push(call.body as Record<string, unknown>)
+      return { body: { buyer: 'extra:abc' } }
+    })
+    await open()
+    const ready = region(exact('보낼 수 있어요'))
+    expect(within(ready).getByText('물품 3개 · 직접 넣음')).toBeDefined()
+    const group = within(ready).getByRole('group', { name: '나래 직접 넣은 택배' })
+    expect([...group.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['지우기', '고치기'])
+
+    const card = region(exact('받는 분 직접 넣기'))
+    expect(within(card).getByText(/방송 판매 기록이 없어도 보낼 수 있어요/)).toBeDefined()
+    expect(within(card).getByText('10월 22일 목록에 넣어요.')).toBeDefined()
+    fireEvent.click(within(card).getByRole('button', { name: '받는 분 넣기' }))
+    const dialog = await screen.findByRole('dialog', { name: '받는 분 직접 넣기' })
+    fireEvent.change(within(dialog).getByLabelText('받는 분'), { target: { value: '다솜' } })
+    fireEvent.change(within(dialog).getByLabelText('연락처'), { target: { value: '010-1111-2222' } })
+    fireEvent.change(within(dialog).getByLabelText('주소'), { target: { value: '부산광역시 해운대구 1' } })
+    fireEvent.change(within(dialog).getByLabelText('물품 수'), { target: { value: '2' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0]).toMatchObject({ address: { name: '다솜', phone: '010-1111-2222', address: '부산광역시 해운대구 1', detail: '', zip: '', memo: '' }, qty: 2 })
+    expect(typeof puts[0]?.['requestId']).toBe('string')
+    expect(await within(card).findByText('받는 분을 넣었어요. "보낼 수 있어요"에서 접수해 주세요.')).toBeDefined()
+
+    fireEvent.click(within(group).getByRole('button', { name: '지우기' }))
+    const ask = await screen.findByRole('dialog', { name: '받는 분을 지울까요?' })
+    expect(within(ask).getByText('나래님을 접수 목록에서 지워요. 지우면 되돌릴 수 없어요.')).toBeDefined()
+    fireEvent.click(within(ask).getByRole('button', { name: '지우기' }))
+    await waitFor(() => expect(puts).toHaveLength(2))
+    expect(puts[1]).toMatchObject({ buyer: 'extra:abc' })
   })
 })

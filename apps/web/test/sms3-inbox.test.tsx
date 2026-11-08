@@ -78,7 +78,7 @@ const card = (patch: Partial<InboxCardView> = {}): InboxCardView => ({
 
 function setupConsole() {
   server
-    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1', role: 'SELLER', assistant: null } }))
+    .on('GET', /^\/api\/me$/, () => ({ body: { seller: { name: '구피 가게' }, loginId: 'shop1' } }))
     .on('GET', /^\/api\/settings$/, () => ({ body: { settings: fullView().broadcasts[0]?.settings ?? {} } }))
     .on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [broadcastItem()] } }))
     .on('GET', /^\/api\/client-config$/, () => ({ body: { hostActionDelayMs: 50 } }))

@@ -1,6 +1,7 @@
-// BND1 E2E — 휴대폰 우선·이스케이프·보조자·두 기기 (AC-BND1-70·71·74·76·77, AC-BND1-80 ⑩). 여러 플랫폼 묶음(@multi) + 아이폰 크기 WebKit(@webkit).
+// BND1 E2E — 휴대폰 우선·이스케이프·두 기기 (AC-BND1-71·74·76·77, AC-BND1-80 ⑩). 여러 플랫폼 묶음(@multi) + 아이폰 크기 WebKit(@webkit).
 // 기대값: 375·393(WebKit)·412·430 폭과 글자 150%에서 가로 스크롤 없음·누르는 곳 44px 이상·고르기 창의 "더 보기"·"잇기"는 화면 아래쪽,
-// 손님 이름·글·글 첫 줄·알림 글은 글자로만, 보조자에게 설정 칸 없음(콘솔은 열 수 없음), 다른 기기의 변화는 새로 고침 없이.
+// 손님 이름·글·글 첫 줄·알림 글은 글자로만, 다른 기기의 변화는 새로 고침 없이.
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 — 설정에 네이버 밴드 칸 없음·콘솔 못 엶·밴드 쓰기 403 (AC-BND1-70·71·80 ⑩의 보조자 부분)"을 뺐다
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   READ_WAIT,
@@ -197,37 +198,6 @@ test.describe('BND1 휴대폰 @multi', () => {
     await expect(page.locator('main img[src="x"], main img[src="y"], main script')).toHaveCount(0)
     expect(dialogs).toEqual([])
     expect(errors).toEqual([])
-  })
-
-  test('AC-BND1-70·71·80 ⑩: 보조자 — 설정에 "네이버 밴드" 칸 없음, 콘솔은 열 수 없고 밴드 쓰기 요청 0 @multi', async ({ page, browser }) => {
-    const w = await bandWorld(page, { baseline: 0, oneBand: true })
-    const { b } = await linkedBroadcast(page, w)
-    const origin = new URL(page.url()).origin
-    const res = await page.request.post('/api/assistants', { data: { name: '밴드보조' }, headers: { Origin: origin } })
-    const { assistant, password } = (await res.json()) as { assistant: { loginId: string }; password: string }
-    const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL, viewport: { width: 375, height: 812 }, locale: 'ko-KR', timezoneId: 'Asia/Seoul' })
-    const phone = await ctx.newPage()
-    const bandCalls: string[] = []
-    phone.on('request', (r) => {
-      const path = new URL(r.url()).pathname
-      if (path.startsWith('/api/band') || /\/band(\/|$)/.test(path)) bandCalls.push(`${r.method()} ${path}`)
-    })
-    try {
-      await loginAs(phone, { loginId: assistant.loginId, password })
-      await phone.goto('/settings/band')
-      await expect(bandSettings(phone)).toHaveCount(0)
-      await phone.goto(`/broadcasts/${encodeURIComponent(b)}`)
-      await expect(phone.getByText('문자찜 입력만', { exact: false }).first()).toBeVisible()
-      await expect(consoleBand(phone)).toHaveCount(0)
-      expect(bandCalls.filter((c) => c.startsWith('POST'))).toEqual([])
-      // 보조자의 쓰기 경로는 403 (AC-BND1-15)
-      const tryLink = await phone.request.post(`/api/broadcasts/${encodeURIComponent(b)}/band/unlink`, { data: { requestId: crypto.randomUUID() }, headers: { Origin: origin } })
-      expect(tryLink.status()).toBe(403)
-      const view = await phone.request.get(`/api/broadcasts/${encodeURIComponent(b)}/band`)
-      expect(view.status()).toBe(200)
-    } finally {
-      await ctx.close()
-    }
   })
 
   test('두 기기: PC에서 잇기 → 휴대폰 콘솔 밴드 칸이 새로 고침 없이 "읽고 있어요" · 휴대폰에서 "확인했어요" → PC 알림 띠 줄 사라짐 @multi', async ({ page, browser }) => {

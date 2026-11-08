@@ -53,7 +53,7 @@ import { FakeYoutubeWeb } from './youtube/fake-youtube-web.ts'
 import type { OutboxTiming } from './youtube/outbox.ts'
 import { FakeOAuth } from './social/fake-oauth.ts'
 import { FakeLlm } from './assist/fake-llm.ts'
-import type { ProviderId } from './social/providers.ts'
+import type { CoveredProvider as ProviderId } from './social/fake-oauth.ts'
 
 /** 시험용 판매자 계정 (저장소의 픽스처 파일 — 실제 비밀값이 아니다) */
 export const E2E_ACCOUNT_FILE = new URL('../e2e/account.json', import.meta.url)

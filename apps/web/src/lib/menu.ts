@@ -5,7 +5,6 @@
 //   막대의 앞 네 칸(`barItems`)은 바꾸지 않는다 — 바꾸려면 새 결정이 필요하다. "설정"은 `settingsItem` 하나로 늘 맨 뒤다.
 // - 요금(N5)은 이 규칙대로 목록 끝("설정" 바로 앞)에 — 요금 기능이 켜져 있을 때만(AC-NAV-09).
 // - 택배(T1, D-T1-08, AC-T1-60)도 이 규칙대로 목록 끝("설정" 바로 앞) — 판매자에게 늘. 실제 날짜를 보고 있었으면 그 날짜로.
-// - 보조자는 "문자찜 입력" 한 칸, 더보기 없음.
 // - 휴대폰 아래 막대의 칸 이름은 `barLabel`(MOB1 D-MOB1-04): 두 번째 칸만 "문자찜"(한 줄로 읽히게). PC 위 줄 메뉴·화면 제목은 "문자찜 입력" 그대로.
 import type { MenuKey, Route } from './router.ts'
 
@@ -19,19 +18,18 @@ export interface MenuItem {
 
 export interface MenuInput {
   readonly route: Route
-  readonly assistant: boolean
   /** 라벨 기능이 켜져 있다고 아는가 (꺼짐·모름이면 "라벨"을 만들지 않는다 — L-13 9) */
   readonly labels: boolean
   /** 확인 필요 입금 수 (모르면 null) */
   readonly review: number | null
-  /** 요금 기능이 켜져 있다 (N5, AC-N5-50 — 켜져 있을 때만 "요금". 보조자에게는 없다) */
+  /** 요금 기능이 켜져 있다 (N5, AC-N5-50 — 켜져 있을 때만 "요금") */
   readonly billing?: boolean
 }
 
 export interface MenuLayout {
-  /** 막대 칸 (휴대폰: 앞 네 칸, 보조자: 한 칸) */
+  /** 막대 칸 (휴대폰: 앞 네 칸) */
   readonly bar: readonly MenuItem[]
-  /** 더보기 목록 (보조자는 빈 목록 — 더보기 칸이 없다) */
+  /** 더보기 목록 */
   readonly more: readonly MenuItem[]
 }
 
@@ -70,7 +68,6 @@ function moreItems(input: MenuInput): readonly MenuItem[] {
 const settingsItem: MenuItem = { key: 'settings', label: '설정', to: { name: 'settings' } }
 
 export function menuLayout(input: MenuInput): MenuLayout {
-  if (input.assistant) return { bar: [{ key: 'sms', label: '문자찜 입력', to: { name: 'sms' } }], more: [] }
   return { bar: barItems(input), more: [...moreItems(input), settingsItem] }
 }
 
@@ -84,7 +81,7 @@ export function menuName(item: MenuItem): string {
   return item.count === undefined ? item.label : `${item.label} ${item.count}`
 }
 
-/** 휴대폰 아래 막대의 "문자찜" 칸 이름 (D-MOB1-04 — 판매자·보조자 모두. 보이는 글 = 접근성 이름) */
+/** 휴대폰 아래 막대의 "문자찜" 칸 이름 (D-MOB1-04 — 보이는 글 = 접근성 이름) */
 export const SMS_BAR_LABEL = '문자찜'
 
 /** 휴대폰 아래 막대 칸 이름 — "문자찜 입력"만 "문자찜"으로 줄인다. 그 밖은 `menuName`과 같다 */

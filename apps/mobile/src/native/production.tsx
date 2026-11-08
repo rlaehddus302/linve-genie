@@ -26,7 +26,7 @@ import { AppPrinter } from './app-printer.ts'
 import { LiveNativeAudio } from './live-audio.ts'
 import { setNativeModules } from './index.ts'
 import { setNoticeModule } from './notice.ts'
-import { setHaptic } from './haptics.ts'
+import { setErrorHaptic, setHaptic } from './haptics.ts'
 import * as Haptics from 'expo-haptics'
 import { ClipboardPasteButton, hasStringAsync, isPasteButtonAvailable } from 'expo-clipboard'
 import { setClipboardProbe } from '../lib/clipboard.ts'
@@ -61,7 +61,7 @@ async function permission(): Promise<boolean> {
 }
 
 function TabBarBlur() {
-  return <BlurView tint="systemChromeMaterialLight" intensity={60} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
+  return <BlurView tint="light" intensity={30} style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} />
 }
 
 let installed = false
@@ -70,6 +70,8 @@ export function installProductionNative(): void {
   installed = true
   // 아래 탭 손맛 (D-UX3-07)
   setHaptic(() => void Haptics.selectionAsync())
+  // 잘못 넣었을 때 오류 진동 (D-UX3-51)
+  setErrorHaptic(() => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error))
   // 클립보드는 글이 있는지만 본다(창 없음). 아이폰 16 이상은 기본 붙여넣기 단추
   setClipboardProbe(() => hasStringAsync())
   if (Platform.OS === 'ios' && isPasteButtonAvailable) setPasteControl(NativePasteButton)

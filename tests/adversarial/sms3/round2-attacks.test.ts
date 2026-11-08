@@ -6,6 +6,7 @@
 // - D-SMS3-31: REJECTED·STATE_FORMAT 500 뒤 같은 id 다시 보내기 — 카드·찜 중복 없음
 // - D-DEP2-14: bal: 키 분 단위 — 문자+앱 같은 입금 하나
 // - D-SMS3-28: 한도 1분 600건
+// D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자는 알림 닫기 403"을 뺐다
 import type { ClaimInfo } from '@livejjim/core'
 import { describe, expect, it } from 'vitest'
 import { balancesOf } from '../../../apps/server/src/deposit/phone-store.ts'
@@ -239,14 +240,6 @@ describe('12시간 넘은 방송은 창이 아니다 (D-SMS3-29)', () => {
     expect(['IGNORED', 'DUPLICATE']).toContain((await statuses(world, token, [sms('o1', '010-1111-1111', '15 있나요?')]))[0])
     expect(await cards(world, seller, sale.id)).toEqual([])
     expect(await claimsOf(world, seller)).toEqual([])
-  })
-
-  it('보조자는 알림 닫기 403', async () => {
-    const { world, seller } = await inboxWorld()
-    const made = await expectOk(client(world, seller.cookie).post('/api/assistants', { name: '도우미' }))
-    const { login } = await import('../../../apps/server/test/support.ts')
-    const cookie = await login(world, (made.body.assistant as { loginId: string }).loginId, made.body.password as string)
-    expect((await client(world, cookie).post('/api/inbox/stale/close', {})).status).toBe(403)
   })
 })
 

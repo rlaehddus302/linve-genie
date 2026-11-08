@@ -1,14 +1,8 @@
-// T1 권한·판매자 나눔·로그: AC-T1-07(보조자 403·다른 판매자 404·리허설·봉인), AC-T1-08(로그·감사 메시지·발송함에 배송지 없음).
+// T1 권한·판매자 나눔·로그: AC-T1-07(다른 판매자 404·리허설·봉인), AC-T1-08(로그·감사 메시지·발송함에 배송지 없음).
 import { describe, expect, it } from 'vitest'
 import { linkApi, openLink, tokenOf } from './n4b-support.ts'
-import { ORIGIN, client, dumpAllTables, login, rid, type Seller, type TestServer } from './support.ts'
-import { ADDRESS, D, SENDER, bookOk, expect200, expectNoSecret, makeReady, parcelApi, parcelSeller, parcelWorld, sell } from './t1-support.ts'
-
-async function assistantOf(world: TestServer, seller: Seller): Promise<string> {
-  const created = await client(world, seller.cookie).post('/api/assistants', { name: '엄마' })
-  expect(created.status, created.text).toBe(200)
-  return login(world, (created.body.assistant as { loginId: string }).loginId, created.body.password as string)
-}
+import { ORIGIN, client, dumpAllTables, rid, type TestServer } from './support.ts'
+import { ADDRESS, D, SENDER, bookOk, dayRows, expect200, expectNoSecret, makeReady, parcelApi, parcelSeller, parcelWorld, sell } from './t1-support.ts'
 
 /** 택배 API 전부 (읽기·쓰기) — 상태 코드 목록 */
 async function everyCall(world: TestServer, cookie: string, buyer: string, updatedAt: string): Promise<{ name: string; status: number }[]> {
@@ -36,7 +30,8 @@ async function everyCall(world: TestServer, cookie: string, buyer: string, updat
 }
 
 describe('AC-T1-07 권한과 판매자 나눔', () => {
-  it('보조자는 배송지·접수 목록·접수·다시 확인·취소·운송장·설정 모두 403, 다른 판매자는 S의 날짜·구매자로 모두 404 — 아무것도 바뀌지 않는다', async () => {
+  // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어"): 보조자 기능을 없애 옛 기대 "보조자 403"을 뺐다
+  it('다른 판매자는 S의 날짜·구매자로 모두 404 — 아무것도 바뀌지 않는다', async () => {
     const world = await parcelWorld()
     const seller = await parcelSeller(world)
     await sell(world, seller, [
@@ -50,17 +45,16 @@ describe('AC-T1-07 권한과 판매자 나눔', () => {
     const before = await dumpAllTables(world.database)
     const sentBefore = world.carrier.requests.length
 
-    const helper = await assistantOf(world, seller)
-    for (const call of await everyCall(world, helper, 'UC_A', updatedAt)) expect(call.status, call.name).toBe(403)
-    for (const call of await everyCall(world, helper, 'UC_B', updatedAt)) expect(call.status, call.name).toBe(403)
-
     const other = await parcelSeller(world)
     const results = await everyCall(world, other.cookie, 'UC_A', updatedAt)
     for (const call of results) {
-      if (['설정 읽기', '설정 쓰기', '날짜 목록'].includes(call.name)) expect(call.status, call.name).toBe(200)
+      // D-UX3-64: 접수 목록은 빈 목록(200) — S의 줄은 아래에서 하나도 없음을 본다
+      if (['설정 읽기', '설정 쓰기', '날짜 목록', '접수 목록'].includes(call.name)) expect(call.status, call.name).toBe(200)
       else expect(call.status, call.name).toBe(404)
     }
-    for (const call of await everyCall(world, other.cookie, 'UC_B', updatedAt)) if (!['설정 읽기', '설정 쓰기', '날짜 목록'].includes(call.name)) expect(call.status, call.name).toBe(404)
+    // D-UX3-64: 판매 기록이 없는 날짜의 접수 목록은 404가 아니라 빈 목록 — 다른 판매자에게는 S의 줄이 하나도 없는 빈 목록
+    for (const call of await everyCall(world, other.cookie, 'UC_B', updatedAt)) if (!['설정 읽기', '설정 쓰기', '날짜 목록', '접수 목록'].includes(call.name)) expect(call.status, call.name).toBe(404)
+    expect(await dayRows(world, other)).toMatchObject({ ready: [], booked: [], excluded: [] })
     // 다른 판매자가 같은 날짜에 자기 방송이 있어도 S의 구매자는 404
     await sell(world, other, [['UC_Z', '제트', 1]])
     for (const call of await everyCall(world, other.cookie, 'UC_A', updatedAt)) if (!['설정 읽기', '설정 쓰기', '날짜 목록', '접수 목록', '운송장 전부'].includes(call.name)) expect(call.status, call.name).toBe(404)

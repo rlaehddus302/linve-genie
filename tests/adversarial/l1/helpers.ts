@@ -2,7 +2,8 @@
 // 실제 구글·카카오·네이버 주소로 나가는 요청은 막는다(acceptance 공통 전제).
 import { expect } from 'vitest'
 import { FakeOAuth, type FakeOAuthOptions } from '../../../apps/server/src/social/fake-oauth.ts'
-import type { ProviderId, SocialLoginSetup } from '../../../apps/server/src/social/providers.ts'
+import type { SocialLoginSetup } from '../../../apps/server/src/social/providers.ts'
+import type { CoveredProvider as ProviderId } from '../../../apps/server/src/social/fake-oauth.ts'
 import { installGoogleBlock } from '../../../apps/server/src/youtube/network-guard.ts'
 import { installOutboundGuard } from '../../../apps/server/test/outbound-guard.ts'
 import { ORIGIN, addSeller, client, login, newWorld, type Seller, type TestServer } from '../../../apps/server/test/support.ts'
@@ -175,14 +176,6 @@ export async function dumpAll(w: L1World): Promise<string> {
   let out = ''
   for (const { table_name } of tables) out += JSON.stringify(await rows(w, `select * from "${String(table_name)}"`))
   return out
-}
-
-export async function assistant(w: L1World, seller: Seller): Promise<string> {
-  const made = await client(w, seller.cookie).post('/api/assistants', {
-    name: '보조',
-  })
-  expect(made.status).toBe(200)
-  return login(w, (made.body.assistant as { loginId: string }).loginId, made.body.password as string)
 }
 
 export const ip = (address: string) => ({

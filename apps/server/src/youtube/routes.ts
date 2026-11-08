@@ -9,7 +9,6 @@ import { REQUEST_ID_RE, own, ownKeys } from '../api-fields.ts'
 import { SESSION_COOKIE, type Auth, type SessionContext } from '../auth.ts'
 import { apiError, type ErrorCode } from '../errors.ts'
 import { unknownFieldProblems } from '../messages.ts'
-import { ASSISTANT_FORBIDDEN_MESSAGE } from '../roles.ts'
 import type { Service } from '../service.ts'
 import { CALLBACK_MESSAGES, NOT_CONNECTED_MESSAGE, type CallbackResult } from './connect.ts'
 import { SELLER_OUTBOX_MESSAGES } from './outbox.ts'
@@ -82,8 +81,6 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
   // 돌아오는 주소: 공개 경로(api.ts가 세션을 강제하지 않는다) — 세션 쿠키와 state로 판매자를 정한다
   api.get('/youtube/oauth/callback', async (c) => {
     const current = await auth.session(getCookie(c, SESSION_COOKIE))
-    // 보조자 계정은 유튜브 경로를 쓰지 않는다 (AC-I3-61 — 세션을 강제하지 않는 이 경로도)
-    if (current?.role === 'ASSISTANT') return apiError(403, 'ASSISTANT_FORBIDDEN', ASSISTANT_FORBIDDEN_MESSAGE)
     if (youtube === null || !youtube.oauthReady) return notConfigured()
     const code = c.req.query('code')
     const state = c.req.query('state')
@@ -155,6 +152,19 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     // 잇기는 회차부터 본다(다른 판매자의 회차가 있는지 알리지 않는다) — 주소가 글자가 아니면 빈 주소로 넘겨 그다음에 거른다
     const video = typeof raw === 'string' && raw.length <= 2048 ? raw : ''
     return linkResponse(c, await youtube.link(info(c), c.req.param('id'), video, requestId, confirm === true))
+  })
+  // 잇기 전 미리 보기 (D-UX4-08): { video } → { title, channelTitle }. 아무것도 넣지 않는다. 서버 읽기가 아니면 404 PREVIEW_UNAVAILABLE(화면은 옛 흐름)
+  api.post('/youtube/preview', async (c) => {
+    if (youtube === null) return notConfigured()
+    const input = body(c)
+    const extra = onlyKeys(input, ['video'])
+    if (extra !== null) return extra
+    const raw = own(input, 'video')
+    const video = typeof raw === 'string' && raw.length <= 2048 ? raw : ''
+    const outcome = await youtube.preview(sellerOf(c), video)
+    if (outcome === null) return apiError(404, 'PREVIEW_UNAVAILABLE', '찾을 수 없어요.')
+    if (outcome.kind === 'rejected') return apiError(outcome.status, outcome.code as ErrorCode, LINK_MESSAGES[outcome.code])
+    return c.json({ title: outcome.title, channelTitle: outcome.channelTitle })
   })
   api.post('/broadcasts/:id/youtube/unlink', async (c) => {
     if (youtube === null) return notConfigured()

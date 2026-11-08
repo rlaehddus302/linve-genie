@@ -1,5 +1,5 @@
 // 손님 기록 (CRM1, SPEC BUY-06·BUY-07, D-CRM1-02~D-CRM1-10). 계산은 서버가 한다 — 화면은 받은 숫자를 낱말로 바꾸고 정렬·거르기만 한다.
-// - 서버 계약: harness/sprints/CRM1/dev-notes.md "API". 판매자 계정만(보조자 403). 응답에 전화번호 키·전화번호가 없다 — 손님은 불투명 ID.
+// - 서버 계약: harness/sprints/CRM1/dev-notes.md "API". 응답에 전화번호 키·전화번호가 없다 — 손님은 불투명 ID.
 // - 날짜 문장은 KST 날짜 그대로(범위 날짜는 이미 KST). 올해 기준은 응답의 today(서버 KST 날짜) — 화면 기기 시계와 상관없다.
 // - 영어 상태값(PAID·UNPAID 등)은 낱말로만 보인다(절대 규칙 8).
 import { useEffect, useMemo, useRef, useState } from 'react'

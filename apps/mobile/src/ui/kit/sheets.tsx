@@ -2,9 +2,9 @@
 // 움직임 (D-UX3-05): 뒤 어두운 막은 제자리에서 서서히 짙어지고(페이드), 판만 아래에서 올라온다 — 막이 판과 함께 밀려 올라오지 않게.
 // 닫을 때도 막은 서서히 걷히고 판은 내려간 뒤 사라진다. 키보드가 뜨면 판이 키보드 위로 올라간다(입력 칸이 가려지지 않게).
 import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
-import { AccessibilityInfo, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View, useWindowDimensions, type ScrollViewInstance } from 'react-native'
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type ScrollViewInstance } from 'react-native'
 import { BigButton, ButtonRow } from './buttons.tsx'
-import { BACKDROP_OPACITY, RADIUS, SHADOW, SPACE } from './tokens.ts'
+import { BACKDROP_OPACITY, PAGE, RADIUS, SHADOW, SPACE, WEIGHT } from './tokens.ts'
 import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
 import { BackButton } from './app.tsx'
 
@@ -158,14 +158,17 @@ export function FormPage({ title, name, onBack, backLabel = '뒤로', children, 
   return (
     <View role="dialog" aria-label={name ?? title} testID={testID} style={{ flex: 1, backgroundColor: bg, paddingTop: top }}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <View style={{ paddingHorizontal: SPACE.sm, paddingTop: SPACE.sm }}>
+        {/* 뒤로·제목 자리는 토스와 같게 (D-UX3-51) */}
+        <View style={{ paddingLeft: PAGE.backLeft }}>
           <BackButton label={backLabel} onPress={onBack} />
         </View>
-        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xxl, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled" stickyHeaderIndices={sticky === undefined ? undefined : [1]}>
-          <Txt step="headline" weight="heavy" role="heading" aria-level={1}>
-            {title}
-          </Txt>
-          {sticky === undefined ? null : <View style={{ backgroundColor: bg, marginHorizontal: -SPACE.xl, paddingHorizontal: SPACE.xl, paddingBottom: SPACE.sm }}>{sticky}</View>}
+        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled" stickyHeaderIndices={sticky === undefined ? undefined : [1]}>
+          <View style={{ paddingBottom: PAGE.titleGap - SPACE.xxl }}>
+            <Txt step="headline" weight="bold" role="heading" aria-level={1}>
+              {title}
+            </Txt>
+          </View>
+          {sticky === undefined ? null : <View style={{ backgroundColor: bg, marginHorizontal: -PAGE.side, paddingHorizontal: PAGE.side, paddingBottom: SPACE.sm }}>{sticky}</View>}
           {children}
         </ScrollView>
         {actions === undefined || actions === null ? null : (
@@ -228,6 +231,10 @@ export interface PopupDialogProps {
   readonly visible: boolean
   /** 묻는 말 — 줄바꿈(\n)을 그대로 보인다 */
   readonly message: string
+  /** 묻는 말 아래 회색 설명 (토스 "문자를 다시 받을까요?") */
+  readonly description?: string | null
+  /** 긍정 단추를 잠시 끈다 (예: 다시 받기까지 남은 초) */
+  readonly confirmDisabled?: boolean
   /** 보조 기술에 읽히는 이름 — 없으면 묻는 말 */
   readonly name?: string
   /** 긍정 단추 (오른쪽) */
@@ -244,10 +251,48 @@ export interface PopupDialogProps {
  * 흰 둥근 판에 묻는 말, 아래 단추 둘 — 왼쪽 부정(회색), 오른쪽 긍정(주색) (D-UX4-01). 뒤 막은 서서히 짙어지고 판은 살짝 커지며 나타난다.
  * 바깥을 누르거나 뒤로 가기는 부정과 같다.
  */
-export function PopupDialog({ visible, message, name, confirmLabel, cancelLabel, busy, onConfirm, onCancel }: PopupDialogProps) {
+/**
+ * 가운데 팝업 크기 (D-UX3-56, 사용자 지시 2026-11-07 "팝업 안 버튼 크기가 토스보다 작음"): 사진을 찍은 휴대폰이 폭 430(15 Pro Max)인데 393으로 재 9% 작았다.
+ * 다시 재어 폭 320·둘레 16·모서리 24·제목 위 22·글 왼쪽 22 (옛 D-UX3-54 폭 292·둘레 14·모서리 20).
+ */
+const POPUP_WIDTH = 320
+const POPUP_EDGE = 16
+const POPUP_TOP = 22
+const POPUP_TEXT_SIDE = 22
+/** 팝업 뒤 어둡기·단추 (D-UX3-55, 사용자 지시 2026-11-07 "팝업 띄울 때 배경 어두워지는 정도, 팝업 및 버튼 가로세로, 버튼 색깔, 버튼 안 글자 크기, 두께, 색깔 다 맞춰" — 토스 사진을 재어: 뒤 0.22, 단추 높이 44·모서리 12·글자 17 두께 600, 왼쪽 단추 연회색 바탕 #F2F4F6에 회색 글자) */
+export const POPUP_DIM = 0.22
+/** 단추 높이 47 (D-UX3-56 다시 재어 — 옛 44). 폭은 둘이 나눠 140 */
+const POPUP_BUTTON_HEIGHT = 47
+const POPUP_BUTTON_TEXT = 17
+
+/** 팝업 안 단추 — 큰 단추보다 낮고 글자가 덜 굵다 (토스 팝업 단추) */
+function PopupButton({ label, kind, disabled, busy, onPress }: { readonly label: string; readonly kind: 'cancel' | 'confirm'; readonly disabled?: boolean; readonly busy?: boolean; readonly onPress: () => void }) {
+  const { p } = useKit()
+  const off = disabled === true || busy === true
+  const fill = kind === 'confirm' ? p.primary : p.surfaceAlt
+  const fillPressed = kind === 'confirm' ? p.primaryPressed : p.pressed
+  return (
+    <Pressable
+      role="button"
+      aria-label={label}
+      aria-disabled={off}
+      aria-busy={busy === true}
+      disabled={off}
+      onPress={onPress}
+      style={({ pressed }) => ({ height: POPUP_BUTTON_HEIGHT, borderRadius: RADIUS.md, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: SPACE.sm, backgroundColor: pressed && !off ? fillPressed : fill, opacity: disabled === true ? 0.45 : 1 })}
+    >
+      {busy === true ? <ActivityIndicator color={kind === 'confirm' ? p.onPrimary : p.textSub} /> : null}
+      <Text allowFontScaling={false} numberOfLines={1} style={{ fontSize: POPUP_BUTTON_TEXT, lineHeight: Math.round(POPUP_BUTTON_TEXT * 1.3), fontWeight: WEIGHT.medium, color: kind === 'confirm' ? p.onPrimary : p.textSub }}>
+        {label}
+      </Text>
+    </Pressable>
+  )
+}
+
+export function PopupDialog({ visible, message, name, description, confirmDisabled, confirmLabel, cancelLabel, busy, onConfirm, onCancel }: PopupDialogProps) {
   const { p } = useKit()
   const { mounted, progress } = useSheetMotion(visible)
-  const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, BACKDROP_OPACITY] })
+  const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, POPUP_DIM] })
   const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] })
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onCancel} statusBarTranslucent>
@@ -259,14 +304,18 @@ export function PopupDialog({ visible, message, name, confirmLabel, cancelLabel,
           role="alertdialog"
           aria-modal
           aria-label={name ?? message}
-          style={{ backgroundColor: p.surface, borderRadius: RADIUS.xxl, borderCurve: 'continuous', paddingTop: SPACE.xxl, paddingHorizontal: SPACE.xl, paddingBottom: SPACE.lg, gap: SPACE.xxl, opacity: progress, transform: [{ scale }], ...SHADOW.sheet }}
+          style={{ width: '100%', maxWidth: POPUP_WIDTH, alignSelf: 'center', backgroundColor: p.surface, borderRadius: RADIUS.xxl, borderCurve: 'continuous', paddingTop: POPUP_TOP, paddingHorizontal: POPUP_EDGE, paddingBottom: POPUP_EDGE, gap: SPACE.xxl - SPACE.xs, opacity: progress, transform: [{ scale }] }}
         >
-          <Txt step="bodyLarge" weight="bold">
-            {message}
-          </Txt>
+          {/* 제목 20 굵게 (D-UX3-54, 사용자 지시 2026-11-07 "팝업 안에 제목 글자 크기가 내가 보내줬던 사진과 다름" — 토스 사진을 재어, 옛 18) */}
+          <View style={{ gap: SPACE.sm, paddingHorizontal: POPUP_TEXT_SIDE - POPUP_EDGE }}>
+            <Txt step="lead" weight="bold">
+              {message}
+            </Txt>
+            {description === undefined || description === null ? null : <Txt color="textSub">{description}</Txt>}
+          </View>
           <ButtonRow>
-            <BigButton kind="outline" label={cancelLabel} disabled={busy} onPress={onCancel} />
-            <BigButton label={confirmLabel} busy={busy} onPress={onConfirm} />
+            <PopupButton kind="cancel" label={cancelLabel} disabled={busy} onPress={onCancel} />
+            <PopupButton kind="confirm" label={confirmLabel} busy={busy} disabled={confirmDisabled} onPress={onConfirm} />
           </ButtonRow>
         </Animated.View>
       </View>

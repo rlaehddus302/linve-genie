@@ -4,7 +4,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { parcelAddresses, parcelRequests, parcelSettings, parcels } from '../db/schema.ts'
+import { parcelAddresses, parcelExtras, parcelRequests, parcelSettings, parcels } from '../db/schema.ts'
 import { SecretError, openText, sealText } from '../secrets.ts'
 import { CARRIER_CODES, OTHER_CARRIER, isSettingsCarrier, type CarrierCode, type ParcelSender, type SettingsCarrier } from './carrier.ts'
 import {
@@ -153,10 +153,68 @@ export async function mergeAddress(tx: Db, masterKey: Buffer, sellerId: string, 
   await deleteAddress(tx, sellerId, date, from)
 }
 
-/** 보관 기간이 끝난 배송지를 지운다 (PC-3 "보관" — 날짜 + 30일의 0시 KST. lastDate = 지울 마지막 날짜). 지운 수 */
+/** 보관 기간이 끝난 배송지를 지운다 (PC-3 "보관" — 날짜 + 30일의 0시 KST. lastDate = 지울 마지막 날짜). 직접 넣은 택배 줄도 함께. 지운 수 */
 export async function sweepAddresses(db: Db, lastDate: string): Promise<number> {
   const deleted = await db.delete(parcelAddresses).where(lte(parcelAddresses.date, lastDate)).returning({ id: parcelAddresses.id })
+  await db.delete(parcelExtras).where(lte(parcelExtras.date, lastDate))
   return deleted.length
+}
+
+// ── 직접 넣은 택배 (D-UX3-38) ───────────────────────────────────────────
+
+/** 직접 넣은 택배의 구매자 ID 앞말 — 엔진 구매자 ID(채널 ID·문자 ID)와 겹치지 않는다 */
+export const EXTRA_PREFIX = 'extra:'
+export const isExtraBuyer = (buyer: string): boolean => buyer.startsWith(EXTRA_PREFIX)
+export const newExtraId = (): string => `${EXTRA_PREFIX}${randomBytes(9).toString('base64url')}`
+
+export interface ExtraRow {
+  readonly id: string
+  readonly date: string
+  readonly qty: number
+  readonly createdAt: Date
+}
+
+const extraColumns = { id: parcelExtras.id, date: parcelExtras.date, qty: parcelExtras.qty, createdAt: parcelExtras.createdAt }
+
+/** 그 날짜의 직접 넣은 택배 (넣은 순서) */
+export async function extrasOf(db: Db, sellerId: string, date: string): Promise<Map<string, ExtraRow>> {
+  const rows = await db
+    .select(extraColumns)
+    .from(parcelExtras)
+    .where(and(eq(parcelExtras.sellerId, sellerId), eq(parcelExtras.date, date)))
+    .orderBy(asc(parcelExtras.createdAt), asc(parcelExtras.id))
+  return new Map(rows.map((row) => [row.id, row]))
+}
+
+export async function extraRow(db: Db, sellerId: string, date: string, id: string): Promise<ExtraRow | null> {
+  const rows = await db
+    .select(extraColumns)
+    .from(parcelExtras)
+    .where(and(eq(parcelExtras.sellerId, sellerId), eq(parcelExtras.date, date), eq(parcelExtras.id, id)))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+/** 직접 넣은 택배가 있는 날짜들 (판매자) */
+export async function extraDates(db: Db, sellerId: string): Promise<string[]> {
+  const rows = await db.selectDistinct({ date: parcelExtras.date }).from(parcelExtras).where(eq(parcelExtras.sellerId, sellerId))
+  return rows.map((row) => row.date)
+}
+
+export async function insertExtra(tx: Db, input: { sellerId: string; date: string; id: string; qty: number; accountId: string; now: Date }): Promise<void> {
+  await tx.insert(parcelExtras).values({ id: input.id, sellerId: input.sellerId, date: input.date, qty: input.qty, createdAt: input.now, createdBy: input.accountId })
+}
+
+export async function setExtraQty(tx: Db, sellerId: string, date: string, id: string, qty: number): Promise<void> {
+  await tx
+    .update(parcelExtras)
+    .set({ qty })
+    .where(and(eq(parcelExtras.sellerId, sellerId), eq(parcelExtras.date, date), eq(parcelExtras.id, id)))
+}
+
+/** 직접 넣은 택배 줄을 지운다 (배송지는 deleteAddress로 따로) */
+export async function deleteExtra(tx: Db, sellerId: string, date: string, id: string): Promise<void> {
+  await tx.delete(parcelExtras).where(and(eq(parcelExtras.sellerId, sellerId), eq(parcelExtras.date, date), eq(parcelExtras.id, id)))
 }
 
 // ── 접수 시도 ────────────────────────────────────────────────────────────
@@ -250,10 +308,19 @@ export async function hasLiveAttempt(db: Db, sellerId: string, date: string, buy
 /** 무작위 택배사 요청 번호 (전화번호·이름을 담지 않는다) */
 export const newRequestKey = (): string => `lj-${randomBytes(16).toString('base64url')}`
 
+/** 판매자가 인터넷우체국에서 직접 접수한 묶음 (D-UX3-37): 방문접수소포(VISIT)·창구소포 간편사전접수(COUNTER) */
+export type DirectKind = 'VISIT' | 'COUNTER'
+const DIRECT_PREFIX: Readonly<Record<DirectKind, string>> = { VISIT: 'direct-visit-', COUNTER: 'direct-counter-' }
+/** 직접 접수 시도의 요청 키 — 택배사에 보내지 않는 키라 앞말로 직접 접수를 표시한다 */
+export const directRequestKey = (kind: DirectKind): string => `${DIRECT_PREFIX[kind]}${randomBytes(16).toString('base64url')}`
+/** 요청 키 → 직접 접수 종류 (택배사 자동 접수면 null) */
+export const directOf = (requestKey: string): DirectKind | null =>
+  requestKey.startsWith(DIRECT_PREFIX.VISIT) ? 'VISIT' : requestKey.startsWith(DIRECT_PREFIX.COUNTER) ? 'COUNTER' : null
+
 /** 새 시도 PENDING (살아 있는 시도가 이미 있으면 DB 고유 색인이 막아 null — PC-INV-1) */
 export async function insertAttempt(
   tx: Db,
-  input: { sellerId: string; date: string; buyer: string; carrier: CarrierCode; box: BoxKind; qty: number; accountId: string; now: Date },
+  input: { sellerId: string; date: string; buyer: string; carrier: CarrierCode; box: BoxKind; qty: number; accountId: string; now: Date; requestKey?: string },
 ): Promise<AttemptRow | null> {
   const id = `pc_${randomUUID()}`
   const inserted = await tx
@@ -264,7 +331,7 @@ export async function insertAttempt(
       date: input.date,
       buyer: input.buyer,
       carrier: input.carrier,
-      requestKey: newRequestKey(),
+      requestKey: input.requestKey ?? newRequestKey(),
       state: 'PENDING',
       box: input.box,
       qty: input.qty,
@@ -321,7 +388,7 @@ export function addressState(row: AddressRow | null | undefined, opened: boolean
 
 // ── 화면 요청 번호 ───────────────────────────────────────────────────────
 
-export type ParcelRequestKind = 'BOOK' | 'CANCEL' | 'ADDRESS' | 'CONFIRM' | 'DELETE' | 'LEDGER' // KP1 LEDGER = 장부 배송지 확인(CR-4)
+export type ParcelRequestKind = 'BOOK' | 'CANCEL' | 'ADDRESS' | 'CONFIRM' | 'DELETE' | 'LEDGER' | 'DIRECT' | 'EXTRA' | 'EXTRA_DELETE' // KP1 LEDGER = 장부 배송지 확인(CR-4), DIRECT = 우체국 직접 접수 송장(D-UX3-37), EXTRA·EXTRA_DELETE = 직접 넣은 택배(D-UX3-38)
 
 export interface RequestRow {
   readonly date: string
@@ -378,6 +445,13 @@ export async function dropRequest(db: Db, sellerId: string, requestId: string): 
 
 const senderAad = (sellerId: string) => `livejjim/parcel-sender/v1/${sellerId}`
 const customerAad = (sellerId: string) => `livejjim/parcel-customer/v1/${sellerId}`
+const epostAad = (sellerId: string) => `livejjim/parcel-epost/v1/${sellerId}`
+
+/** 우체국 계약소포 인증키·보안키 (D-REAL-04 — 고객 번호는 customerNo) */
+export interface EpostKeys {
+  readonly key: string
+  readonly secret: string
+}
 
 export interface StoredSettings {
   /** 쓰는 택배사 (자동 접수는 그 코드의 어댑터가 있을 때만 — FB1 D-FB1-04) */
@@ -387,12 +461,13 @@ export interface StoredSettings {
   readonly customerNo: string | null
   readonly sender: ParcelSender | null
   readonly box: BoxKind
+  readonly epost: EpostKeys | null
 }
 
 export async function readSettings(db: Db, masterKey: Buffer, sellerId: string): Promise<StoredSettings> {
   const rows = await db.select().from(parcelSettings).where(eq(parcelSettings.sellerId, sellerId)).limit(1)
   const row = rows[0]
-  if (row === undefined) return { carrier: null, carrierName: null, customerNo: null, sender: null, box: DEFAULT_BOX }
+  if (row === undefined) return { carrier: null, carrierName: null, customerNo: null, sender: null, box: DEFAULT_BOX, epost: null }
   const open = (aad: string, sealed: string | null): string | null => {
     if (sealed === null) return null
     try {
@@ -419,6 +494,17 @@ export async function readSettings(db: Db, masterKey: Buffer, sellerId: string):
     customerNo: open(customerAad(sellerId), row.customerEnc),
     sender,
     box: storedBox(row.box),
+    epost: readEpostKeys(open(epostAad(sellerId), row.epostEnc)),
+  }
+}
+
+function readEpostKeys(text: string | null): EpostKeys | null {
+  if (text === null) return null
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    return typeof parsed.key === 'string' && typeof parsed.secret === 'string' && parsed.key !== '' && parsed.secret !== '' ? { key: parsed.key, secret: parsed.secret } : null
+  } catch {
+    return null
   }
 }
 
@@ -429,6 +515,7 @@ export async function writeSettings(db: Db, masterKey: Buffer, sellerId: string,
     customerEnc: value.customerNo === null || value.customerNo === '' ? null : sealText(masterKey, customerAad(sellerId), value.customerNo),
     senderEnc: value.sender === null ? null : sealText(masterKey, senderAad(sellerId), JSON.stringify(value.sender)),
     box: value.box,
+    epostEnc: value.epost === null ? null : sealText(masterKey, epostAad(sellerId), JSON.stringify({ key: value.epost.key, secret: value.epost.secret })),
     updatedAt: now,
   }
   await db
