@@ -106,7 +106,8 @@ export function ClaimFeed({ only }: { readonly only?: Claim['status'] }) {
   if (rows.length === 0) return <Hint>{only === 'PENDING' ? '보류 찜이 없어요.' : FEED_EMPTY}</Hint>
   return (
     <View role="list" aria-label="찜 기록" style={{ gap: SPACE.xs }}>
-      {rows.slice(0, FEED_LIMIT).map((row) => <FeedLine key={row.id} row={row} />)}
+      {/* 최신 FEED_LIMIT줄을 라이브 채팅처럼 최신이 맨 아래로 (D-UX3-75) */}
+      {rows.slice(0, FEED_LIMIT).reverse().map((row) => <FeedLine key={row.id} row={row} />)}
       {rows.length > FEED_LIMIT ? <Hint>{`그 밖 ${String(rows.length - FEED_LIMIT)}건은 채팅 보기·구매자 화면에서 볼 수 있어요.`}</Hint> : null}
     </View>
   )

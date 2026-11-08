@@ -172,7 +172,8 @@ export function LiveTalk() {
       {view?.sealed === true ? <Notice tone="info">{view.sealedMessage ?? '봉인한 날짜라 채팅 내용을 지웠어요.'}</Notice> : null}
       {view === null && error === null ? <Hint>불러오는 중…</Hint> : rows.length === 0 ? <Hint>{TALK_EMPTY}</Hint> : (
         <View role="list" aria-label={TALK_TAB} style={{ gap: SPACE.xs }}>
-          {rows.slice(0, TALK_LIMIT).map((row) => <TalkLine key={row.key} row={row} />)}
+          {/* 최신 TALK_LIMIT줄을 라이브 채팅처럼 최신이 맨 아래로 (D-UX3-75) */}
+          {rows.slice(0, TALK_LIMIT).reverse().map((row) => <TalkLine key={row.key} row={row} />)}
         </View>
       )}
       {!api.data.rehearsal ? <Hint>{TALK_SMS_HELP}</Hint> : null}

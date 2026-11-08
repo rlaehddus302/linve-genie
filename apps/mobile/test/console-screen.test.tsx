@@ -104,12 +104,12 @@ describe('ConsoleScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
     const feed = await screen.findByRole('list', { name: '찜 기록' })
     const rows = within(feed).getAllByRole('listitem')
-    // 최신이 위: 문자 보류 → 대기(이미 찜됨) → 1등
-    expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual(['88번 문자손님 보류', '15번 김영희 대기 1번', '15번 홍길동 1등'])
-    expect(rows[0]?.textContent).toContain('문자')
+    // D-UX3-75로 바뀐 기대 (사용자 지시 2026-11-09 "라이브채팅처럼 … 맨 아래 있는게 가장 최근꺼로"): 최신이 맨 아래 — 1등 → 대기(이미 찜됨) → 문자 보류
+    expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual(['15번 홍길동 1등', '15번 김영희 대기 1번', '88번 문자손님 보류'])
+    expect(rows[2]?.textContent).toContain('문자')
     await waitFor(() => expect(rows[1]?.textContent).toContain('15번 저도요'))
     expect(rows[1]?.textContent).toContain('이미 찜됨 · 1등 홍길동')
-    expect(rows[2]?.textContent).not.toContain('이미 찜됨')
+    expect(rows[0]?.textContent).not.toContain('이미 찜됨')
     fireEvent.click(screen.getByRole('button', { name: /^보류 찜 1/ }))
     const pendingRows = await waitFor(() => {
       const lists = screen.getAllByRole('list', { name: '찜 기록' })
@@ -120,7 +120,7 @@ describe('ConsoleScreen', () => {
     expect(pendingRows[0]?.getAttribute('aria-label')).toBe('88번 문자손님 보류')
   })
 
-  it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 위)으로, 문자는 서버가 한 일과 끝번호로 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
+  it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 맨 아래 — D-UX3-75)으로, 문자는 서버가 한 일과 끝번호로 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
     const world = makeWorld({ products: [product(15)] })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { messages: [{ id: 'm1', broadcast: 'b1', channel: 'ch1', nick: '김영희', text: '15번 주세요', owner: false, seq: 11, at: '2026-10-29T11:00:05.000Z', publishedAt: '2026-10-29T11:00:05.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: [], failed: false }], more: false } }))
     let smsReads = 0
@@ -135,12 +135,12 @@ describe('ConsoleScreen', () => {
     expect(screen.getByRole('tablist', { name: '보기' }).children).toHaveLength(3)
     fireEvent.click(tab)
     const list = await screen.findByRole('list', { name: '채팅·문자' })
-    await waitFor(() => expect(within(list).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))).toEqual(['문자 끝번호 5678', '채팅 김영희']))
+    await waitFor(() => expect(within(list).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))).toEqual(['채팅 김영희', '문자 끝번호 5678']))
     const rows = within(list).getAllByRole('listitem')
-    expect(rows[0]?.textContent).toContain('15 홍길동')
-    expect(rows[0]?.textContent).toContain('찜 15번')
-    expect(rows[1]?.textContent).toContain('15번 주세요')
-    expect(rows[1]?.textContent).toContain('주문 15번')
+    expect(rows[1]?.textContent).toContain('15 홍길동')
+    expect(rows[1]?.textContent).toContain('찜 15번')
+    expect(rows[0]?.textContent).toContain('15번 주세요')
+    expect(rows[0]?.textContent).toContain('주문 15번')
     expect(screen.queryByText(/claim|none|review/)).toBeNull()
     // 다른 방송의 알림은 지나치고, 이 방송의 새 문자 알림이 오면 다시 읽는다
     const before = smsReads
@@ -154,7 +154,7 @@ describe('ConsoleScreen', () => {
       for (const source of world.sources) source.emit('inbox', { kind: 'sms', b: 'b1' })
       await new Promise((resolve) => setTimeout(resolve, 400))
     })
-    await waitFor(() => expect(within(screen.getByRole('list', { name: '채팅·문자' })).getAllByRole('listitem')[0]?.textContent).toContain('찜 아님'))
+    await waitFor(() => expect(within(screen.getByRole('list', { name: '채팅·문자' })).getAllByRole('listitem').at(-1)?.textContent).toContain('찜 아님'))
   })
 
   it('실시간 change가 오면 증분을 받아 1등·대기가 이름과 낱말로 보인다', async () => {

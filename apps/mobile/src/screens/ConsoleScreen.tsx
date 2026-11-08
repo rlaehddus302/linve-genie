@@ -6,7 +6,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Platform, ScrollView, View } from 'react-native'
+import { Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import { ApiError, get, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
@@ -133,6 +133,14 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   }
   // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07) · 채팅·문자(실시간으로 온 채팅·손님 문자, D-UX4-12)
   const [tab, setTab] = useState<'products' | 'feed' | 'talk'>('products')
+  // 라이브 채팅처럼 (D-UX3-75): 목록은 최신이 맨 아래. 처음·탭을 바꿀 때는 맨 아래에서 시작하고,
+  // 맨 아래를 보고 있는 동안 새 줄이 오면 따라 내려간다. 위로 올려 보고 있으면 그대로 둔다.
+  const scroll = useRef<ScrollViewInstance>(null)
+  const atBottom = useRef(true)
+  useEffect(() => {
+    atBottom.current = true
+    scroll.current?.scrollToEnd({ animated: false })
+  }, [tab])
   const [decideFor, setDecideFor] = useState<string | null>(null)
   // 방송자 조치 5초 대기·되돌리기 (정하기 창 — D-APPX-03). 화면이 내려가면 기다리던 조치는 보내지 않는다
   const hostQueue = useUndoQueue()
@@ -368,7 +376,15 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             </Txt>
           </View>
         ) : null}
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          ref={scroll}
+          scrollEventThrottle={100}
+          onScroll={(event) => {
+            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+            atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
+          }}
+          onContentSizeChange={() => { if (atBottom.current) scroll.current?.scrollToEnd({ animated: false }) }}
+          style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
           <AwayLine />
           <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
