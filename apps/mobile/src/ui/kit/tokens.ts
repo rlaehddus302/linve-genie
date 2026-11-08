@@ -68,6 +68,9 @@ export interface Palette {
   readonly warnBg: string
   readonly warnText: string
   readonly warnStrong: string
+  /** 방송 상품 줄의 [찜 닉네임] 꼬리표 바탕·글자 — 금색 (D-UX3-78) */
+  readonly goldBg: string
+  readonly goldText: string
 }
 
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
@@ -128,6 +131,9 @@ const LIGHT: Palette = {
   warnBg: '#FFF4E5',
   warnText: '#B54708',
   warnStrong: '#8A3A06',
+  // 찜한 사람 꼬리표 금색 (D-UX3-78, 사용자 지시 2026-11-09 "배경 색은 금색 같은 색으로") — 글자 대비 4.5 이상
+  goldBg: '#F8E3A3',
+  goldText: '#5A4100',
 }
 
 export const PALETTE: Readonly<Record<Scheme, Palette>> = { light: LIGHT, dark: LIGHT }
@@ -273,6 +279,7 @@ export function contrastPairs(scheme: Scheme): readonly ContrastPair[] {
     { name: '주의진한글자/주의바탕', fg: p.warnStrong, bg: p.warnBg, min: 4.5 },
     { name: '본문/주의바탕', fg: p.text, bg: p.warnBg, min: 4.5 },
     { name: '설명/주의바탕', fg: p.textSub, bg: p.warnBg, min: 4.5 },
+    { name: '찜 꼬리표/금색', fg: p.goldText, bg: p.goldBg, min: 4.5 },
   ]
   for (const [tone, pair] of Object.entries(TONES[scheme])) pairs.push({ name: `상태 ${tone}`, fg: pair.fg, bg: pair.bg, min: 4.5 })
   return pairs

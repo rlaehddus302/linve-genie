@@ -1,5 +1,5 @@
 // 방송 중 화면 (APP-01 AC1·AC5, APP-02, APP-04, D-UX2-03): 서버 상품이 리스트에 보이고, "직접 넣기"의 빠른 입력 한 줄이 등록 요청이 되며,
-// 실시간 change로 1등(예약)이 보이고, 뒤로 갔다 돌아오면 다시 잇고 "자리를 비운 동안 찜 n건"이 보이며, 듣기 시작 → 안내 → 서버가 읽은 결과로 바로 등록된다.
+// 실시간 change로 1등(찜)이 보이고, 뒤로 갔다 돌아오면 다시 잇고 "자리를 비운 동안 찜 n건"이 보이며, 듣기 시작 → 안내 → 서버가 읽은 결과로 바로 등록된다.
 // 새 시안(D-UX2-03)으로 바뀐 것: "현재 상품" 카드·알림 띠 대신 상품 리스트(줄을 누르면 자세히 시트), 빠른 입력·문자찜은 "직접 넣기" 시트,
 // 음성 켜기/끄기는 아래 고정 버튼 "듣기 시작/듣기 멈추기", 음성 상태는 머리의 "듣는 중". 요청 본문·막힘 조건 기대는 그대로다.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -45,7 +45,9 @@ describe('ConsoleScreen', () => {
     expect(within(list).getByText('15번')).toBeTruthy()
     expect(within(list).getByText('핑크프릴')).toBeTruthy()
     expect(within(list).getByText('12,000원')).toBeTruthy()
-    expect(within(list).getByText('아직 예약 없음')).toBeTruthy()
+    // 찜·대기가 없으면 아래 줄을 그리지 않는다 (D-UX3-78 — 옛 기대: '아직 예약 없음')
+    expect(list.textContent).not.toContain('예약')
+    expect(within(list).queryByRole('list', { name: '15번 찜한 손님' })).toBeNull()
     expect(screen.queryByText(/OPEN|CONFIRMED/)).toBeNull()
     // 알릴 것이 없으면 경고 줄을 그리지 않는다 (옛 기대: "알림 없음" 띠)
     expect(screen.queryByRole('region', { name: '알림' })).toBeNull()
@@ -180,14 +182,16 @@ describe('ConsoleScreen', () => {
       world.source().emit('change', { date: '2026-10-29', rehearsal: false, seq: 7, type: 'chat' })
       await flush()
     })
-    // 리스트 둘째 줄: 예약(1등) 이름 · 대기 n명
+    // 리스트 둘째 줄: [찜 1등] 금색 꼬리표 → 대기 손님 회색 꼬리표 (D-UX3-78 — 옛 기대: '예약 홍길동 · 대기 1명')
     const board = screen.getByRole('list', { name: '상품 목록' })
-    await waitFor(() => expect(board.textContent).toContain('예약 홍길동'))
-    expect(board.textContent).toContain('· 대기 1명')
+    const tags = await within(board).findByRole('list', { name: '15번 찜한 손님' })
+    expect(within(tags).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['찜 홍길동', '김영희'])
+    expect(board.textContent).not.toContain('예약')
     fireEvent.click(within(board).getByRole('button', { name: '상품 자세히 — 15번' }))
     const list = await screen.findByRole('list', { name: '15번 찜' })
-    // 시트도 보드와 같은 말: 1등은 "예약" (D-UX2-07 — 옛 기대 '1등')
-    expect(list.textContent).toContain('예약')
+    // 시트도 보드와 같은 말: 1등은 "찜" (D-UX3-78 — 옛 기대 '예약', 그 전 '1등'(D-UX2-07))
+    expect(within(list).getByText('찜')).toBeTruthy()
+    expect(list.textContent).not.toContain('예약')
     expect(list.textContent).not.toContain('1등')
     expect(list.textContent).toContain('홍길동')
     expect(list.textContent).toContain('대기 1번')
@@ -362,14 +366,14 @@ describe('ConsoleScreen', () => {
     }))
     await open(world)
     const board = screen.getByRole('list', { name: '상품 목록' })
-    expect(board.textContent).toContain('예약이 겹쳐요')
+    expect(board.textContent).toContain('찜이 겹쳐요') // D-UX3-78 (옛 기대 '예약이 겹쳐요')
     fireEvent.click(within(board).getByRole('button', { name: '상품 자세히 — 5번' }))
     const detail = await screen.findByRole('group', { name: '상품 자세히' })
     expect(within(detail).getByText('아직 안 정했어요')).toBeTruthy()
     expect(detail.textContent).not.toContain('판매 완료')
     expect(detail.textContent).not.toContain('1등')
     expect(detail.textContent).not.toContain('충돌')
-    expect(detail.textContent).toContain('예약이 겹쳐서 정해야 해요.')
+    expect(detail.textContent).toContain('찜이 겹쳐서 정해야 해요.') // D-UX3-78 (옛 기대 '예약이 겹쳐서 정해야 해요.')
     const claims = within(detail).getByRole('list', { name: '5번 찜' }).textContent ?? ''
     expect(claims.match(/겹침/g)).toHaveLength(2)
     expect(claims).toContain('꽃집언니')
