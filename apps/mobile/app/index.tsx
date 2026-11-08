@@ -21,7 +21,7 @@ import { View } from 'react-native'
 export default function IndexRoute() {
   const { session, login, logout, recheck } = useSession()
   const router = useRouter()
-  // 홈이 다시 보일 때마다(방송에서 돌아옴·방송을 끝냄) 방송 목록·할 일 숫자를 다시 받는다 — 진행 중 방송(리허설 포함)이 "방송으로 돌아가기"로 보이게 (D-UX2-07)
+  // 홈이 다시 보일 때마다(방송에서 돌아옴·방송을 끝냄) 방송 목록·할 일 숫자를 다시 받는다 — 진행 중 방송이 "방송으로 돌아가기"로 보이게 (D-UX2-07)
   const [visits, setVisits] = useState(0)
   // 번호 확인처럼 흰 화면이 떠 있으면 맨 위 상태 막대 자리도 흰색 (D-UX3-50 — 회색 띠가 보이던 것)
   const [whiteTop, changeWhiteTop] = useTopWhiteCount()

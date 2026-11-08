@@ -23,6 +23,8 @@ describe('내 방송 (D-UX3-18)', () => {
   it('돌아갈 방송은 가장 최근의 열린 방송 — 어제 열어 둔 유튜브가 아니라 오늘 틱톡 (옛 동작은 가장 오래된 열린 방송)', () => {
     expect(liveBroadcast(LIST)?.id).toBe('t')
     expect(liveBroadcast([item('r', '2026-11-03', { ended: false, rehearsal: true }), item('x', '2026-11-01', { ended: false })])?.id).toBe('x')
+    // 리허설은 앱에서 뺐다 (D-UX3-86): 열린 리허설만 있으면 돌아갈 방송이 없다
+    expect(liveBroadcast([item('r', '2026-11-03', { ended: false, rehearsal: true })])).toBeUndefined()
   })
 
   it('지난 시간은 짧은 한국어', () => {

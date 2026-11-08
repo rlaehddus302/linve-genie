@@ -20,7 +20,6 @@ export default function StartRoute() {
             onClose: home,
             openShopSettings: () => router.push('/shop-settings'),
             openLabels: () => router.push('/labels?from=start'),
-            openConsole: (id) => router.replace({ pathname: '/console/[id]', params: { id } }),
           }}
         />
       </KitInsets>

@@ -23,7 +23,6 @@ import { chatTags, useMessages } from './ChatPaste.tsx'
 
 export const TALK_TAB = '채팅·문자'
 export const TALK_EMPTY = '아직 채팅·문자가 없어요. 오면 여기에 바로 보여요.'
-export const TALK_REHEARSAL = '리허설에는 손님 문자를 받지 않아요. 채팅만 보여요.'
 export const TALK_LIMIT = 150
 const SMS_RELOAD_MS = 300
 
@@ -191,7 +190,6 @@ export function LiveTalk() {
   const rows = useMemo(() => talkRows(view?.sealed === true ? null : view, sms, api.data), [view, sms, api.data])
   return (
     <View style={{ gap: SPACE.xs }}>
-      {api.data.rehearsal ? <Hint>{TALK_REHEARSAL}</Hint> : null}
       {error !== null && view === null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {view?.sealed === true ? <Notice tone="info">{view.sealedMessage ?? '봉인한 날짜라 채팅 내용을 지웠어요.'}</Notice> : null}
       {view === null && error === null ? <Hint>불러오는 중…</Hint> : rows.length === 0 ? <Hint>{TALK_EMPTY}</Hint> : (

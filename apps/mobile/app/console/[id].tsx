@@ -27,7 +27,7 @@ export default function ConsoleRoute() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
-        <ConsoleScreen broadcastId={id} seller onBack={home} onEnded={home} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} openReviews={(rehearsal: boolean) => router.push(`/reviews?broadcast=${encodeURIComponent(id)}${rehearsal ? '&rehearsal=true' : ''}`)} openLabels={() => router.push('/labels?from=console')} />
+        <ConsoleScreen broadcastId={id} seller onBack={home} onEnded={home} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} openReviews={() => router.push(`/reviews?broadcast=${encodeURIComponent(id)}`)} openLabels={() => router.push('/labels?from=console')} />
       </KitInsets>
     </SafeAreaView>
   )
