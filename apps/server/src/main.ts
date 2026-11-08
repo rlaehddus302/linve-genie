@@ -64,7 +64,16 @@ if (!chatSendSetting.ok) {
   process.exit(1)
 }
 let chatSend: Awaited<ReturnType<typeof createChatSendRoute>> | null = null
-if (chatSendSetting.send !== null) {
+// 공식 API 봇 (D-YT-SEND-20): 비공식 길 없이 봇 판매자의 구글 연결로 공식 API가 기본 길
+const officialBot = chatSendSetting.send?.route === 'official-bot'
+if (chatSendSetting.send !== null && officialBot) {
+  if (youtubeSetting.youtube === null) {
+    complain('시작하지 못했어요. 공식 API 봇(official-bot)에는 구글 연결 설정(LIVEJJIM_GOOGLE_CLIENT_ID)이 필요해요.')
+    process.exit(1)
+  }
+  say('감사 채팅을 라이브지니 봇 계정 이름으로 공식 API로 올려요.')
+}
+if (chatSendSetting.send !== null && !officialBot) {
   try {
     chatSend = await createChatSendRoute(chatSendSetting.send)
   } catch {
@@ -81,7 +90,10 @@ if (chatSendSetting.send !== null) {
     say('봇 길이 막히면 봇 계정 이름으로 공식 API로 넘겨 올려요.')
   }
 }
-const chatSendOfficial = chatSendSetting.send?.official ?? null
+const chatSendOfficial =
+  chatSendSetting.send?.official === undefined || chatSendSetting.send.official === null
+    ? null
+    : { ...chatSendSetting.send.official, ...(officialBot ? { primary: { sellers: chatSendSetting.send.sellers } } : {}) }
 const databaseSetting = readDatabaseSetting(process.env)
 if (!databaseSetting.ok) {
   complain(`시작하지 못했어요. ${databaseSetting.message}`)

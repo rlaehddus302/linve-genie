@@ -40,7 +40,7 @@ import type { Timer } from './timer.ts'
 import { webCollectorCounts } from '../ops-store.ts'
 import { isLocalHttp } from '../config.ts'
 import { OfficialBotSender } from './chat-send/official-sender.ts'
-import type { ChatSendRoute } from './chat-send/sender.ts'
+import { chatSendRoute, type ChatSendRoute } from './chat-send/sender.ts'
 import { HttpWebTransport, WebChatError, WebChatSource, type WebTransport } from './web-chat-source.ts'
 import type { WatchPage } from './web-chat.ts'
 
@@ -72,8 +72,11 @@ export interface YoutubeConfig {
   }
   /** 실시간 채팅 감사 다른 길 (D-YT-SEND-01~08 — innertube·browser·nightbot, 고른 판매자만). 없으면 공식 Data API만 */
   readonly chatSend?: ChatSendRoute
-  /** 다른 길이 막히면 봇 계정 이름으로 공식 API로 넘긴다 (D-YT-SEND-13): 봇 계정 구글 연결을 가진 앱 판매자와 그 채널 */
-  readonly chatSendOfficial?: { readonly sellerId: string; readonly channelId: string }
+  /**
+   * 봇 계정의 공식 API (D-YT-SEND-13·20): 봇 계정 구글 연결을 가진 앱 판매자와 그 채널.
+   * primary가 없으면 다른 길이 막혔을 때만 넘기는 길, 있으면 그 판매자들의 기본 길(비공식 길 없이)
+   */
+  readonly chatSendOfficial?: { readonly sellerId: string; readonly channelId: string; readonly primary?: { readonly sellers: readonly string[] | '*' } }
 }
 
 /** 설정 확인: 운영은 모든 바깥 주소가 https (AC-Y1-72). 문제가 있으면 문장, 없으면 null (값은 문장에 넣지 않는다) */
@@ -273,11 +276,16 @@ export class YoutubeSystem {
       },
       onConsentOff: (sellerId, targets) => this.outbox.consentOff(sellerId, targets, targets.length > 1),
     })
-    // 감사 채팅 다른 길 + 공식 API 넘김 (D-YT-SEND-13)
+    // 감사 채팅 다른 길 + 공식 API 넘김 (D-YT-SEND-13), 또는 공식 API 봇이 기본 길 (D-YT-SEND-20)
+    const officialConfig = config.chatSendOfficial
+    const official =
+      officialConfig === undefined ? null : new OfficialBotSender({ google: this.google, connections: this.connections, timer, sellerId: officialConfig.sellerId, channelId: officialConfig.channelId })
     this.chatSend =
-      config.chatSend === undefined || config.chatSendOfficial === undefined
-        ? config.chatSend
-        : config.chatSend.withFallback(new OfficialBotSender({ google: this.google, connections: this.connections, timer, ...config.chatSendOfficial }))
+      official !== null && officialConfig?.primary !== undefined
+        ? chatSendRoute(official, officialConfig.primary.sellers)
+        : config.chatSend === undefined || official === null
+          ? config.chatSend
+          : config.chatSend.withFallback(official)
     this.chatSend?.setLog(log)
     const chatSend = this.chatSend
     this.outbox = new OutboxRunner({

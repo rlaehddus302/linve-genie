@@ -223,6 +223,14 @@ describe('D-YT-SEND-12·13 설정', () => {
     expect(readYoutubeChatSend({ ...one, LIVEJJIM_YT_SEND_OFFICIAL_SELLER: 's_bot' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL })
     expect(readYoutubeChatSend({ ...one, LIVEJJIM_YT_SEND_OFFICIAL_SELLER: 's_bot', LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: 'bad' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL })
   })
+  // D-YT-SEND-20: 공식 API 봇이 기본 길 — 봇 판매자·채널만, 비공식 계정 칸은 비워야
+  it('official-bot: 봇 판매자·채널이 있어야 하고 비공식 계정 칸은 쓰지 않는다', () => {
+    const ob = { LIVEJJIM_YT_SEND_ROUTE: 'official-bot', LIVEJJIM_YT_SEND_SELLERS: '*', LIVEJJIM_YT_SEND_OFFICIAL_SELLER: 's_bot', LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: ch(9) }
+    expect(readYoutubeChatSend(ob)).toEqual({ ok: true, send: { route: 'official-bot', sellers: '*', single: null, accountsFile: null, chromiumPath: null, official: { sellerId: 's_bot', channelId: ch(9) } } })
+    expect(readYoutubeChatSend({ ...ob, LIVEJJIM_YT_SEND_OFFICIAL_SELLER: '' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL_BOT })
+    expect(readYoutubeChatSend({ ...ob, LIVEJJIM_YT_SEND_ACCOUNTS_FILE: '/a.json' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL_BOT })
+  })
+
   it('계정 목록 파일 모양', () => {
     expect(parseAccounts(JSON.stringify([{ channelId: ch(1), secretFile: '/a' }, { channelId: ch(2), secretFile: '/b' }]))).toEqual([
       { channelId: ch(1), secretFile: '/a' },

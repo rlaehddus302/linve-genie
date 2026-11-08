@@ -15,7 +15,9 @@ import { NightbotChatSender } from '../src/youtube/chat-send/nightbot-sender.ts'
 import { OfficialBotSender } from '../src/youtube/chat-send/official-sender.ts'
 import { ChatSenderPool } from '../src/youtube/chat-send/pool.ts'
 import { chatSendRoute, type ChatSender } from '../src/youtube/chat-send/sender.ts'
-import { addSeller, client, expectOk, writeEvent, type Seller } from './support.ts'
+import { createSellerAccount } from '../src/accounts.ts'
+import { generateMasterKey } from '../src/secrets.ts'
+import { FAST_COST, addSeller, client, expectOk, login, openTestDb, writeEvent, type Seller } from './support.ts'
 import { approve, callback, drive, enableConsent, type YoutubeWorld } from './youtube-support.ts'
 import { chatEvents, webLinked, webWorld, type WebWorld } from './youtube-web-support.ts'
 
@@ -449,5 +451,38 @@ describe('D-YT-SEND-12·13 봇 계정 여럿 + 공식 API 넘김 — 발송함 �
     await run(w)
     expect((await rows(w, seller, b.date))[0]).toMatchObject({ state: 'SENDING', reason: 'CONFIRM' })
     expect(googleOf(w).calls('liveChatMessages.insert')).toBe(0)
+  })
+})
+
+describe('D-YT-SEND-20 공식 API 봇이 기본 길 — 판매자는 아무것도 하지 않는다', () => {
+  const OFFICIAL_BOT = 'UCofficialbot00000000000'
+
+  it('구글 연결 없는 판매자의 감사를 봇 판매자의 구글 연결로 공식 API에 올린다 — 작성자 봇 채널, 할당량은 봇 몫, botThanks', async () => {
+    // 봇 판매자는 서버를 켜기 전에 만든다 (설정에 그 판매자 ID를 적는다)
+    const database = await openTestDb()
+    const masterKey = generateMasterKey()
+    const created = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), { shopName: '라이브지니 봇', loginId: 'livebot', password: 'correct-horse-1' }, { passwordCost: FAST_COST })
+    if (!created.ok) throw new Error(created.message)
+    const w = await webWorld({ google: true, database, masterKey, chatSendOfficial: { sellerId: created.sellerId, channelId: OFFICIAL_BOT, primary: { sellers: '*' } } })
+    worlds.push({ w, sender: { route: 'official', needsLiveChatId: false, authorChannelId: OFFICIAL_BOT, send: () => Promise.reject(new Error('unused')), close: async () => {} } })
+    const bot: Seller = { sellerId: created.sellerId, accountId: created.accountId, loginId: 'livebot', password: 'correct-horse-1', cookie: await login(w, 'livebot', 'correct-horse-1') }
+    await connect(w, bot, '라이브지니', OFFICIAL_BOT)
+    // 판매자: 구글 연결 없이 방송 링크만
+    const seller = await addSeller(w)
+    expect((await client(w, seller.cookie).patch('/api/settings', { settings: NO_LABEL })).status).toBe(200)
+    expect((await client(w, seller.cookie).get('/api/youtube/connection')).body).toMatchObject({ botThanks: true })
+    const { b, video } = await webLinked(w, { seller })
+    const chatId = googleOf(w).addBroadcast(video.channelId, { videoId: video.videoId }).liveChatId as string
+    await sale(w, seller, b.id, 15, { id: 'c1', ch: 'UCa', nick: '가' })
+    await run(w)
+    expect(googleOf(w).posted.map((post) => [post.liveChatId, post.authorChannelId, post.text])).toEqual([[chatId, OFFICIAL_BOT, TEXT]])
+    expect((await rows(w, seller, b.date))[0]).toMatchObject({ state: 'SENT' })
+    expect(await quotaUnits(w, bot, 'liveChatMessages.insert')).toBe(20)
+    expect(await quotaUnits(w, seller, 'liveChatMessages.insert')).toBe(0)
+    // 같은 방송의 둘째 감사는 채팅 ID를 다시 묻지 않는다
+    await sale(w, seller, b.id, 16, { id: 'c2', ch: 'UCb', nick: '나' })
+    await run(w)
+    expect(googleOf(w).calls('liveChatMessages.insert')).toBe(2)
+    expect(googleOf(w).calls('videos.list')).toBe(1)
   })
 })
