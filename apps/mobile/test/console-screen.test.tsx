@@ -147,7 +147,7 @@ describe('ConsoleScreen', () => {
     expect(pendingRows[0]?.getAttribute('aria-label')).toBe('문자-0937 88 보류')
   })
 
-  it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 맨 아래 — D-UX3-75)으로, 한 줄에 닉네임(문자는 "문자-끝번호")·내용·(결과 — 15번 찜 · 15번 대기 1), 시각·출처 꼬리표 없이(D-UX3-80) 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
+  it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 맨 아래 — D-UX3-75)으로, 한 줄에 시각(20:00)·굵은 닉네임(문자는 "문자-끝번호")·내용·결과 꼬리표(15번 찜 금색 · 15번 대기 1 회색), 줄 바탕·출처 꼬리표·문자 설명 없이(D-UX3-80·82) 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
     const world = makeWorld({ products: [product(15)] })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { messages: [{ id: 'm1', broadcast: 'b1', channel: 'ch1', nick: '김영희', text: '15번 주세요', owner: false, seq: 11, at: '2026-10-29T11:00:05.000Z', publishedAt: '2026-10-29T11:00:05.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: [], failed: false }, { id: 'm3', broadcast: 'b1', channel: 'ch3', nick: '홍길동', text: '15', owner: false, seq: 12, at: '2026-10-29T11:00:06.000Z', publishedAt: '2026-10-29T11:00:06.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: ['c1'], failed: false }, { id: 'm4', broadcast: 'b1', channel: 'ch4', nick: '박철수', text: '15 저도', owner: false, seq: 13, at: '2026-10-29T11:00:07.000Z', publishedAt: '2026-10-29T11:00:07.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: ['c2'], failed: false }], more: false } }))
     let smsReads = 0
@@ -176,9 +176,17 @@ describe('ConsoleScreen', () => {
     // D-UX3-80으로 바뀐 기대 (사용자 지시 2026-11-09 "맨 왼쪽에 닉네임(문자는 문자-0937), 그 다음 내용, 그 다음 (243번 찜) or (342번 대기 1), 시간은 버려")
     await waitFor(() => expect(within(list).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))).toEqual(['김영희', '홍길동', '박철수', '문자-5678']))
     const rows = within(list).getAllByRole('listitem')
-    expect(rows.map((row) => row.textContent)).toEqual(['김영희  15번 주세요  (주문 15번)', '홍길동  15  (15번 찜)', '박철수  15 저도  (15번 대기 1)', '문자-5678  15 홍길동  (15번 찜)'])
-    // 시각·출처 꼬리표는 없다 (KST 11:00 → 20:00)
-    expect(within(list).queryByText(/20:00|^채팅$|^문자$/)).toBeNull()
+    // D-UX3-82로 바뀐 기대 (사용자 지시 2026-11-09 "괄호로 하란 뜻이 아니라 별도 배경 태그로 … 찜은 금색, 대기는 회색. 맨 왼쪽에 23:23 형식으로 시간 추가 … 손님문자에요 설명 삭제")
+    expect(rows.map((row) => row.textContent)).toEqual(['20:00김영희  15번 주세요주문 15번', '20:00홍길동  1515번 찜', '20:00박철수  15 저도15번 대기 1', '20:00문자-5678  15 홍길동15번 찜'])
+    expect(within(list).queryByText(/[()]|^채팅$|^문자$/)).toBeNull()
+    // 찜은 금색 꼬리표, 대기는 회색 꼬리표 (바탕이 있는 따로 된 꼬리표)
+    const tagBg = (word: string) => (within(list).getAllByText(word)[0]?.parentElement as HTMLElement | null)?.style.backgroundColor
+    expect(tagBg('15번 찜')).toBe('rgb(248, 227, 163)')
+    expect(tagBg('15번 대기 1')).toBeTruthy()
+    expect(tagBg('15번 대기 1')).not.toBe(tagBg('15번 찜'))
+    // 줄에는 바탕이 없다
+    expect(rows.every((row) => row.style.backgroundColor === '')).toBe(true)
+    expect(screen.queryByText(/손님 문자예요/)).toBeNull()
     expect(screen.queryByText(/claim|none|review/)).toBeNull()
     // 다른 방송의 알림은 지나치고, 이 방송의 새 문자 알림이 오면 다시 읽는다
     const before = smsReads
