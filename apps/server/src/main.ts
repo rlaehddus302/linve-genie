@@ -122,7 +122,7 @@ const livejjim = createServer({
   ...(deploy.opsToken === null ? {} : { opsToken: deploy.opsToken }),
   ...(deploy.webDir === null ? {} : { webDir: deploy.webDir }),
   // 유튜브 채팅 읽기는 서버가 방송 주소만으로 (YT-11, D-YT-SRV-01) — 구글 OAuth 설정이 없어도 된다(그때 구글 연결은 503). 끄기는 LIVEJJIM_YT_WEB_CHAT=off
-  youtube: { ...(youtubeSetting.youtube ?? { clientId: '', clientSecret: '', redirectUri: '', returnUrl: `${origin.origin}/settings/youtube` }), webChat: readYoutubeWebChat(process.env), ...(chatSend === null ? {} : { chatSend }), ...(chatSendOfficial === null ? {} : { chatSendOfficial }) },
+  youtube: { ...(youtubeSetting.youtube ?? { clientId: '', clientSecret: '', redirectUri: '', returnUrl: `${origin.origin}/settings/youtube` }), webChat: readYoutubeWebChat(process.env, (() => { const media = readMediaProxy(process.env); return media.kind === 'ok' ? media.url : null })()), ...(chatSend === null ? {} : { chatSend }), ...(chatSendOfficial === null ? {} : { chatSendOfficial }) },
   backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir),
   // 방송 소리로 듣기 (LV1 D-LV1-08): LIVEJJIM_STREAM_AUDIO=off면 끔, ffmpeg가 없으면 시작 기록 한 줄 남기고 꺼짐
   // 페이지에 HLS가 없으면 yt-dlp로 소리 주소를 얻는다 (D-LV1-11) — LIVEJJIM_YTDLP_PATH, 비우면 yt-dlp

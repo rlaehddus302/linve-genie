@@ -12,6 +12,7 @@
 // - 운영자 끄기(AC6): off면 유튜브에 아무 요청도 하지 않고 OFF 오류.
 import { looksBlocked, parseChatPage, parseInnertubeConfig, parseLiveChat, parseNextResponse, parseWatchPage, type ChatPage, type InnertubeSession, type LiveChatParse, type WatchPage } from './web-chat.ts'
 import type { Timer } from './timer.ts'
+import { fetch as undiciFetch, ProxyAgent } from 'undici'
 
 /** 유튜브 웹 주소 (시험은 가짜 유튜브 웹 서버 주소를 넣는다) */
 export const YOUTUBE_WEB_BASE_URL = 'https://www.youtube.com'
@@ -116,11 +117,29 @@ export class HttpWebTransport implements WebTransport {
   readonly #timer: Timer
   readonly #fetch: typeof fetch | undefined
   readonly #base: string
+  /** 집 회선 프록시로 부르는 fetch (D-YT-SRV-21) — 없으면 이 서버에서 바로 */
+  readonly #proxied: typeof fetch | null
 
-  constructor(options: { timer: Timer; fetch?: typeof fetch; baseUrl?: string }) {
+  /**
+   * proxy: 집 회선 프록시 주소(LIVEJJIM_YT_MEDIA_PROXY — 방송 소리와 같은 출구, D-YT-SRV-21). 있으면 유튜브 웹 읽기를 그 출구로 보내고,
+   * 프록시에 닿지 못하면(맥 미니 꺼짐·터널 끊김 — 연결 오류) 그 요청만 이 서버에서 바로 다시 부른다. 유튜브의 응답(막힘 429·403 포함)은 그대로 쓴다.
+   * proxyFetch: 시험이 프록시 쪽 fetch를 갈아 끼운다
+   */
+  constructor(options: { timer: Timer; fetch?: typeof fetch; baseUrl?: string; proxy?: string | null; proxyFetch?: typeof fetch }) {
     this.#timer = options.timer
     this.#fetch = options.fetch
     this.#base = (options.baseUrl ?? YOUTUBE_WEB_BASE_URL).replace(/\/$/, '')
+    if (options.proxyFetch !== undefined) this.#proxied = options.proxyFetch
+    else if (options.proxy == null) this.#proxied = null
+    else {
+      const dispatcher = new ProxyAgent(options.proxy)
+      this.#proxied = ((input: string, init: RequestInit) => undiciFetch(input, { ...(init as Record<string, unknown>), dispatcher } as Parameters<typeof undiciFetch>[1])) as unknown as typeof fetch
+    }
+  }
+
+  /** 프록시를 쓰는가 (운영 상태) */
+  get proxied(): boolean {
+    return this.#proxied !== null
   }
 
   async request(request: WebRequest, signal?: AbortSignal): Promise<WebResponse> {
@@ -138,7 +157,18 @@ export class HttpWebTransport implements WebTransport {
     })
     try {
       const headers: Record<string, string> = { 'User-Agent': DESKTOP_USER_AGENT, ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }) }
-      const response = await (this.#fetch ?? fetch)(url, { method: request.method, headers, ...(request.body === undefined ? {} : { body: request.body }), signal: controller.signal })
+      const init: RequestInit = { method: request.method, headers, ...(request.body === undefined ? {} : { body: request.body }), signal: controller.signal }
+      let response: Response
+      if (this.#proxied === null) response = await (this.#fetch ?? fetch)(url, init)
+      else {
+        try {
+          response = await this.#proxied(url, init)
+        } catch (error) {
+          // 끊김·15초 제한은 그대로 실패. 프록시에 닿지 못한 것만 이 서버에서 바로 한 번 더
+          if (controller.signal.aborted || error instanceof WebChatError) throw error
+          response = await (this.#fetch ?? fetch)(url, init)
+        }
+      }
       const text = await readCapped(response)
       return { status: response.status, url: response.url === '' ? url : response.url, text }
     } catch (error) {

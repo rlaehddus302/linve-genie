@@ -67,6 +67,8 @@ export interface YoutubeConfig {
     readonly warning?: 'YT_WEB_CHAT_INVALID' | null
     /** 유튜브 웹 주소 (기본 https://www.youtube.com — 시험은 가짜 유튜브 웹 서버) */
     readonly baseUrl?: string
+    /** 집 회선 프록시 (D-YT-SRV-21 — 방송 소리와 같은 LIVEJJIM_YT_MEDIA_PROXY). 없으면 이 서버에서 바로 */
+    readonly proxy?: string | null
     /** 유튜브에 묻는 부분을 갈아 끼운다 (맥 미니 일꾼 — AC7). 없으면 이 서버에서 바로 */
     readonly transport?: WebTransport
   }
@@ -239,7 +241,7 @@ export class YoutubeSystem {
         : new WebChatSource({
             timer,
             off: !webChat.on,
-            transport: webChat.transport ?? new HttpWebTransport({ timer, ...(webChat.baseUrl === undefined ? {} : { baseUrl: webChat.baseUrl }), ...(options.fetch === undefined ? {} : { fetch: options.fetch }) }),
+            transport: webChat.transport ?? new HttpWebTransport({ timer, ...(webChat.baseUrl === undefined ? {} : { baseUrl: webChat.baseUrl }), ...(options.fetch === undefined ? {} : { fetch: options.fetch }), proxy: webChat.proxy ?? null }),
           })
     if (webChat?.warning === 'YT_WEB_CHAT_INVALID') log({ level: 'warn', code: 'YT_WEB_CHAT_INVALID' })
     const owner = options.owner ?? `srv_${randomBytes(6).toString('base64url')}`

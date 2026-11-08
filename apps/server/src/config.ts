@@ -141,15 +141,27 @@ export function readYoutubeSetting(env: Readonly<Record<string, string | undefin
 export interface YoutubeWebChatSetting {
   /** `LIVEJJIM_YT_WEB_CHAT`이 다듬고 소문자로 `off`일 때만 false */
   readonly on: boolean
+  /** 유튜브 웹 읽기를 보낼 집 회선 프록시 (D-YT-SRV-21) — 없으면 null */
+  readonly proxy?: string | null
   /** 알아볼 수 없는 값(켬으로 봄) — 값은 담지 않는다 */
   readonly warning: 'YT_WEB_CHAT_INVALID' | null
 }
 
 /** 서버 시작 때 한 번 읽는다. 없음·빈 값·`on`은 켬, `off`만 끔, 그 밖의 값은 켬 + 경고 */
-export function readYoutubeWebChat(env: Readonly<Record<string, string | undefined>>): YoutubeWebChatSetting {
+export function readYoutubeWebChat(env: Readonly<Record<string, string | undefined>>, mediaProxy: string | null = null): YoutubeWebChatSetting {
   const value = (env['LIVEJJIM_YT_WEB_CHAT'] ?? '').trim().toLowerCase()
   if (value === 'off') return { on: false, warning: null }
-  return { on: true, warning: value === '' || value === 'on' ? null : 'YT_WEB_CHAT_INVALID' }
+  const proxy = readYoutubeWebProxy(env, mediaProxy)
+  return { on: true, warning: value === '' || value === 'on' ? null : 'YT_WEB_CHAT_INVALID', ...(proxy === null ? {} : { proxy }) }
+}
+
+/**
+ * 유튜브 웹 읽기(방송·채팅 페이지, 채팅)를 집 회선 프록시로 보낼지 (D-YT-SRV-21): 데이터센터 IP는 유튜브 봇 확인에 막히므로
+ * 방송 소리와 같은 출구(LIVEJJIM_YT_MEDIA_PROXY — 이미 허용 모양만 받은 값)를 쓴다. `LIVEJJIM_YT_WEB_PROXY=off`일 때만 쓰지 않는다
+ */
+export function readYoutubeWebProxy(env: Readonly<Record<string, string | undefined>>, mediaProxy: string | null): string | null {
+  if ((env['LIVEJJIM_YT_WEB_PROXY'] ?? '').trim().toLowerCase() === 'off') return null
+  return mediaProxy
 }
 
 /** 실시간 채팅 감사 다른 길 설정 (D-YT-SEND-08). 값(쿠키·토큰)은 파일에만 두고 여기에는 파일 위치만 */

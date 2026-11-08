@@ -1,4 +1,4 @@
-# 집 회선 프록시 (방송 소리 받기용, D-LV1-13)
+# 집 회선 프록시 (방송 소리 받기·유튜브 웹 읽기, D-LV1-13·D-YT-SRV-21)
 
 AWS(EC2·CloudShell) IP에서는 유튜브 재생 주소 요청이 "Sign in to confirm you're not a bot"으로 막힌다(D-LV1-11·D-LV1-12).
 그래서 **팀이 가진 맥 미니의 집 회선**을 방송 소리 받기의 출구로 쓴다. 유료 프록시·IP 돌리기·쿠키·봇 검사 풀기 도구는 쓰지 않는다.
@@ -8,7 +8,8 @@ EC2 app(컨테이너) ──yt-dlp --proxy / ffmpeg -http_proxy──▶ host.do
    ══ SSH 역방향 터널(맥 미니가 EC2로 건다) ══▶ 맥 미니 127.0.0.1:8888 tinyproxy ──(youtube.com·googlevideo.com만)──▶ 유튜브
 ```
 
-- 채팅 읽기는 지금처럼 EC2에서 바로 한다. 프록시는 **방송 소리(yt-dlp 주소 찾기 + ffmpeg HLS 받기)** 에만 쓴다.
+- 방송 소리(yt-dlp 주소 찾기 + ffmpeg HLS 받기)와 **유튜브 웹 읽기(방송·채팅 페이지, 채팅 — D-YT-SRV-21)** 가 이 출구를 쓴다.
+  웹 읽기는 프록시에 닿지 못하면(맥 미니 꺼짐·터널 끊김) 그 요청만 EC2에서 바로 다시 부른다. 웹 읽기만 끄려면 `LIVEJJIM_YT_WEB_PROXY=off`.
 - HLS 주소에 요청한 IP가 박혀 있어 목록·조각도 같은 출구로 받아야 한다 → 서버가 ffmpeg에도 `-http_proxy`를 넘긴다
   (환경변수 `http_proxy`가 아니라 옵션 — `no_proxy` 같은 바깥 값에 흔들리지 않고, 프록시가 죽으면 바로 나가지 않고 실패한다).
 - 맥 미니에는 바깥에서 들어오는 포트를 하나도 열지 않는다. tinyproxy는 127.0.0.1에만 열리고, 연결은 맥 미니가 EC2로 거는 SSH 하나다.

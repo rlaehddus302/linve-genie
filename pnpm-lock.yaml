@@ -407,6 +407,9 @@ importers:
       tiktok-live-connector:
         specifier: 2.1.0
         version: 2.1.0(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)
+      undici:
+        specifier: 8.12.2
+        version: 8.12.2
       ws:
         specifier: 8.22.0
         version: 8.22.0
