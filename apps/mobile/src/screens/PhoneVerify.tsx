@@ -620,8 +620,7 @@ function WinMark({ width, height }: { readonly width: number; readonly height: n
           style={{
             width: win.interpolate(tables.w),
             height: win.interpolate(tables.h),
-            borderRadius: win.interpolate(tables.r),
-            borderCurve: 'continuous',
+            borderRadius: win.interpolate(tables.r), borderCurve: 'continuous',
             backgroundColor: p.primary,
             opacity: fill,
             alignItems: 'center',

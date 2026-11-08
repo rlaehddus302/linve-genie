@@ -241,7 +241,7 @@ function ProductRow({ product, fresh, onOpen, badge, doubt }: { readonly product
   )
 }
 
-/** 상품 전체 리스트 — 라이브 채팅처럼 최신이 맨 아래 (D-UX3-75) */
+/** 상품 전체 리스트 — 가장 최근에 말한(올린) 상품이 맨 위 (D-UX3-87 — 상품만 D-UX3-75를 되돌림) */
 export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void }) {
   const api = useConsoleApi()
   const products = boardProducts(api.data, api.b)
@@ -251,7 +251,7 @@ export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void
   const freshKey = api.selected !== null && api.data.products.has(api.selected) ? api.selected : products[0]?.key
   return (
     <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
-      {[...products].reverse().map((product) => (
+      {products.map((product) => (
         <ProductRow key={product.key} product={product} fresh={product.key === freshKey} onOpen={() => onOpen(product.key)} badge={badges.get(productSlots(product).winners[0] ?? '')} doubt={api.doubts?.get(product.no)} />
       ))}
     </View>

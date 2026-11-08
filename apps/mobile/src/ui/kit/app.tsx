@@ -302,8 +302,8 @@ export function CountBadge({ count, tone }: { readonly count: number; readonly t
   const bg = tone === 'warn' ? p.warnBg : tone === 'green' ? p.freshBg : p.border
   const fg = tone === 'warn' ? p.warnText : tone === 'green' ? p.primaryText : p.text
   return (
-    <View aria-hidden style={{ minWidth: 48, height: 48, paddingHorizontal: 6, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
-      <Txt step="bodyLarge" weight="heavy" ink={fg}>
+    <View aria-hidden style={{ minWidth: 30, height: 30, paddingHorizontal: 5, borderRadius: 9, borderCurve: 'continuous', backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+      <Txt step="caption" weight="bold" ink={fg}>
         {String(count)}
       </Txt>
     </View>
@@ -317,8 +317,9 @@ export function RowGroup({ children, label, title }: { readonly children?: React
   return (
     <View role={name === undefined ? undefined : 'group'} aria-label={name} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.xs }}>
       {title === undefined ? null : (
-        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg, paddingBottom: SPACE.xs }}>
-          <Txt step="caption" weight="bold" color="textSub" role="heading" aria-level={2}>
+        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg + 2, paddingBottom: SPACE.sm }}>
+          {/* 토스 "전체" 화면처럼 (D-UX3-87): 묶음 이름은 본문 크기·중간 굵기·회색, 줄 이름보다 한 단계 작게 */}
+          <Txt step="body" weight="book" color="textSub" role="heading" aria-level={2}>
             {title}
           </Txt>
         </View>
@@ -338,10 +339,11 @@ export function TodoRow({ count, tone, title, sub, onPress, ariaLabel, testID }:
   const { p } = useKit()
   const name = ariaLabel ?? (count === undefined ? title : `${title} ${String(count)}`)
   return (
-    <Pressable role="button" aria-label={name} onPress={onPress} testID={testID} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: SPACE.lg, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Pressable role="button" aria-label={name} onPress={onPress} testID={testID} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {count === undefined ? null : <CountBadge count={count} tone={tone ?? 'gray'} />}
       <View style={{ flex: 1, gap: 2 }}>
-        <Txt step="bodyLarge" weight="bold">
+        {/* 토스 "전체" 줄처럼 (D-UX3-87): 줄 이름은 보통 굵기(중간), 줄 간격은 좁게 */}
+        <Txt step="bodyLarge" weight="book">
           {title}
         </Txt>
         {sub === undefined ? null : (
@@ -350,7 +352,7 @@ export function TodoRow({ count, tone, title, sub, onPress, ariaLabel, testID }:
           </Txt>
         )}
       </View>
-      <Icon name="chevron" color={p.textSub} size={20} />
+      <Icon name="chevron" color={p.textSub} size={18} />
     </Pressable>
   )
 }

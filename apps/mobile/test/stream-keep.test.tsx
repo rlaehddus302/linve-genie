@@ -99,4 +99,22 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     await act(async () => { screen.getByRole('button', { name: '방송 소리 다시 켜기' }).click(); await flush() })
     await waitFor(() => expect(world.server.callsTo('POST', /\/stream-audio\/restart$/).length).toBe(1))
   }, 15_000)
+
+  it('"앱을 닫은 동안 서버가 들었어요" 카드는 띄우지 않는다 — 서버가 들은 말이 있어도 (D-UX3-87)', async () => {
+    const world = makeWorld()
+    world.server.on('GET', STATUS, () => ({ body: { phase: 'listening' } }))
+    world.server.on('POST', WATCH, () => ({ body: { phase: 'listening' } }))
+    world.server.on('GET', /\/stream-audio\/heard$/, () => ({ body: { entries: [{ at: 1, kind: 'registered', no: 15, price: 10000 }], pending: ['확인할 말'] } }))
+    world.server.on('POST', /^\/api\/broadcasts\/b1\/voice-ticket/, () => ({ body: { wsUrl: 'ws://test.local/api/voice?ticket=t' } }))
+    render(world.wrap(<Shell />))
+    await waitFor(() => expect(screen.getByTestId('console-screen')).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush()
+    })
+    await act(async () => { await wait(1_300) })
+    expect(screen.queryByText('앱을 닫은 동안 서버가 들었어요')).toBeNull()
+    expect(screen.queryByRole('button', { name: '확인했어요' })).toBeNull()
+  }, 15_000)
 })
+

@@ -17,8 +17,7 @@ export function SocialTile({ provider, size = 22, testID }: { readonly provider:
       style={{
         width: size,
         height: size,
-        borderRadius: Math.round(size * 0.225),
-        borderCurve: 'continuous',
+        borderRadius: Math.round(size * 0.225), borderCurve: 'continuous',
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: color.background,

@@ -187,14 +187,13 @@ export function ListenLine({ session, broadcastId, stream }: { readonly session:
   const [open, setOpen] = useState(false)
   const [pressed, setPressed] = useState(false)
   const micOn = view.on && view.broadcastId === broadcastId
-  const serverHeard = <ServerHeard broadcastId={broadcastId} />
+  // "앱을 닫은 동안 서버가 들었어요" 카드는 띄우지 않는다 (D-UX3-87, 사용자 지시 2026-11-09)
   const line = streamAudioLine(stream.status, micOn)
   const hearing = micOn || stream.hold
-  if (!hearing && line === null) return serverHeard
+  if (!hearing && line === null) return null
   const last = view.transcript.at(-1) ?? null
   return (
     <View style={{ gap: 6 }}>
-      {serverHeard}
       <View style={{ borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surface, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, gap: SPACE.xs }}>
         <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)} onPressIn={() => setPressed(true)} onPressOut={() => setPressed(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
           <Icon name="mic" size={16} color={hearing ? p.primaryText : p.textSub} />

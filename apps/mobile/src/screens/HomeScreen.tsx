@@ -5,7 +5,7 @@
 // - 라벨 뽑기 숫자: 라벨 대기열 요약의 대기 장 수(라벨 기능을 켰을 때만). 값을 모르면 그 줄을 숨긴다.
 // - 정산·구매자·택배·영수증·설정 등 웹 화면은 모두 앱 화면으로 옮겼다(D-APPX-01·03) — 더보기에서 연다. 실제 방송 전이면 "시작 준비" 줄.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Image, Pressable, ScrollView, View } from 'react-native'
+import { Image, Pressable, ScrollView, Text, View } from 'react-native'
 import type { BroadcastItem, PackingEntry, PackingList, ReceiptBuyers, WizardState } from '@livejjim/web/src/api/types.ts'
 import type { ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
@@ -19,6 +19,7 @@ import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
 import { broadcastTitle, HOME_BROADCASTS, liveBroadcast, newestFirst } from './BroadcastList.tsx'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { font } from '../ui/kit/font.ts'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 
 export interface HomeNavigation {
@@ -173,7 +174,8 @@ export function pastBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[]
   return newestFirst(items).filter((item) => item.ended && !item.rehearsal)
 }
 
-const AVATAR = 40
+/** 라이브 표시 프로필 사진 지름 — 옆 글자 높이에 맞춘다 (D-UX3-87, 토스 "토스뱅크 ›"처럼) */
+const AVATAR = 26
 
 /** 맨 위 왼쪽 라이브 표시 (D-UX3-85): 방송 중이면 채널 프로필 사진(빨간 테두리 + "라이브") + "지금 라이브 중 ›", 아니면 "라이브 연결 ›" */
 function LiveEntry({ live, onOpen, onConnect }: { readonly live: BroadcastItem | undefined; readonly onOpen: (id: string) => void; readonly onConnect: () => void }) {
@@ -204,23 +206,26 @@ function LiveEntry({ live, onOpen, onConnect }: { readonly live: BroadcastItem |
   return (
     <Pressable role="button" aria-label={label} testID="home-live" onPress={() => (live !== undefined ? onOpen(live.id) : onConnect())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, alignSelf: 'flex-start', minHeight: TOUCH.min, opacity: pressed ? 0.6 : 1 })}>
       {on ? (
-        <View aria-hidden style={{ width: AVATAR + 6, height: AVATAR + 12, alignItems: 'center' }}>
-          <View style={{ width: AVATAR + 6, height: AVATAR + 6, borderRadius: (AVATAR + 6) / 2, borderWidth: 2.5, borderColor: tones.danger.fg, alignItems: 'center', justifyContent: 'center' }}>
+        <View aria-hidden style={{ width: AVATAR + 6, height: AVATAR + 10, alignItems: 'center' }}>
+          <View style={{ width: AVATAR + 6, height: AVATAR + 6, borderRadius: (AVATAR + 6) / 2, borderCurve: 'continuous', borderWidth: 2, borderColor: tones.danger.fg, alignItems: 'center', justifyContent: 'center' }}>
             {avatar !== null ? (
-              <Image source={{ uri: avatar }} style={{ width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2 }} />
+              <Image source={{ uri: avatar }} style={{ width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2, borderCurve: 'continuous' }} />
             ) : (
-              <View style={{ width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2, backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="play" color={p.textSub} size={18} />
+              <View style={{ width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="play" color={p.textSub} size={14} />
               </View>
             )}
           </View>
-          <View style={{ position: 'absolute', bottom: 0, paddingHorizontal: 5, paddingVertical: 1, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: tones.danger.fg }}>
-            <Txt step="tab" weight="bold" ink="#FFFFFF">라이브</Txt>
+          <View style={{ position: 'absolute', bottom: 0, paddingHorizontal: 3, borderRadius: 4, borderCurve: 'continuous', backgroundColor: tones.danger.fg }}>
+            <Text allowFontScaling={false} style={{ fontSize: 8, lineHeight: 11, color: '#FFFFFF', ...font('700') }}>라이브</Text>
           </View>
         </View>
       ) : null}
-      <Txt step="title" weight="bold">{label}</Txt>
-      <Icon name="chevron" color={p.textSub} size={20} />
+      {/* 글자와 › 사이는 좁게 (토스 "토스뱅크 ›") */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+        <Txt step="lead" weight="heavy">{label}</Txt>
+        <Icon name="chevron" color={p.textSub} size={16} />
+      </View>
     </Pressable>
   )
 }
@@ -231,16 +236,16 @@ function HistoryRow({ item, now, onPress }: { readonly item: BroadcastItem; read
   const platform = item.platforms?.[0]
   const sub = [broadcastLength(item.createdAt, item.endedAt), historyAgo(item.endedAt ?? item.createdAt, now)].filter((part) => part !== null).join(' · ')
   return (
-    <Pressable role="button" aria-label={`${broadcastTitle(item)} — ${sub}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Pressable role="button" aria-label={`${broadcastTitle(item)} — ${sub}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {platform === undefined ? (
-        <View aria-hidden style={{ width: 40, height: 40, borderRadius: 40 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="play" color={p.textSub} size={20} />
+        <View aria-hidden style={{ width: 34, height: 34, borderRadius: 34 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="play" color={p.textSub} size={18} />
         </View>
       ) : (
-        <PlatformIcon platform={platform} />
+        <PlatformIcon platform={platform} size={34} />
       )}
-      <View style={{ flex: 1, gap: 2 }}>
-        <Txt step="bodyLarge" weight="bold" numberOfLines={1}>
+      <View style={{ flex: 1, gap: 1 }}>
+        <Txt step="bodyLarge" weight="book" numberOfLines={1}>
           {broadcastTitle(item)}
         </Txt>
         {sub === '' ? null : (
@@ -249,7 +254,7 @@ function HistoryRow({ item, now, onPress }: { readonly item: BroadcastItem; read
           </Txt>
         )}
       </View>
-      <Icon name="chevron" color={p.textSub} size={20} />
+      <Icon name="chevron" color={p.textSub} size={18} />
     </Pressable>
   )
 }
@@ -333,8 +338,8 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
 
         {past.length > 0 ? (
           <View role="group" aria-label="방송 이력" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.xs }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: SPACE.xl, paddingRight: SPACE.md, paddingTop: SPACE.md }}>
-              <Txt step="section" weight="bold" role="heading" aria-level={2}>방송 이력</Txt>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: SPACE.xl, paddingRight: SPACE.md, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
+              <Txt step="body" weight="book" color="textSub" role="heading" aria-level={2}>방송 이력</Txt>
               {nav.openAllBroadcasts === undefined ? null : (
                 <Pressable role="button" aria-label="방송 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
                   <Txt step="caption" color="textSub">모두보기</Txt>

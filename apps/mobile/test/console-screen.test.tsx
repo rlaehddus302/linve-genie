@@ -32,6 +32,15 @@ const openDirect = () => {
 }
 
 describe('ConsoleScreen', () => {
+  // D-UX3-87 (사용자 지시 2026-11-09 "상품 목록은 가장 최근에 말한게 가장 위로"): 상품만 D-UX3-75(최신이 맨 아래)를 되돌린다
+  it('상품 목록은 가장 최근에 올린 상품이 맨 위 (D-UX3-87)', async () => {
+    const world = makeWorld({ products: [product(15), product(16)] })
+    await open(world)
+    const list = await screen.findByRole('list', { name: '상품 목록' })
+    const labels = within(list).getAllByRole('button').map((row) => row.getAttribute('aria-label') ?? '')
+    expect(labels.findIndex((label) => label.includes('16번'))).toBeLessThan(labels.findIndex((label) => label.includes('15번')))
+  })
+
   // D-UX3-81로 바뀐 기대 (사용자 지시 2026-11-09 "상품, 찜기록은 위로 정렬, 채팅문자는 아래로 정렬"): 옛 D-UX3-77 "모두 아래"
   it('상품·찜 기록 목록은 위에, 채팅·문자는 화면 아래에 붙는다 (D-UX3-81)', async () => {
     const world = makeWorld({ products: [product(15)] })
