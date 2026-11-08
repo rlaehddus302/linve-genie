@@ -62,7 +62,7 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     await waitFor(() => expect(world.services.streamKeep.getKept()).toBeNull())
   }, 15_000)
 
-  it('다시 잇는 중 같은 상태는 머리 오른쪽에만 — 접힌 줄 아래에 같은 문장을 또 보이지 않고, 펼치면 보인다 (D-UX3-72)', async () => {
+  it('다시 잇는 중 같은 상태는 머리 오른쪽에만 — 접힌 줄에도, 펼친 카드에도 같은 문장을 또 보이지 않는다 (D-UX3-72·76)', async () => {
     const world = makeWorld()
     world.server.on('GET', STATUS, () => ({ body: { phase: 'reconnecting' } }))
     world.server.on('POST', WATCH, () => ({ body: { phase: 'reconnecting' } }))
@@ -75,7 +75,9 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     })
     await waitFor(() => expect(screen.getAllByText('방송 소리 다시 잇는 중').length).toBe(1))
     await act(async () => { screen.getByRole('button', { name: '들린 말 펼치기' }).click(); await flush() })
-    await waitFor(() => expect(screen.getAllByText('방송 소리 다시 잇는 중').length).toBe(2))
+    // D-UX3-76: 펼쳐도 상태 문장은 머리 한 곳뿐 (사용자 지시 2026-11-09 "위에랑 겹치니까 지우고")
+    await waitFor(() => expect(screen.getByRole('button', { name: '들린 말 접기' })).toBeTruthy())
+    expect(screen.getAllByText('방송 소리 다시 잇는 중').length).toBe(1)
   }, 15_000)
 
   it('방송 소리가 멈추면 화면에 [다시 켜기]·[휴대폰으로 듣기] 단추 없이, 방송 메뉴의 "방송 소리 다시 켜기"로 다시 시작한다 (D-UX3-73)', async () => {

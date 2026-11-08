@@ -9,7 +9,7 @@ import { Txt, useBottomInset, useKit } from './theme.tsx'
 import { tapHaptic } from '../../native/haptics.ts'
 import { TabIcon, type TabIconName } from './tab-icons.tsx'
 
-export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus'
+export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus' | 'down' | 'up'
 
 /**
  * 선 아이콘 (24 기준). 보조 기술에는 읽히지 않는다 — 옆 글자가 이름이다.
@@ -21,6 +21,8 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
   const hole = cut ?? p.surface
   const s = size
   const stroke = Math.max(2, Math.round(s / 11))
+  // SVG 선 아이콘(마이크·펼치기)의 화면 선 굵기는 크기와 상관없이 1.8 (아래 탭 아이콘과 같은 굵기, D-UX3-44·76)
+  const lineWidth = (1.8 * 24) / s
   const box: ViewStyle = { width: s, height: s, alignItems: 'center', justifyContent: 'center' }
   const shape = (() => {
     switch (name) {
@@ -96,12 +98,20 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
           </View>
         )
       case 'mic':
+        // 마이크 (D-UX3-76, 사용자 지시 2026-11-09 "아이콘 못생겼으니 다시 제대로"): 아래 탭 아이콘처럼 SVG 선 하나 굵기·둥근 끝 — 캡슐 + 받침 호 + 기둥
         return (
-          <View style={{ alignItems: 'center' }}>
-            <View style={{ width: s * 0.3, height: s * 0.48, borderRadius: s, borderCurve: 'continuous', borderWidth: stroke, borderColor: c }} />
-            <View style={{ width: s * 0.58, height: s * 0.3, marginTop: -s * 0.2, borderLeftWidth: stroke, borderRightWidth: stroke, borderBottomWidth: stroke, borderColor: c, borderBottomLeftRadius: s, borderBottomRightRadius: s }} />
-            <View style={{ width: stroke, height: s * 0.14, backgroundColor: c }} />
-          </View>
+          <Svg width={s} height={s} viewBox="0 0 24 24">
+            <Path d="M12 3.2 A3.1 3.1 0 0 1 15.1 6.3 V11.1 A3.1 3.1 0 0 1 8.9 11.1 V6.3 A3.1 3.1 0 0 1 12 3.2 Z" stroke={c} strokeWidth={lineWidth} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <Path d="M5.6 10.9 A6.4 6.4 0 0 0 18.4 10.9 M12 17.3 V20.6 M8.9 20.6 H15.1" stroke={c} strokeWidth={lineWidth} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </Svg>
+        )
+      case 'down':
+      case 'up':
+        // 펼치기 ⌄ / 접기 ⌃ (D-UX3-76): 마이크와 같은 굵기, 끝·꺾인 곳 둥글게
+        return (
+          <Svg width={s} height={s} viewBox="0 0 24 24">
+            <Path d={name === 'down' ? 'M6.5 9.4 L12 14.9 L17.5 9.4' : 'M6.5 14.6 L12 9.1 L17.5 14.6'} stroke={c} strokeWidth={lineWidth} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </Svg>
         )
       case 'check':
         return <View style={{ width: s * 0.3, height: s * 0.55, borderBottomWidth: stroke + 1, borderRightWidth: stroke + 1, borderColor: c, transform: [{ rotate: '45deg' }], marginTop: -s * 0.12 }} />
