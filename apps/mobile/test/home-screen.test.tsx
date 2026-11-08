@@ -94,19 +94,20 @@ describe('HomeScreen', () => {
     expect(opened).toEqual(['http://test.local/settings/youtube?from=app'])
   })
 
-  it('홈이 다시 보이면 방송 목록을 다시 받는다: 리허설을 시작하고 돌아오면 "방송으로 돌아가기", 끝내고 돌아오면 "방송 시작하기" (D-UX2-07)', async () => {
+  // 리허설은 앱에서 뺐다 (D-UX3-86) — 같은 흐름을 실제 방송으로 본다
+  it('홈이 다시 보이면 방송 목록을 다시 받는다: 방송을 시작하고 돌아오면 "방송으로 돌아가기", 끝내고 돌아오면 "방송 시작하기" (D-UX2-07)', async () => {
     const world = makeWorld()
     let broadcasts: unknown[] = []
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts } }))
     const navigation = nav()
     const view = render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={0} />))
     expect(await screen.findByRole('button', { name: '방송 시작하기' })).toBeTruthy()
-    const rehearsal = { ...BROADCAST, id: 'r1', title: '리허설 1', rehearsal: true }
-    broadcasts = [rehearsal]
+    const started = { ...BROADCAST, id: 'r1', title: '방송 1' }
+    broadcasts = [started]
     view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={1} />))
-    fireEvent.click(await screen.findByRole('button', { name: `방송으로 돌아가기 — ${broadcastLine(rehearsal)}` }))
+    fireEvent.click(await screen.findByRole('button', { name: `방송으로 돌아가기 — ${broadcastLine(started)}` }))
     expect(navigation.openConsole).toHaveBeenCalledWith('r1')
-    broadcasts = [{ ...rehearsal, ended: true, endedAt: '2026-10-29T12:00:00.000Z' }]
+    broadcasts = [{ ...started, ended: true, endedAt: '2026-10-29T12:00:00.000Z' }]
     view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={2} />))
     expect(await screen.findByRole('button', { name: '방송 시작하기' })).toBeTruthy()
   })

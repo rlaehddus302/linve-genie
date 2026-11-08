@@ -4,7 +4,7 @@
 // 링크는 판매자가 복사·공유 시트로 보내거나, [문자 보내기]로 판매자 휴대폰 문자 앱을 손님 번호·확인서 링크로 채워 연다 — 판매자는 보내기만
 // 누르고 문자는 판매자 번호로 간다(답장·전화가 판매자에게, D-REAL-05 — D-REAL-03을 바꿈). 번호를 아는 손님(문자찜)은 바로 열고, 모르는 손님은
 // 번호를 넣고 연다. 번호 아는 손님 모두 보내기는 한 번 묻고 손님마다 문자 앱을 차례로 연다(보내면 다음, 닫으면 멈춤).
-// 파일(PDF·JPG·ZIP·엑셀)은 휴대폰 공유 시트로 넘긴다. 리허설 방송은 링크·판매대장 없이 확인서만.
+// 파일(PDF·JPG·ZIP·엑셀)은 휴대폰 공유 시트로 넘긴다. 실제 방송만 고른다 — 리허설은 앱에서 뺐다 (D-UX3-86).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, Share, View } from 'react-native'
 import type { BroadcastItem, ReceiptBuyerRow, ReceiptBuyers, ReceiptLink } from '@livejjim/web/src/api/types.ts'
@@ -40,7 +40,6 @@ export const RECEIPTS_TITLE = '영수증·판매대장'
 export const NOT_ENDED = '방송을 끝낸 뒤 보낼 수 있어요.'
 export const NO_ENDED = '아직 끝낸 방송이 없어요.'
 export const SAME_DAY_NOTE = '같은 날 다른 방송의 상품도 함께 들어가요(정산은 날짜마다 하나예요).'
-export const REHEARSAL_NOTE = '리허설에서는 공유 링크와 판매대장을 만들지 않아요.'
 export const NO_RECEIPT_ROWS = '확인서를 만들 구매자가 없어요.'
 export const NO_NEW_LINKS = '새로 만들 링크가 없어요.'
 export const COPIED = '복사했어요.'
@@ -102,10 +101,10 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
     get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts').then(
       (result) => {
         if (!alive) return
-        const sorted = [...result.broadcasts].sort((a, b) => (a.date === b.date ? (b.endedAt ?? '').localeCompare(a.endedAt ?? '') : b.date.localeCompare(a.date)))
+        const sorted = result.broadcasts.filter((item) => item.rehearsal !== true).sort((a, b) => (a.date === b.date ? (b.endedAt ?? '').localeCompare(a.endedAt ?? '') : b.date.localeCompare(a.date)))
         setList(sorted)
         setError(null)
-        setPicked((current) => current ?? sorted.find((item) => item.ended && !item.rehearsal)?.id ?? sorted.find((item) => item.ended)?.id ?? sorted[0]?.id ?? null)
+        setPicked((current) => current ?? sorted.find((item) => item.ended)?.id ?? sorted[0]?.id ?? null)
       },
       (caught: unknown) => {
         if (alive && isApiError(caught)) setError(caught)
@@ -116,7 +115,7 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
     }
   }, [attempt])
   const broadcast = list?.find((item) => item.id === picked) ?? null
-  const sameDay = broadcast !== null && list !== null && list.some((item) => item.id !== broadcast.id && item.date === broadcast.date && item.rehearsal === broadcast.rehearsal)
+  const sameDay = broadcast !== null && list !== null && list.some((item) => item.id !== broadcast.id && item.date === broadcast.date)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="receipts-screen">
       <AppHeader title={RECEIPTS_TITLE} onBack={onBack} />
@@ -134,19 +133,18 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
         {list !== null && list.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm }}>
             {list.slice(0, 20).map((item) => (
-              <Pill key={item.id} on={item.id === picked} label={`${dateWords(item.date)}${item.rehearsal ? ' 리허설' : ''}`} ariaLabel={`방송 ${dateWords(item.date)} ${item.title}${item.rehearsal ? ' · 리허설' : ''}`} onPress={() => setPicked(item.id)} />
+              <Pill key={item.id} on={item.id === picked} label={dateWords(item.date)} ariaLabel={`방송 ${dateWords(item.date)} ${item.title}`} onPress={() => setPicked(item.id)} />
             ))}
           </ScrollView>
         ) : null}
         {broadcast !== null ? (
           <>
             <Txt weight="bold">{`${dateWords(broadcast.date)} · ${broadcast.title}`}</Txt>
-            {broadcast.rehearsal ? <Tag tone="info">리허설</Tag> : null}
             {broadcast.ended ? <ReceiptDay key={broadcast.id} broadcast={broadcast} sameDay={sameDay} /> : <Notice tone="info">{NOT_ENDED}</Notice>}
           </>
         ) : null}
       </ScrollView>
-      {ledger ? <LedgerSheet initial={broadcast !== null && !broadcast.rehearsal ? broadcast.date : null} onClose={() => setLedger(false)} /> : null}
+      {ledger ? <LedgerSheet initial={broadcast !== null ? broadcast.date : null} onClose={() => setLedger(false)} /> : null}
     </View>
   )
 }
@@ -195,7 +193,7 @@ function useSmsDevice(wanted: boolean): boolean | null {
 }
 
 /** 구매자 줄: 처음·조치 뒤·그날 정산이 바뀌면(실시간 알림) 다시 받는다. 가게 이름(복사 글 앞말)도 같이 */
-function useReceiptRows(date: string, rehearsal: boolean) {
+function useReceiptRows(date: string) {
   const { stream } = useServices()
   const [rows, setRows] = useState<readonly ReceiptBuyerRow[] | null>(null)
   const [shopName, setShopName] = useState('')
@@ -206,7 +204,7 @@ function useReceiptRows(date: string, rehearsal: boolean) {
   const reload = useCallback(() => setVersion((n) => n + 1), [])
   useEffect(() => {
     const mine = ++latest.current
-    Promise.all([get<ReceiptBuyers>(withQuery(`/api/days/${date}/receipt-buyers`, { rehearsal })), get<{ shop: { name: string } }>('/api/shop').catch(() => null)]).then(
+    Promise.all([get<ReceiptBuyers>(withQuery(`/api/days/${date}/receipt-buyers`, { rehearsal: false })), get<{ shop: { name: string } }>('/api/shop').catch(() => null)]).then(
       ([result, shop]) => {
         if (mine !== latest.current) return
         setRows(result.buyers)
@@ -218,19 +216,19 @@ function useReceiptRows(date: string, rehearsal: boolean) {
         if (mine === latest.current && isApiError(caught)) setError(caught)
       },
     )
-  }, [date, rehearsal, version])
+  }, [date, version])
   useEffect(() => {
     const view = stream.open()
     view.addEventListener('change', (event) => {
       try {
         const scope = JSON.parse(event.data ?? '{}') as { date?: string; rehearsal?: boolean }
-        if (scope.date === date && (scope.rehearsal === true) === rehearsal) reload()
+        if (scope.date === date && scope.rehearsal !== true) reload()
       } catch {
         reload()
       }
     })
     return () => view.close()
-  }, [date, rehearsal, reload, stream])
+  }, [date, reload, stream])
   const applyLinks = useCallback((links: readonly ReceiptLink[]) => {
     const byBuyer = new Map(links.map((link) => [link.buyer, link]))
     setRows((current) => current?.map((row) => ({ ...row, link: byBuyer.get(row.buyer) ?? row.link })) ?? current)
@@ -239,22 +237,21 @@ function useReceiptRows(date: string, rehearsal: boolean) {
 }
 
 function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem; readonly sameDay: boolean }) {
-  const { date, rehearsal } = broadcast
-  const { rows, shopName, smsReady, error, reload, applyLinks } = useReceiptRows(date, rehearsal)
+  const { date } = broadcast
+  const { rows, shopName, smsReady, error, reload, applyLinks } = useReceiptRows(date)
   const [smsAsk, setSmsAsk] = useState(false)
   const [smsBusy, setSmsBusy] = useState(false)
   const [smsResult, setSmsResult] = useState<string | null>(null)
   const [smsProgressText, setSmsProgressText] = useState<string | null>(null)
   const [smsError, setSmsError] = useState<string | null>(null)
-  const smsDevice = useSmsDevice(smsReady && !rehearsal)
-  const smsOk = smsReady && !rehearsal && smsDevice === true
+  const smsDevice = useSmsDevice(smsReady)
+  const smsOk = smsReady && smsDevice === true
   const [allBusy, setAllBusy] = useState(false)
   const [allResult, setAllResult] = useState<string | null>(null)
   const [allError, setAllError] = useState<ApiError | null>(null)
   const allRequest = useRef<string | null>(null)
   const files = useFileShare()
-  const prefix = rehearsal ? 'rehearsal-' : ''
-  const query = { rehearsal }
+  const query = { rehearsal: false }
 
   const makeAll = async () => {
     if (allBusy) return
@@ -325,19 +322,18 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
   return (
     <View style={{ gap: SPACE.md }}>
       {sameDay ? <Txt color="textSub">{SAME_DAY_NOTE}</Txt> : null}
-      {rehearsal ? <Notice tone="info">{REHEARSAL_NOTE}</Notice> : null}
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {count > 0 ? (
         <Card label="한 번에 하기">
-          {!rehearsal ? <BigButton label="링크 전부 만들기" busy={allBusy} onPress={() => void makeAll()} /> : null}
+          <BigButton label="링크 전부 만들기" busy={allBusy} onPress={() => void makeAll()} />
           {targets.length > 0 || smsBusy ? <BigButton kind="outline" label={`${SMS_SEND_ALL} (${String(targets.length)}명)`} busy={smsBusy} onPress={() => setSmsAsk(true)} /> : null}
           {smsProgressText !== null ? <Notice tone="info">{smsProgressText}</Notice> : null}
           {smsResult !== null ? <Notice tone="success">{smsResult}</Notice> : null}
           {smsError !== null ? <Notice tone="danger" alert>{smsError}</Notice> : null}
-          {smsReady && !rehearsal && smsDevice === false ? <Txt step="caption" color="textSub">{SMS_UNAVAILABLE}</Txt> : null}
-          <BigButton kind={rehearsal ? 'primary' : 'outline'} label="전원 확인서 PDF" busy={files.busy === 'all-pdf'} onPress={() => void files.run('all-pdf', withQuery(`/api/days/${date}/receipts.pdf`, query), `${prefix}receipts-${date}-all.pdf`)} />
-          <BigButton kind="outline" label="전원 이미지(JPG) 묶음" busy={files.busy === 'all-zip'} onPress={() => void files.run('all-zip', withQuery(`/api/days/${date}/receipts.zip`, query), `${prefix}receipts-${date}-images.zip`)} />
-          {!rehearsal ? <BigButton kind="outline" label="이 방송 판매대장 엑셀" busy={files.busy === 'ledger'} onPress={() => void files.run('ledger', ledgerPath(date, date, [broadcast.id], false), `ledger-${date}.xlsx`)} /> : null}
+          {smsReady && smsDevice === false ? <Txt step="caption" color="textSub">{SMS_UNAVAILABLE}</Txt> : null}
+          <BigButton kind="outline" label="전원 확인서 PDF" busy={files.busy === 'all-pdf'} onPress={() => void files.run('all-pdf', withQuery(`/api/days/${date}/receipts.pdf`, query), `receipts-${date}-all.pdf`)} />
+          <BigButton kind="outline" label="전원 이미지(JPG) 묶음" busy={files.busy === 'all-zip'} onPress={() => void files.run('all-zip', withQuery(`/api/days/${date}/receipts.zip`, query), `receipts-${date}-images.zip`)} />
+          <BigButton kind="outline" label="이 방송 판매대장 엑셀" busy={files.busy === 'ledger'} onPress={() => void files.run('ledger', ledgerPath(date, date, [broadcast.id], false), `ledger-${date}.xlsx`)} />
           {allResult !== null ? <Notice tone="success">{allResult}</Notice> : null}
           {allError !== null ? <Notice tone="danger" alert>{allError.message}</Notice> : null}
           {files.error !== null ? <Notice tone="danger" alert>{files.error}</Notice> : null}
@@ -360,7 +356,6 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
           key={row.buyer}
           row={row}
           date={date}
-          rehearsal={rehearsal}
           shopName={shopName}
           smsReady={smsOk}
           locked={allBusy || smsBusy}
@@ -377,7 +372,6 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
 function BuyerRow({
   row,
   date,
-  rehearsal,
   shopName,
   smsReady,
   locked,
@@ -385,7 +379,6 @@ function BuyerRow({
 }: {
   readonly row: ReceiptBuyerRow
   readonly date: string
-  readonly rehearsal: boolean
   readonly shopName: string
   readonly smsReady: boolean
   readonly locked: boolean
@@ -498,7 +491,7 @@ function BuyerRow({
         <Txt>{`상품 ${String(row.itemCount)}개 · ${formatWon(row.total)}`}</Txt>
         <Tag tone={row.payment === 'PAID' ? 'success' : row.payment === 'UNPAID' ? 'danger' : 'warning'}>{PAYMENT_WORD[row.payment]}</Tag>
       </View>
-      {rehearsal ? null : <Txt step="caption" color="textSub">{linkWords(link)}</Txt>}
+      <Txt step="caption" color="textSub">{linkWords(link)}</Txt>
       {smsReady && smsWords(row.sms) !== null ? <Txt step="caption" color="textSub">{smsWords(row.sms)}</Txt> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
         {smsReady ? (
@@ -513,16 +506,16 @@ function BuyerRow({
             }}
           />
         ) : null}
-        {!rehearsal && !usable ? <BigButton kind="outline" label="링크 만들기" ariaLabel={`${name} 링크 만들기`} busy={linkLocked} onPress={() => void send('create')} /> : null}
-        {!rehearsal && usable ? (
+        {!usable ? <BigButton kind="outline" label="링크 만들기" ariaLabel={`${name} 링크 만들기`} busy={linkLocked} onPress={() => void send('create')} /> : null}
+        {usable ? (
           <>
             <BigButton kind="outline" label="링크 복사" ariaLabel={`${name} 링크 복사`} disabled={linkLocked} onPress={() => void copy()} />
             <BigButton kind="outline" label="링크 보내기" ariaLabel={`${name} 링크 보내기`} disabled={linkLocked} onPress={() => void share()} />
             <BigButton kind="outline" label="링크 끊기" ariaLabel={`${name} 링크 끊기`} disabled={linkLocked} onPress={() => setConfirming(true)} />
           </>
         ) : null}
-        <BigButton kind="outline" label="이미지(JPG)" ariaLabel={`${name} 이미지(JPG)`} busy={files.busy === 'jpg'} onPress={() => void files.run('jpg', withQuery(`/api/days/${date}/receipt.jpg`, { buyer: row.buyer, rehearsal }), `${rehearsal ? 'rehearsal-' : ''}receipt-${date}.jpg`)} />
-        <BigButton kind="outline" label="PDF" ariaLabel={`${name} PDF`} busy={files.busy === 'pdf'} onPress={() => void files.run('pdf', withQuery(`/api/days/${date}/receipt.pdf`, { buyer: row.buyer, rehearsal }), `${rehearsal ? 'rehearsal-' : ''}receipt-${date}.pdf`)} />
+        <BigButton kind="outline" label="이미지(JPG)" ariaLabel={`${name} 이미지(JPG)`} busy={files.busy === 'jpg'} onPress={() => void files.run('jpg', withQuery(`/api/days/${date}/receipt.jpg`, { buyer: row.buyer, rehearsal: false }), `receipt-${date}.jpg`)} />
+        <BigButton kind="outline" label="PDF" ariaLabel={`${name} PDF`} busy={files.busy === 'pdf'} onPress={() => void files.run('pdf', withQuery(`/api/days/${date}/receipt.pdf`, { buyer: row.buyer, rehearsal: false }), `receipt-${date}.pdf`)} />
       </View>
       {busy ? <Txt step="caption" color="textSub">만드는 중…</Txt> : result !== null ? <Notice tone={result === SHARE_FAILED ? 'warning' : 'success'}>{result}</Notice> : null}
       {manual !== null ? <TextField label={COPY_BY_HAND} value={manual} onChangeText={() => undefined} selectTextOnFocus /> : null}

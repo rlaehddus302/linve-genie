@@ -103,7 +103,7 @@ function AwayLine() {
  * openLink: 방송 연결을 쌓인 화면으로 연다(밀어서 뒤로 가기, D-UX3-09) — 없으면 앱 안 전체 화면 판(시험·웹).
  * refresh: 바뀌면 유튜브 잇기 상태를 다시 받는다(방송 연결 화면에서 돌아올 때 경로가 올린다).
  */
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews, openLabels, openLink, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: (rehearsal: boolean) => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly refresh?: number }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews, openLabels, openLink, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -342,7 +342,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed
-  const heading = ended ? '끝난 방송' : broadcast.rehearsal ? '리허설 중' : '방송 중'
+  const heading = ended ? '끝난 방송' : '방송 중'
   const help = closed ? '끝난 방송이에요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   const close = () => setSheet('none')
   const chip = listenChip(voiceView, broadcastId, stream.status)
@@ -350,7 +350,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const productCountNow = boardProducts(data, broadcastId).length
   const onAlert = (action: 'pending' | 'attention' | 'decide' | 'labels') => {
     if (action === 'pending') setSheet('pending')
-    else if (action === 'attention') openReviews?.(broadcast.rehearsal)
+    else if (action === 'attention') openReviews?.()
     else if (action === 'decide') { setDecideFor(null); setSheet('decide') }
     else openLabels?.()
   }
@@ -437,7 +437,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           ) : null}
         </BottomSheet>
         <BottomSheet visible={sheet === 'menu'} onClose={close} title="방송 메뉴">
-          <Txt step="caption" color="textSub">{`${title}${broadcast.rehearsal ? ' · 리허설' : ''}`}</Txt>
+          <Txt step="caption" color="textSub">{title}</Txt>
           <RowGroup label="방송 메뉴">
             {/* 아래 고정 단추 두 개(듣기 시작·직접 넣기)는 메뉴로 옮겼다 (D-UX3-73) */}
             {!closed ? <TodoRow title={DIRECT_INPUT} sub="번호·가격 바로 넣기, 문자찜 넣기" onPress={() => fromMenu(() => setSheet('direct'))} /> : null}

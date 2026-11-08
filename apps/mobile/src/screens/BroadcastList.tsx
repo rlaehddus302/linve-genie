@@ -1,6 +1,7 @@
 // 내 방송 목록 (D-UX3-18, 사용자 지시 2026-11-03 "토스 통장 목록처럼"): 플랫폼 아이콘 · 제목 · 날짜와 "2시간 전".
 // 홈에는 최근 4개만 흰 카드 하나에, [모두보기]는 쌓인 화면 — 날짜마다 흰 카드를 나눈다.
-// 서버 목록은 오래된 순(날짜·리허설·선언 순)이라 여기서 뒤집어 최근 것을 위로 둔다 — 진행 중 방송도 가장 최근 것을 고른다.
+// 서버 목록은 오래된 순이라 여기서 뒤집어 최근 것을 위로 둔다 — 진행 중 방송도 가장 최근 것을 고른다.
+// 리허설 방송은 앱 어디에도 보이지 않는다 (D-UX3-86) — 예전에 만든 것도 목록에서 뺀다.
 import { useEffect, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
@@ -15,15 +16,14 @@ import { Loading, Notice } from '../ui/parts.tsx'
 /** 홈 카드에 보이는 최대 줄 수 */
 export const HOME_BROADCASTS = 4
 
-/** 최근 것이 위로 (서버는 오래된 순) */
+/** 실제 방송만, 최근 것이 위로 (서버는 오래된 순, 리허설은 뺀다 — D-UX3-86) */
 export function newestFirst(items: readonly BroadcastItem[]): BroadcastItem[] {
-  return [...items].reverse()
+  return items.filter((item) => item.rehearsal !== true).reverse()
 }
 
-/** 돌아갈 방송: 가장 최근의 끝나지 않은 실제 방송, 없으면 가장 최근의 끝나지 않은 리허설 */
+/** 돌아갈 방송: 가장 최근의 끝나지 않은 실제 방송 */
 export function liveBroadcast(items: readonly BroadcastItem[]): BroadcastItem | undefined {
-  const recent = newestFirst(items)
-  return recent.find((item) => !item.ended && !item.rehearsal) ?? recent.find((item) => !item.ended)
+  return newestFirst(items).find((item) => !item.ended)
 }
 
 /** "방금 전" · "12분 전" · "2시간 전" · "어제" · "3일 전" (시각을 모르면 null) */
@@ -45,10 +45,10 @@ export function broadcastTitle(item: BroadcastItem): string {
   return title === '' ? `${dateWords(item.date)} 방송` : title
 }
 
-/** 줄 아래 글: "11월 3일 · 2시간 전" (+ 리허설) */
+/** 줄 아래 글: "11월 3일 · 2시간 전" */
 export function broadcastSub(item: BroadcastItem, now: number): string {
   const ago = agoWords(item.createdAt, now)
-  return [dateWords(item.date), ago, item.rehearsal ? '리허설' : null].filter((part) => part !== null).join(' · ')
+  return [dateWords(item.date), ago].filter((part) => part !== null).join(' · ')
 }
 
 /** 날짜별 묶음 (최근 날짜가 위, 묶음 안도 최근 것이 위) */
@@ -141,7 +141,7 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
             {error}
           </Notice>
         ) : null}
-        {items !== null && items.length === 0 ? (
+        {items !== null && newestFirst(items).length === 0 ? (
           <Txt color="textSub">아직 방송이 없어요</Txt>
         ) : null}
         {byDate(items ?? []).map((group) => (

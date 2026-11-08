@@ -103,7 +103,6 @@ export const AUTO_RECONNECT_GAVE_UP = "저절로 다시 잇지 못했어요. 아
 /** 시험용 프린터 연결 단추 (웹 LabelsPage와 같은 낱말, L-11 15) */
 export const TEST_PRINTER_METHOD = '시험용 프린터 — 실제로 출력되지 않아요'
 
-export const REHEARSAL_NO_LABELS = '리허설 방송은 라벨을 출력하지 않아요.'
 export const NO_STATION_SHORT = '라벨이 안 나가요 · 프린터를 연결해 주세요'
 
 /** 서버에 닿지 못했을 때 (웹과 같은 문장) */

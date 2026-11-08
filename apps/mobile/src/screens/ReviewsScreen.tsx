@@ -23,7 +23,6 @@ import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
 export const REVIEWS_TITLE = '확인 필요'
 export const REVIEWS_HINT = '주문인지 애매한 댓글이에요. 상품·옵션·수량을 골라 "주문으로"를 누르거나, 주문이 아니면 "주문 아님"을 눌러 주세요.'
-export const REHEARSAL_BANNER = '리허설 방송의 확인 필요예요 — 실제 판매가 아니에요'
 export const NOTHING_TO_REVIEW = '확인할 댓글이 없어요.'
 export const LEAVE_QUESTION = '아직 보내지 않은 것이 있어요'
 export const leaveWords = (n: number): string => `보내기 전인 조치 ${String(n)}개가 있어요. 지금 나가면 보내지 않아요.`
@@ -40,14 +39,14 @@ const choiceTail = (choice: string | undefined): string => (choice === undefined
 const productName = (product: Product): string => `${String(product.no)}번 ${product.name.trim() === '' ? '품종 미입력' : product.name}`
 
 
+/** 앱은 실제 방송의 확인 필요만 본다 — 리허설은 앱에서 뺐다 (D-UX3-86) */
 export interface ReviewsQuery {
   readonly broadcast?: string
-  readonly rehearsal: boolean
 }
 
-const reviewsPath = (query: ReviewsQuery): string => withQuery('/api/reviews', { broadcast: query.broadcast, rehearsal: query.rehearsal })
+const reviewsPath = (query: ReviewsQuery): string => withQuery('/api/reviews', { broadcast: query.broadcast, rehearsal: false })
 
-/** 목록 받기: 같은 리허설 구분의 바뀜 알림을 짧게 모아 다시 읽는다. 다시 붙어도 다시 읽는다. 권한 없음·없는 방송은 빈 목록 */
+/** 목록 받기: 실제 방송의 바뀜 알림을 짧게 모아 다시 읽는다. 다시 붙어도 다시 읽는다. 권한 없음·없는 방송은 빈 목록 */
 function useReviewList(query: ReviewsQuery) {
   const { stream } = useServices()
   const [view, setView] = useState<ReviewsView | null>(null)
@@ -66,12 +65,12 @@ function useReviewList(query: ReviewsQuery) {
     } catch (caught: unknown) {
       if (!isApiError(caught)) throw caught
       if (mine === version.current) {
-        if (caught.status === 403 || caught.status === 404) setView({ rehearsal: query.rehearsal, reviews: [], products: [], broadcasts: [], scopes: [] })
+        if (caught.status === 403 || caught.status === 404) setView({ rehearsal: false, reviews: [], products: [], broadcasts: [], scopes: [] })
         else setError(caught)
       }
       return null
     }
-  }, [path, query.rehearsal])
+  }, [path])
   useEffect(() => {
     void reload()
     const view = stream.open()
@@ -91,7 +90,7 @@ function useReviewList(query: ReviewsQuery) {
     view.addEventListener('change', (event) => {
       try {
         const scope = JSON.parse(event.data ?? '{}') as { rehearsal?: boolean }
-        if ((scope.rehearsal === true) === query.rehearsal) schedule()
+        if (scope.rehearsal !== true) schedule()
       } catch {
         schedule()
       }
@@ -100,7 +99,7 @@ function useReviewList(query: ReviewsQuery) {
       if (timer !== undefined) clearTimeout(timer)
       view.close()
     }
-  }, [reload, stream, query.rehearsal])
+  }, [reload, stream])
   return { view, error, reload }
 }
 
@@ -122,7 +121,7 @@ function useAssistOnOpen(query: ReviewsQuery, reload: () => Promise<unknown>) {
     const run = async () => {
       let code: AssistResult | 'ERROR' | 'QUIET'
       try {
-        code = (await post<AssistSuggestResponse>('/api/assist/suggest', { rehearsal: query.rehearsal, ...(query.broadcast === undefined ? {} : { broadcast: query.broadcast }) })).result
+        code = (await post<AssistSuggestResponse>('/api/assist/suggest', { rehearsal: false, ...(query.broadcast === undefined ? {} : { broadcast: query.broadcast }) })).result
       } catch (caught: unknown) {
         code = isApiError(caught) && (caught.network || caught.status >= 500) ? 'ERROR' : 'QUIET'
       }
@@ -153,14 +152,14 @@ function useAssistOnOpen(query: ReviewsQuery, reload: () => Promise<unknown>) {
       alive = false
       if (busyTimer !== undefined) clearTimeout(busyTimer)
     }
-  }, [query.rehearsal, query.broadcast])
+  }, [query.broadcast])
   return state
 }
 
-export function ReviewsScreen({ onBack, query = { rehearsal: false }, openSettings }: { readonly onBack: () => void; readonly query?: ReviewsQuery; readonly openSettings?: () => void }) {
+export function ReviewsScreen({ onBack, query = {}, openSettings }: { readonly onBack: () => void; readonly query?: ReviewsQuery; readonly openSettings?: () => void }) {
   const { p } = useKit()
-  const { broadcast: queryBroadcast, rehearsal: queryRehearsal } = query
-  const stableQuery = useMemo<ReviewsQuery>(() => ({ rehearsal: queryRehearsal, ...(queryBroadcast === undefined ? {} : { broadcast: queryBroadcast }) }), [queryBroadcast, queryRehearsal])
+  const { broadcast: queryBroadcast } = query
+  const stableQuery = useMemo<ReviewsQuery>(() => (queryBroadcast === undefined ? {} : { broadcast: queryBroadcast }), [queryBroadcast])
   const { view, error, reload } = useReviewList(stableQuery)
   const assist = useAssistOnOpen(stableQuery, reload)
   const queue = useUndoQueue()
@@ -172,7 +171,6 @@ export function ReviewsScreen({ onBack, query = { rehearsal: false }, openSettin
     <View style={{ flex: 1, backgroundColor: p.background }} testID="reviews-screen">
       <AppHeader title={REVIEWS_TITLE} onBack={back} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
-        {stableQuery.rehearsal ? <Notice tone="warning">{REHEARSAL_BANNER}</Notice> : null}
         <Txt color="textSub">{REVIEWS_HINT}</Txt>
         {broadcast !== undefined ? <Txt weight="bold">{`${broadcast.title} · ${dateWords(broadcast.date)} 방송만 보여요.`}</Txt> : null}
         {error !== null ? (
@@ -186,7 +184,7 @@ export function ReviewsScreen({ onBack, query = { rehearsal: false }, openSettin
         {view === null && error === null ? <Loading /> : null}
         {view !== null && showsYoutubeExcluded(assist.on, view.reviews) ? <Txt step="caption" color="textSub">{ASSIST_YOUTUBE_EXCLUDED}</Txt> : null}
         {queue !== null ? <UndoStrip items={items} queue={queue} /> : null}
-        {view !== null && queue !== null ? <ReviewList view={view} queue={queue} items={items} rehearsal={stableQuery.rehearsal} reload={reload} /> : null}
+        {view !== null && queue !== null ? <ReviewList view={view} queue={queue} items={items} reload={reload} /> : null}
         {assist.offer && view !== null && view.reviews.length > 0 && openSettings !== undefined ? <BigButton kind="outline" label={ASSIST_OFFER} onPress={openSettings} /> : null}
       </ScrollView>
       <ConfirmSheet
@@ -219,7 +217,7 @@ interface SentLine {
   readonly choice?: string
 }
 
-function ReviewList({ view, queue, items, rehearsal, reload }: { readonly view: ReviewsView; readonly queue: UndoQueue; readonly items: readonly UndoItem[]; readonly rehearsal: boolean; readonly reload: () => Promise<ReviewsView | null> }) {
+function ReviewList({ view, queue, items, reload }: { readonly view: ReviewsView; readonly queue: UndoQueue; readonly items: readonly UndoItem[]; readonly reload: () => Promise<ReviewsView | null> }) {
   const products = useMemo(() => new Map(view.products.map((product) => [product.key, product])), [view.products])
   const broadcasts = useMemo(() => new Map(view.broadcasts.map((item) => [item.id, item])), [view.broadcasts])
   const [lines, setLines] = useState<ReadonlyMap<string, LineState>>(new Map())
@@ -286,7 +284,7 @@ function ReviewList({ view, queue, items, rehearsal, reload }: { readonly view: 
     const fresh = new Map<string, Product>()
     for (const b of new Set(sent.map((line) => line.review.broadcast))) {
       try {
-        const next = await get<ReviewsView>(reviewsPath({ broadcast: b, rehearsal }))
+        const next = await get<ReviewsView>(reviewsPath({ broadcast: b }))
         for (const product of next.products) fresh.set(product.key, product)
       } catch {
         // 결과 글만 못 보인다 — 목록은 실시간으로 맞춰진다
