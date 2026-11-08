@@ -2,6 +2,7 @@
 // 순수 규칙(접수번호 읽기·연락처 토막·상태 바꾸기·채울 값·파일 줄)과 API(채울 값·입력 완료·사전접수 완료·지우기·목록 무리·택배사 접수 막기·주소 파일·로그인 없음 401·다른 판매자 404).
 import { describe, expect, it } from 'vitest'
 import { EPOST_FILE_COLUMNS, epostFileRow, epostFill, epostTransition, phoneParts, phoneText, readEpostPassword, readReceiptNo } from '../src/parcel/epost-window.ts'
+import { epostZipFinder } from '../src/parcel/epost-public.ts'
 import { client, rid, type Seller, type TestServer } from './support.ts'
 import { ADDRESS, D, SENDER, bookOk, dayRows, expect200, makeReady, parcelSeller, parcelWorld, sell } from './t1-support.ts'
 
@@ -226,6 +227,35 @@ describe('PC-9 API', () => {
     await expect200(api.put('/api/parcels/settings', { epostPassword: '' }))
     expect(((await expect200(api.get('/api/parcels/settings'))).body.settings as { epostPassword: unknown }).epostPassword).toBeNull()
     expect((await expect200(epostApi(world, seller.cookie).fill('UC_1'))).body.password).toBeNull()
+  })
+
+  it('받는 분 우편번호가 비면 서버 우편번호 찾기로 채운다 — 외진 곳 범위 "증산리 985~1141"의 1034는 50603, 못 찾으면 빈 칸 그대로 (D-EP1-22)', async () => {
+    // 2026-11-05 운영 서버에서 "증산리 1034"로 받은 실제 답(real-epost-public 시험과 같음)의 앞 두 줄
+    const xml = '<?xml version="1.0" encoding="utf-8"?><NewZipCdListResponse><cmmMsgHeader><successYN>Y</successYN><returnCode>00</returnCode><errMsg></errMsg></cmmMsgHeader>' +
+      '<newZipCdList><zipNo>50603</zipNo><address>경상남도 양산시 물금읍 증산리 985~1141</address><rangeKind>전체</rangeKind></newZipCdList>' +
+      '<newZipCdList><zipNo>50363</zipNo><address>경상남도 창녕군 길곡면 증산리 16~1315-7</address><rangeKind>전체</rangeKind></newZipCdList></NewZipCdListResponse>'
+    const asked: string[] = []
+    const findZip = epostZipFinder({ serviceKey: 'k', fetch: async (input) => (asked.push(new URL(String(input)).searchParams.get('srchwrd') ?? ''), new Response(xml, { status: 200 })) })
+    const world = await parcelWorld({ overrides: { parcel: { findZip } } })
+    const seller = await epostSeller(world)
+    await sell(world, seller, [['UC_1', '가가', 1], ['UC_2', '나나', 1]])
+    await makeReady(world, seller, 'UC_1', { ...ADDRESS, address: '경상남도 양산시 물금읍 증산리 1034', detail: '시험 1호', zip: '' })
+    await makeReady(world, seller, 'UC_2', { ...ADDRESS, address: '경상남도 양산시 물금읍 증산리 2000', detail: '', zip: '' })
+    const api = epostApi(world, seller.cookie)
+    const found = await api.fill('UC_1')
+    expect(found.status, found.text).toBe(200)
+    expect((found.body.fill as { receiver: { zip: string; address: string } }).receiver).toMatchObject({ zip: '50603', address: '경상남도 양산시 물금읍 증산리 1034' })
+    expect(asked.some((word) => word.includes('증산리 1034'))).toBe(true)
+    // 범위 밖 번지는 하나로 모이지 않아 빈 칸 — 앱이 우체국 [주소찾기]로 넣으라고 알린다
+    const outside = await api.fill('UC_2')
+    expect(outside.status, outside.text).toBe(200)
+    expect((outside.body.fill as { receiver: { zip: string } }).receiver.zip).toBe('')
+    // 우편번호가 있으면 묻지 않는다
+    const before = asked.length
+    await sell(world, seller, [['UC_3', '다다', 1]])
+    await makeReady(world, seller, 'UC_3')
+    expect(((await api.fill('UC_3')).body.fill as { receiver: { zip: string } }).receiver.zip).toBe('04524')
+    expect(asked.length).toBe(before)
   })
 
   // main 합치기(D-EP1-21): 보조자 기능이 없어져(D-UX3-32) 보조자 403 대신 — 로그인 없이는 401, 다른 판매자에게는 묶음이 있는지도 드러내지 않는다(404)

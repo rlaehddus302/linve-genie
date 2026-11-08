@@ -156,6 +156,9 @@ const [{ openPglite }, { generateMasterKey }, { createServer }, { createNodeServ
 ])
 const { FakeOAuth } = await server('social/fake-oauth.ts')
 const { FakeLlm } = await server('assist/fake-llm.ts')
+// 우편번호 찾기(D-REAL-08)는 공공데이터포털 키가 있을 때만 — 연습 모드도 운영과 같게. 키가 없으면 꺼짐(우체국 화면에서 [주소찾기], D-EP1-22)
+const { epostZipFinder, readDataGoKrKey } = await server('parcel/epost-public.ts')
+const dataGoKrKey = readDataGoKrKey(process.env)
 const { createSelfSignedCertificate, lanAddresses } = await server('try/self-signed-cert.ts')
 const { createSmsTestBox, createSmsTestHttpServer, makeSmsTestToken, SMS_TEST_PATH } = await server('try/sms-test.ts')
 const { createPhoneRelay, createPhoneVoiceUpgrade, phoneYoutubeNotice } = await server('try/phone-relay.ts')
@@ -247,6 +250,7 @@ const livejjim = createServer({
   outboxTiming: { liveChatLookupPage: fake.pageSize },
   webDir: WEB_DIR,
   testPrinter: true,
+  ...(dataGoKrKey === null ? {} : { parcel: { findZip: epostZipFinder({ serviceKey: dataGoKrKey }) } }),
   deposits: { testMode: true, popbill: null, pollMs: 1000 },
   // --real-login: 실제 공급자 고정 주소(https)·값이 있는 공급자만. 돌아오는 주소는 서버가 appOrigin(http://localhost:<포트>)으로 만든다
   socialLogin: realLogin === null ? oauth.setup({ authBase: appOrigin, apiBase: `http://127.0.0.1:${String(port)}` }) : { providers: realLogin },

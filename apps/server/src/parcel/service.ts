@@ -1620,10 +1620,14 @@ export class ParcelService {
     if (!view.row.ready) return problem(409, 'PARCEL_STATE', view.row.message ?? EPOST_MESSAGES.notReady, [], { row: view.row })
     if (view.address === null) return problem(409, 'ADDRESS_EXPIRED', EPOST_MESSAGES.addressExpired)
     const { name, phone, address, detail, zip, memo } = view.address
+    // 빈 우편번호는 서버 우편번호 찾기로 (D-EP1-22): 외진 곳 범위("증산리 985~1141")도 번지가 범위 안일 때만 하나로 — 우체국 신청서는 우편번호가 비면
+    // "받는 분 주소를 입력하십시오."로 받지 않고, 판매자가 [주소찾기]의 범위 창에서 번지를 골라야 했다. 못 찾으면 빈 칸 그대로(앱이 알린다)
+    const receiverZip = await this.#senderZip({ zip, address, detail })
+    const sender = { ...settings.sender, zip: await this.#senderZip(settings.sender) }
     return ok({
       date,
       buyer,
-      fill: epostFill({ name, phone, address, detail, zip, memo }, settings.sender, view.row.qty),
+      fill: epostFill({ name, phone, address, detail, zip: receiverZip, memo }, sender, view.row.qty),
       row: view.row,
       pages: EPOST_PAGES,
       hosts: EPOST_HOSTS,
@@ -1899,7 +1903,7 @@ export class ParcelService {
    * 우체국 방문접수 파일의 빈 우편번호를 서버 우편번호 찾기로 채운다 (D-UX3-36 — 우체국은 빈 칸을 받지만 [주소검증]에서 판매자가 다시 골라야 한다).
    * 하나로 모일 때만 넣고, 못 찾거나 묻지 못하면 빈 칸 그대로(파일은 그래도 만든다). 동시에 묻는 수는 접수와 같다
    */
-  /** 보내는 분 우편번호 — 있으면 그대로, 비었으면 우편번호 찾기(하나로 모일 때만), 못 찾으면 빈 칸 */
+  /** 우편번호 (보내는 분·우체국 창구소포 받는 분 — D-EP1-22) — 있으면 그대로, 비었으면 우편번호 찾기(하나로 모일 때만), 못 찾으면 빈 칸 */
   async #senderZip(sender: { readonly zip: string; readonly address: string; readonly detail: string }, signal?: AbortSignal): Promise<string> {
     const findZip = this.#deps.options.findZip
     if (/^[0-9]{5}$/.test(sender.zip) || findZip === undefined || signal?.aborted === true) return sender.zip
