@@ -1,4 +1,4 @@
-// 앱 안 우체국 화면 경로 (D-UX3-37 — 택배 화면 "우체국에 직접 접수하기"에서 연다). kind = COUNTER(들고 가기)·VISIT(가지러 오기)
+// 우체국 창구소포 간편사전접수 경로 (택배 접수 화면에서 연다 — EP1 PC-9). ?date=YYYY-MM-DD&buyers=<구매자 ID,…> (한 명이면 buyer=도 받는다 — D-EP1-19)
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { EpostScreen } from '../src/screens/EpostScreen.tsx'
@@ -9,16 +9,16 @@ import { KitInsets } from '../src/ui/kit/safe-area.tsx'
 export default function EpostRoute() {
   const { session } = useSession()
   const router = useRouter()
-  const params = useLocalSearchParams<{ date?: string; kind?: string }>()
+  const { date, buyer, buyers } = useLocalSearchParams<{ date?: string; buyer?: string; buyers?: string }>()
+  const list = (typeof buyers === 'string' && buyers !== '' ? buyers.split(',') : typeof buyer === 'string' && buyer !== '' ? [buyer] : []).filter((id) => id !== '')
   if (session.state === 'out') return <Redirect href="/" />
   if (session.state !== 'in') return null
-  const date = typeof params.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : null
-  if (date === null) return <Redirect href={{ pathname: '/packing', params: { view: 'parcels' } }} />
-  const kind = params.kind === 'VISIT' ? 'VISIT' : 'COUNTER'
+  if (typeof date !== 'string' || date === '' || list.length === 0) return <Redirect href="/parcels" />
+  const back = () => (router.canGoBack() ? router.back() : router.replace('/parcels'))
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top', 'bottom']}>
       <KitInsets>
-        <EpostScreen date={date} kind={kind} onBack={() => (router.canGoBack() ? router.back() : router.replace({ pathname: '/packing', params: { view: 'parcels', date } }))} />
+        <EpostScreen key={`${date}/${list.join(',')}`} date={date} buyers={list} nav={{ onBack: back, openNext: (next) => router.replace({ pathname: '/epost', params: { date, buyers: next } }) }} />
       </KitInsets>
     </SafeAreaView>
   )

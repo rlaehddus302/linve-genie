@@ -21,7 +21,7 @@ export default function PackingRoute() {
           <PackingTab
             initialSide={params.view === 'parcels' ? 'parcels' : 'packing'}
             initialDate={typeof params.date === 'string' ? params.date : undefined}
-            nav={{ openSettle: (date, buyer) => router.replace({ pathname: '/settle', params: { date, buyer } }), openSettings: () => router.push('/shop-settings'), openEpost: (date, kind) => router.push({ pathname: '/epost', params: { date, kind } }) }}
+            nav={{ openSettle: (date, buyer) => router.replace({ pathname: '/settle', params: { date, buyer } }), openSettings: () => router.push('/shop-settings'), openEpost: (date, buyers) => router.push({ pathname: '/epost', params: { date, buyers: buyers.join(',') } }) }}
           />
         </TabFrame>
       </KitInsets>

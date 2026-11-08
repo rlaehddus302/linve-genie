@@ -7,7 +7,7 @@
 // - 배송지 원문은 로그·오류·감사 메시지·발송함·이벤트 로그·요청 번호 기록에 남기지 않는다. 택배사 원래 응답 글은 읽지 않는다(carrier.ts).
 // - 판매자 ID 조건은 늘 세션의 판매자다. 없는 범위·모르는 구매자는 404(다른 판매자의 묶음이 있는지 드러내지 않는다).
 import { currentBuyerOf, getBuyer, getSettlement, isValidDate, type EngineState } from '@livejjim/core'
-import { EPOST_VISIT_CLASS, EPOST_VISIT_MAX_ROWS, formatInvoiceNumber, type EpostVisitRow, type WaybillData, type WaybillsPdfResult } from '@livejjim/documents'
+import { EPOST_VISIT_CLASS, EPOST_VISIT_MAX_ROWS, formatInvoiceNumber, textRowsToXlsx, type EpostVisitRow, type WaybillData, type WaybillsPdfResult } from '@livejjim/documents'
 import { trimLabelText } from '@livejjim/label'
 import { and, eq, sql } from 'drizzle-orm'
 import { ClosingService, type ApiProblem, type FileResult, type Outcome } from '../closing.ts'
@@ -43,6 +43,23 @@ import {
   type ParcelSender,
   type SettingsCarrier,
 } from './carrier.ts'
+import {
+  EPOST_FILE_COLUMNS,
+  EPOST_FILE_MAX,
+  EPOST_FORM_HINTS,
+  EPOST_HOSTS,
+  EPOST_MESSAGES,
+  EPOST_PAGES,
+  EPOST_WORDS,
+  epostFileRow,
+  epostFill,
+  epostTransition,
+  readEpostPassword,
+  type EpostAction,
+  type EpostFill,
+  type EpostFormHints,
+  type EpostState,
+} from './epost-window.ts'
 import {
   BOOK_MAX,
   BOX_KINDS,
@@ -84,6 +101,10 @@ import {
   claimRequest,
   confirmAddress,
   deleteAddress,
+  epostRow,
+  epostRowsOf,
+  writeEpost,
+  type EpostRow,
   deleteExtra,
   directOf,
   directRequestKey,
@@ -208,8 +229,33 @@ export interface ParcelRow {
   /** 상자 크기 (고를 수 있으면 설정의 기본값, 아니면 시도의 것 또는 기본값) */
   readonly box: BoxKind
   readonly parcel: ParcelBrief | null
+  /** 우체국 창구소포 사전접수 기록 (EP1 PC-9 — 없으면 null) */
+  readonly epost: EpostBrief | null
   /** 직접 넣은 택배 (D-UX3-38 — 방송 판매 기록 없음, 입금·포장 판단 없음) */
   readonly extra: boolean
+}
+
+/** 묶음의 우체국 사전접수 줄 (EP1 PC-9) */
+export interface EpostBrief {
+  readonly state: EpostState
+  /** 화면 낱말 (우체국 입력 완료 · 우체국 사전접수 완료) */
+  readonly word: string
+  readonly receiptNo: string | null
+  /** 상태가 된 시각 (UTC ISO) */
+  readonly at: string
+}
+
+/** 앱 안 우체국 화면 자동 입력에 쓰는 값 (EP1 PC-9 1) */
+export interface EpostFillView {
+  readonly date: string
+  readonly buyer: string
+  readonly fill: EpostFill
+  readonly row: ParcelRow
+  readonly pages: typeof EPOST_PAGES
+  readonly hosts: readonly string[]
+  readonly form: EpostFormHints
+  /** 설정의 비회원 신청 비밀번호 (없으면 null — 앱이 우체국 약관 쪽 비밀번호 칸에 넣는다, D-EP1-14) */
+  readonly password: string | null
 }
 
 export interface ParcelDay {
@@ -223,6 +269,8 @@ export interface ParcelDay {
   readonly ready: readonly ParcelRow[]
   readonly excluded: readonly ParcelRow[]
   readonly booked: readonly ParcelRow[]
+  /** 우체국에 사전접수한 묶음 (EP1 PC-9 — 고를 수 있음·빠짐에서 뺀다) */
+  readonly epost: readonly ParcelRow[]
 }
 
 export interface AddressView extends ParcelAddress {
@@ -271,11 +319,13 @@ export interface ParcelSettingsView {
   readonly shopName: string
   readonly box: BoxKind
   readonly boxes: readonly BoxKind[]
+  /** 우체국 비회원 신청 비밀번호 (숫자 4자리 — 판매자만 본다, 없으면 null. EP1 D-EP1-14) */
+  readonly epostPassword: string | null
 }
 
 export type BookItemResult =
   | { readonly buyer: string; readonly ok: true; readonly invoice: string; readonly invoiceText: string }
-  | { readonly buyer: string; readonly ok: false; readonly reason: EligibilityReason | FailureReason | 'BUYER' | 'SEALED' | 'ADDRESS_EXPIRED'; readonly message: string }
+  | { readonly buyer: string; readonly ok: false; readonly reason: EligibilityReason | FailureReason | 'BUYER' | 'SEALED' | 'ADDRESS_EXPIRED' | 'EPOST'; readonly message: string }
 
 /** 앱 안 우체국 화면 자동 채우기 자료 (D-UX3-37) */
 export interface EpostKit {
@@ -477,7 +527,18 @@ export class ParcelService {
   }
 
   /** 묶음 한 줄 (코어 정산·STL-08 포장 상태·배송지·가장 나중 시도 → PC-4) */
-  #row(state: EngineState, date: string, buyer: string, records: readonly PackingRecordRow[], address: AddressRow | null | undefined, attempt: AttemptRow | null | undefined, defaultBox: BoxKind, sellerId: string, ledgered = false): ParcelRow {
+  #row(
+    state: EngineState,
+    date: string,
+    buyer: string,
+    records: readonly PackingRecordRow[],
+    address: AddressRow | null | undefined,
+    attempt: AttemptRow | null | undefined,
+    defaultBox: BoxKind,
+    sellerId: string,
+    ledgered = false,
+    epost: EpostRow | null | undefined = null,
+  ): ParcelRow {
     const settlement = getSettlement(state, buyer, date)
     const info = getBuyer(state, buyer)
     const packing = packingStatusOf(state, date, buyer, records).status
@@ -507,7 +568,15 @@ export class ParcelService {
       box: reason === null || attempt === null || attempt === undefined ? defaultBox : attempt.box,
       parcel: this.#brief(attempt),
       extra: false,
+      epost: ParcelService.epostBrief(epost),
     }
+  }
+
+  /** 우체국 기록 → 묶음 줄 (EP1 PC-9) */
+  static epostBrief(row: EpostRow | null | undefined): EpostBrief | null {
+    if (row === null || row === undefined) return null
+    const at = row.state === 'RECEIVED' ? (row.receivedAt ?? row.updatedAt) : (row.filledAt ?? row.updatedAt)
+    return { state: row.state, word: EPOST_WORDS[row.state], receiptNo: row.state === 'RECEIVED' ? row.receiptNo : null, at: iso(at.getTime()) }
   }
 
   /**
@@ -539,6 +608,7 @@ export class ParcelService {
       box: reason === null || attempt === null || attempt === undefined ? defaultBox : attempt.box,
       parcel: this.#brief(attempt),
       extra: true,
+      epost: null,
     }
   }
 
@@ -586,6 +656,7 @@ export class ParcelService {
       shopName: shop.name,
       box: stored.box,
       boxes: BOX_KINDS,
+      epostPassword: stored.epostPassword,
     }
   }
 
@@ -595,7 +666,7 @@ export class ParcelService {
    * FAKE는 시험 모드에서만. OTHER가 아닌 코드와 함께 온 carrierName은 저장하지 않는다. 이름은 로그에 남기지 않는다
    */
   async updateSettings(sellerId: string, body: Record<string, unknown>): Promise<Outcome<ParcelSettingsView>> {
-    const allowed = ['carrier', 'carrierName', 'customerNo', 'sender', 'box', 'epostKey', 'epostSecret']
+    const allowed = ['carrier', 'carrierName', 'customerNo', 'sender', 'box', 'epostKey', 'epostSecret', 'epostPassword']
     const extra = Object.keys(body).filter((key) => !allowed.includes(key))
     if (extra.length > 0) return problem(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra))
     const current = await readSettings(this.#deps.db, this.#deps.masterKey, sellerId)
@@ -669,9 +740,16 @@ export class ParcelService {
       else if (secret === '') problems.push({ field: 'epostSecret', message: PARCEL_MESSAGES.noEpostAccount })
       else epost = { key, secret }
     }
+    // 우체국 비회원 신청 비밀번호 (EP1 D-EP1-14 — 적지 않으면 그대로, 빈 글·null이면 지운다)
+    let epostPassword = current.epostPassword
+    if (body.epostPassword !== undefined) {
+      const read = readEpostPassword(body.epostPassword)
+      if (read === 'invalid') problems.push({ field: 'epostPassword', message: EPOST_MESSAGES.passwordInvalid })
+      else epostPassword = read
+    }
     if (problems.length > 0) return problem(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems, codes.length > 0 ? { codes } : undefined)
     // 우체국을 쓰고 계약 정보가 바뀌었으면 우체국에 맞는지 물어 본 뒤 저장한다 (틀린 정보로 접수 날에 막히지 않게)
-    const next: StoredSettings = { carrier, carrierName, customerNo, sender, box, epost }
+    const next: StoredSettings = { carrier, carrierName, customerNo, sender, box, epost, epostPassword }
     const adapter = carrier === null || carrier === OTHER_CARRIER ? undefined : this.#carriers[carrier]
     const account = ParcelService.accountOf(next)
     const changed = epost?.key !== current.epost?.key || epost?.secret !== current.epost?.secret || customerNo !== current.customerNo || carrier !== current.carrier
@@ -745,18 +823,22 @@ export class ParcelService {
       const records = await packingRows(db, sellerId, runtime.scopeId as string)
       const buyers = ParcelService.buyersOf(state, date, attempts).filter((buyer) => !isExtraBuyer(buyer))
       const ledgered = await this.#prefills(db, sellerId, date, state, buyers, addresses, await this.#known(sellerId, date))
-      for (const buyer of buyers) rows.push(this.#row(state, date, buyer, records, addresses.get(buyer), attempts.get(buyer), settings.box, sellerId, ledgered.has(buyer)))
+      const eposts = await epostRowsOf(db, sellerId, date)
+      for (const buyer of buyers) rows.push(this.#row(state, date, buyer, records, addresses.get(buyer), attempts.get(buyer), settings.box, sellerId, ledgered.has(buyer), eposts.get(buyer)))
     }
     for (const extra of extras.values()) rows.push(this.#extraRow(sellerId, date, extra, addresses.get(extra.id), attempts.get(extra.id), settings.box))
+    // EP1: 우체국에 사전접수한 묶음은 따로 (택배사 접수와 두 번 보내지 않게 — PC-9 2)
+    const received = (row: ParcelRow) => row.epost?.state === 'RECEIVED' && row.parcel?.state !== 'BOOKED'
     return ok({
       date,
       seq: runtime?.seq ?? 0,
       blocked: this.#blocked(settings),
       carrier: settings.carrier === null ? null : { code: settings.carrier, name: ParcelService.carrierNameOf(settings) ?? '' },
       box: settings.box,
-      ready: rows.filter((row) => row.ready),
+      ready: rows.filter((row) => row.ready && !received(row)),
       booked: rows.filter((row) => row.parcel?.state === 'BOOKED'),
-      excluded: rows.filter((row) => !row.ready && row.parcel?.state !== 'BOOKED'),
+      excluded: rows.filter((row) => !row.ready && row.parcel?.state !== 'BOOKED' && !received(row)),
+      epost: rows.filter(received),
     })
   }
 
@@ -767,9 +849,10 @@ export class ParcelService {
     const records = await packingRows(db, sellerId, runtime.scopeId as string, buyer)
     const address = await addressRow(db, sellerId, date, buyer)
     const attempt = await latestAttempt(db, sellerId, date, buyer)
+    const epost = await epostRow(db, sellerId, date, buyer)
     const opened = this.#open(sellerId, address)
     const ledger = (await this.#prefills(db, sellerId, date, runtime.state, [buyer], new Map(address === null ? [] : [[buyer, address]]), known)).get(buyer) ?? null
-    const row = this.#row(runtime.state, date, buyer, records, address, attempt, settings.box, sellerId, ledger !== null)
+    const row = this.#row(runtime.state, date, buyer, records, address, attempt, settings.box, sellerId, ledger !== null, epost)
     const live = row.parcel !== null && (row.parcel.state === 'PENDING' || row.parcel.state === 'UNKNOWN' || row.parcel.state === 'BOOKED')
     return {
       date,
@@ -1345,6 +1428,8 @@ export class ParcelService {
           if (!(await moveAttempt(tx, sellerId, latest.id, ['PENDING', 'UNKNOWN'], { state: 'PENDING', updatedAt: new Date(now) }))) return skip(this.#resultOf(buyer, await attemptById(tx, sellerId, latest.id)))
           return { kind: 'send', attempt: latest, receiver }
         }
+        // EP1: 우체국에 사전접수한 묶음은 택배사에 다시 보내지 않는다 (PC-9 2)
+        if ((await epostRow(tx, sellerId, date, buyer))?.state === 'RECEIVED') return skip({ buyer, ok: false, reason: 'EPOST', message: EPOST_MESSAGES.alreadyReceived })
         const records = await packingRows(tx, sellerId, scopeId, buyer)
         const ledgered = (await this.#prefills(tx, sellerId, date, state, [buyer], new Map(address === null ? [] : [[buyer, address]]), known)).has(buyer)
         const row = this.#row(state, date, buyer, records, address, latest, box, sellerId, ledgered)
@@ -1516,6 +1601,82 @@ export class ParcelService {
       throw error
     }
   }
+
+  // ── 우체국 창구소포 간편사전접수 (EP1 PC-9) ────────────────────────────
+
+  /**
+   * 앱 안 우체국 화면에 채울 값 (PC-9 1): 고를 수 있는(입금·포장·배송지 확인이 끝난) 묶음만. 사전접수 완료면 409 — 두 번 신청하지 않게.
+   * 보내는 사람이 없으면 409. 배송지 원문은 이 응답에만 있고 저장·로그에 남기지 않는다.
+   */
+  async epostFill(sellerId: string, date: string, buyer: string): Promise<Outcome<EpostFillView>> {
+    const runtime = await this.#realScope(sellerId, date)
+    if (runtime === null || getBuyer(runtime.state, buyer) === null) return NOT_FOUND
+    if (!ParcelService.current(runtime.state, buyer)) return problem(409, 'PARCEL_STATE', '구매자를 다시 확인해 주세요.')
+    const { db, masterKey } = this.#deps
+    const settings = await readSettings(db, masterKey, sellerId)
+    if (settings.sender === null) return problem(409, 'PARCEL_BLOCKED', EPOST_MESSAGES.noSender)
+    const view = await this.#bundleView(db, sellerId, runtime, date, buyer, await this.#known(sellerId, date))
+    if (view.row.epost?.state === 'RECEIVED') return problem(409, 'PARCEL_STATE', EPOST_MESSAGES.alreadyReceived, [], { row: view.row })
+    if (!view.row.ready) return problem(409, 'PARCEL_STATE', view.row.message ?? EPOST_MESSAGES.notReady, [], { row: view.row })
+    if (view.address === null) return problem(409, 'ADDRESS_EXPIRED', EPOST_MESSAGES.addressExpired)
+    const { name, phone, address, detail, zip, memo } = view.address
+    return ok({
+      date,
+      buyer,
+      fill: epostFill({ name, phone, address, detail, zip, memo }, settings.sender, view.row.qty),
+      row: view.row,
+      pages: EPOST_PAGES,
+      hosts: EPOST_HOSTS,
+      form: EPOST_FORM_HINTS,
+      password: settings.epostPassword,
+    })
+  }
+
+  /**
+   * 우체국 기록 바꾸기 (PC-9 2): FILLED(칸을 채웠다) · RECEIVED(판매자가 확인한 접수번호) · CLEAR(기록 지우기). 같은 일을 다시 보내도 결과가 같다.
+   * 입력 완료·사전접수 완료는 고를 수 있는 묶음(또는 이미 입력 완료한 묶음)만. 지우기는 언제나.
+   */
+  async epostMark(sellerId: string, accountId: string, date: string, buyer: string, action: EpostAction, receiptRaw: unknown): Promise<Outcome<{ row: ParcelRow }>> {
+    const runtime = await this.#realScope(sellerId, date)
+    if (runtime === null || getBuyer(runtime.state, buyer) === null) return NOT_FOUND
+    const { db } = this.#deps
+    const known = await this.#known(sellerId, date)
+    const outcome = await db.transaction(async (tx): Promise<Outcome<{ row: ParcelRow }>> => {
+      const current = await epostRow(tx, sellerId, date, buyer, true)
+      if (action !== 'CLEAR') {
+        if (!ParcelService.current(runtime.state, buyer)) return problem(409, 'PARCEL_STATE', '구매자를 다시 확인해 주세요.')
+        const before = await this.#bundleView(tx, sellerId, runtime, date, buyer, known)
+        if (!before.row.ready && current?.state !== 'FILLED' && current?.state !== 'RECEIVED') return problem(409, 'PARCEL_STATE', before.row.message ?? EPOST_MESSAGES.notReady, [], { row: before.row })
+      }
+      const step = epostTransition(current, action, receiptRaw)
+      if ('refused' in step) {
+        if (step.refused === 'RECEIPT_INVALID') return invalid('receiptNo', EPOST_MESSAGES.receiptInvalid)
+        return problem(409, 'PARCEL_STATE', step.refused === 'ALREADY_RECEIVED' ? EPOST_MESSAGES.alreadyReceived : EPOST_MESSAGES.otherReceipt)
+      }
+      if (step.changed) await writeEpost(tx, { sellerId, date, buyer, accountId, now: new Date(this.#deps.clock.now()) }, step.next)
+      return ok({ row: (await this.#bundleView(tx, sellerId, runtime, date, buyer, known)).row })
+    })
+    if (outcome.kind === 'ok') this.#deps.hub.publishNamed(sellerId, 'parcel', { date, buyer })
+    return outcome
+  }
+
+  /** 우체국 주소 파일 (PC-9 5): 그 날짜의 고를 수 있는 묶음(사전접수 완료 제외)을 우체국 열 순서로. 없으면 409 */
+  async epostFile(sellerId: string, date: string): Promise<Outcome<FileResult>> {
+    const day = await this.day(sellerId, date)
+    if (day.kind !== 'ok') return day.kind === 'not_found' ? NOT_FOUND : { kind: 'error', error: day.error }
+    const { db } = this.#deps
+    const addresses = await addressRowsOf(db, sellerId, date)
+    const rows: (readonly string[])[] = []
+    for (const row of day.value.ready) {
+      const receiver = this.#open(sellerId, addresses.get(row.buyer))
+      if (receiver !== null) rows.push(epostFileRow(receiver))
+    }
+    if (rows.length === 0) return problem(409, 'NO_PARCELS', EPOST_MESSAGES.noRows)
+    if (rows.length > EPOST_FILE_MAX) return problem(409, 'PARCEL_STATE', EPOST_MESSAGES.tooMany)
+    const bytes = await textRowsToXlsx('주소', EPOST_FILE_COLUMNS, rows, [12, 10, 40, 30, 16, 16])
+    return ok({ bytes, type: MIME.xlsx, fileName: `우체국-주소-${date}.xlsx`, fallback: `epost-addresses-${date}.xlsx`, headers: { 'X-Epost-Count': String(rows.length) } })
+  }
+
 
   // ── 운송장 (PC-7, AC-T1-43) ──────────────────────────────────────────
 

@@ -4,8 +4,9 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { parcelAddresses, parcelExtras, parcelRequests, parcelSettings, parcels } from '../db/schema.ts'
+import { parcelAddresses, parcelEpost, parcelExtras, parcelRequests, parcelSettings, parcels } from '../db/schema.ts'
 import { SecretError, openText, sealText } from '../secrets.ts'
+import { isEpostState, type EpostState } from './epost-window.ts'
 import { CARRIER_CODES, OTHER_CARRIER, isSettingsCarrier, type CarrierCode, type ParcelSender, type SettingsCarrier } from './carrier.ts'
 import {
   ADDRESS_FIELDS,
@@ -446,6 +447,7 @@ export async function dropRequest(db: Db, sellerId: string, requestId: string): 
 const senderAad = (sellerId: string) => `livejjim/parcel-sender/v1/${sellerId}`
 const customerAad = (sellerId: string) => `livejjim/parcel-customer/v1/${sellerId}`
 const epostAad = (sellerId: string) => `livejjim/parcel-epost/v1/${sellerId}`
+const epostPwAad = (sellerId: string) => `livejjim/parcel-epost-pw/v1/${sellerId}`
 
 /** 우체국 계약소포 인증키·보안키 (D-REAL-04 — 고객 번호는 customerNo) */
 export interface EpostKeys {
@@ -462,12 +464,14 @@ export interface StoredSettings {
   readonly sender: ParcelSender | null
   readonly box: BoxKind
   readonly epost: EpostKeys | null
+  /** 우체국 창구소포 비회원 신청 비밀번호 (숫자 4자리, 없으면 null — EP1 D-EP1-14) */
+  readonly epostPassword: string | null
 }
 
 export async function readSettings(db: Db, masterKey: Buffer, sellerId: string): Promise<StoredSettings> {
   const rows = await db.select().from(parcelSettings).where(eq(parcelSettings.sellerId, sellerId)).limit(1)
   const row = rows[0]
-  if (row === undefined) return { carrier: null, carrierName: null, customerNo: null, sender: null, box: DEFAULT_BOX, epost: null }
+  if (row === undefined) return { carrier: null, carrierName: null, customerNo: null, sender: null, box: DEFAULT_BOX, epost: null, epostPassword: null }
   const open = (aad: string, sealed: string | null): string | null => {
     if (sealed === null) return null
     try {
@@ -495,6 +499,7 @@ export async function readSettings(db: Db, masterKey: Buffer, sellerId: string):
     sender,
     box: storedBox(row.box),
     epost: readEpostKeys(open(epostAad(sellerId), row.epostEnc)),
+    epostPassword: open(epostPwAad(sellerId), row.epostPwEnc),
   }
 }
 
@@ -516,10 +521,71 @@ export async function writeSettings(db: Db, masterKey: Buffer, sellerId: string,
     senderEnc: value.sender === null ? null : sealText(masterKey, senderAad(sellerId), JSON.stringify(value.sender)),
     box: value.box,
     epostEnc: value.epost === null ? null : sealText(masterKey, epostAad(sellerId), JSON.stringify({ key: value.epost.key, secret: value.epost.secret })),
+    epostPwEnc: value.epostPassword === null ? null : sealText(masterKey, epostPwAad(sellerId), value.epostPassword),
     updatedAt: now,
   }
   await db
     .insert(parcelSettings)
     .values({ sellerId, ...values })
     .onConflictDoUpdate({ target: parcelSettings.sellerId, set: values })
+}
+
+// ── 우체국 창구소포 사전접수 기록 (EP1 PC-9) ──────────────────────────────
+
+export interface EpostRow {
+  readonly date: string
+  readonly buyer: string
+  readonly state: EpostState
+  readonly receiptNo: string | null
+  readonly filledAt: Date | null
+  readonly receivedAt: Date | null
+  readonly updatedAt: Date
+}
+
+const toEpost = (raw: typeof parcelEpost.$inferSelect): EpostRow | null =>
+  isEpostState(raw.state) ? { date: raw.date, buyer: raw.buyer, state: raw.state, receiptNo: raw.receiptNo, filledAt: raw.filledAt, receivedAt: raw.receivedAt, updatedAt: raw.updatedAt } : null
+
+/** 그 날짜 묶음마다의 우체국 기록 */
+export async function epostRowsOf(db: Db, sellerId: string, date: string): Promise<Map<string, EpostRow>> {
+  const rows = await db
+    .select()
+    .from(parcelEpost)
+    .where(and(eq(parcelEpost.sellerId, sellerId), eq(parcelEpost.date, date)))
+  const out = new Map<string, EpostRow>()
+  for (const raw of rows) {
+    const row = toEpost(raw)
+    if (row !== null) out.set(row.buyer, row)
+  }
+  return out
+}
+
+/** 묶음 하나의 우체국 기록 (lock = 같은 트랜잭션 안에서 바꾸기 전에 줄을 잠근다) */
+export async function epostRow(db: Db, sellerId: string, date: string, buyer: string, lock = false): Promise<EpostRow | null> {
+  const query = db
+    .select()
+    .from(parcelEpost)
+    .where(and(eq(parcelEpost.sellerId, sellerId), eq(parcelEpost.date, date), eq(parcelEpost.buyer, buyer)))
+  const rows = lock ? await query.for('update') : await query
+  return rows[0] === undefined ? null : toEpost(rows[0])
+}
+
+/** 우체국 기록 쓰기 (next가 null이면 지운다). 입력 완료는 filled 칸을, 사전접수 완료는 received 칸을 적는다 */
+export async function writeEpost(
+  db: Db,
+  input: { readonly sellerId: string; readonly date: string; readonly buyer: string; readonly accountId: string; readonly now: Date },
+  next: { readonly state: EpostState; readonly receiptNo: string | null } | null,
+): Promise<void> {
+  const where = and(eq(parcelEpost.sellerId, input.sellerId), eq(parcelEpost.date, input.date), eq(parcelEpost.buyer, input.buyer))
+  if (next === null) {
+    await db.delete(parcelEpost).where(where)
+    return
+  }
+  const stamp =
+    next.state === 'FILLED'
+      ? { filledAt: input.now, filledBy: input.accountId, receivedAt: null, receivedBy: null }
+      : { receivedAt: input.now, receivedBy: input.accountId }
+  await db
+    .insert(parcelEpost)
+    .values({ sellerId: input.sellerId, date: input.date, buyer: input.buyer, state: next.state, receiptNo: next.receiptNo, updatedAt: input.now, ...stamp })
+    .onConflictDoUpdate({ target: [parcelEpost.sellerId, parcelEpost.date, parcelEpost.buyer], set: { state: next.state, receiptNo: next.receiptNo, updatedAt: input.now, ...stamp } })
 }

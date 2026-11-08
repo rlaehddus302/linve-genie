@@ -330,6 +330,20 @@
       "when": 1794960000020,
       "tag": "0046_v3_voice_log_conf",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794960000021,
+      "tag": "0047_ep1_parcel_epost",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794960000022,
+      "tag": "0048_ep1_epost_password",
+      "breakpoints": true
     }
   ]
 }

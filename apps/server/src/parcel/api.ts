@@ -12,6 +12,7 @@ import { apiError } from '../errors.ts'
 import { fileResponse } from '../files.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import { scopeSeqs } from '../store.ts'
+import { EPOST_ACTIONS, type EpostAction } from './epost-window.ts'
 import { PARCEL_MESSAGES } from './rules.ts'
 import { ParcelService } from './service.ts'
 
@@ -203,6 +204,39 @@ export function registerParcelRoutes(api: Hono<Env>, parcels: ParcelService, db:
     const date = await dateOf(c, true)
     if (!date.ok) return date.response
     return json(c, await parcels.cancel(sellerOf(c), accountOf(c), date.date, requestId, buyer.buyer), (bundle) => ({ bundle }))
+  })
+
+  // ── 우체국 창구소포 간편사전접수 (EP1 PC-9) ───────────────────────────
+  // 앱 안 우체국 화면에 채울 값: ?buyer= (판매자 계정만 — 받는 분 원문이 든다)
+  api.get('/parcels/days/:date/epost', async (c) => {
+    const date = await dateOf(c, false)
+    if (!date.ok) return date.response
+    const buyer = buyerOf(c.req.query('buyer'))
+    if (!buyer.ok) return buyer.response
+    return json(c, await parcels.epostFill(sellerOf(c), date.date, buyer.buyer), (value) => ({ ...value }))
+  })
+  // 기록 바꾸기: { requestId, buyer, action: FILLED | RECEIVED | CLEAR, receiptNo?(RECEIVED만) }. 같은 일을 다시 보내도 결과가 같다
+  api.post('/parcels/days/:date/epost', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'buyer', 'action', 'receiptNo'])
+    if (extra !== null) return extra
+    const buyer = buyerOf(own(input, 'buyer'))
+    if (!buyer.ok) return buyer.response
+    const action = own(input, 'action')
+    if (typeof action !== 'string' || !(EPOST_ACTIONS as readonly string[]).includes(action)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'action', message: '할 일을 다시 골라 주세요.' }])
+    const receiptNo = own(input, 'receiptNo')
+    if (action !== 'RECEIVED' && receiptNo !== undefined) return apiError(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(['receiptNo']))
+    const date = await dateOf(c, true)
+    if (!date.ok) return date.response
+    return json(c, await parcels.epostMark(sellerOf(c), accountOf(c), date.date, buyer.buyer, action as EpostAction, receiptNo ?? null), (value) => ({ ...value }))
+  })
+  // 우체국 주소 파일 (PC용 — 우체국 화면의 파일 접수에 올린다)
+  api.get('/parcels/days/:date/epost-addresses.xlsx', async (c) => {
+    const date = await dateOf(c, false)
+    if (!date.ok) return date.response
+    return fileOf(await parcels.epostFile(sellerOf(c), date.date))
   })
 
   // ── 운송장 PDF (AC-T1-43) ────────────────────────────────────────────

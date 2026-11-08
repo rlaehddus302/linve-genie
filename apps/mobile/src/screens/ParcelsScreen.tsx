@@ -29,12 +29,9 @@ import {
   DIRECT_TAG,
   DIRECT_FIRST_KEY,
   DIRECT_FIRST_NOTE,
-  EPOST_DIRECT_HOW,
   EPOST_FILE_AFTER,
   EPOST_FILE_PC,
   EPOST_FILE_PC_TITLE,
-  EPOST_KIND_HOW,
-  EPOST_KIND_LABEL,
   EPOST_FILE_HOW,
   EPOST_FILE_OPEN,
   EPOST_FILE_TITLE,
@@ -42,7 +39,6 @@ import {
   addressReason,
   directCancelDescription,
   epostFileBox,
-  type EpostDirectKind,
   epostFileLabel,
   epostFileName,
   epostFilePath,
@@ -88,9 +84,18 @@ export interface ParcelsNavigation {
   readonly openSettle?: (date: string, buyer: string) => void
   /** 택배 설정(보내는 사람·택배사) */
   readonly openSettings?: () => void
-  /** 앱 안 우체국 화면 (D-UX3-37 — COUNTER 들고 가기·VISIT 가지러 오기) */
-  readonly openEpost?: (date: string, kind: EpostDirectKind) => void
+  /** 우체국 창구소포 사전접수 (앱 안 화면 자동 입력 — EP1 PC-9). 여러 명이면 한 신청서에 차례로 넣는다 (D-EP1-19) */
+  readonly openEpost?: (date: string, buyers: readonly string[]) => void
 }
+
+// ── 우체국 창구소포 간편사전접수 (EP1 PC-9 — 앱 안 들고 가기·가지러 오기 화면 자리, D-EP1-21) ──
+export const EPOST_INTRO = '계약하지 않아도 돼요. 고른 주문을 [N명 우체국 사전접수]로 우체국 신청서 하나에 차례로 넣어 드려요(한 명씩은 줄의 [우체국 사전접수]). 약관 동의·[필수동의]·[접수신청]은 직접 눌러 주세요.'
+export const EPOST_GROUP = '우체국에 사전접수했어요'
+export const EPOST_FILLED_NOTE = '우체국 입력 완료 · 신청했는지 확인해 주세요'
+export const EPOST_WINDOW_FILE_LABEL = '창구소포 주소 파일 (엑셀)'
+export const EPOST_WINDOW_FILE_NOTE = '창구소포(들고 가기)는 이 파일을 PC 인터넷우체국 창구소포 사전접수의 [파일 접수]에 올려요. 휴대폰에서는 파일 접수가 안 돼요.'
+/** 한 신청서에 넣는 받는 분 상한 (EpostScreen과 같음 — D-EP1-19) */
+export const EPOST_BATCH_MAX = 50
 
 /** onBack이 없으면 아래 탭 "택배"(D-UX3-39) — 다른 탭과 같은 제목 줄, 아래 여백은 탭 막대만큼 */
 export function ParcelsScreen({ onBack, initialDate, nav = {}, topGap = 28 }: { readonly onBack?: () => void; readonly initialDate?: string; readonly nav?: ParcelsNavigation; readonly topGap?: number }) {
@@ -213,10 +218,13 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
   const pending = useRef<{ key: string; requestId: string } | null>(null)
   const waybills = useWaybill()
   const epostFile = useWaybill()
+  const windowFile = useWaybill()
 
   const groups = useMemo(() => (day === null ? null : parcelGroups(day)), [day])
   const retry = useMemo(() => (day === null ? [] : retryRows(day)), [day])
   const chosen = groups === null ? [] : groups.ready.filter((row) => !unchecked.has(row.buyer))
+  const epostChosen = chosen.filter((row) => !isExtraRow(row))
+  const epostRows = day?.epost ?? []
   const boxOf = (row: ParcelRow): BoxKind => boxes.get(row.buyer) ?? row.box
   const blocked = day?.blocked ?? null
   // 계약 인증키가 없거나 택배사를 고르지 않았으면 자동 접수 대신 우체국 직접 접수가 먼저 (D-UX3-40): 키 안내 경고·고르기·상자 고르기·[N개 택배 접수하기]를 감추고 그 자리에 들고 가기·가지러 오기
@@ -299,26 +307,27 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
       <Card label={GROUP_READY}>
         <Txt step="section" weight="bold">{`${GROUP_READY} · ${String(groups.ready.length)}개`}</Txt>
         {groups.ready.length === 0 ? <Txt color="textSub">{NOTHING_READY}</Txt> : null}
-        {directFirst ? (
-          <View style={{ gap: SPACE.sm }}>
-            <Txt>{EPOST_DIRECT_HOW}</Txt>
-            <Txt step="caption" color="textSub">{`${EPOST_KIND_LABEL.COUNTER}: ${EPOST_KIND_HOW.COUNTER}`}</Txt>
-            <Txt step="caption" color="textSub">{`${EPOST_KIND_LABEL.VISIT}: ${EPOST_KIND_HOW.VISIT}`}</Txt>
-            <ButtonRow>
-              <BigButton kind="outline" label={EPOST_KIND_LABEL.VISIT} onPress={() => nav.openEpost?.(date, 'VISIT')} />
-              <BigButton label={EPOST_KIND_LABEL.COUNTER} onPress={() => nav.openEpost?.(date, 'COUNTER')} />
-            </ButtonRow>
-            <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
-          </View>
-        ) : null}
+        {directFirst ? <Txt>{EPOST_INTRO}</Txt> : null}
         {directFirst
-          ? groups.ready.map((row) => (
-              <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
-                <Txt weight="bold">{row.name}</Txt>
-                {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
-                {isExtraRow(row) ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
-              </View>
-            ))
+          ? groups.ready.map((row) =>
+              isExtraRow(row) ? (
+                <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
+                  <Txt weight="bold">{row.name}</Txt>
+                  <ExtraFacts row={row} />
+                  <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} />
+                </View>
+              ) : (
+                <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
+                  <PickRow on={!unchecked.has(row.buyer)} name={row.name} disabled={busy} onPress={() => toggle(row.buyer)} />
+                  <RowFacts row={row} />
+                  {row.epost?.state === 'FILLED' ? <Tag tone="warning">{EPOST_FILLED_NOTE}</Tag> : null}
+                  <ButtonRow>
+                    {row.epost?.state === 'FILLED' ? <EpostClear date={date} row={row} onChanged={onChanged} label="입력 기록 지우기" /> : null}
+                    <BigButton kind="outline" label="우체국 사전접수" ariaLabel={`${row.name} 우체국 사전접수`} onPress={() => nav.openEpost?.(date, [row.buyer])} />
+                  </ButtonRow>
+                </View>
+              ),
+            )
           : null}
         {directFirst ? null : groups.ready.map((row) => (
           <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
@@ -346,6 +355,7 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
         ))}
         {directFirst ? (
           <View style={{ gap: SPACE.xs }}>
+            <BigButton label={`${String(epostChosen.length)}명 우체국 사전접수`} disabled={epostChosen.length === 0} onPress={() => nav.openEpost?.(date, epostChosen.slice(0, EPOST_BATCH_MAX).map((row) => row.buyer))} />
             <Txt step="caption" color="textSub">{DIRECT_FIRST_NOTE}</Txt>
             {nav.openSettings !== undefined ? <BigButton kind="outline" label={DIRECT_FIRST_KEY} onPress={nav.openSettings} /> : null}
           </View>
@@ -365,22 +375,13 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
       {showsEpostFile(day) ? (
         <Card label={directFirst ? EPOST_FILE_PC_TITLE : EPOST_FILE_TITLE}>
           <Txt step="section" weight="bold">{directFirst ? EPOST_FILE_PC_TITLE : EPOST_FILE_TITLE}</Txt>
-          {directFirst ? (
+          {directFirst || nav.openEpost !== undefined ? (
             <>
-              <Txt>{EPOST_FILE_PC}</Txt>
-              <BigButton kind="outline" label={epostFileLabel(groups.ready.length)} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
-            </>
-          ) : nav.openEpost !== undefined ? (
-            <>
-              <Txt>{EPOST_DIRECT_HOW}</Txt>
-              <Txt step="caption" color="textSub">{`${EPOST_KIND_LABEL.COUNTER}: ${EPOST_KIND_HOW.COUNTER}`}</Txt>
-              <Txt step="caption" color="textSub">{`${EPOST_KIND_LABEL.VISIT}: ${EPOST_KIND_HOW.VISIT}`}</Txt>
-              <ButtonRow>
-                <BigButton kind="outline" label={EPOST_KIND_LABEL.VISIT} onPress={() => nav.openEpost?.(date, 'VISIT')} />
-                <BigButton label={EPOST_KIND_LABEL.COUNTER} onPress={() => nav.openEpost?.(date, 'COUNTER')} />
-              </ButtonRow>
-              <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
+              <Txt>{EPOST_WINDOW_FILE_NOTE}</Txt>
+              <BigButton kind="outline" label={EPOST_WINDOW_FILE_LABEL} busy={windowFile.busy} onPress={() => void windowFile.run(`/api/parcels/days/${date}/epost-addresses.xlsx`, `우체국-주소-${date}.xlsx`, XLSX_TYPE)} />
+              {windowFile.error !== null ? <Notice tone="danger" alert>{windowFile.error}</Notice> : null}
               <Txt step="caption" color="textSub">{EPOST_FILE_PC}</Txt>
+              <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
               <BigButton kind="outline" label={epostFileLabel(groups.ready.length)} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
             </>
           ) : (
@@ -395,6 +396,20 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
             </>
           )}
           {epostFile.error !== null ? <Notice tone="danger" alert>{epostFile.error}</Notice> : null}
+        </Card>
+      ) : null}
+
+      {epostRows.length > 0 ? (
+        <Card label={EPOST_GROUP}>
+          <Txt step="section" weight="bold">{`${EPOST_GROUP} · ${String(epostRows.length)}개`}</Txt>
+          {epostRows.map((row) => (
+            <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
+              <Txt weight="bold">{row.name}</Txt>
+              <RowFacts row={row} />
+              <Tag tone="success">{`${row.epost?.word ?? ''} · 접수번호 ${row.epost?.receiptNo ?? ''}`}</Tag>
+              <EpostClear date={date} row={row} onChanged={onChanged} label="접수 기록 지우기" />
+            </View>
+          ))}
         </Card>
       ) : null}
 
@@ -562,6 +577,47 @@ function BookedRow({ date, row, onChanged, onAction }: { readonly date: string; 
         onConfirm={() => {
           setAsking(false)
           void cancel()
+        }}
+      />
+    </View>
+  )
+}
+
+/** 우체국 기록 지우기 (EP1 PC-9 2): 우체국에서 신청을 취소했거나, 입력만 하고 신청하지 않았을 때. 한 번 더 묻는다 */
+function EpostClear({ date, row, onChanged, label }: { readonly date: string; readonly row: ParcelRow; readonly onChanged: () => void; readonly label: string }) {
+  const [asking, setAsking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<ApiError | null>(null)
+  const received = row.epost?.state === 'RECEIVED'
+  const clear = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await withRetry(() => post(`/api/parcels/days/${date}/epost`, { requestId: newRequestId(), buyer: row.buyer, action: 'CLEAR' }))
+      onChanged()
+    } catch (caught: unknown) {
+      if (!isApiError(caught)) throw caught
+      setError(caught)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <View style={{ gap: SPACE.xs }}>
+      <BigButton kind="outline" label={label} ariaLabel={`${row.name} ${label}`} busy={busy} onPress={() => setAsking(true)} />
+      {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
+      <ConfirmSheet
+        visible={asking}
+        question={received ? '우체국 접수 기록을 지울까요?' : '우체국 입력 기록을 지울까요?'}
+        description={received ? `${row.name}님 주문의 접수번호를 지워요. 우체국 화면에서 신청을 먼저 취소했을 때만 지워 주세요. 지우면 다시 접수할 수 있어요.` : `${row.name}님 주문을 우체국 화면에 입력만 하고 신청하지 않았을 때 지워 주세요.`}
+        confirmLabel="지우기"
+        cancelLabel="닫기"
+        danger
+        busy={busy}
+        onCancel={() => setAsking(false)}
+        onConfirm={() => {
+          setAsking(false)
+          void clear()
         }}
       />
     </View>

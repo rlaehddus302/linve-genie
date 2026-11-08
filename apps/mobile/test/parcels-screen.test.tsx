@@ -71,12 +71,14 @@ describe('ParcelsScreen (앱 택배 접수)', () => {
       asked.push(call.path)
       return { body: { ...day, date: today, seq: 0, blocked: { code: 'NO_AUTO_BOOK', message: '계약 인증키가 없어요' }, ready: [], excluded: [], booked: [] } }
     })
-    const opened: [string, string][] = []
-    render(w.wrap(<ParcelsScreen nav={{ openEpost: (date, kind) => void opened.push([date, kind]) }} />))
+    // D-EP1-21: 앱 안 들고 가기·가지러 오기 단추 자리에 우체국 창구소포 사전접수 — 0개여도 [0명 우체국 사전접수](꺼짐)와 PC 파일 두 가지가 보인다
+    const opened: [string, readonly string[]][] = []
+    render(w.wrap(<ParcelsScreen nav={{ openEpost: (date, buyers) => void opened.push([date, buyers]) }} />))
     await waitFor(() => expect(asked).toEqual([`/api/parcels/days/${today}`]))
-    fireEvent.click(await screen.findByRole('button', { name: '우체국에 들고 가기' }))
-    expect(opened).toEqual([[today, 'COUNTER']])
-    expect(screen.getByRole('button', { name: '집으로 가지러 오기' })).toBeTruthy()
+    expect(((await screen.findByRole('button', { name: '0명 우체국 사전접수' })) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('button', { name: '창구소포 주소 파일 (엑셀)' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '우체국 파일 받기 (0개)' })).toBeTruthy()
+    expect(opened).toEqual([])
     expect(screen.queryByText('아직 판매 기록이 없어요.')).toBeNull()
   })
 
@@ -129,44 +131,76 @@ describe('ParcelsScreen (앱 택배 접수)', () => {
     await waitFor(() => expect(shared).toEqual([{ name: '우체국-방문접수-2026-10-29.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 5 }]))
   })
 
-  it('앱 안 우체국 화면 (D-UX3-37): [집으로 가지러 오기] 왼쪽 · [우체국에 들고 가기] 오른쪽, 누르면 그 날짜·방법으로 연다. PC용 파일 받기도 남는다', async () => {
+  it('자동 접수가 되는 우체국 계약 판매자 (D-EP1-21 — 옛 D-UX3-37 앱 안 들고 가기·가지러 오기 단추는 없앰): PC 파일 칸에 창구소포 주소 파일·방문접수 파일, 파일은 공유 시트로', async () => {
     const { w } = world()
-    const opened: [string, string][] = []
-    render(w.wrap(<ParcelsScreen onBack={() => undefined} nav={{ openEpost: (date, kind) => void opened.push([date, kind]) }} />))
+    const shared: { name: string; type: string; size: number }[] = []
+    setNativeModules({ shareFile: async (bytes, name, type) => void shared.push({ name, type, size: bytes.length }) })
+    w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29\/epost-addresses\.xlsx$/, () => ({ bytes: new Uint8Array([80, 75, 3, 4]), contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+    const opened: [string, readonly string[]][] = []
+    render(w.wrap(<ParcelsScreen onBack={() => undefined} nav={{ openEpost: (date, buyers) => void opened.push([date, buyers]) }} />))
     expect(await screen.findByText('우체국에 직접 접수하기')).toBeTruthy()
-    const visit = screen.getByRole('button', { name: '집으로 가지러 오기' })
-    const counter = screen.getByRole('button', { name: '우체국에 들고 가기' })
-    expect(visit.compareDocumentPosition(counter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '집으로 가지러 오기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '우체국에 들고 가기' })).toBeNull()
     expect(screen.queryByRole('button', { name: '인터넷우체국 열기' })).toBeNull()
     expect(screen.getByRole('button', { name: '우체국 파일 받기 (2개)' })).toBeTruthy()
-    fireEvent.click(counter)
-    fireEvent.click(visit)
-    expect(opened).toEqual([
-      ['2026-10-29', 'COUNTER'],
-      ['2026-10-29', 'VISIT'],
-    ])
+    // 자동 접수가 되면 주 단추는 그대로 [N개 택배 접수하기]
+    expect(screen.getByRole('button', { name: '2개 택배 접수하기' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '창구소포 주소 파일 (엑셀)' }))
+    await waitFor(() => expect(shared.map((file) => file.name)).toEqual(['우체국-주소-2026-10-29.xlsx']))
+    expect(opened).toEqual([])
   })
 
-  it('계약 인증키가 없으면 (D-UX3-40): 키 안내 경고·고르기·[N개 택배 접수하기] 대신 "보낼 수 있어요" 칸에 들고 가기·가지러 오기, 인증키 넣기는 작은 길로', async () => {
+  it('계약 인증키가 없으면 (D-UX3-40 → D-EP1-21): 키 안내 경고·상자 고르기·[N개 택배 접수하기] 대신 줄마다 고르기·[우체국 사전접수]와 [N명 우체국 사전접수], 인증키 넣기는 작은 길로', async () => {
     const { w } = world()
     w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29$/, () => ({ body: { ...day, blocked: { code: 'NO_AUTO_BOOK', message: '우체국 계약 정보(인증키·보안키·고객 번호)를 넣어야 자동 접수돼요.' } } }))
-    const opened: [string, string][] = []
+    const opened: [string, readonly string[]][] = []
     let settings = 0
-    render(w.wrap(<ParcelsScreen onBack={() => undefined} nav={{ openEpost: (date, kind) => void opened.push([date, kind]), openSettings: () => void settings++ }} />))
-    expect(await screen.findByText('다육맘')).toBeTruthy()
+    render(w.wrap(<ParcelsScreen onBack={() => undefined} nav={{ openEpost: (date, buyers) => void opened.push([date, buyers]), openSettings: () => void settings++ }} />))
+    expect(await screen.findByText(/고른 주문을 \[N명 우체국 사전접수\]로/)).toBeTruthy()
     expect(screen.queryByText(/인증키·보안키·고객 번호/)).toBeNull()
     expect(screen.queryByRole('button', { name: /개 택배 접수하기/ })).toBeNull()
-    expect(screen.queryByRole('checkbox', { name: '다육맘 고르기' })).toBeNull()
-    const counter = screen.getByRole('button', { name: '우체국에 들고 가기' })
-    expect(counter.compareDocumentPosition(screen.getByText('다육맘')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.getAllByRole('button', { name: '우체국에 들고 가기' })).toHaveLength(1)
-    fireEvent.click(counter)
-    expect(opened).toEqual([['2026-10-29', 'COUNTER']])
+    expect(screen.queryByRole('button', { name: '다육맘 택배 크기 80cm 이하' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '2명 우체국 사전접수' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '다육맘 고르기' }))
+    fireEvent.click(screen.getByRole('button', { name: '1명 우체국 사전접수' }))
+    fireEvent.click(screen.getByRole('button', { name: '다육맘 우체국 사전접수' }))
+    expect(opened).toEqual([
+      ['2026-10-29', ['u1', 'u2']],
+      ['2026-10-29', ['u2']],
+      ['2026-10-29', ['u1']],
+    ])
     expect(screen.getByText(/자동 접수는 꺼져 있어요/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '계약했다면 인증키 넣기' }))
     expect(settings).toBe(1)
     expect(screen.getByText('PC에서 접수하기')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '창구소포 주소 파일 (엑셀)' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '우체국 파일 받기 (2개)' })).toBeTruthy()
+  })
+
+  it('우체국 입력 완료 줄은 꼬리표와 [입력 기록 지우기](한 번 더 묻고 CLEAR), 사전접수 완료는 따로 무리에 접수번호와 [접수 기록 지우기] (D-EP1-21)', async () => {
+    const { w } = world()
+    const filled = { state: 'FILLED' as const, word: '우체국 입력 완료', receiptNo: null, at: '2026-10-29T01:00:00.000Z' }
+    const received = { state: 'RECEIVED' as const, word: '우체국 사전접수 완료', receiptNo: '12345678', at: '2026-10-29T02:00:00.000Z' }
+    w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29$/, () => ({
+      body: { ...day, blocked: { code: 'NO_AUTO_BOOK', message: '계약 인증키가 없어요' }, ready: [row('u1', '다육맘', { epost: filled }), row('u2', '초록손')], epost: [row('u5', '은행잎', { epost: received })] },
+    }))
+    const posts: Record<string, unknown>[] = []
+    w.server.on('POST', /^\/api\/parcels\/days\/2026-10-29\/epost$/, (call) => {
+      posts.push(call.body ?? {})
+      return { body: { row: {} } }
+    })
+    render(w.wrap(<ParcelsScreen onBack={() => undefined} nav={{ openEpost: () => undefined }} />))
+    expect(await screen.findByText('우체국 입력 완료 · 신청했는지 확인해 주세요')).toBeTruthy()
+    expect(screen.getAllByText('우체국 입력 완료 · 신청했는지 확인해 주세요')).toHaveLength(1)
+    expect(screen.getByText('우체국에 사전접수했어요 · 1개')).toBeTruthy()
+    expect(screen.getByText('우체국 사전접수 완료 · 접수번호 12345678')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '은행잎 접수 기록 지우기' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '다육맘 입력 기록 지우기' }))
+    expect(screen.getByText('우체국 입력 기록을 지울까요?')).toBeTruthy()
+    expect(posts).toEqual([])
+    fireEvent.click(screen.getByRole('button', { name: '지우기' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toMatchObject({ buyer: 'u1', action: 'CLEAR' })
   })
 
   it('우체국 직접 접수 묶음: "우체국 직접 접수" 꼬리표, 운송장 PDF 없음, [기록 지우기]는 라이브찜 기록만 지운다고 묻는다', async () => {

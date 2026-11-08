@@ -75,3 +75,32 @@ export async function ledgerToXlsx(
   const bytes = buffer as unknown as ArrayBuffer | Uint8Array
   return bytes instanceof Uint8Array ? new Uint8Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) : new Uint8Array(bytes)
 }
+
+/**
+ * 우체국 창구소포 사전접수 주소 파일 (EP1 PARCEL_RULES PC-9 5, D-EP1-08): 시트 하나, 첫 줄 = 열 이름, 모든 칸은 글 칸.
+ * 우편번호·연락처의 앞자리 0이 숫자로 바뀌어 사라지지 않게 글 칸(@ 서식)으로 둔다. 금지 글자는 빼고 쓴다(판매대장과 같음).
+ */
+export async function textRowsToXlsx(sheetName: string, columns: readonly string[], rows: readonly (readonly string[])[], widths: readonly number[] = []): Promise<Uint8Array> {
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = SERVICE_NAME
+  const sheet = workbook.addWorksheet(sheetName, { views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }] })
+  columns.forEach((_, i) => {
+    const column = sheet.getColumn(i + 1)
+    column.width = widths[i] ?? 16
+    column.numFmt = '@'
+  })
+  sheet.addRow([...columns]).font = { bold: true }
+  for (const values of rows) {
+    const added = sheet.addRow([])
+    values.forEach((value, i) => {
+      const text = stripXlsxForbidden(value)
+      if (text === '') return
+      const cell = added.getCell(i + 1)
+      cell.value = text
+      cell.numFmt = '@'
+    })
+  }
+  const buffer = await workbook.xlsx.writeBuffer()
+  const bytes = buffer as unknown as ArrayBuffer | Uint8Array
+  return bytes instanceof Uint8Array ? new Uint8Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) : new Uint8Array(bytes)
+}
