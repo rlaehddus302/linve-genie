@@ -1,21 +1,22 @@
 // 방송 화면 "채팅·문자" 탭 (D-UX4-12, 사용자 지시 2026-11-08 "방송 중 화면에서 실시간 채팅, 문자 오는거 볼 수 있게 찜 기록 옆에 새로운 탭으로").
 // - 채팅: 이 방송의 최근 채팅(찜 기록·채팅 보기와 같은 useMessages — 범위가 바뀌면 다시 읽는다). 주문·취소·언급·방송자 표시는 채팅 보기와 같은 글자.
 // - 문자: 휴대폰 알림 받기로 서버에 온 손님 문자(GET /api/inbox/sms — 서버 메모리, 최신이 앞). 실시간 `inbox` { kind: 'sms', b }가 오면 다시 읽는다.
-// - 둘을 받은 시각으로 섞어 최신이 위. 본문·닉네임·보낸 이름은 손님이 쓴 글이라 글자로만 그린다. 판정은 하지 않는다(서버가 한 일을 낱말로만).
+// - 둘을 받은 시각으로 섞는다(정렬은 최신이 위, 화면은 최신이 맨 아래 — D-UX3-75). 한 줄에 닉네임(문자는 "문자-끝번호")·내용·(결과), 시각·출처 꼬리표 없음(D-UX3-80).
+//   본문·닉네임·보낸 이름은 손님이 쓴 글이라 글자로만 그린다. 판정은 하지 않는다(서버가 한 일을 낱말로만).
 import { useEffect, useMemo, useState } from 'react'
 import { View } from 'react-native'
 import type { SmsFeedView } from '@livejjim/web/src/api/inbox-types.ts'
-import type { MessagesView } from '@livejjim/web/src/api/types.ts'
-import { kstTime } from '@livejjim/web/src/lib/kst.ts'
+import type { Claim, MessagesView } from '@livejjim/web/src/api/types.ts'
 import { CHAT_WORD } from '@livejjim/web/src/lib/words.ts'
 import { get, isApiError, withQuery } from '../../api/client.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
-import { claimWord } from '../../lib/derive.ts'
+import { claimWord, waitPosition } from '../../lib/derive.ts'
 import { useServices } from '../../services.tsx'
 import { Txt, useKit } from '../../ui/kit/index.ts'
+import type { TxtColor } from '../../ui/kit/theme.tsx'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import type { Tone } from '../../ui/theme.ts'
-import { Hint, Notice, Tag } from '../../ui/parts.tsx'
+import { Hint, Notice } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
 import { chatTags, useMessages } from './ChatPaste.tsx'
 
@@ -29,27 +30,26 @@ const SMS_RELOAD_MS = 300
 export interface TalkRow {
   readonly key: string
   readonly at: number
-  readonly source: '채팅' | '문자'
+  /** 채팅 닉네임 · 문자는 "문자-끝번호" (D-UX3-80) */
   readonly who: string
   readonly text: string
-  /** 주문 15번 · 찜 15번 · 찜 아님 … (색만으로 구분하지 않는다) */
-  readonly tags: readonly { readonly word: string; readonly tone: Tone }[]
-  /** 그 채팅이 만든 찜의 지금 상태 (15번 · 1등) */
-  readonly notes: readonly string[]
+  /** 그 글이 만든 결과 — 괄호 안 낱말 (243번 찜 · 342번 대기 1 · 찜 아님 …). 없으면 null. 색만으로 구분하지 않는다 */
+  readonly result: string | null
+  readonly tone: Tone
 }
 
-const nums = (numbers: readonly number[]) => numbers.map((no) => `${String(no)}번`).join('·')
+const each = (numbers: readonly number[], word: string) => numbers.map((no) => `${String(no)}번 ${word}`).join(', ')
 
-/** 서버가 그 문자로 한 일 → 낱말 */
+/** 서버가 그 문자로 한 일 → 괄호 안 낱말 (243번 찜 · 15번 취소 요청 · 찜 아님 …) */
 export function smsWord(entry: Pick<SmsFeedView, 'result' | 'numbers'>): { word: string; tone: Tone } {
-  const list = entry.numbers.length > 0 ? ` ${nums(entry.numbers)}` : ''
+  const has = entry.numbers.length > 0
   switch (entry.result) {
     case 'claim':
-      return { word: `찜${list}`, tone: 'success' }
+      return { word: has ? each(entry.numbers, '찜') : '찜', tone: 'success' }
     case 'cancel':
-      return { word: `취소 요청${list}`, tone: 'warning' }
+      return { word: has ? each(entry.numbers, '취소 요청') : '취소 요청', tone: 'warning' }
     case 'review':
-      return { word: `확인 필요${list}`, tone: 'warning' }
+      return { word: has ? each(entry.numbers, '확인 필요') : '확인 필요', tone: 'warning' }
     case 'info':
       return { word: '손님 정보', tone: 'info' }
     case 'stale':
@@ -59,10 +59,37 @@ export function smsWord(entry: Pick<SmsFeedView, 'result' | 'numbers'>): { word:
   }
 }
 
-/** 보낸 사람 — 휴대폰 끝 4자리 또는 보낸 이름 */
+/** 보낸 사람 — "문자-끝4자리" (전체 번호는 쓰지 않는다), 휴대폰 번호가 아니면 "문자-보낸 이름" (D-UX3-80) */
 export function smsWho(entry: Pick<SmsFeedView, 'last4' | 'sender'>): string {
-  if (entry.last4 !== null) return `끝번호 ${entry.last4}`
-  return entry.sender !== null && entry.sender.trim() !== '' ? entry.sender : '보낸 사람 모름'
+  if (entry.last4 !== null) return `문자-${entry.last4}`
+  return entry.sender !== null && entry.sender.trim() !== '' ? `문자-${entry.sender.trim()}` : '문자'
+}
+
+/** 채팅이 만든 찜의 지금 상태 → "243번 찜" · "342번 대기 1" · "15번 보류" … */
+function chatClaimWord(data: ScopeData, claim: Claim): string {
+  const no = `${String(claim.no)}번`
+  if (claim.status === 'CONFIRMED') return `${no} 찜`
+  if (claim.status === 'WAITLISTED') {
+    const at = waitPosition(data, claim)
+    return at === null ? `${no} 대기` : `${no} 대기 ${String(at)}`
+  }
+  return `${no} ${claimWord(data, claim)}`
+}
+
+function chatResult(message: MessagesView['messages'][number], data: ScopeData): { result: string | null; tone: Tone } {
+  const claims = message.claims.flatMap((id) => {
+    const claim = data.claims.get(id)
+    return claim === undefined ? [] : [claim]
+  })
+  if (claims.length > 0) {
+    const tone: Tone = claims.every((claim) => claim.status === 'CONFIRMED' || claim.status === 'WAITLISTED') ? 'success' : 'warning'
+    return { result: claims.map((claim) => chatClaimWord(data, claim)).join(', '), tone }
+  }
+  // 아직 찜이 없으면 서버가 읽은 낱말(주문 15번 · 취소 15번 · 언급 · 방송자)
+  const tags = chatTags(message)
+  if (tags.length === 0) return { result: null, tone: 'info' }
+  const tone: Tone = tags.some((word) => word.startsWith(CHAT_WORD.cancel)) ? 'warning' : tags.some((word) => word.startsWith(CHAT_WORD.order)) ? 'success' : 'info'
+  return { result: tags.join(', '), tone }
 }
 
 /** 채팅 + 문자 → 한 줄씩 (최신이 위) */
@@ -70,22 +97,12 @@ export function talkRows(chat: MessagesView | null, sms: readonly SmsFeedView[],
   const rows: TalkRow[] = []
   for (const message of chat?.messages ?? []) {
     const at = Date.parse(message.at)
-    rows.push({
-      key: `c:${message.id}`,
-      at: Number.isFinite(at) ? at : 0,
-      source: '채팅',
-      who: message.nick,
-      text: message.text,
-      tags: chatTags(message).map((word) => ({ word, tone: word.startsWith(CHAT_WORD.cancel) ? 'warning' : word.startsWith(CHAT_WORD.order) ? 'success' : 'info' })),
-      notes: message.claims.flatMap((id) => {
-        const claim = data.claims.get(id)
-        return claim === undefined ? [] : [`${String(claim.no)}번 · ${claimWord(data, claim)}`]
-      }),
-    })
+    rows.push({ key: `c:${message.id}`, at: Number.isFinite(at) ? at : 0, who: message.nick, text: message.text, ...chatResult(message, data) })
   }
   for (const entry of sms) {
     const at = Date.parse(entry.at)
-    rows.push({ key: `s:${entry.id}`, at: Number.isFinite(at) ? at : 0, source: '문자', who: smsWho(entry), text: entry.text, tags: [smsWord(entry)], notes: [] })
+    const { word, tone } = smsWord(entry)
+    rows.push({ key: `s:${entry.id}`, at: Number.isFinite(at) ? at : 0, who: smsWho(entry), text: entry.text, result: word, tone })
   }
   return rows.sort((a, b) => b.at - a.at || b.key.localeCompare(a.key))
 }
@@ -143,18 +160,21 @@ export function useSmsFeed(): readonly SmsFeedView[] {
   return messages
 }
 
+const TONE_INK: Readonly<Record<Tone, TxtColor>> = { success: 'primaryText', warning: 'warnText', danger: 'dangerText', info: 'textSub' }
+
+/** 한 줄: 닉네임 · 내용 · (결과). 시각·출처 꼬리표는 두지 않는다 (D-UX3-80). 손님 글은 글자로만 */
 function TalkLine({ row }: { readonly row: TalkRow }) {
   const { p } = useKit()
   return (
-    <View role="listitem" aria-label={`${row.source} ${row.who}`} style={{ paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surface, gap: 2 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACE.sm }}>
-        <Txt step="caption" color="textSub">{kstTime(row.at)}</Txt>
-        <Tag tone={row.source === '문자' ? 'warning' : 'info'}>{row.source}</Tag>
-        <View style={{ flexShrink: 1 }}><Txt weight="bold" numberOfLines={1}>{row.who}</Txt></View>
-        {row.tags.map((tag) => <Tag key={tag.word} tone={tag.tone}>{tag.word}</Tag>)}
-      </View>
-      <Txt>{row.text}</Txt>
-      {row.notes.map((note) => <Txt key={note} step="caption" color="textSub">{note}</Txt>)}
+    <View role="listitem" aria-label={row.who} style={{ paddingVertical: SPACE.xs, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surface }}>
+      <Txt step="caption">
+        <Txt step="caption" weight="bold">{row.who}</Txt>
+        {'  '}
+        {row.text}
+        {row.result !== null ? (
+          <Txt step="caption" weight="bold" color={TONE_INK[row.tone]}>{`  (${row.result})`}</Txt>
+        ) : null}
+      </Txt>
     </View>
   )
 }

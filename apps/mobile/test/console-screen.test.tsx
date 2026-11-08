@@ -120,9 +120,9 @@ describe('ConsoleScreen', () => {
     expect(pendingRows[0]?.getAttribute('aria-label')).toBe('88번 문자손님 보류')
   })
 
-  it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 맨 아래 — D-UX3-75)으로, 문자는 서버가 한 일과 끝번호로 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
+  it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 맨 아래 — D-UX3-75)으로, 한 줄에 닉네임(문자는 "문자-끝번호")·내용·(결과 — 15번 찜 · 15번 대기 1), 시각·출처 꼬리표 없이(D-UX3-80) 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
     const world = makeWorld({ products: [product(15)] })
-    world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { messages: [{ id: 'm1', broadcast: 'b1', channel: 'ch1', nick: '김영희', text: '15번 주세요', owner: false, seq: 11, at: '2026-10-29T11:00:05.000Z', publishedAt: '2026-10-29T11:00:05.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: [], failed: false }], more: false } }))
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { messages: [{ id: 'm1', broadcast: 'b1', channel: 'ch1', nick: '김영희', text: '15번 주세요', owner: false, seq: 11, at: '2026-10-29T11:00:05.000Z', publishedAt: '2026-10-29T11:00:05.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: [], failed: false }, { id: 'm3', broadcast: 'b1', channel: 'ch3', nick: '홍길동', text: '15', owner: false, seq: 12, at: '2026-10-29T11:00:06.000Z', publishedAt: '2026-10-29T11:00:06.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: ['c1'], failed: false }, { id: 'm4', broadcast: 'b1', channel: 'ch4', nick: '박철수', text: '15 저도', owner: false, seq: 13, at: '2026-10-29T11:00:07.000Z', publishedAt: '2026-10-29T11:00:07.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: ['c2'], failed: false }], more: false } }))
     let smsReads = 0
     let feed: unknown[] = [{ id: 's1', at: '2026-10-29T11:00:09.000Z', last4: '5678', sender: null, text: '15 홍길동', result: 'claim', numbers: [15] }]
     world.server.on('GET', /^\/api\/inbox\/sms\?b=b1$/, () => {
@@ -130,17 +130,28 @@ describe('ConsoleScreen', () => {
       return { body: { messages: feed } }
     })
     await open(world)
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({
+      body: changes(5, 7, {
+        products: [product(15, { winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u2'], waitlistClaims: ['c2'] })],
+        claims: [claim('c1', 15, 'u1'), claim('c2', 15, 'u2', { status: 'WAITLISTED', seq: 11 })],
+        buyers: [buyer('u1', '홍길동'), buyer('u2', '박철수')],
+      }),
+    }))
+    await act(async () => {
+      world.source().emit('change', { date: '2026-10-29', rehearsal: false, seq: 7, type: 'chat' })
+      await flush()
+    })
     const tab = screen.getByRole('button', { name: '채팅·문자' })
     // 탭은 상품·찜 기록과 한 줄 (위아래로 쌓지 않는다)
     expect(screen.getByRole('tablist', { name: '보기' }).children).toHaveLength(3)
     fireEvent.click(tab)
     const list = await screen.findByRole('list', { name: '채팅·문자' })
-    await waitFor(() => expect(within(list).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))).toEqual(['채팅 김영희', '문자 끝번호 5678']))
+    // D-UX3-80으로 바뀐 기대 (사용자 지시 2026-11-09 "맨 왼쪽에 닉네임(문자는 문자-0937), 그 다음 내용, 그 다음 (243번 찜) or (342번 대기 1), 시간은 버려")
+    await waitFor(() => expect(within(list).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))).toEqual(['김영희', '홍길동', '박철수', '문자-5678']))
     const rows = within(list).getAllByRole('listitem')
-    expect(rows[1]?.textContent).toContain('15 홍길동')
-    expect(rows[1]?.textContent).toContain('찜 15번')
-    expect(rows[0]?.textContent).toContain('15번 주세요')
-    expect(rows[0]?.textContent).toContain('주문 15번')
+    expect(rows.map((row) => row.textContent)).toEqual(['김영희  15번 주세요  (주문 15번)', '홍길동  15  (15번 찜)', '박철수  15 저도  (15번 대기 1)', '문자-5678  15 홍길동  (15번 찜)'])
+    // 시각·출처 꼬리표는 없다 (KST 11:00 → 20:00)
+    expect(within(list).queryByText(/20:00|^채팅$|^문자$/)).toBeNull()
     expect(screen.queryByText(/claim|none|review/)).toBeNull()
     // 다른 방송의 알림은 지나치고, 이 방송의 새 문자 알림이 오면 다시 읽는다
     const before = smsReads
