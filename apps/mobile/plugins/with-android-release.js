@@ -7,7 +7,7 @@
 //    - 위치(ACCESS_FINE_LOCATION): 안드로이드 11(API 30) 이하에서만. 12+는 SCAN·CONNECT만 묻는다(src/native/production.tsx).
 //      ACCESS_COARSE_LOCATION은 쓰지 않으므로 뺀다(라이브러리 매니페스트에서 합쳐져도 tools:node="remove").
 //    - BLUETOOTH·BLUETOOTH_ADMIN: 옛 권한이라 API 30 이하에서만.
-//    - REMOVED_PERMISSIONS: 앱이 쓰지 않는 권한(라이브러리가 끼워 넣어도 뺀다).
+//    - REMOVED_PERMISSIONS: 앱이 쓰지 않는 권한(라이브러리가 끼워 넣어도 뺀다). VIBRATE는 손맛(햅틱)이 써서 남긴다(D-UX3-67).
 //    - 알림 받기 스위치(LIVEGENIE_NOTICE, app.config.js): off면 알림 읽기 서비스·재부팅 수신기·RECEIVE_BOOT_COMPLETED를 뺀다.
 //    - 문자 직접 받기 스위치(LIVEGENIE_SMS, app.config.js, SMS4): on일 때만 READ_SMS·RECEIVE_SMS와 새 문자 수신기를 앱 매니페스트에 넣는다.
 //      모듈 매니페스트(packages/mobile-notice)에는 두 권한이 없다 — off 빌드에는 아예 들어가지 않고, 다른 라이브러리가 넣어도 지운다.
@@ -31,7 +31,7 @@ const REMOVED_PERMISSIONS = [
   'android.permission.SYSTEM_ALERT_WINDOW',
   'android.permission.READ_EXTERNAL_STORAGE',
   'android.permission.WRITE_EXTERNAL_STORAGE',
-  'android.permission.VIBRATE',
+  // VIBRATE는 지우지 않는다 — 안드로이드 손맛(expo-haptics)이 진동기를 써서 이 권한이 없으면 아무 느낌이 없다(D-UX3-67)
   'android.permission.WAKE_LOCK',
 ]
 

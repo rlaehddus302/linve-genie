@@ -46,7 +46,7 @@ import {
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
-import { BackButton, BigButton, ErrorLine, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
+import { BackButton, BigButton, ErrorLine, KEYBOARD_AVOID, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
 import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
 import { EdgeSwipeBack, SlideSwitch } from '../ui/kit/slide.tsx'
 import { PAGE, RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
@@ -453,7 +453,7 @@ export function QuestionPage({
   const top = useTopInset()
   return (
     <EdgeSwipeBack onBack={onBack}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={top} style={{ flex: 1, backgroundColor: p.surface }} testID={testID}>
+      <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={top} style={{ flex: 1, backgroundColor: p.surface }} testID={testID}>
         <Animated.View style={{ paddingLeft: PAGE.backLeft, opacity: away ?? 1 }}>
           <BackButton label={backLabel} onPress={onBack} />
         </Animated.View>

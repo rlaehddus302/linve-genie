@@ -4,7 +4,7 @@
 // 자동 게시 동의, 간편 로그인처럼 바깥 로그인 창을 거치는 것은 기기 브라우저로 연다(그쪽 로그인 창이 앱 안에서 열리지 않는다).
 // 저장하지 않은 값이 있으면 나가기 전에 묻는다. 칸 검사는 서버가 하고 그 문장을 칸 아래에 보인다.
 import { useCallback, useEffect, useState } from 'react'
-import { ScrollView, View } from 'react-native'
+import { KeyboardAvoidingView, ScrollView, View } from 'react-native'
 import type { SaleSettings } from '@livejjim/core/settings'
 import type { BroadcastItem, Shop } from '@livejjim/web/src/api/types.ts'
 import type { ParcelSettings } from '@livejjim/web/src/api/parcel-types.ts'
@@ -16,7 +16,7 @@ import { DETAIL_SETTINGS_NOTE, ONGOING_NOTICE, RULES_DETAIL, SHIPPING_HINT, THAN
 import { ACCOUNT_INCOMPLETE, NO_ACCOUNT_ON_RECEIPT, SHOP_FIELDS, accountPreview } from '@livejjim/web/src/lib/shop-words.ts'
 import { get, isApiError, patch, put, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { AppHeader, BigButton, Card, ConfirmSheet, Section, ToggleRow, TextField, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, Card, ConfirmSheet, KEYBOARD_AVOID, Section, ToggleRow, TextField, Txt, useBottomInset, useKeyboardShown, useKit, useTopInset } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
@@ -80,6 +80,9 @@ function useLoad<T>(path: string) {
 export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () => void; readonly onRenamed?: (name: string) => void }) {
   const { p } = useKit()
   const inset = useBottomInset()
+  // 상태 막대 아래(SafeAreaView 위 여백)에서 시작하는 틀 — 키보드 피하기는 부모 기준 자리로 재므로 그만큼 더한다 (D-UX3-67, PhoneVerify와 같다)
+  const top = useTopInset()
+  const keyboard = useKeyboardShown()
   const shop = useLoad<{ shop: Shop }>('/api/shop')
   const settings = useLoad<{ settings: SaleSettings }>('/api/settings')
   const broadcasts = useLoad<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
@@ -231,6 +234,8 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="shop-settings-screen">
       <AppHeader title="가게 설정" onBack={back} />
+      {/* 키보드가 뜨면 내용과 저장 단추가 키보드 위로 올라온다 (D-UX3-67) */}
+      <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={top} style={{ flex: 1 }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
         {ongoing ? <Notice tone="warning">{ONGOING_NOTICE}</Notice> : null}
 
@@ -379,10 +384,11 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
         <ExportCard />
       </ScrollView>
 
-      <View style={{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: Math.max(inset, SPACE.sm), gap: SPACE.xs, borderTopWidth: 1, borderTopColor: p.line, backgroundColor: p.surface }}>
+      <View style={{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.sm : Math.max(inset, SPACE.sm), gap: SPACE.xs, borderTopWidth: 1, borderTopColor: p.line, backgroundColor: p.surface }}>
         {result !== null ? <Notice tone={result.tone} alert={result.tone === 'danger'}>{result.text}</Notice> : <Txt step="caption" color="textSub">{dirtyLine(dirty)}</Txt>}
         <BigButton label={SAVE_LABEL} busy={busy} disabled={dirty.length === 0} onPress={() => void saveAll()} />
       </View>
+      </KeyboardAvoidingView>
 
       <ConfirmSheet
         visible={leaving}
