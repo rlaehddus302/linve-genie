@@ -26,6 +26,7 @@ import { ChatSendError, type ChatSender } from '../youtube/chat-send/sender.ts'
 import { realTimer } from '../youtube/timer.ts'
 import { HttpWebTransport, WebChatSource } from '../youtube/web-chat-source.ts'
 import { complain, parseArgs, say } from './shared.ts'
+import { SERVICE_NAME } from '../brand.ts'
 
 const timer = realTimer()
 const web = new WebChatSource({ timer, transport: new HttpWebTransport({ timer }) })
@@ -183,7 +184,7 @@ async function send(values: Map<string, string>) {
   const page = await status(videoId)
   if (page.state !== 'LIVE' || page.channelId === null) throw new Error('not live')
   const stamp = new Date().toLocaleTimeString('ko-KR', { hour12: false, timeZone: 'Asia/Seoul' })
-  const text = values.get('text') ?? `[라이브지니 시험 ${route ?? ''} ${stamp}] 15번 핑크프릴 10,000원 테스트님 구매 감사합니다`
+  const text = values.get('text') ?? `[${SERVICE_NAME} 시험 ${route ?? ''} ${stamp}] 15번 핑크프릴 10,000원 테스트님 구매 감사합니다`
   let sender: ChatSender
   if (route === 'innertube') {
     const cookie = cookieHeaderFromState(await readFile(values.get('state') ?? '', 'utf8'), Math.floor(Date.now() / 1000))

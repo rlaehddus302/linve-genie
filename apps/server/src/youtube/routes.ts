@@ -10,11 +10,12 @@ import { SESSION_COOKIE, type Auth, type SessionContext } from '../auth.ts'
 import { apiError, type ErrorCode } from '../errors.ts'
 import { unknownFieldProblems } from '../messages.ts'
 import type { Service } from '../service.ts'
-import { CALLBACK_MESSAGES, NOT_CONNECTED_MESSAGE, type CallbackResult } from './connect.ts'
+import { BOT_CALLBACK_MESSAGES, CALLBACK_MESSAGES, NOT_CONNECTED_MESSAGE, type CallbackResult } from './connect.ts'
 import { SELLER_OUTBOX_MESSAGES } from './outbox.ts'
 import type { Sealer } from './seal.ts'
 import { FIRST_CHANNEL_CONFIRM_MESSAGE, LINK_MESSAGES, type LinkOutcome, type YoutubeSystem } from './system.ts'
 import { parseVideoId } from './texts.ts'
+import { SERVICE_NAME } from '../brand.ts'
 
 export const CALLBACK_PATH = '/api/youtube/oauth/callback'
 
@@ -85,6 +86,18 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     const code = c.req.query('code')
     const state = c.req.query('state')
     const error = c.req.query('error')
+    // 감사 채팅 봇 연결 (D-YT-SEND-21): 운영자 명령이 만든 state면 세션과 상관없이 봇 연결로 받고, 판매자 화면으로 보내지 않고 문장만 보인다
+    const bot = await youtube.connections.botCallback({
+      ...(code === undefined ? {} : { code }),
+      ...(state === undefined ? {} : { state }),
+      ...(error === undefined ? {} : { error }),
+    })
+    if (bot !== null) {
+      return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${SERVICE_NAME}</title><p style="font:16px/1.6 sans-serif;padding:24px">${BOT_CALLBACK_MESSAGES[bot]}</p>`, {
+        status: bot === 'connected' ? 200 : 400,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      })
+    }
     const result = await youtube.connections.callback(current === null ? null : { sellerId: current.sellerId, accountId: current.accountId, tokenHash: current.tokenHash }, {
       ...(code === undefined ? {} : { code }),
       ...(state === undefined ? {} : { state }),

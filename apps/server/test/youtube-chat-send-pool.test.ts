@@ -209,25 +209,27 @@ describe('D-YT-SEND-12 서버 막힘 알아보기', () => {
 describe('D-YT-SEND-12·13 설정', () => {
   const base = { LIVEJJIM_YT_SEND_ROUTE: 'innertube', LIVEJJIM_YT_SEND_SELLERS: '*' }
   it('계정 목록 파일 + 공식 넘김', () => {
-    expect(readYoutubeChatSend({ ...base, LIVEJJIM_YT_SEND_ACCOUNTS_FILE: '/run/secrets/bots.json', LIVEJJIM_YT_SEND_OFFICIAL_SELLER: 's_bot', LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: ch(9) })).toEqual({
+    expect(readYoutubeChatSend({ ...base, LIVEJJIM_YT_SEND_ACCOUNTS_FILE: '/run/secrets/bots.json', LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: ch(9) })).toEqual({
       ok: true,
-      send: { route: 'innertube', sellers: '*', single: null, accountsFile: '/run/secrets/bots.json', chromiumPath: null, official: { sellerId: 's_bot', channelId: ch(9) } },
+      send: { route: 'innertube', sellers: '*', single: null, accountsFile: '/run/secrets/bots.json', chromiumPath: null, official: { channelId: ch(9) } },
     })
   })
   it('계정 하나와 목록을 함께 적거나, nightbot에 목록이면 시작하지 않는다', () => {
     expect(readYoutubeChatSend({ ...base, LIVEJJIM_YT_SEND_ACCOUNTS_FILE: '/a.json', LIVEJJIM_YT_SEND_CHANNEL_ID: ch(1) })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.ACCOUNTS })
     expect(readYoutubeChatSend({ ...base, LIVEJJIM_YT_SEND_ROUTE: 'nightbot', LIVEJJIM_YT_SEND_ACCOUNTS_FILE: '/a.json' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.ACCOUNTS })
   })
-  it('공식 넘김은 판매자·채널 둘 다', () => {
+  // D-YT-SEND-21: 봇 연결은 시스템 판매자에 둔다 — 판매자 ID 칸(옛 LIVEJJIM_YT_SEND_OFFICIAL_SELLER)은 읽지 않고 채널 ID만
+  it('공식 넘김은 봇 채널 ID만 (형식이 틀리면 시작하지 않는다, 옛 판매자 ID 칸은 읽지 않는다)', () => {
     const one = { ...base, LIVEJJIM_YT_SEND_CHANNEL_ID: ch(1), LIVEJJIM_YT_SEND_SECRET_FILE: '/s' }
-    expect(readYoutubeChatSend({ ...one, LIVEJJIM_YT_SEND_OFFICIAL_SELLER: 's_bot' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL })
-    expect(readYoutubeChatSend({ ...one, LIVEJJIM_YT_SEND_OFFICIAL_SELLER: 's_bot', LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: 'bad' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL })
+    expect(readYoutubeChatSend({ ...one, LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: 'bad' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL })
+    expect(readYoutubeChatSend({ ...one, LIVEJJIM_YT_SEND_OFFICIAL_SELLER: 's_bot' })).toMatchObject({ ok: true, send: { official: null } })
+    expect(readYoutubeChatSend({ ...one, LIVEJJIM_YT_SEND_OFFICIAL_SELLER: 's_bot', LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: ch(9) })).toMatchObject({ ok: true, send: { official: { channelId: ch(9) } } })
   })
-  // D-YT-SEND-20: 공식 API 봇이 기본 길 — 봇 판매자·채널만, 비공식 계정 칸은 비워야
-  it('official-bot: 봇 판매자·채널이 있어야 하고 비공식 계정 칸은 쓰지 않는다', () => {
-    const ob = { LIVEJJIM_YT_SEND_ROUTE: 'official-bot', LIVEJJIM_YT_SEND_SELLERS: '*', LIVEJJIM_YT_SEND_OFFICIAL_SELLER: 's_bot', LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: ch(9) }
-    expect(readYoutubeChatSend(ob)).toEqual({ ok: true, send: { route: 'official-bot', sellers: '*', single: null, accountsFile: null, chromiumPath: null, official: { sellerId: 's_bot', channelId: ch(9) } } })
-    expect(readYoutubeChatSend({ ...ob, LIVEJJIM_YT_SEND_OFFICIAL_SELLER: '' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL_BOT })
+  // D-YT-SEND-20·21: 공식 API 봇이 기본 길 — 봇 채널만, 비공식 계정 칸은 비워야
+  it('official-bot: 봇 채널이 있어야 하고 비공식 계정 칸은 쓰지 않는다', () => {
+    const ob = { LIVEJJIM_YT_SEND_ROUTE: 'official-bot', LIVEJJIM_YT_SEND_SELLERS: '*', LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: ch(9) }
+    expect(readYoutubeChatSend(ob)).toEqual({ ok: true, send: { route: 'official-bot', sellers: '*', single: null, accountsFile: null, chromiumPath: null, official: { channelId: ch(9) } } })
+    expect(readYoutubeChatSend({ ...ob, LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID: '' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL_BOT })
     expect(readYoutubeChatSend({ ...ob, LIVEJJIM_YT_SEND_ACCOUNTS_FILE: '/a.json' })).toEqual({ ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL_BOT })
   })
 

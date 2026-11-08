@@ -1,8 +1,8 @@
 // 공식 API 넘김 길 (D-YT-SEND-13): 비공식 길이 막혔을 때(서버 IP 막힘·쓸 수 있는 봇 계정 없음) 봇 계정 이름 그대로 공식 Data API로 올린다.
-// - 봇 계정의 구글 토큰은 앱의 "봇 판매자" 계정에 기존 유튜브 연결(OAuth, 게시 권한)로 이어 둔다 — 토큰은 다른 판매자처럼 암호화해 저장되고 새로 고침·폐기도 같다.
-//   꺼내는 순간 연결 채널이 설정한 봇 채널과 다르면 올리지 않는다(withChannelToken).
+// - 봇 계정의 구글 토큰은 로그인 계정이 없는 시스템 판매자(BOT_SELLER_ID)의 유튜브 연결 행에 둔다(D-YT-SEND-21 — 운영자 명령 youtube-bot으로만 잇는다).
+//   토큰은 판매자 연결처럼 암호화해 저장되고 새로 고침도 같다. 꺼내는 순간 연결 채널이 설정한 봇 채널과 다르면 올리지 않는다(withChannelToken).
 // - 공식 채팅 ID는 회차에 적힌 것이 있으면 쓰고, 없으면 봇 토큰으로 videos.list 한 번(1단위) — 영상마다 이 서버 메모리에 기억한다.
-// - 할당량은 봇 판매자 몫으로 센다(liveChatMessages.insert 20단위). 프로젝트 하루 1만 단위를 넘으면 quotaExceeded → rate(다시 시도).
+// - 할당량은 봇(시스템 판매자) 몫으로 센다(liveChatMessages.insert 20단위). 프로젝트 하루 1만 단위를 넘으면 quotaExceeded → rate(다시 시도).
 // - 보내기 간격 1초(공식 API는 계정당 속도 제한 rateLimitExceeded가 있다).
 import { ChannelMismatchError, YoutubeAccessError, type YoutubeConnections } from '../connect.ts'
 import { GoogleError, POST_TIMEOUT_MS, REQUEST_TIMEOUT_MS, type GoogleClient } from '../google.ts'
@@ -14,7 +14,7 @@ export const OFFICIAL_GAP_MS = 1000
 export interface OfficialBotSenderOptions {
   readonly google: GoogleClient
   readonly connections: YoutubeConnections
-  /** 봇 계정 구글 연결을 가진 앱 판매자 ID */
+  /** 봇 계정 구글 연결을 가진 판매자 ID (운영은 BOT_SELLER_ID) */
   readonly sellerId: string
   /** 봇 계정 채널 ID — 그 판매자의 연결 채널과 같아야 올린다 */
   readonly channelId: string

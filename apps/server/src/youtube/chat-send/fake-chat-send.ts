@@ -96,7 +96,7 @@ if (button) button.addEventListener('click', async () => {
   const body = await response.json();
   if (!body.show) return;
   // 실물처럼: 화면이 먼저 임시 id로 그리고, 잠시 뒤 유튜브 메시지 ID로 바꾼다 (tempOnly면 바꾸지 않는다)
-  const row = add('COCp' + Math.random().toString(36).slice(2, 12), '라이브지니 봇', text);
+  const row = add('COCp' + Math.random().toString(36).slice(2, 12), '감사 봇', text);
   if (!body.tempOnly) setTimeout(() => { row.id = body.id; }, 300);
 });
 </script></body></html>`
@@ -254,7 +254,7 @@ export class FakeChatSend {
               liveChatTextMessageRenderer: {
                 id: post.id,
                 message: { runs: [{ text }] },
-                authorName: { simpleText: '라이브지니 봇' },
+                authorName: { simpleText: '감사 봇' },
                 authorExternalChannelId: 'UCfakebot0000000000000000',
                 timestampUsec: `${String(post.at)}000`,
               },

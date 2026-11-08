@@ -167,8 +167,11 @@ export interface YoutubeChatSendEnv {
   readonly accountsFile: string | null
   /** browser: Chromium 실행 파일 (없으면 Playwright가 설치한 것) */
   readonly chromiumPath: string | null
-  /** 막히면 공식 API로 넘김 (D-YT-SEND-13): 봇 계정 구글 연결을 가진 앱 판매자 ID와 그 채널 */
-  readonly official: { readonly sellerId: string; readonly channelId: string } | null
+  /**
+   * 봇 계정의 공식 API (D-YT-SEND-13 넘김·D-YT-SEND-20 기본 길): 봇 채널 ID. 그 계정의 구글 연결은 운영자 명령(youtube-bot)으로
+   * 로그인 없는 시스템 판매자에 잇는다(D-YT-SEND-21)
+   */
+  readonly official: { readonly channelId: string } | null
 }
 
 export type YoutubeChatSendSetting = { readonly ok: true; readonly send: YoutubeChatSendEnv | null } | { readonly ok: false; readonly message: string }
@@ -179,8 +182,8 @@ export const CHAT_SEND_MESSAGES = {
   CHANNEL: '감사 채팅을 올리는 채널 ID(LIVEJJIM_YT_SEND_CHANNEL_ID)를 UC로 시작하는 24자로 적어 주세요.',
   SECRET: '감사 채팅 로그인 파일(LIVEJJIM_YT_SEND_SECRET_FILE) 위치를 적어 주세요.',
   ACCOUNTS: '봇 계정 하나(LIVEJJIM_YT_SEND_CHANNEL_ID·SECRET_FILE)와 계정 목록 파일(LIVEJJIM_YT_SEND_ACCOUNTS_FILE) 중 하나만 적어 주세요. 계정 목록은 innertube·browser만 돼요.',
-  OFFICIAL_BOT: '공식 API 봇(official-bot)에는 봇 판매자 ID(LIVEJJIM_YT_SEND_OFFICIAL_SELLER)와 봇 채널 ID(LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID)만 적어 주세요(봇 계정 로그인 파일은 쓰지 않아요).',
-  OFFICIAL: '공식 API 넘김에는 봇 판매자 ID(LIVEJJIM_YT_SEND_OFFICIAL_SELLER)와 봇 채널 ID(LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID, UC로 시작하는 24자)를 함께 적어 주세요.',
+  OFFICIAL_BOT: '공식 API 봇(official-bot)에는 봇 채널 ID(LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID, UC로 시작하는 24자)만 적어 주세요(봇 계정 로그인 파일은 쓰지 않아요).',
+  OFFICIAL: '공식 API 넘김의 봇 채널 ID(LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID)는 UC로 시작하는 24자로 적어 주세요.',
 } as const
 
 /**
@@ -196,13 +199,12 @@ export function readYoutubeChatSend(env: Readonly<Record<string, string | undefi
   const sellers = rawSellers === '*' ? '*' : rawSellers.split(',').map((item) => item.trim()).filter((item) => item !== '')
   if (sellers !== '*' && sellers.length === 0) return { ok: false, message: CHAT_SEND_MESSAGES.SELLERS }
   const channelRe = /^UC[A-Za-z0-9_-]{22}$/
-  // 공식 API 봇 (D-YT-SEND-20): 봇 판매자의 구글 연결로만 — 비공식 계정 칸은 비워야 한다
+  // 공식 API 봇 (D-YT-SEND-20·21): 봇 계정의 구글 연결로만 — 비공식 계정 칸은 비워야 한다
   if (route === 'official-bot') {
-    const seller = get('LIVEJJIM_YT_SEND_OFFICIAL_SELLER')
     const channel = get('LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID')
     const unofficial = ['LIVEJJIM_YT_SEND_ACCOUNTS_FILE', 'LIVEJJIM_YT_SEND_CHANNEL_ID', 'LIVEJJIM_YT_SEND_SECRET_FILE'].some((key) => get(key) !== '')
-    if (seller === '' || !channelRe.test(channel) || unofficial) return { ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL_BOT }
-    return { ok: true, send: { route, sellers, single: null, accountsFile: null, chromiumPath: null, official: { sellerId: seller, channelId: channel } } }
+    if (!channelRe.test(channel) || unofficial) return { ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL_BOT }
+    return { ok: true, send: { route, sellers, single: null, accountsFile: null, chromiumPath: null, official: { channelId: channel } } }
   }
   const accountsFile = get('LIVEJJIM_YT_SEND_ACCOUNTS_FILE')
   const authorChannelId = get('LIVEJJIM_YT_SEND_CHANNEL_ID')
@@ -215,9 +217,8 @@ export function readYoutubeChatSend(env: Readonly<Record<string, string | undefi
     if (secretFile === '') return { ok: false, message: CHAT_SEND_MESSAGES.SECRET }
     single = { authorChannelId, secretFile }
   }
-  const officialSeller = get('LIVEJJIM_YT_SEND_OFFICIAL_SELLER')
   const officialChannel = get('LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID')
-  if ((officialSeller === '') !== (officialChannel === '') || (officialChannel !== '' && !channelRe.test(officialChannel))) return { ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL }
+  if (officialChannel !== '' && !channelRe.test(officialChannel)) return { ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL }
   const chromium = get('LIVEJJIM_YT_SEND_CHROMIUM')
   return {
     ok: true,
@@ -227,7 +228,7 @@ export function readYoutubeChatSend(env: Readonly<Record<string, string | undefi
       single,
       accountsFile: accountsFile === '' ? null : accountsFile,
       chromiumPath: chromium === '' ? null : chromium,
-      official: officialSeller === '' ? null : { sellerId: officialSeller, channelId: officialChannel },
+      official: officialChannel === '' ? null : { channelId: officialChannel },
     },
   }
 }

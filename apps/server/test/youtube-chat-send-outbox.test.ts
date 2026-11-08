@@ -15,9 +15,8 @@ import { NightbotChatSender } from '../src/youtube/chat-send/nightbot-sender.ts'
 import { OfficialBotSender } from '../src/youtube/chat-send/official-sender.ts'
 import { ChatSenderPool } from '../src/youtube/chat-send/pool.ts'
 import { chatSendRoute, type ChatSender } from '../src/youtube/chat-send/sender.ts'
-import { createSellerAccount } from '../src/accounts.ts'
-import { generateMasterKey } from '../src/secrets.ts'
-import { FAST_COST, addSeller, client, expectOk, login, openTestDb, writeEvent, type Seller } from './support.ts'
+import { BOT_CALLBACK_MESSAGES, BOT_SELLER_ID } from '../src/youtube/connect.ts'
+import { addSeller, client, expectOk, writeEvent, type Seller } from './support.ts'
 import { approve, callback, drive, enableConsent, type YoutubeWorld } from './youtube-support.ts'
 import { chatEvents, webLinked, webWorld, type WebWorld } from './youtube-web-support.ts'
 
@@ -454,35 +453,104 @@ describe('D-YT-SEND-12·13 봇 계정 여럿 + 공식 API 넘김 — 발송함 �
   })
 })
 
-describe('D-YT-SEND-20 공식 API 봇이 기본 길 — 판매자는 아무것도 하지 않는다', () => {
+describe('D-YT-SEND-20·21 공식 API 봇이 기본 길 — 판매자는 아무것도 하지 않고, 봇 연결은 로그인 없는 시스템 판매자', () => {
   const OFFICIAL_BOT = 'UCofficialbot00000000000'
 
-  it('구글 연결 없는 판매자의 감사를 봇 판매자의 구글 연결로 공식 API에 올린다 — 작성자 봇 채널, 할당량은 봇 몫, botThanks', async () => {
-    // 봇 판매자는 서버를 켜기 전에 만든다 (설정에 그 판매자 ID를 적는다)
-    const database = await openTestDb()
-    const masterKey = generateMasterKey()
-    const created = await createSellerAccount(database.db, Buffer.from(masterKey, 'base64'), { shopName: '라이브지니 봇', loginId: 'livebot', password: 'correct-horse-1' }, { passwordCost: FAST_COST })
-    if (!created.ok) throw new Error(created.message)
-    const w = await webWorld({ google: true, database, masterKey, chatSendOfficial: { sellerId: created.sellerId, channelId: OFFICIAL_BOT, primary: { sellers: '*' } } })
+  async function botWorld() {
+    const w = await webWorld({ google: true, chatSendOfficial: { channelId: OFFICIAL_BOT, primary: { sellers: '*' } } })
     worlds.push({ w, sender: { route: 'official', needsLiveChatId: false, authorChannelId: OFFICIAL_BOT, send: () => Promise.reject(new Error('unused')), close: async () => {} } })
-    const bot: Seller = { sellerId: created.sellerId, accountId: created.accountId, loginId: 'livebot', password: 'correct-horse-1', cookie: await login(w, 'livebot', 'correct-horse-1') }
-    await connect(w, bot, '라이브지니', OFFICIAL_BOT)
-    // 판매자: 구글 연결 없이 방송 링크만
+    return w
+  }
+  const connections = (w: WebWorld) => {
+    const youtube = w.server.youtube
+    if (youtube === undefined || youtube === null) throw new Error('유튜브 없음')
+    return youtube.connections
+  }
+  /** 운영자 명령(youtube-bot connect)과 같은 승인 → 세션 없이 돌아오기. 상태와 화면 문장 */
+  async function botConnect(w: WebWorld, channelId: string, approval: { grant?: string[] } = {}) {
+    const google = googleOf(w)
+    const account = google.addAccount()
+    const channel = google.addChannel(account, '라이브지니', channelId)
+    google.approval = { account, channel: channel.id, ...approval }
+    const search = await approve(await connections(w).startBot(OFFICIAL_BOT))
+    const response = await w.server.app.request(`/api/youtube/oauth/callback${search}`)
+    return { status: response.status, text: await response.text(), search }
+  }
+  async function botUnits(w: WebWorld, method: string) {
+    const result = await w.database.pglite?.query<{ units: number }>(`select coalesce(sum(units), 0)::int as units from youtube_quota where seller_id = $1 and method = $2`, [BOT_SELLER_ID, method])
+    return result?.rows[0]?.units ?? -1
+  }
+  async function sellerLive(w: WebWorld) {
     const seller = await addSeller(w)
     expect((await client(w, seller.cookie).patch('/api/settings', { settings: NO_LABEL })).status).toBe(200)
     expect((await client(w, seller.cookie).get('/api/youtube/connection')).body).toMatchObject({ botThanks: true })
     const { b, video } = await webLinked(w, { seller })
     const chatId = googleOf(w).addBroadcast(video.channelId, { videoId: video.videoId }).liveChatId as string
+    return { seller, b, chatId }
+  }
+
+  it('운영자 명령으로 봇 계정을 잇는다(세션 없이 state로) — 로그인 계정 없는 시스템 판매자, 판매자 감사를 봇 이름으로 공식 API에 올리고 할당량은 봇 몫', async () => {
+    const w = await botWorld()
+    const connected = await botConnect(w, OFFICIAL_BOT)
+    expect(connected.status).toBe(200)
+    expect(connected.text).toContain(BOT_CALLBACK_MESSAGES.connected)
+    expect(await connections(w).status(BOT_SELLER_ID)).toMatchObject({ status: 'CONNECTED', channel: { id: OFFICIAL_BOT }, permissions: { publish: true } })
+    // 로그인 계정이 없다 — 아무도 그 판매자로 로그인해 끊거나 바꿀 수 없다
+    const accounts = await w.database.pglite?.query<{ n: number }>(`select count(*)::int as n from accounts where seller_id = $1`, [BOT_SELLER_ID])
+    expect(accounts?.rows[0]?.n).toBe(0)
+    // 같은 state로 다시 오면 봇 연결이 아니다(한 번만) — 판매자 돌아오기로 넘어가 거절
+    const again = await w.server.app.request(`/api/youtube/oauth/callback${connected.search}`)
+    expect(again.status).toBe(302)
+    const { seller, b, chatId } = await sellerLive(w)
     await sale(w, seller, b.id, 15, { id: 'c1', ch: 'UCa', nick: '가' })
     await run(w)
     expect(googleOf(w).posted.map((post) => [post.liveChatId, post.authorChannelId, post.text])).toEqual([[chatId, OFFICIAL_BOT, TEXT]])
     expect((await rows(w, seller, b.date))[0]).toMatchObject({ state: 'SENT' })
-    expect(await quotaUnits(w, bot, 'liveChatMessages.insert')).toBe(20)
+    expect(await botUnits(w, 'liveChatMessages.insert')).toBe(20)
     expect(await quotaUnits(w, seller, 'liveChatMessages.insert')).toBe(0)
     // 같은 방송의 둘째 감사는 채팅 ID를 다시 묻지 않는다
     await sale(w, seller, b.id, 16, { id: 'c2', ch: 'UCb', nick: '나' })
     await run(w)
     expect(googleOf(w).calls('liveChatMessages.insert')).toBe(2)
     expect(googleOf(w).calls('videos.list')).toBe(1)
+  })
+
+  it('봇 채널이 아닌 계정·채팅 쓰기 권한을 빼고 허락하면 잇지 않는다', async () => {
+    const w = await botWorld()
+    const wrong = await botConnect(w, 'UCsomeoneelse00000000000')
+    expect(wrong.status).toBe(400)
+    expect(wrong.text).toContain(BOT_CALLBACK_MESSAGES.WRONG_CHANNEL)
+    const noPublish = await botConnect(w, OFFICIAL_BOT, { grant: [] })
+    expect(noPublish.status).toBe(400)
+    expect(noPublish.text).toContain(BOT_CALLBACK_MESSAGES.NO_PUBLISH)
+    expect(await connections(w).status(BOT_SELLER_ID)).toMatchObject({ status: 'NOT_CONNECTED' })
+  })
+
+  it('봇 연결 전에는 올리지 않고 기다린다(로그인 풀림과 같이 다시 시도) — 판매자 화면에 구글 안내 없음', async () => {
+    const w = await botWorld()
+    const { seller, b } = await sellerLive(w)
+    await sale(w, seller, b.id, 15, { id: 'c1', ch: 'UCa', nick: '가' })
+    await run(w)
+    expect(googleOf(w).calls('liveChatMessages.insert')).toBe(0)
+    expect((await rows(w, seller, b.date))[0]?.state).not.toBe('SENT')
+  })
+
+  it('판매자 계정에 이어 둔 옛 봇 연결을 시스템 판매자로 옮긴다 — 구글 승인·폐기 없이, 옛 판매자 연결은 지운다', async () => {
+    const w = await botWorld()
+    const old = await addSeller(w)
+    await connect(w, old, '라이브지니', OFFICIAL_BOT)
+    const exchanges = googleOf(w).calls('oauth.token')
+    expect(await connections(w).moveToBot(old.sellerId, 'UCsomeoneelse00000000000')).toBe('WRONG_CHANNEL')
+    expect(await connections(w).moveToBot(old.sellerId, OFFICIAL_BOT)).toBe('moved')
+    expect(googleOf(w).calls('oauth.token')).toBe(exchanges)
+    expect(googleOf(w).calls('oauth.revoke')).toBe(0)
+    expect(await connections(w).status(old.sellerId)).toMatchObject({ status: 'NOT_CONNECTED' })
+    expect(await connections(w).status(BOT_SELLER_ID)).toMatchObject({ status: 'CONNECTED', channel: { id: OFFICIAL_BOT } })
+    expect(await connections(w).moveToBot(old.sellerId, OFFICIAL_BOT)).toBe('NOT_FOUND')
+    const { seller, b, chatId } = await sellerLive(w)
+    await sale(w, seller, b.id, 15, { id: 'c1', ch: 'UCa', nick: '가' })
+    await run(w)
+    expect(googleOf(w).posted.map((post) => [post.liveChatId, post.authorChannelId])).toEqual([[chatId, OFFICIAL_BOT]])
+    expect(await botUnits(w, 'liveChatMessages.insert')).toBe(20)
   })
 })

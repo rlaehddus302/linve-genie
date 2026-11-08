@@ -12,7 +12,7 @@ import type { Service } from '../service.ts'
 import { findBroadcast, scopeRow, scopeSealedAt, type BroadcastRow } from '../store.ts'
 import { uniqueViolation, type CommittedRecord, type ScopeWriter } from '../writer.ts'
 import { CollectorManager, UPCOMING_CHECK_MS, collectorView, noticeView, type CollectorHooks, type CollectorView, type NoticeView } from './collector.ts'
-import { YoutubeAccessError, YoutubeConnections, googleFields, type ConnectionView, type SessionInfo } from './connect.ts'
+import { BOT_SELLER_ID, YoutubeAccessError, YoutubeConnections, googleFields, type ConnectionView, type SessionInfo } from './connect.ts'
 import { DEFAULT_COSTS, GOOGLE_ENDPOINTS, GoogleClient, GoogleError, type ApiMethod, type GoogleEndpoints } from './google.ts'
 import { OutboxRunner, type OutboxExtension, type OutboxHooks, type OutboxTiming } from './outbox.ts'
 import { findRow, isOurPost } from './outbox-store.ts'
@@ -76,7 +76,8 @@ export interface YoutubeConfig {
    * 봇 계정의 공식 API (D-YT-SEND-13·20): 봇 계정 구글 연결을 가진 앱 판매자와 그 채널.
    * primary가 없으면 다른 길이 막혔을 때만 넘기는 길, 있으면 그 판매자들의 기본 길(비공식 길 없이)
    */
-  readonly chatSendOfficial?: { readonly sellerId: string; readonly channelId: string; readonly primary?: { readonly sellers: readonly string[] | '*' } }
+  /** 봇 계정의 공식 API (D-YT-SEND-13·20·21): 봇 채널. 토큰은 시스템 판매자(BOT_SELLER_ID)의 연결 — 할당량도 그 몫 */
+  readonly chatSendOfficial?: { readonly channelId: string; readonly primary?: { readonly sellers: readonly string[] | '*' } }
 }
 
 /** 설정 확인: 운영은 모든 바깥 주소가 https (AC-Y1-72). 문제가 있으면 문장, 없으면 null (값은 문장에 넣지 않는다) */
@@ -279,7 +280,7 @@ export class YoutubeSystem {
     // 감사 채팅 다른 길 + 공식 API 넘김 (D-YT-SEND-13), 또는 공식 API 봇이 기본 길 (D-YT-SEND-20)
     const officialConfig = config.chatSendOfficial
     const official =
-      officialConfig === undefined ? null : new OfficialBotSender({ google: this.google, connections: this.connections, timer, sellerId: officialConfig.sellerId, channelId: officialConfig.channelId })
+      officialConfig === undefined ? null : new OfficialBotSender({ google: this.google, connections: this.connections, timer, sellerId: BOT_SELLER_ID, channelId: officialConfig.channelId })
     this.chatSend =
       official !== null && officialConfig?.primary !== undefined
         ? chatSendRoute(official, officialConfig.primary.sellers)

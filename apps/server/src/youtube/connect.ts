@@ -7,15 +7,19 @@
 //   유튜브가 401을 주면 한 번 새로 고쳐 한 번 더. invalid_grant거나 토큰을 풀 수 없으면(마스터 키 바뀜) "다시 연결 필요".
 // - 채널: 판매자마다 하나, 같은 채널은 한 판매자에만. 다른 채널로 다시 승인하면 받지 않는다(같은 채널이면 토큰만 바꾼다).
 // - 끊기: 구글에 폐기 요청(실패·타임아웃이어도 계속) → 토큰·게시 동의 삭제 → 수집기 멈춤.
+// - 감사 채팅 봇 (D-YT-SEND-21): 봇 계정의 구글 연결은 로그인 계정이 없는 시스템 판매자(BOT_SELLER_ID)의 연결 행에 둔다 — 토큰 암호화·새로 고침·
+//   할당량은 판매자 연결과 같다. 아무도 그 판매자로 로그인할 수 없어 화면에서 끊거나 바꿀 수 없고, 운영자 명령(youtube-bot)이 만든 state로만 잇는다.
+//   돌아오기는 같은 주소이고 세션 없이 그 state(32바이트, 10분, 한 번)로 정한다. 승인한 채널이 명령이 정한 봇 채널과 다르면 받지 않는다.
 import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, isNull, lt, ne } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { youtubeConnections, youtubeOauthStates } from '../db/schema.ts'
+import { sellers, youtubeConnections, youtubeOauthStates } from '../db/schema.ts'
 import { errorKind, type LogSink } from '../log.ts'
-import { openText, sealText } from '../secrets.ts'
+import { newSealedSellerKey, openText, sealText } from '../secrets.ts'
 import { uniqueViolation } from '../writer.ts'
 import { GoogleError, PUBLISH_SCOPE, READ_SCOPE, type GoogleClient } from './google.ts'
 import type { Timer } from './timer.ts'
+import { SERVICE_NAME } from '../brand.ts'
 
 export type ConnectionStatus = 'NOT_CONNECTED' | 'CONNECTED' | 'RECONNECT_NEEDED'
 export type ConsentTarget = 'LIVE_CHAT' | 'VIDEO_COMMENT'
@@ -37,6 +41,24 @@ export const CALLBACK_MESSAGES = {
   GOOGLE_FAILED: '구글에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.',
 } as const
 export type CallbackResult = keyof typeof CALLBACK_MESSAGES
+
+/** 감사 채팅 봇 계정의 구글 연결을 가진 시스템 판매자 (D-YT-SEND-21). 로그인 계정이 없다 */
+export const BOT_SELLER_ID = 'sys_youtube_bot'
+const BOT_SESSION = '#bot'
+const BOT_PURPOSE = 'bot'
+
+/** 봇 연결 돌아오기 결과와 운영자에게 보이는 문장 */
+export const BOT_CALLBACK_MESSAGES = {
+  connected: '감사 채팅 봇 계정을 연결했어요. 이 창은 닫아도 돼요.',
+  STATE_INVALID: '연결 시간이 지났어요. 서버에서 youtube-bot connect를 다시 실행해 주세요.',
+  ACCESS_DENIED: '구글에서 연결을 허락하지 않았어요. 다시 시도해 주세요.',
+  NO_CHANNEL: '이 구글 계정에는 유튜브 채널이 없어요.',
+  WRONG_CHANNEL: '설정한 봇 채널이 아닌 계정으로 허락했어요. 봇 계정으로 다시 시도해 주세요.',
+  NO_PUBLISH: '채팅 쓰기 권한을 허락하지 않았어요. 권한을 모두 허락해 주세요.',
+  CHANNEL_TAKEN: '이 채널은 판매자 계정에 연결돼 있어요. youtube-bot move로 옮겨 주세요.',
+  GOOGLE_FAILED: '구글에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요.',
+} as const
+export type BotCallbackResult = keyof typeof BOT_CALLBACK_MESSAGES
 
 /** "다시 연결 필요"·"연결 안 됨" 문장 */
 export const RECONNECT_MESSAGE = '유튜브 연결을 다시 해 주세요.'
@@ -447,6 +469,129 @@ export class YoutubeConnections {
       if (next.channelId !== channelId) throw new ChannelMismatchError()
       return call(next.token)
     }
+  }
+
+  // ── 감사 채팅 봇 연결 (D-YT-SEND-21) ─────────────────────────────────
+
+  /** 봇 시스템 판매자 행 (없으면 만든다 — 로그인 계정은 만들지 않는다) */
+  async #ensureBotSeller(now: number): Promise<void> {
+    const { db, masterKey } = this.#options
+    await db
+      .insert(sellers)
+      .values({ id: BOT_SELLER_ID, name: `${SERVICE_NAME} 감사 채팅 봇`, phoneKeyEnc: newSealedSellerKey(masterKey, BOT_SELLER_ID), settings: '{}', createdAt: new Date(now), wizardStatus: 'DISMISSED' })
+      .onConflictDoNothing({ target: sellers.id })
+  }
+
+  /** 운영자 명령: 봇 계정 승인 주소 (게시 권한, 10분·한 번). channelId = 받을 봇 채널 */
+  async startBot(channelId: string): Promise<string> {
+    const { db, masterKey, google, timer } = this.#options
+    const now = timer.now()
+    await this.#ensureBotSeller(now)
+    const state = randomBytes(32).toString('base64url')
+    const verifier = randomBytes(64).toString('base64url')
+    const challenge = createHash('sha256').update(verifier, 'ascii').digest('base64url')
+    const stateHash = sha256(state)
+    await db.delete(youtubeOauthStates).where(and(eq(youtubeOauthStates.sellerId, BOT_SELLER_ID), lt(youtubeOauthStates.expiresAt, new Date(now))))
+    await db.insert(youtubeOauthStates).values({
+      stateHash,
+      sellerId: BOT_SELLER_ID,
+      sessionHash: BOT_SESSION,
+      accountId: BOT_SESSION,
+      verifierEnc: sealText(masterKey, verifierAad(BOT_SELLER_ID, stateHash), verifier),
+      purpose: BOT_PURPOSE,
+      target: channelId,
+      createdAt: new Date(now),
+      expiresAt: new Date(now + STATE_TTL_MS),
+    })
+    return google.authorizeUrl({ scopes: [PUBLISH_SCOPE], state, challenge, incremental: false })
+  }
+
+  /**
+   * 돌아오기 중 봇 연결 (세션과 상관없이 state로). 봇 state가 아니면 null — 판매자 돌아오기로 넘긴다.
+   * 승인한 채널이 명령이 정한 봇 채널이고 게시 권한을 받았을 때만 봇 연결로 저장한다(다른 채널이던 봇 연결은 폐기 요청 없이 바꾼다)
+   */
+  async botCallback(params: { code?: string; state?: string; error?: string }): Promise<BotCallbackResult | null> {
+    const { db, masterKey, google, timer, log } = this.#options
+    if (typeof params.state !== 'string' || params.state === '' || params.state.length > 200) return null
+    const stateHash = sha256(params.state)
+    const claimed = await db
+      .delete(youtubeOauthStates)
+      .where(and(eq(youtubeOauthStates.stateHash, stateHash), eq(youtubeOauthStates.sellerId, BOT_SELLER_ID), eq(youtubeOauthStates.sessionHash, BOT_SESSION), eq(youtubeOauthStates.purpose, BOT_PURPOSE)))
+      .returning({ verifierEnc: youtubeOauthStates.verifierEnc, target: youtubeOauthStates.target, expiresAt: youtubeOauthStates.expiresAt })
+    const row = claimed[0]
+    if (row === undefined) return null
+    const now = timer.now()
+    if (row.expiresAt.getTime() <= now || row.target === null) return 'STATE_INVALID'
+    if (params.error !== undefined) return 'ACCESS_DENIED'
+    if (typeof params.code !== 'string' || params.code === '' || params.code.length > 2048) return 'STATE_INVALID'
+    let verifier: string
+    try {
+      verifier = openText(masterKey, verifierAad(BOT_SELLER_ID, stateHash), row.verifierEnc)
+    } catch {
+      return 'STATE_INVALID'
+    }
+    let tokens
+    let channel: { id: string; title: string } | null
+    try {
+      tokens = await google.exchangeCode(params.code, verifier)
+      channel = await this.#mine(BOT_SELLER_ID, tokens.accessToken)
+    } catch (error) {
+      log({ level: 'warn', code: 'YOUTUBE_CONNECT_FAILED', seller: BOT_SELLER_ID, ...googleFields(error) })
+      return 'GOOGLE_FAILED'
+    }
+    if (channel === null) return 'NO_CHANNEL'
+    if (channel.id !== row.target) return 'WRONG_CHANNEL'
+    if (!tokens.scopes.includes(PUBLISH_SCOPE)) return 'NO_PUBLISH'
+    // 봇 채널을 바꿨으면 옛 봇 연결을 지운다 (폐기 요청은 하지 않는다 — 운영자가 구글 계정에서 거둔다)
+    await db.delete(youtubeConnections).where(and(eq(youtubeConnections.sellerId, BOT_SELLER_ID), ne(youtubeConnections.channelId, channel.id)))
+    const result = await this.#save(BOT_SELLER_ID, channel, tokens, now)
+    if (result === 'CHANNEL_TAKEN') return 'CHANNEL_TAKEN'
+    if (result !== 'connected') return 'GOOGLE_FAILED'
+    await this.#changed(BOT_SELLER_ID)
+    return 'connected'
+  }
+
+  /**
+   * 운영자 명령: 판매자 계정에 이어 둔 봇 연결(D-YT-SEND-20의 봇 판매자)을 시스템 판매자로 옮긴다 — 구글 승인을 다시 받지 않는다.
+   * 옛 행은 폐기 요청 없이 지운다(폐기하면 같은 승인으로 받은 토큰이 함께 죽는다)
+   */
+  async moveToBot(fromSellerId: string, channelId: string): Promise<'moved' | 'NOT_FOUND' | 'WRONG_CHANNEL' | 'NO_PUBLISH'> {
+    const { db, masterKey, timer } = this.#options
+    if (fromSellerId === BOT_SELLER_ID) return 'NOT_FOUND'
+    const row = await this.row(fromSellerId)
+    if (row === null) return 'NOT_FOUND'
+    if (row.channelId !== channelId) return 'WRONG_CHANNEL'
+    if (!row.canPublish || row.refreshEnc === null) return 'NO_PUBLISH'
+    const refresh = openText(masterKey, tokenAad(fromSellerId, 'refresh'), row.refreshEnc)
+    let access: string | null = null
+    try {
+      access = row.accessEnc === null ? null : openText(masterKey, tokenAad(fromSellerId, 'access'), row.accessEnc)
+    } catch {
+      access = null
+    }
+    const now = timer.now()
+    await this.#ensureBotSeller(now)
+    await db.transaction(async (tx) => {
+      await tx.delete(youtubeConnections).where(eq(youtubeConnections.sellerId, fromSellerId))
+      await tx.delete(youtubeOauthStates).where(eq(youtubeOauthStates.sellerId, fromSellerId))
+      await tx.delete(youtubeConnections).where(eq(youtubeConnections.sellerId, BOT_SELLER_ID))
+      await tx.insert(youtubeConnections).values({
+        sellerId: BOT_SELLER_ID,
+        channelId,
+        channelTitle: row.channelTitle,
+        status: row.status === 'CONNECTED' ? 'CONNECTED' : 'RECONNECT_NEEDED',
+        canPublish: true,
+        refreshEnc: sealText(masterKey, tokenAad(BOT_SELLER_ID, 'refresh'), refresh),
+        accessEnc: access === null ? null : sealText(masterKey, tokenAad(BOT_SELLER_ID, 'access'), access),
+        accessExpiresAt: access === null ? null : row.accessExpiresAt,
+        connectedAt: new Date(now),
+        updatedAt: new Date(now),
+      })
+    })
+    await this.#options.onConsentOff(fromSellerId, CONSENT_TARGETS)
+    await this.#changed(fromSellerId)
+    await this.#changed(BOT_SELLER_ID)
+    return 'moved'
   }
 
   // ── 게시 동의 (AC-Y1-31) ─────────────────────────────────────────────

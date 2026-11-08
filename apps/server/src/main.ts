@@ -21,6 +21,7 @@ import { productionServerOptions } from './production.ts'
 import { readMasterKey } from './secrets.ts'
 import { createServer } from './server.ts'
 import { webDirProblem } from './web.ts'
+import { SERVICE_NAME } from './brand.ts'
 
 /** 종료를 요청한 뒤 남은 연결을 강제로 끊기까지 기다리는 시간 */
 const FORCE_CLOSE_AFTER_MS = 5000
@@ -64,14 +65,14 @@ if (!chatSendSetting.ok) {
   process.exit(1)
 }
 let chatSend: Awaited<ReturnType<typeof createChatSendRoute>> | null = null
-// 공식 API 봇 (D-YT-SEND-20): 비공식 길 없이 봇 판매자의 구글 연결로 공식 API가 기본 길
+// 공식 API 봇 (D-YT-SEND-20·21): 비공식 길 없이 봇 계정의 구글 연결(운영자 명령 youtube-bot으로 잇는다)로 공식 API가 기본 길
 const officialBot = chatSendSetting.send?.route === 'official-bot'
 if (chatSendSetting.send !== null && officialBot) {
   if (youtubeSetting.youtube === null) {
     complain('시작하지 못했어요. 공식 API 봇(official-bot)에는 구글 연결 설정(LIVEJJIM_GOOGLE_CLIENT_ID)이 필요해요.')
     process.exit(1)
   }
-  say('감사 채팅을 라이브지니 봇 계정 이름으로 공식 API로 올려요.')
+  say(`감사 채팅을 ${SERVICE_NAME} 봇 계정 이름으로 공식 API로 올려요.`)
 }
 if (chatSendSetting.send !== null && !officialBot) {
   try {
@@ -81,10 +82,10 @@ if (chatSendSetting.send !== null && !officialBot) {
     process.exit(1)
   }
   say(`감사 채팅을 다른 길(${chatSendSetting.send.route})로 올려요 — 유튜브가 허락한 연동이 아니에요.`)
-  // 공식 API 넘김은 구글 연결 설정이 있어야 한다 (봇 판매자의 구글 토큰을 쓴다, D-YT-SEND-13)
+  // 공식 API 넘김은 구글 연결 설정이 있어야 한다 (봇 계정의 구글 토큰을 쓴다, D-YT-SEND-13·21)
   if (chatSendSetting.send.official !== null) {
     if (youtubeSetting.youtube === null) {
-      complain('시작하지 못했어요. 공식 API 넘김(LIVEJJIM_YT_SEND_OFFICIAL_SELLER)에는 구글 연결 설정(LIVEJJIM_GOOGLE_CLIENT_ID)이 필요해요.')
+      complain('시작하지 못했어요. 공식 API 넘김(LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID)에는 구글 연결 설정(LIVEJJIM_GOOGLE_CLIENT_ID)이 필요해요.')
       process.exit(1)
     }
     say('봇 길이 막히면 봇 계정 이름으로 공식 API로 넘겨 올려요.')
