@@ -11,7 +11,8 @@
 //   POST /api/inbox/cards/:id/ignore  {}                                               무시
 //   GET  /api/deposits/alerts                 → { alerts: BankAlertView[] }           입금 확인 화면 "은행 알림" 줄
 //   POST /api/deposits/alerts/:id/close {}    → { ok: true }                          "확인했어요"
-//   SSE  `inbox` { kind: 'cards', b } | { kind: 'received', lastReceivedAt, lastDevice } | { kind: 'settings' }
+//   GET  /api/inbox/sms?b=<방송 ID>           → { messages: SmsFeedView[] }           앱 방송 화면 "채팅·문자" 탭의 최근 손님 문자 (최신이 앞, 서버 메모리 — D-UX4-12)
+//   SSE  `inbox` { kind: 'cards', b } | { kind: 'received', lastReceivedAt, lastDevice } | { kind: 'settings' } | { kind: 'sms', b }
 //   SSE  `deposit` { alerts: true } → 은행 알림 줄 다시 읽기 (입금 알림은 무엇이든 다시 읽는다)
 
 /** 설정 "휴대폰 알림 받기" */
@@ -92,4 +93,19 @@ export interface BankAlertView {
   readonly receivedAt: string
   /** DP-8 문구 (서버가 만든 것 — 화면은 같은 표로 다시 만들고, 모르는 종류일 때만 이 글) */
   readonly message: string
+}
+
+/** 방송에 온 손님 문자 한 통 (D-UX4-12) — 본문·보낸 이름은 손님이 쓴 글이라 글자로만 그린다 */
+export interface SmsFeedView {
+  readonly id: string
+  /** 휴대폰이 받은 시각 */
+  readonly at: string
+  /** 보낸 휴대폰 끝 4자리 (휴대폰 번호가 아니면 null) */
+  readonly last4: string | null
+  /** 휴대폰 번호가 아닐 때 보낸 이름 */
+  readonly sender: string | null
+  readonly text: string
+  /** 서버가 한 일 — claim 찜으로 넣음 · cancel 취소 요청 · review 확인 필요 · info 손님 정보 · none 찜 아님 · stale 오래된 방송이라 넣지 않음 */
+  readonly result: 'claim' | 'cancel' | 'review' | 'info' | 'none' | 'stale'
+  readonly numbers: readonly number[]
 }

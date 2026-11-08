@@ -8,7 +8,7 @@ import { absoluteUrl, apiConfig } from '../api/config.ts'
 import { CLOSED, OPEN, openEventSource, type EventSourceLike, type SseMessage } from '../api/sse.ts'
 
 /** 받는 알림 종류 (웹 STREAM_EVENTS와 같다) */
-export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print', 'youtube', 'instagram', 'packing', 'shop', 'labels', 'tiktok', 'deposit', 'billing', 'login', 'parcel', 'extension', 'band'] as const
+export const STREAM_EVENTS = ['ready', 'change', 'generator', 'print', 'youtube', 'instagram', 'packing', 'shop', 'labels', 'tiktok', 'deposit', 'billing', 'login', 'parcel', 'extension', 'band', 'customers', /* 휴대폰 알림 받기 { kind } — 손님 정보·채팅·문자 탭 (D-UX4-12: 빠져 있어 앱이 받지 못했다) */ 'inbox'] as const
 
 /** 끊긴 뒤 다시 열기까지 */
 export const REOPEN_MS = 2000

@@ -115,6 +115,43 @@ describe('ConsoleScreen', () => {
     expect(pendingRows[0]?.getAttribute('aria-label')).toBe('88번 문자손님 보류')
   })
 
+  it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 위)으로, 문자는 서버가 한 일과 끝번호로 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { messages: [{ id: 'm1', broadcast: 'b1', channel: 'ch1', nick: '김영희', text: '15번 주세요', owner: false, seq: 11, at: '2026-10-29T11:00:05.000Z', publishedAt: '2026-10-29T11:00:05.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: [], failed: false }], more: false } }))
+    let smsReads = 0
+    let feed: unknown[] = [{ id: 's1', at: '2026-10-29T11:00:09.000Z', last4: '5678', sender: null, text: '15 홍길동', result: 'claim', numbers: [15] }]
+    world.server.on('GET', /^\/api\/inbox\/sms\?b=b1$/, () => {
+      smsReads++
+      return { body: { messages: feed } }
+    })
+    await open(world)
+    const tab = screen.getByRole('button', { name: '채팅·문자' })
+    // 탭은 상품·찜 기록과 한 줄 (위아래로 쌓지 않는다)
+    expect(screen.getByRole('tablist', { name: '보기' }).children).toHaveLength(3)
+    fireEvent.click(tab)
+    const list = await screen.findByRole('list', { name: '채팅·문자' })
+    await waitFor(() => expect(within(list).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))).toEqual(['문자 끝번호 5678', '채팅 김영희']))
+    const rows = within(list).getAllByRole('listitem')
+    expect(rows[0]?.textContent).toContain('15 홍길동')
+    expect(rows[0]?.textContent).toContain('찜 15번')
+    expect(rows[1]?.textContent).toContain('15번 주세요')
+    expect(rows[1]?.textContent).toContain('주문 15번')
+    expect(screen.queryByText(/claim|none|review/)).toBeNull()
+    // 다른 방송의 알림은 지나치고, 이 방송의 새 문자 알림이 오면 다시 읽는다
+    const before = smsReads
+    feed = [{ id: 's2', at: '2026-10-29T11:00:20.000Z', last4: '1111', sender: null, text: '안녕하세요', result: 'none', numbers: [] }, ...feed]
+    await act(async () => {
+      for (const source of world.sources) source.emit('inbox', { kind: 'sms', b: 'b9' })
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    })
+    expect(smsReads).toBe(before)
+    await act(async () => {
+      for (const source of world.sources) source.emit('inbox', { kind: 'sms', b: 'b1' })
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    })
+    await waitFor(() => expect(within(screen.getByRole('list', { name: '채팅·문자' })).getAllByRole('listitem')[0]?.textContent).toContain('찜 아님'))
+  })
+
   it('실시간 change가 오면 증분을 받아 1등·대기가 이름과 낱말로 보인다', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)

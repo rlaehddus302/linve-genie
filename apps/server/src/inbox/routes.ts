@@ -158,6 +158,12 @@ export function registerInboxRoutes(api: Hono<Env>, inbox: InboxService): void {
     if (b === undefined || !BROADCAST_RE.test(b)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'b', message: '어느 방송인지 골라 주세요.' }])
     return c.json(await inbox.cards(sellerOf(c), b))
   })
+  // 방송 화면 "채팅·문자" 탭 (D-UX4-12): 그 방송에 온 최근 손님 문자 — 서버 메모리, 최신이 앞
+  api.get('/inbox/sms', (c) => {
+    const b = c.req.query('b')
+    if (b === undefined || !BROADCAST_RE.test(b)) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'b', message: '어느 방송인지 골라 주세요.' }])
+    return noStore({ messages: inbox.smsFeed(sellerOf(c), b) })
+  })
   api.post('/inbox/cards/:id/insert', async (c) => {
     const id = c.req.param('id')
     if (!CARD_ID_RE.test(id)) return apiError(404, 'NOT_FOUND', '찾을 수 없어요.')

@@ -33,6 +33,7 @@ import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue
 import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { ListenLine, listenChip, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
+import { LiveTalk, TALK_TAB } from './console/LiveTalk.tsx'
 import { APP_IMPORT_TITLE, ImportView } from './console/ImportSheet.tsx'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
@@ -130,8 +131,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
       next()
     }, MENU_HANDOFF_MS)
   }
-  // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07)
-  const [tab, setTab] = useState<'products' | 'feed'>('products')
+  // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07) · 채팅·문자(실시간으로 온 채팅·손님 문자, D-UX4-12)
+  const [tab, setTab] = useState<'products' | 'feed' | 'talk'>('products')
   const [decideFor, setDecideFor] = useState<string | null>(null)
   // 방송자 조치 5초 대기·되돌리기 (정하기 창 — D-APPX-03). 화면이 내려가면 기다리던 조치는 보내지 않는다
   const hostQueue = useUndoQueue()
@@ -381,8 +382,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
             <Pill on={tab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
             <Pill on={tab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => setTab('feed')} />
+            <Pill on={tab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => setTab('talk')} />
           </View>
-          {tab === 'products' ? <ProductList onOpen={setDetail} /> : <ClaimFeed />}
+          {tab === 'products' ? <ProductList onOpen={setDetail} /> : tab === 'feed' ? <ClaimFeed /> : <LiveTalk />}
         </ScrollView>
         {!closed ? (
           <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.sm, backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.line }}>

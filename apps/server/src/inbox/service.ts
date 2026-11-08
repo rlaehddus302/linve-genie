@@ -20,6 +20,7 @@ import type { Service } from '../service.ts'
 import type { GeneratorTimer } from '../generator.ts'
 import type { Clock } from '../time.ts'
 import { readPhoneAt } from '../try/sms-test.ts'
+import { SmsFeed, type SmsFeedEntry, type SmsFeedResult } from './sms-feed.ts'
 import type { Actor, ScopeWriter, WriteOutcome, WriteResult } from '../writer.ts'
 import {
   broadcastStart,
@@ -290,12 +291,20 @@ export class InboxService {
   readonly #queues = new Map<string, Promise<unknown>>()
   /** 판매자 → 받은 메시지 시각들 (1분 한도) */
   readonly #rate = new Map<string, number[]>()
+  /** 방송 화면 "채팅·문자" 탭의 최근 손님 문자 (메모리만 — D-UX4-12) */
+  readonly #feed: SmsFeed
 
   #cancelSweep: (() => void) | null = null
   #closed = false
 
   constructor(deps: InboxDeps) {
     this.#deps = deps
+    this.#feed = new SmsFeed(() => this.#now())
+  }
+
+  /** 그 방송에 온 최근 손님 문자 (최신이 앞, 이 서버 메모리 — D-UX4-12) */
+  smsFeed(sellerId: string, broadcastId: string): SmsFeedEntry[] {
+    return this.#feed.view(sellerId, broadcastId)
   }
 
   /** 방송 뒤 손님 정보 문자 처리기 (ORD-14 — 택배 서비스가 이 서비스보다 뒤에 만들어져 조립에서 넘긴다). 주소를 못 읽으면 false */
@@ -326,6 +335,7 @@ export class InboxService {
 
   close(): void {
     this.#closed = true
+    this.#feed.clear()
     this.#cancelSweep?.()
     this.#cancelSweep = null
   }
@@ -508,6 +518,11 @@ export class InboxService {
     const broadcast = await windowBroadcast(db, sellerId, new Date(nowMs - INBOX_AFTER_END_MS))
     // 방송 창 밖: 손님 정보 문자(닉네임·성함·주소)만 받는다 (ORD-14, D-REAL-11)
     if (broadcast === null) return (await this.#takeBuyerInfo(sellerId, text, phone, receivedMs, nowMs)) ? 'SAVED' : 'IGNORED'
+    // 방송 화면 "채팅·문자" 탭에 보일 한 줄 (D-UX4-12) — 본문은 메모리에만, 보낸 사람은 끝 4자리·보낸 이름만
+    const feed = (result: SmsFeedResult, numbers: readonly number[] = []) => {
+      this.#feed.add(sellerId, broadcast.id, { atMs: receivedMs, last4: phone === null ? null : phone.slice(-4), sender: phone === null ? displaySender(message.from) : null, text, result, numbers })
+      this.#deps.publish(sellerId, { kind: 'sms', b: broadcast.id })
+    }
     // 실제로 시작한 지 12시간이 넘은 방송은 창이 아니다 — 다른 방송으로 넘기지 않는다 (D-SMS3-29)
     const stale = nowMs - broadcast.startedAt.getTime() > INBOX_WINDOW_MAX_MS
     const runtime = await this.#deps.writer.read(sellerId, broadcast.date, false)
@@ -520,9 +535,16 @@ export class InboxService {
     const cancels = 'cancels' in result && Array.isArray(result.cancels) ? (result.cancels as readonly number[]) : null
     const review = 'review' in result && Array.isArray(result.review) ? (result.review as readonly number[]) : null
     // 문자찜·취소가 아니고 주소를 읽으면 손님 정보 문자 — 번지 숫자로 "확인 필요" 카드를 만들지 않는다 (ORD-14)
-    if (claims === null && cancels === null && (await this.#takeBuyerInfo(sellerId, text, phone, receivedMs, nowMs))) return 'SAVED'
-    if (claims === null && cancels === null && review === null) return 'IGNORED'
+    if (claims === null && cancels === null && (await this.#takeBuyerInfo(sellerId, text, phone, receivedMs, nowMs))) {
+      feed('info')
+      return 'SAVED'
+    }
+    if (claims === null && cancels === null && review === null) {
+      feed('none')
+      return 'IGNORED'
+    }
     if (stale) {
+      feed('stale', [...(claims ?? []), ...(cancels ?? []), ...(review ?? [])])
       // 넣지 않은 일만 적는다(방송·시각·건수 — 본문 없음). 끝낸 방송(끝난 지 10분 안)이면 알릴 것이 없다
       if (broadcast.endedAt === null) {
         await recordStale(db, sellerId, broadcast.id, now)
@@ -535,6 +557,7 @@ export class InboxService {
     const rawMemo = (result as { readonly memo?: unknown }).memo
     const memo = typeof rawMemo === 'string' ? rawMemo : null
     const cards: { kind: 'REVIEW' | 'CANCEL'; why: CardWhy | null; numbers: readonly number[] }[] = []
+    const claimed: number[] = []
     if (claims !== null) {
       if (late) cards.push({ kind: 'REVIEW', why: 'LATE', numbers: claims })
       else {
@@ -548,7 +571,10 @@ export class InboxService {
             phone,
             checkOnSale: true,
           })
-          if (outcome.kind === 'ok' || outcome.kind === 'duplicate') continue
+          if (outcome.kind === 'ok' || outcome.kind === 'duplicate') {
+            claimed.push(no)
+            continue
+          }
           if (outcome.kind === 'rejected') {
             // 잠깐의 상태 읽기 오류: 카드 없이 요청을 500으로 — 이 메시지는 받은 id로 적지 않고 기기가 같은 id로 다시 보낸다 (D-SMS3-31).
             // 앞서 넣은 번호는 같은 요청 번호라 다시 와도 한 번, 카드는 아직 만들지 않았다
@@ -584,6 +610,9 @@ export class InboxService {
       })
     }
     if (cards.length > 0) this.#deps.publish(sellerId, { kind: 'cards', b: broadcast.id })
+    if (claimed.length > 0) feed('claim', claimed)
+    else if (cancels !== null && cancels.length > 0) feed('cancel', cancels)
+    else feed('review', cards.flatMap((item) => item.numbers))
     return 'SAVED'
   }
 
