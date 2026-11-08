@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { Text, useWindowDimensions, type TextProps } from 'react-native'
 import { HEADLINE_LINE, LINE, MAX_FONT_SCALE, PALETTE, STACK_AT_SCALE, TONES, TYPE, WEIGHT, type Palette, type Scheme, type TypeStep } from './tokens.ts'
+import { font } from './font.ts'
 
 interface ThemeOverride {
   readonly scheme?: Scheme
@@ -104,7 +105,7 @@ export interface TxtProps extends Omit<TextProps, 'style'> {
   readonly center?: boolean
 }
 
-/** 모든 글은 이것으로: 크기 단계·줄 높이·색·큰 글자 상한을 한 곳에서 지킨다. */
+/** 모든 글은 이것으로: 크기 단계·줄 높이·글꼴(Pretendard, D-UX3-69)·색·큰 글자 상한을 한 곳에서 지킨다. */
 export function Txt({ step = 'body', weight = 'regular', color = 'text', ink, center, children, ...rest }: TxtProps) {
   const { p, fontScale, forced } = useKit()
   const base = TYPE[step]
@@ -114,7 +115,7 @@ export function Txt({ step = 'body', weight = 'regular', color = 'text', ink, ce
       {...rest}
       allowFontScaling={!forced}
       maxFontSizeMultiplier={MAX_FONT_SCALE}
-      style={{ fontSize: size, lineHeight: Math.round(size * (step === 'headline' ? HEADLINE_LINE : LINE)), fontWeight: WEIGHT[weight], color: ink ?? p[color], textAlign: center === true ? 'center' : undefined }}
+      style={{ fontSize: size, lineHeight: Math.round(size * (step === 'headline' ? HEADLINE_LINE : LINE)), ...font(WEIGHT[weight]), color: ink ?? p[color], textAlign: center === true ? 'center' : undefined }}
     >
       {children}
     </Text>

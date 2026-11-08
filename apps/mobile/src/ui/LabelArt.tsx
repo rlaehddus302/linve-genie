@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AccessibilityInfo, Animated, Easing, Platform, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import { EXAMPLE_LINES } from '../lib/label-example.ts'
+import { font } from './kit/font.ts'
 
 const BODY = '#26262E'
 const LID = '#33333D'
@@ -57,7 +58,7 @@ function useLoop(make: (value: Animated.Value) => Animated.CompositeAnimation): 
 /** 예시 라벨 한 장 (실제 라벨 배치: 가게 이름 / 번호·가격·날짜 / 품종 / 닉네임) */
 export function ExampleLabel({ width }: { readonly width: number }) {
   const unit = width / 200
-  const line = (size: number) => ({ fontSize: size * unit, lineHeight: size * unit * 1.25, color: INK, fontWeight: '700' as const })
+  const line = (size: number) => ({ fontSize: size * unit, lineHeight: size * unit * 1.25, color: INK, ...font('700') })
   return (
     <View style={{ width, aspectRatio: 50 / 30, backgroundColor: PAPER, borderRadius: 6 * unit, borderCurve: 'continuous', padding: 8 * unit, justifyContent: 'space-between' }}>
       <Text allowFontScaling={false} style={{ ...line(15), textAlign: 'center' }}>

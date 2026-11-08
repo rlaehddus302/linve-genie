@@ -6,6 +6,7 @@ import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Keyboard, Keybo
 import { BigButton, ButtonRow } from './buttons.tsx'
 import { BACKDROP_OPACITY, PAGE, RADIUS, SHADOW, SPACE, WEIGHT } from './tokens.ts'
 import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
+import { font } from './font.ts'
 import { BackButton } from './app.tsx'
 
 export interface BottomSheetProps {
@@ -292,7 +293,7 @@ function PopupButton({ label, kind, disabled, busy, onPress }: { readonly label:
       style={({ pressed }) => ({ height: POPUP_BUTTON_HEIGHT, borderRadius: RADIUS.md, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: SPACE.sm, backgroundColor: pressed && !off ? fillPressed : fill, opacity: disabled === true ? 0.45 : 1 })}
     >
       {busy === true ? <ActivityIndicator color={kind === 'confirm' ? p.onPrimary : p.textSub} /> : null}
-      <Text allowFontScaling={false} numberOfLines={1} style={{ fontSize: POPUP_BUTTON_TEXT, lineHeight: Math.round(POPUP_BUTTON_TEXT * 1.3), fontWeight: WEIGHT.medium, color: kind === 'confirm' ? p.onPrimary : p.textSub }}>
+      <Text allowFontScaling={false} numberOfLines={1} style={{ fontSize: POPUP_BUTTON_TEXT, lineHeight: Math.round(POPUP_BUTTON_TEXT * 1.3), ...font(WEIGHT.medium), color: kind === 'confirm' ? p.onPrimary : p.textSub }}>
         {label}
       </Text>
     </Pressable>

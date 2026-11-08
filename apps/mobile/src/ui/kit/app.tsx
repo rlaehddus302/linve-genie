@@ -191,9 +191,10 @@ export const BUTTON_NAV_MIN_INSET = 40
 /**
  * 아래 탭 아래 여백 (토스처럼 홈 막대 자리까지 내려 앉는다, D-UX3-41): 홈 막대가 있으면 그 높이보다 14 작게, 없으면 8.
  * 안드로이드 단추 막대는 눌러야 하는 단추라 겹치면 안 된다 — 그 위로 8 띄운다 (D-UX3-67).
+ * 안드로이드 제스처 막대도 아이폰 홈 막대보다 아래 자리가 얕아(~24) 내려 앉으면 막대가 탭에 겹친다 — 안드로이드는 늘 그 위로 8 (D-UX3-68).
  */
-export function tabBarBottom(inset: number): number {
-  if (inset >= BUTTON_NAV_MIN_INSET) return inset + SPACE.sm
+export function tabBarBottom(inset: number, os: string = Platform.OS): number {
+  if (os === 'android' || inset >= BUTTON_NAV_MIN_INSET) return inset + SPACE.sm
   return Math.max(inset - 14, SPACE.sm)
 }
 
@@ -228,7 +229,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
         <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', borderRadius: RADIUS.pill, borderCurve: 'continuous', overflow: 'hidden', borderWidth: 1, borderColor: p.tabLine, padding: SPACE.xs, gap }}>
           <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
             {Backdrop === null ? null : <Backdrop />}
-            <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: p.glass }} />
+            <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: Backdrop === null && Platform.OS === 'android' ? p.glassNoBlur : p.glass }} />
           </View>
           {/* 고른 칸 회색 바탕 — 칸들 뒤에서 미끄러진다 */}
           <View pointerEvents="none" style={{ position: 'absolute', left: SPACE.xs, right: SPACE.xs, top: SPACE.xs, bottom: SPACE.xs }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>

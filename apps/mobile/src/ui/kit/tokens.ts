@@ -59,6 +59,8 @@ export interface Palette {
   readonly clearCircle: string
   /** 내용 위에 뜬 아래 탭 바탕 — 은은한 반투명 흰색(흐림 위에 얹는다, D-UX3-13) */
   readonly glass: string
+  /** 흐림이 없을 때(안드로이드) 아래 탭 바탕 — 흐림 없이 0.82면 뒤 글자가 또렷이 비쳐 거의 불투명하게 (D-UX3-68) */
+  readonly glassNoBlur: string
   readonly tabLine: string
   readonly tabInk: string
   readonly segmentOff: string
@@ -116,6 +118,7 @@ const LIGHT: Palette = {
   iconPressed: '#B0B8C1',
   clearCircle: '#B0B8C1',
   glass: 'rgba(255,255,255,0.82)',
+  glassNoBlur: 'rgba(255,255,255,0.96)',
   /** 아래 탭 테두리 (토스처럼 또렷한 얇은 회색 선, D-UX3-42) */
   tabLine: '#DDE1E6',
   /** 아래 탭 안 고른 칸 아이콘·글자 (토스처럼 진한 회색, D-UX3-43) */

@@ -50,6 +50,7 @@ import { BackButton, BigButton, ErrorLine, KEYBOARD_AVOID, PopupDialog, TONES, T
 import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
 import { EdgeSwipeBack, SlideSwitch } from '../ui/kit/slide.tsx'
 import { PAGE, RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
+import { font } from '../ui/kit/font.ts'
 
 /** 인증번호 유효 시간 — 서버(CODE_TTL_MS)와 같다 */
 export const CODE_TTL_SECONDS = 180
@@ -484,7 +485,7 @@ function NotComing({ hidden, onPress }: { readonly hidden: boolean; readonly onP
     <Animated.View style={{ opacity: fade, alignItems: 'center' }} pointerEvents={hidden ? 'none' : 'auto'} aria-hidden={hidden}>
       <Pressable role="button" aria-label={CODE_NOT_COMING} onPress={onPress} hitSlop={8} testID="code-not-coming" style={{ minHeight: 44, paddingHorizontal: SPACE.md, justifyContent: 'center' }}>
         {({ pressed }) => (
-          <Text style={{ fontSize: TYPE.body, lineHeight: Math.round(TYPE.body * 1.4), color: p.primaryText, textDecorationLine: 'underline', opacity: pressed ? 0.5 : 1 }}>{CODE_NOT_COMING}</Text>
+          <Text style={{ fontSize: TYPE.body, lineHeight: Math.round(TYPE.body * 1.4), ...font(), color: p.primaryText, textDecorationLine: 'underline', opacity: pressed ? 0.5 : 1 }}>{CODE_NOT_COMING}</Text>
         )}
       </Pressable>
     </Animated.View>
@@ -705,7 +706,7 @@ function CodeCell({ char, active, pink, dark, index, together, skin }: { readonl
 }
 
 /** 숫자 (토스 사진을 재어 32·두께 600, D-UX3-56 — 옛 30) */
-const DIGIT = { fontSize: 32, fontWeight: WEIGHT.medium } as const
+const DIGIT = { fontSize: 32, ...font(WEIGHT.medium) } as const
 
 /**
  * 인증번호 6칸 (D-UX3-54 순서, D-UX3-56 움직임). 보이지 않는 입력 칸 하나를 칸들 위에 겹쳐 놓는다(누르면 키보드, 문자 자동 채우기).

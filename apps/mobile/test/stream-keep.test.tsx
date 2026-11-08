@@ -39,9 +39,8 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
-    // 처음 한 번 안내를 확인하면 듣기 시작
-    const accept = await screen.findByRole('button', { name: '확인하고 듣기' })
-    await act(async () => { accept.click(); await flush() })
+    // 안내 카드 없이 바로 듣기 시작 (D-LV1-16)
+    expect(screen.queryByRole('button', { name: '확인하고 듣기' })).toBeNull()
     await waitFor(() => expect(world.server.callsTo('POST', WATCH).length).toBeGreaterThan(0))
     expect(world.services.streamKeep.getKept()?.broadcastId).toBe('b1')
     // 받아쓴 글을 받을 마이크 없는 연결이 열렸다

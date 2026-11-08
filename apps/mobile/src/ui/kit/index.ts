@@ -1,5 +1,6 @@
 // 공통 디자인 바탕 한 곳에서 내보내기. 새 화면은 여기서만 가져온다.
 export * from './tokens.ts'
+export { font, PRETENDARD, type FontStyle, type FontWeight } from './font.ts'
 export { contrastRatio, passesAA } from './contrast.ts'
 export { BottomInsetProvider, TabBarRoomProvider, ThemeOverrideProvider, TopWhiteProvider, Txt, useBottomInset, useKit, useTabBarRoom, useTopInset, useTopWhiteCount, useWhiteTop, type Kit } from './theme.tsx'
 export { BigButton, BottomCTA, ButtonRow, SmallButton, type BigButtonProps, type ButtonKind } from './buttons.tsx'

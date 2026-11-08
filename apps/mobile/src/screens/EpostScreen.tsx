@@ -16,6 +16,7 @@ import { nativeWebSession } from '../native/index.ts'
 import { EpostView, type EpostViewHandle } from '../native/epost-view.tsx'
 import { AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, SmallButton, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { font } from '../ui/kit/font.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
 export const EPOST_TITLE = '우체국 사전접수'
@@ -509,7 +510,7 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
           autoCorrect={false}
           inputMode="text"
           placeholder="예: 6012345678901"
-          style={{ minHeight: 52, borderBottomWidth: 2, borderColor: receiptError === null ? p.outline : p.danger, fontSize: 20, color: p.text }}
+          style={{ minHeight: 52, borderBottomWidth: 2, borderColor: receiptError === null ? p.outline : p.danger, fontSize: 20, ...font(), color: p.text }}
         />
         {receiptError !== null ? <Txt color="dangerText">{receiptError}</Txt> : null}
       </BottomSheet>

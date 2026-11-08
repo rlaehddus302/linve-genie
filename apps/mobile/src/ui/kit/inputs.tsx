@@ -4,6 +4,7 @@ import { Animated, Easing, Platform, Pressable, Text, TextInput, View, type Text
 import { errorHaptic } from '../../native/haptics.ts'
 import { LINE, RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
+import { font } from './font.ts'
 
 export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-label' | 'accessibilityLabel'> {
   /** 칸 위의 큰 라벨 — 무엇을 적는지 */
@@ -114,7 +115,7 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
               setFocused(false)
               onBlur?.(event)
             }}
-            style={{ flex: 1, height: '100%', fontSize: size, fontWeight: WEIGHT.book, color: p.text, padding: 0, paddingRight: clearable ? 40 : 0 }}
+            style={{ flex: 1, height: '100%', fontSize: size, ...font(WEIGHT.book), color: p.text, padding: 0, paddingRight: clearable ? 40 : 0 }}
           />
           {unit === undefined ? null : (
             <Txt step="bodyLarge" weight="medium" color="textSub">
@@ -142,7 +143,7 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
             transform: [{ translateY: motion.interpolate({ inputRange: [0, 1], outputRange: [insideY, 0] }) }, { scale: motion.interpolate({ inputRange: [0, 1], outputRange: [1, small / size] }) }],
           }}
         >
-          <Text allowFontScaling={false} numberOfLines={1} style={{ fontSize: size, lineHeight: Math.round(size * LINE), fontWeight: resting ? WEIGHT.medium : WEIGHT.regular, color: accent }}>
+          <Text allowFontScaling={false} numberOfLines={1} style={{ fontSize: size, lineHeight: Math.round(size * LINE), ...font(resting ? WEIGHT.medium : WEIGHT.regular), color: accent }}>
             {label}
           </Text>
         </Animated.View>

@@ -48,6 +48,7 @@ import { PhoneVerify } from './PhoneVerify.tsx'
 import { SlideSwitch } from '../ui/kit/slide.tsx'
 import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SERVICE_NAME, SESSION_EXPIRED_MESSAGE, SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/words.ts'
 import { useBottomInset, useKit } from '../ui/kit/theme.tsx'
+import { font } from '../ui/kit/font.ts'
 import { BigButton, Field, Hint, Notice, Stack } from '../ui/parts.tsx'
 
 /** 숨은 아이디 칸: 서비스명을 이 시간 안에 이만큼 누르면 연다 */
@@ -293,7 +294,7 @@ export function LoginScreen({
       {/* 위 칸: 남은 높이를 나눠 가운데에 서비스명 (작은 화면에서도 최소 높이) */}
       <View style={{ flex: 3, minHeight: 140, justifyContent: 'center', alignItems: 'center' }}>
         <Pressable onPress={tapTitle} testID="login-title" accessible={false}>
-          <Text role="heading" aria-level={1} allowFontScaling={false} style={{ color: p.text, fontSize: 44, fontWeight: '900', letterSpacing: -1.5 }}>
+          <Text role="heading" aria-level={1} allowFontScaling={false} style={{ color: p.text, fontSize: 44, ...font('900'), letterSpacing: -1.5 }}>
             {SERVICE_NAME}
           </Text>
         </Pressable>
@@ -332,7 +333,7 @@ export function LoginScreen({
 function LoginFooter() {
   const { p } = useKit()
   const link = (label: string, onPress: () => void, size: number, color: string, ariaLabel = label) => (
-    <Text role="link" aria-label={ariaLabel} onPress={onPress} suppressHighlighting={false} style={{ color, fontSize: size }}>
+    <Text role="link" aria-label={ariaLabel} onPress={onPress} suppressHighlighting={false} style={{ color, fontSize: size, ...font() }}>
       {label}
     </Text>
   )
@@ -342,7 +343,7 @@ function LoginFooter() {
         {link('이용약관', () => void openWeb('/terms'), 13, p.textSub)}
         {link('개인정보처리방침', () => void openWeb('/privacy'), 13, p.textSub)}
       </View>
-      <Text style={{ color: '#6B7684', fontSize: 12 }}>
+      <Text style={{ color: '#6B7684', fontSize: 12, ...font() }}>
         {'고객센터 '}
         {link(SUPPORT_PHONE, () => void Linking.openURL(`tel:${SUPPORT_PHONE.replaceAll('-', '')}`), 12, '#6B7684', `고객센터 전화 ${SUPPORT_PHONE}`)}
         {'  |  '}
@@ -393,12 +394,12 @@ export function SocialButton({ provider, recent, busy, onPress }: { readonly pro
           <View style={{ position: 'absolute', left: 18, top: 0, bottom: 0, justifyContent: 'center' }}>
             <SocialLogo provider={provider} size={20} />
           </View>
-          <Text allowFontScaling={false} style={{ color: color.text, fontSize: 16, fontWeight: '600' }}>{label}</Text>
+          <Text allowFontScaling={false} style={{ color: color.text, fontSize: 16, ...font('600') }}>{label}</Text>
           {recent ? (
             <View style={{ position: 'absolute', right: 10, top: 0, bottom: 0, justifyContent: 'center', flexDirection: 'row', alignItems: 'center' }}>
               <View style={{ width: 0, height: 0, borderTopWidth: 5, borderBottomWidth: 5, borderRightWidth: 6, borderTopColor: 'transparent', borderBottomColor: 'transparent', borderRightColor: '#333333' }} />
               <View style={{ backgroundColor: '#333333', borderRadius: 8, borderCurve: 'continuous', paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text allowFontScaling={false} style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '600' }}>{RECENT_LOGIN}</Text>
+                <Text allowFontScaling={false} style={{ color: '#FFFFFF', fontSize: 12, ...font('600') }}>{RECENT_LOGIN}</Text>
               </View>
             </View>
           ) : null}
