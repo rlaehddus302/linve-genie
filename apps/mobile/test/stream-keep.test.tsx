@@ -61,4 +61,20 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     await act(async () => { await wait(1_300) })
     await waitFor(() => expect(world.services.streamKeep.getKept()).toBeNull())
   }, 15_000)
+
+  it('다시 잇는 중 같은 상태는 머리 오른쪽에만 — 접힌 줄 아래에 같은 문장을 또 보이지 않고, 펼치면 보인다 (D-UX3-72)', async () => {
+    const world = makeWorld()
+    world.server.on('GET', STATUS, () => ({ body: { phase: 'reconnecting' } }))
+    world.server.on('POST', WATCH, () => ({ body: { phase: 'reconnecting' } }))
+    world.server.on('POST', /^\/api\/broadcasts\/b1\/voice-ticket/, () => ({ body: { wsUrl: 'ws://test.local/api/voice?ticket=t' } }))
+    render(world.wrap(<Shell />))
+    await waitFor(() => expect(screen.getByTestId('console-screen')).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush()
+    })
+    await waitFor(() => expect(screen.getAllByText('방송 소리 다시 잇는 중').length).toBe(1))
+    await act(async () => { screen.getByRole('button', { name: '들린 말 펼치기' }).click(); await flush() })
+    await waitFor(() => expect(screen.getAllByText('방송 소리 다시 잇는 중').length).toBe(2))
+  }, 15_000)
 })

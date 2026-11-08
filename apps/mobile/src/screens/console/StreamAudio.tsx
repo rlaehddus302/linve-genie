@@ -175,7 +175,7 @@ export function ServerHeard({ broadcastId }: { readonly broadcastId: string }) {
 
 /**
  * 들린 말 한 줄 (D-LIVETEST-07): 평소엔 마지막으로 들린 말 한 줄만 — 누르면 최근 줄·듣는 곳 상태·다시 켜기를 펼친다.
- * 멈춤·못 받음 같은 문제는 접혀 있어도 보인다.
+ * 상태 문장은 머리 오른쪽 듣기 상태와 겹쳐 펼쳤을 때만 보인다(D-UX3-72). 다시 켜기·휴대폰으로 듣기 단추는 접혀 있어도 보인다.
  */
 export function ListenLine({ session, broadcastId, title, stream }: { readonly session: VoiceSession; readonly broadcastId: string; readonly title: string; readonly stream: StreamAudio }) {
   const { p } = useKit()
@@ -187,7 +187,6 @@ export function ListenLine({ session, broadcastId, title, stream }: { readonly s
   const hearing = micOn || stream.hold
   if (!hearing && line === null) return serverHeard
   const last = view.transcript.at(-1) ?? null
-  const problem = line !== null && (line.tone === 'danger' || line.tone === 'warn')
   return (
     <View style={{ gap: 6 }}>
       {serverHeard}
@@ -199,7 +198,8 @@ export function ListenLine({ session, broadcastId, title, stream }: { readonly s
         <Txt step="caption" color="textSub">{open ? '접기' : '펼치기'}</Txt>
       </Pressable>
       {open && hearing ? <Transcript lines={view.transcript} /> : null}
-      {(open || problem) && line !== null && (open || line.tone !== 'ok') ? <Notice tone={TONE[line.tone]} alert={line.tone === 'danger'}>{line.text}</Notice> : null}
+      {/* 상태 문장은 펼쳤을 때만 — 접혀 있으면 머리 오른쪽 듣기 상태가 같은 말을 보인다 (D-UX3-72) */}
+      {open && line !== null ? <Notice tone={TONE[line.tone]} alert={line.tone === 'danger'}>{line.text}</Notice> : null}
       {open && line?.late != null ? <Hint>{line.late}</Hint> : null}
       {line !== null && (line.retry || line.useMic) ? (
         <Row wrap>
