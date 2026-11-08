@@ -352,3 +352,37 @@ describe('AC6 운영자 끄기, AC9 구글 연결과 무관, AC5 운영 상태',
     expect(JSON.stringify(body.youtubeWebChat)).not.toContain(seller.sellerId)
   })
 })
+
+describe('D-YT-SRV-20 한 방송은 유튜브에서 한 번만 읽는다', () => {
+  it('두 판매자 계정이 같은 영상을 이으면 채팅 요청은 한 수집기 만큼만 가고, 두 계정 모두 같은 채팅을 각자 기록한다', async () => {
+    const w = await world()
+    const first = await webLinked(w)
+    const second = await webLinked(w, { video: first.video })
+    w.web.timeoutMs = 1000
+    w.server.youtube?.collectors.start()
+    await waitFor(w, async () => (await collector(w, first.seller.cookie, first.b.id)).status === 'LIVE' && (await collector(w, second.seller.cookie, second.b.id)).status === 'LIVE')
+    await pass(w, 5000)
+    const from = w.web.calls('poll')
+    for (let i = 0; i < 5; i++) w.web.addMessage(first.video.videoId, { id: `s${String(i)}`, author: 'UCa', name: '가', text: String(10 + i), publishedAt: w.timer.now() + i })
+    await pass(w, 20_000)
+    const polls = w.web.calls('poll') - from
+    // 1초마다 부르는 수집기 하나면 20번 남짓 — 따로 읽으면 40번 남짓
+    expect(polls).toBeGreaterThan(10)
+    expect(polls).toBeLessThanOrEqual(26)
+    await waitFor(w, async () => (await collector(w, first.seller.cookie, first.b.id)).recorded === 5 && (await collector(w, second.seller.cookie, second.b.id)).recorded === 5)
+    expect(w.web.maxInflightPolls).toBe(1)
+  })
+
+  it('계정이 하나면 지금과 같다 — 같은 지점을 다시 부르면 유튜브에 새로 묻는다', async () => {
+    const w = await world()
+    const { seller, b, video } = await webLinked(w)
+    w.web.timeoutMs = 1000
+    w.server.youtube?.collectors.start()
+    await waitFor(w, async () => (await collector(w, seller.cookie, b.id)).status === 'LIVE')
+    w.web.fail('poll', { status: 500 })
+    w.web.addMessage(video.videoId, { id: 'one', author: 'UCa', name: '가', text: '7' })
+    await waitFor(w, async () => (await collector(w, seller.cookie, b.id)).recorded === 1, { step: 500 })
+    expect(w.web.pendingFaults('poll')).toBe(0)
+  })
+})
+

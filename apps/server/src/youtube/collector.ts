@@ -902,13 +902,13 @@ export class CollectorManager {
     if (source == null) throw new WebChatError('OFF')
     let cached = running.web.session
     if (cached === null) {
-      const page = await source.chatPage(link.videoId, signal)
+      const page = await source.chatPage(link.videoId, signal, ctx.row.linkId)
       if (page.state === 'BLOCKED' || page.state === 'UNKNOWN_SHAPE') throw new WebChatError(page.state)
       if (page.state !== 'OK' || page.session === null || page.continuation === null) return await this.#webConfirmEnd(ctx.row, link, running, signal)
       cached = { session: page.session, fresh: page.continuation }
       running.web.session = cached
     }
-    const result: WebChatPoll = await source.poll(cached.session, ctx.row.pageToken ?? cached.fresh, signal)
+    const result: WebChatPoll = await source.poll(cached.session, ctx.row.pageToken ?? cached.fresh, signal, ctx.row.linkId)
     const receivedAt = this.#options.timer.now()
     if (result.kind === 'no_contents') return await this.#webConfirmEnd(ctx.row, link, running, signal)
     this.#logUnknownItems(running, result.unknown)
@@ -962,7 +962,7 @@ export class CollectorManager {
     // 방송 페이지가 막히면 next로 대신 확인 — 들고 있던 채팅 페이지 호출 정보를 쓴다 (D-YT-SRV-19)
     const known = running.web.session?.session ?? null
     running.web.session = null
-    const page = await source.pageOrNext(link.videoId, signal, known)
+    const page = await source.pageOrNext(link.videoId, signal, known, row.linkId)
     if (page.state === 'ENDED' || page.state === 'NOT_LIVE') return { kind: 'ended' }
     if (page.state === 'BLOCKED') throw new WebChatError('BLOCKED')
     const stop = PAGE_STOPS[page.state]
@@ -1034,7 +1034,7 @@ export class CollectorManager {
     let page: { state: PageState; startedAt: number | null }
     try {
       // 방송 페이지가 막히면 next로 대신 확인 (D-YT-SRV-19). next에는 시작 시각이 없어 진행 중이면 확인한 지금을 시작으로 적는다(잇기 전 거르기 기준)
-      page = await source.pageOrNext(link.videoId)
+      page = await source.pageOrNext(link.videoId, undefined, null, row.linkId)
     } catch (error) {
       if (error instanceof WebChatError && error.kind === 'BLOCKED') this.#webTrouble(row, 'BLOCKED')
       this.#options.log({ level: 'warn', code: 'COLLECTOR_ERROR', seller: row.sellerId, errorKind: error instanceof WebChatError ? `YoutubeWeb_${error.kind}` : errorKind(error) })

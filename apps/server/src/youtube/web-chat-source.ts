@@ -19,6 +19,18 @@ export const YOUTUBE_WEB_BASE_URL = 'https://www.youtube.com'
 export const DESKTOP_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
 /** 요청 하나의 시간 제한 (AC3) */
 export const WEB_REQUEST_TIMEOUT_MS = 15_000
+/**
+ * 한 방송은 유튜브에서 한 번만 읽는다 (D-YT-SRV-20): 같은 영상을 이은 판매자 계정이 여럿이어도 서버 하나가 유튜브에 보내는 요청은 하나.
+ * 같은 요청(같은 영상의 방송·채팅 페이지, 같은 지점의 채팅)이 겹치면 진행 중인 것을 함께 기다리고, 끝난 결과는 잠깐 **다른 수집기에게만** 그대로 준다
+ * (한 수집기가 같은 것을 다시 부르면 — 다시 시도·다시 시작 — 지금처럼 유튜브에 새로 묻는다).
+ * 방송·채팅 페이지(시작·끝 확인)는 상태가 바뀌는 대로 봐야 해서 겹칠 때만 함께 기다리고 결과를 남기지 않는다(WEB_SHARE_PAGE_MS 0).
+ * 나중에 시작한 수집기는 다른 수집기가 지금 읽는 지점으로 붙는다 — 그 뒤로 지점이 같아 요청 하나로 모두 받는다. 누가 부르는지(who = 연결 ID)를 모르면 겹침만 나눈다.
+ */
+export const WEB_SHARE_PAGE_MS = 0
+/** 채팅 응답(지점 하나)을 나눠 쓰는 시간 — 같은 지점을 조금 늦게 부른 수집기도 같은 응답을 받는다 */
+export const WEB_SHARE_POLL_MS = 30_000
+/** 이 시간 안에 읽힌 지점이 있으면 새 수집기는 그 지점으로 붙는다 */
+export const WEB_SHARE_JOIN_MS = 30_000
 /** 응답 본문 상한 (방송 페이지 1.3MB 남짓) */
 export const WEB_MAX_BYTES = 8 * 1024 * 1024
 /** 다음 부름: 응답의 timeoutMs를 이 범위로 자른다 (AC3) */
@@ -157,6 +169,11 @@ export class WebChatSource {
   readonly #options: WebChatSourceOptions
   /** 최근 1분의 요청 시각 (분당 요청 수 — 운영 상태) */
   #recent: number[] = []
+  /** 나눠 쓰기 (D-YT-SRV-20): 진행 중인 요청 · 끝난 결과(시각·받아 간 수집기) · 수집기(연결 ID) → 읽는 영상 · 영상마다 마지막으로 읽힌 다음 지점 */
+  readonly #inflight = new Map<string, { readonly promise: Promise<unknown>; readonly controller: AbortController; readonly takers: Set<string>; waiters: number }>()
+  readonly #done = new Map<string, { readonly at: number; readonly value: unknown; readonly takers: Set<string> }>()
+  readonly #videoOf = new Map<string, string>()
+  readonly #latest = new Map<string, { readonly continuation: string; readonly at: number; readonly by: string }>()
 
   constructor(options: WebChatSourceOptions) {
     this.#options = options
@@ -172,6 +189,69 @@ export class WebChatSource {
     const since = this.#options.timer.now() - RATE_WINDOW_MS
     this.#recent = this.#recent.filter((at) => at > since)
     return this.#recent.length
+  }
+
+  /**
+   * 같은 key의 요청을 나눠 쓴다: 끝난 결과가 keepMs 안이면 그것, 진행 중이면 함께 기다리고, 아니면 새로 보낸다.
+   * 기다리는 쪽이 끊으면 그쪽만 연결 오류(NETWORK)로 끝나고(전송이 끊길 때와 같은 오류), 기다리는 쪽이 모두 끊었을 때만 요청 자체를 끊는다 —
+   * 혼자 부르면 지금과 똑같다. 실패는 나눠 쓰지 않는다(다음 부름은 새로 보낸다)
+   */
+  async #shared<T>(key: string, keepMs: number, run: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal, who?: string): Promise<T> {
+    if (signal?.aborted === true) throw new WebChatError('NETWORK')
+    const now = this.#options.timer.now()
+    this.#sweep(now)
+    const done = this.#done.get(key)
+    if (keepMs > 0 && who !== undefined && done !== undefined && now - done.at <= keepMs && !done.takers.has(who)) {
+      done.takers.add(who)
+      return done.value as T
+    }
+    let entry = this.#inflight.get(key)
+    if (entry === undefined) {
+      const controller = new AbortController()
+      const takers = new Set<string>()
+      const promise = run(controller.signal).then((value) => {
+        if (keepMs > 0) this.#done.set(key, { at: this.#options.timer.now(), value, takers })
+        return value
+      })
+      const made = { promise, controller, takers, waiters: 0 }
+      promise.then(() => undefined, () => undefined).finally(() => { if (this.#inflight.get(key) === made) this.#inflight.delete(key) })
+      this.#inflight.set(key, made)
+      entry = made
+    }
+    const shared = entry
+    if (who !== undefined) shared.takers.add(who)
+    shared.waiters += 1
+    return await new Promise<T>((resolve, reject) => {
+      let left = false
+      const leave = () => {
+        if (left) return
+        left = true
+        shared.waiters -= 1
+        signal?.removeEventListener('abort', stop)
+      }
+      const stop = () => {
+        leave()
+        if (shared.waiters === 0) shared.controller.abort()
+        reject(new WebChatError('NETWORK'))
+      }
+      signal?.addEventListener('abort', stop, { once: true })
+      ;(shared.promise as Promise<T>).then((value) => { leave(); resolve(value) }, (error: unknown) => { leave(); reject(error) })
+    })
+  }
+
+  /** 오래된 나눠 쓰기 기록을 지운다 (메모리 상한) */
+  #sweep(now: number): void {
+    const keep = Math.max(WEB_SHARE_PAGE_MS, WEB_SHARE_POLL_MS, WEB_SHARE_JOIN_MS)
+    for (const [key, entry] of this.#done) if (now - entry.at > keep) this.#done.delete(key)
+    for (const [video, latest] of this.#latest) if (now - latest.at > keep) this.#latest.delete(video)
+    if (this.#videoOf.size > 5000) {
+      const extra = this.#videoOf.size - 2500
+      let n = 0
+      for (const key of this.#videoOf.keys()) {
+        if (n++ >= extra) break
+        this.#videoOf.delete(key)
+      }
+    }
   }
 
   async #send(request: WebRequest, signal?: AbortSignal): Promise<WebResponse> {
@@ -200,7 +280,12 @@ export class WebChatSource {
 
   /** 방송 페이지 → 상태·채널·제목·시작 시각 (BLOCKED·UNKNOWN_SHAPE는 상태로 돌려준다) */
   async page(videoId: string, signal?: AbortSignal): Promise<WatchPage> {
-    return (await this.#watch(videoId, signal)).page
+    return (await this.#sharedWatch(videoId, signal)).page
+  }
+
+  /** 방송 페이지 읽기를 영상마다 나눠 쓴다 (D-YT-SRV-20) */
+  async #sharedWatch(videoId: string, signal?: AbortSignal, who?: string): Promise<{ page: WatchPage; session: InnertubeSession | null }> {
+    return await this.#shared(`watch:${videoId}`, WEB_SHARE_PAGE_MS, (sig) => this.#watch(videoId, sig), signal, who)
   }
 
   /**
@@ -232,7 +317,11 @@ export class WebChatSource {
    * next도 막히거나 실패하면(연결 오류·HTTP 오류) 방송 페이지의 BLOCKED를 그대로 돌려준다. next가 모르는 모양이면 UNKNOWN_SHAPE(모르는 모양 경보로 알린다).
    * 끄기(OFF)는 그대로 던진다
    */
-  async pageOrNext(videoId: string, signal?: AbortSignal, known: InnertubeSession | null = null): Promise<WatchPage> {
+  async pageOrNext(videoId: string, signal?: AbortSignal, known: InnertubeSession | null = null, who?: string): Promise<WatchPage> {
+    return await this.#shared(`pageOrNext:${videoId}`, WEB_SHARE_PAGE_MS, (sig) => this.#pageOrNext(videoId, known, sig), signal, who)
+  }
+
+  async #pageOrNext(videoId: string, known: InnertubeSession | null, signal?: AbortSignal): Promise<WatchPage> {
     const watched = await this.#watch(videoId, signal)
     if (watched.page.state !== 'BLOCKED') return watched.page
     try {
@@ -258,13 +347,27 @@ export class WebChatSource {
 
   /** 채널의 지금(또는 예정) 공개 방송 — 채널 라이브 주소가 보여 주는 방송 페이지 (최근 채널 찾기, D-YT-SRV-03) */
   async channelLive(channelId: string, signal?: AbortSignal): Promise<WatchPage> {
+    return await this.#shared(`channel:${channelId}`, WEB_SHARE_PAGE_MS, (sig) => this.#channelLive(channelId, sig), signal)
+  }
+
+  async #channelLive(channelId: string, signal?: AbortSignal): Promise<WatchPage> {
     const html = await this.#html(`/channel/${encodeURIComponent(channelId)}/live?hl=en`, signal)
     if (html === null) return { state: 'NOT_FOUND', videoId: null, channelId, channelTitle: null, title: null, startedAt: null }
     return parseWatchPage(html)
   }
 
   /** 채팅 페이지 → 호출 정보·전체 채팅 첫 지점 */
-  async chatPage(videoId: string, signal?: AbortSignal): Promise<ChatPage> {
+  async chatPage(videoId: string, signal?: AbortSignal, who?: string): Promise<ChatPage> {
+    const page = await this.#shared(`chat:${videoId}`, WEB_SHARE_PAGE_MS, (sig) => this.#chatPage(videoId, sig), signal, who)
+    if (page.state !== 'OK' || page.continuation === null) return page
+    if (who !== undefined) this.#videoOf.set(who, videoId)
+    // 같은 영상을 다른 수집기가 지금 읽고 있으면 그 지점으로 붙는다 (D-YT-SRV-20)
+    const latest = this.#latest.get(videoId)
+    if (who !== undefined && latest !== undefined && latest.by !== who && this.#options.timer.now() - latest.at <= WEB_SHARE_JOIN_MS) return { ...page, continuation: latest.continuation }
+    return page
+  }
+
+  async #chatPage(videoId: string, signal?: AbortSignal): Promise<ChatPage> {
     const html = await this.#html(`/live_chat?v=${encodeURIComponent(videoId)}&is_popout=1&hl=en`, signal)
     if (html === null) return { state: 'NO_CHAT', session: null, continuation: null }
     return parseChatPage(html)
@@ -274,7 +377,19 @@ export class WebChatSource {
    * 지점 하나로 get_live_chat (POST). 400·404 → REJECTED, 429·403 → BLOCKED, 그 밖 HTTP 오류 → HTTP, JSON이 아니거나 모양을 모르면 UNKNOWN_SHAPE.
    * 채팅 내용이 없는 응답(no_contents)은 그대로 돌려준다 — 끝났는지 방송 페이지로 다시 볼 일이다
    */
-  async poll(session: InnertubeSession, continuation: string, signal?: AbortSignal): Promise<WebChatPoll> {
+  async poll(session: InnertubeSession, continuation: string, signal?: AbortSignal, who?: string): Promise<WebChatPoll> {
+    // 지점 글은 영상마다 다르다고 믿지 않는다 — 영상 + 지점으로 묶는다. 누가 무슨 영상을 읽는지 모르면 나누지 않는다(지금처럼 바로 묻는다)
+    const video = who === undefined ? undefined : this.#videoOf.get(who)
+    if (video === undefined) return await this.#poll(session, continuation, signal)
+    const result = await this.#shared(`poll:${video}:${continuation}`, WEB_SHARE_POLL_MS, (sig) => this.#poll(session, continuation, sig), signal, who)
+    if (who !== undefined && result.kind === 'ok' && result.next !== null) {
+      const latest = this.#latest.get(video)
+      if (latest === undefined || latest.continuation !== result.next) this.#latest.set(video, { continuation: result.next, at: this.#options.timer.now(), by: who })
+    }
+    return result
+  }
+
+  async #poll(session: InnertubeSession, continuation: string, signal?: AbortSignal): Promise<WebChatPoll> {
     const query = `prettyPrint=false${session.apiKey === null ? '' : `&key=${encodeURIComponent(session.apiKey)}`}`
     const client = { clientName: session.clientName, clientVersion: session.clientVersion, hl: 'en', ...(session.visitorData === null ? {} : { visitorData: session.visitorData }) }
     const { status, text } = await this.#send({ method: 'POST', path: `/youtubei/v1/live_chat/get_live_chat?${query}`, body: JSON.stringify({ context: { client }, continuation }) }, signal)
