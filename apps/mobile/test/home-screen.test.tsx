@@ -29,13 +29,13 @@ describe('HomeScreen', () => {
     expect(navigation.openConsole).toHaveBeenCalledWith('b1')
   })
 
-  // D-UX3-85로 바뀐 기대: "방송 시작하기" 큰 카드·"새 방송 시작"·"리허설 해 보기" 단추 → 맨 위 왼쪽 "라이브 연결 ›" 하나 (새 방송은 그대로 쌓인 화면, D-UX3-09)
+  // D-UX3-85로 바뀐 기대: "방송 시작하기" 큰 카드·"새 방송 시작"·"리허설 해 보기" 단추 → 맨 위 왼쪽 "라이브 연결 ›" 하나 (새 방송은 그대로 쌓인 화면, D-UX3-09). D-UX3-92: 이름 "내 라이브 연결"
   it('방송 중이 아니면 "라이브 연결"이 새 방송 화면(쌓인 화면)을 연다 — 새 방송·리허설 단추는 없다 (D-UX3-85)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    fireEvent.click(await screen.findByRole('button', { name: '라이브 연결' }))
+    fireEvent.click(await screen.findByRole('button', { name: '내 라이브 연결' }))
     expect(navigation.openNewBroadcast).toHaveBeenCalledTimes(1)
     for (const gone of ['새 방송 시작', '리허설 해 보기', '방송 시작하기']) expect(screen.queryByRole('button', { name: gone })).toBeNull()
     expect(world.server.callsTo('POST', /broadcasts/)).toHaveLength(0)
@@ -52,7 +52,7 @@ describe('HomeScreen', () => {
     world.services.labels.start()
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '내 라이브 연결' })).toBeTruthy()
     expect(await screen.findByRole('button', { name: '입금 확인하기 1' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '포장하기 2' }))
     expect(navigation.openPacking).toHaveBeenCalled()
@@ -112,18 +112,18 @@ describe('HomeScreen', () => {
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts } }))
     const navigation = nav()
     const view = render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={0} />))
-    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '내 라이브 연결' })).toBeTruthy()
     broadcasts = [{ ...BROADCAST, id: 'r1', title: '리허설 1', rehearsal: true }]
     view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={1} />))
     await waitFor(() => expect(world.server.callsTo('GET', /^\/api\/broadcasts$/).length).toBeGreaterThanOrEqual(2))
-    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '내 라이브 연결' })).toBeTruthy()
     broadcasts = [{ ...BROADCAST, id: 'l1' }]
     view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={2} />))
     fireEvent.click(await screen.findByRole('button', { name: '지금 라이브 중' }))
     expect(navigation.openConsole).toHaveBeenCalledWith('l1')
     broadcasts = [{ ...BROADCAST, id: 'l1', ended: true, endedAt: '2026-10-29T12:00:00.000Z' }]
     view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={3} />))
-    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '내 라이브 연결' })).toBeTruthy()
   })
 
   it('어제 끝내지 않고 둔 유튜브 방송(수집기가 채팅 끝)은 라이브가 아니다 — "라이브 연결" (D-UX3-91)', async () => {
@@ -131,7 +131,7 @@ describe('HomeScreen', () => {
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, platforms: ['youtube'] }] } }))
     world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: { broadcastChannelId: 'UCaaaaaaaaaaaaaaaaaaaaaa' }, collector: { status: 'CHAT_ENDED' } } }))
     render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
-    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '내 라이브 연결' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '지금 라이브 중' })).toBeNull()
   })
 
@@ -140,7 +140,7 @@ describe('HomeScreen', () => {
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, platforms: ['youtube'] }] } }))
     world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: null, collector: null } }))
     render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
-    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '내 라이브 연결' })).toBeTruthy()
   })
 })
 

@@ -109,6 +109,8 @@ export const SERVER_VERSION: string = (() => {
 })()
 
 export interface ServerOptions {
+  /** 판매자가 고르지 않은 설정 칸의 기본값 (D-YT-SRV-23 — 운영 기동은 SELLER_DEFAULTS: 감사 채팅 끔) */
+  readonly sellerDefaults?: Readonly<Record<string, unknown>>
   /** 이력 저장소 관측/장애 시험 포트. 운영 기동은 제공하지 않는다. */
   readonly voiceHistoryObserver?: VoiceHistoryObserver
   readonly transcribeWorkerToken?: string
@@ -552,6 +554,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     log,
     billing,
     ...(options.generatorTimer === undefined ? {} : { generatorTimer: options.generatorTimer }),
+    ...(options.sellerDefaults === undefined ? {} : { sellerDefaults: options.sellerDefaults }),
   })
   const backups = new BackupScheduler({
     db,

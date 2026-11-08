@@ -38,6 +38,7 @@ import { readSocialLoginEnv } from './social/providers.ts'
 import { readSmsEnv, sensSender } from './social/phone.ts'
 import { readOpsAlertPhone } from './config.ts'
 import { readAssistEnv } from './assist/service.ts'
+import { SELLER_DEFAULTS } from './service.ts'
 
 export type ProductionOptions = { readonly ok: true; readonly options: ServerOptions } | { readonly ok: false; readonly message: string }
 
@@ -102,6 +103,8 @@ export function productionServerOptions(
     ok: true,
     options: {
       database,
+      // 감사 채팅은 판매자가 켠 뒤에만 — 시험으로 이은 남의 라이브에 감사가 올라가지 않게 (D-YT-SRV-23)
+      sellerDefaults: SELLER_DEFAULTS,
       masterKey: masterKey.key,
       appOrigin: origin.origin,
       ...(oldOrigins.origins.length === 0 ? {} : { oldAppOrigins: oldOrigins.origins }),

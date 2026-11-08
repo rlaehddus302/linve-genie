@@ -142,6 +142,9 @@ export function withSaleMode(settings: SaleSettings, saleMode: SaleMode | undefi
 /** 차단 이어받기 사유 (AC-S04-27) */
 export const INHERITED_BLOCK_REASON = '이전 방송에서 차단한 시청자'
 
+/** 운영 판매자 기본값 — 판매자가 고르지 않은 칸에 엔진 기본값(DEFAULT_SETTINGS)보다 먼저. 감사 채팅은 판매자가 켠 뒤에만 (D-YT-SRV-23). 운영 기동(main.ts)이 넣는다 */
+export const SELLER_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({ 'thanks.liveChat': false })
+
 const TITLE_MAX = 100
 /** 메시지 조회 개수 기본·상한 (AC-S05-20 — 그날 메시지 전체를 한 번에 주는 길은 없다) */
 export const MESSAGES_LIMIT_DEFAULT = 100
@@ -176,6 +179,8 @@ export interface ServiceOptions {
   readonly assist?: AssistService
   /** 서버 로그 (판매자 채팅 품종 글 결과 코드 — R-23. 없으면 남기지 않는다) */
   readonly log?: LogSink
+  /** 판매자가 고르지 않은 설정 칸의 기본값 (D-YT-SRV-23 — 운영은 SELLER_DEFAULTS, 없으면 엔진 기본값 그대로) */
+  readonly sellerDefaults?: Readonly<Record<string, unknown>>
 }
 
 export type ChatIngestOutcome =
@@ -360,7 +365,8 @@ export class Service {
     const seller = await findSeller(db, sellerId)
     if (seller === null) throw new Error('판매자가 없다')
     const parsed: unknown = JSON.parse(seller.settings)
-    return isPlainObject(parsed) ? parsed : {}
+    // 판매자 기본값 (D-YT-SRV-23): 감사 채팅은 판매자가 켠 뒤에만 — 시험으로 이은 남의 라이브에 감사가 올라가지 않게. 판정 엔진 기본값은 그대로
+    return { ...(this.#options.sellerDefaults ?? {}), ...(isPlainObject(parsed) ? parsed : {}) }
   }
 
   async settings(sellerId: string): Promise<SaleSettings> {
