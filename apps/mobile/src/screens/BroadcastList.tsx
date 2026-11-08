@@ -62,56 +62,72 @@ export function byDate(items: readonly BroadcastItem[]): { readonly date: string
   return groups
 }
 
-const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'] as const
-function dateHeading(date: string): string {
-  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
-  return `${dateWords(date)} ${WEEKDAY[day] ?? ''}요일`
+
+/** 내 방송 줄의 지난 시간 (D-UX3-85): "방금 전" · "59분 전" · "23시간 전" · "13일 전" · "4주 전" · "11개월 전" · "2년 전". 시각을 모르면 null */
+export function historyAgo(iso: string | null | undefined, now: number): string | null {
+  if (iso === null || iso === undefined) return null
+  const at = Date.parse(iso)
+  if (Number.isNaN(at)) return null
+  const minutes = Math.floor(Math.max(0, now - at) / 60_000)
+  if (minutes < 1) return '방금 전'
+  if (minutes < 60) return `${String(minutes)}분 전`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${String(hours)}시간 전`
+  const days = Math.floor(hours / 24)
+  if (days < 14) return `${String(days)}일 전`
+  if (days < 30) return `${String(Math.floor(days / 7))}주 전`
+  if (days < 365) return `${String(Math.min(11, Math.floor(days / 30)))}개월 전`
+  return `${String(Math.floor(days / 365))}년 전`
 }
 
-/** 판 개수·금액 (홈이 아는 방송만) */
-export interface SoldSummary {
-  readonly count: number
-  readonly amount: number
+/** 방송 길이 "2:30:30" · 한 시간 안이면 "15:43" (만든 때 → 끝낸 때). 모르거나 하루를 넘으면 null */
+export function broadcastLength(startIso: string | null | undefined, endIso: string | null | undefined): string | null {
+  if (startIso == null || endIso == null) return null
+  const ms = Date.parse(endIso) - Date.parse(startIso)
+  if (Number.isNaN(ms) || ms < 0 || ms >= 24 * 60 * 60_000) return null
+  const total = Math.floor(ms / 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  // 한 시간이 안 되면 앞의 0시간은 빼고 "15:43" (D-UX3-88)
+  return hours === 0 ? `${String(minutes)}:${pad(total % 60)}` : `${String(hours)}:${pad(minutes)}:${pad(total % 60)}`
 }
 
-/** 방송 한 줄: 플랫폼 아이콘(없으면 회색 재생 표) · 제목 · 날짜와 지난 시간 · 오른쪽 "진행 중" 또는 판 금액 */
-export function BroadcastRow({ item, now, onPress, sold, amountWords }: { readonly item: BroadcastItem; readonly now: number; readonly onPress: () => void; readonly sold?: SoldSummary | null; readonly amountWords?: (amount: number) => string }) {
+/** 방송 이력: 끝난 실제 방송만, 최근 것이 위 (진행 중·리허설은 빼고) */
+export function pastBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[] {
+  return newestFirst(items).filter((item) => item.ended && !item.rehearsal)
+}
+
+/** 내 방송 한 줄 (홈·모두 보기 같은 모양, D-UX3-85·88): 플랫폼 아이콘 · 제목 · "2:30:30 · 59분 전" · 오른쪽 › */
+export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastItem; readonly now: number; readonly onPress: () => void }) {
   const { p } = useKit()
   const platform = item.platforms?.[0]
-  const sub = broadcastSub(item, now)
-  const state = item.ended ? '끝남' : '진행 중'
+  const sub = [broadcastLength(item.createdAt, item.endedAt), historyAgo(item.endedAt ?? item.createdAt, now)].filter((part) => part !== null).join(' · ')
   return (
-    <Pressable role="button" aria-label={`${broadcastTitle(item)} — ${sub} · ${state}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Pressable role="button" aria-label={`${broadcastTitle(item)} — ${sub}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {platform === undefined ? (
-        <View aria-hidden style={{ width: 40, height: 40, borderRadius: 40 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="play" color={p.textSub} size={20} />
+        <View aria-hidden style={{ width: 34, height: 34, borderRadius: 34 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="play" color={p.textSub} size={18} />
         </View>
       ) : (
-        <PlatformIcon platform={platform} />
+        <PlatformIcon platform={platform} size={34} />
       )}
-      <View style={{ flex: 1, gap: 2 }}>
-        <Txt step="bodyLarge" weight="bold" numberOfLines={1}>
+      <View style={{ flex: 1, gap: 1 }}>
+        <Txt step="bodyLarge" weight="book" numberOfLines={1}>
           {broadcastTitle(item)}
         </Txt>
-        <Txt step="caption" color="textSub" numberOfLines={1}>
-          {sub}
-        </Txt>
+        {sub === '' ? null : (
+          <Txt step="caption" color="textSub" numberOfLines={1}>
+            {sub}
+          </Txt>
+        )}
       </View>
-      {!item.ended ? (
-        <Txt step="caption" weight="bold" color="primaryText">
-          진행 중
-        </Txt>
-      ) : sold !== null && sold !== undefined && amountWords !== undefined ? (
-        <View style={{ alignItems: 'flex-end', gap: 2 }}>
-          <Txt weight="heavy">{amountWords(sold.amount)}</Txt>
-          <Txt step="caption" color="textSub">{`${String(sold.count)}개 팔림`}</Txt>
-        </View>
-      ) : null}
+      <Icon name="chevron" color={p.textSub} size={18} />
     </Pressable>
   )
 }
 
-/** 모든 방송 (쌓인 화면): 날짜마다 흰 카드 */
+/** 모든 방송 (쌓인 화면) — 홈 '내 방송'과 같은 줄 모양으로 지난 방송 모두, 최근 것이 위 (D-UX3-88) */
 export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { readonly onOpen: (id: string) => void; readonly onBack: () => void; readonly now?: number }) {
   const { p } = useKit()
   const room = useTabBarRoom()
@@ -131,6 +147,7 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
       alive = false
     }
   }, [])
+  const past = items === null ? [] : pastBroadcasts(items)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="all-broadcasts">
       <AppHeader title="내 방송" onBack={onBack} />
@@ -141,16 +158,14 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
             {error}
           </Notice>
         ) : null}
-        {items !== null && newestFirst(items).length === 0 ? (
-          <Txt color="textSub">아직 방송이 없어요</Txt>
-        ) : null}
-        {byDate(items ?? []).map((group) => (
-          <RowGroup key={group.date} title={dateHeading(group.date)}>
-            {group.items.map((item) => (
-              <BroadcastRow key={item.id} item={item} now={now} onPress={() => onOpen(item.id)} />
+        {items !== null && past.length === 0 ? <Txt color="textSub">아직 지난 방송이 없어요</Txt> : null}
+        {past.length > 0 ? (
+          <RowGroup label="내 방송">
+            {past.map((item) => (
+              <HistoryRow key={item.id} item={item} now={now} onPress={() => onOpen(item.id)} />
             ))}
           </RowGroup>
-        ))}
+        ) : null}
       </ScrollView>
     </View>
   )

@@ -154,7 +154,8 @@ export function AppHeader({ title, onBack, backLabel = '뒤로', right, testID }
       {onBack === undefined ? null : (
         <BackButton label={backLabel} onPress={onBack} />
       )}
-      <View style={{ flex: 1 }}>
+      {/* Pretendard 한글은 줄 높이 안에서 조금 아래에 그려져 뒤로 화살표보다 2~3 낮아 보였다 — 뒤로가 있을 때 2.5 올려 맞춘다 (D-UX3-88, 실기기 사진 재기) */}
+      <View style={{ flex: 1, transform: onBack === undefined ? undefined : [{ translateY: -2.5 }] }}>
         <Txt step="title" weight="heavy" role="heading" aria-level={1} numberOfLines={1}>
           {title}
         </Txt>

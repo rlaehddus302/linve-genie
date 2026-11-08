@@ -48,7 +48,8 @@ describe('내 방송 (D-UX3-18)', () => {
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: LIST } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    const group = await screen.findByRole('group', { name: '방송 이력' })
+    // D-UX3-88로 바뀐 기대: 이름 "방송 이력" → "내 방송", [모두보기]는 목록 아래 오른쪽
+    const group = await screen.findByRole('group', { name: '내 방송' })
     const rows = within(group).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '방송 모두 보기')
     expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-b', 'broadcast-a'])
     expect(rows[0]?.getAttribute('aria-label')).toBe('c 방송 — 4시간 전')
@@ -69,11 +70,15 @@ describe('내 방송 (D-UX3-18)', () => {
     expect(historyAgo(at(340 * DAY), NOW)).toBe('11개월 전')
     expect(historyAgo(at(800 * DAY), NOW)).toBe('2년 전')
     expect(broadcastLength('2026-11-03T01:00:00.000Z', '2026-11-03T03:30:30.000Z')).toBe('2:30:30')
+    // D-UX3-88: 한 시간이 안 되면 앞의 "0:"을 뺀다 — 옛 "0:15:43"
+    expect(broadcastLength('2026-11-03T01:00:00.000Z', '2026-11-03T01:15:43.000Z')).toBe('15:43')
+    expect(broadcastLength('2026-11-03T01:00:00.000Z', '2026-11-03T01:05:03.000Z')).toBe('5:03')
     expect(broadcastLength(null, '2026-11-03T03:30:30.000Z')).toBeNull()
     expect(pastBroadcasts([item('r', '2026-11-03', { rehearsal: true }), item('x', '2026-11-03', { ended: false }), item('o', '2026-11-02')]).map((one) => one.id)).toEqual(['o'])
   })
 
-  it('모두 보기: 날짜마다 흰 카드(최근 날짜가 위), 누르면 그 방송', async () => {
+  // D-UX3-88로 바뀐 기대 (사용자 지시 2026-11-09 "모두보기 눌렀을 때 뜨는 화면의 목록은 예전 버전이야. 홈화면에서 보이는거처럼"): 날짜마다 흰 카드 → 홈 '내 방송'과 같은 줄로 지난 방송 모두
+  it('모두 보기: 홈 "내 방송"과 같은 줄 — 지난 방송만 최근 것이 위, 누르면 그 방송 (D-UX3-88)', async () => {
     expect(byDate(LIST).map((group) => [group.date, group.items.map((one) => one.id)])).toEqual([
       ['2026-11-03', ['t', 'c']],
       ['2026-11-02', ['y']],
@@ -84,10 +89,9 @@ describe('내 방송 (D-UX3-18)', () => {
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: LIST } }))
     const onOpen = vi.fn()
     render(world.wrap(<AllBroadcastsScreen onOpen={onOpen} onBack={vi.fn()} now={NOW} />))
-    const today = await screen.findByRole('group', { name: '11월 3일 화요일' })
-    expect(within(today).getAllByRole('button').map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-t', 'broadcast-c'])
-    expect(screen.getAllByRole('group').map((one) => one.getAttribute('aria-label'))).toEqual(['11월 3일 화요일', '11월 2일 월요일', '11월 1일 일요일', '10월 30일 금요일'])
-    fireEvent.click(within(today).getByRole('button', { name: 't 방송 — 11월 3일 · 2시간 전 · 진행 중' }))
-    expect(onOpen).toHaveBeenCalledWith('t')
+    const group = await screen.findByRole('group', { name: '내 방송' })
+    expect(within(group).getAllByRole('button').map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-b', 'broadcast-a'])
+    fireEvent.click(within(group).getByRole('button', { name: 'c 방송 — 4시간 전' }))
+    expect(onOpen).toHaveBeenCalledWith('c')
   })
 })

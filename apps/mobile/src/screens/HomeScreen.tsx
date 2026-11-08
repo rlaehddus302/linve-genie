@@ -17,10 +17,10 @@ import { RETRY_NOW } from '../lib/words.ts'
 import { BigButton, Icon, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
-import { broadcastTitle, HOME_BROADCASTS, liveBroadcast, newestFirst } from './BroadcastList.tsx'
+import { HistoryRow, HOME_BROADCASTS, liveBroadcast, pastBroadcasts } from './BroadcastList.tsx'
+export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
-import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
@@ -142,38 +142,6 @@ export function defaultBroadcastTitle(date: string): string {
   return `${date} ${WEEKDAY[day] ?? ''}요일 방송`
 }
 
-/** 방송 이력의 지난 시간 (D-UX3-85): "방금 전" · "59분 전" · "23시간 전" · "13일 전" · "4주 전" · "11개월 전" · "2년 전". 시각을 모르면 null */
-export function historyAgo(iso: string | null | undefined, now: number): string | null {
-  if (iso === null || iso === undefined) return null
-  const at = Date.parse(iso)
-  if (Number.isNaN(at)) return null
-  const minutes = Math.floor(Math.max(0, now - at) / 60_000)
-  if (minutes < 1) return '방금 전'
-  if (minutes < 60) return `${String(minutes)}분 전`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${String(hours)}시간 전`
-  const days = Math.floor(hours / 24)
-  if (days < 14) return `${String(days)}일 전`
-  if (days < 30) return `${String(Math.floor(days / 7))}주 전`
-  if (days < 365) return `${String(Math.min(11, Math.floor(days / 30)))}개월 전`
-  return `${String(Math.floor(days / 365))}년 전`
-}
-
-/** 방송 길이 "2:30:30" (만든 때 → 끝낸 때). 모르거나 하루를 넘으면 null */
-export function broadcastLength(startIso: string | null | undefined, endIso: string | null | undefined): string | null {
-  if (startIso == null || endIso == null) return null
-  const ms = Date.parse(endIso) - Date.parse(startIso)
-  if (Number.isNaN(ms) || ms < 0 || ms >= 24 * 60 * 60_000) return null
-  const total = Math.floor(ms / 1000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${String(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`
-}
-
-/** 방송 이력: 끝난 실제 방송만, 최근 것이 위 (진행 중·리허설은 빼고) */
-export function pastBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[] {
-  return newestFirst(items).filter((item) => item.ended && !item.rehearsal)
-}
-
 /** 라이브 표시 프로필 사진 지름 — 옆 글자 높이에 맞춘다 (D-UX3-87, 토스 "토스뱅크 ›"처럼) */
 const AVATAR = 26
 
@@ -226,35 +194,6 @@ function LiveEntry({ live, onOpen, onConnect }: { readonly live: BroadcastItem |
         <Txt step="lead" weight="heavy">{label}</Txt>
         <Icon name="chevron" color={p.textSub} size={16} />
       </View>
-    </Pressable>
-  )
-}
-
-/** 방송 이력 한 줄: 플랫폼 아이콘 · 제목 · "2:30:30 · 59분 전" · 오른쪽 › */
-function HistoryRow({ item, now, onPress }: { readonly item: BroadcastItem; readonly now: number; readonly onPress: () => void }) {
-  const { p } = useKit()
-  const platform = item.platforms?.[0]
-  const sub = [broadcastLength(item.createdAt, item.endedAt), historyAgo(item.endedAt ?? item.createdAt, now)].filter((part) => part !== null).join(' · ')
-  return (
-    <Pressable role="button" aria-label={`${broadcastTitle(item)} — ${sub}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
-      {platform === undefined ? (
-        <View aria-hidden style={{ width: 34, height: 34, borderRadius: 34 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="play" color={p.textSub} size={18} />
-        </View>
-      ) : (
-        <PlatformIcon platform={platform} size={34} />
-      )}
-      <View style={{ flex: 1, gap: 1 }}>
-        <Txt step="bodyLarge" weight="book" numberOfLines={1}>
-          {broadcastTitle(item)}
-        </Txt>
-        {sub === '' ? null : (
-          <Txt step="caption" color="textSub" numberOfLines={1}>
-            {sub}
-          </Txt>
-        )}
-      </View>
-      <Icon name="chevron" color={p.textSub} size={18} />
     </Pressable>
   )
 }
@@ -337,18 +276,19 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
         ) : null}
 
         {past.length > 0 ? (
-          <View role="group" aria-label="방송 이력" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.xs }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: SPACE.xl, paddingRight: SPACE.md, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
-              <Txt step="body" weight="book" color="textSub" role="heading" aria-level={2}>방송 이력</Txt>
-              {nav.openAllBroadcasts === undefined ? null : (
-                <Pressable role="button" aria-label="방송 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-                  <Txt step="caption" color="textSub">모두보기</Txt>
-                </Pressable>
-              )}
+          <View role="group" aria-label="내 방송" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.xs }}>
+            <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
+              <Txt step="body" weight="book" color="textSub" role="heading" aria-level={2}>내 방송</Txt>
             </View>
             {past.slice(0, HOME_BROADCASTS).map((item) => (
               <HistoryRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} />
             ))}
+            {/* 모두보기는 목록 아래 오른쪽, 글자만의 단추 (D-UX3-88) */}
+            {nav.openAllBroadcasts === undefined ? null : (
+              <Pressable role="button" aria-label="방송 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-end', marginRight: SPACE.md, marginBottom: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+                <Txt step="caption" color="textSub">모두보기</Txt>
+              </Pressable>
+            )}
           </View>
         ) : null}
 

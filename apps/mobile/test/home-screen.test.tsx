@@ -56,7 +56,8 @@ describe('HomeScreen', () => {
     expect(navigation.openPacking).toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: /^라벨 뽑기/ })).toBeNull()
     // 지난 방송은 방송 이력에 › 로 (판 금액 없음)
-    expect(screen.getByRole('group', { name: '방송 이력' })).toBeTruthy()
+    // D-UX3-88: "방송 이력" → "내 방송"
+    expect(screen.getByRole('group', { name: '내 방송' })).toBeTruthy()
     expect(screen.queryByText('4개 팔림')).toBeNull()
     world.services.labels.stop()
   })
