@@ -274,7 +274,7 @@ const POPUP_TEXT_SIDE = 22
 export const POPUP_DIM = 0.22
 /** 단추 높이 47 (D-UX3-56 다시 재어 — 옛 44). 폭은 둘이 나눠 140 */
 const POPUP_BUTTON_HEIGHT = 47
-const POPUP_BUTTON_TEXT = 17
+const POPUP_BUTTON_TEXT = 15 // D-UX3-74: 17에서 한 단계 줄임
 
 /** 팝업 안 단추 — 큰 단추보다 낮고 글자가 덜 굵다 (토스 팝업 단추) */
 function PopupButton({ label, kind, disabled, busy, onPress }: { readonly label: string; readonly kind: 'cancel' | 'confirm'; readonly disabled?: boolean; readonly busy?: boolean; readonly onPress: () => void }) {

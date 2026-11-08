@@ -1,5 +1,5 @@
 // 방송 중 (SPEC §7 화면 2, D-UX2-03 새 시안): 머리(뒤로 · "방송 중" · 음성 상태 · 방송 메뉴) → 도움 한 줄 → 꼭 필요한 경고만 한 줄씩
-// → 음성 확인할 것 → 상품 전체 리스트(최신이 위) → 아래 고정 버튼 두 개(듣기 멈추기/듣기 시작 · 직접 넣기).
+// → 음성 확인할 것 → 상품 전체 리스트(최신이 위). 아래 고정 버튼은 없다 — 직접 넣기·휴대폰 마이크는 방송 메뉴(⋯)에 (D-UX3-73).
 // 빠른 입력·문자찜은 "직접 넣기" 시트, 유튜브 잇기·음성 설정·방송 끝내기는 방송 메뉴(⋯)의 시트로 옮겼다. 상품이 없는 새 방송이 유튜브에
 // 이어져 있지 않으면 유튜브 잇기 시트를 한 번 먼저 연다(방송 시작 흐름의 "주소 붙여넣기" 단계).
 // - 범위 자료는 ScopeStore(웹과 같은 프로토콜)로 받고, 쓰기는 /api/events에 요청 번호를 붙여 보낸 뒤 응답 seq까지 따라잡는다.
@@ -30,7 +30,7 @@ import { DecisionsView } from './console/Decisions.tsx'
 const MENU_HANDOFF_MS = 400
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
-import { ListenButton, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
+import { ListenMenuRow, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { ListenLine, listenChip, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB } from './console/LiveTalk.tsx'
@@ -368,7 +368,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             </Txt>
           </View>
         ) : null}
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
           <AwayLine />
           <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
@@ -377,7 +377,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {pasted !== null ? <Notice tone="success">{pasted}</Notice> : null}
           {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
           <YoutubeWarning yt={yt} closed={closed} onPaste={() => setSheet('paste')} />
-          {live ? <ListenLine session={services.voice} broadcastId={broadcastId} title={title} stream={stream} /> : null}
+          {live ? <ListenLine session={services.voice} broadcastId={broadcastId} stream={stream} /> : null}
           <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
           <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
             <Pill on={tab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
@@ -386,14 +386,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           </View>
           {tab === 'products' ? <ProductList onOpen={setDetail} /> : tab === 'feed' ? <ClaimFeed /> : <LiveTalk />}
         </ScrollView>
-        {!closed ? (
-          <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.sm, backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.line }}>
-            {seller ? <ListenButton session={services.voice} broadcastId={broadcastId} title={title} /> : null}
-            <View style={{ width: seller ? 136 : undefined, flex: seller ? undefined : 1 }}>
-              <BigButton kind="outline" oneLine label={DIRECT_INPUT} onPress={() => setSheet('direct')} />
-            </View>
-          </View>
-        ) : null}
 
         <BottomSheet visible={sheet === 'direct'} onClose={close} title={DIRECT_INPUT}>
           <QuickInput />
@@ -428,6 +420,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         <BottomSheet visible={sheet === 'menu'} onClose={close} title="방송 메뉴">
           <Txt step="caption" color="textSub">{`${title}${broadcast.rehearsal ? ' · 리허설' : ''}`}</Txt>
           <RowGroup label="방송 메뉴">
+            {/* 아래 고정 단추 두 개(듣기 시작·직접 넣기)는 메뉴로 옮겼다 (D-UX3-73) */}
+            {!closed ? <TodoRow title={DIRECT_INPUT} sub="번호·가격 바로 넣기, 문자찜 넣기" onPress={() => fromMenu(() => setSheet('direct'))} /> : null}
+            {/* 방송 소리가 멈췄을 때만 (D-UX3-73 — 들린 말 줄 아래 [다시 켜기]에서 옮김) */}
+            {!closed && stream.status?.phase === 'stopped' ? <TodoRow title="방송 소리 다시 켜기" sub="멈춘 방송 소리 받기를 다시 시작해요" onPress={() => { setSheet('none'); stream.retry() }} /> : null}
+            {seller && !closed ? <ListenMenuRow session={services.voice} broadcastId={broadcastId} title={title} onDone={() => setSheet('none')} /> : null}
             {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="방송 연결" sub="방송 링크 붙여 넣기, 채팅 받는 상태" onPress={() => fromMenu(showLink)} /> : null}
             {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => fromMenu(() => setSheet('voice'))} /> : null}
             {openLabels !== undefined && !broadcast.rehearsal ? <TodoRow title="프린터·라벨" sub="프린터 연결, 라벨 대기·다시 찍기" onPress={() => fromMenu(openLabels)} /> : null}

@@ -18,7 +18,7 @@ import {
   VOICE_STOPPED_TITLE,
   UNDO,
 } from '../../lib/words.ts'
-import { BigButton as KitButton, DotStatus, Icon, useKit } from '../../ui/kit/index.ts'
+import { DotStatus, TodoRow } from '../../ui/kit/index.ts'
 import { SPACE } from '../../ui/kit/tokens.ts'
 import { BigButton, BigRed, Body, Card, Hint, Notice, Row } from '../../ui/parts.tsx'
 
@@ -40,15 +40,20 @@ export function ListenStatus({ session, broadcastId }: { readonly session: Voice
   return <DotStatus word={state.word} tone={state.tone} />
 }
 
-/** 아래 고정 큰 버튼: 듣기 멈추기 / 듣기 시작 */
-export function ListenButton({ session, broadcastId, title }: { readonly session: VoiceSession; readonly broadcastId: string; readonly title: string }) {
-  const { p } = useKit()
+/** 방송 메뉴 한 줄: 휴대폰 마이크로 듣기 / 끄기 (D-UX3-73 — 아래 고정 단추에서 옮김). 누르면 메뉴를 닫고(onDone) 켜거나 끈다 */
+export function ListenMenuRow({ session, broadcastId, title, onDone }: { readonly session: VoiceSession; readonly broadcastId: string; readonly title: string; readonly onDone: () => void }) {
   const view = useSyncExternalStore(session.subscribe, session.getView)
   const on = view.on && view.broadcastId === broadcastId
   return (
-    <View style={{ flex: 1 }}>
-      <KitButton label={on ? LISTEN_STOP : LISTEN_START} leading={<Icon name="mic" color={p.onPrimary} size={22} />} onPress={() => void (on ? session.turnOff() : session.turnOn(broadcastId, title))} testID="listen-button" />
-    </View>
+    <TodoRow
+      title={on ? LISTEN_STOP : LISTEN_START}
+      sub={on ? '방송 소리로 다시 들어요' : '방송 소리 대신 이 휴대폰 마이크로'}
+      testID="listen-button"
+      onPress={() => {
+        onDone()
+        void (on ? session.turnOff() : session.turnOn(broadcastId, title))
+      }}
+    />
   )
 }
 

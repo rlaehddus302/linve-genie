@@ -158,8 +158,9 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
   })
 })
 
-describe('UX-PRN2-008 글자 크기 (본문 16px·꼬리표 14px, D-UX3-07)', () => {
-  it('"실험" 꼬리표(big)는 본문 16px, 기본 꼬리표는 14px 그대로', () => {
+// D-UX3-74로 바뀐 기대 (사용자 지시 2026-11-09 "글자 크기 다 줄이셈"): 본문 16 → 15, 꼬리표 14 → 13
+describe('UX-PRN2-008 글자 크기 (본문 15px·꼬리표 13px, D-UX3-74)', () => {
+  it('"실험" 꼬리표(big)는 본문 15px, 기본 꼬리표는 13px 그대로', () => {
     render(
       <>
         <Tag tone="warning" big>
@@ -168,16 +169,16 @@ describe('UX-PRN2-008 글자 크기 (본문 16px·꼬리표 14px, D-UX3-07)', ()
         <Tag tone="info">보통</Tag>
       </>,
     )
-    expect(getComputedStyle(screen.getByText('실험')).fontSize).toBe('16px')
-    expect(getComputedStyle(screen.getByText('보통')).fontSize).toBe('14px')
+    expect(getComputedStyle(screen.getByText('실험')).fontSize).toBe('15px')
+    expect(getComputedStyle(screen.getByText('보통')).fontSize).toBe('13px')
   })
 
   // D-UX3-19: 옛 문장 '실험 중인 프린터는 테스트 인쇄를…'
-  it('테스트 기다림 안내는 본문 크기(16px)', async () => {
+  it('테스트 기다림 안내는 본문 크기(15px)', async () => {
     const world = await connected(BAUATO_PPA2L)
     fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
-    expect(getComputedStyle(screen.getByText('이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.')).fontSize).toBe('16px')
+    expect(getComputedStyle(screen.getByText('이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.')).fontSize).toBe('15px')
     world.services.labels.stop()
   })
 })

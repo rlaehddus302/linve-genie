@@ -143,32 +143,32 @@ const LIGHT_TONES: Readonly<Record<Tone, TonePair>> = {
 /** 상태 꼬리표·알림 상자 색 쌍 (바탕 + 글자) */
 export const TONES: Readonly<Record<Scheme, Readonly<Record<Tone, TonePair>>>> = { light: LIGHT_TONES, dark: LIGHT_TONES }
 
-/** 글자 크기 단계 (dp, 시스템 큰 글자 배율 전). 토스 화면 치수 그대로 (D-UX3-07, 사용자 지시 2026-11-03 "똑같이"). */
+/** 글자 크기 단계 (dp, 시스템 큰 글자 배율 전). 토스 화면 치수(D-UX3-07)에서 모두 한 단계(약 10%) 줄였다 — 사용자 지시 2026-11-09 "글자 크기 다 줄이셈", 카드가 커 한 화면에 너무 적게 보였다 (D-UX3-74). */
 export const TYPE = {
   /** 아래 탭 글자 (토스 아래 탭처럼 작게, D-UX3-41) */
-  tab: 12,
+  tab: 11,
   /** 입력 칸 위 라벨·칸 아래 잘못 문장·도움말 (토스 "휴대폰 번호"·"…다시 확인해주세요.", D-UX3-51) */
-  note: 13,
+  note: 12,
   /** 꼬리표·도움말 */
-  caption: 14,
+  caption: 13,
   /** 인증번호 "남은 시간" (토스 사진을 재어 15, D-UX3-56) */
-  meta: 15,
+  meta: 14,
   /** 본문 */
-  body: 16,
+  body: 15,
   /** 줄 제목·단추·입력 */
-  bodyLarge: 18,
+  bodyLarge: 16,
   /** 카드 안 묶음 이름 */
-  section: 18,
+  section: 16,
   /** 방송 중 상품 줄의 품종·가격 */
-  lead: 20,
+  lead: 18,
   /** 카드·시트 제목 */
-  title: 22,
+  title: 20,
   /** 화면 맨 위 질문형 제목 ("어떤 계좌로 보낼까요?") — 토스 사진 재기 22·굵게·줄 간격 1.24 (D-UX3-51, 옛 26) */
-  headline: 22,
+  headline: 20,
   /** 숫자 강조 */
-  number: 28,
+  number: 24,
   /** 입력 칸 값·비어 있을 때 칸 안 라벨 (토스 "휴대폰 번호" 칸을 재어 22, D-UX3-51 — 옛 24) */
-  input: 22,
+  input: 20,
 } as const
 
 export type TypeStep = keyof typeof TYPE

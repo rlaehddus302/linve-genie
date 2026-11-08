@@ -158,8 +158,9 @@ export const VOICE_OTHER_DEVICE = '음성은 다른 기기에서 듣는 중이�
 export const VOICE_SELLER_ONLY = '음성은 판매자 계정에서만 켤 수 있어요.'
 
 /** 방송 중 화면 (D-UX2-03): 아래 고정 버튼 두 개와 머리 아래 도움 한 줄 */
-export const LISTEN_START = '듣기 시작'
-export const LISTEN_STOP = '듣기 멈추기'
+/** 방송 메뉴의 휴대폰 마이크 켜기·끄기 (D-UX3-73 — 아래 고정 단추에서 옮김) */
+export const LISTEN_START = '휴대폰 마이크로 듣기'
+export const LISTEN_STOP = '휴대폰 마이크 끄기'
 export const DIRECT_INPUT = '직접 넣기'
 export const LISTEN_HELP = '“15번 핑크프릴 만 이천원”처럼 말하면 자동으로 올라가요'
 export const LISTEN_OFF_HELP = '듣기를 켜면 말로 상품을 올릴 수 있어요'

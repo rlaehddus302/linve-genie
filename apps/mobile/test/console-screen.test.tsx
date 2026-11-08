@@ -24,7 +24,12 @@ async function open(world: ReturnType<typeof makeWorld>) {
   })
 }
 
-const openDirect = () => fireEvent.click(screen.getByRole('button', { name: DIRECT_INPUT }))
+// 직접 넣기·휴대폰 마이크는 아래 고정 단추가 아니라 방송 메뉴(⋯)에 있다 (D-UX3-73)
+const openMenu = () => fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+const openDirect = () => {
+  openMenu()
+  fireEvent.click(screen.getByRole('button', { name: DIRECT_INPUT }))
+}
 
 describe('ConsoleScreen', () => {
   it('서버에 등록된 상품이 리스트에 크게 보이고, 누르면 자세히가 열리며 상태 낱말은 한국어다', async () => {
@@ -209,6 +214,7 @@ describe('ConsoleScreen', () => {
     const world = makeWorld({ products: [] })
     await open(world)
     expect(screen.getByRole('status', { name: LISTEN_STATE.off })).toBeTruthy()
+    openMenu()
     fireEvent.click(screen.getByRole('button', { name: LISTEN_START }))
     const dialog = await screen.findByRole('dialog', { name: '음성 안내' })
     for (const line of VOICE_CONSENT_LINES) expect(within(dialog).getByText(line)).toBeTruthy()
@@ -230,8 +236,10 @@ describe('ConsoleScreen', () => {
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.register', b: 'b1', no: 17, name: '', price: 20_000 })
     expect(screen.getByRole('button', { name: '17번 등록 되돌리기' })).toBeTruthy()
     expect(screen.getByRole('status', { name: '지금 들리는 말' }).textContent).toContain('17번 2만 원')
+    openMenu()
     fireEvent.click(screen.getByRole('button', { name: LISTEN_STOP }))
     await waitFor(() => expect(world.audio.stops).toBe(1))
+    openMenu()
     expect(screen.getByRole('button', { name: LISTEN_START })).toBeTruthy()
   })
 

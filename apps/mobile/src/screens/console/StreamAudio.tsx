@@ -12,7 +12,7 @@ import type { VoiceSession, VoiceView } from '../../lib/voice-session.ts'
 import { Icon, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { listenState } from './VoicePanel.tsx'
-import { BigButton, Body, Card, Hint, Notice, Row } from '../../ui/parts.tsx'
+import { BigButton, Body, Card, Hint, Notice } from '../../ui/parts.tsx'
 import type { StreamKeep } from '../../lib/stream-keep.ts'
 
 const POLL_MS = 1000
@@ -175,9 +175,9 @@ export function ServerHeard({ broadcastId }: { readonly broadcastId: string }) {
 
 /**
  * 들린 말 한 줄 (D-LIVETEST-07): 평소엔 마지막으로 들린 말 한 줄만 — 누르면 최근 줄·듣는 곳 상태·다시 켜기를 펼친다.
- * 상태 문장은 머리 오른쪽 듣기 상태와 겹쳐 펼쳤을 때만 보인다(D-UX3-72). 다시 켜기·휴대폰으로 듣기 단추는 접혀 있어도 보인다.
+ * 상태 문장은 머리 오른쪽 듣기 상태와 겹쳐 펼쳤을 때만 보인다(D-UX3-72). 다시 켜기·휴대폰 마이크는 방송 메뉴(⋯)에만 있다(D-UX3-73).
  */
-export function ListenLine({ session, broadcastId, title, stream }: { readonly session: VoiceSession; readonly broadcastId: string; readonly title: string; readonly stream: StreamAudio }) {
+export function ListenLine({ session, broadcastId, stream }: { readonly session: VoiceSession; readonly broadcastId: string; readonly stream: StreamAudio }) {
   const { p } = useKit()
   const view = useSyncExternalStore(session.subscribe, session.getView)
   const [open, setOpen] = useState(false)
@@ -201,12 +201,6 @@ export function ListenLine({ session, broadcastId, title, stream }: { readonly s
       {/* 상태 문장은 펼쳤을 때만 — 접혀 있으면 머리 오른쪽 듣기 상태가 같은 말을 보인다 (D-UX3-72) */}
       {open && line !== null ? <Notice tone={TONE[line.tone]} alert={line.tone === 'danger'}>{line.text}</Notice> : null}
       {open && line?.late != null ? <Hint>{line.late}</Hint> : null}
-      {line !== null && (line.retry || line.useMic) ? (
-        <Row wrap>
-          {line.retry ? <BigButton small label="다시 켜기" onPress={stream.retry} /> : null}
-          {line.useMic ? <BigButton small label="휴대폰으로 듣기" onPress={() => void session.turnOn(broadcastId, title)} /> : null}
-        </Row>
-      ) : null}
     </View>
   )
 }
