@@ -118,14 +118,17 @@ describe('ConsoleScreen', () => {
     const rows = within(feed).getAllByRole('listitem')
     // D-UX3-79로 바뀐 기대 (사용자 지시 2026-11-09 "구매자별로 번호를 묶는 느낌"): 옛 기대는 찜 하나가 한 줄(시각·어디서·이름·번호·결과 + 채팅 원문).
     // 이제 손님 하나가 한 줄 — 가장 최근에 찜한 손님이 맨 아래(D-UX3-75), 한 손님 안의 번호는 찜한 순서, 시각은 그리지 않는다.
+    // D-UX3-83로 바뀐 기대 (사용자 지시 2026-11-09 "찜은 금색 [123 찜], 대기는 회색 [123 대기 1]"): 옛 기대는 꼬리표에 번호만, 읽기 낱말 "15번 1등"·"대기 1번"
     expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual([
-      '김영희 15번 대기 1번 · 이미 찜됨 · 1등 홍길동',
-      '문자-0937 88번 보류',
-      '홍길동 15번 1등, 243번 1등',
+      '김영희 15 대기 1 · 이미 찜됨 · 1등 홍길동',
+      '문자-0937 88 보류',
+      '홍길동 15 찜, 243 찜',
     ])
     expect(within(rows[2]!).getByText('홍길동')).toBeTruthy()
-    expect(within(rows[2]!).getByText('15')).toBeTruthy()
-    expect(within(rows[2]!).getByText('243')).toBeTruthy()
+    expect(within(rows[2]!).getByText('15 찜')).toBeTruthy()
+    expect(within(rows[2]!).getByText('243 찜')).toBeTruthy()
+    expect(within(rows[0]!).getByText('15 대기 1')).toBeTruthy()
+    expect(within(rows[1]!).getByText('88 보류')).toBeTruthy()
     expect(within(rows[1]!).getByText('문자-0937')).toBeTruthy()
     expect(rows[1]?.textContent).not.toContain('문자손님')
     expect(feed.textContent).not.toMatch(/\d{1,2}:\d{2}/)
@@ -136,7 +139,7 @@ describe('ConsoleScreen', () => {
       expect(only).toBeTruthy()
       return within(only!).getAllByRole('listitem')
     })
-    expect(pendingRows[0]?.getAttribute('aria-label')).toBe('문자-0937 88번 보류')
+    expect(pendingRows[0]?.getAttribute('aria-label')).toBe('문자-0937 88 보류')
   })
 
   it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 맨 아래 — D-UX3-75)으로, 한 줄에 닉네임(문자는 "문자-끝번호")·내용·(결과 — 15번 찜 · 15번 대기 1), 시각·출처 꼬리표 없이(D-UX3-80) 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
