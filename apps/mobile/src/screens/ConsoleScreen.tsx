@@ -400,8 +400,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             <Pill on={tab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => setTab('feed')} />
             <Pill on={tab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => setTab('talk')} />
           </View>
-          {/* 목록이 짧으면 화면 아래에 붙는다 — 라이브 채팅처럼 최신이 맨 아래(D-UX3-75)이고 위는 빈 자리 (D-UX3-77) */}
-          <View testID="console-list" style={{ flexGrow: 1, justifyContent: 'flex-end' }}>
+          {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
+          <View testID="console-list" style={{ flexGrow: 1, justifyContent: tab === 'talk' ? 'flex-end' : 'flex-start' }}>
             {tab === 'products' ? <ProductList onOpen={setDetail} /> : tab === 'feed' ? <ClaimFeed /> : <LiveTalk />}
           </View>
         </ScrollView>

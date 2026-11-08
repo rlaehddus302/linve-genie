@@ -32,9 +32,14 @@ const openDirect = () => {
 }
 
 describe('ConsoleScreen', () => {
-  it('목록이 짧으면 화면 아래에 붙는다 — 위가 빈 자리 (D-UX3-77)', async () => {
+  // D-UX3-81로 바뀐 기대 (사용자 지시 2026-11-09 "상품, 찜기록은 위로 정렬, 채팅문자는 아래로 정렬"): 옛 D-UX3-77 "모두 아래"
+  it('상품·찜 기록 목록은 위에, 채팅·문자는 화면 아래에 붙는다 (D-UX3-81)', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
+    expect(getComputedStyle(screen.getByTestId('console-list')).justifyContent).toBe('flex-start')
+    fireEvent.click(screen.getByRole('button', { name: '찜 기록' }))
+    expect(getComputedStyle(screen.getByTestId('console-list')).justifyContent).toBe('flex-start')
+    fireEvent.click(screen.getByRole('button', { name: '채팅·문자' }))
     expect(getComputedStyle(screen.getByTestId('console-list')).justifyContent).toBe('flex-end')
   })
 
