@@ -85,16 +85,20 @@ describe('ConsoleScreen', () => {
     expect(world.events.length).toBe(0)
   })
 
-  it('D-LIVETEST-07 찜 기록: 채팅·문자찜이 시각·어디서·이름·번호·결과로, 이미 1등이 있는 상품을 찜하면 "이미 찜됨 · 1등"과 채팅 원문이 보이고, 보류 찜 칸을 누르면 보류 찜만 연다', async () => {
+  it('D-LIVETEST-07·D-UX3-79 찜 기록: 구매자별 한 줄에 이름(문자 손님은 문자-끝 4자리)과 찜한 번호 꼬리표가 찜한 순서로, 이미 1등이 있는 번호는 "이미 찜됨 · 1등"으로 읽히고, 보류 찜 칸을 누르면 보류 찜만 연다', async () => {
     const world = makeWorld({ products: [product(15)] })
-    world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { messages: [{ id: 'm2', broadcast: 'b1', channel: 'ch2', nick: '김영희', text: '15번 저도요', owner: false, seq: 11, at: '2026-10-29T11:00:09.000Z', publishedAt: '2026-10-29T11:00:09.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [], converted: [], claims: ['c2'], failed: false }], more: false } }))
     await open(world)
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({
       body: changes(5, 7, {
         products: [product(15, { winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u2'], waitlistClaims: ['c2'] })],
-        claims: [claim('c1', 15, 'u1'), claim('c2', 15, 'u2', { status: 'WAITLISTED', seq: 11, rankTime: '2026-10-29T11:00:09.000Z' }), claim('c3', 88, 'u3', { status: 'PENDING', origin: 'sms', productId: null, seq: 12, rankTime: '2026-10-29T11:00:12.000Z' })],
+        claims: [
+          claim('c1', 15, 'u1'),
+          claim('c2', 15, 'u2', { status: 'WAITLISTED', seq: 11, rankTime: '2026-10-29T11:00:09.000Z' }),
+          claim('c3', 88, 'u3', { status: 'PENDING', origin: 'sms', productId: null, seq: 12, rankTime: '2026-10-29T11:00:12.000Z' }),
+          claim('c4', 243, 'u1', { seq: 13, rankTime: '2026-10-29T11:00:15.000Z' }),
+        ],
         pending: [{ product: 'b1/88', broadcast: 'b1', no: 88, buyers: ['u3'], claims: ['c3'] } as never],
-        buyers: [buyer('u1', '홍길동'), buyer('u2', '김영희'), buyer('u3', '문자손님')],
+        buyers: [buyer('u1', '홍길동'), buyer('u2', '김영희'), buyer('u3', '문자손님', { kind: 'sms', phoneLast4: '0937' })],
       }),
     }))
     await act(async () => {
@@ -104,12 +108,19 @@ describe('ConsoleScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
     const feed = await screen.findByRole('list', { name: '찜 기록' })
     const rows = within(feed).getAllByRole('listitem')
-    // D-UX3-75로 바뀐 기대 (사용자 지시 2026-11-09 "라이브채팅처럼 … 맨 아래 있는게 가장 최근꺼로"): 최신이 맨 아래 — 1등 → 대기(이미 찜됨) → 문자 보류
-    expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual(['15번 홍길동 1등', '15번 김영희 대기 1번', '88번 문자손님 보류'])
-    expect(rows[2]?.textContent).toContain('문자')
-    await waitFor(() => expect(rows[1]?.textContent).toContain('15번 저도요'))
-    expect(rows[1]?.textContent).toContain('이미 찜됨 · 1등 홍길동')
-    expect(rows[0]?.textContent).not.toContain('이미 찜됨')
+    // D-UX3-79로 바뀐 기대 (사용자 지시 2026-11-09 "구매자별로 번호를 묶는 느낌"): 옛 기대는 찜 하나가 한 줄(시각·어디서·이름·번호·결과 + 채팅 원문).
+    // 이제 손님 하나가 한 줄 — 가장 최근에 찜한 손님이 맨 아래(D-UX3-75), 한 손님 안의 번호는 찜한 순서, 시각은 그리지 않는다.
+    expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual([
+      '김영희 15번 대기 1번 · 이미 찜됨 · 1등 홍길동',
+      '문자-0937 88번 보류',
+      '홍길동 15번 1등, 243번 1등',
+    ])
+    expect(within(rows[2]!).getByText('홍길동')).toBeTruthy()
+    expect(within(rows[2]!).getByText('15')).toBeTruthy()
+    expect(within(rows[2]!).getByText('243')).toBeTruthy()
+    expect(within(rows[1]!).getByText('문자-0937')).toBeTruthy()
+    expect(rows[1]?.textContent).not.toContain('문자손님')
+    expect(feed.textContent).not.toMatch(/\d{1,2}:\d{2}/)
     fireEvent.click(screen.getByRole('button', { name: /^보류 찜 1/ }))
     const pendingRows = await waitFor(() => {
       const lists = screen.getAllByRole('list', { name: '찜 기록' })
@@ -117,7 +128,7 @@ describe('ConsoleScreen', () => {
       expect(only).toBeTruthy()
       return within(only!).getAllByRole('listitem')
     })
-    expect(pendingRows[0]?.getAttribute('aria-label')).toBe('88번 문자손님 보류')
+    expect(pendingRows[0]?.getAttribute('aria-label')).toBe('문자-0937 88번 보류')
   })
 
   it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 맨 아래 — D-UX3-75)으로, 문자는 서버가 한 일과 끝번호로 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
