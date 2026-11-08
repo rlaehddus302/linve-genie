@@ -185,8 +185,15 @@ export function tabIndex(key: TabKey): number {
 
 /** 아래 탭 칸 높이 (D-UX3-41) */
 export const TAB_CELL = 55
-/** 아래 탭 아래 여백 (토스처럼 홈 막대 자리까지 내려 앉는다, D-UX3-41): 홈 막대가 있으면 그 높이보다 14 작게, 없으면 8 */
+/** 아래 안전 영역이 이보다 크면 손잡이(아이폰 홈 막대 34·안드로이드 제스처 막대 ~24)가 아니라 안드로이드 단추 막대(◁ ○ ▢, ~48)다 */
+export const BUTTON_NAV_MIN_INSET = 40
+
+/**
+ * 아래 탭 아래 여백 (토스처럼 홈 막대 자리까지 내려 앉는다, D-UX3-41): 홈 막대가 있으면 그 높이보다 14 작게, 없으면 8.
+ * 안드로이드 단추 막대는 눌러야 하는 단추라 겹치면 안 된다 — 그 위로 8 띄운다 (D-UX3-67).
+ */
 export function tabBarBottom(inset: number): number {
+  if (inset >= BUTTON_NAV_MIN_INSET) return inset + SPACE.sm
   return Math.max(inset - 14, SPACE.sm)
 }
 

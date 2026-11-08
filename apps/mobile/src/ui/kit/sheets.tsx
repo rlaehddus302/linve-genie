@@ -65,7 +65,7 @@ export function BottomSheet({ visible, onClose, title, children, actions, testID
   const rise = progress.interpolate({ inputRange: [0, 1], outputRange: [height * 0.6, 0] })
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+      <KeyboardAvoidingView behavior={KEYBOARD_AVOID} style={{ flex: 1, justifyContent: 'flex-end' }}>
         <Animated.View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: p.backdrop, opacity: backdrop }}>
           <Pressable aria-label="판 닫기" role="button" onPress={onClose} style={{ flex: 1 }} />
         </Animated.View>
@@ -107,6 +107,16 @@ export interface FullSheetProps {
   readonly overlay?: ReactNode
   readonly testID?: string
 }
+
+/**
+ * 키보드 피하기 방식 (D-UX3-67): 아이폰·안드로이드 모두 'padding'(키보드 높이만큼 아래를 비워 단추를 키보드 위로 올린다).
+ * 안드로이드는 화면 끝까지 그리기(edge-to-edge, RN 0.88·targetSdk 36 기본)라 창이 키보드만큼 줄지 않는다 — 'padding'이 없으면 아래 단추가 키보드에 가린다.
+ * 창이 줄어드는 옛 기기에서도 KeyboardAvoidingView는 겹친 만큼만 비우므로(겹침 0이면 0) 두 번 올라가지 않는다. 웹은 키보드가 창을 줄인다.
+ */
+export function keyboardAvoidFor(os: string): 'padding' | undefined {
+  return os === 'web' ? undefined : 'padding'
+}
+export const KEYBOARD_AVOID = keyboardAvoidFor(Platform.OS)
 
 /** 키보드가 떠 있는지 (기기에서만 바뀐다 — 웹·시험은 늘 false) */
 export function useKeyboardShown(): boolean {
@@ -157,7 +167,7 @@ export function FormPage({ title, name, onBack, backLabel = '뒤로', children, 
   const bg = cards ? p.background : p.surface
   return (
     <View role="dialog" aria-label={name ?? title} testID={testID} style={{ flex: 1, backgroundColor: bg, paddingTop: top }}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={KEYBOARD_AVOID} style={{ flex: 1 }}>
         {/* 뒤로·제목 자리는 토스와 같게 (D-UX3-51) */}
         <View style={{ paddingLeft: PAGE.backLeft }}>
           <BackButton label={backLabel} onPress={onBack} />
