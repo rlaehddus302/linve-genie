@@ -102,7 +102,8 @@ export function pastBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[]
 export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastItem; readonly now: number; readonly onPress: () => void }) {
   const { p } = useKit()
   const platform = item.platforms?.[0]
-  const sub = [broadcastLength(item.createdAt, item.endedAt), historyAgo(item.endedAt ?? item.createdAt, now)].filter((part) => part !== null).join(' · ')
+  // 방송 길이는 지난 시간과 헷갈려 뺐다 (D-UX3-89)
+  const sub = historyAgo(item.endedAt ?? item.createdAt, now) ?? ''
   return (
     <Pressable role="button" aria-label={`${broadcastTitle(item)} — ${sub}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {platform === undefined ? (

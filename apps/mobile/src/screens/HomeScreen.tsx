@@ -276,9 +276,9 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
         ) : null}
 
         {past.length > 0 ? (
-          <View role="group" aria-label="내 방송" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.xs }}>
+          <View role="group" aria-label="내 방송" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: nav.openAllBroadcasts === undefined ? SPACE.md : SPACE.xs }}>
             <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
-              <Txt step="body" weight="book" color="textSub" role="heading" aria-level={2}>내 방송</Txt>
+              <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>내 방송</Txt>
             </View>
             {past.slice(0, HOME_BROADCASTS).map((item) => (
               <HistoryRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} />

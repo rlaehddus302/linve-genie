@@ -342,7 +342,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed
-  const heading = ended ? '끝난 방송' : '방송 중'
+  // 홈 "지금 라이브 중"과 같은 말로 (D-UX3-89 — 옛 "방송 중")
+  const heading = ended ? '끝난 방송' : '라이브'
   const help = closed ? '끝난 방송이에요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   const close = () => setSheet('none')
   const chip = listenChip(voiceView, broadcastId, stream.status)

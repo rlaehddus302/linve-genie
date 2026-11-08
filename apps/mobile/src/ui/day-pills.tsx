@@ -40,8 +40,9 @@ export function useRealDays(initial?: string): { days: readonly string[] | null;
 export function Pill({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonly label: string; readonly ariaLabel: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', borderWidth: on ? 0 : 1, borderColor: p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
-      <Txt step="caption" weight="bold" color={on ? 'onPrimary' : 'text'}>
+    // 토스 알약처럼 (D-UX3-89): 높이 36, 글자는 본문보다 큰 bodyLarge·중간 굵기, 좌우 14 — 옛 높이 44·작은 글자
+    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: SPACE.md + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', borderWidth: on ? 0 : 1, borderColor: p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
+      <Txt step="bodyLarge" weight={on ? 'medium' : 'book'} color={on ? 'onPrimary' : 'text'}>
         {label}
       </Txt>
     </Pressable>

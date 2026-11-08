@@ -316,11 +316,12 @@ export function RowGroup({ children, label, title }: { readonly children?: React
   const { p } = useKit()
   const name = label ?? title
   return (
-    <View role={name === undefined ? undefined : 'group'} aria-label={name} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.xs }}>
+    // 토스 "전체" 카드처럼 마지막 줄 아래를 넉넉히 (D-UX3-89)
+    <View role={name === undefined ? undefined : 'group'} aria-label={name} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: SPACE.md }}>
       {title === undefined ? null : (
         <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg + 2, paddingBottom: SPACE.sm }}>
           {/* 토스 "전체" 화면처럼 (D-UX3-87): 묶음 이름은 본문 크기·중간 굵기·회색, 줄 이름보다 한 단계 작게 */}
-          <Txt step="body" weight="book" color="textSub" role="heading" aria-level={2}>
+          <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>
             {title}
           </Txt>
         </View>
@@ -369,11 +370,25 @@ export function GroupLabel({ children }: { readonly children: string }) {
 
 /** 상태 점 + 글 ("듣는 중") */
 export function DotStatus({ word, tone }: { readonly word: string; readonly tone: 'on' | 'off' | 'warn' }) {
-  const { p } = useKit()
-  const ink = tone === 'on' ? p.primaryText : tone === 'warn' ? p.warnText : p.textSub
+  const { p, tones } = useKit()
+  // 듣는 중은 라이브처럼 빨간 글자 + 점이 부드럽게 밝아졌다 어두워진다 (D-UX3-89 — 옛 초록)
+  const ink = tone === 'on' ? tones.danger.fg : tone === 'warn' ? p.warnText : p.textSub
+  const glow = useRef(new Animated.Value(1)).current
+  useEffect(() => {
+    if (tone !== 'on') {
+      glow.setValue(1)
+      return
+    }
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(glow, { toValue: 0.25, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(glow, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+    ]))
+    loop.start()
+    return () => loop.stop()
+  }, [glow, tone])
   return (
     <View role="status" aria-label={word} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: SPACE.xs }}>
-      <View aria-hidden style={{ width: 10, height: 10, borderRadius: 5, borderCurve: 'continuous', backgroundColor: ink }} />
+      <Animated.View aria-hidden testID="dot-status-dot" style={{ width: 10, height: 10, borderRadius: 5, borderCurve: 'continuous', backgroundColor: ink, opacity: glow }} />
       <Txt step="caption" weight="bold" ink={ink}>
         {word}
       </Txt>

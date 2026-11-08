@@ -116,5 +116,21 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     expect(screen.queryByText('앱을 닫은 동안 서버가 들었어요')).toBeNull()
     expect(screen.queryByRole('button', { name: '확인했어요' })).toBeNull()
   }, 15_000)
+
+  it('방송 화면 제목은 "라이브", 방송 소리를 들으면 머리 오른쪽이 짧게 "듣는 중" (D-UX3-89)', async () => {
+    const world = makeWorld()
+    world.server.on('GET', STATUS, () => ({ body: { phase: 'listening' } }))
+    world.server.on('POST', WATCH, () => ({ body: { phase: 'listening' } }))
+    world.server.on('POST', /^\/api\/broadcasts\/b1\/voice-ticket/, () => ({ body: { wsUrl: 'ws://test.local/api/voice?ticket=t' } }))
+    render(world.wrap(<Shell />))
+    await waitFor(() => expect(screen.getByTestId('console-screen')).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush()
+    })
+    expect(screen.getByRole('heading', { name: '라이브' })).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('status', { name: '듣는 중' })).toBeTruthy())
+    expect(screen.queryByText('방송 소리 듣는 중')).toBeNull()
+  }, 15_000)
 })
 

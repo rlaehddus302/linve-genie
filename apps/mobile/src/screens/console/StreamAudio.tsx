@@ -101,7 +101,7 @@ export function KeptStreamAudio({ session, keep, signedIn }: { readonly session:
 export function listenChip(view: VoiceView, broadcastId: string, status: StreamAudioStatus | null): { readonly word: string; readonly tone: 'on' | 'off' | 'warn' } {
   const mic = listenState(view, broadcastId)
   if (view.on && view.broadcastId === broadcastId) return mic
-  if (status?.phase === 'listening') return { word: '방송 소리 듣는 중', tone: 'on' }
+  if (status?.phase === 'listening') return { word: '듣는 중', tone: 'on' }
   if (status?.phase === 'reconnecting') return { word: '방송 소리 다시 잇는 중', tone: 'warn' }
   if (status?.phase === 'stopped') return { word: '방송 소리 멈춤', tone: 'warn' }
   return mic
