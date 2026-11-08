@@ -10,7 +10,7 @@
 // - 계정 쉼은 운영 로그(CHAT_SEND_ACCOUNT_DOWN, count = 계정 번호 1부터)로 남긴다. 쿠키·채널 ID는 남기지 않는다.
 import type { LogSink } from '../../log.ts'
 import type { Timer } from '../timer.ts'
-import { ChatSendError, type ChatSender, type ChatSendResult, type ChatSendRouteName, type ChatSendTarget, type MultiAuthorSender } from './sender.ts'
+import { ChatSendError, type AccountCheck, type ChatSender, type ChatSendResult, type ChatSendRouteName, type ChatSendTarget, type LoginState, type MultiAuthorSender } from './sender.ts'
 
 export const AUTH_REST_MS = 10 * 60 * 1000
 export const RATE_REST_MS = 60 * 1000
@@ -112,6 +112,28 @@ export class ChatSenderPool implements MultiAuthorSender {
         } else throw error
       }
     }
+  }
+
+  /**
+   * 봇 계정 로그인 확인 (D-YT-SEND-22, 읽기만): 계정마다 차례로. 풀린 계정은 보내기에서 풀린 것과 같이 쉬게 하고 운영 로그(CHAT_SEND_ACCOUNT_DOWN — 운영자 문자 알림),
+   * 서버 막힘은 모든 계정을 쉬게 한다. 알 수 없음은 그대로 둔다. 로그인 확인이 없는 계정(browser)은 건너뛴다
+   */
+  async checkAccounts(): Promise<readonly AccountCheck[]> {
+    const results: AccountCheck[] = []
+    for (const account of this.#accounts) {
+      const sender = account.sender as ChatSender & { checkLogin?: () => Promise<LoginState> }
+      if (sender.checkLogin === undefined) continue
+      const state = await sender.checkLogin()
+      results.push({ number: account.number, state })
+      if (state === 'auth') this.#rest(account, AUTH_REST_MS, 'auth')
+      else if (state === 'blocked') {
+        for (const each of this.#accounts) each.restUntil = this.#timer.now() + BLOCKED_REST_MS
+        this.#byVideo.clear()
+        this.#log?.({ level: 'error', code: 'CHAT_SEND_ACCOUNT_DOWN', route: this.route, errorKind: 'blocked', count: 0 })
+        break
+      }
+    }
+    return results
   }
 
   async close(): Promise<void> {

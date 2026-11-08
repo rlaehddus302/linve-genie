@@ -7,7 +7,7 @@
 // - HTTP 상태는 우리 fetch 감싸개가 직접 본다(YouTube.js 오류 글을 해석하지 않는다). 응답 본문·쿠키는 남기지 않는다.
 import { Innertube, YT } from 'youtubei.js'
 import type { Timer } from '../timer.ts'
-import { ChatSendError, Pacer, failureOf, failureOfStatus, withTimeout, type ChatSender, type ChatSendResult, type ChatSendTarget } from './sender.ts'
+import { ChatSendError, Pacer, failureOf, failureOfStatus, withTimeout, type ChatSender, type ChatSendResult, type ChatSendTarget, type LoginState } from './sender.ts'
 
 /** 유튜브 웹 바탕 주소 (YouTube.js 안에 고정 — 시험은 fetch를 가짜 서버로 돌린다) */
 export const INNERTUBE_BASE_URL = 'https://www.youtube.com'
@@ -134,6 +134,30 @@ export class InnertubeChatSender implements ChatSender {
         }
         if (error instanceof Error && signedInCheck.test(error.message)) throw new ChatSendError('auth')
         throw failureOf(error)
+      } finally {
+        this.#signal = undefined
+      }
+    }, signal)
+  }
+
+  /**
+   * 로그인 확인 (D-YT-SEND-22, 읽기만 — 유튜브에 아무것도 쓰지 않는다): 채널 전환기 계정 목록에 고른 계정이 있으면 로그인돼 있다.
+   * 실물(2026-11-08): 풀린 쿠키는 200에 계정 없이 온다. 막힘·401·403은 그대로, 그 밖의 실패는 모름(unknown — 쉬게 하지 않는다)
+   */
+  async checkLogin(signal?: AbortSignal): Promise<LoginState> {
+    return this.#pacer.run(async () => {
+      const requestSignal = withTimeout(this.#options.timeoutMs ?? INNERTUBE_TIMEOUT_MS, signal)
+      this.#signal = requestSignal
+      this.#lastStatus = null
+      this.#lastBlocked = false
+      try {
+        const client = await this.#session()
+        const accounts = (await client.account.getInfo(true)) as readonly { is_selected?: unknown }[]
+        return accounts.some((account) => account.is_selected === true) ? 'ok' : 'auth'
+      } catch {
+        if (this.#lastBlocked) return 'blocked'
+        if (this.#lastStatus === 401 || this.#lastStatus === 403) return 'auth'
+        return 'unknown'
       } finally {
         this.#signal = undefined
       }

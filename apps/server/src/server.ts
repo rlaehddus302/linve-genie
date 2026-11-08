@@ -35,6 +35,7 @@ import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts
 import { realTimer as realGeneratorTimer, type GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
 import { ReceiptSmsService } from './receipt-sms.ts'
+import { BotAlerts } from './youtube/chat-send/bot-alerts.ts'
 import { ReceiptLinkService } from './receipt-links.ts'
 import { registerReceiptPage } from './receipt-page.ts'
 import type { InstagramSettings } from './instagram/config.ts'
@@ -195,7 +196,7 @@ export interface ServerOptions {
    * noticeVersion = 지금 고지 판(시험만 바꾼다)
    */
   /** 서버 시작 때 남길 설정 경고 (값 없이 코드만 — 운영 설정 읽기가 정한다) */
-  readonly startupWarnings?: readonly ('INSTAGRAM_CONFIG_INSECURE' | 'PARCEL_CARRIER_NOT_READY' | 'BAND_CONFIG_INVALID')[]
+  readonly startupWarnings?: readonly ('INSTAGRAM_CONFIG_INSECURE' | 'PARCEL_CARRIER_NOT_READY' | 'BAND_CONFIG_INVALID' | 'OPS_ALERT_PHONE_INVALID')[]
   /**
    * 밴드 글 댓글 (BND1). settings = readBandConfig(process.env)(없으면 NOT_CONFIGURED — 밴드로 나가는 요청 없음).
    * clock·timing·fetch·hooks는 시험·E2E만 (가짜 시계·짧은 간격·저장 실패 주입)
@@ -246,6 +247,8 @@ export interface ServerOptions {
   readonly socialLogin?: SocialLoginSetup
   /** 가입 문자 인증 발송 (D-UX3-30). 없으면 문자 인증 없이 가입 표로 바로 가입한다 */
   readonly sms?: SmsSender | null
+  /** 운영자 문자 알림 (D-YT-SEND-22 — 감사 채팅 봇 로그인 풀림·막힘·공식 넘김). 없으면 로그만 */
+  readonly opsAlert?: { readonly sms: SmsSender; readonly phone: string } | null
   /** 간편 로그인 시험 주입점 (쓴 표시 직후·로그인 연결을 찾은 뒤 세션 거래 전 — 동시 사용 시험) */
   readonly socialHooks?: { readonly afterClaim?: () => void | Promise<void>; readonly beforeLoginSession?: () => void | Promise<void> }
   /**
@@ -389,10 +392,13 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const baseLog = safeSink(options.log ?? stderrLog)
   // 경보 (AC-I3-82): 남기던 로그에서 꺼내고(observe), 경보 자체는 그대로 기록에 쓴다
   const alerter = new Alerter(baseLog, clock)
+  // 감사 채팅 봇 운영자 문자 (D-YT-SEND-22): 같은 로그를 보고 운영자 휴대폰으로
+  const botAlerts = options.opsAlert === undefined || options.opsAlert === null ? null : new BotAlerts({ sms: options.opsAlert.sms, phone: options.opsAlert.phone, now: () => clock.now() })
   const log: LogSink = (record) => {
     baseLog(record)
     try {
       alerter.observe(record)
+      botAlerts?.observe(record)
     } catch {
       // 경보를 못 써도 처리는 계속한다
     }

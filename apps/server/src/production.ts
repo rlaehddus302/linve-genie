@@ -36,6 +36,7 @@ import { readTikTokSettings } from './tiktok/index.ts'
 import { TIKTOK_LIBRARY_ENV_NAMES } from './tiktok-live/live.ts'
 import { readSocialLoginEnv } from './social/providers.ts'
 import { readSmsEnv, sensSender } from './social/phone.ts'
+import { readOpsAlertPhone } from './config.ts'
 import { readAssistEnv } from './assist/service.ts'
 
 export type ProductionOptions = { readonly ok: true; readonly options: ServerOptions } | { readonly ok: false; readonly message: string }
@@ -81,6 +82,8 @@ export function productionServerOptions(
   const sms = readSmsEnv(env)
   if (!sms.ok) return { ok: false, message: sms.message }
   const smsSender = sms.setup === null ? null : sensSender(sms.setup)
+  // 운영자 문자 알림 (D-YT-SEND-22): 휴대폰 번호와 문자 설정이 다 있을 때만. 번호 모양이 틀리면 끄고 시작 경고(값 없이)
+  const opsPhone = readOpsAlertPhone(env)
   const assist = readAssistEnv(env)
   if (!assist.ok) return { ok: false, message: assist.message }
   const libraryEnv = TIKTOK_LIBRARY_ENV_NAMES.filter((name) => (env[name] ?? '').trim() !== '')
@@ -93,6 +96,7 @@ export function productionServerOptions(
     ...(instagram.warning === undefined ? [] : [instagram.warning]),
     ...((env['LIVEJJIM_EPOST_API_KEY'] ?? '').trim() === '' ? [] : (['PARCEL_CARRIER_NOT_READY'] as const)),
     ...(band.warning === undefined ? [] : [band.warning]),
+    ...(opsPhone.invalid ? (['OPS_ALERT_PHONE_INVALID'] as const) : []),
   ]
   return {
     ok: true,
@@ -113,6 +117,7 @@ export function productionServerOptions(
       parcel: { carriers: { EPOST: epostCarrier({ now: () => Date.now(), ...epostPublic }) }, ...(epostPublic.findZip === undefined ? {} : { findZip: epostPublic.findZip }) },
       socialLogin: { providers: social.providers },
       sms: smsSender,
+      opsAlert: smsSender === null || opsPhone.phone === null ? null : { sms: smsSender, phone: opsPhone.phone },
       assist: assist.setup,
     },
   }

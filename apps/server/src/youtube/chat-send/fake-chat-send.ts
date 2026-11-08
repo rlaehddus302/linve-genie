@@ -118,7 +118,9 @@ export class FakeChatSend {
   /** 받은 글마다 (시험이 가짜 유튜브 웹 채팅에 붙인다) */
   onPost: ((post: FakePost) => void) | null = null
   /** 요청 수 */
-  readonly calls = { innertube: 0, browserPage: 0, browserPost: 0, nightbot: 0 }
+  readonly calls = { innertube: 0, browserPage: 0, browserPost: 0, nightbot: 0, accountCheck: 0 }
+  /** 로그인이 풀린 계정(쿠키 SID 값) — 계정 목록이 비고, 보내기는 401 (D-YT-SEND-22) */
+  readonly loggedOut = new Set<string>()
 
   private constructor() {
     this.#server = createServer((req, res) => {
@@ -195,6 +197,7 @@ export class FakeChatSend {
     for await (const chunk of req) chunks.push(chunk as Buffer)
     const raw = Buffer.concat(chunks).toString('utf8')
     if (req.method === 'POST' && url.pathname === '/youtubei/v1/live_chat/send_message') return this.#innertube(req, res, raw)
+    if (req.method === 'POST' && url.pathname === '/youtubei/v1/account/accounts_list') return this.#accountsList(req, res)
     if (req.method === 'GET' && url.pathname === '/live_chat') return this.#browserPage(req, res, url)
     if (url.pathname.startsWith('/sorry')) {
       res.writeHead(429, { 'content-type': 'text/html; charset=utf-8' })
@@ -211,11 +214,48 @@ export class FakeChatSend {
     json(res, 404, { error: 'not found' })
   }
 
+  /**
+   * 계정 목록 (채널 전환기, 읽기만 — D-YT-SEND-22 로그인 확인). 실물 모양(2026-11-08): 로그인돼 있으면 채널 만들기 단추 + 고른 계정 하나,
+   * 쿠키가 풀렸으면 200에 계정 없이 단추만. 서버 막힘(blocked) 오류를 넣었으면 /sorry로
+   */
+  #accountsList(req: IncomingMessage, res: ServerResponse): void {
+    this.calls.accountCheck += 1
+    const sid = cookieOf(req, 'SID') ?? ''
+    const fault = this.innertubeAccountFaults.get(sid)
+    if (fault !== undefined && 'kind' in fault && fault.kind === 'blocked') {
+      res.writeHead(302, { location: '/sorry/index?continue=https://www.youtube.com/' })
+      res.end()
+      return
+    }
+    const button = { buttonRenderer: { style: 'STYLE_DEFAULT', isDisabled: false, text: { runs: [{ text: '채널 만들기' }] }, icon: { iconType: 'ADD' } } }
+    const signedIn = (req.headers.cookie ?? '').includes('SAPISID=') && !this.loggedOut.has(sid)
+    const account = {
+      accountItemRenderer: {
+        accountName: { simpleText: '감사 봇' },
+        accountPhoto: { thumbnails: [] },
+        isSelected: true,
+        isDisabled: false,
+        hasChannel: true,
+        serviceEndpoint: { selectActiveIdentityEndpoint: { supportedTokens: [{ accountStateToken: { hasChannel: true, isMerged: false, obfuscatedGaiaId: 'x' } }] } },
+        accountByline: { simpleText: '@bot' },
+        channelHandle: { simpleText: '@bot' },
+      },
+    }
+    json(res, 200, {
+      responseContext: {},
+      actions: [{ updateChannelSwitcherPageAction: { page: { channelSwitcherPageRenderer: { contents: signedIn ? [button, account] : [button], targetId: 'x' } } } }],
+    })
+  }
+
   #innertube(req: IncomingMessage, res: ServerResponse, raw: string): void {
     this.calls.innertube += 1
     const cookie = req.headers.cookie ?? ''
     const auth = req.headers.authorization ?? ''
     if (!cookie.includes('SAPISID=') || !auth.startsWith('SAPISIDHASH ')) {
+      json(res, 401, { error: { code: 401, message: 'Request had invalid authentication credentials.', status: 'UNAUTHENTICATED' } })
+      return
+    }
+    if (this.loggedOut.has(cookieOf(req, 'SID') ?? '')) {
       json(res, 401, { error: { code: 401, message: 'Request had invalid authentication credentials.', status: 'UNAUTHENTICATED' } })
       return
     }

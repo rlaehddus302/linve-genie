@@ -78,6 +78,14 @@ export interface ChatSender {
   close(): Promise<void>
 }
 
+/** 봇 계정 로그인 확인 결과 (D-YT-SEND-22): ok 로그인됨 · auth 풀림 · blocked 서버 막힘 · unknown 알 수 없음(네트워크 등) */
+export type LoginState = 'ok' | 'auth' | 'blocked' | 'unknown'
+/** 계정 번호(1부터)마다 로그인 확인 결과 */
+export interface AccountCheck {
+  readonly number: number
+  readonly state: LoginState
+}
+
 /** 발송함이 판매자마다 묻는 다른 길 */
 export interface ChatSendRoute {
   /** 그 판매자의 실시간 채팅 감사를 이 길로 올리면 그 길, 아니면 null(공식) */
@@ -88,6 +96,8 @@ export interface ChatSendRoute {
   withFallback(fallback: ChatSender): ChatSendRoute
   /** 계정 쉼·넘김을 운영 로그로 */
   setLog(log: LogSink): void
+  /** 봇 계정 로그인 확인 (D-YT-SEND-22, 읽기만). 확인할 계정이 없는 길이면 빈 목록 */
+  checkAccounts(): Promise<readonly AccountCheck[]>
   close(): Promise<void>
 }
 
@@ -95,6 +105,7 @@ export interface ChatSendRoute {
 export interface MultiAuthorSender extends ChatSender {
   readonly authorChannelIds: readonly string[]
   setLog?(log: LogSink): void
+  checkAccounts?(): Promise<readonly AccountCheck[]>
 }
 
 const authorsOf = (sender: ChatSender): readonly string[] => ('authorChannelIds' in sender ? (sender as MultiAuthorSender).authorChannelIds : [sender.authorChannelId])
@@ -126,6 +137,10 @@ export class FailoverSender implements MultiAuthorSender {
     ;(this.#primary as MultiAuthorSender).setLog?.(log)
   }
 
+  checkAccounts(): Promise<readonly AccountCheck[]> {
+    return (this.#primary as MultiAuthorSender).checkAccounts?.() ?? Promise.resolve([])
+  }
+
   async send(target: ChatSendTarget, text: string, signal?: AbortSignal): Promise<ChatSendResult> {
     try {
       return await this.#primary.send(target, text, signal)
@@ -151,6 +166,7 @@ export function chatSendRoute(sender: ChatSender, sellers: readonly string[] | '
     authorsFor: (sellerId) => (applies(sellerId) ? authorsOf(sender) : []),
     withFallback: (fallback) => chatSendRoute(new FailoverSender(sender, fallback), sellers),
     setLog: (log) => (sender as MultiAuthorSender).setLog?.(log),
+    checkAccounts: () => (sender as MultiAuthorSender).checkAccounts?.() ?? Promise.resolve([]),
     close: () => sender.close(),
   }
 }

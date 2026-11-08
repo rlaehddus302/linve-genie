@@ -148,6 +148,7 @@ export type LogCode =
   | 'INSTAGRAM_CONFIG_INSECURE'
   // BND1 밴드 (D-BND1-14): 정해진 코드·(요청 이름_결과 코드)·HTTP 상태·판매자 ID·개수만. 토큰·코드·주소·user_key·밴드/글 키·손님 이름·댓글은 남기지 않는다
   | 'BAND_CONFIG_INVALID'
+  | 'OPS_ALERT_PHONE_INVALID'
   | 'BAND_API_FAILED'
   | 'BAND_CONNECT_FAILED'
   | 'BAND_TOKEN_UNREADABLE'
@@ -313,6 +314,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   TIKTOK_RESUME_FAILED: '서버를 다시 켠 뒤 틱톡 연결을 이어받지 못했어요',
   INSTAGRAM_CONFIG_INSECURE: '인스타그램 주소 설정이 https가 아니라 인스타그램 연동을 끈 것으로 봤어요',
   BAND_CONFIG_INVALID: '밴드 주소 설정이 https가 아니거나 형식이 틀려 밴드 연동을 끈 것으로 봤어요',
+  OPS_ALERT_PHONE_INVALID: '운영자 알림 휴대폰 번호(LIVEJJIM_OPS_ALERT_PHONE) 형식이 틀려 운영자 문자 알림을 끈 것으로 봤어요',
   BAND_API_FAILED: '밴드 요청이 실패했어요',
   BAND_CONNECT_FAILED: '밴드 계정 연결을 마치지 못했어요',
   BAND_TOKEN_UNREADABLE: '밴드 토큰을 풀지 못해 연결을 다시 연결 필요로 바꿨어요',

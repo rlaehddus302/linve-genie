@@ -40,7 +40,7 @@ import type { Timer } from './timer.ts'
 import { webCollectorCounts } from '../ops-store.ts'
 import { isLocalHttp } from '../config.ts'
 import { OfficialBotSender } from './chat-send/official-sender.ts'
-import { chatSendRoute, type ChatSendRoute } from './chat-send/sender.ts'
+import { chatSendRoute, type AccountCheck, type ChatSendRoute } from './chat-send/sender.ts'
 import { HttpWebTransport, WebChatError, WebChatSource, type WebTransport } from './web-chat-source.ts'
 import type { WatchPage } from './web-chat.ts'
 
@@ -111,6 +111,10 @@ export function checkYoutubeConfig(config: YoutubeConfig): string | null {
 }
 
 /** 방송 잇기 결과 코드와 문장 (AC-Y1-11·12) */
+/** 봇 로그인 확인: 시작 뒤 첫 확인·그 뒤 간격 (D-YT-SEND-22) */
+export const BOT_CHECK_FIRST_MS = 60 * 1000
+export const BOT_CHECK_EVERY_MS = 6 * 60 * 60 * 1000
+
 export const LINK_MESSAGES = {
   INVALID_VIDEO_URL: '유튜브 방송 주소를 확인해 주세요.',
   REHEARSAL_LINK: '리허설 방송에는 유튜브 방송을 이을 수 없어요.',
@@ -221,6 +225,8 @@ export class YoutubeSystem {
   /** 서버 웹 읽기 원천 (YT-11). 설정에 webChat이 없으면 null(옛 공식 읽기) */
   readonly web: WebChatSource | null
   readonly #options: YoutubeSystemOptions
+  /** 봇 로그인 확인 반복 (멈출 때 끊는다) */
+  #botCheck: AbortController | null = null
 
   constructor(options: YoutubeSystemOptions) {
     this.#options = options
@@ -352,11 +358,40 @@ export class YoutubeSystem {
   start(): void {
     this.collectors.start()
     this.outbox.start()
+    this.startBotCheck()
   }
 
   async stop(): Promise<void> {
+    this.#botCheck?.abort()
+    this.#botCheck = null
     await Promise.all([this.collectors.stop(), this.outbox.stop()])
     await this.chatSend?.close()
+  }
+
+  /** 감사 채팅 봇 계정 로그인 확인 (D-YT-SEND-22, 읽기만) — 풀린 계정은 쉬게 하고 운영 로그(→ 운영자 문자) */
+  checkBotLogins(): Promise<readonly AccountCheck[]> {
+    return this.chatSend?.checkAccounts() ?? Promise.resolve([])
+  }
+
+  /** 시작 1분 뒤, 그 뒤 6시간마다 봇 로그인 확인 — 방송 중 첫 감사에서야 알게 되지 않게 */
+  startBotCheck(): void {
+    if (this.chatSend === undefined || this.#botCheck !== null) return
+    const control = new AbortController()
+    this.#botCheck = control
+    const timer = this.#options.timer
+    void (async () => {
+      let wait = BOT_CHECK_FIRST_MS
+      for (;;) {
+        await timer.sleep(wait, control.signal)
+        if (control.signal.aborted) return
+        try {
+          await this.checkBotLogins()
+        } catch (error) {
+          this.#options.log({ level: 'warn', code: 'WORKER_FAILED', errorKind: errorKind(error) })
+        }
+        wait = BOT_CHECK_EVERY_MS
+      }
+    })()
   }
 
   /** 커밋된 기록 (새 효과 → 발송함, 방송 끝냄 → 수집기 다시 계산) */

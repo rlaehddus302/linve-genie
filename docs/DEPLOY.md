@@ -64,6 +64,7 @@
 | `LIVEJJIM_SMS_NCP_SECRET_KEY` | 가입 문자 인증이면 필수 | (네이버 클라우드가 준 값) | 인증키의 Secret Key — 요청 서명(HMAC-SHA256)에 쓴다. 로그·화면에 나오지 않는다 | 새면 네이버 클라우드 인증키 관리에서 새로 만든다 |
 | `LIVEJJIM_SMS_SENS_SERVICE_ID` | 가입 문자 인증이면 필수 | `ncp:sms:kr:…` | SENS 프로젝트의 SMS 서비스 ID | 틀리면 SENS가 거절한다(`SMS_SEND_FAILED`) |
 | `LIVEJJIM_SMS_FROM` | 가입 문자 인증이면 필수 | `0212345678` | 인증번호 문자를 보내는 번호 — SENS에 미리 등록(발신번호 사전 등록, 전기통신사업법)한 번호, 숫자 8~12자리(하이픈 허용) | 등록하지 않은 번호면 SENS가 거절한다(`SMS_SEND_FAILED`) |
+| `LIVEJJIM_OPS_ALERT_PHONE` | 선택 | `01012345678` | 운영자 문자 알림을 받을 휴대폰(D-YT-SEND-22, 하이픈 허용). 위 SENS 설정으로 보낸다: 감사 채팅 봇 계정 로그인 풀림(서버가 시작 1분 뒤·6시간마다 읽기만으로 확인하고, 보내다 풀린 것도)·계정이 글을 못 올림·서버 막힘·공식 API로 넘김·공식 API 봇 연결 풀림. 같은 일은 6~12시간에 한 번 | 비우거나 SENS 설정이 없으면 알림 없음(로그만). 010 휴대폰 모양이 아니면 끄고 시작 기록 `OPS_ALERT_PHONE_INVALID`(번호는 남기지 않음) |
 | `LIVEJJIM_ASSIST_API_KEY` | 선택 | `여기에-키` | AI 확인 필요 제안의 Anthropic API 키(4-5절). 비우면 AI 제안을 쓸 수 없다 — 비슷한 글자로 찾는 규칙 제안만 보이고 바깥 호출은 0번이다. 값은 로그·화면에 나오지 않는다 | 틀리면 AI 제안 요청이 모두 실패한다(화면 "AI 제안을 지금 받지 못했어요. 직접 골라 주세요.", 로그 `ASSIST_HTTP_ERROR` status=401). 새면 Anthropic 콘솔에서 지우고 새로 만든다 |
 | `LIVEJJIM_ASSIST_MODEL` | 선택 | `claude-haiku-5-5` | AI 제안 모델(비우면 `claude-haiku-5-5` — 가장 싼 Haiku). 영문·숫자·`.`·`_`·`-`·`:`만 | 모양이 틀리면 시작하지 않는다. 없는 모델이면 요청이 실패한다(로그 `ASSIST_HTTP_ERROR` status=404) |
 | `LIVEJJIM_ASSIST_DAILY_CALLS` | 선택 | `20` | 판매자 한 명의 하루(KST 0시 기준) AI 호출 상한(기본 20). 실패한 호출도 센다 | 0~1000000 정수가 아니면 시작하지 않는다. 다 쓰면 그날은 규칙 제안만 |

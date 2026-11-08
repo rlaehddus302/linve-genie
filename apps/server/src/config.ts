@@ -233,6 +233,16 @@ export function readYoutubeChatSend(env: Readonly<Record<string, string | undefi
   }
 }
 
+/**
+ * 운영자 문자 알림 휴대폰 (LIVEJJIM_OPS_ALERT_PHONE, D-YT-SEND-22): 010으로 시작하는 휴대폰 번호(하이픈 허용). 비면 끔, 모양이 틀리면 끄고 invalid.
+ * 번호는 문장·로그에 넣지 않는다
+ */
+export function readOpsAlertPhone(env: Readonly<Record<string, string | undefined>>): { readonly phone: string | null; readonly invalid: boolean } {
+  const raw = (env['LIVEJJIM_OPS_ALERT_PHONE'] ?? '').trim().replace(/-/g, '')
+  if (raw === '') return { phone: null, invalid: false }
+  return /^01[016789][0-9]{7,8}$/.test(raw) ? { phone: raw, invalid: false } : { phone: null, invalid: true }
+}
+
 // ── I3: 배포·운영 (SYS-05, D-I3-12·13·16, AC-I3-72) ─────────────────────────
 
 export const HTTPS_ORIGIN_MESSAGE = '화면 앱 주소는 https://로 적어 주세요(내 컴퓨터 시험은 http://localhost만).'
