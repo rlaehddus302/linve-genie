@@ -44,7 +44,7 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     // D-UX3-85로 바뀐 기대 (사용자 지시 2026-11-09 "리허설 해보기 버튼은 다 지워"): 홈에 리허설 단추가 없고 홈은 방송을 만들지 않는다
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(await screen.findByTestId('home-live')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '리허설 해 보기' })).toBeNull()
     expect(world.server.callsTo('POST', /broadcasts/)).toHaveLength(0)
   })

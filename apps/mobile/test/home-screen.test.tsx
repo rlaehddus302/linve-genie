@@ -14,7 +14,9 @@ describe('HomeScreen', () => {
   // D-UX3-85로 바뀐 기대 (사용자 지시 2026-11-09 홈 개선): 인사 줄·큰 초록 "방송으로 돌아가기" 카드 → 맨 위 왼쪽 "지금 라이브 중 ›"(채널 프로필 사진 + 빨간 테두리)
   it('방송 중이면 맨 위 왼쪽 "지금 라이브 중"이 그 방송을 열고, 채널 프로필 사진을 받아 보인다. 인사 줄은 없다 (D-UX3-85)', async () => {
     const world = makeWorld()
-    world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: { broadcastChannelId: 'UCaaaaaaaaaaaaaaaaaaaaaa' }, collector: null } }))
+    // D-UX3-91: 유튜브를 이은 방송은 연결이 살아 있고 수집기가 읽는 중일 때만 라이브
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, platforms: ['youtube'] }] } }))
+    world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: { broadcastChannelId: 'UCaaaaaaaaaaaaaaaaaaaaaa' }, collector: { status: 'LIVE' } } }))
     world.server.on('GET', /^\/api\/youtube\/channels\/UCaaaaaaaaaaaaaaaaaaaaaa\/avatar$/, () => ({ body: { avatar: 'https://yt3.ggpht.com/me' } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
@@ -123,4 +125,22 @@ describe('HomeScreen', () => {
     view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={3} />))
     expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
   })
+
+  it('어제 끝내지 않고 둔 유튜브 방송(수집기가 채팅 끝)은 라이브가 아니다 — "라이브 연결" (D-UX3-91)', async () => {
+    const world = makeWorld()
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, platforms: ['youtube'] }] } }))
+    world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: { broadcastChannelId: 'UCaaaaaaaaaaaaaaaaaaaaaa' }, collector: { status: 'CHAT_ENDED' } } }))
+    render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
+    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '지금 라이브 중' })).toBeNull()
+  })
+
+  it('연결을 끊은 유튜브 방송도 라이브가 아니다 (D-UX3-91)', async () => {
+    const world = makeWorld()
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, platforms: ['youtube'] }] } }))
+    world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: null, collector: null } }))
+    render(world.wrap(<HomeScreen nav={nav()} sellerName="김다육" />))
+    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+  })
 })
+

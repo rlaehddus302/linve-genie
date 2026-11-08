@@ -55,7 +55,8 @@ describe('내 방송 (D-UX3-18)', () => {
     expect(rows[0]?.getAttribute('aria-label')).toBe('c 방송 — 4시간 전')
     fireEvent.click(within(group).getByRole('button', { name: '방송 모두 보기' }))
     expect(navigation.openAllBroadcasts).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('button', { name: '지금 라이브 중' }))
+    // 라이브 확인은 방송 목록을 받은 뒤 한 번 더 그린다 (D-UX3-91)
+    fireEvent.click(await screen.findByRole('button', { name: '지금 라이브 중' }))
     expect(navigation.openConsole).toHaveBeenCalledWith('t')
   })
 
