@@ -175,7 +175,7 @@ export function ProductDetail({ product, onDecide }: { readonly product: Product
 const BADGE_TONE = (badge: string): Tone => (badge === '입금 늦음 주의' ? 'warning' : badge.startsWith('단골') ? 'success' : 'info')
 
 /**
- * 상품 한 줄 (D-UX3-78): 첫째 줄 번호·품종·가격을 한 크기로, 그 아래 꼬리표 한 줄 — [찜 닉네임](금색, 문자찜은 [문자찜 0937]) → 대기 손님(회색) → [+N].
+ * 상품 한 줄 (D-UX3-78): 첫째 줄 번호·품종·가격을 한 크기(16, D-UX3-84)로, 그 아래 꼬리표 한 줄 — [찜 닉네임](금색, 문자찜은 [문자찜 0937]) → 대기 손님(회색) → [+N].
  * 찜도 대기도 없으면 아래 줄을 그리지 않는다. 확인이 필요한 상품은 꼬리표 대신 주황 글 한 줄.
  */
 function ProductRow({ product, fresh, onOpen, badge, doubt }: { readonly product: Product; readonly fresh: boolean; readonly onOpen: () => void; readonly badge?: string; readonly doubt?: string }) {
@@ -197,13 +197,13 @@ function ProductRow({ product, fresh, onOpen, badge, doubt }: { readonly product
       style={({ pressed }) => ({ gap: SPACE.xs, paddingVertical: 10, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? pressedFill(p, bg) : bg, opacity: dim ? 0.6 : 1 })}
     >
       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: SPACE.sm }}>
-        <Txt weight="heavy">{`${String(product.no)}번`}</Txt>
+        <Txt step="bodyLarge" weight="heavy">{`${String(product.no)}번`}</Txt>
         <View style={{ flex: 1 }}>
-          <Txt weight="bold" numberOfLines={1}>
+          <Txt step="bodyLarge" weight="bold" numberOfLines={1}>
             {rowName(product)}
           </Txt>
         </View>
-        <Txt weight="bold">{formatWon(product.price)}</Txt>
+        <Txt step="bodyLarge" weight="bold">{formatWon(product.price)}</Txt>
       </View>
       {attention !== null ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
