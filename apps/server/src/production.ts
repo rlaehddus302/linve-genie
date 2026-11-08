@@ -110,6 +110,7 @@ export function productionServerOptions(
       ...(oldOrigins.origins.length === 0 ? {} : { oldAppOrigins: oldOrigins.origins }),
       testPrinter: false,
       ...((env['LIVEJJIM_TRANSCRIBE_WORKER_TOKEN'] ?? '').trim() === '' ? {} : { transcribeWorkerToken: env['LIVEJJIM_TRANSCRIBE_WORKER_TOKEN']!.trim() }),
+      ...((env['LIVEJJIM_SCREEN_WORKER_TOKEN'] ?? '').trim() === '' ? {} : { screenWorkerToken: env['LIVEJJIM_SCREEN_WORKER_TOKEN']!.trim() }),
       instagram: instagram.settings,
       ...(warnings.length === 0 ? {} : { startupWarnings: warnings }),
       tiktok: { settings: readTikTokSettings(env), libraryEnv },
