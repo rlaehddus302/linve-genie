@@ -7,7 +7,8 @@ import { LOGIN_PROVIDERS, isLoginProvider, signupPhoneNextOf, type LastLogin, ty
 import { post } from '../api/client.ts'
 import { absoluteUrl, apiConfig } from '../api/config.ts'
 
-export const APP_RETURN = 'livejjim://auth'
+export { APP_RETURN } from './auth-return.ts'
+import { APP_RETURN } from './auth-return.ts'
 
 export interface SocialNative {
   /** 앱 안 로그인 창을 열고, 돌아온 주소(닫으면 null) */
