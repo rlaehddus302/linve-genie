@@ -109,6 +109,7 @@ import {
   parcelExtras,
   parcelRequests,
   parcelSettings,
+  parcelEpost,
   parcels,
   pasteRequests,
   receiptLinkRequests,
@@ -1815,6 +1816,8 @@ export const RESTORE_KEPT_TABLES = [
   // (복구한 포장 기록이 접수 전이어도 그 묶음은 "이미 접수했어요"로 빠진다). 배송지 원문은 없다(PC-3)
   parcels,
   parcelSettings,
+  // EP1 우체국 사전접수 기록: 접수 시도와 같은 까닭으로 그대로 둔다 — 우체국에 이미 신청한 묶음을 다시 신청하지 않게(PC-9). 배송지 원문은 없다
+  parcelEpost,
   // X1 확장 연결 코드·토큰: 계정 연결(구글 연결과 같음)이라 그대로 둔다 — 파일에 없다
   extCodes,
   extTokens,

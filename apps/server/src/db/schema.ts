@@ -2049,10 +2049,39 @@ export const parcelSettings = pgTable('parcel_settings', {
   senderEnc: text('sender_enc'),
   /** 우체국 계약소포 인증키·보안키 JSON 암호문 (없으면 null — D-REAL-04) */
   epostEnc: text('epost_enc'),
+  /** 우체국 창구소포 비회원 신청 비밀번호(숫자 4자리) 암호문 — 앱이 우체국 약관 쪽 비밀번호 칸에 넣는다 (EP1 PC-9 8, D-EP1-14). 없으면 null */
+  epostPwEnc: text('epost_pw_enc'),
   /** 기본 택배 크기 코드 (FB1 D-FB1-05) */
   box: text('box').notNull().default('80'),
   updatedAt: timestamptz('updated_at').notNull(),
 })
+
+/**
+ * 우체국 창구소포 간편사전접수 기록 (EP1 PARCEL_RULES PC-9, D-EP1-02): 묶음(판매자, 날짜, 구매자 ID)마다 많아야 한 줄.
+ * FILLED(앱이 우체국 화면에 칸을 채움 — 신청했는지는 모름) · RECEIVED(판매자가 확인한 접수번호가 있음). 지우면 줄이 없어진다.
+ * 배송지 원문이 없다(접수번호·누가·언제만). 복구·가져오기는 그대로 둔다(같은 묶음을 두 번 신청하지 않게 — parcels와 같음)
+ */
+export const parcelEpost = pgTable(
+  'parcel_epost',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    date: text('date').notNull(),
+    buyer: text('buyer').notNull(),
+    /** FILLED · RECEIVED */
+    state: text('state').notNull(),
+    /** 우체국 접수번호 (RECEIVED만 — ASCII 영숫자 6~30자, PC-9 3) */
+    receiptNo: text('receipt_no'),
+    filledAt: timestamptz('filled_at'),
+    filledBy: text('filled_by').references(() => accounts.id),
+    receivedAt: timestamptz('received_at'),
+    receivedBy: text('received_by').references(() => accounts.id),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('parcel_epost_uq').on(t.sellerId, t.date, t.buyer)],
+)
 
 /**
  * 크롬 확장 연결 코드 (X1 YT-10 AC4, D-X1-07): 판매자가 설정에서 받는 8자리 일회용 코드. 코드는 해시로만 둔다. 10분, 한 번만
@@ -2825,6 +2854,7 @@ export const schema = {
   parcels,
   parcelRequests,
   parcelSettings,
+  parcelEpost,
   extCodes,
   extTokens,
   extBindings,
@@ -2839,6 +2869,7 @@ export const schema = {
   customerArchiveDays,
   customerArchiveRows,
   voiceLog,
+  voiceVarieties,
   // KP1 손님 장부
   ledgerSettings,
   ledgerLines,

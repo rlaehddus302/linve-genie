@@ -114,7 +114,9 @@ describe('마이그레이션 명령 (AC-S04-20)', () => {
     //   + D-REAL-03·05 영수증 문자: 손님 번호(buyer_phones)·보낸 기록(receipt_sms_sends) 2개 = 101 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
     //   + D-REAL-11 방송 뒤 손님 정보 문자 카드(buyer_info_cards) 1개 = 102 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
     //   + D-V3-127 내 품종 장부(voice_varieties) 1개 = 103 — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
-    expect(tables?.rows).toHaveLength(103)
+    //   + main 합치기(D-EP1-21): 스키마 묶음에 빠져 있던 voice_varieties(0045)를 넣으니 실제 표 수가 104였다(위 103은 그 표를 빼고 셈) + EP1 우체국 창구소포 사전접수 기록(parcel_epost, D-EP1-02) 1개 = 105
+    //     — 약화 아님(위 줄이 표 이름 목록 전부를 스키마와 대조한다)
+    expect(tables?.rows).toHaveLength(105)
     const none = await run(script('commands/migrate.ts'), [], {})
     expect(none.code).toBe(1)
     expect(none.out).toContain('데이터베이스 연결 설정이 없어요')

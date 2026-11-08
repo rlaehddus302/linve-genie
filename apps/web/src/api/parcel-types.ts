@@ -58,6 +58,57 @@ export interface ParcelRow {
   readonly parcel: ParcelBrief | null
   /** 직접 넣은 택배 (D-UX3-38 — 방송 판매 기록 없음, 받는 분 이름이 name). 옛 서버엔 없다 */
   readonly extra?: boolean
+  /** 우체국 창구소포 사전접수 기록 (EP1 PC-9 — 옛 서버엔 없다) */
+  readonly epost?: EpostBrief | null
+}
+
+/** 묶음의 우체국 사전접수 줄 (EP1 PC-9) */
+export interface EpostBrief {
+  /** FILLED = 우체국 화면에 입력만 함(신청했는지 모름) · RECEIVED = 접수번호를 이은 사전접수 완료 */
+  readonly state: 'FILLED' | 'RECEIVED'
+  /** 화면 낱말 (서버가 정한 것) */
+  readonly word: string
+  readonly receiptNo: string | null
+  /** 상태가 된 시각 (UTC ISO) */
+  readonly at: string
+}
+
+/** 우체국 화면 칸에 넣을 한 사람 (EP1 PC-9 1) */
+export interface EpostPerson {
+  readonly name: string
+  readonly zip: string
+  readonly address: string
+  readonly detail: string
+  readonly mobile: readonly [string, string, string] | null
+  readonly phone: readonly [string, string, string] | null
+}
+
+export type EpostPersonKey = 'name' | 'zip' | 'address' | 'detail' | 'mobile' | 'phone'
+export type EpostFieldKey = EpostPersonKey | 'item' | 'memo'
+
+/** 칸 찾기 힌트 (서버가 내려 준다 — 우체국 화면이 바뀌면 앱을 새로 내지 않고 고친다) */
+export interface EpostFormHints {
+  readonly sections: { readonly receiver: readonly string[]; readonly sender: readonly string[] }
+  readonly fields: Readonly<Record<EpostFieldKey, readonly string[]>>
+  readonly selectors: Readonly<Partial<Record<string, string>>>
+  readonly receiptWords: readonly string[]
+  /** 비회원 신청 비밀번호 칸 선택자 (EP1 D-EP1-14) */
+  readonly password?: string
+  /** 받는 분 여러 명 한 번에 (EP1 D-EP1-19 — 옛 서버엔 없다) */
+  readonly batch?: { readonly next: string; readonly add: string; readonly list: string; readonly agree: string }
+}
+
+/** GET /api/parcels/days/:date/epost?buyer= */
+export interface EpostFillView {
+  readonly date: string
+  readonly buyer: string
+  readonly fill: { readonly receiver: EpostPerson; readonly sender: EpostPerson; readonly item: string; readonly qty: number; readonly memo: string }
+  readonly row: ParcelRow
+  readonly pages: { readonly apply: string; readonly history: string; readonly guestHistory: string }
+  readonly hosts: readonly string[]
+  readonly form: EpostFormHints
+  /** 설정의 비회원 신청 비밀번호 (없으면 null — 옛 서버엔 없다) */
+  readonly password?: string | null
 }
 
 export interface ParcelDay {
@@ -69,6 +120,8 @@ export interface ParcelDay {
   readonly ready: readonly ParcelRow[]
   readonly excluded: readonly ParcelRow[]
   readonly booked: readonly ParcelRow[]
+  /** 우체국에 사전접수한 묶음 (EP1 PC-9 — 옛 서버엔 없다) */
+  readonly epost?: readonly ParcelRow[]
 }
 
 export interface ParcelDays {
@@ -152,4 +205,6 @@ export interface ParcelSettings {
   readonly shopName: string
   readonly box: BoxKind
   readonly boxes: readonly BoxKind[]
+  /** 우체국 비회원 신청 비밀번호 (숫자 4자리, 판매자만 — EP1 D-EP1-14. 옛 서버엔 없다) */
+  readonly epostPassword?: string | null
 }

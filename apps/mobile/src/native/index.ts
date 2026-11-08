@@ -1,6 +1,7 @@
 // 앱 시작 시 실제 네이티브 모듈을 연결한다. 시험만 명시적으로 가짜를 주입한다.
 import { type NativeAudio } from './audio.ts'
 import { type NativeBlePrinter } from './ble.ts'
+import type { WebSession } from '@livejjim/mobile-websession'
 import { shareFile, shareLabelImage, type ShareFile, type ShareLabelImage } from './share.ts'
 import { deviceSms, type NativeSms } from './sms.ts'
 
@@ -9,6 +10,8 @@ let ble: NativeBlePrinter | null = null
 let share: ShareLabelImage = shareLabelImage
 let file: ShareFile = shareFile
 let sms: NativeSms = deviceSms
+/** 앱 안 웹 화면 세션 지키기 (EP1 D-EP1-17) — undefined면 처음 부를 때 네이티브 모듈을 찾는다(없으면 null) */
+let webSession: WebSession | null | undefined
 
 export function nativeShare(): ShareLabelImage {
   return share
@@ -33,8 +36,21 @@ export function nativeBle(): NativeBlePrinter {
   return ble
 }
 
+/** 앱 안 웹 화면 세션 지키기 (아이폰 네이티브 — 안드로이드·시험은 null). 네이티브 모듈은 부를 때 불러온다(시험이 expo 모듈을 끌어오지 않게) */
+export async function nativeWebSession(): Promise<WebSession | null> {
+  if (webSession === undefined) {
+    try {
+      webSession = (await import('@livejjim/mobile-websession/native')).getWebSession()
+    } catch {
+      webSession = null
+    }
+  }
+  return webSession
+}
+
 /** 시험·개발: 다른 구현을 끼운다 */
-export function setNativeModules(modules: { readonly audio?: NativeAudio; readonly ble?: NativeBlePrinter; readonly share?: ShareLabelImage; readonly shareFile?: ShareFile; readonly sms?: NativeSms }): void {
+export function setNativeModules(modules: { readonly audio?: NativeAudio; readonly ble?: NativeBlePrinter; readonly share?: ShareLabelImage; readonly shareFile?: ShareFile; readonly sms?: NativeSms; readonly webSession?: WebSession | null }): void {
+  if (modules.webSession !== undefined) webSession = modules.webSession
   if (modules.audio !== undefined) audio = modules.audio
   if (modules.ble !== undefined) ble = modules.ble
   if (modules.share !== undefined) share = modules.share

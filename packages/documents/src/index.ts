@@ -64,7 +64,7 @@ export {
   type LedgerRow,
   type LedgerScope,
 } from './ledger.ts'
-export { ledgerToXlsx } from './xlsx.ts'
+export { ledgerToXlsx, textRowsToXlsx } from './xlsx.ts'
 export {
   VOICE_LEDGER_ACTION_WORDS,
   VOICE_LEDGER_COLUMNS,

@@ -1,0 +1,18 @@
+{
+  "name": "@livejjim/mobile-websession",
+  "version": "0.0.0",
+  "private": true,
+  "description": "라이브지니 앱 안 웹 화면의 로그인 세션 지키기 (Expo Modules API, 네이티브 이름 LivejjimWebSession — 아이폰). 우체국처럼 세션 쿠키로 로그인을 지키는 사이트의 세션 쿠키를 기기 키체인에만 두었다가 앱을 다시 켤 때 되살린다 (EP1 D-EP1-17)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./native": "./src/native.ts"
+  },
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  },
+  "devDependencies": {
+    "expo-modules-core": "58.0.28",
+    "typescript": "6.0.3"
+  }
+}
