@@ -151,6 +151,8 @@ export interface CollectorOptions {
   readonly publish: (sellerId: string, data: Readonly<Record<string, unknown>>) => void
   /** 발송함이 게시했거나 보내려 한 글인지 (AC-Y1-26) */
   readonly ourPost: (sellerId: string, broadcastId: string, messageId: string, text: string) => Promise<boolean>
+  /** 감사 다른 길의 작성자 (봇 계정·Nightbot — 이 작성자가 쓴 우리 감사 글도 찜으로 읽지 않고 게시 확인에 쓴다, D-YT-SEND-06) */
+  readonly otherAuthors?: (sellerId: string) => readonly string[]
   /** 유튜브 채팅이 끝났다 (발송함: 그 방송의 실시간 채팅 감사 → 보내지 못함) */
   readonly onChatEnded: (sellerId: string, link: LinkRow) => Promise<void>
   readonly hooks?: CollectorHooks
@@ -810,6 +812,7 @@ export class CollectorManager {
     // 잇기 전·끝낸 뒤 거르기보다 먼저 본다 — 끝낸 뒤 올라간 우리 감사도 게시 확인에 쓰여야 두 번 게시하지 않는다 (AC-Y1-36)
     // 작성자는 그 회차의 글 올리는 계정(있으면)과 방송 채널 둘 다 본다 — 확장이 올린 글(방송 채널 주인)과 공식으로 올린 글을 한 규칙으로 (D-YT-SRV-16)
     const authors = ownAuthorChannels(link)
+    for (const author of this.#options.otherAuthors?.(row.sellerId) ?? []) authors.add(author)
     const own: (Parsed['own'][number] & { ch: string | null })[] = parsed.own.map((message) => ({ ...message, ch: null }))
     const viewers: Parsed['chats'] = []
     for (const chat of parsed.chats) {

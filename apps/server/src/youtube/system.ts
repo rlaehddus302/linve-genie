@@ -38,6 +38,9 @@ import {
 import { parseVideoId } from './texts.ts'
 import type { Timer } from './timer.ts'
 import { webCollectorCounts } from '../ops-store.ts'
+import { isLocalHttp } from '../config.ts'
+import { OfficialBotSender } from './chat-send/official-sender.ts'
+import type { ChatSendRoute } from './chat-send/sender.ts'
 import { HttpWebTransport, WebChatError, WebChatSource, type WebTransport } from './web-chat-source.ts'
 import type { WatchPage } from './web-chat.ts'
 
@@ -67,6 +70,10 @@ export interface YoutubeConfig {
     /** 유튜브에 묻는 부분을 갈아 끼운다 (맥 미니 일꾼 — AC7). 없으면 이 서버에서 바로 */
     readonly transport?: WebTransport
   }
+  /** 실시간 채팅 감사 다른 길 (D-YT-SEND-01~08 — innertube·browser·nightbot, 고른 판매자만). 없으면 공식 Data API만 */
+  readonly chatSend?: ChatSendRoute
+  /** 다른 길이 막히면 봇 계정 이름으로 공식 API로 넘긴다 (D-YT-SEND-13): 봇 계정 구글 연결을 가진 앱 판매자와 그 채널 */
+  readonly chatSendOfficial?: { readonly sellerId: string; readonly channelId: string }
 }
 
 /** 설정 확인: 운영은 모든 바깥 주소가 https (AC-Y1-72). 문제가 있으면 문장, 없으면 null (값은 문장에 넣지 않는다) */
@@ -92,7 +99,9 @@ export function checkYoutubeConfig(config: YoutubeConfig): string | null {
     } catch {
       return '구글·유튜브 주소 설정을 확인해 주세요.'
     }
-    if (parsed.protocol !== 'https:' && !(config.allowInsecure === true && parsed.protocol === 'http:')) return '구글·유튜브 주소는 https://로만 적을 수 있어요.'
+    // 돌아오는 주소·화면 주소만 내 컴퓨터 시험의 http://localhost를 받는다 (D-YT-SEND-16)
+    const local = (url === config.redirectUri || url === config.returnUrl) && isLocalHttp(parsed)
+    if (parsed.protocol !== 'https:' && !local && !(config.allowInsecure === true && parsed.protocol === 'http:')) return '구글·유튜브 주소는 https://로만 적을 수 있어요.'
   }
   return null
 }
@@ -203,6 +212,8 @@ export class YoutubeSystem {
   readonly collectors: CollectorManager
   readonly outbox: OutboxRunner
   readonly config: YoutubeConfig
+  /** 감사 채팅 다른 길 (공식 넘김을 붙인 것) */
+  readonly chatSend: ChatSendRoute | undefined
   /** 서버 웹 읽기 원천 (YT-11). 설정에 webChat이 없으면 null(옛 공식 읽기) */
   readonly web: WebChatSource | null
   readonly #options: YoutubeSystemOptions
@@ -262,6 +273,13 @@ export class YoutubeSystem {
       },
       onConsentOff: (sellerId, targets) => this.outbox.consentOff(sellerId, targets, targets.length > 1),
     })
+    // 감사 채팅 다른 길 + 공식 API 넘김 (D-YT-SEND-13)
+    this.chatSend =
+      config.chatSend === undefined || config.chatSendOfficial === undefined
+        ? config.chatSend
+        : config.chatSend.withFallback(new OfficialBotSender({ google: this.google, connections: this.connections, timer, ...config.chatSendOfficial }))
+    this.chatSend?.setLog(log)
+    const chatSend = this.chatSend
     this.outbox = new OutboxRunner({
       db,
       timer,
@@ -280,6 +298,7 @@ export class YoutubeSystem {
       ...(options.outboxHooks === undefined ? {} : { hooks: options.outboxHooks }),
       ...(options.outboxTiming === undefined ? {} : { timing: options.outboxTiming }),
       ...(options.outboxExtension === undefined ? {} : { extension: options.outboxExtension }),
+      ...(chatSend === undefined ? {} : { chatSend }),
       onPass: (ok) => options.health?.pass('outbox', ok),
     })
     this.collectors = new CollectorManager({
@@ -294,6 +313,7 @@ export class YoutubeSystem {
       owner,
       publish,
       ourPost: (sellerId, broadcastId, messageId, text) => isOurPost(db, sellerId, broadcastId, messageId, text, new Date(timer.now() - 10 * 60 * 1000)),
+      ...(chatSend === undefined ? {} : { otherAuthors: (sellerId: string) => chatSend.authorsFor(sellerId) }),
       onChatEnded: (sellerId, link) => this.outbox.chatEnded(sellerId, link.broadcastId),
       ...(options.collectorHooks === undefined ? {} : { hooks: options.collectorHooks }),
       ...options.collectorTiming,
@@ -327,6 +347,7 @@ export class YoutubeSystem {
 
   async stop(): Promise<void> {
     await Promise.all([this.collectors.stop(), this.outbox.stop()])
+    await this.chatSend?.close()
   }
 
   /** 커밋된 기록 (새 효과 → 발송함, 방송 끝냄 → 수집기 다시 계산) */

@@ -31,6 +31,8 @@ export interface LogRecord {
   readonly suppressed?: number
   /** 간편 로그인 공급자 이름 (L1 — google · kakao · naver만. 공급자 계정 ID·이메일·코드·토큰은 남기지 않는다) */
   readonly provider?: 'google' | 'kakao' | 'naver'
+  /** 감사 채팅 다른 길 이름 (D-YT-SEND — innertube · browser · nightbot만. 쿠키·토큰은 남기지 않는다) */
+  readonly route?: 'innertube' | 'browser' | 'nightbot' | 'official'
 }
 
 export type LogCode =
@@ -82,6 +84,10 @@ export type LogCode =
   | 'YT_CHAT_UNKNOWN_ITEM'
   | 'YT_WEB_CHAT_INVALID'
   | 'OUTBOX_POST_FAILED'
+  | 'CHAT_SEND_FAILED'
+  | 'CHAT_SEND_AUTH'
+  | 'CHAT_SEND_ACCOUNT_DOWN'
+  | 'CHAT_SEND_FAILOVER'
   | 'OUTBOX_REPORT_FAILED'
   | 'OUTBOX_UNCONFIRMED'
   | 'OUTBOX_ERROR'
@@ -240,6 +246,10 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   YT_CHAT_UNKNOWN_ITEM: '유튜브 채팅에 모르는 항목 종류가 있어 버렸어요(이름·수만 남김)',
   YT_WEB_CHAT_INVALID: '유튜브 채팅 읽기 스위치 값을 알아볼 수 없어 켬으로 봤어요',
   OUTBOX_POST_FAILED: '감사 메시지를 게시하지 못했어요',
+  CHAT_SEND_FAILED: '감사 채팅 다른 길로 올리지 못했어요',
+  CHAT_SEND_AUTH: '감사 채팅 다른 길의 로그인(쿠키·토큰)을 쓸 수 없어요 — 운영자가 다시 이어야 해요',
+  CHAT_SEND_ACCOUNT_DOWN: '감사 채팅 봇 계정을 잠시 쉬게 했어요(count = 계정 번호, 0이면 서버가 막혀 모든 계정)',
+  CHAT_SEND_FAILOVER: '감사 채팅 봇 길이 막혀 공식 API로 넘겨 올려요',
   OUTBOX_REPORT_FAILED: '게시 보고를 기록하지 못해 다시 할게요(다시 게시하지 않음)',
   OUTBOX_UNCONFIRMED: '감사가 올라갔는지 확인하지 못해 다시 게시하지 않았어요',
   OUTBOX_ERROR: '발송함 처리 중 오류가 생겼어요',
@@ -354,6 +364,7 @@ export function formatLog(record: LogRecord): string {
   if (record.suppressed !== undefined) parts.push(`suppressed=${String(record.suppressed)}`)
   if (record.seller !== undefined && /^[A-Za-z0-9_-]{1,80}$/.test(record.seller)) parts.push(`seller=${record.seller}`)
   if (record.provider !== undefined && PROVIDERS.has(record.provider)) parts.push(`provider=${record.provider}`)
+  if (record.route !== undefined && ROUTES.has(record.route)) parts.push(`route=${record.route}`)
   if (record.status !== undefined) parts.push(`status=${String(record.status)}`)
   if (record.reason !== undefined && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(record.reason)) parts.push(`reason=${record.reason}`)
   if (record.claim !== undefined && CLAIM_RE.test(record.claim)) parts.push(`claim=${record.claim}`)
@@ -363,6 +374,7 @@ export function formatLog(record: LogRecord): string {
 
 const CLAIM_RE = /^c[0-9]{1,15}$/
 const PROVIDERS = new Set(['google', 'kakao', 'naver'])
+const ROUTES = new Set(['innertube', 'browser', 'nightbot', 'official'])
 const SELLER_RE = /^[A-Za-z0-9_-]{1,80}$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const WORKERS = new Set(['collector', 'outbox', 'sealer'])

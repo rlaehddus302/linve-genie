@@ -5,7 +5,7 @@
 // - 백업 상태(되돌리기는 운영자) · 전체 기록 파일·전체 판매대장(공유 시트로 — 손님 정보가 들어 있다는 경고와 함께).
 import { useCallback, useEffect, useState } from 'react'
 import { View } from 'react-native'
-import type { AssistantItem, AssistSettings, BackupStatus } from '@livejjim/web/src/api/types.ts'
+import type { AssistantItem, AssistSettings, BackupStatus, YoutubeConnectionResponse } from '@livejjim/web/src/api/types.ts'
 import { ASSIST_CONSENT, ASSIST_NOTICE, ASSIST_OFF_BUTTON, ASSIST_OFF_STATE, ASSIST_ON, ASSIST_ON_BUTTON, ASSIST_SWITCH, ASSIST_TITLE, ASSIST_UNAVAILABLE } from '@livejjim/web/src/lib/assist-words.ts'
 import { kstDateTimeLong, kstDateTimeWords } from '@livejjim/web/src/lib/kst.ts'
 import { BACKUP_STOPPED, EXPORT_WARNING, RESTORE_HINT, backupStopped, sizeWords } from '@livejjim/web/src/lib/shop-words.ts'
@@ -258,11 +258,35 @@ export function AssistantsCard() {
   )
 }
 
+/**
+ * 실시간 채팅 감사를 라이브지니 봇이 대신 올리는 판매자인가 (D-YT-SEND-18 — 연결 응답의 botThanks). 모르면(불러오는 중·유튜브 연동 없는 서버·오류) false.
+ * 봇 판매자 화면은 구글 연결·게시 동의 대신 감사 스위치 하나만 보인다
+ */
+export function useBotThanks(): boolean {
+  const [bot, setBot] = useState(false)
+  useEffect(() => {
+    let alive = true
+    get<YoutubeConnectionResponse>('/api/youtube/connection').then(
+      (result) => {
+        if (alive) setBot(result.botThanks === true)
+      },
+      () => {},
+    )
+    return () => {
+      alive = false
+    }
+  }, [])
+  return bot
+}
+
 export function ConnectionsCard() {
+  const bot = useBotThanks()
+  // 봇 판매자는 유튜브 구글 연결이 필요 없다 — 그 줄을 빼고 채팅 받기(방송 링크)만 쓴다
+  const rows = bot ? WEB_CONNECTIONS.filter((row) => row.path !== '/settings/youtube') : WEB_CONNECTIONS
   return (
     <Section title="연결" description="바깥 로그인 창을 거치는 연결은 기기 브라우저에서 해요.">
       <Card>
-        {WEB_CONNECTIONS.map((row) => (
+        {rows.map((row) => (
           <ListRow key={row.title} title={row.title} subtitle={row.sub} value={OPEN_IN_WEB} ariaLabel={`${row.title} — ${OPEN_IN_WEB}`} onPress={() => void openWeb(row.path)} />
         ))}
       </Card>

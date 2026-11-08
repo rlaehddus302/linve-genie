@@ -68,8 +68,10 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
   // ── 구글 연결 (AC-Y1-01~06·31) ────────────────────────────────────────
   api.get('/youtube/connection', async (c) => {
     if (youtube === null) return notConfigured()
-    // webChat: 서버가 방송 주소만으로 채팅을 읽는가(YT-11 — 구글 연결 없이 잇기 칸을 연다, 옛 공식 읽기면 null), oauth: 구글 연결(감사 게시용)을 쓸 수 있는가
-    return c.json({ connection: await youtube.status(sellerOf(c)), webChat: youtube.webChatView(), oauth: youtube.oauthReady })
+    // webChat: 서버가 방송 주소만으로 채팅을 읽는가(YT-11 — 구글 연결 없이 잇기 칸을 연다, 옛 공식 읽기면 null), oauth: 구글 연결(감사 게시용)을 쓸 수 있는가,
+    // botThanks: 이 판매자의 실시간 채팅 감사를 라이브지니 봇이 대신 올리는가 (D-YT-SEND-18 — 화면이 구글 연결·게시 동의 대신 감사 스위치 하나만 보인다)
+    const seller = sellerOf(c)
+    return c.json({ connection: await youtube.status(seller), webChat: youtube.webChatView(), oauth: youtube.oauthReady, botThanks: (youtube.chatSend?.senderFor(seller) ?? null) !== null })
   })
   api.post('/youtube/connection/start', async (c) => {
     if (youtube === null || !youtube.oauthReady) return notConfigured()

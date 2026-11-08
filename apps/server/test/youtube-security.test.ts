@@ -134,6 +134,12 @@ describe('AC-Y1-72 바깥 호출', () => {
     expect(bad).toEqual({ ok: false, message: '유튜브 연동 주소는 https://로만 적을 수 있어요.' })
     expect(JSON.stringify(bad)).not.toContain('s3cr3t')
     expect(readYoutubeSetting({ LIVEJJIM_GOOGLE_CLIENT_ID: 'id' }, 'https://app.test').ok).toBe(false)
+    // D-YT-SEND-16: 내 컴퓨터 시험은 돌아오는 주소·화면 주소만 http://localhost — 구글 주소·다른 http 주소는 그대로 거절
+    const local = readYoutubeSetting({ LIVEJJIM_GOOGLE_CLIENT_ID: 'id', LIVEJJIM_GOOGLE_CLIENT_SECRET: 's3cr3t', LIVEJJIM_GOOGLE_REDIRECT_URI: 'http://localhost:7800/api/youtube/oauth/callback' }, 'http://localhost:7800')
+    expect(local).toMatchObject({ ok: true, youtube: { redirectUri: 'http://localhost:7800/api/youtube/oauth/callback', returnUrl: 'http://localhost:7800/settings/youtube' } })
+    expect(readYoutubeSetting({ LIVEJJIM_GOOGLE_CLIENT_ID: 'id', LIVEJJIM_GOOGLE_CLIENT_SECRET: 's3cr3t', LIVEJJIM_GOOGLE_REDIRECT_URI: 'http://localhost:7800/cb', LIVEJJIM_GOOGLE_TOKEN_URL: 'http://localhost:9/token' }, 'http://localhost:7800').ok).toBe(false)
+    expect(readYoutubeSetting({ LIVEJJIM_GOOGLE_CLIENT_ID: 'id', LIVEJJIM_GOOGLE_CLIENT_SECRET: 's3cr3t', LIVEJJIM_GOOGLE_REDIRECT_URI: 'http://app.test/cb' }, 'https://app.test').ok).toBe(false)
+    expect(() => createServer({ database, masterKey: generateMasterKey(), appOrigin: 'http://localhost:7800', youtube: { ...config, redirectUri: 'http://localhost:7800/api/youtube/oauth/callback', returnUrl: 'http://localhost:7800/settings/youtube' } })).not.toThrow()
     await database.close()
   })
 

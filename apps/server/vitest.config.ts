@@ -9,6 +9,8 @@
 import { defineConfig } from 'vitest/config'
 
 const YOUTUBE_TESTS = 'test/youtube-*.test.ts'
+/** 감사 채팅 다른 길 시험(D-YT-SEND) — Chromium을 띄워 CPU를 많이 쓴다. 유튜브 시험의 실제 시간 시험(응답 없음 15초 등)과 겹치지 않게 맨 뒤에 따로 */
+const CHAT_SEND_TESTS = 'test/youtube-chat-send*.test.ts'
 /** I2 서버 시험 — server-i2 프로젝트가 돌린다 */
 const I2_TESTS = 'test/i2-*.test.ts'
 
@@ -37,8 +39,9 @@ export default defineConfig({
   test: {
     projects: [
       { test: { ...common, name: 'server', include: ['test/**/*.test.ts'], exclude: [YOUTUBE_TESTS, I2_TESTS, ...cliExclude], sequence: { groupOrder: 1 } } },
-      { test: { ...common, name: 'server-youtube', include: [YOUTUBE_TESTS], exclude: cliExclude, sequence: { groupOrder: 2 } } },
+      { test: { ...common, name: 'server-youtube', include: [YOUTUBE_TESTS], exclude: [CHAT_SEND_TESTS, ...cliExclude], sequence: { groupOrder: 2 } } },
       { test: { ...common, name: 'server-i2', include: [I2_TESTS], exclude: cliExclude, sequence: { groupOrder: 3 }, testTimeout: 30_000 } },
+      { test: { ...common, name: 'server-chat-send', include: [CHAT_SEND_TESTS], exclude: cliExclude, sequence: { groupOrder: 4 } } },
     ],
   },
 })

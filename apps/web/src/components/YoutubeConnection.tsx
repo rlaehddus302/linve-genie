@@ -13,6 +13,8 @@ import { kstDateTimeWords } from '../lib/kst.ts'
 import { groupDigits } from '../lib/money.ts'
 import { routePath, type Navigate } from '../lib/router.ts'
 import {
+  BOT_THANKS_NOTE,
+  BOT_THANKS_TITLE,
   GOOGLE_FOR_THANKS,
   GOOGLE_FOR_THANKS_TITLE,
   GOOGLE_NOT_READY,
@@ -42,6 +44,8 @@ export type ConnectionState =
       readonly webChat?: YoutubeWebChat | null
       /** 구글 연결(감사 채팅용)을 쓸 수 있는 서버인가 — 없으면 쓸 수 있음(옛 서버) */
       readonly oauth?: boolean
+      /** 실시간 채팅 감사를 라이브지니 봇이 대신 올리는가 (D-YT-SEND-18) */
+      readonly botThanks?: boolean
     }
 
 export interface ConnectionHandle {
@@ -70,6 +74,11 @@ export function webChatOf(state: ConnectionState): YoutubeWebChat | null {
 /** 구글 연결(감사 채팅용)을 쓸 수 있는가 */
 export function oauthOf(state: ConnectionState): boolean {
   return state.phase !== 'ready' || state.oauth !== false
+}
+
+/** 실시간 채팅 감사를 라이브지니 봇이 대신 올리는 판매자인가 (준비된 상태에서만, D-YT-SEND-18) */
+export function botThanksOf(state: ConnectionState): boolean {
+  return state.phase === 'ready' && state.botThanks === true
 }
 
 /** 연결 상태 (GET /api/youtube/connection — 503 YOUTUBE_NOT_CONFIGURED면 준비 안 된 서버) */
@@ -254,11 +263,19 @@ export function YoutubeStatus({ handle, quota, navigate, place }: YoutubeStatusP
           {WEB_CHAT_OFF_MESSAGE}
         </p>
       )}
-      <section className="stack-tight google-optional" aria-label={GOOGLE_FOR_THANKS_TITLE}>
-        <h3 className="sub-title">{GOOGLE_FOR_THANKS_TITLE}</h3>
-        <p>{GOOGLE_FOR_THANKS}</p>
-        {state.oauth === false ? <p className="notice">{GOOGLE_NOT_READY}</p> : <GoogleStatus handle={handle} connection={state.connection} quota={quota} navigate={navigate} place={place} web />}
-      </section>
+      {state.botThanks === true ? (
+        // 봇 감사 판매자 (D-YT-SEND-18): 구글 연결 칸 대신 한 줄 — 감사 채팅은 라이브지니가 올린다
+        <section className="stack-tight" aria-label={BOT_THANKS_TITLE}>
+          <h3 className="sub-title">{BOT_THANKS_TITLE}</h3>
+          <p>{BOT_THANKS_NOTE}</p>
+        </section>
+      ) : (
+        <section className="stack-tight google-optional" aria-label={GOOGLE_FOR_THANKS_TITLE}>
+          <h3 className="sub-title">{GOOGLE_FOR_THANKS_TITLE}</h3>
+          <p>{GOOGLE_FOR_THANKS}</p>
+          {state.oauth === false ? <p className="notice">{GOOGLE_NOT_READY}</p> : <GoogleStatus handle={handle} connection={state.connection} quota={quota} navigate={navigate} place={place} web />}
+        </section>
+      )}
     </div>
   )
 }

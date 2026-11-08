@@ -386,6 +386,9 @@ importers:
       hono:
         specifier: 4.13.13
         version: 4.13.13
+      playwright-core:
+        specifier: 1.62.1
+        version: 1.62.1
       postgres:
         specifier: 3.4.9
         version: 3.4.9
@@ -395,6 +398,9 @@ importers:
       ws:
         specifier: 8.22.0
         version: 8.22.0
+      youtubei.js:
+        specifier: 18.3.0
+        version: 18.3.0
     devDependencies:
       '@types/node':
         specifier: 24.19.2
@@ -3871,6 +3877,10 @@ packages:
   merge-stream@2.0.0:
     resolution: {integrity: sha512-abv/qOcuPfk3URPfDzmZU1LKmuw8kT+0nIHvKrKgFrwifol/doWcdA4ZqsWQ8ENrFKkd67Mfpo/LovbIUsbt3w==}
 
+  meriyah@7.4.1:
+    resolution: {integrity: sha512-3fIW/dyrrS7xbcxs/EHstPTZX9l/NVLDrXB1b+nNKoS98MpBonPH4kZ9MXUxH1QTlY34jp7ir7eMts1FDC9weA==}
+    engines: {node: '>=20.0.0'}
+
   metro-babel-transformer@0.87.1:
     resolution: {integrity: sha512-orvRIGpb0yK1yMbk5YP3dhVKjmoxUkRB9fdltGJxNppEqus/1tFpNuf9KnGFR3Qjg0izoUrJ4z6WgoBvdkXPrA==}
     engines: {node: ^22.13.0 || ^24.3.0 || >= 26.0.0}
@@ -5178,6 +5188,9 @@ packages:
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+
+  youtubei.js@18.3.0:
+    resolution: {integrity: sha512-6Cwn/U8a+OjpZp5XgqOjwy7Lk0RrGavm3I5zO7qZWO+fes20vhWMZnlUs0h/97SwjS0AsxAZrZ5bJ85XBJVWTw==}
 
   zip-stream@4.1.1:
     resolution: {integrity: sha512-9qv4rlDiopXg4E69k+vMHjNN63YFMe9sZMrdlvKnCjlCRWeCBswPPMPUfx+ipsAWq1LXHe70RcbaHdJJpS6hyQ==}
@@ -8744,6 +8757,8 @@ snapshots:
 
   merge-stream@2.0.0: {}
 
+  meriyah@7.4.1: {}
+
   metro-babel-transformer@0.87.1(supports-color@8.1.1):
     dependencies:
       '@babel/core': 7.29.7(supports-color@8.1.1)
@@ -10392,6 +10407,12 @@ snapshots:
       yargs-parser: 21.1.1
 
   yocto-queue@0.1.0: {}
+
+  youtubei.js@18.3.0:
+    dependencies:
+      '@bufbuild/protobuf': 2.16.0
+      fflate: 0.8.3
+      meriyah: 7.4.1
 
   zip-stream@4.1.1:
     dependencies:

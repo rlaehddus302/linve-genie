@@ -15,6 +15,9 @@ import { goToGoogle } from '../lib/google-return.ts'
 import { kstDateTimeWords } from '../lib/kst.ts'
 import { fieldOf, fieldsAt, SAVED_MESSAGE, THANKS_DETAIL } from '../lib/settings-fields.ts'
 import {
+  BOT_THANKS_NOTE,
+  BOT_THANKS_SUMMARY,
+  BOT_THANKS_TITLE,
   CONNECT_FIRST_MESSAGE,
   CONNECT_FOR_THANKS,
   CONSENT_NAME,
@@ -30,7 +33,7 @@ import {
 import { ErrorNote } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 import { DetailToggle, RuleField, settingProblem, useRuleForm, type RuleForm } from './RuleFields.tsx'
-import { oauthOf, webChatOf, type ConnectionHandle } from './YoutubeConnection.tsx'
+import { botThanksOf, oauthOf, webChatOf, type ConnectionHandle } from './YoutubeConnection.tsx'
 
 const THANKS_FIELDS = fieldsAt('thanks')
 const LIVE_CHAT_FIELD = fieldOf('thanks.liveChat')
@@ -62,18 +65,29 @@ export function ThanksSettings({ settings, youtube, form }: ThanksSettingsProps)
   const connection = youtube.connection
   // 영상 댓글 줄은 저장값이 OFF가 아닐 때만 (D-FB1-14 (3) — 실시간 채팅 줄은 늘)
   const videoOn = settings['thanks.videoComment'] !== 'OFF'
+  // 봇 감사 판매자 (D-YT-SEND-18): 실시간 채팅은 감사 스위치 하나 — 구글 게시 동의 칸 대신 안내. 영상 댓글은 봇이 올리지 않아 동의 칸을 그대로 둔다
+  const bot = botThanksOf(youtube.state)
   return (
     <div className="stack">
       <MakeFields settings={settings} form={form} />
-      <fieldset className="card stack">
-        <legend className="sub-title">자동 게시 동의</legend>
-        <ConsentControls youtube={youtube} videoComment={videoOn} />
-      </fieldset>
+      {bot ? (
+        <section className="card stack-tight" aria-label={BOT_THANKS_TITLE}>
+          <h3 className="sub-title">{BOT_THANKS_TITLE}</h3>
+          <p>{BOT_THANKS_NOTE}</p>
+        </section>
+      ) : null}
+      {!bot || videoOn ? (
+        <fieldset className="card stack">
+          <legend className="sub-title">자동 게시 동의</legend>
+          <ConsentControls youtube={youtube} videoComment={videoOn} liveChat={!bot} />
+        </fieldset>
+      ) : null}
       <section className="stack-tight" aria-label="지금 설정의 결과">
         <h3 className="sub-title">지금 설정의 결과</h3>
         <ul className="plain-list consent-summary">
           <li>
-            <strong>실시간 채팅</strong> — {consentSummary(settings['thanks.liveChat'], connection?.consent.liveChat.enabled === true)}
+            <strong>실시간 채팅</strong> —{' '}
+            {bot ? (settings['thanks.liveChat'] ? BOT_THANKS_SUMMARY : consentSummary(false, false)) : consentSummary(settings['thanks.liveChat'], connection?.consent.liveChat.enabled === true)}
           </li>
           {videoOn ? (
             <li>
@@ -147,7 +161,7 @@ function MakeFields({ settings, form }: { readonly settings: SaleSettings; reado
 }
 
 /** 자동 게시 동의 켜기·끄기 (AC-I3-11·12) */
-function ConsentControls({ youtube, videoComment }: { readonly youtube: ConnectionHandle; readonly videoComment: boolean }) {
+function ConsentControls({ youtube, videoComment, liveChat = true }: { readonly youtube: ConnectionHandle; readonly videoComment: boolean; readonly liveChat?: boolean }) {
   const [asking, setAsking] = useState<ConsentTarget | null>(null)
   const [busy, setBusy] = useState<ConsentTarget | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -214,7 +228,7 @@ function ConsentControls({ youtube, videoComment }: { readonly youtube: Connecti
   return (
     <div className="stack">
       {blocked !== null ? <p className="notice">{blocked}</p> : null}
-      {row('LIVE_CHAT', connection?.consent.liveChat ?? null)}
+      {liveChat ? row('LIVE_CHAT', connection?.consent.liveChat ?? null) : null}
       {videoComment ? row('VIDEO_COMMENT', connection?.consent.videoComment ?? null) : null}
       {message !== null ? (
         <p className="notice" role="status">

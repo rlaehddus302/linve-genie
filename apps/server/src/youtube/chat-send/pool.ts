@@ -1,0 +1,120 @@
+// 봇 계정 여럿 (D-YT-SEND-12): 계정 하나가 막혀도(SPOF) 감사가 멈추지 않고, 방송끼리는 동시에 올린다.
+// - 방송(영상 ID)마다 계정 하나를 붙인다(처음 올릴 때 가장 적게 맡은 쉬지 않는 계정). 한 방송의 작성자가 자꾸 바뀌지 않게 그 뒤로 같은 계정.
+//   보내기 간격은 계정마다(각 계정의 Pacer) — 다른 계정이 맡은 방송끼리는 기다리지 않는다.
+// - 올라가지 않은 것이 확실한 실패만 다음 계정으로 넘긴다: auth(로그인 풀림 — 10분 쉼), rate(429 — 1분 쉼). 넘기면 그 방송을 새 계정에 붙인다.
+//   blocked(유튜브가 서버 IP를 막음)는 계정 문제가 아니므로 모든 계정을 5분 쉬게 하고 blocked로 던진다(공식 API로 넘길 일 — D-YT-SEND-13).
+//   거절(rejected — 400, 올라가지 않음)은 다음 계정으로 한 번 더: 다른 계정이 올리면 거절한 계정 탓(실물: 채널 없는 계정)이라 10분 쉬게 하고,
+//   모두 거절하면 글 탓이라 아무도 쉬지 않고 rejected (D-YT-SEND-14).
+//   응답을 모르는 실패(timeout·network·unverified·server)와 채팅 끝남(ended)은 다른 계정으로 넘기지 않고 그대로 던진다(두 번 올리지 않는다).
+// - 쉬지 않는 계정이 없으면 보내지 않고 blocked.
+// - 계정 쉼은 운영 로그(CHAT_SEND_ACCOUNT_DOWN, count = 계정 번호 1부터)로 남긴다. 쿠키·채널 ID는 남기지 않는다.
+import type { LogSink } from '../../log.ts'
+import type { Timer } from '../timer.ts'
+import { ChatSendError, type ChatSender, type ChatSendResult, type ChatSendRouteName, type ChatSendTarget, type MultiAuthorSender } from './sender.ts'
+
+export const AUTH_REST_MS = 10 * 60 * 1000
+export const RATE_REST_MS = 60 * 1000
+export const BLOCKED_REST_MS = 5 * 60 * 1000
+
+interface Account {
+  readonly sender: ChatSender
+  readonly number: number
+  restUntil: number
+}
+
+export class ChatSenderPool implements MultiAuthorSender {
+  readonly route: ChatSendRouteName
+  readonly needsLiveChatId: boolean
+  readonly authorChannelId: string
+  readonly authorChannelIds: readonly string[]
+  readonly #accounts: Account[]
+  readonly #timer: Timer
+  /** 영상 ID → 맡은 계정 (메모리 — 서버를 다시 켜면 다시 고른다) */
+  readonly #byVideo = new Map<string, Account>()
+  #log: LogSink | null = null
+
+  constructor(senders: readonly ChatSender[], timer: Timer) {
+    const first = senders[0]
+    if (first === undefined) throw new Error('봇 계정이 하나도 없다')
+    if (senders.some((sender) => sender.route !== first.route)) throw new Error('봇 계정은 모두 같은 길이어야 한다')
+    if (new Set(senders.map((sender) => sender.authorChannelId)).size !== senders.length) throw new Error('봇 계정 채널이 겹친다')
+    this.#accounts = senders.map((sender, index) => ({ sender, number: index + 1, restUntil: 0 }))
+    this.#timer = timer
+    this.route = first.route
+    this.needsLiveChatId = first.needsLiveChatId
+    this.authorChannelId = first.authorChannelId
+    this.authorChannelIds = senders.map((sender) => sender.authorChannelId)
+  }
+
+  setLog(log: LogSink): void {
+    this.#log = log
+  }
+
+  /** 지금 쉬지 않는 계정 수 (운영 상태·시험) */
+  available(): number {
+    const now = this.#timer.now()
+    return this.#accounts.filter((account) => account.restUntil <= now).length
+  }
+
+  /** 그 방송을 맡은 계정의 채널 ID (시험·운영 상태) */
+  assigned(videoId: string): string | null {
+    return this.#byVideo.get(videoId)?.sender.authorChannelId ?? null
+  }
+
+  #rest(account: Account, ms: number, kind: string): void {
+    account.restUntil = this.#timer.now() + ms
+    for (const [video, holder] of this.#byVideo) if (holder === account) this.#byVideo.delete(video)
+    this.#log?.({ level: 'error', code: 'CHAT_SEND_ACCOUNT_DOWN', route: this.route, errorKind: kind, count: account.number })
+  }
+
+  /** 이 방송에 쓸 계정 차례: 맡은 계정(쉬지 않으면) → 나머지는 맡은 방송이 적은 순 */
+  #order(videoId: string, tried: ReadonlySet<Account>): Account[] {
+    const now = this.#timer.now()
+    const ready = this.#accounts.filter((account) => account.restUntil <= now && !tried.has(account))
+    const load = (account: Account) => [...this.#byVideo.values()].filter((holder) => holder === account).length
+    const held = this.#byVideo.get(videoId)
+    const rest = ready.filter((account) => account !== held).sort((a, b) => load(a) - load(b) || a.number - b.number)
+    return held !== undefined && ready.includes(held) ? [held, ...rest] : rest
+  }
+
+  async send(target: ChatSendTarget, text: string, signal?: AbortSignal): Promise<ChatSendResult> {
+    const tried = new Set<Account>()
+    // 거절(rejected)한 계정 — 다른 계정이 올리면 그 계정 탓(채널 없음 등)이라 쉬게 한다, 모두 거절하면 글 탓이라 아무도 쉬지 않는다 (D-YT-SEND-14)
+    const rejectedBy: Account[] = []
+    let rejected: ChatSendError | null = null
+    for (;;) {
+      const [account] = this.#order(target.videoId, tried)
+      if (account === undefined) throw rejected ?? new ChatSendError('blocked')
+      tried.add(account)
+      // 보내기 전에 붙인다 — 같은 방송의 다음 감사가 같은 계정의 줄에 선다
+      this.#byVideo.set(target.videoId, account)
+      try {
+        const result = await account.sender.send(target, text, signal)
+        for (const bad of rejectedBy) this.#rest(bad, AUTH_REST_MS, 'rejected')
+        // 쉬게 한 계정이 이 방송을 맡고 있었으면 지워졌다 — 올린 계정에 다시 붙인다
+        this.#byVideo.set(target.videoId, account)
+        return { ...result, authorChannelId: result.authorChannelId ?? account.sender.authorChannelId }
+      } catch (error) {
+        if (!(error instanceof ChatSendError)) throw error
+        if (error.kind === 'rejected') {
+          // 400 거절은 올라가지 않았다 — 다른 계정으로 한 번 더 (실물 2026-11-08: 채널이 없는 계정은 send_message가 400 badRequest)
+          rejectedBy.push(account)
+          rejected = error
+          continue
+        }
+        if (error.kind === 'auth') this.#rest(account, AUTH_REST_MS, error.kind)
+        else if (error.kind === 'rate') this.#rest(account, RATE_REST_MS, error.kind)
+        else if (error.kind === 'blocked') {
+          for (const each of this.#accounts) each.restUntil = this.#timer.now() + BLOCKED_REST_MS
+          this.#byVideo.clear()
+          this.#log?.({ level: 'error', code: 'CHAT_SEND_ACCOUNT_DOWN', route: this.route, errorKind: 'blocked', count: 0 })
+          throw error
+        } else throw error
+      }
+    }
+  }
+
+  async close(): Promise<void> {
+    await Promise.all(this.#accounts.map((account) => account.sender.close()))
+  }
+}

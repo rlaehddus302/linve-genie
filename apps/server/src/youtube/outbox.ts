@@ -25,6 +25,7 @@ import type { Db } from '../db/database.ts'
 import { INSTAGRAM_PREFIX, TIKTOK_PREFIX } from '../platform.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import type { Actor, ScopeWriter } from '../writer.ts'
+import { ChatSendError, type ChatSender, type ChatSendRoute } from './chat-send/sender.ts'
 import { ChannelMismatchError, YoutubeAccessError, googleFields, type ConsentTarget, type YoutubeConnections } from './connect.ts'
 import { batchWindowOf } from './collector.ts'
 import { GoogleError, POST_TIMEOUT_MS, type GoogleClient } from './google.ts'
@@ -211,6 +212,37 @@ export interface OutboxOptions {
   readonly timing?: OutboxTiming
   /** 크롬 확장 감사 올리기 (X1) — 없으면 공식 경로만 */
   readonly extension?: OutboxExtension
+  /**
+   * 실시간 채팅 감사 다른 길 (D-YT-SEND-01~08): 고른 판매자의 "올리기" 한 번만 innertube·browser·nightbot으로 바꾼다(liveChatMessages.insert 20단위를 쓰지 않는다).
+   * 동의·채널·기한·엔진 상태·묶음·게시 확인은 공식과 같다. 없으면 공식만
+   */
+  readonly chatSend?: ChatSendRoute
+}
+
+/**
+ * 다른 길 실패 → 공식 게시 실패와 같은 처리로 (D-YT-SEND-05). 응답을 모르는 것(timeout·network·unverified)은 다시 올리지 않고 수집기가 본 글로 확인,
+ * 5xx·429·로그인 문제는 다시 시도(2·4·8·16·32초, 5번 넘으면 GAVE_UP — 판매자 구글 다시 연결로 고칠 수 없어 RECONNECT로 두지 않는다),
+ * 채팅 끝남·꺼짐은 CHAT_ENDED(채팅 끝 표시는 수집기가 정한다), 그 밖은 REJECTED
+ */
+function chatSendAsGoogle(error: ChatSendError): GoogleError {
+  switch (error.kind) {
+    case 'timeout':
+    case 'unverified':
+      return new GoogleError('timeout', null, null)
+    case 'network':
+      return new GoogleError('network', null, null)
+    case 'server':
+      return new GoogleError('http', error.status ?? 500, null)
+    case 'rate':
+    case 'blocked':
+      return new GoogleError('http', 429, 'rateLimitExceeded')
+    case 'auth':
+      return new GoogleError('http', 401, null)
+    case 'ended':
+      return new GoogleError('http', 403, 'liveChatDisabled')
+    case 'rejected':
+      return new GoogleError('http', error.status ?? 400, null)
+  }
 }
 
 export interface OutboxRowView {
@@ -459,7 +491,10 @@ export class OutboxRunner {
         connection === null && target === 'LIVE_CHAT' && this.#options.extension !== undefined && effect.broadcast !== null
           ? ((await this.#options.extension.route(row.sellerId, effect.broadcast))?.getTime() ?? Infinity) <= created
           : false
-      if (!officialOk && !extensionOk) {
+      // 봇 길(D-YT-SEND-11·18): 운영자가 고른 판매자면, 감사 효과가 생겼다는 것(앱의 실시간 채팅 감사 스위치가 켜져 있었다)을 동의로 본다.
+      // 구글 연결·게시 동의와 상관없다 — 봇 판매자 화면에는 그 스위치 하나만 있다(구글 동의 칸을 숨긴다)
+      const botOk = target === 'LIVE_CHAT' && effect.broadcast !== null && this.#sender(row.sellerId) !== null
+      if (!officialOk && !extensionOk && !botOk) {
         await this.#update(row, [row.id], { ...base, state: 'FAILED', reason: 'NO_CONSENT' }, { state: null })
         this.#publishRows(row.sellerId, row.date, [row.id], 'FAILED', 'NO_CONSENT')
         continue
@@ -472,7 +507,8 @@ export class OutboxRunner {
       const state = await this.#state(states, row.sellerId, row.date)
       let mode = modes.get(row.sellerId)
       if (mode === undefined) {
-        mode = await this.#options.quota.mode(row.sellerId)
+        // 다른 길은 할당량을 쓰지 않는다 — 할당량 묶음 창(≥ 60초)을 두지 않는다 (D-YT-SEND-05). 초대 방송 창은 그대로
+        mode = this.#sender(row.sellerId) !== null ? 'NORMAL' : await this.#options.quota.mode(row.sellerId)
         modes.set(row.sellerId, mode)
       }
       // 초대 방송인지는 행을 처음 볼 때 그 회차 이은 기록으로 (글 올리는 계정이 비면 초대 방송 아님 — D-YT-SRV-16·18)
@@ -624,7 +660,7 @@ export class OutboxRunner {
       return null
     }
     const connection = await this.#options.connections.row(sellerId)
-    const link = connection === null ? null : await activeLink(this.#options.db, sellerId, first.broadcastId ?? '')
+    const link = connection === null && !(target === 'LIVE_CHAT' && this.#sender(sellerId) !== null) ? null : await activeLink(this.#options.db, sellerId, first.broadcastId ?? '')
     // 글 올리는 계정이 비어 있으면(구글 연결 없이 이음) 채널 다름이 아니다 — 올리기 바로 전에 그때 연결한 채널을 적는다 (D-YT-SRV-16)
     if (connection !== null && link !== null && link.channelId !== null && link.channelId !== connection.channelId) return fail('NOT_MY_CHANNEL')
     const consentAt = connection === null ? null : target === 'LIVE_CHAT' ? connection.consentLiveChatAt : connection.consentVideoCommentAt
@@ -632,6 +668,14 @@ export class OutboxRunner {
     // 공식 경로로 올릴 수 없으면(연결 없음·살아 있지 않음·게시 권한 없음·이은 방송 없음) '동의 전'으로 끝내기 전에 확장에 맡길 수 있는지 먼저 본다 (X1 D-X1-17~19).
     // 확장 스위치를 켠 뒤에 생긴 자동 감사만 맡기고, 맡긴 행은 공식 실행기가 다시 집지 않는다. 공식 연결이 있으면 YT-04 동의도 있어야 한다(AC11).
     // 공식으로 올릴 수 있으면 공식만(이중 게시 금지)
+    // 봇 길(D-YT-SEND-11): 판매자 구글 토큰·게시 권한·할당량을 쓰지 않는다 — 연결이 있으면 그 동의만 보고, 없으면 감사 효과가 곧 동의다.
+    // 이은 방송·채팅 끝은 공식과 같다. 확장에는 맡기지 않는다(같은 감사를 두 길로 올리지 않는다)
+    // 동의는 감사 스위치 하나 (D-YT-SEND-18 — 효과가 있으면 켜져 있었다)
+    if (target === 'LIVE_CHAT' && this.#sender(sellerId) !== null) {
+      if (link === null) return fail('NO_LINK')
+      if (link.chatEndedAt !== null) return fail('CHAT_ENDED')
+      return rows
+    }
     const official = connection !== null && connection.status === 'CONNECTED' && connection.canPublish && link !== null
     if (!official && target === 'LIVE_CHAT' && this.#options.extension !== undefined && first.broadcastId !== null) {
       const enabledAt = await this.#options.extension.route(sellerId, first.broadcastId)
@@ -675,7 +719,20 @@ export class OutboxRunner {
     const first = rows[0] as RunnerRow
     const { db, connections, google } = this.#options
     let current = link
-    if (current.channelId === null) {
+    // 봇 길은 글 올리는 계정이 봇이다 — 판매자 채널을 적지 않는다. 공식 채팅 ID가 필요 없는 길(innertube·browser)은 그대로 올린다 (D-YT-SEND-11)
+    const botSender = target === 'LIVE_CHAT' ? this.#sender(first.sellerId) : null
+    // 공식 채팅 ID를 받을 토큰의 채널: 글 올리는 계정, 봇 길이면 지금 연결한 채널 (nightbot — 받기만 하고 적지 않는다)
+    let tokenChannel = current.channelId
+    if (botSender !== null) {
+      if (!botSender.needsLiveChatId || current.liveChatId !== '') return current
+      const connection = await connections.row(first.sellerId)
+      if (connection === null) {
+        await this.#failWaiting(rows, 'REJECTED')
+        return null
+      }
+      tokenChannel = connection.channelId
+    }
+    if (current.channelId === null && botSender === null) {
       const connection = await connections.row(first.sellerId)
       // #gate가 연결·권한을 막 봤다 — 그사이 끊겼으면 다음 바퀴에 #gate가 다시 정한다
       if (connection === null) return null
@@ -688,11 +745,13 @@ export class OutboxRunner {
       }
     }
     if (target !== 'LIVE_CHAT' || current.liveChatId !== '') return current
+    // 공식 채팅 ID가 필요 없는 다른 길(innertube·browser — 영상 ID로 올린다)은 받지 않는다 (D-YT-SEND-05)
+    if (this.#sender(first.sellerId)?.needsLiveChatId === false) return current
     const videoId = current.videoId
     let body: Record<string, unknown>
     try {
       // 글 올리는 계정의 토큰으로만 — 꺼내는 순간 연결 채널이 다르면 부르지 않는다 (D-I3-17 (1))
-      body = await connections.withChannelToken(first.sellerId, current.channelId ?? '', (token) =>
+      body = await connections.withChannelToken(first.sellerId, (botSender === null ? current.channelId : tokenChannel) ?? '', (token) =>
         google.api({
           sellerId: first.sellerId,
           method: 'videos.list',
@@ -800,7 +859,15 @@ export class OutboxRunner {
     await this.#options.hooks?.beforePost?.(ids)
     this.#check()
     let remoteId: string
+    const sender = target === 'LIVE_CHAT' ? this.#sender(first.sellerId) : null
+    let author = sender?.authorChannelId ?? link.channelId
     try {
+      if (sender !== null) {
+        const other = await this.#sendOther(sender, link, text, first.sellerId)
+        remoteId = other.id
+        author = other.author
+        this.#check()
+      } else {
       // 그 방송을 이은 채널의 토큰으로만 — 꺼내는 순간 채널이 다르면 보내지 않는다 (D-I3-17 (1), AC-I3-85)
       const body = await this.#options.connections.withChannelToken(first.sellerId, link.channelId ?? '', (token) =>
         target === 'LIVE_CHAT'
@@ -830,6 +897,7 @@ export class OutboxRunner {
       )
       this.#check()
       remoteId = typeof body.id === 'string' ? body.id : ''
+      }
     } catch (error) {
       this.#check()
       await this.#postFailed(sending, error, link, target)
@@ -838,9 +906,40 @@ export class OutboxRunner {
     await this.#options.hooks?.afterPost?.(ids)
     this.#check()
     if (target === 'LIVE_CHAT' && remoteId !== '') {
-      await insertOwnMessage(this.#options.db, { sellerId: first.sellerId, scopeId: first.scopeId, linkId: link.id, liveChatId: link.liveChatId, authorChannelId: link.channelId, messageId: remoteId, text, publishedAt: now })
+      await insertOwnMessage(this.#options.db, {
+        sellerId: first.sellerId,
+        scopeId: first.scopeId,
+        linkId: link.id,
+        liveChatId: link.liveChatId,
+        authorChannelId: author,
+        messageId: remoteId,
+        text,
+        publishedAt: now,
+      })
     }
     await this.#sent(sending, remoteId === '' ? null : remoteId)
+  }
+
+  /** 그 판매자의 실시간 채팅 감사 다른 길 (없으면 공식) */
+  #sender(sellerId: string): ChatSender | null {
+    return this.#options.chatSend?.senderFor(sellerId) ?? null
+  }
+
+  /**
+   * 다른 길로 한 번 올린다 (D-YT-SEND-05). 판매자 구글 토큰·할당량을 쓰지 않는다. 메시지 ID를 모르면 ''.
+   * 실패는 종류만 로그에 남기고(쿠키·토큰·본문 없음) 공식 게시 실패와 같은 GoogleError로 바꿔 던진다
+   */
+  async #sendOther(sender: ChatSender, link: LinkRow, text: string, sellerId: string): Promise<{ id: string; author: string }> {
+    try {
+      const result = await sender.send({ videoId: link.videoId, channelId: link.broadcastChannelId, liveChatId: link.liveChatId }, text, this.#inflight.signal)
+      // 실제로 올린 계정 (봇 계정 여럿·공식 넘김) — 게시 확인·우리 글 거르기에 쓴다
+      return { id: result.messageId ?? '', author: result.authorChannelId ?? sender.authorChannelId }
+    } catch (error) {
+      if (!(error instanceof ChatSendError)) throw error
+      // 로그인·토큰 문제는 운영자가 봇 계정을 다시 이어야 한다 — 경보로 남긴다
+      this.#options.log({ level: error.kind === 'auth' ? 'error' : 'warn', code: error.kind === 'auth' ? 'CHAT_SEND_AUTH' : 'CHAT_SEND_FAILED', seller: sellerId, route: sender.route, errorKind: error.kind, ...(error.status === null ? {} : { status: error.status }) })
+      throw chatSendAsGoogle(error)
+    }
   }
 
   /** 게시 실패 처리 (AC-Y1-35·36) */
@@ -1089,7 +1188,8 @@ export class OutboxRunner {
       selfIds: rows.map((row) => row.id),
       selfState: state,
       ...(state === 'SENDING' ? { selfOwner: this.#options.owner } : {}),
-      own: target === 'LIVE_CHAT' ? { linkId: link.id, posterChannelId: link.channelId } : null,
+      // 다른 길로 올린 글은 그 길의 작성자(봇 계정·Nightbot)도 우리 글로 본다 (D-YT-SEND-06)
+      own: target === 'LIVE_CHAT' ? { linkId: link.id, posterChannelId: link.channelId, otherAuthors: this.#options.chatSend?.authorsFor(first.sellerId) ?? [] } : null,
       candidates,
       slackMs: CONFIRM_SLACK_MS,
       now: this.#now(),
@@ -1286,7 +1386,9 @@ export class OutboxRunner {
     // 자동 게시와 같은 길 (X1 D-X1-19): 공식으로 올릴 수 있으면 공식, 아니면 확장 스위치·연결·회차 이어짐이면 확장에 맡긴다.
     // 판매자가 누른 다시 보내기라 '동의 전'·'스위치 켜기 전' 감사도 보낸다(manual — 공식 경로의 수동 재전송 규칙과 같다)
     const official = connection !== null && connection.status === 'CONNECTED' && connection.canPublish && link !== null
-    if (!official && target === 'LIVE_CHAT' && this.#options.extension !== undefined && row.broadcastId !== null) {
+    // 봇 길(D-YT-SEND-11): 판매자 연결 없이도 다시 보낸다 — 이은 방송·채팅 끝만 본다
+    const bot = target === 'LIVE_CHAT' && this.#sender(sellerId) !== null
+    if (!official && !bot && target === 'LIVE_CHAT' && this.#options.extension !== undefined && row.broadcastId !== null) {
       if ((await this.#options.extension.route(sellerId, row.broadcastId)) !== null) {
         const handed = await updateRows(
           db,
@@ -1323,14 +1425,16 @@ export class OutboxRunner {
         return { kind: 'ok', row: outboxRowView(fresh ?? row) }
       }
     }
-    if (connection === null) return { kind: 'rejected', code: 'YOUTUBE_NOT_CONNECTED', message: RESEND_MESSAGES.NO_ROUTE }
-    if (connection.status !== 'CONNECTED') return { kind: 'rejected', code: 'YOUTUBE_RECONNECT_NEEDED', message: OUTBOX_REASON_MESSAGES.RECONNECT }
-    // 그 방송을 이은 채널 = 지금 연결한 채널일 때만 (AC-Y1-92). 행은 그대로 FAILED
-    if (link !== null && link.channelId !== null && link.channelId !== connection.channelId) return { kind: 'rejected', code: 'NOT_MY_CHANNEL', message: OUTBOX_REASON_MESSAGES.NOT_MY_CHANNEL }
-    if (!connection.canPublish) return { kind: 'rejected', code: 'NO_PERMISSION', message: OUTBOX_REASON_MESSAGES.NO_PERMISSION }
+    if (!bot) {
+      if (connection === null) return { kind: 'rejected', code: 'YOUTUBE_NOT_CONNECTED', message: RESEND_MESSAGES.NO_ROUTE }
+      if (connection.status !== 'CONNECTED') return { kind: 'rejected', code: 'YOUTUBE_RECONNECT_NEEDED', message: OUTBOX_REASON_MESSAGES.RECONNECT }
+      // 그 방송을 이은 채널 = 지금 연결한 채널일 때만 (AC-Y1-92). 행은 그대로 FAILED
+      if (link !== null && link.channelId !== null && link.channelId !== connection.channelId) return { kind: 'rejected', code: 'NOT_MY_CHANNEL', message: OUTBOX_REASON_MESSAGES.NOT_MY_CHANNEL }
+      if (!connection.canPublish) return { kind: 'rejected', code: 'NO_PERMISSION', message: OUTBOX_REASON_MESSAGES.NO_PERMISSION }
+    }
     if (link === null) return { kind: 'rejected', code: 'NOT_LINKED', message: OUTBOX_REASON_MESSAGES.NO_LINK }
     if (target === 'LIVE_CHAT' && link.chatEndedAt !== null) return { kind: 'rejected', code: 'CHAT_ENDED', message: OUTBOX_REASON_MESSAGES.CHAT_ENDED }
-    if ((await this.#options.quota.mode(sellerId)) === 'PAUSED') return { kind: 'rejected', code: 'QUOTA_PAUSED', message: RESEND_MESSAGES.QUOTA_PAUSED }
+    if (!bot && (await this.#options.quota.mode(sellerId)) === 'PAUSED') return { kind: 'rejected', code: 'QUOTA_PAUSED', message: RESEND_MESSAGES.QUOTA_PAUSED }
     const effect = effectOf(row)
     const text = target === 'SUMMARY' ? (row.postText ?? '') : target === 'LIVE_CHAT' ? liveChatText(effect?.text ?? '') : commentText(effect?.text ?? '')
     const changed = await updateRows(

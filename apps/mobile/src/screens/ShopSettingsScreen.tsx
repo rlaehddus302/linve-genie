@@ -20,7 +20,8 @@ import { AppHeader, BigButton, Card, ConfirmSheet, Section, ToggleRow, TextField
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
-import { AssistCard, AssistantsCard, BackupCard, ConnectionsCard, ExportCard } from './settings/ShopExtras.tsx'
+import { BOT_THANKS_NOTE } from '@livejjim/web/src/lib/youtube.ts'
+import { AssistCard, AssistantsCard, BackupCard, ConnectionsCard, ExportCard, useBotThanks } from './settings/ShopExtras.tsx'
 
 const RULE_FIELDS = [...fieldsAt('basic'), ...fieldsAt('more')]
 const BASIC_FIELDS = fieldsAt('basic')
@@ -93,6 +94,8 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
   const [ledgerDraft, setLedgerDraft] = useState<LedgerSettings | null>(null)
   const [moreRules, setMoreRules] = useState(false)
   const [moreThanks, setMoreThanks] = useState(false)
+  // 봇이 감사 채팅을 대신 올리는 판매자 (D-YT-SEND-18) — 게시 동의 안내 대신 "라이브지니가 올려요"
+  const botThanks = useBotThanks()
   const [errors, setErrors] = useState<Partial<Record<SaveBlock | 'ledger', ApiError>>>({})
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null)
@@ -304,7 +307,7 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
             ) : null}
             <BigButton kind="outline" label={`${THANKS_DETAIL} ${moreThanks ? '닫기' : '열기'}`} onPress={() => setMoreThanks((on) => !on)} />
             {moreThanks ? THANKS_FIELDS.filter((field) => field.key !== 'thanks.liveChat').map(ruleField) : null}
-            <Txt step="caption" color="textSub">유튜브 채팅·댓글 자동 게시 동의는 아래 "연결"에서 웹으로 열어요.</Txt>
+            <Txt step="caption" color="textSub">{botThanks ? BOT_THANKS_NOTE : '유튜브 채팅·댓글 자동 게시 동의는 아래 "연결"에서 웹으로 열어요.'}</Txt>
           </Card>
         </Section>
 

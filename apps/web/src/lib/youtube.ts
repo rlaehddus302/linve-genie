@@ -45,6 +45,10 @@ export const callbackSucceeded = (code: string): boolean => code === 'connected'
 export const SUMMARY_AUTO = '다음 방송부터 자동으로 남겨요'
 export const SUMMARY_MANUAL = '감사 메시지를 만들기만 하고 자동으로 올리지 않아요. 감사 메시지 목록에서 하나씩 보낼 수 있어요.'
 export const SUMMARY_OFF = '감사 메시지를 만들지 않아요.'
+/** 봇 감사 판매자 (D-YT-SEND-18): 구글 연결·게시 동의 대신 이 한 줄 */
+export const BOT_THANKS_TITLE = '감사 채팅은 라이브지니가 올려요'
+export const BOT_THANKS_NOTE = '찜이 확정되면 라이브지니가 방송 채팅에 감사 메시지를 대신 올려요. 구글 연결은 필요 없어요. 위 "찜이 확정될 때마다 채팅에 감사 메시지 남기기"를 끄면 올리지 않아요.'
+export const BOT_THANKS_SUMMARY = '라이브지니가 방송 채팅에 대신 올려요'
 
 export function consentSummary(make: boolean, consent: boolean): string {
   if (!make) return SUMMARY_OFF
@@ -290,11 +294,15 @@ export function recentLine(item: LiveBroadcastItem): string {
   return `${channelName(item.channelTitle)} · ${title}`
 }
 
-/** 연결 응답에서 서버 읽기·구글 연결 가능 여부를 읽는다 (옛 서버: webChat 없음 → null, oauth 없음 → true) */
-export function readModeOf(body: { readonly webChat?: unknown; readonly oauth?: unknown }): { readonly webChat: YoutubeWebChat | null; readonly oauth: boolean } {
+/** 연결 응답에서 서버 읽기·구글 연결 가능 여부·봇 감사를 읽는다 (옛 서버: webChat 없음 → null, oauth 없음 → true, botThanks 없음 → false) */
+export function readModeOf(body: { readonly webChat?: unknown; readonly oauth?: unknown; readonly botThanks?: unknown }): {
+  readonly webChat: YoutubeWebChat | null
+  readonly oauth: boolean
+  readonly botThanks: boolean
+} {
   const raw = body.webChat
   const webChat = typeof raw === 'object' && raw !== null && typeof (raw as { on?: unknown }).on === 'boolean' ? { on: (raw as { on: boolean }).on } : null
-  return { webChat, oauth: body.oauth !== false }
+  return { webChat, oauth: body.oauth !== false, botThanks: body.botThanks === true }
 }
 
 /** 연결이 쓸 수 있는 상태인가 (연결됨 또는 다시 연결 필요 — 사용량을 보인다) */

@@ -9,7 +9,7 @@ import type { Shop } from '../src/api/types.ts'
 import { setTopLevelNavigation } from '../src/lib/google-return.ts'
 import { fieldOf, valueWords } from '../src/lib/settings-fields.ts'
 import { dirtyLine, failedMessage, orderBlocks, runSteps, savedMessage } from '../src/lib/save-bar.ts'
-import { FakeEventSource, FakeServer, apiError, flush, youtubeNotConfigured, type Reply } from './support.ts'
+import { FakeEventSource, FakeServer, apiError, connection, flush, youtubeNotConfigured, type Reply } from './support.ts'
 
 let server: FakeServer
 let settings: SaleSettings
@@ -389,6 +389,16 @@ describe('시작 마법사 요약의 가격 단위 낱말 (AC-FB1-01)', () => {
 // FB1 D-FB1-14 (사용자 결정): 채팅 체크 한 줄 — 영상 댓글은 켜 둔 판매자만 끄기/되돌리기 (옛 "켜기 체크 두 줄" 시험 대체)
 describe('구매 감사 메시지 만들기 (AC-FB1-08·10·11)', () => {
   const thanks = () => section('구매 감사 메시지')
+
+  // D-YT-SEND-18: 봇이 감사 채팅을 대신 올리는 판매자 — 실시간 채팅 자동 게시 동의 칸 대신 안내, 결과 줄은 "라이브지니가 … 대신 올려요"
+  it('봇 감사 판매자: 실시간 채팅 게시 동의 단추가 없고 안내 한 줄, 결과 줄은 라이브지니가 올린다 — 감사 스위치를 끄면 만들지 않음', async () => {
+    server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: connection({ status: 'NOT_CONNECTED', channel: null }), webChat: { on: true }, oauth: true, botThanks: true } }))
+    await open()
+    const bot = await within(thanks()).findByRole('region', { name: '감사 채팅은 라이브지니가 올려요' })
+    expect(bot.textContent).toContain('구글 연결은 필요 없어요.')
+    expect(within(thanks()).queryByRole('button', { name: '실시간 채팅 자동 게시 켜기' })).toBeNull()
+    expect(within(thanks()).getByRole('region', { name: '지금 설정의 결과' }).textContent).toContain('라이브지니가 방송 채팅에 대신 올려요')
+  })
   const VIDEO_WORDS = ['감사 메시지를 남길 곳', '영상 댓글에 감사 메시지 남기기', '영상 댓글 방식', '판매마다 댓글', '방송이 끝나고 요약 댓글 1개', '남기지 않음', '방송 중 영상 옆 채팅창에 바로 보이는 글이에요.', '방송 영상 아래 댓글란에 남는 글이에요. 방송이 끝나도 남아요.']
   const ON_LINE = '영상 댓글에도 감사 메시지를 남기고 있어요.'
   const PENDING_LINE = '저장하면 영상 댓글에는 남기지 않아요.'

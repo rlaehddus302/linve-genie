@@ -3,6 +3,7 @@
 import { expect } from 'vitest'
 import type { Database } from '../src/db/database.ts'
 import { generateMasterKey } from '../src/secrets.ts'
+import type { ChatSendRoute } from '../src/youtube/chat-send/sender.ts'
 import type { ServerOptions } from '../src/server.ts'
 import { FakeGoogle } from '../src/youtube/fake-google.ts'
 import { FakeYoutubeWeb, type FakeWebVideo } from '../src/youtube/fake-youtube-web.ts'
@@ -26,13 +27,15 @@ export function webConfig(web: FakeYoutubeWeb, options: { on?: boolean; google?:
 }
 
 /** 시계 하나로 가짜 유튜브 웹과 우리 서버를 함께 (워커는 시험이 직접 돌린다 — start하지 않는다) */
-export async function webWorld(options: { on?: boolean; google?: boolean; database?: Database; masterKey?: string; web?: FakeYoutubeWeb; timer?: ManualTimer; name?: string; overrides?: Partial<ServerOptions> } = {}): Promise<WebWorld> {
+export async function webWorld(
+  options: { on?: boolean; google?: boolean; database?: Database; masterKey?: string; web?: FakeYoutubeWeb; timer?: ManualTimer; name?: string; overrides?: Partial<ServerOptions>; chatSend?: ChatSendRoute } = {},
+): Promise<WebWorld> {
   const timer = options.timer ?? new ManualTimer(T0)
   const web = options.web ?? (await FakeYoutubeWeb.start({ now: () => timer.now() }))
   const google = options.google === true ? await FakeGoogle.start({ now: () => timer.now(), pollingIntervalMillis: 1000 }) : null
   const database = options.database ?? (await openTestDb())
   const masterKey = options.masterKey ?? generateMasterKey()
-  const config = webConfig(web, { on: options.on ?? true, google })
+  const config = { ...webConfig(web, { on: options.on ?? true, google }), ...(options.chatSend === undefined ? {} : { chatSend: options.chatSend }) }
   const world = startServer(database, masterKey, {
     clock: timer as unknown as FakeClock,
     timer,

@@ -65,6 +65,11 @@ export interface YoutubeEnvSetting {
   readonly quota: { readonly limit?: number; readonly sellerBudget?: number }
 }
 
+/** 내 컴퓨터 시험 주소 (http://localhost·127.0.0.1·[::1]) */
+export function isLocalHttp(url: URL): boolean {
+  return url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]')
+}
+
 export type YoutubeSetting = { readonly ok: true; readonly youtube: YoutubeEnvSetting | null } | { readonly ok: false; readonly message: string }
 
 /**
@@ -92,7 +97,9 @@ export function readYoutubeSetting(env: Readonly<Record<string, string | undefin
     } catch {
       return { ok: false, message: '유튜브 연동 주소 설정을 확인해 주세요.' }
     }
-    if (parsed.protocol !== 'https:') return { ok: false, message: '유튜브 연동 주소는 https://로만 적을 수 있어요.' }
+    // 돌아오는 주소·화면 주소만 내 컴퓨터 시험의 http://localhost를 받는다 (앱 주소 규칙과 같다, D-YT-SEND-16). 구글 주소는 늘 https
+    const local = (url === redirectUri || url === returnUrl) && isLocalHttp(parsed)
+    if (parsed.protocol !== 'https:' && !local) return { ok: false, message: '유튜브 연동 주소는 https://로만 적을 수 있어요.' }
   }
   const number = (key: string): number | undefined | null => {
     const raw = get(key)
@@ -128,6 +135,76 @@ export function readYoutubeWebChat(env: Readonly<Record<string, string | undefin
   const value = (env['LIVEJJIM_YT_WEB_CHAT'] ?? '').trim().toLowerCase()
   if (value === 'off') return { on: false, warning: null }
   return { on: true, warning: value === '' || value === 'on' ? null : 'YT_WEB_CHAT_INVALID' }
+}
+
+/** 실시간 채팅 감사 다른 길 설정 (D-YT-SEND-08). 값(쿠키·토큰)은 파일에만 두고 여기에는 파일 위치만 */
+export interface YoutubeChatSendEnv {
+  readonly route: 'innertube' | 'browser' | 'nightbot'
+  /** 이 길을 쓸 판매자 ID (또는 모두 '*') */
+  readonly sellers: readonly string[] | '*'
+  /**
+   * 봇 계정 하나: 작성자 채널 ID(UC…)와 로그인 파일(innertube: 쿠키 머리글 글 또는 Playwright 로그인 상태 JSON · browser: 로그인 상태 JSON · nightbot: 접근 토큰).
+   * 계정 목록 파일(accountsFile)을 쓰면 null
+   */
+  readonly single: { readonly authorChannelId: string; readonly secretFile: string } | null
+  /** 봇 계정 여럿 (D-YT-SEND-12): JSON [{"channelId":"UC…","secretFile":"/경로"}] 파일. innertube·browser만 */
+  readonly accountsFile: string | null
+  /** browser: Chromium 실행 파일 (없으면 Playwright가 설치한 것) */
+  readonly chromiumPath: string | null
+  /** 막히면 공식 API로 넘김 (D-YT-SEND-13): 봇 계정 구글 연결을 가진 앱 판매자 ID와 그 채널 */
+  readonly official: { readonly sellerId: string; readonly channelId: string } | null
+}
+
+export type YoutubeChatSendSetting = { readonly ok: true; readonly send: YoutubeChatSendEnv | null } | { readonly ok: false; readonly message: string }
+
+export const CHAT_SEND_MESSAGES = {
+  ROUTE: '감사 채팅 길(LIVEJJIM_YT_SEND_ROUTE)은 official·innertube·browser·nightbot 중 하나로 적어 주세요.',
+  SELLERS: '감사 채팅 다른 길을 쓸 판매자(LIVEJJIM_YT_SEND_SELLERS)를 쉼표로 나눠 적어 주세요(모두면 *).',
+  CHANNEL: '감사 채팅을 올리는 채널 ID(LIVEJJIM_YT_SEND_CHANNEL_ID)를 UC로 시작하는 24자로 적어 주세요.',
+  SECRET: '감사 채팅 로그인 파일(LIVEJJIM_YT_SEND_SECRET_FILE) 위치를 적어 주세요.',
+  ACCOUNTS: '봇 계정 하나(LIVEJJIM_YT_SEND_CHANNEL_ID·SECRET_FILE)와 계정 목록 파일(LIVEJJIM_YT_SEND_ACCOUNTS_FILE) 중 하나만 적어 주세요. 계정 목록은 innertube·browser만 돼요.',
+  OFFICIAL: '공식 API 넘김에는 봇 판매자 ID(LIVEJJIM_YT_SEND_OFFICIAL_SELLER)와 봇 채널 ID(LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID, UC로 시작하는 24자)를 함께 적어 주세요.',
+} as const
+
+/**
+ * 감사 채팅 다른 길 (D-YT-SEND-08). LIVEJJIM_YT_SEND_ROUTE가 없거나 official이면 공식 Data API만(기본).
+ * 다른 길이면 판매자 목록·작성자 채널·로그인 파일이 모두 있어야 한다 — 하나라도 없으면 시작하지 않는다(작성자를 모르면 수집기가 우리 감사를 찜으로 읽을 수 있다)
+ */
+export function readYoutubeChatSend(env: Readonly<Record<string, string | undefined>>): YoutubeChatSendSetting {
+  const get = (key: string) => env[key]?.trim() ?? ''
+  const route = get('LIVEJJIM_YT_SEND_ROUTE').toLowerCase()
+  if (route === '' || route === 'official') return { ok: true, send: null }
+  if (route !== 'innertube' && route !== 'browser' && route !== 'nightbot') return { ok: false, message: CHAT_SEND_MESSAGES.ROUTE }
+  const rawSellers = get('LIVEJJIM_YT_SEND_SELLERS')
+  const sellers = rawSellers === '*' ? '*' : rawSellers.split(',').map((item) => item.trim()).filter((item) => item !== '')
+  if (sellers !== '*' && sellers.length === 0) return { ok: false, message: CHAT_SEND_MESSAGES.SELLERS }
+  const channelRe = /^UC[A-Za-z0-9_-]{22}$/
+  const accountsFile = get('LIVEJJIM_YT_SEND_ACCOUNTS_FILE')
+  const authorChannelId = get('LIVEJJIM_YT_SEND_CHANNEL_ID')
+  const secretFile = get('LIVEJJIM_YT_SEND_SECRET_FILE')
+  let single: YoutubeChatSendEnv['single'] = null
+  if (accountsFile !== '') {
+    if (authorChannelId !== '' || secretFile !== '' || route === 'nightbot') return { ok: false, message: CHAT_SEND_MESSAGES.ACCOUNTS }
+  } else {
+    if (!channelRe.test(authorChannelId)) return { ok: false, message: CHAT_SEND_MESSAGES.CHANNEL }
+    if (secretFile === '') return { ok: false, message: CHAT_SEND_MESSAGES.SECRET }
+    single = { authorChannelId, secretFile }
+  }
+  const officialSeller = get('LIVEJJIM_YT_SEND_OFFICIAL_SELLER')
+  const officialChannel = get('LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID')
+  if ((officialSeller === '') !== (officialChannel === '') || (officialChannel !== '' && !channelRe.test(officialChannel))) return { ok: false, message: CHAT_SEND_MESSAGES.OFFICIAL }
+  const chromium = get('LIVEJJIM_YT_SEND_CHROMIUM')
+  return {
+    ok: true,
+    send: {
+      route,
+      sellers,
+      single,
+      accountsFile: accountsFile === '' ? null : accountsFile,
+      chromiumPath: chromium === '' ? null : chromium,
+      official: officialSeller === '' ? null : { sellerId: officialSeller, channelId: officialChannel },
+    },
+  }
 }
 
 // ── I3: 배포·운영 (SYS-05, D-I3-12·13·16, AC-I3-72) ─────────────────────────

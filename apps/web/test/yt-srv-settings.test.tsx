@@ -58,6 +58,17 @@ describe('설정·마법사 유튜브 칸 (D-YT-SRV-11)', () => {
     expect(screen.getByText(INTRO)).toBeDefined()
   })
 
+  // D-YT-SEND-18: 봇이 감사 채팅을 대신 올리는 판매자 — 구글 연결 칸 대신 안내 한 줄, 연결 버튼 없음
+  it('봇 감사 판매자(botThanks): 구글 연결 칸·버튼 대신 "감사 채팅은 라이브지니가 올려요"', async () => {
+    body = { webChat: { on: true }, oauth: true, botThanks: true }
+    render(<Harness place="settings" />)
+    const bot = await screen.findByRole('region', { name: '감사 채팅은 라이브지니가 올려요' })
+    expect(bot.textContent).toContain('구글 연결은 필요 없어요.')
+    expect(screen.queryByRole('region', { name: OPTIONAL })).toBeNull()
+    expect(screen.queryByRole('button', { name: '구글로 유튜브 연결하기' })).toBeNull()
+    expect(screen.getByText(INTRO)).toBeDefined()
+  })
+
   it('운영자가 끄면 첫 줄 아래 안내', async () => {
     body = { webChat: { on: false }, oauth: true }
     render(<Harness place="settings" />)

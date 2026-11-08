@@ -482,6 +482,8 @@ export interface YoutubeConnectionResponse {
   readonly connection: YoutubeConnection
   readonly webChat?: YoutubeWebChat | null
   readonly oauth?: boolean
+  /** 실시간 채팅 감사를 라이브지니 봇이 대신 올리는 판매자 (D-YT-SEND-18) — 없으면 false(옛 서버) */
+  readonly botThanks?: boolean
 }
 
 /** 내 라이브 목록 한 줄 */

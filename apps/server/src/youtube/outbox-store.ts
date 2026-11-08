@@ -381,7 +381,12 @@ export interface ClaimInput {
    * 실시간 채팅이면 그 회차(이은 기록)와 글 올리는 계정 — 수집기가 그 회차에서 본 우리 메시지(youtube_own_messages) 중 작성자가 글 올리는 계정인 것
    * (작성자를 모르는 옛 행 포함)도 후보다 (D-YT-SRV-17). 공식 채팅 ID에 묶지 않는다 — 채팅 ID를 받기 전에 본 글도 쓴다
    */
-  readonly own: { readonly linkId: string; readonly posterChannelId: string | null } | null
+  readonly own: {
+    readonly linkId: string
+    readonly posterChannelId: string | null
+    /** 다른 길(innertube·browser·nightbot)의 작성자 — 이 작성자의 같은 글도 후보 (D-YT-SEND-06) */
+    readonly otherAuthors?: readonly string[]
+  } | null
   /** 조회로 찾은 후보 (없으면 빈 목록) */
   readonly candidates: readonly RemoteCandidate[]
   /** 시도 시작 − 이만큼부터의 글만 그 시도의 것으로 본다 */
@@ -431,6 +436,7 @@ export async function claimRemote(db: Db, input: ClaimInput): Promise<ClaimResul
     for (const candidate of input.candidates) byId.set(candidate.id, candidate)
     if (input.own !== null) {
       const poster = input.own.posterChannelId
+      const authors = [...(poster === null ? [] : [poster]), ...(input.own.otherAuthors ?? [])]
       const own = await tx
         .select({ id: youtubeOwnMessages.messageId, publishedAt: youtubeOwnMessages.publishedAt })
         .from(youtubeOwnMessages)
@@ -439,7 +445,7 @@ export async function claimRemote(db: Db, input: ClaimInput): Promise<ClaimResul
             eq(youtubeOwnMessages.sellerId, sellerId),
             eq(youtubeOwnMessages.linkId, input.own.linkId),
             eq(youtubeOwnMessages.text, text),
-            poster === null ? isNull(youtubeOwnMessages.authorChannelId) : or(isNull(youtubeOwnMessages.authorChannelId), eq(youtubeOwnMessages.authorChannelId, poster)),
+            authors.length === 0 ? isNull(youtubeOwnMessages.authorChannelId) : or(isNull(youtubeOwnMessages.authorChannelId), inArray(youtubeOwnMessages.authorChannelId, authors)),
           ),
         )
       for (const row of own) if (!byId.has(row.id)) byId.set(row.id, { id: row.id, publishedAt: row.publishedAt.getTime() })

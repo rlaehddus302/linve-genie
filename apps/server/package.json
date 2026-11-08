@@ -25,14 +25,16 @@
     "@livejjim/documents": "workspace:*",
     "@livejjim/label": "workspace:*",
     "@livejjim/printer": "workspace:*",
+    "@livejjim/voice": "workspace:*",
+    "@livejjim/voice-session": "workspace:*",
     "drizzle-orm": "0.45.3",
     "exceljs": "4.4.0",
     "hono": "4.13.13",
+    "playwright-core": "1.62.1",
     "postgres": "3.4.9",
     "tiktok-live-connector": "2.1.0",
     "ws": "8.22.0",
-    "@livejjim/voice": "workspace:*",
-    "@livejjim/voice-session": "workspace:*"
+    "youtubei.js": "18.3.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

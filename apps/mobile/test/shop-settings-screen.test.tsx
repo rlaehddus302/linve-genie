@@ -52,6 +52,25 @@ describe('ShopSettingsScreen (앱 가게 설정)', () => {
     expect(await screen.findByText(/^저장했어요\./)).toBeTruthy()
   })
 
+  // D-YT-SEND-18: 봇이 감사 채팅을 대신 올리는 판매자 — 게시 동의 안내 대신 "라이브지니가 올려요", 연결 목록에 유튜브 연결 줄 없음
+  it('봇 감사 판매자: 감사 칸 아래 안내가 바뀌고 연결에서 유튜브 연결 줄이 빠진다', async () => {
+    const { w } = world()
+    w.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: { on: true }, oauth: true, botThanks: true } }))
+    render(w.wrap(<ShopSettingsScreen onBack={() => undefined} />))
+    expect(await screen.findByText(/라이브지니가 방송 채팅에 감사 메시지를 대신 올려요/)).toBeTruthy()
+    expect(screen.queryByText('유튜브 채팅·댓글 자동 게시 동의는 아래 "연결"에서 웹으로 열어요.')).toBeNull()
+    await waitFor(() => expect(screen.queryByText('유튜브 연결')).toBeNull())
+    expect(screen.getByText('인스타그램 연결')).toBeTruthy()
+  })
+
+  it('봇 감사가 아닌 판매자: 예전 안내와 유튜브 연결 줄 그대로', async () => {
+    const { w } = world()
+    w.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: { on: true }, oauth: true, botThanks: false } }))
+    render(w.wrap(<ShopSettingsScreen onBack={() => undefined} />))
+    expect(await screen.findByText('유튜브 채팅·댓글 자동 게시 동의는 아래 "연결"에서 웹으로 열어요.')).toBeTruthy()
+    expect(await screen.findByText('유튜브 연결')).toBeTruthy()
+  })
+
   it('서버 칸 문장은 그 칸 아래 · 저장하지 않고 나가면 묻는다', async () => {
     const { w } = world()
     const onBack = vi.fn()

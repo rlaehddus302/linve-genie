@@ -13,7 +13,8 @@
 import { readMediaProxy, readStreamAudioSwitch, readYtDlpPath } from './voice/stream-audio.ts'
 import { existsSync } from 'node:fs'
 import { FolderBackupStorage } from './backup.ts'
-import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readDeploySetting, readPort, readYoutubeSetting, readYoutubeWebChat } from './config.ts'
+import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readDeploySetting, readPort, readYoutubeChatSend, readYoutubeSetting, readYoutubeWebChat } from './config.ts'
+import { createChatSendRoute } from './youtube/chat-send/create.ts'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
 import { productionServerOptions } from './production.ts'
@@ -56,6 +57,31 @@ if (!youtubeSetting.ok) {
   complain(`시작하지 못했어요. ${youtubeSetting.message}`)
   process.exit(1)
 }
+// 감사 채팅 다른 길 (D-YT-SEND-08): 기본은 공식 Data API만. 다른 길을 적었으면 판매자·작성자 채널·로그인 파일이 모두 있어야 한다
+const chatSendSetting = readYoutubeChatSend(process.env)
+if (!chatSendSetting.ok) {
+  complain(`시작하지 못했어요. ${chatSendSetting.message}`)
+  process.exit(1)
+}
+let chatSend: Awaited<ReturnType<typeof createChatSendRoute>> | null = null
+if (chatSendSetting.send !== null) {
+  try {
+    chatSend = await createChatSendRoute(chatSendSetting.send)
+  } catch {
+    complain('시작하지 못했어요. 감사 채팅 로그인 파일(LIVEJJIM_YT_SEND_SECRET_FILE)이나 계정 목록 파일(LIVEJJIM_YT_SEND_ACCOUNTS_FILE)을 읽지 못했어요.')
+    process.exit(1)
+  }
+  say(`감사 채팅을 다른 길(${chatSendSetting.send.route})로 올려요 — 유튜브가 허락한 연동이 아니에요.`)
+  // 공식 API 넘김은 구글 연결 설정이 있어야 한다 (봇 판매자의 구글 토큰을 쓴다, D-YT-SEND-13)
+  if (chatSendSetting.send.official !== null) {
+    if (youtubeSetting.youtube === null) {
+      complain('시작하지 못했어요. 공식 API 넘김(LIVEJJIM_YT_SEND_OFFICIAL_SELLER)에는 구글 연결 설정(LIVEJJIM_GOOGLE_CLIENT_ID)이 필요해요.')
+      process.exit(1)
+    }
+    say('봇 길이 막히면 봇 계정 이름으로 공식 API로 넘겨 올려요.')
+  }
+}
+const chatSendOfficial = chatSendSetting.send?.official ?? null
 const databaseSetting = readDatabaseSetting(process.env)
 if (!databaseSetting.ok) {
   complain(`시작하지 못했어요. ${databaseSetting.message}`)
@@ -83,7 +109,7 @@ const livejjim = createServer({
   ...(deploy.opsToken === null ? {} : { opsToken: deploy.opsToken }),
   ...(deploy.webDir === null ? {} : { webDir: deploy.webDir }),
   // 유튜브 채팅 읽기는 서버가 방송 주소만으로 (YT-11, D-YT-SRV-01) — 구글 OAuth 설정이 없어도 된다(그때 구글 연결은 503). 끄기는 LIVEJJIM_YT_WEB_CHAT=off
-  youtube: { ...(youtubeSetting.youtube ?? { clientId: '', clientSecret: '', redirectUri: '', returnUrl: `${origin.origin}/settings/youtube` }), webChat: readYoutubeWebChat(process.env) },
+  youtube: { ...(youtubeSetting.youtube ?? { clientId: '', clientSecret: '', redirectUri: '', returnUrl: `${origin.origin}/settings/youtube` }), webChat: readYoutubeWebChat(process.env), ...(chatSend === null ? {} : { chatSend }), ...(chatSendOfficial === null ? {} : { chatSendOfficial }) },
   backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir),
   // 방송 소리로 듣기 (LV1 D-LV1-08): LIVEJJIM_STREAM_AUDIO=off면 끔, ffmpeg가 없으면 시작 기록 한 줄 남기고 꺼짐
   // 페이지에 HLS가 없으면 yt-dlp로 소리 주소를 얻는다 (D-LV1-11) — LIVEJJIM_YTDLP_PATH, 비우면 yt-dlp
