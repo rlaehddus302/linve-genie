@@ -17,7 +17,7 @@ import { RETRY_NOW } from '../lib/words.ts'
 import { BigButton, Icon, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
-import { HistoryRow, HOME_BROADCASTS, liveBroadcast, pastBroadcasts } from './BroadcastList.tsx'
+import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts } from './BroadcastList.tsx'
 export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
@@ -146,29 +146,72 @@ export function defaultBroadcastTitle(date: string): string {
 const AVATAR = 26
 
 /** 맨 위 왼쪽 라이브 표시 (D-UX3-85): 방송 중이면 채널 프로필 사진(빨간 테두리 + "라이브") + "지금 라이브 중 ›", 아니면 "라이브 연결 ›" */
-function LiveEntry({ live, onOpen, onConnect }: { readonly live: BroadcastItem | undefined; readonly onOpen: (id: string) => void; readonly onConnect: () => void }) {
-  const { p, tones } = useKit()
-  const [avatar, setAvatar] = useState<string | null>(null)
-  const liveId = live?.id ?? null
+/** 지금 라이브로 볼 수집기 상태 (끝남·멈춤·채팅 끝은 아님) */
+const LIVE_COLLECTOR = new Set(['STARTING', 'LIVE', 'RETRYING'])
+/** 유튜브를 잇지 않은 열린 방송(틱톡·밴드·아직 안 이음)은 만든 지 이만큼 안이면 라이브로 본다 */
+const OPEN_LIVE_MS = 12 * 60 * 60_000
+
+/**
+ * 지금 라이브인 방송 (D-UX3-91): 끝나지 않은 실제 방송을 최근 것부터 보고 — 유튜브를 이은 방송은 연결이 살아 있고 수집기가 아직 읽는 중일 때만,
+ * 유튜브가 없는 방송은 만든 지 12시간 안일 때만. 어제 끝내지 않고 둔 방송(유튜브 방송은 이미 끝남)은 라이브로 보지 않는다. 채널 ID도 함께
+ */
+export function useLiveNow(items: readonly BroadcastItem[] | null, now: number): { readonly live: BroadcastItem | undefined; readonly channel: string | null; readonly resolved: boolean } {
+  const [found, setFound] = useState<{ key: string; live: BroadcastItem | undefined; channel: string | null } | null>(null)
+  const open = items === null ? [] : newestFirst(items).filter((item) => !item.ended && !item.rehearsal).slice(0, 5)
+  const key = open.map((item) => item.id).join(',')
   useEffect(() => {
-    setAvatar(null)
-    if (liveId === null) return
+    if (items === null) return
     let alive = true
     void (async () => {
-      try {
-        const view = await get<{ link: { broadcastChannelId?: string } | null }>(`/api/broadcasts/${encodeURIComponent(liveId)}/youtube`)
-        const channel = view.link?.broadcastChannelId
-        if (channel === undefined || channel === '') return
-        const found = await get<{ avatar: string | null }>(`/api/youtube/channels/${encodeURIComponent(channel)}/avatar`)
-        if (alive) setAvatar(found.avatar)
-      } catch {
-        // 사진을 모르면 기본 그림
+      for (const item of open) {
+        if (!(item.platforms ?? []).includes('youtube')) {
+          const at = item.createdAt == null ? Number.NaN : Date.parse(item.createdAt)
+          if (Number.isNaN(at) || now - at < OPEN_LIVE_MS) {
+            if (alive) setFound({ key, live: item, channel: null })
+            return
+          }
+          continue
+        }
+        try {
+          const view = await get<{ link: { broadcastChannelId?: string } | null; collector: { status?: string } | null }>(`/api/broadcasts/${encodeURIComponent(item.id)}/youtube`)
+          if (view.link !== null && (view.collector === null || LIVE_COLLECTOR.has(view.collector.status ?? ''))) {
+            if (alive) setFound({ key, live: item, channel: view.link.broadcastChannelId ?? null })
+            return
+          }
+        } catch {
+          // 모르면 다음 방송을 본다
+        }
       }
+      if (alive) setFound({ key, live: undefined, channel: null })
     })()
     return () => {
       alive = false
     }
-  }, [liveId])
+    // open은 key로 대신한다 (방송 목록이 같으면 다시 묻지 않는다)
+  }, [key, items === null])
+  if (found === null || found.key !== key) return { live: undefined, channel: null, resolved: false }
+  return { live: found.live, channel: found.channel, resolved: true }
+}
+
+function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: BroadcastItem | undefined; readonly channel: string | null; readonly onOpen: (id: string) => void; readonly onConnect: () => void }) {
+  const { p, tones } = useKit()
+  const [avatar, setAvatar] = useState<string | null>(null)
+  useEffect(() => {
+    setAvatar(null)
+    if (channel === null || channel === '') return
+    let alive = true
+    get<{ avatar: string | null }>(`/api/youtube/channels/${encodeURIComponent(channel)}/avatar`).then(
+      (found) => {
+        if (alive) setAvatar(found.avatar)
+      },
+      () => {
+        // 사진을 모르면 기본 그림
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [channel])
   const on = live !== undefined
   const label = on ? '지금 라이브 중' : '라이브 연결'
   return (
@@ -231,8 +274,7 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
   }, [refresh])
 
   // 라이브 표시는 실제 방송만 (리허설은 앱에서 뺐다)
-  const liveItem = items === null ? undefined : liveBroadcast(items)
-  const live = liveItem !== undefined && !liveItem.rehearsal ? liveItem : undefined
+  const liveNow = useLiveNow(items, Date.now())
   const past = items === null ? [] : pastBroadcasts(items)
   const now = Date.now()
   const entries = usePacking(day, refresh)
@@ -257,7 +299,7 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="home-screen">
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg, paddingBottom: SPACE.xxxl + room, gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: room }}>
-        <LiveEntry live={live} onOpen={nav.openConsole} onConnect={nav.openNewBroadcast} />
+        {liveNow.resolved || error !== null ? <LiveEntry live={liveNow.live} channel={liveNow.channel} onOpen={nav.openConsole} onConnect={nav.openNewBroadcast} /> : <View style={{ minHeight: TOUCH.min }} />}
 
         {nav.openStart !== undefined && items !== null && showsStart(wizard, items.some((item) => !item.rehearsal)) ? (
           <RowGroup label={START_ROW_TITLE}>
