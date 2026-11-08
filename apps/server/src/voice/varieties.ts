@@ -70,6 +70,17 @@ export function composeHint(names: readonly string[], recent: readonly string[] 
   return parts.length === 0 ? '' : `${parts.join(', ')}.`
 }
 
+/**
+ * 여러 판매자가 한 방송 소리를 나눠 들을 때의 힌트 (D-LV1-15): 판매자마다 장부를 한 이름씩 돌아가며 섞어 HINT_CHAR_LIMIT 안에 담는다
+ * (한 판매자 장부가 길어도 다른 판매자 이름이 빠지지 않게). 같은 이름은 한 번. 판매자 하나면 composeHint(names)와 같다
+ */
+export function composeSharedHint(lists: readonly (readonly string[])[]): string {
+  const mixed: string[] = []
+  const longest = Math.max(0, ...lists.map((list) => list.length))
+  for (let i = 0; i < longest; i++) for (const list of lists) if (i < list.length) mixed.push(list[i]!)
+  return composeHint(mixed)
+}
+
 export class VoiceVarieties {
   readonly #db: Db
   readonly #clock: Clock
@@ -107,6 +118,10 @@ export class VoiceVarieties {
   /** 흐름을 열 때 쓰는 힌트 — 아직 안 읽었으면 보기 문장만(다음 흐름부터 장부가 든다) */
   hint(sellerId: string): string {
     return composeHint(this.#cache.get(sellerId) ?? [])
+  }
+  /** 나눠 듣는 방송 소리 흐름의 힌트 (D-LV1-15) */
+  sharedHint(sellerIds: readonly string[]): string {
+    return composeSharedHint(sellerIds.map((sellerId) => this.#cache.get(sellerId) ?? []))
   }
   /** 흐름을 열기 전에 미리 읽어 둔다 */
   async warm(sellerId: string): Promise<void> { await this.read(sellerId) }

@@ -63,7 +63,11 @@ export interface AudioFeed {
 
 /** 방송 소리 주소 찾기 결과 */
 export type StreamLocation =
-  | { readonly kind: 'ok'; readonly url: string }
+  /**
+   * source = 소리 주인 (D-LV1-15): 같은 영상(유튜브 영상 id·틱톡 계정)이면 같은 값 — 여러 판매자 계정이 한 방송을 이으면 소리 받기·받아쓰기를 한 번만 한다.
+   * 주소(url)는 부를 때마다 달라서(서명) 열쇠로 쓰지 않는다. 없으면 나누지 않는다(판매자마다 흐름 하나, 옛 동작)
+   */
+  | { readonly kind: 'ok'; readonly url: string; readonly source?: string }
   /** 이 방송에 이은 유튜브 링크가 없음·아직 예정 — 잠시 뒤 다시 본다 */
   | { readonly kind: 'none' }
   /** 소리를 받을 수 없는 방송 (회원 전용·비공개·소리 주소 없음, D-LV1-07) */
@@ -335,7 +339,8 @@ export function webStreamLocator(
     if (link === null) return locateTiktok(db, sellerId, broadcastId, options)
     if (web === null || web.off) return { kind: 'unsupported' }
     try {
-      return await locateFromPage(web, link.videoId, { ...options, sellerId })
+      const found = await locateFromPage(web, link.videoId, { ...options, sellerId })
+      return found.kind === 'ok' ? { ...found, source: `youtube:${link.videoId}` } : found
     } catch {
       return { kind: 'retry' }
     }
@@ -357,7 +362,7 @@ async function locateTiktok(
   } catch {
     return { kind: 'retry' }
   }
-  if (found.kind === 'ok') return found
+  if (found.kind === 'ok') return { ...found, source: `tiktok:${link.tiktokId}` }
   if (found.kind === 'not_live') return { kind: 'none' }
   options.log?.({ level: 'warn', code: 'STREAM_AUDIO_YTDLP_FAILED', reason: `TIKTOK_${found.kind.toUpperCase()}`, seller: sellerId })
   return found.kind === 'timeout' ? { kind: 'retry' } : { kind: 'unsupported' }

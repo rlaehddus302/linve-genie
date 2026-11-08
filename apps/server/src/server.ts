@@ -448,7 +448,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     warmHint: (sellerId) => voiceVarieties.warm(sellerId),
     ...(streamSetting?.schedule === undefined ? {} : { schedule: streamSetting.schedule }),
   })
-  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), hint: (sellerId) => voiceVarieties.hint(sellerId), warmHint: (sellerId) => voiceVarieties.warm(sellerId), reading: readVoice, ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
+  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), hint: (sellerId) => voiceVarieties.hint(sellerId), sharedHint: (sellerIds) => voiceVarieties.sharedHint(sellerIds), warmHint: (sellerId) => voiceVarieties.warm(sellerId), reading: readVoice, ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
   let print: PrintService | null = null
   let writerRef: ScopeWriter | null = null
   const billing = new BillingService({
