@@ -12,6 +12,7 @@ import {
   type AudioSink, type StreamLocation,
 } from '../src/voice/stream-audio.ts'
 import { generateMasterKey } from '../src/secrets.ts'
+import { HINT_CHAR_LIMIT, composeHint, composeSharedHint } from '../src/voice/varieties.ts'
 import type { LogRecord } from '../src/log.ts'
 import { eq } from 'drizzle-orm'
 import { broadcasts } from '../src/db/schema.ts'
@@ -77,13 +78,13 @@ class Peer {
   }
 }
 
-async function setup(options: { on?: boolean; location?: () => StreamLocation } = {}) {
+async function setup(options: { on?: boolean; location?: (sellerId: string, broadcastId: string) => StreamLocation } = {}) {
   const feed = new ManualFeed()
   const timer = new ManualSchedule()
-  let location: () => StreamLocation = options.location ?? (() => ({ kind: 'ok', url: 'https://manifest.googlevideo.com/x.m3u8' }))
+  let location: (sellerId: string, broadcastId: string) => StreamLocation = options.location ?? (() => ({ kind: 'ok', url: 'https://manifest.googlevideo.com/x.m3u8' }))
   const world = await newWorld({
     transcribeWorkerToken: TOKEN,
-    streamAudio: { on: options.on ?? true, feed, locate: async () => location(), schedule: timer.schedule },
+    streamAudio: { on: options.on ?? true, feed, locate: async (sellerId, broadcastId) => location(sellerId, broadcastId), schedule: timer.schedule },
   })
   worlds.push(world)
   const server = createNodeServer({ app: world.server.app })
@@ -92,7 +93,7 @@ async function setup(options: { on?: boolean; location?: () => StreamLocation } 
   await once(server, 'listening')
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('주소 없음')
-  return { world, feed, timer, url: `ws://127.0.0.1:${address.port}`, setLocation: (next: () => StreamLocation) => { location = next } }
+  return { world, feed, timer, url: `ws://127.0.0.1:${address.port}`, setLocation: (next: (sellerId: string, broadcastId: string) => StreamLocation) => { location = next } }
 }
 async function worker(url: string, world: TestServer, capacity = 4) {
   const peer = await new Peer(`${url}/api/voice/worker`, { Authorization: `Bearer ${TOKEN}` }).open()
@@ -598,7 +599,8 @@ describe('D-UX3-16 틱톡 라이브 소리 (yt-dlp, 프록시 없이)', () => {
     expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'none' })
     expect(asked).toEqual(['my.shop'])
     reply = { kind: 'ok', url: TT }
-    expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'ok', url: TT })
+    // D-LV1-15: 소리 주인(틱톡 계정)을 함께 알려 같은 계정을 이은 판매자들이 흐름 하나를 나눠 쓴다
+    expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'ok', url: TT, source: 'tiktok:my.shop' })
     reply = { kind: 'timeout' }
     expect(await locate(seller.sellerId, b.id)).toEqual({ kind: 'retry' })
     reply = { kind: 'failed' }
@@ -677,5 +679,146 @@ describe('D-LV1-14 앱 없이 서버가 방송 소리를 읽고 등록 (사용�
     world.clock.advance(12 * 60 * 60 * 1000)
     world.server.streamAudio.sweep()
     expect(feed.sinks).toHaveLength(0)
+  })
+})
+
+describe('D-LV1-15 한 방송을 여러 판매자 계정이 이으면 소리 받기·받아쓰기는 한 번 (사용자 지시 2026-11-08)', () => {
+  const HLS = 'https://manifest.googlevideo.com/x.m3u8'
+  /** 판매자마다 이은 영상 — 정하지 않은 판매자는 같은 영상 */
+  async function shared(videoOf: (sellerId: string) => string = () => 'sameVideo01') {
+    const s = await setup({ location: (sellerId) => ({ kind: 'ok', url: `${HLS}?for=${sellerId}`, source: `youtube:${videoOf(sellerId)}` }) })
+    const w = await worker(s.url, s.world)
+    const a = await addSeller(s.world)
+    const b = await addSeller(s.world)
+    const ba = await createBroadcast(s.world, a)
+    const bb = await createBroadcast(s.world, b)
+    const consoleA = device(s.url, a.cookie, ba.id, 'consolepcA1', false)
+    const consoleB = device(s.url, b.cookie, bb.id, 'consolepcB1', false)
+    await consoleA.message('ready')
+    await consoleB.message('ready')
+    return { ...s, w, a, b, ba, bb, consoleA, consoleB }
+  }
+  const binaryCount = (peer: Peer) => peer.messages.filter((m) => m.binary).length
+
+  it('두 판매자가 같은 영상을 이으면 소리 받기·일꾼 흐름은 하나, 받아쓴 글은 두 판매자 콘솔 모두에 같은 글로 간다. 힌트는 두 장부를 고르게 합친다', async () => {
+    const { world, feed, w, a, b, ba, bb, consoleA, consoleB } = await shared()
+    expect((await client(world, a.cookie).put('/api/voice/varieties', { names: ['아사달금', '핑크프릴'] })).status).toBe(200)
+    expect((await client(world, b.cookie).put('/api/voice/varieties', { names: ['킹나이트금'] })).status).toBe(200)
+    await watch(world, a.cookie, ba.id)
+    await watch(world, b.cookie, bb.id)
+    await waitFor(() => feed.sink !== undefined)
+    // 두 번째 판매자는 주소를 찾은 뒤 앞 흐름에 끼운다
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(feed.opened).toBe(1)
+    feed.sink!.chunk(Buffer.alloc(3_200, 0x11), Date.now())
+    const open = await w.message('open')
+    expect(open.hint).toBe('아사달금, 킹나이트금, 핑크프릴.')
+    await waitFor(() => binaryCount(w) === 1)
+    expect(w.messages.filter((m) => !m.binary && (m.body as { type: string }).type === 'open')).toEqual([])
+    expect((await phase(world, a.cookie, ba.id)).phase).toBe('listening')
+    expect((await phase(world, b.cookie, bb.id)).phase).toBe('listening')
+    expect(world.server.streamAudio.status()).toEqual({ listening: 1, sellers: 2 })
+    w.send({ type: 'result', stream: open.stream, text: '십오번 이만원', startMs: 0, endMs: 100, procMs: 40 })
+    expect(await consoleA.message('result')).toMatchObject({ text: '십오번 이만원' })
+    expect(await consoleB.message('result')).toMatchObject({ text: '십오번 이만원' })
+  })
+
+  it('한 판매자가 휴대폰 마이크를 켜면 그 판매자만 빠지고 다른 판매자는 계속 받는다. 마이크를 끄면 같은 흐름에 다시 낀다', async () => {
+    const { world, feed, url, w, a, b, ba, bb, consoleA, consoleB } = await shared()
+    await watch(world, a.cookie, ba.id)
+    await watch(world, b.cookie, bb.id)
+    await waitFor(() => feed.sink !== undefined)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    feed.sink!.chunk(Buffer.alloc(3_200), Date.now())
+    const flow = await w.message('open')
+    const mic = device(url, a.cookie, ba.id, 'phonemicA1')
+    await waitFor(() => mic.messages.some((m) => (m.body as { type?: string } | null)?.type === 'ready'))
+    expect((await w.message('open')).stream).not.toBe(flow.stream)
+    expect((await phase(world, a.cookie, ba.id)).phase).toBe('mic')
+    expect((await phase(world, b.cookie, bb.id)).phase).toBe('listening')
+    expect(feed.sinks).toHaveLength(1)
+    expect(w.messages.some((m) => !m.binary && (m.body as { type: string }).type === 'close')).toBe(false)
+    w.send({ type: 'result', stream: flow.stream, text: '이십번 삼만원', startMs: 0, endMs: 100, procMs: 40 })
+    expect(await consoleB.message('result')).toMatchObject({ text: '이십번 삼만원' })
+    // A는 마이크 흐름이 주인이라 방송 소리 글을 받지 않는다
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(consoleA.messages.some((m) => (m.body as { type?: string } | null)?.type === 'result')).toBe(false)
+    mic.ws.close()
+    await waitFor(async () => (await phase(world, a.cookie, ba.id)).phase === 'listening')
+    expect(feed.opened).toBe(1)
+    w.send({ type: 'result', stream: flow.stream, text: '이십일번 만원', startMs: 100, endMs: 200, procMs: 40 })
+    expect(await consoleA.message('result')).toMatchObject({ text: '이십일번 만원' })
+    expect(await consoleB.message('result')).toMatchObject({ text: '이십일번 만원' })
+  })
+
+  it('마지막 판매자가 떠나야 흐름을 닫는다 (방송 끝·판매자 끔)', async () => {
+    const { world, feed, w, a, b, ba, bb } = await shared()
+    await watch(world, a.cookie, ba.id)
+    await watch(world, b.cookie, bb.id)
+    await waitFor(() => feed.sink !== undefined)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    feed.sink!.chunk(Buffer.alloc(3_200), Date.now())
+    const flow = await w.message('open')
+    world.server.streamAudio.endBroadcast(a.sellerId, ba.id)
+    expect((await phase(world, a.cookie, ba.id)).phase).toBe('ended')
+    expect(feed.sinks).toHaveLength(1)
+    expect(world.server.streamAudio.status()).toEqual({ listening: 1, sellers: 1 })
+    world.server.streamAudio.stopSeller(b.sellerId)
+    expect(feed.sinks).toEqual([])
+    expect(await w.message('close')).toEqual({ type: 'close', stream: flow.stream })
+    expect(world.server.streamAudio.status()).toEqual({ listening: 0, sellers: 0 })
+  })
+
+  it('다른 영상이면 흐름을 따로 연다. 소리 주인을 모르면(source 없음) 나누지 않는다', async () => {
+    const { world, feed, w, a, b, ba, bb, setLocation } = await shared((sellerId) => `video${sellerId.replace(/[^A-Za-z0-9]/g, '').slice(0, 6)}`)
+    await watch(world, a.cookie, ba.id)
+    await watch(world, b.cookie, bb.id)
+    await waitFor(() => feed.sinks.length === 2)
+    expect(feed.opened).toBe(2)
+    for (const sink of feed.sinks) sink.chunk(Buffer.alloc(3_200), Date.now())
+    const first = await w.message('open')
+    const second = await w.message('open')
+    expect(first.stream).not.toBe(second.stream)
+    expect(world.server.streamAudio.status()).toEqual({ listening: 2, sellers: 2 })
+    world.server.streamAudio.stopSeller(a.sellerId)
+    world.server.streamAudio.stopSeller(b.sellerId)
+    setLocation(() => ({ kind: 'ok', url: HLS }))
+    await watch(world, a.cookie, ba.id)
+    await watch(world, b.cookie, bb.id)
+    await waitFor(() => feed.sinks.length === 2)
+    expect(feed.opened).toBe(4)
+  })
+
+  it('나눠 쓰는 흐름이 끊기면 판매자마다 끊김을 세고 다시 잇는다 — 새 소리 받기는 하나만 연다', async () => {
+    const { world, feed, timer, w, a, b, ba, bb, consoleA, consoleB } = await shared()
+    await watch(world, a.cookie, ba.id)
+    await watch(world, b.cookie, bb.id)
+    await waitFor(() => feed.sink !== undefined)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    feed.sink!.chunk(Buffer.alloc(3_200), Date.now())
+    const flow = await w.message('open')
+    feed.sink!.fail()
+    expect(await w.message('close')).toEqual({ type: 'close', stream: flow.stream })
+    expect((await phase(world, a.cookie, ba.id)).phase).toBe('reconnecting')
+    expect((await phase(world, b.cookie, bb.id)).phase).toBe('reconnecting')
+    expect(timer.runRetries()).toEqual([1_000, 1_000])
+    await waitFor(() => feed.sinks.length === 1)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(feed.opened).toBe(2)
+    feed.sink!.chunk(Buffer.alloc(3_200), Date.now())
+    const again = await w.message('open')
+    w.send({ type: 'result', stream: again.stream, text: '삼번 오천원', startMs: 0, endMs: 100, procMs: 40 })
+    expect(await consoleA.message('result')).toMatchObject({ text: '삼번 오천원' })
+    expect(await consoleB.message('result')).toMatchObject({ text: '삼번 오천원' })
+  })
+
+  it('합친 힌트: 판매자마다 한 이름씩 돌아가며, 같은 이름은 한 번, 한도 안. 판매자 하나면 지금 힌트와 같다', () => {
+    expect(composeSharedHint([['아사달금', '핑크프릴'], ['킹나이트금', '아사달 금', '청개구리금']])).toBe('아사달금, 킹나이트금, 핑크프릴, 청개구리금.')
+    expect(composeSharedHint([['아사달금', '핑크프릴']])).toBe(composeHint(['아사달금', '핑크프릴']))
+    expect(composeSharedHint([[], []])).toBe('')
+    const long = Array.from({ length: 200 }, (_, i) => `가품종${String(i)}`)
+    const mixed = composeSharedHint([long, ['나만의이름']])
+    expect(mixed.length).toBeLessThanOrEqual(HINT_CHAR_LIMIT)
+    expect(mixed).toContain('나만의이름')
   })
 })

@@ -1,6 +1,7 @@
 // LV1 방송 소리로 듣기 (VOC-08): 콘솔이 한 번 열리면(watch 신호) 그 방송의 소리를 받아 일꾼에 넣고, 받아쓴 글은 그 방송 콘솔의 읽기로 넘긴다.
 // D-LV1-14: 콘솔(앱)이 닫혀도 방송이 끝날 때까지 듣는다 — 받을 콘솔이 없으면 서버 읽기(HeadlessVoice)가 읽고 등록한다. 마지막 watch 뒤 12시간이면 닫는다(잊힌 흐름).
-// 판매자 하나에 흐름 하나 — 휴대폰 마이크가 켜지면 쉬고, 꺼지면 돌아온다(D-LV1-06). 소리·글은 메모리에서만(로그·DB 없음).
+// 판매자 하나에 듣는 자리 하나 — 휴대폰 마이크가 켜지면 쉬고, 꺼지면 돌아온다(D-LV1-06). 소리·글은 메모리에서만(로그·DB 없음).
+// D-LV1-15: 여러 판매자 계정이 같은 영상을 이으면 소리 받기·받아쓰기 흐름(Flow)은 하나 — 받아쓴 글을 듣는 판매자마다 넘긴다.
 import type { Clock } from '../time.ts'
 import type { LogSink } from '../log.ts'
 import type { ExternalStream, VoiceRelay } from './relay.ts'
@@ -36,25 +37,40 @@ export interface StreamAudioServiceOptions {
   readonly serverReading?: ServerReading
 }
 
+/** 판매자 하나가 한 방송을 듣는 자리 (보이는 상태·콘솔 신호·끊김 셈·서버 읽기 알림). 소리·일꾼은 Flow가 가진다 */
 interface Listen {
   readonly sellerId: string
   readonly broadcastId: string
   phase: StreamAudioPhase
+  watchedUntil: number
+  failures: number[]
+  generation: number
+  /** 지금 받는 공유 흐름 (주소를 찾는 중·쉬는 중·다시 잇기 기다림이면 null) */
+  flow: Flow | null
+  cancel: (() => void) | null
+  delivered: boolean
+}
+
+/**
+ * 소리 받기 + 받아쓰기 흐름 하나 (D-LV1-15): 같은 소리 주인(source — 같은 유튜브 영상)을 듣는 판매자 모두가 나눠 쓴다.
+ * 받아쓴 글은 듣는 판매자마다 넘기고, 마지막 판매자가 떠나면 닫는다
+ */
+interface Flow {
+  readonly key: string
+  readonly members: Set<Listen>
+  closed: boolean
+  /** 첫 조각을 받았다 (듣는 중) */
+  started: boolean
   /** 모르면 null (소리 받기가 조각 시각을 주지 않음 — 늦음 안내를 숨긴다) */
   lagMs: number | null
   lastChunkAt: number
   stall: (() => void) | null
-  watchedUntil: number
-  failures: number[]
-  generation: number
   feed: { close(): void } | null
   worker: ExternalStream | null
   /** 지금 일꾼 흐름의 시각 0에 해당하는 서버 시각 (소리가 늦게 도착하면 앞으로 옮긴다) */
   base: number
   /** 지금 일꾼 흐름에 보낸 소리 길이(밀리초) */
   sentMs: number
-  cancel: (() => void) | null
-  delivered: boolean
 }
 
 const defaultSchedule = (run: () => void, ms: number) => {
@@ -68,6 +84,8 @@ export class StreamAudioService {
   readonly #schedule: (run: () => void, ms: number) => () => void
   /** 판매자 → 지금 듣는(또는 쉬는) 방송 하나 */
   readonly #listens = new Map<string, Listen>()
+  /** 소리 주인 → 공유 흐름 (D-LV1-15) */
+  readonly #flows = new Map<string, Flow>()
   #relay: VoiceRelay | null = null
   #sweep: (() => void) | null = null
   #closed = false
@@ -102,7 +120,7 @@ export class StreamAudioService {
       listen = undefined
     }
     if (listen === undefined) {
-      listen = { sellerId, broadcastId, phase: 'idle', lagMs: null, lastChunkAt: 0, stall: null, watchedUntil: now + WATCH_TTL_MS, failures: [], generation: 0, feed: null, worker: null, base: 0, sentMs: 0, cancel: null, delivered: false }
+      listen = { sellerId, broadcastId, phase: 'idle', watchedUntil: now + WATCH_TTL_MS, failures: [], generation: 0, flow: null, cancel: null, delivered: false }
       this.#listens.set(sellerId, listen)
       this.#arrange(listen)
     } else listen.watchedUntil = now + WATCH_TTL_MS
@@ -123,7 +141,10 @@ export class StreamAudioService {
     if (!this.#o.available) return { phase: 'hidden' }
     const listen = this.#listens.get(sellerId)
     if (listen === undefined || listen.broadcastId !== broadcastId) return { phase: 'idle' }
-    if (listen.phase === 'listening') return listen.lagMs === null ? { phase: 'listening' } : { phase: 'listening', lagMs: listen.lagMs, late: listen.lagMs > STREAM_LATE_MS }
+    if (listen.phase === 'listening') {
+      const lagMs = listen.flow?.lagMs ?? null
+      return lagMs === null ? { phase: 'listening' } : { phase: 'listening', lagMs, late: lagMs > STREAM_LATE_MS }
+    }
     return { phase: listen.phase }
   }
   async viewFor(sellerId: string, broadcastId: string): Promise<StreamAudioView> {
@@ -132,7 +153,7 @@ export class StreamAudioService {
     return this.view(sellerId, broadcastId)
   }
 
-  /** 마이크가 켜지거나 꺼졌다 (중계가 부른다) */
+  /** 마이크가 켜지거나 꺼졌다 (중계가 부른다). 그 판매자만 공유 흐름에서 빠진다 — 다른 판매자는 계속 듣는다 (D-LV1-15) */
   micChanged(sellerId: string, active: boolean): void {
     const listen = this.#listens.get(sellerId)
     if (listen !== undefined) this.#arrange(listen, active)
@@ -164,14 +185,17 @@ export class StreamAudioService {
       this.#o.serverReading?.release(listen.sellerId)
     }
   }
-  status(): { listening: number } {
-    return { listening: [...this.#listens.values()].filter((listen) => listen.feed !== null).length }
+  /** listening = 지금 열린 소리 받기(ffmpeg) 수, sellers = 그 흐름을 듣는 판매자 수 */
+  status(): { listening: number; sellers: number } {
+    const open = [...this.#flows.values()].filter((flow) => flow.feed !== null)
+    return { listening: open.length, sellers: open.reduce((sum, flow) => sum + flow.members.size, 0) }
   }
   close(): void {
     this.#closed = true
     this.#sweep?.()
     for (const listen of this.#listens.values()) this.#stop(listen)
     this.#listens.clear()
+    for (const flow of [...this.#flows.values()]) this.#closeFlow(flow)
   }
 
   // ── 안쪽 ──────────────────────────────────────────────
@@ -183,21 +207,32 @@ export class StreamAudioService {
       listen.phase = 'mic'
       return
     }
-    if (listen.feed === null && listen.cancel === null) {
+    if (listen.flow === null && listen.cancel === null) {
       if (listen.phase === 'mic') listen.phase = 'idle'
       void this.#attempt(listen, ++listen.generation)
     }
   }
+  /** 이 판매자만 멈춘다: 공유 흐름에서 빠지고, 남은 판매자가 없으면 흐름을 닫는다 */
   #stop(listen: Listen): void {
     listen.generation++
     listen.cancel?.()
     listen.cancel = null
-    listen.stall?.()
-    listen.stall = null
-    listen.feed?.close()
-    listen.feed = null
-    listen.worker?.close()
-    listen.worker = null
+    const flow = listen.flow
+    listen.flow = null
+    if (flow === null) return
+    flow.members.delete(listen)
+    if (flow.members.size === 0) this.#closeFlow(flow)
+  }
+  #closeFlow(flow: Flow): void {
+    if (flow.closed) return
+    flow.closed = true
+    if (this.#flows.get(flow.key) === flow) this.#flows.delete(flow.key)
+    flow.stall?.()
+    flow.stall = null
+    flow.feed?.close()
+    flow.feed = null
+    flow.worker?.close()
+    flow.worker = null
   }
   #live(listen: Listen, generation: number): boolean {
     return !this.#closed && listen.generation === generation && this.#listens.get(listen.sellerId) === listen
@@ -236,51 +271,72 @@ export class StreamAudioService {
       case 'ok':
         break
     }
-    let first = true
-    listen.feed = this.#o.feed.open(location.url, {
-      chunk: (pcm, producedAt) => {
-        if (!this.#live(listen, generation)) return
-        const now = this.#o.clock.now()
-        if (listen.worker === null) {
-          const opened = this.#relay?.openExternal(
-            (result) => this.#result(listen, generation, result),
-            () => { if (this.#live(listen, generation)) { listen.worker = null; this.#fail(listen, generation) } },
-            listen.sellerId,
-          ) ?? 'NO_WORKER'
-          if (typeof opened === 'string') { this.#fail(listen, generation); return }
-          listen.worker = opened
-          // 첫 조각(100ms)은 도착한 순간 끝난 소리다 — 일꾼의 시각 0은 그보다 100ms 앞 (말 끝이 미래 시각이 되어 늦은 글로 빠지지 않게)
-          listen.base = now - 100
-          listen.sentMs = 0
-        }
-        if (!listen.worker.send(pcm)) { this.#fail(listen, generation); return }
-        // 방송 소리가 제 시간보다 늦게 도착하면(HLS 멈칫·끊김) 그만큼 기준을 옮긴다 — 소리 시각이 실제 도착보다 뒤처져
-        // 받아쓴 말이 모두 "늦은 말"로 빠지지 않게(D-LIVETEST-03). 일찍 온 소리(첫 조각 몰림)는 그대로 둔다(말 끝은 now로 자른다).
-        listen.sentMs += (pcm.length / 2 / STREAM_SAMPLE_RATE) * 1000
-        if (now > listen.base + listen.sentMs) listen.base = now - listen.sentMs
-        listen.lagMs = producedAt === undefined ? null : Math.max(0, now - producedAt)
-        listen.lastChunkAt = now
-        if (first) { first = false; listen.phase = 'listening' }
-      },
-      fail: () => { if (this.#live(listen, generation)) this.#fail(listen, generation) },
+    // 같은 소리 주인을 이미 듣고 있으면 그 흐름에 끼운다 — 소리 받기·받아쓰기는 한 번만 (D-LV1-15). 주인을 모르면 나누지 않는다
+    const key = location.source ?? `seller:${listen.sellerId}:${listen.broadcastId}`
+    const shared = this.#flows.get(key)
+    if (shared !== undefined && !shared.closed) {
+      shared.members.add(listen)
+      listen.flow = shared
+      if (shared.started) listen.phase = 'listening'
+      return
+    }
+    const flow: Flow = { key, members: new Set([listen]), closed: false, started: false, lagMs: null, lastChunkAt: 0, stall: null, feed: null, worker: null, base: 0, sentMs: 0 }
+    this.#flows.set(key, flow)
+    listen.flow = flow
+    flow.feed = this.#o.feed.open(location.url, {
+      chunk: (pcm, producedAt) => this.#chunk(flow, pcm, producedAt),
+      fail: () => this.#flowFail(flow),
     })
-    listen.lastChunkAt = this.#o.clock.now()
-    this.#watchStall(listen, generation)
+    flow.lastChunkAt = this.#o.clock.now()
+    this.#watchStall(flow)
+  }
+  #chunk(flow: Flow, pcm: Buffer, producedAt: number | undefined): void {
+    if (flow.closed || this.#closed) return
+    const now = this.#o.clock.now()
+    if (flow.worker === null) {
+      // 힌트(D-V3-127)는 일꾼 흐름을 여는 이때 듣는 판매자들의 품종을 합친다 — 나중에 낀 판매자 품종은 다음에 열 때 든다 (D-LV1-15)
+      const opened = this.#relay?.openExternal(
+        (result) => this.#result(flow, result),
+        () => { if (!flow.closed) { flow.worker = null; this.#flowFail(flow) } },
+        [...flow.members].map((member) => member.sellerId),
+      ) ?? 'NO_WORKER'
+      if (typeof opened === 'string') { this.#flowFail(flow); return }
+      flow.worker = opened
+      // 첫 조각(100ms)은 도착한 순간 끝난 소리다 — 일꾼의 시각 0은 그보다 100ms 앞 (말 끝이 미래 시각이 되어 늦은 글로 빠지지 않게)
+      flow.base = now - 100
+      flow.sentMs = 0
+    }
+    if (!flow.worker.send(pcm)) { this.#flowFail(flow); return }
+    // 방송 소리가 제 시간보다 늦게 도착하면(HLS 멈칫·끊김) 그만큼 기준을 옮긴다 — 소리 시각이 실제 도착보다 뒤처져
+    // 받아쓴 말이 모두 "늦은 말"로 빠지지 않게(D-LIVETEST-03). 일찍 온 소리(첫 조각 몰림)는 그대로 둔다(말 끝은 now로 자른다).
+    flow.sentMs += (pcm.length / 2 / STREAM_SAMPLE_RATE) * 1000
+    if (now > flow.base + flow.sentMs) flow.base = now - flow.sentMs
+    flow.lagMs = producedAt === undefined ? null : Math.max(0, now - producedAt)
+    flow.lastChunkAt = now
+    if (!flow.started) {
+      flow.started = true
+      for (const member of flow.members) member.phase = 'listening'
+    }
   }
   /** HLS가 말없이 멈추면(조각이 8초 안 옴) 끊김으로 센다 */
-  #watchStall(listen: Listen, generation: number): void {
-    listen.stall = this.#schedule(() => {
-      listen.stall = null
-      if (!this.#live(listen, generation) || listen.feed === null) return
-      if (this.#o.clock.now() - listen.lastChunkAt >= STREAM_STALL_MS) this.#fail(listen, generation)
-      else this.#watchStall(listen, generation)
+  #watchStall(flow: Flow): void {
+    flow.stall = this.#schedule(() => {
+      flow.stall = null
+      if (flow.closed || flow.feed === null) return
+      if (this.#o.clock.now() - flow.lastChunkAt >= STREAM_STALL_MS) this.#flowFail(flow)
+      else this.#watchStall(flow)
     }, STREAM_STALL_CHECK_MS)
   }
-  #result(listen: Listen, generation: number, result: { text: string; startMs: number; endMs: number; conf?: number }): void {
-    if (!this.#live(listen, generation) || this.#relay === null) return
+  /** 받아쓴 글 하나를 듣는 판매자마다 넘긴다 — 각자 자기 장부로 읽고 등록한다 */
+  #result(flow: Flow, result: { text: string; startMs: number; endMs: number; conf?: number }): void {
+    if (flow.closed || this.#closed || this.#relay === null) return
     const now = this.#o.clock.now()
-    const endAt = Math.min(listen.base + result.endMs, now)
-    const text = { text: result.text, startAt: Math.min(listen.base + result.startMs, endAt), endAt, ...(result.conf === undefined ? {} : { conf: result.conf }) }
+    const endAt = Math.min(flow.base + result.endMs, now)
+    const text = { text: result.text, startAt: Math.min(flow.base + result.startMs, endAt), endAt, ...(result.conf === undefined ? {} : { conf: result.conf }) }
+    for (const listen of [...flow.members]) this.#deliver(listen, text)
+  }
+  #deliver(listen: Listen, text: { text: string; startAt: number; endAt: number; conf?: number }): void {
+    if (this.#relay === null) return
     const delivered = this.#relay.deliver(listen.sellerId, listen.broadcastId, text)
     const reading = this.#o.serverReading
     // 앱이 받았으면 서버 읽기는 닫는다(두 곳에서 등록하지 않게). 받을 앱이 없으면 서버가 읽고 등록한다 (D-LV1-14)
@@ -293,6 +349,17 @@ export class StreamAudioService {
         listen.delivered = true
         this.#o.log({ level: 'info', code: reading === undefined ? 'STREAM_AUDIO_NO_CONSOLE' : 'STREAM_AUDIO_SERVER_READING', seller: listen.sellerId })
       }
+    }
+  }
+  /** 공유 흐름이 끊겼다: 흐름을 닫고, 듣던 판매자마다 끊김을 센다(각자 다시 주소를 찾고, 먼저 찾은 쪽이 새 흐름을 열면 나머지는 끼운다) */
+  #flowFail(flow: Flow): void {
+    if (flow.closed) return
+    const members = [...flow.members]
+    flow.members.clear()
+    this.#closeFlow(flow)
+    for (const listen of members) {
+      listen.flow = null
+      this.#fail(listen, listen.generation)
     }
   }
   /** 끊김: 소리는 버리고(따라잡지 않음) 1·2·4·8초 뒤 다시, 60초 안 여섯 번째면 멈춤 */

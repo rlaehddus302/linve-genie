@@ -34,6 +34,8 @@ export interface VoiceRelayOptions {
   readonly onMicChange?: (sellerId: string, active: boolean) => void
   /** D-V3-127 받아쓰기 힌트(한글 수 보기 + 그 판매자 품종). 흐름을 열 때 open에 실어 보낸다 */
   readonly hint?: (sellerId: string) => string
+  /** D-LV1-15 여러 판매자가 나눠 듣는 방송 소리 흐름의 힌트 (품종을 고르게 합친다). 없으면 첫 판매자 힌트 */
+  readonly sharedHint?: (sellerIds: readonly string[]) => string
   /** 흐름을 열기 전에 장부를 읽어 둔다 */
   readonly warmHint?: (sellerId: string) => Promise<void>
   readonly reading?: (context: { session: SessionContext; broadcastId: string; device: string; mode: VoiceFlowMode; send: (message: unknown) => void }) => VoiceReadingSession | Promise<VoiceReadingSession>
@@ -298,12 +300,20 @@ export class VoiceRelay {
     const hint = this.#options.hint?.(sellerId)
     return hint === undefined || hint === '' ? {} : { hint }
   }
+  /** 판매자 하나면 그 힌트 그대로, 여럿이면 합친 힌트 (D-LV1-15) */
+  #hintOf(sellerIds: readonly string[]): { hint?: string } {
+    const [first] = sellerIds
+    if (first === undefined) return {}
+    if (sellerIds.length === 1 || this.#options.sharedHint === undefined) return this.#hintField(first)
+    const hint = this.#options.sharedHint(sellerIds)
+    return hint === '' ? {} : { hint }
+  }
   /** 그 판매자의 휴대폰 마이크(받아쓰기 흐름)가 듣는 중인가 */
   micActive(sellerId: string): boolean {
     return this.#owners.get(sellerId)?.mode === 'livegenie'
   }
-  /** 서버가 직접 소리를 넣는 흐름을 연다 (방송 소리). 일꾼이 없거나 다 차면 까닭 */
-  openExternal(onResult: External['onResult'], onLost: () => void, sellerId?: string): ExternalStream | 'NO_WORKER' | 'BUSY' {
+  /** 서버가 직접 소리를 넣는 흐름을 연다 (방송 소리). sellers = 이 흐름을 듣는 판매자(힌트용, D-LV1-15). 일꾼이 없거나 다 차면 까닭 */
+  openExternal(onResult: External['onResult'], onLost: () => void, sellers: string | readonly string[] = []): ExternalStream | 'NO_WORKER' | 'BUSY' {
     if (this.#closed) return 'NO_WORKER'
     const worker = [...this.#workers].filter((candidate) => candidate.ws.readyState === WebSocket.OPEN && candidate.streams.size < candidate.capacity && candidate.nextStream <= 4_294_967_295)
       .sort((a, b) => (b.capacity - b.streams.size) - (a.capacity - a.streams.size))[0]
@@ -314,7 +324,7 @@ export class VoiceRelay {
     const stream = worker.nextStream++
     const entry: External = { external: true, onResult, onLost }
     worker.streams.set(stream, entry)
-    send(worker.ws, { type: 'open', stream, ...(sellerId === undefined ? {} : this.#hintField(sellerId)) })
+    send(worker.ws, { type: 'open', stream, ...this.#hintOf(typeof sellers === 'string' ? [sellers] : sellers) })
     const header = Buffer.allocUnsafe(4)
     header.writeUInt32BE(stream)
     let open = true
