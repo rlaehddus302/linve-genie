@@ -213,6 +213,18 @@ describe('앱 안 우체국 화면 — 여러 명 한 번에 (D-EP1-19)', () => 
     expect(screen.queryByText(/우체국은 보내는 분 휴대전화를 꼭 받아요/)).toBeNull()
   })
 
+  it('받는 분 우편번호를 서버도 찾지 못했으면 우체국 [주소찾기]의 범위 창에서 번지를 넣으라고 먼저 알린다 (D-EP1-22)', async () => {
+    const { w } = world()
+    const found = render(w.wrap(<EpostScreen date={DATE} buyers={['u1']} nav={{ onBack: () => undefined }} />))
+    await screen.findByText('다육맘')
+    expect(screen.queryByText(/받는 분 우편번호를 찾지 못했어요/)).toBeNull()
+    found.unmount()
+    const base = fillView()
+    const { w: w2 } = world({ fill: { ...base, fill: { ...base.fill, receiver: { ...base.fill.receiver, zip: '', address: '경상남도 양산시 물금읍 증산리 2000' } } } })
+    render(w2.wrap(<EpostScreen date={DATE} buyers={['u1']} nav={{ onBack: () => undefined }} />))
+    expect(await screen.findByText(/받는 분 우편번호를 찾지 못했어요\. 우체국 화면의 받는 분 \[주소찾기\]/)).toBeTruthy()
+  })
+
   it('보내는 분 주소 칸을 찾지 못하면 우체국 화면의 [수정]에서 넣으라고 알린다 (회원 정보에 주소가 없던 계정 — D-EP1-20)', async () => {
     const { w } = world()
     render(w.wrap(<EpostScreen date={DATE} buyers={['u1']} nav={{ onBack: () => undefined }} />))

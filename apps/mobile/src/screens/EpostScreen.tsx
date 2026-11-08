@@ -30,6 +30,8 @@ export const EPOST_READONLY_NOTE = '주소 찾기는 하지 않아도 돼요. �
 /** 비회원 신청 비밀번호 (EP1 D-EP1-14) */
 export const EPOST_PASSWORD_FILLED = '신청 비밀번호를 넣었어요.'
 // 모바일 소포 신청서는 보내는 분 휴대전화가 없으면 [다음]을 받지 않는다 (2026-11-08 실제 화면 — D-EP1-19)
+// 받는 분 우편번호를 서버도 찾지 못했을 때 (외진 곳 범위 번지 등 — D-EP1-22). 우체국 신청서는 우편번호가 비면 받지 않는다
+export const EPOST_ZIP_MISSING = '받는 분 우편번호를 찾지 못했어요. 우체국 화면의 받는 분 [주소찾기]에서 주소를 고르고, 범위(예: 985~1141)가 나오면 번지를 넣어 주세요.'
 export const EPOST_SENDER_MOBILE = '우체국은 보내는 분 휴대전화를 꼭 받아요. 가게 설정의 보내는 사람 전화가 휴대전화가 아니라서, 우체국 화면의 보내는 분 휴대전화 칸에 직접 넣어 주세요.'
 // 보내는 분 주소를 신청서에 넣지 못했을 때 (우체국 회원 정보에 주소가 없는 계정 — D-EP1-20)
 export const EPOST_SENDER_ADDRESS = '보내는 분 주소를 넣지 못했어요. 우체국 화면의 보내는 분 [수정]을 눌러 주소를 넣어 주세요.'
@@ -388,6 +390,11 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
               <Txt key={text} step="caption" color="textSub">{`우체국: ${text}`}</Txt>
             ))}
           </View>
+        ) : null}
+        {view.fill.receiver.zip === '' ? (
+          <Txt step="caption" color="dangerText">
+            {EPOST_ZIP_MISSING}
+          </Txt>
         ) : null}
         {view.fill.sender.mobile === null ? (
           <Txt step="caption" color="dangerText">
