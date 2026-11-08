@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { Animated, Easing, Platform, Pressable, View, type ViewStyle } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
-import { PAGE, RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
+import { PAGE, RADIUS, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
 import { tapHaptic } from '../../native/haptics.ts'
 import { TabIcon, type TabIconName } from './tab-icons.tsx'
@@ -198,6 +198,9 @@ export function tabBarBottom(inset: number, os: string = Platform.OS): number {
   return Math.max(inset - 14, SPACE.sm)
 }
 
+/** 아래 탭 그림자: 위쪽으로 아주 옅게(아이폰에서 쓰던 0,-4 · 흐림 8 · 3%). 두 기기 모두 boxShadow로 같게 그린다 (D-UX3-71) */
+export const TAB_BAR_SHADOW = '0px -4px 8px rgba(0, 0, 0, 0.03)'
+
 /** 아래 탭 뒤 흐림 (D-UX3-13): 앱은 시작 때 기기 흐림(expo-blur)을 끼운다. 시험·웹은 없음(반투명 흰색만) */
 let Backdrop: ComponentType | null = null
 export function setTabBarBackdrop(next: ComponentType | null): void {
@@ -224,8 +227,9 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
   const cell = width === 0 ? 0 : (width - gap * (TABS.length - 1)) / TABS.length
   return (
     <View pointerEvents="box-none" onLayout={(event) => onHeight?.(event.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs, paddingBottom: tabBarBottom(inset) }}>
-      {/* 그림자는 겉에(둥글게 자르면 그림자도 잘린다), 흐림·반투명은 안에서 둥글게 자른다 */}
-      <View style={{ borderRadius: RADIUS.pill, borderCurve: 'continuous', ...SHADOW.sheet, shadowOpacity: 0.03, shadowRadius: 8, elevation: 1 }}>
+      {/* 그림자는 겉에(둥글게 자르면 그림자도 잘린다), 흐림·반투명은 안에서 둥글게 자른다.
+          그림자는 boxShadow 하나로 두 기기 같게 (D-UX3-71): 안드로이드 elevation은 늘 아래로 진한 그림자를 그려 탭 밑에 회색 줄이 보였다 */}
+      <View style={{ borderRadius: RADIUS.pill, borderCurve: 'continuous', boxShadow: TAB_BAR_SHADOW }}>
         <View role="tablist" aria-label="아래 메뉴" style={{ flexDirection: 'row', borderRadius: RADIUS.pill, borderCurve: 'continuous', overflow: 'hidden', borderWidth: 1, borderColor: p.tabLine, padding: SPACE.xs, gap }}>
           <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
             {Backdrop === null ? null : <Backdrop />}

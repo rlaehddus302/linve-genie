@@ -1,7 +1,9 @@
 // 안드로이드 실기기 고침 (D-UX3-67·68): 손맛 권한 · 키보드 피하기 · 단추·제스처 막대와 아래 탭
 import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
-import { BUTTON_NAV_MIN_INSET, tabBarBottom } from '../src/ui/kit/app.tsx'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { BUTTON_NAV_MIN_INSET, TAB_BAR_SHADOW, tabBarBottom } from '../src/ui/kit/app.tsx'
 import { keyboardAvoidFor } from '../src/ui/kit/sheets.tsx'
 import { SPACE } from '../src/ui/kit/tokens.ts'
 
@@ -44,5 +46,15 @@ describe('아래 탭과 기기 아래 막대', () => {
         expect(tabBarBottom(inset, os)).toBeGreaterThan(inset)
       }
     }
+  })
+})
+
+describe('아래 탭 그림자 (D-UX3-71)', () => {
+  it('안드로이드 elevation 대신 boxShadow 하나로 — 위쪽으로 아주 옅게', () => {
+    expect(TAB_BAR_SHADOW).toBe('0px -4px 8px rgba(0, 0, 0, 0.03)')
+    const source = readFileSync(join(import.meta.dirname, '../src/ui/kit/app.tsx'), 'utf8')
+    const tabBar = source.slice(source.indexOf('export function TabBar('), source.indexOf('/** 큰 초록 카드 버튼'))
+    expect(tabBar).toContain('boxShadow: TAB_BAR_SHADOW')
+    expect(tabBar).not.toMatch(/elevation:|shadowOpacity:|SHADOW\./)
   })
 })
