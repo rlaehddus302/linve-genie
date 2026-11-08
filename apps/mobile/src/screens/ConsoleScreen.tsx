@@ -384,7 +384,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
           }}
           onContentSizeChange={() => { if (atBottom.current) scroll.current?.scrollToEnd({ animated: false }) }}
-          style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
+          style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
           <AwayLine />
           <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
@@ -400,7 +400,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             <Pill on={tab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => setTab('feed')} />
             <Pill on={tab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => setTab('talk')} />
           </View>
-          {tab === 'products' ? <ProductList onOpen={setDetail} /> : tab === 'feed' ? <ClaimFeed /> : <LiveTalk />}
+          {/* 목록이 짧으면 화면 아래에 붙는다 — 라이브 채팅처럼 최신이 맨 아래(D-UX3-75)이고 위는 빈 자리 (D-UX3-77) */}
+          <View testID="console-list" style={{ flexGrow: 1, justifyContent: 'flex-end' }}>
+            {tab === 'products' ? <ProductList onOpen={setDetail} /> : tab === 'feed' ? <ClaimFeed /> : <LiveTalk />}
+          </View>
         </ScrollView>
 
         <BottomSheet visible={sheet === 'direct'} onClose={close} title={DIRECT_INPUT}>

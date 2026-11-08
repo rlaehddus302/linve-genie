@@ -32,6 +32,12 @@ const openDirect = () => {
 }
 
 describe('ConsoleScreen', () => {
+  it('목록이 짧으면 화면 아래에 붙는다 — 위가 빈 자리 (D-UX3-77)', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    await open(world)
+    expect(getComputedStyle(screen.getByTestId('console-list')).justifyContent).toBe('flex-end')
+  })
+
   it('서버에 등록된 상품이 리스트에 크게 보이고, 누르면 자세히가 열리며 상태 낱말은 한국어다', async () => {
     const world = makeWorld({ products: [product(15, { name: '핑크프릴', price: 12_000 })] })
     await open(world)
