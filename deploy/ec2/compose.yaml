@@ -45,6 +45,9 @@ services:
     volumes:
       # 서버의 판매자 자동 백업 폴더(LIVEJJIM_BACKUP_DIR=/backups). 이미지 사용자 node(uid 1000)가 쓸 수 있어야 한다
       - ${LJ_APP_BACKUP_DIR:-/opt/livegenie/backups/app}:/backups
+      # 감사 채팅 봇 계정 로그인 파일·계정 목록(D-YT-SEND-12, LIVEJJIM_YT_SEND_ACCOUNTS_FILE=/run/livegenie-secrets/bots.json). 읽기만.
+      # 파일은 uid 1000·권한 600. 봇 길을 쓰지 않으면 빈 폴더라 아무 일도 하지 않는다
+      - ${LJ_APP_SECRETS_DIR:-/opt/livegenie/secrets}:/run/livegenie-secrets:ro
     networks: [back, edge]
     # 집 회선 프록시 터널 끝(D-LV1-13, deploy/home-proxy/README.md). host-gateway = 호스트의 도커 브리지 주소(172.17.0.1).
     # 터널은 EC2 sshd가 그 주소의 18888만 열게 한다(GatewayPorts clientspecified + PermitListen) — 0.0.0.0에 열지 않고 보안 그룹도 열지 않는다.
