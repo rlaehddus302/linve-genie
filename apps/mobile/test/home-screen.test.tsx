@@ -1,6 +1,6 @@
 // 홈 "오늘 할 일" (APP-01, D-UX2-02): 진행 중 방송은 "방송으로 돌아가기"로 한국어 한 줄과 함께 보이고, 새 방송 시작이 요청 번호와 함께 가며,
 // "웹으로 열기"는 더보기 탭에서 기기 브라우저로 연다 (AC4). 할 일 숫자는 포장 목록·라벨 대기열의 서버 값이다.
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { setWebOpener } from '../src/lib/open-web.ts'
 import { HomeScreen, broadcastLine } from '../src/screens/HomeScreen.tsx'
@@ -11,30 +11,36 @@ import { BROADCAST } from './support.ts'
 const nav = () => ({ openConsole: vi.fn(), openNewBroadcast: vi.fn(), openPacking: vi.fn(), openLabels: vi.fn(), openSettings: vi.fn() })
 
 describe('HomeScreen', () => {
-  it('방송 한 줄과 콘솔 열기', async () => {
+  // D-UX3-85로 바뀐 기대 (사용자 지시 2026-11-09 홈 개선): 인사 줄·큰 초록 "방송으로 돌아가기" 카드 → 맨 위 왼쪽 "지금 라이브 중 ›"(채널 프로필 사진 + 빨간 테두리)
+  it('방송 중이면 맨 위 왼쪽 "지금 라이브 중"이 그 방송을 열고, 채널 프로필 사진을 받아 보인다. 인사 줄은 없다 (D-UX3-85)', async () => {
     const world = makeWorld()
+    world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: { broadcastChannelId: 'UCaaaaaaaaaaaaaaaaaaaaaa' }, collector: null } }))
+    world.server.on('GET', /^\/api\/youtube\/channels\/UCaaaaaaaaaaaaaaaaaaaaaa\/avatar$/, () => ({ body: { avatar: 'https://yt3.ggpht.com/me' } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
     expect(broadcastLine(BROADCAST)).toBe('저녁 방송 · 10월 29일 · 진행 중')
-    expect(screen.getByText('김다육 사장님, 안녕하세요')).toBeTruthy()
-    // 옛 기대: 방송 목록의 "콘솔 열기 — 줄" 단추. 새 기대(D-UX2-02): 진행 중 방송은 큰 초록 카드 "방송으로 돌아가기 — 줄"
-    const button = await screen.findByRole('button', { name: `방송으로 돌아가기 — ${broadcastLine(BROADCAST)}` })
-    fireEvent.click(button)
+    const live = await screen.findByRole('button', { name: '지금 라이브 중' })
+    await waitFor(() => expect(world.server.callsTo('GET', /\/avatar$/)).toHaveLength(1))
+    expect(screen.queryByText('김다육 사장님, 안녕하세요')).toBeNull()
+    expect(screen.getByText('라이브')).toBeTruthy()
+    fireEvent.click(live)
     expect(navigation.openConsole).toHaveBeenCalledWith('b1')
   })
 
-  it('새 방송 시작은 새 방송 화면(쌓인 화면)을 연다 — 홈 안에 제목 칸·판이 없다 (D-UX3-09)', async () => {
+  // D-UX3-85로 바뀐 기대: "방송 시작하기" 큰 카드·"새 방송 시작"·"리허설 해 보기" 단추 → 맨 위 왼쪽 "라이브 연결 ›" 하나 (새 방송은 그대로 쌓인 화면, D-UX3-09)
+  it('방송 중이 아니면 "라이브 연결"이 새 방송 화면(쌓인 화면)을 연다 — 새 방송·리허설 단추는 없다 (D-UX3-85)', async () => {
     const world = makeWorld()
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    // 옛 기대(D-UX3-07): 홈 위 전체 화면 판에 빈 "방송 제목" 칸 → [다음]. 새 기대(D-UX3-09): 제목 칸은 없고(판매 종류로 제목을 짓는다) 새 방송은 쌓인 화면 — 밀어서 뒤로 가기
-    fireEvent.click(await screen.findByRole('button', { name: '새 방송 시작' }))
+    fireEvent.click(await screen.findByRole('button', { name: '라이브 연결' }))
     expect(navigation.openNewBroadcast).toHaveBeenCalledTimes(1)
-    expect(screen.queryByLabelText('방송 제목')).toBeNull()
+    for (const gone of ['새 방송 시작', '리허설 해 보기', '방송 시작하기']) expect(screen.queryByRole('button', { name: gone })).toBeNull()
     expect(world.server.callsTo('POST', /broadcasts/)).toHaveLength(0)
   })
 
-  it('진행 중 방송이 없으면 큰 카드가 "방송 시작하기"이고, 할 일 숫자는 포장 목록·라벨 대기열 값이다 (D-UX2-02)', async () => {
+  // D-UX3-85로 바뀐 기대: 큰 카드 "방송 시작하기"·라벨 뽑기 줄·지난 방송 판 금액 → "라이브 연결", 할 일 다섯 줄(라벨 뽑기 없음), 이름 바뀜(입금 확인하기)
+  it('진행 중 방송이 없으면 "라이브 연결"이고, 할 일 숫자는 포장 목록 값이다 (D-UX2-02 → D-UX3-85)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, ended: true, endedAt: '2026-10-29T12:00:00.000Z' }] } }))
     world.server.on('GET', /^\/api\/days$/, () => ({ body: { days: [{ date: '2026-10-29', rehearsal: false, seq: 5 }] } }))
@@ -44,18 +50,19 @@ describe('HomeScreen', () => {
     world.services.labels.start()
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    expect(await screen.findByRole('button', { name: '방송 시작하기' })).toBeTruthy()
-    expect(await screen.findByRole('button', { name: '입금 확인 1' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '입금 확인하기 1' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '포장하기 2' }))
     expect(navigation.openPacking).toHaveBeenCalled()
-    expect(await screen.findByRole('button', { name: '라벨 뽑기 0' })).toBeTruthy()
-    // 지난 방송: 그 방송 품목 수량 합 4개, 금액 10,000 + 5,000×2 + 7,000 = 27,000원 (정수 원)
-    expect(await screen.findByText('4개 팔림')).toBeTruthy()
-    expect(screen.getByText('27,000원')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^라벨 뽑기/ })).toBeNull()
+    // 지난 방송은 방송 이력에 › 로 (판 금액 없음)
+    expect(screen.getByRole('group', { name: '방송 이력' })).toBeTruthy()
+    expect(screen.queryByText('4개 팔림')).toBeNull()
     world.services.labels.stop()
   })
 
-  it('방송 뒤 "다음 할 일"은 흐름 순서 — 손님 정보 받기 → 확인서 보내기 → 입금 확인 → 포장하기 → 택배 접수 → 라벨 뽑기, 숫자는 택배 목록·영수증 목록 값 (D-UX3-39)', async () => {
+  // D-UX3-85로 바뀐 기대: "다음 할 일" → "오늘 할 일", 이름(고객 정보 받기·주문 확인서 보내기·입금 확인하기·택배 접수하기), 설명·구분선·라벨 뽑기 없음
+  it('"오늘 할 일"은 흐름 순서 — 고객 정보 받기 → 주문 확인서 보내기 → 입금 확인하기 → 포장하기 → 택배 접수하기, 설명 없음, 숫자는 택배 목록·영수증 목록 값 (D-UX3-39 → D-UX3-85)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, ended: true, endedAt: '2026-10-29T12:00:00.000Z' }] } }))
     world.server.on('GET', /^\/api\/days$/, () => ({ body: { days: [{ date: '2026-10-29', rehearsal: false, seq: 5 }] } }))
@@ -68,15 +75,16 @@ describe('HomeScreen', () => {
     world.services.labels.start()
     const navigation = { ...nav(), openSettle: vi.fn(), openParcels: vi.fn(), openReceipts: vi.fn() }
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    expect(await screen.findByRole('button', { name: '택배 접수 1' })).toBeTruthy()
-    const todo = screen.getByRole('group', { name: '다음 할 일' })
+    expect(await screen.findByRole('button', { name: '택배 접수하기 1' })).toBeTruthy()
+    const todo = screen.getByRole('group', { name: '오늘 할 일' })
     const names = [...todo.querySelectorAll('[role="button"]')].map((button) => button.getAttribute('aria-label'))
-    expect(names).toEqual(['손님 정보 받기 1', '확인서 보내기 2', '입금 확인 1', '포장하기 2', '택배 접수 1', '라벨 뽑기 0'])
-    fireEvent.click(screen.getByRole('button', { name: '손님 정보 받기 1' }))
+    expect(names).toEqual(['고객 정보 받기 1', '주문 확인서 보내기 2', '입금 확인하기 1', '포장하기 2', '택배 접수하기 1'])
+    for (const sub of ['배송지를 아직 못 받은 손님', '주문 확인서를 아직 안 보낸 손님', '돈을 아직 안 보낸 손님']) expect(screen.queryByText(sub)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '고객 정보 받기 1' }))
     expect(navigation.openSettle).toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '택배 접수 1' }))
+    fireEvent.click(screen.getByRole('button', { name: '택배 접수하기 1' }))
     expect(navigation.openParcels).toHaveBeenCalledWith('2026-10-29')
-    fireEvent.click(screen.getByRole('button', { name: '확인서 보내기 2' }))
+    fireEvent.click(screen.getByRole('button', { name: '주문 확인서 보내기 2' }))
     expect(navigation.openReceipts).toHaveBeenCalled()
     world.services.labels.stop()
   })
@@ -94,20 +102,24 @@ describe('HomeScreen', () => {
     expect(opened).toEqual(['http://test.local/settings/youtube?from=app'])
   })
 
-  it('홈이 다시 보이면 방송 목록을 다시 받는다: 리허설을 시작하고 돌아오면 "방송으로 돌아가기", 끝내고 돌아오면 "방송 시작하기" (D-UX2-07)', async () => {
+  // D-UX3-85로 바뀐 기대: "방송으로 돌아가기"·"방송 시작하기" → "지금 라이브 중"·"라이브 연결", 리허설은 홈에 보이지 않는다
+  it('홈이 다시 보이면 방송 목록을 다시 받는다: 방송을 시작하고 돌아오면 "지금 라이브 중", 끝내고 돌아오면 "라이브 연결". 리허설은 라이브로 보지 않는다 (D-UX2-07 → D-UX3-85)', async () => {
     const world = makeWorld()
     let broadcasts: unknown[] = []
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts } }))
     const navigation = nav()
     const view = render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={0} />))
-    expect(await screen.findByRole('button', { name: '방송 시작하기' })).toBeTruthy()
-    const rehearsal = { ...BROADCAST, id: 'r1', title: '리허설 1', rehearsal: true }
-    broadcasts = [rehearsal]
+    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    broadcasts = [{ ...BROADCAST, id: 'r1', title: '리허설 1', rehearsal: true }]
     view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={1} />))
-    fireEvent.click(await screen.findByRole('button', { name: `방송으로 돌아가기 — ${broadcastLine(rehearsal)}` }))
-    expect(navigation.openConsole).toHaveBeenCalledWith('r1')
-    broadcasts = [{ ...rehearsal, ended: true, endedAt: '2026-10-29T12:00:00.000Z' }]
+    await waitFor(() => expect(world.server.callsTo('GET', /^\/api\/broadcasts$/).length).toBeGreaterThanOrEqual(2))
+    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    broadcasts = [{ ...BROADCAST, id: 'l1' }]
     view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={2} />))
-    expect(await screen.findByRole('button', { name: '방송 시작하기' })).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: '지금 라이브 중' }))
+    expect(navigation.openConsole).toHaveBeenCalledWith('l1')
+    broadcasts = [{ ...BROADCAST, id: 'l1', ended: true, endedAt: '2026-10-29T12:00:00.000Z' }]
+    view.rerender(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" refresh={3} />))
+    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
   })
 })

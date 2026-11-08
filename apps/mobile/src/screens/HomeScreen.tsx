@@ -1,25 +1,25 @@
-// 홈 "오늘 할 일" (D-UX2-02, SPEC §7 화면 1과 같은 흐름): 인사 한 줄 → 큰 초록 "방송 시작하기"(진행 중 방송이 있으면 "방송으로 돌아가기")
-// → 할 일 3줄(입금 확인·포장하기·라벨 뽑기, 숫자는 서버 값) → 내 방송 최근 4개(플랫폼 아이콘·날짜·지난 시간, [모두보기]는 쌓인 화면 — D-UX3-18). 새 방송은 쌓인 화면(판매 종류 → 방송 주소, NewBroadcastScreen)에서
-//   시작한다 — 밀어서 뒤로 가기가 된다(D-UX3-09).
+// 홈 (D-UX3-85, 사용자 지시 2026-11-09 — 토스 홈처럼): 맨 위 왼쪽 라이브 표시(방송 중이면 그 채널 프로필 사진 + 빨간 테두리·"라이브" 꼬리표 + "지금 라이브 중 >",
+// 아니면 "라이브 연결 >") → 방송 이력(지난 방송만 — 방송 길이 · "59분 전", 오른쪽 ›, [모두보기] 글자 단추) → 오늘 할 일(고객 정보 받기·주문 확인서 보내기·
+// 입금 확인하기·포장하기·택배 접수하기 — 설명·구분선 없음). 인사·큰 초록 단추·새 방송·리허설 단추는 없앴다. 새 방송은 쌓인 화면(NewBroadcastScreen)에서 시작한다(D-UX3-09).
 // - 입금 확인·포장하기 숫자: 가장 최근 판매 날짜의 포장 목록(GET /api/days/:date/packing) — 입금 전(미입금·부분 입금) 손님 수, 포장할 것(포장 대기·다시 확인) 손님 수.
 // - 라벨 뽑기 숫자: 라벨 대기열 요약의 대기 장 수(라벨 기능을 켰을 때만). 값을 모르면 그 줄을 숨긴다.
 // - 정산·구매자·택배·영수증·설정 등 웹 화면은 모두 앱 화면으로 옮겼다(D-APPX-01·03) — 더보기에서 연다. 실제 방송 전이면 "시작 준비" 줄.
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
-import type { BroadcastItem, PackingEntry, PackingList, ReceiptBuyers, WizardState, WriteResult } from '@livejjim/web/src/api/types.ts'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Image, Pressable, ScrollView, View } from 'react-native'
+import type { BroadcastItem, PackingEntry, PackingList, ReceiptBuyers, WizardState } from '@livejjim/web/src/api/types.ts'
 import type { ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
-import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
+import { get, isApiError, type ApiError } from '../api/client.ts'
 import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
-import { formatWon, RETRY_NOW } from '../lib/words.ts'
-import { useServices } from '../services.tsx'
-import { BigButton, HeroButton, RowDivider, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { RETRY_NOW } from '../lib/words.ts'
+import { BigButton, Icon, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
-import { BroadcastRow, HOME_BROADCASTS, liveBroadcast, newestFirst } from './BroadcastList.tsx'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { broadcastTitle, HOME_BROADCASTS, liveBroadcast, newestFirst } from './BroadcastList.tsx'
+import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
@@ -141,17 +141,125 @@ export function defaultBroadcastTitle(date: string): string {
   return `${date} ${WEEKDAY[day] ?? ''}요일 방송`
 }
 
-export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: HomeNavigation; readonly sellerName: string; readonly refresh?: number }) {
+/** 방송 이력의 지난 시간 (D-UX3-85): "방금 전" · "59분 전" · "23시간 전" · "13일 전" · "4주 전" · "11개월 전" · "2년 전". 시각을 모르면 null */
+export function historyAgo(iso: string | null | undefined, now: number): string | null {
+  if (iso === null || iso === undefined) return null
+  const at = Date.parse(iso)
+  if (Number.isNaN(at)) return null
+  const minutes = Math.floor(Math.max(0, now - at) / 60_000)
+  if (minutes < 1) return '방금 전'
+  if (minutes < 60) return `${String(minutes)}분 전`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${String(hours)}시간 전`
+  const days = Math.floor(hours / 24)
+  if (days < 14) return `${String(days)}일 전`
+  if (days < 30) return `${String(Math.floor(days / 7))}주 전`
+  if (days < 365) return `${String(Math.min(11, Math.floor(days / 30)))}개월 전`
+  return `${String(Math.floor(days / 365))}년 전`
+}
+
+/** 방송 길이 "2:30:30" (만든 때 → 끝낸 때). 모르거나 하루를 넘으면 null */
+export function broadcastLength(startIso: string | null | undefined, endIso: string | null | undefined): string | null {
+  if (startIso == null || endIso == null) return null
+  const ms = Date.parse(endIso) - Date.parse(startIso)
+  if (Number.isNaN(ms) || ms < 0 || ms >= 24 * 60 * 60_000) return null
+  const total = Math.floor(ms / 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${String(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`
+}
+
+/** 방송 이력: 끝난 실제 방송만, 최근 것이 위 (진행 중·리허설은 빼고) */
+export function pastBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[] {
+  return newestFirst(items).filter((item) => item.ended && !item.rehearsal)
+}
+
+const AVATAR = 40
+
+/** 맨 위 왼쪽 라이브 표시 (D-UX3-85): 방송 중이면 채널 프로필 사진(빨간 테두리 + "라이브") + "지금 라이브 중 ›", 아니면 "라이브 연결 ›" */
+function LiveEntry({ live, onOpen, onConnect }: { readonly live: BroadcastItem | undefined; readonly onOpen: (id: string) => void; readonly onConnect: () => void }) {
+  const { p, tones } = useKit()
+  const [avatar, setAvatar] = useState<string | null>(null)
+  const liveId = live?.id ?? null
+  useEffect(() => {
+    setAvatar(null)
+    if (liveId === null) return
+    let alive = true
+    void (async () => {
+      try {
+        const view = await get<{ link: { broadcastChannelId?: string } | null }>(`/api/broadcasts/${encodeURIComponent(liveId)}/youtube`)
+        const channel = view.link?.broadcastChannelId
+        if (channel === undefined || channel === '') return
+        const found = await get<{ avatar: string | null }>(`/api/youtube/channels/${encodeURIComponent(channel)}/avatar`)
+        if (alive) setAvatar(found.avatar)
+      } catch {
+        // 사진을 모르면 기본 그림
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [liveId])
+  const on = live !== undefined
+  const label = on ? '지금 라이브 중' : '라이브 연결'
+  return (
+    <Pressable role="button" aria-label={label} testID="home-live" onPress={() => (live !== undefined ? onOpen(live.id) : onConnect())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, alignSelf: 'flex-start', minHeight: TOUCH.min, opacity: pressed ? 0.6 : 1 })}>
+      {on ? (
+        <View aria-hidden style={{ width: AVATAR + 6, height: AVATAR + 12, alignItems: 'center' }}>
+          <View style={{ width: AVATAR + 6, height: AVATAR + 6, borderRadius: (AVATAR + 6) / 2, borderWidth: 2.5, borderColor: tones.danger.fg, alignItems: 'center', justifyContent: 'center' }}>
+            {avatar !== null ? (
+              <Image source={{ uri: avatar }} style={{ width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2 }} />
+            ) : (
+              <View style={{ width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2, backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+                <Icon name="play" color={p.textSub} size={18} />
+              </View>
+            )}
+          </View>
+          <View style={{ position: 'absolute', bottom: 0, paddingHorizontal: 5, paddingVertical: 1, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: tones.danger.fg }}>
+            <Txt step="tab" weight="bold" ink="#FFFFFF">라이브</Txt>
+          </View>
+        </View>
+      ) : null}
+      <Txt step="title" weight="bold">{label}</Txt>
+      <Icon name="chevron" color={p.textSub} size={20} />
+    </Pressable>
+  )
+}
+
+/** 방송 이력 한 줄: 플랫폼 아이콘 · 제목 · "2:30:30 · 59분 전" · 오른쪽 › */
+function HistoryRow({ item, now, onPress }: { readonly item: BroadcastItem; readonly now: number; readonly onPress: () => void }) {
+  const { p } = useKit()
+  const platform = item.platforms?.[0]
+  const sub = [broadcastLength(item.createdAt, item.endedAt), historyAgo(item.endedAt ?? item.createdAt, now)].filter((part) => part !== null).join(' · ')
+  return (
+    <Pressable role="button" aria-label={`${broadcastTitle(item)} — ${sub}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      {platform === undefined ? (
+        <View aria-hidden style={{ width: 40, height: 40, borderRadius: 40 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="play" color={p.textSub} size={20} />
+        </View>
+      ) : (
+        <PlatformIcon platform={platform} />
+      )}
+      <View style={{ flex: 1, gap: 2 }}>
+        <Txt step="bodyLarge" weight="bold" numberOfLines={1}>
+          {broadcastTitle(item)}
+        </Txt>
+        {sub === '' ? null : (
+          <Txt step="caption" color="textSub" numberOfLines={1}>
+            {sub}
+          </Txt>
+        )}
+      </View>
+      <Icon name="chevron" color={p.textSub} size={20} />
+    </Pressable>
+  )
+}
+
+export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation; readonly sellerName?: string; readonly refresh?: number }) {
   const { p } = useKit()
   const room = useTabBarRoom()
-  const { labels } = useServices()
-  const labelSnapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
   const [items, setItems] = useState<BroadcastItem[] | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [day, setDay] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [createError, setCreateError] = useState<ApiError | null>(null)
-  const pending = useRef<{ key: string; requestId: string } | null>(null)
   const [wizard, setWizard] = useState<WizardState | null>(null)
 
   const load = async () => {
@@ -178,112 +286,38 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
     )
   }, [refresh])
 
-  /** 방송 만들기 — 만든 방송 ID, 거절이면 문장을 보이고 null */
-  const make = async (input: { title?: string; rehearsal?: boolean }): Promise<string | null> => {
-    const key = JSON.stringify(input)
-    if (pending.current?.key !== key) pending.current = { key, requestId: newRequestId() }
-    const { requestId } = pending.current
-    try {
-      const result = await withRetry(() => post<WriteResult>('/api/broadcasts', { requestId, ...input }))
-      pending.current = null
-      return result.broadcast?.id ?? null
-    } catch (caught) {
-      if (!isApiError(caught)) throw caught
-      if (!caught.transient) pending.current = null
-      setCreateError(caught)
-      return null
-    }
-  }
-
-  const create = async (input: { title?: string; rehearsal?: boolean }) => {
-    if (busy) return
-    setBusy(true)
-    setCreateError(null)
-    try {
-      const id = await make(input)
-      if (id !== null) nav.openConsole(id)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // 서버 목록은 오래된 순 — 가장 최근 것을 고른다 (D-UX3-18, 옛 동작은 가장 오래된 열린 방송으로 돌아갔다)
-  const live = items === null ? undefined : liveBroadcast(items)
-  const recent = items === null ? [] : newestFirst(items)
-  const lastEnded = recent.find((item) => item.ended && !item.rehearsal)
+  // 라이브 표시는 실제 방송만 (리허설은 앱에서 뺐다)
+  const liveItem = items === null ? undefined : liveBroadcast(items)
+  const live = liveItem !== undefined && !liveItem.rehearsal ? liveItem : undefined
+  const past = items === null ? [] : pastBroadcasts(items)
   const now = Date.now()
   const entries = usePacking(day, refresh)
-  const endedEntries = usePacking(lastEnded !== undefined && lastEnded.date !== day ? lastEnded.date : null, refresh)
   const counts = useMemo(() => (entries === null ? null : todoCounts(entries)), [entries])
-  const sold = lastEnded === undefined ? null : (() => {
-    const source = lastEnded.date === day ? entries : endedEntries
-    return source === null ? null : soldOf(source, lastEnded.id)
-  })()
-  const queue = labelSnapshot.queue
-  const labelCount = queue !== null && queue.labelsEnabled ? queue.waiting : null
   // 방송 뒤 흐름 (D-UX3-39): 정보 받기 → 확인서 → 입금 → 포장 → 택배 접수
   const parcelDay = useDayView<ParcelDay>(day === null ? null : `/api/parcels/days/${day}`, refresh)
   const receiptDay = useDayView<ReceiptBuyers>(day === null ? null : `/api/days/${day}/receipt-buyers`, refresh)
   const flow = useMemo(() => flowCounts(parcelDay, receiptDay), [parcelDay, receiptDay])
+  const openSettle = () => (nav.openSettle !== undefined ? nav.openSettle() : void openWeb('/settlements'))
   const todoRows: { readonly key: string; readonly node: ReactNode }[] = []
-  if (flow.info !== null) todoRows.push({ key: 'info', node: <TodoRow count={flow.info} tone="warn" title="손님 정보 받기" sub="배송지를 아직 못 받은 손님" onPress={() => (nav.openSettle !== undefined ? nav.openSettle() : void openWeb('/settlements'))} /> })
-  if (flow.receipt !== null && nav.openReceipts !== undefined) todoRows.push({ key: 'receipt', node: <TodoRow count={flow.receipt} tone="warn" title="확인서 보내기" sub="주문 확인서를 아직 안 보낸 손님" onPress={nav.openReceipts} /> })
+  if (flow.info !== null) todoRows.push({ key: 'info', node: <TodoRow count={flow.info} tone="warn" title="고객 정보 받기" onPress={openSettle} /> })
+  if (flow.receipt !== null && nav.openReceipts !== undefined) todoRows.push({ key: 'receipt', node: <TodoRow count={flow.receipt} tone="warn" title="주문 확인서 보내기" onPress={nav.openReceipts} /> })
   if (counts !== null) {
-    todoRows.push({ key: 'unpaid', node: <TodoRow count={counts.unpaid} tone="warn" title="입금 확인" sub="돈을 아직 안 보낸 손님" onPress={() => (nav.openSettle !== undefined ? nav.openSettle() : void openWeb('/settlements'))} /> })
-    todoRows.push({ key: 'pack', node: <TodoRow count={counts.toPack} tone="green" title="포장하기" sub="아직 포장 안 한 손님" onPress={nav.openPacking} /> })
+    todoRows.push({ key: 'unpaid', node: <TodoRow count={counts.unpaid} tone="warn" title="입금 확인하기" onPress={openSettle} /> })
+    todoRows.push({ key: 'pack', node: <TodoRow count={counts.toPack} tone="green" title="포장하기" onPress={nav.openPacking} /> })
   }
   if (flow.parcel !== null && nav.openParcels !== undefined && day !== null) {
     const openParcels = nav.openParcels
-    todoRows.push({ key: 'parcel', node: <TodoRow count={flow.parcel} tone="green" title="택배 접수" sub="포장이 끝나 보낼 수 있는 택배" onPress={() => openParcels(day)} /> })
+    todoRows.push({ key: 'parcel', node: <TodoRow count={flow.parcel} tone="green" title="택배 접수하기" onPress={() => openParcels(day)} /> })
   }
-  if (labelCount !== null) todoRows.push({ key: 'labels', node: <TodoRow count={labelCount} tone="gray" title="라벨 뽑기" sub="아직 안 뽑은 라벨" onPress={nav.openLabels} /> })
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="home-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.xl }} scrollIndicatorInsets={{ bottom: room }}>
-        <View style={{ gap: SPACE.xs }}>
-          <Txt step="caption" color="textSub">{`${sellerName} 사장님, 안녕하세요`}</Txt>
-          <Txt step="headline" weight="bold" role="heading" aria-level={1}>
-            오늘 할 일
-          </Txt>
-        </View>
-
-        {live !== undefined ? (
-          <HeroButton title="방송으로 돌아가기" sub={broadcastLine(live)} ariaLabel={`방송으로 돌아가기 — ${broadcastLine(live)}`} onPress={() => nav.openConsole(live.id)} />
-        ) : (
-          <HeroButton title="방송 시작하기" sub="유튜브 방송 링크만 붙여 넣으면 돼요" onPress={nav.openNewBroadcast} />
-        )}
-        {/* 새 방송·리허설은 테두리 단추 둘 (D-LIVETEST-09) — 방송 중이 아니면 큰 단추가 새 방송이라 리허설만 */}
-        <View style={{ flexDirection: 'row', gap: SPACE.sm, marginTop: -SPACE.sm }}>
-          {live !== undefined ? (
-            <View style={{ flex: 1 }}>
-              <BigButton kind="outline" label="새 방송 시작" onPress={nav.openNewBroadcast} />
-            </View>
-          ) : null}
-          <View style={{ flex: 1 }}>
-            <BigButton kind="outline" label="리허설 해 보기" disabled={busy} onPress={() => void create({ rehearsal: true })} />
-          </View>
-        </View>
-        {createError !== null ? (
-          <Notice tone="danger" alert>
-            {startErrorMessage(createError)}
-          </Notice>
-        ) : null}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg, paddingBottom: SPACE.xxxl + room, gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: room }}>
+        <LiveEntry live={live} onOpen={nav.openConsole} onConnect={nav.openNewBroadcast} />
 
         {nav.openStart !== undefined && items !== null && showsStart(wizard, items.some((item) => !item.rehearsal)) ? (
           <RowGroup label={START_ROW_TITLE}>
             <TodoRow title={START_ROW_TITLE} sub={START_ROW_SUB} onPress={nav.openStart} />
-          </RowGroup>
-        ) : null}
-
-        {todoRows.length > 0 ? (
-          <RowGroup label="다음 할 일">
-            {todoRows.map((row, index) => (
-              <View key={row.key}>
-                {index > 0 ? <RowDivider /> : null}
-                {row.node}
-              </View>
-            ))}
           </RowGroup>
         ) : null}
 
@@ -297,15 +331,27 @@ export function HomeScreen({ nav, sellerName, refresh = 0 }: { readonly nav: Hom
           </View>
         ) : null}
 
-        {recent.length > 0 ? (
-          <RowGroup label="내 방송">
-            {recent.slice(0, HOME_BROADCASTS).map((item) => (
-              <BroadcastRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} sold={item.id === lastEnded?.id ? sold : null} amountWords={formatWon} />
+        {past.length > 0 ? (
+          <View role="group" aria-label="방송 이력" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.xs }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: SPACE.xl, paddingRight: SPACE.md, paddingTop: SPACE.md }}>
+              <Txt step="section" weight="bold" role="heading" aria-level={2}>방송 이력</Txt>
+              {nav.openAllBroadcasts === undefined ? null : (
+                <Pressable role="button" aria-label="방송 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+                  <Txt step="caption" color="textSub">모두보기</Txt>
+                </Pressable>
+              )}
+            </View>
+            {past.slice(0, HOME_BROADCASTS).map((item) => (
+              <HistoryRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} />
             ))}
-            {nav.openAllBroadcasts === undefined ? null : <View aria-hidden style={{ height: 1, backgroundColor: p.border, marginTop: SPACE.xs }} />}
-            {nav.openAllBroadcasts === undefined ? null : <Pressable role="button" aria-label="방송 모두 보기" onPress={nav.openAllBroadcasts} style={({ pressed }) => ({ minHeight: 52, justifyContent: 'center', alignItems: 'flex-end', paddingHorizontal: SPACE.xl, borderBottomLeftRadius: RADIUS.xl, borderBottomRightRadius: RADIUS.xl, borderCurve: 'continuous', marginBottom: -SPACE.xs, backgroundColor: pressed ? p.pressed : 'transparent' })}>
-              <Txt color="textSub">모두보기</Txt>
-            </Pressable>}
+          </View>
+        ) : null}
+
+        {todoRows.length > 0 ? (
+          <RowGroup title="오늘 할 일" label="오늘 할 일">
+            {todoRows.map((row) => (
+              <View key={row.key}>{row.node}</View>
+            ))}
           </RowGroup>
         ) : null}
       </ScrollView>

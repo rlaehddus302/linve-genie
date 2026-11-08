@@ -1,5 +1,5 @@
 // 앱에서 이용권이 없을 때·앱이 여는 웹 주소 (PAY2 AC-PAY2-02·03, BILLING_RULES BL-11 2·3.1, D-PAY-03·04).
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { webUrl } from '../src/api/config.ts'
@@ -31,7 +31,7 @@ function expectNoBillingWords() {
 }
 
 describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
-  it('새 방송 판매 종류는 방송을 만들지 않고 링크 단계로 간다 — 이용권 거절은 링크 단계에서(다음 시험). 홈의 리허설은 한 번 간다', async () => {
+  it('새 방송 판매 종류는 방송을 만들지 않고 링크 단계로 간다 — 이용권 거절은 링크 단계에서(다음 시험). 홈에는 리허설 단추가 없다 (D-UX3-85)', async () => {
     // 옛 기대(D-UX3-09): 유튜브를 주소로 잇지 않는 서버면 종류를 누르는 대로 방송을 만들고 거절 문장. 새 기대(D-UX3-14): 틱톡·밴드도 링크로 이어 늘 링크 단계로 간다
     const world = noPassWorld()
     const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
@@ -41,11 +41,12 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     expect(world.server.callsTo('POST', /broadcasts/)).toHaveLength(0)
     expect(APP_NO_PASS_MESSAGE).toBe('이용권이 없어 실제 방송을 시작할 수 없어요. 리허설은 언제든 할 수 있어요.')
     view.unmount()
+    // D-UX3-85로 바뀐 기대 (사용자 지시 2026-11-09 "리허설 해보기 버튼은 다 지워"): 홈에 리허설 단추가 없고 홈은 방송을 만들지 않는다
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    fireEvent.click(await screen.findByRole('button', { name: '리허설 해 보기' }))
-    await waitFor(() => expect(navigation.openConsole).toHaveBeenCalledWith('r1'))
-    expect(world.server.callsTo('POST', /broadcasts/).filter((call) => call.body?.rehearsal === true)).toHaveLength(1)
+    expect(await screen.findByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '리허설 해 보기' })).toBeNull()
+    expect(world.server.callsTo('POST', /broadcasts/)).toHaveLength(0)
   })
 
   it('링크 단계의 [확인]가 거절돼도 같은 앱 문장이다', async () => {

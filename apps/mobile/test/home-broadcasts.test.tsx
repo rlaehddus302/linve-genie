@@ -4,7 +4,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { AllBroadcastsScreen, agoWords, byDate, liveBroadcast } from '../src/screens/BroadcastList.tsx'
-import { HomeScreen } from '../src/screens/HomeScreen.tsx'
+import { broadcastLength, historyAgo, HomeScreen, pastBroadcasts } from '../src/screens/HomeScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 const NOW = Date.parse('2026-11-03T05:30:00.000Z')
@@ -34,7 +34,8 @@ describe('내 방송 (D-UX3-18)', () => {
     expect(agoWords('2026-10-30T05:00:00.000Z', NOW)).toBe('4일 전')
   })
 
-  it('홈 카드: 최근 4개만, 최근 것이 위, 진행 중 표시, [모두보기]는 쌓인 화면을 연다. 큰 단추는 오늘 틱톡 방송으로', async () => {
+  // D-UX3-85로 바뀐 기대 (사용자 지시 2026-11-09): "내 방송"(진행 중 포함·날짜·진행 중 표시) → "방송 이력"(지난 방송만 — 길이·지난 시간, 오른쪽 ›), 큰 단추 → 맨 위 "지금 라이브 중"
+  it('방송 이력: 지난 방송만 최근 것이 위, [모두보기]는 쌓인 화면을 연다. 맨 위 "지금 라이브 중"은 오늘 틱톡 방송으로 (D-UX3-85)', async () => {
     // 지난 시간은 그날 기준 — 실제 시계로 돌면 날이 지나 '2일 전'이 된다. 시계만 NOW로 고정(타이머는 그대로)
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
@@ -45,14 +46,29 @@ describe('내 방송 (D-UX3-18)', () => {
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: LIST } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    const group = await screen.findByRole('group', { name: '내 방송' })
+    const group = await screen.findByRole('group', { name: '방송 이력' })
     const rows = within(group).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '방송 모두 보기')
-    expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-t', 'broadcast-c', 'broadcast-y', 'broadcast-b'])
-    expect(rows[0]?.getAttribute('aria-label')).toMatch(/^t 방송 — 11월 3일 · \d+시간 전 · 진행 중$/)
+    expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-b', 'broadcast-a'])
+    expect(rows[0]?.getAttribute('aria-label')).toBe('c 방송 — 4시간 전')
     fireEvent.click(within(group).getByRole('button', { name: '방송 모두 보기' }))
     expect(navigation.openAllBroadcasts).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('button', { name: /^방송으로 돌아가기 — t 방송/ }))
+    fireEvent.click(screen.getByRole('button', { name: '지금 라이브 중' }))
     expect(navigation.openConsole).toHaveBeenCalledWith('t')
+  })
+
+  it('방송 이력 낱말: 지난 시간 "59분 전 · 23시간 전 · 13일 전 · 4주 전 · 11개월 전 · 2년 전", 방송 길이 "2:30:30" (D-UX3-85)', () => {
+    const at = (ms: number) => new Date(NOW - ms).toISOString()
+    const MIN = 60_000
+    const DAY = 24 * 60 * MIN
+    expect(historyAgo(at(59 * MIN), NOW)).toBe('59분 전')
+    expect(historyAgo(at(23 * 60 * MIN), NOW)).toBe('23시간 전')
+    expect(historyAgo(at(13 * DAY), NOW)).toBe('13일 전')
+    expect(historyAgo(at(29 * DAY), NOW)).toBe('4주 전')
+    expect(historyAgo(at(340 * DAY), NOW)).toBe('11개월 전')
+    expect(historyAgo(at(800 * DAY), NOW)).toBe('2년 전')
+    expect(broadcastLength('2026-11-03T01:00:00.000Z', '2026-11-03T03:30:30.000Z')).toBe('2:30:30')
+    expect(broadcastLength(null, '2026-11-03T03:30:30.000Z')).toBeNull()
+    expect(pastBroadcasts([item('r', '2026-11-03', { rehearsal: true }), item('x', '2026-11-03', { ended: false }), item('o', '2026-11-02')]).map((one) => one.id)).toEqual(['o'])
   })
 
   it('모두 보기: 날짜마다 흰 카드(최근 날짜가 위), 누르면 그 방송', async () => {

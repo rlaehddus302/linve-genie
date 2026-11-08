@@ -408,6 +408,28 @@ export class YoutubeSystem {
     }
   }
 
+  // ── 채널 프로필 사진 (홈 라이브 표시, D-UX3-85) ─────────────────────────
+
+  /** 채널 ID → 프로필 사진 주소와 받은 시각 (있으면 하루, 없으면 10분 동안 다시 묻지 않는다) */
+  readonly #avatars = new Map<string, { readonly url: string | null; readonly at: number }>()
+
+  /** 채널 프로필 사진 주소 (유튜브 웹 읽기로 채널 페이지의 og:image). 모르면 null — 막힘·연결 오류도 null(홈은 기본 그림) */
+  async channelAvatar(channelId: string): Promise<string | null> {
+    if (!/^UC[A-Za-z0-9_-]{22}$/.test(channelId) || this.web === null || this.web.off) return null
+    const now = this.#options.timer.now()
+    const cached = this.#avatars.get(channelId)
+    if (cached !== undefined && now - cached.at < (cached.url === null ? 10 * 60_000 : 24 * 60 * 60_000)) return cached.url
+    let url: string | null
+    try {
+      url = await this.web.channelAvatar(channelId)
+    } catch {
+      url = null
+    }
+    if (this.#avatars.size > 2000) this.#avatars.clear()
+    this.#avatars.set(channelId, { url, at: now })
+    return url
+  }
+
   // ── 내 라이브 목록 (AC-Y1-10) ─────────────────────────────────────────
 
   async liveBroadcasts(sellerId: string): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[] } | { kind: 'rejected'; status: number; code: LinkCode }> {

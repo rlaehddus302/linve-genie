@@ -134,6 +134,12 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     if (result.kind === 'rejected') return apiError(result.status, result.code as ErrorCode, LINK_MESSAGES[result.code])
     return c.json({ broadcasts: result.broadcasts })
   })
+  // 채널 프로필 사진 주소 (홈 맨 위 라이브 표시, D-UX3-85) — 모르면 null
+  api.get('/youtube/channels/:channel/avatar', async (c) => {
+    if (youtube === null) return c.json({ avatar: null })
+    sellerOf(c)
+    return c.json({ avatar: await youtube.channelAvatar(c.req.param('channel')) })
+  })
   // 주소·영상 ID 읽기 (유튜브를 부르지 않는다)
   api.post('/youtube/parse-video', (c) => {
     const input = body(c)

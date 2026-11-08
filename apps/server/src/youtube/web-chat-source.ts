@@ -375,6 +375,17 @@ export class WebChatSource {
     }
   }
 
+  /**
+   * 채널 프로필 사진 주소 (홈 맨 위 라이브 표시, D-UX3-85): 채널 페이지의 og:image. 유튜브 이미지 주소(https, ggpht·googleusercontent·ytimg)만 — 아니면 null.
+   * 사진은 휴대폰이 바로 받는다(서버는 주소만)
+   */
+  async channelAvatar(channelId: string, signal?: AbortSignal): Promise<string | null> {
+    return await this.#shared(`avatar:${channelId}`, 0, async (sig) => {
+      const html = await this.#html(`/channel/${encodeURIComponent(channelId)}?hl=en`, sig)
+      return html === null ? null : parseChannelAvatar(html)
+    }, signal)
+  }
+
   /** 채널의 지금(또는 예정) 공개 방송 — 채널 라이브 주소가 보여 주는 방송 페이지 (최근 채널 찾기, D-YT-SRV-03) */
   async channelLive(channelId: string, signal?: AbortSignal): Promise<WatchPage> {
     return await this.#shared(`channel:${channelId}`, WEB_SHARE_PAGE_MS, (sig) => this.#channelLive(channelId, sig), signal)
@@ -434,6 +445,21 @@ export class WebChatSource {
     const parsed = parseLiveChat(json)
     if (parsed.kind === 'unknown_shape') throw new WebChatError('UNKNOWN_SHAPE', status)
     return parsed
+  }
+}
+
+/** 채널 페이지 → 프로필 사진 주소 (og:image, 유튜브 이미지 호스트만, D-UX3-85) */
+export function parseChannelAvatar(html: string): string | null {
+  const match = /<meta\s+property="og:image"\s+content="([^"]{1,1000})"/.exec(html)
+  if (match === null) return null
+  const raw = (match[1] ?? '').replaceAll('&amp;', '&')
+  try {
+    const url = new URL(raw)
+    const host = url.hostname
+    const youtubeImage = host.endsWith('.ggpht.com') || host.endsWith('.googleusercontent.com') || host.endsWith('.ytimg.com')
+    return url.protocol === 'https:' && youtubeImage ? url.toString() : null
+  } catch {
+    return null
   }
 }
 
