@@ -229,7 +229,7 @@ describe('AC-N2b-2-06 인스타 동작은 다른 플랫폼과 함께여도 그�
 })
 
 describe('AC-N2b-2-10~12 여러 플랫폼 회차의 감사 — 찜의 구매자 자신의 플랫폼으로', () => {
-  it('유튜브 채팅 → 유튜브 게시, 인스타 댓글 → DM, 틱톡 → 건너뜀(NOT_SUPPORTED), 문자찜 → 유튜브("문자찜님"), 직접 배정 틱톡·인스타 → 건너뜀. 가짜 구글 게시에 인스타·틱톡 이름 0번', async () => {
+  it('유튜브 채팅 → 유튜브 게시, 인스타 댓글 → DM, 틱톡 → 건너뜀(NOT_SUPPORTED), 문자찜 → 건너뜀(SMS_BUYER — D-YT-SRV-22로 바뀐 기대, 옛 유튜브 "문자찜님"), 직접 배정 틱톡·인스타 → 건너뜀. 가짜 구글 게시에 인스타·틱톡 이름 0번', async () => {
     const all = await allWorld()
     const s = await shop(all)
     const api = client(all.yt, s.seller.cookie)
@@ -275,7 +275,7 @@ describe('AC-N2b-2-10~12 여러 플랫폼 회차의 감사 — 찜의 구매자 
     await all.yt.server.instagram.dms.drain()
     const posted = all.yt.fake.posted.map((post) => post.text).join('\n')
     expect(posted).toContain('유튜브손님님 구매 감사합니다')
-    expect(posted).toContain('문자찜님 구매 감사합니다')
+    expect(posted).not.toContain('문자찜님')
     for (const name of ['ig.buyer', '틱톡손님']) expect(posted).not.toContain(name)
     expect(all.meta.dms.map((dm) => dm.commentId)).toEqual(['9201'])
     // 건너뛴 감사는 게시 보고가 없다 — 엔진 효과는 PENDING 그대로

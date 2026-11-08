@@ -4,7 +4,7 @@
 // 실행기는 감사(POST_THANKS)와 방송 후 요약 댓글(SUMMARY_COMMENT) 행만 다룬다. 라벨 행(PRINT_PRODUCT_LABEL·VOID_LABEL)은 건드리지 않는다(S08).
 import { and, asc, eq, gte, inArray, isNull, lte, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { igDmRows, outbox, scopes, youtubeOwnMessages } from '../db/schema.ts'
+import { igDmRows, outbox, scopes, youtubeLinks, youtubeOwnMessages } from '../db/schema.ts'
 import { SUMMARY_KIND } from './texts.ts'
 
 /** 실행기가 다루는 행의 종류 */
@@ -96,6 +96,20 @@ const select = (db: Db) =>
  * 실행기가 아직 보지 않은 감사 행 (효과가 나온 순서). 인스타그램 회차의 감사 행(같은 트랜잭션에서 DM 행이 생긴 것, N2)은 인스타그램 DM 실행기 몫이라
  * 집지 않는다 — 유튜브 실행기가 집으면 DM은 보냈는데 "이어진 유튜브 방송이 없어요"로 실패가 거짓으로 남는다 (N2 합치기, D-N2-01·D-N2-09)
  */
+/**
+ * 같은 유튜브 영상에 다른 판매자 계정이 since 뒤에 올렸거나 올리는 중인 실시간 채팅 감사의 본문(효과 JSON) (D-YT-SRV-22).
+ * 한 방송을 여러 계정이 이으면 같은 채팅 찜을 계정마다 기록해 같은 감사가 계정 수만큼 올라갔다
+ */
+export async function otherSellersThanksOnVideo(db: Db, videoId: string, sellerId: string, since: Date): Promise<string[]> {
+  const rows = await db
+    .select({ body: outbox.body })
+    .from(outbox)
+    .innerJoin(youtubeLinks, and(eq(youtubeLinks.sellerId, outbox.sellerId), eq(youtubeLinks.broadcastId, outbox.broadcastId)))
+    .where(and(REAL, eq(youtubeLinks.videoId, videoId), sql`${outbox.sellerId} <> ${sellerId}`, eq(outbox.kind, 'POST_THANKS'), inArray(outbox.state, ['SENT', 'SENDING']), gte(outbox.createdAt, since)))
+    .limit(2000)
+  return rows.map((row) => row.body)
+}
+
 export function newThanksRows(db: Db, limit = 500): Promise<RunnerRow[]> {
   return select(db)
     .where(

@@ -395,3 +395,50 @@ describe('D-YT-SRV-16 처음 올릴 때 적은 글 올리는 계정은 고정', 
     expect(await linkRow(w, seller)).toMatchObject({ channel_id: channel.id })
   })
 })
+
+describe('D-YT-SRV-22 한 방송 한 감사', () => {
+  it('두 판매자 계정이 같은 영상을 이어 같은 채팅 찜을 각자 기록해도 실시간 채팅 감사는 한 번만 올라가고, 다른 계정의 감사는 건너뜀(SHARED_SENT)', async () => {
+    const w = await world()
+    const first = await linkedWeb(w)
+    const second = await linkedWeb(w, { video: first.video })
+    officialChat(w, first.video)
+    await connect(w, first.seller)
+    await connect(w, second.seller)
+    const buyer = { id: 'c1', ch: 'UCa', nick: '가' }
+    await sale(w, first.seller, first.b.id, 15, buyer)
+    await sale(w, second.seller, second.b.id, 15, buyer)
+    await runPastInvitedWindow(w)
+    await runPastInvitedWindow(w)
+    expect(googleOf(w).posted.filter((post) => post.text === TEXT)).toHaveLength(1)
+    const states = [...(await rows(w, first.seller, first.b.date)), ...(await rows(w, second.seller, second.b.date))].map((row) => [row.state, row.reason])
+    expect(states).toContainEqual(['SENT', null])
+    expect(states).toContainEqual(['SKIPPED', 'SHARED_SENT'])
+  })
+
+  it('문자로 찜한 손님에게는 유튜브 감사를 올리지 않는다 (SMS_BUYER) — 유튜브 이름이 없어 "문자찜님"으로 올라가던 것', async () => {
+    const w = await world()
+    const { seller, b, video } = await linkedWeb(w)
+    officialChat(w, video)
+    await connect(w, seller)
+    await expectOk(writeEvent(w, seller, { type: 'product.register', b: b.id, no: 15, name: '핑크프릴', price: 10000 }))
+    await expectOk(writeEvent(w, seller, { type: 'sms', b: b.id, no: 15, received: '12:00', phone: '010-5555-6666' }))
+    await runPastInvitedWindow(w)
+    expect(googleOf(w).calls('liveChatMessages.insert')).toBe(0)
+    const list = await rows(w, seller, b.date)
+    expect(list.length).toBeGreaterThan(0)
+    expect(list.every((row) => row.state === 'SKIPPED' && row.reason === 'SMS_BUYER')).toBe(true)
+  })
+
+  it('같은 계정의 다른 손님 감사는 그대로 올라간다', async () => {
+    const w = await world()
+    const { seller, b, video } = await linkedWeb(w)
+    officialChat(w, video)
+    await connect(w, seller)
+    await sale(w, seller, b.id, 15, { id: 'c1', ch: 'UCa', nick: '가' })
+    await sale(w, seller, b.id, 16, { id: 'c2', ch: 'UCb', nick: '나' })
+    await runPastInvitedWindow(w)
+    await runPastInvitedWindow(w)
+    expect(googleOf(w).calls('liveChatMessages.insert')).toBe(2)
+  })
+})
+

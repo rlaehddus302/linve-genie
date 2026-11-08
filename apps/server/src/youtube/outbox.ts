@@ -42,6 +42,7 @@ import {
   insertSummaryRows,
   newThanksRows,
   openWindowAt,
+  otherSellersThanksOnVideo,
   rowByConfirmRequest,
   rowByResendRequest,
   scopeDates,
@@ -87,6 +88,9 @@ export const OUTBOX_REASON_MESSAGES = {
   EXT_OFF: '확장으로 감사 올리기를 꺼서 보내지 않았어요.',
   // 건너뜀
   CANCELLED: '확정이 풀린 판매라 보내지 않아요.',
+  // 건너뜀 — 한 방송 한 감사 (D-YT-SRV-22): 같은 유튜브 방송에 다른 계정이 같은 감사를 올림 · 문자로 찜한 손님(유튜브 이름이 없다)
+  SHARED_SENT: '같은 유튜브 방송에 다른 계정이 같은 감사를 올려 보내지 않았어요.',
+  SMS_BUYER: '문자로 찜한 손님이라 유튜브 감사를 올리지 않았어요.',
   // 건너뜀 — 여러 플랫폼 회차의 감사 경로 (D-N2b-2-09): 틱톡 구매자 · 유튜브를 이은 적 없는 회차의 유튜브·문자 구매자
   NOT_SUPPORTED: '틱톡에는 감사 메시지를 보내지 않아요.',
   NO_RECIPIENT: '이 방송에는 유튜브가 이어진 적이 없어 감사를 보내지 않았어요.',
@@ -125,6 +129,8 @@ export const CONFIRM_SLACK_MS = 5000
 export const MAX_CONFIRM_TRIES = 3
 /** 보내는 중 임대 (서버가 죽으면 이 시간이 지난 뒤 확인부터) */
 export const SENDING_LEASE_MS = 60_000
+/** 같은 유튜브 방송의 같은 감사를 한 번만 올리는 시간 (D-YT-SRV-22) — 실시간 채팅 감사 기한(10분)보다 넉넉히 */
+export const SHARED_THANKS_MS = 30 * 60 * 1000
 /** 할당량 묶음 모드의 실시간 채팅 최소 창 (AC-Y1-40·52) */
 export const BATCH_MODE_WINDOW_SEC = 60
 /**
@@ -332,6 +338,8 @@ export const SELLER_OUTBOX_MESSAGES = {
 
 export class OutboxRunner {
   readonly #options: OutboxOptions
+  /** 같은 유튜브 영상의 같은 감사를 누가 먼저 맡았는지 (영상 + 문구 → 판매자·시각, D-YT-SRV-22). 같은 서버 안에서 동시에 두 계정이 올리지 않게 */
+  readonly #videoThanks = new Map<string, { readonly sellerId: string; readonly at: number }>()
   #loop: Promise<void> | null = null
   #stopped = false
   #killed = false
@@ -594,6 +602,11 @@ export class OutboxRunner {
       // 글 올리는 계정·공식 채팅 ID 채우기 (서버로 이은 회차, D-YT-SRV-15·16)
       const link = await this.#prepare(rows, found, target)
       if (link === null) return
+      // 한 방송 한 감사 (D-YT-SRV-22): 같은 영상에 다른 계정이 이미 같은 감사를 올렸거나 맡았으면 건너뛴다
+      if (first.kind === 'POST_THANKS' && target === 'LIVE_CHAT') {
+        rows = await this.#sharedSkip(rows, link)
+        if (rows.length === 0) return
+      }
       // 4. 문구와 메시지 — 남은 항목으로 다시 만들고(AC-Y1-42) 첫 메시지 하나만 보낸다. 나머지는 위의 직전 확인부터 다시
       let members: RunnerRow[]
       let text: string
@@ -613,14 +626,58 @@ export class OutboxRunner {
     }
   }
 
-  /** 엔진 상태로 거른다: 취소된 효과는 SKIPPED, 이미 완료면 SENT(게시 없음). 남은 행 */
+  /**
+   * 같은 유튜브 영상에 다른 계정이 같은 감사를 올렸거나(DB — SENT·보내는 중, 30분 안) 이 서버에서 먼저 맡았으면 SKIPPED(SHARED_SENT). 남은 행은 이 계정이 맡는다.
+   * DB를 읽은 뒤 맡기 확인·적기는 한 번에(기다림 없이) 해서, 같은 서버의 두 계정이 같은 순간에 올려도 하나만 지난다 (D-YT-SRV-22)
+   */
+  async #sharedSkip(rows: RunnerRow[], link: LinkRow): Promise<RunnerRow[]> {
+    const first = rows[0] as RunnerRow
+    const nowMs = this.#now().getTime()
+    const others = await otherSellersThanksOnVideo(this.#options.db, link.videoId, first.sellerId, new Date(nowMs - SHARED_THANKS_MS))
+    const sent = new Set(others.map((body) => {
+      try {
+        return (JSON.parse(body) as EngineEffect).text ?? ''
+      } catch {
+        return ''
+      }
+    }))
+    for (const [key, held] of this.#videoThanks) if (nowMs - held.at > SHARED_THANKS_MS) this.#videoThanks.delete(key)
+    const skip: RunnerRow[] = []
+    const keep: RunnerRow[] = []
+    for (const row of rows) {
+      const text = effectOf(row)?.text ?? row.postText ?? ''
+      const key = `${link.videoId}\n${text}`
+      const held = this.#videoThanks.get(key)
+      if (text !== '' && (sent.has(text) || (held !== undefined && held.sellerId !== row.sellerId))) {
+        skip.push(row)
+        continue
+      }
+      if (text !== '' && held === undefined) this.#videoThanks.set(key, { sellerId: row.sellerId, at: nowMs })
+      keep.push(row)
+    }
+    if (skip.length > 0) {
+      const ids = await this.#update(first, skip.map((row) => row.id), { state: 'SKIPPED', reason: 'SHARED_SENT', nextAt: null, groupId: null }, { state: 'WAITING' })
+      this.#publishRows(first.sellerId, first.date, ids, 'SKIPPED', 'SHARED_SENT')
+    }
+    return keep
+  }
+
+  /** 엔진 상태로 거른다: 취소된 효과는 SKIPPED, 이미 완료면 SENT(게시 없음), 문자로 찜한 손님은 SKIPPED(SMS_BUYER, D-YT-SRV-22). 남은 행 */
   async #engineCheck(rows: RunnerRow[], state: EngineState): Promise<RunnerRow[]> {
     const statuses = new Map(listEffects(state).map((effect) => [effect.id, effect.status]))
+    const claimOrigin = new Map(listClaims(state).map((claim) => [claim.id, claim.origin]))
     const cancelled = rows.filter((row) => statuses.get(row.effectId) === 'CANCELLED')
     const done = rows.filter((row) => statuses.get(row.effectId) === 'DONE')
+    // 문자로 찜한 손님은 유튜브 이름이 없어 "문자찜님"으로 올라갔다 — 유튜브 감사를 올리지 않는다
+    const sms = rows.filter((row) => !cancelled.includes(row) && !done.includes(row) && !row.manual && claimOrigin.get(effectOf(row)?.claim ?? '') === 'sms')
     const first = rows[0] as RunnerRow
     // 기다리는 행만 바꾼다 (다른 실행기가 그사이 잡은 행은 건드리지 않고 이번엔 넘긴다)
     let taken: number[] = []
+    if (sms.length > 0) {
+      const ids = await this.#update(first, sms.map((row) => row.id), { state: 'SKIPPED', reason: 'SMS_BUYER', nextAt: null, groupId: null }, { state: 'WAITING' })
+      this.#publishRows(first.sellerId, first.date, ids, 'SKIPPED', 'SMS_BUYER')
+      taken = [...taken, ...sms.map((row) => row.id).filter((id) => !ids.includes(id))]
+    }
     if (cancelled.length > 0) {
       const ids = await this.#update(first, cancelled.map((row) => row.id), { state: 'SKIPPED', reason: 'CANCELLED', nextAt: null, groupId: null }, { state: 'WAITING' })
       this.#publishRows(first.sellerId, first.date, ids, 'SKIPPED', 'CANCELLED')
@@ -632,7 +689,7 @@ export class OutboxRunner {
       taken = [...taken, ...done.map((row) => row.id).filter((id) => !ids.includes(id))]
     }
     if (taken.length > 0) return []
-    return rows.filter((row) => !cancelled.includes(row) && !done.includes(row))
+    return rows.filter((row) => !cancelled.includes(row) && !done.includes(row) && !sms.includes(row))
   }
 
   /**

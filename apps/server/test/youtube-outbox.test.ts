@@ -187,7 +187,8 @@ describe('AC-Y1-31 게시 동의', () => {
 })
 
 describe('AC-Y1-32 게시 직전 확인 (G-ENG-401 흐름)', () => {
-  it('18번 D의 감사가 묶음 창에서 기다리는 동안 늦게 온 선순위 문자찜으로 역전 → D는 건너뜀, 문자찜 감사가 게시된다', async () => {
+  // D-YT-SRV-22로 바뀐 기대 (사용자 결정 2026-11-09): 문자로 찜한 손님에게는 유튜브 감사를 올리지 않는다(SMS_BUYER) — 옛 "문자찜 감사가 게시된다"
+  it('18번 D의 감사가 묶음 창에서 기다리는 동안 늦게 온 선순위 문자찜으로 역전 → D는 건너뜀, 문자찜 감사도 건너뜀(SMS_BUYER) — 게시 없음', async () => {
     const w = await world({ start: EIGHT_PM })
     const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
     const { b } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'contention.policy': 'RECEIVED_TIME', 'thanks.batchWindowSec': 30 } })
@@ -201,11 +202,11 @@ describe('AC-Y1-32 게시 직전 확인 (G-ENG-401 흐름)', () => {
     expect(w.fake.posted).toEqual([])
     await w.timer.set(Date.parse('2026-10-19T11:00:43Z'))
     await runner(w).runOnce()
-    expect(w.fake.posted.map((post) => post.text)).toEqual(['18번 미니마 800원 문자찜님 구매 감사합니다'])
+    expect(w.fake.posted).toEqual([])
     const list = await rows(w, connected, b.date)
     expect(list.map((row) => [row.buyer, row.state, row.reason])).toEqual([
       ['UC_D', 'SKIPPED', 'CANCELLED'],
-      [expect.stringMatching(/^sms:/), 'SENT', null],
+      [expect.stringMatching(/^sms:/), 'SKIPPED', 'SMS_BUYER'],
     ])
   })
 
@@ -222,7 +223,8 @@ describe('AC-Y1-32 게시 직전 확인 (G-ENG-401 흐름)', () => {
 })
 
 describe('AC-Y1-33 공개 문구', () => {
-  it('문자찜 1등 → "문자찜님", 메모·전화번호·뒤 4자리는 어떤 게시 문구에도 없다. 정리한 이름(빈 이름 → 시청자)', async () => {
+  // D-YT-SRV-22로 바뀐 기대 (사용자 결정 2026-11-09): 옛 "문자찜 1등 → 문자찜님" → 문자찜 감사는 올리지 않는다(실시간 채팅·영상 댓글 모두)
+  it('문자찜 1등은 게시하지 않고(SMS_BUYER), 메모·전화번호·뒤 4자리는 어떤 게시 문구에도 없다. 정리한 이름(빈 이름 → 시청자)', async () => {
     const w = await world()
     const connected = await connectSeller(w, { publish: true })
     const { b } = await linkedBroadcast(w, connected, { settings: { ...NO_LABEL, 'thanks.videoComment': 'PER_SALE' } })
@@ -233,7 +235,7 @@ describe('AC-Y1-33 공개 문구', () => {
     await run(w)
     const texts = [...w.fake.posted.map((post) => post.text), ...w.fake.comments.map((comment) => comment.text)]
     expect(texts.sort()).toEqual(
-      ['15번 핑크프릴 10,000원 문자찜님 구매 감사합니다', '15번 핑크프릴 10,000원 문자찜님 구매 감사합니다', '16번 라울 5,000원 시청자님 구매 감사합니다', '16번 라울 5,000원 시청자님 구매 감사합니다'].sort(),
+      ['16번 라울 5,000원 시청자님 구매 감사합니다', '16번 라울 5,000원 시청자님 구매 감사합니다'].sort(),
     )
     for (const text of texts) {
       expect(text).not.toContain('김영희')
