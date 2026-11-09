@@ -25,9 +25,9 @@ describe('HomeScreen', () => {
     const live = await screen.findByRole('button', { name: '지금 라이브 중' })
     await waitFor(() => expect(world.server.callsTo('GET', /\/avatar$/)).toHaveLength(1))
     expect(screen.queryByText('김다육 사장님, 안녕하세요')).toBeNull()
-    // 옛 기대: 사진 아래 "라이브" 꼬리표. 새 기대(D-UX4-87): 토스 아이콘 크기(18)에 맞춰 꼬리표는 빼고 빨간 테두리만
+    // D-UX4-87에서 뺐던 "라이브" 꼬리표를 옛 크기 아이콘과 함께 되돌렸다 (D-UX4-88)
     expect(screen.getByTestId('home-live-avatar')).toBeTruthy()
-    expect(screen.queryByText('라이브')).toBeNull()
+    expect(screen.getByText('라이브')).toBeTruthy()
     // D-UX4-62 (사용자 지시 2026-11-09 "홈화면 상단 영역은 지금 라이브 중 이걸로 하기로 했잖아"): 홈 머리 줄은 이 줄 그대로 — 서비스 이름은 넣지 않는다
     expect(screen.queryByText('라이브지니')).toBeNull()
     expect(screen.getByTestId('home-screen').firstElementChild?.contains(live)).toBe(true)

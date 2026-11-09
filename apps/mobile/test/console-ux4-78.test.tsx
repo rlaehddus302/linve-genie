@@ -115,19 +115,32 @@ describe('라벨 프린트 (D-UX4-80)', () => {
   })
 })
 
-describe('홈 "지금 라이브 중" (D-UX4-75 → D-UX4-82 → D-UX4-87, 우리 앱·토스 사진을 나란히 재어)', () => {
-  it('글자 17 · 굵게 · #4F545E, › #90969E, 아이콘 18 · 화면 끝에서 24 · 글자 시작 47.5', async () => {
-    // 옛 기대(D-UX4-82): 글자 20 · textSub #4E5968 — 우리 앱 사진과 견주니 토스보다 크고 푸르렀다
+describe('홈 "지금 라이브 중" (D-UX4-75 → 82 → 87 → 88)', () => {
+  it('아이콘은 옛 크기 36(빨간 테두리 2), 글자 18 굵게 #4F545E, › #90969E, 아이콘 화면 끝에서 24', async () => {
+    // 옛 기대(D-UX4-87): 아이콘 18 · 글자 17 — 사용자 "아이콘 너무 줄였어, 원래대로 … 글자 아주 조금만 늘리자"
     const home = read('src/screens/HomeScreen.tsx')
-    expect(home).toContain('<Txt step="nav" weight="bold" ink={HOME_LIVE.ink}>{label}</Txt>')
+    expect(home).toContain('<Txt step="lead" weight="bold" ink={HOME_LIVE.ink}>{label}</Txt>')
     const { HOME_LIVE, HOME_LIVE_INSET } = await import('../src/screens/HomeScreen.tsx')
     const { SPACE, TYPE } = await import('../src/ui/kit/tokens.ts')
-    expect(TYPE.nav).toBe(17)
+    expect(TYPE.lead).toBe(18)
+    expect(HOME_LIVE.icon).toBe(36)
     expect(HOME_LIVE.ink).toBe('#4F545E')
     expect(HOME_LIVE.chevron).toBe('#90969E')
-    const iconLeft = SPACE.xl + HOME_LIVE_INSET
-    expect(iconLeft).toBe(24)
-    expect(iconLeft + HOME_LIVE.icon + HOME_LIVE.gap).toBe(47.5)
+    expect(SPACE.xl + HOME_LIVE_INSET).toBe(24)
+  })
+
+  it('수평 정렬: 꼬리표는 자리를 차지하지 않아(겹쳐 놓음) 줄 가운데 = 동그라미 가운데, 글자는 그 가운데로', async () => {
+    const { render, screen } = await import('@testing-library/react')
+    const { HomeScreen } = await import('../src/screens/HomeScreen.tsx')
+    const world = makeWorld()
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
+    render(world.wrap(<HomeScreen nav={{ openConsole: () => undefined, openNewBroadcast: () => undefined, openPacking: () => undefined, openLabels: () => undefined, openSettings: () => undefined }} />))
+    const plus = await screen.findByTestId('home-live-plus')
+    const style = getComputedStyle(plus)
+    expect(style.width).toBe('36px')
+    expect(style.height).toBe('36px')
+    const row = screen.getByTestId('home-live')
+    expect(getComputedStyle(row).alignItems).toBe('center')
   })
 })
 

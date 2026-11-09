@@ -5,7 +5,7 @@
 // - 라벨 뽑기 숫자: 라벨 대기열 요약의 대기 장 수(라벨 기능을 켰을 때만). 값을 모르면 그 줄을 숨긴다.
 // - 정산·구매자·택배·영수증·설정 등 웹 화면은 모두 앱 화면으로 옮겼다(D-APPX-01·03) — 더보기에서 연다. 실제 방송 전이면 "시작 준비" 줄.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Image, ScrollView, View } from 'react-native'
+import { Image, ScrollView, Text, View } from 'react-native'
 import type { BroadcastItem, PackingEntry, PackingList, ReceiptBuyers, WizardState } from '@livejjim/web/src/api/types.ts'
 import type { ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
@@ -21,6 +21,7 @@ import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
 import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcastTitle } from './BroadcastList.tsx'
 export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { font } from '../ui/kit/font.ts'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
@@ -122,8 +123,11 @@ export const HOME_LIVE_INSET = SPACE.xs
  * 우리 앱과 토스 홈 사진(같은 휴대폰, 923px = 393pt)을 나란히 재어 맞춘 값 — 토스 글자 높이 33px(우리 20pt는 38px) → 17pt,
  * 글자색은 같은 사진 안 우리 #4E5968이 찍힌 색으로 틀어짐을 빼서 #4F545E, › 는 #90969E, 아이콘 18 · 글자와 5.5 · ›와 잉크 사이 6,
  * 세로는 토스 아이콘·글자 가운데(화면 위에서 75.6pt)에 맞춰 줄을 1.7 올리고 글자를 0.9 내린다.
+ * → D-UX4-88 (사용자 지시 2026-11-10 "채널 아이콘 사이즈 너무 줄였어. 원래대로 … 지금 라이브 중 사이즈 아주 조금만 늘리자. 아이콘이랑 수평 정렬"):
+ *   아이콘은 옛 크기(빨간 테두리 2 · 지름 36 · 아래 "라이브" 꼬리표)로, 글자는 18(lead), 아이콘과 10. 꼬리표는 자리를 차지하지 않게 겹쳐 놓아
+ *   줄 가운데 = 동그라미 가운데가 되고, 한글 글자 몸통이 줄 상자보다 1.2 위에 앉는 만큼 내려 동그라미 가운데와 맞춘다. 줄은 1.75 올려 토스 자리(75.7pt).
  */
-export const HOME_LIVE = { icon: 18, gap: 5.5, chevronGap: 0, ink: '#4F545E', chevron: '#90969E', rowShift: -1.7, textShift: 0.9 } as const
+export const HOME_LIVE = { icon: 36, ring: 2, gap: 10, chevronGap: 0, ink: '#4F545E', chevron: '#90969E', rowShift: -1.75, textShift: 1.2 } as const
 
 /** 맨 위 왼쪽 라이브 표시 (D-UX3-85): 방송 중이면 채널 프로필 사진(빨간 테두리 + "라이브") + "지금 라이브 중 ›", 아니면 "라이브 연결 ›" */
 /** 지금 라이브로 볼 수집기 상태 (끝남·멈춤·채팅 끝은 아님) */
@@ -192,26 +196,29 @@ function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: Broadc
   const label = on ? '지금 라이브 중' : '내 라이브 연결'
   const icon = HOME_LIVE.icon
   return (
-    // 토스 "토스뱅크 ›"를 우리 앱 화면과 나란히 재어 맞춘다 (D-UX4-87): 아이콘 18 · 화면 끝에서 24 · 글자 17 굵게 #4F545E · 글자 시작 47.5 · › 와 6
+    // 아이콘 36(옛 크기, D-UX4-88) · 화면 끝에서 24 · 글자 18 굵게 #4F545E · 아이콘과 10 · › 와 6 (D-UX4-87·88)
     <Tap role="button" aria-label={label} testID="home-live" onPress={() => (live !== undefined ? onOpen(live.id) : onConnect())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: HOME_LIVE.gap, alignSelf: 'flex-start', minHeight: TOUCH.min, marginLeft: HOME_LIVE_INSET, opacity: pressed ? 0.6 : 1, transform: [{ translateY: HOME_LIVE.rowShift }] })}>
       {on ? (
-        // 라이브 중: 채널 사진에 빨간 테두리만 (옛 "라이브" 꼬리표는 글자 "지금 라이브 중"과 겹쳐 뺐다)
-        <View aria-hidden testID="home-live-avatar" style={{ width: icon, height: icon, borderRadius: icon / 2, borderCurve: 'continuous', borderWidth: 1.5, borderColor: tones.danger.fg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        // 라이브 중: 채널 사진 + 빨간 테두리 + 아래 "라이브" 꼬리표(옛 모양 — D-UX4-88). 꼬리표는 겹쳐 놓아 줄 높이를 늘리지 않는다
+        <View aria-hidden testID="home-live-avatar" style={{ width: icon, height: icon, borderRadius: icon / 2, borderCurve: 'continuous', borderWidth: HOME_LIVE.ring, borderColor: tones.danger.fg, alignItems: 'center', justifyContent: 'center' }}>
           {avatar !== null ? (
-            <Image source={{ uri: avatar }} style={{ width: icon - 3, height: icon - 3, borderRadius: (icon - 3) / 2, borderCurve: 'continuous' }} />
+            <Image source={{ uri: avatar }} style={{ width: icon - 8, height: icon - 8, borderRadius: (icon - 8) / 2, borderCurve: 'continuous' }} />
           ) : (
-            <View style={{ width: icon - 3, height: icon - 3, borderRadius: (icon - 3) / 2, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="play" color={p.textSub} size={8} />
+            <View style={{ width: icon - 8, height: icon - 8, borderRadius: (icon - 8) / 2, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="play" color={p.textSub} size={14} />
             </View>
           )}
+          <View style={{ position: 'absolute', bottom: -4, alignSelf: 'center', paddingHorizontal: 3, borderRadius: 4, borderCurve: 'continuous', backgroundColor: tones.danger.fg }}>
+            <Text allowFontScaling={false} style={{ fontSize: 8, lineHeight: 11, color: '#FFFFFF', ...font('700') }}>라이브</Text>
+          </View>
         </View>
       ) : (
         <View aria-hidden testID="home-live-plus" style={{ width: icon, height: icon, borderRadius: icon / 2, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="plus" color={p.textSub} size={12} />
+          <Icon name="plus" color={p.textSub} size={18} />
         </View>
       )}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: HOME_LIVE.chevronGap, transform: [{ translateY: HOME_LIVE.textShift }] }}>
-        <Txt step="nav" weight="bold" ink={HOME_LIVE.ink}>{label}</Txt>
+        <Txt step="lead" weight="bold" ink={HOME_LIVE.ink}>{label}</Txt>
         <Icon name="chevron" color={HOME_LIVE.chevron} size={18} />
       </View>
     </Tap>
