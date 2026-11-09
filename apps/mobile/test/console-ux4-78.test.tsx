@@ -114,9 +114,15 @@ describe('라벨 프린트 (D-UX4-80)', () => {
   })
 })
 
-describe('홈 "지금 라이브 중" (D-UX4-75)', () => {
-  it('가장 진한 글자·가장 굵은 굵기가 아니다 — 한 단계 연한 회색·굵게', () => {
+describe('홈 "지금 라이브 중" (D-UX4-75 → D-UX4-82, 토스 "토스뱅크 ›" 사진을 재어)', () => {
+  it('20 · 굵게 · 회색(textSub #4E5968), 아이콘은 화면 끝에서 24 (머리 줄 20 + 4)', async () => {
+    // 옛 기대(D-UX4-75): tabInk(#333D4B). 새 기대(D-UX4-82): 사진의 글자색 #4E5968
     const home = read('src/screens/HomeScreen.tsx')
-    expect(home).toContain('<Txt step="title" weight="bold" ink={p.tabInk}>{label}</Txt>')
+    expect(home).toContain('<Txt step="title" weight="bold" color="textSub">{label}</Txt>')
+    const { HOME_LIVE_INSET } = await import('../src/screens/HomeScreen.tsx')
+    const { SPACE, PALETTE, TYPE } = await import('../src/ui/kit/tokens.ts')
+    expect(SPACE.xl + HOME_LIVE_INSET).toBe(24)
+    expect(TYPE.title).toBe(20)
+    expect(PALETTE.light.textSub).toBe('#4E5968')
   })
 })

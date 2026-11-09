@@ -118,6 +118,9 @@ export function defaultBroadcastTitle(date: string): string {
 /** 라이브 표시 프로필 사진 지름 — 옆 글자 높이에 맞춘다 (D-UX3-87, 토스 "토스뱅크 ›"처럼) */
 const AVATAR = 30
 
+/** 라이브 표시 왼쪽 여백: 머리 줄 여백(20)에 더해 화면 끝에서 24 — 토스 "토스뱅크" 아이콘 자리를 재어 (D-UX4-82) */
+export const HOME_LIVE_INSET = SPACE.xs
+
 /** 맨 위 왼쪽 라이브 표시 (D-UX3-85): 방송 중이면 채널 프로필 사진(빨간 테두리 + "라이브") + "지금 라이브 중 ›", 아니면 "라이브 연결 ›" */
 /** 지금 라이브로 볼 수집기 상태 (끝남·멈춤·채팅 끝은 아님) */
 const LIVE_COLLECTOR = new Set(['STARTING', 'LIVE', 'RETRYING'])
@@ -184,7 +187,7 @@ function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: Broadc
   // "내 라이브 연결" (D-UX3-92): 글자를 한 단계 키우고, 왼쪽에 + 원을 두고, 화면 끝에 붙지 않게 카드 안 글자 쪽으로 조금 들인다
   const label = on ? '지금 라이브 중' : '내 라이브 연결'
   return (
-    <Tap role="button" aria-label={label} testID="home-live" onPress={() => (live !== undefined ? onOpen(live.id) : onConnect())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md - 2, alignSelf: 'flex-start', minHeight: TOUCH.min, opacity: pressed ? 0.6 : 1 })}>
+    <Tap role="button" aria-label={label} testID="home-live" onPress={() => (live !== undefined ? onOpen(live.id) : onConnect())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md - 2, alignSelf: 'flex-start', minHeight: TOUCH.min, marginLeft: HOME_LIVE_INSET, opacity: pressed ? 0.6 : 1 })}>
       {on ? (
         <View aria-hidden style={{ width: AVATAR + 6, height: AVATAR + 10, alignItems: 'center' }}>
           <View style={{ width: AVATAR + 6, height: AVATAR + 6, borderRadius: (AVATAR + 6) / 2, borderCurve: 'continuous', borderWidth: 2, borderColor: tones.danger.fg, alignItems: 'center', justifyContent: 'center' }}>
@@ -208,9 +211,9 @@ function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: Broadc
       {/* 글자와 › 사이는 좁게 (토스 "토스뱅크 ›") */}
       {/* 머리 줄의 다른 큰 제목처럼 한글을 2.5 올린다 (D-UX3-88·D-UX4-59) */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, transform: [{ translateY: NAV.titleLift }] }}>
-        {/* 다른 글자보다 너무 진해 보여 한 단계 연한 회색·굵기로 (D-UX4-75, 토스 "토스뱅크 ›") */}
-        <Txt step="title" weight="bold" ink={p.tabInk}>{label}</Txt>
-        <Icon name="chevron" color={p.textSub} size={18} />
+        {/* 토스 "토스뱅크 ›" 사진을 재어 (D-UX4-75 → D-UX4-82): 20 · 굵게 · 회색 #4E5968(textSub), › 는 한 단계 더 연한 회색 */}
+        <Txt step="title" weight="bold" color="textSub">{label}</Txt>
+        <Icon name="chevron" color={p.placeholder} size={18} />
       </View>
     </Tap>
   )
