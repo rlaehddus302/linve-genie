@@ -95,7 +95,7 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     await waitFor(() => expect(screen.getAllByText('방송 소리 멈춤').length).toBe(1))
     expect(screen.queryByRole('button', { name: '다시 켜기' })).toBeNull()
     expect(screen.queryByRole('button', { name: '휴대폰으로 듣기' })).toBeNull()
-    await act(async () => { screen.getByRole('button', { name: '방송 메뉴' }).click(); await flush() })
+    await act(async () => { screen.getByRole('button', { name: '방송 관리' }).click(); await flush() })
     await act(async () => { screen.getByRole('button', { name: '방송 소리 다시 켜기' }).click(); await flush() })
     await waitFor(() => expect(world.server.callsTo('POST', /\/stream-audio\/restart$/).length).toBe(1))
   }, 15_000)

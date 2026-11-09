@@ -46,7 +46,7 @@ import {
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
-import { BackButton, BigButton, ErrorLine, KEYBOARD_AVOID, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
+import { BigButton, NAV, NavBar, ErrorLine, KEYBOARD_AVOID, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
 import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
 import { EdgeSwipeBack, SlideSwitch } from '../ui/kit/slide.tsx'
 import { PAGE, RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
@@ -455,10 +455,11 @@ export function QuestionPage({
   return (
     <EdgeSwipeBack onBack={onBack}>
       <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={top} style={{ flex: 1, backgroundColor: p.surface }} testID={testID}>
-        <Animated.View style={{ paddingLeft: PAGE.backLeft, opacity: away ?? 1 }}>
-          <BackButton label={backLabel} onPress={onBack} />
+        {/* 모든 쌓인 화면과 같은 머리 (D-UX4-40) */}
+        <Animated.View style={{ opacity: away ?? 1 }}>
+          <NavBar onBack={onBack} backLabel={backLabel} />
         </Animated.View>
-        <View style={{ flex: 1, paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop }}>
+        <View style={{ flex: 1, paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop - NAV.below }}>
           <Animated.View style={{ opacity: away ?? 1 }}>
             <Txt step="headline" weight="bold" role="heading" aria-level={1}>
               {title}

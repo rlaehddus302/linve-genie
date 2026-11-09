@@ -63,7 +63,7 @@ async function agree(channel = '다육이네') {
 }
 /** 방송 메뉴 → 유튜브 연결 */
 async function openYoutube() {
-  fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+  fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
   fireEvent.click(await screen.findByRole('button', { name: '방송 연결' }))
 }
 

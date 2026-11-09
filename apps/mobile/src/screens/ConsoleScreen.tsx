@@ -17,7 +17,7 @@ import { ScopeStore, type ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { LISTEN_START, LISTEN_STOP, LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, BigButton, BottomSheet, ConfirmSheet, FullSheet, DotStatus, HeaderIconButton, ToggleRow, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, BottomSheet, ConfirmSheet, FullSheet, DotStatus, HeaderTextButton, ToggleRow, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { BigButton as SmallButton, Loading, Notice, Row } from '../ui/parts.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
@@ -38,6 +38,9 @@ import { LiveTalk, TALK_TAB } from './console/LiveTalk.tsx'
 import { APP_IMPORT_TITLE, ImportView } from './console/ImportSheet.tsx'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
+
+/** 머리 오른쪽 "관리" 단추·방송 관리 화면 이름 (D-UX4-42) — 화면에는 "관리", 읽기 이름은 "방송 관리" */
+export const MANAGE_LABEL = '방송 관리'
 
 /** 방송 설정의 문자찜 칸 줄 이름 (D-UX4-20 — 옛 "직접 넣기" 시트의 문자찜 칸) */
 export const SMS_DIRECT = '문자찜 직접 넣기'
@@ -388,8 +391,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           right={
             <>
               {seller && !closed ? <DotStatus word={chip.word} tone={chip.tone} /> : null}
-              {/* 토스 계좌 화면 오른쪽 위 회색 톱니 (D-UX4-20) — 화면에 글은 없고 이름만 읽힌다 */}
-              <HeaderIconButton icon="gear" label="방송 메뉴" color={p.clearCircle} size={27} onPress={() => setPage('settings')} />
+              {/* 토스 카드 화면 오른쪽 위 "관리" 글자 단추 (D-UX4-42 — 옛 톱니 D-UX4-20) */}
+              <HeaderTextButton label="관리" ariaLabel={MANAGE_LABEL} onPress={() => setPage('settings')} />
             </>
           }
         />
@@ -476,7 +479,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           }}
         />
         {/* 방송 설정 (D-UX4-20): 토스 설정 화면처럼 — 머리 글 없이 뒤로만, 굵은 묶음 이름 · 흰 카드 · 줄 이름만 */}
-        <SlidePage visible={page === 'settings'} onClose={closePage} name="방송 설정" gray testID="console-settings">
+        <SlidePage visible={page === 'settings'} onClose={closePage} name={MANAGE_LABEL} gray testID="console-settings">
           {thanksLine}
           <MenuGroup title="방송">
             {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <MenuRow title="방송 연결" onPress={showLink} /> : null}

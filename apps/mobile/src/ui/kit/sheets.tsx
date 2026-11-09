@@ -5,9 +5,9 @@ import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type ScrollViewInstance } from 'react-native'
 import { BigButton, ButtonRow } from './buttons.tsx'
 import { BACKDROP_OPACITY, PAGE, RADIUS, SHADOW, SPACE, WEIGHT } from './tokens.ts'
-import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
+import { PageTopProvider, Txt, useBottomInset, useKit, usePageTop, useTopInset } from './theme.tsx'
 import { font } from './font.ts'
-import { BackButton } from './app.tsx'
+import { NAV, NavBar } from './app.tsx'
 
 export interface BottomSheetProps {
   readonly visible: boolean
@@ -163,17 +163,16 @@ export interface FormPageProps {
 export function FormPage({ title, name, onBack, backLabel = '뒤로', children, actions, cards = false, overlay, sticky, scrollRef, testID }: FormPageProps) {
   const { p } = useKit()
   const inset = useBottomInset()
-  const top = useTopInset()
+  // 상태 막대를 피할 높이 — 경로가 이미 피했으면 0, 판(FullSheet)·상태 막대까지 그리는 경로면 기기 값 (D-UX4-41)
+  const top = usePageTop()
   const keyboard = useKeyboardShown()
   const bg = cards ? p.background : p.surface
   return (
     <View role="dialog" aria-label={name ?? title} testID={testID} style={{ flex: 1, backgroundColor: bg, paddingTop: top }}>
       <KeyboardAvoidingView behavior={KEYBOARD_AVOID} style={{ flex: 1 }}>
-        {/* 뒤로·제목 자리는 토스와 같게 (D-UX3-51) */}
-        <View style={{ paddingLeft: PAGE.backLeft }}>
-          <BackButton label={backLabel} onPress={onBack} />
-        </View>
-        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled" stickyHeaderIndices={sticky === undefined ? undefined : [1]}>
+        {/* 뒤로 자리는 모든 쌓인 화면과 같은 머리 (D-UX4-40) */}
+        <NavBar onBack={onBack} backLabel={backLabel} />
+        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop - NAV.below, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled" stickyHeaderIndices={sticky === undefined ? undefined : [1]}>
           <View style={{ paddingBottom: PAGE.titleGap - SPACE.xxl }}>
             <Txt step="headline" weight="bold" role="heading" aria-level={1}>
               {title}
@@ -195,11 +194,15 @@ export function FormPage({ title, name, onBack, backLabel = '뒤로', children, 
 
 /** 전체 화면 판 — FormPage를 앱 안 판(Modal)으로. 밀어서 뒤로 가기가 필요한 곳은 경로 화면으로 FormPage를 쓴다 */
 export function FullSheet({ visible, onClose, title, name, children, actions, closeLabel = '닫기', cards, overlay, testID }: FullSheetProps) {
+  const top = useTopInset()
   return (
     <Modal visible={visible} animationType={Platform.OS === 'web' ? 'none' : 'slide'} onRequestClose={onClose} statusBarTranslucent presentationStyle="fullScreen">
-      <FormPage title={title} name={name} onBack={onClose} backLabel={closeLabel} actions={actions} cards={cards} overlay={overlay} testID={testID}>
-        {children}
-      </FormPage>
+      {/* 판은 화면 맨 위(상태 막대 자리)부터 그린다 — 기기 값만큼 띄운다 (D-UX4-41) */}
+      <PageTopProvider value={top}>
+        <FormPage title={title} name={name} onBack={onClose} backLabel={closeLabel} actions={actions} cards={cards} overlay={overlay} testID={testID}>
+          {children}
+        </FormPage>
+      </PageTopProvider>
     </Modal>
   )
 }

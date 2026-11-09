@@ -13,7 +13,7 @@ async function open(world: ReturnType<typeof makeWorld>) {
     world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
     await flush()
   })
-  fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+  fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
   fireEvent.click(await screen.findByRole('button', { name: APP_IMPORT_TITLE }))
 }
 

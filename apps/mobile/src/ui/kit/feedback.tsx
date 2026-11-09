@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Animated, Easing, Platform, Pressable, View } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOAST_MS, TOUCH, type Tone } from './tokens.ts'
-import { Txt, useBottomInset, useKit, useTopInset } from './theme.tsx'
+import { Txt, useBottomInset, useKit, usePageTop } from './theme.tsx'
 
 const TONE_MARK: Readonly<Record<Tone, string>> = { neutral: '•', info: '•', success: '✓', warning: '!', danger: '✕' }
 
@@ -105,7 +105,8 @@ export const POP_NOTE_MS = 1800
  */
 export function PopNote({ note }: { readonly note: { readonly id: number; readonly message: string } | null }) {
   const { p } = useKit()
-  const top = useTopInset()
+  // 판 안이면 상태 막대 아래, 경로 화면이면 이미 그 아래에서 시작 (D-UX4-41)
+  const top = usePageTop()
   const fade = useRef(new Animated.Value(0)).current
   const [shown, setShown] = useState<string | null>(null)
   const id = note?.id

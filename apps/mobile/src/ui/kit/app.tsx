@@ -177,15 +177,59 @@ export function BackButton({ label = '뒤로', onPress }: { readonly label?: str
   )
 }
 
-/** 화면 머리: 뒤로(44) · 제목 · 오른쪽 조각(상태·⋯). 뒤로가 없으면 제목만 크게. */
-export function AppHeader({ title, onBack, backLabel = '뒤로', right, testID }: { readonly title: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly testID?: string }) {
+/** 쌓인 화면 머리 치수 (D-UX4-40, 토스 "나라사랑카드" 사진을 기준으로): 줄 높이 48(뒤로 단추와 같다) + 아래 4, 왼쪽 8에 뒤로 ‹ */
+export const NAV = { row: 48, below: SPACE.xs, left: PAGE.backLeft, right: SPACE.md, titleLift: -2.5 } as const
+
+/**
+ * 쌓인 화면 머리 하나 (D-UX4-40, 사용자 지시 2026-11-09 "모든 화면 … 뒤로가기 버튼과 제목 글자의 위치, 크기, 모양을 통일해. 기준은 사진 1"):
+ * 왼쪽 뒤로 ‹ · 가운데 제목(17·중간 굵기, 한 줄) · 오른쪽 조각(글자 단추 "관리"·상태). 뒤로·제목·오른쪽은 늘 같은 줄 높이 48 가운데에 놓인다.
+ * 제목은 화면 가운데 — 오른쪽 조각이 넓으면 그만큼 양쪽을 비워 겹치지 않는다. 모든 쌓인 화면·입력 화면 틀·밀려 들어오는 화면이 이것만 쓴다.
+ */
+export function NavBar({ title, onBack, backLabel = '뒤로', right, testID }: { readonly title?: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly testID?: string }) {
+  const [rightWidth, setRightWidth] = useState(0)
+  // 제목 양쪽 빈자리: 뒤로 단추 자리(8+48)와 오른쪽 조각 중 넓은 쪽 + 8
+  const side = Math.max(NAV.left + 48, NAV.right + rightWidth) + SPACE.sm
   return (
-    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingTop: onBack === undefined ? SPACE.lg : 0, paddingBottom: SPACE.xs, paddingLeft: onBack === undefined ? SPACE.xl : PAGE.backLeft, paddingRight: SPACE.md, minHeight: onBack === undefined ? 64 : 52 }}>
-      {onBack === undefined ? null : (
-        <BackButton label={backLabel} onPress={onBack} />
+    <View testID={testID} style={{ minHeight: NAV.row + NAV.below, paddingBottom: NAV.below, paddingLeft: NAV.left, paddingRight: NAV.right, flexDirection: 'row', alignItems: 'center' }}>
+      {onBack === undefined ? <View style={{ width: 48, height: NAV.row }} /> : <BackButton label={backLabel} onPress={onBack} />}
+      <View style={{ flex: 1 }} />
+      {right === undefined ? null : (
+        <View onLayout={(event) => setRightWidth(Math.ceil(event.nativeEvent.layout.width))} style={{ flexDirection: 'row', alignItems: 'center', height: NAV.row }}>
+          {right}
+        </View>
       )}
-      {/* Pretendard 한글은 줄 높이 안에서 조금 아래에 그려져 뒤로 화살표보다 2~3 낮아 보였다 — 뒤로가 있을 때 2.5 올려 맞춘다 (D-UX3-88, 실기기 사진 재기) */}
-      <View style={{ flex: 1, transform: onBack === undefined ? undefined : [{ translateY: -2.5 }] }}>
+      {title === undefined || title === '' ? null : (
+        // Pretendard 한글은 줄 높이 안에서 조금 아래에 그려져 뒤로 ‹보다 낮아 보인다 — 2.5 올린다 (D-UX3-88)
+        <View pointerEvents="none" style={{ position: 'absolute', top: 0, height: NAV.row, left: side, right: side, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: NAV.titleLift }] }}>
+          <Txt step="nav" weight="medium" role="heading" aria-level={1} numberOfLines={1}>
+            {title}
+          </Txt>
+        </View>
+      )}
+    </View>
+  )
+}
+
+/** 머리 오른쪽 글자 단추 (토스 "관리", D-UX4-42): 제목과 같은 17, 진한 회색. 누르면 바탕이 옅게 진해진다 */
+export function HeaderTextButton({ label, ariaLabel, onPress, testID }: { readonly label: string; readonly ariaLabel?: string; readonly onPress: () => void; readonly testID?: string }) {
+  const { p } = useKit()
+  return (
+    <Pressable role="button" aria-label={ariaLabel ?? label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ height: 40, minWidth: 48, paddingHorizontal: SPACE.sm + 2, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <Txt step="nav" weight="book" ink={p.tabInk}>
+        {label}
+      </Txt>
+    </Pressable>
+  )
+}
+
+/**
+ * 화면 머리. 뒤로가 있으면 쌓인 화면 머리(NavBar — 가운데 제목, D-UX4-40), 없으면(탭 첫 화면) 왼쪽에 큰 제목.
+ */
+export function AppHeader({ title, onBack, backLabel = '뒤로', right, testID }: { readonly title: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly testID?: string }) {
+  if (onBack !== undefined) return <NavBar title={title} onBack={onBack} backLabel={backLabel} right={right} {...(testID === undefined ? {} : { testID })} />
+  return (
+    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingTop: SPACE.lg, paddingBottom: SPACE.xs, paddingLeft: SPACE.xl, paddingRight: SPACE.md, minHeight: 64 }}>
+      <View style={{ flex: 1 }}>
         <Txt step="title" weight="heavy" role="heading" aria-level={1} numberOfLines={1}>
           {title}
         </Txt>

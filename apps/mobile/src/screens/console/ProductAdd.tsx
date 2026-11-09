@@ -4,13 +4,15 @@
 //   → (다육이 방송이면) "어떤 품종인가요?" → 확인 화면 "15번 / 삼광색금 / 15,000원 / 상품을 추가할까요?" + [추가하기] → 방송 화면으로 돌아간다.
 // 번호·가격은 시스템 키보드 대신 앱 숫자판(누르면 꾸욱 들어가며 작아진다), 값이 있으면 숫자판 바로 위에 [다음] 띠. 값 뒤에 "번"·"원"을 붙여 보인다.
 // 품종은 글자라 휴대폰 키보드를 쓴다. 이미 올라온 단계는 눌러서 다시 고칠 수 있다.
+// D-UX4-43 (사용자 지시 2026-11-09): 깜빡이는 글자 자리 표시는 없앴다. 글자를 넣고 지울 때 그 글자가 부드럽게 나타나고 사라지며, 숫자판 키는 햅틱과 함께 꾸욱 눌린다.
+// [다음]은 꽉 찬 띠가 아니라 큰 단추, "품종 없이 넘어가기"는 토스 회색 칩. 품종 칸 휴대폰 키보드가 뜨면 [다음]이 키보드 위로 올라온다.
 // 쓰기는 원문 칸(noText·priceText, SRV1 약속 2) — 가격은 "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 앱은 판정하지 않는다.
 import { useEffect, useRef, useState } from 'react'
 import { Animated, Easing, Platform, Pressable, TextInput, View } from 'react-native'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
-import { BigButton, ErrorLine, Txt, font, useKit } from '../../ui/kit/index.ts'
+import { BigButton, ErrorLine, PressScale, SoftChip, Txt, font, useKit } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
@@ -31,24 +33,15 @@ const PAD: readonly (readonly string[])[] = [['1', '2', '3'], ['4', '5', '6'], [
 
 const won = (digits: string): string => `${Number(digits).toLocaleString('ko-KR')}원`
 
-/** 앱 숫자판 키 하나 — 누르는 동안 꾸욱 들어가며 작아지고 옅은 바탕이 생긴다 (사진 5) */
+/** 앱 숫자판 키 하나 — 누르는 동안 꾸욱 들어가며 작아지고 옅은 바탕이 생긴다, 누른 순간 햅틱 (사진 5, D-UX4-43) */
 function PadKey({ value, onPress }: { readonly value: string; readonly onPress: (value: string) => void }) {
   const { p } = useKit()
-  const press = useRef(new Animated.Value(0)).current
-  const to = (target: number) => {
-    if (Platform.OS === 'web') return
-    Animated.timing(press, { toValue: target, duration: target === 1 ? 70 : 160, easing: Easing.out(Easing.quad), useNativeDriver: true }).start()
-  }
-  const scale = press.interpolate({ inputRange: [0, 1], outputRange: [1, 0.86] })
   return (
-    <Pressable role="button" aria-label={value === 'back' ? '지우기' : value} onPress={() => onPress(value)} onPressIn={() => to(1)} onPressOut={() => to(0)} style={{ flex: 1, height: KEY_HEIGHT, alignItems: 'center', justifyContent: 'center' }}>
-      <Animated.View style={{ position: 'absolute', top: 4, bottom: 4, left: 10, right: 10, borderRadius: 18, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, opacity: press, transform: [{ scale }] }} />
-      <Animated.View style={{ transform: [{ scale }] }}>
-        <Txt step="amount" weight="regular" ink={p.textSub}>
-          {value === 'back' ? '←' : value}
-        </Txt>
-      </Animated.View>
-    </Pressable>
+    <PressScale ariaLabel={value === 'back' ? '지우기' : value} onPress={() => onPress(value)} scale={0.86} pad={{ x: 10, y: 4 }} radius={18} style={{ flex: 1, height: KEY_HEIGHT, alignItems: 'center', justifyContent: 'center' }}>
+      <Txt step="amount" weight="regular" ink={p.textSub}>
+        {value === 'back' ? '←' : value}
+      </Txt>
+    </PressScale>
   )
 }
 
@@ -64,32 +57,86 @@ function NumberKeys({ onKey }: { readonly onKey: (value: string) => void }) {
   )
 }
 
-/** 깜빡이는 글자 자리 표시 (사진 4의 칸 앞 막대) */
-function Caret() {
-  const { p } = useKit()
-  const blink = useRef(new Animated.Value(1)).current
+/** 글자를 넣고 지울 때의 움직임 시간 */
+const CHAR_IN_MS = 180
+const CHAR_OUT_MS = 140
+
+/** 새로 들어온 글자 하나: 아래에서 살짝 올라오며 나타난다 */
+function EnterChar({ char, color }: { readonly char: string; readonly color: string }) {
+  const show = useRef(new Animated.Value(0)).current
   useEffect(() => {
-    if (Platform.OS === 'web') return
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(blink, { toValue: 0, duration: 450, delay: 300, useNativeDriver: true }),
-      Animated.timing(blink, { toValue: 1, duration: 150, useNativeDriver: true }),
-    ]))
-    loop.start()
-    return () => loop.stop()
-  }, [blink])
-  return <Animated.View aria-hidden style={{ width: 2.5, height: BIG + 4, marginHorizontal: 2, borderRadius: 2, borderCurve: 'continuous', backgroundColor: p.primary, opacity: blink }} />
+    Animated.timing(show, { toValue: 1, duration: CHAR_IN_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
+  }, [show])
+  const rise = show.interpolate({ inputRange: [0, 1], outputRange: [10, 0] })
+  return (
+    <Animated.View style={{ opacity: show, transform: [{ translateY: rise }] }}>
+      <Txt step="amount" weight="bold" ink={color}>{char}</Txt>
+    </Animated.View>
+  )
 }
 
-/** 앱 숫자판으로 넣는 큰 칸: 비면 묻는 말(회색), 차면 값 + 붙임말(번·원) */
-function BigNumber({ label, question, shown, empty }: { readonly label: string; readonly question: string; readonly shown: string; readonly empty: boolean }) {
-  const { p } = useKit()
+/** 지운 글자 하나: 아래로 살짝 내려가며 사라진다 (그 뒤 onDone) */
+function LeaveChar({ char, color, onDone }: { readonly char: string; readonly color: string; readonly onDone: () => void }) {
+  const hide = useRef(new Animated.Value(1)).current
+  useEffect(() => {
+    Animated.timing(hide, { toValue: 0, duration: CHAR_OUT_MS, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(() => onDone())
+  }, [hide, onDone])
+  const sink = hide.interpolate({ inputRange: [0, 1], outputRange: [8, 0] })
   return (
-    <View role="status" aria-label={empty ? question : `${label} ${shown}`} style={{ flexDirection: 'row', alignItems: 'center', minHeight: BIG * 1.5 }}>
-      {empty ? <Caret /> : null}
-      <Txt step="amount" weight="bold" ink={empty ? p.placeholder : p.text}>
-        {empty ? question : shown}
-      </Txt>
-      {empty ? null : <Caret />}
+    <Animated.View style={{ opacity: hide, transform: [{ translateY: sink }] }}>
+      <Txt step="amount" weight="bold" ink={color}>{char}</Txt>
+    </Animated.View>
+  )
+}
+
+/**
+ * 앱 숫자판으로 넣는 큰 칸: 비면 묻는 말(회색), 차면 값 + 붙임말(번·원). 글자 자리 표시(커서)는 없다 (D-UX4-43).
+ * 넣은 글자는 부드럽게 나타나고, 지운 글자는 부드럽게 사라진다. 웹(시험)은 움직이지 않고 한 덩어리 글로 그린다.
+ */
+function BigNumber({ label, question, digits, format, suffix }: { readonly label: string; readonly question: string; readonly digits: string; readonly format: (digits: string) => string; readonly suffix: string }) {
+  const { p } = useKit()
+  const last = useRef(digits)
+  const [leaving, setLeaving] = useState<{ readonly id: number; readonly char: string } | null>(null)
+  const counter = useRef(0)
+  useEffect(() => {
+    const before = last.current
+    last.current = digits
+    if (digits.length < before.length && digits === before.slice(0, digits.length)) {
+      counter.current += 1
+      setLeaving({ id: counter.current, char: before.slice(digits.length) })
+    } else if (digits.length > before.length) setLeaving(null)
+  }, [digits])
+  const empty = digits === ''
+  const shown = empty ? '' : format(digits)
+  const box = { flexDirection: 'row' as const, alignItems: 'center' as const, minHeight: BIG * 1.5 }
+  if (empty && leaving === null) {
+    return (
+      <View role="status" aria-label={question} style={box}>
+        <Txt step="amount" weight="bold" ink={p.placeholder}>
+          {question}
+        </Txt>
+      </View>
+    )
+  }
+  if (Platform.OS === 'web') {
+    return (
+      <View role="status" aria-label={empty ? question : `${label} ${shown}${suffix}`} style={box}>
+        <Txt step="amount" weight="bold" ink={empty ? p.placeholder : p.text}>
+          {empty ? question : `${shown}${suffix}`}
+        </Txt>
+      </View>
+    )
+  }
+  const grew = leaving === null && digits.length > 0
+  const chars = [...shown]
+  return (
+    <View role="status" aria-label={`${label} ${shown}${suffix}`} style={box}>
+      {chars.map((char, index) =>
+        // 맨 끝 글자가 새로 넣은 글자면 나타나는 움직임 — 그 밖은 그대로 (쉼표가 생겨 자리가 바뀌어도 다시 움직이지 않는다)
+        grew && index === chars.length - 1 ? <EnterChar key={`in-${String(digits.length)}`} char={char} color={p.text} /> : <Txt key={`c-${String(index)}`} step="amount" weight="bold" ink={p.text}>{char}</Txt>,
+      )}
+      {leaving === null ? null : <LeaveChar key={`out-${String(leaving.id)}`} char={leaving.char} color={p.text} onDone={() => setLeaving((now) => (now?.id === leaving.id ? null : now))} />}
+      {empty ? null : <Txt step="amount" weight="bold" ink={p.text}>{suffix}</Txt>}
     </View>
   )
 }
@@ -108,15 +155,12 @@ function DoneLine({ label, value, onPress }: { readonly label: string; readonly 
   )
 }
 
-/** 숫자판 바로 위 [다음] 띠 (사진 5 — 가장자리까지 꽉 찬 주색 띠) */
-function NextBar({ label = '다음', onPress, disabled }: { readonly label?: string; readonly onPress: () => void; readonly disabled?: boolean }) {
-  const { p } = useKit()
+/** 숫자판·키보드 바로 위 [다음] — 꽉 찬 띠가 아닌 큰 단추 (D-UX4-43, 사용자 지시 "원래처럼 별도의 버튼으로") */
+function NextButton({ onPress }: { readonly onPress: () => void }) {
   return (
-    <Pressable role="button" aria-label={label} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ height: 56, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.primaryPressed : p.primary, opacity: disabled === true ? 0.5 : 1 })}>
-      <Txt step="lead" weight="medium" color="onPrimary">
-        {label}
-      </Txt>
-    </Pressable>
+    <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.sm }}>
+      <BigButton label="다음" onPress={onPress} />
+    </View>
   )
 }
 
@@ -243,14 +287,11 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
                 onSubmitEditing={() => { if (name.trim() !== '') setStep('confirm') }}
                 style={{ fontSize: BIG, paddingVertical: 0, color: p.text, ...font(WEIGHT.bold) }}
               />
-              {name.trim() === '' ? (
-                <Pressable role="button" aria-label="품종 없이 넘어가기" onPress={() => setStep('confirm')} hitSlop={8} style={{ alignSelf: 'flex-start', paddingVertical: SPACE.xs }}>
-                  <Txt step="body" color="textSub">품종 없이 넘어가기</Txt>
-                </Pressable>
-              ) : null}
+              {/* 토스 "잔액 · 159,952원 입력" 같은 회색 칩 — 꾸욱 눌린다 (D-UX4-43) */}
+              {name.trim() === '' ? <SoftChip label="품종 없이 넘어가기" onPress={() => setStep('confirm')} /> : null}
             </>
           ) : (
-            <BigNumber label={step === 'no' ? '번호' : '가격'} question={step === 'no' ? ASK_NO : ASK_PRICE} shown={step === 'no' ? `${no}번` : won(price)} empty={active === ''} />
+            <BigNumber label={step === 'no' ? '번호' : '가격'} question={step === 'no' ? ASK_NO : ASK_PRICE} digits={active} format={step === 'no' ? (value) => value : (value) => Number(value).toLocaleString('ko-KR')} suffix={step === 'no' ? '번' : '원'} />
           )}
           {/* 만 원 아래는 한글 읽기가 위 금액과 같아 그리지 않는다 */}
           {step === 'price' && Number(price) >= 10_000 ? (
@@ -261,7 +302,7 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
           {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
         </View>
       </View>
-      {active.trim() === '' ? null : <NextBar onPress={onNext} />}
+      {active.trim() === '' ? null : <NextButton onPress={onNext} />}
       {step === 'name' ? null : (
         <View style={{ paddingBottom: footer }}>
           <NumberKeys onKey={type} />

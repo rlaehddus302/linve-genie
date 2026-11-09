@@ -60,6 +60,24 @@ export function useTopInset(): number {
   return useContext(TopInsetContext)
 }
 
+/**
+ * 화면 맨 위에서 상태 막대를 피해 띄울 높이 (D-UX4-41). 경로 화면이 이미 상태 막대 아래(SafeAreaView 위쪽)에서 시작하면 0,
+ * 화면 전체를 덮는 판(Modal — FullSheet)·상태 막대까지 그리는 경로면 기기 값. 이 값을 두 번 더하면 쌓인 화면이 상태 막대만큼 내려와 뒤로·제목 자리가 틀어진다.
+ * null = 정해지지 않음 → 기기 값(useTopInset)
+ */
+const PageTopContext = createContext<number | null>(null)
+
+export function PageTopProvider({ value, children }: { readonly value: number; readonly children: ReactNode }) {
+  return <PageTopContext.Provider value={value}>{children}</PageTopContext.Provider>
+}
+
+/** 지금 자리에서 화면 맨 위가 상태 막대를 피하려고 더 띄워야 할 높이 */
+export function usePageTop(): number {
+  const page = useContext(PageTopContext)
+  const top = useContext(TopInsetContext)
+  return page ?? top
+}
+
 /** 맨 위 상태 막대 자리를 흰색으로 칠해 달라는 화면 수 — 바탕이 흰 화면(번호 확인 등)이 떠 있으면 위도 흰색 (D-UX3-50) */
 const TopWhiteContext = createContext<(delta: 1 | -1) => void>(() => undefined)
 

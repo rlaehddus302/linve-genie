@@ -44,7 +44,7 @@ import {
 import { formatWon, PAYMENT_WORD, paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { useDayScope } from '../lib/day-scope.ts'
-import { BackButton, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { AddressCard, ParcelTag } from './ParcelAddress.tsx'
@@ -287,13 +287,9 @@ function SettleDetail({ data, names, settlement, parcelVersion, onBack, onWritte
     // 큰 단추 넷이 위아래로 쌓이던 것 → 할 일 하나(초록 단추)는 금액 카드 안에, 나머지는 흰 카드 속 줄로
     <View style={{ gap: CARD_GAP }} aria-label="정산 자세히">
       <View style={{ gap: 2 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginLeft: -SPACE.md }}>
-          <BackButton label="정산 목록으로" onPress={onBack} />
-          <View style={{ flex: 1, transform: [{ translateY: -2.5 }] }}>
-            <Txt step="title" weight="heavy" role="heading" aria-level={2} numberOfLines={1}>
-              {name}
-            </Txt>
-          </View>
+        {/* 모든 쌓인 화면과 같은 머리 — 가운데 이름 (D-UX4-40). 목록 틀의 좌우·위 여백을 거슬러 화면 끝에 맞춘다 */}
+        <View style={{ marginHorizontal: -PAGE_SIDE, marginTop: -SPACE.lg }}>
+          <NavBar title={name} onBack={onBack} backLabel="정산 목록으로" />
         </View>
         <View style={{ paddingLeft: SPACE.xs, gap: 2 }}>
           <PayWord payment={settlement.payment} refundDue={settlement.refundDue} />

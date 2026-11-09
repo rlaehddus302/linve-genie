@@ -28,7 +28,7 @@ async function open(world: ReturnType<typeof makeWorld>) {
 }
 
 // 휴대폰 마이크·문자찜 칸은 머리 톱니로 여는 방송 설정 화면에 있다 (D-UX3-73 → D-UX4-20)
-const openMenu = () => fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+const openMenu = () => fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
 const openDirect = () => {
   openMenu()
   fireEvent.click(screen.getByRole('button', { name: SMS_DIRECT }))
@@ -443,7 +443,7 @@ describe('ConsoleScreen', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '알겠어요, 켤게요' }))
     await waitFor(() => expect(screen.getByRole('status', { name: LISTEN_STATE.on })).toBeTruthy())
     // 받아쓰기 서버 안내는 안내 창(위)과 방송 메뉴 → 음성 설정에 있다 (D-UX2-03)
-    fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
     fireEvent.click(screen.getByRole('button', { name: '음성 설정' }))
     expect(screen.getByText(VOICE_SENT_LINE)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '닫기' }))
@@ -556,11 +556,11 @@ describe('ConsoleScreen', () => {
       return { body: { rows: [{ line: 1, nickname: '틱톡손님', result: 'ORDER', numbers: [15], message: '15번 찜' }], groups: [], total: 1, ...(call.path.endsWith('/preview') ? {} : { added: 1 }) } }
     })
     await open(world)
-    fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
     fireEvent.click(screen.getByRole('button', { name: /^채팅 보기/ }))
     expect(await screen.findByText('15번이요')).toBeTruthy()
     expect(screen.getByText('주문 15번')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
     fireEvent.click(screen.getByRole('button', { name: /^댓글 붙여넣기/ }))
     fireEvent.change(screen.getByLabelText('붙여 넣을 댓글'), { target: { value: '틱톡손님: 15' } })
     fireEvent.click(screen.getByRole('button', { name: '미리 보기' }))
@@ -605,7 +605,7 @@ describe('ConsoleScreen', () => {
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
-    fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
+    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
     fireEvent.click(await screen.findByRole('button', { name: '방송 끝내기' }))
     fireEvent.click(await screen.findByRole('button', { name: '끝내기' }))
     await waitFor(() => expect(home).toBe(1))
@@ -632,17 +632,19 @@ describe('ConsoleScreen', () => {
   })
 
   // 옛 시험: "직접 넣기 예시는 그 방송 가격 단위와 같은 꼴" — 빠른 입력 한 줄을 없앴다(D-UX4-31). 가격 단위와 상관없는 원문 "원"은 (+) 상품 추가 시험이 본다.
-  it('방송 설정 화면: 톱니로 열고, 머리 글("방송 메뉴"·방송 제목) 없이 묶음 이름과 줄만 — 뒤로 닫는다 (D-UX4-20)', async () => {
+  // D-UX4-42: 톱니 → 머리 오른쪽 "관리" 글자 단추(읽기 이름 "방송 관리")
+  it('방송 관리 화면: 머리 "관리"로 열고, 머리 글(방송 제목) 없이 묶음 이름과 줄만 — 뒤로 닫는다 (D-UX4-20·42)', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
     openMenu()
-    const page = await screen.findByRole('dialog', { name: '방송 설정' })
+    expect(screen.getByRole('button', { name: '방송 관리' }).textContent).toBe('관리')
+    const page = await screen.findByRole('dialog', { name: '방송 관리' })
     expect(page.textContent).not.toContain('방송 메뉴')
     expect(page.textContent).not.toContain('저녁 방송')
     expect(within(page).getByRole('button', { name: SMS_DIRECT })).toBeTruthy()
     expect(within(page).getByRole('button', { name: '방송 끝내기' })).toBeTruthy()
     fireEvent.click(within(page).getByRole('button', { name: '뒤로' }))
-    expect(screen.queryByRole('dialog', { name: '방송 설정' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: '방송 관리' })).toBeNull()
   })
 
   // 옛 시험(CR-7, D-APPX-01): 첫 1등 옆 "단골 · 누적 …". 새 기대(D-UX4-24, 사용자 지시 "각 상품마다 찜 목록에서 닉네임만 보여줘"): 상품 줄은 닉네임만

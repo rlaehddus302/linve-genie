@@ -2,8 +2,8 @@
 // 설정 묶음 카드(굵은 묶음 이름), 이름 알약(위 탭 알약과 같은 크기).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccessibilityInfo, Animated, BackHandler, Easing, KeyboardAvoidingView, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native'
-import { BackButton, KEYBOARD_AVOID, Txt, useBottomInset, useKit, useTopInset } from '../../ui/kit/index.ts'
-import { PAGE, RADIUS, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
+import { KEYBOARD_AVOID, NavBar, Txt, useBottomInset, useKit, usePageTop, useTopInset } from '../../ui/kit/index.ts'
+import { RADIUS, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
 
 /** 밀려 들어오는 시간 (쌓인 화면과 비슷하게) */
 export const SLIDE_IN_MS = 280
@@ -16,7 +16,10 @@ export const SLIDE_OUT_MS = 220
  */
 export function SlidePage({ visible, onClose, title, name, children, gray = false, footer, scroll = true, testID }: { readonly visible: boolean; readonly onClose: () => void; readonly title?: string; readonly name: string; readonly children?: ReactNode; readonly gray?: boolean; readonly footer?: ReactNode; readonly scroll?: boolean; readonly testID?: string }) {
   const { p } = useKit()
-  const top = useTopInset()
+  // 방송 화면 경로는 이미 상태 막대 아래에서 시작한다 — 또 띄우면 상태 막대만큼 내려온다 (D-UX4-41)
+  const top = usePageTop()
+  // 키보드 피하기는 이 화면의 부모가 화면 맨 위에서 얼마나 아래에서 시작하는지 알아야 한다(상태 막대 아래에서 시작하면 그 높이)
+  const parentTop = useTopInset() - top
   const { width } = useWindowDimensions()
   const instant = Platform.OS === 'web'
   const [mounted, setMounted] = useState(visible)
@@ -60,18 +63,9 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
   )
   return (
     <Animated.View role="dialog" aria-label={name} testID={testID} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, elevation: 20, backgroundColor: bg, paddingTop: top, transform: [{ translateX: shift }] }}>
-      <KeyboardAvoidingView behavior={KEYBOARD_AVOID} style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingLeft: PAGE.backLeft, paddingRight: SPACE.md }}>
-          <BackButton label="뒤로" onPress={onClose} />
-          {title === undefined ? null : (
-            // 토스 "토스뱅크 송금"처럼 가운데 제목 (본문보다 조금 큰 글자, 중간 굵기)
-            <View pointerEvents="none" style={{ position: 'absolute', left: 64, right: 64, alignItems: 'center' }}>
-              <Txt step="bodyLarge" weight="medium" role="heading" aria-level={1} numberOfLines={1}>
-                {title}
-              </Txt>
-            </View>
-          )}
-        </View>
+      <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={parentTop} style={{ flex: 1 }}>
+        {/* 모든 쌓인 화면과 같은 머리 (D-UX4-40) */}
+        <NavBar onBack={onClose} {...(title === undefined ? {} : { title })} />
         {body}
         {footer}
       </KeyboardAvoidingView>

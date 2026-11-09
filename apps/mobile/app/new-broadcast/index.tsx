@@ -15,7 +15,7 @@ export default function NewBroadcastRoute() {
   // 위 안전 영역은 FormPage가 직접 띄운다
   return (
     <View style={{ flex: 1, backgroundColor: PALETTE.light.surface }}>
-      <KitInsets>
+      <KitInsets belowStatusBar={false}>
         <NewBroadcastCategoryScreen nav={newBroadcastNav(router)} />
       </KitInsets>
     </View>

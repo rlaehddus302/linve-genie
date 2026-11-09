@@ -16,7 +16,7 @@ export default function NewBroadcastLabelsRoute() {
   const nav = newBroadcastNav(router)
   return (
     <View style={{ flex: 1, backgroundColor: PALETTE.light.surface }}>
-      <KitInsets>
+      <KitInsets belowStatusBar={false}>
         <LabelSetupScreen onBack={nav.back} onDone={() => nav.openConsole(id)} />
       </KitInsets>
     </View>
