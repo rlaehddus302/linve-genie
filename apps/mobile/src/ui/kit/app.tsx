@@ -9,7 +9,24 @@ import { Txt, useBottomInset, useKit } from './theme.tsx'
 import { tapHaptic } from '../../native/haptics.ts'
 import { TabIcon, type TabIconName } from './tab-icons.tsx'
 
-export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus' | 'down' | 'up'
+export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus' | 'down' | 'up' | 'gear' | 'edit'
+
+/** 톱니 (D-UX4-20, 사용자 지시 2026-11-09 "... 버튼 디자인을 톱니 디자인으로" — 토스 계좌 화면 오른쪽 위 회색 톱니): 이 8개, 가운데 구멍 */
+export const GEAR_PATH = (() => {
+  const teeth = 8
+  const outer = 10.4
+  const inner = 7.7
+  const parts: string[] = []
+  const at = (r: number, a: number) => `${(12 + r * Math.cos(a)).toFixed(2)} ${(12 + r * Math.sin(a)).toFixed(2)}`
+  for (let i = 0; i < teeth; i++) {
+    const base = (i / teeth) * Math.PI * 2
+    const step = (Math.PI * 2) / teeth
+    // 이 하나: 안쪽 → 바깥(조금 좁게) → 바깥 → 안쪽
+    parts.push(`${i === 0 ? 'M' : 'L'}${at(inner, base - step * 0.3)}`, `L${at(outer, base - step * 0.17)}`, `L${at(outer, base + step * 0.17)}`, `L${at(inner, base + step * 0.3)}`)
+  }
+  // 가운데 구멍 (evenodd로 뚫는다)
+  return `${parts.join(' ')} Z M15.3 12 A3.3 3.3 0 1 0 8.7 12 A3.3 3.3 0 1 0 15.3 12 Z`
+})()
 
 /**
  * 선 아이콘 (24 기준). 보조 기술에는 읽히지 않는다 — 옆 글자가 이름이다.
@@ -113,6 +130,19 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
             <Path d={name === 'down' ? 'M6.5 9.4 L12 14.9 L17.5 9.4' : 'M6.5 14.6 L12 9.1 L17.5 14.6'} stroke={c} strokeWidth={lineWidth} strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </Svg>
         )
+      case 'gear':
+        return (
+          <Svg width={s} height={s} viewBox="0 0 24 24">
+            <Path d={GEAR_PATH} fill={c} fillRule="evenodd" stroke={c} strokeWidth={1.2} strokeLinejoin="round" />
+          </Svg>
+        )
+      case 'edit':
+        // 연필 (D-UX4-21): 고칠 수 있는 칸 왼쪽 위 작은 표시
+        return (
+          <Svg width={s} height={s} viewBox="0 0 24 24">
+            <Path d="M14.6 5.4 L18.6 9.4 L9 19 L4.6 19.4 L5 15 Z M12.8 7.2 L16.8 11.2" stroke={c} strokeWidth={lineWidth * 1.15} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </Svg>
+        )
       case 'check':
         return <View style={{ width: s * 0.3, height: s * 0.55, borderBottomWidth: stroke + 1, borderRightWidth: stroke + 1, borderColor: c, transform: [{ rotate: '45deg' }], marginTop: -s * 0.12 }} />
       case 'plus':
@@ -166,11 +196,11 @@ export function AppHeader({ title, onBack, backLabel = '뒤로', right, testID }
 }
 
 /** 머리 오른쪽 둥근 아이콘 버튼 (⋯ 등). 이름은 aria-label로 꼭 준다. */
-export function HeaderIconButton({ icon, label, onPress, testID }: { readonly icon: IconName; readonly label: string; readonly onPress: () => void; readonly testID?: string }) {
+export function HeaderIconButton({ icon, label, onPress, testID, color, size }: { readonly icon: IconName; readonly label: string; readonly onPress: () => void; readonly testID?: string; readonly color?: string; readonly size?: number }) {
   const { p } = useKit()
   return (
     <Pressable role="button" aria-label={label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-      <Icon name={icon} />
+      <Icon name={icon} {...(color === undefined ? {} : { color })} {...(size === undefined ? {} : { size })} />
     </Pressable>
   )
 }
@@ -368,27 +398,31 @@ export function GroupLabel({ children }: { readonly children: string }) {
   )
 }
 
-/** 상태 점 + 글 ("듣는 중") */
+/**
+ * 상태 점 + 글 ("듣는 중"). 정상(on)은 밝은 초록, 그 밖(켜는 중·다시 잇는 중·멈춤·꺼짐)은 밝은 빨강 (D-UX4-22, 사용자 지시 2026-11-09 — 옛 D-UX3-89 듣는 중 빨강).
+ * 옅은 바탕 알약 안에 점(밝은 색)과 글자(대비 4.5 이상). 정상일 때 점이 부드럽게 밝아졌다 어두워진다.
+ */
 export function DotStatus({ word, tone }: { readonly word: string; readonly tone: 'on' | 'off' | 'warn' }) {
-  const { p, tones } = useKit()
-  // 듣는 중은 라이브처럼 빨간 글자 + 점이 부드럽게 밝아졌다 어두워진다 (D-UX3-89 — 옛 초록)
-  const ink = tone === 'on' ? tones.danger.fg : tone === 'warn' ? p.warnText : p.textSub
+  const { p } = useKit()
+  const ok = tone === 'on'
+  const ink = ok ? p.liveOkText : p.liveBadText
+  const dot = ok ? p.liveOkDot : p.liveBadDot
   const glow = useRef(new Animated.Value(1)).current
   useEffect(() => {
-    if (tone !== 'on') {
+    if (!ok) {
       glow.setValue(1)
       return
     }
     const loop = Animated.loop(Animated.sequence([
-      Animated.timing(glow, { toValue: 0.25, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(glow, { toValue: 0.3, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
       Animated.timing(glow, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
     ]))
     loop.start()
     return () => loop.stop()
-  }, [glow, tone])
+  }, [glow, ok])
   return (
-    <View role="status" aria-label={word} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: SPACE.xs }}>
-      <Animated.View aria-hidden testID="dot-status-dot" style={{ width: 10, height: 10, borderRadius: 5, borderCurve: 'continuous', backgroundColor: ink, opacity: glow }} />
+    <View role="status" aria-label={word} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: SPACE.sm + 2, paddingVertical: 5, marginRight: SPACE.xs, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: ok ? p.liveOkBg : p.liveBadBg }}>
+      <Animated.View aria-hidden testID="dot-status-dot" style={{ width: 9, height: 9, borderRadius: 5, borderCurve: 'continuous', backgroundColor: dot, opacity: glow }} />
       <Txt step="caption" weight="bold" ink={ink}>
         {word}
       </Txt>

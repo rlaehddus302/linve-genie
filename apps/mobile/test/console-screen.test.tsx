@@ -2,10 +2,13 @@
 // 실시간 change로 1등(찜)이 보이고, 뒤로 갔다 돌아오면 다시 잇고 "자리를 비운 동안 찜 n건"이 보이며, 듣기 시작 → 안내 → 서버가 읽은 결과로 바로 등록된다.
 // 새 시안(D-UX2-03)으로 바뀐 것: "현재 상품" 카드·알림 띠 대신 상품 리스트(줄을 누르면 자세히 시트), 빠른 입력·문자찜은 "직접 넣기" 시트,
 // 음성 켜기/끄기는 아래 고정 버튼 "듣기 시작/듣기 멈추기", 음성 상태는 머리의 "듣는 중". 요청 본문·막힘 조건 기대는 그대로다.
+// D-UX4-20~31 (사용자 지시 2026-11-09)로 바뀐 것: ⋯ 메뉴 판 → 톱니로 여는 "방송 설정" 화면, "직접 넣기" 빠른 입력 → 상품 탭 (+) 상품 추가 화면,
+// 문자찜 칸은 설정 화면 "문자찜 직접 넣기", 상품 자세히는 점선 칸(바로 고치기)·이름 알약(눌러 찜 삭제)·상품 삭제, 찜 기록 꼬리표를 눌러 찜 삭제.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { ConsoleScreen, THANKS_ON_DONE } from '../src/screens/ConsoleScreen.tsx'
-import { DIRECT_INPUT, LISTEN_START, LISTEN_STATE, LISTEN_STOP, VOICE_CONSENT_LINES, VOICE_SENT_LINE } from '../src/lib/words.ts'
+import { ConsoleScreen, SMS_DIRECT, THANKS_ON_DONE } from '../src/screens/ConsoleScreen.tsx'
+import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
+import { LISTEN_START, LISTEN_STATE, LISTEN_STOP, VOICE_CONSENT_LINES, VOICE_SENT_LINE } from '../src/lib/words.ts'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST, BROADCAST_VIEW, SETTINGS, buyer, changes, claim, flush, fullView, product } from './support.ts'
 
@@ -24,11 +27,18 @@ async function open(world: ReturnType<typeof makeWorld>) {
   })
 }
 
-// 직접 넣기·휴대폰 마이크는 아래 고정 단추가 아니라 방송 메뉴(⋯)에 있다 (D-UX3-73)
+// 휴대폰 마이크·문자찜 칸은 머리 톱니로 여는 방송 설정 화면에 있다 (D-UX3-73 → D-UX4-20)
 const openMenu = () => fireEvent.click(screen.getByRole('button', { name: '방송 메뉴' }))
 const openDirect = () => {
   openMenu()
-  fireEvent.click(screen.getByRole('button', { name: DIRECT_INPUT }))
+  fireEvent.click(screen.getByRole('button', { name: SMS_DIRECT }))
+}
+/** 쓰기 뒤 따라잡기 — 바뀐 것 없이 seq만 (여러 번 쓰는 흐름용) */
+const followWrites = (world: ReturnType<typeof makeWorld>) => world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=(\d+)/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1] ?? 5), world.seq, {}) }))
+/** 앱 숫자판으로 친다 */
+const typePad = (digits: string) => {
+  const pad = screen.getByRole('group', { name: '숫자판' })
+  for (const key of digits) fireEvent.click(within(pad).getByRole('button', { name: key }))
 }
 
 describe('ConsoleScreen', () => {
@@ -67,43 +77,91 @@ describe('ConsoleScreen', () => {
     expect(screen.queryByRole('region', { name: '알림' })).toBeNull()
     fireEvent.click(within(list).getByRole('button', { name: '상품 자세히 — 15번' }))
     const detail = await screen.findByRole('group', { name: '상품 자세히' })
-    expect(within(detail).getByText('판매 중')).toBeTruthy()
-    expect(within(detail).getByText('12,000원')).toBeTruthy()
+    // 옛 기대: 상태 낱말 "판매 중"·가격. 새 기대(D-UX4-30): 번호·품종·가격 점선 칸만 — 판매 완료·찜 요약·"아직 찜이 없어요"·일시 중지·판매 종료는 없다
+    expect(within(detail).getByRole('button', { name: '번호 고치기' }).textContent).toBe('15번')
+    expect(within(detail).getByRole('button', { name: '품종 고치기' }).textContent).toBe('핑크프릴')
+    expect(within(detail).getByRole('button', { name: '가격 고치기' }).textContent).toBe('12,000원')
+    for (const gone of ['판매 중', '아직 찜이 없어요', '일시 중지', '판매 종료']) expect(detail.textContent).not.toContain(gone)
+    expect(within(detail).getByRole('button', { name: '상품 삭제 — 15번' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '닫기' }))
-    openDirect()
-    expect(screen.getByRole('button', { name: '보내기' })).toBeTruthy()
+    // 옛 기대: 방송 메뉴 → 직접 넣기의 [보내기]. 새 기대(D-UX4-31): 상품 탭 오른쪽 아래 (+) 상품 추가
+    expect(screen.getByRole('button', { name: '상품 추가' })).toBeTruthy()
   })
 
-  it('빠른 입력 한 줄을 보내면 product.register 요청이 가고 등록 뒤 5초 되돌리기가 보인다', async () => {
+  // 옛 시험: 빠른 입력 한 줄 → product.register(text)·5초 되돌리기. 새 기대(D-UX4-31, 사용자 지시 2026-11-09): (+) → 한 번에 하나씩 묻는 상품 추가 화면
+  it('(+) 상품 추가: 앱 숫자판으로 번호 → [다음] → 가격(한글 금액) → 확인 "15번 / 15,000원 / 상품을 추가할까요?" → [추가하기]면 원문 칸으로 등록하고 돌아온다', async () => {
     const world = makeWorld({ products: [] })
     await open(world)
-    openDirect()
-    const input = screen.getByRole('textbox', { name: '빠른 입력' })
-    fireEvent.change(input, { target: { value: '16 핑크프릴 10000' } })
-    // SRV1 (D-APP-24, AC-SRV1-05): 미리 보기는 서버 읽기 입구의 답(150ms 뒤) — 옛 기대는 앱이 읽어 친 즉시
-    expect(await screen.findByText('등록하면: 16번 핑크프릴 10,000원')).toBeTruthy()
-    expect(world.reads.at(-1)?.body).toEqual({ kind: 'quick', text: '16 핑크프릴 10000' })
-    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { products: [product(16, { name: '핑크프릴' })] }) }))
-    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
+    followWrites(world)
+    fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
+    const page = await screen.findByRole('dialog', { name: '상품 추가' })
+    expect(within(page).getByText(ASK_NO)).toBeTruthy()
+    // 값이 없으면 [다음]이 없다
+    expect(within(page).queryByRole('button', { name: '다음' })).toBeNull()
+    typePad('16')
+    expect(within(page).getByText('16번')).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    expect(within(page).getByText(ASK_PRICE)).toBeTruthy()
+    // 번호는 위로 올라간다
+    expect(within(page).getByRole('button', { name: '번호 16번 고치기' })).toBeTruthy()
+    typePad('15000')
+    expect(within(page).getByText('15,000원')).toBeTruthy()
+    expect(within(page).getByText('1만 5,000원')).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '지우기' }))
+    expect(within(page).getByText('1,500원')).toBeTruthy()
+    // 만 원 아래는 한글 읽기를 따로 그리지 않는다
+    expect(within(page).getAllByText('1,500원')).toHaveLength(1)
+    typePad('0')
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    // 다육이 방송이 아니면 품종을 묻지 않고 바로 확인
+    expect(within(page).queryByText(ASK_NAME)).toBeNull()
+    expect(within(page).getByText('16번')).toBeTruthy()
+    expect(within(page).getByText('15,000원')).toBeTruthy()
+    expect(within(page).getByText(ASK_ADD)).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '추가하기' }))
     await waitFor(() => expect(world.events.length).toBe(1))
-    // 옛 기대: 본문 no·name·price. 새 기대(약속 2): 친 줄 원문 — 서버가 같은 함수로 다시 읽어 16번 핑크프릴 10,000원을 기록한다
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.register', b: 'b1', text: '16 핑크프릴 10000' })
-    await waitFor(() => expect(screen.getByRole('button', { name: '16번 등록 되돌리기' })).toBeTruthy())
-    expect((input as HTMLInputElement).value).toBe('')
-    expect(within(screen.getByRole('list', { name: '상품 목록' })).getByText('16번')).toBeTruthy()
-    // 되돌리기 → product.close
-    fireEvent.click(screen.getByRole('button', { name: '16번 등록 되돌리기' }))
-    await waitFor(() => expect(world.events.length).toBe(2))
-    expect(world.events[1]?.body).toMatchObject({ type: 'product.close', b: 'b1', no: 16 })
+    // 원문 칸(SRV1 약속 2): 가격은 "원"을 붙여 — 천원 단위 방송에서도 15,000원으로 읽힌다
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.register', b: 'b1', noText: '16', priceText: '15000원', name: '' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '상품 추가' })).toBeNull())
   })
 
-  it('오류 줄은 문장으로 알리고 보내지 않는다', async () => {
+  it('다육이 방송이면 상품 추가가 품종도 묻는다 — 품종 칸은 휴대폰 키보드, 확인에 "15번 / 삼광색금 / 15,000원" (D-UX4-31)', async () => {
     const world = makeWorld({ products: [] })
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, title: '2026-10-29 목요일 다육이 방송' }] } }))
     await open(world)
-    openDirect()
-    fireEvent.change(screen.getByRole('textbox', { name: '빠른 입력' }), { target: { value: '핑크프릴 10000' } })
-    fireEvent.click(screen.getByRole('button', { name: '보내기' }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('맨 앞에 상품 번호를 적어 주세요. 예: 15 핑크프릴 10000'))
+    followWrites(world)
+    fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
+    const page = await screen.findByRole('dialog', { name: '상품 추가' })
+    typePad('15')
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    typePad('15000')
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    const name = within(page).getByLabelText(ASK_NAME)
+    // 품종 단계에는 앱 숫자판이 없다
+    expect(within(page).queryByRole('group', { name: '숫자판' })).toBeNull()
+    fireEvent.change(name, { target: { value: '삼광색금' } })
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    for (const line of ['15번', '삼광색금', '15,000원', ASK_ADD]) expect(within(page).getByText(line)).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '추가하기' }))
+    await waitFor(() => expect(world.events.length).toBe(1))
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.register', b: 'b1', noText: '15', priceText: '15000원', name: '삼광색금' })
+  })
+
+  it('상품 추가: 이미 있는 번호·100원 미만 가격은 그 자리에서 알리고 넘어가지 않는다 — 보내지 않는다', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    await open(world)
+    fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
+    const page = await screen.findByRole('dialog', { name: '상품 추가' })
+    typePad('15')
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    expect(within(page).getByText('15번은 이미 있어요. 다른 번호를 적어 주세요.')).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '지우기' }))
+    typePad('7')
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    typePad('50')
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    expect(within(page).getByText('가격은 100원 이상으로 적어 주세요.')).toBeTruthy()
+    expect(within(page).queryByText(ASK_ADD)).toBeNull()
     expect(world.events.length).toBe(0)
   })
 
@@ -154,6 +212,46 @@ describe('ConsoleScreen', () => {
       return within(only!).getAllByRole('listitem')
     })
     expect(pendingRows[0]?.getAttribute('aria-label')).toBe('문자-0937 88 보류')
+  })
+
+  // D-UX4-27·25 (사용자 지시 2026-11-09 "[140 찜] 이런 각 항목을 누르면 아래에서 메뉴 … 찜 삭제 … 삭제하면 그 다음 대기 1이 찜되게")
+  it('찜 기록 꼬리표를 누르면 "15번 찜" 메뉴 → 찜 삭제 → "15번 찜을 삭제할까요?" [닫기 | 삭제] → 방송자 취소, 승계가 방송자 결정으로 남으면 대기 1을 1등으로', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    await open(world)
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5$/, () => ({
+      body: changes(5, 7, {
+        products: [product(15, { winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u2'], waitlistClaims: ['c2'] })],
+        claims: [claim('c1', 15, 'u1'), claim('c2', 15, 'u2', { status: 'WAITLISTED', seq: 11 })],
+        buyers: [buyer('u1', '홍길동'), buyer('u2', '김영희')],
+      }),
+    }))
+    await act(async () => {
+      world.source().emit('change', { date: '2026-10-29', rehearsal: false, seq: 7, type: 'chat' })
+      await flush()
+    })
+    world.seq = 7
+    // 취소 뒤 따라잡기: 1등 자리가 비고 승계 결정 필요(ASK)로 남았다
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=7$/, () => ({
+      body: changes(7, 8, {
+        products: [product(15, { awaitingSuccession: true, waitlist: ['u2'], waitlistClaims: ['c2'] })],
+        claims: [claim('c1', 15, 'u1', { status: 'CANCELLED' }), claim('c2', 15, 'u2', { status: 'WAITLISTED', seq: 11 })],
+      }),
+    }))
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=8$/, () => ({ body: changes(8, 9, {}) }))
+    fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
+    const feed = await screen.findByRole('list', { name: '찜 기록' })
+    fireEvent.click(within(feed).getByRole('button', { name: '15 찜' }))
+    const menu = await screen.findByRole('group', { name: '찜 메뉴' })
+    expect(screen.getByText('15번 찜')).toBeTruthy()
+    expect(within(menu).getByText('홍길동')).toBeTruthy()
+    fireEvent.click(within(menu).getByRole('button', { name: '찜 삭제' }))
+    const ask = await screen.findByRole('alertdialog', { name: '15번 찜을 삭제할까요?' })
+    // 부정 왼쪽 · 긍정 오른쪽 (D-UX4-01)
+    expect(within(ask).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['닫기', '삭제'])
+    fireEvent.click(within(ask).getByRole('button', { name: '삭제' }))
+    await waitFor(() => expect(world.events.length).toBe(2))
+    expect(world.events[0]?.body).toMatchObject({ type: 'host.cancel', b: 'b1', no: 15, buyer: 'u1', reason: '판매자가 찜을 삭제했어요' })
+    expect(world.events[1]?.body).toMatchObject({ type: 'host.promote', b: 'b1', no: 15, buyer: 'u2' })
   })
 
   it('D-UX4-12 채팅·문자 탭: 찜 기록 옆 탭에 채팅과 손님 문자가 받은 시각 순(최신이 맨 아래 — D-UX3-75)으로, 한 줄에 시각(20:00)·굵은 닉네임(문자는 "문자-끝번호")·내용·결과 꼬리표(15번 찜 금색 · 15번 대기 1 회색), 줄 바탕·출처 꼬리표·문자 설명 없이(D-UX3-80·82) 보이고 새 문자 알림이 오면 다시 읽는다', async () => {
@@ -232,17 +330,84 @@ describe('ConsoleScreen', () => {
     // 리스트 둘째 줄: [찜 1등] 금색 꼬리표 → 대기 손님 회색 꼬리표 (D-UX3-78 — 옛 기대: '예약 홍길동 · 대기 1명')
     const board = screen.getByRole('list', { name: '상품 목록' })
     const tags = await within(board).findByRole('list', { name: '15번 찜한 손님' })
-    expect(within(tags).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['찜 홍길동', '김영희'])
+    // 옛 기대(D-UX3-78): ['찜 홍길동', '김영희']. 새 기대(D-UX4-24): 닉네임만 — 1등·대기는 색으로
+    expect(within(tags).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['홍길동', '김영희'])
     expect(board.textContent).not.toContain('예약')
     fireEvent.click(within(board).getByRole('button', { name: '상품 자세히 — 15번' }))
-    const list = await screen.findByRole('list', { name: '15번 찜' })
-    // 시트도 보드와 같은 말: 1등은 "찜" (D-UX3-78 — 옛 기대 '예약', 그 전 '1등'(D-UX2-07))
-    expect(within(list).getByText('찜')).toBeTruthy()
-    expect(list.textContent).not.toContain('예약')
-    expect(list.textContent).not.toContain('1등')
-    expect(list.textContent).toContain('홍길동')
-    expect(list.textContent).toContain('대기 1번')
-    expect(list.textContent).toContain('김영희')
+    // 옛 기대: 시트 찜 목록 "찜 홍길동 · 대기 1번 김영희". 새 기대(D-UX4-30): 이름 알약만, 1등 → 대기 순서 (읽기 이름에 찜·대기)
+    const list = await screen.findByRole('list', { name: '15번 찜·대기' })
+    expect(within(list).getAllByRole('button').map((pill) => pill.getAttribute('aria-label'))).toEqual(['홍길동 찜', '김영희 대기'])
+    expect(list.textContent).toBe('홍길동김영희')
+  })
+
+  it('상품 자세히의 이름 알약을 누르면 "찜을 삭제할까요? 문자-0937" [닫기 | 삭제] → 방송자 취소 (D-UX4-30)', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=false)?$/, () => ({
+      body: fullView({ seq: world.seq, products: [product(15, { winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u3'], waitlistClaims: ['c3'] })], claims: [claim('c1', 15, 'u1'), claim('c3', 15, 'u3', { status: 'WAITLISTED', origin: 'sms', seq: 12 })], buyers: [buyer('u1', '홍길동'), buyer('u3', '문자손님', { kind: 'sms', phoneLast4: '0937' })] }),
+    }))
+    await open(world)
+    followWrites(world)
+    fireEvent.click(within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 15번' }))
+    const list = await screen.findByRole('list', { name: '15번 찜·대기' })
+    fireEvent.click(within(list).getByRole('button', { name: '문자-0937 대기' }))
+    const ask = await screen.findByRole('alertdialog', { name: '찜을 삭제할까요?' })
+    expect(ask.textContent).toContain('문자-0937')
+    fireEvent.click(within(ask).getByRole('button', { name: '닫기' }))
+    expect(world.events.length).toBe(0)
+    fireEvent.click(within(list).getByRole('button', { name: '문자-0937 대기' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: '찜을 삭제할까요?' })).getByRole('button', { name: '삭제' }))
+    await waitFor(() => expect(world.events.length).toBe(1))
+    expect(world.events[0]?.body).toMatchObject({ type: 'host.cancel', b: 'b1', no: 15, buyer: 'u3' })
+  })
+
+  // D-UX4-28 (사용자 지시 2026-11-09 "상품 삭제 메뉴 … 상품을 삭제할까요? 123번 삼광색금 50,000원 닫기 | 삭제")
+  it('상품 삭제: "상품을 삭제할까요?" 팝업에 상품 한 줄 → [삭제]면 대기를 먼저, 1등을 맨 나중에 취소하고 판매 종료한다', async () => {
+    const world = makeWorld({ products: [product(123)] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=false)?$/, () => ({
+      body: fullView({ seq: world.seq, products: [product(123, { name: '삼광색금', price: 50_000, status: 'SOLD', winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u2'], waitlistClaims: ['c2'] })], claims: [claim('c1', 123, 'u1'), claim('c2', 123, 'u2', { status: 'WAITLISTED', seq: 12 })], buyers: [buyer('u1', '홍길동'), buyer('u2', '김영희')] }),
+    }))
+    await open(world)
+    followWrites(world)
+    fireEvent.click(within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 123번' }))
+    fireEvent.click(await screen.findByRole('button', { name: '상품 삭제 — 123번' }))
+    const ask = await screen.findByRole('alertdialog', { name: '상품을 삭제할까요?' })
+    expect(ask.textContent).toContain('123번 삼광색금 50,000원')
+    expect(ask.textContent).toContain('찜 2건도 함께 지워져요.')
+    fireEvent.click(within(ask).getByRole('button', { name: '삭제' }))
+    await waitFor(() => expect(world.events.length).toBe(3))
+    expect(world.events.map((call) => [call.body?.type, call.body?.buyer])).toEqual([['host.cancel', 'u2'], ['host.cancel', 'u1'], ['product.close', undefined]])
+    expect(world.events[2]?.body).toMatchObject({ b: 'b1', no: 123 })
+  })
+
+  it('점선 칸을 누르면 그 자리에서 고친다 — 가격은 원문 칸, 품종은 이름, 번호는 번호 바꾸기 (D-UX4-30)', async () => {
+    const world = makeWorld({ products: [product(15, { name: '핑크프릴', price: 12_000 })] })
+    await open(world)
+    followWrites(world)
+    fireEvent.click(within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 15번' }))
+    const detail = await screen.findByRole('group', { name: '상품 자세히' })
+    fireEvent.click(within(detail).getByRole('button', { name: '가격 고치기' }))
+    const price = within(detail).getByLabelText('가격')
+    fireEvent.change(price, { target: { value: '18000' } })
+    fireEvent.blur(price)
+    await waitFor(() => expect(world.events.length).toBe(1))
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', noText: '15', priceText: '18000원' })
+    fireEvent.click(within(detail).getByRole('button', { name: '품종 고치기' }))
+    const name = within(detail).getByLabelText('품종')
+    fireEvent.change(name, { target: { value: '삼광색금' } })
+    fireEvent.blur(name)
+    await waitFor(() => expect(world.events.length).toBe(2))
+    expect(world.events[1]?.body).toMatchObject({ type: 'product.update', b: 'b1', no: 15, name: '삼광색금' })
+    // 바꾸지 않고 나가면 보내지 않는다
+    fireEvent.click(within(detail).getByRole('button', { name: '가격 고치기' }))
+    fireEvent.blur(within(detail).getByLabelText('가격'))
+    await flush()
+    expect(world.events.length).toBe(2)
+    fireEvent.click(within(detail).getByRole('button', { name: '번호 고치기' }))
+    const no = within(detail).getByLabelText('번호')
+    fireEvent.change(no, { target: { value: '21' } })
+    fireEvent.blur(no)
+    await waitFor(() => expect(world.events.length).toBe(3))
+    expect(world.events[2]?.body).toMatchObject({ type: 'product.renumber', b: 'b1', from: 15, to: 21 })
   })
 
   it('뒤로 갔다 돌아오면 끊긴 실시간을 바로 다시 잇고 "자리를 비운 동안 찜 n건"을 보인다 (APP-04)', async () => {
@@ -416,15 +581,12 @@ describe('ConsoleScreen', () => {
     expect(board.textContent).toContain('찜이 겹쳐요') // D-UX3-78 (옛 기대 '예약이 겹쳐요')
     fireEvent.click(within(board).getByRole('button', { name: '상품 자세히 — 5번' }))
     const detail = await screen.findByRole('group', { name: '상품 자세히' })
-    expect(within(detail).getByText('아직 안 정했어요')).toBeTruthy()
     expect(detail.textContent).not.toContain('판매 완료')
     expect(detail.textContent).not.toContain('1등')
     expect(detail.textContent).not.toContain('충돌')
-    expect(detail.textContent).toContain('찜이 겹쳐서 정해야 해요.') // D-UX3-78 (옛 기대 '예약이 겹쳐서 정해야 해요.')
-    const claims = within(detail).getByRole('list', { name: '5번 찜' }).textContent ?? ''
-    expect(claims.match(/겹침/g)).toHaveLength(2)
-    expect(claims).toContain('꽃집언니')
-    expect(claims).toContain('문자손님')
+    // 옛 기대: "아직 안 정했어요" 배지·"찜이 겹쳐서 정해야 해요." 요약·찜 줄마다 "겹침". 새 기대(D-UX4-30): 요약 글 없이 이름 알약 — 겹친 찜은 빨강(읽기 이름 "겹침")
+    const pills = within(within(detail).getByRole('list', { name: '5번 찜·대기' })).getAllByRole('button').map((pill) => pill.getAttribute('aria-label'))
+    expect(pills).toEqual(['꽃집언니 찜', '문자손님 겹침'])
     // 옛 기대: "누가 살지 정하기 (웹으로 열기)". 새 기대(D-APPX-03): 방송 화면의 정하기 창을 그 상품으로 열고, 고른 조치는 대기 뒤 보낸다
     fireEvent.click(within(detail).getByRole('button', { name: '누가 살지 정하기' }))
     const decide = await screen.findByRole('group', { name: '충돌 — 5번' })
@@ -448,40 +610,49 @@ describe('ConsoleScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: '끝내기' }))
     await waitFor(() => expect(home).toBe(1))
     expect(screen.getByText('끝난 방송')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: DIRECT_INPUT })).toBeNull()
+    // 끝난 방송에는 (+) 상품 추가가 없다 (옛 기대: "직접 넣기" 메뉴 없음)
+    expect(screen.queryByRole('button', { name: '상품 추가' })).toBeNull()
   })
 
   // D-YT-SRV-24 (사용자 지시 2026-11-09 "방송 화면에서 ... 버튼 눌러서 켜고 끌 수 있게")
-  it('방송 메뉴에서 꺼져 있는 감사 채팅을 켜면 broadcast.thanks(켬)가 가고 결과 한 줄이 보인다 — 지금 상태가 줄 이름에 보인다', async () => {
+  // D-UX4-20: 줄 "감사 채팅 켜기/끄기" → 방송 설정 화면의 스위치 "감사 채팅"(켜짐·꺼짐이 스위치에)
+  it('방송 설정에서 꺼져 있는 감사 채팅 스위치를 켜면 broadcast.thanks(켬)가 가고 결과 한 줄이 보인다 — 스위치가 지금 상태를 보인다', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
     // 쓰기 뒤 따라잡기: 방송 설정의 감사 채팅이 켬으로 바뀐 증분
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { broadcasts: [{ ...BROADCAST_VIEW, settings: { ...SETTINGS, 'thanks.liveChat': true } }] }) }))
     openMenu()
-    fireEvent.click(await screen.findByRole('button', { name: '감사 채팅 켜기' }))
+    fireEvent.click(await screen.findByRole('switch', { name: '감사 채팅 — 꺼짐' }))
     await waitFor(() => expect(world.events.some((call) => call.body?.type === 'broadcast.thanks')).toBe(true))
     const sent = world.events.find((call) => call.body?.type === 'broadcast.thanks')
     expect(sent?.body).toMatchObject({ type: 'broadcast.thanks', b: 'b1', liveChat: true })
     expect(await screen.findByText(THANKS_ON_DONE)).toBeTruthy()
-    // 다시 열면 지금 상태(켬)대로 "끄기"
-    openMenu()
-    expect(await screen.findByRole('button', { name: '감사 채팅 끄기' })).toBeTruthy()
+    // 스위치가 지금 상태(켬)를 보인다
+    expect(await screen.findByRole('switch', { name: '감사 채팅 — 켜짐' })).toBeTruthy()
   })
 
-  it('직접 넣기 예시는 그 방송 가격 단위와 같은 꼴이다 — 천원 단위면 "15 핑크프릴 10" (D-UX2-07)', async () => {
+  // 옛 시험: "직접 넣기 예시는 그 방송 가격 단위와 같은 꼴" — 빠른 입력 한 줄을 없앴다(D-UX4-31). 가격 단위와 상관없는 원문 "원"은 (+) 상품 추가 시험이 본다.
+  it('방송 설정 화면: 톱니로 열고, 머리 글("방송 메뉴"·방송 제목) 없이 묶음 이름과 줄만 — 뒤로 닫는다 (D-UX4-20)', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
-    openDirect()
-    const input = screen.getByRole('textbox', { name: '빠른 입력' })
-    expect(input.getAttribute('placeholder')).toBe('예: 15 핑크프릴 10')
-    expect(screen.getByText('가격 단위: 천원 — 10은 10,000원, 2만은 20,000원')).toBeTruthy()
+    openMenu()
+    const page = await screen.findByRole('dialog', { name: '방송 설정' })
+    expect(page.textContent).not.toContain('방송 메뉴')
+    expect(page.textContent).not.toContain('저녁 방송')
+    expect(within(page).getByRole('button', { name: SMS_DIRECT })).toBeTruthy()
+    expect(within(page).getByRole('button', { name: '방송 끝내기' })).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '뒤로' }))
+    expect(screen.queryByRole('dialog', { name: '방송 설정' })).toBeNull()
   })
 
-  it('1등 옆 손님 꼬리표(CR-7, D-APPX-01): 서버가 보이라고 하면(show) 첫 1등 옆에 "단골 · 누적 …"을 붙인다', async () => {
+  // 옛 시험(CR-7, D-APPX-01): 첫 1등 옆 "단골 · 누적 …". 새 기대(D-UX4-24, 사용자 지시 "각 상품마다 찜 목록에서 닉네임만 보여줘"): 상품 줄은 닉네임만
+  it('상품 줄에는 닉네임만 — 손님 꼬리표를 묻지도 붙이지도 않는다', async () => {
     const world = makeWorld({ products: [product(15, { name: '핑크프릴', winners: ['u1'], winnerClaims: ['c1'] })] })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/customer-badges\?buyer=u1$/, () => ({ body: { show: true, badges: [{ buyer: 'u1', text: '단골 · 누적 152,000원', spoken: null }] } }))
     await open(world)
-    expect(await screen.findByText('단골 · 누적 152,000원')).toBeTruthy()
+    await flush()
+    expect(screen.queryByText('단골 · 누적 152,000원')).toBeNull()
+    expect(world.server.callsTo('GET', /customer-badges/)).toHaveLength(0)
   })
 
   it('리허설 방송은 손님 꼬리표를 묻지 않는다', async () => {

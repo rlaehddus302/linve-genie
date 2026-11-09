@@ -19,6 +19,8 @@ export interface ConsoleApi {
   /** 상품 고르기 (현재 상품 칸) */
   readonly select: (key: string | null) => void
   readonly selected: string | null
+  /** 쓰기 뒤 따라잡은 가장 새 범위 자료 (찜 삭제 뒤 승계 확인 — D-UX4-25). 없으면 data */
+  readonly latest?: () => ScopeData
   /** 라벨 상태 낱말 (찜 ID → 낱말, 리허설·모르면 없음) */
   readonly labelWords: ReadonlyMap<string, string>
 }

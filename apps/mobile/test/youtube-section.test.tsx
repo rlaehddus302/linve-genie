@@ -139,9 +139,11 @@ describe('콘솔 유튜브 (앱)', () => {
     const warning = screen.getByRole('alert', { name: '유튜브 채팅 경고' })
     expect(warning.textContent).toBe(BLOCKED)
     // 옛 문장 "아래 문자찜 칸이나…" — 문자찜 칸은 "직접 넣기" 시트로 옮겼다 (D-UX2-03)
-    expect(screen.getByText('"직접 넣기"의 문자찜 칸이나 음성으로 넣을 수 있어요.')).toBeTruthy()
+    // 옛 기대: '"직접 넣기"의 문자찜 칸이나 …'. 새 기대(D-UX4-20): 문자찜 칸은 톱니(방송 설정) → "문자찜 직접 넣기"
+    expect(screen.getByText('톱니 → "문자찜 직접 넣기"나 음성으로 넣을 수 있어요.')).toBeTruthy()
     // 옛 기대: "댓글 붙여넣기 (웹으로 열기)". 새 기대(D-APPX-03): 방송 화면 안 붙여넣기 창을 연다
-    expect(screen.getByRole('button', { name: '댓글 붙여넣기' })).toBeTruthy()
+    // 경고 줄의 단추 + 뒤에 열려 있는 방송 설정 화면의 같은 이름 줄 (D-UX4-20 — 설정 화면은 판이 아니라 방송 화면 위에 남는다)
+    expect(screen.getAllByRole('button', { name: '댓글 붙여넣기' })).toHaveLength(2)
     await emit({ status: 'LIVE' })
     expect(screen.queryByRole('alert', { name: '유튜브 채팅 경고' })).toBeNull()
     expect(within(section()).getByText(RESUMED)).toBeTruthy()

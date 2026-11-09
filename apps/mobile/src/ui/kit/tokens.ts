@@ -71,6 +71,13 @@ export interface Palette {
   /** 방송 상품 줄의 [찜 닉네임] 꼬리표 바탕·글자 — 금색 (D-UX3-78) */
   readonly goldBg: string
   readonly goldText: string
+  /** 방송 상태 표시 (D-UX4-22, 사용자 지시 2026-11-09 "정상 상태면 밝은 초록색, 아니라면 밝은 빨간색"): 바탕·글자·점 */
+  readonly liveOkBg: string
+  readonly liveOkText: string
+  readonly liveOkDot: string
+  readonly liveBadBg: string
+  readonly liveBadText: string
+  readonly liveBadDot: string
 }
 
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
@@ -134,6 +141,13 @@ const LIGHT: Palette = {
   // 찜한 사람 꼬리표 금색 (D-UX3-78, 사용자 지시 2026-11-09 "배경 색은 금색 같은 색으로") — 글자 대비 4.5 이상
   goldBg: '#F8E3A3',
   goldText: '#5A4100',
+  // 방송 상태 (D-UX4-22): 점은 밝게, 글자는 옅은 바탕 위 대비 4.5 이상
+  liveOkBg: '#E6F7EE',
+  liveOkText: '#07803F',
+  liveOkDot: '#00C471',
+  liveBadBg: '#FEEDEE',
+  liveBadText: '#D11422',
+  liveBadDot: '#FF3B3B',
 }
 
 export const PALETTE: Readonly<Record<Scheme, Palette>> = { light: LIGHT, dark: LIGHT }
@@ -175,6 +189,8 @@ export const TYPE = {
   number: 24,
   /** 입력 칸 값·비어 있을 때 칸 안 라벨 (토스 "휴대폰 번호" 칸을 재어 22, D-UX3-51 — 옛 24) */
   input: 20,
+  /** 상품 추가 큰 칸·숫자판·확인 문장 (토스 송금 "얼마나 옮길까요?" 사진을 재어 28, D-UX4-31) */
+  amount: 28,
 } as const
 
 export type TypeStep = keyof typeof TYPE
@@ -280,6 +296,8 @@ export function contrastPairs(scheme: Scheme): readonly ContrastPair[] {
     { name: '본문/주의바탕', fg: p.text, bg: p.warnBg, min: 4.5 },
     { name: '설명/주의바탕', fg: p.textSub, bg: p.warnBg, min: 4.5 },
     { name: '찜 꼬리표/금색', fg: p.goldText, bg: p.goldBg, min: 4.5 },
+    { name: '방송 상태 정상', fg: p.liveOkText, bg: p.liveOkBg, min: 4.5 },
+    { name: '방송 상태 문제', fg: p.liveBadText, bg: p.liveBadBg, min: 4.5 },
   ]
   for (const [tone, pair] of Object.entries(TONES[scheme])) pairs.push({ name: `상태 ${tone}`, fg: pair.fg, bg: pair.bg, min: 4.5 })
   return pairs

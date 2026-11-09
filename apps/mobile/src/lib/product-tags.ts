@@ -15,12 +15,13 @@ export const TAG_PAD_X = 8
 export const TAG_GAP = 4
 
 /**
- * 손님 꼬리표 낱말: 유튜브 손님은 닉네임, 문자찜 손님은 "문자찜 끝4자리"(전화번호 전체는 보이지 않는다).
- * 1등은 앞에 "찜"을 붙인다(문자찜은 이미 "문자찜"이라 붙이지 않는다). 끝자리가 없는 문자 손님은 문자에 적힌 이름.
+ * 손님 꼬리표 낱말 (D-UX4-24, 사용자 지시 2026-11-09 "각 상품마다 찜 목록에서 닉네임만 보여줘. 문자는 [문자-0937]"):
+ * 유튜브 손님은 닉네임만, 문자 손님은 "문자-끝4자리"(전화번호 전체는 보이지 않는다, 찜 기록과 같은 꼴). 끝자리가 없는 문자 손님은 문자에 적힌 이름.
+ * 1등·대기는 낱말이 아니라 색(금색·회색)으로만 나눈다 — 옛 "찜 닉네임"·"문자찜 0937"(D-UX3-78). winner는 색을 정하는 쪽이 쓴다.
  */
-export function buyerTagText(buyer: Pick<Buyer, 'kind' | 'phoneLast4'> | undefined, name: string, winner: boolean): string {
-  if (buyer?.kind === 'sms') return `문자찜 ${buyer.phoneLast4 !== null && buyer.phoneLast4.trim() !== '' ? buyer.phoneLast4 : name}`
-  return winner ? `찜 ${name}` : name
+export function buyerTagText(buyer: Pick<Buyer, 'kind' | 'phoneLast4'> | undefined, name: string, _winner?: boolean): string {
+  if (buyer?.kind === 'sms') return buyer.phoneLast4 !== null && buyer.phoneLast4.trim() !== '' ? `문자-${buyer.phoneLast4}` : name
+  return name
 }
 
 /** 글자 폭 어림 (dp) — 넉넉하게 잡아 한 줄을 넘지 않게 */

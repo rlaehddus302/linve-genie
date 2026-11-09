@@ -4,21 +4,25 @@
 // 보류(아직 없는 번호) 주황 "123 보류", 겹침 빨강, 취소·안 됨 회색에 그 낱말.
 // 줄 순서는 라이브 채팅처럼 가장 최근에 찜한 손님이 맨 아래(D-UX3-75), 한 손님 안의 번호는 찜한 순서.
 // 판정은 하지 않는다. 상태·대기 순서·1등은 서버 값(범위 자료) 그대로 낱말로만 바꾼다. 닉네임은 글자로만 그린다.
-import { useMemo } from 'react'
+// D-UX4-27 (사용자 지시 2026-11-09 "찜기록 화면 각 목록이 텍스트 크기가 너무 작아. 찜 기록 알약 버튼만큼 크기 키워서 누르기 쉽게"):
+// 이름·번호 꼬리표를 위 탭 알약과 같은 크기(높이 36·본문 큰 글자)로. 살아 있는 찜 꼬리표를 누르면 아래에서 "140번 찜" 메뉴(찜 삭제·상품 보기)가 올라오고,
+// 찜 삭제는 "140번 찜을 삭제할까요?" 팝업 [닫기 | 삭제] 뒤 방송자 취소 — 1등이었으면 대기 1이 찜이 된다(claim-actions).
+import { useMemo, useState } from 'react'
 import { View } from 'react-native'
 import type { Claim } from '@livejjim/web/src/api/types.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { claimWord, productSlots, waitPosition, type BuyerNames } from '../../lib/derive.ts'
-import { Txt, useKit } from '../../ui/kit/index.ts'
+import { isApiError } from '../../api/client.ts'
+import { BottomSheet, PopupDialog, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, type Palette, type TonePair } from '../../ui/kit/tokens.ts'
-import { Hint } from '../../ui/parts.tsx'
+import { Hint, Notice } from '../../ui/parts.tsx'
+import { ACTIVE_CLAIM, deleteClaim, useSheetHandoff } from './claim-actions.ts'
 import { useConsoleApi } from './context.ts'
+import { IconMenuRow, NamePill, TRASH_TINT, type PillTone } from './parts.tsx'
 
 export const FEED_EMPTY = '아직 찜이 없어요. 채팅·문자로 번호가 오면 여기에 바로 보여요.'
 /** 한 번에 그리는 손님 줄 수 (최신 손님부터) */
 export const FEED_LIMIT = 60
-/** 번호 꼬리표 모서리 — 알약이 아닌 둥근 네모 (사용자 지시 "배경은 라운드직사각") */
-const TAG_RADIUS = 6
 
 export interface FeedNo {
   readonly id: string
@@ -121,43 +125,109 @@ export function noLabel(item: FeedNo): string {
   return item.takenBy === null ? base : `${base} · 이미 찜됨 · 1등 ${item.takenBy}`
 }
 
-function NoTag({ item }: { readonly item: FeedNo }) {
-  const { p, tones } = useKit()
-  const pair = tagColors(p, tones.danger, item.tone)
-  return (
-    <View aria-label={noLabel(item)} style={{ paddingHorizontal: SPACE.sm, paddingVertical: 2, borderRadius: TAG_RADIUS, borderCurve: 'continuous', backgroundColor: pair.bg }}>
-      <Txt step="meta" weight={item.tone === 'wait' ? 'medium' : 'bold'} ink={pair.fg}>{`${String(item.no)} ${item.word}`}</Txt>
-    </View>
-  )
+const PILL_TONE: Readonly<Record<FeedTone, PillTone>> = { win: 'win', wait: 'wait', pending: 'pending', conflict: 'conflict', other: 'wait' }
+
+/** 번호 꼬리표 — 둥근 네모(사용자 지시 "배경은 라운드직사각"), 위 탭 알약과 같은 크기. 살아 있는 찜만 누를 수 있다 */
+function NoTag({ item, onPick }: { readonly item: FeedNo; readonly onPick?: (item: FeedNo) => void }) {
+  const can = onPick !== undefined && ACTIVE_CLAIM.has(item.status)
+  return <NamePill square text={`${String(item.no)} ${item.word}`} tone={PILL_TONE[item.tone]} ariaLabel={noLabel(item)} {...(can ? { onPress: () => onPick(item) } : {})} />
 }
 
-export function FeedLine({ row }: { readonly row: FeedBuyer }) {
+export function FeedLine({ row, onPick }: { readonly row: FeedBuyer; readonly onPick?: (row: FeedBuyer, item: FeedNo) => void }) {
   const { p } = useKit()
   return (
-    <View role="listitem" aria-label={`${row.buyer} ${row.nos.map(noLabel).join(', ')}`} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, paddingVertical: SPACE.xs, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surface }}>
-      <View style={{ flexShrink: 1, maxWidth: '40%', paddingVertical: 2 }}>
-        <Txt step="meta" weight="bold" numberOfLines={1}>{row.buyer}</Txt>
+    <View role="listitem" aria-label={`${row.buyer} ${row.nos.map(noLabel).join(', ')}`} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.md, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surface }}>
+      <View style={{ flexShrink: 1, maxWidth: '38%', minHeight: 36, justifyContent: 'center' }}>
+        <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{row.buyer}</Txt>
       </View>
-      <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
-        {row.nos.map((item) => <NoTag key={item.id} item={item} />)}
+      <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
+        {row.nos.map((item) => <NoTag key={item.id} item={item} {...(onPick === undefined ? {} : { onPick: (picked: FeedNo) => onPick(row, picked) })} />)}
       </View>
     </View>
   )
 }
 
-/** 찜 기록 (only: 그 상태의 찜만 — 보류 찜 보기) */
-export function ClaimFeed({ only }: { readonly only?: Claim['status'] }) {
+/**
+ * 찜 기록 (only: 그 상태의 찜만 — 보류 찜 보기, 판 안이라 누르지 않는다).
+ * onOpenProduct: 찜 메뉴의 "상품 보기" — 그 상품 자세히를 연다
+ */
+export function ClaimFeed({ only, onOpenProduct }: { readonly only?: Claim['status']; readonly onOpenProduct?: (key: string) => void }) {
   const api = useConsoleApi()
   const rows = useMemo(() => feedRows(api.data, api.names, api.b, only), [api.data, api.names, api.b, only])
+  const [picked, setPicked] = useState<{ readonly id: string; readonly no: number; readonly buyer: string } | null>(null)
+  const [asking, setAsking] = useState<{ readonly id: string; readonly no: number; readonly buyer: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const handoff = useSheetHandoff()
+  const closed = api.ended || api.sealed
   if (rows.length === 0) return <Hint>{only === 'PENDING' ? '보류 찜이 없어요.' : FEED_EMPTY}</Hint>
   const shown = rows.slice(-FEED_LIMIT)
+  const pickedClaim = picked === null ? undefined : api.data.claims.get(picked.id)
+  const pickedProduct = pickedClaim === undefined ? undefined : api.data.products.get(pickedClaim.product)
+  const remove = async () => {
+    if (asking === null) return
+    const claim = api.data.claims.get(asking.id)
+    if (claim === undefined || !ACTIVE_CLAIM.has(claim.status)) {
+      setAsking(null)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await deleteClaim(api, claim)
+      setAsking(null)
+    } catch (caught) {
+      setAsking(null)
+      setError(isApiError(caught) ? caught.message : '지우지 못했어요. 다시 눌러 주세요.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const canPick = only === undefined && !closed
   return (
-    <View style={{ gap: SPACE.xs }}>
+    <View style={{ gap: SPACE.sm }}>
+      {error !== null ? <Notice tone="danger" alert>{error}</Notice> : null}
       {rows.length > FEED_LIMIT ? <Hint>{`그 밖 ${String(rows.length - FEED_LIMIT)}명은 구매자 화면에서 볼 수 있어요.`}</Hint> : null}
       {/* 최근 FEED_LIMIT명을 라이브 채팅처럼 가장 최근 손님이 맨 아래로 (D-UX3-75) */}
-      <View role="list" aria-label="찜 기록" style={{ gap: SPACE.xs }}>
-        {shown.map((row) => <FeedLine key={row.key} row={row} />)}
+      <View role="list" aria-label="찜 기록" style={{ gap: SPACE.sm }}>
+        {shown.map((row) => <FeedLine key={row.key} row={row} {...(canPick ? { onPick: (line: FeedBuyer, item: FeedNo) => setPicked({ id: item.id, no: item.no, buyer: line.buyer }) } : {})} />)}
       </View>
+      {canPick ? (
+        <>
+          <BottomSheet visible={picked !== null && pickedClaim !== undefined && ACTIVE_CLAIM.has(pickedClaim.status)} onClose={() => setPicked(null)} title={picked === null ? '' : `${String(picked.no)}번 찜`}>
+            {picked === null ? null : (
+              <View role="group" aria-label="찜 메뉴" style={{ gap: SPACE.xs }}>
+                <Txt color="textSub">{picked.buyer}</Txt>
+                {pickedProduct !== undefined && onOpenProduct !== undefined ? (
+                  <IconMenuRow emoji="🪴" tint={p0} title="상품 보기" onPress={() => {
+                    const key = pickedProduct.key
+                    setPicked(null)
+                    handoff(() => onOpenProduct(key))
+                  }} />
+                ) : null}
+                <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title="찜 삭제" onPress={() => {
+                  const target = picked
+                  setPicked(null)
+                  handoff(() => setAsking(target))
+                }} />
+              </View>
+            )}
+          </BottomSheet>
+          <PopupDialog
+            visible={asking !== null}
+            message={asking === null ? '' : `${String(asking.no)}번 찜을 삭제할까요?`}
+            description={asking?.buyer ?? null}
+            cancelLabel="닫기"
+            confirmLabel="삭제"
+            busy={busy}
+            onCancel={() => setAsking(null)}
+            onConfirm={() => void remove()}
+          />
+        </>
+      ) : null}
     </View>
   )
 }
+
+/** "상품 보기" 줄 바탕 (옅은 초록) */
+const p0 = '#E6F2EB'

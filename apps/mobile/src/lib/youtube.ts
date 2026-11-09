@@ -24,7 +24,8 @@ export const NO_CHANNEL_NAME = '(이름 없음)'
 export const CHANNEL_NAME_MAX = 40
 export const INVITED_CONFIRM_CODE = 'INVITED_CONFIRM_NEEDED'
 /** 앱에서의 대비 경로 안내 — 휴대폰만 쓰는 판매자: 문자찜·음성·댓글 붙여넣기(웹) (D-YT-SRV-09, NFR-09) */
-export const MOBILE_FALLBACK_HINT = '"직접 넣기"의 문자찜 칸이나 음성으로 넣을 수 있어요.'
+// D-UX4-20: 문자찜 칸은 방송 설정(톱니) → "문자찜 넣기"로 옮겼다
+export const MOBILE_FALLBACK_HINT = '톱니 → "문자찜 직접 넣기"나 음성으로 넣을 수 있어요.'
 /** 옛 공식 읽기 서버(구글 연결로 읽음)에서 연결이 없을 때 — 웹 CONSOLE_NOT_CONNECTED·RECONNECT_NEEDED_MESSAGE와 같은 문장 (D-UX2-07) */
 export const NOT_CONNECTED_FIRST = '유튜브 채널을 먼저 연결해 주세요.'
 export const RECONNECT_FIRST = '유튜브 연결을 다시 해 주세요.'
@@ -90,8 +91,9 @@ export function resumeStep(previous: ResumeStep, collector: CollectorView | null
   return { trouble: false, resumed: false }
 }
 
-export function readModeOf(body: { readonly webChat?: unknown; readonly oauth?: unknown }): { readonly webChat: YoutubeWebChat | null; readonly oauth: boolean } {
+// botThanks: 웹과 같은 꼴 (D-YT-SRV-23에서 웹에만 더해져 맞추기 시험이 어긋났다)
+export function readModeOf(body: { readonly webChat?: unknown; readonly oauth?: unknown; readonly botThanks?: unknown }): { readonly webChat: YoutubeWebChat | null; readonly oauth: boolean; readonly botThanks: boolean } {
   const raw = body.webChat
   const webChat = typeof raw === 'object' && raw !== null && typeof (raw as { on?: unknown }).on === 'boolean' ? { on: (raw as { on: boolean }).on } : null
-  return { webChat, oauth: body.oauth !== false }
+  return { webChat, oauth: body.oauth !== false, botThanks: body.botThanks === true }
 }

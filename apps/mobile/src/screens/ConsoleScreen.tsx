@@ -1,3 +1,5 @@
+// D-UX4-20 (사용자 지시 2026-11-09): 머리 오른쪽 ⋯ 대신 회색 톱니. 누르면 아래 판이 아니라 오른쪽에서 밀려 들어오는 "방송 설정" 화면(토스 설정처럼 굵은 묶음 이름·흰 카드),
+// 머리 글("방송 메뉴"·방송 제목)은 없앴다. "직접 넣기"는 상품 탭 오른쪽 아래 (+) → 상품 추가 화면(D-UX4-31), 문자찜 넣기는 설정 화면 줄로.
 // 방송 중 (SPEC §7 화면 2, D-UX2-03 새 시안): 머리(뒤로 · "방송 중" · 음성 상태 · 방송 메뉴) → 도움 한 줄 → 꼭 필요한 경고만 한 줄씩
 // → 음성 확인할 것 → 상품 전체 리스트(최신이 위). 아래 고정 버튼은 없다 — 직접 넣기·휴대폰 마이크는 방송 메뉴(⋯)에 (D-UX3-73).
 // 빠른 입력·문자찜은 "직접 넣기" 시트, 유튜브 잇기·음성 설정·방송 끝내기는 방송 메뉴(⋯)의 시트로 옮겼다. 상품이 없는 새 방송이 유튜브에
@@ -6,31 +8,30 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
+import { ScrollView, View, type ScrollViewInstance } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import { ApiError, get, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
-import { BuyerNames, alertCounts, boardProducts, nameOf } from '../lib/derive.ts'
+import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
 import { ScopeStore, type ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
-import { DIRECT_INPUT, LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
+import { LISTEN_START, LISTEN_STOP, LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, BigButton, BottomSheet, ConfirmSheet, FullSheet, DotStatus, HeaderIconButton, RowGroup, TodoRow, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, BottomSheet, ConfirmSheet, FullSheet, DotStatus, HeaderIconButton, ToggleRow, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { BigButton as SmallButton, Loading, Notice, Row } from '../ui/parts.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
-import { ProductDetail, ProductList } from './console/ProductBoard.tsx'
-import { QuickInput } from './console/QuickInput.tsx'
+import { ProductDetail, ProductList, shownProducts } from './console/ProductBoard.tsx'
+import { AddFab, ProductAddPage } from './console/ProductAdd.tsx'
+import { MenuGroup, MenuRow, SlidePage } from './console/parts.tsx'
 import { SmsForm } from './console/SmsForm.tsx'
 import { ChatView, PasteView } from './console/ChatPaste.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
 
-/** 메뉴 판이 다 닫힌 뒤 다음 판을 연다 — 판 닫힘(SHEET_OUT_MS 200) + 아이폰이 판을 내리는 시간 */
-const MENU_HANDOFF_MS = 400
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
-import { ListenMenuRow, VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
+import { VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
 import { ListenLine, listenChip, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB } from './console/LiveTalk.tsx'
@@ -38,20 +39,20 @@ import { APP_IMPORT_TITLE, ImportView } from './console/ImportSheet.tsx'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
+/** 방송 설정의 문자찜 칸 줄 이름 (D-UX4-20 — 옛 "직접 넣기" 시트의 문자찜 칸) */
+export const SMS_DIRECT = '문자찜 직접 넣기'
+
 /** 감사 채팅 켜기·끄기 결과 줄을 보이는 시간 */
 const THANKS_NOTE_MS = 5000
 export const THANKS_ON_DONE = '감사 채팅을 켰어요. 이제 찜이 확정되면 채팅에 감사 메시지를 올려요.'
 export const THANKS_OFF_DONE = '감사 채팅을 껐어요. 이제 채팅에 감사 메시지를 올리지 않아요.'
 
-/** 방송 메뉴의 감사 채팅 켜기·끄기 줄 (D-YT-SRV-24) — 지금 상태를 함께 보인다 */
-export function ThanksMenuRow({ on, onPress }: { readonly on: boolean; readonly onPress: (next: boolean) => void }) {
+/** 방송 설정의 감사 채팅 스위치 (D-YT-SRV-24 → D-UX4-20 스위치로) — 켜짐·꺼짐이 스위치에 보인다 */
+export function ThanksSwitch({ on, busy, onPress }: { readonly on: boolean; readonly busy: boolean; readonly onPress: (next: boolean) => void }) {
   return (
-    <TodoRow
-      title={on ? '감사 채팅 끄기' : '감사 채팅 켜기'}
-      sub={on ? '지금 켜져 있어요 · 찜이 확정될 때마다 채팅에 감사 메시지를 올려요' : '지금 꺼져 있어요 · 켜면 찜이 확정될 때 채팅에 감사 메시지를 올려요'}
-      testID="thanks-switch"
-      onPress={() => onPress(!on)}
-    />
+    <View style={{ paddingHorizontal: SPACE.xl }}>
+      <ToggleRow title="감사 채팅" on={on} disabled={busy} testID="thanks-switch" onChange={onPress} />
+    </View>
   )
 }
 
@@ -127,27 +128,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const inset = useBottomInset()
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
-  type SheetName = 'none' | 'direct' | 'menu' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide' | 'pending' | 'import'
+  type SheetName = 'none' | 'sms' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide' | 'pending' | 'import'
   const [sheet, setSheet] = useState<SheetName>('none')
-  // 방송 메뉴에서 다른 판으로 갈 때 (D-UX3-26): 아이폰은 판(Modal)이 닫히는 동안 새 판을 띄우지 못해 '방송을 끝낼까요?' 등이 아예 뜨지 않았다.
-  // 메뉴를 먼저 닫고, 닫히는 움직임이 끝난 뒤에 다음 판을 연다.
-  const menuTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => () => {
-    if (menuTimer.current !== null) clearTimeout(menuTimer.current)
-  }, [])
-  const fromMenu = (next: () => void) => {
-    setSheet('none')
-    // 웹의 판은 움직임 없이 바로 닫혀(겹쳐 띄우는 문제가 없다) 곧바로 연다
-    if (Platform.OS === 'web') {
-      next()
-      return
-    }
-    if (menuTimer.current !== null) clearTimeout(menuTimer.current)
-    menuTimer.current = setTimeout(() => {
-      menuTimer.current = null
-      next()
-    }, MENU_HANDOFF_MS)
-  }
+  // 밀려 들어오는 화면 (D-UX4-20·31): 방송 설정 · 상품 추가. 판(Modal)이 아니라 방송 화면 안에 겹쳐 그려, 여기서 연 판이 그 위에 그대로 뜬다(D-UX3-26 겹침 없음)
+  const [page, setPage] = useState<'none' | 'settings' | 'add'>('none')
+  const [thanksBusy, setThanksBusy] = useState(false)
   // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07) · 채팅·문자(실시간으로 온 채팅·손님 문자, D-UX4-12)
   const [tab, setTab] = useState<'products' | 'feed' | 'talk'>('products')
   // 라이브 채팅처럼 (D-UX3-75): 목록은 최신이 맨 아래. 처음·탭을 바꿀 때는 맨 아래에서 시작하고,
@@ -362,7 +347,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     )
   }
 
-  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), select: setSelected, selected, labelWords, doubts }
+  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), latest: () => store.getSnapshot().data ?? data, select: setSelected, selected, labelWords, doubts }
   const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed
@@ -370,9 +355,22 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const heading = ended ? '끝난 방송' : '라이브'
   const help = closed ? '끝난 방송이에요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   const close = () => setSheet('none')
+  const closePage = () => setPage('none')
+  // 다육이 방송이면 상품 추가에서 품종도 묻는다 (D-UX4-31 — 판매 종류는 방송 제목에 들어 있다, NewBroadcastScreen)
+  const askName = broadcast.title.includes('다육이')
+  const thanksOn = data.broadcasts.get(broadcastId)?.settings['thanks.liveChat'] === true
+  const listening = voiceView.on && voiceView.broadcastId === broadcastId
+  const switchThanks = (next: boolean) => {
+    setThanksBusy(true)
+    command({ type: 'broadcast.thanks', b: broadcastId, liveChat: next }).then(
+      () => setThanksNote({ tone: 'success', text: next ? THANKS_ON_DONE : THANKS_OFF_DONE }),
+      (caught: unknown) => setThanksNote({ tone: 'danger', text: isApiError(caught) ? caught.message : '바꾸지 못했어요. 다시 눌러 주세요.' }),
+    ).finally(() => setThanksBusy(false))
+  }
+  const thanksLine = thanksNote !== null ? <Notice tone={thanksNote.tone} alert={thanksNote.tone === 'danger'}>{thanksNote.text}</Notice> : null
   const chip = listenChip(voiceView, broadcastId, stream.status)
   const claimCount = [...data.claims.values()].filter((claim) => claim.broadcast === broadcastId && claim.status !== 'DUPLICATE').length
-  const productCountNow = boardProducts(data, broadcastId).length
+  const productCountNow = shownProducts(data, broadcastId).length
   const onAlert = (action: 'pending' | 'attention' | 'decide' | 'labels') => {
     if (action === 'pending') setSheet('pending')
     else if (action === 'attention') openReviews?.()
@@ -390,7 +388,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           right={
             <>
               {seller && !closed ? <DotStatus word={chip.word} tone={chip.tone} /> : null}
-              <HeaderIconButton icon="more" label="방송 메뉴" onPress={() => setSheet('menu')} />
+              {/* 토스 계좌 화면 오른쪽 위 회색 톱니 (D-UX4-20) — 화면에 글은 없고 이름만 읽힌다 */}
+              <HeaderIconButton icon="gear" label="방송 메뉴" color={p.clearCircle} size={27} onPress={() => setPage('settings')} />
             </>
           }
         />
@@ -414,7 +413,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
           {endError !== null ? <Notice tone="danger" alert>{endError}</Notice> : null}
-          {thanksNote !== null ? <Notice tone={thanksNote.tone} alert={thanksNote.tone === 'danger'}>{thanksNote.text}</Notice> : null}
+          {page !== 'settings' ? thanksLine : null}
           <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} />
           {pasted !== null ? <Notice tone="success">{pasted}</Notice> : null}
           {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
@@ -428,16 +427,19 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           </View>
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" style={{ flexGrow: 1, justifyContent: tab === 'talk' ? 'flex-end' : 'flex-start' }}>
-            {tab === 'products' ? <ProductList onOpen={setDetail} /> : tab === 'feed' ? <ClaimFeed /> : <LiveTalk />}
+            {tab === 'products' ? <ProductList onOpen={setDetail} /> : tab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : <LiveTalk />}
           </View>
+          {/* (+) 단추에 마지막 줄이 가리지 않게 */}
+          {tab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
         </ScrollView>
+        {tab === 'products' && !closed ? <AddFab bottom={Math.max(inset, SPACE.md) + SPACE.md} onPress={() => setPage('add')} /> : null}
 
-        <BottomSheet visible={sheet === 'direct'} onClose={close} title={DIRECT_INPUT}>
-          <QuickInput />
+        <BottomSheet visible={sheet === 'sms'} onClose={close} title={SMS_DIRECT}>
           <SmsForm />
         </BottomSheet>
-        <BottomSheet visible={detailProduct !== undefined} onClose={() => setDetail(null)} title={detailProduct === undefined ? '' : `${String(detailProduct.no)}번 ${nameOf(detailProduct)}`}>
-          {detailProduct !== undefined ? <ProductDetail product={detailProduct} {...(seller && !sealed ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} /> : null}
+        {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
+        <BottomSheet visible={detailProduct !== undefined && detailProduct.status !== 'CLOSED'} onClose={() => setDetail(null)} title="">
+          {detailProduct !== undefined ? <ProductDetail product={detailProduct} onKey={setDetail} onDone={() => setDetail(null)} {...(seller && !sealed ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} /> : null}
         </BottomSheet>
         <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
@@ -462,37 +464,47 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             />
           ) : null}
         </BottomSheet>
-        <BottomSheet visible={sheet === 'menu'} onClose={close} title="방송 메뉴">
-          <Txt step="caption" color="textSub">{title}</Txt>
-          <RowGroup label="방송 메뉴">
-            {/* 아래 고정 단추 두 개(듣기 시작·직접 넣기)는 메뉴로 옮겼다 (D-UX3-73) */}
-            {!closed ? <TodoRow title={DIRECT_INPUT} sub="번호·가격 바로 넣기, 문자찜 넣기" onPress={() => fromMenu(() => setSheet('direct'))} /> : null}
-            {/* 방송 소리가 멈췄을 때만 (D-UX3-73 — 들린 말 줄 아래 [다시 켜기]에서 옮김) */}
-            {!closed && stream.status?.phase === 'stopped' ? <TodoRow title="방송 소리 다시 켜기" sub="멈춘 방송 소리 받기를 다시 시작해요" onPress={() => { setSheet('none'); stream.retry() }} /> : null}
-            {seller && !closed ? <ListenMenuRow session={services.voice} broadcastId={broadcastId} title={title} onDone={() => setSheet('none')} /> : null}
-            {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="방송 연결" sub="방송 링크 붙여 넣기, 채팅 받는 상태" onPress={() => fromMenu(showLink)} /> : null}
+        <ProductAddPage
+          visible={page === 'add'}
+          onClose={closePage}
+          askName={askName}
+          onAdded={(key) => {
+            closePage()
+            setTab('products')
+            setSelected(key)
+            scroll.current?.scrollTo({ y: 0, animated: true })
+          }}
+        />
+        {/* 방송 설정 (D-UX4-20): 토스 설정 화면처럼 — 머리 글 없이 뒤로만, 굵은 묶음 이름 · 흰 카드 · 줄 이름만 */}
+        <SlidePage visible={page === 'settings'} onClose={closePage} name="방송 설정" gray testID="console-settings">
+          {thanksLine}
+          <MenuGroup title="방송">
+            {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <MenuRow title="방송 연결" onPress={showLink} /> : null}
             {/* 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24) — 실제 방송만(리허설은 유튜브에 아무것도 올리지 않는다) */}
-            {seller && !closed && !broadcast.rehearsal && data !== null ? (
-              <ThanksMenuRow
-                on={data.broadcasts.get(broadcastId)?.settings['thanks.liveChat'] === true}
-                onPress={(next) => {
-                  setSheet('none')
-                  command({ type: 'broadcast.thanks', b: broadcastId, liveChat: next }).then(
-                    () => setThanksNote({ tone: 'success', text: next ? THANKS_ON_DONE : THANKS_OFF_DONE }),
-                    (caught: unknown) => setThanksNote({ tone: 'danger', text: isApiError(caught) ? caught.message : '바꾸지 못했어요. 다시 눌러 주세요.' }),
-                  )
-                }}
-              />
-            ) : null}
-            {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => fromMenu(() => setSheet('voice'))} /> : null}
-            {openLabels !== undefined && !broadcast.rehearsal ? <TodoRow title="프린터·라벨" sub="프린터 연결, 라벨 대기·다시 찍기" onPress={() => fromMenu(openLabels)} /> : null}
-            <TodoRow title="채팅 보기" sub="최근 채팅 100줄, 주문·취소 표시" onPress={() => fromMenu(() => setSheet('chat'))} />
-            {!broadcast.rehearsal && !closed ? <TodoRow title="댓글 붙여넣기" sub="틱톡·인스타그램 등 자동으로 못 받는 댓글" onPress={() => fromMenu(() => setSheet('paste'))} /> : null}
+            {seller && !closed && !broadcast.rehearsal ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
+            {openLabels !== undefined && !broadcast.rehearsal ? <MenuRow title="프린터·라벨" onPress={openLabels} /> : null}
+          </MenuGroup>
+          {seller && !closed ? (
+            <MenuGroup title="듣기">
+              {/* 휴대폰 마이크 켜기·끄기는 방송 화면에서 안내·상태를 보여 주므로 설정 화면을 닫는다 (D-UX3-73) */}
+              <MenuRow title={listening ? LISTEN_STOP : LISTEN_START} testID="listen-button" onPress={() => { closePage(); void (listening ? services.voice.turnOff() : services.voice.turnOn(broadcastId, title)) }} />
+              {stream.status?.phase === 'stopped' ? <MenuRow title="방송 소리 다시 켜기" onPress={() => { closePage(); stream.retry() }} /> : null}
+              <MenuRow title="음성 설정" onPress={() => setSheet('voice')} />
+            </MenuGroup>
+          ) : null}
+          <MenuGroup title="넣기·보기">
+            {!closed ? <MenuRow title={SMS_DIRECT} onPress={() => setSheet('sms')} /> : null}
             {/* 방송 전 상품 미리 등록 (PRD-05 앱, D-V3-128) */}
-            {seller && !closed ? <TodoRow title={APP_IMPORT_TITLE} sub="번호·품종·가격을 붙여 넣어 공개 전 상품으로" onPress={() => fromMenu(() => setSheet('import'))} /> : null}
-            {!closed ? <TodoRow title="방송 끝내기" onPress={() => fromMenu(() => setSheet('end'))} /> : null}
-          </RowGroup>
-        </BottomSheet>
+            {seller && !closed ? <MenuRow title={APP_IMPORT_TITLE} onPress={() => setSheet('import')} /> : null}
+            {!broadcast.rehearsal && !closed ? <MenuRow title="댓글 붙여넣기" onPress={() => setSheet('paste')} /> : null}
+            <MenuRow title="채팅 보기" onPress={() => setSheet('chat')} />
+          </MenuGroup>
+          {!closed ? (
+            <MenuGroup>
+              <MenuRow title="방송 끝내기" danger onPress={() => setSheet('end')} />
+            </MenuGroup>
+          ) : null}
+        </SlidePage>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
         <FullSheet visible={sheet === 'youtube'} onClose={close} name="방송 연결" title={linkable ? '방송 링크를 넣어 주세요' : '방송 연결'} cards={!linkable} overlay={linkable ? linker.popup : undefined} actions={linkable ? (
             <>
