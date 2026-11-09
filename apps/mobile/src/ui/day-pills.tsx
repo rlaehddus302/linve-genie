@@ -37,12 +37,17 @@ export function useRealDays(initial?: string): { days: readonly string[] | null;
   return { days, date, setDate, error }
 }
 
+/**
+ * 알약 하나. 고르든 안 고르든 크기가 같아야 옆 알약이 밀리지 않는다 (D-UX4-65, 사용자 지시 2026-11-10 "누를 때마다 위치가 살짝 바뀌는데"):
+ * 옛 모양은 고른 알약만 테두리(1)를 빼고 글자를 book→medium으로 굵혀 폭이 2~3 달라졌다. 이제 테두리는 늘 1(고르면 주색과 같은 색),
+ * 글자 굵기는 늘 medium — 고름은 바탕·글자 색으로만 다르다.
+ */
 export function Pill({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonly label: string; readonly ariaLabel: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
     // 토스 알약처럼 (D-UX3-89): 높이 36, 글자는 본문보다 큰 bodyLarge·중간 굵기, 좌우 14 — 옛 높이 44·작은 글자
-    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: SPACE.md + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', borderWidth: on ? 0 : 1, borderColor: p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
-      <Txt step="bodyLarge" weight={on ? 'medium' : 'book'} color={on ? 'onPrimary' : 'text'}>
+    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: SPACE.md + 1, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: on ? p.primary : p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
+      <Txt step="bodyLarge" weight="medium" color={on ? 'onPrimary' : 'text'}>
         {label}
       </Txt>
     </Pressable>

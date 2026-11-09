@@ -3,13 +3,13 @@
 // 아이콘은 그림 파일·글꼴 없이 View 선으로 그린다(새 패키지를 넣지 않는다). 아이콘만으로 뜻을 전하지 않고 늘 글자와 함께 둔다.
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { Animated, Easing, Platform, Pressable, View, type ViewStyle } from 'react-native'
-import Svg, { Path } from 'react-native-svg'
+import Svg, { Circle, Path } from 'react-native-svg'
 import { PAGE, RADIUS, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
 import { tapHaptic } from '../../native/haptics.ts'
 import { TabIcon, type TabIconName } from './tab-icons.tsx'
 
-export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus' | 'down' | 'up' | 'gear' | 'edit'
+export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus' | 'down' | 'up' | 'gear' | 'edit' | 'help'
 
 /** 톱니 (D-UX4-20, 사용자 지시 2026-11-09 "... 버튼 디자인을 톱니 디자인으로" — 토스 계좌 화면 오른쪽 위 회색 톱니): 이 8개, 가운데 구멍 */
 export const GEAR_PATH = (() => {
@@ -134,6 +134,15 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
         return (
           <Svg width={s} height={s} viewBox="0 0 24 24">
             <Path d={GEAR_PATH} fill={c} fillRule="evenodd" stroke={c} strokeWidth={1.2} strokeLinejoin="round" />
+          </Svg>
+        )
+      case 'help':
+        // 동그라미 안 ? (D-UX4-64, 토스 "빠른 로그인 ⓘ" 자리): 설명이 있는 줄 이름 옆
+        return (
+          <Svg width={s} height={s} viewBox="0 0 24 24">
+            <Circle cx={12} cy={12} r={9} stroke={c} strokeWidth={lineWidth} fill="none" />
+            <Path d="M9.6 9.6 C9.6 8.2 10.7 7.3 12 7.3 C13.4 7.3 14.4 8.2 14.4 9.4 C14.4 10.5 13.7 11 12.9 11.5 C12.3 11.9 12 12.3 12 13.1 L12 13.5" stroke={c} strokeWidth={lineWidth} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <Circle cx={12} cy={16.6} r={1.15} fill={c} />
           </Svg>
         )
       case 'edit':
@@ -453,14 +462,15 @@ export function GroupLabel({ children }: { readonly children: string }) {
 }
 
 /**
- * 상태 점 + 글 ("듣는 중"). 정상(on)은 밝은 초록, 그 밖(켜는 중·다시 잇는 중·멈춤·꺼짐)은 밝은 빨강 (D-UX4-22, 사용자 지시 2026-11-09 — 옛 D-UX3-89 듣는 중 빨강).
+ * 상태 점 + 글. 세 가지 색 (D-UX4-67, 사용자 지시 2026-11-10 "듣는 중 표시 말고 다른 상태는 연결 끊김(red), 재연결 중(orange)"):
+ * on 밝은 초록(듣는 중) · warn 주황(재연결 중) · off 밝은 빨강(연결 끊김). 옛 D-UX4-22는 정상 아니면 모두 빨강.
  * 옅은 바탕 알약 안에 점(밝은 색)과 글자(대비 4.5 이상). 정상일 때 점이 부드럽게 밝아졌다 어두워진다.
  */
 export function DotStatus({ word, tone }: { readonly word: string; readonly tone: 'on' | 'off' | 'warn' }) {
   const { p } = useKit()
   const ok = tone === 'on'
-  const ink = ok ? p.liveOkText : p.liveBadText
-  const dot = ok ? p.liveOkDot : p.liveBadDot
+  const look = ok ? { ink: p.liveOkText, dot: p.liveOkDot, bg: p.liveOkBg } : tone === 'warn' ? { ink: p.liveWarnText, dot: p.liveWarnDot, bg: p.liveWarnBg } : { ink: p.liveBadText, dot: p.liveBadDot, bg: p.liveBadBg }
+  const { ink, dot } = look
   const glow = useRef(new Animated.Value(1)).current
   useEffect(() => {
     if (!ok) {
@@ -475,7 +485,7 @@ export function DotStatus({ word, tone }: { readonly word: string; readonly tone
     return () => loop.stop()
   }, [glow, ok])
   return (
-    <View role="status" aria-label={word} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: SPACE.sm + 2, paddingVertical: 5, marginRight: SPACE.xs, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: ok ? p.liveOkBg : p.liveBadBg }}>
+    <View role="status" aria-label={word} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: SPACE.sm + 2, paddingVertical: 5, marginRight: SPACE.xs, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: look.bg }}>
       <Animated.View aria-hidden testID="dot-status-dot" style={{ width: 9, height: 9, borderRadius: 5, borderCurve: 'continuous', backgroundColor: dot, opacity: glow }} />
       <Txt step="caption" weight="bold" ink={ink}>
         {word}

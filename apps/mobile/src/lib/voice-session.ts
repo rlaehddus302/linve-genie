@@ -45,6 +45,8 @@ export interface VoiceView {
   readonly heard: string | null
   /** 받아쓴 글 그대로 (해석 문장 없이, 오래된 것 위·새것 아래, 최근 TRANSCRIPT_LINES줄) */
   readonly transcript: readonly string[]
+  /** transcript 줄마다 들린 시각(밀리초, 같은 순서·같은 길이) — 들린 말 창의 왼쪽 시각 (D-UX4-67) */
+  readonly transcriptAt: readonly number[]
   readonly cards: readonly VoiceCard[]
   /** 바로 등록한 번호의 되돌리기 (5초) */
   readonly undo: { readonly no: number; readonly until: number } | null
@@ -80,7 +82,7 @@ export class VoiceSession {
   readonly #now: () => number
   readonly #timer: Timer
   readonly #listeners = new Set<() => void>()
-  #view: VoiceView = { on: false, broadcastId: null, title: '', state: OFF, askConsent: false, instant: true, heard: null, transcript: [], cards: [], undo: null, problem: null, log: [], remote: null, display: {}, manualRetries: [], openProduct: null, priceChoice: null }
+  #view: VoiceView = { on: false, broadcastId: null, title: '', state: OFF, askConsent: false, instant: true, heard: null, transcript: [], transcriptAt: [], cards: [], undo: null, problem: null, log: [], remote: null, display: {}, manualRetries: [], openProduct: null, priceChoice: null }
   #contextTimer: ReturnType<typeof setInterval> | undefined
   #generation = 0
   #connection = 0
@@ -303,6 +305,11 @@ export class VoiceSession {
     this.#set({ state })
   }
 
+  /** 받아쓴 한 줄을 들린 시각과 함께 덧붙인다 (최근 TRANSCRIPT_LINES줄) */
+  #heardLine(text: string, at: number): Pick<VoiceView, 'transcript' | 'transcriptAt'> {
+    return { transcript: [...this.#view.transcript, text].slice(-TRANSCRIPT_LINES), transcriptAt: [...this.#view.transcriptAt, at].slice(-TRANSCRIPT_LINES) }
+  }
+
   async #onResult(result: AudioResult): Promise<void> {
     if (!this.#view.on || this.#view.broadcastId === null) return
     // 최종 결과가 왔다: 끊김 횟수를 새로 센다 (D-APP-05 "최종 결과 없이 … 여섯 번째")
@@ -310,7 +317,7 @@ export class VoiceSession {
     this.#options.onProcessed?.()
     const now = this.#now()
     const late = !Number.isFinite(result.endMs) || result.endMs > now || result.endMs < result.startMs || now - result.endMs > LATE_MS
-    this.#set({ heard: result.text, transcript: [...this.#view.transcript, result.text].slice(-TRANSCRIPT_LINES) })
+    this.#set({ heard: result.text, ...this.#heardLine(result.text, now) })
     const reading = result.reading
     if (reading !== null && reading.instant && this.#view.instant && !late && reading.no !== null && reading.price !== null) {
       const b = this.#view.broadcastId
@@ -433,7 +440,7 @@ export class VoiceSession {
     clearTimeout(this.#streamRetry)
     await this.turnOff()
     this.#resumeToken = null; this.#serverSession = null; this.#options.audio.updateSessionContext?.({ resumeToken: undefined }); this.#manual.clear(); this.#consumed.clear()
-    this.#set({ broadcastId: null, remote: null, display: {}, cards: [], log: [], heard: null, transcript: [], undo: null, manualRetries: [] })
+    this.#set({ broadcastId: null, remote: null, display: {}, cards: [], log: [], heard: null, transcript: [], transcriptAt: [], undo: null, manualRetries: [] })
   }
   showProduct(key: string): void { this.#set({ openProduct: key }) }
   clearProduct(): void { this.#set({ openProduct: null }) }
@@ -451,7 +458,7 @@ export class VoiceSession {
     if ((!this.#view.on && !this.#controlOnly) || !isRecord(message)) return
     if (message.type === 'result') {
       this.#disconnects = []
-      if (typeof message.text === 'string' && message.text.trim() !== '') this.#set({ transcript: [...this.#view.transcript, message.text.trim()].slice(-TRANSCRIPT_LINES) })
+      if (typeof message.text === 'string' && message.text.trim() !== '') this.#set(this.#heardLine(message.text.trim(), this.#now()))
       return
     }
     if (message.type === 'ready') { this.#connection++; this.#effects.clear(); this.#readyForCommands = false; this.#serverSession = null; this.#pendingCards.clear(); if (this.#view.display.confirmations instanceof Map) this.#view.display.confirmations.clear(); return }

@@ -39,7 +39,7 @@ import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
 // 방송 관리 화면 조각은 console/Manage로 옮겼다 (D-UX4-57 — 진짜 쌓인 화면과 같이 쓴다)
-export { MANAGE_LABEL, SMS_DIRECT, THANKS_OFF_DONE, THANKS_ON_DONE, ThanksSwitch } from './console/Manage.tsx'
+export { MANAGE_LABEL, SMS_DIRECT, THANKS_HELP_BODY, THANKS_HELP_TITLE, THANKS_TITLE, ThanksSwitch } from './console/Manage.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
 const RETURN_WAIT_MS = 3000

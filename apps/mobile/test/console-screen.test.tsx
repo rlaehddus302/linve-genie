@@ -6,8 +6,9 @@
 // 문자찜 칸은 설정 화면 "문자찜 직접 넣기", 상품 자세히는 점선 칸(바로 고치기)·이름 알약(눌러 찜 삭제)·상품 삭제, 찜 기록 꼬리표를 눌러 찜 삭제.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { ConsoleScreen, SMS_DIRECT, THANKS_ON_DONE } from '../src/screens/ConsoleScreen.tsx'
+import { ConsoleScreen, SMS_DIRECT, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
 import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
+import { DOCK_STATE } from '../src/screens/console/StreamAudio.tsx'
 import { LISTEN_START, LISTEN_STATE, LISTEN_STOP, VOICE_CONSENT_LINES, VOICE_SENT_LINE } from '../src/lib/words.ts'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST, BROADCAST_VIEW, SETTINGS, buyer, changes, claim, flush, fullView, product } from './support.ts'
@@ -284,7 +285,9 @@ describe('ConsoleScreen', () => {
     await waitFor(() => expect(within(list).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))).toEqual(['김영희', '홍길동', '박철수', '문자-5678']))
     const rows = within(list).getAllByRole('listitem')
     // D-UX3-82로 바뀐 기대 (사용자 지시 2026-11-09 "괄호로 하란 뜻이 아니라 별도 배경 태그로 … 찜은 금색, 대기는 회색. 맨 왼쪽에 23:23 형식으로 시간 추가 … 손님문자에요 설명 삭제")
-    expect(rows.map((row) => row.textContent)).toEqual(['20:00김영희  15번 주세요주문 15번', '20:00홍길동  1515번 찜', '20:00박철수  15 저도15번 대기 1', '20:00문자-5678  15 홍길동15번 찜'])
+    // D-UX4-66 (사용자 지시 2026-11-10 "닉네임 오른쪽에 태그를 … [...번 찜], [...번 대기 1] 이런 식으로"): 시각 · 닉네임 · 꼬리표 · 내용
+    // 옛 기대: '20:00김영희  15번 주세요주문 15번' (꼬리표가 내용 뒤, 찜 전 주문은 "주문 15번")
+    expect(rows.map((row) => row.textContent)).toEqual(['20:00김영희15번 주문15번 주세요', '20:00홍길동15번 찜15', '20:00박철수15번 대기 115 저도', '20:00문자-567815번 찜15 홍길동'])
     expect(within(list).queryByText(/[()]|^채팅$|^문자$/)).toBeNull()
     // 찜은 금색 꼬리표, 대기는 회색 꼬리표 (바탕이 있는 따로 된 꼬리표)
     const tagBg = (word: string) => (within(list).getAllByText(word)[0]?.parentElement as HTMLElement | null)?.style.backgroundColor
@@ -435,7 +438,8 @@ describe('ConsoleScreen', () => {
   it('듣기 시작 → 안내 창 → 듣는 중 → 서버가 읽은 결과가 바로 등록되고 되돌리기가 보인다 (APP-02·APP-05)', async () => {
     const world = makeWorld({ products: [] })
     await open(world)
-    expect(screen.getByRole('status', { name: LISTEN_STATE.off })).toBeTruthy()
+    // D-UX4-67: 들린 말 창 상태는 듣는 중 · 재연결 중 · 연결 끊김 세 가지 (옛 기대: "듣기 꺼짐")
+    expect(screen.getByRole('status', { name: DOCK_STATE.lost })).toBeTruthy()
     openMenu()
     fireEvent.click(screen.getByRole('button', { name: LISTEN_START }))
     const dialog = await screen.findByRole('dialog', { name: '음성 안내' })
@@ -616,19 +620,21 @@ describe('ConsoleScreen', () => {
 
   // D-YT-SRV-24 (사용자 지시 2026-11-09 "방송 화면에서 ... 버튼 눌러서 켜고 끌 수 있게")
   // D-UX4-20: 줄 "감사 채팅 켜기/끄기" → 방송 설정 화면의 스위치 "감사 채팅"(켜짐·꺼짐이 스위치에)
-  it('방송 설정에서 꺼져 있는 감사 채팅 스위치를 켜면 broadcast.thanks(켬)가 가고 결과 한 줄이 보인다 — 스위치가 지금 상태를 보인다', async () => {
+  // D-UX4-63 (사용자 지시 2026-11-10): 이름 "자동 감사 채팅", 켜고 끈 결과 줄은 띄우지 않는다 (옛 기대: 결과 한 줄 THANKS_ON_DONE이 보인다)
+  it('방송 설정에서 꺼져 있는 자동 감사 채팅 스위치를 켜면 broadcast.thanks(켬)가 가고, 결과 줄 없이 스위치가 지금 상태를 보인다', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
     // 쓰기 뒤 따라잡기: 방송 설정의 감사 채팅이 켬으로 바뀐 증분
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { broadcasts: [{ ...BROADCAST_VIEW, settings: { ...SETTINGS, 'thanks.liveChat': true } }] }) }))
     openMenu()
-    fireEvent.click(await screen.findByRole('switch', { name: '감사 채팅 — 꺼짐' }))
+    fireEvent.click(await screen.findByRole('switch', { name: `${THANKS_TITLE} — 꺼짐` }))
     await waitFor(() => expect(world.events.some((call) => call.body?.type === 'broadcast.thanks')).toBe(true))
     const sent = world.events.find((call) => call.body?.type === 'broadcast.thanks')
     expect(sent?.body).toMatchObject({ type: 'broadcast.thanks', b: 'b1', liveChat: true })
-    expect(await screen.findByText(THANKS_ON_DONE)).toBeTruthy()
     // 스위치가 지금 상태(켬)를 보인다
-    expect(await screen.findByRole('switch', { name: '감사 채팅 — 켜짐' })).toBeTruthy()
+    expect(await screen.findByRole('switch', { name: `${THANKS_TITLE} — 켜짐` })).toBeTruthy()
+    expect(screen.queryByText(/감사 채팅을 켰어요/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   // 옛 시험: "직접 넣기 예시는 그 방송 가격 단위와 같은 꼴" — 빠른 입력 한 줄을 없앴다(D-UX4-31). 가격 단위와 상관없는 원문 "원"은 (+) 상품 추가 시험이 본다.

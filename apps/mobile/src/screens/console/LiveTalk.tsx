@@ -1,9 +1,9 @@
 // 방송 화면 "채팅·문자" 탭 (D-UX4-12, 사용자 지시 2026-11-08 "방송 중 화면에서 실시간 채팅, 문자 오는거 볼 수 있게 찜 기록 옆에 새로운 탭으로").
 // - 채팅: 이 방송의 최근 채팅(찜 기록·채팅 보기와 같은 useMessages — 범위가 바뀌면 다시 읽는다). 주문·취소·언급·방송자 표시는 채팅 보기와 같은 글자.
 // - 문자: 휴대폰 알림 받기로 서버에 온 손님 문자(GET /api/inbox/sms — 서버 메모리, 최신이 앞). 실시간 `inbox` { kind: 'sms', b }가 오면 다시 읽는다.
-// - 둘을 받은 시각으로 섞는다(정렬은 최신이 위, 화면은 최신이 맨 아래 — D-UX3-75). 한 줄에 시각(23:23)·닉네임(문자는 "문자-끝번호")·내용·결과 꼬리표(찜 금색·대기 회색), 줄 바탕·출처 꼬리표 없음(D-UX3-80·82).
+// - 둘을 받은 시각으로 섞는다(정렬은 최신이 위, 화면은 최신이 맨 아래 — D-UX3-75). 한 줄에 시각(23:23, 폭 고정 칸)·닉네임(문자는 "문자-끝번호")·결과 꼬리표(찜 금색·대기 회색)·내용(D-UX4-66), 줄 바탕·출처 꼬리표 없음(D-UX3-80·82).
 //   본문·닉네임·보낸 이름은 손님이 쓴 글이라 글자로만 그린다. 판정은 하지 않는다(서버가 한 일을 낱말로만).
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { View } from 'react-native'
 import type { SmsFeedView } from '@livejjim/web/src/api/inbox-types.ts'
 import type { Claim, MessagesView } from '@livejjim/web/src/api/types.ts'
@@ -19,7 +19,7 @@ import type { Tone } from '../../ui/kit/tokens.ts'
 import { TAG_PAD_X } from '../../lib/product-tags.ts'
 import { Hint, Notice } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
-import { chatTags, useMessages } from './ChatPaste.tsx'
+import { useMessages } from './ChatPaste.tsx'
 
 export const TALK_TAB = '채팅·문자'
 export const TALK_EMPTY = '아직 채팅·문자가 없어요'
@@ -52,7 +52,7 @@ export function smsWord(entry: Pick<SmsFeedView, 'result' | 'numbers'>): TalkTag
     case 'claim':
       return has ? each(entry.numbers, '찜', 'win') : [{ word: '찜', kind: 'win' }]
     case 'cancel':
-      return has ? each(entry.numbers, '취소 요청', 'warning') : [{ word: '취소 요청', kind: 'warning' }]
+      return has ? each(entry.numbers, CHAT_WORD.cancel, 'warning') : [{ word: CHAT_WORD.cancel, kind: 'warning' }]
     case 'review':
       return has ? each(entry.numbers, '확인 필요', 'warning') : [{ word: '확인 필요', kind: 'warning' }]
     case 'info':
@@ -70,25 +70,40 @@ export function smsWho(entry: Pick<SmsFeedView, 'last4' | 'sender'>): string {
   return entry.sender !== null && entry.sender.trim() !== '' ? `문자-${entry.sender.trim()}` : '문자'
 }
 
-/** 채팅이 만든 찜의 지금 상태 → "243번 찜"(금색) · "342번 대기 1"(회색) · "15번 보류" … */
-function chatClaimTag(data: ScopeData, claim: Claim): TalkTag {
+/**
+ * 채팅이 만든 찜의 지금 상태 → 꼬리표 (D-UX4-66, 사용자 지시 2026-11-10 "[...번 취소됨], [...번 취소], [...번 찜], [...번 대기 1]"):
+ * 모두 "번호번 낱말" 꼴 — 찜(금색) · 대기 n(회색) · 취소됨(회색) · 보류·충돌·중복·품절·판매 중 아님 … (주의 색)
+ */
+export function chatClaimTag(data: ScopeData, claim: Claim): TalkTag {
   const no = `${String(claim.no)}번`
   if (claim.status === 'CONFIRMED') return { word: `${no} 찜`, kind: 'win' }
   if (claim.status === 'WAITLISTED') {
     const at = waitPosition(data, claim)
     return { word: at === null ? `${no} 대기` : `${no} 대기 ${String(at)}`, kind: 'wait' }
   }
+  if (claim.status === 'CANCELLED') return { word: `${no} 취소됨`, kind: 'wait' }
   return { word: `${no} ${claimWord(data, claim)}`, kind: 'warning' }
 }
 
-function chatResult(message: MessagesView['messages'][number], data: ScopeData): TalkTag[] {
+/** 찜이 아직 없는 채팅 — 서버가 읽은 낱말을 번호마다 "15번 주문" · "15번 취소" · "15번 언급" · "방송자" */
+export function chatWordTags(message: Pick<MessagesView['messages'][number], 'owner' | 'order' | 'cancel' | 'mentions' | 'orders' | 'cancels'>): TalkTag[] {
+  const out: TalkTag[] = []
+  if (message.owner) out.push({ word: CHAT_WORD.owner, kind: 'info' })
+  if (message.order) out.push(...each(message.orders, CHAT_WORD.order, 'success'))
+  if (message.cancel) out.push(...each(message.cancels, CHAT_WORD.cancel, 'warning'))
+  if (!message.order && !message.cancel) out.push(...each(message.mentions, CHAT_WORD.mention, 'info'))
+  return out
+}
+
+export function chatResult(message: MessagesView['messages'][number], data: ScopeData): TalkTag[] {
+  // 취소 채팅은 그 채팅이 한 일 "15번 취소" — 취소된 찜을 만든 주문 채팅에는 "15번 취소됨"이 붙는다
+  if (message.cancel && !message.order) return chatWordTags(message)
   const claims = message.claims.flatMap((id) => {
     const claim = data.claims.get(id)
     return claim === undefined ? [] : [claim]
   })
   if (claims.length > 0) return claims.map((claim) => chatClaimTag(data, claim))
-  // 아직 찜이 없으면 서버가 읽은 낱말(주문 15번 · 취소 15번 · 언급 · 방송자)
-  return chatTags(message).map((word) => ({ word, kind: word.startsWith(CHAT_WORD.cancel) ? 'warning' : word.startsWith(CHAT_WORD.order) ? 'success' : 'info' }))
+  return chatWordTags(message)
 }
 
 /** 채팅 + 문자 → 한 줄씩 (최신이 위) */
@@ -158,27 +173,35 @@ export function useSmsFeed(): readonly SmsFeedView[] {
   return messages
 }
 
-/** 한 줄 (D-UX3-82): 받은 시각(23:23) · 굵은 닉네임 · 내용 · 결과 꼬리표. 줄 바탕은 없다. 손님 글은 글자로만 */
-function TalkLine({ row }: { readonly row: TalkRow }) {
+/**
+ * 한 줄 (D-UX3-82 → D-UX4-66, 사용자 지시 2026-11-10 "닉네임 오른쪽에 태그를 위치시키자 … 시간 글자 너비와 상관없이 닉네임의 왼쪽이 맞춰지도록 컬럼 배치"):
+ * [받은 시각 칸(폭 고정)] [굵은 닉네임 · 결과 꼬리표 · 내용]. 내용이 길면 닉네임 왼쪽 줄에 맞춰 아래로 내려간다. 줄 바탕은 없다. 손님 글은 글자로만
+ */
+function TalkLine({ row, timeWidth, onTimeWidth }: { readonly row: TalkRow; readonly timeWidth: number; readonly onTimeWidth: (width: number) => void }) {
   const { p, tones } = useKit()
   return (
-    <View role="listitem" aria-label={row.who} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: 2, paddingVertical: 2 }}>
-      <Txt step="meta" color="textSub">{kstHm(row.at)}</Txt>
-      <View style={{ flexShrink: 1 }}>
-        <Txt step="meta">
-          <Txt step="meta" weight="heavy">{row.who}</Txt>
-          {'  '}
-          {row.text}
-        </Txt>
+    <View role="listitem" aria-label={row.who} style={{ flexDirection: 'row', alignItems: 'flex-start', columnGap: SPACE.sm, paddingVertical: 2 }}>
+      {/* 시각 칸: 목록에서 가장 넓은 시각 폭으로 모두 맞춘다 (숫자 폭이 달라도 닉네임 왼쪽이 한 세로줄) */}
+      <View testID="talk-time" style={{ minWidth: timeWidth }}>
+        <View style={{ alignSelf: 'flex-start' }} onLayout={(event) => onTimeWidth(event.nativeEvent.layout.width)}>
+          <Txt step="meta" color="textSub">{kstHm(row.at)}</Txt>
+        </View>
       </View>
-      {row.tags.map((tag, index) => {
-        const pair = tag.kind === 'win' ? { bg: p.goldBg, fg: p.goldText } : tag.kind === 'wait' ? { bg: p.soft, fg: p.textSub } : tones[tag.kind]
-        return (
-          <View key={`${tag.word}-${String(index)}`} style={{ flexShrink: 0, paddingHorizontal: TAG_PAD_X, paddingVertical: 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: pair.bg }}>
-            <Txt step="caption" weight={tag.kind === 'wait' ? 'medium' : 'bold'} ink={pair.fg}>{tag.word}</Txt>
-          </View>
-        )
-      })}
+      <View testID="talk-body" style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: 2 }}>
+        <Txt step="meta" weight="heavy">{row.who}</Txt>
+        {row.tags.map((tag, index) => {
+          const pair = tag.kind === 'win' ? { bg: p.goldBg, fg: p.goldText } : tag.kind === 'wait' ? { bg: p.soft, fg: p.textSub } : tones[tag.kind]
+          return (
+            // 위아래 1: 꼬리표 높이(18 + 2)가 닉네임 줄 높이(20)와 같아 시각과 닉네임이 한 줄에 선다
+            <View key={`${tag.word}-${String(index)}`} style={{ flexShrink: 0, paddingHorizontal: TAG_PAD_X, paddingVertical: 1, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: pair.bg }}>
+              <Txt step="caption" weight={tag.kind === 'wait' ? 'medium' : 'bold'} ink={pair.fg}>{tag.word}</Txt>
+            </View>
+          )
+        })}
+        <View style={{ flexShrink: 1 }}>
+          <Txt step="meta">{row.text}</Txt>
+        </View>
+      </View>
     </View>
   )
 }
@@ -189,6 +212,8 @@ export function LiveTalk() {
   const { view, error } = useMessages()
   const sms = useSmsFeed()
   const rows = useMemo(() => talkRows(view?.sealed === true ? null : view, sms, api.data), [view, sms, api.data])
+  const [timeWidth, setTimeWidth] = useState(0)
+  const onTimeWidth = useCallback((width: number) => setTimeWidth((was) => Math.max(was, Math.ceil(width))), [])
   return (
     <View style={{ gap: SPACE.xs }}>
       {error !== null && view === null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
@@ -196,7 +221,7 @@ export function LiveTalk() {
       {view === null && error === null ? <Hint>불러오는 중…</Hint> : rows.length === 0 ? <EmptyFill title={TALK_EMPTY} body={TALK_EMPTY_BODY} /> : (
         <View role="list" aria-label={TALK_TAB} style={{ gap: SPACE.xs }}>
           {/* 최신 TALK_LIMIT줄을 라이브 채팅처럼 최신이 맨 아래로 (D-UX3-75) */}
-          {rows.slice(0, TALK_LIMIT).reverse().map((row) => <TalkLine key={row.key} row={row} />)}
+          {rows.slice(0, TALK_LIMIT).reverse().map((row) => <TalkLine key={row.key} row={row} timeWidth={timeWidth} onTimeWidth={onTimeWidth} />)}
         </View>
       )}
     </View>

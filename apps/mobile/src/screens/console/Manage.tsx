@@ -1,14 +1,14 @@
 // 방송 관리 (D-UX4-20 → D-UX4-57): 토스 설정 화면처럼 굵은 묶음 이름 · 흰 카드 · 줄 이름만.
 // 방송 화면 위 진짜 쌓인 화면(app/console/[id]/manage)과, 경로가 없을 때(시험·웹) 방송 화면 안 겹친 화면이 같이 쓴다.
 // 여기서 여는 아래 판(문자찜·음성 설정·미리 등록·댓글 붙여넣기·채팅·방송 끝내기)도 이 안에 있다.
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import { isApiError, newRequestId, post, withRetry } from '../../api/client.ts'
 import { LISTEN_START, LISTEN_STOP } from '../../lib/words.ts'
 import { useServices } from '../../services.tsx'
-import { BottomSheet, ConfirmSheet, FullSheet, ToggleRow } from '../../ui/kit/index.ts'
-import { SPACE } from '../../ui/kit/tokens.ts'
+import { BigButton, BottomSheet, ConfirmSheet, FullSheet, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
+import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { ChatView, PasteView } from './ChatPaste.tsx'
 import { useConsoleApi } from './context.ts'
@@ -24,16 +24,52 @@ export const MANAGE_LABEL = '방송 관리'
 /** 방송 관리의 문자찜 칸 줄 이름 (D-UX4-20 — 옛 "직접 넣기" 시트의 문자찜 칸) */
 export const SMS_DIRECT = '문자찜 직접 넣기'
 
-/** 감사 채팅 켜기·끄기 결과 줄을 보이는 시간 */
-const THANKS_NOTE_MS = 5000
-export const THANKS_ON_DONE = '감사 채팅을 켰어요. 이제 찜이 확정되면 채팅에 감사 메시지를 올려요.'
-export const THANKS_OFF_DONE = '감사 채팅을 껐어요. 이제 채팅에 감사 메시지를 올리지 않아요.'
+/** 감사 채팅 스위치 이름 (D-UX4-63, 사용자 지시 2026-11-10 — 옛 "감사 채팅") */
+export const THANKS_TITLE = '자동 감사 채팅'
+/** ? 를 누르면 올라오는 설명 판 (D-UX4-64) — 한 문장에 한 줄 */
+export const THANKS_HELP_TITLE = '자동 감사 채팅이란?'
+export const THANKS_HELP_BODY = '찜이 1등으로 정해지면 유튜브 라이브 채팅에 감사 인사를 대신 올려요.\n손님은 채팅만 보고도 내 찜이 잡혔는지 바로 알 수 있어요.\n연습 방송에서는 올리지 않아요.'
+/** 설명 판의 예시 채팅 (실제로 올리는 감사 문구 꼴 — core format 감사 문구와 같다) */
+export const THANKS_EXAMPLE = { buyer: '홍길동', order: '15', thanks: '15번 핑크프릴 10,000원 홍길동님 구매 감사합니다' } as const
 
-/** 감사 채팅 스위치 (D-YT-SRV-24 → D-UX4-20 스위치로) — 켜짐·꺼짐이 스위치에 보인다 */
+/**
+ * 감사 채팅 스위치 (D-YT-SRV-24 → D-UX4-20 스위치로 → D-UX4-63·64): 이름은 "자동 감사 채팅", 이름 옆 ? — 그 자리를 누르면 꾸욱 눌리고 아래에서 설명 판이 올라온다.
+ * 켜고 끈 결과 줄은 띄우지 않는다(스위치가 지금 상태를 보인다). 바꾸지 못했을 때만 빨간 줄.
+ */
 export function ThanksSwitch({ on, busy, onPress }: { readonly on: boolean; readonly busy: boolean; readonly onPress: (next: boolean) => void }) {
+  const [help, setHelp] = useState(false)
   return (
     <View style={{ paddingHorizontal: SPACE.xl }}>
-      <ToggleRow title="감사 채팅" on={on} disabled={busy} testID="thanks-switch" onChange={onPress} />
+      <ToggleRow title={THANKS_TITLE} on={on} disabled={busy} testID="thanks-switch" onChange={onPress} onHelp={() => setHelp(true)} />
+      <BottomSheet visible={help} onClose={() => setHelp(false)} title={THANKS_HELP_TITLE} actions={<BigButton label="확인" onPress={() => setHelp(false)} />}>
+        <Txt step="bodyLarge" color="textSub">{THANKS_HELP_BODY}</Txt>
+        <ThanksExample />
+      </BottomSheet>
+    </View>
+  )
+}
+
+/** 예시 그림: 손님이 "15"라고 치면 바로 아래에 감사 인사가 올라간 유튜브 채팅 두 줄 (사용자 사진 3 참고) */
+function ThanksExample() {
+  const { p } = useKit()
+  const line = (who: string, text: string, mine: boolean) => (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm }}>
+      <View style={{ width: 28, height: 28, borderRadius: 14, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: mine ? p.primary : p.soft }}>
+        <Txt step="caption" weight="bold" color={mine ? 'onPrimary' : 'textSub'}>{who.slice(0, 1)}</Txt>
+      </View>
+      <View style={{ flex: 1, paddingTop: 4 }}>
+        <Txt step="meta">
+          <Txt step="meta" weight="bold" color="textSub">{`@${who}`}</Txt>
+          {'  '}
+          {text}
+        </Txt>
+      </View>
+    </View>
+  )
+  return (
+    <View role="img" aria-label={`예시: 손님 ${THANKS_EXAMPLE.buyer}님이 ${THANKS_EXAMPLE.order}라고 치면 내 채널로 "${THANKS_EXAMPLE.thanks}"가 올라가요`} testID="thanks-example" style={{ marginTop: SPACE.sm, padding: SPACE.lg, gap: SPACE.md, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+      {line(THANKS_EXAMPLE.buyer, THANKS_EXAMPLE.order, false)}
+      {line('내 채널', THANKS_EXAMPLE.thanks, true)}
     </View>
   )
 }
@@ -50,14 +86,9 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
   const voiceView = useSyncExternalStore(services.voice.subscribe, services.voice.getView)
   const [sheet, setSheet] = useState<ManageSheet>('none')
   const [thanksBusy, setThanksBusy] = useState(false)
-  const [thanksNote, setThanksNote] = useState<{ readonly tone: 'success' | 'danger'; readonly text: string } | null>(null)
+  const [thanksError, setThanksError] = useState<string | null>(null)
   const [pasted, setPasted] = useState<string | null>(null)
   const [endError, setEndError] = useState<string | null>(null)
-  useEffect(() => {
-    if (thanksNote === null) return
-    const handle = setTimeout(() => setThanksNote(null), THANKS_NOTE_MS)
-    return () => clearTimeout(handle)
-  }, [thanksNote])
   const close = () => setSheet('none')
   // 설정 하나하나는 진짜 전체 화면으로 (D-UX4-60) — 경로가 없을 때(시험·웹)만 이 화면 위 판으로
   const show = (tool: 'sms' | 'voice' | 'import' | 'paste' | 'chat') => (openTool === undefined ? setSheet(tool) : openTool(tool))
@@ -65,9 +96,11 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
   const listening = voiceView.on && voiceView.broadcastId === broadcastId
   const switchThanks = (next: boolean) => {
     setThanksBusy(true)
+    setThanksError(null)
+    // 켜고 끈 결과 줄은 띄우지 않는다 (D-UX4-63) — 바꾸지 못했을 때만 빨간 줄
     api.command({ type: 'broadcast.thanks', b: broadcastId, liveChat: next }).then(
-      () => setThanksNote({ tone: 'success', text: next ? THANKS_ON_DONE : THANKS_OFF_DONE }),
-      (caught: unknown) => setThanksNote({ tone: 'danger', text: isApiError(caught) ? caught.message : '바꾸지 못했어요. 다시 눌러 주세요.' }),
+      () => undefined,
+      (caught: unknown) => setThanksError(isApiError(caught) ? caught.message : '바꾸지 못했어요. 다시 눌러 주세요.'),
     ).finally(() => setThanksBusy(false))
   }
   const endBroadcast = async () => {
@@ -84,7 +117,7 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
   }
   return (
     <>
-      {thanksNote !== null ? <Notice tone={thanksNote.tone} alert={thanksNote.tone === 'danger'}>{thanksNote.text}</Notice> : null}
+      {thanksError !== null ? <Notice tone="danger" alert>{thanksError}</Notice> : null}
       {endError !== null ? <Notice tone="danger" alert>{endError}</Notice> : null}
       {pasted !== null ? <Notice tone="success">{pasted}</Notice> : null}
       <MenuGroup title="방송">

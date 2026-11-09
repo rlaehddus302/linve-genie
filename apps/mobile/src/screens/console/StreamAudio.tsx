@@ -5,13 +5,12 @@
 // - 휴대폰 마이크를 켜면 마이크가 대신 듣는다(서버는 쉰다, D-LV1-06). 상태 줄은 색 + 글자로.
 // - D-LV1-14: 앱을 닫아도 서버는 방송이 끝날 때까지 듣고, 받을 앱이 없으면 서버가 읽고 바로 등록한다. 돌아오면 ServerHeard가 그동안 한 일을 보여 준다.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native'
+import { Animated, Easing, Platform, Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import { readStreamAudioStatus, streamAudioLine, type StreamAudioStatus } from '@livejjim/web/src/lib/stream-audio.ts'
 import { get, post } from '../../api/client.ts'
 import type { VoiceSession, VoiceView } from '../../lib/voice-session.ts'
 import { DotStatus, Icon, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
-import { listenState } from './VoicePanel.tsx'
 import { BigButton, Body, Card, Hint } from '../../ui/parts.tsx'
 import type { StreamKeep } from '../../lib/stream-keep.ts'
 
@@ -97,14 +96,25 @@ export function KeptStreamAudio({ session, keep, signedIn }: { readonly session:
   return <KeptRunner key={kept.broadcastId} session={session} keep={keep} broadcastId={kept.broadcastId} title={kept.title} />
 }
 
-/** 머리 오른쪽 듣기 상태 한 곳: 마이크가 켜져 있으면 마이크, 아니면 방송 소리, 둘 다 아니면 꺼짐 */
+/** 들린 말 창 왼쪽 상태 낱말 세 가지 (D-UX4-67, 사용자 지시 2026-11-10 "듣는 중 표시 말고 다른 상태는 연결 끊김(red), 재연결 중(orange)") */
+export const DOCK_STATE = { on: '듣는 중', reconnecting: '재연결 중', lost: '연결 끊김' } as const
+
+/**
+ * 들린 말 창 왼쪽 상태 한 곳: 마이크가 켜져 있으면 마이크, 아니면 방송 소리.
+ * 듣는 중(초록) · 켜는 중·다시 잇는 중·아직 듣기 전(주황 "재연결 중") · 멈춤·꺼짐·받을 수 없음·모름(빨강 "연결 끊김")
+ */
 export function listenChip(view: VoiceView, broadcastId: string, status: StreamAudioStatus | null): { readonly word: string; readonly tone: 'on' | 'off' | 'warn' } {
-  const mic = listenState(view, broadcastId)
-  if (view.on && view.broadcastId === broadcastId) return mic
-  if (status?.phase === 'listening') return { word: '듣는 중', tone: 'on' }
-  if (status?.phase === 'reconnecting') return { word: '방송 소리 다시 잇는 중', tone: 'warn' }
-  if (status?.phase === 'stopped') return { word: '방송 소리 멈춤', tone: 'warn' }
-  return mic
+  const on = { word: DOCK_STATE.on, tone: 'on' } as const
+  const again = { word: DOCK_STATE.reconnecting, tone: 'warn' } as const
+  const lost = { word: DOCK_STATE.lost, tone: 'off' } as const
+  if (view.on && view.broadcastId === broadcastId) {
+    const kind = view.state.kind
+    if (kind === 'listening') return on
+    return kind === 'starting' || kind === 'reconnecting' ? again : lost
+  }
+  if (status?.phase === 'listening') return on
+  if (status?.phase === 'reconnecting' || status?.phase === 'idle') return again
+  return lost
 }
 
 /** 서버가 앱 없이 들은·한 일 한 줄 (D-LV1-14) */
@@ -177,17 +187,52 @@ export function ServerHeard({ broadcastId }: { readonly broadcastId: string }) {
 
 /** 들린 말 창을 펼쳤을 때 지난 줄이 보이는 높이 (넘으면 채팅처럼 위로 밀어 올려 본다) */
 export const HEARD_LOG_HEIGHT = 240
+/** 펼치고 접는 움직임 (D-UX4-67, 사용자 지시 2026-11-10 "부드럽게 펼쳐줘") */
+export const HEARD_OPEN_MS = 240
+/** 상태 칸 폭을 정하는 낱말들 — 가장 긴 상태 알약 폭으로 고정해, 지금 말·지난 말 글이 모두 같은 세로줄에서 시작한다 */
+const DOCK_WORDS = [DOCK_STATE.on, DOCK_STATE.reconnecting, DOCK_STATE.lost] as const
+
+const toTwo = (n: number): string => String(n).padStart(2, '0')
+/** 들린 시각 "21:07:33" (한국 시각) — 지난 말 왼쪽 칸 */
+export function heardTime(at: number): string {
+  const kst = new Date(at + 9 * 3600_000)
+  return `${toTwo(kst.getUTCHours())}:${toTwo(kst.getUTCMinutes())}:${toTwo(kst.getUTCSeconds())}`
+}
+
+/** 펼침 0 → 1. 시험·웹은 바로 */
+function useOpenMotion(open: boolean): { readonly value: Animated.Value; readonly shown: boolean } {
+  const value = useRef(new Animated.Value(open ? 1 : 0)).current
+  const [shown, setShown] = useState(open)
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      value.setValue(open ? 1 : 0)
+      setShown(open)
+      return
+    }
+    if (open) setShown(true)
+    const run = Animated.timing(value, { toValue: open ? 1 : 0, duration: HEARD_OPEN_MS, easing: open ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic), useNativeDriver: false })
+    run.start(({ finished }) => {
+      if (finished && !open) setShown(false)
+    })
+    return () => run.stop()
+  }, [open, value])
+  return { value, shown: Platform.OS === 'web' ? open : shown }
+}
 
 /**
- * 들린 말 창 (D-LIVETEST-07 → D-UX4-53, 사용자 지시 2026-11-09): 방송 화면 맨 아래에 붙는다.
- * 왼쪽에 듣기 상태 알약(정상 초록·아니면 빨강 — 옛 머리 오른쪽 상태를 옮김), 가운데 지금 들리는 말 한 줄, 오른쪽 ⌃.
- * 누르면 위로 펼쳐져 지난 들린 말이 채팅처럼 쌓여 보인다(새 줄이 아래, 위로 밀어 올려 지난 말을 본다). 지금 들리는 말은 아래 줄에만 — 펼친 목록에는 겹쳐 넣지 않는다.
+ * 들린 말 창 (D-LIVETEST-07 → D-UX4-53 → D-UX4-67): 방송 화면 맨 아래에 붙는다.
+ * 왼쪽에 듣기 상태 알약(듣는 중 초록 · 재연결 중 주황 · 연결 끊김 빨강), 가운데 지금 들리는 말 한 줄, 오른쪽 ⌃.
+ * 누르면 높이가 부드럽게 늘며 위로 펼쳐져 지난 들린 말이 채팅처럼 쌓여 보인다(새 줄이 아래). 지난 말 왼쪽은 들린 시각 —
+ * 시각 칸과 상태 칸은 같은 폭이라 지난 말·지금 말이 모두 같은 왼쪽 줄에서 시작한다. 지금 들리는 말은 아래 줄에만.
  * 글자 크기는 채팅·문자 탭 채팅과 같은 meta. 다시 켜기·휴대폰 마이크는 방송 관리 화면에 있다(D-UX3-73).
  */
 export function ListenLine({ session, broadcastId, stream, bottom }: { readonly session: VoiceSession; readonly broadcastId: string; readonly stream: StreamAudio; readonly bottom: number }) {
   const { p } = useKit()
   const view = useSyncExternalStore(session.subscribe, session.getView)
   const [open, setOpen] = useState(false)
+  const [column, setColumn] = useState<number | null>(null)
+  const [logHeight, setLogHeight] = useState(0)
+  const motion = useOpenMotion(open)
   const log = useRef<ScrollViewInstance>(null)
   const micOn = view.on && view.broadcastId === broadcastId
   // "앱을 닫은 동안 서버가 들었어요" 카드는 띄우지 않는다 (D-UX3-87, 사용자 지시 2026-11-09)
@@ -196,29 +241,57 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
   const chip = listenChip(view, broadcastId, stream.status)
   const last = view.transcript.at(-1) ?? null
   const earlier = view.transcript.slice(0, -1)
+  const times = view.transcriptAt
   const now = hearing ? (last ?? '아직 들린 말이 없어요.') : (line?.text ?? '들린 말이 여기에 나와요.')
+  // 펼친 칸 높이: 안쪽 글 높이(최대 HEARD_LOG_HEIGHT)까지 0에서 늘린다. 재기 전(첫 그림)에는 바로 그 높이
+  const target = Math.min(logHeight, HEARD_LOG_HEIGHT) + SPACE.sm
+  const height = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, target] })
+  const lines = (
+    <View role="log" aria-label="지난 들린 말" style={{ gap: SPACE.xs }} onLayout={(event) => setLogHeight(event.nativeEvent.layout.height)}>
+      {earlier.length === 0 ? (
+        <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+          <View style={{ width: column ?? undefined }} />
+          <Txt step="meta" color="textSub">지난 들린 말이 아직 없어요.</Txt>
+        </View>
+      ) : (
+        earlier.map((text, index) => {
+          const at = times[index]
+          return (
+            <View key={`${String(index)}:${text}`} testID="heard-row" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm }}>
+              <View style={{ width: column ?? undefined, paddingLeft: SPACE.sm + 2, paddingTop: 1 }}>
+                <Txt step="caption" color="textSub">{at === undefined ? '' : heardTime(at)}</Txt>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Txt step="meta" color="textSub">{text}</Txt>
+              </View>
+            </View>
+          )
+        })
+      )}
+    </View>
+  )
   return (
     <View role="region" aria-label="들린 말 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
-      {open ? (
-        <View style={{ paddingHorizontal: SPACE.xs, paddingBottom: SPACE.sm, gap: SPACE.xs }}>
+      {motion.shown ? (
+        <Animated.View style={{ height: Platform.OS === 'web' ? undefined : height, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs, paddingBottom: SPACE.sm }}>
           <ScrollView ref={log} style={{ maxHeight: HEARD_LOG_HEIGHT }} onContentSizeChange={() => log.current?.scrollToEnd({ animated: false })}>
-            <View role="log" aria-label="지난 들린 말" style={{ gap: SPACE.xs }}>
-              {earlier.length === 0 ? (
-                <Txt step="meta" color="textSub">지난 들린 말이 아직 없어요.</Txt>
-              ) : (
-                earlier.map((text, index) => (
-                  <Txt key={`${String(index)}:${text}`} step="meta" color="textSub">
-                    {text}
-                  </Txt>
-                ))
-              )}
-            </View>
+            {lines}
           </ScrollView>
-          {line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
-        </View>
+        </Animated.View>
       ) : null}
+      {open && line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
       <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-        <DotStatus word={chip.word} tone={chip.tone} />
+        <View onLayout={(event) => setColumn(event.nativeEvent.layout.width)}>
+          {/* 자리 재기: 가장 긴 상태 알약 폭 — 보이지도 읽히지도 않는다 */}
+          {DOCK_WORDS.map((word) => (
+            <View key={word} aria-hidden importantForAccessibility="no-hide-descendants" style={{ height: 0, overflow: 'hidden', opacity: 0 }}>
+              <StillPill word={word} />
+            </View>
+          ))}
+          <View style={{ flexDirection: 'row' }}>
+            <DotStatus word={chip.word} tone={chip.tone} />
+          </View>
+        </View>
         <View role="status" aria-label="지금 들리는 말" style={{ flex: 1 }}>
           <Txt step="meta" weight={hearing && last !== null ? 'medium' : undefined} numberOfLines={1} color={hearing && last !== null ? undefined : 'textSub'}>
             {now}
@@ -227,6 +300,16 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
         {/* 아래에 붙은 창이라 위로 펼친다 — 닫혀 있으면 ⌃, 펼쳤으면 ⌄ */}
         <Icon name={open ? 'down' : 'up'} size={16} color={p.textSub} />
       </Pressable>
+    </View>
+  )
+}
+
+/** 폭 재기용 상태 알약 (DotStatus와 같은 치수, 움직임·읽기 없음) */
+function StillPill({ word }: { readonly word: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: SPACE.sm + 2, paddingVertical: 5, marginRight: SPACE.xs }}>
+      <View style={{ width: 9, height: 9 }} />
+      <Txt step="caption" weight="bold">{word}</Txt>
     </View>
   )
 }

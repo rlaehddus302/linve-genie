@@ -78,6 +78,10 @@ export interface Palette {
   readonly liveBadBg: string
   readonly liveBadText: string
   readonly liveBadDot: string
+  /** 다시 잇는 중 (주황, D-UX4-67) */
+  readonly liveWarnBg: string
+  readonly liveWarnText: string
+  readonly liveWarnDot: string
 }
 
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
@@ -148,6 +152,9 @@ const LIGHT: Palette = {
   liveBadBg: '#FEEDEE',
   liveBadText: '#D11422',
   liveBadDot: '#FF3B3B',
+  liveWarnBg: '#FFF4E5',
+  liveWarnText: '#B54708',
+  liveWarnDot: '#FF9500',
 }
 
 export const PALETTE: Readonly<Record<Scheme, Palette>> = { light: LIGHT, dark: LIGHT }
@@ -300,6 +307,7 @@ export function contrastPairs(scheme: Scheme): readonly ContrastPair[] {
     { name: '찜 꼬리표/금색', fg: p.goldText, bg: p.goldBg, min: 4.5 },
     { name: '방송 상태 정상', fg: p.liveOkText, bg: p.liveOkBg, min: 4.5 },
     { name: '방송 상태 문제', fg: p.liveBadText, bg: p.liveBadBg, min: 4.5 },
+    { name: '방송 상태 다시 잇는 중', fg: p.liveWarnText, bg: p.liveWarnBg, min: 4.5 },
   ]
   for (const [tone, pair] of Object.entries(TONES[scheme])) pairs.push({ name: `상태 ${tone}`, fg: pair.fg, bg: pair.bg, min: 4.5 })
   return pairs

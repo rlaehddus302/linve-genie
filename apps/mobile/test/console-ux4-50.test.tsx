@@ -155,7 +155,7 @@ describe('상품 추가 큰 칸 (D-UX4-52·54)', () => {
 })
 
 function fakeVoice(view: Partial<VoiceView>): VoiceSession {
-  const full = { on: true, broadcastId: 'b1', state: { kind: 'listening' }, transcript: [], ...view } as unknown as VoiceView
+  const full = { on: true, broadcastId: 'b1', state: { kind: 'listening' }, transcript: [], transcriptAt: [], ...view } as unknown as VoiceView
   return { subscribe: () => () => {}, getView: () => full } as unknown as VoiceSession
 }
 
