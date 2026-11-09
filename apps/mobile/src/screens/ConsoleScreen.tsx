@@ -18,7 +18,7 @@ import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../
 import { useServices } from '../services.tsx'
 import { AppHeader, BigButton, BottomSheet, FullSheet, HeaderTextButton, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
 import { GUTTER, SPACE } from '../ui/kit/tokens.ts'
-import { BigButton as SmallButton, Loading, Notice, Row } from '../ui/parts.tsx'
+import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
@@ -50,11 +50,34 @@ const DOUBT_POLL_MS = 20_000
 // 범위 자료는 같은 방송을 보는 화면끼리 나눠 쓴다 (D-UX4-57 — 상품 추가·방송 관리 쌓인 화면)
 export { useScopeStore } from './console/scope.tsx'
 
+/**
+ * 연결 줄은 오래 끊겼을 때만 (D-UX4-83, 사용자 지시 2026-11-10 "찰나의 순간에 다시 연결하는 중… 이런 메시지가 나오고 … ux에 별로 … 웬만하면 안 띄우고 싶거든"):
+ * 실시간 연결이 LIVE_NOTICE_MS(10초) 넘게 이어서 끊겨 있거나, 최신으로 맞추지 못한 채 그만큼 지나야 보인다 — 화면을 열 때·앱으로 돌아올 때의 잠깐 끊김은 보이지 않는다.
+ * 오래 끊기면 찜이 화면에 늦게 오므로 그때는 알린다(판매자 안전).
+ */
+export const LIVE_NOTICE_MS = 10_000
+
+/** flag가 ms 동안 이어서 참이었는가 */
+export function useLasting(flag: boolean, ms: number): boolean {
+  const [late, setLate] = useState(false)
+  useEffect(() => {
+    if (!flag) {
+      setLate(false)
+      return
+    }
+    const handle = setTimeout(() => setLate(true), ms)
+    return () => clearTimeout(handle)
+  }, [flag, ms])
+  return flag && late
+}
+
 export function LiveNotice({ snapshot, onRetry }: { readonly snapshot: ScopeSnapshot; readonly onRetry: () => void }) {
+  const lost = useLasting(snapshot.connection !== 'open', LIVE_NOTICE_MS)
+  const stale = useLasting(snapshot.stale, LIVE_NOTICE_MS)
   return (
     <>
-      {snapshot.connection !== 'open' ? <Notice tone="warning">{LIVE_RECONNECTING}</Notice> : null}
-      {snapshot.stale ? (
+      {lost ? <Notice tone="warning">{LIVE_RECONNECTING}</Notice> : null}
+      {stale ? (
         <Row wrap>
           <Notice tone="warning" alert>
             {LIVE_STALE}
@@ -281,13 +304,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
       </>,
     )
   }
+  // 아직 자료가 없으면 바탕만 (D-UX4-83 — 옛: 빙글이 + "불러오는 중…"). 오래 끊긴 때의 연결 줄만 보인다
   if (data === null || broadcast === null || names === null) {
-    return frame(
-      <>
-        <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
-        <Loading />
-      </>,
-    )
+    return frame(<LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />)
   }
 
   const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), latest: () => store.getSnapshot().data ?? data, select: setSelected, selected, labelWords, doubts }

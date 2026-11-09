@@ -6,7 +6,6 @@ import { useServices } from '../../services.tsx'
 import { StackPage, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Loading } from '../../ui/parts.tsx'
-import { ChatView } from './ChatPaste.tsx'
 import { APP_IMPORT_TITLE, ImportView } from './ImportSheet.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './Manage.tsx'
 import { VoiceSettingsPanel } from './VoicePanel.tsx'
@@ -75,14 +74,14 @@ function ManageBody({ broadcastId, title, rehearsal, closed, onBack, openLink, o
 
 /** 방송 관리에서 여는 설정 하나하나 — 아래 판이 아니라 진짜 전체 화면 (D-UX4-60, 사용자 지시 2026-11-09 "방송 관리 탭 안에 있는 각 설정들도 모두 전체화면으로") */
 // 문자찜 직접 넣기·댓글 붙여넣기는 없앴다 (D-UX4-78, 사용자 지시 2026-11-10)
-export type ConsoleTool = 'voice' | 'import' | 'chat'
-export const CONSOLE_TOOLS: readonly ConsoleTool[] = ['voice', 'import', 'chat']
+// 채팅 보기도 없앴다 — 방송 화면 채팅·문자 탭과 겹친다 (D-UX4-84)
+export type ConsoleTool = 'voice' | 'import'
+export const CONSOLE_TOOLS: readonly ConsoleTool[] = ['voice', 'import']
 
 /** 머리 가운데 제목(방송 관리 줄 이름과 같다) · 맨 위 굵은 한 줄 · 회색 설명 (토스 화면처럼 무엇을 하는 화면인지 먼저) */
 export const TOOL_PAGE: Readonly<Record<ConsoleTool, { readonly title: string; readonly head: string; readonly body: string }>> = {
   voice: { title: '음성 설정', head: '방송 소리를 글로 바꿔요', body: '들린 말로 상품을 올리는 방법을 정해요' },
   import: { title: APP_IMPORT_TITLE, head: '방송 전에 상품을 한 번에 올려요', body: '"번호 품종 가격"을 한 줄씩 붙여 넣으면\n공개 전 상품으로 올라가요' },
-  chat: { title: '채팅 보기', head: '받은 채팅이에요', body: '방송 채팅을 받은 순서대로 보여드려요' },
 }
 
 export function isConsoleTool(value: unknown): value is ConsoleTool {
@@ -115,7 +114,6 @@ function ToolBody({ broadcastId, tool }: { readonly broadcastId: string; readonl
       <WhiteCard>
         {tool === 'voice' ? <VoiceSettingsPanel session={services.voice} broadcastId={broadcastId} /> : null}
         {tool === 'import' ? <ImportView /> : null}
-        {tool === 'chat' ? <ChatView /> : null}
       </WhiteCard>
     </>
   )

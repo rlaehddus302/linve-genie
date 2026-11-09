@@ -2,9 +2,11 @@
 // 방송 화면 위에 진짜 쌓인 화면(상품 추가·방송 관리)을 올려도 같은 저장소(실시간 연결·따라잡기)를 쓴다 — 새로 받지 않는다.
 // 처음 붙는 화면이 "방송 화면에 들어왔다" 기록을 보내고 시작하며, 마지막 화면이 떨어지면 멈춘다.
 import { useCallback, useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
-import type { WriteResult } from '@livejjim/web/src/api/types.ts'
+import type { BroadcastItem, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { ApiError, isApiError, newRequestId, post, withQuery, withRetry } from '../../api/client.ts'
+import { peekCached, rememberCached } from '../../lib/cached-get.ts'
 import { BuyerNames } from '../../lib/derive.ts'
+import type { ScopeData } from '../../lib/scope-data.ts'
 import { ScopeStore, type ScopeSnapshot } from '../../lib/scope-store.ts'
 import { useServices, type Services } from '../../services.tsx'
 import { ConsoleContext, type ConsoleApi } from './context.ts'
@@ -15,6 +17,13 @@ interface Shared {
 }
 const registry = new WeakMap<Services, Map<string, Shared>>()
 
+/**
+ * 방송 화면을 다시 열 때 (D-UX4-83, 사용자 지시 2026-11-10 "찰나의 순간에 다시 연결하는 중… 로딩 아이콘이랑 불러오는 중 보이지. ux에 별로"):
+ * 마지막으로 본 방송·자료를 화면 자료 기억(D-UX4-77 — 로그아웃·계정 바뀜이면 지운다)에 두었다가 그것으로 바로 그리고, 뒤에서 새로 받는다.
+ */
+export const scopeMemoryKey = (broadcastId: string): string => `app:console-scope:${broadcastId}`
+type ScopeMemory = { readonly broadcast: BroadcastItem; readonly data: ScopeData }
+
 function sharedFor(services: Services, broadcastId: string): Shared {
   let byId = registry.get(services)
   if (byId === undefined) {
@@ -23,7 +32,7 @@ function sharedFor(services: Services, broadcastId: string): Shared {
   }
   let shared = byId.get(broadcastId)
   if (shared === undefined) {
-    shared = { store: new ScopeStore({ broadcastId, openStream: () => services.stream.open() }), users: 0 }
+    shared = { store: new ScopeStore({ broadcastId, openStream: () => services.stream.open(), seed: peekCached<ScopeMemory>(scopeMemoryKey(broadcastId)) }), users: 0 }
     byId.set(broadcastId, shared)
   }
   return shared
@@ -50,6 +59,9 @@ export function useScopeStore(broadcastId: string): { store: ScopeStore; snapsho
       live = false
       shared.users -= 1
       if (shared.users === 0) {
+        // 다음에 다시 열 때 바로 그릴 자료로 남긴다
+        const last = store.getSnapshot()
+        if (last.phase === 'ready' && last.broadcast !== null && last.data !== null) rememberCached<ScopeMemory>(scopeMemoryKey(broadcastId), { broadcast: last.broadcast, data: last.data })
         store.stop()
         registry.get(services)?.delete(broadcastId)
       }

@@ -17,7 +17,7 @@ import { EmptyFill, Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import type { Tone } from '../../ui/kit/tokens.ts'
 import { TAG_PAD_X } from '../../lib/product-tags.ts'
-import { Hint, Notice } from '../../ui/parts.tsx'
+import { Notice } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
 import { useMessages } from './ChatPaste.tsx'
 import { HEARD_LOG_HEIGHT, useOpenMotion } from './StreamAudio.tsx'
@@ -219,7 +219,7 @@ export function LiveTalk() {
     <View style={{ gap: SPACE.xs }}>
       {error !== null && view === null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {view?.sealed === true ? <Notice tone="info">{view.sealedMessage ?? '봉인한 날짜라 채팅 내용을 지웠어요.'}</Notice> : null}
-      {view === null && error === null ? <Hint>불러오는 중…</Hint> : rows.length === 0 ? <EmptyFill title={TALK_EMPTY} body={TALK_EMPTY_BODY} /> : (
+      {view === null && error === null ? null : rows.length === 0 ? <EmptyFill title={TALK_EMPTY} body={TALK_EMPTY_BODY} /> : (
         <View role="list" aria-label={TALK_TAB} style={{ gap: SPACE.xs }}>
           {/* 최신 TALK_LIMIT줄을 라이브 채팅처럼 최신이 맨 아래로 (D-UX3-75) */}
           {rows.slice(0, TALK_LIMIT).reverse().map((row) => <TalkLine key={row.key} row={row} timeWidth={timeWidth} onTimeWidth={onTimeWidth} />)}

@@ -1,7 +1,7 @@
 // 공통 조각: 큰 단추·입력칸·알림 상자·꼬리표·화면 틀. 모양은 공통 디자인 바탕(ui/kit)에서 가져오고,
 // 역할(role)·이름(aria-label)을 정확히 달아 시험·보조 기술이 잡기 쉽게 한다. (화면들이 쓰는 이 이름·인자는 그대로 둔다.)
 import type { ReactNode } from 'react'
-import { ActivityIndicator, Platform, ScrollView, Text, View, type TextInputProps } from 'react-native'
+import { Platform, ScrollView, Text, View, type TextInputProps } from 'react-native'
 import { Tap } from './kit/press.tsx'
 import { RADIUS, SHADOW, GUTTER, SPACE, TOUCH, pressedFill } from './kit/tokens.ts'
 import { Txt, useKit, useTabBarRoom, type TxtColor } from './kit/theme.tsx'
@@ -185,14 +185,12 @@ export function Card({ children, label }: { readonly children: ReactNode; readon
   )
 }
 
+/**
+ * 불러오는 동안 (D-UX4-83, 사용자 지시 2026-11-10 "화면 로딩이 덜 됐으면 차라리 배경색으로 둬"): 빙글이·"불러오는 중…" 글 없이 빈 바탕.
+ * 읽기 프로그램에만 무엇을 기다리는지 알린다.
+ */
 export function Loading({ text }: { readonly text?: string }) {
-  const { p } = useKit()
-  return (
-    <View role="status" style={{ flexDirection: 'row', gap: SPACE.md, alignItems: 'center', padding: SPACE.md }}>
-      <ActivityIndicator color={p.primary} />
-      <Body>{text ?? '불러오는 중…'}</Body>
-    </View>
-  )
+  return <View role="status" aria-label={text ?? '불러오는 중'} testID="loading-blank" style={{ minHeight: SPACE.xxl }} />
 }
 
 /** 큰 빨간 글 (듣기 멈춤 등) */

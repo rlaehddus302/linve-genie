@@ -103,8 +103,9 @@ function animateNext(): void {
   try {
     LayoutAnimation.configureNext({
       duration: SWAP_MS,
+      // 자리 바꿈(update)은 움직이지 않는다 (D-UX4-85, 사용자 지시 2026-11-10 "스와이프해서 뒤로가기 하면 이전 화면이 오른쪽으로 오바해서 들썩"):
+      // LayoutAnimation은 앱 전체 다음 그리기에 걸려, 뒤로 가기 넘김과 겹치면 화면 틀까지 미끄러졌다. 새로 생기고 없어지는 것만 옅게 나타나고 사라진다
       create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      update: { type: LayoutAnimation.Types.easeInEaseOut },
       delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
     })
   } catch {
@@ -115,6 +116,9 @@ function animateNext(): void {
 // ── 화면이 다시 보일 때 ──
 
 const FocusContext = createContext(0)
+
+/** 다시 보인 뒤 넘김이 가라앉기를 기다리는 시간 (iOS·안드로이드 뒤로 가기 넘김 ≈ 350ms) */
+export const FOCUS_SETTLE_MS = 500
 
 interface FocusNavigation {
   readonly addListener: (event: 'focus' | 'blur', callback: () => void) => () => void
@@ -128,14 +132,18 @@ export function ScreenFocusProvider({ navigation, children }: { readonly navigat
     const offBlur = navigation.addListener('blur', () => {
       hidden = true
     })
+    let pending: ReturnType<typeof setTimeout> | undefined
     const offFocus = navigation.addListener('focus', () => {
       if (!hidden) return
       hidden = false
-      setCount((n) => n + 1)
+      // 넘김(밀어서 뒤로 가기)이 다 끝난 뒤에 다시 묻는다 (D-UX4-85) — 넘기는 동안 화면이 바뀌지 않게
+      if (pending !== undefined) clearTimeout(pending)
+      pending = setTimeout(() => setCount((n) => n + 1), FOCUS_SETTLE_MS)
     })
     return () => {
       offBlur()
       offFocus()
+      if (pending !== undefined) clearTimeout(pending)
     }
   }, [navigation])
   return createElement(FocusContext.Provider, { value: count }, children)

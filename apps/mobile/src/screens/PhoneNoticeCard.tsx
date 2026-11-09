@@ -179,9 +179,8 @@ export function PhoneNoticeCard() {
           </Row>
         </Card>
       ) : null}
-      {state === null ? (
-        <Hint>불러오는 중…</Hint>
-      ) : (
+      {/* 불러오는 동안은 비워 둔다 (D-UX4-83) */}
+      {state === null ? null : (
         <Row wrap>
           <Tag tone={on && !accessOff && !tokenBad && !serverOff ? 'success' : on ? 'warning' : 'info'}>{on ? '켜짐' : '꺼짐'}</Tag>
           <Body>{phoneNoticeLine(state)}</Body>

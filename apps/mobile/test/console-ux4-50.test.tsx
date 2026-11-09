@@ -259,9 +259,11 @@ describe('진짜 쌓인 화면 (D-UX4-57)', () => {
     })
     const page = await screen.findByRole('main', { name: '방송 관리' })
     // 옛 기대: '방송 끝내기' 줄. 새 기대(D-UX4-79): 방송 연결 안 "방송 연결 끊기"로 옮겼다
-    for (const row of ['음성 설정', '채팅 보기', '방송 연결']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
-    fireEvent.click(within(page).getByRole('button', { name: '채팅 보기' }))
-    expect(await screen.findByRole('dialog', { name: '채팅' })).toBeTruthy()
+    // 채팅 보기도 없앴다 (D-UX4-84) — 이 화면 위에 뜨는 아래 창은 "화면 아래 창"으로 본다
+    for (const row of ['음성 설정', '화면 아래 창', '방송 연결']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
+    expect(within(page).queryByRole('button', { name: '채팅 보기' })).toBeNull()
+    fireEvent.click(within(page).getByTestId('dock-choice'))
+    expect(await screen.findByRole('dialog', { name: '화면 아래 창' })).toBeTruthy()
   })
 })
 
@@ -277,8 +279,9 @@ describe('방송 관리 설정은 전체 화면 (D-UX4-60)', () => {
     })
     const page = await screen.findByRole('main', { name: '방송 관리' })
     // 옛 기대: 문자찜 직접 넣기·상품 목록 가져오기·댓글 붙여넣기도 — 새 기대(D-UX4-78): 둘은 없앴고 "상품 목록 가져오기"는 "상품 미리 등록"
-    for (const row of ['상품 미리 등록', '채팅 보기', '음성 설정']) fireEvent.click(within(page).getByRole('button', { name: row }))
-    expect(tools).toEqual(['import', 'chat', 'voice'])
+    for (const row of ['상품 미리 등록', '음성 설정']) fireEvent.click(within(page).getByRole('button', { name: row }))
+    // 채팅 보기도 없앴다 (D-UX4-84)
+    expect(tools).toEqual(['import', 'voice'])
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 

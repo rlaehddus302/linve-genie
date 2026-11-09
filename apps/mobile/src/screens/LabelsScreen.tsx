@@ -206,7 +206,7 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
 
         <Card label="출력 기기">
           <CardHead title="출력 기기" />
-          {queue === null ? <Txt color="textSub">불러오는 중…</Txt> : queue.device === null ? <Txt step="bodyLarge" weight="book">출력 기기 없음</Txt> : snapshot.mine ? <Txt step="bodyLarge" weight="medium">{`이 기기가 출력 기기예요 · ${queue.device.name}`}</Txt> : <Txt step="bodyLarge" weight="book">{`출력 기기: ${queue.device.name}${queue.device.live ? '' : ' (연결되어 있지 않아요)'}`}</Txt>}
+          {queue === null ? null : queue.device === null ? <Txt step="bodyLarge" weight="book">출력 기기 없음</Txt> : snapshot.mine ? <Txt step="bodyLarge" weight="medium">{`이 기기가 출력 기기예요 · ${queue.device.name}`}</Txt> : <Txt step="bodyLarge" weight="book">{`출력 기기: ${queue.device.name}${queue.device.live ? '' : ' (연결되어 있지 않아요)'}`}</Txt>}
           {/* "이 기기에서 출력"이 왜 안 보이는지 — 핵심 문장이라 본문 크기 (UX-PRN2-008) */}
           {!snapshot.mine && !canBecome ? <Txt>{EXPERIMENTAL_WAIT_TEST}</Txt> : null}
           {/* 이미 출력 기기: 실험 기종은 이 연결에서 테스트 "예" 전까지 받지 않는다 (D-PRN2-10·15, 웹과 같다) */}
@@ -234,9 +234,8 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
 
         <Card label="대기열">
           <CardHead title="대기열" />
-          {queue === null ? (
-            <Txt color="textSub">불러오는 중…</Txt>
-          ) : (
+          {/* 불러오는 동안은 비워 둔다 (D-UX4-83) */}
+          {queue === null ? null : (
             <>
               <Txt step="bodyLarge" weight="book">{`대기 ${String(queue.waiting)}장 · 출력 중 ${String(queue.printing)}장 · 버릴 라벨 ${String(queue.discard)}장 · 이 앱에서 찍은 ${String(snapshot.printed)}장`}</Txt>
               {queue.pause !== null ? (

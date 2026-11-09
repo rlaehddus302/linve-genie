@@ -1,6 +1,6 @@
 // 방송 관리 (D-UX4-20 → D-UX4-57): 토스 설정 화면처럼 굵은 묶음 이름 · 흰 카드 · 줄 이름만.
 // 방송 화면 위 진짜 쌓인 화면(app/console/[id]/manage)과, 경로가 없을 때(시험·웹) 방송 화면 안 겹친 화면이 같이 쓴다.
-// 여기서 여는 아래 창(음성 설정·상품 미리 등록·채팅 보기·화면 아래 창)도 이 안에 있다.
+// 여기서 여는 아래 창(음성 설정·상품 미리 등록·화면 아래 창)도 이 안에 있다.
 import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import { isApiError } from '../../api/client.ts'
@@ -11,7 +11,6 @@ import { BigButton, BottomSheet, FullSheet, SheetChoices, ToggleRow, Txt, useKit
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { LABEL_PRINT_TITLE } from '../LabelPrintScreen.tsx'
-import { ChatView } from './ChatPaste.tsx'
 import { useConsoleApi } from './context.ts'
 import { APP_IMPORT_TITLE, ImportView } from './ImportSheet.tsx'
 import { MenuGroup, MenuRow } from './parts.tsx'
@@ -76,15 +75,15 @@ function ThanksExample() {
   )
 }
 
-type ManageSheet = 'none' | 'voice' | 'chat' | 'import' | 'dock'
+type ManageSheet = 'none' | 'voice' | 'import' | 'dock'
 
 /** 관리에서 여는 설정 하나 (D-UX4-60 — 경로가 있으면 진짜 전체 화면) */
-export type ManageTool = 'voice' | 'import' | 'chat'
+export type ManageTool = 'voice' | 'import'
 
 /**
  * 묶음 (D-UX4-78, 사용자 지시 2026-11-10 "방송 관리 안에 '방송' 묶음은 방송 안에 방송 관리 느낌"): 무엇을 하는지로 나눈다 —
- * 라이브 채팅(방송 연결 · 자동 감사 채팅) · 듣기(휴대폰 마이크 · 음성 설정) · 상품·라벨(상품 미리 등록 · 라벨 프린트) · 화면(화면 아래 창 · 채팅 보기).
- * 문자찜 직접 넣기·댓글 붙여넣기는 없앴고, 방송 끝내기는 방송 연결 안 "방송 연결 끊기"로 옮겼다(D-UX4-79).
+ * 라이브 채팅(방송 연결 · 자동 감사 채팅) · 듣기(휴대폰 마이크 · 음성 설정) · 상품·라벨(상품 미리 등록 · 라벨 프린트) · 화면(화면 아래 창).
+ * 문자찜 직접 넣기·댓글 붙여넣기·채팅 보기(채팅·문자 탭과 겹침 — D-UX4-84)는 없앴고, 방송 끝내기는 방송 연결 안 "방송 연결 끊기"로 옮겼다(D-UX4-79).
  * canLink: 유튜브 상태를 받았는지 — 끝나지 않은 방송이면 받지 못했어도 방송 연결 줄을 보인다(그 안에서 연결을 끊는다).
  * onClose: 이 화면을 닫는다(듣기 켜기·끄기는 방송 화면에서 안내·상태를 보여 주므로 닫고 한다, D-UX3-73).
  */
@@ -143,15 +142,11 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
       <MenuGroup title="화면">
         {/* 방송 화면 맨 아래 창: 들린 말 · 채팅·문자 · 안 보기 (D-UX4-71) */}
         <MenuRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
-        <MenuRow title="채팅 보기" onPress={() => show('chat')} />
       </MenuGroup>
 
       <FullSheet visible={sheet === 'import'} onClose={close} name={APP_IMPORT_TITLE} title={APP_IMPORT_TITLE}>
         {sheet === 'import' ? <ImportView /> : null}
       </FullSheet>
-      <BottomSheet visible={sheet === 'chat'} onClose={close} title="채팅">
-        {sheet === 'chat' ? <ChatView /> : null}
-      </BottomSheet>
       <BottomSheet visible={sheet === 'dock'} onClose={close} title={DOCK_TITLE}>
         {/* 토스식 고르기 목록 (D-UX4-76 아래 창 SheetChoices) */}
         <SheetChoices label={DOCK_TITLE} choices={DOCK_CHOICES} value={dock} onPick={(next) => { setDockChoice(next); close() }} />

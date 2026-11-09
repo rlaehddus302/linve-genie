@@ -146,11 +146,9 @@ export function BandPostPicker({ onPick, onCancel, disabled }: { readonly onPick
           {problem}
         </Notice>
       )}
-      {band === null && problem === null && bands === null ? <Body muted>불러오는 중이에요</Body> : null}
       {band === null
         ? (bands ?? []).map((item) => <BigButton key={item.bandKey} label={item.name} disabled={disabled} onPress={() => setBand(item)} />)
         : null}
-      {band !== null && posts === null && problem === null ? <Body muted>불러오는 중이에요</Body> : null}
       {band !== null && posts !== null && posts.length === 0 ? <Body muted>내가 쓴 글이 없어요.</Body> : null}
       {band !== null
         ? (posts ?? []).map((item) => {

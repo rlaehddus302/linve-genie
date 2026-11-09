@@ -23,7 +23,9 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     let title = '저녁 방송'
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [ended(title)] } }))
     const first = render(world.wrap(<HomeScreen nav={homeNav()} />))
-    expect(screen.getByText(LOADING)).toBeTruthy()
+    // 옛 기대: 처음엔 "불러오는 중" 글. 새 기대(D-UX4-83): 글·빙글이 없이 빈 바탕만
+    expect(screen.getByTestId('loading-blank')).toBeTruthy()
+    expect(screen.queryByText(LOADING)).toBeNull()
     expect(await screen.findByText('저녁 방송')).toBeTruthy()
     // 다른 탭으로 감 (탭은 바꿔 끼워 화면이 사라진다)
     first.unmount()
@@ -33,6 +35,7 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     // 기다리지 않고 바로: 기억해 둔 것이 보이고 불러오는 중은 없다
     expect(screen.getByText('저녁 방송')).toBeTruthy()
     expect(screen.queryByText(LOADING)).toBeNull()
+    expect(screen.queryByTestId('loading-blank')).toBeNull()
     // 뒤에서 다시 받은 바뀐 것만 바뀐다
     expect(await screen.findByText('아침 방송')).toBeTruthy()
     expect(screen.queryByText('저녁 방송')).toBeNull()

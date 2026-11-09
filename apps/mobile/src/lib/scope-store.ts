@@ -45,6 +45,8 @@ export interface ScopeStoreOptions {
   readonly scope?: ScopeKey
   readonly openStream: () => EventSourceLike
   readonly timer?: Timer
+  /** 지난번에 본 방송·자료 (D-UX4-83): 있으면 처음부터 그 자료로 그리고, 뒤에서 새로 받아 바꾼다 */
+  readonly seed?: { readonly broadcast: BroadcastItem; readonly data: ScopeData } | null
 }
 
 const EMPTY: ScopeSnapshot = { phase: 'loading', error: null, broadcast: null, data: null, connection: 'connecting', stale: false, packingVersion: 0, reconnects: 0 }
@@ -85,6 +87,7 @@ export class ScopeStore {
     this.#fixedScope = options.scope ?? null
     this.#openStream = options.openStream
     this.#timer = options.timer ?? realTimer
+    if (options.seed != null) this.#snapshot = { ...EMPTY, phase: 'ready', broadcast: options.seed.broadcast, data: options.seed.data }
   }
 
   subscribe = (listener: () => void): (() => void) => {

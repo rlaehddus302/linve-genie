@@ -515,14 +515,19 @@ describe('ConsoleScreen', () => {
   })
 
   // 옛 시험 뒷부분(댓글 붙여넣기 미리 보기·넣기)은 없앴다 — 댓글 붙여넣기를 앱에서 없앰 (D-UX4-78)
-  it('채팅 보기 (D-APPX-03): 최근 채팅의 주문 표시', async () => {
+  // 옛 시험: 방송 관리 "채팅 보기" 판. 새 기대(D-UX4-84): 채팅 보기를 없애 같은 채팅을 채팅·문자 탭에서 본다(주문 꼬리표 "15번 주문")
+  it('채팅은 채팅·문자 탭에서 — 방송 관리에 "채팅 보기"가 없다 (D-UX4-84)', async () => {
     const world = makeWorld({ products: [product(15)] })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { date: '2026-10-29', rehearsal: false, seq: 5, more: false, messages: [{ id: 'm1', broadcast: 'b1', channel: 'ch1', nick: '꽃집언니', text: '15번이요', owner: false, seq: 4, at: '2026-10-29T11:00:00.000Z', publishedAt: '2026-10-29T11:00:00.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [15], converted: [], claims: [], failed: false }] } }))
     await open(world)
     fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
-    fireEvent.click(screen.getByRole('button', { name: /^채팅 보기/ }))
-    expect(await screen.findByText('15번이요')).toBeTruthy()
-    expect(screen.getByText('주문 15번')).toBeTruthy()
+    const page = await screen.findByRole('dialog', { name: '방송 관리' })
+    expect(within(page).queryByRole('button', { name: '채팅 보기' })).toBeNull()
+    fireEvent.click(within(page).getByRole('button', { name: '뒤로' }))
+    fireEvent.click(screen.getByRole('button', { name: '채팅·문자' }))
+    const talk = await screen.findByRole('list', { name: '채팅·문자' })
+    expect(talk.textContent).toContain('15번이요')
+    expect(talk.textContent).toContain('15번 주문')
   })
 
   it('겹친 상품 시트: "판매 완료"·"1등" 대신 "아직 안 정했어요"·"겹침", 정하기 버튼은 앱 정하기 창을 연다 (D-UX2-07, D-APPX-03)', async () => {
