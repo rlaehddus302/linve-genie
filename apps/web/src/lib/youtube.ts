@@ -47,7 +47,8 @@ export const SUMMARY_MANUAL = '감사 메시지를 만들기만 하고 자동으
 export const SUMMARY_OFF = '감사 메시지를 만들지 않아요.'
 /** 봇 감사 판매자 (D-YT-SEND-18): 구글 연결·게시 동의 대신 이 한 줄 */
 export const BOT_THANKS_TITLE = '감사 채팅은 라이브지니가 올려요'
-export const BOT_THANKS_NOTE = '찜이 확정되면 라이브지니가 방송 채팅에 감사 메시지를 대신 올려요. 구글 연결은 필요 없어요. 위 "찜이 확정될 때마다 채팅에 감사 메시지 남기기"를 끄면 올리지 않아요.'
+// 감사 채팅은 판매자가 켜기 전엔 꺼져 있다 (D-YT-SRV-23)
+export const BOT_THANKS_NOTE = '위 "찜이 확정될 때마다 채팅에 감사 메시지 남기기"를 켜면 라이브지니가 방송 채팅에 감사 메시지를 대신 올려요. 켜기 전까지는 올리지 않아요. 구글 연결은 필요 없어요.'
 export const BOT_THANKS_SUMMARY = '라이브지니가 방송 채팅에 대신 올려요'
 
 export function consentSummary(make: boolean, consent: boolean): string {

@@ -81,4 +81,20 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     return json({ error: { code: 'SAVE_FAILED', message: '저장하지 못했어요.' } }, 503)
   })
   app.all('/internal/screen/register', () => json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'POST만 받아요.' } }, 405))
+  // 지금 볼 라이브 (D-SCR-02): 일꾼이 30초마다 묻고, 목록에 생긴 영상에 붙고 빠진 영상에서 떨어진다 — 끊지 않은 연결 + 끝나지 않은 방송의 유튜브 영상 번호만(판매자 정보 없이)
+  app.get('/internal/screen/live', async (c) => {
+    if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
+    if (!bearerMatches(c.req.header('authorization'), deps.token)) return json({ error: { code: 'UNAUTHORIZED', message: '일꾼 토큰이 필요해요.' } }, 401)
+    return json({ videos: (await liveVideos(deps.db)).map((videoId) => ({ videoId })) }, 200)
+  })
+}
+
+/** 지금 이어진 유튜브 영상 번호 (끊지 않은 연결·끝나지 않은 방송, 겹치면 하나) */
+export async function liveVideos(db: Db): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ videoId: youtubeLinks.videoId })
+    .from(youtubeLinks)
+    .innerJoin(broadcasts, and(eq(broadcasts.id, youtubeLinks.broadcastId), eq(broadcasts.sellerId, youtubeLinks.sellerId)))
+    .where(and(isNull(youtubeLinks.unlinkedAt), isNull(broadcasts.endedAt)))
+  return rows.map((row) => row.videoId).filter((id): id is string => typeof id === 'string' && VIDEO_RE.test(id)).sort()
 }

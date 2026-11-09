@@ -71,4 +71,27 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     expect(repeat.status).toBe(200)
     expect((await products(world, connected.seller.cookie, b.date)).filter((p) => p.no === 238)).toHaveLength(1)
   })
+
+  it('D-SCR-02 지금 볼 라이브: 토큰 없으면 404·틀리면 401, 이어진 방송의 영상 번호만, 방송을 끝내면 빠진다', async () => {
+    const off = await youtubeWorld()
+    expect((await off.server.app.request('/internal/screen/live')).status).toBe(404)
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const get = async (token: string | null = TOKEN) => {
+      const response = await world.server.app.request('/internal/screen/live', { headers: token === null ? {} : { Authorization: `Bearer ${token}` } })
+      const text = await response.text()
+      return { status: response.status, body: (text ? JSON.parse(text) : {}) as Record<string, unknown>, text }
+    }
+    expect((await get(null)).status).toBe(401)
+    expect((await get()).body).toEqual({ videos: [] })
+    const connected = await connectSeller(world)
+    const { b, live } = await linkedBroadcast(world, connected)
+    const listed = await get()
+    expect(listed.body).toEqual({ videos: [{ videoId: live.videoId }] })
+    // 판매자·방송 정보는 내보내지 않는다
+    expect(listed.text).not.toContain(connected.seller.sellerId)
+    expect(listed.text).not.toContain(b.id)
+    const ended = await client(world, connected.seller.cookie).post(`/api/broadcasts/${b.id}/end`, { requestId: `end-${b.id}` })
+    expect(ended.status, ended.text).toBe(200)
+    expect((await get()).body).toEqual({ videos: [] })
+  })
 })
