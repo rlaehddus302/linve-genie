@@ -25,6 +25,9 @@ describe('HomeScreen', () => {
     await waitFor(() => expect(world.server.callsTo('GET', /\/avatar$/)).toHaveLength(1))
     expect(screen.queryByText('김다육 사장님, 안녕하세요')).toBeNull()
     expect(screen.getByText('라이브')).toBeTruthy()
+    // D-UX4-62 (사용자 지시 2026-11-09 "홈화면 상단 영역은 지금 라이브 중 이걸로 하기로 했잖아"): 홈 머리 줄은 이 줄 그대로 — 서비스 이름은 넣지 않는다
+    expect(screen.queryByText('라이브지니')).toBeNull()
+    expect(screen.getByTestId('home-screen').firstElementChild?.contains(live)).toBe(true)
     fireEvent.click(live)
     expect(navigation.openConsole).toHaveBeenCalledWith('b1')
   })

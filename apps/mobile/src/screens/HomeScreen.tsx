@@ -13,8 +13,8 @@ import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { get, isApiError, type ApiError } from '../api/client.ts'
 import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
-import { RETRY_NOW, SERVICE_NAME } from '../lib/words.ts'
-import { AppHeader, BigButton, Icon, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { RETRY_NOW } from '../lib/words.ts'
+import { AppHeader, BigButton, Icon, NAV, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
 import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts } from './BroadcastList.tsx'
@@ -216,7 +216,7 @@ function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: Broadc
   // "내 라이브 연결" (D-UX3-92): 글자를 한 단계 키우고, 왼쪽에 + 원을 두고, 화면 끝에 붙지 않게 카드 안 글자 쪽으로 조금 들인다
   const label = on ? '지금 라이브 중' : '내 라이브 연결'
   return (
-    <Pressable role="button" aria-label={label} testID="home-live" onPress={() => (live !== undefined ? onOpen(live.id) : onConnect())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md - 2, alignSelf: 'flex-start', marginLeft: SPACE.xs, minHeight: TOUCH.min, opacity: pressed ? 0.6 : 1 })}>
+    <Pressable role="button" aria-label={label} testID="home-live" onPress={() => (live !== undefined ? onOpen(live.id) : onConnect())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md - 2, alignSelf: 'flex-start', minHeight: TOUCH.min, opacity: pressed ? 0.6 : 1 })}>
       {on ? (
         <View aria-hidden style={{ width: AVATAR + 6, height: AVATAR + 10, alignItems: 'center' }}>
           <View style={{ width: AVATAR + 6, height: AVATAR + 6, borderRadius: (AVATAR + 6) / 2, borderCurve: 'continuous', borderWidth: 2, borderColor: tones.danger.fg, alignItems: 'center', justifyContent: 'center' }}>
@@ -238,7 +238,8 @@ function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: Broadc
         </View>
       )}
       {/* 글자와 › 사이는 좁게 (토스 "토스뱅크 ›") */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+      {/* 머리 줄의 다른 큰 제목처럼 한글을 2.5 올린다 (D-UX3-88·D-UX4-59) */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, transform: [{ translateY: NAV.titleLift }] }}>
         <Txt step="title" weight="heavy">{label}</Txt>
         <Icon name="chevron" color={p.textSub} size={18} />
       </View>
@@ -303,10 +304,9 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="home-screen">
-      {/* 모든 화면과 같은 머리 줄 (D-UX4-59) — 토스 홈 "토스뱅크"처럼 서비스 이름 */}
-      <AppHeader title={SERVICE_NAME} />
+      {/* 모든 화면과 같은 머리 줄 (D-UX4-59): 홈 머리는 "지금 라이브 중"·"내 라이브 연결" 줄 그대로(D-UX3-92, 토스 홈 "토스뱅크 ›" 자리) — 서비스 이름을 넣지 않는다 (D-UX4-62) */}
+      <AppHeader title="" left={liveNow.resolved || error !== null ? <LiveEntry live={liveNow.live} channel={liveNow.channel} onOpen={nav.openConsole} onConnect={nav.openNewBroadcast} /> : <View />} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: room }}>
-        {liveNow.resolved || error !== null ? <LiveEntry live={liveNow.live} channel={liveNow.channel} onOpen={nav.openConsole} onConnect={nav.openNewBroadcast} /> : <View style={{ minHeight: TOUCH.min }} />}
 
         {nav.openStart !== undefined && items !== null && showsStart(wizard, items.some((item) => !item.rehearsal)) ? (
           <RowGroup label={START_ROW_TITLE}>
