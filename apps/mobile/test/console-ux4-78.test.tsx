@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 사용자 지시 2026-11-10 (D-UX4-75·78~80):
 // - 홈 "지금 라이브 중" 글자가 너무 진함 → 한 단계 연한 회색·굵기
 // - 방송 관리 묶음을 다시: "방송" 묶음(방송 안에 방송 관리) 대신 하는 일로 — 라이브 채팅 · 듣기 · 상품·라벨 · 화면. 문자찜 직접 넣기·댓글 붙여넣기 없앰
@@ -24,25 +25,25 @@ async function openManage(openLabels?: () => void) {
     world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
     await flush()
   })
-  fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
-  return { world, page: await screen.findByRole('dialog', { name: '방송 관리' }) }
+  fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
+  return { world, page: await screen.findByRole('dialog', { name: '라이브 관리' }) }
 }
 
-describe('방송 관리 묶음 (D-UX4-78)', () => {
-  it('하는 일로 묶는다 — 라이브 채팅 · 듣기 · 상품·라벨 · 화면, "방송" 묶음은 없다', async () => {
+describe('라이브 관리 묶음 (D-UX4-78)', () => {
+  it('하는 일로 묶는다 — 라이브 채팅 · 듣기 · 상품·라벨 · 화면, "라이브" 묶음은 없다', async () => {
     const { page } = await openManage(() => {})
     const groups = within(page).getAllByRole('group').map((group) => group.getAttribute('aria-label')).filter((name) => name !== null)
     expect(groups).toEqual(expect.arrayContaining(['라이브 채팅', '듣기', '상품·라벨', '화면']))
-    expect(groups).not.toContain('방송')
+    expect(groups).not.toContain('라이브')
     expect(groups).not.toContain('넣기·보기')
     const chat = within(page).getByRole('group', { name: '라이브 채팅' })
-    expect(within(chat).getByRole('button', { name: '방송 연결' })).toBeTruthy()
+    expect(within(chat).getByRole('button', { name: '라이브 연결' })).toBeTruthy()
     const goods = within(page).getByRole('group', { name: '상품·라벨' })
     expect(within(goods).getByRole('button', { name: APP_IMPORT_TITLE })).toBeTruthy()
     expect(APP_IMPORT_TITLE).toBe('상품 미리 등록')
     expect(within(goods).getByRole('button', { name: LABEL_PRINT_TITLE })).toBeTruthy()
     expect(page.textContent).not.toContain('프린터·라벨')
-    expect(page.textContent).not.toContain('방송 끝내기')
+    expect(page.textContent).not.toContain('라이브 끝내기')
     expect(page.textContent).not.toContain('문자찜 직접 넣기')
     expect(page.textContent).not.toContain('댓글 붙여넣기')
   })
@@ -56,8 +57,8 @@ describe('방송 관리 묶음 (D-UX4-78)', () => {
   })
 })
 
-describe('방송 연결 끊기 (D-UX4-79)', () => {
-  it('방송 연결 맨 아래 빨간 줄 → 가운데 팝업 [취소] · [끊기](빨강) → 방송을 끝낸다', async () => {
+describe('라이브 연결 끊기 (D-UX4-79)', () => {
+  it('라이브 연결 맨 아래 빨간 줄 → 가운데 팝업 [취소] · [끊기](빨강) → 라이브를 끝낸다', async () => {
     const world = makeWorld({ products: [] })
     const ended: string[] = []
     world.server.on('POST', /^\/api\/broadcasts\/b1\/end$/, (call) => {
@@ -84,7 +85,7 @@ describe('방송 연결 끊기 (D-UX4-79)', () => {
     expect(ended).toEqual(['/api/broadcasts/b1/end'])
   })
 
-  it('방송 연결 경로가 끊은 뒤 홈으로 돌려보낸다', () => {
+  it('라이브 연결 경로가 끊은 뒤 홈으로 돌려보낸다', () => {
     expect(read('app/link/[id].tsx')).toContain("onEnded={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))}")
   })
 })
@@ -107,22 +108,35 @@ describe('라벨 프린트 (D-UX4-80)', () => {
     expect(openStatus).toHaveBeenCalledTimes(1)
   })
 
-  it('한 단계 경로는 방송 시작 라벨 단계 화면을 그대로(only) 연다', () => {
+  it('한 단계 경로는 라이브 시작 라벨 단계 화면을 그대로(only) 연다', () => {
     const route = read('app/label-setup.tsx')
     expect(route).toContain('<LabelSetupScreen only={step}')
     expect(read('app/label-print.tsx')).toContain("router.push({ pathname: '/label-setup', params: { step } })")
   })
 })
 
-describe('홈 "지금 라이브 중" (D-UX4-75 → D-UX4-82, 토스 "토스뱅크 ›" 사진을 재어)', () => {
-  it('20 · 굵게 · 회색(textSub #4E5968), 아이콘은 화면 끝에서 24 (머리 줄 20 + 4)', async () => {
-    // 옛 기대(D-UX4-75): tabInk(#333D4B). 새 기대(D-UX4-82): 사진의 글자색 #4E5968
+describe('홈 "지금 라이브 중" (D-UX4-75 → D-UX4-82 → D-UX4-87, 우리 앱·토스 사진을 나란히 재어)', () => {
+  it('글자 17 · 굵게 · #4F545E, › #90969E, 아이콘 18 · 화면 끝에서 24 · 글자 시작 47.5', async () => {
+    // 옛 기대(D-UX4-82): 글자 20 · textSub #4E5968 — 우리 앱 사진과 견주니 토스보다 크고 푸르렀다
     const home = read('src/screens/HomeScreen.tsx')
-    expect(home).toContain('<Txt step="title" weight="bold" color="textSub">{label}</Txt>')
-    const { HOME_LIVE_INSET } = await import('../src/screens/HomeScreen.tsx')
-    const { SPACE, PALETTE, TYPE } = await import('../src/ui/kit/tokens.ts')
-    expect(SPACE.xl + HOME_LIVE_INSET).toBe(24)
-    expect(TYPE.title).toBe(20)
-    expect(PALETTE.light.textSub).toBe('#4E5968')
+    expect(home).toContain('<Txt step="nav" weight="bold" ink={HOME_LIVE.ink}>{label}</Txt>')
+    const { HOME_LIVE, HOME_LIVE_INSET } = await import('../src/screens/HomeScreen.tsx')
+    const { SPACE, TYPE } = await import('../src/ui/kit/tokens.ts')
+    expect(TYPE.nav).toBe(17)
+    expect(HOME_LIVE.ink).toBe('#4F545E')
+    expect(HOME_LIVE.chevron).toBe('#90969E')
+    const iconLeft = SPACE.xl + HOME_LIVE_INSET
+    expect(iconLeft).toBe(24)
+    expect(iconLeft + HOME_LIVE.icon + HOME_LIVE.gap).toBe(47.5)
+  })
+})
+
+describe('앱이 지은 라이브 제목 (D-UX4-86)', () => {
+  it('"날짜 요일 (종류) 방송" 꼴만 "…라이브"로, 판매자가 적은 제목은 그대로', async () => {
+    const { shownBroadcastTitle } = await import('../src/screens/BroadcastList.tsx')
+    expect(shownBroadcastTitle('2026-11-09 월요일 다육이 방송')).toBe('2026-11-09 월요일 다육이 라이브')
+    expect(shownBroadcastTitle('2026-11-08 일요일 방송')).toBe('2026-11-08 일요일 라이브')
+    expect(shownBroadcastTitle('저녁 방송')).toBe('저녁 방송')
+    expect(shownBroadcastTitle('방송 연습')).toBe('방송 연습')
   })
 })

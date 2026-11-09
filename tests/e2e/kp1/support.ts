@@ -43,7 +43,7 @@ export const SELLER_LEDGER_DELETED = '저장한 배송지를 지웠어요.'
 // 화면은 출처 글 + 확인 꼬리표(색 칸)로 나눠 그려 가운데 점 대신 칸 경계가 들어갈 수 있다 — 두 말이 이 순서로 한 줄에 붙어 있으면 같은 문구로 본다
 export const LEDGER_SOURCE_LINE = /손님이 지난번에 적은 배송지\s*(·\s*)?판매자가 확인함/
 /** 콘솔 첫 물음 (D-KP1-43, AC-KP1-15) */
-export const BADGES_ASK = '방송 화면에 손님 표시를 보일까요? 이 화면을 방송에 내보내면 손님도 볼 수 있어요.'
+export const BADGES_ASK = '라이브 화면에 손님 표시를 보일까요? 이 화면을 라이브에 내보내면 손님도 볼 수 있어요.' // 문구 바뀜 (D-UX4-86)
 /** 보관 기간 줄이기 확인 창 (D-KP1-45, AC-KP1-06) */
 export const shrinkAskLine = (n: number) => `지금 줄이면 손님 ${String(n)}명의 저장한 배송지가 1시간 안에 지워져요. 되돌릴 수 없어요.`
 /** 알림을 받지만 아직 보내지 않음 (D-KP1-48, AC-KP1-22·23) */
@@ -53,13 +53,13 @@ export const PREFILL_TITLE = '지난 주문 배송지예요 — 확인해 주세
 export const LINK_ACCOUNT = '다른 계정도 잇기'
 export const CODE_INTRO = '라이브 방송 채팅에 아래 두 낱말만 쳐 주세요. 24시간 동안 한 번 쓸 수 있어요.'
 export const LINKED_PREFIX = '이 손님이 직접 이은 계정: '
-export const BADGES_LABEL = '방송 화면에 손님 표시'
-export const BADGES_HELP = '방송 화면을 녹화하거나 송출 화면에 띄운다면 꺼 주세요. 손님에게 보이면 안 되는 표시예요.'
+export const BADGES_LABEL = '라이브 화면에 손님 표시' // 문구 바뀜 (D-UX4-86)
+export const BADGES_HELP = '라이브 화면을 녹화하거나 송출 화면에 띄운다면 꺼 주세요. 손님에게 보이면 안 되는 표시예요.' // 문구 바뀜 (D-UX4-86)
 export const XLSX_CONTACT = '연락처·주소도 넣기'
 export const XLSX_WARNING = '연락처가 든 파일은 다른 사람에게 보내지 마세요.'
-export const NO_COMPARE = '처음 방송이라 비교할 게 없어요'
-export const LIVE_NOTE = '방송 중이라 숫자가 바뀌고 있어요'
-export const SCHEDULE_FULL = '다가오는 방송은 10개까지 적을 수 있어요.'
+export const NO_COMPARE = '처음 라이브라 비교할 게 없어요' // 문구 바뀜 (D-UX4-86)
+export const LIVE_NOTE = '라이브 중이라 숫자가 바뀌고 있어요' // 문구 바뀜 (D-UX4-86)
+export const SCHEDULE_FULL = '다가오는 라이브는 10개까지 적을 수 있어요.' // 문구 바뀜 (D-UX4-86)
 export const PHONE_RULE = '전화번호처럼 보이는 숫자(010-…)가 있어요. 빼고 적어 주세요.'
 
 /** 개발 용어·영어 상태값 (CLAUDE.md 절대 규칙 8) — 화면에 보이면 안 된다 */

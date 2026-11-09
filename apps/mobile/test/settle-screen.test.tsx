@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 앱 정산 화면 (D-APPX-01 — 웹 SettlementsPage와 같은 규칙): 날짜 → 덜 받은 손님 먼저 → 자세히 → 입금 적기(같은 요청 번호, amountText) → 남은 금액과 다르면 한 번 더 묻기.
 // 옛 정산 탭은 "정산은 웹 화면에서 열려요"와 [웹으로 열기]만 있었다(D-UX2-07) — 앱 화면으로 옮겼다.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -107,7 +108,7 @@ describe('SettleScreen (앱 정산)', () => {
   })
 })
 
-describe('ReportScreen (앱 방송 리포트)', () => {
+describe('ReportScreen (앱 라이브 리포트)', () => {
   it('돈·손님·비교·몰린 상품·품종·시간대를 웹과 같은 문구로', async () => {
     const w = makeWorld()
     w.server.on('GET', /^\/api\/days$/, () => ({ body: { days: [{ date: '2026-10-29', rehearsal: false, seq: 5 }] } }))
@@ -126,8 +127,8 @@ describe('ReportScreen (앱 방송 리포트)', () => {
     render(w.wrap(<ReportScreen onBack={() => undefined} />))
     expect(await screen.findByLabelText('판매 금액 120,000원')).toBeTruthy()
     expect(screen.getByLabelText('다시 온 손님 1명')).toBeTruthy()
-    expect(screen.getByText('지난 방송보다 20,000원 많아요')).toBeTruthy()
-    expect(screen.getByText('지난 방송과 같아요')).toBeTruthy()
+    expect(screen.getByText('지난 라이브보다 20,000원 많아요')).toBeTruthy()
+    expect(screen.getByText('지난 라이브와 같아요')).toBeTruthy()
     expect(screen.getByText('3번 금황')).toBeTruthy()
     expect(screen.getByText('열고 30초 안에 8명 · 기다린 손님 3명')).toBeTruthy()
     expect(screen.getByText('20:00~20:10 · 3개 · 15,000원')).toBeTruthy()

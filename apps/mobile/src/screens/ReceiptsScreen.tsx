@@ -39,11 +39,12 @@ import { EmptyFill, AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextF
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, ChipButton, MenuRow, PAGE_SIDE, SectionCard } from './order-parts.tsx'
+import { shownBroadcastTitle } from './BroadcastList.tsx'
 
 export const RECEIPTS_TITLE = '영수증·판매대장'
-export const NOT_ENDED = '방송을 끝낸 뒤 보낼 수 있어요.'
-export const NO_ENDED = '아직 끝낸 방송이 없어요.'
-export const SAME_DAY_NOTE = '같은 날 다른 방송의 상품도 함께 들어가요(정산은 날짜마다 하나예요).'
+export const NOT_ENDED = '라이브를 끝낸 뒤 보낼 수 있어요.'
+export const NO_ENDED = '아직 끝낸 라이브가 없어요.'
+export const SAME_DAY_NOTE = '같은 날 다른 라이브의 상품도 함께 들어가요(정산은 날짜마다 하나예요).'
 export const NO_RECEIPT_ROWS = '확인서를 만들 구매자가 없어요.'
 export const NO_NEW_LINKS = '새로 만들 링크가 없어요.'
 export const COPIED = '복사했어요.'
@@ -53,9 +54,9 @@ export const LINK_REVOKED_DONE = '링크를 끊었어요.'
 export const SHARE_FAILED = '보내지 못했어요. "링크 복사"로 복사해 보내 주세요.'
 export const FILE_FAILED = '파일을 넘기지 못했어요. 다시 눌러 주세요.'
 export const TAX_NOTE = '구매 내역 확인서는 세금계산서·현금영수증 같은 세법상 증빙이 아니에요.'
-export const PICK_ONE_BROADCAST = '방송을 하나 이상 골라 주세요.'
+export const PICK_ONE_BROADCAST = '라이브를 하나 이상 골라 주세요.'
 export const START_AFTER_END = '시작 날짜가 끝 날짜보다 늦어요.'
-export const NO_BROADCAST_IN_PERIOD = '고른 기간에 방송이 없어요.'
+export const NO_BROADCAST_IN_PERIOD = '고른 기간에 라이브가 없어요.'
 
 export const linksMade = (n: number): string => (n === 0 ? NO_NEW_LINKS : `링크 ${String(n)}개를 만들었어요.`)
 export const revokeQuestion = (name: string): string => `${name}님의 링크를 끊으면 그 링크로는 더 이상 열 수 없어요. 필요하면 새 링크를 만들어 보내 주세요.`
@@ -123,18 +124,18 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
         ) : null}
         {list === null && error === null ? <Loading /> : null}
         {list !== null && list.length === 0 ? (
-          <EmptyFill title={NO_ENDED} body={'방송을 끝내면\n여기서 확인서를 만들 수 있어요'} />
+          <EmptyFill title={NO_ENDED} body={'라이브를 끝내면\n여기서 확인서를 만들 수 있어요'} />
         ) : null}
         {list !== null && list.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -PAGE_SIDE }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: PAGE_SIDE, paddingVertical: SPACE.xs }}>
             {list.slice(0, 20).map((item) => (
-              <Pill key={item.id} on={item.id === picked} label={dateWords(item.date)} ariaLabel={`방송 ${dateWords(item.date)} ${item.title}`} onPress={() => setPicked(item.id)} />
+              <Pill key={item.id} on={item.id === picked} label={dateWords(item.date)} ariaLabel={`라이브 ${dateWords(item.date)} ${shownBroadcastTitle(item.title)}`} onPress={() => setPicked(item.id)} />
             ))}
           </ScrollView>
         ) : null}
         {broadcast !== null ? (
           <>
-            <Txt step="lead" weight="bold" role="heading" aria-level={2}>{`${dateWords(broadcast.date)} · ${broadcast.title}`}</Txt>
+            <Txt step="lead" weight="bold" role="heading" aria-level={2}>{`${dateWords(broadcast.date)} · ${shownBroadcastTitle(broadcast.title)}`}</Txt>
             {broadcast.ended ? <ReceiptDay key={broadcast.id} broadcast={broadcast} sameDay={sameDay} /> : <Notice tone="info">{NOT_ENDED}</Notice>}
           </>
         ) : null}
@@ -320,7 +321,7 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
             {targets.length > 0 || smsBusy ? <MenuRow title={`${SMS_SEND_ALL} (${String(targets.length)}명)`} busy={smsBusy} onPress={() => setSmsAsk(true)} /> : null}
             <MenuRow title="전원 확인서 PDF" busy={files.busy === 'all-pdf'} onPress={() => void files.run('all-pdf', withQuery(`/api/days/${date}/receipts.pdf`, query), `receipts-${date}-all.pdf`)} />
             <MenuRow title="전원 이미지(JPG) 묶음" busy={files.busy === 'all-zip'} onPress={() => void files.run('all-zip', withQuery(`/api/days/${date}/receipts.zip`, query), `receipts-${date}-images.zip`)} />
-            <MenuRow title="이 방송 판매대장 엑셀" busy={files.busy === 'ledger'} onPress={() => void files.run('ledger', ledgerPath(date, date, [broadcast.id], false), `ledger-${date}.xlsx`)} />
+            <MenuRow title="이 라이브 판매대장 엑셀" busy={files.busy === 'ledger'} onPress={() => void files.run('ledger', ledgerPath(date, date, [broadcast.id], false), `ledger-${date}.xlsx`)} />
           </View>
           {smsProgressText !== null || smsResult !== null || smsError !== null || (smsReady && smsDevice === false) || files.error !== null ? (
             <View style={pad}>
@@ -640,7 +641,7 @@ function LedgerSheet({ initial, onClose }: { readonly initial: string | null; re
                   key={item.id}
                   role="checkbox"
                   aria-checked={on}
-                  aria-label={`${dateWords(item.date)} ${item.title}`}
+                  aria-label={`${dateWords(item.date)} ${shownBroadcastTitle(item.title)}`}
                   onPress={() =>
                     setUnpicked((set) => {
                       const next = new Set(set)
@@ -654,7 +655,7 @@ function LedgerSheet({ initial, onClose }: { readonly initial: string | null; re
                   <View style={{ width: 28, height: 28, borderRadius: RADIUS.sm, borderCurve: 'continuous', borderWidth: 2, borderColor: on ? p.primary : p.outline, backgroundColor: on ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
                     {on ? <Icon name="check" color={p.onPrimary} size={18} /> : null}
                   </View>
-                  <Txt>{`${dateWords(item.date)} · ${item.title}`}</Txt>
+                  <Txt>{`${dateWords(item.date)} · ${shownBroadcastTitle(item.title)}`}</Txt>
                 </Tap>
               )
             })}

@@ -82,7 +82,7 @@ test('AC-I3-96·20: 유튜브 준비 안 된 서버 — 콘솔 유튜브 칸은 
   await page.goto('/')
   await page.getByRole('button', { name: '리허설 해 보기' }).click()
   await expect(page.getByText('리허설 중 — 실제 판매가 아니에요')).toBeVisible()
-  await expect(page.getByRole('region', { name: '유튜브', exact: true })).toContainText('리허설 방송은 유튜브와 잇지 않아요. 가짜 채팅으로 연습해요.')
+  await expect(page.getByRole('region', { name: '유튜브', exact: true })).toContainText('리허설 라이브는 유튜브와 잇지 않아요. 가짜 채팅으로 연습해요.') // 문구 바뀜 (D-UX4-86)
   await page.getByRole('region', { name: '유튜브', exact: true }).getByRole('button', { name: '감사 메시지' }).click()
   await expect(page.getByRole('dialog', { name: '감사 메시지' })).toContainText('리허설 감사 메시지는 유튜브에 올리지 않아요.')
   expect(ytRequests).toEqual([])

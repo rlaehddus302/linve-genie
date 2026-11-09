@@ -18,8 +18,8 @@ import {
 } from '../i3/support.ts'
 
 const B_NAME = '다육이유튜버'
-const QUESTION = (name: string) => `내 채널 방송이 아니에요 (채널: ${name}). 초대받은 방송이 맞나요?`
-const LINE = (name: string) => `초대받은 방송 · ${name}`
+const QUESTION = (name: string) => `내 채널 라이브가 아니에요 (채널: ${name}). 초대받은 라이브가 맞나요?` // 문구 바뀜 (D-UX4-86)
+const LINE = (name: string) => `초대받은 라이브 · ${name}` // 문구 바뀜 (D-UX4-86)
 const OLD_ERROR = '내 채널의 방송만 연결할 수 있어요.'
 const EXT_LOGIN = '방송 채널 계정으로 로그인해야 감사 글을 올릴 수 있어요'
 
@@ -92,7 +92,7 @@ test.describe('@youtube INV1 초대받은 방송', () => {
     await fakeChat(page.request, live.liveChatId, 'UCinvViewer1', '홍길동', '15')
     await expect(boardItem(page, 15)).toContainText('홍길동', { timeout: 20_000 })
     const ownerRow = page.getByRole('list', { name: '채팅 메시지' }).getByRole('listitem').filter({ hasText: B_NAME }).filter({ hasText: '16' })
-    await expect(ownerRow.getByText('방송자', { exact: true })).toBeVisible()
+    await expect(ownerRow.getByText('진행자', { exact: true })).toBeVisible() // 문구 바뀜 (D-UX4-86)
     await expect(boardItem(page, 16)).not.toContainText(B_NAME)
 
     // 감사 한 건이 A의 이름으로 그 방송 채팅에 — 초대 방송 회차의 실시간 채팅 감사 묶음 창은 60초 이상(D-YT-SRV-18, SPEC v0.1.74)이라 그 창이 지난 뒤까지 기다린다
@@ -117,7 +117,7 @@ test.describe('@youtube INV1 초대받은 방송', () => {
     expect(posts.bodies).toHaveLength(1)
     const yt = consoleYoutube(page)
     await expect(yt.getByRole('group', { name: '채팅 수집' })).toHaveCount(0)
-    await expect(yt.getByText(/초대받은 방송 ·/)).toHaveCount(0)
+    await expect(yt.getByText(/초대받은 라이브 ·/)).toHaveCount(0) // 문구 바뀜 (D-UX4-86)
     await page.reload()
     await expect(consoleYoutube(page).getByLabel('주소 붙여넣기')).toBeVisible()
     await expect(consoleYoutube(page).getByRole('group', { name: '채팅 수집' })).toHaveCount(0)

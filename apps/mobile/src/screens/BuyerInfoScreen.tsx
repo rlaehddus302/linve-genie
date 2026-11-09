@@ -263,7 +263,7 @@ function ApplyForm({ card, buyers, onCancel, onDone }: { readonly card: BuyerInf
           />
         ))}
       </View>
-      {shown.length === 0 ? <Txt step="meta" color="textSub">찾는 손님이 없어요. 7일 안 방송에서 산 손님만 골라요.</Txt> : null}
+      {shown.length === 0 ? <Txt step="meta" color="textSub">찾는 손님이 없어요. 7일 안 라이브에서 산 손님만 골라요.</Txt> : null}
       <TextField label="받는 분" value={name} onChangeText={setName} error={problems.name ?? null} />
       <TextField label="연락처" value={phone} onChangeText={setPhone} keyboardType="phone-pad" error={problems.phone ?? null} />
       <TextField label="주소" value={address} onChangeText={setAddress} error={problems.address ?? null} />

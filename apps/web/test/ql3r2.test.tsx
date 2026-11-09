@@ -160,7 +160,7 @@ describe('쉬운 낱말 (D-QL3R2-04)', () => {
     expect(PASTE_STATE_WORD.FUTURE).toBe('시각이 지금보다 늦은 입금')
     expect(reasonWords('POSSIBLE_DUPLICATE', 2)).toBe('같은 입금이 두 번 들어왔을 수 있어요 (입금 번호 2도 같은 입금이에요)') // D-QL3R1-10 (3): MOB2 "입금 번호 n"과 합친 문장
     expect(reasonWords('POSSIBLE_DUPLICATE', 2)).not.toContain('#2과')
-    expect(BUYER_CAN_WRITE).toBe("구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요. 링크는 방송을 끝낸 뒤 '영수증 보내기'에서 만들어요.")
+    expect(BUYER_CAN_WRITE).toBe("구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요. 링크는 라이브를 끝낸 뒤 '영수증 보내기'에서 만들어요.") // 문구 바뀜 (D-UX4-86)
   })
 
   it('방송 화면을 열지 못하면 제목 "방송 화면을 열지 못했어요" + "다시 열기" — "콘솔"이 없다', async () => {

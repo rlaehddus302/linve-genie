@@ -10,9 +10,9 @@ import { Notice } from '../../ui/parts.tsx'
 import { ConsoleContext } from './context.ts'
 import { MenuGroup, MenuRow } from './parts.tsx'
 
-export const END_LINK_LABEL = '방송 연결 끊기'
-export const END_LINK_QUESTION = '방송 연결을 끊을까요?'
-export const END_LINK_BODY = '방송이 끝나요. 끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요.'
+export const END_LINK_LABEL = '라이브 연결 끊기'
+export const END_LINK_QUESTION = '라이브 연결을 끊을까요?'
+export const END_LINK_BODY = '라이브가 끝나요. 끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요.'
 
 /** 방송 연결 화면 맨 아래 "방송 연결 끊기" 줄과 팝업. onEnded: 끊은 뒤(홈으로) */
 export function EndBroadcastRow({ broadcastId, onEnded }: { readonly broadcastId: string; readonly onEnded: () => void }) {

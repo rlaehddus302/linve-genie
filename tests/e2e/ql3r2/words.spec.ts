@@ -214,7 +214,7 @@ test.describe('AC-QL3R2-23 입금 문자를 붙여 넣으면 휴대폰 안내', 
   })
 })
 
-const BUYER_CAN_WRITE = "구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요. 링크는 방송을 끝낸 뒤 '영수증 보내기'에서 만들어요."
+const BUYER_CAN_WRITE = "구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요. 링크는 라이브를 끝낸 뒤 '영수증 보내기'에서 만들어요." // 문구 바뀜 (D-UX4-86)
 
 test.describe('AC-QL3R2-24 배송지 칸 안내에 "영수증 보내기" 가는 길', () => {
   for (const [device, big] of both) {

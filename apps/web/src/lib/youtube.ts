@@ -9,10 +9,10 @@ export const RECONNECT_NEEDED_MESSAGE = '유튜브 연결을 다시 해 주세�
 export const CONNECT_FIRST_MESSAGE = '유튜브를 먼저 연결해 주세요.'
 /** 콘솔 유튜브 칸 — 연결 안 됨 (AC-I3-20) */
 export const CONSOLE_NOT_CONNECTED = '유튜브 채널을 먼저 연결해 주세요.'
-export const REHEARSAL_YOUTUBE = '리허설 방송은 유튜브와 잇지 않아요. 가짜 채팅으로 연습해요.'
+export const REHEARSAL_YOUTUBE = '리허설 라이브는 유튜브와 잇지 않아요. 가짜 채팅으로 연습해요.'
 
 /** 영상 주소가 아닌 `@핸들/live` 링크를 넣었을 때의 안내 (CH-08) */
-export const NOT_VIDEO_LINK_MESSAGE = '방송 화면의 공유 버튼으로 주소를 복사해 주세요.'
+export const NOT_VIDEO_LINK_MESSAGE = '라이브 화면의 공유 버튼으로 주소를 복사해 주세요.'
 
 /** `@핸들/live`·`＠핸들/live`(앞에 주소가 붙어도 됨)처럼 영상 주소가 아닌 채널 방송 링크인가 */
 export function isChannelLiveLink(input: string): boolean {
@@ -42,14 +42,14 @@ export const callbackSucceeded = (code: string): boolean => code === 'connected'
 // ── 감사 메시지 (YT-04·05·07, D-I3-03) ─────────────────────────────────────
 
 /** 대상마다 요약 한 줄 (AC-I3-13) — 저장된 규칙(만들기)과 지금 동의로 */
-export const SUMMARY_AUTO = '다음 방송부터 자동으로 남겨요'
+export const SUMMARY_AUTO = '다음 라이브부터 자동으로 남겨요'
 export const SUMMARY_MANUAL = '감사 메시지를 만들기만 하고 자동으로 올리지 않아요. 감사 메시지 목록에서 하나씩 보낼 수 있어요.'
 export const SUMMARY_OFF = '감사 메시지를 만들지 않아요.'
 /** 봇 감사 판매자 (D-YT-SEND-18): 구글 연결·게시 동의 대신 이 한 줄 */
 export const BOT_THANKS_TITLE = '감사 채팅은 라이브지니가 올려요'
 // 감사 채팅은 판매자가 켜기 전엔 꺼져 있다 (D-YT-SRV-23)
-export const BOT_THANKS_NOTE = '위 "찜이 확정될 때마다 채팅에 감사 메시지 남기기"를 켜면 라이브지니가 방송 채팅에 감사 메시지를 대신 올려요. 켜기 전까지는 올리지 않아요. 구글 연결은 필요 없어요.'
-export const BOT_THANKS_SUMMARY = '라이브지니가 방송 채팅에 대신 올려요'
+export const BOT_THANKS_NOTE = '위 "찜이 확정될 때마다 채팅에 감사 메시지 남기기"를 켜면 라이브지니가 라이브 채팅에 감사 메시지를 대신 올려요. 켜기 전까지는 올리지 않아요. 구글 연결은 필요 없어요.'
+export const BOT_THANKS_SUMMARY = '라이브지니가 라이브 채팅에 대신 올려요'
 
 export function consentSummary(make: boolean, consent: boolean): string {
   if (!make) return SUMMARY_OFF
@@ -64,7 +64,7 @@ export const PREVIEW_SMS_NOTE = "문자찜으로 산 분은 '문자찜'으로 �
 /** 동의 설명 창의 대상 낱말 (AC-I3-11) */
 export const CONSENT_PLACE: Readonly<Record<'LIVE_CHAT' | 'VIDEO_COMMENT', string>> = {
   LIVE_CHAT: '실시간 채팅에',
-  VIDEO_COMMENT: '방송 영상 댓글로',
+  VIDEO_COMMENT: '라이브 영상 댓글로',
 }
 export const CONSENT_NAME: Readonly<Record<'LIVE_CHAT' | 'VIDEO_COMMENT', string>> = {
   LIVE_CHAT: '실시간 채팅',
@@ -127,8 +127,8 @@ export function unconfirmedWarning(target: OutboxTarget): string {
   return `이미 올라갔을 수 있어요. ${target === 'LIVE_CHAT' ? '유튜브 채팅' : '영상 댓글'}에서 먼저 확인해 주세요.`
 }
 
-export const NOT_MY_CHANNEL_HINT = '그 방송을 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.'
-export const NOT_MY_CHANNEL_MESSAGE = '지금 연결한 유튜브 채널의 방송이 아니라 보내지 않았어요.'
+export const NOT_MY_CHANNEL_HINT = '그 라이브를 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.'
+export const NOT_MY_CHANNEL_MESSAGE = '지금 연결한 유튜브 채널의 라이브가 아니라 보내지 않았어요.'
 export const NO_PERMISSION_DIALOG = '글쓰기 권한이 없어요. 구글 화면에서 허락한 뒤 다시 보내 주세요.'
 export const SEALED_READ_ONLY = '30일이 지나 봉인한 날짜예요. 볼 수만 있어요.'
 export const REHEARSAL_OUTBOX = '리허설 감사 메시지는 유튜브에 올리지 않아요.'
@@ -210,12 +210,12 @@ export function collectorWarning(collector: CollectorView | null, retryingLong: 
 export const WEB_MODE = 'WEB'
 
 /** 설정·시작 마법사 유튜브 칸 첫 줄 (D-YT-SRV-11) */
-export const WEB_CHAT_INTRO = '방송할 때 방송 주소만 넣으면 채팅을 받아요.'
+export const WEB_CHAT_INTRO = '라이브할 때 라이브 주소만 넣으면 채팅을 받아요.'
 /** 구글 연결을 선택 칸으로 내린 제목·설명 (D-YT-SRV-11·13 — 감사 채팅은 공식으로만, 기본 꺼짐) */
 export const GOOGLE_FOR_THANKS_TITLE = '감사 채팅을 올리려면 (선택)'
 export const GOOGLE_FOR_THANKS = '구글 연결은 감사 채팅을 올릴 때만 필요해요. 연결하지 않아도 채팅은 받아요.'
 /** 구글 연결을 쓸 수 없는 서버 (oauth=false) — 연결 버튼 대신 */
-export const GOOGLE_NOT_READY = '이 서버에서는 감사 채팅을 올리는 구글 연결을 쓰지 않아요. 채팅은 방송 주소만으로 받아요.'
+export const GOOGLE_NOT_READY = '이 서버에서는 감사 채팅을 올리는 구글 연결을 쓰지 않아요. 채팅은 라이브 주소만으로 받아요.'
 /** 구글 연결이 다시 필요할 때 (서버 읽기 — 채팅은 멈추지 않는다, D-YT-SRV-10) */
 export const RECONNECT_FOR_THANKS = '감사 채팅을 올리는 구글 연결을 다시 해 주세요. 채팅은 그대로 받아요.'
 /** 감사 자동 게시 동의 칸: 구글 연결 없음 (서버 읽기) */
@@ -265,14 +265,14 @@ export function resumeStep(previous: ResumeStep, collector: CollectorView | null
 
 /** 처음 잇는 채널 확인 줄 (D-YT-SRV-03 — INV1 확인 줄을 대신함). 이름은 글자로만 */
 export function firstChannelQuestion(name: string): string {
-  return `처음 잇는 채널이에요 (채널: ${name}). 이 방송이 맞나요?`
+  return `처음 잇는 채널이에요 (채널: ${name}). 이 라이브가 맞나요?`
 }
 /** 확인 줄 묶음 이름 */
 export const FIRST_CHANNEL_GROUP = '처음 잇는 채널 확인'
 
 /** 콘솔 유튜브 칸 한 줄 (D-YT-SRV-03 — "초대받은 방송 · {이름}"을 대신해 늘 보인다) */
 export function broadcastChannelLine(name: string): string {
-  return `유튜브 방송 · ${name}`
+  return `유튜브 라이브 · ${name}`
 }
 
 /** 이은 방송의 채널 이름 (서버 읽기 — 늘). 이은 것이 없으면 null */
@@ -282,10 +282,10 @@ export function linkedChannelName(link: LinkRecordView | null): string | null {
 }
 
 /** 최근 채널 찾기 (D-YT-SRV-03 목록 ②) */
-export const RECENT_TITLE = '최근 이은 채널의 방송'
+export const RECENT_TITLE = '최근 이은 채널의 라이브'
 export const RECENT_AGAIN = '다시 찾기'
-export const RECENT_EMPTY = '최근 이은 채널에 지금 하는 방송이 없어요. 방송 주소를 붙여 넣어 주세요.'
-export const RECENT_SEARCHING = '최근 이은 채널에서 지금 방송을 찾는 중…'
+export const RECENT_EMPTY = '최근 이은 채널에 지금 하는 라이브가 없어요. 라이브 주소를 붙여 넣어 주세요.'
+export const RECENT_SEARCHING = '최근 이은 채널에서 지금 라이브를 찾는 중…'
 /** 방송 제목이 비었을 때 */
 export const NO_BROADCAST_TITLE = '(제목 없음)'
 
@@ -342,12 +342,12 @@ export function channelName(title: unknown): string {
 
 /** 확인 줄 (AC-INV1-05) */
 export function invitedQuestion(name: string): string {
-  return `내 채널 방송이 아니에요 (채널: ${name}). 초대받은 방송이 맞나요?`
+  return `내 채널 라이브가 아니에요 (채널: ${name}). 초대받은 라이브가 맞나요?`
 }
 
 /** 콘솔 유튜브 칸 한 줄 (AC-INV1-05) */
 export function invitedLine(name: string): string {
-  return `초대받은 방송 · ${name}`
+  return `초대받은 라이브 · ${name}`
 }
 
 export interface InvitedConfirm {

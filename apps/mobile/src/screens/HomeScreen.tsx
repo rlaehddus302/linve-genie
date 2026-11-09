@@ -5,7 +5,7 @@
 // - 라벨 뽑기 숫자: 라벨 대기열 요약의 대기 장 수(라벨 기능을 켰을 때만). 값을 모르면 그 줄을 숨긴다.
 // - 정산·구매자·택배·영수증·설정 등 웹 화면은 모두 앱 화면으로 옮겼다(D-APPX-01·03) — 더보기에서 연다. 실제 방송 전이면 "시작 준비" 줄.
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Image, ScrollView, Text, View } from 'react-native'
+import { Image, ScrollView, View } from 'react-native'
 import type { BroadcastItem, PackingEntry, PackingList, ReceiptBuyers, WizardState } from '@livejjim/web/src/api/types.ts'
 import type { ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
@@ -15,13 +15,12 @@ import { peekCached, rememberCached, useCachedGet } from '../lib/cached-get.ts'
 import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { AppHeader, BigButton, Icon, NAV, RowGroup, TodoRow, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, Icon, RowGroup, TodoRow, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
-import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts } from './BroadcastList.tsx'
+import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcastTitle } from './BroadcastList.tsx'
 export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
-import { font } from '../ui/kit/font.ts'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
@@ -43,7 +42,7 @@ export interface HomeNavigation {
 }
 
 export function broadcastLine(item: BroadcastItem): string {
-  const title = item.title.trim() === '' ? '제목 없음' : item.title
+  const title = item.title.trim() === '' ? '제목 없음' : shownBroadcastTitle(item.title)
   return `${title} · ${dateWords(item.date)}${item.rehearsal ? ' · 리허설' : ''}${item.ended ? ' · 끝남' : ' · 진행 중'}`
 }
 
@@ -112,14 +111,19 @@ const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'] as const
 /** 새 방송 기본 제목: `2026-11-02 월요일 방송` (요일은 그 KST 날짜 자체로) */
 export function defaultBroadcastTitle(date: string): string {
   const day = new Date(`${date}T00:00:00Z`).getUTCDay()
-  return `${date} ${WEEKDAY[day] ?? ''}요일 방송`
+  return `${date} ${WEEKDAY[day] ?? ''}요일 라이브`
 }
-
-/** 라이브 표시 프로필 사진 지름 — 옆 글자 높이에 맞춘다 (D-UX3-87, 토스 "토스뱅크 ›"처럼) */
-const AVATAR = 30
 
 /** 라이브 표시 왼쪽 여백: 머리 줄 여백(20)에 더해 화면 끝에서 24 — 토스 "토스뱅크" 아이콘 자리를 재어 (D-UX4-82) */
 export const HOME_LIVE_INSET = SPACE.xs
+
+/**
+ * 맨 위 "지금 라이브 중 ›" 치수 (D-UX4-87, 사용자 지시 2026-11-10 "맨 위에 폰트 크기, 두께, 색깔, 위치 … 정확하게"):
+ * 우리 앱과 토스 홈 사진(같은 휴대폰, 923px = 393pt)을 나란히 재어 맞춘 값 — 토스 글자 높이 33px(우리 20pt는 38px) → 17pt,
+ * 글자색은 같은 사진 안 우리 #4E5968이 찍힌 색으로 틀어짐을 빼서 #4F545E, › 는 #90969E, 아이콘 18 · 글자와 5.5 · ›와 잉크 사이 6,
+ * 세로는 토스 아이콘·글자 가운데(화면 위에서 75.6pt)에 맞춰 줄을 1.7 올리고 글자를 0.9 내린다.
+ */
+export const HOME_LIVE = { icon: 18, gap: 5.5, chevronGap: 0, ink: '#4F545E', chevron: '#90969E', rowShift: -1.7, textShift: 0.9 } as const
 
 /** 맨 위 왼쪽 라이브 표시 (D-UX3-85): 방송 중이면 채널 프로필 사진(빨간 테두리 + "라이브") + "지금 라이브 중 ›", 아니면 "라이브 연결 ›" */
 /** 지금 라이브로 볼 수집기 상태 (끝남·멈춤·채팅 끝은 아님) */
@@ -186,34 +190,29 @@ function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: Broadc
   const on = live !== undefined
   // "내 라이브 연결" (D-UX3-92): 글자를 한 단계 키우고, 왼쪽에 + 원을 두고, 화면 끝에 붙지 않게 카드 안 글자 쪽으로 조금 들인다
   const label = on ? '지금 라이브 중' : '내 라이브 연결'
+  const icon = HOME_LIVE.icon
   return (
-    <Tap role="button" aria-label={label} testID="home-live" onPress={() => (live !== undefined ? onOpen(live.id) : onConnect())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md - 2, alignSelf: 'flex-start', minHeight: TOUCH.min, marginLeft: HOME_LIVE_INSET, opacity: pressed ? 0.6 : 1 })}>
+    // 토스 "토스뱅크 ›"를 우리 앱 화면과 나란히 재어 맞춘다 (D-UX4-87): 아이콘 18 · 화면 끝에서 24 · 글자 17 굵게 #4F545E · 글자 시작 47.5 · › 와 6
+    <Tap role="button" aria-label={label} testID="home-live" onPress={() => (live !== undefined ? onOpen(live.id) : onConnect())} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: HOME_LIVE.gap, alignSelf: 'flex-start', minHeight: TOUCH.min, marginLeft: HOME_LIVE_INSET, opacity: pressed ? 0.6 : 1, transform: [{ translateY: HOME_LIVE.rowShift }] })}>
       {on ? (
-        <View aria-hidden style={{ width: AVATAR + 6, height: AVATAR + 10, alignItems: 'center' }}>
-          <View style={{ width: AVATAR + 6, height: AVATAR + 6, borderRadius: (AVATAR + 6) / 2, borderCurve: 'continuous', borderWidth: 2, borderColor: tones.danger.fg, alignItems: 'center', justifyContent: 'center' }}>
-            {avatar !== null ? (
-              <Image source={{ uri: avatar }} style={{ width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2, borderCurve: 'continuous' }} />
-            ) : (
-              <View style={{ width: AVATAR - 2, height: AVATAR - 2, borderRadius: (AVATAR - 2) / 2, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="play" color={p.textSub} size={14} />
-              </View>
-            )}
-          </View>
-          <View style={{ position: 'absolute', bottom: 0, paddingHorizontal: 3, borderRadius: 4, borderCurve: 'continuous', backgroundColor: tones.danger.fg }}>
-            <Text allowFontScaling={false} style={{ fontSize: 8, lineHeight: 11, color: '#FFFFFF', ...font('700') }}>라이브</Text>
-          </View>
+        // 라이브 중: 채널 사진에 빨간 테두리만 (옛 "라이브" 꼬리표는 글자 "지금 라이브 중"과 겹쳐 뺐다)
+        <View aria-hidden testID="home-live-avatar" style={{ width: icon, height: icon, borderRadius: icon / 2, borderCurve: 'continuous', borderWidth: 1.5, borderColor: tones.danger.fg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+          {avatar !== null ? (
+            <Image source={{ uri: avatar }} style={{ width: icon - 3, height: icon - 3, borderRadius: (icon - 3) / 2, borderCurve: 'continuous' }} />
+          ) : (
+            <View style={{ width: icon - 3, height: icon - 3, borderRadius: (icon - 3) / 2, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="play" color={p.textSub} size={8} />
+            </View>
+          )}
         </View>
       ) : (
-        <View aria-hidden testID="home-live-plus" style={{ width: AVATAR + 6, height: AVATAR + 6, borderRadius: (AVATAR + 6) / 2, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="plus" color={p.textSub} size={18} />
+        <View aria-hidden testID="home-live-plus" style={{ width: icon, height: icon, borderRadius: icon / 2, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="plus" color={p.textSub} size={12} />
         </View>
       )}
-      {/* 글자와 › 사이는 좁게 (토스 "토스뱅크 ›") */}
-      {/* 머리 줄의 다른 큰 제목처럼 한글을 2.5 올린다 (D-UX3-88·D-UX4-59) */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, transform: [{ translateY: NAV.titleLift }] }}>
-        {/* 토스 "토스뱅크 ›" 사진을 재어 (D-UX4-75 → D-UX4-82): 20 · 굵게 · 회색 #4E5968(textSub), › 는 한 단계 더 연한 회색 */}
-        <Txt step="title" weight="bold" color="textSub">{label}</Txt>
-        <Icon name="chevron" color={p.placeholder} size={18} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: HOME_LIVE.chevronGap, transform: [{ translateY: HOME_LIVE.textShift }] }}>
+        <Txt step="nav" weight="bold" ink={HOME_LIVE.ink}>{label}</Txt>
+        <Icon name="chevron" color={HOME_LIVE.chevron} size={18} />
       </View>
     </Tap>
   )
@@ -280,16 +279,16 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
         ) : null}
 
         {past.length > 0 ? (
-          <View role="group" aria-label="내 방송" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: showAll ? SPACE.xs : SPACE.md }}>
+          <View role="group" aria-label="내 라이브" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: showAll ? SPACE.xs : SPACE.md }}>
             <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
-              <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>내 방송</Txt>
+              <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>내 라이브</Txt>
             </View>
             {past.slice(0, HOME_BROADCASTS).map((item) => (
               <HistoryRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} />
             ))}
             {/* 모두보기는 목록 아래 오른쪽, 글자만의 단추 (D-UX3-88). 넘쳐서 안 보이는 방송이 있을 때만(HOME_BROADCASTS개 넘음 — D-UX4-81) */}
             {!showAll || nav.openAllBroadcasts === undefined ? null : (
-              <Tap role="button" aria-label="방송 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-end', marginRight: SPACE.md, marginBottom: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+              <Tap role="button" aria-label="라이브 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-end', marginRight: SPACE.md, marginBottom: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
                 <Txt step="caption" color="textSub">모두보기</Txt>
               </Tap>
             )}

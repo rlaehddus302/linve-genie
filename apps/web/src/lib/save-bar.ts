@@ -17,8 +17,8 @@ export const NOTHING_CHANGED = '바꾼 칸이 없어요.'
 export const SAVE_LABEL = '저장'
 export const SAVING_LABEL = '저장하는 중…'
 export const SAVED_ALL = '저장했어요.'
-export const SAVED_RULES_SUFFIX = ' 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.'
-export const SAVED_SHIPPING_SUFFIX = ' 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요.'
+export const SAVED_RULES_SUFFIX = ' 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.'
+export const SAVED_SHIPPING_SUFFIX = ' 오늘 라이브를 이미 시작했으면 배송비는 내일부터 적용돼요.'
 
 export interface StepResult {
   /** 저장한 칸 */

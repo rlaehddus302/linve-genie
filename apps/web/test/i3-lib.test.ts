@@ -92,7 +92,7 @@ describe('감사 메시지 요약 한 줄 (AC-I3-13)', () => {
     expect(consentSummary(true, false)).toBe(SUMMARY_MANUAL)
     expect(consentSummary(false, true)).toBe(SUMMARY_OFF)
     expect(consentSummary(false, false)).toBe(SUMMARY_OFF)
-    expect(SUMMARY_AUTO).toBe('다음 방송부터 자동으로 남겨요')
+    expect(SUMMARY_AUTO).toBe('다음 라이브부터 자동으로 남겨요') // 문구 바뀜 (D-UX4-86)
   })
 })
 

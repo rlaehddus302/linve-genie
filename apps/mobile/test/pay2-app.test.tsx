@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 앱에서 이용권이 없을 때·앱이 여는 웹 주소 (PAY2 AC-PAY2-02·03, BILLING_RULES BL-11 2·3.1, D-PAY-03·04).
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
@@ -12,7 +13,7 @@ import { MoreScreen } from '../src/screens/MoreScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 const nav = () => ({ openConsole: vi.fn(), openNewBroadcast: vi.fn(), openPacking: vi.fn(), openLabels: vi.fn(), openSettings: vi.fn() })
-const SERVER_NO_PASS = '이용권이 없어 실제 방송을 시작할 수 없어요. 요금 화면에서 이용권을 산 뒤 다시 시작해 주세요. 리허설은 언제든 할 수 있어요.'
+const SERVER_NO_PASS = '이용권이 없어 실제 라이브를 시작할 수 없어요. 요금 화면에서 이용권을 산 뒤 다시 시작해 주세요. 리허설은 언제든 할 수 있어요.'
 
 function noPassWorld(status = 422, code = 'NO_PASS', message = SERVER_NO_PASS) {
   const world = makeWorld()
@@ -31,7 +32,7 @@ function expectNoBillingWords() {
 }
 
 describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
-  it('새 방송 판매 종류는 방송을 만들지 않고 링크 단계로 간다 — 이용권 거절은 링크 단계에서(다음 시험). 홈에는 리허설 단추가 없다 (D-UX3-85)', async () => {
+  it('새 라이브 판매 종류는 라이브를 만들지 않고 링크 단계로 간다 — 이용권 거절은 링크 단계에서(다음 시험). 홈에는 리허설 단추가 없다 (D-UX3-85)', async () => {
     // 옛 기대(D-UX3-09): 유튜브를 주소로 잇지 않는 서버면 종류를 누르는 대로 방송을 만들고 거절 문장. 새 기대(D-UX3-14): 틱톡·밴드도 링크로 이어 늘 링크 단계로 간다
     const world = noPassWorld()
     const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
@@ -39,7 +40,7 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     fireEvent.click(screen.getByRole('button', { name: '다육이' }))
     expect(newNav.openAddress).toHaveBeenCalledWith('succulent')
     expect(world.server.callsTo('POST', /broadcasts/)).toHaveLength(0)
-    expect(APP_NO_PASS_MESSAGE).toBe('이용권이 없어 실제 방송을 시작할 수 없어요. 리허설은 언제든 할 수 있어요.')
+    expect(APP_NO_PASS_MESSAGE).toBe('이용권이 없어 실제 라이브를 시작할 수 없어요. 리허설은 언제든 할 수 있어요.')
     view.unmount()
     // D-UX3-85로 바뀐 기대 (사용자 지시 2026-11-09 "리허설 해보기 버튼은 다 지워"): 홈에 리허설 단추가 없고 홈은 방송을 만들지 않는다
     const navigation = nav()
@@ -58,7 +59,7 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     world.server.on('POST', /^\/api\/youtube\/preview$/, () => ({ body: { title: '오늘 경매', channelTitle: '다육이네' } }))
     const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={newNav} />))
-    fireEvent.change(await screen.findByLabelText('방송 링크'), { target: { value: 'https://youtu.be/tWnNGwvdN40' } })
+    fireEvent.change(await screen.findByLabelText('라이브 링크'), { target: { value: 'https://youtu.be/tWnNGwvdN40' } })
     fireEvent.click(await screen.findByRole('button', { name: '확인' }))
     fireEvent.click(await screen.findByRole('button', { name: '맞아요' }))
     expect(await screen.findByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
@@ -70,7 +71,7 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     const world = noPassWorld(400, 'INVALID_INPUT', '시험 거절 문장이에요.')
     const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
     render(world.wrap(<NewBroadcastAddressScreen category="pot" nav={newNav} />))
-    fireEvent.change(await screen.findByLabelText('방송 링크'), { target: { value: 'https://www.tiktok.com/@shop_a/live' } })
+    fireEvent.change(await screen.findByLabelText('라이브 링크'), { target: { value: 'https://www.tiktok.com/@shop_a/live' } })
     fireEvent.click(await screen.findByRole('button', { name: '확인' }))
     expect(await screen.findByText('시험 거절 문장이에요.')).toBeTruthy()
     expect(screen.queryByText(APP_NO_PASS_MESSAGE)).toBeNull()

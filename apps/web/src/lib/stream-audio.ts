@@ -23,20 +23,20 @@ export interface StreamAudioStatus {
 /** 늦음 안내 기준 (D-LV1-04 → D-LV1-10 30초) */
 export const STREAM_AUDIO_LATE_MS = 30_000
 
-export const STREAM_AUDIO_LISTENING = '방송 소리로 듣는 중'
+export const STREAM_AUDIO_LISTENING = '라이브 소리로 듣는 중'
 export const STREAM_AUDIO_MIC = '휴대폰 마이크로 듣는 중'
-export const STREAM_AUDIO_RECONNECTING = '방송 소리 다시 잇는 중'
-export const STREAM_AUDIO_STOPPED = '방송 소리 듣기 멈춤 · 상품은 빠른 입력으로 넣거나 휴대폰 마이크로 들어 주세요.'
-export const STREAM_AUDIO_LATE = '방송 소리가 늦어요. 휴대폰 마이크로 들으면 더 빨라요.'
-export const STREAM_AUDIO_UNSUPPORTED = '이 방송은 소리를 받을 수 없어요. 휴대폰 마이크로 들어 주세요.'
-export const STREAM_AUDIO_OFF = '방송 소리로 듣기가 꺼져 있어요. 설정에서 켤 수 있어요.'
-export const STREAM_AUDIO_IDLE = '방송을 이으면 방송 소리로 들어요.'
-export const STREAM_AUDIO_CONSENT_TITLE = '방송 소리로 듣기'
-export const STREAM_AUDIO_CONSENT = `방송 소리를 ${SERVICE_NAME} 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.`
+export const STREAM_AUDIO_RECONNECTING = '라이브 소리 다시 잇는 중'
+export const STREAM_AUDIO_STOPPED = '라이브 소리 듣기 멈춤 · 상품은 빠른 입력으로 넣거나 휴대폰 마이크로 들어 주세요.'
+export const STREAM_AUDIO_LATE = '라이브 소리가 늦어요. 휴대폰 마이크로 들으면 더 빨라요.'
+export const STREAM_AUDIO_UNSUPPORTED = '이 라이브는 소리를 받을 수 없어요. 휴대폰 마이크로 들어 주세요.'
+export const STREAM_AUDIO_OFF = '라이브 소리로 듣기가 꺼져 있어요. 설정에서 켤 수 있어요.'
+export const STREAM_AUDIO_IDLE = '라이브를 이으면 라이브 소리로 들어요.'
+export const STREAM_AUDIO_CONSENT_TITLE = '라이브 소리로 듣기'
+export const STREAM_AUDIO_CONSENT = `라이브 소리를 ${SERVICE_NAME} 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.`
 /** 초저지연 안내 (D-LV1-10, AC-LV1-13) — 설정 칸·첫 안내 창 */
-export const STREAM_AUDIO_LOW_LATENCY = "유튜브 방송 설정에서 지연 시간을 '초저지연'으로 하면 더 빨리 등록돼요."
-export const STREAM_AUDIO_SETTING_LABEL = '방송 소리로 듣기'
-export const STREAM_AUDIO_SETTING_HELP = '켜 두면 방송 화면을 한 번 연 뒤로는 앱을 닫아도 방송이 끝날 때까지 방송 소리를 듣고 상품을 등록해요. 휴대폰 마이크를 켜면 마이크가 대신 들어요.'
+export const STREAM_AUDIO_LOW_LATENCY = "유튜브 라이브 설정에서 지연 시간을 '초저지연'으로 하면 더 빨리 등록돼요."
+export const STREAM_AUDIO_SETTING_LABEL = '라이브 소리로 듣기'
+export const STREAM_AUDIO_SETTING_HELP = '켜 두면 라이브 화면을 한 번 연 뒤로는 앱을 닫아도 라이브가 끝날 때까지 라이브 소리를 듣고 상품을 등록해요. 휴대폰 마이크를 켜면 마이크가 대신 들어요.'
 
 export type StreamAudioTone = 'ok' | 'warn' | 'danger' | 'info'
 

@@ -46,7 +46,7 @@ export function ListenMenuRow({ session, broadcastId, title, onDone }: { readonl
   return (
     <TodoRow
       title={on ? LISTEN_STOP : LISTEN_START}
-      sub={on ? '방송 소리로 다시 들어요' : '방송 소리 대신 이 휴대폰 마이크로'}
+      sub={on ? '라이브 소리로 다시 들어요' : '라이브 소리 대신 이 휴대폰 마이크로'}
       testID="listen-button"
       onPress={() => {
         onDone()

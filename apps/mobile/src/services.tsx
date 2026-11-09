@@ -40,7 +40,7 @@ async function scopeOf(broadcastId: string): Promise<{ date: string; rehearsal: 
   if (known !== undefined) return known
   const { broadcasts } = await get<{ broadcasts: { id: string; date: string; rehearsal: boolean }[] }>('/api/broadcasts')
   const broadcast = broadcasts.find((item) => item.id === broadcastId)
-  if (broadcast === undefined) throw new Error('방송을 찾지 못했다')
+  if (broadcast === undefined) throw new Error('라이브를 찾지 못했다')
   const scope = { date: broadcast.date, rehearsal: broadcast.rehearsal }
   scopes.set(broadcastId, scope)
   return scope

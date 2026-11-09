@@ -140,7 +140,7 @@ export function BandPostPicker({ onPick, onCancel, disabled }: { readonly onPick
 
   return (
     <Card label="밴드 글 고르기">
-      <Body bold>{band === null ? '어느 밴드인가요?' : '방송하는 글을 골라 주세요'}</Body>
+      <Body bold>{band === null ? '어느 밴드인가요?' : '라이브하는 글을 골라 주세요'}</Body>
       {problem === null ? null : (
         <Notice tone="warning" alert>
           {problem}

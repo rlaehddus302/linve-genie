@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 방송 화면을 나가도 방송 소리를 계속 듣는다 (D-UX3-48, 사용자 지시 2026-11-06 "나가도 계속 듣게").
 // 앱 뿌리(KeptStreamAudio)가 마지막으로 연 방송 중인 방송을 붙잡아, 방송 화면이 닫혀도 상태 읽기·"듣는 중" 알림·받아쓴 글을 받을 연결을 그대로 둔다.
 // 방송이 끝나면(서버 상태 ended) 놓는다.
@@ -24,8 +25,8 @@ function Shell() {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
-  it('방송 화면을 닫아도 서버 상태 읽기·듣는 중 알림이 이어지고 받아쓴 글 연결을 닫지 않으며, 방송이 끝나면 놓는다', async () => {
+describe('라이브 화면을 나가도 라이브 소리 듣기 (D-UX3-48)', () => {
+  it('라이브 화면을 닫아도 서버 상태 읽기·듣는 중 알림이 이어지고 받아쓴 글 연결을 닫지 않으며, 라이브가 끝나면 놓는다', async () => {
     const saved = new Map<string, string>()
     configureVoiceStorage({ getItem: async (key) => saved.get(key) ?? null, setItem: async (key, value) => { saved.set(key, value) }, removeItem: async (key) => { saved.delete(key) } })
     const world = makeWorld()
@@ -75,15 +76,15 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     })
     // D-UX4-67: 다시 잇는 중은 주황 "재연결 중" 알약 하나 (옛 기대: "방송 소리 다시 잇는 중")
     await waitFor(() => expect(screen.getAllByRole('status', { name: '재연결 중' }).length).toBe(1))
-    expect(screen.queryByText('방송 소리 다시 잇는 중')).toBeNull()
+    expect(screen.queryByText('라이브 소리 다시 잇는 중')).toBeNull()
     await act(async () => { screen.getByRole('button', { name: '들린 말 펼치기' }).click(); await flush() })
     // D-UX3-76: 펼쳐도 상태는 한 곳뿐 (사용자 지시 2026-11-09 "위에랑 겹치니까 지우고")
     await waitFor(() => expect(screen.getByRole('button', { name: '들린 말 접기' })).toBeTruthy())
     expect(screen.getAllByRole('status', { name: '재연결 중' }).length).toBe(1)
-    expect(screen.queryByText('방송 소리 다시 잇는 중')).toBeNull()
+    expect(screen.queryByText('라이브 소리 다시 잇는 중')).toBeNull()
   }, 15_000)
 
-  it('방송 소리가 멈추면 화면에 [다시 켜기]·[휴대폰으로 듣기] 단추 없이, 방송 메뉴의 "방송 소리 다시 켜기"로 다시 시작한다 (D-UX3-73)', async () => {
+  it('라이브 소리가 멈추면 화면에 [다시 켜기]·[휴대폰으로 듣기] 단추 없이, 라이브 메뉴의 "라이브 소리 다시 켜기"로 다시 시작한다 (D-UX3-73)', async () => {
     const world = makeWorld()
     world.server.on('GET', STATUS, () => ({ body: { phase: 'stopped' } }))
     world.server.on('POST', WATCH, () => ({ body: { phase: 'stopped' } }))
@@ -99,8 +100,8 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     await waitFor(() => expect(screen.getAllByRole('status', { name: '연결 끊김' }).length).toBe(1))
     expect(screen.queryByRole('button', { name: '다시 켜기' })).toBeNull()
     expect(screen.queryByRole('button', { name: '휴대폰으로 듣기' })).toBeNull()
-    await act(async () => { screen.getByRole('button', { name: '방송 관리' }).click(); await flush() })
-    await act(async () => { screen.getByRole('button', { name: '방송 소리 다시 켜기' }).click(); await flush() })
+    await act(async () => { screen.getByRole('button', { name: '라이브 관리' }).click(); await flush() })
+    await act(async () => { screen.getByRole('button', { name: '라이브 소리 다시 켜기' }).click(); await flush() })
     await waitFor(() => expect(world.server.callsTo('POST', /\/stream-audio\/restart$/).length).toBe(1))
   }, 15_000)
 
@@ -121,7 +122,7 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     expect(screen.queryByRole('button', { name: '확인했어요' })).toBeNull()
   }, 15_000)
 
-  it('방송 화면 제목은 "라이브", 방송 소리를 들으면 머리 오른쪽이 짧게 "듣는 중" (D-UX3-89)', async () => {
+  it('라이브 화면 제목은 "라이브", 라이브 소리를 들으면 머리 오른쪽이 짧게 "듣는 중" (D-UX3-89)', async () => {
     const world = makeWorld()
     world.server.on('GET', STATUS, () => ({ body: { phase: 'listening' } }))
     world.server.on('POST', WATCH, () => ({ body: { phase: 'listening' } }))
@@ -134,7 +135,7 @@ describe('방송 화면을 나가도 방송 소리 듣기 (D-UX3-48)', () => {
     })
     expect(screen.getByRole('heading', { name: '라이브' })).toBeTruthy()
     await waitFor(() => expect(screen.getByRole('status', { name: '듣는 중' })).toBeTruthy())
-    expect(screen.queryByText('방송 소리 듣는 중')).toBeNull()
+    expect(screen.queryByText('라이브 소리 듣는 중')).toBeNull()
   }, 15_000)
 })
 

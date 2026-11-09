@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 앱 가게 설정 (D-APPX-03 — 웹 SettingsPage와 같은 칸·저장 규칙): 바꾼 칸만 아래 "저장" 하나로(가게 PUT · 판매 규칙 PATCH 바뀐 키만),
 // 저장 문장은 저장 막대와 같은 글, 서버 칸 문장은 그 칸 아래, 저장하지 않고 나가면 묻는다.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -37,7 +38,7 @@ describe('ShopSettingsScreen (앱 가게 설정)', () => {
     render(w.wrap(<ShopSettingsScreen onBack={() => undefined} />))
     fireEvent.change(await screen.findByLabelText('가게 이름'), { target: { value: '다육한 집' } })
     fireEvent.click(await screen.findByRole('button', { name: /가격 단위 만원/ }))
-    expect(screen.getByText(/저장하면 다음 방송부터 '15'는 150,000원으로 들어가요/)).toBeTruthy()
+    expect(screen.getByText(/저장하면 다음 라이브부터 '15'는 150,000원으로 들어가요/)).toBeTruthy()
     expect(screen.getByText('저장하지 않은 칸: 가게 · 판매 규칙')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
     await waitFor(() => expect(writes).toHaveLength(2))
@@ -52,7 +53,7 @@ describe('ShopSettingsScreen (앱 가게 설정)', () => {
     const { w } = world()
     w.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: { on: true }, oauth: true, botThanks: true } }))
     render(w.wrap(<ShopSettingsScreen onBack={() => undefined} />))
-    expect(await screen.findByText(/라이브지니가 방송 채팅에 감사 메시지를 대신 올려요/)).toBeTruthy()
+    expect(await screen.findByText(/라이브지니가 라이브 채팅에 감사 메시지를 대신 올려요/)).toBeTruthy()
     expect(screen.queryByText('유튜브 채팅·댓글 자동 게시 동의는 아래 "연결"에서 웹으로 열어요.')).toBeNull()
     await waitFor(() => expect(screen.queryByText('유튜브 연결')).toBeNull())
     expect(screen.getByText('인스타그램 연결')).toBeTruthy()

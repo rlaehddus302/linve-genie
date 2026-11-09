@@ -479,7 +479,7 @@ test.describe('AC-V3-74 (D-V3-70)', () => {
     await expect(unit.getByRole('radio').nth(3)).toHaveAccessibleName('자동 (25 → 250,000원, 180 → 180,000원)')
     await expect(unit.getByRole('radio', { name: '천원 (15 → 15,000원)' })).toBeChecked()
     await unit.getByRole('radio', { name: '자동 (25 → 250,000원, 180 → 180,000원)' }).check()
-    await expect(page.getByText(/^저장하면 다음 방송부터 /)).toBeVisible()
+    await expect(page.getByText(/^저장하면 다음 라이브부터 /)).toBeVisible() // 문구 바뀜 (D-UX4-86)
   })
 
   test('(c) 자동 방송의 빠른 입력 "15 핑크프릴 25" → 250,000원(미리 보기 같음), "16 라울 180" → 180,000원, 가져오기 숫자 칸 25 → 250,000원', async ({ page }) => {

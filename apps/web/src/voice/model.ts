@@ -88,7 +88,7 @@ export const SMS_VOICE_REPEATED = '같은 말을 다른 기기에서 방금 넣�
 /** 이유 카드 제목 (D-V1-21 — 번호·손님 글을 쓰지 않는다) */
 export const SMS_REASON_TITLE = '문자찜 · 넣지 않았어요'
 /** "확인 필요" 구매자로 넣은 결과 카드의 안내 한 줄 (D-V1-21) */
-export const SMS_UNKNOWN_BUYER_NOTE = '방송 뒤 정산 화면에서 누구인지 확인해 주세요.'
+export const SMS_UNKNOWN_BUYER_NOTE = '라이브 뒤 정산 화면에서 누구인지 확인해 주세요.'
 /** 되돌릴 것이 없을 때 음성 문자찜 결과 카드가 열려 있으면 Ctrl+Z가 보이는 알림 (D-V1-22, AC-V1-33) */
 export const SMS_UNDO_NOTE = "문자찜은 카드의 '찜 취소하기'로 취소해요."
 

@@ -147,7 +147,7 @@ export const VOICE_SENT_LINE = '음성은 라이브지니 받아쓰기 서버로
 export const VOICE_CONSENT_LINES: readonly string[] = [
   '음성 듣기를 켜면 이 기기 마이크 소리를 라이브지니 받아쓰기 서버로 보내 글로 바꿔요. 소리는 저장하지 않아요.',
   '와이파이에서 쓰세요. 휴대폰 데이터로는 1시간에 약 120MB를 써요.',
-  '방송 동안 충전기를 꽂아 두세요.',
+  '라이브 동안 충전기를 꽂아 두세요.',
 ]
 export const VOICE_HEARD_TITLE = '지금 들리는 말'
 export const VOICE_HEARD_EMPTY = '말하면 여기에 보여요'

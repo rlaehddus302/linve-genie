@@ -19,16 +19,16 @@ export interface MoreNavigation {
 
 /** 웹에만 있던 화면 중 앱 화면으로 옮긴 것 (D-APPX-01). group: 전체 탭에서 묶는 카드 (D-UX3-04). 줄 설명 글은 뺐다 (D-UX3-96) */
 export const IN_APP_SCREENS = [
-  { path: '/reviews', title: '확인 필요', group: '방송' },
-  { path: '/schedule', title: '방송 일정', group: '방송' },
-  { path: '/report', title: '방송 리포트', group: '방송' },
+  { path: '/reviews', title: '확인 필요', group: '라이브' },
+  { path: '/schedule', title: '라이브 일정', group: '라이브' },
+  { path: '/report', title: '라이브 리포트', group: '라이브' },
   { path: '/deposits', title: '입금 확인', group: '주문·입금' },
   { path: '/buyers', title: '구매자', group: '주문·입금' },
   { path: '/receipts', title: '영수증·판매대장', group: '배송' },
   { path: '/labels', title: '라벨 프린터', group: '가게' },
   { path: '/shop-settings', title: '가게 설정', group: '가게' },
 ] as const
-export const MORE_GROUPS = ['방송', '주문·입금', '배송', '가게'] as const
+export const MORE_GROUPS = ['라이브', '주문·입금', '배송', '가게'] as const
 export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']
 
 export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavigation; readonly account?: string; readonly onLogout?: () => void }) {

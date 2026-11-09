@@ -77,7 +77,7 @@ export function useScopeCommand(store: ScopeStore): ConsoleApi['command'] {
     async (event: Readonly<Record<string, unknown>>, requestId: string = newRequestId()): Promise<WriteResult> => {
       const current = store.getSnapshot()
       if (current.data === null) throw new ApiError({ status: 0, code: 'NOT_READY', message: '아직 불러오는 중이에요. 잠시 뒤 다시 눌러 주세요.' })
-      if (current.data.sealed) throw new ApiError({ status: 409, code: 'SEALED', message: '30일이 지난 방송 기록은 봉인되어 고칠 수 없어요.' })
+      if (current.data.sealed) throw new ApiError({ status: 409, code: 'SEALED', message: '30일이 지난 라이브 기록은 봉인되어 고칠 수 없어요.' })
       let result: WriteResult
       try {
         result = await withRetry(() => post<WriteResult>(withQuery('/api/events', typeof event.b === 'string' ? {} : { date: current.data!.date, rehearsal: current.data!.rehearsal }), { requestId, ...event }))

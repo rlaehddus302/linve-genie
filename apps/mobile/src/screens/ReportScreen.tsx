@@ -79,7 +79,7 @@ export function ReportBody({ view }: { readonly view: ReportView }) {
         <ValueLine label="다시 온 손님" value={amountWords(summary.returningBuyers, '명')} />
         <ValueLine label="알 수 없는 손님" value={amountWords(summary.unknownBuyers, '명')} sub="전화번호 없이 받은 문자찜이라 새 손님인지 알 수 없어요." />
       </SectionCard>
-      <SectionCard title="지난 방송과 비교" label="지난 방송과 비교">
+      <SectionCard title="지난 라이브와 비교" label="지난 라이브와 비교">
         <Compare view={view} />
       </SectionCard>
       <SectionCard title="몰린 상품" label="몰린 상품">
@@ -120,8 +120,8 @@ function Compare({ view }: { readonly view: ReportView }) {
     <View style={{ gap: SPACE.lg }}>
       {last !== null ? (
         <View style={{ gap: SPACE.xs }}>
-          <Txt step="caption" color="textSub">지난 방송 ({dateLong(last.date)})</Txt>
-          {diffLines(last.diff, '지난 방송').map((line, index) => (
+          <Txt step="caption" color="textSub">지난 라이브 ({dateLong(last.date)})</Txt>
+          {diffLines(last.diff, '지난 라이브').map((line, index) => (
             <Txt key={index} step="bodyLarge" weight="book">{line}</Txt>
           ))}
         </View>

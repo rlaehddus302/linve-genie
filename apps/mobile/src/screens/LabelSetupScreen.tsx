@@ -655,7 +655,7 @@ function TestStep({ busy, run, onBack, onDone, error }: { readonly busy: boolean
       actions={
         taken !== null ? (
           <>
-            <BigButton kind="outline" label="그대로 두기" ariaLabel="그대로 두고 방송 시작" disabled={busy} onPress={onDone} />
+            <BigButton kind="outline" label="그대로 두기" ariaLabel="그대로 두고 라이브 시작" disabled={busy} onPress={onDone} />
             <BigButton label="이 기기로 바꾸기" busy={busy} onPress={() => finish(true)} />
           </>
         ) : snapshot.testPrinted && !answeredNo ? (
@@ -669,10 +669,10 @@ function TestStep({ busy, run, onBack, onDone, error }: { readonly busy: boolean
         ) : (
           <>
             {answeredNo ? (
-              <BigButton kind="outline" label="나중에 하기" ariaLabel="라벨은 나중에 하고 방송 시작" disabled={busy} onPress={onDone} />
+              <BigButton kind="outline" label="나중에 하기" ariaLabel="라벨은 나중에 하고 라이브 시작" disabled={busy} onPress={onDone} />
             ) : (
               // 테스트 라벨은 골라서 — 건너뛰어도 이 기기를 출력 기기로 하고 방송으로 (D-UX4-11). 확인이 덜 된 기종은 테스트 "예" 전까지 받지 않는다(D-PRN2-10)
-              <BigButton kind="outline" label="건너뛰기" ariaLabel="테스트 인쇄 없이 방송 시작" disabled={busy || snapshot.testing} onPress={() => finish(false)} />
+              <BigButton kind="outline" label="건너뛰기" ariaLabel="테스트 인쇄 없이 라이브 시작" disabled={busy || snapshot.testing} onPress={() => finish(false)} />
             )}
             <BigButton label={answeredNo ? '다시 인쇄' : '테스트 인쇄'} ariaLabel={answeredNo ? '다시 테스트 인쇄' : '테스트 인쇄'} busy={busy || snapshot.testing} disabled={!linked || snapshot.job !== null} onPress={printTest} />
           </>

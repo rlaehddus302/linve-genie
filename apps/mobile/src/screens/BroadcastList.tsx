@@ -38,9 +38,17 @@ export function agoWords(iso: string | null | undefined, now: number): string | 
   return days === 1 ? '어제' : `${String(days)}일 전`
 }
 
+/**
+ * 앱이 스스로 지은 제목("2026-11-09 월요일 다육이 방송")은 "…라이브"로 보인다 (D-UX4-86 — 화면 낱말 '방송'→'라이브').
+ * 판매자가 직접 적은 제목은 그대로 둔다(이 꼴이 아니면 손대지 않는다).
+ */
+export function shownBroadcastTitle(title: string): string {
+  return /^\d{4}-\d{2}-\d{2} [월화수목금토일]요일( \S+)? 방송$/.test(title) ? `${title.slice(0, -2)}라이브` : title
+}
+
 export function broadcastTitle(item: BroadcastItem): string {
   const title = item.title.trim()
-  return title === '' ? `${dateWords(item.date)} 방송` : title
+  return title === '' ? `${dateWords(item.date)} 라이브` : shownBroadcastTitle(title)
 }
 
 /** 줄 아래 글: "11월 3일 · 2시간 전" */
@@ -137,7 +145,7 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
   const past = items === null ? [] : pastBroadcasts(items)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="all-broadcasts">
-      <AppHeader title="내 방송" onBack={onBack} />
+      <AppHeader title="내 라이브" onBack={onBack} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }}>
         {items === null && error === null ? <Loading /> : null}
         {error !== null ? (
@@ -145,9 +153,9 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
             {error}
           </Notice>
         ) : null}
-        {items !== null && past.length === 0 ? <EmptyFill title="아직 지난 방송이 없어요" body="방송을 끝내면 여기에 모여요" /> : null}
+        {items !== null && past.length === 0 ? <EmptyFill title="아직 지난 라이브가 없어요" body="라이브를 끝내면 여기에 모여요" /> : null}
         {past.length > 0 ? (
-          <RowGroup label="내 방송">
+          <RowGroup label="내 라이브">
             {past.map((item) => (
               <HistoryRow key={item.id} item={item} now={now} onPress={() => onOpen(item.id)} />
             ))}

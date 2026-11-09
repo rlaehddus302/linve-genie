@@ -233,7 +233,7 @@ describe('가져오기 문제 말 (AC-I2-52)', () => {
     expect(importProblemWords('NUMBER_INVALID', 999)).toBe('번호를 확인해 주세요(1~999).')
     expect(importProblemWords('NUMBER_INVALID', 50)).toBe('번호를 확인해 주세요(1~50).')
     expect(importProblemWords('DUPLICATE', 999)).toBe('목록에 같은 번호가 또 있어요.')
-    expect(importProblemWords('EXISTS', 999)).toBe('이 방송에 이미 있는 번호예요.')
+    expect(importProblemWords('EXISTS', 999)).toBe('이 라이브에 이미 있는 번호예요.') // 문구 바뀜 (D-UX4-86)
     expect(importProblemWords('NAME_CONTROL', 999)).toBe('품종에 보이지 않는 글자가 있어요. 품종을 다시 적어 주세요.')
     expect(importProblemWords('NAME_PHONE', 999)).toBe('품종에 전화번호처럼 보이는 숫자가 있어요.')
     expect(importProblemWords('PRICE_MISSING', 999)).toBe('가격이 비었어요.')

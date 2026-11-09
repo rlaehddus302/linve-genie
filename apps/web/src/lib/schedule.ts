@@ -73,13 +73,13 @@ export function fetchAlertCounts(): Promise<AlertCounts> {
 
 // ── 화면 낱말 ─────────────────────────────────────────────────────────
 
-export const SCHEDULE_TITLE = '방송 일정'
-export const ALERTS_TITLE = '방송 알림'
-export const SCHEDULE_HINT = '다음 방송을 적어 두면 공개 일정 페이지에 보여요. 판매 규칙·판정과는 상관없어요.'
-export const SCHEDULE_FULL_MESSAGE = '다가오는 방송은 10개까지 적을 수 있어요.'
-export const SCHEDULE_EMPTY = '적어 둔 다가오는 방송이 없어요.'
-export const PAGE_SWITCH_LABEL = '방송 일정 공개'
-export const PAGE_HINT = '켜면 로그인 없이 누구나 볼 수 있는 주소가 생겨요. 가게 이름·다가오는 방송·채널 주소만 보여요.'
+export const SCHEDULE_TITLE = '라이브 일정'
+export const ALERTS_TITLE = '라이브 알림'
+export const SCHEDULE_HINT = '다음 라이브를 적어 두면 공개 일정 페이지에 보여요. 판매 규칙·판정과는 상관없어요.'
+export const SCHEDULE_FULL_MESSAGE = '다가오는 라이브는 10개까지 적을 수 있어요.'
+export const SCHEDULE_EMPTY = '적어 둔 다가오는 라이브가 없어요.'
+export const PAGE_SWITCH_LABEL = '라이브 일정 공개'
+export const PAGE_HINT = '켜면 로그인 없이 누구나 볼 수 있는 주소가 생겨요. 가게 이름·다가오는 라이브·채널 주소만 보여요.'
 export const CHANNEL_LABEL = '유튜브 채널 주소 (비워도 돼요)'
 export const RENEW_LABEL = '새 주소 만들기'
 /** 새 주소 만들기 확인 한 줄 (옛 주소가 안 된다는 것) */
@@ -91,7 +91,7 @@ export const ALERTS_HINT = '공개 일정 페이지에서 손님이 직접 신�
 /** 아직 아무 문자도 보내지 않는다 (D-KP1-20, UX-KP1-012) */
 export const ALERTS_NOT_SENDING = '아직 문자를 보내지 않아요. 보내기는 준비 중이에요.'
 /** 방송 일정은 칸마다 바로 저장된다 — 아래 저장 막대와 따로 (UX-KP1-003) */
-export const SCHEDULE_INSTANT = '방송 일정은 적거나 바꾸면 바로 저장돼요. 아래 [저장]은 누르지 않아도 돼요.'
+export const SCHEDULE_INSTANT = '라이브 일정은 적거나 바꾸면 바로 저장돼요. 아래 [저장]은 누르지 않아도 돼요.'
 
 /** 알림 신청 상태 → 화면 낱말 (영어 상태값을 화면에 내지 않는다) */
 export const ALERT_WORDS = { pending: '번호 확인 전', active: '받는 중', withdrawn: '그만 받음' } as const

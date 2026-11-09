@@ -90,14 +90,14 @@ export function fetchReport(date: string): Promise<ReportView> {
 
 // ── 화면 낱말 (계약서 §4) ─────────────────────────────────────────────
 
-export const REPORT_TITLE = '방송 리포트'
+export const REPORT_TITLE = '라이브 리포트'
 export const TODAY_REPORT = '오늘 리포트 보기'
-export const LIVE_NOTE = '방송 중이라 숫자가 바뀌고 있어요'
+export const LIVE_NOTE = '라이브 중이라 숫자가 바뀌고 있어요'
 export const SEALED_NOTE = '보관 기간이 지나 볼 수 없어요.'
-export const NO_COMPARE = '처음 방송이라 비교할 게 없어요'
+export const NO_COMPARE = '처음 라이브라 비교할 게 없어요'
 export const RECEIVED_HELP = '받은 돈은 배송비를 포함해요'
 /** 날짜 없이 연 리포트 주소 (가정 — 정산 화면으로 안내) */
-export const NO_DATE_NOTE = '볼 날짜가 없어요. 정산 화면에서 날짜를 고른 뒤 "방송 리포트"를 눌러 주세요.'
+export const NO_DATE_NOTE = '볼 날짜가 없어요. 정산 화면에서 날짜를 고른 뒤 "라이브 리포트"를 눌러 주세요.'
 /** 품종 처음에 보이는 수 (RPT-07) */
 export const VARIETY_FIRST = 10
 
@@ -108,12 +108,18 @@ export function amountWords(value: number, unit: CountUnit): string {
   return `${formatWon(Math.trunc(value)).replace(/원$/, '')}${unit}`
 }
 
+/** 끝 글자에 받침이 있으면 "과", 없으면 "와" ("지난 라이브와" · "최근 4번 평균과", D-UX4-86) */
+function withParticle(word: string): string {
+  const code = word.charCodeAt(word.length - 1)
+  return code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 === 0 ? '와' : '과'
+}
+
 /**
  * 비교 문장 (RPT-08): "지난 방송보다 12,000원 많아요" · "…적어요" · "지난 방송과 같아요".
  * against는 비교 대상 이름 (기본 "지난 방송", 평균은 "최근 4번 평균"). 백분율은 내지 않는다.
  */
-export function compareWords(diff: number, unit: CountUnit, against = '지난 방송'): string {
-  if (diff === 0) return `${against}과 같아요`
+export function compareWords(diff: number, unit: CountUnit, against = '지난 라이브'): string {
+  if (diff === 0) return `${against}${withParticle(against)} 같아요`
   return `${against}보다 ${amountWords(Math.abs(diff), unit)} ${diff > 0 ? '많아요' : '적어요'}`
 }
 

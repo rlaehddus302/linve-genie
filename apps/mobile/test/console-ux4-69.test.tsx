@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 사용자 지시 2026-11-10 (D-UX4-69~71):
 // - 들린 말 창을 펼쳤을 때 지난 말이 없으면 "지난 들린 말이 아직 없어요." 같은 안내를 띄우지 않고 비워 둔다
 // - 되돌리기 창을 띄우지 않는다 — 바로 등록 뒤 "N번 등록 되돌리기", 바로 고친 뒤 "고침 되돌리기", "방금 등록한 …" 되돌리기 카드. 고칠 것은 상품에서 직접
@@ -61,7 +62,7 @@ describe('화면 아래 창 고르기 (D-UX4-71)', () => {
     expect(screen.getByRole('region', { name: '들린 말 창' })).toBeTruthy()
     expect(screen.queryByRole('region', { name: '채팅·문자 창' })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
+    fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
     const row = screen.getByTestId('dock-choice')
     expect(row.textContent).toContain(DOCK_TITLE)
     expect(row.textContent).toContain('들린 말')

@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 방송 중 화면 (APP-01 AC1·AC5, APP-02, APP-04, D-UX2-03): 서버 상품이 리스트에 보이고, "직접 넣기"의 빠른 입력 한 줄이 등록 요청이 되며,
 // 실시간 change로 1등(찜)이 보이고, 뒤로 갔다 돌아오면 다시 잇고 "자리를 비운 동안 찜 n건"이 보이며, 듣기 시작 → 안내 → 서버가 읽은 결과로 바로 등록된다.
 // 새 시안(D-UX2-03)으로 바뀐 것: "현재 상품" 카드·알림 띠 대신 상품 리스트(줄을 누르면 자세히 시트), 빠른 입력·문자찜은 "직접 넣기" 시트,
@@ -30,7 +31,7 @@ async function open(world: ReturnType<typeof makeWorld>) {
 }
 
 // 휴대폰 마이크·문자찜 칸은 머리 톱니로 여는 방송 설정 화면에 있다 (D-UX3-73 → D-UX4-20)
-const openMenu = () => fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
+const openMenu = () => fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
 /** 쓰기 뒤 따라잡기 — 바뀐 것 없이 seq만 (여러 번 쓰는 흐름용) */
 const followWrites = (world: ReturnType<typeof makeWorld>) => world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=(\d+)/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1] ?? 5), world.seq, {}) }))
 /** 앱 숫자판으로 친다 */
@@ -123,9 +124,9 @@ describe('ConsoleScreen', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '상품 추가' })).toBeNull())
   })
 
-  it('다육이 방송이면 상품 추가가 품종도 묻는다 — 품종 칸은 휴대폰 키보드, 확인에 "15번 / 삼광색금 / 15,000원" (D-UX4-31)', async () => {
+  it('다육이 라이브가면 상품 추가가 품종도 묻는다 — 품종 칸은 휴대폰 키보드, 확인에 "15번 / 삼광색금 / 15,000원" (D-UX4-31)', async () => {
     const world = makeWorld({ products: [] })
-    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, title: '2026-10-29 목요일 다육이 방송' }] } }))
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, title: '2026-10-29 목요일 다육이 라이브' }] } }))
     await open(world)
     followWrites(world)
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
@@ -213,7 +214,7 @@ describe('ConsoleScreen', () => {
   })
 
   // D-UX4-27·25 (사용자 지시 2026-11-09 "[140 찜] 이런 각 항목을 누르면 아래에서 메뉴 … 찜 삭제 … 삭제하면 그 다음 대기 1이 찜되게")
-  it('찜 기록 꼬리표를 누르면 "15번 찜" 메뉴 → 찜 삭제 → "15번 찜을 삭제할까요?" [닫기 | 삭제] → 방송자 취소, 승계가 방송자 결정으로 남으면 대기 1을 1등으로', async () => {
+  it('찜 기록 꼬리표를 누르면 "15번 찜" 메뉴 → 찜 삭제 → "15번 찜을 삭제할까요?" [닫기 | 삭제] → 진행자 취소, 승계가 진행자 결정으로 남으면 대기 1을 1등으로', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5$/, () => ({
@@ -340,7 +341,7 @@ describe('ConsoleScreen', () => {
     expect(list.textContent).toBe('홍길동김영희')
   })
 
-  it('상품 자세히의 이름 알약을 누르면 "찜을 삭제할까요? 문자-0937" [닫기 | 삭제] → 방송자 취소 (D-UX4-30)', async () => {
+  it('상품 자세히의 이름 알약을 누르면 "찜을 삭제할까요? 문자-0937" [닫기 | 삭제] → 진행자 취소 (D-UX4-30)', async () => {
     const world = makeWorld({ products: [product(15)] })
     world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=false)?$/, () => ({
       body: fullView({ seq: world.seq, products: [product(15, { winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u3'], waitlistClaims: ['c3'] })], claims: [claim('c1', 15, 'u1'), claim('c3', 15, 'u3', { status: 'WAITLISTED', origin: 'sms', seq: 12 })], buyers: [buyer('u1', '홍길동'), buyer('u3', '문자손님', { kind: 'sms', phoneLast4: '0937' })] }),
@@ -444,7 +445,7 @@ describe('ConsoleScreen', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '알겠어요, 켤게요' }))
     await waitFor(() => expect(screen.getByRole('status', { name: LISTEN_STATE.on })).toBeTruthy())
     // 받아쓰기 서버 안내는 안내 창(위)과 방송 메뉴 → 음성 설정에 있다 (D-UX2-03)
-    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
+    fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
     fireEvent.click(screen.getByRole('button', { name: '음성 설정' }))
     expect(screen.getByText(VOICE_SENT_LINE)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '닫기' }))
@@ -469,11 +470,11 @@ describe('ConsoleScreen', () => {
 
   // 옛 시험 셋(문자찜 한 줄 넣기·번호 범위 넘음·문자찜 칸 원문): 방송 관리 "문자찜 직접 넣기"를 없앴다 (D-UX4-78, 사용자 지시 2026-11-10 "문자찜 직접 넣기 기능은 지워").
   // 문자찜은 음성·휴대폰 문자 받기로 들어온다. 웹 문자찜 화면은 그대로다.
-  it('방송 관리에 "문자찜 직접 넣기"·"댓글 붙여넣기" 줄이 없다 (D-UX4-78)', async () => {
+  it('라이브 관리에 "문자찜 직접 넣기"·"댓글 붙여넣기" 줄이 없다 (D-UX4-78)', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
     openMenu()
-    const page = await screen.findByRole('dialog', { name: '방송 관리' })
+    const page = await screen.findByRole('dialog', { name: '라이브 관리' })
     expect(within(page).queryByRole('button', { name: '문자찜 직접 넣기' })).toBeNull()
     expect(within(page).queryByRole('button', { name: '댓글 붙여넣기' })).toBeNull()
     expect(page.textContent).not.toContain('문자찜 직접 넣기')
@@ -516,12 +517,12 @@ describe('ConsoleScreen', () => {
 
   // 옛 시험 뒷부분(댓글 붙여넣기 미리 보기·넣기)은 없앴다 — 댓글 붙여넣기를 앱에서 없앰 (D-UX4-78)
   // 옛 시험: 방송 관리 "채팅 보기" 판. 새 기대(D-UX4-84): 채팅 보기를 없애 같은 채팅을 채팅·문자 탭에서 본다(주문 꼬리표 "15번 주문")
-  it('채팅은 채팅·문자 탭에서 — 방송 관리에 "채팅 보기"가 없다 (D-UX4-84)', async () => {
+  it('채팅은 채팅·문자 탭에서 — 라이브 관리에 "채팅 보기"가 없다 (D-UX4-84)', async () => {
     const world = makeWorld({ products: [product(15)] })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { date: '2026-10-29', rehearsal: false, seq: 5, more: false, messages: [{ id: 'm1', broadcast: 'b1', channel: 'ch1', nick: '꽃집언니', text: '15번이요', owner: false, seq: 4, at: '2026-10-29T11:00:00.000Z', publishedAt: '2026-10-29T11:00:00.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [15], converted: [], claims: [], failed: false }] } }))
     await open(world)
-    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
-    const page = await screen.findByRole('dialog', { name: '방송 관리' })
+    fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
+    const page = await screen.findByRole('dialog', { name: '라이브 관리' })
     expect(within(page).queryByRole('button', { name: '채팅 보기' })).toBeNull()
     fireEvent.click(within(page).getByRole('button', { name: '뒤로' }))
     fireEvent.click(screen.getByRole('button', { name: '채팅·문자' }))
@@ -554,7 +555,7 @@ describe('ConsoleScreen', () => {
     expect(await screen.findByText(/뒤 보내요: 5번 충돌 그대로 유지/)).toBeTruthy()
   })
 
-  it('방송을 끝내면 "끝난 방송"이 되고 홈으로 돌려보낸다 (D-UX2-07)', async () => {
+  it('라이브를 끝내면 "끝난 라이브"이 되고 홈으로 돌려보낸다 (D-UX2-07)', async () => {
     const world = makeWorld({ products: [product(15)] })
     world.server.on('POST', /^\/api\/broadcasts\/b1\/end$/, () => ({ body: { seq: world.seq } }))
     let home = 0
@@ -565,13 +566,13 @@ describe('ConsoleScreen', () => {
       await flush()
     })
     // 옛 기대: 방송 관리 "방송 끝내기" → 아래 판 [끝내기]. 새 기대(D-UX4-79): 방송 관리 → 방송 연결 → 맨 아래 "방송 연결 끊기" → 가운데 팝업 [끊기](빨강)
-    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
+    fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
     fireEvent.click(await screen.findByRole('button', { name: LINK_TITLE }))
     fireEvent.click(await screen.findByRole('button', { name: END_LINK_LABEL }))
-    const popup = await screen.findByRole('alertdialog', { name: '방송 연결을 끊을까요?' })
+    const popup = await screen.findByRole('alertdialog', { name: '라이브 연결을 끊을까요?' })
     fireEvent.click(within(popup).getByRole('button', { name: '끊기' }))
     await waitFor(() => expect(home).toBe(1))
-    expect(screen.getByText('끝난 방송')).toBeTruthy()
+    expect(screen.getByText('끝난 라이브')).toBeTruthy()
     // 끝난 방송에는 (+) 상품 추가가 없다 (옛 기대: "직접 넣기" 메뉴 없음)
     expect(screen.queryByRole('button', { name: '상품 추가' })).toBeNull()
   })
@@ -579,7 +580,7 @@ describe('ConsoleScreen', () => {
   // D-YT-SRV-24 (사용자 지시 2026-11-09 "방송 화면에서 ... 버튼 눌러서 켜고 끌 수 있게")
   // D-UX4-20: 줄 "감사 채팅 켜기/끄기" → 방송 설정 화면의 스위치 "감사 채팅"(켜짐·꺼짐이 스위치에)
   // D-UX4-63 (사용자 지시 2026-11-10): 이름 "자동 감사 채팅", 켜고 끈 결과 줄은 띄우지 않는다 (옛 기대: 결과 한 줄 THANKS_ON_DONE이 보인다)
-  it('방송 설정에서 꺼져 있는 자동 감사 채팅 스위치를 켜면 broadcast.thanks(켬)가 가고, 결과 줄 없이 스위치가 지금 상태를 보인다', async () => {
+  it('라이브 설정에서 꺼져 있는 자동 감사 채팅 스위치를 켜면 broadcast.thanks(켬)가 가고, 결과 줄 없이 스위치가 지금 상태를 보인다', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
     // 쓰기 뒤 따라잡기: 방송 설정의 감사 채팅이 켬으로 바뀐 증분
@@ -597,19 +598,19 @@ describe('ConsoleScreen', () => {
 
   // 옛 시험: "직접 넣기 예시는 그 방송 가격 단위와 같은 꼴" — 빠른 입력 한 줄을 없앴다(D-UX4-31). 가격 단위와 상관없는 원문 "원"은 (+) 상품 추가 시험이 본다.
   // D-UX4-42: 톱니 → 머리 오른쪽 "관리" 글자 단추(읽기 이름 "방송 관리")
-  it('방송 관리 화면: 머리 "관리"로 열고, 머리 글(방송 제목) 없이 묶음 이름과 줄만 — 뒤로 닫는다 (D-UX4-20·42)', async () => {
+  it('라이브 관리 화면: 머리 "관리"로 열고, 머리 글(라이브 제목) 없이 묶음 이름과 줄만 — 뒤로 닫는다 (D-UX4-20·42)', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
     openMenu()
-    expect(screen.getByRole('button', { name: '방송 관리' }).textContent).toBe('관리')
-    const page = await screen.findByRole('dialog', { name: '방송 관리' })
-    expect(page.textContent).not.toContain('방송 메뉴')
-    expect(page.textContent).not.toContain('저녁 방송')
+    expect(screen.getByRole('button', { name: '라이브 관리' }).textContent).toBe('관리')
+    const page = await screen.findByRole('dialog', { name: '라이브 관리' })
+    expect(page.textContent).not.toContain('라이브 메뉴')
+    expect(page.textContent).not.toContain('저녁 라이브')
     // 옛 기대: "문자찜 직접 넣기"·"방송 끝내기" 줄. 새 기대(D-UX4-78·79): 문자찜 직접 넣기는 없고, 끝내기는 방송 연결 안 "방송 연결 끊기"로
     expect(within(page).getByRole('button', { name: LINK_TITLE })).toBeTruthy()
-    expect(within(page).queryByRole('button', { name: '방송 끝내기' })).toBeNull()
+    expect(within(page).queryByRole('button', { name: '라이브 끝내기' })).toBeNull()
     fireEvent.click(within(page).getByRole('button', { name: '뒤로' }))
-    expect(screen.queryByRole('dialog', { name: '방송 관리' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: '라이브 관리' })).toBeNull()
   })
 
   // 옛 시험(CR-7, D-APPX-01): 첫 1등 옆 "단골 · 누적 …". 새 기대(D-UX4-24, 사용자 지시 "각 상품마다 찜 목록에서 닉네임만 보여줘"): 상품 줄은 닉네임만
@@ -622,7 +623,7 @@ describe('ConsoleScreen', () => {
     expect(world.server.callsTo('GET', /customer-badges/)).toHaveLength(0)
   })
 
-  it('리허설 방송은 손님 꼬리표를 묻지 않는다', async () => {
+  it('리허설 라이브는 손님 꼬리표를 묻지 않는다', async () => {
     const world = makeWorld({ rehearsal: true, products: [product(15, { name: '핑크프릴', winners: ['u1'], winnerClaims: ['c1'] })] })
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
     await waitFor(() => expect(screen.getByText('핑크프릴')).toBeTruthy())
@@ -634,7 +635,7 @@ describe('ConsoleScreen', () => {
     expect(world.server.callsTo('GET', /customer-badges/)).toHaveLength(0)
   })
 
-  it('새 방송 단계에서 막 넘어오면 "들어왔다" 기록을 먼저 끝낸 뒤 방송 목록을 받는다 — 기록 전엔 목록에 없어 "찾지 못했어요"가 뜨면 안 된다 (D-UX3-25 고침)', async () => {
+  it('새 라이브 단계에서 막 넘어오면 "들어왔다" 기록을 먼저 끝낸 뒤 라이브 목록을 받는다 — 기록 전엔 목록에 없어 "찾지 못했어요"가 뜨면 안 된다 (D-UX3-25 고침)', async () => {
     const world = makeWorld({ products: [] })
     let opened = false
     world.server.on('POST', /^\/api\/broadcasts\/b1\/open$/, () => {
@@ -643,7 +644,7 @@ describe('ConsoleScreen', () => {
     })
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: opened ? [BROADCAST] : [] } }))
     await open(world)
-    expect(screen.queryByText('그 방송을 찾지 못했어요. 홈에서 다시 골라 주세요.')).toBeNull()
+    expect(screen.queryByText('그 라이브를 찾지 못했어요. 홈에서 다시 골라 주세요.')).toBeNull()
     expect(opened).toBe(true)
   })
 })

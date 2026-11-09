@@ -33,7 +33,7 @@ async function saveThanksLiveChat(page: Page, on: boolean) {
   const box = thanks.getByRole('checkbox', { name: '찜이 확정될 때마다 채팅에 감사 메시지 남기기' }) // FB1 D-FB1-14
   await box.setChecked(on)
   await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
-  await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06
+  await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06 · (D-UX4-86)
 }
 
 test('@youtube AC-I3-10: 실시간 채팅 감사를 끄고 저장 → 진행 중이던 1부 판매엔 실시간 채팅 감사가 있고, 새 2부 판매엔 없다', async ({ page }) => {
@@ -94,10 +94,10 @@ test('@youtube AC-I3-34: 채널 A로 잇기 → 끊기 → 채널 C 연결·동�
   await failed.click()
   const row = page.getByRole('dialog', { name: '감사 메시지' }).getByRole('region', { name: '확인이 필요한 감사' }).getByRole('listitem')
   await expect(row).toContainText('지금 연결한 유튜브 채널의 방송이 아니라 보내지 않았어요.')
-  await expect(row).toContainText('그 방송을 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.')
+  await expect(row).toContainText('그 라이브를 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.') // 문구 바뀜 (D-UX4-86)
   await row.getByRole('button', { name: '다시 보내기' }).click()
-  await expect(row.getByRole('alert')).toContainText('지금 연결한 유튜브 채널의 방송이 아니라 보내지 않았어요.')
-  await expect(row.getByRole('alert')).toContainText('그 방송을 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.')
+  await expect(row.getByRole('alert')).toContainText('지금 연결한 유튜브 채널의 라이브가 아니라 보내지 않았어요.') // 문구 바뀜 (D-UX4-86)
+  await expect(row.getByRole('alert')).toContainText('그 라이브를 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.') // 문구 바뀜 (D-UX4-86)
   expect((await outboxRows(page, date)).find((r) => r.text.startsWith('51번'))?.state).toBe('FAILED')
 })
 

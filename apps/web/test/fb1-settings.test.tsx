@@ -132,8 +132,8 @@ describe('저장 막대 낱말 (lib)', () => {
     expect(dirtyLine(['택배', '판매 규칙'])).toBe('저장하지 않은 칸: 판매 규칙 · 택배')
     expect(orderBlocks(['택배', '가게', '택배'])).toEqual(['가게', '택배'])
     expect(savedMessage(['가게'])).toBe('저장했어요.')
-    expect(savedMessage(['구매 감사 메시지'])).toBe('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')
-    expect(savedMessage(['판매 규칙', '배송비', '택배'])).toBe('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요. 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요.')
+    expect(savedMessage(['구매 감사 메시지'])).toBe('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.') // 문구 바뀜 (D-UX4-86)
+    expect(savedMessage(['판매 규칙', '배송비', '택배'])).toBe('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요. 오늘 라이브를 이미 시작했으면 배송비는 내일부터 적용돼요.') // 문구 바뀜 (D-UX4-86)
     expect(failedMessage(['판매 규칙'])).toBe('저장하지 못한 칸이 있어요: 판매 규칙. 빨간 글을 확인해 주세요.')
     // FB1 D-FB1-18 (d): 저장한 칸 이름을 잇는다 (화면 순서, " · ")
     expect(failedMessage(['판매 규칙'], ['택배'])).toBe('저장하지 못한 칸이 있어요: 판매 규칙. 빨간 글을 확인해 주세요. 저장한 칸: 택배.')
@@ -223,7 +223,7 @@ describe('저장 막대 (AC-FB1-22~25)', () => {
       release()
       await flush()
     })
-    expect(await within(bar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요. 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요.')).toBeDefined()
+    expect(await within(bar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요. 오늘 라이브를 이미 시작했으면 배송비는 내일부터 적용돼요.')).toBeDefined() // 문구 바뀜 (D-UX4-86)
     const writes = server.calls.slice(before).filter((call) => call.method !== 'GET')
     expect(writes.map((call) => `${call.method} ${call.path}`)).toEqual(['PUT /api/shop', 'PATCH /api/settings', 'PUT /api/parcels/settings'])
     expect(writes[1]?.body).toEqual({ settings: { 'waitlist.max': 3, 'shipping.baseFee': 3500, 'thanks.liveChat': false } }) // FB1 D-FB1-14
@@ -301,7 +301,7 @@ describe('설정 문구 (AC-FB1-01·05~08)', () => {
     expect(within(unit).getAllByRole('radio').map((radio) => radio.parentElement?.textContent)).toEqual(['원 (15000 → 15,000원)', '천원 (15 → 15,000원)', '만원 (15 → 150,000원)', '자동 (25 → 250,000원, 180 → 180,000원)'])
     expect((within(unit).getByRole('radio', { name: '천원 (15 → 15,000원)' }) as HTMLInputElement).checked).toBe(true)
     expect(within(unit).getByText("'2만'·'15000원'처럼 단위를 붙여 적으면 이 설정과 상관없이 적힌 대로 들어가요.")).toBeDefined()
-    expect(within(section('배송비')).getByText('배송비는 그날 첫 방송을 시작할 때의 값으로 정산해요. 오늘 방송을 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.')).toBeDefined()
+    expect(within(section('배송비')).getByText('배송비는 그날 첫 라이브를 시작할 때의 값으로 정산해요. 오늘 라이브를 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.')).toBeDefined() // 문구 바뀜 (D-UX4-86)
     // FB1 D-FB1-18 (c): 접근 이름 "판매 규칙 상세 설정", 보이는 글 뒤 ▼/▲(aria-hidden)
     expect(within(rules).queryByRole('button', { name: '상세 설정' })).toBeNull()
     const detail = within(rules).getByRole('button', { name: '판매 규칙 상세 설정' })
@@ -354,9 +354,9 @@ describe('설정 문구 (AC-FB1-01·05~08)', () => {
   it('가격 단위를 저장된 값과 다르게 고르면 확인 한 줄(창 없음), 되돌리거나 저장하면 없다 — 만원 저장 값 TEN_THOUSAND (AC-FB1-01)', async () => {
     await open()
     const unit = within(section('판매 규칙')).getByRole('radiogroup', { name: '가격 단위' })
-    const TEN = "저장하면 다음 방송부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요."
-    const THOUSAND_NOTE = "저장하면 다음 방송부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요."
-    const WON_NOTE = "저장하면 다음 방송부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요."
+    const TEN = "저장하면 다음 라이브부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요." // 문구 바뀜 (D-UX4-86)
+    const THOUSAND_NOTE = "저장하면 다음 라이브부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요." // 문구 바뀜 (D-UX4-86)
+    const WON_NOTE = "저장하면 다음 라이브부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요." // 문구 바뀜 (D-UX4-86)
     const notes = () => [TEN, THOUSAND_NOTE, WON_NOTE].filter((note) => within(unit).queryByText(note) !== null)
     expect(notes()).toEqual([])
     fireEvent.click(within(unit).getByRole('radio', { name: '만원 (15 → 150,000원)' }))
@@ -396,9 +396,9 @@ describe('구매 감사 메시지 만들기 (AC-FB1-08·10·11)', () => {
     const bot = await within(thanks()).findByRole('region', { name: '감사 채팅은 라이브지니가 올려요' })
     expect(bot.textContent).toContain('구글 연결은 필요 없어요.')
     expect(within(thanks()).queryByRole('button', { name: '실시간 채팅 자동 게시 켜기' })).toBeNull()
-    expect(within(thanks()).getByRole('region', { name: '지금 설정의 결과' }).textContent).toContain('라이브지니가 방송 채팅에 대신 올려요')
+    expect(within(thanks()).getByRole('region', { name: '지금 설정의 결과' }).textContent).toContain('라이브지니가 라이브 채팅에 대신 올려요') // 문구 바뀜 (D-UX4-86)
   })
-  const VIDEO_WORDS = ['감사 메시지를 남길 곳', '영상 댓글에 감사 메시지 남기기', '영상 댓글 방식', '판매마다 댓글', '방송이 끝나고 요약 댓글 1개', '남기지 않음', '방송 중 영상 옆 채팅창에 바로 보이는 글이에요.', '방송 영상 아래 댓글란에 남는 글이에요. 방송이 끝나도 남아요.']
+  const VIDEO_WORDS = ['감사 메시지를 남길 곳', '영상 댓글에 감사 메시지 남기기', '영상 댓글 방식', '판매마다 댓글', '라이브가 끝나고 요약 댓글 1개', '남기지 않음', '방송 중 영상 옆 채팅창에 바로 보이는 글이에요.', '방송 영상 아래 댓글란에 남는 글이에요. 방송이 끝나도 남아요.'] // 문구 바뀜 (D-UX4-86)
   const ON_LINE = '영상 댓글에도 감사 메시지를 남기고 있어요.'
   const PENDING_LINE = '저장하면 영상 댓글에는 남기지 않아요.'
 

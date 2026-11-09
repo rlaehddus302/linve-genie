@@ -148,13 +148,13 @@ test.describe('@youtube 감사 메시지 설정', () => {
     // 허락
     await consentLiveChat(page, channel)
     await expect(settingsRegion(page, '구매 감사 메시지')).toContainText(/\d+월 \d+일 오[전후] \d+:\d\d에 동의함/)
-    await expect(settingsRegion(page, '구매 감사 메시지').getByRole('region', { name: '지금 설정의 결과' })).toContainText('실시간 채팅 — 다음 방송부터 자동으로 남겨요')
+    await expect(settingsRegion(page, '구매 감사 메시지').getByRole('region', { name: '지금 설정의 결과' })).toContainText('실시간 채팅 — 다음 라이브부터 자동으로 남겨요') // 문구 바뀜 (D-UX4-86)
     // 만들기 끄고 저장 → 요약이 새로고침 없이 바뀜, 저장하기 전에는 그대로
     const t2 = settingsRegion(page, '구매 감사 메시지')
     await t2.getByRole('checkbox', { name: '찜이 확정될 때마다 채팅에 감사 메시지 남기기' }).uncheck() // FB1 D-FB1-14
-    await expect(t2.getByRole('region', { name: '지금 설정의 결과' })).toContainText('실시간 채팅 — 다음 방송부터 자동으로 남겨요')
+    await expect(t2.getByRole('region', { name: '지금 설정의 결과' })).toContainText('실시간 채팅 — 다음 라이브부터 자동으로 남겨요') // 문구 바뀜 (D-UX4-86)
     await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
-    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06
+    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06 · (D-UX4-86)
     await expect(t2.getByRole('region', { name: '지금 설정의 결과' })).toContainText('실시간 채팅 — 감사 메시지를 만들지 않아요.')
   })
 
@@ -260,7 +260,7 @@ test.describe('@youtube 콘솔 잇기·수집', () => {
     await field.press('Enter')
     await yt.getByRole('button', { name: '이 방송에 잇기' }).last().click()
     const invited = yt.getByRole('group', { name: '초대받은 방송 확인' })
-    await expect(invited.getByRole('alert')).toHaveText('내 채널 방송이 아니에요 (채널: 남의 채널). 초대받은 방송이 맞나요?')
+    await expect(invited.getByRole('alert')).toHaveText('내 채널 라이브가 아니에요 (채널: 남의 채널). 초대받은 라이브가 맞나요?') // 문구 바뀜 (D-UX4-86)
     await expect(yt.getByText('내 채널의 방송만 연결할 수 있어요.')).toHaveCount(0)
     await invited.getByRole('button', { name: '취소' }).click()
     await expect(invited).toHaveCount(0)
@@ -475,7 +475,7 @@ test.describe('@youtube 이스케이프·실시간', () => {
     const channel = await connectYoutube(page)
     await consentLiveChat(page, channel)
     const summary = settingsRegion(page, '구매 감사 메시지').getByRole('region', { name: '지금 설정의 결과' })
-    await expect(summary).toContainText('실시간 채팅 — 다음 방송부터 자동으로 남겨요')
+    await expect(summary).toContainText('실시간 채팅 — 다음 라이브부터 자동으로 남겨요') // 문구 바뀜 (D-UX4-86)
     const otherCtx = await browser.newContext()
     await otherCtx.addCookies(await page.context().cookies())
     const other = await otherCtx.newPage()

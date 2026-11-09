@@ -27,7 +27,7 @@ export function BroadcastLinkScreen({ broadcastId, closed, onBack, onEnded }: { 
     } })
   if (!linkable) {
     return (
-      <FormPage title="방송 연결" onBack={onBack} cards>
+      <FormPage title="라이브 연결" onBack={onBack} cards>
         <YoutubeSection yt={yt} closed={closed} />
         {endRow}
       </FormPage>
@@ -35,8 +35,8 @@ export function BroadcastLinkScreen({ broadcastId, closed, onBack, onEnded }: { 
   }
   return (
     <FormPage
-      title="방송 링크를 넣어 주세요"
-      name="방송 연결"
+      title="라이브 링크를 넣어 주세요"
+      name="라이브 연결"
       onBack={onBack}
       overlay={linker.popup}
       actions={

@@ -82,7 +82,7 @@ export class ScopeStore {
   #readyCount = 0
 
   constructor(options: ScopeStoreOptions) {
-    if ((options.broadcastId === undefined) === (options.scope === undefined)) throw new Error('방송 또는 범위 하나로 연다')
+    if ((options.broadcastId === undefined) === (options.scope === undefined)) throw new Error('라이브 또는 범위 하나로 연다')
     this.broadcastId = options.broadcastId ?? null
     this.#fixedScope = options.scope ?? null
     this.#openStream = options.openStream

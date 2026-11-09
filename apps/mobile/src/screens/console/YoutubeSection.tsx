@@ -185,7 +185,7 @@ export function YoutubeSection({ yt, closed }: { readonly yt: MobileYoutube; rea
   if (yt.link === null) {
     // 불러오는 중
   } else if (linked !== null) body = <LinkedStatus yt={yt} closed={closed} />
-  else if (closed) body = <Body>이은 유튜브 방송이 없어요.</Body>
+  else if (closed) body = <Body>이은 유튜브 라이브가 없어요.</Body>
   else if (yt.webChat === null) body = yt.connection === 'CONNECTED' ? <LinkPicker yt={yt} /> : <ConnectFirst yt={yt} />
   else if (!yt.webChat.on) body = <Notice tone="warning">{WEB_CHAT_OFF_MESSAGE}</Notice>
   else body = <LinkPicker yt={yt} />
@@ -314,13 +314,13 @@ export interface AddressLinkerOptions {
 }
 
 /** 다른 방송에 틱톡이 이어져 있을 때 (D-UX3-17) — 서버 TIKTOK_ELSEWHERE 문장과 같은 뜻, 팝업이라 줄을 나눈다 (D-UX4-02) */
-export const TIKTOK_MOVE_QUESTION = '다른 방송에 틱톡이 이어져 있어요.\n이 방송으로 옮길까요?'
+export const TIKTOK_MOVE_QUESTION = '다른 라이브에 틱톡이 이어져 있어요.\n이 라이브로 옮길까요?'
 
 /** 잇기 거절을 짧게 (D-UX3-11, 사용자 지시 2026-11-03 "구체적으로 말고 추상적으로 짧게"). 모르는 거절은 서버 문장 그대로 */
 const SHORT_LINK_ERRORS: Readonly<Record<string, string>> = {
   INVALID_VIDEO_URL: UNKNOWN_LINK,
-  NO_LIVE_CHAT: '라이브 채팅을 받을 수 없는 방송이에요.',
-  YOUTUBE_NOT_PUBLIC: '공개 방송만 이을 수 있어요.',
+  NO_LIVE_CHAT: '라이브 채팅을 받을 수 없는 라이브예요.',
+  YOUTUBE_NOT_PUBLIC: '공개 라이브만 이을 수 있어요.',
   YOUTUBE_UNAVAILABLE: '지금은 이을 수 없어요. 잠시 뒤 다시 눌러 주세요.',
   INVALID_TIKTOK_LINK: UNKNOWN_LINK,
 }
@@ -484,7 +484,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
   const fields = (
     <Stack tight>
       <Field
-        label="방송 링크"
+        label="라이브 링크"
         value={address}
         onChangeText={edit}
         problem={error}
@@ -505,8 +505,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
           return (
             <Stack tight key={item.videoId}>
               <Body>
-                {line} · {item.status === 'LIVE' ? '방송 중' : '예정'}
-                {other ? ' · 다른 방송에 이어져 있어요' : ''}
+                {line} · {item.status === 'LIVE' ? '라이브 중' : '예정'}
+                {other ? ' · 다른 라이브에 이어져 있어요' : ''}
               </Body>
               <Row>
                 <BigButton small label="잇기" ariaLabel={`${line} 잇기`} disabled={off || other} onPress={() => void check(item.videoId)} />

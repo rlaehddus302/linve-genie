@@ -4,11 +4,11 @@
 import { expect, test, type Page } from '@playwright/test'
 import { audioWebUrl, audioLine, audioOp, connectYoutube, fake, linkAddress, newSellerLogin, openBroadcast, productItem, startAudioStack, type AudioStack } from './support.ts'
 
-const LOW_LATENCY = "유튜브 방송 설정에서 지연 시간을 '초저지연'으로 하면 더 빨리 등록돼요."
-const LISTENING = '방송 소리로 듣는 중'
-const RECONNECTING = '방송 소리 다시 잇는 중'
-const STOPPED = '방송 소리 듣기 멈춤'
-const LATE = '방송 소리가 늦어요. 휴대폰 마이크로 들으면 더 빨라요.'
+const LOW_LATENCY = "유튜브 라이브 설정에서 지연 시간을 '초저지연'으로 하면 더 빨리 등록돼요." // 문구 바뀜 (D-UX4-86)
+const LISTENING = '라이브 소리로 듣는 중' // 문구 바뀜 (D-UX4-86)
+const RECONNECTING = '라이브 소리 다시 잇는 중' // 문구 바뀜 (D-UX4-86)
+const STOPPED = '라이브 소리 듣기 멈춤' // 문구 바뀜 (D-UX4-86)
+const LATE = '라이브 소리가 늦어요. 휴대폰 마이크로 들으면 더 빨라요.' // 문구 바뀜 (D-UX4-86)
 const MIC = '휴대폰 마이크로 듣는 중'
 const FORBIDDEN = /HLS|ffmpeg|PCM|stream|listening|phase|worker|일꾼|웹소켓/i
 
@@ -32,7 +32,7 @@ async function listeningConsole(page: Page): Promise<{ liveChatId: string; b: st
   const live = await fake<{ videoId: string; liveChatId: string }>(page.request, stack, '/_fake/broadcasts', { channelId: channel.id, status: 'live', title: '오늘 라이브' })
   const b = await openBroadcast(page)
   // 첫 안내 창은 콘솔을 열면 뜬다(아직 잇기 전 '방송을 이으면 …' 상태에서도). 확인한 뒤 주소를 잇는다.
-  const dialog = page.getByRole('dialog', { name: '방송 소리로 듣기' })
+  const dialog = page.getByRole('dialog', { name: '라이브 소리로 듣기' }) // 문구 바뀜 (D-UX4-86)
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText(LOW_LATENCY)
   await expect(dialog).not.toContainText(FORBIDDEN)
@@ -107,7 +107,7 @@ for (const size of SIZES) {
       const region = page.getByRole('region', { name: '방송 소리로 듣기', exact: true })
       await expect(region).toContainText(LOW_LATENCY)
       await expect(region).not.toContainText(FORBIDDEN)
-      const box = region.getByRole('checkbox', { name: '방송 소리로 듣기' })
+      const box = region.getByRole('checkbox', { name: '라이브 소리로 듣기' }) // 문구 바뀜 (D-UX4-86)
       await expect(box).toBeChecked()
       await box.click() // 저장 응답 뒤에 바뀌는 칸이라 uncheck()의 즉시 확인 대신 상태를 기다린다
       await expect(box).not.toBeChecked()
@@ -116,8 +116,8 @@ for (const size of SIZES) {
       const live = await fake<{ videoId: string }>(page.request, stack, '/_fake/broadcasts', { channelId: channel.id, status: 'live' })
       await openBroadcast(page)
       await linkAddress(page, live.videoId)
-      await expect(audioLine(page)).toContainText('방송 소리로 듣기가 꺼져 있어요. 설정에서 켤 수 있어요.')
-      await expect(page.getByRole('dialog', { name: '방송 소리로 듣기' })).toHaveCount(0)
+      await expect(audioLine(page)).toContainText('라이브 소리로 듣기가 꺼져 있어요. 설정에서 켤 수 있어요.') // 문구 바뀜 (D-UX4-86)
+      await expect(page.getByRole('dialog', { name: '라이브 소리로 듣기' })).toHaveCount(0) // 문구 바뀜 (D-UX4-86)
       await expect(audioLine(page)).not.toContainText(LISTENING)
     })
   })

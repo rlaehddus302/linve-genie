@@ -81,7 +81,7 @@ function Showcase({ scheme, setScheme, big, setBig }: { readonly scheme: Scheme 
         </Section>
         <Section title="줄">
           <Card>
-            <ListRow title="오늘 방송" subtitle="저녁 7시 시작" value="12명" onPress={() => undefined} />
+            <ListRow title="오늘 라이브" subtitle="저녁 7시 시작" value="12명" onPress={() => undefined} />
             <ListRow title="받은 돈" value="124,000원" />
             <ToggleRow title="소리로 알려 주기" subtitle="새 찜이 들어오면 알려요." on={on} onChange={setOn} />
           </Card>
@@ -101,7 +101,7 @@ function Showcase({ scheme, setScheme, big, setBig }: { readonly scheme: Scheme 
         </Section>
         <Section title="비어 있을 때">
           <Card>
-            <EmptyState icon="🌱" title="아직 찜이 없어요" description="방송이 시작되면 여기에 손님 찜이 모여요." actionLabel="방송 시작하기" onAction={() => undefined} />
+            <EmptyState icon="🌱" title="아직 찜이 없어요" description="라이브가 시작되면 여기에 손님 찜이 모여요." actionLabel="라이브 시작하기" onAction={() => undefined} />
           </Card>
         </Section>
         <Txt step="caption" color="textSub">
@@ -110,8 +110,8 @@ function Showcase({ scheme, setScheme, big, setBig }: { readonly scheme: Scheme 
       </KitScreen>
       <Toast toast={toast} onDismiss={hide} bottomOffset={190} />
       <BottomSheet visible={sheet} onClose={() => setSheet(false)} title="어떤 걸 고를까요?">
-        <ListRow title="오늘 방송" onPress={() => setSheet(false)} />
-        <ListRow title="지난 방송" onPress={() => setSheet(false)} />
+        <ListRow title="오늘 라이브" onPress={() => setSheet(false)} />
+        <ListRow title="지난 라이브" onPress={() => setSheet(false)} />
       </BottomSheet>
       <ConfirmSheet visible={confirm} question="이 찜을 취소할까요?" description="취소하면 다음 손님께 순서가 넘어가요." confirmLabel="찜 취소하기" danger onCancel={() => setConfirm(false)} onConfirm={() => setConfirm(false)} />
     </>

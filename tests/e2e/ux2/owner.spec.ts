@@ -28,8 +28,8 @@ test('@youtube AC-UX2-06: claim.ignoreOwner 켬(기본) — 방송자 줄은 누
   await expect(owner).toBeVisible({ timeout: 15_000 })
   await expect(viewer).toBeVisible({ timeout: 15_000 })
   // 정말 방송자 줄로 들어왔는지 (시청자 줄엔 없음)
-  await expect(owner.getByText('방송자', { exact: true })).toBeVisible()
-  await expect(viewer.getByText('방송자', { exact: true })).toHaveCount(0)
+  await expect(owner.getByText('진행자', { exact: true })).toBeVisible() // 문구 바뀜 (D-UX4-86)
+  await expect(viewer.getByText('진행자', { exact: true })).toHaveCount(0) // 문구 바뀜 (D-UX4-86)
 
   await page.mouse.move(0, 0)
   await expect(owner.getByText(CONVERT)).toHaveCount(0)

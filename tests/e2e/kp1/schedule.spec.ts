@@ -93,7 +93,7 @@ test.describe('AC-KP1-21 공개 페이지', () => {
     await section.getByLabel('유튜브 채널 주소 (비워도 돼요)').fill('https://www.youtube.com/@dayuk')
     await section.getByRole('button', { name: '채널 주소 저장' }).click()
     await expect(section.getByText('채널 주소를 저장했어요.')).toBeVisible()
-    await section.getByRole('checkbox', { name: /방송 일정 공개/ }).click()
+    await section.getByRole('checkbox', { name: /라이브 일정 공개/ }).click() // 문구 바뀜 (D-UX4-86)
     await expect(section).toContainText('공개 일정 페이지를 켰어요.')
     const url = /https?:\/\/\S+\/s\/[A-Za-z0-9_-]{43}/.exec(await section.innerText())?.[0]
     expect(url, '설정에 공개 주소').toBeDefined()
@@ -122,7 +122,7 @@ test.describe('AC-KP1-21 공개 페이지', () => {
     await addItemApi(page, kstAfter(3), '토요 다육이 방송')
     await page.goto('/settings')
     const section = scheduleSection(page)
-    await section.getByRole('checkbox', { name: /방송 일정 공개/ }).click()
+    await section.getByRole('checkbox', { name: /라이브 일정 공개/ }).click() // 문구 바뀜 (D-UX4-86)
     await expect(section).toContainText('공개 일정 페이지를 켰어요.')
     const first = (await scheduleView(page)).page.url!
     const path1 = new URL(first).pathname
@@ -149,7 +149,7 @@ test.describe('AC-KP1-21 공개 페이지', () => {
     const path2 = new URL(second).pathname
     expect((await request.get(`${apiUrl()}${path2}`)).status()).toBe(200)
     // 끄면 404
-    await section.getByRole('checkbox', { name: /방송 일정 공개/ }).click()
+    await section.getByRole('checkbox', { name: /라이브 일정 공개/ }).click() // 문구 바뀜 (D-UX4-86)
     await expect(section).toContainText('전에 알려 준 주소는 이제 열리지 않아요.')
     expect((await request.get(`${apiUrl()}${path2}`)).status()).toBe(404)
   })
@@ -163,7 +163,7 @@ test.describe('AC-KP1-23 방송 알림 수', () => {
       await loginNewSeller(page)
       await page.goto('/settings')
       const section = scheduleSection(page)
-      await section.getByRole('checkbox', { name: /방송 일정 공개/ }).click()
+      await section.getByRole('checkbox', { name: /라이브 일정 공개/ }).click() // 문구 바뀜 (D-UX4-86)
       await expect(section).toContainText('공개 일정 페이지를 켰어요.')
       const path = new URL((await scheduleView(page)).page.url!).pathname
       const appOrigin = new URL(page.url()).origin
@@ -204,7 +204,7 @@ test.describe('AC-KP1-22 공개 페이지 알림 받기 양식 (D-KP1-48·UX-KP1
       await addItemApi(page, kstAfter(3), '토요 다육이 방송')
       await page.goto('/settings')
       const section = scheduleSection(page)
-      await section.getByRole('checkbox', { name: /방송 일정 공개/ }).click()
+      await section.getByRole('checkbox', { name: /라이브 일정 공개/ }).click() // 문구 바뀜 (D-UX4-86)
       await expect(section).toContainText('공개 일정 페이지를 켰어요.')
       const url = (await scheduleView(page)).page.url!
       const buyer = await buyerBrowser(browser, page, viewport)

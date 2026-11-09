@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // D-UX4-73 (사용자 지시 2026-11-10 "버튼 안 텍스트는 버튼 정중앙에 와야 해 … 테스트로 자동으로 확인해 (예: 관리의 '자동 감사 채팅')"):
 // 단추(button·switch·tab·checkbox·radio) 안 글자가 위아래 가운데(글자만 든 단추는 좌우도 가운데)에 오는지 짜임새로 확인한다.
 // jsdom에는 배치 계산이 없어서, react-native-web이 붙인 CSS(getComputedStyle)를 단추에서 글자까지 내려가며 본다:
@@ -251,7 +252,7 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
         <SmallButton label="링크를 모르겠어요" onPress={none} />
         <OldBigButton label="옛 단추" primary onPress={none} />
         <OldBigButton label="작은 옛 단추" small onPress={none} />
-        <HeroButton title="방송 시작하기" sub="유튜브 라이브를 연결해요" onPress={none} />
+        <HeroButton title="라이브 시작하기" sub="유튜브 라이브를 연결해요" onPress={none} />
       </>,
     10,
     )
@@ -264,8 +265,8 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
         <ListRow title="부제 있는 줄" subtitle="설명" onPress={none} />
         <TodoRow count={3} tone="warn" title="입금 확인" sub="3명" onPress={none} />
         <TodoRow title="숫자 없는 줄" onPress={none} />
-        <MenuGroup title="방송">
-          <ConsoleMenuRow title="방송 연결" onPress={none} />
+        <MenuGroup title="라이브">
+          <ConsoleMenuRow title="라이브 연결" onPress={none} />
           <ConsoleMenuRow title="음성 설정" value="켜짐" onPress={none} />
         </MenuGroup>
         <IconMenuRow emoji="🗑" tint="#FF5A5F" title="휴지통" onPress={none} />
@@ -298,7 +299,7 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
   it('칩·알약·글자 단추·머리 글자 단추·숫자판·탭', () => {
     expectCentered(
       <>
-        <AppHeader title="방송" right={<HeaderTextButton label="관리" ariaLabel="방송 관리" onPress={none} />} onBack={none} />
+        <AppHeader title="라이브" right={<HeaderTextButton label="관리" ariaLabel="라이브 관리" onPress={none} />} onBack={none} />
         <SoftChip label="잔액 · 159,952원 입력" onPress={none} />
         <Pill on label="상품 3" ariaLabel="상품" onPress={none} />
         <Pill on={false} label="찜 기록 2" ariaLabel="찜 기록" onPress={none} />
@@ -327,8 +328,8 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
     expectCentered(
       <>
         <PopupDialog visible message="지울까요?" confirmLabel="지우기" cancelLabel="아니요" onConfirm={none} onCancel={none} />
-        <ConfirmSheet visible question="방송을 끝낼까요?" confirmLabel="끝내기" onConfirm={none} onCancel={none} />
-        <PopupDialog visible danger message="방송 연결을 끊을까요?" confirmLabel="끊기" cancelLabel="취소" onConfirm={none} onCancel={none} />
+        <ConfirmSheet visible question="라이브를 끝낼까요?" confirmLabel="끝내기" onConfirm={none} onCancel={none} />
+        <PopupDialog visible danger message="라이브 연결을 끊을까요?" confirmLabel="끊기" cancelLabel="취소" onConfirm={none} onCancel={none} />
         <SheetChoices label="화면 아래 창" choices={[{ value: 'a', label: '들린 말' }, { value: 'b', label: '비밀번호', description: '6자리 숫자', accent: '3단계' }]} value="a" onPick={none} />
         <Toast toast={{ id: 1, message: '지웠어요', actionLabel: '되돌리기', onAction: none }} onDismiss={none} />
       </>,
@@ -336,7 +337,7 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
     )
   })
 
-  it('진짜 화면: 방송 화면과 방송 관리(자동 감사 채팅 줄 포함)', async () => {
+  it('진짜 화면: 라이브 화면과 라이브 관리(자동 감사 채팅 줄 포함)', async () => {
     const world = makeWorld({ products: [product(15, { name: '핑크프릴' })] })
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={none} />))
     await screen.findByTestId('console-screen')
@@ -345,8 +346,8 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
       await flush()
     })
     expectCentered(undefined, 6)
-    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
-    await screen.findByRole('dialog', { name: '방송 관리' })
+    fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
+    await screen.findByRole('dialog', { name: '라이브 관리' })
     expect(screen.getByRole('switch', { name: `${THANKS_TITLE} — 꺼짐` })).toBeTruthy()
     // 최소 단추 수 15 → 12: 방송 관리에서 문자찜 직접 넣기·댓글 붙여넣기·방송 끝내기 줄을 없앴다 (D-UX4-78·79)
     expectCentered(undefined, 12)

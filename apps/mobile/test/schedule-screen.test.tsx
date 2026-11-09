@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 앱 방송 일정·알림 (D-APPX-01 — 웹 ScheduleSettings와 같은 문구): 다가오는 방송 적기(바로 저장), 지우기는 한 번 묻기, 알림은 수만, 아직 문자를 보내지 않는다는 한 줄.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
@@ -5,8 +6,8 @@ import type { ScheduleView } from '@livejjim/web/src/lib/schedule.ts'
 import { ScheduleScreen } from '../src/screens/ScheduleScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 
-describe('ScheduleScreen (앱 방송 일정)', () => {
-  it('방송을 적으면 바로 저장되고, 지우기는 묻고, 알림 신청은 수만 보인다', async () => {
+describe('ScheduleScreen (앱 라이브 일정)', () => {
+  it('라이브를 적으면 바로 저장되고, 지우기는 묻고, 알림 신청은 수만 보인다', async () => {
     const w = makeWorld()
     let view: ScheduleView = { page: { enabled: false, url: null, channelUrl: null }, items: [], max: 10 }
     const sent: { method: string; path: string; body: Record<string, unknown> | null }[] = []
@@ -23,11 +24,11 @@ describe('ScheduleScreen (앱 방송 일정)', () => {
       return { body: view }
     })
     render(w.wrap(<ScheduleScreen onBack={() => undefined} />))
-    expect(await screen.findByText('적어 둔 다가오는 방송이 없어요.')).toBeTruthy()
+    expect(await screen.findByText('적어 둔 다가오는 라이브가 없어요.')).toBeTruthy()
     // 옛 기대: 한 줄 글 "받는 중 5명". 새 기대(D-UX3-96): 이름 · 오른쪽 값 줄 ("받는 중" | "5명")
     expect(screen.getByTestId('alerts-active').textContent).toBe('받는 중5명')
     expect(screen.getByText('아직 문자를 보내지 않아요. 보내기는 준비 중이에요.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '방송 적기' }))
+    fireEvent.click(screen.getByRole('button', { name: '라이브 적기' }))
     fireEvent.change(screen.getByLabelText('날짜'), { target: { value: '2026-11-03' } })
     fireEvent.change(screen.getByLabelText('제목'), { target: { value: '화요일 저녁 다육 라이브' } })
     fireEvent.click(screen.getByRole('button', { name: '저장' }))

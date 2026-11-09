@@ -81,7 +81,7 @@ export function StartScreen({ nav }: { readonly nav: StartNavigation }) {
         {shown === 2 ? <RulesStep onEdit={nav.openShopSettings} /> : null}
         {shown === 3 ? (
           <Card>
-            <Txt>유튜브 채널을 연결하면 방송 채팅을 받아 찜을 정해요. 구글 로그인 창은 기기 브라우저에서 열려요.</Txt>
+            <Txt>유튜브 채널을 연결하면 라이브 채팅을 받아 찜을 정해요. 구글 로그인 창은 기기 브라우저에서 열려요.</Txt>
             <BigButton label="유튜브 연결하기" onPress={() => void openWeb('/settings/youtube')} />
             <Txt step="caption" color="textSub">감사 메시지 자동 게시는 설정에서 따로 켤 수 있어요.</Txt>
           </Card>
@@ -147,7 +147,7 @@ function RulesStep({ onEdit }: { readonly onEdit: () => void }) {
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {settings === null && error === null ? <Loading /> : null}
       {settings !== null ? RULE_LINES.map((line) => <Txt key={line.key}>{`${line.label}: ${valueWords(fieldOf(line.key), settings)}`}</Txt>) : null}
-      <Txt step="caption" color="textSub">바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.</Txt>
+      <Txt step="caption" color="textSub">바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.</Txt>
       <BigButton kind="outline" label="가게 설정에서 바꾸기" onPress={onEdit} />
     </Card>
   )

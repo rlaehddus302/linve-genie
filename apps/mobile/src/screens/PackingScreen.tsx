@@ -54,7 +54,7 @@ export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { reado
                 <Pill key={day.date} on={day.date === date} label={dateWords(day.date)} ariaLabel={`날짜 ${dateWords(day.date)}`} onPress={() => setDate(day.date)} />
               ))}
             </ScrollView>
-            {days.length === 0 ? <EmptyFill title="아직 판매 기록이 없어요." body={'방송에서 팔린 상품이\n여기에 모여요'} /> : null}
+            {days.length === 0 ? <EmptyFill title="아직 판매 기록이 없어요." body={'라이브에서 팔린 상품이\n여기에 모여요'} /> : null}
           </View>
         ) : null}
         {/* 진행과 흐름의 다음 단계(D-UX3-39)를 한 줄에: 왼쪽 "끝낸 손님 n / N", 오른쪽 글자 단추 [택배 접수 ›] (D-UX3-94 — 옛: 오른쪽 굵은 진행 + 큰 회색 [택배 접수로]) */}

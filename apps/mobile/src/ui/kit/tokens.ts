@@ -311,9 +311,9 @@ export function contrastPairs(scheme: Scheme): readonly ContrastPair[] {
     { name: '본문/주의바탕', fg: p.text, bg: p.warnBg, min: 4.5 },
     { name: '설명/주의바탕', fg: p.textSub, bg: p.warnBg, min: 4.5 },
     { name: '찜 꼬리표/금색', fg: p.goldText, bg: p.goldBg, min: 4.5 },
-    { name: '방송 상태 정상', fg: p.liveOkText, bg: p.liveOkBg, min: 4.5 },
-    { name: '방송 상태 문제', fg: p.liveBadText, bg: p.liveBadBg, min: 4.5 },
-    { name: '방송 상태 다시 잇는 중', fg: p.liveWarnText, bg: p.liveWarnBg, min: 4.5 },
+    { name: '라이브 상태 정상', fg: p.liveOkText, bg: p.liveOkBg, min: 4.5 },
+    { name: '라이브 상태 문제', fg: p.liveBadText, bg: p.liveBadBg, min: 4.5 },
+    { name: '라이브 상태 다시 잇는 중', fg: p.liveWarnText, bg: p.liveWarnBg, min: 4.5 },
   ]
   for (const [tone, pair] of Object.entries(TONES[scheme])) pairs.push({ name: `상태 ${tone}`, fg: pair.fg, bg: pair.bg, min: 4.5 })
   return pairs

@@ -97,7 +97,7 @@ for (const { name, viewport } of VIEWPORTS) {
 
         // 리포트: 다시 온 손님 1
         await page.goto(`/settlements?date=${d2}`)
-        await page.getByRole('link', { name: '방송 리포트' }).click()
+        await page.getByRole('link', { name: '라이브 리포트' }).click() // 문구 바뀜 (D-UX4-86)
         const people = page.locator('main section').filter({ has: page.getByRole('heading', { name: '손님', exact: true }) })
         await expect(people.locator('div').filter({ hasText: /^다시 온 손님/ })).toContainText('1명')
         await expect(people.locator('div').filter({ hasText: /^새 손님/ })).toContainText('0명')

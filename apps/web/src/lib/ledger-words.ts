@@ -51,12 +51,12 @@ export interface CustomerLedgerView {
 export const LEDGER_MONTH_WORDS: Readonly<Record<LedgerMonths, string>> = { 6: '6개월', 12: '1년', 24: '2년', 36: '3년' }
 export const LEDGER_MONTHS_LABEL = '저장한 배송지 보관 기간'
 export const LEDGER_MONTHS_HELP = '손님이 다음 주문에도 쓰겠다고 고른 배송지를 이 기간 동안 보관해요. 마지막 주문 뒤 기간이 지나면 저절로 지워요.'
-export const CONSOLE_BADGES_LABEL = '방송 화면에 손님 표시'
-export const CONSOLE_BADGES_HELP = '방송 화면을 녹화하거나 송출 화면에 띄운다면 꺼 주세요. 손님에게 보이면 안 되는 표시예요.'
+export const CONSOLE_BADGES_LABEL = '라이브 화면에 손님 표시'
+export const CONSOLE_BADGES_HELP = '라이브 화면을 녹화하거나 송출 화면에 띄운다면 꺼 주세요. 손님에게 보이면 안 되는 표시예요.'
 /** 아직 정하지 않았을 때 (UX-KP1-006) */
-export const CONSOLE_BADGES_UNDECIDED = '아직 정하지 않았어요. 정하기 전에는 방송 화면에 보이지 않아요.'
+export const CONSOLE_BADGES_UNDECIDED = '아직 정하지 않았어요. 정하기 전에는 라이브 화면에 보이지 않아요.'
 /** 콘솔에서 처음 한 번 묻는 띠 (UX-KP1-006) */
-export const CONSOLE_BADGES_ASK = '방송 화면에 손님 표시를 보일까요? 이 화면을 방송에 내보내면 손님도 볼 수 있어요.'
+export const CONSOLE_BADGES_ASK = '라이브 화면에 손님 표시를 보일까요? 이 화면을 라이브에 내보내면 손님도 볼 수 있어요.'
 // 꼬리표 글 그대로("단골"·"입금 늦음 주의"·"처음")를 쓰지 않는다 — 꼬리표가 없는 콘솔에 그 낱말이 보이면 손님 표시로 헷갈린다(CRM1 AC-CRM1-19)
 export const CONSOLE_BADGES_ASK_DETAIL = '채팅 이름 옆에 자주 사는 손님, 입금이 늦었던 손님, 처음 온 손님을 알려 주는 작은 표시예요. 나중에 설정 "손님 관리"에서 바꿀 수 있어요.'
 export const CONSOLE_BADGES_SHOW = '보이기'
@@ -74,7 +74,7 @@ export function shrinkAsk(n: number | null): string {
 export const LEDGER_SHRINK_OK = '줄이기'
 export const LEDGER_SHRINK_KEEP = '그대로 두기'
 export const LEDGER_SHRINK_NOTE = '기간을 줄이면 이미 기간이 지난 손님의 저장한 배송지가 1시간 안에 지워져요. 되돌릴 수 없어요. [저장]을 누르면 몇 명인지 한 번 더 물어봐요.'
-export const CONSOLE_BADGES_DETAIL = '켜면 방송 화면 채팅에 "입금 늦음 주의"·"단골 · 누적"·"처음"이 보여요. 끄면 1등 옆 "입금 늦음 주의"도 함께 사라져요.'
+export const CONSOLE_BADGES_DETAIL = '켜면 라이브 화면 채팅에 "입금 늦음 주의"·"단골 · 누적"·"처음"이 보여요. 끄면 1등 옆 "입금 늦음 주의"도 함께 사라져요.'
 export const PREFILL_TITLE = '지난 주문 배송지예요 — 확인해 주세요'
 export const PREFILL_HELP = '손님이 지난 주문 때 저장해 둔 배송지예요. 맞으면 [배송지 확인]을 눌러 주세요. 바뀌었으면 [고치기]로 고쳐 주세요.'
 export const PREFILL_CONFIRMED = '지난 주문 배송지로 확인했어요.'

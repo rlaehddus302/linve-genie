@@ -18,22 +18,22 @@ export function saveButton(page: Page) {
 export const NO_CHANGES = '바꾼 칸이 없어요.'
 export const dirtyLine = (...blocks: string[]) => `저장하지 않은 칸: ${blocks.join(' · ')}`
 export const SAVED = '저장했어요.'
-export const RULES_NEXT = ' 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.'
-export const SHIPPING_NEXT = ' 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요.'
+export const RULES_NEXT = ' 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.' // 문구 바뀜 (D-UX4-86)
+export const SHIPPING_NEXT = ' 오늘 라이브를 이미 시작했으면 배송비는 내일부터 적용돼요.' // 문구 바뀜 (D-UX4-86)
 /** 일부 실패 (AC-FB1-24, 회차 2 D-FB1-18 (d) — 저장한 칸이 있으면 " 저장한 칸: …." 를 붙인 한 요소) */
 export const failedLine = (failed: string[], saved: string[] = []) =>
   `저장하지 못한 칸이 있어요: ${failed.join(' · ')}. 빨간 글을 확인해 주세요.${saved.length > 0 ? ` 저장한 칸: ${saved.join(' · ')}.` : ''}`
 
-export const SHIPPING_HINT = '배송비는 그날 첫 방송을 시작할 때의 값으로 정산해요. 오늘 방송을 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.'
+export const SHIPPING_HINT = '배송비는 그날 첫 라이브를 시작할 때의 값으로 정산해요. 오늘 라이브를 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.' // 문구 바뀜 (D-UX4-86)
 export const OLD_SHIPPING_LINE = '그날 첫 방송이 이미 있으면 그날 정산은 그대로예요.'
 /** 가격 단위 (AC-FB1-01, D-FB1-11 사용자 결정) — 낱말 셋·늘 보이는 안내·바꿀 때 확인 문장 */
 export const UNIT_WORDS = { WON: '원 (15000 → 15,000원)', THOUSAND: '천원 (15 → 15,000원)', TEN_THOUSAND: '만원 (15 → 150,000원)' } as const
 export const UNIT_HINT = "'2만'·'15000원'처럼 단위를 붙여 적으면 이 설정과 상관없이 적힌 대로 들어가요."
 export const OLD_UNIT_HINT = "만원 단위는 '2만'·'1.5만'처럼 적으면 돼요."
 export const UNIT_CHANGE = {
-  TEN_THOUSAND: "저장하면 다음 방송부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
-  THOUSAND: "저장하면 다음 방송부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
-  WON: "저장하면 다음 방송부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요.",
+  TEN_THOUSAND: "저장하면 다음 라이브부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.", // 문구 바뀜 (D-UX4-86)
+  THOUSAND: "저장하면 다음 라이브부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.", // 문구 바뀜 (D-UX4-86)
+  WON: "저장하면 다음 라이브부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요.", // 문구 바뀜 (D-UX4-86)
 } as const
 /** 콘솔 단위 줄 (AC-FB1-02) */
 export const UNIT_LINE = {
@@ -55,7 +55,7 @@ export const OLD_THANKS_WORDS = [
   '영상 댓글에 감사 메시지 남기기',
   '영상 댓글 방식',
   '판매마다 댓글',
-  '방송이 끝나고 요약 댓글 1개',
+  '라이브가 끝나고 요약 댓글 1개', // 문구 바뀜 (D-UX4-86)
   '방송 중 영상 옆 채팅창에 바로 보이는 글이에요.',
   '방송 영상 아래 댓글란에 남는 글이에요. 방송이 끝나도 남아요.',
   '판매가 확정될 때마다 하나씩 남겨요.',

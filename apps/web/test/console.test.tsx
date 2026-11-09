@@ -359,7 +359,7 @@ describe('채팅 패널 (AC-S05-21·22)', () => {
     expect(shownConvert()).toEqual([false, false, false, false])
     expect(rows[0]?.textContent).toContain('주문 15')
     expect(rows[1]?.textContent).toContain('취소 15')
-    expect(rows[2]?.textContent).toContain('방송자')
+    expect(rows[2]?.textContent).toContain('진행자') // 문구 바뀜 (D-UX4-86)
     // 주문·취소·무시한 방송자 줄은 눌러도 없다 (AC-UX2-06)
     for (const row of rows.slice(0, 3)) fireEvent.click(row)
     expect(shownConvert()).toEqual([false, false, false, false])

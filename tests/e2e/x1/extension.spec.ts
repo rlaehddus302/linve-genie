@@ -203,8 +203,8 @@ test('@youtube SPEC AC3·D-X1-29: 방송자 표시(주인 배지)가 붙은 글 
   expect(view.products.find((p) => p.no === 21)?.winners).toEqual(['UCx1hostviewer0000000001'])
 
   await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
-  await expect(chatItem(page, '사장님')).toContainText('방송자')
-  await expect(chatItem(page, '뒤손님')).not.toContainText('방송자')
+  await expect(chatItem(page, '사장님')).toContainText('진행자') // 문구 바뀜 (D-UX4-86)
+  await expect(chatItem(page, '뒤손님')).not.toContainText('진행자') // 문구 바뀜 (D-UX4-86)
 })
 
 test('@youtube D-X1-29: 회차 채널이 아닌 채널이 방송자 표시를 붙여도 시청자로 처리 — "21" 찜이 들어가고 방송자로 보이지 않는다', async ({ ext }) => {
@@ -225,5 +225,5 @@ test('@youtube D-X1-29: 회차 채널이 아닌 채널이 방송자 표시를 �
 
   await page.goto(`/broadcasts/${encodeURIComponent(b)}`)
   await expect(chatItem(page, '가짜사장')).toBeVisible()
-  await expect(chatItem(page, '가짜사장')).not.toContainText('방송자')
+  await expect(chatItem(page, '가짜사장')).not.toContainText('진행자') // 문구 바뀜 (D-UX4-86)
 })

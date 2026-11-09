@@ -101,7 +101,7 @@ export function ScheduleScreen({ onBack }: { readonly onBack: () => void }) {
         {view === null && error === null ? <Loading /> : null}
         {view !== null ? (
           <>
-            <SettingsGroup title="다가오는 방송" label="다가오는 방송">
+            <SettingsGroup title="다가오는 라이브" label="다가오는 라이브">
               {view.items.length === 0 ? <GroupNote>{SCHEDULE_EMPTY}</GroupNote> : null}
               {view.items.map((item) => (
                 <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs }}>
@@ -115,7 +115,7 @@ export function ScheduleScreen({ onBack }: { readonly onBack: () => void }) {
                   <TextButton label="고치기" ariaLabel={`${scheduleWhen(item)} 고치기`} color="primaryText" onPress={() => setDraft({ id: item.id, date: item.date, time: item.time, title: item.title, intro: item.intro })} />
                 </View>
               ))}
-              {scheduleFull(view) ? <GroupNote>{SCHEDULE_FULL_MESSAGE}</GroupNote> : <BigButton kind="outline" label="방송 적기" onPress={() => setDraft(EMPTY_DRAFT)} />}
+              {scheduleFull(view) ? <GroupNote>{SCHEDULE_FULL_MESSAGE}</GroupNote> : <BigButton kind="outline" label="라이브 적기" onPress={() => setDraft(EMPTY_DRAFT)} />}
             </SettingsGroup>
 
             <SettingsGroup title="공개 일정 페이지" label="공개 일정 페이지">
@@ -167,7 +167,7 @@ export function ScheduleScreen({ onBack }: { readonly onBack: () => void }) {
       ) : null}
       <ConfirmSheet
         visible={removing !== null}
-        question="이 방송을 지울까요?"
+        question="이 라이브를 지울까요?"
         description={removing === null ? '' : `${scheduleWhen(removing)} ${removing.title}`}
         confirmLabel="지우기"
         danger
@@ -199,7 +199,7 @@ function DraftSheet({ draft, busy, error, onClose, onSave }: { readonly draft: D
     <BottomSheet
       visible
       onClose={onClose}
-      title={draft.id === null ? '방송 적기' : '방송 고치기'}
+      title={draft.id === null ? '라이브 적기' : '라이브 고치기'}
       actions={
         <>
           <BigButton kind="secondary" label="닫기" onPress={onClose} />

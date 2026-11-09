@@ -41,7 +41,7 @@ describe('화면 낱말 (D-088)', () => {
   it('알림·라벨·채팅·조치자 낱말', () => {
     expect(Object.values(ALERT_WORD)).toEqual(['충돌', '취소 요청', '승계 결정 필요', '보류 찜', '확인 필요'])
     expect(Object.values(LABEL_WORD)).toEqual(['라벨 대기', '라벨 출력됨', '재출력 필요'])
-    expect(Object.values(CHAT_WORD)).toEqual(['주문', '취소', '언급', '방송자'])
+    expect(Object.values(CHAT_WORD)).toEqual(['주문', '취소', '언급', '진행자']) // 문구 바뀜 (D-UX4-86)
     expect(actorWord({ kind: 'account', loginId: 'shop1' })).toBe('shop1')
     expect(actorWord({ kind: 'server', loginId: null })).toBe('서버')
     expect(actorWord({ kind: 'collector', loginId: null })).toBe('수집기')

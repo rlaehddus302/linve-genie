@@ -36,11 +36,11 @@ const ALL_FIELDS = [...RULE_FIELDS, ...SHIPPING_FIELDS, ...fieldsAt('thanks')]
 
 export const REGULAR_AMOUNT_HINT = '비우면 금액 기준을 쓰지 않아요.'
 export const CUSTOMER_RULE_HINT = '단골 = 이 횟수 이상 샀거나 이 금액 이상 산 손님. 입금 늦음 주의 = 미입금이 한 번이라도 있는 손님.'
-export const WAIT_DAYS_HINT = '방송 날짜에서 이 날 수가 지나도 입금이 없으면 미입금으로 세요.'
+export const WAIT_DAYS_HINT = '라이브 날짜에서 이 날 수가 지나도 입금이 없으면 미입금으로 세요.'
 export const VIDEO_COMMENT_ON = '예전에 켠 영상 댓글이 켜져 있어요.'
 export const LEAVE_UNSAVED = '저장하지 않은 칸이 있어요'
 /** 봇 판매자의 감사 칸 안내 (D-YT-SEND-18 → D-YT-SRV-23: 감사 채팅은 처음에 꺼져 있다 — 웹 BOT_THANKS_NOTE의 "끄면 올리지 않아요"는 켜져 있다는 뜻으로 읽혀 앱은 이 글을 쓴다) */
-export const BOT_THANKS_OFF_FIRST = '위 칸을 켜면 찜이 확정될 때 라이브지니가 방송 채팅에 감사 메시지를 대신 올려요. 켜기 전까지는 올리지 않아요. 구글 연결은 필요 없어요.'
+export const BOT_THANKS_OFF_FIRST = '위 칸을 켜면 찜이 확정될 때 라이브지니가 라이브 채팅에 감사 메시지를 대신 올려요. 켜기 전까지는 올리지 않아요. 구글 연결은 필요 없어요.'
 /** 봇이 아닌 판매자의 감사 칸 안내 */
 export const THANKS_CONSENT_NOTE = '유튜브 채팅·댓글 자동 게시 동의는 아래 "연결"에서 웹으로 열어요.'
 

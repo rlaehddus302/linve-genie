@@ -10,6 +10,6 @@ describe('채널 방송 링크 알아보기', () => {
     expect(isChannelLiveLink(text)).toBe(false)
   })
   it('안내 문장', () => {
-    expect(NOT_VIDEO_LINK_MESSAGE).toBe('방송 화면의 공유 버튼으로 주소를 복사해 주세요.')
+    expect(NOT_VIDEO_LINK_MESSAGE).toBe('라이브 화면의 공유 버튼으로 주소를 복사해 주세요.') // 문구 바뀜 (D-UX4-86)
   })
 })

@@ -23,6 +23,7 @@ import { Pill } from '../ui/day-pills.tsx'
 import { EmptyFill, AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { shownBroadcastTitle } from './BroadcastList.tsx'
 
 export const REVIEWS_TITLE = '확인 필요'
 export const REVIEWS_HINT = '주문인지 애매한 댓글이에요. 상품·옵션·수량을 골라 "주문으로"를 누르거나, 주문이 아니면 "주문 아님"을 눌러 주세요.'
@@ -164,7 +165,7 @@ export function ReviewsScreen({ onBack, query = {}, openSettings }: { readonly o
       <AppHeader title={REVIEWS_TITLE} onBack={back} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
         <View style={{ paddingHorizontal: SPACE.xs, gap: SPACE.xs }}>
-          {broadcast !== undefined ? <Txt weight="medium">{`${broadcast.title} · ${dateWords(broadcast.date)} 방송만 보여요.`}</Txt> : null}
+          {broadcast !== undefined ? <Txt weight="medium">{`${shownBroadcastTitle(broadcast.title)} · ${dateWords(broadcast.date)} 라이브만 보여요.`}</Txt> : null}
           <Txt step="caption" color="textSub">{REVIEWS_HINT}</Txt>
         </View>
         {error !== null ? (
@@ -478,7 +479,7 @@ function ReviewRow({ n, review, state, broadcast, many, products, selected, pend
         {review.phoneLast4 !== null ? <Txt step="caption">{`뒤 4자리 ${review.phoneLast4}`}</Txt> : null}
         <Tag tone="warning">{REVIEW_REASON_WORD[review.reason]}</Tag>
       </View>
-      {many && broadcast !== undefined ? <Txt step="caption" color="textSub">{`${broadcast.title} · ${dateWords(broadcast.date)}`}</Txt> : null}
+      {many && broadcast !== undefined ? <Txt step="caption" color="textSub">{`${shownBroadcastTitle(broadcast.title)} · ${dateWords(broadcast.date)}`}</Txt> : null}
       <Txt>{review.text ?? (review.origin === 'sms' ? '메모 없음' : '')}</Txt>
       {suggestion !== null ? (
         <View style={{ gap: SPACE.sm, padding: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.freshBg }} role="group" aria-label={`${lineName} 제안`}>

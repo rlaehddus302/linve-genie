@@ -148,7 +148,7 @@ test.describe('설정 화면', () => {
     expect(before.settings['cancel.buyerChat']).toBe('REQUEST')
     await rules.getByLabel('대기 인원 (0이면 대기 없음)').fill('1')
     await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
-    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06
+    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06 · (D-UX4-86)
     expect(patches.at(-1)).toEqual({ settings: { 'waitlist.max': 1, 'cancel.buyerChat': 'AUTO', 'claim.parseMode': 'LOOSE' } })
     const body = await page.locator('main').innerText()
     for (const word of ['waitlist', 'cancel.', 'LOOSE', 'STRICT', 'THOUSAND', 'settlement.groupBy', 'print.autoOnConfirm']) expect(body).not.toContain(word)
@@ -160,7 +160,7 @@ test.describe('설정 화면', () => {
     const ship = settingsRegion(page, '배송비')
     await ship.getByLabel('무료배송 기준 금액 (원, 비우면 없음)').fill('50,000')
     await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
-    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요.')).toBeVisible() // FB1 D-FB1-02·06
+    await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 오늘 라이브를 이미 시작했으면 배송비는 내일부터 적용돼요.')).toBeVisible() // FB1 D-FB1-02·06 · (D-UX4-86)
     let s = await (await page.request.get('/api/settings')).json() as { settings: Record<string, unknown> }
     expect(s.settings['shipping.freeThreshold']).toBe(50000)
     await ship.getByLabel('무료배송 기준 금액 (원, 비우면 없음)').fill('')

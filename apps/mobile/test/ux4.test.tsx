@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 맥북 화면 다듬기 넷째 판 (D-UX4-01~06, 사용자 지시 2026-11-03): 단추는 늘 좌우(부정 왼쪽·긍정 오른쪽), 확인은 가운데 팝업,
 // 곁길 단추는 작은 회색 단추, 켜고 끄기는 토스식 스위치, 프린터 고르기는 화면이 목록을 직접 그릴 수 있다, 라벨 칸 옮기기·키우기 계산.
 import { FONT_SIZE_MAX as LABEL_FONT_MAX, FONT_SIZE_MIN as LABEL_FONT_MIN, ALL_LABEL_SIZES, SAMPLE_PRODUCT, defaultTemplate, formatLabelPrice, labelSizeInfo } from '@livejjim/label'
@@ -59,7 +60,7 @@ describe('D-UX4-02 확인은 가운데 팝업', () => {
     const onCancel = vi.fn()
     render(<PopupDialog visible message={firstChannelPopup('브롬톤다육')} name="처음 잇는 채널 확인" cancelLabel="아니에요" confirmLabel="맞아요" onConfirm={onConfirm} onCancel={onCancel} />)
     const dialog = screen.getByRole('alertdialog', { name: '처음 잇는 채널 확인' })
-    expect(dialog.textContent).toContain('처음 연결하는 채널이에요.\n채널명: 브롬톤다육\n이 방송이 맞나요?')
+    expect(dialog.textContent).toContain('처음 연결하는 채널이에요.\n채널명: 브롬톤다육\n이 라이브가 맞나요?')
     expect(names(dialog)).toEqual(['아니에요', '맞아요'])
     fireEvent.click(screen.getByRole('button', { name: '맞아요' }))
     expect(onConfirm).toHaveBeenCalledTimes(1)
@@ -83,7 +84,7 @@ describe('D-UX4-04 곁길 단추는 작은 회색 단추', () => {
     expect(onPress).toHaveBeenCalled()
   })
 
-  it('새 방송·방송 연결의 [링크를 모르겠어요]는 큰 단추가 아니다 (소스)', () => {
+  it('새 라이브·라이브 연결의 [링크를 모르겠어요]는 큰 단추가 아니다 (소스)', () => {
     for (const file of ['NewBroadcastScreen.tsx', 'BroadcastLinkScreen.tsx']) {
       const source = readFileSync(join(__dirname, '../src/screens', file), 'utf8')
       expect(source).toContain('<SmallButton label="링크를 모르겠어요"')

@@ -20,9 +20,9 @@ import { VARIETIES_TITLE } from './VarietiesScreen.tsx'
 import { LINKED_TITLE, methodsOf, PROVIDER_NAMES, type LoginProvider } from '@livejjim/web/src/lib/social-login.ts'
 import { SocialTile } from '../ui/SocialTile.tsx'
 
-export const SETTING_NEXT_BROADCAST = '다음에 시작하는 방송부터 적용돼요.'
+export const SETTING_NEXT_BROADCAST = '다음에 시작하는 라이브부터 적용돼요.'
 export const PERMISSION_WORDS = {
-  microphone: '방송 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요.',
+  microphone: '라이브 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요.',
   bluetooth: '라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.',
   notification: '음성 듣는 중이라는 알림을 보여 드리려고 해요.',
 } as const
@@ -137,7 +137,7 @@ export function SettingsScreen({
           ) : (
             <ToggleRow title="라벨 기능" on={labels.enabled} disabled={busy} onChange={(next) => void run(() => setLabelEnabled(next, labels.enabled))} />
           )}
-          {auto !== null ? <ToggleRow title="1등 확정 때 라벨 자동 출력" subtitle="다음 방송부터 적용돼요." on={auto} disabled={busy} onChange={(next) => void run(() => setAutoPrint(next, auto))} /> : null}
+          {auto !== null ? <ToggleRow title="1등 확정 때 라벨 자동 출력" subtitle="다음 라이브부터 적용돼요." on={auto} disabled={busy} onChange={(next) => void run(() => setAutoPrint(next, auto))} /> : null}
         </SettingsGroup>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
         {showPhoneNotice ? <PhoneNoticeCard /> : null}

@@ -172,7 +172,7 @@ describe('마법사 단계 (AC-I3-51~55)', () => {
     fireEvent.click(screen.getByRole('radio', { name: '내가 골라요' }))
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
     expect(await screen.findByText('1등이 취소되면: 내가 골라요')).toBeDefined()
-    expect(screen.getByText('저장했어요. 다음에 시작하는 방송부터 적용돼요.')).toBeDefined()
+    expect(screen.getByText('저장했어요. 다음에 시작하는 라이브부터 적용돼요.')).toBeDefined() // 문구 바뀜 (D-UX4-86)
     expect(server.callsTo('PATCH', /settings/).map((call) => call.body)).toEqual([{ settings: { 'cancel.succession': 'ASK' } }])
   })
 

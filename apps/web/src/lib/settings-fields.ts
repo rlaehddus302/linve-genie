@@ -16,15 +16,15 @@ export const PRICE_UNIT_WORDS: Readonly<Record<PriceUnit, string>> = {
 }
 /** 저장된 값과 다른 가격 단위를 골랐을 때(저장 전) 고르기 아래 확인 문장 (AC-FB1-01) */
 export const PRICE_UNIT_CHANGE: Readonly<Record<PriceUnit, string>> = {
-  WON: "저장하면 다음 방송부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요.",
-  THOUSAND: "저장하면 다음 방송부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
-  TEN_THOUSAND: "저장하면 다음 방송부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
-  AUTO: "저장하면 다음 방송부터 '25'는 250,000원, '180'은 180,000원, '15000'은 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
+  WON: "저장하면 다음 라이브부터 숫자를 원 그대로 읽어요('15000' → 15,000원). 이미 등록한 상품 가격은 바뀌지 않아요.",
+  THOUSAND: "저장하면 다음 라이브부터 '15'는 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
+  TEN_THOUSAND: "저장하면 다음 라이브부터 '15'는 150,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
+  AUTO: "저장하면 다음 라이브부터 '25'는 250,000원, '180'은 180,000원, '15000'은 15,000원으로 들어가요. 이미 등록한 상품 가격은 바뀌지 않아요.",
 }
 /** 여러 번호 예시 — 채팅 한 줄 모양 (FB1 D-FB1-12, AC-FB1-07) */
 export const MULTI_NUMBER_EXAMPLE = { author: '@홍길동', text: '132 475' } as const
 /** 배송비 칸 안내 (FB1 D-FB1-02 (1)) */
-export const SHIPPING_HINT = '배송비는 그날 첫 방송을 시작할 때의 값으로 정산해요. 오늘 방송을 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.'
+export const SHIPPING_HINT = '배송비는 그날 첫 라이브를 시작할 때의 값으로 정산해요. 오늘 라이브를 이미 시작했으면 바꾼 배송비는 내일부터 적용돼요.'
 /** 접는 단추 이름 (FB1 D-FB1-18 (c) — 옛 "상세 설정" 하나를 칸마다 나눔). 보이는 글 뒤 화살표는 aria-hidden */
 export const RULES_DETAIL = '판매 규칙 상세 설정'
 export const THANKS_DETAIL = '감사 메시지 상세 설정'
@@ -170,7 +170,7 @@ export const FIELDS: readonly FieldDef[] = [
     options: [
       { value: 'OFF', word: '남기지 않음' },
       { value: 'PER_SALE', word: '판매마다 댓글' },
-      { value: 'SUMMARY', word: '방송이 끝나고 요약 댓글 1개' },
+      { value: 'SUMMARY', word: '라이브가 끝나고 요약 댓글 1개' },
     ],
   },
   { key: 'thanks.batchWindowSec', label: '몇 초 동안의 판매를 한 메시지로 묶을까요? (0이면 하나씩)', place: 'thanks', kind: 'int', unit: '초' },
@@ -236,10 +236,10 @@ export function fieldChangeNote(field: FieldDef, value: string | boolean | undef
   return PRICE_UNIT_CHANGE[value]
 }
 
-export const SAVED_MESSAGE = '저장했어요. 다음에 시작하는 방송부터 적용돼요.'
+export const SAVED_MESSAGE = '저장했어요. 다음에 시작하는 라이브부터 적용돼요.'
 // FB1 D-FB1-02 (1): 배송비 저장 문장은 저장 막대 문장과 같은 뜻으로 (시작 마법사가 쓴다)
-export const SAVED_SHIPPING_MESSAGE = '저장했어요. 다음에 시작하는 방송부터 적용돼요. 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요.'
-export const ONGOING_NOTICE = '진행 중인 방송에는 바뀐 규칙이 적용되지 않아요.'
+export const SAVED_SHIPPING_MESSAGE = '저장했어요. 다음에 시작하는 라이브부터 적용돼요. 오늘 라이브를 이미 시작했으면 배송비는 내일부터 적용돼요.'
+export const ONGOING_NOTICE = '진행 중인 라이브에는 바뀐 규칙이 적용되지 않아요.'
 
 /** 마법사 2단계의 한 줄 값 낱말 (AC-I3-52): "대기 인원: 5명", "기본 배송비: 4,000원", "무료배송 기준: 없음" */
 export function valueWords(field: FieldDef, settings: SaleSettings): string {

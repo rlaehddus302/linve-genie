@@ -139,7 +139,7 @@ test.describe('V1 이름·확인 필요·받은 시각', () => {
     await page.clock.runFor(3000)
     await expect(smsResults(page, '166번 핑크프릴 · 손님 확인 필요 · 문자찜')).toHaveText(/^166번 · 문자찜\(확인 필요\) · 1등 · 받은 시각 /)
     // D-V1-21: 확인 필요로 넣은 결과 카드에만 정산 안내 한 줄
-    const note = '방송 뒤 정산 화면에서 누구인지 확인해 주세요.'
+    const note = '라이브 뒤 정산 화면에서 누구인지 확인해 주세요.' // 문구 바뀜 (D-UX4-86)
     await expect(smsCard(page, '166번 핑크프릴 · 손님 확인 필요 · 문자찜').getByText(note, { exact: true })).toBeVisible()
     await expect(smsCard(page, '165번 핑크프릴 · 김민지님 · 문자찜').getByText(note, { exact: true })).toHaveCount(0)
     const writes = smsWrites(requests)

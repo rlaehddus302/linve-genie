@@ -70,7 +70,7 @@ export const CHAT_WORD = {
   order: '주문',
   cancel: '취소',
   mention: '언급',
-  owner: '방송자',
+  owner: '진행자',
 } as const
 
 /** 옵션 방송 채팅 패널의 종류 낱말 "확인 필요" (D-O2-12) */
@@ -176,7 +176,7 @@ export function stopReasonWord(reason: 'completed' | 'stopped' | 'ended' | 'shut
     case 'stopped':
       return '멈췄어요'
     case 'ended':
-      return '방송을 끝내서 멈췄어요'
+      return '라이브를 끝내서 멈췄어요'
     case 'shutdown':
       return '서버가 다시 시작해서 멈췄어요'
     default:

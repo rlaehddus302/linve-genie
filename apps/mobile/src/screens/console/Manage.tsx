@@ -18,10 +18,10 @@ import type { StreamAudio } from './StreamAudio.tsx'
 import { VoiceSettingsPanel } from './VoicePanel.tsx'
 
 /** 머리 오른쪽 "관리" 단추·방송 관리 화면 이름 (D-UX4-42) — 화면에는 "관리", 읽기 이름은 "방송 관리" */
-export const MANAGE_LABEL = '방송 관리'
+export const MANAGE_LABEL = '라이브 관리'
 
 /** 방송 연결 줄 이름 — 그 안 맨 아래에 "방송 연결 끊기"(D-UX4-79) */
-export const LINK_TITLE = '방송 연결'
+export const LINK_TITLE = '라이브 연결'
 /** 라벨 프린트 줄 이름 (D-UX4-80, 사용자 지시 2026-11-10 — 옛 "프린터·라벨") — 그 화면 제목과 같다 */
 export { LABEL_PRINT_TITLE }
 
@@ -29,7 +29,7 @@ export { LABEL_PRINT_TITLE }
 export const THANKS_TITLE = '자동 감사 채팅'
 /** ? 를 누르면 올라오는 설명 판 (D-UX4-64) — 한 문장에 한 줄 */
 export const THANKS_HELP_TITLE = '자동 감사 채팅이란?'
-export const THANKS_HELP_BODY = '찜이 1등으로 정해지면 유튜브 라이브 채팅에 감사 인사를 대신 올려요.\n손님은 채팅만 보고도 내 찜이 잡혔는지 바로 알 수 있어요.\n연습 방송에서는 올리지 않아요.'
+export const THANKS_HELP_BODY = '찜이 1등으로 정해지면 유튜브 라이브 채팅에 감사 인사를 대신 올려요.\n손님은 채팅만 보고도 내 찜이 잡혔는지 바로 알 수 있어요.\n연습 라이브에서는 올리지 않아요.'
 /** 설명 판의 예시 채팅 (실제로 올리는 감사 문구 꼴 — core format 감사 문구와 같다) */
 export const THANKS_EXAMPLE = { buyer: '홍길동', order: '15', thanks: '15번 핑크프릴 10,000원 홍길동님 구매 감사합니다' } as const
 
@@ -127,7 +127,7 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
         <MenuGroup title="듣기">
           {/* 휴대폰 마이크 켜기·끄기는 방송 화면에서 안내·상태를 보여 주므로 이 화면을 닫는다 (D-UX3-73) */}
           <MenuRow title={listening ? LISTEN_STOP : LISTEN_START} testID="listen-button" onPress={() => { onClose(); void (listening ? services.voice.turnOff() : services.voice.turnOn(broadcastId, title)) }} />
-          {stream.status?.phase === 'stopped' ? <MenuRow title="방송 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}
+          {stream.status?.phase === 'stopped' ? <MenuRow title="라이브 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}
           <MenuRow title="음성 설정" onPress={() => show('voice')} />
         </MenuGroup>
       ) : null}

@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 홈 "오늘 할 일" (APP-01, D-UX2-02): 진행 중 방송은 "방송으로 돌아가기"로 한국어 한 줄과 함께 보이고, 새 방송 시작이 요청 번호와 함께 가며,
 // "웹으로 열기"는 더보기 탭에서 기기 브라우저로 연다 (AC4). 할 일 숫자는 포장 목록·라벨 대기열의 서버 값이다.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -12,7 +13,7 @@ const nav = () => ({ openConsole: vi.fn(), openNewBroadcast: vi.fn(), openPackin
 
 describe('HomeScreen', () => {
   // D-UX3-85로 바뀐 기대 (사용자 지시 2026-11-09 홈 개선): 인사 줄·큰 초록 "방송으로 돌아가기" 카드 → 맨 위 왼쪽 "지금 라이브 중 ›"(채널 프로필 사진 + 빨간 테두리)
-  it('방송 중이면 맨 위 왼쪽 "지금 라이브 중"이 그 방송을 열고, 채널 프로필 사진을 받아 보인다. 인사 줄은 없다 (D-UX3-85)', async () => {
+  it('라이브 중이면 맨 위 왼쪽 "지금 라이브 중"이 그 라이브를 열고, 채널 프로필 사진을 받아 보인다. 인사 줄은 없다 (D-UX3-85)', async () => {
     const world = makeWorld()
     // D-UX3-91: 유튜브를 이은 방송은 연결이 살아 있고 수집기가 읽는 중일 때만 라이브
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, platforms: ['youtube'] }] } }))
@@ -20,11 +21,13 @@ describe('HomeScreen', () => {
     world.server.on('GET', /^\/api\/youtube\/channels\/UCaaaaaaaaaaaaaaaaaaaaaa\/avatar$/, () => ({ body: { avatar: 'https://yt3.ggpht.com/me' } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-    expect(broadcastLine(BROADCAST)).toBe('저녁 방송 · 10월 29일 · 진행 중')
+    expect(broadcastLine(BROADCAST)).toBe('저녁 방송 · 10월 29일 · 진행 중') // 방송 제목은 판매자가 적은 글이라 그대로
     const live = await screen.findByRole('button', { name: '지금 라이브 중' })
     await waitFor(() => expect(world.server.callsTo('GET', /\/avatar$/)).toHaveLength(1))
     expect(screen.queryByText('김다육 사장님, 안녕하세요')).toBeNull()
-    expect(screen.getByText('라이브')).toBeTruthy()
+    // 옛 기대: 사진 아래 "라이브" 꼬리표. 새 기대(D-UX4-87): 토스 아이콘 크기(18)에 맞춰 꼬리표는 빼고 빨간 테두리만
+    expect(screen.getByTestId('home-live-avatar')).toBeTruthy()
+    expect(screen.queryByText('라이브')).toBeNull()
     // D-UX4-62 (사용자 지시 2026-11-09 "홈화면 상단 영역은 지금 라이브 중 이걸로 하기로 했잖아"): 홈 머리 줄은 이 줄 그대로 — 서비스 이름은 넣지 않는다
     expect(screen.queryByText('라이브지니')).toBeNull()
     expect(screen.getByTestId('home-screen').firstElementChild?.contains(live)).toBe(true)
@@ -33,23 +36,23 @@ describe('HomeScreen', () => {
   })
 
   // D-UX3-85로 바뀐 기대: "방송 시작하기" 큰 카드·"새 방송 시작"·"리허설 해 보기" 단추 → 맨 위 왼쪽 "라이브 연결 ›" 하나 (새 방송은 그대로 쌓인 화면, D-UX3-09). D-UX3-92: 이름 "내 라이브 연결"
-  it('방송 중이 아니면 "라이브 연결"이 새 방송 화면(쌓인 화면)을 연다 — 새 방송·리허설 단추는 없다 (D-UX3-85)', async () => {
+  it('라이브 중이 아니면 "라이브 연결"이 새 라이브 화면(쌓인 화면)을 연다 — 새 라이브·리허설 단추는 없다 (D-UX3-85)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [] } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
     fireEvent.click(await screen.findByRole('button', { name: '내 라이브 연결' }))
     expect(navigation.openNewBroadcast).toHaveBeenCalledTimes(1)
-    for (const gone of ['새 방송 시작', '리허설 해 보기', '방송 시작하기']) expect(screen.queryByRole('button', { name: gone })).toBeNull()
+    for (const gone of ['새 라이브 시작', '리허설 해 보기', '라이브 시작하기']) expect(screen.queryByRole('button', { name: gone })).toBeNull()
     expect(world.server.callsTo('POST', /broadcasts/)).toHaveLength(0)
   })
 
   // D-UX3-85로 바뀐 기대: 큰 카드 "방송 시작하기"·라벨 뽑기 줄·지난 방송 판 금액 → "라이브 연결", 할 일 다섯 줄(라벨 뽑기 없음), 이름 바뀜(입금 확인하기)
-  it('진행 중 방송이 없으면 "라이브 연결"이고, 할 일 숫자는 포장 목록 값이다 (D-UX2-02 → D-UX3-85)', async () => {
+  it('진행 중 라이브가 없으면 "라이브 연결"이고, 할 일 숫자는 포장 목록 값이다 (D-UX2-02 → D-UX3-85)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, ended: true, endedAt: '2026-10-29T12:00:00.000Z' }] } }))
     world.server.on('GET', /^\/api\/days$/, () => ({ body: { days: [{ date: '2026-10-29', rehearsal: false, seq: 5 }] } }))
-    const item = (no: number, price: number, qty?: number) => ({ key: `b1/${String(no)}`, broadcast: 'b1', title: '저녁 방송', no, name: '핑크프릴', price, ...(qty === undefined ? {} : { qty }) })
+    const item = (no: number, price: number, qty?: number) => ({ key: `b1/${String(no)}`, broadcast: 'b1', title: '저녁 라이브', no, name: '핑크프릴', price, ...(qty === undefined ? {} : { qty }) })
     const entry = (buyer: string, payment: string, status: string, items: unknown[]) => ({ buyer, name: buyer, phoneLast4: null, payment, items, status, invoice: null, add: [], remove: [] })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/packing$/, () => ({ body: { date: '2026-10-29', seq: 5, entries: [entry('u1', 'UNPAID', '포장 대기', [item(1, 10_000)]), entry('u2', 'PAID', '포장 대기', [item(2, 5_000, 2)]), entry('u3', 'PAID', '포장 완료', [item(3, 7_000)])] } }))
     world.services.labels.start()
@@ -62,7 +65,7 @@ describe('HomeScreen', () => {
     expect(screen.queryByRole('button', { name: /^라벨 뽑기/ })).toBeNull()
     // 지난 방송은 방송 이력에 › 로 (판 금액 없음)
     // D-UX3-88: "방송 이력" → "내 방송"
-    expect(screen.getByRole('group', { name: '내 방송' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: '내 라이브' })).toBeTruthy()
     expect(screen.queryByText('4개 팔림')).toBeNull()
     world.services.labels.stop()
   })
@@ -109,7 +112,7 @@ describe('HomeScreen', () => {
   })
 
   // D-UX3-85로 바뀐 기대: "방송으로 돌아가기"·"방송 시작하기" → "지금 라이브 중"·"라이브 연결", 리허설은 홈에 보이지 않는다
-  it('홈이 다시 보이면 방송 목록을 다시 받는다: 방송을 시작하고 돌아오면 "지금 라이브 중", 끝내고 돌아오면 "라이브 연결". 리허설은 라이브로 보지 않는다 (D-UX2-07 → D-UX3-85)', async () => {
+  it('홈이 다시 보이면 라이브 목록을 다시 받는다: 라이브를 시작하고 돌아오면 "지금 라이브 중", 끝내고 돌아오면 "라이브 연결". 리허설은 라이브로 보지 않는다 (D-UX2-07 → D-UX3-85)', async () => {
     const world = makeWorld()
     let broadcasts: unknown[] = []
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts } }))
@@ -129,7 +132,7 @@ describe('HomeScreen', () => {
     expect(await screen.findByRole('button', { name: '내 라이브 연결' })).toBeTruthy()
   })
 
-  it('어제 끝내지 않고 둔 유튜브 방송(수집기가 채팅 끝)은 라이브가 아니다 — "라이브 연결" (D-UX3-91)', async () => {
+  it('어제 끝내지 않고 둔 유튜브 라이브(수집기가 채팅 끝)은 라이브가 아니다 — "라이브 연결" (D-UX3-91)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, platforms: ['youtube'] }] } }))
     world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: { broadcastChannelId: 'UCaaaaaaaaaaaaaaaaaaaaaa' }, collector: { status: 'CHAT_ENDED' } } }))
@@ -138,7 +141,7 @@ describe('HomeScreen', () => {
     expect(screen.queryByRole('button', { name: '지금 라이브 중' })).toBeNull()
   })
 
-  it('연결을 끊은 유튜브 방송도 라이브가 아니다 (D-UX3-91)', async () => {
+  it('연결을 끊은 유튜브 라이브도 라이브가 아니다 (D-UX3-91)', async () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, platforms: ['youtube'] }] } }))
     world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: null, collector: null } }))

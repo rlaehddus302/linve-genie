@@ -103,7 +103,7 @@ describe('콘솔 음성 문자찜', () => {
     await waitFor(() => expect(card.textContent).toMatch(/165번 · 문자찜 · 1등 · 받은 시각 \d{2}\/\d{2} \d{2}:\d{2}:\d{2}/))
     expect(card.textContent?.split('뒤 4자리 1234')).toHaveLength(2)
     // 끝자리로 넣은 결과 카드에는 확인 필요 안내가 없다 (D-V1-21)
-    expect(card.textContent).not.toContain('방송 뒤 정산 화면에서 누구인지 확인해 주세요.')
+    expect(card.textContent).not.toContain('라이브 뒤 정산 화면에서 누구인지 확인해 주세요.') // 문구 바뀜 (D-UX4-86)
     expect(within(card).getByRole('button', { name: '165번 문자찜 찜 취소하기' })).toBeDefined()
     // 상품 등록 카드는 없다 (문자찜 카드 이름의 "핑크프릴 · …"은 품종 표시 — D-V1-21)
     expect(screen.queryByRole('listitem', { name: /등록할까요|핑크프릴 [^·]*카드$/ })).toBeNull()
@@ -244,7 +244,7 @@ describe('콘솔 음성 문자찜', () => {
     await waitFor(() => expect(smsPosts()).toHaveLength(1))
     expect(smsPosts()[0]).toMatchObject({ memo: '확인 필요', voice: true })
     await waitFor(() => expect(cards().textContent).toContain('165번 · 문자찜(확인 필요) · 1등'))
-    expect(cards().textContent).toContain('방송 뒤 정산 화면에서 누구인지 확인해 주세요.')
+    expect(cards().textContent).toContain('라이브 뒤 정산 화면에서 누구인지 확인해 주세요.') // 문구 바뀜 (D-UX4-86)
   })
 
   it('다른 기기가 방금 같은 말을 넣었으면(409 VOICE_REPEATED) "같은 말을 다른 기기에서 방금 넣었어요."와 "닫기"만 (AC-V1-31)', async () => {

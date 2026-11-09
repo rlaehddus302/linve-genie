@@ -34,7 +34,7 @@ export function categoryOf(key: string | undefined): (typeof SALE_CATEGORIES)[nu
 export function categoryBroadcastTitle(date: string, categoryKey: string | undefined): string {
   const category = categoryOf(categoryKey)
   const plain = defaultBroadcastTitle(date)
-  return category.inTitle ? plain.replace(/ 방송$/, ` ${category.word} 방송`) : plain
+  return category.inTitle ? plain.replace(/ 라이브$/, ` ${category.word} 라이브`) : plain
 }
 
 export interface NewBroadcastNavigation {
@@ -98,7 +98,7 @@ export function NewBroadcastCategoryScreen({ nav }: { readonly nav: NewBroadcast
   const { p } = useKit()
   // 유튜브·틱톡·밴드 모두 링크로 이을 수 있어 늘 링크 단계로 간다 (D-UX3-14 — 전에는 유튜브를 이을 수 없는 서버면 바로 만들었다)
   return (
-    <FormPage title="어떤 방송인가요?" name="새 방송" onBack={nav.back}>
+    <FormPage title="어떤 라이브인가요?" name="새 라이브" onBack={nav.back}>
       <View role="group" aria-label="판매 종류" style={{ gap: SPACE.sm, marginHorizontal: -SPACE.sm }}>
         {SALE_CATEGORIES.map((item) => (
           <Tap
@@ -172,8 +172,8 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
 
   return (
     <FormPage
-      title="방송 링크를 넣어 주세요"
-      name="새 방송"
+      title="라이브 링크를 넣어 주세요"
+      name="새 라이브"
       onBack={nav.back}
       overlay={linker.popup}
       actions={linker.action}
@@ -215,9 +215,9 @@ export function PlatformFinder({ visible, onClose, onReturned }: { readonly visi
     if (opened === 'browser') onReturned()
   }
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="어디서 방송하나요?">
-      <Txt color="textSub">내 방송의 링크를 복사해 돌아오세요.</Txt>
-      <View role="group" aria-label="방송 플랫폼" style={{ gap: SPACE.xs, marginHorizontal: -SPACE.sm }}>
+    <BottomSheet visible={visible} onClose={onClose} title="어디서 라이브하나요?">
+      <Txt color="textSub">내 라이브의 링크를 복사해 돌아오세요.</Txt>
+      <View role="group" aria-label="라이브 플랫폼" style={{ gap: SPACE.xs, marginHorizontal: -SPACE.sm }}>
         {LIVE_PLATFORMS.map((target) => (
           <Tap key={target.key} role="button" aria-label={target.word} onPress={() => void pick(target)} style={({ pressed }) => ({ minHeight: TOUCH.min + 16, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <PlatformIcon platform={target.key} />

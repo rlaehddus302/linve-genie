@@ -177,7 +177,7 @@ describe('유튜브 칸이 보이는 때 (AC-I3-20, AC-I3-96)', () => {
   it('리허설 방송: 잇지 않는다는 안내, 유튜브 요청을 보내지 않는다, 감사 메시지 목록은 비어 있고 안내', async () => {
     rehearsal = true
     await openConsole()
-    expect(within(panel()).getByText('리허설 방송은 유튜브와 잇지 않아요. 가짜 채팅으로 연습해요.')).toBeDefined()
+    expect(within(panel()).getByText('리허설 라이브는 유튜브와 잇지 않아요. 가짜 채팅으로 연습해요.')).toBeDefined() // 문구 바뀜 (D-UX4-86)
     fireEvent.click(within(panel()).getByRole('button', { name: '감사 메시지' }))
     expect(within(screen.getByRole('dialog', { name: '감사 메시지' })).getByText('리허설 감사 메시지는 유튜브에 올리지 않아요.')).toBeDefined()
     await flush()
@@ -446,11 +446,11 @@ describe('감사 실패·감사 메시지 목록 (AC-I3-30~35)', () => {
     await openConsole()
     fireEvent.click(await within(alerts()).findByRole('button', { name: '감사 실패 2' }))
     const dialog = screen.getByRole('dialog', { name: '감사 메시지' })
-    const mine = within(dialog).getByText('그 방송을 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.').closest('li') as HTMLElement
+    const mine = within(dialog).getByText('그 라이브를 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.').closest('li') as HTMLElement // 문구 바뀜 (D-UX4-86)
     fireEvent.click(within(mine).getByRole('button', { name: '다시 보내기' }))
     const error = await within(mine).findByRole('alert')
-    expect(within(error).getByText('지금 연결한 유튜브 채널의 방송이 아니라 보내지 않았어요.')).toBeDefined()
-    expect(within(error).getByText('그 방송을 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.')).toBeDefined()
+    expect(within(error).getByText('지금 연결한 유튜브 채널의 라이브가 아니라 보내지 않았어요.')).toBeDefined() // 화면 문장(NOT_MY_CHANNEL_MESSAGE) 바뀜 — 위 서버 응답 문장은 그대로 (D-UX4-86)
+    expect(within(error).getByText('그 라이브를 이은 유튜브 채널로 다시 연결하면 보낼 수 있어요.')).toBeDefined() // 문구 바뀜 (D-UX4-86)
     const gaveUp = within(dialog).getByText('여러 번 보내지 못했어요.', { exact: false }).closest('li') as HTMLElement
     fireEvent.click(within(gaveUp).getByRole('button', { name: '다시 보내기' }))
     const authorize = await screen.findByRole('dialog', { name: '글쓰기 권한 받기' })
@@ -567,7 +567,7 @@ describe('봉인한 날짜 (AC-I3-41)', () => {
 })
 
 describe('초대받은 방송 (INV1 AC-INV1-05·10)', () => {
-  const QUESTION = '내 채널 방송이 아니에요 (채널: 다육이유튜버). 초대받은 방송이 맞나요?'
+  const QUESTION = '내 채널 라이브가 아니에요 (채널: 다육이유튜버). 초대받은 라이브가 맞나요?' // 문구 바뀜 (D-UX4-86)
   const linkPosts = () => server.callsTo('POST', /^\/api\/broadcasts\/b1\/youtube$/)
 
   async function pasteInvited() {
@@ -592,13 +592,13 @@ describe('초대받은 방송 (INV1 AC-INV1-05·10)', () => {
     expect(within(panel()).queryByRole('group', { name: '초대받은 방송 확인' })).toBeNull()
     expect(linkPosts()).toHaveLength(1)
     expect(link.link).toBeNull()
-    expect(panel().textContent).not.toContain('초대받은 방송 ·')
+    expect(panel().textContent).not.toContain('초대받은 라이브 ·') // 문구 바뀜 (D-UX4-86)
   })
 
   it('[맞아요, 잇기]: 확인 표시 true와 새 요청 번호로 한 번 더 보내 이어지고, 칸에 "초대받은 방송 · 다육이유튜버" 한 줄', async () => {
     const ask = await pasteInvited()
     fireEvent.click(within(ask).getByRole('button', { name: '맞아요, 잇기' }))
-    expect(await within(panel()).findByText('초대받은 방송 · 다육이유튜버')).toBeDefined()
+    expect(await within(panel()).findByText('초대받은 라이브 · 다육이유튜버')).toBeDefined() // 문구 바뀜 (D-UX4-86)
     const posts = linkPosts()
     expect(posts).toHaveLength(2)
     expect(posts[1]?.body).toMatchObject({ video: 'INVITED0001', confirmInvited: true })
@@ -627,19 +627,19 @@ describe('초대받은 방송 (INV1 AC-INV1-05·10)', () => {
   it('채널 이름은 글자로만 보인다 — 확인 줄·콘솔 한 줄 모두 요소가 생기지 않는다', async () => {
     invitedTitle = '<img src=x onerror=alert(1)>'
     const ask = await pasteInvited()
-    expect(ask.textContent).toContain('내 채널 방송이 아니에요 (채널: <img src=x onerror=alert(1)>). 초대받은 방송이 맞나요?')
+    expect(ask.textContent).toContain('내 채널 라이브가 아니에요 (채널: <img src=x onerror=alert(1)>). 초대받은 라이브가 맞나요?') // 문구 바뀜 (D-UX4-86)
     expect(document.querySelector('img[src="x"]')).toBeNull()
     fireEvent.click(within(ask).getByRole('button', { name: '맞아요, 잇기' }))
-    expect(await within(panel()).findByText('초대받은 방송 · <img src=x onerror=alert(1)>')).toBeDefined()
+    expect(await within(panel()).findByText('초대받은 라이브 · <img src=x onerror=alert(1)>')).toBeDefined() // 문구 바뀜 (D-UX4-86)
     expect(document.querySelector('img[src="x"]')).toBeNull()
   })
 
   it('채널 이름이 비면 "(이름 없음)"', async () => {
     invitedTitle = '   '
     const ask = await pasteInvited()
-    expect(ask.textContent).toContain('내 채널 방송이 아니에요 (채널: (이름 없음)). 초대받은 방송이 맞나요?')
+    expect(ask.textContent).toContain('내 채널 라이브가 아니에요 (채널: (이름 없음)). 초대받은 라이브가 맞나요?') // 문구 바뀜 (D-UX4-86)
     fireEvent.click(within(ask).getByRole('button', { name: '맞아요, 잇기' }))
-    expect(await within(panel()).findByText('초대받은 방송 · (이름 없음)')).toBeDefined()
+    expect(await within(panel()).findByText('초대받은 라이브 · (이름 없음)')).toBeDefined() // 문구 바뀜 (D-UX4-86)
   })
 })
 
@@ -662,11 +662,11 @@ describe('서버가 방송 주소로 채팅 읽기 (YT-SRV YT-11 AC2·AC5·AC8, 
     await within(panel()).findByText('읽은 영상: INVITED0001')
     fireEvent.click(within(panel()).getAllByRole('button', { name: '이 방송에 잇기' }).at(-1) as HTMLElement)
     const ask = await within(panel()).findByRole('group', { name: '처음 잇는 채널 확인' })
-    expect(ask.textContent).toContain('처음 잇는 채널이에요 (채널: <b>처음</b> 채널). 이 방송이 맞나요?')
+    expect(ask.textContent).toContain('처음 잇는 채널이에요 (채널: <b>처음</b> 채널). 이 라이브가 맞나요?') // 문구 바뀜 (D-UX4-86)
     expect(ask.querySelector('b')).toBeNull()
     fireEvent.click(within(ask).getByRole('button', { name: '맞아요, 잇기' }))
-    expect(await within(panel()).findByText('유튜브 방송 · <b>처음</b> 채널')).toBeDefined()
-    expect(panel().textContent).not.toContain('초대받은 방송 ·')
+    expect(await within(panel()).findByText('유튜브 라이브 · <b>처음</b> 채널')).toBeDefined() // 문구 바뀜 (D-UX4-86)
+    expect(panel().textContent).not.toContain('초대받은 라이브 ·') // 문구 바뀜 (D-UX4-86)
   })
 
   it('막힘은 바로 고정 영역 경고 + 대비 경로 버튼, 다시 받으면 경고를 내리고 유튜브 칸에 "다시 받고 있어요" 한 줄', async () => {

@@ -23,8 +23,8 @@ describe('채널 이름 (D-INV1-03)', () => {
   })
 
   it('확인 줄·콘솔 한 줄 문장 (AC-INV1-05)', () => {
-    expect(invitedQuestion('다육이유튜버')).toBe('내 채널 방송이 아니에요 (채널: 다육이유튜버). 초대받은 방송이 맞나요?')
-    expect(invitedLine('다육이유튜버')).toBe('초대받은 방송 · 다육이유튜버')
+    expect(invitedQuestion('다육이유튜버')).toBe('내 채널 라이브가 아니에요 (채널: 다육이유튜버). 초대받은 라이브가 맞나요?') // 문구 바뀜 (D-UX4-86)
+    expect(invitedLine('다육이유튜버')).toBe('초대받은 라이브 · 다육이유튜버') // 문구 바뀜 (D-UX4-86)
   })
 })
 

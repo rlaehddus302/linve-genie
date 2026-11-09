@@ -32,9 +32,9 @@ for (const { name, viewport } of VIEWPORTS) {
       const w = await reportWorld(page)
       // 정산 화면 날짜의 "방송 리포트"
       await page.goto(`/settlements?date=${w.dB}`)
-      await page.getByRole('link', { name: '방송 리포트' }).click()
+      await page.getByRole('link', { name: '라이브 리포트' }).click() // 문구 바뀜 (D-UX4-86)
       await expect(page).toHaveURL(new RegExp(`/report\\?date=${w.dB}`))
-      await expect(page.getByRole('heading', { level: 1 })).toContainText('방송 리포트')
+      await expect(page.getByRole('heading', { level: 1 })).toContainText('라이브 리포트') // 문구 바뀜 (D-UX4-86)
       const main = report(page)
       await expect(main.getByRole('heading', { level: 2 })).toHaveText(ORDER)
       // 방송 중(끝내지 않음)

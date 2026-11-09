@@ -44,10 +44,13 @@ const REPORT: ReportView = {
 
 describe('리포트 낱말 (RPT-08, 계약서 §4)', () => {
   it('비교 문장: 많아요·적어요·같아요, 천 단위 쉼표, 백분율 없음', () => {
-    expect(compareWords(12_000, '원')).toBe('지난 방송보다 12,000원 많아요')
-    expect(compareWords(-2, '명')).toBe('지난 방송보다 2명 적어요')
-    expect(compareWords(0, '개')).toBe('지난 방송과 같아요')
+    expect(compareWords(12_000, '원')).toBe('지난 라이브보다 12,000원 많아요') // 문구 바뀜 (D-UX4-86)
+    expect(compareWords(-2, '명')).toBe('지난 라이브보다 2명 적어요') // 문구 바뀜 (D-UX4-86)
+    expect(compareWords(0, '개')).toBe('지난 라이브와 같아요') // 문구 바뀜 (D-UX4-86)
     expect(compareWords(1_500, '개', '최근 4번 평균')).toBe('최근 4번 평균보다 1,500개 많아요')
+    // 받침 없는 "라이브"는 "와", 받침 있는 "평균"·"방송"은 "과" (D-UX4-86)
+    expect(compareWords(0, '개', '최근 4번 평균')).toBe('최근 4번 평균과 같아요')
+    expect(compareWords(0, '원', '지난 방송')).toBe('지난 방송과 같아요')
   })
 
   it('10분 칸 이름: 같은 날은 시각만, 자정을 넘기면 "다음날"', () => {
@@ -265,7 +268,7 @@ describe('방송 일정 (AC-KP1-20, SCH-01·02)', () => {
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
     render(<ScheduleSettings />)
     await act(() => flush())
-    fireEvent.click(screen.getByRole('checkbox', { name: /방송 일정 공개/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /라이브 일정 공개/ })) // 문구 바뀜 (D-UX4-86)
     await act(() => flush())
     expect(server.callsTo('PUT', /^\/api\/schedule\/page$/)[0]?.body).toEqual({ enabled: true, channelUrl: null })
     expect(screen.getByText('https://app.example/s/AAA')).toBeTruthy()

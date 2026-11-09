@@ -15,10 +15,10 @@ test('AC-I3-46: 대기 인원 5 → 1 저장 → 진행 중인 1부 상품엔 �
   await registerApi(page, one.id, 71, '일부상품', 10000)
   await page.goto('/settings')
   await expect(settingsRegion(page, '판매 규칙')).toBeVisible()
-  await expect(page.getByRole('note').filter({ hasText: '진행 중인 방송에는 바뀐 규칙이 적용되지 않아요.' })).toBeVisible()
+  await expect(page.getByRole('note').filter({ hasText: '진행 중인 라이브에는 바뀐 규칙이 적용되지 않아요.' })).toBeVisible() // 문구 바뀜 (D-UX4-86)
   await settingsRegion(page, '판매 규칙').getByLabel('대기 인원 (0이면 대기 없음)').fill('1')
   await page.getByRole('region', { name: '저장', exact: true }).getByRole('button', { name: '저장' }).click() // FB1 D-FB1-06
-  await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06
+  await expect(page.getByRole('region', { name: '저장', exact: true }).getByText('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.')).toBeVisible() // FB1 D-FB1-06 · (D-UX4-86)
   const two = await make('규칙 2부')
   await registerApi(page, two.id, 72, '이부상품', 10000)
   for (const [i, phone] of ['010-7000-0001', '010-7000-0002', '010-7000-0003'].entries()) {

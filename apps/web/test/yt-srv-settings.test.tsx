@@ -7,7 +7,7 @@ import { useYoutubeConnection, withConnection, YoutubeStatus } from '../src/comp
 import type { Navigate } from '../src/lib/router.ts'
 import { FakeServer, connection } from './support.ts'
 
-const INTRO = '방송할 때 방송 주소만 넣으면 채팅을 받아요.'
+const INTRO = '라이브할 때 라이브 주소만 넣으면 채팅을 받아요.' // 문구 바뀜 (D-UX4-86)
 const OPTIONAL = '감사 채팅을 올리려면 (선택)'
 
 let server: FakeServer
@@ -53,7 +53,7 @@ describe('설정·마법사 유튜브 칸 (D-YT-SRV-11)', () => {
   it('구글 연결을 쓸 수 없는 서버(oauth=false): 연결 버튼 대신 안내', async () => {
     body = { webChat: { on: true }, oauth: false }
     render(<Harness place="settings" />)
-    expect(await screen.findByText('이 서버에서는 감사 채팅을 올리는 구글 연결을 쓰지 않아요. 채팅은 방송 주소만으로 받아요.')).toBeDefined()
+    expect(await screen.findByText('이 서버에서는 감사 채팅을 올리는 구글 연결을 쓰지 않아요. 채팅은 라이브 주소만으로 받아요.')).toBeDefined() // 문구 바뀜 (D-UX4-86)
     expect(screen.queryByRole('button', { name: '구글로 유튜브 연결하기' })).toBeNull()
     expect(screen.getByText(INTRO)).toBeDefined()
   })

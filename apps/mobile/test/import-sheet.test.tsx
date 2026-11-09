@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 상품 목록 가져오기 시트 (PRD-05 앱, D-V3-128): 붙여 넣은 글 → 미리 보기(서버 해석) → 문제 없는 줄만 "n개 등록하기" → 공개 전 상품.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
@@ -13,7 +14,7 @@ async function open(world: ReturnType<typeof makeWorld>) {
     world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
     await flush()
   })
-  fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
+  fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
   fireEvent.click(await screen.findByRole('button', { name: APP_IMPORT_TITLE }))
 }
 
@@ -42,7 +43,7 @@ describe('상품 목록 가져오기 (앱)', () => {
     await waitFor(() => expect(previews).toEqual([{ text: '16 아사달금 50000\n15 핑크프릴 12000' }]))
     const list = await screen.findByRole('list', { name: '가져올 줄' })
     expect(within(list).getByText('16번 아사달금 50,000원')).toBeTruthy()
-    expect(within(list).getByText(/이 방송에 이미 있는 번호예요/)).toBeTruthy()
+    expect(within(list).getByText(/이 라이브에 이미 있는 번호예요/)).toBeTruthy()
     expect(screen.getByText('등록할 상품 1개 · 빼는 줄 1개')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '1개 등록하기' }))
     await waitFor(() => expect(registers).toHaveLength(1))

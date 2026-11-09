@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 방송 시작 라벨 단계 (D-UX3-19, 사용자 지시 2026-11-03 "링크 붙여넣은 다음에 라벨 프린트 할건지 물어보고 한다 하면 프린터 연결 도와주고
 // 연결 확인하고 라벨 디자인 커스텀 한 다음에 테스트 출력한다음에 본방송으로"): 묻기 → 연결·확인 → 꾸미기(서버 초안 미리 보기) → 테스트 "예" → 출력 기기 → 방송.
 import { B1_PROFILE } from '@livejjim/printer'
@@ -32,9 +33,9 @@ function labelWorld(labelsEnabled = true) {
   return world
 }
 
-describe('D-UX3-19 방송 시작 라벨 단계', () => {
+describe('D-UX3-19 라이브 시작 라벨 단계', () => {
   // 옛 기대: 단추 [네, 뽑을게요](위)·[안 뽑아요](아래). 새 기대 D-UX4-01·03: 좌우로 [괜찮아요](왼쪽)·[뽑을게요](오른쪽), 설명 세 줄과 라벨 그림
-  it('[괜찮아요]: 라벨 기능을 끄고 바로 방송으로 (D-UX4-03)', async () => {
+  it('[괜찮아요]: 라벨 기능을 끄고 바로 라이브로 (D-UX4-03)', async () => {
     const world = labelWorld()
     const onDone = vi.fn()
     render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
@@ -52,7 +53,7 @@ describe('D-UX3-19 방송 시작 라벨 단계', () => {
 
   // 옛 기대: 연결 화면에서 [프린터 찾기]를 눌러야 찾았다, 가격 표기 '8,000원', 날짜 스위치 '날짜 — 켜짐'.
   // 새 기대 D-UX4-04·05·07: 연결 화면은 들어오면 바로 찾는다(단추는 [새로고침] 하나), 가격 표기는 앱 예시(30만원)로 '30만원'·'300 천원'·'300,000원', 칸마다 설정 카드의 [찍기] 스위치
-  it('[뽑을게요] → 바로 연결 → 꾸미기(크기·가격·항목, 서버 미리 보기) → 저장 → 테스트 "예" → 이 기기를 출력 기기로 → 방송', async () => {
+  it('[뽑을게요] → 바로 연결 → 꾸미기(크기·가격·항목, 서버 미리 보기) → 저장 → 테스트 "예" → 이 기기를 출력 기기로 → 라이브', async () => {
     const world = labelWorld()
     const onDone = vi.fn()
     render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
@@ -95,7 +96,7 @@ describe('D-UX3-19 방송 시작 라벨 단계', () => {
   })
 
   // 새 기대 D-UX4-11 (사용자 지시 2026-11-05 "테스트 라벨은 선택적으로 뽑기로"): 테스트 화면 [건너뛰기](왼쪽)·[테스트 인쇄](오른쪽)
-  it('테스트 라벨은 골라서: [건너뛰기]는 뽑지 않고 이 기기를 출력 기기로 하고 방송으로', async () => {
+  it('테스트 라벨은 골라서: [건너뛰기]는 뽑지 않고 이 기기를 출력 기기로 하고 라이브로', async () => {
     const world = labelWorld()
     const onDone = vi.fn()
     render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
@@ -110,8 +111,8 @@ describe('D-UX3-19 방송 시작 라벨 단계', () => {
     const test = await screen.findByRole('dialog', { name: '테스트 인쇄' })
     expect(within(test).getByRole('heading', { name: '테스트 라벨을 뽑아 볼까요?' })).toBeTruthy()
     expect(test.textContent).toContain('뽑아 보면 프린터와 라벨이 잘 맞는지 알 수 있어요.\n테두리와 한글이 있는 테스트 라벨이 한 장 나와요.')
-    expect(within(test).getAllByRole('button').map((button) => button.getAttribute('aria-label')).slice(-2)).toEqual(['테스트 인쇄 없이 방송 시작', '테스트 인쇄'])
-    fireEvent.click(within(test).getByRole('button', { name: '테스트 인쇄 없이 방송 시작' }))
+    expect(within(test).getAllByRole('button').map((button) => button.getAttribute('aria-label')).slice(-2)).toEqual(['테스트 인쇄 없이 라이브 시작', '테스트 인쇄'])
+    fireEvent.click(within(test).getByRole('button', { name: '테스트 인쇄 없이 라이브 시작' }))
     await waitFor(() => expect(onDone).toHaveBeenCalled())
     expect(world.server.callsTo('POST', /\/api\/print\/device$/)[0]?.body).toMatchObject({ name: '내 휴대폰' })
     expect(world.server.callsTo('GET', /test-bitmap/)).toHaveLength(0)

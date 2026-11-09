@@ -190,7 +190,7 @@ test.describe('V1 정산 안내', () => {
       await smsButton(page, `${String(no)}번 핑크프릴 · 손님 확인 필요 · 문자찜`, '지금 넣기').click()
       await expect(smsResults(page, `${String(no)}번 핑크프릴 · 손님 확인 필요 · 문자찜`)).toHaveText(new RegExp(`^${String(no)}번 · 문자찜\\(확인 필요\\).* · 1등 · `))
       // D-V1-21: 확인 필요로 넣은 결과 카드에 정산 안내 한 줄
-      await expect(smsCard(page, `${String(no)}번 핑크프릴 · 손님 확인 필요 · 문자찜`).getByText('방송 뒤 정산 화면에서 누구인지 확인해 주세요.', { exact: true })).toBeVisible()
+      await expect(smsCard(page, `${String(no)}번 핑크프릴 · 손님 확인 필요 · 문자찜`).getByText('라이브 뒤 정산 화면에서 누구인지 확인해 주세요.', { exact: true })).toBeVisible() // 문구 바뀜 (D-UX4-86)
     }
     const view = await scopeView(page, date, false)
     const kim = view.buyers.find((x) => x.display === '문자찜(김씨)')!.id

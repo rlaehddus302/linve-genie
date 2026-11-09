@@ -104,13 +104,13 @@ describe('메뉴·칸 (AC-I3-44)', () => {
     expect(within(other).getByRole('link', { name: '시작 마법사 다시 하기' }).getAttribute('href')).toBe('/start')
     expect(within(other).getByRole('link', { name: '개인정보처리방침' }).getAttribute('href')).toBe('/privacy')
     expect(within(other).getByRole('link', { name: '이용약관' }).getAttribute('href')).toBe('/terms')
-    expect(screen.getByText('진행 중인 방송에는 바뀐 규칙이 적용되지 않아요.')).toBeDefined()
+    expect(screen.getByText('진행 중인 라이브에는 바뀐 규칙이 적용되지 않아요.')).toBeDefined() // 문구 바뀜 (D-UX4-86)
   })
 
   it('끝나지 않은 실제 방송이 없으면 안내가 없다, 화면에 설정 키·영문 값이 없다', async () => {
     broadcasts = [broadcastItem({ rehearsal: true, ended: false }), broadcastItem({ id: 'b2', ended: true })]
     await open()
-    expect(screen.queryByText('진행 중인 방송에는 바뀐 규칙이 적용되지 않아요.')).toBeNull()
+    expect(screen.queryByText('진행 중인 라이브에는 바뀐 규칙이 적용되지 않아요.')).toBeNull() // 문구 바뀜 (D-UX4-86)
     const text = document.body.textContent ?? ''
     for (const word of ['waitlist', 'STRICT', 'LOOSE', 'THOUSAND', 'NOT_CONNECTED', 'thanks.', 'OAuth', '토큰', 'API']) expect(text).not.toContain(word)
   })
@@ -142,7 +142,7 @@ describe('판매 규칙 (AC-I3-45·46)', () => {
     fireEvent.change(waitlist, { target: { value: '3' } })
     fireEvent.click(within(rules).getByRole('radio', { name: '내가 골라요' }))
     clickSave() // FB1 D-FB1-06
-    expect(await within(saveBar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeDefined() // FB1 D-FB1-06
+    expect(await within(saveBar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.')).toBeDefined() // FB1 D-FB1-06 · (D-UX4-86)
     expect(server.callsTo('PATCH', /^\/api\/settings$/).map((call) => call.body)).toEqual([{ settings: { 'waitlist.max': 3, 'cancel.succession': 'ASK' } }])
   })
 
@@ -152,7 +152,7 @@ describe('판매 규칙 (AC-I3-45·46)', () => {
     const shipping = section('배송비')
     fireEvent.change(within(shipping).getByLabelText('무료배송 기준 금액 (원, 비우면 없음)'), { target: { value: '' } })
     clickSave() // FB1 D-FB1-06
-    expect(await within(saveBar()).findByText('저장했어요. 오늘 방송을 이미 시작했으면 배송비는 내일부터 적용돼요.')).toBeDefined() // FB1 D-FB1-02·06
+    expect(await within(saveBar()).findByText('저장했어요. 오늘 라이브를 이미 시작했으면 배송비는 내일부터 적용돼요.')).toBeDefined() // FB1 D-FB1-02·06 · (D-UX4-86)
     expect(server.callsTo('PATCH', /^\/api\/settings$/)[0]?.body).toEqual({ settings: { 'shipping.freeThreshold': null } })
   })
 
@@ -184,7 +184,7 @@ describe('구매 감사 메시지 (AC-I3-10~14)', () => {
     fireEvent.change(batch, { target: { value: '30' } })
     fireEvent.click(within(thanks).getByRole('checkbox', { name: '찜이 확정될 때마다 채팅에 감사 메시지 남기기' })) // FB1 D-FB1-14 (영상 댓글은 켤 길 없음 — 채팅 체크로)
     clickSave() // FB1 D-FB1-06
-    expect(await within(saveBar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.')).toBeDefined() // FB1 D-FB1-06
+    expect(await within(saveBar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.')).toBeDefined() // FB1 D-FB1-06 · (D-UX4-86)
     expect(server.callsTo('PATCH', /^\/api\/settings$/).at(-1)?.body).toEqual({ settings: { 'thanks.liveChat': false, 'thanks.batchWindowSec': 30 } }) // FB1 D-FB1-14
     // 저장한 묶음 시간이 0보다 크면 묶음 미리 보기
     expect(within(thanks).getByText('15번 핑크프릴 10,000원 홍길동님, 16번 라울 5,000원 김철수님 구매 감사합니다')).toBeDefined()
@@ -195,10 +195,10 @@ describe('구매 감사 메시지 (AC-I3-10~14)', () => {
     await open()
     const thanks = section('구매 감사 메시지')
     const summary = within(thanks).getByRole('region', { name: '지금 설정의 결과' })
-    await waitFor(() => expect(summary.textContent).toContain('실시간 채팅 — 다음 방송부터 자동으로 남겨요'))
+    await waitFor(() => expect(summary.textContent).toContain('실시간 채팅 — 다음 라이브부터 자동으로 남겨요')) // 문구 바뀜 (D-UX4-86)
     expect(summary.textContent).not.toContain('영상 댓글') // FB1 D-FB1-14 (3): 저장값 OFF면 영상 댓글 줄 없음
     fireEvent.click(within(thanks).getByRole('checkbox', { name: '찜이 확정될 때마다 채팅에 감사 메시지 남기기' })) // FB1 D-FB1-14
-    expect(summary.textContent).toContain('실시간 채팅 — 다음 방송부터 자동으로 남겨요')
+    expect(summary.textContent).toContain('실시간 채팅 — 다음 라이브부터 자동으로 남겨요') // 문구 바뀜 (D-UX4-86)
     expect(within(thanks).getByText('15번 핑크프릴 10,000원 홍길동님 구매 감사합니다')).toBeDefined()
     expect(within(thanks).queryByText(/16번 라울/)).toBeNull()
     expect(within(thanks).getByText("문자찜으로 산 분은 '문자찜'으로 나가요. 메모·전화번호는 절대 나가지 않아요.")).toBeDefined()
@@ -224,13 +224,13 @@ describe('구매 감사 메시지 (AC-I3-10~14)', () => {
     expect(server.callsTo('PUT', /consent/)).toHaveLength(0)
     fireEvent.click(within(thanks).getByRole('button', { name: '영상 댓글 자동 게시 켜기' }))
     dialog = screen.getByRole('dialog', { name: '영상 댓글 자동 게시' })
-    expect(within(dialog).getByText('구매 감사 메시지를 내 채널 이름으로 방송 영상 댓글로 자동으로 남겨요.')).toBeDefined()
+    expect(within(dialog).getByText('구매 감사 메시지를 내 채널 이름으로 라이브 영상 댓글로 자동으로 남겨요.')).toBeDefined() // 문구 바뀜 (D-UX4-86)
     fireEvent.click(within(dialog).getByRole('button', { name: '닫기' }))
     fireEvent.click(within(thanks).getByRole('button', { name: '실시간 채팅 자동 게시 켜기' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '동의해요' }))
     expect(await within(thanks).findByText(/10월 25일 오후 8:01에 동의함/)).toBeDefined()
     expect(server.callsTo('PUT', /consent/).map((call) => call.body)).toEqual([{ target: 'LIVE_CHAT', enabled: true }])
-    expect(within(thanks).getByRole('region', { name: '지금 설정의 결과' }).textContent).toContain('실시간 채팅 — 다음 방송부터 자동으로 남겨요')
+    expect(within(thanks).getByRole('region', { name: '지금 설정의 결과' }).textContent).toContain('실시간 채팅 — 다음 라이브부터 자동으로 남겨요') // 문구 바뀜 (D-UX4-86)
   })
 
   it('글쓰기 권한이 없으면 승인 주소로 같은 탭에서 이동 (주소는 저장하지 않는다), 끄기는 바로', async () => {

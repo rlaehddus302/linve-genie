@@ -37,7 +37,7 @@ const collector = (patch: Partial<CollectorView> = {}): CollectorView => ({
 
 describe('스펙 문장 그대로 (D-YT-SRV-03·06·07·11)', () => {
   it('첫 줄·운영자 끔·다시 받음·막힘·형식 바뀜', () => {
-    expect(WEB_CHAT_INTRO).toBe('방송할 때 방송 주소만 넣으면 채팅을 받아요.')
+    expect(WEB_CHAT_INTRO).toBe('라이브할 때 라이브 주소만 넣으면 채팅을 받아요.') // 문구 바뀜 (D-UX4-86)
     expect(WEB_CHAT_OFF_MESSAGE).toBe('지금은 유튜브 채팅을 자동으로 받지 않아요. 주문은 손으로 넣어 주세요.')
     expect(WEB_CHAT_RESUMED).toBe('유튜브 채팅을 다시 받고 있어요. 막힌 동안 손으로 넣은 주문과 겹치지 않는지 봐 주세요.')
     expect(WEB_TROUBLE_FALLBACK).toEqual({
@@ -45,9 +45,9 @@ describe('스펙 문장 그대로 (D-YT-SRV-03·06·07·11)', () => {
       FORMAT: '유튜브가 바뀌어 채팅을 자동으로 읽지 못하고 있어요. 주문은 손으로 넣어 주세요.',
       OPERATOR_OFF: WEB_CHAT_OFF_MESSAGE,
     })
-    expect(firstChannelQuestion('다육이네')).toBe('처음 잇는 채널이에요 (채널: 다육이네). 이 방송이 맞나요?')
-    expect(broadcastChannelLine('다육이네')).toBe('유튜브 방송 · 다육이네')
-    expect(RECENT_EMPTY).toBe('최근 이은 채널에 지금 하는 방송이 없어요. 방송 주소를 붙여 넣어 주세요.')
+    expect(firstChannelQuestion('다육이네')).toBe('처음 잇는 채널이에요 (채널: 다육이네). 이 라이브가 맞나요?') // 문구 바뀜 (D-UX4-86)
+    expect(broadcastChannelLine('다육이네')).toBe('유튜브 라이브 · 다육이네') // 문구 바뀜 (D-UX4-86)
+    expect(RECENT_EMPTY).toBe('최근 이은 채널에 지금 하는 라이브가 없어요. 라이브 주소를 붙여 넣어 주세요.') // 문구 바뀜 (D-UX4-86)
   })
 
   it('화면 낱말에 영어 상태값·개발 용어가 없다', () => {

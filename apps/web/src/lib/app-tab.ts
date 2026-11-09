@@ -5,7 +5,7 @@
 // 이 파일은 휴대폰 앱도 불러 쓴다(APP_NO_PASS_MESSAGE·앱 주소 붙이기) — 요금 화면 주소 글자를 넣지 않는다(BL-INV-9 번들 검사).
 
 /** 이용권이 없을 때 앱·앱에서 연 탭의 문장 (BL-11 2 — 화면 문장 상수 하나) */
-export const APP_NO_PASS_MESSAGE = '이용권이 없어 실제 방송을 시작할 수 없어요. 리허설은 언제든 할 수 있어요.'
+export const APP_NO_PASS_MESSAGE = '이용권이 없어 실제 라이브를 시작할 수 없어요. 리허설은 언제든 할 수 있어요.'
 
 /** 앱이 여는 주소에 붙이는 검색값 (`from=app`) */
 export const FROM_APP_PARAM = 'from'

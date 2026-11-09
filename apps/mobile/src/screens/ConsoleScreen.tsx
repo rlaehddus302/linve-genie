@@ -279,7 +279,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const frame = (body: ReactNode) => (
     <View style={{ flex: 1, backgroundColor: p.background }}>
       <View style={{ height: pageTop }} />
-      <AppHeader title="방송" onBack={onBack} backLabel="홈으로" />
+      <AppHeader title="라이브" onBack={onBack} backLabel="홈으로" />
       <View style={{ paddingHorizontal: SPACE.lg, gap: SPACE.md }}>{body}</View>
     </View>
   )
@@ -287,7 +287,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     return frame(
       <>
         <Notice tone="danger" alert>
-          그 방송을 찾지 못했어요. 홈에서 다시 골라 주세요.
+          그 라이브를 찾지 못했어요. 홈에서 다시 골라 주세요.
         </Notice>
         <BigButton label="홈으로" onPress={onBack} />
       </>,
@@ -314,8 +314,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed
   // 홈 "지금 라이브 중"과 같은 말로 (D-UX3-89 — 옛 "방송 중")
-  const heading = ended ? '끝난 방송' : '라이브'
-  const help = closed ? '끝난 방송이에요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
+  const heading = ended ? '끝난 라이브' : '라이브'
+  const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   const close = () => setSheet('none')
   const closePage = () => setPage('none')
   // 다육이 방송이면 상품 추가에서 품종도 묻는다 (D-UX4-31 — 판매 종류는 방송 제목에 들어 있다, NewBroadcastScreen)
@@ -421,7 +421,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           />
         </SlidePage>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
-        <FullSheet visible={sheet === 'youtube'} onClose={close} name="방송 연결" title={linkable ? '방송 링크를 넣어 주세요' : '방송 연결'} cards={!linkable} overlay={linkable ? linker.popup : undefined} actions={linkable ? (
+        <FullSheet visible={sheet === 'youtube'} onClose={close} name="라이브 연결" title={linkable ? '라이브 링크를 넣어 주세요' : '라이브 연결'} cards={!linkable} overlay={linkable ? linker.popup : undefined} actions={linkable ? (
             <>
               <BigButton kind="outline" label="나중에 잇기" onPress={close} />
               {linker.action}

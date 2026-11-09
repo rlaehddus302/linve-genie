@@ -31,7 +31,7 @@ export const SEALED_VIEW_ONLY = '30일이 지나 잠긴 날짜라 볼 수만 있
 export const REASON_REQUIRED = '사유를 적어 주세요.'
 export const blockWarning = (rehearsal: boolean): string => {
   const base = '차단하면 이 사람의 대기·보류 찜이 모두 거절되고 다시 풀어도 돌아오지 않아요. 1등 찜은 그대로예요.'
-  return rehearsal ? base : `${base} 다음 날짜 방송에서도 차단돼요.`
+  return rehearsal ? base : `${base} 다음 날짜 라이브에서도 차단돼요.`
 }
 const PAGE = 100
 
@@ -51,7 +51,7 @@ export function BuyersScreen({ onBack, initialDate }: { readonly onBack: () => v
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.xs, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
-        {days !== null && days.length === 0 ? <EmptyFill title="아직 판매 기록이 없어요" body={'실제 방송에서 찜이 정해지면\n여기에 모여요'} /> : null}
+        {days !== null && days.length === 0 ? <EmptyFill title="아직 판매 기록이 없어요" body={'실제 라이브에서 찜이 정해지면\n여기에 모여요'} /> : null}
         {days !== null ? <DayPills days={days} date={date} onPick={setDate} /> : null}
         {date !== null ? <BuyersDay key={date} date={date} /> : null}
       </ScrollView>

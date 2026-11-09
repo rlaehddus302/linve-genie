@@ -509,7 +509,7 @@ describe('배송지 칸 (AC-T1-65)', () => {
     })
     render(<AddressSection date={D} buyer="UC_A" version="1" />)
     expect(await screen.findByText('배송지가 없어요')).toBeDefined()
-    expect(screen.getByText("구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요. 링크는 방송을 끝낸 뒤 '영수증 보내기'에서 만들어요.")).toBeDefined() // QL3R2 D-QL3R2-04
+    expect(screen.getByText("구매자 확인서 링크에서 구매자가 직접 적을 수도 있어요. 링크는 라이브를 끝낸 뒤 '영수증 보내기'에서 만들어요.")).toBeDefined() // QL3R2 D-QL3R2-04 · (D-UX4-86)
     fireEvent.click(screen.getByRole('button', { name: '배송지 적기' }))
     const dialog = screen.getByRole('dialog', { name: '배송지 적기' })
     for (const label of ['받는 분', '연락처', '주소', '상세 주소', '우편번호(몰라도 돼요)', '배송 메모']) expect(within(dialog).getByLabelText(label)).toBeDefined()
@@ -699,7 +699,7 @@ describe('받는 분 직접 넣기 (D-UX3-38)', () => {
     expect([...group.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['지우기', '고치기'])
 
     const card = region(exact('받는 분 직접 넣기'))
-    expect(within(card).getByText(/방송 판매 기록이 없어도 보낼 수 있어요/)).toBeDefined()
+    expect(within(card).getByText(/라이브 판매 기록이 없어도 보낼 수 있어요/)).toBeDefined() // 문구 바뀜 (D-UX4-86)
     expect(within(card).getByText('10월 22일 목록에 넣어요.')).toBeDefined()
     fireEvent.click(within(card).getByRole('button', { name: '받는 분 넣기' }))
     const dialog = await screen.findByRole('dialog', { name: '받는 분 직접 넣기' })

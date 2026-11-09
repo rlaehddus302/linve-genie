@@ -428,7 +428,7 @@ describe('설정의 판매 방식 (AC-O2-01·02)', () => {
     // FB1 D-FB1-06: 판매 규칙 칸 안 "저장" 대신 화면 아래 저장 막대
     fireEvent.click(within(screen.getByRole('region', { name: '저장' })).getByRole('button', { name: '저장' })) // FB1 D-FB1-06
     await waitFor(() => expect(settings['claim.parseMode']).toBe('OPTIONS'))
-    await screen.findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 방송부터 적용돼요.') // FB1 D-FB1-06
+    await screen.findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.') // FB1 D-FB1-06 · (D-UX4-86)
     expect(server.callsTo('PATCH', /settings/).at(-1)?.body).toEqual({ settings: { 'claim.parseMode': 'OPTIONS', 'contention.policy': 'ARRIVAL' } })
     fireEvent.click(within(screen.getByRole('radiogroup', { name: '판매 방식' })).getByRole('radio', { name: '번호로만 받기 (다육 등 — 기본)' }))
     fireEvent.click(within(screen.getByRole('region', { name: '저장' })).getByRole('button', { name: '저장' })) // FB1 D-FB1-06

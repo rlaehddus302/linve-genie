@@ -152,7 +152,7 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
   if (nav.openDeposits !== undefined) links.push({ label: '입금 확인', onPress: nav.openDeposits })
   if (nav.openReport !== undefined) {
     const openReport = nav.openReport
-    links.push({ label: '방송 리포트', onPress: () => openReport(date) })
+    links.push({ label: '라이브 리포트', onPress: () => openReport(date) })
   }
   return (
     <View style={{ gap: CARD_GAP }}>

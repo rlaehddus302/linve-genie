@@ -1,3 +1,4 @@
+// D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 사용자 지시 2026-11-09 (D-UX4-50~56):
 // - 상품 추가·방송 관리(방송 화면 안에 겹친 화면)에서 밀어 뒤로 가면 홈으로 나가던 문제 — 겹친 화면이 열린 동안 경로 밀기를 끄고 겹친 화면만 닫힌다
 // - 상태 막대까지 겹친 화면이 덮는다(방송 경로가 상태 막대까지 그린다)
@@ -44,7 +45,7 @@ describe('밀어서 뒤로 가기 (D-UX4-50)', () => {
     const page = (a: boolean, b: boolean) => (
       <RouteSwipeProvider setEnabled={(on) => calls.push(on)}>
         <SlidePage visible={a} onClose={() => {}} name="상품 추가" />
-        <SlidePage visible={b} onClose={() => {}} name="방송 관리" />
+        <SlidePage visible={b} onClose={() => {}} name="라이브 관리" />
       </RouteSwipeProvider>
     )
     const view = render(page(false, false))
@@ -63,7 +64,7 @@ describe('밀어서 뒤로 가기 (D-UX4-50)', () => {
     expect(calls).toEqual([false, true, false, true])
   })
 
-  it('방송 화면에서 상품 추가·방송 관리를 열면 경로 밀기가 꺼지고, 닫으면 켜진다', async () => {
+  it('라이브 화면에서 상품 추가·라이브 관리를 열면 경로 밀기가 꺼지고, 닫으면 켜진다', async () => {
     const world = makeWorld({ products: [] })
     const calls: boolean[] = []
     render(world.wrap(<RouteSwipeProvider setEnabled={(on) => calls.push(on)}><ConsoleScreen broadcastId="b1" seller onBack={() => {}} /></RouteSwipeProvider>))
@@ -78,8 +79,8 @@ describe('밀어서 뒤로 가기 (D-UX4-50)', () => {
     fireEvent.click(within(screen.getByRole('dialog', { name: '상품 추가' })).getByRole('button', { name: '뒤로' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '상품 추가' })).toBeNull())
     expect(calls.at(-1)).toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
-    await screen.findByRole('dialog', { name: '방송 관리' })
+    fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
+    await screen.findByRole('dialog', { name: '라이브 관리' })
     expect(calls.at(-1)).toBe(false)
   })
 
@@ -99,7 +100,7 @@ describe('밀어서 뒤로 가기 (D-UX4-50)', () => {
   })
 
   // 옛 기대(D-UX4-51): 방송 경로가 상태 막대까지 그린다. 새 기대(D-UX4-57): 상품 추가·방송 관리가 진짜 쌓인 경로라, 방송 경로는 다른 경로처럼 상태 막대 아래에서 시작한다
-  it('상품 추가·방송 관리는 방송 화면 위에 진짜로 쌓이는 경로다 (D-UX4-57)', () => {
+  it('상품 추가·라이브 관리는 라이브 화면 위에 진짜로 쌓이는 경로다 (D-UX4-57)', () => {
     const route = readFileSync(join(import.meta.dirname, '../app/console/[id]/index.tsx'), 'utf8')
     expect(route).toContain("edges={['top']}")
     expect(route).toContain("openAdd={() => router.push({ pathname: '/console/[id]/add', params: { id } })}")
@@ -175,11 +176,11 @@ describe('들린 말 창 (D-UX4-53)', () => {
     expect(within(dock).getByRole('button', { name: '들린 말 접기' })).toBeTruthy()
   })
 
-  it('들린 말은 방송 내내 남긴다 (옛 TRANSCRIPT_LINES 6줄)', () => {
+  it('들린 말은 라이브 내내 남긴다 (옛 TRANSCRIPT_LINES 6줄)', () => {
     expect(TRANSCRIPT_LINES).toBeGreaterThanOrEqual(1000)
   })
 
-  it('방송 화면 머리에는 상태 알약이 없고 "관리"만, 들린 말 창은 목록 아래(맨 아래)에 있다', async () => {
+  it('라이브 화면 머리에는 상태 알약이 없고 "관리"만, 들린 말 창은 목록 아래(맨 아래)에 있다', async () => {
     const world = makeWorld({ products: [] })
     await open(world)
     const all = screen.getByTestId('console-screen')
@@ -189,7 +190,7 @@ describe('들린 말 창 (D-UX4-53)', () => {
     const heading = within(all).getByRole('heading', { level: 1 })
     const header = heading.parentElement?.parentElement as HTMLElement
     expect(within(header).queryByRole('status')).toBeNull()
-    expect(within(header).getByRole('button', { name: '방송 관리' }).textContent).toBe('관리')
+    expect(within(header).getByRole('button', { name: '라이브 관리' }).textContent).toBe('관리')
   })
 })
 
@@ -211,7 +212,7 @@ describe('빈 목록 안내 (D-UX4-56)', () => {
 })
 
 describe('진짜 쌓인 화면 (D-UX4-57)', () => {
-  it('방송 화면이 경로로 열면 겹쳐 그리지 않고 경로를 연다', async () => {
+  it('라이브 화면이 경로로 열면 겹쳐 그리지 않고 경로를 연다', async () => {
     const world = makeWorld({ products: [] })
     const opened: string[] = []
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} openAdd={() => opened.push('add')} openManage={() => opened.push('manage')} />))
@@ -221,13 +222,13 @@ describe('진짜 쌓인 화면 (D-UX4-57)', () => {
       await flush()
     })
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
-    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
+    fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
     expect(opened).toEqual(['add', 'manage'])
     expect(screen.queryByRole('dialog', { name: '상품 추가' })).toBeNull()
-    expect(screen.queryByRole('dialog', { name: '방송 관리' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: '라이브 관리' })).toBeNull()
   })
 
-  it('쌓인 상품 추가 화면은 아래 방송 화면과 같은 자료를 쓰고(다시 받지 않는다), 추가하면 돌아가며 방송 화면 목록에 바로 보인다', async () => {
+  it('쌓인 상품 추가 화면은 아래 라이브 화면과 같은 자료를 쓰고(다시 받지 않는다), 추가하면 돌아가며 라이브 화면 목록에 바로 보인다', async () => {
     const world = makeWorld({ products: [] })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=(\d+)/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1] ?? 5), world.seq, { products: world.seq > 5 ? [product(16, { price: 15_000 })] : [] }) }))
     let back = 0
@@ -249,7 +250,7 @@ describe('진짜 쌓인 화면 (D-UX4-57)', () => {
     await waitFor(() => expect(within(screen.getByRole('list', { name: '상품 목록' })).getByText('16번')).toBeTruthy())
   })
 
-  it('쌓인 방송 관리 화면: 같은 메뉴가 있고, 여기서 여는 아래 판도 이 화면 위에 뜬다', async () => {
+  it('쌓인 라이브 관리 화면: 같은 메뉴가 있고, 여기서 여는 아래 판도 이 화면 위에 뜬다', async () => {
     const world = makeWorld({ products: [] })
     render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} />))
     await waitFor(() => expect(world.source()).toBeTruthy())
@@ -257,18 +258,18 @@ describe('진짜 쌓인 화면 (D-UX4-57)', () => {
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
-    const page = await screen.findByRole('main', { name: '방송 관리' })
+    const page = await screen.findByRole('main', { name: '라이브 관리' })
     // 옛 기대: '방송 끝내기' 줄. 새 기대(D-UX4-79): 방송 연결 안 "방송 연결 끊기"로 옮겼다
     // 채팅 보기도 없앴다 (D-UX4-84) — 이 화면 위에 뜨는 아래 창은 "화면 아래 창"으로 본다
-    for (const row of ['음성 설정', '화면 아래 창', '방송 연결']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
+    for (const row of ['음성 설정', '화면 아래 창', '라이브 연결']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
     expect(within(page).queryByRole('button', { name: '채팅 보기' })).toBeNull()
     fireEvent.click(within(page).getByTestId('dock-choice'))
     expect(await screen.findByRole('dialog', { name: '화면 아래 창' })).toBeTruthy()
   })
 })
 
-describe('방송 관리 설정은 전체 화면 (D-UX4-60)', () => {
-  it('경로가 있으면 방송 관리 줄은 아래 판 대신 설정 화면을 연다', async () => {
+describe('라이브 관리 설정은 전체 화면 (D-UX4-60)', () => {
+  it('경로가 있으면 라이브 관리 줄은 아래 판 대신 설정 화면을 연다', async () => {
     const world = makeWorld({ products: [] })
     const tools: string[] = []
     render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} openTool={(tool) => tools.push(tool)} />))
@@ -277,7 +278,7 @@ describe('방송 관리 설정은 전체 화면 (D-UX4-60)', () => {
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
-    const page = await screen.findByRole('main', { name: '방송 관리' })
+    const page = await screen.findByRole('main', { name: '라이브 관리' })
     // 옛 기대: 문자찜 직접 넣기·상품 목록 가져오기·댓글 붙여넣기도 — 새 기대(D-UX4-78): 둘은 없앴고 "상품 목록 가져오기"는 "상품 미리 등록"
     for (const row of ['상품 미리 등록', '음성 설정']) fireEvent.click(within(page).getByRole('button', { name: row }))
     // 채팅 보기도 없앴다 (D-UX4-84)
@@ -300,7 +301,7 @@ describe('방송 관리 설정은 전체 화면 (D-UX4-60)', () => {
     expect(await within(page).findByText(VOICE_SENT_LINE)).toBeTruthy()
   })
 
-  it('설정 경로 파일이 방송 관리 위에 쌓는다', () => {
+  it('설정 경로 파일이 라이브 관리 위에 쌓는다', () => {
     const manage = readFileSync(join(import.meta.dirname, '../app/console/[id]/manage.tsx'), 'utf8')
     expect(manage).toContain("openTool={(tool) => router.push({ pathname: '/console/[id]/tool/[name]', params: { id, name: tool } })}")
     expect(readFileSync(join(import.meta.dirname, '../app/console/[id]/tool/[name].tsx'), 'utf8')).toContain('<ConsoleToolScreen')
