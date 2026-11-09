@@ -13,14 +13,15 @@ import type { Claim } from '@livejjim/web/src/api/types.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { claimWord, productSlots, waitPosition, type BuyerNames } from '../../lib/derive.ts'
 import { isApiError } from '../../api/client.ts'
-import { BottomSheet, PopupDialog, Txt, useKit } from '../../ui/kit/index.ts'
+import { EmptyFill, BottomSheet, PopupDialog, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, type Palette, type TonePair } from '../../ui/kit/tokens.ts'
 import { Hint, Notice } from '../../ui/parts.tsx'
 import { ACTIVE_CLAIM, deleteClaim, useSheetHandoff } from './claim-actions.ts'
 import { useConsoleApi } from './context.ts'
 import { IconMenuRow, NamePill, TRASH_TINT, type PillTone } from './parts.tsx'
 
-export const FEED_EMPTY = '아직 찜이 없어요. 채팅·문자로 번호가 오면 여기에 바로 보여요.'
+export const FEED_EMPTY = '아직 찜이 없어요'
+export const FEED_EMPTY_BODY = '채팅이나 문자로 찜이 오면\n바로 보여드릴게요'
 /** 한 번에 그리는 손님 줄 수 (최신 손님부터) */
 export const FEED_LIMIT = 60
 
@@ -160,7 +161,7 @@ export function ClaimFeed({ only, onOpenProduct }: { readonly only?: Claim['stat
   const [error, setError] = useState<string | null>(null)
   const handoff = useSheetHandoff()
   const closed = api.ended || api.sealed
-  if (rows.length === 0) return <Hint>{only === 'PENDING' ? '보류 찜이 없어요.' : FEED_EMPTY}</Hint>
+  if (rows.length === 0) return only === 'PENDING' ? <EmptyFill title="보류 찜이 없어요" body={'번호에 맞는 상품이 없는 찜이\n여기에 모여요'} /> : <EmptyFill title={FEED_EMPTY} body={FEED_EMPTY_BODY} />
   const shown = rows.slice(-FEED_LIMIT)
   const pickedClaim = picked === null ? undefined : api.data.claims.get(picked.id)
   const pickedProduct = pickedClaim === undefined ? undefined : api.data.products.get(pickedClaim.product)

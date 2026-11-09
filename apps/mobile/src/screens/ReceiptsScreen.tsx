@@ -34,7 +34,7 @@ import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile, nativeSms } from '../native/index.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, ChipButton, MenuRow, PAGE_SIDE, SectionCard } from './order-parts.tsx'
@@ -131,9 +131,7 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
         ) : null}
         {list === null && error === null ? <Loading /> : null}
         {list !== null && list.length === 0 ? (
-          <View style={{ paddingVertical: SPACE.xxxl }}>
-            <Txt color="textSub" center>{NO_ENDED}</Txt>
-          </View>
+          <EmptyFill title={NO_ENDED} body={'방송을 끝내면\n여기서 확인서를 만들 수 있어요'} />
         ) : null}
         {list !== null && list.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -PAGE_SIDE }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: PAGE_SIDE, paddingVertical: SPACE.xs }}>

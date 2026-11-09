@@ -13,7 +13,7 @@ import { del, get, isApiError, patch, post, type ApiError } from '../api/client.
 import { openExternal } from '../lib/open-web.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { BigButton, ButtonRow, ConfirmSheet, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { EmptyFill, BigButton, ButtonRow, ConfirmSheet, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, ChipButton, SectionCard } from './order-parts.tsx'
@@ -60,7 +60,7 @@ export function SourcesTab() {
           </View>
         ) : null}
         {view === null && error === null ? <Loading /> : null}
-        {view !== null && view.sources.length === 0 ? <Txt color="textSub">아직 입금 받는 곳이 없어요. 붙여넣기로 넣거나 계좌를 연결해 주세요.</Txt> : null}
+        {view !== null && view.sources.length === 0 ? <EmptyFill title="아직 입금 받는 곳이 없어요" body={'붙여넣기로 넣거나\n계좌를 연결해 주세요'} /> : null}
         {view?.sources.map((source, index) => (
           <View key={source.id} style={{ gap: SPACE.md }}>
             {index > 0 ? <Divider /> : null}

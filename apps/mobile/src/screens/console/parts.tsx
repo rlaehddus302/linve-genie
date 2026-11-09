@@ -2,7 +2,7 @@
 // 설정 묶음 카드(굵은 묶음 이름), 이름 알약(위 탭 알약과 같은 크기).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccessibilityInfo, Animated, BackHandler, Easing, KeyboardAvoidingView, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native'
-import { KEYBOARD_AVOID, NavBar, Txt, useBottomInset, useKit, usePageTop, useTopInset } from '../../ui/kit/index.ts'
+import { KEYBOARD_AVOID, NavBar, Txt, useBottomInset, useEdgeSwipeBack, useHoldRouteSwipe, useKit, usePageTop, useTopInset } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
 
 /** 밀려 들어오는 시간 (쌓인 화면과 비슷하게) */
@@ -51,6 +51,9 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
     })
     return () => sub.remove()
   }, [visible, onClose])
+  // 열려 있는 동안 방송 화면 경로의 밀어 뒤로 가기를 끄고(그대로 두면 방송 화면이 닫혀 홈으로 나갔다), 이 화면만 밀려 닫힌다 (D-UX4-50)
+  useHoldRouteSwipe(visible)
+  const swipe = useEdgeSwipeBack({ progress, width, onClose, enabled: visible })
   if (!(instant ? visible : mounted)) return null
   const bg = gray ? p.background : p.surface
   const shift = progress.interpolate({ inputRange: [0, 1], outputRange: [width, 0] })
@@ -62,7 +65,7 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
     <View style={{ flex: 1 }}>{children}</View>
   )
   return (
-    <Animated.View role="dialog" aria-label={name} testID={testID} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, elevation: 20, backgroundColor: bg, paddingTop: top, transform: [{ translateX: shift }] }}>
+    <Animated.View role="dialog" aria-label={name} testID={testID} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, elevation: 20, backgroundColor: bg, paddingTop: top, transform: [{ translateX: shift }] }} {...swipe}>
       <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={parentTop} style={{ flex: 1 }}>
         {/* 모든 쌓인 화면과 같은 머리 (D-UX4-40) */}
         <NavBar onBack={onClose} {...(title === undefined ? {} : { title })} />

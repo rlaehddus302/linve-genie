@@ -44,7 +44,7 @@ import {
 import { formatWon, PAYMENT_WORD, paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { useDayScope } from '../lib/day-scope.ts'
-import { NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { EmptyFill, NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useHoldRouteSwipe, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { AddressCard, ParcelTag } from './ParcelAddress.tsx'
@@ -154,9 +154,7 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
       {/* 손님 줄은 흰 카드 하나에 (토스 목록처럼) — 맨 위 회색 글은 그날 요약 */}
       <SectionCard title={summaryWords(all)} label="손님 목록" flush>
         {shown.length === 0 ? (
-          <View style={{ paddingHorizontal: SPACE.xl, paddingBottom: SPACE.sm }}>
-            <Txt color="textSub">{all.length === 0 ? '이 날짜에 정산할 손님이 없어요.' : '이 상태의 손님이 없어요.'}</Txt>
-          </View>
+          <EmptyFill title={all.length === 0 ? '정산할 손님이 없어요' : '이 상태의 손님이 없어요'} {...(all.length === 0 ? { body: '이 날짜에 정해진 찜이 없어요' } : {})} />
         ) : (
           <View>
             {shown.map((s) => (
@@ -264,6 +262,8 @@ interface Saved {
 
 function SettleDetail({ data, names, settlement, parcelVersion, onBack, onWritten }: { readonly data: ScopeData; readonly names: BuyerNames; readonly settlement: Settlement; readonly parcelVersion: number; readonly onBack: () => void; readonly onWritten: () => void }) {
   const { p } = useKit()
+  // 정산 자세히는 경로 안에서 바꿔 끼운 화면 — 밀어 뒤로 가기가 정산 경로를 닫지 않게 (D-UX4-50)
+  useHoldRouteSwipe(true)
   const [input, setInput] = useState<InputKind | null>(null)
   const [saved, setSaved] = useState<Saved | null>(null)
   const claims = useMemo(() => [...data.claims.values()].filter((c) => c.currentBuyer === settlement.buyer && c.status === 'CONFIRMED').sort((a, b) => a.seq - b.seq), [data.claims, settlement.buyer])

@@ -96,8 +96,8 @@ describe('ConsoleScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
     const page = await screen.findByRole('dialog', { name: '상품 추가' })
     expect(within(page).getByText(ASK_NO)).toBeTruthy()
-    // 값이 없으면 [다음]이 없다
-    expect(within(page).queryByRole('button', { name: '다음' })).toBeNull()
+    // 옛 기대: 값이 없으면 [다음]이 없다. 새 기대(D-UX4-54, 사용자 지시 2026-11-09 "안보이게 하지말고 비활성화로"): 보이되 눌리지 않는다
+    expect(within(page).getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).toBe('true')
     typePad('16')
     expect(within(page).getByText('16번')).toBeTruthy()
     fireEvent.click(within(page).getByRole('button', { name: '다음' }))

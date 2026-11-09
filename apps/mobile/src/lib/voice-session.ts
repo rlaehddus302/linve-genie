@@ -21,8 +21,8 @@ export const UNDO_MS = 5000
 /** 60초 안에 이 횟수째 끊김이면 멈춤 (D-APP-05) */
 export const STOP_AFTER_DISCONNECTS = 6
 export const DISCONNECT_WINDOW_MS = 60_000
-/** 화면에 남겨 두는 받아쓴 글 줄 수 */
-export const TRANSCRIPT_LINES = 6
+/** 화면에 남겨 두는 받아쓴 글 줄 수 — 지우지 않고 방송 내내 남긴다 (D-UX4-53, 사용자 지시 2026-11-09 "이전 문장 다 기록해두란 말임. 지우지 말고"). 휴대폰 메모리를 지키는 끝만 둔다(긴 방송 몇 시간 분량) */
+export const TRANSCRIPT_LINES = 3000
 
 export interface VoiceCard {
   readonly id: number

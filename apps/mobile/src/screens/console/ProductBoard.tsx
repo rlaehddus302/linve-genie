@@ -12,8 +12,8 @@ import { isApiError } from '../../api/client.ts'
 import { boardProducts, claimsOfProduct, productKey, productSlots } from '../../lib/derive.ts'
 import { TAG_GAP, TAG_PAD_X, buyerTagText, fitTags, type ProductTag } from '../../lib/product-tags.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
-import { NO_PRODUCTS_YET, formatWon } from '../../lib/words.ts'
-import { ErrorLine, Icon, PopupDialog, Txt, font, useKit } from '../../ui/kit/index.ts'
+import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, formatWon } from '../../lib/words.ts'
+import { EmptyFill, ErrorLine, Icon, PopupDialog, Txt, font, useKit } from '../../ui/kit/index.ts'
 import { MAX_FONT_SCALE, RADIUS, SPACE, TYPE, WEIGHT, pressedFill } from '../../ui/kit/tokens.ts'
 import { ACTIVE_CLAIM, deleteClaim, deleteProduct } from './claim-actions.ts'
 import { feedBuyerName } from './ClaimFeed.tsx'
@@ -181,7 +181,7 @@ export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void
     if (api.selected !== null && seen.current.has(api.selected)) seen.current.set(api.selected, now)
   }
   useAnimatedChange(products.map((product) => `${product.key}:${String(productSlots(product).winners.length + productSlots(product).waitlist.length)}:${product.conflict ? 1 : 0}`).join('|'))
-  if (products.length === 0) return <Txt color="textSub">{NO_PRODUCTS_YET}</Txt>
+  if (products.length === 0) return <EmptyFill title={NO_PRODUCTS_YET} body={NO_PRODUCTS_YET_BODY} />
   return (
     <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
       {products.map((product) => (

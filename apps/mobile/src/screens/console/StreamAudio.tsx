@@ -4,12 +4,12 @@
 //   서버가 방송 소리를 받아 받아쓰기 일꾼에 넣고, 받아쓴 글은 이 기기의 마이크 없는 연결(음성 세션의 조작 전용 흐름)로 온다.
 // - 휴대폰 마이크를 켜면 마이크가 대신 듣는다(서버는 쉰다, D-LV1-06). 상태 줄은 색 + 글자로.
 // - D-LV1-14: 앱을 닫아도 서버는 방송이 끝날 때까지 듣고, 받을 앱이 없으면 서버가 읽고 바로 등록한다. 돌아오면 ServerHeard가 그동안 한 일을 보여 준다.
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
-import { Pressable, View } from 'react-native'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import { readStreamAudioStatus, streamAudioLine, type StreamAudioStatus } from '@livejjim/web/src/lib/stream-audio.ts'
 import { get, post } from '../../api/client.ts'
 import type { VoiceSession, VoiceView } from '../../lib/voice-session.ts'
-import { Icon, Txt, useKit } from '../../ui/kit/index.ts'
+import { DotStatus, Icon, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { listenState } from './VoicePanel.tsx'
 import { BigButton, Body, Card, Hint } from '../../ui/parts.tsx'
@@ -175,36 +175,58 @@ export function ServerHeard({ broadcastId }: { readonly broadcastId: string }) {
   )
 }
 
+/** 들린 말 창을 펼쳤을 때 지난 줄이 보이는 높이 (넘으면 채팅처럼 위로 밀어 올려 본다) */
+export const HEARD_LOG_HEIGHT = 240
+
 /**
- * 들린 말 한 줄 (D-LIVETEST-07): 평소엔 마지막으로 들린 말 한 줄만 — 오른쪽 ⌄를 누르면 최근 줄을 펼친다.
- * D-UX3-76(사용자 지시 2026-11-09): 펼치기·접기 글자 대신 ⌄/⌃ 아이콘, 펼치면 흰 바탕이 늘어나 들린 말까지 한 카드에 담고, 글자는 모두 caption 한 크기.
- * 듣는 곳 상태 문장("방송 소리로 듣는 중" 등)은 머리 오른쪽 듣기 상태와 겹쳐 없앴다 — 늦음 안내만 펼쳤을 때 남긴다(머리에 없는 말).
- * 다시 켜기·휴대폰 마이크는 방송 메뉴(⋯)에만 있다(D-UX3-73).
+ * 들린 말 창 (D-LIVETEST-07 → D-UX4-53, 사용자 지시 2026-11-09): 방송 화면 맨 아래에 붙는다.
+ * 왼쪽에 듣기 상태 알약(정상 초록·아니면 빨강 — 옛 머리 오른쪽 상태를 옮김), 가운데 지금 들리는 말 한 줄, 오른쪽 ⌃.
+ * 누르면 위로 펼쳐져 지난 들린 말이 채팅처럼 쌓여 보인다(새 줄이 아래, 위로 밀어 올려 지난 말을 본다). 지금 들리는 말은 아래 줄에만 — 펼친 목록에는 겹쳐 넣지 않는다.
+ * 글자 크기는 채팅·문자 탭 채팅과 같은 meta. 다시 켜기·휴대폰 마이크는 방송 관리 화면에 있다(D-UX3-73).
  */
-export function ListenLine({ session, broadcastId, stream }: { readonly session: VoiceSession; readonly broadcastId: string; readonly stream: StreamAudio }) {
+export function ListenLine({ session, broadcastId, stream, bottom }: { readonly session: VoiceSession; readonly broadcastId: string; readonly stream: StreamAudio; readonly bottom: number }) {
   const { p } = useKit()
   const view = useSyncExternalStore(session.subscribe, session.getView)
   const [open, setOpen] = useState(false)
-  const [pressed, setPressed] = useState(false)
+  const log = useRef<ScrollViewInstance>(null)
   const micOn = view.on && view.broadcastId === broadcastId
   // "앱을 닫은 동안 서버가 들었어요" 카드는 띄우지 않는다 (D-UX3-87, 사용자 지시 2026-11-09)
   const line = streamAudioLine(stream.status, micOn)
   const hearing = micOn || stream.hold
-  if (!hearing && line === null) return null
+  const chip = listenChip(view, broadcastId, stream.status)
   const last = view.transcript.at(-1) ?? null
+  const earlier = view.transcript.slice(0, -1)
+  const now = hearing ? (last ?? '아직 들린 말이 없어요.') : (line?.text ?? '들린 말이 여기에 나와요.')
   return (
-    <View style={{ gap: 6 }}>
-      <View style={{ borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surface, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, gap: SPACE.xs }}>
-        <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)} onPressIn={() => setPressed(true)} onPressOut={() => setPressed(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-          <Icon name="mic" size={16} color={hearing ? p.primaryText : p.textSub} />
-          <View role="status" aria-label="지금 들리는 말" style={{ flex: 1 }}>
-            <Txt step="caption" numberOfLines={1} color={last === null ? 'textSub' : undefined}>{hearing ? (last ?? '아직 들린 말이 없어요.') : (line?.text ?? '')}</Txt>
-          </View>
-          <Icon name={open ? 'up' : 'down'} size={16} color={p.textSub} />
-        </Pressable>
-        {open && hearing ? <Transcript lines={view.transcript} small /> : null}
-        {open && line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
-      </View>
+    <View role="region" aria-label="들린 말 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
+      {open ? (
+        <View style={{ paddingHorizontal: SPACE.xs, paddingBottom: SPACE.sm, gap: SPACE.xs }}>
+          <ScrollView ref={log} style={{ maxHeight: HEARD_LOG_HEIGHT }} onContentSizeChange={() => log.current?.scrollToEnd({ animated: false })}>
+            <View role="log" aria-label="지난 들린 말" style={{ gap: SPACE.xs }}>
+              {earlier.length === 0 ? (
+                <Txt step="meta" color="textSub">지난 들린 말이 아직 없어요.</Txt>
+              ) : (
+                earlier.map((text, index) => (
+                  <Txt key={`${String(index)}:${text}`} step="meta" color="textSub">
+                    {text}
+                  </Txt>
+                ))
+              )}
+            </View>
+          </ScrollView>
+          {line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
+        </View>
+      ) : null}
+      <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+        <DotStatus word={chip.word} tone={chip.tone} />
+        <View role="status" aria-label="지금 들리는 말" style={{ flex: 1 }}>
+          <Txt step="meta" weight={hearing && last !== null ? 'medium' : undefined} numberOfLines={1} color={hearing && last !== null ? undefined : 'textSub'}>
+            {now}
+          </Txt>
+        </View>
+        {/* 아래에 붙은 창이라 위로 펼친다 — 닫혀 있으면 ⌃, 펼쳤으면 ⌄ */}
+        <Icon name={open ? 'down' : 'up'} size={16} color={p.textSub} />
+      </Pressable>
     </View>
   )
 }

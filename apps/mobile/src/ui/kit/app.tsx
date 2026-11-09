@@ -215,9 +215,12 @@ export function HeaderTextButton({ label, ariaLabel, onPress, testID }: { readon
   const { p } = useKit()
   return (
     <Pressable role="button" aria-label={ariaLabel ?? label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ height: 40, minWidth: 48, paddingHorizontal: SPACE.sm + 2, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-      <Txt step="nav" weight="book" ink={p.tabInk}>
-        {label}
-      </Txt>
+      {/* 제목처럼 한글을 2.5 올려 뒤로 ‹·가운데 제목과 한 줄에 맞춘다 (D-UX4-55, 사용자 지시 "오른쪽에 있는 요소들이 수평 정렬이 안 된거 같아") */}
+      <View style={{ transform: [{ translateY: NAV.titleLift }] }}>
+        <Txt step="nav" weight="book" ink={p.tabInk}>
+          {label}
+        </Txt>
+      </View>
     </Pressable>
   )
 }

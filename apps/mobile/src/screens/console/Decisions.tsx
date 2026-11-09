@@ -10,6 +10,7 @@ import { kstTime } from '@livejjim/web/src/lib/kst.ts'
 import { ORIGIN_WORD, QUICK_REASONS } from '@livejjim/web/src/lib/words.ts'
 import { claimOptionsField, claimWord, conflictUnits, nameOf, productSlots, successionUnits, variantOf, variantOptionsField, type DecisionUnit } from '../../lib/derive.ts'
 import { Pill } from '../../ui/day-pills.tsx'
+import { EmptyFill } from '../../ui/kit/index.ts'
 import { BigButton, Body, Field, Hint, Notice, Row } from '../../ui/parts.tsx'
 import { useConsoleApi, type ConsoleApi } from './context.ts'
 
@@ -50,7 +51,7 @@ export function DecisionsView({ queue, product, onQueued }: { readonly queue: Un
     queue.add({ label, send: (requestId) => api.command(event, requestId) })
     onQueued()
   }
-  if (conflict === undefined && variantConflicts.length === 0 && requests.length === 0 && succession === undefined) return <Hint>{NOTHING_TO_DECIDE}</Hint>
+  if (conflict === undefined && variantConflicts.length === 0 && requests.length === 0 && succession === undefined) return <EmptyFill title={NOTHING_TO_DECIDE} />
   const request = requests[0]
   return (
     <View style={{ gap: 16 }}>

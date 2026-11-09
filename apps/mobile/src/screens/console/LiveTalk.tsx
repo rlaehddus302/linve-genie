@@ -13,7 +13,7 @@ import { get, isApiError, withQuery } from '../../api/client.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { claimWord, waitPosition } from '../../lib/derive.ts'
 import { useServices } from '../../services.tsx'
-import { Txt, useKit } from '../../ui/kit/index.ts'
+import { EmptyFill, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import type { Tone } from '../../ui/kit/tokens.ts'
 import { TAG_PAD_X } from '../../lib/product-tags.ts'
@@ -22,7 +22,8 @@ import { useConsoleApi } from './context.ts'
 import { chatTags, useMessages } from './ChatPaste.tsx'
 
 export const TALK_TAB = '채팅·문자'
-export const TALK_EMPTY = '아직 채팅·문자가 없어요. 오면 여기에 바로 보여요.'
+export const TALK_EMPTY = '아직 채팅·문자가 없어요'
+export const TALK_EMPTY_BODY = '손님이 채팅이나 문자를 보내면\n바로 보여드릴게요'
 export const TALK_LIMIT = 150
 const SMS_RELOAD_MS = 300
 
@@ -192,7 +193,7 @@ export function LiveTalk() {
     <View style={{ gap: SPACE.xs }}>
       {error !== null && view === null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {view?.sealed === true ? <Notice tone="info">{view.sealedMessage ?? '봉인한 날짜라 채팅 내용을 지웠어요.'}</Notice> : null}
-      {view === null && error === null ? <Hint>불러오는 중…</Hint> : rows.length === 0 ? <Hint>{TALK_EMPTY}</Hint> : (
+      {view === null && error === null ? <Hint>불러오는 중…</Hint> : rows.length === 0 ? <EmptyFill title={TALK_EMPTY} body={TALK_EMPTY_BODY} /> : (
         <View role="list" aria-label={TALK_TAB} style={{ gap: SPACE.xs }}>
           {/* 최신 TALK_LIMIT줄을 라이브 채팅처럼 최신이 맨 아래로 (D-UX3-75) */}
           {rows.slice(0, TALK_LIMIT).reverse().map((row) => <TalkLine key={row.key} row={row} />)}

@@ -8,7 +8,7 @@ import { get, isApiError, post, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, ButtonRow, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, BigButton, ButtonRow, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 import { CARD_GAP, PAGE_SIDE, SectionCard } from './order-parts.tsx'
@@ -146,9 +146,7 @@ export function BuyerInfoScreen({ onBack }: { readonly onBack: () => void }) {
         ) : null}
         {list === null && error === null ? <Loading /> : null}
         {list !== null && list.cards.length === 0 ? (
-          <View style={{ paddingVertical: SPACE.xxxl }}>
-            <Txt color="textSub" center>{NO_BUYER_INFO}</Txt>
-          </View>
+          <EmptyFill title={NO_BUYER_INFO} />
         ) : null}
         {list?.cards.map((card) => (
           <BuyerInfoItem key={card.id} card={card} buyers={list.buyers} onDone={reload} />

@@ -17,7 +17,7 @@ import type { ScopeData } from '../lib/scope-data.ts'
 import { QUICK_REASONS } from '@livejjim/web/src/lib/words.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, BottomSheet, ButtonRow, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CardEmpty, CheckText, InfoCard, InfoRow, Initial, listRowStyle, MiniTag, SearchField, TextButton, TextChoices } from './customer-parts.tsx'
@@ -51,7 +51,7 @@ export function BuyersScreen({ onBack, initialDate }: { readonly onBack: () => v
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
-        {days !== null && days.length === 0 ? <Txt color="textSub">아직 실제 방송 판매 기록이 없어요.</Txt> : null}
+        {days !== null && days.length === 0 ? <EmptyFill title="아직 판매 기록이 없어요" body={'실제 방송에서 찜이 정해지면\n여기에 모여요'} /> : null}
         {days !== null ? <DayPills days={days} date={date} onPick={setDate} /> : null}
         {date !== null ? <BuyersDay key={date} date={date} /> : null}
       </ScrollView>

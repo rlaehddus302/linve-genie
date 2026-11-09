@@ -8,7 +8,7 @@ import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { AppHeader, Icon, RowGroup, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, Icon, RowGroup, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
@@ -159,7 +159,7 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
             {error}
           </Notice>
         ) : null}
-        {items !== null && past.length === 0 ? <Txt color="textSub">아직 지난 방송이 없어요</Txt> : null}
+        {items !== null && past.length === 0 ? <EmptyFill title="아직 지난 방송이 없어요" body="방송을 끝내면 여기에 모여요" /> : null}
         {past.length > 0 ? (
           <RowGroup label="내 방송">
             {past.map((item) => (

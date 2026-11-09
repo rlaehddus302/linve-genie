@@ -19,7 +19,7 @@ import { get, isApiError, post, withQuery, type ApiError } from '../api/client.t
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
@@ -376,7 +376,7 @@ function ReviewList({ view, queue, items, reload }: { readonly view: ReviewsView
   const blank = chosen.find((review) => eventOf(review) === null)
   const blankNo = blank === undefined ? null : view.reviews.indexOf(blank) + 1
 
-  if (view.reviews.length === 0 && done.length === 0) return <Txt color="textSub">{NOTHING_TO_REVIEW}</Txt>
+  if (view.reviews.length === 0 && done.length === 0) return <EmptyFill title={NOTHING_TO_REVIEW} />
   return (
     <View style={{ gap: SPACE.md }}>
       {done.map((note) => (

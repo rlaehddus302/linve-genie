@@ -123,7 +123,9 @@ export const RETRY_NOW = '지금 다시 불러오기'
 /** 콘솔 */
 export const CURRENT_PRODUCT = '현재 상품'
 // D-UX4-31: "직접 넣기" 시트 대신 상품 탭 오른쪽 아래 (+) 단추
-export const NO_PRODUCTS_YET = '아직 올린 상품이 없어요. 말하거나 오른쪽 아래 + 단추로 올려 주세요.'
+// D-UX4-56 (사용자 지시 2026-11-09): 목록 자리 한가운데 굵은 한 줄 + 회색 설명
+export const NO_PRODUCTS_YET = '아직 등록된 상품이 없어요'
+export const NO_PRODUCTS_YET_BODY = '말하거나 + 버튼을 눌러 등록해 주세요'
 export const QUICK_SEND = '보내기'
 export const ALERTS_NONE = '알림 없음'
 export const NO_FOCUS_WORDS = '지금 상품 없음 — 상품 이름을 쓴 댓글만 받아요'

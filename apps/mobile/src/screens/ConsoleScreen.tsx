@@ -17,7 +17,7 @@ import { ScopeStore, type ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { LISTEN_START, LISTEN_STOP, LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, BigButton, BottomSheet, ConfirmSheet, FullSheet, DotStatus, HeaderTextButton, ToggleRow, Txt, useBottomInset, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, BottomSheet, ConfirmSheet, FullSheet, HeaderTextButton, ToggleRow, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { BigButton as SmallButton, Loading, Notice, Row } from '../ui/parts.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
@@ -32,7 +32,7 @@ import { DecisionsView } from './console/Decisions.tsx'
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { VoicePanel, VoiceSettingsPanel } from './console/VoicePanel.tsx'
-import { ListenLine, listenChip, useKeptStream } from './console/StreamAudio.tsx'
+import { ListenLine, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB } from './console/LiveTalk.tsx'
 import { APP_IMPORT_TITLE, ImportView } from './console/ImportSheet.tsx'
@@ -129,6 +129,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
   const inset = useBottomInset()
+  const pageTop = usePageTop()
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
   type SheetName = 'none' | 'sms' | 'youtube' | 'voice' | 'end' | 'chat' | 'paste' | 'decide' | 'pending' | 'import'
@@ -316,6 +317,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
 
   const frame = (body: ReactNode) => (
     <View style={{ flex: 1, backgroundColor: p.background }}>
+      <View style={{ height: pageTop }} />
       <AppHeader title="방송" onBack={onBack} backLabel="홈으로" />
       <View style={{ paddingHorizontal: SPACE.lg, gap: SPACE.md }}>{body}</View>
     </View>
@@ -371,7 +373,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     ).finally(() => setThanksBusy(false))
   }
   const thanksLine = thanksNote !== null ? <Notice tone={thanksNote.tone} alert={thanksNote.tone === 'danger'}>{thanksNote.text}</Notice> : null
-  const chip = listenChip(voiceView, broadcastId, stream.status)
   const claimCount = [...data.claims.values()].filter((claim) => claim.broadcast === broadcastId && claim.status !== 'DUPLICATE').length
   const productCountNow = shownProducts(data, broadcastId).length
   const onAlert = (action: 'pending' | 'attention' | 'decide' | 'labels') => {
@@ -384,17 +385,14 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   return (
     <ConsoleContext.Provider value={api}>
       <View style={{ flex: 1, backgroundColor: p.background }} testID="console-screen">
+        {/* 상태 막대 자리 (D-UX4-51): 겹쳐 뜨는 화면은 이 자리까지 덮는다 */}
+        <View style={{ height: pageTop }} />
         <AppHeader
           title={heading}
           onBack={onBack}
           backLabel="홈으로"
-          right={
-            <>
-              {seller && !closed ? <DotStatus word={chip.word} tone={chip.tone} /> : null}
-              {/* 토스 카드 화면 오른쪽 위 "관리" 글자 단추 (D-UX4-42 — 옛 톱니 D-UX4-20) */}
-              <HeaderTextButton label="관리" ariaLabel={MANAGE_LABEL} onPress={() => setPage('settings')} />
-            </>
-          }
+          // 토스 카드 화면 오른쪽 위 "관리" 글자 단추 (D-UX4-42 — 옛 톱니 D-UX4-20). 듣기 상태는 아래 들린 말 창 왼쪽으로 옮겼다 (D-UX4-53)
+          right={<HeaderTextButton label="관리" ariaLabel={MANAGE_LABEL} onPress={() => setPage('settings')} />}
         />
         {help !== null ? (
           <View style={{ paddingHorizontal: SPACE.xl, paddingBottom: SPACE.sm }}>
@@ -403,6 +401,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             </Txt>
           </View>
         ) : null}
+        {/* 목록 자리 — (+) 단추는 이 자리 오른쪽 아래(들린 말 창 위)에 뜬다 */}
+        <View style={{ flex: 1 }}>
         <ScrollView
           ref={scroll}
           scrollEventThrottle={100}
@@ -411,7 +411,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
           }}
           onContentSizeChange={() => { if (atBottom.current) scroll.current?.scrollToEnd({ animated: false }) }}
-          style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: SPACE.md, paddingBottom: Math.max(inset, SPACE.md) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
+          style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: SPACE.md, paddingBottom: (live ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
           <AwayLine />
           <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
@@ -421,7 +421,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {pasted !== null ? <Notice tone="success">{pasted}</Notice> : null}
           {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
           <YoutubeWarning yt={yt} closed={closed} onPaste={() => setSheet('paste')} />
-          {live ? <ListenLine session={services.voice} broadcastId={broadcastId} stream={stream} /> : null}
           <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
           <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
             <Pill on={tab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
@@ -435,7 +434,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {/* (+) 단추에 마지막 줄이 가리지 않게 */}
           {tab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
         </ScrollView>
-        {tab === 'products' && !closed ? <AddFab bottom={Math.max(inset, SPACE.md) + SPACE.md} onPress={() => setPage('add')} /> : null}
+        {tab === 'products' && !closed ? <AddFab bottom={(live ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => setPage('add')} /> : null}
+        </View>
+        {/* 들린 말 창은 맨 아래 (D-UX4-53 — 옛 목록 위) */}
+        {live ? <ListenLine session={services.voice} broadcastId={broadcastId} stream={stream} bottom={Math.max(inset, SPACE.sm)} /> : null}
 
         <BottomSheet visible={sheet === 'sms'} onClose={close} title={SMS_DIRECT}>
           <SmsForm />

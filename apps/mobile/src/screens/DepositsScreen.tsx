@@ -14,7 +14,7 @@ import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { SourcesTab } from './DepositSources.tsx'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, PAGE_SIDE, SectionCard } from './order-parts.tsx'
@@ -140,9 +140,7 @@ function DepositTab({ tab, tick, onNotice }: { readonly tab: Exclude<Tab, 'paste
   if (list === null) return <Loading />
   if (list.length === 0) {
     return (
-      <View style={{ paddingVertical: SPACE.xxxl }}>
-        <Txt color="textSub" center>{tab === 'review' ? '확인할 입금이 없어요.' : tab === 'done' ? '자동 확인했거나 확인한 입금이 없어요.' : '무시한 입금이 없어요.'}</Txt>
-      </View>
+      <EmptyFill title={tab === 'review' ? '확인할 입금이 없어요' : tab === 'done' ? '확인한 입금이 없어요' : '무시한 입금이 없어요'} {...(tab === 'review' ? { body: '새 입금이 오면\n여기서 확인할 수 있어요' } : tab === 'done' ? { body: '자동 확인했거나 직접 확인한 입금이\n여기에 모여요' } : {})} />
     )
   }
   const done = (text: string, tone: Flash['tone'] = 'success') => {

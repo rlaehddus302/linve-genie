@@ -8,12 +8,13 @@
 // [다음]은 꽉 찬 띠가 아니라 큰 단추, "품종 없이 넘어가기"는 토스 회색 칩. 품종 칸 휴대폰 키보드가 뜨면 [다음]이 키보드 위로 올라온다.
 // 쓰기는 원문 칸(noText·priceText, SRV1 약속 2) — 가격은 "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 앱은 판정하지 않는다.
 import { useEffect, useRef, useState } from 'react'
-import { Animated, Easing, Platform, Pressable, TextInput, View } from 'react-native'
+import { Animated, Easing, LayoutAnimation, Platform, Pressable, TextInput, View } from 'react-native'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
 import { BigButton, ErrorLine, PressScale, SoftChip, Txt, font, useKit } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
+import { errorHaptic } from '../../native/haptics.ts'
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
 
@@ -30,6 +31,13 @@ const BIG = TYPE.amount
 /** 숫자판 키 높이 */
 const KEY_HEIGHT = 64
 const PAD: readonly (readonly string[])[] = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['00', '0', 'back']]
+
+/** 방송에 번호 끝이 없을 때 번호 칸이 받는 가장 큰 수 (네 자리) */
+const NO_FALLBACK_MAX = 9999
+/** 가격 칸 자리 수 (9억 원대까지) */
+const PRICE_DIGITS = 9
+export const PRICE_LIMIT = '가격은 9억 9,999만 9,999원까지 적을 수 있어요.'
+export const noLimitWords = (max: number): string => `번호는 ${String(max)}번까지 적을 수 있어요.`
 
 const won = (digits: string): string => `${Number(digits).toLocaleString('ko-KR')}원`
 
@@ -57,59 +65,119 @@ function NumberKeys({ onKey }: { readonly onKey: (value: string) => void }) {
   )
 }
 
-/** 글자를 넣고 지울 때의 움직임 시간 */
-const CHAR_IN_MS = 180
-const CHAR_OUT_MS = 140
+/** 글자를 넣고 지울 때의 움직임 (D-UX4-52, 사용자 지시 2026-11-09 "입력할 땐 위에서 아래로 내려왔다가 지울 때는 다시 올라가게") */
+export const CHAR_IN_MS = 200
+export const CHAR_OUT_MS = 160
+/** 쉼표가 생기거나 없어져 옆 글자가 밀리는 시간 */
+export const CHAR_SHIFT_MS = 200
+const CHAR_DROP = 14
 
-/** 새로 들어온 글자 하나: 아래에서 살짝 올라오며 나타난다 */
-function EnterChar({ char, color }: { readonly char: string; readonly color: string }) {
-  const show = useRef(new Animated.Value(0)).current
+/** 큰 칸 글자 조각: 숫자는 왼쪽부터 몇 번째 숫자인지, 쉼표는 오른쪽부터 몇 번째 묶음인지로 이름을 붙인다 — 끝에 숫자를 넣고 지워도 남은 글자는 같은 조각이라, 쉼표만 옆으로 미끄러진다 */
+export interface CharPiece {
+  readonly key: string
+  readonly char: string
+}
+
+export function charPieces(shown: string, suffix: string): CharPiece[] {
+  if (shown === '') return []
+  const chars = [...shown]
+  const digitTotal = chars.filter((char) => /[0-9]/.test(char)).length
+  const pieces: CharPiece[] = []
+  let seen = 0
+  for (const char of chars) {
+    if (/[0-9]/.test(char)) {
+      pieces.push({ key: `d${String(seen)}`, char })
+      seen += 1
+    } else {
+      // 쉼표 뒤에 남은 숫자 수 ÷ 3 = 천·백만… 묶음
+      pieces.push({ key: `c${String(Math.round((digitTotal - seen) / 3))}`, char })
+    }
+  }
+  if (suffix !== '') pieces.push({ key: 'suffix', char: suffix })
+  return pieces
+}
+
+/** 글자 조각 하나: 새로 생기면 위에서 내려오며 나타난다(처음 그릴 때는 그대로) */
+function PieceChar({ char, color, enter, onPlace }: { readonly char: string; readonly color: string; readonly enter: boolean; readonly onPlace: (x: number, y: number) => void }) {
+  const show = useRef(new Animated.Value(enter ? 0 : 1)).current
   useEffect(() => {
+    if (!enter) return
     Animated.timing(show, { toValue: 1, duration: CHAR_IN_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
-  }, [show])
-  const rise = show.interpolate({ inputRange: [0, 1], outputRange: [10, 0] })
+  }, [enter, show])
+  const drop = show.interpolate({ inputRange: [0, 1], outputRange: [-CHAR_DROP, 0] })
   return (
-    <Animated.View style={{ opacity: show, transform: [{ translateY: rise }] }}>
+    <Animated.View onLayout={(event) => onPlace(event.nativeEvent.layout.x, event.nativeEvent.layout.y)} style={{ opacity: show, transform: [{ translateY: drop }] }}>
       <Txt step="amount" weight="bold" ink={color}>{char}</Txt>
     </Animated.View>
   )
 }
 
-/** 지운 글자 하나: 아래로 살짝 내려가며 사라진다 (그 뒤 onDone) */
-function LeaveChar({ char, color, onDone }: { readonly char: string; readonly color: string; readonly onDone: () => void }) {
+/** 지운 글자 조각: 있던 자리에서 위로 올라가며 사라진다 — 자리를 차지하지 않아 남은 글자가 바로 미끄러진다 */
+function LeavingChar({ char, color, x, y, onDone }: { readonly char: string; readonly color: string; readonly x: number; readonly y: number; readonly onDone: () => void }) {
   const hide = useRef(new Animated.Value(1)).current
+  const done = useRef(onDone)
+  done.current = onDone
   useEffect(() => {
-    Animated.timing(hide, { toValue: 0, duration: CHAR_OUT_MS, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(() => onDone())
-  }, [hide, onDone])
-  const sink = hide.interpolate({ inputRange: [0, 1], outputRange: [8, 0] })
+    Animated.timing(hide, { toValue: 0, duration: CHAR_OUT_MS, easing: Easing.in(Easing.quad), useNativeDriver: true }).start(() => done.current())
+  }, [hide])
+  const rise = hide.interpolate({ inputRange: [0, 1], outputRange: [-CHAR_DROP, 0] })
   return (
-    <Animated.View style={{ opacity: hide, transform: [{ translateY: sink }] }}>
+    <Animated.View aria-hidden pointerEvents="none" style={{ position: 'absolute', left: x, top: y, opacity: hide, transform: [{ translateY: rise }] }}>
       <Txt step="amount" weight="bold" ink={color}>{char}</Txt>
     </Animated.View>
   )
+}
+
+interface Leaving {
+  readonly id: number
+  readonly char: string
+  readonly x: number
+  readonly y: number
 }
 
 /**
  * 앱 숫자판으로 넣는 큰 칸: 비면 묻는 말(회색), 차면 값 + 붙임말(번·원). 글자 자리 표시(커서)는 없다 (D-UX4-43).
- * 넣은 글자는 부드럽게 나타나고, 지운 글자는 부드럽게 사라진다. 웹(시험)은 움직이지 않고 한 덩어리 글로 그린다.
+ * 넣은 글자는 위에서 내려오며 나타나고, 지운 글자는 위로 올라가며 사라진다. 쉼표가 생기거나 없어지면 옆 글자가 부드럽게 밀린다 (D-UX4-52).
+ * 웹(시험)은 움직이지 않고 한 덩어리 글로 그린다.
  */
 function BigNumber({ label, question, digits, format, suffix }: { readonly label: string; readonly question: string; readonly digits: string; readonly format: (digits: string) => string; readonly suffix: string }) {
   const { p } = useKit()
-  const last = useRef(digits)
-  const [leaving, setLeaving] = useState<{ readonly id: number; readonly char: string } | null>(null)
-  const counter = useRef(0)
-  useEffect(() => {
-    const before = last.current
-    last.current = digits
-    if (digits.length < before.length && digits === before.slice(0, digits.length)) {
-      counter.current += 1
-      setLeaving({ id: counter.current, char: before.slice(digits.length) })
-    } else if (digits.length > before.length) setLeaving(null)
-  }, [digits])
   const empty = digits === ''
   const shown = empty ? '' : format(digits)
+  const pieces = charPieces(shown, suffix)
+  const places = useRef(new Map<string, { readonly x: number; readonly y: number }>())
+  const before = useRef<readonly CharPiece[]>(pieces)
+  const ready = useRef(false)
+  const counter = useRef(0)
+  const [leaving, setLeaving] = useState<readonly Leaving[]>([])
+  // 바뀐 그 그리기에서 옆으로 밀리는 움직임을 정한다(그리기 중에 불러야 바뀐 배치에 붙는다)
+  const signature = pieces.map((piece) => piece.key).join('|')
+  const lastSignature = useRef(signature)
+  if (lastSignature.current !== signature) {
+    lastSignature.current = signature
+    if (Platform.OS !== 'web') LayoutAnimation.configureNext({ duration: CHAR_SHIFT_MS, update: { type: LayoutAnimation.Types.easeInEaseOut } })
+  }
+  useEffect(() => {
+    ready.current = true
+  }, [])
+  useEffect(() => {
+    const now = new Set(pieces.map((piece) => piece.key))
+    const gone = before.current.filter((piece) => !now.has(piece.key))
+    before.current = pieces
+    if (gone.length === 0 || Platform.OS === 'web') return
+    const added = gone.flatMap((piece) => {
+      const place = places.current.get(piece.key)
+      places.current.delete(piece.key)
+      if (place === undefined) return []
+      counter.current += 1
+      return [{ id: counter.current, char: piece.char, x: place.x, y: place.y }]
+    })
+    if (added.length > 0) setLeaving((list) => [...list, ...added])
+    // pieces는 signature가 같으면 같은 내용이다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature, shown])
   const box = { flexDirection: 'row' as const, alignItems: 'center' as const, minHeight: BIG * 1.5 }
-  if (empty && leaving === null) {
+  if (empty && leaving.length === 0) {
     return (
       <View role="status" aria-label={question} style={box}>
         <Txt step="amount" weight="bold" ink={p.placeholder}>
@@ -120,23 +188,21 @@ function BigNumber({ label, question, digits, format, suffix }: { readonly label
   }
   if (Platform.OS === 'web') {
     return (
-      <View role="status" aria-label={empty ? question : `${label} ${shown}${suffix}`} style={box}>
-        <Txt step="amount" weight="bold" ink={empty ? p.placeholder : p.text}>
-          {empty ? question : `${shown}${suffix}`}
+      <View role="status" aria-label={`${label} ${shown}${suffix}`} style={box}>
+        <Txt step="amount" weight="bold" ink={p.text}>
+          {`${shown}${suffix}`}
         </Txt>
       </View>
     )
   }
-  const grew = leaving === null && digits.length > 0
-  const chars = [...shown]
   return (
-    <View role="status" aria-label={`${label} ${shown}${suffix}`} style={box}>
-      {chars.map((char, index) =>
-        // 맨 끝 글자가 새로 넣은 글자면 나타나는 움직임 — 그 밖은 그대로 (쉼표가 생겨 자리가 바뀌어도 다시 움직이지 않는다)
-        grew && index === chars.length - 1 ? <EnterChar key={`in-${String(digits.length)}`} char={char} color={p.text} /> : <Txt key={`c-${String(index)}`} step="amount" weight="bold" ink={p.text}>{char}</Txt>,
-      )}
-      {leaving === null ? null : <LeaveChar key={`out-${String(leaving.id)}`} char={leaving.char} color={p.text} onDone={() => setLeaving((now) => (now?.id === leaving.id ? null : now))} />}
-      {empty ? null : <Txt step="amount" weight="bold" ink={p.text}>{suffix}</Txt>}
+    <View role="status" aria-label={empty ? question : `${label} ${shown}${suffix}`} style={box}>
+      {pieces.map((piece) => (
+        <PieceChar key={piece.key} char={piece.char} color={p.text} enter={ready.current} onPlace={(x, y) => places.current.set(piece.key, { x, y })} />
+      ))}
+      {leaving.map((item) => (
+        <LeavingChar key={`out-${String(item.id)}`} char={item.char} color={p.text} x={item.x} y={item.y} onDone={() => setLeaving((list) => list.filter((one) => one.id !== item.id))} />
+      ))}
     </View>
   )
 }
@@ -156,10 +222,11 @@ function DoneLine({ label, value, onPress }: { readonly label: string; readonly 
 }
 
 /** 숫자판·키보드 바로 위 [다음] — 꽉 찬 띠가 아닌 큰 단추 (D-UX4-43, 사용자 지시 "원래처럼 별도의 버튼으로") */
-function NextButton({ onPress }: { readonly onPress: () => void }) {
+// 값이 없거나 틀리면 숨기지 않고 흐린 채로 눌리지 않는다 (D-UX4-54, 사용자 지시 2026-11-09 "처음에 안보이게 하지말고 비활성화로")
+function NextButton({ onPress, disabled }: { readonly onPress: () => void; readonly disabled: boolean }) {
   return (
     <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.sm }}>
-      <BigButton label="다음" onPress={onPress} />
+      <BigButton label="다음" onPress={onPress} disabled={disabled} />
     </View>
   )
 }
@@ -192,19 +259,31 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
     const value = api.data.broadcasts.get(api.b)?.settings['claim.maxNumber']
     return typeof value === 'number' && value > 0 ? value : null
   })()
+  // 넣는 동안 바로 알리는 말 (토스 "출금할 수 있는 돈이 …이에요." 사진, D-UX4-54): 칸 아래 빨간 글 + 에러 진동, [다음]은 흐리게
+  const tooBig = (step: Step, digits: string): string | null => {
+    if (digits === '') return null
+    if (step === 'no' && maxNumber !== null && Number(digits) > maxNumber) return noLimitWords(maxNumber)
+    return null
+  }
   const type = (value: string) => {
     setError(null)
     const current = step === 'no' ? no : price
-    const limit = step === 'no' ? Math.max(String(maxNumber ?? 9999).length, 1) : 9
-    let next = value === 'back' ? current.slice(0, -1) : (current + value).replace(/^0+/, '')
-    if (next.length > limit) next = current
+    const limit = step === 'no' ? Math.max(String(maxNumber ?? NO_FALLBACK_MAX).length, 1) : PRICE_DIGITS
+    const next = value === 'back' ? current.slice(0, -1) : (current + value).replace(/^0+/, '')
+    if (next.length > limit) {
+      // 자리 수를 넘는 숫자는 받지 않고 알린다
+      setError(step === 'no' ? noLimitWords(maxNumber ?? NO_FALLBACK_MAX) : PRICE_LIMIT)
+      errorHaptic()
+      return
+    }
+    if (tooBig(step, next) !== null && tooBig(step, current) === null) errorHaptic()
     if (step === 'no') setNo(next)
     else setPrice(next)
   }
   const nextFromNo = () => {
     const value = Number(no)
     if (no === '' || !Number.isSafeInteger(value) || value < 1) return setError('상품 번호를 숫자로 적어 주세요.')
-    if (maxNumber !== null && value > maxNumber) return setError(`번호는 ${String(maxNumber)}번까지 적을 수 있어요.`)
+    if (maxNumber !== null && value > maxNumber) return setError(noLimitWords(maxNumber))
     const existing = api.data.products.get(productKey(api.b, value))
     if (existing !== undefined && existing.status !== 'CLOSED') return setError(`${String(value)}번은 이미 있어요. 다른 번호를 적어 주세요.`)
     setError(null)
@@ -267,6 +346,7 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
   }
 
   const active = step === 'no' ? no : step === 'price' ? price : name
+  const shownError = error ?? (step === 'name' ? null : tooBig(step, active))
   const onNext = step === 'no' ? nextFromNo : step === 'price' ? nextFromPrice : () => setStep('confirm')
   return (
     <SlidePage visible={visible} onClose={onClose} title={ADD_TITLE} name={ADD_TITLE} scroll={false} testID="product-add">
@@ -299,10 +379,10 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
               {koreanWon(Number(price))}
             </Txt>
           ) : null}
-          {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
+          {shownError !== null ? <ErrorLine large>{shownError}</ErrorLine> : null}
         </View>
       </View>
-      {active.trim() === '' ? null : <NextButton onPress={onNext} />}
+      <NextButton onPress={onNext} disabled={active.trim() === '' || shownError !== null} />
       {step === 'name' ? null : (
         <View style={{ paddingBottom: footer }}>
           <NumberKeys onKey={type} />

@@ -20,6 +20,7 @@ import { setSocialNative, toBase64Url } from '../src/lib/social-auth.ts'
 import { createServices, ServicesProvider, SessionProvider, useServices, useSession } from '../src/services.tsx'
 import { KeptStreamAudio } from '../src/screens/console/StreamAudio.tsx'
 import { TAB_SCREENS } from '../src/lib/tab-routes.ts'
+import { RouteSwipeProvider } from '../src/ui/kit/route-swipe.tsx'
 
 configureApi({ fetch: (input, init) => expoFetch(input, init as Parameters<typeof expoFetch>[1]) as unknown as Promise<Response>, newId: randomUUID })
 setWebOpener((url) => Linking.openURL(url))
@@ -65,7 +66,8 @@ export default function RootLayout() {
           <PrinterDevicePicker />
           <StreamKeeper />
           {/* 뒤로 가기는 왼쪽 가장자리에서 밀 때만 (D-UX3-24): iOS 26부터 기본이 '화면 어디서 밀어도 뒤로'라 라벨 끌기·가로 밀기까지 뒤로 갔다 */}
-          <Stack screenOptions={{ headerShown: false, fullScreenGestureEnabled: false }}>
+          {/* 경로 안에 겹쳐 그린 화면이 열려 있으면 그 경로의 밀어 뒤로 가기를 끈다 — 겹친 화면이 스스로 밀려 닫힌다 (D-UX4-50) */}
+          <Stack screenOptions={{ headerShown: false, fullScreenGestureEnabled: false }} screenLayout={({ navigation, children }) => <RouteSwipeProvider setEnabled={(enabled) => navigation.setOptions({ gestureEnabled: enabled })}>{children}</RouteSwipeProvider>}>
             {/* 탭 화면끼리는 화면 전환 없이 바꿔 끼운다 — 짧은 좌우 밀림은 TabFrame이 낸다 (D-UX3-01) */}
             {TAB_SCREENS.map((name) => (
               <Stack.Screen key={name} name={name} options={{ animation: 'none' }} />

@@ -158,6 +158,26 @@ export function ToggleRow({ title, subtitle, on, onChange, disabled, testID }: {
   )
 }
 
+/**
+ * 목록이 비었을 때 그 자리 한가운데 안내 (D-UX4-56, 사용자 지시 2026-11-09 "그 영역 중간에 가로세로 중간 정렬해서 폰트 크기랑 두께 좀 키워서"):
+ * 굵은 한 줄(title) + 아래 회색 설명(body). 줄 바꿈(\n)은 뜻이 끊기는 곳에. 부모가 늘어나는 자리(flexGrow)면 세로 가운데, 아니면 위아래 넉넉한 여백.
+ * 모든 탭·화면의 빈 목록은 이것만 쓴다.
+ */
+export function EmptyFill({ title, body, testID }: { readonly title: string; readonly body?: string; readonly testID?: string }) {
+  return (
+    <View role="status" aria-label={body === undefined ? title : `${title} ${body.replace(/\n/g, ' ')}`} testID={testID} style={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: SPACE.xxxl, paddingHorizontal: SPACE.lg, gap: SPACE.sm }}>
+      <Txt step="lead" weight="bold" center>
+        {title}
+      </Txt>
+      {body === undefined ? null : (
+        <Txt step="body" weight="medium" color="textSub" center>
+          {body}
+        </Txt>
+      )}
+    </View>
+  )
+}
+
 /** 비어 있을 때: 무슨 일인지 + 다음에 할 일 하나 */
 export function EmptyState({ title, description, actionLabel, onAction, icon }: { readonly title: string; readonly description?: string; readonly actionLabel?: string; readonly onAction?: () => void; readonly icon?: string }) {
   return (
