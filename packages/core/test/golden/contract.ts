@@ -309,6 +309,7 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   // 짧은 형식 at은 이 이벤트의 date 기준 (README "시각") — validate가 따로 다룬다
   'broadcast.start': spec({ b: F.newB, date: F.date, title: F.v(freeText) }, { settings: F.settings }),
   'broadcast.end': spec({ b: F.b }),
+  'broadcast.thanks': spec({ b: F.b, liveChat: F.v(bool) }),
   'product.register': spec(
     { b: F.b, no: F.no, name: F.v(freeText), price: F.v(intAtLeast(0)) },
     { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])), aliases: F.aliases, options: F.optionItems, stocks: F.stocks },

@@ -57,6 +57,7 @@ import { DEFERRED_EVENTS, InvalidEventError, checkShape } from './validate.ts'
 import type {
   ApplyResult,
   BroadcastEndEvent,
+  BroadcastThanksEvent,
   BroadcastStartEvent,
   BuyerMergeEvent,
   BuyerRecord,
@@ -325,6 +326,13 @@ function endBroadcast(d: Draft, e: BroadcastEndEvent): void {
   const broadcast = d.broadcastOf(e.b)
   if (broadcast.endedAt !== null) return
   d.replaceBroadcast({ ...broadcast, endedAt: d.at })
+}
+
+/** broadcast.thanks (D-YT-SRV-24): 방송 설정 스냅샷의 thanks.liveChat만 바꾼다. 같은 값이면 아무 일도 없다 */
+function switchThanks(d: Draft, e: BroadcastThanksEvent): void {
+  const broadcast = d.broadcastOf(e.b)
+  if (broadcast.settings['thanks.liveChat'] === e.liveChat) return
+  d.replaceBroadcast({ ...broadcast, settings: { ...broadcast.settings, 'thanks.liveChat': e.liveChat } })
 }
 
 // ── 지금 상품 (R-20 6, D-O-09·D-O1-06) ──────────────────────────────────
@@ -1149,6 +1157,7 @@ function report(d: Draft, e: EffectReportEvent): void {
 const HANDLERS: Readonly<Record<string, (d: Draft, event: never) => void>> = {
   'broadcast.start': startBroadcast,
   'broadcast.end': endBroadcast,
+  'broadcast.thanks': switchThanks,
   'product.register': register,
   'product.open': productCommand,
   'product.hold': productCommand,

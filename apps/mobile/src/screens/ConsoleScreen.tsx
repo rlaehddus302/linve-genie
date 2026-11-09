@@ -38,6 +38,23 @@ import { APP_IMPORT_TITLE, ImportView } from './console/ImportSheet.tsx'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
+/** 감사 채팅 켜기·끄기 결과 줄을 보이는 시간 */
+const THANKS_NOTE_MS = 5000
+export const THANKS_ON_DONE = '감사 채팅을 켰어요. 이제 찜이 확정되면 채팅에 감사 메시지를 올려요.'
+export const THANKS_OFF_DONE = '감사 채팅을 껐어요. 이제 채팅에 감사 메시지를 올리지 않아요.'
+
+/** 방송 메뉴의 감사 채팅 켜기·끄기 줄 (D-YT-SRV-24) — 지금 상태를 함께 보인다 */
+export function ThanksMenuRow({ on, onPress }: { readonly on: boolean; readonly onPress: (next: boolean) => void }) {
+  return (
+    <TodoRow
+      title={on ? '감사 채팅 끄기' : '감사 채팅 켜기'}
+      sub={on ? '지금 켜져 있어요 · 찜이 확정될 때마다 채팅에 감사 메시지를 올려요' : '지금 꺼져 있어요 · 켜면 찜이 확정될 때 채팅에 감사 메시지를 올려요'}
+      testID="thanks-switch"
+      onPress={() => onPress(!on)}
+    />
+  )
+}
+
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
 const RETURN_WAIT_MS = 3000
 /** 채팅 의심 표시 읽는 간격 (D-V3-129) */
@@ -148,6 +165,13 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const [pasted, setPasted] = useState<string | null>(null)
   const [labels, setLabels] = useState<readonly LabelView[]>([])
   const [endError, setEndError] = useState<string | null>(null)
+  // 방송 중 감사 채팅 켜기·끄기 결과 한 줄 (D-YT-SRV-24) — 5초 뒤 사라진다
+  const [thanksNote, setThanksNote] = useState<{ readonly tone: 'success' | 'danger'; readonly text: string } | null>(null)
+  useEffect(() => {
+    if (thanksNote === null) return
+    const handle = setTimeout(() => setThanksNote(null), THANKS_NOTE_MS)
+    return () => clearTimeout(handle)
+  }, [thanksNote])
   // 끝내기 성공 — 방송 목록을 다시 받지 않아도 바로 "끝난 방송"으로 (범위 기록의 방송 정보는 처음 한 번만 받는다)
   const [endedHere, setEndedHere] = useState(false)
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
@@ -390,6 +414,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
           {endError !== null ? <Notice tone="danger" alert>{endError}</Notice> : null}
+          {thanksNote !== null ? <Notice tone={thanksNote.tone} alert={thanksNote.tone === 'danger'}>{thanksNote.text}</Notice> : null}
           <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} />
           {pasted !== null ? <Notice tone="success">{pasted}</Notice> : null}
           {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
@@ -446,6 +471,19 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             {!closed && stream.status?.phase === 'stopped' ? <TodoRow title="방송 소리 다시 켜기" sub="멈춘 방송 소리 받기를 다시 시작해요" onPress={() => { setSheet('none'); stream.retry() }} /> : null}
             {seller && !closed ? <ListenMenuRow session={services.voice} broadcastId={broadcastId} title={title} onDone={() => setSheet('none')} /> : null}
             {yt.phase !== 'hidden' && yt.phase !== 'loading' ? <TodoRow title="방송 연결" sub="방송 링크 붙여 넣기, 채팅 받는 상태" onPress={() => fromMenu(showLink)} /> : null}
+            {/* 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24) — 실제 방송만(리허설은 유튜브에 아무것도 올리지 않는다) */}
+            {seller && !closed && !broadcast.rehearsal && data !== null ? (
+              <ThanksMenuRow
+                on={data.broadcasts.get(broadcastId)?.settings['thanks.liveChat'] === true}
+                onPress={(next) => {
+                  setSheet('none')
+                  command({ type: 'broadcast.thanks', b: broadcastId, liveChat: next }).then(
+                    () => setThanksNote({ tone: 'success', text: next ? THANKS_ON_DONE : THANKS_OFF_DONE }),
+                    (caught: unknown) => setThanksNote({ tone: 'danger', text: isApiError(caught) ? caught.message : '바꾸지 못했어요. 다시 눌러 주세요.' }),
+                  )
+                }}
+              />
+            ) : null}
             {seller ? <TodoRow title="음성 설정" sub="바로 등록, 기다리는 시간, 기록" onPress={() => fromMenu(() => setSheet('voice'))} /> : null}
             {openLabels !== undefined && !broadcast.rehearsal ? <TodoRow title="프린터·라벨" sub="프린터 연결, 라벨 대기·다시 찍기" onPress={() => fromMenu(openLabels)} /> : null}
             <TodoRow title="채팅 보기" sub="최근 채팅 100줄, 주문·취소 표시" onPress={() => fromMenu(() => setSheet('chat'))} />

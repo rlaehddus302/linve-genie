@@ -616,7 +616,8 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
       const { settings: _own, ...rest } = event
       return applyEvent(state, { ...rest, settings: state.broadcasts[0]?.settings ?? {} })
     })
-    expect(failing(core)).toEqual(['G-ENG-160', 'G-ENG-161'])
+    // D-YT-SRV-24: G-ENG-178(2부가 감사 끔으로 시작)도 이 코어에서 어긋난다 — 사례 추가 (약화 아님)
+    expect(failing(core)).toEqual(['G-ENG-160', 'G-ENG-161', 'G-ENG-178'])
   })
 
   it('정산 설정을 그날 가장 나중 방송으로 정하는 코어 → G-ENG-160 불일치', () => {
@@ -689,15 +690,16 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 //   = 파일 39 · 파서 805 · 엔진 159 · 통과 964 (실제 골든 결과, 앞 두 번은 이 합계를 바꾸지 않고 지나갔다 — 교체 — 약화 아님).
 // SMS3 D-SMS3-09: parser/sms-text.yaml 새 파일(문서 6 · 사례 129, suite sms-text) — +1·+129·+0·+129 = 파일 40 · 파서 934 · 엔진 159 · 통과 1093.
 // SMS3 D-SMS3-15(spec 324e8c8b): 사례 12 `775,776,777` → {}(금액 모양)로 고침, `15,28,31` 사례 하나 더함 — +0·+1·+0·+1 = 파일 40 · 파서 935 · 엔진 159 · 통과 1094.
+// D-YT-SRV-24: engine/15-broadcast.yaml G-ENG-178(방송 중 감사 켜기·끄기 broadcast.thanks) — +0·+0·+1·+1 = 파일 40 · 파서 935 · 엔진 160 · 통과 1095.
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 + FB1 + V3 + SMS3 합계)', () => {
-  it('파일 40 · 파서 935 · 엔진 159 · 통과 1094, 나머지 0', () => {
+  it('파일 40 · 파서 935 · 엔진 160 · 통과 1095, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 40,
       parserCases: 935,
-      scenarios: 159,
-      pass: 1094,
+      scenarios: 160,
+      pass: 1095,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

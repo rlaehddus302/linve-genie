@@ -89,7 +89,9 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     expect(types).toContain('product.focus')
     expect(types).toContain('host.resolveReview')
     expect(types).toContain('host.dismissReview')
-    expect(types).toHaveLength(7 + 14 + 4 + 2 + 1)
+    // D-YT-SRV-24: 방송 중 감사 켜기·끄기 broadcast.thanks를 방송 메뉴에서 보낸다 — 종류 하나 추가 (+1)
+    expect(types.filter((type) => type.startsWith('broadcast.'))).toEqual(['broadcast.thanks'])
+    expect(types).toHaveLength(7 + 14 + 4 + 2 + 1 + 1)
     for (const type of types) expect(EVENT_TYPES).toContain(type)
     const engineOnly = ['broadcast.start', 'broadcast.end', 'chat', 'effect.labelPrinted', 'effect.thanksSent']
     for (const type of EVENT_TYPES) if (!types.includes(type)) expect(engineOnly).toContain(type)

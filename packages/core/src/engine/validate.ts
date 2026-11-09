@@ -156,6 +156,7 @@ const SPECS: Readonly<Record<string, Spec>> = {
     },
   },
   'broadcast.end': { required: { [BROADCAST]: id } },
+  'broadcast.thanks': { required: { [BROADCAST]: id, liveChat: bool } },
   'product.register': {
     required: { ...BY_PRODUCT, name: freeText, price: money },
     optional: { stock, status: oneOf('OPEN', 'READY'), ...PRODUCT_OPTIONS },

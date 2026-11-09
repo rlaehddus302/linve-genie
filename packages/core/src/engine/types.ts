@@ -101,6 +101,16 @@ export interface BroadcastEndEvent extends EventBase {
   readonly b: string
 }
 
+/**
+ * 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24): 그 방송의 설정 스냅샷에서 thanks.liveChat만 바꾼다. 그 뒤 확정부터 따른다 — 이미 낸 감사 효과는 그대로.
+ * 값이 지금과 같으면 아무 일도 없다
+ */
+export interface BroadcastThanksEvent extends EventBase {
+  readonly type: 'broadcast.thanks'
+  readonly b: string
+  readonly liveChat: boolean
+}
+
 export interface ProductRegisterEvent extends EventBase {
   readonly type: 'product.register'
   readonly b: string
@@ -360,6 +370,7 @@ export interface DeferredEvent extends EventBase {
 export type EngineEvent =
   | BroadcastStartEvent
   | BroadcastEndEvent
+  | BroadcastThanksEvent
   | ProductRegisterEvent
   | ProductCommandEvent
   | ProductUpdateEvent

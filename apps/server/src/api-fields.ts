@@ -1,6 +1,6 @@
 // 화면이 이벤트 쓰기 API로 보낼 수 있는 종류와 요청 필드 (AC-S04-51).
 // - 요청 본문은 그 종류의 엔진 필드(seq·at 제외)와 요청 번호(requestId)·종류(type)만이다. 값의 형식은 코어 checkEvent가 검사한다.
-// - broadcast.*는 방송 만들기·끝내기로만, chat은 서버 수집 함수로만, effect.*는 S08·S11.
+// - broadcast.*는 방송 만들기·끝내기로만(방송 중 감사 켜기·끄기 broadcast.thanks만 여기, D-YT-SRV-24), chat은 서버 수집 함수로만, effect.*는 S08·S11.
 // - sms는 서버가 허용 필드로 새 이벤트를 만든다(ref는 서버가 만들고, 전화번호는 키·뒤 4자리로 바꾼다, AC-S04-31).
 
 export interface ApiEventSpec {
@@ -21,6 +21,8 @@ export const VOICE_LOG_FIELD = 'voiceLog'
 
 export const API_EVENTS: Readonly<Record<string, ApiEventSpec>> = {
   // voiceLog (V3 R-25, D-V3-65): 음성으로 한 쓰기의 기록 칸 { heard, source?, undo?, device? } — 엔진 필드가 아니고 서버가 음성 기록 줄로만 쓴다 (판매 종료는 등록 되돌리기만)
+  // 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24) — 방송 메뉴(⋯)
+  'broadcast.thanks': { broadcast: true, fields: ['b', 'liveChat'] },
   'product.register': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'status', ...PRODUCT_OPTIONS, VOICE_LOG_FIELD] },
   'product.open': { broadcast: true, fields: BY_PRODUCT },
   'product.hold': { broadcast: true, fields: BY_PRODUCT },

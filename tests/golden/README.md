@@ -175,6 +175,7 @@ expect:
 |---|---|---|
 | `broadcast.start` | `b`(빈 문자열이 아닌 방송 ID), `date`(`YYYY-MM-DD`), `title`(문자열 — 글 칸: 휴대폰 번호가 있으면 읽기 오류, 아래 "판매자가 적는 칸의 휴대폰 번호") | `settings`(설정 키 → 값. 아래 "설정 키"의 키·값·범위만, DOMAIN_RULES 기본값 위에 덮어쓴다. 없으면 기본값. `settlement.groupBy: MANUAL`은 엔진 미구현이라 쓰지 않는다) (S04, D-070) |
 | `broadcast.end` | `b` | (S04, D-070) |
+| `broadcast.thanks` | `b`, `liveChat`(불리언) | 방송 중 감사 채팅 켜기·끄기 — 그 방송 설정의 `thanks.liveChat`만 바꾼다(그 뒤 확정부터, 같은 값이면 아무 일도 없다, D-YT-SRV-24) |
 | `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능 — 글 칸), `price`(0 이상 정수) | `stock`(1 이상, 기본 1 — 옵션 상품이면 `stocks`에 적지 않은 변형마다의 재고), `status`(`OPEN` 기본 / `READY`). 옵션 방송만(O1, R-19, D-O1-03): `aliases`(상품 별칭 — 문자열 목록 0~10개, 글 칸), `options`(`[{ name, choices: [{ label, aliases?, price? }] }]` — 항목 0~3개·선택지 1~20개·별칭 0~10개·글자 1~10/1~20자·`/`·`#`·제어 글자 없음·`price` 정수 −1,000,000~1,000,000·변형 100개까지·한 상품 안 비교 글자 겹침 없음·변형 단가 0 이상. 이름·별칭은 모두 글 칸), `stocks`(옵션 글 → 0 이상 정수. 키는 그 상품의 변형 옵션 글이어야 하고 `options` 없이 쓰지 않는다). 어기거나 옵션 방송이 아닌 방송에 쓰면 읽기 오류 |
 | `product.open` / `product.hold` / `product.close` | `b`, `no` | |
 | `product.update` | `b`, `no` | `name`(글 칸), `price`, `stock`, `applyTo`(`NEW_ONLY` 기본 / `UNPAID_CLAIMS`). 옵션 방송만(O1, R-19 "옵션 바꾸기"): `aliases`, `options`(바꾼 뒤의 전체 목록 — 모양은 `product.register`와 같다), `stocks`(옵션 글 → 0 이상 정수, 키는 바꾼 뒤의 변형). 찜이 있을 때 막히는 바꾸기는 읽기 오류가 아니라 엔진에서 아무 일도 없다 |

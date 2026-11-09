@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { generateMasterKey } from '../src/secrets.ts'
 import { productionServerOptions } from '../src/production.ts'
 import { SELLER_DEFAULTS } from '../src/service.ts'
-import { addSeller, client, createBroadcast, expectOk, newWorld, ORIGIN, openTestDb, type TestServer } from './support.ts'
+import { addSeller, client, createBroadcast, expectOk, newWorld, ORIGIN, openTestDb, writeEvent, type TestServer } from './support.ts'
 
 let world: TestServer | null = null
 
@@ -47,5 +47,38 @@ describe('D-YT-SRV-23 감사 채팅 기본 끔', () => {
     expect((await startSettings(world, second.id))['thanks.liveChat']).toBe(true)
     // 먼저 연 방송은 그대로
     expect((await startSettings(world, first.id))['thanks.liveChat']).toBe(false)
+  })
+})
+
+// D-YT-SRV-24 (사용자 지시 2026-11-09 "방송 화면에서 ... 버튼 눌러서 켜고 끌 수 있게"): 방송 중 감사 채팅 켜기·끄기
+describe('D-YT-SRV-24 방송 중 감사 채팅 켜기·끄기', () => {
+  it('끔으로 시작한 방송에서 켜면 그 뒤 확정부터 감사가 발송함에 들어가고, 끄면 다시 들어가지 않는다', async () => {
+    world = await newWorld({ sellerDefaults: SELLER_DEFAULTS })
+    const seller = await addSeller(world)
+    const broadcast = await createBroadcast(world, seller)
+    const b = broadcast.id
+    // 발송함에는 라벨 효과도 들어간다 — 감사(POST_THANKS)만 센다
+    const thanksRows = async () => {
+      const found = await ((world as TestServer).database.pglite as PGlite).query<{ n: number }>(`select count(*)::int as n from outbox where kind = 'POST_THANKS'`)
+      return found.rows[0]?.n ?? 0
+    }
+    for (const no of [1, 2, 3]) await expectOk(writeEvent(world, seller, { type: 'product.register', b, no, name: `품종${String(no)}`, price: 10_000 }))
+    await expectOk(writeEvent(world, seller, { type: 'sms', b, no: 1, received: '20:00:01', phone: '010-1111-2222' }))
+    expect(await thanksRows()).toBe(0)
+    await expectOk(writeEvent(world, seller, { type: 'broadcast.thanks', b, liveChat: true }))
+    expect((await startSettings(world, b))['thanks.liveChat']).toBe(false)
+    await expectOk(writeEvent(world, seller, { type: 'sms', b, no: 2, received: '20:00:02', phone: '010-3333-4444' }))
+    expect(await thanksRows()).toBe(1)
+    await expectOk(writeEvent(world, seller, { type: 'broadcast.thanks', b, liveChat: false }))
+    await expectOk(writeEvent(world, seller, { type: 'sms', b, no: 3, received: '20:00:03', phone: '010-5555-6666' }))
+    expect(await thanksRows()).toBe(1)
+  })
+
+  it('켜기·끄기 값은 참·거짓만 받는다', async () => {
+    world = await newWorld({ sellerDefaults: SELLER_DEFAULTS })
+    const seller = await addSeller(world)
+    const broadcast = await createBroadcast(world, seller)
+    const bad = await writeEvent(world, seller, { type: 'broadcast.thanks', b: broadcast.id, liveChat: 'yes' })
+    expect(bad.status).toBe(400)
   })
 })

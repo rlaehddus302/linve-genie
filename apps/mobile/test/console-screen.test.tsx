@@ -4,10 +4,10 @@
 // 음성 켜기/끄기는 아래 고정 버튼 "듣기 시작/듣기 멈추기", 음성 상태는 머리의 "듣는 중". 요청 본문·막힘 조건 기대는 그대로다.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
+import { ConsoleScreen, THANKS_ON_DONE } from '../src/screens/ConsoleScreen.tsx'
 import { DIRECT_INPUT, LISTEN_START, LISTEN_STATE, LISTEN_STOP, VOICE_CONSENT_LINES, VOICE_SENT_LINE } from '../src/lib/words.ts'
 import { makeWorld } from './screen-support.tsx'
-import { BROADCAST, buyer, changes, claim, flush, fullView, product } from './support.ts'
+import { BROADCAST, BROADCAST_VIEW, SETTINGS, buyer, changes, claim, flush, fullView, product } from './support.ts'
 
 function setVisibility(state: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
@@ -449,6 +449,23 @@ describe('ConsoleScreen', () => {
     await waitFor(() => expect(home).toBe(1))
     expect(screen.getByText('끝난 방송')).toBeTruthy()
     expect(screen.queryByRole('button', { name: DIRECT_INPUT })).toBeNull()
+  })
+
+  // D-YT-SRV-24 (사용자 지시 2026-11-09 "방송 화면에서 ... 버튼 눌러서 켜고 끌 수 있게")
+  it('방송 메뉴에서 꺼져 있는 감사 채팅을 켜면 broadcast.thanks(켬)가 가고 결과 한 줄이 보인다 — 지금 상태가 줄 이름에 보인다', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    await open(world)
+    // 쓰기 뒤 따라잡기: 방송 설정의 감사 채팅이 켬으로 바뀐 증분
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { broadcasts: [{ ...BROADCAST_VIEW, settings: { ...SETTINGS, 'thanks.liveChat': true } }] }) }))
+    openMenu()
+    fireEvent.click(await screen.findByRole('button', { name: '감사 채팅 켜기' }))
+    await waitFor(() => expect(world.events.some((call) => call.body?.type === 'broadcast.thanks')).toBe(true))
+    const sent = world.events.find((call) => call.body?.type === 'broadcast.thanks')
+    expect(sent?.body).toMatchObject({ type: 'broadcast.thanks', b: 'b1', liveChat: true })
+    expect(await screen.findByText(THANKS_ON_DONE)).toBeTruthy()
+    // 다시 열면 지금 상태(켬)대로 "끄기"
+    openMenu()
+    expect(await screen.findByRole('button', { name: '감사 채팅 끄기' })).toBeTruthy()
   })
 
   it('직접 넣기 예시는 그 방송 가격 단위와 같은 꼴이다 — 천원 단위면 "15 핑크프릴 10" (D-UX2-07)', async () => {
