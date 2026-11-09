@@ -2,7 +2,7 @@
 // 목록: 정렬(누적 큰 순·최근 산 순·미입금 많은 순)·거르기(단골만·입금 늦음 주의만)·이름 찾기, 줄마다 단골·입금 늦음 주의·차단 꼬리표.
 // 자세히: 손님 기록(누적·마지막 구매·미입금·취소), 메모(200자, 연락처 금지, 비우면 한 번 묻기), 저장한 배송지(가린 이름·끝 4자리, 지우기),
 // 날짜별 기록(그날 이름·상품 합계·입금 상태). 판매자 사이에 손님 정보를 나누지 않는다(D-KP1-21).
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import {
   BLOCKED_WORD,
@@ -36,6 +36,7 @@ import {
 } from '@livejjim/web/src/lib/customers.ts'
 import { kstDate } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, post, put, withQuery, type ApiError } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { AppHeader, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
@@ -105,41 +106,41 @@ export function CustomersScreen({ onBack, openCustomer }: { readonly onBack?: ()
   const [sort, setSort] = useState<CustomerSort>('total')
   const [filter, setFilter] = useState<CustomerFilter>('all')
   const [query, setQuery] = useState('')
-  const [view, setView] = useState<CustomersView | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [attempt, setAttempt] = useState(0)
   const [open, setOpen] = useState<CustomerRow | null>(null)
   const [moreBusy, setMoreBusy] = useState(false)
-
-  const path = (offset: number) => withQuery('/api/customers', { sort, filter, ...(query.trim() === '' ? {} : { q: query.trim() }), offset })
+  // 이름 찾기는 치기를 멈추고 0.3초 뒤에 묻는다 (비우면 바로)
+  const [asked, setAsked] = useState(query)
   useEffect(() => {
-    let alive = true
-    const timer = setTimeout(() => {
-      get<CustomersView>(path(0)).then(
-        (result) => {
-          if (!alive) return
-          setView(result)
-          setError(null)
-        },
-        (caught: unknown) => {
-          if (alive && isApiError(caught)) setError(caught)
-        },
-      )
-    }, query === '' ? 0 : 300)
-    return () => {
-      alive = false
-      clearTimeout(timer)
-    }
-  }, [sort, filter, query, attempt])
+    if (query === asked) return
+    const timer = setTimeout(() => setAsked(query), query === '' ? 0 : 300)
+    return () => clearTimeout(timer)
+  }, [query, asked])
+
+  const path = (offset: number) => withQuery('/api/customers', { sort, filter, ...(asked.trim() === '' ? {} : { q: asked.trim() }), offset })
+  // 첫 쪽은 기억해 두고 다시 올 때 바로 보인 뒤 뒤에서 다시 받는다 (D-UX4-77). "더 보기"로 붙인 쪽은 이 화면에만 둔다 — 첫 쪽이 바뀌면 버린다
+  const { data: firstData, error: firstError, reload } = useCachedGet<CustomersView>(path(0))
+  // 정렬·거르기·찾기를 바꾸는 동안은 새 목록이 올 때까지 보이던 목록을 그대로 둔다 (불러오는 중으로 깜빡이지 않게)
+  const lastFirst = useRef<CustomersView | null>(null)
+  if (firstData !== null) lastFirst.current = firstData
+  const first = firstData ?? lastFirst.current
+  const [extra, setExtra] = useState<{ readonly base: CustomersView; readonly page: CustomersView } | null>(null)
+  const [moreError, setMoreError] = useState<ApiError | null>(null)
+  const view = useMemo(() => {
+    if (first === null) return null
+    if (extra === null || extra.base !== first) return first
+    return { ...extra.page, customers: [...first.customers, ...extra.page.customers] }
+  }, [first, extra])
+  const error = firstError ?? moreError
 
   const loadMore = async () => {
-    if (view === null || view.next === null) return
+    if (first === null || view === null || view.next === null) return
     setMoreBusy(true)
     try {
       const next = await get<CustomersView>(path(view.next))
-      setView({ ...next, customers: [...view.customers, ...next.customers] })
+      setExtra((old) => ({ base: first, page: { ...next, customers: [...(old !== null && old.base === first ? old.page.customers : []), ...next.customers] } }))
+      setMoreError(null)
     } catch (caught: unknown) {
-      if (isApiError(caught)) setError(caught)
+      if (isApiError(caught)) setMoreError(caught)
     } finally {
       setMoreBusy(false)
     }
@@ -164,7 +165,13 @@ export function CustomersScreen({ onBack, openCustomer }: { readonly onBack?: ()
         {error !== null ? (
           <View style={{ gap: SPACE.xs }}>
             <Notice tone="danger" alert>{error.message}</Notice>
-            <TextButton label={RETRY_NOW} onPress={() => setAttempt((n) => n + 1)} />
+            <TextButton
+              label={RETRY_NOW}
+              onPress={() => {
+                setMoreError(null)
+                void reload()
+              }}
+            />
           </View>
         ) : null}
         {view === null && error === null ? <Loading /> : null}
@@ -207,25 +214,8 @@ export function CustomerDetailScreen({ id, onBack }: { readonly id: string; read
 
 function CustomerDetail({ id, row, today, onBack }: { readonly id: string; readonly row?: CustomerRow; readonly today: string; readonly onBack: () => void }) {
   const { p } = useKit()
-  const [view, setView] = useState<(CustomerDetailView & { readonly ledger?: LedgerView | null }) | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [attempt, setAttempt] = useState(0)
-  useEffect(() => {
-    let alive = true
-    get<CustomerDetailView & { readonly ledger?: LedgerView | null }>(`/api/customers/${encodeURIComponent(id)}`).then(
-      (result) => {
-        if (!alive) return
-        setView(result)
-        setError(null)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [id, attempt])
+  // 기억해 둔 손님 자세히를 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data: view, error, reload, set: setView } = useCachedGet<CustomerDetailView & { readonly ledger?: LedgerView | null }>(`/api/customers/${encodeURIComponent(id)}`)
   const base = view?.today ?? today
   const shown = view?.customer ?? row
   return (
@@ -241,7 +231,7 @@ function CustomerDetail({ id, row, today, onBack }: { readonly id: string; reado
         {error !== null ? (
           <View style={{ gap: SPACE.xs }}>
             <Notice tone="danger" alert>{error.status === 404 ? '그 손님을 찾지 못했어요.' : error.message}</Notice>
-            {error.status === 404 ? null : <TextButton label={RETRY_NOW} onPress={() => setAttempt((n) => n + 1)} />}
+            {error.status === 404 ? null : <TextButton label={RETRY_NOW} onPress={() => void reload()} />}
           </View>
         ) : null}
         {view === null && error === null ? <Loading /> : null}
@@ -253,7 +243,7 @@ function CustomerDetail({ id, row, today, onBack }: { readonly id: string; reado
               ))}
             </InfoCard>
             <InfoCard label="손님 메모">
-              <MemoEditor customer={id} memo={view.memo} today={base} />
+              <MemoEditor customer={id} memo={view.memo} today={base} onSaved={(memo) => setView((now) => (now === null ? view : { ...now, memo }))} />
             </InfoCard>
             <LedgerCard customer={id} ledger={view.ledger ?? null} today={base} onDeleted={() => setView({ ...view, ledger: null })} />
             <InfoCard title="날짜별 기록">
@@ -291,10 +281,19 @@ function DayLine({ line, today }: { readonly line: CustomerDayLine; readonly tod
 }
 
 /** 손님 메모 (BUY-07): 200자, 휴대폰 번호 모양은 서버가 막는다, 빈 글로 저장하면 한 번 묻는다(D-CRM1-16) */
-function MemoEditor({ customer, memo: first, today }: { readonly customer: string; readonly memo: MemoView | null; readonly today: string }) {
+function MemoEditor({ customer, memo: first, today, onSaved }: { readonly customer: string; readonly memo: MemoView | null; readonly today: string; readonly onSaved?: (memo: MemoView | null) => void }) {
   const { p } = useKit()
   const [memo, setMemo] = useState(first)
   const [text, setText] = useState(first?.text ?? '')
+  // 기억해 둔 자세히로 먼저 그린 뒤 뒤에서 받은 메모가 다르면 따라간다 — 판매자가 고치던 중이면 적던 글을 덮지 않는다 (D-UX4-77)
+  const seen = useRef(first)
+  useEffect(() => {
+    const before = seen.current
+    if ((before?.text ?? null) === (first?.text ?? null) && (before?.savedAt ?? null) === (first?.savedAt ?? null)) return
+    seen.current = first
+    setText((typed) => (typed === (before?.text ?? '') ? (first?.text ?? '') : typed))
+    setMemo(first)
+  }, [first])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [done, setDone] = useState<string | null>(null)
@@ -309,6 +308,7 @@ function MemoEditor({ customer, memo: first, today }: { readonly customer: strin
       const result = await put<{ memo: MemoView | null }>(`/api/customers/${customer}/memo`, { text })
       setMemo(result.memo)
       setText(result.memo?.text ?? '')
+      onSaved?.(result.memo)
       setDone(result.memo === null ? MEMO_CLEARED : MEMO_SAVED)
     } catch (caught: unknown) {
       if (isApiError(caught)) setError(caught)

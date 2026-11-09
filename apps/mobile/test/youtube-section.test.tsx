@@ -8,6 +8,7 @@ import { BroadcastLinkScreen } from '../src/screens/BroadcastLinkScreen.tsx'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { setClipboardProbe, setClipboardReader } from '../src/lib/clipboard.ts'
 import { setWebOpener } from '../src/lib/open-web.ts'
+import { MOBILE_FALLBACK_HINT } from '../src/lib/youtube.ts'
 import { makeWorld } from './screen-support.tsx'
 import { flush, fullView, product } from './support.ts'
 
@@ -140,10 +141,12 @@ describe('콘솔 유튜브 (앱)', () => {
     expect(warning.textContent).toBe(BLOCKED)
     // 옛 문장 "아래 문자찜 칸이나…" — 문자찜 칸은 "직접 넣기" 시트로 옮겼다 (D-UX2-03)
     // 옛 기대: '"직접 넣기"의 문자찜 칸이나 …'. 새 기대(D-UX4-20): 문자찜 칸은 톱니(방송 설정) → "문자찜 직접 넣기"
-    expect(screen.getByText('톱니 → "문자찜 직접 넣기"나 음성으로 넣을 수 있어요.')).toBeTruthy()
+    // 새 기대(D-UX4-78): 문자찜 직접 넣기·댓글 붙여넣기를 없애 음성으로만 안내
+    expect(screen.getByText(MOBILE_FALLBACK_HINT)).toBeTruthy()
     // 옛 기대: "댓글 붙여넣기 (웹으로 열기)". 새 기대(D-APPX-03): 방송 화면 안 붙여넣기 창을 연다
     // 경고 줄의 단추 + 뒤에 열려 있는 방송 설정 화면의 같은 이름 줄 (D-UX4-20 — 설정 화면은 판이 아니라 방송 화면 위에 남는다)
-    expect(screen.getAllByRole('button', { name: '댓글 붙여넣기' })).toHaveLength(2)
+    // 새 기대(D-UX4-78): 댓글 붙여넣기를 앱에서 없앴다 — 경고 줄에도 방송 관리에도 단추가 없다
+    expect(screen.queryAllByRole('button', { name: '댓글 붙여넣기' })).toHaveLength(0)
     await emit({ status: 'LIVE' })
     expect(screen.queryByRole('alert', { name: '유튜브 채팅 경고' })).toBeNull()
     expect(within(section()).getByText(RESUMED)).toBeTruthy()

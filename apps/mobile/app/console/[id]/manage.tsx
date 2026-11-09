@@ -24,12 +24,10 @@ export default function ManageRoute() {
   if (session.state === 'out') return <Redirect href="/" />
   if (session.state !== 'in' || typeof id !== 'string') return null
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/console/[id]', params: { id } }))
-  // 방송을 끝내면 맨 처음 화면(홈)까지 돌아간다 — 홈이 다시 보일 때 방송 목록을 다시 받는다 (D-UX2-07)
-  const home = () => (router.canDismiss() ? router.dismissAll() : router.replace('/'))
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
-        <ManageScreen broadcastId={id} onBack={back} refresh={visits} onEnded={home} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} openLabels={() => router.push('/labels?from=console')} openTool={(tool) => router.push({ pathname: '/console/[id]/tool/[name]', params: { id, name: tool } })} />
+        <ManageScreen broadcastId={id} onBack={back} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} openLabels={() => router.push('/label-print')} openTool={(tool) => router.push({ pathname: '/console/[id]/tool/[name]', params: { id, name: tool } })} />
       </KitInsets>
     </SafeAreaView>
   )

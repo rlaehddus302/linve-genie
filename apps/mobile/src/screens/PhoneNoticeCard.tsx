@@ -9,7 +9,8 @@
 // - 토큰 원문은 화면에 보이지 않는다(앱이 바로 넣는다). 서버가 토큰을 받지 않으면(401) "받기 열쇠를 다시 넣어 주세요" + "받기 열쇠 다시 받기"(D-SMS3-39).
 import { useCallback, useEffect, useState } from 'react'
 import { apiConfig } from '../api/config.ts'
-import { get, isApiError, post } from '../api/client.ts'
+import { isApiError, post } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { noticeModule, type PhoneNoticeState } from '../native/notice.ts'
 import { SERVICE_NAME } from '../lib/words.ts'
 import { BigButton, Body, Card, Hint, Notice, Row, Tag } from '../ui/parts.tsx'
@@ -72,20 +73,16 @@ function deviceName(state: PhoneNoticeState): string {
 export function PhoneNoticeCard() {
   const port = noticeModule()
   const [state, setState] = useState<PhoneNoticeState | null>(null)
-  const [server, setServer] = useState<InboxServerView | null>(null)
+  // 서버 쪽 받기 상태는 기억해 둔 것을 바로 쓰고 뒤에서 다시 받는다 (D-UX4-77) — 모르면 null
+  const inbox = useCachedGet<{ inbox: InboxServerView }>(port === null ? null : '/api/inbox/settings')
+  const server = inbox.data?.inbox ?? null
+  const reloadInbox = inbox.reload
   const [sheet, setSheet] = useState(false)
   const [ask, setAsk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
 
-  const loadServer = useCallback(async () => {
-    try {
-      const { inbox } = await get<{ inbox: InboxServerView }>('/api/inbox/settings')
-      setServer(inbox)
-    } catch {
-      setServer(null)
-    }
-  }, [])
+  const loadServer = useCallback(() => reloadInbox(), [reloadInbox])
 
   useEffect(() => {
     if (port === null) return
@@ -94,12 +91,11 @@ export function PhoneNoticeCard() {
       if (alive) setState(next)
     })
     const off = port.addStateListener((next) => setState(next))
-    void loadServer()
     return () => {
       alive = false
       off()
     }
-  }, [port, loadServer])
+  }, [port])
 
   if (port === null) {
     return (

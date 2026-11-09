@@ -9,7 +9,8 @@ import { ScrollView, View } from 'react-native'
 import type { PackingAction, PackingEntry, PackingList, PackingResult } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { PACKING_LOCKED_BOOKED, PACKING_LOCKED_WAITING, hidesPackingTag, isLive, packingTagWords } from '@livejjim/web/src/lib/parcel-words.ts'
-import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
+import { isApiError, newRequestId, post, withRetry } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { ALL_CHECKED_HINT, PACKED_NOTICE, PACKING_FILTERS, PACKING_TONE, SEALED_VIEW_ONLY, inFilter, isChanged, itemCount, itemLineWords, packItems, sortEntries, type PackingFilter } from '../lib/packing.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { paymentWord, RETRY_NOW } from '../lib/words.ts'
@@ -29,23 +30,17 @@ interface Day {
 export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { readonly initialDate?: string; readonly onBack?: () => void; readonly openParcels?: (date: string) => void; readonly topGap?: number }) {
   const { p } = useKit()
   const room = useTabBarRoom()
-  const [days, setDays] = useState<Day[] | null>(null)
-  const [date, setDate] = useState<string | null>(initialDate ?? null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
-
+  // 다시 오면 기억해 둔 날짜·목록으로 바로 그리고 뒤에서 조용히 다시 받는다 (D-UX4-77)
+  const { data: daysView, error, checked } = useCachedGet<{ days: Day[] }>('/api/days')
+  const days = useMemo(() => (daysView === null ? null : daysView.days.filter((day) => !day.rehearsal)), [daysView])
+  const [picked, setDate] = useState<string | null>(initialDate ?? null)
+  const date = picked ?? days?.[0]?.date ?? null
+  // 날짜는 서버에서 새로 받은 목록으로 한 번 정하고, 그 뒤로는 새 목록이 와도 바꾸지 않는다 — 보던 날짜가 저절로 넘어가지 않게.
+  // 기억해 둔 목록만 있는 동안은 따라간다(그 사이 새 방송 날이 생겼으면 가장 최근 날로)
   useEffect(() => {
-    get<{ days: Day[] }>('/api/days').then(
-      (view) => {
-        const real = view.days.filter((day) => !day.rehearsal)
-        setDays(real)
-        setDate((current) => current ?? real[0]?.date ?? null)
-      },
-      (caught: unknown) => {
-        if (isApiError(caught)) setError(caught)
-      },
-    )
-  }, [])
+    if (picked === null && date !== null && checked) setDate(date)
+  }, [picked, date, checked])
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="packing-screen">
@@ -84,28 +79,11 @@ export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { reado
 function PackingDay({ date, onProgress, openParcels }: { readonly date: string; readonly onProgress: (value: { done: number; total: number } | null) => void; readonly openParcels?: (date: string) => void }) {
   const { p } = useKit()
   const { stream } = useServices()
-  const [list, setList] = useState<PackingList | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
   const [filter, setFilter] = useState<PackingFilter>('todo')
   const [open, setOpen] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
-
-  useEffect(() => {
-    let alive = true
-    get<PackingList>(`/api/days/${date}/packing`).then(
-      (view) => {
-        if (!alive) return
-        setList(view)
-        setError(null)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [date, version])
+  // 기억해 둔 목록을 바로 보이고 뒤에서 다시 받는다 — 다시 받다 실패해도 보이던 목록은 그대로 (D-UX4-77)
+  const { data: list, error, set: setList } = useCachedGet<PackingList>(`/api/days/${date}/packing`, version)
 
   // 포장 알림·범위 변경이 오면 다시 받는다 (AC-I2-32)
   useEffect(() => {
@@ -198,7 +176,7 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
           next={nextTodo === undefined ? undefined : () => setOpen(nextTodo.buyer)}
           onDone={(entry) => {
             setOpen(entry.buyer)
-            setList((now) => (now === null ? now : { ...now, entries: now.entries.map((item) => (item.buyer === entry.buyer ? entry : item)) }))
+            if (list !== null) setList((now) => (now === null ? list : { ...now, entries: now.entries.map((item) => (item.buyer === entry.buyer ? entry : item)) }))
           }}
         />
       ) : null}

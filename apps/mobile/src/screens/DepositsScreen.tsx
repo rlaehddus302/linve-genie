@@ -4,12 +4,13 @@
 // 묶음 금액이 그사이 바뀌면(BUNDLE_CHANGED) 서버 문장을 보이고 목록을 새로 받는다(같은 값으로 다시 보내지 않는다).
 // 입금 받는 곳(계좌 연동·휴대폰 알림)·기억한 입금자명은 "입금 받는 곳" 탭(DepositSources, D-APPX-03).
 // 모양 (D-UX3-93, 홈처럼): 좌우 20 · 흰 카드, 입금 이름·금액 한 줄, 제안 묶음은 옅은 회색 줄, [무시하기]·[다른 묶음 지정]은 위아래가 아니라 좌우로.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import type { BundleView, DepositActionResult, DepositList, DepositStatus, DepositView, PastePreview, PasteSummary } from '@livejjim/web/src/api/deposit-types.ts'
 import { BEFORE_SALE, DEPOSIT_STATUS_WORD, PASTE_STATE_WORD, UNREADABLE_WORD, bundleChange, bundleWords, confirmLine, depositLabel, depositName, depositTime, pasteResultWords, reasonWords, revertQuestion, sourceWords } from '@livejjim/web/src/lib/deposit-words.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { SourcesTab } from './DepositSources.tsx'
 import { useServices } from '../services.tsx'
@@ -83,13 +84,9 @@ export function DepositsScreen({ onBack }: { readonly onBack: () => void }) {
   const [tab, setTab] = useState<Tab>('review')
   const [notice, setNotice] = useState<Flash | null>(null)
   const tick = useDepositTick()
-  const [review, setReview] = useState<number | null>(null)
-  useEffect(() => {
-    get<{ review: number }>('/api/deposits/count').then(
-      (view) => setReview(view.review),
-      () => undefined,
-    )
-  }, [tick, notice])
+  // 확인 필요 숫자: 기억해 둔 값을 바로 보이고 뒤에서 다시 받는다(D-UX4-77) — 못 받으면 숫자 없이
+  const countRefresh = useMemo(() => ({ tick, notice }), [tick, notice])
+  const review = useCachedGet<{ review: number }>('/api/deposits/count', countRefresh).data?.review ?? null
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="deposits-screen">
       <AppHeader title="입금 확인" onBack={onBack} />
@@ -109,26 +106,10 @@ export function DepositsScreen({ onBack }: { readonly onBack: () => void }) {
 }
 
 function DepositTab({ tab, tick, onNotice }: { readonly tab: Exclude<Tab, 'paste' | 'sources'>; readonly tick: number; readonly onNotice: (notice: Flash | null) => void }) {
-  const [list, setList] = useState<readonly DepositView[] | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [version, setVersion] = useState(0)
-  const reload = useCallback(() => setVersion((n) => n + 1), [])
-  useEffect(() => {
-    let alive = true
-    get<DepositList>(withQuery('/api/deposits', { status: STATUS_OF[tab].join(','), limit: 50 })).then(
-      (view) => {
-        if (!alive) return
-        setList(view.deposits)
-        setError(null)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [tab, tick, version])
+  // 목록은 기억해 둔 것을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data, error, reload: refetch } = useCachedGet<DepositList>(withQuery('/api/deposits', { status: STATUS_OF[tab].join(','), limit: 50 }), tick)
+  const list: readonly DepositView[] | null = data?.deposits ?? null
+  const reload = useCallback(() => void refetch(), [refetch])
   if (error !== null && list === null) {
     return (
       <View style={{ gap: SPACE.sm }}>

@@ -151,7 +151,7 @@ export function useMobileYoutube(broadcastId: string, enabled: boolean): MobileY
 }
 
 /** 맨 위 경고 (AC5·AC6·AC8) — 휴대폰은 확장 안내 없이 문자찜·음성·댓글 붙여넣기(앱 안 창 — D-APPX-03) */
-export function YoutubeWarning({ yt, closed, onPaste }: { readonly yt: MobileYoutube; readonly closed: boolean; readonly onPaste?: () => void }) {
+export function YoutubeWarning({ yt, closed }: { readonly yt: MobileYoutube; readonly closed: boolean }) {
   if (closed || yt.phase !== 'ready') return null
   const line = warningLine(yt.link?.collector ?? null, yt.retryingLong)
   if (line === null) return null
@@ -162,12 +162,8 @@ export function YoutubeWarning({ yt, closed, onPaste }: { readonly yt: MobileYou
         {line}
       </Notice>
       {web ? (
-        <>
-          <Hint>{MOBILE_FALLBACK_HINT}</Hint>
-          <Row wrap>
-            {onPaste !== undefined ? <BigButton small label="댓글 붙여넣기" onPress={onPaste} /> : null}
-          </Row>
-        </>
+        // 댓글 붙여넣기 단추는 없앴다 (D-UX4-78) — 채팅을 못 받는 동안은 음성으로
+        <Hint>{MOBILE_FALLBACK_HINT}</Hint>
       ) : null}
     </Stack>
   )

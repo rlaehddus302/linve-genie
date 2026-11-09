@@ -2,7 +2,7 @@
 // 숫자만 — 손님 이름·연락처 없음. 낱말·계산은 웹 lib/report.ts를 그대로 쓴다(코어는 포맷만).
 // 리포트 화면 (D-UX3-93, 홈처럼 다듬기): 판매 금액은 맨 위 큰 숫자, 나머지는 회색 이름 - 오른쪽 값 줄. 뻔한 설명 글은 뺐다(받은 돈·알 수 없는 손님처럼 헷갈리는 것만 남김).
 // 날짜 알약 아래 긴 날짜 줄(알약과 겹침)·"더 보기" 큰 단추도 뺐다 → 글자 단추
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { dateLong } from '@livejjim/web/src/lib/kst.ts'
 import {
@@ -21,7 +21,7 @@ import {
   type CompareDiff,
   type ReportView,
 } from '@livejjim/web/src/lib/report.ts'
-import { get, isApiError, type ApiError } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { DayPills, useRealDays } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, Txt, useKit } from '../ui/kit/index.ts'
@@ -32,26 +32,8 @@ import { CARD_GAP, PAGE_SIDE, SectionCard, TextLink, ValueLine } from './order-p
 export function ReportScreen({ initialDate, onBack }: { readonly initialDate?: string; readonly onBack: () => void }) {
   const { p } = useKit()
   const { days, date, setDate, error: daysError } = useRealDays(initialDate)
-  const [view, setView] = useState<ReportView | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [attempt, setAttempt] = useState(0)
-
-  useEffect(() => {
-    if (date === null) return
-    let alive = true
-    setError(null)
-    get<ReportView>(`/api/days/${date}/report`).then(
-      (result) => {
-        if (alive) setView(result)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [date, attempt])
+  // 기억해 둔 리포트를 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data: view, error, reload } = useCachedGet<ReportView>(date === null ? null : `/api/days/${date}/report`)
 
   const shown = view !== null && view.date === date ? view : null
   return (
@@ -64,7 +46,7 @@ export function ReportScreen({ initialDate, onBack }: { readonly initialDate?: s
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>
-            <BigButton label={RETRY_NOW} kind="secondary" onPress={() => setAttempt((n) => n + 1)} />
+            <BigButton label={RETRY_NOW} kind="secondary" onPress={() => void reload()} />
           </View>
         ) : null}
         {date !== null && shown === null && error === null ? <Loading text="리포트를 불러오는 중…" /> : null}

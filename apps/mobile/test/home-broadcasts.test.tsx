@@ -5,6 +5,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { AllBroadcastsScreen, agoWords, byDate, liveBroadcast } from '../src/screens/BroadcastList.tsx'
 import { broadcastLength, historyAgo, HomeScreen, pastBroadcasts } from '../src/screens/HomeScreen.tsx'
+import { clearCached } from '../src/lib/cached-get.ts'
 import { makeWorld } from './screen-support.tsx'
 
 const NOW = Date.parse('2026-11-03T05:30:00.000Z')
@@ -53,11 +54,33 @@ describe('내 방송 (D-UX3-18)', () => {
     const rows = within(group).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '방송 모두 보기')
     expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-b', 'broadcast-a'])
     expect(rows[0]?.getAttribute('aria-label')).toBe('c 방송 — 4시간 전')
-    fireEvent.click(within(group).getByRole('button', { name: '방송 모두 보기' }))
-    expect(navigation.openAllBroadcasts).toHaveBeenCalledTimes(1)
+    // 옛 기대: [모두보기]가 늘 있다. 새 기대(D-UX4-81, 사용자 지시 2026-11-10): 홈 4개를 넘쳐 안 보이는 방송이 있을 때만 — 지난 방송 3개라 없다
+    expect(within(group).queryByRole('button', { name: '방송 모두 보기' })).toBeNull()
     // 라이브 확인은 방송 목록을 받은 뒤 한 번 더 그린다 (D-UX3-91)
     fireEvent.click(await screen.findByRole('button', { name: '지금 라이브 중' }))
     expect(navigation.openConsole).toHaveBeenCalledWith('t')
+  })
+
+  it('[모두보기]는 지난 방송이 홈 4개를 넘칠 때만 — 4개면 없고 5개면 4줄 + [모두보기] (D-UX4-81)', async () => {
+    const past = (count: number) => Array.from({ length: count }, (_, index) => item(`p${String(index)}`, `2026-10-${String(20 + index)}`))
+    for (const [count, shown] of [[4, false], [5, true]] as const) {
+      // 화면 자료 기억(D-UX4-77)을 비워 두 번째 그림이 첫 번째 목록으로 먼저 그려지지 않게
+      clearCached()
+      const world = makeWorld()
+      world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: past(count) } }))
+      const navigation = nav()
+      const view = render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
+      const group = await screen.findByRole('group', { name: '내 방송' })
+      const rows = within(group).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '방송 모두 보기')
+      expect(rows).toHaveLength(4)
+      const all = within(group).queryByRole('button', { name: '방송 모두 보기' })
+      expect(all !== null).toBe(shown)
+      if (all !== null) {
+        fireEvent.click(all)
+        expect(navigation.openAllBroadcasts).toHaveBeenCalledTimes(1)
+      }
+      view.unmount()
+    }
   })
 
   it('방송 이력 낱말: 지난 시간 "59분 전 · 23시간 전 · 13일 전 · 4주 전 · 11개월 전 · 2년 전", 방송 길이 "2:30:30" (D-UX3-85)', () => {

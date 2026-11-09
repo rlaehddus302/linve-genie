@@ -8,9 +8,10 @@ import type { PackingList, ReceiptBuyers, Settlement, WriteResult } from '@livej
 import type { ParcelBrief, ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { parcelLine } from '@livejjim/web/src/lib/parcel-words.ts'
 import { dateWords, kstShort } from '@livejjim/web/src/lib/kst.ts'
-import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
+import { isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { BuyerNames } from '../lib/derive.ts'
 import { useParcelVersion } from '../lib/parcel-version.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import {
   ADJUST_RANGE,
@@ -200,38 +201,21 @@ function QuickLinks({ links }: { readonly links: readonly { readonly label: stri
 
 /** 손님마다 택배 시도 (포장 목록에 실려 온다 — 웹 정산 줄과 같은 출처, AC-T1-65). 못 받으면 꼬리표 없이 */
 function useParcelMarks(date: string, version: number): ReadonlyMap<string, ParcelBrief> {
-  const [marks, setMarks] = useState<ReadonlyMap<string, ParcelBrief>>(new Map())
-  useEffect(() => {
-    let alive = true
-    get<PackingList>(`/api/days/${date}/packing`).then(
-      (list) => {
-        if (!alive) return
-        const next = new Map<string, ParcelBrief>()
-        for (const entry of list.entries) if (entry.parcel != null) next.set(entry.buyer, entry.parcel)
-        setMarks(next)
-      },
-      () => undefined,
-    )
-    return () => {
-      alive = false
-    }
-  }, [date, version])
-  return marks
+  // 기억해 둔 포장 목록으로 바로 꼬리표를 붙이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data: list } = useCachedGet<PackingList>(`/api/days/${date}/packing`, version)
+  return useMemo(() => {
+    const next = new Map<string, ParcelBrief>()
+    if (list !== null) for (const entry of list.entries) if (entry.parcel != null) next.set(entry.buyer, entry.parcel)
+    return next
+  }, [list])
 }
 
 /** 손님마다 단계 (D-UX3-39) — 택배 줄·영수증 줄을 받으면 그때 채운다 (못 받으면 꼬리표 없이) */
 function useOrderSteps(date: string, version: number): ReadonlyMap<string, OrderSteps> {
-  const [steps, setSteps] = useState<ReadonlyMap<string, OrderSteps>>(new Map())
-  useEffect(() => {
-    let alive = true
-    Promise.all([get<ParcelDay>(`/api/parcels/days/${date}`).catch(() => null), get<ReceiptBuyers>(`/api/days/${date}/receipt-buyers`).catch(() => null)]).then(([parcels, receipts]) => {
-      if (alive) setSteps(orderStepsOf(parcels, receipts))
-    })
-    return () => {
-      alive = false
-    }
-  }, [date, version])
-  return steps
+  // 둘 다 기억해 둔 것으로 바로 채우고 뒤에서 다시 받는다 (D-UX4-77) — 하나라도 없으면 꼬리표 없이(orderStepsOf)
+  const { data: parcels } = useCachedGet<ParcelDay>(`/api/parcels/days/${date}`, version)
+  const { data: receipts } = useCachedGet<ReceiptBuyers>(`/api/days/${date}/receipt-buyers`, version)
+  return useMemo(() => orderStepsOf(parcels, receipts), [parcels, receipts])
 }
 
 function SettleRow({ settlement, name, parcel, steps, onPress }: { readonly settlement: Settlement; readonly name: string; readonly parcel: ParcelBrief | null; readonly steps: OrderSteps | null; readonly onPress: () => void }) {

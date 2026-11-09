@@ -4,9 +4,10 @@
 // - 음성: "번호와 가격이 들리면 바로 등록"(이 기기), 권한 설명 문장 보기.
 // - 라벨: 라벨 기능 켬/끔(PUT /api/settings/labels), 1등 확정 때 라벨 자동 출력(PATCH /api/settings print.autoOnConfirm — 다음 방송부터).
 import { View } from 'react-native'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import type { LabelSettings } from '@livejjim/web/src/api/print-types.ts'
-import { get, isApiError, patch, put } from '../api/client.ts'
+import { isApiError, patch, put } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { openExternal, openWeb } from '../lib/open-web.ts'
 import { OPEN_IN_WEB, VOICE_INSTANT_LABEL } from '../lib/words.ts'
 import { useServices, useSession } from '../services.tsx'
@@ -57,31 +58,18 @@ export function SettingsScreen({
   const { voice } = useServices()
   const { session, logout } = useSession()
   const view = useSyncExternalStore(voice.subscribe, voice.getView)
-  const [labels, setLabels] = useState<LabelSettings | null>(null)
-  const [auto, setAuto] = useState<boolean | null>(null)
+  // 설정 값은 기억해 둔 것을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 못 받으면 그 줄을 숨긴다(전과 같다)
+  const { data: labels, set: setLabels } = useCachedGet<LabelSettings>('/api/settings/labels')
+  const { data: settings, set: setSettings } = useCachedGet<{ settings: Record<string, unknown> }>('/api/settings')
+  const auto = settings === null ? null : settings.settings['print.autoOnConfirm'] !== false
   const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   const [why, setWhy] = useState(false)
   const { toast, show, hide } = useToast()
   const { p } = useKit()
   /** 연결된 간편 로그인 (null: 모름·간편 로그인을 안 쓰는 서버) */
-  const [linked, setLinked] = useState<readonly LoginProvider[] | null>(null)
-
-  useEffect(() => {
-    if (onOpenLinked === undefined) return
-    get<unknown>('/api/auth/methods').then(
-      (value) => setLinked(methodsOf(value).providers.filter((item) => item.linked).map((item) => item.provider)),
-      () => setLinked(null),
-    )
-  }, [onOpenLinked === undefined, linkedRefresh])
-
-  useEffect(() => {
-    get<LabelSettings>('/api/settings/labels').then(setLabels, () => setLabels(null))
-    get<{ settings: Record<string, unknown> }>('/api/settings').then(
-      (response) => setAuto(response.settings['print.autoOnConfirm'] !== false),
-      () => setAuto(null),
-    )
-  }, [])
+  const methods = useCachedGet<unknown>(onOpenLinked === undefined ? null : '/api/auth/methods', linkedRefresh).data
+  const linked = useMemo<readonly LoginProvider[] | null>(() => (methods === null ? null : methodsOf(methods).providers.filter((item) => item.linked).map((item) => item.provider)), [methods])
 
   const run = async (work: () => Promise<Done>) => {
     if (busy) return
@@ -107,7 +95,7 @@ export function SettingsScreen({
 
   const setAutoPrint = async (next: boolean, previous: boolean): Promise<Done> => {
     await patch<{ settings: Record<string, unknown> }>('/api/settings', { settings: { 'print.autoOnConfirm': next } })
-    setAuto(next)
+    setSettings((old) => ({ settings: { ...(old?.settings ?? {}), 'print.autoOnConfirm': next } }))
     return { text: `${next ? '자동 출력을 켰어요.' : '자동 출력을 껐어요.'} ${SETTING_NEXT_BROADCAST}`, undo: () => setAutoPrint(previous, next) }
   }
 

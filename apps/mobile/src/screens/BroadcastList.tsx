@@ -2,12 +2,10 @@
 // 홈에는 최근 4개만 흰 카드 하나에, [모두보기]는 쌓인 화면 — 날짜마다 흰 카드를 나눈다.
 // 서버 목록은 오래된 순이라 여기서 뒤집어 최근 것을 위로 둔다 — 진행 중 방송도 가장 최근 것을 고른다.
 // 리허설 방송은 앱 어디에도 보이지 않는다 (D-UX3-86) — 예전에 만든 것도 목록에서 뺀다.
-import { useEffect, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
-import { get, isApiError } from '../api/client.ts'
-import { RETRY_NOW } from '../lib/words.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { EmptyFill, AppHeader, Icon, RowGroup, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
@@ -132,22 +130,10 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
 export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { readonly onOpen: (id: string) => void; readonly onBack: () => void; readonly now?: number }) {
   const { p } = useKit()
   const room = useTabBarRoom()
-  const [items, setItems] = useState<readonly BroadcastItem[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    let alive = true
-    get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts').then(
-      (view) => {
-        if (alive) setItems(view.broadcasts)
-      },
-      (caught: unknown) => {
-        if (alive) setError(isApiError(caught) ? caught.message : RETRY_NOW)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
+  // 기억해 둔 방송 목록을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data, error: loadError } = useCachedGet<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
+  const items = data?.broadcasts ?? null
+  const error = loadError === null ? null : loadError.message
   const past = items === null ? [] : pastBroadcasts(items)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="all-broadcasts">

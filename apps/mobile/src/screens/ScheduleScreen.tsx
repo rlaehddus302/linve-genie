@@ -4,7 +4,7 @@
 // 아직 문자는 보내지 않는다(D-KP1-20) — 그 한 줄을 늘 보인다.
 // 모양 (D-UX3-96): 흰 묶음 카드(카드 안 작은 회색 이름). 방송 줄마다 붙던 큰 단추 둘은 오른쪽 글자 단추 [지우기]·[고치기]로(부정 왼쪽),
 // 주소 단추 둘은 위아래로 쌓지 않고 한 줄에 — [새 주소 만들기](왼쪽) · [주소 보내기](오른쪽). 알림 신청 수는 이름 · 오른쪽 "n명" 줄로.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ScrollView, Share, View } from 'react-native'
 import {
   ALERT_WORDS,
@@ -28,7 +28,8 @@ import {
   type ScheduleItem,
   type ScheduleView,
 } from '@livejjim/web/src/lib/schedule.ts'
-import { del, get, isApiError, post, put, type ApiError } from '../api/client.ts'
+import { del, isApiError, post, put, type ApiError } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, TextField, ToggleRow, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
@@ -47,50 +48,36 @@ const EMPTY_DRAFT: Draft = { id: null, date: '', time: '20:00', title: '', intro
 
 export function ScheduleScreen({ onBack }: { readonly onBack: () => void }) {
   const { p } = useKit()
-  const [view, setView] = useState<ScheduleView | null>(null)
-  const [alerts, setAlerts] = useState<AlertCounts | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [attempt, setAttempt] = useState(0)
+  // 기억해 둔 일정을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data: view, error: loadError, reload, set: setView } = useCachedGet<ScheduleView>('/api/schedule')
+  const { data: alerts } = useCachedGet<AlertCounts>('/api/schedule/alerts')
+  const [writeError, setWriteError] = useState<ApiError | null>(null)
+  const error = writeError ?? loadError
   const [busy, setBusy] = useState(false)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [removing, setRemoving] = useState<ScheduleItem | null>(null)
   const [renewing, setRenewing] = useState(false)
-  const [channel, setChannel] = useState('')
-
+  const serverChannel = view?.page.channelUrl ?? ''
+  const [channel, setChannel] = useState(serverChannel)
+  // 서버의 채널 주소가 바뀌면(처음 받음·뒤에서 다시 받음) 칸도 맞춘다 — 판매자가 고치던 중이면 그대로 둔다
+  const seenChannel = useRef(serverChannel)
   useEffect(() => {
-    let alive = true
-    get<ScheduleView>('/api/schedule').then(
-      (result) => {
-        if (!alive) return
-        setView(result)
-        setChannel(result.page.channelUrl ?? '')
-        setError(null)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    get<AlertCounts>('/api/schedule/alerts').then(
-      (result) => {
-        if (alive) setAlerts(result)
-      },
-      () => undefined,
-    )
-    return () => {
-      alive = false
-    }
-  }, [attempt])
+    const before = seenChannel.current
+    if (before === serverChannel) return
+    seenChannel.current = serverChannel
+    setChannel((typed) => (typed === before ? serverChannel : typed))
+  }, [serverChannel])
 
   const run = async (call: () => Promise<ScheduleView>): Promise<boolean> => {
     setBusy(true)
-    setError(null)
+    setWriteError(null)
     try {
       const next = await call()
       setView(next)
       setChannel(next.page.channelUrl ?? '')
       return true
     } catch (caught: unknown) {
-      if (isApiError(caught)) setError(caught)
+      if (isApiError(caught)) setWriteError(caught)
       return false
     } finally {
       setBusy(false)
@@ -108,7 +95,7 @@ export function ScheduleScreen({ onBack }: { readonly onBack: () => void }) {
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>
-            {view === null ? <BigButton kind="secondary" label={RETRY_NOW} onPress={() => setAttempt((n) => n + 1)} /> : null}
+            {view === null ? <BigButton kind="secondary" label={RETRY_NOW} onPress={() => void reload()} /> : null}
           </View>
         ) : null}
         {view === null && error === null ? <Loading /> : null}

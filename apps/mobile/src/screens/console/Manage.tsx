@@ -1,29 +1,30 @@
 // 방송 관리 (D-UX4-20 → D-UX4-57): 토스 설정 화면처럼 굵은 묶음 이름 · 흰 카드 · 줄 이름만.
 // 방송 화면 위 진짜 쌓인 화면(app/console/[id]/manage)과, 경로가 없을 때(시험·웹) 방송 화면 안 겹친 화면이 같이 쓴다.
-// 여기서 여는 아래 판(문자찜·음성 설정·미리 등록·댓글 붙여넣기·채팅·방송 끝내기)도 이 안에 있다.
+// 여기서 여는 아래 창(음성 설정·상품 미리 등록·채팅 보기·화면 아래 창)도 이 안에 있다.
 import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
-import type { WriteResult } from '@livejjim/web/src/api/types.ts'
-import { isApiError, newRequestId, post, withRetry } from '../../api/client.ts'
-import { DOCK_CHOICES, DOCK_TITLE, dockLabel, setDockChoice, useDockChoice, type DockChoice } from '../../lib/dock-choice.ts'
+import { isApiError } from '../../api/client.ts'
+import { DOCK_CHOICES, DOCK_TITLE, dockLabel, setDockChoice, useDockChoice } from '../../lib/dock-choice.ts'
 import { LISTEN_START, LISTEN_STOP } from '../../lib/words.ts'
 import { useServices } from '../../services.tsx'
-import { BigButton, BottomSheet, ConfirmSheet, FullSheet, Icon, Tap, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, FullSheet, SheetChoices, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
-import { ChatView, PasteView } from './ChatPaste.tsx'
+import { LABEL_PRINT_TITLE } from '../LabelPrintScreen.tsx'
+import { ChatView } from './ChatPaste.tsx'
 import { useConsoleApi } from './context.ts'
 import { APP_IMPORT_TITLE, ImportView } from './ImportSheet.tsx'
 import { MenuGroup, MenuRow } from './parts.tsx'
-import { SmsForm } from './SmsForm.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
 import { VoiceSettingsPanel } from './VoicePanel.tsx'
 
 /** 머리 오른쪽 "관리" 단추·방송 관리 화면 이름 (D-UX4-42) — 화면에는 "관리", 읽기 이름은 "방송 관리" */
 export const MANAGE_LABEL = '방송 관리'
 
-/** 방송 관리의 문자찜 칸 줄 이름 (D-UX4-20 — 옛 "직접 넣기" 시트의 문자찜 칸) */
-export const SMS_DIRECT = '문자찜 직접 넣기'
+/** 방송 연결 줄 이름 — 그 안 맨 아래에 "방송 연결 끊기"(D-UX4-79) */
+export const LINK_TITLE = '방송 연결'
+/** 라벨 프린트 줄 이름 (D-UX4-80, 사용자 지시 2026-11-10 — 옛 "프린터·라벨") — 그 화면 제목과 같다 */
+export { LABEL_PRINT_TITLE }
 
 /** 감사 채팅 스위치 이름 (D-UX4-63, 사용자 지시 2026-11-10 — 옛 "감사 채팅") */
 export const THANKS_TITLE = '자동 감사 채팅'
@@ -46,26 +47,6 @@ export function ThanksSwitch({ on, busy, onPress }: { readonly on: boolean; read
         <Txt step="bodyLarge" color="textSub">{THANKS_HELP_BODY}</Txt>
         <ThanksExample />
       </BottomSheet>
-    </View>
-  )
-}
-
-/** 아래 창 고르기 (D-UX4-71): 세 줄 중 하나 — 고른 줄 오른쪽에 ✓, 누르면 바로 바뀌고 판이 닫힌다 */
-function DockChoiceList({ value, onPick }: { readonly value: DockChoice; readonly onPick: (next: DockChoice) => void }) {
-  const { p } = useKit()
-  return (
-    <View role="radiogroup" aria-label={DOCK_TITLE} style={{ marginHorizontal: -SPACE.sm }}>
-      {DOCK_CHOICES.map((item) => {
-        const on = item.value === value
-        return (
-          <Tap key={item.value} role="radio" aria-checked={on} aria-label={item.label} onPress={() => onPick(item.value)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 56, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-            <View style={{ flex: 1 }}>
-              <Txt step="bodyLarge" weight={on ? 'bold' : 'book'} {...(on ? { color: 'primaryText' as const } : {})}>{item.label}</Txt>
-            </View>
-            {on ? <Icon name="check" size={20} color={p.primary} /> : null}
-          </Tap>
-        )
-      })}
     </View>
   )
 }
@@ -95,25 +76,29 @@ function ThanksExample() {
   )
 }
 
-type ManageSheet = 'none' | 'sms' | 'voice' | 'end' | 'chat' | 'paste' | 'import' | 'dock'
+type ManageSheet = 'none' | 'voice' | 'chat' | 'import' | 'dock'
+
+/** 관리에서 여는 설정 하나 (D-UX4-60 — 경로가 있으면 진짜 전체 화면) */
+export type ManageTool = 'voice' | 'import' | 'chat'
 
 /**
- * canLink: 방송 연결 줄을 보일지(유튜브 상태를 받았을 때). onClose: 이 화면을 닫는다(듣기 켜기·끄기는 방송 화면에서 안내·상태를 보여 주므로 닫고 한다, D-UX3-73).
- * onEnded: 방송을 끝낸 뒤.
+ * 묶음 (D-UX4-78, 사용자 지시 2026-11-10 "방송 관리 안에 '방송' 묶음은 방송 안에 방송 관리 느낌"): 무엇을 하는지로 나눈다 —
+ * 라이브 채팅(방송 연결 · 자동 감사 채팅) · 듣기(휴대폰 마이크 · 음성 설정) · 상품·라벨(상품 미리 등록 · 라벨 프린트) · 화면(화면 아래 창 · 채팅 보기).
+ * 문자찜 직접 넣기·댓글 붙여넣기는 없앴고, 방송 끝내기는 방송 연결 안 "방송 연결 끊기"로 옮겼다(D-UX4-79).
+ * canLink: 유튜브 상태를 받았는지 — 끝나지 않은 방송이면 받지 못했어도 방송 연결 줄을 보인다(그 안에서 연결을 끊는다).
+ * onClose: 이 화면을 닫는다(듣기 켜기·끄기는 방송 화면에서 안내·상태를 보여 주므로 닫고 한다, D-UX3-73).
  */
-export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, canLink, stream, onClose, onShowLink, onOpenLabels, onEnded, openTool }: { readonly broadcastId: string; readonly seller: boolean; readonly title: string; readonly rehearsal: boolean; readonly closed: boolean; readonly canLink: boolean; readonly stream: StreamAudio; readonly onClose: () => void; readonly onShowLink: () => void; readonly onOpenLabels?: () => void; readonly onEnded: () => void; readonly openTool?: (tool: 'sms' | 'voice' | 'import' | 'paste' | 'chat') => void }) {
+export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, canLink, stream, onClose, onShowLink, onOpenLabels, openTool }: { readonly broadcastId: string; readonly seller: boolean; readonly title: string; readonly rehearsal: boolean; readonly closed: boolean; readonly canLink: boolean; readonly stream: StreamAudio; readonly onClose: () => void; readonly onShowLink: () => void; readonly onOpenLabels?: () => void; readonly openTool?: (tool: ManageTool) => void }) {
   const api = useConsoleApi()
   const services = useServices()
   const voiceView = useSyncExternalStore(services.voice.subscribe, services.voice.getView)
   const [sheet, setSheet] = useState<ManageSheet>('none')
   const [thanksBusy, setThanksBusy] = useState(false)
   const [thanksError, setThanksError] = useState<string | null>(null)
-  const [pasted, setPasted] = useState<string | null>(null)
-  const [endError, setEndError] = useState<string | null>(null)
   const close = () => setSheet('none')
   const dock = useDockChoice()
   // 설정 하나하나는 진짜 전체 화면으로 (D-UX4-60) — 경로가 없을 때(시험·웹)만 이 화면 위 판으로
-  const show = (tool: 'sms' | 'voice' | 'import' | 'paste' | 'chat') => (openTool === undefined ? setSheet(tool) : openTool(tool))
+  const show = (tool: ManageTool) => (openTool === undefined ? setSheet(tool) : openTool(tool))
   const thanksOn = api.data.broadcasts.get(broadcastId)?.settings['thanks.liveChat'] === true
   const listening = voiceView.on && voiceView.broadcastId === broadcastId
   const switchThanks = (next: boolean) => {
@@ -125,29 +110,20 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
       (caught: unknown) => setThanksError(isApiError(caught) ? caught.message : '바꾸지 못했어요. 다시 눌러 주세요.'),
     ).finally(() => setThanksBusy(false))
   }
-  const endBroadcast = async () => {
-    setEndError(null)
-    try {
-      const result = await withRetry(() => post<WriteResult>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/end`, { requestId: newRequestId() }))
-      setSheet('none')
-      await api.sync?.(result.seq)
-      onEnded()
-    } catch (caught) {
-      setSheet('none')
-      setEndError(isApiError(caught) ? caught.message : '끝내지 못했어요. 다시 눌러 주세요.')
-    }
-  }
+  const showLink = canLink || !closed
+  const showThanks = seller && !closed && !rehearsal
+  const showImport = seller && !closed
+  const showLabels = onOpenLabels !== undefined && !rehearsal
   return (
     <>
       {thanksError !== null ? <Notice tone="danger" alert>{thanksError}</Notice> : null}
-      {endError !== null ? <Notice tone="danger" alert>{endError}</Notice> : null}
-      {pasted !== null ? <Notice tone="success">{pasted}</Notice> : null}
-      <MenuGroup title="방송">
-        {canLink ? <MenuRow title="방송 연결" onPress={onShowLink} /> : null}
-        {/* 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24) — 실제 방송만(리허설은 유튜브에 아무것도 올리지 않는다) */}
-        {seller && !closed && !rehearsal ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
-        {onOpenLabels !== undefined && !rehearsal ? <MenuRow title="프린터·라벨" onPress={onOpenLabels} /> : null}
-      </MenuGroup>
+      {showLink || showThanks ? (
+        <MenuGroup title="라이브 채팅">
+          {showLink ? <MenuRow title={LINK_TITLE} onPress={onShowLink} /> : null}
+          {/* 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24) — 실제 방송만(리허설은 유튜브에 아무것도 올리지 않는다) */}
+          {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
+        </MenuGroup>
+      ) : null}
       {seller && !closed ? (
         <MenuGroup title="듣기">
           {/* 휴대폰 마이크 켜기·끄기는 방송 화면에서 안내·상태를 보여 주므로 이 화면을 닫는다 (D-UX3-73) */}
@@ -156,56 +132,33 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
           <MenuRow title="음성 설정" onPress={() => show('voice')} />
         </MenuGroup>
       ) : null}
-      <MenuGroup title="넣기·보기">
-        {!closed ? <MenuRow title={SMS_DIRECT} onPress={() => show('sms')} /> : null}
-        {/* 방송 전 상품 미리 등록 (PRD-05 앱, D-V3-128) */}
-        {seller && !closed ? <MenuRow title={APP_IMPORT_TITLE} onPress={() => show('import')} /> : null}
-        {!rehearsal && !closed ? <MenuRow title="댓글 붙여넣기" onPress={() => show('paste')} /> : null}
-        <MenuRow title="채팅 보기" onPress={() => show('chat')} />
-        {/* 방송 화면 맨 아래 창: 들린 말 · 채팅·문자 · 안 보기 (D-UX4-71) */}
-        <MenuRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
-      </MenuGroup>
-      {!closed ? (
-        <MenuGroup>
-          <MenuRow title="방송 끝내기" danger onPress={() => setSheet('end')} />
+      {showImport || showLabels ? (
+        <MenuGroup title="상품·라벨">
+          {/* 방송 전 상품 미리 등록 (PRD-05 앱, D-V3-128) */}
+          {showImport ? <MenuRow title={APP_IMPORT_TITLE} onPress={() => show('import')} /> : null}
+          {/* 라벨 프린트 (D-UX4-80 — 옛 "프린터·라벨"): 프린터 연결·라벨 꾸미기·테스트 인쇄를 고르는 화면 */}
+          {showLabels ? <MenuRow title={LABEL_PRINT_TITLE} onPress={onOpenLabels} /> : null}
         </MenuGroup>
       ) : null}
+      <MenuGroup title="화면">
+        {/* 방송 화면 맨 아래 창: 들린 말 · 채팅·문자 · 안 보기 (D-UX4-71) */}
+        <MenuRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
+        <MenuRow title="채팅 보기" onPress={() => show('chat')} />
+      </MenuGroup>
 
-      <BottomSheet visible={sheet === 'sms'} onClose={close} title={SMS_DIRECT}>
-        <SmsForm />
-      </BottomSheet>
       <FullSheet visible={sheet === 'import'} onClose={close} name={APP_IMPORT_TITLE} title={APP_IMPORT_TITLE}>
         {sheet === 'import' ? <ImportView /> : null}
       </FullSheet>
       <BottomSheet visible={sheet === 'chat'} onClose={close} title="채팅">
         {sheet === 'chat' ? <ChatView /> : null}
       </BottomSheet>
-      <BottomSheet visible={sheet === 'paste'} onClose={close} title="댓글 붙여넣기">
-        {sheet === 'paste' ? (
-          <PasteView
-            onDone={(message) => {
-              setPasted(message)
-              close()
-            }}
-          />
-        ) : null}
-      </BottomSheet>
       <BottomSheet visible={sheet === 'dock'} onClose={close} title={DOCK_TITLE}>
-        <DockChoiceList value={dock} onPick={(next) => { setDockChoice(next); close() }} />
+        {/* 토스식 고르기 목록 (D-UX4-76 아래 창 SheetChoices) */}
+        <SheetChoices label={DOCK_TITLE} choices={DOCK_CHOICES} value={dock} onPick={(next) => { setDockChoice(next); close() }} />
       </BottomSheet>
       <BottomSheet visible={sheet === 'voice'} onClose={close} title="음성 설정">
         <VoiceSettingsPanel session={services.voice} broadcastId={broadcastId} />
       </BottomSheet>
-      <ConfirmSheet
-        visible={sheet === 'end'}
-        question="방송을 끝낼까요?"
-        description="끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요."
-        confirmLabel="끝내기"
-        cancelLabel="아니요"
-        danger
-        onCancel={close}
-        onConfirm={() => void endBroadcast()}
-      />
     </>
   )
 }

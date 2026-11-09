@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import type { Me, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, newRequestId, onUnauthorized, post, withRetry, type ApiError } from './api/client.ts'
 import { AwayTracker } from './lib/away.ts'
+import { setCachedAccount } from './lib/cached-get.ts'
 import { LabelQueue } from './lib/label-queue.ts'
 import { createLiveStream, type LiveStream } from './lib/live.ts'
 import { clearVoiceArchive, setVoiceAccount } from './lib/voice-preferences.ts'
@@ -127,6 +128,8 @@ export function SessionProvider({ children, services }: { readonly children: Rea
     try {
       const me = await get<Me>('/api/me')
       setVoiceAccount(me.loginId)
+      // 다른 계정이면 기억해 둔 화면 자료를 지운다 (D-UX4-77)
+      setCachedAccount(me.loginId)
       setSession({ state: 'in', me })
     } catch (error) {
       setSession((current) => sessionAfterCheckError(error, current))
@@ -140,6 +143,8 @@ export function SessionProvider({ children, services }: { readonly children: Rea
       void services.voice.shutdown()
       void clearVoiceArchive()
       services.stream.shutdown()
+      // 로그인이 풀리면 기억해 둔 화면 자료도 지운다 — 다음에 들어오는 계정에 보이지 않게 (D-UX4-77)
+      setCachedAccount(null)
       setSession({ state: 'out', expired: true })
     })
     return () => onUnauthorized(null)
@@ -168,6 +173,7 @@ export function SessionProvider({ children, services }: { readonly children: Rea
       login: async (loginId, password) => {
         const me = await post<Me>('/api/login', { loginId, password })
         setVoiceAccount(me.loginId)
+        setCachedAccount(me.loginId)
         setSession({ state: 'in', me })
       },
       logout: async () => {
@@ -180,6 +186,7 @@ export function SessionProvider({ children, services }: { readonly children: Rea
           if (!isApiError(error)) throw error
         }
         services.stream.shutdown()
+        setCachedAccount(null)
         setSession({ state: 'out', expired: false })
       },
     }),

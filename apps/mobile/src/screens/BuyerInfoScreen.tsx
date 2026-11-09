@@ -1,10 +1,11 @@
 // 방송 뒤 손님 정보 문자 (ORD-14, D-REAL-11): 손님이 보낸 닉네임·성함·주소 문자를 서버가 읽어 맞는 손님에게 바로 넣고,
 // 모르는 것(손님 없음·여럿·이름 못 읽음)만 카드로 남긴다. 판매자는 손님을 골라 칸을 고쳐 [넣기]하거나 [무시]한다.
 // 넣은 배송지는 "확인 전" 손님 배송지라 정산에서 [배송지 확인]을 눌러야 접수된다. 정산 탭 위 줄(BuyerInfoBanner)에서 연다.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { dateWords, kstShort } from '@livejjim/web/src/lib/kst.ts'
-import { get, isApiError, post, type ApiError } from '../api/client.ts'
+import { isApiError, post, type ApiError } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
@@ -53,24 +54,10 @@ export function useBuyerInfoList(): {
   readonly reload: () => void
 } {
   const { stream } = useServices()
-  const [list, setList] = useState<BuyerInfoList | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const version = useRef(0)
-  const reload = useCallback(() => {
-    const mine = ++version.current
-    get<BuyerInfoList>('/api/buyer-info')
-      .then((next) => {
-        if (mine !== version.current) return
-        setList(next)
-        setError(null)
-      })
-      .catch((caught: unknown) => {
-        if (mine !== version.current) return
-        if (isApiError(caught)) setError(caught)
-      })
-  }, [])
+  // 기억해 둔 목록을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 다시 받다 실패하면 보이던 목록 그대로
+  const { data: list, error, reload: refetch } = useCachedGet<BuyerInfoList>('/api/buyer-info')
+  const reload = useCallback(() => void refetch(), [refetch])
   useEffect(() => {
-    reload()
     const view = stream.open()
     let ready = 0
     view.addEventListener('ready', () => {

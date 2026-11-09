@@ -29,8 +29,9 @@ import {
   phoneWords,
   sourceWords,
 } from '@livejjim/web/src/lib/parcel-words.ts'
-import { get, isApiError, newRequestId, post, put, withQuery, withRetry, type ApiError } from '../api/client.ts'
+import { isApiError, newRequestId, post, put, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { BigButton, BottomSheet, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
@@ -126,28 +127,13 @@ type Ask = 'write' | 'edit' | 'delete' | null
 
 /** 정산 손님 자세히의 배송지 칸. version이 바뀌면(택배·포장 알림, 다시 붙음) 다시 받는다 */
 export function AddressCard({ date, buyer, sealed, version }: { readonly date: string; readonly buyer: string; readonly sealed: boolean; readonly version: number }) {
-  const [bundle, setBundle] = useState<BundleView | null>(null)
-  const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [ask, setAsk] = useState<Ask>(null)
   const [done, setDone] = useState<string | null>(null)
   const command = useAddressCommand()
-  const latest = useRef(0)
-
-  useEffect(() => {
-    const mine = ++latest.current
-    get<{ bundle: BundleView }>(withQuery(`/api/parcels/days/${date}/bundle`, { buyer })).then(
-      (result) => {
-        if (mine !== latest.current) return
-        setBundle(result.bundle)
-        setLoadError(null)
-      },
-      (caught: unknown) => {
-        if (mine !== latest.current || !isApiError(caught)) return
-        setLoadError(caught)
-      },
-    )
-  }, [date, buyer, version, attempt])
+  // 다시 열면 기억해 둔 배송지를 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data: view, error: loadError, set: setView } = useCachedGet<{ bundle: BundleView }>(withQuery(`/api/parcels/days/${date}/bundle`, { buyer }), `${String(version)}:${String(attempt)}`)
+  const bundle = view?.bundle ?? null
 
   // 거절(그 사이 구매자가 고침·접수됨)이면 옛 내용으로 다시 누르지 않게 지금 모습을 다시 받는다
   useEffect(() => {
@@ -156,9 +142,8 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
 
   const apply = (next: BundleView | null, text: string): boolean => {
     if (next === null) return false
-    latest.current++
-    setBundle(next)
-    setLoadError(null)
+    // 쓰기 답이 더 새것 — 그 전에 떠난 받기의 답이 덮지 않는다(기억의 요청 순서)
+    setView({ bundle: next })
     setDone(text)
     return true
   }

@@ -6,7 +6,8 @@
 // 문자찜 칸은 설정 화면 "문자찜 직접 넣기", 상품 자세히는 점선 칸(바로 고치기)·이름 알약(눌러 찜 삭제)·상품 삭제, 찜 기록 꼬리표를 눌러 찜 삭제.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { ConsoleScreen, SMS_DIRECT, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
+import { ConsoleScreen, LINK_TITLE, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
+import { END_LINK_LABEL } from '../src/screens/console/EndBroadcast.tsx'
 import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
 import { DOCK_STATE } from '../src/screens/console/StreamAudio.tsx'
 import { LISTEN_START, LISTEN_STATE, LISTEN_STOP, VOICE_CONSENT_LINES, VOICE_SENT_LINE } from '../src/lib/words.ts'
@@ -30,10 +31,6 @@ async function open(world: ReturnType<typeof makeWorld>) {
 
 // 휴대폰 마이크·문자찜 칸은 머리 톱니로 여는 방송 설정 화면에 있다 (D-UX3-73 → D-UX4-20)
 const openMenu = () => fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
-const openDirect = () => {
-  openMenu()
-  fireEvent.click(screen.getByRole('button', { name: SMS_DIRECT }))
-}
 /** 쓰기 뒤 따라잡기 — 바뀐 것 없이 seq만 (여러 번 쓰는 흐름용) */
 const followWrites = (world: ReturnType<typeof makeWorld>) => world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=(\d+)/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1] ?? 5), world.seq, {}) }))
 /** 앱 숫자판으로 친다 */
@@ -470,52 +467,17 @@ describe('ConsoleScreen', () => {
     expect(screen.getByRole('button', { name: LISTEN_START })).toBeTruthy()
   })
 
-  it('문자찜 한 줄을 넣으면 sms 이벤트가 간다 (전화번호는 화면에 남지 않는다)', async () => {
+  // 옛 시험 셋(문자찜 한 줄 넣기·번호 범위 넘음·문자찜 칸 원문): 방송 관리 "문자찜 직접 넣기"를 없앴다 (D-UX4-78, 사용자 지시 2026-11-10 "문자찜 직접 넣기 기능은 지워").
+  // 문자찜은 음성·휴대폰 문자 받기로 들어온다. 웹 문자찜 화면은 그대로다.
+  it('방송 관리에 "문자찜 직접 넣기"·"댓글 붙여넣기" 줄이 없다 (D-UX4-78)', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
-    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { claims: [claim('c1', 15, 'u9')] }) }))
-    openDirect()
-    fireEvent.change(screen.getByLabelText('번호'), { target: { value: '15' } })
-    fireEvent.change(screen.getByLabelText('전화번호 (선택)'), { target: { value: '010-1234-5678' } })
-    fireEvent.click(screen.getByRole('button', { name: /문자찜 넣기$/ }))
-    await waitFor(() => expect(world.events.length).toBe(1))
-    // 옛 기대: 번호 숫자 no. 새 기대(D-APP-24): 번호 칸 원문 noText — 서버가 그 방송 번호 한도로 읽는다
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', noText: '15', phone: '010-1234-5678' })
-    // 옛 기대: "15번 문자찜을 넣었어요." 새 기대(D-APPX-03, 웹 SmsPage와 같은 결과 카드): 찜의 지금 상태 한 줄 + 같은 사람 하나 더
-    await waitFor(() => expect(screen.getByText(/^15번 · /)).toBeTruthy())
-    expect((screen.getByLabelText('전화번호 (선택)') as HTMLInputElement).value).toBe('')
-  })
-
-  it('문자찜 번호가 방송 번호 범위를 넘으면(번호 칸에 전화번호가 붙음) 보내지 않고 고칠 방법을 알린다 (APP2 실기기)', async () => {
-    const world = makeWorld({ products: [product(15)] })
-    await open(world)
-    openDirect()
-    fireEvent.change(screen.getByLabelText('번호'), { target: { value: '21301000001234' } })
-    fireEvent.click(screen.getByRole('button', { name: /문자찜 넣기$/ }))
-    await waitFor(() => expect(screen.getByText(/번호는 1부터 \d+까지예요\. 번호를 확인해 주세요\./)).toBeTruthy())
-    fireEvent.change(screen.getByLabelText('번호'), { target: { value: '1e3' } })
-    fireEvent.click(screen.getByRole('button', { name: /문자찜 넣기$/ }))
-    await waitFor(() => expect(screen.getByText('상품 번호를 숫자로 적어 주세요.')).toBeTruthy())
-    expect(world.events.length).toBe(0)
-  })
-
-  it('문자찜 칸 (D-APPX-03, 웹 SmsPage와 같은 칸): 받은 시각·메모·구매자 고르기는 원문으로, 고르면 전화번호는 보내지 않는다, 되면 칸을 비운다', async () => {
-    const world = makeWorld({ products: [product(15), product(16)] })
-    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=false)?$/, () => ({ body: fullView({ seq: world.seq, products: [product(15), product(16)], claims: [claim('c1', 15, 'u1')], buyers: [buyer('u1', '꽃집언니', { phoneLast4: '5678' })] }) }))
-    await open(world)
-    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { claims: [claim('c2', 16, 'u1', { origin: 'sms', seq: 6 })] }) }))
-    openDirect()
-    fireEvent.change(screen.getByLabelText('번호'), { target: { value: '16' } })
-    fireEvent.change(screen.getByLabelText('받은 시각 (선택)'), { target: { value: '20:01' } })
-    fireEvent.change(screen.getByLabelText('메모 (선택)'), { target: { value: '현관 앞' } })
-    fireEvent.change(screen.getByLabelText('구매자 찾기 (선택)'), { target: { value: '5678' } })
-    fireEvent.click(screen.getByRole('button', { name: '구매자 꽃집언니 고르기' }))
-    expect(screen.queryByLabelText('전화번호 (선택)')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '16번에 문자찜 넣기' }))
-    await waitFor(() => expect(world.events.length).toBe(1))
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', noText: '16', receivedText: '20:01', memo: '현관 앞', buyer: 'u1' })
-    await waitFor(() => expect((screen.getByLabelText('번호') as HTMLInputElement).value).toBe(''))
-    expect(screen.getByLabelText('전화번호 (선택)')).toBeTruthy()
+    openMenu()
+    const page = await screen.findByRole('dialog', { name: '방송 관리' })
+    expect(within(page).queryByRole('button', { name: '문자찜 직접 넣기' })).toBeNull()
+    expect(within(page).queryByRole('button', { name: '댓글 붙여넣기' })).toBeNull()
+    expect(page.textContent).not.toContain('문자찜 직접 넣기')
+    expect(page.textContent).not.toContain('댓글 붙여넣기')
   })
 
   it('정하기 창 (D-APPX-03, 웹 알림 창과 같은 문구): 취소 요청은 승인·무시, 승계는 사유와 함께 1등으로 — 대기 뒤 보낸다', async () => {
@@ -552,28 +514,15 @@ describe('ConsoleScreen', () => {
     expect(world.events.find((call) => call.body?.type === 'host.promote')?.body).toMatchObject({ b: 'b1', no: 6, buyer: 'u3', reason: '시청자 요청' })
   })
 
-  it('채팅 보기·댓글 붙여넣기 (D-APPX-03): 최근 채팅의 주문 표시, 붙여넣기는 미리 본 뒤 같은 요청 번호로 넣는다', async () => {
+  // 옛 시험 뒷부분(댓글 붙여넣기 미리 보기·넣기)은 없앴다 — 댓글 붙여넣기를 앱에서 없앰 (D-UX4-78)
+  it('채팅 보기 (D-APPX-03): 최근 채팅의 주문 표시', async () => {
     const world = makeWorld({ products: [product(15)] })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { date: '2026-10-29', rehearsal: false, seq: 5, more: false, messages: [{ id: 'm1', broadcast: 'b1', channel: 'ch1', nick: '꽃집언니', text: '15번이요', owner: false, seq: 4, at: '2026-10-29T11:00:00.000Z', publishedAt: '2026-10-29T11:00:00.000Z', ignored: false, order: true, cancel: false, orders: [15], cancels: [], mentions: [15], converted: [], claims: [], failed: false }] } }))
-    const pastes: { path: string; body: Record<string, unknown> | null }[] = []
-    world.server.on('POST', /^\/api\/broadcasts\/b1\/paste/, (call) => {
-      pastes.push({ path: call.path, body: call.body })
-      return { body: { rows: [{ line: 1, nickname: '틱톡손님', result: 'ORDER', numbers: [15], message: '15번 찜' }], groups: [], total: 1, ...(call.path.endsWith('/preview') ? {} : { added: 1 }) } }
-    })
     await open(world)
     fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
     fireEvent.click(screen.getByRole('button', { name: /^채팅 보기/ }))
     expect(await screen.findByText('15번이요')).toBeTruthy()
     expect(screen.getByText('주문 15번')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
-    fireEvent.click(screen.getByRole('button', { name: /^댓글 붙여넣기/ }))
-    fireEvent.change(screen.getByLabelText('붙여 넣을 댓글'), { target: { value: '틱톡손님: 15' } })
-    fireEvent.click(screen.getByRole('button', { name: '미리 보기' }))
-    expect(await screen.findByText('1줄 틱톡손님 15번 찜')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '찜 1개 넣기' }))
-    expect(await screen.findByText('찜 1개를 넣었어요.')).toBeTruthy()
-    expect(pastes.map((call) => call.path)).toEqual(['/api/broadcasts/b1/paste/preview', '/api/broadcasts/b1/paste'])
-    expect(pastes[1]!.body).toMatchObject({ text: '틱톡손님: 15', includeOverlaps: [] })
   })
 
   it('겹친 상품 시트: "판매 완료"·"1등" 대신 "아직 안 정했어요"·"겹침", 정하기 버튼은 앱 정하기 창을 연다 (D-UX2-07, D-APPX-03)', async () => {
@@ -610,9 +559,12 @@ describe('ConsoleScreen', () => {
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
+    // 옛 기대: 방송 관리 "방송 끝내기" → 아래 판 [끝내기]. 새 기대(D-UX4-79): 방송 관리 → 방송 연결 → 맨 아래 "방송 연결 끊기" → 가운데 팝업 [끊기](빨강)
     fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
-    fireEvent.click(await screen.findByRole('button', { name: '방송 끝내기' }))
-    fireEvent.click(await screen.findByRole('button', { name: '끝내기' }))
+    fireEvent.click(await screen.findByRole('button', { name: LINK_TITLE }))
+    fireEvent.click(await screen.findByRole('button', { name: END_LINK_LABEL }))
+    const popup = await screen.findByRole('alertdialog', { name: '방송 연결을 끊을까요?' })
+    fireEvent.click(within(popup).getByRole('button', { name: '끊기' }))
     await waitFor(() => expect(home).toBe(1))
     expect(screen.getByText('끝난 방송')).toBeTruthy()
     // 끝난 방송에는 (+) 상품 추가가 없다 (옛 기대: "직접 넣기" 메뉴 없음)
@@ -648,8 +600,9 @@ describe('ConsoleScreen', () => {
     const page = await screen.findByRole('dialog', { name: '방송 관리' })
     expect(page.textContent).not.toContain('방송 메뉴')
     expect(page.textContent).not.toContain('저녁 방송')
-    expect(within(page).getByRole('button', { name: SMS_DIRECT })).toBeTruthy()
-    expect(within(page).getByRole('button', { name: '방송 끝내기' })).toBeTruthy()
+    // 옛 기대: "문자찜 직접 넣기"·"방송 끝내기" 줄. 새 기대(D-UX4-78·79): 문자찜 직접 넣기는 없고, 끝내기는 방송 연결 안 "방송 연결 끊기"로
+    expect(within(page).getByRole('button', { name: LINK_TITLE })).toBeTruthy()
+    expect(within(page).queryByRole('button', { name: '방송 끝내기' })).toBeNull()
     fireEvent.click(within(page).getByRole('button', { name: '뒤로' }))
     expect(screen.queryByRole('dialog', { name: '방송 관리' })).toBeNull()
   })

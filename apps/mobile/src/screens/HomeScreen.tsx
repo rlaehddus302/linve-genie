@@ -10,7 +10,8 @@ import type { BroadcastItem, PackingEntry, PackingList, ReceiptBuyers, WizardSta
 import type { ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
-import { get, isApiError, type ApiError } from '../api/client.ts'
+import { get, type ApiError } from '../api/client.ts'
+import { peekCached, rememberCached, useCachedGet } from '../lib/cached-get.ts'
 import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
 import { RETRY_NOW } from '../lib/words.ts'
@@ -92,46 +93,18 @@ export function flowCounts(parcels: ParcelDay | null, receipts: ReceiptBuyers | 
   return { info, receipt, parcel: parcels === null ? null : parcels.ready.length }
 }
 
-/** 그 날짜 하나를 받는다 — 못 받으면 null (줄을 숨긴다) */
+/** 그 날짜 하나를 받는다 — 못 받으면 null (줄을 숨긴다). 기억해 둔 값이 있으면 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) */
 function useDayView<T>(path: string | null, refresh: number): T | null {
-  const [view, setView] = useState<T | null>(null)
-  useEffect(() => {
-    if (path === null) return
-    let alive = true
-    get<T>(path).then(
-      (result) => {
-        if (alive) setView(result)
-      },
-      () => {
-        if (alive) setView(null)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [path, refresh])
-  return view
+  return useCachedGet<T>(path, refresh).data
 }
 
 function usePacking(date: string | null, refresh: number): readonly PackingEntry[] | null {
-  const [entries, setEntries] = useState<readonly PackingEntry[] | null>(null)
-  useEffect(() => {
-    if (date === null) return
-    let alive = true
-    get<PackingList>(`/api/days/${date}/packing`).then(
-      (view) => {
-        if (alive) setEntries(view.entries)
-      },
-      () => {
-        // 숫자를 모르면 줄을 숨긴다
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [date, refresh])
-  return entries
+  // 숫자를 모르면 줄을 숨긴다
+  return useCachedGet<PackingList>(date === null ? null : `/api/days/${date}/packing`, refresh).data?.entries ?? null
 }
+
+/** 마지막으로 찾은 라이브 표시 — 홈에 다시 오면 같은 방송 목록이면 바로 보인다(로그아웃하면 다른 기억과 같이 지워진다, D-UX4-77) */
+const LIVE_MEMORY = 'app:home-live'
 
 /** refresh: 바뀌면 방송 목록·할 일 숫자를 다시 받는다 (경로가 홈이 다시 보일 때 올린다 — D-UX2-07) */
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'] as const
@@ -155,8 +128,18 @@ const OPEN_LIVE_MS = 12 * 60 * 60_000
  * 지금 라이브인 방송 (D-UX3-91): 끝나지 않은 실제 방송을 최근 것부터 보고 — 유튜브를 이은 방송은 연결이 살아 있고 수집기가 아직 읽는 중일 때만,
  * 유튜브가 없는 방송은 만든 지 12시간 안일 때만. 어제 끝내지 않고 둔 방송(유튜브 방송은 이미 끝남)은 라이브로 보지 않는다. 채널 ID도 함께
  */
+interface LiveFound {
+  readonly key: string
+  readonly live: BroadcastItem | undefined
+  readonly channel: string | null
+}
+
 export function useLiveNow(items: readonly BroadcastItem[] | null, now: number): { readonly live: BroadcastItem | undefined; readonly channel: string | null; readonly resolved: boolean } {
-  const [found, setFound] = useState<{ key: string; live: BroadcastItem | undefined; channel: string | null } | null>(null)
+  const [found, keepFound] = useState<LiveFound | null>(() => peekCached<LiveFound>(LIVE_MEMORY))
+  const setFound = (next: LiveFound) => {
+    rememberCached(LIVE_MEMORY, next)
+    keepFound(next)
+  }
   const open = items === null ? [] : newestFirst(items).filter((item) => !item.ended && !item.rehearsal).slice(0, 5)
   const key = open.map((item) => item.id).join(',')
   useEffect(() => {
@@ -195,23 +178,8 @@ export function useLiveNow(items: readonly BroadcastItem[] | null, now: number):
 
 function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: BroadcastItem | undefined; readonly channel: string | null; readonly onOpen: (id: string) => void; readonly onConnect: () => void }) {
   const { p, tones } = useKit()
-  const [avatar, setAvatar] = useState<string | null>(null)
-  useEffect(() => {
-    setAvatar(null)
-    if (channel === null || channel === '') return
-    let alive = true
-    get<{ avatar: string | null }>(`/api/youtube/channels/${encodeURIComponent(channel)}/avatar`).then(
-      (found) => {
-        if (alive) setAvatar(found.avatar)
-      },
-      () => {
-        // 사진을 모르면 기본 그림
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [channel])
+  // 사진을 모르면 기본 그림 — 받은 적 있으면 바로 (D-UX4-77)
+  const avatar = useCachedGet<{ avatar: string | null }>(channel === null || channel === '' ? null : `/api/youtube/channels/${encodeURIComponent(channel)}/avatar`).data?.avatar ?? null
   const on = live !== undefined
   // "내 라이브 연결" (D-UX3-92): 글자를 한 단계 키우고, 왼쪽에 + 원을 두고, 화면 끝에 붙지 않게 카드 안 글자 쪽으로 조금 들인다
   const label = on ? '지금 라이브 중' : '내 라이브 연결'
@@ -240,7 +208,8 @@ function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: Broadc
       {/* 글자와 › 사이는 좁게 (토스 "토스뱅크 ›") */}
       {/* 머리 줄의 다른 큰 제목처럼 한글을 2.5 올린다 (D-UX3-88·D-UX4-59) */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, transform: [{ translateY: NAV.titleLift }] }}>
-        <Txt step="title" weight="heavy">{label}</Txt>
+        {/* 다른 글자보다 너무 진해 보여 한 단계 연한 회색·굵기로 (D-UX4-75, 토스 "토스뱅크 ›") */}
+        <Txt step="title" weight="bold" ink={p.tabInk}>{label}</Txt>
         <Icon name="chevron" color={p.textSub} size={18} />
       </View>
     </Tap>
@@ -250,38 +219,21 @@ function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: Broadc
 export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation; readonly sellerName?: string; readonly refresh?: number }) {
   const { p } = useKit()
   const room = useTabBarRoom()
-  const [items, setItems] = useState<BroadcastItem[] | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [day, setDay] = useState<string | null>(null)
-  const [wizard, setWizard] = useState<WizardState | null>(null)
-
-  const load = async () => {
-    setError(null)
-    try {
-      const { broadcasts } = await get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
-      setItems(broadcasts)
-    } catch (caught) {
-      if (!isApiError(caught)) throw caught
-      setError(caught)
-    }
-  }
-
-  useEffect(() => {
-    void load()
-    get<{ days: { date: string; rehearsal: boolean }[] }>('/api/days').then(
-      (view) => setDay(view.days.find((item) => !item.rehearsal)?.date ?? null),
-      () => setDay(null),
-    )
-    // 시작 안내 줄 (웹 홈이 마법사를 여는 조건과 같다 — 옛 서버는 받지 못해 줄이 없다)
-    get<{ wizard: WizardState }>('/api/wizard').then(
-      (view) => setWizard(view.wizard),
-      () => setWizard(null),
-    )
-  }, [refresh])
+  // 다른 화면에 갔다 와도 처음부터 다시 그리지 않는다 (D-UX4-77): 기억해 둔 방송 목록·날짜·할 일 숫자로 바로 그리고, 뒤에서 다시 받아 바뀐 것만 바꾼다
+  const broadcasts = useCachedGet<{ broadcasts: BroadcastItem[] }>('/api/broadcasts', refresh)
+  const items = broadcasts.data?.broadcasts ?? null
+  const error = broadcasts.error
+  const load = broadcasts.reload
+  const days = useCachedGet<{ days: { date: string; rehearsal: boolean }[] }>('/api/days', refresh).data
+  const day = days === null ? null : (days.days.find((item) => !item.rehearsal)?.date ?? null)
+  // 시작 안내 줄 (웹 홈이 마법사를 여는 조건과 같다 — 옛 서버는 받지 못해 줄이 없다)
+  const wizard = useCachedGet<{ wizard: WizardState }>('/api/wizard', refresh).data?.wizard ?? null
 
   // 라이브 표시는 실제 방송만 (리허설은 앱에서 뺐다)
   const liveNow = useLiveNow(items, Date.now())
   const past = items === null ? [] : pastBroadcasts(items)
+  // 홈에는 HOME_BROADCASTS개까지만 — 넘칠 때만 [모두보기] (D-UX4-81, 사용자 지시 2026-11-10)
+  const showAll = nav.openAllBroadcasts !== undefined && past.length > HOME_BROADCASTS
   const now = Date.now()
   const entries = usePacking(day, refresh)
   const counts = useMemo(() => (entries === null ? null : todoCounts(entries)), [entries])
@@ -325,15 +277,15 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
         ) : null}
 
         {past.length > 0 ? (
-          <View role="group" aria-label="내 방송" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: nav.openAllBroadcasts === undefined ? SPACE.md : SPACE.xs }}>
+          <View role="group" aria-label="내 방송" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: showAll ? SPACE.xs : SPACE.md }}>
             <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
               <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>내 방송</Txt>
             </View>
             {past.slice(0, HOME_BROADCASTS).map((item) => (
               <HistoryRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} />
             ))}
-            {/* 모두보기는 목록 아래 오른쪽, 글자만의 단추 (D-UX3-88) */}
-            {nav.openAllBroadcasts === undefined ? null : (
+            {/* 모두보기는 목록 아래 오른쪽, 글자만의 단추 (D-UX3-88). 넘쳐서 안 보이는 방송이 있을 때만(HOME_BROADCASTS개 넘음 — D-UX4-81) */}
+            {!showAll || nav.openAllBroadcasts === undefined ? null : (
               <Tap role="button" aria-label="방송 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-end', marginRight: SPACE.md, marginBottom: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
                 <Txt step="caption" color="textSub">모두보기</Txt>
               </Tap>

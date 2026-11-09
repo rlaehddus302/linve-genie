@@ -26,7 +26,6 @@ import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
 import { ProductDetail, ProductList, shownProducts } from './console/ProductBoard.tsx'
 import { AddFab, ProductAddPage } from './console/ProductAdd.tsx'
 import { SlidePage } from './console/parts.tsx'
-import { PasteView } from './console/ChatPaste.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
 
 import { Pill } from '../ui/day-pills.tsx'
@@ -35,12 +34,13 @@ import { VoicePanel } from './console/VoicePanel.tsx'
 import { ListenLine, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
+import { EndBroadcastRow } from './console/EndBroadcast.tsx'
 import { useDockChoice } from '../lib/dock-choice.ts'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
 // 방송 관리 화면 조각은 console/Manage로 옮겼다 (D-UX4-57 — 진짜 쌓인 화면과 같이 쓴다)
-export { MANAGE_LABEL, SMS_DIRECT, THANKS_HELP_BODY, THANKS_HELP_TITLE, THANKS_TITLE, ThanksSwitch } from './console/Manage.tsx'
+export { LABEL_PRINT_TITLE, LINK_TITLE, MANAGE_LABEL, THANKS_HELP_BODY, THANKS_HELP_TITLE, THANKS_TITLE, ThanksSwitch } from './console/Manage.tsx'
 
 /** 돌아온 뒤 따라잡기를 기다리는 최대 시간 (APP-04 AC1 "3초 안에") */
 const RETURN_WAIT_MS = 3000
@@ -98,7 +98,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const pageTop = usePageTop()
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
-  type SheetName = 'none' | 'youtube' | 'paste' | 'decide' | 'pending'
+  type SheetName = 'none' | 'youtube' | 'decide' | 'pending'
   const [sheet, setSheet] = useState<SheetName>('none')
   // 상품 추가·방송 관리 (D-UX4-57): 기기에서는 진짜 쌓인 화면(openAdd·openManage). 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다
   const [page, setPage] = useState<'none' | 'settings' | 'add'>('none')
@@ -126,7 +126,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 방송자 조치 5초 대기·되돌리기 (정하기 창 — D-APPX-03). 화면이 내려가면 기다리던 조치는 보내지 않는다
   const hostQueue = useUndoQueue()
   const hostItems = useSyncExternalStore(hostQueue?.subscribe ?? noSubscribe, hostQueue?.getSnapshot ?? noItems)
-  const [pasted, setPasted] = useState<string | null>(null)
   const [labels, setLabels] = useState<readonly LabelView[]>([])
   // 끝내기 성공 — 방송 목록을 다시 받지 않아도 바로 "끝난 방송"으로 (범위 기록의 방송 정보는 처음 한 번만 받는다)
   const [endedHere, setEndedHere] = useState(false)
@@ -345,9 +344,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
           <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} />
-          {pasted !== null ? <Notice tone="success">{pasted}</Notice> : null}
           {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
-          <YoutubeWarning yt={yt} closed={closed} onPaste={() => setSheet('paste')} />
+          <YoutubeWarning yt={yt} closed={closed} />
           <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
           <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
             <Pill on={tab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
@@ -379,16 +377,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           <Txt step="caption" color="textSub">아직 상품이 없는 번호의 찜이에요. 그 번호 상품을 올리면 먼저 온 순서대로 정해져요.</Txt>
           {sheet === 'pending' ? <ClaimFeed only="PENDING" /> : null}
         </BottomSheet>
-        <BottomSheet visible={sheet === 'paste'} onClose={close} title="댓글 붙여넣기">
-          {sheet === 'paste' ? (
-            <PasteView
-              onDone={(message) => {
-                setPasted(message)
-                close()
-              }}
-            />
-          ) : null}
-        </BottomSheet>
         <ProductAddPage
           visible={page === 'add'}
           onClose={closePage}
@@ -411,11 +399,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             onClose={closePage}
             onShowLink={showLink}
             {...(openLabels === undefined ? {} : { onOpenLabels: openLabels })}
-            onEnded={() => {
-              setEndedHere(true)
-              closePage()
-              onEnded?.()
-            }}
           />
         </SlidePage>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
@@ -432,6 +415,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           ) : (
             <YoutubeSection yt={yt} closed={closed} />
           )}
+          {/* 방송 연결 끊기 (D-UX4-79 — 옛 방송 관리 "방송 끝내기") */}
+          {seller && !closed ? <EndBroadcastRow broadcastId={broadcastId} onEnded={() => { setEndedHere(true); close(); closePage(); onEnded?.() }} /> : null}
         </FullSheet>
       </View>
     </ConsoleContext.Provider>

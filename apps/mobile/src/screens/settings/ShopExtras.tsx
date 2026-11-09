@@ -4,13 +4,14 @@
 // - 백업 상태(되돌리기는 운영자) · 전체 기록 파일·전체 판매대장(공유 시트로 — 손님 정보가 들어 있다는 경고와 함께).
 // 모양 (D-UX3-96): 가게 설정의 다른 묶음과 같은 흰 카드(카드 안 작은 회색 이름). 연결 줄마다 붙던 "웹으로 열기" 글은 카드 아래 한 줄로,
 // 백업은 이름 · 오른쪽 값 줄로, 내려받기 둘은 위아래로 쌓인 큰 단추 대신 누르는 줄 둘로.
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { View } from 'react-native'
 import type { AssistSettings, BackupStatus, YoutubeConnectionResponse } from '@livejjim/web/src/api/types.ts'
 import { ASSIST_CONSENT, ASSIST_NOTICE, ASSIST_OFF_BUTTON, ASSIST_OFF_STATE, ASSIST_ON, ASSIST_ON_BUTTON, ASSIST_SWITCH, ASSIST_TITLE, ASSIST_UNAVAILABLE } from '@livejjim/web/src/lib/assist-words.ts'
 import { kstDateTimeLong } from '@livejjim/web/src/lib/kst.ts'
 import { BACKUP_STOPPED, EXPORT_WARNING, RESTORE_HINT, backupStopped, sizeWords } from '@livejjim/web/src/lib/shop-words.ts'
-import { get, getBytes, isApiError, put, type ApiError } from '../../api/client.ts'
+import { getBytes, isApiError, put, type ApiError } from '../../api/client.ts'
+import { useCachedGet } from '../../lib/cached-get.ts'
 import { openWeb } from '../../lib/open-web.ts'
 import { OPEN_IN_WEB, RETRY_NOW } from '../../lib/words.ts'
 import { nativeShareFile } from '../../native/index.ts'
@@ -55,26 +56,11 @@ function useFile() {
 }
 
 export function AssistCard() {
-  const [current, setCurrent] = useState<AssistSettings | null>(null)
-  const [loadError, setLoadError] = useState<ApiError | null>(null)
+  // 기억해 둔 값을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data: current, error: loadError, reload, set: setCurrent } = useCachedGet<AssistSettings>('/api/assist/settings')
   const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
-  const [attempt, setAttempt] = useState(0)
-  useEffect(() => {
-    let alive = true
-    get<AssistSettings>('/api/assist/settings').then(
-      (value) => {
-        if (alive) setCurrent(value)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setLoadError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [attempt])
   const turn = async (enabled: boolean) => {
     if (busy) return
     setBusy(true)
@@ -95,7 +81,7 @@ export function AssistCard() {
         {loadError !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{loadError.message}</Notice>
-            <BigButton kind="secondary" label={RETRY_NOW} onPress={() => setAttempt((n) => n + 1)} />
+            <BigButton kind="secondary" label={RETRY_NOW} onPress={() => void reload()} />
           </View>
         ) : null}
         {current === null && loadError === null ? <Loading /> : null}
@@ -128,20 +114,8 @@ export function AssistCard() {
  * 봇 판매자 화면은 구글 연결·게시 동의 대신 감사 스위치 하나만 보인다
  */
 export function useBotThanks(): boolean {
-  const [bot, setBot] = useState(false)
-  useEffect(() => {
-    let alive = true
-    get<YoutubeConnectionResponse>('/api/youtube/connection').then(
-      (result) => {
-        if (alive) setBot(result.botThanks === true)
-      },
-      () => {},
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
-  return bot
+  // 기억해 둔 연결 상태를 바로 쓴다 (D-UX4-77) — 모르면 false
+  return useCachedGet<YoutubeConnectionResponse>('/api/youtube/connection').data?.botThanks === true
 }
 
 export function ConnectionsCard() {
@@ -159,22 +133,8 @@ export function ConnectionsCard() {
 }
 
 export function BackupCard() {
-  const [status, setStatus] = useState<BackupStatus | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  useEffect(() => {
-    let alive = true
-    get<BackupStatus>('/api/backups').then(
-      (result) => {
-        if (alive) setStatus(result)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
+  // 기억해 둔 백업 상태를 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data: status, error } = useCachedGet<BackupStatus>('/api/backups')
   if (error !== null && error.status === 403) return null
   return (
     <SettingsGroup title="백업">

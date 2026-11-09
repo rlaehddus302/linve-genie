@@ -34,6 +34,7 @@ import {
   NumberPad,
   PopupDialog,
   PressScale,
+  SheetChoices,
   SmallButton,
   SoftChip,
   TabBar,
@@ -327,6 +328,8 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
       <>
         <PopupDialog visible message="지울까요?" confirmLabel="지우기" cancelLabel="아니요" onConfirm={none} onCancel={none} />
         <ConfirmSheet visible question="방송을 끝낼까요?" confirmLabel="끝내기" onConfirm={none} onCancel={none} />
+        <PopupDialog visible danger message="방송 연결을 끊을까요?" confirmLabel="끊기" cancelLabel="취소" onConfirm={none} onCancel={none} />
+        <SheetChoices label="화면 아래 창" choices={[{ value: 'a', label: '들린 말' }, { value: 'b', label: '비밀번호', description: '6자리 숫자', accent: '3단계' }]} value="a" onPick={none} />
         <Toast toast={{ id: 1, message: '지웠어요', actionLabel: '되돌리기', onAction: none }} onDismiss={none} />
       </>,
     5,
@@ -345,7 +348,8 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
     fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
     await screen.findByRole('dialog', { name: '방송 관리' })
     expect(screen.getByRole('switch', { name: `${THANKS_TITLE} — 꺼짐` })).toBeTruthy()
-    expectCentered(undefined, 15)
+    // 최소 단추 수 15 → 12: 방송 관리에서 문자찜 직접 넣기·댓글 붙여넣기·방송 끝내기 줄을 없앴다 (D-UX4-78·79)
+    expectCentered(undefined, 12)
   })
 
   it('진짜 화면: 홈(지금 라이브 중·할 일 줄)과 설정(켜고 끄는 줄·줄)', async () => {

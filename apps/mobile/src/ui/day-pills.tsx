@@ -1,9 +1,10 @@
 // 실제 방송 날짜 고르기 (정산·입금·리포트·손님 화면이 같이 쓴다 — 포장 화면의 날짜 알약과 같은 모양).
 // 날짜는 서버 `GET /api/days`의 실제 범위만(리허설 날짜는 넣지 않는다), 최근 8개까지.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
-import { get, isApiError, type ApiError } from '../api/client.ts'
+import type { ApiError } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { Tap, Txt, useKit } from './kit/index.ts'
 import { RADIUS, SPACE, pressedFill } from './kit/tokens.ts'
 
@@ -14,26 +15,16 @@ interface Day {
 
 /** 실제 방송 날짜 목록(최근 먼저). 처음 고른 날짜는 initial이 있으면 그것, 없으면 가장 최근 */
 export function useRealDays(initial?: string): { days: readonly string[] | null; date: string | null; setDate: (date: string) => void; error: ApiError | null } {
-  const [days, setDays] = useState<readonly string[] | null>(null)
-  const [date, setDate] = useState<string | null>(initial ?? null)
-  const [error, setError] = useState<ApiError | null>(null)
+  // 날짜 목록은 기억해 둔 것을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 다시 받다 실패하면 보이던 목록 그대로
+  const { data, error, checked } = useCachedGet<{ days: Day[] }>('/api/days')
+  const days = useMemo(() => (data === null ? null : data.days.filter((day) => !day.rehearsal).map((day) => day.date)), [data])
+  // 고른 날짜가 없으면 가장 최근 — 서버에서 새로 받은 목록으로 한 번 정한 뒤에는 새 목록이 와도 바꾸지 않는다(보던 날짜가 저절로 넘어가지 않게).
+  // 기억해 둔 목록만 있는 동안은 따라간다(그 사이 새 방송 날이 생겼으면 가장 최근 날로)
+  const [picked, setDate] = useState<string | null>(initial ?? null)
+  const date = picked ?? days?.[0] ?? null
   useEffect(() => {
-    let alive = true
-    get<{ days: Day[] }>('/api/days').then(
-      (view) => {
-        if (!alive) return
-        const real = view.days.filter((day) => !day.rehearsal).map((day) => day.date)
-        setDays(real)
-        setDate((current) => current ?? real[0] ?? null)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
+    if (picked === null && date !== null && checked) setDate(date)
+  }, [picked, date, checked])
   return { days, date, setDate, error }
 }
 

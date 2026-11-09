@@ -6,7 +6,7 @@
 // 모양 (D-UX3-96, 토스 설정처럼): 묶음마다 흰 카드 하나 — 카드 안 맨 위에 작은 회색 이름. "상세 설정 열기"·"영상 댓글 끄기" 같은 곁길은
 // 큰 회색 단추 대신 글자 줄·글자 단추로, 안내 상자는 꼭 알아야 하는 것(주의·잘못)만 남기고 나머지는 한 줄 회색 글로.
 // 구매 감사 채팅(thanks.liveChat)은 판매자가 켜기 전까지 꺼져 있다(D-YT-SRV-23) — 안내 글도 "켜면 올려요"로.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { KeyboardAvoidingView, ScrollView, View } from 'react-native'
 import type { SaleSettings } from '@livejjim/core/settings'
 import type { BroadcastItem, Shop } from '@livejjim/web/src/api/types.ts'
@@ -15,9 +15,10 @@ import type { CustomerSettings } from '@livejjim/web/src/lib/customers.ts'
 import { CONSOLE_BADGES_DETAIL, CONSOLE_BADGES_HELP, CONSOLE_BADGES_LABEL, CONSOLE_BADGES_UNDECIDED, LEDGER_MONTH_WORDS, LEDGER_MONTHS, LEDGER_MONTHS_HELP, LEDGER_MONTHS_LABEL, type LedgerSettings } from '@livejjim/web/src/lib/ledger-words.ts'
 import { BOX_HINT, BOX_LABEL, CARRIER_NAME_LABEL, CARRIER_NAME_MAX, EPOST_CARRIER, EPOST_CUSTOMER_LABEL, EPOST_GUIDE, EPOST_KEY_LABEL, EPOST_PRINT_NOTE, EPOST_SECRET_LABEL, NO_AUTO_BOOK_NOTE, OTHER_CARRIER, SENDER_KEYS, epostKeyHelp, SENDER_LABELS, boxWord, parcelBody, parcelDraftOf, sameParcelDraft, type ParcelDraft, EPOST_PASSWORD_HINT, EPOST_PASSWORD_LABEL } from '@livejjim/web/src/lib/parcel-words.ts'
 import { dirtyLine, failedMessage, savedMessage, SAVE_LABEL, type SaveBlock } from '@livejjim/web/src/lib/save-bar.ts'
-import { DETAIL_SETTINGS_NOTE, ONGOING_NOTICE, RULES_DETAIL, SHIPPING_HINT, THANKS_DETAIL, changedSettings, draftOf, fieldChangeNote, fieldsAt, fieldWarning, type Draft, type FieldDef } from '@livejjim/web/src/lib/settings-fields.ts'
+import { DETAIL_SETTINGS_NOTE, ONGOING_NOTICE, RULES_DETAIL, SHIPPING_HINT, THANKS_DETAIL, changedSettings, draftOf, fieldChangeNote, fieldsAt, fieldWarning, type FieldDef } from '@livejjim/web/src/lib/settings-fields.ts'
 import { ACCOUNT_INCOMPLETE, NO_ACCOUNT_ON_RECEIPT, SHOP_FIELDS, accountPreview } from '@livejjim/web/src/lib/shop-words.ts'
-import { get, isApiError, patch, put, type ApiError } from '../api/client.ts'
+import { isApiError, patch, put, type ApiError } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { AppHeader, BigButton, ConfirmSheet, KEYBOARD_AVOID, ToggleRow, TextField, Txt, useBottomInset, useKeyboardShown, useKit, useTopInset } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
@@ -60,27 +61,27 @@ function settingValue(text: string): number | string {
   return value
 }
 
-/** 한 번 받아 두는 값 (실패하면 다시 받기) */
+/** 받아 두는 값: 기억해 둔 것을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77). 처음 받기가 실패하면 다시 받기 */
 function useLoad<T>(path: string) {
-  const [value, setValue] = useState<T | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [attempt, setAttempt] = useState(0)
+  const { data, error, reload, set } = useCachedGet<T>(path)
+  return { value: data, setValue: set, error, retry: () => void reload() }
+}
+
+/**
+ * 받은 값으로 칸을 채운다 (D-UX4-77): 뒤에서 새 값이 오면 판매자가 아직 손대지 않은 칸만 새 값으로 바꾼다 —
+ * 고치던 칸은 덮지 않는다. untouched(칸, 전 값): 칸이 전 값 그대로인가. 저장 뒤에는 화면이 받은 값으로 직접 다시 채운다.
+ */
+function useDraft<V, D>(value: V | null, toDraft: (value: V) => D, untouched: (draft: D, value: V) => boolean): [D | null, Dispatch<SetStateAction<D | null>>] {
+  const [draft, setDraft] = useState<D | null>(() => (value === null ? null : toDraft(value)))
+  const seeded = useRef<V | null>(value)
   useEffect(() => {
-    let alive = true
-    setError(null)
-    get<T>(path).then(
-      (result) => {
-        if (alive) setValue(result)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [path, attempt])
-  return { value, setValue, error, retry: () => setAttempt((n) => n + 1) }
+    if (value === null || value === seeded.current) return
+    const before = seeded.current
+    seeded.current = value
+    setDraft((current) => (current === null || before === null || untouched(current, before) ? toDraft(value) : current))
+    // toDraft·untouched는 화면마다 같은 규칙이라 값이 바뀔 때만 본다
+  }, [value])
+  return [draft, setDraft]
 }
 
 export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () => void; readonly onRenamed?: (name: string) => void }) {
@@ -96,11 +97,12 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
   const customer = useLoad<{ settings: CustomerSettings }>('/api/customer-settings')
   const ledger = useLoad<{ settings: LedgerSettings }>('/api/ledger-settings')
 
-  const [shopDraft, setShopDraft] = useState<Shop | null>(null)
-  const [rules, setRules] = useState<Draft | null>(null)
-  const [parcelDraft, setParcelDraft] = useState<ParcelDraft | null>(null)
-  const [customerDraft, setCustomerDraft] = useState<CustomerDraft | null>(null)
-  const [ledgerDraft, setLedgerDraft] = useState<LedgerSettings | null>(null)
+  // 받은 값으로 칸을 채운다 — 뒤에서 다시 받은 값은 손대지 않은 칸에만 (D-UX4-77)
+  const [shopDraft, setShopDraft] = useDraft(shop.value, (value) => value.shop, (draft, value) => SHOP_FIELDS.every((field) => draft[field.key] === value.shop[field.key]))
+  const [rules, setRules] = useDraft(settings.value, (value) => draftOf(value.settings, ALL_FIELDS), (draft, value) => Object.keys(changedSettings(ALL_FIELDS, draft, value.settings)).length === 0)
+  const [parcelDraft, setParcelDraft] = useDraft(parcel.value, (value) => parcelDraftOf(value.settings), (draft, value) => sameParcelDraft(draft, parcelDraftOf(value.settings)))
+  const [customerDraft, setCustomerDraft] = useDraft(customer.value, (value) => customerDraftOf(value.settings), (draft, value) => sameCustomer(draft, customerDraftOf(value.settings)))
+  const [ledgerDraft, setLedgerDraft] = useDraft(ledger.value, (value) => value.settings, (draft, value) => draft.months === value.settings.months && draft.consoleBadges === value.settings.consoleBadges)
   const [moreRules, setMoreRules] = useState(false)
   const [moreThanks, setMoreThanks] = useState(false)
   // 봇이 감사 채팅을 대신 올리는 판매자 (D-YT-SEND-18) — 게시 동의 안내 대신 "라이브지니가 올려요"
@@ -109,23 +111,6 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null)
   const [leaving, setLeaving] = useState(false)
-
-  // 받은 값으로 칸을 채운다 (저장 뒤에도 받은 값으로 다시)
-  useEffect(() => {
-    if (shop.value !== null) setShopDraft(shop.value.shop)
-  }, [shop.value])
-  useEffect(() => {
-    if (settings.value !== null) setRules(draftOf(settings.value.settings, ALL_FIELDS))
-  }, [settings.value])
-  useEffect(() => {
-    if (parcel.value !== null) setParcelDraft(parcelDraftOf(parcel.value.settings))
-  }, [parcel.value])
-  useEffect(() => {
-    if (customer.value !== null) setCustomerDraft(customerDraftOf(customer.value.settings))
-  }, [customer.value])
-  useEffect(() => {
-    if (ledger.value !== null) setLedgerDraft(ledger.value.settings)
-  }, [ledger.value])
 
   const saved = settings.value?.settings ?? null
   const changes = saved !== null && rules !== null ? changedSettings(ALL_FIELDS, rules, saved) : {}
@@ -165,7 +150,10 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
     if (shopDirty && shopDraft !== null) {
       await step(['가게'], async () => {
         const next = await put<{ shop: Shop }>('/api/shop', shopDraft)
-        shop.setValue({ shop: { ...shopDraft, ...next.shop } })
+        const merged = { ...shopDraft, ...next.shop }
+        shop.setValue({ shop: merged })
+        // 저장 뒤에는 받은 값으로 칸을 다시 채운다
+        setShopDraft(merged)
         onRenamed?.(next.shop.name)
       })
     }
@@ -174,6 +162,7 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
       await step(ruleBlocks, async () => {
         const next = await patch<{ settings: SaleSettings }>('/api/settings', { settings: changes })
         settings.setValue({ settings: next.settings })
+        setRules(draftOf(next.settings, ALL_FIELDS))
       }, '판매 규칙')
     }
     if (parcelDirty && parcel.value !== null && parcelDraft !== null) {
@@ -181,12 +170,14 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
       await step(['택배'], async () => {
         const next = await put<{ settings: ParcelSettings }>('/api/parcels/settings', parcelBody(current, parcelDraft))
         parcel.setValue({ settings: next.settings })
+        setParcelDraft(parcelDraftOf(next.settings))
       })
     }
     if (ledgerDirty && ledgerDraft !== null) {
       await step([], async () => {
         const next = await put<{ settings: LedgerSettings }>('/api/ledger-settings', ledgerDraft)
         ledger.setValue({ settings: next.settings })
+        setLedgerDraft(next.settings)
       }, 'ledger')
       if (nextErrors.ledger !== undefined) failed.push('손님 관리')
       else if (!customerDirty) ok.push('손님 관리')
@@ -199,6 +190,7 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
           waitDays: settingValue(customerDraft.waitDays),
         })
         customer.setValue({ settings: next.settings })
+        setCustomerDraft(customerDraftOf(next.settings))
       })
     }
     setErrors(nextErrors)

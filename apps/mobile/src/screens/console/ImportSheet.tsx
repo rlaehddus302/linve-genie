@@ -12,7 +12,8 @@ import { isApiError, newRequestId, post, withRetry, type ApiError } from '../../
 import { BigButton, Body, Field, Hint, Notice, Row } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
 
-export const APP_IMPORT_TITLE = '상품 목록 가져오기'
+/** 줄 이름 (D-UX4-78 — 옛 "상품 목록 가져오기": 하는 일이 방송 전 상품 미리 등록이라 그 말로) */
+export const APP_IMPORT_TITLE = '상품 미리 등록'
 export const APP_IMPORT_GUIDE = '한 줄에 "번호 품종 가격"을 적어 주세요. 엑셀에서 세 칸을 복사해 붙여 넣어도 돼요.'
 export const APP_IMPORT_NOTE = '가져온 상품은 공개 전이에요. 방송에서 소개할 때 공개돼요.'
 export const APP_IMPORT_PREVIEW = '미리 보기'

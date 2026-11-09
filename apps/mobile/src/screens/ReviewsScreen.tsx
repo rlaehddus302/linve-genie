@@ -15,7 +15,8 @@ import { outcomeOf, pickFor, prefillOf, qtyProblemWords, readQty, remainingOf, v
 import type { UndoItem, UndoQueue } from '@livejjim/web/src/lib/undo-queue.ts'
 import { NO_ITEMS, UndoStrip, noItems, noSubscribe, secondsWord, useUndoQueue, waitingCount } from '../lib/host-queue.tsx'
 import { ORIGIN_WORD, REVIEW_REASON_WORD } from '@livejjim/web/src/lib/words.ts'
-import { get, isApiError, post, withQuery, type ApiError } from '../api/client.ts'
+import { get, isApiError, post, withQuery } from '../api/client.ts'
+import { peekCached, useCachedGet } from '../lib/cached-get.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
@@ -46,35 +47,24 @@ export interface ReviewsQuery {
   readonly broadcast?: string
 }
 
+const NO_REVIEWS: ReviewsView = { rehearsal: false, reviews: [], products: [], broadcasts: [], scopes: [] }
+
 const reviewsPath = (query: ReviewsQuery): string => withQuery('/api/reviews', { broadcast: query.broadcast, rehearsal: false })
 
 /** 목록 받기: 실제 방송의 바뀜 알림을 짧게 모아 다시 읽는다. 다시 붙어도 다시 읽는다. 권한 없음·없는 방송은 빈 목록 */
 function useReviewList(query: ReviewsQuery) {
   const { stream } = useServices()
-  const [view, setView] = useState<ReviewsView | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
   const path = reviewsPath(query)
-  const version = useRef(0)
+  // 기억해 둔 목록을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77). 권한 없음·없는 방송(403·404)은 빈 목록
+  const { data, error: loadError, reload: refetch } = useCachedGet<ReviewsView>(path)
+  const missing = loadError !== null && (loadError.status === 403 || loadError.status === 404)
+  const view = data ?? (missing ? NO_REVIEWS : null)
+  const error = missing ? null : loadError
   const reload = useCallback(async (): Promise<ReviewsView | null> => {
-    const mine = ++version.current
-    try {
-      const next = await get<ReviewsView>(path)
-      if (mine === version.current) {
-        setView(next)
-        setError(null)
-      }
-      return next
-    } catch (caught: unknown) {
-      if (!isApiError(caught)) throw caught
-      if (mine === version.current) {
-        if (caught.status === 403 || caught.status === 404) setView({ rehearsal: false, reviews: [], products: [], broadcasts: [], scopes: [] })
-        else setError(caught)
-      }
-      return null
-    }
-  }, [path])
+    await refetch()
+    return peekCached<ReviewsView>(path)
+  }, [refetch, path])
   useEffect(() => {
-    void reload()
     const view = stream.open()
     let timer: ReturnType<typeof setTimeout> | undefined
     let ready = 0

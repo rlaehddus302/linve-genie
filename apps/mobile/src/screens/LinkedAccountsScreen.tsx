@@ -4,10 +4,11 @@
 // - 마지막 로그인 방법은 서버가 막는다(409 "마지막 로그인 방법은 끊을 수 없어요.") — 그 문장을 알림 막대로. 이미 끊겼으면(404) 목록을 새로 읽는다.
 // - 서버: GET /api/auth/methods · POST /api/auth/unlink (D-L1-03 — 지금 세션은 남고, 그 공급자로 로그인한 다른 기기는 로그아웃).
 // - 모양 (D-UX3-96): 줄 사이 선을 빼고 토스 목록처럼 — 왼쪽 앱 아이콘 로고(34), 이름·공급자, 오른쪽 글자 단추 [해지].
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { accountLabel, LINKED_NONE, LINKED_TITLE, methodsOf, POPUP_CLOSE, PROVIDER_NAMES, UNLINK_GO, unlinkAskText, unlinkAskTitle, unlinkDone, type LoginMethods, type LoginProvider } from '@livejjim/web/src/lib/social-login.ts'
-import { get, isApiError, post } from '../api/client.ts'
+import { isApiError, post } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { AppHeader, PopupDialog, Toast, Txt, useKit, useToast } from '../ui/kit/index.ts'
 import { SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
@@ -19,8 +20,10 @@ const UNLINK_FAILED = '해지하지 못했어요. 다시 눌러 주세요.'
 
 export function LinkedAccountsScreen({ onBack }: { readonly onBack: () => void }) {
   const { p } = useKit()
-  const [methods, setMethods] = useState<LoginMethods | null>(null)
-  const [failed, setFailed] = useState(false)
+  // 기억해 둔 목록을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 설정 화면의 연동 줄과 같은 기억을 쓴다
+  const { data: raw, error, reload, set: setRaw } = useCachedGet<unknown>('/api/auth/methods')
+  const methods = useMemo<LoginMethods | null>(() => (raw === null ? null : methodsOf(raw)), [raw])
+  const failed = error !== null
   const [asking, setAsking] = useState<LoginProvider | null>(null)
   // 팝업이 닫히며 흐려지는 동안에도 같은 글 (D-UX3-54)
   const [shown, setShown] = useState<LoginProvider>('kakao')
@@ -28,23 +31,14 @@ export function LinkedAccountsScreen({ onBack }: { readonly onBack: () => void }
   const [busy, setBusy] = useState(false)
   const { toast, show, hide } = useToast()
 
-  const load = useCallback(() => {
-    get<unknown>('/api/auth/methods').then(
-      (value) => {
-        setMethods(methodsOf(value))
-        setFailed(false)
-      },
-      () => setFailed(true),
-    )
-  }, [])
-  useEffect(load, [load])
+  const load = useCallback(() => void reload(), [reload])
 
   const unlink = async (provider: LoginProvider) => {
     if (busy) return
     setBusy(true)
     hide()
     try {
-      setMethods(methodsOf(await post<unknown>('/api/auth/unlink', { provider })))
+      setRaw(await post<unknown>('/api/auth/unlink', { provider }))
       setAsking(null)
       show(unlinkDone(provider))
     } catch (caught: unknown) {

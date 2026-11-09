@@ -116,10 +116,14 @@ interface DraftPreview {
 
 const errorText = (caught: unknown): string => (isApiError(caught) ? caught.message : '하지 못했어요. 다시 눌러 주세요.')
 
-export function LabelSetupScreen({ onBack, onDone }: { readonly onBack: () => void; readonly onDone: () => void }) {
+/** 라벨 프린트 화면에서 한 단계만 다시 할 때 (D-UX4-80): 프린터 연결 · 라벨 꾸미기 · 테스트 인쇄 */
+export type LabelSetupStep = 'connect' | 'design' | 'test'
+
+/** only: 그 단계 하나만 — 뒤로는 onBack, 끝나면 onDone (방송 시작 때 하지 않았어도 방송 관리 → 라벨 프린트에서 다시 한다) */
+export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: () => void; readonly onDone: () => void; readonly only?: LabelSetupStep }) {
   const { labels } = useServices()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
-  const [step, setStep] = useState<Step>('ask')
+  const [step, setStep] = useState<Step>(only ?? 'ask')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -179,9 +183,9 @@ export function LabelSetupScreen({ onBack, onDone }: { readonly onBack: () => vo
       </FormPage>
     )
   }
-  if (step === 'connect') return <ConnectStep onBack={() => go('ask')} onNext={() => go('design')} />
-  if (step === 'design') return <DesignStep queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => go('connect')} onSaved={() => go('test')} />
-  return <TestStep busy={busy} run={run} onBack={() => go('design')} onDone={onDone} error={errorLine} />
+  if (step === 'connect') return <ConnectStep onBack={() => (only === undefined ? go('ask') : onBack())} onNext={() => (only === undefined ? go('design') : onDone())} />
+  if (step === 'design') return <DesignStep queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => (only === undefined ? go('connect') : onBack())} onSaved={() => (only === undefined ? go('test') : onDone())} />
+  return <TestStep busy={busy} run={run} onBack={() => (only === undefined ? go('design') : onBack())} onDone={onDone} error={errorLine} />
 }
 
 /** 2) 프린터 연결과 확인 — 들어오면 바로 찾고, 찾은 프린터를 이 화면에 줄로 (D-UX4-04). 고른 줄에서 바로 연결 확인, 이어지면 [다음] (D-UX4-10) */

@@ -4,14 +4,15 @@
 //    방송을 만들고 바로 잇는다. [방송 주소를 모르겠어요] → 유튜브·틱톡·밴드 고르기 → 그 앱(없으면 앱 안 브라우저)에서 내 방송의
 //    공유 → 링크 복사 후 돌아오면 주소가 저절로 들어간다. 틱톡·밴드는 주소가 아니라 가게 계정으로 잇는다 — 그 안내와 [방송 만들기].
 // 유튜브를 이을 수 없는 서버(읽기 꺼짐·구글 연결 없음)면 종류를 누르는 대로 방송을 만들고 방송 화면으로 간다(그 화면이 연결 안내를 보인다).
-import { useEffect, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import type { WriteResult, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { kstToday } from '@livejjim/web/src/lib/kst.ts'
-import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
+import { isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import { LIVE_PLATFORMS, openPlatform, type PlatformTarget } from '../lib/open-app.ts'
 import { readModeOf } from '../lib/youtube.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { BottomSheet, FormPage, Icon, SmallButton, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Notice } from '../ui/parts.tsx'
@@ -48,25 +49,14 @@ export interface NewBroadcastNavigation {
 
 /** 이 서버에서 유튜브 방송을 주소로 이을 수 있나. undefined = 확인 중, null = 못 잇는다 */
 function useLinkRoute(): { readonly webChat: YoutubeWebChat | null } | null | undefined {
-  const [route, setRoute] = useState<{ readonly webChat: YoutubeWebChat | null } | null | undefined>(undefined)
-  useEffect(() => {
-    let alive = true
-    get<YoutubeConnectionResponse>('/api/youtube/connection').then(
-      (body) => {
-        if (!alive) return
-        const { webChat } = readModeOf(body)
-        if (webChat !== null) setRoute(webChat.on ? { webChat } : null)
-        else setRoute(body.connection?.status === 'CONNECTED' ? { webChat: null } : null)
-      },
-      () => {
-        if (alive) setRoute(null)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
-  return route
+  // 기억해 둔 연결 상태로 바로 정하고 뒤에서 다시 받는다 (D-UX4-77) — 못 받으면 못 잇는다
+  const { data: body, error } = useCachedGet<YoutubeConnectionResponse>('/api/youtube/connection')
+  return useMemo(() => {
+    if (body === null) return error === null ? undefined : null
+    const { webChat } = readModeOf(body)
+    if (webChat !== null) return webChat.on ? { webChat } : null
+    return body.connection?.status === 'CONNECTED' ? { webChat: null } : null
+  }, [body, error])
 }
 
 /** 방송 만들기 — 방송 화면에 들어오기 전까지 목록에 보이지 않게 만드는 중으로 (D-UX3-25). (요청 번호는 같은 입력을 다시 보낼 때 그대로 — 두 번 만들지 않는다). 거절이면 문장을 남기고 null */

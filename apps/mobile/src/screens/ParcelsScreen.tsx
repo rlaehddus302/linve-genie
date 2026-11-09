@@ -59,10 +59,11 @@ import {
 } from '@livejjim/web/src/lib/parcel-words.ts'
 import { PACKING_TONE } from '@livejjim/web/src/lib/packing-words.ts'
 import type { PackingWord } from '@livejjim/web/src/api/types.ts'
-import { get, getBytes, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
+import { getBytes, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile } from '../native/index.ts'
 import { useParcelVersion } from '../lib/parcel-version.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
@@ -104,29 +105,21 @@ export const EPOST_BATCH_MAX = 50
 export function ParcelsScreen({ onBack, initialDate, nav = {}, topGap = 28 }: { readonly onBack?: () => void; readonly initialDate?: string; readonly nav?: ParcelsNavigation; readonly topGap?: number }) {
   const { p } = useKit()
   const room = useTabBarRoom()
-  const [days, setDays] = useState<ParcelDays | null>(null)
-  const [date, setDate] = useState<string | null>(initialDate ?? null)
-  const [error, setError] = useState<ApiError | null>(null)
+  const [picked, setDate] = useState<string | null>(initialDate ?? null)
   const [attempt, setAttempt] = useState(0)
-  const [version, bump] = useParcelVersion(date)
+  // 다시 오면 기억해 둔 날짜 목록으로 바로 그리고 뒤에서 조용히 다시 받는다 (D-UX4-77)
+  const { data: days, error, reload: reloadDays, checked } = useCachedGet<ParcelDays>('/api/parcels/days', attempt)
+  // 판매 기록이 없어도 오늘 날짜로 택배 화면을 다 보인다 (D-UX3-64)
+  const date = picked ?? (days === null ? null : (days.selected ?? days.dates[0]?.date ?? kstToday()))
+  // 날짜는 서버에서 새로 받은 목록으로 한 번 정하고, 그 뒤로는 바꾸지 않는다 — 기억해 둔 목록만 있는 동안은 따라간다
   useEffect(() => {
-    let alive = true
-    get<ParcelDays>('/api/parcels/days').then(
-      (result) => {
-        if (!alive) return
-        setDays(result)
-        setError(null)
-        // 판매 기록이 없어도 오늘 날짜로 택배 화면을 다 보인다 (D-UX3-64)
-        setDate((current) => current ?? result.selected ?? result.dates[0]?.date ?? kstToday())
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [attempt, version])
+    if (picked === null && date !== null && checked) setDate(date)
+  }, [picked, date, checked])
+  const [version, bump] = useParcelVersion(date)
+  // 실시간 알림으로 그날 목록을 다시 받을 때 날짜 목록(보낼 수 있어요·접수 수)도 다시 받는다
+  useEffect(() => {
+    if (version > 0) void reloadDays()
+  }, [version, reloadDays])
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="parcels-screen">
       {onBack !== undefined ? <AppHeader title={PARCEL_TITLE} onBack={onBack} /> : null}
@@ -162,24 +155,9 @@ export function ParcelsScreen({ onBack, initialDate, nav = {}, topGap = 28 }: { 
 }
 
 function useParcelDay(date: string, version: number) {
-  const [day, setDay] = useState<ParcelDay | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [attempt, setAttempt] = useState(0)
-  const latest = useRef(0)
-  useEffect(() => {
-    const mine = ++latest.current
-    get<ParcelDay>(`/api/parcels/days/${date}`).then(
-      (result) => {
-        if (mine !== latest.current) return
-        setDay(result)
-        setError(null)
-      },
-      (caught: unknown) => {
-        if (mine === latest.current && isApiError(caught)) setError(caught)
-      },
-    )
-  }, [date, version, attempt])
-  return { day, error, reload: () => setAttempt((n) => n + 1) }
+  // 기억해 둔 그날 택배 목록을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data: day, error, reload } = useCachedGet<ParcelDay>(`/api/parcels/days/${date}`, version)
+  return { day, error, reload: () => void reload() }
 }
 
 /** 운송장 PDF 받아 공유 시트로 */

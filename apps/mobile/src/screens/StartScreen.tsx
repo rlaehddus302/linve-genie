@@ -10,7 +10,8 @@ import type { SaleSettings } from '@livejjim/core/settings'
 import type { LabelSettings } from '@livejjim/web/src/api/print-types.ts'
 import type { Shop, WizardState } from '@livejjim/web/src/api/types.ts'
 import { fieldOf, valueWords, type RuleKey } from '@livejjim/web/src/lib/settings-fields.ts'
-import { get, isApiError, put, type ApiError } from '../api/client.ts'
+import { isApiError, put, type ApiError } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { openWeb } from '../lib/open-web.ts'
 import { AppHeader, BigButton, Card, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
@@ -45,28 +46,14 @@ export interface StartNavigation {
 
 export function StartScreen({ nav }: { readonly nav: StartNavigation }) {
   const { p } = useKit()
-  const [step, setStep] = useState<number | null>(null)
-  const [labelsOn, setLabelsOn] = useState<boolean | null>(null)
+  // 기억해 둔 마법사 단계·라벨 설정을 바로 쓰고 뒤에서 다시 받는다 (D-UX4-77). 단계는 처음 한 번만 정한다(누른 단계를 덮지 않게)
+  const wizard = useCachedGet<{ wizard: WizardState }>('/api/wizard')
+  const firstStep = wizard.data !== null ? (wizard.data.wizard.status === 'IN_PROGRESS' ? clampStep(wizard.data.wizard.step) : 1) : wizard.error !== null ? 1 : null
+  const [step, setStep] = useState<number | null>(firstStep)
   useEffect(() => {
-    let alive = true
-    get<{ wizard: WizardState }>('/api/wizard').then(
-      ({ wizard }) => {
-        if (alive) setStep((current) => current ?? (wizard.status === 'IN_PROGRESS' ? clampStep(wizard.step) : 1))
-      },
-      () => {
-        if (alive) setStep((current) => current ?? 1)
-      },
-    )
-    get<LabelSettings>('/api/settings/labels').then(
-      (settings) => {
-        if (alive) setLabelsOn(settings.enabled)
-      },
-      () => undefined,
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
+    if (firstStep !== null) setStep((current) => current ?? firstStep)
+  }, [firstStep])
+  const labelsOn = useCachedGet<LabelSettings>('/api/settings/labels').data?.enabled ?? null
   const record = (state: WizardState) => void put('/api/wizard', state.status === 'IN_PROGRESS' ? { status: state.status, step: state.step } : { status: state.status }).catch(() => undefined)
   // 라벨 기능이 꺼져 있으면 프린터 단계를 건너뛴다 — 유튜브가 마지막 (모르면 건너뛰지 않는다)
   const last = labelsOn === false ? PRINTER_STEP - 1 : LAST
@@ -118,26 +105,14 @@ export function StartScreen({ nav }: { readonly nav: StartNavigation }) {
 }
 
 function NameStep({ onNext }: { readonly onNext: () => void }) {
-  const [saved, setSaved] = useState<string | null>(null)
-  const [name, setName] = useState('')
+  // 기억해 둔 가게 이름을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 못 받으면 빈 이름. 칸은 처음 한 번만 채운다(적던 이름을 덮지 않게)
+  const shop = useCachedGet<{ shop: Shop }>('/api/shop')
+  const saved = shop.data !== null ? shop.data.shop.name : shop.error !== null ? '' : null
+  // 적은 적이 없으면(null) 받은 이름을 그대로 보인다 — 받은 뒤 칸을 따로 채우지 않아 적던 글이 덮이지 않는다
+  const [typed, setName] = useState<string | null>(null)
+  const name = typed ?? saved ?? ''
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
-  useEffect(() => {
-    let alive = true
-    get<{ shop: Shop }>('/api/shop').then(
-      ({ shop }) => {
-        if (!alive) return
-        setSaved(shop.name)
-        setName(shop.name)
-      },
-      () => {
-        if (alive) setSaved('')
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
   const next = async () => {
     if (busy) return
     if (saved !== null && name.trim() === saved.trim()) return onNext()
@@ -145,6 +120,7 @@ function NameStep({ onNext }: { readonly onNext: () => void }) {
     setError(null)
     try {
       await put('/api/shop', { name })
+      void shop.reload()
       onNext()
     } catch (caught: unknown) {
       if (isApiError(caught)) setError(caught)
@@ -163,22 +139,9 @@ function NameStep({ onNext }: { readonly onNext: () => void }) {
 }
 
 function RulesStep({ onEdit }: { readonly onEdit: () => void }) {
-  const [settings, setSettings] = useState<SaleSettings | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  useEffect(() => {
-    let alive = true
-    get<{ settings: SaleSettings }>('/api/settings').then(
-      (result) => {
-        if (alive) setSettings(result.settings)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
+  // 기억해 둔 규칙을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data, error } = useCachedGet<{ settings: SaleSettings }>('/api/settings')
+  const settings = data?.settings ?? null
   return (
     <Card>
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}

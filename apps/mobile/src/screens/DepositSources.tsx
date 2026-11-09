@@ -4,13 +4,14 @@
 // "팝빌에서 계좌 등록·관리"는 서버가 준 https 주소를 기기 브라우저로 연다. 사업자번호·계좌번호는 보낸 뒤 칸을 비운다(서버도 끝 4자리만).
 // 기억한 입금자명 목록과 "지우기"(한 번 더 묻기).
 // 모양 (D-UX3-93, 홈처럼): 흰 카드 안 회색 묶음 이름, 원천마다 [끄기]·[지금 받아 오기]는 좌우로, 팝빌 관리·지우기는 작은 단추, 설명 글은 짧게.
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { View } from 'react-native'
 import type { RememberedName, SourceView, SourcesView } from '@livejjim/web/src/api/deposit-types.ts'
 import { BANKS, SOURCE_KIND_WORD, bankName, intervalWords } from '@livejjim/web/src/lib/deposit-words.ts'
 import { kstShort } from '@livejjim/web/src/lib/kst.ts'
-import { del, get, isApiError, patch, post, type ApiError } from '../api/client.ts'
+import { del, isApiError, patch, post, type ApiError } from '../api/client.ts'
 import { openExternal } from '../lib/open-web.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { EmptyFill, BigButton, ButtonRow, ConfirmSheet, TextField, Txt, useKit } from '../ui/kit/index.ts'
@@ -37,19 +38,8 @@ async function openManage(body: Readonly<Record<string, unknown>>): Promise<ApiE
 }
 
 export function SourcesTab() {
-  const [view, setView] = useState<SourcesView | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const reload = useCallback(async () => {
-    try {
-      setView(await get<SourcesView>('/api/deposits/sources'))
-      setError(null)
-    } catch (caught: unknown) {
-      if (isApiError(caught)) setError(caught)
-    }
-  }, [])
-  useEffect(() => {
-    void reload()
-  }, [reload])
+  // 기억해 둔 목록을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 다시 받다 실패하면 보이던 목록 그대로
+  const { data: view, error, reload } = useCachedGet<SourcesView>('/api/deposits/sources')
   return (
     <View style={{ gap: CARD_GAP }}>
       <SectionCard title="입금 받는 곳" label="입금 받는 곳">
@@ -222,29 +212,22 @@ function AddFake({ onAdded }: { readonly onAdded: () => void }) {
 }
 
 function RememberedNames() {
-  const [names, setNames] = useState<readonly RememberedName[] | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
+  // 기억해 둔 목록을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77)
+  const { data, error: loadError, reload } = useCachedGet<{ names: RememberedName[] }>('/api/deposits/names')
+  const names: readonly RememberedName[] | null = data?.names ?? null
+  const [actionError, setActionError] = useState<ApiError | null>(null)
+  const error = actionError ?? loadError
   const [forgetting, setForgetting] = useState<RememberedName | null>(null)
   const [busy, setBusy] = useState(false)
-  const reload = useCallback(async () => {
-    try {
-      setNames((await get<{ names: RememberedName[] }>('/api/deposits/names')).names)
-      setError(null)
-    } catch (caught: unknown) {
-      if (isApiError(caught)) setError(caught)
-    }
-  }, [])
-  useEffect(() => {
-    void reload()
-  }, [reload])
   const forget = async (item: RememberedName) => {
     setBusy(true)
+    setActionError(null)
     try {
       await del(`/api/deposits/names/${String(item.id)}`, {})
       setForgetting(null)
       void reload()
     } catch (caught: unknown) {
-      if (isApiError(caught)) setError(caught)
+      if (isApiError(caught)) setActionError(caught)
     } finally {
       setBusy(false)
     }

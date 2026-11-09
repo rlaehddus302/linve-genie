@@ -16,7 +16,7 @@ export default function LinkRoute() {
   return (
     <View style={{ flex: 1, backgroundColor: PALETTE.light.surface }}>
       <KitInsets belowStatusBar={false}>
-        <BroadcastLinkScreen broadcastId={id} closed={closed === '1'} onBack={() => (router.canGoBack() ? router.back() : router.replace({ pathname: '/console/[id]', params: { id } }))} />
+        <BroadcastLinkScreen broadcastId={id} closed={closed === '1'} onBack={() => (router.canGoBack() ? router.back() : router.replace({ pathname: '/console/[id]', params: { id } }))} onEnded={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))} />
       </KitInsets>
     </View>
   )

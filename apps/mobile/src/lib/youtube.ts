@@ -25,7 +25,7 @@ export const CHANNEL_NAME_MAX = 40
 export const INVITED_CONFIRM_CODE = 'INVITED_CONFIRM_NEEDED'
 /** 앱에서의 대비 경로 안내 — 휴대폰만 쓰는 판매자: 문자찜·음성·댓글 붙여넣기(웹) (D-YT-SRV-09, NFR-09) */
 // D-UX4-20: 문자찜 칸은 방송 설정(톱니) → "문자찜 넣기"로 옮겼다
-export const MOBILE_FALLBACK_HINT = '톱니 → "문자찜 직접 넣기"나 음성으로 넣을 수 있어요.'
+export const MOBILE_FALLBACK_HINT = '채팅을 못 받는 동안에는 음성으로 상품과 찜을 넣을 수 있어요.'
 /** 옛 공식 읽기 서버(구글 연결로 읽음)에서 연결이 없을 때 — 웹 CONSOLE_NOT_CONNECTED·RECONNECT_NEEDED_MESSAGE와 같은 문장 (D-UX2-07) */
 export const NOT_CONNECTED_FIRST = '유튜브 채널을 먼저 연결해 주세요.'
 export const RECONNECT_FIRST = '유튜브 연결을 다시 해 주세요.'

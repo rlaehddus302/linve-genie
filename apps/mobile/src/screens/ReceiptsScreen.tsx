@@ -28,8 +28,9 @@ import {
   smsTargets,
   smsWords,
 } from '@livejjim/web/src/lib/receipt-sms.ts'
-import { get, getBytes, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
+import { getBytes, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { copyToClipboard } from '../lib/clipboard.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile, nativeSms } from '../native/index.ts'
 import { useServices } from '../services.tsx'
@@ -94,29 +95,20 @@ function useFileShare() {
 
 export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: () => void; readonly initialBroadcast?: string }) {
   const { p } = useKit()
-  const [list, setList] = useState<readonly BroadcastItem[] | null>(null)
-  const [picked, setPicked] = useState<string | null>(initialBroadcast ?? null)
-  const [error, setError] = useState<ApiError | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [ledger, setLedger] = useState(false)
+  // 다시 오면 기억해 둔 방송 목록으로 바로 그리고 뒤에서 조용히 다시 받는다 (D-UX4-77)
+  const { data, error, checked } = useCachedGet<{ broadcasts: BroadcastItem[] }>('/api/broadcasts', attempt)
+  const list = useMemo<readonly BroadcastItem[] | null>(
+    () => (data === null ? null : data.broadcasts.filter((item) => item.rehearsal !== true).sort((a, b) => (a.date === b.date ? (b.endedAt ?? '').localeCompare(a.endedAt ?? '') : b.date.localeCompare(a.date)))),
+    [data],
+  )
+  const [chosen, setPicked] = useState<string | null>(initialBroadcast ?? null)
+  const picked = chosen ?? list?.find((item) => item.ended)?.id ?? list?.[0]?.id ?? null
+  // 방송은 서버에서 새로 받은 목록으로 한 번 정하고, 그 뒤로는 바꾸지 않는다 — 기억해 둔 목록만 있는 동안은 따라간다
   useEffect(() => {
-    let alive = true
-    get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts').then(
-      (result) => {
-        if (!alive) return
-        const sorted = result.broadcasts.filter((item) => item.rehearsal !== true).sort((a, b) => (a.date === b.date ? (b.endedAt ?? '').localeCompare(a.endedAt ?? '') : b.date.localeCompare(a.date)))
-        setList(sorted)
-        setError(null)
-        setPicked((current) => current ?? sorted.find((item) => item.ended)?.id ?? sorted[0]?.id ?? null)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [attempt])
+    if (chosen === null && picked !== null && checked) setPicked(picked)
+  }, [chosen, picked, checked])
   const broadcast = list?.find((item) => item.id === picked) ?? null
   const sameDay = broadcast !== null && list !== null && list.some((item) => item.id !== broadcast.id && item.date === broadcast.date)
   return (
@@ -199,28 +191,13 @@ function useSmsDevice(wanted: boolean): boolean | null {
 /** 구매자 줄: 처음·조치 뒤·그날 정산이 바뀌면(실시간 알림) 다시 받는다. 가게 이름(복사 글 앞말)도 같이 */
 function useReceiptRows(date: string) {
   const { stream } = useServices()
-  const [rows, setRows] = useState<readonly ReceiptBuyerRow[] | null>(null)
-  const [shopName, setShopName] = useState('')
-  const [smsReady, setSmsReady] = useState(false)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [version, setVersion] = useState(0)
-  const latest = useRef(0)
-  const reload = useCallback(() => setVersion((n) => n + 1), [])
-  useEffect(() => {
-    const mine = ++latest.current
-    Promise.all([get<ReceiptBuyers>(withQuery(`/api/days/${date}/receipt-buyers`, { rehearsal: false })), get<{ shop: { name: string } }>('/api/shop').catch(() => null)]).then(
-      ([result, shop]) => {
-        if (mine !== latest.current) return
-        setRows(result.buyers)
-        setSmsReady(result.smsReady === true)
-        if (shop !== null && typeof shop.shop.name === 'string') setShopName(shop.shop.name)
-        setError(null)
-      },
-      (caught: unknown) => {
-        if (mine === latest.current && isApiError(caught)) setError(caught)
-      },
-    )
-  }, [date, version])
+  // 기억해 둔 구매자 줄·가게 이름을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77). 가게 이름을 못 받으면 앞말 없이
+  const { data, error, reload: refetch, set } = useCachedGet<ReceiptBuyers>(withQuery(`/api/days/${date}/receipt-buyers`, { rehearsal: false }))
+  const { data: shop } = useCachedGet<{ shop: { name: string } }>('/api/shop')
+  const rows = data?.buyers ?? null
+  const smsReady = data?.smsReady === true
+  const shopName = shop !== null && typeof shop.shop.name === 'string' ? shop.shop.name : ''
+  const reload = useCallback(() => void refetch(), [refetch])
   useEffect(() => {
     const view = stream.open()
     view.addEventListener('change', (event) => {
@@ -235,8 +212,12 @@ function useReceiptRows(date: string) {
   }, [date, reload, stream])
   const applyLinks = useCallback((links: readonly ReceiptLink[]) => {
     const byBuyer = new Map(links.map((link) => [link.buyer, link]))
-    setRows((current) => current?.map((row) => ({ ...row, link: byBuyer.get(row.buyer) ?? row.link })) ?? current)
-  }, [])
+    if (data === null) return
+    set((current) => {
+      const now = current ?? data
+      return { ...now, buyers: now.buyers.map((row) => ({ ...row, link: byBuyer.get(row.buyer) ?? row.link })) }
+    })
+  }, [data, set])
   return { rows, shopName, smsReady, error, reload, applyLinks }
 }
 
@@ -593,33 +574,25 @@ function BuyerRow({
 /** 기간 판매대장 (STL-06 — 기간·방송 골라 엑셀). 실제 범위 날짜·실제 방송만, 기본 모두 고름 */
 function LedgerSheet({ initial, onClose }: { readonly initial: string | null; readonly onClose: () => void }) {
   const { p } = useKit()
-  const [days, setDays] = useState<readonly string[] | null>(null)
-  const [broadcasts, setBroadcasts] = useState<readonly BroadcastItem[] | null>(null)
-  const [loadError, setLoadError] = useState<ApiError | null>(null)
-  const [from, setFrom] = useState<string | null>(initial)
-  const [to, setTo] = useState<string | null>(initial)
+  // 날짜·방송 목록은 기억해 둔 것을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 둘 다 있어야 고르기를 보인다
+  const daysView = useCachedGet<{ days: { date: string; rehearsal: boolean }[] }>('/api/days')
+  const listView = useCachedGet<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
+  const ready = daysView.data !== null && listView.data !== null
+  const days = useMemo(() => (daysView.data === null || listView.data === null ? null : daysView.data.days.filter((day) => !day.rehearsal).map((day) => day.date)), [daysView.data, listView.data])
+  const broadcasts = useMemo(() => (listView.data === null || daysView.data === null ? null : listView.data.broadcasts.filter((item) => !item.rehearsal)), [listView.data, daysView.data])
+  const loadError = ready ? null : (daysView.error ?? listView.error)
+  const [chosenFrom, setFrom] = useState<string | null>(initial)
+  const [chosenTo, setTo] = useState<string | null>(initial)
+  const from = chosenFrom ?? days?.[0] ?? null
+  const to = chosenTo ?? days?.[0] ?? null
+  // 한 번 정한 기간은 새 목록이 와도 바꾸지 않는다
+  useEffect(() => {
+    if (chosenFrom === null && from !== null) setFrom(from)
+    if (chosenTo === null && to !== null) setTo(to)
+  }, [chosenFrom, chosenTo, from, to])
   const [unpicked, setUnpicked] = useState<ReadonlySet<string>>(new Set())
   const [problem, setProblem] = useState<string | null>(null)
   const files = useFileShare()
-  useEffect(() => {
-    let alive = true
-    Promise.all([get<{ days: { date: string; rehearsal: boolean }[] }>('/api/days'), get<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')]).then(
-      ([real, list]) => {
-        if (!alive) return
-        const dates = real.days.filter((day) => !day.rehearsal).map((day) => day.date)
-        setDays(dates)
-        setBroadcasts(list.broadcasts.filter((item) => !item.rehearsal))
-        setFrom((current) => current ?? dates[0] ?? null)
-        setTo((current) => current ?? dates[0] ?? null)
-      },
-      (caught: unknown) => {
-        if (alive && isApiError(caught)) setLoadError(caught)
-      },
-    )
-    return () => {
-      alive = false
-    }
-  }, [])
   const inPeriod = useMemo(() => (broadcasts === null || from === null || to === null ? [] : broadcasts.filter((item) => item.date >= from && item.date <= to)), [broadcasts, from, to])
   const picked = inPeriod.filter((item) => !unpicked.has(item.id))
   const download = () => {

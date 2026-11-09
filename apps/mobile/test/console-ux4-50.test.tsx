@@ -16,7 +16,7 @@ import { ListenLine } from '../src/screens/console/StreamAudio.tsx'
 import { FEED_EMPTY, FEED_EMPTY_BODY } from '../src/screens/console/ClaimFeed.tsx'
 import { TALK_EMPTY } from '../src/screens/console/LiveTalk.tsx'
 import { TRANSCRIPT_LINES, type VoiceSession, type VoiceView } from '../src/lib/voice-session.ts'
-import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY } from '../src/lib/words.ts'
+import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, VOICE_SENT_LINE } from '../src/lib/words.ts'
 import { setErrorHaptic } from '../src/native/haptics.ts'
 import { AppHeader, HeaderTextButton } from '../src/ui/kit/index.ts'
 import { RouteSwipeProvider, edgeSwipeCloses, startsEdgeSwipe } from '../src/ui/kit/route-swipe.tsx'
@@ -251,14 +251,15 @@ describe('진짜 쌓인 화면 (D-UX4-57)', () => {
 
   it('쌓인 방송 관리 화면: 같은 메뉴가 있고, 여기서 여는 아래 판도 이 화면 위에 뜬다', async () => {
     const world = makeWorld({ products: [] })
-    render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} onEnded={() => {}} />))
+    render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} />))
     await waitFor(() => expect(world.source()).toBeTruthy())
     await act(async () => {
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
     const page = await screen.findByRole('main', { name: '방송 관리' })
-    for (const row of ['음성 설정', '채팅 보기', '방송 끝내기']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
+    // 옛 기대: '방송 끝내기' 줄. 새 기대(D-UX4-79): 방송 연결 안 "방송 연결 끊기"로 옮겼다
+    for (const row of ['음성 설정', '채팅 보기', '방송 연결']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
     fireEvent.click(within(page).getByRole('button', { name: '채팅 보기' }))
     expect(await screen.findByRole('dialog', { name: '채팅' })).toBeTruthy()
   })
@@ -268,30 +269,32 @@ describe('방송 관리 설정은 전체 화면 (D-UX4-60)', () => {
   it('경로가 있으면 방송 관리 줄은 아래 판 대신 설정 화면을 연다', async () => {
     const world = makeWorld({ products: [] })
     const tools: string[] = []
-    render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} openTool={(tool) => tools.push(tool)} onEnded={() => {}} />))
+    render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} openTool={(tool) => tools.push(tool)} />))
     await waitFor(() => expect(world.source()).toBeTruthy())
     await act(async () => {
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
     const page = await screen.findByRole('main', { name: '방송 관리' })
-    for (const row of ['문자찜 직접 넣기', '상품 목록 가져오기', '댓글 붙여넣기', '채팅 보기', '음성 설정']) fireEvent.click(within(page).getByRole('button', { name: row }))
-    expect(tools).toEqual(['sms', 'import', 'paste', 'chat', 'voice'])
+    // 옛 기대: 문자찜 직접 넣기·상품 목록 가져오기·댓글 붙여넣기도 — 새 기대(D-UX4-78): 둘은 없앴고 "상품 목록 가져오기"는 "상품 미리 등록"
+    for (const row of ['상품 미리 등록', '채팅 보기', '음성 설정']) fireEvent.click(within(page).getByRole('button', { name: row }))
+    expect(tools).toEqual(['import', 'chat', 'voice'])
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('설정 화면: 가운데 제목 · 맨 위 굵은 한 줄 · 회색 설명 · 내용', async () => {
     const world = makeWorld({ products: [] })
-    render(world.wrap(<ConsoleToolScreen broadcastId="b1" tool="sms" onBack={() => {}} />))
+    // 옛 시험은 문자찜 직접 넣기 화면 — 그 화면을 없애 음성 설정 화면으로 본다 (D-UX4-78)
+    render(world.wrap(<ConsoleToolScreen broadcastId="b1" tool="voice" onBack={() => {}} />))
     await waitFor(() => expect(world.source()).toBeTruthy())
     await act(async () => {
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
-    const page = await screen.findByRole('main', { name: TOOL_PAGE.sms.title })
-    expect(within(page).getByRole('heading', { name: TOOL_PAGE.sms.title, level: 1 })).toBeTruthy()
-    expect(within(page).getByRole('heading', { name: TOOL_PAGE.sms.head, level: 2 })).toBeTruthy()
-    expect(await within(page).findByLabelText('번호')).toBeTruthy()
+    const page = await screen.findByRole('main', { name: TOOL_PAGE.voice.title })
+    expect(within(page).getByRole('heading', { name: TOOL_PAGE.voice.title, level: 1 })).toBeTruthy()
+    expect(within(page).getByRole('heading', { name: TOOL_PAGE.voice.head, level: 2 })).toBeTruthy()
+    expect(await within(page).findByText(VOICE_SENT_LINE)).toBeTruthy()
   })
 
   it('설정 경로 파일이 방송 관리 위에 쌓는다', () => {

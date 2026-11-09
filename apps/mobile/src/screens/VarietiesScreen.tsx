@@ -3,9 +3,10 @@
 // - 한 줄 입력 + [더하기] (쉼표·줄바꿈으로 여럿 한 번에), 이름 줄마다 [지우기]. 바뀌면 바로 저장(PUT /api/voice/varieties, 목록 통째로).
 // - "판 적 있는 품종": 서버가 최근 판 상품 이름·배운 별칭에서 고른 것 — 누르면 장부에 더한다.
 // - 모양 (D-UX3-96): 흰 묶음 카드(카드 안 작은 회색 이름), 이름 줄 사이 선은 빼고 오른쪽에 글자 단추 [지우기].
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { ScrollView, View } from 'react-native'
-import { get, isApiError, put } from '../api/client.ts'
+import { isApiError, put } from '../api/client.ts'
+import { useCachedGet } from '../lib/cached-get.ts'
 import { AppHeader, BigButton, ErrorLine, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Pill } from '../ui/day-pills.tsx'
@@ -32,17 +33,14 @@ const keyOf = (name: string): string => name.replace(/\s+/g, '').toLowerCase()
 
 export function VarietiesScreen({ onBack }: { readonly onBack: () => void }) {
   const { p } = useKit()
-  const [list, setList] = useState<VarietyList | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  // 기억해 둔 목록을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 다시 받다 실패하면 보이던 목록 그대로
+  const { data: list, error: listError, reload, set: setList } = useCachedGet<VarietyList>('/api/voice/varieties')
+  const loadError = listError === null ? null : VARIETIES_LOAD_FAILED
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const load = useCallback(() => {
-    setLoadError(null)
-    get<VarietyList>('/api/voice/varieties').then(setList, () => setLoadError(VARIETIES_LOAD_FAILED))
-  }, [])
-  useEffect(() => { load() }, [load])
+  const load = useCallback(() => void reload(), [reload])
 
   const save = async (names: readonly string[]) => {
     if (list === null || busy) return
