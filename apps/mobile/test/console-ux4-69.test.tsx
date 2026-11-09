@@ -144,3 +144,30 @@ describe('아래 창과 같은 탭은 숨기고, 들린 말 탭 (D-UX4-91)', () 
     expect(screen.getAllByTestId('heard-tab-row').map((row) => row.textContent)).toEqual(['21:07:33첫 말', '21:07:38둘째 말'])
   })
 })
+
+describe('탭 바 반고정 (D-UX4-93)', () => {
+  it('제자리 탭 바를 지나 내리면 숨고, 올리면 위에 붙어 보이고, 제자리로 돌아오면 붙은 탭 바는 없다', async () => {
+    const { quickReturnStep } = await import('../src/screens/ConsoleScreen.tsx')
+    const bottom = 300
+    let state = { y: 0, floating: false, shown: false }
+    const go = (y: number) => {
+      state = quickReturnStep(state, y, bottom)
+      return state
+    }
+    expect(go(100)).toMatchObject({ floating: false })
+    expect(go(400)).toMatchObject({ floating: true, shown: false }) // 막 지나감 — 내리는 중이라 숨음
+    expect(go(600)).toMatchObject({ floating: true, shown: false }) // 더 내림
+    expect(go(598)).toMatchObject({ shown: false }) // 손떨림(4 이하)은 그대로
+    expect(go(560)).toMatchObject({ floating: true, shown: true }) // 올림 → 보임
+    expect(go(700)).toMatchObject({ shown: false }) // 다시 내림 → 숨음
+    expect(go(650)).toMatchObject({ shown: true })
+    expect(go(250)).toMatchObject({ floating: false }) // 제자리까지 올라옴 → 제자리 것만
+  })
+
+  it('처음(맨 위)에는 위에 붙는 탭 바를 그리지 않는다', async () => {
+    const world = makeWorld({ products: [] })
+    await open(world)
+    expect(screen.queryByTestId('floating-tabs')).toBeNull()
+    expect(screen.getAllByRole('tablist')).toHaveLength(1)
+  })
+})

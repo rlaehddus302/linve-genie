@@ -8,7 +8,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { ScrollView, View, type ScrollViewInstance } from 'react-native'
+import { Animated, Easing, Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { get, withQuery } from '../api/client.ts'
 import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
@@ -113,6 +113,27 @@ function AwayLine() {
  * openAdd·openManage (D-UX4-57): 상품 추가·방송 관리를 진짜 쌓인 화면으로 연다 — 없으면(시험·웹) 이 화면 안에 겹쳐 그린다.
  * refresh: 바뀌면 유튜브 잇기 상태를 다시 받는다(방송 연결 화면에서 돌아올 때 경로가 올린다).
  */
+/**
+ * 탭 바 반고정 (D-UX4-93, 사용자 지시 2026-11-10 "스크롤 내리면 탭 바도 저 위로 올라가서 다시 탭 누르려면 맨 위로 올려야 하는게 불편해 … 스크롤 내릴 때는 올라갔다가 스크롤 올릴 때는 다시 보이게"):
+ * 제자리 탭 바(목록 위)가 화면 위로 지나가면(floating) 위에 붙는 탭 바를 쓰는데, 내리는 동안은 숨고 조금이라도(4 넘게) 올리면 내려와 보인다. 제자리까지 올라오면 제자리 것만.
+ */
+export interface QuickReturn {
+  readonly y: number
+  readonly floating: boolean
+  readonly shown: boolean
+}
+export const TAB_RETURN_MS = 180
+const QUICK_TURN = 4
+
+export function quickReturnStep(previous: QuickReturn, y: number, tabsBottom: number): QuickReturn {
+  const floating = y > tabsBottom
+  if (!floating) return { y, floating: false, shown: false }
+  const dy = y - previous.y
+  // 막 지나간 때는 숨은 채로 (내리는 중이니까)
+  const shown = !previous.floating ? false : dy < -QUICK_TURN ? true : dy > QUICK_TURN ? false : previous.shown
+  return { y: Math.abs(dy) > QUICK_TURN || !previous.floating ? y : previous.y, floating, shown }
+}
+
 export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews, openLabels, openLink, openAdd, openManage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; readonly openManage?: () => void; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
@@ -131,6 +152,12 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 맨 아래를 보고 있는 동안 새 줄이 오면 따라 내려간다. 위로 올려 보고 있으면 그대로 둔다.
   const scroll = useRef<ScrollViewInstance>(null)
   const atBottom = useRef(true)
+  // 탭 바 반고정 (D-UX4-93): 제자리를 지나 내려가면 숨고, 올리면 위에 붙어 다시 보인다
+  const tabsBottom = useRef(Number.POSITIVE_INFINITY)
+  const [tabsHeight, setTabsHeight] = useState(36)
+  const quick = useRef<QuickReturn>({ y: 0, floating: false, shown: false })
+  const [floating, setFloating] = useState(false)
+  const tabsShow = useRef(new Animated.Value(0)).current
   useEffect(() => {
     atBottom.current = true
     scroll.current?.scrollToEnd({ animated: false })
@@ -334,6 +361,15 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     else openLabels?.()
   }
 
+  const tabPills = (
+    <>
+      <Pill on={shownTab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
+      <Pill on={shownTab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => setTab('feed')} />
+      {showTalkTab ? <Pill on={shownTab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => setTab('talk')} /> : null}
+      {showHeardTab ? <Pill on={shownTab === 'heard'} label={HEARD_TAB} ariaLabel={HEARD_TAB} onPress={() => setTab('heard')} /> : null}
+    </>
+  )
+
   return (
     <ConsoleContext.Provider value={api}>
       <View style={{ flex: 1, backgroundColor: p.background }} testID="console-screen">
@@ -357,10 +393,17 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         <View style={{ flex: 1 }}>
         <ScrollView
           ref={scroll}
-          scrollEventThrottle={100}
+          scrollEventThrottle={16}
           onScroll={(event) => {
             const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
             atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
+            const next = quickReturnStep(quick.current, contentOffset.y, tabsBottom.current)
+            if (next.floating !== quick.current.floating) setFloating(next.floating)
+            if (next.shown !== quick.current.shown) {
+              if (Platform.OS === 'web') tabsShow.setValue(next.shown ? 1 : 0)
+              else Animated.timing(tabsShow, { toValue: next.shown ? 1 : 0, duration: TAB_RETURN_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
+            }
+            quick.current = next
           }}
           onContentSizeChange={() => { if (atBottom.current) scroll.current?.scrollToEnd({ animated: false }) }}
           style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
@@ -371,11 +414,17 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
           <YoutubeWarning yt={yt} closed={closed} />
           <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
-          <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
-            <Pill on={shownTab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
-            <Pill on={shownTab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => setTab('feed')} />
-            {showTalkTab ? <Pill on={shownTab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => setTab('talk')} /> : null}
-            {showHeardTab ? <Pill on={shownTab === 'heard'} label={HEARD_TAB} ariaLabel={HEARD_TAB} onPress={() => setTab('heard')} /> : null}
+          <View
+            role="tablist"
+            aria-label="보기"
+            style={{ flexDirection: 'row', gap: SPACE.sm }}
+            onLayout={(event) => {
+              const { y, height } = event.nativeEvent.layout
+              tabsBottom.current = y + height
+              setTabsHeight(height)
+            }}
+          >
+            {tabPills}
           </View>
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
@@ -384,6 +433,18 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {/* (+) 단추에 마지막 줄이 가리지 않게 */}
           {shownTab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
         </ScrollView>
+        {/* 위에 붙어 다시 보이는 탭 바 (D-UX4-93): 제자리 탭 바가 화면 위로 지나간 뒤에만 그린다 */}
+        {floating ? (
+          <Animated.View
+            testID="floating-tabs"
+            pointerEvents="box-none"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: GUTTER, paddingTop: SPACE.xs, paddingBottom: SPACE.sm, backgroundColor: p.background, transform: [{ translateY: tabsShow.interpolate({ inputRange: [0, 1], outputRange: [-(tabsHeight + SPACE.md), 0] }) }] }}
+          >
+            <View role="tablist" aria-label="보기 (위에 붙음)" style={{ flexDirection: 'row', gap: SPACE.sm }}>
+              {tabPills}
+            </View>
+          </Animated.View>
+        ) : null}
         {shownTab === 'products' && !closed ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => (openAdd === undefined ? setPage('add') : openAdd())} /> : null}
         </View>
         {/* 들린 말 창은 맨 아래 (D-UX4-53 — 옛 목록 위) */}
