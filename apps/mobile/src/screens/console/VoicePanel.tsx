@@ -9,10 +9,7 @@ import {
   LISTEN_START,
   LISTEN_STATE,
   LISTEN_STOP,
-  VOICE_CARD_DISMISS,
-  VOICE_CARD_REGISTER,
   VOICE_CONSENT_LINES,
-  VOICE_LATE_NOTE,
   VOICE_RETRY,
   VOICE_SENT_LINE,
   VOICE_STOPPED_TITLE,
@@ -87,21 +84,7 @@ export function VoicePanel({ session, broadcastId, title, seller, ended }: { rea
       {view.problem !== null && !stopped ? <Notice tone="danger" alert>{view.problem}</Notice> : null}
       {/* 바로 등록 뒤 "N번 등록 되돌리기"는 띄우지 않는다 — 고치거나 지울 것은 상품에서 직접 (D-UX4-70) */}
       {mine && view.remote !== null ? <RemoteVoicePanel session={session} snapshot={view.remote} display={view.display} /> : null}
-      {view.cards.length > 0 ? (
-        <View role="list" aria-label="확인할 카드" style={{ gap: 8 }}>
-          {view.cards.map((card) => (
-            <Card key={card.id} label={`카드 ${String(card.id)}`}>
-              <Body bold>{card.reading?.readout ?? card.text}</Body>
-              {card.reading !== null && card.reading.readout !== card.text ? <Hint>{`들린 말: ${card.text}`}</Hint> : null}
-              {card.late ? <Hint>{VOICE_LATE_NOTE}</Hint> : null}
-              <Row>
-                {card.reading !== null && card.reading.no !== null && card.reading.price !== null ? <BigButton small primary label={VOICE_CARD_REGISTER} ariaLabel={`${VOICE_CARD_REGISTER} — 카드 ${String(card.id)}`} onPress={() => void session.registerCard(card.id)} /> : null}
-                <BigButton small label={VOICE_CARD_DISMISS} ariaLabel={`${VOICE_CARD_DISMISS} — 카드 ${String(card.id)}`} onPress={() => session.dismissCard(card.id)} />
-              </Row>
-            </Card>
-          ))}
-        </View>
-      ) : null}
+      {/* 확인 카드(등록할까요?·고칠까요?)는 띄우지 않는다 — 상품 목록에서 직접 (D-UX4-92) */}
     </View>
   )
 }

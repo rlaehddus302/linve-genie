@@ -4,7 +4,7 @@
 import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import { isApiError } from '../../api/client.ts'
-import { DOCK_CHOICES, DOCK_TITLE, dockLabel, setDockChoice, useDockChoice } from '../../lib/dock-choice.ts'
+import { DOCK_CHOICES, DOCK_DESCRIPTION, DOCK_TITLE, dockLabel, setDockChoice, useDockChoice } from '../../lib/dock-choice.ts'
 import { LISTEN_START, LISTEN_STOP } from '../../lib/words.ts'
 import { useServices } from '../../services.tsx'
 import { BigButton, BottomSheet, FullSheet, SheetChoices, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
@@ -147,7 +147,7 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
       <FullSheet visible={sheet === 'import'} onClose={close} name={APP_IMPORT_TITLE} title={APP_IMPORT_TITLE}>
         {sheet === 'import' ? <ImportView /> : null}
       </FullSheet>
-      <BottomSheet visible={sheet === 'dock'} onClose={close} title={DOCK_TITLE}>
+      <BottomSheet visible={sheet === 'dock'} onClose={close} title={DOCK_TITLE} description={DOCK_DESCRIPTION}>
         {/* 토스식 고르기 목록 (D-UX4-76 아래 창 SheetChoices) */}
         <SheetChoices label={DOCK_TITLE} choices={DOCK_CHOICES} value={dock} onPick={(next) => { setDockChoice(next); close() }} />
       </BottomSheet>

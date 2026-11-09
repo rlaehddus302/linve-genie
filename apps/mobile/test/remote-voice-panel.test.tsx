@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { useSyncExternalStore } from 'react'
 import { expect, it, vi } from 'vitest'
 import { toWire } from '@livejjim/voice-session/wire'
 import { VoiceSession } from '../src/lib/voice-session.ts'
 import { FakeNativeAudio } from '../src/native/audio.ts'
 import { VoicePanel } from '../src/screens/console/VoicePanel.tsx'
+import { RemoteVoicePanel } from '../src/screens/console/RemoteVoicePanel.tsx'
 import { configureVoiceStorage } from '../src/lib/voice-preferences.ts'
 
 it('서버의 카드 폼·후보·정정·손님 선택을 같은 명령으로 보낸다', async () => {
@@ -23,7 +25,18 @@ it('서버의 카드 폼·후보·정정·손님 선택을 같은 명령으로 �
     hearing: null, readout: { text: '15번 20,000원' }, error: null, now,
   }), display: toWire({ cards: new Map([['c1', '15번 20,000원']]), sms: new Map([['s1', '15번 · 끝자리 1234 · 문자찜']]), countdowns: new Map([['s1', '3초 뒤 넣어요']]) }) })
   const command = vi.spyOn(session, 'command')
-  const rendered = render(<VoicePanel session={session} broadcastId="b1" title="방송" seller ended={false} />)
+  // D-UX4-92 (사용자 지시 2026-11-10 "탭 위에 저런 알림 띄우지 마. 그냥 사용자가 상품 목록 보고 직접 수정하게 해"): 라이브 화면 음성 칸은 확인 카드를 띄우지 않는다
+  const panel = render(<VoicePanel session={session} broadcastId="b1" title="방송" seller ended={false} />)
+  expect(screen.queryByText('품종 확인 필요')).toBeNull()
+  expect(screen.queryByText('가격을 30,000원으로 고칠까요?')).toBeNull()
+  expect(screen.queryByRole('group', { name: '음성 카드 c1' })).toBeNull()
+  panel.unmount()
+  // 카드 부품 자체(cards 켬)는 지금처럼 같은 명령을 보낸다 — 옛 시험 그대로
+  function Cards() {
+    const view = useSyncExternalStore(session.subscribe, session.getView)
+    return view.remote === null ? null : <RemoteVoicePanel session={session} snapshot={view.remote} display={view.display} cards />
+  }
+  const rendered = render(<Cards />)
   expect(screen.getByText('품종 확인 필요')).toBeTruthy()
   fireEvent.change(screen.getByLabelText('가격'), { target: { value: '3만' } })
   expect(command).toHaveBeenCalledWith('editForm', ['c1', { price: '3만' }])

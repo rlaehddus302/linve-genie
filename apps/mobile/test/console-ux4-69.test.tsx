@@ -9,7 +9,7 @@ import type { VoiceSnapshot } from '@livejjim/web/src/voice/model.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { ListenLine } from '../src/screens/console/StreamAudio.tsx'
 import { offerShown } from '../src/screens/console/RemoteVoicePanel.tsx'
-import { DOCK_CHOICE_KEY, DOCK_TITLE, getDockChoice, setDockChoice, wireDockChoice } from '../src/lib/dock-choice.ts'
+import { DOCK_CHOICE_KEY, DOCK_CHOICES, DOCK_TITLE, getDockChoice, setDockChoice, wireDockChoice } from '../src/lib/dock-choice.ts'
 import type { VoiceSession, VoiceView } from '../src/lib/voice-session.ts'
 import { makeWorld } from './screen-support.tsx'
 import { flush } from './support.ts'
@@ -70,6 +70,10 @@ describe('화면 아래 창 고르기 (D-UX4-71)', () => {
     const sheet = screen.getByRole('dialog', { name: DOCK_TITLE })
     const group = within(sheet).getByRole('radiogroup', { name: DOCK_TITLE })
     expect(within(group).getAllByRole('radio').map((item) => item.getAttribute('aria-label'))).toEqual(['들린 말', '채팅·문자', '안 보기'])
+    // 설명 (D-UX4-89): 창 제목 밑 한 줄 + 줄마다 한 줄
+    expect(sheet.textContent).toContain('라이브 화면 맨 아래에 무엇을 띄울지 골라요.')
+    expect(sheet.textContent).toContain('어느 것을 골라도 듣기는 계속돼요.')
+    for (const item of DOCK_CHOICES) expect(within(group).getByRole('radio', { name: item.label }).textContent).toContain(item.description)
     expect(within(group).getByRole('radio', { name: '들린 말' }).getAttribute('aria-checked')).toBe('true')
     fireEvent.click(within(group).getByRole('radio', { name: '채팅·문자' }))
     expect(getDockChoice()).toBe('talk')
@@ -95,5 +99,48 @@ describe('화면 아래 창 고르기 (D-UX4-71)', () => {
     saved.set(DOCK_CHOICE_KEY, '이상한 값')
     await wireDockChoice(storage)
     expect(getDockChoice()).toBe('voice')
+  })
+})
+
+describe('펼친 아래 창: 지난 줄과 지금 줄 사이 여백·빠르기 (D-UX4-90)', () => {
+  it('지난 말 칸은 아래 여백 없이 지금 줄 위로 겹쳐, 사이가 지난 줄끼리 사이(4)와 같다 · 열고 닫기 160ms', async () => {
+    const { DOCK_ROW_HEIGHT, HEARD_OPEN_MS, HEARD_OVERLAP } = await import('../src/screens/console/StreamAudio.tsx')
+    const { TALK_OVERLAP } = await import('../src/screens/console/LiveTalk.tsx')
+    const { SPACE } = await import('../src/ui/kit/tokens.ts')
+    expect(HEARD_OPEN_MS).toBeLessThanOrEqual(160)
+    // 지금 줄 글자 위 빈 곳 − 겹침 = 지난 줄 사이
+    expect((DOCK_ROW_HEIGHT - 20) / 2 - HEARD_OVERLAP).toBe(SPACE.xs)
+    expect((DOCK_ROW_HEIGHT - 24) / 2 - TALK_OVERLAP).toBe(SPACE.xs)
+    render(<ListenLine session={fakeVoice({ transcript: ['첫 말', '지금 말'], transcriptAt: [0, 1000] })} broadcastId="b1" stream={{ status: null, hold: false, retry: () => {} }} bottom={0} />)
+    fireEvent.click(screen.getByRole('button', { name: '들린 말 펼치기' }))
+    const box = getComputedStyle(screen.getByTestId('heard-log-box'))
+    expect(box.paddingBottom === '' || box.paddingBottom === '0px').toBe(true)
+    expect(box.marginBottom).toBe(`-${String(HEARD_OVERLAP)}px`)
+  })
+})
+
+describe('아래 창과 같은 탭은 숨기고, 들린 말 탭 (D-UX4-91)', () => {
+  const pills = () => screen.getByRole('tablist', { name: '보기' }).querySelectorAll('[role="button"]')
+  const names = () => [...pills()].map((pill) => pill.getAttribute('aria-label'))
+  it('아래 창이 들린 말이면 들린 말 탭이 없고, 채팅·문자면 채팅·문자 탭이 없고, 안 보기면 둘 다 있다 — 숨긴 탭을 보고 있었으면 상품으로', async () => {
+    const world = makeWorld({ products: [] })
+    await open(world)
+    expect(names()).toEqual(['상품', '찜 기록', '채팅·문자'])
+    fireEvent.click(screen.getByRole('button', { name: '채팅·문자' }))
+    expect(screen.getByRole('button', { name: '채팅·문자' }).getAttribute('aria-selected')).toBe('true')
+    act(() => setDockChoice('talk'))
+    expect(names()).toEqual(['상품', '찜 기록', '들린 말'])
+    expect(screen.getByRole('button', { name: '상품' }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '들린 말' }))
+    expect(await screen.findByText('아직 들린 말이 없어요')).toBeTruthy()
+    act(() => setDockChoice('none'))
+    expect(names()).toEqual(['상품', '찜 기록', '채팅·문자', '들린 말'])
+  })
+
+  it('들린 말 탭: 들린 시각(한국 시각) + 말, 새 말이 아래', async () => {
+    const { HeardTab } = await import('../src/screens/console/StreamAudio.tsx')
+    const base = Date.parse('2026-10-29T12:07:33.000Z')
+    render(<HeardTab session={fakeVoice({ transcript: ['첫 말', '둘째 말'], transcriptAt: [base, base + 5000] })} />)
+    expect(screen.getAllByTestId('heard-tab-row').map((row) => row.textContent)).toEqual(['21:07:33첫 말', '21:07:38둘째 말'])
   })
 })

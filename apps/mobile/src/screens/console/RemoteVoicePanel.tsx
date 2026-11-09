@@ -65,7 +65,12 @@ export function offerShown(offer: VoiceSnapshot['offers'][number]): boolean {
   return true
 }
 
-export function RemoteVoicePanel({ session, snapshot, display }: { readonly session: VoiceSession; readonly snapshot: VoiceSnapshot; readonly display: Readonly<Record<string, unknown>> }) {
+/**
+ * cards: 확인 카드(등록할까요?·고칠까요?·문자찜·가격 적용 범위·접힌 번호·판매 이력 안내)를 보일지 — 라이브 화면에서는 띄우지 않는다
+ * (D-UX4-92, 사용자 지시 2026-11-10 "탭 위에 저런 알림 띄우지 마. 그냥 사용자가 상품 목록 보고 직접 수정하게 해"). 확실히 들은 것은 지금처럼 바로 등록되고,
+ * 애매한 것은 카드 없이 넘어가니 상품 목록에서 직접 넣고 고친다. 판매자가 누른 등록이 실패했을 때의 [등록 다시 보내기]만 남긴다.
+ */
+export function RemoteVoicePanel({ session, snapshot, display, cards = false }: { readonly session: VoiceSession; readonly snapshot: VoiceSnapshot; readonly display: Readonly<Record<string, unknown>>; readonly cards?: boolean }) {
   const api = useContext(ConsoleContext)
   const view = session.getView()
   const counting = view.on && view.state.kind === 'listening'
@@ -74,10 +79,10 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
   }, [view.openProduct, api, session])
   const command = session.command.bind(session)
   return <View style={{ gap: 10 }}>
-    {snapshot.historyFailed ? <Notice tone="warning">판매 이력을 받지 못했어요. 상품을 확인하고 등록해 주세요.</Notice> : null}
-    {snapshot.flushedClosed.length > 0 ? <Card label="닫힌 카드 안내"><Body>{`확인하지 않은 카드가 닫혔어요: ${snapshot.flushedClosed.join(', ')}`}</Body><BigButton label="확인" onPress={() => command('dismissFlushedClosed')} /></Card> : null}
-    {snapshot.missedFolded > 0 ? <Hint>{`가격을 못 들은 번호 ${String(snapshot.missedFolded)}개가 접혀 있어요. 상품 목록에서 확인해 주세요.`}</Hint> : null}
-    {view.priceChoice !== null ? <VoiceCard label="가격 적용 범위" title={`${String(view.priceChoice.no)}번을 ${view.priceChoice.price.toLocaleString('ko-KR')}원으로 바꿀까요?`} onClose={() => session.resolvePriceScope(null)} closeLabel="안 바꾸기">
+    {cards && snapshot.historyFailed ? <Notice tone="warning">판매 이력을 받지 못했어요. 상품을 확인하고 등록해 주세요.</Notice> : null}
+    {cards && snapshot.flushedClosed.length > 0 ? <Card label="닫힌 카드 안내"><Body>{`확인하지 않은 카드가 닫혔어요: ${snapshot.flushedClosed.join(', ')}`}</Body><BigButton label="확인" onPress={() => command('dismissFlushedClosed')} /></Card> : null}
+    {cards && snapshot.missedFolded > 0 ? <Hint>{`가격을 못 들은 번호 ${String(snapshot.missedFolded)}개가 접혀 있어요. 상품 목록에서 확인해 주세요.`}</Hint> : null}
+    {cards && view.priceChoice !== null ? <VoiceCard label="가격 적용 범위" title={`${String(view.priceChoice.no)}번을 ${view.priceChoice.price.toLocaleString('ko-KR')}원으로 바꿀까요?`} onClose={() => session.resolvePriceScope(null)} closeLabel="안 바꾸기">
       <Hint>이미 찜한 손님이 있어요. 새 가격을 적용할 찜을 골라 주세요.</Hint>
       <Chips>
         <Chip primary label="새 찜부터 적용" onPress={() => session.resolvePriceScope('NEW_ONLY')} />
@@ -85,7 +90,7 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
       </Chips>
     </VoiceCard> : null}
     {view.manualRetries.map((item) => <Card key={item.id} label="등록 재전송"><Body>{item.label}</Body>{item.error ? <Notice tone="danger">{item.error}</Notice> : null}{item.busy ? <Hint>보내는 중…</Hint> : <BigButton label="등록 다시 보내기" onPress={() => void session.retryManualRegistration(item.id)} />}</Card>)}
-    {snapshot.cards.map((card) => {
+    {(cards ? snapshot.cards : []).map((card) => {
       const form = snapshot.forms.get(card.id)
       const info = snapshot.info.get(card.id)
       const note = snapshot.notes.get(card.id)
@@ -110,7 +115,7 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
     })}
     {/* 되돌리기 창은 띄우지 않는다 (D-UX4-70, 사용자 지시 2026-11-10 "되돌리기 이런 창 띄우지 마. 사장이 등록된 걸 직접 고치게"):
         바로 고친 뒤의 "고침 되돌리기" 카드(실패 안내만 남김)·"방금 등록한 …" 되돌리기·늦은 말 카드를 보이지 않는다 — 고치거나 지울 것은 상품에서 직접 */}
-    {snapshot.offers.filter(offerShown).map((offer) => <VoiceCard key={offer.id} label="음성 고침 확인" title={offer.message} onClose={() => command('dismissOffer', [offer.id])}>
+    {(cards ? snapshot.offers : []).filter(offerShown).map((offer) => <VoiceCard key={offer.id} label="음성 고침 확인" title={offer.message} onClose={() => command('dismissOffer', [offer.id])}>
       {offer.note ? <Hint>{offer.note}</Hint> : null}
       {offer.error ? <Notice tone="danger" alert>{offer.error}</Notice> : null}
       {offer.priceEntry !== undefined && offer.stage === 'ask' ? <Field label="고칠 가격" value={offer.priceEntry} keyboardType="decimal-pad" onChangeText={(value) => command('setOfferPrice', [offer.id, value])} /> : null}
@@ -120,7 +125,7 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
         {offer.maybeOther || offer.kind === 'number' ? <Chip label="아까 것을 다른 번호로" onPress={() => command('renumberOffer', [offer.id])} /> : null}
       </Chips>}
     </VoiceCard>)}
-    {snapshot.sms.filter((entry) => !entry.hidden && entry.card.status !== 'CLOSED').map((entry) => <VoiceCard key={entry.card.id} label="음성 문자찜" title={words(display, 'sms', entry.card.id, '문자찜 확인')}>
+    {(cards ? snapshot.sms : []).filter((entry) => !entry.hidden && entry.card.status !== 'CLOSED').map((entry) => <VoiceCard key={entry.card.id} label="음성 문자찜" title={words(display, 'sms', entry.card.id, '문자찜 확인')}>
       {entry.reason ? <Note tone="warning">{entry.reason}</Note> : null}
       {entry.error ? <Notice tone="danger" alert>{entry.error}</Notice> : null}
       {entry.timeCheck ? <Note tone="warning">받은 시각이 지금보다 늦어요. 그래도 넣을까요?</Note> : null}

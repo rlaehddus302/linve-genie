@@ -20,7 +20,7 @@ import { TAG_PAD_X } from '../../lib/product-tags.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
 import { useMessages } from './ChatPaste.tsx'
-import { HEARD_LOG_HEIGHT, useOpenMotion } from './StreamAudio.tsx'
+import { DOCK_ROW_HEIGHT, HEARD_LOG_HEIGHT, useOpenMotion } from './StreamAudio.tsx'
 
 export const TALK_TAB = '채팅·문자'
 export const TALK_EMPTY = '아직 채팅·문자가 없어요'
@@ -229,6 +229,9 @@ export function LiveTalk() {
   )
 }
 
+/** 펼친 지난 줄 칸이 지금 줄 위로 겹치는 만큼 (D-UX4-90): 한 줄 높이 24(글자 20 + 위아래 2)를 누르는 줄 가운데 둔 위 여백 10 − 줄 사이 4 */
+export const TALK_OVERLAP = (DOCK_ROW_HEIGHT - 24) / 2 - SPACE.xs
+
 /** 아래 창으로 펼쳐 볼 최근 줄 수 */
 export const TALK_DOCK_LIMIT = 30
 
@@ -250,12 +253,14 @@ export function TalkDock({ bottom }: { readonly bottom: number }) {
   const log = useRef<ScrollViewInstance>(null)
   const latest = rows[0] ?? null
   const earlier = rows.slice(1, TALK_DOCK_LIMIT + 1).reverse()
-  const target = Math.min(logHeight, HEARD_LOG_HEIGHT) + SPACE.sm
+  const target = Math.min(logHeight, HEARD_LOG_HEIGHT)
   const height = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, target] })
+  // 지난 줄과 지금 줄 사이를 지난 줄끼리 사이와 같게 (D-UX4-90): 지금 줄(높이 24)이 누르는 줄(44) 가운데라 위가 10 떠 있어 겹친다
+  const overlap = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, -TALK_OVERLAP] })
   return (
     <View role="region" aria-label="채팅·문자 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
       {motion.shown ? (
-        <Animated.View style={{ height: Platform.OS === 'web' ? undefined : height, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs, paddingBottom: SPACE.sm }}>
+        <Animated.View testID="talk-log-box" style={{ height: Platform.OS === 'web' ? undefined : height, marginBottom: overlap, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs }}>
           <ScrollView ref={log} style={{ maxHeight: HEARD_LOG_HEIGHT }} onContentSizeChange={() => log.current?.scrollToEnd({ animated: false })}>
             <View role="list" aria-label="지난 채팅·문자" style={{ gap: SPACE.xs }} onLayout={(event) => setLogHeight(event.nativeEvent.layout.height)}>
               {earlier.map((row) => <TalkLine key={row.key} row={row} timeWidth={timeWidth} onTimeWidth={onTimeWidth} />)}
@@ -263,7 +268,7 @@ export function TalkDock({ bottom }: { readonly bottom: number }) {
           </ScrollView>
         </Animated.View>
       ) : null}
-      <Tap role="button" aria-label={open ? '채팅·문자 접기' : '채팅·문자 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <Tap role="button" aria-label={open ? '채팅·문자 접기' : '채팅·문자 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: DOCK_ROW_HEIGHT, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
         <View role="status" aria-label="최근 채팅·문자" style={{ flex: 1 }}>
           {latest === null ? null : <TalkLine row={latest} timeWidth={timeWidth} onTimeWidth={onTimeWidth} oneLine />}
         </View>

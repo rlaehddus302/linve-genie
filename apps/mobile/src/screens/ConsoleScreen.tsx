@@ -31,7 +31,7 @@ import { DecisionsView } from './console/Decisions.tsx'
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { VoicePanel } from './console/VoicePanel.tsx'
-import { ListenLine, useKeptStream } from './console/StreamAudio.tsx'
+import { HEARD_TAB, HeardTab, ListenLine, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
 import { EndBroadcastRow } from './console/EndBroadcast.tsx'
@@ -126,7 +126,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 상품 추가·방송 관리 (D-UX4-57): 기기에서는 진짜 쌓인 화면(openAdd·openManage). 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다
   const [page, setPage] = useState<'none' | 'settings' | 'add'>('none')
   // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07) · 채팅·문자(실시간으로 온 채팅·손님 문자, D-UX4-12)
-  const [tab, setTab] = useState<'products' | 'feed' | 'talk'>('products')
+  const [tab, setTab] = useState<'products' | 'feed' | 'talk' | 'heard'>('products')
   // 라이브 채팅처럼 (D-UX3-75): 목록은 최신이 맨 아래. 처음·탭을 바꿀 때는 맨 아래에서 시작하고,
   // 맨 아래를 보고 있는 동안 새 줄이 오면 따라 내려간다. 위로 올려 보고 있으면 그대로 둔다.
   const scroll = useRef<ScrollViewInstance>(null)
@@ -238,6 +238,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const live = seller && broadcast !== null && !(broadcast.ended || endedHere) && !(data?.sealed ?? false)
   const dock = useDockChoice()
   const docked = live && dock !== 'none'
+  // 화면 아래 창과 같은 것을 탭으로 또 보이지 않는다 (D-UX4-91, 사용자 지시 2026-11-10 "화면아래창을 채팅문자로 선택했으면 해당 탭을 숨겨서 중복으로 안 보이게"):
+  // 아래 창이 채팅·문자면 채팅·문자 탭을, 들린 말이면 들린 말 탭을 숨긴다. 들린 말 탭은 판매자만(듣기는 판매자 일)
+  const showTalkTab = !(live && dock === 'talk')
+  const showHeardTab = seller && !(live && dock === 'voice')
+  const shownTab = (tab === 'talk' && !showTalkTab) || (tab === 'heard' && !showHeardTab) ? 'products' : tab
   // 방송 소리 듣기는 앱 뿌리가 붙잡는다 — 이 화면을 나가도 계속 듣는다 (D-UX3-48). 방송이 끝났거나 닫혔으면 놓는다
   const streamTitle = broadcast === null || broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const knownOver = broadcast !== null && !live
@@ -367,18 +372,19 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           <YoutubeWarning yt={yt} closed={closed} />
           <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
           <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
-            <Pill on={tab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
-            <Pill on={tab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => setTab('feed')} />
-            <Pill on={tab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => setTab('talk')} />
+            <Pill on={shownTab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
+            <Pill on={shownTab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => setTab('feed')} />
+            {showTalkTab ? <Pill on={shownTab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => setTab('talk')} /> : null}
+            {showHeardTab ? <Pill on={shownTab === 'heard'} label={HEARD_TAB} ariaLabel={HEARD_TAB} onPress={() => setTab('heard')} /> : null}
           </View>
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
-          <View testID="console-list" style={{ flexGrow: 1, justifyContent: tab === 'talk' ? 'flex-end' : 'flex-start' }}>
-            {tab === 'products' ? <ProductList onOpen={setDetail} /> : tab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : <LiveTalk />}
+          <View testID="console-list" style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
+            {shownTab === 'products' ? <ProductList onOpen={setDetail} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
           </View>
           {/* (+) 단추에 마지막 줄이 가리지 않게 */}
-          {tab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
+          {shownTab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
         </ScrollView>
-        {tab === 'products' && !closed ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => (openAdd === undefined ? setPage('add') : openAdd())} /> : null}
+        {shownTab === 'products' && !closed ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => (openAdd === undefined ? setPage('add') : openAdd())} /> : null}
         </View>
         {/* 들린 말 창은 맨 아래 (D-UX4-53 — 옛 목록 위) */}
         {/* 맨 아래 창은 관리 "화면 아래 창"에서 고른 것 (D-UX4-71): 들린 말 · 채팅·문자 · 안 보기 */}

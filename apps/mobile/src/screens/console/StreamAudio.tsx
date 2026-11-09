@@ -9,7 +9,7 @@ import { Animated, Easing, Platform, ScrollView, View, type ScrollViewInstance }
 import { readStreamAudioStatus, streamAudioLine, type StreamAudioStatus } from '@livejjim/web/src/lib/stream-audio.ts'
 import { get, post } from '../../api/client.ts'
 import type { VoiceSession, VoiceView } from '../../lib/voice-session.ts'
-import { DotStatus, Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
+import { DotStatus, EmptyFill, Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { BigButton, Body, Card, Hint } from '../../ui/parts.tsx'
 import type { StreamKeep } from '../../lib/stream-keep.ts'
@@ -188,7 +188,16 @@ export function ServerHeard({ broadcastId }: { readonly broadcastId: string }) {
 /** 들린 말 창을 펼쳤을 때 지난 줄이 보이는 높이 (넘으면 채팅처럼 위로 밀어 올려 본다) */
 export const HEARD_LOG_HEIGHT = 240
 /** 펼치고 접는 움직임 (D-UX4-67, 사용자 지시 2026-11-10 "부드럽게 펼쳐줘") */
-export const HEARD_OPEN_MS = 240
+// 열고 닫는 시간: 240 → 160 (D-UX4-90, 사용자 지시 2026-11-10 "화면아래창 열고 닫히는 속도 좀 더 빠르게")
+export const HEARD_OPEN_MS = 160
+
+/**
+ * 펼친 지난 말 칸이 지금 줄 위로 겹치는 만큼 (D-UX4-90, 사용자 지시 2026-11-10 "화면 아래창 위로 늘렸을 때 이전 채팅과 지금 채팅 사이 여백이 있어"):
+ * 지금 줄은 누르는 줄(높이 44) 한가운데 — 글자(줄 높이 20) 위가 12 비어 있다. 지난 말끼리 사이 4만 남기고 8을 겹친다.
+ */
+/** 지금 줄(누르는 줄) 높이 */
+export const DOCK_ROW_HEIGHT = 44
+export const HEARD_OVERLAP = (DOCK_ROW_HEIGHT - 20) / 2 - SPACE.xs
 /** 상태 칸 폭을 정하는 낱말들 — 가장 긴 상태 알약 폭으로 고정해, 지금 말·지난 말 글이 모두 같은 세로줄에서 시작한다 */
 const DOCK_WORDS = [DOCK_STATE.on, DOCK_STATE.reconnecting, DOCK_STATE.lost] as const
 
@@ -244,8 +253,10 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
   const times = view.transcriptAt
   const now = hearing ? (last ?? '아직 들린 말이 없어요.') : (line?.text ?? '들린 말이 여기에 나와요.')
   // 펼친 칸 높이: 안쪽 글 높이(최대 HEARD_LOG_HEIGHT)까지 0에서 늘린다. 재기 전(첫 그림)에는 바로 그 높이
-  const target = Math.min(logHeight, HEARD_LOG_HEIGHT) + SPACE.sm
+  const target = Math.min(logHeight, HEARD_LOG_HEIGHT)
   const height = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, target] })
+  // 지난 말과 지금 말 사이를 지난 말끼리 사이(4)와 같게 (D-UX4-90): 지금 줄은 누르는 줄(높이 44) 가운데라 위가 12 떠 있어 그만큼 겹친다
+  const overlap = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, -HEARD_OVERLAP] })
   const lines = (
     <View role="log" aria-label="지난 들린 말" style={{ gap: SPACE.xs }} onLayout={(event) => setLogHeight(event.nativeEvent.layout.height)}>
       {/* 지난 말이 없으면 비워 둔다 — 안내 문장을 띄우지 않는다 (D-UX4-69, 사용자 지시 2026-11-10) */}
@@ -267,14 +278,14 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
   return (
     <View role="region" aria-label="들린 말 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
       {motion.shown ? (
-        <Animated.View style={{ height: Platform.OS === 'web' ? undefined : height, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs, paddingBottom: SPACE.sm }}>
+        <Animated.View testID="heard-log-box" style={{ height: Platform.OS === 'web' ? undefined : height, marginBottom: overlap, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs }}>
           <ScrollView ref={log} style={{ maxHeight: HEARD_LOG_HEIGHT }} onContentSizeChange={() => log.current?.scrollToEnd({ animated: false })}>
             {lines}
           </ScrollView>
         </Animated.View>
       ) : null}
       {open && line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
-      <Tap role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <Tap role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: DOCK_ROW_HEIGHT, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
         <View onLayout={(event) => setColumn(event.nativeEvent.layout.width)}>
           {/* 자리 재기: 가장 긴 상태 알약 폭 — 보이지도 읽히지도 않는다 */}
           {DOCK_WORDS.map((word) => (
@@ -304,6 +315,41 @@ function StillPill({ word }: { readonly word: string }) {
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: SPACE.sm + 2, paddingVertical: 5, marginRight: SPACE.xs }}>
       <View style={{ width: 9, height: 9 }} />
       <Txt step="caption" weight="bold">{word}</Txt>
+    </View>
+  )
+}
+
+/** 들린 말 탭 (D-UX4-91, 사용자 지시 2026-11-10 "음성인식도 새 탭으로 만들어서 보여주도록 해") */
+export const HEARD_TAB = '들린 말'
+export const HEARD_EMPTY = '아직 들린 말이 없어요'
+export const HEARD_EMPTY_BODY = '라이브 소리를 들으면\n알아들은 말이 여기에 나와요'
+
+/**
+ * 들린 말 탭: 이 방송에서 알아들은 말 전부를 채팅·문자 탭처럼 — 왼쪽 들린 시각(폭 고정 칸, 한국 시각 21:07:33), 오른쪽 말. 새 말이 맨 아래.
+ * 화면 아래 창이 "들린 말"이면 같은 것이 겹쳐 보여 이 탭은 숨긴다(방송 화면이 정한다).
+ */
+export function HeardTab({ session }: { readonly session: VoiceSession }) {
+  const view = useSyncExternalStore(session.subscribe, session.getView)
+  const [timeWidth, setTimeWidth] = useState(0)
+  const onTimeWidth = useCallback((width: number) => setTimeWidth((was) => Math.max(was, Math.ceil(width))), [])
+  if (view.transcript.length === 0) return <EmptyFill title={HEARD_EMPTY} body={HEARD_EMPTY_BODY} />
+  return (
+    <View role="list" aria-label={HEARD_TAB} style={{ gap: SPACE.xs }}>
+      {view.transcript.map((text, index) => {
+        const at = view.transcriptAt[index]
+        return (
+          <View key={`${String(index)}:${text}`} role="listitem" testID="heard-tab-row" style={{ flexDirection: 'row', alignItems: 'flex-start', columnGap: SPACE.sm, paddingVertical: 2 }}>
+            <View style={{ minWidth: timeWidth }}>
+              <View style={{ alignSelf: 'flex-start' }} onLayout={(event) => onTimeWidth(event.nativeEvent.layout.width)}>
+                <Txt step="meta" color="textSub">{at === undefined ? '' : heardTime(at)}</Txt>
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Txt step="meta">{text}</Txt>
+            </View>
+          </View>
+        )
+      })}
     </View>
   )
 }
