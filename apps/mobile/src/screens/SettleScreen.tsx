@@ -47,7 +47,7 @@ import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { useDayScope } from '../lib/day-scope.ts'
 import { signalScreens, useScreenSignal } from '../lib/screen-signals.ts'
 import { AppHeader, EmptyFill, NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useHoldRouteSwipe, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
-import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { AddressCard, ParcelTag } from './ParcelAddress.tsx'
 import { BuyerInfoBanner } from './BuyerInfoScreen.tsx'
@@ -160,7 +160,7 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
       {data.sealed ? <Notice tone="info">{SEALED_SETTLEMENT}</Notice> : null}
       <View role="radiogroup" aria-label="입금 상태로 보기">
         {/* 위 날짜 알약(DayPills)과 같은 왼쪽 줄 */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: SPACE.xs, paddingVertical: SPACE.xs }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: GUTTER, paddingVertical: SPACE.xs }}>
           {FILTERS.map((item) => {
             const count = item.key === 'ALL' ? all.length : all.filter((s) => s.payment === item.key).length
             return <Pill key={item.key} on={filter === item.key} label={`${item.word} ${String(count)}`} ariaLabel={`${item.word} ${String(count)}명`} onPress={() => setFilter(item.key)} />

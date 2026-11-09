@@ -115,7 +115,8 @@ export function ListRow({ title, subtitle, value, right, onPress, ariaLabel, tes
 }
 
 /** 스위치 치수 (토스·아이폰 스위치 비율) */
-export const SWITCH = { width: 52, height: 32, knob: 26 } as const
+/** 켜고 끄기 크기 — 토스 "Face ID" 스위치를 같은 휴대폰 사진으로 재어 46×28 (D-UX4-100, 옛 52×32) */
+export const SWITCH = { width: 46, height: 28, knob: 24 } as const
 const SWITCH_MS = 180
 
 /**
@@ -123,7 +124,7 @@ const SWITCH_MS = 180
  * 오른쪽 스위치 — 켜면 주색 바탕에 흰 동그라미가 오른쪽으로 미끄러진다. 줄 어디를 눌러도 바뀐다. 보조 기술에는 "제목 — 켜짐/꺼짐".
  */
 /** titleStep·titleWeight·titleInk: 이름 글자 (기본 16 중간 굵기 — 흰 설정 화면 줄은 17 보통 #4F545E, D-UX4-94) */
-export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, testID, titleStep = 'bodyLarge', titleWeight = 'medium', titleInk }: { readonly title: string; readonly subtitle?: string; readonly on: boolean; readonly onChange: (next: boolean) => void; readonly disabled?: boolean; readonly onHelp?: () => void; readonly testID?: string; readonly titleStep?: TypeStep; readonly titleWeight?: NonNullable<TxtProps['weight']>; readonly titleInk?: string }) {
+export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, testID, titleStep = 'bodyLarge', titleWeight = 'medium', titleInk, rowHeight }: { readonly title: string; readonly subtitle?: string; readonly on: boolean; readonly onChange: (next: boolean) => void; readonly disabled?: boolean; readonly onHelp?: () => void; readonly testID?: string; readonly titleStep?: TypeStep; readonly titleWeight?: NonNullable<TxtProps['weight']>; readonly titleInk?: string; readonly rowHeight?: number }) {
   const { p } = useKit()
   const move = useRef(new Animated.Value(on ? 1 : 0)).current
   const press = usePressMotion()
@@ -175,7 +176,7 @@ export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, tes
   // 설명이 있는 줄 (D-UX4-64, 토스 "빠른 로그인 ⓘ"): 이름 자리를 누르면 줄 전체가 꾸욱 작아지며 옅은 회색 둥근 바탕이 생기고, 떼면 설명 판. 스위치는 따로 켜고 끈다
   const size = press.value.interpolate({ inputRange: [0, 1], outputRange: [1, 0.97] })
   return (
-    <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min + SPACE.sm, marginHorizontal: -SPACE.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: helpDown ? p.surfaceAlt : 'transparent', transform: [{ scale: size }] }}>
+    <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: rowHeight ?? TOUCH.min + SPACE.sm, marginHorizontal: -SPACE.md, paddingHorizontal: SPACE.md, paddingVertical: rowHeight === undefined ? SPACE.sm : 0, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: helpDown ? p.surfaceAlt : 'transparent', transform: [{ scale: size }] }}>
       {/* 줄 전체가 작아지므로(위 size) 이 칸은 따로 줄이지 않는다 */}
       <Tap
         role="button"

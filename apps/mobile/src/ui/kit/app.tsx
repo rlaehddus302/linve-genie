@@ -140,9 +140,10 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
       case 'help':
         // 동그라미 안 ? (D-UX4-64, 토스 "빠른 로그인 ⓘ" 자리): 설명이 있는 줄 이름 옆
         return (
+          // 선은 다른 아이콘보다 가늘게 1.5 (D-UX4-100 — 토스 "빠른 로그인 ⓘ"를 같은 휴대폰 사진으로 견주니 우리 ?가 두꺼웠다)
           <Svg width={s} height={s} viewBox="0 0 24 24">
-            <Circle cx={12} cy={12} r={9} stroke={c} strokeWidth={lineWidth} fill="none" />
-            <Path d="M9.6 9.6 C9.6 8.2 10.7 7.3 12 7.3 C13.4 7.3 14.4 8.2 14.4 9.4 C14.4 10.5 13.7 11 12.9 11.5 C12.3 11.9 12 12.3 12 13.1 L12 13.5" stroke={c} strokeWidth={lineWidth} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <Circle cx={12} cy={12} r={9} stroke={c} strokeWidth={(1.5 * 24) / s} fill="none" />
+            <Path d="M9.6 9.6 C9.6 8.2 10.7 7.3 12 7.3 C13.4 7.3 14.4 8.2 14.4 9.4 C14.4 10.5 13.7 11 12.9 11.5 C12.3 11.9 12 12.3 12 13.1 L12 13.5" stroke={c} strokeWidth={(1.5 * 24) / s} strokeLinecap="round" strokeLinejoin="round" fill="none" />
             <Circle cx={12} cy={16.6} r={1.15} fill={c} />
           </Svg>
         )

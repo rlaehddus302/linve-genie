@@ -6,11 +6,13 @@ import { KeyboardAvoidingView, ScrollView, View } from 'react-native'
 import { NavBar } from './app.tsx'
 import { KEYBOARD_AVOID } from './sheets.tsx'
 import { GUTTER, SPACE } from './tokens.ts'
-import { useKit, usePageTop, useTopInset } from './theme.tsx'
+import { useKit, usePageTop, useTopInset, useWhiteTop } from './theme.tsx'
 
 export function StackPage({ title, name, onBack, backLabel = '뒤로', gray = false, scroll = true, footer, children, testID }: { readonly title?: string; readonly name: string; readonly onBack: () => void; readonly backLabel?: string; readonly gray?: boolean; readonly scroll?: boolean; readonly footer?: ReactNode; readonly children?: ReactNode; readonly testID?: string }) {
   const { p } = useKit()
   const top = usePageTop()
+  // 흰 화면이면 상태 막대 자리도 흰색 (D-UX4-97 — 경로 틀 RouteFrame이 칠한다)
+  useWhiteTop(!gray)
   // 키보드 피하기는 이 화면이 화면 맨 위에서 얼마나 아래에서 시작하는지 알아야 한다(상태 막대 아래면 그 높이)
   const offset = useTopInset() - top
   const body = scroll ? (

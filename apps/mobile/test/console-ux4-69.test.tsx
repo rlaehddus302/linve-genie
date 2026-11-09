@@ -145,29 +145,20 @@ describe('아래 창과 같은 탭은 숨기고, 들린 말 탭 (D-UX4-91)', () 
   })
 })
 
-describe('탭 바 반고정 (D-UX4-93)', () => {
-  it('제자리 탭 바를 지나 내리면 숨고, 올리면 위에 붙어 보이고, 제자리로 돌아오면 붙은 탭 바는 없다', async () => {
-    const { quickReturnStep } = await import('../src/screens/ConsoleScreen.tsx')
-    const bottom = 300
-    let state = { y: 0, floating: false, shown: false }
-    const go = (y: number) => {
-      state = quickReturnStep(state, y, bottom)
-      return state
-    }
-    expect(go(100)).toMatchObject({ floating: false })
-    expect(go(400)).toMatchObject({ floating: true, shown: false }) // 막 지나감 — 내리는 중이라 숨음
-    expect(go(600)).toMatchObject({ floating: true, shown: false }) // 더 내림
-    expect(go(598)).toMatchObject({ shown: false }) // 손떨림(4 이하)은 그대로
-    expect(go(560)).toMatchObject({ floating: true, shown: true }) // 올림 → 보임
-    expect(go(700)).toMatchObject({ shown: false }) // 다시 내림 → 숨음
-    expect(go(650)).toMatchObject({ shown: true })
-    expect(go(250)).toMatchObject({ floating: false }) // 제자리까지 올라옴 → 제자리 것만
-  })
-
-  it('처음(맨 위)에는 위에 붙는 탭 바를 그리지 않는다', async () => {
+describe('탭 바 반고정 (D-UX4-93 → D-UX4-98)', () => {
+  // 옛 시험: 손으로 만든 위에 붙는 탭 바(quickReturnStep) — 들어올 때 가려지고 따라 내려오는 등 흔들려(사용자 사진) 휴대폰이 직접 하는 붙는 머리로 바꿨다 (D-UX4-98)
+  it('탭 바는 목록의 둘째 자식 붙는 머리 — 내리면 숨고 올리면 붙는다(stickyHeaderHiddenOnScroll), 손으로 만든 붙는 탭 바는 없다', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const source = readFileSync(join(import.meta.dirname, '../src/screens/ConsoleScreen.tsx'), 'utf8')
+    expect(source).toContain('stickyHeaderIndices={STICKY_TABS}')
+    expect(source).toContain('stickyHeaderHiddenOnScroll')
+    const { STICKY_TABS } = await import('../src/screens/ConsoleScreen.tsx')
+    expect(STICKY_TABS).toEqual([1])
     const world = makeWorld({ products: [] })
     await open(world)
     expect(screen.queryByTestId('floating-tabs')).toBeNull()
     expect(screen.getAllByRole('tablist')).toHaveLength(1)
+    expect(screen.getByTestId('console-tabs')).toBeTruthy()
   })
 })

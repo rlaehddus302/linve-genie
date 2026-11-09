@@ -102,10 +102,11 @@ describe('밀어서 뒤로 가기 (D-UX4-50)', () => {
   // 옛 기대(D-UX4-51): 방송 경로가 상태 막대까지 그린다. 새 기대(D-UX4-57): 상품 추가·방송 관리가 진짜 쌓인 경로라, 방송 경로는 다른 경로처럼 상태 막대 아래에서 시작한다
   it('상품 추가·라이브 관리는 라이브 화면 위에 진짜로 쌓이는 경로다 (D-UX4-57)', () => {
     const route = readFileSync(join(import.meta.dirname, '../app/console/[id]/index.tsx'), 'utf8')
-    expect(route).toContain("edges={['top']}")
+    // 옛 기대: 경로마다 SafeAreaView edges top. 새 기대(D-UX4-97): 모든 경로가 RouteFrame(상태 막대 자리 색은 안의 화면이 정함)
+    expect(route).toContain('<RouteFrame>')
     expect(route).toContain("openAdd={() => router.push({ pathname: '/console/[id]/add', params: { id } })}")
     expect(route).toContain("openManage={() => router.push({ pathname: '/console/[id]/manage', params: { id } })}")
-    for (const file of ['add', 'manage']) expect(readFileSync(join(import.meta.dirname, `../app/console/[id]/${file}.tsx`), 'utf8')).toContain("edges={['top']}")
+    for (const file of ['add', 'manage']) expect(readFileSync(join(import.meta.dirname, `../app/console/[id]/${file}.tsx`), 'utf8')).toContain('<RouteFrame>')
   })
 })
 

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { GUTTER, SPACE } from '../src/ui/kit/tokens.ts'
 import { SETTINGS_GUTTER } from '../src/screens/settings/Group.tsx'
+import { PAGE_SIDE } from '../src/screens/order-parts.tsx'
 
 const read = (path: string) => readFileSync(join(import.meta.dirname, '..', 'src', path), 'utf8')
 
@@ -26,6 +27,12 @@ const GRAY_SCREENS = [
   'screens/VarietiesScreen.tsx',
   'screens/LinkedAccountsScreen.tsx',
   'ui/parts.tsx',
+  // D-UX4-101: 주문·입금·영수증·리포트·구매자 정보도 (PAGE_SIDE = GUTTER — D-UX4-74가 빠뜨렸다)
+  'screens/SettleScreen.tsx',
+  'screens/DepositsScreen.tsx',
+  'screens/ReceiptsScreen.tsx',
+  'screens/ReportScreen.tsx',
+  'screens/BuyerInfoScreen.tsx',
 ]
 
 describe('회색 바탕 화면 양옆 여백 통일 (D-UX4-74)', () => {
@@ -33,6 +40,7 @@ describe('회색 바탕 화면 양옆 여백 통일 (D-UX4-74)', () => {
     expect(GUTTER).toBe(SPACE.md)
     expect(GUTTER).toBe(12)
     expect(SETTINGS_GUTTER).toBe(GUTTER)
+    expect(PAGE_SIDE).toBe(GUTTER)
   })
 
   it.each(GRAY_SCREENS)('%s: 바깥 스크롤 여백이 GUTTER', (path) => {
@@ -44,7 +52,7 @@ describe('회색 바탕 화면 양옆 여백 통일 (D-UX4-74)', () => {
       return head.includes('flex: 1') && !head.includes('horizontal') ? [match[1] ?? ''] : []
     })
     expect(outer.length).toBeGreaterThan(0)
-    for (const style of outer) expect(style).toMatch(/paddingHorizontal: (GUTTER|SETTINGS_GUTTER)\b/)
+    for (const style of outer) expect(style).toMatch(/paddingHorizontal: (GUTTER|SETTINGS_GUTTER|PAGE_SIDE)\b/)
   })
 
   it('회색 쌓인 화면(StackPage·SlidePage)도 GUTTER, 흰 화면은 그대로 16', () => {

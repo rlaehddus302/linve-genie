@@ -28,18 +28,20 @@ describe('라이브 관리 — 흰 바탕 토스 설정 줄 (D-UX4-94)', () => {
     expect(getComputedStyle(page).backgroundColor).toBe(rgb(PALETTE.light.surface))
     const title = within(page).getByRole('heading', { level: 1, name: MANAGE_LABEL })
     expect(getComputedStyle(title).fontSize).toBe(`${String(TYPE.pageTitle)}px`)
-    expect(TYPE.pageTitle).toBe(22)
+    expect(TYPE.pageTitle).toBe(21) // 22 → 21 (D-UX4-100: 시뮬레이터 화면과 토스 사진을 나란히 재어)
     expect(within(page).queryAllByRole('heading', { level: 2 })).toHaveLength(0)
     expect(within(page).queryAllByRole('group').filter((group) => group.getAttribute('aria-label') !== null)).toHaveLength(0)
     expect(page.textContent).not.toContain('휴대폰 마이크로')
     expect(page.textContent).not.toContain('음성 설정')
   })
 
-  it('줄 글자는 17 · 보통 · #4F545E, 오른쪽 값은 16, 줄 높이 44, 글자는 화면 끝에서 24', async () => {
+  // 옛 기대(D-UX4-94): 17 · 보통 · 화면 끝에서 24. 새 기대(D-UX4-100): 시뮬레이터 화면과 토스 사진을 같은 pt로 나란히 재어 16 · 500 · 22
+  it('줄 글자는 16 · 500(book) · #4F545E, 줄 높이 44, 글자는 화면 끝에서 22', async () => {
     const page = await openManage()
     const row = within(page).getByTestId('dock-choice')
     const label = within(row).getAllByText(/./)[0]!
-    expect(getComputedStyle(label).fontSize).toBe('17px')
+    expect(getComputedStyle(label).fontSize).toBe('16px')
+    expect(getComputedStyle(label).fontFamily).toContain('Medium')
     expect(getComputedStyle(label).color).toBe(rgb(PLAIN.ink))
     expect(getComputedStyle(row).minHeight).toBe(`${String(PLAIN.row)}px`)
     const style = getComputedStyle(row)

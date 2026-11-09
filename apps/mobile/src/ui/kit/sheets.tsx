@@ -9,7 +9,7 @@ import { Children, useEffect, useRef, useState, type ReactNode, type Ref } from 
 import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type GestureResponderHandlers, type ScrollViewInstance } from 'react-native'
 import { BigButton, ButtonRow } from './buttons.tsx'
 import { BACKDROP_OPACITY, GUTTER, PAGE, RADIUS, SPACE, WEIGHT } from './tokens.ts'
-import { PageTopProvider, Txt, useBottomInset, useKit, usePageTop, useTopInset } from './theme.tsx'
+import { PageTopProvider, Txt, useBottomInset, useKit, usePageTop, useTopInset, useWhiteTop } from './theme.tsx'
 import { font } from './font.ts'
 import { NAV, NavBar } from './app.tsx'
 import { Tap, usePressMotion } from './press.tsx'
@@ -338,6 +338,8 @@ export function FormPage({ title, name, onBack, backLabel = '뒤로', children, 
   // 상태 막대를 피할 높이 — 경로가 이미 피했으면 0, 판(FullSheet)·상태 막대까지 그리는 경로면 기기 값 (D-UX4-41)
   const top = usePageTop()
   const keyboard = useKeyboardShown()
+  // 흰 화면이면 상태 막대 자리도 흰색 (D-UX4-97)
+  useWhiteTop(!cards)
   const bg = cards ? p.background : p.surface
   return (
     <View role="dialog" aria-label={name ?? title} testID={testID} style={{ flex: 1, backgroundColor: bg, paddingTop: top }}>

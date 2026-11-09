@@ -49,7 +49,7 @@ export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { reado
         {days === null && error === null ? <Loading /> : null}
         {days !== null ? (
           <View role="radiogroup" aria-label="날짜">
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingVertical: SPACE.xs }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: GUTTER, paddingVertical: SPACE.xs }}>
               {days.slice(0, 8).map((day) => (
                 <Pill key={day.date} on={day.date === date} label={dateWords(day.date)} ariaLabel={`날짜 ${dateWords(day.date)}`} onPress={() => setDate(day.date)} />
               ))}
@@ -150,7 +150,7 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
     <View style={{ gap: SPACE.md }}>
       {list.sealed === true ? <Notice tone="info">{SEALED_VIEW_ONLY}</Notice> : null}
       <View role="radiogroup" aria-label="걸러 보기">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: GUTTER }}>
           {PACKING_FILTERS.map((item) => (
             <Pill key={item.key} on={item.key === filter} label={item.word} ariaLabel={`보기: ${item.word}`} onPress={() => {
               setFilter(item.key)
@@ -160,11 +160,8 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
         </ScrollView>
       </View>
       {current === undefined ? (
-        <View style={{ paddingVertical: SPACE.xxxl, alignItems: 'center' }}>
-          <Txt color="textSub" center>
-            {filterWord?.empty ?? ''}
-          </Txt>
-        </View>
+        // 빈 목록은 모든 화면과 같은 가운데 안내 (D-UX4-56 → D-UX4-101 — 포장 탭만 작은 회색 글이었다)
+        <EmptyFill title={filterWord?.empty ?? ''} />
       ) : null}
       {current !== undefined ? (
         <PackingCard

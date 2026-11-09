@@ -4,10 +4,10 @@ import type { ReactNode } from 'react'
 import { ActivityIndicator, View } from 'react-native'
 import { Icon, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import type { TxtColor } from '../ui/kit/theme.tsx'
-import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 
-/** 화면 좌우 여백·카드 사이 (홈과 같다) */
-export const PAGE_SIDE = SPACE.xl
+/** 화면 좌우 여백·카드 사이 (홈과 같다) — 회색 화면 여백 GUTTER 하나 (D-UX4-101: 주문·입금·영수증·리포트도 옛 20이었다 — D-UX4-74가 빠뜨림) */
+export const PAGE_SIDE = GUTTER
 export const CARD_GAP = SPACE.lg
 
 /**

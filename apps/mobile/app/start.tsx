@@ -1,10 +1,8 @@
 // 시작 안내 경로 (홈 "시작 준비"에서 연다, D-APPX-03).
 import { Redirect, useRouter } from 'expo-router'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { StartScreen } from '../src/screens/StartScreen.tsx'
 import { useSession } from '../src/services.tsx'
-import { PALETTE } from '../src/ui/kit/tokens.ts'
-import { KitInsets } from '../src/ui/kit/safe-area.tsx'
+import { RouteFrame } from '../src/ui/kit/route-frame.tsx'
 
 export default function StartRoute() {
   const { session } = useSession()
@@ -13,8 +11,7 @@ export default function StartRoute() {
   if (session.state !== 'in') return null
   const home = () => (router.canGoBack() ? router.back() : router.replace('/'))
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
-      <KitInsets>
+    <RouteFrame>
         <StartScreen
           nav={{
             onClose: home,
@@ -22,7 +19,6 @@ export default function StartRoute() {
             openLabels: () => router.push('/labels?from=start'),
           }}
         />
-      </KitInsets>
-    </SafeAreaView>
+      </RouteFrame>
   )
 }

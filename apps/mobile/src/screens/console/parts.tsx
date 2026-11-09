@@ -2,7 +2,7 @@
 // 설정 묶음 카드(굵은 묶음 이름), 이름 알약(위 탭 알약과 같은 크기).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccessibilityInfo, Animated, BackHandler, Easing, KeyboardAvoidingView, Platform, ScrollView, View, useWindowDimensions } from 'react-native'
-import { Icon, KEYBOARD_AVOID, NavBar, Txt, useBottomInset, useEdgeSwipeBack, useHoldRouteSwipe, useKit, usePageTop, useTopInset, Tap } from '../../ui/kit/index.ts'
+import { Icon, KEYBOARD_AVOID, NavBar, Txt, useWhiteTop, useBottomInset, useEdgeSwipeBack, useHoldRouteSwipe, useKit, usePageTop, useTopInset, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
 
 /** 밀려 들어오는 시간 (쌓인 화면과 비슷하게) */
@@ -53,6 +53,8 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
   }, [visible, onClose])
   // 열려 있는 동안 방송 화면 경로의 밀어 뒤로 가기를 끄고(그대로 두면 방송 화면이 닫혀 홈으로 나갔다), 이 화면만 밀려 닫힌다 (D-UX4-50)
   useHoldRouteSwipe(visible)
+  // 흰 겹친 화면이 떠 있는 동안 상태 막대 자리도 흰색 (D-UX4-97)
+  useWhiteTop(visible && !gray)
   const swipe = useEdgeSwipeBack({ progress, width, onClose, enabled: visible })
   if (!(instant ? visible : mounted)) return null
   const bg = gray ? p.background : p.surface
@@ -172,7 +174,12 @@ export function useFooterInset(): number {
  * 토스 "비밀번호 · 보안"(923px = 393pt)을 재어 — 큰 제목 22 굵게 #191F28 · 화면 끝에서 24, 줄 이름 17 보통 #4F545E · 줄 높이 44,
  * 오른쪽 값 16 주색, › #90969E 20(오른쪽 끝에서 약 23). 흰 바탕에 묶음·묶음 이름 없이 줄만. 라이브 관리·라이브 연결이 같이 쓴다.
  */
-export const PLAIN = { side: 24, title: 22, titleTop: 14, titleBottom: 22, label: 17, value: 16, ink: '#4F545E', chevron: '#90969E', row: 44 } as const
+/** weight: 같은 휴대폰 사진으로 견주니 토스 줄 글자 줄기가 우리 보통(400)보다 굵어 500(book) (D-UX4-100) */
+/**
+ * D-UX4-100: 시뮬레이터 화면(우리)과 토스 사진을 같은 pt로 나란히 재어 다시 맞춤 — 글자 폭·높이로 줄 이름 16(옛 17)·제목 21(옛 22)·오른쪽 값 15,
+ * 글자 왼쪽 끝 22(잉크 22.5 — 토스 22.6~23), 제목↔첫 줄 가운데 58·뒤로↔제목 가운데 65(titleTop 12·titleBottom 21), 줄 44 · 켜고 끄는 줄 49.
+ */
+export const PLAIN = { side: 22, title: 21, titleTop: 12, titleBottom: 21, label: 16, value: 15, ink: '#4F545E', chevron: '#90969E', row: 44, toggleRow: 49, weight: 'book' } as const
 
 /** 흰 화면 맨 위 큰 제목 (토스 "비밀번호 · 보안") */
 export function PlainTitle({ title }: { readonly title: string }) {
@@ -191,12 +198,12 @@ export function PlainRow({ title, value, right, onPress, danger, testID, ariaLab
   const body = (
     <>
       <View style={{ flex: 1 }}>
-        <Txt step="nav" weight="regular" ink={danger === true ? p.dangerText : PLAIN.ink} numberOfLines={1}>
+        <Txt step="bodyLarge" weight={PLAIN.weight} ink={danger === true ? p.dangerText : PLAIN.ink} numberOfLines={1}>
           {title}
         </Txt>
       </View>
       {value === undefined ? null : (
-        <Txt step="bodyLarge" weight="regular" color="primaryText" numberOfLines={1}>
+        <Txt step="body" weight="regular" color="primaryText" numberOfLines={1}>
           {value}
         </Txt>
       )}

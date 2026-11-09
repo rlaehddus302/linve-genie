@@ -39,7 +39,7 @@ export function ThanksSwitch({ on, busy, onPress }: { readonly on: boolean; read
   return (
     <View style={{ paddingHorizontal: PLAIN.side }}>
       {/* 다른 줄과 같은 글자(17 · 보통 · #4F545E — D-UX4-94) */}
-      <ToggleRow title={THANKS_TITLE} titleStep="nav" titleWeight="regular" titleInk={PLAIN.ink} on={on} disabled={busy} testID="thanks-switch" onChange={onPress} onHelp={() => setHelp(true)} />
+      <ToggleRow title={THANKS_TITLE} titleStep="bodyLarge" titleWeight={PLAIN.weight} titleInk={PLAIN.ink} rowHeight={PLAIN.toggleRow} on={on} disabled={busy} testID="thanks-switch" onChange={onPress} onHelp={() => setHelp(true)} />
       <BottomSheet visible={help} onClose={() => setHelp(false)} title={THANKS_HELP_TITLE} actions={<BigButton label="확인" onPress={() => setHelp(false)} />}>
         <Txt step="bodyLarge" color="textSub">{THANKS_HELP_BODY}</Txt>
         <ThanksExample />

@@ -192,8 +192,8 @@ export const TYPE = {
   lead: 18,
   /** 카드·시트 제목 */
   title: 20,
-  /** 흰 설정 화면 맨 위 큰 제목 (토스 "비밀번호 · 보안" 사진을 재어 22, D-UX4-94) */
-  pageTitle: 22,
+  /** 흰 설정 화면 맨 위 큰 제목 (토스 "비밀번호 · 보안" — 시뮬레이터 화면과 나란히 재어 21, D-UX4-100 · 옛 22 D-UX4-94) */
+  pageTitle: 21,
   /** 화면 맨 위 질문형 제목 ("어떤 계좌로 보낼까요?") — 토스 사진 재기 22·굵게·줄 간격 1.24 (D-UX3-51, 옛 26) */
   headline: 20,
   /** 숫자 강조 */
@@ -218,7 +218,8 @@ export const WEIGHT = { regular: '400', book: '500', medium: '600', bold: '700',
  * 입력 화면 틀 자리 (토스 사진을 재어, D-UX3-51 — 사용자 지시 2026-11-07 "뒤로가기 버튼의 크기, 위치 다름 … 제목의 크기, 위치가 다름"):
  * 뒤로(48 누름 자리)는 안전 영역 바로 아래에서 왼쪽 8, 제목은 뒤로 아래 31(D-UX3-56 — 폭 430 휴대폰 사진을 다시 재어, 옛 28)·왼쪽 24, 제목과 첫 입력 칸 사이 36.
  */
-export const PAGE = { backLeft: 8, titleTop: 31, side: 24, titleGap: 36 } as const
+// backLeft 8 → 6 (D-UX4-100: 시뮬레이터 화면과 토스 사진을 같은 pt로 견주니 뒤로 ‹ 잉크가 토스(21.7)보다 2.3 오른쪽)
+export const PAGE = { backLeft: 6, titleTop: 31, side: 24, titleGap: 36 } as const
 
 /** 간격 (4·8 단위) */
 export const SPACE = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const

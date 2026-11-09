@@ -1,11 +1,9 @@
 // 방송 중 경로 (/console/<방송 ID>). 로그인이 풀리면 첫 화면으로. 방송을 끝내면 홈으로 돌아간다. 아래 고정 버튼이 홈 막대를 피하도록 아래 안전 영역을 넘긴다.
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { ConsoleScreen } from '../../../src/screens/ConsoleScreen.tsx'
 import { useSession } from '../../../src/services.tsx'
-import { PALETTE } from '../../../src/ui/kit/tokens.ts'
-import { KitInsets } from '../../../src/ui/kit/safe-area.tsx'
+import { RouteFrame } from '../../../src/ui/kit/route-frame.tsx'
 
 export default function ConsoleRoute() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -26,10 +24,8 @@ export default function ConsoleRoute() {
   const home = () => (router.canGoBack() ? router.back() : router.replace('/'))
   return (
     // 상품 추가·방송 관리는 진짜 쌓인 화면이라(D-UX4-57) 방송 화면은 다른 경로처럼 상태 막대 아래에서 시작한다 (D-UX4-51 되돌림)
-    <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
-      <KitInsets>
+    <RouteFrame>
         <ConsoleScreen broadcastId={id} seller onBack={home} onEnded={home} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} openReviews={() => router.push(`/reviews?broadcast=${encodeURIComponent(id)}`)} openLabels={() => router.push('/labels?from=console')} openAdd={() => router.push({ pathname: '/console/[id]/add', params: { id } })} openManage={() => router.push({ pathname: '/console/[id]/manage', params: { id } })} />
-      </KitInsets>
-    </SafeAreaView>
+      </RouteFrame>
   )
 }

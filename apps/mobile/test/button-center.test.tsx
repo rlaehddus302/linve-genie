@@ -292,9 +292,10 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
     const help = screen.getByRole('button', { name: `${THANKS_TITLE} 설명 보기` })
     const row = help.parentElement!
     const holder = row.parentElement!
-    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft)).toBe(12)
-    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft) + px(style(row).paddingLeft)).toBe(24)
-    expect(px(style(row).minHeight)).toBe(56)
+    // D-UX4-100: 토스 사진과 나란히 재어 글자 22 · 켜고 끄는 줄 49 (옛 24 · 56)
+    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft)).toBe(10)
+    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft) + px(style(row).paddingLeft)).toBe(22)
+    expect(px(style(row).minHeight)).toBe(49)
   })
 
   it('칩·알약·글자 단추·머리 글자 단추·숫자판·탭', () => {

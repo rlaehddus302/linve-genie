@@ -8,7 +8,7 @@ import { CryptoDigestAlgorithm, CryptoEncoding, digestStringAsync, getRandomByte
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { openAuthSessionAsync, openBrowserAsync } from 'expo-web-browser'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Linking } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { installProductionNative, PrinterDevicePicker } from '../src/native/production.tsx'
@@ -21,6 +21,7 @@ import { createServices, ServicesProvider, SessionProvider, useServices, useSess
 import { KeptStreamAudio } from '../src/screens/console/StreamAudio.tsx'
 import { TAB_SCREENS } from '../src/lib/tab-routes.ts'
 import { RouteSwipeProvider } from '../src/ui/kit/route-swipe.tsx'
+import { TRY_LOGIN_ON, parseTryLogin } from '../src/lib/try-login.ts'
 import { ScreenFocusProvider } from '../src/lib/cached-get.ts'
 
 configureApi({ fetch: (input, init) => expoFetch(input, init as Parameters<typeof expoFetch>[1]) as unknown as Promise<Response>, newId: randomUUID })
@@ -50,6 +51,22 @@ setSocialNative({
   storage: AsyncStorage,
 })
 
+/** 시뮬레이터 연습 로그인 (D-UX4-99): EXPO_PUBLIC_TRY_LOGIN=1 빌드에서만 livejjim://try-login 주소로 로그인한다 */
+function TryLogin() {
+  const { login } = useSession()
+  useEffect(() => {
+    if (!TRY_LOGIN_ON) return
+    const take = (url: string | null | undefined) => {
+      const found = url === null || url === undefined ? null : parseTryLogin(url)
+      if (found !== null) void login(found.id, found.pw).catch(() => undefined)
+    }
+    void Linking.getInitialURL().then(take)
+    const sub = Linking.addEventListener('url', (event) => take(event.url))
+    return () => sub.remove()
+  }, [login])
+  return null
+}
+
 /** 방송 화면을 나가도 방송 소리를 계속 듣는다 (D-UX3-48) */
 function StreamKeeper() {
   const services = useServices()
@@ -66,6 +83,7 @@ export default function RootLayout() {
           <StatusBar style="dark" />
           <PrinterDevicePicker />
           <StreamKeeper />
+          <TryLogin />
           {/* 뒤로 가기는 왼쪽 가장자리에서 밀 때만 (D-UX3-24): iOS 26부터 기본이 '화면 어디서 밀어도 뒤로'라 라벨 끌기·가로 밀기까지 뒤로 갔다 */}
           {/* 쌓인 화면에서 돌아와 다시 보이면 그 화면의 서버 자료를 뒤에서 조용히 다시 받는다 (D-UX4-77) */}
           {/* 경로 안에 겹쳐 그린 화면이 열려 있으면 그 경로의 밀어 뒤로 가기를 끈다 — 겹친 화면이 스스로 밀려 닫힌다 (D-UX4-50) */}

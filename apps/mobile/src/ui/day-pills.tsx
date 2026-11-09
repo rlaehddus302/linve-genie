@@ -6,7 +6,7 @@ import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import type { ApiError } from '../api/client.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
 import { Tap, Txt, useKit } from './kit/index.ts'
-import { RADIUS, SPACE, pressedFill } from './kit/tokens.ts'
+import { RADIUS, GUTTER, SPACE, pressedFill } from './kit/tokens.ts'
 
 interface Day {
   readonly date: string
@@ -48,7 +48,8 @@ export function Pill({ on, label, ariaLabel, onPress }: { readonly on: boolean; 
 export function DayPills({ days, date, onPick }: { readonly days: readonly string[]; readonly date: string | null; readonly onPick: (date: string) => void }) {
   return (
     <View role="radiogroup" aria-label="날짜">
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: SPACE.xs, paddingVertical: SPACE.xs }}>
+      {/* 알약 줄은 화면 끝까지 밀리고 첫 알약은 카드 왼쪽(GUTTER)에 — 오른쪽에서 잘리지 않는다 (D-UX4-101) */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: GUTTER, paddingVertical: SPACE.xs }}>
         {days.slice(0, 8).map((day) => (
           <Pill key={day} on={day === date} label={dateWords(day)} ariaLabel={`날짜 ${dateWords(day)}`} onPress={() => onPick(day)} />
         ))}

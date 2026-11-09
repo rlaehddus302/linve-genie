@@ -1,11 +1,9 @@
 // 새 방송 2단계 경로 (/new-broadcast/address?category=): 방송 주소 (D-UX3-09·10).
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router'
-import { View } from 'react-native'
 import { newBroadcastNav } from '../../src/lib/new-broadcast-nav.ts'
 import { NewBroadcastAddressScreen } from '../../src/screens/NewBroadcastScreen.tsx'
 import { useSession } from '../../src/services.tsx'
-import { PALETTE } from '../../src/ui/kit/tokens.ts'
-import { KitInsets } from '../../src/ui/kit/safe-area.tsx'
+import { RouteFrame } from '../../src/ui/kit/route-frame.tsx'
 
 export default function NewBroadcastRoute() {
   const { category } = useLocalSearchParams<{ category?: string }>()
@@ -15,10 +13,8 @@ export default function NewBroadcastRoute() {
   if (session.state !== 'in') return null
   // 위 안전 영역은 FormPage가 직접 띄운다
   return (
-    <View style={{ flex: 1, backgroundColor: PALETTE.light.surface }}>
-      <KitInsets belowStatusBar={false}>
+    <RouteFrame selfTop>
         <NewBroadcastAddressScreen category={typeof category === 'string' ? category : undefined} nav={newBroadcastNav(router)} />
-      </KitInsets>
-    </View>
+      </RouteFrame>
   )
 }

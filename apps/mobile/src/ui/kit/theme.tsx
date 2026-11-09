@@ -92,13 +92,14 @@ export function TopWhiteProvider({ change, children }: { readonly change: (delta
   return <TopWhiteContext.Provider value={change}>{children}</TopWhiteContext.Provider>
 }
 
-/** 이 화면이 보이는 동안 맨 위 상태 막대 자리도 흰색으로 */
-export function useWhiteTop(): void {
+/** 이 화면이 보이는 동안 맨 위 상태 막대 자리도 흰색으로. on이 거짓이면 알리지 않는다(겹쳐 뜨는 흰 화면이 닫혀 있을 때) */
+export function useWhiteTop(on = true): void {
   const change = useContext(TopWhiteContext)
   useEffect(() => {
+    if (!on) return
     change(1)
     return () => change(-1)
-  }, [change])
+  }, [change, on])
 }
 
 const TabBarRoomContext = createContext(0)

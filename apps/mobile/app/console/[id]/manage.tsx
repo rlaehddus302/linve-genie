@@ -2,11 +2,9 @@
 // 방송을 끝내면 홈으로 돌아간다(쌓인 방송 화면까지 걷는다).
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { ManageScreen } from '../../../src/screens/console/StackScreens.tsx'
 import { useSession } from '../../../src/services.tsx'
-import { PALETTE } from '../../../src/ui/kit/tokens.ts'
-import { KitInsets } from '../../../src/ui/kit/safe-area.tsx'
+import { RouteFrame } from '../../../src/ui/kit/route-frame.tsx'
 
 export default function ManageRoute() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -25,10 +23,8 @@ export default function ManageRoute() {
   if (session.state !== 'in' || typeof id !== 'string') return null
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/console/[id]', params: { id } }))
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
-      <KitInsets>
+    <RouteFrame>
         <ManageScreen broadcastId={id} onBack={back} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} openLabels={() => router.push('/label-print')} openTool={(tool) => router.push({ pathname: '/console/[id]/tool/[name]', params: { id, name: tool } })} />
-      </KitInsets>
-    </SafeAreaView>
+      </RouteFrame>
   )
 }
