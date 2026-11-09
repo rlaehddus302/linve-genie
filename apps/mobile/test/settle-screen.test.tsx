@@ -1,9 +1,9 @@
 // 앱 정산 화면 (D-APPX-01 — 웹 SettlementsPage와 같은 규칙): 날짜 → 덜 받은 손님 먼저 → 자세히 → 입금 적기(같은 요청 번호, amountText) → 남은 금액과 다르면 한 번 더 묻기.
 // 옛 정산 탭은 "정산은 웹 화면에서 열려요"와 [웹으로 열기]만 있었다(D-UX2-07) — 앱 화면으로 옮겼다.
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Settlement } from '@livejjim/web/src/api/types.ts'
-import { SettleScreen } from '../src/screens/SettleScreen.tsx'
+import { SettleBuyerScreen, SettleScreen } from '../src/screens/SettleScreen.tsx'
 import { ReportScreen } from '../src/screens/ReportScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, claim, fullView } from './support.ts'
@@ -58,7 +58,8 @@ describe('SettleScreen (앱 정산)', () => {
     const openReceipts = vi.fn()
     render(w.wrap(<SettleScreen nav={{ openReceipts }} />))
     expect(await screen.findByRole('button', { name: '확인서 보내기' })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: '주문' })).toBeNull()
+    // 옛 기대(D-UX3-41): 탭 제목 없음. 새 기대(D-UX4-59, 사용자 지시 2026-11-09 "홈 화면에 위 영역이 다 똑같지"): 모든 화면과 같은 머리 줄에 "주문"
+    expect(screen.getByRole('heading', { name: '주문', level: 1 })).toBeTruthy()
     expect(await screen.findByText('정보 전')).toBeTruthy()
     expect(screen.getByText('확인서 전')).toBeTruthy()
     expect(screen.getByText('정보 받음')).toBeTruthy()
@@ -130,5 +131,23 @@ describe('ReportScreen (앱 방송 리포트)', () => {
     expect(screen.getByText('3번 금황')).toBeTruthy()
     expect(screen.getByText('열고 30초 안에 8명 · 기다린 손님 3명')).toBeTruthy()
     expect(screen.getByText('20:00~20:10 · 3개 · 15,000원')).toBeTruthy()
+  })
+
+  // D-UX4-58 (사용자 지시 2026-11-09 "진짜판으로 해야지"): 손님 자세히는 주문 탭 안에서 바꿔 끼우지 않고 진짜 쌓인 화면으로
+  it('경로가 있으면 손님을 누르면 쌓인 화면을 열고, 쌓인 화면에서 기록하면 아래 목록도 다시 받는다', async () => {
+    const w = world()
+    const opened: string[] = []
+    render(w.wrap(<><SettleScreen nav={{ openBuyer: (date, key) => opened.push(`${date}|${key}`) }} /><SettleBuyerScreen date="2026-10-29" settlementKey={JSON.stringify(['u1', '2026-10-29'])} onBack={() => {}} /></>))
+    const row = await screen.findByRole('button', { name: /^다육맘 · 미입금/ })
+    fireEvent.click(row)
+    expect(opened).toEqual([`2026-10-29|${JSON.stringify(['u1', '2026-10-29'])}`])
+    const page = screen.getByTestId('settle-buyer-screen')
+    expect(within(page).getByRole('heading', { name: '다육맘', level: 1 })).toBeTruthy()
+    const reads = w.server.callsTo('GET', /^\/api\/days\/2026-10-29$/).length
+    fireEvent.click(within(page).getByRole('button', { name: '입금 적기' }))
+    fireEvent.click(screen.getByRole('button', { name: '적기' }))
+    await waitFor(() => expect(w.events).toHaveLength(1))
+    // 쌓인 화면과 아래 목록이 둘 다 다시 받는다
+    await waitFor(() => expect(w.server.callsTo('GET', /^\/api\/days\/2026-10-29$/).length).toBeGreaterThanOrEqual(reads + 2))
   })
 })

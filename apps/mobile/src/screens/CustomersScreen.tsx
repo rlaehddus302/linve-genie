@@ -95,8 +95,11 @@ function CustomerLine({ row, today, onPress }: { readonly row: CustomerRow; read
   )
 }
 
-/** onBack이 없으면 아래 탭 "고객"(D-UX3-60) — 제목 줄 없이(다른 탭처럼), 아래 여백은 탭 막대만큼 */
-export function CustomersScreen({ onBack }: { readonly onBack?: () => void }) {
+/**
+ * onBack이 없으면 아래 탭 "고객"(D-UX3-60) — 아래 여백은 탭 막대만큼.
+ * openCustomer (D-UX4-58): 손님 자세히를 진짜 쌓인 화면으로 연다 — 없으면(시험·웹) 이 화면 안에서 바꿔 끼운다.
+ */
+export function CustomersScreen({ onBack, openCustomer }: { readonly onBack?: () => void; readonly openCustomer?: (id: string) => void }) {
   const { p } = useKit()
   const room = useTabBarRoom()
   const [sort, setSort] = useState<CustomerSort>('total')
@@ -142,13 +145,14 @@ export function CustomersScreen({ onBack }: { readonly onBack?: () => void }) {
     }
   }
 
-  if (open !== null) return <CustomerDetail row={open} today={view?.today ?? ''} onBack={() => setOpen(null)} />
+  if (open !== null) return <CustomerDetail id={open.id} row={open} today={view?.today ?? ''} onBack={() => setOpen(null)} />
   const narrowed = filter !== 'all' || query.trim() !== ''
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="customers-screen">
-      {onBack !== undefined ? <AppHeader title="손님" onBack={onBack} /> : null}
+      {/* 모든 화면과 같은 머리 줄 (D-UX4-59): 탭이면 왼쪽 큰 제목 "고객", 쌓인 화면이면 뒤로 + 가운데 "손님" */}
+      {onBack !== undefined ? <AppHeader title="손님" onBack={onBack} /> : <AppHeader title="고객" />}
       {/* 홈처럼 (D-UX3-95): 옆 여백 20 · 카드 사이 16, 찾기 칸은 흰 둥근 칸, 정렬은 글자로만, 손님은 흰 카드 하나에 */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: onBack === undefined ? 28 : SPACE.sm, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
         <SearchField label="이름으로 찾기" value={query} onChangeText={setQuery} />
         <View role="radiogroup" aria-label="거르기" style={{ marginHorizontal: -SPACE.xl }}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: SPACE.xl, paddingVertical: SPACE.xs }}>
@@ -173,7 +177,7 @@ export function CustomersScreen({ onBack }: { readonly onBack?: () => void }) {
             <View role="group" aria-label="손님 목록" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.sm }}>
               {view.customers.length === 0 ? <CardEmpty>{narrowed ? '맞는 손님이 없어요.' : '아직 손님이 없어요.'}</CardEmpty> : null}
               {view.customers.map((row) => (
-                <CustomerLine key={row.id} row={row} today={view.today} onPress={() => setOpen(row)} />
+                <CustomerLine key={row.id} row={row} today={view.today} onPress={() => (openCustomer === undefined ? setOpen(row) : openCustomer(row.id))} />
               ))}
               {view.more ? <TextButton label="더 보기" color="textSub" busy={moreBusy} align="stretch" onPress={() => void loadMore()} /> : null}
             </View>
@@ -196,14 +200,19 @@ function summaryRows(summary: CustomerSummary, today: string): readonly { readon
   ]
 }
 
-function CustomerDetail({ row, today, onBack }: { readonly row: CustomerRow; readonly today: string; readonly onBack: () => void }) {
+/** 손님 자세히 진짜 쌓인 화면 (D-UX4-58): 손님 ID로 열고 서버에서 받는다 */
+export function CustomerDetailScreen({ id, onBack }: { readonly id: string; readonly onBack: () => void }) {
+  return <CustomerDetail id={id} today="" onBack={onBack} />
+}
+
+function CustomerDetail({ id, row, today, onBack }: { readonly id: string; readonly row?: CustomerRow; readonly today: string; readonly onBack: () => void }) {
   const { p } = useKit()
   const [view, setView] = useState<(CustomerDetailView & { readonly ledger?: LedgerView | null }) | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let alive = true
-    get<CustomerDetailView & { readonly ledger?: LedgerView | null }>(`/api/customers/${encodeURIComponent(row.id)}`).then(
+    get<CustomerDetailView & { readonly ledger?: LedgerView | null }>(`/api/customers/${encodeURIComponent(id)}`).then(
       (result) => {
         if (!alive) return
         setView(result)
@@ -216,17 +225,19 @@ function CustomerDetail({ row, today, onBack }: { readonly row: CustomerRow; rea
     return () => {
       alive = false
     }
-  }, [row.id, attempt])
+  }, [id, attempt])
   const base = view?.today ?? today
   const shown = view?.customer ?? row
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="customer-detail">
-      <AppHeader title={shown.name} onBack={onBack} backLabel="손님 목록으로" />
+      <AppHeader title={shown?.name ?? ''} onBack={onBack} backLabel="손님 목록으로" />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap', paddingHorizontal: SPACE.xs }}>
-          <Txt color="textSub">{shown.kindLabel}</Txt>
-          <CustomerTags row={shown} blocked={shown.blocked} />
-        </View>
+        {shown === undefined ? (error === null ? <Loading /> : null) : (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap', paddingHorizontal: SPACE.xs }}>
+            <Txt color="textSub">{shown.kindLabel}</Txt>
+            <CustomerTags row={shown} blocked={shown.blocked} />
+          </View>
+        )}
         {error !== null ? (
           <View style={{ gap: SPACE.xs }}>
             <Notice tone="danger" alert>{error.status === 404 ? '그 손님을 찾지 못했어요.' : error.message}</Notice>
@@ -242,16 +253,16 @@ function CustomerDetail({ row, today, onBack }: { readonly row: CustomerRow; rea
               ))}
             </InfoCard>
             <InfoCard label="손님 메모">
-              <MemoEditor customer={row.id} memo={view.memo} today={base} />
+              <MemoEditor customer={id} memo={view.memo} today={base} />
             </InfoCard>
-            <LedgerCard customer={row.id} ledger={view.ledger ?? null} today={base} onDeleted={() => setView({ ...view, ledger: null })} />
+            <LedgerCard customer={id} ledger={view.ledger ?? null} today={base} onDeleted={() => setView({ ...view, ledger: null })} />
             <InfoCard title="날짜별 기록">
               {view.days.length === 0 ? <Txt color="textSub">아직 기록이 없어요.</Txt> : null}
               {view.days.map((line) => (
                 <DayLine key={`${line.date}|${line.buyer}`} line={line} today={base} />
               ))}
             </InfoCard>
-            <Txt step="caption" color="textSub">{`차단은 가장 최근 날짜(${customerDate(shown.latestDate, base)})의 구매자 화면에서 할 수 있어요.`}</Txt>
+            <Txt step="caption" color="textSub">{`차단은 가장 최근 날짜(${customerDate(view.customer.latestDate, base)})의 구매자 화면에서 할 수 있어요.`}</Txt>
           </>
         ) : null}
       </ScrollView>

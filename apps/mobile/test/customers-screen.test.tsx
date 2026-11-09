@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { CustomerRow } from '@livejjim/web/src/lib/customers.ts'
-import { CustomersScreen } from '../src/screens/CustomersScreen.tsx'
+import { CustomerDetailScreen, CustomersScreen } from '../src/screens/CustomersScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 const row: CustomerRow = {
@@ -68,5 +68,20 @@ describe('CustomersScreen (앱 손님)', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '지우기' }).at(-1)!)
     await waitFor(() => expect(posts).toEqual(['/api/customers/cu1/ledger/delete']))
     expect(await screen.findByText('저장한 배송지를 지웠어요.')).toBeTruthy()
+  })
+
+  // D-UX4-58 (사용자 지시 2026-11-09 "진짜판으로 해야지"): 손님 자세히는 진짜 쌓인 화면 — 목록은 그대로 두고 경로를 연다
+  it('경로가 있으면 손님을 누르면 쌓인 화면을 열고, 쌓인 화면은 손님 ID로 받아 그린다', async () => {
+    const { w } = world()
+    const opened: string[] = []
+    const view = render(w.wrap(<CustomersScreen openCustomer={(id) => opened.push(id)} />))
+    expect(await screen.findByRole('heading', { name: '고객', level: 1 })).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: /^다육맘/ }))
+    expect(opened).toEqual(['cu1'])
+    expect(screen.queryByTestId('customer-detail')).toBeNull()
+    view.unmount()
+    render(w.wrap(<CustomerDetailScreen id="cu1" onBack={() => undefined} />))
+    expect(await screen.findByRole('heading', { name: '다육맘', level: 1 })).toBeTruthy()
+    expect(await screen.findByLabelText('누적 구매 152,000원 · 4번')).toBeTruthy()
   })
 })

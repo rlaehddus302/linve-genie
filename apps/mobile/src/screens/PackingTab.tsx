@@ -2,7 +2,7 @@
 // 고른 쪽은 진한 글자, 다른 쪽은 회색. 포장 화면 [택배 접수로]·홈 "택배 접수"는 택배 쪽을 그 날짜로 연다.
 import { useState } from 'react'
 import { Pressable, View } from 'react-native'
-import { SPACE, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, NAV, SPACE, Txt, useKit } from '../ui/kit/index.ts'
 import { PackingScreen } from './PackingScreen.tsx'
 import { ParcelsScreen, type ParcelsNavigation } from './ParcelsScreen.tsx'
 
@@ -18,7 +18,9 @@ export function PackingTab({ initialSide = 'packing', initialDate, nav }: { read
   const [parcelDate, setParcelDate] = useState(initialDate)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }}>
-      <View role="tablist" aria-label="포장 · 택배" style={{ flexDirection: 'row', gap: SPACE.lg, paddingTop: SPACE.lg, paddingBottom: SPACE.xs, paddingHorizontal: SPACE.xl }}>
+      {/* 모든 화면과 같은 머리 줄 (D-UX4-59): 큰 제목 자리에 [포장 · 택배] 나누기 */}
+      <AppHeader title="포장 · 택배" left={
+      <View role="tablist" aria-label="포장 · 택배" style={{ flexDirection: 'row', gap: SPACE.lg, transform: [{ translateY: NAV.titleLift }] }}>
         {SIDES.map((item) => {
           const on = item.key === side
           return (
@@ -30,6 +32,7 @@ export function PackingTab({ initialSide = 'packing', initialDate, nav }: { read
           )
         })}
       </View>
+      } />
       {side === 'packing' ? (
         <PackingScreen
           topGap={SPACE.sm}

@@ -13,8 +13,8 @@ import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
 import { get, isApiError, type ApiError } from '../api/client.ts'
 import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
-import { RETRY_NOW } from '../lib/words.ts'
-import { BigButton, Icon, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { RETRY_NOW, SERVICE_NAME } from '../lib/words.ts'
+import { AppHeader, BigButton, Icon, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
 import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts } from './BroadcastList.tsx'
@@ -303,7 +303,9 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="home-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg, paddingBottom: SPACE.xxxl + room, gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: room }}>
+      {/* 모든 화면과 같은 머리 줄 (D-UX4-59) — 토스 홈 "토스뱅크"처럼 서비스 이름 */}
+      <AppHeader title={SERVICE_NAME} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: room }}>
         {liveNow.resolved || error !== null ? <LiveEntry live={liveNow.live} channel={liveNow.channel} onOpen={nav.openConsole} onConnect={nav.openNewBroadcast} /> : <View style={{ minHeight: TOUCH.min }} />}
 
         {nav.openStart !== undefined && items !== null && showsStart(wizard, items.some((item) => !item.rehearsal)) ? (

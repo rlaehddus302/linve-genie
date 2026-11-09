@@ -232,10 +232,11 @@ function NextButton({ onPress, disabled }: { readonly onPress: () => void; reado
 }
 
 /**
+ * 상품 추가 화면 틀 없는 내용 (D-UX4-57): 방송 화면 위 진짜 쌓인 화면(app/console/[id]/add)과, 경로가 없을 때(시험·웹) 방송 화면 안 겹친 화면이 같이 쓴다.
  * askName: 다육이 방송이면 품종도 묻는다 (사용자 지시 "방송 연결할 때 다육이를 선택했다면").
  * onAdded: 추가한 상품 열쇠 — 방송 화면이 그 상품을 잠깐 강조한다
  */
-export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonly visible: boolean; readonly onClose: () => void; readonly askName: boolean; readonly onAdded: (key: string) => void }) {
+export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean; readonly onAdded: (key: string) => void }) {
   const api = useConsoleApi()
   const { p } = useKit()
   const footer = useFooterInset()
@@ -245,15 +246,6 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    if (!visible) return
-    setStep('no')
-    setNo('')
-    setPrice('')
-    setName('')
-    setError(null)
-    setBusy(false)
-  }, [visible])
 
   const maxNumber = (() => {
     const value = api.data.broadcasts.get(api.b)?.settings['claim.maxNumber']
@@ -326,7 +318,7 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
 
   if (step === 'confirm') {
     return (
-      <SlidePage visible={visible} onClose={onClose} title={ADD_TITLE} name={ADD_TITLE} scroll={false} testID="product-add">
+      <View style={{ flex: 1 }}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.xxl, gap: 2 }}>
           {[`${no}번`, ...(name.trim() === '' ? [] : [name.trim()]), won(price)].map((line) => (
             <Txt key={line} step="amount" weight="bold" ink={p.primaryText} center>
@@ -341,7 +333,7 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
           {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
           <BigButton label="추가하기" busy={busy} disabled={busy} onPress={() => void add()} />
         </View>
-      </SlidePage>
+      </View>
     )
   }
 
@@ -349,7 +341,7 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
   const shownError = error ?? (step === 'name' ? null : tooBig(step, active))
   const onNext = step === 'no' ? nextFromNo : step === 'price' ? nextFromPrice : () => setStep('confirm')
   return (
-    <SlidePage visible={visible} onClose={onClose} title={ADD_TITLE} name={ADD_TITLE} scroll={false} testID="product-add">
+    <View style={{ flex: 1 }}>
       <View style={{ flex: 1, paddingHorizontal: SPACE.xxl, paddingTop: SPACE.xxl, gap: SPACE.xxl }}>
         {done.map((line) => <DoneLine key={line.step} label={line.label} value={line.value} onPress={() => { setError(null); setStep(line.step) }} />)}
         <View style={{ gap: SPACE.sm }}>
@@ -388,6 +380,19 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
           <NumberKeys onKey={type} />
         </View>
       )}
+    </View>
+  )
+}
+
+/** 경로가 없을 때(시험·웹) 방송 화면 안에 겹쳐 그리는 상품 추가 화면 — 열 때마다 처음부터 */
+export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonly visible: boolean; readonly onClose: () => void; readonly askName: boolean; readonly onAdded: (key: string) => void }) {
+  const [round, setRound] = useState(0)
+  useEffect(() => {
+    if (visible) setRound((count) => count + 1)
+  }, [visible])
+  return (
+    <SlidePage visible={visible} onClose={onClose} title={ADD_TITLE} name={ADD_TITLE} scroll={false} testID="product-add">
+      <ProductAddFlow key={round} askName={askName} onAdded={onAdded} />
     </SlidePage>
   )
 }

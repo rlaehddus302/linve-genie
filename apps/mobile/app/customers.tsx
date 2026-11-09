@@ -17,7 +17,7 @@ export default function CustomersRoute() {
     <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.light.background }} edges={['top']}>
       <KitInsets>
         <TabFrame active="customers" go={(key) => router.replace(TAB_PATH[key])}>
-          <CustomersScreen />
+          <CustomersScreen openCustomer={(id) => router.push({ pathname: '/customer', params: { id } })} />
         </TabFrame>
       </KitInsets>
     </SafeAreaView>

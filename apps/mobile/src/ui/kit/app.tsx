@@ -227,17 +227,24 @@ export function HeaderTextButton({ label, ariaLabel, onPress, testID }: { readon
 
 /**
  * 화면 머리. 뒤로가 있으면 쌓인 화면 머리(NavBar — 가운데 제목, D-UX4-40), 없으면(탭 첫 화면) 왼쪽에 큰 제목.
+ * D-UX4-59 (사용자 지시 2026-11-09 "토스의 상단 영역을 보면 뒤로가기, 제목이 있는 영역과 홈 화면에 위 영역이 다 똑같지"): 탭 첫 화면 머리도
+ * 쌓인 화면 머리와 같은 줄(높이 48 + 아래 4, 상태 막대 바로 아래)에 놓는다 — 큰 제목·오른쪽 단추가 뒤로 ‹·가운데 제목과 같은 높이 가운데에 온다.
+ * 큰 제목은 왼쪽 20(본문 여백, 뒤로 ‹ 자리와 같은 세로줄), 한글은 2.5 올린다(D-UX3-88). left를 주면 큰 제목 대신 그것(포장·택배 나눔)을 놓는다.
  */
-export function AppHeader({ title, onBack, backLabel = '뒤로', right, testID }: { readonly title: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly testID?: string }) {
+export function AppHeader({ title, onBack, backLabel = '뒤로', right, left, testID }: { readonly title: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly left?: ReactNode; readonly testID?: string }) {
   if (onBack !== undefined) return <NavBar title={title} onBack={onBack} backLabel={backLabel} right={right} {...(testID === undefined ? {} : { testID })} />
   return (
-    <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingTop: SPACE.lg, paddingBottom: SPACE.xs, paddingLeft: SPACE.xl, paddingRight: SPACE.md, minHeight: 64 }}>
-      <View style={{ flex: 1 }}>
-        <Txt step="title" weight="heavy" role="heading" aria-level={1} numberOfLines={1}>
-          {title}
-        </Txt>
+    <View testID={testID} style={{ minHeight: NAV.row + NAV.below, paddingBottom: NAV.below, paddingLeft: SPACE.xl, paddingRight: NAV.right, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+      <View style={{ flex: 1, minHeight: NAV.row, justifyContent: 'center' }}>
+        {left ?? (
+          <View style={{ transform: [{ translateY: NAV.titleLift }] }}>
+            <Txt step="title" weight="heavy" role="heading" aria-level={1} numberOfLines={1}>
+              {title}
+            </Txt>
+          </View>
+        )}
       </View>
-      {right}
+      {right === undefined ? null : <View style={{ flexDirection: 'row', alignItems: 'center', height: NAV.row }}>{right}</View>}
     </View>
   )
 }

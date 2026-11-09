@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
+import { ConsoleToolScreen, ManageScreen, ProductAddScreen, TOOL_PAGE } from '../src/screens/console/StackScreens.tsx'
 import { SlidePage } from '../src/screens/console/parts.tsx'
 import { ASK_NO, charPieces, noLimitWords } from '../src/screens/console/ProductAdd.tsx'
 import { ListenLine } from '../src/screens/console/StreamAudio.tsx'
@@ -17,9 +18,10 @@ import { TALK_EMPTY } from '../src/screens/console/LiveTalk.tsx'
 import { TRANSCRIPT_LINES, type VoiceSession, type VoiceView } from '../src/lib/voice-session.ts'
 import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY } from '../src/lib/words.ts'
 import { setErrorHaptic } from '../src/native/haptics.ts'
+import { AppHeader, HeaderTextButton } from '../src/ui/kit/index.ts'
 import { RouteSwipeProvider, edgeSwipeCloses, startsEdgeSwipe } from '../src/ui/kit/route-swipe.tsx'
 import { makeWorld } from './screen-support.tsx'
-import { flush } from './support.ts'
+import { changes, flush, product } from './support.ts'
 
 async function open(world: ReturnType<typeof makeWorld>) {
   render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
@@ -96,10 +98,13 @@ describe('밀어서 뒤로 가기 (D-UX4-50)', () => {
     expect(edgeSwipeCloses(60, 0.8, 390)).toBe(true)
   })
 
-  it('방송 경로는 상태 막대까지 그려 겹친 화면이 상태 막대 바탕까지 덮는다 (D-UX4-51)', () => {
-    const route = readFileSync(join(import.meta.dirname, '../app/console/[id].tsx'), 'utf8')
-    expect(route).toContain('<KitInsets belowStatusBar={false}>')
-    expect(route).not.toContain('SafeAreaView')
+  // 옛 기대(D-UX4-51): 방송 경로가 상태 막대까지 그린다. 새 기대(D-UX4-57): 상품 추가·방송 관리가 진짜 쌓인 경로라, 방송 경로는 다른 경로처럼 상태 막대 아래에서 시작한다
+  it('상품 추가·방송 관리는 방송 화면 위에 진짜로 쌓이는 경로다 (D-UX4-57)', () => {
+    const route = readFileSync(join(import.meta.dirname, '../app/console/[id]/index.tsx'), 'utf8')
+    expect(route).toContain("edges={['top']}")
+    expect(route).toContain("openAdd={() => router.push({ pathname: '/console/[id]/add', params: { id } })}")
+    expect(route).toContain("openManage={() => router.push({ pathname: '/console/[id]/manage', params: { id } })}")
+    for (const file of ['add', 'manage']) expect(readFileSync(join(import.meta.dirname, `../app/console/[id]/${file}.tsx`), 'utf8')).toContain("edges={['top']}")
   })
 })
 
@@ -196,5 +201,109 @@ describe('빈 목록 안내 (D-UX4-56)', () => {
     expect(FEED_EMPTY_BODY).toBe('채팅이나 문자로 찜이 오면\n바로 보여드릴게요')
     fireEvent.click(screen.getByRole('button', { name: '채팅·문자' }))
     expect(await screen.findByText(TALK_EMPTY)).toBeTruthy()
+  })
+})
+
+describe('진짜 쌓인 화면 (D-UX4-57)', () => {
+  it('방송 화면이 경로로 열면 겹쳐 그리지 않고 경로를 연다', async () => {
+    const world = makeWorld({ products: [] })
+    const opened: string[] = []
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} openAdd={() => opened.push('add')} openManage={() => opened.push('manage')} />))
+    await waitFor(() => expect(screen.getByTestId('console-screen')).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
+    fireEvent.click(screen.getByRole('button', { name: '방송 관리' }))
+    expect(opened).toEqual(['add', 'manage'])
+    expect(screen.queryByRole('dialog', { name: '상품 추가' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: '방송 관리' })).toBeNull()
+  })
+
+  it('쌓인 상품 추가 화면은 아래 방송 화면과 같은 자료를 쓰고(다시 받지 않는다), 추가하면 돌아가며 방송 화면 목록에 바로 보인다', async () => {
+    const world = makeWorld({ products: [] })
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=(\d+)/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1] ?? 5), world.seq, { products: world.seq > 5 ? [product(16, { price: 15_000 })] : [] }) }))
+    let back = 0
+    render(world.wrap(<><ConsoleScreen broadcastId="b1" seller onBack={() => {}} openAdd={() => {}} openManage={() => {}} /><ProductAddScreen broadcastId="b1" onBack={() => { back += 1 }} /></>))
+    await waitFor(() => expect(screen.getByTestId('console-screen')).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush()
+    })
+    expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b1\/open$/).length).toBe(1)
+    const page = await screen.findByRole('main', { name: '상품 추가' })
+    typePad('16')
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    typePad('15000')
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    fireEvent.click(within(page).getByRole('button', { name: '추가하기' }))
+    await waitFor(() => expect(back).toBe(1))
+    expect(world.events[0]?.body).toMatchObject({ type: 'product.register', b: 'b1', noText: '16', priceText: '15000원' })
+    await waitFor(() => expect(within(screen.getByRole('list', { name: '상품 목록' })).getByText('16번')).toBeTruthy())
+  })
+
+  it('쌓인 방송 관리 화면: 같은 메뉴가 있고, 여기서 여는 아래 판도 이 화면 위에 뜬다', async () => {
+    const world = makeWorld({ products: [] })
+    render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} onEnded={() => {}} />))
+    await waitFor(() => expect(world.source()).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush()
+    })
+    const page = await screen.findByRole('main', { name: '방송 관리' })
+    for (const row of ['음성 설정', '채팅 보기', '방송 끝내기']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '채팅 보기' }))
+    expect(await screen.findByRole('dialog', { name: '채팅' })).toBeTruthy()
+  })
+})
+
+describe('방송 관리 설정은 전체 화면 (D-UX4-60)', () => {
+  it('경로가 있으면 방송 관리 줄은 아래 판 대신 설정 화면을 연다', async () => {
+    const world = makeWorld({ products: [] })
+    const tools: string[] = []
+    render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} openTool={(tool) => tools.push(tool)} onEnded={() => {}} />))
+    await waitFor(() => expect(world.source()).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush()
+    })
+    const page = await screen.findByRole('main', { name: '방송 관리' })
+    for (const row of ['문자찜 직접 넣기', '상품 목록 가져오기', '댓글 붙여넣기', '채팅 보기', '음성 설정']) fireEvent.click(within(page).getByRole('button', { name: row }))
+    expect(tools).toEqual(['sms', 'import', 'paste', 'chat', 'voice'])
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('설정 화면: 가운데 제목 · 맨 위 굵은 한 줄 · 회색 설명 · 내용', async () => {
+    const world = makeWorld({ products: [] })
+    render(world.wrap(<ConsoleToolScreen broadcastId="b1" tool="sms" onBack={() => {}} />))
+    await waitFor(() => expect(world.source()).toBeTruthy())
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
+      await flush()
+    })
+    const page = await screen.findByRole('main', { name: TOOL_PAGE.sms.title })
+    expect(within(page).getByRole('heading', { name: TOOL_PAGE.sms.title, level: 1 })).toBeTruthy()
+    expect(within(page).getByRole('heading', { name: TOOL_PAGE.sms.head, level: 2 })).toBeTruthy()
+    expect(await within(page).findByLabelText('번호')).toBeTruthy()
+  })
+
+  it('설정 경로 파일이 방송 관리 위에 쌓는다', () => {
+    const manage = readFileSync(join(import.meta.dirname, '../app/console/[id]/manage.tsx'), 'utf8')
+    expect(manage).toContain("openTool={(tool) => router.push({ pathname: '/console/[id]/tool/[name]', params: { id, name: tool } })}")
+    expect(readFileSync(join(import.meta.dirname, '../app/console/[id]/tool/[name].tsx'), 'utf8')).toContain('<ConsoleToolScreen')
+  })
+})
+
+describe('모든 화면 머리 줄 (D-UX4-59)', () => {
+  it('탭 첫 화면 머리와 쌓인 화면 머리는 같은 줄 높이(48 + 아래 4)에 놓이고, 큰 제목·글자 단추는 2.5 올린다', () => {
+    const tab = render(<AppHeader title="주문" right={<HeaderTextButton label="설정" onPress={() => {}} />} testID="tab-head" />)
+    const tabRow = getComputedStyle(screen.getByTestId('tab-head'))
+    tab.unmount()
+    render(<AppHeader title="손님" onBack={() => {}} testID="stack-head" />)
+    const stackRow = getComputedStyle(screen.getByTestId('stack-head'))
+    expect(tabRow.minHeight).toBe(stackRow.minHeight)
+    expect(tabRow.paddingBottom).toBe(stackRow.paddingBottom)
+    expect(tabRow.paddingTop).toBe(stackRow.paddingTop)
   })
 })

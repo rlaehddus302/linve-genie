@@ -3,11 +3,11 @@
 // 줄은 토스 "전체"처럼 이름만 — 줄마다 붙던 설명 글과 줄 사이 선은 뺐다(D-UX3-96). 간격·여백은 홈과 같다.
 // "웹에서 보기"는 웹에만 있는 화면이 생길 때만 보인다(지금은 비었다 — 바깥 로그인 연결은 가게 설정 "연결").
 import { useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import { openWeb, WEB_SCREENS } from '../lib/open-web.ts'
 import { OPEN_IN_WEB } from '../lib/words.ts'
-import { ConfirmSheet, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { AppHeader, ConfirmSheet, HeaderTextButton, NAV, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { SPACE } from '../ui/kit/tokens.ts'
 
 export interface MoreNavigation {
   /** 옛 더보기의 라벨·프린터 줄 — 라벨은 아래 탭이 됐다(D-UX3-01). 받아도 쓰지 않는다 */
@@ -39,27 +39,24 @@ export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavig
   const [name, loginId] = account === undefined ? [undefined, undefined] : splitAccount(account)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="more-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }}>
-        {/* 맨 위 한 줄: 왼쪽 계정 · 오른쪽 설정 (토스 "고객센터 | 설정" 자리) */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 48, paddingLeft: SPACE.xs, marginBottom: SPACE.xs }}>
-          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'baseline', gap: SPACE.sm }}>
-            {name === undefined ? null : (
-              <Txt step="title" weight="heavy" numberOfLines={1}>
-                {name}
-              </Txt>
-            )}
+      {/* 모든 화면과 같은 머리 줄 (D-UX4-59): 왼쪽 계정(이름 크게 · 아이디 작게) · 오른쪽 "설정" 글자 단추 (토스 "고객센터 | 설정" 자리) */}
+      <AppHeader
+        title={name ?? '전체'}
+        left={
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: SPACE.sm, transform: [{ translateY: NAV.titleLift }] }}>
+            <Txt step="title" weight="heavy" numberOfLines={1} role="heading" aria-level={1}>
+              {name ?? '전체'}
+            </Txt>
             {loginId === undefined ? null : (
               <Txt step="body" color="textSub" numberOfLines={1}>
                 {loginId}
               </Txt>
             )}
           </View>
-          <Pressable role="button" aria-label="설정" onPress={nav.openSettings} hitSlop={6} style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-            <Txt step="body" weight="medium" color="textSub">
-              설정
-            </Txt>
-          </Pressable>
-        </View>
+        }
+        right={<HeaderTextButton label="설정" onPress={nav.openSettings} />}
+      />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }}>
         {nav.openApp !== undefined
           ? MORE_GROUPS.map((group) => (
               <RowGroup key={group} title={group}>

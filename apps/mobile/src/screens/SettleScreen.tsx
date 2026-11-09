@@ -44,7 +44,8 @@ import {
 import { formatWon, PAYMENT_WORD, paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { useDayScope } from '../lib/day-scope.ts'
-import { EmptyFill, NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useHoldRouteSwipe, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { signalScreens, useScreenSignal } from '../lib/screen-signals.ts'
+import { AppHeader, EmptyFill, NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useHoldRouteSwipe, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { AddressCard, ParcelTag } from './ParcelAddress.tsx'
@@ -70,6 +71,8 @@ export interface SettleNavigation {
   readonly openBuyerInfo?: () => void
   /** 확인서 보내기 화면 (D-UX3-39) */
   readonly openReceipts?: () => void
+  /** 손님 정산 자세히를 진짜 쌓인 화면으로 (D-UX4-58) — 없으면(시험·웹) 이 화면 안에서 바꿔 끼운다. key는 정산 열쇠 */
+  readonly openBuyer?: (date: string, key: string) => void
 }
 
 /** 손님마다 방송 뒤 단계 (D-UX3-39): 배송지를 받았는지(택배 화면 줄의 배송지 상태), 확인서를 보냈는지(링크 또는 문자) */
@@ -96,8 +99,10 @@ export function SettleScreen({ initialDate, initialBuyer, nav = {} }: { readonly
   const { days, date, setDate, error } = useRealDays(initialDate)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="settle-screen">
+      {/* 모든 화면과 같은 머리 줄 (D-UX4-59) */}
+      <AppHeader title="주문" />
       {/* 홈과 같은 여백 (D-UX3-93): 좌우 20, 카드 사이 16 */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.lg, paddingBottom: SPACE.xxxl + room, gap: CARD_GAP }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: CARD_GAP }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
         {nav.openBuyerInfo !== undefined ? <BuyerInfoBanner onOpen={nav.openBuyerInfo} /> : null}
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
@@ -110,9 +115,19 @@ export function SettleScreen({ initialDate, initialBuyer, nav = {} }: { readonly
 
 function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonly nav: SettleNavigation; readonly initialBuyer?: string }) {
   const { data, error, reload } = useDayScope(date)
+  // 쌓인 손님 자세히에서 기록하면 돌아올 때 목록도 다시 받는다 (D-UX4-58)
+  useScreenSignal(settleTopic(date), reload)
   const [filter, setFilter] = useState<PaymentFilter>('ALL')
   // 택배 화면 [배송지 보기]로 오면 그 손님 자세히부터 (D-UX3-35)
-  const [open, setOpen] = useState<string | null>(initialBuyer === undefined ? null : JSON.stringify([initialBuyer, date]))
+  const [open, setOpen] = useState<string | null>(initialBuyer === undefined || nav.openBuyer !== undefined ? null : JSON.stringify([initialBuyer, date]))
+  // 쌓인 화면이면 처음 한 번 그 손님 자세히를 위에 연다 (택배 [배송지 보기], D-UX3-35)
+  const openedFirst = useRef(false)
+  useEffect(() => {
+    if (openedFirst.current || initialBuyer === undefined || nav.openBuyer === undefined) return
+    openedFirst.current = true
+    nav.openBuyer(date, JSON.stringify([initialBuyer, date]))
+  }, [initialBuyer, nav, date])
+  const pick = (key: string) => (nav.openBuyer === undefined ? setOpen(key) : nav.openBuyer(date, key))
   const [parcelVersion] = useParcelVersion(date)
   const parcels = useParcelMarks(date, parcelVersion)
   const steps = useOrderSteps(date, parcelVersion)
@@ -158,7 +173,7 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
         ) : (
           <View>
             {shown.map((s) => (
-              <SettleRow key={`${s.buyer}/${s.date}`} settlement={s} name={names.name(s.buyer)} parcel={parcels.get(s.buyer) ?? null} steps={steps.get(s.buyer) ?? null} onPress={() => setOpen(JSON.stringify([s.buyer, s.date]))} />
+              <SettleRow key={`${s.buyer}/${s.date}`} settlement={s} name={names.name(s.buyer)} parcel={parcels.get(s.buyer) ?? null} steps={steps.get(s.buyer) ?? null} onPress={() => pick(JSON.stringify([s.buyer, s.date]))} />
             ))}
           </View>
         )}
@@ -260,10 +275,10 @@ interface Saved {
   readonly tone: 'success' | 'warning'
 }
 
-function SettleDetail({ data, names, settlement, parcelVersion, onBack, onWritten }: { readonly data: ScopeData; readonly names: BuyerNames; readonly settlement: Settlement; readonly parcelVersion: number; readonly onBack: () => void; readonly onWritten: () => void }) {
+function SettleDetail({ data, names, settlement, parcelVersion, onBack, onWritten, bare = false }: { readonly data: ScopeData; readonly names: BuyerNames; readonly settlement: Settlement; readonly parcelVersion: number; readonly onBack: () => void; readonly onWritten: () => void; readonly bare?: boolean }) {
   const { p } = useKit()
-  // 정산 자세히는 경로 안에서 바꿔 끼운 화면 — 밀어 뒤로 가기가 정산 경로를 닫지 않게 (D-UX4-50)
-  useHoldRouteSwipe(true)
+  // 정산 탭 안에서 바꿔 끼운 화면(시험·웹)일 때만 — 밀어 뒤로 가기가 정산 경로를 닫지 않게 (D-UX4-50). 쌓인 화면(bare)은 휴대폰이 뒤로 간다
+  useHoldRouteSwipe(!bare)
   const [input, setInput] = useState<InputKind | null>(null)
   const [saved, setSaved] = useState<Saved | null>(null)
   const claims = useMemo(() => [...data.claims.values()].filter((c) => c.currentBuyer === settlement.buyer && c.status === 'CONFIRMED').sort((a, b) => a.seq - b.seq), [data.claims, settlement.buyer])
@@ -288,9 +303,11 @@ function SettleDetail({ data, names, settlement, parcelVersion, onBack, onWritte
     <View style={{ gap: CARD_GAP }} aria-label="정산 자세히">
       <View style={{ gap: 2 }}>
         {/* 모든 쌓인 화면과 같은 머리 — 가운데 이름 (D-UX4-40). 목록 틀의 좌우·위 여백을 거슬러 화면 끝에 맞춘다 */}
-        <View style={{ marginHorizontal: -PAGE_SIDE, marginTop: -SPACE.lg }}>
-          <NavBar title={name} onBack={onBack} backLabel="정산 목록으로" />
-        </View>
+        {bare ? null : (
+          <View style={{ marginHorizontal: -PAGE_SIDE, marginTop: -SPACE.lg }}>
+            <NavBar title={name} onBack={onBack} backLabel="정산 목록으로" />
+          </View>
+        )}
         <View style={{ paddingLeft: SPACE.xs, gap: 2 }}>
           <PayWord payment={settlement.payment} refundDue={settlement.refundDue} />
           {buyer !== undefined && buyer.merged.length > 0 ? <Txt step="caption" color="textSub">합친 구매자: {buyer.merged.map((id) => names.name(id)).join(', ')}</Txt> : null}
@@ -497,5 +514,50 @@ function InputSheet({ kind, name, settlement, remaining, onClose, onDone }: { re
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       </View>
     </BottomSheet>
+  )
+}
+
+const settleTopic = (date: string): string => `settle:${date}`
+
+/**
+ * 손님 정산 자세히 진짜 쌓인 화면 (D-UX4-58, 사용자 지시 2026-11-09 "가짜판으로 했었어? 진짜판으로 해야지"): 주문 탭 위에 쌓인다.
+ * 머리는 모든 쌓인 화면과 같은 NavBar(가운데 손님 이름), 기록하면 아래 주문 목록에 다시 받으라고 알린다.
+ */
+export function SettleBuyerScreen({ date, settlementKey, onBack }: { readonly date: string; readonly settlementKey: string; readonly onBack: () => void }) {
+  const { p } = useKit()
+  const { data, error, reload } = useDayScope(date)
+  const [parcelVersion] = useParcelVersion(date)
+  const names = useMemo(() => (data === null ? null : new BuyerNames(data.buyers, data.claims)), [data])
+  const settlement = data?.settlements.get(settlementKey)
+  const title = settlement === undefined || names === null ? '' : names.name(settlement.buyer)
+  return (
+    <View style={{ flex: 1, backgroundColor: p.background }} testID="settle-buyer-screen">
+      <NavBar title={title} onBack={onBack} backLabel="정산 목록으로" />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.xs, paddingBottom: SPACE.xxxl, gap: CARD_GAP }} keyboardShouldPersistTaps="handled">
+        {error !== null && data === null ? (
+          <View style={{ gap: SPACE.sm }}>
+            <Notice tone="danger" alert>{error.message}</Notice>
+            <BigButton label={RETRY_NOW} kind="secondary" onPress={reload} />
+          </View>
+        ) : data === null || names === null ? (
+          <Loading />
+        ) : settlement === undefined ? (
+          <EmptyFill title="그 손님 정산을 찾지 못했어요" body="목록으로 돌아가 다시 골라 주세요" />
+        ) : (
+          <SettleDetail
+            bare
+            data={data}
+            names={names}
+            settlement={settlement}
+            parcelVersion={parcelVersion}
+            onBack={onBack}
+            onWritten={() => {
+              reload()
+              signalScreens(settleTopic(date))
+            }}
+          />
+        )}
+      </ScrollView>
+    </View>
   )
 }
