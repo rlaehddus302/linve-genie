@@ -128,7 +128,9 @@ describe('상품 추가 큰 칸 (D-UX4-52·54)', () => {
     expect(within(page).getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).not.toBe('true')
   })
 
-  it('번호 끝(999)을 넘는 자리는 받지 않고 빨간 글 + 에러 진동, [다음]은 흐리게 — 지우면 사라진다', async () => {
+  // 옛 기대(D-UX4-54): 넘는 자리는 받지 않는다. 새 기대(D-UX4-61, 사용자 지시 2026-11-09 "네자리 입력된거도 보여줘야 해. 그래야 네자리에서 한자리를 지울 수 있지 … 숫자 흔들기도"):
+  // 넘친 한 자리까지 보이고 빨간 글 + 흔들기·에러 진동, 그보다 더 치면 받지 않고 다시 흔든다
+  it('번호 끝(999)을 넘는 한 자리는 보이고 빨간 글 + 흔들기·에러 진동, [다음]은 흐리게 — 더 치면 받지 않고 다시 진동, 지우면 사라진다', async () => {
     const haptic = vi.fn()
     setErrorHaptic(haptic)
     const world = makeWorld({ products: [] })
@@ -138,11 +140,15 @@ describe('상품 추가 큰 칸 (D-UX4-52·54)', () => {
     typePad('123')
     expect(haptic).not.toHaveBeenCalled()
     typePad('4')
-    expect(within(page).getByText('123번')).toBeTruthy()
+    expect(within(page).getByText('1234번')).toBeTruthy()
     expect(within(page).getByRole('alert').textContent).toContain(noLimitWords(999))
-    expect(haptic).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(haptic).toHaveBeenCalledTimes(1))
     expect(within(page).getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).toBe('true')
+    typePad('5')
+    expect(within(page).getByText('1234번')).toBeTruthy()
+    await waitFor(() => expect(haptic).toHaveBeenCalledTimes(2))
     fireEvent.click(within(page).getByRole('button', { name: '지우기' }))
+    expect(within(page).getByText('123번')).toBeTruthy()
     expect(within(page).queryByRole('alert')).toBeNull()
     expect(within(page).getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).not.toBe('true')
   })

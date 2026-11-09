@@ -12,9 +12,8 @@ import { Animated, Easing, LayoutAnimation, Platform, Pressable, TextInput, View
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
-import { BigButton, ErrorLine, PressScale, SoftChip, Txt, font, useKit } from '../../ui/kit/index.ts'
+import { BigButton, ErrorLine, PressScale, SoftChip, Txt, font, useKit, useWrongShake } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
-import { errorHaptic } from '../../native/haptics.ts'
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
 
@@ -251,24 +250,25 @@ export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean
     const value = api.data.broadcasts.get(api.b)?.settings['claim.maxNumber']
     return typeof value === 'number' && value > 0 ? value : null
   })()
-  // 넣는 동안 바로 알리는 말 (토스 "출금할 수 있는 돈이 …이에요." 사진, D-UX4-54): 칸 아래 빨간 글 + 에러 진동, [다음]은 흐리게
+  // 넣는 동안 바로 알리는 말 (토스 "출금할 수 있는 돈이 …이에요." 사진, D-UX4-54): 칸 아래 빨간 글 + 칸이 좌우로 흔들리고 에러 진동, [다음]은 흐리게
+  // D-UX4-61 (사용자 지시 2026-11-09): 자리 수를 넘는 한 자리도 칸에 보여 준다 — 그래야 넘친 걸 보고 한 자리를 지울 수 있다. 그보다 더 치면 받지 않고 다시 흔든다
+  const digitLimit = (step: Step): number => (step === 'no' ? Math.max(String(maxNumber ?? NO_FALLBACK_MAX).length, 1) : PRICE_DIGITS)
   const tooBig = (step: Step, digits: string): string | null => {
     if (digits === '') return null
+    if (digits.length > digitLimit(step)) return step === 'no' ? noLimitWords(maxNumber ?? NO_FALLBACK_MAX) : PRICE_LIMIT
     if (step === 'no' && maxNumber !== null && Number(digits) > maxNumber) return noLimitWords(maxNumber)
     return null
   }
+  const [again, setAgain] = useState(0)
   const type = (value: string) => {
     setError(null)
     const current = step === 'no' ? no : price
-    const limit = step === 'no' ? Math.max(String(maxNumber ?? NO_FALLBACK_MAX).length, 1) : PRICE_DIGITS
     const next = value === 'back' ? current.slice(0, -1) : (current + value).replace(/^0+/, '')
-    if (next.length > limit) {
-      // 자리 수를 넘는 숫자는 받지 않고 알린다
-      setError(step === 'no' ? noLimitWords(maxNumber ?? NO_FALLBACK_MAX) : PRICE_LIMIT)
-      errorHaptic()
+    if (next.length > digitLimit(step) + 1) {
+      // 넘친 한 자리까지만 보여 주고, 더 치면 받지 않고 다시 흔든다(진동 포함)
+      setAgain((count) => count + 1)
       return
     }
-    if (tooBig(step, next) !== null && tooBig(step, current) === null) errorHaptic()
     if (step === 'no') setNo(next)
     else setPrice(next)
   }
@@ -316,6 +316,11 @@ export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean
   if (step !== 'no') done.push({ step: 'no', label: '번호', value: `${no}번` })
   if (step === 'name') done.push({ step: 'price', label: '가격', value: won(price) })
 
+  // 훅은 확인 화면으로 일찍 돌아가기 전에
+  const active = step === 'no' ? no : step === 'price' ? price : name
+  const shownError = error ?? (step === 'name' || step === 'confirm' ? null : tooBig(step, active))
+  // 잘못이 생기거나 바뀌면, 또 넘쳐 치면 큰 칸이 좌우로 흔들리고 진동한다 (D-UX3-51 흔들기, D-UX4-61)
+  const shake = useWrongShake(step === 'name' || step === 'confirm' ? null : shownError, again)
   if (step === 'confirm') {
     return (
       <View style={{ flex: 1 }}>
@@ -337,8 +342,6 @@ export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean
     )
   }
 
-  const active = step === 'no' ? no : step === 'price' ? price : name
-  const shownError = error ?? (step === 'name' ? null : tooBig(step, active))
   const onNext = step === 'no' ? nextFromNo : step === 'price' ? nextFromPrice : () => setStep('confirm')
   return (
     <View style={{ flex: 1 }}>
@@ -363,7 +366,9 @@ export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean
               {name.trim() === '' ? <SoftChip label="품종 없이 넘어가기" onPress={() => setStep('confirm')} /> : null}
             </>
           ) : (
-            <BigNumber label={step === 'no' ? '번호' : '가격'} question={step === 'no' ? ASK_NO : ASK_PRICE} digits={active} format={step === 'no' ? (value) => value : (value) => Number(value).toLocaleString('ko-KR')} suffix={step === 'no' ? '번' : '원'} />
+            <Animated.View style={{ transform: [{ translateX: shake }] }}>
+              <BigNumber label={step === 'no' ? '번호' : '가격'} question={step === 'no' ? ASK_NO : ASK_PRICE} digits={active} format={step === 'no' ? (value) => value : (value) => Number(value).toLocaleString('ko-KR')} suffix={step === 'no' ? '번' : '원'} />
+            </Animated.View>
           )}
           {/* 만 원 아래는 한글 읽기가 위 금액과 같아 그리지 않는다 */}
           {step === 'price' && Number(price) >= 10_000 ? (
