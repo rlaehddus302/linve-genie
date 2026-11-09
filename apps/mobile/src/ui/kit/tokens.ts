@@ -221,6 +221,12 @@ export const PAGE = { backLeft: 8, titleTop: 31, side: 24, titleGap: 36 } as con
 /** 간격 (4·8 단위) */
 export const SPACE = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const
 
+/**
+ * 회색 바탕 화면의 양옆 여백 — 흰 카드(묶음)가 화면 끝에서 이만큼 떨어진다 (D-UX4-74, 사용자 지시 2026-11-10 "섹션 너비를 좀 더 늘려줘 … 라이브 화면 안과 밖에서 섹션 너비가 달라", 토스 홈 카드 ≈ 12).
+ * 탭 화면·쌓인 화면·설정·방송 화면이 모두 이것만 쓴다 (옛: 탭 20 · 설정·쌓인 화면 16 · 방송 화면 12).
+ */
+export const GUTTER = SPACE.md
+
 /** 모서리: 숫자 배지 12 · 줄·버튼 16 · 카드 20 · 시트 24 (토스) */
 export const RADIUS = { sm: 10, md: 12, lg: 16, xl: 20, xxl: 24, pill: 999 } as const
 

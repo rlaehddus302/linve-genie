@@ -17,7 +17,7 @@ import { useAppForeground } from '../lib/use-app-state.ts'
 import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { AppHeader, BigButton, BottomSheet, FullSheet, HeaderTextButton, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
-import { SPACE } from '../ui/kit/tokens.ts'
+import { GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { BigButton as SmallButton, Loading, Notice, Row } from '../ui/parts.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
@@ -34,7 +34,8 @@ import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue
 import { VoicePanel } from './console/VoicePanel.tsx'
 import { ListenLine, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
-import { LiveTalk, TALK_TAB } from './console/LiveTalk.tsx'
+import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
+import { useDockChoice } from '../lib/dock-choice.ts'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
@@ -213,6 +214,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 방송이 끝나면 음성도 끈다 (APP-02 "방송 끝")
   const voiceView = useSyncExternalStore(services.voice.subscribe, services.voice.getView)
   const live = seller && broadcast !== null && !(broadcast.ended || endedHere) && !(data?.sealed ?? false)
+  const dock = useDockChoice()
+  const docked = live && dock !== 'none'
   // 방송 소리 듣기는 앱 뿌리가 붙잡는다 — 이 화면을 나가도 계속 듣는다 (D-UX3-48). 방송이 끝났거나 닫혔으면 놓는다
   const streamTitle = broadcast === null || broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const knownOver = broadcast !== null && !live
@@ -337,7 +340,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
           }}
           onContentSizeChange={() => { if (atBottom.current) scroll.current?.scrollToEnd({ animated: false }) }}
-          style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: SPACE.md, paddingBottom: (live ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
+          style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
           <AwayLine />
           <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
           {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
@@ -358,10 +361,12 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {/* (+) 단추에 마지막 줄이 가리지 않게 */}
           {tab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
         </ScrollView>
-        {tab === 'products' && !closed ? <AddFab bottom={(live ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => (openAdd === undefined ? setPage('add') : openAdd())} /> : null}
+        {tab === 'products' && !closed ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => (openAdd === undefined ? setPage('add') : openAdd())} /> : null}
         </View>
         {/* 들린 말 창은 맨 아래 (D-UX4-53 — 옛 목록 위) */}
-        {live ? <ListenLine session={services.voice} broadcastId={broadcastId} stream={stream} bottom={Math.max(inset, SPACE.sm)} /> : null}
+        {/* 맨 아래 창은 관리 "화면 아래 창"에서 고른 것 (D-UX4-71): 들린 말 · 채팅·문자 · 안 보기 */}
+        {live && dock === 'voice' ? <ListenLine session={services.voice} broadcastId={broadcastId} stream={stream} bottom={Math.max(inset, SPACE.sm)} /> : null}
+        {live && dock === 'talk' ? <TalkDock bottom={Math.max(inset, SPACE.sm)} /> : null}
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
         <BottomSheet visible={detailProduct !== undefined && detailProduct.status !== 'CLOSED'} onClose={() => setDetail(null)} title="">

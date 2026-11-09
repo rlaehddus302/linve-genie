@@ -169,6 +169,23 @@ describe('문자찜도 듣기·설정 (AC-V1-20, D-V1-09)', () => {
     expect(h.writtenSms.at(-1)).toEqual({ 'voice.smsListen': true, 'voice.smsAutoSec': 0 })
   })
 
+  it('주문 내용이 하나도 없는 문자찜 문장("어.. 문자찜")은 어떤 카드도 만들지 않는다 (R-21 7a, D-UX4-68)', async () => {
+    const h = harness()
+    await turnOn(h)
+    for (const text of ['어.. 문자찜', '문자찜', '음 문자찜이요']) FakeRecognition.last.say(text)
+    expect(h.voice.getSnapshot().sms).toHaveLength(0)
+    expect(h.voice.getSnapshot().cards).toHaveLength(0)
+    // 번호가 있으면 지금처럼 문자찜 카드, 내용은 있는데 번호가 없으면 번호를 못 알아들은 카드
+    await wait(1000)
+    FakeRecognition.last.say('끝자리 1234 문자찜')
+    await wait(1000)
+    FakeRecognition.last.say('165번 문자찜')
+    const shown = h.voice.getSnapshot().sms.filter(smsShown)
+    expect(shown.map((entry) => entry.reason)).toEqual([null, '번호를 못 알아들었어요. 다시 말하거나 문자찜 입력에 넣어 주세요.'])
+    await wait(10_000)
+    expect(h.sent.map((one) => one.write.no)).toEqual([165])
+  })
+
   it('문자찜 쓰기가 없는 화면이면 문자찜 문장은 카드를 만들지 않는다', async () => {
     const h = harness({ writeSms: undefined })
     await turnOn(h)
@@ -375,7 +392,8 @@ describe('같은 말 두 번 (AC-V1-24, D-V1-06)', () => {
   it('문제 문장 뒤 다른 문제 문장은 앞 이유 카드로 합치지 않는다 (D-V1-17, TE-V1-006)', async () => {
     const h = harness()
     await turnOn(h)
-    FakeRecognition.last.say('문자찜 들어왔어요')
+    // 주문 내용이 하나도 없는 '문자찜 들어왔어요'는 이제 카드를 만들지 않아(D-UX4-68) 이름이 든 문장으로 — 번호를 못 알아들은 카드는 그대로
+    FakeRecognition.last.say('김민지님 문자찜 들어왔어요')
     await wait(1000)
     FakeRecognition.last.say('15번 문자찜 끝자리 12 34')
     const shown = h.voice.getSnapshot().sms.filter(smsShown)

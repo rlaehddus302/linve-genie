@@ -2,11 +2,11 @@
 // 확인 카드는 작게 (D-UX3-90, 사용자 지시 2026-11-09 "수정이나 선택을 요구하는 요소가 너무 화면을 많이 차지한다"):
 // 머리 한 줄(제목 + 오른쪽 작은 ✕ 닫기) · 안내는 작은 글 한 줄 · 고르기·등록·고치기는 옆으로 놓는 작은 알약 — 옛 화면 폭 큰 단추 여러 개·아래 [닫기] 줄.
 import { useContext, useEffect, type ReactNode } from 'react'
-import { Pressable, View } from 'react-native'
+import { View } from 'react-native'
 import type { VoiceSnapshot } from '@livejjim/web/src/voice/model.ts'
 import type { VoiceSession } from '../../lib/voice-session.ts'
 import { BigButton, Body, Card, Field, Hint, Notice, Row } from '../../ui/parts.tsx'
-import { Icon, Txt, useKit } from '../../ui/kit/index.ts'
+import { Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { VoiceSmsResult } from './VoiceSmsResult.tsx'
 import { ConsoleContext } from './context.ts'
@@ -25,11 +25,11 @@ function VoiceCard({ label, title, onClose, closeLabel = '닫기', children }: {
           <Txt step="body" weight="bold">{title}</Txt>
         </View>
         {onClose === undefined ? null : (
-          <Pressable role="button" aria-label={closeLabel} onPress={onClose} hitSlop={8} style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 16, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Tap role="button" aria-label={closeLabel} onPress={onClose} hitSlop={8} style={({ pressed }) => ({ width: 32, height: 32, borderRadius: 16, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <View style={{ transform: [{ rotate: '45deg' }] }}>
               <Icon name="plus" color={p.textSub} size={20} />
             </View>
-          </Pressable>
+          </Tap>
         )}
       </View>
       <View style={{ gap: SPACE.sm, paddingRight: SPACE.md }}>{children}</View>
@@ -41,9 +41,9 @@ function VoiceCard({ label, title, onClose, closeLabel = '닫기', children }: {
 function Chip({ label, onPress, primary, ariaLabel }: { readonly label: string; readonly onPress: () => void; readonly primary?: boolean; readonly ariaLabel?: string }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? label} onPress={onPress} hitSlop={6} style={({ pressed }) => ({ minHeight: 34, paddingHorizontal: SPACE.md + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: primary === true ? (pressed ? p.primaryPressed : p.primary) : pressed ? p.pressed : p.secondary })}>
+    <Tap role="button" aria-label={ariaLabel ?? label} onPress={onPress} hitSlop={6} style={({ pressed }) => ({ minHeight: 34, paddingHorizontal: SPACE.md + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: primary === true ? (pressed ? p.primaryPressed : p.primary) : pressed ? p.pressed : p.secondary })}>
       <Txt step="body" weight="medium" color={primary === true ? 'onPrimary' : 'onSecondary'}>{label}</Txt>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -56,6 +56,13 @@ function Chips({ children }: { readonly children: ReactNode }) {
 function Note({ children, tone = 'info' }: { readonly children: string; readonly tone?: 'info' | 'warning' | 'danger' }) {
   const { tones } = useKit()
   return <Txt step="caption" ink={tones[tone].fg}>{children}</Txt>
+}
+
+/** 보일 고침 카드: 묻기(고치기·번호)와 실패 안내만 — 되돌리기 창은 띄우지 않는다 (D-UX4-70) */
+export function offerShown(offer: VoiceSnapshot['offers'][number]): boolean {
+  if (offer.kind === 'undo' || offer.kind === 'late') return false
+  if (offer.stage === 'fixed') return offer.error !== null
+  return true
 }
 
 export function RemoteVoicePanel({ session, snapshot, display }: { readonly session: VoiceSession; readonly snapshot: VoiceSnapshot; readonly display: Readonly<Record<string, unknown>> }) {
@@ -101,15 +108,15 @@ export function RemoteVoicePanel({ session, snapshot, display }: { readonly sess
         </Chips>}
       </VoiceCard>
     })}
-    {snapshot.offers.map((offer) => <VoiceCard key={offer.id} label="음성 고침 확인" title={offer.message} onClose={() => command('dismissOffer', [offer.id])}>
+    {/* 되돌리기 창은 띄우지 않는다 (D-UX4-70, 사용자 지시 2026-11-10 "되돌리기 이런 창 띄우지 마. 사장이 등록된 걸 직접 고치게"):
+        바로 고친 뒤의 "고침 되돌리기" 카드(실패 안내만 남김)·"방금 등록한 …" 되돌리기·늦은 말 카드를 보이지 않는다 — 고치거나 지울 것은 상품에서 직접 */}
+    {snapshot.offers.filter(offerShown).map((offer) => <VoiceCard key={offer.id} label="음성 고침 확인" title={offer.message} onClose={() => command('dismissOffer', [offer.id])}>
       {offer.note ? <Hint>{offer.note}</Hint> : null}
       {offer.error ? <Notice tone="danger" alert>{offer.error}</Notice> : null}
       {offer.priceEntry !== undefined && offer.stage === 'ask' ? <Field label="고칠 가격" value={offer.priceEntry} keyboardType="decimal-pad" onChangeText={(value) => command('setOfferPrice', [offer.id, value])} /> : null}
       {offer.stage === 'busy' ? <Hint>보내는 중…</Hint> : <Chips>
-        {offer.stage === 'fixed' && offer.undoUntil !== null && offer.undoUntil > snapshot.now ? <Chip label="고침 되돌리기" onPress={() => command('revertOffer', [offer.id])} /> : null}
         {offer.stage === 'ask' && offer.kind === 'offer' ? <Chip primary label={offer.maybeOther ? '새 가격으로 바꾸기' : '고치기'} onPress={() => command('fixOffer', [offer.id])} /> : null}
         {offer.stage === 'ask' && offer.kind === 'card' ? <Chip primary label="카드 고치기" onPress={() => command('fixCardOffer', [offer.id])} /> : null}
-        {offer.stage === 'ask' && offer.kind === 'undo' ? <Chip primary label="등록 되돌리기" onPress={() => command('undoOffer', [offer.id])} /> : null}
         {offer.maybeOther || offer.kind === 'number' ? <Chip label="아까 것을 다른 번호로" onPress={() => command('renumberOffer', [offer.id])} /> : null}
       </Chips>}
     </VoiceCard>)}

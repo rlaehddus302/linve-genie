@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { KeyboardAvoidingView, ScrollView, View } from 'react-native'
 import { NavBar } from './app.tsx'
 import { KEYBOARD_AVOID } from './sheets.tsx'
-import { SPACE } from './tokens.ts'
+import { GUTTER, SPACE } from './tokens.ts'
 import { useKit, usePageTop, useTopInset } from './theme.tsx'
 
 export function StackPage({ title, name, onBack, backLabel = '뒤로', gray = false, scroll = true, footer, children, testID }: { readonly title?: string; readonly name: string; readonly onBack: () => void; readonly backLabel?: string; readonly gray?: boolean; readonly scroll?: boolean; readonly footer?: ReactNode; readonly children?: ReactNode; readonly testID?: string }) {
@@ -14,7 +14,7 @@ export function StackPage({ title, name, onBack, backLabel = '뒤로', gray = fa
   // 키보드 피하기는 이 화면이 화면 맨 위에서 얼마나 아래에서 시작하는지 알아야 한다(상태 막대 아래면 그 높이)
   const offset = useTopInset() - top
   const body = scroll ? (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: gray ? GUTTER : SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
       {children}
     </ScrollView>
   ) : (

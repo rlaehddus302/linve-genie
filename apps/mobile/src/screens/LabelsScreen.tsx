@@ -18,7 +18,7 @@ import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, EXPERIMENTAL_PAUSED, EXP
 import { useServices } from '../services.tsx'
 import type { Tone } from '../ui/theme.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, ButtonRow, Card, SPACE, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, ButtonRow, Card, GUTTER, SPACE, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { Field, Notice, Tag } from '../ui/parts.tsx'
 import { TextAction } from './ParcelAddress.tsx'
 
@@ -111,7 +111,7 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
   return (
     <View style={{ flex: 1, backgroundColor: p.background }}>
       <AppHeader title="라벨·프린터" {...(onBack === undefined ? {} : { onBack })} />
-      <ScrollView testID="labels-screen" style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
+      <ScrollView testID="labels-screen" style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
         {snapshot.loadError !== null ? (
           <View style={{ gap: SPACE.xs }}>
             <Notice tone="danger" alert>

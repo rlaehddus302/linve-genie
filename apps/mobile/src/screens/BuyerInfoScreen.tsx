@@ -2,13 +2,13 @@
 // 모르는 것(손님 없음·여럿·이름 못 읽음)만 카드로 남긴다. 판매자는 손님을 골라 칸을 고쳐 [넣기]하거나 [무시]한다.
 // 넣은 배송지는 "확인 전" 손님 배송지라 정산에서 [배송지 확인]을 눌러야 접수된다. 정산 탭 위 줄(BuyerInfoBanner)에서 연다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import { dateWords, kstShort } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, post, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { EmptyFill, AppHeader, BigButton, ButtonRow, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, BigButton, ButtonRow, Icon, TextField, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 import { CARD_GAP, PAGE_SIDE, SectionCard } from './order-parts.tsx'
@@ -100,7 +100,7 @@ export function BuyerInfoBanner({ onOpen }: { readonly onOpen: () => void }) {
   const open = list.cards.filter((card) => card.status === 'OPEN').length
   const words = open > 0 ? `손님 정보 문자 ${String(open)}건 확인해 주세요` : `손님 정보 문자 ${String(list.cards.length)}건 넣었어요`
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={words}
       onPress={onOpen}
@@ -114,7 +114,7 @@ export function BuyerInfoBanner({ onOpen }: { readonly onOpen: () => void }) {
         </Txt>
       </View>
       <Icon name="chevron" color={p.textSub} size={18} />
-    </Pressable>
+    </Tap>
   )
 }
 

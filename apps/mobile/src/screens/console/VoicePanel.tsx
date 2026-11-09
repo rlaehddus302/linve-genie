@@ -1,5 +1,5 @@
 // 음성 (VOC-06 기기 쪽, APP-02, D-APP-05·08, D-UX2-03): 방송 중 화면에는 "확인할 것"만 — 처음 켤 때 안내 창, 듣기 멈춤 큰 빨간 글 + [다시 켜기],
-// 문제 문장, 지금 들리는 말 한 줄, 바로 등록 되돌리기, 확인할 카드(서버 카드·묻기·문자찜 포함). 켜고 끄기는 화면 아래 고정 버튼(ListenButton),
+// 문제 문장, 지금 들리는 말 한 줄, 확인할 카드(서버 카드·묻기·문자찜 포함). 켜고 끄기는 화면 아래 고정 버튼(ListenButton),
 // 음성 설정과 기록은 방송 메뉴(VoiceSettingsSheet)로 옮겼다.
 import { useEffect, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
@@ -16,7 +16,6 @@ import {
   VOICE_RETRY,
   VOICE_SENT_LINE,
   VOICE_STOPPED_TITLE,
-  UNDO,
 } from '../../lib/words.ts'
 import { DotStatus, TodoRow } from '../../ui/kit/index.ts'
 import { SPACE } from '../../ui/kit/tokens.ts'
@@ -86,11 +85,7 @@ export function VoicePanel({ session, broadcastId, title, seller, ended }: { rea
         </>
       ) : null}
       {view.problem !== null && !stopped ? <Notice tone="danger" alert>{view.problem}</Notice> : null}
-      {mine && view.undo !== null ? (
-        <Row>
-          <BigButton small label={`${String(view.undo.no)}번 등록 ${UNDO}`} onPress={() => void session.undo()} />
-        </Row>
-      ) : null}
+      {/* 바로 등록 뒤 "N번 등록 되돌리기"는 띄우지 않는다 — 고치거나 지울 것은 상품에서 직접 (D-UX4-70) */}
       {mine && view.remote !== null ? <RemoteVoicePanel session={session} snapshot={view.remote} display={view.display} /> : null}
       {view.cards.length > 0 ? (
         <View role="list" aria-label="확인할 카드" style={{ gap: 8 }}>

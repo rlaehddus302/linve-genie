@@ -1,10 +1,10 @@
 // 알림 (AC-S05-30, D-088·D-I1-08, D-UX2-03): 충돌 · 취소 요청 · 승계 결정 필요 · 출력 멈춤 · 버릴 라벨 · 보류 찜 · 확인 필요. 방송 중 화면은 상품 줄에 없는 것만 한 줄로 보이고 모두 0이면 숨긴다.
 // 출력 기기 없음(라벨이 쌓이는데 찍는 기기가 없음)은 띠 아래 짧은 줄 — "라벨이 안 나가요 · 프린터를 연결해 주세요"(D-QL3R1-04).
-import { Pressable, View } from 'react-native'
+import { View } from 'react-native'
 import type { QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import type { AlertCounts } from '../../lib/derive.ts'
 import { ALERT_WORD, NO_STATION_SHORT, PRINT_ALERT_WORD } from '../../lib/words.ts'
-import { Txt, useKit } from '../../ui/kit/index.ts'
+import { Txt, useKit, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, pressedFill } from '../../ui/kit/tokens.ts'
 
 export interface AlertItem {
@@ -55,9 +55,9 @@ export function AlertStrip({ counts, queue, rehearsal, ended, onAction }: { read
       {items.map((item) => {
         const pair = tones[item.tone]
         return (
-          <Pressable key={item.key} role="button" aria-label={item.text} onPress={() => onAction(ACTION[item.key] ?? 'pending')} style={({ pressed }) => ({ paddingVertical: 6, paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: pressed ? pressedFill(p, pair.bg) : pair.bg })}>
+          <Tap key={item.key} role="button" aria-label={item.text} onPress={() => onAction(ACTION[item.key] ?? 'pending')} style={({ pressed }) => ({ paddingVertical: 6, paddingHorizontal: SPACE.md, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: pressed ? pressedFill(p, pair.bg) : pair.bg })}>
             <Txt step="caption" weight="bold" ink={pair.fg}>{item.text}</Txt>
-          </Pressable>
+          </Tap>
         )
       })}
     </View>

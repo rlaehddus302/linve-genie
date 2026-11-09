@@ -16,6 +16,7 @@
 // D-UX3-33 (사용자 지시 2026-11-06 "처음이면 ... 동의한것으로 봐요 이 설명도 필요없어 지워"): 단추 아래 동의 안내 한 줄도 뺐다 — 약관 두 링크는 맨 아래에 그대로.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native'
+import { Tap } from '../ui/kit/press.tsx'
 import Svg, { Path } from 'react-native-svg'
 import {
   continueLabel,
@@ -293,6 +294,7 @@ export function LoginScreen({
       {offline && onRecheck !== undefined ? <BigButton label="다시 확인" disabled={rechecking} onPress={() => void recheck()} /> : null}
       {/* 위 칸: 남은 높이를 나눠 가운데에 서비스명 (작은 화면에서도 최소 높이) */}
       <View style={{ flex: 3, minHeight: 140, justifyContent: 'center', alignItems: 'center' }}>
+        {/* 누름 예외: 숨은 누름 — 단추가 아닌 서비스 이름 (D-UX4-72) */}
         <Pressable onPress={tapTitle} testID="login-title" accessible={false}>
           <Text role="heading" aria-level={1} allowFontScaling={false} style={{ color: p.text, fontSize: 44, ...font('900'), letterSpacing: -1.5 }}>
             {SERVICE_NAME}
@@ -370,7 +372,7 @@ export function SocialButton({ provider, recent, busy, onPress }: { readonly pro
   const color = SOCIAL_COLORS[provider]
   const label = continueLabel(provider)
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={recent ? `${label}, ${RECENT_LOGIN}` : label}
       aria-busy={busy}
@@ -405,6 +407,6 @@ export function SocialButton({ provider, recent, busy, onPress }: { readonly pro
           ) : null}
         </>
       )}
-    </Pressable>
+    </Tap>
   )
 }

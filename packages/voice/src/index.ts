@@ -31,6 +31,7 @@ export {
   SMS_MAX_ORDERS,
   SMS_PROBLEMS,
   findSmsMarker,
+  isBareSmsSentence,
   readSmsSentence,
   type SmsOrder,
   type SmsProblem,

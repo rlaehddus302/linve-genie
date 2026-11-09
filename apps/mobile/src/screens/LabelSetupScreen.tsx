@@ -14,14 +14,14 @@ import { printerProfile, labelSizesForProfileId } from '@livejjim/printer'
 import type { ProductItemId, ProductTemplate, TemplateItem } from '@livejjim/label'
 import type { QueueSummary, StoredTemplate, Templates } from '@livejjim/web/src/api/print-types.ts'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ActivityIndicator, Image, PanResponder, Pressable, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native'
+import { ActivityIndicator, Image, PanResponder, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native'
 import { get, isApiError, post, put } from '../api/client.ts'
 import type { PickEntry } from '@livejjim/mobile-ble'
 import { cancelPrinterPick, pickPrinter, useInlinePrinterPick } from '../native/printer-pick.ts'
 import { sizeWordMm, testHelp } from '../lib/test-help.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, FormPage, Icon, ListRow, RowGroup, SmallButton, TextField, ToggleRow, Txt, useKit } from '../ui/kit/index.ts'
+import { BigButton, FormPage, Icon, ListRow, RowGroup, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
 import { Notice } from '../ui/parts.tsx'
@@ -478,11 +478,11 @@ function ItemSection({ word, picked, children }: { readonly word: string; readon
 function FontStepper({ word, size, onStep }: { readonly word: string; readonly size: number; readonly onStep: (delta: number) => void }) {
   const { p } = useKit()
   const key = (sign: string, delta: number, name: string, off: boolean) => (
-    <Pressable role="button" aria-label={`${word} 글자 ${name}`} aria-disabled={off} disabled={off} onPress={() => onStep(delta)} style={({ pressed }) => ({ width: TOUCH.min, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt, opacity: off ? 0.45 : 1 })}>
+    <Tap role="button" aria-label={`${word} 글자 ${name}`} aria-disabled={off} disabled={off} onPress={() => onStep(delta)} style={({ pressed }) => ({ width: TOUCH.min, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt, opacity: off ? 0.45 : 1 })}>
       <Txt step="bodyLarge" weight="bold">
         {sign}
       </Txt>
-    </Pressable>
+    </Tap>
   )
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TOUCH.min }}>
@@ -528,7 +528,7 @@ function LabelEditor({ draft, preview, widthDots, heightDots, picked, onFocus, o
           const item = draft.items[id]
           const on = picked === id
           return (
-            <Pressable
+            <Tap
               key={id}
               role="button"
               aria-label={`라벨의 ${ITEM_WORDS[id]}`}
@@ -602,11 +602,11 @@ function ItemHandles({ item, scale, widthDots, heightDots, onTap, onChange }: {
 function Choice({ word, on, onPress }: { readonly word: string; readonly on: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="radio" aria-checked={on} aria-label={word} onPress={onPress} style={({ pressed }) => ({ minHeight: TOUCH.min, paddingHorizontal: SPACE.md, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderColor: on ? p.primary : p.border, backgroundColor: pressed ? p.pressed : on ? p.freshBg : p.surface })}>
+    <Tap role="radio" aria-checked={on} aria-label={word} onPress={onPress} style={({ pressed }) => ({ minHeight: TOUCH.min, paddingHorizontal: SPACE.md, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderColor: on ? p.primary : p.border, backgroundColor: pressed ? p.pressed : on ? p.freshBg : p.surface })}>
       <Txt weight={on ? 'bold' : 'medium'} color={on ? 'primaryText' : 'text'}>
         {word}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 

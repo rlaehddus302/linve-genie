@@ -6,14 +6,14 @@
 // 그 아래 찜·대기 손님 이름 알약(위 탭 알약 크기, 넘치면 아랫줄로) — 누르면 "찜을 삭제할까요?" 팝업. 판매 완료·찜 요약·"아직 찜이 없어요"·일시 중지·판매 종료 단추는 없앴고,
 // 토스 메뉴 줄로 [판매 시작](공개 전·멈춘 상품만) · [누가 살지 정하기](겹침·승계만) · [🗑 상품 삭제] — 삭제는 "상품을 삭제할까요?" 팝업 [닫기 | 삭제].
 import { useEffect, useRef, useState } from 'react'
-import { Animated, LayoutAnimation, Platform, Pressable, TextInput, View } from 'react-native'
+import { Animated, LayoutAnimation, Platform, TextInput, View } from 'react-native'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { boardProducts, claimsOfProduct, productKey, productSlots } from '../../lib/derive.ts'
 import { TAG_GAP, TAG_PAD_X, buyerTagText, fitTags, type ProductTag } from '../../lib/product-tags.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, formatWon } from '../../lib/words.ts'
-import { EmptyFill, ErrorLine, Icon, PopupDialog, Txt, font, useKit } from '../../ui/kit/index.ts'
+import { EmptyFill, ErrorLine, Icon, PopupDialog, Txt, font, useKit, Tap } from '../../ui/kit/index.ts'
 import { MAX_FONT_SCALE, RADIUS, SPACE, TYPE, WEIGHT, pressedFill } from '../../ui/kit/tokens.ts'
 import { ACTIVE_CLAIM, deleteClaim, deleteProduct } from './claim-actions.ts'
 import { feedBuyerName } from './ClaimFeed.tsx'
@@ -116,7 +116,7 @@ function ProductRow({ product, freshAt, onOpen, doubt }: { readonly product: Pro
   const tagStyle = (fill: string) => ({ flexShrink: 0, paddingHorizontal: TAG_PAD_X, paddingVertical: 2, borderRadius: RADIUS.pill, borderCurve: 'continuous' as const, backgroundColor: fill })
   return (
     <Animated.View style={{ borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: bg, overflow: 'hidden' }}>
-      <Pressable
+      <Tap
         role="button"
         aria-label={`상품 자세히 — ${String(product.no)}번`}
         onPress={onOpen}
@@ -162,7 +162,7 @@ function ProductRow({ product, freshAt, onOpen, doubt }: { readonly product: Pro
         )}
         {/* 채팅 의심 표시 (D-V3-129): 자동으로 고치지 않고 판매자가 확인한다 */}
         {doubt === undefined ? null : <Txt step="caption" weight="bold" ink={p.warnText} role="note" aria-label={`번호 확인 — ${String(product.no)}번`}>{doubt}</Txt>}
-      </Pressable>
+      </Tap>
     </Animated.View>
   )
 }
@@ -235,7 +235,7 @@ function EditBox({ label, shown, raw, numeric, flex, maxLength, disabled, onSave
     )
   }
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={`${label} 고치기`}
       disabled={disabled || busy}
@@ -250,7 +250,7 @@ function EditBox({ label, shown, raw, numeric, flex, maxLength, disabled, onSave
       <Txt step="lead" weight="bold" numberOfLines={1}>
         {shown}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 

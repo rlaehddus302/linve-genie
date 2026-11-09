@@ -1,9 +1,9 @@
 // 방송 화면 조각 (D-UX4-20~26, 사용자 지시 2026-11-09 토스 사진): 오른쪽에서 밀려 들어오는 화면, 토스 메뉴 줄(왼쪽 둥근 네모 아이콘),
 // 설정 묶음 카드(굵은 묶음 이름), 이름 알약(위 탭 알약과 같은 크기).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AccessibilityInfo, Animated, BackHandler, Easing, KeyboardAvoidingView, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native'
-import { KEYBOARD_AVOID, NavBar, Txt, useBottomInset, useEdgeSwipeBack, useHoldRouteSwipe, useKit, usePageTop, useTopInset } from '../../ui/kit/index.ts'
-import { RADIUS, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
+import { AccessibilityInfo, Animated, BackHandler, Easing, KeyboardAvoidingView, Platform, ScrollView, View, useWindowDimensions } from 'react-native'
+import { KEYBOARD_AVOID, NavBar, Txt, useBottomInset, useEdgeSwipeBack, useHoldRouteSwipe, useKit, usePageTop, useTopInset, Tap } from '../../ui/kit/index.ts'
+import { RADIUS, GUTTER, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
 
 /** 밀려 들어오는 시간 (쌓인 화면과 비슷하게) */
 export const SLIDE_IN_MS = 280
@@ -58,7 +58,7 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
   const bg = gray ? p.background : p.surface
   const shift = progress.interpolate({ inputRange: [0, 1], outputRange: [width, 0] })
   const body = scroll ? (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: gray ? GUTTER : SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
       {children}
     </ScrollView>
   ) : (
@@ -97,7 +97,7 @@ export function MenuGroup({ title, children }: { readonly title?: string; readon
 export function MenuRow({ title, value, onPress, danger, testID }: { readonly title: string; readonly value?: string; readonly onPress: () => void; readonly danger?: boolean; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={title} testID={testID} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 56, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={title} testID={testID} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 56, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <View style={{ flex: 1 }}>
         <Txt step="bodyLarge" weight="book" {...(danger === true ? { ink: p.dangerText } : {})}>
           {title}
@@ -109,7 +109,7 @@ export function MenuRow({ title, value, onPress, danger, testID }: { readonly ti
         </Txt>
       )}
       <Chevron />
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -122,7 +122,7 @@ function Chevron() {
 export function IconMenuRow({ emoji, tint, title, onPress, testID, ariaLabel }: { readonly emoji: string; readonly tint: string; readonly title: string; readonly onPress: () => void; readonly testID?: string; readonly ariaLabel?: string }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? title} testID={testID} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, minHeight: 60, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={ariaLabel ?? title} testID={testID} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, minHeight: 60, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <View aria-hidden style={{ width: 40, height: 40, borderRadius: 13, borderCurve: 'continuous', backgroundColor: tint, alignItems: 'center', justifyContent: 'center' }}>
         <Txt step="lead">
           {emoji}
@@ -131,7 +131,7 @@ export function IconMenuRow({ emoji, tint, title, onPress, testID, ariaLabel }: 
       <Txt step="bodyLarge" weight="medium">
         {title}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -155,9 +155,9 @@ export function NamePill({ text, tone, onPress, ariaLabel, square = false }: { r
   )
   if (onPress === undefined) return <View aria-label={ariaLabel} style={{ ...shape, backgroundColor: pair.bg }}>{label}</View>
   return (
-    <Pressable role="button" aria-label={ariaLabel} onPress={onPress} hitSlop={2} style={({ pressed }) => ({ ...shape, minWidth: TOUCH.min, backgroundColor: pressed ? pressedFill(p, pair.bg) : pair.bg, transform: [{ scale: pressed ? 0.96 : 1 }] })}>
+    <Tap role="button" aria-label={ariaLabel} onPress={onPress} hitSlop={2} pressScale={0.96} style={({ pressed }) => ({ ...shape, minWidth: TOUCH.min, backgroundColor: pressed ? pressedFill(p, pair.bg) : pair.bg })}>
       {label}
-    </Pressable>
+    </Tap>
   )
 }
 

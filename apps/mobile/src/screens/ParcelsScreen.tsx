@@ -6,7 +6,7 @@
 // 토스식 다듬기 (D-UX3-94): 쪽 여백 20·카드 사이 16, 카드 이름은 회색 본문, 줄 이름은 보통 굵기, 줄마다 붙는 일은 작은 회색 단추(큰 단추를 줄마다 쌓지 않음),
 // 입금·포장 상태는 꼬리표 대신 색 글자, 파일 받기는 줄, 곁길 일([설정으로]·[인증키 넣기]·[운송장 전부 PDF])은 글자 단추.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Linking, Pressable, ScrollView, View } from 'react-native'
+import { ActivityIndicator, Linking, ScrollView, View } from 'react-native'
 import type { BookResponse, BookResult, BoxKind, ParcelDay, ParcelDays, ParcelRow } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords, kstToday } from '@livejjim/web/src/lib/kst.ts'
 import {
@@ -64,8 +64,8 @@ import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile } from '../native/index.ts'
 import { useParcelVersion } from '../lib/parcel-version.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 import { RowAction, RowActions, TextAction } from './ParcelAddress.tsx'
 import { ExtraCard, ExtraFacts, ExtraRowActions } from './ParcelExtra.tsx'
@@ -130,7 +130,7 @@ export function ParcelsScreen({ onBack, initialDate, nav = {}, topGap = 28 }: { 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="parcels-screen">
       {onBack !== undefined ? <AppHeader title={PARCEL_TITLE} onBack={onBack} /> : null}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: onBack === undefined ? topGap : SPACE.sm, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: onBack === undefined ? topGap : SPACE.sm, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>
@@ -509,13 +509,13 @@ function GroupHead({ title, right }: { readonly title: string; readonly right?: 
 function FileRow({ label, sub, busy, onPress }: { readonly label: string; readonly sub: string; readonly busy: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={label} aria-busy={busy} disabled={busy} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={label} aria-busy={busy} disabled={busy} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <View style={{ flex: 1, gap: 2 }}>
         <Txt step="bodyLarge" weight="book">{label}</Txt>
         <Txt step="caption" color="textSub">{sub}</Txt>
       </View>
       {busy ? <ActivityIndicator size="small" color={p.textSub} /> : <Icon name="chevron" color={p.textSub} size={18} />}
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -527,14 +527,14 @@ function PickRow({ on, name, disabled, onPress }: { readonly on: boolean; readon
   const { p } = useKit()
   return (
     // 토스 체크처럼 둥근 표 + 보통 굵기 이름 (D-UX3-94 — 옛: 각진 표·굵은 이름)
-    <Pressable role="checkbox" aria-checked={on} aria-label={`${name} 고르기`} disabled={disabled} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 40, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="checkbox" aria-checked={on} aria-label={`${name} 고르기`} disabled={disabled} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 40, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <View style={{ width: PICK_BOX, height: PICK_BOX, borderRadius: PICK_BOX / 2, borderCurve: 'continuous', borderWidth: on ? 0 : 2, borderColor: p.softPressed, backgroundColor: on ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
         {on ? <Icon name="check" color={p.onPrimary} size={15} /> : null}
       </View>
       <View style={{ flex: 1 }}>
         <Txt step="bodyLarge" weight="book" numberOfLines={1}>{name}</Txt>
       </View>
-    </Pressable>
+    </Tap>
   )
 }
 

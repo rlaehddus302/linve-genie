@@ -380,7 +380,7 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
         <ExportCard />
       </ScrollView>
 
-      <View style={{ paddingHorizontal: SETTINGS_GUTTER, paddingTop: SPACE.md, paddingBottom: keyboard ? SPACE.sm : Math.max(inset, SPACE.sm), gap: SPACE.sm, borderTopWidth: 1, borderTopColor: p.line, backgroundColor: p.surface }}>
+      <View style={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: keyboard ? SPACE.sm : Math.max(inset, SPACE.sm), gap: SPACE.sm, borderTopWidth: 1, borderTopColor: p.line, backgroundColor: p.surface }}>
         {result !== null ? <Notice tone={result.tone} alert={result.tone === 'danger'}>{result.text}</Notice> : <Txt step="caption" color="textSub" center>{dirtyLine(dirty)}</Txt>}
         <BigButton label={SAVE_LABEL} busy={busy} disabled={dirty.length === 0} onPress={() => void saveAll()} />
       </View>

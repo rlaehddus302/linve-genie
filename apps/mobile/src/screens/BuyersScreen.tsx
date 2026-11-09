@@ -17,8 +17,8 @@ import type { ScopeData } from '../lib/scope-data.ts'
 import { QUICK_REASONS } from '@livejjim/web/src/lib/words.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
-import { EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CardEmpty, CheckText, InfoCard, InfoRow, Initial, listRowStyle, MiniTag, SearchField, TextButton, TextChoices } from './customer-parts.tsx'
 
@@ -47,8 +47,8 @@ export function BuyersScreen({ onBack, initialDate }: { readonly onBack: () => v
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="buyers-screen">
       <AppHeader title="구매자" onBack={onBack} />
-      {/* 홈처럼 (D-UX3-95): 옆 여백 20 · 묶음 사이 16 */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
+      {/* 홈처럼 (D-UX3-95 → D-UX4-74): 옆 여백 GUTTER · 묶음 사이 16 */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.xs, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
         {days !== null && days.length === 0 ? <EmptyFill title="아직 판매 기록이 없어요" body={'실제 방송에서 찜이 정해지면\n여기에 모여요'} /> : null}
@@ -127,7 +127,7 @@ function BuyerRow({ buyer, name, extra, onPress }: { readonly buyer: Buyer; read
   const label = `${name}${extra.length > 0 ? ` · ${extra.join(' · ')}` : ''} · 상품 ${String(buyer.items.length)}개 · ${formatWon(buyer.subtotal)}`
   return (
     // 토스 연락처처럼 (D-UX3-95): 첫 글자 동그라미 · 이름(+꼬리표)과 구별 낱말 · 오른쪽에 합계와 상품 수
-    <Pressable role="button" aria-label={label} onPress={onPress} style={({ pressed }) => listRowStyle(p, pressed)}>
+    <Tap role="button" aria-label={label} onPress={onPress} style={({ pressed }) => listRowStyle(p, pressed)}>
       <Initial name={name} />
       <View style={{ flex: 1, gap: 2 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm }}>
@@ -141,7 +141,7 @@ function BuyerRow({ buyer, name, extra, onPress }: { readonly buyer: Buyer; read
         <Txt step="bodyLarge" weight="book">{formatWon(buyer.subtotal)}</Txt>
         <Txt step="caption" color="textSub">{`상품 ${String(buyer.items.length)}개`}</Txt>
       </View>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -172,6 +172,7 @@ function BuyerDetail({ data, names, counts, buyer, queue, items, command, onClos
   return (
     <View style={{ gap: SPACE.lg }}>
       {/* 큰 회색 단추 대신 작은 ‹ 글자 단추 (D-UX3-95) */}
+      {/* 누름 예외: 뒤로 가기 — ‹ 구매자 목록 (D-UX4-72) */}
       <Pressable role="button" aria-label="구매자 목록으로" onPress={onClose} hitSlop={4} style={({ pressed }) => ({ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 40, paddingRight: SPACE.md, paddingLeft: SPACE.xs, marginLeft: -SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
         <Icon name="back" size={20} color={p.textSub} />
         <Txt step="body" weight="medium" color="textSub">구매자 목록</Txt>
@@ -401,13 +402,13 @@ function MergeSheet({ data, names, opened, command, onClose, onDone }: { readonl
             {hits.length > 0 ? (
               <View style={{ marginHorizontal: -SPACE.sm }}>
                 {hits.map((hit) => (
-                  <Pressable key={hit.id} role="button" aria-label={`합칠 구매자 ${names.name(hit.id)}`} onPress={() => setOther(hit)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 52, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+                  <Tap key={hit.id} role="button" aria-label={`합칠 구매자 ${names.name(hit.id)}`} onPress={() => setOther(hit)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 52, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
                     <Initial name={names.name(hit.id)} size={36} />
                     <View style={{ flex: 1 }}>
                       <Txt step="bodyLarge" weight="book">{names.name(hit.id)}</Txt>
                     </View>
                     <Icon name="chevron" color={p.textSub} size={18} />
-                  </Pressable>
+                  </Tap>
                 ))}
               </View>
             ) : null}

@@ -5,7 +5,7 @@
 // 토스식 다듬기 (D-UX3-94): 쪽 여백 20, 흰 카드에 묶기(지금 손님 카드의 초록 테두리·상품마다 회색 상자 없앰), 나머지 손님은 한 카드 안 줄로,
 // 곁길 일([택배 접수]·[택배 화면으로]·[다음 손님])은 글자 단추, 단추 둘 이상은 좌우로(되돌리기 왼쪽).
 import { useEffect, useMemo, useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import type { PackingAction, PackingEntry, PackingList, PackingResult } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { PACKING_LOCKED_BOOKED, PACKING_LOCKED_WAITING, hidesPackingTag, isLive, packingTagWords } from '@livejjim/web/src/lib/parcel-words.ts'
@@ -16,8 +16,8 @@ import { paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { parcelLine, parcelTone } from '@livejjim/web/src/lib/parcel-words.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { EmptyFill, BigButton, ButtonRow, Icon, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { EmptyFill, BigButton, ButtonRow, Icon, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Field, Loading, Notice, Tag } from '../ui/parts.tsx'
 import { ParcelTagLine, TextAction } from './ParcelAddress.tsx'
 
@@ -49,7 +49,7 @@ export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { reado
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="packing-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: topGap, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: topGap, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
         {days !== null ? (
@@ -215,7 +215,7 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
           const changed = isChanged(entry.status)
           const tag = entry.status !== '포장 대기' && !hidesPackingTag(entry.status, entry.parcel) ? packingTagWords(entry.status, entry.invoice, entry.parcel) : null
           return (
-            <Pressable key={entry.buyer} role="button" aria-label={`포장 열기 — ${entry.name}`} onPress={() => setOpen(entry.buyer)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 56, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+            <Tap key={entry.buyer} role="button" aria-label={`포장 열기 — ${entry.name}`} onPress={() => setOpen(entry.buyer)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 56, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt step="bodyLarge" weight="book" numberOfLines={1}>
                   {entry.name}
@@ -229,7 +229,7 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
               </View>
               <Txt step="body" color="textSub">{`${String(itemCount(entry.items))}개`}</Txt>
               <Icon name="chevron" color={p.textSub} size={18} />
-            </Pressable>
+            </Tap>
           )
         })}
       </View>
@@ -313,7 +313,7 @@ function PackingCard({ date, entry, sealed, next, onDone, openParcels }: { reado
           const on = checked.has(item.key)
           const line = itemLineWords(item)
           return (
-            <Pressable
+            <Tap
               key={item.key}
               role="button"
               aria-label={`${on ? '담음 — ' : '담기 — '}${line}`}
@@ -337,7 +337,7 @@ function PackingCard({ date, entry, sealed, next, onDone, openParcels }: { reado
                   {line}
                 </Txt>
               </View>
-            </Pressable>
+            </Tap>
           )
         })}
       </View>

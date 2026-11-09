@@ -3,8 +3,8 @@
 // - 문자: 휴대폰 알림 받기로 서버에 온 손님 문자(GET /api/inbox/sms — 서버 메모리, 최신이 앞). 실시간 `inbox` { kind: 'sms', b }가 오면 다시 읽는다.
 // - 둘을 받은 시각으로 섞는다(정렬은 최신이 위, 화면은 최신이 맨 아래 — D-UX3-75). 한 줄에 시각(23:23, 폭 고정 칸)·닉네임(문자는 "문자-끝번호")·결과 꼬리표(찜 금색·대기 회색)·내용(D-UX4-66), 줄 바탕·출처 꼬리표 없음(D-UX3-80·82).
 //   본문·닉네임·보낸 이름은 손님이 쓴 글이라 글자로만 그린다. 판정은 하지 않는다(서버가 한 일을 낱말로만).
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Animated, Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import type { SmsFeedView } from '@livejjim/web/src/api/inbox-types.ts'
 import type { Claim, MessagesView } from '@livejjim/web/src/api/types.ts'
 import { kstHm } from '@livejjim/web/src/lib/kst.ts'
@@ -13,13 +13,14 @@ import { get, isApiError, withQuery } from '../../api/client.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { claimWord, waitPosition } from '../../lib/derive.ts'
 import { useServices } from '../../services.tsx'
-import { EmptyFill, Txt, useKit } from '../../ui/kit/index.ts'
+import { EmptyFill, Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import type { Tone } from '../../ui/kit/tokens.ts'
 import { TAG_PAD_X } from '../../lib/product-tags.ts'
 import { Hint, Notice } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
 import { useMessages } from './ChatPaste.tsx'
+import { HEARD_LOG_HEIGHT, useOpenMotion } from './StreamAudio.tsx'
 
 export const TALK_TAB = '채팅·문자'
 export const TALK_EMPTY = '아직 채팅·문자가 없어요'
@@ -177,7 +178,7 @@ export function useSmsFeed(): readonly SmsFeedView[] {
  * 한 줄 (D-UX3-82 → D-UX4-66, 사용자 지시 2026-11-10 "닉네임 오른쪽에 태그를 위치시키자 … 시간 글자 너비와 상관없이 닉네임의 왼쪽이 맞춰지도록 컬럼 배치"):
  * [받은 시각 칸(폭 고정)] [굵은 닉네임 · 결과 꼬리표 · 내용]. 내용이 길면 닉네임 왼쪽 줄에 맞춰 아래로 내려간다. 줄 바탕은 없다. 손님 글은 글자로만
  */
-function TalkLine({ row, timeWidth, onTimeWidth }: { readonly row: TalkRow; readonly timeWidth: number; readonly onTimeWidth: (width: number) => void }) {
+function TalkLine({ row, timeWidth, onTimeWidth, oneLine = false }: { readonly row: TalkRow; readonly timeWidth: number; readonly onTimeWidth: (width: number) => void; readonly oneLine?: boolean }) {
   const { p, tones } = useKit()
   return (
     <View role="listitem" aria-label={row.who} style={{ flexDirection: 'row', alignItems: 'flex-start', columnGap: SPACE.sm, paddingVertical: 2 }}>
@@ -187,7 +188,7 @@ function TalkLine({ row, timeWidth, onTimeWidth }: { readonly row: TalkRow; read
           <Txt step="meta" color="textSub">{kstHm(row.at)}</Txt>
         </View>
       </View>
-      <View testID="talk-body" style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: 2 }}>
+      <View testID="talk-body" style={{ flex: 1, flexDirection: 'row', flexWrap: oneLine ? 'nowrap' : 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: 2, overflow: 'hidden' }}>
         <Txt step="meta" weight="heavy">{row.who}</Txt>
         {row.tags.map((tag, index) => {
           const pair = tag.kind === 'win' ? { bg: p.goldBg, fg: p.goldText } : tag.kind === 'wait' ? { bg: p.soft, fg: p.textSub } : tones[tag.kind]
@@ -199,7 +200,7 @@ function TalkLine({ row, timeWidth, onTimeWidth }: { readonly row: TalkRow; read
           )
         })}
         <View style={{ flexShrink: 1 }}>
-          <Txt step="meta">{row.text}</Txt>
+          <Txt step="meta" {...(oneLine ? { numberOfLines: 1 } : {})}>{row.text}</Txt>
         </View>
       </View>
     </View>
@@ -224,6 +225,50 @@ export function LiveTalk() {
           {rows.slice(0, TALK_LIMIT).reverse().map((row) => <TalkLine key={row.key} row={row} timeWidth={timeWidth} onTimeWidth={onTimeWidth} />)}
         </View>
       )}
+    </View>
+  )
+}
+
+/** 아래 창으로 펼쳐 볼 최근 줄 수 */
+export const TALK_DOCK_LIMIT = 30
+
+/**
+ * 채팅·문자 아래 창 (D-UX4-71 — 관리 "화면 아래 창"에서 채팅·문자를 고르면 들린 말 창 자리에): 접으면 가장 최근 한 줄(시각 · 닉네임 · 내용),
+ * 누르면 들린 말 창처럼 높이가 부드럽게 늘며 최근 채팅·문자가 쌓여 보인다(새 줄이 아래). 없으면 비워 둔다.
+ */
+export function TalkDock({ bottom }: { readonly bottom: number }) {
+  const { p } = useKit()
+  const api = useConsoleApi()
+  const { view } = useMessages()
+  const sms = useSmsFeed()
+  const rows = useMemo(() => talkRows(view?.sealed === true ? null : view, sms, api.data), [view, sms, api.data])
+  const [open, setOpen] = useState(false)
+  const [logHeight, setLogHeight] = useState(0)
+  const [timeWidth, setTimeWidth] = useState(0)
+  const onTimeWidth = useCallback((width: number) => setTimeWidth((was) => Math.max(was, Math.ceil(width))), [])
+  const motion = useOpenMotion(open)
+  const log = useRef<ScrollViewInstance>(null)
+  const latest = rows[0] ?? null
+  const earlier = rows.slice(1, TALK_DOCK_LIMIT + 1).reverse()
+  const target = Math.min(logHeight, HEARD_LOG_HEIGHT) + SPACE.sm
+  const height = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, target] })
+  return (
+    <View role="region" aria-label="채팅·문자 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
+      {motion.shown ? (
+        <Animated.View style={{ height: Platform.OS === 'web' ? undefined : height, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs, paddingBottom: SPACE.sm }}>
+          <ScrollView ref={log} style={{ maxHeight: HEARD_LOG_HEIGHT }} onContentSizeChange={() => log.current?.scrollToEnd({ animated: false })}>
+            <View role="list" aria-label="지난 채팅·문자" style={{ gap: SPACE.xs }} onLayout={(event) => setLogHeight(event.nativeEvent.layout.height)}>
+              {earlier.map((row) => <TalkLine key={row.key} row={row} timeWidth={timeWidth} onTimeWidth={onTimeWidth} />)}
+            </View>
+          </ScrollView>
+        </Animated.View>
+      ) : null}
+      <Tap role="button" aria-label={open ? '채팅·문자 접기' : '채팅·문자 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+        <View role="status" aria-label="최근 채팅·문자" style={{ flex: 1 }}>
+          {latest === null ? null : <TalkLine row={latest} timeWidth={timeWidth} onTimeWidth={onTimeWidth} oneLine />}
+        </View>
+        <Icon name={open ? 'down' : 'up'} size={16} color={p.textSub} />
+      </Tap>
     </View>
   )
 }

@@ -261,7 +261,8 @@ describe('TD-V1-CTL 저절로 넣기는 카드마다 정확히 한 번 (AC-V1-21
 
   it('TD-V1-CTL D-V1-17: 번호 못 알아들은 이유 카드 뒤 2초 안에 끝자리 갈린 말 → 새 이유 카드(끝자리), 쓰기 없음', async () => {
     const world = await start()
-    FakeRecognition.last.say('문자찜 들어왔어요')
+    // 주문 내용이 하나도 없는 '문자찜 들어왔어요'는 이제 카드를 만들지 않아(D-UX4-68) 이름이 든 문장으로 — 번호를 못 알아들은 카드는 그대로
+    FakeRecognition.last.say('김민지님 문자찜 들어왔어요')
     await wait(500)
     FakeRecognition.last.say('165번 문자찜 끝자리 12 34')
     await wait(10)

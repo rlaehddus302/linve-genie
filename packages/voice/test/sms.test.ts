@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { parseAllDocuments } from 'yaml'
-import { extractVoice, findSmsMarker, readSmsSentence, readVoiceSentence, tokenize, type SmsReading } from '../src/index.ts'
+import { extractVoice, findSmsMarker, isBareSmsSentence, readSmsSentence, readVoiceSentence, tokenize, type SmsReading } from '../src/index.ts'
 
 const r = (text: unknown, options?: Parameters<typeof readSmsSentence>[1]): SmsReading | null => readSmsSentence(text, options)
 const ok = (fields: Partial<SmsReading>): SmsReading => ({ orders: [], last4: null, name: null, time: null, problem: null, ...fields })
@@ -384,5 +384,32 @@ describe('AC-V1-02 문장 → 상품 카드 또는 문자찜 카드 (readVoiceSe
 
   it('문자찜 문장의 번호 범위·판매 방식은 sms 설정으로', () => {
     expect(readVoiceSentence('201번 문자찜', { sms: { maxNumber: 200 } })).toEqual({ kind: 'sms', reading: bad('NUMBER_UNCLEAR') })
+  })
+
+  // 실방송 신고: "어.. 문자찜"에 "번호 없음 · 손님 확인 필요" 카드가 떴다 (R-21 7a, D-UX4-68)
+  it.each([['어.. 문자찜'], ['문자찜'], ['음 문자찜이요'], ['문자찜 들어왔어요'], ['문자 찜'], ['이번 문자찜']])('주문 내용이 하나도 없는 "%s" → 카드 없음(none)', (text) => {
+    expect(readSmsSentence(text)).toEqual(bad('NUMBER_UNCLEAR')) // R-21 골든 결과는 그대로
+    expect(isBareSmsSentence(text)).toBe(true)
+    expect(readVoiceSentence(text)).toEqual({ kind: 'none' })
+    expect(readVoiceSentence(text, { extract: { dictionary: ['핑크프릴'] } })).toEqual({ kind: 'none' })
+  })
+
+  it('번호가 있거나 다른 내용이 있으면 지금처럼 문자찜 카드 (D-UX4-68)', () => {
+    expect(readVoiceSentence('165번 문자찜')).toEqual({ kind: 'sms', reading: ok({ orders: [{ no: 165, qty: 1 }] }) })
+    expect(readVoiceSentence('어.. 165번 문자찜')).toEqual({ kind: 'sms', reading: ok({ orders: [{ no: 165, qty: 1 }] }) })
+    // 내용은 있는데 번호를 못 읽었다 → 번호를 못 알아들은 카드 그대로
+    for (const text of ['끝자리 1234 문자찜', '김민지님 문자찜', '8시 문자찜', '165 문자찜', '백육십오 문자찜', '1000번 문자찜', '문자찜165', '15번 16번 17번 18번 19번 20번 문자찜']) {
+      expect(isBareSmsSentence(text), text).toBe(false)
+      expect(readVoiceSentence(text), text).toEqual({ kind: 'sms', reading: bad('NUMBER_UNCLEAR') })
+    }
+    // 취소·아니라는 말·묻는 말은 지금처럼 그 카드
+    expect(readVoiceSentence('문자찜 취소')).toEqual({ kind: 'sms', reading: bad('CANCEL') })
+    expect(readVoiceSentence('문자찜 안 돼요')).toEqual({ kind: 'sms', reading: bad('NOT_SURE') })
+    expect(readVoiceSentence('문자찜 왔나요?')).toEqual({ kind: 'sms', reading: bad('NOT_SURE') })
+    // 옵션 방식은 해당하지 않는다 (옵션을 못 읽은 카드 그대로)
+    expect(isBareSmsSentence('어.. 문자찜', { parseMode: 'OPTIONS' })).toBe(false)
+    expect(readVoiceSentence('어.. 문자찜', { sms: { parseMode: 'OPTIONS' } })).toEqual({ kind: 'sms', reading: bad('OPTION_UNCLEAR') })
+    // 문자찜 문장이 아니거나 이상한 입력은 false (예외 없음)
+    for (const text of ['15번 핑크프릴 만원', '', null, 15, { text: '문자찜' }]) expect(isBareSmsSentence(text)).toBe(false)
   })
 })

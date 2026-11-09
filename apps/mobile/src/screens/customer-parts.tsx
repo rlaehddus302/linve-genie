@@ -2,9 +2,9 @@
 // 흰 찾기 칸(돋보기·지우기), 글자만 있는 작은 단추, 이름 첫 글자 동그라미, 작은 꼬리표, 왼쪽 이름·오른쪽 값 줄, 흰 정보 카드, 글자 고르기(정렬).
 // 공통 키트(src/ui/kit)는 다른 탭과 같이 쓰므로 건드리지 않고 이 탭에만 둔다.
 import type { ReactNode } from 'react'
-import { ActivityIndicator, Pressable, TextInput, View } from 'react-native'
+import { ActivityIndicator, TextInput, View } from 'react-native'
 import Svg, { Circle, Path } from 'react-native-svg'
-import { ClearButton, font, Icon, RADIUS, SPACE, TOUCH, TYPE, Txt, useKit, WEIGHT, type Tone } from '../ui/kit/index.ts'
+import { ClearButton, font, Icon, RADIUS, SPACE, TOUCH, TYPE, Txt, useKit, WEIGHT, type Tone, Tap } from '../ui/kit/index.ts'
 import type { TxtColor } from '../ui/kit/theme.tsx'
 
 /** 돋보기 (장식 — 칸 이름은 aria-label) */
@@ -49,7 +49,7 @@ export function TextButton({ label, onPress, ariaLabel, color = 'primaryText', d
   const { p } = useKit()
   const off = disabled === true || busy === true
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={ariaLabel ?? label}
       aria-disabled={off}
@@ -74,7 +74,7 @@ export function TextButton({ label, onPress, ariaLabel, color = 'primaryText', d
       <Txt step="body" weight="medium" color={color}>
         {label}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -147,11 +147,11 @@ export function TextChoices<K extends string>({ label, keys, value, word, spoken
       {keys.map((key) => {
         const on = key === value
         return (
-          <Pressable key={key} role="button" aria-label={spoken(key)} aria-selected={on} onPress={() => onPick(key)} hitSlop={4} style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Tap key={key} role="button" aria-label={spoken(key)} aria-selected={on} onPress={() => onPick(key)} hitSlop={4} style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <Txt step="body" weight={on ? 'bold' : 'regular'} color={on ? 'text' : 'textSub'}>
               {word(key)}
             </Txt>
-          </Pressable>
+          </Tap>
         )
       })}
     </View>
@@ -162,14 +162,14 @@ export function TextChoices<K extends string>({ label, keys, value, word, spoken
 export function CheckText({ label, on, onPress }: { readonly label: string; readonly on: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={label} aria-selected={on} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 36, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={label} aria-selected={on} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 36, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <View aria-hidden style={{ width: 20, height: 20, borderRadius: 10, borderCurve: 'continuous', backgroundColor: on ? p.primary : p.soft, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name="check" size={13} color={on ? p.onPrimary : p.placeholder} />
       </View>
       <Txt step="body" weight={on ? 'medium' : 'regular'} color={on ? 'text' : 'textSub'}>
         {label}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 

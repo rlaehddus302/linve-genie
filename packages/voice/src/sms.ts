@@ -304,3 +304,29 @@ export function readSmsSentence(text: unknown, options: SmsReadOptions = {}): Sm
   if (orders === null) return problemOf(optionsMode ? 'OPTION_UNCLEAR' : 'NUMBER_UNCLEAR')
   return { orders, last4: last4.value, name: name.value, time: time.value, problem: null }
 }
+
+/** 숫자가 든 토큰, 또는 한자어 수사 글자만 두 글자 이상인 토큰(`백육십오`) — 번호를 말하려 한 흔적 (D-UX4-68) */
+const SINO_DIGITS = new Set([...'일이삼사오육칠팔구십백천만'])
+const looksLikeNumber = (token: string): boolean => /[0-9]/.test(token) || ([...token].length >= 2 && [...token].every((char) => SINO_DIGITS.has(char)))
+
+/**
+ * 주문 내용이 하나도 없는 문자찜 문장인가 (R-21 7a, D-UX4-68): 번호 방식에서 readSmsSentence가 NUMBER_UNCLEAR를 낼 문장 가운데
+ * 번호 표시(`N번`·끊어 말한 번호)·숫자처럼 보이는 토큰·뒤 4자리 낱말·이름(…님)·받은 시각(…시)이 하나도 없는 것 — `어.. 문자찜`·`음 문자찜이요`.
+ * 이런 문장은 카드를 만들지 않는다(readVoiceSentence → none). 취소·아니라는 말·묻는 말(CANCEL·NOT_SURE)과 옵션 방식은 해당하지 않는다.
+ * readSmsSentence의 결과는 그대로다(골든 R-21 그대로) — 입구에서만 거른다.
+ */
+export function isBareSmsSentence(text: unknown, options: SmsReadOptions = {}): boolean {
+  if (optionValue<unknown>(options, 'parseMode') === 'OPTIONS') return false
+  if (readSmsSentence(text, options)?.problem !== 'NUMBER_UNCLEAR') return false
+  const tokens = tokenize(text)
+  if (tokens === null) return false
+  const forms = tokens.map(readingForms)
+  const assigned = new Set<number>()
+  readLast4(tokens, forms, assigned)
+  readName(tokens, forms, assigned)
+  readTime(forms, assigned)
+  if (assigned.size > 0) return false
+  const markers = findNumberMarkers(tokens, forms)
+  if (markers.split || markers.values.length > 0) return false
+  return !tokens.some(looksLikeNumber)
+}

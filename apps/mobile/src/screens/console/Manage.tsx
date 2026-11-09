@@ -5,9 +5,10 @@ import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import { isApiError, newRequestId, post, withRetry } from '../../api/client.ts'
+import { DOCK_CHOICES, DOCK_TITLE, dockLabel, setDockChoice, useDockChoice, type DockChoice } from '../../lib/dock-choice.ts'
 import { LISTEN_START, LISTEN_STOP } from '../../lib/words.ts'
 import { useServices } from '../../services.tsx'
-import { BigButton, BottomSheet, ConfirmSheet, FullSheet, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, ConfirmSheet, FullSheet, Icon, Tap, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { ChatView, PasteView } from './ChatPaste.tsx'
@@ -49,6 +50,26 @@ export function ThanksSwitch({ on, busy, onPress }: { readonly on: boolean; read
   )
 }
 
+/** 아래 창 고르기 (D-UX4-71): 세 줄 중 하나 — 고른 줄 오른쪽에 ✓, 누르면 바로 바뀌고 판이 닫힌다 */
+function DockChoiceList({ value, onPick }: { readonly value: DockChoice; readonly onPick: (next: DockChoice) => void }) {
+  const { p } = useKit()
+  return (
+    <View role="radiogroup" aria-label={DOCK_TITLE} style={{ marginHorizontal: -SPACE.sm }}>
+      {DOCK_CHOICES.map((item) => {
+        const on = item.value === value
+        return (
+          <Tap key={item.value} role="radio" aria-checked={on} aria-label={item.label} onPress={() => onPick(item.value)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 56, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+            <View style={{ flex: 1 }}>
+              <Txt step="bodyLarge" weight={on ? 'bold' : 'book'} {...(on ? { color: 'primaryText' as const } : {})}>{item.label}</Txt>
+            </View>
+            {on ? <Icon name="check" size={20} color={p.primary} /> : null}
+          </Tap>
+        )
+      })}
+    </View>
+  )
+}
+
 /** 예시 그림: 손님이 "15"라고 치면 바로 아래에 감사 인사가 올라간 유튜브 채팅 두 줄 (사용자 사진 3 참고) */
 function ThanksExample() {
   const { p } = useKit()
@@ -74,7 +95,7 @@ function ThanksExample() {
   )
 }
 
-type ManageSheet = 'none' | 'sms' | 'voice' | 'end' | 'chat' | 'paste' | 'import'
+type ManageSheet = 'none' | 'sms' | 'voice' | 'end' | 'chat' | 'paste' | 'import' | 'dock'
 
 /**
  * canLink: 방송 연결 줄을 보일지(유튜브 상태를 받았을 때). onClose: 이 화면을 닫는다(듣기 켜기·끄기는 방송 화면에서 안내·상태를 보여 주므로 닫고 한다, D-UX3-73).
@@ -90,6 +111,7 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
   const [pasted, setPasted] = useState<string | null>(null)
   const [endError, setEndError] = useState<string | null>(null)
   const close = () => setSheet('none')
+  const dock = useDockChoice()
   // 설정 하나하나는 진짜 전체 화면으로 (D-UX4-60) — 경로가 없을 때(시험·웹)만 이 화면 위 판으로
   const show = (tool: 'sms' | 'voice' | 'import' | 'paste' | 'chat') => (openTool === undefined ? setSheet(tool) : openTool(tool))
   const thanksOn = api.data.broadcasts.get(broadcastId)?.settings['thanks.liveChat'] === true
@@ -140,6 +162,8 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
         {seller && !closed ? <MenuRow title={APP_IMPORT_TITLE} onPress={() => show('import')} /> : null}
         {!rehearsal && !closed ? <MenuRow title="댓글 붙여넣기" onPress={() => show('paste')} /> : null}
         <MenuRow title="채팅 보기" onPress={() => show('chat')} />
+        {/* 방송 화면 맨 아래 창: 들린 말 · 채팅·문자 · 안 보기 (D-UX4-71) */}
+        <MenuRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
       </MenuGroup>
       {!closed ? (
         <MenuGroup>
@@ -165,6 +189,9 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
             }}
           />
         ) : null}
+      </BottomSheet>
+      <BottomSheet visible={sheet === 'dock'} onClose={close} title={DOCK_TITLE}>
+        <DockChoiceList value={dock} onPick={(next) => { setDockChoice(next); close() }} />
       </BottomSheet>
       <BottomSheet visible={sheet === 'voice'} onClose={close} title="음성 설정">
         <VoiceSettingsPanel session={services.voice} broadcastId={broadcastId} />

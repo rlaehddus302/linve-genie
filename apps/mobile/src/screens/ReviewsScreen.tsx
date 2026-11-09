@@ -7,7 +7,7 @@
 // 모양 (D-UX3-96): 단추 둘은 같은 폭으로 한 줄에, 부정은 왼쪽·긍정은 오른쪽 — [주문 아님] · [주문으로], [고치기] · [이대로 주문].
 // 안내 글은 맨 위 한 줄 회색 글, 제안은 옅은 초록 칸 안에.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import type { AssistResult, AssistSettings, AssistSuggestResponse, BroadcastView, Product, ReviewItem, ReviewsView, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { ASSIST_BUSY_RELOAD_MS, ASSIST_BUSY_RELOADS, ASSIST_FAILED, ASSIST_LIMIT, ASSIST_LIMIT_UNKNOWN, ASSIST_OFFER, ASSIST_READING, ASSIST_YOUTUBE_EXCLUDED, showsYoutubeExcluded, suggestionView, type SuggestionView } from '@livejjim/web/src/lib/assist-words.ts'
 import { dateWords, kstTime } from '@livejjim/web/src/lib/kst.ts'
@@ -19,8 +19,8 @@ import { get, isApiError, post, withQuery, type ApiError } from '../api/client.t
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { EmptyFill, AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { EmptyFill, AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
 export const REVIEWS_TITLE = '확인 필요'
@@ -172,7 +172,7 @@ export function ReviewsScreen({ onBack, query = {}, openSettings }: { readonly o
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="reviews-screen">
       <AppHeader title={REVIEWS_TITLE} onBack={back} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
         <View style={{ paddingHorizontal: SPACE.xs, gap: SPACE.xs }}>
           {broadcast !== undefined ? <Txt weight="medium">{`${broadcast.title} · ${dateWords(broadcast.date)} 방송만 보여요.`}</Txt> : null}
           <Txt step="caption" color="textSub">{REVIEWS_HINT}</Txt>
@@ -476,12 +476,12 @@ function ReviewRow({ n, review, state, broadcast, many, products, selected, pend
   return (
     <Card label={lineName}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
-        <Pressable role="checkbox" aria-checked={selected} aria-label={`${lineName} 고르기`} disabled={pending} onPress={() => onSelect(!selected)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44, minWidth: 44, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+        <Tap role="checkbox" aria-checked={selected} aria-label={`${lineName} 고르기`} disabled={pending} onPress={() => onSelect(!selected)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44, minWidth: 44, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
           <View style={{ width: 26, height: 26, borderRadius: 13, borderCurve: 'continuous', backgroundColor: selected ? p.primary : p.soft, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="check" color={selected ? p.onPrimary : p.surface} size={16} />
           </View>
           <Txt weight="bold">{String(n)}</Txt>
-        </Pressable>
+        </Tap>
         <Txt step="caption" color="textSub">{review.origin === 'sms' && review.received !== null ? review.received : kstTime(review.at)}</Txt>
         <Txt weight="bold">{review.buyerName}</Txt>
         {review.origin === 'sms' ? <Tag tone="info">{ORIGIN_WORD.sms}</Tag> : null}

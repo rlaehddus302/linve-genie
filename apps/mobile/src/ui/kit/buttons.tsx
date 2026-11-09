@@ -1,9 +1,10 @@
 // 버튼: 큰 버튼(주·보조·위험), 단추 묶음(ButtonRow), 작은 회색 단추(SmallButton), 화면 아래 고정 영역(BottomCTA).
 // 단추 둘 이상은 늘 좌우로 놓고, 부정(취소·아니에요)은 왼쪽, 긍정(확인·맞아요)은 오른쪽 (D-UX4-01, 사용자 지시 2026-11-03 "모든 작업에서").
 import { Children, Fragment, isValidElement, type ReactNode } from 'react'
-import { ActivityIndicator, Pressable, View } from 'react-native'
+import { ActivityIndicator, View } from 'react-native'
 import { RADIUS, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit, type TxtColor } from './theme.tsx'
+import { Tap } from './press.tsx'
 
 /** outline: 테두리 없는 회색 단추 (방송 중 "직접 넣기"·홈 "새 방송 시작" 같은 둘째 버튼 — 토스식, D-UX3-02. 옛 흰 바탕+테두리) */
 export type ButtonKind = 'primary' | 'secondary' | 'danger' | 'outline'
@@ -34,7 +35,7 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
   const fillPressed = kind === 'primary' ? p.primaryPressed : kind === 'danger' ? p.dangerPressed : kind === 'outline' ? p.softPressed : p.secondaryPressed
   const ink: TxtColor = kind === 'primary' ? 'onPrimary' : kind === 'danger' ? 'onDanger' : kind === 'outline' ? 'text' : 'onSecondary'
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={ariaLabel ?? label}
       aria-disabled={off}
@@ -60,7 +61,7 @@ export function BigButton({ label, onPress, kind = 'primary', disabled, busy, ar
       <Txt step="bodyLarge" weight="heavy" color={ink} center {...(oneLine === true ? { numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.7 } : {})}>
         {icon === undefined ? label : `${icon} ${label}`}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -94,7 +95,7 @@ export function ButtonRow({ children }: { readonly children?: ReactNode }) {
 export function SmallButton({ label, onPress, disabled, testID }: { readonly label: string; readonly onPress: () => void; readonly disabled?: boolean; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={label}
       aria-disabled={disabled === true}
@@ -114,7 +115,7 @@ export function SmallButton({ label, onPress, disabled, testID }: { readonly lab
       <Txt weight="medium" color="textSub" center>
         {label}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 

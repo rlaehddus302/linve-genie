@@ -3,7 +3,7 @@
 // 쓰기는 같은 내용이면 같은 요청 번호(끊기면 같은 번호로 다시). 받는 분 이름·주소는 글자로만 그린다.
 // 토스식 다듬기 (D-UX3-94): 위 칸은 회색 묶음 이름 + 줄 하나([받는 분 넣기] · 날짜 · ›, 긴 안내 글 뺌), 줄 단추는 작은 회색 단추.
 import { useRef, useState } from 'react'
-import { Pressable, View } from 'react-native'
+import { View } from 'react-native'
 import type { AddressFields, BundleView, ParcelRow } from '@livejjim/web/src/api/parcel-types.ts'
 import {
   ADDRESS_KEYS,
@@ -23,7 +23,7 @@ import {
   extraFacts,
 } from '@livejjim/web/src/lib/parcel-words.ts'
 import { get, isApiError, newRequestId, post, put, withQuery, withRetry, type ApiError } from '../api/client.ts'
-import { BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Notice } from '../ui/parts.tsx'
 import { RowAction, RowActions } from './ParcelAddress.tsx'
@@ -129,7 +129,7 @@ export function ExtraCard({ date, onSaved }: { readonly date: string; readonly o
       <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>
         {EXTRA_TITLE}
       </Txt>
-      <Pressable
+      <Tap
         role="button"
         aria-label={EXTRA_ADD}
         onPress={() => {
@@ -147,7 +147,7 @@ export function ExtraCard({ date, onSaved }: { readonly date: string; readonly o
           <Txt step="caption" color="textSub">{extraDateNote(date)}</Txt>
         </View>
         <Icon name="chevron" color={p.textSub} size={18} />
-      </Pressable>
+      </Tap>
       {done !== null ? <Notice tone="success">{done}</Notice> : null}
       {command.error !== null && !open ? <Notice tone="danger" alert>{command.error.message}</Notice> : null}
       {open ? (

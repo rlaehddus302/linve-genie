@@ -17,7 +17,7 @@
 // 가입 중(가입 표)과 로그인한 계정(번호 등록)이 같이 쓴다. 왼쪽 위 ‹는 ①에서 처음으로·로그아웃, ②에서 번호 다시 넣기.
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import Svg, { Path } from 'react-native-svg'
-import { Animated, Easing, Keyboard, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View, type TextInputInstance } from 'react-native'
+import { Animated, Easing, Keyboard, KeyboardAvoidingView, Platform, Text, TextInput, View, type TextInputInstance } from 'react-native'
 import {
   CODE_ASK_TITLE,
   CODE_FIELD,
@@ -46,7 +46,7 @@ import {
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
-import { BigButton, NAV, NavBar, ErrorLine, KEYBOARD_AVOID, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
+import { BigButton, NAV, NavBar, ErrorLine, KEYBOARD_AVOID, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake, Tap } from '../ui/kit/index.ts'
 import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
 import { EdgeSwipeBack, SlideSwitch } from '../ui/kit/slide.tsx'
 import { PAGE, RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
@@ -484,11 +484,11 @@ function NotComing({ hidden, onPress }: { readonly hidden: boolean; readonly onP
   }, [hidden, fade])
   return (
     <Animated.View style={{ opacity: fade, alignItems: 'center' }} pointerEvents={hidden ? 'none' : 'auto'} aria-hidden={hidden}>
-      <Pressable role="button" aria-label={CODE_NOT_COMING} onPress={onPress} hitSlop={8} testID="code-not-coming" style={{ minHeight: 44, paddingHorizontal: SPACE.md, justifyContent: 'center' }}>
+      <Tap role="button" aria-label={CODE_NOT_COMING} onPress={onPress} hitSlop={8} testID="code-not-coming" style={{ minHeight: 44, paddingHorizontal: SPACE.md, justifyContent: 'center' }}>
         {({ pressed }) => (
           <Text style={{ fontSize: TYPE.body, lineHeight: Math.round(TYPE.body * 1.4), ...font(), color: p.primaryText, textDecorationLine: 'underline', opacity: pressed ? 0.5 : 1 }}>{CODE_NOT_COMING}</Text>
         )}
-      </Pressable>
+      </Tap>
     </Animated.View>
   )
 }

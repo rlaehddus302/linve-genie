@@ -1,10 +1,11 @@
 // 입력 조각: TextField(큰 라벨·도움말·오류), NumberPad(큰 숫자판).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Animated, Easing, Platform, Pressable, Text, TextInput, View, type TextInputProps } from 'react-native'
+import { Animated, Easing, Platform, Text, TextInput, View, type TextInputProps } from 'react-native'
 import { errorHaptic } from '../../native/haptics.ts'
 import { LINE, RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
 import { font } from './font.ts'
+import { Tap } from './press.tsx'
 
 export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-label' | 'accessibilityLabel'> {
   /** 칸 위의 큰 라벨 — 무엇을 적는지 */
@@ -198,12 +199,12 @@ export function AlertMark({ color, size = 16 }: { readonly color?: string; reado
 export function ClearButton({ label, onPress }: { readonly label: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={8} style={({ pressed }) => ({ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={label} onPress={onPress} hitSlop={8} style={({ pressed }) => ({ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <View aria-hidden style={{ width: 22, height: 22, borderRadius: 11, borderCurve: 'continuous', backgroundColor: p.clearCircle, alignItems: 'center', justifyContent: 'center' }}>
         <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface, transform: [{ rotate: '45deg' }] }} />
         <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface, transform: [{ rotate: '-45deg' }] }} />
       </View>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -238,7 +239,7 @@ export function NumberPad({ value, onChange, maxLength = 9, testID }: { readonly
   const { p } = useKit()
   const press = (key: PadKey) => onChange(applyPadKey(value, key, maxLength))
   const keyButton = (key: PadKey) => (
-    <Pressable
+    <Tap
       key={key}
       role="button"
       aria-label={KEY_NAME[key]}
@@ -248,7 +249,7 @@ export function NumberPad({ value, onChange, maxLength = 9, testID }: { readonly
       <Txt step="title" weight="bold" color={key === 'back' ? 'onSecondary' : 'text'}>
         {key === 'back' ? '← 지우기' : key}
       </Txt>
-    </Pressable>
+    </Tap>
   )
   return (
     <View testID={testID} role="group" aria-label="숫자판" style={{ gap: TOUCH.gap }}>
@@ -257,11 +258,11 @@ export function NumberPad({ value, onChange, maxLength = 9, testID }: { readonly
           {row.map(keyButton)}
         </View>
       ))}
-      <Pressable role="button" aria-label="모두 지우기" onPress={() => press('clear')} style={({ pressed }) => ({ backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, borderCurve: 'continuous', minHeight: TOUCH.min, alignItems: 'center', justifyContent: 'center' })}>
+      <Tap role="button" aria-label="모두 지우기" onPress={() => press('clear')} style={({ pressed }) => ({ backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, borderCurve: 'continuous', minHeight: TOUCH.min, alignItems: 'center', justifyContent: 'center' })}>
         <Txt weight="bold" color="primaryText">
           모두 지우기
         </Txt>
-      </Pressable>
+      </Tap>
     </View>
   )
 }

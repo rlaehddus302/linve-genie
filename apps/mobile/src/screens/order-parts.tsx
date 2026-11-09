@@ -1,8 +1,8 @@
 // 주문 탭 화면들이 같이 쓰는 조각 (D-UX3-93, 홈처럼 토스식으로 다듬기): 흰 묶음 카드(안에 회색 묶음 이름) · 이름-값 줄 · 누르는 줄 · 작은 글자 단추.
 // 정산·리포트·입금 확인·입금 받는 곳·손님 정보 문자·영수증 화면이 같은 간격·글자 크기를 쓰게 한다.
 import type { ReactNode } from 'react'
-import { ActivityIndicator, Pressable, View } from 'react-native'
-import { Icon, Txt, useKit } from '../ui/kit/index.ts'
+import { ActivityIndicator, View } from 'react-native'
+import { Icon, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import type { TxtColor } from '../ui/kit/theme.tsx'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 
@@ -58,7 +58,7 @@ export function MenuRow({ title, sub, onPress, ariaLabel, busy, disabled, ink, t
   const { p } = useKit()
   const off = busy === true || disabled === true
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? title} aria-busy={busy === true} aria-disabled={off} disabled={off} onPress={onPress} testID={testID} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed && !off ? p.pressed : 'transparent', opacity: disabled === true ? 0.45 : 1 })}>
+    <Tap role="button" aria-label={ariaLabel ?? title} aria-busy={busy === true} aria-disabled={off} disabled={off} onPress={onPress} testID={testID} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed && !off ? p.pressed : 'transparent', opacity: disabled === true ? 0.45 : 1 })}>
       <View style={{ flex: 1, gap: 2 }}>
         <Txt step="bodyLarge" weight="book" color={ink ?? 'text'}>
           {title}
@@ -70,7 +70,7 @@ export function MenuRow({ title, sub, onPress, ariaLabel, busy, disabled, ink, t
         )}
       </View>
       {busy === true ? <ActivityIndicator color={p.textSub} /> : <Icon name="chevron" color={p.textSub} size={18} />}
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -82,12 +82,12 @@ export function ChipButton({ label, ariaLabel, onPress, busy, disabled, green, t
   const fill = green === true ? p.secondary : p.surfaceAlt
   const fillPressed = green === true ? p.secondaryPressed : p.softPressed
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? label} aria-busy={busy === true} aria-disabled={off} disabled={off} onPress={onPress} testID={testID} hitSlop={4} style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: SPACE.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed && !off ? fillPressed : fill, opacity: disabled === true ? 0.45 : 1 })}>
+    <Tap role="button" aria-label={ariaLabel ?? label} aria-busy={busy === true} aria-disabled={off} disabled={off} onPress={onPress} testID={testID} hitSlop={4} style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: SPACE.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed && !off ? fillPressed : fill, opacity: disabled === true ? 0.45 : 1 })}>
       {busy === true ? <ActivityIndicator size="small" color={green === true ? p.onSecondary : p.textSub} /> : null}
       <Txt step="meta" weight="medium" color={green === true ? 'onSecondary' : 'text'}>
         {label}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -95,10 +95,10 @@ export function ChipButton({ label, ariaLabel, onPress, busy, disabled, green, t
 export function TextLink({ label, ariaLabel, onPress, color = 'textSub', testID }: { readonly label: string; readonly ariaLabel?: string; readonly onPress: () => void; readonly color?: TxtColor; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? label} onPress={onPress} testID={testID} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', paddingHorizontal: SPACE.sm, marginHorizontal: -SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={ariaLabel ?? label} onPress={onPress} testID={testID} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-start', minHeight: 36, justifyContent: 'center', paddingHorizontal: SPACE.sm, marginHorizontal: -SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <Txt step="meta" weight="medium" color={color}>
         {label}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }

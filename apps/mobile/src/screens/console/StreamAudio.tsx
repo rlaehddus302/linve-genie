@@ -5,11 +5,11 @@
 // - 휴대폰 마이크를 켜면 마이크가 대신 듣는다(서버는 쉰다, D-LV1-06). 상태 줄은 색 + 글자로.
 // - D-LV1-14: 앱을 닫아도 서버는 방송이 끝날 때까지 듣고, 받을 앱이 없으면 서버가 읽고 바로 등록한다. 돌아오면 ServerHeard가 그동안 한 일을 보여 준다.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Animated, Easing, Platform, Pressable, ScrollView, View, type ScrollViewInstance } from 'react-native'
+import { Animated, Easing, Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import { readStreamAudioStatus, streamAudioLine, type StreamAudioStatus } from '@livejjim/web/src/lib/stream-audio.ts'
 import { get, post } from '../../api/client.ts'
 import type { VoiceSession, VoiceView } from '../../lib/voice-session.ts'
-import { DotStatus, Icon, Txt, useKit } from '../../ui/kit/index.ts'
+import { DotStatus, Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { BigButton, Body, Card, Hint } from '../../ui/parts.tsx'
 import type { StreamKeep } from '../../lib/stream-keep.ts'
@@ -174,9 +174,9 @@ export function ServerHeard({ broadcastId }: { readonly broadcastId: string }) {
           </View>
         ) : null}
         {heard.length > 0 ? (
-          <Pressable role="button" aria-label={open ? '서버가 들은 말 접기' : '서버가 들은 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)}>
+          <Tap role="button" aria-label={open ? '서버가 들은 말 접기' : '서버가 들은 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)}>
             <Txt step="caption" color="textSub">{open ? '들린 말 접기' : `들린 말 ${String(heard.length)}줄 펼치기`}</Txt>
-          </Pressable>
+          </Tap>
         ) : null}
         {open ? <Transcript lines={heard} /> : null}
         <BigButton small primary label="확인했어요" onPress={clear} />
@@ -200,7 +200,7 @@ export function heardTime(at: number): string {
 }
 
 /** 펼침 0 → 1. 시험·웹은 바로 */
-function useOpenMotion(open: boolean): { readonly value: Animated.Value; readonly shown: boolean } {
+export function useOpenMotion(open: boolean): { readonly value: Animated.Value; readonly shown: boolean } {
   const value = useRef(new Animated.Value(open ? 1 : 0)).current
   const [shown, setShown] = useState(open)
   useEffect(() => {
@@ -248,13 +248,8 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
   const height = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, target] })
   const lines = (
     <View role="log" aria-label="지난 들린 말" style={{ gap: SPACE.xs }} onLayout={(event) => setLogHeight(event.nativeEvent.layout.height)}>
-      {earlier.length === 0 ? (
-        <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-          <View style={{ width: column ?? undefined }} />
-          <Txt step="meta" color="textSub">지난 들린 말이 아직 없어요.</Txt>
-        </View>
-      ) : (
-        earlier.map((text, index) => {
+      {/* 지난 말이 없으면 비워 둔다 — 안내 문장을 띄우지 않는다 (D-UX4-69, 사용자 지시 2026-11-10) */}
+      {earlier.map((text, index) => {
           const at = times[index]
           return (
             <View key={`${String(index)}:${text}`} testID="heard-row" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm }}>
@@ -266,8 +261,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
               </View>
             </View>
           )
-        })
-      )}
+        })}
     </View>
   )
   return (
@@ -280,7 +274,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
         </Animated.View>
       ) : null}
       {open && line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
-      <Pressable role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <Tap role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
         <View onLayout={(event) => setColumn(event.nativeEvent.layout.width)}>
           {/* 자리 재기: 가장 긴 상태 알약 폭 — 보이지도 읽히지도 않는다 */}
           {DOCK_WORDS.map((word) => (
@@ -299,7 +293,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
         </View>
         {/* 아래에 붙은 창이라 위로 펼친다 — 닫혀 있으면 ⌃, 펼쳤으면 ⌄ */}
         <Icon name={open ? 'down' : 'up'} size={16} color={p.textSub} />
-      </Pressable>
+      </Tap>
     </View>
   )
 }

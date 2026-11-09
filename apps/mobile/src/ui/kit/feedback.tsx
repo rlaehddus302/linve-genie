@@ -1,8 +1,9 @@
 // 알려 주는 조각: 상태 꼬리표(StatusChip), 알림 막대(Toast + useToast), 잠깐 뜨는 알림(PopNote, D-UX3-11).
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Animated, Easing, Platform, Pressable, View } from 'react-native'
+import { Animated, Easing, Platform, View } from 'react-native'
 import { RADIUS, SHADOW, SPACE, TOAST_MS, TOUCH, type Tone } from './tokens.ts'
 import { Txt, useBottomInset, useKit, usePageTop } from './theme.tsx'
+import { Tap } from './press.tsx'
 
 const TONE_MARK: Readonly<Record<Tone, string>> = { neutral: '•', info: '•', success: '✓', warning: '!', danger: '✕' }
 
@@ -77,7 +78,7 @@ export function Toast({ toast, onDismiss, bottomOffset = 0 }: { readonly toast: 
       <View role={sticky ? 'alert' : 'status'} aria-live={sticky ? 'assertive' : 'polite'} style={{ backgroundColor: p.toast, borderRadius: RADIUS.lg, borderCurve: 'continuous', padding: SPACE.lg, gap: SPACE.sm, ...SHADOW.toast }}>
         <Txt color="onToast">{toast.message}</Txt>
         {actionLabel === undefined ? null : (
-          <Pressable
+          <Tap
             role="button"
             aria-label={actionLabel}
             onPress={() => {
@@ -89,7 +90,7 @@ export function Toast({ toast, onDismiss, bottomOffset = 0 }: { readonly toast: 
             <Txt step="bodyLarge" weight="bold" ink={p.toastAction}>
               {actionLabel}
             </Txt>
-          </Pressable>
+          </Tap>
         )}
       </View>
     </View>

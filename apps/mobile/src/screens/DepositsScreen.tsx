@@ -5,7 +5,7 @@
 // 입금 받는 곳(계좌 연동·휴대폰 알림)·기억한 입금자명은 "입금 받는 곳" 탭(DepositSources, D-APPX-03).
 // 모양 (D-UX3-93, 홈처럼): 좌우 20 · 흰 카드, 입금 이름·금액 한 줄, 제안 묶음은 옅은 회색 줄, [무시하기]·[다른 묶음 지정]은 위아래가 아니라 좌우로.
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import type { BundleView, DepositActionResult, DepositList, DepositStatus, DepositView, PastePreview, PasteSummary } from '@livejjim/web/src/api/deposit-types.ts'
 import { BEFORE_SALE, DEPOSIT_STATUS_WORD, PASTE_STATE_WORD, UNREADABLE_WORD, bundleChange, bundleWords, confirmLine, depositLabel, depositName, depositTime, pasteResultWords, reasonWords, revertQuestion, sourceWords } from '@livejjim/web/src/lib/deposit-words.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
@@ -14,7 +14,7 @@ import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { SourcesTab } from './DepositSources.tsx'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, PAGE_SIDE, SectionCard } from './order-parts.tsx'
@@ -184,14 +184,14 @@ function DepositCard({ deposit, tab, onDone }: { readonly deposit: DepositView; 
         <>
           <Notice tone="warning">{reasonWords(deposit.review.reason, deposit.review.twin)}</Notice>
           {deposit.review.suggestions.map((bundle) => (
-            <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`이 묶음으로 확정 — ${bundleWords(bundle)}`} onPress={() => setConfirming(bundle)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt })}>
+            <Tap key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`이 묶음으로 확정 — ${bundleWords(bundle)}`} onPress={() => setConfirming(bundle)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt })}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt step="bodyLarge" weight="book">{bundleWords(bundle)}</Txt>
                 {bundle.beforeSale ? <Txt step="caption" color="textSub">{BEFORE_SALE}</Txt> : null}
                 <Txt step="caption" weight="medium" color="primaryText">이 묶음으로 확정</Txt>
               </View>
               <Icon name="chevron" color={p.textSub} size={18} />
-            </Pressable>
+            </Tap>
           ))}
           {/* 좌우로 (D-UX4-01): 부정(무시하기) 왼쪽 */}
           <ButtonRow>
@@ -306,9 +306,9 @@ function ConfirmBundle({ deposit, bundle, onClose, onDone }: { readonly deposit:
         {change !== null && change.warning ? <Notice tone="warning">과입금이 생겨요. 확정한 뒤 정산에서 환불을 적어 주세요.</Notice> : null}
         {bundle.beforeSale ? <Notice tone="warning">{BEFORE_SALE}</Notice> : null}
         {bundle.canRemember ? (
-          <Pressable role="checkbox" aria-checked={remember} aria-label="이 입금자명을 이 손님 이름으로 기억하기" onPress={() => setRemember((value) => !value)} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Tap role="checkbox" aria-checked={remember} aria-label="이 입금자명을 이 손님 이름으로 기억하기" onPress={() => setRemember((value) => !value)} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <Txt>{`${remember ? '☑' : '☐'} 다음부터 이 입금자명을 이 손님으로 알아보기`}</Txt>
-          </Pressable>
+          </Tap>
         ) : null}
         {action.error !== null ? <Notice tone="danger" alert>{action.error.message}</Notice> : null}
       </View>
@@ -349,12 +349,12 @@ function FindBundle({ deposit, onClose, onPick }: { readonly deposit: DepositVie
         {bundles === null && error === null ? <Loading /> : null}
         {bundles !== null && bundles.length === 0 ? <Txt color="textSub">맞는 묶음이 없어요.</Txt> : null}
         {bundles?.map((bundle) => (
-          <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`고르기 — ${bundleWords(bundle)}`} onPress={() => onPick(bundle)} style={({ pressed }) => ({ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, marginHorizontal: -SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Tap key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`고르기 — ${bundleWords(bundle)}`} onPress={() => onPick(bundle)} style={({ pressed }) => ({ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, marginHorizontal: -SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <View style={{ flex: 1 }}>
               <Txt step="bodyLarge" weight="book">{bundleWords(bundle)}</Txt>
             </View>
             <Icon name="chevron" color={p.textSub} size={18} />
-          </Pressable>
+          </Tap>
         ))}
       </View>
     </BottomSheet>

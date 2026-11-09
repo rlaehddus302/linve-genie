@@ -4,7 +4,7 @@
 // 쓰기(서버 `sms` 이벤트)·받은 시각 읽기(ORD-08 AC6 — 손 입력과 같은 함수)·화면은 apps/web이 한다.
 import { closeCard, MAX_OPEN_CARDS, type SuggestionCard } from './card.ts'
 import { extractVoice, type ExtractOptions, type VoiceExtraction } from './extract.ts'
-import { readSmsSentence, type SmsOrder, type SmsProblem, type SmsReading, type SmsReadOptions } from './sms.ts'
+import { isBareSmsSentence, readSmsSentence, type SmsOrder, type SmsProblem, type SmsReading, type SmsReadOptions } from './sms.ts'
 
 // ── 설정 (그 기기에 저장 — 판매 규칙 설정표 밖) ─────────────────────────
 
@@ -64,7 +64,7 @@ export function resolveSmsSettings(override?: unknown): SmsVoiceSettings {
 export type VoiceSentence =
   | { readonly kind: 'sms'; readonly reading: SmsReading }
   | { readonly kind: 'product'; readonly extraction: VoiceExtraction }
-  /** 문자찜 문장인데 "문자찜도 듣기"가 꺼져 있다 — 어떤 카드도 만들지 않는다 */
+  /** 문자찜 문장인데 "문자찜도 듣기"가 꺼져 있거나, 주문 내용이 하나도 없다(`어.. 문자찜`, D-UX4-68) — 어떤 카드도 만들지 않는다 */
   | { readonly kind: 'none' }
 
 export interface VoiceSentenceOptions {
@@ -79,10 +79,16 @@ export interface VoiceSentenceOptions {
 /**
  * 음성 카드 입구: 문장 하나 → 문자찜(R-21) 또는 상품 등록(R-17) 중 하나만 (같은 말이 두 카드를 만들지 않게, R-21 2).
  * 문자찜 표시가 있으면 R-17을 부르지 않는다. "문자찜도 듣기"가 꺼져 있으면 그런 문장은 none(상품 카드도 아님).
+ * 주문 내용이 하나도 없는 문자찜 문장(`어.. 문자찜` — R-21 7a, D-UX4-68)도 none: "번호 없음" 카드로 판매자를 놀라게 하지 않는다.
  */
 export function readVoiceSentence(text: unknown, options: VoiceSentenceOptions = {}): VoiceSentence {
-  const reading = readSmsSentence(text, options.sms ?? {})
-  if (reading !== null) return resolveSmsSettings(options.smsSettings)['voice.smsListen'] ? { kind: 'sms', reading } : { kind: 'none' }
+  const sms = options.sms ?? {}
+  const reading = readSmsSentence(text, sms)
+  if (reading !== null) {
+    if (!resolveSmsSettings(options.smsSettings)['voice.smsListen']) return { kind: 'none' }
+    if (reading.problem === 'NUMBER_UNCLEAR' && isBareSmsSentence(text, sms)) return { kind: 'none' }
+    return { kind: 'sms', reading }
+  }
   return { kind: 'product', extraction: extractVoice(text, options.extract ?? {}) }
 }
 

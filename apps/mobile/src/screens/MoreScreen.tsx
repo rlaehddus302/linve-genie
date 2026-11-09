@@ -7,7 +7,7 @@ import { ScrollView, View } from 'react-native'
 import { openWeb, WEB_SCREENS } from '../lib/open-web.ts'
 import { OPEN_IN_WEB } from '../lib/words.ts'
 import { AppHeader, ConfirmSheet, HeaderTextButton, NAV, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { SPACE } from '../ui/kit/tokens.ts'
+import { GUTTER, SPACE } from '../ui/kit/tokens.ts'
 
 export interface MoreNavigation {
   /** 옛 더보기의 라벨·프린터 줄 — 라벨은 아래 탭이 됐다(D-UX3-01). 받아도 쓰지 않는다 */
@@ -56,7 +56,7 @@ export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavig
         }
         right={<HeaderTextButton label="설정" onPress={nav.openSettings} />}
       />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }}>
         {nav.openApp !== undefined
           ? MORE_GROUPS.map((group) => (
               <RowGroup key={group} title={group}>

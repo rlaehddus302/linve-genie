@@ -8,11 +8,11 @@
 // [다음]은 꽉 찬 띠가 아니라 큰 단추, "품종 없이 넘어가기"는 토스 회색 칩. 품종 칸 휴대폰 키보드가 뜨면 [다음]이 키보드 위로 올라온다.
 // 쓰기는 원문 칸(noText·priceText, SRV1 약속 2) — 가격은 "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 앱은 판정하지 않는다.
 import { useEffect, useRef, useState } from 'react'
-import { Animated, Easing, LayoutAnimation, Platform, Pressable, TextInput, View } from 'react-native'
+import { Animated, Easing, LayoutAnimation, Platform, TextInput, View } from 'react-native'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
-import { BigButton, ErrorLine, PressScale, SoftChip, Txt, font, useKit, useWrongShake } from '../../ui/kit/index.ts'
+import { BigButton, ErrorLine, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
@@ -173,7 +173,6 @@ function BigNumber({ label, question, digits, format, suffix }: { readonly label
     })
     if (added.length > 0) setLeaving((list) => [...list, ...added])
     // pieces는 signature가 같으면 같은 내용이다
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, shown])
   const box = { flexDirection: 'row' as const, alignItems: 'center' as const, minHeight: BIG * 1.5 }
   if (empty && leaving.length === 0) {
@@ -209,14 +208,14 @@ function BigNumber({ label, question, digits, format, suffix }: { readonly label
 /** 이미 답한 단계 (위로 올라간 값) — 누르면 그 단계로 돌아가 고친다 */
 function DoneLine({ label, value, onPress }: { readonly label: string; readonly value: string; readonly onPress: () => void }) {
   return (
-    <Pressable role="button" aria-label={`${label} ${value} 고치기`} onPress={onPress} style={({ pressed }) => ({ gap: 2, opacity: pressed ? 0.6 : 1 })}>
+    <Tap role="button" aria-label={`${label} ${value} 고치기`} onPress={onPress} style={({ pressed }) => ({ gap: 2, opacity: pressed ? 0.6 : 1 })}>
       <Txt step="body" color="textSub">
         {label}
       </Txt>
       <Txt step="title" weight="bold">
         {value}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -406,17 +405,18 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
 export function AddFab({ onPress, bottom }: { readonly onPress: () => void; readonly bottom: number }) {
   const { p } = useKit()
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={ADD_TITLE}
       testID="add-product"
       onPress={onPress}
-      style={({ pressed }) => ({ position: 'absolute', right: SPACE.xl, bottom, width: 58, height: 58, borderRadius: 29, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.primaryPressed : p.primary, transform: [{ scale: pressed ? 0.94 : 1 }], shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 })}
+      pressScale={0.94}
+      style={({ pressed }) => ({ position: 'absolute', right: SPACE.xl, bottom, width: 58, height: 58, borderRadius: 29, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.primaryPressed : p.primary, shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 })}
     >
       <View aria-hidden style={{ width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }}>
         <View style={{ position: 'absolute', width: 22, height: 3, borderRadius: 2, borderCurve: 'continuous', backgroundColor: p.onPrimary }} />
         <View style={{ position: 'absolute', width: 3, height: 22, borderRadius: 2, borderCurve: 'continuous', backgroundColor: p.onPrimary }} />
       </View>
-    </Pressable>
+    </Tap>
   )
 }

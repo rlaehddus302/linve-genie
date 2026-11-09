@@ -3,7 +3,7 @@
 // 자세히: 손님 기록(누적·마지막 구매·미입금·취소), 메모(200자, 연락처 금지, 비우면 한 번 묻기), 저장한 배송지(가린 이름·끝 4자리, 지우기),
 // 날짜별 기록(그날 이름·상품 합계·입금 상태). 판매자 사이에 손님 정보를 나누지 않는다(D-KP1-21).
 import { useEffect, useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import {
   BLOCKED_WORD,
   CAUTION_WORD,
@@ -38,8 +38,8 @@ import { kstDate } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, post, put, withQuery, type ApiError } from '../api/client.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { AppHeader, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CardEmpty, InfoCard, InfoRow, Initial, listRowStyle, MiniTag, SearchField, TextButton, TextChoices } from './customer-parts.tsx'
 
@@ -76,7 +76,7 @@ function CustomerLine({ row, today, onPress }: { readonly row: CustomerRow; read
   const { p } = useKit()
   const summary = hasNoPurchase(row) ? NO_PURCHASE : `누적 ${formatWon(row.purchaseTotal)} · ${String(row.purchaseDays)}번 · 마지막 ${customerDate(row.lastPurchase ?? '', today)}`
   return (
-    <Pressable role="button" aria-label={`${row.name} · ${row.kindLabel}${row.regular ? ` · ${REGULAR_WORD}` : ''}${row.caution ? ` · ${CAUTION_WORD}` : ''}`} onPress={onPress} style={({ pressed }) => listRowStyle(p, pressed)}>
+    <Tap role="button" aria-label={`${row.name} · ${row.kindLabel}${row.regular ? ` · ${REGULAR_WORD}` : ''}${row.caution ? ` · ${CAUTION_WORD}` : ''}`} onPress={onPress} style={({ pressed }) => listRowStyle(p, pressed)}>
       <Initial name={row.name} />
       <View style={{ flex: 1, gap: 2 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap' }}>
@@ -91,7 +91,7 @@ function CustomerLine({ row, today, onPress }: { readonly row: CustomerRow; read
         </Txt>
       </View>
       <Icon name="chevron" color={p.textSub} size={18} />
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -152,10 +152,10 @@ export function CustomersScreen({ onBack, openCustomer }: { readonly onBack?: ()
       {/* 모든 화면과 같은 머리 줄 (D-UX4-59): 탭이면 왼쪽 큰 제목 "고객", 쌓인 화면이면 뒤로 + 가운데 "손님" */}
       {onBack !== undefined ? <AppHeader title="손님" onBack={onBack} /> : <AppHeader title="고객" />}
       {/* 홈처럼 (D-UX3-95): 옆 여백 20 · 카드 사이 16, 찾기 칸은 흰 둥근 칸, 정렬은 글자로만, 손님은 흰 카드 하나에 */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
         <SearchField label="이름으로 찾기" value={query} onChangeText={setQuery} />
-        <View role="radiogroup" aria-label="거르기" style={{ marginHorizontal: -SPACE.xl }}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: SPACE.xl, paddingVertical: SPACE.xs }}>
+        <View role="radiogroup" aria-label="거르기" style={{ marginHorizontal: -GUTTER }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: GUTTER, paddingVertical: SPACE.xs }}>
             {CUSTOMER_FILTERS.map((key) => (
               <Pill key={key} on={filter === key} label={FILTER_WORD[key]} ariaLabel={`거르기 ${FILTER_WORD[key]}`} onPress={() => setFilter(key)} />
             ))}
@@ -231,7 +231,7 @@ function CustomerDetail({ id, row, today, onBack }: { readonly id: string; reado
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="customer-detail">
       <AppHeader title={shown?.name ?? ''} onBack={onBack} backLabel="손님 목록으로" />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.xs, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
         {shown === undefined ? (error === null ? <Loading /> : null) : (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap', paddingHorizontal: SPACE.xs }}>
             <Txt color="textSub">{shown.kindLabel}</Txt>

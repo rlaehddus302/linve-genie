@@ -1,10 +1,10 @@
 // 실제 방송 날짜 고르기 (정산·입금·리포트·손님 화면이 같이 쓴다 — 포장 화면의 날짜 알약과 같은 모양).
 // 날짜는 서버 `GET /api/days`의 실제 범위만(리허설 날짜는 넣지 않는다), 최근 8개까지.
 import { useEffect, useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, type ApiError } from '../api/client.ts'
-import { Txt, useKit } from './kit/index.ts'
+import { Tap, Txt, useKit } from './kit/index.ts'
 import { RADIUS, SPACE, pressedFill } from './kit/tokens.ts'
 
 interface Day {
@@ -46,11 +46,11 @@ export function Pill({ on, label, ariaLabel, onPress }: { readonly on: boolean; 
   const { p } = useKit()
   return (
     // 토스 알약처럼 (D-UX3-89): 높이 36, 글자는 본문보다 큰 bodyLarge·중간 굵기, 좌우 14 — 옛 높이 44·작은 글자
-    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: SPACE.md + 1, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: on ? p.primary : p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
+    <Tap role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: SPACE.md + 1, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: on ? p.primary : p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
       <Txt step="bodyLarge" weight="medium" color={on ? 'onPrimary' : 'text'}>
         {label}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 

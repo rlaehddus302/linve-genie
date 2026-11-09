@@ -3,13 +3,13 @@
 // 서버 목록은 오래된 순이라 여기서 뒤집어 최근 것을 위로 둔다 — 진행 중 방송도 가장 최근 것을 고른다.
 // 리허설 방송은 앱 어디에도 보이지 않는다 (D-UX3-86) — 예전에 만든 것도 목록에서 뺀다.
 import { useEffect, useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { EmptyFill, AppHeader, Icon, RowGroup, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { EmptyFill, AppHeader, Icon, RowGroup, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
 
@@ -105,7 +105,7 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
   // 방송 길이는 지난 시간과 헷갈려 뺐다 (D-UX3-89)
   const sub = historyAgo(item.endedAt ?? item.createdAt, now) ?? ''
   return (
-    <Pressable role="button" aria-label={`${broadcastTitle(item)} — ${sub}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={`${broadcastTitle(item)} — ${sub}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {platform === undefined ? (
         <View aria-hidden style={{ width: 34, height: 34, borderRadius: 34 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="play" color={p.textSub} size={18} />
@@ -124,7 +124,7 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
         )}
       </View>
       <Icon name="chevron" color={p.textSub} size={18} />
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -152,7 +152,7 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="all-broadcasts">
       <AppHeader title="내 방송" onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }}>
         {items === null && error === null ? <Loading /> : null}
         {error !== null ? (
           <Notice tone="danger" alert>

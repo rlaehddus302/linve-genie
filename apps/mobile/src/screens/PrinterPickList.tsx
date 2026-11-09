@@ -4,8 +4,8 @@
 // 줄에 '기본·실험' 꼬리표를 달지 않는다 (D-UX3-19, 사용자 지시 2026-11-03 — 옛: 실험 기종 줄에 "실험" 꼬리표). 어느 프린터든 연결 뒤 테스트 인쇄로 확인한다.
 // 토스식 다듬기 (D-UX3-94): 기기마다 큰 초록 단추를 쌓던 것을 줄(이름 · 기종·신호 · ›)로, 닫기는 아래 회색 단추 하나.
 import type { PickEntry } from '@livejjim/mobile-ble'
-import { ActivityIndicator, Pressable, View } from 'react-native'
-import { BigButton, Icon, Txt, useKit } from '../ui/kit/index.ts'
+import { ActivityIndicator, View } from 'react-native'
+import { BigButton, Icon, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 
 export const PICK_TITLE = '라벨 프린터를 골라 주세요'
@@ -29,7 +29,7 @@ export function PrinterPickList({ entries, onPick, onClose }: { readonly entries
       ) : (
         <View style={{ marginHorizontal: -SPACE.sm }}>
           {entries.map((entry) => (
-            <Pressable key={entry.device.id} role="button" aria-label={`${entry.title} — ${entry.detail}`} onPress={() => onPick(entry)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.button, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+            <Tap key={entry.device.id} role="button" aria-label={`${entry.title} — ${entry.detail}`} onPress={() => onPick(entry)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.button, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Txt step="bodyLarge" weight="book">
                   {entry.title}
@@ -39,7 +39,7 @@ export function PrinterPickList({ entries, onPick, onClose }: { readonly entries
                 </Txt>
               </View>
               <Icon name="chevron" color={p.textSub} size={18} />
-            </Pressable>
+            </Tap>
           ))}
         </View>
       )}

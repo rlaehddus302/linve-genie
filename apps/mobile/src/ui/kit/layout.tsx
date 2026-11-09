@@ -1,11 +1,11 @@
 // 자리 잡는 조각: 화면 틀(KitScreen), 묶음(Section), 카드(Card), 줄(ListRow·ToggleRow), 빈 화면(EmptyState).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Animated, Easing, Platform, Pressable, ScrollView, View } from 'react-native'
+import { Animated, Easing, Platform, ScrollView, View } from 'react-native'
 import { Icon } from './app.tsx'
 import { BigButton } from './buttons.tsx'
 import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
-import { usePressMotion } from './press.tsx'
+import { Tap, usePressMotion } from './press.tsx'
 
 /** 화면 틀: 맨 위 큰 질문형 제목 + 내용(스크롤) + 맨 아래 고정 영역(footer, 보통 BottomCTA). 한 화면 한 가지 일. */
 export function KitScreen({ title, lead, children, footer, testID }: { readonly title: string; readonly lead?: string; readonly children?: ReactNode; readonly footer?: ReactNode; readonly testID?: string }) {
@@ -107,10 +107,10 @@ export function ListRow({ title, subtitle, value, right, onPress, ariaLabel, tes
     )
   }
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? [title, value].filter((x) => x !== undefined).join(' — ')} onPress={onPress} testID={testID} style={({ pressed }) => ({ ...frame, backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, borderCurve: 'continuous', marginHorizontal: -SPACE.sm, paddingHorizontal: SPACE.sm })}>
+    <Tap role="button" aria-label={ariaLabel ?? [title, value].filter((x) => x !== undefined).join(' — ')} onPress={onPress} testID={testID} style={({ pressed }) => ({ ...frame, backgroundColor: pressed ? p.pressed : 'transparent', borderRadius: RADIUS.md, borderCurve: 'continuous', marginHorizontal: -SPACE.sm, paddingHorizontal: SPACE.sm })}>
       {body}
       <Icon name="chevron" size={20} />
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -137,8 +137,9 @@ export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, tes
   const gap = (SWITCH.height - SWITCH.knob) / 2
   const knobX = move.interpolate({ inputRange: [0, 1], outputRange: [gap, SWITCH.width - SWITCH.knob - gap] })
   const track = move.interpolate({ inputRange: [0, 1], outputRange: [p.soft, p.primary] })
+  // 이름 묶음: 스위치와 한 줄일 때만 가로로 남은 폭을 채운다. 설명 단추 안(세로 틀)에서 flex: 1이면 위아래로 늘어나 이름이 위에 붙는다 (D-UX4-73)
   const words = (
-    <View style={{ flex: 1, gap: SPACE.xs }}>
+    <View style={onHelp === undefined ? { flex: 1, gap: SPACE.xs } : { gap: SPACE.xs }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         <Txt step="bodyLarge" weight="medium">
           {title}
@@ -164,20 +165,22 @@ export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, tes
   }
   if (onHelp === undefined) {
     return (
-      <Pressable {...switchProps} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingVertical: SPACE.sm, opacity: disabled === true ? 0.45 : 1 }}>
+      <Tap {...switchProps} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingVertical: SPACE.sm, opacity: disabled === true ? 0.45 : 1 }}>
         {words}
         {knob}
-      </Pressable>
+      </Tap>
     )
   }
   // 설명이 있는 줄 (D-UX4-64, 토스 "빠른 로그인 ⓘ"): 이름 자리를 누르면 줄 전체가 꾸욱 작아지며 옅은 회색 둥근 바탕이 생기고, 떼면 설명 판. 스위치는 따로 켜고 끈다
   const size = press.value.interpolate({ inputRange: [0, 1], outputRange: [1, 0.97] })
   return (
     <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min + SPACE.sm, marginHorizontal: -SPACE.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: helpDown ? p.surfaceAlt : 'transparent', transform: [{ scale: size }] }}>
-      <Pressable
+      {/* 줄 전체가 작아지므로(위 size) 이 칸은 따로 줄이지 않는다 */}
+      <Tap
         role="button"
         aria-label={`${title} 설명 보기`}
         onPress={onHelp}
+        pressScale={1}
         onPressIn={() => {
           setHelpDown(true)
           press.pressIn()
@@ -189,10 +192,10 @@ export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, tes
         style={{ flex: 1, alignSelf: 'stretch', justifyContent: 'center' }}
       >
         {words}
-      </Pressable>
-      <Pressable {...switchProps} hitSlop={SPACE.sm} style={{ opacity: disabled === true ? 0.45 : 1 }}>
+      </Tap>
+      <Tap {...switchProps} hitSlop={SPACE.sm} style={{ opacity: disabled === true ? 0.45 : 1 }}>
         {knob}
-      </Pressable>
+      </Tap>
     </Animated.View>
   )
 }

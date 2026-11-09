@@ -8,6 +8,7 @@ import { PAGE, RADIUS, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
 import { tapHaptic } from '../../native/haptics.ts'
 import { TabIcon, type TabIconName } from './tab-icons.tsx'
+import { Tap } from './press.tsx'
 
 export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus' | 'down' | 'up' | 'gear' | 'edit' | 'help'
 
@@ -180,6 +181,7 @@ export const BACK_STROKE = 2.4
 export function BackButton({ label = '뒤로', onPress }: { readonly label?: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
+    // 누름 예외: 뒤로 가기 — 누르면 화살표만 연해진다 (D-UX4-72)
     <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={6} style={{ width: 48, height: 48, alignItems: 'center', justifyContent: 'center' }}>
       {({ pressed }) => <Icon name="back" size={BACK_ICON} color={pressed ? p.iconPressed : p.text} />}
     </Pressable>
@@ -223,14 +225,14 @@ export function NavBar({ title, onBack, backLabel = '뒤로', right, testID }: {
 export function HeaderTextButton({ label, ariaLabel, onPress, testID }: { readonly label: string; readonly ariaLabel?: string; readonly onPress: () => void; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ height: 40, minWidth: 48, paddingHorizontal: SPACE.sm + 2, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={ariaLabel ?? label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ height: 40, minWidth: 48, paddingHorizontal: SPACE.sm + 2, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {/* 제목처럼 한글을 2.5 올려 뒤로 ‹·가운데 제목과 한 줄에 맞춘다 (D-UX4-55, 사용자 지시 "오른쪽에 있는 요소들이 수평 정렬이 안 된거 같아") */}
       <View style={{ transform: [{ translateY: NAV.titleLift }] }}>
         <Txt step="nav" weight="book" ink={p.tabInk}>
           {label}
         </Txt>
       </View>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -262,9 +264,9 @@ export function AppHeader({ title, onBack, backLabel = '뒤로', right, left, te
 export function HeaderIconButton({ icon, label, onPress, testID, color, size }: { readonly icon: IconName; readonly label: string; readonly onPress: () => void; readonly testID?: string; readonly color?: string; readonly size?: number }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <Icon name={icon} {...(color === undefined ? {} : { color })} {...(size === undefined ? {} : { size })} />
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -347,7 +349,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
             const on = tab.key === active
             const ink = on ? p.text : p.tabInk
             return (
-              <Pressable key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
+              <Tap key={tab.key} role="tab" aria-selected={on} aria-label={tab.word} onPress={() => {
                   tapHaptic()
                   onSelect(tab.key)
                 }} style={({ pressed }) => ({ flex: 1, minHeight: TAB_CELL, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: pressed ? p.softPressed : on && cell === 0 ? p.soft : 'transparent' })}>
@@ -359,7 +361,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
                     </Txt>
                   </>
                 )}
-              </Pressable>
+              </Tap>
             )
           })}
         </View>
@@ -372,7 +374,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
 export function HeroButton({ title, sub, icon = 'play', onPress, disabled, ariaLabel, testID }: { readonly title: string; readonly sub?: string; readonly icon?: IconName; readonly onPress: () => void; readonly disabled?: boolean; readonly ariaLabel?: string; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? title} aria-disabled={disabled === true} disabled={disabled === true} onPress={onPress} testID={testID} style={({ pressed }) => ({ borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: 22, paddingHorizontal: SPACE.xl, gap: 6, backgroundColor: pressed && disabled !== true ? p.primaryPressed : p.primary, opacity: disabled === true ? 0.5 : 1 })}>
+    <Tap role="button" aria-label={ariaLabel ?? title} aria-disabled={disabled === true} disabled={disabled === true} onPress={onPress} testID={testID} style={({ pressed }) => ({ borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: 22, paddingHorizontal: SPACE.xl, gap: 6, backgroundColor: pressed && disabled !== true ? p.primaryPressed : p.primary, opacity: disabled === true ? 0.5 : 1 })}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <Icon name={icon} color={p.onPrimary} size={26} />
         <Txt step="title" weight="heavy" color="onPrimary">
@@ -384,7 +386,7 @@ export function HeroButton({ title, sub, icon = 'play', onPress, disabled, ariaL
           {sub}
         </Txt>
       )}
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -434,7 +436,7 @@ export function TodoRow({ count, tone, title, sub, onPress, ariaLabel, testID }:
   const { p } = useKit()
   const name = ariaLabel ?? (count === undefined ? title : `${title} ${String(count)}`)
   return (
-    <Pressable role="button" aria-label={name} onPress={onPress} testID={testID} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={name} onPress={onPress} testID={testID} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {count === undefined ? null : <CountBadge count={count} tone={tone ?? 'gray'} />}
       <View style={{ flex: 1, gap: 2 }}>
         {/* 토스 "전체" 줄처럼 (D-UX3-87): 줄 이름은 보통 굵기(중간), 줄 간격은 좁게 */}
@@ -448,7 +450,7 @@ export function TodoRow({ count, tone, title, sub, onPress, ariaLabel, testID }:
         )}
       </View>
       <Icon name="chevron" color={p.textSub} size={18} />
-    </Pressable>
+    </Tap>
   )
 }
 

@@ -3,7 +3,7 @@
 // 금액은 서버(엔진)가 정한 정수 원 그대로 보인다. 쓰기는 웹과 같은 `/api/events`에 같은 요청 번호로(다시 보내도 한 번만 기록).
 // 입금 금액이 남은 금액과 다르면 한 번 더 묻는다(오타 방지 — AC-S06-30). 30일 지난 날짜(봉인)는 보기만 한다.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import type { PackingList, ReceiptBuyers, Settlement, WriteResult } from '@livejjim/web/src/api/types.ts'
 import type { ParcelBrief, ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { parcelLine } from '@livejjim/web/src/lib/parcel-words.ts'
@@ -45,7 +45,7 @@ import { formatWon, PAYMENT_WORD, paymentWord, RETRY_NOW } from '../lib/words.ts
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { useDayScope } from '../lib/day-scope.ts'
 import { signalScreens, useScreenSignal } from '../lib/screen-signals.ts'
-import { AppHeader, EmptyFill, NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useHoldRouteSwipe, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { AppHeader, EmptyFill, NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useHoldRouteSwipe, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { AddressCard, ParcelTag } from './ParcelAddress.tsx'
@@ -188,11 +188,11 @@ function QuickLinks({ links }: { readonly links: readonly { readonly label: stri
   return (
     <View role="group" aria-label="바로 가기" style={{ flexDirection: 'row', backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', padding: SPACE.xs + 2, gap: SPACE.xs }}>
       {links.map((link) => (
-        <Pressable key={link.label} role="button" aria-label={link.label} onPress={link.onPress} style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.min, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+        <Tap key={link.label} role="button" aria-label={link.label} onPress={link.onPress} style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.min, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
           <Txt step="body" weight="medium" center numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
             {link.label}
           </Txt>
-        </Pressable>
+        </Tap>
       ))}
     </View>
   )
@@ -241,7 +241,7 @@ function SettleRow({ settlement, name, parcel, steps, onPress }: { readonly sett
   // 꼬리표 셋(색 바탕 + 기호)을 줄이고 (D-UX3-93): 아래 한 줄 작은 글자로 "미입금 · 정보 전 · 확인서 전" — 아직 안 한 것만 주황 글자
   const dot = <Txt step="caption" color="textSub">{' · '}</Txt>
   return (
-    <Pressable role="button" aria-label={`${name} · ${word} · 최종 ${formatWon(settlement.total)}${left > 0 ? ` · 남은 금액 ${formatWon(left)}` : ''}${parcel !== null ? ` · ${parcelLine(parcel)}` : ''}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, minHeight: TOUCH.min, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={`${name} · ${word} · 최종 ${formatWon(settlement.total)}${left > 0 ? ` · 남은 금액 ${formatWon(left)}` : ''}${parcel !== null ? ` · ${parcelLine(parcel)}` : ''}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, minHeight: TOUCH.min, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <View style={{ flex: 1, gap: 2 }}>
         <Txt step="bodyLarge" weight="book" numberOfLines={1}>{name}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -266,7 +266,7 @@ function SettleRow({ settlement, name, parcel, steps, onPress }: { readonly sett
         {left > 0 ? <Txt step="caption" color="textSub">{`남은 ${formatWon(left)}`}</Txt> : null}
       </View>
       <Icon name="chevron" color={p.textSub} size={18} />
-    </Pressable>
+    </Tap>
   )
 }
 

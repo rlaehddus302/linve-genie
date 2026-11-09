@@ -5,7 +5,7 @@
 // - 쓰기는 누를 때 만든 요청 번호로, 끊기면 같은 번호로 다시 보낸다. 409(그 사이 구매자가 고침·접수됨)면 지금 모습을 다시 받는다.
 // - 봉인한 날짜는 보기만. 이름·주소·메모는 글자로만 그린다. 연락처·주소는 주소창·로그에 넣지 않는다(본문으로만 보낸다).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Pressable, View } from 'react-native'
+import { ActivityIndicator, View } from 'react-native'
 import type { AddressFields, BundleView, ParcelBrief } from '@livejjim/web/src/api/parcel-types.ts'
 import { PREFILL_CONFIRMED, PREFILL_HELP, PREFILL_TITLE } from '@livejjim/web/src/lib/ledger-words.ts'
 import {
@@ -31,7 +31,7 @@ import {
 } from '@livejjim/web/src/lib/parcel-words.ts'
 import { get, isApiError, newRequestId, post, put, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { BigButton, BottomSheet, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { BigButton, BottomSheet, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
@@ -44,12 +44,12 @@ export function TextAction({ label, ariaLabel, onPress, disabled, chevron = true
   // strong: 흐름의 다음 걸음("다음 손님", "택배 접수") — 초록 글자로 조금 더 눈에 띄게
   const ink = strong ? p.primaryText : p.textSub
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? label} aria-disabled={disabled === true} disabled={disabled === true} onPress={onPress} hitSlop={8} style={({ pressed }) => ({ alignSelf: align, flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 36, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent', opacity: disabled === true ? 0.45 : 1 })}>
+    <Tap role="button" aria-label={ariaLabel ?? label} aria-disabled={disabled === true} disabled={disabled === true} onPress={onPress} hitSlop={8} style={({ pressed }) => ({ alignSelf: align, flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 36, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent', opacity: disabled === true ? 0.45 : 1 })}>
       <Txt step="body" weight={strong ? 'medium' : 'book'} ink={ink}>
         {label}
       </Txt>
       {chevron ? <Icon name="chevron" color={ink} size={16} /> : null}
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -61,12 +61,12 @@ export function RowAction({ label, ariaLabel, onPress, disabled, busy }: { reado
   const { p } = useKit()
   const off = disabled === true || busy === true
   return (
-    <Pressable role="button" aria-label={ariaLabel ?? label} aria-disabled={off} aria-busy={busy === true} disabled={off} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 40, paddingHorizontal: SPACE.md + 2, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed && !off ? p.softPressed : p.surfaceAlt, opacity: disabled === true ? 0.45 : 1 })}>
+    <Tap role="button" aria-label={ariaLabel ?? label} aria-disabled={off} aria-busy={busy === true} disabled={off} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 40, paddingHorizontal: SPACE.md + 2, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed && !off ? p.softPressed : p.surfaceAlt, opacity: disabled === true ? 0.45 : 1 })}>
       {busy === true ? <ActivityIndicator size="small" color={p.textSub} /> : null}
       <Txt step="body" weight="medium">
         {label}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 

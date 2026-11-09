@@ -8,6 +8,7 @@ import { BACKDROP_OPACITY, PAGE, RADIUS, SHADOW, SPACE, WEIGHT } from './tokens.
 import { PageTopProvider, Txt, useBottomInset, useKit, usePageTop, useTopInset } from './theme.tsx'
 import { font } from './font.ts'
 import { NAV, NavBar } from './app.tsx'
+import { Tap } from './press.tsx'
 
 export interface BottomSheetProps {
   readonly visible: boolean
@@ -68,6 +69,7 @@ export function BottomSheet({ visible, onClose, title, children, actions, testID
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView behavior={KEYBOARD_AVOID} style={{ flex: 1, justifyContent: 'flex-end' }}>
         <Animated.View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: p.backdrop, opacity: backdrop }}>
+          {/* 누름 예외: 시트 바깥 (D-UX4-72) */}
           <Pressable aria-label="판 닫기" role="button" onPress={onClose} style={{ flex: 1 }} />
         </Animated.View>
         <Animated.View
@@ -286,7 +288,7 @@ function PopupButton({ label, kind, disabled, busy, onPress }: { readonly label:
   const fill = kind === 'confirm' ? p.primary : p.surfaceAlt
   const fillPressed = kind === 'confirm' ? p.primaryPressed : p.pressed
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={label}
       aria-disabled={off}
@@ -299,7 +301,7 @@ function PopupButton({ label, kind, disabled, busy, onPress }: { readonly label:
       <Text allowFontScaling={false} numberOfLines={1} style={{ fontSize: POPUP_BUTTON_TEXT, lineHeight: Math.round(POPUP_BUTTON_TEXT * 1.3), ...font(WEIGHT.medium), color: kind === 'confirm' ? p.onPrimary : p.textSub }}>
         {label}
       </Text>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -312,6 +314,7 @@ export function PopupDialog({ visible, message, name, description, confirmDisabl
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onCancel} statusBarTranslucent>
       <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: SPACE.xxl }}>
         <Animated.View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: p.backdrop, opacity: backdrop }}>
+          {/* 누름 예외: 시트 바깥 (D-UX4-72) */}
           <Pressable aria-label="팝업 닫기" role="button" onPress={onCancel} style={{ flex: 1 }} />
         </Animated.View>
         <Animated.View

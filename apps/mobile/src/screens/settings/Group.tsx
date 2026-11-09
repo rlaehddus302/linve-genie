@@ -2,13 +2,13 @@
 // 그 아래 줄들(오른쪽에 값·스위치·›). 곁길 일은 큰 단추 대신 글자만의 작은 단추로, 설명은 카드 아래 한 줄 회색 글로.
 // 공통 조각(ui/kit)은 다른 탭도 쓰니 건드리지 않고 이 화면들에서만 쓴다.
 import type { ReactNode } from 'react'
-import { ActivityIndicator, Pressable, View } from 'react-native'
-import { Icon, Txt, useKit } from '../../ui/kit/index.ts'
+import { ActivityIndicator, View } from 'react-native'
+import { Icon, Txt, useKit, Tap } from '../../ui/kit/index.ts'
 import type { TxtColor } from '../../ui/kit/theme.tsx'
-import { RADIUS, SPACE, TOUCH } from '../../ui/kit/tokens.ts'
+import { RADIUS, GUTTER, SPACE, TOUCH } from '../../ui/kit/tokens.ts'
 
 /** 설정 화면 양옆 여백 */
-export const SETTINGS_GUTTER = SPACE.lg
+export const SETTINGS_GUTTER = GUTTER
 
 /** 흰 묶음 카드: title이 있으면 카드 안 맨 위에 작은 회색 이름(홈 "내 방송"·전체 탭 묶음과 같은 모양) */
 export function SettingsGroup({ title, label, children, testID }: { readonly title?: string; readonly label?: string; readonly children?: ReactNode; readonly testID?: string }) {
@@ -66,7 +66,7 @@ export function TextButton({ label, ariaLabel, onPress, disabled, busy, color = 
   const { p } = useKit()
   const off = disabled === true || busy === true
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={ariaLabel ?? label}
       aria-disabled={off}
@@ -81,7 +81,7 @@ export function TextButton({ label, ariaLabel, onPress, disabled, busy, color = 
       <Txt weight="medium" color={color}>
         {label}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 
@@ -89,13 +89,13 @@ export function TextButton({ label, ariaLabel, onPress, disabled, busy, color = 
 export function DetailToggle({ label, open, onPress }: { readonly label: string; readonly open: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="button" aria-label={`${label} ${open ? '닫기' : '열기'}`} aria-expanded={open} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: TOUCH.min, marginHorizontal: -SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={`${label} ${open ? '닫기' : '열기'}`} aria-expanded={open} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: TOUCH.min, marginHorizontal: -SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <View style={{ flex: 1 }}>
         <Txt step="bodyLarge" weight="book" color="textSub">
           {label}
         </Txt>
       </View>
       <Icon name={open ? 'up' : 'down'} color={p.textSub} size={20} />
-    </Pressable>
+    </Tap>
   )
 }

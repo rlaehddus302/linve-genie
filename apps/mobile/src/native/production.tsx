@@ -5,6 +5,7 @@
 // - 기억한 프린터는 앱 저장소(AsyncStorage)에 ID만 둔다 — 서버로 보내지 않는다. 앱을 다시 켜면 "다시 연결"이 고르기 창 없이 잇는다.
 // - 시험용 프린터는 L-7 가짜 프린터다. 서버가 시험 모드일 때 화면이 고를 때만 만든다(운영 서버에서는 고를 수 없다).
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { wireDockChoice } from '../lib/dock-choice.ts'
 import { Modal, PermissionsAndroid, Platform, ScrollView } from 'react-native'
 import { BleManager } from 'react-native-ble-plx'
 import { getAudioCapture } from '@livejjim/mobile-audio/native'
@@ -104,6 +105,8 @@ export function installProductionNative(): void {
     createTest: () => createReconnectingAdapter(createFakePrinter({ methods: ['bluetooth'] }), AUTO_RECONNECT_POLICY),
   })
   void wirePrinterMemory(device, (value) => printer.restoreDeviceMemory(value), AsyncStorage)
+  // 방송 화면 아래 창 고르기 (D-UX4-71) — 이 휴대폰에만
+  void wireDockChoice(AsyncStorage)
   setNativeModules({ audio: new LiveNativeAudio(getAudioCapture), ble: printer })
   // 휴대폰 알림 받기 (SMS3 AC-SMS3-29) — 모듈이 없는 빌드(Expo Go·웹)는 null: 설정 칸이 "쓸 수 없어요"
   // 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)는 매니페스트에 서비스가 없으므로 끼우지 않는다

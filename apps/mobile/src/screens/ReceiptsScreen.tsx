@@ -8,7 +8,7 @@
 // 모양 (D-UX3-93, 홈처럼): 기간 판매대장은 머리 오른쪽 작은 단추, "한 번에 하기"는 초록 단추 하나 + 줄, 구매자는 흰 카드 하나에 줄로 —
 // 줄마다 이름·금액·입금 상태, 할 일은 작은 회색 단추(문자 보내기만 옅은 초록). 세금 증빙 안내는 맨 아래 작은 글.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, ScrollView, Share, View } from 'react-native'
+import { ScrollView, Share, View } from 'react-native'
 import type { BroadcastItem, ReceiptBuyerRow, ReceiptBuyers, ReceiptLink } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { linkWords, shareText, usableLink } from '@livejjim/web/src/lib/receipt-links.ts'
@@ -34,7 +34,7 @@ import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile, nativeSms } from '../native/index.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { EmptyFill, AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, ChipButton, MenuRow, PAGE_SIDE, SectionCard } from './order-parts.tsx'
@@ -663,7 +663,7 @@ function LedgerSheet({ initial, onClose }: { readonly initial: string | null; re
             {inPeriod.map((item) => {
               const on = !unpicked.has(item.id)
               return (
-                <Pressable
+                <Tap
                   key={item.id}
                   role="checkbox"
                   aria-checked={on}
@@ -682,7 +682,7 @@ function LedgerSheet({ initial, onClose }: { readonly initial: string | null; re
                     {on ? <Icon name="check" color={p.onPrimary} size={18} /> : null}
                   </View>
                   <Txt>{`${dateWords(item.date)} · ${item.title}`}</Txt>
-                </Pressable>
+                </Tap>
               )
             })}
           </>

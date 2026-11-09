@@ -1,8 +1,9 @@
 // 공통 조각: 큰 단추·입력칸·알림 상자·꼬리표·화면 틀. 모양은 공통 디자인 바탕(ui/kit)에서 가져오고,
 // 역할(role)·이름(aria-label)을 정확히 달아 시험·보조 기술이 잡기 쉽게 한다. (화면들이 쓰는 이 이름·인자는 그대로 둔다.)
 import type { ReactNode } from 'react'
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View, type TextInputProps } from 'react-native'
-import { RADIUS, SHADOW, SPACE, TOUCH, pressedFill } from './kit/tokens.ts'
+import { ActivityIndicator, Platform, ScrollView, Text, View, type TextInputProps } from 'react-native'
+import { Tap } from './kit/press.tsx'
+import { RADIUS, SHADOW, GUTTER, SPACE, TOUCH, pressedFill } from './kit/tokens.ts'
 import { Txt, useKit, useTabBarRoom, type TxtColor } from './kit/theme.tsx'
 import { AlertMark, UnderlineField } from './kit/inputs.tsx'
 import type { Tone } from './theme.ts'
@@ -14,7 +15,7 @@ export function Screen({ title, children, testID }: { readonly title?: string; r
   // 아래 탭 위에서는(라벨 탭) 탭 높이만큼 더 비운다 (D-UX3-13)
   const room = useTabBarRoom()
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.background }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: title === undefined ? SPACE.sm : SPACE.xxl, gap: SPACE.lg, paddingBottom: 48 + room }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled" testID={testID}>
+    <ScrollView style={{ flex: 1, backgroundColor: p.background }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: title === undefined ? SPACE.sm : SPACE.xxl, gap: SPACE.lg, paddingBottom: 48 + room }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled" testID={testID}>
       {title !== undefined ? <Title>{title}</Title> : null}
       {children}
     </ScrollView>
@@ -88,7 +89,7 @@ export function BigButton({ label, onPress, primary, danger, disabled, small, ar
   const fill = danger === true ? p.danger : primary === true ? p.primary : p.secondary
   const ink: TxtColor = danger === true ? 'onDanger' : primary === true ? 'onPrimary' : 'onSecondary'
   return (
-    <Pressable
+    <Tap
       role="button"
       aria-label={ariaLabel ?? label}
       aria-disabled={disabled === true}
@@ -112,7 +113,7 @@ export function BigButton({ label, onPress, primary, danger, disabled, small, ar
       <Txt step="bodyLarge" weight="heavy" color={ink} center>
         {label}
       </Txt>
-    </Pressable>
+    </Tap>
   )
 }
 

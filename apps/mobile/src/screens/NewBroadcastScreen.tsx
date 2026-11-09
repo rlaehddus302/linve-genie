@@ -5,14 +5,14 @@
 //    공유 → 링크 복사 후 돌아오면 주소가 저절로 들어간다. 틱톡·밴드는 주소가 아니라 가게 계정으로 잇는다 — 그 안내와 [방송 만들기].
 // 유튜브를 이을 수 없는 서버(읽기 꺼짐·구글 연결 없음)면 종류를 누르는 대로 방송을 만들고 방송 화면으로 간다(그 화면이 연결 안내를 보인다).
 import { useEffect, useRef, useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import type { WriteResult, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { kstToday } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
 import { LIVE_PLATFORMS, openPlatform, type PlatformTarget } from '../lib/open-app.ts'
 import { readModeOf } from '../lib/youtube.ts'
-import { BottomSheet, FormPage, Icon, SmallButton, Txt, useKit } from '../ui/kit/index.ts'
+import { BottomSheet, FormPage, Icon, SmallButton, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Notice } from '../ui/parts.tsx'
 import { defaultBroadcastTitle, startErrorMessage } from './HomeScreen.tsx'
@@ -111,7 +111,7 @@ export function NewBroadcastCategoryScreen({ nav }: { readonly nav: NewBroadcast
     <FormPage title="어떤 방송인가요?" name="새 방송" onBack={nav.back}>
       <View role="group" aria-label="판매 종류" style={{ gap: SPACE.sm, marginHorizontal: -SPACE.sm }}>
         {SALE_CATEGORIES.map((item) => (
-          <Pressable
+          <Tap
             key={item.key}
             role="button"
             aria-label={item.word}
@@ -130,7 +130,7 @@ export function NewBroadcastCategoryScreen({ nav }: { readonly nav: NewBroadcast
               </Txt>
             </View>
             <Icon name="chevron" color={p.textSub} size={20} />
-          </Pressable>
+          </Tap>
         ))}
       </View>
     </FormPage>
@@ -229,7 +229,7 @@ export function PlatformFinder({ visible, onClose, onReturned }: { readonly visi
       <Txt color="textSub">내 방송의 링크를 복사해 돌아오세요.</Txt>
       <View role="group" aria-label="방송 플랫폼" style={{ gap: SPACE.xs, marginHorizontal: -SPACE.sm }}>
         {LIVE_PLATFORMS.map((target) => (
-          <Pressable key={target.key} role="button" aria-label={target.word} onPress={() => void pick(target)} style={({ pressed }) => ({ minHeight: TOUCH.min + 16, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Tap key={target.key} role="button" aria-label={target.word} onPress={() => void pick(target)} style={({ pressed }) => ({ minHeight: TOUCH.min + 16, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
             <PlatformIcon platform={target.key} />
             <View style={{ flex: 1 }}>
               <Txt step="bodyLarge" weight="bold">
@@ -237,7 +237,7 @@ export function PlatformFinder({ visible, onClose, onReturned }: { readonly visi
               </Txt>
             </View>
             <Icon name="chevron" color={p.textSub} size={20} />
-          </Pressable>
+          </Tap>
         ))}
       </View>
     </BottomSheet>
