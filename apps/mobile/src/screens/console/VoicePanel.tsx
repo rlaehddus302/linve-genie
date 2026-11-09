@@ -43,7 +43,7 @@ export function ListenMenuRow({ session, broadcastId, title, onDone }: { readonl
   return (
     <TodoRow
       title={on ? LISTEN_STOP : LISTEN_START}
-      sub={on ? '라이브 소리로 다시 들어요' : '라이브 소리 대신 이 휴대폰 마이크로'}
+      sub={on ? '라이브 소리로 다시 음성 인식해요' : '라이브 소리 대신 이 휴대폰 마이크로'}
       testID="listen-button"
       onPress={() => {
         onDone()
@@ -96,7 +96,7 @@ export function VoiceSettingsPanel({ session, broadcastId }: { readonly session:
   return (
     <View style={{ gap: SPACE.md }}>
       <Hint>{VOICE_SENT_LINE}</Hint>
-      {mine && view.remote !== null ? <VoiceSettings session={session} snapshot={view.remote} display={view.display} /> : <Body muted>듣기를 켜면 음성 설정을 바꿀 수 있어요.</Body>}
+      {mine && view.remote !== null ? <VoiceSettings session={session} snapshot={view.remote} display={view.display} /> : <Body muted>음성 인식을 켜면 음성 설정을 바꿀 수 있어요.</Body>}
       {view.log.length > 0 ? (
         <View aria-label="음성 기록" style={{ gap: 2 }}>
           {view.log.slice(0, 5).map((line, index) => (

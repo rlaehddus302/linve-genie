@@ -231,7 +231,7 @@ export class VoiceSession {
       this.#options.audio.sendSession?.({ type: 'voice.session', op: 'hello', context: { ...preferences, now: this.#now(), dialogOpen: false, smsAutoAllowed: !commandsOnly, consent: true, listening: !commandsOnly || this.#streamHold !== null, ...(this.#resumeToken === null ? {} : { resumeToken: this.#resumeToken }) } })
       const url = new URL(ticket.wsUrl)
       if (commandsOnly) url.searchParams.set('capture', 'false')
-      await this.#options.audio.startListening({ wsUrl: url.toString(), capture: !commandsOnly, ...(ticket.token === undefined ? {} : { token: ticket.token }), ...(ticket.origin === undefined ? {} : { origin: ticket.origin }), notificationTitle: `${SERVICE_NAME} · 음성 듣는 중`, notificationBody: '눌러서 돌아가기' })
+      await this.#options.audio.startListening({ wsUrl: url.toString(), capture: !commandsOnly, ...(ticket.token === undefined ? {} : { token: ticket.token }), ...(ticket.origin === undefined ? {} : { origin: ticket.origin }), notificationTitle: `${SERVICE_NAME} · 음성 인식 중`, notificationBody: '눌러서 돌아가기' })
       if (born !== this.#generation || this.#options.audio.state.kind === 'stopped') return
       if (this.#options.audio.onSession && !commandsOnly) {
         clearInterval(this.#contextTimer)
@@ -293,7 +293,7 @@ export class VoiceSession {
       if (this.#disconnects.length >= STOP_AFTER_DISCONNECTS) {
         void this.#options.audio.stopListening()
         this.#set({ on: false, state: { kind: 'stopped', message: VOICE_STOPPED_BODY } })
-        this.#log('듣기 멈춤 — 받아쓰기 서버에 연결하지 못했어요')
+        this.#log('음성 인식 멈춤 — 받아쓰기 서버에 연결하지 못했어요')
         return
       }
     }
@@ -323,7 +323,7 @@ export class VoiceSession {
       const b = this.#view.broadcastId
       try {
         await this.#options.register(b, reading)
-        this.#log(`${reading.readout} — 번호와 가격이 들려 바로 등록했어요`)
+        this.#log(`${reading.readout} — 번호와 가격을 인식해 바로 등록했어요`)
         this.#setUndo(reading.no)
       } catch {
         this.#addCard(result, false)
@@ -524,7 +524,7 @@ export class VoiceSession {
       if (message.automatic === true && ['register', 'writeSms', 'fixRecent', 'renumber', 'undoRecent'].includes(message.method)) {
         const end = message.spokenEndAt
         if (!Number.isFinite(end) || typeof end !== 'number' || this.#now() - end > LATE_MS || end > this.#now() || (args[2] === 'instant' && !this.#view.instant)) {
-          const note = '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.'
+          const note = '늦게 인식한 말이에요. 확인하고 다시 눌러 주세요.'
           if (message.method === 'register') this.command('restore', [args[0], { touched: true, note }])
           value = message.method === 'renumber' || message.method === 'undoRecent' ? false : { kind: 'failed', message: note }
           return
@@ -547,7 +547,7 @@ export class VoiceSession {
           if (born !== this.#generation || connection !== this.#connection || (message.automatic === true && (!this.#readyForCommands || !this.#hearing()))) return '음성 연결이 바뀌어 보내지 않았어요. 확인하고 다시 눌러 주세요.'
           if (firstAttempt && message.automatic === true) {
             const end = message.spokenEndAt
-            if (typeof end !== 'number' || !Number.isFinite(end) || this.#now() - end > LATE_MS || end > this.#now() || (message.method === 'register' && args[2] === 'instant' && !this.#view.instant)) return '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.'
+            if (typeof end !== 'number' || !Number.isFinite(end) || this.#now() - end > LATE_MS || end > this.#now() || (message.method === 'register' && args[2] === 'instant' && !this.#view.instant)) return '늦게 인식한 말이에요. 확인하고 다시 눌러 주세요.'
           }
           return null
         })

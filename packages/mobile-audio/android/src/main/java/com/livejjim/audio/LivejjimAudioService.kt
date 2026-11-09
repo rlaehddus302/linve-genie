@@ -1,4 +1,4 @@
-// 마이크 포그라운드 서비스 (APP-02, D-APP-11): 고정 알림 "라이브지니 · 음성 듣는 중 · 눌러서 돌아가기"를 띄우고
+// 마이크 포그라운드 서비스 (APP-02, D-APP-11): 고정 알림 "라이브지니 · 음성 인식 중 · 눌러서 돌아가기"를 띄우고
 // AudioRecord(16kHz 모노 PCM16)로 100ms = 3,200바이트 틀을 읽어 AudioFrameBus로 넘긴다.
 // - 알림에는 끄기 단추가 없다(실수로 끄지 않게). 누르면 앱으로 돌아간다.
 // - 전화 등으로 마이크를 뺏기면(읽기 오류·조용해짐 알림) INTERRUPTED를 알리고 1초마다 다시 잡는다. 잡히면 LISTENING.
@@ -29,7 +29,7 @@ class LivejjimAudioService : Service() {
     const val EXTRA_TEXT = "text"
     const val EXTRA_FRAME_MS = "frameMs"
     const val CHANNEL_ID = "livejjim_listening"
-    const val CHANNEL_NAME = "음성 듣는 중"
+    const val CHANNEL_NAME = "음성 인식 중"
     const val NOTIFICATION_ID = 7101
   }
 
@@ -47,7 +47,7 @@ class LivejjimAudioService : Service() {
       }
       else -> {
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "라이브지니"
-        val text = intent?.getStringExtra(EXTRA_TEXT) ?: "음성 듣는 중 · 눌러서 돌아가기"
+        val text = intent?.getStringExtra(EXTRA_TEXT) ?: "음성 인식 중 · 눌러서 돌아가기"
         val frameMs = intent?.getIntExtra(EXTRA_FRAME_MS, 100) ?: 100
         startInForeground(buildNotification(title, text))
         startRecording(frameMs)

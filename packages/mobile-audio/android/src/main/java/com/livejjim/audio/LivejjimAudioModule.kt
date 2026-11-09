@@ -21,7 +21,7 @@ class StartOptions : Record {
   @Field val sampleRate: Int = 16000
   @Field val frameMs: Int = 100
   @Field val notificationTitle: String = "라이브지니"
-  @Field val notificationText: String = "음성 듣는 중 · 눌러서 돌아가기"
+  @Field val notificationText: String = "음성 인식 중 · 눌러서 돌아가기"
 }
 
 class PermissionDeniedException : CodedException("E_PERMISSION_DENIED", "마이크 사용이 막혀 있어요", null)

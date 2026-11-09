@@ -2,7 +2,7 @@
 // 설정 묶음 카드(굵은 묶음 이름), 이름 알약(위 탭 알약과 같은 크기).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccessibilityInfo, Animated, BackHandler, Easing, KeyboardAvoidingView, Platform, ScrollView, View, useWindowDimensions } from 'react-native'
-import { KEYBOARD_AVOID, NavBar, Txt, useBottomInset, useEdgeSwipeBack, useHoldRouteSwipe, useKit, usePageTop, useTopInset, Tap } from '../../ui/kit/index.ts'
+import { Icon, KEYBOARD_AVOID, NavBar, Txt, useBottomInset, useEdgeSwipeBack, useHoldRouteSwipe, useKit, usePageTop, useTopInset, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
 
 /** 밀려 들어오는 시간 (쌓인 화면과 비슷하게) */
@@ -165,4 +165,57 @@ export function NamePill({ text, tone, onPress, ariaLabel, square = false }: { r
 export function useFooterInset(): number {
   const inset = useBottomInset()
   return Math.max(inset, SPACE.md)
+}
+
+/**
+ * 토스 설정 화면 줄 (D-UX4-94, 사용자 지시 2026-11-10 "섹션 및 섹션 라벨을 없애고 전체 배경을 흰색 … 폰트의 색, 크기, 두께, 위치, 상하좌우 여백 등을 사진1 기준으로"):
+ * 토스 "비밀번호 · 보안"(923px = 393pt)을 재어 — 큰 제목 22 굵게 #191F28 · 화면 끝에서 24, 줄 이름 17 보통 #4F545E · 줄 높이 44,
+ * 오른쪽 값 16 주색, › #90969E 20(오른쪽 끝에서 약 23). 흰 바탕에 묶음·묶음 이름 없이 줄만. 라이브 관리·라이브 연결이 같이 쓴다.
+ */
+export const PLAIN = { side: 24, title: 22, titleTop: 14, titleBottom: 22, label: 17, value: 16, ink: '#4F545E', chevron: '#90969E', row: 44 } as const
+
+/** 흰 화면 맨 위 큰 제목 (토스 "비밀번호 · 보안") */
+export function PlainTitle({ title }: { readonly title: string }) {
+  return (
+    <View style={{ paddingHorizontal: PLAIN.side, paddingTop: PLAIN.titleTop, paddingBottom: PLAIN.titleBottom }}>
+      <Txt step="pageTitle" weight="bold" role="heading" aria-level={1}>
+        {title}
+      </Txt>
+    </View>
+  )
+}
+
+/** 흰 화면 줄 하나: 이름 · (오른쪽 값·조각) · ›. onPress가 없으면 누를 수 없는 정보 줄(› 없음). danger면 빨간 이름 */
+export function PlainRow({ title, value, right, onPress, danger, testID, ariaLabel }: { readonly title: string; readonly value?: string; readonly right?: ReactNode; readonly onPress?: () => void; readonly danger?: boolean; readonly testID?: string; readonly ariaLabel?: string }) {
+  const { p } = useKit()
+  const body = (
+    <>
+      <View style={{ flex: 1 }}>
+        <Txt step="nav" weight="regular" ink={danger === true ? p.dangerText : PLAIN.ink} numberOfLines={1}>
+          {title}
+        </Txt>
+      </View>
+      {value === undefined ? null : (
+        <Txt step="bodyLarge" weight="regular" color="primaryText" numberOfLines={1}>
+          {value}
+        </Txt>
+      )}
+      {right}
+    </>
+  )
+  const frame = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: SPACE.sm, minHeight: PLAIN.row, paddingHorizontal: PLAIN.side }
+  if (onPress === undefined) {
+    return (
+      <View testID={testID} aria-label={ariaLabel ?? (value === undefined ? title : `${title} ${value}`)} style={frame}>
+        {body}
+      </View>
+    )
+  }
+  return (
+    // 누르면 화면 끝에서 12 들어온 둥근 바탕 — 자동 감사 채팅 켜고 끄는 줄(ToggleRow)의 눌림과 같다
+    <Tap role="button" aria-label={ariaLabel ?? title} testID={testID} onPress={onPress} style={({ pressed }) => ({ ...frame, marginHorizontal: PLAIN.side / 2, paddingLeft: PLAIN.side / 2, paddingRight: PLAIN.side / 2 - 5, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      {body}
+      <Icon name="chevron" color={PLAIN.chevron} size={20} />
+    </Tap>
+  )
 }

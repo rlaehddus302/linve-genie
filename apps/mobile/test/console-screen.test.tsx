@@ -11,7 +11,7 @@ import { ConsoleScreen, LINK_TITLE, THANKS_TITLE } from '../src/screens/ConsoleS
 import { END_LINK_LABEL } from '../src/screens/console/EndBroadcast.tsx'
 import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
 import { DOCK_STATE } from '../src/screens/console/StreamAudio.tsx'
-import { LISTEN_START, LISTEN_STATE, LISTEN_STOP, VOICE_CONSENT_LINES, VOICE_SENT_LINE } from '../src/lib/words.ts'
+import { LISTEN_START, LISTEN_STATE, VOICE_CONSENT_LINES } from '../src/lib/words.ts'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST, BROADCAST_VIEW, SETTINGS, buyer, changes, claim, flush, fullView, product } from './support.ts'
 
@@ -438,17 +438,18 @@ describe('ConsoleScreen', () => {
     await open(world)
     // D-UX4-67: 들린 말 창 상태는 듣는 중 · 재연결 중 · 연결 끊김 세 가지 (옛 기대: "듣기 꺼짐")
     expect(screen.getByRole('status', { name: DOCK_STATE.lost })).toBeTruthy()
+    // D-UX4-94: 라이브 관리의 "휴대폰 마이크로 음성 인식"·"음성 설정" 줄을 없앴다 — 휴대폰 마이크 켜기는 음성 세션을 직접 켜서 본다(옛: 관리 줄 누르기)
     openMenu()
-    fireEvent.click(screen.getByRole('button', { name: LISTEN_START }))
+    expect(screen.queryByRole('button', { name: LISTEN_START })).toBeNull()
+    expect(screen.queryByRole('button', { name: '음성 설정' })).toBeNull()
+    fireEvent.click(within(await screen.findByRole('dialog', { name: '라이브 관리' })).getByRole('button', { name: '뒤로' }))
+    act(() => {
+      void world.services.voice.turnOn('b1', '저녁 방송')
+    })
     const dialog = await screen.findByRole('dialog', { name: '음성 안내' })
     for (const line of VOICE_CONSENT_LINES) expect(within(dialog).getByText(line)).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: '알겠어요, 켤게요' }))
     await waitFor(() => expect(screen.getByRole('status', { name: LISTEN_STATE.on })).toBeTruthy())
-    // 받아쓰기 서버 안내는 안내 창(위)과 방송 메뉴 → 음성 설정에 있다 (D-UX2-03)
-    fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
-    fireEvent.click(screen.getByRole('button', { name: '음성 설정' }))
-    expect(screen.getByText(VOICE_SENT_LINE)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
     expect(world.audio.starts.length).toBe(1)
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { products: [product(17, { price: 20_000 })] }) }))
     await act(async () => {
@@ -460,12 +461,11 @@ describe('ConsoleScreen', () => {
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.register', b: 'b1', no: 17, name: '', price: 20_000 })
     // 바로 등록 뒤 되돌리기 창은 띄우지 않는다 — 고칠 것은 상품에서 직접 (D-UX4-70)
     expect(screen.queryByRole('button', { name: '17번 등록 되돌리기' })).toBeNull()
-    expect(screen.getByRole('status', { name: '지금 들리는 말' }).textContent).toContain('17번 2만 원')
-    openMenu()
-    fireEvent.click(screen.getByRole('button', { name: LISTEN_STOP }))
+    expect(screen.getByRole('status', { name: '지금 인식한 말' }).textContent).toContain('17번 2만 원') // 문구 바뀜 (D-UX4-96, 옛 기대: "지금 들리는 말")
+    await act(async () => {
+      await world.services.voice.turnOff()
+    })
     await waitFor(() => expect(world.audio.stops).toBe(1))
-    openMenu()
-    expect(screen.getByRole('button', { name: LISTEN_START })).toBeTruthy()
   })
 
   // 옛 시험 셋(문자찜 한 줄 넣기·번호 범위 넘음·문자찜 칸 원문): 방송 관리 "문자찜 직접 넣기"를 없앴다 (D-UX4-78, 사용자 지시 2026-11-10 "문자찜 직접 넣기 기능은 지워").

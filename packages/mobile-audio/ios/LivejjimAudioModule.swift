@@ -9,7 +9,7 @@ struct StartOptions: Record {
   @Field var sampleRate: Int = 16000
   @Field var frameMs: Int = 100
   @Field var notificationTitle: String = "라이브지니"
-  @Field var notificationText: String = "음성 듣는 중 · 눌러서 돌아가기"
+  @Field var notificationText: String = "음성 인식 중 · 눌러서 돌아가기"
 }
 
 final class PermissionDeniedException: GenericException<String> {

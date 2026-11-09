@@ -8,14 +8,17 @@ import { isApiError, newRequestId, post, withRetry } from '../../api/client.ts'
 import { PopupDialog } from '../../ui/kit/index.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { ConsoleContext } from './context.ts'
-import { MenuGroup, MenuRow } from './parts.tsx'
+import { MenuGroup, MenuRow, PLAIN, PlainRow } from './parts.tsx'
 
 export const END_LINK_LABEL = '라이브 연결 끊기'
 export const END_LINK_QUESTION = '라이브 연결을 끊을까요?'
 export const END_LINK_BODY = '라이브가 끝나요. 끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요.'
 
-/** 방송 연결 화면 맨 아래 "방송 연결 끊기" 줄과 팝업. onEnded: 끊은 뒤(홈으로) */
-export function EndBroadcastRow({ broadcastId, onEnded }: { readonly broadcastId: string; readonly onEnded: () => void }) {
+/**
+ * 방송 연결 화면 맨 아래 "방송 연결 끊기" 줄과 팝업. onEnded: 끊은 뒤(홈으로).
+ * plain: 흰 화면 줄 모양(D-UX4-95 — 이은 라이브 정보 화면, 토스 "비밀번호 · 보안" 줄, 빨간 이름 ›). 아니면 옛 메뉴 묶음(주소 넣는 화면)
+ */
+export function EndBroadcastRow({ broadcastId, onEnded, plain = false }: { readonly broadcastId: string; readonly onEnded: () => void; readonly plain?: boolean }) {
   const api = useContext(ConsoleContext)
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -35,13 +38,29 @@ export function EndBroadcastRow({ broadcastId, onEnded }: { readonly broadcastId
       setBusy(false)
     }
   }
+  const popup = (
+    <PopupDialog visible={asking} message={END_LINK_QUESTION} description={END_LINK_BODY} cancelLabel="취소" confirmLabel="끊기" danger busy={busy} onCancel={() => setAsking(false)} onConfirm={() => void end()} />
+  )
+  if (plain) {
+    return (
+      <View>
+        {error !== null ? (
+          <View style={{ paddingHorizontal: PLAIN.side, paddingBottom: 8 }}>
+            <Notice tone="danger" alert>{error}</Notice>
+          </View>
+        ) : null}
+        <PlainRow title={END_LINK_LABEL} danger testID="end-link" onPress={() => setAsking(true)} />
+        {popup}
+      </View>
+    )
+  }
   return (
     <View style={{ gap: 8 }}>
       {error !== null ? <Notice tone="danger" alert>{error}</Notice> : null}
       <MenuGroup>
         <MenuRow title={END_LINK_LABEL} danger testID="end-link" onPress={() => setAsking(true)} />
       </MenuGroup>
-      <PopupDialog visible={asking} message={END_LINK_QUESTION} description={END_LINK_BODY} cancelLabel="취소" confirmLabel="끊기" danger busy={busy} onCancel={() => setAsking(false)} onConfirm={() => void end()} />
+      {popup}
     </View>
   )
 }

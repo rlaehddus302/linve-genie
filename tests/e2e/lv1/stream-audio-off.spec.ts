@@ -21,6 +21,6 @@ for (const size of [{ name: 'PC 1440', width: 1440, height: 900 }, { name: '휴�
     await linkAddress(page, live.videoId)
     await expect(page.getByRole('button', { name: '음성 켜기' }).first()).toBeVisible()
     await expect(audioLine(page)).toHaveCount(0)
-    await expect(page.getByRole('dialog', { name: '라이브 소리로 듣기' })).toHaveCount(0) // 문구 바뀜 (D-UX4-86)
+    await expect(page.getByRole('dialog', { name: '라이브 소리로 음성 인식' })).toHaveCount(0) // 문구 바뀜 (D-UX4-96, 옛 기대: "라이브 소리로 듣기")
   })
 }

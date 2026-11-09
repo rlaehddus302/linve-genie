@@ -76,7 +76,7 @@ export class LiveNativeAudio implements NativeAudio {
       this.#ready = false
       const now = Date.now()
       this.#failures = [...this.#failures.filter((at) => now - at < 60000), now]
-      if (this.#failures.length >= 6) { void this.#halt('듣기 멈춤 — 받아쓰기 서버에 연결하지 못했어요. 다시 켜 주세요.'); return }
+      if (this.#failures.length >= 6) { void this.#halt('음성 인식 멈춤 — 받아쓰기 서버에 연결하지 못했어요. 다시 켜 주세요.'); return }
       this.#state({ kind: 'reconnecting', attempt: this.#failures.length })
       this.#timer = setTimeout(() => this.#connect(born), Math.min(8000, 1000 * 2 ** (this.#failures.length - 1)))
     }
@@ -101,8 +101,8 @@ export class LiveNativeAudio implements NativeAudio {
             void this.#halt(typeof message.message === 'string' ? message.message : '음성을 시작하지 못했어요. 로그인과 서버 연결을 확인해 주세요.')
           } else if (message.type === 'closing') {
             if (message.reason === 'ENDED') void this.stopListening()
-            else if (message.reason === 'AUTH') void this.#halt('로그인이 끝나 음성 듣기를 멈췄어요. 다시 로그인해 주세요.')
-            else if (message.reason === 'OTHER_DEVICE') void this.#halt('음성은 다른 기기에서 듣는 중이에요.')
+            else if (message.reason === 'AUTH') void this.#halt('로그인이 끝나 음성 인식을 멈췄어요. 다시 로그인해 주세요.')
+            else if (message.reason === 'OTHER_DEVICE') void this.#halt('음성 인식은 다른 기기에서 하는 중이에요.')
             else if (!this.#everReady && message.reason === 'BUSY') void this.#halt('지금 받아쓰기가 바빠요. 상품은 빠른 입력으로 넣어 주세요.')
             else if (!this.#everReady && message.reason === 'NO_WORKER') void this.#halt('받아쓰기 서버가 꺼져 있어요. 상품은 빠른 입력으로 넣어 주세요.')
             else reconnect()

@@ -21,7 +21,7 @@ export const AUDIO_CAPTURE_STATES: readonly AudioCaptureState[] = Object.freeze(
 export const AUDIO_CAPTURE_STATE_NAMES: Readonly<Record<AudioCaptureState, string>> = Object.freeze({
   OFF: '꺼짐',
   STARTING: '켜는 중',
-  LISTENING: '듣는 중',
+  LISTENING: '인식 중',
   INTERRUPTED: '잠시 멈춤',
   HALTED: '멈춤',
 })

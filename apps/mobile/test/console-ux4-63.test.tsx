@@ -110,8 +110,8 @@ describe('들린 말 창 (D-UX4-67)', () => {
     const base = Date.parse('2026-10-29T12:07:33.000Z') // 21:07:33 KST
     const lines = ['첫 말', '둘째 말', '지금 말']
     render(<ListenLine session={fakeVoice({ transcript: lines, transcriptAt: [base, base + 5000, base + 9000] })} broadcastId="b1" stream={{ status: null, hold: false, retry: () => {} }} bottom={0} />)
-    const dock = screen.getByRole('region', { name: '들린 말 창' })
-    fireEvent.click(within(dock).getByRole('button', { name: '들린 말 펼치기' }))
+    const dock = screen.getByRole('region', { name: '음성 인식 창' }) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말 창")
+    fireEvent.click(within(dock).getByRole('button', { name: '음성 인식 펼치기' })) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말 펼치기")
     const rows = within(dock).getAllByTestId('heard-row')
     expect(rows.map((row) => row.textContent)).toEqual(['21:07:33첫 말', '21:07:38둘째 말'])
     expect(heardTime(base)).toBe('21:07:33')

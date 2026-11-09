@@ -81,7 +81,7 @@ export function RemoteVoicePanel({ session, snapshot, display, cards = false }: 
   return <View style={{ gap: 10 }}>
     {cards && snapshot.historyFailed ? <Notice tone="warning">판매 이력을 받지 못했어요. 상품을 확인하고 등록해 주세요.</Notice> : null}
     {cards && snapshot.flushedClosed.length > 0 ? <Card label="닫힌 카드 안내"><Body>{`확인하지 않은 카드가 닫혔어요: ${snapshot.flushedClosed.join(', ')}`}</Body><BigButton label="확인" onPress={() => command('dismissFlushedClosed')} /></Card> : null}
-    {cards && snapshot.missedFolded > 0 ? <Hint>{`가격을 못 들은 번호 ${String(snapshot.missedFolded)}개가 접혀 있어요. 상품 목록에서 확인해 주세요.`}</Hint> : null}
+    {cards && snapshot.missedFolded > 0 ? <Hint>{`가격을 인식하지 못한 번호 ${String(snapshot.missedFolded)}개가 접혀 있어요. 상품 목록에서 확인해 주세요.`}</Hint> : null}
     {cards && view.priceChoice !== null ? <VoiceCard label="가격 적용 범위" title={`${String(view.priceChoice.no)}번을 ${view.priceChoice.price.toLocaleString('ko-KR')}원으로 바꿀까요?`} onClose={() => session.resolvePriceScope(null)} closeLabel="안 바꾸기">
       <Hint>이미 찜한 손님이 있어요. 새 가격을 적용할 찜을 골라 주세요.</Hint>
       <Chips>
@@ -97,7 +97,7 @@ export function RemoteVoicePanel({ session, snapshot, display, cards = false }: 
       return <VoiceCard key={card.id} label={`음성 카드 ${card.id}`} title={words(display, 'cards', card.id, card.text)} onClose={() => command('close', [card.id])}>
         {note ? <Note>{note}</Note> : null}
         {info?.ask ? <Hint>{info.ask}</Hint> : null}
-        {card.flushedAtEnd ? <Hint>늦게 들린 말이에요. 확인하고 등록해 주세요.</Hint> : null}
+        {card.flushedAtEnd ? <Hint>늦게 인식한 말이에요. 확인하고 등록해 주세요.</Hint> : null}
         {counting && snapshot.paused.has(card.id) ? <Hint>말하는 동안은 기다려요</Hint> : counting && card.autoConfirmAt !== null ? <Hint>{`${Math.max(0, Math.ceil((card.autoConfirmAt - snapshot.now) / 1000))}초 뒤 등록`}</Hint> : null}
         {info !== undefined && info.candidates.length > 0 ? <Chips>{info.candidates.map((candidate) => <Chip key={candidate.name} label={candidate.name} onPress={() => command('chooseCandidate', [card.id, candidate.name])} />)}</Chips> : null}
         {form ? <>
@@ -152,11 +152,11 @@ export function RemoteVoicePanel({ session, snapshot, display, cards = false }: 
 export function VoiceSettings({ session, snapshot, display }: { readonly session: VoiceSession; readonly snapshot: VoiceSnapshot; readonly display: Readonly<Record<string, unknown>> }) {
   const command = session.command.bind(session)
   return <Card label="음성 설정과 기록">
-      <BigButton label={`번호와 가격이 들리면 바로 등록: ${snapshot.instant ? '켬' : '끔'}`} onPress={() => session.setInstant(!snapshot.instant)} />
+      <BigButton label={`번호와 가격을 인식하면 바로 등록: ${snapshot.instant ? '켬' : '끔'}`} onPress={() => session.setInstant(!snapshot.instant)} />
       <BigButton label={`카드 자동 확정: ${snapshot.settings?.['voice.autoConfirm'] ? '켬' : '끔'}`} onPress={() => command('setAutoConfirm', [!snapshot.settings?.['voice.autoConfirm']])} />
       <Field label="자동 확정 기다림(초)" value={snapshot.secondsText} keyboardType="number-pad" onChangeText={(value) => command('setSeconds', [value])} problem={snapshot.settingsProblem} />
       <Field label="말이 끝났다고 볼 때까지(초)" value={snapshot.quietText} keyboardType="decimal-pad" onChangeText={(value) => command('setQuietSeconds', [value])} problem={snapshot.quietProblem} />
-      <BigButton label={`문자찜 듣기: ${snapshot.smsSettings?.['voice.smsListen'] ? '켬' : '끔'}`} onPress={() => command('setSmsListen', [!snapshot.smsSettings?.['voice.smsListen']])} />
+      <BigButton label={`문자찜 음성 인식: ${snapshot.smsSettings?.['voice.smsListen'] ? '켬' : '끔'}`} onPress={() => command('setSmsListen', [!snapshot.smsSettings?.['voice.smsListen']])} />
       <Field label="문자찜 자동으로 넣기까지(초)" value={snapshot.smsSecondsText} keyboardType="number-pad" onChangeText={(value) => command('setSmsSeconds', [value])} problem={snapshot.smsSettingsProblem} />
       <BigButton label={`음성 인식 기록 모아 두기: ${snapshot.archive ? '켬' : '끔'}`} onPress={() => command('setArchive', [!snapshot.archive])} />
       {Array.isArray(display.logLines) ? (display.logLines as { key: string; time: string; pieces: readonly string[]; action: string; reason: string | null }[]).slice(0, 20).map((line) => <Hint key={line.key}>{`${line.time} ${line.pieces.join(' ')} · ${line.action}${line.reason ? ` · ${line.reason}` : ''}`}</Hint>) : null}

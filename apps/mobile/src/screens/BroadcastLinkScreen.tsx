@@ -1,11 +1,13 @@
 // 방송 연결 (D-UX3-09): 방송 화면 메뉴의 "방송 연결"과 새 방송의 첫 연결 안내가 여는 쌓인 화면 — 밀어서 뒤로 가기가 된다.
 // 아직 잇지 않았고 이을 수 있으면 흰 바탕 입력 화면(방송 주소 칸 + [방송 주소를 모르겠어요] + 맨 아래 [나중에 잇기]·[확인]),
-// 이었거나 이을 수 없으면 회색 바탕에 유튜브 카드(받는 상태·연결 안내 — YoutubeSection 그대로).
+// 이은 라이브가 있으면 흰 바탕 정보 줄(D-UX4-95 — LinkInfoPage: 플랫폼 · 라이브 제목 · 채널, [라이브로 바로가기] · [라이브 연결 끊기]),
+// 이을 수 없는 그 밖의 경우(서버 설정 없음·구글 연결 먼저·끝난 라이브 등)는 회색 바탕에 유튜브 카드(연결 안내 — YoutubeSection 그대로).
 import { useState } from 'react'
-import { BigButton, FormPage, SmallButton } from '../ui/kit/index.ts'
+import { BigButton, FormPage, SmallButton, StackPage } from '../ui/kit/index.ts'
 import { View } from 'react-native'
 import { PlatformFinder } from './NewBroadcastScreen.tsx'
 import { EndBroadcastRow } from './console/EndBroadcast.tsx'
+import { LinkInfoPage, hasLinkedLive } from './console/LinkInfo.tsx'
 import { YoutubeSection, sendLiveLink, useAddressLinker, useMobileYoutube, type MobileYoutube } from './console/YoutubeSection.tsx'
 
 /** 이 방송을 지금 주소로 이을 수 있나 (방송 화면과 같은 조건) */
@@ -25,6 +27,9 @@ export function BroadcastLinkScreen({ broadcastId, closed, onBack, onEnded }: { 
       if (view === null) onBack()
       else yt.setLink(view)
     } })
+  // 받는 동안은 빈 흰 바탕 (D-UX4-83·95 — 회색 카드 화면이 잠깐 보였다가 흰 정보 화면으로 바뀌어 들썩이지 않게)
+  if (yt.phase === 'loading' || (yt.phase === 'ready' && yt.link === null)) return <StackPage name="라이브 연결" onBack={onBack} testID="link-loading" />
+  if (hasLinkedLive(yt)) return <LinkInfoPage broadcastId={broadcastId} yt={yt} closed={closed} onBack={onBack} {...(onEnded === undefined ? {} : { onEnded })} />
   if (!linkable) {
     return (
       <FormPage title="라이브 연결" onBack={onBack} cards>

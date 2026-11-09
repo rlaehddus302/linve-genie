@@ -6,7 +6,7 @@ export type DockChoice = 'voice' | 'talk' | 'none'
 
 /** 고르는 줄마다 한 줄 설명 (D-UX4-89, 사용자 지시 2026-11-10 "화면 아래 창 설명 좀 추가해봐") */
 export const DOCK_CHOICES: readonly { readonly value: DockChoice; readonly label: string; readonly description: string }[] = [
-  { value: 'voice', label: '들린 말', description: '라이브에서 알아들은 말을 바로 보여줘요' },
+  { value: 'voice', label: '음성 인식', description: '음성 인식한 말을 바로 보여줘요' },
   { value: 'talk', label: '채팅·문자', description: '손님이 보낸 채팅과 문자를 바로 보여줘요' },
   { value: 'none', label: '안 보기', description: '아래 창 없이 목록을 넓게 봐요' },
 ]
@@ -14,11 +14,11 @@ export const DOCK_CHOICES: readonly { readonly value: DockChoice; readonly label
 /** 관리 화면 줄 이름 */
 export const DOCK_TITLE = '화면 아래 창'
 /** 아래 창 제목 밑 설명 (D-UX4-89) — 듣기는 고른 것과 상관없이 그대로라는 것도 알린다 */
-export const DOCK_DESCRIPTION = '라이브 화면 맨 아래에 무엇을 띄울지 골라요.\n어느 것을 골라도 듣기는 계속돼요.'
+export const DOCK_DESCRIPTION = '라이브 화면 맨 아래에 무엇을 띄울지 골라요.\n어느 것을 골라도 음성 인식은 계속돼요.'
 
 export const DOCK_CHOICE_KEY = 'livejjim.console.dock'
 
-export const dockLabel = (choice: DockChoice): string => DOCK_CHOICES.find((item) => item.value === choice)?.label ?? '들린 말'
+export const dockLabel = (choice: DockChoice): string => DOCK_CHOICES.find((item) => item.value === choice)?.label ?? '음성 인식'
 
 const isChoice = (value: unknown): value is DockChoice => value === 'voice' || value === 'talk' || value === 'none'
 

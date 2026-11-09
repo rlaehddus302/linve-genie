@@ -84,9 +84,11 @@ describe('콘솔 유튜브 (앱)', () => {
     expect(world.server.callsTo('GET', /live-broadcasts/)).toHaveLength(1)
     fireEvent.click(within(box).getByRole('button', { name: '다육이네 · 오늘 경매 잇기' }))
     await agree()
-    await waitFor(() => expect(within(section()).getByText('유튜브 라이브 · 다육이네')).toBeTruthy())
-    expect(section().textContent).toContain('서버 연결로 받는 중')
-    expect(section().textContent).not.toMatch(/WEB|LIVE|STREAM/)
+    // D-UX4-95: 이은 뒤 라이브 화면의 라이브 연결 판도 흰 바탕 연결 정보 줄 (옛 기대: 유튜브 카드 "유튜브 라이브 · 다육이네")
+    await waitFor(() => expect(screen.getByTestId('link-info-channel').textContent).toContain('다육이네'))
+    // 받는 방식 줄("서버 연결로 받는 중")은 연결 정보 줄에서 뺐다 (D-UX4-95) — 개발 낱말도 보이지 않는다
+    expect(screen.getByTestId('link-info').textContent).not.toContain('서버 연결로 받는 중')
+    expect(screen.getByTestId('link-info').textContent).not.toMatch(/WEB|LIVE|STREAM/)
     // 확인 팝업에서 [맞아요]를 눌렀으니 확인 표시와 함께 보낸다 (D-UX4-08 — 전에는 아는 채널이면 표시 없이)
     expect(world.server.callsTo('POST', /\/youtube$/)[0]?.body).toMatchObject({ confirmInvited: true })
   })
@@ -109,7 +111,8 @@ describe('콘솔 유튜브 (앱)', () => {
     ask = await screen.findByRole('alertdialog', { name: '이을 라이브 확인' })
     expect(ask.textContent).toContain('이 라이브가 맞나요?\n\n제목: 오늘 경매\n채널: <b>새채널</b>')
     fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
-    await waitFor(() => expect(within(section()).getByText('유튜브 라이브 · <b>새채널</b>')).toBeTruthy())
+    // D-UX4-95: 연결 정보 줄의 채널 이름 — 글자로만
+    await waitFor(() => expect(screen.getByTestId('link-info-channel').textContent).toContain('<b>새채널</b>'))
     expect(document.querySelector('b')).toBeNull()
     expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(1)
     expect(world.server.callsTo('POST', /\/youtube$/)[0]?.body).toMatchObject({ video: 'NEWCHAN0001', confirmInvited: true })
@@ -129,7 +132,8 @@ describe('콘솔 유튜브 (앱)', () => {
     state.link = linked('다육이네')
     await open(world)
     await openYoutube()
-    await waitFor(() => expect(within(section()).getByText('유튜브 라이브 · 다육이네')).toBeTruthy())
+    // D-UX4-95: 이은 뒤 라이브 화면의 라이브 연결 판도 흰 바탕 연결 정보 줄 (옛 기대: 유튜브 카드 "유튜브 라이브 · 다육이네")
+    await waitFor(() => expect(screen.getByTestId('link-info-channel').textContent).toContain('다육이네'))
     const emit = async (patch: Partial<CollectorView>) => {
       state.link = { ...state.link, collector: collector(patch) }
       await act(async () => {
@@ -138,21 +142,21 @@ describe('콘솔 유튜브 (앱)', () => {
       })
     }
     await emit({ status: 'RETRYING', statusMessage: '다시 연결하는 중', reason: 'BLOCKED', reasonMessage: BLOCKED })
-    const warning = screen.getByRole('alert', { name: '유튜브 채팅 경고' })
-    expect(warning.textContent).toBe(BLOCKED)
+    // 라이브 화면 맨 위와 열린 라이브 연결 판(D-UX4-95 — 경고는 판매자 안전으로 남김) 두 곳에 같은 경고
+    const warnings = screen.getAllByRole('alert', { name: '유튜브 채팅 경고' })
+    for (const warning of warnings) expect(warning.textContent).toBe(BLOCKED)
     // 옛 문장 "아래 문자찜 칸이나…" — 문자찜 칸은 "직접 넣기" 시트로 옮겼다 (D-UX2-03)
     // 옛 기대: '"직접 넣기"의 문자찜 칸이나 …'. 새 기대(D-UX4-20): 문자찜 칸은 톱니(방송 설정) → "문자찜 직접 넣기"
     // 새 기대(D-UX4-78): 문자찜 직접 넣기·댓글 붙여넣기를 없애 음성으로만 안내
-    expect(screen.getByText(MOBILE_FALLBACK_HINT)).toBeTruthy()
+    expect(screen.getAllByText(MOBILE_FALLBACK_HINT).length).toBeGreaterThan(0)
     // 옛 기대: "댓글 붙여넣기 (웹으로 열기)". 새 기대(D-APPX-03): 방송 화면 안 붙여넣기 창을 연다
     // 경고 줄의 단추 + 뒤에 열려 있는 방송 설정 화면의 같은 이름 줄 (D-UX4-20 — 설정 화면은 판이 아니라 방송 화면 위에 남는다)
     // 새 기대(D-UX4-78): 댓글 붙여넣기를 앱에서 없앴다 — 경고 줄에도 방송 관리에도 단추가 없다
     expect(screen.queryAllByRole('button', { name: '댓글 붙여넣기' })).toHaveLength(0)
     await emit({ status: 'LIVE' })
-    expect(screen.queryByRole('alert', { name: '유튜브 채팅 경고' })).toBeNull()
-    expect(within(section()).getByText(RESUMED)).toBeTruthy()
-    fireEvent.click(within(section()).getByRole('button', { name: '확인했어요' }))
-    expect(within(section()).queryByText(RESUMED)).toBeNull()
+    expect(screen.queryAllByRole('alert', { name: '유튜브 채팅 경고' })).toHaveLength(0)
+    // 다시 받은 뒤 "다시 받고 있어요" 줄은 연결 정보 줄에서 뺐다 (D-UX4-95) — 경고가 내려가는 것만 본다
+    expect(screen.getByTestId('link-info').textContent).not.toContain(RESUMED)
   })
 
   it('운영자가 끄면 잇기 칸 대신 안내 — 최근 채널을 찾지 않는다', async () => {
@@ -199,7 +203,8 @@ describe('콘솔 유튜브 (앱)', () => {
     expect(within(sheet).getByRole('button', { name: '나중에 잇기' })).toBeTruthy()
     fireEvent.click(within(sheet).getByRole('button', { name: '확인' }))
     await agree()
-    await waitFor(() => expect(within(section()).getByText('유튜브 라이브 · 다육이네')).toBeTruthy())
+    // D-UX4-95: 이은 뒤 라이브 화면의 라이브 연결 판도 흰 바탕 연결 정보 줄 (옛 기대: 유튜브 카드 "유튜브 라이브 · 다육이네")
+    await waitFor(() => expect(screen.getByTestId('link-info-channel').textContent).toContain('다육이네'))
     expect(world.server.callsTo('POST', /\/youtube$/)[0]?.body).toMatchObject({ video: 'https://youtube.com/live/LIVENOW0001?si=x' })
   })
 
@@ -252,7 +257,8 @@ describe('라이브 연결은 쌓인 화면 (D-UX3-09 — 밀어서 뒤로 가�
     expect(screen.queryByRole('dialog', { name: '라이브 연결' })).toBeNull()
   })
 
-  it('라이브 연결 화면: 주소를 넣어 잇고, 이은 뒤엔 받는 상태 카드 — [나중에 잇기]는 뒤로', async () => {
+  // D-UX4-95로 바뀐 기대: 이은 뒤엔 회색 유튜브 카드("유튜브 라이브 · 다육이네") 대신 흰 바탕 정보 줄(플랫폼 · 라이브 제목 · 채널)
+  it('라이브 연결 화면: 주소를 넣어 잇고, 이은 뒤엔 연결 정보 줄 — [나중에 잇기]는 뒤로', async () => {
     const { world } = youtubeWorld()
     let back = 0
     render(world.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => back++} />))
@@ -262,7 +268,8 @@ describe('라이브 연결은 쌓인 화면 (D-UX3-09 — 밀어서 뒤로 가�
     fireEvent.change(within(page).getByRole('textbox', { name: '라이브 링크' }), { target: { value: 'https://youtu.be/VIDEOKNOWN1' } })
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))
     await agree()
-    await waitFor(() => expect(within(section()).getByText('유튜브 라이브 · 다육이네')).toBeTruthy())
-    expect(screen.getByRole('heading', { name: '라이브 연결' })).toBeTruthy()
+    const info = await screen.findByTestId('link-info-page')
+    expect(within(info).getByTestId('link-info-channel').textContent).toBe('채널다육이네')
+    expect(within(info).getByRole('heading', { name: '라이브 연결' })).toBeTruthy()
   })
 })

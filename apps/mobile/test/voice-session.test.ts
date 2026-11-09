@@ -30,7 +30,7 @@ describe('VoiceSession', () => {
     expect(session.getView().on).toBe(true)
     expect(session.getView().state.kind).toBe('listening')
     expect(audio.starts[0]?.wsUrl).toBe('wss://test.local/api/voice/stream')
-    expect(audio.starts[0]?.notificationTitle).toBe('라이브지니 · 음성 듣는 중')
+    expect(audio.starts[0]?.notificationTitle).toBe('라이브지니 · 음성 인식 중') // 문구 바뀜 (D-UX4-96, 옛 기대: "라이브지니 · 음성 듣는 중")
     // 두 번째부터는 안내 없이 바로
     await session.turnOff()
     expect(audio.stops).toBe(1)

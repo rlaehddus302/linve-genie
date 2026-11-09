@@ -1,21 +1,18 @@
 // 방송 관리 (D-UX4-20 → D-UX4-57): 토스 설정 화면처럼 굵은 묶음 이름 · 흰 카드 · 줄 이름만.
 // 방송 화면 위 진짜 쌓인 화면(app/console/[id]/manage)과, 경로가 없을 때(시험·웹) 방송 화면 안 겹친 화면이 같이 쓴다.
 // 여기서 여는 아래 창(음성 설정·상품 미리 등록·화면 아래 창)도 이 안에 있다.
-import { useState, useSyncExternalStore } from 'react'
+import { useState } from 'react'
 import { View } from 'react-native'
 import { isApiError } from '../../api/client.ts'
 import { DOCK_CHOICES, DOCK_DESCRIPTION, DOCK_TITLE, dockLabel, setDockChoice, useDockChoice } from '../../lib/dock-choice.ts'
-import { LISTEN_START, LISTEN_STOP } from '../../lib/words.ts'
-import { useServices } from '../../services.tsx'
 import { BigButton, BottomSheet, FullSheet, SheetChoices, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { LABEL_PRINT_TITLE } from '../LabelPrintScreen.tsx'
 import { useConsoleApi } from './context.ts'
 import { APP_IMPORT_TITLE, ImportView } from './ImportSheet.tsx'
-import { MenuGroup, MenuRow } from './parts.tsx'
+import { PLAIN, PlainRow, PlainTitle } from './parts.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
-import { VoiceSettingsPanel } from './VoicePanel.tsx'
 
 /** 머리 오른쪽 "관리" 단추·방송 관리 화면 이름 (D-UX4-42) — 화면에는 "관리", 읽기 이름은 "방송 관리" */
 export const MANAGE_LABEL = '라이브 관리'
@@ -40,8 +37,9 @@ export const THANKS_EXAMPLE = { buyer: '홍길동', order: '15', thanks: '15번 
 export function ThanksSwitch({ on, busy, onPress }: { readonly on: boolean; readonly busy: boolean; readonly onPress: (next: boolean) => void }) {
   const [help, setHelp] = useState(false)
   return (
-    <View style={{ paddingHorizontal: SPACE.xl }}>
-      <ToggleRow title={THANKS_TITLE} on={on} disabled={busy} testID="thanks-switch" onChange={onPress} onHelp={() => setHelp(true)} />
+    <View style={{ paddingHorizontal: PLAIN.side }}>
+      {/* 다른 줄과 같은 글자(17 · 보통 · #4F545E — D-UX4-94) */}
+      <ToggleRow title={THANKS_TITLE} titleStep="nav" titleWeight="regular" titleInk={PLAIN.ink} on={on} disabled={busy} testID="thanks-switch" onChange={onPress} onHelp={() => setHelp(true)} />
       <BottomSheet visible={help} onClose={() => setHelp(false)} title={THANKS_HELP_TITLE} actions={<BigButton label="확인" onPress={() => setHelp(false)} />}>
         <Txt step="bodyLarge" color="textSub">{THANKS_HELP_BODY}</Txt>
         <ThanksExample />
@@ -75,10 +73,10 @@ function ThanksExample() {
   )
 }
 
-type ManageSheet = 'none' | 'voice' | 'import' | 'dock'
+type ManageSheet = 'none' | 'import' | 'dock'
 
 /** 관리에서 여는 설정 하나 (D-UX4-60 — 경로가 있으면 진짜 전체 화면) */
-export type ManageTool = 'voice' | 'import'
+export type ManageTool = 'import'
 
 /**
  * 묶음 (D-UX4-78, 사용자 지시 2026-11-10 "방송 관리 안에 '방송' 묶음은 방송 안에 방송 관리 느낌"): 무엇을 하는지로 나눈다 —
@@ -87,10 +85,8 @@ export type ManageTool = 'voice' | 'import'
  * canLink: 유튜브 상태를 받았는지 — 끝나지 않은 방송이면 받지 못했어도 방송 연결 줄을 보인다(그 안에서 연결을 끊는다).
  * onClose: 이 화면을 닫는다(듣기 켜기·끄기는 방송 화면에서 안내·상태를 보여 주므로 닫고 한다, D-UX3-73).
  */
-export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, canLink, stream, onClose, onShowLink, onOpenLabels, openTool }: { readonly broadcastId: string; readonly seller: boolean; readonly title: string; readonly rehearsal: boolean; readonly closed: boolean; readonly canLink: boolean; readonly stream: StreamAudio; readonly onClose: () => void; readonly onShowLink: () => void; readonly onOpenLabels?: () => void; readonly openTool?: (tool: ManageTool) => void }) {
+export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink, stream, onClose, onShowLink, onOpenLabels, openTool }: { readonly broadcastId: string; readonly seller: boolean; readonly title: string; readonly rehearsal: boolean; readonly closed: boolean; readonly canLink: boolean; readonly stream: StreamAudio; readonly onClose: () => void; readonly onShowLink: () => void; readonly onOpenLabels?: () => void; readonly openTool?: (tool: ManageTool) => void }) {
   const api = useConsoleApi()
-  const services = useServices()
-  const voiceView = useSyncExternalStore(services.voice.subscribe, services.voice.getView)
   const [sheet, setSheet] = useState<ManageSheet>('none')
   const [thanksBusy, setThanksBusy] = useState(false)
   const [thanksError, setThanksError] = useState<string | null>(null)
@@ -99,7 +95,6 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
   // 설정 하나하나는 진짜 전체 화면으로 (D-UX4-60) — 경로가 없을 때(시험·웹)만 이 화면 위 판으로
   const show = (tool: ManageTool) => (openTool === undefined ? setSheet(tool) : openTool(tool))
   const thanksOn = api.data.broadcasts.get(broadcastId)?.settings['thanks.liveChat'] === true
-  const listening = voiceView.on && voiceView.broadcastId === broadcastId
   const switchThanks = (next: boolean) => {
     setThanksBusy(true)
     setThanksError(null)
@@ -114,35 +109,21 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
   const showImport = seller && !closed
   const showLabels = onOpenLabels !== undefined && !rehearsal
   return (
-    <>
-      {thanksError !== null ? <Notice tone="danger" alert>{thanksError}</Notice> : null}
-      {showLink || showThanks ? (
-        <MenuGroup title="라이브 채팅">
-          {showLink ? <MenuRow title={LINK_TITLE} onPress={onShowLink} /> : null}
-          {/* 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24) — 실제 방송만(리허설은 유튜브에 아무것도 올리지 않는다) */}
-          {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
-        </MenuGroup>
-      ) : null}
-      {seller && !closed ? (
-        <MenuGroup title="듣기">
-          {/* 휴대폰 마이크 켜기·끄기는 방송 화면에서 안내·상태를 보여 주므로 이 화면을 닫는다 (D-UX3-73) */}
-          <MenuRow title={listening ? LISTEN_STOP : LISTEN_START} testID="listen-button" onPress={() => { onClose(); void (listening ? services.voice.turnOff() : services.voice.turnOn(broadcastId, title)) }} />
-          {stream.status?.phase === 'stopped' ? <MenuRow title="라이브 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}
-          <MenuRow title="음성 설정" onPress={() => show('voice')} />
-        </MenuGroup>
-      ) : null}
-      {showImport || showLabels ? (
-        <MenuGroup title="상품·라벨">
-          {/* 방송 전 상품 미리 등록 (PRD-05 앱, D-V3-128) */}
-          {showImport ? <MenuRow title={APP_IMPORT_TITLE} onPress={() => show('import')} /> : null}
-          {/* 라벨 프린트 (D-UX4-80 — 옛 "프린터·라벨"): 프린터 연결·라벨 꾸미기·테스트 인쇄를 고르는 화면 */}
-          {showLabels ? <MenuRow title={LABEL_PRINT_TITLE} onPress={onOpenLabels} /> : null}
-        </MenuGroup>
-      ) : null}
-      <MenuGroup title="화면">
-        {/* 방송 화면 맨 아래 창: 들린 말 · 채팅·문자 · 안 보기 (D-UX4-71) */}
-        <MenuRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
-      </MenuGroup>
+    // 흰 바탕에 묶음·묶음 이름 없이 줄만 (D-UX4-94 — 토스 "비밀번호 · 보안"). 화면 끝까지 넓혀 줄 글자를 화면 끝에서 24에 둔다
+    <View style={{ marginHorizontal: -SPACE.lg }}>
+      <PlainTitle title={MANAGE_LABEL} />
+      {thanksError !== null ? <View style={{ paddingHorizontal: PLAIN.side }}><Notice tone="danger" alert>{thanksError}</Notice></View> : null}
+      {showLink ? <PlainRow title={LINK_TITLE} onPress={onShowLink} /> : null}
+      {/* 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24) — 실제 방송만(리허설은 유튜브에 아무것도 올리지 않는다) */}
+      {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
+      {/* 휴대폰 마이크로 듣기·음성 설정은 없앴다 (D-UX4-94, 사용자 지시 "듣기 섹션에 있는 기능 필요없으니 지워") — 라이브 소리가 멈췄을 때 다시 켜기만 */}
+      {seller && !closed && stream.status?.phase === 'stopped' ? <PlainRow title="라이브 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}
+      {/* 방송 전 상품 미리 등록 (PRD-05 앱, D-V3-128) */}
+      {showImport ? <PlainRow title={APP_IMPORT_TITLE} onPress={() => show('import')} /> : null}
+      {/* 라벨 프린트 (D-UX4-80 — 옛 "프린터·라벨"): 프린터 연결·라벨 꾸미기·테스트 인쇄를 고르는 화면 */}
+      {showLabels ? <PlainRow title={LABEL_PRINT_TITLE} onPress={onOpenLabels} /> : null}
+      {/* 라이브 화면 맨 아래 창 (D-UX4-71) */}
+      <PlainRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
 
       <FullSheet visible={sheet === 'import'} onClose={close} name={APP_IMPORT_TITLE} title={APP_IMPORT_TITLE}>
         {sheet === 'import' ? <ImportView /> : null}
@@ -151,9 +132,6 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
         {/* 토스식 고르기 목록 (D-UX4-76 아래 창 SheetChoices) */}
         <SheetChoices label={DOCK_TITLE} choices={DOCK_CHOICES} value={dock} onPick={(next) => { setDockChoice(next); close() }} />
       </BottomSheet>
-      <BottomSheet visible={sheet === 'voice'} onClose={close} title="음성 설정">
-        <VoiceSettingsPanel session={services.voice} broadcastId={broadcastId} />
-      </BottomSheet>
-    </>
+    </View>
   )
 }

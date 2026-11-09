@@ -287,12 +287,13 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
       </>,
     4,
     )
-    // 관리의 자동 감사 채팅 줄: 강조 바탕은 카드 끝에서 8, 글자는 20, 높이 56 이상 — 방송 관리의 다른 줄(MenuRow)과 같다
+    // 관리의 자동 감사 채팅 줄: 강조 바탕은 화면 끝에서 12, 글자는 24, 높이 56 이상 — 라이브 관리의 다른 줄(PlainRow)과 같다
+    // (옛 기대: 카드 끝에서 8 · 글자 20 — D-UX4-94 흰 바탕 토스 설정 줄로 바뀜)
     const help = screen.getByRole('button', { name: `${THANKS_TITLE} 설명 보기` })
     const row = help.parentElement!
     const holder = row.parentElement!
-    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft)).toBe(8)
-    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft) + px(style(row).paddingLeft)).toBe(20)
+    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft)).toBe(12)
+    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft) + px(style(row).paddingLeft)).toBe(24)
     expect(px(style(row).minHeight)).toBe(56)
   })
 
@@ -349,8 +350,8 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
     fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
     await screen.findByRole('dialog', { name: '라이브 관리' })
     expect(screen.getByRole('switch', { name: `${THANKS_TITLE} — 꺼짐` })).toBeTruthy()
-    // 최소 단추 수 15 → 12: 방송 관리에서 문자찜 직접 넣기·댓글 붙여넣기·방송 끝내기 줄을 없앴다 (D-UX4-78·79)
-    expectCentered(undefined, 12)
+    // 최소 단추 수 15 → 12 → 10: 방송 관리에서 문자찜 직접 넣기·댓글 붙여넣기·방송 끝내기(D-UX4-78·79), 휴대폰 마이크로 듣기·음성 설정(D-UX4-94) 줄을 없앴다
+    expectCentered(undefined, 10)
   })
 
   it('진짜 화면: 홈(지금 라이브 중·할 일 줄)과 설정(켜고 끄는 줄·줄)', async () => {

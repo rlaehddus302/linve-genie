@@ -53,7 +53,7 @@ describe('모바일 전체 서버 음성 세션', () => {
     await flush(); now += disconnect ? 2000 : 12000
     if (disconnect) audio.setState({ kind: 'reconnecting', attempt: 1 })
     release(); await flush(30)
-    const note = disconnect ? '음성 연결이 바뀌어 보내지 않았어요. 확인하고 다시 눌러 주세요.' : '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.'
+    const note = disconnect ? '음성 연결이 바뀌어 보내지 않았어요. 확인하고 다시 눌러 주세요.' : '늦게 인식한 말이에요. 확인하고 다시 눌러 주세요.' // 문구 바뀜 (D-UX4-96, 옛 기대: "늦게 들린 말이에요.")
     expect(server.callsTo('POST', /^\/api\/events/)).toHaveLength(0)
     expect(audio.sent).toContainEqual(expect.objectContaining({ op: 'effectResult', id: 991, value: { kind: 'failed', message: note } }))
     if (method === 'register' && !disconnect) expect(audio.sent).toContainEqual(expect.objectContaining({ method: 'restore', args: [args[0], { touched: true, note }] }))
@@ -175,8 +175,8 @@ describe('모바일 전체 서버 음성 세션', () => {
     audio.message({ type: 'voice.effect', id: 2, method: 'writeSms', args: toWire([{ no: 15 }, null, 'r1']), automatic: true, source: 'livegenie' })
     await flush(20)
     expect(effect).not.toHaveBeenCalled()
-    expect(audio.sent).toContainEqual({ type: 'voice.session', op: 'command', method: 'restore', args: [card, { touched: true, note: '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.' }] })
-    expect(audio.sent).toContainEqual(expect.objectContaining({ op: 'effectResult', id: 2, value: { kind: 'failed', message: '늦게 들린 말이에요. 확인하고 다시 눌러 주세요.' } }))
+    expect(audio.sent).toContainEqual({ type: 'voice.session', op: 'command', method: 'restore', args: [card, { touched: true, note: '늦게 인식한 말이에요. 확인하고 다시 눌러 주세요.' }] }) // 문구 바뀜 (D-UX4-96, 옛 기대: "늦게 들린 말이에요.")
+    expect(audio.sent).toContainEqual(expect.objectContaining({ op: 'effectResult', id: 2, value: { kind: 'failed', message: '늦게 인식한 말이에요. 확인하고 다시 눌러 주세요.' } })) // 문구 바뀜 (D-UX4-96, 옛 기대: "늦게 들린 말이에요.")
     audio.message({ type: 'voice.effect', id: 3, method: 'writeSms', args: toWire([{ no: 15 }, null, 'r2']), automatic: false, source: 'livegenie' })
     await flush()
     expect(effect).toHaveBeenCalledTimes(1)

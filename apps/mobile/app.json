@@ -21,7 +21,7 @@
       "bundleIdentifier": "app.livejjim.mobile",
       "supportsTablet": false,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "방송 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요.",
+        "NSMicrophoneUsageDescription": "라이브 중 사장님 말(상품 번호·가격)을 음성 인식해 상품을 등록하려고 마이크를 써요.",
         "NSBluetoothAlwaysUsageDescription": "라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.",
         "NSBluetoothPeripheralUsageDescription": "라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.",
         "UIBackgroundModes": [
@@ -85,9 +85,9 @@
     },
     "extra": {
       "permissionWords": {
-        "microphone": "방송 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요.",
+        "microphone": "라이브 중 사장님 말(상품 번호·가격)을 음성 인식해 상품을 등록하려고 마이크를 써요.",
         "bluetooth": "라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.",
-        "notification": "음성 듣는 중이라는 알림을 보여 드리려고 해요."
+        "notification": "음성 인식 중이라는 알림을 보여 드리려고 해요."
       },
       "eas": {
         "projectId": ""

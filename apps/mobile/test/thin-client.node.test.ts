@@ -1,3 +1,4 @@
+// D-UX4-96 (사용자 지시 2026-11-10 "듣기라고 표현하지 말고 음성 인식이라고"): 권한·알림 문구의 '듣는 중'·'듣고'를 '음성 인식'으로, '방송'을 '라이브'로 바꿔 기대 글을 맞췄다.
 // 얇은 클라이언트 확인 (APP-01 AC2·AC3): 앱 소스는 판정 엔진(@livejjim/core 전체)·음성 추출(@livejjim/voice)·라벨 그리기(@livejjim/label 실행 코드)를 가져오지 않고,
 // 설정·빌드 결과에 받아쓰기 서버 주소·토큰·모델 이름이 없다. 빌드 결과(dist/*.hbc)가 있으면 그 안의 글자도 본다.
 // @vitest-environment node
@@ -54,7 +55,7 @@ describe('앱 소스에 판정·추출·그리기 코드가 없다 (APP-01 AC3)'
       for (const pattern of forbidden) expect(pattern.test(source), `${file}: ${String(pattern)}`).toBe(false)
     }
     const app = JSON.parse(readFileSync(join(ROOT, 'app.json'), 'utf8')) as { expo: { ios: { infoPlist: Record<string, unknown> }; android: { permissions: string[] }; extra: Record<string, unknown> } }
-    expect(app.expo.ios.infoPlist['NSMicrophoneUsageDescription']).toBe('방송 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요.')
+    expect(app.expo.ios.infoPlist['NSMicrophoneUsageDescription']).toBe('라이브 중 사장님 말(상품 번호·가격)을 음성 인식해 상품을 등록하려고 마이크를 써요.')
     expect(app.expo.ios.infoPlist['NSBluetoothAlwaysUsageDescription']).toBe('라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.')
     expect(app.expo.ios.infoPlist['UIBackgroundModes']).toEqual(['audio', 'bluetooth-central'])
     expect(app.expo.android.permissions).toEqual(expect.arrayContaining(['android.permission.FOREGROUND_SERVICE_MICROPHONE', 'android.permission.BLUETOOTH_CONNECT', 'android.permission.BLUETOOTH_SCAN', 'android.permission.POST_NOTIFICATIONS']))

@@ -3,8 +3,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Animated, Easing, Platform, ScrollView, View } from 'react-native'
 import { Icon } from './app.tsx'
 import { BigButton } from './buttons.tsx'
-import { RADIUS, SHADOW, SPACE, TOUCH } from './tokens.ts'
-import { Txt, useKit } from './theme.tsx'
+import { RADIUS, SHADOW, SPACE, TOUCH, type TypeStep } from './tokens.ts'
+import { Txt, useKit, type TxtProps } from './theme.tsx'
 import { Tap, usePressMotion } from './press.tsx'
 
 /** 화면 틀: 맨 위 큰 질문형 제목 + 내용(스크롤) + 맨 아래 고정 영역(footer, 보통 BottomCTA). 한 화면 한 가지 일. */
@@ -122,7 +122,8 @@ const SWITCH_MS = 180
  * 켜고 끄는 줄 (D-UX4-06, 사용자 지시 2026-11-03 "온오프 스위치는 토스처럼" — 옛: "켜짐/꺼짐" 글자가 든 큰 알약):
  * 오른쪽 스위치 — 켜면 주색 바탕에 흰 동그라미가 오른쪽으로 미끄러진다. 줄 어디를 눌러도 바뀐다. 보조 기술에는 "제목 — 켜짐/꺼짐".
  */
-export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, testID }: { readonly title: string; readonly subtitle?: string; readonly on: boolean; readonly onChange: (next: boolean) => void; readonly disabled?: boolean; readonly onHelp?: () => void; readonly testID?: string }) {
+/** titleStep·titleWeight·titleInk: 이름 글자 (기본 16 중간 굵기 — 흰 설정 화면 줄은 17 보통 #4F545E, D-UX4-94) */
+export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, testID, titleStep = 'bodyLarge', titleWeight = 'medium', titleInk }: { readonly title: string; readonly subtitle?: string; readonly on: boolean; readonly onChange: (next: boolean) => void; readonly disabled?: boolean; readonly onHelp?: () => void; readonly testID?: string; readonly titleStep?: TypeStep; readonly titleWeight?: NonNullable<TxtProps['weight']>; readonly titleInk?: string }) {
   const { p } = useKit()
   const move = useRef(new Animated.Value(on ? 1 : 0)).current
   const press = usePressMotion()
@@ -141,7 +142,7 @@ export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, tes
   const words = (
     <View style={onHelp === undefined ? { flex: 1, gap: SPACE.xs } : { gap: SPACE.xs }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Txt step="bodyLarge" weight="medium">
+        <Txt step={titleStep} weight={titleWeight} {...(titleInk === undefined ? {} : { ink: titleInk })}>
           {title}
         </Txt>
         {onHelp === undefined ? null : <Icon name="help" size={20} color={p.textSub} />}

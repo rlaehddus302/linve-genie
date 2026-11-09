@@ -24,8 +24,8 @@ export const holdsStream = (status: StreamAudioStatus | null): boolean => status
 /** 받아쓴 글 그대로 — 해석(번호·가격) 문장은 카드에만. 새 줄이 아래, 지난 줄은 남겨 둔다. small: 들린 말 카드처럼 모든 줄을 작은 글자 한 크기로 (D-UX3-76) */
 export function Transcript({ lines, small = false }: { readonly lines: readonly string[]; readonly small?: boolean }) {
   return (
-    <View aria-label="들린 말" role="log" style={{ gap: 2 }}>
-      {lines.length === 0 ? <Hint>아직 들린 말이 없어요.</Hint> : lines.map((line, index) => {
+    <View aria-label="음성 인식" role="log" style={{ gap: 2 }}>
+      {lines.length === 0 ? <Hint>아직 인식한 말이 없어요.</Hint> : lines.map((line, index) => {
         const key = `${String(index)}:${line}`
         const last = index === lines.length - 1
         if (small) return <Txt key={key} step="caption" color={last ? undefined : 'textSub'} weight={last ? 'bold' : undefined}>{line}</Txt>
@@ -97,7 +97,7 @@ export function KeptStreamAudio({ session, keep, signedIn }: { readonly session:
 }
 
 /** 들린 말 창 왼쪽 상태 낱말 세 가지 (D-UX4-67, 사용자 지시 2026-11-10 "듣는 중 표시 말고 다른 상태는 연결 끊김(red), 재연결 중(orange)") */
-export const DOCK_STATE = { on: '듣는 중', reconnecting: '재연결 중', lost: '연결 끊김' } as const
+export const DOCK_STATE = { on: '인식 중', reconnecting: '재연결 중', lost: '연결 끊김' } as const
 
 /**
  * 들린 말 창 왼쪽 상태 한 곳: 마이크가 켜져 있으면 마이크, 아니면 방송 소리.
@@ -162,9 +162,9 @@ export function ServerHeard({ broadcastId }: { readonly broadcastId: string }) {
     post(`${streamAudioPath(broadcastId)}/heard/clear`, {}).catch(() => undefined)
   }
   return (
-    <Card label="앱을 닫은 동안 서버가 들은 말">
+    <Card label="앱을 닫은 동안 서버가 인식한 말">
       <View style={{ gap: 6 }}>
-        <Body bold>앱을 닫은 동안 서버가 들었어요</Body>
+        <Body bold>앱을 닫은 동안 서버가 음성 인식했어요</Body>
         <Hint>{registered > 0 ? `상품 ${String(registered)}개를 등록했어요.` : '등록한 상품은 없어요.'} 틀린 게 있으면 상품 목록에서 고쳐 주세요.</Hint>
         {done.length > 0 ? <View role="list" aria-label="서버가 한 일" style={{ gap: 2 }}>{done.map((text, index) => <Body key={`${String(index)}:${text}`}>{text}</Body>)}</View> : null}
         {pending.length > 0 ? (
@@ -174,8 +174,8 @@ export function ServerHeard({ broadcastId }: { readonly broadcastId: string }) {
           </View>
         ) : null}
         {heard.length > 0 ? (
-          <Tap role="button" aria-label={open ? '서버가 들은 말 접기' : '서버가 들은 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)}>
-            <Txt step="caption" color="textSub">{open ? '들린 말 접기' : `들린 말 ${String(heard.length)}줄 펼치기`}</Txt>
+          <Tap role="button" aria-label={open ? '서버가 인식한 말 접기' : '서버가 인식한 말 펼치기'} aria-expanded={open} onPress={() => setOpen((now) => !now)}>
+            <Txt step="caption" color="textSub">{open ? '인식한 말 접기' : `인식한 말 ${String(heard.length)}줄 펼치기`}</Txt>
           </Tap>
         ) : null}
         {open ? <Transcript lines={heard} /> : null}
@@ -251,14 +251,14 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
   const last = view.transcript.at(-1) ?? null
   const earlier = view.transcript.slice(0, -1)
   const times = view.transcriptAt
-  const now = hearing ? (last ?? '아직 들린 말이 없어요.') : (line?.text ?? '들린 말이 여기에 나와요.')
+  const now = hearing ? (last ?? '아직 인식한 말이 없어요.') : (line?.text ?? '인식한 말이 여기에 나와요.')
   // 펼친 칸 높이: 안쪽 글 높이(최대 HEARD_LOG_HEIGHT)까지 0에서 늘린다. 재기 전(첫 그림)에는 바로 그 높이
   const target = Math.min(logHeight, HEARD_LOG_HEIGHT)
   const height = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, target] })
   // 지난 말과 지금 말 사이를 지난 말끼리 사이(4)와 같게 (D-UX4-90): 지금 줄은 누르는 줄(높이 44) 가운데라 위가 12 떠 있어 그만큼 겹친다
   const overlap = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, -HEARD_OVERLAP] })
   const lines = (
-    <View role="log" aria-label="지난 들린 말" style={{ gap: SPACE.xs }} onLayout={(event) => setLogHeight(event.nativeEvent.layout.height)}>
+    <View role="log" aria-label="지난 인식한 말" style={{ gap: SPACE.xs }} onLayout={(event) => setLogHeight(event.nativeEvent.layout.height)}>
       {/* 지난 말이 없으면 비워 둔다 — 안내 문장을 띄우지 않는다 (D-UX4-69, 사용자 지시 2026-11-10) */}
       {earlier.map((text, index) => {
           const at = times[index]
@@ -276,7 +276,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
     </View>
   )
   return (
-    <View role="region" aria-label="들린 말 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
+    <View role="region" aria-label="음성 인식 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
       {motion.shown ? (
         <Animated.View testID="heard-log-box" style={{ height: Platform.OS === 'web' ? undefined : height, marginBottom: overlap, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs }}>
           <ScrollView ref={log} style={{ maxHeight: HEARD_LOG_HEIGHT }} onContentSizeChange={() => log.current?.scrollToEnd({ animated: false })}>
@@ -285,7 +285,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
         </Animated.View>
       ) : null}
       {open && line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
-      <Tap role="button" aria-label={open ? '들린 말 접기' : '들린 말 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: DOCK_ROW_HEIGHT, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <Tap role="button" aria-label={open ? '음성 인식 접기' : '음성 인식 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: DOCK_ROW_HEIGHT, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
         <View onLayout={(event) => setColumn(event.nativeEvent.layout.width)}>
           {/* 자리 재기: 가장 긴 상태 알약 폭 — 보이지도 읽히지도 않는다 */}
           {DOCK_WORDS.map((word) => (
@@ -297,7 +297,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
             <DotStatus word={chip.word} tone={chip.tone} />
           </View>
         </View>
-        <View role="status" aria-label="지금 들리는 말" style={{ flex: 1 }}>
+        <View role="status" aria-label="지금 인식한 말" style={{ flex: 1 }}>
           <Txt step="meta" weight={hearing && last !== null ? 'medium' : undefined} numberOfLines={1} color={hearing && last !== null ? undefined : 'textSub'}>
             {now}
           </Txt>
@@ -320,9 +320,9 @@ function StillPill({ word }: { readonly word: string }) {
 }
 
 /** 들린 말 탭 (D-UX4-91, 사용자 지시 2026-11-10 "음성인식도 새 탭으로 만들어서 보여주도록 해") */
-export const HEARD_TAB = '들린 말'
-export const HEARD_EMPTY = '아직 들린 말이 없어요'
-export const HEARD_EMPTY_BODY = '라이브 소리를 들으면\n알아들은 말이 여기에 나와요'
+export const HEARD_TAB = '음성 인식'
+export const HEARD_EMPTY = '아직 인식한 말이 없어요'
+export const HEARD_EMPTY_BODY = '음성 인식을 시작하면\n인식한 말이 여기에 나와요'
 
 /**
  * 들린 말 탭: 이 방송에서 알아들은 말 전부를 채팅·문자 탭처럼 — 왼쪽 들린 시각(폭 고정 칸, 한국 시각 21:07:33), 오른쪽 말. 새 말이 맨 아래.

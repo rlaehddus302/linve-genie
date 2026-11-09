@@ -1,3 +1,4 @@
+// D-UX4-96 (사용자 지시 2026-11-10 "듣기라고 표현하지 말고 음성 인식이라고"): 권한·알림 문구의 '듣는 중'·'듣고'를 '음성 인식'으로, '방송'을 '라이브'로 바꿔 기대 글을 맞췄다.
 // 마이크 소리 잡기 (APP-02 AC2·AC3, D-APP-06·D-APP-11) — 가짜 네이티브로: 권한 흐름, 틀 정규화, 상태 비추기, 멈추기.
 import { describe, expect, it } from 'vitest'
 import { AUDIO_FRAME_BYTES, AUDIO_SAMPLE_RATE, LISTENING_NOTIFICATION_TEXT, LISTENING_NOTIFICATION_TITLE, createAudioCapture, frameBytesOf, haltReasonOf } from '../src/index.ts'
@@ -11,7 +12,7 @@ describe('켜기·권한 (APP-01 권한 설명, D-APP-11)', () => {
     capture.addStateListener((s) => states.push(s))
     await capture.start({ sampleRate: 16_000 })
     expect(native.starts).toEqual([{ sampleRate: AUDIO_SAMPLE_RATE, frameMs: 100, notificationTitle: LISTENING_NOTIFICATION_TITLE, notificationText: LISTENING_NOTIFICATION_TEXT }])
-    expect(native.starts[0]?.notificationTitle + ' · ' + native.starts[0]?.notificationText).toBe('라이브지니 · 음성 듣는 중 · 눌러서 돌아가기')
+    expect(native.starts[0]?.notificationTitle + ' · ' + native.starts[0]?.notificationText).toBe('라이브지니 · 음성 인식 중 · 눌러서 돌아가기')
     expect(native.requests).toBe(0)
     expect(capture.getState()).toBe('LISTENING')
     expect(states).toEqual(['STARTING', 'LISTENING'])

@@ -35,6 +35,7 @@ import { HEARD_TAB, HeardTab, ListenLine, useKeptStream } from './console/Stream
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
 import { EndBroadcastRow } from './console/EndBroadcast.tsx'
+import { LinkInfo, hasLinkedLive } from './console/LinkInfo.tsx'
 import { useDockChoice } from '../lib/dock-choice.ts'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
 import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
@@ -259,6 +260,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
       else yt.setLink(view)
     } })
   const command = useScopeCommand(store)
+  const linked = hasLinkedLive(yt)
 
   // 방송이 끝나면 음성도 끈다 (APP-02 "방송 끝")
   const voiceView = useSyncExternalStore(services.voice.subscribe, services.voice.getView)
@@ -473,7 +475,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           }}
         />
         {/* 방송 관리 (D-UX4-20 → D-UX4-57): 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다 */}
-        <SlidePage visible={page === 'settings'} onClose={closePage} name={MANAGE_LABEL} gray testID="console-settings">
+        <SlidePage visible={page === 'settings'} onClose={closePage} name={MANAGE_LABEL} testID="console-settings">
           <ConsoleManage
             broadcastId={broadcastId}
             seller={seller}
@@ -488,7 +490,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           />
         </SlidePage>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
-        <FullSheet visible={sheet === 'youtube'} onClose={close} name="라이브 연결" title={linkable ? '라이브 링크를 넣어 주세요' : '라이브 연결'} cards={!linkable} overlay={linkable ? linker.popup : undefined} actions={linkable ? (
+        <FullSheet visible={sheet === 'youtube'} onClose={close} name="라이브 연결" title={linkable ? '라이브 링크를 넣어 주세요' : '라이브 연결'} cards={!linkable && !linked} overlay={linkable ? linker.popup : undefined} actions={linkable ? (
             <>
               <BigButton kind="outline" label="나중에 잇기" onPress={close} />
               {linker.action}
@@ -498,11 +500,14 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             <View role="group" aria-label="유튜브">
               {linker.fields}
             </View>
+          ) : linked ? (
+            // 이은 라이브: 흰 바탕 정보 줄 + 라이브로 바로가기 · 라이브 연결 끊기 (D-UX4-95)
+            <LinkInfo broadcastId={broadcastId} yt={yt} closed={closed} bleed {...(seller ? { onEnded: () => { setEndedHere(true); close(); closePage(); onEnded?.() } } : {})} />
           ) : (
             <YoutubeSection yt={yt} closed={closed} />
           )}
-          {/* 방송 연결 끊기 (D-UX4-79 — 옛 방송 관리 "방송 끝내기") */}
-          {seller && !closed ? <EndBroadcastRow broadcastId={broadcastId} onEnded={() => { setEndedHere(true); close(); closePage(); onEnded?.() }} /> : null}
+          {/* 라이브 연결 끊기 (D-UX4-79) — 이은 라이브는 LinkInfo 안에 있다 */}
+          {seller && !closed && !linked ? <EndBroadcastRow broadcastId={broadcastId} onEnded={() => { setEndedHere(true); close(); closePage(); onEnded?.() }} /> : null}
         </FullSheet>
       </View>
     </ConsoleContext.Provider>

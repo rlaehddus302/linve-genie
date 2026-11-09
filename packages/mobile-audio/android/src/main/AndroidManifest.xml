@@ -2,12 +2,12 @@
 <!-- 라이브지니 앱 마이크 모듈 (APP-02). 앱 매니페스트에 합쳐진다(manifest merger). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 마이크: "방송 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요." (D-APP-11) -->
+    <!-- 마이크: "라이브 중 사장님 말(상품 번호·가격)을 음성 인식해 상품을 등록하려고 마이크를 써요." (D-APP-11) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- 뒤에서도 듣기: 마이크 포그라운드 서비스 (안드로이드 14+는 종류 선언이 필수) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <!-- 고정 알림 "라이브지니 · 음성 듣는 중 · 눌러서 돌아가기" (안드로이드 13+) -->
+    <!-- 고정 알림 "라이브지니 · 음성 인식 중 · 눌러서 돌아가기" (안드로이드 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>

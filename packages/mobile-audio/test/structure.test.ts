@@ -1,3 +1,4 @@
+// D-UX4-96 (사용자 지시 2026-11-10 "듣기라고 표현하지 말고 음성 인식이라고"): 권한·알림 문구의 '듣는 중'·'듣고'를 '음성 인식'으로, '방송'을 '라이브'로 바꿔 기대 글을 맞췄다.
 // 네이티브는 여기서 빌드하지 못한다 — 파일 구조·권한 선언·문장·비밀 없음·소리 저장 없음을 소스 검사로 확인한다
 // (APP-01 AC2, APP-02 고정 알림·D-APP-11, D-APP-03, D-APP-04).
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
@@ -72,13 +73,13 @@ describe('안드로이드 선언 (APP-02 포그라운드 서비스·D-APP-11)', 
     expect(service).toContain('CHANNEL_IN_MONO')
   })
 
-  it('고정 알림: 끄기 단추 없음(눌러서 돌아가기만), 기본 문장은 "라이브지니 · 음성 듣는 중 · 눌러서 돌아가기"', () => {
+  it('고정 알림: 끄기 단추 없음(눌러서 돌아가기만), 기본 문장은 "라이브지니 · 음성 인식 중 · 눌러서 돌아가기"', () => {
     const service = read('android', 'src', 'main', 'java', 'com', 'livejjim', 'audio', 'LivejjimAudioService.kt')
     const module = read('android', 'src', 'main', 'java', 'com', 'livejjim', 'audio', 'LivejjimAudioModule.kt')
     expect(service).toContain('setOngoing(true)')
     expect(service).toContain('setContentIntent(tap)')
     expect(service).not.toContain('addAction(')
-    expect(LISTENING_NOTIFICATION_LINE).toBe('라이브지니 · 음성 듣는 중 · 눌러서 돌아가기')
+    expect(LISTENING_NOTIFICATION_LINE).toBe('라이브지니 · 음성 인식 중 · 눌러서 돌아가기')
     expect(module).toContain(`"${LISTENING_NOTIFICATION_TITLE}"`)
     expect(module).toContain(`"${LISTENING_NOTIFICATION_TEXT}"`)
     expect(service).toContain(`"${LISTENING_NOTIFICATION_TITLE}"`)
@@ -96,10 +97,10 @@ describe('안드로이드 선언 (APP-02 포그라운드 서비스·D-APP-11)', 
 
 describe('아이폰 선언 (APP-02 백그라운드 오디오·D-APP-11)', () => {
   it('앱 Info.plist 값: 마이크 설명 문장 그대로 + UIBackgroundModes audio', () => {
-    expect(IOS_INFO_PLIST.NSMicrophoneUsageDescription).toBe('방송 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요.')
+    expect(IOS_INFO_PLIST.NSMicrophoneUsageDescription).toBe('라이브 중 사장님 말(상품 번호·가격)을 음성 인식해 상품을 등록하려고 마이크를 써요.')
     expect(MIC_PERMISSION_MESSAGE).toBe(IOS_INFO_PLIST.NSMicrophoneUsageDescription)
     expect([...IOS_INFO_PLIST.UIBackgroundModes]).toEqual(['audio'])
-    expect(NOTIFICATION_PERMISSION_MESSAGE).toBe('음성 듣는 중이라는 알림을 보여 드리려고 해요.')
+    expect(NOTIFICATION_PERMISSION_MESSAGE).toBe('음성 인식 중이라는 알림을 보여 드리려고 해요.')
   })
 
   it('PcmCapture: 16kHz Int16 모노 변환, 끼어들기 알림 처리, 세션 .playAndRecord', () => {

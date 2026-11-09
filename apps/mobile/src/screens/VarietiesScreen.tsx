@@ -14,7 +14,7 @@ import { Loading, Row } from '../ui/parts.tsx'
 import { GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
 
 export const VARIETIES_TITLE = '내 품종'
-export const VARIETIES_HELP = '키우는 품종 이름을 적어 두면 라이브 때 말한 품종을 더 잘 알아들어요. 직접 지은 이름도 적어 주세요.'
+export const VARIETIES_HELP = '키우는 품종 이름을 적어 두면 라이브 때 말한 품종을 더 정확히 음성 인식해요. 직접 지은 이름도 적어 주세요.'
 export const VARIETIES_INPUT_LABEL = '품종 이름'
 export const VARIETIES_INPUT_HELP = '쉼표나 줄바꿈으로 여러 개를 한 번에 넣을 수 있어요.'
 export const VARIETIES_EMPTY = '아직 적은 품종이 없어요.'

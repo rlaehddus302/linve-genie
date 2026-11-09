@@ -15,7 +15,7 @@ export function createVoiceEffects(scopeOf: (b: string) => Promise<Scope>) {
     const write = async (event: Record<string, unknown>, requestId = newRequestId()): Promise<WriteResult> => {
       let firstAttempt = true
       return withRetry(() => {
-        if (!session.isOperationCurrent(operation, b)) throw new VoiceWriteBlocked('음성 듣기를 꺼서 보내지 않았어요.')
+        if (!session.isOperationCurrent(operation, b)) throw new VoiceWriteBlocked('음성 인식을 꺼서 보내지 않았어요.')
         const blocked = writeCheck?.(firstAttempt)
         if (blocked) throw new VoiceWriteBlocked(blocked)
         firstAttempt = false

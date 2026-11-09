@@ -39,7 +39,7 @@ export function ProductAddScreen({ broadcastId, onBack }: { readonly broadcastId
  */
 export function ManageScreen({ broadcastId, onBack, openLink, openLabels, openTool, refresh = 0 }: { readonly broadcastId: string; readonly onBack: () => void; readonly openLink: (closed: boolean) => void; readonly openLabels?: () => void; readonly openTool?: (tool: ConsoleTool) => void; readonly refresh?: number }) {
   return (
-    <StackPage name={MANAGE_LABEL} onBack={onBack} gray testID="console-settings">
+    <StackPage name={MANAGE_LABEL} onBack={onBack} testID="console-settings">
       <ScopeConsole broadcastId={broadcastId} waiting={<Loading />}>
         {({ broadcast, snapshot }) => <ManageBody broadcastId={broadcastId} title={broadcast.title.trim() === '' ? '제목 없음' : broadcast.title} rehearsal={broadcast.rehearsal} closed={broadcast.ended || (snapshot.data?.sealed ?? false)} onBack={onBack} openLink={openLink} refresh={refresh} {...(openLabels === undefined ? {} : { openLabels })} {...(openTool === undefined ? {} : { openTool })} />}
       </ScopeConsole>
@@ -80,7 +80,7 @@ export const CONSOLE_TOOLS: readonly ConsoleTool[] = ['voice', 'import']
 
 /** 머리 가운데 제목(방송 관리 줄 이름과 같다) · 맨 위 굵은 한 줄 · 회색 설명 (토스 화면처럼 무엇을 하는 화면인지 먼저) */
 export const TOOL_PAGE: Readonly<Record<ConsoleTool, { readonly title: string; readonly head: string; readonly body: string }>> = {
-  voice: { title: '음성 설정', head: '라이브 소리를 글로 바꿔요', body: '들린 말로 상품을 올리는 방법을 정해요' },
+  voice: { title: '음성 설정', head: '라이브 소리를 글로 바꿔요', body: '인식한 말로 상품을 올리는 방법을 정해요' },
   import: { title: APP_IMPORT_TITLE, head: '라이브 전에 상품을 한 번에 올려요', body: '"번호 품종 가격"을 한 줄씩 붙여 넣으면\n공개 전 상품으로 올라가요' },
 }
 

@@ -22,9 +22,9 @@ import { SocialTile } from '../ui/SocialTile.tsx'
 
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 라이브부터 적용돼요.'
 export const PERMISSION_WORDS = {
-  microphone: '라이브 중 사장님 말(상품 번호·가격)을 듣고 상품을 등록하려고 마이크를 써요.',
+  microphone: '라이브 중 사장님 말(상품 번호·가격)을 음성 인식해 상품을 등록하려고 마이크를 써요.',
   bluetooth: '라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.',
-  notification: '음성 듣는 중이라는 알림을 보여 드리려고 해요.',
+  notification: '음성 인식 중이라는 알림을 보여 드리려고 해요.',
 } as const
 
 interface Done {
@@ -106,7 +106,7 @@ export function SettingsScreen({
         <SettingsGroup title="음성" label="음성">
           <ToggleRow
             title={VOICE_INSTANT_LABEL}
-            subtitle="끄면 들린 말이 카드로 먼저 보이고, 등록을 눌러야 올라가요."
+            subtitle="끄면 인식한 말이 카드로 먼저 보이고, 등록을 눌러야 올라가요."
             on={view.instant}
             onChange={(next) => {
               const previous = view.instant
@@ -120,7 +120,7 @@ export function SettingsScreen({
             <ErrorLine>{view.problem}</ErrorLine>
           ) : null}
           {/* 내 품종 장부 (D-V3-127) — 직접 지은 이름도 알아듣게 */}
-          {onOpenVarieties !== undefined ? <ListRow title={VARIETIES_TITLE} subtitle="키우는 품종 이름을 적어 두면 더 잘 알아들어요." onPress={onOpenVarieties} /> : null}
+          {onOpenVarieties !== undefined ? <ListRow title={VARIETIES_TITLE} subtitle="키우는 품종 이름을 적어 두면 더 정확히 음성 인식해요." onPress={onOpenVarieties} /> : null}
           {/* 권한 설명은 펼쳐야 보인다 (D-UX3-96 — 늘 보이던 세 줄을 접었다) */}
           <DetailToggle label="앱이 쓰는 권한" open={why} onPress={() => setWhy((open) => !open)} />
           {why ? (

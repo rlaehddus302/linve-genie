@@ -30,18 +30,15 @@ async function openManage(openLabels?: () => void) {
 }
 
 describe('라이브 관리 묶음 (D-UX4-78)', () => {
-  it('하는 일로 묶는다 — 라이브 채팅 · 듣기 · 상품·라벨 · 화면, "라이브" 묶음은 없다', async () => {
+  // 옛 기대(D-UX4-78): 라이브 채팅 · 듣기 · 상품·라벨 · 화면 묶음. 새 기대(D-UX4-94): 묶음·묶음 이름 없이 흰 바탕 줄만, 듣기 줄은 없앰
+  it('묶음 없이 줄만 — 라이브 연결 · 상품 미리 등록 · 라벨 프린트, 옛 묶음 이름은 없다', async () => {
     const { page } = await openManage(() => {})
-    const groups = within(page).getAllByRole('group').map((group) => group.getAttribute('aria-label')).filter((name) => name !== null)
-    expect(groups).toEqual(expect.arrayContaining(['라이브 채팅', '듣기', '상품·라벨', '화면']))
-    expect(groups).not.toContain('라이브')
-    expect(groups).not.toContain('넣기·보기')
-    const chat = within(page).getByRole('group', { name: '라이브 채팅' })
-    expect(within(chat).getByRole('button', { name: '라이브 연결' })).toBeTruthy()
-    const goods = within(page).getByRole('group', { name: '상품·라벨' })
-    expect(within(goods).getByRole('button', { name: APP_IMPORT_TITLE })).toBeTruthy()
+    const groups = within(page).queryAllByRole('group').map((group) => group.getAttribute('aria-label')).filter((name) => name !== null)
+    for (const old of ['라이브 채팅', '듣기', '상품·라벨', '화면', '라이브', '넣기·보기']) expect(groups).not.toContain(old)
+    expect(within(page).getByRole('button', { name: '라이브 연결' })).toBeTruthy()
+    expect(within(page).getByRole('button', { name: APP_IMPORT_TITLE })).toBeTruthy()
     expect(APP_IMPORT_TITLE).toBe('상품 미리 등록')
-    expect(within(goods).getByRole('button', { name: LABEL_PRINT_TITLE })).toBeTruthy()
+    expect(within(page).getByRole('button', { name: LABEL_PRINT_TITLE })).toBeTruthy()
     expect(page.textContent).not.toContain('프린터·라벨')
     expect(page.textContent).not.toContain('라이브 끝내기')
     expect(page.textContent).not.toContain('문자찜 직접 넣기')

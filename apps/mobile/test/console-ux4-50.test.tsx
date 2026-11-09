@@ -164,16 +164,16 @@ describe('들린 말 창 (D-UX4-53)', () => {
   it('왼쪽에 듣기 상태, 가운데 지금 들리는 말 — 펼치면 지난 말만 채팅처럼(지금 말은 겹치지 않는다), 화살표 반대', () => {
     const lines = Array.from({ length: 12 }, (_, index) => `${String(index + 1)}번 들린 말`)
     render(<ListenLine session={fakeVoice({ transcript: lines })} broadcastId="b1" stream={{ status: null, hold: false, retry: () => {} }} bottom={0} />)
-    const dock = screen.getByRole('region', { name: '들린 말 창' })
-    expect(within(dock).getByRole('status', { name: '듣는 중' })).toBeTruthy()
-    expect(within(dock).getByRole('status', { name: '지금 들리는 말' }).textContent).toBe('12번 들린 말')
-    fireEvent.click(within(dock).getByRole('button', { name: '들린 말 펼치기' }))
-    const log = within(dock).getByRole('log', { name: '지난 들린 말' })
+    const dock = screen.getByRole('region', { name: '음성 인식 창' }) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말 창")
+    expect(within(dock).getByRole('status', { name: '인식 중' })).toBeTruthy() // 문구 바뀜 (D-UX4-96, 옛 기대: "듣는 중")
+    expect(within(dock).getByRole('status', { name: '지금 인식한 말' }).textContent).toBe('12번 들린 말') // 문구 바뀜 (D-UX4-96, 옛 기대: "지금 들리는 말")
+    fireEvent.click(within(dock).getByRole('button', { name: '음성 인식 펼치기' })) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말 펼치기")
+    const log = within(dock).getByRole('log', { name: '지난 인식한 말' }) // 문구 바뀜 (D-UX4-96, 옛 기대: "지난 들린 말")
     // 옛 기대: 최근 6줄만 남긴다. 새 기대: 지우지 않는다 — 지난 11줄 모두, 지금 말(12번)은 아래 줄에만
     expect(log.textContent).toContain('1번 들린 말')
     expect(log.textContent).toContain('11번 들린 말')
     expect(log.textContent).not.toContain('12번 들린 말')
-    expect(within(dock).getByRole('button', { name: '들린 말 접기' })).toBeTruthy()
+    expect(within(dock).getByRole('button', { name: '음성 인식 접기' })).toBeTruthy() // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말 접기")
   })
 
   it('들린 말은 라이브 내내 남긴다 (옛 TRANSCRIPT_LINES 6줄)', () => {
@@ -184,7 +184,7 @@ describe('들린 말 창 (D-UX4-53)', () => {
     const world = makeWorld({ products: [] })
     await open(world)
     const all = screen.getByTestId('console-screen')
-    const dock = screen.getByRole('region', { name: '들린 말 창' })
+    const dock = screen.getByRole('region', { name: '음성 인식 창' }) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말 창")
     const list = screen.getByTestId('console-list')
     expect(list.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     const heading = within(all).getByRole('heading', { level: 1 })
@@ -261,7 +261,9 @@ describe('진짜 쌓인 화면 (D-UX4-57)', () => {
     const page = await screen.findByRole('main', { name: '라이브 관리' })
     // 옛 기대: '방송 끝내기' 줄. 새 기대(D-UX4-79): 방송 연결 안 "방송 연결 끊기"로 옮겼다
     // 채팅 보기도 없앴다 (D-UX4-84) — 이 화면 위에 뜨는 아래 창은 "화면 아래 창"으로 본다
-    for (const row of ['음성 설정', '화면 아래 창', '라이브 연결']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
+    // 음성 설정 줄을 없앴다 (D-UX4-94)
+    for (const row of ['화면 아래 창', '라이브 연결']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
+    expect(within(page).queryByRole('button', { name: '음성 설정' })).toBeNull()
     expect(within(page).queryByRole('button', { name: '채팅 보기' })).toBeNull()
     fireEvent.click(within(page).getByTestId('dock-choice'))
     expect(await screen.findByRole('dialog', { name: '화면 아래 창' })).toBeTruthy()
@@ -280,9 +282,10 @@ describe('라이브 관리 설정은 전체 화면 (D-UX4-60)', () => {
     })
     const page = await screen.findByRole('main', { name: '라이브 관리' })
     // 옛 기대: 문자찜 직접 넣기·상품 목록 가져오기·댓글 붙여넣기도 — 새 기대(D-UX4-78): 둘은 없앴고 "상품 목록 가져오기"는 "상품 미리 등록"
-    for (const row of ['상품 미리 등록', '음성 설정']) fireEvent.click(within(page).getByRole('button', { name: row }))
+    // 음성 설정 줄을 없앴다 (D-UX4-94)
+    for (const row of ['상품 미리 등록']) fireEvent.click(within(page).getByRole('button', { name: row }))
     // 채팅 보기도 없앴다 (D-UX4-84)
-    expect(tools).toEqual(['import', 'voice'])
+    expect(tools).toEqual(['import'])
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
