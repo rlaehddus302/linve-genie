@@ -3,6 +3,7 @@
 // 다른 묶음은 이름으로 찾아 고른다. 처리 하나는 요청 번호 하나 — 네트워크 실패면 같은 번호로 다시 보낸다(서버가 한 번만 반영).
 // 묶음 금액이 그사이 바뀌면(BUNDLE_CHANGED) 서버 문장을 보이고 목록을 새로 받는다(같은 값으로 다시 보내지 않는다).
 // 입금 받는 곳(계좌 연동·휴대폰 알림)·기억한 입금자명은 "입금 받는 곳" 탭(DepositSources, D-APPX-03).
+// 모양 (D-UX3-93, 홈처럼): 좌우 20 · 흰 카드, 입금 이름·금액 한 줄, 제안 묶음은 옅은 회색 줄, [무시하기]·[다른 묶음 지정]은 위아래가 아니라 좌우로.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { BundleView, DepositActionResult, DepositList, DepositStatus, DepositView, PastePreview, PasteSummary } from '@livejjim/web/src/api/deposit-types.ts'
@@ -13,9 +14,10 @@ import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { SourcesTab } from './DepositSources.tsx'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, BottomSheet, Card, ConfirmSheet, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
-import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { Loading, Notice } from '../ui/parts.tsx'
+import { CARD_GAP, PAGE_SIDE, SectionCard } from './order-parts.tsx'
 
 type Tab = 'review' | 'done' | 'ignored' | 'paste' | 'sources'
 const TABS: readonly { readonly key: Tab; readonly word: string }[] = [
@@ -91,9 +93,9 @@ export function DepositsScreen({ onBack }: { readonly onBack: () => void }) {
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="deposits-screen">
       <AppHeader title="입금 확인" onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
-        <View role="tablist" aria-label="입금 확인 목록">
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: SPACE.xs, paddingVertical: SPACE.xs }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: CARD_GAP }} keyboardShouldPersistTaps="handled">
+        <View role="tablist" aria-label="입금 확인 목록" style={{ marginHorizontal: -PAGE_SIDE }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: PAGE_SIDE, paddingVertical: SPACE.xs }}>
             {TABS.map((item) => (
               <Pill key={item.key} on={tab === item.key} label={`${item.word}${item.key === 'review' && review !== null && review > 0 ? ` ${String(review)}` : ''}`} ariaLabel={item.word} onPress={() => { setNotice(null); setTab(item.key) }} />
             ))}
@@ -136,13 +138,19 @@ function DepositTab({ tab, tick, onNotice }: { readonly tab: Exclude<Tab, 'paste
     )
   }
   if (list === null) return <Loading />
-  if (list.length === 0) return <Txt color="textSub">{tab === 'review' ? '확인할 입금이 없어요.' : tab === 'done' ? '자동 확인했거나 확인한 입금이 없어요.' : '무시한 입금이 없어요.'}</Txt>
+  if (list.length === 0) {
+    return (
+      <View style={{ paddingVertical: SPACE.xxxl }}>
+        <Txt color="textSub" center>{tab === 'review' ? '확인할 입금이 없어요.' : tab === 'done' ? '자동 확인했거나 확인한 입금이 없어요.' : '무시한 입금이 없어요.'}</Txt>
+      </View>
+    )
+  }
   const done = (text: string, tone: Flash['tone'] = 'success') => {
     onNotice({ text, tone })
     reload()
   }
   return (
-    <View style={{ gap: SPACE.md }}>
+    <View style={{ gap: CARD_GAP }}>
       {list.map((deposit) => (
         <DepositCard key={deposit.no} deposit={deposit} tab={tab} onDone={done} />
       ))}
@@ -153,9 +161,9 @@ function DepositTab({ tab, tick, onNotice }: { readonly tab: Exclude<Tab, 'paste
 function DepositHead({ deposit }: { readonly deposit: DepositView }) {
   return (
     <View style={{ gap: 2 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: SPACE.sm }}>
-        <Txt step="bodyLarge" weight="bold">{depositName(deposit.name)}</Txt>
-        <Txt step="bodyLarge" weight="heavy">{formatWon(deposit.amount)}</Txt>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: SPACE.sm }}>
+        <Txt step="bodyLarge" weight="medium">{depositName(deposit.name)}</Txt>
+        <Txt step="lead" weight="bold">{formatWon(deposit.amount)}</Txt>
       </View>
       <Txt step="caption" color="textSub">{`${depositTime(deposit.at, deposit.precision)} · ${sourceWords(deposit.source)} · ${depositLabel(deposit.no)}`}</Txt>
     </View>
@@ -163,33 +171,35 @@ function DepositHead({ deposit }: { readonly deposit: DepositView }) {
 }
 
 function DepositCard({ deposit, tab, onDone }: { readonly deposit: DepositView; readonly tab: Exclude<Tab, 'paste' | 'sources'>; readonly onDone: (text: string, tone?: Flash['tone']) => void }) {
-  const { p } = useKit()
+  const { p, tones } = useKit()
   const action = useAction()
   const [confirming, setConfirming] = useState<BundleView | null>(null)
   const [finding, setFinding] = useState(false)
   const [asking, setAsking] = useState<'ignore' | 'revert' | null>(null)
   const label = `${depositLabel(deposit.no)} · ${depositName(deposit.name)} · ${formatWon(deposit.amount)}`
   return (
-    <Card label={label}>
+    <SectionCard label={label}>
       <DepositHead deposit={deposit} />
-      {tab !== 'review' ? <Tag tone={tab === 'ignored' ? 'info' : 'success'}>{DEPOSIT_STATUS_WORD[deposit.status]}</Tag> : null}
-      {deposit.applied !== null ? <Txt>{`${deposit.applied.buyerName} · ${dateWords(deposit.applied.date)} 묶음에 반영`}</Txt> : null}
+      {tab !== 'review' ? <Txt step="meta" weight="medium" ink={tab === 'ignored' ? tones.info.fg : tones.success.fg}>{DEPOSIT_STATUS_WORD[deposit.status]}</Txt> : null}
+      {deposit.applied !== null ? <Txt step="bodyLarge" weight="book">{`${deposit.applied.buyerName} · ${dateWords(deposit.applied.date)} 묶음에 반영`}</Txt> : null}
       {tab === 'review' && deposit.review !== undefined ? (
         <>
           <Notice tone="warning">{reasonWords(deposit.review.reason, deposit.review.twin)}</Notice>
           {deposit.review.suggestions.map((bundle) => (
-            <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`이 묶음으로 확정 — ${bundleWords(bundle)}`} onPress={() => setConfirming(bundle)} style={({ pressed }) => ({ borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-              <View style={{ paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xs, gap: 2 }}>
-                <Txt weight="bold">{bundleWords(bundle)}</Txt>
+            <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`이 묶음으로 확정 — ${bundleWords(bundle)}`} onPress={() => setConfirming(bundle)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt })}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt step="bodyLarge" weight="book">{bundleWords(bundle)}</Txt>
                 {bundle.beforeSale ? <Txt step="caption" color="textSub">{BEFORE_SALE}</Txt> : null}
-                <Txt step="caption" weight="bold" color="primaryText">이 묶음으로 확정 ›</Txt>
+                <Txt step="caption" weight="medium" color="primaryText">이 묶음으로 확정</Txt>
               </View>
+              <Icon name="chevron" color={p.textSub} size={18} />
             </Pressable>
           ))}
-          <View style={{ gap: SPACE.sm }}>
-            <BigButton kind="outline" label="다른 묶음 지정" onPress={() => setFinding(true)} />
+          {/* 좌우로 (D-UX4-01): 부정(무시하기) 왼쪽 */}
+          <ButtonRow>
             <BigButton kind="outline" label="무시하기" onPress={() => setAsking('ignore')} />
-          </View>
+            <BigButton kind="outline" label="다른 묶음 지정" onPress={() => setFinding(true)} />
+          </ButtonRow>
         </>
       ) : null}
       {tab === 'done' && deposit.applied !== null ? <BigButton kind="outline" label="되돌리기" onPress={() => setAsking('revert')} /> : null}
@@ -257,7 +267,7 @@ function DepositCard({ deposit, tab, onDone }: { readonly deposit: DepositView; 
           })
         }
       />
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -294,7 +304,7 @@ function ConfirmBundle({ deposit, bundle, onClose, onDone }: { readonly deposit:
     >
       <View style={{ gap: SPACE.md }}>
         <DepositHead deposit={deposit} />
-        <Txt weight="bold">{confirmLine(bundle, deposit.amount)}</Txt>
+        <Txt step="bodyLarge" weight="medium">{confirmLine(bundle, deposit.amount)}</Txt>
         {change !== null && change.warning ? <Notice tone="warning">과입금이 생겨요. 확정한 뒤 정산에서 환불을 적어 주세요.</Notice> : null}
         {bundle.beforeSale ? <Notice tone="warning">{BEFORE_SALE}</Notice> : null}
         {bundle.canRemember ? (
@@ -341,8 +351,11 @@ function FindBundle({ deposit, onClose, onPick }: { readonly deposit: DepositVie
         {bundles === null && error === null ? <Loading /> : null}
         {bundles !== null && bundles.length === 0 ? <Txt color="textSub">맞는 묶음이 없어요.</Txt> : null}
         {bundles?.map((bundle) => (
-          <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`고르기 — ${bundleWords(bundle)}`} onPress={() => onPick(bundle)} style={({ pressed }) => ({ minHeight: 48, justifyContent: 'center', paddingVertical: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-            <Txt weight="bold">{bundleWords(bundle)}</Txt>
+          <Pressable key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`고르기 — ${bundleWords(bundle)}`} onPress={() => onPick(bundle)} style={({ pressed }) => ({ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, marginHorizontal: -SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+            <View style={{ flex: 1 }}>
+              <Txt step="bodyLarge" weight="book">{bundleWords(bundle)}</Txt>
+            </View>
+            <Icon name="chevron" color={p.textSub} size={18} />
           </Pressable>
         ))}
       </View>
@@ -377,27 +390,29 @@ function PasteTab({ onNotice }: { readonly onNotice: (notice: Flash | null) => v
   }
   const fresh = preview?.rows.filter((row) => row.state === 'NEW').length ?? 0
   return (
-    <View style={{ gap: SPACE.md }}>
-      <Txt color="textSub">은행 앱의 입금 내역을 복사해 붙여 넣으면, 맞는 손님은 자동으로 확인돼요.</Txt>
-      <TextField
-        label="입금 내역"
-        value={text}
-        onChangeText={(next) => {
-          setText(next)
-          setPreview(null)
-          insert.clear()
-        }}
-        multiline
-        numberOfLines={6}
-        autoCorrect={false}
-        placeholder="2026-10-18 21:03 입금 14,000 김영희"
-      />
-      <BigButton kind="outline" label="미리 보기" busy={busy} disabled={text.trim() === ''} onPress={() => void look()} />
-      {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
+    <View style={{ gap: CARD_GAP }}>
+      <SectionCard>
+        <Txt step="meta" color="textSub">은행 앱의 입금 내역을 복사해 붙여 넣으면, 맞는 손님은 자동으로 확인돼요.</Txt>
+        <TextField
+          label="입금 내역"
+          value={text}
+          onChangeText={(next) => {
+            setText(next)
+            setPreview(null)
+            insert.clear()
+          }}
+          multiline
+          numberOfLines={6}
+          autoCorrect={false}
+          placeholder="2026-10-18 21:03 입금 14,000 김영희"
+        />
+        <BigButton kind="outline" label="미리 보기" busy={busy} disabled={text.trim() === ''} onPress={() => void look()} />
+        {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
+      </SectionCard>
       {preview !== null ? (
-        <Card label="미리 보기">
+        <SectionCard title="미리 보기" label="미리 보기">
           {preview.rows.map((row) => (
-            <Txt key={row.line}>{`${String(row.line)}줄 · ${depositTime(row.at, row.precision)} · ${formatWon(row.amount)} · ${depositName(row.name)} · ${PASTE_STATE_WORD[row.state]}`}</Txt>
+            <Txt key={row.line} step="body">{`${String(row.line)}줄 · ${depositTime(row.at, row.precision)} · ${formatWon(row.amount)} · ${depositName(row.name)} · ${PASTE_STATE_WORD[row.state]}`}</Txt>
           ))}
           {preview.unreadable.map((row) => (
             <Txt key={`u${String(row.line)}`} color="textSub">{`${String(row.line)}줄 · ${UNREADABLE_WORD[row.why]}`}</Txt>
@@ -405,7 +420,7 @@ function PasteTab({ onNotice }: { readonly onNotice: (notice: Flash | null) => v
           {preview.skipped.length > 0 ? <Txt color="textSub">{`입금이 아닌 줄 ${String(preview.skipped.length)}개는 넣지 않아요.`}</Txt> : null}
           <BigButton label={`새 입금 ${String(fresh)}건 넣기`} disabled={fresh === 0} busy={insert.busy} onPress={() => void send()} />
           {insert.error !== null ? <Notice tone="danger" alert>{insert.error.message}</Notice> : null}
-        </Card>
+        </SectionCard>
       ) : null}
     </View>
   )

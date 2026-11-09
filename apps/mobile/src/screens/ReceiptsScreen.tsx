@@ -5,6 +5,8 @@
 // 누르고 문자는 판매자 번호로 간다(답장·전화가 판매자에게, D-REAL-05 — D-REAL-03을 바꿈). 번호를 아는 손님(문자찜)은 바로 열고, 모르는 손님은
 // 번호를 넣고 연다. 번호 아는 손님 모두 보내기는 한 번 묻고 손님마다 문자 앱을 차례로 연다(보내면 다음, 닫으면 멈춤).
 // 파일(PDF·JPG·ZIP·엑셀)은 휴대폰 공유 시트로 넘긴다. 실제 방송만 고른다 — 리허설은 앱에서 뺐다 (D-UX3-86).
+// 모양 (D-UX3-93, 홈처럼): 기간 판매대장은 머리 오른쪽 작은 단추, "한 번에 하기"는 초록 단추 하나 + 줄, 구매자는 흰 카드 하나에 줄로 —
+// 줄마다 이름·금액·입금 상태, 할 일은 작은 회색 단추(문자 보내기만 옅은 초록). 세금 증빙 안내는 맨 아래 작은 글.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, Share, View } from 'react-native'
 import type { BroadcastItem, ReceiptBuyerRow, ReceiptBuyers, ReceiptLink } from '@livejjim/web/src/api/types.ts'
@@ -32,9 +34,10 @@ import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile, nativeSms } from '../native/index.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
-import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { Loading, Notice } from '../ui/parts.tsx'
+import { CARD_GAP, ChipButton, MenuRow, PAGE_SIDE, SectionCard } from './order-parts.tsx'
 
 export const RECEIPTS_TITLE = '영수증·판매대장'
 export const NOT_ENDED = '방송을 끝낸 뒤 보낼 수 있어요.'
@@ -118,10 +121,8 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
   const sameDay = broadcast !== null && list !== null && list.some((item) => item.id !== broadcast.id && item.date === broadcast.date)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="receipts-screen">
-      <AppHeader title={RECEIPTS_TITLE} onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
-        <Txt step="caption" color="textSub">{TAX_NOTE}</Txt>
-        <BigButton kind="outline" label="기간 판매대장 엑셀" onPress={() => setLedger(true)} />
+      <AppHeader title={RECEIPTS_TITLE} onBack={onBack} right={<ChipButton label="기간 판매대장" ariaLabel="기간 판매대장 엑셀" onPress={() => setLedger(true)} />} />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: CARD_GAP }} keyboardShouldPersistTaps="handled">
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>
@@ -129,9 +130,13 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
           </View>
         ) : null}
         {list === null && error === null ? <Loading /> : null}
-        {list !== null && list.length === 0 ? <Txt color="textSub">{NO_ENDED}</Txt> : null}
+        {list !== null && list.length === 0 ? (
+          <View style={{ paddingVertical: SPACE.xxxl }}>
+            <Txt color="textSub" center>{NO_ENDED}</Txt>
+          </View>
+        ) : null}
         {list !== null && list.length > 0 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -PAGE_SIDE }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: PAGE_SIDE, paddingVertical: SPACE.xs }}>
             {list.slice(0, 20).map((item) => (
               <Pill key={item.id} on={item.id === picked} label={dateWords(item.date)} ariaLabel={`방송 ${dateWords(item.date)} ${item.title}`} onPress={() => setPicked(item.id)} />
             ))}
@@ -139,10 +144,11 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
         ) : null}
         {broadcast !== null ? (
           <>
-            <Txt weight="bold">{`${dateWords(broadcast.date)} · ${broadcast.title}`}</Txt>
+            <Txt step="lead" weight="bold" role="heading" aria-level={2}>{`${dateWords(broadcast.date)} · ${broadcast.title}`}</Txt>
             {broadcast.ended ? <ReceiptDay key={broadcast.id} broadcast={broadcast} sameDay={sameDay} /> : <Notice tone="info">{NOT_ENDED}</Notice>}
           </>
         ) : null}
+        <Txt step="caption" color="textSub" center>{TAX_NOTE}</Txt>
       </ScrollView>
       {ledger ? <LedgerSheet initial={broadcast !== null ? broadcast.date : null} onClose={() => setLedger(false)} /> : null}
     </View>
@@ -319,27 +325,38 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
     )
   }
   const count = rows.length
+  const pad = { paddingHorizontal: SPACE.xl, gap: SPACE.sm }
   return (
-    <View style={{ gap: SPACE.md }}>
-      {sameDay ? <Txt color="textSub">{SAME_DAY_NOTE}</Txt> : null}
+    <View style={{ gap: CARD_GAP }}>
+      {sameDay ? <Txt step="meta" color="textSub">{SAME_DAY_NOTE}</Txt> : null}
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {count > 0 ? (
-        <Card label="한 번에 하기">
-          <BigButton label="링크 전부 만들기" busy={allBusy} onPress={() => void makeAll()} />
-          {targets.length > 0 || smsBusy ? <BigButton kind="outline" label={`${SMS_SEND_ALL} (${String(targets.length)}명)`} busy={smsBusy} onPress={() => setSmsAsk(true)} /> : null}
-          {smsProgressText !== null ? <Notice tone="info">{smsProgressText}</Notice> : null}
-          {smsResult !== null ? <Notice tone="success">{smsResult}</Notice> : null}
-          {smsError !== null ? <Notice tone="danger" alert>{smsError}</Notice> : null}
-          {smsReady && smsDevice === false ? <Txt step="caption" color="textSub">{SMS_UNAVAILABLE}</Txt> : null}
-          <BigButton kind="outline" label="전원 확인서 PDF" busy={files.busy === 'all-pdf'} onPress={() => void files.run('all-pdf', withQuery(`/api/days/${date}/receipts.pdf`, query), `receipts-${date}-all.pdf`)} />
-          <BigButton kind="outline" label="전원 이미지(JPG) 묶음" busy={files.busy === 'all-zip'} onPress={() => void files.run('all-zip', withQuery(`/api/days/${date}/receipts.zip`, query), `receipts-${date}-images.zip`)} />
-          <BigButton kind="outline" label="이 방송 판매대장 엑셀" busy={files.busy === 'ledger'} onPress={() => void files.run('ledger', ledgerPath(date, date, [broadcast.id], false), `ledger-${date}.xlsx`)} />
-          {allResult !== null ? <Notice tone="success">{allResult}</Notice> : null}
-          {allError !== null ? <Notice tone="danger" alert>{allError.message}</Notice> : null}
-          {files.error !== null ? <Notice tone="danger" alert>{files.error}</Notice> : null}
-        </Card>
+        <SectionCard title="한 번에 하기" label="한 번에 하기" flush>
+          <View style={pad}>
+            <BigButton label="링크 전부 만들기" busy={allBusy} onPress={() => void makeAll()} />
+            {allResult !== null ? <Notice tone="success">{allResult}</Notice> : null}
+            {allError !== null ? <Notice tone="danger" alert>{allError.message}</Notice> : null}
+          </View>
+          <View>
+            {targets.length > 0 || smsBusy ? <MenuRow title={`${SMS_SEND_ALL} (${String(targets.length)}명)`} busy={smsBusy} onPress={() => setSmsAsk(true)} /> : null}
+            <MenuRow title="전원 확인서 PDF" busy={files.busy === 'all-pdf'} onPress={() => void files.run('all-pdf', withQuery(`/api/days/${date}/receipts.pdf`, query), `receipts-${date}-all.pdf`)} />
+            <MenuRow title="전원 이미지(JPG) 묶음" busy={files.busy === 'all-zip'} onPress={() => void files.run('all-zip', withQuery(`/api/days/${date}/receipts.zip`, query), `receipts-${date}-images.zip`)} />
+            <MenuRow title="이 방송 판매대장 엑셀" busy={files.busy === 'ledger'} onPress={() => void files.run('ledger', ledgerPath(date, date, [broadcast.id], false), `ledger-${date}.xlsx`)} />
+          </View>
+          {smsProgressText !== null || smsResult !== null || smsError !== null || (smsReady && smsDevice === false) || files.error !== null ? (
+            <View style={pad}>
+              {smsProgressText !== null ? <Notice tone="info">{smsProgressText}</Notice> : null}
+              {smsResult !== null ? <Notice tone="success">{smsResult}</Notice> : null}
+              {smsError !== null ? <Notice tone="danger" alert>{smsError}</Notice> : null}
+              {smsReady && smsDevice === false ? <Txt step="caption" color="textSub">{SMS_UNAVAILABLE}</Txt> : null}
+              {files.error !== null ? <Notice tone="danger" alert>{files.error}</Notice> : null}
+            </View>
+          ) : null}
+        </SectionCard>
       ) : (
-        <Txt color="textSub">{NO_RECEIPT_ROWS}</Txt>
+        <View style={{ paddingVertical: SPACE.xxl }}>
+          <Txt color="textSub" center>{NO_RECEIPT_ROWS}</Txt>
+        </View>
       )}
       <ConfirmSheet
         visible={smsAsk}
@@ -351,22 +368,34 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
         onCancel={() => setSmsAsk(false)}
         onConfirm={() => void sendAll()}
       />
-      {rows.map((row) => (
-        <BuyerRow
-          key={row.buyer}
-          row={row}
-          date={date}
-          shopName={shopName}
-          smsReady={smsOk}
-          locked={allBusy || smsBusy}
-          onLink={(link) => {
-            applyLinks([link])
-            reload()
-          }}
-        />
-      ))}
+      {count > 0 ? (
+        <SectionCard title={`구매자 ${String(count)}명`} label="구매자">
+          {rows.map((row, index) => (
+            <View key={row.buyer} style={{ gap: SPACE.md }}>
+              {index > 0 ? <Divider /> : null}
+              <BuyerRow
+                row={row}
+                date={date}
+                shopName={shopName}
+                smsReady={smsOk}
+                locked={allBusy || smsBusy}
+                onLink={(link) => {
+                  applyLinks([link])
+                  reload()
+                }}
+              />
+            </View>
+          ))}
+        </SectionCard>
+      ) : null}
     </View>
   )
+}
+
+/** 구매자 사이 옅은 선 */
+function Divider() {
+  const { p } = useKit()
+  return <View aria-hidden style={{ height: 1, backgroundColor: p.border }} />
 }
 
 function BuyerRow({
@@ -399,6 +428,8 @@ function BuyerRow({
   const text = usable ? shareText(shopName, link.expiresAt, link.url) : null
   const name = row.name
   const linkLocked = busy || locked
+  const { tones } = useKit()
+  const payTone = row.payment === 'PAID' ? tones.success : row.payment === 'UNPAID' ? tones.danger : tones.warning
 
   const send = async (kind: 'create' | 'revoke') => {
     if (busy) return
@@ -484,18 +515,26 @@ function BuyerRow({
   }
 
   return (
-    <Card label={name}>
-      <Txt weight="bold">{name}</Txt>
-      {row.phoneLast4 !== null && !name.includes(row.phoneLast4) ? <Txt step="caption" color="textSub">{`휴대폰 끝자리 ${row.phoneLast4}`}</Txt> : null}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, alignItems: 'center' }}>
-        <Txt>{`상품 ${String(row.itemCount)}개 · ${formatWon(row.total)}`}</Txt>
-        <Tag tone={row.payment === 'PAID' ? 'success' : row.payment === 'UNPAID' ? 'danger' : 'warning'}>{PAYMENT_WORD[row.payment]}</Tag>
+    <View role="group" aria-label={name} style={{ gap: SPACE.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Txt step="bodyLarge" weight="medium">{name}</Txt>
+          <Txt step="caption" color="textSub">{`상품 ${String(row.itemCount)}개${row.phoneLast4 !== null && !name.includes(row.phoneLast4) ? ` · 휴대폰 끝자리 ${row.phoneLast4}` : ''}`}</Txt>
+        </View>
+        <View style={{ alignItems: 'flex-end', gap: 2 }}>
+          <Txt step="bodyLarge" weight="medium">{formatWon(row.total)}</Txt>
+          <Txt step="caption" weight="medium" ink={payTone.fg}>{PAYMENT_WORD[row.payment]}</Txt>
+        </View>
       </View>
-      <Txt step="caption" color="textSub">{linkWords(link)}</Txt>
-      {smsReady && smsWords(row.sms) !== null ? <Txt step="caption" color="textSub">{smsWords(row.sms)}</Txt> : null}
+      <View style={{ gap: 2 }}>
+        <Txt step="caption" color="textSub">{linkWords(link)}</Txt>
+        {smsReady && smsWords(row.sms) !== null ? <Txt step="caption" color="textSub">{smsWords(row.sms)}</Txt> : null}
+      </View>
+      {/* 할 일은 작은 단추로 한 줄에 (넘치면 다음 줄로 이어진다) — 문자 보내기만 옅은 초록 */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
         {smsReady ? (
-          <BigButton
+          <ChipButton
+            green
             label={SMS_SEND}
             ariaLabel={`${name} ${SMS_SEND}`}
             busy={busy && !smsSheet}
@@ -506,16 +545,16 @@ function BuyerRow({
             }}
           />
         ) : null}
-        {!usable ? <BigButton kind="outline" label="링크 만들기" ariaLabel={`${name} 링크 만들기`} busy={linkLocked} onPress={() => void send('create')} /> : null}
+        {!usable ? <ChipButton label="링크 만들기" ariaLabel={`${name} 링크 만들기`} busy={linkLocked} onPress={() => void send('create')} /> : null}
         {usable ? (
           <>
-            <BigButton kind="outline" label="링크 복사" ariaLabel={`${name} 링크 복사`} disabled={linkLocked} onPress={() => void copy()} />
-            <BigButton kind="outline" label="링크 보내기" ariaLabel={`${name} 링크 보내기`} disabled={linkLocked} onPress={() => void share()} />
-            <BigButton kind="outline" label="링크 끊기" ariaLabel={`${name} 링크 끊기`} disabled={linkLocked} onPress={() => setConfirming(true)} />
+            <ChipButton label="링크 복사" ariaLabel={`${name} 링크 복사`} disabled={linkLocked} onPress={() => void copy()} />
+            <ChipButton label="링크 보내기" ariaLabel={`${name} 링크 보내기`} disabled={linkLocked} onPress={() => void share()} />
+            <ChipButton label="링크 끊기" ariaLabel={`${name} 링크 끊기`} disabled={linkLocked} onPress={() => setConfirming(true)} />
           </>
         ) : null}
-        <BigButton kind="outline" label="이미지(JPG)" ariaLabel={`${name} 이미지(JPG)`} busy={files.busy === 'jpg'} onPress={() => void files.run('jpg', withQuery(`/api/days/${date}/receipt.jpg`, { buyer: row.buyer, rehearsal: false }), `receipt-${date}.jpg`)} />
-        <BigButton kind="outline" label="PDF" ariaLabel={`${name} PDF`} busy={files.busy === 'pdf'} onPress={() => void files.run('pdf', withQuery(`/api/days/${date}/receipt.pdf`, { buyer: row.buyer, rehearsal: false }), `receipt-${date}.pdf`)} />
+        <ChipButton label="이미지" ariaLabel={`${name} 이미지(JPG)`} busy={files.busy === 'jpg'} onPress={() => void files.run('jpg', withQuery(`/api/days/${date}/receipt.jpg`, { buyer: row.buyer, rehearsal: false }), `receipt-${date}.jpg`)} />
+        <ChipButton label="PDF" ariaLabel={`${name} PDF`} busy={files.busy === 'pdf'} onPress={() => void files.run('pdf', withQuery(`/api/days/${date}/receipt.pdf`, { buyer: row.buyer, rehearsal: false }), `receipt-${date}.pdf`)} />
       </View>
       {busy ? <Txt step="caption" color="textSub">만드는 중…</Txt> : result !== null ? <Notice tone={result === SHARE_FAILED ? 'warning' : 'success'}>{result}</Notice> : null}
       {manual !== null ? <TextField label={COPY_BY_HAND} value={manual} onChangeText={() => undefined} selectTextOnFocus /> : null}
@@ -549,7 +588,7 @@ function BuyerRow({
           void send('revoke')
         }}
       />
-    </Card>
+    </View>
   )
 }
 

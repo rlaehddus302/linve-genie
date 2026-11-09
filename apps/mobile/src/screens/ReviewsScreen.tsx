@@ -4,6 +4,8 @@
 // 새로 생긴 제안 칸은 0.5초 동안 누름을 받지 않는다. 보내기는 방송자 조치처럼 5초 대기·되돌리기, 고른 줄은 원래 순서로 하나씩(줄마다 요청 번호).
 // 찜이 생긴 줄은 "1등"·"대기 n번"·"품절"을 잠깐 보이고, 아무 일도 없었던 줄은 까닭과 함께 남는다. 기다리는 조치가 있으면 나가기 전에 묻는다.
 // 휴대폰 글자 맞춰 보기("혹시: XL?")는 웹에만 있다 — 앱은 판정·추출 코드를 들이지 않는다(APP-01 AC3). 서버 제안이 그 몫을 한다.
+// 모양 (D-UX3-96): 단추 둘은 같은 폭으로 한 줄에, 부정은 왼쪽·긍정은 오른쪽 — [주문 아님] · [주문으로], [고치기] · [이대로 주문].
+// 안내 글은 맨 위 한 줄 회색 글, 제안은 옅은 초록 칸 안에.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { AssistResult, AssistSettings, AssistSuggestResponse, BroadcastView, Product, ReviewItem, ReviewsView, WriteResult } from '@livejjim/web/src/api/types.ts'
@@ -17,7 +19,7 @@ import { get, isApiError, post, withQuery, type ApiError } from '../api/client.t
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
@@ -170,9 +172,11 @@ export function ReviewsScreen({ onBack, query = {}, openSettings }: { readonly o
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="reviews-screen">
       <AppHeader title={REVIEWS_TITLE} onBack={back} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
-        <Txt color="textSub">{REVIEWS_HINT}</Txt>
-        {broadcast !== undefined ? <Txt weight="bold">{`${broadcast.title} · ${dateWords(broadcast.date)} 방송만 보여요.`}</Txt> : null}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+        <View style={{ paddingHorizontal: SPACE.xs, gap: SPACE.xs }}>
+          {broadcast !== undefined ? <Txt weight="medium">{`${broadcast.title} · ${dateWords(broadcast.date)} 방송만 보여요.`}</Txt> : null}
+          <Txt step="caption" color="textSub">{REVIEWS_HINT}</Txt>
+        </View>
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>
@@ -380,11 +384,11 @@ function ReviewList({ view, queue, items, reload }: { readonly view: ReviewsView
       ))}
       {view.reviews.length > 0 ? (
         <Card label="고른 줄">
-          <Txt>{`고른 줄 ${String(chosen.length)}개`}</Txt>
-          <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-            <BigButton label="고른 줄 주문으로" disabled={chosen.length === 0 || blank !== undefined} onPress={() => queueLines(chosen, 'resolve')} />
+          <Txt step="body" color="textSub">{`고른 줄 ${String(chosen.length)}개`}</Txt>
+          <ButtonRow>
             <BigButton kind="outline" label="고른 줄 주문 아님" disabled={chosen.length === 0} onPress={() => queueLines(chosen, 'dismiss')} />
-          </View>
+            <BigButton label="고른 줄 주문으로" disabled={chosen.length === 0 || blank !== undefined} onPress={() => queueLines(chosen, 'resolve')} />
+          </ButtonRow>
           {blankNo !== null ? <Notice tone="warning" alert>{BLANK_LINE(blankNo)}</Notice> : null}
         </Card>
       ) : null}
@@ -473,8 +477,8 @@ function ReviewRow({ n, review, state, broadcast, many, products, selected, pend
     <Card label={lineName}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
         <Pressable role="checkbox" aria-checked={selected} aria-label={`${lineName} 고르기`} disabled={pending} onPress={() => onSelect(!selected)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44, minWidth: 44, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-          <View style={{ width: 28, height: 28, borderRadius: RADIUS.sm, borderCurve: 'continuous', borderWidth: 2, borderColor: selected ? p.primary : p.outline, backgroundColor: selected ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
-            {selected ? <Icon name="check" color={p.onPrimary} size={18} /> : null}
+          <View style={{ width: 26, height: 26, borderRadius: 13, borderCurve: 'continuous', backgroundColor: selected ? p.primary : p.soft, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="check" color={selected ? p.onPrimary : p.surface} size={16} />
           </View>
           <Txt weight="bold">{String(n)}</Txt>
         </Pressable>
@@ -487,13 +491,15 @@ function ReviewRow({ n, review, state, broadcast, many, products, selected, pend
       {many && broadcast !== undefined ? <Txt step="caption" color="textSub">{`${broadcast.title} · ${dateWords(broadcast.date)}`}</Txt> : null}
       <Txt>{review.text ?? (review.origin === 'sms' ? '메모 없음' : '')}</Txt>
       {suggestion !== null ? (
-        <View style={{ gap: SPACE.xs }} role="group" aria-label={`${lineName} 제안`}>
-          <Txt weight="bold">{suggestion.words}</Txt>
-          <Txt step="caption" color="textSub">{suggestion.source}</Txt>
-          <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-            <BigButton kind="outline" label="이대로 주문" ariaLabel={`${lineName} 이대로 주문`} disabled={pending} onPress={settled(onAccept)} />
-            <BigButton kind="outline" label="고치기" ariaLabel={`${lineName} 고치기`} disabled={pending} onPress={settled(onEdit)} />
+        <View style={{ gap: SPACE.sm, padding: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.freshBg }} role="group" aria-label={`${lineName} 제안`}>
+          <View style={{ gap: 2 }}>
+            <Txt weight="bold">{suggestion.words}</Txt>
+            <Txt step="caption" color="textSub">{suggestion.source}</Txt>
           </View>
+          <ButtonRow>
+            <BigButton kind="outline" label="고치기" ariaLabel={`${lineName} 고치기`} disabled={pending} onPress={settled(onEdit)} />
+            <BigButton kind="secondary" label="이대로 주문" ariaLabel={`${lineName} 이대로 주문`} disabled={pending} onPress={settled(onAccept)} />
+          </ButtonRow>
         </View>
       ) : null}
       <Txt step="caption" color="textSub">상품</Txt>
@@ -518,10 +524,10 @@ function ReviewRow({ n, review, state, broadcast, many, products, selected, pend
       {remaining !== null ? <Txt step="caption">{`남은 ${String(remaining)}개`}</Txt> : null}
       {state.kept !== null ? <Notice tone="warning">{state.kept}</Notice> : null}
       {pending ? <Tag tone="info">{`${secondsWord(delayMs)} 뒤 보내요`}</Tag> : null}
-      <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-        <BigButton label="주문으로" ariaLabel={`${lineName} 주문으로`} disabled={pending || !ready} onPress={onResolve} />
+      <ButtonRow>
         <BigButton kind="outline" label="주문 아님" ariaLabel={`${lineName} 주문 아님`} disabled={pending} onPress={onDismiss} />
-      </View>
+        <BigButton label="주문으로" ariaLabel={`${lineName} 주문으로`} disabled={pending || !ready} onPress={onResolve} />
+      </ButtonRow>
     </Card>
   )
 }

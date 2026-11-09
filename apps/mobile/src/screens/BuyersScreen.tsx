@@ -17,9 +17,10 @@ import type { ScopeData } from '../lib/scope-data.ts'
 import { QUICK_REASONS } from '@livejjim/web/src/lib/words.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, BottomSheet, Card, TextField, Txt, useKit } from '../ui/kit/index.ts'
-import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
-import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { AppHeader, BigButton, BottomSheet, ButtonRow, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { Loading, Notice } from '../ui/parts.tsx'
+import { CardEmpty, CheckText, InfoCard, InfoRow, Initial, listRowStyle, MiniTag, SearchField, TextButton, TextChoices } from './customer-parts.tsx'
 
 export const MERGE_REASONS: readonly string[] = ['같은 사람', '같은 집 배송']
 export const UNMERGE_REASONS: readonly string[] = ['잘못 합침', '따로 배송']
@@ -46,7 +47,8 @@ export function BuyersScreen({ onBack, initialDate }: { readonly onBack: () => v
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="buyers-screen">
       <AppHeader title="구매자" onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+      {/* 홈처럼 (D-UX3-95): 옆 여백 20 · 묶음 사이 16 */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
         {days !== null && days.length === 0 ? <Txt color="textSub">아직 실제 방송 판매 기록이 없어요.</Txt> : null}
@@ -57,7 +59,10 @@ export function BuyersScreen({ onBack, initialDate }: { readonly onBack: () => v
   )
 }
 
+const SORT_WORDS: Readonly<Record<BuyerSort, string>> = { name: '이름 순', total: '합계 큰 순' }
+
 function BuyersDay({ date }: { readonly date: string }) {
+  const { p } = useKit()
   const { data, error, reload } = useDayScope(date)
   const [all, setAll] = useState(false)
   const [sort, setSort] = useState<BuyerSort>('name')
@@ -70,9 +75,9 @@ function BuyersDay({ date }: { readonly date: string }) {
   const counts = useMemo(() => (data === null ? new Map<string, number>() : sameNameCounts(data.buyers)), [data])
   if (data === null || names === null) {
     return error !== null ? (
-      <View style={{ gap: SPACE.sm }}>
+      <View style={{ gap: SPACE.xs }}>
         <Notice tone="danger" alert>{error.message}</Notice>
-        <BigButton kind="secondary" label={RETRY_NOW} onPress={reload} />
+        <TextButton label={RETRY_NOW} onPress={reload} />
       </View>
     ) : (
       <Loading />
@@ -92,17 +97,27 @@ function BuyersDay({ date }: { readonly date: string }) {
   return (
     <View style={{ gap: SPACE.md }}>
       {data.sealed ? <Notice tone="info">{SEALED_VIEW_ONLY}</Notice> : null}
-      <TextField label="구매자 찾기" value={search} onChangeText={setSearch} placeholder="닉네임·뒤 4자리" />
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
-        <Pill on={sort === 'name'} label="이름 순" ariaLabel="이름 순" onPress={() => setSort('name')} />
-        <Pill on={sort === 'total'} label="합계 큰 순" ariaLabel="합계 큰 순" onPress={() => setSort('total')} />
-        <Pill on={all} label="찜 없는 구매자도 보기" ariaLabel="찜 없는 구매자도 보기" onPress={() => setAll((on) => !on)} />
+      <SearchField label="구매자 찾기" value={search} onChangeText={setSearch} placeholder="닉네임·뒤 4자리로 찾기" />
+      {/* 정렬·넓히기는 알약 대신 글자로 한 줄 (D-UX3-95) */}
+      <View style={{ gap: SPACE.xs }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: -SPACE.xs }}>
+          <CheckText label="찜 없는 구매자도 보기" on={all} onPress={() => setAll((on) => !on)} />
+          <TextChoices<BuyerSort> label="정렬" keys={['name', 'total']} value={sort} word={(key) => SORT_WORDS[key]} spoken={(key) => SORT_WORDS[key]} onPick={setSort} />
+        </View>
+        <View role="group" aria-label="구매자 목록" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.sm }}>
+          {list.length > 0 ? (
+            <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.xs }}>
+              <Txt step="body" color="textSub" role="heading" aria-level={2}>{`구매자 ${String(list.length)}명`}</Txt>
+            </View>
+          ) : (
+            <CardEmpty>{term === '' ? '그날 1등 찜이 있는 구매자가 없어요.' : '찾는 구매자가 없어요.'}</CardEmpty>
+          )}
+          {list.slice(0, limit).map((buyer) => (
+            <BuyerRow key={buyer.id} buyer={buyer} name={names.name(buyer.id)} extra={distinguishWords(buyer, counts)} onPress={() => setOpen(buyer.id)} />
+          ))}
+          {list.length > limit ? <TextButton label="더 보기" color="textSub" align="stretch" onPress={() => setLimit((n) => n + PAGE)} /> : null}
+        </View>
       </View>
-      {list.length === 0 ? <Txt color="textSub">{term === '' ? '그날 1등 찜이 있는 구매자가 없어요.' : '찾는 구매자가 없어요.'}</Txt> : null}
-      {list.slice(0, limit).map((buyer) => (
-        <BuyerRow key={buyer.id} buyer={buyer} name={names.name(buyer.id)} extra={distinguishWords(buyer, counts)} onPress={() => setOpen(buyer.id)} />
-      ))}
-      {list.length > limit ? <BigButton kind="outline" label="더 보기" onPress={() => setLimit((n) => n + PAGE)} /> : null}
     </View>
   )
 }
@@ -111,14 +126,21 @@ function BuyerRow({ buyer, name, extra, onPress }: { readonly buyer: Buyer; read
   const { p } = useKit()
   const label = `${name}${extra.length > 0 ? ` · ${extra.join(' · ')}` : ''} · 상품 ${String(buyer.items.length)}개 · ${formatWon(buyer.subtotal)}`
   return (
-    <Pressable role="button" aria-label={label} onPress={onPress} style={({ pressed }) => ({ borderRadius: RADIUS.lg, borderCurve: 'continuous', padding: SPACE.md, gap: SPACE.xs, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
-        <Txt weight="bold">{name}</Txt>
-        {isUnknownSms(buyer) ? <Tag tone="warning">확인 필요</Tag> : null}
-        {buyer.blocked ? <Tag tone="danger">차단</Tag> : null}
+    // 토스 연락처처럼 (D-UX3-95): 첫 글자 동그라미 · 이름(+꼬리표)과 구별 낱말 · 오른쪽에 합계와 상품 수
+    <Pressable role="button" aria-label={label} onPress={onPress} style={({ pressed }) => listRowStyle(p, pressed)}>
+      <Initial name={name} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm }}>
+          <Txt step="bodyLarge" weight="medium">{name}</Txt>
+          {isUnknownSms(buyer) ? <MiniTag tone="warning">확인 필요</MiniTag> : null}
+          {buyer.blocked ? <MiniTag tone="danger">차단</MiniTag> : null}
+        </View>
+        {extra.length > 0 ? <Txt step="caption" color="textSub">{extra.join(' · ')}</Txt> : null}
       </View>
-      {extra.length > 0 ? <Txt step="caption" color="textSub">{extra.join(' · ')}</Txt> : null}
-      <Txt step="caption">{`상품 ${String(buyer.items.length)}개 · ${formatWon(buyer.subtotal)}`}</Txt>
+      <View style={{ alignItems: 'flex-end', gap: 2 }}>
+        <Txt step="bodyLarge" weight="book">{formatWon(buyer.subtotal)}</Txt>
+        <Txt step="caption" color="textSub">{`상품 ${String(buyer.items.length)}개`}</Txt>
+      </View>
     </Pressable>
   )
 }
@@ -136,6 +158,7 @@ function BuyerDetail({ data, names, counts, buyer, queue, items, command, onClos
   readonly onClose: () => void
   readonly onOpen: (id: string) => void
 }) {
+  const { p } = useKit()
   const [ask, setAsk] = useState<Ask | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const name = names.name(buyer.id)
@@ -147,62 +170,91 @@ function BuyerDetail({ data, names, counts, buyer, queue, items, command, onClos
   const sealed = data.sealed
   const label = productLabel(data)
   return (
-    <View style={{ gap: SPACE.md }}>
-      <BigButton kind="secondary" label="구매자 목록으로" onPress={onClose} />
+    <View style={{ gap: SPACE.lg }}>
+      {/* 큰 회색 단추 대신 작은 ‹ 글자 단추 (D-UX3-95) */}
+      <Pressable role="button" aria-label="구매자 목록으로" onPress={onClose} hitSlop={4} style={({ pressed }) => ({ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 40, paddingRight: SPACE.md, paddingLeft: SPACE.xs, marginLeft: -SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+        <Icon name="back" size={20} color={p.textSub} />
+        <Txt step="body" weight="medium" color="textSub">구매자 목록</Txt>
+      </Pressable>
       {queue !== null ? <UndoStrip items={items} queue={queue} /> : null}
       {notice !== null ? <Notice tone="success">{notice}</Notice> : null}
       {unknown ? <Notice tone="warning">{UNKNOWN_SMS_GUIDE}</Notice> : null}
-      <Card label={`${name} 자세히`}>
-        <Txt step="section" weight="bold">{name}</Txt>
-        {distinguishWords(buyer, counts).length > 0 ? <Txt step="caption" color="textSub">{distinguishWords(buyer, counts).join(' · ')}</Txt> : null}
-        <Txt>{`종류: ${buyer.kind === 'sms' ? '문자찜' : '유튜브'}`}</Txt>
-        {buyer.nameHistory.length > 1 ? <Txt step="caption">{`${buyer.kind === 'sms' ? '메모 이력' : '닉네임 이력'}: ${buyer.nameHistory.join(' → ')}`}</Txt> : null}
-        {buyer.phoneLast4 !== null ? <Txt>{`전화번호: 뒤 4자리 ${buyer.phoneLast4}`}</Txt> : null}
-        {buyer.kind === 'youtube' ? <Txt>{`채널: 끝 4자리 ${channelTail(buyer)}`}</Txt> : null}
-        <Txt>{`차단: ${buyer.blocked ? '차단' : '아니요'}`}</Txt>
+      <InfoCard label={`${name} 자세히`}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingBottom: SPACE.sm }}>
+          <Initial name={name} size={48} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm }}>
+              <Txt step="title" weight="bold">{name}</Txt>
+              {unknown ? <MiniTag tone="warning">확인 필요</MiniTag> : null}
+              {buyer.blocked ? <MiniTag tone="danger">차단</MiniTag> : null}
+            </View>
+            {distinguishWords(buyer, counts).length > 0 ? <Txt step="caption" color="textSub">{distinguishWords(buyer, counts).join(' · ')}</Txt> : null}
+          </View>
+        </View>
+        <InfoRow label="종류" value={buyer.kind === 'sms' ? '문자찜' : '유튜브'} spoken={`종류: ${buyer.kind === 'sms' ? '문자찜' : '유튜브'}`} />
+        {buyer.nameHistory.length > 1 ? <InfoRow label={buyer.kind === 'sms' ? '메모 이력' : '닉네임 이력'} value={buyer.nameHistory.join(' → ')} spoken={`${buyer.kind === 'sms' ? '메모 이력' : '닉네임 이력'}: ${buyer.nameHistory.join(' → ')}`} /> : null}
+        {buyer.phoneLast4 !== null ? <InfoRow label="전화번호" value={`뒤 4자리 ${buyer.phoneLast4}`} spoken={`전화번호: 뒤 4자리 ${buyer.phoneLast4}`} /> : null}
+        {buyer.kind === 'youtube' ? <InfoRow label="채널" value={`끝 4자리 ${channelTail(buyer)}`} spoken={`채널: 끝 4자리 ${channelTail(buyer)}`} /> : null}
+        <InfoRow label="차단" value={buyer.blocked ? '차단' : '아니요'} spoken={`차단: ${buyer.blocked ? '차단' : '아니요'}`} />
         {buyer.merged.length > 0 ? (
-          <View style={{ gap: SPACE.xs }}>
-            <Txt weight="bold">합친 구매자</Txt>
+          <View style={{ gap: 2, paddingTop: SPACE.sm }}>
+            <Txt step="body" color="textSub">합친 구매자</Txt>
             {buyer.merged.map((id) => (
-              <View key={id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+              <View key={id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 40 }}>
                 <View style={{ flex: 1 }}>
-                  <Txt>{names.name(id)}</Txt>
+                  <Txt step="bodyLarge" weight="book">{names.name(id)}</Txt>
                 </View>
-                {!sealed && data.buyers.get(id)?.mergedInto === buyer.id ? <BigButton kind="outline" label="떼어 내기" ariaLabel={`${names.name(id)} 떼어 내기`} onPress={() => setAsk({ kind: 'unmerge', from: id })} /> : null}
+                {!sealed && data.buyers.get(id)?.mergedInto === buyer.id ? (
+                  <View style={{ marginRight: -SPACE.md }}>
+                    <TextButton label="떼어 내기" color="textSub" ariaLabel={`${names.name(id)} 떼어 내기`} onPress={() => setAsk({ kind: 'unmerge', from: id })} />
+                  </View>
+                ) : null}
               </View>
             ))}
           </View>
         ) : null}
-        {buyer.mergedInto !== null ? <BigButton kind="outline" label={`${names.name(buyer.current)} 열기`} onPress={() => onOpen(buyer.current)} /> : null}
-      </Card>
-      <Card label="확정 상품">
-        <Txt weight="bold">확정 상품</Txt>
+        {buyer.mergedInto !== null ? (
+          <View style={{ marginLeft: -SPACE.md }}>
+            <TextButton label={`${names.name(buyer.current)} 열기`} align="start" onPress={() => onOpen(buyer.current)} />
+          </View>
+        ) : null}
+      </InfoCard>
+      <InfoCard title="확정 상품">
         {confirmed.length === 0 ? <Txt color="textSub">1등 찜이 없어요.</Txt> : null}
         {confirmed.map((claim) => {
           const { broadcast, no } = splitProductKey(claim.key)
           const product = data.products.get(claim.key)
-          return <Txt key={claim.id}>{`${label(broadcast, no)} ${product?.name.trim() === '' || product === undefined ? '품종 미입력' : product.name} · ${formatWon(product?.price ?? 0)}`}</Txt>
+          const productName = product?.name.trim() === '' || product === undefined ? '품종 미입력' : product.name
+          return <InfoRow key={claim.id} label={`${label(broadcast, no)} ${productName}`} value={formatWon(product?.price ?? 0)} spoken={`${label(broadcast, no)} ${productName} · ${formatWon(product?.price ?? 0)}`} />
         })}
-        <Txt weight="bold">{`합계 ${formatWon(buyer.subtotal)}`}</Txt>
+        <InfoRow label="합계" value={formatWon(buyer.subtotal)} strong spoken={`합계 ${formatWon(buyer.subtotal)}`} />
         {others.filter(isActive).length > 0 ? (
-          <View style={{ gap: SPACE.xs }}>
-            <Txt weight="bold">합계에 들지 않는 찜</Txt>
+          <View style={{ gap: 2, paddingTop: SPACE.sm }}>
+            <Txt step="body" color="textSub">합계에 들지 않는 찜</Txt>
             {others.filter(isActive).map((claim) => {
               const { broadcast, no } = splitProductKey(claim.key)
-              return <Txt key={claim.id} step="caption">{`${label(broadcast, no)} · ${claimWord(data, claim)}`}</Txt>
+              return <Txt key={claim.id} step="caption" color="textSub">{`${label(broadcast, no)} · ${claimWord(data, claim)}`}</Txt>
             })}
           </View>
         ) : null}
-      </Card>
-      <Card label="그날 정산">
-        <Txt weight="bold">그날 정산</Txt>
-        {settlement === undefined ? <Txt color="textSub">정산할 것이 없어요.</Txt> : <Txt>{`최종 ${formatWon(settlement.total)} · 받은 돈 ${formatWon(settlement.received)} · ${PAYMENT_WORD[settlement.payment]}`}</Txt>}
-      </Card>
+      </InfoCard>
+      <InfoCard title="그날 정산">
+        {settlement === undefined ? (
+          <Txt color="textSub">정산할 것이 없어요.</Txt>
+        ) : (
+          <>
+            <InfoRow label="최종" value={formatWon(settlement.total)} strong />
+            <InfoRow label="받은 돈" value={formatWon(settlement.received)} />
+            <InfoRow label="입금" value={PAYMENT_WORD[settlement.payment]} />
+          </>
+        )}
+      </InfoCard>
+      {/* 단추는 좌우로 (절대 규칙 8 — 옛: 위아래로 쌓임): 차단은 왼쪽 회색, 합치기는 오른쪽 */}
       {!sealed && buyer.mergedInto === null ? (
-        <View style={{ gap: SPACE.sm }}>
-          <BigButton kind={unknown ? 'primary' : 'outline'} label="다른 구매자와 합치기" onPress={() => setAsk({ kind: 'merge' })} />
-          <BigButton kind={buyer.blocked ? 'outline' : 'danger'} label={buyer.blocked ? '차단 풀기' : '차단하기'} onPress={() => setAsk({ kind: 'block', block: !buyer.blocked })} />
-        </View>
+        <ButtonRow>
+          <BigButton kind="outline" label={buyer.blocked ? '차단 풀기' : '차단하기'} onPress={() => setAsk({ kind: 'block', block: !buyer.blocked })} />
+          <BigButton kind={unknown ? 'primary' : 'outline'} label="다른 구매자와 합치기" oneLine onPress={() => setAsk({ kind: 'merge' })} />
+        </ButtonRow>
       ) : null}
       {ask?.kind === 'merge' ? (
         <MergeSheet
@@ -285,6 +337,7 @@ function ReasonSheet({ title, submitLabel, reasons, warning = null, danger = fal
 
 /** 합치기: 상대 고르기 → 서버 미리 보기(D-100) → 막힘이면 까닭만, 아니면 사유와 함께 합치기. 방향 바꾸기 */
 function MergeSheet({ data, names, opened, command, onClose, onDone }: { readonly data: ScopeData; readonly names: BuyerNames; readonly opened: Buyer; readonly command: (event: Readonly<Record<string, unknown>>, requestId?: string) => Promise<WriteResult>; readonly onClose: () => void; readonly onDone: (into: string) => void }) {
+  const { p } = useKit()
   const [search, setSearch] = useState('')
   const [other, setOther] = useState<Buyer | null>(null)
   const [flip, setFlip] = useState(false)
@@ -344,15 +397,29 @@ function MergeSheet({ data, names, opened, command, onClose, onDone }: { readonl
         {other === null ? (
           <>
             <TextField label="합칠 구매자 찾기" value={search} onChangeText={setSearch} placeholder="닉네임·뒤 4자리" />
-            {hits.map((hit) => (
-              <BigButton key={hit.id} kind="outline" label={names.name(hit.id)} ariaLabel={`합칠 구매자 ${names.name(hit.id)}`} onPress={() => setOther(hit)} />
-            ))}
+            {/* 찾은 사람은 큰 단추 더미 대신 연락처 줄로 (D-UX3-95) */}
+            {hits.length > 0 ? (
+              <View style={{ marginHorizontal: -SPACE.sm }}>
+                {hits.map((hit) => (
+                  <Pressable key={hit.id} role="button" aria-label={`합칠 구매자 ${names.name(hit.id)}`} onPress={() => setOther(hit)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 52, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+                    <Initial name={names.name(hit.id)} size={36} />
+                    <View style={{ flex: 1 }}>
+                      <Txt step="bodyLarge" weight="book">{names.name(hit.id)}</Txt>
+                    </View>
+                    <Icon name="chevron" color={p.textSub} size={18} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
           </>
         ) : (
           <>
             {from !== null && into !== null ? <Txt weight="bold">{`${names.name(from.id)} → ${names.name(into.id)} (남는 쪽: ${names.name(into.id)})`}</Txt> : null}
-            <BigButton kind="outline" label="방향 바꾸기" onPress={() => setFlip((on) => !on)} />
-            <BigButton kind="secondary" label="다른 구매자 고르기" onPress={() => { setOther(null); setFlip(false) }} />
+            {/* 곁일 둘은 작은 글자 단추로 좌우에 (옛: 큰 단추 둘을 위아래로) */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: -SPACE.md }}>
+              <TextButton label="다른 구매자 고르기" color="textSub" onPress={() => { setOther(null); setFlip(false) }} />
+              <TextButton label="방향 바꾸기" onPress={() => setFlip((on) => !on)} />
+            </View>
             {previewError !== null ? <Notice tone="danger" alert>{previewError.message}</Notice> : null}
             {preview === null && previewError === null ? <Txt color="textSub">미리 보기를 받는 중이에요.</Txt> : null}
             {words !== null ? (

@@ -3,12 +3,14 @@
 // - [해지] → 가운데 팝업 "카카오 연결을 해지할까요?" / 회색 설명 — 왼쪽 [닫기], 오른쪽 [해지]. 해지하면 알림 막대 "카카오 연결을 해지했어요."와 새 목록.
 // - 마지막 로그인 방법은 서버가 막는다(409 "마지막 로그인 방법은 끊을 수 없어요.") — 그 문장을 알림 막대로. 이미 끊겼으면(404) 목록을 새로 읽는다.
 // - 서버: GET /api/auth/methods · POST /api/auth/unlink (D-L1-03 — 지금 세션은 남고, 그 공급자로 로그인한 다른 기기는 로그아웃).
+// - 모양 (D-UX3-96): 줄 사이 선을 빼고 토스 목록처럼 — 왼쪽 앱 아이콘 로고(34), 이름·공급자, 오른쪽 글자 단추 [해지].
 import { useCallback, useEffect, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { accountLabel, LINKED_NONE, LINKED_TITLE, methodsOf, POPUP_CLOSE, PROVIDER_NAMES, UNLINK_GO, unlinkAskText, unlinkAskTitle, unlinkDone, type LoginMethods, type LoginProvider } from '@livejjim/web/src/lib/social-login.ts'
 import { get, isApiError, post } from '../api/client.ts'
-import { AppHeader, Card, PopupDialog, SmallButton, Toast, Txt, useKit, useToast } from '../ui/kit/index.ts'
-import { SPACE } from '../ui/kit/tokens.ts'
+import { AppHeader, PopupDialog, Toast, Txt, useKit, useToast } from '../ui/kit/index.ts'
+import { SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
 import { Loading } from '../ui/parts.tsx'
 import { SocialTile } from '../ui/SocialTile.tsx'
 
@@ -63,7 +65,7 @@ export function LinkedAccountsScreen({ onBack }: { readonly onBack: () => void }
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="linked-accounts-screen">
       <AppHeader title={LINKED_TITLE} onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SETTINGS_GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }}>
         {methods === null ? (
           failed ? (
             <Txt color="textSub">{LOAD_FAILED}</Txt>
@@ -71,28 +73,26 @@ export function LinkedAccountsScreen({ onBack }: { readonly onBack: () => void }
             <Loading />
           )
         ) : linked.length === 0 ? (
-          <Card>
-            <Txt color="textSub">{LINKED_NONE}</Txt>
-          </Card>
+          <SettingsGroup>
+            <GroupNote>{LINKED_NONE}</GroupNote>
+          </SettingsGroup>
         ) : (
-          <Card label={LINKED_TITLE} testID="linked-accounts">
-            {linked.map((item, index) => (
-              <View key={item.provider} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingTop: index === 0 ? 0 : SPACE.lg, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: p.line }} testID={`linked-${item.provider}`}>
-                <View style={{ flex: 1, gap: SPACE.sm }}>
-                  <Txt step="bodyLarge" weight="medium">
+          <SettingsGroup label={LINKED_TITLE} testID="linked-accounts">
+            {linked.map((item) => (
+              <View key={item.provider} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min + SPACE.sm }} testID={`linked-${item.provider}`}>
+                <SocialTile provider={item.provider} size={34} />
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Txt step="bodyLarge" weight="book" numberOfLines={1}>
                     {item.label === '' ? accountLabel(item.provider) : item.label}
                   </Txt>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-                    <SocialTile provider={item.provider} size={20} />
-                    <Txt step="caption" color="textSub">
-                      {PROVIDER_NAMES[item.provider]}
-                    </Txt>
-                  </View>
+                  <Txt step="caption" color="textSub">
+                    {PROVIDER_NAMES[item.provider]}
+                  </Txt>
                 </View>
-                <SmallButton label={UNLINK_GO} onPress={() => setAsking(item.provider)} disabled={busy} testID={`unlink-${item.provider}`} />
+                <TextButton label={UNLINK_GO} onPress={() => setAsking(item.provider)} disabled={busy} testID={`unlink-${item.provider}`} />
               </View>
             ))}
-          </Card>
+          </SettingsGroup>
         )}
       </ScrollView>
       <PopupDialog

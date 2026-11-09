@@ -2,6 +2,8 @@
 // 지금 손님 카드(초록 테두리): 이름·개수, 상품마다 큰 체크 줄(52 이상), 모두 담으면 "포장 끝". 아래는 나머지 손님 이름·개수.
 // 포장 상태는 서버가 정한 다섯 말 그대로. 명령은 같은 요청 번호로 다시 보내도 한 번만 기록된다. 실시간 `packing` 알림이 오면 목록을 다시 받는다.
 // 포장을 끝낸 손님 카드는 저절로 넘기지 않는다 — "포장 완료 되돌리기"를 바로 누를 수 있게 두고 "다음 손님"으로 넘긴다(실수 되돌리기).
+// 토스식 다듬기 (D-UX3-94): 쪽 여백 20, 흰 카드에 묶기(지금 손님 카드의 초록 테두리·상품마다 회색 상자 없앰), 나머지 손님은 한 카드 안 줄로,
+// 곁길 일([택배 접수]·[택배 화면으로]·[다음 손님])은 글자 단추, 단추 둘 이상은 좌우로(되돌리기 왼쪽).
 import { useEffect, useMemo, useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import type { PackingAction, PackingEntry, PackingList, PackingResult } from '@livejjim/web/src/api/types.ts'
@@ -12,26 +14,16 @@ import { ALL_CHECKED_HINT, PACKED_NOTICE, PACKING_FILTERS, PACKING_TONE, SEALED_
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, Icon, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { RADIUS, SPACE, TOUCH, pressedFill } from '../ui/kit/tokens.ts'
+import { parcelLine, parcelTone } from '@livejjim/web/src/lib/parcel-words.ts'
+import { Pill } from '../ui/day-pills.tsx'
+import { BigButton, ButtonRow, Icon, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Field, Loading, Notice, Tag } from '../ui/parts.tsx'
-import { ParcelTag, ParcelTagLine } from './ParcelAddress.tsx'
+import { ParcelTagLine, TextAction } from './ParcelAddress.tsx'
 
 interface Day {
   readonly date: string
   readonly rehearsal: boolean
-}
-
-/** 작은 알약 고르기 (날짜·걸러 보기) */
-function Pill({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonly label: string; readonly ariaLabel: string; readonly onPress: () => void }) {
-  const { p } = useKit()
-  return (
-    <Pressable role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', borderWidth: on ? 0 : 1, borderColor: p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
-      <Txt step="caption" weight="bold" color={on ? 'onPrimary' : 'text'}>
-        {label}
-      </Txt>
-    </Pressable>
-  )
 }
 
 export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { readonly initialDate?: string; readonly onBack?: () => void; readonly openParcels?: (date: string) => void; readonly topGap?: number }) {
@@ -57,19 +49,12 @@ export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { reado
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="packing-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: topGap, paddingBottom: SPACE.xxxl + room, gap: SPACE.sm }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: SPACE.sm }}>
-          {progress !== null ? (
-            <Txt step="bodyLarge" weight="bold" color="textSub" aria-label={`포장 끝낸 손님 ${String(progress.done)}명, 전체 ${String(progress.total)}명`}>
-              {`끝낸 손님 ${String(progress.done)} / ${String(progress.total)}`}
-            </Txt>
-          ) : null}
-        </View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: topGap, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
         {days !== null ? (
           <View role="radiogroup" aria-label="날짜">
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: SPACE.xs, paddingVertical: SPACE.xs }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingVertical: SPACE.xs }}>
               {days.slice(0, 8).map((day) => (
                 <Pill key={day.date} on={day.date === date} label={dateWords(day.date)} ariaLabel={`날짜 ${dateWords(day.date)}`} onPress={() => setDate(day.date)} />
               ))}
@@ -77,10 +62,17 @@ export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { reado
             {days.length === 0 ? <Txt color="textSub">아직 판매 기록이 없어요.</Txt> : null}
           </View>
         ) : null}
-        {/* 흐름의 다음 단계 (D-UX3-39): 포장이 끝난 손님은 택배 탭에서 접수한다 */}
-        {openParcels !== undefined && date !== null ? (
-          <View style={{ paddingHorizontal: SPACE.xs }}>
-            <BigButton kind="outline" label="택배 접수로" ariaLabel="택배 접수로 — 포장 끝난 손님 접수하기" onPress={() => openParcels(date)} />
+        {/* 진행과 흐름의 다음 단계(D-UX3-39)를 한 줄에: 왼쪽 "끝낸 손님 n / N", 오른쪽 글자 단추 [택배 접수 ›] (D-UX3-94 — 옛: 오른쪽 굵은 진행 + 큰 회색 [택배 접수로]) */}
+        {progress !== null || (openParcels !== undefined && date !== null) ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, minHeight: 36 }}>
+            {progress !== null ? (
+              <Txt step="body" weight="book" color="textSub" aria-label={`포장 끝낸 손님 ${String(progress.done)}명, 전체 ${String(progress.total)}명`}>
+                {`끝낸 손님 ${String(progress.done)} / ${String(progress.total)}`}
+              </Txt>
+            ) : (
+              <View />
+            )}
+            {openParcels !== undefined && date !== null ? <TextAction label="택배 접수" strong ariaLabel="택배 접수로 — 포장 끝난 손님 접수하기" onPress={() => openParcels(date)} /> : null}
           </View>
         ) : null}
         {date !== null ? <PackingDay key={date} date={date} onProgress={setProgress} openParcels={openParcels} /> : null}
@@ -177,10 +169,10 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
   if (list === null) return <Loading />
 
   return (
-    <View style={{ gap: 6 }}>
+    <View style={{ gap: SPACE.md }}>
       {list.sealed === true ? <Notice tone="info">{SEALED_VIEW_ONLY}</Notice> : null}
       <View role="radiogroup" aria-label="걸러 보기">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: SPACE.xs, paddingBottom: SPACE.sm }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm }}>
           {PACKING_FILTERS.map((item) => (
             <Pill key={item.key} on={item.key === filter} label={item.word} ariaLabel={`보기: ${item.word}`} onPress={() => {
               setFilter(item.key)
@@ -189,7 +181,13 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
           ))}
         </ScrollView>
       </View>
-      {current === undefined ? <Txt color="textSub">{filterWord?.empty ?? ''}</Txt> : null}
+      {current === undefined ? (
+        <View style={{ paddingVertical: SPACE.xxxl, alignItems: 'center' }}>
+          <Txt color="textSub" center>
+            {filterWord?.empty ?? ''}
+          </Txt>
+        </View>
+      ) : null}
       {current !== undefined ? (
         <PackingCard
           key={current.buyer}
@@ -204,25 +202,48 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
           }}
         />
       ) : null}
-      <View role="list" aria-label="포장할 구매자" style={{ gap: 6 }}>
-        {rest.map((entry) => (
-          <Pressable key={entry.buyer} role="button" aria-label={`포장 열기 — ${entry.name}`} onPress={() => setOpen(entry.buyer)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, minHeight: 56, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? pressedFill(p, isChanged(entry.status) ? p.warnBg : p.surface) : isChanged(entry.status) ? p.warnBg : p.surface })}>
-            <View style={{ flex: 1 }}>
-              <Txt step="bodyLarge" weight="bold" numberOfLines={1}>
-                {entry.name}
-              </Txt>
-              {entry.status !== '포장 대기' && !hidesPackingTag(entry.status, entry.parcel) ? (
-                <Txt step="caption" ink={isChanged(entry.status) ? p.warnText : p.textSub}>
-                  {packingTagWords(entry.status, entry.invoice, entry.parcel)}
+      {/* 나머지 손님은 흰 카드 하나 안의 줄로 (D-UX3-94 — 옛: 손님마다 따로 떠 있는 흰 상자, 바뀐 손님은 노란 바탕) */}
+      <View role="list" aria-label="포장할 구매자" style={rest.length === 0 ? undefined : { backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: SPACE.sm }}>
+        {rest.length === 0 ? null : (
+          <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
+            <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>
+              {`다른 손님 ${String(rest.length)}명`}
+            </Txt>
+          </View>
+        )}
+        {rest.map((entry) => {
+          const changed = isChanged(entry.status)
+          const tag = entry.status !== '포장 대기' && !hidesPackingTag(entry.status, entry.parcel) ? packingTagWords(entry.status, entry.invoice, entry.parcel) : null
+          return (
+            <Pressable key={entry.buyer} role="button" aria-label={`포장 열기 — ${entry.name}`} onPress={() => setOpen(entry.buyer)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 56, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt step="bodyLarge" weight="book" numberOfLines={1}>
+                  {entry.name}
                 </Txt>
-              ) : null}
-              {entry.parcel != null ? <ParcelTag parcel={entry.parcel} /> : null}
-            </View>
-            <Txt color="textSub">{`${String(itemCount(entry.items))}개`}</Txt>
-          </Pressable>
-        ))}
+                {tag !== null ? (
+                  <Txt step="caption" weight={changed ? 'bold' : 'regular'} ink={changed ? p.warnText : p.textSub}>
+                    {tag}
+                  </Txt>
+                ) : null}
+                {entry.parcel != null ? <ParcelLine parcel={entry.parcel} /> : null}
+              </View>
+              <Txt step="body" color="textSub">{`${String(itemCount(entry.items))}개`}</Txt>
+              <Icon name="chevron" color={p.textSub} size={18} />
+            </Pressable>
+          )
+        })}
       </View>
     </View>
+  )
+}
+
+/** 줄 안의 택배 상태 한 줄 (꼬리표 대신 색 글자 — 줄이 무거워지지 않게, D-UX3-94) */
+function ParcelLine({ parcel }: { readonly parcel: NonNullable<PackingEntry['parcel']> }) {
+  const { tones } = useKit()
+  return (
+    <Txt step="caption" weight="medium" ink={tones[parcelTone(parcel)].fg}>
+      {parcelLine(parcel)}
+    </Txt>
   )
 }
 
@@ -263,30 +284,31 @@ function PackingCard({ date, entry, sealed, next, onDone, openParcels }: { reado
   }
 
   return (
-    <View role="group" aria-label={`지금 손님 — ${entry.name}`} style={{ backgroundColor: p.surface, borderRadius: 18, borderCurve: 'continuous', padding: SPACE.lg, gap: SPACE.sm, borderWidth: 2, borderColor: p.primary }}>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SPACE.xs }}>
-        <Txt step="title" weight="heavy" role="heading" aria-level={2}>
-          {entry.name}
-        </Txt>
-        <Txt color="textSub">{`${String(itemCount(entry.items))}개`}</Txt>
-      </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.xs }}>
-        {hidesPackingTag(entry.status, entry.parcel) ? null : <Tag tone={PACKING_TONE[entry.status]}>{packingTagWords(entry.status, entry.invoice, entry.parcel)}</Tag>}
-        <Txt step="caption" color="textSub">
-          {`${paymentWord(entry.payment, 0)}${entry.phoneLast4 !== null ? ` · 뒤 4자리 ${entry.phoneLast4}` : ''}`}
-        </Txt>
-      </View>
-      {entry.parcel != null ? (
-        <View style={{ paddingHorizontal: SPACE.xs }}>
-          <ParcelTagLine parcel={entry.parcel} />
+    // 지금 손님 카드 (D-UX3-94): 초록 테두리 없이 흰 카드, 이름은 제목 크기, 상품은 둥근 체크 줄
+    <View role="group" aria-label={`지금 손님 — ${entry.name}`} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.xl, paddingTop: SPACE.xl, paddingBottom: SPACE.lg, gap: SPACE.md }}>
+      <View style={{ gap: SPACE.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: SPACE.md }}>
+          <View style={{ flex: 1 }}>
+            <Txt step="title" weight="heavy" role="heading" aria-level={2} numberOfLines={1}>
+              {entry.name}
+            </Txt>
+          </View>
+          <Txt step="bodyLarge" weight="book" color="textSub">{`${String(itemCount(entry.items))}개`}</Txt>
         </View>
-      ) : null}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm }}>
+          {hidesPackingTag(entry.status, entry.parcel) ? null : <Tag tone={PACKING_TONE[entry.status]}>{packingTagWords(entry.status, entry.invoice, entry.parcel)}</Tag>}
+          <Txt step="caption" color="textSub">
+            {`${paymentWord(entry.payment, 0)}${entry.phoneLast4 !== null ? ` · 뒤 4자리 ${entry.phoneLast4}` : ''}`}
+          </Txt>
+        </View>
+        {entry.parcel != null ? <ParcelTagLine parcel={entry.parcel} /> : null}
+      </View>
       {changed ? (
         <Notice tone="warning" alert>
           {`그 사이 구매 내역이 바뀌었어요.${entry.add.length > 0 ? ` 새로 담을 것: ${entry.add.map((item) => itemLineWords(item)).join(', ')}.` : ''}${entry.remove.length > 0 ? ` 뺄 것: ${entry.remove.map((item) => `${String(item.no)}번`).join(', ')}.` : ''}`}
         </Notice>
       ) : null}
-      <View role="list" aria-label="체크리스트" style={{ gap: SPACE.sm }}>
+      <View role="list" aria-label="체크리스트" style={{ marginHorizontal: -SPACE.sm }}>
         {entry.items.map((item) => {
           const on = checked.has(item.key)
           const line = itemLineWords(item)
@@ -304,13 +326,14 @@ function PackingCard({ date, entry, sealed, next, onDone, openParcels }: { reado
                   return nextSet
                 })
               }
-              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingHorizontal: SPACE.md, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? pressedFill(p, on ? p.freshBg : p.surfaceAlt) : on ? p.freshBg : p.surfaceAlt })}
+              style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 52, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}
             >
-              <View aria-hidden style={{ width: 26, height: 26, borderRadius: 6, borderCurve: 'continuous', borderWidth: on ? 0 : 2, borderColor: p.borderStrong, backgroundColor: on ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
-                {on ? <Icon name="check" color={p.onPrimary} size={18} /> : null}
+              {/* 토스 체크처럼 둥근 표: 담으면 초록 바탕 ✓, 아니면 회색 테두리 */}
+              <View aria-hidden style={{ width: 26, height: 26, borderRadius: 13, borderCurve: 'continuous', borderWidth: on ? 0 : 2, borderColor: p.softPressed, backgroundColor: on ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
+                {on ? <Icon name="check" color={p.onPrimary} size={16} /> : null}
               </View>
               <View style={{ flex: 1 }}>
-                <Txt step="bodyLarge" weight="bold">
+                <Txt step="bodyLarge" weight="book" ink={on ? p.textSub : p.text}>
                   {line}
                 </Txt>
               </View>
@@ -324,22 +347,25 @@ function PackingCard({ date, entry, sealed, next, onDone, openParcels }: { reado
         </Txt>
       ) : null}
       {!sealed ? (
-        <View role="group" aria-label="포장·배송" style={{ gap: SPACE.sm, marginTop: SPACE.xs }}>
+        <View role="group" aria-label="포장·배송" style={{ gap: SPACE.md }}>
           {canPack ? <BigButton label="포장 끝" disabled={!allChecked || busy} onPress={() => void send({ action: 'pack', items: packItems(entry.items) })} /> : null}
           {entry.status === '포장 완료' && !parcelLocked ? (
             <>
               <Field label="송장번호 (선택)" value={invoice} onChangeText={setInvoice} inputMode="numeric" keyboardType="number-pad" />
-              <BigButton kind="secondary" label="배송 완료" disabled={busy} onPress={() => void send({ action: 'ship', invoice: invoice.trim() === '' ? null : invoice.trim() })} />
-              <BigButton kind="outline" label="포장 완료 되돌리기" disabled={busy} onPress={() => void send({ action: 'unpack' })} />
+              {/* 좌우로: 되돌리기(왼쪽) · 배송 완료(오른쪽) (D-UX4-01·D-UX3-94 — 옛: 큰 단추 둘을 위아래로) */}
+              <ButtonRow>
+                <BigButton kind="outline" label="되돌리기" ariaLabel="포장 완료 되돌리기" disabled={busy} onPress={() => void send({ action: 'unpack' })} />
+                <BigButton kind="secondary" label="배송 완료" disabled={busy} onPress={() => void send({ action: 'ship', invoice: invoice.trim() === '' ? null : invoice.trim() })} />
+              </ButtonRow>
             </>
           ) : null}
           {(entry.status === '배송 완료' || entry.status === '배송 뒤 바뀜') && !parcelLocked ? <BigButton kind="outline" label="배송 완료 되돌리기" disabled={busy} onPress={() => void send({ action: 'unship' })} /> : null}
         </View>
       ) : null}
       {parcelLocked && !sealed ? (
-        <View style={{ gap: SPACE.sm }}>
+        <View style={{ gap: SPACE.xs }}>
           <Notice tone="info">{entry.parcel?.state === 'BOOKED' ? PACKING_LOCKED_BOOKED : PACKING_LOCKED_WAITING}</Notice>
-          {openParcels !== undefined ? <BigButton kind="outline" label="택배 화면으로" onPress={openParcels} /> : null}
+          {openParcels !== undefined ? <TextAction label="택배 화면으로" onPress={openParcels} /> : null}
         </View>
       ) : null}
       {notice !== null ? (
@@ -347,7 +373,8 @@ function PackingCard({ date, entry, sealed, next, onDone, openParcels }: { reado
           {notice.text}
         </Notice>
       ) : null}
-      {!canPack && next !== undefined ? <BigButton label="다음 손님" onPress={next} /> : null}
+      {/* 다음 손님은 카드 아래 오른쪽 글자 단추 (홈 "모두보기"처럼, D-UX3-94 — 옛: 큰 초록 단추) */}
+      {!canPack && next !== undefined ? <TextAction label="다음 손님" strong onPress={next} /> : null}
     </View>
   )
 }

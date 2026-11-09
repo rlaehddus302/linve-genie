@@ -29,7 +29,9 @@ describe('BuyersScreen (앱 구매자)', () => {
     render(w.wrap(<BuyersScreen onBack={() => undefined} />))
     fireEvent.click(await screen.findByRole('button', { name: /^문자찜\(확인 필요\)/ }))
     expect(screen.getByText('누구의 문자인지 찾아 합쳐 주세요.')).toBeTruthy()
-    expect(screen.getByText('전화번호: 뒤 4자리 5678')).toBeTruthy()
+    // D-UX3-95: 자세히 줄은 이름(왼쪽)·값(오른쪽)으로 나뉘어 보이고, 한 줄 이름(aria-label)은 옛 문장 그대로
+    expect(screen.getByLabelText('전화번호: 뒤 4자리 5678')).toBeTruthy()
+    expect(screen.getByText('뒤 4자리 5678')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '다른 구매자와 합치기' }))
     fireEvent.change(screen.getByLabelText('합칠 구매자 찾기'), { target: { value: '꽃집' } })
     fireEvent.click(screen.getByRole('button', { name: '합칠 구매자 꽃집언니' }))

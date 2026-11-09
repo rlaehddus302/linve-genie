@@ -44,11 +44,12 @@ import {
 import { formatWon, PAYMENT_WORD, paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { useDayScope } from '../lib/day-scope.ts'
-import { BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
-import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { BackButton, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { Loading, Notice } from '../ui/parts.tsx'
 import { AddressCard, ParcelTag } from './ParcelAddress.tsx'
 import { BuyerInfoBanner } from './BuyerInfoScreen.tsx'
+import { CARD_GAP, MenuRow, PAGE_SIDE, SectionCard, ValueLine } from './order-parts.tsx'
 
 const FILTERS: readonly { readonly key: PaymentFilter; readonly word: string }[] = [
   { key: 'ALL', word: '전체' },
@@ -95,7 +96,8 @@ export function SettleScreen({ initialDate, initialBuyer, nav = {} }: { readonly
   const { days, date, setDate, error } = useRealDays(initialDate)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="settle-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: 28, paddingBottom: SPACE.xxxl + room, gap: SPACE.sm }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
+      {/* 홈과 같은 여백 (D-UX3-93): 좌우 20, 카드 사이 16 */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.lg, paddingBottom: SPACE.xxxl + room, gap: CARD_GAP }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
         {nav.openBuyerInfo !== undefined ? <BuyerInfoBanner onOpen={nav.openBuyerInfo} /> : null}
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
@@ -128,16 +130,20 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
   const settlement = open === null ? undefined : data.settlements.get(open)
   if (settlement !== undefined) return <SettleDetail data={data} names={names} settlement={settlement} parcelVersion={parcelVersion} onBack={() => setOpen(null)} onWritten={reload} />
   const shown = filter === 'ALL' ? all : all.filter((s) => s.payment === filter)
+  // 바로 가기 (D-UX3-93): 옛 테두리 단추 셋이 줄바꿈되던 것을 흰 카드 한 줄 세 칸으로 — 방송 뒤 순서대로(확인서 → 입금 → 리포트)
+  const links: { readonly label: string; readonly onPress: () => void }[] = []
+  if (nav.openReceipts !== undefined) links.push({ label: '확인서 보내기', onPress: nav.openReceipts })
+  if (nav.openDeposits !== undefined) links.push({ label: '입금 확인', onPress: nav.openDeposits })
+  if (nav.openReport !== undefined) {
+    const openReport = nav.openReport
+    links.push({ label: '방송 리포트', onPress: () => openReport(date) })
+  }
   return (
-    <View style={{ gap: SPACE.md }}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, paddingHorizontal: SPACE.xs }}>
-        {nav.openReport !== undefined ? <BigButton kind="outline" label="방송 리포트" onPress={() => nav.openReport?.(date)} /> : null}
-        {nav.openReceipts !== undefined ? <BigButton kind="outline" label="확인서 보내기" onPress={() => nav.openReceipts?.()} /> : null}
-        {nav.openDeposits !== undefined ? <BigButton kind="outline" label="입금 확인" onPress={() => nav.openDeposits?.()} /> : null}
-      </View>
+    <View style={{ gap: CARD_GAP }}>
+      {links.length > 0 ? <QuickLinks links={links} /> : null}
       {data.sealed ? <Notice tone="info">{SEALED_SETTLEMENT}</Notice> : null}
-      <Txt weight="bold" color="textSub">{summaryWords(all)}</Txt>
       <View role="radiogroup" aria-label="입금 상태로 보기">
+        {/* 위 날짜 알약(DayPills)과 같은 왼쪽 줄 */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: SPACE.xs, paddingVertical: SPACE.xs }}>
           {FILTERS.map((item) => {
             const count = item.key === 'ALL' ? all.length : all.filter((s) => s.payment === item.key).length
@@ -145,9 +151,35 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
           })}
         </ScrollView>
       </View>
-      {shown.length === 0 ? <Txt color="textSub">{all.length === 0 ? '이 날짜에 정산할 손님이 없어요.' : '이 상태의 손님이 없어요.'}</Txt> : null}
-      {shown.map((s) => (
-        <SettleRow key={`${s.buyer}/${s.date}`} settlement={s} name={names.name(s.buyer)} parcel={parcels.get(s.buyer) ?? null} steps={steps.get(s.buyer) ?? null} onPress={() => setOpen(JSON.stringify([s.buyer, s.date]))} />
+      {/* 손님 줄은 흰 카드 하나에 (토스 목록처럼) — 맨 위 회색 글은 그날 요약 */}
+      <SectionCard title={summaryWords(all)} label="손님 목록" flush>
+        {shown.length === 0 ? (
+          <View style={{ paddingHorizontal: SPACE.xl, paddingBottom: SPACE.sm }}>
+            <Txt color="textSub">{all.length === 0 ? '이 날짜에 정산할 손님이 없어요.' : '이 상태의 손님이 없어요.'}</Txt>
+          </View>
+        ) : (
+          <View>
+            {shown.map((s) => (
+              <SettleRow key={`${s.buyer}/${s.date}`} settlement={s} name={names.name(s.buyer)} parcel={parcels.get(s.buyer) ?? null} steps={steps.get(s.buyer) ?? null} onPress={() => setOpen(JSON.stringify([s.buyer, s.date]))} />
+            ))}
+          </View>
+        )}
+      </SectionCard>
+    </View>
+  )
+}
+
+/** 바로 가기 한 줄 (흰 카드 안 같은 폭 세 칸, 글자만) */
+function QuickLinks({ links }: { readonly links: readonly { readonly label: string; readonly onPress: () => void }[] }) {
+  const { p } = useKit()
+  return (
+    <View role="group" aria-label="바로 가기" style={{ flexDirection: 'row', backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', padding: SPACE.xs + 2, gap: SPACE.xs }}>
+      {links.map((link) => (
+        <Pressable key={link.label} role="button" aria-label={link.label} onPress={link.onPress} style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.min, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Txt step="body" weight="medium" center numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+            {link.label}
+          </Txt>
+        </Pressable>
       ))}
     </View>
   )
@@ -190,25 +222,37 @@ function useOrderSteps(date: string, version: number): ReadonlyMap<string, Order
 }
 
 function SettleRow({ settlement, name, parcel, steps, onPress }: { readonly settlement: Settlement; readonly name: string; readonly parcel: ParcelBrief | null; readonly steps: OrderSteps | null; readonly onPress: () => void }) {
-  const { p } = useKit()
+  const { p, tones } = useKit()
   const left = remainingOf(settlement)
   const word = paymentWord(settlement.payment, settlement.refundDue)
+  // 꼬리표 셋(색 바탕 + 기호)을 줄이고 (D-UX3-93): 아래 한 줄 작은 글자로 "미입금 · 정보 전 · 확인서 전" — 아직 안 한 것만 주황 글자
+  const dot = <Txt step="caption" color="textSub">{' · '}</Txt>
   return (
-    <Pressable role="button" aria-label={`${name} · ${word} · 최종 ${formatWon(settlement.total)}${left > 0 ? ` · 남은 금액 ${formatWon(left)}` : ''}${parcel !== null ? ` · ${parcelLine(parcel)}` : ''}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', paddingVertical: SPACE.lg, paddingHorizontal: SPACE.lg, backgroundColor: pressed ? pressedFill(p, p.surface) : p.surface })}>
-      <View style={{ flex: 1, gap: SPACE.xs }}>
-        <Txt step="bodyLarge" weight="bold">{name}</Txt>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
-          {steps !== null ? <Tag tone={steps.info ? 'success' : 'warning'}>{steps.info ? '정보 받음' : '정보 전'}</Tag> : null}
-          {steps !== null ? <Tag tone={steps.receipt ? 'success' : 'warning'}>{steps.receipt ? '확인서 보냄' : '확인서 전'}</Tag> : null}
-          <Tag tone={PAY_TONE[settlement.payment]}>{word}</Tag>
+    <Pressable role="button" aria-label={`${name} · ${word} · 최종 ${formatWon(settlement.total)}${left > 0 ? ` · 남은 금액 ${formatWon(left)}` : ''}${parcel !== null ? ` · ${parcelLine(parcel)}` : ''}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, minHeight: TOUCH.min, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Txt step="bodyLarge" weight="book" numberOfLines={1}>{name}</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+          <Txt step="caption" weight="medium" ink={tones[PAY_TONE[settlement.payment]].fg}>{word}</Txt>
+          {steps !== null ? (
+            <>
+              {dot}
+              <Txt step="caption" color={steps.info ? 'textSub' : 'warnText'}>{steps.info ? '정보 받음' : '정보 전'}</Txt>
+              {dot}
+              <Txt step="caption" color={steps.receipt ? 'textSub' : 'warnText'}>{steps.receipt ? '확인서 보냄' : '확인서 전'}</Txt>
+            </>
+          ) : null}
         </View>
-        {parcel !== null ? <ParcelTag parcel={parcel} /> : null}
+        {parcel !== null ? (
+          <View style={{ marginTop: SPACE.xs }}>
+            <ParcelTag parcel={parcel} />
+          </View>
+        ) : null}
       </View>
       <View style={{ alignItems: 'flex-end', gap: 2 }}>
-        <Txt weight="heavy">{formatWon(settlement.total)}</Txt>
+        <Txt step="bodyLarge" weight="medium">{formatWon(settlement.total)}</Txt>
         {left > 0 ? <Txt step="caption" color="textSub">{`남은 ${formatWon(left)}`}</Txt> : null}
       </View>
-      <Icon name="chevron" color={p.textSub} size={20} />
+      <Icon name="chevron" color={p.textSub} size={18} />
     </Pressable>
   )
 }
@@ -219,6 +263,7 @@ interface Saved {
 }
 
 function SettleDetail({ data, names, settlement, parcelVersion, onBack, onWritten }: { readonly data: ScopeData; readonly names: BuyerNames; readonly settlement: Settlement; readonly parcelVersion: number; readonly onBack: () => void; readonly onWritten: () => void }) {
+  const { p } = useKit()
   const [input, setInput] = useState<InputKind | null>(null)
   const [saved, setSaved] = useState<Saved | null>(null)
   const claims = useMemo(() => [...data.claims.values()].filter((c) => c.currentBuyer === settlement.buyer && c.status === 'CONFIRMED').sort((a, b) => a.seq - b.seq), [data.claims, settlement.buyer])
@@ -232,79 +277,98 @@ function SettleDetail({ data, names, settlement, parcelVersion, onBack, onWritte
     setSaved(result.changed ? { text, tone: 'success' } : { text: NOT_APPLIED_SETTLEMENT, tone: 'warning' })
     onWritten()
   }
+  const others = (['payment', 'shipping', 'adjust', 'refund'] as const).filter((kind) => kind !== primary)
+  const openInput = (kind: InputKind) => {
+    setSaved(null)
+    setInput(kind)
+  }
   return (
-    <View style={{ gap: SPACE.md }} aria-label="정산 자세히">
-      <BigButton kind="secondary" label="정산 목록으로" onPress={onBack} />
-      <Txt step="title" weight="heavy" role="heading" aria-level={2}>
-        {name}
-      </Txt>
-      {buyer !== undefined && buyer.merged.length > 0 ? <Txt color="textSub">합친 구매자: {buyer.merged.map((id) => names.name(id)).join(', ')}</Txt> : null}
-      <Tag tone={PAY_TONE[settlement.payment]} big>{paymentWord(settlement.payment, settlement.refundDue)}</Tag>
+    // 자세히 (D-UX3-93): 옛 "정산 목록으로" 큰 단추 → 이름 옆 뒤로 ‹, 상태 꼬리표 → 이름 아래 색 글자,
+    // 큰 단추 넷이 위아래로 쌓이던 것 → 할 일 하나(초록 단추)는 금액 카드 안에, 나머지는 흰 카드 속 줄로
+    <View style={{ gap: CARD_GAP }} aria-label="정산 자세히">
+      <View style={{ gap: 2 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginLeft: -SPACE.md }}>
+          <BackButton label="정산 목록으로" onPress={onBack} />
+          <View style={{ flex: 1, transform: [{ translateY: -2.5 }] }}>
+            <Txt step="title" weight="heavy" role="heading" aria-level={2} numberOfLines={1}>
+              {name}
+            </Txt>
+          </View>
+        </View>
+        <View style={{ paddingLeft: SPACE.xs, gap: 2 }}>
+          <PayWord payment={settlement.payment} refundDue={settlement.refundDue} />
+          {buyer !== undefined && buyer.merged.length > 0 ? <Txt step="caption" color="textSub">합친 구매자: {buyer.merged.map((id) => names.name(id)).join(', ')}</Txt> : null}
+        </View>
+      </View>
       {saved !== null ? <Notice tone={saved.tone}>{saved.text}</Notice> : null}
 
-      <Card label="품목">
-        <Txt step="section" weight="bold">품목</Txt>
-        {empty ? <Txt>취소되어 품목이 없어요</Txt> : null}
-        {claims.map((claim) => (
-          <Txt key={claim.id}>
-            {detailLineWords(claim, data.products.get(claim.product)?.name)}
-            {claim.buyer !== settlement.buyer ? ` · ${names.name(claim.buyer)}` : ''}
-          </Txt>
-        ))}
-      </Card>
-
-      <Card label="금액">
-        <Line label="상품 합계" value={formatWon(settlement.subtotal)} />
-        <Line label={`배송비${settlement.shippingOverride !== null ? ` (${SHIPPING_WORD[settlement.shippingOverride]})` : ''}`} value={formatWon(settlement.shipping)} />
-        <Line label="할인·추가" value={signedWon(empty ? 0 : settlement.adjustments)} />
-        <Line label="최종" value={formatWon(settlement.total)} strong />
-        <Line label="받은 금액" value={formatWon(settlement.received)} />
-        <Line label="남은 금액" value={formatWon(remaining)} strong={remaining > 0} />
-        {settlement.refundDue > 0 ? <Line label="돌려줄 돈" value={formatWon(settlement.refundDue)} strong /> : null}
-      </Card>
+      <SectionCard title="금액" label="금액">
+        <ValueLine label="상품 합계" value={formatWon(settlement.subtotal)} />
+        <ValueLine label={`배송비${settlement.shippingOverride !== null ? ` (${SHIPPING_WORD[settlement.shippingOverride]})` : ''}`} value={formatWon(settlement.shipping)} />
+        <ValueLine label="할인·추가" value={signedWon(empty ? 0 : settlement.adjustments)} />
+        <ValueLine label="최종" value={formatWon(settlement.total)} strong />
+        <View aria-hidden style={{ height: 1, backgroundColor: p.border }} />
+        <ValueLine label="받은 금액" value={formatWon(settlement.received)} />
+        <ValueLine label="남은 금액" value={formatWon(remaining)} strong={remaining > 0} />
+        {settlement.refundDue > 0 ? <ValueLine label="돌려줄 돈" value={formatWon(settlement.refundDue)} strong /> : null}
+        {!data.sealed && primary !== null ? (
+          <View style={{ marginTop: SPACE.xs }}>
+            <BigButton label={INPUT_TITLE[primary]} onPress={() => openInput(primary)} />
+          </View>
+        ) : null}
+      </SectionCard>
 
       {data.sealed ? (
         <Notice tone="info">{SEALED_SETTLEMENT}</Notice>
       ) : (
-        <View style={{ gap: SPACE.sm }} role="group" aria-label="정산 입력">
-          {(['payment', 'shipping', 'adjust', 'refund'] as const).map((kind) => (
-            <BigButton key={kind} kind={kind === primary ? 'primary' : 'outline'} label={INPUT_TITLE[kind]} onPress={() => { setSaved(null); setInput(kind) }} />
+        <SectionCard label="정산 입력" flush>
+          {others.map((kind) => (
+            <MenuRow key={kind} title={INPUT_TITLE[kind]} onPress={() => openInput(kind)} />
           ))}
-        </View>
+        </SectionCard>
       )}
+
+      <SectionCard title="품목" label="품목">
+        {empty ? <Txt step="bodyLarge" weight="book">취소되어 품목이 없어요</Txt> : null}
+        {claims.map((claim) => (
+          <Txt key={claim.id} step="bodyLarge" weight="book">
+            {detailLineWords(claim, data.products.get(claim.product)?.name)}
+            {claim.buyer !== settlement.buyer ? ` · ${names.name(claim.buyer)}` : ''}
+          </Txt>
+        ))}
+      </SectionCard>
 
       <AddressCard date={settlement.date} buyer={settlement.buyer} sealed={data.sealed} version={parcelVersion} />
 
-      <Card label="정산 기록">
-        <Txt step="section" weight="bold">기록</Txt>
+      <SectionCard title="기록" label="정산 기록">
         {settlement.records.length === 0 ? <Txt color="textSub">아직 기록이 없어요.</Txt> : null}
-        {settlement.records.map((record) => (
-          <Txt key={record.seq}>
-            <Txt weight="bold">{recordKindWord(record.kind, record.amount)}</Txt>{' '}
-            {record.kind === 'shipping'
-              ? `${SHIPPING_WORD[(record.mode ?? 'DEFAULT') as ShippingChoice]}${record.mode === 'FIXED' && record.amount !== null ? ` ${formatWon(record.amount)}` : ''}`
-              : record.amount === null
-                ? ''
-                : formatWon(Math.abs(record.amount))}
-            {record.reason !== null ? ` · ${storedMemoWords(record.reason)}` : ''}
-            {record.memo !== null ? ` · ${storedMemoWords(record.memo)}` : ''}
-            {` · 기록한 때 ${kstShort(record.at)}`}
-            {record.buyer !== settlement.buyer ? ` · ${names.name(record.buyer)}` : ''}
-          </Txt>
-        ))}
-      </Card>
+        {settlement.records.map((record) => {
+          const amount = record.kind === 'shipping' ? `${SHIPPING_WORD[(record.mode ?? 'DEFAULT') as ShippingChoice]}${record.mode === 'FIXED' && record.amount !== null ? ` ${formatWon(record.amount)}` : ''}` : record.amount === null ? '' : formatWon(Math.abs(record.amount))
+          const detail = [record.reason !== null ? storedMemoWords(record.reason) : null, record.memo !== null ? storedMemoWords(record.memo) : null, `기록한 때 ${kstShort(record.at)}`, record.buyer !== settlement.buyer ? names.name(record.buyer) : null].filter((part) => part !== null).join(' · ')
+          return (
+            <View key={record.seq} style={{ gap: 2 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: SPACE.sm }}>
+                <Txt step="bodyLarge" weight="book">{recordKindWord(record.kind, record.amount)}</Txt>
+                <Txt step="bodyLarge" weight="book">{amount}</Txt>
+              </View>
+              <Txt step="caption" color="textSub">{detail}</Txt>
+            </View>
+          )
+        })}
+      </SectionCard>
 
       {input !== null ? <InputSheet kind={input} name={name} settlement={settlement} remaining={remaining} onClose={() => setInput(null)} onDone={done} /> : null}
     </View>
   )
 }
 
-function Line({ label, value, strong }: { readonly label: string; readonly value: string; readonly strong?: boolean }) {
+/** 입금 상태 글자 (상태 색, 꼬리표 바탕 없이) */
+function PayWord({ payment, refundDue }: { readonly payment: Settlement['payment']; readonly refundDue: number }) {
+  const { tones } = useKit()
   return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: SPACE.sm }} aria-label={`${label} ${value}`}>
-      <Txt weight={strong === true ? 'bold' : 'regular'}>{label}</Txt>
-      <Txt weight={strong === true ? 'heavy' : 'bold'}>{value}</Txt>
-    </View>
+    <Txt step="body" weight="medium" ink={tones[PAY_TONE[payment]].fg}>
+      {paymentWord(payment, refundDue)}
+    </Txt>
   )
 }
 

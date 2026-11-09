@@ -8,12 +8,14 @@ import { get, isApiError, post, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, Card, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { RADIUS, SPACE, pressedFill } from '../ui/kit/tokens.ts'
+import { AppHeader, BigButton, ButtonRow, Icon, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { CARD_GAP, PAGE_SIDE, SectionCard } from './order-parts.tsx'
 
 export const BUYER_INFO_TITLE = '손님 정보 문자'
-export const BUYER_INFO_HINT = '방송 뒤 손님이 보낸 닉네임·성함·주소 문자예요. 맞는 손님에게는 바로 넣었고, 모르는 것만 손님을 골라 주세요. 넣은 배송지는 정산에서 확인해야 접수돼요.'
+// 설명은 짧게 (D-UX3-93): 화면 제목과 겹치는 첫 문장("방송 뒤 손님이 보낸 … 문자예요")을 뺐다. 배송지 확인 안내는 남긴다(빠뜨리면 접수가 안 된다)
+export const BUYER_INFO_HINT = '맞는 손님에게는 바로 넣었고, 모르는 것만 손님을 골라 주세요. 넣은 배송지는 정산에서 확인해야 접수돼요.'
 export const NO_BUYER_INFO = '받은 손님 정보 문자가 없어요.'
 
 export interface BuyerChoice {
@@ -87,7 +89,10 @@ export function useBuyerInfoList(): {
   return { list, error, reload }
 }
 
-/** 정산 탭 위 줄: 확인할 문자가 있으면 "확인해 주세요", 바로 넣은 것만 있으면 "넣었어요". 없으면 그리지 않는다 */
+/**
+ * 정산 탭 위 줄: 확인할 문자가 있으면 "확인해 주세요", 바로 넣은 것만 있으면 "넣었어요". 없으면 그리지 않는다.
+ * 흰 카드 한 줄 (D-UX3-93 — 옛 주황 테두리 상자): 확인할 것이 있으면 주황 숫자 배지, 오른쪽 ›
+ */
 export function BuyerInfoBanner({ onOpen }: { readonly onOpen: () => void }) {
   const { p } = useKit()
   const { list } = useBuyerInfoList()
@@ -100,28 +105,15 @@ export function BuyerInfoBanner({ onOpen }: { readonly onOpen: () => void }) {
       aria-label={words}
       onPress={onOpen}
       testID="buyer-info-banner"
-      style={({ pressed }) => {
-        const base = open > 0 ? p.warnBg : p.surface
-        return {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: SPACE.sm,
-          padding: SPACE.md,
-          borderRadius: RADIUS.lg, borderCurve: 'continuous',
-          backgroundColor: pressed ? pressedFill(p, base) : base,
-          borderWidth: 1,
-          borderColor: open > 0 ? p.warnText : p.line,
-        }
-      }}
+      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min + SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surface })}
     >
+      {open > 0 ? <View aria-hidden style={{ width: 8, height: 8, borderRadius: 4, borderCurve: 'continuous', backgroundColor: p.warnText }} /> : null}
       <View style={{ flex: 1 }}>
-        <Txt weight="bold" color={open > 0 ? 'warnText' : 'text'}>
+        <Txt step="bodyLarge" weight="book" color={open > 0 ? 'warnText' : 'text'}>
           {words}
         </Txt>
       </View>
-      <Txt weight="bold" color="primaryText">
-        보기
-      </Txt>
+      <Icon name="chevron" color={p.textSub} size={18} />
     </Pressable>
   )
 }
@@ -136,13 +128,14 @@ export function BuyerInfoScreen({ onBack }: { readonly onBack: () => void }) {
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
-          padding: SPACE.md,
+          paddingHorizontal: PAGE_SIDE,
+          paddingTop: SPACE.sm,
           paddingBottom: SPACE.xxxl + room,
-          gap: SPACE.md,
+          gap: CARD_GAP,
         }}
         keyboardShouldPersistTaps="handled"
       >
-        <Txt color="textSub">{BUYER_INFO_HINT}</Txt>
+        <Txt step="meta" color="textSub">{BUYER_INFO_HINT}</Txt>
         {error !== null && list === null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>
@@ -152,7 +145,11 @@ export function BuyerInfoScreen({ onBack }: { readonly onBack: () => void }) {
           </View>
         ) : null}
         {list === null && error === null ? <Loading /> : null}
-        {list !== null && list.cards.length === 0 ? <Txt color="textSub">{NO_BUYER_INFO}</Txt> : null}
+        {list !== null && list.cards.length === 0 ? (
+          <View style={{ paddingVertical: SPACE.xxxl }}>
+            <Txt color="textSub" center>{NO_BUYER_INFO}</Txt>
+          </View>
+        ) : null}
         {list?.cards.map((card) => (
           <BuyerInfoItem key={card.id} card={card} buyers={list.buyers} onDone={reload} />
         ))}
@@ -180,36 +177,24 @@ function BuyerInfoItem({ card, buyers, onDone }: { readonly card: BuyerInfoCard;
   }
   const from = card.last4 === null ? '이름만 온 문자' : `끝 ${card.last4}`
   return (
-    <Card testID={`buyer-info-${card.id}`}>
-      <View style={{ gap: SPACE.sm }}>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: SPACE.sm,
-            flexWrap: 'wrap',
-          }}
-        >
+    <SectionCard testID={`buyer-info-${card.id}`}>
+      <View style={{ gap: SPACE.md }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.sm, flexWrap: 'wrap' }}>
           <Tag tone={card.status === 'OPEN' ? 'warning' : 'success'}>{card.status === 'OPEN' ? '확인해 주세요' : '넣었어요'}</Tag>
-          <Txt color="textSub">
+          <Txt step="caption" color="textSub">
             {kstShort(card.receivedAt)} · {from}
           </Txt>
         </View>
-        <View
-          style={{
-            padding: SPACE.md,
-            borderRadius: RADIUS.md, borderCurve: 'continuous',
-            backgroundColor: p.surfaceAlt,
-          }}
-        >
-          <Txt>{card.text}</Txt>
+        {/* 손님이 보낸 문자 그대로 (말풍선처럼 옅은 바탕) */}
+        <View style={{ paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+          <Txt step="bodyLarge" weight="book">{card.text}</Txt>
         </View>
         {card.applied !== null ? (
-          <Txt weight="bold">
+          <Txt step="bodyLarge" weight="medium">
             {card.applied.label} 손님 ({dateWords(card.applied.date)})
           </Txt>
         ) : null}
-        <Txt color={card.status === 'OPEN' ? 'warnText' : 'textSub'}>{card.message}</Txt>
+        <Txt step="meta" color={card.status === 'OPEN' ? 'warnText' : 'textSub'}>{card.message}</Txt>
         {error !== null ? (
           <Notice tone="danger" alert>
             {error}
@@ -217,18 +202,14 @@ function BuyerInfoItem({ card, buyers, onDone }: { readonly card: BuyerInfoCard;
         ) : null}
         {card.status === 'APPLIED' ? <BigButton kind="outline" label="닫기" busy={busy} onPress={() => void dismiss()} /> : null}
         {card.status === 'OPEN' && !editing ? (
-          <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-            <View style={{ flex: 1 }}>
-              <BigButton kind="outline" label="무시" busy={busy} onPress={() => void dismiss()} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <BigButton label="손님 고르기" onPress={() => setEditing(true)} />
-            </View>
-          </View>
+          <ButtonRow>
+            <BigButton kind="outline" label="무시" busy={busy} onPress={() => void dismiss()} />
+            <BigButton label="손님 고르기" onPress={() => setEditing(true)} />
+          </ButtonRow>
         ) : null}
         {card.status === 'OPEN' && editing ? <ApplyForm card={card} buyers={buyers} onCancel={() => setEditing(false)} onDone={onDone} /> : null}
       </View>
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -283,8 +264,8 @@ function ApplyForm({ card, buyers, onCancel, onDone }: { readonly card: BuyerInf
     }
   }
   return (
-    <View style={{ gap: SPACE.sm }}>
-      <Txt weight="bold">어느 손님인가요?</Txt>
+    <View style={{ gap: SPACE.md, marginTop: SPACE.xs }}>
+      <Txt step="bodyLarge" weight="bold">어느 손님인가요?</Txt>
       {buyers.length > 8 || card.candidates.length === 0 ? <TextField label="손님 찾기" value={search} onChangeText={setSearch} placeholder="닉네임으로 찾기" /> : null}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
         {shown.map((choice) => (
@@ -297,7 +278,7 @@ function ApplyForm({ card, buyers, onCancel, onDone }: { readonly card: BuyerInf
           />
         ))}
       </View>
-      {shown.length === 0 ? <Txt color="textSub">찾는 손님이 없어요. 7일 안 방송에서 산 손님만 골라요.</Txt> : null}
+      {shown.length === 0 ? <Txt step="meta" color="textSub">찾는 손님이 없어요. 7일 안 방송에서 산 손님만 골라요.</Txt> : null}
       <TextField label="받는 분" value={name} onChangeText={setName} error={problems.name ?? null} />
       <TextField label="연락처" value={phone} onChangeText={setPhone} keyboardType="phone-pad" error={problems.phone ?? null} />
       <TextField label="주소" value={address} onChangeText={setAddress} error={problems.address ?? null} />
@@ -307,14 +288,10 @@ function ApplyForm({ card, buyers, onCancel, onDone }: { readonly card: BuyerInf
           {error}
         </Notice>
       ) : null}
-      <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-        <View style={{ flex: 1 }}>
-          <BigButton kind="outline" label="취소" onPress={onCancel} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <BigButton label="넣기" busy={busy} disabled={picked === null} onPress={() => void apply()} />
-        </View>
-      </View>
+      <ButtonRow>
+        <BigButton kind="outline" label="취소" onPress={onCancel} />
+        <BigButton label="넣기" busy={busy} disabled={picked === null} onPress={() => void apply()} />
+      </ButtonRow>
     </View>
   )
 }

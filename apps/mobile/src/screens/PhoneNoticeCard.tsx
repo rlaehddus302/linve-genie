@@ -12,7 +12,8 @@ import { apiConfig } from '../api/config.ts'
 import { get, isApiError, post } from '../api/client.ts'
 import { noticeModule, type PhoneNoticeState } from '../native/notice.ts'
 import { SERVICE_NAME } from '../lib/words.ts'
-import { BigButton, Body, Card, Hint, Notice, Row, SectionTitle, Tag } from '../ui/parts.tsx'
+import { BigButton, Body, Card, Hint, Notice, Row, Tag } from '../ui/parts.tsx'
+import { SettingsGroup } from './settings/Group.tsx'
 import { SmsLinkRow } from './SmsLinkRow.tsx'
 
 export const PHONE_NOTICE_TITLE = '휴대폰 알림 받기'
@@ -102,10 +103,9 @@ export function PhoneNoticeCard() {
 
   if (port === null) {
     return (
-      <Card label={PHONE_NOTICE_TITLE}>
-        <SectionTitle>{PHONE_NOTICE_TITLE}</SectionTitle>
+      <SettingsGroup title={PHONE_NOTICE_TITLE}>
         <Hint>{PHONE_NOTICE_UNAVAILABLE}</Hint>
-      </Card>
+      </SettingsGroup>
     )
   }
 
@@ -170,14 +170,17 @@ export function PhoneNoticeCard() {
   const droppedLine = state === null ? null : phoneNoticeDroppedLine(state)
 
   return (
-    <Card label={PHONE_NOTICE_TITLE}>
-      <SectionTitle>{PHONE_NOTICE_TITLE}</SectionTitle>
+    // 설정 화면의 다른 묶음과 같은 흰 카드 · 작은 회색 이름 (D-UX3-96)
+    <SettingsGroup title={PHONE_NOTICE_TITLE}>
       <Body>{PHONE_NOTICE_INTRO}</Body>
       {sheet ? (
         <Card label="알림 읽기 안내">
           <Body bold>{PHONE_NOTICE_SHEET}</Body>
-          <BigButton primary label={PHONE_NOTICE_GO} disabled={busy} onPress={() => void openAccess()} />
-          <BigButton small label="나중에 할게요" onPress={() => setSheet(false)} />
+          {/* 단추 둘은 좌우로 — 부정 왼쪽, 긍정 오른쪽 (D-UX4-01, D-UX3-96) */}
+          <Row>
+            <BigButton small label="나중에 할게요" onPress={() => setSheet(false)} />
+            <BigButton primary label={PHONE_NOTICE_GO} disabled={busy} onPress={() => void openAccess()} />
+          </Row>
         </Card>
       ) : null}
       {state === null ? (
@@ -208,8 +211,10 @@ export function PhoneNoticeCard() {
       {ask ? (
         <Card label={PHONE_NOTICE_RENEW_TITLE}>
           <Body bold>{PHONE_NOTICE_RENEW_QUESTION}</Body>
-          <BigButton primary label="이 휴대폰으로 받기" disabled={busy} onPress={() => void connect()} />
-          <BigButton small label="그대로 두기" onPress={() => setAsk(false)} />
+          <Row>
+            <BigButton small label="그대로 두기" onPress={() => setAsk(false)} />
+            <BigButton primary label="이 휴대폰으로 받기" disabled={busy} onPress={() => void connect()} />
+          </Row>
         </Card>
       ) : null}
       {state !== null ? on ? <BigButton label="알림 받기 끄기" disabled={busy} onPress={() => void turnOff()} /> : <BigButton primary label="켜기" disabled={busy} onPress={turnOn} /> : null}
@@ -229,6 +234,6 @@ export function PhoneNoticeCard() {
           {problem}
         </Notice>
       ) : null}
-    </Card>
+    </SettingsGroup>
   )
 }

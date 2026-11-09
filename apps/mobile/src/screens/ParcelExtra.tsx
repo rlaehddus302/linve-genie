@@ -1,8 +1,9 @@
 // 직접 넣은 택배 (D-UX3-38 — 웹 ParcelExtra와 같은 규칙·문구): 방송 판매 기록 없이 받는 분·물품 수를 적어 그 날짜 접수 목록에 넣는다.
 // 택배 화면 위 칸 [받는 분 넣기] → 아래 창(여섯 칸 + 물품 수) → 저장. 직접 넣은 줄은 "물품 N개 · 직접 넣음"과 [지우기](왼쪽)·[고치기](오른쪽).
 // 쓰기는 같은 내용이면 같은 요청 번호(끊기면 같은 번호로 다시). 받는 분 이름·주소는 글자로만 그린다.
+// 토스식 다듬기 (D-UX3-94): 위 칸은 회색 묶음 이름 + 줄 하나([받는 분 넣기] · 날짜 · ›, 긴 안내 글 뺌), 줄 단추는 작은 회색 단추.
 import { useRef, useState } from 'react'
-import { View } from 'react-native'
+import { Pressable, View } from 'react-native'
 import type { AddressFields, BundleView, ParcelRow } from '@livejjim/web/src/api/parcel-types.ts'
 import {
   ADDRESS_KEYS,
@@ -14,7 +15,6 @@ import {
   EXTRA_DELETED,
   EXTRA_EDIT,
   EXTRA_EDITED,
-  EXTRA_HOW,
   EXTRA_QTY_LABEL,
   EXTRA_SAVED,
   EXTRA_TITLE,
@@ -23,9 +23,10 @@ import {
   extraFacts,
 } from '@livejjim/web/src/lib/parcel-words.ts'
 import { get, isApiError, newRequestId, post, put, withQuery, withRetry, type ApiError } from '../api/client.ts'
-import { BigButton, BottomSheet, ButtonRow, Card, ConfirmSheet, TextField, Txt } from '../ui/kit/index.ts'
-import { SPACE } from '../ui/kit/tokens.ts'
-import { Notice, Tag } from '../ui/parts.tsx'
+import { BigButton, BottomSheet, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { Notice } from '../ui/parts.tsx'
+import { RowAction, RowActions } from './ParcelAddress.tsx'
 
 export interface ExtraDraft extends AddressFields {
   readonly qty: string
@@ -122,20 +123,31 @@ export function ExtraCard({ date, onSaved }: { readonly date: string; readonly o
     setDone(EXTRA_SAVED)
     onSaved(date)
   }
+  const { p } = useKit()
   return (
     <Card label={EXTRA_TITLE}>
-      <Txt step="section" weight="bold">{EXTRA_TITLE}</Txt>
-      <Txt>{EXTRA_HOW}</Txt>
-      <Txt step="caption" color="textSub">{extraDateNote(date)}</Txt>
-      <BigButton
-        kind="outline"
-        label={EXTRA_ADD}
+      <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>
+        {EXTRA_TITLE}
+      </Txt>
+      <Pressable
+        role="button"
+        aria-label={EXTRA_ADD}
         onPress={() => {
           setDone(null)
           command.clearError()
           setOpen(true)
         }}
-      />
+        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, marginHorizontal: -SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}
+      >
+        <View aria-hidden style={{ width: 34, height: 34, borderRadius: 17, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="plus" color={p.textSub} size={18} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Txt step="bodyLarge" weight="book">{EXTRA_ADD}</Txt>
+          <Txt step="caption" color="textSub">{extraDateNote(date)}</Txt>
+        </View>
+        <Icon name="chevron" color={p.textSub} size={18} />
+      </Pressable>
       {done !== null ? <Notice tone="success">{done}</Notice> : null}
       {command.error !== null && !open ? <Notice tone="danger" alert>{command.error.message}</Notice> : null}
       {open ? (
@@ -158,9 +170,9 @@ export function ExtraCard({ date, onSaved }: { readonly date: string; readonly o
 /** 직접 넣은 줄의 사실 한 줄 */
 export function ExtraFacts({ row }: { readonly row: ParcelRow }) {
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, alignItems: 'center' }}>
-      <Tag tone="info">{extraFacts(row.qty)}</Tag>
-    </View>
+    <Txt step="caption" color="textSub">
+      {extraFacts(row.qty)}
+    </Txt>
   )
 }
 
@@ -201,9 +213,8 @@ export function ExtraRowActions({ date, row, disabled, onChanged }: { readonly d
   }
   return (
     <View style={{ gap: SPACE.xs }}>
-      <ButtonRow>
-        <BigButton
-          kind="outline"
+      <RowActions>
+        <RowAction
           label={EXTRA_DELETE}
           ariaLabel={`${row.name} ${EXTRA_DELETE}`}
           disabled={disabled || command.busy}
@@ -213,8 +224,8 @@ export function ExtraRowActions({ date, row, disabled, onChanged }: { readonly d
             setAsk('delete')
           }}
         />
-        <BigButton kind="secondary" label={EXTRA_EDIT} ariaLabel={`${row.name} ${EXTRA_EDIT}`} disabled={disabled || command.busy} onPress={() => void edit()} />
-      </ButtonRow>
+        <RowAction label={EXTRA_EDIT} ariaLabel={`${row.name} ${EXTRA_EDIT}`} disabled={disabled || command.busy} onPress={() => void edit()} />
+      </RowActions>
       {done !== null ? <Notice tone="success">{done}</Notice> : null}
       {loadError !== null ? <Notice tone="danger" alert>{loadError}</Notice> : null}
       {command.error !== null && ask === null ? <Notice tone="danger" alert>{command.error.message}</Notice> : null}

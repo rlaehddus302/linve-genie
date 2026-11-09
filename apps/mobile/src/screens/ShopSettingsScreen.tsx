@@ -3,6 +3,9 @@
 // 켜고 끄는 칸(AI 제안)은 누르면 바로. 백업 상태와 전체 기록 내려받기(공유 시트). 구글·인스타그램·틱톡·밴드 연결,
 // 자동 게시 동의, 간편 로그인처럼 바깥 로그인 창을 거치는 것은 기기 브라우저로 연다(그쪽 로그인 창이 앱 안에서 열리지 않는다).
 // 저장하지 않은 값이 있으면 나가기 전에 묻는다. 칸 검사는 서버가 하고 그 문장을 칸 아래에 보인다.
+// 모양 (D-UX3-96, 토스 설정처럼): 묶음마다 흰 카드 하나 — 카드 안 맨 위에 작은 회색 이름. "상세 설정 열기"·"영상 댓글 끄기" 같은 곁길은
+// 큰 회색 단추 대신 글자 줄·글자 단추로, 안내 상자는 꼭 알아야 하는 것(주의·잘못)만 남기고 나머지는 한 줄 회색 글로.
+// 구매 감사 채팅(thanks.liveChat)은 판매자가 켜기 전까지 꺼져 있다(D-YT-SRV-23) — 안내 글도 "켜면 올려요"로.
 import { useCallback, useEffect, useState } from 'react'
 import { KeyboardAvoidingView, ScrollView, View } from 'react-native'
 import type { SaleSettings } from '@livejjim/core/settings'
@@ -16,12 +19,12 @@ import { DETAIL_SETTINGS_NOTE, ONGOING_NOTICE, RULES_DETAIL, SHIPPING_HINT, THAN
 import { ACCOUNT_INCOMPLETE, NO_ACCOUNT_ON_RECEIPT, SHOP_FIELDS, accountPreview } from '@livejjim/web/src/lib/shop-words.ts'
 import { get, isApiError, patch, put, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { AppHeader, BigButton, Card, ConfirmSheet, KEYBOARD_AVOID, Section, ToggleRow, TextField, Txt, useBottomInset, useKeyboardShown, useKit, useTopInset } from '../ui/kit/index.ts'
-import { SPACE } from '../ui/kit/tokens.ts'
+import { AppHeader, BigButton, ConfirmSheet, KEYBOARD_AVOID, ToggleRow, TextField, Txt, useBottomInset, useKeyboardShown, useKit, useTopInset } from '../ui/kit/index.ts'
+import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
-import { BOT_THANKS_NOTE } from '@livejjim/web/src/lib/youtube.ts'
 import { AssistCard, BackupCard, ConnectionsCard, ExportCard, useBotThanks } from './settings/ShopExtras.tsx'
+import { DetailToggle, FieldLabel, GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
 
 const RULE_FIELDS = [...fieldsAt('basic'), ...fieldsAt('more')]
 const BASIC_FIELDS = fieldsAt('basic')
@@ -30,12 +33,15 @@ const SHIPPING_FIELDS = fieldsAt('shipping')
 const THANKS_FIELDS = fieldsAt('thanks').filter((field) => field.key !== 'thanks.videoComment')
 const ALL_FIELDS = [...RULE_FIELDS, ...SHIPPING_FIELDS, ...fieldsAt('thanks')]
 
-export const CUSTOMER_SETTINGS_HINT = '손님 기록의 "단골"·"입금 늦음 주의" 기준이에요. 판매 규칙·판정에는 영향이 없어요.'
 export const REGULAR_AMOUNT_HINT = '비우면 금액 기준을 쓰지 않아요.'
 export const CUSTOMER_RULE_HINT = '단골 = 이 횟수 이상 샀거나 이 금액 이상 산 손님. 입금 늦음 주의 = 미입금이 한 번이라도 있는 손님.'
 export const WAIT_DAYS_HINT = '방송 날짜에서 이 날 수가 지나도 입금이 없으면 미입금으로 세요.'
 export const VIDEO_COMMENT_ON = '예전에 켠 영상 댓글이 켜져 있어요.'
 export const LEAVE_UNSAVED = '저장하지 않은 칸이 있어요'
+/** 봇 판매자의 감사 칸 안내 (D-YT-SEND-18 → D-YT-SRV-23: 감사 채팅은 처음에 꺼져 있다 — 웹 BOT_THANKS_NOTE의 "끄면 올리지 않아요"는 켜져 있다는 뜻으로 읽혀 앱은 이 글을 쓴다) */
+export const BOT_THANKS_OFF_FIRST = '위 칸을 켜면 찜이 확정될 때 라이브지니가 방송 채팅에 감사 메시지를 대신 올려요. 켜기 전까지는 올리지 않아요. 구글 연결은 필요 없어요.'
+/** 봇이 아닌 판매자의 감사 칸 안내 */
+export const THANKS_CONSENT_NOTE = '유튜브 채팅·댓글 자동 게시 동의는 아래 "연결"에서 웹으로 열어요.'
 
 interface CustomerDraft {
   readonly regularCount: string
@@ -236,11 +242,10 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
       <AppHeader title="가게 설정" onBack={back} />
       {/* 키보드가 뜨면 내용과 저장 단추가 키보드 위로 올라온다 (D-UX3-67) */}
       <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={top} style={{ flex: 1 }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.xxxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SETTINGS_GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
         {ongoing ? <Notice tone="warning">{ONGOING_NOTICE}</Notice> : null}
 
-        <Section title="가게">
-          <Card>
+        <SettingsGroup title="가게">
             {loading(shop)}
             {shopDraft !== null
               ? SHOP_FIELDS.map((field) => (
@@ -259,8 +264,8 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
                 ))
               : null}
             {preview !== null ? (
-              <View style={{ gap: SPACE.xs }}>
-                <Txt weight="bold">확인서에 나올 모양</Txt>
+              <View style={{ gap: SPACE.xs, padding: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+                <Txt step="caption" color="textSub">확인서에 나올 모양</Txt>
                 {preview === 'none' ? <Txt color="textSub">{NO_ACCOUNT_ON_RECEIPT}</Txt> : null}
                 {preview === 'partial' ? <Notice tone="warning">{ACCOUNT_INCOMPLETE}</Notice> : null}
                 {typeof preview === 'object' ? (
@@ -272,52 +277,47 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
               </View>
             ) : null}
             {errors['가게'] !== undefined && errors['가게'].problems.length === 0 ? <Notice tone="danger" alert>{errors['가게'].message}</Notice> : null}
-          </Card>
-        </Section>
+        </SettingsGroup>
 
-        <Section title="판매 규칙">
-          <Card>
+        <SettingsGroup title="판매 규칙">
             {loading(settings)}
             {BASIC_FIELDS.map(ruleField)}
-            <BigButton kind="outline" label={`${RULES_DETAIL} ${moreRules ? '닫기' : '열기'}`} onPress={() => setMoreRules((on) => !on)} />
+            <DetailToggle label={RULES_DETAIL} open={moreRules} onPress={() => setMoreRules((on) => !on)} />
             {moreRules ? (
               <>
-                <Txt step="caption" color="textSub">{DETAIL_SETTINGS_NOTE}</Txt>
+                <GroupNote>{DETAIL_SETTINGS_NOTE}</GroupNote>
                 {MORE_FIELDS.map(ruleField)}
               </>
             ) : null}
             {outsideRules}
-          </Card>
-        </Section>
+        </SettingsGroup>
 
-        <Section title="배송비">
-          <Card>
-            <Txt step="caption" color="textSub">{SHIPPING_HINT}</Txt>
+        <SettingsGroup title="배송비">
             {SHIPPING_FIELDS.map(ruleField)}
-          </Card>
-        </Section>
+            <GroupNote>{SHIPPING_HINT}</GroupNote>
+        </SettingsGroup>
 
-        <Section title="구매 감사 메시지">
-          <Card>
+        <SettingsGroup title="구매 감사 메시지">
             {THANKS_FIELDS.filter((field) => field.key === 'thanks.liveChat').map(ruleField)}
             {saved !== null && saved['thanks.videoComment'] !== 'OFF' && rules !== null ? (
-              <View style={{ gap: SPACE.xs }}>
-                <Txt>{rules['thanks.videoComment'] === 'OFF' ? '저장하면 영상 댓글을 남기지 않아요.' : VIDEO_COMMENT_ON}</Txt>
+              // 옛 영상 댓글: 글 한 줄 + 오른쪽 글자 단추 (D-UX3-96 — 옛 큰 회색 단추)
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Txt>{rules['thanks.videoComment'] === 'OFF' ? '저장하면 영상 댓글을 남기지 않아요.' : VIDEO_COMMENT_ON}</Txt>
+                </View>
                 {rules['thanks.videoComment'] === 'OFF' ? (
-                  <BigButton kind="outline" label="되돌리기" onPress={() => setRules((current) => (current === null ? current : { ...current, 'thanks.videoComment': String(saved['thanks.videoComment']) }))} />
+                  <TextButton label="되돌리기" onPress={() => setRules((current) => (current === null ? current : { ...current, 'thanks.videoComment': String(saved['thanks.videoComment']) }))} />
                 ) : (
-                  <BigButton kind="outline" label="영상 댓글 끄기" onPress={() => setRules((current) => (current === null ? current : { ...current, 'thanks.videoComment': 'OFF' }))} />
+                  <TextButton label="영상 댓글 끄기" onPress={() => setRules((current) => (current === null ? current : { ...current, 'thanks.videoComment': 'OFF' }))} />
                 )}
               </View>
             ) : null}
-            <BigButton kind="outline" label={`${THANKS_DETAIL} ${moreThanks ? '닫기' : '열기'}`} onPress={() => setMoreThanks((on) => !on)} />
+            <GroupNote>{botThanks ? BOT_THANKS_OFF_FIRST : THANKS_CONSENT_NOTE}</GroupNote>
+            <DetailToggle label={THANKS_DETAIL} open={moreThanks} onPress={() => setMoreThanks((on) => !on)} />
             {moreThanks ? THANKS_FIELDS.filter((field) => field.key !== 'thanks.liveChat').map(ruleField) : null}
-            <Txt step="caption" color="textSub">{botThanks ? BOT_THANKS_NOTE : '유튜브 채팅·댓글 자동 게시 동의는 아래 "연결"에서 웹으로 열어요.'}</Txt>
-          </Card>
-        </Section>
+        </SettingsGroup>
 
-        <Section title="택배">
-          <Card>
+        <SettingsGroup title="택배">
             {loading(parcel)}
             {parcel.value !== null && parcelDraft !== null ? (
               <ParcelFields
@@ -330,13 +330,10 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
                 }}
               />
             ) : null}
-          </Card>
-        </Section>
+        </SettingsGroup>
 
-        <Section title="손님 관리">
-          <Card>
-            <Txt step="caption" color="textSub">{CUSTOMER_SETTINGS_HINT}</Txt>
-            <Txt step="caption" color="textSub">{CUSTOMER_RULE_HINT}</Txt>
+        <SettingsGroup title="손님 관리">
+            <GroupNote>{CUSTOMER_RULE_HINT}</GroupNote>
             {loading(customer)}
             {customerDraft !== null
               ? (
@@ -362,21 +359,20 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
               : null}
             {ledgerDraft !== null ? (
               <View style={{ gap: SPACE.sm }}>
-                <Txt weight="bold">{LEDGER_MONTHS_LABEL}</Txt>
+                <FieldLabel>{LEDGER_MONTHS_LABEL}</FieldLabel>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
                   {LEDGER_MONTHS.map((months) => (
                     <Pill key={months} on={ledgerDraft.months === months} label={LEDGER_MONTH_WORDS[months]} ariaLabel={`${LEDGER_MONTHS_LABEL} ${LEDGER_MONTH_WORDS[months]}`} onPress={() => setLedgerDraft({ ...ledgerDraft, months })} />
                   ))}
                 </View>
-                <Txt step="caption" color="textSub">{LEDGER_MONTHS_HELP}</Txt>
+                <GroupNote>{LEDGER_MONTHS_HELP}</GroupNote>
                 <ToggleRow title={CONSOLE_BADGES_LABEL} subtitle={CONSOLE_BADGES_HELP} on={ledgerDraft.consoleBadges === true} onChange={(on) => setLedgerDraft({ ...ledgerDraft, consoleBadges: on })} />
                 {ledgerDraft.consoleBadges === null ? <Notice tone="warning">{CONSOLE_BADGES_UNDECIDED}</Notice> : null}
-                <Txt step="caption" color="textSub">{CONSOLE_BADGES_DETAIL}</Txt>
+                <GroupNote>{CONSOLE_BADGES_DETAIL}</GroupNote>
                 {errors.ledger !== undefined ? <Notice tone="danger" alert>{errors.ledger.message}</Notice> : null}
               </View>
             ) : null}
-          </Card>
-        </Section>
+        </SettingsGroup>
 
         <AssistCard />
         <ConnectionsCard />
@@ -384,8 +380,8 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
         <ExportCard />
       </ScrollView>
 
-      <View style={{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.sm : Math.max(inset, SPACE.sm), gap: SPACE.xs, borderTopWidth: 1, borderTopColor: p.line, backgroundColor: p.surface }}>
-        {result !== null ? <Notice tone={result.tone} alert={result.tone === 'danger'}>{result.text}</Notice> : <Txt step="caption" color="textSub">{dirtyLine(dirty)}</Txt>}
+      <View style={{ paddingHorizontal: SETTINGS_GUTTER, paddingTop: SPACE.md, paddingBottom: keyboard ? SPACE.sm : Math.max(inset, SPACE.sm), gap: SPACE.sm, borderTopWidth: 1, borderTopColor: p.line, backgroundColor: p.surface }}>
+        {result !== null ? <Notice tone={result.tone} alert={result.tone === 'danger'}>{result.text}</Notice> : <Txt step="caption" color="textSub" center>{dirtyLine(dirty)}</Txt>}
         <BigButton label={SAVE_LABEL} busy={busy} disabled={dirty.length === 0} onPress={() => void saveAll()} />
       </View>
       </KeyboardAvoidingView>
@@ -422,12 +418,12 @@ function RuleField({ field, value, saved, problem, onChange }: { readonly field:
   if (field.kind === 'choice') {
     return (
       <View style={{ gap: SPACE.xs }} role="radiogroup" aria-label={field.label}>
-        <Txt weight="bold">{field.label}</Txt>
-        {field.leadChat !== undefined ? <Txt step="caption" color="textSub">{`${field.leadChat.author}  ${field.leadChat.text}`}</Txt> : null}
+        <FieldLabel>{field.label}</FieldLabel>
+        {field.leadChat !== undefined ? <GroupNote>{`${field.leadChat.author}  ${field.leadChat.text}`}</GroupNote> : null}
         {field.options.map((option) => (
           <Pill key={option.value} on={value === option.value} label={option.word} ariaLabel={`${field.label} ${option.word}`} onPress={() => onChange(option.value)} />
         ))}
-        {field.hint !== undefined ? <Txt step="caption" color="textSub">{field.hint}</Txt> : null}
+        {field.hint !== undefined ? <GroupNote>{field.hint}</GroupNote> : null}
         {note !== null ? <Notice tone="info">{note}</Notice> : null}
         {warning !== null ? <Notice tone="warning">{warning}</Notice> : null}
         {problem !== null ? <Notice tone="danger" alert>{problem}</Notice> : null}
@@ -446,7 +442,7 @@ function ParcelFields({ settings, draft, error, onChange }: { readonly settings:
   const chosen = settings.carriers.find((carrier) => carrier.code === draft.carrier)
   return (
     <View style={{ gap: SPACE.sm }}>
-      <Txt weight="bold">택배사</Txt>
+      <FieldLabel>택배사</FieldLabel>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
         <Pill on={draft.carrier === ''} label="고르지 않음" ariaLabel="택배사 고르지 않음" onPress={() => onChange({ carrier: '' })} />
         {settings.carriers.map((carrier) => (
@@ -455,7 +451,7 @@ function ParcelFields({ settings, draft, error, onChange }: { readonly settings:
       </View>
       {error?.problemFor('carrier') !== undefined ? <Notice tone="danger" alert>{error.problemFor('carrier')?.message}</Notice> : null}
       {draft.carrier === OTHER_CARRIER ? <TextField label={CARRIER_NAME_LABEL} value={draft.carrierName} maxLength={CARRIER_NAME_MAX * 2} onChangeText={(carrierName) => onChange({ carrierName })} error={error?.problemFor('carrierName')?.message ?? null} /> : null}
-      {chosen === undefined || !chosen.autoBook ? <Notice tone="info">{NO_AUTO_BOOK_NOTE}</Notice> : null}
+      {chosen === undefined || !chosen.autoBook ? <GroupNote>{NO_AUTO_BOOK_NOTE}</GroupNote> : null}
       {draft.carrier === EPOST_CARRIER && chosen?.autoBook === true ? <Notice tone="info">{settings.epostReady === true ? EPOST_PRINT_NOTE : EPOST_GUIDE}</Notice> : null}
       <TextField
         label={draft.carrier === EPOST_CARRIER ? EPOST_CUSTOMER_LABEL : '택배사 고객 번호'}
@@ -481,7 +477,8 @@ function ParcelFields({ settings, draft, error, onChange }: { readonly settings:
           error={error?.problemFor('epostPassword')?.message ?? null}
         />
       ) : null}
-      <Txt weight="bold">보내는 사람</Txt>
+      <View style={{ height: SPACE.xs }} />
+      <FieldLabel>보내는 사람</FieldLabel>
       {SENDER_KEYS.map((key) => (
         <TextField
           key={key}
@@ -493,14 +490,14 @@ function ParcelFields({ settings, draft, error, onChange }: { readonly settings:
         />
       ))}
       {error?.problemFor('sender') !== undefined ? <Notice tone="danger" alert>{error.problemFor('sender')?.message}</Notice> : null}
-      <Txt weight="bold">{BOX_LABEL}</Txt>
+      <View style={{ height: SPACE.xs }} />
+      <FieldLabel>{BOX_LABEL}</FieldLabel>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
         {settings.boxes.map((box) => (
           <Pill key={box} on={draft.box === box} label={boxWord(box)} ariaLabel={`${BOX_LABEL} ${boxWord(box)}`} onPress={() => onChange({ box })} />
         ))}
       </View>
-      <Txt step="caption" color="textSub">{BOX_HINT}</Txt>
-      <Txt step="caption" color="textSub">택배 화면에서 묶음마다 바꿀 수 있어요.</Txt>
+      <GroupNote>{`${BOX_HINT} 택배 화면에서 묶음마다 바꿀 수 있어요.`}</GroupNote>
       {error !== null && error.problems.length === 0 ? <Notice tone="danger" alert>{error.message}</Notice> : null}
     </View>
   )

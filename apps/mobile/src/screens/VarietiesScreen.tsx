@@ -2,13 +2,15 @@
 // 사장이 키우는 품종 이름 목록. 교배로 직접 지은 이름처럼 어떤 사전에도 없는 것을 여기 적으면 음성이 그 이름을 먼저 맞추고, 받아쓰기에도 미리 알려 준다.
 // - 한 줄 입력 + [더하기] (쉼표·줄바꿈으로 여럿 한 번에), 이름 줄마다 [지우기]. 바뀌면 바로 저장(PUT /api/voice/varieties, 목록 통째로).
 // - "판 적 있는 품종": 서버가 최근 판 상품 이름·배운 별칭에서 고른 것 — 누르면 장부에 더한다.
+// - 모양 (D-UX3-96): 흰 묶음 카드(카드 안 작은 회색 이름), 이름 줄 사이 선은 빼고 오른쪽에 글자 단추 [지우기].
 import { useCallback, useEffect, useState } from 'react'
-import { Pressable, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import { get, isApiError, put } from '../api/client.ts'
-import { AppHeader, BigButton, Card, ErrorLine, TextField, Txt, useKit } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { AppHeader, BigButton, ErrorLine, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { SPACE } from '../ui/kit/tokens.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Row } from '../ui/parts.tsx'
+import { GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
 
 export const VARIETIES_TITLE = '내 품종'
 export const VARIETIES_HELP = '키우는 품종 이름을 적어 두면 방송 때 말한 품종을 더 잘 알아들어요. 직접 지은 이름도 적어 주세요.'
@@ -69,40 +71,39 @@ export function VarietiesScreen({ onBack }: { readonly onBack: () => void }) {
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="varieties-screen">
       <AppHeader title={VARIETIES_TITLE} onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
-        <Txt step="caption" color="textSub">{VARIETIES_HELP}</Txt>
-        <Card title="더하기" label="더하기">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SETTINGS_GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
+        <View style={{ paddingHorizontal: SPACE.xs }}>
+          <GroupNote>{VARIETIES_HELP}</GroupNote>
+        </View>
+        <SettingsGroup label="더하기">
           <TextField label={VARIETIES_INPUT_LABEL} help={VARIETIES_INPUT_HELP} value={text} onChangeText={setText} multiline autoCapitalize="none" autoCorrect={false} onSubmitEditing={() => void add(splitVarietyInput(text))} />
           {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
-          <Row>
-            <BigButton label="더하기" disabled={busy || list === null || splitVarietyInput(text).length === 0} onPress={() => void add(splitVarietyInput(text))} />
-          </Row>
-        </Card>
-        <Card title={`내 품종${list === null ? '' : ` ${String(list.names.length)}개`}`} label="내 품종 목록">
+          <BigButton label="더하기" disabled={busy || list === null || splitVarietyInput(text).length === 0} onPress={() => void add(splitVarietyInput(text))} />
+        </SettingsGroup>
+        <SettingsGroup title={`내 품종${list === null ? '' : ` ${String(list.names.length)}개`}`} label="내 품종 목록">
           {loadError !== null ? (
             <View style={{ gap: SPACE.sm }}>
               <ErrorLine>{loadError}</ErrorLine>
               <Row><BigButton kind="secondary" label="다시 불러오기" onPress={load} /></Row>
             </View>
-          ) : list === null ? <Loading /> : list.names.length === 0 ? <Txt color="textSub">{VARIETIES_EMPTY}</Txt> : (
+          ) : list === null ? <Loading /> : list.names.length === 0 ? <GroupNote>{VARIETIES_EMPTY}</GroupNote> : (
             <View role="list" aria-label="내 품종 목록">
               {list.names.map((name) => (
-                <View key={name} role="listitem" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, borderBottomWidth: 1, borderBottomColor: p.outline }}>
-                  <View style={{ flex: 1 }}><Txt step="bodyLarge">{name}</Txt></View>
-                  <Pressable role="button" aria-label={`${name} 지우기`} disabled={busy} onPress={() => remove(name)} hitSlop={8} style={({ pressed }) => ({ paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-                    <Txt step="caption" color="textSub">지우기</Txt>
-                  </Pressable>
+                <View key={name} role="listitem" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 }}>
+                  <View style={{ flex: 1 }}><Txt step="bodyLarge" weight="book">{name}</Txt></View>
+                  <TextButton label="지우기" ariaLabel={`${name} 지우기`} disabled={busy} onPress={() => remove(name)} />
                 </View>
               ))}
             </View>
           )}
-        </Card>
+        </SettingsGroup>
         {list !== null && list.suggested.length > 0 ? (
-          <Card title={VARIETIES_SUGGEST_TITLE} description={VARIETIES_SUGGEST_HELP} label={VARIETIES_SUGGEST_TITLE}>
+          <SettingsGroup title={VARIETIES_SUGGEST_TITLE} label={VARIETIES_SUGGEST_TITLE}>
             <Row wrap>
               {list.suggested.map((name) => <Pill key={name} on={false} label={name} ariaLabel={`${name} 더하기`} onPress={() => void add([name])} />)}
             </Row>
-          </Card>
+            <GroupNote>{VARIETIES_SUGGEST_HELP}</GroupNote>
+          </SettingsGroup>
         ) : null}
       </ScrollView>
     </View>

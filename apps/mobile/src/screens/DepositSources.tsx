@@ -3,6 +3,7 @@
 // 휴대폰 알림 원천은 켜기/끄기만. 계좌조회(팝빌) 연결: 표시 이름·사업자번호·은행·계좌번호 — 계좌 비밀번호는 받지 않는다.
 // "팝빌에서 계좌 등록·관리"는 서버가 준 https 주소를 기기 브라우저로 연다. 사업자번호·계좌번호는 보낸 뒤 칸을 비운다(서버도 끝 4자리만).
 // 기억한 입금자명 목록과 "지우기"(한 번 더 묻기).
+// 모양 (D-UX3-93, 홈처럼): 흰 카드 안 회색 묶음 이름, 원천마다 [끄기]·[지금 받아 오기]는 좌우로, 팝빌 관리·지우기는 작은 단추, 설명 글은 짧게.
 import { useCallback, useEffect, useState } from 'react'
 import { View } from 'react-native'
 import type { RememberedName, SourceView, SourcesView } from '@livejjim/web/src/api/deposit-types.ts'
@@ -12,9 +13,10 @@ import { del, get, isApiError, patch, post, type ApiError } from '../api/client.
 import { openExternal } from '../lib/open-web.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { BigButton, Card, ConfirmSheet, TextField, Txt } from '../ui/kit/index.ts'
+import { BigButton, ButtonRow, ConfirmSheet, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
-import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { Loading, Notice } from '../ui/parts.tsx'
+import { CARD_GAP, ChipButton, SectionCard } from './order-parts.tsx'
 
 export const POPBILL_NOT_READY = '계좌 연동은 아직 준비 중이에요. 붙여넣기로 넣어 주세요.'
 export const NO_PASSWORD = '계좌 비밀번호는 여기에 적지 않아요. 팝빌 계좌 관리에서 등록해요.'
@@ -49,9 +51,8 @@ export function SourcesTab() {
     void reload()
   }, [reload])
   return (
-    <View style={{ gap: SPACE.md }}>
-      <Card label="입금 받는 곳">
-        <Txt step="section" weight="bold">입금 받는 곳</Txt>
+    <View style={{ gap: CARD_GAP }}>
+      <SectionCard title="입금 받는 곳" label="입금 받는 곳">
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>
@@ -60,21 +61,30 @@ export function SourcesTab() {
         ) : null}
         {view === null && error === null ? <Loading /> : null}
         {view !== null && view.sources.length === 0 ? <Txt color="textSub">아직 입금 받는 곳이 없어요. 붙여넣기로 넣거나 계좌를 연결해 주세요.</Txt> : null}
-        {view?.sources.map((source) => (
-          <SourceItem key={source.id} source={source} onChanged={() => void reload()} />
+        {view?.sources.map((source, index) => (
+          <View key={source.id} style={{ gap: SPACE.md }}>
+            {index > 0 ? <Divider /> : null}
+            <SourceItem source={source} onChanged={() => void reload()} />
+          </View>
         ))}
-      </Card>
-      <Card label="계좌 연결">
-        <Txt step="section" weight="bold">계좌 연결</Txt>
+      </SectionCard>
+      <SectionCard title="계좌 연결" label="계좌 연결">
         {view === null ? null : view.popbill ? <AddPopbill onAdded={() => void reload()} /> : <Notice tone="info">{POPBILL_NOT_READY}</Notice>}
         {view?.testMode === true ? <AddFake onAdded={() => void reload()} /> : null}
-      </Card>
+      </SectionCard>
       <RememberedNames />
     </View>
   )
 }
 
+/** 같은 카드 안 원천 사이 옅은 선 */
+function Divider() {
+  const { p } = useKit()
+  return <View aria-hidden style={{ height: 1, backgroundColor: p.border }} />
+}
+
 function SourceItem({ source, onChanged }: { readonly source: SourceView; readonly onChanged: () => void }) {
+  const { p, tones } = useKit()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const act = async (send: () => Promise<unknown>) => {
@@ -92,34 +102,45 @@ function SourceItem({ source, onChanged }: { readonly source: SourceView; readon
   const kind = SOURCE_KIND_WORD[source.kind] ?? ''
   const phone = source.kind === 'PHONE'
   const path = `/api/deposits/sources/${encodeURIComponent(source.id)}`
+  // 이름 아래 한 줄: 종류 · 은행 계좌 끝 4자리 · 주기 (옛: 이름 옆에 이어 붙인 글들)
+  const about = [source.label.trim() === kind ? null : kind, source.accountLast4 !== null ? `${bankName(source.bank)} 계좌 끝 ${source.accountLast4}` : null, source.fetchable ? intervalWords(source.intervalMin) : null].filter((part) => part !== null && part !== '').join(' · ')
   return (
-    <View style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }} role="group" aria-label={`입금 받는 곳 ${source.label}`}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
-        <Txt weight="bold">{source.label}</Txt>
-        {source.label.trim() === kind ? null : <Txt>{`· ${kind}`}</Txt>}
-        {source.accountLast4 !== null ? <Txt>{`· ${bankName(source.bank)} 계좌 끝 ${source.accountLast4}`}</Txt> : null}
-        {source.fetchable || phone ? <Tag tone={source.enabled ? 'success' : 'info'}>{source.enabled ? '켜짐' : '꺼짐'}</Tag> : null}
-        {source.fetchable ? <Txt step="caption">{intervalWords(source.intervalMin)}</Txt> : null}
+    <View style={{ gap: SPACE.sm }} role="group" aria-label={`입금 받는 곳 ${source.label}`}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Txt step="bodyLarge" weight="medium">{source.label}</Txt>
+          {about === '' ? null : <Txt step="caption" color="textSub">{about}</Txt>}
+        </View>
+        {source.fetchable || phone ? <Txt step="meta" weight="medium" ink={source.enabled ? tones.success.fg : p.textSub}>{source.enabled ? '켜짐' : '꺼짐'}</Txt> : null}
       </View>
       {phone ? <Txt step="caption" color="textSub">{PHONE_SOURCE_HINT}</Txt> : null}
       {!phone && source.fetchable ? (
-        <Txt step="caption">{`${source.lastFetchedAt === null ? '아직 받아 오지 않았어요' : `마지막으로 받아 온 때 ${kstShort(source.lastFetchedAt)}`}${source.lastNew !== null && source.lastFetchedAt !== null ? ` · 새 입금 ${String(source.lastNew)}건` : ''}${source.fetching ? ' · 받아 오는 중' : ''}`}</Txt>
+        <Txt step="caption" color="textSub">{`${source.lastFetchedAt === null ? '아직 받아 오지 않았어요' : `마지막으로 받아 온 때 ${kstShort(source.lastFetchedAt)}`}${source.lastNew !== null && source.lastFetchedAt !== null ? ` · 새 입금 ${String(source.lastNew)}건` : ''}${source.fetching ? ' · 받아 오는 중' : ''}`}</Txt>
       ) : null}
       {!phone && !source.fetchable ? <Txt step="caption" color="textSub">받아 오기가 없어요. "붙여넣기"에서 넣어요.</Txt> : null}
       {source.lastError !== null ? <Notice tone="warning">{`${source.lastError}${source.lastErrorAt !== null ? ` (${kstShort(source.lastErrorAt)})` : ''}`}</Notice> : null}
       {source.fetchable ? (
-        <>
-          <BigButton kind="outline" label="지금 받아 오기" busy={busy} disabled={!source.enabled} onPress={() => void act(() => post(`${path}/fetch`, {}))} />
+        <View style={{ gap: SPACE.xs }}>
           <Txt step="caption" color="textSub">받아 오는 주기</Txt>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
             {INTERVALS.map((minutes) => (
               <Pill key={minutes} on={source.intervalMin === minutes} label={intervalWords(minutes)} ariaLabel={`${source.label} 받아 오는 주기 ${intervalWords(minutes)}`} onPress={() => (busy ? undefined : void act(() => patch(path, { intervalMin: minutes })))} />
             ))}
           </View>
-        </>
+        </View>
       ) : null}
-      {source.fetchable || phone ? <BigButton kind="outline" label={source.enabled ? '끄기' : '켜기'} ariaLabel={`${source.label} ${source.enabled ? '끄기' : '켜기'}`} busy={busy} onPress={() => void act(() => patch(path, { enabled: !source.enabled }))} /> : null}
-      {source.kind === 'POPBILL' ? <BigButton kind="outline" label={MANAGE_WORDS} onPress={() => void openManage({ source: source.id }).then(setError)} /> : null}
+      {/* 좌우로 (D-UX4-01): 끄기·켜기 왼쪽, 지금 받아 오기 오른쪽 */}
+      {source.fetchable || phone ? (
+        <ButtonRow>
+          <BigButton kind="outline" label={source.enabled ? '끄기' : '켜기'} ariaLabel={`${source.label} ${source.enabled ? '끄기' : '켜기'}`} busy={busy} onPress={() => void act(() => patch(path, { enabled: !source.enabled }))} />
+          {source.fetchable ? <BigButton kind="outline" label="지금 받아 오기" busy={busy} disabled={!source.enabled} onPress={() => void act(() => post(`${path}/fetch`, {}))} /> : null}
+        </ButtonRow>
+      ) : null}
+      {source.kind === 'POPBILL' ? (
+        <View style={{ alignSelf: 'flex-start' }}>
+          <ChipButton label={MANAGE_WORDS} onPress={() => void openManage({ source: source.id }).then(setError)} />
+        </View>
+      ) : null}
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
     </View>
   )
@@ -165,7 +186,9 @@ function AddPopbill({ onAdded }: { readonly onAdded: () => void }) {
       {error?.problemFor('bank') !== undefined ? <Notice tone="danger" alert>{error.problemFor('bank')?.message}</Notice> : null}
       <TextField label="계좌번호" value={accountNumber} onChangeText={setAccountNumber} keyboardType="number-pad" autoComplete="off" error={error?.problemFor('accountNumber')?.message ?? null} />
       <BigButton label={busy ? '보내는 중…' : '계좌 연결'} busy={busy} onPress={() => void submit()} />
-      <BigButton kind="outline" label={MANAGE_WORDS} onPress={() => void openManage({ corpNum }).then(setError)} />
+      <View style={{ alignSelf: 'center' }}>
+        <ChipButton label={MANAGE_WORDS} onPress={() => void openManage({ corpNum }).then(setError)} />
+      </View>
       {added !== null ? <Notice tone="success">{added}</Notice> : null}
       {error !== null && error.problems.length === 0 ? <Notice tone="danger" alert>{error.message}</Notice> : null}
     </View>
@@ -190,7 +213,9 @@ function AddFake({ onAdded }: { readonly onAdded: () => void }) {
   return (
     <View style={{ gap: SPACE.sm }}>
       <Txt step="caption" color="textSub">시험 모드 서버예요. 시험용 입금 받는 곳은 실제 계좌가 아니에요.</Txt>
-      <BigButton kind="outline" label="시험용 입금 받는 곳 추가" busy={busy} onPress={() => void add()} />
+      <View style={{ alignSelf: 'flex-start' }}>
+        <ChipButton label="시험용 입금 받는 곳 추가" busy={busy} onPress={() => void add()} />
+      </View>
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
     </View>
   )
@@ -225,17 +250,16 @@ function RememberedNames() {
     }
   }
   return (
-    <Card label="기억한 입금자명">
-      <Txt step="section" weight="bold">기억한 입금자명</Txt>
-      <Txt step="caption" color="textSub">확인 필요에서 확정할 때 기억한 입금자명이에요. 다음에 같은 입금자명·같은 금액이 오면 그 구매자 묶음으로 자동 확인해요.</Txt>
+    <SectionCard title="기억한 입금자명" label="기억한 입금자명">
+      <Txt step="caption" color="textSub">같은 입금자명·같은 금액이 오면 그 손님 묶음으로 자동 확인해요.</Txt>
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {names !== null && names.length === 0 ? <Txt color="textSub">기억한 입금자명이 없어요.</Txt> : null}
       {names?.map((item) => (
         <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
           <View style={{ flex: 1 }}>
-            <Txt>{`${item.name} → ${item.buyerName}`}</Txt>
+            <Txt step="bodyLarge" weight="book">{`${item.name} → ${item.buyerName}`}</Txt>
           </View>
-          <BigButton kind="outline" label="지우기" ariaLabel={`${item.name} 지우기`} onPress={() => setForgetting(item)} />
+          <ChipButton label="지우기" ariaLabel={`${item.name} 지우기`} onPress={() => setForgetting(item)} />
         </View>
       ))}
       <ConfirmSheet
@@ -250,6 +274,6 @@ function RememberedNames() {
           if (forgetting !== null) void forget(forgetting)
         }}
       />
-    </Card>
+    </SectionCard>
   )
 }

@@ -4,6 +4,7 @@
 // - 여러 주문을 한 번에 (D-EP1-19): 받는 분을 채움 → 우체국 [다음](받는 분 목록에 더함) → [받는 분 추가](칸 비움) → 다음 받는 분 … 을 앱이 이어서 한다.
 //   [필수동의] 우편금지물품 확인 체크와 결제·[접수신청]은 판매자가 한다. 신청서가 받지 않으면(알림 문장) 멈추고 문장을 보인다 — [이어서 넣기]로 다시.
 // - 배송지는 우체국 호스트 쪽에만 넣는다. 전에 입력만 하고 끝난 주문이면 먼저 우체국 신청 내역을 보라고 묻는다(두 번 신청하지 않게).
+// - 토스식 다듬기 (D-UX3-94): 위 안내 칸·끝 화면 여백을 다른 탭과 같게(좌우 20), 이름은 보통 굵기 큰 글, 아래 단추 칸은 흰 바탕에 옅은 선(BottomCTA와 같게).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ScrollView, TextInput, View } from 'react-native'
 import type { EpostFillView, ParcelDay, ParcelRow } from '@livejjim/web/src/api/parcel-types.ts'
@@ -330,7 +331,7 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
     return (
       <View style={{ flex: 1, backgroundColor: p.background }} testID="epost-screen">
         <AppHeader title={EPOST_TITLE} onBack={nav.onBack} />
-        <View style={{ padding: SPACE.md, gap: SPACE.sm }}>
+        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, gap: SPACE.md }}>
           <Notice tone="danger" alert>
             {error?.message ?? '우체국 화면을 열지 못했어요.'}
           </Notice>
@@ -353,7 +354,7 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
     return (
       <View style={{ flex: 1, backgroundColor: p.background }} testID="epost-screen">
         <AppHeader title={EPOST_TITLE} onBack={nav.onBack} />
-        <View style={{ padding: SPACE.md, gap: SPACE.md }}>
+        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, gap: SPACE.md }}>
           <Notice tone="success">{`${who} 우체국 사전접수 완료로 적었어요. 접수번호 ${linked ?? ''}`}</Notice>
           <Txt color="textSub">우체국 창구에 갈 때 이 접수번호나 휴대전화 번호를 알려 주면 돼요.</Txt>
           <ButtonRow>
@@ -374,9 +375,9 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="epost-screen">
       <AppHeader title={EPOST_TITLE} onBack={nav.onBack} />
-      <ScrollView style={{ maxHeight: 170, flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingBottom: SPACE.sm, gap: SPACE.xs }}>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, alignItems: 'center' }}>
-          <Txt weight="bold">{batch ? `${String(index + 1)}/${String(views.length)} · ${view.row.name}` : view.row.name}</Txt>
+      <ScrollView style={{ maxHeight: 170, flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingBottom: SPACE.md, gap: SPACE.xs + 2 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, alignItems: 'center' }}>
+          <Txt step="bodyLarge" weight="medium">{batch ? `${String(index + 1)}/${String(views.length)} · ${view.row.name}` : view.row.name}</Txt>
           <Txt step="caption" color="textSub">{`물품 ${String(view.fill.qty)}개 · 내용품 ${view.fill.item}`}</Txt>
           {batch ? <Tag tone={phase === 'finished' ? 'success' : 'info'}>{`목록에 ${String(committed.length)}명`}</Tag> : filledCount > 0 ? <Tag tone="success">{`칸 ${String(filledCount)}개 채움`}</Tag> : null}
         </View>
@@ -425,7 +426,7 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
         {missing.length > 0 ? <Txt step="caption" color="dangerText">{`못 채운 칸: ${missing.map((slot) => SLOT_WORDS[slot]).join(', ')}`}</Txt> : null}
         {missing.includes('item') ? <Txt step="caption">{EPOST_ITEM_NOTE}</Txt> : null}
         {formFound && report.ambiguous.length > 0 ? <Txt step="caption" color="dangerText">{`받는 분·보내는 분을 가릴 수 없어 비워 둔 칸: ${report.ambiguous.map((slot) => SLOT_WORDS[slot]).join(', ')}`}</Txt> : null}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, paddingTop: SPACE.xs }}>
           <SmallButton label="이름 복사" onPress={() => void copy('이름', receiver.name)} />
           <SmallButton label="주소 복사" onPress={() => void copy('주소', address)} />
           {receiver.detail !== '' ? <SmallButton label="상세 주소 복사" onPress={() => void copy('상세 주소', receiver.detail)} /> : null}
@@ -437,18 +438,18 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
           </Txt>
         ) : null}
         {candidates.length > 0 ? (
-          <View style={{ gap: SPACE.xs, padding: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surface }}>
-            <Txt weight="bold">{`접수번호를 찾았어요: ${candidates[0] ?? ''}`}</Txt>
+          <View style={{ gap: SPACE.sm, padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.surface }}>
+            <Txt step="bodyLarge" weight="medium">{`접수번호를 찾았어요: ${candidates[0] ?? ''}`}</Txt>
             <BigButton label="이 번호로 잇기" ariaLabel={`접수번호 ${candidates[0] ?? ''} 잇기`} onPress={() => openSheet(candidates[0] ?? '')} />
           </View>
         ) : null}
       </ScrollView>
 
-      <View style={{ flex: 1, borderTopWidth: 1, borderColor: p.outline }}>
+      <View style={{ flex: 1, borderTopWidth: 1, borderColor: p.line }}>
         {sessionReady ? <EpostView ref={web} url={view.pages.apply} beforeLoad={popupShimScript(view.hosts)} onMessage={onMessage} onLoaded={onLoaded} testID="epost-web" /> : <Loading />}
       </View>
 
-      <View style={{ paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderTopWidth: 1, borderColor: p.outline, backgroundColor: p.background }}>
+      <View style={{ paddingHorizontal: SPACE.lg, paddingVertical: SPACE.md, borderTopWidth: 1, borderColor: p.line, backgroundColor: p.surface }}>
         <ButtonRow>
           {batch && phase === 'paused' ? (
             <BigButton kind="secondary" label="이어서 넣기" onPress={commitNow} />

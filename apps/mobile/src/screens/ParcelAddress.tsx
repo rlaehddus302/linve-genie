@@ -4,8 +4,8 @@
 // - 택배사가 주소를 못 찾았다고 돌려보낸 묶음(우편번호 못 찾음 — D-REAL-09)도 여기서 고친다.
 // - 쓰기는 누를 때 만든 요청 번호로, 끊기면 같은 번호로 다시 보낸다. 409(그 사이 구매자가 고침·접수됨)면 지금 모습을 다시 받는다.
 // - 봉인한 날짜는 보기만. 이름·주소·메모는 글자로만 그린다. 연락처·주소는 주소창·로그에 넣지 않는다(본문으로만 보낸다).
-import { useEffect, useRef, useState } from 'react'
-import { View } from 'react-native'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ActivityIndicator, Pressable, View } from 'react-native'
 import type { AddressFields, BundleView, ParcelBrief } from '@livejjim/web/src/api/parcel-types.ts'
 import { PREFILL_CONFIRMED, PREFILL_HELP, PREFILL_TITLE } from '@livejjim/web/src/lib/ledger-words.ts'
 import {
@@ -31,9 +31,49 @@ import {
 } from '@livejjim/web/src/lib/parcel-words.ts'
 import { get, isApiError, newRequestId, post, put, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { BigButton, BottomSheet, ButtonRow, Card, ConfirmSheet, TextField, Txt } from '../ui/kit/index.ts'
-import { SPACE } from '../ui/kit/tokens.ts'
+import { BigButton, BottomSheet, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
+
+/**
+ * 글자만의 작은 단추 (D-UX3-94, 홈 "모두보기"처럼): 곁길 일("택배 화면으로", "다음 손님", "운송장 전부 PDF").
+ * 회색 글자 + 작은 › — 누르는 동안 바탕만 옅게 진해진다. 포장·택배 화면이 같이 쓴다.
+ */
+export function TextAction({ label, ariaLabel, onPress, disabled, chevron = true, align = 'flex-end', strong = false }: { readonly label: string; readonly ariaLabel?: string; readonly onPress: () => void; readonly disabled?: boolean; readonly chevron?: boolean; readonly align?: 'flex-start' | 'flex-end' | 'center'; readonly strong?: boolean }) {
+  const { p } = useKit()
+  // strong: 흐름의 다음 걸음("다음 손님", "택배 접수") — 초록 글자로 조금 더 눈에 띄게
+  const ink = strong ? p.primaryText : p.textSub
+  return (
+    <Pressable role="button" aria-label={ariaLabel ?? label} aria-disabled={disabled === true} disabled={disabled === true} onPress={onPress} hitSlop={8} style={({ pressed }) => ({ alignSelf: align, flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 36, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent', opacity: disabled === true ? 0.45 : 1 })}>
+      <Txt step="body" weight={strong ? 'medium' : 'book'} ink={ink}>
+        {label}
+      </Txt>
+      {chevron ? <Icon name="chevron" color={ink} size={16} /> : null}
+    </Pressable>
+  )
+}
+
+/**
+ * 줄 안의 작은 회색 단추 (D-UX3-94): 줄마다 붙는 일(운송장 PDF·접수 취소·고치기·지우기). 큰 단추를 줄마다 쌓지 않는다.
+ * 높이 40·글자만큼 폭. 둘 이상이면 RowActions로 좌우에 — 부정(취소·지우기)이 왼쪽.
+ */
+export function RowAction({ label, ariaLabel, onPress, disabled, busy }: { readonly label: string; readonly ariaLabel?: string; readonly onPress: () => void; readonly disabled?: boolean; readonly busy?: boolean }) {
+  const { p } = useKit()
+  const off = disabled === true || busy === true
+  return (
+    <Pressable role="button" aria-label={ariaLabel ?? label} aria-disabled={off} aria-busy={busy === true} disabled={off} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 40, paddingHorizontal: SPACE.md + 2, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed && !off ? p.softPressed : p.surfaceAlt, opacity: disabled === true ? 0.45 : 1 })}>
+      {busy === true ? <ActivityIndicator size="small" color={p.textSub} /> : null}
+      <Txt step="body" weight="medium">
+        {label}
+      </Txt>
+    </Pressable>
+  )
+}
+
+/** 줄 단추 묶음: 왼쪽부터 한 줄에 (D-UX4-01) */
+export function RowActions({ children }: { readonly children?: ReactNode }) {
+  return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, alignItems: 'center' }}>{children}</View>
+}
 
 /** "택배: 배송 중 · 6013-0823-62377" 꼬리표 (색 + 글자) */
 export function ParcelTag({ parcel }: { readonly parcel: ParcelBrief }) {
@@ -150,7 +190,7 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
   if (bundle === null) {
     return (
       <Card label="배송지">
-        <Txt step="section" weight="bold">배송지</Txt>
+        <CardLabel>배송지</CardLabel>
         {loadError !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{loadError.message}</Notice>
@@ -170,7 +210,8 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
   const editable = !sealed && !bundle.locked
   return (
     <Card label="배송지">
-      <Txt step="section" weight="bold">배송지</Txt>
+      {/* 카드 이름은 홈 묶음 이름처럼 회색 본문 (D-UX3-94 — 옛: 굵은 제목) */}
+      <CardLabel>배송지</CardLabel>
       {parcel !== null ? <ParcelTagLine parcel={parcel} /> : null}
       {shape === 'pickup' ? <Txt>{PICKUP_BUNDLE}</Txt> : null}
       {shape === 'combined' ? <Txt>{COMBINED_BUNDLE}</Txt> : null}
@@ -268,17 +309,26 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
   )
 }
 
+/** 카드 안 묶음 이름 (홈 "내 방송"처럼 회색 본문, D-UX3-94) */
+function CardLabel({ children }: { readonly children: string }) {
+  return (
+    <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>
+      {children}
+    </Txt>
+  )
+}
+
 /** 이름표 + 값 줄 (값은 글자로만) */
 function Facts({ fields }: { readonly fields: readonly (readonly [string, string])[] }) {
   return (
-    <View style={{ gap: SPACE.xs }}>
+    <View style={{ gap: SPACE.sm }}>
       {fields.map(([label, value]) => (
         <View key={label} style={{ flexDirection: 'row', gap: SPACE.md }} aria-label={`${label} ${value}`}>
           <View style={{ width: 76 }}>
             <Txt color="textSub">{label}</Txt>
           </View>
           <View style={{ flex: 1 }}>
-            <Txt>{value}</Txt>
+            <Txt step="bodyLarge" weight="book">{value}</Txt>
           </View>
         </View>
       ))}

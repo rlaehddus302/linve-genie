@@ -3,8 +3,10 @@
 // (택배 꼬리표·마지막 확인 시각·운송장 PDF·접수 취소). 주 버튼 "N개 택배 접수하기" → 한 번 더 묻기 → 같은 요청 번호로 한 번(끊기면 같은 번호로 다시).
 // 운송장 PDF는 휴대폰 공유 시트로 넘긴다(프린트·카톡 등). 다른 기기의 접수·포장·입금은 실시간 알림으로 다시 읽고, 기다리는 줄이 있으면 30초마다 다시 읽는다.
 // 이름은 서버가 정한 표시 이름(BUY-01)을 그대로, 글자로만 그린다.
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Linking, Pressable, ScrollView, View } from 'react-native'
+// 토스식 다듬기 (D-UX3-94): 쪽 여백 20·카드 사이 16, 카드 이름은 회색 본문, 줄 이름은 보통 굵기, 줄마다 붙는 일은 작은 회색 단추(큰 단추를 줄마다 쌓지 않음),
+// 입금·포장 상태는 꼬리표 대신 색 글자, 파일 받기는 줄, 곁길 일([설정으로]·[인증키 넣기]·[운송장 전부 PDF])은 글자 단추.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ActivityIndicator, Linking, Pressable, ScrollView, View } from 'react-native'
 import type { BookResponse, BookResult, BoxKind, ParcelDay, ParcelDays, ParcelRow } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords, kstToday } from '@livejjim/web/src/lib/kst.ts'
 import {
@@ -63,8 +65,9 @@ import { nativeShareFile } from '../native/index.ts'
 import { useParcelVersion } from '../lib/parcel-version.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { RowAction, RowActions, TextAction } from './ParcelAddress.tsx'
 import { ExtraCard, ExtraFacts, ExtraRowActions } from './ParcelExtra.tsx'
 
 export const DATE_NOT_FOUND = '그 날짜는 택배를 접수할 수 없어요. 다른 날짜를 골라 주세요.'
@@ -127,7 +130,7 @@ export function ParcelsScreen({ onBack, initialDate, nav = {}, topGap = 28 }: { 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="parcels-screen">
       {onBack !== undefined ? <AppHeader title={PARCEL_TITLE} onBack={onBack} /> : null}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.md, paddingTop: onBack === undefined ? topGap : 0, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.md }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: onBack === undefined ? topGap : SPACE.sm, paddingBottom: SPACE.xxxl + (onBack === undefined ? room : 0), gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: onBack === undefined ? room : 0 }} keyboardShouldPersistTaps="handled">
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>
@@ -136,7 +139,7 @@ export function ParcelsScreen({ onBack, initialDate, nav = {}, topGap = 28 }: { 
         ) : null}
         {days === null && error === null ? <Loading /> : null}
         {days !== null && days.dates.length > 0 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingVertical: SPACE.xs }}>
             {days.dates.map((day) => (
               <Pill key={day.date} on={day.date === date} label={dateWords(day.date)} ariaLabel={`날짜 ${dateWords(day.date)} · 보낼 수 있어요 ${String(day.ready)} · 접수 ${String(day.booked)}`} onPress={() => setDate(day.date)} />
             ))}
@@ -293,74 +296,90 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
     })
   }
 
+  const fileRows = (
+    <>
+      <FileRow label={EPOST_WINDOW_FILE_LABEL} sub={EPOST_WINDOW_FILE_NOTE} busy={windowFile.busy} onPress={() => void windowFile.run(`/api/parcels/days/${date}/epost-addresses.xlsx`, `우체국-주소-${date}.xlsx`, XLSX_TYPE)} />
+      {windowFile.error !== null ? <Notice tone="danger" alert>{windowFile.error}</Notice> : null}
+      <FileRow label={epostFileLabel(groups.ready.length)} sub={`${EPOST_FILE_PC} ${epostFileBox(day.box)}`} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
+    </>
+  )
+
   return (
-    <View style={{ gap: SPACE.md }}>
+    <View style={{ gap: SPACE.lg }}>
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {directFirst ? null : blocked !== null ? (
-        <View style={{ gap: SPACE.sm }}>
+        <View style={{ gap: SPACE.xs }}>
           <Notice tone="warning">{blocked.message}</Notice>
-          {nav.openSettings !== undefined ? <BigButton kind="outline" label="설정으로" onPress={nav.openSettings} /> : null}
+          {nav.openSettings !== undefined ? <TextAction label="설정으로" onPress={nav.openSettings} /> : null}
         </View>
       ) : null}
-      {day.carrier !== null ? <Txt color="textSub">{`택배사: ${day.carrier.name}`}</Txt> : null}
 
       <Card label={GROUP_READY}>
-        <Txt step="section" weight="bold">{`${GROUP_READY} · ${String(groups.ready.length)}개`}</Txt>
+        <GroupHead title={`${GROUP_READY} · ${String(groups.ready.length)}개`} right={day.carrier !== null ? <Txt step="caption" color="textSub">{`택배사: ${day.carrier.name}`}</Txt> : undefined} />
         {groups.ready.length === 0 ? <Txt color="textSub">{NOTHING_READY}</Txt> : null}
-        {directFirst ? <Txt>{EPOST_INTRO}</Txt> : null}
-        {directFirst
-          ? groups.ready.map((row) =>
-              isExtraRow(row) ? (
-                <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
-                  <Txt weight="bold">{row.name}</Txt>
-                  <ExtraFacts row={row} />
-                  <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} />
-                </View>
-              ) : (
-                <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
-                  <PickRow on={!unchecked.has(row.buyer)} name={row.name} disabled={busy} onPress={() => toggle(row.buyer)} />
-                  <RowFacts row={row} />
-                  {row.epost?.state === 'FILLED' ? <Tag tone="warning">{EPOST_FILLED_NOTE}</Tag> : null}
-                  <ButtonRow>
-                    {row.epost?.state === 'FILLED' ? <EpostClear date={date} row={row} onChanged={onChanged} label="입력 기록 지우기" /> : null}
-                    <BigButton kind="outline" label="우체국 사전접수" ariaLabel={`${row.name} 우체국 사전접수`} onPress={() => nav.openEpost?.(date, [row.buyer])} />
-                  </ButtonRow>
-                </View>
-              ),
-            )
-          : null}
-        {directFirst ? null : groups.ready.map((row) => (
-          <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
-            <PickRow on={!unchecked.has(row.buyer)} name={row.name} disabled={busy} onPress={() => toggle(row.buyer)} />
-            {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
-            <Txt step="caption" color="textSub">{ROW_BOX_LABEL}</Txt>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.xs }}>
-              {BOX_KINDS.map((box) => (
-                <Pill
-                  key={box}
-                  on={boxOf(row) === box}
-                  label={boxWord(box)}
-                  ariaLabel={`${row.name} ${ROW_BOX_LABEL} ${boxWord(box)}`}
-                  onPress={() => {
-                    if (busy) return
-                    nextAction()
-                    setBoxes((map) => new Map(map).set(row.buyer, box))
-                  }}
-                />
-              ))}
-            </ScrollView>
-            {row.parcel?.state === 'CANCELLED' ? <Tag tone={parcelTone(row.parcel)}>{parcelLine(row.parcel)}</Tag> : null}
-            {isExtraRow(row) ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
+        {directFirst ? <Txt color="textSub">{EPOST_INTRO}</Txt> : null}
+        {groups.ready.length > 0 ? (
+          <View style={{ gap: SPACE.lg }}>
+            {directFirst
+              ? groups.ready.map((row) =>
+                  isExtraRow(row) ? (
+                    <View key={row.buyer} style={{ gap: SPACE.sm }}>
+                      <Txt step="bodyLarge" weight="book">{row.name}</Txt>
+                      <ExtraFacts row={row} />
+                      <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} />
+                    </View>
+                  ) : (
+                    <View key={row.buyer} style={{ gap: SPACE.sm }}>
+                      <PickRow on={!unchecked.has(row.buyer)} name={row.name} disabled={busy} onPress={() => toggle(row.buyer)} />
+                      <View style={{ paddingLeft: PICK_INDENT, gap: SPACE.sm }}>
+                        <RowFacts row={row} />
+                        {row.epost?.state === 'FILLED' ? <Tag tone="warning">{EPOST_FILLED_NOTE}</Tag> : null}
+                        <RowActions>
+                          {row.epost?.state === 'FILLED' ? <EpostClear date={date} row={row} onChanged={onChanged} label="입력 기록 지우기" /> : null}
+                          <RowAction label="우체국 사전접수" ariaLabel={`${row.name} 우체국 사전접수`} onPress={() => nav.openEpost?.(date, [row.buyer])} />
+                        </RowActions>
+                      </View>
+                    </View>
+                  ),
+                )
+              : groups.ready.map((row) => (
+                  <View key={row.buyer} style={{ gap: SPACE.sm }}>
+                    <PickRow on={!unchecked.has(row.buyer)} name={row.name} disabled={busy} onPress={() => toggle(row.buyer)} />
+                    <View style={{ paddingLeft: PICK_INDENT, gap: SPACE.sm }}>
+                      {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
+                      {/* 크기 알약만 (D-UX3-94 — 옛: 알약 위 "택배 크기" 글줄. 이름은 단추 이름에 그대로) */}
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.xs }}>
+                        {BOX_KINDS.map((box) => (
+                          <Pill
+                            key={box}
+                            on={boxOf(row) === box}
+                            label={boxWord(box)}
+                            ariaLabel={`${row.name} ${ROW_BOX_LABEL} ${boxWord(box)}`}
+                            onPress={() => {
+                              if (busy) return
+                              nextAction()
+                              setBoxes((map) => new Map(map).set(row.buyer, box))
+                            }}
+                          />
+                        ))}
+                      </ScrollView>
+                      {row.parcel?.state === 'CANCELLED' ? <Tag tone={parcelTone(row.parcel)}>{parcelLine(row.parcel)}</Tag> : null}
+                      {isExtraRow(row) ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
+                    </View>
+                  </View>
+                ))}
           </View>
-        ))}
+        ) : null}
         {directFirst ? (
-          <View style={{ gap: SPACE.xs }}>
+          <View style={{ gap: SPACE.sm, marginTop: SPACE.xs }}>
             <BigButton label={`${String(epostChosen.length)}명 우체국 사전접수`} disabled={epostChosen.length === 0} onPress={() => nav.openEpost?.(date, epostChosen.slice(0, EPOST_BATCH_MAX).map((row) => row.buyer))} />
             <Txt step="caption" color="textSub">{DIRECT_FIRST_NOTE}</Txt>
-            {nav.openSettings !== undefined ? <BigButton kind="outline" label={DIRECT_FIRST_KEY} onPress={nav.openSettings} /> : null}
+            {nav.openSettings !== undefined ? <TextAction label={DIRECT_FIRST_KEY} onPress={nav.openSettings} /> : null}
           </View>
         ) : (
-          <BigButton label={`${String(chosen.length)}개 택배 접수하기`} disabled={blocked !== null || chosen.length === 0} busy={busy} onPress={() => setAsking(true)} />
+          <View style={{ marginTop: SPACE.xs }}>
+            <BigButton label={`${String(chosen.length)}개 택배 접수하기`} disabled={blocked !== null || chosen.length === 0} busy={busy} onPress={() => setAsking(true)} />
+          </View>
         )}
         {busy ? <Txt step="caption" color="textSub">{BOOKING_NOW}</Txt> : null}
         {summary !== null ? <Notice tone={results.size === 0 ? 'success' : 'warning'}>{summary}</Notice> : null}
@@ -374,21 +393,14 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
 
       {showsEpostFile(day) ? (
         <Card label={directFirst ? EPOST_FILE_PC_TITLE : EPOST_FILE_TITLE}>
-          <Txt step="section" weight="bold">{directFirst ? EPOST_FILE_PC_TITLE : EPOST_FILE_TITLE}</Txt>
+          <GroupHead title={directFirst ? EPOST_FILE_PC_TITLE : EPOST_FILE_TITLE} />
           {directFirst || nav.openEpost !== undefined ? (
-            <>
-              <Txt>{EPOST_WINDOW_FILE_NOTE}</Txt>
-              <BigButton kind="outline" label={EPOST_WINDOW_FILE_LABEL} busy={windowFile.busy} onPress={() => void windowFile.run(`/api/parcels/days/${date}/epost-addresses.xlsx`, `우체국-주소-${date}.xlsx`, XLSX_TYPE)} />
-              {windowFile.error !== null ? <Notice tone="danger" alert>{windowFile.error}</Notice> : null}
-              <Txt step="caption" color="textSub">{EPOST_FILE_PC}</Txt>
-              <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
-              <BigButton kind="outline" label={epostFileLabel(groups.ready.length)} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
-            </>
+            // 파일 받기는 큰 단추 대신 줄 (D-UX3-94): 이름 · 짧은 설명 · ›
+            <View style={{ marginHorizontal: -SPACE.sm }}>{fileRows}</View>
           ) : (
             <>
-              <Txt>{EPOST_FILE_HOW}</Txt>
-              <Txt step="caption" color="textSub">{epostFileBox(day.box)}</Txt>
-              <Txt step="caption" color="textSub">{EPOST_FILE_AFTER}</Txt>
+              <Txt color="textSub">{EPOST_FILE_HOW}</Txt>
+              <Txt step="caption" color="textSub">{`${epostFileBox(day.box)} ${EPOST_FILE_AFTER}`}</Txt>
               <ButtonRow>
                 <BigButton kind="outline" label={EPOST_FILE_OPEN} onPress={() => void Linking.openURL(EPOST_VISIT_URL)} />
                 <BigButton label={epostFileLabel(groups.ready.length)} busy={epostFile.busy} onPress={() => void epostFile.run(epostFilePath(date), epostFileName(date), XLSX_TYPE)} />
@@ -401,50 +413,65 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
 
       {epostRows.length > 0 ? (
         <Card label={EPOST_GROUP}>
-          <Txt step="section" weight="bold">{`${EPOST_GROUP} · ${String(epostRows.length)}개`}</Txt>
-          {epostRows.map((row) => (
-            <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
-              <Txt weight="bold">{row.name}</Txt>
-              <RowFacts row={row} />
-              <Tag tone="success">{`${row.epost?.word ?? ''} · 접수번호 ${row.epost?.receiptNo ?? ''}`}</Tag>
-              <EpostClear date={date} row={row} onChanged={onChanged} label="접수 기록 지우기" />
-            </View>
-          ))}
+          <GroupHead title={`${EPOST_GROUP} · ${String(epostRows.length)}개`} />
+          <View style={{ gap: SPACE.lg }}>
+            {epostRows.map((row) => (
+              <View key={row.buyer} style={{ gap: SPACE.sm }}>
+                <Txt step="bodyLarge" weight="book">{row.name}</Txt>
+                <RowFacts row={row} />
+                <Tag tone="success">{`${row.epost?.word ?? ''} · 접수번호 ${row.epost?.receiptNo ?? ''}`}</Tag>
+                <RowActions>
+                  <EpostClear date={date} row={row} onChanged={onChanged} label="접수 기록 지우기" />
+                </RowActions>
+              </View>
+            ))}
+          </View>
         </Card>
       ) : null}
 
       <Card label={GROUP_EXCLUDED}>
-        <Txt step="section" weight="bold">{`${GROUP_EXCLUDED} · ${String(groups.excluded.length)}개`}</Txt>
+        <GroupHead title={`${GROUP_EXCLUDED} · ${String(groups.excluded.length)}개`} />
         {groups.excluded.length === 0 ? <Txt color="textSub">{NOTHING_EXCLUDED}</Txt> : null}
-        {groups.excluded.map((row) => {
-          const reason = screenReason(row)
-          const text = reason === '' ? (results.get(row.buyer) ?? '') : reason
-          const unknown = row.parcel?.state === 'UNKNOWN'
-          return (
-            <View key={row.buyer} style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
-              <Txt weight="bold">{row.name}</Txt>
-              {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
-              {text !== '' ? <Txt color={row.parcel?.state === 'FAILED' ? 'dangerText' : 'text'}>{text}</Txt> : null}
-              {unknown && isRetryable(row.parcel) ? <BigButton kind="outline" label="다시 확인" ariaLabel={`${row.name} 다시 확인`} disabled={busy || blocked !== null} onPress={() => void book([row])} /> : null}
-              {addressReason(row) && !isExtraRow(row) && nav.openSettle !== undefined ? <BigButton kind="outline" label="배송지 보기" ariaLabel={`${row.name} 배송지 보기`} onPress={() => nav.openSettle?.(date, row.buyer)} /> : null}
-              {isExtraRow(row) && !isRetryable(row.parcel) && row.parcel?.state !== 'PENDING' ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
-            </View>
-          )
-        })}
+        {groups.excluded.length > 0 ? (
+          <View style={{ gap: SPACE.lg }}>
+            {groups.excluded.map((row) => {
+              const reason = screenReason(row)
+              const text = reason === '' ? (results.get(row.buyer) ?? '') : reason
+              const unknown = row.parcel?.state === 'UNKNOWN'
+              const retryable = unknown && isRetryable(row.parcel)
+              const address = addressReason(row) && !isExtraRow(row) && nav.openSettle !== undefined
+              return (
+                <View key={row.buyer} style={{ gap: SPACE.sm }}>
+                  <Txt step="bodyLarge" weight="book">{row.name}</Txt>
+                  {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
+                  {text !== '' ? <Txt color={row.parcel?.state === 'FAILED' ? 'dangerText' : 'text'}>{text}</Txt> : null}
+                  {retryable || address ? (
+                    <RowActions>
+                      {retryable ? <RowAction label="다시 확인" ariaLabel={`${row.name} 다시 확인`} disabled={busy || blocked !== null} onPress={() => void book([row])} /> : null}
+                      {address ? <RowAction label="배송지 보기" ariaLabel={`${row.name} 배송지 보기`} onPress={() => nav.openSettle?.(date, row.buyer)} /> : null}
+                    </RowActions>
+                  ) : null}
+                  {isExtraRow(row) && !isRetryable(row.parcel) && row.parcel?.state !== 'PENDING' ? <ExtraRowActions date={date} row={row} disabled={busy} onChanged={onChanged} /> : null}
+                </View>
+              )
+            })}
+          </View>
+        ) : null}
         {retry.length > 0 ? <BigButton kind="outline" label={RETRY_FAILED} disabled={busy || blocked !== null} onPress={() => void book(retry)} /> : null}
       </Card>
 
       <Card label={GROUP_BOOKED}>
-        <Txt step="section" weight="bold">{`${GROUP_BOOKED} · ${String(groups.booked.length)}개`}</Txt>
-        <Txt step="caption" color="textSub">{WAYBILL_NOTE}</Txt>
-        {groups.booked.length === 0 ? <Txt color="textSub">{NOTHING_BOOKED}</Txt> : null}
-        {groups.booked.length > 0 ? (
-          <BigButton kind="outline" label="운송장 전부 PDF" busy={waybills.busy} onPress={() => void waybills.run(`/api/parcels/days/${date}/waybills.pdf`, `운송장-${date}-전부.pdf`)} />
-        ) : null}
+        {/* 운송장 전부 PDF는 카드 오른쪽 위 글자 단추 (D-UX3-94 — 옛: 큰 회색 단추) */}
+        <GroupHead title={`${GROUP_BOOKED} · ${String(groups.booked.length)}개`} right={groups.booked.length > 0 ? <TextAction label="운송장 전부 PDF" chevron={false} disabled={waybills.busy} onPress={() => void waybills.run(`/api/parcels/days/${date}/waybills.pdf`, `운송장-${date}-전부.pdf`)} /> : undefined} />
+        {groups.booked.length === 0 ? <Txt color="textSub">{NOTHING_BOOKED}</Txt> : <Txt step="caption" color="textSub">{WAYBILL_NOTE}</Txt>}
         {waybills.error !== null ? <Notice tone="danger" alert>{waybills.error}</Notice> : null}
-        {groups.booked.map((row) => (
-          <BookedRow key={row.buyer} date={date} row={row} onChanged={onChanged} onAction={nextAction} />
-        ))}
+        {groups.booked.length > 0 ? (
+          <View style={{ gap: SPACE.lg }}>
+            {groups.booked.map((row) => (
+              <BookedRow key={row.buyer} date={date} row={row} onChanged={onChanged} onAction={nextAction} />
+            ))}
+          </View>
+        ) : null}
       </Card>
 
       <ConfirmSheet
@@ -464,25 +491,69 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
   )
 }
 
-function PickRow({ on, name, disabled, onPress }: { readonly on: boolean; readonly name: string; readonly disabled: boolean; readonly onPress: () => void }) {
+/** 카드 안 묶음 이름 (홈 "내 방송"처럼 회색 본문, D-UX3-94) + 오른쪽 조각 */
+function GroupHead({ title, right }: { readonly title: string; readonly right?: ReactNode }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, minHeight: 24 }}>
+      <View style={{ flex: 1 }}>
+        <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>
+          {title}
+        </Txt>
+      </View>
+      {right}
+    </View>
+  )
+}
+
+/** 파일 받기 줄 (D-UX3-94): 이름 · 짧은 설명 · 오른쪽 › (받는 중이면 도는 표) */
+function FileRow({ label, sub, busy, onPress }: { readonly label: string; readonly sub: string; readonly busy: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Pressable role="checkbox" aria-checked={on} aria-label={`${name} 고르기`} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-      <View style={{ width: 28, height: 28, borderRadius: RADIUS.sm, borderCurve: 'continuous', borderWidth: 2, borderColor: on ? p.primary : p.outline, backgroundColor: on ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
-        {on ? <Icon name="check" color={p.onPrimary} size={18} /> : null}
+    <Pressable role="button" aria-label={label} aria-busy={busy} disabled={busy} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Txt step="bodyLarge" weight="book">{label}</Txt>
+        <Txt step="caption" color="textSub">{sub}</Txt>
       </View>
-      <Txt weight="bold">{name}</Txt>
+      {busy ? <ActivityIndicator size="small" color={p.textSub} /> : <Icon name="chevron" color={p.textSub} size={18} />}
     </Pressable>
   )
 }
 
-/** 줄의 사실: 상품 수·최종 금액·입금 상태 말·포장 상태 말 */
-function RowFacts({ row }: { readonly row: ParcelRow }) {
+/** 고르기 표 폭 + 사이 — 줄 아래 사실·단추를 이름 글자 줄에 맞춘다 */
+const PICK_BOX = 24
+const PICK_INDENT = PICK_BOX + SPACE.md
+
+function PickRow({ on, name, disabled, onPress }: { readonly on: boolean; readonly name: string; readonly disabled: boolean; readonly onPress: () => void }) {
+  const { p } = useKit()
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, alignItems: 'center' }}>
-      <Txt step="caption">{`상품 ${String(row.itemCount)}개 · ${formatWon(row.total)}`}</Txt>
-      <Tag tone={row.payment === 'PAID' ? 'success' : row.payment === 'UNPAID' ? 'danger' : 'warning'}>{PAYMENT_WORD[row.payment]}</Tag>
-      {hidesPackingTag(row.packing, row.parcel) ? null : <Tag tone={PACKING_TONE[row.packing as PackingWord] ?? 'info'}>{row.packing}</Tag>}
+    // 토스 체크처럼 둥근 표 + 보통 굵기 이름 (D-UX3-94 — 옛: 각진 표·굵은 이름)
+    <Pressable role="checkbox" aria-checked={on} aria-label={`${name} 고르기`} disabled={disabled} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 40, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <View style={{ width: PICK_BOX, height: PICK_BOX, borderRadius: PICK_BOX / 2, borderCurve: 'continuous', borderWidth: on ? 0 : 2, borderColor: p.softPressed, backgroundColor: on ? p.primary : p.surface, alignItems: 'center', justifyContent: 'center' }}>
+        {on ? <Icon name="check" color={p.onPrimary} size={15} /> : null}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Txt step="bodyLarge" weight="book" numberOfLines={1}>{name}</Txt>
+      </View>
+    </Pressable>
+  )
+}
+
+/** 줄의 사실: 상품 수·최종 금액 · 입금 상태 말 · 포장 상태 말 — 꼬리표 대신 한 줄 색 글자 (D-UX3-94) */
+function RowFacts({ row }: { readonly row: ParcelRow }) {
+  const { tones } = useKit()
+  const pay = row.payment === 'PAID' ? 'success' : row.payment === 'UNPAID' ? 'danger' : 'warning'
+  const packing = hidesPackingTag(row.packing, row.parcel) ? null : (PACKING_TONE[row.packing as PackingWord] ?? 'info')
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.xs }}>
+      <Txt step="caption" color="textSub">{`상품 ${String(row.itemCount)}개 · ${formatWon(row.total)}`}</Txt>
+      <Txt step="caption" color="textSub" aria-hidden>·</Txt>
+      <Txt step="caption" weight="medium" ink={tones[pay].fg}>{PAYMENT_WORD[row.payment]}</Txt>
+      {packing === null ? null : (
+        <>
+          <Txt step="caption" color="textSub" aria-hidden>·</Txt>
+          <Txt step="caption" weight="medium" ink={tones[packing].fg}>{row.packing}</Txt>
+        </>
+      )}
     </View>
   )
 }
@@ -524,43 +595,49 @@ function BookedRow({ date, row, onChanged, onAction }: { readonly date: string; 
     }
   }
 
+  const cancelLabel = direct ? DIRECT_CANCEL_LABEL : '접수 취소'
   return (
-    <View style={{ gap: SPACE.xs, paddingVertical: SPACE.xs }}>
-      <Txt weight="bold">{row.name}</Txt>
+    <View style={{ gap: SPACE.sm }}>
+      <Txt step="bodyLarge" weight="book">{row.name}</Txt>
       {isExtraRow(row) ? <ExtraFacts row={row} /> : <RowFacts row={row} />}
-      {parcel !== null ? <Tag tone={parcelTone(parcel)}>{parcelLine(parcel)}</Tag> : null}
-      {direct ? <Tag tone="info">{DIRECT_TAG}</Tag> : null}
+      {parcel !== null || direct ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
+          {parcel !== null ? <Tag tone={parcelTone(parcel)}>{parcelLine(parcel)}</Tag> : null}
+          {direct ? <Tag tone="info">{DIRECT_TAG}</Tag> : null}
+        </View>
+      ) : null}
       {checked !== null ? <Txt step="caption" color="textSub">{checked}</Txt> : null}
-      <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-        {direct ? null : (
-        <BigButton
-          kind="outline"
-          label="운송장 PDF"
-          ariaLabel={`${row.name} 운송장 PDF`}
-          busy={waybill.busy}
-          onPress={() => {
-            onAction()
-            setDone(false)
-            setError(null)
-            void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)
-          }}
-        />
-        )}
-        {cancellable ? (
-          <BigButton
-            kind="outline"
-            label={direct ? DIRECT_CANCEL_LABEL : '접수 취소'}
-            ariaLabel={`${row.name} ${direct ? DIRECT_CANCEL_LABEL : '접수 취소'}`}
-            busy={busy}
-            onPress={() => {
-              onAction()
-              setDone(false)
-              setError(null)
-              setAsking(true)
-            }}
-          />
-        ) : null}
-      </View>
+      {/* 작은 회색 단추 좌우로: 취소(부정)는 왼쪽, 운송장 PDF는 오른쪽 (D-UX4-01·D-UX3-94 — 옛: 큰 단추 [운송장 PDF][접수 취소]) */}
+      {cancellable || !direct ? (
+        <RowActions>
+          {cancellable ? (
+            <RowAction
+              label={cancelLabel}
+              ariaLabel={`${row.name} ${cancelLabel}`}
+              busy={busy}
+              onPress={() => {
+                onAction()
+                setDone(false)
+                setError(null)
+                setAsking(true)
+              }}
+            />
+          ) : null}
+          {direct ? null : (
+            <RowAction
+              label="운송장 PDF"
+              ariaLabel={`${row.name} 운송장 PDF`}
+              busy={waybill.busy}
+              onPress={() => {
+                onAction()
+                setDone(false)
+                setError(null)
+                void waybill.run(withQuery(`/api/parcels/days/${date}/waybill.pdf`, { buyer: row.buyer }), `운송장-${date}.pdf`)
+              }}
+            />
+          )}
+        </RowActions>
+      ) : null}
       {!cancellable ? <Txt step="caption" color="textSub">{NOT_CANCELLABLE}</Txt> : null}
       {done ? <Notice tone="success">{direct ? DIRECT_CANCEL_DONE : '접수를 취소했어요.'}</Notice> : null}
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
@@ -604,7 +681,7 @@ function EpostClear({ date, row, onChanged, label }: { readonly date: string; re
   }
   return (
     <View style={{ gap: SPACE.xs }}>
-      <BigButton kind="outline" label={label} ariaLabel={`${row.name} ${label}`} busy={busy} onPress={() => setAsking(true)} />
+      <RowAction label={label} ariaLabel={`${row.name} ${label}`} busy={busy} onPress={() => setAsking(true)} />
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       <ConfirmSheet
         visible={asking}

@@ -1,11 +1,12 @@
-// 전체 탭 (옛 더보기, D-UX2-02 → D-UX3-04 토스식): 맨 위 제목 "전체" + 오른쪽 위 [설정], 그 아래 앱 화면을 묶음 이름이 든 흰 카드로
+// 전체 탭 (옛 더보기, D-UX2-02 → D-UX3-04 토스식 → D-UX3-96 다듬기): 맨 위 한 줄에 왼쪽 계정 이름 · 오른쪽 [설정], 그 아래 앱 화면을 묶음 이름이 든 흰 카드로
 // (방송 · 주문·입금 · 배송 · 가게 — D-APPX-01·03), 맨 아래 계정(로그아웃). 라벨·프린터는 아래 탭 "라벨"로 옮겼다(D-UX3-01).
+// 줄은 토스 "전체"처럼 이름만 — 줄마다 붙던 설명 글과 줄 사이 선은 뺐다(D-UX3-96). 간격·여백은 홈과 같다.
 // "웹에서 보기"는 웹에만 있는 화면이 생길 때만 보인다(지금은 비었다 — 바깥 로그인 연결은 가게 설정 "연결").
 import { useState } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import { openWeb, WEB_SCREENS } from '../lib/open-web.ts'
 import { OPEN_IN_WEB } from '../lib/words.ts'
-import { ConfirmSheet, RowDivider, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { ConfirmSheet, RowGroup, TodoRow, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 
 export interface MoreNavigation {
@@ -16,16 +17,16 @@ export interface MoreNavigation {
   readonly openApp?: (path: InAppPath) => void
 }
 
-/** 웹에만 있던 화면 중 앱 화면으로 옮긴 것 (D-APPX-01). group: 전체 탭에서 묶는 카드 (D-UX3-04) */
+/** 웹에만 있던 화면 중 앱 화면으로 옮긴 것 (D-APPX-01). group: 전체 탭에서 묶는 카드 (D-UX3-04). 줄 설명 글은 뺐다 (D-UX3-96) */
 export const IN_APP_SCREENS = [
-  { path: '/reviews', title: '확인 필요', sub: '주문인지 애매한 댓글·문자 주문으로 넣거나 빼기', group: '방송' },
-  { path: '/schedule', title: '방송 일정', sub: '다음 방송 알리기, 공개 일정 주소, 알림 신청 수', group: '방송' },
-  { path: '/report', title: '방송 리포트', sub: '매출, 손님, 품종별·시간대별 판매', group: '방송' },
-  { path: '/deposits', title: '입금 확인', sub: '은행 입금과 손님 맞추기, 붙여넣기', group: '주문·입금' },
-  { path: '/buyers', title: '구매자', sub: '날짜별 구매자, 합치기·떼어 내기·차단', group: '주문·입금' },
-  { path: '/receipts', title: '영수증·판매대장', sub: '구매 내역 확인서 링크·PDF, 판매대장 엑셀', group: '배송' },
-  { path: '/labels', title: '라벨 프린터', sub: '라벨 켜기·끄기, 프린터 연결, 라벨 꾸미기', group: '가게' },
-  { path: '/shop-settings', title: '가게 설정', sub: '가게·계좌, 판매 규칙, 배송비, 택배, 손님 관리', group: '가게' },
+  { path: '/reviews', title: '확인 필요', group: '방송' },
+  { path: '/schedule', title: '방송 일정', group: '방송' },
+  { path: '/report', title: '방송 리포트', group: '방송' },
+  { path: '/deposits', title: '입금 확인', group: '주문·입금' },
+  { path: '/buyers', title: '구매자', group: '주문·입금' },
+  { path: '/receipts', title: '영수증·판매대장', group: '배송' },
+  { path: '/labels', title: '라벨 프린터', group: '가게' },
+  { path: '/shop-settings', title: '가게 설정', group: '가게' },
 ] as const
 export const MORE_GROUPS = ['방송', '주문·입금', '배송', '가게'] as const
 export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']
@@ -34,50 +35,50 @@ export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavig
   const { p } = useKit()
   const room = useTabBarRoom()
   const [asking, setAsking] = useState(false)
+  // "김다육 · kim" → 이름은 크게, 아이디는 옆에 작게
+  const [name, loginId] = account === undefined ? [undefined, undefined] : splitAccount(account)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="more-screen">
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.xl, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }}>
-        {/* 맨 위: 제목 + 오른쪽 위 설정 (토스 "고객센터 | 설정" 자리) */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingLeft: SPACE.xs, marginBottom: SPACE.xs }}>
-          <Pressable role="button" aria-label="설정" onPress={nav.openSettings} hitSlop={6} style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-            <Txt step="bodyLarge" weight="medium" color="textSub">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }}>
+        {/* 맨 위 한 줄: 왼쪽 계정 · 오른쪽 설정 (토스 "고객센터 | 설정" 자리) */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 48, paddingLeft: SPACE.xs, marginBottom: SPACE.xs }}>
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'baseline', gap: SPACE.sm }}>
+            {name === undefined ? null : (
+              <Txt step="title" weight="heavy" numberOfLines={1}>
+                {name}
+              </Txt>
+            )}
+            {loginId === undefined ? null : (
+              <Txt step="body" color="textSub" numberOfLines={1}>
+                {loginId}
+              </Txt>
+            )}
+          </View>
+          <Pressable role="button" aria-label="설정" onPress={nav.openSettings} hitSlop={6} style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+            <Txt step="body" weight="medium" color="textSub">
               설정
             </Txt>
           </Pressable>
         </View>
         {nav.openApp !== undefined
-          ? MORE_GROUPS.map((group) => {
-              const rows = IN_APP_SCREENS.filter((screen) => screen.group === group)
-              return (
-                <RowGroup key={group} title={group}>
-                  {rows.map((screen, index) => (
-                    <View key={screen.path}>
-                      {index > 0 ? <RowDivider /> : null}
-                      <TodoRow title={screen.title} sub={screen.sub} onPress={() => nav.openApp?.(screen.path)} />
-                    </View>
-                  ))}
-                </RowGroup>
-              )
-            })
+          ? MORE_GROUPS.map((group) => (
+              <RowGroup key={group} title={group}>
+                {IN_APP_SCREENS.filter((screen) => screen.group === group).map((screen) => (
+                  <TodoRow key={screen.path} title={screen.title} onPress={() => nav.openApp?.(screen.path)} />
+                ))}
+              </RowGroup>
+            ))
           : null}
         {WEB_SCREENS.length > 0 ? (
-          <View style={{ gap: 10 }}>
-            <Txt step="caption" color="textSub">
-              휴대폰 브라우저에서 열려요. 로그인이 필요할 수 있어요.
-            </Txt>
-            <RowGroup title="웹에서 보기" label={OPEN_IN_WEB}>
-              {WEB_SCREENS.map((screen, index) => (
-                <View key={screen.key}>
-                  {index > 0 ? <RowDivider /> : null}
-                  <TodoRow title={screen.word} ariaLabel={`${screen.word} — ${OPEN_IN_WEB}`} onPress={() => void openWeb(screen.path)} />
-                </View>
-              ))}
-            </RowGroup>
-          </View>
+          <RowGroup title="웹에서 보기" label={OPEN_IN_WEB}>
+            {WEB_SCREENS.map((screen) => (
+              <TodoRow key={screen.key} title={screen.word} ariaLabel={`${screen.word} — ${OPEN_IN_WEB}`} onPress={() => void openWeb(screen.path)} />
+            ))}
+          </RowGroup>
         ) : null}
         {onLogout !== undefined ? (
           <RowGroup title="계정" label="계정">
-            <TodoRow title="로그아웃" sub={account} onPress={() => setAsking(true)} />
+            <TodoRow title="로그아웃" onPress={() => setAsking(true)} />
           </RowGroup>
         ) : null}
       </ScrollView>
@@ -96,4 +97,10 @@ export function MoreScreen({ nav, account, onLogout }: { readonly nav: MoreNavig
       />
     </View>
   )
+}
+
+/** "김다육 · kim" → ["김다육", "kim"] (가운뎃점이 없으면 이름만) */
+export function splitAccount(account: string): readonly [string, string | undefined] {
+  const at = account.lastIndexOf(' · ')
+  return at < 0 ? [account, undefined] : [account.slice(0, at), account.slice(at + 3)]
 }

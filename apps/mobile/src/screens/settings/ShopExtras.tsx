@@ -2,6 +2,8 @@
 // - AI 제안: 쓸 수 없으면 그 한 줄, 켜져 있으면 오늘 쓴 수·끄기, 꺼져 있으면 고지·동의 칸·켜기(동의해야 켜진다).
 // - 연결: 구글·인스타그램·틱톡·밴드 로그인, 자동 게시 동의, 간편 로그인, 크롬 확장은 기기 브라우저의 설정 화면으로 연다.
 // - 백업 상태(되돌리기는 운영자) · 전체 기록 파일·전체 판매대장(공유 시트로 — 손님 정보가 들어 있다는 경고와 함께).
+// 모양 (D-UX3-96): 가게 설정의 다른 묶음과 같은 흰 카드(카드 안 작은 회색 이름). 연결 줄마다 붙던 "웹으로 열기" 글은 카드 아래 한 줄로,
+// 백업은 이름 · 오른쪽 값 줄로, 내려받기 둘은 위아래로 쌓인 큰 단추 대신 누르는 줄 둘로.
 import { useEffect, useState } from 'react'
 import { View } from 'react-native'
 import type { AssistSettings, BackupStatus, YoutubeConnectionResponse } from '@livejjim/web/src/api/types.ts'
@@ -12,9 +14,10 @@ import { get, getBytes, isApiError, put, type ApiError } from '../../api/client.
 import { openWeb } from '../../lib/open-web.ts'
 import { OPEN_IN_WEB, RETRY_NOW } from '../../lib/words.ts'
 import { nativeShareFile } from '../../native/index.ts'
-import { BigButton, Card, ListRow, Section, ToggleRow, Txt } from '../../ui/kit/index.ts'
+import { BigButton, ListRow, ToggleRow, Txt } from '../../ui/kit/index.ts'
 import { SPACE } from '../../ui/kit/tokens.ts'
 import { Loading, Notice } from '../../ui/parts.tsx'
+import { GroupNote, SettingsGroup, TextButton, ValueRow } from './Group.tsx'
 
 export const FILE_FAILED = '파일을 넘기지 못했어요. 다시 눌러 주세요.'
 
@@ -88,8 +91,7 @@ export function AssistCard() {
   // 옵션 방송이 없는 판매자에게는 서버가 쓸 수 없다고 준다 — 칸은 그대로 두고 그 한 줄만
   if (loadError !== null && loadError.status === 403) return null
   return (
-    <Section title={ASSIST_TITLE}>
-      <Card>
+    <SettingsGroup title={ASSIST_TITLE}>
         {loadError !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{loadError.message}</Notice>
@@ -99,23 +101,25 @@ export function AssistCard() {
         {current === null && loadError === null ? <Loading /> : null}
         {current !== null && !current.available ? <Txt color="textSub">{ASSIST_UNAVAILABLE}</Txt> : null}
         {current !== null && current.available && current.enabled ? (
-          <>
-            <Txt>{ASSIST_ON(current.usedToday, current.dailyLimit)}</Txt>
-            <BigButton kind="outline" label={ASSIST_OFF_BUTTON} ariaLabel={ASSIST_SWITCH} busy={busy} onPress={() => void turn(false)} />
-          </>
+          // 켜져 있으면 글 한 줄 + 오른쪽 글자 단추 "끄기" (D-UX3-96 — 옛 큰 회색 단추)
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+            <View style={{ flex: 1 }}>
+              <Txt>{ASSIST_ON(current.usedToday, current.dailyLimit)}</Txt>
+            </View>
+            <TextButton label={ASSIST_OFF_BUTTON} ariaLabel={ASSIST_SWITCH} busy={busy} onPress={() => void turn(false)} />
+          </View>
         ) : null}
         {current !== null && current.available && !current.enabled ? (
           <>
             <Txt>{ASSIST_OFF_STATE}</Txt>
             <Notice tone="info">{ASSIST_NOTICE}</Notice>
             <ToggleRow title={ASSIST_CONSENT} on={consent} onChange={setConsent} />
-            {!consent ? <Txt step="caption" color="textSub">동의 칸을 체크하면 켤 수 있어요.</Txt> : null}
+            {!consent ? <GroupNote>동의를 켜면 켤 수 있어요.</GroupNote> : null}
             <BigButton label={ASSIST_ON_BUTTON} ariaLabel={ASSIST_SWITCH} busy={busy} disabled={!consent} onPress={() => void turn(true)} />
           </>
         ) : null}
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
-      </Card>
-    </Section>
+    </SettingsGroup>
   )
 }
 
@@ -145,13 +149,12 @@ export function ConnectionsCard() {
   // 봇 판매자는 유튜브 구글 연결이 필요 없다 — 그 줄을 빼고 채팅 받기(방송 링크)만 쓴다
   const rows = bot ? WEB_CONNECTIONS.filter((row) => row.path !== '/settings/youtube') : WEB_CONNECTIONS
   return (
-    <Section title="연결" description="바깥 로그인 창을 거치는 연결은 기기 브라우저에서 해요.">
-      <Card>
-        {rows.map((row) => (
-          <ListRow key={row.title} title={row.title} subtitle={row.sub} value={OPEN_IN_WEB} ariaLabel={`${row.title} — ${OPEN_IN_WEB}`} onPress={() => void openWeb(row.path)} />
-        ))}
-      </Card>
-    </Section>
+    <SettingsGroup title="연결">
+      {rows.map((row) => (
+        <ListRow key={row.title} title={row.title} subtitle={row.sub} ariaLabel={`${row.title} — ${OPEN_IN_WEB}`} onPress={() => void openWeb(row.path)} />
+      ))}
+      <GroupNote>누르면 휴대폰 브라우저에서 열려요.</GroupNote>
+    </SettingsGroup>
   )
 }
 
@@ -174,38 +177,34 @@ export function BackupCard() {
   }, [])
   if (error !== null && error.status === 403) return null
   return (
-    <Section title="백업">
-      <Card>
-        {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
-        {status === null && error === null ? <Loading /> : null}
-        {status !== null ? (
-          <>
-            {backupStopped(status) ? <Notice tone="warning" alert>{BACKUP_STOPPED}</Notice> : null}
-            <Txt>{`마지막 자동 백업: ${status.lastSuccessAt === null ? '없음' : kstDateTimeLong(status.lastSuccessAt)}`}</Txt>
-            <Txt>{`백업은 ${String(status.retentionDays)}일 동안 보관해요.`}</Txt>
-            {status.backups.length === 0 ? <Txt color="textSub">보관 중인 백업이 없어요.</Txt> : null}
-            {status.backups.map((backup) => (
-              <Txt key={backup.createdAt} step="caption">{`${kstDateTimeLong(backup.createdAt)} · ${sizeWords(backup.size)}`}</Txt>
-            ))}
-            <Txt step="caption" color="textSub">{RESTORE_HINT}</Txt>
-          </>
-        ) : null}
-      </Card>
-    </Section>
+    <SettingsGroup title="백업">
+      {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
+      {status === null && error === null ? <Loading /> : null}
+      {status !== null ? (
+        <>
+          {backupStopped(status) ? <Notice tone="warning" alert>{BACKUP_STOPPED}</Notice> : null}
+          <ValueRow title="마지막 자동 백업" value={status.lastSuccessAt === null ? '없음' : kstDateTimeLong(status.lastSuccessAt)} />
+          <ValueRow title="보관 기간" value={`${String(status.retentionDays)}일`} />
+          {status.backups.length === 0 ? <GroupNote>보관 중인 백업이 없어요.</GroupNote> : null}
+          {status.backups.map((backup) => (
+            <GroupNote key={backup.createdAt}>{`${kstDateTimeLong(backup.createdAt)} · ${sizeWords(backup.size)}`}</GroupNote>
+          ))}
+          <GroupNote>{RESTORE_HINT}</GroupNote>
+        </>
+      ) : null}
+    </SettingsGroup>
   )
 }
 
 export function ExportCard() {
   const file = useFile()
   return (
-    <Section title="전체 기록 내려받기">
-      <Card>
-        <Notice tone="warning">{EXPORT_WARNING}</Notice>
-        <BigButton kind="outline" label="전체 기록 파일 (옮기기·보관용)" busy={file.busy === '/api/export/records.json.gz'} onPress={() => void file.run('/api/export/records.json.gz', 'livejjim-records.json.gz', 'application/gzip')} />
-        <BigButton kind="outline" label="전체 판매대장(엑셀)" busy={file.busy === '/api/export/ledger.xlsx'} onPress={() => void file.run('/api/export/ledger.xlsx', 'livejjim-ledger.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')} />
-        {file.busy !== null ? <Txt step="caption" color="textSub">만드는 중이에요…</Txt> : null}
-        {file.error !== null ? <Notice tone="danger" alert>{file.error}</Notice> : null}
-      </Card>
-    </Section>
+    <SettingsGroup title="전체 기록 내려받기">
+      <Notice tone="warning">{EXPORT_WARNING}</Notice>
+      <ListRow title="전체 기록 파일" subtitle="옮기기·보관용" value={file.busy === '/api/export/records.json.gz' ? '만드는 중' : undefined} ariaLabel="전체 기록 파일 (옮기기·보관용)" onPress={() => void file.run('/api/export/records.json.gz', 'livejjim-records.json.gz', 'application/gzip')} />
+      <ListRow title="전체 판매대장" subtitle="엑셀" value={file.busy === '/api/export/ledger.xlsx' ? '만드는 중' : undefined} ariaLabel="전체 판매대장(엑셀)" onPress={() => void file.run('/api/export/ledger.xlsx', 'livejjim-ledger.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')} />
+      {file.busy !== null ? <GroupNote>만드는 중이에요…</GroupNote> : null}
+      {file.error !== null ? <Notice tone="danger" alert>{file.error}</Notice> : null}
+    </SettingsGroup>
   )
 }
