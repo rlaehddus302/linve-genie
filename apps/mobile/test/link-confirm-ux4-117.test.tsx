@@ -1,6 +1,7 @@
 // D-UX4-117 (사용자 지시 2026-11-10, 링크 화면·확인 팝업 사진):
 // - 사진1: 라이브 확인 팝업 대신 별도 화면. [확인] → [다음], 누르면 다음 화면 "이 라이브에 연결할까요?" · 플랫폼 아이콘+이름 / 제목(다 보임) / 채널 아이콘+이름 · [연결하기]
 // - 사진2: 설명 없음, 제목 아래 링크 칸, 그 아래 한 줄 [링크를 모르겠어요][붙여넣기]. 최근 라이브 줄은 채널 사진(라이브 빨간 표시) + 채널 이름만, [연결] → 위 확인 화면
+// D-UX4-121 (사용자 지시 2026-11-10 "다음이나 연결 누르면 로딩이 긴데 … 연결하기 버튼 눌러야 실제로 연결해야지"): [다음]·[연결]은 기다리지 않고 바로 확인 화면, 정보는 거기서 받는다
 // D-UX4-119: 관리/라이브 연결의 라이브 제목은 이을 때 남긴 제목으로 바로 (전에는 화면을 열 때마다 유튜브를 다시 읽어 늦게 떴다)
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -42,6 +43,8 @@ describe('링크 화면 → 연결 확인 화면 (D-UX4-117)', () => {
     fireEvent.change(field, { target: { value: 'https://youtu.be/MIGANG00001' } })
     fireEvent.click(screen.getByRole('button', { name: LINK_NEXT }))
     const page = await screen.findByTestId('link-confirm')
+    // D-UX4-121: 기다리지 않고 바로 넘어오고, 라이브 정보는 이 화면에서 받는다 — 받기 전엔 [연결하기]가 꺼져 있다
+    await within(page).findByTestId('live-check-title')
     expect(LINK_CONFIRM_TITLE).toBe('이 라이브에 연결할까요?')
     expect(within(page).getByRole('heading', { level: 1 }).textContent).toBe(LINK_CONFIRM_TITLE)
     expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -61,6 +64,53 @@ describe('링크 화면 → 연결 확인 화면 (D-UX4-117)', () => {
     expect(w.server.callsTo('POST', /\/api\/youtube\/preview$/)).toHaveLength(1)
   })
 
+  it('[다음]은 미리 보기를 기다리지 않고 바로 확인 화면 — 받는 동안 회색 막대·[연결하기] 꺼짐, 아무것도 잇지 않는다 (D-UX4-121)', async () => {
+    const w = world()
+    let answer: (() => void) | null = null
+    w.server.on('POST', /^\/api\/youtube\/preview$/, async () => {
+      await new Promise<void>((resolve) => {
+        answer = resolve
+      })
+      return { body: { title: LONG, channelTitle: '미강다육🌻', channelId: 'UC_MIGANG' } }
+    })
+    render(w.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
+    fireEvent.change(await screen.findByRole('textbox', { name: '라이브 링크' }), { target: { value: 'https://youtu.be/MIGANG00001' } })
+    fireEvent.click(screen.getByRole('button', { name: LINK_NEXT }))
+    const page = await screen.findByTestId('link-confirm')
+    expect(within(page).getByTestId('live-check-loading')).toBeTruthy()
+    expect(within(page).getByRole('button', { name: LINK_CONFIRM_ACTION }).getAttribute('aria-disabled')).toBe('true')
+    expect(w.server.callsTo('POST', /\/broadcasts\/b1\/youtube$/)).toHaveLength(0)
+    await waitFor(() => expect(answer).not.toBeNull())
+    await act(async () => {
+      answer?.()
+    })
+    expect((await within(page).findByTestId('live-check-title')).textContent).toBe(LONG)
+    expect(within(page).queryByTestId('live-check-loading')).toBeNull()
+    expect(within(page).getByRole('button', { name: LINK_CONFIRM_ACTION }).getAttribute('aria-disabled')).not.toBe('true')
+    expect(w.server.callsTo('POST', /\/broadcasts\/b1\/youtube$/)).toHaveLength(0)
+  })
+
+  it('받는 중에 뒤로 가면 늦게 온 답은 버린다 — 링크 화면 그대로 (D-UX4-121)', async () => {
+    const w = world()
+    let answer: (() => void) | null = null
+    w.server.on('POST', /^\/api\/youtube\/preview$/, async () => {
+      await new Promise<void>((resolve) => {
+        answer = resolve
+      })
+      return { body: { title: LONG, channelTitle: '미강다육🌻', channelId: 'UC_MIGANG' } }
+    })
+    render(w.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
+    fireEvent.change(await screen.findByRole('textbox', { name: '라이브 링크' }), { target: { value: 'https://youtu.be/MIGANG00001' } })
+    fireEvent.click(screen.getByRole('button', { name: LINK_NEXT }))
+    fireEvent.click(within(await screen.findByTestId('link-confirm')).getByRole('button', { name: '뒤로' }))
+    await screen.findByRole('textbox', { name: '라이브 링크' })
+    await waitFor(() => expect(answer).not.toBeNull())
+    await act(async () => {
+      answer?.()
+    })
+    expect(screen.queryByTestId('link-confirm')).toBeNull()
+  })
+
   it('확인 화면의 뒤로 → 링크 화면(넣은 링크 그대로), 아무것도 보내지 않는다', async () => {
     const w = world()
     render(w.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
@@ -78,7 +128,9 @@ describe('링크 화면 → 연결 확인 화면 (D-UX4-117)', () => {
     render(w.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
     fireEvent.change(await screen.findByRole('textbox', { name: '라이브 링크' }), { target: { value: 'https://youtu.be/MIGANG00001' } })
     fireEvent.click(screen.getByRole('button', { name: LINK_NEXT }))
-    fireEvent.click(within(await screen.findByTestId('link-confirm')).getByRole('button', { name: LINK_CONFIRM_ACTION }))
+    const confirmPage = await screen.findByTestId('link-confirm')
+    await within(confirmPage).findByTestId('live-check-title') // D-UX4-121
+    fireEvent.click(within(confirmPage).getByRole('button', { name: LINK_CONFIRM_ACTION }))
     await waitFor(() => expect(screen.queryByTestId('link-confirm')).toBeNull())
     expect((await screen.findByRole('alert')).textContent).toBe('라이브 채팅을 받을 수 없는 라이브예요.')
   })
@@ -89,7 +141,10 @@ describe('링크 화면 → 연결 확인 화면 (D-UX4-117)', () => {
     fireEvent.click(await screen.findByRole('button', { name: '미강다육🌻 연결' }))
     const page = await screen.findByTestId('link-confirm')
     expect(within(page).getByTestId('live-check-title').textContent).toBe(LONG)
-    expect(w.server.callsTo('POST', /\/api\/youtube\/preview$/)[0]?.body).toEqual({ video: 'MIGANG00001' })
+    // D-UX4-121: 최근 라이브 줄은 이미 아는 제목·채널을 바로 쓴다 — 미리 보기를 부르지 않는다 (옛 기대: 미리 보기 { video } 한 번)
+    expect(within(page).getByTestId('live-check-channel').textContent).toBe('미강다육🌻')
+    expect(within(page).getByRole('button', { name: LINK_CONFIRM_ACTION }).getAttribute('aria-disabled')).not.toBe('true')
+    expect(w.server.callsTo('POST', /\/api\/youtube\/preview$/)).toHaveLength(0)
   })
 
   it('예정 라이브는 라이브 표시 없이 "예정", 다른 라이브에 연결된 것은 그 말과 흐린 [연결]', async () => {

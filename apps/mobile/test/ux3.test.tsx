@@ -156,7 +156,8 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
   const agree = async () => {
     const confirmPage = await screen.findByTestId('link-confirm')
     expect(within(confirmPage).getByRole('heading', { level: 1 }).textContent).toBe('이 라이브에 연결할까요?')
-    expect(within(confirmPage).getByTestId('live-check-title').textContent).toBe('오늘의 다육이')
+    // D-UX4-121: 확인 화면으로 바로 넘어오고 라이브 정보는 그 화면에서 받는다 (옛 기대: 넘어올 때 이미 정보가 있음)
+    expect((await within(confirmPage).findByTestId('live-check-title')).textContent).toBe('오늘의 다육이')
     expect(within(confirmPage).getByTestId('live-check-channel').textContent).toBe('다육이네')
     fireEvent.click(within(confirmPage).getByRole('button', { name: '연결하기' }))
   }
@@ -468,7 +469,8 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     expect(alert.textContent).toBe('라이브 채팅을 받을 수 없는 라이브예요.')
     // D-UX3-53으로 다시 바뀐 기대 (사용자 지시 2026-11-07 "에러 문구 앞에는 원래 있던 느낌표 원 아이콘을 넣어줘"): 옛 D-UX3-51 느낌표 없음 → 새 앞에 느낌표 그림(장식, 숨김)
     expect(alert.querySelector('[aria-hidden="true"]')).not.toBeNull()
-    fireEvent.change(field, { target: { value: 'https://youtu.be/NOCHAT0000' } })
+    // D-UX4-121: [다음]은 확인 화면으로 바로 넘어갔다가 거절되면 링크 화면을 새로 그려 돌아온다 — 지금 칸을 다시 찾는다
+    fireEvent.change(screen.getByLabelText('라이브 링크'), { target: { value: 'https://youtu.be/NOCHAT0000' } })
     expect(screen.queryByRole('alert')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     expect((await screen.findByRole('alert')).textContent).toBe('알 수 없는 링크예요.')

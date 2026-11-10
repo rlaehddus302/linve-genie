@@ -70,6 +70,8 @@ function expectLiveCheck(ask: HTMLElement, title: string, channel: string) {
 async function agree(channel = '다육이네') {
   const heading = await screen.findByRole('heading', { name: '이 라이브에 연결할까요?' })
   const page = heading.closest('[role="dialog"]') as HTMLElement
+  // D-UX4-121: 확인 화면으로 바로 넘어오고 라이브 정보는 그 화면에서 받는다 — 받기 전엔 [연결하기]가 꺼져 있다
+  await within(page).findByTestId('live-check-title')
   expectLiveCheck(page, '오늘 경매', channel)
   fireEvent.click(within(page).getByRole('button', { name: '연결하기' }))
 }
@@ -126,6 +128,7 @@ describe('콘솔 유튜브 (앱)', () => {
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
     heading = await screen.findByRole('heading', { name: '이 라이브에 연결할까요?' })
     page = heading.closest('[role="dialog"]') as HTMLElement
+    await within(page).findByTestId('live-check-title') // D-UX4-121: 정보를 받은 뒤에야 [연결하기]가 켜진다
     expectLiveCheck(page, '오늘 경매', '<b>새채널</b>')
     fireEvent.click(within(page).getByRole('button', { name: '연결하기' }))
     // D-UX4-95: 연결 정보 줄의 채널 이름 — 글자로만

@@ -9,7 +9,7 @@ import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { openAuthSessionAsync, openBrowserAsync } from 'expo-web-browser'
 import { useEffect, useMemo } from 'react'
-import { Linking, Platform } from 'react-native'
+import { Linking } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { installProductionNative, PrinterDevicePicker } from '../src/native/production.tsx'
 import { configureApi } from '../src/api/config.ts'
@@ -74,13 +74,6 @@ function StreamKeeper() {
   return <KeptStreamAudio session={services.voice} keep={services.streamKeep} signedIn={session.state === 'in'} />
 }
 
-/** 쌓인 화면 기본 설정 (D-UX3-24 가장자리 밀기만 · D-UX4-120 아이폰 넘김이 넘치지 않게). 안드로이드는 simple_push를 기본 넘김으로 읽는다 */
-const STACK_OPTIONS = {
-  headerShown: false,
-  fullScreenGestureEnabled: false,
-  ...(Platform.OS === 'ios' ? { animation: 'simple_push', animationMatchesGesture: true } as const : {}),
-} as const
-
 export default function RootLayout() {
   const services = useMemo(() => createServices(), [])
   return (
@@ -94,9 +87,7 @@ export default function RootLayout() {
           {/* 뒤로 가기는 왼쪽 가장자리에서 밀 때만 (D-UX3-24): iOS 26부터 기본이 '화면 어디서 밀어도 뒤로'라 라벨 끌기·가로 밀기까지 뒤로 갔다 */}
           {/* 쌓인 화면에서 돌아와 다시 보이면 그 화면의 서버 자료를 뒤에서 조용히 다시 받는다 (D-UX4-77) */}
           {/* 경로 안에 겹쳐 그린 화면이 열려 있으면 그 경로의 밀어 뒤로 가기를 끈다 — 겹친 화면이 스스로 밀려 닫힌다 (D-UX4-50) */}
-          {/* 빠르게 밀어 뒤로 가면 이전 화면이 오른쪽으로 7pt 넘쳤다 돌아오던 것 (D-UX4-120): iOS 26 기본 넘김이 손가락 속도를 스프링으로 이어받아 넘쳤다 —
-              아이폰은 넘치지 않는 넘김(simple_push: 아래 화면 30% 따라 밀림·그림자, 충분히 감쇠한 스프링)을 쓰고 밀기도 같은 넘김으로(animationMatchesGesture) */}
-          <Stack screenOptions={STACK_OPTIONS} screenLayout={({ navigation, children }) => <RouteSwipeProvider setEnabled={(enabled) => navigation.setOptions({ gestureEnabled: enabled })}><ScreenFocusProvider navigation={navigation}>{children}</ScreenFocusProvider></RouteSwipeProvider>}>
+          <Stack screenOptions={{ headerShown: false, fullScreenGestureEnabled: false }} screenLayout={({ navigation, children }) => <RouteSwipeProvider setEnabled={(enabled) => navigation.setOptions({ gestureEnabled: enabled })}><ScreenFocusProvider navigation={navigation}>{children}</ScreenFocusProvider></RouteSwipeProvider>}>
             {/* 탭 화면끼리는 화면 전환 없이 바꿔 끼운다 — 짧은 좌우 밀림은 TabFrame이 낸다 (D-UX3-01) */}
             {TAB_SCREENS.map((name) => (
               <Stack.Screen key={name} name={name} options={{ animation: 'none' }} />

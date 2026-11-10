@@ -62,6 +62,8 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     fireEvent.change(await screen.findByLabelText('라이브 링크'), { target: { value: 'https://youtu.be/tWnNGwvdN40' } })
     // D-UX4-117: 옛 기대 [확인] → 팝업 [맞아요] → 새 기대 [다음] → 연결 확인 화면 [연결하기]
     fireEvent.click(await screen.findByRole('button', { name: '다음' }))
+    // D-UX4-121: 확인 화면은 바로 뜨고 라이브 정보를 받은 뒤에야 [연결하기]가 켜진다
+    await screen.findByTestId('live-check-title')
     fireEvent.click(await screen.findByRole('button', { name: '연결하기' }))
     expect(await screen.findByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expectNoBillingWords()

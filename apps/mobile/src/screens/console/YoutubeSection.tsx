@@ -357,6 +357,50 @@ export function LiveCheck({ title, channel, channelId }: { readonly title: strin
   )
 }
 
+type Ask =
+  | { readonly kind: 'live'; readonly video: string; readonly loading: boolean; readonly title: string; readonly name: string; readonly channelId: string | null }
+  | { readonly kind: 'firstChannel'; readonly video: string; readonly name: string }
+
+/** 라이브 정보를 받는 동안의 카드 (D-UX4-121): 같은 자리·크기에 회색 막대 — 받으면 그 자리에 정보가 들어온다 */
+export function LiveCheckLoading() {
+  const { p } = useKit()
+  const bar = (width: `${number}%`, height: number) => <View style={{ width, height, borderRadius: 6, borderCurve: 'continuous', backgroundColor: p.soft }} />
+  return (
+    <View testID="live-check-loading" role="progressbar" aria-label="라이브 정보를 불러오고 있어요" style={{ gap: SPACE.md, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+        <PlatformIcon platform="youtube" size={CHECK_ICON} />
+        <Txt step="body" weight="medium" color="textSub">
+          유튜브
+        </Txt>
+      </View>
+      {bar('90%', 18)}
+      {bar('55%', 18)}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+        <View style={{ width: CHECK_ICON, height: CHECK_ICON, borderRadius: CHECK_ICON / 2, borderCurve: 'continuous', backgroundColor: p.soft }} />
+        {bar('35%', 14)}
+      </View>
+    </View>
+  )
+}
+
+/** 미리 보기가 없는 서버: 넣은 링크만 보인다 (D-UX4-121) */
+function LiveCheckLink({ video }: { readonly video: string }) {
+  const { p } = useKit()
+  return (
+    <View testID="live-check" style={{ gap: SPACE.md, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+      <View testID="live-check-platform" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+        <PlatformIcon platform="youtube" size={CHECK_ICON} />
+        <Txt step="body" weight="medium" color="textSub">
+          유튜브
+        </Txt>
+      </View>
+      <Txt step="body" testID="live-check-link">
+        {video}
+      </Txt>
+    </View>
+  )
+}
+
 export function LinkUnknownChip({ onPress }: { readonly onPress: () => void }) {
   return <SoftChip label={LINK_UNKNOWN} onPress={onPress} testID="link-unknown" />
 }
@@ -460,8 +504,12 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /** 잇기 전 확인 (D-UX4-08): title이 있으면 미리 본 방송(제목·채널), 없으면 서버가 처음 잇는 채널이라고 알린 것 */
-  const [ask, setAsk] = useState<{ video: string; name: string; title: string | null; channelId: string | null } | null>(null)
+  /**
+   * 잇기 전 확인 (D-UX4-08): live = 연결 확인 화면(D-UX4-117 — loading이면 라이브 정보를 받는 중, D-UX4-121), firstChannel = 서버가 처음 잇는 채널이라고 알린 것(팝업)
+   */
+  const [ask, setAsk] = useState<Ask | null>(null)
+  /** 미리 보기 요청 번호 — 뒤로 갔다 다시 오면 옛 답은 버린다 */
+  const looking = useRef(0)
   // 팝업이 닫히는 동안에도 채널 이름이 남아 있게
   const shownAsk = useRef(ask)
   if (ask !== null) shownAsk.current = ask
@@ -556,28 +604,40 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
     }
   }
 
-  /** 서버 읽기면 잇기 전에 늘 방송 제목·채널 이름을 미리 보고 확인 팝업을 띄운다 (D-UX4-08 — 처음이든 아니든). 미리 보기가 없는 서버면 옛 흐름 */
-  const check = async (video: string) => {
+  /**
+   * 서버 읽기면 잇기 전에 늘 연결 확인 화면 (D-UX4-08 → D-UX4-117). [다음]·[연결]을 누르면 기다리지 않고 바로 넘어간다 (D-UX4-121, 사용자 지시
+   * "라이브 링크 넣고 다음이나 연결 누르면 로딩이 긴데 … 연결하기 버튼 눌러야 실제로 연결해야지"): 아무것도 잇지 않고, 라이브 정보는 확인 화면에서 받는다.
+   * 최근 라이브 줄은 이미 아는 제목·채널을 바로 쓴다(known). 미리 보기가 링크를 거절하면 링크 화면으로 돌아가 칸 아래에 까닭.
+   * 미리 보기가 없는 서버(PREVIEW_UNAVAILABLE)면 정보 없이 확인 화면에 남고 [연결하기]로 잇는다. 구글 연결로 읽는 서버(webChat 없음)는 옛 흐름.
+   */
+  const check = async (video: string, known?: { readonly title: string; readonly name: string; readonly channelId: string | null }) => {
     if (busy || disabled === true || video.trim() === '') return
     if (webChat === null) {
       void link(video)
       return
     }
-    setBusy(true)
     setError(null)
-    setAsk(null)
-    let fallback = false
+    looking.current += 1
+    const ticket = looking.current
+    if (known !== undefined) {
+      setAsk({ kind: 'live', video, loading: false, ...known })
+      return
+    }
+    setAsk({ kind: 'live', video, loading: true, name: '', title: '', channelId: null })
     try {
       const seen = await withRetry(() => post<{ title?: unknown; channelTitle?: unknown; channelId?: unknown }>('/api/youtube/preview', { video }))
-      setAsk({ video, name: channelName(seen.channelTitle), title: broadcastTitleText(seen.title), channelId: typeof seen.channelId === 'string' && seen.channelId !== '' ? seen.channelId : null })
+      if (looking.current !== ticket) return
+      setAsk((now) => (now?.kind === 'live' && now.video === video ? { kind: 'live', video, loading: false, name: channelName(seen.channelTitle), title: broadcastTitleText(seen.title), channelId: typeof seen.channelId === 'string' && seen.channelId !== '' ? seen.channelId : null } : now))
     } catch (caught) {
       if (!isApiError(caught)) throw caught
-      if (caught.code === 'PREVIEW_UNAVAILABLE') fallback = true
-      else setError(shortLinkError(caught))
-    } finally {
-      setBusy(false)
+      if (looking.current !== ticket) return
+      if (caught.code === 'PREVIEW_UNAVAILABLE') {
+        setAsk((now) => (now?.kind === 'live' && now.video === video ? { ...now, loading: false } : now))
+      } else {
+        setAsk(null)
+        setError(shortLinkError(caught))
+      }
     }
-    if (fallback) void link(video)
   }
 
   const link = async (video: string, confirmed = false) => {
@@ -587,7 +647,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
     setBusy(true)
     setError(null)
     // 확인 화면에서 [연결하기]면 보내는 동안 그 화면 그대로 (D-UX4-117) — 처음 잇는 채널 팝업은 닫는다
-    setAsk((now) => (confirmed && now !== null && now.title !== null ? now : null))
+    setAsk((now) => (confirmed && now?.kind === 'live' ? now : null))
     try {
       const body: LinkBody = confirmed ? { requestId, video, confirmInvited: true } : { requestId, video }
       await submit({ platform: 'youtube', body })
@@ -598,7 +658,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
       if (!confirmed && caught.code === INVITED_CONFIRM_CODE) {
         const channel = caught.details.channel
         const title = typeof channel === 'object' && channel !== null ? (channel as { title?: unknown }).title : undefined
-        setAsk({ video, name: channelName(title), title: null, channelId: null })
+        setAsk({ kind: 'firstChannel', video, name: channelName(title) })
       } else {
         // 못 이으면 링크 화면으로 돌아가 칸 아래에 까닭을 보인다
         setAsk(null)
@@ -662,7 +722,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
                       </Txt>
                     )}
                   </View>
-                  <ConnectButton label={`${name} 연결`} disabled={off || other} onPress={() => void check(item.videoId)} />
+                  <ConnectButton label={`${name} 연결`} disabled={off || other} onPress={() => void check(item.videoId, { title, name: channelName(item.channelTitle), channelId: item.channelId ?? null })} />
                 </View>
               )
             })}
@@ -686,7 +746,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
       />
       {/* 처음 잇는 채널(미리 보기 없는 옛 흐름)만 팝업 — 미리 본 라이브는 연결 확인 화면으로 (D-UX4-117) */}
       <PopupDialog
-        visible={ask !== null && ask.title === null}
+        visible={ask?.kind === 'firstChannel'}
         name={FIRST_CHANNEL_GROUP}
         message={firstChannelPopup(shownAsk.current?.name ?? '')}
         cancelLabel="아니에요"
@@ -702,12 +762,12 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
   // 링크를 넣기 전엔 단추를 보이지 않는다 (D-UX3-07)
   const action = address.trim() === '' || step !== 'none' ? null : <BigButton label={label} primary disabled={off} onPress={() => confirm(address.trim())} />
   // 연결 확인 화면 (D-UX4-117): 미리 본 라이브 정보 카드(제목은 자르지 않음) + [연결하기]
-  const confirming = ask !== null && ask.title !== null
+  const confirming = ask?.kind === 'live'
   const seen = shownAsk.current
   const confirmBody =
-    seen === null || seen.title === null ? null : (
+    seen === null || seen.kind !== 'live' ? null : (
       <View style={{ gap: SPACE.lg }}>
-        <LiveCheck title={seen.title} channel={seen.name} channelId={seen.channelId} />
+        {seen.loading ? <LiveCheckLoading /> : seen.title === '' ? <LiveCheckLink video={seen.video} /> : <LiveCheck title={seen.title} channel={seen.name} channelId={seen.channelId} />}
         {confirmNotice}
       </View>
     )
@@ -715,14 +775,18 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
     <BigButton
       label={LINK_CONFIRM_ACTION}
       primary
-      disabled={off}
+      disabled={off || (ask?.kind === 'live' && ask.loading)}
       onPress={() => {
         if (ask !== null) void link(ask.video, true)
       }}
     />
   )
   // recheck: 앱 안 브라우저를 닫고 돌아왔을 때 클립보드를 다시 본다(앱이 뒤로 가지 않아 앞으로 옴 알림이 없다)
-  return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek, confirming, confirmBody, confirmAction, back: () => setAsk(null) }
+  const back = () => {
+    looking.current += 1
+    setAsk(null)
+  }
+  return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek, confirming, confirmBody, confirmAction, back }
 }
 
 /**
