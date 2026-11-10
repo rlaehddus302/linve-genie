@@ -7,6 +7,7 @@ import type { ApiError } from '../api/client.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
 import { Tap, Txt, useKit } from './kit/index.ts'
 import { RADIUS, GUTTER, SPACE, pressedFill } from './kit/tokens.ts'
+import { latestFirst } from '../lib/latest-days.ts'
 
 interface Day {
   readonly date: string
@@ -17,7 +18,7 @@ interface Day {
 export function useRealDays(initial?: string): { days: readonly string[] | null; date: string | null; setDate: (date: string) => void; error: ApiError | null } {
   // 날짜 목록은 기억해 둔 것을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 다시 받다 실패하면 보이던 목록 그대로
   const { data, error, checked } = useCachedGet<{ days: Day[] }>('/api/days')
-  const days = useMemo(() => (data === null ? null : data.days.filter((day) => !day.rehearsal).map((day) => day.date)), [data])
+  const days = useMemo(() => (data === null ? null : latestFirst(data.days).map((day) => day.date)), [data])
   // 고른 날짜가 없으면 가장 최근 — 서버에서 새로 받은 목록으로 한 번 정한 뒤에는 새 목록이 와도 바꾸지 않는다(보던 날짜가 저절로 넘어가지 않게).
   // 기억해 둔 목록만 있는 동안은 따라간다(그 사이 새 방송 날이 생겼으면 가장 최근 날로)
   const [picked, setDate] = useState<string | null>(initial ?? null)

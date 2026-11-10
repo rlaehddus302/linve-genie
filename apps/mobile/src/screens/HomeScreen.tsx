@@ -23,6 +23,7 @@ import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcas
 export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
+import { latestFirst } from '../lib/latest-days.ts'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
@@ -235,7 +236,7 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
   const error = broadcasts.error
   const load = broadcasts.reload
   const days = useCachedGet<{ days: { date: string; rehearsal: boolean }[] }>('/api/days', refresh).data
-  const day = days === null ? null : (days.days.find((item) => !item.rehearsal)?.date ?? null)
+  const day = days === null ? null : (latestFirst(days.days)[0]?.date ?? null)
   // 시작 안내 줄 (웹 홈이 마법사를 여는 조건과 같다 — 옛 서버는 받지 못해 줄이 없다)
   const wizard = useCachedGet<{ wizard: WizardState }>('/api/wizard', refresh).data?.wizard ?? null
 

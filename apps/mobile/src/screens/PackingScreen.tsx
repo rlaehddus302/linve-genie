@@ -22,6 +22,7 @@ import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Field, Loading, Notice, Tag } from '../ui/parts.tsx'
 import { Late, useCameLate } from '../ui/late.tsx'
 import { ParcelTagLine, TextAction } from './ParcelAddress.tsx'
+import { latestFirst } from '../lib/latest-days.ts'
 
 interface Day {
   readonly date: string
@@ -33,7 +34,7 @@ export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { reado
   const room = useTabBarRoom()
   // 다시 오면 기억해 둔 날짜·목록으로 바로 그리고 뒤에서 조용히 다시 받는다 (D-UX4-77)
   const { data: daysView, error, checked } = useCachedGet<{ days: Day[] }>('/api/days')
-  const days = useMemo(() => (daysView === null ? null : daysView.days.filter((day) => !day.rehearsal)), [daysView])
+  const days = useMemo(() => (daysView === null ? null : latestFirst(daysView.days)), [daysView])
   const [picked, setDate] = useState<string | null>(initialDate ?? null)
   const date = picked ?? days?.[0]?.date ?? null
   // 날짜는 서버에서 새로 받은 목록으로 한 번 정하고, 그 뒤로는 새 목록이 와도 바꾸지 않는다 — 보던 날짜가 저절로 넘어가지 않게.

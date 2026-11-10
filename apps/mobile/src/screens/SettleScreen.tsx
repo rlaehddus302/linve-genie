@@ -111,7 +111,9 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
   const summary = flowSummary(all, steps)
   const stepsOf = (s: Settlement) => steps?.get(s.buyer)
   const row = (s: Settlement) => <SettleRow key={`${s.buyer}/${s.date}`} settlement={s} name={names.name(s.buyer)} steps={stepsOf(s)} parcel={parcels.get(s.buyer) ?? null} onPress={() => pick(JSON.stringify([s.buyer, s.date]))} />
-  const todo = all.filter((s) => nextStepOf(s, stepsOf(s)) !== null)
+  // 할 일 남은 손님은 다음 할 일 순서(정보 → 확인서 → 입금)로 모으고, 같은 단계 안에서는 받을 돈 많은 순(sortForSeller) 그대로 (D-UX4-124)
+  const stepRank = (s: Settlement) => { const next = nextStepOf(s, stepsOf(s)); return next === null ? STEP_ORDER.length : STEP_ORDER.indexOf(next) }
+  const todo = all.filter((s) => nextStepOf(s, stepsOf(s)) !== null).sort((a, b) => stepRank(a) - stepRank(b))
   const done = all.filter((s) => nextStepOf(s, stepsOf(s)) === null)
   const picked = step === null ? null : all.filter((s) => stepLeft(step, s, stepsOf(s)))
   return (
@@ -172,9 +174,9 @@ function StepCell({ step, left, on, onPress }: { readonly step: OrderStep; reado
       aria-checked={on}
       aria-label={`${STEP_TITLE[step]} ${count}`}
       onPress={onPress}
-      style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.min + SPACE.lg, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, backgroundColor: on ? p.soft : pressed ? p.pressed : p.background })}
+      style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.min + SPACE.lg, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', gap: 2, borderWidth: 2, borderColor: on ? p.primary : 'transparent', backgroundColor: on ? p.surface : pressed ? p.pressed : p.background })}
     >
-      <Txt step="caption" color="textSub" center numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{STEP_TITLE[step]}</Txt>
+      <Txt step="caption" color={on ? 'primaryText' : 'textSub'} weight={on ? 'medium' : 'regular'} center numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{STEP_TITLE[step]}</Txt>
       <Txt step="body" weight="medium" center color={left !== null && left > 0 ? 'warnText' : 'textSub'} numberOfLines={1}>{count}</Txt>
     </Tap>
   )

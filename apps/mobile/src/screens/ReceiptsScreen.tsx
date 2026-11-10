@@ -44,6 +44,7 @@ import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, ChipButton, MenuRow, PAGE_SIDE, SectionCard } from './order-parts.tsx'
 import { shownBroadcastTitle } from './BroadcastList.tsx'
 import { Late, useCameLate } from '../ui/late.tsx'
+import { latestFirst } from '../lib/latest-days.ts'
 
 export const RECEIPTS_TITLE = '영수증·판매대장'
 export const NOT_ENDED = '라이브를 끝낸 뒤 보낼 수 있어요.'
@@ -555,7 +556,7 @@ function LedgerSheet({ initial, onClose }: { readonly initial: string | null; re
   const daysView = useCachedGet<{ days: { date: string; rehearsal: boolean }[] }>('/api/days')
   const listView = useCachedGet<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
   const ready = daysView.data !== null && listView.data !== null
-  const days = useMemo(() => (daysView.data === null || listView.data === null ? null : daysView.data.days.filter((day) => !day.rehearsal).map((day) => day.date)), [daysView.data, listView.data])
+  const days = useMemo(() => (daysView.data === null || listView.data === null ? null : latestFirst(daysView.data.days).map((day) => day.date)), [daysView.data, listView.data])
   const broadcasts = useMemo(() => (listView.data === null || daysView.data === null ? null : listView.data.broadcasts.filter((item) => !item.rehearsal)), [listView.data, daysView.data])
   const loadError = ready ? null : (daysView.error ?? listView.error)
   const [chosenFrom, setFrom] = useState<string | null>(initial)
