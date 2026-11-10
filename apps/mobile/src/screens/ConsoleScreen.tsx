@@ -117,6 +117,8 @@ function AwayLine() {
  */
 /** 붙는 머리 = 라이브 화면 목록의 둘째 자식(탭 바) (D-UX4-98) */
 export const STICKY_TABS = [1]
+/** 탭 바 알약 위 여백 — 맨 위에 있을 때도, 올리다 위에 붙었을 때도 머리 아래 이만큼 (D-UX4-110, 사용자 지시 2026-11-10 "중간에 올릴 때 탭바와 상단영역 사이 여백과 끝까지 올렸을 때 여백이 달라") */
+export const TABS_TOP = SPACE.sm
 
 export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews, openLabels, openLink, openAdd, openManage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; readonly openManage?: () => void; readonly refresh?: number }) {
   const services = useServices()
@@ -401,7 +403,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
           </View>
           {/* 둘째 자식: 탭 바 — 위에 붙을 때 밑 목록이 비치지 않게 바탕을 칠하고 화면 끝까지 */}
-          <View testID="console-tabs" style={{ marginHorizontal: -GUTTER, paddingHorizontal: GUTTER, paddingVertical: SPACE.xs, marginVertical: -SPACE.xs, backgroundColor: p.background }}>
+          {/* 위 여백은 탭 바 안에(TABS_TOP) — 목록 줄 사이(gap)를 위로 지워, 맨 위에 있을 때와 올리다 붙었을 때 머리↔알약 여백이 같다 (D-UX4-110) */}
+          <View testID="console-tabs" style={{ marginHorizontal: -GUTTER, paddingHorizontal: GUTTER, marginTop: -SPACE.sm, paddingTop: TABS_TOP, paddingBottom: SPACE.xs, marginBottom: -SPACE.xs, backgroundColor: p.background }}>
             <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
               {tabPills}
             </View>

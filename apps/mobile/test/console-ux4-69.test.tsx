@@ -165,4 +165,21 @@ describe('탭 바 반고정 (D-UX4-93 → D-UX4-98 → D-UX4-104 → D-UX4-109)'
     expect(screen.getAllByRole('tablist')).toHaveLength(1)
     expect(screen.getByTestId('console-tabs')).toBeTruthy()
   })
+
+  // D-UX4-110 (사용자 "중간에 올릴 때 탭바와 상단영역 사이 여백과 끝까지 올렸을 때 여백이 달라"): 옛 탭 바는 위 여백 4 + 목록 줄 사이 8 - 4로,
+  // 맨 위에서는 알약이 머리 아래 8, 붙었을 때는 4였다. 이제 목록 줄 사이(8)를 위 margin으로 지우고 여백은 탭 바 안에만 — 두 경우 모두 TABS_TOP
+  it('탭 바 위 여백은 탭 바 안에만 있다 — 맨 위와 붙었을 때 머리↔알약 여백이 같다', async () => {
+    const { TABS_TOP } = await import('../src/screens/ConsoleScreen.tsx')
+    const { SPACE } = await import('../src/ui/kit/tokens.ts')
+    const world = makeWorld({ products: [] })
+    await open(world)
+    const tabs = getComputedStyle(screen.getByTestId('console-tabs'))
+    expect(tabs.marginTop).toBe(`-${String(SPACE.sm)}px`)
+    expect(tabs.paddingTop).toBe(`${String(TABS_TOP)}px`)
+    // 목록 묶음의 줄 사이가 SPACE.sm이라 위 margin이 그 줄 사이를 정확히 지운다
+    const { readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const source = readFileSync(join(import.meta.dirname, '../src/screens/ConsoleScreen.tsx'), 'utf8')
+    expect(source).toMatch(/contentContainerStyle=\{\{ flexGrow: 1, paddingHorizontal: GUTTER, [^}]*gap: SPACE\.sm \}\}/)
+  })
 })
