@@ -67,12 +67,18 @@ describe('라이브 연결 정보 (D-UX4-95)', () => {
     // 채널 사진 (홈 "지금 라이브 중"과 같은 경로)
     await waitFor(() => expect(within(channel).getByTestId('link-info-avatar').outerHTML).toContain(AVATAR))
 
+    // D-UX4-107 (사용자 지시 2026-11-10 "채널과 라이브제목 자리 바꾸기"): 옛 순서 플랫폼 · 라이브 제목 · 채널 → 플랫폼 · 채널 · 라이브 제목
+    const order = ['link-info-platform', 'link-info-channel', 'link-info-title'].map((id) => screen.getByTestId(id))
+    expect(before(order[0]!, order[1]!)).toBe(true)
+    expect(before(order[1]!, order[2]!)).toBe(true)
+    // 옛 이름 "라이브로 바로가기" → "라이브 바로가기"
+    expect(LINK_INFO_ROWS.open).toBe('라이브 바로가기')
     // 정보 줄은 누를 수 없다(› 없음), 메뉴는 바로가기 · 연결 끊기 둘
     expect(within(platform).queryByRole('button')).toBeNull()
     expect(within(page).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['뒤로', LINK_INFO_ROWS.open, END_LINK_LABEL])
   })
 
-  it('[라이브로 바로가기] → 그 라이브 주소를 기기에서 연다 (유튜브 앱, 없으면 브라우저)', async () => {
+  it('[라이브 바로가기] → 그 라이브 주소를 기기에서 연다 (유튜브 앱, 없으면 브라우저)', async () => {
     const { world } = linkWorld()
     const opened: string[] = []
     setWebOpener(async (url) => {

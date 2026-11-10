@@ -1,8 +1,10 @@
 // 아래 창 (D-UX4-76, 사용자 지시 2026-11-10 토스 "비밀번호 인증" 사진): 앱의 모든 아래에서 올라오는 판은 이 모듈 하나 — BottomSheet(내용 자유), ConfirmSheet(확인 질문).
 // 모양: 화면 양옆·아래에서 GUTTER(12)만큼 떨어져 뜬 흰 둥근 카드(모서리 28, 네 귀 모두) — 뒤 회색 화면의 흰 묶음과 같은 줄에 선다. 맨 위 가운데 옅은 회색 손잡이(40×5).
 // 손맛: 손잡이·제목을 잡고(내용이 넘치지 않으면 카드 어디든) 아래로 끌면 손가락을 따라 내려오고, 충분히 내렸거나 빠르게 튕기면 닫힌다(아니면 제자리로).
-// 카드의 단추 아닌 곳을 꾹 누르면 단추처럼 카드 전체가 살짝(0.98) 들어갔다 돌아온다. 아래 단추는 늘 카드 바닥에 붙어 있고(내용만 스크롤) 단추의 옆·아래 여백이 같다.
-// 닫기 단추가 늘 있다 — 끌어내리기·바깥 누르기는 덤이다. 웹(시험)은 움직이지 않는다.
+// 카드의 단추 아닌 곳을 꾹 누르면 단추처럼 카드 전체가 살짝(0.98) 들어갔다 돌아온다. 아래 단추를 주면 카드 바닥에 붙어 있고(내용만 스크롤) 단추의 옆·아래 여백이 같다.
+// 닫기 단추는 없다 (D-UX4-103, 사용자 지시 2026-11-10 "모든 아래팝업의 닫기 버튼을 없애") — 끌어내리기·바깥 누르기·안드로이드 뒤로로 닫는다. 단추를 안 주면 단추 줄도 없다.
+// 닫히는 동안에는 열려 있던 마지막 모습(제목·내용·단추)을 그대로 보인다 (D-UX4-103 "닫을 때 안에 내용이 사라져서 닫김") — 부르는 쪽이 닫으며 내용을 비워도 빈 카드가 내려가지 않게.
+// 반 화면 판(half, D-UX4-106): 화면 양옆·아래에 붙고 위 두 귀만 둥근 흰 판 — 화면 높이의 절반 이상. 웹(시험)은 움직이지 않는다.
 // 움직임 (D-UX3-05): 뒤 어두운 막은 제자리에서 서서히 짙어지고(페이드), 판만 아래에서 올라온다 — 막이 판과 함께 밀려 올라오지 않게.
 // 닫을 때도 막은 서서히 걷히고 판은 내려간 뒤 사라진다. 키보드가 뜨면 판이 키보드 위로 올라간다(입력 칸이 가려지지 않게).
 import { Children, useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
@@ -22,8 +24,16 @@ export interface BottomSheetProps {
   /** 제목 아래 회색 설명 한 줄 (토스 "비밀번호 인증" 아래 글) */
   readonly description?: string
   readonly children?: ReactNode
-  /** 판 맨 아래 고정 단추들 (BigButton). 없으면 "닫기" 하나가 붙는다. */
+  /** 판 맨 아래 고정 단추들 (BigButton). 없으면 단추 줄도 없다 — 닫기 단추는 붙이지 않는다 (D-UX4-103) */
   readonly actions?: ReactNode
+  /**
+   * 반 화면 판 (D-UX4-106): 화면 양옆·아래 끝까지 붙은 흰 판 — 위 두 귀만 둥글고(SHEET.radius), 높이는 화면의 절반 이상, 내용 자리가 남는 높이를 채운다.
+   * 키보드가 없으면 홈 표시줄 자리만큼 아래를 비우고(흰 바탕은 화면 끝까지), 키보드가 뜨면 판이 키보드 위로 올라간다.
+   * 열린 채로 바꿔도 모양만 다시 놓인다 — 안의 입력 칸이 새로 만들어지지 않아 커서가 그대로다.
+   */
+  readonly half?: boolean
+  /** 내용 자리 안쪽 여백(양옆 24)·줄 사이(12). false면 둘 다 없다 — 숫자판처럼 끝까지 붙는 내용을 부르는 쪽이 직접 놓는다 (기본 true) */
+  readonly bodyPadding?: boolean
   readonly testID?: string
 }
 
@@ -32,9 +42,10 @@ export const SHEET_OUT_MS = 200
 
 /**
  * 아래 창 치수 (D-UX4-76, 토스 사진을 재어): 카드 모서리 28 · 손잡이 40×5(위에서 10) · 글 안쪽 여백 24(제목·내용·고르기 줄 글이 한 줄에 선다) ·
- * 아래 단추는 카드 안에서 옆·아래 모두 16.
+ * 아래 단추는 카드 안에서 옆·아래 모두 16. 단추가 없으면 내용 아래를 글 옆 여백과 같은 24만큼 띄운다 (D-UX4-103).
+ * 반 화면 판은 화면 높이의 halfMin(절반) 이상 (D-UX4-106).
  */
-export const SHEET = { radius: 28, handleWidth: 40, handleHeight: 5, handleTop: 10, side: PAGE.side, buttonInset: SPACE.lg } as const
+export const SHEET = { radius: 28, handleWidth: 40, handleHeight: 5, handleTop: 10, side: PAGE.side, buttonInset: SPACE.lg, end: PAGE.side, halfMin: 0.5 } as const
 
 /** 카드 단추 아닌 곳을 꾹 누르면 줄어드는 비율 (단추 0.97보다 덜 — 큰 판이라) */
 export const SHEET_PRESS_SCALE = 0.98
@@ -51,6 +62,17 @@ export const SHEET_DRAG = { close: 96, flick: 0.9, start: 6 } as const
 export function sheetDragCloses(dy: number, vy: number, cardHeight: number): boolean {
   const far = cardHeight > 0 ? Math.min(SHEET_DRAG.close, cardHeight / 3) : SHEET_DRAG.close
   return dy > far || (vy > SHEET_DRAG.flick && dy > SHEET_DRAG.start)
+}
+
+/**
+ * 닫히는 동안 붙잡아 두기 (D-UX4-103): 열려 있는 동안은 받은 값을 그대로 쓰고, 닫히기 시작하면(visible이 false) 열려 있던 마지막 값을 돌려준다.
+ * 부르는 쪽은 흔히 닫으면서 내용도 비운다(`visible={x !== null}` · `{x ? <내용 /> : null}`) — 닫히는 움직임(200ms) 동안 빈 카드가 보이지 않게.
+ * 다시 열리면 새 값을 쓴다. 붙잡은 내용 요소는 같은 요소라 다시 그리지도 않는다.
+ */
+export function useHeldWhileClosing<T>(visible: boolean, value: T): T {
+  const held = useRef(value)
+  if (visible) held.current = value
+  return held.current
 }
 
 /** 열고 닫는 움직임: 0 = 닫힘, 1 = 열림. 닫히는 움직임이 끝나야 판을 내린다. 웹(시험)·움직임 줄이기는 바로 */
@@ -179,7 +201,7 @@ function useSheetGesture(visible: boolean, onClose: () => void): SheetGesture {
 
 const hasContent = (children: ReactNode) => Children.toArray(children).length > 0
 
-export function BottomSheet({ visible, onClose, title, description, children, actions, testID }: BottomSheetProps) {
+export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetProps) {
   const { p } = useKit()
   const inset = useBottomInset()
   const top = useTopInset()
@@ -187,14 +209,19 @@ export function BottomSheet({ visible, onClose, title, description, children, ac
   const { height } = useWindowDimensions()
   const { mounted, progress } = useSheetMotion(visible)
   const gesture = useSheetGesture(visible, onClose)
+  // 닫히는 동안은 열려 있던 마지막 모습 그대로 (D-UX4-103)
+  const { title, description, children, actions, half = false, bodyPadding = true } = useHeldWhileClosing(visible, look)
   const viewHeight = useRef(0)
   const contentHeight = useRef(0)
-  const gap = sheetBottomGap(inset, keyboard)
+  // 반 화면 판은 화면 끝에 붙는다 — 아래 띄움 없이 홈 표시줄 자리만 판 안에서 비운다(키보드가 뜨면 키보드 위라 0) (D-UX4-106)
+  const gap = half ? 0 : sheetBottomGap(inset, keyboard)
   const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, BACKDROP_OPACITY] })
   const rise = progress.interpolate({ inputRange: [0, 1], outputRange: [height, 0] })
-  const scale = gesture.pressed.interpolate({ inputRange: [0, 1], outputRange: [1, SHEET_PRESS_SCALE] })
+  // 화면 끝에 붙은 반 화면 판은 꾹 눌러도 줄지 않는다 (양옆이 떨어져 보이지 않게)
+  const scale = gesture.pressed.interpolate({ inputRange: [0, 1], outputRange: [1, half ? 1 : SHEET_PRESS_SCALE] })
   const body = hasContent(children)
   const headed = title !== '' || (description !== undefined && description !== '')
+  const footed = actions !== undefined && actions !== null
   const measure = () => gesture.setScrollable(contentHeight.current > viewHeight.current + 1)
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
@@ -203,6 +230,7 @@ export function BottomSheet({ visible, onClose, title, description, children, ac
           {/* 누름 예외: 시트 바깥 (D-UX4-72) */}
           <Pressable aria-label="판 닫기" role="button" onPress={onClose} style={{ flex: 1 }} />
         </Animated.View>
+        {/* half를 바꿔도 같은 요소 나무 — 모양(style)만 바뀌어 안의 입력 칸이 그대로 남는다 (D-UX4-106) */}
         <Animated.View
           role="dialog"
           aria-modal
@@ -211,16 +239,22 @@ export function BottomSheet({ visible, onClose, title, description, children, ac
           {...gesture.card}
           onLayout={(event) => gesture.setCardHeight(event.nativeEvent.layout.height)}
           style={{
-            marginHorizontal: GUTTER,
+            marginHorizontal: half ? 0 : GUTTER,
             marginBottom: gap,
+            paddingBottom: half && !keyboard ? inset : 0,
+            minHeight: half ? Math.round(height * SHEET.halfMin) : undefined,
             maxHeight: Math.min(height * 0.92, height - top - gap - SPACE.xl),
             backgroundColor: p.surface,
-            borderRadius: SHEET.radius, borderCurve: 'continuous',
+            borderTopLeftRadius: SHEET.radius,
+            borderTopRightRadius: SHEET.radius,
+            borderBottomLeftRadius: half ? 0 : SHEET.radius,
+            borderBottomRightRadius: half ? 0 : SHEET.radius,
+            borderCurve: 'continuous',
             overflow: 'hidden',
             transform: [{ translateY: Animated.add(rise, gesture.drag) }, { scale }],
           }}
         >
-          <View {...gesture.head} style={{ paddingTop: SHEET.handleTop }}>
+          <View {...gesture.head} style={{ paddingTop: SHEET.handleTop, paddingBottom: body || footed ? 0 : SHEET.end }}>
             <View aria-hidden testID="sheet-handle" style={{ alignSelf: 'center', width: SHEET.handleWidth, height: SHEET.handleHeight, borderRadius: SHEET.handleHeight / 2, borderCurve: 'continuous', backgroundColor: p.soft }} />
             {headed ? (
               <View style={{ paddingHorizontal: SHEET.side, paddingTop: SPACE.lg - SPACE.xs, gap: SPACE.sm - 2 }}>
@@ -240,8 +274,16 @@ export function BottomSheet({ visible, onClose, title, description, children, ac
           {body ? (
             <ScrollView
               testID="sheet-body"
-              style={{ flexGrow: 0, flexShrink: 1 }}
-              contentContainerStyle={{ paddingHorizontal: SHEET.side, paddingTop: headed ? SPACE.xl : SPACE.md, paddingBottom: SPACE.xs, gap: SPACE.md }}
+              // 반 화면 판은 내용 자리가 남는 높이를 채운다 (D-UX4-106)
+              style={{ flexGrow: half ? 1 : 0, flexShrink: 1 }}
+              contentContainerStyle={{
+                flexGrow: half ? 1 : 0,
+                paddingHorizontal: bodyPadding ? SHEET.side : 0,
+                paddingTop: headed ? SPACE.xl : SPACE.md,
+                // 단추 줄이 없으면 내용 아래를 글 옆 여백만큼 띄운다 (D-UX4-103)
+                paddingBottom: footed ? SPACE.xs : SHEET.end,
+                gap: bodyPadding ? SPACE.md : 0,
+              }}
               keyboardShouldPersistTaps="handled"
               onLayout={(event) => {
                 viewHeight.current = event.nativeEvent.layout.height
@@ -255,9 +297,11 @@ export function BottomSheet({ visible, onClose, title, description, children, ac
               {children}
             </ScrollView>
           ) : null}
-          <View testID="sheet-actions" style={{ paddingHorizontal: SHEET.buttonInset, paddingTop: body ? SPACE.md : SPACE.xxl, paddingBottom: SHEET.buttonInset }}>
-            <ButtonRow>{actions ?? <BigButton kind="secondary" label="닫기" onPress={onClose} />}</ButtonRow>
-          </View>
+          {footed ? (
+            <View testID="sheet-actions" style={{ paddingHorizontal: SHEET.buttonInset, paddingTop: body ? SPACE.md : SPACE.xxl, paddingBottom: SHEET.buttonInset }}>
+              <ButtonRow>{actions}</ButtonRow>
+            </View>
+          ) : null}
         </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
@@ -367,8 +411,10 @@ export function FormPage({ title, name, onBack, backLabel = '뒤로', children, 
 }
 
 /** 전체 화면 판 — FormPage를 앱 안 판(Modal)으로. 밀어서 뒤로 가기가 필요한 곳은 경로 화면으로 FormPage를 쓴다 */
-export function FullSheet({ visible, onClose, title, name, children, actions, closeLabel = '닫기', cards, overlay, testID }: FullSheetProps) {
+export function FullSheet({ visible, onClose, testID, ...look }: FullSheetProps) {
   const top = useTopInset()
+  // 아이폰은 판이 미끄러져 내려가는 동안에도 안을 그린다 — 닫히는 동안은 열려 있던 마지막 모습 그대로 (D-UX4-103)
+  const { title, name, children, actions, closeLabel = '닫기', cards, overlay } = useHeldWhileClosing(visible, look)
   return (
     <Modal visible={visible} animationType={Platform.OS === 'web' ? 'none' : 'slide'} onRequestClose={onClose} statusBarTranslucent presentationStyle="fullScreen">
       {/* 판은 화면 맨 위(상태 막대 자리)부터 그린다 — 기기 값만큼 띄운다 (D-UX4-41) */}
@@ -431,6 +477,11 @@ export interface PopupDialogProps {
   readonly busy?: boolean
   /** 되돌릴 수 없는 일이면 오른쪽 긍정 단추만 빨간 바탕 (예: "방송 연결 끊기") — 나머지 모양은 그대로 */
   readonly danger?: boolean
+  /**
+   * 묻는 말 자리에 대신 그릴 것 (D-UX4-103) — 몇 낱말만 강조한 글처럼 글자 하나로 못 쓰는 묻는 말. 보통 Txt(step="lead" weight="bold") 안에 강조 Txt를 섞는다.
+   * 주면 message는 화면에 그리지 않고 보조 기술에 읽히는 이름으로만 쓴다(name이 없을 때).
+   */
+  readonly content?: ReactNode
   readonly onConfirm: () => void
   readonly onCancel: () => void
 }
@@ -479,8 +530,10 @@ function PopupButton({ label, kind, disabled, busy, onPress }: { readonly label:
   )
 }
 
-export function PopupDialog({ visible, message, name, description, confirmDisabled, confirmLabel, cancelLabel, busy, danger, onConfirm, onCancel }: PopupDialogProps) {
+export function PopupDialog({ visible, confirmDisabled, busy, onConfirm, onCancel, ...look }: PopupDialogProps) {
   const { p } = useKit()
+  // 닫히는 동안은 열려 있던 마지막 글·단추 이름 그대로 (D-UX4-103) — 부르는 쪽이 닫으며 묻는 말을 비워도 빈 판이 사라지지 않게
+  const { message, name, description, content, confirmLabel, cancelLabel, danger } = useHeldWhileClosing(visible, look)
   const { mounted, progress } = useSheetMotion(visible)
   const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, POPUP_DIM] })
   const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] })
@@ -499,9 +552,11 @@ export function PopupDialog({ visible, message, name, description, confirmDisabl
         >
           {/* 제목 20 굵게 (D-UX3-54, 사용자 지시 2026-11-07 "팝업 안에 제목 글자 크기가 내가 보내줬던 사진과 다름" — 토스 사진을 재어, 옛 18) */}
           <View style={{ gap: SPACE.sm, paddingHorizontal: POPUP_TEXT_SIDE - POPUP_EDGE }}>
-            <Txt step="lead" weight="bold">
-              {message}
-            </Txt>
+            {content ?? (
+              <Txt step="lead" weight="bold">
+                {message}
+              </Txt>
+            )}
             {description === undefined || description === null ? null : <Txt color="textSub">{description}</Txt>}
           </View>
           <ButtonRow>

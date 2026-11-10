@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { View } from 'react-native'
 import { isApiError } from '../../api/client.ts'
 import { DOCK_CHOICES, DOCK_DESCRIPTION, DOCK_TITLE, dockLabel, setDockChoice, useDockChoice } from '../../lib/dock-choice.ts'
-import { BigButton, BottomSheet, FullSheet, SheetChoices, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
+import { BottomSheet, FullSheet, SheetChoices, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { LABEL_PRINT_TITLE } from '../LabelPrintScreen.tsx'
@@ -40,7 +40,7 @@ export function ThanksSwitch({ on, busy, onPress }: { readonly on: boolean; read
     <View style={{ paddingHorizontal: PLAIN.side }}>
       {/* 다른 줄과 같은 글자(17 · 보통 · #4F545E — D-UX4-94) */}
       <ToggleRow title={THANKS_TITLE} titleStep="bodyLarge" titleWeight={PLAIN.weight} titleInk={PLAIN.ink} rowHeight={PLAIN.toggleRow} on={on} disabled={busy} testID="thanks-switch" onChange={onPress} onHelp={() => setHelp(true)} />
-      <BottomSheet visible={help} onClose={() => setHelp(false)} title={THANKS_HELP_TITLE} actions={<BigButton label="확인" onPress={() => setHelp(false)} />}>
+      <BottomSheet visible={help} onClose={() => setHelp(false)} title={THANKS_HELP_TITLE}>
         <Txt step="bodyLarge" color="textSub">{THANKS_HELP_BODY}</Txt>
         <ThanksExample />
       </BottomSheet>

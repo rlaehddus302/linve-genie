@@ -82,12 +82,7 @@ function ExtraSheet({ title, initial, busy, error, onClose, onSave }: { readonly
       visible
       onClose={onClose}
       title={title}
-      actions={
-        <>
-          <BigButton kind="secondary" label="닫기" onPress={onClose} />
-          <BigButton label="저장" busy={busy} onPress={() => void onSave(draft)} />
-        </>
-      }
+      actions={<BigButton label="저장" busy={busy} onPress={() => void onSave(draft)} />}
     >
       <View style={{ gap: SPACE.md }}>
         {ADDRESS_KEYS.map((key) => (

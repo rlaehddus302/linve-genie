@@ -492,12 +492,7 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
         visible={sheet}
         onClose={() => setSheet(false)}
         title={RECEIPT_TITLE}
-        actions={
-          <>
-            <BigButton kind="secondary" label="닫기" onPress={() => setSheet(false)} />
-            <BigButton label="잇기" busy={busy} disabled={receipt.trim() === ''} onPress={() => void link()} />
-          </>
-        }
+        actions={<BigButton label="잇기" busy={busy} disabled={receipt.trim() === ''} onPress={() => void link()} />}
       >
         <Txt color="textSub">{batch ? `${RECEIPT_HELP} 목록에 넣은 주문 ${String(linkTargets().length)}개에 같은 번호를 이어요.` : RECEIPT_HELP}</Txt>
         <TextInput

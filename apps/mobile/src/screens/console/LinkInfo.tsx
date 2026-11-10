@@ -1,7 +1,8 @@
 // 라이브 연결 정보 (D-UX4-95, 사용자 지시 2026-11-10 "관리화면과 마찬가지로 섹션 없애고 배경 흰색하고, 연결 정보를 나열하자. 플랫폼(아이콘 왼쪽에 배치하기),
 // 라이브 제목, 채널명(왼쪽에 채널 프로필 사진). 메뉴에는 라이브로 바로가기(누르면 해당 링크 타고 바로가기)와 라이브 연결 끊기 2개를 배치."):
-// 이은 라이브를 토스 "비밀번호 · 보안"처럼 흰 바탕 줄로 — 플랫폼(아이콘 · 이름) · 라이브 제목 · 채널(사진 · 이름), 그 아래 누르는 줄
-// [라이브로 바로가기 ›](주소를 알 때만) · [채팅 다시 받기 ›](멈춰서 다시 받을 수 있을 때만) · [라이브 연결 끊기 ›](빨강, 끝나지 않은 라이브에서 판매자만).
+// 이은 라이브를 토스 "비밀번호 · 보안"처럼 흰 바탕 줄로 — 플랫폼(아이콘 · 이름) · 채널(사진 · 이름) · 라이브 제목, 그 아래 누르는 줄
+// (D-UX4-107, 사용자 지시 2026-11-10 "채널과 라이브제목 자리 바꾸기 라이브로 바로가기 → 라이브 바로가기로 이름 수정")
+// [라이브 바로가기 ›](주소를 알 때만) · [채팅 다시 받기 ›](멈춰서 다시 받을 수 있을 때만) · [라이브 연결 끊기 ›](빨강, 끝나지 않은 라이브에서 판매자만).
 // 채팅을 못 받는 경고(빨간 한 줄 + 대비 경로)는 판매자 안전이라 맨 위에 남긴다. 제목·채널 이름은 바깥 글이라 글자로만 보인다.
 import { useEffect, useState, type ReactNode } from 'react'
 import { Image, ScrollView, View } from 'react-native'
@@ -20,7 +21,7 @@ import { PLAIN, PlainRow, PlainTitle } from './parts.tsx'
 import { YoutubeWarning, type MobileYoutube } from './YoutubeSection.tsx'
 
 export const LINK_INFO_TITLE = '라이브 연결'
-export const LINK_INFO_ROWS = { platform: '플랫폼', title: '라이브 제목', channel: '채널', open: '라이브로 바로가기', restart: '채팅 다시 받기' } as const
+export const LINK_INFO_ROWS = { platform: '플랫폼', title: '라이브 제목', channel: '채널', open: '라이브 바로가기', restart: '채팅 다시 받기' } as const
 /** 줄 오른쪽 작은 그림 (플랫폼 아이콘·채널 사진) */
 export const LINK_INFO_ICON = 24
 
@@ -157,10 +158,10 @@ export function LinkInfo({ broadcastId, yt, closed, onEnded, bleed = false }: Li
       ) : null}
       <View>
         <PlainRow title={LINK_INFO_ROWS.platform} testID="link-info-platform" ariaLabel={`${LINK_INFO_ROWS.platform} ${PLATFORM_WORD[platform]}`} right={<IconValue icon={<PlatformIcon platform={platform} size={LINK_INFO_ICON} />} text={PLATFORM_WORD[platform]} />} />
-        {link === null ? null : <PlainRow title={LINK_INFO_ROWS.title} testID="link-info-title" ariaLabel={`${LINK_INFO_ROWS.title} ${title}`} right={<TextValue text={title} />} />}
         {channel === null ? null : (
           <PlainRow title={LINK_INFO_ROWS.channel} testID="link-info-channel" ariaLabel={`${LINK_INFO_ROWS.channel} ${channel}`} right={<IconValue icon={<ChannelPhoto channelId={link?.broadcastChannelId ?? link?.channelId ?? null} />} text={channel} />} />
         )}
+        {link === null ? null : <PlainRow title={LINK_INFO_ROWS.title} testID="link-info-title" ariaLabel={`${LINK_INFO_ROWS.title} ${title}`} right={<TextValue text={title} />} />}
       </View>
       <View style={{ height: SPACE.lg }} />
       <View>

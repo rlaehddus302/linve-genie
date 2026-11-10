@@ -168,7 +168,8 @@ describe('NumberPad', () => {
 })
 
 describe('BottomSheet · ConfirmSheet', () => {
-  it('닫혀 있으면 안 보이고, 열리면 제목·내용·닫기가 있다', () => {
+  // D-UX4-103으로 바뀐 기대 (옛: 열리면 [닫기] 단추가 있고 그것을 눌러 닫음): 닫기 단추는 없고 바깥(판 닫기)을 눌러 닫는다
+  it('닫혀 있으면 안 보이고, 열리면 제목·내용이 있고 닫기 단추는 없다 (바깥을 누르면 닫힌다)', () => {
     const onClose = vi.fn()
     const { rerender } = render(
       <BottomSheet visible={false} onClose={onClose} title="고르기">
@@ -183,7 +184,8 @@ describe('BottomSheet · ConfirmSheet', () => {
     )
     expect(screen.getByRole('dialog', { name: '고르기' })).toBeTruthy()
     expect(screen.getByText('하나')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    expect(screen.queryByRole('button', { name: '닫기' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
     expect(onClose).toHaveBeenCalledOnce()
   })
 

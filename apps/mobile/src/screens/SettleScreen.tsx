@@ -451,12 +451,7 @@ function InputSheet({ kind, name, settlement, remaining, onClose, onDone }: { re
       visible
       onClose={onClose}
       title={`${name} · ${dateWords(settlement.date)} · ${INPUT_TITLE[kind]}`}
-      actions={
-        <>
-          <BigButton kind="secondary" label="닫기" onPress={onClose} />
-          <BigButton label={kind === 'shipping' ? '바꾸기' : '적기'} busy={busy} onPress={submit} />
-        </>
-      }
+      actions={<BigButton label={kind === 'shipping' ? '바꾸기' : '적기'} busy={busy} onPress={submit} />}
     >
       <View style={{ gap: SPACE.md }}>
         {kind === 'shipping' ? (

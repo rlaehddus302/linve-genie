@@ -61,12 +61,17 @@ describe('아래 창 모양 (D-UX4-76)', () => {
     expect(css(footer).paddingBottom).toBe(css(footer).paddingLeft)
   })
 
-  it('단추를 안 주면 "닫기" 하나, 바깥을 눌러도 닫힌다', () => {
+  // D-UX4-103으로 바뀐 기대 (옛: 단추를 안 주면 "닫기" 하나가 붙고, 그것과 바깥 누르기 둘 다 닫음 — onClose 2번):
+  // 닫기 단추는 붙지 않고 단추 줄도 없다. 바깥을 누르면 닫힌다
+  it('단추를 안 주면 단추 줄이 없고(닫기 단추 없음), 바깥을 누르면 닫힌다', () => {
     const onClose = vi.fn()
     render(<BottomSheet visible onClose={onClose} title="알림" />)
-    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    const dialog = screen.getByRole('dialog', { name: '알림' })
+    expect(within(dialog).queryByTestId('sheet-actions')).toBeNull()
+    expect(within(dialog).queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: '닫기' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
-    expect(onClose).toHaveBeenCalledTimes(2)
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   it('확인 질문(ConfirmSheet)도 같은 아래 창 — 손잡이·설명·좌우 단추', () => {

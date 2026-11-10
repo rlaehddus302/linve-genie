@@ -145,14 +145,15 @@ describe('아래 창과 같은 탭은 숨기고, 들린 말 탭 (D-UX4-91)', () 
   })
 })
 
-describe('탭 바 반고정 (D-UX4-93 → D-UX4-98)', () => {
+describe('탭 바 고정 (D-UX4-93 → D-UX4-98 → D-UX4-104)', () => {
   // 옛 시험: 손으로 만든 위에 붙는 탭 바(quickReturnStep) — 들어올 때 가려지고 따라 내려오는 등 흔들려(사용자 사진) 휴대폰이 직접 하는 붙는 머리로 바꿨다 (D-UX4-98)
-  it('탭 바는 목록의 둘째 자식 붙는 머리 — 내리면 숨고 올리면 붙는다(stickyHeaderHiddenOnScroll), 손으로 만든 붙는 탭 바는 없다', async () => {
+  // 옛 기대(D-UX4-98): 내리면 숨고 올리면 붙는다(stickyHeaderHiddenOnScroll 있음). 새 기대(D-UX4-104, 사용자 "탭 바가 아직도 스크롤 할 때 고정되지 않고 움직임"): 숨지 않고 늘 붙어 있다
+  it('탭 바는 목록의 둘째 자식 붙는 머리 — 스크롤해도 숨지 않고 위에 붙어 있다, 손으로 만든 붙는 탭 바는 없다', async () => {
     const { readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
     const source = readFileSync(join(import.meta.dirname, '../src/screens/ConsoleScreen.tsx'), 'utf8')
     expect(source).toContain('stickyHeaderIndices={STICKY_TABS}')
-    expect(source).toContain('stickyHeaderHiddenOnScroll')
+    expect(source).not.toMatch(/^\s*stickyHeaderHiddenOnScroll/m)
     const { STICKY_TABS } = await import('../src/screens/ConsoleScreen.tsx')
     expect(STICKY_TABS).toEqual([1])
     const world = makeWorld({ products: [] })

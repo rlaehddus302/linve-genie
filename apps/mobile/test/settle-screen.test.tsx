@@ -96,7 +96,9 @@ describe('SettleScreen (앱 정산)', () => {
     expect(await screen.findByText(/남은 금액\(14,000원\)과 달라요. 140,000원으로 적을까요\?/)).toBeTruthy()
     expect(w.events).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: '다시 고치기' }))
-    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    // D-UX4-103으로 바뀐 기대 (옛: 입금 적기 아래 창의 [닫기] 단추): 닫기 단추가 없어 바깥(판 닫기)을 눌러 닫는다
+    expect(screen.queryByRole('button', { name: '닫기' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
     fireEvent.click(screen.getByRole('button', { name: '할인·추가' }))
     fireEvent.change(screen.getByLabelText('할인 금액'), { target: { value: '1000' } })
     fireEvent.click(screen.getByRole('button', { name: '적기' }))

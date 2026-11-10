@@ -23,7 +23,8 @@ import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
-import { ProductDetail, ProductList, shownProducts } from './console/ProductBoard.tsx'
+import { ProductList, shownProducts } from './console/ProductBoard.tsx'
+import { ProductSheet } from './console/ProductEdit.tsx'
 import { AddFab, ProductAddPage } from './console/ProductAdd.tsx'
 import { SlidePage } from './console/parts.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
@@ -381,9 +382,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             atBottom.current = bottomTab && contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
           }}
           onContentSizeChange={() => { if (atBottom.current) scroll.current?.scrollToEnd({ animated: false }) }}
-          // 탭 바 반고정 (D-UX4-93 → D-UX4-98): 휴대폰이 직접 하는 붙는 머리 — 내리면 숨고 올리면 위에 붙어 보인다. 둘째 자식(탭 바)
+          // 탭 바 고정 (D-UX4-93 → 98 → 104): 휴대폰이 직접 하는 붙는 머리 — 위 알림이 지나가면 맨 위에 붙어 스크롤해도 움직이지 않는다. 둘째 자식(탭 바)
+          // 옛 D-UX4-98 "내리면 숨고 올리면 보임"(stickyHeaderHiddenOnScroll)은 사용자 "탭 바가 아직도 스크롤 할 때 고정되지 않고 움직임"으로 뺐다
           stickyHeaderIndices={STICKY_TABS}
-          stickyHeaderHiddenOnScroll
           style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
           {/* 첫째 자식: 탭 바 위 알림들 (한 묶음 — 붙는 머리 자리가 늘 둘째가 되게) */}
           <View style={{ gap: SPACE.sm }}>
@@ -416,9 +417,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         {live && dock === 'talk' ? <TalkDock bottom={Math.max(inset, SPACE.sm)} /> : null}
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
-        <BottomSheet visible={detailProduct !== undefined && detailProduct.status !== 'CLOSED'} onClose={() => setDetail(null)} title="">
-          {detailProduct !== undefined ? <ProductDetail product={detailProduct} onKey={setDetail} onDone={() => setDetail(null)} {...(seller && !sealed ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} /> : null}
-        </BottomSheet>
+        {/* 고치기는 반 화면 판 · 닫을 때 "바꿀까요?" (D-UX4-106) */}
+        <ProductSheet product={detailProduct} onClose={() => setDetail(null)} onKey={setDetail} {...(seller && !sealed && detailProduct !== undefined ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} />
         <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
         </BottomSheet>
@@ -462,7 +462,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
               {linker.fields}
             </View>
           ) : linked ? (
-            // 이은 라이브: 흰 바탕 정보 줄 + 라이브로 바로가기 · 라이브 연결 끊기 (D-UX4-95)
+            // 이은 라이브: 흰 바탕 정보 줄 + 라이브 바로가기 · 라이브 연결 끊기 (D-UX4-95·107)
             <LinkInfo broadcastId={broadcastId} yt={yt} closed={closed} bleed {...(seller ? { onEnded: () => { setEndedHere(true); close(); closePage(); onEnded?.() } } : {})} />
           ) : (
             <YoutubeSection yt={yt} closed={closed} />

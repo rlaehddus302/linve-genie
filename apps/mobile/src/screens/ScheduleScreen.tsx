@@ -200,12 +200,7 @@ function DraftSheet({ draft, busy, error, onClose, onSave }: { readonly draft: D
       visible
       onClose={onClose}
       title={draft.id === null ? '라이브 적기' : '라이브 고치기'}
-      actions={
-        <>
-          <BigButton kind="secondary" label="닫기" onPress={onClose} />
-          <BigButton label="저장" busy={busy} onPress={() => onSave(value)} />
-        </>
-      }
+      actions={<BigButton label="저장" busy={busy} onPress={() => onSave(value)} />}
     >
       <View style={{ gap: SPACE.md }}>
         <TextField label="날짜" value={value.date} onChangeText={(date) => set({ date })} placeholder="2026-11-03" keyboardType="numbers-and-punctuation" error={error?.problemFor('date')?.message ?? null} />

@@ -82,7 +82,9 @@ describe('ConsoleScreen', () => {
     expect(within(detail).getByRole('button', { name: '가격 고치기' }).textContent).toBe('12,000원')
     for (const gone of ['판매 중', '아직 찜이 없어요', '일시 중지', '판매 종료']) expect(detail.textContent).not.toContain(gone)
     expect(within(detail).getByRole('button', { name: '상품 삭제 — 15번' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    // D-UX4-103으로 바뀐 기대 (옛: 상품 자세히 아래 창의 [닫기] 단추를 눌러 닫음): 아래 창에는 닫기 단추가 없다 — 바깥(판 닫기)을 눌러 닫는다
+    expect(screen.queryByRole('button', { name: '닫기' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
     // 옛 기대: 방송 메뉴 → 직접 넣기의 [보내기]. 새 기대(D-UX4-31): 상품 탭 오른쪽 아래 (+) 상품 추가
     expect(screen.getByRole('button', { name: '상품 추가' })).toBeTruthy()
   })
@@ -380,35 +382,25 @@ describe('ConsoleScreen', () => {
     expect(world.events[2]?.body).toMatchObject({ b: 'b1', no: 123 })
   })
 
-  it('점선 칸을 누르면 그 자리에서 고친다 — 가격은 원문 칸, 품종은 이름, 번호는 번호 바꾸기 (D-UX4-30)', async () => {
+  // 옛 기대(D-UX4-30): 칸을 누르면 그 자리 입력 칸 — 칸을 나가면(blur) 바로 보냈다(가격 → 품종 → 번호 각각 한 번씩).
+  // 새 기대(D-UX4-106, 사용자 지시 2026-11-10): 칸을 누르면 반 화면 판 · 빈 큰 칸(옛 값은 자리 글) · 앱 숫자판, [확인]은 숫자판만 닫고 보내지 않는다.
+  // 창을 닫을 때 "바꿀까요?" → [바꿀게요]면 그때 보낸다 (자세한 시험: product-edit-ux4-106)
+  it('점선 칸을 누르면 반 화면 판에서 고치고, 닫을 때 묻고 보낸다 — 가격은 원문 칸 (D-UX4-30 → D-UX4-106)', async () => {
     const world = makeWorld({ products: [product(15, { name: '핑크프릴', price: 12_000 })] })
     await open(world)
     followWrites(world)
     fireEvent.click(within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 15번' }))
     const detail = await screen.findByRole('group', { name: '상품 자세히' })
     fireEvent.click(within(detail).getByRole('button', { name: '가격 고치기' }))
-    const price = within(detail).getByLabelText('가격')
-    fireEvent.change(price, { target: { value: '18000' } })
-    fireEvent.blur(price)
+    typePad('18000')
+    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    await flush()
+    expect(world.events.length).toBe(0)
+    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
+    const ask = await screen.findByRole('alertdialog', { name: '15번 핑크프릴 12,000원에서\n15번 핑크프릴 18,000원으로 바꿀까요?' })
+    fireEvent.click(within(ask).getByRole('button', { name: '바꿀게요' }))
     await waitFor(() => expect(world.events.length).toBe(1))
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', noText: '15', priceText: '18000원' })
-    fireEvent.click(within(detail).getByRole('button', { name: '품종 고치기' }))
-    const name = within(detail).getByLabelText('품종')
-    fireEvent.change(name, { target: { value: '삼광색금' } })
-    fireEvent.blur(name)
-    await waitFor(() => expect(world.events.length).toBe(2))
-    expect(world.events[1]?.body).toMatchObject({ type: 'product.update', b: 'b1', no: 15, name: '삼광색금' })
-    // 바꾸지 않고 나가면 보내지 않는다
-    fireEvent.click(within(detail).getByRole('button', { name: '가격 고치기' }))
-    fireEvent.blur(within(detail).getByLabelText('가격'))
-    await flush()
-    expect(world.events.length).toBe(2)
-    fireEvent.click(within(detail).getByRole('button', { name: '번호 고치기' }))
-    const no = within(detail).getByLabelText('번호')
-    fireEvent.change(no, { target: { value: '21' } })
-    fireEvent.blur(no)
-    await waitFor(() => expect(world.events.length).toBe(3))
-    expect(world.events[2]?.body).toMatchObject({ type: 'product.renumber', b: 'b1', from: 15, to: 21 })
   })
 
   it('뒤로 갔다 돌아오면 끊긴 실시간을 바로 다시 잇고 "자리를 비운 동안 찜 n건"을 보인다 (APP-04)', async () => {

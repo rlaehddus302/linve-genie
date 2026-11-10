@@ -544,12 +544,7 @@ function BuyerRow({
         visible={smsSheet}
         title={`${name}님에게 ${SMS_SEND}`}
         onClose={() => setSmsSheet(false)}
-        actions={
-          <>
-            <BigButton kind="secondary" label="닫기" onPress={() => setSmsSheet(false)} />
-            <BigButton label={SMS_OPEN} busy={busy} disabled={phone.replace(/\D/g, '').length < 10} onPress={() => void sendSms(phone)} />
-          </>
-        }
+        actions={<BigButton label={SMS_OPEN} busy={busy} disabled={phone.replace(/\D/g, '').length < 10} onPress={() => void sendSms(phone)} />}
       >
         <TextField label={SMS_PHONE_LABEL} help={SMS_PHONE_HELP} error={phoneError} value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" maxLength={20} />
         <Txt step="caption" color="textSub">{SMS_NOTE}</Txt>
@@ -619,12 +614,7 @@ function LedgerSheet({ initial, onClose }: { readonly initial: string | null; re
       visible
       onClose={onClose}
       title="판매대장 엑셀"
-      actions={
-        <>
-          <BigButton kind="secondary" label="닫기" onPress={onClose} />
-          <BigButton label="엑셀 받기" busy={files.busy !== null} disabled={days === null || picked.length === 0} onPress={download} />
-        </>
-      }
+      actions={<BigButton label="엑셀 받기" busy={files.busy !== null} disabled={days === null || picked.length === 0} onPress={download} />}
     >
       <View style={{ gap: SPACE.md }}>
         {loadError !== null ? <Notice tone="danger" alert>{loadError.message}</Notice> : null}

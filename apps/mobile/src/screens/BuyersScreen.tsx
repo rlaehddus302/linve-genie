@@ -322,7 +322,7 @@ function ReasonSheet({ title, submitLabel, reasons, warning = null, danger = fal
     }
   }
   return (
-    <BottomSheet visible title={title} onClose={onClose} actions={<><BigButton kind="secondary" label="닫기" onPress={onClose} /><BigButton kind={danger ? 'danger' : 'primary'} label={submitLabel} busy={busy} onPress={() => void submit()} /></>}>
+    <BottomSheet visible title={title} onClose={onClose} actions={<BigButton kind={danger ? 'danger' : 'primary'} label={submitLabel} busy={busy} onPress={() => void submit()} />}>
       <View style={{ gap: SPACE.sm }}>
         {warning !== null ? <Notice tone="warning">{warning}</Notice> : null}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
@@ -392,7 +392,7 @@ function MergeSheet({ data, names, opened, command, onClose, onDone }: { readonl
       visible
       title="다른 구매자와 합치기"
       onClose={onClose}
-      actions={<><BigButton kind="secondary" label="닫기" onPress={onClose} />{words !== null && words.blocks.length === 0 ? <BigButton label="합치기" busy={busy} onPress={() => void submit()} /> : null}</>}
+      actions={words !== null && words.blocks.length === 0 ? <BigButton label="합치기" busy={busy} onPress={() => void submit()} /> : undefined}
     >
       <View style={{ gap: SPACE.sm }}>
         {other === null ? (

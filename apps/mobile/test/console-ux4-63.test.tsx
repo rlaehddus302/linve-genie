@@ -24,7 +24,8 @@ describe('자동 감사 채팅 (D-UX4-63·64)', () => {
     expect(screen.queryByRole('dialog', { name: THANKS_HELP_TITLE })).toBeNull()
   })
 
-  it('이름 옆 ? 자리를 누르면 아래에서 설명 판 — 문장마다 줄 바꿈, 예시 채팅 그림, [확인]으로 닫는다', () => {
+  // D-UX4-103으로 바뀐 기대 (옛: 설명 판 아래 [확인] 단추로 닫음): 아래 창에는 닫기(확인) 단추가 없다 — 바깥(판 닫기)을 눌러 닫는다
+  it('이름 옆 ? 자리를 누르면 아래에서 설명 판 — 문장마다 줄 바꿈, 예시 채팅 그림, 확인 단추 없이 바깥을 눌러 닫는다', () => {
     const onPress = vi.fn()
     render(<ThanksSwitch on busy={false} onPress={onPress} />)
     fireEvent.click(screen.getByRole('button', { name: `${THANKS_TITLE} 설명 보기` }))
@@ -42,7 +43,8 @@ describe('자동 감사 채팅 (D-UX4-63·64)', () => {
     expect(THANKS_EXAMPLE.thanks.startsWith(`${THANKS_EXAMPLE.order}번 `)).toBe(true)
     expect(THANKS_EXAMPLE.thanks.endsWith(`${THANKS_EXAMPLE.buyer}님 구매 감사합니다`)).toBe(true)
     expect(onPress).not.toHaveBeenCalled()
-    fireEvent.click(within(sheet).getByRole('button', { name: '확인' }))
+    expect(within(sheet).queryByRole('button', { name: '확인' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
     expect(screen.queryByRole('dialog', { name: THANKS_HELP_TITLE })).toBeNull()
   })
 })

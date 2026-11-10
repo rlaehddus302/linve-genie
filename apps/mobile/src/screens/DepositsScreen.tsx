@@ -274,12 +274,7 @@ function ConfirmBundle({ deposit, bundle, onClose, onDone }: { readonly deposit:
       visible
       onClose={onClose}
       title="입금 확정"
-      actions={
-        <>
-          <BigButton kind="secondary" label="닫기" onPress={onClose} />
-          <BigButton label="확정하기" busy={action.busy} onPress={() => void send()} />
-        </>
-      }
+      actions={<BigButton label="확정하기" busy={action.busy} onPress={() => void send()} />}
     >
       <View style={{ gap: SPACE.md }}>
         <DepositHead deposit={deposit} />
