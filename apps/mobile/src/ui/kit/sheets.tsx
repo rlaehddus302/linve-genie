@@ -222,7 +222,13 @@ export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetPr
   const body = hasContent(children)
   const headed = title !== '' || (description !== undefined && description !== '')
   const footed = actions !== undefined && actions !== null
-  const measure = () => gesture.setScrollable(contentHeight.current > viewHeight.current + 1)
+  // 내용이 판에 다 들어가면 스크롤·튕김 없이 고정 — 넘칠 때만 스크롤 (D-UX4-114)
+  const [overflowing, setOverflowing] = useState(false)
+  const measure = () => {
+    const over = contentHeight.current > viewHeight.current + 1
+    gesture.setScrollable(over)
+    setOverflowing(over)
+  }
   return (
     <Modal visible={mounted} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView behavior={KEYBOARD_AVOID} style={{ flex: 1, justifyContent: 'flex-end' }}>
@@ -285,6 +291,9 @@ export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetPr
                 gap: bodyPadding ? SPACE.md : 0,
               }}
               keyboardShouldPersistTaps="handled"
+              scrollEnabled={overflowing}
+              alwaysBounceVertical={false}
+              overScrollMode="never"
               onLayout={(event) => {
                 viewHeight.current = event.nativeEvent.layout.height
                 measure()

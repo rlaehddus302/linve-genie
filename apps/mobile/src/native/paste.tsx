@@ -1,5 +1,5 @@
-// 방송 링크 칸 바로 아래 왼쪽 [붙여넣기] 칩 (D-UX3-11 → D-UX4-113). 아이폰 16 이상은 기본 붙여넣기 단추(UIPasteControl — "붙여넣기 허용" 창 없음)를
-// 앱 시작 때 끼운다(production.tsx). 그 밖(안드로이드·옛 아이폰·시험)은 누르면 클립보드를 읽는 보통 단추.
+// 방송 링크 칸 바로 아래 왼쪽 [붙여넣기] 칩 (D-UX3-11 → D-UX4-113 → D-UX4-115). 모든 기기에서 [링크를 모르겠어요]와 똑같은 회색 칩 —
+// 누르면 클립보드를 읽는다(아이폰은 이때 "붙여넣기 허용"을 물을 수 있다). 아이폰 기본 붙여넣기 단추(UIPasteControl)는 글자 크기·글꼴이 달라 쓰지 않는다.
 import { useSyncExternalStore, type ComponentType } from 'react'
 import { readClipboard } from '../lib/clipboard.ts'
 import { SoftChip } from '../ui/kit/press.tsx'

@@ -454,6 +454,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
     onEdit?.()
   }
   const paste = (text: string) => {
+    // 못 읽었으면(아이폰 "붙여넣기 허용 안 함"·빈 클립보드) 아무것도 하지 않는다 — 오류를 띄우지 않는다 (D-UX4-115)
+    if (text.trim() === '') return
     const found = liveLinkOf(text)
     edit(found?.url ?? text.trim())
     if (found === null) setError(UNKNOWN_LINK)

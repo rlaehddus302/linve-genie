@@ -207,6 +207,10 @@ async function unlinkLive(broadcastId: string, platform: LiveLinkRequest['platfo
  * [링크를 모르겠어요] 판 (D-UX3-10·14): 플랫폼 셋(아이콘 + 이름). 누르면 그 앱(없으면 앱 안 브라우저)을 열고, 내 방송에서
  * 공유 → 링크 복사 후 돌아오면 [붙여넣기]로 넣는다. 유튜브·틱톡·밴드 모두 같다(전에는 틱톡·밴드는 계정으로 잇는다는 안내만).
  */
+/** 플랫폼 고르기 판 제목·설명 (D-UX4-114) */
+export const FINDER_TITLE = '어디서 라이브하시나요?'
+export const FINDER_DESCRIPTION = '라이브 공유 버튼을 누르고\n링크를 복사한 뒤 돌아와 주세요'
+
 export function PlatformFinder({ visible, onClose, onReturned }: { readonly visible: boolean; readonly onClose: () => void; readonly onReturned: () => void }) {
   const { p } = useKit()
   const pick = async (target: PlatformTarget) => {
@@ -216,8 +220,7 @@ export function PlatformFinder({ visible, onClose, onReturned }: { readonly visi
     if (opened === 'browser') onReturned()
   }
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="어디서 라이브하나요?">
-      <Txt color="textSub">내 라이브의 링크를 복사해 돌아오세요.</Txt>
+    <BottomSheet visible={visible} onClose={onClose} title={FINDER_TITLE} description={FINDER_DESCRIPTION}>
       <View role="group" aria-label="라이브 플랫폼" style={{ gap: SPACE.xs, marginHorizontal: -SPACE.sm }}>
         {LIVE_PLATFORMS.map((target) => (
           <Tap key={target.key} role="button" aria-label={target.word} onPress={() => void pick(target)} style={({ pressed }) => ({ minHeight: TOUCH.min + 16, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>

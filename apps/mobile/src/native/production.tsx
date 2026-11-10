@@ -29,31 +29,10 @@ import { setNativeModules } from './index.ts'
 import { setNoticeModule } from './notice.ts'
 import { setErrorHaptic, setHaptic } from './haptics.ts'
 import * as Haptics from 'expo-haptics'
-import { ClipboardPasteButton, hasStringAsync, isPasteButtonAvailable } from 'expo-clipboard'
+import { hasStringAsync } from 'expo-clipboard'
 import { setClipboardProbe } from '../lib/clipboard.ts'
-import { setPasteControl, type PasteControlProps } from './paste.tsx'
-import { useKit } from '../ui/kit/theme.tsx'
 import { BlurView } from 'expo-blur'
 import { setTabBarBackdrop } from '../ui/kit/app.tsx'
-
-/** 아이폰 기본 붙여넣기 단추 — 누르는 것 자체가 허락이라 "붙여넣기 허용" 창이 뜨지 않는다 (D-UX3-11) */
-function NativePasteButton({ onPaste }: PasteControlProps) {
-  const { p } = useKit()
-  return (
-    <ClipboardPasteButton
-      onPress={(data) => {
-        if (data.type === 'text') onPaste(data.text)
-      }}
-      acceptedContentTypes={['plain-text', 'url']}
-      displayMode="labelOnly"
-      cornerStyle="medium"
-      // 회색 칩(SoftChip — [링크를 모르겠어요])과 같은 바탕·글 색·높이 (D-UX4-113)
-      backgroundColor={p.surfaceAlt}
-      foregroundColor={p.tabInk}
-      style={{ height: 38, width: 96 }}
-    />
-  )
-}
 
 async function permission(): Promise<boolean> {
   if (Platform.OS !== 'android') return true
@@ -74,9 +53,9 @@ export function installProductionNative(): void {
   setHaptic(() => void Haptics.selectionAsync())
   // 잘못 넣었을 때 오류 진동 (D-UX3-51)
   setErrorHaptic(() => void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error))
-  // 클립보드는 글이 있는지만 본다(창 없음). 아이폰 16 이상은 기본 붙여넣기 단추
+  // 클립보드는 글이 있는지만 본다(창 없음). [붙여넣기]는 모든 기기에서 [링크를 모르겠어요]와 같은 회색 칩 —
+  // 아이폰 기본 붙여넣기 단추는 글자 크기·글꼴을 바꿀 수 없어 칩과 똑같이 만들 수 없다 (D-UX4-115)
   setClipboardProbe(() => hasStringAsync())
-  if (Platform.OS === 'ios' && isPasteButtonAvailable) setPasteControl(NativePasteButton)
   // 아래 탭 뒤 흐림 (D-UX3-13): 아이폰만 — 안드로이드 흐림은 느려 반투명 흰색만 둔다
   if (Platform.OS === 'ios') setTabBarBackdrop(TabBarBlur)
   let transport: BleTransport

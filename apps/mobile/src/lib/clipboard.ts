@@ -1,6 +1,6 @@
 // 클립보드 (방송 링크 칸). 읽는 함수는 바꿔 끼운다(앱은 expo-clipboard, 시험은 가짜).
 // 아이폰은 앱이 클립보드를 읽을 때마다 "붙여넣기 허용" 창을 띄운다 — 그래서 저절로 읽지 않고, 글이 있는지만 본 뒤(probe, 창 없음)
-// 칸 옆 [붙여넣기](아이폰 기본 붙여넣기 단추 — 창 없음)를 보인다 (D-UX3-11). 진짜 방송 링크인지는 서버가 정한다.
+// 칸 아래 [붙여넣기] 칩을 보인다(누르면 읽는다 — 아이폰은 이때 허용을 물을 수 있다) (D-UX3-11 → D-UX4-115). 진짜 방송 링크인지는 서버가 정한다.
 
 type Reader = () => Promise<string>
 type Writer = (text: string) => Promise<boolean>
@@ -23,7 +23,7 @@ export async function clipboardHasText(): Promise<boolean> {
   }
 }
 
-/** 클립보드 글 읽기 (붙여넣기 단추가 아이폰 기본 단추가 아닐 때만 — 안드로이드·옛 아이폰·시험) */
+/** 클립보드 글 읽기 ([붙여넣기]를 눌렀을 때) */
 export async function readClipboard(): Promise<string> {
   try {
     return await reader()
