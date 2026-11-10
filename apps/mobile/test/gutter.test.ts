@@ -28,7 +28,7 @@ const GRAY_SCREENS = [
   'screens/LinkedAccountsScreen.tsx',
   'ui/parts.tsx',
   // D-UX4-101: 주문·입금·영수증·리포트·구매자 정보도 (PAGE_SIDE = GUTTER — D-UX4-74가 빠뜨렸다)
-  'screens/SettleScreen.tsx',
+  // D-UX4-125 (사용자 지시 2026-11-11 '주문 탭 수정 사항 … 전체 흰색 배경')로 바뀐 기대: 주문 탭(SettleScreen)은 흰 바탕 카드 없는 목록이 되어 회색 화면 목록에서 뺐다
   'screens/DepositsScreen.tsx',
   'screens/ReceiptsScreen.tsx',
   'screens/ReportScreen.tsx',

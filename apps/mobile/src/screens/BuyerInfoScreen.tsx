@@ -1,6 +1,6 @@
 // 방송 뒤 손님 정보 문자 (ORD-14, D-REAL-11): 손님이 보낸 닉네임·성함·주소 문자를 서버가 읽어 맞는 손님에게 바로 넣고,
 // 모르는 것(손님 없음·여럿·이름 못 읽음)만 카드로 남긴다. 판매자는 손님을 골라 칸을 고쳐 [넣기]하거나 [무시]한다.
-// 넣은 배송지는 "확인 전" 손님 배송지라 정산에서 [배송지 확인]을 눌러야 접수된다. 정산 탭 위 줄(BuyerInfoBanner)에서 연다.
+// 넣은 배송지는 "확인 전" 손님 배송지라 정산에서 [배송지 확인]을 눌러야 접수된다. 주문 탭 맨 위 [고객 정보 받기]에서 연다(D-UX4-125 — 옛 정산 탭 위 줄 BuyerInfoBanner는 확인할 문자가 있으면 그 단추의 작은 점으로).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { dateWords, kstShort } from '@livejjim/web/src/lib/kst.ts'
@@ -9,11 +9,11 @@ import { useCachedGet } from '../lib/cached-get.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { Appear, EmptyFill, AppHeader, BigButton, ButtonRow, Icon, TextField, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
-import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { EmptyFill, AppHeader, BigButton, ButtonRow, TextField, Txt, useKit, useTabBarRoom } from '../ui/kit/index.ts'
+import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 import { CARD_GAP, PAGE_SIDE, SectionCard } from './order-parts.tsx'
-import { Late, useCameLate } from '../ui/late.tsx'
+import { Late } from '../ui/late.tsx'
 
 export const BUYER_INFO_TITLE = '손님 정보 문자'
 // 설명은 짧게 (D-UX3-93): 화면 제목과 겹치는 첫 문장("방송 뒤 손님이 보낸 … 문자예요")을 뺐다. 배송지 확인 안내는 남긴다(빠뜨리면 접수가 안 된다)
@@ -75,39 +75,6 @@ export function useBuyerInfoList(): {
     return () => view.close()
   }, [reload, stream])
   return { list, error, reload }
-}
-
-/**
- * 정산 탭 위 줄: 확인할 문자가 있으면 "확인해 주세요", 바로 넣은 것만 있으면 "넣었어요". 없으면 그리지 않는다.
- * 흰 카드 한 줄 (D-UX3-93 — 옛 주황 테두리 상자): 확인할 것이 있으면 주황 숫자 배지, 오른쪽 ›
- */
-export function BuyerInfoBanner({ onOpen }: { readonly onOpen: () => void }) {
-  const { p } = useKit()
-  const { list } = useBuyerInfoList()
-  // 서버에서 받은 뒤에야 생기는 알림 줄은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112)
-  const late = useCameLate(list !== null && list.cards.length > 0)
-  if (list === null || list.cards.length === 0) return null
-  const open = list.cards.filter((card) => card.status === 'OPEN').length
-  const words = open > 0 ? `손님 정보 문자 ${String(open)}건 확인해 주세요` : `손님 정보 문자 ${String(list.cards.length)}건 넣었어요`
-  return (
-    <Appear instant={!late}>
-      <Tap
-        role="button"
-        aria-label={words}
-        onPress={onOpen}
-        testID="buyer-info-banner"
-        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min + SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surface })}
-      >
-        {open > 0 ? <View aria-hidden style={{ width: 8, height: 8, borderRadius: 4, borderCurve: 'continuous', backgroundColor: p.warnText }} /> : null}
-        <View style={{ flex: 1 }}>
-          <Txt step="bodyLarge" weight="book" color={open > 0 ? 'warnText' : 'text'}>
-            {words}
-          </Txt>
-        </View>
-        <Icon name="chevron" color={p.textSub} size={18} />
-      </Tap>
-    </Appear>
-  )
 }
 
 export function BuyerInfoScreen({ onBack }: { readonly onBack: () => void }) {

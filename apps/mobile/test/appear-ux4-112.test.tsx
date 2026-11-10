@@ -124,7 +124,8 @@ describe('늦게 오는 묶음은 부드럽게 (D-UX4-112)', () => {
       ['src/screens/BroadcastList.tsx', /<Late>\s*\{past\.length > 0 \? \(/],
       ['src/screens/DepositsScreen.tsx', /<Appear instant=\{!late\} style=\{\{ gap: CARD_GAP \}\}>\s*\{list\.map/],
       ['src/screens/ReceiptsScreen.tsx', /<Appear instant=\{!late\} style=\{\{ gap: CARD_GAP \}\}>/],
-      ['src/screens/SettleScreen.tsx', /<Appear instant=\{!late\} style=\{\{ gap: CARD_GAP \}\}>/],
+      // D-UX4-125 (사용자 지시 2026-11-11 '주문 탭 수정 사항')로 바뀐 기대: 옛 카드 묶음 사이 간격(CARD_GAP)이 없는 흰 목록 — 주문 목록을 Appear로 감싼다
+      ['src/screens/SettleScreen.tsx', /<Appear instant=\{!late\}>\s*<View role="list" aria-label="주문 목록">/],
       ['src/screens/PackingScreen.tsx', /<Appear instant=\{!late\} style=\{\{ gap: SPACE\.md \}\}>/],
       ['src/screens/ParcelsScreen.tsx', /<Appear instant=\{!late\} style=\{\{ gap: SPACE\.lg \}\}>/],
       ['src/screens/BuyersScreen.tsx', /<Appear instant=\{!late\} style=\{\{ gap: SPACE\.md \}\}>/],

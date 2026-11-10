@@ -198,6 +198,11 @@ export class ReceiptSmsService {
     return { phone: openSellerText(this.#deps.masterKey, PHONE_PURPOSE, sellerId, row.phoneEnc), last4: row.last4 }
   }
 
+  /** 아는 번호 전체 (주문 상세 D-UX4-125 — 판매자 화면 응답에만, 로그 금지). 모르면 null */
+  async knownPhone(sellerId: string, date: string, state: EngineState, buyer: string): Promise<string | null> {
+    return (await this.#phoneOf(sellerId, this.#keysOf(state, date, buyer)))?.phone ?? null
+  }
+
   /** 구매자 줄의 문자 상태 (리허설·없는 범위는 빈 맵) */
   async statuses(sellerId: string, date: string, buyers: readonly string[]): Promise<Map<string, ReceiptSmsView>> {
     const result = new Map<string, ReceiptSmsView>()

@@ -122,10 +122,12 @@ export interface TxtProps extends Omit<TextProps, 'style'> {
   /** 팔레트에 없는 색(상태 꼬리표 글자)을 직접 줄 때. 대비는 tokens의 TONES가 시험으로 지킨다. */
   readonly ink?: string
   readonly center?: boolean
+  /** 오른쪽 맞춤 (토스 상세 내역의 값 칸 — 여러 줄이어도 오른쪽에 붙는다, D-UX4-125) */
+  readonly right?: boolean
 }
 
 /** 모든 글은 이것으로: 크기 단계·줄 높이·글꼴(Pretendard, D-UX3-69)·색·큰 글자 상한을 한 곳에서 지킨다. */
-export function Txt({ step = 'body', weight = 'regular', color = 'text', ink, center, children, ...rest }: TxtProps) {
+export function Txt({ step = 'body', weight = 'regular', color = 'text', ink, center, right, children, ...rest }: TxtProps) {
   const { p, fontScale, forced } = useKit()
   const base = TYPE[step]
   const size = forced ? base * fontScale : base
@@ -134,7 +136,7 @@ export function Txt({ step = 'body', weight = 'regular', color = 'text', ink, ce
       {...rest}
       allowFontScaling={!forced}
       maxFontSizeMultiplier={MAX_FONT_SCALE}
-      style={{ fontSize: size, lineHeight: Math.round(size * (step === 'headline' ? HEADLINE_LINE : LINE)), ...font(WEIGHT[weight]), color: ink ?? p[color], textAlign: center === true ? 'center' : undefined }}
+      style={{ fontSize: size, lineHeight: Math.round(size * (step === 'headline' ? HEADLINE_LINE : LINE)), ...font(WEIGHT[weight]), color: ink ?? p[color], textAlign: center === true ? 'center' : right === true ? 'right' : undefined }}
     >
       {children}
     </Text>

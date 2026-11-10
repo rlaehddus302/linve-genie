@@ -1,7 +1,7 @@
 // 앱 정산 화면 낱말·셈 (웹 SettlementsPage·lib/words·lib/money와 같은 문구 — 앱은 코어 판정 코드를 싣지 않아 여기 따로 둔다, APP-01 AC3).
 // 금액은 서버(엔진)가 준 정수 원 그대로 보이고, 화면은 더하거나 나누지 않는다 — 남은 금액(최종 − 받은 금액)만 뺀다(웹 remainingOf와 같다).
 import type { PaymentStatus } from '@livejjim/core'
-import type { Claim, Settlement } from '@livejjim/web/src/api/types.ts'
+import type { Settlement } from '@livejjim/web/src/api/types.ts'
 import { formatWon } from './words.ts'
 
 export type InputKind = 'payment' | 'shipping' | 'adjust' | 'refund'
@@ -60,13 +60,6 @@ export const looksLikePhone = (text: string): boolean => /01[016789][-\s.]?\d{3,
 
 export const remainingOf = (settlement: Pick<Settlement, 'total' | 'received'>): number => Math.max(0, settlement.total - settlement.received)
 
-/** 지금 할 일 하나 (D-101): 덜 받았으면 입금, 더 받았으면 환불 */
-export function primaryInput(payment: PaymentStatus): InputKind | null {
-  if (payment === 'UNPAID' || payment === 'PARTIAL') return 'payment'
-  if (payment === 'OVERPAID') return 'refund'
-  return null
-}
-
 export function signedWon(amount: number): string {
   return amount < 0 ? `−${formatWon(-amount)}` : formatWon(amount)
 }
@@ -84,22 +77,7 @@ export function storedMemoWords(text: string): string {
   return text.replace(/(^|[^\p{L}\p{N}_#])입금 #(\d+)(?![\p{L}\p{N}_])/gu, (_match, before: string, no: string) => `${before}입금 번호 ${no}`)
 }
 
-/** 품목 한 줄 `{번호}번 {품종}[ {옵션}][ {수량}개] {찜 금액}` (U-O4-01) */
-export function detailLineWords(claim: Pick<Claim, 'no' | 'variant' | 'qty' | 'amount'>, productName: string | undefined): string {
-  const name = productName === undefined ? '' : productName.trim() === '' ? ' 품종 미입력' : ` ${productName}`
-  const variant = claim.variant?.trim() ?? ''
-  const qty = claim.qty ?? 1
-  const amount = claim.amount === null ? '' : ` ${formatWon(claim.amount)}`
-  return `${String(claim.no)}번${name}${variant === '' ? '' : ` ${variant}`}${qty > 1 ? ` ${String(qty)}개` : ''}${amount}`
-}
-
 export type PaymentFilter = 'ALL' | PaymentStatus
-
-/** 정산 목록 정렬: 덜 받은 손님 먼저(미입금 → 부분 입금 → 과입금 → 입금 완료), 같으면 남은 금액 큰 순 */
-const PAYMENT_ORDER: Readonly<Record<PaymentStatus, number>> = { UNPAID: 0, PARTIAL: 1, OVERPAID: 2, PAID: 3 }
-export function sortForSeller(list: readonly Settlement[]): Settlement[] {
-  return [...list].sort((a, b) => PAYMENT_ORDER[a.payment] - PAYMENT_ORDER[b.payment] || remainingOf(b) - remainingOf(a) || a.buyer.localeCompare(b.buyer))
-}
 
 /** 목록 위 요약: 손님 수·다 받은 손님·아직 받을 돈 */
 export function summaryWords(list: readonly Settlement[]): string {

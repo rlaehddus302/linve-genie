@@ -51,6 +51,7 @@ import { TikTokExtension } from './tiktok-live/extension.ts'
 import { PasteService } from './tiktok-live/paste-service.ts'
 import { CustomerArchiver } from './customers/archive.ts'
 import { CustomerService } from './customers/service.ts'
+import { OrderService } from './orders.ts' // D-UX4-125 주문 탭
 import { LedgerService } from './customers/ledger.ts' // KP1 손님 장부
 import { LedgerSweeper } from './customers/ledger-sweep.ts' // KP1 손님 장부
 import { sweepSchedule } from './schedule/sweep.ts' // KP1 정리 작업이 같이 부른다
@@ -770,6 +771,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     timer: options.inbox?.sweepTimer ?? realGeneratorTimer,
   })
   const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {}, ledger })
+  // 주문 탭 목록·주문 상세 (D-UX4-125) — 읽기만: 성함·주소는 택배 배송지, 문자 손님 번호는 영수증 문자, 다른 날짜 거래는 손님 기록
+  const orders = new OrderService({ db, writer, clock, log, parcels, receiptSms, customers })
   // 방송 뒤 손님 정보 문자 (ORD-14, D-REAL-11): 받기(inbox)가 택배보다 먼저 만들어져 처리기를 여기서 넘긴다
   const buyerInfo = new BuyerInfoService({
     db,
@@ -848,6 +851,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       extension,
       assist,
       customers,
+      orders,
       // KP1
       ledger,
       report,

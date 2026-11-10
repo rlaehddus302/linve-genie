@@ -6,6 +6,7 @@ import type { BundleView, ParcelBrief, ParcelRow } from '@livejjim/web/src/api/p
 import type { PackingEntry, Settlement } from '@livejjim/web/src/api/types.ts'
 import { PackingScreen } from '../src/screens/PackingScreen.tsx'
 import { SettleScreen } from '../src/screens/SettleScreen.tsx'
+import { orderDetail, orderRow, ordersView, withOrders } from './order-support.ts'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, claim, fullView } from './support.ts'
 
@@ -35,6 +36,8 @@ function world(start: BundleView = bundle()) {
   let current = start
   w.server.on('GET', /^\/api\/days$/, () => ({ body: { days: [{ date: DATE, rehearsal: false, seq: 5 }] } }))
   w.server.on('GET', /^\/api\/days\/2026-10-29$/, () => ({ body: fullView({ buyers: [buyer('u1', '다육맘'), buyer('u2', '초록손')], claims: [claim('c1', 15, 'u1'), claim('c2', 16, 'u2')], settlements: [settlement('u1'), settlement('u2')] }) }))
+  // D-UX4-125: 주문 탭 목록·주문 상세 (택배 화면 [배송지 보기]는 주문 상세의 배송지 칸으로 온다)
+  withOrders(w, ordersView([orderRow({ buyer: 'u1', nickname: '다육맘' }), orderRow({ buyer: 'u2', name: null, nickname: '초록손' })]), { details: { '2026-10-29|u1': orderDetail({ buyer: 'u1', nickname: '다육맘' }), '2026-10-29|u2': orderDetail({ buyer: 'u2', name: null, nickname: '초록손' }) } })
   w.server.on('GET', /^\/api\/days\/2026-10-29\/packing$/, () => ({ body: { date: DATE, seq: 5, entries: [{ buyer: 'u2', name: '초록손', parcel: inTransit }] } }))
   w.server.on('GET', /^\/api\/parcels\/days\/2026-10-29\/bundle/, () => ({ body: { bundle: current } }))
   w.server.on('POST', /^\/api\/parcels\/days\/2026-10-29\/address\/confirm$/, () => {
@@ -51,7 +54,7 @@ function world(start: BundleView = bundle()) {
 }
 
 describe('정산 배송지 칸 (D-UX3-35)', () => {
-  it('정산 줄에 택배 꼬리표(포장 목록에서), 택배 화면에서 온 손님은 자세히부터 열린다', async () => {
+  it('택배 화면에서 온 손님은 주문 상세부터 열리고 배송지 칸에 택배 꼬리표, 뒤로 가면 주문 목록', async () => {
     const w = world()
     render(w.wrap(<SettleScreen initialDate={DATE} initialBuyer="u1" />))
     const card = await screen.findByLabelText('배송지')
@@ -61,10 +64,10 @@ describe('정산 배송지 칸 (D-UX3-35)', () => {
     expect(within(card).getByLabelText('연락처 010-1234-5678')).toBeTruthy()
     expect(within(card).getByText('구매자가 적었어요')).toBeTruthy()
     expect(within(card).getByText('확인 전')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '정산 목록으로' }))
-    // D-UX4-122로 바뀐 기대: 다 끝난 손님(입금 완료)은 접힌 "끝난 손님" 묶음 안 — 펼쳐서 꼬리표를 본다
-    fireEvent.click(await screen.findByRole('button', { name: /^끝난 손님 \d+명$/ }))
-    expect(await screen.findByRole('button', { name: '초록손 · 입금 완료 · 최종 14,000원 · 택배: 배송 중 · 9000-0000-0001' })).toBeTruthy()
+    // D-UX4-125 (사용자 지시 2026-11-11 '주문 탭 수정 사항')로 바뀐 기대: 옛 "정산 줄에 택배 꼬리표(접힌 끝난 손님 안)" → 새 주문 목록 줄은 날짜·성함·닉네임·금액·개수만(사진1).
+    // 택배 꼬리표는 그 손님 상세의 배송지 칸에서 본다. 뒤로 단추 이름도 "정산 목록으로" → "주문 목록으로"
+    fireEvent.click(screen.getByRole('button', { name: '주문 목록으로' }))
+    expect(await screen.findByRole('button', { name: '10월 29일 · 초록손 · 성함 받기 전 · 14,000원 · 1개' })).toBeTruthy()
   })
 
   it('배송지 확인은 고친 시각과 같이, 고치기는 여섯 칸을 보내고 칸 오류는 칸 옆에', async () => {

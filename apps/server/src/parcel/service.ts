@@ -518,6 +518,20 @@ export class ParcelService {
     return out
   }
 
+  /**
+   * 그 날짜 묶음마다 풀린 배송지 (주문 탭 D-UX4-125 — 성함·전화·주소). 한 번에 읽는다(묶음마다 따로 읽지 않는다).
+   * 보관 기간(날짜 + 30일)이 지났거나 풀리지 않는 배송지는 빠진다. 값은 로그에 남기지 않는다
+   */
+  async openAddresses(sellerId: string, date: string): Promise<Map<string, ParcelAddress>> {
+    const out = new Map<string, ParcelAddress>()
+    if (!isValidDate(date) || this.#expired(date)) return out
+    for (const [buyer, row] of await addressRowsOf(this.#deps.db, sellerId, date)) {
+      const opened = this.#open(sellerId, row)
+      if (opened !== null) out.set(buyer, opened)
+    }
+    return out
+  }
+
   /** 물품 수 = 그 묶음 확정 찜의 수량 합 */
   static qtyOf(state: EngineState, date: string, buyer: string): number {
     const lookup = lookupOf(state)

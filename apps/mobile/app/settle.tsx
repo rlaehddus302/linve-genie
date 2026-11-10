@@ -1,4 +1,4 @@
-// 정산 탭 경로 — 앱 정산 화면 (D-APPX-01, 전에는 웹으로 열기 안내 D-UX2-07).
+// 주문 탭 경로 — 앱 주문 화면 (D-APPX-01 → D-UX4-125 주문 목록, 전에는 웹으로 열기 안내 D-UX2-07).
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router'
 import { TAB_PATH } from '../src/lib/tab-routes.ts'
 import { SettleScreen } from '../src/screens/SettleScreen.tsx'
@@ -9,14 +9,14 @@ import { RouteFrame } from '../src/ui/kit/route-frame.tsx'
 export default function SettleRoute() {
   const { session } = useSession()
   const router = useRouter()
-  // 택배 화면 [배송지 보기]: 그 날짜·그 손님 자세히부터 (D-UX3-35)
+  // 택배 화면 [배송지 보기]: 그 날짜·그 손님 주문 상세부터 (D-UX3-35)
   const params = useLocalSearchParams<{ date?: string; buyer?: string }>()
   if (session.state === 'out') return <Redirect href="/" />
   if (session.state !== 'in') return null
   return (
     <RouteFrame>
         <TabFrame active="settle" go={(key) => router.replace(TAB_PATH[key])}>
-          <SettleScreen initialDate={typeof params.date === 'string' ? params.date : undefined} initialBuyer={typeof params.buyer === 'string' ? params.buyer : undefined} nav={{ openPacking: () => router.replace(TAB_PATH.packing), openDeposits: () => router.push('/deposits'), openBuyerInfo: () => router.push('/buyer-info'), openReceipts: () => router.push('/receipts'), openBuyer: (date, key) => router.push({ pathname: '/settle-buyer', params: { date, key } }) }} />
+          <SettleScreen initialDate={typeof params.date === 'string' ? params.date : undefined} initialBuyer={typeof params.buyer === 'string' ? params.buyer : undefined} nav={{ openDeposits: () => router.push('/deposits'), openBuyerInfo: () => router.push('/buyer-info'), openReceipts: () => router.push('/receipts'), openShopSettings: () => router.push('/shop-settings'), openOrder: (date, buyer) => router.push({ pathname: '/settle-buyer', params: { date, buyer } }) }} />
         </TabFrame>
       </RouteFrame>
   )

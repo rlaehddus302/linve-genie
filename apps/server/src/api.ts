@@ -66,6 +66,7 @@ import { registerAssistRoutes } from './assist/routes.ts'
 import type { AssistService } from './assist/service.ts'
 import { registerCustomerRoutes } from './customers/api.ts'
 import type { CustomerService } from './customers/service.ts'
+import { registerOrderRoutes, type OrderService } from './orders.ts' // D-UX4-125 주문 탭
 import { registerReportRoutes } from './report/api.ts' // KP1 리포트
 import type { ReportService } from './report/service.ts' // KP1 리포트
 import { registerScheduleRoutes } from './schedule/api.ts' // KP1 일정
@@ -138,6 +139,8 @@ export interface ApiDeps {
   readonly assist?: AssistService
   /** 손님 기록·메모·설정 "손님 관리" (CRM1). 없으면 /api/customers·/api/customer-settings·/api/days/:date/customer(s) 경로가 없다 */
   readonly customers?: CustomerService
+  /** 주문 탭 목록·주문 상세 (D-UX4-125). 없으면 /api/orders·/api/days/:date/order 경로가 없다 */
+  readonly orders?: OrderService
   /** KP1 방송 리포트 (RPT). 없으면 /api/days/:date/report 경로가 없다 */
   readonly report?: ReportService
   /** KP1 방송 일정·알림 신청 수 (SCH). 없으면 /api/schedule 경로가 없다 */
@@ -984,6 +987,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // KP1 손님 장부 (/customers.xlsx가 /customers/:id보다 먼저 — 경로는 겹치지 않는다)
   if (deps.ledger !== undefined) registerLedgerRoutes(api, deps.ledger)
   if (deps.customers !== undefined) registerCustomerRoutes(api, deps.customers)
+  // 주문 탭 목록·주문 상세 (D-UX4-125)
+  if (deps.orders !== undefined) registerOrderRoutes(api, deps.orders)
   // KP1 방송 리포트·방송 일정 (판매자 계정만 — 보조자 허용 목록 밖이라 403)
   if (deps.report !== undefined) registerReportRoutes(api, deps.report)
   if (deps.schedule !== undefined) registerScheduleRoutes(api, deps.schedule)

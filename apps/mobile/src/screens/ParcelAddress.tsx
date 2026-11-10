@@ -127,7 +127,7 @@ function useAddressCommand() {
 type Ask = 'write' | 'edit' | 'delete' | null
 
 /** 정산 손님 자세히의 배송지 칸. version이 바뀌면(택배·포장 알림, 다시 붙음) 다시 받는다 */
-export function AddressCard({ date, buyer, sealed, version }: { readonly date: string; readonly buyer: string; readonly sealed: boolean; readonly version: number }) {
+export function AddressCard({ date, buyer, sealed, version, plain = false }: { readonly date: string; readonly buyer: string; readonly sealed: boolean; readonly version: number; readonly plain?: boolean }) {
   const [attempt, setAttempt] = useState(0)
   const [ask, setAsk] = useState<Ask>(null)
   const [done, setDone] = useState<string | null>(null)
@@ -176,8 +176,8 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
   const late = useCameLate(bundle !== null)
   if (bundle === null) {
     return (
-      <Card label="배송지">
-        <CardLabel>배송지</CardLabel>
+      <AddressFrame plain={plain}>
+        <CardLabel plain={plain}>배송지</CardLabel>
         {loadError !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{loadError.message}</Notice>
@@ -186,7 +186,7 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
         ) : (
           <Loading />
         )}
-      </Card>
+      </AddressFrame>
     )
   }
 
@@ -196,9 +196,9 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
   const ledger = bundle.ledger ?? null
   const editable = !sealed && !bundle.locked
   return (
-    <Card label="배송지">
+    <AddressFrame plain={plain}>
       {/* 카드 이름은 홈 묶음 이름처럼 회색 본문 (D-UX3-94 — 옛: 굵은 제목) */}
-      <CardLabel>배송지</CardLabel>
+      <CardLabel plain={plain}>배송지</CardLabel>
       {/* 서버에서 받은 뒤에야 생기는 배송지 내용은 부드럽게 — 기억해 둔 배송지로 처음부터 그리면 바로 (D-UX4-112) */}
       <Appear instant={!late} style={{ gap: SPACE.md }}>
         {parcel !== null ? <ParcelTagLine parcel={parcel} /> : null}
@@ -295,13 +295,29 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
           command.clearError()
         }}
       />
-    </Card>
+    </AddressFrame>
   )
 }
 
-/** 카드 안 묶음 이름 (홈 "내 방송"처럼 회색 본문, D-UX3-94) */
-function CardLabel({ children }: { readonly children: string }) {
+/**
+ * 배송지 칸 틀: 흰 카드, plain이면 카드 없이 (주문 상세 — D-UX4-125, 사용자 지시 2026-11-11 "섹션 구분 다 없애고 전체 흰색 배경")
+ */
+function AddressFrame({ plain, children }: { readonly plain: boolean; readonly children: ReactNode }) {
+  if (!plain) return <Card label="배송지">{children}</Card>
   return (
+    <View role="group" aria-label="배송지" style={{ gap: SPACE.md }}>
+      {children}
+    </View>
+  )
+}
+
+/** 카드 안 묶음 이름 (홈 "내 방송"처럼 회색 본문, D-UX3-94). plain(주문 상세)이면 상세의 다른 묶음 이름처럼 굵게 */
+function CardLabel({ children, plain = false }: { readonly children: string; readonly plain?: boolean }) {
+  return plain ? (
+    <Txt step="section" weight="bold" role="heading" aria-level={2}>
+      {children}
+    </Txt>
+  ) : (
     <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>
       {children}
     </Txt>

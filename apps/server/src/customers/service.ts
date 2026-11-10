@@ -351,6 +351,19 @@ export class CustomerService {
     return { date, buyer: root, summary: CustomerService.#summary(index, CustomerService.#recordOf(index, day, root)), members }
   }
 
+  /**
+   * 그날 구매자 하나의 기록 묶음 (주문 상세의 다른 날짜 거래, D-UX4-125). dayCustomer의 누적과 같은 묶음(D-CRM1-02 — 그날 묶음 + 구성원 표지로 찾은 다른 날짜 묶음).
+   * 표지가 없는 구매자(번호 없는 문자 손님)는 그날 묶음뿐이다. 없으면 null. 표지는 돌려주지 않는다
+   */
+  async dayRecord(sellerId: string, date: string, buyer: string): Promise<DayBundle[] | null> {
+    const index = await this.#index(sellerId)
+    const day = index.days.get(date)
+    const found = day?.buyers.get(buyer)
+    const root = found?.root
+    if (day === undefined || root === undefined || found?.archived === true || day.bundles.get(root)?.archived === true) return null
+    return CustomerService.#recordOf(index, day, root)
+  }
+
   // ── 모든 손님 ────────────────────────────────────────────────────────
 
   async customers(sellerId: string, query: CustomerListQuery): Promise<{ today: string; settings: CustomerSettings; customers: CustomerRow[]; count: number; more: boolean; next: number | null }> {

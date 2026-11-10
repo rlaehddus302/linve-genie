@@ -4,7 +4,8 @@
 //   (비밀번호를 안 주면 /private/tmp/claude-501/try.log 같은 연습 창 기록에서 찾지 않는다 — LIVEGENIE_TRY_PASSWORD 환경 변수로도 받는다)
 // 날짜 하나에 손님 8명을 단계마다 다른 상태로 넣는다:
 //   정보 못 받음 2 · 확인서 안 보냄 1 · 입금 기다림 1 · 부분 입금 1 · 더 받음(돌려줄 돈) 1 · 다 끝남 2(택배 1·직접 수령 1)
-// 그리고 앞 날짜 하나에는 다 끝난 손님 2명(→ "모두 끝났어요"·[포장하러 가기]).
+// 그리고 앞 날짜 하나에는 다 끝난 손님 3명 — 그중 둘은 오늘 손님과 같은 번호라 주문 상세 "지난 거래 내역"에 보인다.
+// 배송지 받는 분 이름(성함)은 닉네임과 다른 실제 이름으로, 무료배송 기준은 5만원 (D-UX4-125 — 목록의 성함·닉네임, 상세의 배송비 기준).
 import { randomUUID } from 'node:crypto'
 
 const arg = (name, fallback) => {
@@ -42,6 +43,8 @@ const event = (day, body) => call('POST', body.b === undefined ? `/api/events?da
 const login = await call('POST', '/api/login', { loginId: 'practice', password })
 cookie = (login.response.headers.get('set-cookie') ?? '').split(/,(?=\s*\w+=)/).map((part) => part.split(';')[0].trim()).join('; ')
 
+// 무료배송 기준은 라이브를 만들기 전에 — 그날 첫 라이브의 설정으로 배송비를 정한다 (DOMAIN_RULES 설정 스냅샷)
+await call('PATCH', '/api/settings', { settings: { 'shipping.freeThreshold': 50000 } })
 await call('PUT', '/api/shop', { name: '연습 가게', bank: '농협', accountNumber: '302-1234-5678-90', accountHolder: '연습판매자', accountNote: '입금자명은 닉네임으로 적어 주세요' })
 
 const address = (name, phone) => ({ name, phone, address: '경상남도 양산시 물금읍 범어로 12', detail: '101동 1001호', zip: '50615', memo: '' })
@@ -73,7 +76,7 @@ async function day(day, title, buyers) {
     }
     const id = first
     if (buyer.pickup === true) await event(day, { type: 'settlement.shippingOverride', buyer: id, date: day, mode: 'PICKUP' })
-    if (buyer.address === true) await call('PUT', `/api/parcels/days/${day}/address`, { requestId: rid('pa'), buyer: id, address: address(buyer.nick, buyer.phone) })
+    if (buyer.address === true) await call('PUT', `/api/parcels/days/${day}/address`, { requestId: rid('pa'), buyer: id, address: address(buyer.real ?? buyer.nick, buyer.phone) })
     if (buyer.receipt === true) await call('POST', `/api/days/${day}/receipt-links`, { requestId: rid('rl'), buyer: id })
     if (buyer.pay !== undefined) {
       const settled = await call('GET', `/api/days/${day}`)
@@ -88,17 +91,18 @@ async function day(day, title, buyers) {
 }
 
 await day(earlier, '지난 라이브 (다 끝남)', [
-  { nick: '새벽이슬', phone: '010-2000-0001', items: [1], address: true, receipt: true, pay: 'full', note: '다 끝남' },
-  { nick: '꽃밭지기', phone: '010-2000-0002', items: [2, 3], address: true, receipt: true, pay: 'full', note: '다 끝남' },
+  { nick: '새벽이슬', real: '정새벽', phone: '010-2000-0001', items: [1], address: true, receipt: true, pay: 'full', note: '다 끝남' },
+  { nick: '선인장', real: '최선희', phone: '010-1000-0004', items: [2, 3], address: true, receipt: true, pay: 'full', note: '다 끝남 (오늘도 산 손님 — 지난 거래)' },
+  { nick: '물방울', real: '한방울', phone: '010-1000-0005', items: [1, 4, 9, 10], address: true, receipt: true, pay: 'full', note: '다 끝남 (5만원 넘어 배송비 무료, 오늘도 산 손님)' },
 ])
 await day(date, '오늘 다육 라이브', [
   { nick: '다육맘', phone: '010-1000-0001', items: [1, 2], note: '정보 받기 (배송지 없음·확인서 전·미입금)' },
   { nick: '초록손', phone: '010-1000-0002', items: [3], pay: 'full', note: '정보 받기 (입금은 끝)' },
-  { nick: '나래', phone: '010-1000-0003', items: [4], address: true, note: '확인서 보내기 (배송지 있음)' },
-  { nick: '선인장', phone: '010-1000-0004', items: [5, 6], address: true, receipt: true, note: '입금 기다림' },
-  { nick: '물방울', phone: '010-1000-0005', items: [7, 8], address: true, receipt: true, pay: 'half', note: '부분 입금 (남은 금액)' },
-  { nick: '햇살', phone: '010-1000-0006', items: [9], address: true, receipt: true, pay: 'over', note: '더 받음 (돌려줄 돈)' },
-  { nick: '구름', phone: '010-1000-0007', items: [10], address: true, receipt: true, pay: 'full', note: '다 끝남 (택배)' },
+  { nick: '나래', real: '이나래', phone: '010-1000-0003', items: [4], address: true, note: '확인서 보내기 (배송지 있음)' },
+  { nick: '선인장', real: '최선희', phone: '010-1000-0004', items: [5, 6], address: true, receipt: true, note: '입금 기다림' },
+  { nick: '물방울', real: '한방울', phone: '010-1000-0005', items: [7, 8], address: true, receipt: true, pay: 'half', note: '부분 입금 (남은 금액)' },
+  { nick: '햇살', real: '오햇살', phone: '010-1000-0006', items: [9], address: true, receipt: true, pay: 'over', note: '더 받음 (돌려줄 돈)' },
+  { nick: '구름', real: '강구름', phone: '010-1000-0007', items: [10], address: true, receipt: true, pay: 'full', note: '다 끝남 (택배)' },
   { nick: '바람', phone: '010-1000-0008', items: [2], pickup: true, receipt: true, pay: 'full', note: '다 끝남 (직접 수령)' },
 ])
-console.log(`넣었어요. 주문 탭에서 ${date}(할 일 있음)과 ${earlier}(다 끝남)을 골라 보세요.`)
+console.log(`넣었어요. 주문 탭 목록에서 ${date} 손님 8명과 ${earlier} 손님 3명을 볼 수 있어요. 물방울·선인장 상세에는 지난 거래가 보여요.`)
