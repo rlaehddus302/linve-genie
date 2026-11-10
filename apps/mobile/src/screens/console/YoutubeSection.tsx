@@ -12,8 +12,7 @@ import { clipboardHasText } from '../../lib/clipboard.ts'
 import { liveLinkOf } from '../../lib/live-link.ts'
 import { BandPostPicker, TiktokConsentCard } from './OtherLinks.tsx'
 import { PasteButton } from '../../native/paste.tsx'
-import { Appear, PopNote, PopupDialog, SmallButton, SPACE, Txt, useKit } from '../../ui/kit/index.ts'
-import { ChannelPhoto } from '../../ui/ChannelPhoto.tsx'
+import { Appear, PopNote, PopupDialog, RADIUS, SoftChip, SPACE, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { PlatformIcon } from '../../ui/PlatformIcon.tsx'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import { View } from 'react-native'
@@ -314,45 +313,37 @@ export interface AddressLinkerOptions {
   readonly onEdit?: () => void
 }
 
-/** 라이브 링크 화면 제목·설명 (D-UX4-112, 사용자 지시 2026-11-10 — 옛 제목 "라이브 링크를 넣어 주세요") */
-export const LINK_ASK_TITLE = '연결할 라이브의 링크를\n복사해서 붙여넣어 주세요'
-export const LINK_ASK_DESCRIPTION = '라이브 링크만 알려주시면\n복잡한 전산 업무는 저희가 도와드릴게요'
+/** 라이브 링크 화면 제목·설명 (D-UX4-112 → D-UX4-113, 사용자 지시 2026-11-10 토스 "토스인증서" 사진 — 제목 한 줄, 설명 두 줄) */
+export const LINK_ASK_TITLE = '라이브 링크를 넣어 주세요'
+export const LINK_ASK_DESCRIPTION = '링크만 알려주시면 복잡한 작업은\n저희가 도와드릴게요'
 export const LINK_UNKNOWN = '링크를 모르겠어요'
 
-/**
- * 링크 칸 아래 곁길 단추 줄 (D-UX4-112, 사용자 지시 "붙여넣기 버튼이 지금 우리 스타일이랑 안 맞아. 밑줄이랑도 거의 겹쳐있고. 아래에 있는 링크를 모르겠어요 버튼 스타일 맞춰서"):
- * 칸 오른쪽 안에 끼우던 [붙여넣기]를 칸 밖으로 — [링크를 모르겠어요] 옆 같은 모양 작은 회색 단추. 한 줄에 둘(쌓지 않음), 곁길(링크 모름) 왼쪽 · 붙여넣기 오른쪽
- */
-export function LinkSideButtons({ onUnknown, paste }: { readonly onUnknown: () => void; readonly paste: ReactNode | null }) {
-  return (
-    <View testID="link-side-buttons" style={{ flexDirection: 'row', justifyContent: 'center', gap: SPACE.sm }}>
-      <SmallButton label={LINK_UNKNOWN} onPress={onUnknown} />
-      {paste}
-    </View>
-  )
+/** 설명 아래 [링크를 모르겠어요] — 토스 "자세히 보기"처럼 왼쪽 정렬 회색 칩 (D-UX4-113, FormPage headerAction 자리) */
+export function LinkUnknownChip({ onPress }: { readonly onPress: () => void }) {
+  return <SoftChip label={LINK_UNKNOWN} onPress={onPress} testID="link-unknown" />
 }
 
 /** 링크 화면 "최근 연결한 채널의 라이브" 제목 (D-UX4-112 — 옛 "최근 이은 채널의 라이브") */
 export const RECENT_LIVE_TITLE = '최근 연결한 채널의 라이브가 있어요'
-/** 최근 라이브 줄의 플랫폼 그림·채널 사진 크기 */
-const RECENT_ICON = 20
+/** 최근 라이브 줄의 플랫폼 그림 크기 (토스 계좌 줄의 은행 그림처럼 두 줄 높이) */
+const RECENT_ICON = 40
 /** 한 줄 글 끝이 흐려지는 폭 */
 const FADE_WIDTH = 36
 
 /** 한 줄 글: 넘치면 말줄임표 대신 끝이 점점 흐려져 사라진다 (D-UX4-112, 사용자 지시 "한 줄 넘어가면 그냥 점점 흐려지게 해서 뒤에 안 보이게") */
-function FadeLine({ text, testID }: { readonly text: string; readonly testID?: string }) {
+function FadeLine({ text, testID, step = 'body' }: { readonly text: string; readonly testID?: string; readonly step?: 'body' | 'bodyLarge' }) {
   const { p } = useKit()
   const [box, setBox] = useState(0)
   const [natural, setNatural] = useState(0)
   const over = natural > box + 0.5 && box > 0
   return (
     <View style={{ flex: 1, overflow: 'hidden' }} onLayout={(event) => setBox(event.nativeEvent.layout.width)}>
-      <Txt step="body" weight="bold" numberOfLines={1} ellipsizeMode="clip" testID={testID}>
+      <Txt step={step} weight="bold" numberOfLines={1} ellipsizeMode="clip" testID={testID}>
         {text}
       </Txt>
       {/* 글 본래 폭을 재는 보이지 않는 글 */}
       <View aria-hidden pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, width: 4000, opacity: 0, flexDirection: 'row' }}>
-        <Txt step="body" weight="bold" onLayout={(event) => setNatural(event.nativeEvent.layout.width)}>
+        <Txt step={step} weight="bold" onLayout={(event) => setNatural(event.nativeEvent.layout.width)}>
           {text}
         </Txt>
       </View>
@@ -370,6 +361,25 @@ function FadeLine({ text, testID }: { readonly text: string; readonly testID?: s
         </View>
       ) : null}
     </View>
+  )
+}
+
+/** 최근 라이브 줄 오른쪽 [연결] — 토스 계좌 줄 [송금]: 옅은 회색 둥근 네모, 회색 중간 굵기 글, 꾸욱 눌림 (D-UX4-113) */
+function ConnectButton({ label, disabled, onPress }: { readonly label: string; readonly disabled: boolean; readonly onPress: () => void }) {
+  const { p } = useKit()
+  return (
+    <Tap
+      role="button"
+      aria-label={label}
+      aria-disabled={disabled}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: SPACE.lg - 2, justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surfaceAlt, opacity: disabled ? 0.45 : 1 })}
+    >
+      <Txt step="body" weight="medium" ink={p.tabInk}>
+        연결
+      </Txt>
+    </Tap>
   )
 }
 
@@ -392,7 +402,7 @@ export function shortLinkError(error: ApiError): string {
  * "방송 주소" 칸 + 내 채널 방송 목록 + 처음 잇는 채널 확인 (fields) 과 [확인] (action — D-UX3-13, 전 [이 방송에 잇기] — 주소를 넣기 전엔 null, D-UX3-07).
  * 방송 화면 연결과 새 방송 화면이 함께 쓴다 (D-UX3-06). 단추는 화면 맨 아래(키보드 위)에 두라고 따로 준다.
  */
-export function useAddressLinker({ webChat, broadcastId, submit, label = '확인', disabled, enabled = true, onEdit }: AddressLinkerOptions): { readonly fields: ReactNode; readonly paste: ReactNode | null; readonly action: ReactNode | null; readonly popup: ReactNode; readonly busy: boolean; readonly recheck: () => Promise<void> } {
+export function useAddressLinker({ webChat, broadcastId, submit, label = '확인', disabled, enabled = true, onEdit }: AddressLinkerOptions): { readonly fields: ReactNode; readonly action: ReactNode | null; readonly popup: ReactNode; readonly busy: boolean; readonly recheck: () => Promise<void> } {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
@@ -540,11 +550,13 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
   }
 
   const recentTitle = webChat === null ? MY_CHANNEL_TITLE : RECENT_LIVE_TITLE
+  // [붙여넣기]: 클립보드에 글이 있고 칸이 비었을 때만 (D-UX4-113 — 칸 바로 아래 왼쪽)
+  const pasteButton = canPaste && address === '' ? <PasteButton onPaste={paste} /> : null
   const off = busy || disabled === true
   const fields = (
     <Stack tight>
       {/* 키보드를 띄우지 않는다 (D-UX4-112, 사용자 지시 "링크를 키보드로 직접 치는 사람이 어딨어 … 방송 링크 넣는 화면에서는 키보드를 띄우지 마"):
-          스스로 초점을 받지 않고, 눌러도 휴대폰 키보드 없이 길게 눌러 붙여넣기만 된다. [붙여넣기]는 칸 아래 곁길 단추 줄(paste)로 */}
+          스스로 초점을 받지 않고, 눌러도 휴대폰 키보드 없이 길게 눌러 붙여넣기만 된다 */}
       <Field
         label="라이브 링크"
         value={address}
@@ -555,12 +567,14 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
         autoCorrect={false}
         showSoftInputOnFocus={false}
       />
-      {/* 최근 연결한 채널에서 지금 하는 라이브 (D-UX4-112): 서버에서 받아 한발 늦게 오므로 옅게 나타나며 올라온다(Appear). 카드 없이 화면 여백 그대로,
-          줄마다 플랫폼 그림 + 제목(한 줄, 넘치면 끝이 흐려짐) → 채널 사진 + 채널 이름, 오른쪽 [연결] */}
+      {/* [붙여넣기]: 칸 바로 아래 왼쪽 회색 칩 (D-UX4-113, 토스 "계좌번호 입력" 아래 "… 붙여넣기" 칩 자리·모양) — 클립보드에 글이 있고 칸이 비었을 때만 */}
+      {pasteButton === null ? null : <View testID="link-paste" style={{ alignItems: 'flex-start', paddingTop: SPACE.sm }}>{pasteButton}</View>}
+      {/* 최근 연결한 채널에서 지금 하는 라이브 (D-UX4-112 → D-UX4-113, 토스 계좌 줄 사진): 서버에서 받아 한발 늦게 오므로 옅게 나타나며 올라온다(Appear).
+          위와 넉넉히 띄우고, 줄마다 왼쪽 플랫폼 그림(두 줄 높이) · 굵은 제목(한 줄, 넘치면 끝이 흐려짐) / 회색 채널 이름 · 오른쪽 회색 [연결](토스 [송금]) */}
       {(recent ?? []).length > 0 ? (
         <Appear testID="recent-lives">
-          <View role="group" aria-label={recentTitle} style={{ gap: SPACE.md, paddingTop: SPACE.sm }}>
-            <Txt step="body" weight="bold">
+          <View role="group" aria-label={recentTitle} style={{ gap: SPACE.lg, paddingTop: SPACE.xxxl }}>
+            <Txt step="body" weight="bold" color="textSub">
               {recentTitle}
             </Txt>
             {(recent ?? []).map((item) => {
@@ -568,30 +582,19 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
               const title = item.title.trim() === '' ? NO_BROADCAST_TITLE : item.title
               // 내 채널 목록(구글 연결로 읽는 서버)에는 채널 이름이 없다 — 제목만 ("(이름 없음)"을 보이지 않게)
               const channel = webChat === null ? null : channelName(item.channelTitle)
+              const sub = other ? '다른 라이브에 연결돼 있어요' : channel === null ? (item.status === 'LIVE' ? null : '예정') : item.status === 'LIVE' ? channel : `${channel} · 예정`
               return (
                 <View key={item.videoId} testID="recent-live" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
-                  <View style={{ flex: 1, gap: SPACE.xs }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-                      <PlatformIcon platform="youtube" size={RECENT_ICON} />
-                      <FadeLine text={title} testID="recent-live-title" />
-                    </View>
-                    {channel === null ? null : (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-                        <ChannelPhoto channelId={item.channelId ?? null} size={RECENT_ICON} testID="recent-live-avatar" />
-                        <View style={{ flex: 1 }}>
-                          <Txt step="body" color="textSub" numberOfLines={1}>
-                            {item.status === 'LIVE' ? channel : `${channel} · 예정`}
-                          </Txt>
-                        </View>
-                      </View>
-                    )}
-                    {other ? (
-                      <Txt step="caption" color="textSub">
-                        다른 라이브에 연결돼 있어요
+                  <PlatformIcon platform="youtube" size={RECENT_ICON} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <FadeLine text={title} testID="recent-live-title" step="bodyLarge" />
+                    {sub === null ? null : (
+                      <Txt step="body" color="textSub" numberOfLines={1} testID="recent-live-channel">
+                        {sub}
                       </Txt>
-                    ) : null}
+                    )}
                   </View>
-                  <BigButton small label="연결" ariaLabel={`${title} 연결`} disabled={off || other} onPress={() => void check(item.videoId)} />
+                  <ConnectButton label={`${title} 연결`} disabled={off || other} onPress={() => void check(item.videoId)} />
                 </View>
               )
             })}
@@ -630,7 +633,5 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
   // 링크를 넣기 전엔 단추를 보이지 않는다 (D-UX3-07)
   const action = address.trim() === '' || step !== 'none' ? null : <BigButton label={label} primary disabled={off} onPress={() => confirm(address.trim())} />
   // recheck: 앱 안 브라우저를 닫고 돌아왔을 때 클립보드를 다시 본다(앱이 뒤로 가지 않아 앞으로 옴 알림이 없다)
-  // [붙여넣기]: 클립보드에 글이 있고 칸이 비었을 때만 — 화면이 [링크를 모르겠어요] 옆에 둔다 (D-UX4-112)
-  const pasteButton = canPaste && address === '' ? <PasteButton onPaste={paste} /> : null
-  return { fields, paste: pasteButton, action, popup: <PopNote note={note} />, busy, recheck: peek }
+  return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek }
 }

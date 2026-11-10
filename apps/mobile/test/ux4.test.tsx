@@ -87,13 +87,14 @@ describe('D-UX4-04 곁길 단추는 작은 회색 단추', () => {
   it('새 라이브·라이브 연결의 [링크를 모르겠어요]는 큰 단추가 아니다 (소스)', () => {
     // D-UX4-112: [링크를 모르겠어요]는 두 화면이 같이 쓰는 곁길 단추 줄(LinkSideButtons — [붙여넣기]와 한 줄) 안의 작은 회색 단추
     // (옛 기대: 두 화면 소스에 '<SmallButton label="링크를 모르겠어요"'가 바로 있음)
+    // D-UX4-113 (사용자 지시 토스 "자세히 보기" 사진): 설명 바로 아래 왼쪽 회색 칩(SoftChip) — FormPage headerAction 자리
     for (const file of ['NewBroadcastScreen.tsx', 'BroadcastLinkScreen.tsx']) {
       const source = readFileSync(join(__dirname, '../src/screens', file), 'utf8')
-      expect(source).toContain('<LinkSideButtons onUnknown=')
+      expect(source).toContain('headerAction={<LinkUnknownChip onPress={() => setFinder(true)} />}')
       expect(source).not.toContain('<BigButton kind="outline" label="링크를 모르겠어요"')
     }
     const section = readFileSync(join(__dirname, '../src/screens/console/YoutubeSection.tsx'), 'utf8')
-    expect(section).toContain('<SmallButton label={LINK_UNKNOWN} onPress={onUnknown} />')
+    expect(section).toContain('<SoftChip label={LINK_UNKNOWN} onPress={onPress} testID="link-unknown" />')
     expect(section).toContain("export const LINK_UNKNOWN = '링크를 모르겠어요'")
   })
 })

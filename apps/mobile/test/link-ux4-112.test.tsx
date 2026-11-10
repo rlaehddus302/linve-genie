@@ -34,8 +34,10 @@ describe('라이브 링크 화면 (D-UX4-112)', () => {
     const world = linkWorld()
     render(world.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
     const page = await screen.findByRole('dialog', { name: '라이브 연결' })
-    expect(LINK_ASK_TITLE).toBe('연결할 라이브의 링크를\n복사해서 붙여넣어 주세요')
-    expect(LINK_ASK_DESCRIPTION).toBe('라이브 링크만 알려주시면\n복잡한 전산 업무는 저희가 도와드릴게요')
+    // D-UX4-113 (사용자 지시 2026-11-10 토스 "토스인증서" 사진): 옛 기대 제목 "연결할 라이브의 링크를\n복사해서 붙여넣어 주세요",
+    // 설명 "라이브 링크만 알려주시면\n복잡한 전산 업무는 저희가 도와드릴게요" → 아래 둘
+    expect(LINK_ASK_TITLE).toBe('라이브 링크를 넣어 주세요')
+    expect(LINK_ASK_DESCRIPTION).toBe('링크만 알려주시면 복잡한 작업은\n저희가 도와드릴게요')
     expect(within(page).getByRole('heading', { level: 1 }).textContent).toBe(LINK_ASK_TITLE)
     expect(within(page).getByTestId('form-description').textContent).toBe(LINK_ASK_DESCRIPTION)
     const field = within(page).getByRole('textbox', { name: '라이브 링크' })
@@ -47,26 +49,34 @@ describe('라이브 링크 화면 (D-UX4-112)', () => {
     expect(read('src/screens/NewBroadcastScreen.tsx')).not.toContain('autoFocus: true')
   })
 
-  it('[붙여넣기]는 칸 밖 [링크를 모르겠어요] 옆, 같은 모양(작은 회색 단추)으로 한 줄에', async () => {
+  // D-UX4-113: 옛 기대(D-UX4-112) [링크를 모르겠어요]·[붙여넣기]가 칸 아래 가운데 한 줄 → 토스 사진대로
+  // [링크를 모르겠어요]는 설명 바로 아래 왼쪽 칩("자세히 보기" 자리), [붙여넣기]는 칸 바로 아래 왼쪽 칩("… 붙여넣기" 자리), 같은 모양
+  it('[링크를 모르겠어요]는 설명 아래 왼쪽 칩, [붙여넣기]는 칸 바로 아래 왼쪽 칩 — 같은 모양', async () => {
     setClipboardProbe(async () => true)
     setClipboardReader(async () => 'https://youtube.com/live/LIVENOW0001')
     const world = linkWorld()
     render(world.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
     const page = await screen.findByRole('dialog', { name: '라이브 연결' })
-    const row = await within(page).findByTestId('link-side-buttons')
-    const names = within(row).getAllByRole('button').map((button) => button.getAttribute('aria-label'))
-    expect(names).toEqual(['링크를 모르겠어요', '붙여넣기'])
-    const [unknown, paste] = within(row).getAllByRole('button')
-    expect(getComputedStyle(paste!).backgroundColor).toBe(getComputedStyle(unknown!).backgroundColor)
-    expect(getComputedStyle(paste!).minHeight).toBe(getComputedStyle(unknown!).minHeight)
-    // 칸 안(밑줄 위)에는 단추가 없다
+    const unknown = within(page).getByRole('button', { name: '링크를 모르겠어요' })
+    const pasteBox = await within(page).findByTestId('link-paste')
+    const paste = within(pasteBox).getByRole('button', { name: '붙여넣기' })
+    const description = within(page).getByTestId('form-description')
     const field = within(page).getByRole('textbox', { name: '라이브 링크' })
+    const after = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+    // 순서: 설명 → [링크를 모르겠어요] → 링크 칸 → [붙여넣기]
+    expect(after(description, unknown)).toBe(true)
+    expect(after(unknown, field)).toBe(true)
+    expect(after(field, paste)).toBe(true)
+    // 같은 회색 칩, 왼쪽 정렬
+    expect(getComputedStyle(paste).alignSelf).toBe(getComputedStyle(unknown).alignSelf)
+    expect(getComputedStyle(pasteBox).alignItems).toBe('flex-start')
     expect(within(field.parentElement!).queryByRole('button', { name: '붙여넣기' })).toBeNull()
-    fireEvent.click(paste!)
+    fireEvent.click(paste)
     await within(page).findByDisplayValue('https://youtube.com/live/LIVENOW0001')
   })
 
-  it('최근 연결한 채널의 라이브: 옅게 나타나며 올라오는 묶음, 플랫폼 그림 + 제목 / 채널 사진 + 채널 이름, [연결]', async () => {
+  // D-UX4-113 (토스 계좌 줄 사진): 옛 기대(D-UX4-112) 제목 줄 앞 작은 플랫폼 그림 · 채널 사진 + 채널 이름 → 왼쪽 큰 플랫폼 그림 하나(두 줄 높이) · 굵은 제목 / 회색 채널 이름 · 오른쪽 회색 [연결]
+  it('최근 연결한 채널의 라이브: 옅게 나타나며 올라오는 묶음, 플랫폼 그림 · 제목 / 채널 이름 · [연결]', async () => {
     const world = linkWorld([{ videoId: 'LIVENOW0001', title: '아주 긴 라이브 제목이 한 줄을 넘어가면 끝이 흐려져요', status: 'LIVE', scheduledStartTime: null, actualStartTime: null, linkedBroadcast: null, channelId: 'UC1', channelTitle: '다육이네' }])
     render(world.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
     const box = await screen.findByRole('group', { name: RECENT_LIVE_TITLE })
@@ -74,8 +84,8 @@ describe('라이브 링크 화면 (D-UX4-112)', () => {
     expect(screen.getByTestId('recent-lives').contains(box)).toBe(true)
     const row = within(box).getByTestId('recent-live')
     expect(within(row).getByTestId('recent-live-title').textContent).toBe('아주 긴 라이브 제목이 한 줄을 넘어가면 끝이 흐려져요')
-    expect(within(row).getByTestId('recent-live-avatar')).toBeTruthy()
-    expect(within(row).getByText('다육이네')).toBeTruthy()
+    expect(within(row).getByTestId('recent-live-channel').textContent).toBe('다육이네')
+    expect(within(row).queryByTestId('recent-live-avatar')).toBeNull()
     expect(within(row).getByRole('button', { name: '아주 긴 라이브 제목이 한 줄을 넘어가면 끝이 흐려져요 연결' })).toBeTruthy()
     expect(box.textContent).not.toContain('잇기')
     const source = read('src/screens/console/YoutubeSection.tsx')
@@ -84,6 +94,8 @@ describe('라이브 링크 화면 (D-UX4-112)', () => {
     expect(source).toContain('testID="fade-line-end"')
     expect(source).toContain('<Appear testID="recent-lives">')
     expect(source).not.toContain('<Card label={recentTitle}>')
+    // [연결]은 토스 [송금]처럼 옅은 회색 둥근 네모
+    expect(source).toContain("backgroundColor: pressed ? p.pressed : p.surfaceAlt, opacity: disabled ? 0.45 : 1")
   })
 
   it('화면이 넘어오는 동안에는 칸이 스스로 초점을 받지 않는다 — 넘김이 끝난 뒤(휴대폰)', () => {

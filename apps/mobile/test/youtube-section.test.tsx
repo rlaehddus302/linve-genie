@@ -84,8 +84,8 @@ describe('콘솔 유튜브 (앱)', () => {
     // → "최근 연결한 채널의 라이브가 있어요", 줄 둘(플랫폼 그림 + 제목 / 채널 사진 + 채널 이름), [오늘 경매 연결]
     const box = await screen.findByRole('group', { name: '최근 연결한 채널의 라이브가 있어요' })
     expect(within(box).getByTestId('recent-live-title').textContent).toBe('오늘 경매')
-    expect(within(box).getByText('다육이네')).toBeTruthy()
-    expect(within(box).getByTestId('recent-live-avatar')).toBeTruthy()
+    // D-UX4-113: 채널 사진 대신 왼쪽 플랫폼 그림(두 줄 높이), 아랫줄은 회색 채널 이름만
+    expect(within(box).getByTestId('recent-live-channel').textContent).toBe('다육이네')
     expect(world.server.callsTo('GET', /live-broadcasts/)).toHaveLength(1)
     fireEvent.click(within(box).getByRole('button', { name: '오늘 경매 연결' }))
     await agree()

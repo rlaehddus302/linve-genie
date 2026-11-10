@@ -315,6 +315,8 @@ export interface FullSheetProps {
   readonly title: string
   /** 제목 아래 회색 설명 (FormPage와 같다) */
   readonly description?: string
+  /** 설명 아래 작은 곁길 단추 (FormPage와 같다) */
+  readonly headerAction?: ReactNode
   /** 보조 기술에 읽히는 화면 이름 — 없으면 제목 */
   readonly name?: string
   readonly children?: ReactNode
@@ -355,8 +357,10 @@ export function useKeyboardShown(): boolean {
 export interface FormPageProps {
   /** 큰 질문형 제목 ("어떤 방송인가요?") — 줄바꿈(\n)을 그대로 보인다 */
   readonly title: string
-  /** 제목 아래 회색 설명 (D-UX4-112 — 라이브 링크 화면 "라이브 링크만 알려주시면 …") */
+  /** 제목 아래 회색 설명 (D-UX4-112 — 라이브 링크 화면 "링크만 알려주시면 …") */
   readonly description?: string
+  /** 설명 아래 작은 곁길 단추 (D-UX4-113 — 토스 "토스인증서 · 자세히 보기" 자리: [링크를 모르겠어요]) */
+  readonly headerAction?: ReactNode
   /** 보조 기술에 읽히는 화면 이름 — 없으면 제목 */
   readonly name?: string
   readonly onBack: () => void
@@ -380,7 +384,7 @@ export interface FormPageProps {
  * 바탕은 흰색(카드로 나뉜 내용이면 회색). 키보드가 뜨면 내용과 단추가 키보드 위로 올라와 입력 칸이 가려지지 않고, 단추와 키보드 사이는 12만 띈다.
  * 경로 화면(밀어서 뒤로 가기가 되는 쌓인 화면)과 FullSheet(앱 안 판)가 같이 쓴다.
  */
-export function FormPage({ title, description, name, onBack, backLabel = '뒤로', children, actions, cards = false, overlay, sticky, scrollRef, testID }: FormPageProps) {
+export function FormPage({ title, description, headerAction, name, onBack, backLabel = '뒤로', children, actions, cards = false, overlay, sticky, scrollRef, testID }: FormPageProps) {
   const { p } = useKit()
   const inset = useBottomInset()
   // 상태 막대를 피할 높이 — 경로가 이미 피했으면 0, 판(FullSheet)·상태 막대까지 그리는 경로면 기기 값 (D-UX4-41)
@@ -404,6 +408,7 @@ export function FormPage({ title, description, name, onBack, backLabel = '뒤로
                 {description}
               </Txt>
             )}
+            {headerAction === undefined || headerAction === null ? null : <View style={{ paddingTop: SPACE.md, alignItems: 'flex-start' }}>{headerAction}</View>}
           </View>
           {sticky === undefined ? null : <View style={{ backgroundColor: bg, marginHorizontal: -PAGE.side, paddingHorizontal: PAGE.side, paddingBottom: SPACE.sm }}>{sticky}</View>}
           {children}
@@ -423,12 +428,12 @@ export function FormPage({ title, description, name, onBack, backLabel = '뒤로
 export function FullSheet({ visible, onClose, testID, ...look }: FullSheetProps) {
   const top = useTopInset()
   // 아이폰은 판이 미끄러져 내려가는 동안에도 안을 그린다 — 닫히는 동안은 열려 있던 마지막 모습 그대로 (D-UX4-103)
-  const { title, description, name, children, actions, closeLabel = '닫기', cards, overlay } = useHeldWhileClosing(visible, look)
+  const { title, description, headerAction, name, children, actions, closeLabel = '닫기', cards, overlay } = useHeldWhileClosing(visible, look)
   return (
     <Modal visible={visible} animationType={Platform.OS === 'web' ? 'none' : 'slide'} onRequestClose={onClose} statusBarTranslucent presentationStyle="fullScreen">
       {/* 판은 화면 맨 위(상태 막대 자리)부터 그린다 — 기기 값만큼 띄운다 (D-UX4-41) */}
       <PageTopProvider value={top}>
-        <FormPage title={title} {...(description === undefined ? {} : { description })} name={name} onBack={onClose} backLabel={closeLabel} actions={actions} cards={cards} overlay={overlay} testID={testID}>
+        <FormPage title={title} {...(description === undefined ? {} : { description })} headerAction={headerAction} name={name} onBack={onClose} backLabel={closeLabel} actions={actions} cards={cards} overlay={overlay} testID={testID}>
           {children}
         </FormPage>
       </PageTopProvider>

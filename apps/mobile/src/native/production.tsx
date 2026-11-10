@@ -47,10 +47,10 @@ function NativePasteButton({ onPaste }: PasteControlProps) {
       acceptedContentTypes={['plain-text', 'url']}
       displayMode="labelOnly"
       cornerStyle="medium"
-      // [링크를 모르겠어요](SmallButton)와 같은 바탕·글 색·높이 (D-UX4-112)
+      // 회색 칩(SoftChip — [링크를 모르겠어요])과 같은 바탕·글 색·높이 (D-UX4-113)
       backgroundColor={p.surfaceAlt}
-      foregroundColor={p.textSub}
-      style={{ height: 44, width: 104 }}
+      foregroundColor={p.tabInk}
+      style={{ height: 38, width: 96 }}
     />
   )
 }

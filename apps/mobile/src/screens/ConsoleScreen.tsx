@@ -474,8 +474,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
               <View role="group" aria-label="유튜브">
                 {linker.fields}
               </View>
-              {/* 라이브 링크 화면과 같은 곁길 단추 줄 — [링크를 모르겠어요]는 쌓인 화면에만 있다 (D-UX4-112) */}
-              {linker.paste === null ? null : <View style={{ flexDirection: 'row', justifyContent: 'center' }}>{linker.paste}</View>}
             </>
           ) : linked ? (
             // 이은 라이브: 흰 바탕 정보 줄 + 라이브 바로가기 · 라이브 연결 끊기 (D-UX4-95·107)
