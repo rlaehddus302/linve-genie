@@ -382,9 +382,13 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             atBottom.current = bottomTab && contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
           }}
           onContentSizeChange={() => { if (atBottom.current) scroll.current?.scrollToEnd({ animated: false }) }}
-          // 탭 바 고정 (D-UX4-93 → 98 → 104): 휴대폰이 직접 하는 붙는 머리 — 위 알림이 지나가면 맨 위에 붙어 스크롤해도 움직이지 않는다. 둘째 자식(탭 바)
-          // 옛 D-UX4-98 "내리면 숨고 올리면 보임"(stickyHeaderHiddenOnScroll)은 사용자 "탭 바가 아직도 스크롤 할 때 고정되지 않고 움직임"으로 뺐다
+          // 탭 바 반고정 (D-UX4-93 → 98 → 104 → 109): 휴대폰이 직접 하는 붙는 머리 — 목록을 올리면 숨고 내리면 맨 위에 붙어 보인다. 둘째 자식(탭 바)
+          // D-UX4-104가 숨기기를 뺐다가 사용자 "올릴 때 탭 바 안 숨는데?"로 되살렸다 — "움직임"은 당길 때 늘어나는 것이었다(D-UX4-108)
           stickyHeaderIndices={STICKY_TABS}
+          stickyHeaderHiddenOnScroll
+          // 당겨도 늘어나지 않는다 (D-UX4-108, 사용자 지시 2026-11-10 "스크롤 땡기면 여전히 이렇게 늘어나는데?"): 아이폰 튕김·안드로이드 늘임을 끈다 — 탭 바가 맨 위에서 끌려 내려오지 않게
+          bounces={false}
+          overScrollMode="never"
           style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
           {/* 첫째 자식: 탭 바 위 알림들 (한 묶음 — 붙는 머리 자리가 늘 둘째가 되게) */}
           <View style={{ gap: SPACE.sm }}>
