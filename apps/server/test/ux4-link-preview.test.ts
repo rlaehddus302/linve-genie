@@ -49,3 +49,18 @@ describe('D-UX4-08 유튜브 잇기 전 미리 보기', () => {
     expect((await client(w, null).post(`/api/youtube/preview`, { video: live.videoId })).status).toBe(401)
   })
 })
+
+describe('D-UX4-119 이을 때 방송 제목을 남긴다 (관리/라이브 연결이 제목을 늦게 보이던 문제)', () => {
+  it('이은 기록이 방송 제목을 돌려준다 — 연결 화면이 유튜브를 다시 읽지 않아도 된다', async () => {
+    const w = await world()
+    const seller = await addSeller(w)
+    const api = client(w, seller.cookie)
+    const video = w.web.addVideo({ channelTitle: '미강다육', title: '<b>11월 10일</b> 신상입고' })
+    const b1 = await createBroadcast(w, seller)
+    const linked = await api.post(`/api/broadcasts/${b1.id}/youtube`, { requestId: 't1', video: video.videoId, confirmInvited: true })
+    expect(linked.status, linked.text).toBe(200)
+    expect((linked.body as { link: Record<string, unknown> }).link).toMatchObject({ broadcastTitle: '<b>11월 10일</b> 신상입고', broadcastChannelTitle: '미강다육' })
+    // 다시 받아도 같은 제목 (기록에서)
+    expect(((await api.get(`/api/broadcasts/${b1.id}/youtube`)).body as { link: Record<string, unknown> }).link).toMatchObject({ broadcastTitle: '<b>11월 10일</b> 신상입고' })
+  })
+})

@@ -57,20 +57,21 @@ async function open(world: ReturnType<typeof makeWorld>) {
 }
 
 const section = () => screen.getByRole('group', { name: '유튜브' })
-/** 잇기 전 확인 팝업의 라이브 정보 카드 (D-UX4-116): 묻는 말 · 플랫폼 · 제목 · 채널 (이름은 글자로만) */
+/** 연결할 라이브 정보 카드 (D-UX4-116 → D-UX4-117): 플랫폼 · 제목(자르지 않음) · 채널 (이름은 글자로만) */
 function expectLiveCheck(ask: HTMLElement, title: string, channel: string) {
-  expect(within(ask).getByRole('heading', { name: '이 라이브가 맞나요?' })).toBeTruthy()
   expect(within(ask).getByTestId('live-check-platform').textContent).toBe('유튜브')
   expect(within(ask).getByTestId('live-check-title').textContent).toBe(title)
   expect(within(ask).getByTestId('live-check-channel').textContent).toBe(channel)
 }
-/** 잇기 전 확인 팝업 (D-UX4-08 — 처음이든 아니든): 제목·채널을 보이고 [맞아요] */
+/**
+ * 잇기 전 확인 (D-UX4-08 — 처음이든 아니든): 제목·채널을 보이고 연결.
+ * D-UX4-117: 옛 기대 팝업 "연결할 라이브 확인"("이 라이브가 맞나요?" 카드 · [아니에요][맞아요]) → 화면 "이 라이브에 연결할까요?" · 라이브 정보 카드 · [연결하기]
+ */
 async function agree(channel = '다육이네') {
-  // D-UX4-112: 옛 기대 팝업 이름 "이을 라이브 확인" → "연결할 라이브 확인"
-  const ask = await screen.findByRole('alertdialog', { name: '연결할 라이브 확인' })
-  // D-UX4-116: 옛 기대 글 "이 라이브가 맞나요?\n\n제목: …\n채널: …" → 라이브 정보 카드(플랫폼 · 제목 한 줄 · 채널)
-  expectLiveCheck(ask, '오늘 경매', channel)
-  fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
+  const heading = await screen.findByRole('heading', { name: '이 라이브에 연결할까요?' })
+  const page = heading.closest('[role="dialog"]') as HTMLElement
+  expectLiveCheck(page, '오늘 경매', channel)
+  fireEvent.click(within(page).getByRole('button', { name: '연결하기' }))
 }
 /** 방송 메뉴 → 유튜브 연결 */
 async function openYoutube() {
@@ -91,11 +92,11 @@ describe('콘솔 유튜브 (앱)', () => {
     // D-UX4-112: 옛 기대 묶음 이름 "최근 이은 채널의 라이브", 한 줄 "다육이네 · 오늘 경매 · 라이브 중", [다육이네 · 오늘 경매 잇기]
     // → "최근 연결한 채널의 라이브가 있어요", 줄 둘(플랫폼 그림 + 제목 / 채널 사진 + 채널 이름), [오늘 경매 연결]
     const box = await screen.findByRole('group', { name: '최근 연결한 채널의 라이브가 있어요' })
-    expect(within(box).getByTestId('recent-live-title').textContent).toBe('오늘 경매')
-    // D-UX4-113: 채널 사진 대신 왼쪽 플랫폼 그림(두 줄 높이), 아랫줄은 회색 채널 이름만
+    // D-UX4-117: 옛 기대(D-UX4-113) 플랫폼 그림 · 제목 / 회색 채널 이름 · [오늘 경매 연결] → 채널 사진(라이브 표시) · 채널 이름만 · [다육이네 연결]
+    expect(within(box).queryByTestId('recent-live-title')).toBeNull()
     expect(within(box).getByTestId('recent-live-channel').textContent).toBe('다육이네')
     expect(world.server.callsTo('GET', /live-broadcasts/)).toHaveLength(1)
-    fireEvent.click(within(box).getByRole('button', { name: '오늘 경매 연결' }))
+    fireEvent.click(within(box).getByRole('button', { name: '다육이네 연결' }))
     await agree()
     // D-UX4-95: 이은 뒤 라이브 화면의 라이브 연결 판도 흰 바탕 연결 정보 줄 (옛 기대: 유튜브 카드 "유튜브 라이브 · 다육이네")
     await waitFor(() => expect(screen.getByTestId('link-info-channel').textContent).toContain('다육이네'))
@@ -113,19 +114,20 @@ describe('콘솔 유튜브 (앱)', () => {
     await open(world)
     await openYoutube()
     fireEvent.change(await screen.findByRole('textbox', { name: '라이브 링크' }), { target: { value: 'NEWCHAN0001' } })
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
-    // D-UX4-112: 옛 기대 팝업 이름 "이을 라이브 확인" → "연결할 라이브 확인" (아래 셋)
-    let ask = await screen.findByRole('alertdialog', { name: '연결할 라이브 확인' })
+    // D-UX4-117: 옛 기대 [확인] → 팝업 "연결할 라이브 확인" [아니에요][맞아요] → 새 기대 [다음] → 연결 확인 화면(같은 판 안) [이전][연결하기]
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    let heading = await screen.findByRole('heading', { name: '이 라이브에 연결할까요?' })
+    let page = heading.closest('[role="dialog"]') as HTMLElement
     // 부정은 왼쪽, 긍정은 오른쪽 (D-UX4-01)
-    expect(within(ask).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['아니에요', '맞아요'])
-    fireEvent.click(within(ask).getByRole('button', { name: '아니에요' }))
-    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '연결할 라이브 확인' })).toBeNull())
+    expect(within(page).getAllByRole('button').map((button) => button.getAttribute('aria-label')).filter((label) => label === '이전' || label === '연결하기')).toEqual(['이전', '연결하기'])
+    fireEvent.click(within(page).getByRole('button', { name: '이전' }))
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '이 라이브에 연결할까요?' })).toBeNull())
     expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(0)
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
-    ask = await screen.findByRole('alertdialog', { name: '연결할 라이브 확인' })
-    // D-UX4-116: 옛 기대 글 "이 라이브가 맞나요?\n\n제목: 오늘 경매\n채널: <b>새채널</b>" → 라이브 정보 카드
-    expectLiveCheck(ask, '오늘 경매', '<b>새채널</b>')
-    fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    heading = await screen.findByRole('heading', { name: '이 라이브에 연결할까요?' })
+    page = heading.closest('[role="dialog"]') as HTMLElement
+    expectLiveCheck(page, '오늘 경매', '<b>새채널</b>')
+    fireEvent.click(within(page).getByRole('button', { name: '연결하기' }))
     // D-UX4-95: 연결 정보 줄의 채널 이름 — 글자로만
     await waitFor(() => expect(screen.getByTestId('link-info-channel').textContent).toContain('<b>새채널</b>'))
     expect(document.querySelector('b')).toBeNull()
@@ -138,7 +140,7 @@ describe('콘솔 유튜브 (앱)', () => {
     await open(world)
     await openYoutube()
     fireEvent.change(await screen.findByRole('textbox', { name: '라이브 링크' }), { target: { value: 'PRIVATE0001' } })
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     // D-UX4-112: 옛 기대 "공개 라이브만 이을 수 있어요." → "공개 라이브만 연결할 수 있어요."
     await waitFor(() => expect(within(section()).getByRole('alert').textContent).toBe('공개 라이브만 연결할 수 있어요.'))
   })
@@ -218,7 +220,7 @@ describe('콘솔 유튜브 (앱)', () => {
     await waitFor(() => expect((field as HTMLInputElement).value).toBe('https://youtube.com/live/LIVENOW0001?si=x'))
     // D-UX4-112: 옛 기대 [나중에 잇기] → [나중에 연결]
     expect(within(sheet).getByRole('button', { name: '나중에 연결' })).toBeTruthy()
-    fireEvent.click(within(sheet).getByRole('button', { name: '확인' }))
+    fireEvent.click(within(sheet).getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     await agree()
     // D-UX4-95: 이은 뒤 라이브 화면의 라이브 연결 판도 흰 바탕 연결 정보 줄 (옛 기대: 유튜브 카드 "유튜브 라이브 · 다육이네")
     await waitFor(() => expect(screen.getByTestId('link-info-channel').textContent).toContain('다육이네'))
@@ -251,7 +253,7 @@ describe('콘솔 유튜브 (앱)', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: '라이브 링크' }), { target: { value: 'VIDEOKNOWN1' } })
     // D-LIVETEST-09: 내 채널에 지금 하는 방송이 없으면 목록을 숨긴다
     expect(within(section()).queryByText('내 채널에서 라이브 중')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     await waitFor(() => expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(1))
   })
 })
@@ -284,7 +286,7 @@ describe('라이브 연결은 쌓인 화면 (D-UX3-09 — 밀어서 뒤로 가�
     fireEvent.click(await within(page).findByRole('button', { name: '나중에 연결' }))
     expect(back).toBe(1)
     fireEvent.change(within(page).getByRole('textbox', { name: '라이브 링크' }), { target: { value: 'https://youtu.be/VIDEOKNOWN1' } })
-    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    fireEvent.click(within(page).getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     await agree()
     const info = await screen.findByTestId('link-info-page')
     expect(within(info).getByTestId('link-info-channel').textContent).toBe('채널다육이네')

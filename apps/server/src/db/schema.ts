@@ -536,6 +536,8 @@ export const youtubeLinks = pgTable(
     broadcastChannelId: text('broadcast_channel_id'),
     /** 방송 채널 이름(snippet.channelTitle) — 바깥 글, 화면은 글자로만 (D-INV1-03) */
     broadcastChannelTitle: text('broadcast_channel_title'),
+    /** 이을 때 읽은 방송 제목 — 바깥 글, 화면은 글자로만. 옛 기록은 null (D-UX4-119) */
+    broadcastTitle: text('broadcast_title'),
     linkedAt: timestamptz('linked_at').notNull(),
     /** 유튜브 방송의 실제 시작 시각. null이면 예정(시작 전) — 수집기는 채팅을 부르지 않고 상태만 본다 (AC-Y1-94) */
     startedAt: timestamptz('started_at'),

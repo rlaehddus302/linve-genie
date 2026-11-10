@@ -90,7 +90,9 @@ describe('D-UX4-04 곁길 단추는 작은 회색 단추', () => {
     // D-UX4-113 (사용자 지시 토스 "자세히 보기" 사진): 설명 바로 아래 왼쪽 회색 칩(SoftChip) — FormPage headerAction 자리
     for (const file of ['NewBroadcastScreen.tsx', 'BroadcastLinkScreen.tsx']) {
       const source = readFileSync(join(__dirname, '../src/screens', file), 'utf8')
-      expect(source).toContain('headerAction={<LinkUnknownChip onPress={() => setFinder(true)} />}')
+      // D-UX4-117 (사용자 지시 "그 아래에 링크를 모르겠어요, 붙여넣기 버튼을 순서대로 한줄에"): 옛 기대 설명 아래 headerAction 자리 → 칸 아래 칩 줄(linker onUnknown)
+      expect(source).toContain('onUnknown: () => setFinder(true)')
+      expect(source).not.toContain('headerAction=')
       expect(source).not.toContain('<BigButton kind="outline" label="링크를 모르겠어요"')
     }
     const section = readFileSync(join(__dirname, '../src/screens/console/YoutubeSection.tsx'), 'utf8')

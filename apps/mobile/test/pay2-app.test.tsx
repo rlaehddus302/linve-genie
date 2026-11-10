@@ -60,8 +60,9 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={newNav} />))
     fireEvent.change(await screen.findByLabelText('라이브 링크'), { target: { value: 'https://youtu.be/tWnNGwvdN40' } })
-    fireEvent.click(await screen.findByRole('button', { name: '확인' }))
-    fireEvent.click(await screen.findByRole('button', { name: '맞아요' }))
+    // D-UX4-117: 옛 기대 [확인] → 팝업 [맞아요] → 새 기대 [다음] → 연결 확인 화면 [연결하기]
+    fireEvent.click(await screen.findByRole('button', { name: '다음' }))
+    fireEvent.click(await screen.findByRole('button', { name: '연결하기' }))
     expect(await screen.findByText(APP_NO_PASS_MESSAGE)).toBeTruthy()
     expectNoBillingWords()
     expect(newNav.openConsole).not.toHaveBeenCalled()
@@ -72,7 +73,7 @@ describe('이용권이 없을 때 앱 문장 (AC-PAY2-02)', () => {
     const newNav = { back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }
     render(world.wrap(<NewBroadcastAddressScreen category="pot" nav={newNav} />))
     fireEvent.change(await screen.findByLabelText('라이브 링크'), { target: { value: 'https://www.tiktok.com/@shop_a/live' } })
-    fireEvent.click(await screen.findByRole('button', { name: '확인' }))
+    fireEvent.click(await screen.findByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     expect(await screen.findByText('시험 거절 문장이에요.')).toBeTruthy()
     expect(screen.queryByText(APP_NO_PASS_MESSAGE)).toBeNull()
     expect(newNav.openConsole).not.toHaveBeenCalled()

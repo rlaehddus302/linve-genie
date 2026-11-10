@@ -17,7 +17,7 @@ import { BottomSheet, FormPage, Icon, Txt, useKit, Tap } from '../ui/kit/index.t
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Notice } from '../ui/parts.tsx'
 import { defaultBroadcastTitle, startErrorMessage } from './HomeScreen.tsx'
-import { LINK_ASK_DESCRIPTION, LINK_ASK_TITLE, LinkUnknownChip, markLinkAsked, sendLiveLink, useAddressLinker, type LiveLinkRequest } from './console/YoutubeSection.tsx'
+import { LINK_ASK_TITLE, LinkPages, markLinkAsked, sendLiveLink, useAddressLinker, type LiveLinkRequest } from './console/YoutubeSection.tsx'
 
 /** 판매 종류 — 늘릴 때는 여기에 한 줄 (word가 제목에 들어간다. 기타는 제목에 넣지 않는다) */
 export const SALE_CATEGORIES: readonly { readonly key: string; readonly word: string; readonly inTitle: boolean; readonly icon: string }[] = [
@@ -168,22 +168,17 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
     if (nav.openLabelSetup !== undefined) nav.openLabelSetup(id)
     else nav.openConsole(id)
   }
-  const linker = useAddressLinker({ enabled: route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, disabled: busy, onEdit: clearError })
+  const linker = useAddressLinker({ enabled: route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, disabled: busy, onEdit: clearError, onUnknown: () => setFinder(true), confirmNotice: <MakeError error={error} /> })
 
+  // 링크 화면 → [다음] → 연결 확인 화면 (D-UX4-117)
   return (
-    <FormPage
-      title={LINK_ASK_TITLE}
-      description={LINK_ASK_DESCRIPTION}
-      headerAction={<LinkUnknownChip onPress={() => setFinder(true)} />}
-      name="새 라이브"
-      onBack={nav.back}
-      overlay={linker.popup}
-      actions={linker.action}
-    >
-      {route !== undefined ? linker.fields : null}
-      <MakeError error={error} />
-      <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
-    </FormPage>
+    <LinkPages linker={linker} name="새 라이브">
+      <FormPage title={LINK_ASK_TITLE} name="새 라이브" onBack={nav.back} overlay={linker.popup} actions={linker.action}>
+        {route !== undefined ? linker.fields : null}
+        <MakeError error={error} />
+        <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
+      </FormPage>
+    </LinkPages>
   )
 }
 

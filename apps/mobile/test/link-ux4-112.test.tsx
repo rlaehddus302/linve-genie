@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BroadcastLinkScreen } from '../src/screens/BroadcastLinkScreen.tsx'
-import { LINK_ASK_DESCRIPTION, LINK_ASK_TITLE, RECENT_LIVE_TITLE } from '../src/screens/console/YoutubeSection.tsx'
+import { LINK_ASK_TITLE, RECENT_LIVE_TITLE } from '../src/screens/console/YoutubeSection.tsx'
 import { setClipboardProbe, setClipboardReader } from '../src/lib/clipboard.ts'
 import { FOCUS_AFTER_PUSH_MS } from '../src/ui/kit/inputs.tsx'
 import { makeWorld } from './screen-support.tsx'
@@ -37,9 +37,9 @@ describe('라이브 링크 화면 (D-UX4-112)', () => {
     // D-UX4-113 (사용자 지시 2026-11-10 토스 "토스인증서" 사진): 옛 기대 제목 "연결할 라이브의 링크를\n복사해서 붙여넣어 주세요",
     // 설명 "라이브 링크만 알려주시면\n복잡한 전산 업무는 저희가 도와드릴게요" → 아래 둘
     expect(LINK_ASK_TITLE).toBe('라이브 링크를 넣어 주세요')
-    expect(LINK_ASK_DESCRIPTION).toBe('링크만 알려주시면 복잡한 작업은\n저희가 도와드릴게요')
     expect(within(page).getByRole('heading', { level: 1 }).textContent).toBe(LINK_ASK_TITLE)
-    expect(within(page).getByTestId('form-description').textContent).toBe(LINK_ASK_DESCRIPTION)
+    // D-UX4-117 (사용자 지시 2026-11-10 "설명 그냥 지우고 제목 아래에 인풋"): 옛 기대 설명 "링크만 알려주시면 복잡한 작업은\n저희가 도와드릴게요" → 없음
+    expect(within(page).queryByTestId('form-description')).toBeNull()
     const field = within(page).getByRole('textbox', { name: '라이브 링크' })
     expect(document.activeElement).not.toBe(field)
     const source = read('src/screens/console/YoutubeSection.tsx')
@@ -60,33 +60,36 @@ describe('라이브 링크 화면 (D-UX4-112)', () => {
     const unknown = within(page).getByRole('button', { name: '링크를 모르겠어요' })
     const pasteBox = await within(page).findByTestId('link-paste')
     const paste = within(pasteBox).getByRole('button', { name: '붙여넣기' })
-    const description = within(page).getByTestId('form-description')
     const field = within(page).getByRole('textbox', { name: '라이브 링크' })
     const after = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
-    // 순서: 설명 → [링크를 모르겠어요] → 링크 칸 → [붙여넣기]
-    expect(after(description, unknown)).toBe(true)
-    expect(after(unknown, field)).toBe(true)
-    expect(after(field, paste)).toBe(true)
-    // 같은 회색 칩, 왼쪽 정렬
+    // D-UX4-117 (사용자 지시 "제목 아래에 인풋 배치하고 그 아래에 링크를 모르겠어요, 붙여넣기 버튼을 순서대로 한줄에"):
+    // 옛 기대(D-UX4-113) 설명 → [링크를 모르겠어요] → 링크 칸 → [붙여넣기] → 새 기대 링크 칸 → 한 줄 [링크를 모르겠어요][붙여넣기]
+    const chips = within(page).getByTestId('link-chips')
+    expect(after(field, unknown)).toBe(true)
+    expect(after(unknown, paste)).toBe(true)
+    expect(chips.contains(unknown) && chips.contains(paste)).toBe(true)
+    expect(getComputedStyle(chips).flexDirection).toBe('row')
+    // 같은 회색 칩
     expect(getComputedStyle(paste).alignSelf).toBe(getComputedStyle(unknown).alignSelf)
-    expect(getComputedStyle(pasteBox).alignItems).toBe('flex-start')
     expect(within(field.parentElement!).queryByRole('button', { name: '붙여넣기' })).toBeNull()
     fireEvent.click(paste)
     await within(page).findByDisplayValue('https://youtube.com/live/LIVENOW0001')
   })
 
   // D-UX4-113 (토스 계좌 줄 사진): 옛 기대(D-UX4-112) 제목 줄 앞 작은 플랫폼 그림 · 채널 사진 + 채널 이름 → 왼쪽 큰 플랫폼 그림 하나(두 줄 높이) · 굵은 제목 / 회색 채널 이름 · 오른쪽 회색 [연결]
-  it('최근 연결한 채널의 라이브: 옅게 나타나며 올라오는 묶음, 플랫폼 그림 · 제목 / 채널 이름 · [연결]', async () => {
+  // D-UX4-117 (사용자 지시 "채널 아이콘(홈화면에 라이브 빨간표시 그거도 넣고) + 채널명만"): → 채널 사진(라이브면 빨간 테두리 + "라이브") · 굵은 채널 이름 한 줄 · [연결]
+  it('최근 연결한 채널의 라이브: 옅게 나타나며 올라오는 묶음, 채널 사진(라이브 표시) · 채널 이름 · [연결]', async () => {
     const world = linkWorld([{ videoId: 'LIVENOW0001', title: '아주 긴 라이브 제목이 한 줄을 넘어가면 끝이 흐려져요', status: 'LIVE', scheduledStartTime: null, actualStartTime: null, linkedBroadcast: null, channelId: 'UC1', channelTitle: '다육이네' }])
     render(world.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
     const box = await screen.findByRole('group', { name: RECENT_LIVE_TITLE })
     expect(RECENT_LIVE_TITLE).toBe('최근 연결한 채널의 라이브가 있어요')
     expect(screen.getByTestId('recent-lives').contains(box)).toBe(true)
     const row = within(box).getByTestId('recent-live')
-    expect(within(row).getByTestId('recent-live-title').textContent).toBe('아주 긴 라이브 제목이 한 줄을 넘어가면 끝이 흐려져요')
+    expect(within(row).queryByTestId('recent-live-title')).toBeNull()
+    expect(row.textContent).not.toContain('아주 긴 라이브 제목')
     expect(within(row).getByTestId('recent-live-channel').textContent).toBe('다육이네')
-    expect(within(row).queryByTestId('recent-live-avatar')).toBeNull()
-    expect(within(row).getByRole('button', { name: '아주 긴 라이브 제목이 한 줄을 넘어가면 끝이 흐려져요 연결' })).toBeTruthy()
+    expect(within(within(row).getByTestId('recent-live-avatar')).getByTestId('channel-live-tag').textContent).toBe('라이브')
+    expect(within(row).getByRole('button', { name: '다육이네 연결' })).toBeTruthy()
     expect(box.textContent).not.toContain('잇기')
     const source = read('src/screens/console/YoutubeSection.tsx')
     // 한 줄, 말줄임표 대신 끝이 흐려짐 · 카드 없이 화면 여백 그대로

@@ -43,12 +43,14 @@ type LiveNames = { readonly title: string | null; readonly channel: string | nul
 const namesKey = (videoId: string): string => `link-info:preview:${videoId}`
 
 /**
- * 유튜브 라이브 제목: 잇기 기록에는 제목이 없어 서버 미리 보기(D-UX4-08과 같은 읽기 — 유튜브에 아무것도 쓰지 않는다)로 읽는다.
- * 서버 읽기가 아니거나 못 읽으면(끝난 라이브 등) 앱의 라이브 이름으로.
+ * 유튜브 라이브 제목: 이을 때 서버가 남긴 제목(link.broadcastTitle, D-UX4-119)이 있으면 바로 — 다시 읽지 않는다
+ * (사용자 지시 2026-11-10 "관리/라이브연결에서 라이브제목이 늦게 뜨는 이슈": 전에는 화면을 열 때마다 서버가 유튜브 페이지를 읽어 몇 초 늦었다).
+ * 옛 기록(제목 없음)만 서버 미리 보기(D-UX4-08과 같은 읽기 — 유튜브에 아무것도 쓰지 않는다)로 읽고, 서버 읽기가 아니거나 못 읽으면 앱의 라이브 이름으로.
  */
 function useLiveNames(yt: MobileYoutube): { readonly title: string | null; readonly channel: string | null; readonly done: boolean } {
   const videoId = yt.link?.link?.videoId ?? null
-  const ask = videoId !== null && yt.webChat !== null
+  const stored = (yt.link?.link?.broadcastTitle ?? '').trim() !== ''
+  const ask = videoId !== null && yt.webChat !== null && !stored
   const [, setRead] = useState(0)
   // 못 읽은 영상 (이 화면에서만 — 다시 열면 다시 묻는다, 잠깐 실패일 수 있다)
   const [failed, setFailed] = useState<string | null>(null)
@@ -115,10 +117,11 @@ export function LinkInfo({ broadcastId, yt, closed, onEnded, bleed = false }: Li
   const collector = yt.link?.collector ?? null
   const names = useLiveNames(yt)
   // 앱의 라이브 이름 (미리 보기를 못 읽을 때) — 홈이 받아 둔 목록이면 바로
-  const list = useCachedGet<{ broadcasts: BroadcastItem[] }>(names.done && names.title === null ? '/api/broadcasts' : null).data
+  const storedTitle = (link?.broadcastTitle ?? '').trim() !== '' ? broadcastTitleText(link?.broadcastTitle) : null
+  const list = useCachedGet<{ broadcasts: BroadcastItem[] }>(storedTitle === null && names.done && names.title === null ? '/api/broadcasts' : null).data
   const mine = list?.broadcasts.find((item) => item.id === broadcastId)
   // 읽는 동안은 빈 값 (줄이 나중에 끼어들어 들썩이지 않게)
-  const title = names.title ?? (mine === undefined ? '' : broadcastTitle(mine))
+  const title = storedTitle ?? names.title ?? (mine === undefined ? '' : broadcastTitle(mine))
   const channel = link === null ? null : (link.broadcastChannelTitle ?? '').trim() !== '' ? channelName(link.broadcastChannelTitle) : (names.channel ?? channelName(null))
   const [error, setError] = useState<string | null>(null)
   const restart = async () => {

@@ -22,6 +22,8 @@ export interface LinkRow {
   readonly broadcastChannelId: string
   /** 방송 채널 이름 (바깥 글, 모르면 null — 옛 기록) */
   readonly broadcastChannelTitle: string | null
+  /** 이을 때 읽은 방송 제목 (바깥 글, 모르면 null — 옛 기록, D-UX4-119) */
+  readonly broadcastTitle: string | null
   readonly linkedAt: Date
   /** 유튜브 방송의 실제 시작 시각 (null = 예정, AC-Y1-94) */
   readonly startedAt: Date | null
@@ -56,6 +58,7 @@ const linkColumns = {
   // 옛 기록(빈 칸)은 글 올리는 계정과 같다 (D-INV1-01) — 유튜브를 다시 부르거나 고쳐 쓰지 않는다
   broadcastChannelId: sql<string>`coalesce(${youtubeLinks.broadcastChannelId}, ${youtubeLinks.channelId})`,
   broadcastChannelTitle: youtubeLinks.broadcastChannelTitle,
+  broadcastTitle: youtubeLinks.broadcastTitle,
   linkedAt: youtubeLinks.linkedAt,
   startedAt: youtubeLinks.startedAt,
   linkedBy: youtubeLinks.linkedBy,
@@ -173,6 +176,8 @@ export async function insertLink(
     /** 방송 채널(영상의 채널)과 이름 (D-PHN-17) */
     broadcastChannelId: string
     broadcastChannelTitle: string | null
+    /** 이을 때 읽은 방송 제목 (D-UX4-119) */
+    broadcastTitle?: string | null
     /** 유튜브 방송의 실제 시작 시각 (예정이면 null) */
     startedAt: Date | null
     linkedBy: string
@@ -194,6 +199,7 @@ export async function insertLink(
     channelId: row.channelId,
     broadcastChannelId: row.broadcastChannelId,
     broadcastChannelTitle: row.broadcastChannelTitle,
+    broadcastTitle: row.broadcastTitle ?? null,
     linkedAt: row.now,
     startedAt: row.startedAt,
     linkedBy: row.linkedBy,

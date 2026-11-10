@@ -12,11 +12,13 @@ import { clipboardHasText } from '../../lib/clipboard.ts'
 import { liveLinkOf } from '../../lib/live-link.ts'
 import { BandPostPicker, TiktokConsentCard } from './OtherLinks.tsx'
 import { PasteButton } from '../../native/paste.tsx'
-import { Appear, PopNote, PopupDialog, RADIUS, SoftChip, SPACE, Tap, Txt, useKit } from '../../ui/kit/index.ts'
+import { Appear, FormPage, PopNote, PopupDialog, RADIUS, SoftChip, SPACE, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { PlatformIcon } from '../../ui/PlatformIcon.tsx'
 import { ChannelPhoto } from '../../ui/ChannelPhoto.tsx'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
-import { View } from 'react-native'
+import { BackHandler, Platform, View } from 'react-native'
+import { useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
+import { EdgeSwipeBack, SlideSwitch } from '../../ui/kit/slide.tsx'
 import { openWeb } from '../../lib/open-web.ts'
 import { useAppForeground } from '../../lib/use-app-state.ts'
 import {
@@ -39,8 +41,6 @@ import {
   channelName,
   firstChannelPopup,
   broadcastTitleText,
-  LINK_CHECK_GROUP,
-  linkCheckPopup,
   linkedChannelName,
   readModeOf,
   resumeStep,
@@ -312,46 +312,45 @@ export interface AddressLinkerOptions {
   readonly enabled?: boolean
   /** 링크 칸을 고치기 시작했을 때 (화면의 다른 오류 문장도 지우게) */
   readonly onEdit?: () => void
+  /** [링크를 모르겠어요] — 칸 아래 [붙여넣기]와 한 줄 (D-UX4-117). 없으면 칩이 없다 */
+  readonly onUnknown?: () => void
+  /** 연결 확인 화면 [연결하기] 위에 보일 화면의 알림 (새 라이브를 못 만들었을 때 등) */
+  readonly confirmNotice?: ReactNode
 }
 
-/** 라이브 링크 화면 제목·설명 (D-UX4-112 → D-UX4-113, 사용자 지시 2026-11-10 토스 "토스인증서" 사진 — 제목 한 줄, 설명 두 줄) */
+/** 라이브 링크 화면 제목 (D-UX4-112 → D-UX4-113 → D-UX4-117: 설명은 없앴다 — 사용자 지시 2026-11-10 "설명 그냥 지우고 제목 아래에 인풋") */
 export const LINK_ASK_TITLE = '라이브 링크를 넣어 주세요'
-export const LINK_ASK_DESCRIPTION = '링크만 알려주시면 복잡한 작업은\n저희가 도와드릴게요'
 export const LINK_UNKNOWN = '링크를 모르겠어요'
-
-/** 설명 아래 [링크를 모르겠어요] — 토스 "자세히 보기"처럼 왼쪽 정렬 회색 칩 (D-UX4-113, FormPage headerAction 자리) */
-/** 잇기 전 확인 팝업 묻는 말 (D-UX4-08) */
-export const LINK_CHECK_QUESTION = '이 라이브가 맞나요?'
+/** 링크 화면 맨 아래 단추 — 누르면 연결 확인 화면으로 (D-UX4-117, 옛 [확인]) */
+export const LINK_NEXT = '다음'
+/** 연결 확인 화면 (D-UX4-117, 사용자 지시 2026-11-10 "라이브 확인 팝업 띄우지 말고 별도의 화면으로") */
+export const LINK_CONFIRM_TITLE = '이 라이브에 연결할까요?'
+export const LINK_CONFIRM_ACTION = '연결하기'
 const CHECK_ICON = 24
 
 /**
- * 잇기 전 확인 팝업 안 라이브 정보 (D-UX4-116, 사용자 지시 2026-11-10 "팝업 안에 라이브 정보 이쁘게 — 맨 위 플랫폼 아이콘·플랫폼명,
- * 그 아래 제목(한 줄 넘어가면 ...), 그 아래 채널 아이콘·채널명"): 옅은 회색 둥근 카드에 세 줄
+ * 연결할 라이브 정보 (D-UX4-116 → D-UX4-117): 옅은 회색 둥근 카드에 세 줄 — 플랫폼 아이콘·이름 / 굵은 제목 / 채널 사진·이름.
+ * 확인 화면에서는 제목을 자르지 않고 다 보인다(사용자 지시 "끊지말고 그냥 다 보여줘"). 바깥 글이라 글자로만
  */
 export function LiveCheck({ title, channel, channelId }: { readonly title: string; readonly channel: string; readonly channelId: string | null }) {
   const { p } = useKit()
   return (
-    <View style={{ gap: SPACE.lg }}>
-      <Txt step="lead" weight="bold" role="heading">
-        {LINK_CHECK_QUESTION}
-      </Txt>
-      <View testID="live-check" style={{ gap: SPACE.md, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
-        <View testID="live-check-platform" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-          <PlatformIcon platform="youtube" size={CHECK_ICON} />
-          <Txt step="body" weight="medium" color="textSub">
-            유튜브
-          </Txt>
-        </View>
-        <Txt step="bodyLarge" weight="bold" numberOfLines={1} ellipsizeMode="tail" testID="live-check-title">
-          {title}
+    <View testID="live-check" style={{ gap: SPACE.md, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+      <View testID="live-check-platform" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+        <PlatformIcon platform="youtube" size={CHECK_ICON} />
+        <Txt step="body" weight="medium" color="textSub">
+          유튜브
         </Txt>
-        <View testID="live-check-channel" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-          <ChannelPhoto channelId={channelId} size={CHECK_ICON} testID="live-check-avatar" />
-          <View style={{ flexShrink: 1 }}>
-            <Txt step="body" color="textSub" numberOfLines={1} ellipsizeMode="tail">
-              {channel}
-            </Txt>
-          </View>
+      </View>
+      <Txt step="bodyLarge" weight="bold" testID="live-check-title">
+        {title}
+      </Txt>
+      <View testID="live-check-channel" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+        <ChannelPhoto channelId={channelId} size={CHECK_ICON} testID="live-check-avatar" />
+        <View style={{ flexShrink: 1 }}>
+          <Txt step="body" color="textSub">
+            {channel}
+          </Txt>
         </View>
       </View>
     </View>
@@ -441,7 +440,22 @@ export function shortLinkError(error: ApiError): string {
  * "방송 주소" 칸 + 내 채널 방송 목록 + 처음 잇는 채널 확인 (fields) 과 [확인] (action — D-UX3-13, 전 [이 방송에 잇기] — 주소를 넣기 전엔 null, D-UX3-07).
  * 방송 화면 연결과 새 방송 화면이 함께 쓴다 (D-UX3-06). 단추는 화면 맨 아래(키보드 위)에 두라고 따로 준다.
  */
-export function useAddressLinker({ webChat, broadcastId, submit, label = '확인', disabled, enabled = true, onEdit }: AddressLinkerOptions): { readonly fields: ReactNode; readonly action: ReactNode | null; readonly popup: ReactNode; readonly busy: boolean; readonly recheck: () => Promise<void> } {
+export interface AddressLinker {
+  readonly fields: ReactNode
+  readonly action: ReactNode | null
+  readonly popup: ReactNode
+  readonly busy: boolean
+  readonly recheck: () => Promise<void>
+  /** 연결 확인 화면이 떠 있나 (D-UX4-117 — 미리 본 라이브가 있을 때) */
+  readonly confirming: boolean
+  /** 연결 확인 화면 내용(라이브 정보 카드)과 [연결하기] */
+  readonly confirmBody: ReactNode
+  readonly confirmAction: ReactNode
+  /** 연결 확인 화면에서 링크 화면으로 */
+  readonly back: () => void
+}
+
+export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NEXT, disabled, enabled = true, onEdit, onUnknown, confirmNotice }: AddressLinkerOptions): AddressLinker {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
@@ -572,7 +586,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
     const { requestId } = pending.current
     setBusy(true)
     setError(null)
-    setAsk(null)
+    // 확인 화면에서 [연결하기]면 보내는 동안 그 화면 그대로 (D-UX4-117) — 처음 잇는 채널 팝업은 닫는다
+    setAsk((now) => (confirmed && now !== null && now.title !== null ? now : null))
     try {
       const body: LinkBody = confirmed ? { requestId, video, confirmInvited: true } : { requestId, video }
       await submit({ platform: 'youtube', body })
@@ -584,7 +599,11 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
         const channel = caught.details.channel
         const title = typeof channel === 'object' && channel !== null ? (channel as { title?: unknown }).title : undefined
         setAsk({ video, name: channelName(title), title: null, channelId: null })
-      } else setError(shortLinkError(caught))
+      } else {
+        // 못 이으면 링크 화면으로 돌아가 칸 아래에 까닭을 보인다
+        setAsk(null)
+        setError(shortLinkError(caught))
+      }
     } finally {
       setBusy(false)
     }
@@ -608,10 +627,17 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
         autoCorrect={false}
         showSoftInputOnFocus={false}
       />
-      {/* [붙여넣기]: 칸 바로 아래 왼쪽 회색 칩 (D-UX4-113, 토스 "계좌번호 입력" 아래 "… 붙여넣기" 칩 자리·모양) — 클립보드에 글이 있고 칸이 비었을 때만 */}
-      {pasteButton === null ? null : <View testID="link-paste" style={{ alignItems: 'flex-start', paddingTop: SPACE.sm }}>{pasteButton}</View>}
-      {/* 최근 연결한 채널에서 지금 하는 라이브 (D-UX4-112 → D-UX4-113, 토스 계좌 줄 사진): 서버에서 받아 한발 늦게 오므로 옅게 나타나며 올라온다(Appear).
-          위와 넉넉히 띄우고, 줄마다 왼쪽 플랫폼 그림(두 줄 높이) · 굵은 제목(한 줄, 넘치면 끝이 흐려짐) / 회색 채널 이름 · 오른쪽 회색 [연결](토스 [송금]) */}
+      {/* 칸 아래 한 줄: [링크를 모르겠어요] · [붙여넣기] (D-UX4-117, 사용자 지시 "제목 아래에 인풋 배치하고 그 아래에 링크를 모르겠어요, 붙여넣기 버튼을 순서대로 한줄에").
+          [붙여넣기]는 클립보드에 글이 있고 칸이 비었을 때만 */}
+      {onUnknown === undefined && pasteButton === null ? null : (
+        <View testID="link-chips" style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACE.sm, paddingTop: SPACE.sm }}>
+          {onUnknown === undefined ? null : <LinkUnknownChip onPress={onUnknown} />}
+          {pasteButton === null ? null : <View testID="link-paste">{pasteButton}</View>}
+        </View>
+      )}
+      {/* 최근 연결한 채널에서 지금 하는 라이브 (D-UX4-112 → D-UX4-113 → D-UX4-117): 서버에서 받아 한발 늦게 오므로 옅게 나타나며 올라온다(Appear).
+          줄마다 왼쪽 채널 사진(라이브 중이면 홈처럼 빨간 테두리 + "라이브") · 굵은 채널 이름 한 줄(넘치면 끝이 흐려짐) · 오른쪽 회색 [연결] — 누르면 연결 확인 화면.
+          (사용자 지시 "채널 아이콘(홈화면에 라이브 빨간표시 그거도 넣고) + 채널명만") 다른 라이브에 연결돼 있거나 예정이면 그 말만 회색으로 한 줄 더 */}
       {(recent ?? []).length > 0 ? (
         <Appear testID="recent-lives">
           <View role="group" aria-label={recentTitle} style={{ gap: SPACE.lg, paddingTop: SPACE.xxxl }}>
@@ -621,21 +647,22 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
             {(recent ?? []).map((item) => {
               const other = item.linkedBroadcast !== null && item.linkedBroadcast !== broadcastId
               const title = item.title.trim() === '' ? NO_BROADCAST_TITLE : item.title
-              // 내 채널 목록(구글 연결로 읽는 서버)에는 채널 이름이 없다 — 제목만 ("(이름 없음)"을 보이지 않게)
-              const channel = webChat === null ? null : channelName(item.channelTitle)
-              const sub = other ? '다른 라이브에 연결돼 있어요' : channel === null ? (item.status === 'LIVE' ? null : '예정') : item.status === 'LIVE' ? channel : `${channel} · 예정`
+              // 내 채널 목록(구글 연결로 읽는 서버)에는 채널 이름이 없다 — 그때는 라이브 제목 ("(이름 없음)"을 보이지 않게)
+              const name = webChat === null ? title : channelName(item.channelTitle)
+              const live = item.status === 'LIVE'
+              const sub = other ? '다른 라이브에 연결돼 있어요' : live ? null : '예정'
               return (
                 <View key={item.videoId} testID="recent-live" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
-                  <PlatformIcon platform="youtube" size={RECENT_ICON} />
+                  <ChannelPhoto channelId={item.channelId ?? null} size={RECENT_ICON} live={live} testID="recent-live-avatar" />
                   <View style={{ flex: 1, gap: 2 }}>
-                    <FadeLine text={title} testID="recent-live-title" step="bodyLarge" />
+                    <FadeLine text={name} testID="recent-live-channel" step="bodyLarge" />
                     {sub === null ? null : (
-                      <Txt step="body" color="textSub" numberOfLines={1} testID="recent-live-channel">
+                      <Txt step="body" color="textSub" numberOfLines={1} testID="recent-live-sub">
                         {sub}
                       </Txt>
                     )}
                   </View>
-                  <ConnectButton label={`${title} 연결`} disabled={off || other} onPress={() => void check(item.videoId)} />
+                  <ConnectButton label={`${name} 연결`} disabled={off || other} onPress={() => void check(item.videoId)} />
                 </View>
               )
             })}
@@ -657,12 +684,11 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
           void sendOther((requestId) => ({ platform: 'tiktok', body: { requestId, url, move: true } }), `tiktok-move ${url}`)
         }}
       />
+      {/* 처음 잇는 채널(미리 보기 없는 옛 흐름)만 팝업 — 미리 본 라이브는 연결 확인 화면으로 (D-UX4-117) */}
       <PopupDialog
-        visible={ask !== null}
-        name={shownAsk.current?.title == null ? FIRST_CHANNEL_GROUP : LINK_CHECK_GROUP}
-        message={shownAsk.current?.title == null ? firstChannelPopup(shownAsk.current?.name ?? '') : linkCheckPopup(shownAsk.current.title, shownAsk.current.name)}
-        // 잇기 전 확인은 라이브 정보 카드로: 플랫폼 · 제목 한 줄 · 채널 사진 + 이름 (D-UX4-116)
-        content={shownAsk.current?.title == null ? undefined : <LiveCheck title={shownAsk.current.title} channel={shownAsk.current.name} channelId={shownAsk.current.channelId} />}
+        visible={ask !== null && ask.title === null}
+        name={FIRST_CHANNEL_GROUP}
+        message={firstChannelPopup(shownAsk.current?.name ?? '')}
         cancelLabel="아니에요"
         confirmLabel="맞아요"
         busy={off}
@@ -675,6 +701,58 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
   )
   // 링크를 넣기 전엔 단추를 보이지 않는다 (D-UX3-07)
   const action = address.trim() === '' || step !== 'none' ? null : <BigButton label={label} primary disabled={off} onPress={() => confirm(address.trim())} />
+  // 연결 확인 화면 (D-UX4-117): 미리 본 라이브 정보 카드(제목은 자르지 않음) + [연결하기]
+  const confirming = ask !== null && ask.title !== null
+  const seen = shownAsk.current
+  const confirmBody =
+    seen === null || seen.title === null ? null : (
+      <View style={{ gap: SPACE.lg }}>
+        <LiveCheck title={seen.title} channel={seen.name} channelId={seen.channelId} />
+        {confirmNotice}
+      </View>
+    )
+  const confirmAction = (
+    <BigButton
+      label={LINK_CONFIRM_ACTION}
+      primary
+      disabled={off}
+      onPress={() => {
+        if (ask !== null) void link(ask.video, true)
+      }}
+    />
+  )
   // recheck: 앱 안 브라우저를 닫고 돌아왔을 때 클립보드를 다시 본다(앱이 뒤로 가지 않아 앞으로 옴 알림이 없다)
-  return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek }
+  return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek, confirming, confirmBody, confirmAction, back: () => setAsk(null) }
+}
+
+/**
+ * 링크 화면 ↔ 연결 확인 화면 (D-UX4-117, 사용자 지시 2026-11-10 "라이브 확인 팝업 띄우지 말고 별도의 화면으로 … [다음] 누르면 다음 페이지에서
+ * 이 라이브에 연결할까요?"): 한 경로 안에서 밀어 넘긴다(SlideSwitch). 확인 화면에서 뒤로(머리 ‹ · 왼쪽 끝 밀기 · 안드로이드 뒤로)는 링크 화면으로 —
+ * 그동안은 경로를 닫는 휴대폰 밀기를 끈다(useHoldRouteSwipe)
+ */
+export function LinkPages({ linker, name, children }: { readonly linker: AddressLinker; readonly name: string; readonly children: ReactNode }) {
+  const backNow = useRef(linker.back)
+  backNow.current = linker.back
+  useHoldRouteSwipe(linker.confirming)
+  useEffect(() => {
+    if (!linker.confirming || Platform.OS === 'web') return
+    const handle = BackHandler.addEventListener('hardwareBackPress', () => {
+      backNow.current()
+      return true
+    })
+    return () => handle.remove()
+  }, [linker.confirming])
+  return (
+    <SlideSwitch id={linker.confirming ? 'confirm' : 'link'} back={!linker.confirming}>
+      {linker.confirming ? (
+        <EdgeSwipeBack onBack={() => backNow.current()}>
+          <FormPage title={LINK_CONFIRM_TITLE} name={name} onBack={() => backNow.current()} actions={linker.confirmAction} testID="link-confirm">
+            {linker.confirmBody}
+          </FormPage>
+        </EdgeSwipeBack>
+      ) : (
+        children
+      )}
+    </SlideSwitch>
+  )
 }

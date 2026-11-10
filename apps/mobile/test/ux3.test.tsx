@@ -149,15 +149,19 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     world.server.on('POST', /^\/api\/youtube\/preview$/, () => ({ body: { title: '오늘의 다육이', channelTitle: '다육이네' } }))
     return world
   }
-  /** 잇기 전 확인 팝업 (D-UX4-08 — 처음이든 아니든): 제목·채널을 보고 [맞아요] */
+  /**
+   * 잇기 전 확인 (D-UX4-08 — 처음이든 아니든): 제목·채널을 보고 연결.
+   * D-UX4-117: 옛 기대 팝업 "연결할 라이브 확인" [맞아요] → 연결 확인 화면 "이 라이브에 연결할까요?" · 라이브 정보 카드 · [연결하기]
+   */
   const agree = async () => {
-    // D-UX4-112: 옛 기대 "'이을 라이브 확인'" → "'연결할 라이브 확인'"
-    const ask = await screen.findByRole('alertdialog', { name: '연결할 라이브 확인' })
-    // D-UX4-116: 옛 기대 글 "제목: 오늘의 다육이\n채널: 다육이네" → 라이브 정보 카드(제목 한 줄 · 채널)
-    expect(within(ask).getByTestId('live-check-title').textContent).toBe('오늘의 다육이')
-    expect(within(ask).getByTestId('live-check-channel').textContent).toBe('다육이네')
-    fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
+    const confirmPage = await screen.findByTestId('link-confirm')
+    expect(within(confirmPage).getByRole('heading', { level: 1 }).textContent).toBe('이 라이브에 연결할까요?')
+    expect(within(confirmPage).getByTestId('live-check-title').textContent).toBe('오늘의 다육이')
+    expect(within(confirmPage).getByTestId('live-check-channel').textContent).toBe('다육이네')
+    fireEvent.click(within(confirmPage).getByRole('button', { name: '연결하기' }))
   }
+  /** 링크 화면 맨 아래 [다음] (D-UX4-117 — 옛 [확인]). 확인 화면에서 돌아오면 링크 화면을 새로 그리므로 늘 지금 화면에서 찾는다 */
+  const next = () => fireEvent.click(screen.getByRole('button', { name: '다음' }))
   const newNav = () => ({ back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() })
   afterEach(() => {
     setClipboardReader(async () => '')
@@ -196,16 +200,17 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     // D-UX4-112: 옛 기대 제목 "라이브 링크를 넣어 주세요" → "연결할 라이브의 링크를\n복사해서 붙여넣어 주세요" (+ 설명)
     // D-UX4-113 (사용자 지시 2026-11-10 토스 "토스인증서" 사진): 제목은 다시 "라이브 링크를 넣어 주세요", 설명 "링크만 알려주시면 복잡한 작업은\n저희가 도와드릴게요"
     expect(within(page).getByRole('heading', { level: 1 }).textContent).toBe('라이브 링크를 넣어 주세요')
-    expect(within(page).getByTestId('form-description').textContent).toBe('링크만 알려주시면 복잡한 작업은\n저희가 도와드릴게요')
+    // D-UX4-117 (사용자 지시 2026-11-10 "설명 그냥 지우고 제목 아래에 인풋"): 옛 기대 설명 "링크만 알려주시면 …" → 설명 없음
+    expect(within(page).queryByTestId('form-description')).toBeNull()
     const address = await within(page).findByLabelText('라이브 링크')
     expect(within(page).queryByLabelText('라이브 제목')).toBeNull()
-    expect(within(page).queryByRole('button', { name: '확인' })).toBeNull()
+    // D-UX4-117: 옛 기대 [확인] → [다음]
+    expect(within(page).queryByRole('button', { name: '다음' })).toBeNull()
     expect(within(page).queryByRole('button', { name: '주소 없이 시작' })).toBeNull()
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
-    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
-    // 확인 팝업에서 [맞아요]를 누르기 전엔 방송을 만들지 않는다 (D-UX4-08)
-    // D-UX4-112: 옛 기대 "'이을 라이브 확인'" → "'연결할 라이브 확인'"
-    await screen.findByRole('alertdialog', { name: '연결할 라이브 확인' })
+    next()
+    // 확인 화면에서 [연결하기]를 누르기 전엔 방송을 만들지 않는다 (D-UX4-08 → D-UX4-117: 팝업이 아니라 화면)
+    await screen.findByTestId('link-confirm')
     expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(0)
     await agree()
     await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
@@ -219,7 +224,7 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
     const page = screen.getByRole('dialog', { name: '새 라이브' })
     fireEvent.change(await within(page).findByLabelText('라이브 링크'), { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
-    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    next()
     await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledWith('b9'))
     expect(nav.openConsole).not.toHaveBeenCalled()
@@ -231,24 +236,21 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     const nav = { ...newNav(), openLabelSetup: vi.fn() }
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
     const page = screen.getByRole('dialog', { name: '새 라이브' })
-    const address = await within(page).findByLabelText('라이브 링크')
-    fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
-    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    fireEvent.change(await within(page).findByLabelText('라이브 링크'), { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
+    next()
     await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(1))
-    // 뒤로 와서 같은 링크로 [확인] — 방송을 또 만들지 않고, 잇기 요청도 다시 보내지 않는다
-    // D-UX4-112: 옛 기대 "'이을 라이브 확인'" → "'연결할 라이브 확인'"
-    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '연결할 라이브 확인' })).toBeNull())
-    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    // 라벨 단계에서 뒤로 오면 연결 확인 화면 그대로 (D-UX4-117) — 같은 링크로 [연결하기]: 방송을 또 만들지 않고, 잇기 요청도 다시 보내지 않는다
     await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(2))
     expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(1)
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube$/)).toHaveLength(1)
-    // 다른 링크로 바꾸면 먼저 이은 것을 끊고 새 링크를 잇는다
+    // 확인 화면 뒤로 → 링크 화면 (칸에는 넣은 링크가 그대로). 다른 링크로 바꾸면 먼저 이은 것을 끊고 새 링크를 잇는다
+    fireEvent.click(within(screen.getByTestId('link-confirm')).getByRole('button', { name: '뒤로' }))
+    const address = await screen.findByLabelText('라이브 링크')
+    expect((address as HTMLInputElement).value).toBe('https://www.youtube.com/watch?v=tWnNGwvdN40')
     fireEvent.change(address, { target: { value: 'https://www.youtube.com/watch?v=AAAAAAAAAAA' } })
-    // D-UX4-112: 옛 기대 "'이을 라이브 확인'" → "'연결할 라이브 확인'"
-    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '연결할 라이브 확인' })).toBeNull())
-    fireEvent.click(within(page).getByRole('button', { name: '확인' }))
+    next()
     await agree()
     await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(3))
     expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube\/unlink$/)).toHaveLength(1)
@@ -290,7 +292,7 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     expect(opened).toEqual(['youtube'])
     // 칸 아래에 계속 남는 문장은 없다
     expect(screen.queryByText('복사해 둔 주소를 넣었어요.')).toBeNull()
-    expect(screen.getByRole('button', { name: '확인' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '다음' })).toBeTruthy() // D-UX4-117: 옛 [확인] → [다음]
   })
 
   // D-UX3-14 (사용자 지시 2026-11-03 "왜 틱톡과 밴드는 링크를 통해 못해? 할 수 있게"): 옛 기대 — 틱톡·밴드는 계정 안내와 [이 방송 만들기],
@@ -328,7 +330,7 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     const field = (await screen.findByLabelText('라이브 링크')) as HTMLInputElement
     fireEvent.click(await screen.findByRole('button', { name: '붙여넣기' }))
     await waitFor(() => expect(field.value).toBe('https://vt.tiktok.com/ZSabc123/'))
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     expect(await screen.findByText('· 안내 첫 줄')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '안내를 읽었고, 위 내용에 동의해요' }))
     await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
@@ -352,7 +354,7 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     render(world.wrap(<NewBroadcastAddressScreen category="pot" nav={nav} />))
     const field = (await screen.findByLabelText('라이브 링크')) as HTMLInputElement
     fireEvent.change(field, { target: { value: 'https://www.tiktok.com/@shop_two/live' } })
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     // D-UX4-112: 옛 기대 "다른 라이브에 틱톡이 이어져 있어요. …" → "… 연결돼 있어요. …" (팝업 글은 앱 문장)
     expect(await screen.findByText('다른 라이브에 틱톡이 연결돼 있어요. 이 라이브로 옮길까요?')).toBeTruthy()
     expect(nav.openConsole).not.toHaveBeenCalled()
@@ -373,7 +375,7 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     const nav = newNav()
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
     fireEvent.change(await screen.findByLabelText('라이브 링크'), { target: { value: 'https://band.us/band/12345678/post/42' } })
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     // D-UX4-112: 옛 기대 "오늘 저녁 라이브 찜 받아요 · 11/3 10:05 잇기" → "오늘 저녁 라이브 찜 받아요 · 11/3 10:05 연결"
     fireEvent.click(await screen.findByRole('button', { name: '오늘 저녁 라이브 찜 받아요 · 11/3 10:05 연결' }))
     await waitFor(() => expect(nav.openConsole).toHaveBeenCalledWith('b9'))
@@ -386,10 +388,10 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     render(world.wrap(<NewBroadcastAddressScreen category="other" nav={newNav()} />))
     const field = await screen.findByLabelText('라이브 링크')
     fireEvent.change(field, { target: { value: 'band.us/band/1/post/2' } })
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     expect(await screen.findByText('설정에서 밴드를 먼저 연결해 주세요.')).toBeTruthy()
     fireEvent.change(field, { target: { value: 'https://example.com/live/1' } })
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     expect(await screen.findByText('알 수 없는 링크예요.')).toBeTruthy()
     expect(world.server.callsTo('POST', /^\/api\/broadcasts$/)).toHaveLength(0)
   })
@@ -461,14 +463,14 @@ describe('입력 칸 (토스 뜬 라벨, D-UX3-08)', () => {
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={{ back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() }} />))
     const field = await screen.findByLabelText('라이브 링크')
     fireEvent.change(field, { target: { value: 'https://youtu.be/NOCHAT00001' } })
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('라이브 채팅을 받을 수 없는 라이브예요.')
     // D-UX3-53으로 다시 바뀐 기대 (사용자 지시 2026-11-07 "에러 문구 앞에는 원래 있던 느낌표 원 아이콘을 넣어줘"): 옛 D-UX3-51 느낌표 없음 → 새 앞에 느낌표 그림(장식, 숨김)
     expect(alert.querySelector('[aria-hidden="true"]')).not.toBeNull()
     fireEvent.change(field, { target: { value: 'https://youtu.be/NOCHAT0000' } })
     expect(screen.queryByRole('alert')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '다음' })) // D-UX4-117: 옛 [확인] → [다음]
     expect((await screen.findByRole('alert')).textContent).toBe('알 수 없는 링크예요.')
     // D-UX4-112: 옛 기대 "공개 라이브만 이을 수 있어요." → "공개 라이브만 연결할 수 있어요."
     expect(shortLinkError({ code: 'YOUTUBE_NOT_PUBLIC', message: '긴 문장' } as never)).toBe('공개 라이브만 연결할 수 있어요.')

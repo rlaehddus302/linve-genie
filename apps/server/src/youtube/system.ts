@@ -164,6 +164,8 @@ export interface LinkView {
     readonly broadcastChannelId: string
     /** 방송 채널 이름 (바깥 글 — 화면은 글자로만, 모르면 null) */
     readonly broadcastChannelTitle: string | null
+    /** 이을 때 읽은 방송 제목 (바깥 글 — 화면은 글자로만, 옛 기록은 null, D-UX4-119) */
+    readonly broadcastTitle: string | null
     /** 초대 방송 = 방송 채널 ≠ 글 올리는 계정 (콘솔 "초대받은 방송 · {이름}") */
     readonly invited: boolean
     readonly linkedAt: string
@@ -485,6 +487,7 @@ export class YoutubeSystem {
         channelId: link.channelId,
         broadcastChannelId: link.broadcastChannelId,
         broadcastChannelTitle: link.broadcastChannelTitle,
+        broadcastTitle: link.broadcastTitle,
         invited: isInvitedLink(link),
         linkedAt: link.linkedAt.toISOString(),
         chatEnded: link.chatEndedAt !== null,
@@ -566,7 +569,7 @@ export class YoutubeSystem {
         const others = (await openLinksForVideo(tx, sellerId, [videoId])).filter((other) => other.broadcastId !== b)
         if (others.length > 0) return 'VIDEO_IN_USE'
         await this.#options.linkHooks?.beforeInsert?.(b)
-        await insertLink(tx, { id, sellerId, scopeId: scope.id, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', broadcastChannelId, broadcastChannelTitle, startedAt, linkedBy: session.accountId, requestId, now: new Date(timer.now()), ...(startedAt === null ? { upcomingCheckAt: new Date(timer.now() + UPCOMING_CHECK_MS) } : {}) })
+        await insertLink(tx, { id, sellerId, scopeId: scope.id, broadcastId: b, videoId, liveChatId, channelId: connection.channel?.id ?? '', broadcastChannelId, broadcastChannelTitle, broadcastTitle: typeof snippet.title === 'string' && snippet.title.trim() !== '' ? snippet.title : null, startedAt, linkedBy: session.accountId, requestId, now: new Date(timer.now()), ...(startedAt === null ? { upcomingCheckAt: new Date(timer.now() + UPCOMING_CHECK_MS) } : {}) })
         return null
       })
     } catch (error) {
@@ -709,6 +712,8 @@ export class YoutubeSystem {
           channelId: connectionChannel,
           broadcastChannelId,
           broadcastChannelTitle,
+          // 이을 때 읽은 방송 제목 — 연결 화면이 다시 읽지 않고 바로 보인다 (D-UX4-119)
+          broadcastTitle: page.title !== null && page.title.trim() !== '' ? page.title : null,
           startedAt,
           linkedBy: session.accountId,
           requestId,

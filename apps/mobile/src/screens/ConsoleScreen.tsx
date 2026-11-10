@@ -40,7 +40,7 @@ import { EndBroadcastRow } from './console/EndBroadcast.tsx'
 import { LinkInfo, hasLinkedLive } from './console/LinkInfo.tsx'
 import { useDockChoice } from '../lib/dock-choice.ts'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
-import { LINK_ASK_DESCRIPTION, LINK_ASK_TITLE, YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
+import { LINK_ASK_TITLE, LINK_CONFIRM_TITLE, YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
 // 방송 관리 화면 조각은 console/Manage로 옮겼다 (D-UX4-57 — 진짜 쌓인 화면과 같이 쓴다)
 export { LABEL_PRINT_TITLE, LINK_TITLE, MANAGE_LABEL, THANKS_HELP_BODY, THANKS_HELP_TITLE, THANKS_TITLE, ThanksSwitch } from './console/Manage.tsx'
@@ -463,13 +463,23 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           />
         </SlidePage>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
-        <FullSheet visible={sheet === 'youtube'} onClose={close} name="라이브 연결" title={linkable ? LINK_ASK_TITLE : '라이브 연결'} {...(linkable ? { description: LINK_ASK_DESCRIPTION } : {})} cards={!linkable && !linked} overlay={linkable ? linker.popup : undefined} actions={linkable ? (
-            <>
-              <BigButton kind="outline" label="나중에 연결" onPress={close} />
-              {linker.action}
-            </>
+        <FullSheet visible={sheet === 'youtube'} onClose={close} name="라이브 연결" title={linkable ? (linker.confirming ? LINK_CONFIRM_TITLE : LINK_ASK_TITLE) : '라이브 연결'} cards={!linkable && !linked} overlay={linkable ? linker.popup : undefined} actions={linkable ? (
+            // 연결 확인 (D-UX4-117): 경로가 아닌 판에서는 같은 판 안에서 내용만 바꾼다 — [이전]은 링크 칸으로
+            linker.confirming ? (
+              <>
+                <BigButton kind="outline" label="이전" onPress={linker.back} />
+                {linker.confirmAction}
+              </>
+            ) : (
+              <>
+                <BigButton kind="outline" label="나중에 연결" onPress={close} />
+                {linker.action}
+              </>
+            )
           ) : undefined}>
-          {linkable ? (
+          {linkable && linker.confirming ? (
+            linker.confirmBody
+          ) : linkable ? (
             <>
               <View role="group" aria-label="유튜브">
                 {linker.fields}
