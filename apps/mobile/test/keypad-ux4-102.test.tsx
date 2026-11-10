@@ -64,6 +64,9 @@ describe('숫자판 빠르게 누르기 (D-UX4-102)', () => {
     expect(typeDigits('', 'back', 3)).toBe('')
     expect(typeDigits('999', '1', 3)).toBe('9991')
     expect(typeDigits('9991', '1', 3)).toBeNull()
+    // D-UX4-111 (사용자 "키보드 00 버튼 눌러서 숫자 넘쳐도 입력 된거 보여주기"): 옛 기대 typeDigits('999', '00', 3) → null(넘친 한 자리까지만). 이제 넘치기 전 누름은 받는다
+    expect(typeDigits('999', '00', 3)).toBe('99900')
+    expect(typeDigits('99900', '00', 3)).toBeNull()
   })
 
   it('1 → 7자리 내내 숫자·쉼표·붙임말 조각 이름이 그대로라 이미 있는 글자는 다시 생기지 않는다', () => {

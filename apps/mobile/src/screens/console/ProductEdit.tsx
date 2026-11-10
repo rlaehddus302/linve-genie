@@ -16,7 +16,7 @@ import { formatWon } from '../../lib/words.ts'
 import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
-import { BigNumber, NumberKeys } from './ProductAdd.tsx'
+import { BigNumber, NumberKeys, PRICE_LIMIT, noLimitWords, typeDigits } from './ProductAdd.tsx'
 import { ProductDetail, rowName } from './ProductBoard.tsx'
 
 export type EditField = 'no' | 'name' | 'price'
@@ -166,6 +166,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
   /** 칸 값이 틀렸으면 그 까닭 (빈 칸은 안 바꿈이라 맞다) */
   const wrong = (which: EditField, text: string | undefined): string | null => {
     if (product === undefined || text === undefined || text.trim() === '') return null
+    if (which !== 'name' && text.length > digitLimit(which)) return which === 'no' ? noLimitWords(maxNumber ?? NO_FALLBACK_MAX) : PRICE_LIMIT
     if (which === 'no') {
       const to = Number(text)
       if (!Number.isSafeInteger(to) || to < 1) return '번호를 숫자로 적어 주세요.'
@@ -193,10 +194,10 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     if (field === null || field === 'name') return
     const which = field
     setError(null)
+    // 상품 추가와 같은 숫자판 규칙 — 00으로 넘겨도 친 것을 보여 주고, 이미 넘친 뒤에 더 치면 흔든다 (D-UX4-111)
     setDraft((was) => {
-      const current = was[which] ?? ''
-      const next = key === 'back' ? current.slice(0, -1) : (current + key).replace(/^0+/, '')
-      if (next.length > digitLimit(which)) {
+      const next = typeDigits(was[which] ?? '', key, digitLimit(which))
+      if (next === null) {
         setAgain((count) => count + 1)
         return was
       }

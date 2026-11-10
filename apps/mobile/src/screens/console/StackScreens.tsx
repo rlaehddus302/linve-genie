@@ -1,6 +1,6 @@
 // 방송 화면 위에 진짜로 쌓이는 화면 (D-UX4-57, 사용자 지시 2026-11-09 "창 안에 창은 왜 다른 식으로 처리가 되어있어?"):
 // 상품 추가 · 방송 관리. 화면 넘김·밀어서 뒤로 가기·상태 막대는 휴대폰이 그대로 하고, 방송 자료는 아래 방송 화면과 같은 저장소를 쓴다.
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { View } from 'react-native'
 import { useServices } from '../../services.tsx'
 import { StackPage, Txt, useKit } from '../../ui/kit/index.ts'
@@ -16,11 +16,14 @@ import { useMobileYoutube } from './YoutubeSection.tsx'
 
 /** 상품 추가 쌓인 화면 — 추가하면 방송 화면으로 돌아가며 그 상품을 강조하게 알린다 */
 export function ProductAddScreen({ broadcastId, onBack }: { readonly broadcastId: string; readonly onBack: () => void }) {
+  // 머리 ‹: 첫 단계(번호)가 아니면 앞 단계로, 첫 단계면 화면을 닫는다 (D-UX4-111)
+  const stepBack = useRef<(() => boolean) | null>(null)
   return (
-    <StackPage name={ADD_TITLE} title={ADD_TITLE} onBack={onBack} scroll={false} testID="product-add">
+    <StackPage name={ADD_TITLE} title={ADD_TITLE} onBack={() => { if (stepBack.current?.() !== true) onBack() }} scroll={false} testID="product-add">
       <ScopeConsole broadcastId={broadcastId} waiting={<Loading />}>
         {({ broadcast }) => (
           <ProductAddFlow
+            stepBack={stepBack}
             askName={broadcast.title.includes('다육이')}
             onAdded={(key) => {
               signalConsole(broadcastId, { kind: 'added', key })

@@ -66,8 +66,8 @@ export function rowAttention(product: Product, conflictClaims: number): RowAtten
   return null
 }
 
-/** 줄 첫째 줄의 품종 — 비어 있으면 "-" (D-UX3-78, 사용자 지시 "품종 미입력 이렇게 하지 말고 그냥 -") */
-export const rowName = (product: Pick<Product, 'name'>): string => (product.name.trim() === '' ? '-' : product.name)
+/** 줄 첫째 줄의 품종 — 비어 있으면 아무것도 쓰지 않는다 (D-UX3-78 "-" → D-UX4-111, 사용자 지시 2026-11-10 "품종 없으면 - 했는데 그냥 아무것도 넣지 말자") */
+export const rowName = (product: Pick<Product, 'name'>): string => product.name.trim()
 
 /** 줄 아래 꼬리표: 1등(금색) → 손님 꼬리표(입금 늦음 주의·단골) → 대기 손님(회색), 순서는 서버 순서 그대로 (D-UX3-78) */
 export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, 'kind' | 'phoneLast4'> | undefined, nameOfBuyer: (id: string) => string, badge?: string): { readonly tags: ProductTag[]; readonly keep: number } {
@@ -270,7 +270,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
   const open = async () => run(async () => {
     await api.command({ type: 'product.open', b: api.b, no: product.no })
   }, '판매를 시작하지 못했어요. 다시 눌러 주세요.')
-  const productLine = `${String(product.no)}번 ${rowName(product)} ${formatWon(product.price)}`
+  const productLine = [`${String(product.no)}번`, rowName(product), formatWon(product.price)].filter((part) => part !== '').join(' ')
   return (
     <View role="group" aria-label="상품 자세히" style={{ gap: SPACE.lg }}>
       {fields}

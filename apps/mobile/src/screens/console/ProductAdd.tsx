@@ -4,17 +4,20 @@
 //   → (다육이 방송이면) "어떤 품종인가요?" → 확인 화면 "15번 / 삼광색금 / 15,000원 / 상품을 추가할까요?" + [추가하기] → 방송 화면으로 돌아간다.
 // 번호·가격은 시스템 키보드 대신 앱 숫자판(누르면 꾸욱 들어가며 작아진다), 값이 있으면 숫자판 바로 위에 [다음] 띠. 값 뒤에 "번"·"원"을 붙여 보인다.
 // 품종은 글자라 휴대폰 키보드를 쓴다. 이미 올라온 단계는 눌러서 다시 고칠 수 있다.
-// D-UX4-43 (사용자 지시 2026-11-09): 깜빡이는 글자 자리 표시는 없앴다. 글자를 넣고 지울 때 그 글자가 부드럽게 나타나고 사라지며, 숫자판 키는 햅틱과 함께 꾸욱 눌린다.
+// D-UX4-43 (사용자 지시 2026-11-09): 글자를 넣고 지울 때 그 글자가 부드럽게 나타나고 사라지며, 숫자판 키는 햅틱과 함께 꾸욱 눌린다.
+// D-UX4-111 (사용자 지시 2026-11-10): 비어 있는 큰 칸은 맨 앞에 글자 자리 표시가 서서히 나타났다 사라지며 깜빡인다(옛 D-UX4-43은 없앴었다).
+//   00을 눌러 자리 수를 넘겨도 친 것을 보여 준다. 첫 단계(번호)가 아니면 뒤로(머리 ‹·밀어서·안드로이드 뒤로)는 앞 단계로. 확인 화면은 번호 → 가격 → 품종, 화면 1/3 높이.
 // [다음]은 꽉 찬 띠가 아니라 큰 단추, "품종 없이 넘어가기"는 토스 회색 칩. 품종 칸 휴대폰 키보드가 뜨면 [다음]이 키보드 위로 올라온다.
 // 쓰기는 원문 칸(noText·priceText, SRV1 약속 2) — 가격은 "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 앱은 판정하지 않는다.
 import { useEffect, useRef, useState } from 'react'
-import { Animated, Easing, Platform, TextInput, View, type GestureResponderEvent } from 'react-native'
+import { Animated, BackHandler, Easing, PanResponder, Platform, TextInput, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
 import { tapHaptic } from '../../native/haptics.ts'
 import { BigButton, ErrorLine, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
+import { edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
 
@@ -41,13 +44,43 @@ export const noLimitWords = (max: number): string => `번호는 ${String(max)}�
 
 const won = (digits: string): string => `${Number(digits).toLocaleString('ko-KR')}원`
 
+/** 확인 화면 글 묶음 위·아래 빈 자리 비율 — 1 : 2라 묶음이 화면 1/3 높이에 선다 (D-UX4-111) */
+export const CONFIRM_ABOVE = 1
+export const CONFIRM_BELOW = 2
+/** 상품 줄 묶음과 "상품을 추가할까요?" 사이 */
+export const CONFIRM_GAP = SPACE.xl
+
 /**
  * 숫자판 누름 하나 → 칸의 새 숫자 (순수 계산). 앞의 0은 떼고, 지우기는 끝 한 자리.
- * limit(자리 수 끝)을 넘는 한 자리까지는 받아 보여 주고(D-UX4-61), 그보다 길어지면 null(받지 않음)
+ * 아직 넘치지 않았으면 이번 누름은 받아 보여 준다 — 00으로 두 자리를 넘겨도 친 것이 보인다(D-UX4-61 → D-UX4-111).
+ * 이미 limit(자리 수 끝)을 넘긴 뒤에 더 치면 null(받지 않음 — 흔든다)
  */
 export function typeDigits(current: string, value: string, limit: number): string | null {
-  const next = value === 'back' ? current.slice(0, -1) : (current + value).replace(/^0+/, '')
-  return next.length > limit + 1 ? null : next
+  if (value === 'back') return current.slice(0, -1)
+  if (current.length > limit) return null
+  return (current + value).replace(/^0+/, '')
+}
+
+/** 비어 있는 큰 칸 맨 앞 글자 자리 표시가 한 번 나타났다 사라지는 시간 (D-UX4-111 — 서서히) */
+export const CURSOR_BLINK_MS = 1000
+
+/** 비어 있을 때 맨 앞 글자 자리 표시: 주색 세로 막대가 서서히 나타났다 사라진다(뚝 끊기지 않게). 웹(시험)은 가만히 */
+function SoftCursor() {
+  const { p } = useKit()
+  const glow = useRef(new Animated.Value(1)).current
+  useEffect(() => {
+    if (Platform.OS === 'web') return
+    const half = CURSOR_BLINK_MS / 2
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 0, duration: half, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 1, duration: half, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]),
+    )
+    loop.start()
+    return () => loop.stop()
+  }, [glow])
+  return <Animated.View aria-hidden testID="soft-cursor" style={{ width: 2.5, height: Math.round(BIG * 1.15), borderRadius: 1.5, borderCurve: 'continuous', marginRight: 4, backgroundColor: p.primary, opacity: glow }} />
 }
 
 /** 앱 숫자판 키 하나 (웹·시험) — 누르는 동안 꾸욱 들어가며 작아지고 옅은 바탕이 생긴다, 누른 순간 햅틱 (사진 5, D-UX4-43) */
@@ -367,6 +400,7 @@ export function BigNumber({ label, question, digits, format, suffix }: { readonl
   if (empty && leaving.length === 0) {
     return (
       <View role="status" aria-label={question} style={box}>
+        <SoftCursor />
         <Txt step="amount" weight="bold" ink={p.placeholder}>
           {question}
         </Txt>
@@ -428,7 +462,20 @@ function NextButton({ onPress, disabled }: { readonly onPress: () => void; reado
  * askName: 다육이 방송이면 품종도 묻는다 (사용자 지시 "방송 연결할 때 다육이를 선택했다면").
  * onAdded: 추가한 상품 열쇠 — 방송 화면이 그 상품을 잠깐 강조한다
  */
-export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean; readonly onAdded: (key: string) => void }) {
+/** 뒤로 가기를 먼저 묻는 자리 — 앞 단계로 갔으면 true(화면을 닫지 않는다) */
+export interface StepBack {
+  current: (() => boolean) | null
+}
+
+/** 앞 단계: 번호 ← 가격 ← 품종 ← 확인 (품종을 안 물으면 확인 ← 가격). 첫 단계면 null */
+export function previousStep(step: Step, askName: boolean): Step | null {
+  if (step === 'no') return null
+  if (step === 'price') return 'no'
+  if (step === 'name') return 'price'
+  return askName ? 'name' : 'price'
+}
+
+export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askName: boolean; readonly onAdded: (key: string) => void; readonly stepBack?: StepBack }) {
   const api = useConsoleApi()
   const { p } = useKit()
   const footer = useFooterInset()
@@ -439,6 +486,52 @@ export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const { width } = useWindowDimensions()
+
+  // 뒤로 = 앞 단계로 (D-UX4-111, 사용자 지시 "맨 앞 입력 단계(번호)가 아닌 곳에서 뒤로가기 하면 이전 입력 단계로 … 스와이프로 뒤로가기해도")
+  const back = () => {
+    const previous = previousStep(step, askName)
+    if (previous === null) return false
+    setError(null)
+    setStep(previous)
+    return true
+  }
+  const backNow = useRef(back)
+  backNow.current = back
+  useEffect(() => {
+    if (stepBack === undefined) return
+    stepBack.current = () => backNow.current()
+    return () => {
+      stepBack.current = null
+    }
+  }, [stepBack])
+  const first = step === 'no'
+  // 첫 단계가 아니면 화면을 닫는 휴대폰 밀기를 끄고(useHoldRouteSwipe) 이 화면 밀기로 앞 단계에 간다. 안드로이드 뒤로도 앞 단계로
+  useHoldRouteSwipe(!first)
+  useEffect(() => {
+    if (first || Platform.OS === 'web') return
+    const handle = BackHandler.addEventListener('hardwareBackPress', () => backNow.current())
+    return () => handle.remove()
+  }, [first])
+  const swipe = useRef(new Animated.Value(0)).current
+  const firstNow = useRef(first)
+  firstNow.current = first
+  const widthNow = useRef(width)
+  widthNow.current = width
+  const [edge] = useState(() => {
+    const settle = () => Animated.timing(swipe, { toValue: 0, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
+    return PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_event, g) => !firstNow.current && startsEdgeSwipe(g.x0, g.dx, g.dy),
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderMove: (_event, g) => swipe.setValue(Math.max(g.dx, 0) / 3),
+      onPanResponderRelease: (_event, g) => {
+        if (edgeSwipeCloses(g.dx, g.vx, widthNow.current)) backNow.current()
+        settle()
+      },
+      onPanResponderTerminate: settle,
+    }).panHandlers
+  })
+  const edgeHandlers = Platform.OS === 'web' ? {} : edge
 
   const maxNumber = (() => {
     const value = api.data.broadcasts.get(api.b)?.settings['claim.maxNumber']
@@ -514,29 +607,36 @@ export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean
   // 잘못이 생기거나 바뀌면, 또 넘쳐 치면 큰 칸이 좌우로 흔들리고 진동한다 (D-UX3-51 흔들기, D-UX4-61)
   const shake = useWrongShake(step === 'name' || step === 'confirm' ? null : shownError, again)
   if (step === 'confirm') {
+    // D-UX4-111 (사용자 지시 2026-11-10): 번호 → 가격 → 품종 순(옛 번호 → 품종 → 가격), 묻는 말과 상품 줄 사이를 띄우고, 글 묶음은 화면 1/3 높이(옛 가운데)
     return (
-      <View style={{ flex: 1 }}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.xxl, gap: 2 }}>
-          {[`${no}번`, ...(name.trim() === '' ? [] : [name.trim()]), won(price)].map((line) => (
-            <Txt key={line} step="amount" weight="bold" ink={p.primaryText} center>
-              {line}
+      <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
+        <View style={{ flex: 1, paddingHorizontal: SPACE.xxl }}>
+          <View style={{ flex: CONFIRM_ABOVE }} />
+          <View testID="add-confirm" style={{ alignItems: 'center', gap: CONFIRM_GAP }}>
+            <View testID="add-confirm-lines" style={{ alignItems: 'center', gap: 2 }}>
+              {[`${no}번`, won(price), ...(name.trim() === '' ? [] : [name.trim()])].map((line) => (
+                <Txt key={line} step="amount" weight="bold" ink={p.primaryText} center>
+                  {line}
+                </Txt>
+              ))}
+            </View>
+            <Txt step="amount" weight="bold" center>
+              {ASK_ADD}
             </Txt>
-          ))}
-          <Txt step="amount" weight="bold" center>
-            {ASK_ADD}
-          </Txt>
+          </View>
+          <View style={{ flex: CONFIRM_BELOW }} />
         </View>
         <View style={{ paddingHorizontal: SPACE.xl, paddingBottom: footer + SPACE.xs, gap: SPACE.sm }}>
           {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
           <BigButton label="추가하기" busy={busy} disabled={busy} onPress={() => void add()} />
         </View>
-      </View>
+      </Animated.View>
     )
   }
 
   const onNext = step === 'no' ? nextFromNo : step === 'price' ? nextFromPrice : () => setStep('confirm')
   return (
-    <View style={{ flex: 1 }}>
+    <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
       <View style={{ flex: 1, paddingHorizontal: SPACE.xxl, paddingTop: SPACE.xxl, gap: SPACE.xxl }}>
         {done.map((line) => <DoneLine key={line.step} label={line.label} value={line.value} onPress={() => { setError(null); setStep(line.step) }} />)}
         <View style={{ gap: SPACE.sm }}>
@@ -559,7 +659,8 @@ export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean
             </>
           ) : (
             <Animated.View style={{ transform: [{ translateX: shake }] }}>
-              <BigNumber label={step === 'no' ? '번호' : '가격'} question={step === 'no' ? ASK_NO : ASK_PRICE} digits={active} format={step === 'no' ? (value) => value : (value) => Number(value).toLocaleString('ko-KR')} suffix={step === 'no' ? '번' : '원'} />
+              {/* 단계마다 새 칸 — 번호 칸의 글자가 가격 칸에서 올라가며 남지 않게 (D-UX4-111, 사용자 사진 1) */}
+              <BigNumber key={step} label={step === 'no' ? '번호' : '가격'} question={step === 'no' ? ASK_NO : ASK_PRICE} digits={active} format={step === 'no' ? (value) => value : (value) => Number(value).toLocaleString('ko-KR')} suffix={step === 'no' ? '번' : '원'} />
             </Animated.View>
           )}
           {/* 만 원 아래는 한글 읽기가 위 금액과 같아 그리지 않는다 */}
@@ -577,7 +678,7 @@ export function ProductAddFlow({ askName, onAdded }: { readonly askName: boolean
           <NumberKeys onKey={type} />
         </View>
       )}
-    </View>
+    </Animated.View>
   )
 }
 
@@ -587,9 +688,10 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
   useEffect(() => {
     if (visible) setRound((count) => count + 1)
   }, [visible])
+  const stepBack = useRef<(() => boolean) | null>(null)
   return (
-    <SlidePage visible={visible} onClose={onClose} title={ADD_TITLE} name={ADD_TITLE} scroll={false} testID="product-add">
-      <ProductAddFlow key={round} askName={askName} onAdded={onAdded} />
+    <SlidePage visible={visible} onClose={() => { if (stepBack.current?.() !== true) onClose() }} title={ADD_TITLE} name={ADD_TITLE} scroll={false} testID="product-add">
+      <ProductAddFlow key={round} askName={askName} onAdded={onAdded} stepBack={stepBack} />
     </SlidePage>
   )
 }
