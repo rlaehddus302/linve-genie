@@ -624,7 +624,7 @@ export class YoutubeSystem {
    * 잇기 전 미리 보기 (D-UX4-08 — 사용자 지시 2026-11-05 "처음이든 아니든 무조건 확인창, 방송 제목·채널명"): 아무것도 넣지 않고 방송 제목·채널 이름만 읽는다.
    * 새 방송을 만들기 전에도 부른다 — 회차는 보지 않고(잇기가 본다) 주소·방송 페이지 상태만 잇기와 같은 거절 코드로 거른다. 서버 읽기(웹)일 때만, 아니면 null(화면은 옛 흐름)
    */
-  async preview(sellerId: string, video: string): Promise<{ kind: 'ok'; title: string; channelTitle: string } | { kind: 'rejected'; status: number; code: LinkCode } | null> {
+  async preview(sellerId: string, video: string): Promise<{ kind: 'ok'; title: string; channelTitle: string; channelId: string | null } | { kind: 'rejected'; status: number; code: LinkCode } | null> {
     const web = this.web
     if (web === null) return null
     const videoId = parseVideoId(video)
@@ -634,7 +634,8 @@ export class YoutubeSystem {
       const page = await web.pageOrNext(videoId)
       const refused = this.#pageRefusal(sellerId, page)
       if (refused !== null) return { kind: 'rejected', ...refused }
-      return { kind: 'ok', title: page.title ?? '', channelTitle: page.channelTitle ?? '' }
+      // 채널 ID는 확인 팝업의 채널 사진용 (D-UX4-116)
+      return { kind: 'ok', title: page.title ?? '', channelTitle: page.channelTitle ?? '', channelId: page.channelId }
     } catch (error) {
       return { kind: 'rejected', ...this.#webFailure(sellerId, error) }
     }

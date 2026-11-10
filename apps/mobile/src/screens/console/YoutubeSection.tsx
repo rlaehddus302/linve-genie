@@ -14,6 +14,7 @@ import { BandPostPicker, TiktokConsentCard } from './OtherLinks.tsx'
 import { PasteButton } from '../../native/paste.tsx'
 import { Appear, PopNote, PopupDialog, RADIUS, SoftChip, SPACE, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { PlatformIcon } from '../../ui/PlatformIcon.tsx'
+import { ChannelPhoto } from '../../ui/ChannelPhoto.tsx'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import { View } from 'react-native'
 import { openWeb } from '../../lib/open-web.ts'
@@ -319,6 +320,44 @@ export const LINK_ASK_DESCRIPTION = '링크만 알려주시면 복잡한 작업�
 export const LINK_UNKNOWN = '링크를 모르겠어요'
 
 /** 설명 아래 [링크를 모르겠어요] — 토스 "자세히 보기"처럼 왼쪽 정렬 회색 칩 (D-UX4-113, FormPage headerAction 자리) */
+/** 잇기 전 확인 팝업 묻는 말 (D-UX4-08) */
+export const LINK_CHECK_QUESTION = '이 라이브가 맞나요?'
+const CHECK_ICON = 24
+
+/**
+ * 잇기 전 확인 팝업 안 라이브 정보 (D-UX4-116, 사용자 지시 2026-11-10 "팝업 안에 라이브 정보 이쁘게 — 맨 위 플랫폼 아이콘·플랫폼명,
+ * 그 아래 제목(한 줄 넘어가면 ...), 그 아래 채널 아이콘·채널명"): 옅은 회색 둥근 카드에 세 줄
+ */
+export function LiveCheck({ title, channel, channelId }: { readonly title: string; readonly channel: string; readonly channelId: string | null }) {
+  const { p } = useKit()
+  return (
+    <View style={{ gap: SPACE.lg }}>
+      <Txt step="lead" weight="bold" role="heading">
+        {LINK_CHECK_QUESTION}
+      </Txt>
+      <View testID="live-check" style={{ gap: SPACE.md, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.lg, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+        <View testID="live-check-platform" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+          <PlatformIcon platform="youtube" size={CHECK_ICON} />
+          <Txt step="body" weight="medium" color="textSub">
+            유튜브
+          </Txt>
+        </View>
+        <Txt step="bodyLarge" weight="bold" numberOfLines={1} ellipsizeMode="tail" testID="live-check-title">
+          {title}
+        </Txt>
+        <View testID="live-check-channel" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+          <ChannelPhoto channelId={channelId} size={CHECK_ICON} testID="live-check-avatar" />
+          <View style={{ flexShrink: 1 }}>
+            <Txt step="body" color="textSub" numberOfLines={1} ellipsizeMode="tail">
+              {channel}
+            </Txt>
+          </View>
+        </View>
+      </View>
+    </View>
+  )
+}
+
 export function LinkUnknownChip({ onPress }: { readonly onPress: () => void }) {
   return <SoftChip label={LINK_UNKNOWN} onPress={onPress} testID="link-unknown" />
 }
@@ -408,7 +447,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** 잇기 전 확인 (D-UX4-08): title이 있으면 미리 본 방송(제목·채널), 없으면 서버가 처음 잇는 채널이라고 알린 것 */
-  const [ask, setAsk] = useState<{ video: string; name: string; title: string | null } | null>(null)
+  const [ask, setAsk] = useState<{ video: string; name: string; title: string | null; channelId: string | null } | null>(null)
   // 팝업이 닫히는 동안에도 채널 이름이 남아 있게
   const shownAsk = useRef(ask)
   if (ask !== null) shownAsk.current = ask
@@ -515,8 +554,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
     setAsk(null)
     let fallback = false
     try {
-      const seen = await withRetry(() => post<{ title?: unknown; channelTitle?: unknown }>('/api/youtube/preview', { video }))
-      setAsk({ video, name: channelName(seen.channelTitle), title: broadcastTitleText(seen.title) })
+      const seen = await withRetry(() => post<{ title?: unknown; channelTitle?: unknown; channelId?: unknown }>('/api/youtube/preview', { video }))
+      setAsk({ video, name: channelName(seen.channelTitle), title: broadcastTitleText(seen.title), channelId: typeof seen.channelId === 'string' && seen.channelId !== '' ? seen.channelId : null })
     } catch (caught) {
       if (!isApiError(caught)) throw caught
       if (caught.code === 'PREVIEW_UNAVAILABLE') fallback = true
@@ -544,7 +583,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
       if (!confirmed && caught.code === INVITED_CONFIRM_CODE) {
         const channel = caught.details.channel
         const title = typeof channel === 'object' && channel !== null ? (channel as { title?: unknown }).title : undefined
-        setAsk({ video, name: channelName(title), title: null })
+        setAsk({ video, name: channelName(title), title: null, channelId: null })
       } else setError(shortLinkError(caught))
     } finally {
       setBusy(false)
@@ -622,6 +661,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = '확인
         visible={ask !== null}
         name={shownAsk.current?.title == null ? FIRST_CHANNEL_GROUP : LINK_CHECK_GROUP}
         message={shownAsk.current?.title == null ? firstChannelPopup(shownAsk.current?.name ?? '') : linkCheckPopup(shownAsk.current.title, shownAsk.current.name)}
+        // 잇기 전 확인은 라이브 정보 카드로: 플랫폼 · 제목 한 줄 · 채널 사진 + 이름 (D-UX4-116)
+        content={shownAsk.current?.title == null ? undefined : <LiveCheck title={shownAsk.current.title} channel={shownAsk.current.name} channelId={shownAsk.current.channelId} />}
         cancelLabel="아니에요"
         confirmLabel="맞아요"
         busy={off}

@@ -183,7 +183,7 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     const outcome = await youtube.preview(sellerOf(c), video)
     if (outcome === null) return apiError(404, 'PREVIEW_UNAVAILABLE', '찾을 수 없어요.')
     if (outcome.kind === 'rejected') return apiError(outcome.status, outcome.code as ErrorCode, LINK_MESSAGES[outcome.code])
-    return c.json({ title: outcome.title, channelTitle: outcome.channelTitle })
+    return c.json({ title: outcome.title, channelTitle: outcome.channelTitle, channelId: outcome.channelId })
   })
   api.post('/broadcasts/:id/youtube/unlink', async (c) => {
     if (youtube === null) return notConfigured()

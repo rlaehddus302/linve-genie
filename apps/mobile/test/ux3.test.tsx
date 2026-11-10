@@ -153,7 +153,9 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
   const agree = async () => {
     // D-UX4-112: 옛 기대 "'이을 라이브 확인'" → "'연결할 라이브 확인'"
     const ask = await screen.findByRole('alertdialog', { name: '연결할 라이브 확인' })
-    expect(ask.textContent).toContain('제목: 오늘의 다육이\n채널: 다육이네')
+    // D-UX4-116: 옛 기대 글 "제목: 오늘의 다육이\n채널: 다육이네" → 라이브 정보 카드(제목 한 줄 · 채널)
+    expect(within(ask).getByTestId('live-check-title').textContent).toBe('오늘의 다육이')
+    expect(within(ask).getByTestId('live-check-channel').textContent).toBe('다육이네')
     fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
   }
   const newNav = () => ({ back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn() })
