@@ -62,6 +62,8 @@ describe('정산 배송지 칸 (D-UX3-35)', () => {
     expect(within(card).getByText('구매자가 적었어요')).toBeTruthy()
     expect(within(card).getByText('확인 전')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '정산 목록으로' }))
+    // D-UX4-122로 바뀐 기대: 다 끝난 손님(입금 완료)은 접힌 "끝난 손님" 묶음 안 — 펼쳐서 꼬리표를 본다
+    fireEvent.click(await screen.findByRole('button', { name: /^끝난 손님 \d+명$/ }))
     expect(await screen.findByRole('button', { name: '초록손 · 입금 완료 · 최종 14,000원 · 택배: 배송 중 · 9000-0000-0001' })).toBeTruthy()
   })
 

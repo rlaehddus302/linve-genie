@@ -16,7 +16,7 @@ export default function SettleRoute() {
   return (
     <RouteFrame>
         <TabFrame active="settle" go={(key) => router.replace(TAB_PATH[key])}>
-          <SettleScreen initialDate={typeof params.date === 'string' ? params.date : undefined} initialBuyer={typeof params.buyer === 'string' ? params.buyer : undefined} nav={{ openReport: (date) => router.push({ pathname: '/report', params: { date } }), openDeposits: () => router.push('/deposits'), openBuyerInfo: () => router.push('/buyer-info'), openReceipts: () => router.push('/receipts'), openBuyer: (date, key) => router.push({ pathname: '/settle-buyer', params: { date, key } }) }} />
+          <SettleScreen initialDate={typeof params.date === 'string' ? params.date : undefined} initialBuyer={typeof params.buyer === 'string' ? params.buyer : undefined} nav={{ openPacking: () => router.replace(TAB_PATH.packing), openDeposits: () => router.push('/deposits'), openBuyerInfo: () => router.push('/buyer-info'), openReceipts: () => router.push('/receipts'), openBuyer: (date, key) => router.push({ pathname: '/settle-buyer', params: { date, key } }) }} />
         </TabFrame>
       </RouteFrame>
   )

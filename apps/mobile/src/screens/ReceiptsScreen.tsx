@@ -31,11 +31,11 @@ import {
   smsWords,
 } from '@livejjim/web/src/lib/receipt-sms.ts'
 import { getBytes, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
+import { composeSms, prepareSms, receiptPhoto, SHEET_GAP_MS, SmsPhotoError, smsFailWords, useSmsDevice, wait } from '../lib/receipt-sms-flow.ts'
 import { copyToClipboard } from '../lib/clipboard.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
-import { nativeShareFile, nativeSms } from '../native/index.ts'
-import type { SmsImage } from '../native/sms.ts'
+import { nativeShareFile } from '../native/index.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
 import { Appear, EmptyFill, AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
@@ -155,66 +155,6 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
       {ledger ? <LedgerSheet initial={broadcast !== null ? broadcast.date : null} onClose={() => setLedger(false)} /> : null}
     </View>
   )
-}
-
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-/** 시트·문자 창이 닫히는 동안 다음 창을 띄우지 않게 (아이폰은 창이 겹치면 열리지 않는다) */
-const SHEET_GAP_MS = 450
-
-interface SmsDraft {
-  readonly phone: string
-  readonly text: string
-}
-
-/** 서버에서 받는 번호·글(가게 이름·금액·입금 계좌 — 링크 없음, D-REAL-13)을 받는다 (D-REAL-05). 번호를 넣으면 기억한다 */
-async function prepareSms(date: string, buyer: string, phone: string | null): Promise<SmsDraft> {
-  const requestId = newRequestId()
-  const result = await withRetry(() => post<{ sms: SmsDraft }>(`/api/days/${date}/receipt-sms/prepare`, { requestId, buyer, ...(phone === null ? {} : { phone }) }))
-  return result.sms
-}
-
-/** 확인서 사진을 못 받았다 — 글만으로 문자 앱을 열지 않는다 */
-class SmsPhotoError extends Error {}
-
-/** 손님 확인서 사진(JPG, "이미지" 단추와 같은 것)을 받는다 (D-REAL-13) */
-async function receiptPhoto(date: string, buyer: string): Promise<SmsImage> {
-  try {
-    const { bytes } = await withRetry(() => getBytes(withQuery(`/api/days/${date}/receipt.jpg`, { buyer, rehearsal: false })))
-    if (bytes.length === 0) throw new SmsPhotoError()
-    return { bytes, name: `receipt-${date}.jpg` }
-  } catch {
-    throw new SmsPhotoError()
-  }
-}
-
-/** 문자를 못 열었을 때 한 줄: 사진을 못 받았으면 다시 누르라고, 서버가 막았으면 그 말, 그 밖엔 이 기기에서 못 보냄 */
-const smsFailWords = (caught: unknown): string => (caught instanceof SmsPhotoError ? SMS_PHOTO_FAILED : isApiError(caught) ? caught.message : SMS_UNAVAILABLE)
-
-/** 문자 앱을 손님 번호·글·확인서 사진으로 채워 열고, 보냈으면 보냄 표시 (안드로이드는 결과를 알 수 없어 열고 돌아오면 보낸 것으로) */
-async function composeSms(date: string, buyer: string, draft: SmsDraft, photo: SmsImage): Promise<'sent' | 'cancelled'> {
-  const result = await nativeSms().compose(draft.phone, draft.text, photo)
-  if (result === 'cancelled') return 'cancelled'
-  const requestId = newRequestId()
-  await withRetry(() => post(`/api/days/${date}/receipt-sms/sent`, { requestId, buyer }))
-  return 'sent'
-}
-
-/** 이 기기에서 문자를 보낼 수 있나 (서버가 문자 칸을 줄 때만 묻는다) */
-function useSmsDevice(wanted: boolean): boolean | null {
-  const [ok, setOk] = useState<boolean | null>(null)
-  useEffect(() => {
-    if (!wanted || ok !== null) return
-    let live = true
-    void nativeSms()
-      .available()
-      .then((value) => {
-        if (live) setOk(value)
-      })
-    return () => {
-      live = false
-    }
-  }, [wanted, ok])
-  return ok
 }
 
 /** 구매자 줄: 처음·조치 뒤·그날 정산이 바뀌면(실시간 알림) 다시 받는다. 가게 이름(복사 글 앞말)도 같이 */
