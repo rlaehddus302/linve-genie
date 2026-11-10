@@ -2,10 +2,12 @@
 // 문자찜 손님은 기억한 번호로, 모르는 손님은 판매자가 넣은 번호로. 보냄 표시는 요청 번호로 한 번만. 리허설·번호 없음, DB에 번호 원문 없음.
 // D-REAL-05로 바뀐 기대: 옛 "서버가 솔라피로 보냄·1분 안 다시 보내기 429·문자 키 없는 서버 503·smsReady false·보내기 실패 502"
 // → 새 "준비가 번호·글을 돌려줌·보냄 표시는 따로·문자 키와 상관없이 smsReady true·발송 상한 없음(판매자 요금제)".
+// D-REAL-13(사용자 지시 2026-11-11 "사진으로 바꿔줘")으로 바뀐 기대: 옛 "글 = 가게 이름 + 확인서 링크, 같은 손님은 같은 링크"
+// → 새 "글 = 가게 이름 + 최종 결제 금액 + 입금 계좌, 링크 없음(사진은 앱이 receipt.jpg로 붙인다)".
 import { describe, expect, it } from 'vitest'
 import { RECEIPT_SMS_MESSAGES, receiptSmsText } from '../src/receipt-sms.ts'
-import { chat, ok } from './i2-support.ts'
-import { ORIGIN, addSeller, client, createBroadcast, dumpAllTables, newWorld, rid, type Seller, type TestServer } from './support.ts'
+import { chat, ok, putShop } from './i2-support.ts'
+import { addSeller, client, createBroadcast, dumpAllTables, newWorld, rid, type Seller, type TestServer } from './support.ts'
 
 const DATE = '2026-10-19'
 
@@ -29,7 +31,7 @@ const prepare = (world: TestServer, cookie: string, body: Record<string, unknown
 const markSent = (world: TestServer, cookie: string, body: Record<string, unknown>, query = '') => client(world, cookie).post(`/api/days/${DATE}/receipt-sms/sent${query}`, { requestId: rid('rs'), ...body })
 
 describe('D-REAL-05 영수증 문자 (판매자 휴대폰으로)', () => {
-  it('문자찜 손님은 기억한 번호와 가게 이름·확인서 링크 하나를 돌려준다. 보냄 표시는 요청 번호로 한 번만, 같은 손님은 같은 링크', async () => {
+  it('문자찜 손님은 기억한 번호와 가게 이름·최종 금액·입금 계좌 글(링크 없음)을 돌려준다. 보냄 표시는 요청 번호로 한 번만', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const smsBuyer = await setup(world, seller)
@@ -38,15 +40,17 @@ describe('D-REAL-05 영수증 문자 (판매자 휴대폰으로)', () => {
     expect(before.buyers.find((row) => row.buyer === smsBuyer)?.sms).toEqual({ last4: '5678', sentAt: null })
     expect(before.buyers.find((row) => row.buyer === 'UC_B')?.sms).toEqual({ last4: null, sentAt: null })
 
+    expect((await putShop(world, seller)).status).toBe(200)
     const first = await prepare(world, seller.cookie, { buyer: smsBuyer })
     expect(first.status, first.text).toBe(200)
     const draft = first.body.sms as { buyer: string; phone: string; last4: string; text: string }
     expect(draft).toMatchObject({ buyer: smsBuyer, phone: '01012345678', last4: '5678' })
-    expect(draft.text.startsWith('[가게 ')).toBe(true)
-    expect(draft.text).toMatch(new RegExp(`${ORIGIN}/r/[A-Za-z0-9_-]{43}$`))
+    expect(draft.text).toBe('[초록다육] 주문 확인서예요.\n최종 결제 금액 14,000원\n입금 계좌 농협 302-9988-7766-11 김판매')
+    // 상품 10,000원 + 기본 배송비 4,000원 (DOMAIN_RULES shipping.baseFee)
+    expect(draft.text).not.toContain('http')
     // 준비만으로는 보냄이 아니다 (판매자가 문자 앱에서 닫을 수 있다)
     expect((await buyersOf(world, seller)).buyers.find((row) => row.buyer === smsBuyer)?.sms?.sentAt).toBeNull()
-    // 다시 준비해도 같은 링크
+    // 다시 준비해도 같은 글
     expect(((await prepare(world, seller.cookie, { buyer: smsBuyer })).body.sms as { text: string }).text).toBe(draft.text)
 
     const requestId = rid('rs')
@@ -93,8 +97,13 @@ describe('D-REAL-05 영수증 문자 (판매자 휴대폰으로)', () => {
     expect((await markSent(world, seller.cookie, { buyer: smsBuyer }, '?rehearsal=true')).status).toBe(409)
   })
 
-  it('보내는 글 모양', () => {
-    expect(receiptSmsText('초록다육', 'https://x/r/abc')).toBe('[초록다육] 주문 확인서예요.\nhttps://x/r/abc')
-    expect(receiptSmsText('  ', 'https://x/r/abc')).toBe('주문 확인서예요.\nhttps://x/r/abc')
+  it('보내는 글 모양 (D-REAL-13 — 링크 없음, 입금 상태마다)', () => {
+    const shop = { name: '초록다육', bank: '농협', accountNumber: '302-9988-7766-11', accountHolder: '김판매' }
+    expect(receiptSmsText(shop, { total: 32000, remaining: null, payment: 'UNPAID' })).toBe('[초록다육] 주문 확인서예요.\n최종 결제 금액 32,000원\n입금 계좌 농협 302-9988-7766-11 김판매')
+    expect(receiptSmsText(shop, { total: 32000, remaining: 12000, payment: 'PARTIAL' })).toBe('[초록다육] 주문 확인서예요.\n최종 결제 금액 32,000원\n남은 금액 12,000원\n입금 계좌 농협 302-9988-7766-11 김판매')
+    expect(receiptSmsText(shop, { total: 32000, remaining: null, payment: 'PAID' })).toBe('[초록다육] 주문 확인서예요.\n최종 결제 금액 32,000원\n입금 확인됐어요. 감사합니다.')
+    // 가게 이름·계좌가 비면 그 줄이 없다, 줄바꿈은 한 칸으로
+    expect(receiptSmsText({ name: '  ', bank: '', accountNumber: '', accountHolder: '' }, { total: 800, remaining: null, payment: 'UNPAID' })).toBe('주문 확인서예요.\n최종 결제 금액 800원')
+    expect(receiptSmsText({ ...shop, name: '초록\n다육' }, { total: 800, remaining: null, payment: 'OVERPAID' })).toBe('[초록 다육] 주문 확인서예요.\n최종 결제 금액 800원\n입금 확인됐어요. 감사합니다.')
   })
 })

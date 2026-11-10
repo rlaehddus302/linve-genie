@@ -1,22 +1,28 @@
 // 앱 영수증·판매대장 (D-APPX-03 — 웹 ReceiptsPage·LedgerDialog와 같은 규칙·문구): 끝난 실제 방송을 먼저 고르고,
 // 링크 만들기·복사(가게 이름 + 기한 + 링크 한 줄)·끊기는 한 번 더 묻기, 확인서 PDF는 공유 시트로, 기간 판매대장은 b 없이(모두 고름).
+// D-REAL-13: [문자 보내기]의 글에는 링크가 없고(가게 이름·금액·입금 계좌), 확인서 사진(JPG)을 받아 문자에 붙인다. 사진을 못 받으면 문자 앱을 열지 않는다.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ReceiptBuyerRow } from '@livejjim/web/src/api/types.ts'
 import { setClipboardWriter } from '../src/lib/clipboard.ts'
 import { shareFile } from '../src/native/share.ts'
 import { setNativeModules } from '../src/native/index.ts'
-import { deviceSms, type SmsResult } from '../src/native/sms.ts'
+import { deviceSms, type SmsImage, type SmsResult } from '../src/native/sms.ts'
 import { ReceiptsScreen } from '../src/screens/ReceiptsScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 const rowOf = (buyer: string, name: string, patch: Partial<ReceiptBuyerRow> = {}): ReceiptBuyerRow => ({ buyer, name, phoneLast4: null, itemCount: 2, total: 14_000, payment: 'PAID', received: 14_000, remaining: 0, link: null, ...patch })
 const active = { buyer: 'u2', status: 'ACTIVE' as const, url: 'https://live.test/r/abc', expiresAt: '2026-11-05T11:31:00.000Z', revokedAt: null }
+/** 서버가 주는 확인서 사진(JPG 머리 바이트 + 손님 표시) */
+const jpgOf = (buyer: string): Uint8Array => new Uint8Array([0xff, 0xd8, 0xff, buyer.charCodeAt(1)])
+/** D-REAL-13 서버 문자 글: 링크 없이 가게 이름·금액·입금 계좌 */
+const smsTextOf = (buyer: string): string => `[초록가게] ${buyer === 'u2' ? '초록손' : '다육맘'}님 주문 확인서예요.\n입금하실 돈 14,000원\n농협 123-4567-8901 초록가게`
 
 function world(sms = false) {
   const w = makeWorld()
   const posts: { path: string; body: Record<string, unknown> | null }[] = []
   const pulled: string[] = []
+  const photos: string[] = []
   w.server.on('GET', /^\/api\/broadcasts$/, () => ({
     body: {
       broadcasts: [
@@ -36,7 +42,8 @@ function world(sms = false) {
     posts.push({ path: call.path, body: call.body })
     if (call.body?.['buyer'] === 'u2' && call.body['phone'] === undefined) return { status: 409, body: { error: { code: 'NO_PHONE', message: '이 손님의 휴대폰 번호를 몰라요. 번호를 넣어 주세요.' } } }
     const phone = call.body?.['buyer'] === 'u2' ? '01098765432' : '01012345678'
-    return { body: { sms: { buyer: call.body?.['buyer'], phone, last4: phone.slice(-4), text: `[초록가게] 주문 확인서예요.\nhttps://live.test/r/${String(call.body?.['buyer'])}` } } }
+    // D-REAL-13로 바뀐 기대: 옛 글은 확인서 링크(https://live.test/r/…)를 담았다 → 새 글은 링크 없음(사진은 따로 붙인다)
+    return { body: { sms: { buyer: call.body?.['buyer'], phone, last4: phone.slice(-4), text: smsTextOf(String(call.body?.['buyer'])) } } }
   })
   w.server.on('POST', /^\/api\/days\/2026-10-29\/receipt-sms\/sent/, (call) => {
     posts.push({ path: call.path, body: call.body })
@@ -50,17 +57,21 @@ function world(sms = false) {
     pulled.push(call.path)
     return { bytes: new Uint8Array([1, 2, 3]), contentType: 'application/pdf' }
   })
-  return { w, posts, pulled }
+  w.server.on('GET', /^\/api\/days\/2026-10-29\/receipt\.jpg\?buyer=(u\d)$/, (call, match) => {
+    photos.push(call.path)
+    return { bytes: jpgOf(match[1]!), contentType: 'image/jpeg' }
+  })
+  return { w, posts, pulled, photos }
 }
 
-/** 가짜 문자 앱: 연 번호·글을 적고, 정한 결과를 돌려준다 */
+/** 가짜 문자 앱: 연 번호·글·붙인 사진을 적고, 정한 결과를 돌려준다 */
 function fakeSms(results: SmsResult[] = []) {
-  const opened: { phone: string; text: string }[] = []
+  const opened: { phone: string; text: string; image: SmsImage | undefined }[] = []
   setNativeModules({
     sms: {
       available: async () => true,
-      compose: async (phone, text) => {
-        opened.push({ phone, text })
+      compose: async (phone, text, image) => {
+        opened.push({ phone, text, image })
         return results.shift() ?? 'sent'
       },
     },
@@ -96,14 +107,17 @@ describe('ReceiptsScreen (앱 영수증·판매대장)', () => {
   })
 
   // D-REAL-05로 바뀐 기대: 옛 "한 번 더 묻고 서버가 보냄(receipt-sms 한 번)" → 새 "바로 판매자 문자 앱을 채워 열고, 보냈으면 보냄 표시"
-  it('D-REAL-05 문자 보내기: 번호 아는 손님은 바로 문자 앱을 손님 번호·확인서 링크로 열고, 보내면 보냄 표시. 모르는 손님은 번호를 넣고 연다', async () => {
+  // D-REAL-13로 바뀐 기대: 옛 "손님 번호·확인서 링크(글 안)로 연다" → 새 "손님 번호·링크 없는 글·확인서 사진(JPG, 영문 파일 이름)으로 연다"
+  it('D-REAL-05·13 문자 보내기: 번호 아는 손님은 바로 문자 앱을 손님 번호·글·확인서 사진으로 열고, 보내면 보냄 표시. 모르는 손님은 번호를 넣고 연다', async () => {
     const opened = fakeSms()
-    const { w, posts } = world(true)
+    const { w, posts, photos } = world(true)
     render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
     expect(await screen.findByText('문자 보낼 번호 끝자리 5678')).toBeTruthy()
     fireEvent.click(await screen.findByRole('button', { name: '다육맘 문자 보내기' }))
     await waitFor(() => expect(opened).toHaveLength(1))
-    expect(opened[0]).toEqual({ phone: '01012345678', text: '[초록가게] 주문 확인서예요.\nhttps://live.test/r/u1' })
+    expect(opened[0]).toEqual({ phone: '01012345678', text: smsTextOf('u1'), image: { bytes: jpgOf('u1'), name: 'receipt-2026-10-29.jpg' } })
+    expect(opened[0]!.text).not.toMatch(/https?:|live\.test/)
+    expect(photos).toEqual(['/api/days/2026-10-29/receipt.jpg?buyer=u1'])
     expect(await screen.findByText('확인서 문자를 보냈어요.')).toBeTruthy()
     expect(posts.map((post) => post.path)).toEqual(['/api/days/2026-10-29/receipt-sms/prepare', '/api/days/2026-10-29/receipt-sms/sent'])
     expect(posts[1]!.body).toMatchObject({ buyer: 'u1' })
@@ -113,7 +127,35 @@ describe('ReceiptsScreen (앱 영수증·판매대장)', () => {
     fireEvent.click(screen.getByRole('button', { name: '문자 앱 열기' }))
     await waitFor(() => expect(opened).toHaveLength(2))
     expect(opened[1]!.phone).toBe('01098765432')
+    expect(opened[1]!.image).toEqual({ bytes: jpgOf('u2'), name: 'receipt-2026-10-29.jpg' })
+    expect(photos).toEqual(['/api/days/2026-10-29/receipt.jpg?buyer=u1', '/api/days/2026-10-29/receipt.jpg?buyer=u2'])
     expect(posts[2]!.body).toMatchObject({ buyer: 'u2', phone: '010-9876-5432' })
+  })
+
+  it('D-REAL-13 확인서 사진을 못 받으면 글만으로 문자 앱을 열지 않고, 다시 누르라고 알린다', async () => {
+    const opened = fakeSms()
+    const { w, posts, photos } = world(true)
+    w.server.on('GET', /receipt\.jpg/, (call) => {
+      photos.push(call.path)
+      return { status: 500, body: { error: { code: 'INTERNAL_ERROR', message: '서버에 문제가 생겼어요.' } } }
+    })
+    render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
+    fireEvent.click(await screen.findByRole('button', { name: '다육맘 문자 보내기' }))
+    expect(await screen.findByText('확인서 사진을 받지 못했어요. 다시 눌러 주세요.')).toBeTruthy()
+    expect(photos).toEqual(['/api/days/2026-10-29/receipt.jpg?buyer=u1'])
+    expect(opened).toHaveLength(0)
+    expect(posts.map((post) => post.path)).toEqual(['/api/days/2026-10-29/receipt-sms/prepare'])
+    expect(screen.queryByText('확인서 문자를 보냈어요.')).toBeNull()
+    // 번호를 넣는 시트에서 못 받으면 시트를 닫지 않고 그 안에 알린다(넣은 번호가 남는다)
+    fireEvent.click(screen.getByRole('button', { name: '초록손 문자 보내기' }))
+    const field = await screen.findByLabelText('손님 휴대폰 번호')
+    fireEvent.change(field, { target: { value: '010-9876-5432' } })
+    fireEvent.click(screen.getByRole('button', { name: '문자 앱 열기' }))
+    await waitFor(() => expect(photos).toHaveLength(2))
+    await waitFor(() => expect(screen.getAllByText('확인서 사진을 받지 못했어요. 다시 눌러 주세요.').length).toBeGreaterThan(0))
+    expect(screen.getByLabelText<HTMLInputElement>('손님 휴대폰 번호').value).toBe('010-9876-5432')
+    expect(opened).toHaveLength(0)
+    expect(posts.filter((post) => post.path.endsWith('/sent'))).toHaveLength(0)
   })
 
   it('D-REAL-05 문자 앱을 닫으면 보냄 표시를 하지 않는다', async () => {
@@ -128,7 +170,7 @@ describe('ReceiptsScreen (앱 영수증·판매대장)', () => {
 
   it('D-REAL-05 모두 보내기: 한 번 묻고 번호 아는 손님마다 문자 앱을 차례로 연다', async () => {
     const opened = fakeSms()
-    const { w, posts } = world(true)
+    const { w, posts, photos } = world(true)
     render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
     fireEvent.click(await screen.findByRole('button', { name: '번호 아는 손님 모두 문자 보내기 (1명)' }))
     expect(await screen.findByText('1명에게 차례로 확인서 문자를 보낼까요?')).toBeTruthy()
@@ -136,7 +178,23 @@ describe('ReceiptsScreen (앱 영수증·판매대장)', () => {
     fireEvent.click(screen.getByRole('button', { name: '보내기' }))
     expect(await screen.findByText('1명에게 문자를 보냈어요.', undefined, { timeout: 3000 })).toBeTruthy()
     expect(opened.map((item) => item.phone)).toEqual(['01012345678'])
+    // D-REAL-13: 손님마다 그 손님 확인서 사진을 붙인다
+    expect(opened.map((item) => item.image)).toEqual([{ bytes: jpgOf('u1'), name: 'receipt-2026-10-29.jpg' }])
+    expect(photos).toEqual(['/api/days/2026-10-29/receipt.jpg?buyer=u1'])
     expect(posts.filter((post) => post.path.endsWith('/sent')).map((post) => post.body?.['buyer'])).toEqual(['u1'])
+  })
+
+  it('D-REAL-13 모두 보내기: 확인서 사진을 못 받은 손님에서 문자 앱을 열지 않고 멈춘다', async () => {
+    const opened = fakeSms()
+    const { w, posts } = world(true)
+    w.server.on('GET', /receipt\.jpg/, () => ({ status: 500, body: { error: { code: 'INTERNAL_ERROR', message: '서버에 문제가 생겼어요.' } } }))
+    render(w.wrap(<ReceiptsScreen onBack={() => undefined} />))
+    fireEvent.click(await screen.findByRole('button', { name: '번호 아는 손님 모두 문자 보내기 (1명)' }))
+    fireEvent.click(await screen.findByRole('button', { name: '보내기' }))
+    expect(await screen.findByText('0명에게 보내고 다육맘님에서 멈췄어요. 다시 누르면 이어서 보내요.', undefined, { timeout: 3000 })).toBeTruthy()
+    expect(screen.getByText('확인서 사진을 받지 못했어요. 다시 눌러 주세요.')).toBeTruthy()
+    expect(opened).toHaveLength(0)
+    expect(posts.filter((post) => post.path.endsWith('/sent'))).toHaveLength(0)
   })
 
   it('D-REAL-05 문자를 보낼 수 없는 기기면 문자 단추 대신 안내', async () => {

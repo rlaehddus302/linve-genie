@@ -1,4 +1,4 @@
-// 영수증 문자 문구 (D-REAL-03 → D-REAL-05: 판매자 휴대폰 문자 앱으로 판매자 번호에서 보낸다) — 앱 ReceiptsScreen이 쓴다.
+// 영수증 문자 문구 (D-REAL-03 → D-REAL-05: 판매자 휴대폰 문자 앱으로 판매자 번호에서 보낸다 → D-REAL-13: 링크 대신 확인서 사진을 붙인다) — 앱 ReceiptsScreen이 쓴다.
 import type { ReceiptSmsState } from '../api/types.ts'
 import { kstHm, kstMonthDayWeekday } from './kst.ts'
 
@@ -7,9 +7,11 @@ export const SMS_SEND_ALL = '번호 아는 손님 모두 문자 보내기'
 export const SMS_PHONE_LABEL = '손님 휴대폰 번호'
 export const SMS_PHONE_HELP = '010으로 시작하는 번호를 적어 주세요. 다음에도 이 번호로 보내요.'
 export const SMS_SENT = '확인서 문자를 보냈어요.'
-export const SMS_NOTE = '내 휴대폰 문자 앱에 손님 번호와 확인서 링크를 채워 열어요. 보내기만 누르면 내 번호로 가요.'
+export const SMS_NOTE = '내 휴대폰 문자 앱에 손님 번호와 확인서 사진을 채워 열어요. 보내기만 누르면 내 번호로 가요.'
 export const SMS_OPEN = '문자 앱 열기'
 export const SMS_UNAVAILABLE = '이 기기에서는 문자를 보낼 수 없어요. 링크 보내기로 보내 주세요.'
+/** 확인서 사진(JPG)을 못 받으면 글만으로 문자 앱을 열지 않는다 (D-REAL-13) */
+export const SMS_PHOTO_FAILED = '확인서 사진을 받지 못했어요. 다시 눌러 주세요.'
 export const SMS_ALL_NOTE = '손님마다 문자 앱이 차례로 열려요. 보내기를 누르면 다음 손님이 바로 열리고, 닫으면 거기서 멈춰요.'
 
 /** 줄 아래 한 줄: 보낸 적 있으면 보낸 때, 아니면 보낼 번호 끝자리, 모르면 번호를 넣어 보낼 수 있다는 말 */

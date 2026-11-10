@@ -1,20 +1,21 @@
-// 영수증 문자 (D-REAL-03 → D-REAL-05): 우리 서버는 보내지 않는다. 받는 번호·보낼 글(확인서 링크)을 판매자 앱에 주면
-// 앱이 판매자 휴대폰 문자 앱을 채워 열고, 판매자가 보내기를 누르면 판매자 번호로 간다(답장·전화가 판매자에게). 보냈다는 표시만 따로 받는다.
+// 영수증 문자 (D-REAL-03 → D-REAL-05 → D-REAL-13): 우리 서버는 보내지 않는다. 받는 번호·보낼 글을 판매자 앱에 주면
+// 앱이 판매자 휴대폰 문자 앱을 손님 번호·글·확인서 사진(JPG)으로 채워 열고, 판매자가 보내기를 누르면 판매자 번호로 간다(답장·전화가 판매자에게).
+// 보냈다는 표시만 따로 받는다.
 // - 번호: 문자찜 손님은 문자찜이 올 때 번호를 판매자 키로 암호화해 기억한다(key = 엔진 전화번호 키 — 날짜를 넘어 같다).
 //   번호를 모르는 손님(유튜브·틱톡 등)은 판매자가 넣은 번호로 보내고 `d:<날짜>:<구매자 ID>`로 기억한다. 원문은 로그·응답에 없다(끝 4자리만).
-// - 보내는 글: "[가게 이름] 주문 확인서예요" + 그 손님의 확인서 링크(없으면 만든다 — 14일, receipt-links.ts). 링크 하나만 담는다.
+// - 보내는 글: "[가게 이름] 주문 확인서예요" + 최종 결제 금액 + (남은 금액) + 입금 계좌 — 링크는 넣지 않는다(낯선 주소는 스미싱으로 보일 수 있다, D-REAL-13).
+//   확인서 사진은 앱이 확인서 JPG(`/api/days/:date/receipt.jpg`)를 받아 문자에 붙인다.
 // - 보냄 표시는 요청 번호로 한 번만(같은 번호면 처음 결과). 판매자 요금제로 나가므로 우리 쪽 발송 상한은 없다.
 // - 리허설 범위·봉인 날짜·품목 없는 묶음은 보내지 않는다(링크 만들기와 같은 규칙). 보조자는 쓸 수 없다(경로에서 막는다).
-import { createHash } from 'node:crypto'
-import { buyerPhoneKeys, isValidDate, normalizePhone, type EngineState } from '@livejjim/core'
+import { buyerPhoneKeys, formatWon, isValidDate, normalizePhone, type EngineState } from '@livejjim/core'
 import { and, desc, eq, inArray, lt } from 'drizzle-orm'
 import type { ApiProblem, Outcome } from './closing.ts'
 import type { Db } from './db/database.ts'
 import { buyerPhones, receiptSmsSends } from './db/schema.ts'
 import { errorKind, type LogSink } from './log.ts'
-import { linkableBuyer, type ReceiptLinkService } from './receipt-links.ts'
+import { linkableBuyer } from './receipt-links.ts'
 import { openSellerText, sealSellerText } from './secrets.ts'
-import { readShop } from './shop.ts'
+import { readShop, type ShopView } from './shop.ts'
 import type { Clock } from './time.ts'
 import type { ScopeWriter } from './writer.ts'
 
@@ -26,14 +27,30 @@ export const RECEIPT_SMS_MESSAGES = {
   noItems: '확인서를 만들 상품이 없어요.',
   noPhone: '이 손님의 휴대폰 번호를 몰라요. 번호를 넣어 주세요.',
   badPhone: '휴대폰 번호를 010으로 시작하는 숫자로 적어 주세요.',
-  linkFailed: '확인서 링크를 만들지 못했어요. 다시 눌러 주세요.',
   request: '이미 받은 입력이에요.',
 } as const
 
-/** 보내는 글 (링크 하나, 짧게 — 90바이트 안이면 단문) */
-export function receiptSmsText(shopName: string, url: string): string {
-  const shop = shopName.trim().replace(/[\r\n]+/g, ' ').slice(0, 20)
-  return `${shop === '' ? '' : `[${shop}] `}주문 확인서예요.\n${url}`
+/** 글에 넣는 확인서 숫자 (확인서 데이터 그대로 — 사진과 같은 값) */
+export interface ReceiptSmsFacts {
+  readonly total: number
+  readonly remaining: number | null
+  readonly payment: 'UNPAID' | 'PARTIAL' | 'PAID' | 'OVERPAID'
+}
+
+const oneLine = (text: string): string => text.replace(/[\r\n]+/g, ' ').trim()
+
+/** 보내는 글 (링크 없음 — 확인서 사진이 함께 간다, D-REAL-13) */
+export function receiptSmsText(shop: Pick<ShopView, 'name' | 'bank' | 'accountNumber' | 'accountHolder'>, facts: ReceiptSmsFacts): string {
+  const name = oneLine(shop.name).slice(0, 20)
+  const lines = [`${name === '' ? '' : `[${name}] `}주문 확인서예요.`, `최종 결제 금액 ${formatWon(facts.total)}`]
+  if (facts.payment === 'PAID' || facts.payment === 'OVERPAID') {
+    lines.push('입금 확인됐어요. 감사합니다.')
+  } else {
+    if (facts.payment === 'PARTIAL' && facts.remaining !== null) lines.push(`남은 금액 ${formatWon(facts.remaining)}`)
+    const account = [shop.bank, shop.accountNumber, shop.accountHolder].map(oneLine).filter((part) => part !== '').join(' ')
+    if (oneLine(shop.accountNumber) !== '') lines.push(`입금 계좌 ${account}`)
+  }
+  return lines.join('\n')
 }
 
 /** 판매자가 넣은 번호의 기억 키 */
@@ -44,7 +61,8 @@ export interface ReceiptSmsDeps {
   readonly writer: ScopeWriter
   readonly clock: Clock
   readonly masterKey: Buffer
-  readonly links: ReceiptLinkService
+  /** 그 손님의 지금 확인서 숫자 (실제 범위 — ClosingService.receipt) */
+  readonly facts: (sellerId: string, date: string, buyer: string) => Promise<Outcome<ReceiptSmsFacts>>
   readonly log: LogSink
 }
 
@@ -209,10 +227,10 @@ export class ReceiptSmsService {
   }
 
   /**
-   * 한 손님에게 보낼 문자 준비: 받는 번호(phone이 있으면 그 번호를 기억하고 쓴다, 없으면 아는 번호)와 글(확인서 링크 — 없으면 만든다).
-   * 같은 요청 번호면 같은 링크
+   * 한 손님에게 보낼 문자 준비: 받는 번호(phone이 있으면 그 번호를 기억하고 쓴다, 없으면 아는 번호)와 글(최종 금액·입금 계좌 — 링크 없음, D-REAL-13).
+   * 확인서 사진은 앱이 따로 받는다
    */
-  async prepare(sellerId: string, accountId: string, date: string, rehearsal: boolean, requestId: string, buyer: string, phone: string | null): Promise<Outcome<ReceiptSmsDraft>> {
+  async prepare(sellerId: string, date: string, rehearsal: boolean, buyer: string, phone: string | null): Promise<Outcome<ReceiptSmsDraft>> {
     const deps = this.#deps
     if (rehearsal) return problem(409, 'REHEARSAL_RECEIPT_LINK', RECEIPT_SMS_MESSAGES.rehearsal)
     if (!isValidDate(date)) return { kind: 'not_found' }
@@ -227,14 +245,10 @@ export class ReceiptSmsService {
     if (typed !== null) await this.remember(sellerId, manualPhoneKey(date, buyer), typed)
     const known = typed !== null ? { phone: typed, last4: typed.slice(-4) } : await this.#phoneOf(sellerId, this.#keysOf(runtime.state, date, buyer))
     if (known === null) return problem(409, 'NO_PHONE', RECEIPT_SMS_MESSAGES.noPhone)
-    // 확인서 링크: 쓸 수 있는 링크가 있으면 그것, 없으면 새로 (링크 요청 번호는 이 요청 번호에서 나눈다 — 다시 눌러도 같은 링크)
-    const linkRequest = `sms_${createHash('sha256').update(requestId, 'utf8').digest('base64url').slice(0, 40)}`
-    const link = await deps.links.create(sellerId, accountId, date, false, linkRequest, buyer)
-    if (link.kind !== 'ok') return link
-    const url = link.value.link.url
-    if (url === null) return problem(409, 'NO_ITEMS', RECEIPT_SMS_MESSAGES.linkFailed)
+    const facts = await deps.facts(sellerId, date, buyer)
+    if (facts.kind !== 'ok') return facts
     const shop = await readShop(deps.db, sellerId)
-    return { kind: 'ok', value: { buyer, phone: known.phone, last4: known.last4, text: receiptSmsText(shop.name, url) } }
+    return { kind: 'ok', value: { buyer, phone: known.phone, last4: known.last4, text: receiptSmsText(shop, facts.value) } }
   }
 
   /** 판매자 문자 앱에서 보냈다는 표시 (같은 요청 번호면 처음 결과) */

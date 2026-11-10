@@ -594,7 +594,19 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // 구매자 확인서 공유 링크 (N4b) — 링크 주소 = 앱 주소 + /r/<토큰>
   const receiptLinks = new ReceiptLinkService({ db, writer, clock, masterKey, appOrigin: options.appOrigin, closing, log })
   // 영수증 문자 (D-REAL-03) — 문자찜 손님 번호를 기억하고, 1년 넘게 쓰지 않은 번호는 손님 장부 청소 때 지운다
-  const receiptSms = new ReceiptSmsService({ db, writer, clock, masterKey, links: receiptLinks, log })
+  const receiptSms = new ReceiptSmsService({
+    db,
+    writer,
+    clock,
+    masterKey,
+    log,
+    facts: async (sellerId, date, buyer) => {
+      const outcome = await closing.receipt(sellerId, date, false, buyer)
+      if (outcome.kind !== 'ok') return outcome
+      const { total, remaining, payment } = outcome.value.receipt
+      return { kind: 'ok', value: { total, remaining, payment } }
+    },
+  })
   service.usePhoneMemory((sellerId, phoneKey, phone) => receiptSms.remember(sellerId, phoneKey, phone))
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   // 크롬 확장으로 감사 채팅 올리기 (X1 AC11~AC17) — 공식 발송함 실행기가 공식으로 올릴 수 없는 회차의 감사를 맡긴다

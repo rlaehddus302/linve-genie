@@ -1,7 +1,8 @@
 // 영수증 보내기·판매대장 (D-APPX-03 — 웹 ReceiptsPage·LedgerDialog와 같은 규칙·문구, RCP-02, STL-04·05·06, D-N4b-04·05).
 // 끝난 방송을 고른다(최근 먼저) → 한 번에: "링크 전부 만들기"(실제만)·전원 확인서 PDF·전원 이미지 묶음·이 방송 판매대장 엑셀.
 // 구매자 줄: 이름·상품 수·최종 금액·입금 상태·링크 상태, 링크 만들기·복사·보내기(휴대폰 공유)·끊기(한 번 더 묻기), 이미지·PDF.
-// 링크는 판매자가 복사·공유 시트로 보내거나, [문자 보내기]로 판매자 휴대폰 문자 앱을 손님 번호·확인서 링크로 채워 연다 — 판매자는 보내기만
+// 링크는 판매자가 복사·공유 시트로 보낸다. [문자 보내기]는 판매자 휴대폰 문자 앱을 손님 번호·글·확인서 사진(JPG)으로 채워 연다
+// (D-REAL-13: 문자에는 링크 대신 사진 — 사진을 못 받으면 글만으로 열지 않는다) — 판매자는 보내기만
 // 누르고 문자는 판매자 번호로 간다(답장·전화가 판매자에게, D-REAL-05 — D-REAL-03을 바꿈). 번호를 아는 손님(문자찜)은 바로 열고, 모르는 손님은
 // 번호를 넣고 연다. 번호 아는 손님 모두 보내기는 한 번 묻고 손님마다 문자 앱을 차례로 연다(보내면 다음, 닫으면 멈춤).
 // 파일(PDF·JPG·ZIP·엑셀)은 휴대폰 공유 시트로 넘긴다. 실제 방송만 고른다 — 리허설은 앱에서 뺐다 (D-UX3-86).
@@ -18,6 +19,7 @@ import {
   SMS_OPEN,
   SMS_PHONE_HELP,
   SMS_PHONE_LABEL,
+  SMS_PHOTO_FAILED,
   SMS_SEND,
   SMS_SEND_ALL,
   SMS_SENT,
@@ -33,6 +35,7 @@ import { copyToClipboard } from '../lib/clipboard.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile, nativeSms } from '../native/index.ts'
+import type { SmsImage } from '../native/sms.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
 import { Appear, EmptyFill, AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
@@ -163,16 +166,33 @@ interface SmsDraft {
   readonly text: string
 }
 
-/** 서버에서 받는 번호·글(확인서 링크)을 받는다 (D-REAL-05). 번호를 넣으면 기억한다 */
+/** 서버에서 받는 번호·글(가게 이름·금액·입금 계좌 — 링크 없음, D-REAL-13)을 받는다 (D-REAL-05). 번호를 넣으면 기억한다 */
 async function prepareSms(date: string, buyer: string, phone: string | null): Promise<SmsDraft> {
   const requestId = newRequestId()
   const result = await withRetry(() => post<{ sms: SmsDraft }>(`/api/days/${date}/receipt-sms/prepare`, { requestId, buyer, ...(phone === null ? {} : { phone }) }))
   return result.sms
 }
 
-/** 문자 앱을 채워 열고, 보냈으면 보냄 표시 (안드로이드는 결과를 알 수 없어 열고 돌아오면 보낸 것으로) */
-async function composeSms(date: string, buyer: string, draft: SmsDraft): Promise<'sent' | 'cancelled'> {
-  const result = await nativeSms().compose(draft.phone, draft.text)
+/** 확인서 사진을 못 받았다 — 글만으로 문자 앱을 열지 않는다 */
+class SmsPhotoError extends Error {}
+
+/** 손님 확인서 사진(JPG, "이미지" 단추와 같은 것)을 받는다 (D-REAL-13) */
+async function receiptPhoto(date: string, buyer: string): Promise<SmsImage> {
+  try {
+    const { bytes } = await withRetry(() => getBytes(withQuery(`/api/days/${date}/receipt.jpg`, { buyer, rehearsal: false })))
+    if (bytes.length === 0) throw new SmsPhotoError()
+    return { bytes, name: `receipt-${date}.jpg` }
+  } catch {
+    throw new SmsPhotoError()
+  }
+}
+
+/** 문자를 못 열었을 때 한 줄: 사진을 못 받았으면 다시 누르라고, 서버가 막았으면 그 말, 그 밖엔 이 기기에서 못 보냄 */
+const smsFailWords = (caught: unknown): string => (caught instanceof SmsPhotoError ? SMS_PHOTO_FAILED : isApiError(caught) ? caught.message : SMS_UNAVAILABLE)
+
+/** 문자 앱을 손님 번호·글·확인서 사진으로 채워 열고, 보냈으면 보냄 표시 (안드로이드는 결과를 알 수 없어 열고 돌아오면 보낸 것으로) */
+async function composeSms(date: string, buyer: string, draft: SmsDraft, photo: SmsImage): Promise<'sent' | 'cancelled'> {
+  const result = await nativeSms().compose(draft.phone, draft.text, photo)
   if (result === 'cancelled') return 'cancelled'
   const requestId = newRequestId()
   await withRetry(() => post(`/api/days/${date}/receipt-sms/sent`, { requestId, buyer }))
@@ -270,7 +290,7 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
   }
 
   const targets = rows === null || !smsOk ? [] : smsTargets(rows)
-  // 모두 보내기: 손님마다 문자 앱을 차례로 연다. 보내면 다음 손님, 닫거나 서버가 막으면 거기서 멈춘다(다시 누르면 남은 손님부터)
+  // 모두 보내기: 손님마다 문자 앱을 차례로 연다. 보내면 다음 손님, 닫거나 서버가 막거나 사진을 못 받으면 거기서 멈춘다(다시 누르면 남은 손님부터)
   const sendAll = async () => {
     if (smsBusy) return
     const list = [...targets]
@@ -284,7 +304,8 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
       setSmsProgressText(smsProgress(index + 1, list.length, row.name))
       await wait(SHEET_GAP_MS)
       try {
-        const outcome = await composeSms(date, row.buyer, await prepareSms(date, row.buyer, null))
+        const draft = await prepareSms(date, row.buyer, null)
+        const outcome = await composeSms(date, row.buyer, draft, await receiptPhoto(date, row.buyer))
         if (outcome === 'cancelled') {
           stoppedAt = row.name
           break
@@ -292,7 +313,7 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
         sent++
       } catch (caught: unknown) {
         stoppedAt = row.name
-        setSmsError(isApiError(caught) ? caught.message : SMS_UNAVAILABLE)
+        setSmsError(smsFailWords(caught))
         break
       }
     }
@@ -406,6 +427,7 @@ function BuyerRow({
   const [smsSheet, setSmsSheet] = useState(false)
   const [phone, setPhone] = useState('')
   const [phoneError, setPhoneError] = useState<string | null>(null)
+  const [photoError, setPhotoError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [result, setResult] = useState<string | null>(null)
@@ -468,26 +490,33 @@ function BuyerRow({
   }
 
   const last4 = row.sms?.last4 ?? null
-  // 문자 보내기 (D-REAL-05): 번호·글을 받아(번호를 넣었으면 그 번호) 시트를 닫고 문자 앱을 연다. 판매자는 보내기만 누른다
+  // 문자 보내기 (D-REAL-05): 번호·글을 받아(번호를 넣었으면 그 번호) 확인서 사진을 받고(D-REAL-13) 시트를 닫고 문자 앱을 연다. 판매자는 보내기만 누른다.
+  // 사진을 못 받으면 문자 앱을 열지 않고 그 자리(시트가 열려 있으면 시트 안)에 다시 누르라고 알린다
   const sendSms = async (typed: string | null) => {
     if (busy) return
     setBusy(true)
     setError(null)
     setResult(null)
     setPhoneError(null)
+    setPhotoError(null)
     try {
       const draft = await prepareSms(date, row.buyer, typed)
+      const photo = await receiptPhoto(date, row.buyer)
       if (smsSheet) {
         setSmsSheet(false)
         setPhone('')
         await wait(SHEET_GAP_MS)
       }
-      const outcome = await composeSms(date, row.buyer, draft)
+      const outcome = await composeSms(date, row.buyer, draft, photo)
       if (outcome === 'sent') {
         setResult(SMS_SENT)
         onLink(row.link ?? { buyer: row.buyer, status: 'NONE', url: null, expiresAt: null, revokedAt: null })
       }
     } catch (caught: unknown) {
+      if (caught instanceof SmsPhotoError) {
+        setPhotoError(SMS_PHOTO_FAILED)
+        return
+      }
       if (!isApiError(caught)) {
         setResult(SMS_UNAVAILABLE)
         return
@@ -550,6 +579,7 @@ function BuyerRow({
       {manual !== null ? <TextField label={COPY_BY_HAND} value={manual} onChangeText={() => undefined} selectTextOnFocus /> : null}
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {files.error !== null ? <Notice tone="danger" alert>{files.error}</Notice> : null}
+      {photoError !== null && !smsSheet ? <Notice tone="danger" alert>{photoError}</Notice> : null}
       <BottomSheet
         visible={smsSheet}
         title={`${name}님에게 ${SMS_SEND}`}
@@ -558,6 +588,7 @@ function BuyerRow({
       >
         <TextField label={SMS_PHONE_LABEL} help={SMS_PHONE_HELP} error={phoneError} value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel" maxLength={20} />
         <Txt step="caption" color="textSub">{SMS_NOTE}</Txt>
+        {photoError !== null ? <Notice tone="danger" alert>{photoError}</Notice> : null}
       </BottomSheet>
       <ConfirmSheet
         visible={confirming}

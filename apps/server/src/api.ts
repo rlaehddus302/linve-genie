@@ -812,7 +812,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       if (!scope.ok) return scope.response
       return linkOutcome(c, await links.createAll(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId), (value) => ({ date: scope.date, ...value }))
     })
-    // 영수증 문자 (D-REAL-05): 준비 { requestId, buyer, phone? } → 받는 번호·글(판매자 문자 앱에 채운다), 보냄 { requestId, buyer }
+    // 영수증 문자 (D-REAL-05·D-REAL-13): 준비 { requestId, buyer, phone? } → 받는 번호·글(판매자 문자 앱에 채운다 — 링크 없음, 사진은 앱이 receipt.jpg로), 보냄 { requestId, buyer }
     const receiptSms = deps.receiptSms
     if (receiptSms !== undefined) {
       api.post('/days/:date/receipt-sms/prepare', async (c) => {
@@ -827,7 +827,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
         if (phone !== undefined && phone !== null && (typeof phone !== 'string' || phone.length > 40)) return problemResponse({ status: 400, code: 'BAD_REQUEST', message: '휴대폰 번호를 010으로 시작하는 숫자로 적어 주세요.' })
         const scope = scopeParams(c)
         if (!scope.ok) return scope.response
-        return linkOutcome(c, await receiptSms.prepare(sellerOf(c), c.get('session').accountId, scope.date, scope.rehearsal, requestId, buyer.buyer, typeof phone === 'string' ? phone : null), (value) => ({ date: scope.date, sms: value }))
+        return linkOutcome(c, await receiptSms.prepare(sellerOf(c), scope.date, scope.rehearsal, buyer.buyer, typeof phone === 'string' ? phone : null), (value) => ({ date: scope.date, sms: value }))
       })
       api.post('/days/:date/receipt-sms/sent', async (c) => {
         const input = body(c)
