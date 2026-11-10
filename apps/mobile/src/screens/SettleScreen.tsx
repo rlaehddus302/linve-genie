@@ -46,9 +46,10 @@ import { formatWon, PAYMENT_WORD, paymentWord, RETRY_NOW } from '../lib/words.ts
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
 import { useDayScope } from '../lib/day-scope.ts'
 import { signalScreens, useScreenSignal } from '../lib/screen-signals.ts'
-import { AppHeader, EmptyFill, NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useHoldRouteSwipe, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { AppHeader, Appear, EmptyFill, NavBar, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useHoldRouteSwipe, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 import { AddressCard, ParcelTag } from './ParcelAddress.tsx'
 import { BuyerInfoBanner } from './BuyerInfoScreen.tsx'
 import { CARD_GAP, MenuRow, PAGE_SIDE, SectionCard, ValueLine } from './order-parts.tsx'
@@ -107,7 +108,10 @@ export function SettleScreen({ initialDate, initialBuyer, nav = {} }: { readonly
         {nav.openBuyerInfo !== undefined ? <BuyerInfoBanner onOpen={nav.openBuyerInfo} /> : null}
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
-        {days !== null ? <DayPills days={days} date={date} onPick={setDate} /> : null}
+        {/* 서버에서 받은 뒤에야 생기는 날짜 줄은 부드럽게 (D-UX4-112) */}
+        <Late>
+          {days !== null ? <DayPills days={days} date={date} onPick={setDate} /> : null}
+        </Late>
         {date !== null ? <SettleDay key={date} date={date} nav={nav} initialBuyer={date === initialDate ? initialBuyer : undefined} /> : null}
       </ScrollView>
     </View>
@@ -133,6 +137,8 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
   const parcels = useParcelMarks(date, parcelVersion)
   const steps = useOrderSteps(date, parcelVersion)
   const names = useMemo(() => (data === null ? null : new BuyerNames(data.buyers, data.claims)), [data])
+  // 불러온 뒤에야 생긴 손님 목록은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112)
+  const late = useCameLate(data !== null && names !== null)
   if (error !== null && data === null) {
     return (
       <View style={{ gap: SPACE.sm }}>
@@ -155,7 +161,7 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
     links.push({ label: '라이브 리포트', onPress: () => openReport(date) })
   }
   return (
-    <View style={{ gap: CARD_GAP }}>
+    <Appear instant={!late} style={{ gap: CARD_GAP }}>
       {links.length > 0 ? <QuickLinks links={links} /> : null}
       {data.sealed ? <Notice tone="info">{SEALED_SETTLEMENT}</Notice> : null}
       <View role="radiogroup" aria-label="입금 상태로 보기">
@@ -179,7 +185,7 @@ function SettleDay({ date, nav, initialBuyer }: { readonly date: string; readonl
           </View>
         )}
       </SectionCard>
-    </View>
+    </Appear>
   )
 }
 

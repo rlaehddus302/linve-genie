@@ -65,9 +65,10 @@ import { nativeShareFile } from '../native/index.ts'
 import { useParcelVersion } from '../lib/parcel-version.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, ButtonRow, Card, ConfirmSheet, Icon, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 import { RowAction, RowActions, TextAction } from './ParcelAddress.tsx'
 import { ExtraCard, ExtraFacts, ExtraRowActions } from './ParcelExtra.tsx'
 
@@ -131,24 +132,29 @@ export function ParcelsScreen({ onBack, initialDate, nav = {}, topGap = 28 }: { 
           </View>
         ) : null}
         {days === null && error === null ? <Loading /> : null}
-        {days !== null && days.dates.length > 0 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingVertical: SPACE.xs }}>
-            {days.dates.map((day) => (
-              <Pill key={day.date} on={day.date === date} label={dateWords(day.date)} ariaLabel={`날짜 ${dateWords(day.date)} · 보낼 수 있어요 ${String(day.ready)} · 접수 ${String(day.booked)}`} onPress={() => setDate(day.date)} />
-            ))}
-          </ScrollView>
-        ) : null}
+        {/* 서버에서 받은 뒤에야 생기는 날짜 줄·추가 카드는 부드럽게 (D-UX4-112) */}
+        <Late>
+          {days !== null && days.dates.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingVertical: SPACE.xs }}>
+              {days.dates.map((day) => (
+                <Pill key={day.date} on={day.date === date} label={dateWords(day.date)} ariaLabel={`날짜 ${dateWords(day.date)} · 보낼 수 있어요 ${String(day.ready)} · 접수 ${String(day.booked)}`} onPress={() => setDate(day.date)} />
+              ))}
+            </ScrollView>
+          ) : null}
+        </Late>
         {date !== null ? <ParcelDayView key={date} date={date} version={version} onChanged={bump} nav={nav} /> : null}
-        {days !== null ? (
-          <ExtraCard
-            date={date ?? kstToday()}
-            onSaved={(saved) => {
-              bump()
-              setAttempt((n) => n + 1)
-              if (saved !== date) setDate(saved)
-            }}
-          />
-        ) : null}
+        <Late>
+          {days !== null ? (
+            <ExtraCard
+              date={date ?? kstToday()}
+              onSaved={(saved) => {
+                bump()
+                setAttempt((n) => n + 1)
+                if (saved !== date) setDate(saved)
+              }}
+            />
+          ) : null}
+        </Late>
       </ScrollView>
     </View>
   )
@@ -250,6 +256,8 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
     }
   }
 
+  // 불러온 뒤에야 생긴 그날 택배 목록은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112)
+  const late = useCameLate(day !== null && groups !== null)
   if (day === null || groups === null) {
     if (error !== null) {
       return error.status === 404 ? (
@@ -283,7 +291,7 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
   )
 
   return (
-    <View style={{ gap: SPACE.lg }}>
+    <Appear instant={!late} style={{ gap: SPACE.lg }}>
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {directFirst ? null : blocked !== null ? (
         <View style={{ gap: SPACE.xs }}>
@@ -465,7 +473,7 @@ function ParcelDayView({ date, version, onChanged, nav }: { readonly date: strin
           void book(chosen)
         }}
       />
-    </View>
+    </Appear>
   )
 }
 

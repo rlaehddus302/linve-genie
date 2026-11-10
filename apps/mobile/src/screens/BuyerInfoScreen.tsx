@@ -9,10 +9,11 @@ import { useCachedGet } from '../lib/cached-get.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { EmptyFill, AppHeader, BigButton, ButtonRow, Icon, TextField, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { Appear, EmptyFill, AppHeader, BigButton, ButtonRow, Icon, TextField, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 import { CARD_GAP, PAGE_SIDE, SectionCard } from './order-parts.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 
 export const BUYER_INFO_TITLE = '손님 정보 문자'
 // 설명은 짧게 (D-UX3-93): 화면 제목과 겹치는 첫 문장("방송 뒤 손님이 보낸 … 문자예요")을 뺐다. 배송지 확인 안내는 남긴다(빠뜨리면 접수가 안 된다)
@@ -83,25 +84,29 @@ export function useBuyerInfoList(): {
 export function BuyerInfoBanner({ onOpen }: { readonly onOpen: () => void }) {
   const { p } = useKit()
   const { list } = useBuyerInfoList()
+  // 서버에서 받은 뒤에야 생기는 알림 줄은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112)
+  const late = useCameLate(list !== null && list.cards.length > 0)
   if (list === null || list.cards.length === 0) return null
   const open = list.cards.filter((card) => card.status === 'OPEN').length
   const words = open > 0 ? `손님 정보 문자 ${String(open)}건 확인해 주세요` : `손님 정보 문자 ${String(list.cards.length)}건 넣었어요`
   return (
-    <Tap
-      role="button"
-      aria-label={words}
-      onPress={onOpen}
-      testID="buyer-info-banner"
-      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min + SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surface })}
-    >
-      {open > 0 ? <View aria-hidden style={{ width: 8, height: 8, borderRadius: 4, borderCurve: 'continuous', backgroundColor: p.warnText }} /> : null}
-      <View style={{ flex: 1 }}>
-        <Txt step="bodyLarge" weight="book" color={open > 0 ? 'warnText' : 'text'}>
-          {words}
-        </Txt>
-      </View>
-      <Icon name="chevron" color={p.textSub} size={18} />
-    </Tap>
+    <Appear instant={!late}>
+      <Tap
+        role="button"
+        aria-label={words}
+        onPress={onOpen}
+        testID="buyer-info-banner"
+        style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min + SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surface })}
+      >
+        {open > 0 ? <View aria-hidden style={{ width: 8, height: 8, borderRadius: 4, borderCurve: 'continuous', backgroundColor: p.warnText }} /> : null}
+        <View style={{ flex: 1 }}>
+          <Txt step="bodyLarge" weight="book" color={open > 0 ? 'warnText' : 'text'}>
+            {words}
+          </Txt>
+        </View>
+        <Icon name="chevron" color={p.textSub} size={18} />
+      </Tap>
+    </Appear>
   )
 }
 
@@ -132,12 +137,17 @@ export function BuyerInfoScreen({ onBack }: { readonly onBack: () => void }) {
           </View>
         ) : null}
         {list === null && error === null ? <Loading /> : null}
-        {list !== null && list.cards.length === 0 ? (
-          <EmptyFill title={NO_BUYER_INFO} />
-        ) : null}
-        {list?.cards.map((card) => (
-          <BuyerInfoItem key={card.id} card={card} buyers={list.buyers} onDone={reload} />
-        ))}
+        {/* 서버에서 받은 뒤에야 생기는 목록은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112) */}
+        <Late style={{ flexGrow: 1 }}>
+          {list !== null && list.cards.length === 0 ? (
+            <EmptyFill title={NO_BUYER_INFO} />
+          ) : null}
+        </Late>
+        <Late style={{ gap: CARD_GAP }}>
+          {list?.cards.map((card) => (
+            <BuyerInfoItem key={card.id} card={card} buyers={list.buyers} onDone={reload} />
+          ))}
+        </Late>
       </ScrollView>
     </View>
   )

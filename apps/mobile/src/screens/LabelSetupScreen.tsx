@@ -26,6 +26,7 @@ import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
 import { Notice } from '../ui/parts.tsx'
 import { DEVICE_NAME_MAX, TEST_QUESTION, replaceQuestion } from './LabelsScreen.tsx'
+import { Late } from '../ui/late.tsx'
 
 export const LABEL_ASK_TITLE = '라벨을 뽑을까요?'
 /** 설명은 읽기 쉽게 줄을 나눈다 (D-UX4-03, 사용자 지시 2026-11-03 그대로) */
@@ -390,7 +391,8 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
       scrollRef={scroll}
       sticky={
         <View onLayout={(event: LayoutChangeEvent) => (stickyH.current = event.nativeEvent.layout.height)}>
-          {draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} widthDots={dots.widthDots} heightDots={dots.heightDots} picked={picked} onFocus={focusItem} onPick={setPicked} onItem={setItem} /> : null}
+          {/* 서버에서 받은 뒤에야 생기는 라벨 그림은 부드럽게 (D-UX4-112) — 아래 칸들은 자리(onLayout y)로 스크롤하므로 감싸지 않는다 */}
+          <Late>{draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} widthDots={dots.widthDots} heightDots={dots.heightDots} picked={picked} onFocus={focusItem} onPick={setPicked} onItem={setItem} /> : null}</Late>
         </View>
       }
       actions={<BigButton label="저장하고 다음" busy={saving} disabled={draft === null} onPress={() => void save()} />}

@@ -333,7 +333,8 @@ describe('출력 기기의 실험 기종: 그 연결에서 테스트 "예" 전 �
     expect(screen.getByText('이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.')).toBeTruthy()
     await world.services.labels.reload()
     // D-UX3-19: 옛 문장 '실험 중인 프린터라 출력을 잠시 멈췄어요…'
-    await waitFor(() => expect(screen.getByText('출력 멈춤 · 새로 이은 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.')).toBeTruthy())
+    // D-UX4-112: 옛 기대 "새로 이은 프린터라" → "새로 연결한 프린터라"
+    await waitFor(() => expect(screen.getByText('출력 멈춤 · 새로 연결한 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.')).toBeTruthy())
     // 멈춤 줄 아래에도 "테스트 인쇄"가 있다(UX-PRN2-005) — 여기서는 프린터 칸의 것을 누른다
     fireEvent.click(within(screen.getByRole('group', { name: '프린터' })).getByRole('button', { name: '테스트 인쇄' }))
     const result = await screen.findByRole('group', { name: '테스트 인쇄 결과' })

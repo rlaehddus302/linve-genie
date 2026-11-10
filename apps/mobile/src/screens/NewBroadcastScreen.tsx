@@ -13,11 +13,11 @@ import { isApiError, newRequestId, post, withRetry, type ApiError } from '../api
 import { LIVE_PLATFORMS, openPlatform, type PlatformTarget } from '../lib/open-app.ts'
 import { readModeOf } from '../lib/youtube.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
-import { BottomSheet, FormPage, Icon, SmallButton, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { BottomSheet, FormPage, Icon, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Notice } from '../ui/parts.tsx'
 import { defaultBroadcastTitle, startErrorMessage } from './HomeScreen.tsx'
-import { markLinkAsked, sendLiveLink, useAddressLinker, type LiveLinkRequest } from './console/YoutubeSection.tsx'
+import { LINK_ASK_DESCRIPTION, LINK_ASK_TITLE, LinkSideButtons, markLinkAsked, sendLiveLink, useAddressLinker, type LiveLinkRequest } from './console/YoutubeSection.tsx'
 
 /** 판매 종류 — 늘릴 때는 여기에 한 줄 (word가 제목에 들어간다. 기타는 제목에 넣지 않는다) */
 export const SALE_CATEGORIES: readonly { readonly key: string; readonly word: string; readonly inTitle: boolean; readonly icon: string }[] = [
@@ -168,18 +168,19 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
     if (nav.openLabelSetup !== undefined) nav.openLabelSetup(id)
     else nav.openConsole(id)
   }
-  const linker = useAddressLinker({ enabled: route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, autoFocus: true, disabled: busy, onEdit: clearError })
+  const linker = useAddressLinker({ enabled: route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, disabled: busy, onEdit: clearError })
 
   return (
     <FormPage
-      title="라이브 링크를 넣어 주세요"
+      title={LINK_ASK_TITLE}
+      description={LINK_ASK_DESCRIPTION}
       name="새 라이브"
       onBack={nav.back}
       overlay={linker.popup}
       actions={linker.action}
     >
       {route !== undefined ? linker.fields : null}
-      <SmallButton label="링크를 모르겠어요" onPress={() => setFinder(true)} />
+      <LinkSideButtons onUnknown={() => setFinder(true)} paste={route !== undefined ? linker.paste : null} />
       <MakeError error={error} />
       <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
     </FormPage>

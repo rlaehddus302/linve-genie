@@ -16,9 +16,10 @@ import type { ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, BigButton, BottomSheet, FullSheet, HeaderTextButton, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderTextButton, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
 import { GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
+import { useCameLate } from '../ui/late.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
@@ -39,7 +40,7 @@ import { EndBroadcastRow } from './console/EndBroadcast.tsx'
 import { LinkInfo, hasLinkedLive } from './console/LinkInfo.tsx'
 import { useDockChoice } from '../lib/dock-choice.ts'
 import { canLinkByAddress } from './BroadcastLinkScreen.tsx'
-import { YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
+import { LINK_ASK_DESCRIPTION, LINK_ASK_TITLE, YoutubeSection, YoutubeWarning, sendLiveLink, useAddressLinker, useMobileYoutube, wasLinkAsked } from './console/YoutubeSection.tsx'
 
 // 방송 관리 화면 조각은 console/Manage로 옮겼다 (D-UX4-57 — 진짜 쌓인 화면과 같이 쓴다)
 export { LABEL_PRINT_TITLE, LINK_TITLE, MANAGE_LABEL, THANKS_HELP_BODY, THANKS_HELP_TITLE, THANKS_TITLE, ThanksSwitch } from './console/Manage.tsx'
@@ -293,6 +294,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     if (ended && voiceView.on && voiceView.broadcastId === broadcastId) void services.voice.turnOff()
   }, [ended, voiceView.on, voiceView.broadcastId, broadcastId, services])
 
+  // 받은 뒤에야 생기는 목록은 부드럽게 — 기억해 둔 자료로 처음부터 그리면 바로 (D-UX4-112)
+  const listLate = useCameLate(data !== null && broadcast !== null && names !== null)
   const frame = (body: ReactNode) => (
     <View style={{ flex: 1, backgroundColor: p.background }}>
       <View style={{ height: pageTop }} />
@@ -411,7 +414,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           </View>
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
-            {shownTab === 'products' ? <ProductList onOpen={setDetail} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
+            <Appear instant={!listLate} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
+              {shownTab === 'products' ? <ProductList onOpen={setDetail} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
+            </Appear>
           </View>
           {/* (+) 단추에 마지막 줄이 가리지 않게 */}
           {shownTab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
@@ -458,16 +463,20 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           />
         </SlidePage>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}
-        <FullSheet visible={sheet === 'youtube'} onClose={close} name="라이브 연결" title={linkable ? '라이브 링크를 넣어 주세요' : '라이브 연결'} cards={!linkable && !linked} overlay={linkable ? linker.popup : undefined} actions={linkable ? (
+        <FullSheet visible={sheet === 'youtube'} onClose={close} name="라이브 연결" title={linkable ? LINK_ASK_TITLE : '라이브 연결'} {...(linkable ? { description: LINK_ASK_DESCRIPTION } : {})} cards={!linkable && !linked} overlay={linkable ? linker.popup : undefined} actions={linkable ? (
             <>
-              <BigButton kind="outline" label="나중에 잇기" onPress={close} />
+              <BigButton kind="outline" label="나중에 연결" onPress={close} />
               {linker.action}
             </>
           ) : undefined}>
           {linkable ? (
-            <View role="group" aria-label="유튜브">
-              {linker.fields}
-            </View>
+            <>
+              <View role="group" aria-label="유튜브">
+                {linker.fields}
+              </View>
+              {/* 라이브 링크 화면과 같은 곁길 단추 줄 — [링크를 모르겠어요]는 쌓인 화면에만 있다 (D-UX4-112) */}
+              {linker.paste === null ? null : <View style={{ flexDirection: 'row', justifyContent: 'center' }}>{linker.paste}</View>}
+            </>
           ) : linked ? (
             // 이은 라이브: 흰 바탕 정보 줄 + 라이브 바로가기 · 라이브 연결 끊기 (D-UX4-95·107)
             <LinkInfo broadcastId={broadcastId} yt={yt} closed={closed} bleed {...(seller ? { onEnded: () => { setEndedHere(true); close(); closePage(); onEnded?.() } } : {})} />

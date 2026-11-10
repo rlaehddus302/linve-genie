@@ -15,8 +15,9 @@ import { peekCached, rememberCached, useCachedGet } from '../lib/cached-get.ts'
 import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { AppHeader, BigButton, Icon, RowGroup, TodoRow, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, Icon, RowGroup, TodoRow, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
+import { Late } from '../ui/late.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
 import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcastTitle } from './BroadcastList.tsx'
 export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx'
@@ -263,17 +264,23 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
     todoRows.push({ key: 'parcel', node: <TodoRow count={flow.parcel} tone="green" title="택배 접수하기" onPress={() => openParcels(day)} /> })
   }
 
+  // 할 일 묶음이 처음 생길 때 함께 있던 줄 — 이 줄들은 묶음과 함께 나타나고, 그 뒤에 생기는 줄만 따로 (D-UX4-112)
+  const [firstTodo, setFirstTodo] = useState<ReadonlySet<string> | null>(() => (todoRows.length > 0 ? new Set(todoRows.map((row) => row.key)) : null))
+  if (firstTodo === null && todoRows.length > 0) setFirstTodo(new Set(todoRows.map((row) => row.key)))
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="home-screen">
       {/* 모든 화면과 같은 머리 줄 (D-UX4-59): 홈 머리는 "지금 라이브 중"·"내 라이브 연결" 줄 그대로(D-UX3-92, 토스 홈 "토스뱅크 ›" 자리) — 서비스 이름을 넣지 않는다 (D-UX4-62) */}
-      <AppHeader title="" left={liveNow.resolved || error !== null ? <LiveEntry live={liveNow.live} channel={liveNow.channel} onOpen={nav.openConsole} onConnect={nav.openNewBroadcast} /> : <View />} />
+      <AppHeader title="" left={<Late>{liveNow.resolved || error !== null ? <LiveEntry live={liveNow.live} channel={liveNow.channel} onOpen={nav.openConsole} onConnect={nav.openNewBroadcast} /> : null}</Late>} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: room }}>
 
-        {nav.openStart !== undefined && items !== null && showsStart(wizard, items.some((item) => !item.rehearsal)) ? (
-          <RowGroup label={START_ROW_TITLE}>
-            <TodoRow title={START_ROW_TITLE} sub={START_ROW_SUB} onPress={nav.openStart} />
-          </RowGroup>
-        ) : null}
+        {/* 서버에서 받은 뒤에야 생기는 묶음은 부드럽게 나타난다 — 기억해 둔 자료로 처음부터 그린 것은 바로 (D-UX4-112) */}
+        <Late>
+          {nav.openStart !== undefined && items !== null && showsStart(wizard, items.some((item) => !item.rehearsal)) ? (
+            <RowGroup label={START_ROW_TITLE}>
+              <TodoRow title={START_ROW_TITLE} sub={START_ROW_SUB} onPress={nav.openStart} />
+            </RowGroup>
+          ) : null}
+        </Late>
 
         {items === null && error === null ? <Loading /> : null}
         {error !== null ? (
@@ -285,30 +292,37 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
           </View>
         ) : null}
 
-        {past.length > 0 ? (
-          <View role="group" aria-label="내 라이브" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: showAll ? SPACE.xs : SPACE.md }}>
-            <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
-              <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>내 라이브</Txt>
+        <Late>
+          {past.length > 0 ? (
+            <View role="group" aria-label="내 라이브" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: showAll ? SPACE.xs : SPACE.md }}>
+              <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
+                <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>내 라이브</Txt>
+              </View>
+              {past.slice(0, HOME_BROADCASTS).map((item) => (
+                <HistoryRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} />
+              ))}
+              {/* 모두보기는 목록 아래 오른쪽, 글자만의 단추 (D-UX3-88). 넘쳐서 안 보이는 방송이 있을 때만(HOME_BROADCASTS개 넘음 — D-UX4-81) */}
+              {!showAll || nav.openAllBroadcasts === undefined ? null : (
+                <Tap role="button" aria-label="라이브 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-end', marginRight: SPACE.md, marginBottom: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+                  <Txt step="caption" color="textSub">모두보기</Txt>
+                </Tap>
+              )}
             </View>
-            {past.slice(0, HOME_BROADCASTS).map((item) => (
-              <HistoryRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} />
-            ))}
-            {/* 모두보기는 목록 아래 오른쪽, 글자만의 단추 (D-UX3-88). 넘쳐서 안 보이는 방송이 있을 때만(HOME_BROADCASTS개 넘음 — D-UX4-81) */}
-            {!showAll || nav.openAllBroadcasts === undefined ? null : (
-              <Tap role="button" aria-label="라이브 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-end', marginRight: SPACE.md, marginBottom: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-                <Txt step="caption" color="textSub">모두보기</Txt>
-              </Tap>
-            )}
-          </View>
-        ) : null}
+          ) : null}
+        </Late>
 
-        {todoRows.length > 0 ? (
-          <RowGroup title="오늘 할 일" label="오늘 할 일">
-            {todoRows.map((row) => (
-              <View key={row.key}>{row.node}</View>
-            ))}
-          </RowGroup>
-        ) : null}
+        {/* 할 일 줄은 받는 자료마다 따로 늦게 온다 — 묶음이 처음 생길 때는 묶음째, 그 뒤 새로 생긴 줄만 따로 부드럽게 (D-UX4-112) */}
+        <Late>
+          {todoRows.length > 0 ? (
+            <RowGroup title="오늘 할 일" label="오늘 할 일">
+              {todoRows.map((row) => (
+                <Appear key={row.key} instant={firstTodo?.has(row.key) !== false}>
+                  {row.node}
+                </Appear>
+              ))}
+            </RowGroup>
+          ) : null}
+        </Late>
       </ScrollView>
     </View>
   )

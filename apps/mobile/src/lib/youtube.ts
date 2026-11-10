@@ -14,11 +14,11 @@ export const STOP_WARNING_PREFIX = '유튜브 채팅을 받지 못하고 있어�
 export const WARN_REASONS: ReadonlySet<string> = new Set(['RECONNECT', 'NOT_CONNECTED', 'NOT_MY_CHANNEL', 'QUOTA', 'CHAT_DISABLED', 'FORBIDDEN', 'CHAT_NOT_FOUND'])
 export const RETRYING_WARN_MS = 10_000
 export const SERVER_ROUTE_SERVER = '서버 연결로 받는 중'
-export const FIRST_CHANNEL_GROUP = '처음 잇는 채널 확인'
-export const RECENT_TITLE = '최근 이은 채널의 라이브'
+export const FIRST_CHANNEL_GROUP = '처음 연결하는 채널 확인'
+export const RECENT_TITLE = '최근 연결한 채널의 라이브'
 export const RECENT_AGAIN = '다시 찾기'
-export const RECENT_EMPTY = '최근 이은 채널에 지금 하는 라이브가 없어요. 라이브 주소를 붙여 넣어 주세요.'
-export const RECENT_SEARCHING = '최근 이은 채널에서 지금 라이브를 찾는 중…'
+export const RECENT_EMPTY = '최근 연결한 채널에 지금 하는 라이브가 없어요. 라이브 주소를 붙여 넣어 주세요.'
+export const RECENT_SEARCHING = '최근 연결한 채널에서 지금 라이브를 찾는 중…'
 export const NO_BROADCAST_TITLE = '(제목 없음)'
 export const NO_CHANNEL_NAME = '(이름 없음)'
 export const CHANNEL_NAME_MAX = 40
@@ -44,11 +44,11 @@ export function channelName(title: unknown): string {
   return chars.length > CHANNEL_NAME_MAX ? `${chars.slice(0, CHANNEL_NAME_MAX).join('')}…` : text
 }
 
-export const firstChannelQuestion = (name: string): string => `처음 잇는 채널이에요 (채널: ${name}). 이 라이브가 맞나요?`
+export const firstChannelQuestion = (name: string): string => `처음 연결하는 채널이에요 (채널: ${name}). 이 라이브가 맞나요?`
 /** 앱의 처음 잇는 채널 팝업 (D-UX4-02, 사용자 지시 2026-11-03) — 웹 줄 문장(firstChannelQuestion)과 따로, 줄을 나눠 보인다 */
 export const firstChannelPopup = (name: string): string => `처음 연결하는 채널이에요.\n채널명: ${name}\n이 라이브가 맞나요?`
 /** 잇기 전 확인 팝업 (D-UX4-08, 사용자 지시 2026-11-05 "처음이든 아니든 무조건 확인창, 방송 제목·채널명") */
-export const LINK_CHECK_GROUP = '이을 라이브 확인'
+export const LINK_CHECK_GROUP = '연결할 라이브 확인'
 export const linkCheckPopup = (title: string, channel: string): string => `이 라이브가 맞나요?\n\n제목: ${title}\n채널: ${channel}`
 export function broadcastTitleText(title: unknown): string {
   const text = typeof title === 'string' ? title.trim() : ''

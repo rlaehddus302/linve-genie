@@ -14,6 +14,7 @@ import { SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
 import { Loading } from '../ui/parts.tsx'
 import { SocialTile } from '../ui/SocialTile.tsx'
+import { Late } from '../ui/late.tsx'
 
 const LOAD_FAILED = '연동된 계정을 불러오지 못했어요. 다시 열어 주세요.'
 const UNLINK_FAILED = '해지하지 못했어요. 다시 눌러 주세요.'
@@ -60,34 +61,32 @@ export function LinkedAccountsScreen({ onBack }: { readonly onBack: () => void }
     <View style={{ flex: 1, backgroundColor: p.background }} testID="linked-accounts-screen">
       <AppHeader title={LINKED_TITLE} onBack={onBack} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SETTINGS_GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }}>
-        {methods === null ? (
-          failed ? (
-            <Txt color="textSub">{LOAD_FAILED}</Txt>
+        {methods === null ? (failed ? <Txt color="textSub">{LOAD_FAILED}</Txt> : <Loading />) : null}
+        {/* 서버에서 받은 뒤에야 생기는 묶음은 부드럽게 — 기억해 둔 자료로 처음부터 그리면 바로 (D-UX4-112) */}
+        <Late>
+          {methods === null ? null : linked.length === 0 ? (
+            <SettingsGroup>
+              <GroupNote>{LINKED_NONE}</GroupNote>
+            </SettingsGroup>
           ) : (
-            <Loading />
-          )
-        ) : linked.length === 0 ? (
-          <SettingsGroup>
-            <GroupNote>{LINKED_NONE}</GroupNote>
-          </SettingsGroup>
-        ) : (
-          <SettingsGroup label={LINKED_TITLE} testID="linked-accounts">
-            {linked.map((item) => (
-              <View key={item.provider} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min + SPACE.sm }} testID={`linked-${item.provider}`}>
-                <SocialTile provider={item.provider} size={34} />
-                <View style={{ flex: 1, gap: 1 }}>
-                  <Txt step="bodyLarge" weight="book" numberOfLines={1}>
-                    {item.label === '' ? accountLabel(item.provider) : item.label}
-                  </Txt>
-                  <Txt step="caption" color="textSub">
-                    {PROVIDER_NAMES[item.provider]}
-                  </Txt>
+            <SettingsGroup label={LINKED_TITLE} testID="linked-accounts">
+              {linked.map((item) => (
+                <View key={item.provider} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: TOUCH.min + SPACE.sm }} testID={`linked-${item.provider}`}>
+                  <SocialTile provider={item.provider} size={34} />
+                  <View style={{ flex: 1, gap: 1 }}>
+                    <Txt step="bodyLarge" weight="book" numberOfLines={1}>
+                      {item.label === '' ? accountLabel(item.provider) : item.label}
+                    </Txt>
+                    <Txt step="caption" color="textSub">
+                      {PROVIDER_NAMES[item.provider]}
+                    </Txt>
+                  </View>
+                  <TextButton label={UNLINK_GO} onPress={() => setAsking(item.provider)} disabled={busy} testID={`unlink-${item.provider}`} />
                 </View>
-                <TextButton label={UNLINK_GO} onPress={() => setAsking(item.provider)} disabled={busy} testID={`unlink-${item.provider}`} />
-              </View>
-            ))}
-          </SettingsGroup>
-        )}
+              ))}
+            </SettingsGroup>
+          )}
+        </Late>
       </ScrollView>
       <PopupDialog
         visible={asking !== null}

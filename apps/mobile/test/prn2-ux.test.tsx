@@ -129,7 +129,8 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
     await world.services.labels.reload()
     const queueCard = screen.getByRole('group', { name: '대기열' })
     // D-UX3-19: 옛 문장 '실험 중인 프린터라…'
-    await waitFor(() => expect(within(queueCard).getByText(/새로 이은 프린터라 출력을 잠시 멈췄어요/)).toBeTruthy())
+    // D-UX4-112: 옛 기대 "새로 이은 프린터라" → "새로 연결한 프린터라"
+    await waitFor(() => expect(within(queueCard).getByText(/새로 연결한 프린터라 출력을 잠시 멈췄어요/)).toBeTruthy())
     fireEvent.click(within(queueCard).getByRole('button', { name: '테스트 인쇄' }))
     await screen.findByRole('group', { name: '테스트 인쇄 결과' })
     expect(world.server.callsTo('GET', /test-bitmap/)).toHaveLength(1)

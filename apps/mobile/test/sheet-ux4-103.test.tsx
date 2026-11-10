@@ -42,7 +42,8 @@ describe('닫히는 동안 마지막 모습 붙잡기 (D-UX4-103)', () => {
     expect(popup).toMatch(/\.\.\.look \}: PopupDialogProps/)
     expect(popup).toMatch(/\{ message, name, description, content, confirmLabel, cancelLabel, danger \} = useHeldWhileClosing\(visible, look\)/)
     const full = functionBody(text, 'FullSheet')
-    expect(full).toMatch(/\{ title, name, children, actions, closeLabel = '닫기', cards, overlay \} = useHeldWhileClosing\(visible, look\)/)
+    // D-UX4-112: 붙잡는 값에 설명(description)이 더해졌다 (옛 기대 "{ title, name, children, … }")
+    expect(full).toMatch(/\{ title, description, name, children, actions, closeLabel = '닫기', cards, overlay \} = useHeldWhileClosing\(visible, look\)/)
     // ConfirmSheet는 BottomSheet로 그린다 — 따라서 같이 붙잡힌다
     expect(functionBody(text, 'ConfirmSheet')).toContain('<BottomSheet')
   })

@@ -182,10 +182,13 @@ describe('앱 안 우체국 화면 — 여러 명 한 번에 (D-EP1-19)', () => 
     expect(screen.getByText('목록에 2명')).toBeTruthy()
     await waitFor(() => expect(posts.map((post) => [post.body?.['buyer'], post.body?.['action']])).toEqual([['u1', 'FILLED'], ['u2', 'FILLED']]))
     // 접수번호는 목록에 넣은 두 주문 모두에
-    fireEvent.click(screen.getByRole('button', { name: '접수번호 잇기' }))
-    expect(screen.getByText(/목록에 넣은 주문 2개에 같은 번호를 이어요/)).toBeTruthy()
+    // D-UX4-112: 옛 기대 "{ name: '접수번호 잇기' }" → "{ name: '접수번호 연결' }"
+    fireEvent.click(screen.getByRole('button', { name: '접수번호 연결' }))
+    // D-UX4-112: 옛 기대 "같은 번호를 이어요" → "같은 번호를 연결해요"
+    expect(screen.getByText(/목록에 넣은 주문 2개에 같은 번호를 연결해요/)).toBeTruthy()
     fireEvent.change(screen.getByRole('textbox', { name: '접수번호' }), { target: { value: '12345678' } })
-    fireEvent.click(screen.getByRole('button', { name: '잇기' }))
+    // D-UX4-112: 옛 기대 "{ name: '잇기' }" → "{ name: '연결' }"
+    fireEvent.click(screen.getByRole('button', { name: '연결' }))
     await waitFor(() => expect(posts.filter((post) => post.body?.['action'] === 'RECEIVED').map((post) => post.body?.['buyer'])).toEqual(['u1', 'u2']))
     expect(await screen.findByText(/주문 2개를 우체국 사전접수 완료로 적었어요/)).toBeTruthy()
   })
@@ -339,9 +342,11 @@ describe('앱 안 우체국 화면', () => {
     lastWeb().onMessage(message({ type: 'receipt', lines: ['접수번호', '6012-3456-7890-1'] }))
     expect(await screen.findByText('접수번호를 찾았어요: 6012345678901')).toBeTruthy()
     expect(posts).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: '접수번호 6012345678901 잇기' }))
+    // D-UX4-112: 옛 기대 "{ name: '접수번호 6012345678901 잇기' }" → "{ name: '접수번호 6012345678901 연결' }"
+    fireEvent.click(screen.getByRole('button', { name: '접수번호 6012345678901 연결' }))
     expect((screen.getByRole('textbox', { name: '접수번호' }) as HTMLInputElement).value).toBe('6012345678901')
-    fireEvent.click(screen.getByRole('button', { name: '잇기' }))
+    // D-UX4-112: 옛 기대 "{ name: '잇기' }" → "{ name: '연결' }"
+    fireEvent.click(screen.getByRole('button', { name: '연결' }))
     await waitFor(() => expect(posts.map((post) => post.body?.['action'])).toEqual(['FILLED', 'RECEIVED']))
     expect(posts[1]!.body).toMatchObject({ buyer: 'u1', receiptNo: '6012345678901' })
     expect(await screen.findByText(/우체국 사전접수 완료로 적었어요/)).toBeTruthy()
@@ -354,9 +359,11 @@ describe('앱 안 우체국 화면', () => {
     const next: string[] = []
     render(w.wrap(<EpostScreen date={DATE} buyers={["u1"]} nav={{ onBack: () => undefined, openNext: (buyer) => next.push(buyer) }} />))
     await screen.findByText(/로그인하거나/)
-    fireEvent.click(screen.getByRole('button', { name: '접수번호 잇기' }))
+    // D-UX4-112: 옛 기대 "{ name: '접수번호 잇기' }" → "{ name: '접수번호 연결' }"
+    fireEvent.click(screen.getByRole('button', { name: '접수번호 연결' }))
     fireEvent.change(screen.getByRole('textbox', { name: '접수번호' }), { target: { value: '12345678' } })
-    fireEvent.click(screen.getByRole('button', { name: '잇기' }))
+    // D-UX4-112: 옛 기대 "{ name: '잇기' }" → "{ name: '연결' }"
+    fireEvent.click(screen.getByRole('button', { name: '연결' }))
     fireEvent.click(await screen.findByRole('button', { name: '다음 주문 선인장 우체국 사전접수' }))
     expect(next).toEqual(['u3'])
   })

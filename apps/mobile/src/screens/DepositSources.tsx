@@ -18,6 +18,7 @@ import { EmptyFill, BigButton, ButtonRow, ConfirmSheet, TextField, Txt, useKit }
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, ChipButton, SectionCard } from './order-parts.tsx'
+import { Late } from '../ui/late.tsx'
 
 export const POPBILL_NOT_READY = '계좌 연동은 아직 준비 중이에요. 붙여넣기로 넣어 주세요.'
 export const NO_PASSWORD = '계좌 비밀번호는 여기에 적지 않아요. 팝빌 계좌 관리에서 등록해요.'
@@ -50,16 +51,19 @@ export function SourcesTab() {
           </View>
         ) : null}
         {view === null && error === null ? <Loading /> : null}
-        {view !== null && view.sources.length === 0 ? <EmptyFill title="아직 입금 받는 곳이 없어요" body={'붙여넣기로 넣거나\n계좌를 연결해 주세요'} /> : null}
-        {view?.sources.map((source, index) => (
-          <View key={source.id} style={{ gap: SPACE.md }}>
-            {index > 0 ? <Divider /> : null}
-            <SourceItem source={source} onChanged={() => void reload()} />
-          </View>
-        ))}
+        {/* 서버에서 받은 뒤에야 생기는 목록은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112) */}
+        <Late style={{ flexGrow: 1 }}>{view !== null && view.sources.length === 0 ? <EmptyFill title="아직 입금 받는 곳이 없어요" body={'붙여넣기로 넣거나\n계좌를 연결해 주세요'} /> : null}</Late>
+        <Late style={{ gap: SPACE.md }}>
+          {view?.sources.map((source, index) => (
+            <View key={source.id} style={{ gap: SPACE.md }}>
+              {index > 0 ? <Divider /> : null}
+              <SourceItem source={source} onChanged={() => void reload()} />
+            </View>
+          ))}
+        </Late>
       </SectionCard>
       <SectionCard title="계좌 연결" label="계좌 연결">
-        {view === null ? null : view.popbill ? <AddPopbill onAdded={() => void reload()} /> : <Notice tone="info">{POPBILL_NOT_READY}</Notice>}
+        <Late>{view === null ? null : view.popbill ? <AddPopbill onAdded={() => void reload()} /> : <Notice tone="info">{POPBILL_NOT_READY}</Notice>}</Late>
         {view?.testMode === true ? <AddFake onAdded={() => void reload()} /> : null}
       </SectionCard>
       <RememberedNames />
@@ -236,15 +240,17 @@ function RememberedNames() {
     <SectionCard title="기억한 입금자명" label="기억한 입금자명">
       <Txt step="caption" color="textSub">같은 입금자명·같은 금액이 오면 그 손님 묶음으로 자동 확인해요.</Txt>
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
-      {names !== null && names.length === 0 ? <Txt color="textSub">기억한 입금자명이 없어요.</Txt> : null}
-      {names?.map((item) => (
-        <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-          <View style={{ flex: 1 }}>
-            <Txt step="bodyLarge" weight="book">{`${item.name} → ${item.buyerName}`}</Txt>
+      <Late>{names !== null && names.length === 0 ? <Txt color="textSub">기억한 입금자명이 없어요.</Txt> : null}</Late>
+      <Late style={{ gap: SPACE.md }}>
+        {names?.map((item) => (
+          <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+            <View style={{ flex: 1 }}>
+              <Txt step="bodyLarge" weight="book">{`${item.name} → ${item.buyerName}`}</Txt>
+            </View>
+            <ChipButton label="지우기" ariaLabel={`${item.name} 지우기`} onPress={() => setForgetting(item)} />
           </View>
-          <ChipButton label="지우기" ariaLabel={`${item.name} 지우기`} onPress={() => setForgetting(item)} />
-        </View>
-      ))}
+        ))}
+      </Late>
       <ConfirmSheet
         visible={forgetting !== null}
         question="기억한 입금자명 지우기"

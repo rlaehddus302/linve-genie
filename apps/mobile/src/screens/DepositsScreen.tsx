@@ -15,9 +15,10 @@ import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { SourcesTab } from './DepositSources.tsx'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { Appear, EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 import { CARD_GAP, PAGE_SIDE, SectionCard } from './order-parts.tsx'
 
 type Tab = 'review' | 'done' | 'ignored' | 'paste' | 'sources'
@@ -110,6 +111,8 @@ function DepositTab({ tab, tick, onNotice }: { readonly tab: Exclude<Tab, 'paste
   const { data, error, reload: refetch } = useCachedGet<DepositList>(withQuery('/api/deposits', { status: STATUS_OF[tab].join(','), limit: 50 }), tick)
   const list: readonly DepositView[] | null = data?.deposits ?? null
   const reload = useCallback(() => void refetch(), [refetch])
+  // 불러온 뒤에야 생긴 목록은 부드럽게 나타난다 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112)
+  const late = useCameLate(list !== null)
   if (error !== null && list === null) {
     return (
       <View style={{ gap: SPACE.sm }}>
@@ -121,7 +124,9 @@ function DepositTab({ tab, tick, onNotice }: { readonly tab: Exclude<Tab, 'paste
   if (list === null) return <Loading />
   if (list.length === 0) {
     return (
-      <EmptyFill title={tab === 'review' ? '확인할 입금이 없어요' : tab === 'done' ? '확인한 입금이 없어요' : '무시한 입금이 없어요'} {...(tab === 'review' ? { body: '새 입금이 오면\n여기서 확인할 수 있어요' } : tab === 'done' ? { body: '자동 확인했거나 직접 확인한 입금이\n여기에 모여요' } : {})} />
+      <Appear instant={!late} style={{ flexGrow: 1 }}>
+        <EmptyFill title={tab === 'review' ? '확인할 입금이 없어요' : tab === 'done' ? '확인한 입금이 없어요' : '무시한 입금이 없어요'} {...(tab === 'review' ? { body: '새 입금이 오면\n여기서 확인할 수 있어요' } : tab === 'done' ? { body: '자동 확인했거나 직접 확인한 입금이\n여기에 모여요' } : {})} />
+      </Appear>
     )
   }
   const done = (text: string, tone: Flash['tone'] = 'success') => {
@@ -129,11 +134,11 @@ function DepositTab({ tab, tick, onNotice }: { readonly tab: Exclude<Tab, 'paste
     reload()
   }
   return (
-    <View style={{ gap: CARD_GAP }}>
+    <Appear instant={!late} style={{ gap: CARD_GAP }}>
       {list.map((deposit) => (
         <DepositCard key={deposit.no} deposit={deposit} tab={tab} onDone={done} />
       ))}
-    </View>
+    </Appear>
   )
 }
 
@@ -324,14 +329,17 @@ function FindBundle({ deposit, onClose, onPick }: { readonly deposit: DepositVie
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {bundles === null && error === null ? <Loading /> : null}
         {bundles !== null && bundles.length === 0 ? <Txt color="textSub">맞는 묶음이 없어요.</Txt> : null}
-        {bundles?.map((bundle) => (
-          <Tap key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`고르기 — ${bundleWords(bundle)}`} onPress={() => onPick(bundle)} style={({ pressed }) => ({ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, marginHorizontal: -SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-            <View style={{ flex: 1 }}>
-              <Txt step="bodyLarge" weight="book">{bundleWords(bundle)}</Txt>
-            </View>
-            <Icon name="chevron" color={p.textSub} size={18} />
-          </Tap>
-        ))}
+        {/* 받은 뒤에야 생기는 묶음 목록은 부드럽게 (D-UX4-112) */}
+        <Late style={{ gap: SPACE.md }}>
+          {bundles?.map((bundle) => (
+            <Tap key={`${bundle.date}/${bundle.buyer}`} role="button" aria-label={`고르기 — ${bundleWords(bundle)}`} onPress={() => onPick(bundle)} style={({ pressed }) => ({ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, marginHorizontal: -SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+              <View style={{ flex: 1 }}>
+                <Txt step="bodyLarge" weight="book">{bundleWords(bundle)}</Txt>
+              </View>
+              <Icon name="chevron" color={p.textSub} size={18} />
+            </Tap>
+          ))}
+        </Late>
       </View>
     </BottomSheet>
   )

@@ -28,6 +28,7 @@ import { AppHeader, BigButton, Txt, useKit } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, PAGE_SIDE, SectionCard, TextLink, ValueLine } from './order-parts.tsx'
+import { Late } from '../ui/late.tsx'
 
 export function ReportScreen({ initialDate, onBack }: { readonly initialDate?: string; readonly onBack: () => void }) {
   const { p } = useKit()
@@ -42,7 +43,10 @@ export function ReportScreen({ initialDate, onBack }: { readonly initialDate?: s
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: CARD_GAP }}>
         {daysError !== null ? <Notice tone="danger" alert>{daysError.message}</Notice> : null}
         {days === null && daysError === null ? <Loading /> : null}
-        {days !== null ? <DayPills days={days} date={date} onPick={setDate} /> : null}
+        {/* 서버에서 받은 뒤에야 생기는 날짜 줄·리포트는 부드럽게 (D-UX4-112) */}
+        <Late>
+          {days !== null ? <DayPills days={days} date={date} onPick={setDate} /> : null}
+        </Late>
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
             <Notice tone="danger" alert>{error.message}</Notice>
@@ -50,7 +54,9 @@ export function ReportScreen({ initialDate, onBack }: { readonly initialDate?: s
           </View>
         ) : null}
         {date !== null && shown === null && error === null ? <Loading text="리포트를 불러오는 중…" /> : null}
-        {shown !== null ? <ReportBody view={shown} /> : null}
+        <Late>
+          {shown !== null ? <ReportBody view={shown} /> : null}
+        </Late>
       </ScrollView>
     </View>
   )

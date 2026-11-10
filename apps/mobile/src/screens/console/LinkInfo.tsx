@@ -5,16 +5,17 @@
 // [라이브 바로가기 ›](주소를 알 때만) · [채팅 다시 받기 ›](멈춰서 다시 받을 수 있을 때만) · [라이브 연결 끊기 ›](빨강, 끝나지 않은 라이브에서 판매자만).
 // 채팅을 못 받는 경고(빨간 한 줄 + 대비 경로)는 판매자 안전이라 맨 위에 남긴다. 제목·채널 이름은 바깥 글이라 글자로만 보인다.
 import { useEffect, useState, type ReactNode } from 'react'
-import { Image, ScrollView, View } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import type { BroadcastItem, LinkView } from '@livejjim/web/src/api/types.ts'
 import { isApiError, post, withRetry } from '../../api/client.ts'
 import { peekCached, rememberCached, useCachedGet } from '../../lib/cached-get.ts'
 import type { LivePlatform } from '../../lib/open-app.ts'
 import { openExternal } from '../../lib/open-web.ts'
 import { broadcastTitleText, channelName } from '../../lib/youtube.ts'
-import { Icon, PAGE, SPACE, StackPage, Txt, useBottomInset, useKit } from '../../ui/kit/index.ts'
+import { PAGE, SPACE, StackPage, Txt, useBottomInset } from '../../ui/kit/index.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { PlatformIcon } from '../../ui/PlatformIcon.tsx'
+import { ChannelPhoto } from '../../ui/ChannelPhoto.tsx'
 import { broadcastTitle } from '../BroadcastList.tsx'
 import { EndBroadcastRow } from './EndBroadcast.tsx'
 import { PLAIN, PlainRow, PlainTitle } from './parts.tsx'
@@ -97,19 +98,6 @@ function TextValue({ text, testID }: { readonly text: string; readonly testID?: 
   )
 }
 
-function ChannelPhoto({ channelId }: { readonly channelId: string | null }) {
-  const { p } = useKit()
-  // 사진을 모르면 기본 그림 — 받은 적 있으면 바로 (홈 "지금 라이브 중"과 같은 경로, D-UX4-77)
-  const avatar = useCachedGet<{ avatar: string | null }>(channelId === null || channelId === '' ? null : `/api/youtube/channels/${encodeURIComponent(channelId)}/avatar`).data?.avatar ?? null
-  const size = LINK_INFO_ICON
-  if (avatar !== null) return <Image aria-hidden testID="link-info-avatar" source={{ uri: avatar }} style={{ width: size, height: size, borderRadius: size / 2, borderCurve: 'continuous' }} />
-  return (
-    <View aria-hidden testID="link-info-avatar" style={{ width: size, height: size, borderRadius: size / 2, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-      <Icon name="play" color={p.textSub} size={12} />
-    </View>
-  )
-}
-
 export interface LinkInfoProps {
   readonly broadcastId: string
   readonly yt: MobileYoutube
@@ -159,7 +147,7 @@ export function LinkInfo({ broadcastId, yt, closed, onEnded, bleed = false }: Li
       <View>
         <PlainRow title={LINK_INFO_ROWS.platform} testID="link-info-platform" ariaLabel={`${LINK_INFO_ROWS.platform} ${PLATFORM_WORD[platform]}`} right={<IconValue icon={<PlatformIcon platform={platform} size={LINK_INFO_ICON} />} text={PLATFORM_WORD[platform]} />} />
         {channel === null ? null : (
-          <PlainRow title={LINK_INFO_ROWS.channel} testID="link-info-channel" ariaLabel={`${LINK_INFO_ROWS.channel} ${channel}`} right={<IconValue icon={<ChannelPhoto channelId={link?.broadcastChannelId ?? link?.channelId ?? null} />} text={channel} />} />
+          <PlainRow title={LINK_INFO_ROWS.channel} testID="link-info-channel" ariaLabel={`${LINK_INFO_ROWS.channel} ${channel}`} right={<IconValue icon={<ChannelPhoto channelId={link?.broadcastChannelId ?? link?.channelId ?? null} size={LINK_INFO_ICON} testID="link-info-avatar" />} text={channel} />} />
         )}
         {link === null ? null : <PlainRow title={LINK_INFO_ROWS.title} testID="link-info-title" ariaLabel={`${LINK_INFO_ROWS.title} ${title}`} right={<TextValue text={title} />} />}
       </View>

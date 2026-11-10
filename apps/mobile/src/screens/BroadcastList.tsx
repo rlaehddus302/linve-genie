@@ -10,6 +10,7 @@ import { EmptyFill, AppHeader, Icon, RowGroup, Txt, useKit, useTabBarRoom, Tap }
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
+import { Late } from '../ui/late.tsx'
 
 /** 홈 카드에 보이는 최대 줄 수 */
 export const HOME_BROADCASTS = 4
@@ -153,14 +154,19 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
             {error}
           </Notice>
         ) : null}
-        {items !== null && past.length === 0 ? <EmptyFill title="아직 지난 라이브가 없어요" body="라이브를 끝내면 여기에 모여요" /> : null}
-        {past.length > 0 ? (
-          <RowGroup label="내 라이브">
-            {past.map((item) => (
-              <HistoryRow key={item.id} item={item} now={now} onPress={() => onOpen(item.id)} />
-            ))}
-          </RowGroup>
-        ) : null}
+        {/* 서버에서 받은 뒤에야 생기는 것은 부드럽게 (D-UX4-112) */}
+        <Late style={{ flexGrow: 1 }}>
+          {items !== null && past.length === 0 ? <EmptyFill title="아직 지난 라이브가 없어요" body="라이브를 끝내면 여기에 모여요" /> : null}
+        </Late>
+        <Late>
+          {past.length > 0 ? (
+            <RowGroup label="내 라이브">
+              {past.map((item) => (
+                <HistoryRow key={item.id} item={item} now={now} onPress={() => onOpen(item.id)} />
+              ))}
+            </RowGroup>
+          ) : null}
+        </Late>
       </ScrollView>
     </View>
   )

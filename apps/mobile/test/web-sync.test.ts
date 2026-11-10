@@ -159,16 +159,22 @@ describe('유튜브 낱말·판단이 웹과 같다 (YT-11, D-YT-SRV-03·06·07�
   const view = (patch: Record<string, unknown>) => ({ status: 'LIVE', statusMessage: '채팅을 받는 중', reason: null, reasonMessage: null, mode: 'WEB', lastMessageAt: null, recorded: 0, skippedBeforeLink: 0, gap: false, gapMessage: null, restartable: false, ...patch }) as Parameters<typeof webYoutube.collectorWarning>[0] & object
 
   it('문장', () => {
-    for (const key of ['NOT_CONFIGURED_MESSAGE', 'WEB_CHAT_OFF_MESSAGE', 'WEB_CHAT_RESUMED', 'STOP_WARNING_PREFIX', 'RETRYING_WARN_MS', 'FIRST_CHANNEL_GROUP', 'RECENT_TITLE', 'RECENT_AGAIN', 'RECENT_EMPTY', 'RECENT_SEARCHING', 'NO_BROADCAST_TITLE', 'NO_CHANNEL_NAME', 'CHANNEL_NAME_MAX', 'INVITED_CONFIRM_CODE'] as const) {
+    for (const key of ['NOT_CONFIGURED_MESSAGE', 'WEB_CHAT_OFF_MESSAGE', 'WEB_CHAT_RESUMED', 'STOP_WARNING_PREFIX', 'RETRYING_WARN_MS', 'RECENT_AGAIN', 'NO_BROADCAST_TITLE', 'NO_CHANNEL_NAME', 'CHANNEL_NAME_MAX', 'INVITED_CONFIRM_CODE'] as const) {
       expect(youtube[key], key).toEqual(webYoutube[key])
     }
+    // D-UX4-112: 옛 기대 "FIRST_CHANNEL_GROUP·RECENT_TITLE·RECENT_EMPTY·RECENT_SEARCHING은 웹과 같은 글" → 앱은 '잇다' 대신 '연결'만 다르고 나머지는 웹 글 그대로
+    expect(youtube.FIRST_CHANNEL_GROUP).toBe(webYoutube.FIRST_CHANNEL_GROUP.replace('처음 잇는', '처음 연결하는'))
+    for (const key of ['RECENT_TITLE', 'RECENT_EMPTY', 'RECENT_SEARCHING'] as const) expect(youtube[key], key).toBe(webYoutube[key].replace('최근 이은', '최근 연결한'))
+    expect(youtube.FIRST_CHANNEL_GROUP).toBe('처음 연결하는 채널 확인')
+    expect(youtube.RECENT_TITLE).toBe('최근 연결한 채널의 라이브')
     expect(youtube.WEB_TROUBLE_FALLBACK).toEqual(webYoutube.WEB_TROUBLE_FALLBACK)
     expect([...youtube.WARN_REASONS]).toEqual([...webYoutube.WARN_REASONS])
     expect(youtube.SERVER_ROUTE_SERVER).toBe(SERVER_ROUTE.SERVER)
     // 구글 연결로 읽는 서버의 "먼저 연결" 안내는 웹 콘솔과 같은 문장 (D-UX2-07)
     expect(youtube.NOT_CONNECTED_FIRST).toBe(webYoutube.CONSOLE_NOT_CONNECTED)
     expect(youtube.RECONNECT_FIRST).toBe(webYoutube.RECONNECT_NEEDED_MESSAGE)
-    expect(youtube.firstChannelQuestion('가')).toBe(webYoutube.firstChannelQuestion('가'))
+    // D-UX4-112: 옛 기대 "웹과 같은 글" → '처음 잇는' 대신 '처음 연결하는'만 다르다
+    expect(youtube.firstChannelQuestion('가')).toBe(webYoutube.firstChannelQuestion('가').replace('처음 잇는', '처음 연결하는'))
     expect(youtube.broadcastChannelLine('가')).toBe(webYoutube.broadcastChannelLine('가'))
     for (const title of ['', '  ', '다육이네', '가'.repeat(41), 3]) expect(youtube.channelName(title)).toBe(webYoutube.channelName(title))
   })

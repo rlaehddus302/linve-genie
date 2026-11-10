@@ -1,6 +1,6 @@
 // 입력 조각: TextField(큰 라벨·도움말·오류), NumberPad(큰 숫자판).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Animated, Easing, Platform, Text, TextInput, View, type TextInputProps } from 'react-native'
+import { Animated, Easing, Platform, Text, TextInput, View, type TextInputInstance, type TextInputProps } from 'react-native'
 import { errorHaptic } from '../../native/haptics.ts'
 import { LINE, RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
@@ -16,6 +16,25 @@ export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-lab
   readonly error?: string | null
   /** 칸 오른쪽에 붙는 단위 ("원", "개") */
   readonly unit?: string
+}
+
+/**
+ * 화면이 넘어오는 동안에는 칸을 누르지(초점) 않는다 (D-UX4-112, 사용자 제보 2026-11-10 "새로 넘어오는 화면의 위치가 10 9 8 7 6 '8' 5 4 … 갑자기 튀는 현상"):
+ * 쌓인 화면이 밀려 들어오는 동안 칸이 스스로 초점을 받으면 키보드가 같이 올라오고, 키보드를 피하는 틀(KeyboardAvoidingView)이 앱 전체 다음 그리기에
+ * 배치 움직임(LayoutAnimation update)을 건다 — 넘어오던 화면 틀까지 그 움직임에 걸려 한 번 뒤로 튀었다. 그래서 휴대폰에서는 넘김이 끝난 뒤(이 시간 뒤)에 초점을 준다.
+ * 웹(시험)은 넘김이 없어 바로.
+ */
+export const FOCUS_AFTER_PUSH_MS = 550
+
+/** autoFocus 대신: 화면 넘김이 끝난 뒤 초점 (웹은 바로 — 그때는 autoFocus를 그대로 넘긴다) */
+export function useDeferredAutoFocus(ref: { readonly current: { focus: () => void } | null }, on: boolean): boolean {
+  const native = Platform.OS !== 'web'
+  useEffect(() => {
+    if (!on || !native) return
+    const handle = setTimeout(() => ref.current?.focus(), FOCUS_AFTER_PUSH_MS)
+    return () => clearTimeout(handle)
+  }, [on, native, ref])
+  return on && !native
 }
 
 /** 입력 칸 한 줄 높이 (값 줄) — 비었을 때·넣었을 때·초점일 때 모두 같다 (D-UX3-08). 토스 칸을 재어 40 (D-UX3-51 — 옛 52) */
@@ -69,8 +88,10 @@ export interface UnderlineFieldProps extends Omit<TextInputProps, 'style' | 'ari
  * - 예시 글(placeholder)이 있는 칸은 라벨을 늘 위에 두고 칸 안에 예시를 보인다(예: 빠른 입력 "예: 15 핑크프릴 10").
  * - 밑줄 하나(초점이면 초록, 잘못이면 빨강). 값이 있고 고칠 수 있으면 오른쪽에 동그란 [지우기] — 줄 안에 겹쳐 놓는다.
  */
-export function UnderlineField({ label, help, error, again, unit, trailing, onFocus, onBlur, placeholder, ...input }: UnderlineFieldProps) {
+export function UnderlineField({ label, help, error, again, unit, trailing, onFocus, onBlur, placeholder, autoFocus, ...input }: UnderlineFieldProps) {
   const { p, fontScale, forced } = useKit()
+  const inputRef = useRef<TextInputInstance>(null)
+  const focusNow = useDeferredAutoFocus(inputRef, autoFocus === true)
   const [focused, setFocused] = useState(false)
   const bad = error !== undefined && error !== null
   const value = typeof input.value === 'string' ? input.value : ''
@@ -102,6 +123,8 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
         <View style={{ height: row, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, borderBottomWidth: 2, borderBottomColor: bad ? p.dangerText : focused ? p.primary : p.line }}>
           <TextInput
             {...input}
+            ref={inputRef}
+            autoFocus={focusNow}
             aria-label={label}
             aria-invalid={bad}
             allowFontScaling={!forced}

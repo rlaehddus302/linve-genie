@@ -26,6 +26,7 @@ import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { AssistCard, BackupCard, ConnectionsCard, ExportCard, useBotThanks } from './settings/ShopExtras.tsx'
 import { DetailToggle, FieldLabel, GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
+import { Late } from '../ui/late.tsx'
 
 const RULE_FIELDS = [...fieldsAt('basic'), ...fieldsAt('more')]
 const BASIC_FIELDS = fieldsAt('basic')
@@ -239,35 +240,40 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
 
         <SettingsGroup title="가게">
             {loading(shop)}
-            {shopDraft !== null
-              ? SHOP_FIELDS.map((field) => (
-                  <TextField
-                    key={field.key}
-                    label={field.label}
-                    value={shopDraft[field.key]}
-                    placeholder={field.placeholder}
-                    keyboardType={field.key === 'accountNumber' ? 'numbers-and-punctuation' : 'default'}
-                    onChangeText={(text) => {
-                      setResult(null)
-                      setShopDraft((current) => (current === null ? current : { ...current, [field.key]: text }))
-                    }}
-                    error={errors['가게']?.problemFor(field.key)?.message ?? null}
-                  />
-                ))
-              : null}
-            {preview !== null ? (
-              <View style={{ gap: SPACE.xs, padding: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
-                <Txt step="caption" color="textSub">확인서에 나올 모양</Txt>
-                {preview === 'none' ? <Txt color="textSub">{NO_ACCOUNT_ON_RECEIPT}</Txt> : null}
-                {preview === 'partial' ? <Notice tone="warning">{ACCOUNT_INCOMPLETE}</Notice> : null}
-                {typeof preview === 'object' ? (
-                  <>
-                    <Txt>{preview.text}</Txt>
-                    {preview.note !== null ? <Txt>{preview.note}</Txt> : null}
-                  </>
-                ) : null}
-              </View>
-            ) : null}
+            {/* 서버에서 받은 뒤에야 생기는 칸은 부드럽게 — 기억해 둔 설정으로 처음부터 그리면 바로 (D-UX4-112) */}
+            <Late style={{ gap: SPACE.sm }}>
+              {shopDraft !== null
+                ? SHOP_FIELDS.map((field) => (
+                    <TextField
+                      key={field.key}
+                      label={field.label}
+                      value={shopDraft[field.key]}
+                      placeholder={field.placeholder}
+                      keyboardType={field.key === 'accountNumber' ? 'numbers-and-punctuation' : 'default'}
+                      onChangeText={(text) => {
+                        setResult(null)
+                        setShopDraft((current) => (current === null ? current : { ...current, [field.key]: text }))
+                      }}
+                      error={errors['가게']?.problemFor(field.key)?.message ?? null}
+                    />
+                  ))
+                : null}
+            </Late>
+            <Late>
+              {preview !== null ? (
+                <View style={{ gap: SPACE.xs, padding: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+                  <Txt step="caption" color="textSub">확인서에 나올 모양</Txt>
+                  {preview === 'none' ? <Txt color="textSub">{NO_ACCOUNT_ON_RECEIPT}</Txt> : null}
+                  {preview === 'partial' ? <Notice tone="warning">{ACCOUNT_INCOMPLETE}</Notice> : null}
+                  {typeof preview === 'object' ? (
+                    <>
+                      <Txt>{preview.text}</Txt>
+                      {preview.note !== null ? <Txt>{preview.note}</Txt> : null}
+                    </>
+                  ) : null}
+                </View>
+              ) : null}
+            </Late>
             {errors['가게'] !== undefined && errors['가게'].problems.length === 0 ? <Notice tone="danger" alert>{errors['가게'].message}</Notice> : null}
         </SettingsGroup>
 
@@ -311,59 +317,65 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
 
         <SettingsGroup title="택배">
             {loading(parcel)}
-            {parcel.value !== null && parcelDraft !== null ? (
-              <ParcelFields
-                settings={parcel.value.settings}
-                draft={parcelDraft}
-                error={errors['택배'] ?? null}
-                onChange={(next) => {
-                  setResult(null)
-                  setParcelDraft((current) => (current === null ? current : { ...current, ...next }))
-                }}
-              />
-            ) : null}
+            <Late>
+              {parcel.value !== null && parcelDraft !== null ? (
+                <ParcelFields
+                  settings={parcel.value.settings}
+                  draft={parcelDraft}
+                  error={errors['택배'] ?? null}
+                  onChange={(next) => {
+                    setResult(null)
+                    setParcelDraft((current) => (current === null ? current : { ...current, ...next }))
+                  }}
+                />
+              ) : null}
+            </Late>
         </SettingsGroup>
 
         <SettingsGroup title="손님 관리">
             <GroupNote>{CUSTOMER_RULE_HINT}</GroupNote>
             {loading(customer)}
-            {customerDraft !== null
-              ? (
-                  [
-                    { key: 'regularCount', label: '단골 횟수 (번)', hint: undefined },
-                    { key: 'regularAmount', label: '단골 금액 (원)', hint: REGULAR_AMOUNT_HINT },
-                    { key: 'waitDays', label: '입금 기다리는 날 (일)', hint: WAIT_DAYS_HINT },
-                  ] as const
-                ).map((field) => (
-                  <TextField
-                    key={field.key}
-                    label={field.label}
-                    value={customerDraft[field.key]}
-                    keyboardType="number-pad"
-                    {...(field.hint === undefined ? {} : { help: field.hint })}
-                    onChangeText={(text) => {
-                      setResult(null)
-                      setCustomerDraft((current) => (current === null ? current : { ...current, [field.key]: text }))
-                    }}
-                    error={errors['손님 관리']?.problemFor(field.key)?.message ?? null}
-                  />
-                ))
-              : null}
-            {ledgerDraft !== null ? (
-              <View style={{ gap: SPACE.sm }}>
-                <FieldLabel>{LEDGER_MONTHS_LABEL}</FieldLabel>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
-                  {LEDGER_MONTHS.map((months) => (
-                    <Pill key={months} on={ledgerDraft.months === months} label={LEDGER_MONTH_WORDS[months]} ariaLabel={`${LEDGER_MONTHS_LABEL} ${LEDGER_MONTH_WORDS[months]}`} onPress={() => setLedgerDraft({ ...ledgerDraft, months })} />
-                  ))}
+            <Late style={{ gap: SPACE.sm }}>
+              {customerDraft !== null
+                ? (
+                    [
+                      { key: 'regularCount', label: '단골 횟수 (번)', hint: undefined },
+                      { key: 'regularAmount', label: '단골 금액 (원)', hint: REGULAR_AMOUNT_HINT },
+                      { key: 'waitDays', label: '입금 기다리는 날 (일)', hint: WAIT_DAYS_HINT },
+                    ] as const
+                  ).map((field) => (
+                    <TextField
+                      key={field.key}
+                      label={field.label}
+                      value={customerDraft[field.key]}
+                      keyboardType="number-pad"
+                      {...(field.hint === undefined ? {} : { help: field.hint })}
+                      onChangeText={(text) => {
+                        setResult(null)
+                        setCustomerDraft((current) => (current === null ? current : { ...current, [field.key]: text }))
+                      }}
+                      error={errors['손님 관리']?.problemFor(field.key)?.message ?? null}
+                    />
+                  ))
+                : null}
+            </Late>
+            <Late>
+              {ledgerDraft !== null ? (
+                <View style={{ gap: SPACE.sm }}>
+                  <FieldLabel>{LEDGER_MONTHS_LABEL}</FieldLabel>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
+                    {LEDGER_MONTHS.map((months) => (
+                      <Pill key={months} on={ledgerDraft.months === months} label={LEDGER_MONTH_WORDS[months]} ariaLabel={`${LEDGER_MONTHS_LABEL} ${LEDGER_MONTH_WORDS[months]}`} onPress={() => setLedgerDraft({ ...ledgerDraft, months })} />
+                    ))}
+                  </View>
+                  <GroupNote>{LEDGER_MONTHS_HELP}</GroupNote>
+                  <ToggleRow title={CONSOLE_BADGES_LABEL} subtitle={CONSOLE_BADGES_HELP} on={ledgerDraft.consoleBadges === true} onChange={(on) => setLedgerDraft({ ...ledgerDraft, consoleBadges: on })} />
+                  {ledgerDraft.consoleBadges === null ? <Notice tone="warning">{CONSOLE_BADGES_UNDECIDED}</Notice> : null}
+                  <GroupNote>{CONSOLE_BADGES_DETAIL}</GroupNote>
+                  {errors.ledger !== undefined ? <Notice tone="danger" alert>{errors.ledger.message}</Notice> : null}
                 </View>
-                <GroupNote>{LEDGER_MONTHS_HELP}</GroupNote>
-                <ToggleRow title={CONSOLE_BADGES_LABEL} subtitle={CONSOLE_BADGES_HELP} on={ledgerDraft.consoleBadges === true} onChange={(on) => setLedgerDraft({ ...ledgerDraft, consoleBadges: on })} />
-                {ledgerDraft.consoleBadges === null ? <Notice tone="warning">{CONSOLE_BADGES_UNDECIDED}</Notice> : null}
-                <GroupNote>{CONSOLE_BADGES_DETAIL}</GroupNote>
-                {errors.ledger !== undefined ? <Notice tone="danger" alert>{errors.ledger.message}</Notice> : null}
-              </View>
-            ) : null}
+              ) : null}
+            </Late>
         </SettingsGroup>
 
         <AssistCard />

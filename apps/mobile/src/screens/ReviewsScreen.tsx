@@ -24,6 +24,7 @@ import { EmptyFill, AppHeader, BigButton, ButtonRow, Card, ConfirmSheet, Icon, T
 import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 import { shownBroadcastTitle } from './BroadcastList.tsx'
+import { Late } from '../ui/late.tsx'
 
 export const REVIEWS_TITLE = '확인 필요'
 export const REVIEWS_HINT = '주문인지 애매한 댓글이에요. 상품·옵션·수량을 골라 "주문으로"를 누르거나, 주문이 아니면 "주문 아님"을 눌러 주세요.'
@@ -179,8 +180,13 @@ export function ReviewsScreen({ onBack, query = {}, openSettings }: { readonly o
         {view === null && error === null ? <Loading /> : null}
         {view !== null && showsYoutubeExcluded(assist.on, view.reviews) ? <Txt step="caption" color="textSub">{ASSIST_YOUTUBE_EXCLUDED}</Txt> : null}
         {queue !== null ? <UndoStrip items={items} queue={queue} /> : null}
-        {view !== null && queue !== null ? <ReviewList view={view} queue={queue} items={items} reload={reload} /> : null}
-        {assist.offer && view !== null && view.reviews.length > 0 && openSettings !== undefined ? <BigButton kind="outline" label={ASSIST_OFFER} onPress={openSettings} /> : null}
+        {/* 서버에서 받은 뒤에야 생기는 목록은 부드럽게 (D-UX4-112) */}
+        <Late>
+          {view !== null && queue !== null ? <ReviewList view={view} queue={queue} items={items} reload={reload} /> : null}
+        </Late>
+        <Late>
+          {assist.offer && view !== null && view.reviews.length > 0 && openSettings !== undefined ? <BigButton kind="outline" label={ASSIST_OFFER} onPress={openSettings} /> : null}
+        </Late>
       </ScrollView>
       <ConfirmSheet
         visible={leaving}

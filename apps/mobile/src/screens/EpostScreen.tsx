@@ -42,8 +42,8 @@ export const EPOST_DUP_QUESTION = '전에 이 주문을 우체국 화면에 입�
 /** 내용품을 끝내 못 채웠을 때 */
 export const EPOST_ITEM_NOTE = '내용품은 우체국 화면의 [내용품 종류 선택]에서 골라 주세요. 예: 직접 입력 → 식물'
 export const EPOST_DUP_DESCRIPTION = '신청까지 했는지 우체국 신청 내역에서 먼저 확인해 주세요. 두 번 신청하면 소포가 두 번 접수돼요.'
-export const RECEIPT_TITLE = '접수번호 잇기'
-export const RECEIPT_HELP = '우체국 신청을 마친 화면에 나온 접수번호를 확인해 주세요. 이 주문에 이어 두면 우체국에 갈 때 찾기 쉬워요.'
+export const RECEIPT_TITLE = '접수번호 연결'
+export const RECEIPT_HELP = '우체국 신청을 마친 화면에 나온 접수번호를 확인해 주세요. 이 주문에 연결해 두면 우체국에 갈 때 찾기 쉬워요.'
 /** 여러 명 한 번에 (D-EP1-19) */
 export const BATCH_AGREE = '우체국 화면 위 [필수동의] 우편금지물품 안내 확인에 체크한 뒤 [이어서 넣기]를 눌러 주세요.'
 export const BATCH_NOTFOUND = '이 우체국 화면에서는 받는 분을 이어서 넣을 수 없어요. 우체국 화면에서 [다음]·[받는 분 추가]를 직접 눌러 주세요.'
@@ -440,7 +440,7 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
         {candidates.length > 0 ? (
           <View style={{ gap: SPACE.sm, padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.surface }}>
             <Txt step="bodyLarge" weight="medium">{`접수번호를 찾았어요: ${candidates[0] ?? ''}`}</Txt>
-            <BigButton label="이 번호로 잇기" ariaLabel={`접수번호 ${candidates[0] ?? ''} 잇기`} onPress={() => openSheet(candidates[0] ?? '')} />
+            <BigButton label="이 번호로 연결" ariaLabel={`접수번호 ${candidates[0] ?? ''} 연결`} onPress={() => openSheet(candidates[0] ?? '')} />
           </View>
         ) : null}
       </ScrollView>
@@ -492,9 +492,9 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
         visible={sheet}
         onClose={() => setSheet(false)}
         title={RECEIPT_TITLE}
-        actions={<BigButton label="잇기" busy={busy} disabled={receipt.trim() === ''} onPress={() => void link()} />}
+        actions={<BigButton label="연결" busy={busy} disabled={receipt.trim() === ''} onPress={() => void link()} />}
       >
-        <Txt color="textSub">{batch ? `${RECEIPT_HELP} 목록에 넣은 주문 ${String(linkTargets().length)}개에 같은 번호를 이어요.` : RECEIPT_HELP}</Txt>
+        <Txt color="textSub">{batch ? `${RECEIPT_HELP} 목록에 넣은 주문 ${String(linkTargets().length)}개에 같은 번호를 연결해요.` : RECEIPT_HELP}</Txt>
         <TextInput
           aria-label="접수번호"
           value={receipt}

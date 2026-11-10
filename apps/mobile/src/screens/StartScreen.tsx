@@ -13,9 +13,10 @@ import { fieldOf, valueWords, type RuleKey } from '@livejjim/web/src/lib/setting
 import { isApiError, put, type ApiError } from '../api/client.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
 import { openWeb } from '../lib/open-web.ts'
-import { AppHeader, BigButton, Card, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, Card, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 
 export const STEP_TITLES = ['가게 이름', '판매 규칙 확인', '유튜브 연결', '프린터 연결'] as const
 export const START_ROW_TITLE = '시작 준비'
@@ -113,6 +114,8 @@ function NameStep({ onNext }: { readonly onNext: () => void }) {
   const name = typed ?? saved ?? ''
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
+  // 서버에서 받은 뒤에야 생기는 칸은 부드럽게 — 기억해 둔 이름으로 처음부터 그리면 바로 (D-UX4-112)
+  const late = useCameLate(saved !== null)
   const next = async () => {
     if (busy) return
     if (saved !== null && name.trim() === saved.trim()) return onNext()
@@ -130,11 +133,13 @@ function NameStep({ onNext }: { readonly onNext: () => void }) {
   }
   if (saved === null) return <Loading />
   return (
-    <Card>
-      <TextField label="가게 이름" value={name} onChangeText={setName} placeholder="초록다육" error={error?.problemFor('name')?.message ?? null} />
-      {error !== null && error.problemFor('name') === undefined ? <Notice tone="danger" alert>{error.message}</Notice> : null}
-      <BigButton label="다음" busy={busy} onPress={() => void next()} />
-    </Card>
+    <Appear instant={!late}>
+      <Card>
+        <TextField label="가게 이름" value={name} onChangeText={setName} placeholder="초록다육" error={error?.problemFor('name')?.message ?? null} />
+        {error !== null && error.problemFor('name') === undefined ? <Notice tone="danger" alert>{error.message}</Notice> : null}
+        <BigButton label="다음" busy={busy} onPress={() => void next()} />
+      </Card>
+    </Appear>
   )
 }
 
@@ -146,7 +151,7 @@ function RulesStep({ onEdit }: { readonly onEdit: () => void }) {
     <Card>
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {settings === null && error === null ? <Loading /> : null}
-      {settings !== null ? RULE_LINES.map((line) => <Txt key={line.key}>{`${line.label}: ${valueWords(fieldOf(line.key), settings)}`}</Txt>) : null}
+      <Late style={{ gap: SPACE.md }}>{settings !== null ? RULE_LINES.map((line) => <Txt key={line.key}>{`${line.label}: ${valueWords(fieldOf(line.key), settings)}`}</Txt>) : null}</Late>
       <Txt step="caption" color="textSub">바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.</Txt>
       <BigButton kind="outline" label="가게 설정에서 바꾸기" onPress={onEdit} />
     </Card>

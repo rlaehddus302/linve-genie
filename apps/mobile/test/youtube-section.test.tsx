@@ -59,7 +59,8 @@ async function open(world: ReturnType<typeof makeWorld>) {
 const section = () => screen.getByRole('group', { name: '유튜브' })
 /** 잇기 전 확인 팝업 (D-UX4-08 — 처음이든 아니든): 제목·채널을 보이고 [맞아요] */
 async function agree(channel = '다육이네') {
-  const ask = await screen.findByRole('alertdialog', { name: '이을 라이브 확인' })
+  // D-UX4-112: 옛 기대 팝업 이름 "이을 라이브 확인" → "연결할 라이브 확인"
+  const ask = await screen.findByRole('alertdialog', { name: '연결할 라이브 확인' })
   expect(ask.textContent).toContain(`이 라이브가 맞나요?\n\n제목: 오늘 경매\n채널: ${channel}`)
   fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
 }
@@ -79,10 +80,14 @@ describe('콘솔 유튜브 (앱)', () => {
     const { world } = youtubeWorld({ recent: [item] })
     await open(world)
     await openYoutube()
-    const box = await screen.findByRole('group', { name: '최근 이은 채널의 라이브' })
-    expect(within(box).getByText(/다육이네 · 오늘 경매 · 라이브 중/)).toBeTruthy()
+    // D-UX4-112: 옛 기대 묶음 이름 "최근 이은 채널의 라이브", 한 줄 "다육이네 · 오늘 경매 · 라이브 중", [다육이네 · 오늘 경매 잇기]
+    // → "최근 연결한 채널의 라이브가 있어요", 줄 둘(플랫폼 그림 + 제목 / 채널 사진 + 채널 이름), [오늘 경매 연결]
+    const box = await screen.findByRole('group', { name: '최근 연결한 채널의 라이브가 있어요' })
+    expect(within(box).getByTestId('recent-live-title').textContent).toBe('오늘 경매')
+    expect(within(box).getByText('다육이네')).toBeTruthy()
+    expect(within(box).getByTestId('recent-live-avatar')).toBeTruthy()
     expect(world.server.callsTo('GET', /live-broadcasts/)).toHaveLength(1)
-    fireEvent.click(within(box).getByRole('button', { name: '다육이네 · 오늘 경매 잇기' }))
+    fireEvent.click(within(box).getByRole('button', { name: '오늘 경매 연결' }))
     await agree()
     // D-UX4-95: 이은 뒤 라이브 화면의 라이브 연결 판도 흰 바탕 연결 정보 줄 (옛 기대: 유튜브 카드 "유튜브 라이브 · 다육이네")
     await waitFor(() => expect(screen.getByTestId('link-info-channel').textContent).toContain('다육이네'))
@@ -101,14 +106,15 @@ describe('콘솔 유튜브 (앱)', () => {
     await openYoutube()
     fireEvent.change(await screen.findByRole('textbox', { name: '라이브 링크' }), { target: { value: 'NEWCHAN0001' } })
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
-    let ask = await screen.findByRole('alertdialog', { name: '이을 라이브 확인' })
+    // D-UX4-112: 옛 기대 팝업 이름 "이을 라이브 확인" → "연결할 라이브 확인" (아래 셋)
+    let ask = await screen.findByRole('alertdialog', { name: '연결할 라이브 확인' })
     // 부정은 왼쪽, 긍정은 오른쪽 (D-UX4-01)
     expect(within(ask).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['아니에요', '맞아요'])
     fireEvent.click(within(ask).getByRole('button', { name: '아니에요' }))
-    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '이을 라이브 확인' })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('alertdialog', { name: '연결할 라이브 확인' })).toBeNull())
     expect(world.server.callsTo('POST', /\/youtube$/)).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
-    ask = await screen.findByRole('alertdialog', { name: '이을 라이브 확인' })
+    ask = await screen.findByRole('alertdialog', { name: '연결할 라이브 확인' })
     expect(ask.textContent).toContain('이 라이브가 맞나요?\n\n제목: 오늘 경매\n채널: <b>새채널</b>')
     fireEvent.click(within(ask).getByRole('button', { name: '맞아요' }))
     // D-UX4-95: 연결 정보 줄의 채널 이름 — 글자로만
@@ -124,7 +130,8 @@ describe('콘솔 유튜브 (앱)', () => {
     await openYoutube()
     fireEvent.change(await screen.findByRole('textbox', { name: '라이브 링크' }), { target: { value: 'PRIVATE0001' } })
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
-    await waitFor(() => expect(within(section()).getByRole('alert').textContent).toBe('공개 라이브만 이을 수 있어요.'))
+    // D-UX4-112: 옛 기대 "공개 라이브만 이을 수 있어요." → "공개 라이브만 연결할 수 있어요."
+    await waitFor(() => expect(within(section()).getByRole('alert').textContent).toBe('공개 라이브만 연결할 수 있어요.'))
   })
 
   it('막힘은 바로 맨 위 경고 + 대비 경로, 다시 받으면 경고를 내리고 "다시 받고 있어요"', async () => {
@@ -200,7 +207,8 @@ describe('콘솔 유튜브 (앱)', () => {
     expect(reads).toBe(0)
     fireEvent.click(await within(sheet).findByRole('button', { name: '붙여넣기' }))
     await waitFor(() => expect((field as HTMLInputElement).value).toBe('https://youtube.com/live/LIVENOW0001?si=x'))
-    expect(within(sheet).getByRole('button', { name: '나중에 잇기' })).toBeTruthy()
+    // D-UX4-112: 옛 기대 [나중에 잇기] → [나중에 연결]
+    expect(within(sheet).getByRole('button', { name: '나중에 연결' })).toBeTruthy()
     fireEvent.click(within(sheet).getByRole('button', { name: '확인' }))
     await agree()
     // D-UX4-95: 이은 뒤 라이브 화면의 라이브 연결 판도 흰 바탕 연결 정보 줄 (옛 기대: 유튜브 카드 "유튜브 라이브 · 다육이네")
@@ -258,12 +266,13 @@ describe('라이브 연결은 쌓인 화면 (D-UX3-09 — 밀어서 뒤로 가�
   })
 
   // D-UX4-95로 바뀐 기대: 이은 뒤엔 회색 유튜브 카드("유튜브 라이브 · 다육이네") 대신 흰 바탕 정보 줄(플랫폼 · 라이브 제목 · 채널)
-  it('라이브 연결 화면: 주소를 넣어 잇고, 이은 뒤엔 연결 정보 줄 — [나중에 잇기]는 뒤로', async () => {
+  // D-UX4-112: 옛 기대 [나중에 잇기] → [나중에 연결]
+  it('라이브 연결 화면: 주소를 넣어 연결하고, 연결한 뒤엔 연결 정보 줄 — [나중에 연결]은 뒤로', async () => {
     const { world } = youtubeWorld()
     let back = 0
     render(world.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => back++} />))
     const page = await screen.findByRole('dialog', { name: '라이브 연결' })
-    fireEvent.click(await within(page).findByRole('button', { name: '나중에 잇기' }))
+    fireEvent.click(await within(page).findByRole('button', { name: '나중에 연결' }))
     expect(back).toBe(1)
     fireEvent.change(within(page).getByRole('textbox', { name: '라이브 링크' }), { target: { value: 'https://youtu.be/VIDEOKNOWN1' } })
     fireEvent.click(within(page).getByRole('button', { name: '확인' }))

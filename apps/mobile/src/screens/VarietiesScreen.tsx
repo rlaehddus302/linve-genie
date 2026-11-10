@@ -7,10 +7,11 @@ import { useCallback, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import { isApiError, put } from '../api/client.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
-import { AppHeader, BigButton, ErrorLine, TextField, Txt, useKit } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, ErrorLine, TextField, Txt, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Row } from '../ui/parts.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 import { GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
 
 export const VARIETIES_TITLE = '내 품종'
@@ -35,6 +36,8 @@ export function VarietiesScreen({ onBack }: { readonly onBack: () => void }) {
   const { p } = useKit()
   // 기억해 둔 목록을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 다시 받다 실패하면 보이던 목록 그대로
   const { data: list, error: listError, reload, set: setList } = useCachedGet<VarietyList>('/api/voice/varieties')
+  // 불러온 뒤에야 생긴 목록은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112)
+  const late = useCameLate(list !== null)
   const loadError = listError === null ? null : VARIETIES_LOAD_FAILED
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -84,25 +87,31 @@ export function VarietiesScreen({ onBack }: { readonly onBack: () => void }) {
               <ErrorLine>{loadError}</ErrorLine>
               <Row><BigButton kind="secondary" label="다시 불러오기" onPress={load} /></Row>
             </View>
-          ) : list === null ? <Loading /> : list.names.length === 0 ? <GroupNote>{VARIETIES_EMPTY}</GroupNote> : (
-            <View role="list" aria-label="내 품종 목록">
-              {list.names.map((name) => (
-                <View key={name} role="listitem" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 }}>
-                  <View style={{ flex: 1 }}><Txt step="bodyLarge" weight="book">{name}</Txt></View>
-                  <TextButton label="지우기" ariaLabel={`${name} 지우기`} disabled={busy} onPress={() => remove(name)} />
+          ) : list === null ? <Loading /> : (
+            <Appear instant={!late}>
+              {list.names.length === 0 ? <GroupNote>{VARIETIES_EMPTY}</GroupNote> : (
+                <View role="list" aria-label="내 품종 목록">
+                  {list.names.map((name) => (
+                    <View key={name} role="listitem" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 }}>
+                      <View style={{ flex: 1 }}><Txt step="bodyLarge" weight="book">{name}</Txt></View>
+                      <TextButton label="지우기" ariaLabel={`${name} 지우기`} disabled={busy} onPress={() => remove(name)} />
+                    </View>
+                  ))}
                 </View>
-              ))}
-            </View>
+              )}
+            </Appear>
           )}
         </SettingsGroup>
-        {list !== null && list.suggested.length > 0 ? (
-          <SettingsGroup title={VARIETIES_SUGGEST_TITLE} label={VARIETIES_SUGGEST_TITLE}>
-            <Row wrap>
-              {list.suggested.map((name) => <Pill key={name} on={false} label={name} ariaLabel={`${name} 더하기`} onPress={() => void add([name])} />)}
-            </Row>
-            <GroupNote>{VARIETIES_SUGGEST_HELP}</GroupNote>
-          </SettingsGroup>
-        ) : null}
+        <Late>
+          {list !== null && list.suggested.length > 0 ? (
+            <SettingsGroup title={VARIETIES_SUGGEST_TITLE} label={VARIETIES_SUGGEST_TITLE}>
+              <Row wrap>
+                {list.suggested.map((name) => <Pill key={name} on={false} label={name} ariaLabel={`${name} 더하기`} onPress={() => void add([name])} />)}
+              </Row>
+              <GroupNote>{VARIETIES_SUGGEST_HELP}</GroupNote>
+            </SettingsGroup>
+          ) : null}
+        </Late>
       </ScrollView>
     </View>
   )

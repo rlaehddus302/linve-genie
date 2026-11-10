@@ -32,9 +32,10 @@ import {
 import { isApiError, newRequestId, post, put, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
-import { BigButton, BottomSheet, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { Appear, BigButton, BottomSheet, ButtonRow, Card, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
+import { useCameLate } from '../ui/late.tsx'
 
 /**
  * 글자만의 작은 단추 (D-UX3-94, 홈 "모두보기"처럼): 곁길 일("택배 화면으로", "다음 손님", "운송장 전부 PDF").
@@ -172,6 +173,7 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
     if (apply(await command.send('POST', `/api/parcels/days/${date}/address/delete`, { buyer }), ADDRESS_DELETED)) setAsk(null)
   }
 
+  const late = useCameLate(bundle !== null)
   if (bundle === null) {
     return (
       <Card label="배송지">
@@ -197,63 +199,66 @@ export function AddressCard({ date, buyer, sealed, version }: { readonly date: s
     <Card label="배송지">
       {/* 카드 이름은 홈 묶음 이름처럼 회색 본문 (D-UX3-94 — 옛: 굵은 제목) */}
       <CardLabel>배송지</CardLabel>
-      {parcel !== null ? <ParcelTagLine parcel={parcel} /> : null}
-      {shape === 'pickup' ? <Txt>{PICKUP_BUNDLE}</Txt> : null}
-      {shape === 'combined' ? <Txt>{COMBINED_BUNDLE}</Txt> : null}
-      {shape === 'expired' ? <Txt>{ADDRESS_EXPIRED}</Txt> : null}
+      {/* 서버에서 받은 뒤에야 생기는 배송지 내용은 부드럽게 — 기억해 둔 배송지로 처음부터 그리면 바로 (D-UX4-112) */}
+      <Appear instant={!late} style={{ gap: SPACE.md }}>
+        {parcel !== null ? <ParcelTagLine parcel={parcel} /> : null}
+        {shape === 'pickup' ? <Txt>{PICKUP_BUNDLE}</Txt> : null}
+        {shape === 'combined' ? <Txt>{COMBINED_BUNDLE}</Txt> : null}
+        {shape === 'expired' ? <Txt>{ADDRESS_EXPIRED}</Txt> : null}
 
-      {shape === 'none' && ledger !== null && !bundle.locked ? (
-        <View style={{ gap: SPACE.sm }} aria-label={PREFILL_TITLE}>
-          <Notice tone="warning">{PREFILL_TITLE}</Notice>
-          <Facts fields={[['받는 분', ledger.name], ['연락처', phoneWords(ledger.phone)], ['주소', ledger.address], ['상세 주소', ledger.detail === '' ? '없음' : ledger.detail], ['우편번호', ledger.zip === '' ? '없음' : ledger.zip]]} />
-          <Tag tone="warning">확인 전</Tag>
-          <Txt step="caption" color="textSub">{PREFILL_HELP}</Txt>
-          {!sealed ? (
-            <ButtonRow>
-              <BigButton kind="secondary" label="고치기" disabled={command.busy} onPress={() => open('write')} />
-              <BigButton label="배송지 확인" disabled={command.busy} onPress={() => void confirmLedger()} />
-            </ButtonRow>
-          ) : null}
-        </View>
-      ) : null}
-
-      {shape === 'none' && (ledger === null || bundle.locked) ? (
-        <View style={{ gap: SPACE.sm }}>
-          <Txt>{NO_ADDRESS}</Txt>
-          {bundle.locked ? <Notice tone="info">{LOCKED_ADDRESS}</Notice> : null}
-          {editable ? <BigButton kind="outline" label="배송지 적기" onPress={() => open('write')} /> : null}
-          <Txt step="caption" color="textSub">{BUYER_CAN_WRITE}</Txt>
-        </View>
-      ) : null}
-
-      {shape === 'shown' && address !== null ? (
-        <View style={{ gap: SPACE.sm }}>
-          <Facts
-            fields={[
-              [ADDRESS_LABELS.name, address.name],
-              [ADDRESS_LABELS.phone, phoneWords(address.phone)],
-              [ADDRESS_LABELS.address, address.address],
-              [ADDRESS_LABELS.detail, address.detail === '' ? '없음' : address.detail],
-              ['우편번호', address.zip === '' ? '없음' : address.zip],
-              [ADDRESS_LABELS.memo, address.memo === '' ? '없음' : address.memo],
-            ]}
-          />
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm }}>
-            <Txt step="caption" color="textSub">{sourceWords(address.source)}</Txt>
-            <Tag tone={address.confirmed ? 'success' : 'warning'}>{confirmedWords(address.source, address.confirmed)}</Tag>
-          </View>
-          {bundle.locked ? <Notice tone="info">{LOCKED_ADDRESS}</Notice> : null}
-          {editable ? (
-            <View role="group" aria-label="배송지 고치기">
+        {shape === 'none' && ledger !== null && !bundle.locked ? (
+          <View style={{ gap: SPACE.sm }} aria-label={PREFILL_TITLE}>
+            <Notice tone="warning">{PREFILL_TITLE}</Notice>
+            <Facts fields={[['받는 분', ledger.name], ['연락처', phoneWords(ledger.phone)], ['주소', ledger.address], ['상세 주소', ledger.detail === '' ? '없음' : ledger.detail], ['우편번호', ledger.zip === '' ? '없음' : ledger.zip]]} />
+            <Tag tone="warning">확인 전</Tag>
+            <Txt step="caption" color="textSub">{PREFILL_HELP}</Txt>
+            {!sealed ? (
               <ButtonRow>
-                <BigButton kind="outline" label="지우기" disabled={command.busy} onPress={() => open('delete')} />
-                <BigButton kind={address.confirmed ? 'primary' : 'secondary'} label="고치기" disabled={command.busy} onPress={() => open('edit')} />
-                {!address.confirmed ? <BigButton label="배송지 확인" disabled={command.busy} onPress={() => void confirm()} /> : null}
+                <BigButton kind="secondary" label="고치기" disabled={command.busy} onPress={() => open('write')} />
+                <BigButton label="배송지 확인" disabled={command.busy} onPress={() => void confirmLedger()} />
               </ButtonRow>
+            ) : null}
+          </View>
+        ) : null}
+
+        {shape === 'none' && (ledger === null || bundle.locked) ? (
+          <View style={{ gap: SPACE.sm }}>
+            <Txt>{NO_ADDRESS}</Txt>
+            {bundle.locked ? <Notice tone="info">{LOCKED_ADDRESS}</Notice> : null}
+            {editable ? <BigButton kind="outline" label="배송지 적기" onPress={() => open('write')} /> : null}
+            <Txt step="caption" color="textSub">{BUYER_CAN_WRITE}</Txt>
+          </View>
+        ) : null}
+
+        {shape === 'shown' && address !== null ? (
+          <View style={{ gap: SPACE.sm }}>
+            <Facts
+              fields={[
+                [ADDRESS_LABELS.name, address.name],
+                [ADDRESS_LABELS.phone, phoneWords(address.phone)],
+                [ADDRESS_LABELS.address, address.address],
+                [ADDRESS_LABELS.detail, address.detail === '' ? '없음' : address.detail],
+                ['우편번호', address.zip === '' ? '없음' : address.zip],
+                [ADDRESS_LABELS.memo, address.memo === '' ? '없음' : address.memo],
+              ]}
+            />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm }}>
+              <Txt step="caption" color="textSub">{sourceWords(address.source)}</Txt>
+              <Tag tone={address.confirmed ? 'success' : 'warning'}>{confirmedWords(address.source, address.confirmed)}</Tag>
             </View>
-          ) : null}
-        </View>
-      ) : null}
+            {bundle.locked ? <Notice tone="info">{LOCKED_ADDRESS}</Notice> : null}
+            {editable ? (
+              <View role="group" aria-label="배송지 고치기">
+                <ButtonRow>
+                  <BigButton kind="outline" label="지우기" disabled={command.busy} onPress={() => open('delete')} />
+                  <BigButton kind={address.confirmed ? 'primary' : 'secondary'} label="고치기" disabled={command.busy} onPress={() => open('edit')} />
+                  {!address.confirmed ? <BigButton label="배송지 확인" disabled={command.busy} onPress={() => void confirm()} /> : null}
+                </ButtonRow>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </Appear>
 
       {done !== null ? <Notice tone="success">{done}</Notice> : null}
       {command.error !== null && ask === null ? <Notice tone="danger" alert>{command.error.message}</Notice> : null}

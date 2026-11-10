@@ -17,9 +17,10 @@ import { paymentWord, RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { parcelLine, parcelTone } from '@livejjim/web/src/lib/parcel-words.ts'
 import { Pill } from '../ui/day-pills.tsx'
-import { EmptyFill, BigButton, ButtonRow, Icon, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { Appear, EmptyFill, BigButton, ButtonRow, Icon, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Field, Loading, Notice, Tag } from '../ui/parts.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 import { ParcelTagLine, TextAction } from './ParcelAddress.tsx'
 
 interface Day {
@@ -47,16 +48,19 @@ export function PackingScreen({ initialDate, openParcels, topGap = 28 }: { reado
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: topGap, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }} scrollIndicatorInsets={{ bottom: room }} keyboardShouldPersistTaps="handled">
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
-        {days !== null ? (
-          <View role="radiogroup" aria-label="날짜">
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: GUTTER, paddingVertical: SPACE.xs }}>
-              {days.slice(0, 8).map((day) => (
-                <Pill key={day.date} on={day.date === date} label={dateWords(day.date)} ariaLabel={`날짜 ${dateWords(day.date)}`} onPress={() => setDate(day.date)} />
-              ))}
-            </ScrollView>
-            {days.length === 0 ? <EmptyFill title="아직 판매 기록이 없어요." body={'라이브에서 팔린 상품이\n여기에 모여요'} /> : null}
-          </View>
-        ) : null}
+        {/* 서버에서 받은 뒤에야 생기는 날짜 줄은 부드럽게 (D-UX4-112) */}
+        <Late>
+          {days !== null ? (
+            <View role="radiogroup" aria-label="날짜">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: GUTTER, paddingVertical: SPACE.xs }}>
+                {days.slice(0, 8).map((day) => (
+                  <Pill key={day.date} on={day.date === date} label={dateWords(day.date)} ariaLabel={`날짜 ${dateWords(day.date)}`} onPress={() => setDate(day.date)} />
+                ))}
+              </ScrollView>
+              {days.length === 0 ? <EmptyFill title="아직 판매 기록이 없어요." body={'라이브에서 팔린 상품이\n여기에 모여요'} /> : null}
+            </View>
+          ) : null}
+        </Late>
         {/* 진행과 흐름의 다음 단계(D-UX3-39)를 한 줄에: 왼쪽 "끝낸 손님 n / N", 오른쪽 글자 단추 [택배 접수 ›] (D-UX3-94 — 옛: 오른쪽 굵은 진행 + 큰 회색 [택배 접수로]) */}
         {progress !== null || (openParcels !== undefined && date !== null) ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md, minHeight: 36 }}>
@@ -135,6 +139,8 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
   const nextTodo = entries.find((entry) => inFilter(entry, 'todo') && entry.buyer !== current?.buyer)
   const filterWord = PACKING_FILTERS.find((item) => item.key === filter)
 
+  // 불러온 뒤에야 생긴 포장 목록은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112)
+  const late = useCameLate(list !== null)
   if (error !== null)
     return (
       <View style={{ gap: SPACE.sm }}>
@@ -147,7 +153,7 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
   if (list === null) return <Loading />
 
   return (
-    <View style={{ gap: SPACE.md }}>
+    <Appear instant={!late} style={{ gap: SPACE.md }}>
       {list.sealed === true ? <Notice tone="info">{SEALED_VIEW_ONLY}</Notice> : null}
       <View role="radiogroup" aria-label="걸러 보기">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: GUTTER }}>
@@ -208,7 +214,7 @@ function PackingDay({ date, onProgress, openParcels }: { readonly date: string; 
           )
         })}
       </View>
-    </View>
+    </Appear>
   )
 }
 

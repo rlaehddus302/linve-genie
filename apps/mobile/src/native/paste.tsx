@@ -1,24 +1,16 @@
-// 방송 링크 칸의 [붙여넣기] (D-UX3-11). 아이폰 16 이상은 기본 붙여넣기 단추(UIPasteControl — "붙여넣기 허용" 창 없음)를
+// 방송 링크 칸 아래 [붙여넣기] (D-UX3-11 → D-UX4-112 칸 밖 곁길 단추 줄). 아이폰 16 이상은 기본 붙여넣기 단추(UIPasteControl — "붙여넣기 허용" 창 없음)를
 // 앱 시작 때 끼운다(production.tsx). 그 밖(안드로이드·옛 아이폰·시험)은 누르면 클립보드를 읽는 보통 단추.
 import { useSyncExternalStore, type ComponentType } from 'react'
 import { readClipboard } from '../lib/clipboard.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
-import { Tap } from '../ui/kit/press.tsx'
-import { Txt, useKit } from '../ui/kit/theme.tsx'
+import { SmallButton } from '../ui/kit/buttons.tsx'
 
 export interface PasteControlProps {
   readonly onPaste: (text: string) => void
 }
 
+/** 보통 [붙여넣기] — [링크를 모르겠어요](SmallButton)와 같은 모양: 옅은 회색 바탕, 높이 44, 회색 중간 굵기 글 (D-UX4-112) */
 function PlainPasteButton({ onPaste }: PasteControlProps) {
-  const { p } = useKit()
-  return (
-    <Tap role="button" aria-label="붙여넣기" onPress={() => void readClipboard().then(onPaste)} hitSlop={6} style={({ pressed }) => ({ height: 36, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', justifyContent: 'center', backgroundColor: pressed ? p.softPressed : p.soft })}>
-      <Txt step="caption" weight="bold">
-        붙여넣기
-      </Txt>
-    </Tap>
-  )
+  return <SmallButton label="붙여넣기" onPress={() => void readClipboard().then(onPaste)} />
 }
 
 let Control: ComponentType<PasteControlProps> = PlainPasteButton

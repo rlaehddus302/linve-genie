@@ -178,7 +178,7 @@ export function PrinterConnectArt() {
   const bt = moving ? t.interpolate({ inputRange: [0, 0.15, 0.95, 1], outputRange: [0, 1, 1, 0] }) : 1
   const glow = moving ? t.interpolate({ inputRange: [0, 0.2, 0.35, 0.95, 1], outputRange: [0, 0, 1, 1, 0] }) : 1
   return (
-    <View role="img" aria-label="휴대폰 블루투스와 프린터 전원이 켜지고 서로 이어지는 그림" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 12 }}>
+    <View role="img" aria-label="휴대폰 블루투스와 프린터 전원이 켜지고 서로 연결되는 그림" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 12 }}>
       <PhoneBody on={bt} />
       <View style={{ flexDirection: 'row', gap: 8 }}>
         {DOTS.map((i) => (

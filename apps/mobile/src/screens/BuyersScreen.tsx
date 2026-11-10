@@ -17,10 +17,11 @@ import type { ScopeData } from '../lib/scope-data.ts'
 import { QUICK_REASONS } from '@livejjim/web/src/lib/words.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { DayPills, Pill, useRealDays } from '../ui/day-pills.tsx'
-import { EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { Appear, EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CardEmpty, CheckText, InfoCard, InfoRow, Initial, listRowStyle, MiniTag, SearchField, TextButton, TextChoices } from './customer-parts.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 
 export const MERGE_REASONS: readonly string[] = ['같은 사람', '같은 집 배송']
 export const UNMERGE_REASONS: readonly string[] = ['잘못 합침', '따로 배송']
@@ -52,7 +53,10 @@ export function BuyersScreen({ onBack, initialDate }: { readonly onBack: () => v
         {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
         {days === null && error === null ? <Loading /> : null}
         {days !== null && days.length === 0 ? <EmptyFill title="아직 판매 기록이 없어요" body={'실제 라이브에서 찜이 정해지면\n여기에 모여요'} /> : null}
-        {days !== null ? <DayPills days={days} date={date} onPick={setDate} /> : null}
+        {/* 서버에서 받은 뒤에야 생기는 날짜 줄은 부드럽게 (D-UX4-112) */}
+        <Late>
+          {days !== null ? <DayPills days={days} date={date} onPick={setDate} /> : null}
+        </Late>
         {date !== null ? <BuyersDay key={date} date={date} /> : null}
       </ScrollView>
     </View>
@@ -73,6 +77,8 @@ function BuyersDay({ date }: { readonly date: string }) {
   const items = useSyncExternalStore(queue?.subscribe ?? noSubscribe, queue?.getSnapshot ?? noItems)
   const names = useMemo(() => (data === null ? null : new BuyerNames(data.buyers, data.claims)), [data])
   const counts = useMemo(() => (data === null ? new Map<string, number>() : sameNameCounts(data.buyers)), [data])
+  // 불러온 뒤에야 생긴 구매자 목록은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112)
+  const late = useCameLate(data !== null && names !== null)
   if (data === null || names === null) {
     return error !== null ? (
       <View style={{ gap: SPACE.xs }}>
@@ -95,7 +101,7 @@ function BuyersDay({ date }: { readonly date: string }) {
   const term = search.trim()
   const list = term === '' ? buyerList(data.buyers, { all, sort }) : [...new Map(searchBuyers(data.buyers, term).map((hit) => [hit.current.id, hit.current])).values()]
   return (
-    <View style={{ gap: SPACE.md }}>
+    <Appear instant={!late} style={{ gap: SPACE.md }}>
       {data.sealed ? <Notice tone="info">{SEALED_VIEW_ONLY}</Notice> : null}
       <SearchField label="구매자 찾기" value={search} onChangeText={setSearch} placeholder="닉네임·뒤 4자리로 찾기" />
       {/* 정렬·넓히기는 알약 대신 글자로 한 줄 (D-UX3-95) */}
@@ -118,7 +124,7 @@ function BuyersDay({ date }: { readonly date: string }) {
           {list.length > limit ? <TextButton label="더 보기" color="textSub" align="stretch" onPress={() => setLimit((n) => n + PAGE)} /> : null}
         </View>
       </View>
-    </View>
+    </Appear>
   )
 }
 

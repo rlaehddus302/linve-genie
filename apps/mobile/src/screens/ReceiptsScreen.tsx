@@ -35,11 +35,12 @@ import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile, nativeSms } from '../native/index.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { EmptyFill, AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { Appear, EmptyFill, AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, ChipButton, MenuRow, PAGE_SIDE, SectionCard } from './order-parts.tsx'
 import { shownBroadcastTitle } from './BroadcastList.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 
 export const RECEIPTS_TITLE = '영수증·판매대장'
 export const NOT_ENDED = '라이브를 끝낸 뒤 보낼 수 있어요.'
@@ -123,22 +124,29 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
           </View>
         ) : null}
         {list === null && error === null ? <Loading /> : null}
-        {list !== null && list.length === 0 ? (
-          <EmptyFill title={NO_ENDED} body={'라이브를 끝내면\n여기서 확인서를 만들 수 있어요'} />
-        ) : null}
-        {list !== null && list.length > 0 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -PAGE_SIDE }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: PAGE_SIDE, paddingVertical: SPACE.xs }}>
-            {list.slice(0, 20).map((item) => (
-              <Pill key={item.id} on={item.id === picked} label={dateWords(item.date)} ariaLabel={`라이브 ${dateWords(item.date)} ${shownBroadcastTitle(item.title)}`} onPress={() => setPicked(item.id)} />
-            ))}
-          </ScrollView>
-        ) : null}
-        {broadcast !== null ? (
-          <>
-            <Txt step="lead" weight="bold" role="heading" aria-level={2}>{`${dateWords(broadcast.date)} · ${shownBroadcastTitle(broadcast.title)}`}</Txt>
-            {broadcast.ended ? <ReceiptDay key={broadcast.id} broadcast={broadcast} sameDay={sameDay} /> : <Notice tone="info">{NOT_ENDED}</Notice>}
-          </>
-        ) : null}
+        {/* 서버에서 받은 뒤에야 생기는 것은 부드럽게 — 기억해 둔 자료로 처음부터 그리면 바로 (D-UX4-112) */}
+        <Late style={{ flexGrow: 1 }}>
+          {list !== null && list.length === 0 ? (
+            <EmptyFill title={NO_ENDED} body={'라이브를 끝내면\n여기서 확인서를 만들 수 있어요'} />
+          ) : null}
+        </Late>
+        <Late>
+          {list !== null && list.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -PAGE_SIDE }} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: PAGE_SIDE, paddingVertical: SPACE.xs }}>
+              {list.slice(0, 20).map((item) => (
+                <Pill key={item.id} on={item.id === picked} label={dateWords(item.date)} ariaLabel={`라이브 ${dateWords(item.date)} ${shownBroadcastTitle(item.title)}`} onPress={() => setPicked(item.id)} />
+              ))}
+            </ScrollView>
+          ) : null}
+        </Late>
+        <Late style={{ gap: CARD_GAP }}>
+          {broadcast !== null ? (
+            <>
+              <Txt step="lead" weight="bold" role="heading" aria-level={2}>{`${dateWords(broadcast.date)} · ${shownBroadcastTitle(broadcast.title)}`}</Txt>
+              {broadcast.ended ? <ReceiptDay key={broadcast.id} broadcast={broadcast} sameDay={sameDay} /> : <Notice tone="info">{NOT_ENDED}</Notice>}
+            </>
+          ) : null}
+        </Late>
         <Txt step="caption" color="textSub" center>{TAX_NOTE}</Txt>
       </ScrollView>
       {ledger ? <LedgerSheet initial={broadcast !== null ? broadcast.date : null} onClose={() => setLedger(false)} /> : null}
@@ -294,6 +302,8 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
     reload()
   }
 
+  // 불러온 뒤에야 생긴 확인서 목록은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112)
+  const late = useCameLate(rows !== null)
   if (rows === null) {
     return error !== null ? (
       <View style={{ gap: SPACE.sm }}>
@@ -307,7 +317,7 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
   const count = rows.length
   const pad = { paddingHorizontal: SPACE.xl, gap: SPACE.sm }
   return (
-    <View style={{ gap: CARD_GAP }}>
+    <Appear instant={!late} style={{ gap: CARD_GAP }}>
       {sameDay ? <Txt step="meta" color="textSub">{SAME_DAY_NOTE}</Txt> : null}
       {error !== null ? <Notice tone="danger" alert>{error.message}</Notice> : null}
       {count > 0 ? (
@@ -368,7 +378,7 @@ function ReceiptDay({ broadcast, sameDay }: { readonly broadcast: BroadcastItem;
           ))}
         </SectionCard>
       ) : null}
-    </View>
+    </Appear>
   )
 }
 

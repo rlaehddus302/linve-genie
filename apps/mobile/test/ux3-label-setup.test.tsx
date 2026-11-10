@@ -160,7 +160,8 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
     await flush()
     expect(connect.textContent).toContain('프린터 전원을 켜고 휴대폰 가까이 두세요.\n휴대폰 블루투스가 켜져 있어야 해요.')
-    expect(within(connect).getByRole('img', { name: '휴대폰 블루투스와 프린터 전원이 켜지고 서로 이어지는 그림' })).toBeTruthy()
+    // D-UX4-112: 옛 기대 "서로 이어지는 그림" → "서로 연결되는 그림"
+    expect(within(connect).getByRole('img', { name: '휴대폰 블루투스와 프린터 전원이 켜지고 서로 연결되는 그림' })).toBeTruthy()
     expect(within(connect).getByRole('group', { name: '주변 프린터' })).toBeTruthy()
     expect(within(connect).queryByRole('button', { name: '다시 연결' })).toBeNull()
     expect(within(connect).queryByRole('button', { name: '다른 프린터 찾기' })).toBeNull()
@@ -206,7 +207,8 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     // 같은 화면: 그림·고른 줄이 그대로, 그 줄에 잇는 중
     await waitFor(() => expect(within(connect).getByText('연결하는 중…')).toBeTruthy())
     expect(screen.getByRole('dialog', { name: '프린터 연결' })).toBe(connect)
-    expect(within(connect).getByRole('img', { name: '휴대폰 블루투스와 프린터 전원이 켜지고 서로 이어지는 그림' })).toBeTruthy()
+    // D-UX4-112: 옛 기대 "서로 이어지는 그림" → "서로 연결되는 그림"
+    expect(within(connect).getByRole('img', { name: '휴대폰 블루투스와 프린터 전원이 켜지고 서로 연결되는 그림' })).toBeTruthy()
     expect(within(connect).getByText('B1-1234')).toBeTruthy()
     expect(within(connect).queryByRole('button', { name: '다음' })).toBeNull()
     await act(async () => {

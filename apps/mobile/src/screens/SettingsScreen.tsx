@@ -11,7 +11,7 @@ import { useCachedGet } from '../lib/cached-get.ts'
 import { openExternal, openWeb } from '../lib/open-web.ts'
 import { OPEN_IN_WEB, VOICE_INSTANT_LABEL } from '../lib/words.ts'
 import { useServices, useSession } from '../services.tsx'
-import { AppHeader, ConfirmSheet, ErrorLine, ListRow, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
+import { AppHeader, Appear, ConfirmSheet, ErrorLine, ListRow, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { ScrollView } from 'react-native'
 import { DetailToggle, GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
@@ -19,6 +19,7 @@ import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
 import { VARIETIES_TITLE } from './VarietiesScreen.tsx'
 import { LINKED_TITLE, methodsOf, PROVIDER_NAMES, type LoginProvider } from '@livejjim/web/src/lib/social-login.ts'
 import { SocialTile } from '../ui/SocialTile.tsx'
+import { Late, useCameLate } from '../ui/late.tsx'
 
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 라이브부터 적용돼요.'
 export const PERMISSION_WORDS = {
@@ -60,6 +61,8 @@ export function SettingsScreen({
   const view = useSyncExternalStore(voice.subscribe, voice.getView)
   // 설정 값은 기억해 둔 것을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 못 받으면 그 줄을 숨긴다(전과 같다)
   const { data: labels, set: setLabels } = useCachedGet<LabelSettings>('/api/settings/labels')
+  // 서버에서 받은 뒤에야 생기는 줄은 부드럽게 — 기억해 둔 설정으로 처음부터 그리면 바로 (D-UX4-112)
+  const labelsLate = useCameLate(labels !== null)
   const { data: settings, set: setSettings } = useCachedGet<{ settings: Record<string, unknown> }>('/api/settings')
   const auto = settings === null ? null : settings.settings['print.autoOnConfirm'] !== false
   const [busy, setBusy] = useState(false)
@@ -135,9 +138,11 @@ export function SettingsScreen({
           {labels === null ? (
             <Txt color="textSub">라벨 설정을 불러오지 못했어요.</Txt>
           ) : (
-            <ToggleRow title="라벨 기능" on={labels.enabled} disabled={busy} onChange={(next) => void run(() => setLabelEnabled(next, labels.enabled))} />
+            <Appear instant={!labelsLate}>
+              <ToggleRow title="라벨 기능" on={labels.enabled} disabled={busy} onChange={(next) => void run(() => setLabelEnabled(next, labels.enabled))} />
+            </Appear>
           )}
-          {auto !== null ? <ToggleRow title="1등 확정 때 라벨 자동 출력" subtitle="다음 라이브부터 적용돼요." on={auto} disabled={busy} onChange={(next) => void run(() => setAutoPrint(next, auto))} /> : null}
+          <Late>{auto !== null ? <ToggleRow title="1등 확정 때 라벨 자동 출력" subtitle="다음 라이브부터 적용돼요." on={auto} disabled={busy} onChange={(next) => void run(() => setAutoPrint(next, auto))} /> : null}</Late>
         </SettingsGroup>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
         {showPhoneNotice ? <PhoneNoticeCard /> : null}
@@ -154,23 +159,25 @@ export function SettingsScreen({
             </View>
           ) : null}
           {/* 연동된 소셜 계정 (D-UX3-61) — 오른쪽에 연결된 로고들 */}
-          {onOpenLinked !== undefined && linked !== null ? (
-            <ListRow
-              title={LINKED_TITLE}
-              ariaLabel={`${LINKED_TITLE} — ${linked.length === 0 ? '없음' : linked.map((provider) => PROVIDER_NAMES[provider]).join(', ')}`}
-              right={
-                linked.length === 0 ? undefined : (
-                  <View style={{ flexDirection: 'row', gap: SPACE.xs }}>
-                    {linked.map((provider) => (
-                      <SocialTile key={provider} provider={provider} size={24} />
-                    ))}
-                  </View>
-                )
-              }
-              onPress={onOpenLinked}
-              testID="settings-linked"
-            />
-          ) : null}
+          <Late>
+            {onOpenLinked !== undefined && linked !== null ? (
+              <ListRow
+                title={LINKED_TITLE}
+                ariaLabel={`${LINKED_TITLE} — ${linked.length === 0 ? '없음' : linked.map((provider) => PROVIDER_NAMES[provider]).join(', ')}`}
+                right={
+                  linked.length === 0 ? undefined : (
+                    <View style={{ flexDirection: 'row', gap: SPACE.xs }}>
+                      {linked.map((provider) => (
+                        <SocialTile key={provider} provider={provider} size={24} />
+                      ))}
+                    </View>
+                  )
+                }
+                onPress={onOpenLinked}
+                testID="settings-linked"
+              />
+            ) : null}
+          </Late>
         </SettingsGroup>
         {/* 로그아웃은 카드 아래 글자 단추 (토스 설정 맨 아래처럼) */}
         <TextButton label="로그아웃" align="flex-start" onPress={() => setAsking(true)} />

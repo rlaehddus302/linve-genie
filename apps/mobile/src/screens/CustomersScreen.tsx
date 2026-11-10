@@ -43,6 +43,7 @@ import { AppHeader, ConfirmSheet, Icon, TextField, Txt, useKit, useTabBarRoom, T
 import { RADIUS, GUTTER, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CardEmpty, InfoCard, InfoRow, Initial, listRowStyle, MiniTag, SearchField, TextButton, TextChoices } from './customer-parts.tsx'
+import { Late } from '../ui/late.tsx'
 
 /** 손님 자세히의 저장한 배송지 (CR-3·CR-5) — 가린 이름·끝 4자리만 (웹 lib/ledger.ts CustomerLedgerView와 같은 모양) */
 interface LedgerView {
@@ -59,7 +60,7 @@ export const LEDGER_NONE = '저장해 둔 배송지가 없어요. 손님이 확�
 export const LEDGER_DELETE = '저장한 배송지 지우기'
 export const LEDGER_DELETE_ASK = '이 손님의 저장한 배송지를 지울까요? 지우면 되돌릴 수 없어요. 지난 주문의 배송지와 손님 기록은 그대로예요.'
 export const LEDGER_DELETED = '저장한 배송지를 지웠어요.'
-const LINKED_PREFIX = '이 손님이 직접 이은 계정: '
+const LINKED_PREFIX = '이 손님이 직접 연결한 계정: '
 
 function CustomerTags({ row, blocked }: { readonly row: Pick<CustomerRow, 'regular' | 'caution'>; readonly blocked?: boolean }) {
   if (!row.regular && !row.caution && blocked !== true) return null
@@ -175,21 +176,24 @@ export function CustomersScreen({ onBack, openCustomer }: { readonly onBack?: ()
           </View>
         ) : null}
         {view === null && error === null ? <Loading /> : null}
-        {view !== null ? (
-          <View style={{ gap: SPACE.xs }}>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', marginRight: -SPACE.sm }}>
-              <Txt step="body" color="textSub">{`손님 ${String(view.count)}명`}</Txt>
-              <TextChoices label="정렬" keys={CUSTOMER_SORTS} value={sort} word={(key) => SORT_WORD[key]} spoken={(key) => `정렬 ${SORT_WORD[key]}`} onPick={setSort} />
+        {/* 서버에서 받은 뒤에야 생기는 손님 목록은 부드럽게 — 기억해 둔 목록으로 처음부터 그리면 바로 (D-UX4-112) */}
+        <Late>
+          {view !== null ? (
+            <View style={{ gap: SPACE.xs }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', marginRight: -SPACE.sm }}>
+                <Txt step="body" color="textSub">{`손님 ${String(view.count)}명`}</Txt>
+                <TextChoices label="정렬" keys={CUSTOMER_SORTS} value={sort} word={(key) => SORT_WORD[key]} spoken={(key) => `정렬 ${SORT_WORD[key]}`} onPick={setSort} />
+              </View>
+              <View role="group" aria-label="손님 목록" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.sm }}>
+                {view.customers.length === 0 ? <CardEmpty>{narrowed ? '맞는 손님이 없어요.' : '아직 손님이 없어요.'}</CardEmpty> : null}
+                {view.customers.map((row) => (
+                  <CustomerLine key={row.id} row={row} today={view.today} onPress={() => (openCustomer === undefined ? setOpen(row) : openCustomer(row.id))} />
+                ))}
+                {view.more ? <TextButton label="더 보기" color="textSub" busy={moreBusy} align="stretch" onPress={() => void loadMore()} /> : null}
+              </View>
             </View>
-            <View role="group" aria-label="손님 목록" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.sm }}>
-              {view.customers.length === 0 ? <CardEmpty>{narrowed ? '맞는 손님이 없어요.' : '아직 손님이 없어요.'}</CardEmpty> : null}
-              {view.customers.map((row) => (
-                <CustomerLine key={row.id} row={row} today={view.today} onPress={() => (openCustomer === undefined ? setOpen(row) : openCustomer(row.id))} />
-              ))}
-              {view.more ? <TextButton label="더 보기" color="textSub" busy={moreBusy} align="stretch" onPress={() => void loadMore()} /> : null}
-            </View>
-          </View>
-        ) : null}
+          ) : null}
+        </Late>
       </ScrollView>
     </View>
   )
@@ -235,26 +239,29 @@ function CustomerDetail({ id, row, today, onBack }: { readonly id: string; reado
           </View>
         ) : null}
         {view === null && error === null ? <Loading /> : null}
-        {view !== null ? (
-          <>
-            <InfoCard title="손님 기록">
-              {summaryRows(view.customer, base).map((line) => (
-                <InfoRow key={line.label} label={line.label} value={line.value} spoken={line.spoken} />
-              ))}
-            </InfoCard>
-            <InfoCard label="손님 메모">
-              <MemoEditor customer={id} memo={view.memo} today={base} onSaved={(memo) => setView((now) => (now === null ? view : { ...now, memo }))} />
-            </InfoCard>
-            <LedgerCard customer={id} ledger={view.ledger ?? null} today={base} onDeleted={() => setView({ ...view, ledger: null })} />
-            <InfoCard title="날짜별 기록">
-              {view.days.length === 0 ? <Txt color="textSub">아직 기록이 없어요.</Txt> : null}
-              {view.days.map((line) => (
-                <DayLine key={`${line.date}|${line.buyer}`} line={line} today={base} />
-              ))}
-            </InfoCard>
-            <Txt step="caption" color="textSub">{`차단은 가장 최근 날짜(${customerDate(view.customer.latestDate, base)})의 구매자 화면에서 할 수 있어요.`}</Txt>
-          </>
-        ) : null}
+        {/* 서버에서 받은 뒤에야 생기는 손님 기록은 부드럽게 — 기억해 둔 자료로 처음부터 그리면 바로 (D-UX4-112) */}
+        <Late style={{ gap: SPACE.lg }}>
+          {view !== null ? (
+            <>
+              <InfoCard title="손님 기록">
+                {summaryRows(view.customer, base).map((line) => (
+                  <InfoRow key={line.label} label={line.label} value={line.value} spoken={line.spoken} />
+                ))}
+              </InfoCard>
+              <InfoCard label="손님 메모">
+                <MemoEditor customer={id} memo={view.memo} today={base} onSaved={(memo) => setView((now) => (now === null ? view : { ...now, memo }))} />
+              </InfoCard>
+              <LedgerCard customer={id} ledger={view.ledger ?? null} today={base} onDeleted={() => setView({ ...view, ledger: null })} />
+              <InfoCard title="날짜별 기록">
+                {view.days.length === 0 ? <Txt color="textSub">아직 기록이 없어요.</Txt> : null}
+                {view.days.map((line) => (
+                  <DayLine key={`${line.date}|${line.buyer}`} line={line} today={base} />
+                ))}
+              </InfoCard>
+              <Txt step="caption" color="textSub">{`차단은 가장 최근 날짜(${customerDate(view.customer.latestDate, base)})의 구매자 화면에서 할 수 있어요.`}</Txt>
+            </>
+          ) : null}
+        </Late>
       </ScrollView>
     </View>
   )

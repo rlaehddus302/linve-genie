@@ -16,6 +16,7 @@ import { SERVICE_NAME } from '../lib/words.ts'
 import { BigButton, Body, Card, Hint, Notice, Row, Tag } from '../ui/parts.tsx'
 import { SettingsGroup } from './settings/Group.tsx'
 import { SmsLinkRow } from './SmsLinkRow.tsx'
+import { Late } from '../ui/late.tsx'
 
 export const PHONE_NOTICE_TITLE = '휴대폰 알림 받기'
 export const PHONE_NOTICE_INTRO = `손님 문자는 문자찜으로, 은행 입금 알림은 입금 확인으로 ${SERVICE_NAME}가 자동으로 받아요.`
@@ -180,12 +181,15 @@ export function PhoneNoticeCard() {
         </Card>
       ) : null}
       {/* 불러오는 동안은 비워 둔다 (D-UX4-83) */}
-      {state === null ? null : (
-        <Row wrap>
-          <Tag tone={on && !accessOff && !tokenBad && !serverOff ? 'success' : on ? 'warning' : 'info'}>{on ? '켜짐' : '꺼짐'}</Tag>
-          <Body>{phoneNoticeLine(state)}</Body>
-        </Row>
-      )}
+      {/* 받은 뒤에야 생기는 상태 줄·단추는 부드럽게 (D-UX4-112) */}
+      <Late>
+        {state === null ? null : (
+          <Row wrap>
+            <Tag tone={on && !accessOff && !tokenBad && !serverOff ? 'success' : on ? 'warning' : 'info'}>{on ? '켜짐' : '꺼짐'}</Tag>
+            <Body>{phoneNoticeLine(state)}</Body>
+          </Row>
+        )}
+      </Late>
       {accessOff && !sheet ? (
         <Notice tone="warning" alert>
           {PHONE_NOTICE_ACCESS_OFF}
@@ -212,8 +216,12 @@ export function PhoneNoticeCard() {
           </Row>
         </Card>
       ) : null}
-      {state !== null ? on ? <BigButton label="알림 받기 끄기" disabled={busy} onPress={() => void turnOff()} /> : <BigButton primary label="켜기" disabled={busy} onPress={turnOn} /> : null}
-      {state !== null && !ios ? <SmsLinkRow port={port} noticeOn={on && !tokenBad} accessNeeded={state.access === 'needed'} /> : null}
+      <Late>
+        {state !== null ? on ? <BigButton label="알림 받기 끄기" disabled={busy} onPress={() => void turnOff()} /> : <BigButton primary label="켜기" disabled={busy} onPress={turnOn} /> : null}
+      </Late>
+      <Late>
+        {state !== null && !ios ? <SmsLinkRow port={port} noticeOn={on && !tokenBad} accessNeeded={state.access === 'needed'} /> : null}
+      </Late>
       {ios ? (
         <>
           <Hint>{PHONE_NOTICE_IPHONE}</Hint>

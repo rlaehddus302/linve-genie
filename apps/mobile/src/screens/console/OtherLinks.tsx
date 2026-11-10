@@ -5,6 +5,8 @@
 import { useEffect, useState } from 'react'
 import { get, isApiError, newRequestId, post } from '../../api/client.ts'
 import { Body, BigButton, Card, Notice, Row, Stack } from '../../ui/parts.tsx'
+import { SPACE } from '../../ui/kit/tokens.ts'
+import { Late } from '../../ui/late.tsx'
 
 export interface TiktokNotice {
   readonly version: string
@@ -49,11 +51,14 @@ export function TiktokConsentCard({ onAgreed, onCancel, disabled }: { readonly o
   return (
     <Card label="틱톡 안내">
       <Body bold>{notice?.title ?? '틱톡 안내'}</Body>
-      {(notice?.lines ?? []).map((line) => (
-        <Body key={line} muted>
-          {`· ${line}`}
-        </Body>
-      ))}
+      {/* 서버에서 받은 뒤에야 생기는 안내 줄은 부드럽게 (D-UX4-112) */}
+      <Late style={{ gap: SPACE.md }}>
+        {(notice?.lines ?? []).map((line) => (
+          <Body key={line} muted>
+            {`· ${line}`}
+          </Body>
+        ))}
+      </Late>
       {error === null ? null : (
         <Notice tone="danger" alert>
           {error}
@@ -62,7 +67,7 @@ export function TiktokConsentCard({ onAgreed, onCancel, disabled }: { readonly o
       {/* 단추는 한 줄에 부정 왼쪽·긍정 오른쪽 (CLAUDE.md 절대 규칙 8, D-UX4-01) */}
       <Row>
         <BigButton small label="취소" disabled={busy} onPress={onCancel} />
-        <BigButton small primary label="동의하고 잇기" ariaLabel={notice?.checkbox ?? '동의하고 잇기'} disabled={notice === null || disabled === true || busy} onPress={() => void agree()} />
+        <BigButton small primary label="동의하고 연결" ariaLabel={notice?.checkbox ?? '동의하고 연결'} disabled={notice === null || disabled === true || busy} onPress={() => void agree()} />
       </Row>
     </Card>
   )
@@ -146,23 +151,28 @@ export function BandPostPicker({ onPick, onCancel, disabled }: { readonly onPick
           {problem}
         </Notice>
       )}
-      {band === null
-        ? (bands ?? []).map((item) => <BigButton key={item.bandKey} label={item.name} disabled={disabled} onPress={() => setBand(item)} />)
-        : null}
-      {band !== null && posts !== null && posts.length === 0 ? <Body muted>내가 쓴 글이 없어요.</Body> : null}
-      {band !== null
-        ? (posts ?? []).map((item) => {
-            const line = bandPostLine(item)
-            return (
-              <Stack tight key={item.postKey}>
-                <Body>{line}</Body>
-                <Row>
-                  <BigButton small primary label="이 글로 잇기" ariaLabel={`${line} 잇기`} disabled={disabled} onPress={() => onPick(band.bandKey, item.postKey)} />
-                </Row>
-              </Stack>
-            )
-          })
-        : null}
+      {/* 서버에서 받은 뒤에야 생기는 밴드·글 목록은 부드럽게 (D-UX4-112) */}
+      <Late style={{ gap: SPACE.md }}>
+        {band === null
+          ? (bands ?? []).map((item) => <BigButton key={item.bandKey} label={item.name} disabled={disabled} onPress={() => setBand(item)} />)
+          : null}
+      </Late>
+      <Late>{band !== null && posts !== null && posts.length === 0 ? <Body muted>내가 쓴 글이 없어요.</Body> : null}</Late>
+      <Late style={{ gap: SPACE.md }}>
+        {band !== null
+          ? (posts ?? []).map((item) => {
+              const line = bandPostLine(item)
+              return (
+                <Stack tight key={item.postKey}>
+                  <Body>{line}</Body>
+                  <Row>
+                    <BigButton small primary label="이 글로 연결" ariaLabel={`${line} 연결`} disabled={disabled} onPress={() => onPick(band.bandKey, item.postKey)} />
+                  </Row>
+                </Stack>
+              )
+            })
+          : null}
+      </Late>
       <Row wrap>
         {band !== null && (bands ?? []).length > 1 ? <BigButton small label="다른 밴드" disabled={disabled} onPress={() => setBand(null)} /> : null}
         <BigButton small label="취소" onPress={onCancel} />

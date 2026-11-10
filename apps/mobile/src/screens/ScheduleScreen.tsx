@@ -35,6 +35,7 @@ import { AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, TextField, 
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton, ValueRow } from './settings/Group.tsx'
+import { Late } from '../ui/late.tsx'
 
 interface Draft {
   readonly id: string | null
@@ -99,56 +100,61 @@ export function ScheduleScreen({ onBack }: { readonly onBack: () => void }) {
           </View>
         ) : null}
         {view === null && error === null ? <Loading /> : null}
-        {view !== null ? (
-          <>
-            <SettingsGroup title="다가오는 라이브" label="다가오는 라이브">
-              {view.items.length === 0 ? <GroupNote>{SCHEDULE_EMPTY}</GroupNote> : null}
-              {view.items.map((item) => (
-                <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs }}>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Txt step="bodyLarge" weight="medium">{scheduleWhen(item)}</Txt>
-                    <Txt step="body" color="textSub" numberOfLines={1}>{item.title}</Txt>
-                    {item.intro !== '' ? <Txt step="caption" color="textSub" numberOfLines={2}>{item.intro}</Txt> : null}
+        {/* 서버에서 받은 뒤에야 생기는 묶음은 부드럽게 — 기억해 둔 자료로 처음부터 그리면 바로 (D-UX4-112) */}
+        <Late style={{ gap: SPACE.md }}>
+          {view !== null ? (
+            <>
+              <SettingsGroup title="다가오는 라이브" label="다가오는 라이브">
+                {view.items.length === 0 ? <GroupNote>{SCHEDULE_EMPTY}</GroupNote> : null}
+                {view.items.map((item) => (
+                  <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs }}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Txt step="bodyLarge" weight="medium">{scheduleWhen(item)}</Txt>
+                      <Txt step="body" color="textSub" numberOfLines={1}>{item.title}</Txt>
+                      {item.intro !== '' ? <Txt step="caption" color="textSub" numberOfLines={2}>{item.intro}</Txt> : null}
+                    </View>
+                    {/* 부정(지우기) 왼쪽, 긍정(고치기) 오른쪽 (D-UX4-01) */}
+                    <TextButton label="지우기" ariaLabel={`${scheduleWhen(item)} 지우기`} onPress={() => setRemoving(item)} />
+                    <TextButton label="고치기" ariaLabel={`${scheduleWhen(item)} 고치기`} color="primaryText" onPress={() => setDraft({ id: item.id, date: item.date, time: item.time, title: item.title, intro: item.intro })} />
                   </View>
-                  {/* 부정(지우기) 왼쪽, 긍정(고치기) 오른쪽 (D-UX4-01) */}
-                  <TextButton label="지우기" ariaLabel={`${scheduleWhen(item)} 지우기`} onPress={() => setRemoving(item)} />
-                  <TextButton label="고치기" ariaLabel={`${scheduleWhen(item)} 고치기`} color="primaryText" onPress={() => setDraft({ id: item.id, date: item.date, time: item.time, title: item.title, intro: item.intro })} />
-                </View>
-              ))}
-              {scheduleFull(view) ? <GroupNote>{SCHEDULE_FULL_MESSAGE}</GroupNote> : <BigButton kind="outline" label="라이브 적기" onPress={() => setDraft(EMPTY_DRAFT)} />}
-            </SettingsGroup>
+                ))}
+                {scheduleFull(view) ? <GroupNote>{SCHEDULE_FULL_MESSAGE}</GroupNote> : <BigButton kind="outline" label="라이브 적기" onPress={() => setDraft(EMPTY_DRAFT)} />}
+              </SettingsGroup>
 
-            <SettingsGroup title="공개 일정 페이지" label="공개 일정 페이지">
-              <ToggleRow title={PAGE_SWITCH_LABEL} subtitle={PAGE_HINT} on={view.page.enabled} disabled={busy} onChange={savePage} />
-              <TextField label={CHANNEL_LABEL} value={channel} onChangeText={setChannel} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
-              {channel.trim() !== (view.page.channelUrl ?? '') ? <TextButton label="채널 주소 저장" color="primaryText" align="flex-end" busy={busy} onPress={() => savePage(view.page.enabled)} /> : null}
-              {view.page.enabled && view.page.url !== null ? (
-                <View style={{ gap: SPACE.sm }}>
-                  <View style={{ padding: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
-                    <Txt selectable weight="medium">{view.page.url}</Txt>
+              <SettingsGroup title="공개 일정 페이지" label="공개 일정 페이지">
+                <ToggleRow title={PAGE_SWITCH_LABEL} subtitle={PAGE_HINT} on={view.page.enabled} disabled={busy} onChange={savePage} />
+                <TextField label={CHANNEL_LABEL} value={channel} onChangeText={setChannel} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+                {channel.trim() !== (view.page.channelUrl ?? '') ? <TextButton label="채널 주소 저장" color="primaryText" align="flex-end" busy={busy} onPress={() => savePage(view.page.enabled)} /> : null}
+                {view.page.enabled && view.page.url !== null ? (
+                  <View style={{ gap: SPACE.sm }}>
+                    <View style={{ padding: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+                      <Txt selectable weight="medium">{view.page.url}</Txt>
+                    </View>
+                    {/* 단추 둘은 한 줄에 — 새 주소(옛 주소가 안 열림)는 왼쪽, 보내기는 오른쪽 (D-UX4-01) */}
+                    <ButtonRow>
+                      <BigButton kind="outline" label={RENEW_LABEL} onPress={() => setRenewing(true)} />
+                      <BigButton label="주소 보내기" onPress={() => void Share.share({ message: view.page.url ?? '' })} />
+                    </ButtonRow>
                   </View>
-                  {/* 단추 둘은 한 줄에 — 새 주소(옛 주소가 안 열림)는 왼쪽, 보내기는 오른쪽 (D-UX4-01) */}
-                  <ButtonRow>
-                    <BigButton kind="outline" label={RENEW_LABEL} onPress={() => setRenewing(true)} />
-                    <BigButton label="주소 보내기" onPress={() => void Share.share({ message: view.page.url ?? '' })} />
-                  </ButtonRow>
-                </View>
-              ) : null}
-            </SettingsGroup>
+                ) : null}
+              </SettingsGroup>
 
-            <SettingsGroup title={ALERTS_TITLE} label={ALERTS_TITLE}>
-              {alerts !== null ? (
-                <>
-                  <ValueRow title={ALERT_WORDS.active} value={`${String(alerts.active)}명`} testID="alerts-active" />
-                  <ValueRow title={ALERT_WORDS.pending} value={`${String(alerts.pending)}명`} testID="alerts-pending" />
-                  <ValueRow title={ALERT_WORDS.withdrawn} value={`${String(alerts.withdrawn)}명`} testID="alerts-withdrawn" />
-                </>
-              ) : null}
-              <GroupNote>{ALERTS_HINT}</GroupNote>
-              <GroupNote>{ALERTS_NOT_SENDING}</GroupNote>
-            </SettingsGroup>
-          </>
-        ) : null}
+              <SettingsGroup title={ALERTS_TITLE} label={ALERTS_TITLE}>
+                <Late style={{ gap: SPACE.sm }}>
+                  {alerts !== null ? (
+                    <>
+                      <ValueRow title={ALERT_WORDS.active} value={`${String(alerts.active)}명`} testID="alerts-active" />
+                      <ValueRow title={ALERT_WORDS.pending} value={`${String(alerts.pending)}명`} testID="alerts-pending" />
+                      <ValueRow title={ALERT_WORDS.withdrawn} value={`${String(alerts.withdrawn)}명`} testID="alerts-withdrawn" />
+                    </>
+                  ) : null}
+                </Late>
+                <GroupNote>{ALERTS_HINT}</GroupNote>
+                <GroupNote>{ALERTS_NOT_SENDING}</GroupNote>
+              </SettingsGroup>
+            </>
+          ) : null}
+        </Late>
       </ScrollView>
 
       {draft !== null ? (

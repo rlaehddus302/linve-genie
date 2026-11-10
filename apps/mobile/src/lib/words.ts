@@ -97,9 +97,9 @@ export const CONNECTION_STATE_WORD = {
 export type ConnectionState = keyof typeof CONNECTION_STATE_WORD
 
 /** 저절로 다시 잇는 동안 (웹 print-words autoReconnectingMessage와 같다, L-11 8) — n = 기다리거나 하는 중인 시도의 차례 */
-export const autoReconnectingMessage = (attempt: number, total: number): string => `프린터에 다시 잇고 있어요. (${String(attempt)}/${String(total)})`
+export const autoReconnectingMessage = (attempt: number, total: number): string => `프린터에 다시 연결하고 있어요. (${String(attempt)}/${String(total)})`
 /** 저절로 다시 잇기가 그친 뒤 (웹 AUTO_RECONNECT_GAVE_UP과 같다) */
-export const AUTO_RECONNECT_GAVE_UP = "저절로 다시 잇지 못했어요. 아래를 해 본 뒤 '다시 연결'을 눌러 주세요."
+export const AUTO_RECONNECT_GAVE_UP = "저절로 다시 연결하지 못했어요. 아래를 해 본 뒤 '다시 연결'을 눌러 주세요."
 /** 시험용 프린터 연결 단추 (웹 LabelsPage와 같은 낱말, L-11 15) */
 export const TEST_PRINTER_METHOD = '시험용 프린터 — 실제로 출력되지 않아요'
 
@@ -137,7 +137,7 @@ export const OPEN_IN_WEB = '웹으로 열기'
 export const VOICE_ON = '음성 켜기'
 export const VOICE_OFF = '음성 끄기'
 export const VOICE_LISTENING = '음성 인식 중'
-export const VOICE_RECONNECTING = '다시 잇는 중'
+export const VOICE_RECONNECTING = '다시 연결하는 중'
 export const VOICE_STOPPED_TITLE = '음성 인식 멈춤'
 export const VOICE_STOPPED_BODY = '받아쓰기 서버에 연결하지 못했어요. 상품은 + 단추로 넣어 주세요.'
 /** 지난번 마이크를 켜다가 앱이 꺼졌을 때 — 저절로 다시 켜지 않고 알린다 */
@@ -166,7 +166,7 @@ export const LISTEN_STOP = '휴대폰 마이크 끄기'
 export const LISTEN_HELP = '“15번 핑크프릴 만 이천원”처럼 말하면 자동으로 올라가요'
 export const LISTEN_OFF_HELP = '음성 인식을 켜면 말로 상품을 올릴 수 있어요'
 /** 머리 오른쪽 음성 상태 (점 + 글) */
-export const LISTEN_STATE = { on: '인식 중', starting: '켜는 중', reconnecting: '다시 잇는 중', stopped: '인식 멈춤', off: '인식 꺼짐' } as const
+export const LISTEN_STATE = { on: '인식 중', starting: '켜는 중', reconnecting: '다시 연결하는 중', stopped: '인식 멈춤', off: '인식 꺼짐' } as const
 
 /** 자리를 비운 동안 (APP-04) */
 export function awayLine(counts: { readonly labels: number; readonly claims: number; readonly voice: number }): string | null {
@@ -183,7 +183,7 @@ export const APP_PRINTER_UNSUPPORTED = '이 휴대폰에서는 블루투스를 �
 /** 테스트 인쇄 "예" 전에는 "이 기기에서 출력"이 없다 (옛 문장 '실험 중인 프린터는 테스트 인쇄를…' — D-UX3-19) */
 export const EXPERIMENTAL_WAIT_TEST = '이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.'
 /** 이미 출력 기기인 기기에 새 프린터를 이었다: 테스트 "예" 전에는 받지 않는다 (D-PRN2-10 · 옛 문장 '실험 중인 프린터라…' — D-UX3-19) */
-export const EXPERIMENTAL_PAUSED = '새로 이은 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.'
+export const EXPERIMENTAL_PAUSED = '새로 연결한 프린터라 출력을 잠시 멈췄어요. 테스트 인쇄를 하고 "예"를 누르면 다시 출력해요.'
 /** 출력 기기 칸 — 테스트 "예" 전 (D-PRN2-10 · 옛 문장 '실험 중인 프린터는…' — D-UX3-19) */
 export const EXPERIMENTAL_WAIT_TEST_MINE = '이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 라벨을 찍어요.'
 /** 출력 기기에서 실험 기종의 테스트 "예"를 누른 뒤 (D-PRN2-10, 웹과 같은 문장) */
