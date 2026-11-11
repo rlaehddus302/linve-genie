@@ -50,7 +50,8 @@ export function PressScale({ ariaLabel, onPress, children, scale = 0.94, pad, ra
 }
 
 /** 회색 칩 단추 (토스 "잔액 · 159,952원 입력"): 옅은 회색 둥근 네모, 진한 회색 중간 굵기 글자, 꾸욱 눌림 */
-export function SoftChip({ label, ariaLabel, onPress, testID }: { readonly label: string; readonly ariaLabel?: string; readonly onPress: () => void; readonly testID?: string }) {
+/** center: 가운데 놓기 — 기본은 왼쪽 붙임(alignSelf flex-start)이라 부모가 가운데 정렬이어도 왼쪽에 선다 (D-UX4-132) */
+export function SoftChip({ label, ariaLabel, onPress, testID, center = false }: { readonly label: string; readonly ariaLabel?: string; readonly onPress: () => void; readonly testID?: string; readonly center?: boolean }) {
   const { p } = useKit()
   const press = usePressMotion()
   const size = press.value.interpolate({ inputRange: [0, 1], outputRange: [1, 0.94] })
@@ -66,7 +67,7 @@ export function SoftChip({ label, ariaLabel, onPress, testID }: { readonly label
         press.pressIn()
       }}
       onPressOut={press.pressOut}
-      style={{ alignSelf: 'flex-start' }}
+      style={{ alignSelf: center ? 'center' : 'flex-start' }}
     >
       {({ pressed }) => (
         <Animated.View style={{ paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surfaceAlt, transform: [{ scale: size }] }}>

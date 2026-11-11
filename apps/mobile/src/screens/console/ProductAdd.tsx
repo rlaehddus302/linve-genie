@@ -34,6 +34,8 @@ export const BIG = TYPE.amount
 /** 숫자판 키 높이 */
 const KEY_HEIGHT = 64
 const PAD: readonly (readonly string[])[] = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['00', '0', 'back']]
+/** 휴대폰 번호 숫자판 — 00 자리는 비운다 (D-UX4-132, 사용자 지시 2026-11-12 "00 버튼만 빼고") */
+const PHONE_PAD: readonly (readonly string[])[] = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['', '0', 'back']]
 
 /** 방송에 번호 끝이 없을 때 번호 칸이 받는 가장 큰 수 (네 자리) */
 const NO_FALLBACK_MAX = 9999
@@ -105,13 +107,15 @@ const ACTIVATE = [{ name: 'activate' as const }]
  * 숫자판 안 손가락 자리(숫자판 왼쪽 위 기준) → 키 (D-UX4-102). 줄은 키 높이로, 칸은 셋으로 나눈다. 숫자판 밖이면 null.
  * 숫자판은 좌우 SPACE.sm, 위 SPACE.xs 여백 + 키 64 × 4줄 — 여백을 누르면 가장 가까운 키
  */
-export function padKeyAt(x: number, y: number, width: number): string | null {
-  const height = SPACE.xs + PAD.length * KEY_HEIGHT
+export function padKeyAt(x: number, y: number, width: number, pad: readonly (readonly string[])[] = PAD): string | null {
+  const height = SPACE.xs + pad.length * KEY_HEIGHT
   if (!(width > 0) || x < 0 || x > width || y < 0 || y > height) return null
   const inner = Math.max(width - SPACE.sm * 2, 1)
   const column = Math.min(2, Math.max(0, Math.floor(((x - SPACE.sm) / inner) * 3)))
-  const row = Math.min(PAD.length - 1, Math.max(0, Math.floor((y - SPACE.xs) / KEY_HEIGHT)))
-  return PAD[row]?.[column] ?? null
+  const row = Math.min(pad.length - 1, Math.max(0, Math.floor((y - SPACE.xs) / KEY_HEIGHT)))
+  const value = pad[row]?.[column] ?? null
+  // 빈 자리(휴대폰 번호 숫자판의 00 자리)는 키가 아니다
+  return value === '' ? null : value
 }
 
 /** 키 하나의 꾸욱 움직임 (kit usePressMotion과 같은 시간·곡선) */
@@ -124,13 +128,13 @@ function pressTo(value: Animated.Value, target: number) {
  * 숫자판 전체가 한 번 누름 주인이 되고(안쪽 키는 손가락을 받지 않음), 손가락마다 닿은 순간 그 자리의 키를 받는다 — 두 손가락으로 빨리 쳐도 하나도 빠지지 않는다.
  * 키는 손가락이 닿아 있는 동안 꾸욱 눌리고 햅틱. 화면 읽기(보이스오버·톡백)는 키마다 "누르기" 동작으로 받는다.
  */
-function TouchKeys({ onKey }: { readonly onKey: (value: string) => void }) {
+function TouchKeys({ onKey, pad }: { readonly onKey: (value: string) => void; readonly pad: readonly (readonly string[])[] }) {
   const { p } = useKit()
   const latest = useRef(onKey)
   useEffect(() => {
     latest.current = onKey
   })
-  const motions = useRef(new Map(PAD.flat().map((value) => [value, new Animated.Value(0)] as const))).current
+  const motions = useRef(new Map(pad.flat().map((value) => [value, new Animated.Value(0)] as const))).current
   /** 손가락 번호 → 처음 닿은 키 */
   const fingers = useRef(new Map<string, string>()).current
   const width = useRef(0)
@@ -151,7 +155,7 @@ function TouchKeys({ onKey }: { readonly onKey: (value: string) => void }) {
       if (fingers.has(id)) continue
       // 숫자판이 누름 주인인 동안 숫자판 밖(예: [다음])에 닿은 손가락은 그 자리 기준 좌표라 받지 않는다
       if (padTag.current !== null && touch.target != null && String(touch.target) !== padTag.current) continue
-      const value = padKeyAt(touch.locationX, touch.locationY, width.current)
+      const value = padKeyAt(touch.locationX, touch.locationY, width.current, pad)
       if (value === null) continue
       fingers.set(id, value)
       tapHaptic()
@@ -189,9 +193,10 @@ function TouchKeys({ onKey }: { readonly onKey: (value: string) => void }) {
       onResponderTerminate={releaseAll}
       style={{ paddingHorizontal: SPACE.sm, paddingTop: SPACE.xs }}
     >
-      {PAD.map((row) => (
+      {pad.map((row) => (
         <View key={row.join('')} style={{ flexDirection: 'row' }}>
           {row.map((value) => {
+            if (value === '') return <View key="blank" aria-hidden style={{ flex: 1, height: KEY_HEIGHT }} />
             const motion = motions.get(value) ?? new Animated.Value(0)
             const size = motion.interpolate({ inputRange: [0, 1], outputRange: [1, KEY_SCALE] })
             return (
@@ -221,14 +226,15 @@ function TouchKeys({ onKey }: { readonly onKey: (value: string) => void }) {
   )
 }
 
-/** 앱 숫자판 (다른 화면도 쓴다). 휴대폰은 손가락마다 받는 숫자판, 웹(시험)은 키마다 누르는 단추 */
-export function NumberKeys({ onKey }: { readonly onKey: (value: string) => void }) {
-  if (Platform.OS !== 'web') return <TouchKeys onKey={onKey} />
+/** 앱 숫자판 (다른 화면도 쓴다). 휴대폰은 손가락마다 받는 숫자판, 웹(시험)은 키마다 누르는 단추. phone: 휴대폰 번호 — 00 자리 비움 (D-UX4-132) */
+export function NumberKeys({ onKey, phone = false }: { readonly onKey: (value: string) => void; readonly phone?: boolean }) {
+  const pad = phone ? PHONE_PAD : PAD
+  if (Platform.OS !== 'web') return <TouchKeys onKey={onKey} pad={pad} />
   return (
     <View role="group" aria-label="숫자판" style={{ paddingHorizontal: SPACE.sm, paddingTop: SPACE.xs }}>
-      {PAD.map((row) => (
+      {pad.map((row) => (
         <View key={row.join('')} style={{ flexDirection: 'row' }}>
-          {row.map((value) => <PadKey key={value} value={value} onPress={onKey} />)}
+          {row.map((value) => (value === '' ? <View key="blank" aria-hidden style={{ flex: 1, height: KEY_HEIGHT }} /> : <PadKey key={value} value={value} onPress={onKey} />))}
         </View>
       ))}
     </View>

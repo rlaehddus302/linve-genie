@@ -33,7 +33,8 @@ describe('인증번호 자동 채우기 (D-UX4-131)', () => {
   it('[문자가 안 오나요?]는 [링크를 모르겠어요]와 같은 회색 칩 — 밑줄 글자가 아니다', async () => {
     await toCodeStep(async () => {})
     const chip = screen.getByRole('button', { name: '문자가 안 오나요?' })
-    expect(source).toContain('<SoftChip label={CODE_NOT_COMING}')
+    // D-UX4-132: 칩을 가운데로(center)
+    expect(source).toContain('<SoftChip center label={CODE_NOT_COMING}')
     expect(chip.innerHTML).not.toContain('underline')
   })
 })

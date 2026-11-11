@@ -14,6 +14,9 @@
 //    RN은 여러 줄 칸에서만 "선택이 바뀌었는데 글이 다르면 바뀐 것으로 본다"(RCTTextInputComponentView textInputDidChangeSelection)로 받아 낸다.
 //    안드로이드(갤럭시)는 키보드 위 인증번호를 누르면 한 줄 칸의 글 바뀜(TextWatcher)으로 늘 들어온다 — 한 줄 그대로(숫자 키패드). 아이폰과 같이 키보드 위 인증번호만 쓴다.
 //    [문자가 안 오나요?]는 [링크를 모르겠어요]와 같은 회색 칩(SoftChip).
+// D-UX4-132 (사용자 지시 2026-11-12 "문자가 안 오나요 버튼 중간 정렬하고 키보드로 부터 좀 더 위로 띄워. 그리고 휴대폰 번호 입력받는 화면에서 키보드를 우리가 만든 키보드로 쓰자. 단 00 버튼만 빼고"):
+//    칩은 가운데(칩 기본이 왼쪽 붙임이라 가운데 정렬이 먹지 않았다), 키보드와 사이 28(옛 16). 번호 단계는 휴대폰 키보드 대신 앱 숫자판(상품 추가와 같은 NumberKeys, 00 자리 비움) —
+//    칸은 그대로 밑줄 칸이고 눌러도 휴대폰 키보드가 뜨지 않는다(showSoftInputOnFocus, 아이폰·갤럭시 같다). 인증번호 단계는 문자 자동 채우기 때문에 휴대폰 키보드 그대로.
 // 아래 단추는 키보드가 뜨면 키보드 바로 위로 올라온다. 이 화면이 떠 있는 동안 맨 위 상태 막대 자리도 흰색이다(D-UX3-50).
 // D-UX3-51: 잘못이어도 [다음]은 그대로 — 누르면 칸이 다시 흔들리고 진동한다. 뒤로·제목 자리와 잘못 모양은 공통 부품(PAGE·ErrorLine·useWrongShake).
 // ③ 맞으면 화면을 넘기지 않고 그 자리에서 (D-UX3-60, 사용자 지시 2026-11-07 토스 사진 27~34): 합친 칸이 초록으로 차며 숫자가 흐려지고, 알약을 거쳐 작은 원이 되는 동안
@@ -52,6 +55,7 @@ import {
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
 import { BigButton, NAV, NavBar, ErrorLine, KEYBOARD_AVOID, PopupDialog, SoftChip, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
+import { NumberKeys } from './console/ProductAdd.tsx'
 import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
 import { EdgeSwipeBack, SlideSwitch } from '../ui/kit/slide.tsx'
 import { PAGE, RADIUS, SPACE, WEIGHT } from '../ui/kit/tokens.ts'
@@ -181,6 +185,12 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
     if (sending) return
     const next = text.replace(/\D/g, '').slice(0, 11)
     setDigits(next)
+    setSendError(null)
+  }
+  // 앱 숫자판 누름 (D-UX4-132) — 그리기 전에 연달아 눌러도 앞 누름에 이어 붙인다. 11자리 넘게는 받지 않는다
+  const typePhoneKey = (key: string) => {
+    if (sending) return
+    setDigits((now) => (key === 'back' ? now.slice(0, -1) : (now + key).slice(0, 11)))
     setSendError(null)
   }
 
@@ -369,6 +379,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
             title={PHONE_ASK_TITLE}
             testID="phone-step"
             footer={<BigButton label={PHONE_NEXT} onPress={nextFromPhone} disabled={digits.length !== 11} busy={sending} testID="phone-next" />}
+            keys={<NumberKeys phone onKey={typePhoneKey} />}
           >
             <View style={{ marginTop: PAGE.titleGap }}>
               <UnderlineField
@@ -378,8 +389,9 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
                 error={wrongStart ? PHONE_RECHECK : sendError}
                 again={phoneAgain}
                 keyboardType="number-pad"
-                textContentType="telephoneNumber"
-                autoComplete="tel"
+                showSoftInputOnFocus={false}
+                textContentType="none"
+                autoComplete="off"
                 autoFocus
                 maxLength={13}
                 testID="phone-input"
@@ -440,6 +452,7 @@ export function QuestionPage({
   title,
   children,
   footer,
+  keys,
   away,
   testID,
 }: {
@@ -448,6 +461,8 @@ export function QuestionPage({
   readonly title: string
   readonly children: ReactNode
   readonly footer?: ReactNode
+  /** 아래 단추 밑 앱 숫자판 — 있으면 휴대폰 키보드 대신 (D-UX4-132) */
+  readonly keys?: ReactNode
   /** 1 → 0으로 뒤로·제목을 흐린다 (인증 성공 때, D-UX3-60) */
   readonly away?: Animated.Value
   readonly testID: string
@@ -473,22 +488,26 @@ export function QuestionPage({
           {children}
         </View>
         {footer === undefined || footer === null ? null : (
-          <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : Math.max(bottom, SPACE.md) + SPACE.xs }}>{footer}</View>
+          <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keys !== undefined ? SPACE.sm : keyboard ? SPACE.md : Math.max(bottom, SPACE.md) + SPACE.xs }}>{footer}</View>
         )}
+        {keys === undefined ? null : <View style={{ paddingBottom: Math.max(bottom, SPACE.sm) }}>{keys}</View>}
       </KeyboardAvoidingView>
     </EdgeSwipeBack>
   )
 }
 
-/** 키보드 위 [문자가 안 오나요?] — [링크를 모르겠어요]와 같은 회색 칩 (D-UX4-131, 옛 밑줄 글자 D-UX3-53). 확인하는 동안은 부드럽게 숨긴다 */
+/** [문자가 안 오나요?] 아래 띄움 — 틀 아래 12와 더해 키보드에서 28 (D-UX4-132, 옛 4 + 12 = 16) */
+export const NOT_COMING_LIFT = SPACE.lg
+
+/** 키보드 위 [문자가 안 오나요?] — [링크를 모르겠어요]와 같은 회색 칩 (D-UX4-131, 옛 밑줄 글자 D-UX3-53). 가운데, 확인하는 동안은 부드럽게 숨긴다 */
 function NotComing({ hidden, onPress }: { readonly hidden: boolean; readonly onPress: () => void }) {
   const fade = useRef(new Animated.Value(hidden ? 0 : 1)).current
   useEffect(() => {
     Animated.timing(fade, { toValue: hidden ? 0 : 1, duration: SOFT_MS, easing: Easing.out(Easing.cubic), useNativeDriver: native }).start()
   }, [hidden, fade])
   return (
-    <Animated.View style={{ opacity: fade, alignItems: 'center', paddingVertical: SPACE.xs }} pointerEvents={hidden ? 'none' : 'auto'} aria-hidden={hidden}>
-      <SoftChip label={CODE_NOT_COMING} onPress={onPress} testID="code-not-coming" />
+    <Animated.View style={{ opacity: fade, alignItems: 'center', paddingTop: SPACE.xs, paddingBottom: NOT_COMING_LIFT }} pointerEvents={hidden ? 'none' : 'auto'} aria-hidden={hidden}>
+      <SoftChip center label={CODE_NOT_COMING} onPress={onPress} testID="code-not-coming" />
     </Animated.View>
   )
 }
