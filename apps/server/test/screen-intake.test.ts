@@ -1,7 +1,8 @@
 // D-SCR-01 화면 일꾼 입구: 토큰·요청 모양·영상 번호로 방송 찾기·등록·같은 번호 다시 보냄·같은 요청 다시 보냄.
+// D-SCR-04: 같은 영상에 이어진 방송이 여럿이면(판매자 여럿) 모두에 등록, 같은 요청은 방송마다 한 번.
 // 포트를 열지 않는다 — app.request로 /internal/screen/register를 부른다.
 import { describe, expect, it } from 'vitest'
-import { client } from './support.ts'
+import { client, createBroadcast } from './support.ts'
 import { connectSeller, linkedBroadcast, youtubeWorld } from './youtube-support.ts'
 
 const TOKEN = 'screen-worker-token-0123456789abcdef'
@@ -70,6 +71,31 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     expect(same.body).toMatchObject({ ok: true, changed: true })
     expect(repeat.status).toBe(200)
     expect((await products(world, connected.seller.cookie, b.date)).filter((p) => p.no === 238)).toHaveLength(1)
+  })
+
+  it('D-SCR-04 같은 영상에 이어진 방송이 여럿이면 모두에 등록하고, 같은 요청을 다시 보내도 방송마다 한 번', async () => {
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const one = await connectSeller(world)
+    const { b: b1, live } = await linkedBroadcast(world, one)
+    // 다른 판매자가 같은 라이브를 잇는다(D-LV1-15)
+    const two = await connectSeller(world, { channelTitle: '두 번째 가게' })
+    const b2 = await createBroadcast(world, two.seller)
+    const linked2 = await client(world, two.seller.cookie).post(`/api/broadcasts/${b2.id}/youtube`, { requestId: `link-${b2.id}`, video: `https://www.youtube.com/watch?v=${live.videoId}`, confirmInvited: true })
+    expect(linked2.status, JSON.stringify(linked2.body)).toBe(200)
+
+    const body = { videoId: live.videoId, no: 17, price: 70000, name: '녹금', requestId: 'screen-v-17' }
+    const first = await post(world, body)
+    expect(first.status, JSON.stringify(first.body)).toBe(200)
+    expect(first.body).toMatchObject({ ok: true, changed: true, no: 17 })
+    expect(first.body.broadcasts).toHaveLength(2)
+    const again = await post(world, body)
+    expect(again.status, JSON.stringify(again.body)).toBe(200)
+    expect(again.body).toMatchObject({ ok: true, changed: false, duplicate: true })
+    for (const [seller, b] of [[one.seller, b1], [two.seller, b2]] as const) {
+      const list = (await products(world, seller.cookie, b.date)).filter((p) => p.no === 17)
+      expect(list, b.id).toHaveLength(1)
+      expect(list[0]).toMatchObject({ no: 17, name: '녹금', price: 70000 })
+    }
   })
 
   it('D-SCR-02 지금 볼 라이브: 토큰 없으면 404·틀리면 401, 이어진 방송의 영상 번호만, 방송을 끝내면 빠진다', async () => {
