@@ -184,7 +184,8 @@ describe('주문 상세 맨 아래 줄 (D-UX4-123 → D-UX4-125)', () => {
     await waitFor(() => expect(within(paid).queryByRole('button', { name: '입금을 확인했나요?' })).toBeNull())
     fireEvent.click(screen.getByRole('button', { name: '배송비 바꾸기' }))
     const choice = await screen.findByTestId('shipping-choice')
-    await waitFor(() => expect(within(choice).getAllByRole('radio').map((r) => r.textContent?.includes('이 주문') === true)).toEqual([false]))
+    // D-UX4-129: 고르기(radio) → 이름 + › 줄
+    await waitFor(() => expect(within(choice).getAllByRole('button').map((b) => b.getAttribute('aria-label')).filter((label) => /바꾸기$/.test(label ?? ''))).toEqual(['배송비 기준 바꾸기']))
     fireEvent.click(screen.getByRole('button', { name: '정산서 보내기' }))
     const row = within(await screen.findByTestId('order-send')).getByRole('button', { name: '고객에게 문자 보내기' })
     await waitFor(() => expect(row.getAttribute('aria-disabled')).toBe('true'))

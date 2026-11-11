@@ -1,19 +1,19 @@
 // 주문 상세 (D-UX4-125 → D-UX4-126 → D-UX4-127 → D-UX4-128, 사용자 지시 2026-11-11 "주문 탭 수정 사항"):
 // 토스 "상세 내역"처럼 흰 바탕에 카드 없이, 묶음 사이는 굵은 옅은 회색 띠로 나눈다.
 // ① 맨 위 플랫폼 아이콘 + 닉네임(크게), 그 아래 왼쪽 이름표(같은 너비)·오른쪽 내용 줄: 성함 · 휴대폰 번호 · 주소 · 예약 날짜(요일까지).
-//    모르면 빨간 "모름" + 회색 ›, 아는 값은 › 없이 오른쪽 끝에 붙인다(D-UX4-128 "모름 아닌것들은 > 없애고 오른쪽에 잘 붙여") — 그래도 눌러 고칠 수 있다.
+//    모르면 빨간 "모름", 아는 값은 그대로 — 둘 다 › 없이 오른쪽 끝에 붙인다(D-UX4-128 · D-UX4-129 "모름 옆에 > 없애자") — 그래도 눌러 고칠 수 있다.
 //    줄을 누르면 상품 추가처럼 한 번에 하나씩 묻는 손님 정보 화면(OrderInfoScreen). 손님이 적은 주소가 아직 확인 전이면 주소 아래 작은 "확인 전".
-// ② 테두리 없는 표 번호 | 상품명 | 개수 | 가격 (번호·개수는 가운데 — D-UX4-128로 상품명·가격 칸 여백은 원래대로),
-//    목록 끝 얇은 구분선(띠 아님) 아래 총합(개수 합 · 가격 합) · 배송비(이름표가 "배송비(50,000원 이상 구매 시 무료배송)") · 할인·추가 · 최종 금액,
+// ② 테두리 없는 표 번호 | 상품명 | 개수 | 가격 (번호 오름차순, 번호·개수는 가운데 — 번호 칸은 "번호" 글자 폭이라 표 왼쪽 끝에 붙고 상품명과는 띄운다, D-UX4-129),
+//    목록 끝 얇은 구분선(띠 아님) 아래 총합(개수 합 · 가격 합) · 배송비(무료 기준이 있으면 늘 "배송비(50,000원 이상 구매 시 무료배송)") · 할인·추가 · 최종 금액,
 //    그 묶음 오른쪽 아래 작은 회색 단추 [배송비 바꾸기] [정산서 보내기].
-//    [배송비 바꾸기] → 아래 창에서 "배송비 기준 바꾸기"(가게 설정) / "이 주문 배송비 바꾸기"(우리 키보드 화면, OrderShippingScreen) 고르기.
+//    [배송비 바꾸기] → 아래 창 이름 + › 줄: "배송비 기준 바꾸기"(가게 설정) / "이 주문 배송비 바꾸기"(우리 키보드 화면, OrderShippingScreen).
 //    [정산서 보내기] → 아래 창 줄 넷: 고객에게 문자 보내기 · 사진으로 저장하기 · CSV 파일로 저장하기 · 엑셀 파일로 저장하기 (order-export.tsx).
 // ③ "입금" 이름표 아래 받은 금액 · 남은 금액(남아 있으면 빨강) · 돌려줄 돈, 남은 금액이 있으면 [입금을 확인했나요?] → 팝업 [확인했어요] → 남은 금액을 다 받은 것으로 적는다.
-// ④ 최근 주문 내역(옛 "지난 거래 내역"): 지금 주문도 1회로 센다 — 거래 횟수 | 총 금액, 날짜별 줄.
+// ④ 최근 주문 내역(옛 "지난 거래 내역"): 지금 주문도 1회로 센다 — 거래 횟수 | 총 금액, 날짜별 줄(모두 ›). 지금 주문 줄을 누르면 이 화면 맨 위로(D-UX4-129).
 // 그 아래 옛 확인서·금액 고치기·금액 기록 메뉴는 없앴다(D-UX4-128 "나중에 내가 필요하면 그때 추가할게").
 // 서버 GET /api/days/:date/order?buyer= (apps/web/src/api/order-types.ts). 금액은 서버(엔진)가 정한 정수 원 그대로, 이름·주소는 글자로만 그린다.
 import { type ReactNode, useRef, useState } from 'react'
-import { ScrollView, View } from 'react-native'
+import { ScrollView, type ScrollViewInstance, View } from 'react-native'
 import type { OrderDetailView, OrderHistoryLine, OrderInfoField, OrderPlatform } from '@livejjim/web/src/api/order-types.ts'
 import type { BundleView } from '@livejjim/web/src/api/parcel-types.ts'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
@@ -27,11 +27,12 @@ import { signalScreens, useScreenSignal } from '../lib/screen-signals.ts'
 import { settlementKey } from '../lib/scope-data.ts'
 import { NOT_APPLIED_SETTLEMENT, remainingOf, signedWon } from '../lib/settle.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
-import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, SheetChoices, StackPage, Txt, useHoldRouteSwipe, useKit, Tap } from '../ui/kit/index.ts'
+import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, StackPage, Txt, useHoldRouteSwipe, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import { DetailHeading } from './order-fix.tsx'
+import { MenuRow } from './order-parts.tsx'
 import { OrderSendSheet, SEND_TITLE, SHEET_GONE_MS, type SendNotice } from './order-export.tsx'
 import { OrderInfoFlow } from './OrderInfoScreen.tsx'
 import { OrderShippingFlow } from './OrderShippingScreen.tsx'
@@ -99,6 +100,8 @@ function OrderDetailBody({ date, buyer, onBack, onOpenOrder, onOpenShopSettings,
   const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState<SendNotice | null>(null)
   const [shippingAsk, setShippingAsk] = useState(false)
+  // 최근 주문 내역의 지금 주문 줄 → 맨 위로 (D-UX4-129)
+  const scroller = useRef<ScrollViewInstance>(null)
   const { data: view, error, reload } = useCachedGet<OrderDetailView>(orderPath(date, buyer), bump)
   useOrdersLive(date, () => void reload())
   // 손님 정보·배송비 화면에서 저장하면 다시 받는다
@@ -142,19 +145,24 @@ function OrderDetailBody({ date, buyer, onBack, onOpenOrder, onOpenShopSettings,
       ) : view === null ? (
         <Loading />
       ) : (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: SPACE.xxxl }} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scroller} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: SPACE.xxxl }} keyboardShouldPersistTaps="handled">
           <Head view={view} {...(editable ? { onEdit: onEditInfo } : {})} addressNote={addressNote} />
           <Band />
           <Order view={view} notice={notice} {...(shippingChoices.length > 0 ? { onShipping: () => setShippingAsk(true) } : {})} onSend={() => { setNotice(null); setSending(true) }} />
           <Band />
           <Payment view={view} date={date} settlement={settlement === null || sealed ? null : { buyer: settlement.buyer, date: settlement.date }} onPaid={written} />
           <Band />
-          <History view={view} {...(onOpenOrder !== undefined ? { onOpen: onOpenOrder } : {})} />
+          <History view={view} {...(onOpenOrder !== undefined ? { onOpen: onOpenOrder } : {})} onTop={() => scroller.current?.scrollTo({ y: 0, animated: true })} />
         </ScrollView>
       )}
       <OrderSendSheet visible={sending} date={date} buyer={buyer} name={title} sealed={sealed} onClose={() => setSending(false)} onNotice={setNotice} onSent={written} />
       <BottomSheet visible={shippingAsk} onClose={() => setShippingAsk(false)} title={SHIPPING_BUTTON} testID="shipping-choice">
-        <SheetChoices label={SHIPPING_BUTTON} choices={shippingChoices} value={null} onPick={(choice) => void pickShipping(choice)} />
+        {/* 이름 + › 줄 (D-UX4-129 "메뉴들 옆에 > 없으니까 붙이고" — [정산서 보내기] 창과 같은 줄) */}
+        <View style={{ marginHorizontal: -SPACE.xl }}>
+          {shippingChoices.map((choice) => (
+            <MenuRow key={choice.value} title={choice.label} sub={choice.description} onPress={() => void pickShipping(choice.value)} />
+          ))}
+        </View>
       </BottomSheet>
     </StackPage>
   )
@@ -210,14 +218,13 @@ function Head({ view, onEdit, addressNote }: { readonly view: OrderDetailView; r
 export const RESERVED_LABEL = '예약 날짜'
 /** 손님 정보 줄 이름표 칸 너비 — 네 줄 내용이 같은 자리에서 시작한다 (D-UX4-127 "수평 정렬") */
 const INFO_LABEL_WIDTH = 92
-const CHEVRON = 16
 /** 손님 정보 줄 높이 (D-UX4-127 "간격도 지금 너무 넓어" — 48 → 40) */
 const INFO_ROW_HEIGHT = 40
 const infoRowStyle = { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: INFO_ROW_HEIGHT, paddingVertical: SPACE.xs + 2, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md, borderCurve: 'continuous' } as const
 
 /**
- * 손님 정보 한 줄: 왼쪽 회색 이름표(같은 너비), 오른쪽 내용. 모르면 빨간 "모름" + 회색 ›,
- * 아는 값은 › 없이 오른쪽 끝에 붙인다(D-UX4-128). 고칠 수 있으면 아는 값도 눌러 그 칸부터 묻는 손님 정보 화면으로.
+ * 손님 정보 한 줄: 왼쪽 회색 이름표(같은 너비), 오른쪽 내용. 모르면 빨간 "모름" — ›는 어느 줄에도 없이 오른쪽 끝에 붙인다
+ * (D-UX4-128 아는 값 › 없앰 → D-UX4-129 "모름 옆에 > 없애자. 보기에 안 좋다"). 고칠 수 있으면 눌러 그 칸부터 묻는 손님 정보 화면으로.
  */
 function InfoRow({ field, value, note, onEdit }: { readonly field: OrderInfoField; readonly value: string | null; readonly note?: Note; readonly onEdit?: (field: OrderInfoField) => void }) {
   const { p } = useKit()
@@ -234,7 +241,6 @@ function InfoRow({ field, value, note, onEdit }: { readonly field: OrderInfoFiel
         <Txt step="body" weight={unknown ? 'book' : 'medium'} color={unknown ? 'dangerText' : 'text'} right>{shown}</Txt>
         {note !== undefined ? <Txt step="caption" weight="medium" color={note.tone === 'danger' ? 'dangerText' : 'warnText'} right>{note.text}</Txt> : null}
       </View>
-      {onEdit !== undefined && unknown ? <Icon name="chevron" color={p.textSub} size={CHEVRON} /> : null}
     </>
   )
   if (onEdit === undefined) {
@@ -287,8 +293,13 @@ function SmallButton({ label, onPress }: { readonly label: string; readonly onPr
   )
 }
 
-/** 표 칸 너비: 번호·개수는 가운데 맞춤 칸, 가격은 오른쪽 맞춤 칸 — 총합 줄도 같은 칸을 쓴다 */
-const NO_WIDTH = 44
+/**
+ * 표 칸 너비: 번호·개수는 가운데 맞춤 칸, 가격은 오른쪽 맞춤 칸 — 총합 줄도 같은 칸을 쓴다.
+ * 번호 칸은 "번호" 글자 폭만큼이라 표 왼쪽 끝(총합·배송비 이름표와 같은 자리)에서 시작하고, 상품명과는 NO_GAP 띄운다
+ * (D-UX4-129 "표 왼쪽에 여백 없애라 … 번호와 상품명 너무 붙어있어서" — 옛 44 칸 가운데라 왼쪽이 비었다).
+ */
+const NO_WIDTH = 24
+const NO_GAP = SPACE.lg
 const QTY_WIDTH = 44
 const PRICE_WIDTH = 104
 
@@ -297,13 +308,10 @@ export const TOTAL_ROW = '총합'
 export const GRAND_TOTAL = '최종 금액'
 
 /**
- * 배송비 이름표 (D-UX4-128 "배송비 얼마 이상 구매 무료 문구는 별도로 빼지 말고 '배송비' 라벨을 → '배송비(50,000원 이상 구매 시 무료배송)'").
- * 무료 기준이 없는 기본 배송비는 그냥 "배송비", 직접 수령·합배송·이 주문만 정한 배송비는 괄호 안에 그 말.
+ * 배송비 이름표 (D-UX4-128 "'배송비' 라벨을 → '배송비(50,000원 이상 구매 시 무료배송)'").
+ * D-UX4-129 "이 주문만 정함 뭐 이런 말은 안 적어도 돼": 직접 수령·합배송·이 주문만 정함이어도 괄호에는 가게 무료 기준만 — 기준이 없는 가게는 그냥 "배송비".
  */
 export function shippingLabel(rule: OrderDetailView['shippingRule']): string {
-  if (rule.mode === 'PICKUP') return '배송비(직접 수령)'
-  if (rule.mode === 'COMBINED') return '배송비(합배송)'
-  if (rule.mode === 'FIXED') return '배송비(이 주문만 정함)'
   return rule.freeThreshold !== null ? `배송비(${formatWon(rule.freeThreshold)} 이상 구매 시 무료배송)` : '배송비'
 }
 
@@ -311,7 +319,7 @@ export function shippingLabel(rule: OrderDetailView['shippingRule']): string {
 function Cells({ no, name, qty, price, role = 'cell' }: { readonly no: ReactNode; readonly name: ReactNode; readonly qty: ReactNode; readonly price: ReactNode; readonly role?: 'cell' | 'columnheader' }) {
   return (
     <>
-      <View role={role} style={{ width: NO_WIDTH, alignItems: 'center' }}>{no}</View>
+      <View role={role} style={{ width: NO_WIDTH, marginRight: NO_GAP, alignItems: 'center' }}>{no}</View>
       <View role={role} style={{ flex: 1 }}>{name}</View>
       <View role={role} style={{ width: QTY_WIDTH, alignItems: 'center' }}>{qty}</View>
       <View role={role} style={{ width: PRICE_WIDTH, alignItems: 'flex-end' }}>{price}</View>
@@ -353,7 +361,7 @@ function Order({ view, notice, onShipping, onSend }: { readonly view: OrderDetai
           />
         </View>
         {view.items.length === 0 ? <Txt step="body" color="textSub">취소되어 상품이 없어요</Txt> : null}
-        {view.items.map((item, index) => {
+        {[...view.items].sort((a, b) => a.no - b.no).map((item, index) => {
           const price = formatWon(item.price * item.qty)
           return (
             <View key={`${String(item.no)}-${String(index)}`} role="row" aria-label={`${String(item.no)}번 ${item.name} ${countWords(item.qty)} ${price}`} style={{ ...rowStyle, alignItems: 'flex-start' }}>
@@ -453,9 +461,9 @@ function Payment({ view, date, settlement, onPaid }: { readonly view: OrderDetai
 }
 
 /** ④ 최근 주문 내역 (옛 "지난 거래 내역", D-UX4-128 "현재 주문도 1회로 보도록"): 지금 주문을 더해 거래 횟수 | 총 금액, 날짜별 줄 */
-function History({ view, onOpen }: { readonly view: OrderDetailView; readonly onOpen?: (date: string, buyer: string) => void }) {
+function History({ view, onOpen, onTop }: { readonly view: OrderDetailView; readonly onOpen?: (date: string, buyer: string) => void; readonly onTop: () => void }) {
   const { p } = useKit()
-  // 지금 주문 줄 (이 화면이 그 주문이라 누르지 않는다) — 다른 주문과 날짜 순(최근 먼저)으로 섞는다
+  // 지금 주문 줄 (누르면 이 화면 맨 위로) — 다른 주문과 날짜 순(최근 먼저)으로 섞는다
   const current: OrderHistoryLine = { date: view.date, buyer: view.buyer, total: view.total, itemCount: view.itemCount, openable: false }
   const all = [current, ...view.history.lines.filter((line) => !(line.date === view.date && line.buyer === view.buyer))].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
   const count = view.history.count + 1
@@ -485,7 +493,7 @@ function History({ view, onOpen }: { readonly view: OrderDetailView; readonly on
           <Txt step="caption" color="textSub" role="heading" aria-level={3}>{dayWeekdayWords(day.date)}</Txt>
           <View style={{ marginHorizontal: -SPACE.sm }}>
             {day.lines.map((line) => (
-              <HistoryRow key={`${line.date}/${line.buyer}`} line={line} {...(onOpen !== undefined ? { onOpen } : {})} />
+              <HistoryRow key={`${line.date}/${line.buyer}`} line={line} current={line === current} {...(onOpen !== undefined ? { onOpen } : {})} onTop={onTop} />
             ))}
           </View>
         </View>
@@ -494,10 +502,14 @@ function History({ view, onOpen }: { readonly view: OrderDetailView; readonly on
   )
 }
 
-function HistoryRow({ line, onOpen }: { readonly line: OrderHistoryLine; readonly onOpen?: (date: string, buyer: string) => void }) {
+/**
+ * 최근 주문 한 줄 — 모두 › (D-UX4-129 "최근 주문 내역에 있는 목록들 > 다 붙이고 만약 지금 주문이라면 눌렀을 때 지금 그 화면 맨 위로").
+ * 지금 주문 줄은 이 화면 맨 위로, 다른 날은 그날 상세. 봉인 보관만 남은 날(openable false)은 열 상세가 없어 ›도 누름도 없다(AUTO — 눌러도 "찾지 못했어요"만 나온다).
+ */
+function HistoryRow({ line, current, onOpen, onTop }: { readonly line: OrderHistoryLine; readonly current: boolean; readonly onOpen?: (date: string, buyer: string) => void; readonly onTop: () => void }) {
   const { p } = useKit()
-  const words = `${dateWords(line.date)} 거래 ${formatWon(line.total)} · ${countWords(line.itemCount)}`
-  const open = line.openable && onOpen !== undefined
+  const words = `${dateWords(line.date)} 거래 ${formatWon(line.total)} · ${countWords(line.itemCount)}${current ? ' · 지금 주문' : ''}`
+  const open = current || (line.openable && onOpen !== undefined)
   const body = (
     <>
       <View style={{ flex: 1 }}>
@@ -516,7 +528,7 @@ function HistoryRow({ line, onOpen }: { readonly line: OrderHistoryLine; readonl
     )
   }
   return (
-    <Tap role="button" aria-label={words} onPress={() => onOpen(line.date, line.buyer)} style={({ pressed }) => ({ ...style, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={words} onPress={() => (current ? onTop() : onOpen?.(line.date, line.buyer))} style={({ pressed }) => ({ ...style, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {body}
     </Tap>
   )

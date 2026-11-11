@@ -415,10 +415,9 @@ describe('D-UX4-126 주문 한 건 내보내기', () => {
     const paid = await linesOf(D1, 'UC_A')
     expect(paid[2]).toBe('예약 날짜,2026년 10월 18일 일요일')
     expect(paid.slice(6, 9)).toEqual(['총합,,1개,"10,000원"', '배송비,,,"4,000원"', '총 결제금액,,,"14,000원"'])
-    // D2 나래: 직접 수령이면 그 말
+    // D2 나래: 직접 수령이어도 이름표에는 그 말 없이 가게 무료 기준만 (D-UX4-128 '배송비(직접 수령)' → D-UX4-129 "이 주문만 정함 뭐 이런 말은 안 적어도 돼")
     const pickup = await linesOf(D2, 'UC_B')
-    // D-UX4-128: 옛 '배송비,직접 수령,,0원'
-    expect(pickup).toContain('배송비(직접 수령),,,0원')
+    expect(pickup).toContain('"배송비(30,000원 이상 구매 시 무료배송)",,,0원')
     expect(pickup).toContain('총 결제금액,,,"6,000원"')
   })
 

@@ -21,6 +21,10 @@ const ROWS = [
 
 const labels = () => within(screen.getByRole('list', { name: '주문 목록' })).getAllByRole('button').map((row) => row.getAttribute('aria-label'))
 
+
+/** 줄 끝 › (키트 Icon chevron은 45도 돌린 테두리 상자) */
+const hasChevron = (el: Element): boolean => Array.from(el.querySelectorAll('div')).some((d) => d.style.transform.includes('rotate(45deg)'))
+
 describe('주문 목록 (D-UX4-125)', () => {
   it('"주문" 머리·날짜 캡슐이 없고, 맨 위 단추 셋이 한 줄에 있어 각 화면을 연다', async () => {
     const w = makeWorld()
@@ -163,7 +167,7 @@ describe('주문 상세 (D-UX4-125)', () => {
     expect(within(head).queryByText('배송지 확인·고치기')).toBeNull()
     expect(screen.queryByRole('group', { name: '배송지' })).toBeNull()
     // D-UX4-128 "모름 아닌것들은 > 없애고 오른쪽에 잘 붙여": 아는 값 줄에는 ›가 없다(그래도 눌러 고친다)
-    expect(within(head).getByRole('button', { name: '성함 김다육 · 고치기' }).querySelector('svg')).toBeNull()
+    expect(hasChevron(within(head).getByRole('button', { name: '성함 김다육 · 고치기' }))).toBe(false)
     // 묶음 사이 굵은 회색 띠 (D-UX4-128: 아래 메뉴 묶음이 없어져 손님 | 주문 | 입금 | 최근 주문 내역 사이 셋)
     expect(screen.getAllByTestId('detail-band').length).toBe(3)
   })
@@ -180,6 +184,8 @@ describe('주문 상세 (D-UX4-125)', () => {
     for (const label of ['성함', '휴대폰 번호', '주소']) {
       const row = within(head).getByRole('button', { name: `${label} 모름 · 고치기` })
       expect(within(row).getByText('모름').style.color).toBe('rgb(221, 24, 36)')
+      // D-UX4-129 "모름 옆에 > 없애자. 보기에 안 좋다": 모름 줄에도 ›가 없다 (그래도 눌러 고친다)
+      expect(hasChevron(row)).toBe(false)
     }
     fireEvent.click(within(head).getByRole('button', { name: '휴대폰 번호 모름 · 고치기' }))
     expect(onEditInfo).toHaveBeenCalledWith('phone')
@@ -191,9 +197,10 @@ describe('주문 상세 (D-UX4-125)', () => {
   })
 
   // D-UX4-127 (사용자 지시 2026-11-11 "표 컬럼에 개수 추가해주고, 번호와 개수는 중간정렬"): 옛 번호 | 상품명 | 가격, 이름 뒤 ×n → 개수 칸
-  it('표: 번호 | 상품명 | 개수 | 가격 — 번호·개수는 가운데, 가격은 그 줄 합', async () => {
+  // D-UX4-129 (사용자 지시 2026-11-11 "표는 번호 기준으로 오름차순해서 보여주고"): 서버가 다른 순서로 줘도 번호 작은 것부터
+  it('표: 번호 | 상품명 | 개수 | 가격 — 번호 오름차순, 번호·개수는 가운데, 가격은 그 줄 합', async () => {
     const w = makeWorld()
-    withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ items: [{ no: 3, name: '금황', price: 15_000, qty: 1 }, { no: 15, name: '핑크프릴', price: 8_000, qty: 2 }], itemCount: 3, subtotal: 31_000 }) } })
+    withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ items: [{ no: 15, name: '핑크프릴', price: 8_000, qty: 2 }, { no: 3, name: '금황', price: 15_000, qty: 1 }], itemCount: 3, subtotal: 31_000 }) } })
     openDetail(w)
     const table = await screen.findByRole('table', { name: '상품' })
     const rows = within(table).getAllByRole('row')
@@ -238,11 +245,15 @@ describe('주문 상세 (D-UX4-125)', () => {
     // 단추는 좌우로 — [배송비 바꾸기] 왼쪽, [정산서 보내기] 오른쪽
     expect(within(order).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['배송비 바꾸기', '정산서 보내기'])
     fireEvent.click(within(order).getByRole('button', { name: '배송비 바꾸기' }))
+    // D-UX4-129 "메뉴들 옆에 > 없으니까 붙이고": 옛 고르기(radio) → 이름 + › 줄
     const choice = await screen.findByTestId('shipping-choice')
-    fireEvent.click(within(choice).getByRole('radio', { name: /이 주문 배송비 바꾸기/ }))
+    const shippingRow = within(choice).getByRole('button', { name: '이 주문 배송비 바꾸기' })
+    expect(hasChevron(shippingRow)).toBe(true)
+    expect(within(choice).queryAllByRole('radio')).toEqual([])
+    fireEvent.click(shippingRow)
     await waitFor(() => expect(onEditShipping).toHaveBeenCalledOnce())
     fireEvent.click(within(order).getByRole('button', { name: '배송비 바꾸기' }))
-    fireEvent.click(within(await screen.findByTestId('shipping-choice')).getByRole('radio', { name: /배송비 기준 바꾸기/ }))
+    fireEvent.click(within(await screen.findByTestId('shipping-choice')).getByRole('button', { name: '배송비 기준 바꾸기' }))
     await waitFor(() => expect(onOpenShopSettings).toHaveBeenCalledOnce())
   })
 
@@ -265,7 +276,8 @@ describe('주문 상세 (D-UX4-125)', () => {
     expect(within(paid).queryByRole('button', { name: '입금을 확인했나요?' })).toBeNull()
     unmount()
     openDetail(w, { buyer: 'u2' })
-    expect(within(await screen.findByRole('table', { name: '상품' })).getByLabelText('배송비(직접 수령) 0원')).toBeTruthy()
+    // D-UX4-129 "이 주문만 정함 뭐 이런 말은 안 적어도 돼": 직접 수령이어도 괄호에는 무료 기준만 (옛 '배송비(직접 수령) 0원')
+    expect(within(await screen.findByRole('table', { name: '상품' })).getByLabelText('배송비(50,000원 이상 구매 시 무료배송) 0원')).toBeTruthy()
   })
 
   // D-UX4-126: [내보내기] → 아래 창 [사진][CSV 파일][엑셀 파일] → 서버 파일을 받아 공유 창
@@ -315,9 +327,12 @@ describe('주문 상세 (D-UX4-125)', () => {
     expect(within(past).getByLabelText('거래 횟수 4회')).toBeTruthy()
     expect(within(past).getByLabelText('총 금액 75,000원')).toBeTruthy()
     expect(within(past).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['10월 29일 목요일', '10월 20일 화요일', '8월 1일 토요일'])
-    // 지금 주문 줄은 이 화면이라 누르지 않는다
-    expect(within(past).getByLabelText('10월 29일 거래 14,000원 · 1개').getAttribute('role')).not.toBe('button')
-    expect(within(past).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['10월 20일 거래 30,000원 · 2개', '10월 20일 거래 9,000원 · 1개'])
+    // D-UX4-129 "목록들 > 다 붙이고 만약 지금 주문이라면 눌렀을 때 지금 그 화면 맨 위로": 지금 주문 줄도 › 줄 — 눌러도 다른 상세를 열지 않는다 (옛: 누르지 않는 줄)
+    const buttons = within(past).getAllByRole('button')
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['10월 29일 거래 14,000원 · 1개 · 지금 주문', '10월 20일 거래 30,000원 · 2개', '10월 20일 거래 9,000원 · 1개'])
+    expect(buttons.every(hasChevron)).toBe(true)
+    fireEvent.click(buttons[0]!)
+    expect(onOpenOrder).not.toHaveBeenCalled()
     // 봉인 보관만 남은 날은 누를 수 없다
     expect(within(past).getByLabelText('8월 1일 거래 22,000원 · 2개').getAttribute('role')).not.toBe('button')
     fireEvent.click(within(past).getByRole('button', { name: '10월 20일 거래 9,000원 · 1개' }))

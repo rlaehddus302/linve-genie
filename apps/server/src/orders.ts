@@ -417,15 +417,11 @@ export function dateWeekdayWords(day: string): string {
   return `${String(year)}년 ${String(month)}월 ${String(date)}일 ${weekday}`
 }
 
-/** 배송비 옆 글: 그날 배송비 규칙 (앱 상세 화면 shippingNote와 같은 말 — 직접 수령·합배송·따로 정함이면 그 말) */
 /**
  * 배송비 이름표 — 앱 주문 상세 shippingLabel과 같은 말 (D-UX4-128, 사용자 지시 2026-11-11 "'배송비' 라벨을 -> '배송비(50,000원 이상 구매 시 무료배송)'").
- * 무료 기준이 없는 기본 배송비는 그냥 "배송비".
+ * D-UX4-129 "이 주문만 정함 뭐 이런 말은 안 적어도 돼": 직접 수령·합배송·이 주문만 정함이어도 괄호에는 가게 무료 기준만. 기준이 없는 가게는 그냥 "배송비".
  */
 export function exportShippingLabel(rule: OrderDetailView['shippingRule']): string {
-  if (rule.mode === 'PICKUP') return '배송비(직접 수령)'
-  if (rule.mode === 'COMBINED') return '배송비(합배송)'
-  if (rule.mode === 'FIXED') return '배송비(이 주문만 정함)'
   return rule.freeThreshold !== null ? `배송비(${formatWon(rule.freeThreshold)} 이상 구매 시 무료배송)` : '배송비'
 }
 
