@@ -272,21 +272,17 @@ describe('진짜 쌓인 화면 (D-UX4-57)', () => {
 })
 
 describe('라이브 관리 설정은 전체 화면 (D-UX4-60)', () => {
-  it('경로가 있으면 라이브 관리 줄은 아래 판 대신 설정 화면을 연다', async () => {
+  // 옛 기대: "상품 미리 등록" 줄이 설정 화면(tool=import)을 연다. 새 기대(D-UX4-130, 사용자 지시 "상품 미리 등록 기능 제거해"): 그 줄이 없다
+  it('라이브 관리에는 설정 화면으로 가는 줄(상품 미리 등록)이 없다', async () => {
     const world = makeWorld({ products: [] })
-    const tools: string[] = []
-    render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} openTool={(tool) => tools.push(tool)} />))
+    render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} />))
     await waitFor(() => expect(world.source()).toBeTruthy())
     await act(async () => {
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
     const page = await screen.findByRole('main', { name: '라이브 관리' })
-    // 옛 기대: 문자찜 직접 넣기·상품 목록 가져오기·댓글 붙여넣기도 — 새 기대(D-UX4-78): 둘은 없앴고 "상품 목록 가져오기"는 "상품 미리 등록"
-    // 음성 설정 줄을 없앴다 (D-UX4-94)
-    for (const row of ['상품 미리 등록']) fireEvent.click(within(page).getByRole('button', { name: row }))
-    // 채팅 보기도 없앴다 (D-UX4-84)
-    expect(tools).toEqual(['import'])
+    expect(within(page).queryByRole('button', { name: '상품 미리 등록' })).toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
@@ -307,7 +303,8 @@ describe('라이브 관리 설정은 전체 화면 (D-UX4-60)', () => {
 
   it('설정 경로 파일이 라이브 관리 위에 쌓는다', () => {
     const manage = readFileSync(join(import.meta.dirname, '../app/console/[id]/manage.tsx'), 'utf8')
-    expect(manage).toContain("openTool={(tool) => router.push({ pathname: '/console/[id]/tool/[name]', params: { id, name: tool } })}")
+    // 옛 기대: 라이브 관리 경로가 openTool로 설정 화면을 쌓는다. 새 기대(D-UX4-130): 라이브 관리에 설정 화면 줄이 없어 넘기지 않는다 — 설정 경로 파일만 남는다
+    expect(manage).not.toContain('openTool')
     expect(readFileSync(join(import.meta.dirname, '../app/console/[id]/tool/[name].tsx'), 'utf8')).toContain('<ConsoleToolScreen')
   })
 })

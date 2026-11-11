@@ -147,6 +147,11 @@ interface LiveFound {
   readonly channel: string | null
 }
 
+/** 홈 "지난 라이브" 섹션 이름 (D-UX4-130 — 옛 "내 라이브") */
+export const PAST_LIVES = '지난 라이브'
+/** 지금 라이브 중일 때 방송 목록을 다시 받는 간격 (D-UX4-130) */
+export const LIVE_RECHECK_MS = 30_000
+
 export function useLiveNow(items: readonly BroadcastItem[] | null, now: number): { readonly live: BroadcastItem | undefined; readonly channel: string | null; readonly resolved: boolean } {
   const [found, keepFound] = useState<LiveFound | null>(() => peekCached<LiveFound>(LIVE_MEMORY))
   const setFound = (next: LiveFound) => {
@@ -242,6 +247,14 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
 
   // 라이브 표시는 실제 방송만 (리허설은 앱에서 뺐다)
   const liveNow = useLiveNow(items, Date.now())
+  // 지금 라이브 중인 동안은 목록을 가끔 다시 받는다 — 플랫폼에서 라이브를 끝내 서버가 라이브를 끝내면(D-LIVE-AUTOEND)
+  // 홈에 머물러 있어도 "지금 라이브 중"이 "지난 라이브"로 내려간다 (D-UX4-130)
+  const liveId = liveNow.live?.id ?? null
+  useEffect(() => {
+    if (liveId === null) return
+    const timer = setInterval(() => void load(), LIVE_RECHECK_MS)
+    return () => clearInterval(timer)
+  }, [liveId, load])
   const past = items === null ? [] : pastBroadcasts(items)
   // 홈에는 HOME_BROADCASTS개까지만 — 넘칠 때만 [모두보기] (D-UX4-81, 사용자 지시 2026-11-10)
   const showAll = nav.openAllBroadcasts !== undefined && past.length > HOME_BROADCASTS
@@ -295,9 +308,10 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
 
         <Late>
           {past.length > 0 ? (
-            <View role="group" aria-label="내 라이브" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: showAll ? SPACE.xs : SPACE.md }}>
+            // 끝난 라이브만 모인다 — 섹션 이름 "지난 라이브" (D-UX4-130, 사용자 지시 2026-11-12 "'내 라이브' 섹션 제목을 '지난 라이브'로 바꿔. 라이브 종료되면 자동으로 여기로 옮겨")
+            <View role="group" aria-label={PAST_LIVES} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingTop: SPACE.xs, paddingBottom: showAll ? SPACE.xs : SPACE.md }}>
               <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.lg - 2, paddingBottom: SPACE.xs }}>
-                <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>내 라이브</Txt>
+                <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>{PAST_LIVES}</Txt>
               </View>
               {past.slice(0, HOME_BROADCASTS).map((item) => (
                 <HistoryRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} />

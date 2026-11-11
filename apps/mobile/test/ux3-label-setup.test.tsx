@@ -69,7 +69,7 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
     expect(within(connect).queryByText(/실험/)).toBeNull()
     fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
 
-    const design = await screen.findByRole('dialog', { name: '라벨 꾸미기' })
+    const design = await screen.findByRole('dialog', { name: '라벨 디자인' })
     // 가게 이름 칸은 저장된 본문(빈 글) — 비우면 가게 설정 이름을 따른다
     expect((await within(design).findByRole('textbox', { name: '가게 이름' }) as HTMLInputElement).value).toBe('')
     await waitFor(() => expect(world.server.callsTo('POST', /\/preview$/).length).toBeGreaterThan(0))
@@ -105,7 +105,7 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
     const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
     await waitFor(() => expect(within(connect).getByText('연결됐어요')).toBeTruthy())
     fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
-    const design = await screen.findByRole('dialog', { name: '라벨 꾸미기' })
+    const design = await screen.findByRole('dialog', { name: '라벨 디자인' })
     await within(design).findByRole('group', { name: '번호 설정' })
     fireEvent.click(within(design).getByRole('button', { name: '저장하고 다음' }))
     const test = await screen.findByRole('dialog', { name: '테스트 인쇄' })
@@ -141,7 +141,7 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
     await waitFor(() => expect(within(connect).getByText('연결됐어요')).toBeTruthy())
     fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
-    const design = await screen.findByRole('dialog', { name: '라벨 꾸미기' })
+    const design = await screen.findByRole('dialog', { name: '라벨 디자인' })
     await within(design).findByRole('group', { name: '번호 설정' })
     return { world, design }
   }
@@ -218,7 +218,7 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     await waitFor(() => expect(within(connect).getByText('연결됐어요')).toBeTruthy())
     expect(within(connect).getByText('B1-1234')).toBeTruthy()
     fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
-    await screen.findByRole('dialog', { name: '라벨 꾸미기' })
+    await screen.findByRole('dialog', { name: '라벨 디자인' })
     world.services.labels.stop()
   })
 

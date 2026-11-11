@@ -31,26 +31,26 @@ async function openManage(openLabels?: () => void) {
 
 describe('라이브 관리 묶음 (D-UX4-78)', () => {
   // 옛 기대(D-UX4-78): 라이브 채팅 · 듣기 · 상품·라벨 · 화면 묶음. 새 기대(D-UX4-94): 묶음·묶음 이름 없이 흰 바탕 줄만, 듣기 줄은 없앰
-  it('묶음 없이 줄만 — 라이브 연결 · 상품 미리 등록 · 라벨 프린트, 옛 묶음 이름은 없다', async () => {
+  // 새 기대(D-UX4-130): 상품 미리 등록 줄을 없앴고, 라벨 프린트 줄 대신 그 안의 줄들이 이 화면에 바로 있다(경로가 라벨 줄 열 곳을 줄 때)
+  it('묶음 없이 줄만 — 라이브 연결 · 화면 아래 창, 상품 미리 등록은 없다, 옛 묶음 이름은 없다', async () => {
     const { page } = await openManage(() => {})
     const groups = within(page).queryAllByRole('group').map((group) => group.getAttribute('aria-label')).filter((name) => name !== null)
     for (const old of ['라이브 채팅', '듣기', '상품·라벨', '화면', '라이브', '넣기·보기']) expect(groups).not.toContain(old)
     expect(within(page).getByRole('button', { name: '라이브 연결' })).toBeTruthy()
-    expect(within(page).getByRole('button', { name: APP_IMPORT_TITLE })).toBeTruthy()
-    expect(APP_IMPORT_TITLE).toBe('상품 미리 등록')
-    expect(within(page).getByRole('button', { name: LABEL_PRINT_TITLE })).toBeTruthy()
+    expect(within(page).queryByRole('button', { name: APP_IMPORT_TITLE })).toBeNull()
+    expect(page.textContent).not.toContain('상품 미리 등록')
+    expect(within(page).queryByRole('button', { name: LABEL_PRINT_TITLE })).toBeNull()
     expect(page.textContent).not.toContain('프린터·라벨')
     expect(page.textContent).not.toContain('라이브 끝내기')
     expect(page.textContent).not.toContain('문자찜 직접 넣기')
     expect(page.textContent).not.toContain('댓글 붙여넣기')
   })
 
-  it('라벨 프린트 줄은 라벨 프린트 화면을 연다 (경로: /label-print)', async () => {
-    const openLabels = vi.fn()
-    const { page } = await openManage(openLabels)
-    fireEvent.click(within(page).getByRole('button', { name: LABEL_PRINT_TITLE }))
-    expect(openLabels).toHaveBeenCalledTimes(1)
-    expect(read('app/console/[id]/manage.tsx')).toContain("openLabels={() => router.push('/label-print')}")
+  it('라이브 관리 경로는 라벨 한 단계 화면·출력 상태를 바로 쌓고, 끊으면 홈으로 (D-UX4-130 — 옛: /label-print)', () => {
+    const route = read('app/console/[id]/manage.tsx')
+    expect(route).toContain("labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console') }}")
+    expect(route).toContain("onEnded={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))}")
+    expect(route).not.toContain('/label-print')
   })
 })
 
@@ -88,7 +88,8 @@ describe('라이브 연결 끊기 (D-UX4-79)', () => {
 })
 
 describe('라벨 프린트 (D-UX4-80)', () => {
-  it('라벨 뽑기 스위치 · 프린터 연결(지금 프린터) · 라벨 꾸미기 · 테스트 인쇄 · 출력 상태·농도', async () => {
+  // D-UX4-130: 라벨 꾸미기 → 라벨 디자인 (LABEL_PRINT_ROWS.design으로 찾는다)
+  it('라벨 뽑기 스위치 · 프린터 연결(지금 프린터) · 라벨 디자인 · 테스트 인쇄 · 출력 상태·농도', async () => {
     const world = makeWorld({ products: [] })
     const steps: string[] = []
     const openStatus = vi.fn()

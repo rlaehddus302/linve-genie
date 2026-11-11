@@ -146,7 +146,7 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
   const past = items === null ? [] : pastBroadcasts(items)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="all-broadcasts">
-      <AppHeader title="내 라이브" onBack={onBack} />
+      <AppHeader title="지난 라이브" onBack={onBack} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }}>
         {items === null && error === null ? <Loading /> : null}
         {error !== null ? (
@@ -160,7 +160,7 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
         </Late>
         <Late>
           {past.length > 0 ? (
-            <RowGroup label="내 라이브">
+            <RowGroup label="지난 라이브">
               {past.map((item) => (
                 <HistoryRow key={item.id} item={item} now={now} onPress={() => onOpen(item.id)} />
               ))}

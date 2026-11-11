@@ -65,6 +65,7 @@ import { tiktokLinkCounts } from './tiktok-live/store.ts'
 import { BandService, type BandClock, type BandHooks, type BandTiming } from './band/service.ts'
 import type { BandSettings } from './band/config.ts'
 import { recordPlatformChats } from './platform-record.ts'
+import { LiveAutoEnd } from './live-auto-end.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { registerInboxIntake } from './inbox/routes.ts'
@@ -632,6 +633,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   // 크롬 확장으로 감사 채팅 올리기 (X1 AC11~AC17) — 공식 발송함 실행기가 공식으로 올릴 수 없는 회차의 감사를 맡긴다
   const extensionThanks = new ExtensionThanks({ db, timer, log, writer, publishOutbox: publishYoutube })
+  // 플랫폼 라이브가 끝나면 회차를 저절로 끝낸다 — 판매자가 [라이브 연결 끊기]를 누를 때와 같은 길 (D-LIVE-AUTOEND)
+  const autoEnd = new LiveAutoEnd({ db, service, log, tiktokMayBeLive: (sellerId, b) => (tiktok as TikTokLive).mayBeLive(sellerId, b) })
   const youtube: YoutubeSystem | null =
     options.youtube === undefined
       ? null
@@ -656,6 +659,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
             sweep: () => extensionThanks.sweep(),
           },
           health,
+          onLiveEnded: (sellerId, b, linkId, started) => autoEnd.ended(sellerId, b, { platform: 'YOUTUBE', linkId, started }),
         })
   const sealer = new Sealer({
     db,
@@ -748,6 +752,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(tiktokOptions.limiter === undefined ? {} : { limiter: tiktokOptions.limiter }),
     ...(tiktokOptions.noticeVersion === undefined ? {} : { noticeVersion: tiktokOptions.noticeVersion }),
     ...(tiktokOptions.shortLinks === undefined ? {} : { shortLinks: tiktokOptions.shortLinks }),
+    onLiveEnded: (sellerId, b) => autoEnd.ended(sellerId, b, { platform: 'TIKTOK' }),
   })
   const tiktokLive = tiktok
   if (options.tiktokThanks !== undefined) {

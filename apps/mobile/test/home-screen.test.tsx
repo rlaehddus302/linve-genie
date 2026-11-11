@@ -1,3 +1,4 @@
+// D-UX4-130 (사용자 지시 2026-11-12): 홈 섹션 이름 "내 라이브" → "지난 라이브" — 기대 이름만 바꿨다.
 // D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 홈 "오늘 할 일" (APP-01, D-UX2-02): 진행 중 방송은 "방송으로 돌아가기"로 한국어 한 줄과 함께 보이고, 새 방송 시작이 요청 번호와 함께 가며,
 // "웹으로 열기"는 더보기 탭에서 기기 브라우저로 연다 (AC4). 할 일 숫자는 포장 목록·라벨 대기열의 서버 값이다.
@@ -65,7 +66,7 @@ describe('HomeScreen', () => {
     expect(screen.queryByRole('button', { name: /^라벨 뽑기/ })).toBeNull()
     // 지난 방송은 방송 이력에 › 로 (판 금액 없음)
     // D-UX3-88: "방송 이력" → "내 방송"
-    expect(screen.getByRole('group', { name: '내 라이브' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: '지난 라이브' })).toBeTruthy()
     expect(screen.queryByText('4개 팔림')).toBeNull()
     world.services.labels.stop()
   })

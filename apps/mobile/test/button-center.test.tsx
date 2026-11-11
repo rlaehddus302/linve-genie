@@ -293,9 +293,10 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
     const row = help.parentElement!
     const holder = row.parentElement!
     // D-UX4-100: 토스 사진과 나란히 재어 글자 22 · 켜고 끄는 줄 49 (옛 24 · 56)
-    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft)).toBe(10)
-    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft) + px(style(row).paddingLeft)).toBe(22)
-    expect(px(style(row).minHeight)).toBe(49)
+    // D-UX4-130: 같은 휴대폰 사진 두 장으로 다시 재어 글자 24 · 켜고 끄는 줄 54 (옛 22 · 49) — 강조 바탕은 화면 끝에서 12
+    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft)).toBe(12)
+    expect(px(style(holder).paddingLeft) + px(style(row).marginLeft) + px(style(row).paddingLeft)).toBe(24)
+    expect(px(style(row).minHeight)).toBe(54)
   })
 
   it('칩·알약·글자 단추·머리 글자 단추·숫자판·탭', () => {
@@ -352,7 +353,8 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
     await screen.findByRole('dialog', { name: '라이브 관리' })
     expect(screen.getByRole('switch', { name: `${THANKS_TITLE} — 꺼짐` })).toBeTruthy()
     // 최소 단추 수 15 → 12 → 10: 방송 관리에서 문자찜 직접 넣기·댓글 붙여넣기·방송 끝내기(D-UX4-78·79), 휴대폰 마이크로 듣기·음성 설정(D-UX4-94) 줄을 없앴다
-    expectCentered(undefined, 10)
+    // 10 → 9: 상품 미리 등록 줄을 없애고 라벨 프린트 줄은 라벨 줄로 꺼냈다(이 화면 안 관리 창에는 라벨 줄 없음, D-UX4-130)
+    expectCentered(undefined, 9)
   })
 
   it('진짜 화면: 홈(지금 라이브 중·할 일 줄)과 설정(켜고 끄는 줄·줄)', async () => {

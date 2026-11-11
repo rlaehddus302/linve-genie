@@ -117,7 +117,7 @@ interface DraftPreview {
 
 const errorText = (caught: unknown): string => (isApiError(caught) ? caught.message : '하지 못했어요. 다시 눌러 주세요.')
 
-/** 라벨 프린트 화면에서 한 단계만 다시 할 때 (D-UX4-80): 프린터 연결 · 라벨 꾸미기 · 테스트 인쇄 */
+/** 라벨 프린트 화면에서 한 단계만 다시 할 때 (D-UX4-80): 프린터 연결 · 라벨 디자인 · 테스트 인쇄 */
 export type LabelSetupStep = 'connect' | 'design' | 'test'
 
 /** only: 그 단계 하나만 — 뒤로는 onBack, 끝나면 onDone (방송 시작 때 하지 않았어도 방송 관리 → 라벨 프린트에서 다시 한다) */
@@ -307,7 +307,7 @@ function ConnectStep({ onBack, onNext }: { readonly onBack: () => void; readonly
   )
 }
 
-/** 3) 라벨 꾸미기 — 서버가 그린 초안 미리 보기를 위에 붙여 두고, 라벨 안 칸을 눌러 고르고·옮기고·키운다 (D-UX4-05) */
+/** 3) 라벨 디자인 (D-UX4-130, 옛 "라벨 꾸미기") — 서버가 그린 초안 미리 보기를 위에 붙여 두고, 라벨 안 칸을 눌러 고르고·옮기고·키운다 (D-UX4-05) */
 function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: QueueSummary | null; readonly profileId: string | null; readonly onBack: () => void; readonly onSaved: () => void }) {
   const [stored, setStored] = useState<StoredTemplate<ProductTemplate> | null>(null)
   const [draft, setDraft] = useState<ProductTemplate | null>(null)
@@ -384,7 +384,7 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
   return (
     <FormPage
       title={DESIGN_TITLE}
-      name="라벨 꾸미기"
+      name="라벨 디자인"
       onBack={onBack}
       cards
       testID="label-setup-design"

@@ -179,13 +179,19 @@ export function useFooterInset(): number {
  * D-UX4-100: 시뮬레이터 화면(우리)과 토스 사진을 같은 pt로 나란히 재어 다시 맞춤 — 글자 폭·높이로 줄 이름 16(옛 17)·제목 21(옛 22)·오른쪽 값 15,
  * 글자 왼쪽 끝 22(잉크 22.5 — 토스 22.6~23), 제목↔첫 줄 가운데 58·뒤로↔제목 가운데 65(titleTop 12·titleBottom 21), 줄 44 · 켜고 끄는 줄 49.
  */
-export const PLAIN = { side: 22, title: 21, titleTop: 12, titleBottom: 21, label: 16, value: 15, ink: '#4F545E', chevron: '#90969E', row: 44, toggleRow: 49, weight: 'book' } as const
+/**
+ * D-UX4-130 (사용자 지시 2026-11-12 "사진 1(토스), 2(라이브지니) 비교해보면 텍스트 크기, 두께, 간격, 여백이 다르다. 토글 버튼 디자인도 똑같이"):
+ * 같은 휴대폰(폭 430pt)으로 찍은 두 사진을 나란히 재니 글자 크기(한 글자 폭·높이)는 같고, 다른 것은 —
+ * 글자 왼쪽 끝이 토스보다 2 왼쪽(→ 24), 줄 간격 44 → 48, 켜고 끄는 줄 49 → 54, 제목이 6 위(titleTop 12 → 18), 제목↔첫 줄 3 좁음(titleBottom 21 → 24),
+ * 큰 제목 줄기가 토스보다 가늘어(1.8 : 2.3) 아주 굵게(heavy). 옛 D-UX4-100은 토스 사진 폭을 393pt로 잘못 알고 재었다.
+ */
+export const PLAIN = { side: 24, title: 21, titleTop: 18, titleBottom: 24, label: 16, value: 15, ink: '#4F545E', chevron: '#90969E', row: 48, toggleRow: 54, weight: 'book', titleWeight: 'heavy' } as const
 
 /** 흰 화면 맨 위 큰 제목 (토스 "비밀번호 · 보안") */
 export function PlainTitle({ title }: { readonly title: string }) {
   return (
     <View style={{ paddingHorizontal: PLAIN.side, paddingTop: PLAIN.titleTop, paddingBottom: PLAIN.titleBottom }}>
-      <Txt step="pageTitle" weight="bold" role="heading" aria-level={1}>
+      <Txt step="pageTitle" weight={PLAIN.titleWeight} role="heading" aria-level={1}>
         {title}
       </Txt>
     </View>
@@ -220,7 +226,7 @@ export function PlainRow({ title, value, right, onPress, danger, testID, ariaLab
   }
   return (
     // 누르면 화면 끝에서 12 들어온 둥근 바탕 — 자동 감사 채팅 켜고 끄는 줄(ToggleRow)의 눌림과 같다
-    <Tap role="button" aria-label={ariaLabel ?? title} testID={testID} onPress={onPress} style={({ pressed }) => ({ ...frame, marginHorizontal: PLAIN.side / 2, paddingLeft: PLAIN.side / 2, paddingRight: PLAIN.side / 2 - 5, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={ariaLabel ?? title} testID={testID} onPress={onPress} style={({ pressed }) => ({ ...frame, marginHorizontal: PLAIN.side / 2, paddingLeft: PLAIN.side / 2, paddingRight: PLAIN.side / 2 - 6, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {body}
       <Icon name="chevron" color={PLAIN.chevron} size={20} />
     </Tap>

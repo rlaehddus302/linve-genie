@@ -219,7 +219,8 @@ export const WEIGHT = { regular: '400', book: '500', medium: '600', bold: '700',
  * 뒤로(48 누름 자리)는 안전 영역 바로 아래에서 왼쪽 8, 제목은 뒤로 아래 31(D-UX3-56 — 폭 430 휴대폰 사진을 다시 재어, 옛 28)·왼쪽 24, 제목과 첫 입력 칸 사이 36.
  */
 // backLeft 8 → 6 (D-UX4-100: 시뮬레이터 화면과 토스 사진을 같은 pt로 견주니 뒤로 ‹ 잉크가 토스(21.7)보다 2.3 오른쪽)
-export const PAGE = { backLeft: 6, titleTop: 31, side: 24, titleGap: 36 } as const
+// backLeft 6 → 8 (D-UX4-130: 같은 휴대폰 사진 두 장을 견주니 뒤로 ‹ 잉크가 토스(23.8)보다 1.9 왼쪽 — 옛 D-UX4-100은 사진 폭을 393pt로 잘못 재었다)
+export const PAGE = { backLeft: 8, titleTop: 31, side: 24, titleGap: 36 } as const
 
 /** 간격 (4·8 단위) */
 export const SPACE = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const
