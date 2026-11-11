@@ -7,8 +7,13 @@
 // - 날짜마다 엔진에서 나온 줄(성함 빼고)은 (판매자, 범위)마다 한 벌 캐시한다 — 범위 seq·봉인 여부가 같으면 다시 쓴다(손님 기록 재료 캐시와 같은 방식, D-CRM1-11).
 //   범위 상태는 공용 캐시를 밀어내지 않는 읽기(readDetached)로 불러온다. 성함은 날짜마다 배송지를 한 번에 읽는다(묶음마다 따로 읽지 않는다).
 // - 전화번호·배송지는 상세 응답에만 (판매자 화면). 로그·오류 응답에 남기지 않는다. 받은 값(구매자 ID)은 오류 응답에 되돌려 보내지 않는다.
-import { DEFAULT_SETTINGS, currentBuyerOf, getBuyer, getSettlement, isValidDate, listBroadcasts, listSettlements, type BuyerInfo, type EngineState, type PaymentStatus } from '@livejjim/core'
-import { itemText } from '@livejjim/documents'
+// - D-UX4-126 (사용자 지시 2026-11-11 주문 탭 수정): 목록 줄마다 아직 모르는 손님 정보(missing — 성함·휴대폰 번호·주소 순).
+//   배송지는 DB라 요청마다 읽고, 번호 키(엔진 상태만으로 정해짐)는 날짜 캐시에 두어 번호 기록은 날짜마다 한 번에 키만 본다(번호를 풀지 않는다).
+//   배송지 보관 기간(30일)이 지난 날짜는 더 넣을 수 없으니 빈 목록(지난 주문에 "모름"을 띄우지 않는다).
+// - D-UX4-126 주문 한 건 내보내기: GET /api/days/:date/order.csv·order.xlsx?buyer= — 상세와 같은 검사·404. 휴대폰 번호·주소는 넣지 않는다
+//   (AUTO: 파일은 메신저로 넘겨지기 쉽다 — 손님 엑셀도 연락처는 기본으로 빼는 것과 같은 쪽).
+import { DEFAULT_SETTINGS, currentBuyerOf, formatWon, getBuyer, getSettlement, isValidDate, listBroadcasts, listSettlements, type BuyerInfo, type EngineState, type PaymentStatus } from '@livejjim/core'
+import { itemText, textRowsToXlsx } from '@livejjim/documents'
 import type { Context, Hono } from 'hono'
 import type { SessionContext } from './auth.ts'
 import { buyerParam } from './closing.ts'
@@ -16,11 +21,13 @@ import { realScopes, type DayBundle, type ScopeRow } from './customers/facts.ts'
 import type { CustomerService } from './customers/service.ts'
 import type { Db } from './db/database.ts'
 import { apiError, type FieldProblem } from './errors.ts'
+import { MIME, fileNamePart, fileResponse } from './files.ts'
 import type { LogSink } from './log.ts'
 import { lookupOf, type ScopeLookup } from './packing.ts'
+import type { ParcelAddress } from './parcel/rules.ts'
 import type { ParcelService } from './parcel/service.ts'
 import { platformOfKey } from './platform.ts'
-import type { ReceiptSmsService } from './receipt-sms.ts'
+import { receiptPhoneKeys, type ReceiptSmsService } from './receipt-sms.ts'
 import { LEDGER_UNREADABLE_MESSAGE, readSealed } from './sealed-state.ts'
 import { iso, kstDate, type Clock } from './time.ts'
 import type { ScopeWriter } from './writer.ts'
@@ -47,7 +54,12 @@ export interface OrderRow {
   readonly total: number
   readonly itemCount: number
   readonly firstClaimAt: string | null
+  /** 아직 모르는 손님 정보 (D-UX4-126). 이 순서로, 다 알면 빈 목록. 배송지 보관 기간이 지난 날짜는 빈 목록 */
+  readonly missing: readonly OrderInfoField[]
 }
+
+/** 손님 정보 칸 (D-UX4-126) */
+export type OrderInfoField = 'name' | 'phone' | 'address'
 
 export interface OrdersView {
   readonly today: string
@@ -113,6 +125,8 @@ interface DayEntry {
   /** 첫 예약이 늦은 손님부터 */
   readonly orders: readonly DayOrder[]
   readonly byBuyer: ReadonlyMap<string, DayOrder>
+  /** 구매자 → 번호 키 (receiptPhoneKeys — 상태·날짜만으로 정해진다, D-UX4-126) */
+  readonly phoneKeys: ReadonlyMap<string, readonly string[]>
 }
 
 /** 구매자 → 찜한 곳: 채팅 구매자는 키의 플랫폼, 문자 구매자는 SMS, 모르면 null */
@@ -228,14 +242,44 @@ export class OrderService {
     if (read.kind !== 'ok') return null
     if (hit !== undefined && hit.sealed === read.sealed && hit.seq === read.seq) return hit
     const orders = dayOrdersOf(read.state, scope.date)
-    const entry: DayEntry = { seq: read.seq, sealed: read.sealed, orders, byBuyer: new Map(orders.map((order) => [order.buyer, order])) }
+    const entry: DayEntry = {
+      seq: read.seq,
+      sealed: read.sealed,
+      orders,
+      byBuyer: new Map(orders.map((order) => [order.buyer, order])),
+      phoneKeys: new Map(orders.map((order) => [order.buyer, receiptPhoneKeys(read.state, scope.date, order.buyer)])),
+    }
     this.#remember(slot, entry)
     return entry
   }
 
   /** 그 날짜 묶음마다 배송지 받는 분 이름·전화·주소 (택배 기능이 없으면 빈 표) */
-  async #addresses(sellerId: string, date: string) {
-    return this.#deps.parcels === undefined ? new Map() : this.#deps.parcels.openAddresses(sellerId, date)
+  async #addresses(sellerId: string, date: string): Promise<Map<string, ParcelAddress>> {
+    return this.#deps.parcels === undefined ? new Map<string, ParcelAddress>() : this.#deps.parcels.openAddresses(sellerId, date)
+  }
+
+  /**
+   * 그 날짜 줄마다 모르는 손님 정보 (D-UX4-126): 성함·주소는 배송지로, 휴대폰 번호는 배송지 번호 → 문자 번호 기록(키만, 한 번에) 순.
+   * 배송지 보관 기간이 지난 날짜는 모두 빈 목록
+   */
+  async #missing(sellerId: string, date: string, day: DayEntry, addresses: ReadonlyMap<string, ParcelAddress>): Promise<Map<string, OrderInfoField[]>> {
+    const out = new Map<string, OrderInfoField[]>()
+    if (this.#deps.parcels?.addressExpired(date) === true) {
+      for (const order of day.orders) out.set(order.buyer, [])
+      return out
+    }
+    const ask = new Map<string, readonly string[]>()
+    for (const order of day.orders) if ((addresses.get(order.buyer)?.phone ?? '') === '') ask.set(order.buyer, day.phoneKeys.get(order.buyer) ?? [])
+    const withPhone = ask.size === 0 || this.#deps.receiptSms === undefined ? new Set<string>() : await this.#deps.receiptSms.buyersWithPhone(sellerId, ask)
+    for (const order of day.orders) {
+      const address = addresses.get(order.buyer)
+      const fields: OrderInfoField[] = []
+      if ((address?.name ?? '') === '') fields.push('name')
+      if (ask.has(order.buyer) && !withPhone.has(order.buyer)) fields.push('phone')
+      if ((address?.address ?? '') === '') fields.push('address')
+      out.set(order.buyer, fields)
+    }
+    return out
   }
 
   /** 주문 목록 (before가 있으면 그 날짜보다 앞선 날짜들만) */
@@ -252,7 +296,10 @@ export class OrderService {
       const day = await this.#day(sellerId, scope)
       if (day === null || day.orders.length === 0) continue
       const addresses = await this.#addresses(sellerId, scope.date)
-      for (const order of day.orders) orders.push({ date: scope.date, buyer: order.buyer, name: addresses.get(order.buyer)?.name ?? null, ...OrderService.#rowPart(order) })
+      const missing = await this.#missing(sellerId, scope.date, day, addresses)
+      for (const order of day.orders) {
+        orders.push({ date: scope.date, buyer: order.buyer, name: addresses.get(order.buyer)?.name ?? null, ...OrderService.#rowPart(order), missing: missing.get(order.buyer) ?? [] })
+      }
       dates += 1
       last = scope.date
     }
@@ -268,7 +315,7 @@ export class OrderService {
     return { today, orders, more, next: more ? last : null }
   }
 
-  static #rowPart(order: DayOrder): Omit<OrderRow, 'date' | 'buyer' | 'name'> {
+  static #rowPart(order: DayOrder): Omit<OrderRow, 'date' | 'buyer' | 'name' | 'missing'> {
     return { nickname: order.nickname, platform: order.platform, total: order.total, itemCount: order.itemCount, firstClaimAt: order.firstClaimAt }
   }
 
@@ -359,6 +406,53 @@ export class OrderService {
   }
 }
 
+// ── 주문 한 건 내보내기 (D-UX4-126) ────────────────────────────────────
+
+/**
+ * 내보내기 표 (CSV·엑셀이 같은 줄): 위 묶음(닉네임·성함·예약 날짜) → 빈 줄 → 상품 표(번호·상품명·수량·가격) → 빈 줄 → 금액 묶음.
+ * 휴대폰 번호·주소는 넣지 않는다 (D-UX4-126 AUTO — 파일은 메신저로 넘겨지기 쉽다. 손님 엑셀도 연락처는 기본으로 뺀다).
+ * 금액은 정수 원 그대로 formatWon (가격 = 한 개 가격 × 수량)
+ */
+export function orderExportRows(view: OrderDetailView): string[][] {
+  const day = view.claimedAt === null ? view.date : kstDate(Date.parse(view.claimedAt))
+  const [year, month, date] = day.split('-').map(Number) as [number, number, number]
+  const rows: string[][] = [
+    ['닉네임', view.nickname],
+    ['성함', view.name ?? '모름'],
+    ['예약 날짜', `${String(year)}년 ${String(month)}월 ${String(date)}일`],
+    [],
+    ['번호', '상품명', '수량', '가격'],
+    ...view.items.map((item) => [String(item.no), item.name, String(item.qty), formatWon(item.price * item.qty)]),
+    [],
+    ['총 개수', `${String(view.itemCount)}개`],
+    ['배송비', formatWon(view.shipping)],
+  ]
+  // 앱 화면(signedWon)과 같이 빼기만 − (U+2212) — 수식 시작 글자 '-'가 아니라 CSV에서 따옴표가 붙지 않는다
+  if (view.adjustments !== 0) rows.push(['할인·추가', `${view.adjustments < 0 ? '−' : ''}${formatWon(Math.abs(view.adjustments))}`])
+  rows.push(['총 금액', formatWon(view.total)], ['받은 금액', formatWon(view.received)], ['남은 금액', formatWon(Math.max(view.total - view.received, 0))])
+  if (view.refundDue > 0) rows.push(['돌려줄 돈', formatWon(view.refundDue)])
+  return rows
+}
+
+/** 스프레드시트 수식으로 읽히는 첫 글자 (닉네임·상품명은 믿을 수 없는 글 — 앞에 '를 붙여 글로 둔다) */
+const FORMULA_START = new Set(['=', '+', '-', '@', '\t', '\r'])
+
+/** CSV 칸 하나: 수식 막기 → RFC 4180 따옴표(쉼표·따옴표·줄바꿈이 있으면 감싸고 "는 ""로) */
+export function csvCell(value: string): string {
+  const safe = value !== '' && FORMULA_START.has(value[0] as string) ? `'${value}` : value
+  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
+}
+
+/** CSV 바이트: UTF-8 BOM(엑셀이 한글을 바로 읽게) + CRLF 줄 */
+export function orderCsv(rows: readonly (readonly string[])[]): Uint8Array {
+  return new TextEncoder().encode(`\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`)
+}
+
+/** 엑셀: 첫 줄(굵게)은 항목·내용, 모든 칸은 글 칸(수식이 되지 않는다 — textRowsToXlsx) */
+export async function orderXlsx(rows: readonly (readonly string[])[]): Promise<Uint8Array> {
+  return textRowsToXlsx('주문', ['항목', '내용', '', ''], rows, [12, 36, 8, 14])
+}
+
 // ── 경로 ────────────────────────────────────────────────────────────────
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
@@ -377,9 +471,9 @@ export function registerOrderRoutes(api: Hono<Env>, orders: OrderService): void 
     return c.json(await orders.list(sellerOf(c), before ?? null))
   })
 
-  // 주문 한 건 상세 (?buyer=). 실제 날짜만: ?rehearsal=true는 404, 다른 값은 400
-  api.get('/days/:date/order', async (c) => {
-    const date = c.req.param('date')
+  /** 상세·내보내기 공통 (?buyer=). 실제 날짜만: ?rehearsal=true는 404, 다른 값은 400 */
+  const detailOf = async (c: Context<Env>): Promise<Response | OrderDetailView> => {
+    const date = c.req.param('date') ?? ''
     if (!isValidDate(date)) return notFound()
     const rehearsal = c.req.query('rehearsal')
     if (rehearsal === 'true') return notFound()
@@ -388,6 +482,24 @@ export function registerOrderRoutes(api: Hono<Env>, orders: OrderService): void 
     if (!buyer.ok) return apiError(buyer.error.status, buyer.error.code, buyer.error.message, buyer.error.problems ?? [])
     const outcome = await orders.detail(sellerOf(c), date, buyer.buyer)
     if (outcome.kind === 'unreadable') return apiError(500, 'LEDGER_UNREADABLE', LEDGER_UNREADABLE_MESSAGE)
-    return outcome.kind === 'not_found' ? notFound() : c.json(outcome.value)
+    return outcome.kind === 'not_found' ? notFound() : outcome.value
+  }
+
+  // 주문 한 건 상세
+  api.get('/days/:date/order', async (c) => {
+    const view = await detailOf(c)
+    return view instanceof Response ? view : c.json(view)
+  })
+
+  // 주문 한 건 내보내기 (D-UX4-126 — 앱 [내보내기]). 파일 이름: 주문-<날짜>-<닉네임>.csv/.xlsx (영문 대체 이름 order-<날짜>)
+  api.get('/days/:date/order.csv', async (c) => {
+    const view = await detailOf(c)
+    if (view instanceof Response) return view
+    return fileResponse(orderCsv(orderExportRows(view)), MIME.csv, `주문-${view.date}-${fileNamePart(view.nickname)}.csv`, `order-${view.date}.csv`)
+  })
+  api.get('/days/:date/order.xlsx', async (c) => {
+    const view = await detailOf(c)
+    if (view instanceof Response) return view
+    return fileResponse(await orderXlsx(orderExportRows(view)), MIME.xlsx, `주문-${view.date}-${fileNamePart(view.nickname)}.xlsx`, `order-${view.date}.xlsx`)
   })
 }

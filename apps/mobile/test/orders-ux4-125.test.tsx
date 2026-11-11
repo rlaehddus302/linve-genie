@@ -1,9 +1,13 @@
 // 주문 탭 수정 (D-UX4-125, 사용자 지시 2026-11-11 "주문 탭 수정 사항"):
 // 맨 위 "주문" 머리·날짜 캡슐 없음 · 맨 위 단추 셋 [고객 정보 받기][정산서 보내기][입금 확인하기] 한 줄 · 흰 바탕 카드 없는 주문 목록(사진1, 토스 거래 내역) ·
-// 줄을 누르면 주문 상세(사진2, 토스 상세 내역): 성함·닉네임(플랫폼 아이콘)·휴대폰 번호·주소 / 표(번호·상품 이름·가격) / 예약일시·총 개수·총 금액·배송비 / 지난 거래 내역.
+// 줄을 누르면 주문 상세(사진2, 토스 상세 내역).
+// D-UX4-126 (사용자 지시 2026-11-11 두 번째 수정): 날짜 11.7 · 줄은 닉네임 아래 성함, 모르는 정보는 빨간 "성함 · 휴대폰 번호 · 주소 모름" ·
+// 상세 맨 위 플랫폼 아이콘 + 닉네임, 이름표·내용 줄(모르면 빨간 "모름 ›" → 손님 정보 화면) · 표(번호·상품명·가격) 바로 아래 총 개수·배송비·총 금액(왼쪽 "배송비 포함")·예약 날짜 ·
+// 작은 회색 단추 [배송비 기준 바꾸기][내보내기] · 받은 금액·남은 금액은 따로 묶음.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { addressWords, claimedAtWords, dayWeekdayWords, dotDate, joinOrders, parseOrderKey, phoneDashes, shippingNote } from '../src/lib/orders.ts'
+import { addressWords, claimedAtWords, dayWeekdayWords, dotDate, fullDateWords, joinOrders, missingWords, parseOrderKey, phoneDashes, reservedDateWords, shippingNote } from '../src/lib/orders.ts'
+import { setNativeModules } from '../src/native/index.ts'
 import { OrderDetailScreen } from '../src/screens/OrderDetailScreen.tsx'
 import { SettleScreen } from '../src/screens/SettleScreen.tsx'
 import { orderDetail, orderRow, ordersView, withOrders } from './order-support.ts'
@@ -11,7 +15,7 @@ import { makeWorld } from './screen-support.tsx'
 
 const ROWS = [
   orderRow({ date: '2026-11-11', buyer: 'u1', name: '김다육', nickname: '다육맘', total: 31_000, itemCount: 3 }),
-  orderRow({ date: '2026-11-11', buyer: 'u2', name: null, nickname: '초록손', total: 14_000, itemCount: 1 }),
+  orderRow({ date: '2026-11-11', buyer: 'u2', name: null, nickname: '초록손', total: 14_000, itemCount: 1, missing: ['name', 'phone', 'address'] }),
   orderRow({ date: '2026-11-10', buyer: 'u3', name: '이선인', nickname: '선인장러버', total: 54_000, itemCount: 4 }),
 ]
 
@@ -40,22 +44,26 @@ describe('주문 목록 (D-UX4-125)', () => {
     expect(screen.getByTestId('settle-screen').style.backgroundColor).toBe('rgb(255, 255, 255)')
   })
 
-  it('줄: 날짜는 그 날짜 첫 줄에만, 성함(없으면 닉네임)과 작은 닉네임(성함 없으면 "성함 받기 전"), 오른쪽 총 금액·개수', async () => {
+  // D-UX4-126: 옛 "성함(없으면 닉네임) 위 · 작은 닉네임(없으면 성함 받기 전)" → 닉네임 위 · 작은 성함 · 빨간 모르는 정보, 날짜 앞 0 없이
+  it('줄: 날짜(11.7처럼)는 그 날짜 첫 줄에만, 닉네임과 그 아래 작은 성함, 모르는 정보는 빨간 "… 모름", 오른쪽 총 금액·개수', async () => {
     const w = makeWorld()
     withOrders(w, ordersView(ROWS))
     render(w.wrap(<SettleScreen />))
     await screen.findByRole('list', { name: '주문 목록' })
     expect(labels()).toEqual([
-      '11월 11일 · 김다육 · 다육맘 · 31,000원 · 3개',
-      '11월 11일 · 초록손 · 성함 받기 전 · 14,000원 · 1개',
-      '11월 10일 · 이선인 · 선인장러버 · 54,000원 · 4개',
+      '11월 11일 · 다육맘 · 김다육 · 31,000원 · 3개',
+      '11월 11일 · 초록손 · 성함 · 휴대폰 번호 · 주소 모름 · 14,000원 · 1개',
+      '11월 10일 · 선인장러버 · 이선인 · 54,000원 · 4개',
     ])
     expect(screen.getAllByText('11.11')).toHaveLength(1)
     expect(screen.getAllByText('11.10')).toHaveLength(1)
     const second = screen.getByRole('button', { name: /초록손/ })
     expect(within(second).queryByText('11.11')).toBeNull()
-    expect(within(second).getByText('성함 받기 전')).toBeTruthy()
+    const red = within(second).getByText('성함 · 휴대폰 번호 · 주소 모름')
+    expect(red.style.color).toBe('rgb(221, 24, 36)')
+    expect(within(second).queryByText('성함 받기 전')).toBeNull()
     const first = screen.getByRole('button', { name: /김다육/ })
+    expect(within(first).queryByText(/모름/)).toBeNull()
     expect(within(first).getByText('31,000원')).toBeTruthy()
     expect(within(first).getByText('3개')).toBeTruthy()
   })
@@ -74,7 +82,8 @@ describe('주문 목록 (D-UX4-125)', () => {
     withOrders(w, ordersView(ROWS), { details: { '2026-11-10|u3': orderDetail({ date: '2026-11-10', buyer: 'u3', name: '이선인', nickname: '선인장러버' }) } })
     render(w.wrap(<SettleScreen />))
     fireEvent.click(await screen.findByRole('button', { name: /이선인/ }))
-    expect(await screen.findByRole('heading', { name: '이선인', level: 2 })).toBeTruthy()
+    // D-UX4-126: 상세 맨 위 큰 글은 닉네임 (옛: 성함)
+    expect(await screen.findByRole('heading', { name: '선인장러버', level: 2 })).toBeTruthy()
     expect(screen.getByRole('heading', { name: '주문 상세', level: 1 })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '주문 목록으로' }))
     expect(await screen.findByRole('list', { name: '주문 목록' })).toBeTruthy()
@@ -91,7 +100,7 @@ describe('주문 목록 (D-UX4-125)', () => {
     expect(await screen.findByRole('button', { name: /박금황/ })).toBeTruthy()
     expect(w.server.callsTo('GET', /^\/api\/orders\?before=/).map((call) => call.path)).toEqual(['/api/orders?before=2026-11-10'])
     expect(labels()).toHaveLength(4)
-    expect(screen.getByText('11.03')).toBeTruthy()
+    expect(screen.getByText('11.3')).toBeTruthy()
     // 마지막 쪽(more 없음)이면 더 묻지 않는다
     fireEvent.scroll(screen.getByTestId('orders-scroll'), { target: { scrollY: 4000 } })
     await waitFor(() => expect(w.server.callsTo('GET', /^\/api\/orders\?before=/)).toHaveLength(1))
@@ -138,29 +147,40 @@ describe('주문 목록 (D-UX4-125)', () => {
 const openDetail = (w: ReturnType<typeof makeWorld>, props: Partial<Parameters<typeof OrderDetailScreen>[0]> = {}) => render(w.wrap(<OrderDetailScreen date="2026-10-29" buyer="u1" onBack={() => {}} {...props} />))
 
 describe('주문 상세 (D-UX4-125)', () => {
-  it('손님: 성함 크게 · 플랫폼 아이콘과 닉네임 · 휴대폰 번호 010-1234-5678 · 주소 (우편번호) 주소 상세', async () => {
+  // D-UX4-126: 맨 위는 플랫폼 아이콘 + 닉네임, 그 아래 이름표·내용 줄 셋(눌러 고친다). 옛 "배송지 확인·고치기" 글은 없다
+  it('손님: 맨 위 플랫폼 아이콘과 닉네임 · 성함 · 휴대폰 번호 010-1234-5678 · 주소 (우편번호) 주소 상세 — 줄을 누르면 그 칸을 고친다', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail() } })
-    openDetail(w)
+    const onEditInfo = vi.fn()
+    openDetail(w, { onEditInfo })
     const head = await screen.findByRole('group', { name: '손님' })
-    expect(within(head).getByRole('heading', { name: '김다육', level: 2 })).toBeTruthy()
+    expect(within(head).getByRole('heading', { name: '다육맘', level: 2 })).toBeTruthy()
     expect(within(head).getByLabelText('닉네임 유튜브 다육맘')).toBeTruthy()
-    expect(within(head).getByLabelText('휴대폰 번호 010-1234-5678')).toBeTruthy()
-    expect(within(head).getByLabelText('주소 (50603) 경상남도 양산시 물금읍 증산리 1034')).toBeTruthy()
-    expect(within(head).getByRole('button', { name: '배송지 확인·고치기' })).toBeTruthy()
+    expect(within(head).getByRole('button', { name: '성함 김다육 · 고치기' })).toBeTruthy()
+    expect(within(head).getByRole('button', { name: '휴대폰 번호 010-1234-5678 · 고치기' })).toBeTruthy()
+    fireEvent.click(within(head).getByRole('button', { name: '주소 (50603) 경상남도 양산시 물금읍 증산리 1034 · 고치기' }))
+    expect(onEditInfo).toHaveBeenCalledWith('address')
+    expect(within(head).queryByText('배송지 확인·고치기')).toBeNull()
+    expect(screen.queryByRole('group', { name: '배송지' })).toBeNull()
     // 묶음 사이 굵은 회색 띠
     expect(screen.getAllByTestId('detail-band').length).toBeGreaterThanOrEqual(4)
   })
 
-  it('모르는 것: 성함 없으면 닉네임과 "성함 받기 전", 번호 "모름", 배송지 "배송지 받기 전", 인스타·문자 손님은 글자 꼬리표', async () => {
+  // D-UX4-126: 옛 "성함 받기 전"·"배송지 받기 전" → 셋 다 빨간 "모름 ›", 누르면 그 칸부터 묻는 손님 정보 화면
+  it('모르는 것: 성함·휴대폰 번호·주소 모두 빨간 "모름", 누르면 그 칸, 인스타·문자 손님은 글자 꼬리표', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ name: null, phone: null, address: null, platform: 'INSTAGRAM' }), '2026-10-29|u2': orderDetail({ buyer: 'u2', nickname: '01055556666', platform: 'SMS' }) } })
-    const { unmount } = openDetail(w)
+    const onEditInfo = vi.fn()
+    const { unmount } = openDetail(w, { onEditInfo })
     const head = await screen.findByRole('group', { name: '손님' })
     expect(within(head).getByRole('heading', { name: '다육맘', level: 2 })).toBeTruthy()
-    expect(within(head).getByText('성함 받기 전')).toBeTruthy()
-    expect(within(head).getByLabelText('휴대폰 번호 모름')).toBeTruthy()
-    expect(within(head).getByLabelText('주소 배송지 받기 전')).toBeTruthy()
+    expect(within(head).queryByText(/받기 전/)).toBeNull()
+    for (const label of ['성함', '휴대폰 번호', '주소']) {
+      const row = within(head).getByRole('button', { name: `${label} 모름 · 고치기` })
+      expect(within(row).getByText('모름').style.color).toBe('rgb(221, 24, 36)')
+    }
+    fireEvent.click(within(head).getByRole('button', { name: '휴대폰 번호 모름 · 고치기' }))
+    expect(onEditInfo).toHaveBeenCalledWith('phone')
     expect(within(head).getByText('인스타')).toBeTruthy()
     unmount()
     openDetail(w, { buyer: 'u2' })
@@ -168,33 +188,44 @@ describe('주문 상세 (D-UX4-125)', () => {
     expect(within(sms).getByText('문자')).toBeTruthy()
   })
 
-  it('표: 번호 | 상품 이름 | 가격 — 둘 이상이면 이름 뒤 ×n, 가격은 그 줄 합', async () => {
+  it('표: 번호 | 상품명 | 가격 — 둘 이상이면 이름 뒤 ×n, 가격은 그 줄 합', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ items: [{ no: 3, name: '금황', price: 15_000, qty: 1 }, { no: 15, name: '핑크프릴', price: 8_000, qty: 2 }], itemCount: 3, subtotal: 31_000 }) } })
     openDetail(w)
     const table = await screen.findByRole('table', { name: '상품' })
     const rows = within(table).getAllByRole('row')
-    expect(within(rows[0]!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['번호', '상품 이름', '가격'])
+    expect(within(rows[0]!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['번호', '상품명', '가격'])
     expect(rows.slice(1).map((row) => row.getAttribute('aria-label'))).toEqual(['3번 금황 15,000원', '15번 핑크프릴 ×2 16,000원'])
   })
 
-  it('금액: 예약일시는 한국 시각(요일까지), 총 개수·총 금액, 배송비와 무료 기준, [배송비 기준 바꾸기]는 가게 설정', async () => {
+  // D-UX4-126: 예약일시 → 예약 날짜(2026년 11월 7일), 순서 총 개수·배송비·총 금액·예약 날짜, "배송비 포함"은 총 금액 왼쪽,
+  // 받은 금액·남은 금액은 따로 "입금" 묶음, [배송비 기준 바꾸기]·[내보내기]는 표 묶음 오른쪽 아래 작은 회색 단추
+  it('금액: 표 바로 아래 총 개수·배송비(무료 기준)·총 금액·예약 날짜, 받은·남은 금액은 따로, [배송비 기준 바꾸기]는 가게 설정', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ claimedAt: '2026-10-29T06:42:00.000Z', received: 4_000, payment: 'PARTIAL' }) } })
     const onOpenShopSettings = vi.fn()
     openDetail(w, { onOpenShopSettings })
     const money = await screen.findByRole('group', { name: '금액' })
-    // 06:42Z = 한국 15:42 (시험은 TZ=Pacific/Honolulu — 기기 시간대와 상관없다)
-    expect(within(money).getByLabelText('예약일시 10월 29일 목요일 15:42')).toBeTruthy()
-    expect(within(money).getByLabelText('총 개수 1개')).toBeTruthy()
-    expect(within(money).getByLabelText('총 금액 14,000원')).toBeTruthy()
-    expect(within(money).getByLabelText('배송비 4,000원')).toBeTruthy()
+    expect(within(money).getAllByLabelText(/^(총 개수|배송비|총 금액|예약 날짜) /).map((line) => line.getAttribute('aria-label'))).toEqual([
+      '총 개수 1개',
+      '배송비 4,000원',
+      '총 금액 배송비 포함 14,000원',
+      '예약 날짜 2026년 10월 29일',
+    ])
     expect(within(money).getByText('50,000원 이상 구매 시 무료')).toBeTruthy()
-    expect(within(money).getByLabelText('받은 금액 4,000원')).toBeTruthy()
-    expect(within(money).getByLabelText('남은 금액 10,000원')).toBeTruthy()
+    // 표와 같은 묶음 — 사이에 회색 띠가 없다
+    const order = screen.getByRole('group', { name: '주문' })
+    expect(within(order).getByRole('table', { name: '상품' })).toBeTruthy()
+    expect(within(order).queryByTestId('detail-band')).toBeNull()
+    const paid = screen.getByRole('group', { name: '입금' })
+    expect(within(paid).getByLabelText('받은 금액 4,000원')).toBeTruthy()
+    expect(within(paid).getByLabelText('남은 금액 10,000원')).toBeTruthy()
+    expect(within(money).queryByLabelText(/^받은 금액/)).toBeNull()
     expect(within(money).queryByLabelText(/^할인·추가/)).toBeNull()
-    expect(within(money).queryByLabelText(/^돌려줄 돈/)).toBeNull()
-    fireEvent.click(within(money).getByRole('button', { name: '배송비 기준 바꾸기' }))
+    expect(within(paid).queryByLabelText(/^돌려줄 돈/)).toBeNull()
+    // 단추는 좌우로 — [배송비 기준 바꾸기] 왼쪽, [내보내기] 오른쪽
+    expect(within(order).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['배송비 기준 바꾸기', '내보내기'])
+    fireEvent.click(within(order).getByRole('button', { name: '배송비 기준 바꾸기' }))
     expect(onOpenShopSettings).toHaveBeenCalledOnce()
   })
 
@@ -209,12 +240,39 @@ describe('주문 상세 (D-UX4-125)', () => {
     const { unmount } = openDetail(w)
     const money = await screen.findByRole('group', { name: '금액' })
     expect(within(money).getByLabelText('할인·추가 −1,000원')).toBeTruthy()
-    expect(within(money).getByLabelText('돌려줄 돈 7,000원')).toBeTruthy()
-    expect(within(money).getByLabelText('남은 금액 0원')).toBeTruthy()
+    const paid = screen.getByRole('group', { name: '입금' })
+    expect(within(paid).getByLabelText('돌려줄 돈 7,000원')).toBeTruthy()
+    expect(within(paid).getByLabelText('남은 금액 0원')).toBeTruthy()
     expect(within(money).getByText('기본 배송비 4,000원')).toBeTruthy()
     unmount()
     openDetail(w, { buyer: 'u2' })
     expect(within(await screen.findByRole('group', { name: '금액' })).getByText('직접 수령')).toBeTruthy()
+  })
+
+  // D-UX4-126: [내보내기] → 아래 창 한 줄 [사진][CSV 파일][엑셀 파일] → 서버 파일을 받아 공유 창 (휴대폰 번호·주소는 넣지 않는다고 알린다)
+  it('[내보내기]: 사진·CSV·엑셀이 한 줄, 고르면 그 파일을 받아 공유 창으로', async () => {
+    const w = makeWorld()
+    withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail() } })
+    const pulled: string[] = []
+    w.server.on('GET', /\/(order\.(csv|xlsx)|receipt\.jpg)\?/, (call) => {
+      pulled.push(call.path)
+      return { bytes: new Uint8Array([1, 2, 3]), contentType: 'application/octet-stream' }
+    })
+    const shared: { name: string; mime: string }[] = []
+    setNativeModules({ shareFile: async (_bytes, name, mime) => void shared.push({ name, mime }) })
+    openDetail(w)
+    fireEvent.click(await screen.findByRole('button', { name: '내보내기' }))
+    const sheet = await screen.findByTestId('order-export')
+    expect(within(sheet).getByText('휴대폰 번호와 주소는 넣지 않아요.')).toBeTruthy()
+    expect(within(sheet).getAllByRole('button').map((b) => b.getAttribute('aria-label')).filter((label) => ['사진', 'CSV 파일', '엑셀 파일'].includes(label ?? ''))).toEqual(['사진', 'CSV 파일', '엑셀 파일'])
+    fireEvent.click(within(sheet).getByRole('button', { name: '엑셀 파일' }))
+    await waitFor(() => expect(shared).toEqual([{ name: 'order-2026-10-29.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }]))
+    expect(pulled).toEqual(['/api/days/2026-10-29/order.xlsx?buyer=u1'])
+    fireEvent.click(await screen.findByRole('button', { name: '내보내기' }))
+    fireEvent.click(within(await screen.findByTestId('order-export')).getByRole('button', { name: '사진' }))
+    await waitFor(() => expect(shared).toHaveLength(2))
+    expect(pulled[1]).toBe('/api/days/2026-10-29/receipt.jpg?buyer=u1')
+    expect(shared[1]).toEqual({ name: 'order-2026-10-29.jpg', mime: 'image/jpeg' })
   })
 
   it('지난 거래 내역: 거래 횟수 | 총 금액, 날짜별 줄 — 열 수 있는 줄은 그날 상세', async () => {
@@ -263,7 +321,16 @@ describe('주문 상세 (D-UX4-125)', () => {
 describe('주문 글자 (D-UX4-125)', () => {
   it('날짜·시각은 한국 시각, 번호·주소·배송비 글', () => {
     expect(dotDate('2026-11-11')).toBe('11.11')
-    expect(dotDate('2026-11-03')).toBe('11.03')
+    // D-UX4-126: 앞 0 없이 (옛 11.03)
+    expect(dotDate('2026-11-03')).toBe('11.3')
+    expect(dotDate('2026-01-07')).toBe('1.7')
+    expect(fullDateWords('2026-11-07')).toBe('2026년 11월 7일')
+    // 예약 날짜는 한국 날짜: UTC 11/10 15:30 = 한국 11/11, 모르면 주문 날짜
+    expect(reservedDateWords('2026-11-10T15:30:00.000Z', '2026-11-10')).toBe('2026년 11월 11일')
+    expect(reservedDateWords(null, '2026-11-07')).toBe('2026년 11월 7일')
+    expect(missingWords(['address', 'name'])).toBe('성함 · 주소 모름')
+    expect(missingWords(['phone'])).toBe('휴대폰 번호 모름')
+    expect(missingWords([])).toBeNull()
     expect(dayWeekdayWords('2026-11-11')).toBe('11월 11일 수요일')
     expect(dayWeekdayWords('2026-11-03')).toBe('11월 3일 화요일')
     // 한국 자정 넘김: UTC 11/10 15:30 = 한국 11/11 00:30
@@ -272,7 +339,7 @@ describe('주문 글자 (D-UX4-125)', () => {
     expect(phoneDashes('0101234567')).toBe('010-123-4567')
     expect(phoneDashes(null)).toBe('모름')
     expect(addressWords({ address: '서울 중구', detail: '', zip: '' })).toBe('서울 중구')
-    expect(addressWords(null)).toBe('배송지 받기 전')
+    expect(addressWords(null)).toBe('모름')
     expect(shippingNote({ baseFee: 3_500, freeThreshold: 50_000, mode: 'DEFAULT' })).toBe('50,000원 이상 구매 시 무료')
     expect(shippingNote({ baseFee: 3_500, freeThreshold: null, mode: 'DEFAULT' })).toBe('기본 배송비 3,500원')
     expect(shippingNote({ baseFee: 3_500, freeThreshold: null, mode: 'COMBINED' })).toBe('합배송')

@@ -133,7 +133,7 @@ describe('늦게 오는 묶음은 부드럽게 (D-UX4-112)', () => {
       ['src/screens/ReviewsScreen.tsx', /<Late>\s*\{view !== null && queue !== null \? <ReviewList/],
       ['src/screens/ScheduleScreen.tsx', /<Late style=\{\{ gap: SPACE\.md \}\}>\s*\{view !== null \? \(/],
       ['src/screens/ConsoleScreen.tsx', /<Appear instant=\{!listLate\}[^>]*>\s*\{shownTab === 'products' \? <ProductList/],
-      ['src/screens/ParcelAddress.tsx', /<Appear instant=\{!late\} style=\{\{ gap: SPACE\.md \}\}>/],
+      // D-UX4-126: 주문 상세 아래 배송지 칸(ParcelAddress AddressCard)은 사용자 지시로 없앴다 — 그 칸의 늦게 오는 내용도 없다
     ]
     for (const [path, shape] of lists) expect(read(path), path).toMatch(shape)
   })

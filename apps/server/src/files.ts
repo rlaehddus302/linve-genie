@@ -67,6 +67,7 @@ export const MIME = {
   zip: 'application/zip',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   gzip: 'application/gzip',
+  csv: 'text/csv; charset=utf-8',
 } as const
 
 /** 파일 응답 (내려받기 이름·형식·저장하지 않음) */

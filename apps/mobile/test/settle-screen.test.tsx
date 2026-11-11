@@ -58,7 +58,8 @@ describe('SettleScreen (앱 주문)', () => {
     const openDeposits = vi.fn()
     render(w.wrap(<SettleScreen nav={{ openReceipts, openDeposits }} />))
     const list = await screen.findByRole('list', { name: '주문 목록' })
-    expect(within(list).getAllByRole('button').map((row) => row.getAttribute('aria-label'))).toEqual(['10월 29일 · 다육맘 · 성함 받기 전 · 14,000원 · 1개', '10월 29일 · 초록손 · 성함 받기 전 · 14,000원 · 1개'])
+    // D-UX4-126: 줄은 닉네임 · 성함(알 때) — 옛 "성함 받기 전"은 없고, 모르는 정보는 서버 missing으로 빨간 줄(여기 손님은 missing 없음)
+    expect(within(list).getAllByRole('button').map((row) => row.getAttribute('aria-label'))).toEqual(['10월 29일 · 다육맘 · 14,000원 · 1개', '10월 29일 · 초록손 · 14,000원 · 1개'])
     expect(screen.queryByRole('button', { name: /날짜 10월 28일/ })).toBeNull()
     expect(screen.queryByRole('heading', { name: '주문', level: 1 })).toBeNull()
     // 옛 바로 가기(라이브 리포트)·입금 상태 거르기는 없다

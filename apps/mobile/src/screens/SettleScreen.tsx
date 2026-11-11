@@ -2,6 +2,7 @@
 // 맨 위 "주문" 머리·날짜 캡슐은 없앴다. 맨 위에 단추 셋 [고객 정보 받기] [정산서 보내기] [입금 확인하기]를 한 줄로,
 // 그 아래 토스 거래 내역(사진1)처럼 흰 바탕에 카드·구분선 없이 주문 목록: 왼쪽 날짜(그 날짜 첫 줄에만) · 성함(굵게)과 그 아래 작은 닉네임 · 오른쪽 총 금액과 그 아래 총 상품 개수.
 // 줄을 누르면 주문 상세(OrderDetailScreen, 사진2). 날짜를 넘어 최근 주문부터 서버 GET /api/orders, 끝까지 내리면 다음 쪽(?before=)을 잇는다.
+// D-UX4-126 (사용자 지시 2026-11-11): 날짜는 11.7처럼, 줄은 닉네임(굵게) 아래 작은 성함, 모르는 손님 정보는 그 아래 빨간 "성함 · 휴대폰 번호 · 주소 모름".
 // 옛 진행 카드·지금 할 일 카드·단계 칸·끝난 손님 접기(D-UX4-122)는 사용자가 이 모양으로 바꿨다. 금액은 서버(엔진)가 정한 정수 원 그대로.
 import { useEffect, useRef, useState } from 'react'
 import { ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
@@ -9,7 +10,7 @@ import type { OrderRow, OrdersView } from '@livejjim/web/src/api/order-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
-import { countWords, dotDate, joinOrders, NO_ORDERS, ORDERS_PATH, ORDERS_TOPIC, orderSubline, orderTitle, useOrdersLive } from '../lib/orders.ts'
+import { countWords, dotDate, joinOrders, missingWords, NO_ORDERS, ORDERS_PATH, ORDERS_TOPIC, useOrdersLive } from '../lib/orders.ts'
 import { useScreenSignal } from '../lib/screen-signals.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { Appear, BigButton, EmptyFill, Txt, useKit, useTabBarRoom, useWhiteTop, Tap } from '../ui/kit/index.ts'
@@ -192,25 +193,26 @@ function TopButton({ label, note = null, onPress }: { readonly label: string; re
   )
 }
 
-/** 날짜 칸 너비 ("11.11") */
+/** 날짜 칸 너비 ("11.11" — 가장 긴 날짜) */
 const DATE_WIDTH = 44
 
-/** 주문 한 줄 (토스 거래 내역 줄): 날짜(그 날짜 첫 줄에만) · 성함과 작은 닉네임 · 오른쪽 총 금액과 작은 개수 */
+/** 주문 한 줄 (토스 거래 내역 줄): 날짜(그 날짜 첫 줄에만) · 닉네임과 그 아래 작은 성함·빨간 모르는 정보 · 오른쪽 총 금액과 작은 개수 */
 function OrderLine({ row, showDate, gapAbove, onPress }: { readonly row: OrderRow; readonly showDate: boolean; readonly gapAbove: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
-  const title = orderTitle(row)
-  const sub = orderSubline(row)
+  const missing = missingWords(row.missing)
+  const words = [dateWords(row.date), row.nickname, row.name, missing, formatWon(row.total), countWords(row.itemCount)].filter((part) => part !== null && part !== '')
   return (
     <Tap
       role="button"
-      aria-label={`${dateWords(row.date)} · ${title} · ${sub} · ${formatWon(row.total)} · ${countWords(row.itemCount)}`}
+      aria-label={words.join(' · ')}
       onPress={onPress}
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.md, marginTop: gapAbove ? SPACE.sm : 0, paddingVertical: SPACE.md, paddingHorizontal: SPACE.sm, marginHorizontal: -SPACE.sm, minHeight: TOUCH.min, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}
     >
       <View style={{ width: DATE_WIDTH }}>{showDate ? <Txt step="body" weight="medium" color="textSub">{dotDate(row.date)}</Txt> : null}</View>
       <View style={{ flex: 1, gap: 2 }}>
-        <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{title}</Txt>
-        <Txt step="caption" color="textSub" numberOfLines={1}>{sub}</Txt>
+        <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{row.nickname}</Txt>
+        {row.name !== null ? <Txt step="caption" color="textSub" numberOfLines={1}>{row.name}</Txt> : null}
+        {missing !== null ? <Txt step="caption" weight="book" color="dangerText" numberOfLines={1}>{missing}</Txt> : null}
       </View>
       <View style={{ alignItems: 'flex-end', gap: 2 }}>
         <Txt step="bodyLarge" weight="bold">{formatWon(row.total)}</Txt>

@@ -1,7 +1,8 @@
 // 주문 탭 목록·주문 상세의 글자와 작은 도움 (D-UX4-125, 사용자 지시 2026-11-11 "주문 탭 수정 사항 … 사진1처럼 주문 목록 … 사진2처럼 상세 내역").
+// D-UX4-126 (사용자 지시 2026-11-11): 날짜는 11.7처럼(앞 0 없이), 줄은 닉네임 아래 성함, 모르는 손님 정보는 빨간 "성함 · 휴대폰 번호 · 주소 모름".
 // 날짜·시각은 늘 한국 시각(KST)으로 — 기기 시간대 시각 함수(getHours 등)는 쓰지 않는다. 금액은 서버가 준 정수 원 그대로.
 import { useEffect, useRef } from 'react'
-import type { OrderDetailView, OrderRow } from '@livejjim/web/src/api/order-types.ts'
+import type { OrderDetailView, OrderInfoField, OrderRow } from '@livejjim/web/src/api/order-types.ts'
 import { kstDate, kstHm } from '@livejjim/web/src/lib/kst.ts'
 import { useServices } from '../services.tsx'
 import { formatWon } from './words.ts'
@@ -15,9 +16,8 @@ export const ORDERS_TOPIC = 'orders'
 /** 주문 상세 경로 */
 export const orderPath = (date: string, buyer: string): string => `/api/days/${date}/order?buyer=${encodeURIComponent(buyer)}`
 
-export const NO_NAME = '성함 받기 전'
-export const NO_ADDRESS_YET = '배송지 받기 전'
-export const NO_PHONE = '모름'
+/** 모르는 손님 정보 (빨간 글자) */
+export const UNKNOWN = '모름'
 export const NO_ORDERS = '아직 주문이 없어요'
 export const NO_HISTORY = '지난 거래가 없어요'
 export const ORDER_DETAIL_TITLE = '주문 상세'
@@ -29,10 +29,22 @@ function dateParts(date: string): { readonly year: number; readonly month: numbe
   return m === null ? null : { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) }
 }
 
-/** `2026-11-11` → `11.11` (토스 거래 내역 왼쪽 날짜 칸 — 자리를 맞추려고 두 자리) */
+/** `2026-11-07` → `11.7` (토스 거래 내역 왼쪽 날짜 칸 — 앞 0 없이, D-UX4-126) */
 export function dotDate(date: string): string {
-  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(date)
-  return m === null ? date : `${m[1] ?? ''}.${m[2] ?? ''}`
+  const parts = dateParts(date)
+  return parts === null ? date : `${String(parts.month)}.${String(parts.day)}`
+}
+
+/** `2026-11-07` → `2026년 11월 7일` (주문 상세 예약 날짜, D-UX4-126) */
+export function fullDateWords(date: string): string {
+  const parts = dateParts(date)
+  return parts === null ? date : `${String(parts.year)}년 ${String(parts.month)}월 ${String(parts.day)}일`
+}
+
+/** 예약 날짜: 첫 예약 시각의 KST 날짜, 모르면(봉인 날짜) 그 주문 날짜 */
+export function reservedDateWords(claimedAt: string | null, date: string): string {
+  const day = claimedAt === null ? '' : kstDate(claimedAt)
+  return fullDateWords(day === '' ? date : day)
 }
 
 /** `2026-11-03` → `11월 3일 화요일` (요일은 그 날짜 자체로 — 시간대와 무관) */
@@ -50,26 +62,30 @@ export function claimedAtWords(value: string): string {
   return `${dayWeekdayWords(date)} ${kstHm(value)}`
 }
 
-/** 줄·머리의 큰 이름: 성함, 모르면 닉네임 */
-export const orderTitle = (row: Pick<OrderRow, 'name' | 'nickname'>): string => row.name ?? row.nickname
+/** 손님 정보 칸 이름 (상세 왼쪽 이름표 · 목록 빨간 줄) */
+export const INFO_LABEL: Readonly<Record<OrderInfoField, string>> = { name: '성함', phone: '휴대폰 번호', address: '주소' }
+const INFO_ORDER: readonly OrderInfoField[] = ['name', 'phone', 'address']
 
-/** 이름 아래 작은 줄: 성함이 있으면 닉네임, 없으면 "성함 받기 전" */
-export const orderSubline = (row: Pick<OrderRow, 'name' | 'nickname'>): string => (row.name === null ? NO_NAME : row.nickname)
+/** 목록 빨간 줄: `성함 · 휴대폰 번호 · 주소 모름` (모르는 것만, 이 순서). 다 알면 null */
+export function missingWords(missing: readonly OrderInfoField[] | undefined): string | null {
+  const known = INFO_ORDER.filter((field) => missing?.includes(field) === true)
+  return known.length === 0 ? null : `${known.map((field) => INFO_LABEL[field]).join(' · ')} ${UNKNOWN}`
+}
 
 export const countWords = (n: number): string => `${String(n)}개`
 
 /** 휴대폰 번호 `01012345678` → `010-1234-5678` (모르면 "모름"). 판매자 화면에만 — 로그에 넣지 않는다 */
 export function phoneDashes(phone: string | null): string {
-  if (phone === null) return NO_PHONE
+  if (phone === null) return UNKNOWN
   const digits = phone.replace(/\D/g, '')
   if (/^02\d{7,8}$/.test(digits)) return `02-${digits.slice(2, digits.length - 4)}-${digits.slice(-4)}`
   if (/^\d{10,11}$/.test(digits)) return `${digits.slice(0, 3)}-${digits.slice(3, digits.length - 4)}-${digits.slice(-4)}`
   return phone
 }
 
-/** 주소 한 줄 `(50603) 경상남도 … 1034` — 우편번호를 모르면 괄호 없이, 배송지가 없으면 "배송지 받기 전" */
+/** 주소 한 줄 `(50603) 경상남도 … 1034` — 우편번호를 모르면 괄호 없이, 배송지가 없으면 "모름" */
 export function addressWords(address: OrderDetailView['address']): string {
-  if (address === null) return NO_ADDRESS_YET
+  if (address === null) return UNKNOWN
   const zip = address.zip.trim()
   return [zip === '' ? null : `(${zip})`, address.address.trim(), address.detail.trim()].filter((part) => part !== null && part !== '').join(' ')
 }

@@ -1,9 +1,13 @@
 // 앱 배송지 칸·택배 꼬리표·포장 잠금 (D-UX3-35 — 웹 ParcelParts.AddressSection·PackingPage와 같은 규칙·문구).
 // 앱 정산 화면엔 배송지 칸이 없어서, 택배 화면 [배송지 보기]가 막다른 길이었다(우편번호를 못 찾아 돌려보낸 주소를 앱에서 못 고침).
+// D-UX4-126 (사용자 지시 2026-11-11 "배송지 확인*고치기 이런 글자 다 지워 … 그 영역을 누르면 … 상품 추가 페이지 … 처럼 입력 받을 수 있게"):
+// 주문 상세 아래 배송지 칸(꼬리표·여섯 칸·[지우기][고치기][배송지 확인]·창)은 없앴다. 같은 일을 위 손님 묶음 주소 줄이 한다 —
+// 택배사가 돌려보낸 까닭·"확인 전"은 주소 아래 작은 글, 고치기·확인은 줄을 눌러 손님 정보 화면에서 저장(판매자가 적은 확인된 배송지), 접수 중이면 누를 수 없다.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { BundleView, ParcelBrief, ParcelRow } from '@livejjim/web/src/api/parcel-types.ts'
 import type { PackingEntry, Settlement } from '@livejjim/web/src/api/types.ts'
+import { ASK_INFO } from '../src/screens/OrderInfoScreen.tsx'
 import { PackingScreen } from '../src/screens/PackingScreen.tsx'
 import { SettleScreen } from '../src/screens/SettleScreen.tsx'
 import { orderDetail, orderRow, ordersView, withOrders } from './order-support.ts'
@@ -53,59 +57,56 @@ function world(start: BundleView = bundle()) {
   return w
 }
 
-describe('정산 배송지 칸 (D-UX3-35)', () => {
-  it('택배 화면에서 온 손님은 주문 상세부터 열리고 배송지 칸에 택배 꼬리표, 뒤로 가면 주문 목록', async () => {
+describe('주문 상세 주소 줄 (D-UX3-35 → D-UX4-126)', () => {
+  // D-UX4-126로 바뀐 기대: 옛 "배송지 칸에 택배 꼬리표·여섯 칸·출처·확인 전" → 주소 줄 아래 작은 빨간 까닭(돌려보낸 까닭이 확인 전보다 먼저)
+  it('택배 화면에서 온 손님은 주문 상세부터 열리고 주소 아래 택배사가 돌려보낸 까닭, 뒤로 가면 주문 목록', async () => {
     const w = world()
     render(w.wrap(<SettleScreen initialDate={DATE} initialBuyer="u1" />))
-    const card = await screen.findByLabelText('배송지')
-    expect(await within(card).findByText('택배: 택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.')).toBeTruthy()
-    expect(within(card).getByLabelText('주소 경상남도 양산시 물금읍 증산리')).toBeTruthy()
-    expect(within(card).getByLabelText('상세 주소 1034')).toBeTruthy()
-    expect(within(card).getByLabelText('연락처 010-1234-5678')).toBeTruthy()
-    expect(within(card).getByText('구매자가 적었어요')).toBeTruthy()
-    expect(within(card).getByText('확인 전')).toBeTruthy()
-    // D-UX4-125 (사용자 지시 2026-11-11 '주문 탭 수정 사항')로 바뀐 기대: 옛 "정산 줄에 택배 꼬리표(접힌 끝난 손님 안)" → 새 주문 목록 줄은 날짜·성함·닉네임·금액·개수만(사진1).
-    // 택배 꼬리표는 그 손님 상세의 배송지 칸에서 본다. 뒤로 단추 이름도 "정산 목록으로" → "주문 목록으로"
+    const head = await screen.findByRole('group', { name: '손님' })
+    const reason = '택배사가 주소를 찾지 못했어요. 배송지 주소와 우편번호를 확인해 주세요.'
+    const line = await within(head).findByRole('button', { name: `주소 (50603) 경상남도 양산시 물금읍 증산리 1034 · ${reason} · 고치기` })
+    expect(within(line).getByText(reason).style.color).toBe('rgb(221, 24, 36)')
+    expect(screen.queryByLabelText('배송지')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '주문 목록으로' }))
-    expect(await screen.findByRole('button', { name: '10월 29일 · 초록손 · 성함 받기 전 · 14,000원 · 1개' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '10월 29일 · 초록손 · 14,000원 · 1개' })).toBeTruthy()
   })
 
-  it('배송지 확인은 고친 시각과 같이, 고치기는 여섯 칸을 보내고 칸 오류는 칸 옆에', async () => {
-    const w = world()
+  // D-UX4-126로 바뀐 기대: 옛 [배송지 확인](POST address/confirm)·[고치기] 창 → 주소 줄을 눌러 손님 정보 화면에서 저장(PUT — 판매자가 적은 확인된 배송지).
+  // 주소를 바꾸면 옛 우편번호는 비운다(서버가 새 주소로 찾는다 — 옛 우편번호 때문에 택배가 다시 돌아오지 않게)
+  it('손님이 적은 주소는 "확인 전", 줄을 눌러 주소를 고쳐 저장하면 확인된 배송지 — 주소가 바뀌면 옛 우편번호는 비운다', async () => {
+    const start = bundle({ row: row() })
+    const w = world({ ...start, address: { ...start.address!, zip: '50603' } })
     render(w.wrap(<SettleScreen initialDate={DATE} initialBuyer="u1" />))
-    const card = await screen.findByLabelText('배송지')
-    const buttons = await within(card).findByRole('group', { name: '배송지 고치기' })
-    // 단추는 좌우로만: 부정(지우기) 왼쪽, 긍정(배송지 확인) 오른쪽
-    expect(within(buttons).getAllByRole('button').map((b) => b.textContent)).toEqual(['지우기', '고치기', '배송지 확인'])
-    fireEvent.click(within(buttons).getByRole('button', { name: '배송지 확인' }))
-    expect(await screen.findByText('배송지를 확인했어요.')).toBeTruthy()
-    expect(w.server.callsTo('POST', /address\/confirm/)[0]?.body).toEqual({ requestId: expect.any(String), buyer: 'u1', updatedAt: '2026-10-29T12:00:00.000Z' })
-
-    fireEvent.click(screen.getByRole('button', { name: '고치기' }))
-    fireEvent.change(screen.getByLabelText('우편번호(몰라도 돼요)'), { target: { value: '1234' } })
-    fireEvent.click(screen.getByRole('button', { name: '저장' }))
-    expect(await screen.findByText('우편번호는 숫자 5자리로 적어 주세요.')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('우편번호(몰라도 돼요)'), { target: { value: '50603' } })
-    fireEvent.click(screen.getByRole('button', { name: '저장' }))
-    expect(await screen.findByText('배송지를 저장했어요.')).toBeTruthy()
-    const puts = w.server.callsTo('PUT', /address$/)
-    expect(puts[1]?.body).toEqual({ requestId: expect.any(String), buyer: 'u1', address: { name: '김다육', phone: '01012345678', address: '경상남도 양산시 물금읍 증산리', detail: '1034', zip: '50603', memo: '' } })
-    expect(puts[0]?.body?.['requestId']).not.toBe(puts[1]?.body?.['requestId'])
-    expect(within(card).getByLabelText('우편번호 50603')).toBeTruthy()
+    const head = await screen.findByRole('group', { name: '손님' })
+    fireEvent.click(await within(head).findByRole('button', { name: /^주소 .* · 확인 전 · 고치기$/ }))
+    const input = await screen.findByLabelText(ASK_INFO.address)
+    fireEvent.change(input, { target: { value: '경상남도 양산시 물금읍 범어로 12' } })
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    await screen.findByLabelText(ASK_INFO.detail)
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    fireEvent.click(await screen.findByRole('button', { name: '저장하기' }))
+    await waitFor(() => expect(w.server.callsTo('PUT', /address$/)).toHaveLength(1))
+    expect(w.server.callsTo('PUT', /address$/)[0]?.body).toEqual({ requestId: expect.any(String), buyer: 'u1', address: { name: '김다육', phone: '01012345678', address: '경상남도 양산시 물금읍 범어로 12', detail: '1034', zip: '', memo: '' } })
+    expect(w.server.callsTo('POST', /address\/confirm/)).toHaveLength(0)
+    // 저장하면 상세로 돌아오고, 확인된 배송지라 "확인 전"이 없다
+    const back = await screen.findByRole('group', { name: '손님' })
+    await waitFor(() => expect(within(back).queryByText('확인 전')).toBeNull())
   })
 
-  it('살아 있는 접수가 있으면 고치지 못하고 접수 취소를 먼저 안내, 없으면 [배송지 적기]', async () => {
+  // D-UX4-126로 바뀐 기대: 옛 "배송지 칸에 접수 취소 안내 · 없으면 [배송지 적기]" → 접수 중이면 줄을 누를 수 없고, 없으면 빨간 "모름" 줄이 손님 정보 화면을 연다
+  it('살아 있는 접수가 있으면 줄을 누를 수 없고, 배송지가 없으면 빨간 "모름" 줄이 손님 정보 화면을 연다', async () => {
     const locked = world(bundle({ locked: true, row: row({ parcel: inTransit }) }))
     const { unmount } = render(locked.wrap(<SettleScreen initialDate={DATE} initialBuyer="u1" />))
-    const card = await screen.findByLabelText('배송지')
-    expect(await within(card).findByText('택배 접수를 먼저 취소해 주세요.')).toBeTruthy()
-    expect(within(card).queryByRole('button', { name: '고치기' })).toBeNull()
+    const head = await screen.findByRole('group', { name: '손님' })
+    await waitFor(() => expect(within(head).queryAllByRole('button')).toHaveLength(0))
+    expect(within(head).getByLabelText(/^주소 /)).toBeTruthy()
     unmount()
-    render(world(bundle({ address: null, row: row() })).wrap(<SettleScreen initialDate={DATE} initialBuyer="u1" />))
-    const empty = await screen.findByLabelText('배송지')
-    expect(await within(empty).findByText('배송지가 없어요')).toBeTruthy()
-    fireEvent.click(within(empty).getByRole('button', { name: '배송지 적기' }))
-    expect(await screen.findByLabelText('받는 분')).toBeTruthy()
+    const empty = world(bundle({ address: null, row: row() }))
+    withOrders(empty, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ buyer: 'u1', name: null, phone: null, address: null }) } })
+    render(empty.wrap(<SettleScreen initialDate={DATE} initialBuyer="u1" />))
+    const unknown = await screen.findByRole('group', { name: '손님' })
+    fireEvent.click(await within(unknown).findByRole('button', { name: '주소 모름 · 고치기' }))
+    expect(await screen.findByLabelText(ASK_INFO.address)).toBeTruthy()
   })
 })
 

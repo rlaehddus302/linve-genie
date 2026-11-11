@@ -23,6 +23,7 @@ interface OrderRow {
   total: number
   itemCount: number
   firstClaimAt: string | null
+  missing: string[]
 }
 interface OrdersView {
   today: string
@@ -98,7 +99,8 @@ describe('D-UX4-125 주문 목록', () => {
       [D1, 'UC_A'],
     ])
     const a2 = view.orders[1] as OrderRow
-    expect(a2).toEqual({ date: D2, buyer: 'UC_A', name: '김받는', nickname: '홍길동', platform: 'YOUTUBE', total: 31_000, itemCount: 2, firstClaimAt: new Date(kst(D2, '20:00:10')).toISOString() })
+    // D-UX4-126: 줄에 모르는 손님 정보(missing)가 더해졌다 — 배송지가 있으면 빈 목록
+    expect(a2).toEqual({ date: D2, buyer: 'UC_A', name: '김받는', nickname: '홍길동', platform: 'YOUTUBE', total: 31_000, itemCount: 2, firstClaimAt: new Date(kst(D2, '20:00:10')).toISOString(), missing: [] })
     expect(view.orders[0]).toMatchObject({ name: null, nickname: '나래', platform: 'YOUTUBE', total: 6000, itemCount: 1 })
     const smsRow = view.orders[3] as OrderRow
     expect(smsRow).toMatchObject({ name: null, platform: 'SMS', total: 5000 + 4000, itemCount: 1, firstClaimAt: new Date(kst(D1, '20:01:00')).toISOString() })
@@ -264,10 +266,12 @@ describe('D-UX4-125 봉인 날짜 (D-PL1-03·D-PL1-04)', () => {
     expect(beforeDetail.body.claimedAt).not.toBeNull()
     await sealA(world)
     const afterList = await list(world, seller)
-    const strip = (rows: OrderRow[]) => rows.map(({ firstClaimAt: _first, ...rest }) => rest)
+    // D-UX4-126: 봉인(30일 뒤)이면 배송지 보관 기간도 지나 missing은 빈 목록이 된다 — 비교에서 빼고 따로 본다
+    const strip = (rows: OrderRow[]) => rows.map(({ firstClaimAt: _first, missing: _missing, ...rest }) => rest)
     expect(strip(afterList.orders)).toEqual(expect.arrayContaining(strip(beforeList.orders)))
     expect(afterList.orders).toHaveLength(beforeList.orders.length)
     for (const row of afterList.orders) if (row.date === A) expect(row.firstClaimAt).toBeNull()
+    expect(afterList.orders.filter((row) => row.date === A).every((row) => row.missing.length === 0)).toBe(true)
     expect(afterList.orders.filter((row) => row.date === B).every((row) => row.firstClaimAt !== null)).toBe(true)
     const afterDetail = await expectOk(detail(world, seller, A, X))
     expect({ ...afterDetail.body, claimedAt: 'x' }).toEqual({ ...beforeDetail.body, claimedAt: 'x' })
@@ -275,5 +279,126 @@ describe('D-UX4-125 봉인 날짜 (D-PL1-03·D-PL1-04)', () => {
     // 뒤 날짜 상세의 거래 줄도 봉인 장부 금액 그대로
     const later = await expectOk(detail(world, seller, B, X))
     expect((later.body.history as { lines: { date: string; total: number }[] }).lines).toEqual([expect.objectContaining({ date: A, total: beforeDetail.body.total, openable: true })])
+  })
+})
+
+describe('D-UX4-126 주문 목록의 모르는 손님 정보', () => {
+  it('성함·휴대폰 번호·주소 순: 배송지가 있으면 빈 목록, 문자 손님은 번호를 알아 성함·주소만, 채팅 손님은 셋 다', async () => {
+    const { world, seller } = await world0()
+    const { sms } = await sell(world, seller)
+    await putAddress(world, seller, D1, 'UC_A')
+    const rows = (await list(world, seller)).orders
+    const row = (date: string, buyer: string) => rows.find((item) => item.date === date && item.buyer === buyer)
+    expect(row(D1, 'UC_A')?.missing).toEqual([])
+    expect(row(D1, sms)?.missing).toEqual(['name', 'address'])
+    expect(row(D1, 'UC_B')?.missing).toEqual(['name', 'phone', 'address'])
+    expect(row(D2, 'UC_A')?.missing).toEqual(['name', 'phone', 'address'])
+    // 배송지 보관 기간(30일)이 지난 날짜는 더 넣을 수 없으니 묻지 않는다
+    at(world, '2026-11-17', '09:00:00')
+    const later = (await list(world, seller)).orders
+    expect(later.filter((item) => item.date === D1).map((item) => item.missing)).toEqual([[], [], []])
+    expect(later.find((item) => item.date === D2 && item.buyer === 'UC_B')?.missing).toEqual(['name', 'phone', 'address'])
+  })
+})
+
+describe('D-UX4-126 주문 한 건 내보내기', () => {
+  const file = (world: TestServer, seller: Seller, ext: 'csv' | 'xlsx', date: string, buyer: string, query = '') =>
+    client(world, seller.cookie).raw(`/api/days/${date}/order.${ext}?buyer=${encodeURIComponent(buyer)}${query}`, {})
+
+  it('CSV: BOM·CRLF, 위 묶음·상품 표·금액, 휴대폰 번호·주소는 없다', async () => {
+    const { world, seller } = await world0()
+    await sell(world, seller)
+    await putAddress(world, seller, D2, 'UC_A')
+    await ok(world, seller, { type: 'settlement.adjust', buyer: 'UC_A', date: D2, amount: -1000, reason: '할인' }, D2)
+    const response = await file(world, seller, 'csv', D2, 'UC_A')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('text/csv; charset=utf-8')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('content-disposition')).toBe(`attachment; filename="order-${D2}.csv"; filename*=UTF-8''${encodeURIComponent(`주문-${D2}-홍길동.csv`)}`)
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+    const text = new TextDecoder().decode(bytes.slice(3))
+    expect(text).toBe(
+      [
+        '닉네임,홍길동',
+        '성함,김받는',
+        '예약 날짜,2026년 10월 19일',
+        '',
+        '번호,상품명,수량,가격',
+        '2,라울,1,"10,000원"',
+        '5,방울복랑 금,1,"21,000원"',
+        '',
+        '총 개수,2개',
+        '배송비,0원',
+        '할인·추가,"−1,000원"',
+        '총 금액,"30,000원"',
+        '받은 금액,0원',
+        '남은 금액,"30,000원"',
+        '',
+      ].join('\r\n'),
+    )
+    expect(text).not.toContain('2222')
+    expect(text).not.toContain(ADDRESS.address)
+    expect(text).not.toContain(ADDRESS.zip)
+  })
+
+  it('CSV: 수식으로 읽히는 닉네임·상품명은 앞에 \'를 붙이고, 성함을 모르면 모름', async () => {
+    const { world, seller } = await world0()
+    at(world, D1, '19:00:00')
+    const b = (await createBroadcast(world, seller, { date: D1 })).id
+    await ok(world, seller, { type: 'product.register', b, no: 1, name: '=HYPERLINK("x")', price: 1000 })
+    at(world, D1, '20:00:00')
+    await chat(world, seller, b, 'm1', 'UC_EVIL', '=SUM(1,2)', '1')
+    const response = await file(world, seller, 'csv', D1, 'UC_EVIL')
+    expect(response.status).toBe(200)
+    const lines = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()).slice(3)).split('\r\n')
+    expect(lines[0]).toBe(`닉네임,"'=SUM(1,2)"`)
+    expect(lines[1]).toBe('성함,모름')
+    expect(lines[5]).toBe(`1,"'=HYPERLINK(""x"")",1,"1,000원"`)
+  })
+
+  it('엑셀: xlsx 형식으로 같은 줄을 글 칸에, 휴대폰 번호·주소는 없다', async () => {
+    const { world, seller } = await world0()
+    const { sms } = await sell(world, seller)
+    const response = await file(world, seller, 'xlsx', D1, sms)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    expect(response.headers.get('content-disposition')).toContain(`filename="order-${D1}.xlsx"`)
+    const { default: ExcelJS } = await import('exceljs')
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()) as unknown as ArrayBuffer)
+    const sheet = workbook.worksheets[0]
+    expect(sheet?.name).toBe('주문')
+    const values: string[][] = []
+    sheet?.eachRow({ includeEmpty: true }, (row) => {
+      const cells: string[] = []
+      for (let i = 1; i <= 4; i += 1) cells.push(row.getCell(i).text)
+      values.push(cells)
+    })
+    expect(values[0]).toEqual(['항목', '내용', '', ''])
+    expect(values[1]?.[0]).toBe('닉네임')
+    expect(values[2]).toEqual(['성함', '모름', '', ''])
+    expect(values[3]).toEqual(['예약 날짜', '2026년 10월 18일', '', ''])
+    expect(values[5]).toEqual(['번호', '상품명', '수량', '가격'])
+    expect(values[6]).toEqual(['2', '라울', '1', '5,000원'])
+    expect(values.flat()).toContain('남은 금액')
+    expect(values.flat().join(' ')).not.toContain('5678')
+  })
+
+  it('상세와 같은 검사: 모르는 구매자·없는 날짜·리허설은 404, 구매자를 적지 않으면 400, 로그인 없으면 401', async () => {
+    const { world, seller } = await world0()
+    await sell(world, seller)
+    for (const ext of ['csv', 'xlsx'] as const) {
+      expect((await file(world, seller, ext, D1, 'UC_NOBODY')).status).toBe(404)
+      expect((await file(world, seller, ext, '2026-10-01', 'UC_A')).status).toBe(404)
+      expect((await file(world, seller, ext, '2026-13-40', 'UC_A')).status).toBe(404)
+      expect((await file(world, seller, ext, D1, 'UC_A', '&rehearsal=true')).status).toBe(404)
+      expect((await client(world, seller.cookie).get(`/api/days/${D1}/order.${ext}`)).status).toBe(400)
+      expect((await client(world, null).raw(`/api/days/${D1}/order.${ext}?buyer=UC_A`, {})).status).toBe(401)
+    }
+    // 상세 경로는 그대로 JSON
+    const json = await detail(world, seller, D1, 'UC_A')
+    expect(json.status).toBe(200)
+    expect(json.body.buyer).toBe('UC_A')
   })
 })

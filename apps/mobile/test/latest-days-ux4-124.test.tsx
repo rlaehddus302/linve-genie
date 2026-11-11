@@ -40,6 +40,7 @@ describe('가장 최근 날짜 먼저 (D-UX4-124)', () => {
     withOrders(w, ordersView([orderRow({ buyer: 'u2', name: '초록손', total: 4_000 }), orderRow({ buyer: 'u1', name: '다육맘', total: 90_000 })]))
     render(w.wrap(<SettleScreen />))
     const list = await screen.findByRole('list', { name: '주문 목록' })
-    expect(within(list).getAllByRole('button').map((row) => row.getAttribute('aria-label')?.split(' · ')[1])).toEqual(['초록손', '다육맘'])
+    // D-UX4-126: 줄 이름은 날짜 · 닉네임 · 성함 순 — 성함은 셋째
+    expect(within(list).getAllByRole('button').map((row) => row.getAttribute('aria-label')?.split(' · ')[2])).toEqual(['초록손', '다육맘'])
   })
 })

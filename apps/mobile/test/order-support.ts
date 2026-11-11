@@ -11,6 +11,7 @@ export const orderRow = (patch: Partial<OrderRow> = {}): OrderRow => ({
   total: 14_000,
   itemCount: 1,
   firstClaimAt: '2026-10-29T11:00:00.000Z',
+  missing: [],
   ...patch,
 })
 

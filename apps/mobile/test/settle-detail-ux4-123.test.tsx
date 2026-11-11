@@ -113,13 +113,17 @@ const receiptRow = async (name: string) => {
 }
 
 describe('주문 상세 맨 아래 줄 (D-UX4-123 → D-UX4-125)', () => {
-  it('배송지: 못 받았으면 [배송지 적기]가 있는 배송지 칸 하나 — 위 손님 묶음에는 "배송지 받기 전"', async () => {
+  // D-UX4-126 (사용자 지시 2026-11-11 "배송지 확인*고치기 이런 글자 다 지워 … 그 영역을 누르면 … 입력 받을 수 있게"):
+  // 옛 "아래 배송지 칸 하나([배송지 적기])" → 아래 배송지 칸은 없고, 위 손님 묶음의 주소 줄을 눌러 손님 정보 화면에서 적는다
+  it('배송지: 아래 배송지 칸은 없고, 위 손님 묶음 주소 줄을 누르면 손님 정보 화면', async () => {
     const { w } = world({ address: 'NONE', sms: { last4: '5678', sentAt: null }, smsReady: true })
-    open(w)
-    const address = await screen.findByRole('group', { name: '배송지' })
-    expect(screen.getAllByRole('group', { name: '배송지' })).toHaveLength(1)
-    expect(await within(address).findByRole('button', { name: '배송지 적기' })).toBeTruthy()
-    expect(within(await screen.findByRole('group', { name: '손님' })).getByLabelText(/^주소 /)).toBeTruthy()
+    const onEditInfo = vi.fn()
+    render(w.wrap(<OrderDetailScreen date={DATE} buyer="u1" onBack={() => {}} onEditInfo={onEditInfo} />))
+    const head = await screen.findByRole('group', { name: '손님' })
+    fireEvent.click(within(head).getByRole('button', { name: /^주소 .* · 고치기$/ }))
+    expect(onEditInfo).toHaveBeenCalledWith('address')
+    expect(screen.queryByRole('group', { name: '배송지' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '배송지 적기' })).toBeNull()
   })
 
   it('확인서: [확인서 문자 보내기]가 그 자리에서 사진을 붙여 문자 앱을 열고 보냄 표시', async () => {

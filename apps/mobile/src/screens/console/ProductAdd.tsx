@@ -29,8 +29,8 @@ export const ASK_PRICE = '가격은 어떻게 되나요?'
 export const ASK_NAME = '어떤 품종인가요?'
 export const ASK_ADD = '상품을 추가할까요?'
 
-/** 큰 칸 글자 (토스 "얼마나 옮길까요?" 사진을 재어 — 키트 headline과 같은 크기) */
-const BIG = TYPE.amount
+/** 큰 칸 글자 (토스 "얼마나 옮길까요?" 사진을 재어 — 키트 headline과 같은 크기). 손님 정보 입력(D-UX4-126)도 같은 크기 */
+export const BIG = TYPE.amount
 /** 숫자판 키 높이 */
 const KEY_HEIGHT = 64
 const PAD: readonly (readonly string[])[] = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['00', '0', 'back']]
@@ -258,6 +258,9 @@ export function charPieces(shown: string, suffix: string): CharPiece[] {
     if (/[0-9]/.test(char)) {
       pieces.push({ key: `d${String(seen)}`, char })
       seen += 1
+    } else if (char === '-') {
+      // 휴대폰 번호 줄표(D-UX4-126): 몇 번째 줄표인지로 — 숫자를 넣고 지워도 같은 조각이라 옆으로 미끄러진다
+      pieces.push({ key: `h${String(pieces.filter((piece) => piece.char === '-').length)}`, char })
     } else {
       // 쉼표 뒤에 남은 숫자 수 ÷ 3 = 천·백만… 묶음
       pieces.push({ key: `c${String(Math.round((digitTotal - seen) / 3))}`, char })
@@ -280,8 +283,8 @@ export function pieceSpots(pieces: readonly CharPiece[], widths: ReadonlyMap<str
   return { xs, width: left }
 }
 
-/** 큰 칸에 늘 재 두는 글자 — 숫자·쉼표·붙임말 */
-const RULER_CHARS = '0123456789,번원'
+/** 큰 칸에 늘 재 두는 글자 — 숫자·쉼표·붙임말·휴대폰 번호 줄표(D-UX4-126) */
+const RULER_CHARS = '0123456789,-번원'
 
 /** 큰 칸 글자 폭 재기: 보이지 않는 줄에 글자를 하나씩 그려 폭을 잰다(자리를 차지하지 않는다) */
 function GlyphRuler({ chars, onWidth }: { readonly chars: string; readonly onWidth: (char: string, width: number) => void }) {
@@ -433,8 +436,8 @@ export function BigNumber({ label, question, digits, format, suffix }: { readonl
   )
 }
 
-/** 이미 답한 단계 (위로 올라간 값) — 누르면 그 단계로 돌아가 고친다 */
-function DoneLine({ label, value, onPress }: { readonly label: string; readonly value: string; readonly onPress: () => void }) {
+/** 이미 답한 단계 (위로 올라간 값) — 누르면 그 단계로 돌아가 고친다. 손님 정보 입력(D-UX4-126)도 같이 쓴다 */
+export function DoneLine({ label, value, onPress }: { readonly label: string; readonly value: string; readonly onPress: () => void }) {
   return (
     <Tap role="button" aria-label={`${label} ${value} 고치기`} onPress={onPress} style={({ pressed }) => ({ gap: 2, opacity: pressed ? 0.6 : 1 })}>
       <Txt step="body" color="textSub">
@@ -449,7 +452,7 @@ function DoneLine({ label, value, onPress }: { readonly label: string; readonly 
 
 /** 숫자판·키보드 바로 위 [다음] — 꽉 찬 띠가 아닌 큰 단추 (D-UX4-43, 사용자 지시 "원래처럼 별도의 버튼으로") */
 // 값이 없거나 틀리면 숨기지 않고 흐린 채로 눌리지 않는다 (D-UX4-54, 사용자 지시 2026-11-09 "처음에 안보이게 하지말고 비활성화로")
-function NextButton({ onPress, disabled }: { readonly onPress: () => void; readonly disabled: boolean }) {
+export function NextButton({ onPress, disabled }: { readonly onPress: () => void; readonly disabled: boolean }) {
   return (
     <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.sm }}>
       <BigButton label="다음" onPress={onPress} disabled={disabled} />
@@ -475,27 +478,12 @@ export function previousStep(step: Step, askName: boolean): Step | null {
   return askName ? 'name' : 'price'
 }
 
-export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askName: boolean; readonly onAdded: (key: string) => void; readonly stepBack?: StepBack }) {
-  const api = useConsoleApi()
-  const { p } = useKit()
-  const footer = useFooterInset()
-  const [step, setStep] = useState<Step>('no')
-  // 번호·가격 칸과 넘쳐 친 횟수(흔들기)를 한 상태로 — 누름마다 앞 누름의 결과에서 이어 간다 (D-UX4-102)
-  const [typed, setTyped] = useState<{ readonly no: string; readonly price: string; readonly again: number }>({ no: '', price: '', again: 0 })
-  const { no, price, again } = typed
-  const [name, setName] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+/**
+ * 단계 뒤로 (D-UX4-111): 머리 ‹(stepBack)·왼쪽 가장자리 밀기·안드로이드 뒤로가 앞 단계로 간다(back이 true). 첫 단계면 화면을 닫게 둔다.
+ * 상품 추가와 손님 정보 입력(D-UX4-126)이 같이 쓴다. swipe·edgeHandlers는 단계 내용을 감싼 Animated.View에 단다
+ */
+export function useStepBack(stepBack: StepBack | undefined, back: () => boolean, first: boolean) {
   const { width } = useWindowDimensions()
-
-  // 뒤로 = 앞 단계로 (D-UX4-111, 사용자 지시 "맨 앞 입력 단계(번호)가 아닌 곳에서 뒤로가기 하면 이전 입력 단계로 … 스와이프로 뒤로가기해도")
-  const back = () => {
-    const previous = previousStep(step, askName)
-    if (previous === null) return false
-    setError(null)
-    setStep(previous)
-    return true
-  }
   const backNow = useRef(back)
   backNow.current = back
   useEffect(() => {
@@ -505,7 +493,6 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
       stepBack.current = null
     }
   }, [stepBack])
-  const first = step === 'no'
   // 첫 단계가 아니면 화면을 닫는 휴대폰 밀기를 끄고(useHoldRouteSwipe) 이 화면 밀기로 앞 단계에 간다. 안드로이드 뒤로도 앞 단계로
   useHoldRouteSwipe(!first)
   useEffect(() => {
@@ -532,6 +519,30 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
     }).panHandlers
   })
   const edgeHandlers = Platform.OS === 'web' ? {} : edge
+  return { swipe, edgeHandlers }
+}
+
+export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askName: boolean; readonly onAdded: (key: string) => void; readonly stepBack?: StepBack }) {
+  const api = useConsoleApi()
+  const { p } = useKit()
+  const footer = useFooterInset()
+  const [step, setStep] = useState<Step>('no')
+  // 번호·가격 칸과 넘쳐 친 횟수(흔들기)를 한 상태로 — 누름마다 앞 누름의 결과에서 이어 간다 (D-UX4-102)
+  const [typed, setTyped] = useState<{ readonly no: string; readonly price: string; readonly again: number }>({ no: '', price: '', again: 0 })
+  const { no, price, again } = typed
+  const [name, setName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  // 뒤로 = 앞 단계로 (D-UX4-111, 사용자 지시 "맨 앞 입력 단계(번호)가 아닌 곳에서 뒤로가기 하면 이전 입력 단계로 … 스와이프로 뒤로가기해도")
+  const back = () => {
+    const previous = previousStep(step, askName)
+    if (previous === null) return false
+    setError(null)
+    setStep(previous)
+    return true
+  }
+  const { swipe, edgeHandlers } = useStepBack(stepBack, back, step === 'no')
 
   const maxNumber = (() => {
     const value = api.data.broadcasts.get(api.b)?.settings['claim.maxNumber']

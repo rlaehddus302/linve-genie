@@ -56,6 +56,11 @@ export function receiptSmsText(shop: Pick<ShopView, 'name' | 'bank' | 'accountNu
 /** 판매자가 넣은 번호의 기억 키 */
 export const manualPhoneKey = (date: string, buyer: string): string => `d:${date}:${buyer}`
 
+/** 그 날짜 구매자의 번호 키 목록 — 직접 넣은 번호 키가 앞, 그다음 엔진이 아는 문자 손님 키 (상태와 날짜만으로 정해진다 — 주문 목록이 날짜 캐시에 둔다, D-UX4-126) */
+export function receiptPhoneKeys(state: EngineState, date: string, buyer: string): string[] {
+  return [manualPhoneKey(date, buyer), ...buyerPhoneKeys(state, buyer)]
+}
+
 export interface ReceiptSmsDeps {
   readonly db: Db
   readonly writer: ScopeWriter
@@ -181,7 +186,7 @@ export class ReceiptSmsService {
 
   /** 그 날짜 구매자들의 번호 키 목록 (가장 최근에 넣은 것이 앞) */
   #keysOf(state: Parameters<typeof buyerPhoneKeys>[0], date: string, buyer: string): string[] {
-    return [manualPhoneKey(date, buyer), ...buyerPhoneKeys(state, buyer)]
+    return receiptPhoneKeys(state, date, buyer)
   }
 
   /** 아는 번호 하나 (가장 최근에 넣은 것) — 없으면 null */
@@ -201,6 +206,23 @@ export class ReceiptSmsService {
   /** 아는 번호 전체 (주문 상세 D-UX4-125 — 판매자 화면 응답에만, 로그 금지). 모르면 null */
   async knownPhone(sellerId: string, date: string, state: EngineState, buyer: string): Promise<string | null> {
     return (await this.#phoneOf(sellerId, this.#keysOf(state, date, buyer)))?.phone ?? null
+  }
+
+  /**
+   * 번호를 아는 구매자들 (주문 목록 D-UX4-126 — "휴대폰 번호 모름" 표시). keysByBuyer = 구매자 → receiptPhoneKeys.
+   * 한 번에 읽고 키만 본다(번호를 풀지 않는다 — 번호는 응답·로그에 나가지 않는다)
+   */
+  async buyersWithPhone(sellerId: string, keysByBuyer: ReadonlyMap<string, readonly string[]>): Promise<Set<string>> {
+    const out = new Set<string>()
+    const allKeys = [...new Set([...keysByBuyer.values()].flat())]
+    if (allKeys.length === 0) return out
+    const rows = await this.#deps.db
+      .select({ key: buyerPhones.key })
+      .from(buyerPhones)
+      .where(and(eq(buyerPhones.sellerId, sellerId), inArray(buyerPhones.key, allKeys)))
+    const known = new Set(rows.map((row) => row.key))
+    for (const [buyer, keys] of keysByBuyer) if (keys.some((key) => known.has(key))) out.add(buyer)
+    return out
   }
 
   /** 구매자 줄의 문자 상태 (리허설·없는 범위는 빈 맵) */

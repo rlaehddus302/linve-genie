@@ -23,7 +23,12 @@ export interface OrderRow {
   readonly itemCount: number
   /** 그날 이 손님의 첫 예약 시각 (UTC ISO) — 같은 날짜 안의 줄 순서(늦은 것 먼저) */
   readonly firstClaimAt: string | null
+  /** 아직 모르는 손님 정보 (D-UX4-126 — 목록에 빨간 "성함 · 휴대폰 번호 · 주소 모름"). 이 순서로, 다 알면 빈 목록 */
+  readonly missing: readonly OrderInfoField[]
 }
+
+/** 손님 정보 칸 (주문 상세 위 세 줄 · 정보 입력 화면 단계) */
+export type OrderInfoField = 'name' | 'phone' | 'address'
 
 export interface OrdersView {
   /** 서버 KST 오늘 */

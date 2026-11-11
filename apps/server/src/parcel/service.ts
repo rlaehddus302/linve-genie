@@ -477,6 +477,11 @@ export class ParcelService {
     return this.#deps.clock.now() >= addressExpiresAt(date)
   }
 
+  /** 그 날짜 배송지 보관 기간(날짜 + 30일)이 지났나 — 지나면 배송지를 넣을 수도 읽을 수도 없다 (주문 목록 D-UX4-126: 지난 주문은 "모름"을 띄우지 않는다) */
+  addressExpired(date: string): boolean {
+    return this.#expired(date)
+  }
+
   /** 배송지 행 → 풀린 배송지 (보관 기간이 지났거나 풀리지 않으면 null) */
   #open(sellerId: string, row: AddressRow | null | undefined): ParcelAddress | null {
     if (row === null || row === undefined || this.#expired(row.date)) return null
