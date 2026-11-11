@@ -2,9 +2,9 @@
 # "내 맥미니, 내 맥북, 홍재 맥북 각 기기의 클로드한테 일을 시키고 작업 완료되면 자동으로 깃헙 메인 푸시, 운영 서버에 배포, 내 아이폰, 홍재 아이폰 각 앱을 최신 버전으로 업데이트").
 # 각 맥의 Claude는 main에 푸시까지만 한다. 비밀(운영 배포 AWS 역할·안드로이드 서명·App Store Connect 키)은 맥 미니에만 있다.
 # 순서: 빠른 시험 → 운영 서버(앱 화면만 바뀌었으면 건너뜀) → 앱 화면 새 버전(D-OTA-01, 휴대폰이 켤 때 받는다 — 몇 분)
-#       → 네이티브 부품이 바뀌었을 때만(앱 버전 지문이 달라졌을 때만) 안드로이드 APK(친구 링크)·아이폰 TestFlight.
+#       → 아이폰 네이티브 부품이 바뀌었을 때 TestFlight. 안드로이드 화면·APK는 명시적으로 요청한 수동 실행에서만.
 # 한 번에 하나씩(밀린 것은 가장 새 것 하나만 남는다 — 새 것이 앞 것을 다 품는다). 문서만 바뀐 푸시는 돌지 않는다.
-# 손으로 돌릴 때(workflow_dispatch) native=yes면 지문이 같아도 APK·TestFlight를 다시 만든다.
+# 손으로 돌릴 때(workflow_dispatch) native=yes면 지문이 같아도 선택한 플랫폼의 앱을 다시 만든다.
 name: 내보내기
 
 on:
@@ -16,8 +16,12 @@ on:
   workflow_dispatch:
     inputs:
       native:
-        description: '지문이 같아도 APK·TestFlight를 다시 만든다 (yes/no)'
+        description: '지문이 같아도 선택한 플랫폼의 앱을 다시 만든다 (yes/no)'
         default: 'no'
+      android:
+        description: '안드로이드 화면 갱신과 APK 배포도 진행'
+        type: boolean
+        default: false
 
 concurrency:
   group: ship
@@ -47,24 +51,29 @@ jobs:
 
       - name: 앱 버전 지문
         working-directory: apps/mobile
+        env:
+          FORCE: ${{ inputs.native }}
+          INCLUDE_ANDROID: ${{ github.event_name == 'workflow_dispatch' && inputs.android && 'yes' || 'no' }}
         run: |
           mkdir -p "$HOME/.livegenie-ci"
           fp() { npx expo-updates fingerprint:generate --platform "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin)["hash"])'; }
           IOS=$(fp ios)
-          ANDROID=$(LIVEGENIE_NOTICE=on LIVEGENIE_SMS=on fp android)
           echo "FP_IOS=$IOS" >> "$GITHUB_ENV"
-          echo "FP_ANDROID=$ANDROID" >> "$GITHUB_ENV"
-          FORCE="${{ github.event.inputs.native }}"
           [ "$FORCE" = yes ] || [ "$IOS" != "$(cat "$HOME/.livegenie-ci/built-ios" 2>/dev/null)" ] && echo "NATIVE_IOS=yes" >> "$GITHUB_ENV" || true
-          [ "$FORCE" = yes ] || [ "$ANDROID" != "$(cat "$HOME/.livegenie-ci/built-android" 2>/dev/null)" ] && echo "NATIVE_ANDROID=yes" >> "$GITHUB_ENV" || true
           echo "아이폰 지문 $IOS (지난 빌드 $(cat "$HOME/.livegenie-ci/built-ios" 2>/dev/null || echo 없음))"
-          echo "안드로이드 지문 $ANDROID (지난 빌드 $(cat "$HOME/.livegenie-ci/built-android" 2>/dev/null || echo 없음))"
+          if [ "$INCLUDE_ANDROID" = yes ]; then
+            ANDROID=$(LIVEGENIE_NOTICE=on LIVEGENIE_SMS=on fp android)
+            echo "FP_ANDROID=$ANDROID" >> "$GITHUB_ENV"
+            if [ "$FORCE" = yes ] || [ "$ANDROID" != "$(cat "$HOME/.livegenie-ci/built-android" 2>/dev/null)" ]; then
+              echo "NATIVE_ANDROID=yes" >> "$GITHUB_ENV"
+            fi
+          fi
 
       - name: 운영 서버 배포
         run: |
           LAST=$(cat "$HOME/.livegenie-ci/deployed-sha" 2>/dev/null || true)
-          if [ -n "$LAST" ] && git merge-base --is-ancestor "$LAST" HEAD 2>/dev/null && [ -z "$(git diff --name-only "$LAST" HEAD | grep -v '^apps/mobile/' | grep -v '\.md$' | grep -v '^docs/' || true)" ]; then
-            echo "앱 화면만 바뀌었어요 — 서버 배포는 건너뜀 (지난 배포 $LAST)"
+          if [ -n "$LAST" ] && git merge-base --is-ancestor "$LAST" HEAD 2>/dev/null && [ -z "$(git diff --name-only "$LAST" HEAD | grep -v '^apps/mobile/' | grep -v '\.md$' | grep -v '^docs/' | grep -Fvx '.github/workflows/ship.yml' || true)" ]; then
+            echo "서버 변경이 없어 배포를 건너뜀 (지난 배포 $LAST)"
             exit 0
           fi
           SHA=$(git rev-parse --short=8 HEAD)
@@ -74,14 +83,34 @@ jobs:
           curl -fsS https://livegenie.kr/health
           git rev-parse HEAD > "$HOME/.livegenie-ci/deployed-sha"
 
-      - name: 앱 화면 새 버전 (휴대폰이 켤 때 받는다)
+      - name: 아이폰 화면 갱신
         # 그 휴대폰 앱을 빌드할 때와 같은 값이어야 한다(앱 설정·서버 주소가 화면 코드에 들어간다)
         env:
           EXPO_PUBLIC_SERVER_URL: https://livegenie.kr
           NODE_ENV: production
         run: |
           bash scripts/deploy/mini-ota.sh ios "$FP_IOS"
-          LIVEGENIE_NOTICE=on LIVEGENIE_SMS=on bash scripts/deploy/mini-ota.sh android "$FP_ANDROID"
+
+      - name: 아이폰 → TestFlight (네이티브가 바뀌었을 때만)
+        if: env.NATIVE_IOS == 'yes'
+        run: |
+          if [ -f "$HOME/.livegenie-ci/asc.env" ]; then set -a; . "$HOME/.livegenie-ci/asc.env"; set +a; fi
+          # 화면 없이 도는 실행기는 로그인 키체인을 못 연다 — 전용 키체인을 연다(scripts/deploy/mini-ios-keychain.sh)
+          KC=$HOME/Library/Keychains/livegenie-ci.keychain-db
+          if [ -f "$KC" ]; then security unlock-keychain -p "$(cat "$HOME/.livegenie-ci/keychain.pass")" "$KC"; fi
+          cd apps/mobile && EXPO_UPDATES_FINGERPRINT_OVERRIDE="$FP_IOS" ./scripts/ios-testflight.sh
+          BUILT=$(cat ios/build/testflight/app.xcarchive/Products/Applications/*.app/EXUpdates.bundle/fingerprint 2>/dev/null || true)
+          [ "$BUILT" = "$FP_IOS" ] || echo "::warning::아이폰 빌드 안 지문($BUILT)이 계산한 지문($FP_IOS)과 달라요 — 이 빌드는 화면 새 버전을 못 받아요"
+          echo "$FP_IOS" > "$HOME/.livegenie-ci/built-ios"
+
+      - name: 안드로이드 화면 갱신 (요청 시)
+        if: github.event_name == 'workflow_dispatch' && inputs.android
+        env:
+          EXPO_PUBLIC_SERVER_URL: https://livegenie.kr
+          NODE_ENV: production
+          LIVEGENIE_NOTICE: 'on'
+          LIVEGENIE_SMS: 'on'
+        run: bash scripts/deploy/mini-ota.sh android "$FP_ANDROID"
 
       - name: 안드로이드 APK → 친구 링크 (네이티브가 바뀌었을 때만)
         if: env.NATIVE_ANDROID == 'yes'
@@ -98,15 +127,3 @@ jobs:
           cp "$APK" /tmp/livegenie.apk
           rm -f "$HOME/Desktop/livegenie-android.zip" && (cd /tmp && zip -q -j "$HOME/Desktop/livegenie-android.zip" livegenie.apk)
           echo "$FP_ANDROID" > "$HOME/.livegenie-ci/built-android"
-
-      - name: 아이폰 → TestFlight (네이티브가 바뀌었을 때만)
-        if: env.NATIVE_IOS == 'yes'
-        run: |
-          if [ -f "$HOME/.livegenie-ci/asc.env" ]; then set -a; . "$HOME/.livegenie-ci/asc.env"; set +a; fi
-          # 화면 없이 도는 실행기는 로그인 키체인을 못 연다 — 전용 키체인을 연다(scripts/deploy/mini-ios-keychain.sh)
-          KC=$HOME/Library/Keychains/livegenie-ci.keychain-db
-          if [ -f "$KC" ]; then security unlock-keychain -p "$(cat "$HOME/.livegenie-ci/keychain.pass")" "$KC"; fi
-          cd apps/mobile && EXPO_UPDATES_FINGERPRINT_OVERRIDE="$FP_IOS" ./scripts/ios-testflight.sh
-          BUILT=$(cat ios/build/testflight/app.xcarchive/Products/Applications/*.app/EXUpdates.bundle/fingerprint 2>/dev/null || true)
-          [ "$BUILT" = "$FP_IOS" ] || echo "::warning::아이폰 빌드 안 지문($BUILT)이 계산한 지문($FP_IOS)과 달라요 — 이 빌드는 화면 새 버전을 못 받아요"
-          echo "$FP_IOS" > "$HOME/.livegenie-ci/built-ios"

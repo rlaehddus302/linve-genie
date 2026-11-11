@@ -23,7 +23,7 @@
 
 ## 끝나면 내보내기 (D-CI-01 — 맥 미니·맥북·홍재 맥북 어느 Claude든 같다)
 작업이 끝나면 묻지 않고: 바뀐 곳 typecheck·lint·관련 시험 → 커밋 → `git pull --rebase origin main` → `git push origin HEAD:main`(충돌이면 합치고 다시 시험해 푸시. 강제 푸시 금지).
-그다음은 맥 미니가 한다(`.github/workflows/ship.yml`): 빠른 시험 → 운영 서버 배포(앱 화면만 바뀌면 건너뜀) → 앱 화면 새 버전(D-OTA-01, 휴대폰이 켤 때 몇 분 안에 받는다) → 네이티브가 바뀌었을 때만 안드로이드 APK(친구 링크)·아이폰 TestFlight.
+맥 미니가 빠른 시험 후 서버 변경을 운영에 배포하고 아이폰 화면 업데이트를 발행한다. 네이티브 지문이 바뀌면 TestFlight 빌드도 올린다. 안드로이드는 사용자가 요청한 때에만 `gh workflow run ship.yml --ref main -f android=true`로 화면 업데이트와 필요한 APK를 배포한다. 같은 지문의 앱도 다시 만들려면 수동 실행에 `-f native=yes`를 더한다.
 각 맥에서 직접 배포·APK·TestFlight를 하지 않는다(비밀은 맥 미니에만). 결과는 `gh run list -w 내보내기 -L 3`로 보고, 실패면 고쳐서 다시 푸시한다.
 네이티브 폴더(apps/mobile/ios·android)도 저장소에 있다 — 고치면 같이 커밋한다.
 
