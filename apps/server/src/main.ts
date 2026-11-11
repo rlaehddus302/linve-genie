@@ -140,6 +140,8 @@ const livejjim = createServer({
   trustedProxies: deploy.trustedProxies,
   ...(deploy.opsToken === null ? {} : { opsToken: deploy.opsToken }),
   ...(deploy.webDir === null ? {} : { webDir: deploy.webDir }),
+  // 앱 화면 새 버전 묶음 폴더 (D-OTA-01): 맥 미니 자동 내보내기가 채운다. 없으면 앱은 늘 "새 것 없음"을 받는다
+  ...(process.env['LIVEJJIM_APP_UPDATES_DIR']?.trim() ? { appUpdatesDir: process.env['LIVEJJIM_APP_UPDATES_DIR'].trim() } : {}),
   // 유튜브 채팅 읽기는 서버가 방송 주소만으로 (YT-11, D-YT-SRV-01) — 구글 OAuth 설정이 없어도 된다(그때 구글 연결은 503). 끄기는 LIVEJJIM_YT_WEB_CHAT=off
   youtube: { ...(youtubeSetting.youtube ?? { clientId: '', clientSecret: '', redirectUri: '', returnUrl: `${origin.origin}/settings/youtube` }), webChat: readYoutubeWebChat(process.env, (() => { const media = readMediaProxy(process.env); return media.kind === 'ok' ? media.url : null })()), ...(chatSend === null ? {} : { chatSend }), ...(chatSendOfficial === null ? {} : { chatSendOfficial }) },
   backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir),

@@ -24,6 +24,7 @@ export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
 import { latestFirst } from '../lib/latest-days.ts'
+import { UpdateReady } from './UpdateReady.tsx'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
@@ -286,6 +287,9 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
       {/* 모든 화면과 같은 머리 줄 (D-UX4-59): 홈 머리는 "지금 라이브 중"·"내 라이브 연결" 줄 그대로(D-UX3-92, 토스 홈 "토스뱅크 ›" 자리) — 서비스 이름을 넣지 않는다 (D-UX4-62) */}
       <AppHeader title="" left={<Late>{liveNow.resolved || error !== null ? <LiveEntry live={liveNow.live} channel={liveNow.channel} onOpen={nav.openConsole} onConnect={nav.openNewBroadcast} /> : null}</Late>} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.lg }} scrollIndicatorInsets={{ bottom: room }}>
+
+        {/* 받아 둔 새 화면이 있으면 맨 위에 [나중에] [지금 바꾸기] (D-OTA-01) */}
+        <UpdateReady />
 
         {/* 서버에서 받은 뒤에야 생기는 묶음은 부드럽게 나타난다 — 기억해 둔 자료로 처음부터 그린 것은 바로 (D-UX4-112) */}
         <Late>

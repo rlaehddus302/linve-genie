@@ -23,6 +23,8 @@ import { TAB_SCREENS } from '../src/lib/tab-routes.ts'
 import { RouteSwipeProvider } from '../src/ui/kit/route-swipe.tsx'
 import { TRY_LOGIN_ON, parseTryLogin } from '../src/lib/try-login.ts'
 import { ScreenFocusProvider } from '../src/lib/cached-get.ts'
+import { installAppUpdates } from '../src/native/updates.ts'
+import { useAppUpdateWatch } from '../src/lib/app-update.ts'
 
 configureApi({ fetch: (input, init) => expoFetch(input, init as Parameters<typeof expoFetch>[1]) as unknown as Promise<Response>, newId: randomUUID })
 setWebOpener((url) => Linking.openURL(url))
@@ -39,6 +41,8 @@ setPlatformOpener(async (target) => {
 setClipboardReader(() => getStringAsync())
 setClipboardWriter((text) => setStringAsync(text))
 installProductionNative()
+// 앱 화면 새 버전 받기 (D-OTA-01): 운영 빌드에서만 켜진다
+installAppUpdates()
 configureVoiceStorage(AsyncStorage)
 // 앱 안 간편 로그인 (D-UX3-28): 앱 위 로그인 창(ASWebAuthenticationSession·Custom Tabs) — 사파리·웹으로 넘기지 않는다
 setSocialNative({
@@ -67,6 +71,12 @@ function TryLogin() {
   return null
 }
 
+/** 켤 때·앞으로 돌아올 때 새 화면 묶음을 묻고 받아 둔다 (D-OTA-01) */
+function UpdateWatch() {
+  useAppUpdateWatch()
+  return null
+}
+
 /** 방송 화면을 나가도 방송 소리를 계속 듣는다 (D-UX3-48) */
 function StreamKeeper() {
   const services = useServices()
@@ -84,6 +94,7 @@ export default function RootLayout() {
           <PrinterDevicePicker />
           <StreamKeeper />
           <TryLogin />
+          <UpdateWatch />
           {/* 뒤로 가기는 왼쪽 가장자리에서 밀 때만 (D-UX3-24): iOS 26부터 기본이 '화면 어디서 밀어도 뒤로'라 라벨 끌기·가로 밀기까지 뒤로 갔다 */}
           {/* 쌓인 화면에서 돌아와 다시 보이면 그 화면의 서버 자료를 뒤에서 조용히 다시 받는다 (D-UX4-77) */}
           {/* 경로 안에 겹쳐 그린 화면이 열려 있으면 그 경로의 밀어 뒤로 가기를 끈다 — 겹친 화면이 스스로 밀려 닫힌다 (D-UX4-50) */}

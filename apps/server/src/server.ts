@@ -8,6 +8,7 @@
 // N3: 입금 확인(DepositService — 원천·받아 오기 주기·자동 확인·확인 필요)을 기록 경로와 실시간 알림(deposit)에 잇는다.
 //   deposits.testMode(가짜 원천·시험용 입금 넣기)는 E2E 기동만 켠다 — 운영 기동은 production.ts가 늘 끈다(D-N3-12).
 // N4a: 라벨 기능 켬/끔 알림(labels)을 허브에 잇는다.
+import { registerAppUpdates } from './app-updates.ts'
 import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
 import { HeadlessVoice } from './voice/headless.ts'
 import { VoiceAliases } from './voice/aliases.ts'
@@ -178,6 +179,8 @@ export interface ServerOptions {
   readonly passwordVerifier?: (password: string, stored: string) => Promise<boolean>
   /** 화면 빌드 폴더 — 같은 출처로 함께 낸다 (LIVEJJIM_WEB_DIR, AC-I3-70). 그 폴더에 index.html이 없으면 만들지 않는다 */
   readonly webDir?: string
+  /** 앱 화면 새 버전 묶음 폴더 (LIVEJJIM_APP_UPDATES_DIR, D-OTA-01). 없으면 늘 "새 것 없음" */
+  readonly appUpdatesDir?: string
   /** 운영 토큰 (LIVEJJIM_OPS_TOKEN, 32자 이상 — 없으면 /ops/status는 404, AC-I3-81) */
   readonly opsToken?: string
   /** 준비 확인 시간 제한 (기본 2000밀리초) */
@@ -909,6 +912,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     webhooks: createWebhookApp(instagramModule),
     inbox: (app) =>
       registerInboxIntake(app, inbox, log, { clock, trustedProxies, address: connectionAddress, ...(options.inbox?.authLimits === undefined ? {} : { authLimits: options.inbox.authLimits }) }),
+    appUpdates: (app) => registerAppUpdates(app, { dir: options.appUpdatesDir ?? null, origin: options.appOrigin }),
     screen: (app) => registerScreenIntake(app, { token: options.screenWorkerToken === undefined ? null : options.screenWorkerToken.trim(), db, service }),
     receiptPage: (app) => {
       registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer, ledger })
