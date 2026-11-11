@@ -88,8 +88,9 @@ jobs:
         run: |
           export ANDROID_HOME=$HOME/Library/Android/sdk
           cd apps/mobile/android
+          # 빌드 안 지문은 위에서 계산한 값으로 못 박는다 — 빌드 도중 다시 계산하면 다른 값이 나온 적이 있다(2026-11-12 실측, D-OTA-01)
           LIVEGENIE_NOTICE=on LIVEGENIE_SMS=on LIVEJJIM_UPLOAD_PROPERTIES=$HOME/.livejjim-practice/upload.properties \
-            EXPO_PUBLIC_SERVER_URL=https://livegenie.kr NODE_ENV=production ./gradlew assembleRelease -q
+            EXPO_PUBLIC_SERVER_URL=https://livegenie.kr NODE_ENV=production EXPO_UPDATES_FINGERPRINT_OVERRIDE="$FP_ANDROID" ./gradlew assembleRelease -q
           APK=app/build/outputs/apk/release/app-release.apk
           BUILT=$(unzip -p "$APK" assets/fingerprint 2>/dev/null || true)
           [ "$BUILT" = "$FP_ANDROID" ] || { echo "APK 안 지문($BUILT)이 계산한 지문($FP_ANDROID)과 달라요 — 이 APK는 화면 새 버전을 못 받아요"; exit 1; }
@@ -105,7 +106,7 @@ jobs:
           # 화면 없이 도는 실행기는 로그인 키체인을 못 연다 — 전용 키체인을 연다(scripts/deploy/mini-ios-keychain.sh)
           KC=$HOME/Library/Keychains/livegenie-ci.keychain-db
           if [ -f "$KC" ]; then security unlock-keychain -p "$(cat "$HOME/.livegenie-ci/keychain.pass")" "$KC"; fi
-          cd apps/mobile && ./scripts/ios-testflight.sh
+          cd apps/mobile && EXPO_UPDATES_FINGERPRINT_OVERRIDE="$FP_IOS" ./scripts/ios-testflight.sh
           BUILT=$(cat ios/build/testflight/app.xcarchive/Products/Applications/*.app/EXUpdates.bundle/fingerprint 2>/dev/null || true)
           [ "$BUILT" = "$FP_IOS" ] || echo "::warning::아이폰 빌드 안 지문($BUILT)이 계산한 지문($FP_IOS)과 달라요 — 이 빌드는 화면 새 버전을 못 받아요"
           echo "$FP_IOS" > "$HOME/.livegenie-ci/built-ios"
