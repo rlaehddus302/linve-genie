@@ -226,8 +226,8 @@ describe('AC-Y1-24 끊김·오류·다시 시작 (웹 읽기)', () => {
       if (!restartable) {
         const restart = await api.post(`/api/broadcasts/${b.id}/youtube/collector/restart`, {})
         expect(restart.body, label).toMatchObject({ error: { code: 'COLLECTOR_NOT_RESTARTABLE' } })
-        // 라이브찜 회차는 끝내지 않는다
-        expect(((await api.get(`/api/days/${b.date}`)).body.broadcasts as { ended: boolean }[])[0]?.ended, label).toBe(false)
+        // 유튜브 라이브가 끝나면 라이브찜 회차도 판매자가 끝낼 때와 같은 길로 저절로 끝낸다 (D-LIVE-AUTOEND — 전에는 끝내지 않았다)
+        expect(((await api.get(`/api/days/${b.date}`)).body.broadcasts as { ended: boolean }[])[0]?.ended, label).toBe(true)
         continue
       }
       // 저절로 이어받지 않는 멈춤 → 운영자 경보 (AC-I3-82 몫)

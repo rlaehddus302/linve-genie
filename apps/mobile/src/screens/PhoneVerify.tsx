@@ -9,6 +9,11 @@
 //    칸 움직임은 토스 사진 13~20 순서대로 (D-UX3-54): 빈 칸 회색 → 숫자가 들어오면 흰 칸·가운데서 커지는 초록 숫자 → 6자리면 키보드·글자 단추가 서서히 사라지고
 //    여섯 칸이 한 칸(흰 바탕·연한 초록 테)으로 합쳐 살짝 줄어든 채 확인 → 틀리면 빨개지며 다시 커지고 흔들기·진동 → 키보드가 다시 올라오고 → 여섯 칸(옅은 빨강)으로 나뉜다.
 //    칸은 문자 자동 채우기(아이폰 oneTimeCode·안드로이드 sms-otp)를 켠다.
+//    D-UX4-131 (사용자 지시 2026-11-12 "키보드 위에 자동으로 인식된 인증번호 눌러서 자동으로 입력되어야 하는데 지금 안 된다", 아이폰):
+//    아이폰은 숨은 칸을 여러 줄 칸(UITextView)으로 — iOS 26 뒤로 인증번호 채우기가 한 줄 칸의 바뀜 신호(editingChanged)를 빠뜨리는 일이 알려져 있고,
+//    RN은 여러 줄 칸에서만 "선택이 바뀌었는데 글이 다르면 바뀐 것으로 본다"(RCTTextInputComponentView textInputDidChangeSelection)로 받아 낸다.
+//    안드로이드(갤럭시)는 키보드 위 인증번호를 누르면 한 줄 칸의 글 바뀜(TextWatcher)으로 늘 들어온다 — 한 줄 그대로(숫자 키패드). 아이폰과 같이 키보드 위 인증번호만 쓴다.
+//    [문자가 안 오나요?]는 [링크를 모르겠어요]와 같은 회색 칩(SoftChip).
 // 아래 단추는 키보드가 뜨면 키보드 바로 위로 올라온다. 이 화면이 떠 있는 동안 맨 위 상태 막대 자리도 흰색이다(D-UX3-50).
 // D-UX3-51: 잘못이어도 [다음]은 그대로 — 누르면 칸이 다시 흔들리고 진동한다. 뒤로·제목 자리와 잘못 모양은 공통 부품(PAGE·ErrorLine·useWrongShake).
 // ③ 맞으면 화면을 넘기지 않고 그 자리에서 (D-UX3-60, 사용자 지시 2026-11-07 토스 사진 27~34): 합친 칸이 초록으로 차며 숫자가 흐려지고, 알약을 거쳐 작은 원이 되는 동안
@@ -17,7 +22,7 @@
 // 가입 중(가입 표)과 로그인한 계정(번호 등록)이 같이 쓴다. 왼쪽 위 ‹는 ①에서 처음으로·로그아웃, ②에서 번호 다시 넣기.
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import Svg, { Path } from 'react-native-svg'
-import { Animated, Easing, Keyboard, KeyboardAvoidingView, Platform, Text, TextInput, View, type TextInputInstance } from 'react-native'
+import { Animated, Easing, Keyboard, KeyboardAvoidingView, Platform, TextInput, View, type TextInputInstance } from 'react-native'
 import {
   CODE_ASK_TITLE,
   CODE_FIELD,
@@ -46,10 +51,10 @@ import {
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
-import { BigButton, NAV, NavBar, ErrorLine, KEYBOARD_AVOID, PopupDialog, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake, Tap } from '../ui/kit/index.ts'
+import { BigButton, NAV, NavBar, ErrorLine, KEYBOARD_AVOID, PopupDialog, SoftChip, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
 import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
 import { EdgeSwipeBack, SlideSwitch } from '../ui/kit/slide.tsx'
-import { PAGE, RADIUS, SPACE, TYPE, WEIGHT } from '../ui/kit/tokens.ts'
+import { PAGE, RADIUS, SPACE, WEIGHT } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
 
 /** 인증번호 유효 시간 — 서버(CODE_TTL_MS)와 같다 */
@@ -475,20 +480,15 @@ export function QuestionPage({
   )
 }
 
-/** 키보드 위 밑줄 글자 단추 "문자가 안 오나요?" (토스와 같은 모양, D-UX3-53). 확인하는 동안은 부드럽게 숨긴다 */
+/** 키보드 위 [문자가 안 오나요?] — [링크를 모르겠어요]와 같은 회색 칩 (D-UX4-131, 옛 밑줄 글자 D-UX3-53). 확인하는 동안은 부드럽게 숨긴다 */
 function NotComing({ hidden, onPress }: { readonly hidden: boolean; readonly onPress: () => void }) {
-  const { p } = useKit()
   const fade = useRef(new Animated.Value(hidden ? 0 : 1)).current
   useEffect(() => {
     Animated.timing(fade, { toValue: hidden ? 0 : 1, duration: SOFT_MS, easing: Easing.out(Easing.cubic), useNativeDriver: native }).start()
   }, [hidden, fade])
   return (
-    <Animated.View style={{ opacity: fade, alignItems: 'center' }} pointerEvents={hidden ? 'none' : 'auto'} aria-hidden={hidden}>
-      <Tap role="button" aria-label={CODE_NOT_COMING} onPress={onPress} hitSlop={8} testID="code-not-coming" style={{ minHeight: 44, paddingHorizontal: SPACE.md, justifyContent: 'center' }}>
-        {({ pressed }) => (
-          <Text style={{ fontSize: TYPE.body, lineHeight: Math.round(TYPE.body * 1.4), ...font(), color: p.primaryText, textDecorationLine: 'underline', opacity: pressed ? 0.5 : 1 }}>{CODE_NOT_COMING}</Text>
-        )}
-      </Tap>
+    <Animated.View style={{ opacity: fade, alignItems: 'center', paddingVertical: SPACE.xs }} pointerEvents={hidden ? 'none' : 'auto'} aria-hidden={hidden}>
+      <SoftChip label={CODE_NOT_COMING} onPress={onPress} testID="code-not-coming" />
     </Animated.View>
   )
 }
@@ -781,6 +781,9 @@ function CodeBoxes({
           keyboardType="number-pad"
           textContentType="oneTimeCode"
           autoComplete="sms-otp"
+          // 아이폰은 여러 줄 칸 — 키보드 위 인증번호 채우기를 선택 바뀜으로도 받는다 (D-UX4-131). 안드로이드는 한 줄(숫자 키패드 그대로)
+          multiline={Platform.OS === 'ios'}
+          scrollEnabled={false}
           autoFocus
           // caretHidden·contextMenuHidden을 쓰지 않는다 (D-UX3-61): contextMenuHidden은 칸이 모든 편집 동작에 "못 함"(canPerformAction NO)이라 답하게 해
           // 키보드 위 인증번호 누르기가 들어가지 않을 수 있고, caretHidden은 입력 자리를 지운다. 입력 자리는 색을 투명하게 해 숨긴다

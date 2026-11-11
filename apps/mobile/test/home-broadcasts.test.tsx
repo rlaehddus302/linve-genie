@@ -1,3 +1,4 @@
+// D-UX4-130 (사용자 지시 2026-11-12): 홈 섹션 이름 "내 라이브" → "지난 라이브" — 기대 이름만 바꿨다.
 // D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 홈 '내 방송' (D-UX3-18, 사용자 지시 2026-11-03): 서버 목록(오래된 순)을 뒤집어 최근 것이 위, 돌아갈 방송은 가장 최근의 열린 방송,
 // 홈 카드는 최근 4개(플랫폼 아이콘·날짜·지난 시간) + [모두보기], 모두 보기 화면은 날짜마다 흰 카드.
@@ -51,7 +52,7 @@ describe('내 라이브 (D-UX3-18)', () => {
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
     // D-UX3-88로 바뀐 기대: 이름 "방송 이력" → "내 방송", [모두보기]는 목록 아래 오른쪽
-    const group = await screen.findByRole('group', { name: '내 라이브' })
+    const group = await screen.findByRole('group', { name: '지난 라이브' })
     const rows = within(group).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '라이브 모두 보기')
     expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-b', 'broadcast-a'])
     expect(rows[0]?.getAttribute('aria-label')).toBe('c 라이브 — 4시간 전')
@@ -71,7 +72,7 @@ describe('내 라이브 (D-UX3-18)', () => {
       world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: past(count) } }))
       const navigation = nav()
       const view = render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
-      const group = await screen.findByRole('group', { name: '내 라이브' })
+      const group = await screen.findByRole('group', { name: '지난 라이브' })
       const rows = within(group).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '라이브 모두 보기')
       expect(rows).toHaveLength(4)
       const all = within(group).queryByRole('button', { name: '라이브 모두 보기' })
@@ -103,7 +104,7 @@ describe('내 라이브 (D-UX3-18)', () => {
   })
 
   // D-UX3-88로 바뀐 기대 (사용자 지시 2026-11-09 "모두보기 눌렀을 때 뜨는 화면의 목록은 예전 버전이야. 홈화면에서 보이는거처럼"): 날짜마다 흰 카드 → 홈 '내 방송'과 같은 줄로 지난 방송 모두
-  it('모두 보기: 홈 "내 라이브"과 같은 줄 — 지난 라이브만 최근 것이 위, 누르면 그 라이브 (D-UX3-88)', async () => {
+  it('모두 보기: 홈 "지난 라이브"(D-UX4-130 — 옛 "내 라이브")과 같은 줄 — 지난 라이브만 최근 것이 위, 누르면 그 라이브 (D-UX3-88)', async () => {
     expect(byDate(LIST).map((group) => [group.date, group.items.map((one) => one.id)])).toEqual([
       ['2026-11-03', ['t', 'c']],
       ['2026-11-02', ['y']],
@@ -114,7 +115,7 @@ describe('내 라이브 (D-UX3-18)', () => {
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: LIST } }))
     const onOpen = vi.fn()
     render(world.wrap(<AllBroadcastsScreen onOpen={onOpen} onBack={vi.fn()} now={NOW} />))
-    const group = await screen.findByRole('group', { name: '내 라이브' })
+    const group = await screen.findByRole('group', { name: '지난 라이브' })
     expect(within(group).getAllByRole('button').map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-b', 'broadcast-a'])
     fireEvent.click(within(group).getByRole('button', { name: 'c 라이브 — 4시간 전' }))
     expect(onOpen).toHaveBeenCalledWith('c')

@@ -116,7 +116,8 @@ export function ListRow({ title, subtitle, value, right, onPress, ariaLabel, tes
 
 /** 스위치 치수 (토스·아이폰 스위치 비율) */
 /** 켜고 끄기 크기 — 토스 "Face ID" 스위치를 같은 휴대폰 사진으로 재어 46×28 (D-UX4-100, 옛 52×32) */
-export const SWITCH = { width: 46, height: 28, knob: 24 } as const
+/** D-UX4-130: 같은 휴대폰으로 찍은 토스 "Face ID" 스위치와 견주어 50×30 · 동그라미 23.5(가장자리 3.25) · 그림자 없음 (옛 46×28 · 24 · 그림자) */
+export const SWITCH = { width: 50, height: 30, knob: 23.5 } as const
 const SWITCH_MS = 180
 
 /**
@@ -142,18 +143,19 @@ export function ToggleRow({ title, subtitle, on, onChange, disabled, onHelp, tes
   // 이름 묶음: 스위치와 한 줄일 때만 가로로 남은 폭을 채운다. 설명 단추 안(세로 틀)에서 flex: 1이면 위아래로 늘어나 이름이 위에 붙는다 (D-UX4-73)
   const words = (
     <View style={onHelp === undefined ? { flex: 1, gap: SPACE.xs } : { gap: SPACE.xs }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+      {/* 이름 ↔ ? 사이 잉크 6.5·? 지름 17 (D-UX4-130 — 토스 "빠른 로그인 ?" 재기, 옛 10.3·16) */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
         <Txt step={titleStep} weight={titleWeight} {...(titleInk === undefined ? {} : { ink: titleInk })}>
           {title}
         </Txt>
-        {onHelp === undefined ? null : <Icon name="help" size={20} color={p.textSub} />}
+        {onHelp === undefined ? null : <Icon name="help" size={21} color={p.textSub} />}
       </View>
       {subtitle === undefined ? null : <Txt step="caption" color="textSub">{subtitle}</Txt>}
     </View>
   )
   const knob = (
     <Animated.View aria-hidden style={{ width: SWITCH.width, height: SWITCH.height, borderRadius: SWITCH.height / 2, borderCurve: 'continuous', backgroundColor: track, justifyContent: 'center' }}>
-      <Animated.View style={{ position: 'absolute', left: 0, width: SWITCH.knob, height: SWITCH.knob, borderRadius: SWITCH.knob / 2, borderCurve: 'continuous', backgroundColor: '#FFFFFF', transform: [{ translateX: knobX }], shadowColor: '#000000', shadowOpacity: 0.15, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 }} />
+      <Animated.View style={{ position: 'absolute', left: 0, width: SWITCH.knob, height: SWITCH.knob, borderRadius: SWITCH.knob / 2, borderCurve: 'continuous', backgroundColor: '#FFFFFF', transform: [{ translateX: knobX }] }} />
     </Animated.View>
   )
   const switchProps = {

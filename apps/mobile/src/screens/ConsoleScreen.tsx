@@ -447,7 +447,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             showAdded(key)
           }}
         />
-        {/* 방송 관리 (D-UX4-20 → D-UX4-57): 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다 */}
+        {/* 방송 관리 (D-UX4-20 → D-UX4-57): 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다 — 라이브 정보·라벨 줄을 바로 두는 것(D-UX4-130)은 경로 화면만, 여기는 "라이브 연결 ›" 판으로 */}
         <SlidePage visible={page === 'settings'} onClose={closePage} name={MANAGE_LABEL} testID="console-settings">
           <ConsoleManage
             broadcastId={broadcastId}
@@ -459,7 +459,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             stream={stream}
             onClose={closePage}
             onShowLink={showLink}
-            {...(openLabels === undefined ? {} : { onOpenLabels: openLabels })}
           />
         </SlidePage>
         {/* 방송 연결은 전체 화면 (D-UX3-06) — 키보드가 주소 칸을 가리지 않게 */}

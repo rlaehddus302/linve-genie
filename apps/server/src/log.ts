@@ -148,6 +148,12 @@ export type LogCode =
   | 'TIKTOK_SAVE_FAILED'
   | 'TIKTOK_SKIPPED'
   | 'TIKTOK_RESUME_FAILED'
+  // 플랫폼 라이브가 끝나 회차를 저절로 끝냄 (D-LIVE-AUTOEND): reason = 플랫폼(TIKTOK·YOUTUBE) 또는 끝내지 않은 이유 코드
+  | 'BROADCAST_AUTO_ENDED'
+  | 'BROADCAST_AUTO_END_WAITING'
+  | 'BROADCAST_AUTO_END_CANCELLED'
+  | 'BROADCAST_AUTO_END_SKIPPED'
+  | 'BROADCAST_AUTO_END_FAILED'
   // 인스타그램 설정 주소가 https가 아님 (D-N2b-2-10)
   | 'INSTAGRAM_CONFIG_INSECURE'
   // BND1 밴드 (D-BND1-14): 정해진 코드·(요청 이름_결과 코드)·HTTP 상태·판매자 ID·개수만. 토큰·코드·주소·user_key·밴드/글 키·손님 이름·댓글은 남기지 않는다
@@ -319,6 +325,11 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   TIKTOK_SAVE_FAILED: '틱톡 댓글을 기록하지 못했어요(연결은 계속함)',
   TIKTOK_SKIPPED: '틱톡 댓글이 입력 검사를 통과하지 못해 기록하지 않았어요(수만 셈)',
   TIKTOK_RESUME_FAILED: '서버를 다시 켠 뒤 틱톡 연결을 이어받지 못했어요',
+  BROADCAST_AUTO_ENDED: '플랫폼 라이브가 끝나 방송을 저절로 끝냈어요',
+  BROADCAST_AUTO_END_WAITING: '틱톡 라이브가 끝났다고 알려 와 잠시 기다린 뒤 방송을 끝내요(다시 켜면 그대로 둬요)',
+  BROADCAST_AUTO_END_CANCELLED: '틱톡 라이브가 다시 켜져 방송을 저절로 끝내지 않아요',
+  BROADCAST_AUTO_END_SKIPPED: '플랫폼 라이브가 끝났지만 방송을 저절로 끝내지 않았어요(이유 코드만)',
+  BROADCAST_AUTO_END_FAILED: '플랫폼 라이브가 끝나 방송을 끝내려 했지만 기록하지 못했어요',
   INSTAGRAM_CONFIG_INSECURE: '인스타그램 주소 설정이 https가 아니라 인스타그램 연동을 끈 것으로 봤어요',
   BAND_CONFIG_INVALID: '밴드 주소 설정이 https가 아니거나 형식이 틀려 밴드 연동을 끈 것으로 봤어요',
   OPS_ALERT_PHONE_INVALID: '운영자 알림 휴대폰 번호(LIVEJJIM_OPS_ALERT_PHONE) 형식이 틀려 운영자 문자 알림을 끈 것으로 봤어요',

@@ -215,6 +215,11 @@ export interface YoutubeSystemOptions {
   readonly outboxTiming?: OutboxTiming
   /** 크롬 확장 감사 올리기 (X1) */
   readonly outboxExtension?: OutboxExtension
+  /**
+   * 유튜브 라이브(채팅)가 끝났다 — 수집기가 마지막 응답까지 기록한 뒤 부른다. 회차를 저절로 끝낸다 (D-LIVE-AUTOEND).
+   * started = 그 연결이 실제로 시작했었는지(예정 방송이 시작 전에 끝났으면 false). 던지지 않아야 한다
+   */
+  readonly onLiveEnded?: (sellerId: string, broadcastId: string, linkId: string, started: boolean) => Promise<unknown>
 }
 
 export class YoutubeSystem {
@@ -333,7 +338,11 @@ export class YoutubeSystem {
       publish,
       ourPost: (sellerId, broadcastId, messageId, text) => isOurPost(db, sellerId, broadcastId, messageId, text, new Date(timer.now() - 10 * 60 * 1000)),
       ...(chatSend === undefined ? {} : { otherAuthors: (sellerId: string) => chatSend.authorsFor(sellerId) }),
-      onChatEnded: (sellerId, link) => this.outbox.chatEnded(sellerId, link.broadcastId),
+      onChatEnded: async (sellerId, link) => {
+        await this.outbox.chatEnded(sellerId, link.broadcastId)
+        // 남은 채팅을 다 기록한 뒤다 (끝남 신호가 온 응답까지 커밋됨) — 그 회차를 판매자가 끝낼 때와 같은 길로 끝낸다
+        await options.onLiveEnded?.(sellerId, link.broadcastId, link.id, link.startedAt !== null)
+      },
       ...(options.collectorHooks === undefined ? {} : { hooks: options.collectorHooks }),
       ...options.collectorTiming,
       onPass: (ok) => options.health?.pass('collector', ok),

@@ -7,6 +7,7 @@ import { StackPage, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Loading } from '../../ui/parts.tsx'
 import { APP_IMPORT_TITLE, ImportView } from './ImportSheet.tsx'
+import type { LabelPrintNav } from '../LabelPrintScreen.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './Manage.tsx'
 import { VoiceSettingsPanel } from './VoicePanel.tsx'
 import { ADD_TITLE, ProductAddFlow } from './ProductAdd.tsx'
@@ -40,17 +41,17 @@ export function ProductAddScreen({ broadcastId, onBack }: { readonly broadcastId
  * 방송 관리 쌓인 화면. refresh: 바뀌면(방송 연결 화면에서 돌아오면) 유튜브 잇기 상태를 다시 받는다.
  * onEnded: 방송을 끝낸 뒤 — 경로가 홈으로 돌려보낸다.
  */
-export function ManageScreen({ broadcastId, onBack, openLink, openLabels, openTool, refresh = 0 }: { readonly broadcastId: string; readonly onBack: () => void; readonly openLink: (closed: boolean) => void; readonly openLabels?: () => void; readonly openTool?: (tool: ConsoleTool) => void; readonly refresh?: number }) {
+export function ManageScreen({ broadcastId, onBack, openLink, labels, onEnded, refresh = 0 }: { readonly broadcastId: string; readonly onBack: () => void; readonly openLink: (closed: boolean) => void; readonly labels?: LabelPrintNav; readonly onEnded?: () => void; readonly refresh?: number }) {
   return (
     <StackPage name={MANAGE_LABEL} onBack={onBack} testID="console-settings">
       <ScopeConsole broadcastId={broadcastId} waiting={<Loading />}>
-        {({ broadcast, snapshot }) => <ManageBody broadcastId={broadcastId} title={broadcast.title.trim() === '' ? '제목 없음' : broadcast.title} rehearsal={broadcast.rehearsal} closed={broadcast.ended || (snapshot.data?.sealed ?? false)} onBack={onBack} openLink={openLink} refresh={refresh} {...(openLabels === undefined ? {} : { openLabels })} {...(openTool === undefined ? {} : { openTool })} />}
+        {({ broadcast, snapshot }) => <ManageBody broadcastId={broadcastId} title={broadcast.title.trim() === '' ? '제목 없음' : broadcast.title} rehearsal={broadcast.rehearsal} closed={broadcast.ended || (snapshot.data?.sealed ?? false)} onBack={onBack} openLink={openLink} refresh={refresh} {...(labels === undefined ? {} : { labels })} {...(onEnded === undefined ? {} : { onEnded })} />}
       </ScopeConsole>
     </StackPage>
   )
 }
 
-function ManageBody({ broadcastId, title, rehearsal, closed, onBack, openLink, openLabels, openTool, refresh }: { readonly broadcastId: string; readonly title: string; readonly rehearsal: boolean; readonly closed: boolean; readonly onBack: () => void; readonly openLink: (closed: boolean) => void; readonly openLabels?: () => void; readonly openTool?: (tool: ConsoleTool) => void; readonly refresh: number }) {
+function ManageBody({ broadcastId, title, rehearsal, closed, onBack, openLink, labels, onEnded, refresh }: { readonly broadcastId: string; readonly title: string; readonly rehearsal: boolean; readonly closed: boolean; readonly onBack: () => void; readonly openLink: (closed: boolean) => void; readonly labels?: LabelPrintNav; readonly onEnded?: () => void; readonly refresh: number }) {
   const services = useServices()
   const yt = useMobileYoutube(broadcastId, !rehearsal)
   const stream = useKeptStream(services.streamKeep, broadcastId)
@@ -69,8 +70,9 @@ function ManageBody({ broadcastId, title, rehearsal, closed, onBack, openLink, o
       stream={stream}
       onClose={onBack}
       onShowLink={() => openLink(closed)}
-      {...(openLabels === undefined ? {} : { onOpenLabels: openLabels })}
-      {...(openTool === undefined ? {} : { openTool })}
+      yt={yt}
+      {...(labels === undefined ? {} : { labels })}
+      {...(onEnded === undefined ? {} : { onEnded })}
     />
   )
 }

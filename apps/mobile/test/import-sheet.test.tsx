@@ -2,20 +2,21 @@
 // 상품 목록 가져오기 시트 (PRD-05 앱, D-V3-128): 붙여 넣은 글 → 미리 보기(서버 해석) → 문제 없는 줄만 "n개 등록하기" → 공개 전 상품.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
+import { ConsoleToolScreen } from '../src/screens/console/StackScreens.tsx'
 import { APP_IMPORT_TITLE, importDoneMessage } from '../src/screens/console/ImportSheet.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { changes, flush, product } from './support.ts'
 
+// D-UX4-130 (사용자 지시 "상품 미리 등록 기능 제거해"): 라이브 관리의 "상품 미리 등록" 줄을 없애 그 줄로 열 수 없다.
+// 화면(ImportView)은 설정 경로(/console/<id>/tool/import)에 남아 있어 그 화면으로 연다 (옛: 라이브 관리 → 상품 미리 등록).
 async function open(world: ReturnType<typeof makeWorld>) {
-  render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
-  await waitFor(() => expect(screen.getByTestId('console-screen')).toBeTruthy())
+  render(world.wrap(<ConsoleToolScreen broadcastId="b1" tool="import" onBack={() => {}} />))
+  await waitFor(() => expect(world.source()).toBeTruthy())
   await act(async () => {
     world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
     await flush()
   })
-  fireEvent.click(screen.getByRole('button', { name: '라이브 관리' }))
-  fireEvent.click(await screen.findByRole('button', { name: APP_IMPORT_TITLE }))
+  expect(await screen.findByRole('main', { name: APP_IMPORT_TITLE })).toBeTruthy()
 }
 
 describe('상품 목록 가져오기 (앱)', () => {

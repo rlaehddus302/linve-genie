@@ -292,8 +292,8 @@ describe('AC-Y1-24 끊김·오류·다시 시작', () => {
       const restart = await client(w, connected.seller.cookie).post(`/api/broadcasts/${b.id}/youtube/collector/restart`, {})
       if (!restartable) {
         expect(restart.body, label).toMatchObject({ error: { code: 'COLLECTOR_NOT_RESTARTABLE' } })
-        // 라이브찜 회차는 끝내지 않는다
-        expect(((await client(w, connected.seller.cookie).get(`/api/days/${b.date}`)).body.broadcasts as { ended: boolean }[])[0]?.ended).toBe(false)
+        // 유튜브 라이브가 끝나면 라이브찜 회차도 판매자가 끝낼 때와 같은 길로 저절로 끝낸다 (D-LIVE-AUTOEND — 전에는 끝내지 않았다)
+        expect(((await client(w, connected.seller.cookie).get(`/api/days/${b.date}`)).body.broadcasts as { ended: boolean }[])[0]?.ended).toBe(true)
         continue
       }
       expect(restart.status, label).toBe(200)
