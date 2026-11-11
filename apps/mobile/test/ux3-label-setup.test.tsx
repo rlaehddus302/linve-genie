@@ -2,7 +2,7 @@
 // 방송 시작 라벨 단계 (D-UX3-19, 사용자 지시 2026-11-03 "링크 붙여넣은 다음에 라벨 프린트 할건지 물어보고 한다 하면 프린터 연결 도와주고
 // 연결 확인하고 라벨 디자인 커스텀 한 다음에 테스트 출력한다음에 본방송으로"): 묻기 → 연결·확인 → 꾸미기(서버 초안 미리 보기) → 테스트 "예" → 출력 기기 → 방송.
 import { B1_PROFILE } from '@livejjim/printer'
-import { defaultTemplate, type ProductTemplate } from '@livejjim/label'
+import { defaultTemplate, productDesign, type ProductDesign, type ProductTemplate } from '@livejjim/label'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { BleDeviceInfo, PickEntry } from '@livejjim/mobile-ble'
 import { describe, expect, it, vi } from 'vitest'
@@ -21,8 +21,8 @@ function labelWorld(labelsEnabled = true) {
   world.server.on('PUT', /^\/api\/settings\/labels$/, () => ({ body: { enabled: true } }))
   world.server.on('GET', /^\/api\/print\/templates$/, () => ({ body: { product: { template: { ...defaultTemplate('product'), shopName: '초록다육' }, version: 2, storedShopName: '' }, packing: { template: defaultTemplate('packing'), version: 0, storedShopName: '' } } }))
   world.server.on('POST', /^\/api\/print\/templates\/product\/preview$/, (call) => {
-    const body = call.body as { template: ProductTemplate; resize?: '50x40' }
-    const template = body.resize === undefined ? body.template : { ...defaultTemplate('product', body.resize), shopName: body.template.shopName, priceStyle: body.template.priceStyle }
+    const body = call.body as { template: ProductTemplate; resize?: '50x40'; design?: ProductDesign }
+    const template = body.resize === undefined && body.design === undefined ? body.template : { ...productDesign(body.resize ?? body.template.size, body.design ?? 'basic'), shopName: body.template.shopName, priceStyle: body.template.priceStyle }
     return { body: { template, width: 400, height: 240, png: PNG, longest: null } }
   })
   world.server.on('PUT', /^\/api\/print\/templates\/product$/, () => ({ body: { version: 3 } }))
@@ -253,4 +253,15 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     expect(saved.template.items.number.fontSize).toBe(before + 2)
     world.services.labels.stop()
   })
+})
+
+it('저장된 자유 배치를 열고 표형을 선택하면 저장할 때만 반영한다', async () => {
+  const world = labelWorld()
+  render(world.wrap(<LabelSetupScreen only="design" onBack={() => {}} onDone={() => {}} />))
+  fireEvent.click(await screen.findByRole('radio', { name: '표형' }))
+  await waitFor(() => expect(screen.getByRole('radio', { name: '표형' }).getAttribute('aria-checked')).toBe('true'))
+  expect(world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)).toHaveLength(0)
+  fireEvent.click(screen.getByRole('button', { name: '저장하고 다음' }))
+  await waitFor(() => expect(world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)[0]?.body).toMatchObject({ template: { design: 'table' }, version: 2 }))
+  world.services.labels.stop()
 })

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { ClaimedJob, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import type { PrinterResult } from '../src/native/ble.ts'
 import { decodeBase64, parseBitmap } from '../src/api/labels.ts'
+import { labelPaper } from '../src/lib/label-paper.ts'
 import { LabelQueue } from '../src/lib/label-queue.ts'
 import { FakeBlePrinter } from '../src/native/ble.ts'
 import { APP_PRINTER_UNSUPPORTED } from '../src/lib/words.ts'
@@ -62,9 +63,12 @@ describe('LabelQueue', () => {
     // 프린터가 아직 끊김 → 서버에 끊김을 알리고 받지 않는다
     expect(server.callsTo('POST', /device\/state/).at(-1)?.body).toEqual({ deviceId: 'app-device-1', connected: false })
     expect(server.callsTo('POST', /claim/).length).toBe(0)
+    await labelPaper.update('fake-b1', 12)
     await queue.connect()
     await flush(20)
     expect(server.callsTo('POST', /device\/state/).at(-1)?.body).toEqual({ deviceId: 'app-device-1', connected: true })
+    expect(labelPaper.get('fake-b1')).toBe(10)
+    await labelPaper.update('fake-b1', null)
     expect(ble.printed.length).toBe(2)
     expect(ble.printed[0]?.image.width).toBe(384)
     expect(ble.printed[0]?.density).toBe(3)

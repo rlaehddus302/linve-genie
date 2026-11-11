@@ -34,7 +34,10 @@ export interface TemplateItem {
 
 const ITEM_KEYS = ['visible', 'x', 'y', 'width', 'height', 'fontSize', 'minFontSize'] as const
 
+export type ProductDesign = 'basic' | 'large' | 'table'
+
 export interface ProductTemplate {
+  readonly design?: ProductDesign
   readonly format: 1
   readonly kind: 'product'
   readonly size: LabelSizeId
@@ -76,7 +79,7 @@ const PRODUCT_DEFAULT_ITEMS: Record<LabelSizeId, Record<ProductItemId, TemplateI
     price: item(108, 48, 180, 36, 24),
     date: item(290, 48, 90, 36, 24),
     name: item(4, 88, 376, 88, 28, 22),
-    buyer: item(4, 180, 376, 54, 28),
+    buyer: item(4, 178, 376, 60, 28),
   },
   '50x20': {
     shop: item(72, 3, 240, 30, 24),
@@ -193,10 +196,34 @@ export function defaultTemplate(kind: 'product' | 'packing', size?: LabelSizeId)
 export function defaultTemplate(kind: 'product' | 'packing', size: LabelSizeId = DEFAULT_LABEL_SIZE): LabelTemplate {
   if (!isLabelSize(size)) throw new RangeError('라벨 크기는 L-1 목록 안이어야 한다')
   if (kind === 'product') {
-    return { format: TEMPLATE_FORMAT, kind, size, shopName: '', priceStyle: 'THOUSAND', items: { ...PRODUCT_DEFAULT_ITEMS[size] } }
+    return productDesign(size, 'basic')
   }
   if (!isPackingSize(size)) throw new RangeError(NO_PACKING_TEMPLATE)
   return { format: TEMPLATE_FORMAT, kind, size, shopName: '', perPage: DEFAULT_PER_PAGE[size] as number, items: { ...PACKING_DEFAULT_ITEMS[size] } }
+}
+
+/** 상품 디자인을 새로 골랐을 때의 칸 배치. 저장한 자유 배치는 불러올 때 다시 만들지 않는다. */
+export function productDesign(size: LabelSizeId, design: ProductDesign): ProductTemplate {
+  const base = PRODUCT_DEFAULT_ITEMS[size]
+  const items = { ...base, name: { ...base.name, fontSize: 50 }, buyer: { ...base.buyer, fontSize: 50 } }
+  if (design !== 'basic') {
+    const { widthDots: w, heightDots: h } = labelSizeInfo(size)
+    const narrow = w < 320
+    const split = design === 'table' && !narrow
+    const priceRow = design === 'table' && narrow
+    const header = Math.min(52, Math.floor((h - 4) / (priceRow ? 4 : 3)))
+    const top = 2 + header * (priceRow ? 2 : 1)
+    const middle = top + Math.floor((h - 2 - top) / 2)
+    const numberWidth = split ? Math.floor((w - 4) * 0.36) : w - 4
+    items.shop = { ...base.shop, visible: false }
+    items.date = { ...base.date, visible: false }
+    items.number = item(2, 2, numberWidth, header, 32, 16)
+    items.price = split ? item(2 + numberWidth, 2, w - 4 - numberWidth, header, 28, 16)
+      : item(2, 2 + header, w - 4, header, 28, 16, priceRow)
+    items.name = item(2, top, w - 4, middle - top, design === 'large' ? 66 : 50, 16)
+    items.buyer = item(2, middle, w - 4, h - 2 - middle, design === 'large' ? 66 : 50, 16)
+  }
+  return { format: TEMPLATE_FORMAT, kind: 'product', size, shopName: '', priceStyle: 'THOUSAND', ...(design === 'basic' ? {} : { design }), items }
 }
 
 const isPackingSize = (size: LabelSizeId): size is PackingSizeId => canMakePackingLabel(size)
@@ -311,7 +338,7 @@ export function validateTemplate(value: unknown): TemplateCheck {
     return fail()
   }
   const allowed = ['format', 'kind', 'size', 'shopName', 'items', kind === 'product' ? 'priceStyle' : 'perPage']
-  for (const key of Object.keys(value)) if (!allowed.includes(key)) problems.push({ path: key, message: TEMPLATE_MESSAGES.unknownKey })
+  for (const key of Object.keys(value)) if (!allowed.includes(key) && !(kind === 'product' && key === 'design')) problems.push({ path: key, message: TEMPLATE_MESSAGES.unknownKey })
   for (const key of allowed) if (!Object.hasOwn(value, key)) problems.push({ path: key, message: TEMPLATE_MESSAGES.missingKey })
   if (value.format !== TEMPLATE_FORMAT) problems.push({ path: 'format', message: TEMPLATE_MESSAGES.format })
   const size = value.size
@@ -319,6 +346,7 @@ export function validateTemplate(value: unknown): TemplateCheck {
   else if (kind === 'packing' && !canMakePackingLabel(size)) problems.push({ path: 'size', message: TEMPLATE_MESSAGES.packingSize })
   if (typeof value.shopName !== 'string') problems.push({ path: 'shopName', message: TEMPLATE_MESSAGES.shopName })
   if (kind === 'product') {
+    if (value.design !== undefined && value.design !== 'basic' && value.design !== 'large' && value.design !== 'table') problems.push({ path: 'design', message: '라벨 디자인을 다시 골라 주세요.' })
     if (!(PRICE_STYLES as readonly unknown[]).includes(value.priceStyle)) problems.push({ path: 'priceStyle', message: TEMPLATE_MESSAGES.priceStyle })
   } else if (!isInt(value.perPage) || value.perPage < PER_PAGE_MIN || value.perPage > PER_PAGE_MAX) {
     problems.push({ path: 'perPage', message: TEMPLATE_MESSAGES.perPage })
@@ -354,7 +382,7 @@ export function validateTemplate(value: unknown): TemplateCheck {
   const base = { format: TEMPLATE_FORMAT, size: size as LabelSizeId, shopName: value.shopName as string }
   const template: LabelTemplate =
     kind === 'product'
-      ? { ...base, kind, priceStyle: value.priceStyle as PriceStyle, items: items as Record<ProductItemId, TemplateItem> }
+      ? { ...base, kind, ...(value.design === undefined ? {} : { design: value.design as ProductDesign }), priceStyle: value.priceStyle as PriceStyle, items: items as Record<ProductItemId, TemplateItem> }
       : { ...base, kind, perPage: value.perPage as number, items: items as Record<PackingItemId, TemplateItem> }
   return { ok: true, template, warnings }
 }
@@ -369,7 +397,7 @@ export function templateToJson(template: LabelTemplate): string {
   }
   const head =
     template.kind === 'product'
-      ? { format: template.format, kind: template.kind, size: template.size, shopName: template.shopName, priceStyle: template.priceStyle }
+      ? { format: template.format, kind: template.kind, size: template.size, shopName: template.shopName, priceStyle: template.priceStyle, ...(template.design === undefined ? {} : { design: template.design }) }
       : { format: template.format, kind: template.kind, size: template.size, shopName: template.shopName, perPage: template.perPage }
   return JSON.stringify({ ...head, items })
 }

@@ -465,6 +465,7 @@ function drawItem(p: Painter, spec: ItemSpec, placed: Placement): string[] {
 
 interface DrawExtra {
   /** 그림 가장자리 네 줄을 지나는 테두리 두께 (테스트 라벨) */
+  readonly cells?: readonly TemplateItem[]
   readonly border?: number
 }
 
@@ -484,6 +485,13 @@ function renderSpecs(env: LabelRenderEnv, size: LabelSizeId, specs: readonly Ite
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, width, height)
   ctx.fillStyle = '#000000'
+  for (const cell of extra.cells ?? []) {
+    const { x, y, width: w, height: h } = cell
+    ctx.fillRect(x, y, w, 1)
+    ctx.fillRect(x, y + h - 1, w, 1)
+    ctx.fillRect(x, y, 1, h)
+    ctx.fillRect(x + w - 1, y, 1, h)
+  }
   if (extra.border) {
     const b = extra.border
     ctx.fillRect(0, 0, width, b)
@@ -544,9 +552,11 @@ export function renderProductText(env: LabelRenderEnv, text: ProductText): Rende
   for (const id of ['shop', 'number', 'price', 'date', 'name', 'buyer'] as const) {
     const value = text.items[id]
     if (value === undefined) continue
-    specs.push({ id, box: t.items[id], value, ...PRODUCT_SPEC[id] })
+    const cell = t.items[id]
+    const box = t.design === 'table' ? { ...cell, x: cell.x + 2, y: cell.y + 1, width: Math.max(1, cell.width - 4), height: Math.max(1, cell.height - 2) } : cell
+    specs.push({ id, box, value, ...PRODUCT_SPEC[id] })
   }
-  return renderSpecs(env, t.size, specs)
+  return renderSpecs(env, t.size, specs, t.design === 'table' ? { cells: Object.values(t.items).filter((cell) => cell.visible) } : {})
 }
 
 /** 포장 라벨 한 쪽 그리기 */

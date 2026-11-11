@@ -12,6 +12,7 @@ import { printerProfile, printerSupportStage } from '@livejjim/printer'
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ScrollView, View } from 'react-native'
 import { isApiError } from '../api/client.ts'
+import { LOW_PAPER, labelPaper, useLabelPaper } from '../lib/label-paper.ts'
 import { awaitingTest } from '../lib/label-queue.ts'
 import { testHelp } from '../lib/test-help.ts'
 import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, EXPERIMENTAL_PAUSED, EXPERIMENTAL_RESUMED, EXPERIMENTAL_WAIT_TEST, EXPERIMENTAL_WAIT_TEST_MINE, PRINT_ACTION, RETRY_NOW, TEST_CONFIRMED_PAST, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
@@ -41,6 +42,31 @@ export const JOB_SHARE_HINT = '잘 안 찍히면 이 라벨 그림을 제조사 
 
 /** 농도 단추 (범위 안의 정수) */
 const densityLevels = (range: { readonly min: number; readonly max: number }): number[] => Array.from({ length: Math.max(0, range.max - range.min + 1) }, (_, i) => range.min + i)
+
+function PaperSettings({ deviceId }: { readonly deviceId: string }) {
+  const remaining = useLabelPaper(deviceId)
+  const [text, setText] = useState('')
+  const [error, setError] = useState(false)
+  const save = async (value: number | null) => {
+    try {
+      await labelPaper.update(deviceId, value)
+      setText('')
+      setError(false)
+    } catch { setError(true) }
+  }
+  return (
+    <View style={{ gap: SPACE.sm }}>
+      <Field label="남은 라벨 용지 (장)" hint="현재 장수를 입력하면 이 휴대폰에서 출력할 때마다 차감하고, 10장 이하일 때 알려드려요."
+        value={text} keyboardType="number-pad" maxLength={5} onChangeText={setText} />
+      {remaining !== null ? <Notice tone={remaining <= LOW_PAPER ? 'warning' : 'info'}>{`예상 잔량 약 ${remaining}장`}</Notice> : null}
+      {error ? <Notice tone="danger">장수를 저장하지 못했어요. 다시 눌러 주세요.</Notice> : null}
+      <ButtonRow>
+        {remaining !== null ? <BigButton kind="outline" label="알림 끄기" onPress={() => void save(null)} /> : null}
+        <BigButton label="장수 저장" disabled={!/^\d{1,5}$/.test(text)} onPress={() => void save(Number(text))} />
+      </ButtonRow>
+    </View>
+  )
+}
 
 /** onBack이 없으면 아래 탭 화면(라벨 탭, D-UX3-01) — 뒤로 단추 없이 제목만 */
 export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
@@ -191,6 +217,7 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
               {snapshot.printerError.message}
             </Notice>
           ) : null}
+          {labels.paperDeviceId != null ? <PaperSettings key={labels.paperDeviceId} deviceId={labels.paperDeviceId} /> : null}
           {snapshot.densityRange !== null ? (
             <View style={{ gap: SPACE.sm }}>
               <Txt color="textSub">인쇄 농도</Txt>

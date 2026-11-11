@@ -3,6 +3,11 @@ import { createCanvas } from '@napi-rs/canvas'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   LABEL_SIZES,
+  ALL_LABEL_SIZES,
+  LONGEST_PRODUCT,
+  productDesign,
+  validateTemplate,
+  templateToJson,
   TEST_LABEL_BORDER,
   bitmapsEqual,
   bytesPerRow,
@@ -419,7 +424,8 @@ describe('테스트 라벨 (AC-P1-17)', () => {
 })
 
 describe('조정이 그림에 그대로 나온다 (AC-P1-21)', () => {
-  const base = { ...defaultTemplate('product'), shopName: '다육농장' }
+  const initial = { ...defaultTemplate('product'), shopName: '다육농장' }
+  const base = withItem(withItem(initial, 'buyer', { width: 280 }), 'name', { fontSize: 28 })
   const before = product(base)
 
   it('날짜 상자를 오른쪽 아래로 옮기면 날짜 점은 새 상자 안에만, 옛 자리에는 없다', () => {
@@ -460,4 +466,24 @@ describe('글 계산과 그리기가 같은 글을 쓴다 (AC-P1-06)', () => {
     expect(a.ok && b.ok && bitmapsEqual(a.image, b.image)).toBe(true)
     if (a.ok) for (const it2 of a.layout.items) expectLayoutMatchesText(it2, computed.text.items[it2.id as keyof typeof computed.text.items] as string)
   })
+})
+
+describe('상품 라벨 기본 디자인', () => {
+  for (const size of ALL_LABEL_SIZES) {
+    it(size + '에서 세 디자인을 저장하고 다시 그린다', () => {
+      const basic = defaultTemplate('product', size)
+      expect([basic.items.name.fontSize, basic.items.buyer.fontSize]).toEqual([50, 50])
+      for (const design of ['basic', 'large', 'table'] as const) {
+        const t = productDesign(size, design)
+        const saved = validateTemplate(JSON.parse(templateToJson(t)))
+        expect(saved).toMatchObject({ ok: true, template: t, warnings: [] })
+        const result = product(t)
+        product({ ...t, priceStyle: 'WON' }, LONGEST_PRODUCT)
+        if (design === 'table') {
+          const cell = t.items.buyer
+          for (let x = cell.x; x < cell.x + cell.width; x++) expect(getPixel(result.image, x, cell.y)).toBe(true)
+        }
+      }
+    })
+  }
 })

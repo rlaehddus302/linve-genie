@@ -21,6 +21,8 @@ import {
   type LabelError,
   type LabelSizeId,
   defaultTemplate,
+  productDesign,
+  type ProductDesign,
   splitGraphemes,
   templateToJson,
   trimLabelText,
@@ -1568,7 +1570,7 @@ export class PrintService {
    * 받은 초안을 저장과 같은 검사(형식·16KB·가게 이름 길이)로 보고 견본 값(365번 삼광색금 — 앱 예시와 같다, D-UX4-07)으로 그린다. 가게 이름이 비면 설정 "가게"의 이름.
    * 가장 긴 값(번호 9999·99,999,999원·긴 품종·닉네임)이 칸에 들어가지 않으면 그 항목의 문장을 longest로 — 저장은 막지 않는다(웹과 같다). 아무것도 쓰지 않는다
    */
-  async draftPreview(sellerId: string, value: unknown, resize?: LabelSizeId): Promise<ActionOutcome<{ template: LabelTemplate; image: LabelBitmap; longest: string | null }>> {
+  async draftPreview(sellerId: string, value: unknown, resize?: LabelSizeId, design?: ProductDesign): Promise<ActionOutcome<{ template: LabelTemplate; image: LabelBitmap; longest: string | null }>> {
     let text: string
     try {
       text = JSON.stringify(value)
@@ -1585,7 +1587,11 @@ export class PrintService {
     }
     if (problems.length > 0 || !checked.ok) return { kind: 'rejected', rejection: rejection(400, 'INVALID_TEMPLATE', PRINT_MESSAGES.templateInvalid, problems) }
     // 크기 바꾸기 (웹 라벨 설정과 같다): 새 크기의 기본 칸 배치 + 켜고 끈 항목·가게 이름·가격 표기는 그대로
-    const draft = resize === undefined || resize === checked.template.size || checked.template.kind !== 'product' ? checked.template : resizedProduct(checked.template, resize)
+    let draft = checked.template
+    if (draft.kind === 'product') {
+      if (design !== undefined) draft = { ...productDesign(resize ?? draft.size, design), shopName: draft.shopName, priceStyle: draft.priceStyle }
+      else if (resize !== undefined && resize !== draft.size) draft = resizedProduct(draft, resize)
+    }
     const shop = await readShop(this.#db, sellerId)
     const template = fillShopName(draft, shop.name)
     const env = createNodeRenderEnv()
@@ -1708,7 +1714,7 @@ export class PrintService {
  */
 /** 상품 템플릿 크기 바꾸기 (웹 LabelSettings changeSize와 같다): 새 크기의 기본 칸 + 켜고 끈 항목(끌 수 없는 칸은 켬)·가게 이름·가격 표기 */
 export function resizedProduct(template: ProductTemplate, size: LabelSizeId): ProductTemplate {
-  const fresh = defaultTemplate('product', size)
+  const fresh = productDesign(size, template.design ?? 'basic')
   const items = Object.fromEntries(PRODUCT_ITEMS.map((id) => [id, { ...fresh.items[id], visible: PRODUCT_LOCKED.includes(id) ? true : template.items[id].visible }])) as ProductTemplate['items']
   return { ...fresh, shopName: template.shopName, priceStyle: template.priceStyle, items }
 }

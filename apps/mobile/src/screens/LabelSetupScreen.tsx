@@ -11,7 +11,7 @@
 //    뽑으면 "또렷하게 보이나요?" [예]면 출력 기기로 하고 방송으로. [아니요]면 도움말과 다시 인쇄.
 // 단추 둘은 늘 좌우 — 부정 왼쪽, 긍정 오른쪽 (D-UX4-01). 프린터를 '기본·실험'으로 나눠 보이지 않는다.
 import { printerProfile, labelSizesForProfileId } from '@livejjim/printer'
-import type { ProductItemId, ProductTemplate, TemplateItem } from '@livejjim/label'
+import type { ProductDesign, ProductItemId, ProductTemplate, TemplateItem } from '@livejjim/label'
 import type { QueueSummary, StoredTemplate, Templates } from '@livejjim/web/src/api/print-types.ts'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Image, PanResponder, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native'
@@ -315,6 +315,8 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [picked, setPicked] = useState<ProductItemId | null>(null)
+  const [changingLayout, setChangingLayout] = useState(false)
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const asked = useRef(0)
   const scroll = useRef<ScrollViewInstance>(null)
   const sectionY = useRef<Partial<Record<ProductItemId, number>>>({})
@@ -334,25 +336,34 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
   useEffect(load, [])
 
   /** 초안을 서버에 보내 그림을 받는다 (크기를 바꾸면 서버가 그 크기의 칸 배치로 고친 초안도 준다) */
-  const draw = (template: ProductTemplate, resize?: string) => {
+  const draw = (template: ProductTemplate, resize?: string, design?: ProductDesign) => {
+    clearTimeout(previewTimer.current)
+    const layoutChange = resize !== undefined || design !== undefined
+    if (layoutChange) setChangingLayout(true)
     const ticket = ++asked.current
-    post<DraftPreview>('/api/print/templates/product/preview', resize === undefined ? { template } : { template, resize }).then(
+    post<DraftPreview>('/api/print/templates/product/preview', { template, resize, design }).then(
       (view) => {
         if (ticket !== asked.current) return
         setPreview(view)
         setError(null)
-        if (resize !== undefined) setDraft(view.template)
+        if (layoutChange) {
+          setChangingLayout(false)
+          setDraft(view.template)
+        }
       },
       (caught: unknown) => {
-        if (ticket === asked.current) setError(errorText(caught))
+        if (ticket === asked.current) {
+          setChangingLayout(false)
+          setError(errorText(caught))
+        }
       },
     )
   }
   // 칠 때·끌 때마다가 아니라 잠깐 멈춘 뒤에 그린다
   useEffect(() => {
     if (draft === null) return
-    const timer = setTimeout(() => draw(draft), 250)
-    return () => clearTimeout(timer)
+    previewTimer.current = setTimeout(() => draw(draft), 250)
+    return () => { clearTimeout(previewTimer.current); asked.current++ }
   }, [draft])
 
   const listed = queue?.labelSizes
@@ -392,10 +403,10 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
       sticky={
         <View onLayout={(event: LayoutChangeEvent) => (stickyH.current = event.nativeEvent.layout.height)}>
           {/* 서버에서 받은 뒤에야 생기는 라벨 그림은 부드럽게 (D-UX4-112) — 아래 칸들은 자리(onLayout y)로 스크롤하므로 감싸지 않는다 */}
-          <Late>{draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} widthDots={dots.widthDots} heightDots={dots.heightDots} picked={picked} onFocus={focusItem} onPick={setPicked} onItem={setItem} /> : null}</Late>
+          <Late>{draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} widthDots={dots.widthDots} heightDots={dots.heightDots} picked={picked} onFocus={focusItem} onPick={setPicked} onItem={changingLayout ? () => undefined : setItem} /> : null}</Late>
         </View>
       }
-      actions={<BigButton label="저장하고 다음" busy={saving} disabled={draft === null} onPress={() => void save()} />}
+      actions={<BigButton label="저장하고 다음" busy={saving} disabled={draft === null || changingLayout} onPress={() => void save()} />}
     >
       {preview?.longest != null ? <Notice tone="warning">{`이름이 아주 길면 잘릴 수 있어요. ${preview.longest}`}</Notice> : null}
       {error !== null ? (
@@ -407,7 +418,16 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
         </View>
       ) : null}
       {draft === null || dots === null ? null : (
-        <>
+        <View pointerEvents={changingLayout ? 'none' : 'auto'} style={{ gap: SPACE.md }}>
+          <RowGroup title="기본 디자인">
+            <View role="radiogroup" aria-label="기본 디자인" style={{ flexDirection: 'row', gap: SPACE.sm, paddingHorizontal: SPACE.xl }}>
+              {([['basic', '기본형'], ['large', '큰 글씨형'], ['table', '표형']] as const).map(([design, word]) => (
+                <View key={design} style={{ flex: 1 }}>
+                  <Choice word={word} on={(draft.design ?? 'basic') === design} onPress={() => draw(draft, undefined, design)} />
+                </View>
+              ))}
+            </View>
+          </RowGroup>
           <RowGroup title="라벨 크기">
             <View role="radiogroup" aria-label="라벨 크기" style={{ gap: SPACE.sm, paddingHorizontal: SPACE.xl, paddingVertical: SPACE.sm }}>
               {rowsOf(sizes, 3).map((row) => (
@@ -454,7 +474,7 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
               </View>
             )
           })}
-        </>
+        </View>
       )}
     </FormPage>
   )

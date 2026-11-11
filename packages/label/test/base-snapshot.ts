@@ -49,6 +49,16 @@ export function baseCases(): BaseCase[] {
 /** 기본 템플릿 만들기 — 보통은 `defaultTemplate`, 옛 고정값 확인에는 옛 기본 템플릿(`revertStbDateBox`) */
 export type DefaultsOf = (kind: 'product' | 'packing', size?: LabelSizeId) => LabelTemplate
 
+// 글자 크기 50 도입 전에 저장된 상품 설정. 당시 비트맵·JSON 고정값으로 호환성을 검증한다.
+export const beforeLargeFont: DefaultsOf = (kind, size) => {
+  const t = defaultTemplate(kind, size)
+  if (t.kind !== 'product') return t
+  const pair = { '50x30': [28, 28], '50x20': [24, 24], '50x40': [36, 32], '50x50': [40, 36], '50x15': [30, 30],
+    tape12x40: [24, 24], tape15x30: [24, 24], tape15x50: [24, 24] } as const
+  const [name, buyer] = pair[t.size]
+  return { ...t, items: { ...t.items, name: { ...t.items.name, fontSize: name }, buyer: { ...t.items.buyer, ...(t.size === '50x30' ? { y: 180, height: 54 } : {}), fontSize: buyer } } }
+}
+
 const currentDefaults: DefaultsOf = (kind, size) => defaultTemplate(kind, size)
 
 /** D-STB-01로 바뀐 기본 상품 템플릿(50×20·30·40·50)의 날짜 칸 */
@@ -60,7 +70,7 @@ export const STB_DATE_BOX = { now: { x: 290, width: 90 }, before: { x: 292, widt
  * 바뀐 것이 그 두 값뿐이라야 하므로, 지금 값이 새 값이 아니면 던진다.
  */
 export const revertStbDateBox: DefaultsOf = (kind, size) => {
-  const t = defaultTemplate(kind, size)
+  const t = beforeLargeFont(kind, size)
   if (t.kind !== 'product' || !STB_DATE_SIZES.includes(t.size)) return t
   const date = t.items.date
   if (date.x !== STB_DATE_BOX.now.x || date.width !== STB_DATE_BOX.now.width) throw new Error(`${t.size} 날짜 칸이 D-STB-01 값이 아니다`)

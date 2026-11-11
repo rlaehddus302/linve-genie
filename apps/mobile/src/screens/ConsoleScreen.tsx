@@ -18,6 +18,7 @@ import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../
 import { useServices } from '../services.tsx'
 import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderTextButton, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
 import { GUTTER, SPACE } from '../ui/kit/tokens.ts'
+import { LOW_PAPER, useLabelPaper } from '../lib/label-paper.ts'
 import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
 import { useCameLate } from '../ui/late.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
@@ -165,6 +166,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 끝내기 성공 — 방송 목록을 다시 받지 않아도 바로 "끝난 방송"으로 (범위 기록의 방송 정보는 처음 한 번만 받는다)
   const [endedHere, setEndedHere] = useState(false)
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
+  const paper = useLabelPaper(services.labels.paperDeviceId ?? null)
   const data = snapshot.data
   const broadcast = snapshot.broadcast
   const returning = useRef<{ at: number } | null>(null)
@@ -400,6 +402,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             <AwayLine />
             <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
             {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
+            {labelsQueue.mine && labelsQueue.queue?.labelsEnabled && paper !== null && paper <= LOW_PAPER ? <Notice tone="warning" alert>{`라벨 용지가 약 ${paper}장 남았어요. 새 롤을 준비해 주세요.`}</Notice> : null}
             <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} />
             {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
             <YoutubeWarning yt={yt} closed={closed} />

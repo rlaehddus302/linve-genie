@@ -1,6 +1,6 @@
 // 저장 전 상품 라벨 초안 미리 보기 (D-UX3-19, 사용자 지시 2026-11-03 "라벨 디자인 커스텀 한 다음에 테스트 출력"): 앱 방송 시작 라벨 단계는 캔버스가 없어
 // 서버가 받은 초안을 견본 값으로 그려 PNG로 준다. 저장과 같은 검사, 가장 긴 값이 안 들어가면 문장만, DB에는 아무것도 쓰지 않는다.
-import { LONGEST_PRODUCT, SAMPLE_PRODUCT, defaultTemplate, encodeLabelPng, renderProductLabel } from '@livejjim/label'
+import { LONGEST_PRODUCT, SAMPLE_PRODUCT, defaultTemplate, encodeLabelPng, productDesign, renderProductLabel } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
 import { describe, expect, it } from 'vitest'
 import { kstDate } from '../src/time.ts'
@@ -63,4 +63,17 @@ describe('D-UX3-19 초안 크기 바꾸기 (resize)', () => {
     expect(template).toEqual({ ...fresh, shopName: '다육상회', priceStyle: 'WON', items: { ...fresh.items, date: { ...fresh.items.date, visible: false } } })
     expect((await client(world, seller.cookie).post(PATH, { template: draft, resize: '40x40' })).status).toBe(400)
   })
+})
+
+it('표형은 미리 본 칸과 서식을 그대로 저장하고 다시 읽을 수 있다', async () => {
+  const world = await newWorld()
+  const seller = await addSeller(world)
+  const api = client(world, seller.cookie)
+  const template = { ...defaultTemplate('product'), priceStyle: 'WON', shopName: '초록다육' }
+  const preview = await expectOk(api.post(PATH, { template, design: 'table' }))
+  const expected = { ...productDesign('50x30', 'table'), priceStyle: 'WON', shopName: '초록다육' }
+  expect(preview.body).toMatchObject({ template: expected, longest: null })
+  await expectOk(api.put('/api/print/templates/product', { template: expected, version: 0 }))
+  const read = await expectOk(api.get('/api/print/templates'))
+  expect(read.body).toMatchObject({ product: { template: expected } })
 })

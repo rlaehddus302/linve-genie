@@ -18,7 +18,7 @@ import {
   renderProductLabel,
   type LabelSizeId,
 } from '../src/index.ts'
-import { STB_DATE_SIZES, baseCases, collectSnapshot, revertStbDateBox, type BaseSnapshot } from './base-snapshot.ts'
+import { STB_DATE_SIZES, beforeLargeFont, baseCases, collectSnapshot, revertStbDateBox, type BaseSnapshot } from './base-snapshot.ts'
 import { expectCleanLayout, expectLayoutMatchesText, nodeEnv } from './helpers.ts'
 
 const env = nodeEnv()
@@ -56,7 +56,7 @@ function withNeutralOptions(kind: 'product' | 'packing', data: unknown): unknown
 }
 
 describe('AC-O3-02·06 다육 회귀 — O3 전 그림·내용 키 그대로', () => {
-  const now = collectSnapshot(env)
+  const now = collectSnapshot(env, undefined, beforeLargeFont)
 
   it('고정값은 O3 전 라벨 골든 상품·포장 102사례 × (사례 템플릿 + 크기마다 기본 템플릿)이다', () => {
     expect(Object.keys(BASE.keys)).toHaveLength(102)
@@ -83,7 +83,7 @@ describe('AC-O3-02·06 다육 회귀 — O3 전 그림·내용 키 그대로', (
     }
   })
 
-  it('지금 코드·지금 기본 템플릿으로 그린 1비트 그림이 고정값(BASE + D-STB-01 새 값)과 점 하나까지 같다 (해시)', () => {
+  it('지금 코드·기존 저장 템플릿으로 그린 1비트 그림이 고정값(BASE + D-STB-01 새 값)과 점 하나까지 같다 (해시)', () => {
     expect(now.renders).toStrictEqual(NOW_RENDERS)
   })
 
@@ -92,7 +92,7 @@ describe('AC-O3-02·06 다육 회귀 — O3 전 그림·내용 키 그대로', (
   })
 
   it('qty: 1 · variant: null을 더해도, 포장의 정수 번호를 { no }로 바꿔도 같은 그림·같은 키다', () => {
-    const neutral = collectSnapshot(env, (c) => withNeutralOptions(c.kind, c.data))
+    const neutral = collectSnapshot(env, (c) => withNeutralOptions(c.kind, c.data), beforeLargeFont)
     expect(neutral.renders).toStrictEqual(NOW_RENDERS)
     expect(neutral.keys).toStrictEqual(BASE.keys)
     const neutralBefore = collectSnapshot(env, (c) => withNeutralOptions(c.kind, c.data), revertStbDateBox)

@@ -5,6 +5,7 @@
 // - 기억한 프린터는 앱 저장소(AsyncStorage)에 ID만 둔다 — 서버로 보내지 않는다. 앱을 다시 켜면 "다시 연결"이 고르기 창 없이 잇는다.
 // - 시험용 프린터는 L-7 가짜 프린터다. 서버가 시험 모드일 때 화면이 고를 때만 만든다(운영 서버에서는 고를 수 없다).
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { labelPaper } from '../lib/label-paper.ts'
 import { wireDockChoice } from '../lib/dock-choice.ts'
 import { Modal, PermissionsAndroid, Platform, ScrollView } from 'react-native'
 import { BleManager } from 'react-native-ble-plx'
@@ -108,6 +109,7 @@ export function installProductionNative(): void {
     device,
     createTest: () => createReconnectingAdapter(createFakePrinter({ methods: ['bluetooth'] }), AUTO_RECONNECT_POLICY),
   })
+  labelPaper.storage = AsyncStorage
   void wirePrinterMemory(device, (value) => printer.restoreDeviceMemory(value), AsyncStorage)
   // 방송 화면 아래 창 고르기 (D-UX4-71) — 이 휴대폰에만
   void wireDockChoice(AsyncStorage)

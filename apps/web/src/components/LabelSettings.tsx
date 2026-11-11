@@ -18,6 +18,7 @@ import {
   PRODUCT_LOCKED,
   canMakePackingLabel,
   defaultTemplate,
+  productDesign,
   isLabelSize,
   labelSizeInfo,
   labelSizeName,
@@ -276,7 +277,7 @@ function TemplateEditor({ kind, shopName, pickSize = 0 }: { readonly kind: Kind;
 
   const changeSize = (size: LabelSizeId) => {
     if (size === template.size) return
-    const fresh = defaultTemplate(template.kind, size)
+    const fresh = template.kind === 'product' ? productDesign(size, template.design ?? 'basic') : defaultTemplate('packing', size)
     const visible = (id: string) => items[id]?.visible ?? true
     const freshItems = fresh.items as Readonly<Record<string, TemplateItem>>
     const nextItems: Record<string, TemplateItem> = {}
@@ -369,6 +370,17 @@ function TemplateEditor({ kind, shopName, pickSize = 0 }: { readonly kind: Kind;
             </p>
           ) : null}
         </fieldset>
+        {template.kind === 'product' ? (
+          <fieldset className="fieldset">
+            <legend>기본 디자인</legend>
+            <div className="choice-list-plain">
+              {([['basic', '기본형'], ['large', '큰 글씨형'], ['table', '표형']] as const).map(([design, word]) => (
+                <button key={design} type="button" className="button button-small" aria-pressed={(template.design ?? 'basic') === design}
+                  onClick={() => change({ ...productDesign(template.size, design), shopName: template.shopName, priceStyle: template.priceStyle })}>{word}</button>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
         <div className="field">
           <label htmlFor={ids.shop}>가게 이름</label>
           <input

@@ -23,6 +23,7 @@ import { fetchTestBitmap, fetchJobBitmap, bitmapFailure, fetchJobPng, fetchTestP
 import { get, isApiError, post, withRetry, type ApiError } from '../api/client.ts'
 import type { EventSourceLike, SseMessage } from '../api/sse.ts'
 import type { AutoReconnectState, ConnectionState, NativeBlePrinter, PrinterError, PrinterTarget } from '../native/ble.ts'
+import { labelPaper } from './label-paper.ts'
 import { realTimer, type Timer } from './live.ts'
 import { APP_PRINTER_UNSUPPORTED } from './words.ts'
 
@@ -137,6 +138,19 @@ export class LabelQueue {
       testConfirmed: false,
       testing: false,
     }
+  }
+
+  get paperDeviceId(): string | null {
+    const ble = this.#options.ble
+    const device = ble.remembered
+    return ble.target === 'bluetooth' && (ble.state === 'CONNECTED' || ble.state === 'PRINTING') && device?.method === 'bluetooth' ? device.deviceId : null
+  }
+
+  async #printSheet(bitmap: Parameters<NativeBlePrinter['print']>[0]) {
+    const id = this.paperDeviceId
+    const result = await this.#options.ble.print(bitmap, this.#printOptions())
+    if (result.ok && id !== null) await labelPaper.update(id, 'printed').catch(() => undefined)
+    return result
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -376,7 +390,7 @@ export class LabelQueue {
       const size = await this.#testSize()
       this.#set({ testSize: size })
       const bitmap = await fetchTestBitmap(size)
-      const result = await this.#options.ble.print(bitmap, this.#printOptions())
+      const result = await this.#printSheet(bitmap)
       if (!result.ok) this.#set({ printerError: result.error })
       else this.#set({ testPrinted: true })
       return result.ok
@@ -505,7 +519,7 @@ export class LabelQueue {
     } else {
       try {
         const bitmap = await fetchJobBitmap(job, this.#options.deviceId)
-        const result = await this.#options.ble.print(bitmap, this.#printOptions())
+        const result = await this.#printSheet(bitmap)
         ok = result.ok
         if (!result.ok) {
           error = { code: result.error.code }

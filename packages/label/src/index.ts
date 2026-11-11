@@ -97,6 +97,8 @@ export {
   TEMPLATE_FORMAT,
   TEMPLATE_MESSAGES,
   defaultTemplate,
+  productDesign,
+  type ProductDesign,
   parseTemplateJson,
   templateToJson,
   validateTemplate,

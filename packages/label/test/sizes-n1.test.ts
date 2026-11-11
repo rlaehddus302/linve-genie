@@ -46,7 +46,7 @@ import {
   type TemplateItem,
 } from '../src/index.ts'
 import { SAMPLE_PACKING, SAMPLE_PRODUCT, blackIn, expectCleanLayout, expectLayoutMatchesText, nodeEnv, overlaps } from './helpers.ts'
-import { revertStbDateBox, type DefaultsOf } from './base-snapshot.ts'
+import { beforeLargeFont, revertStbDateBox, type DefaultsOf } from './base-snapshot.ts'
 
 const env = nodeEnv()
 
@@ -500,8 +500,8 @@ describe('지금 템플릿은 그대로 (AC-N1-60)', () => {
     expect(createHash('sha256').update(templatesText(revertStbDateBox)).digest('hex')).toBe('1354c2fdf2eacc0226d9ac4fb0d063a8d4fa255da74a45b3ca9e7d37b97c8395')
   })
 
-  it('지금 기본 템플릿 JSON (D-STB-01 날짜 칸 x 290 · 폭 90, SHA-256 고정)', () => {
-    expect(createHash('sha256').update(templatesText((kind, size) => defaultTemplate(kind, size))).digest('hex')).toBe('3ac970cfbad7fca9ecef01b2175c661adf6050c5a8ccd0f14748e5ee1f955a75')
+  it('기존 저장 템플릿 JSON (D-STB-01 날짜 칸 x 290 · 폭 90, SHA-256 고정)', () => {
+    expect(createHash('sha256').update(templatesText(beforeLargeFont)).digest('hex')).toBe('3ac970cfbad7fca9ecef01b2175c661adf6050c5a8ccd0f14748e5ee1f955a75')
   })
 })
 
