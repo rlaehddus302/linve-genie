@@ -197,13 +197,14 @@ export const NAV = { row: 48, below: SPACE.xs, left: PAGE.backLeft, right: SPACE
  * 왼쪽 뒤로 ‹ · 가운데 제목(17·중간 굵기, 한 줄) · 오른쪽 조각(글자 단추 "관리"·상태). 뒤로·제목·오른쪽은 늘 같은 줄 높이 48 가운데에 놓인다.
  * 제목은 화면 가운데 — 오른쪽 조각이 넓으면 그만큼 양쪽을 비워 겹치지 않는다. 모든 쌓인 화면·입력 화면 틀·밀려 들어오는 화면이 이것만 쓴다.
  */
-export function NavBar({ title, onBack, backLabel = '뒤로', right, testID }: { readonly title?: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly testID?: string }) {
+export function NavBar({ title, onBack, backLabel = '뒤로', afterBack, right, testID }: { readonly title?: string; readonly afterBack?: ReactNode; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly testID?: string }) {
   const [rightWidth, setRightWidth] = useState(0)
   // 제목 양쪽 빈자리: 뒤로 단추 자리(8+48)와 오른쪽 조각 중 넓은 쪽 + 8
   const side = Math.max(NAV.left + 48, NAV.right + rightWidth) + SPACE.sm
   return (
     <View testID={testID} style={{ minHeight: NAV.row + NAV.below, paddingBottom: NAV.below, paddingLeft: NAV.left, paddingRight: NAV.right, flexDirection: 'row', alignItems: 'center' }}>
       {onBack === undefined ? <View style={{ width: 48, height: NAV.row }} /> : <BackButton label={backLabel} onPress={onBack} />}
+      {afterBack}
       <View style={{ flex: 1 }} />
       {right === undefined ? null : (
         <View onLayout={(event) => setRightWidth(Math.ceil(event.nativeEvent.layout.width))} style={{ flexDirection: 'row', alignItems: 'center', height: NAV.row }}>

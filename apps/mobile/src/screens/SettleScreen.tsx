@@ -155,7 +155,7 @@ function OrderList({ nav, onPick }: { readonly nav: SettleNavigation; readonly o
             <View role="list" aria-label="주문 목록">
               {rows.map((row, index) => {
                 const showDate = index === 0 || rows[index - 1]?.date !== row.date
-                return <OrderLine key={`${row.date}/${row.buyer}`} row={row} showDate={showDate} gapAbove={showDate && index > 0} onPress={() => onPick(row.date, row.buyer)} />
+                return <OrderLine key={`${row.date}/${row.buyer}`} row={row} showDate={showDate} onPress={() => onPick(row.date, row.buyer)} />
               })}
             </View>
           </Appear>
@@ -194,21 +194,27 @@ function TopButton({ label, note = null, onPress }: { readonly label: string; re
 }
 
 /** 날짜 칸 너비 ("11.11" — 가장 긴 날짜) */
-const DATE_WIDTH = 44
+const DATE_WIDTH = 40
 
 /** 주문 한 줄 (토스 거래 내역 줄): 날짜(그 날짜 첫 줄에만) · 닉네임과 그 아래 작은 성함·빨간 모르는 정보 · 오른쪽 총 금액과 작은 개수 */
-function OrderLine({ row, showDate, gapAbove, onPress }: { readonly row: OrderRow; readonly showDate: boolean; readonly gapAbove: boolean; readonly onPress: () => void }) {
-  const { p } = useKit()
+function OrderLine({ row, showDate, onPress }: { readonly row: OrderRow; readonly showDate: boolean; readonly onPress: () => void }) {
+  const { p, fontScale } = useKit()
   const missing = missingWords(row.missing)
   const words = [dateWords(row.date), row.nickname, row.name, missing, formatWon(row.total), countWords(row.itemCount)].filter((part) => part !== null && part !== '')
   return (
     <Tap
       role="button"
       aria-label={words.join(' · ')}
+      pressScale={0.99}
       onPress={onPress}
-      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.md, marginTop: gapAbove ? SPACE.sm : 0, paddingVertical: SPACE.md, paddingHorizontal: SPACE.sm, marginHorizontal: -SPACE.sm, minHeight: TOUCH.min, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}
+      style={({ pressed }) => ({
+        flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm,
+        marginHorizontal: -SPACE.md, paddingHorizontal: pressed ? SPACE.lg : SPACE.md, paddingVertical: SPACE.md,
+        minHeight: 64, borderRadius: RADIUS.md, borderCurve: 'continuous',
+        backgroundColor: pressed ? p.surfaceAlt : 'transparent',
+      })}
     >
-      <View style={{ width: DATE_WIDTH }}>{showDate ? <Txt step="body" weight="medium" color="textSub">{dotDate(row.date)}</Txt> : null}</View>
+      <View style={{ width: DATE_WIDTH * fontScale }}>{showDate ? <Txt step="body" weight="medium" color="textSub">{dotDate(row.date)}</Txt> : null}</View>
       <View style={{ flex: 1, gap: 2 }}>
         <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{row.nickname}</Txt>
         {row.name !== null ? <Txt step="caption" color="textSub" numberOfLines={1}>{row.name}</Txt> : null}

@@ -72,6 +72,24 @@ describe('주문 목록 (D-UX4-125)', () => {
     expect(within(first).getByText('3개')).toBeTruthy()
   })
 
+  it('누르는 동안 해당 줄만 옅은 회색이고 손을 떼면 주문 상세를 연다', async () => {
+    const w = makeWorld()
+    withOrders(w, ordersView(ROWS))
+    const openOrder = vi.fn()
+    render(w.wrap(<SettleScreen nav={{ openOrder }} />))
+    const list = await screen.findByRole('list', { name: '주문 목록' })
+    const row = within(list).getByRole('button', { name: /김다육/ })
+    const other = within(list).getByRole('button', { name: /초록손/ })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    await waitFor(() => expect(row.style.backgroundColor).toBe('rgb(242, 244, 246)'))
+    expect(other.style.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+    expect(openOrder).not.toHaveBeenCalled()
+    fireEvent.keyUp(row, { key: 'Enter' })
+    await waitFor(() => expect(row.style.backgroundColor).toBe('rgba(0, 0, 0, 0)'))
+    fireEvent.click(row)
+    expect(openOrder).toHaveBeenCalledExactlyOnceWith('2026-11-11', 'u1')
+  })
+
   it('줄을 누르면 쌓인 주문 상세를 연다(날짜·손님)', async () => {
     const w = makeWorld()
     withOrders(w, ordersView(ROWS))
