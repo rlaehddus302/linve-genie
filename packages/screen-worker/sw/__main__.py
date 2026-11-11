@@ -28,6 +28,7 @@ from .screen import Screen, ocr_frame
 
 KST = timezone(timedelta(hours=9))
 TICK = 5            # 판정 다시 계산 간격(초, 실제 시계)
+LLM_TICK = 1.0      # LLM 등록이 새 받아쓰기 줄·화면을 보는 간격(초) — 줄이 들어오면 바로 묻게(2026-11-12)
 REVIEW_WAIT = 30    # 화면 구간이 끝나고 이만큼(방송 초) 지나도 확정이 안 되면 확인요청
 STRONG_WAIT = 10    # 화면만으로 확정하는 규칙은 구간이 끝나고 이만큼 기다린 뒤 내보냄(그 사이 다른 번호를 말하면 취소되므로)
 NAME_WAIT = 60      # --post: 금액이 나온 뒤 품종 답을 이만큼(초, 실제 시계)까지 기다렸다 보냄(서버는 같은 번호를 다시 받아도 바꾸지 않으므로 한 번에)
@@ -337,7 +338,7 @@ class Worker:
         pool = ProcessPoolExecutor(max_workers=self.a.workers)
         pending = {}
         k = 0
-        last_tick = time.time()
+        last_tick = last_llm = time.time()
         frames_dir = os.path.join(self.out, "frames")
         try:
             while True:
@@ -355,9 +356,11 @@ class Worker:
                 if time.time() - last_tick >= TICK:
                     self.sc.flush()
                     self.tick()
-                    if self.llmreg:
-                        self.llmreg.tick()
                     last_tick = time.time()
+                if self.llmreg and time.time() - last_llm >= LLM_TICK:
+                    self.sc.flush()
+                    self.llmreg.tick()
+                    last_llm = time.time()
                 if done and not pending and not os.path.exists(os.path.join(frames_dir, f"{k:06d}.jpg")):
                     break
                 time.sleep(0.2)

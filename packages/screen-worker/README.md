@@ -63,10 +63,10 @@ cd packages/screen-worker
 ```
 - 관리자(`sw.serve`)가 30초마다 `GET /internal/screen/live`로 지금 이어진 영상 목록을 묻고, 새 영상은 일꾼을 띄우고(동시 최대 2개), 목록에서 빠지면 멈춘다(SIGTERM, 20초 뒤 강제). 일꾼이 스스로 끝나면 목록에 남아 있는 동안 60초 뒤 다시 띄운다.
 - 일꾼 하나만 손으로: `.venv/bin/python -m sw "https://www.youtube.com/watch?v=<영상>" --post https://livegenie.kr --token-file ~/.lg_screen_token`
-- **등록 방식(기본 `--register llm`, 2026-11-12)**: 받아쓰기·화면 번호표를 2분 조각(30초 겹침)으로 끊어 지식판2 프롬프트(`sw/prompts/sales_instruct_system_regstt8k2.txt`, `gpt-5.6-sol` medium, codex CLI)에 묻고, 같은 번호를 묶어(가격·품종 = 가장 많이 나온 것) 보낸다. 끝난 방송 시험(`sw.llm_b6`)과 같은 입력·같은 묶기 — 9방송 번호 99.0%·가격 95.1%·품종(채팅 정답) 79.8%.
-  - 언제 보내나: 그 번호가 마지막으로 나온 뒤 2분 30초(한 조각+겹침) 동안 다시 안 나오면 한 번. 그래서 앱에는 번호를 말하고 3~5분 뒤에 뜬다. 방송이 끝나면 남은 것 모두. 금액 없는 상품은 안 보냄.
+- **등록 방식(기본 `--register llm`, 2026-11-12)**: 새 받아쓰기 줄에 숫자·번·만·천·원이 있거나 화면에 크게 보인 번호표가 바뀌면 **바로** 최근 1분(`LLM_REG_WINDOW`)의 줄과 화면 번호표를 지식판2 프롬프트(`sw/prompts/sales_instruct_system_regstt8k2.txt`, `gpt-5.6-sol` 추론 low(`LLM_REG_EFFORT`), codex CLI)에 묻는다(동시에 4개까지 `LLM_REG_PAR`, 이벤트 없이 1분 지나면 한 번 — 안전망). 줄 모양·화면 표시는 끝난 방송 시험(`sw.llm_b6`)과 같다.
+  - 언제 보내나: 어느 답이든 번호와 가격을 함께 적으면 그 번호를 **바로 한 번** 보낸다(첫 답의 가격·품종, 서버는 같은 번호를 바꾸지 않음). 9방송에서 첫 답으로 보내도 가격 95.8% → 95.5%. 방송이 끝나면 남은 줄을 한 번 더 묻고 아직 안 보낸 번호를 보낸다. 금액 없는 상품은 안 보냄.
   - 필요: `codex` 설치 + `codex login`(gpt-5.6-sol을 쓸 수 있는 계정). 운영 맥에서 먼저 `.venv/bin/python -m sw.doctor --server https://livegenie.kr --token-file ~/.lg_screen_token` 로 점검(서버에 등록하지 않음).
-  - 기록: `llm_live.jsonl`(조각마다 물은 글·답), `llm_상품.csv`(상품별 결과·보냄 여부), `events.jsonl`의 `LLM등록`.
+  - 기록: `llm_live.jsonl`(물을 때마다 글·답·걸린 초·까닭), `llm_상품.csv`(상품별 보낸 첫 답 값과 다수결 값·보내기까지 걸린 초), `events.jsonl`의 `LLM등록`(줄을 읽은 시각·보낸 시각).
   - 예전 규칙 방식으로 돌리려면 `--register rule`(관리자에서는 `--worker-arg=--register=rule`). 같은 라이브에 일꾼을 두 맥에서 동시에 띄우지 말 것(서버는 먼저 온 값으로 굳음).
 - 보내는 것(`--register rule`): **확정**이고 **금액을 직접 찾은** 상품만(확인요청·확정취소·흔한 값으로 채운 금액은 안 보냄). 금액이 나오고 품종 답을 최대 60초 기다렸다가 한 번에 보낸다(서버는 같은 번호를 다시 받아도 바꾸지 않음).
 - 다시 보내기: 방송이 아직 안 이어짐(404)·이어진 방송이 여럿(409)·서버 저장 실패(5xx)·네트워크 오류는 10분까지. requestId가 `screen-<영상>-<번호>`라 몇 번 보내도 한 번만 등록된다.
