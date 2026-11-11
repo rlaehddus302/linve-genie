@@ -245,6 +245,43 @@ export function readYoutubeChatSend(env: Readonly<Record<string, string | undefi
   }
 }
 
+// ── 틱톡 감사 채팅 (D-TT-SEND-07) ────────────────────────────────────────
+
+export const TT_SEND_MESSAGES = {
+  SELLERS: '틱톡 감사 채팅을 쓸 판매자(LIVEJJIM_TT_SEND_SELLERS)를 쉼표로 나눠 적어 주세요(모두면 *).',
+  STATE: '틱톡 봇 계정 로그인 파일(LIVEJJIM_TT_SEND_STATE_FILE) 위치를 적어 주세요. pnpm --filter @livejjim/server tiktok-bot login 으로 만들어요.',
+  BOT_IDS: '틱톡 봇 계정 숫자 사용자 ID(LIVEJJIM_TT_SEND_BOT_USER_IDS)는 숫자만 쉼표로 나눠 적어 주세요.',
+} as const
+
+export interface TiktokChatSendEnv {
+  readonly sellers: readonly string[] | '*'
+  /** Playwright 로그인 상태 JSON (봇 틱톡 계정) */
+  readonly stateFile: string
+  /** 봇 계정의 숫자 사용자 ID — 채팅에 뜬 봇 글을 찜으로 읽지 않게 (선택, 없으면 보낸 글로만 거른다) */
+  readonly botUserIds: readonly string[]
+  readonly chromiumPath: string | null
+  readonly headless: boolean
+}
+
+/**
+ * 틱톡 감사 채팅 (D-TT-SEND-07). LIVEJJIM_TT_SEND_SELLERS가 비면 꺼짐(기본 — 틱톡에 아무것도 올리지 않는다).
+ * 켜면 로그인 파일 위치가 있어야 한다. 파일 내용은 읽지 않는다(시작할 때 서버가 있는지만 본다)
+ */
+export function readTiktokChatSend(env: Readonly<Record<string, string | undefined>>): { readonly ok: true; readonly send: TiktokChatSendEnv | null } | { readonly ok: false; readonly message: string } {
+  const get = (key: string) => env[key]?.trim() ?? ''
+  const rawSellers = get('LIVEJJIM_TT_SEND_SELLERS')
+  if (rawSellers === '') return { ok: true, send: null }
+  const sellers = rawSellers === '*' ? '*' : rawSellers.split(',').map((item) => item.trim()).filter((item) => item !== '')
+  if (sellers !== '*' && sellers.length === 0) return { ok: false, message: TT_SEND_MESSAGES.SELLERS }
+  const stateFile = get('LIVEJJIM_TT_SEND_STATE_FILE')
+  if (stateFile === '') return { ok: false, message: TT_SEND_MESSAGES.STATE }
+  const rawIds = get('LIVEJJIM_TT_SEND_BOT_USER_IDS')
+  const botUserIds = rawIds === '' ? [] : rawIds.split(',').map((item) => item.trim()).filter((item) => item !== '')
+  if (botUserIds.some((id) => !/^[1-9][0-9]{0,31}$/.test(id))) return { ok: false, message: TT_SEND_MESSAGES.BOT_IDS }
+  const chromium = get('LIVEJJIM_TT_SEND_CHROMIUM')
+  return { ok: true, send: { sellers, stateFile, botUserIds, chromiumPath: chromium === '' ? null : chromium, headless: get('LIVEJJIM_TT_SEND_HEADLESS') === '1' } }
+}
+
 /**
  * 운영자 문자 알림 휴대폰 (LIVEJJIM_OPS_ALERT_PHONE, D-YT-SEND-22): 010으로 시작하는 휴대폰 번호(하이픈 허용). 비면 끔, 모양이 틀리면 끄고 invalid.
  * 번호는 문장·로그에 넣지 않는다

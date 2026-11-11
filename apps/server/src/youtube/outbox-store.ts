@@ -2,7 +2,7 @@
 // 실행기가 행을 고르고 바꾸는 질의는 모두 여기 있고, 모두 `rehearsal = false`를 조건에 고정한다 — 그 값을 바꾸는 매개변수가 없다.
 // 실행기(outbox.ts)는 발송함 표를 이 파일의 함수로만 읽고 쓴다(test/youtube-outbox-guard.test.ts가 코드로 확인한다).
 // 실행기는 감사(POST_THANKS)와 방송 후 요약 댓글(SUMMARY_COMMENT) 행만 다룬다. 라벨 행(PRINT_PRODUCT_LABEL·VOID_LABEL)은 건드리지 않는다(S08).
-import { and, asc, eq, gte, inArray, isNull, lte, notInArray, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNull, lte, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { igDmRows, outbox, scopes, youtubeLinks, youtubeOwnMessages } from '../db/schema.ts'
 import { SUMMARY_KIND } from './texts.ts'
@@ -320,7 +320,8 @@ export async function failWaiting(
   now: Date,
 ): Promise<{ id: number; scopeId: string }[]> {
   // 아직 실행기가 보지 않은 행(state null)은 실행기가 처음 볼 때 지금 동의·연결을 다시 본다
-  const conditions: SQL[] = [REAL, eq(outbox.sellerId, sellerId), eq(outbox.state, 'WAITING')]
+  // 틱톡 감사(via = TIKTOK)는 유튜브 동의·연결·채팅 끝남과 상관없다 — 틱톡 실행기만 끝낸다 (D-TT-SEND-03)
+  const conditions: SQL[] = [REAL, eq(outbox.sellerId, sellerId), eq(outbox.state, 'WAITING'), or(isNull(outbox.via), ne(outbox.via, TT_VIA)) as SQL]
   if (filter.targets !== undefined) conditions.push(inArray(outbox.target, [...filter.targets]))
   if (filter.broadcastId !== undefined) conditions.push(eq(outbox.broadcastId, filter.broadcastId))
   if (filter.manual !== undefined) conditions.push(eq(outbox.manual, filter.manual))
@@ -619,4 +620,48 @@ export async function failExtensionWaiting(db: Db, sellerId: string, reason: str
     .set({ state: 'FAILED', reason, nextAt: null, updatedAt: now })
     .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.via, EXT_VIA), eq(outbox.state, 'WAITING')))
     .returning({ id: outbox.id, scopeId: outbox.scopeId })
+}
+
+// ── 틱톡 감사 채팅 (D-TT-SEND-01~) ────────────────────────────────────────
+// 틱톡 구매자(tt:)의 감사는 기록 트랜잭션에서 via = TIKTOK·WAITING(reason TIKTOK)으로 적힌다(thanks-route.ts). 유튜브 실행기의 dueRows·sendingRows·
+// handToExtension은 via가 있는 행을 집지 않고, failWaiting도 건드리지 않는다. 게시 보고(unreportedRows)는 같은 요청 번호(ytsent-<행 ID>)라 누가 써도 한 번만.
+
+/** 틱톡 실행기가 다루는 행 */
+export const TT_VIA = 'TIKTOK'
+/** 틱톡 실행기가 잡은 행의 임대 주인 */
+export const TT_LEASE_OWNER = 'tiktok'
+
+/** 때가 된 틱톡 감사 (효과가 나온 순서) */
+export function tiktokDueRows(db: Db, now: Date, limit = 500): Promise<RunnerRow[]> {
+  return select(db)
+    .where(and(REAL, eq(outbox.via, TT_VIA), eq(outbox.state, 'WAITING'), lte(outbox.nextAt, now)))
+    .orderBy(asc(outbox.id))
+    .limit(limit)
+}
+
+/** 결과 없이 임대가 지난 틱톡 보내는 중 행 (서버가 보내는 도중 멈췄다 살아남) */
+export function tiktokLapsedRows(db: Db, now: Date, limit = 500): Promise<RunnerRow[]> {
+  return select(db)
+    .where(and(REAL, eq(outbox.via, TT_VIA), eq(outbox.state, 'SENDING'), lte(outbox.leaseUntil, now)))
+    .orderBy(asc(outbox.id))
+    .limit(limit)
+}
+
+/** 게시됐는데 보고를 아직 쓰지 못한 틱톡 감사 */
+export function tiktokUnreportedRows(db: Db, limit = 500): Promise<RunnerRow[]> {
+  return select(db)
+    .where(and(REAL, eq(outbox.via, TT_VIA), eq(outbox.state, 'SENT'), eq(outbox.reported, false), eq(outbox.kind, 'POST_THANKS')))
+    .orderBy(asc(outbox.id))
+    .limit(limit)
+}
+
+/** 틱톡 행을 바꾼다 (via = TIKTOK, 기대한 상태일 때만 — 한 문장으로). 바꾼 행 ID */
+export async function updateTiktokRows(db: Db, sellerId: string, ids: readonly number[], change: RowChange, now: Date, expectStates: readonly string[]): Promise<number[]> {
+  if (ids.length === 0) return []
+  const rows = await db
+    .update(outbox)
+    .set({ ...change, updatedAt: now })
+    .where(and(REAL, eq(outbox.sellerId, sellerId), eq(outbox.via, TT_VIA), inArray(outbox.id, [...ids]), inArray(outbox.state, [...expectStates])))
+    .returning({ id: outbox.id })
+  return rows.map((row) => row.id)
 }

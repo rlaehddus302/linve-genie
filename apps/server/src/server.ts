@@ -48,6 +48,9 @@ import { routeThanks } from './thanks-route.ts'
 import { libraryWebcast, type ShortLinkResolver, type TikTokAttemptLimiter, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
 import { TikTokLive } from './tiktok-live/live.ts'
 import { TikTokExtension } from './tiktok-live/extension.ts'
+import { OwnThanks } from './tiktok-live/thanks/own.ts'
+import { TikTokThanks } from './tiktok-live/thanks/runner.ts'
+import type { TikTokChatSender } from './tiktok-live/thanks/browser-sender.ts'
 import { PasteService } from './tiktok-live/paste-service.ts'
 import { CustomerArchiver } from './customers/archive.ts'
 import { CustomerService } from './customers/service.ts'
@@ -225,6 +228,18 @@ export interface ServerOptions {
     /** 짧은 공유 링크 풀기 (시험·E2E는 가짜 — 틱톡에 나가지 않게, D-UX3-14) */
     readonly shortLinks?: ShortLinkResolver
   }
+  /**
+   * 틱톡 감사 채팅 (D-TT-SEND-01~). 없으면 꺼짐 — 틱톡 구매자 감사는 지금처럼 건너뜀(NOT_SUPPORTED).
+   * sender = 봇 계정 브라우저(main.ts — 시험은 가짜), sellers = 쓰는 판매자('*' 모두), botUserIds = 봇 숫자 사용자 ID(봇 글을 찜으로 읽지 않게),
+   * autoRun = 실행기를 스스로 돌린다(기본 true — 시험은 끄고 tiktokThanks.tick()을 부른다)
+   */
+  readonly tiktokThanks?: {
+    readonly sender: TikTokChatSender
+    readonly sellers: readonly string[] | '*'
+    readonly botUserIds?: readonly string[]
+    readonly autoRun?: boolean
+    readonly intervalMs?: number
+  }
   /** 백업 저장소 (I2 D-I2-10 — 없으면 자동 백업이 꺼진다. 판매는 그대로) */
   readonly backupStorage?: BackupStorage | null
   /** 자동 백업 확인 주기 (기본 5분) */
@@ -285,6 +300,8 @@ export interface LivejjimServer {
   readonly instagram: InstagramModule
   /** 틱톡 동의·아이디·연결·댓글 기록 (N2b-2) */
   readonly tiktok: TikTokLive
+  /** 틱톡 감사 채팅 실행기 (D-TT-SEND-01 — 설정이 없으면 null) */
+  readonly tiktokThanks: TikTokThanks | null
   /** 댓글 붙여넣기 (N2b-2) */
   readonly paste: PasteService
   /** 밴드 계정·글 연결·댓글 읽기 (BND1) */
@@ -469,6 +486,9 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   let instagram: InstagramModule | null = null
   let tiktok: TikTokLive | null = null
+  /** 틱톡 감사 채팅 (D-TT-SEND-02 — 기록 트랜잭션이 판매자를 묻는다) */
+  let tiktokThanks: TikTokThanks | null = null
+  const ownThanks = new OwnThanks(() => clock.now(), options.tiktokThanks?.botUserIds ?? [])
   let band: BandService | null = null
   /** 라이브 연결 판매자 잠금 — 모든 플랫폼 공통 (D-N2b-2-01) */
   const liveLocks = new SellerLocks()
@@ -510,7 +530,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     txHook: async (tx, ctx) => {
       const printed = await (print as PrintService).txHook(tx, ctx)
       const dm = await (instagram as InstagramModule).txHook(tx, ctx)
-      await routeThanks(tx, ctx)
+      await routeThanks(tx, ctx, (sellerId) => tiktokThanks?.applies(sellerId) ?? false)
       const billed = await billing.txHook(tx, ctx)
       const ended = await (tiktok as TikTokLive).txHook(tx, ctx)
       // 회차를 끝내면 밴드 글 연결 FINISHED(ENDED) — 같은 트랜잭션, 커밋 뒤 읽기를 멈춘다 (BND1 AC-BND1-23)
@@ -721,6 +741,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     locks: liveLocks,
     webcast: tiktokOptions.webcast ?? libraryWebcast(),
     publish: (sellerId, data) => hub.publishTiktok(sellerId, data),
+    ownThanks,
     ...(tiktokOptions.settings === undefined ? {} : { settings: tiktokOptions.settings }),
     ...(tiktokOptions.libraryEnv === undefined ? {} : { libraryEnv: tiktokOptions.libraryEnv }),
     ...(tiktokOptions.clock === undefined ? {} : { tiktokClock: tiktokOptions.clock }),
@@ -729,6 +750,19 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(tiktokOptions.shortLinks === undefined ? {} : { shortLinks: tiktokOptions.shortLinks }),
   })
   const tiktokLive = tiktok
+  if (options.tiktokThanks !== undefined) {
+    tiktokThanks = new TikTokThanks({
+      db,
+      writer,
+      timer,
+      log,
+      sender: options.tiktokThanks.sender,
+      sellers: options.tiktokThanks.sellers,
+      own: ownThanks,
+      publish: (sellerId, data) => hub.publishYoutube(sellerId, data),
+      ...(options.tiktokThanks.intervalMs === undefined ? {} : { intervalMs: options.tiktokThanks.intervalMs }),
+    })
+  }
   const bandOptions = options.band ?? {}
   band = new BandService({
     db,
@@ -901,6 +935,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     billing,
     instagram: instagramModule,
     tiktok: tiktokLive,
+    tiktokThanks,
     paste,
     band: bandService,
     closing,
@@ -935,6 +970,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       billingRechecker.start()
       // 택배 배송 조회(30분마다)·배송지 30일 정리 (T1 PC-8·PC-3)
       parcels.start()
+      // 틱톡 감사 채팅 실행기 (D-TT-SEND-01)
+      if (options.tiktokThanks?.autoRun !== false) tiktokThanks?.start()
       // 끝나지 않은 실제 회차의 이어진 틱톡 연결을 이어받는다 (NFR-03, AC-N2b-2-35)
       void tiktokLive.resume()
       // 확장 틱톡 상태의 "조용함"·"읽지 못함" 예약을 다시 건다 (RA-TTX-03)
@@ -956,6 +993,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       inbox.close()
       extension.close()
       tiktokExtension.close()
+      void tiktokThanks?.close()
       hub.closeAll()
       backups.stop()
       void stop()

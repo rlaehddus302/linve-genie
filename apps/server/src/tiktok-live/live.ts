@@ -35,6 +35,7 @@ import {
   type ShortLinkResolver,
 } from '../tiktok/index.ts'
 import type { Draft, Rejection, ScopeWriter, TxHookContext } from '../writer.ts'
+import type { OwnThanks } from './thanks/own.ts'
 import { tiktokChatFields } from './chat.ts'
 import { extensionViewOf, type TikTokExtensionView } from './extension.ts'
 import { TIKTOK_NOTICE, TIKTOK_NOTICE_VERSION, type TikTokNotice } from './notice.ts'
@@ -175,6 +176,8 @@ export interface TikTokLiveOptions {
   readonly signMeter?: TikTokSignMeter
   /** 실시간 알림 (SSE event: tiktok) */
   readonly publish: (sellerId: string, data: Readonly<Record<string, unknown>>) => void
+  /** 우리 봇이 올린 틱톡 감사 글 거르개 (D-TT-SEND-06 — 없으면 거르지 않는다) */
+  readonly ownThanks?: OwnThanks
   /** 지금 고지 판 (시험만 바꾼다) */
   readonly noticeVersion?: string
   /** 짧은 공유 링크 풀기 (기본: 틱톡에 GET으로 넘겨주는 곳만 따라감 — 시험은 가짜, D-UX3-14) */
@@ -648,13 +651,20 @@ export class TikTokLive {
 
   // ── 레코드 → chat (AC-N2b-2-37·50~53) ────────────────────────────────────
 
+  /** 우리 봇이 올린 틱톡 감사 댓글인가 (직접 연결·크롬 확장 모두 기록 전에 묻는다, D-TT-SEND-06) */
+  isOwnThanks(sellerId: string, record: { readonly userId: string; readonly text: string }): boolean {
+    return this.#options.ownThanks?.isOwn(sellerId, record) ?? false
+  }
+
   #drain(entry: Entry): void {
     if (entry.draining) return
     entry.draining = true
     const run = (async () => {
       try {
         while (entry.pending.length > 0) {
-          const batch = entry.pending.splice(0, TIKTOK_RECORD_BATCH)
+          // 우리 봇이 올린 감사 글은 찜으로 읽지 않는다 (D-TT-SEND-06)
+          const batch = entry.pending.splice(0, TIKTOK_RECORD_BATCH).filter((record) => !this.isOwnThanks(entry.sellerId, record))
+          if (batch.length === 0) continue
           await this.#record(entry, batch)
         }
       } finally {

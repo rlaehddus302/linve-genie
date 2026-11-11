@@ -13,8 +13,11 @@
 import { readMediaProxy, readStreamAudioSwitch, readYtDlpPath } from './voice/stream-audio.ts'
 import { existsSync } from 'node:fs'
 import { FolderBackupStorage } from './backup.ts'
-import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readDeploySetting, readPort, readYoutubeChatSend, readYoutubeSetting, readYoutubeWebChat } from './config.ts'
+import { DEFAULT_PORT, readAppOrigin, readBackupDir, readDatabaseSetting, readDeploySetting, readPort, readTiktokChatSend, readYoutubeChatSend, readYoutubeSetting, readYoutubeWebChat } from './config.ts'
 import { createChatSendRoute } from './youtube/chat-send/create.ts'
+import { BrowserTikTokSender } from './tiktok-live/thanks/browser-sender.ts'
+import { realTimer } from './youtube/timer.ts'
+import { access } from 'node:fs/promises'
 import { createNodeServer } from './node-server.ts'
 import { openDatabaseFromEnv } from './commands/shared.ts'
 import { productionServerOptions } from './production.ts'
@@ -95,6 +98,22 @@ const chatSendOfficial =
   chatSendSetting.send?.official === undefined || chatSendSetting.send.official === null
     ? null
     : { ...chatSendSetting.send.official, ...(officialBot ? { primary: { sellers: chatSendSetting.send.sellers } } : {}) }
+// 틱톡 감사 채팅 (D-TT-SEND-07): LIVEJJIM_TT_SEND_SELLERS가 비면 꺼짐. 켜면 봇 계정 로그인 파일이 있어야 한다(내용은 로그·문장에 넣지 않는다)
+const tiktokSendSetting = readTiktokChatSend(process.env)
+if (!tiktokSendSetting.ok) {
+  complain(`시작하지 못했어요. ${tiktokSendSetting.message}`)
+  process.exit(1)
+}
+const tiktokSend = tiktokSendSetting.send
+if (tiktokSend !== null) {
+  try {
+    await access(tiktokSend.stateFile)
+  } catch {
+    complain('시작하지 못했어요. 틱톡 봇 계정 로그인 파일(LIVEJJIM_TT_SEND_STATE_FILE)을 읽지 못했어요.')
+    process.exit(1)
+  }
+  say('틱톡 감사 채팅을 봇 계정 브라우저로 올려요 — 틱톡이 허락한 연동이 아니에요.')
+}
 const databaseSetting = readDatabaseSetting(process.env)
 if (!databaseSetting.ok) {
   complain(`시작하지 못했어요. ${databaseSetting.message}`)
@@ -124,6 +143,15 @@ const livejjim = createServer({
   // 유튜브 채팅 읽기는 서버가 방송 주소만으로 (YT-11, D-YT-SRV-01) — 구글 OAuth 설정이 없어도 된다(그때 구글 연결은 503). 끄기는 LIVEJJIM_YT_WEB_CHAT=off
   youtube: { ...(youtubeSetting.youtube ?? { clientId: '', clientSecret: '', redirectUri: '', returnUrl: `${origin.origin}/settings/youtube` }), webChat: readYoutubeWebChat(process.env, (() => { const media = readMediaProxy(process.env); return media.kind === 'ok' ? media.url : null })()), ...(chatSend === null ? {} : { chatSend }), ...(chatSendOfficial === null ? {} : { chatSendOfficial }) },
   backupStorage: backupDir === null ? null : new FolderBackupStorage(backupDir),
+  ...(tiktokSend === null
+    ? {}
+    : {
+        tiktokThanks: {
+          sender: new BrowserTikTokSender({ storageStatePath: tiktokSend.stateFile, timer: realTimer(), headless: tiktokSend.headless, ...(tiktokSend.chromiumPath === null ? {} : { executablePath: tiktokSend.chromiumPath }) }),
+          sellers: tiktokSend.sellers,
+          botUserIds: tiktokSend.botUserIds,
+        },
+      }),
   // 방송 소리로 듣기 (LV1 D-LV1-08): LIVEJJIM_STREAM_AUDIO=off면 끔, ffmpeg가 없으면 시작 기록 한 줄 남기고 꺼짐
   // 페이지에 HLS가 없으면 yt-dlp로 소리 주소를 얻는다 (D-LV1-11) — LIVEJJIM_YTDLP_PATH, 비우면 yt-dlp
   // 집 회선 프록시 (D-LV1-13): LIVEJJIM_YT_MEDIA_PROXY — 이 기계 안 터널 끝(http://127.0.0.1·localhost·host.docker.internal:<포트>)만. 그 밖이면 쓰지 않고 경고 한 줄

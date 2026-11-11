@@ -122,6 +122,9 @@ export type LogCode =
   | 'TIKTOK_LATE_CLOSED'
   | 'TIKTOK_RECORD_FAILED'
   | 'TIKTOK_STATUS_FAILED'
+  | 'TIKTOK_THANKS_ROUND_FAILED'
+  | 'TIKTOK_THANKS_FAILED'
+  | 'TIKTOK_THANKS_SENT'
   | 'TIKTOK_EVENT_FAILED'
   | 'DOCUMENT_MISMATCH'
   | 'LABEL_INVALID'
@@ -298,6 +301,9 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   TIKTOK_LATE_CLOSED: '버린 틱톡 연결 시도가 늦게 이어져 바로 닫았어요',
   TIKTOK_RECORD_FAILED: '틱톡 댓글을 받는 쪽에서 오류가 났어요(연결은 계속함)',
   TIKTOK_STATUS_FAILED: '틱톡 연결 상태를 받는 쪽에서 오류가 났어요(연결은 계속함)',
+  TIKTOK_THANKS_ROUND_FAILED: '틱톡 감사 채팅 실행기 한 바퀴가 오류로 멈췄어요(다음 바퀴에 다시)',
+  TIKTOK_THANKS_FAILED: '틱톡 감사 채팅을 올리지 못했어요',
+  TIKTOK_THANKS_SENT: '틱톡 감사 채팅을 올렸어요',
   TIKTOK_EVENT_FAILED: '틱톡 이벤트를 처리하지 못해 건너뛰었어요(연결은 계속함)',
   DOCUMENT_MISMATCH: '확인서 금액이 정산 금액과 맞지 않아 문서를 만들지 않았어요',
   LABEL_INVALID: '포장 라벨 데이터가 형식 검사를 통과하지 못해 라벨을 만들지 않았어요',

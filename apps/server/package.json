@@ -17,7 +17,8 @@
     "restore": "node src/commands/restore.ts",
     "billing-grant": "node src/commands/billing-grant.ts",
     "billing-list": "node src/commands/billing-list.ts",
-    "youtube-bot": "node src/commands/youtube-bot.ts"
+    "youtube-bot": "node src/commands/youtube-bot.ts",
+    "tiktok-bot": "node src/commands/tiktok-bot.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.8",

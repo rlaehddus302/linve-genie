@@ -38,6 +38,7 @@ import {
   findRow,
   groupRows,
   EXT_VIA,
+  TT_VIA,
   handToExtension,
   insertSummaryRows,
   newThanksRows,
@@ -107,6 +108,27 @@ export const OUTBOX_REASON_MESSAGES = {
   CONFIRM_LIST_FAILED: '올라갔는지 확인하는 중이에요.',
 } as const
 export type OutboxReason = keyof typeof OUTBOX_REASON_MESSAGES
+
+/**
+ * 틱톡 감사 행(via = TIKTOK, D-TT-SEND-01~)의 이유 문장 — 같은 이유 코드(화면의 다시 보내기·"올라가 있어요" 단추가 코드로 정한다)를
+ * 쓰되 유튜브 낱말이 든 문장만 틱톡으로 바꾼다. 없는 코드는 OUTBOX_REASON_MESSAGES 그대로
+ */
+export const TIKTOK_REASON_MESSAGES: Readonly<Record<string, string>> = {
+  NO_LINK: '이어진 틱톡 방송이 없어요.',
+  CHAT_ENDED: '틱톡 방송이 끝났어요.',
+  REJECTED: '틱톡 채팅에 글을 넣지 못했어요.',
+  GAVE_UP: '여러 번 틱톡에 보내지 못했어요.',
+  UNCONFIRMED: '틱톡에 올라갔는지 확인하지 못했어요. 틱톡 방송에서 확인하고 없으면 다시 보내 주세요.',
+  BOT_LOGIN: '라이브지니 틱톡 계정을 지금 쓸 수 없어 보내지 못했어요.',
+  TIKTOK: '틱톡 채팅에 올리려고 기다리는 중이에요.',
+  RETRY: '틱톡에 다시 보내려고 기다리는 중이에요.',
+}
+
+const reasonMessageOf = (row: RunnerRow, reason: string | null): string | null => {
+  if (reason === null) return null
+  if (row.via === TT_VIA && reason in TIKTOK_REASON_MESSAGES) return TIKTOK_REASON_MESSAGES[reason] ?? null
+  return reason in OUTBOX_REASON_MESSAGES ? OUTBOX_REASON_MESSAGES[reason as OutboxReason] : null
+}
 
 /** 수동 재전송 문장 (AC-Y1-38) */
 export const RESEND_MESSAGES = {
@@ -315,7 +337,7 @@ export function outboxRowView(row: RunnerRow, all: readonly RunnerRow[] = []): O
     state,
     stateMessage: OUTBOX_STATE_MESSAGES[state],
     reason,
-    reasonMessage: reason !== null && reason in OUTBOX_REASON_MESSAGES ? OUTBOX_REASON_MESSAGES[reason as OutboxReason] : null,
+    reasonMessage: reasonMessageOf(row, reason),
     attempts: row.attempts,
     nextAt: state === 'WAITING' ? (row.nextAt?.toISOString() ?? null) : null,
     postedAt: row.postedAt?.toISOString() ?? null,
@@ -325,7 +347,7 @@ export function outboxRowView(row: RunnerRow, all: readonly RunnerRow[] = []): O
     confirmedBySeller: row.confirmedBy !== null,
     dismissed: row.dismissedAt !== null,
     dismissedAt: row.dismissedAt?.toISOString() ?? null,
-    viaExtension: row.via !== null,
+    viaExtension: row.via === EXT_VIA,
   }
 }
 
@@ -1435,6 +1457,21 @@ export class OutboxRunner {
         this.#publishRows(sellerId, row.date, [row.id], 'SENT', null)
         return { kind: 'rejected', code: 'ALREADY_SENT', message: RESEND_MESSAGES.ALREADY_SENT }
       }
+    }
+    // 틱톡 감사 (D-TT-SEND-05): 유튜브 연결·동의와 상관없이 틱톡 실행기에 다시 맡긴다 — 이은 틱톡 방송·로그인은 보낼 때 본다
+    if (row.via === TT_VIA) {
+      const again = await updateRows(
+        db,
+        sellerId,
+        [row.id],
+        { state: 'WAITING', reason: 'TIKTOK', manual: true, deadlineAt: null, attempts: 0, groupId: null, nextAt: now, sentText: null, attemptAt: null, remoteId: null, leaseOwner: null, leaseUntil: null, resendRequestId: requestId, dismissedAt: null, dismissedBy: null },
+        now,
+        { state: 'FAILED' },
+      )
+      if (again.length === 0) return { kind: 'rejected', code: 'RESEND_NOT_ALLOWED', message: RESEND_MESSAGES.NOT_ALLOWED }
+      this.#publishRows(sellerId, row.date, again, 'WAITING', 'TIKTOK')
+      const fresh = await findRow(db, sellerId, row.id)
+      return { kind: 'ok', row: outboxRowView(fresh ?? row) }
     }
     const connection = await this.#options.connections.row(sellerId)
     const link = await activeLink(db, sellerId, row.broadcastId ?? '')

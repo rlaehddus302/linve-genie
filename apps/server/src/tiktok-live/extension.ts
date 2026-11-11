@@ -258,8 +258,10 @@ export class TikTokExtension {
     const drops = new Map<TikTokExtensionDropCode, number>()
     for (const item of items) {
       const outcome = filter.accept(item, receivedAt)
-      if ('record' in outcome) records.push(outcome.record)
-      else drops.set(outcome.drop, (drops.get(outcome.drop) ?? 0) + 1)
+      if ('record' in outcome) {
+        // 우리 봇이 올린 감사 글은 찜으로 읽지 않는다 (D-TT-SEND-06)
+        if (!this.#deps.live.isOwnThanks(sellerId, outcome.record)) records.push(outcome.record)
+      } else drops.set(outcome.drop, (drops.get(outcome.drop) ?? 0) + 1)
     }
     const dropped = [...drops.values()].reduce((sum, n) => sum + n, 0)
     // 한 번에 한 경로: 직접 연결이 받는 중이면 기록하지 않고 대기로 센다 (D-TTX-07)
