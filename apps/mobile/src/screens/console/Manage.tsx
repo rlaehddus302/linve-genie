@@ -15,7 +15,7 @@ import { LABEL_PRINT_TITLE, LabelPrintRows, type LabelPrintNav } from '../LabelP
 import { useConsoleApi } from './context.ts'
 import { EndBroadcastRow } from './EndBroadcast.tsx'
 import { LinkInfo, hasLinkedLive } from './LinkInfo.tsx'
-import { PLAIN, PlainRow, PlainTitle } from './parts.tsx'
+import { MenuGroup, PLAIN, PlainRow, PlainTitle } from './parts.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
 import type { MobileYoutube } from './YoutubeSection.tsx'
 
@@ -80,9 +80,6 @@ function ThanksExample() {
 
 type ManageSheet = 'none' | 'dock'
 
-/** 묶음 사이 빈 자리 (묶음 이름 없이 — 토스 "비밀번호 · 보안"처럼 흰 바탕에 줄만, LinkInfo 정보↔메뉴 사이와 같다) */
-const GAP = SPACE.lg
-
 export interface ConsoleManageProps {
   readonly broadcastId: string
   readonly seller: boolean
@@ -104,14 +101,10 @@ export interface ConsoleManageProps {
   readonly onEnded?: () => void
 }
 
-/**
- * 라이브 관리 (D-UX4-78 → D-UX4-94 → D-UX4-130): 흰 바탕에 줄만, 묶음 사이는 빈 자리.
- * ① 라이브: 이은 라이브 정보·바로가기·채팅 다시 받기 (잇지 않았으면 "라이브 연결 ›") ② 자동 감사 채팅 · 라이브 소리 다시 켜기 · 화면 아래 창
- * ③ 라벨: 라벨 뽑기 · 프린터 연결 · 라벨 디자인 · 테스트 인쇄 · 출력 상태·농도 ④ 라이브 연결 끊기(빨강).
- * 상품 미리 등록은 없앴다(D-UX4-130). 휴대폰 마이크·음성 설정은 D-UX4-94, 문자찜 직접 넣기·댓글 붙여넣기·채팅 보기는 D-UX4-78·84에 없앴다.
- */
+/** 각 기능은 관리 화면에서 바로 열고, 사용할 수 있는 기능이 있는 묶음만 보여 준다. */
 export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink, stream, onClose, onShowLink, yt, labels, onEnded }: ConsoleManageProps) {
   const api = useConsoleApi()
+  const { p } = useKit()
   const [sheet, setSheet] = useState<ManageSheet>('none')
   const [thanksBusy, setThanksBusy] = useState(false)
   const [thanksError, setThanksError] = useState<string | null>(null)
@@ -133,34 +126,35 @@ export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink,
   const showLabels = labels !== undefined && !rehearsal
   const showEnd = seller && !closed && onEnded !== undefined
   return (
-    // 흰 바탕에 묶음·묶음 이름 없이 줄만 (D-UX4-94 — 토스 "비밀번호 · 보안"). 화면 끝까지 넓혀 줄 글자를 화면 끝에서 24에 둔다
     <View style={{ marginHorizontal: -SPACE.lg }}>
       <PlainTitle title={MANAGE_LABEL} />
-      {thanksError !== null ? <View style={{ paddingHorizontal: PLAIN.side }}><Notice tone="danger" alert>{thanksError}</Notice></View> : null}
-      {/* ① 라이브 — 이은 라이브는 정보·메뉴 줄을 바로 (끊기는 맨 아래 따로) */}
-      {linked && yt !== undefined ? <LinkInfo broadcastId={broadcastId} yt={yt} closed={closed} /> : null}
-      {showLink ? <PlainRow title={LINK_TITLE} onPress={onShowLink} /> : null}
-      {linked ? <View style={{ height: GAP }} /> : null}
-      {/* 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24) — 실제 방송만(리허설은 유튜브에 아무것도 올리지 않는다) */}
-      {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
-      {/* 휴대폰 마이크로 듣기·음성 설정은 없앴다 (D-UX4-94, 사용자 지시 "듣기 섹션에 있는 기능 필요없으니 지워") — 라이브 소리가 멈췄을 때 다시 켜기만 */}
-      {seller && !closed && stream.status?.phase === 'stopped' ? <PlainRow title="라이브 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}
-      {/* 라이브 화면 맨 아래 창 (D-UX4-71) */}
-      <PlainRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
-      {/* ③ 라벨 (D-UX4-130 — 옛 "라벨 프린트 ›" 안의 줄들) */}
-      {showLabels && labels !== undefined ? (
-        <>
-          <View style={{ height: GAP }} />
-          <LabelPrintRows openStep={labels.openStep} openStatus={labels.openStatus} />
-        </>
-      ) : null}
-      {/* ④ 라이브 연결 끊기 (D-UX4-79) — 맨 아래 빨간 줄 */}
-      {showEnd && onEnded !== undefined ? (
-        <>
-          <View style={{ height: GAP }} />
-          <EndBroadcastRow broadcastId={broadcastId} onEnded={onEnded} plain />
-        </>
-      ) : null}
+      <View style={{ gap: SPACE.sm, backgroundColor: p.surfaceAlt }}>
+        {linked || showLink ? (
+          <MenuGroup title="방송 정보">
+            {linked && yt !== undefined ? <LinkInfo broadcastId={broadcastId} yt={yt} closed={closed} /> : null}
+            {showLink ? <PlainRow title={LINK_TITLE} onPress={onShowLink} /> : null}
+          </MenuGroup>
+        ) : null}
+
+        <MenuGroup title="채팅·화면 설정">
+          {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
+          {thanksError !== null ? <View style={{ paddingHorizontal: PLAIN.side }}><Notice tone="danger" alert>{thanksError}</Notice></View> : null}
+          {seller && !closed && stream.status?.phase === 'stopped' ? <PlainRow title="라이브 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}
+          <PlainRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
+        </MenuGroup>
+
+        {showLabels && labels !== undefined ? (
+          <MenuGroup title="라벨·프린터">
+            <LabelPrintRows openStep={labels.openStep} openStatus={labels.openStatus} />
+          </MenuGroup>
+        ) : null}
+
+        {showEnd && onEnded !== undefined ? (
+          <MenuGroup title="방송 종료">
+            <EndBroadcastRow broadcastId={broadcastId} onEnded={onEnded} plain />
+          </MenuGroup>
+        ) : null}
+      </View>
 
       <BottomSheet visible={sheet === 'dock'} onClose={close} title={DOCK_TITLE} description={DOCK_DESCRIPTION}>
         {/* 토스식 고르기 목록 (D-UX4-76 아래 창 SheetChoices) */}

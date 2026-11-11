@@ -47,6 +47,9 @@ describe('라이브 관리를 한 화면으로 (D-UX4-130)', () => {
   it('이은 라이브: 플랫폼·채널·라이브 제목·라이브 바로가기가 라이브 관리에 바로 있고 "라이브 연결 ›" 줄은 없다', async () => {
     const { page } = await openManage(linked())
     await waitFor(() => expect(within(page).getByTestId('link-info-platform')).toBeTruthy())
+    expect(within(page).getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual(['방송 정보', '채팅·화면 설정', '라벨·프린터', '방송 종료'])
+    expect(within(within(page).getByRole('group', { name: '라벨·프린터' })).getByRole('button', { name: LABEL_PRINT_ROWS.design })).toBeTruthy()
+    expect(within(within(page).getByRole('group', { name: '방송 종료' })).getByRole('button', { name: END_LINK_LABEL })).toBeTruthy()
     expect(within(page).getByTestId('link-info-channel').textContent).toContain('다육이네')
     expect(within(page).getByTestId('link-info-title').textContent).toBe(`${LINK_INFO_ROWS.title}오늘 저녁 다육이 경매`)
     expect(within(page).getByRole('button', { name: LINK_INFO_ROWS.open })).toBeTruthy()
