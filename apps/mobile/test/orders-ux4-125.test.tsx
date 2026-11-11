@@ -162,8 +162,10 @@ describe('주문 상세 (D-UX4-125)', () => {
     expect(onEditInfo).toHaveBeenCalledWith('address')
     expect(within(head).queryByText('배송지 확인·고치기')).toBeNull()
     expect(screen.queryByRole('group', { name: '배송지' })).toBeNull()
-    // 묶음 사이 굵은 회색 띠
-    expect(screen.getAllByTestId('detail-band').length).toBeGreaterThanOrEqual(4)
+    // D-UX4-128 "모름 아닌것들은 > 없애고 오른쪽에 잘 붙여": 아는 값 줄에는 ›가 없다(그래도 눌러 고친다)
+    expect(within(head).getByRole('button', { name: '성함 김다육 · 고치기' }).querySelector('svg')).toBeNull()
+    // 묶음 사이 굵은 회색 띠 (D-UX4-128: 아래 메뉴 묶음이 없어져 손님 | 주문 | 입금 | 최근 주문 내역 사이 셋)
+    expect(screen.getAllByTestId('detail-band').length).toBe(3)
   })
 
   // D-UX4-126: 옛 "성함 받기 전"·"배송지 받기 전" → 셋 다 빨간 "모름 ›", 누르면 그 칸부터 묻는 손님 정보 화면
@@ -202,42 +204,49 @@ describe('주문 상세 (D-UX4-125)', () => {
     expect(within(table).queryByText(/×2/)).toBeNull()
   })
 
-  // D-UX4-127 (사용자 지시 2026-11-11): 목록 끝 얇은 구분선(띠 아님) → 총합(개수 칸 아래 개수 합 · 가격 칸 아래 가격 합) → 배송비(무료 기준 글은 왼쪽) → 최종 금액.
+  // D-UX4-127 (사용자 지시 2026-11-11): 목록 끝 얇은 구분선(띠 아님) → 총합(개수 칸 아래 개수 합 · 가격 칸 아래 가격 합) → 배송비 → 최종 금액.
   // 옛 총 개수·총 금액(왼쪽 "배송비 포함") 줄은 없다. 예약 날짜는 주소 아래(요일까지). 받은·남은 금액은 "입금" 이름표 묶음, 남은 금액이 있으면 빨강.
   // 사용자 말 "총 결제금액"은 앱 글 "결제" 금지(D-PAY-01·AC-PAY2-01)라 "최종 금액"으로 (D-UX4-127 AUTO)
-  it('금액: 구분선 아래 총합·배송비(왼쪽 무료 기준)·최종 금액, 예약 날짜는 주소 아래, "입금" 묶음 남은 금액 빨강, [배송비 기준 바꾸기]는 가게 설정', async () => {
+  // D-UX4-128 (사용자 지시 2026-11-11): 무료 기준 글은 따로 빼지 않고 이름표 "배송비(50,000원 이상 구매 시 무료배송)", 단추 [배송비 바꾸기][정산서 보내기],
+  // [배송비 바꾸기] → 아래 창 "배송비 기준 바꾸기"(가게 설정) / "이 주문 배송비 바꾸기"(키보드 화면)
+  it('금액: 구분선 아래 총합·배송비(이름표 괄호에 무료 기준)·최종 금액, 예약 날짜는 주소 아래, "입금" 묶음 남은 금액 빨강, [배송비 바꾸기]는 둘 중 고르기', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ claimedAt: '2026-10-29T06:42:00.000Z', received: 4_000, payment: 'PARTIAL' }) } })
     const onOpenShopSettings = vi.fn()
-    openDetail(w, { onOpenShopSettings })
+    const onEditShipping = vi.fn()
+    openDetail(w, { onOpenShopSettings, onEditShipping })
     const table = await screen.findByRole('table', { name: '상품' })
     expect(within(table).getByTestId('table-rule')).toBeTruthy()
     expect(within(table).getAllByRole('row').slice(2).map((row) => row.getAttribute('aria-label'))).toEqual([
       '총합 1개 10,000원',
-      '배송비 4,000원 · 50,000원 이상 구매 시 무료',
+      '배송비(50,000원 이상 구매 시 무료배송) 4,000원',
       '최종 금액 14,000원',
     ])
+    expect(within(table).queryByText('50,000원 이상 구매 시 무료')).toBeNull()
     expect(within(table).queryByText('배송비 포함')).toBeNull()
-    expect(within(table).queryByText(/^총 (개수|금액)$/)).toBeNull()
     const head = screen.getByRole('group', { name: '손님' })
     expect(within(head).getByLabelText('예약 날짜 2026년 10월 29일 목요일')).toBeTruthy()
     // 표와 같은 묶음 — 사이에 회색 띠가 없다
     const order = screen.getByRole('group', { name: '주문' })
     expect(within(order).queryByTestId('detail-band')).toBeNull()
-    expect(within(order).queryByLabelText(/^예약 날짜/)).toBeNull()
     const paid = screen.getByRole('group', { name: '입금' })
     expect(within(paid).getByRole('heading', { name: '입금' })).toBeTruthy()
     expect(within(paid).getByLabelText('받은 금액 4,000원')).toBeTruthy()
     expect(within(within(paid).getByLabelText('남은 금액 10,000원')).getByText('10,000원').style.color).toBe('rgb(221, 24, 36)')
     expect(within(order).queryByLabelText(/^할인·추가/)).toBeNull()
     expect(within(paid).queryByLabelText(/^돌려줄 돈/)).toBeNull()
-    // 단추는 좌우로 — [배송비 기준 바꾸기] 왼쪽, [내보내기] 오른쪽
-    expect(within(order).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['배송비 기준 바꾸기', '내보내기'])
-    fireEvent.click(within(order).getByRole('button', { name: '배송비 기준 바꾸기' }))
-    expect(onOpenShopSettings).toHaveBeenCalledOnce()
+    // 단추는 좌우로 — [배송비 바꾸기] 왼쪽, [정산서 보내기] 오른쪽
+    expect(within(order).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['배송비 바꾸기', '정산서 보내기'])
+    fireEvent.click(within(order).getByRole('button', { name: '배송비 바꾸기' }))
+    const choice = await screen.findByTestId('shipping-choice')
+    fireEvent.click(within(choice).getByRole('radio', { name: /이 주문 배송비 바꾸기/ }))
+    await waitFor(() => expect(onEditShipping).toHaveBeenCalledOnce())
+    fireEvent.click(within(order).getByRole('button', { name: '배송비 바꾸기' }))
+    fireEvent.click(within(await screen.findByTestId('shipping-choice')).getByRole('radio', { name: /배송비 기준 바꾸기/ }))
+    await waitFor(() => expect(onOpenShopSettings).toHaveBeenCalledOnce())
   })
 
-  it('금액: 할인·추가와 돌려줄 돈은 있을 때만, 무료 기준이 없으면 기본 배송비, 직접 수령이면 그 말, 다 받았으면 남은 금액은 빨강이 아니다', async () => {
+  it('금액: 할인·추가와 돌려줄 돈은 있을 때만, 무료 기준이 없으면 그냥 "배송비", 직접 수령이면 괄호에 그 말, 다 받았으면 남은 금액은 빨강이 아니고 입금 확인 단추도 없다', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), {
       details: {
@@ -249,17 +258,20 @@ describe('주문 상세 (D-UX4-125)', () => {
     const table = await screen.findByRole('table', { name: '상품' })
     expect(within(table).getByLabelText('할인·추가 −1,000원')).toBeTruthy()
     expect(within(table).getByLabelText('최종 금액 13,000원')).toBeTruthy()
+    expect(within(table).getByLabelText('배송비 4,000원')).toBeTruthy()
     const paid = screen.getByRole('group', { name: '입금' })
     expect(within(paid).getByLabelText('돌려줄 돈 7,000원')).toBeTruthy()
     expect(within(within(paid).getByLabelText('남은 금액 0원')).getByText('0원').style.color).not.toBe('rgb(221, 24, 36)')
-    expect(within(table).getByText('기본 배송비 4,000원')).toBeTruthy()
+    expect(within(paid).queryByRole('button', { name: '입금을 확인했나요?' })).toBeNull()
     unmount()
     openDetail(w, { buyer: 'u2' })
-    expect(within(await screen.findByRole('table', { name: '상품' })).getByText('직접 수령')).toBeTruthy()
+    expect(within(await screen.findByRole('table', { name: '상품' })).getByLabelText('배송비(직접 수령) 0원')).toBeTruthy()
   })
 
-  // D-UX4-126: [내보내기] → 아래 창 한 줄 [사진][CSV 파일][엑셀 파일] → 서버 파일을 받아 공유 창 (휴대폰 번호·주소는 넣지 않는다고 알린다)
-  it('[내보내기]: 사진·CSV·엑셀이 한 줄, 고르면 그 파일을 받아 공유 창으로', async () => {
+  // D-UX4-126: [내보내기] → 아래 창 [사진][CSV 파일][엑셀 파일] → 서버 파일을 받아 공유 창
+  // D-UX4-128 (사용자 지시 2026-11-11 "내보내기 -> 정산서 보내기 이름 바꾸고, … 고객에게 문자 보내기, 사진으로 저장하기, CSV 파일로 저장하기, 엑셀 파일로 저장하기 버튼 형태 말고 배치해"):
+  // 옛 단추 셋 한 줄 → 이름 + › 줄 넷
+  it('[정산서 보내기]: 문자·사진·CSV·엑셀 줄 넷, 파일을 고르면 그 파일을 받아 공유 창으로', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail() } })
     const pulled: string[] = []
@@ -270,21 +282,22 @@ describe('주문 상세 (D-UX4-125)', () => {
     const shared: { name: string; mime: string }[] = []
     setNativeModules({ shareFile: async (_bytes, name, mime) => void shared.push({ name, mime }) })
     openDetail(w)
-    fireEvent.click(await screen.findByRole('button', { name: '내보내기' }))
-    const sheet = await screen.findByTestId('order-export')
-    expect(within(sheet).getByText('휴대폰 번호와 주소는 넣지 않아요.')).toBeTruthy()
-    expect(within(sheet).getAllByRole('button').map((b) => b.getAttribute('aria-label')).filter((label) => ['사진', 'CSV 파일', '엑셀 파일'].includes(label ?? ''))).toEqual(['사진', 'CSV 파일', '엑셀 파일'])
-    fireEvent.click(within(sheet).getByRole('button', { name: '엑셀 파일' }))
+    fireEvent.click(await screen.findByRole('button', { name: '정산서 보내기' }))
+    const sheet = await screen.findByTestId('order-send')
+    expect(within(sheet).getByText('파일에는 휴대폰 번호와 주소를 넣지 않아요.')).toBeTruthy()
+    expect(within(sheet).getAllByRole('button').map((b) => b.getAttribute('aria-label')).filter((label) => /(보내기|저장하기)$/.test(label ?? ''))).toEqual(['고객에게 문자 보내기', '사진으로 저장하기', 'CSV 파일로 저장하기', '엑셀 파일로 저장하기'])
+    fireEvent.click(within(sheet).getByRole('button', { name: '엑셀 파일로 저장하기' }))
     await waitFor(() => expect(shared).toEqual([{ name: 'order-2026-10-29.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }]))
     expect(pulled).toEqual(['/api/days/2026-10-29/order.xlsx?buyer=u1'])
-    fireEvent.click(await screen.findByRole('button', { name: '내보내기' }))
-    fireEvent.click(within(await screen.findByTestId('order-export')).getByRole('button', { name: '사진' }))
+    fireEvent.click(await screen.findByRole('button', { name: '정산서 보내기' }))
+    fireEvent.click(within(await screen.findByTestId('order-send')).getByRole('button', { name: '사진으로 저장하기' }))
     await waitFor(() => expect(shared).toHaveLength(2))
     expect(pulled[1]).toBe('/api/days/2026-10-29/receipt.jpg?buyer=u1')
     expect(shared[1]).toEqual({ name: 'order-2026-10-29.jpg', mime: 'image/jpeg' })
   })
 
-  it('지난 거래 내역: 거래 횟수 | 총 금액, 날짜별 줄 — 열 수 있는 줄은 그날 상세', async () => {
+  // D-UX4-128 (사용자 지시 2026-11-11 "지난 거래 내역 -> 최근 주문 내역. 현재 주문도 1회로 보도록 해줘"): 옛 "지난 거래 내역(지금 주문 빼고)" → 지금 주문을 더해 센다
+  it('최근 주문 내역: 지금 주문도 1회로 — 거래 횟수 | 총 금액, 날짜별 줄, 열 수 있는 지난 줄은 그날 상세', async () => {
     const w = makeWorld()
     const history = {
       count: 3,
@@ -298,24 +311,31 @@ describe('주문 상세 (D-UX4-125)', () => {
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ history }) } })
     const onOpenOrder = vi.fn()
     openDetail(w, { onOpenOrder })
-    const past = await screen.findByRole('group', { name: '지난 거래 내역' })
-    expect(within(past).getByLabelText('거래 횟수 3회')).toBeTruthy()
-    expect(within(past).getByLabelText('총 금액 61,000원')).toBeTruthy()
-    expect(within(past).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['10월 20일 화요일', '8월 1일 토요일'])
+    const past = await screen.findByRole('group', { name: '최근 주문 내역' })
+    expect(within(past).getByLabelText('거래 횟수 4회')).toBeTruthy()
+    expect(within(past).getByLabelText('총 금액 75,000원')).toBeTruthy()
+    expect(within(past).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['10월 29일 목요일', '10월 20일 화요일', '8월 1일 토요일'])
+    // 지금 주문 줄은 이 화면이라 누르지 않는다
+    expect(within(past).getByLabelText('10월 29일 거래 14,000원 · 1개').getAttribute('role')).not.toBe('button')
     expect(within(past).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['10월 20일 거래 30,000원 · 2개', '10월 20일 거래 9,000원 · 1개'])
     // 봉인 보관만 남은 날은 누를 수 없다
     expect(within(past).getByLabelText('8월 1일 거래 22,000원 · 2개').getAttribute('role')).not.toBe('button')
     fireEvent.click(within(past).getByRole('button', { name: '10월 20일 거래 9,000원 · 1개' }))
     expect(onOpenOrder).toHaveBeenCalledWith('2026-10-20', 'u1b')
+    // D-UX4-128 "지난 거래 내역 아래에 있는 메뉴들 다 지워": 확인서·금액 고치기·금액 기록 묶음이 없다
+    expect(screen.queryByRole('group', { name: '확인서' })).toBeNull()
+    expect(screen.queryByRole('group', { name: '금액 고치기' })).toBeNull()
   })
 
-  it('지난 거래가 없으면 "지난 거래가 없어요"', async () => {
+  // D-UX4-128: 옛 "지난 거래가 없으면 '지난 거래가 없어요'" → 지금 주문이 늘 1회라 빈 글은 없다
+  it('다른 주문이 없어도 최근 주문 내역은 지금 주문 1회', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail() } })
     openDetail(w)
-    const past = await screen.findByRole('group', { name: '지난 거래 내역' })
-    expect(within(past).getByText('지난 거래가 없어요')).toBeTruthy()
-    expect(within(past).queryByLabelText(/^거래 횟수/)).toBeNull()
+    const past = await screen.findByRole('group', { name: '최근 주문 내역' })
+    expect(within(past).getByLabelText('거래 횟수 1회')).toBeTruthy()
+    expect(within(past).getByLabelText('총 금액 14,000원')).toBeTruthy()
+    expect(within(past).queryByText('지난 거래가 없어요')).toBeNull()
   })
 
   it('못 받으면 오류와 다시 불러오기', async () => {

@@ -98,16 +98,11 @@ afterEach(() => {
   setNativeModules({ shareFile, sms: deviceSms })
 })
 
-const open = (w: ReturnType<typeof makeWorld>, onOpenReceipts?: () => void) => render(w.wrap(<OrderDetailScreen date={DATE} buyer="u1" onBack={() => {}} onOpenReceipts={onOpenReceipts} />))
-const fixes = () => screen.findByRole('group', { name: '금액 고치기' })
-/** 금액 고치기 줄을 그날 자료를 받은 뒤(누를 수 있을 때) 고른다 */
-async function fixRow(name: string) {
-  const row = within(await fixes()).getByRole('button', { name })
-  await waitFor(() => expect(row.getAttribute('aria-busy')).not.toBe('true'))
-  return row
-}
-const receiptRow = async (name: string) => {
-  const row = await within(await screen.findByRole('group', { name: '확인서' })).findByRole('button', { name })
+const open = (w: ReturnType<typeof makeWorld>) => render(w.wrap(<OrderDetailScreen date={DATE} buyer="u1" onBack={() => {}} />))
+/** [정산서 보내기] 창의 [고객에게 문자 보내기] 줄 (D-UX4-128 — 옛 상세 맨 아래 "확인서" 묶음의 [확인서 문자 보내기]) */
+async function smsRow() {
+  fireEvent.click(await screen.findByRole('button', { name: '정산서 보내기' }))
+  const row = within(await screen.findByTestId('order-send')).getByRole('button', { name: '고객에게 문자 보내기' })
   await waitFor(() => expect(row.getAttribute('aria-busy')).not.toBe('true'))
   return row
 }
@@ -126,24 +121,26 @@ describe('주문 상세 맨 아래 줄 (D-UX4-123 → D-UX4-125)', () => {
     expect(screen.queryByRole('button', { name: '배송지 적기' })).toBeNull()
   })
 
-  it('확인서: [확인서 문자 보내기]가 그 자리에서 사진을 붙여 문자 앱을 열고 보냄 표시', async () => {
+  // D-UX4-128 (사용자 지시 2026-11-11 "내보내기 -> 정산서 보내기 … 옵션으로 고객에게 문자 보내기 …", "지난 거래 내역 아래에 있는 메뉴들 다 지워"):
+  // 옛 "상세 맨 아래 확인서 묶음 [확인서 문자 보내기]" → 새 "[정산서 보내기] 창의 [고객에게 문자 보내기]" — 같은 흐름(사진 붙여 문자 앱, 보냄 표시)
+  it('문자: [정산서 보내기] → [고객에게 문자 보내기]가 창을 닫고 사진을 붙여 문자 앱을 열고 보냄 표시', async () => {
     const opened = fakeSms()
     const { w, posts } = world({ address: 'CONFIRMED', sms: { last4: '5678', sentAt: null }, smsReady: true })
     open(w)
-    fireEvent.click(await receiptRow('확인서 문자 보내기'))
-    await waitFor(() => expect(opened).toHaveLength(1))
+    fireEvent.click(await smsRow())
+    await waitFor(() => expect(opened).toHaveLength(1), { timeout: 3000 })
     expect(opened[0]).toEqual({ phone: '01012345678', text: '[초록가게] 다육맘님 주문 확인서예요.', image: { bytes: jpg, name: 'receipt-2026-10-29.jpg' } })
     await waitFor(() => expect(posts.map((post) => post.path)).toEqual(['/api/days/2026-10-29/receipt-sms/prepare', '/api/days/2026-10-29/receipt-sms/sent']))
     expect(posts[1]!.body).toMatchObject({ buyer: 'u1' })
-    expect(await screen.findByText('확인서 문자를 보냈어요.')).toBeTruthy()
+    expect(await screen.findByText('문자를 보냈어요.')).toBeTruthy()
   })
 
-  it('확인서: 서버가 번호를 모른다(NO_PHONE)고 하면 번호를 묻고, 넣은 번호로 문자 앱을 연다', async () => {
+  it('문자: 서버가 번호를 모른다(NO_PHONE)고 하면 번호를 묻고, 넣은 번호로 문자 앱을 연다', async () => {
     const opened = fakeSms()
     const { w, posts } = world({ address: 'CONFIRMED', smsReady: true })
     open(w)
-    fireEvent.click(await receiptRow('확인서 문자 보내기'))
-    const field = await screen.findByLabelText('손님 휴대폰 번호')
+    fireEvent.click(await smsRow())
+    const field = await screen.findByLabelText('손님 휴대폰 번호', {}, { timeout: 3000 })
     expect(opened).toHaveLength(0)
     fireEvent.change(field, { target: { value: '010-1234-5678' } })
     fireEvent.click(screen.getByRole('button', { name: '문자 앱 열기' }))
@@ -153,47 +150,43 @@ describe('주문 상세 맨 아래 줄 (D-UX4-123 → D-UX4-125)', () => {
     await waitFor(() => expect(posts.filter((post) => post.path.endsWith('/sent'))).toHaveLength(1))
   })
 
-  it('확인서: 이 기기에서 문자를 못 보내면 문자 줄 대신 영수증 보내기 화면을 연다', async () => {
+  // D-UX4-128: 옛 "문자 줄 대신 [영수증 보내기 화면 열기]" → 줄은 그대로 두고 흐리게, 아래에 까닭 한 줄
+  it('문자: 이 기기에서 문자를 못 보내면 [고객에게 문자 보내기]는 흐리고 까닭이 보인다', async () => {
     fakeSms([], false)
     const { w } = world({ address: 'CONFIRMED', sms: { last4: '5678', sentAt: null }, smsReady: true })
-    const openReceipts = vi.fn()
-    open(w, openReceipts)
-    fireEvent.click(await receiptRow('영수증 보내기 화면 열기'))
-    expect(openReceipts).toHaveBeenCalledOnce()
-    const group = screen.getByRole('group', { name: '확인서' })
-    expect(within(group).getByText('이 기기에서는 문자를 보낼 수 없어요. 링크 보내기로 보내 주세요.')).toBeTruthy()
-    expect(within(group).queryByRole('button', { name: '확인서 문자 보내기' })).toBeNull()
+    open(w)
+    const row = await smsRow()
+    expect(row.getAttribute('aria-disabled')).toBe('true')
+    expect(within(row).getByText('이 휴대폰에서는 문자를 보낼 수 없어요')).toBeTruthy()
   })
 
-  it('금액 고치기는 늘 넷, [입금 적기]는 남은 금액이 미리 들어간다', async () => {
+  // D-UX4-128 (사용자 지시 "입금 아래에 입금을 확인했나요? 버튼 추가하고 누르면 팝업 띄우고 확인했어요 누르면 남은 금액 없고 다 받은걸로 하기"):
+  // 옛 "금액 고치기 넷([입금 적기]는 남은 금액이 미리 든 칸)" → 금액 고치기 메뉴는 사용자가 지웠고, 입금은 [입금을 확인했나요?] 하나
+  it('입금: 남은 금액이 있으면 [입금을 확인했나요?] → 팝업 [확인했어요] → 남은 금액만큼 입금을 적는다, 금액 고치기 메뉴는 없다', async () => {
     const { w } = world({ address: 'CONFIRMED', sent: true, settlement: { received: 4_000, payment: 'PARTIAL' } })
     open(w)
-    expect(within(await fixes()).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['입금 적기', '배송비 바꾸기', '할인·추가', '환불 적기'])
-    fireEvent.click(await fixRow('입금 적기'))
-    expect((screen.getByLabelText('입금 금액') as HTMLInputElement).value).toBe('10000')
-  })
-
-  it('돌려줄 돈이 있으면 [환불 적기]에 그 금액이 미리 들어간다', async () => {
-    const { w } = world({ address: 'CONFIRMED', sent: true, settlement: { received: 20_000, refundDue: 6_000, payment: 'OVERPAID' } })
-    open(w)
-    expect(await screen.findByLabelText('돌려줄 돈 6,000원')).toBeTruthy()
-    fireEvent.click(await fixRow('환불 적기'))
-    expect((screen.getByLabelText('환불 금액') as HTMLInputElement).value).toBe('6000')
-  })
-
-  it('[배송비 바꾸기]는 배송비 고르기를 연다', async () => {
-    const { w } = world({ address: 'CONFIRMED', sent: true, settlement: { received: 14_000, payment: 'PAID' } })
-    open(w)
-    fireEvent.click(await fixRow('배송비 바꾸기'))
-    expect(await screen.findByRole('radiogroup', { name: '배송비' })).toBeTruthy()
-  })
-
-  it('30일 지난 날짜는 보기만 한다는 안내 한 번, 금액 고치기·확인서 줄도 없다', async () => {
-    const { w } = world({ address: 'CONFIRMED', sent: true, sealed: true, sms: { last4: '5678', sentAt: null }, smsReady: true })
-    open(w)
-    expect(await screen.findByText('30일이 지난 날짜라 보기만 할 수 있어요.')).toBeTruthy()
+    const paid = await screen.findByRole('group', { name: '입금' })
+    fireEvent.click(await within(paid).findByRole('button', { name: '입금을 확인했나요?' }))
+    fireEvent.click(await screen.findByRole('button', { name: '확인했어요' }))
+    await waitFor(() => expect(w.events).toHaveLength(1))
+    expect(w.events[0]!.body).toMatchObject({ type: 'settlement.payment', buyer: 'u1', date: DATE, amountText: '10000' })
     expect(screen.queryByRole('group', { name: '금액 고치기' })).toBeNull()
-    expect(screen.queryByRole('group', { name: '확인서' })).toBeNull()
-    expect(screen.getAllByText('30일이 지난 날짜라 보기만 할 수 있어요.')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '환불 적기' })).toBeNull()
+  })
+
+  // D-UX4-128: 옛 "30일 지난 날짜는 보기만 한다는 안내 한 번, 금액 고치기·확인서 줄도 없다" → 메뉴가 없어져 안내 줄도 없고,
+  // 고칠 수 있는 단추(입금 확인·이 주문 배송비)가 없고 문자 줄은 흐리다
+  it('30일 지난 날짜는 입금 확인 단추가 없고, 배송비 바꾸기는 기준 바꾸기만, 문자 줄은 흐리다', async () => {
+    fakeSms()
+    const { w } = world({ address: 'CONFIRMED', sent: true, sealed: true, sms: { last4: '5678', sentAt: null }, smsReady: true })
+    render(w.wrap(<OrderDetailScreen date={DATE} buyer="u1" onBack={() => {}} onOpenShopSettings={() => {}} />))
+    const paid = await screen.findByRole('group', { name: '입금' })
+    await waitFor(() => expect(within(paid).queryByRole('button', { name: '입금을 확인했나요?' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '배송비 바꾸기' }))
+    const choice = await screen.findByTestId('shipping-choice')
+    await waitFor(() => expect(within(choice).getAllByRole('radio').map((r) => r.textContent?.includes('이 주문') === true)).toEqual([false]))
+    fireEvent.click(screen.getByRole('button', { name: '정산서 보내기' }))
+    const row = within(await screen.findByTestId('order-send')).getByRole('button', { name: '고객에게 문자 보내기' })
+    await waitFor(() => expect(row.getAttribute('aria-disabled')).toBe('true'))
   })
 })

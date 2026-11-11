@@ -418,16 +418,20 @@ export function dateWeekdayWords(day: string): string {
 }
 
 /** 배송비 옆 글: 그날 배송비 규칙 (앱 상세 화면 shippingNote와 같은 말 — 직접 수령·합배송·따로 정함이면 그 말) */
-export function exportShippingNote(rule: OrderDetailView['shippingRule']): string {
-  if (rule.mode === 'PICKUP') return '직접 수령'
-  if (rule.mode === 'COMBINED') return '합배송'
-  if (rule.mode === 'FIXED') return '따로 정한 배송비'
-  return rule.freeThreshold !== null ? `${formatWon(rule.freeThreshold)} 이상 구매 시 무료` : `기본 배송비 ${formatWon(rule.baseFee)}`
+/**
+ * 배송비 이름표 — 앱 주문 상세 shippingLabel과 같은 말 (D-UX4-128, 사용자 지시 2026-11-11 "'배송비' 라벨을 -> '배송비(50,000원 이상 구매 시 무료배송)'").
+ * 무료 기준이 없는 기본 배송비는 그냥 "배송비".
+ */
+export function exportShippingLabel(rule: OrderDetailView['shippingRule']): string {
+  if (rule.mode === 'PICKUP') return '배송비(직접 수령)'
+  if (rule.mode === 'COMBINED') return '배송비(합배송)'
+  if (rule.mode === 'FIXED') return '배송비(이 주문만 정함)'
+  return rule.freeThreshold !== null ? `배송비(${formatWon(rule.freeThreshold)} 이상 구매 시 무료배송)` : '배송비'
 }
 
 /**
  * 내보내기 표 (CSV·엑셀이 같은 줄, 앱 주문 상세와 같은 차례 — D-UX4-127):
- * 위 묶음(닉네임·성함·예약 날짜+요일) → 빈 줄 → 상품 표(번호·상품명·개수·가격) → 총합(개수·상품 합계) → 배송비(왼쪽에 규칙 글)
+ * 위 묶음(닉네임·성함·예약 날짜+요일) → 빈 줄 → 상품 표(번호·상품명·개수·가격) → 총합(개수·상품 합계) → 배송비(이름표 괄호에 규칙, D-UX4-128)
  * → 할인·추가(있을 때) → 총 결제금액 → 빈 줄 → 입금(받은 금액·남은 금액·돌려줄 돈). 금액은 모두 가격 칸.
  * 휴대폰 번호·주소는 넣지 않는다 (D-UX4-126 AUTO — 파일은 메신저로 넘겨지기 쉽다. 손님 엑셀도 연락처는 기본으로 뺀다).
  * 금액은 정수 원 그대로 formatWon (가격 = 한 개 가격 × 수량)
@@ -442,7 +446,7 @@ export function orderExportRows(view: OrderDetailView): string[][] {
     ['번호', '상품명', '개수', '가격'],
     ...view.items.map((item) => [String(item.no), item.name, String(item.qty), formatWon(item.price * item.qty)]),
     ['총합', '', `${String(view.itemCount)}개`, formatWon(view.subtotal)],
-    ['배송비', exportShippingNote(view.shippingRule), '', formatWon(view.shipping)],
+    [exportShippingLabel(view.shippingRule), '', '', formatWon(view.shipping)],
   ]
   // 앱 화면(signedWon)과 같이 빼기만 − (U+2212) — 수식 시작 글자 '-'가 아니라 CSV에서 따옴표가 붙지 않는다
   if (view.adjustments !== 0) rows.push(['할인·추가', '', '', `${view.adjustments < 0 ? '−' : ''}${formatWon(Math.abs(view.adjustments))}`])

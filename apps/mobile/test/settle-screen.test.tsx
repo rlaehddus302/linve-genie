@@ -70,50 +70,38 @@ describe('SettleScreen (앱 주문)', () => {
     expect(openDeposits).toHaveBeenCalledOnce()
   })
 
-  it('자세히: 금액 기록(입금 #3 → 입금 번호 3), 입금 적기는 남은 금액이 미리 들어가고 같은 요청 번호로 한 번 보낸다', async () => {
+  // D-UX4-128 (사용자 지시 2026-11-11 "입금 아래에 입금을 확인했나요? 버튼 추가하고 누르면 팝업 띄우고 확인했어요 누르면 남은 금액 없고 다 받은걸로 하기",
+  // "지난 거래 내역 아래에 있는 메뉴들 다 지워"): 옛 "상세 맨 아래 금액 기록·[입금 적기](남은 금액이 미리 든 칸 → [적기])" → 새 "입금 묶음 [입금을 확인했나요?] → 팝업 [확인했어요]"
+  it('자세히: [입금을 확인했나요?] → 팝업 [확인했어요] → 남은 금액만큼 입금을 같은 요청 번호로 한 번 적는다, 옛 금액 기록·금액 고치기 메뉴는 없다', async () => {
     const w = world()
     render(w.wrap(<SettleScreen />))
-    // D-UX4-125로 바뀐 기대: 옛 "끝난 손님 접힌 칸을 펼친 뒤 누른다"(D-UX4-122) → 새 "목록에 모두 있다", 옛 묶음 이름 "기록" → 새 "금액 기록"(상세 맨 아래), 뒤로 "정산 목록으로" → "주문 목록으로"
     fireEvent.click(await screen.findByRole('button', { name: /^10월 29일 · 초록손/ }))
-    const records = await screen.findByRole('group', { name: '금액 기록' })
-    expect(within(records).getByText(/자동 입금 확인 · 입금 번호 3 · 기록한 때 10\/29 21:00/)).toBeTruthy()
+    // 다 받은 손님은 입금 확인 단추가 없다
+    expect(await screen.findByLabelText('남은 금액 0원')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '입금을 확인했나요?' })).toBeNull()
+    expect(screen.queryByRole('group', { name: '금액 기록' })).toBeNull()
+    expect(screen.queryByRole('group', { name: '금액 고치기' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '주문 목록으로' }))
     fireEvent.click(await screen.findByRole('button', { name: /^10월 29일 · 다육맘/ }))
     expect(await screen.findByLabelText('남은 금액 14,000원')).toBeTruthy()
-    const pay = await screen.findByRole('button', { name: '입금 적기' })
-    await waitFor(() => expect(pay.getAttribute('aria-busy')).not.toBe('true'))
-    fireEvent.click(pay)
-    expect((screen.getByLabelText('입금 금액') as HTMLInputElement).value).toBe('14000')
-    fireEvent.click(screen.getByRole('button', { name: '적기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '입금을 확인했나요?' }))
+    expect(await screen.findByText('남은 금액 14,000원을 다 받은 것으로 적어요.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '확인했어요' }))
     await waitFor(() => expect(w.events).toHaveLength(1))
     expect(w.events[0]!.path).toBe('/api/events?date=2026-10-29')
     expect(w.events[0]!.body).toMatchObject({ type: 'settlement.payment', buyer: 'u1', date: '2026-10-29', amountText: '14000' })
-    expect(await screen.findByText('입금 14,000원을 적었어요.')).toBeTruthy()
   })
 
-  it('남은 금액과 다른 입금은 한 번 더 묻고, 할인은 사유 없이 보내지 않는다', async () => {
+  // D-UX4-128: 옛 "남은 금액과 다른 입금은 한 번 더 묻고, 할인은 사유 없이 보내지 않는다"(입금 적기·할인·추가 칸) — 그 메뉴는 사용자가 지웠다.
+  // 새 입금 확인은 남은 금액 그대로만 적으므로, 팝업에서 [아니요]면 아무것도 적지 않는지를 지킨다
+  it('입금 확인 팝업에서 [아니요]를 누르면 아무것도 적지 않는다', async () => {
     const w = world()
     render(w.wrap(<SettleScreen />))
     fireEvent.click(await screen.findByRole('button', { name: /^10월 29일 · 다육맘/ }))
-    const pay = await screen.findByRole('button', { name: '입금 적기' })
-    await waitFor(() => expect(pay.getAttribute('aria-busy')).not.toBe('true'))
-    fireEvent.click(pay)
-    fireEvent.change(screen.getByLabelText('입금 금액'), { target: { value: '140000' } })
-    fireEvent.click(screen.getByRole('button', { name: '적기' }))
-    expect(await screen.findByText(/남은 금액\(14,000원\)과 달라요. 140,000원으로 적을까요\?/)).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: '입금을 확인했나요?' }))
+    fireEvent.click(await screen.findByRole('button', { name: '아니요' }))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(w.events).toHaveLength(0)
-    fireEvent.click(screen.getByRole('button', { name: '다시 고치기' }))
-    // D-UX4-103으로 바뀐 기대 (옛: 입금 적기 아래 창의 [닫기] 단추): 닫기 단추가 없어 바깥(판 닫기)을 눌러 닫는다
-    expect(screen.queryByRole('button', { name: '닫기' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
-    fireEvent.click(screen.getByRole('button', { name: '할인·추가' }))
-    fireEvent.change(screen.getByLabelText('할인 금액'), { target: { value: '1000' } })
-    fireEvent.click(screen.getByRole('button', { name: '적기' }))
-    expect(await screen.findByText('사유를 적어 주세요.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '사유 단골 할인' }))
-    fireEvent.click(screen.getByRole('button', { name: '적기' }))
-    await waitFor(() => expect(w.events).toHaveLength(1))
-    expect(w.events[0]!.body).toMatchObject({ type: 'settlement.adjust', amountText: '1000', amountSign: 'MINUS', reason: '단골 할인' })
   })
 })
 
@@ -157,10 +145,9 @@ describe('ReportScreen (앱 라이브 리포트)', () => {
     expect(within(page).getByRole('heading', { name: '주문 상세', level: 1 })).toBeTruthy()
     expect(await within(page).findByRole('heading', { name: '다육맘', level: 2 })).toBeTruthy()
     const reads = w.server.callsTo('GET', /^\/api\/orders$/).length
-    const pay = await within(page).findByRole('button', { name: '입금 적기' })
-    await waitFor(() => expect(pay.getAttribute('aria-busy')).not.toBe('true'))
-    fireEvent.click(pay)
-    fireEvent.click(screen.getByRole('button', { name: '적기' }))
+    // D-UX4-128: 옛 [입금 적기] → [적기] 대신 [입금을 확인했나요?] → [확인했어요]
+    fireEvent.click(await within(page).findByRole('button', { name: '입금을 확인했나요?' }))
+    fireEvent.click(await screen.findByRole('button', { name: '확인했어요' }))
     await waitFor(() => expect(w.events).toHaveLength(1))
     // 쌓인 화면(상세)과 아래 목록이 둘 다 다시 받는다
     await waitFor(() => expect(w.server.callsTo('GET', /^\/api\/orders$/).length).toBeGreaterThanOrEqual(reads + 1))
