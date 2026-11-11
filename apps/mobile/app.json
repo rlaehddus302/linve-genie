@@ -18,7 +18,8 @@
       "android"
     ],
     "ios": {
-      "bundleIdentifier": "app.livejjim.mobile",
+      "bundleIdentifier": "kr.livegenie.app",
+      "config": { "usesNonExemptEncryption": false },
       "supportsTablet": false,
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "주문 확인서 사진을 사진 앱에 저장하려고 사진 보관함에 추가해요.",
