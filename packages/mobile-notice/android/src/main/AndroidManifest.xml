@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 재부팅 뒤 이어받기 (남은 대기열을 다시 보내고 알림 읽기를 다시 붙인다) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 저장된 연락처라 문자 알림에 이름만 보일 때 그 이름의 휴대폰 번호 찾기 (D-SMS-CONTACT). 판매자가 허용할 때만 -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <application>
         <!-- 알림 읽기: 시스템만 붙일 수 있다(BIND_NOTIFICATION_LISTENER_SERVICE). 판매자가 설정에서 허용해야 돈다 -->

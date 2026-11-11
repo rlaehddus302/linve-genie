@@ -39,6 +39,9 @@ public class LivejjimNoticeModule: Module {
 
         AsyncFunction("getState") { () -> [String: Any] in self.service.store.stateMap() }
 
+        // 연락처 접근 묻기 (D-SMS-CONTACT) — 저장된 손님 이름을 휴대폰 번호로 바꾸는 데만 쓴다. granted · denied · undetermined
+        AsyncFunction("requestContacts") { () async -> String in await ContactNumber.request() }
+
         AsyncFunction("openSettings") { (target: String) -> Bool in
             // 단축어 앱을 연다. 열 수 없으면 false(화면이 안내 문장을 보여 준다)
             let url = target == "shortcuts" ? URL(string: "shortcuts://") : URL(string: UIApplication.openSettingsURLString)

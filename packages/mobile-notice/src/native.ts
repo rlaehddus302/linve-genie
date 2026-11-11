@@ -22,6 +22,20 @@ export function getNoticeIntake(): NoticeIntake | null {
   return shared
 }
 
+/**
+ * 연락처 접근 묻기 (아이폰, D-SMS-CONTACT) — 연락처에 저장한 손님이라 단축어가 이름만 넘긴 문자를 그 손님 휴대폰 번호로 바꾸는 데만 쓴다.
+ * 처음이면 시스템 창이 뜨고, 이미 정했으면 묻지 않는다. 모듈이 없거나 옛 모듈이면 'unavailable'
+ */
+export async function requestNoticeContacts(): Promise<string> {
+  try {
+    const native = requireOptionalNativeModule<NativeNoticeModuleLike>(NATIVE_MODULE_NAME)
+    if (native === null || typeof native.requestContacts !== 'function') return 'unavailable'
+    return await native.requestContacts()
+  } catch {
+    return 'unavailable'
+  }
+}
+
 export function isNativeNoticeAvailable(): boolean {
   return getNoticeIntake() !== null
 }

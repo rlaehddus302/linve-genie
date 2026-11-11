@@ -115,7 +115,9 @@ internal object NoticeIntake {
         val result = NoticeExtractor.extract(raw, channel, store.enabledAtMs())
         var queued = 0
         val filters = store.filters()
-        for (message in result.candidates) {
+        for (found in result.candidates) {
+          // 저장된 연락처라 이름만 온 문자는 연락처의 휴대폰 번호로 바꾼다 (D-SMS-CONTACT — 권한이 없으면 그대로)
+          val message = ContactNumber.resolve(context, found)
           // skipWords가 든 문자는 휴대폰 밖으로 보내지 않는다(C-03) — 은행 대표번호 문자는 거르지 않는다(D-SMS3-26). 앱 알림은 bankApps로 이미 골랐다
           // 문자 직접 받기(SMS4)가 저장소·수신기로 이미 읽은 문자의 알림은 보내지도 세지도 않는다 — 저장소에 없는 RCS 알림만 이 길로 간다
           if (SmsLink.alreadyTaken(context, message)) continue

@@ -399,4 +399,28 @@ final class NoticeQueueTests: XCTestCase {
         let ok = await service.receive(sender: "010-1234-5678", body: "찜 3번")
         XCTAssertEqual(ok, .queued(sentNow: 0, pending: 2), "토큰이 없으면 담아 두기만 한다")
     }
+
+    // D-SMS-CONTACT: 연락처에 저장한 손님이라 단축어가 이름을 넘기면 그 연락처의 휴대폰 번호로 바꿔 담는다
+    func testServiceTurnsSavedContactNameIntoNumber() async throws {
+        let (store, dir) = makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let service = NoticeService(store: store, sender: NoticeSender(store: store) { _, body in okReply(body) })
+        var asked: [String] = []
+        service.contactNumber = { name in asked.append(name); return name == "김손님" ? "01012345678" : nil }
+        store.setEnabled(true, nowMs: 1)
+        _ = await service.receive(sender: "김손님", body: "찜 3번")
+        _ = await service.receive(sender: "모르는 이름", body: "찜 4번")
+        _ = await service.receive(sender: "010-5555-6666", body: "찜 5번")
+        XCTAssertEqual(asked, ["김손님", "모르는 이름"], "번호로 온 문자는 연락처를 보지 않는다")
+        let froms = Set(store.pendingFiles().compactMap { store.read($0)?.from })
+        XCTAssertEqual(froms, ["01012345678", "모르는 이름", "010-5555-6666"])
+    }
+
+    func testContactPickNeedsExactlyOneMobile() {
+        XCTAssertEqual(ContactPick.mobile(["010-1234-5678"]), "01012345678")
+        XCTAssertEqual(ContactPick.mobile(["+82 10-1234-5678", "010 1234 5678", "02-123-4567"]), "01012345678")
+        XCTAssertNil(ContactPick.mobile([]))
+        XCTAssertNil(ContactPick.mobile(["02-123-4567", "1588-1234"]))
+        XCTAssertNil(ContactPick.mobile(["010-1234-5678", "010-9999-8888"]))
+    }
 }

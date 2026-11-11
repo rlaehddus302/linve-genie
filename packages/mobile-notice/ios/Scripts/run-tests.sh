@@ -22,11 +22,13 @@ try await queue.testInboxOffKeepsTokenAndRechecks()
 try await queue.testServerErrorKeepsSameIds()
 try await queue.testEmptyQueueFetchesFilters()
 try await queue.testServiceFiltersAndRespectsOffSwitch()
+try await queue.testServiceTurnsSavedContactNameIntoNumber()
+queue.testContactPickNeedsExactlyOneMobile()
 print(shimFailures == 0 ? "통과: 확인 \(shimChecks)개" : "실패 \(shimFailures)개 / 확인 \(shimChecks)개")
 exit(shimFailures == 0 ? 0 : 1)
 SW
 
 swiftc -O -module-name NoticeShim -o "$OUT/run" \
-  NoticeContract.swift NoticeExtract.swift NoticeStore.swift NoticeSender.swift NoticeService.swift NoticeIntents.swift \
+  NoticeContract.swift NoticeExtract.swift NoticeStore.swift NoticeSender.swift NoticeService.swift NoticeIntents.swift ContactNumber.swift \
   Scripts/xctest-shim.swift Tests/NoticeCoreTests.swift "$OUT/main.swift"
 "$OUT/run"

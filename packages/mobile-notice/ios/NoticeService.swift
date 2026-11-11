@@ -8,6 +8,8 @@ public final class NoticeService {
     public let sender: NoticeSender
     /// 상태가 바뀌었다는 알림(모듈이 JS 사건으로 바꾼다)
     public var onChange: (() -> Void)?
+    /// 저장된 연락처 이름 → 휴대폰 번호 (D-SMS-CONTACT — 시험은 가짜를 넣는다)
+    public var contactNumber: (String) -> String? = ContactNumber.number(forName:)
 
     public init(store: NoticeStore = .standard(), sender: NoticeSender? = nil) {
         self.store = store
@@ -21,7 +23,9 @@ public final class NoticeService {
     @discardableResult
     public func receive(sender senderName: String, body: String, nowMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) async -> Outcome {
         guard store.isEnabled else { return .off }
-        guard let candidate = NoticeExtractor.shortcutCandidate(sender: senderName, body: body, nowMs: nowMs) else { return .empty }
+        // 연락처에 저장한 손님이라 이름만 왔으면 그 연락처의 휴대폰 번호로 (D-SMS-CONTACT — 접근 허용 안 했으면 이름 그대로)
+        let from = NoticeExtractor.phoneLike(senderName) == nil ? (contactNumber(senderName) ?? senderName) : senderName
+        guard let candidate = NoticeExtractor.shortcutCandidate(sender: from, body: body, nowMs: nowMs) else { return .empty }
         if NoticeFilter.skipWordFor(channel: candidate.channel, from: candidate.from, text: candidate.text, store.filters()) != nil {
             store.bump("filtered")
             onChange?()

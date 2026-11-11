@@ -132,6 +132,8 @@ export interface NativeNoticeModuleLike {
   getSmsState?(): Promise<NativeSmsState>
   requestSmsPermission?(): Promise<NativeSmsState>
   setSmsEnabled?(on: boolean): Promise<NativeSmsState>
+  /** 연락처 접근 묻기 (아이폰 — D-SMS-CONTACT). 옛 모듈·안드로이드에는 없다(안드로이드는 앱이 권한을 묻는다) */
+  requestContacts?(): Promise<string>
 }
 
 export type NoticeStateListener = (state: NoticeState) => void

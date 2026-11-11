@@ -7,7 +7,7 @@ let package = Package(
     platforms: [.macOS(.v13), .iOS(.v16)],
     products: [.library(name: "NoticeCore", targets: ["NoticeCore"])],
     targets: [
-        .target(name: "NoticeCore", path: ".", exclude: ["Tests", "LivejjimNoticeModule.swift", "LivejjimNotice.podspec", "Package.swift"], sources: ["NoticeContract.swift", "NoticeExtract.swift", "NoticeStore.swift", "NoticeSender.swift", "NoticeService.swift", "NoticeIntents.swift"]),
+        .target(name: "NoticeCore", path: ".", exclude: ["Tests", "LivejjimNoticeModule.swift", "LivejjimNotice.podspec", "Package.swift"], sources: ["NoticeContract.swift", "NoticeExtract.swift", "NoticeStore.swift", "NoticeSender.swift", "NoticeService.swift", "NoticeIntents.swift", "ContactNumber.swift"]),
         .testTarget(name: "NoticeCoreTests", dependencies: ["NoticeCore"], path: "Tests"),
     ]
 )

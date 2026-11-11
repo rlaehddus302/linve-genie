@@ -16,8 +16,16 @@ const swift = readdirSync(join(root, 'ios'))
 describe('권한 (C-01)', () => {
   it('문자 수신 권한은 쓰지 않는다 — 알림 읽기 하나', () => {
     const manifest = read('android/src/main/AndroidManifest.xml')
-    for (const permission of ['READ_SMS', 'RECEIVE_SMS', 'RECEIVE_MMS', 'SEND_SMS', 'READ_CONTACTS']) expect(manifest).not.toContain(permission)
+    for (const permission of ['READ_SMS', 'RECEIVE_SMS', 'RECEIVE_MMS', 'SEND_SMS']) expect(manifest).not.toContain(permission)
     expect(manifest).toContain('android.permission.BIND_NOTIFICATION_LISTENER_SERVICE')
+  })
+  // D-SMS-CONTACT (SPEC C-01 바뀜): 연락처 읽기는 이름만 온 문자의 보낸 곳을 휴대폰 번호로 바꾸는 한 곳(ContactNumber)에서만 쓴다
+  it('연락처는 보낸 곳 이름 → 휴대폰 번호 바꾸기에서만 읽는다', () => {
+    expect(read('android/src/main/AndroidManifest.xml')).toContain('android.permission.READ_CONTACTS')
+    const readers = kotlin.filter((f) => f.text.includes('ContactsContract')).map((f) => f.name)
+    expect(readers).toEqual(['ContactNumber.kt'])
+    const swiftReaders = swift.filter((f) => f.text.includes('CNContactStore')).map((f) => f.name)
+    expect(swiftReaders).toEqual(['ContactNumber.swift'])
   })
   it('문자는 기본 문자 앱으로 정한다', () => {
     const service = kotlin.find((f) => f.name === 'NoticeListenerService.kt')?.text ?? ''

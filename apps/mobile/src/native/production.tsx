@@ -9,7 +9,7 @@ import { wireDockChoice } from '../lib/dock-choice.ts'
 import { Modal, PermissionsAndroid, Platform, ScrollView } from 'react-native'
 import { BleManager } from 'react-native-ble-plx'
 import { getAudioCapture } from '@livejjim/mobile-audio/native'
-import { getNoticeIntake } from '@livejjim/mobile-notice/native'
+import { getNoticeIntake, requestNoticeContacts } from '@livejjim/mobile-notice/native'
 import {
   AUTO_RECONNECT_POLICY,
   BLE_RESTORE_IDENTIFIER,
@@ -116,7 +116,24 @@ export function installProductionNative(): void {
   // 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)는 매니페스트에 서비스가 없으므로 끼우지 않는다
   // 문자 직접 받기를 뺀 빌드(LIVEGENIE_SMS가 on이 아님, SMS4)는 문자 연동을 떼어 "문자 연동" 칸을 숨긴다
   const intake = phoneNoticeBuilt() ? getNoticeIntake() : null
-  setNoticeModule(intake === null ? null : phoneSmsBuilt() ? intake : { ...intake, sms: null })
+  if (intake === null) {
+    setNoticeModule(null)
+    return
+  }
+  // 연락처에 저장한 손님은 문자 알림·단축어에 번호 대신 이름만 온다 → 서버가 찜으로 넣지 못한다(R-26 번호 없음).
+  // 문자 받기를 켤 때, 그리고 이미 켜 둔 휴대폰은 앱을 열 때 연락처 접근을 한 번 묻는다 — 이름을 그 손님 휴대폰 번호로 바꾸는 데만 쓴다 (D-SMS-CONTACT)
+  const askContacts = async (): Promise<void> => {
+    try {
+      if (Platform.OS === 'android') await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_CONTACTS)
+      else await requestNoticeContacts()
+    } catch {
+      // 묻지 못해도 문자 받기는 그대로 (이름만 온 문자는 확인 필요 카드)
+    }
+  }
+  const start = intake.start.bind(intake)
+  const port = { ...intake, start: async () => { await askContacts(); return start() } }
+  void intake.getState().then((state) => (state.enabled ? askContacts() : undefined), () => undefined)
+  setNoticeModule(phoneSmsBuilt() ? port : { ...port, sms: null })
 }
 
 /** 앱 위 고르기 창 — 목록을 직접 그리는 화면(라벨 단계 연결, D-UX4-04)이 떠 있으면 띄우지 않는다 */
