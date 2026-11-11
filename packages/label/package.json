@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./captions": "./src/captions.ts",
     "./browser": "./src/browser.ts",
     "./node": "./src/node.ts",
     "./font": "./fonts/Pretendard-Bold.otf"

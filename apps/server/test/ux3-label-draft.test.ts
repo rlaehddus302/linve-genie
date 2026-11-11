@@ -77,3 +77,23 @@ it('표형은 미리 본 칸과 서식을 그대로 저장하고 다시 읽을 �
   const read = await expectOk(api.get('/api/print/templates'))
   expect(read.body).toMatchObject({ product: { template: expected } })
 })
+
+it('직접 넣은 여러 문구를 저장한 뒤에도 크기·디자인 변경과 재조회에서 유지한다', async () => {
+  const world = await newWorld()
+  const seller = await addSeller(world)
+  const api = client(world, seller.cookie)
+  const captions = [{ text: '향남꽃선비 라방', position: 'topRight' }, { text: '경성다육', position: 'topLeft' }]
+  const template = { ...productDesign('50x30', 'table'), shopName: '경성다육', captions }
+  await expectOk(api.put('/api/print/templates/product', { template, version: 0 }))
+  const read = await expectOk(api.get('/api/print/templates'))
+  expect(read.body).toMatchObject({ product: { template } })
+  for (const change of [{ design: 'large' }, { resize: '50x40' }]) {
+    const preview = await expectOk(api.post(PATH, { template, ...change }))
+    expect(preview.body).toMatchObject({ template: { captions } })
+  }
+  const four = Array.from({ length: 4 }, () => captions[0])
+  const resized = await expectOk(api.post(PATH, { template: { ...productDesign('50x15', 'table'), captions: four }, resize: '50x40' }))
+  expect(resized.body).toMatchObject({ template: { captions: four, size: '50x40' } })
+  const invalid = { ...template, captions: [{ text: '문구', position: 'missing' }] }
+  expect((await api.put('/api/print/templates/product', { template: invalid, version: 1 })).status).toBe(400)
+})

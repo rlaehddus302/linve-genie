@@ -1,8 +1,9 @@
 // 라벨 템플릿 — JSON 모델·검사·크기마다 기본 템플릿 (LABEL_RULES L-5, D-P1-06·D-N1-03, AC-P1-20·AC-N1-10~12).
 // 위치·크기·글자 크기는 모두 점(1mm = 8점) 단위, 상자 왼쪽 위 기준이다.
+import { CAPTION_POSITIONS, CAPTION_SPACE_HINT, CAPTION_TEXT_MAX, captionLayout, type LabelCaption } from './captions.ts'
 import { ITEM_NAMES, LABEL_MESSAGES, type LabelError, type TemplateProblem } from './errors.ts'
 import { DEFAULT_LABEL_SIZE, canMakePackingLabel, isLabelSize, labelSizeInfo, type LabelSizeId } from './sizes.ts'
-import { PRICE_STYLES, type PriceStyle } from './text.ts'
+import { PRICE_STYLES, trimLabelText, type PriceStyle } from './text.ts'
 
 export const TEMPLATE_FORMAT = 1 as const
 
@@ -37,6 +38,7 @@ const ITEM_KEYS = ['visible', 'x', 'y', 'width', 'height', 'fontSize', 'minFontS
 export type ProductDesign = 'basic' | 'large' | 'table'
 
 export interface ProductTemplate {
+  readonly captions?: readonly LabelCaption[]
   readonly design?: ProductDesign
   readonly format: 1
   readonly kind: 'product'
@@ -338,7 +340,7 @@ export function validateTemplate(value: unknown): TemplateCheck {
     return fail()
   }
   const allowed = ['format', 'kind', 'size', 'shopName', 'items', kind === 'product' ? 'priceStyle' : 'perPage']
-  for (const key of Object.keys(value)) if (!allowed.includes(key) && !(kind === 'product' && key === 'design')) problems.push({ path: key, message: TEMPLATE_MESSAGES.unknownKey })
+  for (const key of Object.keys(value)) if (!allowed.includes(key) && !(kind === 'product' && (key === 'design' || key === 'captions'))) problems.push({ path: key, message: TEMPLATE_MESSAGES.unknownKey })
   for (const key of allowed) if (!Object.hasOwn(value, key)) problems.push({ path: key, message: TEMPLATE_MESSAGES.missingKey })
   if (value.format !== TEMPLATE_FORMAT) problems.push({ path: 'format', message: TEMPLATE_MESSAGES.format })
   const size = value.size
@@ -350,6 +352,23 @@ export function validateTemplate(value: unknown): TemplateCheck {
     if (!(PRICE_STYLES as readonly unknown[]).includes(value.priceStyle)) problems.push({ path: 'priceStyle', message: TEMPLATE_MESSAGES.priceStyle })
   } else if (!isInt(value.perPage) || value.perPage < PER_PAGE_MIN || value.perPage > PER_PAGE_MAX) {
     problems.push({ path: 'perPage', message: TEMPLATE_MESSAGES.perPage })
+  }
+  const captions: LabelCaption[] = []
+  if (kind === 'product' && value.captions !== undefined) {
+    if (!Array.isArray(value.captions)) problems.push({ path: 'captions', message: '추가 문구를 확인해 주세요.' })
+    else for (const note of value.captions as unknown[]) {
+      if (!isPlainObject(note) || typeof note.text !== 'string' || note.text.length > CAPTION_TEXT_MAX ||
+          !CAPTION_POSITIONS.some((position) => position === note.position) || Object.keys(note).some((key) => key !== 'text' && key !== 'position')) {
+        problems.push({ path: 'captions', message: '추가 문구의 글자 수와 위치를 확인해 주세요.' })
+        break
+      }
+      const text = trimLabelText(note.text)
+      if (text) captions.push({ text, position: note.position as LabelCaption['position'] })
+    }
+    if (isLabelSize(size)) {
+      const { widthDots, heightDots } = labelSizeInfo(size)
+      if (captionLayout(captions, widthDots, heightDots).bodyHeight < heightDots / 2) problems.push({ path: 'captions', message: CAPTION_SPACE_HINT })
+    }
   }
   const ids: readonly string[] = kind === 'product' ? PRODUCT_ITEMS : PACKING_ITEMS
   const lockedIds: readonly string[] = kind === 'product' ? PRODUCT_LOCKED : PACKING_LOCKED
@@ -382,7 +401,7 @@ export function validateTemplate(value: unknown): TemplateCheck {
   const base = { format: TEMPLATE_FORMAT, size: size as LabelSizeId, shopName: value.shopName as string }
   const template: LabelTemplate =
     kind === 'product'
-      ? { ...base, kind, ...(value.design === undefined ? {} : { design: value.design as ProductDesign }), priceStyle: value.priceStyle as PriceStyle, items: items as Record<ProductItemId, TemplateItem> }
+      ? { ...base, kind, ...(captions.length ? { captions } : {}), ...(value.design === undefined ? {} : { design: value.design as ProductDesign }), priceStyle: value.priceStyle as PriceStyle, items: items as Record<ProductItemId, TemplateItem> }
       : { ...base, kind, perPage: value.perPage as number, items: items as Record<PackingItemId, TemplateItem> }
   return { ok: true, template, warnings }
 }
@@ -397,7 +416,7 @@ export function templateToJson(template: LabelTemplate): string {
   }
   const head =
     template.kind === 'product'
-      ? { format: template.format, kind: template.kind, size: template.size, shopName: template.shopName, priceStyle: template.priceStyle, ...(template.design === undefined ? {} : { design: template.design }) }
+      ? { format: template.format, kind: template.kind, size: template.size, shopName: template.shopName, priceStyle: template.priceStyle, ...(template.captions?.length ? { captions: template.captions } : {}), ...(template.design === undefined ? {} : { design: template.design }) }
       : { format: template.format, kind: template.kind, size: template.size, shopName: template.shopName, perPage: template.perPage }
   return JSON.stringify({ ...head, items })
 }

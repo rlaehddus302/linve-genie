@@ -2,6 +2,7 @@
 // 글 계산 결과만 받아 캔버스(주입)에 그리고 1비트 그림과 배치 결과를 돌려준다. 글을 새로 만들지 않는다 —
 // 바꾸는 것은 L-5의 줄 나누기와 끝 `…`뿐이다. 내장 글꼴에 없는 글자는 캔버스에 맡기지 않고 빈 네모로 그린다
 // (캔버스는 없는 글자를 시스템 글꼴로 대신 그리기 때문이다). 시각·난수·실행 환경 언어를 쓰지 않는다.
+import { captionBodyItem, captionLayout } from './captions.ts'
 import { oneBitFromRgba, type LabelBitmap } from './bitmap.ts'
 import type { PackingPage, PackingText, ProductText } from './compute.ts'
 import { LABEL_MESSAGES, doesNotFitError, type LabelError } from './errors.ts'
@@ -548,15 +549,22 @@ const PACKING_SPEC = {
 /** 상품 라벨 그리기 — 글 계산 결과(computeProductText)만 받는다 */
 export function renderProductText(env: LabelRenderEnv, text: ProductText): RenderResult<RenderedLabel> {
   const t = text.template
+  const { widthDots, heightDots } = labelSizeInfo(t.size)
+  const { top, bodyHeight, lines } = captionLayout(t.captions ?? [], widthDots, heightDots)
+  const cellFor = (item: TemplateItem) => lines.length ? captionBodyItem(item, top, bodyHeight / heightDots) : item
   const specs: ItemSpec[] = []
   for (const id of ['shop', 'number', 'price', 'date', 'name', 'buyer'] as const) {
     const value = text.items[id]
     if (value === undefined) continue
-    const cell = t.items[id]
+    const cell = cellFor(t.items[id])
     const box = t.design === 'table' ? { ...cell, x: cell.x + 2, y: cell.y + 1, width: Math.max(1, cell.width - 4), height: Math.max(1, cell.height - 2) } : cell
     specs.push({ id, box, value, ...PRODUCT_SPEC[id] })
   }
-  return renderSpecs(env, t.size, specs, t.design === 'table' ? { cells: Object.values(t.items).filter((cell) => cell.visible) } : {})
+  for (const line of lines) {
+    const box = { x: line.x, y: line.y, width: line.width, height: line.height, fontSize: 20, minFontSize: 12, visible: true }
+    specs.push({ id: 'caption', box, value: line.text, caption: '', suffix: '', mode: 'text', align: line.left ? 'left' : 'right' })
+  }
+  return renderSpecs(env, t.size, specs, t.design === 'table' ? { cells: Object.values(t.items).filter((cell) => cell.visible).map(cellFor) } : {})
 }
 
 /** 포장 라벨 한 쪽 그리기 */

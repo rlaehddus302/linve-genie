@@ -33,6 +33,7 @@ import {
   type TemplateItem,
   type TemplateProblem,
 } from '@livejjim/label'
+import { CAPTION_POSITIONS, CAPTION_TEXT_MAX, CAPTION_WORDS, type CaptionPosition } from '@livejjim/label/captions'
 import { B1_PROFILE, labelSizesForProfileId, printerProfile, sizeNotSupportedMessage } from '@livejjim/printer'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
@@ -285,7 +286,7 @@ function TemplateEditor({ kind, shopName, pickSize = 0 }: { readonly kind: Kind;
       const item = freshItems[id]
       if (item !== undefined) nextItems[id] = { ...item, visible: locked.includes(id) ? true : visible(id) }
     }
-    if (template.kind === 'product') change({ ...(fresh as ProductTemplate), shopName: template.shopName, priceStyle: template.priceStyle, items: nextItems as ProductTemplate['items'] })
+    if (template.kind === 'product') change({ ...(fresh as ProductTemplate), ...(template.captions ? { captions: template.captions } : {}), shopName: template.shopName, priceStyle: template.priceStyle, items: nextItems as ProductTemplate['items'] })
     else change({ ...(fresh as PackingTemplate), shopName: template.shopName, items: nextItems as PackingTemplate['items'] }, String((fresh as PackingTemplate).perPage))
   }
 
@@ -376,9 +377,28 @@ function TemplateEditor({ kind, shopName, pickSize = 0 }: { readonly kind: Kind;
             <div className="choice-list-plain">
               {([['basic', '기본형'], ['large', '큰 글씨형'], ['table', '표형']] as const).map(([design, word]) => (
                 <button key={design} type="button" className="button button-small" aria-pressed={(template.design ?? 'basic') === design}
-                  onClick={() => change({ ...productDesign(template.size, design), shopName: template.shopName, priceStyle: template.priceStyle })}>{word}</button>
+                  onClick={() => change({ ...productDesign(template.size, design), ...(template.captions ? { captions: template.captions } : {}), shopName: template.shopName, priceStyle: template.priceStyle })}>{word}</button>
               ))}
             </div>
+          </fieldset>
+        ) : null}
+        {template.kind === 'product' ? (
+          <fieldset className="fieldset">
+            <legend>직접 넣는 문구</legend>
+            {(template.captions ?? []).map((note, i, notes) => (
+              <div className="field" key={i}>
+                <label>문구 {i + 1}<input className="input" value={note.text} maxLength={CAPTION_TEXT_MAX}
+                  placeholder="예: 향남꽃선비 라방" onChange={(e) => change({ ...template, captions: notes.map((n, j) => i === j ? { ...n, text: e.target.value } : n) })} /></label>
+                <select aria-label={`문구 ${i + 1} 위치`} value={note.position}
+                  onChange={(e) => change({ ...template, captions: notes.map((n, j) => i === j ? { ...n, position: e.target.value as CaptionPosition } : n) })}>
+                  {CAPTION_POSITIONS.map((position) => <option key={position} value={position}>{CAPTION_WORDS[position]}</option>)}
+                </select>
+                <button type="button" className="button button-small" onClick={() => change({ ...template, captions: notes.filter((_, j) => i !== j) })}>문구 {i + 1} 삭제</button>
+              </div>
+            ))}
+            <button type="button" className="button button-small" onClick={() => change({ ...template, captions: [...(template.captions ?? []),
+              { text: '', position: CAPTION_POSITIONS[(template.captions?.length ?? 0) % CAPTION_POSITIONS.length] ?? 'topRight' }] })}>문구 추가</button>
+            {problemsAt(problems, 'captions').map((message, i) => <p key={i} role="alert" className="field-error">{message}</p>)}
           </fieldset>
         ) : null}
         <div className="field">

@@ -265,3 +265,22 @@ it('저장된 자유 배치를 열고 표형을 선택하면 저장할 때만 �
   await waitFor(() => expect(world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)[0]?.body).toMatchObject({ template: { design: 'table' }, version: 2 }))
   world.services.labels.stop()
 })
+
+it('문구 추가의 첫 위치는 오른쪽 위이며 여러 문구의 내용·위치를 고치고 삭제할 수 있다', async () => {
+  const world = labelWorld()
+  render(world.wrap(<LabelSetupScreen only="design" onBack={() => {}} onDone={() => {}} />))
+  const add = await screen.findByRole('button', { name: '문구 추가' })
+  fireEvent.click(add)
+  fireEvent.change(screen.getByRole('textbox', { name: '문구 1' }), { target: { value: '향남꽃선비 라방' } })
+  expect(within(screen.getByRole('radiogroup', { name: '문구 1 위치' })).getByRole('radio', { name: '오른쪽 위' }).getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(add)
+  fireEvent.change(screen.getByRole('textbox', { name: '문구 2' }), { target: { value: '감사합니다' } })
+  fireEvent.click(within(screen.getByRole('radiogroup', { name: '문구 2 위치' })).getByRole('radio', { name: '왼쪽 아래' }))
+  fireEvent.click(add)
+  fireEvent.click(screen.getByRole('button', { name: '문구 3 삭제' }))
+  fireEvent.click(screen.getByRole('button', { name: '저장하고 다음' }))
+  await waitFor(() => expect(world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)[0]?.body).toMatchObject({
+    template: { captions: [{ text: '향남꽃선비 라방', position: 'topRight' }, { text: '감사합니다', position: 'bottomLeft' }] },
+  }))
+  world.services.labels.stop()
+})

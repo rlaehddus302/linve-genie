@@ -487,3 +487,24 @@ describe('상품 라벨 기본 디자인', () => {
     })
   }
 })
+
+it('같은 표형에서 호스트·가게 문구와 여러 줄이 자동 상품 값과 겹치지 않고 인쇄된다', () => {
+  const t = { ...productDesign('50x30', 'table'), captions: [
+    { text: '향남꽃선비 라방', position: 'topRight' }, { text: '경성다육', position: 'topLeft' },
+    { text: '화요일', position: 'topRight' }, { text: '감사합니다', position: 'bottomLeft' },
+  ] } as const
+  for (const no of [93, 99]) {
+    const r = product(t, { ...SAMPLE_PRODUCT, no })
+    const notes = r.layout.items.filter((i) => i.id === 'caption')
+    expect(notes.map((i) => i.lines.join(''))).toEqual(['향남꽃선비 라방', '화요일', '경성다육', '감사합니다'])
+    expect(notes[0]!.box.x).toBeGreaterThan(notes[2]!.box.x)
+    expect(notes[1]!.box.y).toBeGreaterThan(notes[0]!.box.y)
+    expect(item(r.layout.items, 'number').value).toBe(String(no))
+    for (const note of notes) {
+      expect(blackIn(r.image, note.box)).toBeGreaterThan(0)
+      for (const data of r.layout.items.filter((i) => i.id !== 'caption')) expect(overlaps(note.box, data.box)).toBe(false)
+    }
+  }
+  const crowded = { ...t, captions: Array.from({ length: 6 }, () => t.captions[0]) }
+  expect(validateTemplate(crowded)).toMatchObject({ ok: false })
+})

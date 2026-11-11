@@ -1578,7 +1578,9 @@ export class PrintService {
       return rejected(400, 'INVALID_TEMPLATE', PRINT_MESSAGES.templateInvalid)
     }
     if (text === undefined || Buffer.byteLength(text, 'utf8') > TEMPLATE_MAX_BYTES) return rejected(400, 'TEMPLATE_TOO_LARGE', PRINT_MESSAGES.templateTooLarge)
-    const checked = validateTemplate(value)
+    // 용지를 키우면 현재 크기에 들어가지 않던 문구도 다시 배치할 수 있다.
+    const fittingNewPaper = resize !== undefined && typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'product' && 'captions' in value
+    const checked = validateTemplate(fittingNewPaper ? { ...value, captions: undefined } : value)
     const problems: FieldProblem[] = []
     if (!checked.ok) for (const problem of checked.error.problems ?? []) problems.push({ field: templateField(problem.path), message: problem.message })
     else {
@@ -1589,8 +1591,13 @@ export class PrintService {
     // 크기 바꾸기 (웹 라벨 설정과 같다): 새 크기의 기본 칸 배치 + 켜고 끈 항목·가게 이름·가격 표기는 그대로
     let draft = checked.template
     if (draft.kind === 'product') {
-      if (design !== undefined) draft = { ...productDesign(resize ?? draft.size, design), shopName: draft.shopName, priceStyle: draft.priceStyle }
+      if (design !== undefined) draft = { ...productDesign(resize ?? draft.size, design), ...(draft.captions ? { captions: draft.captions } : {}), shopName: draft.shopName, priceStyle: draft.priceStyle }
       else if (resize !== undefined && resize !== draft.size) draft = resizedProduct(draft, resize)
+    }
+    if (fittingNewPaper) {
+      const resized = validateTemplate({ ...draft, captions: value.captions })
+      if (!resized.ok) return rejected(400, 'INVALID_TEMPLATE', resized.error.problems?.[0]?.message ?? PRINT_MESSAGES.templateInvalid)
+      draft = resized.template
     }
     const shop = await readShop(this.#db, sellerId)
     const template = fillShopName(draft, shop.name)
@@ -1716,7 +1723,7 @@ export class PrintService {
 export function resizedProduct(template: ProductTemplate, size: LabelSizeId): ProductTemplate {
   const fresh = productDesign(size, template.design ?? 'basic')
   const items = Object.fromEntries(PRODUCT_ITEMS.map((id) => [id, { ...fresh.items[id], visible: PRODUCT_LOCKED.includes(id) ? true : template.items[id].visible }])) as ProductTemplate['items']
-  return { ...fresh, shopName: template.shopName, priceStyle: template.priceStyle, items }
+  return { ...fresh, ...(template.captions ? { captions: template.captions } : {}), shopName: template.shopName, priceStyle: template.priceStyle, items }
 }
 
 export function fillShopName(template: LabelTemplate, shopName: string): LabelTemplate {

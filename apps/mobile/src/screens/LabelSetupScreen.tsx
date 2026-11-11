@@ -11,6 +11,7 @@
 //    뽑으면 "또렷하게 보이나요?" [예]면 출력 기기로 하고 방송으로. [아니요]면 도움말과 다시 인쇄.
 // 단추 둘은 늘 좌우 — 부정 왼쪽, 긍정 오른쪽 (D-UX4-01). 프린터를 '기본·실험'으로 나눠 보이지 않는다.
 import { printerProfile, labelSizesForProfileId } from '@livejjim/printer'
+import { CAPTION_POSITIONS, CAPTION_SPACE_HINT, CAPTION_TEXT_MAX, CAPTION_WORDS, captionLayout, type LabelCaption } from '@livejjim/label/captions'
 import type { ProductDesign, ProductItemId, ProductTemplate, TemplateItem } from '@livejjim/label'
 import type { QueueSummary, StoredTemplate, Templates } from '@livejjim/web/src/api/print-types.ts'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -354,6 +355,7 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
       (caught: unknown) => {
         if (ticket === asked.current) {
           setChangingLayout(false)
+          setPreview(null)
           setError(errorText(caught))
         }
       },
@@ -368,8 +370,10 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
 
   const listed = queue?.labelSizes
   const sizes = sortedSizes(listed !== undefined && listed.length > 0 ? listed : labelSizesForProfileId(profileId))
+  const dots = draft === null ? null : labelDots(draft.size)
+  const crowded = draft !== null && dots !== null && captionLayout(draft.captions ?? [], dots.widthDots, dots.heightDots).bodyHeight < dots.heightDots / 2
   const save = async () => {
-    if (draft === null || stored === null || saving) return
+    if (draft === null || stored === null || saving || crowded) return
     setSaving(true)
     setError(null)
     try {
@@ -390,7 +394,6 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
     const y = sectionY.current[id]
     if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - stickyH.current - SPACE.lg), animated: true })
   }
-  const dots = draft === null ? null : labelDots(draft.size)
 
   return (
     <FormPage
@@ -406,8 +409,9 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
           <Late>{draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} widthDots={dots.widthDots} heightDots={dots.heightDots} picked={picked} onFocus={focusItem} onPick={setPicked} onItem={changingLayout ? () => undefined : setItem} /> : null}</Late>
         </View>
       }
-      actions={<BigButton label="저장하고 다음" busy={saving} disabled={draft === null || changingLayout} onPress={() => void save()} />}
+      actions={<BigButton label="저장하고 다음" busy={saving} disabled={draft === null || changingLayout || crowded} onPress={() => void save()} />}
     >
+      {crowded ? <Notice tone="warning" alert>{CAPTION_SPACE_HINT}</Notice> : null}
       {preview?.longest != null ? <Notice tone="warning">{`이름이 아주 길면 잘릴 수 있어요. ${preview.longest}`}</Notice> : null}
       {error !== null ? (
         <View style={{ gap: SPACE.sm }}>
@@ -444,6 +448,7 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
               ))}
             </View>
           </RowGroup>
+          <CaptionFields notes={draft.captions ?? []} onChange={(captions) => setDraft({ ...draft, captions })} />
           {ITEM_ORDER.map((id) => {
             const item = draft.items[id]
             const locked = PRODUCT_LOCKED.includes(id)
@@ -477,6 +482,30 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
         </View>
       )}
     </FormPage>
+  )
+}
+
+function CaptionFields({ notes, onChange }: { readonly notes: readonly LabelCaption[]; readonly onChange: (notes: LabelCaption[]) => void }) {
+  const edit = (index: number, patch: Partial<LabelCaption>) => onChange(notes.map((note, i) => i === index ? { ...note, ...patch } : note))
+  return (
+    <RowGroup title="직접 넣는 문구">
+      <View style={{ paddingHorizontal: SPACE.xl, gap: SPACE.md }}>
+        {notes.map((note, i) => (
+          <View key={i} style={{ gap: SPACE.sm }}>
+            <TextField label={`문구 ${i + 1}`} placeholder="예: 향남꽃선비 라방" maxLength={CAPTION_TEXT_MAX} value={note.text} onChangeText={(text) => edit(i, { text })} />
+            <View role="radiogroup" aria-label={`문구 ${i + 1} 위치`} style={{ gap: SPACE.xs }}>
+              {rowsOf(['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const, 2).map((row) => (
+                <View key={row[0]} style={{ flexDirection: 'row', gap: SPACE.sm }}>
+                  {row.map((position) => <View key={position} style={{ flex: 1 }}><Choice word={CAPTION_WORDS[position]} on={note.position === position} onPress={() => edit(i, { position })} /></View>)}
+                </View>
+              ))}
+            </View>
+            <SmallButton label={`문구 ${i + 1} 삭제`} onPress={() => onChange(notes.filter((_, n) => n !== i))} />
+          </View>
+        ))}
+        <SmallButton label="문구 추가" onPress={() => onChange([...notes, { text: '', position: CAPTION_POSITIONS[notes.length % CAPTION_POSITIONS.length] ?? 'topRight' }])} />
+      </View>
+    </RowGroup>
   )
 }
 
@@ -545,11 +574,14 @@ function LabelEditor({ draft, preview, widthDots, heightDots, picked, onFocus, o
   const { p } = useKit()
   const [width, setWidth] = useState(0)
   const scale = width > 0 ? width / widthDots : 0
+  const { top, bodyHeight } = captionLayout(draft.captions ?? [], widthDots, heightDots)
+  const bodyScaleY = scale * Math.max(0, bodyHeight) / heightDots
   const pickedItem = picked === null ? null : draft.items[picked]
   return (
     <View aria-label="라벨 미리 보기" style={{ padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.surface, gap: SPACE.sm }}>
       <View onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)} style={{ width: '100%', aspectRatio: widthDots / heightDots, borderWidth: 1, borderColor: p.line, borderRadius: RADIUS.sm, borderCurve: 'continuous', overflow: 'hidden', backgroundColor: '#FFFFFF' }}>
         {preview !== null ? <Image accessibilityIgnoresInvertColors source={{ uri: `data:image/png;base64,${preview.png}` }} resizeMode="stretch" style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} /> : null}
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: top * scale, height: Math.max(0, bodyHeight) * scale }}>
         {ITEM_ORDER.filter((id) => draft.items[id].visible).map((id) => {
           const item = draft.items[id]
           const on = picked === id
@@ -560,13 +592,14 @@ function LabelEditor({ draft, preview, widthDots, heightDots, picked, onFocus, o
               aria-label={`라벨의 ${ITEM_WORDS[id]}`}
               aria-pressed={on}
               onPress={() => onFocus(id)}
-              style={{ position: 'absolute', left: item.x * scale, top: item.y * scale, width: item.width * scale, height: item.height * scale, borderRadius: 4, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderStyle: on ? 'solid' : 'dashed', borderColor: on ? p.primary : 'rgba(31,122,77,0.35)', backgroundColor: on ? 'rgba(31,122,77,0.08)' : 'transparent' }}
+              style={{ position: 'absolute', left: item.x * scale, top: item.y * bodyScaleY, width: item.width * scale, height: item.height * bodyScaleY, borderRadius: 4, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderStyle: on ? 'solid' : 'dashed', borderColor: on ? p.primary : 'rgba(31,122,77,0.35)', backgroundColor: on ? 'rgba(31,122,77,0.08)' : 'transparent' }}
             />
           )
         })}
-        {picked !== null && pickedItem !== null && pickedItem.visible && scale > 0 ? (
-          <ItemHandles key={picked} item={pickedItem} scale={scale} widthDots={widthDots} heightDots={heightDots} onTap={() => onFocus(picked)} onChange={(next) => onItem(picked, next)} />
+        {picked !== null && pickedItem !== null && pickedItem.visible && bodyScaleY > 0 ? (
+          <ItemHandles key={picked} item={pickedItem} scale={scale} scaleY={bodyScaleY} widthDots={widthDots} heightDots={heightDots} onTap={() => onFocus(picked)} onChange={(next) => onItem(picked, next)} />
         ) : null}
+        </View>
       </View>
       <Txt step="caption" color="textSub" center>
         {picked === null ? '라벨 안 칸을 누르면 옮기거나 크기를 바꿀 수 있어요.' : `${ITEM_WORDS[picked]} — 끌어서 옮기고, 동그라미를 끌어 크기를 바꿔요.`}
@@ -577,17 +610,18 @@ function LabelEditor({ draft, preview, widthDots, heightDots, picked, onFocus, o
 }
 
 /** 고른 칸 위의 끌기 자리와 크기 손잡이 (손가락 움직임 → 점 단위) */
-function ItemHandles({ item, scale, widthDots, heightDots, onTap, onChange }: {
+function ItemHandles({ item, scale, scaleY, widthDots, heightDots, onTap, onChange }: {
   readonly item: TemplateItem
   readonly scale: number
+  readonly scaleY: number
   readonly widthDots: number
   readonly heightDots: number
   readonly onTap: () => void
   readonly onChange: (item: TemplateItem) => void
 }) {
   const { p } = useKit()
-  const latest = useRef({ item, scale, onTap, onChange })
-  latest.current = { item, scale, onTap, onChange }
+  const latest = useRef({ item, scale, scaleY, widthDots, heightDots, onTap, onChange })
+  latest.current = { item, scale, scaleY, widthDots, heightDots, onTap, onChange }
   const start = useRef(item)
   const make = (kind: 'move' | 'size') =>
     PanResponder.create({
@@ -602,8 +636,8 @@ function ItemHandles({ item, scale, widthDots, heightDots, onTap, onChange }: {
         const k = latest.current.scale
         if (k <= 0) return
         const dx = gesture.dx / k
-        const dy = gesture.dy / k
-        latest.current.onChange(kind === 'move' ? movedItem(start.current, dx, dy, widthDots, heightDots) : resizedItem(start.current, dx, dy, widthDots, heightDots))
+        const dy = gesture.dy / latest.current.scaleY
+        latest.current.onChange(kind === 'move' ? movedItem(start.current, dx, dy, latest.current.widthDots, latest.current.heightDots) : resizedItem(start.current, dx, dy, latest.current.widthDots, latest.current.heightDots))
       },
       onPanResponderRelease: (_, gesture) => {
         if (kind === 'move' && Math.abs(gesture.dx) < 4 && Math.abs(gesture.dy) < 4) latest.current.onTap()
@@ -614,12 +648,12 @@ function ItemHandles({ item, scale, widthDots, heightDots, onTap, onChange }: {
   const knob = 22
   return (
     <>
-      <View {...mover.panHandlers} aria-hidden style={{ position: 'absolute', left: item.x * scale, top: item.y * scale, width: item.width * scale, height: item.height * scale }} />
+      <View {...mover.panHandlers} aria-hidden style={{ position: 'absolute', left: item.x * scale, top: item.y * scaleY, width: item.width * scale, height: item.height * scaleY }} />
       <View
         {...sizer.panHandlers}
         aria-hidden
         hitSlop={12}
-        style={{ position: 'absolute', left: (item.x + item.width) * scale - knob / 2, top: (item.y + item.height) * scale - knob / 2, width: knob, height: knob, borderRadius: knob / 2, borderCurve: 'continuous', backgroundColor: p.primary, borderWidth: 3, borderColor: '#FFFFFF' }}
+        style={{ position: 'absolute', left: (item.x + item.width) * scale - knob / 2, top: (item.y + item.height) * scaleY - knob / 2, width: knob, height: knob, borderRadius: knob / 2, borderCurve: 'continuous', backgroundColor: p.primary, borderWidth: 3, borderColor: '#FFFFFF' }}
       />
     </>
   )
