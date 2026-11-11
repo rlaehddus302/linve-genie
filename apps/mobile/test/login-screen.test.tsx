@@ -13,8 +13,23 @@ import { CODE_ASK_TITLE, PHONE_ASK_TITLE, PHONE_RECHECK } from '@livejjim/web/sr
 import { setErrorHaptic } from '../src/native/haptics.ts'
 import { flush } from './support.ts'
 
+/**
+ * 간편 로그인이 켜지지 않은 서버 (아래 두 시험의 전제). 옛: 주소를 정하지 않아 기본 주소(localhost:3000)로 정말 물었다 —
+ * 그 자리에 서버가 없는 맥에서만 "없는 서버 → 빈 목록"이 되어 통과했고, 서버가 떠 있는 맥 미니(자동 내보내기, D-CI-01)에서는 간편 로그인 단추가 떠 실패했다.
+ */
+function noSocialServer(): void {
+  configureApi({
+    baseUrl: 'https://livegenie.test',
+    fetch: async (input) =>
+      String(input).endsWith('/api/client-config')
+        ? new Response(JSON.stringify({ loginProviders: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } }),
+  })
+}
+
 describe('LoginScreen', () => {
   it('아이디·비밀번호를 적고 로그인을 누르면 onLogin을 부른다', async () => {
+    noSocialServer()
     const onLogin = vi.fn(async () => {})
     render(<LoginScreen expired={false} onLogin={onLogin} />)
     expect(screen.getByRole('heading', { name: '라이브지니' })).toBeTruthy()
@@ -25,6 +40,7 @@ describe('LoginScreen', () => {
   })
 
   it('틀리면 서버 문장을 그대로 보이고 아이디는 남기며 운영자 안내를 붙인다', async () => {
+    noSocialServer()
     const onLogin = vi.fn(async () => {
       throw new ApiError({ status: 401, code: 'LOGIN_FAILED', message: '아이디 또는 비밀번호가 맞지 않아요.' })
     })
