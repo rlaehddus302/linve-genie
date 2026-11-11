@@ -21,6 +21,12 @@
 7. **유튜브에 아무것도 쓰지 않는다**(시험 중 포함). 감사 채팅은 판매자가 켠 실제 운영에서만.
 8. **단추는 좌우로만.** 단추가 둘 이상이면 위아래로 쌓지 않고 한 줄에 놓는다. 부정(취소·아니요·괜찮아요)은 왼쪽, 긍정(확인·예·맞아요)은 오른쪽(D-UX4-01, 사용자 지시).
 
+## 끝나면 내보내기 (D-CI-01 — 맥 미니·맥북·홍재 맥북 어느 Claude든 같다)
+작업이 끝나면 묻지 않고: 바뀐 곳 typecheck·lint·관련 시험 → 커밋 → `git pull --rebase origin main` → `git push origin HEAD:main`(충돌이면 합치고 다시 시험해 푸시. 강제 푸시 금지).
+그다음은 맥 미니가 한다(`.github/workflows/ship.yml`): 빠른 시험 → 운영 서버 배포 → 안드로이드 APK(친구 링크) → 아이폰 TestFlight. 두 아이폰은 TestFlight 자동 업데이트로 받는다.
+각 맥에서 직접 배포·APK·TestFlight를 하지 않는다(비밀은 맥 미니에만). 결과는 `gh run list -w 내보내기 -L 3`로 보고, 실패면 고쳐서 다시 푸시한다.
+네이티브 폴더(apps/mobile/ios·android)도 저장소에 있다 — 고치면 같이 커밋한다.
+
 ## 명령
 - 단계별: `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm golden` · `pnpm adversarial` · `pnpm e2e` (서버·웹 시험은 `TZ=Pacific/Honolulu`)
 - 전체 검증: `pnpm verify`

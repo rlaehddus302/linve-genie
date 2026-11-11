@@ -16,6 +16,16 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import type { Timer } from '../../youtube/timer.ts'
 import { ChatSendError, Pacer } from '../../youtube/chat-send/sender.ts'
 
+/** 브라우저 안에서 도는 함수(evaluate·waitForFunction)가 만지는 요소 — 저장소 전체 타입 검사 설정에는 DOM 타입이 없다 (D-CI-01) */
+interface PageNode {
+  textContent: string | null
+  setAttribute(name: string, value: string): void
+  hasAttribute(name: string): boolean
+}
+interface PageDocument {
+  querySelectorAll(selector: string): Iterable<PageNode>
+}
+
 export const TT_SEND_BASE_URL = 'https://www.tiktok.com'
 export const TT_SEND_TIMEOUT_MS = 20_000
 export const TT_SEND_CONFIRM_MS = 8000
@@ -183,12 +193,12 @@ export class BrowserTikTokSender implements TikTokChatSender {
       const wanted = normalize(text)
       try {
         await page.locator(TT_SEND_SELECTORS.message).evaluateAll((elements, attr) => {
-          for (const element of elements) element.setAttribute(attr, '1')
+          for (const element of elements as unknown as PageNode[]) element.setAttribute(attr, '1')
         }, SEEN_ATTR)
         await input.click({ timeout: 3000 })
         // 봇 계정 화면 — 남은 글은 지우고 우리 글만 넣는다(글자로만, HTML 아님)
         await input.evaluate((element) => {
-          element.textContent = ''
+          ;(element as unknown as PageNode).textContent = ''
         })
         await page.keyboard.insertText(text)
         const typed = normalize((await input.textContent()) ?? '')
@@ -196,7 +206,7 @@ export class BrowserTikTokSender implements TikTokChatSender {
       } catch {
         await input
           .evaluate((element) => {
-            element.textContent = ''
+            ;(element as unknown as PageNode).textContent = ''
           })
           .catch(() => {})
         // 로그인 창이 떴으면 로그인이 풀린 것 (쿠키는 남아 있어도)
@@ -213,7 +223,7 @@ export class BrowserTikTokSender implements TikTokChatSender {
       } catch {
         await input
           .evaluate((element) => {
-            element.textContent = ''
+            ;(element as unknown as PageNode).textContent = ''
           })
           .catch(() => {})
         throw new ChatSendError('rejected')
@@ -223,7 +233,7 @@ export class BrowserTikTokSender implements TikTokChatSender {
         const found = await page
           .waitForFunction(
             ({ selector, attr, want }) => {
-              for (const element of document.querySelectorAll(selector)) {
+              for (const element of (globalThis as unknown as { document: PageDocument }).document.querySelectorAll(selector)) {
                 if (element.hasAttribute(attr)) continue
                 if ((element.textContent ?? '').replace(/\s+/g, ' ').includes(want)) return true
               }

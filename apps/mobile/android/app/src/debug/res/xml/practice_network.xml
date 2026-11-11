@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 연습용(디버그) 앱만: 이 Mac 연습 서버(https://localhost:7701, adb reverse)의 자체 인증서를 믿는다. 배포 앱에는 들어가지 않는다 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/practice_ca" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

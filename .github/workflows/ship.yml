@@ -1,0 +1,60 @@
+# main에 올라오면 맥 미니가 알아서 내보낸다 (D-CI-01, 사용자 지시 2026-11-12
+# "내 맥미니, 내 맥북, 홍재 맥북 각 기기의 클로드한테 일을 시키고 작업 완료되면 자동으로 깃헙 메인 푸시, 운영 서버에 배포, 내 아이폰, 홍재 아이폰 각 앱을 최신 버전으로 업데이트").
+# 각 맥의 Claude는 main에 푸시까지만 한다. 비밀(운영 배포 AWS 역할·안드로이드 서명·App Store Connect 키)은 맥 미니에만 있다.
+# 순서: 빠른 시험 → 운영 서버 → 안드로이드 APK(친구 링크) → 아이폰 TestFlight. 아이폰은 TestFlight "자동 업데이트"를 켜 두면 새 빌드가 저절로 깔린다.
+# 한 번에 하나씩(밀린 것은 가장 새 것 하나만 남는다 — 새 것이 앞 것을 다 품는다). 문서만 바뀐 푸시는 돌지 않는다.
+name: 내보내기
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: ship
+  cancel-in-progress: false
+
+jobs:
+  ship:
+    runs-on: [self-hosted, macOS, livegenie-mini]
+    timeout-minutes: 120
+    env:
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 의존성
+        run: pnpm install --frozen-lockfile
+
+      - name: 빠른 시험 (타입·앱 시험)
+        run: |
+          pnpm typecheck
+          cd apps/mobile && TZ=Pacific/Honolulu npx vitest run
+
+      - name: 운영 서버 배포
+        run: |
+          SHA=$(git rev-parse --short=8 HEAD)
+          MSG=$(git log -1 --format=%s | tr -d "'" | cut -c1-80)
+          git archive "$SHA" -- . ':!harness' ':!tests/e2e' ':!tests/adversarial' | gzip > /tmp/lg-src.tgz
+          bash scripts/deploy/mini-deploy.sh "$SHA" "$MSG"
+          curl -fsS https://livegenie.kr/health
+
+      - name: 안드로이드 APK → 친구 링크
+        run: |
+          export ANDROID_HOME=$HOME/Library/Android/sdk
+          cd apps/mobile/android
+          LIVEGENIE_NOTICE=on LIVEGENIE_SMS=on LIVEJJIM_UPLOAD_PROPERTIES=$HOME/.livejjim-practice/upload.properties \
+            EXPO_PUBLIC_SERVER_URL=https://livegenie.kr NODE_ENV=production ./gradlew assembleRelease -q
+          aws s3 cp app/build/outputs/apk/release/app-release.apk s3://livegenie-backup-445363794351/share/livegenie.apk --quiet
+          cp app/build/outputs/apk/release/app-release.apk /tmp/livegenie.apk
+          rm -f "$HOME/Desktop/livegenie-android.zip" && (cd /tmp && zip -q -j "$HOME/Desktop/livegenie-android.zip" livegenie.apk)
+
+      - name: 아이폰 → TestFlight
+        run: |
+          if [ -f "$HOME/.livegenie-ci/asc.env" ]; then set -a; . "$HOME/.livegenie-ci/asc.env"; set +a; fi
+          cd apps/mobile/ios && pod install
+          cd .. && ./scripts/ios-testflight.sh

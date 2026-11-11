@@ -8,7 +8,9 @@
     "moduleResolution": "bundler",
     "customConditions": ["react-native"],
     "jsx": "react-jsx",
-    "types": ["expo/types", "node"]
+    "types": ["expo/types", "node"],
+    // 그림 가져오기 타입(src/assets.ts — import·export가 없는 유일한 파일)을 전역 선언으로 읽게 "auto". 나머지 파일은 모두 import·export가 있어 그대로 모듈 (D-CI-01, SA-S00-011 선언 파일 금지)
+    "moduleDetection": "auto"
   },
   "include": ["app/**/*.ts", "app/**/*.tsx", "src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "*.ts", "*.mts"]
 }
