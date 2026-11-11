@@ -2,8 +2,6 @@
 // D-UX4-105 "상품 목록에서 품종 컬럼 시작 위치를 맞추기" · "상품 꾹 눌렀을때 흰색 영역이 움직이는게 아니라 회색 박스가 움직임 흰색 영역이 통째로 버튼 영역이어야"
 // D-UX4-106 "수정할 영역을 눌렀을 때 아래팝업을 하프 화면으로 … 기존값을 플레이스홀더로 두고 입력 시작하면 날라가게 … 키보드 위에 확인 누르면 키보드만 닫기고
 //   수정할까요? 묻거나 해당 화면을 내리진 마 … 화면 닫으면 팝업으로 1번 품종a 10,000원에서 ⏎ 2번 품종 b 20,000원으로 바꿀까요? 아니요 / 바꿀게요 … 바뀐부분에 포인트 컬러"
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
@@ -24,7 +22,6 @@ const typePad = (digits: string) => {
   const pad = screen.getByRole('group', { name: '숫자판' })
   for (const key of digits) fireEvent.click(within(pad).getByRole('button', { name: key }))
 }
-const read = (path: string) => readFileSync(join(import.meta.dirname, '..', path), 'utf8')
 
 async function openDetail(world: ReturnType<typeof makeWorld>, no: number) {
   await open(world)
@@ -43,10 +40,17 @@ describe('상품 줄 (D-UX4-105)', () => {
     expect(getComputedStyle(fill).backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
   })
 
-  it('번호 칸 폭은 목록에서 가장 넓은 번호에 맞춘다(품종 시작 자리가 같다)', () => {
-    const source = read('src/screens/console/ProductBoard.tsx')
-    expect(source).toContain('<View testID="product-row-no" style={{ minWidth: noWidth }}')
-    expect(source).toContain('setNoWidth((was) => (width > was ? width : was))')
+  it('번호와 금액의 기준 폭이 작은 값과 최대값에서 같고, 남은 칸에는 품종을 가운데에 표시한다', async () => {
+    await open(makeWorld({ products: [product(8, { name: '창금', price: 2000 }), product(999, { name: '삼광수박금', price: 10_000_000 })] }))
+    for (const [no, name, price] of [[8, '창금', '2,000원'], [999, '삼광수박금', '10,000,000원']] as const) {
+      const row = within(screen.getByRole('button', { name: `상품 자세히 — ${no}번` }))
+      expect(getComputedStyle(row.getByTestId('product-row-no')).width).toBe('48px')
+      expect(getComputedStyle(row.getByTestId('product-row-price')).width).toBe('104px')
+      expect(getComputedStyle(row.getByTestId('product-row-name')).flexGrow).toBe('1')
+      expect(getComputedStyle(row.getByText(`${no}번`)).textAlign).toBe('center')
+      expect(getComputedStyle(row.getByText(name)).textAlign).toBe('center')
+      expect(getComputedStyle(row.getByText(price)).textAlign).toBe('right')
+    }
   })
 })
 

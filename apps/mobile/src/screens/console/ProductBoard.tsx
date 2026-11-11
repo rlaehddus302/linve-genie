@@ -24,6 +24,10 @@ import { IconMenuRow, NamePill, TRASH_TINT, type PillTone } from './parts.tsx'
 export const FRESH_HOLD_MS = 2500
 export const FRESH_FADE_MS = 800
 
+// 앱 글꼴 16pt 실측: '999번' 약 45pt, '10,000,000원' 약 100pt. 숫자별 폭 차이와 반올림 여유를 둔다.
+const NUMBER_COLUMN = 48
+const PRICE_COLUMN = 104
+
 /** 줄이 생기고·사라지고·커질 때 부드럽게 (D-UX4-29). 웹(시험)은 움직이지 않는다 */
 export function animateNextLayout(): void {
   if (Platform.OS === 'web') return
@@ -88,7 +92,7 @@ export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, '
  * 찜도 대기도 없으면 아래 줄을 그리지 않는다. 확인이 필요한 상품은 꼬리표 대신 주황 글 한 줄.
  * freshAt: 방금 올라온 시각(아니면 0) — 그때부터 잠깐 연한 초록, 그 뒤 흰색으로 (D-UX4-29)
  */
-function ProductRow({ product, freshAt, onOpen, doubt, noWidth = 0, onNoWidth }: { readonly product: Product; readonly freshAt: number; readonly onOpen: () => void; readonly doubt?: string; readonly noWidth?: number; readonly onNoWidth?: (width: number) => void }) {
+function ProductRow({ product, freshAt, onOpen, doubt }: { readonly product: Product; readonly freshAt: number; readonly onOpen: () => void; readonly doubt?: string }) {
   const { p, fontScale } = useKit()
   const api = useConsoleApi()
   const [width, setWidth] = useState(0)
@@ -126,17 +130,18 @@ function ProductRow({ product, freshAt, onOpen, doubt, noWidth = 0, onNoWidth }:
       {({ pressed }) => (
       <Animated.View testID="product-row-fill" style={{ gap: SPACE.xs, paddingVertical: 10, paddingHorizontal: SPACE.md, backgroundColor: bg }}>
         {pressed ? <View aria-hidden pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: pressedFill(p, attention !== null ? p.warnBg : p.surface) }} /> : null}
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: SPACE.sm }}>
-          {/* 번호 칸 폭은 목록에서 가장 넓은 번호에 맞춘다 — 품종이 모든 줄에서 같은 자리에서 시작 (D-UX4-105) */}
-          <View testID="product-row-no" style={{ minWidth: noWidth }} onLayout={(event) => onNoWidth?.(Math.ceil(event.nativeEvent.layout.width))}>
-            <Txt step="bodyLarge" weight="heavy">{`${String(product.no)}번`}</Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+          <View testID="product-row-no" style={{ width: Math.ceil(NUMBER_COLUMN * fontScale), maxWidth: '20%' }}>
+            <Txt step="bodyLarge" weight="heavy" center numberOfLines={1} adjustsFontSizeToFit>{`${String(product.no)}번`}</Txt>
           </View>
-          <View style={{ flex: 1 }}>
-            <Txt step="bodyLarge" weight="bold" numberOfLines={1}>
+          <View testID="product-row-name" style={{ flex: 1, minWidth: 0 }}>
+            <Txt step="bodyLarge" weight="bold" center numberOfLines={1}>
               {rowName(product)}
             </Txt>
           </View>
-          <Txt step="bodyLarge" weight="bold">{formatWon(product.price)}</Txt>
+          <View testID="product-row-price" style={{ width: Math.ceil(PRICE_COLUMN * fontScale), maxWidth: '50%' }}>
+            <Txt step="bodyLarge" weight="bold" right numberOfLines={1} adjustsFontSizeToFit>{formatWon(product.price)}</Txt>
+          </View>
         </View>
         {attention !== null ? (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
@@ -189,14 +194,11 @@ export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void
     if (api.selected !== null && seen.current.has(api.selected)) seen.current.set(api.selected, now)
   }
   useAnimatedChange(products.map((product) => `${product.key}:${String(productSlots(product).winners.length + productSlots(product).waitlist.length)}:${product.conflict ? 1 : 0}`).join('|'))
-  // 가장 넓은 번호 폭 — 줄이 그려지며 알려 주고, 더 넓은 번호가 오면 늘어난다 (D-UX4-105)
-  const [noWidth, setNoWidth] = useState(0)
-  const onNoWidth = (width: number) => setNoWidth((was) => (width > was ? width : was))
   if (products.length === 0) return <EmptyFill title={NO_PRODUCTS_YET} body={NO_PRODUCTS_YET_BODY} />
   return (
     <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
       {products.map((product) => (
-        <ProductRow key={product.key} product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={() => onOpen(product.key)} doubt={api.doubts?.get(product.no)} noWidth={noWidth} onNoWidth={onNoWidth} />
+        <ProductRow key={product.key} product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={() => onOpen(product.key)} doubt={api.doubts?.get(product.no)} />
       ))}
     </View>
   )
