@@ -7,6 +7,8 @@ export PATH=/opt/homebrew/bin:$PATH
 SHA="$1"; MSG="$2"
 B=s3://livegenie-backup-445363794351/deploy
 aws s3 cp --quiet /tmp/lg-src.tgz $B/lg-src.tgz
+# 서버에서 도는 적용 스크립트도 저장소 것이 기준이다 — 매번 올린다
+aws s3 cp --quiet "$(dirname "$0")/lg-apply.sh" $B/lg-apply.sh
 U=$(aws s3 presign $B/lg-src.tgz --expires-in 3600)
 A=$(aws s3 presign $B/lg-apply.sh --expires-in 3600)
 python3 - "$U" "$A" "$SHA" "$MSG" > /tmp/lg-ssm.json <<'PY'
