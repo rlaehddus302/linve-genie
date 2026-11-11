@@ -41,10 +41,18 @@ export function fullDateWords(date: string): string {
   return parts === null ? date : `${String(parts.year)}년 ${String(parts.month)}월 ${String(parts.day)}일`
 }
 
-/** 예약 날짜: 첫 예약 시각의 KST 날짜, 모르면(봉인 날짜) 그 주문 날짜 */
+/** `2026-11-09` → `2026년 11월 9일 월요일` (요일은 그 날짜 자체로) */
+export function fullDateWeekdayWords(date: string): string {
+  const parts = dateParts(date)
+  if (parts === null) return date
+  const weekday = WEEKDAY_LONG[new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay()] ?? ''
+  return `${fullDateWords(date)} ${weekday}`
+}
+
+/** 예약 날짜: 첫 예약 시각의 KST 날짜, 모르면(봉인 날짜) 그 주문 날짜. 요일까지 (D-UX4-127, 사용자 지시 "요일도 추가해줘") */
 export function reservedDateWords(claimedAt: string | null, date: string): string {
   const day = claimedAt === null ? '' : kstDate(claimedAt)
-  return fullDateWords(day === '' ? date : day)
+  return fullDateWeekdayWords(day === '' ? date : day)
 }
 
 /** `2026-11-03` → `11월 3일 화요일` (요일은 그 날짜 자체로 — 시간대와 무관) */

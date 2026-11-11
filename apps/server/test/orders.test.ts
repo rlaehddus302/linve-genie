@@ -318,22 +318,24 @@ describe('D-UX4-126 주문 한 건 내보내기', () => {
     const bytes = new Uint8Array(await response.arrayBuffer())
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
     const text = new TextDecoder().decode(bytes.slice(3))
+    // D-UX4-127: 표에 개수 칸·총합·총 결제금액 (사용자 지시 2026-11-11)
     expect(text).toBe(
       [
         '닉네임,홍길동',
         '성함,김받는',
-        '예약 날짜,2026년 10월 19일',
+        '예약 날짜,2026년 10월 19일 월요일',
         '',
-        '번호,상품명,수량,가격',
+        '번호,상품명,개수,가격',
         '2,라울,1,"10,000원"',
         '5,방울복랑 금,1,"21,000원"',
+        '총합,,2개,"31,000원"',
+        '배송비,"30,000원 이상 구매 시 무료",,0원',
+        '할인·추가,,,"−1,000원"',
+        '총 결제금액,,,"30,000원"',
         '',
-        '총 개수,2개',
-        '배송비,0원',
-        '할인·추가,"−1,000원"',
-        '총 금액,"30,000원"',
-        '받은 금액,0원',
-        '남은 금액,"30,000원"',
+        '입금',
+        '받은 금액,,,0원',
+        '남은 금액,,,"30,000원"',
         '',
       ].join('\r\n'),
     )
@@ -378,11 +380,43 @@ describe('D-UX4-126 주문 한 건 내보내기', () => {
     expect(values[0]).toEqual(['항목', '내용', '', ''])
     expect(values[1]?.[0]).toBe('닉네임')
     expect(values[2]).toEqual(['성함', '모름', '', ''])
-    expect(values[3]).toEqual(['예약 날짜', '2026년 10월 18일', '', ''])
-    expect(values[5]).toEqual(['번호', '상품명', '수량', '가격'])
+    // D-UX4-127: 표에 개수 칸·총합·총 결제금액 (사용자 지시 2026-11-11)
+    expect(values[3]).toEqual(['예약 날짜', '2026년 10월 18일 일요일', '', ''])
+    expect(values[5]).toEqual(['번호', '상품명', '개수', '가격'])
     expect(values[6]).toEqual(['2', '라울', '1', '5,000원'])
     expect(values.flat()).toContain('남은 금액')
     expect(values.flat().join(' ')).not.toContain('5678')
+  })
+
+  it('D-UX4-127 상품 바로 아래 총합(개수·상품 합계), 배송비는 왼쪽에 그날 규칙 글, 총 결제금액, 빈 줄 뒤 입금 묶음', async () => {
+    // D-UX4-127: 표에 개수 칸·총합·총 결제금액 (사용자 지시 2026-11-11)
+    const { world, seller } = await world0()
+    await sell(world, seller)
+    const linesOf = async (date: string, buyer: string) => new TextDecoder().decode(new Uint8Array(await (await file(world, seller, 'csv', date, buyer)).arrayBuffer()).slice(3)).split('\r\n')
+    // D2 홍길동: 21,000 + 10,000 = 31,000 ≥ 무료 기준 30,000 → 배송비 0
+    const free = await linesOf(D2, 'UC_A')
+    expect(free.slice(4)).toEqual([
+      '번호,상품명,개수,가격',
+      '2,라울,1,"10,000원"',
+      '5,방울복랑 금,1,"21,000원"',
+      '총합,,2개,"31,000원"',
+      '배송비,"30,000원 이상 구매 시 무료",,0원',
+      '총 결제금액,,,"31,000원"',
+      '',
+      '입금',
+      '받은 금액,,,0원',
+      '남은 금액,,,"31,000원"',
+      '',
+    ])
+    expect(free.some((line) => line.startsWith('총 개수') || line.startsWith('총 금액') || line.startsWith('할인·추가'))).toBe(false)
+    // D1 홍길동: 무료 기준이 없는 날 → 기본 배송비 4,000원이 붙고 총 결제금액에 더해진다
+    const paid = await linesOf(D1, 'UC_A')
+    expect(paid[2]).toBe('예약 날짜,2026년 10월 18일 일요일')
+    expect(paid.slice(6, 9)).toEqual(['총합,,1개,"10,000원"', '배송비,"기본 배송비 4,000원",,"4,000원"', '총 결제금액,,,"14,000원"'])
+    // D2 나래: 직접 수령이면 그 말
+    const pickup = await linesOf(D2, 'UC_B')
+    expect(pickup).toContain('배송비,직접 수령,,0원')
+    expect(pickup).toContain('총 결제금액,,,"6,000원"')
   })
 
   it('상세와 같은 검사: 모르는 구매자·없는 날짜·리허설은 404, 구매자를 적지 않으면 400, 로그인 없으면 401', async () => {

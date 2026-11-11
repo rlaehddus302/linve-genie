@@ -6,7 +6,7 @@
 // 작은 회색 단추 [배송비 기준 바꾸기][내보내기] · 받은 금액·남은 금액은 따로 묶음.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { addressWords, claimedAtWords, dayWeekdayWords, dotDate, fullDateWords, joinOrders, missingWords, parseOrderKey, phoneDashes, reservedDateWords, shippingNote } from '../src/lib/orders.ts'
+import { addressWords, claimedAtWords, dayWeekdayWords, dotDate, fullDateWeekdayWords, fullDateWords, joinOrders, missingWords, parseOrderKey, phoneDashes, reservedDateWords, shippingNote } from '../src/lib/orders.ts'
 import { setNativeModules } from '../src/native/index.ts'
 import { OrderDetailScreen } from '../src/screens/OrderDetailScreen.tsx'
 import { SettleScreen } from '../src/screens/SettleScreen.tsx'
@@ -188,40 +188,48 @@ describe('주문 상세 (D-UX4-125)', () => {
     expect(within(sms).getByText('문자')).toBeTruthy()
   })
 
-  it('표: 번호 | 상품명 | 가격 — 둘 이상이면 이름 뒤 ×n, 가격은 그 줄 합', async () => {
+  // D-UX4-127 (사용자 지시 2026-11-11 "표 컬럼에 개수 추가해주고, 번호와 개수는 중간정렬"): 옛 번호 | 상품명 | 가격, 이름 뒤 ×n → 개수 칸
+  it('표: 번호 | 상품명 | 개수 | 가격 — 번호·개수는 가운데, 가격은 그 줄 합', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ items: [{ no: 3, name: '금황', price: 15_000, qty: 1 }, { no: 15, name: '핑크프릴', price: 8_000, qty: 2 }], itemCount: 3, subtotal: 31_000 }) } })
     openDetail(w)
     const table = await screen.findByRole('table', { name: '상품' })
     const rows = within(table).getAllByRole('row')
-    expect(within(rows[0]!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['번호', '상품명', '가격'])
-    expect(rows.slice(1).map((row) => row.getAttribute('aria-label'))).toEqual(['3번 금황 15,000원', '15번 핑크프릴 ×2 16,000원'])
+    expect(within(rows[0]!).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['번호', '상품명', '개수', '가격'])
+    expect(rows.slice(1, 3).map((row) => row.getAttribute('aria-label'))).toEqual(['3번 금황 1개 15,000원', '15번 핑크프릴 2개 16,000원'])
+    expect(within(rows[2]!).getByText('15').style.textAlign).toBe('center')
+    expect(within(rows[2]!).getByText('2').style.textAlign).toBe('center')
+    expect(within(table).queryByText(/×2/)).toBeNull()
   })
 
-  // D-UX4-126: 예약일시 → 예약 날짜(2026년 11월 7일), 순서 총 개수·배송비·총 금액·예약 날짜, "배송비 포함"은 총 금액 왼쪽,
-  // 받은 금액·남은 금액은 따로 "입금" 묶음, [배송비 기준 바꾸기]·[내보내기]는 표 묶음 오른쪽 아래 작은 회색 단추
-  it('금액: 표 바로 아래 총 개수·배송비(무료 기준)·총 금액·예약 날짜, 받은·남은 금액은 따로, [배송비 기준 바꾸기]는 가게 설정', async () => {
+  // D-UX4-127 (사용자 지시 2026-11-11): 목록 끝 얇은 구분선(띠 아님) → 총합(개수 칸 아래 개수 합 · 가격 칸 아래 가격 합) → 배송비(무료 기준 글은 왼쪽) → 최종 금액.
+  // 옛 총 개수·총 금액(왼쪽 "배송비 포함") 줄은 없다. 예약 날짜는 주소 아래(요일까지). 받은·남은 금액은 "입금" 이름표 묶음, 남은 금액이 있으면 빨강.
+  // 사용자 말 "총 결제금액"은 앱 글 "결제" 금지(D-PAY-01·AC-PAY2-01)라 "최종 금액"으로 (D-UX4-127 AUTO)
+  it('금액: 구분선 아래 총합·배송비(왼쪽 무료 기준)·최종 금액, 예약 날짜는 주소 아래, "입금" 묶음 남은 금액 빨강, [배송비 기준 바꾸기]는 가게 설정', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ claimedAt: '2026-10-29T06:42:00.000Z', received: 4_000, payment: 'PARTIAL' }) } })
     const onOpenShopSettings = vi.fn()
     openDetail(w, { onOpenShopSettings })
-    const money = await screen.findByRole('group', { name: '금액' })
-    expect(within(money).getAllByLabelText(/^(총 개수|배송비|총 금액|예약 날짜) /).map((line) => line.getAttribute('aria-label'))).toEqual([
-      '총 개수 1개',
-      '배송비 4,000원',
-      '총 금액 배송비 포함 14,000원',
-      '예약 날짜 2026년 10월 29일',
+    const table = await screen.findByRole('table', { name: '상품' })
+    expect(within(table).getByTestId('table-rule')).toBeTruthy()
+    expect(within(table).getAllByRole('row').slice(2).map((row) => row.getAttribute('aria-label'))).toEqual([
+      '총합 1개 10,000원',
+      '배송비 4,000원 · 50,000원 이상 구매 시 무료',
+      '최종 금액 14,000원',
     ])
-    expect(within(money).getByText('50,000원 이상 구매 시 무료')).toBeTruthy()
+    expect(within(table).queryByText('배송비 포함')).toBeNull()
+    expect(within(table).queryByText(/^총 (개수|금액)$/)).toBeNull()
+    const head = screen.getByRole('group', { name: '손님' })
+    expect(within(head).getByLabelText('예약 날짜 2026년 10월 29일 목요일')).toBeTruthy()
     // 표와 같은 묶음 — 사이에 회색 띠가 없다
     const order = screen.getByRole('group', { name: '주문' })
-    expect(within(order).getByRole('table', { name: '상품' })).toBeTruthy()
     expect(within(order).queryByTestId('detail-band')).toBeNull()
+    expect(within(order).queryByLabelText(/^예약 날짜/)).toBeNull()
     const paid = screen.getByRole('group', { name: '입금' })
+    expect(within(paid).getByRole('heading', { name: '입금' })).toBeTruthy()
     expect(within(paid).getByLabelText('받은 금액 4,000원')).toBeTruthy()
-    expect(within(paid).getByLabelText('남은 금액 10,000원')).toBeTruthy()
-    expect(within(money).queryByLabelText(/^받은 금액/)).toBeNull()
-    expect(within(money).queryByLabelText(/^할인·추가/)).toBeNull()
+    expect(within(within(paid).getByLabelText('남은 금액 10,000원')).getByText('10,000원').style.color).toBe('rgb(221, 24, 36)')
+    expect(within(order).queryByLabelText(/^할인·추가/)).toBeNull()
     expect(within(paid).queryByLabelText(/^돌려줄 돈/)).toBeNull()
     // 단추는 좌우로 — [배송비 기준 바꾸기] 왼쪽, [내보내기] 오른쪽
     expect(within(order).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['배송비 기준 바꾸기', '내보내기'])
@@ -229,7 +237,7 @@ describe('주문 상세 (D-UX4-125)', () => {
     expect(onOpenShopSettings).toHaveBeenCalledOnce()
   })
 
-  it('금액: 할인·추가와 돌려줄 돈은 있을 때만, 무료 기준이 없으면 기본 배송비, 직접 수령이면 그 말', async () => {
+  it('금액: 할인·추가와 돌려줄 돈은 있을 때만, 무료 기준이 없으면 기본 배송비, 직접 수령이면 그 말, 다 받았으면 남은 금액은 빨강이 아니다', async () => {
     const w = makeWorld()
     withOrders(w, ordersView([]), {
       details: {
@@ -238,15 +246,16 @@ describe('주문 상세 (D-UX4-125)', () => {
       },
     })
     const { unmount } = openDetail(w)
-    const money = await screen.findByRole('group', { name: '금액' })
-    expect(within(money).getByLabelText('할인·추가 −1,000원')).toBeTruthy()
+    const table = await screen.findByRole('table', { name: '상품' })
+    expect(within(table).getByLabelText('할인·추가 −1,000원')).toBeTruthy()
+    expect(within(table).getByLabelText('최종 금액 13,000원')).toBeTruthy()
     const paid = screen.getByRole('group', { name: '입금' })
     expect(within(paid).getByLabelText('돌려줄 돈 7,000원')).toBeTruthy()
-    expect(within(paid).getByLabelText('남은 금액 0원')).toBeTruthy()
-    expect(within(money).getByText('기본 배송비 4,000원')).toBeTruthy()
+    expect(within(within(paid).getByLabelText('남은 금액 0원')).getByText('0원').style.color).not.toBe('rgb(221, 24, 36)')
+    expect(within(table).getByText('기본 배송비 4,000원')).toBeTruthy()
     unmount()
     openDetail(w, { buyer: 'u2' })
-    expect(within(await screen.findByRole('group', { name: '금액' })).getByText('직접 수령')).toBeTruthy()
+    expect(within(await screen.findByRole('table', { name: '상품' })).getByText('직접 수령')).toBeTruthy()
   })
 
   // D-UX4-126: [내보내기] → 아래 창 한 줄 [사진][CSV 파일][엑셀 파일] → 서버 파일을 받아 공유 창 (휴대폰 번호·주소는 넣지 않는다고 알린다)
@@ -326,8 +335,10 @@ describe('주문 글자 (D-UX4-125)', () => {
     expect(dotDate('2026-01-07')).toBe('1.7')
     expect(fullDateWords('2026-11-07')).toBe('2026년 11월 7일')
     // 예약 날짜는 한국 날짜: UTC 11/10 15:30 = 한국 11/11, 모르면 주문 날짜
-    expect(reservedDateWords('2026-11-10T15:30:00.000Z', '2026-11-10')).toBe('2026년 11월 11일')
-    expect(reservedDateWords(null, '2026-11-07')).toBe('2026년 11월 7일')
+    // D-UX4-127: 예약 날짜에 요일까지 (사용자 지시 "요일도 추가해줘")
+    expect(reservedDateWords('2026-11-10T15:30:00.000Z', '2026-11-10')).toBe('2026년 11월 11일 수요일')
+    expect(reservedDateWords(null, '2026-11-07')).toBe('2026년 11월 7일 토요일')
+    expect(fullDateWeekdayWords('2026-11-09')).toBe('2026년 11월 9일 월요일')
     expect(missingWords(['address', 'name'])).toBe('성함 · 주소 모름')
     expect(missingWords(['phone'])).toBe('휴대폰 번호 모름')
     expect(missingWords([])).toBeNull()

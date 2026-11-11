@@ -408,29 +408,46 @@ export class OrderService {
 
 // ── 주문 한 건 내보내기 (D-UX4-126) ────────────────────────────────────
 
+const WEEKDAY_LONG = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'] as const
+
+/** `2026-11-09` → `2026년 11월 9일 월요일` (요일은 그 날짜 글자만으로 — 시계·시간대와 무관) */
+export function dateWeekdayWords(day: string): string {
+  const [year, month, date] = day.split('-').map(Number) as [number, number, number]
+  const weekday = WEEKDAY_LONG[new Date(Date.UTC(year, month - 1, date)).getUTCDay()] ?? ''
+  return `${String(year)}년 ${String(month)}월 ${String(date)}일 ${weekday}`
+}
+
+/** 배송비 옆 글: 그날 배송비 규칙 (앱 상세 화면 shippingNote와 같은 말 — 직접 수령·합배송·따로 정함이면 그 말) */
+export function exportShippingNote(rule: OrderDetailView['shippingRule']): string {
+  if (rule.mode === 'PICKUP') return '직접 수령'
+  if (rule.mode === 'COMBINED') return '합배송'
+  if (rule.mode === 'FIXED') return '따로 정한 배송비'
+  return rule.freeThreshold !== null ? `${formatWon(rule.freeThreshold)} 이상 구매 시 무료` : `기본 배송비 ${formatWon(rule.baseFee)}`
+}
+
 /**
- * 내보내기 표 (CSV·엑셀이 같은 줄): 위 묶음(닉네임·성함·예약 날짜) → 빈 줄 → 상품 표(번호·상품명·수량·가격) → 빈 줄 → 금액 묶음.
+ * 내보내기 표 (CSV·엑셀이 같은 줄, 앱 주문 상세와 같은 차례 — D-UX4-127):
+ * 위 묶음(닉네임·성함·예약 날짜+요일) → 빈 줄 → 상품 표(번호·상품명·개수·가격) → 총합(개수·상품 합계) → 배송비(왼쪽에 규칙 글)
+ * → 할인·추가(있을 때) → 총 결제금액 → 빈 줄 → 입금(받은 금액·남은 금액·돌려줄 돈). 금액은 모두 가격 칸.
  * 휴대폰 번호·주소는 넣지 않는다 (D-UX4-126 AUTO — 파일은 메신저로 넘겨지기 쉽다. 손님 엑셀도 연락처는 기본으로 뺀다).
  * 금액은 정수 원 그대로 formatWon (가격 = 한 개 가격 × 수량)
  */
 export function orderExportRows(view: OrderDetailView): string[][] {
   const day = view.claimedAt === null ? view.date : kstDate(Date.parse(view.claimedAt))
-  const [year, month, date] = day.split('-').map(Number) as [number, number, number]
   const rows: string[][] = [
     ['닉네임', view.nickname],
     ['성함', view.name ?? '모름'],
-    ['예약 날짜', `${String(year)}년 ${String(month)}월 ${String(date)}일`],
+    ['예약 날짜', dateWeekdayWords(day)],
     [],
-    ['번호', '상품명', '수량', '가격'],
+    ['번호', '상품명', '개수', '가격'],
     ...view.items.map((item) => [String(item.no), item.name, String(item.qty), formatWon(item.price * item.qty)]),
-    [],
-    ['총 개수', `${String(view.itemCount)}개`],
-    ['배송비', formatWon(view.shipping)],
+    ['총합', '', `${String(view.itemCount)}개`, formatWon(view.subtotal)],
+    ['배송비', exportShippingNote(view.shippingRule), '', formatWon(view.shipping)],
   ]
   // 앱 화면(signedWon)과 같이 빼기만 − (U+2212) — 수식 시작 글자 '-'가 아니라 CSV에서 따옴표가 붙지 않는다
-  if (view.adjustments !== 0) rows.push(['할인·추가', `${view.adjustments < 0 ? '−' : ''}${formatWon(Math.abs(view.adjustments))}`])
-  rows.push(['총 금액', formatWon(view.total)], ['받은 금액', formatWon(view.received)], ['남은 금액', formatWon(Math.max(view.total - view.received, 0))])
-  if (view.refundDue > 0) rows.push(['돌려줄 돈', formatWon(view.refundDue)])
+  if (view.adjustments !== 0) rows.push(['할인·추가', '', '', `${view.adjustments < 0 ? '−' : ''}${formatWon(Math.abs(view.adjustments))}`])
+  rows.push(['총 결제금액', '', '', formatWon(view.total)], [], ['입금'], ['받은 금액', '', '', formatWon(view.received)], ['남은 금액', '', '', formatWon(Math.max(view.total - view.received, 0))])
+  if (view.refundDue > 0) rows.push(['돌려줄 돈', '', '', formatWon(view.refundDue)])
   return rows
 }
 
