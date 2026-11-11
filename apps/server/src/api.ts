@@ -16,6 +16,7 @@ import { getCookie } from 'hono/cookie'
 import { SHOP_NAME_MESSAGE } from './accounts.ts'
 import { REQUEST_ID_RE, isPlainObject, own, ownKeys } from './api-fields.ts'
 import { VOICE_LOG_MESSAGES } from './voice-log.ts'
+import type { LogSink } from './log.ts'
 import { CLEAR_SESSION_COOKIE, SESSION_COOKIE, sessionCookie, type Auth, type SessionContext } from './auth.ts'
 import { ClosingService, buyerParam, type ApiProblem, type FileResult, type Outcome } from './closing.ts'
 import { apiError, JSON_CONTENT_TYPE } from './errors.ts'
@@ -118,6 +119,8 @@ export interface ApiDeps {
   readonly clientConfig?: { readonly hostActionDelayMs: number; readonly testPrinter?: boolean }
   /** 요금 (N5). 없거나 꺼져 있으면 /api/billing/**는 404 */
   readonly billing?: BillingService
+  /** 서버 로그 (앱 프린터 연결 단계 기록, D-PRN-DIAG). 없으면 그 기록을 버린다 */
+  readonly log?: LogSink
   /** E2E 기동만: 확인서 데이터 조회의 ?at=<UTC 밀리초> (AC-I2-15, ServerOptions.receiptAtParam) */
   readonly receiptAtParam?: boolean
   /** 유튜브 연동 (Y1, 설정이 없으면 null — 그 API는 503) */
@@ -449,6 +452,30 @@ export function createApi(deps: ApiDeps): Hono<Env> {
             },
     }),
   )
+
+  // 앱 프린터 연결 단계 기록 (D-PRN-DIAG) — 판매자 휴대폰에서 연결이 안 될 때 원인을 서버 로그로 본다.
+  // 단계 이름은 영문·숫자·밑줄만, 숫자는 정수만 받는다. 기기 주소·이름 전체·글은 받지 않는다. 응답은 늘 204(앱은 결과를 보지 않는다)
+  const DIAG_STEP_RE = /^[a-z][a-z0-9_]{0,63}$/i
+  const DIAG_MAX = 80
+  api.post('/printer-diag', (c) => {
+    const events = own(body(c), 'events')
+    if (deps.log === undefined || !Array.isArray(events)) return c.body(null, 204)
+    const seller = sellerOf(c)
+    const run = Math.floor(Math.random() * 1e6)
+    events.slice(0, DIAG_MAX).forEach((event: unknown, index) => {
+      if (!isPlainObject(event)) return
+      const step = own(event, 'step')
+      if (typeof step !== 'string' || !DIAG_STEP_RE.test(step)) return
+      const int = (key: string): number | undefined => {
+        const value = own(event, key)
+        return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
+      }
+      const ms = int('ms')
+      const code = int('code')
+      deps.log?.({ level: 'info', code: 'PRINTER_DIAG', seller, reason: step, seq: run * 100 + index, ...(ms === undefined ? {} : { count: ms }), ...(code === undefined ? {} : { status: code }) })
+    })
+    return c.body(null, 204)
+  })
 
   // ── 설정 (AC-S04-50) ──────────────────────────────────────────────────
   api.get('/settings', async (c) => c.json({ settings: await service.settings(sellerOf(c)) }))

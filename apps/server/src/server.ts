@@ -821,6 +821,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
+      log,
       service,
       closing,
       receiptLinks,

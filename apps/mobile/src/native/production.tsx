@@ -26,6 +26,7 @@ import { cancelPrinterPick, pickDevice, pickPrinter, setPickEntries, usePickWind
 import { AppPrinter } from './app-printer.ts'
 import { LiveNativeAudio } from './live-audio.ts'
 import { setNativeModules } from './index.ts'
+import { diag, diagBegin, diagFlush, diagManager } from './printer-diag.ts'
 import { setNoticeModule } from './notice.ts'
 import { setErrorHaptic, setHaptic } from './haptics.ts'
 import * as Haptics from 'expo-haptics'
@@ -38,6 +39,8 @@ async function permission(): Promise<boolean> {
   if (Platform.OS !== 'android') return true
   const names = Number(Platform.Version) >= 31 ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION]
   const results = await PermissionsAndroid.requestMultiple(names)
+  // 프린터 연결 단계 기록 (D-PRN-DIAG): 권한마다 결과 (granted · denied · never_ask_again)
+  for (const name of names) diag(`perm_${name.split('.').pop() ?? 'x'}_${String(results[name])}`)
   return names.every((name) => results[name] === PermissionsAndroid.RESULTS.GRANTED)
 }
 
@@ -59,9 +62,12 @@ export function installProductionNative(): void {
   // 아래 탭 뒤 흐림 (D-UX3-13): 아이폰만 — 안드로이드 흐림은 느려 반투명 흰색만 둔다
   if (Platform.OS === 'ios') setTabBarBackdrop(TabBarBlur)
   let transport: BleTransport
+  let managerFailed = false
   try {
-    transport = createPlxTransport(new BleManager({ restoreStateIdentifier: BLE_RESTORE_IDENTIFIER, restoreStateFunction: () => undefined }))
+    // 프린터 연결 단계 기록 (D-PRN-DIAG): 관리자를 감싸 찾기·연결 결과와 오류 번호를 모은다
+    transport = createPlxTransport(diagManager(new BleManager({ restoreStateIdentifier: BLE_RESTORE_IDENTIFIER, restoreStateFunction: () => undefined })))
   } catch {
+    managerFailed = true
     transport = {
       state: async () => 'unsupported',
       onStateChange: () => () => undefined,
@@ -77,8 +83,26 @@ export function installProductionNative(): void {
   const connect = chooser.connect.bind(chooser)
   const reconnect = chooser.reconnect.bind(chooser)
   const refused = { ok: false as const, error: { code: 'BLUETOOTH_OFF' as const, message: '블루투스 권한이 없어요. 설정에서 주변 기기 사용을 허용해 주세요.', action: '설정 확인' } }
-  chooser.connect = async (method) => ((await permission()) ? connect(method) : refused)
-  chooser.reconnect = async (method) => ((await permission()) ? reconnect(method) : refused)
+  // 연결 시도마다 기기 정보·권한·단계를 모아 끝나면 서버로 보낸다 (D-PRN-DIAG)
+  const traced =
+    (name: string, run: typeof connect) =>
+    async (method: Parameters<typeof connect>[0]) => {
+      diagBegin(`try_${name}`)
+      diag(`os_${Platform.OS}`, Number(Platform.Version))
+      const model = (Platform.constants as { Model?: unknown }).Model
+      if (typeof model === 'string') diag(`model_${model}`)
+      if (managerFailed) diag('ble_manager_failed')
+      try {
+        const result = (await permission()) ? await run(method) : refused
+        diagFlush(result.ok ? 'result_ok' : `result_${result.error.code}`)
+        return result
+      } catch (error) {
+        diagFlush(`result_throw_${error instanceof Error ? error.name : typeof error}`)
+        throw error
+      }
+    }
+  chooser.connect = traced('connect', connect)
+  chooser.reconnect = traced('reconnect', reconnect)
   const device = createReconnectingAdapter(chooser, AUTO_RECONNECT_POLICY)
   const printer = new AppPrinter({
     device,

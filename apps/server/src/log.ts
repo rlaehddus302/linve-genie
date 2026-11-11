@@ -103,6 +103,8 @@ export type LogCode =
   | 'BACKUP_FAILED'
   | 'DB_UNAVAILABLE'
   | 'PRINT_NOTIFY_FAILED'
+  // D-PRN-DIAG: 앱 프린터 연결 단계 기록 — 정해진 단계 이름(reason)·숫자(오류 번호·밀리초)·판매자 ID만. 기기 주소·닉네임·글은 남기지 않는다
+  | 'PRINTER_DIAG'
   | 'IG_META_FAILED'
   | 'IG_TOKEN_UNREADABLE'
   | 'IG_COMMENT_SKIPPED'
@@ -279,6 +281,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   BACKUP_FAILED: '백업하지 못했어요(운영 백업 명령은 종료 코드 1 · 판매자 자동 백업은 다음 확인 때 다시 해요)',
   DB_UNAVAILABLE: '데이터베이스에 닿지 않아요',
   PRINT_NOTIFY_FAILED: '출력 기록 알림을 보내지 못했어요(기록은 저장됨)',
+  PRINTER_DIAG: '앱 프린터 연결 단계',
   IG_META_FAILED: '인스타그램(메타) 요청이 실패했어요',
   IG_TOKEN_UNREADABLE: '인스타그램 토큰을 풀지 못해 연결을 다시 연결 필요로 바꿨어요',
   IG_COMMENT_SKIPPED: '형식이 틀린 인스타그램 댓글을 기록하지 않고 셌어요',
