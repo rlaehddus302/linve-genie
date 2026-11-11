@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>따라보기 검수</title>
+<style>
+/* 왼쪽 영상, 오른쪽 위 "지금 이 순간"(화면 번호·판매자 말·채팅), 오른쪽 아래 시스템 결과 목록 */
+:root {
+  --bg: #f4f5f3; --panel: #ffffff; --ink: #1c211d; --muted: #646d66; --line: #d9ded9;
+  --tag: #f2c94c; --tag-ink: #2a2405; --ok: #1f7a4d; --bad: #b3362b; --warn: #a06a00; --now: #e8f0ff;
+  --sans: "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #141815; --panel: #1c211d; --ink: #e6ebe7; --muted: #9aa49c; --line: #2f3731;
+  --tag: #e8bf3f; --tag-ink: #221c02; --ok: #4cc28a; --bad: #ef6b5f; --warn: #e0a83a; --now: #22304a; color-scheme: dark } }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); display: flex; flex-direction: column; }
+header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0; }
+header select, header button { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+header .stat { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+header label { font-size: 13px; color: var(--muted); display: flex; gap: 4px; align-items: center; }
+main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(360px, 1fr); }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+.left { padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+video { width: 100%; max-height: 62vh; background: #000; border-radius: 8px; }
+.now { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; min-height: 0; }
+.now .row { display: flex; gap: 10px; align-items: baseline; }
+.now .k { width: 74px; flex: none; color: var(--muted); font-size: 12px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font-family: var(--mono); font-weight: 700; background: var(--tag); color: var(--tag-ink); padding: 1px 8px; border-radius: 4px; }
+.chip.small { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+#say { min-height: 2.9em; }
+#chat { height: 150px; overflow: auto; font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+#chat .s { color: var(--warn); font-weight: 700; }
+#chat .n { font-family: var(--mono); font-weight: 700; }
+#chat .who { color: var(--muted); }
+.right { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.right .bar { padding: 10px 12px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.right .bar button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+#list { flex: 1; overflow: auto; padding: 8px 12px 40px; display: grid; gap: 8px; align-content: start; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
+.card.cur { background: var(--now); }
+.card img { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; cursor: pointer; background: #000; }
+.card .top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.card .no { font-family: var(--mono); font-size: 20px; font-weight: 700; }
+.card .kind { font-size: 12px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid; }
+.kind.c { color: var(--ok); } .kind.r { color: var(--warn); } .kind.x { color: var(--bad); }
+.card .t { font-family: var(--mono); font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
+.card .why { font-size: 12px; color: var(--muted); }
+.price { font-size: 13px; }
+.price b { font-family: var(--mono); }
+.q { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+.q .lab { width: 34px; color: var(--muted); }
+.q button { font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+.q button.on.no { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+.q button.on.yes { background: var(--ok); border-color: var(--ok); color: var(--panel); }
+.q input { font-family: var(--mono); width: 90px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--ink); }
+.miss { border-style: dashed; grid-template-columns: 1fr; }
+.truth { font-size: 13px; font-weight: 700; }
+.truth .o { color: var(--ok); } .truth .x { color: var(--bad); } .truth .m { color: var(--warn); }
+.card.wrong { border-color: var(--bad); border-width: 2px; }
+details.more { grid-column: 1 / -1; font-size: 12px; }
+details.more summary { cursor: pointer; color: var(--muted); }
+details.more .k { color: var(--muted); margin-top: 6px; font-weight: 700; }
+details.more pre { white-space: pre-wrap; margin: 2px 0 0; font: 12px/1.5 var(--mono); background: var(--bg); padding: 6px 8px; border-radius: 6px; max-height: 260px; overflow: auto; }
+.lost { grid-template-columns: 1fr; border-color: var(--bad); }
+.lost .nums { font-family: var(--mono); font-weight: 700; }
+.lost .nums button { font: 700 14px var(--mono); margin: 2px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--bad); background: var(--panel); color: var(--bad); cursor: pointer; }
+#anabox { max-height: 58vh; overflow: auto; padding: 10px 12px; border-bottom: 2px solid var(--bad); background: var(--panel); }
+#anabox .close { float: right; font: inherit; padding: 3px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+#ana { display: grid; gap: 8px; }
+#ana h3 { margin: 4px 0 0; font-size: 14px; }
+#ana .row { font-size: 12px; }
+#ana .stt { cursor: pointer; font-size: 13px; } #ana .stt:hover { text-decoration: underline; }
+#ana .stt .how { color: var(--warn); font-size: 11px; margin-left: 6px; }
+.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.fr { position: relative; cursor: pointer; border-radius: 4px; overflow: hidden; background: #000; }
+.fr img { width: 100%; display: block; }
+.fr .bx { position: absolute; border: 2px solid #9aa49c; } .fr .bx.me { border-color: var(--tag); }
+.fr .bx span { position: absolute; top: -15px; left: -2px; font: 700 10px var(--mono); background: #9aa49c; color: #000; padding: 0 2px; }
+.fr .bx.me span { background: var(--tag); }
+.fr .cap { position: absolute; bottom: 0; left: 0; right: 0; font: 11px var(--mono); background: rgba(0,0,0,.65); color: #fff; padding: 1px 4px; }
+form.add { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+form.add input { font-family: var(--mono); width: 90px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+.empty { color: var(--muted); padding: 20px 4px; }
+#saved { font-size: 12px; color: var(--muted); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>따라보기 검수</h1>
+  <select id="run" aria-label="방송 고르기"></select>
+  <span class="stat" id="stat"></span>
+  <label><input type="checkbox" id="spoil"> 앞으로 나올 결과도 보기</label>
+  <span id="saved"></span>
+</header>
+<main>
+  <section class="left">
+    <video id="v" controls preload="metadata"></video>
+    <div class="now">
+      <div class="row"><span class="k">지금 시각</span><span id="clock" style="font-family:var(--mono)"></span></div>
+      <div class="row"><span class="k">화면 번호</span><span class="chips" id="scr"></span></div>
+      <div class="row"><span class="k">판매자 말</span><span id="say"></span></div>
+      <div class="row" style="align-items:start"><span class="k">채팅</span><div id="chat" style="flex:1"></div></div>
+    </div>
+  </section>
+  <section class="right">
+    <div class="bar">
+      <form class="add" id="add">
+        <span>빠진 상품</span>
+        <input id="addno" inputmode="numeric" placeholder="번호" aria-label="빠진 상품 번호">
+        <input id="addprice" inputmode="numeric" placeholder="금액" aria-label="빠진 상품 금액">
+        <button type="submit">지금 시각에 추가</button>
+      </form>
+    </div>
+    <div id="anabox" hidden></div>
+    <div id="list"></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let D = null, L = { items: {}, missing: [] }, lastRender = -1, saveTimer = null;
+const hms = (t) => { t = Math.max(0, Math.floor(t)); return `${Math.floor(t / 3600)}:${String(Math.floor(t % 3600 / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+const won = (v) => v == null ? "모름" : v.toLocaleString("ko-KR") + "원";
+const spans = (xs) => { xs.sort((a, b) => a - b); const out = []; let r = [];
+  for (const x of xs) { if (r.length && x - r[r.length - 1] > 3) { out.push(r); r = []; } r.push(x); }
+  if (r.length) out.push(r); return out.map((r) => `${hms(r[0])}~${hms(r[r.length - 1])}(${r.length}초)`).join(", "); };
+
+async function loadRuns() {
+  const rs = await (await fetch("/api/runs")).json();
+  const sel = $("run"); sel.textContent = "";
+  for (const r of rs) { const o = document.createElement("option"); o.value = r.run; o.textContent = r.name + (r.done ? "" : " (분석 중)"); sel.append(o); }
+  sel.onchange = () => open(sel.value);
+  // 주소 끝 #<방송>으로 바로 열기 (예: #sudam_co1GHJ462j4)
+  const want = decodeURIComponent(location.hash.slice(1));
+  const first = rs.find((r) => r.run === want) || rs[0];
+  if (first) { sel.value = first.run; open(first.run); }
+}
+async function open(run) {
+  D = await (await fetch("/api/data/" + run)).json();
+  L = Object.assign({ items: {}, missing: [] }, D.labels || {});
+  D.products = D.events.filter((e) => e.kind === "확정" || e.kind === "확인요청");
+  D.prices = {}; D.names = {};
+  for (const e of D.events) if (e.kind === "금액") D.prices[e.no + "@" + Math.floor(e.start_sec)] = e;
+  for (const e of D.events) if (e.kind === "품종") D.names[e.no + "@" + Math.floor(e.start_sec)] = e;
+  D.chatNums = D.chat;
+  D.T = D.truth || {}; D.hasT = Object.keys(D.T).length > 0;
+  $("v").src = "/video/" + D.vid + ".mp4";
+  lastRender = -1; render(true);
+}
+function keyOf(e) { return e.kind + ":" + e.no + "@" + Math.floor(e.start_sec); }
+function priceOf(e) {
+  let p = D.prices[e.no + "@" + Math.floor(e.start_sec)];
+  if (!p) p = Object.values(D.prices).find((x) => x.no === e.no && Math.abs(x.start_sec - e.start_sec) < 240);
+  return p;
+}
+function save() {
+  clearTimeout(saveTimer);
+  $("saved").textContent = "저장 중…";
+  saveTimer = setTimeout(async () => {
+    try { await fetch("/api/labels/" + D.run, { method: "POST", body: JSON.stringify(L) }); $("saved").textContent = "저장됨"; }
+    catch { $("saved").textContent = "저장 못 함 — 검수 서버가 켜져 있는지 확인해 주세요"; }
+  }, 300);
+}
+function stats() {
+  const conf = D.products.filter((e) => e.kind === "확정");
+  const lab = conf.filter((e) => L.items[keyOf(e)]?.no_ok != null);
+  const ok = lab.filter((e) => L.items[keyOf(e)].no_ok).length;
+  $("stat").textContent = `확정 ${conf.length} · 확인요청 ${D.products.length - conf.length} · 번호 검수 ${lab.length}/${conf.length} (맞음 ${ok}) · 빠진 상품 ${L.missing.length}`;
+  if (D.hasT) {
+    const got = new Set(conf.map((e) => e.no)), asked = new Set(D.products.filter((e) => e.kind !== "확정").map((e) => e.no));
+    const tn = Object.keys(D.T).map(Number);
+    const right = [...got].filter((n) => D.T[n]).length, wrong = [...got].filter((n) => !D.T[n]).length;
+    const ask = tn.filter((n) => !got.has(n) && asked.has(n)).length, lost = tn.filter((n) => !got.has(n) && !asked.has(n)).length;
+    let pt = 0, pok = 0;
+    for (const n of got) { const t = D.T[n]; const e = conf.find((x) => x.no === n); const p = e && priceOf(e); if (t && t.price != null && p) { pt++; pok += p.pick === t.price; } }
+    $("stat").textContent = `정답 ${tn.length} · 번호: 맞게 확정 ${right} · 틀린 확정 ${wrong} · 확인요청으로 물음 ${ask} · 완전히 놓침 ${lost} | 가격: ${pok}/${pt} 맞음`;
+  }
+}
+function setLab(e, field, val, card) {
+  const k = keyOf(e); L.items[k] = Object.assign({ no: e.no, start_sec: e.start_sec, kind: e.kind }, L.items[k], { [field]: val });
+  save(); stats(); paintCard(card, e);
+}
+function paintCard(card, e) {
+  const lab = L.items[keyOf(e)] || {};
+  for (const b of card.querySelectorAll("button[data-f]")) b.classList.toggle("on", lab[b.dataset.f] === (b.dataset.v === "1"));
+  for (const i of card.querySelectorAll("input[data-f]")) { if (document.activeElement !== i) i.value = lab[i.dataset.f] ?? ""; i.hidden = lab[i.dataset.show] !== false; }
+}
+function card(e) {
+  const c = document.createElement("div"); c.className = "card";
+  const img = document.createElement("img");
+  if (e.photo) img.src = "/photo/" + D.run + "/" + e.photo; img.alt = e.no + "번 사진";
+  img.onclick = () => { $("v").currentTime = Math.max(0, e.start_sec - 5); $("v").play(); };
+  const body = document.createElement("div");
+  const kind = e.kind === "확정" ? "c" : e.kind === "확인요청" ? "r" : "x";
+  const p = priceOf(e);
+  body.innerHTML = `<div class="top"><span class="no"></span><span class="kind ${kind}"></span><span class="t"></span></div>
+    <div class="why"></div><div class="truth"></div><div class="price"></div><div class="price vname"></div>
+    <div class="q"><span class="lab">번호</span><button class="no" data-f="no_ok" data-v="0">틀림</button><button class="yes" data-f="no_ok" data-v="1">맞음</button>
+      <input data-f="no_fix" data-show="no_ok" placeholder="실제 번호" inputmode="numeric" aria-label="실제 번호"></div>
+    <div class="q"><span class="lab">금액</span><button class="no" data-f="price_ok" data-v="0">틀림</button><button class="yes" data-f="price_ok" data-v="1">맞음</button>
+      <input data-f="price_fix" data-show="price_ok" placeholder="실제 금액" inputmode="numeric" aria-label="실제 금액"></div>
+    <div class="q"><span class="lab">품종</span><button class="no" data-f="name_ok" data-v="0">틀림</button><button class="yes" data-f="name_ok" data-v="1">맞음</button>
+      <input data-f="name_fix" data-show="name_ok" placeholder="실제 품종" aria-label="실제 품종" style="width:130px;font-family:inherit"></div>`;
+  body.querySelector(".no").textContent = e.no + "번";
+  body.querySelector(".kind").textContent = e.kind;
+  const t = body.querySelector(".t"); t.textContent = hms(e.start_sec) + "부터 · 뜬 시각 " + hms(e.media_sec);
+  t.onclick = () => { $("v").currentTime = Math.max(0, e.start_sec - 5); $("v").play(); };
+  body.querySelector(".why").textContent = e.why;
+  const pr = body.querySelector(".price");
+  if (p) {
+    pr.innerHTML = `금액 <b></b> <span></span>`;
+    pr.querySelector("b").textContent = won(p.pick);
+    pr.querySelector("span").textContent = (p.agree ? "✓ 규칙·AI 같음" : "확인 필요") + (p.candidates?.length > 1 ? " · 후보 " + p.candidates.map(won).join(" / ") : "");
+  } else pr.textContent = e.kind === "확정" ? "금액: 아직 없음" : "";
+  const vn = D.names[e.no + "@" + Math.floor(e.start_sec)];
+  const vEl = body.querySelector(".vname");
+  if (vn) { vEl.innerHTML = "품종 <b></b> <span></span>"; vEl.querySelector("b").textContent = vn.name || "모름"; vEl.querySelector("span").textContent = vn.raw && vn.raw !== vn.name ? `(AI가 뽑은 말: ${vn.raw})` : ""; }
+  for (const b of body.querySelectorAll("button[data-f]")) b.onclick = () => setLab(e, b.dataset.f, b.dataset.v === "1", c);
+  for (const i of body.querySelectorAll("input[data-f]")) i.onchange = () => setLab(e, i.dataset.f, i.dataset.f === "name_fix" ? (i.value.trim() || null)
+    : (i.value.replace(/[^0-9]/g, "") ? Number(i.value.replace(/[^0-9]/g, "")) : null), c);
+  if (D.hasT) {
+    const tr = body.querySelector(".truth"), t = D.T[String(e.no)];
+    const add = (cls, txt) => { const x = document.createElement("span"); x.className = cls; x.textContent = txt + "  "; tr.append(x); };
+    if (e.kind === "확정") {
+      if (t) add("o", "번호 ✓ 정답에 있음"); else { add("x", "번호 ✗ 정답에 없는 번호(틀린 확정)"); c.classList.add("wrong"); }
+      if (t && t.price != null && p) { if (p.pick === t.price) add("o", `가격 ✓ 정답 ${won(t.price)}`); else { add("x", `가격 ✗ 정답 ${won(t.price)}`); c.classList.add("wrong"); } }
+      else if (t && t.price == null) add("m", "정답 가격 없음");
+    } else add(t ? "m" : "o", t ? "정답에 있는 번호(물어봐야 맞음)" : "정답에 없는 번호(안 물어도 됨)");
+    if (t?.memo) add("m", "정답 메모: " + t.memo);
+  }
+  const det = document.createElement("details"); det.className = "more";
+  const sm = document.createElement("summary"); sm.textContent = "OCR·STT·LLM 판단 전부 보기"; det.append(sm);
+  const sec = (k, v) => { const a = document.createElement("div"); a.className = "k"; a.textContent = k; const b = document.createElement("pre"); b.textContent = v || "없음"; det.append(a, b); };
+  det.ontoggle = () => {
+    if (!det.open || det.dataset.done) return; det.dataset.done = 1;
+    const ir = Object.entries(e.image_reads || {}).sort((a, b) => b[1] - a[1]).map(([n, k]) => `${n}번 ${k}초`).join(", ");
+    const vc = Object.entries(e.voice || {}).map(([n, k]) => `${n}번 ${k}번 들음`).join(", ");
+    sec("번호 판단", `${e.kind} · ${e.why}\n화면 구간 ${hms(e.start_sec)} ~ ${hms(e.end_sec)} · 일꾼이 낸 때 ${hms(e.media_sec)}`);
+    sec("OCR: 이 구간 화면에서 읽은 번호(초 수)", ir);
+    const os_ = []; for (const [k, v] of Object.entries(D.screen)) if (v.includes(e.no)) os_.push(Number(k));
+    sec(`OCR: 방송 전체에서 ${e.no}번을 읽은 때`, os_.length ? spans(os_) : "");
+    sec("STT: 이 구간 판매자 말에서 들은 'N번'", vc);
+    const said = D.transcript.filter((r) => r.nos?.includes?.(e.no) || new RegExp(`(^|[^0-9])${e.no}([^0-9]|$)`).test(r.text)).map((r) => `[${hms(r.start_sec)}] ${r.text}`);
+    sec(`STT: ${e.no}이(가) 나온 문장 전부`, said.join("\n"));
+    if (p) {
+      sec("가격 판단", `일꾼 ${won(p.pick)} · 규칙 ${won(p.rule)} · LLM ${won(p.llm)} · ${p.agree ? "규칙=LLM(확인 필요 없음)" : "확인 필요"}\n후보: ${(p.candidates || []).map(won).join(" / ")}\nLLM 답 원문: ${p.llm_answer ?? "(묻지 않음 — 후보 1개 이하)"}`);
+      sec("가격 정할 때 쓴 판매자 말(STT) 전부", (p.heard || []).map(([t, x]) => `[${hms(t)}] ${x}`).join("\n"));
+    }
+    if (vn) sec("품종", `${vn.name || "모름"} · LLM 답 원문: ${vn.llm_answer ?? vn.raw ?? ""}`);
+  };
+  body.append(det);
+  c.append(img, body); paintCard(c, e); c.dataset.s = e.start_sec;
+  return c;
+}
+function missCard(m, i) {
+  const c = document.createElement("div"); c.className = "card miss";
+  c.innerHTML = `<div class="top"><span class="kind x">빠진 상품</span><span class="no"></span><span class="t"></span><button type="button">지우기</button></div>`;
+  c.querySelector(".no").textContent = (m.no ?? "?") + "번 " + (m.price ? won(m.price) : "");
+  const t = c.querySelector(".t"); t.textContent = hms(m.t); t.onclick = () => { $("v").currentTime = Math.max(0, m.t - 5); };
+  c.querySelector("button").onclick = () => { L.missing.splice(i, 1); save(); stats(); render(true); };
+  return c;
+}
+async function analyze(n) {
+  const box = $("anabox"); box.hidden = false; box.textContent = "";
+  const cl = document.createElement("button"); cl.className = "close"; cl.textContent = "닫기"; cl.onclick = () => { box.hidden = true; box.textContent = ""; };
+  const a = document.createElement("div"); a.id = "ana"; a.textContent = n + "번 불러오는 중…"; box.append(cl, a);
+  const I = await (await fetch(`/api/num/${D.run}/${n}`)).json();
+  a.textContent = "";
+  const h = (t) => { const x = document.createElement("h3"); x.textContent = t; a.append(x); };
+  const line = (t, cls) => { const x = document.createElement("div"); x.className = "row " + (cls || ""); x.textContent = t; a.append(x); return x; };
+  const seek = (t) => { $("v").currentTime = Math.max(0, t - 3); $("v").play(); };
+  const t = D.T[n]; h(`${n}번 — 정답 ${t ? won(t.price) : "없음"}${t?.memo ? " · " + t.memo : ""}`);
+  h("① 일꾼 판정 기록");
+  if (!I.events.length && !I.decisions.length) line("이 번호로 된 판정이 하나도 없음 (확정·확인요청 모두 없음)");
+  for (const e of I.events) line(`${e.kind} ${e.start_hms} — ${e.why} · 화면 ${JSON.stringify(e.image_reads || {})} · 음성 ${JSON.stringify(e.voice || {})}`);
+  for (const r of I.decisions) line(`구간 ${hms(+r.start_sec)}~${hms(+r.end_sec)} 번호 ${r.number}: ${r.status} — ${r.reason} | 화면 후보 ${r.image_candidates} | 음성 ${r.voice_mentions || "없음"}`);
+  h(`② 판매자 말(STT)에서 ${n}이(가) 나온 문장 ${I.stt.length}개`);
+  if (!I.stt.length) line("받아쓰기 글에 이 번호가 한 번도 없음 (판매자가 말하지 않았거나 받아쓰기가 다른 글자로 적음)");
+  for (const m of I.stt) { const x = line(`[${hms(m.t)}] ${m.x}`, "stt"); const k = document.createElement("span"); k.className = "how"; k.textContent = "← " + m.how; x.append(k); x.onclick = () => seek(m.t); }
+  h(`③ 화면 OCR: ${n}을(를) 읽은 초 ${I.ocr.length}개 (노란 칸 = ${n}, 회색 = 같은 초에 읽힌 다른 숫자)`);
+  const gal = (rows) => { const g = document.createElement("div"); g.className = "gal"; a.append(g);
+    for (const r of rows.slice(0, 60)) {
+      const f = document.createElement("div"); f.className = "fr"; f.onclick = () => seek(r.sec);
+      const im = document.createElement("img"); im.loading = "lazy"; im.src = `/frame/${D.run}/${r.sec}.jpg`; im.alt = hms(r.sec) + " 화면"; f.append(im);
+      for (const z of r.t) { const b = document.createElement("div"); b.className = "bx" + (z[0] === n ? " me" : "");
+        Object.assign(b.style, { left: z[1] * 100 + "%", top: z[2] * 100 + "%", width: z[3] * 100 + "%", height: z[4] * 100 + "%" });
+        const s = document.createElement("span"); s.textContent = z[0]; b.append(s); f.append(b); }
+      const cp = document.createElement("div"); cp.className = "cap"; cp.textContent = hms(r.sec) + " 읽음: " + (r.t.map((z) => z[0]).join(", ") || "없음"); f.append(cp);
+      g.append(f); } };
+  if (!I.frames) line("이 결과 폴더에는 1초 사진이 없어 OCR 글자만 보여 줍니다");
+  if (I.ocr.length) gal(I.ocr); else line("방송 내내 화면에서 이 번호를 한 번도 못 읽음");
+  if (I.near.length) { h("④ 판매자가 이 번호를 말한 순간(앞 2초~뒤 7초)의 화면과 그때 OCR이 읽은 것"); gal(I.near); }
+  box.scrollTop = 0;
+}
+function render(force) {
+  if (!D) return;
+  const now = $("v").currentTime || 0, sec = Math.floor(now);
+  $("clock").textContent = hms(now);
+  // 지금 이 순간
+  let s = sec; while (s > sec - 3 && !D.screen[s]) s--;
+  const scr = $("scr"); scr.textContent = "";
+  for (const [i, n] of (D.screen[s] || []).entries()) { const c = document.createElement("span"); c.className = "chip" + (i ? " small" : ""); c.textContent = n; scr.append(c); }
+  if (!scr.childNodes.length) scr.textContent = "—";
+  const said = D.transcript.filter((r) => r.start_sec <= now).slice(-2).map((r) => r.text).join(" / ");
+  $("say").textContent = said || "—";
+  const ch = $("chat"); ch.textContent = "";
+  for (const m of D.chat.filter((m) => m.t <= now).slice(-12)) {
+    const d = document.createElement("div"); const w = document.createElement("span"); w.className = "who"; w.textContent = m.who + " ";
+    const x = document.createElement("span"); x.textContent = m.x;
+    if (m.seller) x.className = "s"; else if (/^\s*\d{1,3}\s*번?\s*$/.test(m.x)) x.className = "n";
+    d.append(w, x); ch.append(d);
+  }
+  ch.scrollTop = ch.scrollHeight;
+  // 결과 목록: 그 결과가 실제 라이브에서 떴을 시각이 지난 것만 (미리 보기를 켜면 전부)
+  const spoil = $("spoil").checked;
+  const shown = D.products.filter((e) => spoil || e.media_sec <= now).length;
+  if (force || shown !== lastRender) {
+    lastRender = shown;
+    const list = $("list"); list.textContent = "";
+    const items = D.products.filter((e) => spoil || e.media_sec <= now).slice().reverse();
+    if (D.hasT) {
+      const got = new Set(D.products.filter((e) => e.kind === "확정").map((e) => e.no)), asked = new Set(D.products.map((e) => e.no));
+      const tn = Object.keys(D.T).map(Number).sort((a, b) => a - b);
+      const lost = tn.filter((n) => !asked.has(n)), onlyAsk = tn.filter((n) => !got.has(n) && asked.has(n));
+      const c = document.createElement("div"); c.className = "card lost";
+      c.innerHTML = `<div><b>완전히 놓친 정답 번호</b> (일꾼이 확정도 확인요청도 안 함): <span class="nums a"></span></div>
+        <div><b>확인요청으로만 간 정답 번호</b>: <span class="nums b"></span></div>
+        <div class="why">아래 목록은 "앞으로 나올 결과도 보기"를 켜면 전부 보입니다. 카드마다 "OCR·STT·LLM 판단 전부 보기"를 누르면 근거가 다 나옵니다.</div>`;
+      const btns = (el, ns) => { if (!ns.length) el.textContent = "없음"; for (const n of ns) { const b = document.createElement("button"); b.textContent = n; b.onclick = () => analyze(n); el.append(b); } };
+      btns(c.querySelector(".a"), lost); btns(c.querySelector(".b"), onlyAsk);
+      c.querySelector(".why").textContent = "번호를 누르면 그 번호의 판정 기록, 판매자 말(STT), 화면 OCR(사진에 읽은 글자 표시)이 여기에 나옵니다. 사진·말을 누르면 영상이 그 장면으로 갑니다.";
+      list.append(c);
+    }
+    L.missing.forEach((m, i) => { if (spoil || m.t <= now + 1) list.append(missCard(m, i)); });
+    for (const e of items) list.append(card(e));
+    if (!items.length) { const p = document.createElement("p"); p.className = "empty"; p.textContent = "영상을 재생하면 시스템이 라이브에서 낸 결과가 그 시각에 맞춰 여기 나타납니다."; list.append(p); }
+    stats();
+  }
+  for (const c of document.querySelectorAll(".card[data-s]")) { const st = Number(c.dataset.s); c.classList.toggle("cur", st <= now && now <= st + 90); }
+}
+$("v").addEventListener("timeupdate", () => render(false));
+$("v").addEventListener("seeked", () => render(true));
+$("spoil").onchange = () => render(true);
+$("add").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const no = $("addno").value.replace(/[^0-9]/g, ""), price = $("addprice").value.replace(/[^0-9]/g, "");
+  if (!no) { $("addno").focus(); return; }
+  L.missing.push({ t: Math.floor($("v").currentTime || 0), no: Number(no), price: price ? Number(price) : null });
+  $("addno").value = ""; $("addprice").value = ""; save(); render(true);
+});
+loadRuns();
+</script>
+</body>
+</html>

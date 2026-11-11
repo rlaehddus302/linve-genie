@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>번호 판정 직접 확인</title>
+<style>
+:root { --bg:#f4f5f3; --panel:#fff; --ink:#1c211d; --muted:#646d66; --line:#d9ded9; --tag:#f2c94c; --tag-ink:#2a2405; --ok:#1f7a4d; --bad:#b3362b; --warn:#a06a00; --hl:#fff4c7;
+  --sans:"Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif; --mono:ui-monospace,Menlo,monospace; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141815; --panel:#1c211d; --ink:#e6ebe7; --muted:#9aa49c; --line:#2f3731; --tag:#e8bf3f; --tag-ink:#221c02; --ok:#4cc28a; --bad:#ef6b5f; --warn:#e0a83a; --hl:#3a3418; color-scheme: dark } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 var(--sans); }
+header { position:sticky; top:0; z-index:5; background:var(--panel); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+header h1 { font-size:16px; margin:0 8px 0 0; }
+header button { font:inherit; padding:4px 10px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer; }
+header button.on { background:var(--ink); color:var(--panel); }
+.wrap { display:grid; grid-template-columns: minmax(0,1fr) 460px; gap:14px; padding:14px 16px; align-items:start; }
+@media (max-width: 1000px) { .wrap { grid-template-columns: 1fr; } .player { position:static !important; } }
+.player { position:sticky; top:62px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; }
+.player video { width:100%; border-radius:6px; background:#000; }
+.player .cap { color:var(--muted); font-size:13px; margin-top:6px; }
+.note { color:var(--muted); font-size:13px; margin:0 0 10px; }
+.card { background:var(--panel); border:1px solid var(--line); border-left:5px solid var(--warn); border-radius:8px; padding:12px 14px; margin-bottom:14px; }
+.card.ok { border-left-color:var(--ok); } .ok .cat { color:var(--ok); }
+.sum { display:flex; flex-wrap:wrap; gap:6px 18px; margin:0 0 12px; font-size:13px; }
+.sum b { font-variant-numeric: tabular-nums; }
+.pr.good { color:var(--ok); font-weight:600; } .pr.bad { color:var(--bad); font-weight:600; }
+.card.miss { border-left-color:var(--bad); } .card.wrong { border-left-color:var(--bad); } .card.ask { border-left-color:var(--warn); } .card.askno { border-left-color:var(--line); }
+.card h2 { font-size:16px; margin:0 0 4px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.no { font-family:var(--mono); background:var(--tag); color:var(--tag-ink); padding:0 8px; border-radius:4px; }
+.cat { font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid currentColor; }
+.miss .cat, .wrong .cat { color:var(--bad); } .ask .cat { color:var(--warn); } .askno .cat { color:var(--muted); }
+.meta { color:var(--muted); font-size:13px; }
+.meta b { color:var(--ink); font-weight:600; }
+.play { font:inherit; font-size:13px; padding:3px 10px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--ink); cursor:pointer; }
+h3 { font-size:13px; margin:12px 0 4px; color:var(--muted); font-weight:600; }
+.lines { font-size:13px; border:1px solid var(--line); border-radius:6px; max-height:260px; overflow:auto; }
+.ln { display:flex; gap:8px; padding:3px 8px; cursor:pointer; border-bottom:1px solid var(--line); }
+.ln:last-child { border-bottom:0; } .ln:hover { background:var(--bg); }
+.ln.me { background:var(--hl); font-weight:600; }
+.ln .t { font-family:var(--mono); color:var(--muted); flex:none; }
+.ln .s { font-family:var(--mono); flex:none; width:64px; color:var(--muted); font-size:12px; }
+.ln.in .t { color:var(--ink); }
+.gal { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px,1fr)); gap:8px; }
+.fr { position:relative; cursor:pointer; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+.fr img { width:100%; display:block; }
+.bx { position:absolute; border:2px solid rgba(160,160,160,.9); }
+.bx span { position:absolute; top:-16px; left:-2px; font:11px/14px var(--mono); background:rgba(80,80,80,.9); color:#fff; padding:0 3px; }
+.bx.me { border-color:var(--tag); } .bx.me span { background:var(--tag); color:var(--tag-ink); font-weight:700; }
+.fr .c { font-size:11px; padding:2px 6px; color:var(--muted); font-family:var(--mono); }
+.empty { color:var(--muted); font-size:13px; }
+</style></head>
+<body>
+<header><h1>번호 판정 직접 확인</h1><span id="filters"></span><span id="cnt" class="meta"></span></header>
+<div class="wrap">
+  <main id="list"><p class="empty">불러오는 중… (처음에는 다시 판정하느라 10초쯤 걸려요)</p></main>
+  <aside class="player"><video id="v" controls preload="none"></video><div class="cap" id="vcap">카드의 ▶ 버튼이나 말·사진을 누르면 그 장면부터 재생돼요.</div></aside>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const hms = (t) => { t = Math.floor(t); return `${Math.floor(t/3600)}:${String(Math.floor(t%3600/60)).padStart(2,"0")}:${String(t%60).padStart(2,"0")}`; };
+const won = (v) => v == null ? "없음" : v.toLocaleString() + "원";
+const CLS = {"맞게 확정":"ok", "놓침":"miss", "틀린 확정(정답지에 없음)":"wrong", "확인요청 — 실제 상품":"ask", "확인요청 — 정답지에 없음":"askno"};
+const HELP = {
+  "맞게 확정": "일꾼이 자동 확정했고 정답지에도 있는 번호",
+  "놓침": "정답지에 있는데 일꾼이 확정도 확인요청도 안 한 번호",
+  "틀린 확정(정답지에 없음)": "일꾼이 확정했는데 정답지에 없는 번호 — 판매자가 말했으면 정답지 누락일 수 있음",
+  "확인요청 — 실제 상품": "정답지에 있는 상품인데 일꾼이 확신 못 해 판매자에게 물은 것",
+  "확인요청 — 정답지에 없음": "판매자에게 물었지만 정답지에 없는 번호(잘 물은 것인지 확인)"};
+let P = [], F = {bc: "경성", cat: "전체"}, curVid = null;
+function seek(vid, t, label) {
+  const v = $("v");
+  if (curVid !== vid) { v.src = `/video/${vid}.mp4`; curVid = vid; }
+  const go = () => { v.currentTime = Math.max(0, t - 3); v.play().catch(() => {}); };
+  if (v.readyState >= 1) go(); else v.addEventListener("loadedmetadata", go, { once: true });
+  $("vcap").textContent = `${label} · ${hms(t)}부터 재생`;
+}
+function btns(key, vals) {
+  const w = document.createElement("span");
+  for (const x of ["전체", ...vals]) { const b = document.createElement("button"); b.textContent = x; b.className = F[key] === x ? "on" : "";
+    b.onclick = () => { F[key] = x; draw(); }; w.append(b, " "); }
+  return w;
+}
+function draw() {
+  const f = $("filters"); f.textContent = "";
+  f.append(btns("bc", [...new Set(P.map((p) => p.bc))]), " | ", btns("cat", Object.keys(CLS)));
+  const L = P.filter((p) => (F.bc === "전체" || p.bc === F.bc) && (F.cat === "전체" || p.cat === F.cat));
+  $("cnt").textContent = `${L.length}개`;
+  const list = $("list"); list.textContent = "";
+  const B = P.filter((p) => F.bc === "전체" || p.bc === F.bc), c = (k) => B.filter((p) => p.cat === k).length;
+  const T = c("맞게 확정") + c("놓침") + c("확인요청 — 실제 상품"), conf = c("맞게 확정") + c("틀린 확정(정답지에 없음)");
+  const okp = B.filter((p) => p.cat === "맞게 확정" && p.truth && p.truth.price != null);
+  const pg = okp.filter((p) => p.price === p.truth.price).length;
+  const sm = document.createElement("div"); sm.className = "sum";
+  sm.innerHTML = `<span>정답 상품 <b>${T}</b></span><span>잡은 비율 <b>${c("맞게 확정")}/${T} (${(100*c("맞게 확정")/T).toFixed(1)}%)</b></span>` +
+    `<span>맞은 비율 <b>${c("맞게 확정")}/${conf} (${(100*c("맞게 확정")/conf).toFixed(1)}%)</b></span>` +
+    `<span>가격 맞음 <b>${pg}/${okp.length} (${(100*pg/Math.max(1,okp.length)).toFixed(1)}%)</b></span>` +
+    `<span class="meta">${F.bc === "전체" ? "4방송 합계" : F.bc} · 규칙만으로 다시 판정한 값</span>`;
+  list.append(sm);
+  if (!L.length) { list.innerHTML = '<p class="empty">해당하는 번호가 없어요.</p>'; return; }
+  for (const p of L) list.append(card(p));
+}
+function card(p) {
+  const c = document.createElement("section"); c.className = "card " + CLS[p.cat];
+  const label = `${p.bc} ${p.no}번`;
+  const h = document.createElement("h2");
+  h.innerHTML = `<span class="no"></span><span class="bcn"></span><span class="cat"></span>`;
+  h.querySelector(".no").textContent = p.no; h.querySelector(".bcn").textContent = p.bc; h.querySelector(".cat").textContent = p.cat;
+  const pb = document.createElement("button"); pb.className = "play"; pb.textContent = `▶ ${hms(p.s)} 장면 보기`; pb.onclick = () => seek(p.vid, p.s, label); h.append(pb);
+  c.append(h);
+  const m = document.createElement("div"); m.className = "meta";
+  const tr = p.truth ? `정답지: ${won(p.truth.price)}${p.truth.memo ? " · " + p.truth.memo : ""}` : "정답지: 이 번호 없음";
+  const pr = p.price != null || p.cat === "맞게 확정" ? `일꾼 가격: ${won(p.price)}${p.price_check ? " (확인 필요 표시)" : ""}` : "";
+  const pok = p.truth && p.truth.price != null && p.price != null ? (p.price === p.truth.price ? "good" : "bad") : "";
+  m.innerHTML = `<div class="h"></div><div><b>일꾼 판단</b> <span class="w"></span></div><div class="r"></div><div class="tr"></div><div class="pr"></div>`;
+  m.querySelector(".h").textContent = HELP[p.cat];
+  m.querySelector(".w").textContent = `${hms(p.s)}~${hms(p.e)} · ${p.why}`;
+  m.querySelector(".r").textContent = `화면에서 읽힌 번호(횟수): ${JSON.stringify(p.reads)} · 판매자가 말한 번호(횟수): ${JSON.stringify(p.vs)} · 앞뒤 30초 화면에서 ${p.no} 읽힌 초: ${p.seen_n}`;
+  m.querySelector(".tr").textContent = tr;
+  const pe = m.querySelector(".pr"); pe.textContent = pr ? pr + (pok === "good" ? " ✓ 정답과 같음" : pok === "bad" ? " ✗ 정답과 다름" : "") : ""; if (pok) pe.classList.add(pok);
+  c.append(m);
+  const h3 = document.createElement("h3"); h3.textContent = `판매자 말(받아쓰기) — 노란 줄 = ${p.no}이(가) 나온 말, 왼쪽 회색 = 그 순간 화면에 가장 크게 보인 번호표`; c.append(h3);
+  const ls = document.createElement("div"); ls.className = "lines";
+  for (const l of p.lines) {
+    const r = document.createElement("div"); r.className = "ln" + (l.me ? " me" : "") + (l.t >= p.s - 1 && l.t <= p.e + 1 ? " in" : "");
+    const t = document.createElement("span"); t.className = "t"; t.textContent = hms(l.t);
+    const s = document.createElement("span"); s.className = "s"; s.textContent = l.scr != null ? `화면 ${l.scr}` : "화면 —";
+    const x = document.createElement("span"); x.textContent = l.x;
+    r.append(t, s, x); r.onclick = () => seek(p.vid, l.t, label); ls.append(r);
+  }
+  if (!p.lines.length) ls.innerHTML = '<div class="ln">이 시간에 받아쓴 말 없음</div>';
+  c.append(ls);
+  const h4 = document.createElement("h3");
+  h4.textContent = p.seen_n ? `화면 사진 — 노란 칸 = OCR이 ${p.no}(으)로 읽은 곳, 회색 = 같은 사진에서 읽힌 다른 숫자` : `화면 사진 — 이 무렵 OCR이 ${p.no}을(를) 한 번도 못 읽어서 그 시각 앞뒤 사진을 보여 줘요`;
+  c.append(h4);
+  const g = document.createElement("div"); g.className = "gal";
+  for (const f of p.frames) {
+    const d = document.createElement("div"); d.className = "fr"; d.onclick = () => seek(p.vid, f.sec, label);
+    const im = document.createElement("img"); im.loading = "lazy"; im.src = `/frame/${p.run}/${f.sec}.jpg`; im.alt = `${hms(f.sec)} 화면`; d.append(im);
+    for (const z of f.t) { const b = document.createElement("div"); b.className = "bx" + (z[0] === p.no ? " me" : "");
+      Object.assign(b.style, { left: z[1]*100 + "%", top: z[2]*100 + "%", width: z[3]*100 + "%", height: z[4]*100 + "%" });
+      const s = document.createElement("span"); s.textContent = z[0]; b.append(s); d.append(b); }
+    const cp = document.createElement("div"); cp.className = "c"; cp.textContent = `${hms(f.sec)} 읽음: ${f.t.map((z) => z[0]).join(", ") || "없음"}`; d.append(cp);
+    g.append(d);
+  }
+  c.append(g);
+  return c;
+}
+fetch("/api/problems").then((r) => r.json()).then((d) => { P = d; draw(); })
+  .catch(() => { $("list").innerHTML = '<p class="empty">불러오지 못했어요. serve.py가 켜져 있는지 확인해 주세요.</p>'; });
+</script>
+</body></html>

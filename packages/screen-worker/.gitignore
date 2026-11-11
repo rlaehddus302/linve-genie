@@ -1,0 +1,8 @@
+# 화면 일꾼(파이썬). 영상·채팅·시험 데이터(개인정보 포함, 큼)는 저장소 밖 LG_DATA(기본 ~/lg/data)에 둔다
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+runs/
+# 시험 결과 파일(정답 글에 손님 닉네임이 섞임)
+data/variety_regress_*.csv

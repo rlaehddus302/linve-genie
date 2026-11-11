@@ -1,0 +1,11872 @@
+{
+ "stopWords": [
+  "당연",
+  "당연하죠",
+  "이거",
+  "저거",
+  "그거",
+  "예뻐요",
+  "예쁘다",
+  "예쁘죠",
+  "감사",
+  "감사합니다",
+  "안녕",
+  "안녕하세요",
+  "오늘",
+  "지금",
+  "이번",
+  "다음",
+  "가격",
+  "번호",
+  "품종",
+  "취소",
+  "아니",
+  "아니요",
+  "다시",
+  "말고",
+  "정정",
+  "문자찜",
+  "하나",
+  "둘",
+  "셋",
+  "만원",
+  "천원",
+  "여러분",
+  "진짜",
+  "완전",
+  "그리고",
+  "그래서",
+  "이제",
+  "우리",
+  "어서",
+  "보세요",
+  "드릴게요",
+  "주세요",
+  "네네",
+  "좋아요",
+  "사랑",
+  "최고",
+  "대박",
+  "고마워요",
+  "요아이",
+  "유아이",
+  "ui",
+  "요거",
+  "그대로",
+  "보냅니다",
+  "이렇게"
+ ],
+ "varieties": [
+  {
+   "name": "엘레강스",
+   "aliases": [
+    "엘레간스",
+    "엘레강쓰",
+    "엘레강"
+   ]
+  },
+  {
+   "name": "핑크문",
+   "aliases": []
+  },
+  {
+   "name": "블루엘프",
+   "aliases": [
+    "부루엘프",
+    "블루엘퍼"
+   ]
+  },
+  {
+   "name": "라울",
+   "aliases": [
+    "라운"
+   ]
+  },
+  {
+   "name": "루비",
+   "aliases": []
+  },
+  {
+   "name": "선버스트",
+   "aliases": [
+    "썬버스트",
+    "선버스트금"
+   ]
+  },
+  {
+   "name": "핑크프릴",
+   "aliases": [
+    "핑크후릴"
+   ]
+  },
+  {
+   "name": "핑크프릴 금",
+   "aliases": []
+  },
+  {
+   "name": "방울복랑 금",
+   "aliases": []
+  },
+  {
+   "name": "방울복랑",
+   "aliases": [
+    "방울보랑"
+   ]
+  },
+  {
+   "name": "왕비뇌신금",
+   "aliases": []
+  },
+  {
+   "name": "레티지아",
+   "aliases": []
+  },
+  {
+   "name": "십이지권",
+   "aliases": []
+  },
+  {
+   "name": "천사의눈물",
+   "aliases": []
+  },
+  {
+   "name": "벨루가",
+   "aliases": []
+  },
+  {
+   "name": "로라",
+   "aliases": []
+  },
+  {
+   "name": "황금사",
+   "aliases": []
+  },
+  {
+   "name": "블랙프린스",
+   "aliases": [
+    "블랙프린세스"
+   ]
+  },
+  {
+   "name": "자보",
+   "aliases": []
+  },
+  {
+   "name": "칠복수",
+   "aliases": []
+  },
+  {
+   "name": "리틀뷰티",
+   "aliases": []
+  },
+  {
+   "name": "프리티",
+   "aliases": []
+  },
+  {
+   "name": "샤비홍",
+   "aliases": []
+  },
+  {
+   "name": "립스틱",
+   "aliases": []
+  },
+  {
+   "name": "레드에보니",
+   "aliases": []
+  },
+  {
+   "name": "블루버드",
+   "aliases": []
+  },
+  {
+   "name": "퍼플퀸",
+   "aliases": []
+  },
+  {
+   "name": "핑크루비",
+   "aliases": []
+  },
+  {
+   "name": "라우이",
+   "aliases": [
+    "라우위"
+   ]
+  },
+  {
+   "name": "미니마",
+   "aliases": []
+  },
+  {
+   "name": "아메치스",
+   "aliases": []
+  },
+  {
+   "name": "백모단",
+   "aliases": []
+  },
+  {
+   "name": "용월",
+   "aliases": []
+  },
+  {
+   "name": "성미인",
+   "aliases": []
+  },
+  {
+   "name": "월미인",
+   "aliases": []
+  },
+  {
+   "name": "문스톤",
+   "aliases": []
+  },
+  {
+   "name": "화이트그리니",
+   "aliases": []
+  },
+  {
+   "name": "홍옥",
+   "aliases": []
+  },
+  {
+   "name": "을녀심",
+   "aliases": []
+  },
+  {
+   "name": "청옥",
+   "aliases": []
+  },
+  {
+   "name": "오로라",
+   "aliases": []
+  },
+  {
+   "name": "레드베리",
+   "aliases": []
+  },
+  {
+   "name": "염자",
+   "aliases": []
+  },
+  {
+   "name": "화월",
+   "aliases": []
+  },
+  {
+   "name": "우주목",
+   "aliases": []
+  },
+  {
+   "name": "성을녀",
+   "aliases": []
+  },
+  {
+   "name": "희성",
+   "aliases": []
+  },
+  {
+   "name": "남십자성",
+   "aliases": []
+  },
+  {
+   "name": "월토이",
+   "aliases": []
+  },
+  {
+   "name": "흑토이",
+   "aliases": []
+  },
+  {
+   "name": "은월",
+   "aliases": []
+  },
+  {
+   "name": "녹영",
+   "aliases": []
+  },
+  {
+   "name": "웅동자",
+   "aliases": []
+  },
+  {
+   "name": "흑법사",
+   "aliases": []
+  },
+  {
+   "name": "은행목",
+   "aliases": []
+  },
+  {
+   "name": "사해파",
+   "aliases": []
+  },
+  {
+   "name": "리톱스",
+   "aliases": []
+  },
+  {
+   "name": "코노피튬",
+   "aliases": [
+    "코노피툼"
+   ]
+  },
+  {
+   "name": "오십령옥",
+   "aliases": []
+  },
+  {
+   "name": "금황환",
+   "aliases": []
+  },
+  {
+   "name": "백도선",
+   "aliases": []
+  },
+  {
+   "name": "알로에 베라",
+   "aliases": []
+  },
+  {
+   "name": "라즈베리아이스",
+   "aliases": []
+  },
+  {
+   "name": "레몬로즈",
+   "aliases": []
+  },
+  {
+   "name": "화이트로즈",
+   "aliases": []
+  },
+  {
+   "name": "핑크프리티",
+   "aliases": []
+  },
+  {
+   "name": "콜로라타",
+   "aliases": []
+  },
+  {
+   "name": "아가보이데스",
+   "aliases": []
+  },
+  {
+   "name": "프로리페라",
+   "aliases": []
+  },
+  {
+   "name": "데렌베르기",
+   "aliases": []
+  },
+  {
+   "name": "메비나",
+   "aliases": []
+  },
+  {
+   "name": "트리마네",
+   "aliases": []
+  },
+  {
+   "name": "묵동자",
+   "aliases": []
+  },
+  {
+   "name": "정야",
+   "aliases": []
+  },
+  {
+   "name": "금사황",
+   "aliases": []
+  },
+  {
+   "name": "백봉",
+   "aliases": []
+  },
+  {
+   "name": "팬텀",
+   "aliases": []
+  },
+  {
+   "name": "라일락",
+   "aliases": []
+  },
+  {
+   "name": "몬로즈",
+   "aliases": []
+  },
+  {
+   "name": "오렌지몬로즈",
+   "aliases": []
+  },
+  {
+   "name": "블루스카이",
+   "aliases": []
+  },
+  {
+   "name": "블루미스트",
+   "aliases": []
+  },
+  {
+   "name": "스노우버니",
+   "aliases": []
+  },
+  {
+   "name": "화이트폭스",
+   "aliases": []
+  },
+  {
+   "name": "퍼플드림",
+   "aliases": []
+  },
+  {
+   "name": "핑크쇼크",
+   "aliases": []
+  },
+  {
+   "name": "로즈퀸",
+   "aliases": []
+  },
+  {
+   "name": "레드립",
+   "aliases": []
+  },
+  {
+   "name": "레드엣지",
+   "aliases": []
+  },
+  {
+   "name": "리틀잼",
+   "aliases": []
+  },
+  {
+   "name": "리틀프리티",
+   "aliases": []
+  },
+  {
+   "name": "미니벨",
+   "aliases": []
+  },
+  {
+   "name": "베이비핑거",
+   "aliases": []
+  },
+  {
+   "name": "블루웨이브",
+   "aliases": []
+  },
+  {
+   "name": "사브리나",
+   "aliases": []
+  },
+  {
+   "name": "세레나",
+   "aliases": []
+  },
+  {
+   "name": "스칼렛",
+   "aliases": []
+  },
+  {
+   "name": "스트로베리",
+   "aliases": []
+  },
+  {
+   "name": "시나몬",
+   "aliases": []
+  },
+  {
+   "name": "아이스핑크",
+   "aliases": []
+  },
+  {
+   "name": "알바뷰티",
+   "aliases": []
+  },
+  {
+   "name": "오팔리나",
+   "aliases": []
+  },
+  {
+   "name": "올리비아",
+   "aliases": []
+  },
+  {
+   "name": "웨딩드레스",
+   "aliases": []
+  },
+  {
+   "name": "체리퀸",
+   "aliases": []
+  },
+  {
+   "name": "초코칩",
+   "aliases": []
+  },
+  {
+   "name": "캐롤라인",
+   "aliases": []
+  },
+  {
+   "name": "코랄",
+   "aliases": []
+  },
+  {
+   "name": "클라라",
+   "aliases": []
+  },
+  {
+   "name": "타이탄",
+   "aliases": []
+  },
+  {
+   "name": "티아라",
+   "aliases": []
+  },
+  {
+   "name": "파우더블루",
+   "aliases": []
+  },
+  {
+   "name": "판도라",
+   "aliases": []
+  },
+  {
+   "name": "펄폰뉘른베르크",
+   "aliases": [
+    "펄폰누렌베르크"
+   ]
+  },
+  {
+   "name": "페스티벌",
+   "aliases": []
+  },
+  {
+   "name": "프린세스펄",
+   "aliases": []
+  },
+  {
+   "name": "핑크엘프",
+   "aliases": []
+  },
+  {
+   "name": "핑크베리",
+   "aliases": []
+  },
+  {
+   "name": "핑크쉬폰",
+   "aliases": []
+  },
+  {
+   "name": "하이디",
+   "aliases": []
+  },
+  {
+   "name": "화이트스노우",
+   "aliases": []
+  },
+  {
+   "name": "흑룡",
+   "aliases": []
+  },
+  {
+   "name": "데비",
+   "aliases": []
+  },
+  {
+   "name": "프레드아이브스",
+   "aliases": []
+  },
+  {
+   "name": "블루빈",
+   "aliases": []
+  },
+  {
+   "name": "수련",
+   "aliases": []
+  },
+  {
+   "name": "화이트블룸",
+   "aliases": []
+  },
+  {
+   "name": "퍼플딜라이트",
+   "aliases": []
+  },
+  {
+   "name": "핑크펄",
+   "aliases": []
+  },
+  {
+   "name": "베이비핑크",
+   "aliases": []
+  },
+  {
+   "name": "실버스타",
+   "aliases": []
+  },
+  {
+   "name": "수련금",
+   "aliases": []
+  },
+  {
+   "name": "명월",
+   "aliases": []
+  },
+  {
+   "name": "황려",
+   "aliases": []
+  },
+  {
+   "name": "부사",
+   "aliases": []
+  },
+  {
+   "name": "골든글로우",
+   "aliases": []
+  },
+  {
+   "name": "은설",
+   "aliases": []
+  },
+  {
+   "name": "용혈",
+   "aliases": []
+  },
+  {
+   "name": "박우",
+   "aliases": []
+  },
+  {
+   "name": "춘맹",
+   "aliases": []
+  },
+  {
+   "name": "신월",
+   "aliases": []
+  },
+  {
+   "name": "레드켈리",
+   "aliases": []
+  },
+  {
+   "name": "자려",
+   "aliases": []
+  },
+  {
+   "name": "은패",
+   "aliases": []
+  },
+  {
+   "name": "신도",
+   "aliases": []
+  },
+  {
+   "name": "화제",
+   "aliases": []
+  },
+  {
+   "name": "홍치아",
+   "aliases": []
+  },
+  {
+   "name": "무을녀",
+   "aliases": []
+  },
+  {
+   "name": "레드화월",
+   "aliases": []
+  },
+  {
+   "name": "골룸",
+   "aliases": []
+  },
+  {
+   "name": "호빗",
+   "aliases": []
+  },
+  {
+   "name": "불탑",
+   "aliases": []
+  },
+  {
+   "name": "은명",
+   "aliases": []
+  },
+  {
+   "name": "칠복신",
+   "aliases": []
+  },
+  {
+   "name": "옵투사",
+   "aliases": []
+  },
+  {
+   "name": "만상",
+   "aliases": []
+  },
+  {
+   "name": "옥선",
+   "aliases": []
+  },
+  {
+   "name": "경성",
+   "aliases": []
+  },
+  {
+   "name": "그린로즈",
+   "aliases": []
+  },
+  {
+   "name": "레투사",
+   "aliases": []
+  },
+  {
+   "name": "쿠페리",
+   "aliases": []
+  },
+  {
+   "name": "트룬카타",
+   "aliases": []
+  },
+  {
+   "name": "피그마에아",
+   "aliases": []
+  },
+  {
+   "name": "베누스타",
+   "aliases": []
+  },
+  {
+   "name": "일륜옥",
+   "aliases": []
+  },
+  {
+   "name": "홍대내옥",
+   "aliases": []
+  },
+  {
+   "name": "노봉옥",
+   "aliases": []
+  },
+  {
+   "name": "자훈",
+   "aliases": []
+  },
+  {
+   "name": "미문옥",
+   "aliases": []
+  },
+  {
+   "name": "요화",
+   "aliases": []
+  },
+  {
+   "name": "금취",
+   "aliases": []
+  },
+  {
+   "name": "키위",
+   "aliases": []
+  },
+  {
+   "name": "적법사",
+   "aliases": []
+  },
+  {
+   "name": "소인제",
+   "aliases": []
+  },
+  {
+   "name": "도미인",
+   "aliases": []
+  },
+  {
+   "name": "청성미인",
+   "aliases": []
+  },
+  {
+   "name": "복토이",
+   "aliases": []
+  },
+  {
+   "name": "선녀무",
+   "aliases": []
+  },
+  {
+   "name": "천인무",
+   "aliases": []
+  },
+  {
+   "name": "백은무",
+   "aliases": []
+  },
+  {
+   "name": "만보",
+   "aliases": []
+  },
+  {
+   "name": "미공모",
+   "aliases": []
+  },
+  {
+   "name": "은파금",
+   "aliases": []
+  },
+  {
+   "name": "복랑",
+   "aliases": []
+  },
+  {
+   "name": "칠보수",
+   "aliases": []
+  },
+  {
+   "name": "녹귀란",
+   "aliases": []
+  },
+  {
+   "name": "아이리스",
+   "aliases": []
+  },
+  {
+   "name": "에스더",
+   "aliases": []
+  },
+  {
+   "name": "에버그린",
+   "aliases": []
+  },
+  {
+   "name": "골든뷰티",
+   "aliases": []
+  },
+  {
+   "name": "글라우카",
+   "aliases": []
+  },
+  {
+   "name": "라벤더힐",
+   "aliases": []
+  },
+  {
+   "name": "로즈마리",
+   "aliases": []
+  },
+  {
+   "name": "루시아",
+   "aliases": []
+  },
+  {
+   "name": "리틀미싱",
+   "aliases": []
+  },
+  {
+   "name": "마리아",
+   "aliases": []
+  },
+  {
+   "name": "마리벨",
+   "aliases": []
+  },
+  {
+   "name": "마틸다",
+   "aliases": []
+  },
+  {
+   "name": "메이벨",
+   "aliases": []
+  },
+  {
+   "name": "멕시칸선셋",
+   "aliases": []
+  },
+  {
+   "name": "모나리자",
+   "aliases": []
+  },
+  {
+   "name": "문페어리",
+   "aliases": []
+  },
+  {
+   "name": "발렌타인",
+   "aliases": []
+  },
+  {
+   "name": "백설공주",
+   "aliases": []
+  },
+  {
+   "name": "버건디",
+   "aliases": []
+  },
+  {
+   "name": "베로니카",
+   "aliases": []
+  },
+  {
+   "name": "벨라",
+   "aliases": []
+  },
+  {
+   "name": "보니타",
+   "aliases": []
+  },
+  {
+   "name": "블랙나이트",
+   "aliases": []
+  },
+  {
+   "name": "블랙엔젤",
+   "aliases": []
+  },
+  {
+   "name": "블루아이스",
+   "aliases": []
+  },
+  {
+   "name": "블루썬",
+   "aliases": []
+  },
+  {
+   "name": "블루퀸",
+   "aliases": []
+  },
+  {
+   "name": "블루헤론",
+   "aliases": []
+  },
+  {
+   "name": "비비안",
+   "aliases": []
+  },
+  {
+   "name": "빅토리아",
+   "aliases": []
+  },
+  {
+   "name": "샤롯데",
+   "aliases": []
+  },
+  {
+   "name": "선라이즈",
+   "aliases": []
+  },
+  {
+   "name": "세이코",
+   "aliases": []
+  },
+  {
+   "name": "스노우볼",
+   "aliases": []
+  },
+  {
+   "name": "스위트하트",
+   "aliases": []
+  },
+  {
+   "name": "스파클",
+   "aliases": []
+  },
+  {
+   "name": "실비아",
+   "aliases": []
+  },
+  {
+   "name": "아델라",
+   "aliases": []
+  },
+  {
+   "name": "아리엘",
+   "aliases": []
+  },
+  {
+   "name": "아말리아",
+   "aliases": []
+  },
+  {
+   "name": "안젤라",
+   "aliases": []
+  },
+  {
+   "name": "알렉산드라",
+   "aliases": []
+  },
+  {
+   "name": "애플민트",
+   "aliases": []
+  },
+  {
+   "name": "엘리자베스",
+   "aliases": []
+  },
+  {
+   "name": "엔젤윙",
+   "aliases": []
+  },
+  {
+   "name": "오렌지크림",
+   "aliases": []
+  },
+  {
+   "name": "옐로우스타",
+   "aliases": []
+  },
+  {
+   "name": "은하수",
+   "aliases": []
+  },
+  {
+   "name": "이리스",
+   "aliases": []
+  },
+  {
+   "name": "자스민",
+   "aliases": []
+  },
+  {
+   "name": "제니퍼",
+   "aliases": []
+  },
+  {
+   "name": "조슈아",
+   "aliases": []
+  },
+  {
+   "name": "줄리엣",
+   "aliases": []
+  },
+  {
+   "name": "체리블라썸",
+   "aliases": []
+  },
+  {
+   "name": "카멜리아",
+   "aliases": []
+  },
+  {
+   "name": "카밀라",
+   "aliases": []
+  },
+  {
+   "name": "캐서린",
+   "aliases": []
+  },
+  {
+   "name": "퀸메리",
+   "aliases": []
+  },
+  {
+   "name": "크림슨",
+   "aliases": []
+  },
+  {
+   "name": "클레오",
+   "aliases": []
+  },
+  {
+   "name": "타샤",
+   "aliases": []
+  },
+  {
+   "name": "티파니",
+   "aliases": []
+  },
+  {
+   "name": "퍼플스타",
+   "aliases": []
+  },
+  {
+   "name": "퍼플하트",
+   "aliases": []
+  },
+  {
+   "name": "펄그린",
+   "aliases": []
+  },
+  {
+   "name": "프란체스카",
+   "aliases": []
+  },
+  {
+   "name": "플라밍고",
+   "aliases": []
+  },
+  {
+   "name": "피오나",
+   "aliases": []
+  },
+  {
+   "name": "핑크레이디",
+   "aliases": []
+  },
+  {
+   "name": "핑크썬",
+   "aliases": []
+  },
+  {
+   "name": "핑크엔젤",
+   "aliases": []
+  },
+  {
+   "name": "핑크하트",
+   "aliases": []
+  },
+  {
+   "name": "하트비트",
+   "aliases": []
+  },
+  {
+   "name": "화이트엔젤",
+   "aliases": []
+  },
+  {
+   "name": "화이트하트",
+   "aliases": []
+  },
+  {
+   "name": "흑진주",
+   "aliases": []
+  },
+  {
+   "name": "칸테",
+   "aliases": []
+  },
+  {
+   "name": "룬요니",
+   "aliases": []
+  },
+  {
+   "name": "탑시터비",
+   "aliases": []
+  },
+  {
+   "name": "릴리시나",
+   "aliases": []
+  },
+  {
+   "name": "세쿤다",
+   "aliases": []
+  },
+  {
+   "name": "피코키",
+   "aliases": []
+  },
+  {
+   "name": "풀리도니스",
+   "aliases": []
+  },
+  {
+   "name": "스트릭티플로라",
+   "aliases": []
+  },
+  {
+   "name": "라미레트",
+   "aliases": []
+  },
+  {
+   "name": "레볼루션",
+   "aliases": []
+  },
+  {
+   "name": "썸머드림",
+   "aliases": []
+  },
+  {
+   "name": "메리하트",
+   "aliases": []
+  },
+  {
+   "name": "카디날",
+   "aliases": []
+  },
+  {
+   "name": "오리온",
+   "aliases": []
+  },
+  {
+   "name": "콤프톤카루셀",
+   "aliases": []
+  },
+  {
+   "name": "미세스리차드",
+   "aliases": []
+  },
+  {
+   "name": "브론즈",
+   "aliases": []
+  },
+  {
+   "name": "오비페룸",
+   "aliases": []
+  },
+  {
+   "name": "콤팩텀",
+   "aliases": []
+  },
+  {
+   "name": "블루헤이즈",
+   "aliases": []
+  },
+  {
+   "name": "퍼플헤이즈",
+   "aliases": []
+  },
+  {
+   "name": "골드무스",
+   "aliases": []
+  },
+  {
+   "name": "안젤리나",
+   "aliases": []
+  },
+  {
+   "name": "레몬볼",
+   "aliases": []
+  },
+  {
+   "name": "펠루시다",
+   "aliases": []
+  },
+  {
+   "name": "마르기날리스",
+   "aliases": []
+  },
+  {
+   "name": "레드펄",
+   "aliases": []
+  },
+  {
+   "name": "오브투사",
+   "aliases": []
+  },
+  {
+   "name": "아테누아타",
+   "aliases": []
+  },
+  {
+   "name": "리미폴리아",
+   "aliases": []
+  },
+  {
+   "name": "픽타",
+   "aliases": []
+  },
+  {
+   "name": "엠마이",
+   "aliases": []
+  },
+  {
+   "name": "콤프토니아나",
+   "aliases": []
+  },
+  {
+   "name": "슈바르츠코프",
+   "aliases": []
+  },
+  {
+   "name": "다크엔젤",
+   "aliases": []
+  },
+  {
+   "name": "토멘토사",
+   "aliases": []
+  },
+  {
+   "name": "베하렌시스",
+   "aliases": []
+  },
+  {
+   "name": "티르시플로라",
+   "aliases": []
+  },
+  {
+   "name": "아리스타타",
+   "aliases": []
+  },
+  {
+   "name": "오베사",
+   "aliases": []
+  },
+  {
+   "name": "디저트로즈",
+   "aliases": []
+  },
+  {
+   "name": "하트세덤",
+   "aliases": []
+  },
+  {
+   "name": "블랙베리",
+   "aliases": []
+  },
+  {
+   "name": "핑크퀸",
+   "aliases": []
+  },
+  {
+   "name": "블루아이",
+   "aliases": []
+  },
+  {
+   "name": "화이트프린세스",
+   "aliases": []
+  },
+  {
+   "name": "레이디핑크",
+   "aliases": []
+  },
+  {
+   "name": "그린벨",
+   "aliases": []
+  },
+  {
+   "name": "실버퀸",
+   "aliases": []
+  },
+  {
+   "name": "골든퀸",
+   "aliases": []
+  },
+  {
+   "name": "레드퀸",
+   "aliases": []
+  },
+  {
+   "name": "레드크로스",
+   "aliases": []
+  },
+  {
+   "name": "블루크로스",
+   "aliases": []
+  },
+  {
+   "name": "삼광색금",
+   "aliases": [
+    "삼강색금",
+    "삼강세금",
+    "상강색금",
+    "상관세금",
+    "삼광세금"
+   ]
+  },
+  {
+   "name": "창녹금",
+   "aliases": [
+    "창록금",
+    "창높금"
+   ]
+  },
+  {
+   "name": "빅뱅금",
+   "aliases": [
+    "빅벵금"
+   ]
+  },
+  {
+   "name": "홍옥금",
+   "aliases": []
+  },
+  {
+   "name": "정야금",
+   "aliases": []
+  },
+  {
+   "name": "연봉금",
+   "aliases": []
+  },
+  {
+   "name": "칠복수금",
+   "aliases": []
+  },
+  {
+   "name": "염자금",
+   "aliases": []
+  },
+  {
+   "name": "화월금",
+   "aliases": []
+  },
+  {
+   "name": "흑법사금",
+   "aliases": []
+  },
+  {
+   "name": "미니마금",
+   "aliases": []
+  },
+  {
+   "name": "청솔금",
+   "aliases": []
+  },
+  {
+   "name": "우주목금",
+   "aliases": []
+  },
+  {
+   "name": "화제금",
+   "aliases": []
+  },
+  {
+   "name": "백미인금",
+   "aliases": []
+  },
+  {
+   "name": "월동자금",
+   "aliases": []
+  },
+  {
+   "name": "사해파금",
+   "aliases": []
+  },
+  {
+   "name": "립스틱금",
+   "aliases": []
+  },
+  {
+   "name": "오로라금",
+   "aliases": []
+  },
+  {
+   "name": "천대전송금",
+   "aliases": []
+  },
+  {
+   "name": "축전금",
+   "aliases": []
+  },
+  {
+   "name": "레드베리금",
+   "aliases": []
+  },
+  {
+   "name": "블루버드금",
+   "aliases": []
+  },
+  {
+   "name": "선셋금",
+   "aliases": [
+    "썬셋금"
+   ]
+  },
+  {
+   "name": "홍희금",
+   "aliases": []
+  },
+  {
+   "name": "백봉금",
+   "aliases": []
+  },
+  {
+   "name": "황려금",
+   "aliases": []
+  },
+  {
+   "name": "라울금",
+   "aliases": []
+  },
+  {
+   "name": "프리티금",
+   "aliases": []
+  },
+  {
+   "name": "화이트그리니금",
+   "aliases": []
+  },
+  {
+   "name": "룬데리금",
+   "aliases": []
+  },
+  {
+   "name": "벨루스금",
+   "aliases": []
+  },
+  {
+   "name": "녹귀란금",
+   "aliases": []
+  },
+  {
+   "name": "홍채각금",
+   "aliases": []
+  },
+  {
+   "name": "만손금",
+   "aliases": []
+  },
+  {
+   "name": "백설공주금",
+   "aliases": []
+  },
+  {
+   "name": "녹금",
+   "aliases": [
+    "록금",
+    "높금"
+   ],
+   "commonAliases": [
+    "녹음"
+   ]
+  },
+  {
+   "name": "녹색금",
+   "aliases": []
+  },
+  {
+   "name": "황소개구리",
+   "aliases": []
+  },
+  {
+   "name": "몽고리색금",
+   "aliases": [
+    "몽골이색금",
+    "몽골리색금",
+    "몽고이색금"
+   ]
+  },
+  {
+   "name": "에스텔색금",
+   "aliases": [
+    "애스텔색금",
+    "에스테르색금",
+    "에스텔세금"
+   ]
+  },
+  {
+   "name": "적상화",
+   "aliases": [
+    "적상아"
+   ]
+  },
+  {
+   "name": "녹비",
+   "aliases": [
+    "높비"
+   ]
+  },
+  {
+   "name": "야래향",
+   "aliases": []
+  },
+  {
+   "name": "바이칼녹금",
+   "aliases": [
+    "바이칼록금"
+   ]
+  },
+  {
+   "name": "바이칼녹색금",
+   "aliases": []
+  },
+  {
+   "name": "빅뱅",
+   "aliases": []
+  },
+  {
+   "name": "청개구리",
+   "aliases": []
+  },
+  {
+   "name": "몰디브",
+   "aliases": [
+    "몰디부",
+    "몰디비",
+    "몰리브",
+    "몰디프"
+   ]
+  },
+  {
+   "name": "청사과",
+   "aliases": [
+    "청사가"
+   ]
+  },
+  {
+   "name": "솔루치아 복륜",
+   "aliases": [
+    "솔루시아 복륜",
+    "솔류치아 복륜"
+   ]
+  },
+  {
+   "name": "선키스트 백금",
+   "aliases": [
+    "썬키스트 백금",
+    "선키스 백금"
+   ]
+  },
+  {
+   "name": "수박금",
+   "aliases": [
+    "수박끔"
+   ]
+  },
+  {
+   "name": "청수박",
+   "aliases": []
+  },
+  {
+   "name": "로제스타수박",
+   "aliases": [
+    "로제스타"
+   ]
+  },
+  {
+   "name": "청옥금",
+   "aliases": []
+  },
+  {
+   "name": "홍학금",
+   "aliases": []
+  },
+  {
+   "name": "은하수금",
+   "aliases": []
+  },
+  {
+   "name": "설국금",
+   "aliases": []
+  },
+  {
+   "name": "월광금",
+   "aliases": []
+  },
+  {
+   "name": "백야금",
+   "aliases": []
+  },
+  {
+   "name": "BTS",
+   "aliases": [
+    "비티에스",
+    "bts"
+   ]
+  },
+  {
+   "name": "SP",
+   "aliases": [
+    "에스피",
+    "sp"
+   ],
+   "exactOnly": true
+  },
+  {
+   "name": "SP녹금",
+   "aliases": [
+    "에스피녹금",
+    "에스피녹음",
+    "sp녹금",
+    "sp녹음",
+    "SP녹음"
+   ]
+  },
+  {
+   "name": "가시꽃",
+   "aliases": []
+  },
+  {
+   "name": "넘버원",
+   "aliases": [
+    "넘바원"
+   ]
+  },
+  {
+   "name": "녹금의 제왕",
+   "aliases": [
+    "녹금에 제왕",
+    "녹음의 제왕",
+    "녹음에 제왕",
+    "높금의 제왕"
+   ]
+  },
+  {
+   "name": "레다",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "로라클론",
+   "aliases": [
+    "로라크론"
+   ]
+  },
+  {
+   "name": "로제수박",
+   "aliases": []
+  },
+  {
+   "name": "리마인드",
+   "aliases": []
+  },
+  {
+   "name": "립스틱색금",
+   "aliases": [
+    "립스틱세금"
+   ]
+  },
+  {
+   "name": "보카치노",
+   "aliases": [
+    "보까치노"
+   ]
+  },
+  {
+   "name": "불꽃수박금",
+   "aliases": [
+    "불꽃수박끔"
+   ]
+  },
+  {
+   "name": "소쇄원 녹금",
+   "aliases": [
+    "소세원 녹금",
+    "소쇄원 녹음",
+    "소쇄원 높금",
+    "소세원 녹음"
+   ]
+  },
+  {
+   "name": "오스카",
+   "aliases": []
+  },
+  {
+   "name": "인디안바손",
+   "aliases": [
+    "인디언바손",
+    "인디안바순"
+   ]
+  },
+  {
+   "name": "찐녹금",
+   "aliases": [
+    "찐높금",
+    "찐녹음",
+    "찐록금"
+   ]
+  },
+  {
+   "name": "창금",
+   "aliases": [
+    "창근"
+   ],
+   "exactOnly": true
+  },
+  {
+   "name": "창버건디",
+   "aliases": [
+    "창버간디"
+   ]
+  },
+  {
+   "name": "창색금",
+   "aliases": [
+    "창세금"
+   ]
+  },
+  {
+   "name": "청개구리금",
+   "aliases": []
+  },
+  {
+   "name": "컬러풀",
+   "aliases": []
+  },
+  {
+   "name": "콜리",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "팔색조",
+   "aliases": []
+  },
+  {
+   "name": "퍼플",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "풀잎사랑",
+   "aliases": []
+  },
+  {
+   "name": "하이원",
+   "aliases": []
+  },
+  {
+   "name": "호반금",
+   "aliases": []
+  },
+  {
+   "name": "아사달금",
+   "aliases": []
+  },
+  {
+   "name": "황도",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "순수",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "골드문",
+   "aliases": []
+  },
+  {
+   "name": "킹나이트금",
+   "aliases": []
+  },
+  {
+   "name": "황소",
+   "aliases": [],
+   "exactOnly": true
+  },
+  {
+   "name": "SP색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈빌",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "보스실생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "설백",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "찐안동",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플마리아 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "UFO",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈빌색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "수입색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "버닝로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소믈리에",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "핏줄색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "기적",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "맥라이징 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "손톱에보니금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로제색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블랙탑",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아카이썬",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "경찰",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "신화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "청룡",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP실생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "달빛마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "GM",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹레드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "빵가색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블랙버건디",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "안동녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "홍경",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "삼광",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "맥라이징",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "돌기마디바",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아메스트로",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드차카색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "다우니색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "엘자",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "파랑새",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "채홍금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "옥도감",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "콩마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "보라골드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹스톤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "가르시아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블루드래곤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "황제색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "곰마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹스피어",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "신호등",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "지도다나",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "여래원",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천사마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "먼디색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드와인색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로제",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드다이아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "연두창금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "부사마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "몽샹",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골든듀",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "지젤 색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "하늘맥야",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "홍등",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "세인트루이스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블랑코",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "환생금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "리마인드색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "민트초코",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "루밍",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드와인",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "자옥이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "화이트타이거",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "그레이트코비",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "가람마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "쥬피터",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "보석",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드다이아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "컬러풀색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "엑스칼리버",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "파이너리금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP수박금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드폭스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "실버스톤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "진주 마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "프랭크",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "이클립스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "원앙",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드킹",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창수박",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "솔루치아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "안동먼디",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "체리철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "찐안동먼디",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP창금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "립스틱녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "크림슨스타",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "푸바오",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹스톤 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "유아독존",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "실생금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드불",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마릴린",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "붉은태양",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "삼광마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "별마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "모란동백",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "일광",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드스톤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블랙로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "불사조",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "쿠스백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "채홍",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "보석마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "코피아포아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "오키드스타",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "카시오적금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "귀족",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천상화색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "설향",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "투구",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아베",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "장미돌기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "캔디크러쉬",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레종색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "몽블랑",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈퍼맨",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "바보온달",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP창녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "어우동",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "그린타이거",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "플로리디티",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "크랙금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "엘리자베스금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "라홍금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "삼천리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "황제",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "폴카",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "화연색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "지젤금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "연두경찰",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "곰돌이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "러블리로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "시스티나 자구",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP녹색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창수박금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "삼광마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "호박금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "찐실버",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "귀족색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "프랭키다이아몬드금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "이클립스 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "누브라복륜금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "쥬피터색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "치와와",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "디오스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "에스텔",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레오파드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "공작색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "설이색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "젤리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플리나",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천지일화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블랙버건디 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "채송화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "열애",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "찐블루",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "지젤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "코데로이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "제이드스타",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "백일홍",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아카이변이종",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "쇼콜라색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP군생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹크랩",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "오색마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "제시카",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드바",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "수박색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "산타돌기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈퍼클론",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드토마시",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "연꽃몰개인",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "기러기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "석류꽃",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마리아군생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "홍경금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "손톱에보니",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "꿀이벵",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "녹금 군생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "글로우",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "파이어필라",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP창",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "청산",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "꽃비 색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "찐녹금무지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "도감마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "스톤자옥이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드킹카",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레종",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "환엽마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "푸르미르",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "불꽃",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "돌기마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "젤리녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "프랭크색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마리아철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "녹금무지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "스톤마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블루오션",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "플라맹고",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "크리스토퍼",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소심",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "생로랑",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "호리즌",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "써밋금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "루밍색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아베마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "루비마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "유니콘",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "삼광 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마리아색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레이디초이스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "삼천리색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "까르띠에색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "보라골드금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아카이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "미라로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "모란동백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹샷",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "프랭키다이아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "꾸숑",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "바보온달금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플샴페인",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "쿠스색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "포에버색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드썬",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "푸킹",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "간츠",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈퍼아메스트로",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "썸마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "와인색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "피델리오색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "랍소디",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "핫세",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "먼로",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "크레타색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "루카스프랭크",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "끌라르떼",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "환엽색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "진주마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아프랭크",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플엔젤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "뱅크",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "록시땅",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소간지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로제금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "물방울아카이썬",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "기비",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "둘리색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "꽃로제",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "상부련색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "프리모리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레인보우",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈퍼아메",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "가이야색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "파콜",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "제리곰",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플리나 색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "풍경채 철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "카멜레온",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "누브라금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "오로라여왕",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "신화금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창맥라이징",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "물방울 다이아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "황소개구리금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "프랭키다이아금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "오색글래머",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "동화마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "캐시미어바이올렛",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "러우",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소정안동",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "수입찐녹",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창금자구",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블랙탑 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "에보니녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "실생녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골든듀색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "루스반크로프트",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "크리미",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "보라골드 색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "환엽립스틱금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "쥬피터백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "뱅크마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP변이금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "디오클래스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "새무지개",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "연꽃",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "유토피아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "뜰안동",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "홍연화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "독도",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "뫼비우스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "경찰마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블루메이샤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천상화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플바라금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드샤 색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아나스타샤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드아리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "선홍금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마야",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "녹금이벵",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레다복륜금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "별사탕",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "찐녹무지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블랙스톤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "환상",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "와이즈마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "샤넬",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "애마",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아르테미스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "만수그린",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "쪽빛에보니",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "먼디",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천만마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "체리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "설봉",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "가이야",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "설송",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "대왕마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "까르띠에",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "고추잠자리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "실생창금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레다색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "보석철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "샤론스톤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "옵튜사",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "안개곰마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "니퐁마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "금꽃",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아그네스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "청사초롱",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "달항아리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "도브",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소고기색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드피쉬",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "스타수박금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로얄보니타 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "홍자금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "수연화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "델리야금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "카리나색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "칸마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "맥시코야생마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아바타 색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "BTS금무지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "최강녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "피델리오 변이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레인보우 특이종",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "환생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "문스톤녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "스크래치헬리오스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천마",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천상화곰",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로얄샤넬",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "꾸숑 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "경찰마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP복륜금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "빅버던트",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "썬키스트",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마리아스톤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "설백군생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "꽃바람",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창무지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "자옥",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "야명",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아리엘 분채",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "계백",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "큐빅프로티스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "부다템플",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "백카시즈",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "TM",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천년블루",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로키",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "다크오팔",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "돈바스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "채송화금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "바이킹색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "먼로철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "실생색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "열애무지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "이벵",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아메스트로색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블르드레곤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "화이트그린",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "버닝",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "고저스색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로키색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "봇뜨 산반",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "황금빛태양",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "자옥이 군생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "뉴브라이트",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "맬라이징금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "애마수박금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "원앙돌기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "환엽맥라이징금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "샴페인색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "화목프랭크",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "그린토올드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플마리아변이금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "수입색금SP",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "코드네임",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로얄프랭크",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "그랜저녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "트럼펫금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "그대가꽃",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "화이트팜철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "별따오기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "알프스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP아리아골드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "하리마우",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천상금무지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "경기블루",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드크래마",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "황룡",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드팁",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "해빛나",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "에마수박",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "행궁돌기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈퍼문",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "코데로이금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "파이너리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "지도다나 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "청개구리금 철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "청아마린",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "루비금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "글로우백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹스피어금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "뉴브라이더금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "정석의 빛",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "일광마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "겐츠",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "김포마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "지젤변이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "거미금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드뱅크",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "달빛",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "청명",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "도화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "티머스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "하나소후렌",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아바타",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "청춘",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "온유",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "사과마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창봉황",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "동백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로또연지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "단단이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "갤러리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "불가사리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "대화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "후작",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "호주몬스터",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "파비올라백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "색동금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "황혼색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "새무지개금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "제비금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "핏줄돌기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "리얼레전드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "평강공주",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "맥라이징색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "녹금돌기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "연두몰개인",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "연두아메스트로",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소심마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "금화금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "파라다이스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드다이아녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골다",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "먼디핏줄금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "머큐리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "우주비행접시",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아카이썬변이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "겨울왕자",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "봉황젤리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "심청이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "백몰게인색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "세인트루이스백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드에보니",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "베르단디",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "체리군생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창원마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "비단금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "은조",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "FBI",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소백마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "수려금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "에보니",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "카사노바",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "시밀레",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블루드레곤",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "맑은간츠",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레이몬드퀸",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "야생마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "산타마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "피카츄",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아미",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "스텔라",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드벨벳",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "라이넬트프랭크",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "다우니",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "행복이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아베색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드시그니처",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "도감마리아철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "몰디브색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "불꽃색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드마블",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창실생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "자밀라색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "미국벨금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "호피방울복랑",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "골드캐슬",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "세도나",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "화영",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "다채",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "장미교배종",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로제핏줄색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "피멍금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈빌녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "부자마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "에보니금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "크레보",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "천상녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "핑크스프레드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "에보니색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블랙간츠",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "투쿠",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "메리그린",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아카이썬 물방울",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "수려",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소후렌",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "말간",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소백산",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "홍도금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "피멍색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "스톤백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "겨울꽃",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "다이아몬드베라",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "스타보스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "기비금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "해야",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "워아이니",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "요나스쿨",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "안성연꽃",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "무지개",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "파인로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "봉황",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "수입창",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드스프레드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈퍼오션금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "매직잼",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "안젤리나 분채",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "프리마",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "핑크스프레드 분채",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창간츠",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP환엽",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "테디베어",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "데비철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "백도",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "시추앤시스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "새벽별",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "끌라르떼색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "볼케이노스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마디바",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "하월시아금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "쿠페리금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "붉은여신",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "홍일화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "녹금 자구",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "꽃비",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "엔젤아이스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "이화색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "제갈공명",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "설향금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "뉴페이스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "보배색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창제우스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소믈리에색금무지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "가르시아색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "노블불꽃",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "실생녹색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "대호금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아베아리수",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "디얼스아이",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "가이야금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "코럴리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "꽃로제 색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "원몰",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "플라워",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "베아튠",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "단비금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "록키색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창솔레미오백금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "기적금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "피카츄 골드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "라홍",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "팔색조 색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "녹두장군",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "부사M",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마릴린색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "괴마옥",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창해임달",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "장미핏줄금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "연두몰게인",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "녹금에보니",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "유아독족",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "방울복란금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "호피방울복란금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아마데우스",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "호박마리아군생",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "산반색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "슈퍼다이아",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "미러리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "GD",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "봉황색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹콩돌기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "푸르미르철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "봉황 자구",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "수입창금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "환엽SP",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "캐시미어바이올렛 분채",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소정먼디",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "봄장미",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "포르투나",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "미니고사옹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "당인금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "샴페인",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "블러드핑거",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "라일락퍼퓸",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마그마",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "디에고",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "해맑은젤리",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "레드베션",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "따오기",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "해임달",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "폰타나",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "아프로디테",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "쿠스수박",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹쿠퍼교배종",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "창연두금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "오색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP찐녹",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "킹오브더킹",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "마온금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "국송색금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "돌맹이금무지",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "퍼플리나 금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "용천금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "UFO 녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "소심녹금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "오색공작금",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "SP골드",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "녹금철화",
+   "aliases": [],
+   "exactOnly": true,
+   "receipt": true
+  },
+  {
+   "name": "빌로붐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멕시코야생마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마우가니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "옵코델룸",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "위트버젠스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "구갑룡",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "습지야",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "토스카넬리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "부르게리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "먼로금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "칼큘러스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아이시그린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "크림티",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마니어리아눔",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "투구금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스노우바니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엔젤세비얼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "제이드스타금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "난봉옥금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "슈가베이비",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "자태양",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "펠루시덤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "차우바니에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스타마크",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "어메이징그레이스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "후레뉴",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "국장옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "실로니카",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파가에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "흑장미",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "밀크맨",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멜로포르미스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크플로라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "피어리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "허니핑크",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "게발선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "흑목단",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "일본오베사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "소인제금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑클루비",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "티볼리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "흑화연",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "돌기난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드킹덤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "글램핑크",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "둥근잎비취후리데",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "매금장미",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아미산",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "온슬로우",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "밴바디스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엘크혼금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아르제",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마니어리아넘",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알스토니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미하노비치금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "치와와금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종방울복랑금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랙사바스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "메비나금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "글로보섬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라피네",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오렌지먼로",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에듈리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "옵살모필름",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "차알스톤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "독일샴페인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에메랄드반질리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "슈퍼투구",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알스토니적화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드콘",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크반질리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크스팟",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알부카콘코르디아나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "맥도가리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "하트송",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "나나후크",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "닭벼슬철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아르메니아쿰",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "콘카붐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "크리스피뷰티",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "기선옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미니오베사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블루서프라이즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "벤바디스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "살구미인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오팔리나금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크마녀",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크스텔라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비화옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "옵살모",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종콜로라타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "피시포르미",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크샴페인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루비다나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "바닐라비스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "습지아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랙퀸",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "릴리패드",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "황홀한연꽃",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "불놀이야",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알스토니백화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아악무",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "이너미스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드다이아몬드",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "뮤리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루비도나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "먼로샤넬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "캐라리언",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "뮤즐리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "소화금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퍼플샴페인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "짐노금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종에보니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미니염좌",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오니소갈룸 토르투오섬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크마녀철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "도태랑",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "세나메리디오날리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아론소이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라우렌시스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드탄",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "릴리시나금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "취설송",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "보카사나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에스피금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엔젤세비얼 철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파일로슬롬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "페리도트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "홍미인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "철갑환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "안동먼디금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "꽃기린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레종금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파가에서브리즘",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파키피덤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아리엘철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "단애의여왕",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "버클리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "은사난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "온슬로우금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "카라모에펜스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "타이니버거",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "팔천대철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "큐빅프로스티금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "디스코홀스티",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "카라스몬타나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마케베니아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "봄장미금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "트런카툼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "프레드리치에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "해머루비",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "쪽빛에보니금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "금호선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "단모환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라체날리아 트리코필라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "매직쨈골드",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "봉래궁",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아트로푸스카뮤턴트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "유비포르미",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "크로커다일",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파차이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크여왕",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에케문스톤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "귀짧은리갈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드마우가니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루비도나철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "리치아이금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "온즈카난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오리온금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "자보금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "주쿤덤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "짧은잎적성",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "호빗당인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "화목단",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아리엘금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루브로로세우스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "배반의장미",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "부사의",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "브레비카울",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "세계도금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아마빌레",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "우주목백금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "정교전",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파랑새금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "플라멩고금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "골든베어",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "러블리로즈금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "링구아스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백조돌기난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "서브페네스트라튬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "연필선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "와우금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "입술파가에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마리아금철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "바닐라비스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백견환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "석화회",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "용심목",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "운카리나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "좀마삭",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "피렌체금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "하트딜라이트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "간주금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "앙떼떼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라우치",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루코피",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "모닐리포메",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "보초금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랙캐시미어철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "사라보니슈퍼클론",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "춥스철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "칠교주",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파키푸스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멕시칸스노우볼금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "까라솔",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "꽃피는염자",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "노란마우가니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라즈아가",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레오파드금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "몰게인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "살루철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "서브페네스트라툼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스윗캔디금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스티븐스조네시아넘",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "제스타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "트리게룸",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퍼큘라리아스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퍼플딜라이트금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크프리티금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "헬리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "샴페인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "그린국장옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "긴잎적성",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "네오선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "덴시플로럼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "도할랑",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드팁금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마킨스플럼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "샹그릴라철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "수박선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스프링타임금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "우미인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "움다우스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "유리전금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "찐안동먼디금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "취황관금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파키포리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크플로라철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "덴섬뿌리근상",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "머니메이커금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "트런카튬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미도화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "별사탕금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비엘라젤리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "세설금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "슈마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알바니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오팔리나철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "짚시금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "플라붐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "콜루멜라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "필란시",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크베라금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "함메리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "큐빅금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "다우니금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "타이니버거금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "화이트프린세스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "공작환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "돌기마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아우캠피아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멕시코자이언트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미라클슈퍼투구",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "바리안스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백조선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "버닝로즈금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "베루코삼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "상아환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알부카 딜루쿨라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "웨스트니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "육종마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "팔중원희",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퍼플럼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크디오라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크팁스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑클루비금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "흑사금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "고질라목단",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백도핑키",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "가시없는꽃기린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "단자천평환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "더스티로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "덴트라쨈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드불금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루비틴트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "후커리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "매직쨈골드철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블루서프라이즈금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "세레시아눔",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "슈퍼글로보섬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스타마크철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아도데스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엥겔리케",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종복랑금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "큐비쿰",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파가에콤칸스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "푸미라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크글로보섬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "호피복랑금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "희춘성",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "경화금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "국화석",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "닭벼슬금철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "랄라철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "러우철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "리톱소이데스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마가렛금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "모건뷰티",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "모노케로티스복륜금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미니벨금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "성성환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "소인제복륜금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스피랄리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아레나스철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "야생콜로라타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엑티폼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엔젤스핑거",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "옥선금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종몰게인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "유접곡",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "정고금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "펜타드럼금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "푸시케",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퓨베센스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크샴페인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "수베로사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오비리데",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "홍치아철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "귀짧리갈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "썬버스트철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "대봉룡",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "독일황후",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라이프티그라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "프레드레드헤드",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "림피덤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "매트블랙퀸",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "모노케로티스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "붉은끝동철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "상아자보",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "생생불식",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "월세계",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오색만대",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아가보이데스몽블랑",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "우라노스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "자옥이금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "줄리아나핑크철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "츄비바니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "픽투라툼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "타이거피그마에아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "포이소이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "코랄리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "샤르먼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "귀청옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "뇌신금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "눈꽃선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "대호환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드국장옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "모노금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "몰게인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "무자상아환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "무지개금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크펑키금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미라블",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "밍크선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "보카사나몬스터",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "빙사탕금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "수련철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "수박페페",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "실버레오파드금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "실버스타금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아메치스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아프리카허브",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "용신목",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "웅동자금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종에보니슈퍼클론",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종에보니금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "은자보금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "제이드스타스페셜",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "취설송금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "큐빅프로스티",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "폴에반시",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "푸르트센스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "홍엽난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "홍채옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "휴밀리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "다크파멜라금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아데니아키르키",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "자려전금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크드레곤금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "거미줄바위솔",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "고질라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "나나후쿠",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라메리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라피네철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드다이아몬드금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드환타지아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루고사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "벨라게티",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "올리바시아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멜리오다스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "무늬하트호야",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "문가드니스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "문가드니스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미니설화수",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "반데리에티에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백로금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "보스웰리아네글렉타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "브링클스블루철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랙간츠금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비카리나툼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "사라히메",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "샤포테",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알비니카",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종프리티금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "청왕환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "트럼소",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "트루기다금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "티벳장미",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "포이소이금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "홍상생술",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "황금염좌",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "호저환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "기천금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오베사금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "정교환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "누다금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "다이아몬드스테이트금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "로얄샤넬금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "테리칼라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "몰라코철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "무자왕관룡",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미어리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백각기린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백성 선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "벨라도나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랙캐시미어",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비올라쉬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비올라시",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비취후리데",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "빌로붐몬스터",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "사랑무",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "수정연필",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "언스티",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에뜨리얼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에리오스퍼뭄 카펜세",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엘크혼금철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "연두장미금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "연봉목대",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "염좌금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오소나카카리오이데스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오십령옥금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "육종마리아철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "자국장옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "작약환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "청난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "취향관금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "카르메나에 백자",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "코노피튬위트버젠스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퀸즈마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "피시포르미우스터백화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "피코선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크드레곤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크인베일",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크자라고사금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "길바금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "샤인브라이트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "SP프릴",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "꽃바람금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "나비로제",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "딕스핑크",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라체날리아 피그마에아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "러블리로즈철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "러우금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "러우백금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드다이아몬드펄",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드베리철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드타이거마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드티아라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "로사로아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루페스트리금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마르모라타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멀티컬러",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멜로프로미스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "반헤르디",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "벽어연금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블루엘프금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "빅터레이터",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "사포테철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "성미인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스파이시로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "습지야선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "시츄엔시스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아르케인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아카이썬글래머금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "용심목철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "울리카테카바나철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종프랭크",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종엘리자베스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "유럽천금장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "전동금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "제스타철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "즐극환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "청기린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "트럼펫핑키",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "팬지철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "표량금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "필루리포르메",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "하나에토마시",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "하트호야",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "호주마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "호주핑크",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라우렌시스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엑시타조",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "귈라우미니아나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "금황환선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "네오할리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오층탑",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "당초문",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라탐철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드크라우스철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루비마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "르노어딘금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "리사호야",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "뫼비우스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미라빌리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "문페어리금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "바늘땀줄리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백호몬스터",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "불바인하월소이데스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "섭세실리스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "솜니엄",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스텔라타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에렉타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "포케아에둘리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "왕비세설",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아그레망",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아레나스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알부카 바예리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엠파스철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "옐로우멜로우",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오닉스철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오소나 피그마에아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "왕백단",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "용신목철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종자라고사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "인삼대길",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "장미환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "줄리 그린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "카카리오이데스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "털피시포르미",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "킹크랩금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "털빌로붐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퍼플미인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퍼플킹금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "포토시나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "폴라리하트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "프랭크슈퍼클론",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크엔젤금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "화이트라인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "환엽블랙로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "귀갑투구",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "브이투구",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비올레뜨금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "푸르미르금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "린제아이스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "천공지경금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "골드다이아몬드금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "골드쉐도우",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "그린마우가니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "나탈렌시스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "녹태고",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "닭벼슬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "담시금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "데블스혼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드마교",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드탑",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레티지아철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "로스코프",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "리얼레전드금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마제스타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멕시코로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "브링클스블루",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랙메비나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비취백봉",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "빙사탕",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "살루금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "삼각목단",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "세레시아넘",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "수전옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "흑왕환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아메리카나금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아레나스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아트로푸스카뮤턴트금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알바뷰티금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엘샤철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오소나레트로사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "우주목황금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종모건뷰티",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "웨스트웨니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "은사돌기난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "집시금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "춘맹금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "프레파붐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퀘이샤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파랑새목대",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파피스로즈철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "페라고늄바클리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "플로리디티금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크팁스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "호박철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "호피마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파키포디오이데스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "사파이어금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "귀갑오베사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에버넘",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퀸즈볼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "SP몰게인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "가을의서리철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "거취옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "고사옹금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "그린옥선",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "기르바의장미금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "꽃피는염좌",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핫세이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "등심환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라디칸스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라벤다로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라체날리아 컴프토니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "로라백금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "로즈디올",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마쏘니아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "몽샹금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "뮤엘레리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미니염자",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미드나이트러브금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미러블",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백금자보",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백봉목대",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "보니피카",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "불꽃여왕",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "브루니움",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랑루즈금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랙아이스몬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블루진마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비얀트금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "설경색",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "소송록",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "송립전",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "크리스파",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "희목단",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아모르",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "양진철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "어큐라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에게리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에오니옴",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엔젤프리샤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오메가퀸",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "옵튜샤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "운차월",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "자옥루",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "자제옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "천녀검",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "천대전금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "천황 선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "청산호",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "츄비립스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "카이저빌",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "테일바니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "털붐피카츄",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파밀라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퍼플봉봉",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "폴리린제아나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크크리스탈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "하월시아수",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "학봉룡",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "홍사철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "화리노사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "환엽백야",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "황후금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백마성",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아미스타금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "익스펙트리아철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "콜로라타 린드시아나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "율리치아나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "경지연",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "고르고니스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "고질라목단금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "공기린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "군사환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "그락실리델리네타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "그락실리스틸룸",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "글핑크글로보섬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "뉴헨의진주금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "다알리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "도미스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "돌스테니아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "동미인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라브라니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라우이철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라우치스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라조야금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라포르테",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "러스비금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레드롱기시마",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레몬앤라임금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레몬앤라임철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "로즈흑법사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "롱기시마금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "리치아이금선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "펄비셉스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마벨스파이어",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마제스타철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마지나텀",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멘도사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "목사랑초",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "몬스터 빌로붐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미스진",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미인경",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "백은철도",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "버날렌스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "베라하긴스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "별의눈물적화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랙프린스실버금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블루렌즈금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블루버블팝",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비올라쉬금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비하옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "사치철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "샬리콜라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "서우각",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "수연금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "슈퍼마우가니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스테파니아 수베로사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "썬라이즈금철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아가베푸미라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아르테미스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아차벤세",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "알부카스피랄리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "앙블리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "야생마우가니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "언성금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에스메랄다",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오비포르미",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오퍼큐리카야 파키푸스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "우르스프런기아눔",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "울리카테카바나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원종배션",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "위게티에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "자천지",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "짧은귀리갈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "창철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "천대전송철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "코렉타금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "탄틸룸",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "트레몰로",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "트로이적심철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파스텔레온",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파우더퍼프금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "페러독스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "프릴마디바",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "피네스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "필리페라금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크드래곤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크디올",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크베라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크엣지",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크체리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑키펑키금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "헬뮤티",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "호빗우주목",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "홍기린금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "환엽마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "흑괴리철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "여염옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "샤토블랙",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "구갑펜타곤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "퀸스볼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "로벨리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "메듀사금철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "썬라인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "게르단투스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "경미인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "경산마리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "고혼진금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "광옥금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "그라노비아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "꽃장미철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "나비금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "다화옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "닭벼슬금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "돌스테니아 포에티다",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "동미인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "동미인철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "라보사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레몬베리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "레이디스핑거",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "로조철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "론에반스철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "루비도나금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마기나툼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마리아나에할리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "마케베니아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "멕시칸스노우볼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "목대 샹그릴라",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미국마리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미누툼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미니귀면각",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미인경철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "미하노비치",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "반야선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "브루게리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블랙옵투사금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "블루멘탈금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비스피노슘",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "비화옥 선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "뿔난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "소울민트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스노우브이투구",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "스타보스금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "습지야금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오렌지에보니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "티타노타금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "아이스에이지돌기금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "앙팡금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "야생콜로라타철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "에스피색금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엔시노철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "엠마스톤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "여우꼬리선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "연꽃몰게인금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오니소갈룸 히스피덤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "오소나 클라비폴리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "우스터백화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "원숭이꼬리선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "월광여신",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "일본성영",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "잉카로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "짧뚱리갈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "청기린철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "카르메나에 황자",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "칼쿨러스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "털플라붐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "코스트금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "타바레시아 버클리철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파우카리아금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "파키포디움 호름벤세",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "포케리아 파시쿨라타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "폴리도나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "핑크모리나금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "혈영금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "호름벤세",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "홍등금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "환엽제관",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "황금염자",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "황금게발선인장",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "황홀한연꽃금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "흑봉환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "xplant"
+  },
+  {
+   "name": "목기린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "패리도트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "취운금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "괴룡환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "호리다",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "헤르난데지",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "다화옥금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "피쉬본",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "분화룡",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "귀갑난봉옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "귀면각",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "금양환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "나나후쿠미니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "단자작약환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "루비포트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "테레사에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "화이트 고스트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "그린브리트니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "금련옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "나나후크미니",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "단자금호",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "롱기마마",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "하베러보이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "소인의모자",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "슈가젤리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "아쿠아픽타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "야곱세니금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "여배각",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "외가시밧데리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "향기단애",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "립살리스 트리고나",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "광자능파",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "구름쇠",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "데블스푸드",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "도미닉스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "디스코홀스티금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "롱기브렉텍튬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "만손초",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "사자왕",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "신선옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "오이보투구",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "우주전",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "자목단",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "체리블러썸",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "퀸마릴린",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "해왕철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "향화환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "헤디오토이데스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "홍대화금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "홍페페",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "자트로바",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "태양금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "거봉진주",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "금마차",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "레네카",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "머니메이크금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "모스로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "무용환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백신환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백신환철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백운각",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "붉은섬털",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "브레비폴리아",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "브리티움",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "비모란",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "사자두",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "삼봉빌로붐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "세계지도금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "수정마계",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "스타투구",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "시아키",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "엑시몬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "엘리쉐",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "오절무",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "왕관룡",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "자옥로",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "청각전",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "퍼플가든",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "펜덴스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "폴로렌센스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "학봉용",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "화차 금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "희성미인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "청페페",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "국수철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "금황성",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "낙동기러기",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "델라스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "돌기난봉옥금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "듀웨이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "라운드미드나잇",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "로즈봉황",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "루이사에",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "립살리스 부사완",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "마그마금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "미기울",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백설황",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백제성뮤턴트",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "백태양",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "봉랑금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "뷰티릴리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "브레비칼릭스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "브론즈 파스텔",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "빌로붐 핑크",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "성영철화",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "수정옵투사",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "슈가고리",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "스타피타튬",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "썬로즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "푸른고래",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "아멜룽가",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "플리카틸리스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "어파인",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "에르니아눔",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "영화환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "잉글랜드칼카리움",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "자이언트드래곤",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "종귀옥",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "진주목걸이",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "체리톱스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "캔디볼",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "퍼큘라리어스",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "품명환",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "피그니즈",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "핑크아악무",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "옵투사금",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "환엽핑크픽타",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  },
+  {
+   "name": "황소정",
+   "aliases": [],
+   "exactOnly": true,
+   "source": "simpol"
+  }
+ ]
+}
