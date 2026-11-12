@@ -141,10 +141,11 @@ class Poster:
             self.items.append({"body": body, "first": now, "tries": 0, "next": now})
             self.cv.notify()
 
-    def renumber(self, vid, frm, to, drop=False):
+    def renumber(self, vid, frm, to, rid, drop=False):
         """잘못 들은 번호 바로잡기(D-SCR-06): from → to를 뒤 스레드에서 한 번 보낸다(네트워크 오류면 3번까지). 서버가 지금 상태로 다시 보고 안전할 때만 바꾼다"""
         base = self.url.rsplit("/", 1)[0]
-        body = {"videoId": vid, "from": int(frm), "to": int(to), "requestId": f"screen-{vid}-fix-{int(frm)}-{int(to)}"}
+        # rid = 이 일꾼이 frm을 등록한 요청 번호 — 서버는 그 등록이 만든 상품일 때만 바꾼다(D-SCR-10: 다시 켠 일꾼이 옛 429를 371로 옮김)
+        body = {"videoId": vid, "from": int(frm), "to": int(to), "requestId": f"screen-{vid}-fix-{int(frm)}-{int(to)}", "registerRequestId": rid}
         if drop:
             body["drop"] = True                              # to를 뒤에 따로 등록함 — 서버가 from을 지운다(찜 없을 때만)
 

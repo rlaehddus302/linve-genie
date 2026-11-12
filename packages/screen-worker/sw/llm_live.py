@@ -284,6 +284,10 @@ class LlmRegister:
                 continue
             # tag를 이미 보냈으면: 이 번호를 말한 뒤에 따로 등록한 것(같은 상품을 두 번호로 들음, 실방송 392 → 391)일 때만 이 번호를 지운다.
             # 앞서 등록한 상품의 번호표가 아직 보이는 것(다음 상품 번호를 먼저 말함)은 건드리지 않는다
+            rid = self.sent.get(no, {}).get("rid")
+            if rid is None:                                  # 이 일꾼이 보낸 등록이 아니면 바꾸지 않는다
+                del self.watch[no]
+                continue
             other = self.sent.get(tag)
             drop = other is not None
             if drop and not (other.get("sent") and "fixed_from" not in other and other.get("start_sec", -1) >= start - 5):
@@ -293,7 +297,7 @@ class LlmRegister:
             self.emit(rec)
             print(f"           번호 바로잡기 {no}번 → {tag}번{' (지움)' if drop else ''} (화면에 {no}번은 안 보이고 {tag}번이 {frames}장)", flush=True)
             if self.poster:
-                self.poster.renumber(self.video_id, no, tag, drop=drop)
+                self.poster.renumber(self.video_id, no, tag, rid, drop=drop)
             # 잘못 들은 번호는 보낸 것으로 남겨 같은 말을 다시 받아도 또 등록하지 않는다(화면에 그 번호가 보이면 new_scene으로만)
             if not drop:
                 self.sent[tag] = dict(self.sent.get(no, {}), no=tag, fixed_from=no)
@@ -359,6 +363,7 @@ class LlmRegister:
             if body is not None:
                 observed = int(self.seen.get(line, now) * 1000)
                 body.update(observedAt=observed, requestId=f"screen-{self.video_id}-{no}-{observed}")
+                rec["rid"] = body["requestId"]
             if body is None:
                 why = "보낼 수 없는 값"
             else:

@@ -193,6 +193,27 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     expect((await reprice({ videoId: live.videoId, no: 397, price: 70.5, requestId: 'screen-v-price-397-2' })).status).toBe(400)
   })
 
+  it('D-SCR-10 번호 바꾸기는 일꾼이 방금 보낸 그 등록의 상품만: 다시 켠 일꾼이 같은 번호를 보내 무시된 뒤에는 옛 429를 371로 옮기지 않는다', async () => {
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const connected = await connectSeller(world)
+    const { b, live } = await linkedBroadcast(world, connected)
+    const renumber = async (body: unknown) => {
+      const response = await world.server.app.request('/internal/screen/renumber', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify(body) })
+      return { status: response.status, body: (await response.json()) as Record<string, unknown> }
+    }
+    expect((await post(world, { videoId: live.videoId, no: 429, price: 10000, name: '프랭크 3번', requestId: 'screen-v-429-1' })).body).toMatchObject({ changed: true })
+    // 한 시간 뒤 다시 켠 일꾼이 다른 상품을 429로 잘못 들어 보냄 → 있는 번호라 무시(R-2)
+    expect((await post(world, { videoId: live.videoId, no: 429, price: 30000, name: '홍상생술', requestId: 'screen-v-429-2' })).body).toMatchObject({ changed: false })
+    const wrong = await renumber({ videoId: live.videoId, from: 429, to: 371, requestId: 'screen-v-fix-429-371', registerRequestId: 'screen-v-429-2' })
+    expect(wrong.body).toMatchObject({ changed: false, broadcasts: [{ skip: 'OTHER_REGISTER' }] })
+    expect((await products(world, connected.seller.cookie, b.date)).find((p) => p.no === 429)).toMatchObject({ name: '프랭크 3번', price: 10000 })
+    expect((await renumber({ videoId: live.videoId, from: 429, to: 371, requestId: 'screen-v-fix-429-371b' })).status).toBe(400)
+    // 방금 보낸 등록이 만든 상품이면 바꾼다
+    const right = await renumber({ videoId: live.videoId, from: 429, to: 371, requestId: 'screen-v-fix-429-371c', registerRequestId: 'screen-v-429-1' })
+    expect(right.body).toMatchObject({ changed: true })
+    expect((await products(world, connected.seller.cookie, b.date)).find((p) => p.no === 371)).toMatchObject({ name: '프랭크 3번' })
+  })
+
   it('D-SCR-02 지금 볼 라이브: 토큰 없으면 404·틀리면 401, 이어진 방송의 영상 번호만, 방송을 끝내면 빠진다', async () => {
     const off = await youtubeWorld()
     expect((await off.server.app.request('/internal/screen/live')).status).toBe(404)

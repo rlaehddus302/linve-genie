@@ -127,13 +127,15 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     }
     if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
     const b = body as Record<string, unknown>
-    if (Object.keys(b).some((k) => !['videoId', 'from', 'to', 'requestId', 'drop'].includes(k))) return bad('받을 수 없는 항목이 있어요.')
-    const { videoId, from, to, requestId } = b
+    if (Object.keys(b).some((k) => !['videoId', 'from', 'to', 'requestId', 'drop', 'registerRequestId'].includes(k))) return bad('받을 수 없는 항목이 있어요.')
+    const { videoId, from, to, requestId, registerRequestId } = b
     const drop = b['drop'] === true
     if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
     const isNo = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 9999
     if (!isNo(from) || !isNo(to) || from === to) return bad('from·to는 서로 다른 1~9999 정수예요.')
     if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
+    // D-SCR-10: 바꿀 번호는 일꾼이 방금 보낸 그 등록(요청 번호)이 만든 상품이어야 한다 — 같은 번호의 옛 상품(다시 켠 일꾼이 모르는 것)은 건드리지 않는다
+    if (typeof registerRequestId !== 'string' || !REQUEST_RE.test(registerRequestId)) return bad('registerRequestId는 screen-로 시작해야 해요.')
     const open = await openBroadcastsOfVideo(deps.db, videoId)
     if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
     const results: { broadcastId: string; changed: boolean; skip?: string }[] = []
@@ -141,6 +143,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
       const [broadcast] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, sellerId)))
       if (broadcast === undefined) continue
       let byScreen = false
+      let thisRegister = false
       let skip: string | undefined
       const outcome = await deps.service.writer.write({
         sellerId, date: broadcast.date, rehearsal: false, createScope: false, requestId,
@@ -150,12 +153,14 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
             .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, runtime.scopeId), eq(events.type, 'product.register'), eq(events.changed, true),
               sql`${events.body}::jsonb->>'b' = ${broadcastId}`, sql`${events.body}::jsonb->>'no' = ${String(from)}`)).orderBy(desc(events.seq)).limit(1)
           byScreen = row?.requestId?.startsWith('screen-') === true
+          thisRegister = row?.requestId === registerRequestId
           return null
         },
         build: ({ state }) => {
           const product = getProduct(state, broadcastId, from)
           if (product === null || product.status === 'CLOSED') skip = 'NO_PRODUCT'
           else if (!byScreen) skip = 'NOT_SCREEN'
+          else if (!thisRegister) skip = 'OTHER_REGISTER'
           else if (product.hasOptions || product.winners.length > 0 || product.waitlist.length > 0 || product.conflict) skip = 'HAS_CLAIMS'
           else if (getProduct(state, broadcastId, to) !== null) {
             const target = getProduct(state, broadcastId, to)
