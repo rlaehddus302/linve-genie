@@ -379,6 +379,13 @@
       "when": 1794960000027,
       "tag": "0053_broadcast_sales",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794960000028,
+      "tag": "0054_broadcast_order_shop",
+      "breakpoints": true
     }
   ]
 }

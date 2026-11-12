@@ -10,6 +10,7 @@ export type SmsResult = 'sent' | 'cancelled' | 'unknown'
 
 /** 문자에 붙일 그림 (영문 파일 이름 — 문자 앱이 한글 이름을 깨뜨리지 않게) */
 export interface SmsImage {
+  readonly mimeType?: 'image/png' | 'image/jpeg'
   readonly bytes: Uint8Array
   readonly name: string
 }
@@ -44,7 +45,7 @@ export const deviceSms: NativeSms = {
     // (expo-sms가 mimeType 칸을 그대로 넘긴다 — 'image/jpeg'이면 붙이기에 실패할 수 있다). 안드로이드는 MIME 그대로.
     const android = Platform.OS === 'android'
     const uri = android ? file.contentUri : file.uri
-    const mimeType = android ? 'image/jpeg' : 'public.jpeg'
+    const mimeType = android ? (image.mimeType ?? 'image/jpeg') : image.mimeType === 'image/png' ? 'public.png' : 'public.jpeg'
     const { result } = await SMS.sendSMSAsync([phone], text, { attachments: { uri, mimeType, filename: image.name } })
     return result
   },

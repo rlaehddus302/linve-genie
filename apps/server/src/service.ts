@@ -28,12 +28,13 @@ import {
 } from '@livejjim/core'
 import { endedBroadcastSales } from './broadcast-sales.ts'
 import { randomBytes } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { API_EVENTS, CHAT_FIELDS, VOICE_LOG_FIELD, hasControlChar, isPlainObject, own, ownKeys } from './api-fields.ts'
 import type { ReadProduct } from '@livejjim/voice-session/read'
 import { MONEY_SETTING_KEYS, RAW_FIELDS, applyRawInput, checkRawInput, readMoneySetting, readProductOf, smsNumberProblem, type RawInput } from './raw-input.ts'
 import type { Db } from './db/database.ts'
-import { sellers } from './db/schema.ts'
+import { broadcasts, sellers, youtubeLinks } from './db/schema.ts'
+import { readShop } from './shop.ts'
 import type { FieldProblem } from './errors.ts'
 import {
   ChatGenerators,
@@ -1214,6 +1215,25 @@ export class Service {
     return (await optionScopes(this.#options.db, sellerId)).length > 0
   }
 
+
+  async orderShop(sellerId: string, id: string): Promise<string | null> {
+    const db = this.#options.db
+    const [row] = await db.select({ name: broadcasts.orderShopName }).from(broadcasts)
+      .where(and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, id)))
+    if (!row) return null
+    if (row.name) return row.name
+    const [video] = await db.select({ title: youtubeLinks.broadcastTitle }).from(youtubeLinks)
+      .where(and(eq(youtubeLinks.sellerId, sellerId), eq(youtubeLinks.broadcastId, id)))
+      .orderBy(desc(youtubeLinks.linkedAt)).limit(1)
+    const first = video?.title?.trim().match(/^([가-힣a-zA-Z0-9· ]{1,24}(?:다육|농원|농장|화원|공방|상점))(?=\s*#|$)/u)
+    return first?.[1]?.trim() || (await readShop(db, sellerId)).name
+  }
+
+  async setOrderShop(sellerId: string, id: string, name: string): Promise<boolean> {
+    const rows = await this.#options.db.update(broadcasts).set({ orderShopName: name })
+      .where(and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, id))).returning({ id: broadcasts.id })
+    return rows.length > 0
+  }
 
   async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null; createdAt: string | null; platforms: BroadcastPlatform[]; salesTotal?: number }[]> {
     const [rows, extras] = await Promise.all([listBroadcastRows(this.#options.db, sellerId), broadcastListExtras(this.#options.db, sellerId)])

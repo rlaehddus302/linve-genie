@@ -489,6 +489,18 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 방송 (AC-S04-21) ──────────────────────────────────────────────────
   api.get('/broadcasts', async (c) => c.json({ broadcasts: await service.broadcasts(sellerOf(c)) }))
+  api.get('/broadcasts/:id/order-shop', async c => {
+    const name = await service.orderShop(sellerOf(c), c.req.param('id'))
+    return name === null ? notFound() : c.json({ name })
+  })
+  api.put('/broadcasts/:id/order-shop', async c => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['name'])
+    if (extra !== null) return extra
+    const name = typeof input.name === 'string' ? input.name.trim() : ''
+    if (!name || [...name].length > 40 || /[\p{Cc}]/u.test(name)) return apiError(400, 'INVALID_INPUT', '가게 이름을 1~40자로 적어 주세요.')
+    return await service.setOrderShop(sellerOf(c), c.req.param('id'), name) ? c.json({ name }) : notFound()
+  })
   api.post('/broadcasts', async (c) => {
     const input = body(c)
     const requestId = requestIdOf(input)

@@ -17,11 +17,13 @@ import { useAppForeground } from '../lib/use-app-state.ts'
 import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderTextButton, Tap, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
+import { useHoldRouteSwipe } from '../ui/kit/route-swipe.tsx'
 import { GUTTER, SHADOW, SPACE } from '../ui/kit/tokens.ts'
 import { LOW_PAPER, useLabelPaper } from '../lib/label-paper.ts'
 import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
 import { useCameLate } from '../ui/late.tsx'
-import { BroadcastSalesList, broadcastSales, salesMoney } from './console/BroadcastSales.tsx'
+import { broadcastSales, salesMoney } from '../lib/broadcast-sales.ts'
+import { BroadcastSalesList } from './console/BroadcastSales.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
@@ -189,6 +191,13 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const [labels, setLabels] = useState<readonly LabelView[]>([])
   // 끝내기 성공 — 방송 목록을 다시 받지 않아도 바로 "끝난 방송"으로 (범위 기록의 방송 정보는 처음 한 번만 받는다)
   const [endedHere, setEndedHere] = useState(false)
+  const [orderBuyer, setOrderBuyer] = useState<string | null>(null)
+  useHoldRouteSwipe(orderBuyer !== null)
+  useEffect(() => {
+    if (orderBuyer === null) return
+    const back = BackHandler.addEventListener('hardwareBackPress', () => { setOrderBuyer(null); return true })
+    return () => back.remove()
+  }, [orderBuyer])
   const [salesPage, setSalesPage] = useState<'auto' | 'sales' | 'record'>('auto')
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
   const paper = useLabelPaper(services.labels.paperDeviceId ?? null)
@@ -373,9 +382,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   if (salesPage === 'sales' || (closed && salesPage === 'auto')) {
     return <View style={{ flex: 1, backgroundColor: p.background, paddingTop: pageTop }}>
-      <AppHeader title="판매 명세" onBack={closed ? onBack : () => setSalesPage('auto')} right={closed ? <HeaderTextButton label="라이브 기록" onPress={() => setSalesPage('record')} /> : undefined} />
+      <AppHeader title={orderBuyer === null ? "판매 명세" : "구매자 주문서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => setSalesPage('record')} /> : undefined} />
       <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
-      <BroadcastSalesList title={title} sales={sales} inset={inset} />
+      <BroadcastSalesList {...{ broadcastId, title, sales, inset, names, sealed, rehearsal }} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} />
     </View>
   }
   const close = () => setSheet('none')

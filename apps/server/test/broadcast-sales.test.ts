@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { scopes } from '../src/db/schema.ts'
+import { scopes, youtubeLinks } from '../src/db/schema.ts'
 import { expect, it } from 'vitest'
 import { chat, DAY, register } from './print-support.ts'
 import { addSeller, client, createBroadcast, expectOk, newWorld, rid, writeEvent } from './support.ts'
@@ -40,4 +40,19 @@ it('이전 형식으로 봉인된 라이브는 장부에 남은 확정 판매가
   await world.database.db.update(scopes).set({ sealedAt, ledger: JSON.stringify(ledger) }).where(eq(scopes.sellerId, seller.sellerId))
   const result = await expectOk(api.get('/api/broadcasts'))
   expect(result.body).toMatchObject({ broadcasts: [{ id, salesTotal: 350000 }] })
+})
+
+it('주문서에는 연결한 영상의 가게 이름을 표시하고 수정은 해당 판매자의 해당 방송에만 적용한다', async () => {
+  const world = await newWorld()
+  const seller = await addSeller(world)
+  const other = await addSeller(world)
+  const { id } = await createBroadcast(world, seller, { date: DAY })
+  const api = client(world, seller.cookie)
+  const path = `/api/broadcasts/${id}/order-shop`
+  const [scope] = await world.database.db.select({ id: scopes.id }).from(scopes).where(eq(scopes.sellerId, seller.sellerId))
+  await world.database.db.insert(youtubeLinks).values({ id: rid(), sellerId: seller.sellerId, scopeId: scope!.id, broadcastId: id, videoId: 'abc', liveChatId: 'chat', broadcastChannelTitle: '보스삼촌', broadcastTitle: '용용다육 #금종자 #색금', linkedAt: new Date() })
+  expect((await api.get(path)).body).toEqual({ name: '용용다육' })
+  expect((await client(world, other.cookie).put(path, { name: '다른 가게' })).status).toBe(404)
+  expect((await api.put(path, { name: '새 가게' })).status).toBe(200)
+  expect((await api.get(path)).body).toEqual({ name: '새 가게' })
 })

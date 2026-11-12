@@ -16,8 +16,8 @@ const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
 /** base64 → 바이트 (atob가 없는 환경도 있어 직접 푼다) */
 export function decodeBase64(text: string): Uint8Array {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(text)) throw new Error('LABEL_BITMAP_FORMAT')
-  const clean = text.replace(/=+$/, '')
+  const clean = text.replace(/={1,2}$/, '')
+  if (text.length % 4 !== 0 || /[^A-Za-z0-9+/]/.test(clean)) throw new Error('LABEL_BITMAP_FORMAT')
   const out = new Uint8Array(Math.floor((clean.length * 3) / 4))
   let bits = 0
   let value = 0

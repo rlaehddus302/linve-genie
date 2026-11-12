@@ -613,6 +613,8 @@ describe('ConsoleScreen', () => {
     }) }))
     await open(world)
     fireEvent.click(await screen.findByText('현재 매출 115,000원 ›'))
+    expect(await screen.findByRole('button', { name: /주문서 · 115,000원/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '상품별' }))
     expect(await screen.findByText('15번 색금')).toBeTruthy()
     expect(screen.getByText('판매 수량 3개 · 구매자 1명')).toBeTruthy()
     expect(screen.getAllByText('115,000원')).toHaveLength(2)

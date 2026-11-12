@@ -280,6 +280,7 @@ export const broadcasts = pgTable(
     date: text('date').notNull(),
     title: text('title').notNull(),
     /** broadcast.start의 seq (그 날짜 안의 선언 순서) */
+    orderShopName: text('order_shop_name'),
     startSeq: integer('start_seq').notNull(),
     endedAt: timestamptz('ended_at'),
     createdAt: timestamptz('created_at').notNull(),
