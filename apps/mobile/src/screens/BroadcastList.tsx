@@ -106,15 +106,18 @@ export function pastBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[]
   return newestFirst(items).filter((item) => item.ended && !item.rehearsal)
 }
 
-/** 내 방송 한 줄 (홈·모두 보기 같은 모양, D-UX3-85·88): 플랫폼 아이콘 · 제목 · "2:30:30 · 59분 전" · 오른쪽 › */
+/** 홈과 모두보기에서 같은 지난 라이브 행을 쓴다. */
 export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastItem; readonly now: number; readonly onPress: () => void }) {
   const { p } = useKit()
   const platform = item.platforms?.[0]
-  // 방송 길이는 지난 시간과 헷갈려 뺐다 (D-UX3-89)
+  const [, month, day] = item.date.split('-')
+  const channel = item.channelName || (platform ? { band: '밴드', youtube: '유튜브', tiktok: '틱톡' }[platform] : '라이브')
+  const title = `${Number(month)}.${Number(day)} ${channel}`
+  const counts = `${item.salesQty ?? '–'}개 · ${item.buyerCount ?? '–'}명`
   const sales = item.salesTotal == null ? '확인 필요' : formatWon(item.salesTotal)
   const sub = historyAgo(item.endedAt ?? item.createdAt, now) ?? ''
   return (
-    <Tap role="button" aria-label={`${broadcastTitle(item)} — ${sub} · 총매출 ${sales}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={`${title} — ${sub} · 총매출 ${sales} · ${counts}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {platform === undefined ? (
         <View aria-hidden style={{ width: 34, height: 34, borderRadius: 34 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="play" color={p.textSub} size={18} />
@@ -124,7 +127,7 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
       )}
       <View style={{ flex: 1, gap: 1 }}>
         <Txt step="bodyLarge" weight="book" numberOfLines={1}>
-          {broadcastTitle(item)}
+          {title}
         </Txt>
         {sub === '' ? null : (
           <Txt step="caption" color="textSub" numberOfLines={1}>
@@ -133,10 +136,9 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
         )}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Txt step="caption" color="textSub">총매출</Txt>
         <Txt step="body" weight="bold">{sales}</Txt>
+        <Txt step="caption" color="textSub">{counts}</Txt>
       </View>
-      <Icon name="chevron" color={p.textSub} size={18} />
     </Tap>
   )
 }

@@ -17,7 +17,7 @@ const LIST: BroadcastItem[] = [
   item('a', '2026-10-30'),
   item('b', '2026-11-01'),
   item('y', '2026-11-02', { ended: false, platforms: ['youtube'], createdAt: '2026-11-02T10:00:00.000Z' }),
-  item('c', '2026-11-03', { salesTotal: 350000, createdAt: '2026-11-03T01:00:00.000Z' }),
+  item('c', '2026-11-03', { salesTotal: 350000, salesQty: 20, buyerCount: 8, channelName: '보스삼촌', createdAt: '2026-11-03T01:00:00.000Z' }),
   item('t', '2026-11-03', { ended: false, platforms: ['tiktok'], createdAt: '2026-11-03T03:30:00.000Z' }),
 ]
 const nav = () => ({ openConsole: vi.fn(), openNewBroadcast: vi.fn(), openPacking: vi.fn(), openLabels: vi.fn(), openSettings: vi.fn(), openAllBroadcasts: vi.fn() })
@@ -55,7 +55,7 @@ describe('내 라이브 (D-UX3-18)', () => {
     const group = await screen.findByRole('group', { name: '지난 라이브' })
     const rows = within(group).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '라이브 모두 보기')
     expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-b', 'broadcast-a'])
-    expect(rows[0]?.getAttribute('aria-label')).toBe('c 라이브 — 4시간 전 · 총매출 350,000원')
+    expect(rows[0]?.getAttribute('aria-label')).toBe('11.3 보스삼촌 — 4시간 전 · 총매출 350,000원 · 20개 · 8명')
     // 옛 기대: [모두보기]가 늘 있다. 새 기대(D-UX4-81, 사용자 지시 2026-11-10): 홈 4개를 넘쳐 안 보이는 방송이 있을 때만 — 지난 방송 3개라 없다
     expect(within(group).queryByRole('button', { name: '라이브 모두 보기' })).toBeNull()
     // 라이브 확인은 방송 목록을 받은 뒤 한 번 더 그린다 (D-UX3-91)
@@ -117,7 +117,7 @@ describe('내 라이브 (D-UX3-18)', () => {
     render(world.wrap(<AllBroadcastsScreen onOpen={onOpen} onBack={vi.fn()} now={NOW} />))
     const group = await screen.findByRole('group', { name: '지난 라이브' })
     expect(within(group).getAllByRole('button').map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-b', 'broadcast-a'])
-    fireEvent.click(within(group).getByRole('button', { name: 'c 라이브 — 4시간 전 · 총매출 350,000원' }))
+    fireEvent.click(within(group).getByRole('button', { name: '11.3 보스삼촌 — 4시간 전 · 총매출 350,000원 · 20개 · 8명' }))
     expect(onOpen).toHaveBeenCalledWith('c')
   })
 })

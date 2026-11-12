@@ -258,7 +258,7 @@ export const scopes = pgTable(
     ledger: text('ledger'),
     /** 장부 요약값 SHA-256 (재생 검사 명령이 대조한다) */
     ledgerDigest: text('ledger_digest'),
-    broadcastSales: jsonb('broadcast_sales').$type<{ seq: number; totals: Record<string, number> }>(),
+    broadcastSales: jsonb('broadcast_sales').$type<{ seq: number; totals: Record<string, number>; counts?: Record<string, { qty: number; buyers: number | null }> }>(),
   },
   (t) => [unique('scopes_seller_date_rehearsal_uq').on(t.sellerId, t.date, t.rehearsal)],
 )

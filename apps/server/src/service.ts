@@ -1235,7 +1235,7 @@ export class Service {
     return rows.length > 0
   }
 
-  async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null; createdAt: string | null; platforms: BroadcastPlatform[]; salesTotal?: number }[]> {
+  async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null; createdAt: string | null; platforms: BroadcastPlatform[]; channelName?: string; salesTotal?: number; salesQty?: number; buyerCount?: number | null }[]> {
     const [rows, extras] = await Promise.all([listBroadcastRows(this.#options.db, sellerId), broadcastListExtras(this.#options.db, sellerId)])
     const totals = await endedBroadcastSales(this.#options.db, this.#options.writer, sellerId, rows)
     // 방송 화면에 아직 들어오지 않은(앱에서 만드는 중인) 방송은 목록에 넣지 않는다 (D-UX3-25)
@@ -1249,7 +1249,8 @@ export class Service {
       // 홈 '내 방송' 줄의 "2시간 전"과 플랫폼 아이콘 (D-UX3-18)
       createdAt: extras.createdAt.get(row.id)?.toISOString() ?? null,
       platforms: extras.platforms.get(row.id) ?? [],
-      ...(row.endedAt !== null && totals.has(row.id) ? { salesTotal: totals.get(row.id)! } : {}),
+      ...(extras.channels.has(row.id) ? { channelName: extras.channels.get(row.id)! } : {}),
+      ...(row.endedAt !== null ? totals.get(row.id) : {}),
     }))
   }
 

@@ -72,6 +72,9 @@ export interface BroadcastItem {
   readonly rehearsal: boolean
   readonly ended: boolean
   readonly endedAt: string | null
+  readonly channelName?: string
+  readonly salesQty?: number
+  readonly buyerCount?: number | null
   readonly salesTotal?: number
   /** 만든 시각 (D-UX3-18 — 옛 서버는 없음) */
   readonly createdAt?: string | null

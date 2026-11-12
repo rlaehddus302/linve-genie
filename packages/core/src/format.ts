@@ -54,3 +54,9 @@ export function displayNickname(name: string, hideSuffix: boolean): string {
   const suffix = /(?:[\s_-]+(?=[a-zA-Z0-9]*[a-zA-Z])[a-zA-Z0-9]+|[a-zA-Z][a-zA-Z0-9]*)\s*$/u
   return name.replace(suffix, '')
 }
+
+/** 품종명이 "5개" 또는 "5개 세트"인 상품의 한 세트당 낱개 수 */
+export function saleSetSize(name: string): number | null {
+  const match = /^([1-9]\d{0,3})\s*개(?:\s*세트)?$/u.exec(name.trim())
+  return match ? Number(match[1]) : null
+}

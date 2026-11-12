@@ -1,3 +1,4 @@
+import { saleSetSize } from '@livejjim/core/format'
 import type { ScopeData } from './scope-data.ts'
 import { formatWon } from './words.ts'
 
@@ -34,9 +35,9 @@ export function broadcastSales(claims: ScopeData['claims'], products: ScopeData[
   for (const claim of claims.values()) {
     if (claim.broadcast !== broadcast || claim.status !== 'CONFIRMED') continue
     const name = products.get(claim.product)?.name?.trim() || '상품명 미입력'
-    const set = /^([1-9]\d{0,3})\s*개(?:\s*세트)?$/u.exec(name)
-    const line = { key: claim.key ?? claim.product, no: claim.no, name: set ? `${set[1]}개 세트` : name,
-      variant: claim.variant, qty: claim.qty * (set ? Number(set[1]) : 1), amount: claim.amount ?? null }
+    const set = saleSetSize(name)
+    const line = { key: claim.key ?? claim.product, no: claim.no, name: set ? `${String(set)}개 세트` : name,
+      variant: claim.variant, qty: claim.qty * (set ?? 1), amount: claim.amount ?? null }
     const buyer = byBuyer.get(claim.currentBuyer) ?? new Map<string, SaleLine>()
     addLine(buyer, line)
     byBuyer.set(claim.currentBuyer, buyer)

@@ -339,21 +339,26 @@ export async function listBroadcastRows(db: Db, sellerId: string): Promise<Broad
 
 /** 방송 목록 덧붙임 (D-UX3-18): 방송마다 만든 시각과, 한 번이라도 이은 플랫폼(유튜브·틱톡·밴드 — 끊은 것 포함) */
 export type BroadcastPlatform = 'youtube' | 'tiktok' | 'band'
-export async function broadcastListExtras(db: Db, sellerId: string): Promise<{ createdAt: Map<string, Date>; platforms: Map<string, BroadcastPlatform[]> }> {
+export async function broadcastListExtras(db: Db, sellerId: string): Promise<{ createdAt: Map<string, Date>; platforms: Map<string, BroadcastPlatform[]>; channels: Map<string, string> }> {
   const [made, youtube, tiktok, band] = await Promise.all([
     db.select({ id: broadcasts.id, createdAt: broadcasts.createdAt }).from(broadcasts).where(eq(broadcasts.sellerId, sellerId)),
-    db.selectDistinct({ id: youtubeLinks.broadcastId }).from(youtubeLinks).where(eq(youtubeLinks.sellerId, sellerId)),
-    db.selectDistinct({ id: tiktokLinks.broadcastId }).from(tiktokLinks).where(eq(tiktokLinks.sellerId, sellerId)),
+    db.select({ id: youtubeLinks.broadcastId, name: youtubeLinks.broadcastChannelTitle }).from(youtubeLinks).where(eq(youtubeLinks.sellerId, sellerId)).orderBy(desc(youtubeLinks.linkedAt), desc(youtubeLinks.id)),
+    db.select({ id: tiktokLinks.broadcastId, name: tiktokLinks.tiktokId }).from(tiktokLinks).where(eq(tiktokLinks.sellerId, sellerId)).orderBy(desc(tiktokLinks.linkedAt), desc(tiktokLinks.id)),
     db.selectDistinct({ id: bandLinks.broadcastId }).from(bandLinks).where(eq(bandLinks.sellerId, sellerId)),
   ])
   const platforms = new Map<string, BroadcastPlatform[]>()
   const add = (rows: readonly { id: string }[], platform: BroadcastPlatform) => {
-    for (const row of rows) platforms.set(row.id, [...(platforms.get(row.id) ?? []), platform])
+    for (const id of new Set(rows.map(row => row.id))) platforms.set(id, [...(platforms.get(id) ?? []), platform])
   }
   add(youtube, 'youtube')
   add(tiktok, 'tiktok')
   add(band, 'band')
-  return { createdAt: new Map(made.map((row) => [row.id, row.createdAt])), platforms }
+  const channels = new Map<string, string>()
+  for (const row of [...youtube, ...tiktok]) {
+    const name = row.name?.trim()
+    if (name && !channels.has(row.id)) channels.set(row.id, name)
+  }
+  return { channels, createdAt: new Map(made.map((row) => [row.id, row.createdAt])), platforms }
 }
 
 export async function insertBroadcast(
