@@ -98,8 +98,8 @@ function EditQuestion({ lines }: { readonly lines: ReturnType<typeof editLines> 
   )
 }
 
-/** 번호·품종·가격 칸 하나 (점선 둥근 칸, 왼쪽 위 연필): 누르면 그 칸을 고친다. 고친 값은 주색, 지금 고치는 칸은 주색 테두리 */
-function FieldBox({ label, shown, changed, active, flex, disabled, onPress }: { readonly label: string; readonly shown: string; readonly changed: boolean; readonly active: boolean; readonly flex: number; readonly disabled: boolean; readonly onPress: () => void }) {
+/** 번호·품종·가격 칸 하나 (점선 둥근 칸, 왼쪽 위 연필): 누르면 그 칸을 고친다. 원래 값을 보여 주고 지금 고치는 칸의 테두리를 강조한다 */
+function FieldBox({ label, shown, active, flex, disabled, onPress }: { readonly label: string; readonly shown: string; readonly active: boolean; readonly flex: number; readonly disabled: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
     <Tap
@@ -115,7 +115,7 @@ function FieldBox({ label, shown, changed, active, flex, disabled, onPress }: { 
           <Icon name="edit" size={14} color={active ? p.primary : p.textSub} />
         </View>
       )}
-      <Txt step="lead" weight="bold" numberOfLines={1} {...(changed ? { ink: p.primary } : {})}>
+      <Txt step="lead" weight="bold" numberOfLines={1}>
         {shown}
       </Txt>
     </Tap>
@@ -133,6 +133,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
   const visible = product !== undefined && product.status !== 'CLOSED'
   const [half, setHalf] = useState(false)
   const [field, setField] = useState<EditField | null>(null)
+  const [original, setOriginal] = useState<Pick<Product, 'key' | 'no' | 'name' | 'price'> | null>(null)
   const [draft, setDraft] = useState<EditDraft>({})
   const [error, setError] = useState<string | null>(null)
   const [again, setAgain] = useState(0)
@@ -143,6 +144,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     setHalf(false)
     setField(null)
     setDraft({})
+    setOriginal(null)
     setError(null)
     setAsking(false)
   }
@@ -154,6 +156,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     setHalf(false)
     setField(null)
     setDraft({})
+    setOriginal(null)
     setError(null)
     setAsking(false)
   }, [product?.key, product])
@@ -186,6 +189,8 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
   }
 
   const openField = (which: EditField) => {
+    if (product === undefined) return
+    if (!half) setOriginal({ key: product.key, no: product.no, name: product.name, price: product.price })
     setError(null)
     setHalf(true)
     setField(which)
@@ -272,31 +277,22 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
   const shake = useWrongShake(field === null ? null : error, again)
   const plan = product === undefined ? null : editPlan(product, draft)
   const lines = product === undefined || plan === null ? null : editLines(product, plan)
-  const shownOf = (which: EditField): { readonly text: string; readonly changed: boolean } => {
-    if (product === undefined || plan === null) return { text: '', changed: false }
-    if (which === 'no') return { text: `${String(plan.no ?? product.no)}번`, changed: plan.no !== null }
-    if (which === 'name') return { text: plan.name ?? rowName(product), changed: plan.name !== null }
-    return { text: formatWon(plan.price ?? product.price), changed: plan.price !== null }
-  }
-  const box = (which: EditField, flex: number) => {
-    const shown = shownOf(which)
-    return <FieldBox key={which} label={EDIT_LABEL[which]} shown={shown.text} changed={shown.changed} active={field === which} flex={flex} disabled={closed} onPress={() => openField(which)} />
-  }
-  const fields = (
+  const before = original !== null && original.key === product?.key ? original : product
+  const box = (which: EditField, shown: string, flex: number) => (
+    <FieldBox key={which} label={EDIT_LABEL[which]} shown={shown} active={field === which} flex={flex} disabled={closed} onPress={() => openField(which)} />
+  )
+  const fields = before === undefined ? null : (
     <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-      {box('no', 0.8)}
-      {box('name', 1.4)}
-      {box('price', 1.3)}
+      {box('no', `${String(before.no)}번`, 0.8)}
+      {box('name', rowName(before), 1.4)}
+      {box('price', formatWon(before.price), 1.3)}
     </View>
   )
 
   // 고치는 칸: 상품 추가처럼 큰 칸(옛 값은 회색 자리 글) → [확인] → 숫자판(번호·가격)
-  const editor = product === undefined || field === null ? null : (
+  const editor = before === undefined || field === null ? null : (
     <View testID="product-edit" style={{ gap: SPACE.md }}>
       <View style={{ paddingHorizontal: SPACE.xl, gap: SPACE.sm }}>
-        <Txt step="body" color="textSub">
-          {EDIT_LABEL[field]}
-        </Txt>
         <Animated.View style={{ transform: [{ translateX: shake }] }}>
           {field === 'name' ? (
             <TextInput
@@ -307,7 +303,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
                 setError(null)
                 setDraft((was) => ({ ...was, name: value }))
               }}
-              placeholder={product.name.trim() === '' ? '어떤 품종인가요?' : product.name}
+              placeholder={before.name.trim() === '' ? '어떤 품종인가요?' : before.name}
               placeholderTextColor={p.placeholder}
               maxLength={NAME_MAX}
               returnKeyType="done"
@@ -317,7 +313,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
           ) : (
             <BigNumber
               label={EDIT_LABEL[field]}
-              question={field === 'no' ? `${String(product.no)}번` : formatWon(product.price)}
+              question={field === 'no' ? `${String(before.no)}번` : formatWon(before.price)}
               digits={draft[field] ?? ''}
               format={field === 'no' ? (value) => value : (value) => Number(value).toLocaleString('ko-KR')}
               suffix={field === 'no' ? '번' : '원'}

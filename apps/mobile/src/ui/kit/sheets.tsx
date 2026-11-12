@@ -214,6 +214,7 @@ export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetPr
   const viewHeight = useRef(0)
   const contentHeight = useRef(0)
   // 반 화면 판은 화면 끝에 붙는다 — 아래 띄움 없이 홈 표시줄 자리만 판 안에서 비운다(키보드가 뜨면 키보드 위라 0) (D-UX4-106)
+  const fillHalf = half && !keyboard
   const gap = half ? 0 : sheetBottomGap(inset, keyboard)
   const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, BACKDROP_OPACITY] })
   const rise = progress.interpolate({ inputRange: [0, 1], outputRange: [height, 0] })
@@ -248,7 +249,7 @@ export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetPr
             marginHorizontal: half ? 0 : GUTTER,
             marginBottom: gap,
             paddingBottom: half && !keyboard ? inset : 0,
-            minHeight: half ? Math.round(height * SHEET.halfMin) : undefined,
+            minHeight: fillHalf ? Math.round(height * SHEET.halfMin) : undefined,
             maxHeight: Math.min(height * 0.92, height - top - gap - SPACE.xl),
             backgroundColor: p.surface,
             borderTopLeftRadius: SHEET.radius,
@@ -281,9 +282,9 @@ export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetPr
             <ScrollView
               testID="sheet-body"
               // 반 화면 판은 내용 자리가 남는 높이를 채운다 (D-UX4-106)
-              style={{ flexGrow: half ? 1 : 0, flexShrink: 1 }}
+              style={{ flexGrow: fillHalf ? 1 : 0, flexShrink: 1 }}
               contentContainerStyle={{
-                flexGrow: half ? 1 : 0,
+                flexGrow: fillHalf ? 1 : 0,
                 paddingHorizontal: bodyPadding ? SHEET.side : 0,
                 paddingTop: headed ? SPACE.xl : SPACE.md,
                 // 단추 줄이 없으면 내용 아래를 글 옆 여백만큼 띄운다 (D-UX4-103)
