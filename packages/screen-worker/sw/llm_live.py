@@ -41,7 +41,7 @@ CONF = {"high": 0.9, "medium": 0.7, "low": 0.5}
 NAME_WINDOW = float(os.environ.get("LLM_NAME_WINDOW", 180))
 NAME_MAX_FIX = int(os.environ.get("LLM_NAME_MAX_FIX", 1))
 NAME_VOTES = int(os.environ.get("LLM_NAME_VOTES", 2))
-NOT_NAMES = {"재고", "제고", "재구", "베개", "서비스", "특가"}         # 품종이 아닌데 LLM이 이름 칸에 적은 말
+NOT_NAMES = {"재고", "제고", "재구", "베개", "서비스", "특가", "제곱"}         # 품종이 아닌데 LLM이 이름 칸에 적은 말
 # 금액 고치기 (D-SCR-09): 보낸 번호를 나중에 다른 금액으로 다시 내놓으면(393 손톱 2만원 → 30분 뒤 만원) 그 번호가 화면에 보이는 줄의
 # "확실(high)"한 금액 답을 PRICE_WINDOW초 안에서 센다. 지금 금액과 다른 금액이 PRICE_VOTES번 이상이고 다른 금액보다 많으면 고쳐 보낸다
 # (번호마다 PRICE_MAX_FIX번까지). 서버는 판매자가 금액을 고친 번호·손으로 등록한 번호는 건드리지 않고, 이미 찜한 사람 금액은 그대로 둔다.
