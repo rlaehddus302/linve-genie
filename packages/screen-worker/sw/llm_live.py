@@ -31,7 +31,8 @@ SCREEN_WAIT = 3.0                                      # 화면 읽기가 그 �
 CUE = re.compile(r"[0-9번만천원]")
 CONF = {"high": 0.9, "medium": 0.7, "low": 0.5}
 # 잘못 들은 번호 바로잡기 (D-SCR-06, 사용자 2026-11-12 "391을 392로 잘못 알아먹고 등록 … 화면 인식 통해서 392는 잘못된거라고 판정"):
-# 보낸 번호 N이 그 말 5초 앞부터 화면에 한 번도 안 읽혔는데, 그동안 다른 번호표 M이 크게 FIX_FRAMES초 이상 보였고
+# 보낸 번호 N이 그 말 5초 앞부터 화면에 한 번도 안 읽혔는데, 그동안 다른 번호표 M이 크게 FIX_FRAMES장 이상 보였고(화면은 1초에 1장 —
+# 사용자 2026-11-12 "한 상품 진짜 몇초밖에 안 보여준다. 같은 프레임이 몇번 보였나로": 15장 → 3장, 이어서가 아니어도 센다)
 # M을 아직 보내지 않았으면 서버에 N → M 번호 바꾸기를 묻는다(서버가 찜·M 상품 유무를 다시 보고 안전할 때만 바꾼다).
 # 말한 뒤 FIX_MIN초까지는 기다리고(번호표를 늦게 드는 판매자), FIX_MAX초가 지나면 그 번호는 더 보지 않는다.
 # 품종 이름 고치기 (D-SCR-07): 보낸 뒤 NAME_WINDOW초 안의 LLM 답 중 "확실(high)"한 이름만 센다. 가장 많이 나온 이름(같으면 나중 것)이
@@ -41,8 +42,8 @@ NAME_WINDOW = float(os.environ.get("LLM_NAME_WINDOW", 180))
 NAME_MAX_FIX = int(os.environ.get("LLM_NAME_MAX_FIX", 1))
 NAME_VOTES = int(os.environ.get("LLM_NAME_VOTES", 2))
 NOT_NAMES = {"재고", "제고", "재구", "베개", "서비스", "특가"}         # 품종이 아닌데 LLM이 이름 칸에 적은 말
-FIX_FRAMES = int(os.environ.get("LLM_FIX_FRAMES", 15))
-FIX_MIN = float(os.environ.get("LLM_FIX_MIN", 20))
+FIX_FRAMES = int(os.environ.get("LLM_FIX_FRAMES", 3))
+FIX_MIN = float(os.environ.get("LLM_FIX_MIN", 10))
 FIX_MAX = float(os.environ.get("LLM_FIX_MAX", 180))
 
 
@@ -261,7 +262,7 @@ class LlmRegister:
             del self.watch[no]
             rec = {"kind": "LLM번호바로잡기", "from": no, "to": tag, "drop": drop, "frames": frames, "start_sec": start, "sent": bool(self.poster)}
             self.emit(rec)
-            print(f"           번호 바로잡기 {no}번 → {tag}번{' (지움)' if drop else ''} (화면에 {no}번은 안 보이고 {tag}번이 {frames}초)", flush=True)
+            print(f"           번호 바로잡기 {no}번 → {tag}번{' (지움)' if drop else ''} (화면에 {no}번은 안 보이고 {tag}번이 {frames}장)", flush=True)
             if self.poster:
                 self.poster.renumber(self.video_id, no, tag, drop=drop)
             # 잘못 들은 번호는 보낸 것으로 남겨 같은 말을 다시 받아도 또 등록하지 않는다(화면에 그 번호가 보이면 new_scene으로만)
