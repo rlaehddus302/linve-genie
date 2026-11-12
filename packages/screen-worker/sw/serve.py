@@ -3,7 +3,8 @@
 #   python -m sw.serve --server https://livegenie.kr --token-file ~/.lg_screen_token [--out-root runs/live]
 #  - 새 영상 → `python -m sw <주소> --post <서버> --token-file <파일> --live-only --out <out-root>/<영상>-<시각>`
 #  - 목록에서 빠진 영상 → 그 일꾼을 멈춤(SIGTERM, 20초 뒤에도 살아 있으면 SIGKILL; ffmpeg·글자 읽기 프로세스까지 한 묶음으로)
-#  - 목록에 있는데 일꾼이 끝남 → 60초 뒤 다시 띄움
+#  - 목록에 있는데 일꾼이 끝남 → 60초 뒤 다시 띄움. 단 "영상이 끝남"(종료 코드 0)은 라이브 영상이 잠깐 끊긴 것이라 3초 뒤 바로
+#    (2026-11-12: 60초 기다리는 사이 397번 오색글래머 4만원을 통째로 못 들었다)
 #  - 동시에 최대 2개(--max). 넘으면 기다리게 하고 기록
 #  - 서버에 묻기가 실패하면(네트워크·5xx·아직 없는 입구 404) 지금 도는 일꾼은 그대로 둔다
 # 표준 라이브러리만 쓴다(무거운 모델은 일꾼 프로세스에서만 뜬다). 토큰은 어디에도 찍지 않는다.
@@ -23,6 +24,7 @@ from .post import KST, VIDEO_RE, log
 POLL = 30          # 서버에 묻는 간격(초)
 STOP_GRACE = 20    # SIGTERM 뒤 이만큼 기다렸다가 SIGKILL
 RESTART_WAIT = 60  # 끝난 일꾼을 다시 띄우기 전 기다림
+REOPEN_WAIT = 3    # 목록에 있는 라이브가 "끝남"으로 끊겼을 때 다시 띄우기 전 기다림
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # packages/screen-worker/ (python -m sw 가 도는 곳)
 
 
@@ -129,8 +131,9 @@ class Serve:
                 log(f"[{vid}] 일꾼 끝남 (멈춤 요청, 종료 코드 {rc})")
             else:
                 what = {0: "영상이 끝남", 2: "영상을 열지 못함", 3: "라이브가 아님"}.get(rc, "오류")
-                log(f"[{vid}] 일꾼이 스스로 끝남 (종료 코드 {rc}, {what}) — 아직 목록에 있으면 {RESTART_WAIT}초 뒤 다시")
-                self.retry_at[vid] = now + RESTART_WAIT
+                wait = REOPEN_WAIT if rc == 0 else RESTART_WAIT
+                log(f"[{vid}] 일꾼이 스스로 끝남 (종료 코드 {rc}, {what}) — 아직 목록에 있으면 {wait}초 뒤 다시")
+                self.retry_at[vid] = now + wait
 
     def sync(self):
         """마지막 목록에 맞춰 일꾼을 띄우거나 멈춘다"""

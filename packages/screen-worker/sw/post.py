@@ -173,8 +173,16 @@ class Poster:
 
     def rename(self, vid, no, name, n):
         """품종 이름 고치기(D-SCR-07): 서버가 일꾼 등록이고 판매자가 이름을 고친 적 없을 때만 바꾼다. n = 이 번호의 몇 번째 고침(요청 번호용)"""
-        base = self.url.rsplit("/", 1)[0]
         body = {"videoId": vid, "no": int(no), "name": str(name)[:NAME_MAX], "requestId": f"screen-{vid}-name-{int(no)}-{int(n)}"}
+        self._fix("rename", body, f"이름 고치기 {no}번 → {name}")
+
+    def reprice(self, vid, no, price, n):
+        """금액 고치기(D-SCR-09): 같은 번호를 다른 금액으로 다시 내놓았을 때. 판매자가 금액을 고친 적 없을 때만 서버가 바꾼다"""
+        body = {"videoId": vid, "no": int(no), "price": int(price), "requestId": f"screen-{vid}-price-{int(no)}-{int(n)}"}
+        self._fix("reprice", body, f"금액 고치기 {no}번 → {int(price):,}원")
+
+    def _fix(self, path, body, label):
+        base = self.url.rsplit("/", 1)[0]
 
         def go():
             for wait in (0, 5, 15):
@@ -182,19 +190,19 @@ class Poster:
                 try:
                     token = read_token(self.token_file)
                 except (OSError, ValueError) as e:
-                    log(f"이름 고치기 {no}번 → 토큰 파일을 못 읽음({type(e).__name__})")
+                    log(f"{label} → 토큰 파일을 못 읽음({type(e).__name__})")
                     return
-                status, res = http_json("POST", base + "/rename", token, body)
+                status, res = http_json("POST", base + "/" + path, token, body)
                 if status == 200 and isinstance(res, dict):
                     skips = [r.get("skip") for r in res.get("broadcasts", []) if r.get("skip")]
-                    log(f"이름 고치기 {no}번 → {name}: " + ("바꿈" if res.get("changed") else f"그대로({', '.join(skips) or '바뀐 것 없음'})"))
+                    log(f"{label}: " + ("바꿈" if res.get("changed") else f"그대로({', '.join(skips) or '바뀐 것 없음'})"))
                     return
                 if status is not None and status < 500:
-                    log(f"이름 고치기 {no}번 → 거절(HTTP {status})")
+                    log(f"{label} → 거절(HTTP {status})")
                     return
-            log(f"이름 고치기 {no}번 → 서버에 못 보냄")
+            log(f"{label} → 서버에 못 보냄")
 
-        threading.Thread(target=go, name="rename", daemon=True).start()
+        threading.Thread(target=go, name=path, daemon=True).start()
 
     def pending(self):
         with self.cv:

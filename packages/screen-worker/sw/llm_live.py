@@ -42,6 +42,12 @@ NAME_WINDOW = float(os.environ.get("LLM_NAME_WINDOW", 180))
 NAME_MAX_FIX = int(os.environ.get("LLM_NAME_MAX_FIX", 1))
 NAME_VOTES = int(os.environ.get("LLM_NAME_VOTES", 2))
 NOT_NAMES = {"재고", "제고", "재구", "베개", "서비스", "특가"}         # 품종이 아닌데 LLM이 이름 칸에 적은 말
+# 금액 고치기 (D-SCR-09): 보낸 번호를 나중에 다른 금액으로 다시 내놓으면(393 손톱 2만원 → 30분 뒤 만원) 그 번호가 화면에 보이는 줄의
+# "확실(high)"한 금액 답을 PRICE_WINDOW초 안에서 센다. 지금 금액과 다른 금액이 PRICE_VOTES번 이상이고 다른 금액보다 많으면 고쳐 보낸다
+# (번호마다 PRICE_MAX_FIX번까지). 서버는 판매자가 금액을 고친 번호·손으로 등록한 번호는 건드리지 않고, 이미 찜한 사람 금액은 그대로 둔다.
+PRICE_WINDOW = float(os.environ.get("LLM_PRICE_WINDOW", 120))
+PRICE_VOTES = int(os.environ.get("LLM_PRICE_VOTES", 2))
+PRICE_MAX_FIX = int(os.environ.get("LLM_PRICE_MAX_FIX", 3))
 FIX_FRAMES = int(os.environ.get("LLM_FIX_FRAMES", 3))
 FIX_MIN = float(os.environ.get("LLM_FIX_MIN", 10))
 FIX_MAX = float(os.environ.get("LLM_FIX_MAX", 180))
@@ -97,6 +103,7 @@ class LlmRegister:
         self.sent = {}                                       # 번호 → 보낸 상품(또는 안 보낸 까닭)
         self.last_evidence = {}
         self.names = {}                                      # 보낸 번호 → {"t": 처음 말한 방송 초, "now": 지금 서버 이름, "sure": 그 이름이 확실했나, "votes": Counter, "last": {이름: 시각}, "fixes": 횟수}
+        self.prices = {}                                     # 보낸 번호 → {"now": 지금 서버 금액, "votes": [(방송 초, 금액)], "fixes": 횟수} (D-SCR-09)
         self.watch = {}                                      # 보낸 번호 → 말한 줄 시작(방송 초) — 화면으로 맞는지 볼 것 (D-SCR-06)
         self.calls = 0
         self.log = open(os.path.join(out, "llm_live.jsonl"), "a", encoding="utf-8")
@@ -200,6 +207,7 @@ class LlmRegister:
                 self._vote_name(r)
                 if r["price"]:
                     no = r["no"]
+                    self._vote_price(r, start, end, mains)
                     previous = self.last_evidence.get(no)
                     self.last_evidence[no] = max(r["t"], previous if previous is not None else r["t"])
                     new_scene = previous is not None and r["t"] - previous > WINDOW and r.get("confidence") == "high" and any(
@@ -236,6 +244,27 @@ class LlmRegister:
         print(f"           이름 고치기 {r['no']}번 {old or '(없음)'} → {g['now']}", flush=True)
         if self.poster:
             self.poster.rename(self.video_id, r["no"], g["now"], g["fixes"])
+
+    def _vote_price(self, r, start, end, mains):
+        """D-SCR-09: 보낸 번호가 화면에 보이는 줄의 확실한 금액을 세고, 지금 금액과 다르면 고쳐 보낸다"""
+        g = self.prices.get(r["no"])
+        if g is None or str(r.get("confidence")).lower() != "high" or g["fixes"] >= PRICE_MAX_FIX:
+            return
+        if not any(mains.get(sec) == r["no"] for sec in range(int(start), int(end) + 1)):
+            return
+        g["votes"] = [v for v in g["votes"] if r["t"] - v[0] <= PRICE_WINDOW] + [(r["t"], r["price"])]
+        count = collections.Counter(p for _, p in g["votes"])
+        last = {p: t for t, p in g["votes"]}
+        ranked = sorted(count, key=lambda p: (count[p], last[p]), reverse=True)
+        best = ranked[0]
+        if best == g["now"] or count[best] < PRICE_VOTES or (len(ranked) > 1 and count[ranked[1]] >= count[best]):
+            return
+        g["fixes"] += 1
+        old, g["now"], g["votes"] = g["now"], best, []
+        self.emit({"kind": "LLM금액고치기", "no": r["no"], "from": old, "to": best, "votes": count[best], "start_sec": r["t"], "sent": bool(self.poster)})
+        print(f"           금액 고치기 {r['no']}번 {old:,}원 → {best:,}원", flush=True)
+        if self.poster:
+            self.poster.reprice(self.video_id, r["no"], best, g["fixes"])
 
     def _check_numbers(self, cand, mains):
         """D-SCR-06: 보낸 번호가 화면에 안 보이고 다른 번호표만 오래 보이면 그 번호로 바꿔 달라고 서버에 묻는다"""
@@ -338,6 +367,8 @@ class LlmRegister:
         if rec["sent"]:
             self.watch[no] = r["t"]
             sure = bool(name) and str(r.get("confidence")).lower() == "high"
+            # 다시 보낸 등록(새 장면)은 서버에 이미 있는 번호면 무시된다(R-2) — 서버 금액을 아는 처음 값을 두고 금액 고치기 투표로 맞춘다
+            self.prices.setdefault(no, {"now": price, "votes": [], "fixes": 0})
             self.names[no] = {"t": r["t"], "now": name, "sure": sure, "votes": collections.Counter(), "last": {}, "shown": {}, "fixes": 0}
         if why:
             rec["skip"] = why

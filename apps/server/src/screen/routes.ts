@@ -6,8 +6,8 @@
 // 등록은 서버 단독 소리 등록(headless #register, D-LV1-14)과 같은 길: product.register + voiceLog(device livegenie-screen).
 // 같은 번호가 이미 있으면 엔진이 바꾸지 않는다(R-2, changed false). 번호 바꾸기는 아래 /internal/screen/renumber(D-SCR-06)만.
 import { getProduct } from '@livejjim/core'
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
-import type { Hono } from 'hono'
+import { and, desc, eq, isNull, or, sql } from 'drizzle-orm'
+import type { Context, Hono } from 'hono'
 import { bearerMatches } from '../app.ts'
 import type { Db } from '../db/database.ts'
 import { broadcasts, events, youtubeLinks } from '../db/schema.ts'
@@ -177,7 +177,11 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
   // 뒤 답에서 확실하게 맞춘 품종으로 바꾼다. 받는 값 { videoId, no, name, requestId }. 방송마다 지금 상태로 다시 보고,
   // 그 번호의 마지막 등록이 일꾼 것(요청 번호 screen-)이고 판매 종료가 아니며 판매자 계정이 그 번호의 이름을 고친 적이 없을 때만 product.update(name).
   // 판매자가 고친 이름은 절대 덮어쓰지 않는다. 이미 같은 이름이면 아무 일도 없다.
-  app.post('/internal/screen/rename', async (c) => {
+  // 금액 고치기 `POST /internal/screen/reprice` (D-SCR-09, 사용자 2026-11-12 "393번 손톱 만원 등록이 안 되노"): 같은 번호를 다른 금액으로
+  // 다시 내놓거나(2만원 → 만원) 첫 답 금액이 틀렸을 때 확실한 뒤 답의 금액으로 바꾼다. 받는 값 { videoId, no, price, requestId }.
+  // 조건은 이름 고치기와 같고(일꾼 등록·판매 종료 아님), 판매자(또는 판매자 고침을 다른 방송에 옮긴 상품 목록)가 금액을 고친 적이 있으면 건드리지 않는다.
+  // 이미 찜한 사람의 금액은 그대로(applyTo NEW_ONLY) — 새로 찜하는 사람부터 새 금액.
+  const fixField = (field: 'name' | 'price') => async (c: Context) => {
     if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
     if (!bearerMatches(c.req.header('authorization'), deps.token)) return json({ error: { code: 'UNAUTHORIZED', message: '일꾼 토큰이 필요해요.' } }, 401)
     let body: unknown
@@ -188,12 +192,15 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     }
     if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
     const b = body as Record<string, unknown>
-    if (Object.keys(b).some((k) => !['videoId', 'no', 'name', 'requestId'].includes(k))) return bad('받을 수 없는 항목이 있어요.')
-    const { videoId, no, name, requestId } = b
+    if (Object.keys(b).some((k) => !['videoId', 'no', field, 'requestId'].includes(k))) return bad('받을 수 없는 항목이 있어요.')
+    const { videoId, no, requestId } = b
+    const value = b[field]
     if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
     if (typeof no !== 'number' || !Number.isInteger(no) || no < 1 || no > 9999) return bad('no는 1~9999 정수예요.')
-    if (typeof name !== 'string' || name.trim() === '' || [...name].length > NAME_MAX) return bad(`name은 1~${String(NAME_MAX)}자예요.`)
+    if (field === 'name' && (typeof value !== 'string' || value.trim() === '' || [...value].length > NAME_MAX)) return bad(`name은 1~${String(NAME_MAX)}자예요.`)
+    if (field === 'price' && (typeof value !== 'number' || !Number.isInteger(value) || value < 100 || value > 10_000_000)) return bad('price는 100~10,000,000원 정수예요.')
     if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
+    const next = field === 'name' ? (value as string).trim() : (value as number)
     const open = await openBroadcastsOfVideo(deps.db, videoId)
     if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
     const results: { broadcastId: string; changed: boolean; skip?: string }[] = []
@@ -201,7 +208,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
       const [broadcast] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, sellerId)))
       if (broadcast === undefined) continue
       let byScreen = false
-      let sellerNamed = false
+      let sellerSet = false
       let skip: string | undefined
       const outcome = await deps.service.writer.write({
         sellerId, date: broadcast.date, rehearsal: false, createScope: false, requestId,
@@ -211,18 +218,26 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
           const [reg] = await tx.select({ requestId: events.requestId }).from(events)
             .where(and(ofNo, eq(events.type, 'product.register'), eq(events.changed, true))).orderBy(desc(events.seq)).limit(1)
           byScreen = reg?.requestId?.startsWith('screen-') === true
+          // 판매자 고침: 판매자 계정이 직접, 또는 상품 목록이 판매자 고침을 다른 방송에 옮긴 것(요청 번호 catalog-)
+          const bySeller = field === 'name'
+            ? eq(events.actor, 'account')
+            : or(eq(events.actor, 'account'), sql`${events.requestId} like 'catalog-%'`)
           const [edit] = await tx.select({ seq: events.seq }).from(events)
-            .where(and(ofNo, eq(events.type, 'product.update'), eq(events.actor, 'account'), sql`${events.body}::jsonb ? 'name'`)).limit(1)
-          sellerNamed = edit !== undefined
+            .where(and(ofNo, eq(events.type, 'product.update'), bySeller, sql`${events.body}::jsonb ? ${field}`)).limit(1)
+          sellerSet = edit !== undefined
           return null
         },
         build: ({ state }) => {
           const product = getProduct(state, broadcastId, no)
           if (product === null || product.status === 'CLOSED') skip = 'NO_PRODUCT'
           else if (!byScreen) skip = 'NOT_SCREEN'
-          else if (sellerNamed) skip = 'SELLER_NAMED'
-          else if (product.name === name.trim()) skip = 'SAME'
-          return skip === undefined ? [{ fields: { type: 'product.update', b: broadcastId, no, name: name.trim() }, actor: { kind: 'server' }, requestId }] : []
+          else if (sellerSet) skip = field === 'name' ? 'SELLER_NAMED' : 'SELLER_PRICED'
+          else if (product[field] === next) skip = 'SAME'
+          if (skip !== undefined) return []
+          const fields = field === 'name'
+            ? { type: 'product.update' as const, b: broadcastId, no, name: next as string }
+            : { type: 'product.update' as const, b: broadcastId, no, price: next as number, applyTo: 'NEW_ONLY' as const }
+          return [{ fields, actor: { kind: 'server' as const }, requestId }]
         },
       })
       if (outcome.kind === 'ok') results.push({ broadcastId, changed: outcome.result.changed })
@@ -231,7 +246,10 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
       else return json({ error: { code: 'SAVE_FAILED', message: '저장하지 못했어요.' } }, 503)
     }
     return json({ ok: true, changed: results.some((r) => r.changed), no, broadcasts: results }, 200)
-  })
+  }
+  app.post('/internal/screen/rename', fixField('name'))
+  app.post('/internal/screen/reprice', fixField('price'))
+  app.all('/internal/screen/reprice', () => json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'POST만 받아요.' } }, 405))
   app.all('/internal/screen/rename', () => json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'POST만 받아요.' } }, 405))
   // 끝내지 않은 옛 방송 끝내기 `POST /internal/screen/end-stale` (D-SCR-08, 사용자 2026-11-12 "옛 방송 다 끝내줘"):
   // 받는 값 { videoId }. 그 영상에 이어진 끝나지 않은 방송 가운데 **방송 날짜가 오늘(한국 시각)보다 앞선 것만** 판매자의 [라이브 연결 끊기]와 같은 길

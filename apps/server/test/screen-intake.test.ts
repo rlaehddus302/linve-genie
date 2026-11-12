@@ -165,6 +165,34 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     expect(await products(world,other.seller.cookie,isolated.b.date)).toHaveLength(0)
   })
 
+  it('D-SCR-09 금액 고치기: 일꾼이 등록한 번호만 새 금액으로, 판매자가 금액을 고쳤거나 손으로 등록한 번호는 그대로', async () => {
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const connected = await connectSeller(world)
+    const { b, live } = await linkedBroadcast(world, connected)
+    const reprice = async (body: unknown) => {
+      const response = await world.server.app.request('/internal/screen/reprice', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify(body) })
+      return { status: response.status, body: (await response.json()) as Record<string, unknown> }
+    }
+    expect((await post(world, { videoId: live.videoId, no: 393, price: 20000, name: '손톱', requestId: 'screen-v-393-1' })).status).toBe(200)
+    // 30분 뒤 같은 번호를 만원에 다시 내놓음
+    const cheaper = await reprice({ videoId: live.videoId, no: 393, price: 10000, requestId: 'screen-v-price-393-1' })
+    expect(cheaper.status, JSON.stringify(cheaper.body)).toBe(200)
+    expect(cheaper.body).toMatchObject({ ok: true, changed: true })
+    expect((await products(world, connected.seller.cookie, b.date)).find((p) => p.no === 393)?.price).toBe(10000)
+    expect((await reprice({ videoId: live.videoId, no: 393, price: 10000, requestId: 'screen-v-price-393-2' })).body).toMatchObject({ changed: false, broadcasts: [{ skip: 'SAME' }] })
+
+    // 판매자가 금액을 직접 고친 번호는 덮어쓰지 않는다
+    expect((await post(world, { videoId: live.videoId, no: 402, price: 30000, requestId: 'screen-v-402-1' })).status).toBe(200)
+    await expectOk(writeEvent(world, connected.seller, { type: 'product.update', b: b.id, no: 402, price: 120000 }))
+    expect((await reprice({ videoId: live.videoId, no: 402, price: 50000, requestId: 'screen-v-price-402-1' })).body).toMatchObject({ changed: false, broadcasts: [{ skip: 'SELLER_PRICED' }] })
+    expect((await products(world, connected.seller.cookie, b.date)).find((p) => p.no === 402)?.price).toBe(120000)
+
+    // 판매자가 손으로 등록한 번호
+    await expectOk(writeEvent(world, connected.seller, { type: 'product.register', b: b.id, no: 397, name: '오색글래머', price: 40000 }))
+    expect((await reprice({ videoId: live.videoId, no: 397, price: 70000, requestId: 'screen-v-price-397-1' })).body).toMatchObject({ changed: false, broadcasts: [{ skip: 'NOT_SCREEN' }] })
+    expect((await reprice({ videoId: live.videoId, no: 397, price: 70.5, requestId: 'screen-v-price-397-2' })).status).toBe(400)
+  })
+
   it('D-SCR-02 지금 볼 라이브: 토큰 없으면 404·틀리면 401, 이어진 방송의 영상 번호만, 방송을 끝내면 빠진다', async () => {
     const off = await youtubeWorld()
     expect((await off.server.app.request('/internal/screen/live')).status).toBe(404)
