@@ -4,7 +4,7 @@
 #   - 아무 이벤트 없이 SAFETY초(60초) 지나면 한 번 묻는다(안전망). 같은 줄로 두 번 묻지 않는다.
 # 묻는 글은 끝난 방송 시험(sw.llm_b6, SCREEN=span)과 같은 줄 모양·화면 표시·닉네임 가림, 프롬프트 지식판2(regstt8k2), gpt-5.6-sol, 추론 low(LLM_REG_EFFORT).
 # 동시에 묻는 것은 PAR개(기본 4)까지 — 다 차 있으면 들어온 줄을 들고 기다렸다가 자리가 나면 가장 새 줄로 묻는다.
-# 보내기: 어느 답이든 번호와 가격을 함께 적으면 그 번호를 바로 한 번 보낸다(첫 답의 가격·품종). 서버는 같은 번호를 다시 받아도 바꾸지 않는다(R-2).
+# 보내기: 화면과 충돌하는 낮은 확신의 답을 제외하고 번호와 가격을 함께 적으면 그 번호를 바로 한 번 보낸다(첫 답의 가격·품종). 서버는 같은 번호를 다시 받아도 바꾸지 않는다(R-2).
 #   (9방송에서 첫 답으로 보내도 가격 95.8% → 95.5%.) 방송이 끝나면 남은 줄을 한 번 더 묻고, 가격이 있는데 아직 안 보낸 번호를 보낸다.
 # 기록(결과 폴더): llm_live.jsonl(물을 때마다 글·답·걸린 초·까닭), llm_상품.csv(끝날 때: 보낸 첫 답 값과 다수결 값), events.jsonl에 "LLM등록"
 import collections
@@ -18,7 +18,7 @@ import time
 
 from . import llm_b4 as B
 from . import llm_b6
-from .screen import Screen
+from .screen import STABLE, Screen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SYS = os.path.join(HERE, "prompts", os.environ.get("LLM_REG_PROMPT", "sales_instruct_system_regstt8k2.txt"))
@@ -47,6 +47,18 @@ def main_tag(i, t, ends, mains):
     """그 줄 동안 가장 오래 크게 보인 번호표(없으면 None)"""
     c = collections.Counter(mains[x] for x in range(int(t) - 1, int(ends[i]) + 2) if mains.get(x) is not None)
     return c.most_common(1)[0][0] if c else None
+
+
+def conflicting_tag(number, start, end, candidates, mains):
+    """해당 발화 동안 후보 번호는 한 번도 안 보이고 다른 큰 표가 과반 시간 유지됐는가."""
+    seconds = range(int(start), int(end) + 1)
+    if any(number in candidates.get(sec, ()) for sec in seconds):
+        return None
+    counts = collections.Counter(mains[sec] for sec in seconds if mains.get(sec) is not None)
+    if not counts:
+        return None
+    tag, frames = counts.most_common(1)[0]
+    return tag if frames >= STABLE and frames * 2 > len(seconds) else None
 
 
 class LlmRegister:
@@ -154,12 +166,20 @@ class LlmRegister:
                 self.emit({"kind": "LLM등록오류", "upto": upto, "error": str(err)[:300]})
             self.flying.remove(item)
             rows = llm_b6.rows_of(out, L)
-            self.found += rows
             self.log.write(json.dumps({"upto": upto, "why": why, "user": user, "answer": out, "at": time.strftime("%H:%M:%S"),
                                        "sec": round(time.time() - asked_at, 1)}, ensure_ascii=False) + "\n")
             self.log.flush()
             for r in sorted(rows, key=lambda r: r["t"]):
-                if r["no"] is not None and r["price"] and r["no"] not in self.sent:
+                if r["no"] is None:
+                    continue
+                start, end, _ = self.tr[r["line"]]
+                tag = conflicting_tag(r["no"], start, end, cand, mains) if r["confidence"] == "low" else None
+                if tag is not None:
+                    self.emit({"kind": "LLM번호충돌보류", "no": r["no"], "screen_no": tag,
+                               "line": r["line"], "start_sec": start, "price": r["price"]})
+                    continue
+                self.found.append(r)
+                if r["price"] and r["no"] not in self.sent:
                     self._send(r)
 
     def finish(self):
