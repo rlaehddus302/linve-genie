@@ -15,30 +15,30 @@ import { BROADCAST } from './support.ts'
 
 const LOADING = /불러오는 중/
 const homeNav = () => ({ openConsole: () => undefined, openNewBroadcast: () => undefined, openPacking: () => undefined, openLabels: () => undefined, openSettings: () => undefined, openAllBroadcasts: () => undefined })
-const ended = (title: string) => ({ ...BROADCAST, title, ended: true, endedAt: '2026-10-29T12:00:00.000Z' })
+const ended = (channelName: string) => ({ ...BROADCAST, channelName, ended: true, endedAt: '2026-10-29T12:00:00.000Z' })
 
 describe('화면 자료 기억 (D-UX4-77)', () => {
   it('홈 탭에 다시 오면 기억해 둔 방송 목록이 바로 보이고 "불러오는 중"이 없다 — 뒤에서 다시 받은 바뀐 이름으로 바뀐다', async () => {
     const world = makeWorld()
-    let title = '저녁 방송'
-    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [ended(title)] } }))
+    let channelName = '저녁채널'
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [ended(channelName)] } }))
     const first = render(world.wrap(<HomeScreen nav={homeNav()} />))
     // 옛 기대: 처음엔 "불러오는 중" 글. 새 기대(D-UX4-83): 글·빙글이 없이 빈 바탕만
     expect(screen.getByTestId('loading-blank')).toBeTruthy()
     expect(screen.queryByText(LOADING)).toBeNull()
-    expect(await screen.findByText('저녁 방송')).toBeTruthy()
+    expect(await screen.findByText('10.29 저녁채널')).toBeTruthy()
     // 다른 탭으로 감 (탭은 바꿔 끼워 화면이 사라진다)
     first.unmount()
-    title = '아침 방송'
+    channelName = '아침채널'
     const before = world.server.callsTo('GET', /^\/api\/broadcasts$/).length
     render(world.wrap(<HomeScreen nav={homeNav()} />))
     // 기다리지 않고 바로: 기억해 둔 것이 보이고 불러오는 중은 없다
-    expect(screen.getByText('저녁 방송')).toBeTruthy()
+    expect(screen.getByText('10.29 저녁채널')).toBeTruthy()
     expect(screen.queryByText(LOADING)).toBeNull()
     expect(screen.queryByTestId('loading-blank')).toBeNull()
     // 뒤에서 다시 받은 바뀐 것만 바뀐다
-    expect(await screen.findByText('아침 방송')).toBeTruthy()
-    expect(screen.queryByText('저녁 방송')).toBeNull()
+    expect(await screen.findByText('10.29 아침채널')).toBeTruthy()
+    expect(screen.queryByText('10.29 저녁채널')).toBeNull()
     expect(world.server.callsTo('GET', /^\/api\/broadcasts$/).length).toBe(before + 1)
     expect(screen.queryByText(LOADING)).toBeNull()
   })
@@ -47,12 +47,12 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     const world = makeWorld()
     const row = { id: 'cu1', name: '다육맘', platform: 'YOUTUBE', kindLabel: '유튜브', phoneLast4: null, blocked: false, latestDate: '2026-10-29', latestBuyer: 'u1', purchaseDays: 4, purchaseTotal: 152_000, lastPurchase: '2026-10-29', unpaidDays: 0, lastUnpaid: null, cancels: 0, regular: false, caution: false }
     world.server.on('GET', /^\/api\/customers\?/, () => ({ body: { today: '2026-11-01', settings: { regularCount: 3, regularAmount: 100_000, waitDays: 3 }, customers: [row], count: 1, more: false, next: null } }))
-    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [ended('저녁 방송')] } }))
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [ended('저녁채널')] } }))
     const customers = render(world.wrap(<CustomersScreen />))
     expect(await screen.findByRole('button', { name: /^다육맘/ })).toBeTruthy()
     customers.unmount()
     const list = render(world.wrap(<AllBroadcastsScreen onOpen={() => undefined} onBack={() => undefined} />))
-    expect(await screen.findByText('저녁 방송')).toBeTruthy()
+    expect(await screen.findByText('10.29 저녁채널')).toBeTruthy()
     list.unmount()
     render(world.wrap(<CustomersScreen />))
     expect(screen.getByRole('button', { name: /^다육맘/ })).toBeTruthy()
@@ -91,9 +91,9 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
   it('뒤에서 다시 받다가 실패하면 보이던 자료를 그대로 두고 오류를 보이지 않는다 — 보일 것이 없을 때만 오류', async () => {
     const world = makeWorld()
     let fail = false
-    world.server.on('GET', /^\/api\/broadcasts$/, () => (fail ? { status: 503, body: { error: { code: 'UNAVAILABLE', message: '잠시 뒤에 다시 해 주세요.' } } } : { body: { broadcasts: [ended('저녁 방송')] } }))
+    world.server.on('GET', /^\/api\/broadcasts$/, () => (fail ? { status: 503, body: { error: { code: 'UNAVAILABLE', message: '잠시 뒤에 다시 해 주세요.' } } } : { body: { broadcasts: [ended('저녁채널')] } }))
     const first = render(world.wrap(<AllBroadcastsScreen onOpen={() => undefined} onBack={() => undefined} />))
-    expect(await screen.findByText('저녁 방송')).toBeTruthy()
+    expect(await screen.findByText('10.29 저녁채널')).toBeTruthy()
     first.unmount()
     fail = true
     const before = world.server.callsTo('GET', /^\/api\/broadcasts$/).length
@@ -102,7 +102,7 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     await act(async () => {
       await Promise.resolve()
     })
-    expect(screen.getByText('저녁 방송')).toBeTruthy()
+    expect(screen.getByText('10.29 저녁채널')).toBeTruthy()
     expect(screen.queryByText('잠시 뒤에 다시 해 주세요.')).toBeNull()
     // 기억이 없으면(처음) 오류를 보인다
     clearCached()
@@ -175,7 +175,7 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     const world = makeWorld()
     world.server.on('GET', /^\/api\/me$/, () => ({ body: { loginId: 'seller-a', seller: { id: 's1', name: '김다육' } } }))
     world.server.on('POST', /^\/api\/logout$/, () => ({ body: {} }))
-    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [ended('저녁 방송')] } }))
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [ended('저녁채널')] } }))
     let logout: () => Promise<void> = async () => undefined
     function Body() {
       const session = useSession()
@@ -189,7 +189,7 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
       ) : <Text>나감</Text>
     }
     render(world.wrap(<SessionProvider services={world.services}><Body /></SessionProvider>))
-    expect(await screen.findByText('저녁 방송')).toBeTruthy()
+    expect(await screen.findByText('10.29 저녁채널')).toBeTruthy()
     expect(peekCached('/api/broadcasts')).not.toBeNull()
     await act(async () => {
       await logout()
@@ -220,7 +220,7 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     const world = makeWorld()
     let signedIn = true
     world.server.on('GET', /^\/api\/me$/, () => ({ body: { loginId: 'seller-a', seller: { id: 's1', name: '김다육' } } }))
-    world.server.on('GET', /^\/api\/broadcasts$/, () => (signedIn ? { body: { broadcasts: [ended('저녁 방송')] } } : { status: 401, body: { error: { code: 'UNAUTHORIZED', message: '다시 로그인해 주세요.' } } }))
+    world.server.on('GET', /^\/api\/broadcasts$/, () => (signedIn ? { body: { broadcasts: [ended('저녁채널')] } } : { status: 401, body: { error: { code: 'UNAUTHORIZED', message: '다시 로그인해 주세요.' } } }))
     function Body() {
       const session = useSession()
       const [round, setRound] = useState(0)
