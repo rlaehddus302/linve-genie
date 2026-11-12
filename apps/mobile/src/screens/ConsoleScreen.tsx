@@ -8,7 +8,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { BackHandler, Keyboard, Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
+import { Animated, BackHandler, Keyboard, Platform, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { get, withQuery } from '../api/client.ts'
 import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
@@ -27,7 +27,7 @@ import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal }
 import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
 import { ProductList, shownProducts } from './console/ProductBoard.tsx'
 import { ProductSheet } from './console/ProductEdit.tsx'
-import { AddFab, NumberKeys, ProductAddPage } from './console/ProductAdd.tsx'
+import { AddFab, DIGIT_PAD_HEIGHT, NumberKeys, ProductAddPage } from './console/ProductAdd.tsx'
 import { SlidePage } from './console/parts.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
 
@@ -137,6 +137,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07) · 채팅·문자(실시간으로 온 채팅·손님 문자, D-UX4-12)
   const [searchDigits, setSearchDigits] = useState('')
   const [searchPad, setSearchPad] = useState(false)
+  const draggingSearch = useRef(false)
   const closeSearchPad = useCallback(() => {
     setSearchPad(false)
     Keyboard.dismiss()
@@ -146,10 +147,15 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     const handler = BackHandler.addEventListener('hardwareBackPress', () => { closeSearchPad(); return true })
     return () => handler.remove()
   }, [searchPad, closeSearchPad])
+  const closeSearchOnTap = () => {
+    if (!draggingSearch.current) closeSearchPad()
+  }
   const [tab, setTab] = useState<'products' | 'feed' | 'talk' | 'heard'>('products')
   // 라이브 채팅처럼 (D-UX3-75): 목록은 최신이 맨 아래. 처음·탭을 바꿀 때는 맨 아래에서 시작하고,
   // 맨 아래를 보고 있는 동안 새 줄이 오면 따라 내려간다. 위로 올려 보고 있으면 그대로 둔다.
   const scroll = useRef<ScrollViewInstance>(null)
+  const scrollOffset = useRef(new Animated.Value(0)).current
+  const [viewportHeight, setViewportHeight] = useState(0)
   const atBottom = useRef(true)
   // 채팅·문자·음성 인식 탭만 라이브 채팅처럼 맨 아래(새 줄)에서 시작하고, 상품·찜 기록은 맨 위에서 (D-UX4-98 — 옛: 모든 탭이 맨 아래로 굴러가
   // 라이브 화면에 들어오거나 탭을 바꿀 때마다 목록이 아래로 튀었다)
@@ -369,6 +375,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     else openLabels?.()
   }
 
+  const padInset = docked ? SPACE.sm : Math.max(inset, SPACE.sm)
+  const padHeight = DIGIT_PAD_HEIGHT + padInset + 1
   const tabPills = (
     <>
       <Pill on={shownTab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
@@ -381,8 +389,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   return (
     <ConsoleContext.Provider value={api}>
       <View style={{ flex: 1, backgroundColor: p.background }} testID="console-screen"
-        onTouchEnd={searchPad ? closeSearchPad : undefined}
-        onPointerUp={searchPad ? closeSearchPad : undefined}>
+        onTouchEnd={searchPad ? closeSearchOnTap : undefined}
+        onPointerUp={searchPad ? closeSearchOnTap : undefined}>
         {/* 상태 막대 자리 (D-UX4-51): 겹쳐 뜨는 화면은 이 자리까지 덮는다 */}
         <View style={{ height: pageTop }} />
         <AppHeader
@@ -401,16 +409,26 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         ) : null}
         {/* 목록 자리 — (+) 단추는 이 자리 오른쪽 아래(들린 말 창 위)에 뜬다 */}
         <View style={{ flex: 1 }}>
-        <ScrollView
+        <Animated.ScrollView
+          onLayout={event => setViewportHeight(event.nativeEvent.layout.height)}
+          removeClippedSubviews={false}
           testID="console-scroll"
           ref={scroll}
-          onScrollBeginDrag={searchPad ? closeSearchPad : undefined}
-          scrollEventThrottle={100}
-          onScroll={(event) => {
-            if (Platform.OS === 'web' && searchPad) closeSearchPad()
-            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-            atBottom.current = bottomTab && contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
+          // 드래그 중 숫자판을 내리면 iOS가 같은 손짓의 스크롤을 취소한다. 손을 뗄 때까지 목록과 숫자판을 유지한다.
+          onScrollBeginDrag={() => { draggingSearch.current = searchPad }}
+          onScrollEndDrag={() => {
+            if (draggingSearch.current) closeSearchPad()
+            draggingSearch.current = false
           }}
+          scrollEventThrottle={16}
+          onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollOffset } } }], {
+            useNativeDriver: Platform.OS !== 'web',
+            listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+              if (Platform.OS === 'web' && searchPad) closeSearchPad()
+              const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+              atBottom.current = bottomTab && contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
+            },
+          })}
           onContentSizeChange={() => { if (atBottom.current) scroll.current?.scrollToEnd({ animated: false }) }}
           // 탭 바 반고정 (D-UX4-93 → 98 → 104 → 109): 휴대폰이 직접 하는 붙는 머리 — 목록을 올리면 숨고 내리면 맨 위에 붙어 보인다. 둘째 자식(탭 바)
           // D-UX4-104가 숨기기를 뺐다가 사용자 "올릴 때 탭 바 안 숨는데?"로 되살렸다 — "움직임"은 당길 때 늘어나는 것이었다(D-UX4-108)
@@ -419,7 +437,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           // 당겨도 늘어나지 않는다 (D-UX4-108, 사용자 지시 2026-11-10 "스크롤 땡기면 여전히 이렇게 늘어나는데?"): 아이폰 튕김·안드로이드 늘임을 끈다 — 탭 바가 맨 위에서 끌려 내려오지 않게
           bounces={false}
           overScrollMode="never"
-          style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps={searchPad ? 'always' : 'handled'}>
+          style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl + (searchPad ? padHeight : 0), gap: SPACE.sm }} keyboardShouldPersistTaps={searchPad ? 'always' : 'handled'}>
           {/* 첫째 자식: 탭 바 위 알림들 (한 묶음 — 붙는 머리 자리가 늘 둘째가 되게) */}
           <View style={{ gap: SPACE.sm }}>
             <AwayLine />
@@ -446,22 +464,24 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           </View>
           {/* (+) 단추에 마지막 줄이 가리지 않게 */}
           {shownTab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
-        </ScrollView>
-        {shownTab === 'products' && !closed ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => (openAdd === undefined ? setPage('add') : openAdd())} /> : null}
+          {shownTab === 'products' && searchPad ? (
+            // 숫자 키에서 시작한 드래그도 목록의 네이티브 스크롤이 받도록 같은 ScrollView에 둔다.
+            <Animated.View style={{ position: 'absolute', zIndex: 12, left: 0, right: 0, top: Math.max(0, viewportHeight - padHeight), transform: [{ translateY: scrollOffset }] }}>
+              <Appear distance={padHeight} style={{ ...SHADOW.sheet, backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.line }}>
+                <View onTouchEnd={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}
+                  style={{ paddingBottom: padInset }}>
+                  <NumberKeys inScrollView doubleZero={false} onKey={key => setSearchDigits(value => key === 'back' ? value.slice(0, -1) : value + key)} />
+                </View>
+              </Appear>
+            </Animated.View>
+          ) : null}
+        </Animated.ScrollView>
+        {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => (openAdd === undefined ? setPage('add') : openAdd())} /> : null}
         </View>
         {/* 들린 말 창은 맨 아래 (D-UX4-53 — 옛 목록 위) */}
         {/* 맨 아래 창은 관리 "화면 아래 창"에서 고른 것 (D-UX4-71): 들린 말 · 채팅·문자 · 안 보기 */}
         {live && dock === 'voice' ? <ListenLine session={services.voice} broadcastId={broadcastId} stream={stream} bottom={Math.max(inset, SPACE.sm)} /> : null}
         {live && dock === 'talk' ? <TalkDock bottom={Math.max(inset, SPACE.sm)} /> : null}
-
-        {shownTab === 'products' && searchPad ? (
-          <Appear distance={280 + inset} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, ...SHADOW.sheet, backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.line }}>
-            <View onTouchEnd={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}
-              style={{ paddingBottom: Math.max(inset, SPACE.sm) }}>
-              <NumberKeys doubleZero={false} onKey={key => setSearchDigits(value => key === 'back' ? value.slice(0, -1) : value + key)} />
-            </View>
-          </Appear>
-        ) : null}
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
         {/* 고치기는 반 화면 판 · 확인 시 저장 (D-UX4-106) */}
