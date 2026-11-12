@@ -23,6 +23,7 @@ export interface ConsoleApi {
   /** 쓰기 뒤 따라잡은 가장 새 범위 자료 (찜 삭제 뒤 승계 확인 — D-UX4-25). 없으면 data */
   readonly latest?: () => ScopeData
   /** 라벨 상태 낱말 (찜 ID → 낱말, 리허설·모르면 없음) */
+  readonly labelsOff?: boolean
   readonly productLabels?: readonly LabelView[]
   readonly labelWords: ReadonlyMap<string, string>
 }

@@ -136,6 +136,22 @@ describe('ConsoleScreen', () => {
     expect(screen.getByRole('button', { name: '상품 추가' })).toBeTruthy()
   })
 
+  it('209번 색금에 찜이 없어도 상품 상세에서 한 장만 직접 인쇄한다', async () => {
+    const world = makeWorld({ products: [product(209, { name: '색금', price: 10_000 })] })
+    const requests: unknown[] = []
+    world.server.on('POST', /^\/api\/print\/labels\/direct$/, (call) => {
+      requests.push(call.body)
+      return { body: { jobs: [] } }
+    })
+    world.services.labels.start()
+    await open(world)
+    fireEvent.click(screen.getByRole('button', { name: '상품 자세히 — 209번' }))
+    fireEvent.click(await screen.findByRole('button', { name: '상품 라벨 인쇄' }))
+    await screen.findByText('출력 대기열에 넣었어요.')
+    expect(requests).toEqual([{ b: 'b1', no: 209, name: '색금', price: 10_000, requestId: expect.any(String) }])
+    world.services.labels.stop()
+  })
+
   // 옛 시험: 빠른 입력 한 줄 → product.register(text)·5초 되돌리기. 새 기대(D-UX4-31, 사용자 지시 2026-11-09): (+) → 한 번에 하나씩 묻는 상품 추가 화면
   it('(+) 상품 추가: 앱 숫자판으로 번호 → [다음] → 가격(한글 금액) → 확인 "15번 / 15,000원 / 상품을 추가할까요?" → [추가하기]면 원문 칸으로 등록하고 돌아온다', async () => {
     const world = makeWorld({ products: [] })

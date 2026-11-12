@@ -358,7 +358,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     return frame(<LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />)
   }
 
-  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), latest: () => store.getSnapshot().data ?? data, select: setSelected, selected, labelWords, ...(seller && !sealed && !rehearsal && labelsQueue.queue?.labelsEnabled ? { productLabels: labels } : {}), doubts }
+  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), latest: () => store.getSnapshot().data ?? data, select: setSelected, selected, labelWords, labelsOff: seller && !sealed && !rehearsal && labelsQueue.queue?.labelsEnabled === false, ...(seller && !sealed && !rehearsal && labelsQueue.queue?.labelsEnabled ? { productLabels: labels } : {}), doubts }
   const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed

@@ -8,7 +8,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Animated, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
-import { ProductLabelAction } from '../ProductLabelAction.tsx'
+import { ProductLabelAction, QueueLabelButton } from '../ProductLabelAction.tsx'
 import { SearchField } from '../customer-parts.tsx'
 import { isApiError } from '../../api/client.ts'
 import { boardProducts, claimsOfProduct, productSlots, type BuyerNames } from '../../lib/derive.ts'
@@ -266,6 +266,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
   const [askClaim, setAskClaim] = useState<{ readonly id: string; readonly name: string } | null>(null)
   const [askProduct, setAskProduct] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [copy, setCopy] = useState(0)
   const claims = detailClaims(api.data, product)
   useAnimatedChange(claims.map((claim) => claim.id).join('|'))
   const fail = (caught: unknown, fallback: string) => setError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' ? caught.message : fallback)
@@ -320,6 +321,11 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         </View>
       )}
       <View role="group" aria-label="상품 메뉴" style={{ gap: SPACE.xs }}>
+        {api.labelsOff ? <Txt color="textSub">라벨을 인쇄하려면 관리에서 ‘라벨 뽑기’를 켜 주세요.</Txt> : null}
+        {api.productLabels !== undefined && productSlots(product).winnerClaims.length === 0 ? (
+          <QueueLabelButton key={`${product.id}:${copy}`} action="direct" title="상품 라벨 인쇄" disabled={false}
+            body={{ b: api.b, no: product.no, name: product.name, price: product.price }} onQueued={() => setCopy((n) => n + 1)} />
+        ) : null}
         {api.productLabels?.filter((label) => label.kind === 'product' && label.broadcast === api.b && label.winner && label.claim !== null && claims.some((claim) => claim.id === label.claim)).map((label) => (
           <ProductLabelAction key={label.key} label={label} title={`${label.buyer.kind === 'youtube' ? label.buyer.name : '문자찜'} · ${label.canPrint ? '라벨 인쇄' : '라벨 다시 인쇄'}`} />
         ))}
