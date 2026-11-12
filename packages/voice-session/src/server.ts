@@ -8,7 +8,7 @@ import { VoiceController, type VoiceHost } from './controller/controller.ts'
 import { CHROME_RESULT_UNSUPPORTED, VOICE_COMMANDS, isRecord, isVoiceClientMessage, toWire, type VoiceFlowMode, type VoiceServerMessage } from './wire.ts'
 import { sealResume, openResume } from './resume.ts'
 
-type DataKeys = 'maxNumber' | 'currentNames' | 'products' | 'fetchHistory' | 'priceUnit' | 'existingProduct' | 'smsReadOptions' | 'smsProduct' | 'smsProductName' | 'readSmsTime' | 'readLearned' | 'writeLearned' | 'lastVoiceDevice' | 'ready'
+type DataKeys = 'screenProducts' | 'maxNumber' | 'currentNames' | 'products' | 'fetchHistory' | 'priceUnit' | 'existingProduct' | 'smsReadOptions' | 'smsProduct' | 'smsProductName' | 'readSmsTime' | 'readLearned' | 'writeLearned' | 'lastVoiceDevice' | 'ready'
 export type ReadingHost = Pick<VoiceHost, DataKeys>
 export interface ReadingSessionOptions {
   readonly host: ReadingHost

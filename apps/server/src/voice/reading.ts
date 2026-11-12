@@ -17,7 +17,7 @@ import type { VoiceVarieties } from './varieties.ts'
 import type { VoiceRelayOptions, VoiceReadingSession } from './relay.ts'
 
 export type VoiceHistoryObserver = (sellerId: string, date: string | null, phase: 'start' | 'complete') => void | Promise<void>
-export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWriter; clock: Clock; aliases: VoiceAliases; varieties?: VoiceVarieties; historyObserver?: VoiceHistoryObserver }): NonNullable<VoiceRelayOptions['reading']> {
+export function readingFactory(deps: { screenProducts: boolean; db: Db; service: Service; writer: ScopeWriter; clock: Clock; aliases: VoiceAliases; varieties?: VoiceVarieties; historyObserver?: VoiceHistoryObserver }): NonNullable<VoiceRelayOptions['reading']> {
   return async ({ session, broadcastId, device, send, mode }): Promise<VoiceReadingSession> => {
     const sellerId = session.sellerId
     const broadcast = await findBroadcast(deps.db, sellerId, broadcastId)
@@ -59,6 +59,7 @@ export function readingFactory(deps: { db: Db; service: Service; writer: ScopeWr
     const reader = createReadingSession({
       device, broadcastId, accountId: sellerId, send, mode, now: () => deps.clock.now(), mergeLearned,
       host: {
+        screenProducts: deps.screenProducts,
         ready: () => !closed && data.broadcasts.has(broadcastId),
         maxNumber: () => settings()['claim.maxNumber'],
         priceUnit: () => settings()['price.unit'],

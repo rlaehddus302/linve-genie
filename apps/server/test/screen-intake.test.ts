@@ -73,6 +73,24 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     expect((await products(world, connected.seller.cookie, b.date)).filter((p) => p.no === 238)).toHaveLength(1)
   })
 
+  it('60번에서 늦게 도착한 옛 음성 등록과 재시도는 가격을 선점하지 못하고 화면 일꾼의 가격만 등록된다', async () => {
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const connected = await connectSeller(world)
+    const { b, live } = await linkedBroadcast(world, connected)
+    const api = client(world, connected.seller.cookie)
+    const old = { requestId: 'voice-60-discount', type: 'product.register', b: b.id, no: 60, name: '', price: 50000, voiceLog: { heard: '5만원 할인해서 40만원이나 갈게요 60번', source: 'voice', device: 'old-phone' } }
+    expect((await api.get('/api/me')).body.screenProducts).toBe(true)
+    expect((await api.post('/api/events', old)).status).toBe(409)
+    const body = { videoId: live.videoId, no: 60, price: 400000, name: '투구', requestId: 'screen-incident-60' }
+    expect((await post(world, body)).body).toMatchObject({ changed: true })
+    expect((await api.post('/api/events', old)).status).toBe(409)
+    expect((await post(world, body)).body).toMatchObject({ duplicate: true })
+    expect((await api.post('/api/events', { requestId: 'manual-61', type: 'product.register', b: b.id, no: 61, name: '손입력', price: 30000 })).status).toBe(200)
+    expect(await products(world, connected.seller.cookie, b.date)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ no: 60, price: 400000 }), expect.objectContaining({ no: 61, price: 30000 }),
+    ]))
+  })
+
   it('D-SCR-04 같은 영상에 이어진 방송이 여럿이면 모두에 등록하고, 같은 요청을 다시 보내도 방송마다 한 번', async () => {
     const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
     const one = await connectSeller(world)

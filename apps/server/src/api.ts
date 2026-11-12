@@ -86,6 +86,7 @@ const IMPORT_REGISTER_PATH = /^\/api\/broadcasts\/[^/]+\/import$/
 const HISTORY_LIMIT_MAX = 500
 
 export interface ApiDeps {
+  readonly screenProducts?: boolean
   readonly voiceAliases?: VoiceAliases
   /** D-V3-127 내 품종 장부. 없으면 /api/voice/varieties 경로가 없다 */
   readonly voiceVarieties?: VoiceVarieties
@@ -400,6 +401,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       loginId: session.loginId,
       phone: session.phoneLabel,
       phoneRequired,
+      ...(deps.screenProducts ? { screenProducts: true } : {}),
     })
   })
 
@@ -533,6 +535,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     }
     const rehearsal = rehearsalOf(c)
     if (!rehearsal.ok) return rehearsal.response
+    // 업데이트 직전 기기에 남은 음성 등록 재시도도 같은 번호를 먼저 차지할 수 있다.
+    if (deps.screenProducts && input['type'] === 'product.register' && input['voiceLog'] != null) {
+      return apiError(409, 'REQUEST_ERROR', '자동 상품 등록은 화면 일꾼이 처리해요. 직접 등록하려면 상품 추가를 눌러 주세요.')
+    }
     const outcome = await service.writeEvent(sellerOf(c), actorOf(c), requestId, input, c.req.query('date'), rehearsal.value)
     return outcomeResponse(c, outcome.kind === 'phone' ? outcome.outcome : outcome)
   })

@@ -463,7 +463,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // 틱톡 라이브 소리 (D-UX3-16): 프록시 없이 바로. 라이브 시작 전에는 15초마다만 묻는다
   const tiktokResolve = streamSetting?.ytDlpPath === undefined ? null : notLiveBackoff(ytDlpTiktokResolver(streamSetting.ytDlpPath), () => clock.now())
   // D-LV1-14 앱 없이 서버가 방송 소리를 읽고 등록 — 읽기는 앱과 같은 서버 읽기 세션, 등록은 같은 기록 경로 (service·writer는 아래에서 만든다 — 부를 때 쓴다)
-  const readVoice: NonNullable<VoiceRelayOptions['reading']> = (context) => readingFactory({ db, service, writer, clock, aliases: voiceAliases, varieties: voiceVarieties, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context)
+  const screenProducts = options.screenWorkerToken !== undefined
+  const readVoice: NonNullable<VoiceRelayOptions['reading']> = (context) => readingFactory({ screenProducts, db, service, writer, clock, aliases: voiceAliases, varieties: voiceVarieties, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context)
   const serverReading = new HeadlessVoice({ reading: readVoice, service: { writeEvent: (...args) => service.writeEvent(...args) }, clock, log })
   const streamAudio = new StreamAudioService({
     serverReading,
@@ -863,6 +864,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
+      screenProducts,
       log,
       service,
       closing,

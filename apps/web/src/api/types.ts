@@ -46,6 +46,7 @@ export interface ApiProblem {
 }
 
 export interface Me {
+  readonly screenProducts?: boolean
   readonly seller: { readonly name: string }
   readonly loginId: string
   /** 문자로 확인한 휴대폰 번호(가린 것, D-UX3-30) */

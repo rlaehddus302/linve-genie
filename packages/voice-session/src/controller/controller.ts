@@ -567,6 +567,8 @@ export interface PastDay {
 
 /** 콘솔이 넘기는 것 */
 export interface VoiceHost {
+  /** 화면 일꾼이 상품을 맡는 서버에서 음성은 자막과 문자찜만 처리한다. */
+  readonly screenProducts?: boolean
   /** 음성 모듈 (동적 import 한 곳) */
   load(): Promise<VoiceModule>
   /** 서버 읽기 세션은 마이크 대신 전달받은 결과를 넣는 엔진을 쓴다(APP1b). */
@@ -1008,7 +1010,7 @@ export class VoiceController {
       // 조용한 시간은 같은 저장값의 `voice.quietMs` (범위 밖·모르는 값은 1800, D-V2-09)
       const quietMs = module.resolveQuietMs(stored)
       this.#stallMs = this.#readStall(module, stored)
-      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null, instant: readInstant(stored), archive: archiveEnabled(stored, this.#host.archiveDefault?.() ?? false) })
+      this.#set({ settings, secondsText: String(settings['voice.autoConfirmSec']), quietMs, quietText: quietText(quietMs), quietProblem: null, instant: !this.#host.screenProducts && readInstant(stored), archive: archiveEnabled(stored, this.#host.archiveDefault?.() ?? false) })
     }
     if (this.#phrase === null) this.#phrase = module.createPhraseState({ quietMs: this.#snapshot.quietMs })
     if (!this.#learnedLoaded) {
@@ -1795,7 +1797,7 @@ export class VoiceController {
       return
     }
     const before = work.log
-    this.#runChunk(work, module, out.chunk, held)
+    if (!this.#host.screenProducts) this.#runChunk(work, module, out.chunk, held)
     this.#archive(module, out.chunk, before === work.log ? null : (work.log[0] ?? null))
     this.#chunkInterims = []
     this.#chunkActs.clear()
@@ -2282,6 +2284,7 @@ export class VoiceController {
       this.#addSms(work, module, text, read.reading, sentence.smsSettings, sentence.flushedAtEnd)
       return
     }
+    if (this.#host.screenProducts) return
     const card = module.createCard({
       id: `voice-${String(this.#nextCard++)}`,
       extraction: read.extraction,
@@ -2377,7 +2380,7 @@ export class VoiceController {
   /** 콘솔이 상품 보드를 넘기고 음성 패키지에 V3 판단이 있다 (없는 화면은 V2 카드 확인 그대로) */
   #instantHost(): boolean {
     const module = this.#module
-    return this.#host.existingProduct !== undefined && module !== null && typeof module.readRegistration === 'function'
+    return !this.#host.screenProducts && this.#host.existingProduct !== undefined && module !== null && typeof module.readRegistration === 'function'
   }
 
   /** 바로 등록을 하는가: V3 화면 + 설정 켬 */
@@ -2406,6 +2409,7 @@ export class VoiceController {
 
   /** "번호와 가격이 들리면 바로 등록" 켬/끔 — 같은 음성 설정 저장값에 (D-V3-16) */
   setInstant(on: boolean): void {
+    if (this.#host.screenProducts) return
     const settings = this.#snapshot.settings
     if (settings === null) return
     // 덩어리 도중 끄면 그 덩어리는 바로 등록하지 않는다 (다시 켜도)

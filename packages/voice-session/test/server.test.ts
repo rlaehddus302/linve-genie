@@ -36,6 +36,27 @@ beforeEach(() => { vi.useFakeTimers({ now: T0 }) })
 afterEach(() => { vi.useRealTimers() })
 
 describe('APP1b server reading session', () => {
+  it('화면 일꾼이 상품을 맡으면 기기 설정을 켜도 옛 상품 카드를 만들지 않고 자막과 문자찜은 읽는다', async () => {
+    const messages: VoiceServerMessage[] = []
+    const session = createReadingSession({ host: { ...data(), screenProducts: true, existingProduct: () => null }, device: 'old-phone', send: (message) => messages.push(message) })
+    session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { 'voice.autoRegister': true, 'voice.autoConfirm': true } } })
+    await settle()
+    session.onMessage({ type: 'voice.session', op: 'command', method: 'setInstant', args: [true] })
+    const speak = speaker(session)
+    const text = '자 45만원인데 자 요거 5만원 할인해서 40만원이나 갈게요 60번'
+    speak(text)
+    await vi.advanceTimersByTimeAsync(2500)
+    speak('15번 문자찜 끝자리 1234')
+    await vi.advanceTimersByTimeAsync(2500)
+    const latest = messages.filter((m): m is VoiceStateMessage => m.type === 'voice.state').at(-1)!
+    const view = fromWire(latest.snapshot) as ReturnType<VoiceController['getSnapshot']>
+    expect(view.instant).toBe(false)
+    expect(view.heard.some((line) => line.text === text)).toBe(true)
+    expect(view.sms).toHaveLength(1)
+    expect(view.cards).toEqual([])
+    expect(messages.filter((m) => m.type === 'voice.effect' && ['register', 'fixRecent', 'renumber'].includes(m.method))).toEqual([])
+    session.close()
+  })
   it('releases a registration collision only for the original server card and allows the next price correction', async () => {
     const messages: VoiceServerMessage[] = []
     let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null

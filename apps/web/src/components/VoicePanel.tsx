@@ -873,11 +873,15 @@ export function VoiceExtras({ voice, snapshot }: { readonly voice: VoiceControll
       {on && settings !== null ? (
         <div className="voice-settings">
           {/* D-V3-16: 옛 "자동 확정"·"기다리는 시간(초)"은 없다 — 바로 등록 하나 */}
-          <label className="choice">
-            <input type="checkbox" checked={snapshot.instant} onChange={(event) => voice.setInstant(event.target.checked)} />
-            <span>{INSTANT_LABEL}</span>
-          </label>
-          <p className="hint">{INSTANT_HELP}</p>
+          {voice.instantScreen() && (
+            <>
+              <label className="choice">
+                <input type="checkbox" checked={snapshot.instant} onChange={(event) => voice.setInstant(event.target.checked)} />
+                <span>{INSTANT_LABEL}</span>
+              </label>
+              <p className="hint">{INSTANT_HELP}</p>
+            </>
+          )}
           <label className="choice">
             <input type="checkbox" checked={snapshot.archive} onChange={(event) => voice.setArchive(event.target.checked)} />
             <span>{ARCHIVE_LABEL}</span>

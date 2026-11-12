@@ -23,7 +23,7 @@ import { Late, useCameLate } from '../ui/late.tsx'
 
 export const SETTING_NEXT_BROADCAST = '다음에 시작하는 라이브부터 적용돼요.'
 export const PERMISSION_WORDS = {
-  microphone: '라이브 중 사장님 말(상품 번호·가격)을 음성 인식해 상품을 등록하려고 마이크를 써요.',
+  microphone: '라이브 중 사장님 말을 받아쓸 때 마이크를 써요.',
   bluetooth: '라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.',
   notification: '음성 인식 중이라는 알림을 보여 드리려고 해요.',
 } as const
@@ -107,17 +107,21 @@ export function SettingsScreen({
       <AppHeader title="설정" onBack={onBack} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SETTINGS_GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
         <SettingsGroup title="음성" label="음성">
-          <ToggleRow
-            title={VOICE_INSTANT_LABEL}
-            subtitle="끄면 인식한 말이 카드로 먼저 보이고, 등록을 눌러야 올라가요."
-            on={view.instant}
-            onChange={(next) => {
-              const previous = view.instant
-              voice.setInstant(next)
-              hide()
-              show(next ? '바로 등록을 켰어요.' : '바로 등록을 껐어요.', { actionLabel: '되돌리기', onAction: () => voice.setInstant(previous) })
-            }}
-          />
+          {session.state === 'in' && session.me.screenProducts ? (
+            <ListRow title="상품 자동 등록" subtitle="유튜브 라이브의 화면과 음성을 보고 상품을 등록해요." />
+          ) : (
+            <ToggleRow
+              title={VOICE_INSTANT_LABEL}
+              subtitle="끄면 인식한 말이 카드로 먼저 보이고, 등록을 눌러야 올라가요."
+              on={view.instant}
+              onChange={(next) => {
+                const previous = view.instant
+                voice.setInstant(next)
+                hide()
+                show(next ? '바로 등록을 켰어요.' : '바로 등록을 껐어요.', { actionLabel: '되돌리기', onAction: () => voice.setInstant(previous) })
+              }}
+            />
+          )}
           {view.problem !== null ? (
             // 잘못 문장은 어디서나 같은 모양 (D-UX3-51)
             <ErrorLine>{view.problem}</ErrorLine>

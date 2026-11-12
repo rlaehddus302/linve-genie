@@ -405,6 +405,8 @@ def main():
     a = ap.parse_args()
     a.out = a.out or os.path.join("runs", datetime.now(KST).strftime("%Y%m%d_%H%M%S"))
     if a.post:
+        if a.register != "llm":
+            ap.error("서버 상품 등록은 지식판2만 지원해요. 규칙 시험은 --post 없이 실행하세요.")
         a.token_file = post.token_path(a.token_file)
         a.video_id = a.video_id or post.video_id(a.source)
         if not a.video_id or not post.VIDEO_RE.match(a.video_id):
