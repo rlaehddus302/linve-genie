@@ -70,6 +70,7 @@ import { LiveAutoEnd } from './live-auto-end.ts'
 import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { registerInboxIntake } from './inbox/routes.ts'
+import { CatalogDelivery, enqueueCatalogEdits } from './screen/catalog.ts'
 import { registerScreenIntake } from './screen/routes.ts'
 import { BuyerInfoService } from './inbox/buyer-info-service.ts'
 import { InboxService } from './inbox/service.ts'
@@ -533,6 +534,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     // 효과 → 출력 작업·라벨 폐기(L-11 2·5), 인스타그램 회차의 감사 효과 → DM 행(N2), 주문 건 쓰기(N5 BL-5 2)를 이벤트 기록과 같은 트랜잭션에서
     // 여러 플랫폼 회차의 감사 경로(N2b-2) — 틱톡 구매자·보낼 곳 없는 감사는 건너뜀, 회차를 끝내면 틱톡 연결 ENDED(N2b-2)
     txHook: async (tx, ctx) => {
+      const shared = await enqueueCatalogEdits(tx, ctx)
       const printed = await (print as PrintService).txHook(tx, ctx)
       const dm = await (instagram as InstagramModule).txHook(tx, ctx)
       await routeThanks(tx, ctx, (sellerId) => tiktokThanks?.applies(sellerId) ?? false)
@@ -542,13 +544,14 @@ export function createServer(options: ServerOptions): LivejjimServer {
       const bandEnded = await (band as BandService).txHook(tx, ctx)
       // KP1 채팅 연결 코드: 트랜잭션 안에서는 고르기만, 커밋 뒤 읽는다 (판정·기록에 영향 없음, CR-5)
       const ledgerAfter = await ledger.txHook(tx, ctx)
-      const after = [billed, printed, dm, ended, bandEnded, ledgerAfter].filter((fn): fn is () => void => fn !== null)
+      const after = [shared ? () => { void catalog.drain() } : null, billed, printed, dm, ended, bandEnded, ledgerAfter].filter((fn): fn is () => void => fn !== null)
       if (after.length === 0) return null
       return () => {
         for (const fn of after) fn()
       }
     },
   })
+  const catalog: CatalogDelivery = new CatalogDelivery(db, writer)
   writerRef = writer
   print = new PrintService({
     db,
@@ -864,6 +867,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
+      catalog,
       screenProducts,
       log,
       service,
@@ -972,6 +976,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     billingRechecker,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
+      catalog.start()
       youtube?.start()
       sealer.start()
       customerArchiver.start()
@@ -992,6 +997,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     stop,
     close: () => {
+      catalog.close()
       streamAudio.close()
       serverReading.close()
       voice.close()

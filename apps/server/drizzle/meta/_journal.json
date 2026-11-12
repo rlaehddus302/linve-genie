@@ -351,6 +351,13 @@
       "when": 1794960000023,
       "tag": "0049_ux4_link_title",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794960000024,
+      "tag": "0050_live_catalog",
+      "breakpoints": true
     }
   ]
 }

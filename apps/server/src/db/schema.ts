@@ -6,7 +6,7 @@
 // - 전화번호 원문·정규화한 번호는 어디에도 두지 않는다. 판매자 전화번호 키는 마스터 키로 암호화한 값만 둔다(D-073).
 // - 이 파일과 마이그레이션이 어긋나지 않는지는 test/schema.test.ts가 실제 DB 구조와 대조한다.
 import { and, eq, sql, type SQL } from 'drizzle-orm'
-import { bigint, bigserial, boolean, index, integer, pgTable, real, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
+import { bigint, bigserial, boolean, index, integer, jsonb, primaryKey, pgTable, real, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
@@ -2782,7 +2782,27 @@ export const buyerInfoCards = pgTable(
   (t) => [index('buyer_info_cards_seller_idx').on(t.sellerId, t.status, t.createdAt), index('buyer_info_cards_created_idx').on(t.createdAt)],
 )
 
+export const liveCatalogMembers = pgTable('live_catalog_members', {
+  sellerId: text('seller_id').notNull().references(() => sellers.id),
+  broadcastId: text('broadcast_id').notNull().references(() => broadcasts.id),
+  videoId: text('video_id').notNull(),
+  team: text('team').notNull(),
+}, (t) => [primaryKey({ columns: [t.sellerId, t.broadcastId, t.videoId] }), index('live_catalog_team_idx').on(t.team, t.videoId)])
+
+export const liveCatalogDelivery = pgTable('live_catalog_delivery', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  sellerId: text('seller_id').notNull().references(() => sellers.id),
+  broadcastId: text('broadcast_id').notNull().references(() => broadcasts.id),
+  scopeDate: text('scope_date').notNull(),
+  body: jsonb('body').notNull(),
+  done: boolean('done').notNull().default(false),
+  problem: text('problem'),
+  leaseUntil: timestamptz('lease_until'),
+}, (t) => [index('live_catalog_delivery_wait').on(t.sellerId, t.broadcastId, t.id).where(sql`not ${t.done}`)])
+
 export const schema = {
+  liveCatalogMembers,
+  liveCatalogDelivery,
   voiceAliases,
   sellers,
   accounts,
