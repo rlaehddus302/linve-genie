@@ -111,6 +111,16 @@ export interface BroadcastThanksEvent extends EventBase {
   readonly liveChat: boolean
 }
 
+/**
+ * 방송 중 보류 찜 만료 켜기·끄기 (D-PEND-01): 그 방송의 설정 스냅샷에서 claim.preOpenExpire만 바꾼다. 그 뒤 공개부터 따른다.
+ * 값이 지금과 같으면 아무 일도 없다
+ */
+export interface BroadcastPendingExpireEvent extends EventBase {
+  readonly type: 'broadcast.pendingExpire'
+  readonly b: string
+  readonly expire: boolean
+}
+
 export interface ProductRegisterEvent extends EventBase {
   readonly type: 'product.register'
   readonly b: string
@@ -372,6 +382,7 @@ export type EngineEvent =
   | BroadcastStartEvent
   | BroadcastEndEvent
   | BroadcastThanksEvent
+  | BroadcastPendingExpireEvent
   | ProductRegisterEvent
   | ProductCommandEvent
   | ProductUpdateEvent

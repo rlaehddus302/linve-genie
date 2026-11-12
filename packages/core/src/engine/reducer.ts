@@ -58,6 +58,7 @@ import type {
   ApplyResult,
   BroadcastEndEvent,
   BroadcastThanksEvent,
+  BroadcastPendingExpireEvent,
   BroadcastStartEvent,
   BuyerMergeEvent,
   BuyerRecord,
@@ -333,6 +334,13 @@ function switchThanks(d: Draft, e: BroadcastThanksEvent): void {
   const broadcast = d.broadcastOf(e.b)
   if (broadcast.settings['thanks.liveChat'] === e.liveChat) return
   d.replaceBroadcast({ ...broadcast, settings: { ...broadcast.settings, 'thanks.liveChat': e.liveChat } })
+}
+
+/** broadcast.pendingExpire (D-PEND-01): 방송 설정 스냅샷의 claim.preOpenExpire만 바꾼다. 같은 값이면 아무 일도 없다 */
+function switchPendingExpire(d: Draft, e: BroadcastPendingExpireEvent): void {
+  const broadcast = d.broadcastOf(e.b)
+  if (broadcast.settings['claim.preOpenExpire'] === e.expire) return
+  d.replaceBroadcast({ ...broadcast, settings: { ...broadcast.settings, 'claim.preOpenExpire': e.expire } })
 }
 
 // ── 지금 상품 (R-20 6, D-O-09·D-O1-06) ──────────────────────────────────
@@ -1159,6 +1167,7 @@ const HANDLERS: Readonly<Record<string, (d: Draft, event: never) => void>> = {
   'broadcast.start': startBroadcast,
   'broadcast.end': endBroadcast,
   'broadcast.thanks': switchThanks,
+  'broadcast.pendingExpire': switchPendingExpire,
   'product.register': register,
   'product.open': productCommand,
   'product.hold': productCommand,

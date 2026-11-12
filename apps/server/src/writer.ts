@@ -7,7 +7,7 @@
 //    리허설 범위의 발송함 행은 리허설 표시를 단다(D-081).
 //    같은 트랜잭션에서 txHook(출력 기록 — 효과 → 출력 작업·라벨 폐기, I1 L-11 2·5)을 부른다. 커밋된 뒤에야 그 알림을 보낸다.
 // 5. (범위, seq) 유일 제약에 걸리면(다른 인스턴스가 먼저 씀) 최신 로그를 읽고 다시 계산한다.
-import { STATE_FORMAT, checkEvent, isInvalidEvent, isNotImplemented, isStateFormatError, type EngineEffect, type EngineEvent, type EngineState } from '@livejjim/core'
+import { STATE_FORMAT, checkEvent, getBroadcast, isInvalidEvent, isNotImplemented, isStateFormatError, type EngineEffect, type EngineEvent, type EngineState } from '@livejjim/core'
 import { sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
 import { scopeLockKey } from './db/schema.ts'
@@ -224,6 +224,32 @@ export interface WriterOptions {
   readonly onDrop?: (runtime: ScopeRuntime) => void
   /** 같은 트랜잭션에서 더 쓸 것 (출력 기록, I1) */
   readonly txHook?: TxHook
+  /**
+   * 등록 전 찜을 만료하지 않는 운영(D-PEND-01): 상품을 등록·공개·번호 변경하는 이벤트 바로 앞에, 그 방송 스냅샷이 아직 만료를 켜 둔
+   * 진행 중(끝나지 않은) 방송이면 `broadcast.pendingExpire {expire: false}`를 한 번 덧붙인다 — 배포 전에 시작한 방송에도 바로 적용
+   */
+  readonly keepPendingClaims?: boolean
+}
+
+/** 상품 공개가 일어날 수 있는 이벤트 (R-5 — 보류 찜을 판정하는 때) */
+const OPENING_TYPES: ReadonlySet<unknown> = new Set(['product.register', 'product.open', 'product.renumber'])
+
+/** D-PEND-01: 공개 이벤트 앞에 그 방송의 만료 끄기를 덧붙인다(이미 꺼졌거나 끝난 방송·모르는 방송이면 그대로) */
+function withPendingKept(state: EngineState, drafts: readonly Draft[]): readonly Draft[] {
+  const done = new Set<string>()
+  const out: Draft[] = []
+  for (const draft of drafts) {
+    const b = draft.fields['b']
+    if (OPENING_TYPES.has(draft.fields['type']) && typeof b === 'string' && !done.has(b)) {
+      done.add(b)
+      const broadcast = getBroadcast(state, b)
+      if (broadcast !== null && broadcast !== undefined && broadcast.endedAt === null && broadcast.settings['claim.preOpenExpire'] !== false) {
+        out.push({ fields: { type: 'broadcast.pendingExpire', b, expire: false }, actor: draft.actor, skipIfInvalid: true })
+      }
+    }
+    out.push(draft)
+  }
+  return out
 }
 
 const MAX_SEQ_RETRIES = 5
@@ -542,8 +568,9 @@ export class ScopeWriter {
   ): { records: CommittedRecord[]; states: EngineState[]; drafts: readonly Draft[]; state: EngineState; seq: number; lastAt: number } | { rejection: Rejection } {
     const { engine, log, clock } = this.#options
     const firstAt = Math.max(clock.now(), runtime.lastAt)
-    const drafts = job.build({ state: runtime.state, isNewScope: runtime.seq === 0, at: firstAt, existingChats }, prepared)
-    if (!Array.isArray(drafts)) return { rejection: drafts as Rejection }
+    const built = job.build({ state: runtime.state, isNewScope: runtime.seq === 0, at: firstAt, existingChats }, prepared)
+    if (!Array.isArray(built)) return { rejection: built as Rejection }
+    const drafts = this.#options.keepPendingClaims === true ? withPendingKept(runtime.state, built as readonly Draft[]) : built
     let state = runtime.state
     let seq = runtime.seq
     let lastAt = runtime.lastAt

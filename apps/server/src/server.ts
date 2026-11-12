@@ -532,6 +532,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       viewCaches.sweep()
     },
     onDrop: (runtime) => viewCaches.release(runtime),
+    // 등록 전 찜을 만료하지 않는 운영이면 이미 시작한 방송에도 바로 (D-PEND-01)
+    keepPendingClaims: options.sellerDefaults?.['claim.preOpenExpire'] === false,
     // 효과 → 출력 작업·라벨 폐기(L-11 2·5), 인스타그램 회차의 감사 효과 → DM 행(N2), 주문 건 쓰기(N5 BL-5 2)를 이벤트 기록과 같은 트랜잭션에서
     // 여러 플랫폼 회차의 감사 경로(N2b-2) — 틱톡 구매자·보낼 곳 없는 감사는 건너뜀, 회차를 끝내면 틱톡 연결 ENDED(N2b-2)
     txHook: async (tx, ctx) => {
