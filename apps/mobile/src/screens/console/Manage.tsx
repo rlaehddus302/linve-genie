@@ -15,7 +15,7 @@ import { LABEL_PRINT_TITLE, LabelPrintRows, type LabelPrintNav } from '../LabelP
 import { useConsoleApi } from './context.ts'
 import { EndBroadcastRow } from './EndBroadcast.tsx'
 import { LinkInfo, hasLinkedLive } from './LinkInfo.tsx'
-import { MenuGroup, PLAIN, PlainRow, PlainTitle } from './parts.tsx'
+import { MenuGroup, PLAIN, PlainRow } from './parts.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
 import type { MobileYoutube } from './YoutubeSection.tsx'
 
@@ -44,7 +44,7 @@ export function ThanksSwitch({ on, busy, onPress }: { readonly on: boolean; read
   return (
     <View style={{ paddingHorizontal: PLAIN.side }}>
       {/* 다른 줄과 같은 글자(17 · 보통 · #4F545E — D-UX4-94) */}
-      <ToggleRow title={THANKS_TITLE} titleStep="bodyLarge" titleWeight={PLAIN.weight} titleInk={PLAIN.ink} rowHeight={PLAIN.toggleRow} on={on} disabled={busy} testID="thanks-switch" onChange={onPress} onHelp={() => setHelp(true)} />
+      <ToggleRow title={THANKS_TITLE} titleStep="bodyLarge" titleWeight={PLAIN.weight} titleInk={PLAIN.ink} rowHeight={PLAIN.row} on={on} disabled={busy} testID="thanks-switch" onChange={onPress} onHelp={() => setHelp(true)} />
       <BottomSheet visible={help} onClose={() => setHelp(false)} title={THANKS_HELP_TITLE}>
         <Txt step="bodyLarge" color="textSub">{THANKS_HELP_BODY}</Txt>
         <ThanksExample />
@@ -127,11 +127,10 @@ export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink,
   const showEnd = seller && !closed && onEnded !== undefined
   return (
     <View style={{ marginHorizontal: -SPACE.lg }}>
-      <PlainTitle title={MANAGE_LABEL} />
-      <View style={{ gap: SPACE.sm, backgroundColor: p.surfaceAlt }}>
+      <View style={{ gap: SPACE.md, backgroundColor: p.background }}>
         {linked || showLink ? (
           <MenuGroup title="방송 정보">
-            {linked && yt !== undefined ? <LinkInfo broadcastId={broadcastId} yt={yt} closed={closed} /> : null}
+            {linked && yt !== undefined ? <LinkInfo grouped broadcastId={broadcastId} yt={yt} closed={closed} /> : null}
             {showLink ? <PlainRow title={LINK_TITLE} onPress={onShowLink} /> : null}
           </MenuGroup>
         ) : null}

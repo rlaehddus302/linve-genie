@@ -19,6 +19,7 @@ import type { Tone } from '../../ui/kit/tokens.ts'
 import { TAG_PAD_X } from '../../lib/product-tags.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { useConsoleApi } from './context.ts'
+import { YoutubeChatText } from './YoutubeChatText.tsx'
 import { useMessages } from './ChatPaste.tsx'
 import { DOCK_ROW_HEIGHT, HEARD_LOG_HEIGHT, useOpenMotion } from './StreamAudio.tsx'
 
@@ -200,7 +201,7 @@ function TalkLine({ row, timeWidth, onTimeWidth, oneLine = false }: { readonly r
           )
         })}
         <View style={{ flexShrink: 1 }}>
-          <Txt step="meta" {...(oneLine ? { numberOfLines: 1 } : {})}>{row.text}</Txt>
+          {row.key.startsWith('c:') ? <YoutubeChatText text={row.text} oneLine={oneLine} /> : <Txt step="meta" {...(oneLine ? { numberOfLines: 1 } : {})}>{row.text}</Txt>}
         </View>
       </View>
     </View>

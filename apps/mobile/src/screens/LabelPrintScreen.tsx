@@ -67,7 +67,7 @@ export function LabelPrintRows({ openStep, openStatus }: LabelPrintNav) {
         </View>
       ) : null}
       <View style={{ paddingHorizontal: PLAIN.side }}>
-        <ToggleRow title={LABEL_PRINT_ROWS.on} titleStep="bodyLarge" titleWeight={PLAIN.weight} titleInk={PLAIN.ink} rowHeight={PLAIN.toggleRow} on={enabled} disabled={busy || snapshot.queue === null} onChange={switchLabels} onHelp={() => setHelp(true)} testID="label-print-on" />
+        <ToggleRow title={LABEL_PRINT_ROWS.on} titleStep="bodyLarge" titleWeight={PLAIN.weight} titleInk={PLAIN.ink} rowHeight={PLAIN.row} on={enabled} disabled={busy || snapshot.queue === null} onChange={switchLabels} onHelp={() => setHelp(true)} testID="label-print-on" />
       </View>
       <PlainRow title={LABEL_PRINT_ROWS.connect} value={printerName} testID="label-print-connect" onPress={() => openStep('connect')} />
       <PlainRow title={LABEL_PRINT_ROWS.design} testID="label-print-design" onPress={() => openStep('design')} />

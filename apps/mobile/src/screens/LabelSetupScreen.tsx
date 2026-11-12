@@ -5,7 +5,7 @@
 //    아니면 주변 프린터 목록을 이 화면에 바로 보인다(찾는 동안 계속 늘어나고, 아무것도 없으면 10초마다 다시 찾음).
 //    그림은 왼쪽 휴대폰(블루투스)·오른쪽 프린터(전원)가 이어지는 모습, [새로고침]은 없다(저절로 다시 찾음). 줄을 누르면 이 화면에서 그 줄에
 //    "연결하는 중…" → "연결됐어요"를 보이고, 이어진 뒤에야 아래 [다음] (D-UX4-10).
-// 3) 라벨 디자인 — 뒤로 단추 옆 견본을 누르면 크게 열어 칸을 편집한다.
+// 3) 라벨 디자인 — 상단 미리보기에서 칸을 고르고 항목·문구·용지 탭에서 편집한다.
 //    골라진 칸은 끌어서 옮기고 오른쪽 아래 손잡이로 크기(글자 크기도 같이)를 바꾼다. 앱에는 라벨 그리기 코드가 없어(APP-01 AC3) 서버가 초안을 견본 값으로 그려 준다.
 // 4) 테스트 라벨은 골라서 — [건너뛰기](왼쪽)는 바로 이 기기를 출력 기기로 하고 방송으로, [테스트 인쇄](오른쪽) (D-UX4-11).
 //    뽑으면 "또렷하게 보이나요?" [예]면 출력 기기로 하고 방송으로. [아니요]면 도움말과 다시 인쇄.
@@ -15,14 +15,14 @@ import { CAPTION_POSITIONS, CAPTION_SPACE_HINT, CAPTION_TEXT_MAX, CAPTION_WORDS,
 import type { ProductDesign, ProductItemId, ProductTemplate, TemplateItem } from '@livejjim/label'
 import type { QueueSummary, StoredTemplate, Templates } from '@livejjim/web/src/api/print-types.ts'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ActivityIndicator, Image, PanResponder, View, type LayoutChangeEvent, type ScrollViewInstance } from 'react-native'
+import { ActivityIndicator, Image, PanResponder, View, useWindowDimensions } from 'react-native'
 import { get, isApiError, post, put } from '../api/client.ts'
 import type { PickEntry } from '@livejjim/mobile-ble'
 import { cancelPrinterPick, pickPrinter, useInlinePrinterPick } from '../native/printer-pick.ts'
 import { sizeWordMm, testHelp } from '../lib/test-help.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, FormPage, FullSheet, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { BigButton, BottomCTA, BottomSheet, FormPage, HeaderTextButton, NavBar, SheetChoices, usePageTop, useWhiteTop, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
 import { Notice } from '../ui/parts.tsx'
@@ -45,11 +45,12 @@ export const RESCAN_MS = 10_000
 export const ITEM_WORDS: Readonly<Record<ProductItemId, string>> = { shop: '가게 이름', number: '번호', price: '가격', date: '날짜', name: '품종', buyer: '닉네임' }
 const ITEM_ORDER: readonly ProductItemId[] = ['shop', 'number', 'price', 'date', 'name', 'buyer']
 /** 가격 표기 (앱 예시 30만원 — D-UX4-03, 만원 단위 D-UX4-07) */
-export const PRICE_CHOICES: readonly { readonly style: ProductTemplate['priceStyle']; readonly word: string }[] = [
-  { style: 'TEN_THOUSAND', word: '30만원' },
-  { style: 'THOUSAND', word: '300 천원' },
-  { style: 'WON', word: '300,000원' },
-]
+const PRICE_STYLES = ['TEN_THOUSAND', 'THOUSAND', 'WON'] as const
+const PRICE_WORDS: Readonly<Record<ProductTemplate['priceStyle'], string>> = {
+  TEN_THOUSAND: '30만원',
+  THOUSAND: '300 천원',
+  WON: '300,000원',
+}
 
 // 앱은 라벨 실행 코드를 가져오지 않는다(APP-01 AC3) — 칸을 고칠 때 필요한 숫자만 LABEL_RULES 그대로 옮겨 둔다. 저장 때 서버가 다시 검사한다.
 /** 글자 크기 범위 (L-5, 점) */
@@ -184,7 +185,7 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
     )
   }
   if (step === 'connect') return <ConnectStep onBack={() => (only === undefined ? go('ask') : onBack())} onNext={() => (only === undefined ? go('design') : onDone())} />
-  if (step === 'design') return <DesignStep queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => (only === undefined ? go('connect') : onBack())} onSaved={() => (only === undefined ? go('test') : onDone())} />
+  if (step === 'design') return <DesignStep saveLabel={only === undefined ? '저장하고 다음' : '저장'} queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => (only === undefined ? go('connect') : onBack())} onSaved={() => (only === undefined ? go('test') : onDone())} />
   return <TestStep busy={busy} run={run} onBack={() => (only === undefined ? go('design') : onBack())} onDone={onDone} error={errorLine} />
 }
 
@@ -307,7 +308,7 @@ function ConnectStep({ onBack, onNext }: { readonly onBack: () => void; readonly
 }
 
 /** 3) 라벨 디자인 (D-UX4-130, 옛 "라벨 꾸미기") — 서버가 그린 초안 미리 보기를 위에 붙여 두고, 라벨 안 칸을 눌러 고르고·옮기고·키운다 (D-UX4-05) */
-function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: QueueSummary | null; readonly profileId: string | null; readonly onBack: () => void; readonly onSaved: () => void }) {
+function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly saveLabel: string; readonly queue: QueueSummary | null; readonly profileId: string | null; readonly onBack: () => void; readonly onSaved: () => void }) {
   const [stored, setStored] = useState<StoredTemplate<ProductTemplate> | null>(null)
   const [draft, setDraft] = useState<ProductTemplate | null>(null)
   const [preview, setPreview] = useState<DraftPreview | null>(null)
@@ -317,10 +318,14 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
   const [changingLayout, setChangingLayout] = useState(false)
   const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const asked = useRef(0)
-  const scroll = useRef<ScrollViewInstance>(null)
-  const sectionY = useRef<Partial<Record<ProductItemId, number>>>({})
-  const sectionsTop = useRef(0)
-  const [previewOpen, setPreviewOpen] = useState(false)
+  const [tab, setTab] = useState<DesignTab>('항목')
+  const [itemId, setItemId] = useState<ProductItemId>('number')
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [notePage, setNotePage] = useState(0)
+  const [editing, setEditing] = useState<'shop' | 'note' | null>(null)
+  const top = usePageTop()
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions()
+  useWhiteTop()
   const { p } = useKit()
 
   const load = () => {
@@ -388,157 +393,129 @@ function DesignStep({ queue, profileId, onBack, onSaved }: { readonly queue: Que
     }
   }
   const setItem = (id: ProductItemId, item: TemplateItem) => setDraft((now) => (now === null ? now : { ...now, items: { ...now.items, [id]: item } }))
-  const closePreview = () => {
-    setPreviewOpen(false)
-    const y = picked === null ? undefined : sectionY.current[picked]
-    if (y !== undefined) scroll.current?.scrollTo({ y: sectionsTop.current + y, animated: false })
+  const paperWidth = Math.min(500, screenWidth - SPACE.xxl * 2)
+  const workspaceHeight = dots === null ? 160 : paperWidth * dots.heightDots / dots.widthDots + SPACE.xxxl * 2
+  const activeItem = draft?.items[itemId]
+  const notes = draft?.captions ?? []
+  const noteIndex = Math.max(0, Math.min(notePage, notes.length - 1))
+  const note = notes[noteIndex]
+  const pickTab = (next: DesignTab) => {
+    setTab(next)
+    setPicked(null)
   }
+  const pickItem = (id: ProductItemId | null) => {
+    setPicked(id)
+    if (id !== null) {
+      setItemId(id)
+      setTab('항목')
+    }
+  }
+  const setNotes = (captions: readonly LabelCaption[]) => setDraft((now) => now === null ? now : { ...now, captions: [...captions] })
+  const editNote = (patch: Partial<LabelCaption>) => setNotes(notes.map((entry, i) => i === noteIndex ? { ...entry, ...patch } : entry))
+  const editTitle = editing === 'shop' ? '가게 이름' : `문구 ${noteIndex + 1}`
 
   return (
-    <FormPage
-      title="라벨 디자인"
-      onBack={onBack}
-      testID="label-setup-design"
-      scrollRef={scroll}
-      sectionNav={
-        <Tap role="button" aria-label="라벨 미리 보기" aria-expanded={previewOpen} disabled={dots === null || changingLayout} onPress={() => setPreviewOpen(true)} style={({ pressed }) => ({ minHeight: TOUCH.min, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.xs, opacity: pressed ? 0.65 : 1 })}>
-          <View style={{ height: 38, width: dots === null ? 62 : Math.min(144, 38 * dots.widthDots / dots.heightDots), backgroundColor: '#FFFFFF', borderColor: p.line, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }}>
-            {preview !== null ? <Image accessible={false} accessibilityIgnoresInvertColors source={{ uri: `data:image/png;base64,${preview.png}` }} resizeMode="contain" style={{ width: '100%', height: '100%' }} /> : error === null ? <ActivityIndicator size="small" color={p.primary} /> : null}
+    <View role="dialog" aria-label="라벨 디자인" testID="label-setup-design" style={{ flex: 1, paddingTop: top, backgroundColor: p.surface }}>
+      <NavBar title="라벨 디자인" onBack={onBack} right={<HeaderTextButton label="템플릿" onPress={() => { if (draft !== null && !changingLayout && !saving) setTemplatesOpen(true) }} />} />
+      <View testID="label-workspace" style={{ height: workspaceHeight, flexShrink: 1, minHeight: 0, backgroundColor: p.background }}>
+        {draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} widthDots={dots.widthDots} heightDots={dots.heightDots} picked={picked} onPick={pickItem} onItem={setItem} disabled={changingLayout || saving} /> : error === null ? <ActivityIndicator style={{ flex: 1 }} color={p.primary} /> : null}
+      </View>
+      {crowded ? <Notice tone="warning" alert>{CAPTION_SPACE_HINT}</Notice> : preview?.longest ? <Notice tone="warning">{preview.longest}</Notice> : null}
+      {error !== null ? <Notice tone="danger" alert>{error}</Notice> : null}
+      {error !== null && draft === null ? <SmallButton label={RETRY_NOW} onPress={load} /> : null}
+      {draft !== null && dots !== null && activeItem !== undefined ? (
+        <View pointerEvents={changingLayout || saving ? 'none' : 'auto'} style={{ flexGrow: 1, paddingHorizontal: SPACE.lg, paddingBottom: SPACE.sm }}>
+          <View role="tablist" aria-label="라벨 설정" style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: p.line }}>
+            {DESIGN_TABS.map((name) => (
+              <Tap key={name} role="tab" aria-label={name} aria-selected={tab === name} onPress={() => pickTab(name)} style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.min, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.surfaceAlt : p.surface, borderBottomWidth: 2, borderBottomColor: tab === name ? p.primary : 'transparent' })}>
+                <Txt weight={tab === name ? 'bold' : 'medium'} color={tab === name ? 'primaryText' : 'textSub'}>{name}</Txt>
+              </Tap>
+            ))}
           </View>
-          <Txt step="caption" weight="medium" color="textSub">미리보기</Txt>
-          <Icon name="chevron" size={14} color={p.textSub} />
-        </Tap>
-      }
-      overlay={
-        <FullSheet visible={previewOpen} title="라벨 미리보기" closeLabel="미리보기 닫기" onClose={closePreview}>
-          {draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} widthDots={dots.widthDots} heightDots={dots.heightDots} picked={picked} onPick={setPicked} onItem={setItem} /> : null}
-        </FullSheet>
-      }
-      actions={<BigButton label="저장하고 다음" busy={saving} disabled={draft === null || changingLayout || crowded} onPress={() => void save()} />}
-    >
-      {crowded ? <Notice tone="warning" alert>{CAPTION_SPACE_HINT}</Notice> : null}
-      {preview?.longest != null ? <Notice tone="warning">{`이름이 아주 길면 잘릴 수 있어요. ${preview.longest}`}</Notice> : null}
-      {error !== null ? (
-        <View style={{ gap: SPACE.sm }}>
-          <Notice tone="danger" alert>
-            {error}
-          </Notice>
-          {draft === null ? <BigButton kind="outline" label={RETRY_NOW} onPress={load} /> : null}
+          <View role="tabpanel" aria-label={tab} style={{ gap: SPACE.sm, paddingTop: SPACE.md, minHeight: Math.min(218, screenHeight * 0.3) }}>
+            {tab === '용지' ? (
+              <>
+                <Txt weight="bold">라벨 크기</Txt>
+                <OptionGrid label="라벨 크기" values={sizes} columns={3} selected={draft.size} word={sizeWordMm} onPick={(size) => draw(draft, size)} />
+              </>
+            ) : tab === '항목' ? (
+              <>
+                <OptionGrid label="라벨 항목" values={ITEM_ORDER} columns={3} selected={itemId} word={(id) => ITEM_WORDS[id]} onPick={pickItem} />
+                <View role="group" aria-label={`${ITEM_WORDS[itemId]} 설정`} style={{ gap: SPACE.xs }}>
+                  {PRODUCT_LOCKED.includes(itemId) ? null : <ToggleRow title="찍기" on={activeItem.visible} rowHeight={44} onChange={(on) => setItem(itemId, { ...activeItem, visible: on })} />}
+                  {activeItem.visible && itemId === 'shop' ? <EditTextButton label="가게 이름" value={draft.shopName || '가게 설정 이름 사용'} onPress={() => setEditing('shop')} /> : null}
+                  {activeItem.visible && itemId === 'price' ? <OptionGrid label="가격 표기" values={PRICE_STYLES} columns={3} selected={draft.priceStyle} word={(style) => PRICE_WORDS[style]} onPick={(priceStyle) => setDraft({ ...draft, priceStyle })} /> : null}
+                  {activeItem.visible ? <FontStepper word={ITEM_WORDS[itemId]} size={activeItem.fontSize} onStep={(delta) => setItem(itemId, fontStepped(activeItem, delta, dots.heightDots))} /> : null}
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+                  {notes.length > 0 ? <>
+                    <PageArrow next={false} disabled={noteIndex === 0} onPress={() => setNotePage(noteIndex - 1)} />
+                    <Txt weight="medium">{`${noteIndex + 1} / ${notes.length}`}</Txt>
+                    <PageArrow next disabled={noteIndex + 1 >= notes.length} onPress={() => setNotePage(noteIndex + 1)} />
+                  </> : null}
+                  <View style={{ flex: 1 }} />
+                  {note !== undefined ? <SmallButton label="삭제" onPress={() => { setNotes(notes.filter((_, i) => i !== noteIndex)); setNotePage(Math.max(0, noteIndex - 1)) }} /> : null}
+                  <SmallButton label="문구 추가" onPress={() => { setNotes([...notes, { text: '', position: CAPTION_POSITIONS[notes.length % CAPTION_POSITIONS.length] ?? 'topRight' }]); setNotePage(notes.length); setEditing('note') }} />
+                </View>
+                {note !== undefined ? <>
+                  <EditTextButton label={`문구 ${noteIndex + 1}`} value={note.text || '내용 입력'} onPress={() => setEditing('note')} />
+                  <OptionGrid label={`문구 ${noteIndex + 1} 위치`} values={NOTE_CORNERS} columns={2} selected={note.position} word={(position) => CAPTION_WORDS[position]} onPick={(position) => editNote({ position })} />
+                </> : null}
+              </>
+            )}
+          </View>
         </View>
       ) : null}
-      {draft === null || dots === null ? null : (
-        <View pointerEvents={changingLayout ? 'none' : 'auto'} onLayout={(event) => { sectionsTop.current = event.nativeEvent.layout.y }} style={{ gap: SPACE.md, backgroundColor: p.background }}>
-          <DesignSection word="기본 디자인">
-            <View role="radiogroup" aria-label="기본 디자인" style={{ flexDirection: 'row', gap: SPACE.sm }}>
-              {([['basic', '기본형'], ['large', '큰 글씨형'], ['table', '표형']] as const).map(([design, word]) => (
-                <View key={design} style={{ flex: 1 }}>
-                  <Choice word={word} on={(draft.design ?? 'basic') === design} onPress={() => draw(draft, undefined, design)} />
-                </View>
-              ))}
-            </View>
-          </DesignSection>
-          <DesignSection word="라벨 크기">
-            <View role="radiogroup" aria-label="라벨 크기" style={{ gap: SPACE.sm }}>
-              {rowsOf(sizes, 3).map((row) => (
-                <View key={row.join(' ')} style={{ flexDirection: 'row', gap: SPACE.sm }}>
-                  {[0, 1, 2].map((index) => {
-                    const size = row[index]
-                    return (
-                      <View key={size ?? `빈칸${String(index)}`} style={{ flex: 1 }}>
-                        {size === undefined ? null : <Choice word={sizeWordMm(size)} on={draft.size === size} onPress={() => draw(draft, size)} />}
-                      </View>
-                    )
-                  })}
-                </View>
-              ))}
-            </View>
-          </DesignSection>
-          <CaptionFields notes={draft.captions ?? []} onChange={(captions) => setDraft({ ...draft, captions })} />
-          {ITEM_ORDER.map((id) => {
-            const item = draft.items[id]
-            const locked = PRODUCT_LOCKED.includes(id)
-            return (
-              <View key={id} onLayout={(event: LayoutChangeEvent) => (sectionY.current[id] = event.nativeEvent.layout.y)}>
-                <DesignSection word={ITEM_WORDS[id]} picked={picked === id}>
-                  {locked ? (
-                    <Txt step="caption" color="textSub">
-                      늘 찍혀요.
-                    </Txt>
-                  ) : (
-                    <ToggleRow title="찍기" on={item.visible} onChange={(on) => setItem(id, { ...item, visible: on })} />
-                  )}
-                  {id === 'shop' && item.visible ? (
-                    <TextField label="가게 이름" value={draft.shopName} maxLength={40} help={draft.shopName.trim() === '' ? '비우면 가게 설정의 이름을 찍어요.' : undefined} onChangeText={(text) => setDraft({ ...draft, shopName: text })} />
-                  ) : null}
-                  {id === 'price' && item.visible ? (
-                    <View role="radiogroup" aria-label="가격 표기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
-                      {PRICE_CHOICES.map((choice) => (
-                        <View key={choice.style} style={{ flex: 1 }}>
-                          <Choice word={choice.word} on={draft.priceStyle === choice.style} onPress={() => setDraft({ ...draft, priceStyle: choice.style })} />
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-                  {item.visible ? <FontStepper word={ITEM_WORDS[id]} size={item.fontSize} onStep={(delta) => setItem(id, fontStepped(item, delta, dots.heightDots))} /> : null}
-                </DesignSection>
-              </View>
-            )
-          })}
-        </View>
-      )}
-    </FormPage>
-  )
-}
-
-function CaptionFields({ notes, onChange }: { readonly notes: readonly LabelCaption[]; readonly onChange: (notes: LabelCaption[]) => void }) {
-  const edit = (index: number, patch: Partial<LabelCaption>) => onChange(notes.map((note, i) => i === index ? { ...note, ...patch } : note))
-  return (
-    <DesignSection word="직접 넣는 문구">
-      <View style={{ gap: SPACE.md }}>
-        {notes.map((note, i) => (
-          <View key={i} style={{ gap: SPACE.sm }}>
-            <TextField label={`문구 ${i + 1}`} placeholder="예: 향남꽃선비 라방" maxLength={CAPTION_TEXT_MAX} value={note.text} onChangeText={(text) => edit(i, { text })} />
-            <View role="radiogroup" aria-label={`문구 ${i + 1} 위치`} style={{ gap: SPACE.xs }}>
-              {rowsOf(['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const, 2).map((row) => (
-                <View key={row[0]} style={{ flexDirection: 'row', gap: SPACE.sm }}>
-                  {row.map((position) => <View key={position} style={{ flex: 1 }}><Choice word={CAPTION_WORDS[position]} on={note.position === position} onPress={() => edit(i, { position })} /></View>)}
-                </View>
-              ))}
-            </View>
-            <SmallButton label={`문구 ${i + 1} 삭제`} onPress={() => onChange(notes.filter((_, n) => n !== i))} />
-          </View>
-        ))}
-        <SmallButton label="문구 추가" onPress={() => onChange([...notes, { text: '', position: CAPTION_POSITIONS[notes.length % CAPTION_POSITIONS.length] ?? 'topRight' }])} />
-      </View>
-    </DesignSection>
-  )
-}
-
-/** n개씩 줄로 */
-function rowsOf<T>(list: readonly T[], n: number): T[][] {
-  const rows: T[][] = []
-  for (let i = 0; i < list.length; i += n) rows.push(list.slice(i, i + n))
-  return rows
-}
-
-/** 주문 상세와 같은 흰 단면과 안쪽 여백. 선택한 항목은 제목 색으로 표시한다. */
-function DesignSection({ word, picked = false, children }: { readonly word: string; readonly picked?: boolean; readonly children?: React.ReactNode }) {
-  const { p } = useKit()
-  return (
-    <View role="group" aria-label={`${word} 설정`} style={{ backgroundColor: p.surface, paddingHorizontal: SPACE.xl, paddingVertical: SPACE.xl, gap: SPACE.sm }}>
-      <Txt step="bodyLarge" weight="bold" color={picked ? 'primaryText' : 'text'} role="heading" aria-level={2}>
-        {word}
-      </Txt>
-      {children}
+      <BottomCTA><BigButton label={saveLabel} busy={saving} disabled={draft === null || changingLayout || crowded} onPress={() => void save()} /></BottomCTA>
+      <BottomSheet title="템플릿" visible={templatesOpen} onClose={() => setTemplatesOpen(false)}>
+        <SheetChoices label="기본 디자인" choices={DESIGNS} value={draft?.design ?? 'basic'} onPick={(design) => { setTemplatesOpen(false); setPicked(null); if (draft !== null && !changingLayout) draw(draft, undefined, design) }} />
+      </BottomSheet>
+      <BottomSheet title={editTitle} visible={editing !== null} onClose={() => setEditing(null)} actions={<BigButton label="완료" onPress={() => setEditing(null)} />}>
+        {editing !== null && draft !== null ? <TextField autoFocus label={editTitle} maxLength={editing === 'shop' ? 40 : CAPTION_TEXT_MAX} value={editing === 'shop' ? draft.shopName : note?.text ?? ''} onChangeText={(text) => editing === 'shop' ? setDraft({ ...draft, shopName: text }) : editNote({ text })} returnKeyType="done" onSubmitEditing={() => setEditing(null)} /> : null}
+      </BottomSheet>
     </View>
   )
+}
+
+const DESIGN_TABS = ['항목', '문구', '용지'] as const
+type DesignTab = (typeof DESIGN_TABS)[number]
+const DESIGNS = [{ value: 'basic', label: '기본형' }, { value: 'large', label: '큰 글씨형' }, { value: 'table', label: '표형' }] as const
+const NOTE_CORNERS = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const
+
+function PageArrow({ next, disabled, onPress }: { readonly next: boolean; readonly disabled: boolean; readonly onPress: () => void }) {
+  const { p } = useKit()
+  return <Tap role="button" aria-label={next ? '다음 문구' : '이전 문구'} disabled={disabled} onPress={onPress} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.3 : 1 }}>
+    <View style={{ transform: [{ rotate: next ? '0deg' : '180deg' }] }}><Icon name="chevron" color={p.textSub} size={18} /></View>
+  </Tap>
+}
+
+function EditTextButton({ label, value, onPress }: { readonly label: string; readonly value: string; readonly onPress: () => void }) {
+  const { p } = useKit()
+  return <Tap role="button" aria-label={`${label} 편집`} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.md, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, backgroundColor: pressed ? p.pressed : p.surfaceAlt, borderRadius: RADIUS.sm })}>
+    <Txt step="meta" color="textSub">{label}</Txt><View style={{ flex: 1 }}><Txt right numberOfLines={1}>{value}</Txt></View><Icon name="chevron" size={16} color={p.textSub} />
+  </Tap>
+}
+
+function OptionGrid<T extends string>({ label, values, columns, selected, word, onPick }: { readonly label: string; readonly values: readonly T[]; readonly columns: number; readonly selected: T; readonly word: (value: T) => string; readonly onPick: (value: T) => void }) {
+  return <View role="radiogroup" aria-label={label} style={{ gap: SPACE.xs }}>
+    {Array.from({ length: Math.ceil(values.length / columns) }, (_, index) => {
+      const row = values.slice(index * columns, (index + 1) * columns)
+      return <View key={index} style={{ flexDirection: 'row', gap: SPACE.xs }}>
+        {row.map((value) => <View key={value} style={{ flex: 1 }}><Choice word={word(value)} on={value === selected} onPress={() => onPick(value)} /></View>)}
+        {row.length < columns ? <View style={{ flex: columns - row.length }} /> : null}
+      </View>
+    })}
+  </View>
 }
 
 /** 글자 크기 − 숫자 + */
 function FontStepper({ word, size, onStep }: { readonly word: string; readonly size: number; readonly onStep: (delta: number) => void }) {
   const { p } = useKit()
   const key = (sign: string, delta: number, name: string, off: boolean) => (
-    <Tap role="button" aria-label={`${word} 글자 ${name}`} aria-disabled={off} disabled={off} onPress={() => onStep(delta)} style={({ pressed }) => ({ width: TOUCH.min, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt, opacity: off ? 0.45 : 1 })}>
+    <Tap role="button" aria-label={`${word} 글자 ${name}`} aria-disabled={off} disabled={off} onPress={() => onStep(delta)} style={({ pressed }) => ({ width: TOUCH.min, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt, opacity: off ? 0.45 : 1 })}>
       <Txt step="bodyLarge" weight="bold">
         {sign}
       </Txt>
@@ -566,7 +543,7 @@ function FontStepper({ word, size, onStep }: { readonly word: string; readonly s
  * 크게 연 라벨 미리 보기 + 칸 고르기·옮기기·크기 (D-UX4-05). 칸 자리는 템플릿 점(8점 = 1mm)을 화면 폭에 맞춰 그린다.
  * 칸을 누르면 골라지고, 고른 칸은 끌면 옮겨지고 오른쪽 아래 동그라미를 끌면 크기가 바뀐다.
  */
-function LabelEditor({ draft, preview, widthDots, heightDots, picked, onPick, onItem }: {
+function LabelEditor({ draft, preview, widthDots, heightDots, picked, onPick, onItem, disabled }: {
   readonly draft: ProductTemplate
   readonly preview: DraftPreview | null
   readonly widthDots: number
@@ -574,17 +551,19 @@ function LabelEditor({ draft, preview, widthDots, heightDots, picked, onPick, on
   readonly picked: ProductItemId | null
   readonly onPick: (id: ProductItemId | null) => void
   readonly onItem: (id: ProductItemId, item: TemplateItem) => void
+  readonly disabled: boolean
 }) {
   const { p } = useKit()
-  const [width, setWidth] = useState(0)
-  const scale = width > 0 ? width / widthDots : 0
+  const [stage, setStage] = useState({ width: 0, height: 0 })
+  const width = Math.max(0, Math.min(stage.width - SPACE.xxl * 2, (stage.height - SPACE.lg * 2) * widthDots / heightDots, 500))
+  const scale = width / widthDots
   const { top, bodyHeight } = captionLayout(draft.captions ?? [], widthDots, heightDots)
   const bodyScaleY = scale * Math.max(0, bodyHeight) / heightDots
   const pickedItem = picked === null ? null : draft.items[picked]
   return (
-    <View style={{ gap: SPACE.sm }}>
-      <View onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)} style={{ width: '100%', aspectRatio: widthDots / heightDots, borderWidth: 1, borderColor: p.line, borderRadius: RADIUS.sm, borderCurve: 'continuous', overflow: 'hidden', backgroundColor: '#FFFFFF' }}>
-        {preview !== null ? <Image accessibilityIgnoresInvertColors source={{ uri: `data:image/png;base64,${preview.png}` }} resizeMode="stretch" style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }} /> : null}
+    <View onLayout={({ nativeEvent: { layout } }) => setStage((now) => now.width === layout.width && now.height === layout.height ? now : { width: layout.width, height: layout.height })} pointerEvents={disabled ? 'none' : 'auto'} style={{ flex: 1, alignItems: 'center', paddingTop: SPACE.lg }}>
+      <View aria-label="라벨 미리 보기" style={{ width, height: width * heightDots / widthDots, overflow: 'hidden', backgroundColor: '#FFFFFF' }}>
+        {preview !== null ? <Image accessible={false} accessibilityIgnoresInvertColors source={{ uri: `data:image/png;base64,${preview.png}` }} resizeMode="stretch" style={{ width: '100%', height: '100%', position: 'absolute' }} /> : <ActivityIndicator style={{ flex: 1 }} color={p.primary} />}
         <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, top: top * scale, height: Math.max(0, bodyHeight) * scale }}>
         {ITEM_ORDER.filter((id) => draft.items[id].visible).map((id) => {
           const item = draft.items[id]
@@ -596,19 +575,15 @@ function LabelEditor({ draft, preview, widthDots, heightDots, picked, onPick, on
               aria-label={`라벨의 ${ITEM_WORDS[id]}`}
               aria-pressed={on}
               onPress={() => onPick(id)}
-              style={{ position: 'absolute', left: item.x * scale, top: item.y * bodyScaleY, width: item.width * scale, height: item.height * bodyScaleY, borderRadius: 4, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderStyle: on ? 'solid' : 'dashed', borderColor: on ? p.primary : 'rgba(31,122,77,0.35)', backgroundColor: on ? 'rgba(31,122,77,0.08)' : 'transparent' }}
+              style={{ position: 'absolute', left: item.x * scale, top: item.y * bodyScaleY, width: item.width * scale, height: item.height * bodyScaleY, borderRadius: 4, borderCurve: 'continuous', borderWidth: on ? 2 : 0, borderColor: p.primary, backgroundColor: on ? 'rgba(31,122,77,0.08)' : 'transparent' }}
             />
           )
         })}
         {picked !== null && pickedItem !== null && pickedItem.visible && bodyScaleY > 0 ? (
-          <ItemHandles key={picked} item={pickedItem} scale={scale} scaleY={bodyScaleY} widthDots={widthDots} heightDots={heightDots} onTap={() => onPick(picked)} onChange={(next) => onItem(picked, next)} />
+          <ItemHandles key={picked} item={pickedItem} scale={scale} scaleY={bodyScaleY} widthDots={widthDots} heightDots={heightDots} onTap={() => onPick(null)} onChange={(next) => onItem(picked, next)} />
         ) : null}
         </View>
       </View>
-      <Txt step="caption" color="textSub" center>
-        {picked === null ? '라벨 안 칸을 누르면 옮기거나 크기를 바꿀 수 있어요.' : `${ITEM_WORDS[picked]} — 끌어서 옮기고, 동그라미를 끌어 크기를 바꿔요.`}
-      </Txt>
-      {picked !== null ? <SmallButton label="고르기 끝" onPress={() => onPick(null)} /> : null}
     </View>
   )
 }
@@ -666,8 +641,8 @@ function ItemHandles({ item, scale, scaleY, widthDots, heightDots, onTap, onChan
 function Choice({ word, on, onPress }: { readonly word: string; readonly on: boolean; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Tap role="radio" aria-checked={on} aria-label={word} onPress={onPress} style={({ pressed }) => ({ minHeight: TOUCH.min, paddingHorizontal: SPACE.md, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.lg, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderColor: on ? p.primary : p.border, backgroundColor: pressed ? p.pressed : on ? p.freshBg : p.surface })}>
-      <Txt weight={on ? 'bold' : 'medium'} color={on ? 'primaryText' : 'text'}>
+    <Tap role="radio" aria-checked={on} aria-label={word} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.sm, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderColor: on ? p.primary : p.border, backgroundColor: pressed ? p.pressed : on ? p.freshBg : p.surface })}>
+      <Txt step="meta" center numberOfLines={1} adjustsFontSizeToFit weight={on ? 'bold' : 'medium'} color={on ? 'primaryText' : 'text'}>
         {word}
       </Txt>
     </Tap>

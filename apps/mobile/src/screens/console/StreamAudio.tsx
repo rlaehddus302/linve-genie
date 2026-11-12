@@ -275,16 +275,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
         })}
     </View>
   )
-  return (
-    <View role="region" aria-label="음성 인식 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
-      {motion.shown ? (
-        <Animated.View testID="heard-log-box" style={{ height: Platform.OS === 'web' ? undefined : height, marginBottom: overlap, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs }}>
-          <ScrollView ref={log} style={{ maxHeight: HEARD_LOG_HEIGHT }} onContentSizeChange={() => log.current?.scrollToEnd({ animated: false })}>
-            {lines}
-          </ScrollView>
-        </Animated.View>
-      ) : null}
-      {open && line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
+  const currentRow = (
       <Tap role="button" aria-label={open ? '음성 인식 접기' : '음성 인식 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: DOCK_ROW_HEIGHT, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
         <View onLayout={(event) => setColumn(event.nativeEvent.layout.width)}>
           {/* 자리 재기: 가장 긴 상태 알약 폭 — 보이지도 읽히지도 않는다 */}
@@ -298,13 +289,25 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
           </View>
         </View>
         <View role="status" aria-label="지금 인식한 말" style={{ flex: 1 }}>
-          <Txt step="meta" weight={hearing && last !== null ? 'medium' : undefined} numberOfLines={1} color={hearing && last !== null ? undefined : 'textSub'}>
+          <Txt step="meta" weight={hearing && last !== null ? 'medium' : undefined} {...(open ? {} : { numberOfLines: 1 })} color={hearing && last !== null ? undefined : 'textSub'}>
             {now}
           </Txt>
         </View>
         {/* 아래에 붙은 창이라 위로 펼친다 — 닫혀 있으면 ⌃, 펼쳤으면 ⌄ */}
         <Icon name={open ? 'down' : 'up'} size={16} color={p.textSub} />
       </Tap>
+  )
+  return (
+    <View role="region" aria-label="음성 인식 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
+      {motion.shown ? (
+        <Animated.View testID="heard-log-box" style={{ height: Platform.OS === 'web' ? undefined : height, marginBottom: overlap, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs }}>
+          <ScrollView ref={log} style={{ maxHeight: HEARD_LOG_HEIGHT }} onContentSizeChange={() => log.current?.scrollToEnd({ animated: false })}>
+            {lines}
+          </ScrollView>
+        </Animated.View>
+      ) : null}
+      {open && line?.late != null ? <Txt step="caption" color="textSub">{line.late}</Txt> : null}
+      {open ? <ScrollView style={{ maxHeight: HEARD_LOG_HEIGHT, flexGrow: 0 }} bounces={false} keyboardShouldPersistTaps="handled">{currentRow}</ScrollView> : currentRow}
     </View>
   )
 }

@@ -108,11 +108,12 @@ export interface LinkInfoProps {
   /** 끊은 뒤 (없으면 연결 끊기 줄이 없다 — 판매자만 준다) */
   readonly onEnded?: () => void
   /** 부모가 양옆 여백을 둔 곳(FormPage·FullSheet 안)이면 true — 줄을 화면 끝까지 넓힌다 */
+  readonly grouped?: boolean
   readonly bleed?: boolean
 }
 
 /** 이은 라이브 정보 줄 + 메뉴 줄 (제목 없이). 부모는 화면 끝까지 넓어야 한다 — FormPage·FullSheet 안이면 bleed */
-export function LinkInfo({ broadcastId, yt, closed, onEnded, bleed = false }: LinkInfoProps) {
+export function LinkInfo({ broadcastId, yt, closed, onEnded, grouped = false, bleed = false }: LinkInfoProps) {
   const link = yt.link?.link ?? null
   const collector = yt.link?.collector ?? null
   const names = useLiveNames(yt)
@@ -154,7 +155,7 @@ export function LinkInfo({ broadcastId, yt, closed, onEnded, bleed = false }: Li
         )}
         {link === null ? null : <PlainRow title={LINK_INFO_ROWS.title} testID="link-info-title" ariaLabel={`${LINK_INFO_ROWS.title} ${title}`} right={<TextValue text={title} />} />}
       </View>
-      <View style={{ height: SPACE.lg }} />
+      {grouped ? null : <View style={{ height: SPACE.lg }} />}
       <View>
         {link === null ? null : <PlainRow title={LINK_INFO_ROWS.open} testID="link-info-open" onPress={() => void openExternal(liveWatchUrl(link.videoId))} />}
         {!closed && collector?.restartable === true ? <PlainRow title={LINK_INFO_ROWS.restart} testID="link-info-restart" onPress={() => void restart()} /> : null}

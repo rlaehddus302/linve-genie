@@ -93,10 +93,10 @@ describe('라이브 관리를 한 화면으로 (D-UX4-130)', () => {
 })
 
 describe('토스 "비밀번호 · 보안"과 같은 치수 (D-UX4-130 — 같은 휴대폰 사진 두 장을 재어)', () => {
-  it('글자 왼쪽 24 · 줄 48 · 켜고 끄는 줄 54 · 제목 위 18 · 제목 아래 24 · 제목 아주 굵게, 뒤로 ‹ 왼쪽 8', () => {
+  it('글자 왼쪽 24 · 줄 48 · 켜고 끄는 줄도 48 · 제목 위 18 · 제목 아래 24 · 제목 아주 굵게, 뒤로 ‹ 왼쪽 8', () => {
     expect(PLAIN.side).toBe(24)
     expect(PLAIN.row).toBe(48)
-    expect(PLAIN.toggleRow).toBe(54)
+
     expect(PLAIN.titleTop).toBe(18)
     expect(PLAIN.titleBottom).toBe(24)
     expect(PLAIN.titleWeight).toBe('heavy')

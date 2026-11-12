@@ -296,7 +296,8 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
     // D-UX4-130: 같은 휴대폰 사진 두 장으로 다시 재어 글자 24 · 켜고 끄는 줄 54 (옛 22 · 49) — 강조 바탕은 화면 끝에서 12
     expect(px(style(holder).paddingLeft) + px(style(row).marginLeft)).toBe(12)
     expect(px(style(holder).paddingLeft) + px(style(row).marginLeft) + px(style(row).paddingLeft)).toBe(24)
-    expect(px(style(row).minHeight)).toBe(54)
+    // 라이브 관리에서는 이동·스위치 모두 같은 48 높이로 정렬한다 (D-LABEL-UI-02).
+    expect(px(style(row).minHeight)).toBe(48)
   })
 
   it('칩·알약·글자 단추·머리 글자 단추·숫자판·탭', () => {

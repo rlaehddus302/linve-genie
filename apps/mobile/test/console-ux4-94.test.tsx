@@ -23,12 +23,12 @@ async function openManage() {
 }
 
 describe('라이브 관리 — 흰 바탕 토스 설정 줄 (D-UX4-94)', () => {
-  it('흰 바탕 · 맨 위 큰 제목 · 기능별 섹션 · 듣기 줄(휴대폰 마이크로 듣기·음성 설정)이 없다', async () => {
+  it('흰 바탕 · 공통 상단 제목 · 직각 섹션 (D-LABEL-UI-02) · 듣기 줄(휴대폰 마이크로 듣기·음성 설정)이 없다', async () => {
     const page = await openManage()
     expect(getComputedStyle(page).backgroundColor).toBe(rgb(PALETTE.light.surface))
     const title = within(page).getByRole('heading', { level: 1, name: MANAGE_LABEL })
-    expect(getComputedStyle(title).fontSize).toBe(`${String(TYPE.pageTitle)}px`)
-    expect(TYPE.pageTitle).toBe(21) // 22 → 21 (D-UX4-100: 시뮬레이터 화면과 토스 사진을 나란히 재어)
+    expect(getComputedStyle(title).fontSize).toBe(`${String(TYPE.nav)}px`)
+    expect(Number.parseFloat(getComputedStyle(within(page).getByRole('group', { name: '방송 정보' })).borderTopLeftRadius || '0')).toBe(0)
     expect(within(page).getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual(['방송 정보', '채팅·화면 설정'])
     expect(within(within(page).getByRole('group', { name: '방송 정보' })).getByRole('button', { name: '라이브 연결' })).toBeTruthy()
     expect(within(within(page).getByRole('group', { name: '채팅·화면 설정' })).getByTestId('dock-choice')).toBeTruthy()

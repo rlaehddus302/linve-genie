@@ -451,7 +451,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           }}
         />
         {/* 방송 관리 (D-UX4-20 → D-UX4-57): 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다 — 라이브 정보·라벨 줄을 바로 두는 것(D-UX4-130)은 경로 화면만, 여기는 "라이브 연결 ›" 판으로 */}
-        <SlidePage visible={page === 'settings'} onClose={closePage} name={MANAGE_LABEL} testID="console-settings">
+        <SlidePage visible={page === 'settings'} onClose={closePage} title={MANAGE_LABEL} name={MANAGE_LABEL} testID="console-settings">
           <ConsoleManage
             broadcastId={broadcastId}
             seller={seller}

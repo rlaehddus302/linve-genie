@@ -43,7 +43,7 @@ export function ProductAddScreen({ broadcastId, onBack }: { readonly broadcastId
  */
 export function ManageScreen({ broadcastId, onBack, openLink, labels, onEnded, refresh = 0 }: { readonly broadcastId: string; readonly onBack: () => void; readonly openLink: (closed: boolean) => void; readonly labels?: LabelPrintNav; readonly onEnded?: () => void; readonly refresh?: number }) {
   return (
-    <StackPage name={MANAGE_LABEL} onBack={onBack} testID="console-settings">
+    <StackPage title={MANAGE_LABEL} name={MANAGE_LABEL} onBack={onBack} testID="console-settings">
       <ScopeConsole broadcastId={broadcastId} waiting={<Loading />}>
         {({ broadcast, snapshot }) => <ManageBody broadcastId={broadcastId} title={broadcast.title.trim() === '' ? '제목 없음' : broadcast.title} rehearsal={broadcast.rehearsal} closed={broadcast.ended || (snapshot.data?.sealed ?? false)} onBack={onBack} openLink={openLink} refresh={refresh} {...(labels === undefined ? {} : { labels })} {...(onEnded === undefined ? {} : { onEnded })} />}
       </ScopeConsole>

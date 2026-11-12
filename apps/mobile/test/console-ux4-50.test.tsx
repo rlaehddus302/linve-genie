@@ -177,6 +177,16 @@ describe('들린 말 창 (D-UX4-53)', () => {
     expect(within(dock).getByRole('button', { name: '음성 인식 접기' })).toBeTruthy() // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말 접기")
   })
 
+  it('긴 현재 문장은 접었을 때만 한 줄이고 펼치면 전체가 줄바꿈된다', () => {
+    const text = '지금 보여 드리는 품종은 한여름에도 색이 선명해요. '.repeat(16)
+    render(<ListenLine session={fakeVoice({ transcript: [text] })} broadcastId="b1" stream={{ status: null, hold: false, retry: () => {} }} bottom={0} />)
+    const phrase = () => within(screen.getByRole('status', { name: '지금 인식한 말' })).getByText(text.trim())
+    expect(getComputedStyle(phrase()).whiteSpace).toBe('nowrap')
+    fireEvent.click(screen.getByRole('button', { name: '음성 인식 펼치기' }))
+    expect(getComputedStyle(phrase()).whiteSpace).not.toBe('nowrap')
+    expect(phrase().textContent).toBe(text)
+  })
+
   it('들린 말은 라이브 내내 남긴다 (옛 TRANSCRIPT_LINES 6줄)', () => {
     expect(TRANSCRIPT_LINES).toBeGreaterThanOrEqual(1000)
   })

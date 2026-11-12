@@ -7,8 +7,8 @@
 // 반 화면 판(half, D-UX4-106): 화면 양옆·아래에 붙고 위 두 귀만 둥근 흰 판 — 화면 높이의 절반 이상. 웹(시험)은 움직이지 않는다.
 // 움직임 (D-UX3-05): 뒤 어두운 막은 제자리에서 서서히 짙어지고(페이드), 판만 아래에서 올라온다 — 막이 판과 함께 밀려 올라오지 않게.
 // 닫을 때도 막은 서서히 걷히고 판은 내려간 뒤 사라진다. 키보드가 뜨면 판이 키보드 위로 올라간다(입력 칸이 가려지지 않게).
-import { Children, useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
-import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type GestureResponderHandlers, type ScrollViewInstance } from 'react-native'
+import { Children, useEffect, useRef, useState, type ReactNode } from 'react'
+import { AccessibilityInfo, ActivityIndicator, Animated, Easing, Keyboard, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type GestureResponderHandlers } from 'react-native'
 import { BigButton, ButtonRow } from './buttons.tsx'
 import { BACKDROP_OPACITY, GUTTER, PAGE, RADIUS, SPACE, WEIGHT } from './tokens.ts'
 import { PageTopProvider, Txt, useBottomInset, useKit, usePageTop, useTopInset, useWhiteTop } from './theme.tsx'
@@ -381,10 +381,6 @@ export interface FormPageProps {
   readonly cards?: boolean
   /** 화면 위에 겹쳐 띄우는 것 (잠깐 뜨는 알림 PopNote 등) */
   readonly overlay?: ReactNode
-  /** 양옆을 채우는 설정 화면은 큰 제목 대신 뒤로 단추 옆에 이 내용을 표시한다. */
-  readonly sectionNav?: ReactNode
-  /** 내용 스크롤 (눌러서 그 설정으로 옮겨 갈 때) */
-  readonly scrollRef?: Ref<ScrollViewInstance>
   readonly testID?: string
 }
 
@@ -393,7 +389,7 @@ export interface FormPageProps {
  * 바탕은 흰색(카드로 나뉜 내용이면 회색). 키보드가 뜨면 내용과 단추가 키보드 위로 올라와 입력 칸이 가려지지 않고, 단추와 키보드 사이는 12만 띈다.
  * 경로 화면(밀어서 뒤로 가기가 되는 쌓인 화면)과 FullSheet(앱 안 판)가 같이 쓴다.
  */
-export function FormPage({ title, description, headerAction, name, onBack, backLabel = '뒤로', children, actions, cards = false, overlay, sectionNav, scrollRef, testID }: FormPageProps) {
+export function FormPage({ title, description, headerAction, name, onBack, backLabel = '뒤로', children, actions, cards = false, overlay, testID }: FormPageProps) {
   const { p } = useKit()
   const inset = useBottomInset()
   // 상태 막대를 피할 높이 — 경로가 이미 피했으면 0, 판(FullSheet)·상태 막대까지 그리는 경로면 기기 값 (D-UX4-41)
@@ -406,9 +402,9 @@ export function FormPage({ title, description, headerAction, name, onBack, backL
     <View role="dialog" aria-label={name ?? title} testID={testID} style={{ flex: 1, backgroundColor: bg, paddingTop: top }}>
       <KeyboardAvoidingView behavior={KEYBOARD_AVOID} style={{ flex: 1 }}>
         {/* 뒤로 자리는 모든 쌓인 화면과 같은 머리 (D-UX4-40) */}
-        <NavBar onBack={onBack} backLabel={backLabel} afterBack={sectionNav} />
-        <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={sectionNav === undefined ? { paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop - NAV.below, paddingBottom: SPACE.xxl, gap: SPACE.xxl } : undefined} keyboardShouldPersistTaps="handled">
-          {sectionNav === undefined ? <View style={{ paddingBottom: PAGE.titleGap - SPACE.xxl, gap: SPACE.sm }}>
+        <NavBar onBack={onBack} backLabel={backLabel} />
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE.side, paddingTop: PAGE.titleTop - NAV.below, paddingBottom: SPACE.xxl, gap: SPACE.xxl }} keyboardShouldPersistTaps="handled">
+          <View style={{ paddingBottom: PAGE.titleGap - SPACE.xxl, gap: SPACE.sm }}>
             <Txt step="headline" weight="bold" role="heading" aria-level={1}>
               {title}
             </Txt>
@@ -418,7 +414,7 @@ export function FormPage({ title, description, headerAction, name, onBack, backL
               </Txt>
             )}
             {headerAction === undefined || headerAction === null ? null : <View style={{ paddingTop: SPACE.md, alignItems: 'flex-start' }}>{headerAction}</View>}
-          </View> : null}
+          </View>
           {children}
         </ScrollView>
         {actions === undefined || actions === null ? null : (

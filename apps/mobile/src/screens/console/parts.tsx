@@ -82,9 +82,9 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
 export function MenuGroup({ title, children }: { readonly title?: string; readonly children?: ReactNode }) {
   const { p } = useKit()
   return (
-    <View role="group" aria-label={title} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', paddingVertical: SPACE.sm }}>
+    <View role="group" aria-label={title} style={{ backgroundColor: p.surface, borderRadius: title === undefined ? RADIUS.xl : 0, borderCurve: 'continuous', paddingVertical: SPACE.sm }}>
       {title === undefined ? null : (
-        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.md, paddingBottom: SPACE.xs }}>
+        <View style={{ paddingHorizontal: PLAIN.side, paddingTop: SPACE.sm, paddingBottom: SPACE.xs }}>
           <Txt step="bodyLarge" weight="bold" role="heading" aria-level={2}>
             {title}
           </Txt>
@@ -185,7 +185,7 @@ export function useFooterInset(): number {
  * 글자 왼쪽 끝이 토스보다 2 왼쪽(→ 24), 줄 간격 44 → 48, 켜고 끄는 줄 49 → 54, 제목이 6 위(titleTop 12 → 18), 제목↔첫 줄 3 좁음(titleBottom 21 → 24),
  * 큰 제목 줄기가 토스보다 가늘어(1.8 : 2.3) 아주 굵게(heavy). 옛 D-UX4-100은 토스 사진 폭을 393pt로 잘못 알고 재었다.
  */
-export const PLAIN = { side: 24, title: 21, titleTop: 18, titleBottom: 24, label: 16, value: 15, ink: '#4F545E', chevron: '#90969E', row: 48, toggleRow: 54, weight: 'book', titleWeight: 'heavy' } as const
+export const PLAIN = { side: 24, title: 21, titleTop: 18, titleBottom: 24, label: 16, value: 15, ink: '#4F545E', chevron: '#90969E', row: 48, weight: 'book', titleWeight: 'heavy' } as const
 
 /** 흰 화면 맨 위 큰 제목 (토스 "비밀번호 · 보안") */
 export function PlainTitle({ title }: { readonly title: string }) {
