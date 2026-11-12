@@ -1,4 +1,4 @@
-// 상품 수정은 입력의 확인 버튼에서 저장한다. 저장하지 않고 닫을 때는 변경 내용을 묻는다.
+// 상품 수정은 입력의 확인 버튼에서 저장한다. 창을 닫으면 입력 중인 값을 버린다.
 import { useEffect, useRef, useState } from 'react'
 import { Animated, Keyboard, TextInput, View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
@@ -6,7 +6,7 @@ import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
 import { formatWon } from '../../lib/words.ts'
-import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, ErrorLine, Icon, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
 import { BigNumber, NumberKeys, PRICE_LIMIT, noLimitWords, typeDigits } from './ProductAdd.tsx'
@@ -19,19 +19,10 @@ export type EditDraft = Partial<Record<EditField, string>>
 
 export const EDIT_LABEL: Readonly<Record<EditField, string>> = { no: '번호', name: '품종', price: '가격' }
 export const EDIT_DONE = '확인'
-export const EDIT_NO = '아니요'
-export const EDIT_YES = '바꿀게요'
-
 /** 방송에 번호 끝이 없을 때 번호 칸이 받는 가장 큰 수 (상품 추가와 같다) */
 const NO_FALLBACK_MAX = 9999
 const PRICE_DIGITS = 9
 const NAME_MAX = 40
-
-/** 줄 하나의 조각: 글과 바뀌었는지 */
-export interface EditToken {
-  readonly text: string
-  readonly changed: boolean
-}
 
 export interface EditPlan {
   /** 바꿀 번호 (안 바꾸면 null) */
@@ -50,45 +41,6 @@ export function editPlan(product: Pick<Product, 'no' | 'name' | 'price'>, draft:
     name: name === null || name === '' || name === product.name.trim() ? null : name,
     price: price === null || price === product.price ? null : price,
   }
-}
-
-export const planEmpty = (plan: EditPlan): boolean => plan.no === null && plan.name === null && plan.price === null
-
-/** 팝업 두 줄: "1번 품종a 10,000원" → "2번 품종b 20,000원" — 품종이 둘 다 없으면 빼고, 바뀐 조각에 표시 */
-export function editLines(product: Pick<Product, 'no' | 'name' | 'price'>, plan: EditPlan): { readonly before: EditToken[]; readonly after: EditToken[] } {
-  const oldName = product.name.trim()
-  const newName = plan.name ?? oldName
-  const before: EditToken[] = [{ text: `${String(product.no)}번`, changed: false }]
-  const after: EditToken[] = [{ text: `${String(plan.no ?? product.no)}번`, changed: plan.no !== null }]
-  if (oldName !== '') before.push({ text: oldName, changed: false })
-  if (newName !== '') after.push({ text: newName, changed: plan.name !== null })
-  before.push({ text: formatWon(product.price), changed: false })
-  after.push({ text: formatWon(plan.price ?? product.price), changed: plan.price !== null })
-  return { before, after }
-}
-
-export const editQuestion = (lines: ReturnType<typeof editLines>): string =>
-  `${lines.before.map((token) => token.text).join(' ')}에서\n${lines.after.map((token) => token.text).join(' ')}으로 바꿀까요?`
-
-/** 바꿀까요? 팝업 글 — 바뀐 조각만 주색 */
-function EditQuestion({ lines }: { readonly lines: ReturnType<typeof editLines> }) {
-  const { p } = useKit()
-  const line = (tokens: readonly EditToken[], tail: string, testID: string) => (
-    <Txt step="lead" weight="bold" testID={testID}>
-      {tokens.map((token, index) => (
-        <Txt key={`${String(index)}-${token.text}`} step="lead" weight="bold" {...(token.changed ? { ink: p.primary, testID: 'edit-changed' } : {})}>
-          {`${index === 0 ? '' : ' '}${token.text}`}
-        </Txt>
-      ))}
-      {tail}
-    </Txt>
-  )
-  return (
-    <View style={{ gap: 2 }}>
-      {line(lines.before, '에서', 'edit-before')}
-      {line(lines.after, '으로 바꿀까요?', 'edit-after')}
-    </View>
-  )
 }
 
 /** 번호·품종·가격 칸 하나 (점선 둥근 칸, 왼쪽 위 연필): 누르면 그 칸을 고친다. 원래 값을 보여 주고 지금 고치는 칸의 테두리를 강조한다 */
@@ -130,7 +82,6 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
   const [draft, setDraft] = useState<EditDraft>({})
   const [error, setError] = useState<string | null>(null)
   const [again, setAgain] = useState(0)
-  const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
   const saving = useRef(false)
   const lastKey = useRef(product?.key)
@@ -140,7 +91,6 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     setDraft({})
     setOriginal(null)
     setError(null)
-    setAsking(false)
   }
   // 다른 상품을 열면 처음부터 (번호를 바꿔 열쇠가 바뀐 것은 고친 뒤 닫히므로 같다)
   useEffect(() => {
@@ -152,7 +102,6 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     setDraft({})
     setOriginal(null)
     setError(null)
-    setAsking(false)
   }, [product?.key, product])
 
   const maxNumber = (() => {
@@ -203,37 +152,15 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
       return { ...was, [which]: next }
     })
   }
-  /** 창을 닫으려 할 때(끌어내리기·바깥·뒤로): 바뀐 것이 있으면 묻는다 */
-  const tryClose = () => {
-    if (asking || busy || product === undefined) return
-    const bad = firstWrong()
-    if (bad !== null) {
-      setHalf(true)
-      setField(bad.field)
-      setError(bad.message)
-      setAgain((count) => count + 1)
-      return
-    }
-    if (planEmpty(editPlan(product, draft))) {
-      reset()
-      onClose()
-      return
-    }
-    Keyboard.dismiss()
-    setField(null)
-    setAsking(true)
-  }
-  /** 닫기: 팝업을 먼저 걷고 다음 차례에 창을 내린다 — 아래 창이 닫히는 동안 붙든 마지막 내용(D-UX4-103)에 팝업이 다시 들지 않게 */
   const finish = () => {
-    setAsking(false)
-    setTimeout(() => {
-      saving.current = false
-      setBusy(false)
-      reset()
-      onClose()
-    }, 0)
+    reset()
+    onClose()
   }
-  const discard = finish
+  const discard = () => {
+    if (saving.current) return
+    Keyboard.dismiss()
+    finish()
+  }
   const apply = async (values = draft) => {
     if (product === undefined || closed || saving.current) return
     const bad = firstWrong(values)
@@ -260,16 +187,14 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
       else if (plan.name !== null) await api.command({ type: 'product.update', b: api.b, no, name: plan.name })
       finish()
     } catch (caught) {
+      setError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' ? caught.message : '바꾸지 못했어요. 다시 해 주세요.')
+    } finally {
       saving.current = false
       setBusy(false)
-      setAsking(false)
-      setError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' ? caught.message : '바꾸지 못했어요. 다시 해 주세요.')
     }
   }
 
   const shake = useWrongShake(field === null ? null : error, again)
-  const plan = product === undefined ? null : editPlan(product, draft)
-  const lines = product === undefined || plan === null ? null : editLines(product, plan)
   const before = original !== null && original.key === product?.key ? original : product
   const box = (which: EditField, shown: string, flex: number) => (
     <FieldBox key={which} label={EDIT_LABEL[which]} shown={shown} active={field === which} flex={flex} disabled={closed || busy} onPress={() => openField(which)} />
@@ -328,31 +253,12 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     </View>
   )
 
-  // 바꿀까요? 팝업은 아래 창 안에 둔다 — 창 위에 뜨는 팝업(같은 판 안에서 띄워야 기기에서 겹쳐 뜬다)
-  const question = (
-    <PopupDialog
-      visible={asking}
-      message={lines === null ? '' : editQuestion(lines)}
-      content={lines === null ? undefined : <EditQuestion lines={lines} />}
-      cancelLabel={EDIT_NO}
-      confirmLabel={EDIT_YES}
-      busy={busy}
-      onCancel={discard}
-      onConfirm={() => void apply()}
-    />
-  )
   return (
-      <BottomSheet visible={visible} onClose={tryClose} title="" half={half} bodyPadding={!half} testID="product-sheet">
+      <BottomSheet visible={visible} onClose={discard} title="" half={half} bodyPadding={!half} testID="product-sheet">
         {product === undefined ? null : half ? (
           <View style={{ gap: SPACE.lg, paddingTop: SPACE.md }}>
             <View style={{ paddingHorizontal: SPACE.xl }}>{fields}</View>
-            {editor ?? (
-              <View style={{ paddingHorizontal: SPACE.xl }}>
-                {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
-                {plan !== null && !planEmpty(plan) ? <BigButton label={`${String(product.no)}번 변경사항 저장`} onPress={() => void apply()} /> : null}
-                <ProductDetail product={product} fields={null} onKey={onKey} onDone={discard} {...(onDecide === undefined ? {} : { onDecide })} />
-              </View>
-            )}
+            {editor}
           </View>
         ) : (
           <>
@@ -360,7 +266,6 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
             <ProductDetail product={product} fields={fields} onKey={onKey} onDone={discard} {...(onDecide === undefined ? {} : { onDecide })} />
           </>
         )}
-        {question}
       </BottomSheet>
   )
 }

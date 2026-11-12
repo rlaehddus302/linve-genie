@@ -1,11 +1,7 @@
-// 사용자 지시 2026-11-10:
-// D-UX4-105 "상품 목록에서 품종 컬럼 시작 위치를 맞추기" · "상품 꾹 눌렀을때 흰색 영역이 움직이는게 아니라 회색 박스가 움직임 흰색 영역이 통째로 버튼 영역이어야"
-// D-UX4-106 "수정할 영역을 눌렀을 때 아래팝업을 하프 화면으로 … 기존값을 플레이스홀더로 두고 입력 시작하면 날라가게 … 키보드 위에 확인 누르면 키보드만 닫기고
-//   수정할까요? 묻거나 해당 화면을 내리진 마 … 화면 닫으면 팝업으로 1번 품종a 10,000원에서 ⏎ 2번 품종 b 20,000원으로 바꿀까요? 아니요 / 바꿀게요 … 바뀐부분에 포인트 컬러"
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
-import { EDIT_DONE, EDIT_NO, editLines, editPlan, editQuestion } from '../src/screens/console/ProductEdit.tsx'
+import { EDIT_DONE, editPlan } from '../src/screens/console/ProductEdit.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { changes, flush, product } from './support.ts'
 
@@ -55,14 +51,9 @@ describe('상품 줄 (D-UX4-105)', () => {
 })
 
 describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
-  it('팝업 글: 바뀐 조각만 표시, 품종이 둘 다 없으면 뺀다', () => {
+  it('입력값 중 실제로 바뀐 값만 저장 대상으로 남긴다', () => {
     const base = { no: 1, name: '품종a', price: 10_000 }
-    const plan = editPlan(base, { no: '2', name: '품종 b', price: '20000' })
-    expect(editQuestion(editLines(base, plan))).toBe('1번 품종a 10,000원에서\n2번 품종 b 20,000원으로 바꿀까요?')
-    expect(editLines(base, plan).after.map((token) => token.changed)).toEqual([true, true, true])
-    const priceOnly = editPlan({ no: 3, name: '', price: 5000 }, { price: '7000', no: '' })
-    expect(editQuestion(editLines({ no: 3, name: '', price: 5000 }, priceOnly))).toBe('3번 5,000원에서\n3번 7,000원으로 바꿀까요?')
-    expect(editLines({ no: 3, name: '', price: 5000 }, priceOnly).after.map((token) => token.changed)).toEqual([false, true])
+    expect(editPlan(base, { price: '7000' })).toEqual({ no: null, name: null, price: 7000 })
     // 빈 칸·같은 값은 안 바꿈
     expect(editPlan(base, { no: '1', name: '  ', price: '' })).toEqual({ no: null, name: null, price: null })
   })
@@ -112,14 +103,13 @@ describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
     ])
   })
 
-  it('[아니요]면 보내지 않고 닫는다 · 바꾼 것이 없으면 묻지 않고 닫는다', async () => {
+  it('수정 중 닫으면 팝업과 저장 요청 없이 닫히고, 다시 열면 이전 값이 보인다', async () => {
     const world = makeWorld({ products: [product(15, { name: '핑크프릴', price: 12_000 })] })
     const detail = await openDetail(world, 15)
     fireEvent.click(within(detail).getByRole('button', { name: '가격 고치기' }))
     typePad('9000')
     fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
-    const ask = await screen.findByRole('alertdialog', { name: '15번 핑크프릴 12,000원에서\n15번 핑크프릴 9,000원으로 바꿀까요?' })
-    fireEvent.click(within(ask).getByRole('button', { name: EDIT_NO }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     await waitFor(() => expect(screen.queryByTestId('product-sheet')).toBeNull())
     await flush()
     expect(world.events).toHaveLength(0)
@@ -134,7 +124,7 @@ describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 
-  it('잘못된 값이면 [확인]·닫기 모두 막고 칸 아래 빨간 글 (100원 미만·이미 있는 번호)', async () => {
+  it('잘못된 값이면 확인에서 오류를 보여 주고 닫으면 버린다 (100원 미만·이미 있는 번호)', async () => {
     const world = makeWorld({ products: [product(15, { price: 12_000 }), product(16)] })
     const detail = await openDetail(world, 15)
     fireEvent.click(within(detail).getByRole('button', { name: '가격 고치기' }))
@@ -145,9 +135,11 @@ describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
     typePad('0')
     fireEvent.click(screen.getByRole('button', { name: '번호 고치기' }))
     typePad('16')
-    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
+    fireEvent.click(screen.getByRole('button', { name: EDIT_DONE }))
     expect(screen.getByText('16번은 이미 있어요.')).toBeTruthy()
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(screen.getByTestId('product-sheet')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
+    await waitFor(() => expect(screen.queryByTestId('product-sheet')).toBeNull())
+    expect(world.events).toHaveLength(0)
   })
 })

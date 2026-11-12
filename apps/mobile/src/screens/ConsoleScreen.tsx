@@ -432,7 +432,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         {live && dock === 'talk' ? <TalkDock bottom={Math.max(inset, SPACE.sm)} /> : null}
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
-        {/* 고치기는 반 화면 판 · 닫을 때 "바꿀까요?" (D-UX4-106) */}
+        {/* 고치기는 반 화면 판 · 확인 시 저장 (D-UX4-106) */}
         <ProductSheet product={detailProduct} onClose={() => setDetail(null)} onKey={setDetail} {...(seller && !sealed && detailProduct !== undefined ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} />
         <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
