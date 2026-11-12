@@ -24,6 +24,7 @@
 | `claim.maxNumber` | 주문으로 볼 최대 번호 | 정수 | `999` |
 | `claim.ignoreOwner` | 방송자 본인 채팅 무시 | 예/아니오 | 예 |
 | `claim.preOpenWindowSec` | 공개 전 찜 유효 시간 | 초 | `30` |
+| `claim.preOpenExpire` | 공개 순간 유효 시간보다 오래된 보류 찜을 만료하나 (D-PEND-01) | 예/아니요 | `예`(엔진 — 옛 방송 재생 호환). 운영 판매자 기본값은 `아니요` |
 | `waitlist.max` | 대기 인원 한도 (0=대기 없음) | 정수 | `5` |
 | `cancel.buyerChat` | 시청자 채팅 취소 | `OFF` / `REQUEST` / `AUTO` | `REQUEST` |
 | `cancel.succession` | 1등 취소 시 | `AUTO` / `ASK` / `REOPEN` | `AUTO` |
@@ -247,6 +248,7 @@ register(READY)        open         ▼        재고 소진
 1. 방송의 번호 n에 대한 `PENDING` 찜을 판정 순위(R-6) 순서로 정렬한다.
 2. `at ≥ T − claim.preOpenWindowSec`인 찜은 순서대로 R-4를 적용한다. 경계는 포함한다(T − 30초 정각에 온 찜은 판정에 들어간다). 재고가 2 이상이면 순서대로 여럿이 확정될 수 있다.
 3. 더 오래된 찜은 `REJECTED(EXPIRED)`.
+   - `claim.preOpenExpire`가 `아니요`면 3을 하지 않는다: 그 번호의 보류 찜은 모두 판정 순위대로 R-4를 적용한다(상품이 없던 번호의 찜은 시간이 지나도 날아가지 않는다, D-PEND-01).
 
 - 만료는 공개 순간에만 정한다. 공개되지 않은 번호의 보류 찜은 계속 보류이고, 콘솔이 보류 찜 목록으로 보여 준다.
 - 보류 찜은 방송자 취소·무효와 시청자 취소(R-8), 차단(R-9), 판매 종료(R-2 `close`), 구매자 합치기(R-11 `DUPLICATE`)로도 끝난다.

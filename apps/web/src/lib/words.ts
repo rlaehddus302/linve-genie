@@ -240,7 +240,9 @@ export function agoWord(seconds: number): string {
 
 /** 보류 찜 창 맨 위 한 줄 (QL2 D-QL2-09 ④ — R-5의 뜻, W = 지금 방송의 claim.preOpenWindowSec) */
 export const pendingMeaning = (windowSec: number): string =>
-  `보류 찜은 아직 등록하지 않은 번호로 들어온 찜이에요. 찜이 들어오고 ${String(windowSec)}초 안에 그 번호를 등록하면 판정에 들어가고, 늦으면 만료돼요.`
+  Number.isFinite(windowSec)
+    ? `보류 찜은 아직 등록하지 않은 번호로 들어온 찜이에요. 찜이 들어오고 ${String(windowSec)}초 안에 그 번호를 등록하면 판정에 들어가고, 늦으면 만료돼요.`
+    : '보류 찜은 아직 등록하지 않은 번호로 들어온 찜이에요. 그 번호를 등록하면 먼저 온 순서대로 판정돼요.' // D-PEND-01
 
 // ── 1등 자리를 비운 조치의 결과 한 줄 (D-MOB2-04, UX-06 — 판정은 엔진 결과를 읽기만) ─────────
 

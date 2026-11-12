@@ -23,6 +23,12 @@ export interface SaleSettings {
   'claim.maxNumber': number
   'claim.ignoreOwner': boolean
   'claim.preOpenWindowSec': number
+  /**
+   * 공개 순간 유효 시간(preOpenWindowSec)보다 오래된 보류 찜을 만료하나 (R-5, D-PEND-01).
+   * 거짓이면 상품이 없던 번호의 찜은 시간이 지나도 날아가지 않고 등록(공개) 순간 판정 순위대로 판정한다.
+   * 엔진 기본값은 참(이 칸이 없던 옛 방송 시작 이벤트를 다시 재생해도 판정이 같게) — 운영은 서버 판매자 기본값으로 거짓.
+   */
+  'claim.preOpenExpire': boolean
   'waitlist.max': number
   'cancel.buyerChat': 'OFF' | 'REQUEST' | 'AUTO'
   'cancel.succession': 'AUTO' | 'ASK' | 'REOPEN'
@@ -51,6 +57,7 @@ export const DEFAULT_SETTINGS: Readonly<SaleSettings> = Object.freeze({
   'claim.maxNumber': 999,
   'claim.ignoreOwner': true,
   'claim.preOpenWindowSec': 30,
+  'claim.preOpenExpire': true,
   'waitlist.max': 5,
   'cancel.buyerChat': 'REQUEST',
   'cancel.succession': 'AUTO',
@@ -112,6 +119,7 @@ const SETTING_RULES: Readonly<Record<SettingKey, SettingRule>> = {
   'claim.maxNumber': int(1, 9999),
   'claim.ignoreOwner': YES_NO,
   'claim.preOpenWindowSec': int(0, 300),
+  'claim.preOpenExpire': YES_NO,
   'waitlist.max': int(0, 100),
   'cancel.buyerChat': choice('OFF', 'REQUEST', 'AUTO'),
   'cancel.succession': choice('AUTO', 'ASK', 'REOPEN'),

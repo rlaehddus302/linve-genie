@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { get, withQuery } from '../api/client.ts'
 import type { CancelRequest, Claim, HistoryItem, Product } from '../api/types.ts'
-import { claimOptionWords, claimOptionsField, claimWord, conflictUnits, splitPending, successionUnits, variantOf, variantOptionsField, type DecisionUnit } from '../lib/derive.ts'
+import { claimOptionWords, pendingWindowOf, claimOptionsField, claimWord, conflictUnits, splitPending, successionUnits, variantOf, variantOptionsField, type DecisionUnit } from '../lib/derive.ts'
 import type { SuccessionPick } from '../lib/undo-queue.ts'
 import { kstTime } from '../lib/kst.ts'
 import { usePendingNow } from '../lib/use-pending-now.ts'
@@ -377,11 +377,11 @@ export function PendingDialog({ onClose, now: fixedNow }: { readonly onClose: ()
     .slice(0, 20)
   return (
     <Modal title="보류 찜" onClose={onClose} wide>
-      <p>{pendingMeaning(api.settingsOf(api.b)?.['claim.preOpenWindowSec'] ?? 30)}</p>
+      <p>{pendingMeaning(pendingWindowOf(api.settingsOf(api.b)))}</p>
       {groups.length === 0 ? <p>상품이 없는 번호의 보류 찜이 없어요.</p> : null}
       <ul className="plain-list stack-tight">
         {groups.map((group) => {
-          const window = api.settingsOf(group.broadcast)?.['claim.preOpenWindowSec'] ?? 30
+          const window = pendingWindowOf(api.settingsOf(group.broadcast))
           const oldest = Math.min(...group.claims.map((claim) => Date.parse(claim.at)))
           const ageMs = Number.isFinite(oldest) ? Math.max(0, now - oldest) : 0
           const age = Math.floor(ageMs / 1000)

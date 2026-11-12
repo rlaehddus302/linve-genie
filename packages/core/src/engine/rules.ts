@@ -529,7 +529,9 @@ export interface OpenHooks {
  * 수량 2 이상 보류 찜의 수량이 남은 수량(0보다 큼)보다 많으면 판정하지 않고 REJECTED(STOCK_SHORT) + 확인 필요(STOCK_SHORT, D-O1-11).
  */
 export function openPending(d: Draft, slot: SlotDraft, openedAt: number, hooks: OpenHooks): void {
-  const start = openedAt - d.settingsOf(slot.b)['claim.preOpenWindowSec'] * 1000
+  const settings = d.settingsOf(slot.b)
+  // 만료하지 않는 방송(D-PEND-01)은 아무리 오래된 보류 찜도 판정한다
+  const start = settings['claim.preOpenExpire'] ? openedAt - settings['claim.preOpenWindowSec'] * 1000 : Number.NEGATIVE_INFINITY
   const ids = sortedPending(d, slot)
   slot.pending = emptyPMap()
   const product = slot.product as ProductRecord

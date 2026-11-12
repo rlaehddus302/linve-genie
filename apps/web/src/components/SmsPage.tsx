@@ -19,7 +19,7 @@ import { qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
 import { reviewsPath } from '../lib/reviews.ts'
 import { activeClaimOf, distinguishWords, isActive, sameNameCounts, searchBuyers } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
-import { PENDING_TIMED_OUT_TAIL, claimOptionWords, claimWord, formatWon, isOptionBroadcast, isPendingTimedOut, productKey } from '../lib/derive.ts'
+import { PENDING_TIMED_OUT_TAIL, claimOptionWords, claimWord, formatWon, isOptionBroadcast, isPendingTimedOut, pendingWindowOf, productKey } from '../lib/derive.ts'
 import { usePendingNow } from '../lib/use-pending-now.ts'
 import { AUTO_RESEND_NOTE, RESENT_PREFIX } from '../lib/resend-board.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
@@ -305,10 +305,10 @@ function productLine(api: ConsoleApi, product: Product): string {
 function ProductPreview({ api, no }: { readonly api: ConsoleApi; readonly no: number }) {
   const product = api.data.products.get(productKey(api.b, no))
   if (product === undefined) {
-    const window = api.settingsOf(api.b)?.['claim.preOpenWindowSec'] ?? 30
+    const window = pendingWindowOf(api.settingsOf(api.b))
     return (
       <p className="sms-preview" role="status" aria-label="번호의 상품">
-        {no}번 상품이 아직 없어요. 넣으면 보류 찜이 되고, {window}초 안에 등록되면 판정돼요.
+        {no}번 상품이 아직 없어요. 넣으면 보류 찜이 되고, {Number.isFinite(window) ? `${String(window)}초 안에 등록되면 판정돼요.` : '등록하면 먼저 온 순서대로 판정돼요.'}
       </p>
     )
   }

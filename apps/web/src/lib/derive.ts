@@ -210,10 +210,20 @@ export function pendingWindowPassed(atMs: number, nowMs: number, windowSec: numb
   return nowMs - atMs > windowSec * 1000
 }
 
-/** 그 방송의 보류 찜 유효 시간(초) — 방송 설정 스냅샷의 claim.preOpenWindowSec */
-export function preOpenWindowSec(data: Pick<ScopeData, 'broadcasts'>, b: string): number {
-  const value = data.broadcasts.get(b)?.settings['claim.preOpenWindowSec']
+/**
+ * 방송 설정 스냅샷에서 보류 찜 유효 시간(초). 만료하지 않는 방송(claim.preOpenExpire 거짓, D-PEND-01)은 무한대 —
+ * 시간이 지나도 "시간 지남"이 되지 않는다. 스냅샷이 없으면 기본 30초.
+ */
+export function pendingWindowOf(settings: { readonly [key: string]: unknown } | object | null | undefined): number {
+  const read = (settings ?? {}) as Readonly<Record<string, unknown>>
+  if (read['claim.preOpenExpire'] === false) return Number.POSITIVE_INFINITY
+  const value = read['claim.preOpenWindowSec']
   return typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_PRE_OPEN_WINDOW_SEC
+}
+
+/** 그 방송의 보류 찜 유효 시간(초) — 방송 설정 스냅샷의 claim.preOpenWindowSec (만료하지 않는 방송은 무한대) */
+export function preOpenWindowSec(data: Pick<ScopeData, 'broadcasts'>, b: string): number {
+  return pendingWindowOf(data.broadcasts.get(b)?.settings)
 }
 
 /**
@@ -256,7 +266,7 @@ export function nextPendingFlip(data: Pick<ScopeData, 'broadcasts' | 'products' 
       const start = pendingStart(data, claim)
       if (start === null) continue
       const flip = start + preOpenWindowSec(data, claim.broadcast) * 1000 + 1
-      if (flip > now && (best === null || flip < best)) best = flip
+      if (Number.isFinite(flip) && flip > now && (best === null || flip < best)) best = flip
     }
   }
   return best

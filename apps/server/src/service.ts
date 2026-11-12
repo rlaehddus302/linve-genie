@@ -143,7 +143,8 @@ export function withSaleMode(settings: SaleSettings, saleMode: SaleMode | undefi
 export const INHERITED_BLOCK_REASON = '이전 방송에서 차단한 시청자'
 
 /** 운영 판매자 기본값 — 판매자가 고르지 않은 칸에 엔진 기본값(DEFAULT_SETTINGS)보다 먼저. 감사 채팅은 판매자가 켠 뒤에만 (D-YT-SRV-23). 운영 기동(main.ts)이 넣는다 */
-export const SELLER_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({ 'thanks.liveChat': false })
+// 등록 전에 들어온 찜은 시간이 지나도 날리지 않는다 — 등록하는 순간 먼저 온 순서대로 판정 (D-PEND-01)
+export const SELLER_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({ 'thanks.liveChat': false, 'claim.preOpenExpire': false })
 
 const TITLE_MAX = 100
 /** 메시지 조회 개수 기본·상한 (AC-S05-20 — 그날 메시지 전체를 한 번에 주는 길은 없다) */
