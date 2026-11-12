@@ -4,10 +4,29 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from sw.llm_b6 import rows_of
 from sw.llm_live import LlmRegister, conflicting_tag
 
 
 class RegistrationTest(unittest.TestCase):
+    def test_spoken_price_uses_the_quoted_selling_price_line(self):
+        for text, quote, model_price, expected in (
+            ("자 요거 35", "35", 35000, 350000),
+            ("305번 삼십오", "삼십오", 35000, 350000),
+            ("삼십 오까지", "삼십 오", 35000, 350000),
+            ("삼만 오천 원", None, 35000, 35000),
+            ("35,000원", "35", 35000, 35000),
+            ("35 번이구요", "35", 35000, 35000),
+            ("35 개에 삼만 오천 원", "35", 35000, 35000),
+            ("3.5만원", "5", 35000, 35000),
+            ("예전 35 오늘은 3만원", "35", 30000, 30000),
+            ("305번", "35", 35000, 35000),
+        ):
+            with self.subTest(text=text):
+                transcript = [(63, 265.43, text), (65, 269, "왕색금 305번")]
+                answer = {"line": 65, "no": 305, "price": model_price, "price_short": quote, "price_line": 63}
+                self.assertEqual(rows_of(json.dumps(answer), transcript)[0]["price"], expected)
+
     def test_conflicting_guess_is_held_until_supported(self):
         for later_tag in (False, True):
             with self.subTest(later_tag=later_tag), tempfile.TemporaryDirectory() as tmp:

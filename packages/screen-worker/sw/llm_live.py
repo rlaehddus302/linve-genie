@@ -28,7 +28,7 @@ WINDOW = float(os.environ.get("LLM_REG_WINDOW", 60))   # 물을 때 넣는 최�
 SAFETY = float(os.environ.get("LLM_REG_SAFETY", 60))   # 이벤트 없이 이만큼(방송 초) 지나면 한 번 묻는다
 PAR = int(os.environ.get("LLM_REG_PAR", 4))            # 동시에 묻는 수(사용자 2026-11-12: 사용량보다 지연)
 SCREEN_WAIT = 3.0                                      # 화면 읽기가 그 줄 끝까지 오기를 이만큼(실제 초)만 기다린다
-CUE = re.compile(r"[0-9번만천원]")
+CUE = re.compile(r"[0-9번만천원십]")
 CONF = {"high": 0.9, "medium": 0.7, "low": 0.5}
 # 잘못 들은 번호 바로잡기 (D-SCR-06, 사용자 2026-11-12 "391을 392로 잘못 알아먹고 등록 … 화면 인식 통해서 392는 잘못된거라고 판정"):
 # 보낸 번호 N이 그 말 5초 앞부터 화면에 한 번도 안 읽혔는데, 그동안 다른 번호표 M이 크게 FIX_FRAMES장 이상 보였고(화면은 1초에 1장 —

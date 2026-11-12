@@ -63,9 +63,33 @@ def ask(user, sys_path=None, model=None, effort=None):
     raise RuntimeError(f"codex 실패: {r.stderr[-300:]}")
 
 
+def shorthand_price(quote, text):
+    """모델이 판매가로 지목한 원문이 그 줄에 독립된 한두 자리 수로 있을 때만 만원으로 환산한다."""
+    if not isinstance(quote, str) or not text:
+        return None
+    digits = "일이삼사오육칠팔구"
+    raw = "".join(quote.split())
+    if re.fullmatch(r"[1-9][0-9]?", raw):
+        value = int(raw)
+    elif re.fullmatch(r"[일이삼사오육칠팔구]?십[일이삼사오육칠팔구]?|[일이삼사오육칠팔구]", raw):
+        tens, sep, ones = raw.partition("십")
+        value = ((digits.index(tens) + 1 if tens else 1) * 10 if sep else 0)
+        last = ones if sep else tens
+        if last:
+            value += digits.index(last) + 1
+    else:
+        return None
+    # 숫자의 일부, '35 번', '35,000원', '35 개', '35 센티' 등은 금액 근거가 될 수 없다.
+    literal = re.escape(quote.strip())
+    if re.search(r"(?<![\w.,])" + literal + r"(?![0-9]|[.,][0-9]|\s*(?:번|원|천|백|만|개|호|센티|cm|프로|%|명|분|초|세트))(?=$|[\s.,!?]|까지|에|짜리|입니다|예요|이고)", text, re.I):
+        return value * 10000
+    return None
+
+
 def rows_of(out, L):
     """답 → [{t, line, no, price, name, no_from, confidence, why}] (B.parse와 같은 거름 + 나머지 칸)"""
     ids = {i: t for i, t, _ in L}
+    texts = {i: text for i, _, text in L}
     got = []
     for m in re.finditer(r"\{[^{}]*\}", out):
         try:
@@ -81,6 +105,11 @@ def rows_of(out, L):
         no = no if no is not None and 0 < no < 1000 else None
         p = d.get("price")
         p = int(str(p).replace(",", "")) if p is not None and str(p).replace(",", "").isdigit() and int(str(p).replace(",", "")) > 0 else None
+        price_line = str(d.get("price_line", "")).lstrip("Ll")
+        if p is not None and price_line.isdigit():
+            spoken = shorthand_price(d.get("price_short"), texts.get(int(price_line)))
+            if spoken is not None and p in (spoken // 10000, spoken // 10):
+                p = spoken
         if no is None and p is None:
             continue
         nm = d.get("name")

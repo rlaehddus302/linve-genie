@@ -5,8 +5,9 @@
 // - 휴대폰 마이크를 켜면 마이크가 대신 듣는다(서버는 쉰다, D-LV1-06). 상태 줄은 색 + 글자로.
 // - D-LV1-14: 앱을 닫아도 서버는 방송이 끝날 때까지 듣고, 받을 앱이 없으면 서버가 읽고 바로 등록한다. 돌아오면 ServerHeard가 그동안 한 일을 보여 준다.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Animated, Easing, Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
+import { Animated, Easing, Platform, ScrollView, View } from 'react-native'
 import { readStreamAudioStatus, streamAudioLine, type StreamAudioStatus } from '@livejjim/web/src/lib/stream-audio.ts'
+import { useFollowScroll } from '../../lib/use-follow-scroll.ts'
 import { get, post } from '../../api/client.ts'
 import type { VoiceSession, VoiceView } from '../../lib/voice-session.ts'
 import { DotStatus, EmptyFill, Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
@@ -242,7 +243,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
   const [column, setColumn] = useState<number | null>(null)
   const [logHeight, setLogHeight] = useState(0)
   const motion = useOpenMotion(open)
-  const log = useRef<ScrollViewInstance>(null)
+  const follow = useFollowScroll()
   const micOn = view.on && view.broadcastId === broadcastId
   // "앱을 닫은 동안 서버가 들었어요" 카드는 띄우지 않는다 (D-UX3-87, 사용자 지시 2026-11-09)
   const line = streamAudioLine(stream.status, micOn)
@@ -276,7 +277,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
     </View>
   )
   const currentRow = (
-      <Tap role="button" aria-label={open ? '음성 인식 접기' : '음성 인식 펼치기'} aria-expanded={open} onPress={() => setOpen((was) => !was)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: DOCK_ROW_HEIGHT, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <Tap role="button" aria-label={open ? '음성 인식 접기' : '음성 인식 펼치기'} aria-expanded={open} onPress={() => { follow.reset(); setOpen((was) => !was) }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: DOCK_ROW_HEIGHT, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
         <View onLayout={(event) => setColumn(event.nativeEvent.layout.width)}>
           {/* 자리 재기: 가장 긴 상태 알약 폭 — 보이지도 읽히지도 않는다 */}
           {DOCK_WORDS.map((word) => (
@@ -301,7 +302,8 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
     <View role="region" aria-label="음성 인식 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>
       {motion.shown ? (
         <Animated.View testID="heard-log-box" style={{ height: Platform.OS === 'web' ? undefined : height, marginBottom: overlap, opacity: motion.value, overflow: 'hidden', paddingHorizontal: SPACE.xs }}>
-          <ScrollView ref={log} style={{ maxHeight: HEARD_LOG_HEIGHT }} onContentSizeChange={() => log.current?.scrollToEnd({ animated: false })}>
+          <ScrollView ref={follow.scroll} style={{ maxHeight: HEARD_LOG_HEIGHT }} scrollEventThrottle={16}
+            onScrollBeginDrag={follow.begin} onScroll={follow.track} onScrollEndDrag={follow.end} onContentSizeChange={follow.contentChanged}>
             {lines}
           </ScrollView>
         </Animated.View>

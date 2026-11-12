@@ -8,7 +8,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Animated, BackHandler, Keyboard, Platform, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native'
+import { Animated, BackHandler, Keyboard, Platform, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { get, withQuery } from '../api/client.ts'
 import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
@@ -34,6 +34,7 @@ import { DecisionsView } from './console/Decisions.tsx'
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { VoicePanel } from './console/VoicePanel.tsx'
+import { useFollowScroll } from '../lib/use-follow-scroll.ts'
 import { HEARD_TAB, HeardTab, ListenLine, useKeptStream } from './console/StreamAudio.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
@@ -158,18 +159,18 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const [tab, setTab] = useState<'products' | 'feed' | 'talk' | 'heard'>('products')
   // 라이브 채팅처럼 (D-UX3-75): 목록은 최신이 맨 아래. 처음·탭을 바꿀 때는 맨 아래에서 시작하고,
   // 맨 아래를 보고 있는 동안 새 줄이 오면 따라 내려간다. 위로 올려 보고 있으면 그대로 둔다.
-  const scroll = useRef<ScrollViewInstance>(null)
+  const follow = useFollowScroll()
+  const { scroll, reset: resetFollow } = follow
   const scrollOffset = useRef(new Animated.Value(0)).current
   const [viewportHeight, setViewportHeight] = useState(0)
-  const atBottom = useRef(true)
   // 채팅·문자·음성 인식 탭만 라이브 채팅처럼 맨 아래(새 줄)에서 시작하고, 상품·찜 기록은 맨 위에서 (D-UX4-98 — 옛: 모든 탭이 맨 아래로 굴러가
   // 라이브 화면에 들어오거나 탭을 바꿀 때마다 목록이 아래로 튀었다)
   const bottomTab = tab === 'talk' || tab === 'heard'
   useEffect(() => {
-    atBottom.current = bottomTab
+    resetFollow()
     if (bottomTab) scroll.current?.scrollToEnd({ animated: false })
     else scroll.current?.scrollTo({ y: 0, animated: false })
-  }, [tab, bottomTab])
+  }, [tab, bottomTab, scroll, resetFollow])
   // 새로 추가한 상품을 잠깐 강조한다 — 쌓인 상품 추가 화면이 돌아오며 알려 준다 (D-UX4-57)
   const showAdded = useCallback((key: string) => {
     setTab('products')
@@ -419,10 +420,12 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           ref={scroll}
           // 숫자판을 즉시 숨기되 손을 뗄 때까지 레이아웃을 유지해야 iOS가 첫 스크롤을 계속 받는다.
           onScrollBeginDrag={() => {
+            follow.begin()
             draggingSearch.current = searchPad
             if (searchPad) padOpacity.setValue(0)
           }}
-          onScrollEndDrag={() => {
+          onScrollEndDrag={(event) => {
+            follow.end(event)
             if (draggingSearch.current) closeSearchPad()
             draggingSearch.current = false
           }}
@@ -431,11 +434,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             useNativeDriver: Platform.OS !== 'web',
             listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
               if (Platform.OS === 'web' && searchPad) closeSearchPad()
-              const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-              atBottom.current = bottomTab && contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
+              if (bottomTab) follow.track(event)
             },
           })}
-          onContentSizeChange={() => { if (atBottom.current) scroll.current?.scrollToEnd({ animated: false }) }}
+          onContentSizeChange={() => { if (bottomTab) follow.contentChanged() }}
           // 탭 바 반고정 (D-UX4-93 → 98 → 104 → 109): 휴대폰이 직접 하는 붙는 머리 — 목록을 올리면 숨고 내리면 맨 위에 붙어 보인다. 둘째 자식(탭 바)
           // D-UX4-104가 숨기기를 뺐다가 사용자 "올릴 때 탭 바 안 숨는데?"로 되살렸다 — "움직임"은 당길 때 늘어나는 것이었다(D-UX4-108)
           stickyHeaderIndices={STICKY_TABS}
