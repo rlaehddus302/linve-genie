@@ -494,7 +494,7 @@ function PageArrow({ next, disabled, onPress }: { readonly next: boolean; readon
 
 function EditTextButton({ label, value, onPress }: { readonly label: string; readonly value: string; readonly onPress: () => void }) {
   const { p } = useKit()
-  return <Tap role="button" aria-label={`${label} 편집`} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.md, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, backgroundColor: pressed ? p.pressed : p.surfaceAlt, borderRadius: RADIUS.sm })}>
+  return <Tap role="button" aria-label={`${label} 편집`} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.md, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, backgroundColor: pressed ? p.pressed : p.surfaceAlt, borderRadius: RADIUS.sm, borderCurve: 'continuous' })}>
     <Txt step="meta" color="textSub">{label}</Txt><View style={{ flex: 1 }}><Txt right numberOfLines={1}>{value}</Txt></View><Icon name="chevron" size={16} color={p.textSub} />
   </Tap>
 }
