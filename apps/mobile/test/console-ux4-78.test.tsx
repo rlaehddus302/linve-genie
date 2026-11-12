@@ -48,7 +48,9 @@ describe('라이브 관리 묶음 (D-UX4-78)', () => {
 
   it('라이브 관리 경로는 라벨 한 단계 화면·출력 상태를 바로 쌓고, 끊으면 홈으로 (D-UX4-130 — 옛: /label-print)', () => {
     const route = read('app/console/[id]/manage.tsx')
-    expect(route).toContain("labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console') }}")
+    expect(route).toContain("labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console')")
+    expect(route).toContain("openDirect: () => router.push({ pathname: '/console/[id]/print-history', params: { id, mode: 'direct' } })")
+    expect(route).toContain("openHistory: () => router.push({ pathname: '/console/[id]/print-history', params: { id } })")
     expect(route).toContain("onEnded={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))}")
     expect(route).not.toContain('/label-print')
   })
