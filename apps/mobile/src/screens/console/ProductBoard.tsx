@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Animated, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
+import { ProductLabelAction } from '../ProductLabelAction.tsx'
 import { SearchField } from '../customer-parts.tsx'
 import { isApiError } from '../../api/client.ts'
 import { boardProducts, claimsOfProduct, productSlots } from '../../lib/derive.ts'
@@ -299,6 +300,9 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         </View>
       )}
       <View role="group" aria-label="상품 메뉴" style={{ gap: SPACE.xs }}>
+        {api.productLabels?.filter((label) => label.kind === 'product' && label.broadcast === api.b && label.winner && label.claim !== null && claims.some((claim) => claim.id === label.claim)).map((label) => (
+          <ProductLabelAction key={label.key} label={label} title={`${label.buyer.kind === 'youtube' ? label.buyer.name : '문자찜'} · ${label.canPrint ? '라벨 인쇄' : '라벨 다시 인쇄'}`} />
+        ))}
         {!closed && (product.status === 'READY' || product.status === 'HOLD') ? <IconMenuRow emoji="▶️" tint="#E6F2EB" title="판매 시작" ariaLabel={`판매 시작 — ${String(product.no)}번`} onPress={() => void open()} /> : null}
         {undecided(product) && onDecide !== undefined ? <IconMenuRow emoji="🙋" tint="#FFF4E5" title="누가 살지 정하기" onPress={onDecide} /> : null}
         {!closed ? <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title="상품 삭제" ariaLabel={`상품 삭제 — ${String(product.no)}번`} onPress={() => setAskProduct(true)} /> : null}

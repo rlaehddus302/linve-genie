@@ -10,6 +10,7 @@
 import { randomBytes } from 'node:crypto'
 import { containsPhoneRun, currentBuyerOf, getProduct, listBroadcasts, listEffects, listProducts, type EngineState } from '@livejjim/core'
 import {
+  checkProductData,
   LONGEST_PRODUCT,
   SAMPLE_PRODUCT,
   computePackingText,
@@ -300,7 +301,7 @@ export interface LabelView extends LabelRef {
   /** 출력 횟수 */
   readonly printed: number
   /** 출력함마다 시각(UTC ISO)·기기 이름, 출력 순서 */
-  readonly history: readonly { readonly at: string; readonly device: string }[]
+  readonly history: readonly { readonly at: string; readonly device: string; readonly jobId?: string; readonly data?: ProductLabelData | null }[]
   /** 상품: 지금 그 확정버전의 1등인지 */
   readonly winner: boolean
   /** 지금 데이터 (미리 보기·그림 파일용 — 1등이 아니거나 폐기됐으면 null) */
@@ -530,6 +531,7 @@ export class PrintService {
           // 한 이벤트: 그 번호의 지금 1등 찜 목록으로 본다 (찜이 1등에서 빠지는 커밋마다 여기서 폐기되므로 확정버전도 같다)
           const winners = new Map<string, readonly string[]>()
           for (const label of live) {
+            if (label.claim === null) continue
             const slot = `${label.broadcast ?? ''}/${String(label.no)}`
             let list = winners.get(slot)
             if (list === undefined) {
@@ -542,7 +544,7 @@ export class PrintService {
         } else {
           // 여러 이벤트를 한 번에 쓴 기록(채우기 등): 찜의 확정버전까지 본다
           const claims = claimIndex(ctx.runtime, final)
-          for (const label of live) if (isWinnerOf(claims, label.claim ?? '', label.version ?? -1) === null) toVoid.add(label.id)
+          for (const label of live) if (label.claim !== null && isWinnerOf(claims, label.claim, label.version ?? -1) === null) toVoid.add(label.id)
         }
       }
     }
@@ -649,7 +651,7 @@ export class PrintService {
     const ref = labelRef(label)
     let data: JobView['data'] = null
     if (job.printedData !== null) data = JSON.parse(job.printedData) as ProductLabelData | PackingLabelData
-    else if (job.kind === 'packing' && job.data !== null) data = JSON.parse(job.data) as PackingLabelData
+    else if (job.data !== null) data = JSON.parse(job.data) as ProductLabelData | PackingLabelData
     else if (job.kind === 'product' && ctx !== null && !job.voided && label.claim !== null && label.version !== null) {
       data = productLabelData(ctx.state, ctx.claims, { claim: label.claim, version: label.version, buyer: ref.buyer }, this.#amountMissing)
     }
@@ -676,7 +678,7 @@ export class PrintService {
   }
 
   /** 라벨 키 보기 (상태 낱말·재출력 필요·이력·지금 데이터) */
-  async #labelViews(sellerId: string, labels: readonly LabelRow[], contexts: Map<string, StateContext>): Promise<LabelView[]> {
+  async #labelViews(sellerId: string, labels: readonly LabelRow[], contexts: Map<string, StateContext>, withHistory = false): Promise<LabelView[]> {
     const jobs = await jobsOfLabels(this.#db, sellerId, labels.map((label) => label.id))
     const byLabel = new Map<number, JobRow[]>()
     for (const job of jobs) {
@@ -684,10 +686,10 @@ export class PrintService {
       if (list === undefined) byLabel.set(job.labelId, [job])
       else list.push(job)
     }
-    return labels.map((label) => this.#labelView(label, byLabel.get(label.id) ?? [], contexts.get(label.date) ?? null))
+    return labels.map((label) => this.#labelView(label, byLabel.get(label.id) ?? [], contexts.get(label.date) ?? null, withHistory))
   }
 
-  #labelView(label: LabelRow, jobs: readonly JobRow[], ctx: StateContext | null): LabelView {
+  #labelView(label: LabelRow, jobs: readonly JobRow[], ctx: StateContext | null, withHistory = false): LabelView {
     const ref = labelRef(label)
     const kind = label.kind as 'product' | 'packing'
     const voided = label.voidedAt !== null
@@ -701,10 +703,10 @@ export class PrintService {
         data = packingLabelData(ctx.state, label.buyerId, label.date, this.#amountMissing)?.data ?? null
       }
     }
-    return this.#composeLabelView(label.date, kind, ref, voided, jobs, data, winner)
+    return this.#composeLabelView(label.date, kind, ref, voided, jobs, data, winner, withHistory)
   }
 
-  #composeLabelView(date: string, kind: 'product' | 'packing', ref: LabelRef, voided: boolean, jobs: readonly JobRow[], data: LabelView['data'], winner: boolean): LabelView {
+  #composeLabelView(date: string, kind: 'product' | 'packing', ref: LabelRef, voided: boolean, jobs: readonly JobRow[], data: LabelView['data'], winner: boolean, withHistory = false): LabelView {
     const printing = jobs.some((job) => job.status === 'PRINTING')
     const waiting = jobs.some((job) => job.status === 'WAITING')
     const done = jobs
@@ -746,7 +748,7 @@ export class PrintService {
       discard,
       reprintNeeded,
       printed: done.length,
-      history: done.map((job) => ({ at: (job.printedAt as Date).toISOString(), device: job.deviceName ?? '' })),
+      history: done.map((job) => ({ at: (job.printedAt as Date).toISOString(), device: job.deviceName ?? '', ...(withHistory ? { jobId: job.jobId, data: job.printedData === null ? null : JSON.parse(job.printedData) as ProductLabelData } : {}) })),
       winner,
       data,
       canPrint: kind === 'product' && winner && jobs.length === 0,
@@ -758,14 +760,16 @@ export class PrintService {
    * 범위(실제)의 라벨 상태 (AC-I1-12·30·31): 라벨 키가 있는 것 전부 + 작업이 없는 지금 1등(상태 NONE).
    * 상품은 방송 선언 순서·번호·확정버전 순, 포장은 그 뒤 만든 순서. 범위가 없으면 null
    */
-  async labels(sellerId: string, date: string): Promise<{ date: string; labels: LabelView[] } | null> {
+  async labels(sellerId: string, date: string, historyBroadcast?: string): Promise<{ date: string; labels: LabelView[] } | null> {
     const runtime = await this.#options.writer.read(sellerId, date)
     const { state, scopeId, seq } = runtime
     if (seq === 0 || scopeId === null) return null
     const ctx: StateContext = { state, claims: claimIndex(runtime, state) }
-    const rows = await scopeLabels(this.#db, sellerId, scopeId)
+    const all = await scopeLabels(this.#db, sellerId, scopeId)
+    const rows = historyBroadcast === undefined ? all : all.filter((label) => label.kind === 'product' && label.broadcast === historyBroadcast)
     const contexts = new Map([[date, ctx]])
-    const views = await this.#labelViews(sellerId, rows, contexts)
+    const views = await this.#labelViews(sellerId, rows, contexts, historyBroadcast !== undefined)
+    if (historyBroadcast !== undefined) return { date, labels: views.filter((label) => label.history.length > 0) }
     const known = new Set(rows.filter((row) => row.kind === 'product').map((row) => row.key))
     for (const product of listProducts(state)) {
       for (const claimId of winnerClaimsOf(product)) {
@@ -991,7 +995,9 @@ export class PrintService {
         const { job, label } = head
         const kind = job.kind as 'product' | 'packing'
         let data: ProductLabelData | PackingLabelData | null
-        if (kind === 'product') {
+        if (kind === 'product' && label.claim === null && label.key.startsWith('direct:') && job.data !== null) {
+          data = JSON.parse(job.data) as ProductLabelData
+        } else if (kind === 'product') {
           const { claim, version } = label
           if (ctx === null || claim === null || version === null || isWinnerOf(ctx.claims, claim, version) === null) {
             // 받을 때의 확인: 1등이 아니면 폐기하고 다음 작업 (L-11 4·5)
@@ -1002,7 +1008,7 @@ export class PrintService {
             return { kind: 'retry' as const }
           }
           // 1등인데 데이터를 만들지 못하면(L-3 범위 밖 번호 등) 폐기하지 않는다 — 아래 라벨 오류 멈춤 (L-11 5: 폐기는 1등이 아닐 때만)
-          data = productLabelData(ctx.state, ctx.claims, { claim, version, buyer: parseBuyer(label.buyer) }, this.#amountMissing)
+          data = job.data === null ? productLabelData(ctx.state, ctx.claims, { claim, version, buyer: parseBuyer(label.buyer) }, this.#amountMissing) : JSON.parse(job.data) as ProductLabelData
         } else {
           data = job.data === null ? null : (JSON.parse(job.data) as PackingLabelData)
         }
@@ -1260,6 +1266,36 @@ export class PrintService {
    * 그 라벨 키에 그 범위의 PRINT_PRODUCT_LABEL 효과가 있으면(라벨 기능을 끈 동안 나와 작업이 되지 않은 효과) 라벨 키를 그 효과와 묶는다 —
    * 출력함이 되면 L-11 7대로 그 효과를 보고한다(N4a L-11 3·7, L-13 8, D-N4a-04)
    */
+  async directLabel(sellerId: string, accountId: string, requestId: string, b: string, input: { no: unknown; name: unknown; price: unknown }): Promise<ActionOutcome<{ jobs: JobView[] }>> {
+    const scope = await this.#broadcastScope(sellerId, b)
+    if (scope === null) return { kind: 'not_found' }
+    if (scope === 'rehearsal') return rejected(422, 'PRINT_REHEARSAL', PRINT_MESSAGES.rehearsal)
+    const { date } = scope
+    const runtime = await this.#options.writer.read(sellerId, date)
+    const { scopeId } = runtime
+    if (scopeId === null) return { kind: 'not_found' }
+    const checked = checkProductData({ ...input, date, buyer: { kind: 'youtube', name: '직접 인쇄' } })
+    if (!checked.ok || checked.data.name.length > 80) return rejected(422, 'LABEL_INVALID', '번호·품종·가격을 확인해 주세요.')
+    const result = await this.#db.transaction(async (tx) => {
+      const now = this.#now()
+      const queue = await lockQueue(tx, sellerId, now)
+      if (await findPrintRequest(tx, sellerId, requestId)) return 'duplicate'
+      if (!queue.labelsEnabled) return 'off'
+      const jobId = newJobId('m')
+      const key = 'direct:' + jobId
+      await insertLabels(tx, [{ sellerId, scopeId, date, key, kind: 'product', broadcast: b, no: checked.data.no, buyer: JSON.stringify(checked.data.buyer), createdAt: now }])
+      const label = await findLabel(tx, sellerId, scopeId, key)
+      if (!label) throw new Error('직접 인쇄 라벨을 만들지 못했어요.')
+      await insertJobs(tx, [{ sellerId, scopeId, labelId: label.id, date, jobId, kind: 'product', reason: 'manual', status: 'WAITING', queueOrder: queue.nextOrder, data: JSON.stringify(checked.data), requestedBy: accountId, createdAt: now }])
+      await insertPrintRequest(tx, sellerId, requestId, JSON.stringify({ date, jobs: [jobId] }), now)
+      await updateQueue(tx, sellerId, { nextOrder: queue.nextOrder + 1 }, now)
+      return jobId
+    })
+    if (result === 'off') return labelsOffRejected()
+    if (result !== 'duplicate') this.#notifyJobs(sellerId, date, [result])
+    return { kind: 'ok', value: { jobs: (await this.#priorJobs(sellerId, requestId)) ?? [] } }
+  }
+
   async printLabel(sellerId: string, accountId: string, requestId: string, b: string, claimId: string): Promise<ActionOutcome<{ jobs: JobView[] }>> {
     const prior = await this.#priorJobs(sellerId, requestId)
     if (prior !== null) return { kind: 'ok', value: { jobs: prior } }
@@ -1334,7 +1370,7 @@ export class PrintService {
    * 다시 출력 (L-8 5, L-11 9): 그 라벨 키의 작업이 출력함 또는 출력 안 함이고, 폐기되지 않았고, 대기·출력 중 작업이 없고,
    * 그 찜이 지금도 그 확정버전의 1등일 때만 새 작업(대기 맨 끝). version을 주지 않으면 그 찜의 마지막 라벨 키
    */
-  async reprintLabel(sellerId: string, accountId: string, requestId: string, b: string, claimId: string, version: number | null): Promise<ActionOutcome<{ jobs: JobView[] }>> {
+  async reprintLabel(sellerId: string, accountId: string, requestId: string, b: string, claimId: string, version: number | null, edits?: unknown): Promise<ActionOutcome<{ jobs: JobView[] }>> {
     const prior = await this.#priorJobs(sellerId, requestId)
     if (prior !== null) return { kind: 'ok', value: { jobs: prior } }
     const scope = await this.#broadcastScope(sellerId, b)
@@ -1374,6 +1410,19 @@ export class PrintService {
           await updateQueue(tx, sellerId, {}, now)
           return rejected(409, 'PRINT_WINNER_CHANGED', PRINT_MESSAGES.winnerChanged)
         }
+        let edited: ProductLabelData | null = null
+        if (edits !== undefined) {
+          const current = productLabelData(runtime.state, claims, { claim: claimId, version: label.version ?? -1, buyer: parseBuyer(label.buyer) }, this.#amountMissing)
+          if (current === null || typeof edits !== 'object' || edits === null || Array.isArray(edits)) return rejected(422, 'LABEL_INVALID', '라벨 내용을 확인해 주세요.')
+          const fields = edits as Record<string, unknown>
+          if (Object.keys(fields).some((k) => !['no', 'name', 'price', 'nickname'].includes(k))
+            || (fields['name'] !== undefined && (typeof fields['name'] !== 'string' || fields['name'].length > 80))
+            || (fields['nickname'] !== undefined && (current.buyer.kind !== 'youtube' || typeof fields['nickname'] !== 'string' || !fields['nickname'].trim() || fields['nickname'].length > 80 || containsPhoneRun(fields['nickname'])))) return rejected(422, 'LABEL_INVALID', '라벨 내용을 확인해 주세요.')
+          const { nickname, ...productFields } = fields
+          const valid = checkProductData({ ...current, ...productFields, ...(nickname === undefined ? {} : { buyer: { kind: 'youtube', name: nickname } }) })
+          if (!valid.ok) return rejected(422, 'LABEL_INVALID', valid.error.message)
+          edited = valid.data
+        }
         const jobId = newJobId('r')
         await insertJobs(tx, [
           {
@@ -1384,6 +1433,7 @@ export class PrintService {
             jobId,
             kind: 'product',
             reason: 'reprint',
+            data: edited === null ? null : JSON.stringify(edited),
             status: 'WAITING',
             queueOrder: queue.nextOrder,
             requestedBy: accountId,

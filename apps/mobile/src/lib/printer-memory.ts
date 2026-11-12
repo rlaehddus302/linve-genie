@@ -48,3 +48,29 @@ export function wirePrinterMemory(target: PrinterMemoryTarget, restore: (value: 
     () => undefined,
   )
 }
+
+/** 설치별 출력 기기 ID와 실물 프린터별 테스트 결과. 앱을 다시 열어도 같은 출력 기기를 쓴다. */
+export async function loadPrintMemory(storage: PrinterMemoryStorage, makeId: () => string) {
+  const deviceKey = 'livegenie.print.device'
+  const testsKey = 'livegenie.print.confirmed'
+  const [saved, raw] = await Promise.all([deviceKey, testsKey].map((key) => storage.getItem(key).catch(() => null)))
+  const deviceId = saved && /^[A-Za-z0-9_-]{8,64}$/.test(saved) ? saved : makeId()
+  if (deviceId !== saved) await storage.setItem(deviceKey, deviceId).catch(() => undefined)
+  let tested = new Set<string>()
+  try {
+    const values: unknown = JSON.parse(raw ?? '[]')
+    if (Array.isArray(values)) tested = new Set(values.filter((v): v is string => typeof v === 'string'))
+  } catch { /* 이전 저장값이 깨졌으면 새로 확인한다. */ }
+  let writes = Promise.resolve()
+  const printerTests = {
+    has: (id: string) => tested.has(id),
+    set: (id: string, yes: boolean) => {
+      if (tested.has(id) === yes) return
+      if (yes) tested.add(id)
+      else tested.delete(id)
+      const value = JSON.stringify([...tested])
+      writes = writes.then(() => storage.setItem(testsKey, value)).catch(() => undefined)
+    },
+  }
+  return { deviceId, printerTests }
+}

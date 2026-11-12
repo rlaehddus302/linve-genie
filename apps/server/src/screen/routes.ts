@@ -5,18 +5,19 @@
 //   한 판매자는 한 영상을 방송 하나에만 잇는다(VIDEO_IN_USE) — 요청 번호는 판매자마다 한 번만이라(events_request_uq) 같은 요청을 다시 보내도 방송마다 한 번.
 // 등록은 서버 단독 소리 등록(headless #register, D-LV1-14)과 같은 길: product.register + voiceLog(device livegenie-screen).
 // 같은 번호가 이미 있으면 엔진이 바꾸지 않는다(R-2, changed false). 고치기·번호 바꾸기는 하지 않는다(사람이 확인).
-import { and, eq, isNull } from 'drizzle-orm'
+import { getProduct } from '@livejjim/core'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { Hono } from 'hono'
 import { bearerMatches } from '../app.ts'
 import type { Db } from '../db/database.ts'
-import { broadcasts, youtubeLinks } from '../db/schema.ts'
+import { broadcasts, events, youtubeLinks } from '../db/schema.ts'
 import type { Service } from '../service.ts'
 
 export interface ScreenIntakeDeps {
   /** 일꾼 토큰 (LIVEJJIM_SCREEN_WORKER_TOKEN, 32자 이상). null이면 입구가 없다(404) */
   readonly token: string | null
   readonly db: Db
-  readonly service: Pick<Service, 'writeEvent'>
+  readonly service: Pick<Service, 'writeEvent' | 'writer'>
 }
 
 const VIDEO_RE = /^[A-Za-z0-9_-]{11}$/
@@ -54,7 +55,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     }
     if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
     const b = body as Record<string, unknown>
-    const allowed = new Set(['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId'])
+    const allowed = new Set(['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt'])
     if (Object.keys(b).some((k) => !allowed.has(k))) return bad('받을 수 없는 항목이 있어요.')
     const { videoId, no, price, requestId } = b
     const name = b.name ?? ''
@@ -68,13 +69,37 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (conf !== undefined && (typeof conf !== 'number' || !Number.isFinite(conf) || conf < 0 || conf > 1)) return bad('conf는 0~1이에요.')
     if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
 
+    const observedAt = b['observedAt']
+    if (observedAt !== undefined && (typeof observedAt !== 'number' || !Number.isSafeInteger(observedAt) || observedAt < 1 || observedAt > Date.now() + 5000)) return bad('인식한 시각을 확인해 주세요.')
     const open = await openBroadcastsOfVideo(deps.db, videoId)
     if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
     const voiceLog: Record<string, unknown> = { heard, source: 'voice', device: 'livegenie-screen', ...(conf === undefined ? {} : { conf }) }
     const results: { broadcastId: string; changed: boolean; duplicate: boolean }[] = []
     for (const { sellerId, broadcastId } of open) {
       const outcome = await deps.service.writeEvent(sellerId, { kind: 'server' }, requestId, { type: 'product.register', b: broadcastId, no, name, price, voiceLog }, undefined)
-      const result = outcome.kind === 'phone' ? outcome.outcome : outcome
+      let result = outcome.kind === 'phone' ? outcome.outcome : outcome
+      if (typeof observedAt === 'number' && (result.kind === 'duplicate' || (result.kind === 'ok' && !result.result.changed))) {
+        const [broadcast] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, sellerId)))
+        if (broadcast && getProduct((await deps.service.writer.read(sellerId, broadcast.date)).state, broadcastId, no)?.status === 'CLOSED') {
+          const reopenId = requestId + '-open'
+          let fresh = false
+          const reopened = await deps.service.writer.write({ sellerId, date: broadcast.date, rehearsal: false, createScope: false, requestId: reopenId,
+            guard: async (tx, runtime) => {
+              if (runtime.scopeId === null) return null
+              const [close] = await tx.select({ at: events.receivedAt }).from(events)
+                .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, runtime.scopeId), eq(events.type, 'product.close'), eq(events.changed, true),
+                  sql`${events.body}::jsonb->>'b' = ${broadcastId}`, sql`${events.body}::jsonb->>'no' = ${String(no)}`)).orderBy(desc(events.seq)).limit(1)
+              fresh = close !== undefined && observedAt > close.at.getTime()
+              return null
+            },
+            build: ({ state }) => fresh && getProduct(state, broadcastId, no)?.status === 'CLOSED' ? [
+              { fields: { type: 'product.update', b: broadcastId, no, name, price }, actor: { kind: 'server' }, requestId: reopenId },
+              { fields: { type: 'product.open', b: broadcastId, no }, actor: { kind: 'server' } },
+            ] : [],
+          })
+          if (reopened.kind !== 'empty') result = reopened
+        }
+      }
       if (result.kind === 'ok') results.push({ broadcastId, changed: result.result.changed, duplicate: false })
       else if (result.kind === 'duplicate') results.push({ broadcastId, changed: false, duplicate: true })
       // 하나라도 못 넣으면 오류로 돌려준다 — 일꾼이 다시 보내도 넣은 방송은 같은 요청 번호라 한 번만 들어간다

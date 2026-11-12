@@ -23,6 +23,8 @@ export const LABEL_ON_HELP_BODY = '찜이 확정되면 라벨을 바로 뽑아�
 /** 라벨 프린트 줄이 여는 곳 (한 단계는 /label-setup?step=, 출력 상태·농도는 /labels) */
 export interface LabelPrintNav {
   readonly openStep: (step: LabelSetupStep) => void
+  readonly openDirect?: () => void
+  readonly openHistory?: () => void
   readonly openStatus: () => void
 }
 
@@ -54,7 +56,7 @@ function useLabelPrint() {
  * 라이브 관리 안의 라벨 줄들 (D-UX4-130): 라벨 뽑기(켜고 끄기) · 프린터 연결(지금 프린터) › · 라벨 디자인 › · 테스트 인쇄 › · 출력 상태·농도 ›.
  * 흰 화면 줄 모양(PlainRow — 토스 "비밀번호 · 보안"). 부모는 화면 끝까지 넓어야 한다.
  */
-export function LabelPrintRows({ openStep, openStatus }: LabelPrintNav) {
+export function LabelPrintRows({ openStep, openStatus, openHistory, openDirect }: LabelPrintNav) {
   const { snapshot, busy, error, printerName, enabled, switchLabels } = useLabelPrint()
   const [help, setHelp] = useState(false)
   return (
@@ -72,6 +74,8 @@ export function LabelPrintRows({ openStep, openStatus }: LabelPrintNav) {
       <PlainRow title={LABEL_PRINT_ROWS.connect} value={printerName} testID="label-print-connect" onPress={() => openStep('connect')} />
       <PlainRow title={LABEL_PRINT_ROWS.design} testID="label-print-design" onPress={() => openStep('design')} />
       <PlainRow title={LABEL_PRINT_ROWS.test} testID="label-print-test" onPress={() => openStep('test')} />
+      {enabled && openDirect ? <PlainRow title="직접 인쇄" testID="label-print-direct" onPress={openDirect} /> : null}
+      {enabled && openHistory ? <PlainRow title="출력 내역" testID="label-print-history" onPress={openHistory} /> : null}
       <PlainRow title={LABEL_PRINT_ROWS.status} testID="label-print-status" onPress={openStatus} />
       <BottomSheet visible={help} onClose={() => setHelp(false)} title={LABEL_ON_HELP_TITLE}>
         <Txt step="bodyLarge" color="textSub">{LABEL_ON_HELP_BODY}</Txt>

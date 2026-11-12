@@ -257,7 +257,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     try {
       let no = product.no
       if (plan.no !== null) {
-        const result = await api.command({ type: 'product.renumber', b: api.b, from: product.no, to: plan.no })
+        const result = await api.command({ type: 'product.renumber', b: api.b, from: product.no, to: plan.no, ...(api.data.products.get(productKey(api.b, plan.no))?.status === 'CLOSED' ? { reuseClosed: true } : {}) })
         if (!result.changed) throw new Error('번호를 바꾸지 못했어요. 같은 번호 상품이 있는지 확인해 주세요.')
         no = plan.no
         onKey(productKey(api.b, no))
@@ -355,6 +355,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
             {editor ?? (
               <View style={{ paddingHorizontal: SPACE.xl }}>
                 {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
+                {plan !== null && !planEmpty(plan) ? <BigButton label={`${String(product.no)}번 변경사항 저장`} onPress={tryClose} /> : null}
                 <ProductDetail product={product} fields={null} onKey={onKey} onDone={discard} {...(onDecide === undefined ? {} : { onDecide })} />
               </View>
             )}

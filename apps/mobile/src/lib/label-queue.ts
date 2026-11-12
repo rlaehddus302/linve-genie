@@ -1,3 +1,4 @@
+import type { PrinterTests } from '../services.tsx'
 // 앱의 라벨 대기열 (APP-03·APP-04, LABEL_RULES L-11, 웹 lib/printer-station.ts와 같은 규칙 — 서버 대기열에서 한 장씩 받아 찍고 결과를 알린다).
 // - 연결은 판매자가 누른 동작 안에서만(BLE 모듈). 이 기기가 출력 기기이고 대기열이 멈추지 않았고 프린터가 연결돼 있으면 한 번에 한 장씩 받는다(claim).
 // - 그림은 서버가 만든다(APP-05) — 받은 그림을 BLE 모듈에 그대로 넘긴다. 결과는 같은 시도 번호로 알린다(네트워크 오류면 다시 보낸다).
@@ -89,6 +90,7 @@ export interface LabelQueueOptions {
   /** 라벨 그림을 공유 시트로 보낸다 (PR-07) */
   readonly share?: (png: Uint8Array, name: string) => Promise<void>
   readonly openStream: () => EventSourceLike
+  readonly printerTests?: PrinterTests
   readonly timer?: Timer
 }
 
@@ -178,11 +180,16 @@ export class LabelQueue {
   }
 
   /** 프린터 모듈의 지금 값 → 화면 (프로필이 바뀌어 농도 범위가 달라지면 그 프린터의 기본 농도로) */
+  #linkedId: string | null = null
+
   #syncPrinter(): void {
     const ble = this.#options.ble
     const range = ble.profile.density
     const linked = ble.state === 'CONNECTED' || ble.state === 'PRINTING'
     const profileId = connectedProfileId(ble)
+    const id = this.paperDeviceId
+    const same = linked && profileId === this.#snapshot.profileId && id === this.#linkedId
+    this.#linkedId = id
     this.#set({
       printer: ble.state,
       target: ble.target,
@@ -191,13 +198,15 @@ export class LabelQueue {
       densityRange: range,
       profileId,
       // 끊겼거나 다른 프린터가 이어졌으면 테스트 확인은 지난 일이다 (실험 기종은 그 연결에서 다시 확인 — L-7)
-      ...(linked && profileId === this.#snapshot.profileId ? {} : { testPrinted: false, testConfirmed: false }),
+      ...(!same ? { testPrinted: false, testConfirmed: false } : {}),
+      ...(id !== null && this.#options.printerTests ? { testConfirmed: this.#options.printerTests.has(id) } : {}),
     })
   }
 
   /** 테스트 결과의 답 ("예"는 이 연결에서 테스트 인쇄가 나온 뒤에만 받는다 — 실험 기종의 "이 기기에서 출력" 조건, L-7) */
   answerTest(yes: boolean): void {
     if (yes && !this.#snapshot.testPrinted) return
+    if (this.paperDeviceId !== null) this.#options.printerTests?.set(this.paperDeviceId, yes)
     this.#set({ testConfirmed: yes })
     this.#syncGate()
   }
@@ -383,6 +392,7 @@ export class LabelQueue {
   async printTest(): Promise<boolean> {
     // 작업을 받는 중·찍는 중이거나 이미 테스트 중이면 하지 않는다 — 두 출력이 겹치면 프린터가 바빠 작업이 멈춘다 (D-PRN2-29)
     if (this.#snapshot.job !== null || this.#snapshot.busy || this.#snapshot.testing) return false
+    if (this.paperDeviceId !== null) this.#options.printerTests?.set(this.paperDeviceId, false)
     this.#set({ testing: true, testPrinted: false, testConfirmed: false })
     // 테스트를 다시 하면 앞 "예"는 지난 일 — 실험 기종이면 연결 안 됨으로 알린다 (D-PRN2-10)
     this.#syncGate()

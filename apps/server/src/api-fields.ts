@@ -28,7 +28,7 @@ export const API_EVENTS: Readonly<Record<string, ApiEventSpec>> = {
   'product.hold': { broadcast: true, fields: BY_PRODUCT },
   'product.close': { broadcast: true, fields: [...BY_PRODUCT, VOICE_LOG_FIELD] },
   'product.update': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'applyTo', ...PRODUCT_OPTIONS, VOICE_LOG_FIELD] },
-  'product.renumber': { broadcast: true, fields: ['b', 'from', 'to', VOICE_LOG_FIELD] },
+  'product.renumber': { broadcast: true, fields: ['b', 'from', 'to', 'reuseClosed', VOICE_LOG_FIELD] },
   // O2: 지금 상품 정하기 (옵션 방송만, 화면은 5초 대기 없이 바로 보낸다 — D-O2-10)
   'product.focus': { broadcast: true, fields: BY_PRODUCT },
   // last4 (V1): 음성 문자찜의 뒤 4자리 — phone처럼 엔진 필드가 아니고 서버가 지정 구매자 또는 키·뒤 4자리로 바꾼다 (AC-V1-10)

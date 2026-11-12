@@ -2,7 +2,7 @@
 // D-SCR-04: 같은 영상에 이어진 방송이 여럿이면(판매자 여럿) 모두에 등록, 같은 요청은 방송마다 한 번.
 // 포트를 열지 않는다 — app.request로 /internal/screen/register를 부른다.
 import { describe, expect, it } from 'vitest'
-import { client, createBroadcast } from './support.ts'
+import { client, createBroadcast, expectOk, writeEvent } from './support.ts'
 import { connectSeller, linkedBroadcast, youtubeWorld } from './youtube-support.ts'
 
 const TOKEN = 'screen-worker-token-0123456789abcdef'
@@ -71,6 +71,21 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     expect(same.body).toMatchObject({ ok: true, changed: true })
     expect(repeat.status).toBe(200)
     expect((await products(world, connected.seller.cookie, b.date)).filter((p) => p.no === 238)).toHaveLength(1)
+  })
+
+  it('삭제 전 인식의 지연 전송은 무시하고 삭제 뒤의 새 333번은 가격과 품종을 바꿔 다시 연다', async () => {
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const connected = await connectSeller(world)
+    const { b, live } = await linkedBroadcast(world, connected)
+    const base = { videoId: live.videoId, no: 333, name: '오색글래머', price: 70000 }
+    await post(world, { ...base, requestId: 'screen-first-333' })
+    await expectOk(writeEvent(world, connected.seller, { b: b.id, type: 'product.close', no: 333 }))
+    const delayed = await post(world, { ...base, requestId: 'screen-late-333', observedAt: 1 })
+    expect(delayed.body).toMatchObject({ changed: false })
+    const next = { ...base, name: '수박색금', price: 50000, requestId: 'screen-next-333', observedAt: Date.now() }
+    expect((await post(world, next)).status).toBe(200)
+    expect((await products(world, connected.seller.cookie, b.date)).find((p) => p.no === 333)).toMatchObject({ status: 'OPEN', name: '수박색금', price: 50000 })
+    expect((await post(world, next)).body).toMatchObject({ duplicate: true })
   })
 
   it('60번에서 늦게 도착한 옛 음성 등록과 재시도는 가격을 선점하지 못하고 화면 일꾼의 가격만 등록된다', async () => {

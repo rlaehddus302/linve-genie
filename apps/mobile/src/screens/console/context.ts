@@ -1,4 +1,5 @@
 // 콘솔 화면 조각이 함께 쓰는 값 (웹 console-context와 같은 구실): 방송·범위 자료·이름 표기·쓰기 함수.
+import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { createContext, useContext } from 'react'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import type { BuyerNames } from '../../lib/derive.ts'
@@ -22,6 +23,7 @@ export interface ConsoleApi {
   /** 쓰기 뒤 따라잡은 가장 새 범위 자료 (찜 삭제 뒤 승계 확인 — D-UX4-25). 없으면 data */
   readonly latest?: () => ScopeData
   /** 라벨 상태 낱말 (찜 ID → 낱말, 리허설·모르면 없음) */
+  readonly productLabels?: readonly LabelView[]
   readonly labelWords: ReadonlyMap<string, string>
 }
 

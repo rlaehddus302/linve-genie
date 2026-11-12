@@ -80,6 +80,7 @@ class LlmRegister:
         self.prev_tag = None
         self.found = []                                      # LLM 줄 [{t, line, no, price, variety, confidence, why}]
         self.sent = {}                                       # 번호 → 보낸 상품(또는 안 보낸 까닭)
+        self.last_evidence = {}
         self.calls = 0
         self.log = open(os.path.join(out, "llm_live.jsonl"), "a", encoding="utf-8")
         self.lock = threading.Lock()
@@ -179,8 +180,14 @@ class LlmRegister:
                                "line": r["line"], "start_sec": start, "price": r["price"]})
                     continue
                 self.found.append(r)
-                if r["price"] and r["no"] not in self.sent:
-                    self._send(r)
+                if r["price"]:
+                    no = r["no"]
+                    previous = self.last_evidence.get(no)
+                    self.last_evidence[no] = max(r["t"], previous if previous is not None else r["t"])
+                    new_scene = previous is not None and r["t"] - previous > WINDOW and r.get("confidence") == "high" and any(
+                        mains.get(sec) == no for sec in range(int(start), int(end) + 1))
+                    if no not in self.sent or new_scene:
+                        self._send(r)
 
     def finish(self):
         """방송 끝: 남은 줄을 한 번 더 묻고 답을 다 받은 뒤, 가격이 있는데 아직 안 보낸 번호를 보낸다"""
@@ -225,9 +232,9 @@ class LlmRegister:
         """r = LLM 줄 하나(번호·가격이 있는 첫 답) — 품종이 비었으면 이미 받은 줄에서 그 번호의 품종을 찾는다"""
         no, price, name = r["no"], r["price"], r["variety"]
         if not name:
-            name = next((f["variety"] for f in self.found if f["no"] == no and f["variety"]), None)
+            name = next((f["variety"] for f in reversed(self.found) if f["no"] == no and abs(f["t"] - r["t"]) <= WINDOW and f["variety"]), None)
         conf = CONF.get(str(r.get("confidence")).lower(), 0.7)
-        lines = [f["line"] for f in self.found if f["no"] == no] or [r["line"]]
+        lines = [f["line"] for f in self.found if f["no"] == no and abs(f["t"] - r["t"]) <= WINDOW] or [r["line"]]
         now = time.time()
         line = r["line"]
         rec = {"kind": "LLM등록", "no": no, "start_sec": r["t"], "start_hms": B.hms(r["t"]), "price": price, "name": name, "conf": conf,
@@ -239,6 +246,9 @@ class LlmRegister:
         elif self.poster:
             from . import post
             body = post.make_body(self.video_id, no, price, name or "", self._heard(lines), conf)
+            if body is not None:
+                observed = int(self.seen.get(line, now) * 1000)
+                body.update(observedAt=observed, requestId=f"screen-{self.video_id}-{no}-{observed}")
             if body is None:
                 why = "보낼 수 없는 값"
             else:

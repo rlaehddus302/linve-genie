@@ -172,7 +172,7 @@ const SPECS: Readonly<Record<string, Spec>> = {
     nested: productOptionShapes,
     texts: productOptionTexts,
   },
-  'product.renumber': { required: { [BROADCAST]: id, from: no, to: no } },
+  'product.renumber': { required: { [BROADCAST]: id, from: no, to: no }, optional: { reuseClosed: bool } },
   'product.focus': { required: BY_PRODUCT },
   chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
   sms: {

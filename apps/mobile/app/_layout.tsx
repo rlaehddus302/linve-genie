@@ -8,7 +8,7 @@ import { CryptoDigestAlgorithm, CryptoEncoding, digestStringAsync, getRandomByte
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { openAuthSessionAsync, openBrowserAsync } from 'expo-web-browser'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { Linking } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { installProductionNative, PrinterDevicePicker } from '../src/native/production.tsx'
@@ -17,7 +17,8 @@ import { setWebOpener } from '../src/lib/open-web.ts'
 import { setPlatformOpener } from '../src/lib/open-app.ts'
 import { setClipboardReader, setClipboardWriter } from '../src/lib/clipboard.ts'
 import { setSocialNative, toBase64Url } from '../src/lib/social-auth.ts'
-import { createServices, ServicesProvider, SessionProvider, useServices, useSession } from '../src/services.tsx'
+import { loadPrintMemory } from '../src/lib/printer-memory.ts'
+import { makeDeviceId, createServices, ServicesProvider, SessionProvider, useServices, useSession } from '../src/services.tsx'
 import { KeptStreamAudio } from '../src/screens/console/StreamAudio.tsx'
 import { TAB_SCREENS } from '../src/lib/tab-routes.ts'
 import { RouteSwipeProvider } from '../src/ui/kit/route-swipe.tsx'
@@ -84,8 +85,16 @@ function StreamKeeper() {
   return <KeptStreamAudio session={services.voice} keep={services.streamKeep} signedIn={session.state === 'in'} />
 }
 
+const readyServices = loadPrintMemory(AsyncStorage, makeDeviceId).then(createServices)
+
 export default function RootLayout() {
-  const services = useMemo(() => createServices(), [])
+  const [services, setServices] = useState<Awaited<typeof readyServices> | null>(null)
+  useEffect(() => {
+    let mounted = true
+    void readyServices.then((ready) => { if (mounted) setServices(ready) })
+    return () => { mounted = false }
+  }, [])
+  if (services === null) return null
   return (
     <SafeAreaProvider>
       <ServicesProvider services={services}>

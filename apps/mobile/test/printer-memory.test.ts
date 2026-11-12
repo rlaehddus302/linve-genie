@@ -2,7 +2,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import type { RememberedPrinter } from '@livejjim/printer'
-import { PRINTER_MEMORY_KEY, readPrinterMemory, wirePrinterMemory, type PrinterMemoryStorage, type PrinterMemoryTarget } from '../src/lib/printer-memory.ts'
+import { loadPrintMemory, PRINTER_MEMORY_KEY, readPrinterMemory, wirePrinterMemory, type PrinterMemoryStorage, type PrinterMemoryTarget } from '../src/lib/printer-memory.ts'
 
 class MemoryStorage implements PrinterMemoryStorage {
   readonly data = new Map<string, string>()
@@ -77,4 +77,15 @@ describe('wirePrinterMemory', () => {
     await expect(wirePrinterMemory(target, () => undefined, storage)).resolves.toBeUndefined()
     expect(() => target.listener?.(BT)).not.toThrow()
   })
+})
+
+it('다시 연 앱은 같은 출력 기기이며 테스트를 통과한 실물 프린터만 기억한다', async () => {
+  const storage = new MemoryStorage()
+  const first = await loadPrintMemory(storage, () => 'app-first')
+  first.printerTests.set('printer-A', true)
+  await Promise.resolve()
+  const second = await loadPrintMemory(storage, () => 'app-second')
+  expect(second.deviceId).toBe(first.deviceId)
+  expect(second.printerTests.has('printer-A')).toBe(true)
+  expect(second.printerTests.has('printer-B')).toBe(false)
 })

@@ -141,7 +141,9 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     const rehearsal = rehearsalQuery(c)
     if (rehearsal === 'bad') return invalid([{ field: 'rehearsal', message: '리허설 범위는 rehearsal=true로 적어 주세요.' }])
     if (rehearsal !== null) return rehearsal
-    const view = await print.labels(sellerOf(c), date)
+    const history = c.req.query('historyBroadcast')
+    if (history !== undefined && !REF_RE.test(history)) return invalid([{ field: 'historyBroadcast', message: '방송을 골라 주세요.' }])
+    const view = await print.labels(sellerOf(c), date, history)
     return view === null ? notFound() : c.json(view)
   })
 
@@ -280,6 +282,17 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
   })
 
   // ── 판매자 조치 (L-11 3·9·12) ──────────────────────────────────────────
+  api.post('/print/labels/direct', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'b', 'no', 'name', 'price'])
+    if (extra !== null) return extra
+    const b = own(input, 'b')
+    if (typeof b !== 'string' || !REF_RE.test(b)) return invalid([{ field: 'b', message: '방송을 골라 주세요.' }])
+    return outcome(c, await print.directLabel(sellerOf(c), accountOf(c), requestId, b, { no: own(input, 'no'), name: own(input, 'name'), price: own(input, 'price') }))
+  })
+
   api.post('/print/labels/print', async (c) => {
     const input = body(c)
     const requestId = requestIdOf(input)
@@ -299,7 +312,7 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     const input = body(c)
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
-    const extra = onlyKeys(input, ['requestId', 'b', 'claim', 'version'])
+    const extra = onlyKeys(input, ['requestId', 'b', 'claim', 'version', 'edits'])
     if (extra !== null) return extra
     const b = own(input, 'b')
     const claim = own(input, 'claim')
@@ -309,7 +322,7 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     if (typeof claim !== 'string' || !REF_RE.test(claim)) problems.push({ field: 'claim', message: '찜을 골라 주세요.' })
     if (version !== undefined && (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1)) problems.push({ field: 'version', message: '확정버전은 1 이상의 정수로 적어 주세요.' })
     if (problems.length > 0) return invalid(problems)
-    return outcome(c, await print.reprintLabel(sellerOf(c), accountOf(c), requestId, b as string, claim as string, typeof version === 'number' ? version : null))
+    return outcome(c, await print.reprintLabel(sellerOf(c), accountOf(c), requestId, b as string, claim as string, typeof version === 'number' ? version : null, own(input, 'edits')))
   })
 
   api.post('/print/packing', async (c) => {

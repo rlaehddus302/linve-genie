@@ -24,7 +24,7 @@ export default function ManageRoute() {
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/console/[id]', params: { id } }))
   return (
     <RouteFrame>
-        <ManageScreen broadcastId={id} onBack={back} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console') }} onEnded={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))} />
+        <ManageScreen broadcastId={id} onBack={back} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console'), openDirect: () => router.push({ pathname: '/console/[id]/print-history', params: { id, mode: 'direct' } }), openHistory: () => router.push({ pathname: '/console/[id]/print-history', params: { id } }) }} onEnded={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))} />
       </RouteFrame>
   )
 }

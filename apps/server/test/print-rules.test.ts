@@ -62,6 +62,48 @@ describe('AC-I1-04 엔진 상태 → 라벨 데이터 (L-9)', () => {
     expect((await labelReports(world)).length).toBe(1)
   })
 
+  it('377번의 저장된 품종과 이번 한 장의 수정값을 구분하고 재요청은 한 장만 만든다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    await register(world, seller, b.id, 377, '녹근')
+    await expectOk(writeEvent(world, seller, { type: 'product.update', b: b.id, no: 377, name: '녹금' }))
+    await chat(world, seller, b.id, 'UC_A', '손님', '377')
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller)
+    const first = (await p.claim(DEVICE_A)).job!
+    expect(first.data.name).toBe('녹금')
+    await p.done(DEVICE_A, first.attempt)
+    const edits = { name: '녹금 선물', nickname: '포장용', price: 5000 }
+    const input = { b: b.id, claim: first.label.claim, requestId: rid('copy'), edits }
+    await expectOk(p.api.post('/api/print/labels/reprint', input))
+    await expectOk(p.api.post('/api/print/labels/reprint', input))
+    const copy = (await p.claim(DEVICE_A)).job!
+    expect(copy.data).toMatchObject({ no: 377, name: '녹금 선물', price: 5000, buyer: { kind: 'youtube', name: '포장용' } })
+    await p.done(DEVICE_A, copy.attempt)
+    expect((await p.claim(DEVICE_A)).job).toBeNull()
+    const history = await expectOk(p.api.get(`/api/print/labels?date=${DAY}&historyBroadcast=${b.id}`))
+    expect(history.body).toMatchObject({ labels: [{ data: { name: '녹금', price: 10000 }, history: [{ data: { name: '녹금' } }, { data: { name: '녹금 선물' } }] }] })
+  })
+
+  it('직접 인쇄는 찜 없이 대기열과 출력 내역에 한 장을 남긴다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller)
+    const body = { b: b.id, no: 333, name: '수박색금', price: 50000, requestId: rid('direct') }
+    await expectOk(p.api.post('/api/print/labels/direct', body))
+    await expectOk(p.api.post('/api/print/labels/direct', body))
+    await register(world, seller, b.id, 334)
+    const job = (await p.claim(DEVICE_A)).job!
+    expect(job.data).toMatchObject({ no: 333, name: '수박색금', price: 50000 })
+    await p.done(DEVICE_A, job.attempt)
+    expect((await p.claim(DEVICE_A)).job).toBeNull()
+    expect(await claimsOf(world, seller)).toEqual([])
+    expect((await p.api.get(`/api/print/labels?date=${DAY}&historyBroadcast=${b.id}`)).body).toMatchObject({ labels: [{ history: [{ data: { no: 333 } }] }] })
+  })
+
   it('(라) 문자찜 지정 구매자가 유튜브 채널이어도 문자찜 (마) 문자 구매자를 유튜브 시청자에 합쳐도 문자찜 라벨은 문자찜, 유튜브 쪽은 그 채널 이름', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)

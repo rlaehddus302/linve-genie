@@ -577,7 +577,8 @@ function update(d: Draft, e: ProductUpdateEvent): void {
 function renumber(d: Draft, e: ProductRenumberEvent): void {
   if (e.from === e.to) return
   if (!d.readSlot(slotKey(e.b, e.from))?.product) return
-  if (d.readSlot(slotKey(e.b, e.to))?.product) return
+  const target = d.readSlot(slotKey(e.b, e.to))?.product
+  if (target && !(e.reuseClosed === true && target.phase === 'CLOSED')) return
   const from = d.slot(e.b, e.from)
   const product = from.product as ProductRecord
   // a의 확정·대기·충돌 찜은 잠금·입금과 상관없이 REJECTED(RENUMBERED). 승계 없음. 번호 a의 보류 찜은 그대로 (변형 자리마다)

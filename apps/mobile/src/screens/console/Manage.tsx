@@ -144,7 +144,7 @@ export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink,
 
         {showLabels && labels !== undefined ? (
           <MenuGroup title="라벨·프린터">
-            <LabelPrintRows openStep={labels.openStep} openStatus={labels.openStatus} />
+            <LabelPrintRows openStep={labels.openStep} openStatus={labels.openStatus} {...(seller && labels.openDirect ? { openDirect: labels.openDirect } : {})} {...(seller && labels.openHistory ? { openHistory: labels.openHistory } : {})} />
           </MenuGroup>
         ) : null}
 

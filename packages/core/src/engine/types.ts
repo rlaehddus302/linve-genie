@@ -163,6 +163,7 @@ export interface ProductFocusEvent extends EventBase {
 /** 번호 변경 (R-10, D-056) */
 export interface ProductRenumberEvent extends EventBase {
   readonly type: 'product.renumber'
+  readonly reuseClosed?: boolean
   readonly b: string
   readonly from: number
   readonly to: number

@@ -80,7 +80,7 @@ export interface LabelView extends LabelRef {
   readonly discard: number
   readonly reprintNeeded: boolean
   readonly printed: number
-  readonly history: readonly { readonly at: string; readonly device: string }[]
+  readonly history: readonly { readonly at: string; readonly device: string; readonly jobId?: string; readonly data?: ProductLabelData | null }[]
   readonly winner: boolean
   readonly data: LabelData | null
   readonly canPrint: boolean

@@ -25,7 +25,7 @@ export interface Services {
   readonly streamKeep: StreamKeep
 }
 
-/** 기기 ID (영문·숫자·'_'·'-' 8~64자). 앱이 켜져 있는 동안 하나 — 출력 기기 역할은 다시 열면 다시 고른다 */
+/** 기기 ID (영문·숫자·'_'·'-' 8~64자). 설치 때 한 번 만들어 저장한다 */
 export function makeDeviceId(random: () => number = Math.random): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
   let out = 'app'
@@ -67,11 +67,16 @@ async function closeFromVoice(broadcastId: string, no: number): Promise<void> {
   await withRetry(() => post<WriteResult>('/api/events', { requestId, type: 'product.close', b: broadcastId, no }))
 }
 
-export function createServices(input: { readonly audio?: NativeAudio; readonly ble?: NativeBlePrinter; readonly deviceId?: string; readonly stream?: LiveStream } = {}): Services {
+export interface PrinterTests {
+  has(id: string): boolean
+  set(id: string, yes: boolean): void
+}
+
+export function createServices(input: { readonly audio?: NativeAudio; readonly ble?: NativeBlePrinter; readonly deviceId?: string; readonly printerTests?: PrinterTests; readonly stream?: LiveStream } = {}): Services {
   const deviceId = input.deviceId ?? makeDeviceId()
   const stream = input.stream ?? createLiveStream(() => deviceId)
   const away = new AwayTracker()
-  const labels = new LabelQueue({ ble: input.ble ?? nativeBle(), share: nativeShare(), deviceId, openStream: () => stream.open() })
+  const labels = new LabelQueue({ ble: input.ble ?? nativeBle(), share: nativeShare(), ...(input.printerTests ? { printerTests: input.printerTests } : {}), deviceId, openStream: () => stream.open() })
   const voice = new VoiceSession({
     audio: input.audio ?? nativeAudio(),
     deviceId,

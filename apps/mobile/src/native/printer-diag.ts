@@ -128,6 +128,7 @@ export function diagManager(manager: BleManager): BleManagerLike {
       manager.onDeviceDisconnected(id, (error, device) => {
         if (error !== null) bleError('lost', error)
         else diag('lost')
+        diagFlush('link_closed')
         listener(error, device)
       }),
     discoverAllServicesAndCharacteristicsForDevice: (id, transactionId) => watch('discover', () => manager.discoverAllServicesAndCharacteristicsForDevice(id, transactionId)),
