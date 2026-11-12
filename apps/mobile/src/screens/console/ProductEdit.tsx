@@ -334,7 +334,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
       <View style={{ paddingHorizontal: SPACE.xl }}>
         <BigButton label={EDIT_DONE} onPress={done} />
       </View>
-      {field === 'name' ? null : <NumberKeys onKey={type} />}
+      {field === 'name' ? null : <NumberKeys doubleZero={field === 'price'} onKey={type} />}
     </View>
   )
 

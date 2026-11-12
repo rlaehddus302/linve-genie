@@ -379,7 +379,7 @@ export function PhoneVerify({ send, verify, back, busyText }: PhoneVerifyProps) 
             title={PHONE_ASK_TITLE}
             testID="phone-step"
             footer={<BigButton label={PHONE_NEXT} onPress={nextFromPhone} disabled={digits.length !== 11} busy={sending} testID="phone-next" />}
-            keys={<NumberKeys phone onKey={typePhoneKey} />}
+            keys={<NumberKeys doubleZero={false} onKey={typePhoneKey} />}
           >
             <View style={{ marginTop: PAGE.titleGap }}>
               <UnderlineField

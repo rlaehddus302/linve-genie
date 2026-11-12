@@ -34,8 +34,8 @@ export const BIG = TYPE.amount
 /** 숫자판 키 높이 */
 const KEY_HEIGHT = 64
 const PAD: readonly (readonly string[])[] = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['00', '0', 'back']]
-/** 휴대폰 번호 숫자판 — 00 자리는 비운다 (D-UX4-132, 사용자 지시 2026-11-12 "00 버튼만 빼고") */
-const PHONE_PAD: readonly (readonly string[])[] = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['', '0', 'back']]
+/** 상품 번호·휴대폰 번호 숫자판 — 00 자리는 비운다 (D-UX4-132, 사용자 지시 2026-11-12 "00 버튼만 빼고") */
+const DIGIT_PAD: readonly (readonly string[])[] = [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['', '0', 'back']]
 
 /** 방송에 번호 끝이 없을 때 번호 칸이 받는 가장 큰 수 (네 자리) */
 const NO_FALLBACK_MAX = 9999
@@ -114,7 +114,7 @@ export function padKeyAt(x: number, y: number, width: number, pad: readonly (rea
   const column = Math.min(2, Math.max(0, Math.floor(((x - SPACE.sm) / inner) * 3)))
   const row = Math.min(pad.length - 1, Math.max(0, Math.floor((y - SPACE.xs) / KEY_HEIGHT)))
   const value = pad[row]?.[column] ?? null
-  // 빈 자리(휴대폰 번호 숫자판의 00 자리)는 키가 아니다
+  // 빈 자리(번호 숫자판의 00 자리)는 키가 아니다
   return value === '' ? null : value
 }
 
@@ -226,10 +226,10 @@ function TouchKeys({ onKey, pad }: { readonly onKey: (value: string) => void; re
   )
 }
 
-/** 앱 숫자판 (다른 화면도 쓴다). 휴대폰은 손가락마다 받는 숫자판, 웹(시험)은 키마다 누르는 단추. phone: 휴대폰 번호 — 00 자리 비움 (D-UX4-132) */
-export function NumberKeys({ onKey, phone = false }: { readonly onKey: (value: string) => void; readonly phone?: boolean }) {
-  const pad = phone ? PHONE_PAD : PAD
-  if (Platform.OS !== 'web') return <TouchKeys onKey={onKey} pad={pad} />
+/** 앱 숫자판 (다른 화면도 쓴다). 휴대폰은 손가락마다 받는 숫자판, 웹(시험)은 키마다 누르는 단추. 번호 입력은 00 자리를 비운다 (D-UX4-132) */
+export function NumberKeys({ onKey, doubleZero = true }: { readonly onKey: (value: string) => void; readonly doubleZero?: boolean }) {
+  const pad = doubleZero ? PAD : DIGIT_PAD
+  if (Platform.OS !== 'web') return <TouchKeys key={doubleZero ? 'amount' : 'digits'} onKey={onKey} pad={pad} />
   return (
     <View role="group" aria-label="숫자판" style={{ paddingHorizontal: SPACE.sm, paddingTop: SPACE.xs }}>
       {pad.map((row) => (
@@ -692,7 +692,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
       <NextButton onPress={onNext} disabled={active.trim() === '' || shownError !== null} />
       {step === 'name' ? null : (
         <View style={{ paddingBottom: footer }}>
-          <NumberKeys onKey={type} />
+          <NumberKeys doubleZero={step === 'price'} onKey={type} />
         </View>
       )}
     </Animated.View>

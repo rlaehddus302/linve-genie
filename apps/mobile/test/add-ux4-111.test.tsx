@@ -35,6 +35,8 @@ const typePad = (digits: readonly string[]) => {
 describe('상품 추가 (D-UX4-111)', () => {
   it('빈 큰 칸은 맨 앞에 글자 자리 표시(서서히 깜빡임)가 있고, 치기 시작하면 없어진다', async () => {
     const { page } = await openAdd()
+    expect(within(page).queryByRole('button', { name: '00' })).toBeNull()
+    expect(within(page).getByRole('button', { name: '0' })).toBeTruthy()
     const empty = within(page).getByRole('status', { name: ASK_NO })
     const caret = getComputedStyle(within(empty).getByTestId('soft-cursor'))
     expect(caret.position).toBe('absolute')
