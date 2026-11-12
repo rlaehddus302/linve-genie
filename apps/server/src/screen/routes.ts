@@ -4,7 +4,7 @@
 // D-SCR-04: 같은 영상에 이어진 방송이 여럿이면(판매자 여럿이 같은 라이브를 이음 — 초대받은 방송, D-LV1-15와 같게) 그 방송 모두에 등록한다.
 //   한 판매자는 한 영상을 방송 하나에만 잇는다(VIDEO_IN_USE) — 요청 번호는 판매자마다 한 번만이라(events_request_uq) 같은 요청을 다시 보내도 방송마다 한 번.
 // 등록은 서버 단독 소리 등록(headless #register, D-LV1-14)과 같은 길: product.register + voiceLog(device livegenie-screen).
-// 같은 번호가 이미 있으면 엔진이 바꾸지 않는다(R-2, changed false). 고치기·번호 바꾸기는 하지 않는다(사람이 확인).
+// 같은 번호가 이미 있으면 엔진이 바꾸지 않는다(R-2, changed false). 번호 바꾸기는 아래 /internal/screen/renumber(D-SCR-06)만.
 import { getProduct } from '@livejjim/core'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { Hono } from 'hono'
@@ -111,6 +111,68 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     return json({ ok: true, changed: results.some((r) => r.changed), ...(results.every((r) => r.duplicate) ? { duplicate: true } : {}), broadcastId: first.broadcastId, no, broadcasts: results }, 200)
   })
   app.all('/internal/screen/register', () => json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'POST만 받아요.' } }, 405))
+  // 잘못 들은 번호 바로잡기 `POST /internal/screen/renumber` (D-SCR-06, 사용자 2026-11-12 "391을 392로 잘못 알아먹고 등록했는데 … 화면 인식 통해서 392는 잘못된거라고 판정"):
+  // 받는 값 { videoId, from, to, requestId }. 방송마다 기록 트랜잭션 안의 지금 상태로 다시 보고, 아래가 모두 맞을 때만 product.renumber(from → to):
+  //   - from은 화면 일꾼이 등록한 상품(요청 번호 screen-…)이고 판매 종료가 아니며 옵션 상품이 아니고 1등·대기·충돌 찜이 없다 (찜이 있으면 사람이 본다)
+  //   - to 번호에는 상품이 없다. 있으면: 일꾼이 `drop: true`(to를 from보다 뒤에 따로 등록했음 — 같은 상품을 두 번호로 들은 것)를 보냈을 때만 from을 판매 종료(지움), 아니면 그대로
+  // 가격·품종은 그대로 따라가고, to로 들어와 있던 보류 찜은 번호를 바꾸는 순간 판정된다(R-10·R-5). 하나라도 안 맞으면 바꾸지 않고 까닭을 돌려준다.
+  app.post('/internal/screen/renumber', async (c) => {
+    if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
+    if (!bearerMatches(c.req.header('authorization'), deps.token)) return json({ error: { code: 'UNAUTHORIZED', message: '일꾼 토큰이 필요해요.' } }, 401)
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return bad('JSON이 아니에요.')
+    }
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
+    const b = body as Record<string, unknown>
+    if (Object.keys(b).some((k) => !['videoId', 'from', 'to', 'requestId', 'drop'].includes(k))) return bad('받을 수 없는 항목이 있어요.')
+    const { videoId, from, to, requestId } = b
+    const drop = b['drop'] === true
+    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
+    const isNo = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 9999
+    if (!isNo(from) || !isNo(to) || from === to) return bad('from·to는 서로 다른 1~9999 정수예요.')
+    if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
+    const open = await openBroadcastsOfVideo(deps.db, videoId)
+    if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    const results: { broadcastId: string; changed: boolean; skip?: string }[] = []
+    for (const { sellerId, broadcastId } of open) {
+      const [broadcast] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, sellerId)))
+      if (broadcast === undefined) continue
+      let byScreen = false
+      let skip: string | undefined
+      const outcome = await deps.service.writer.write({
+        sellerId, date: broadcast.date, rehearsal: false, createScope: false, requestId,
+        guard: async (tx, runtime) => {
+          if (runtime.scopeId === null) return null
+          const [row] = await tx.select({ requestId: events.requestId }).from(events)
+            .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, runtime.scopeId), eq(events.type, 'product.register'), eq(events.changed, true),
+              sql`${events.body}::jsonb->>'b' = ${broadcastId}`, sql`${events.body}::jsonb->>'no' = ${String(from)}`)).orderBy(desc(events.seq)).limit(1)
+          byScreen = row?.requestId?.startsWith('screen-') === true
+          return null
+        },
+        build: ({ state }) => {
+          const product = getProduct(state, broadcastId, from)
+          if (product === null || product.status === 'CLOSED') skip = 'NO_PRODUCT'
+          else if (!byScreen) skip = 'NOT_SCREEN'
+          else if (product.hasOptions || product.winners.length > 0 || product.waitlist.length > 0 || product.conflict) skip = 'HAS_CLAIMS'
+          else if (getProduct(state, broadcastId, to) !== null) {
+            const target = getProduct(state, broadcastId, to)
+            if (!drop || target === null || target.status === 'CLOSED') skip = 'TARGET_EXISTS'
+            else return [{ fields: { type: 'product.close', b: broadcastId, no: from }, actor: { kind: 'server' }, requestId }]
+          }
+          return skip === undefined ? [{ fields: { type: 'product.renumber', b: broadcastId, from, to }, actor: { kind: 'server' }, requestId }] : []
+        },
+      })
+      if (outcome.kind === 'ok') results.push({ broadcastId, changed: outcome.result.changed })
+      else if (outcome.kind === 'empty' || outcome.kind === 'duplicate') results.push({ broadcastId, changed: false, ...(skip === undefined ? {} : { skip }) })
+      else if (outcome.kind === 'rejected') results.push({ broadcastId, changed: false, skip: outcome.rejection.code })
+      else return json({ error: { code: 'SAVE_FAILED', message: '저장하지 못했어요.' } }, 503)
+    }
+    return json({ ok: true, changed: results.some((r) => r.changed), from, to, broadcasts: results }, 200)
+  })
+  app.all('/internal/screen/renumber', () => json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'POST만 받아요.' } }, 405))
   // 지금 볼 라이브 (D-SCR-02): 일꾼이 30초마다 묻고, 목록에 생긴 영상에 붙고 빠진 영상에서 떨어진다 — 끊지 않은 연결 + 끝나지 않은 방송의 유튜브 영상 번호만(판매자 정보 없이)
   app.get('/internal/screen/live', async (c) => {
     if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)

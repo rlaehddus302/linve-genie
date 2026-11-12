@@ -141,6 +141,36 @@ class Poster:
             self.items.append({"body": body, "first": now, "tries": 0, "next": now})
             self.cv.notify()
 
+    def renumber(self, vid, frm, to, drop=False):
+        """잘못 들은 번호 바로잡기(D-SCR-06): from → to를 뒤 스레드에서 한 번 보낸다(네트워크 오류면 3번까지). 서버가 지금 상태로 다시 보고 안전할 때만 바꾼다"""
+        base = self.url.rsplit("/", 1)[0]
+        body = {"videoId": vid, "from": int(frm), "to": int(to), "requestId": f"screen-{vid}-fix-{int(frm)}-{int(to)}"}
+        if drop:
+            body["drop"] = True                              # to를 뒤에 따로 등록함 — 서버가 from을 지운다(찜 없을 때만)
+
+        def go():
+            for wait in (0, 5, 15):
+                time.sleep(wait)
+                try:
+                    token = read_token(self.token_file)
+                except (OSError, ValueError) as e:
+                    log(f"번호 바로잡기 {frm}→{to} → 토큰 파일을 못 읽음({type(e).__name__})")
+                    return
+                status, res = http_json("POST", base + "/renumber", token, body)
+                if status == 200 and isinstance(res, dict):
+                    skips = [r.get("skip") for r in res.get("broadcasts", []) if r.get("skip")]
+                    log(f"번호 바로잡기 {frm}번 → {to}번: " + (("지움" if drop else "바꿈") if res.get("changed") else f"그대로({', '.join(skips) or '바뀐 것 없음'})"))
+                    if self.logf:
+                        self.logf.write(json.dumps({"at": stamp(), "fix": [frm, to], "result": res}, ensure_ascii=False) + "\n")
+                        self.logf.flush()
+                    return
+                if status is not None and status < 500:
+                    log(f"번호 바로잡기 {frm}→{to} → 거절(HTTP {status})")
+                    return
+            log(f"번호 바로잡기 {frm}→{to} → 서버에 못 보냄")
+
+        threading.Thread(target=go, name="renumber", daemon=True).start()
+
     def pending(self):
         with self.cv:
             return len(self.items) + self.busy

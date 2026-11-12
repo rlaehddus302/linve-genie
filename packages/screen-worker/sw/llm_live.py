@@ -30,6 +30,13 @@ PAR = int(os.environ.get("LLM_REG_PAR", 4))            # 동시에 묻는 수(�
 SCREEN_WAIT = 3.0                                      # 화면 읽기가 그 줄 끝까지 오기를 이만큼(실제 초)만 기다린다
 CUE = re.compile(r"[0-9번만천원]")
 CONF = {"high": 0.9, "medium": 0.7, "low": 0.5}
+# 잘못 들은 번호 바로잡기 (D-SCR-06, 사용자 2026-11-12 "391을 392로 잘못 알아먹고 등록 … 화면 인식 통해서 392는 잘못된거라고 판정"):
+# 보낸 번호 N이 그 말 5초 앞부터 화면에 한 번도 안 읽혔는데, 그동안 다른 번호표 M이 크게 FIX_FRAMES초 이상 보였고
+# M을 아직 보내지 않았으면 서버에 N → M 번호 바꾸기를 묻는다(서버가 찜·M 상품 유무를 다시 보고 안전할 때만 바꾼다).
+# 말한 뒤 FIX_MIN초까지는 기다리고(번호표를 늦게 드는 판매자), FIX_MAX초가 지나면 그 번호는 더 보지 않는다.
+FIX_FRAMES = int(os.environ.get("LLM_FIX_FRAMES", 15))
+FIX_MIN = float(os.environ.get("LLM_FIX_MIN", 20))
+FIX_MAX = float(os.environ.get("LLM_FIX_MAX", 180))
 
 
 def span_note(i, t, ends, cand, mains):
@@ -81,6 +88,7 @@ class LlmRegister:
         self.found = []                                      # LLM 줄 [{t, line, no, price, variety, confidence, why}]
         self.sent = {}                                       # 번호 → 보낸 상품(또는 안 보낸 까닭)
         self.last_evidence = {}
+        self.watch = {}                                      # 보낸 번호 → 말한 줄 시작(방송 초) — 화면으로 맞는지 볼 것 (D-SCR-06)
         self.calls = 0
         self.log = open(os.path.join(out, "llm_live.jsonl"), "a", encoding="utf-8")
         self.lock = threading.Lock()
@@ -189,6 +197,41 @@ class LlmRegister:
                     if no not in self.sent or new_scene:
                         self._send(r)
 
+        self._check_numbers(cand, mains)
+
+    def _check_numbers(self, cand, mains):
+        """D-SCR-06: 보낸 번호가 화면에 안 보이고 다른 번호표만 오래 보이면 그 번호로 바꿔 달라고 서버에 묻는다"""
+        now = self.screen_top
+        for no, start in list(self.watch.items()):
+            secs = range(int(start) - 5, int(now) + 1)
+            if any(no in cand.get(x, ()) for x in secs) or now - start > FIX_MAX:
+                del self.watch[no]                           # 화면에서 봤다(맞음) 또는 너무 오래됨
+                continue
+            if now - start < FIX_MIN:
+                continue
+            seen = collections.Counter(mains[x] for x in secs if mains.get(x) is not None and mains[x] != no)
+            if not seen:
+                continue
+            tag, frames = seen.most_common(1)[0]
+            if frames < FIX_FRAMES:
+                continue
+            # tag를 이미 보냈으면: 이 번호를 말한 뒤에 따로 등록한 것(같은 상품을 두 번호로 들음, 실방송 392 → 391)일 때만 이 번호를 지운다.
+            # 앞서 등록한 상품의 번호표가 아직 보이는 것(다음 상품 번호를 먼저 말함)은 건드리지 않는다
+            other = self.sent.get(tag)
+            drop = other is not None
+            if drop and not (other.get("sent") and "fixed_from" not in other and other.get("start_sec", -1) >= start - 5):
+                continue
+            del self.watch[no]
+            rec = {"kind": "LLM번호바로잡기", "from": no, "to": tag, "drop": drop, "frames": frames, "start_sec": start, "sent": bool(self.poster)}
+            self.emit(rec)
+            print(f"           번호 바로잡기 {no}번 → {tag}번{' (지움)' if drop else ''} (화면에 {no}번은 안 보이고 {tag}번이 {frames}초)", flush=True)
+            if self.poster:
+                self.poster.renumber(self.video_id, no, tag, drop=drop)
+            # 잘못 들은 번호는 보낸 것으로 남겨 같은 말을 다시 받아도 또 등록하지 않는다(화면에 그 번호가 보이면 new_scene으로만)
+            if not drop:
+                self.sent[tag] = dict(self.sent.get(no, {}), no=tag, fixed_from=no)
+            self.sent[no] = dict(self.sent.get(no, {}), fixed_to=tag)
+
     def finish(self):
         """방송 끝: 남은 줄을 한 번 더 묻고 답을 다 받은 뒤, 가격이 있는데 아직 안 보낸 번호를 보낸다"""
         self.tick(final=True)
@@ -254,6 +297,8 @@ class LlmRegister:
             else:
                 self.poster.send(body)
         rec["sent"] = bool(self.poster) and why is None
+        if rec["sent"]:
+            self.watch[no] = r["t"]
         if why:
             rec["skip"] = why
         self.sent[no] = rec
