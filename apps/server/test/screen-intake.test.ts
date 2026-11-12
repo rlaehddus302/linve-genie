@@ -1,7 +1,10 @@
 // D-SCR-01 화면 일꾼 입구: 토큰·요청 모양·영상 번호로 방송 찾기·등록·같은 번호 다시 보냄·같은 요청 다시 보냄.
 // D-SCR-04: 같은 영상에 이어진 방송이 여럿이면(판매자 여럿) 모두에 등록, 같은 요청은 방송마다 한 번.
 // 포트를 열지 않는다 — app.request로 /internal/screen/register를 부른다.
+import { renderProductLabel } from '@livejjim/label'
+import { createNodeRenderEnv } from '@livejjim/label/node'
 import { describe, expect, it, vi } from 'vitest'
+import { becomeDevice, chat, DEVICE_A, printApi } from './print-support.ts'
 import { client, createBroadcast, expectOk, writeEvent } from './support.ts'
 import { connectSeller, linkedBroadcast, youtubeWorld } from './youtube-support.ts'
 
@@ -131,29 +134,35 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     }
   })
 
-  it('공동 관리에 참여한 두 계정은 377번의 수정·삭제를 양방향으로 받고 주문은 따로 둔다', async () => {
+  it('같은 영상에 연결된 두 계정은 377번의 수정·삭제를 양방향으로 받고 주문은 따로 둔다', async () => {
     const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
     const one = await connectSeller(world)
     const { b: b1, live } = await linkedBroadcast(world, one)
     // 다른 판매자가 같은 라이브를 잇는다(D-LV1-15)
     const two = await connectSeller(world, { channelTitle: '두 번째 가게' })
     const b2 = await createBroadcast(world, two.seller)
+    await expectOk(writeEvent(world, one.seller, {type:'product.register',b:b1.id,no:376,name:'기존 상품',price:10000}))
+    const other = await connectSeller(world, {channelTitle:'다른 라이브'})
+    const isolated = await linkedBroadcast(world, other)
     const linked2 = await client(world, two.seller.cookie).post(`/api/broadcasts/${b2.id}/youtube`, { requestId: `link-${b2.id}`, video: `https://www.youtube.com/watch?v=${live.videoId}`, confirmInvited: true })
     expect(linked2.status, JSON.stringify(linked2.body)).toBe(200)
 
-    const a = client(world, one.seller.cookie)
-    const c = client(world, two.seller.cookie)
-    const path = (b: string) => `/api/broadcasts/${b}/product-team`
-    const team = await expectOk(a.post(path(b1.id), {}))
-    expect((await c.post(path(b2.id), { code: '1234567890123456' })).status).toBe(409)
+    await vi.waitFor(async () => expect(await products(world,two.seller.cookie,b2.date)).toContainEqual(expect.objectContaining({no:376})))
+    await becomeDevice(world, two.seller)
     await expectOk(writeEvent(world, one.seller, { type:'product.register',b:b1.id,no:377,name:'녹근',price:50000 }))
-    await expectOk(c.post(path(b2.id), {code:team.body.code}))
     const theirs = () => products(world,two.seller.cookie,b2.date).then((list) => list.find((p) => p.no===377))
     await vi.waitFor(async () => expect(await theirs()).toMatchObject({ name:'녹근' }))
     await expectOk(writeEvent(world, one.seller, {type:'product.update',b:b1.id,no:377,name:'녹금'}))
+    await chat(world, two.seller, b2.id, 'UC_B', '손님', '377')
+    const job = (await printApi(world, two.seller).claim(DEVICE_A)).job
+    expect(job?.data).toMatchObject({no:377,name:'녹금',price:50000})
+    const label = renderProductLabel(createNodeRenderEnv(), job?.template, job?.data)
+    expect(label.ok && label.layout.items.find(item => item.id === 'name')?.valueLines).toEqual(['녹금'])
     await vi.waitFor(async () => expect(await theirs()).toMatchObject({name:'녹금'}))
-    await expectOk(writeEvent(world, two.seller, {type:'product.close',b:b2.id,no:377}))
-    await vi.waitFor(async () => expect((await products(world,one.seller.cookie,b1.date)).find((p) => p.no===377)).toMatchObject({status:'CLOSED'}))
+    await expectOk(writeEvent(world, two.seller, {type:'product.register',b:b2.id,no:378,name:'테스트',price:10000}))
+    await expectOk(writeEvent(world, two.seller, {type:'product.close',b:b2.id,no:378}))
+    await vi.waitFor(async () => expect((await products(world,one.seller.cookie,b1.date)).find((p) => p.no===378)).toMatchObject({status:'CLOSED'}))
+    expect(await products(world,other.seller.cookie,isolated.b.date)).toHaveLength(0)
   })
 
   it('D-SCR-02 지금 볼 라이브: 토큰 없으면 404·틀리면 401, 이어진 방송의 영상 번호만, 방송을 끝내면 빠진다', async () => {

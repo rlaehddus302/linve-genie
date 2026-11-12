@@ -95,6 +95,7 @@ export interface BuildContext {
 }
 
 export interface WriteJob {
+  readonly applyingCatalog?: boolean
   readonly sellerId: string
   readonly date: string
   /** 리허설 범위에 쓰는지 (D-081). 방송이 있는 이벤트는 그 방송의 범위를 따른다 */
@@ -205,6 +206,7 @@ export interface CommitListener {
 }
 
 export interface WriterOptions {
+  readonly beforeLiveWrite?: (seller: string, date: string) => Promise<void>
   readonly db: Db
   readonly engine: EngineAdapter
   readonly clock: Clock
@@ -409,7 +411,8 @@ export class ScopeWriter {
     return this.readDetached(sellerId, date, rehearsal)
   }
 
-  write(job: WriteJob): Promise<WriteOutcome> {
+  async write(job: WriteJob): Promise<WriteOutcome> {
+    if (!job.rehearsal && !job.applyingCatalog) await this.#options.beforeLiveWrite?.(job.sellerId, job.date)
     return this.serial(job.sellerId, job.date, job.rehearsal, () => this.#write(job))
   }
 

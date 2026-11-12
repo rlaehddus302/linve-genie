@@ -1,6 +1,7 @@
 // 유튜브 연결 표의 질의 (방송 잇기·수집기·우리 메시지·알림). 모두 판매자 ID 조건을 건다(SYS-02).
 // 워커가 판매자를 가리지 않고 할 일을 찾는 질의(수집할 것·요약할 것)는 그 행의 판매자 ID를 함께 돌려주고, 이어서 쓰는 질의는 그 판매자 ID를 건다.
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm'
+import { syncOnVideoLink } from '../screen/catalog.ts'
 import type { Db } from '../db/database.ts'
 import { broadcasts, events, outbox, scopes, youtubeCollectors, youtubeConnections, youtubeLinks, youtubeNotices, youtubeOwnMessages } from '../db/schema.ts'
 
@@ -216,6 +217,7 @@ export async function insertLink(
     ...(row.startedAt === null && row.upcomingCheckAt !== undefined ? { reason: 'NOT_STARTED', resumeAt: row.upcomingCheckAt } : {}),
     updatedAt: row.now,
   })
+  await syncOnVideoLink(db, row.videoId)
 }
 
 export async function unlinkRow(db: Db, sellerId: string, linkId: string, by: string | null, now: Date): Promise<boolean> {

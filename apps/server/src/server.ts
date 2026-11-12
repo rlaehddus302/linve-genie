@@ -513,6 +513,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   })
   const viewCaches = new ViewCacheBudget({ now: () => clock.now() })
   const writer = new ScopeWriter({
+    beforeLiveWrite: (seller, date) => catalog.beforeWrite(seller, date),
     db,
     engine,
     clock,
@@ -646,6 +647,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     options.youtube === undefined
       ? null
       : new YoutubeSystem({
+          syncCatalog: (seller, date) => catalog.beforeWrite(seller, date),
           db,
           masterKey,
           timer,
@@ -867,7 +869,6 @@ export function createServer(options: ServerOptions): LivejjimServer {
   const app = createApp({
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
-      catalog,
       screenProducts,
       log,
       service,

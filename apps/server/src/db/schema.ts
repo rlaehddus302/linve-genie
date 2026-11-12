@@ -2782,12 +2782,9 @@ export const buyerInfoCards = pgTable(
   (t) => [index('buyer_info_cards_seller_idx').on(t.sellerId, t.status, t.createdAt), index('buyer_info_cards_created_idx').on(t.createdAt)],
 )
 
-export const liveCatalogMembers = pgTable('live_catalog_members', {
-  sellerId: text('seller_id').notNull().references(() => sellers.id),
-  broadcastId: text('broadcast_id').notNull().references(() => broadcasts.id),
-  videoId: text('video_id').notNull(),
-  team: text('team').notNull(),
-}, (t) => [primaryKey({ columns: [t.sellerId, t.broadcastId, t.videoId] }), index('live_catalog_team_idx').on(t.team, t.videoId)])
+export const liveCatalogBackfill = pgTable('live_catalog_backfill', {
+  videoId: text('video_id').primaryKey(),
+})
 
 export const liveCatalogDelivery = pgTable('live_catalog_delivery', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
@@ -2801,7 +2798,7 @@ export const liveCatalogDelivery = pgTable('live_catalog_delivery', {
 }, (t) => [index('live_catalog_delivery_wait').on(t.sellerId, t.broadcastId, t.id).where(sql`not ${t.done}`)])
 
 export const schema = {
-  liveCatalogMembers,
+  liveCatalogBackfill,
   liveCatalogDelivery,
   voiceAliases,
   sellers,

@@ -358,6 +358,13 @@
       "when": 1794960000024,
       "tag": "0050_live_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794960000025,
+      "tag": "0051_automatic_live_catalog",
+      "breakpoints": true
     }
   ]
 }

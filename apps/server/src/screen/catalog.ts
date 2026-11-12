@@ -1,17 +1,16 @@
-// 공동 운영이 확인된 판매자의 같은 라이브 사이에서 상품 편집만 전달한다.
+// 같은 유튜브 라이브 사이에서 상품 편집만 전달한다.
 // 원본 쓰기와 같은 트랜잭션에 넣고, 각 수신 방송은 편집 순서대로 처리한다.
-import { randomBytes } from 'node:crypto'
 import { getProduct } from '@livejjim/core'
 import { sql, type SQL } from 'drizzle-orm'
-import { scopeLockKey } from '../db/schema.ts'
 import type { Db } from '../db/database.ts'
 import type { ScopeWriter, TxHookContext, Draft } from '../writer.ts'
 
 type Edit = {
-  type: 'product.update' | 'product.register' | 'product.close' | 'product.renumber'
+  type: 'product.open' | 'product.update' | 'product.register' | 'product.close' | 'product.renumber'
   no: number
   name: string
   price: number
+  linkId?: string
   from?: number
   setName: boolean
   setPrice: boolean
@@ -30,11 +29,12 @@ export async function enqueueCatalogEdits(tx: Db, ctx: TxHookContext) {
     const e = record.event
     if (
       !record.changed ||
-      !['product.update', 'product.register', 'product.close', 'product.renumber'].includes(e.type) ||
+      !['product.open', 'product.update', 'product.register', 'product.close', 'product.renumber'].includes(e.type) ||
       !('b' in e)
     )
       continue
     if (
+      e.type !== 'product.open' &&
       e.type !== 'product.update' &&
       e.type !== 'product.register' &&
       e.type !== 'product.close' &&
@@ -45,37 +45,45 @@ export async function enqueueCatalogEdits(tx: Db, ctx: TxHookContext) {
     const no = e.type === 'product.renumber' ? e.to : e.no
     const product = getProduct(ctx.states[index]!, e.b, no)
     if (!product) continue
-    const member = await rows<{ team: string; video_id: string }>(
-      tx,
-      sql`
-      SELECT m.team,m.video_id FROM live_catalog_members m JOIN youtube_links l ON l.seller_id=m.seller_id AND l.broadcast_id=m.broadcast_id AND l.video_id=m.video_id
-      WHERE m.seller_id=${ctx.sellerId} AND m.broadcast_id=${e.b} AND l.unlinked_at IS NULL
-        AND EXISTS (SELECT 1 FROM events WHERE scope_id=${ctx.scopeId} AND seq=${record.seq} AND actor='account') LIMIT 1`,
-    )
-    const team = member[0]
-    if (!team) continue
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${team.team}), hashtext(${team.video_id}))`)
+    const [link] = await rows<{ video_id: string }>(tx, sql`
+      SELECT l.video_id FROM youtube_links l JOIN broadcasts b ON b.id=l.broadcast_id
+      WHERE l.seller_id=${ctx.sellerId} AND l.broadcast_id=${e.b} AND l.unlinked_at IS NULL AND b.ended_at IS NULL
+        AND EXISTS (SELECT 1 FROM events WHERE scope_id=${ctx.scopeId} AND seq=${record.seq} AND actor='account') LIMIT 1`)
+    if (!link) continue
+    await lockVideo(tx, link.video_id)
     const edit: Edit = {
       type: e.type,
       no,
       name: product.name,
       price: product.price,
       ...(e.type === 'product.renumber' ? { from: e.from } : {}),
-      setName: e.type !== 'product.update' || e.name !== undefined,
-      setPrice: e.type !== 'product.update' || e.price !== undefined,
+      setName: e.type !== 'product.open' && (e.type !== 'product.update' || e.name !== undefined),
+      setPrice: e.type !== 'product.open' && (e.type !== 'product.update' || e.price !== undefined),
     }
     await tx.execute(sql`INSERT INTO live_catalog_delivery (seller_id,broadcast_id,scope_date,body)
-      SELECT DISTINCT m.seller_id,m.broadcast_id,b.date,${JSON.stringify(edit)}::jsonb FROM live_catalog_members m
-      JOIN broadcasts b ON b.id=m.broadcast_id AND b.seller_id=m.seller_id
-      JOIN youtube_links l ON l.seller_id=m.seller_id AND l.broadcast_id=m.broadcast_id AND l.video_id=m.video_id
-      WHERE m.team=${team.team} AND m.video_id=${team.video_id} AND l.unlinked_at IS NULL AND b.ended_at IS NULL`)
+      SELECT DISTINCT l.seller_id,l.broadcast_id,b.date,(${JSON.stringify(edit)}::text::jsonb || jsonb_build_object('linkId',l.id)) FROM youtube_links l
+      JOIN broadcasts b ON b.id=l.broadcast_id AND b.seller_id=l.seller_id JOIN scopes s ON s.id=b.scope_id AND NOT s.rehearsal
+      WHERE l.video_id=${link.video_id} AND l.unlinked_at IS NULL AND b.ended_at IS NULL`)
     queued = true
   }
   return queued
 }
 
+async function lockVideo(tx: Db, video: string) {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('live-catalog'),hashtext(${video}))`)
+}
+
+export async function syncOnVideoLink(tx: Db, video: string) {
+  await lockVideo(tx, video)
+  const participants = await rows<{ id: string; seller_id: string; broadcast_id: string; date: string }>(tx, sql`
+    SELECT DISTINCT l.id,l.seller_id,l.broadcast_id,b.date FROM youtube_links l
+    JOIN broadcasts b ON b.id=l.broadcast_id AND b.seller_id=l.seller_id JOIN scopes s ON s.id=b.scope_id AND NOT s.rehearsal
+    WHERE l.video_id=${video} AND l.unlinked_at IS NULL AND b.ended_at IS NULL`)
+  if (participants.length > 1) await mergeExisting(tx, participants)
+}
+
 /** 합류 전 각 계정에서 저장된 상품 이벤트를 순서대로 합친 최종값만 전달한다. */
-async function mergeExisting(tx: Db, participants: { seller_id: string; broadcast_id: string; date: string }[]) {
+async function mergeExisting(tx: Db, participants: { id: string; seller_id: string; broadcast_id: string; date: string }[]) {
   const ids = participants.map((p) => p.broadcast_id)
   const history = await rows<{
     kind: string
@@ -127,11 +135,12 @@ async function mergeExisting(tx: Db, participants: { seller_id: string; broadcas
   for (const member of participants) {
     if (latest.size)
       await tx.execute(sql`INSERT INTO live_catalog_delivery(seller_id,broadcast_id,scope_date,body)
-      SELECT ${member.seller_id},${member.broadcast_id},${member.date},value FROM jsonb_array_elements(${JSON.stringify([...latest.values()])}::jsonb)`)
+      SELECT ${member.seller_id},${member.broadcast_id},${member.date},value || jsonb_build_object('linkId',${member.id}::text) FROM jsonb_array_elements(${JSON.stringify([...latest.values()])}::text::jsonb)`)
   }
 }
 
 export class CatalogDelivery {
+  #backfilled = false
   #running = false
   #stopped = false
   #timer?: ReturnType<typeof setInterval>
@@ -141,50 +150,16 @@ export class CatalogDelivery {
     this.db = db
     this.writer = writer
   }
-  async team(seller: string, b: string, invite: string | null) {
-    const links = await rows<{ video_id: string; date: string }>(
-      this.db,
-      sql`SELECT l.video_id,b.date FROM youtube_links l JOIN broadcasts b ON b.seller_id=l.seller_id AND b.id=l.broadcast_id
-      WHERE l.seller_id=${seller} AND l.broadcast_id=${b} AND b.ended_at IS NULL AND l.unlinked_at IS NULL LIMIT 1`,
-    )
-    const link = links[0]
-    if (!link) return null
-    const existing = await rows<{ team: string }>(
-      this.db,
-      sql`SELECT team FROM live_catalog_members WHERE seller_id=${seller} AND broadcast_id=${b} AND video_id=${link.video_id}`,
-    )
-    if (existing[0]) return invite === null || invite === existing[0].team ? existing[0].team : null
-    const code = invite ?? randomBytes(12).toString('base64url')
-    const owners =
-      invite === null
-        ? []
-        : await rows<{ seller_id: string; broadcast_id: string; date: string }>(
-            this.db,
-            sql`
-      SELECT m.seller_id,m.broadcast_id,b.date FROM live_catalog_members m JOIN broadcasts b ON b.id=m.broadcast_id AND b.seller_id=m.seller_id
-      JOIN youtube_links l ON l.broadcast_id=m.broadcast_id AND l.seller_id=m.seller_id AND l.video_id=m.video_id
-      WHERE m.team=${code} AND m.video_id=${link.video_id} AND b.ended_at IS NULL AND l.unlinked_at IS NULL ORDER BY m.broadcast_id`,
-          )
-    const host = owners[0]
-    if (invite !== null && !host) return null
-    const joined = await this.db.transaction(async (tx) => {
-      const member = { seller_id: seller, broadcast_id: b, date: link.date }
-      const participants = [...owners, member].sort((a, b) => a.seller_id.localeCompare(b.seller_id))
-      for (const p of participants)
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(${scopeLockKey(p.seller_id, p.date, false)})`)
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${code}),hashtext(${link.video_id}))`)
-      const linked = await rows<{ team: string }>(
-        tx,
-        sql`INSERT INTO live_catalog_members (seller_id,broadcast_id,video_id,team)
-        SELECT ${seller},${b},${link.video_id},${code} WHERE EXISTS (SELECT 1 FROM youtube_links WHERE seller_id=${seller} AND broadcast_id=${b} AND video_id=${link.video_id} AND unlinked_at IS NULL)
-        ON CONFLICT DO NOTHING RETURNING team`,
-      )
-      if (!linked[0]) return null
-      if (host) await mergeExisting(tx, participants)
-      return code
-    })
-    if (joined && host) void this.drain()
-    return joined
+  /** Wait outside the destination writer lock so its pending edits precede the next claim. */
+  async beforeWrite(seller: string, date: string) {
+    const pending = () => rows(this.db, sql`SELECT 1 FROM live_catalog_delivery
+      WHERE seller_id=${seller} AND scope_date=${date} AND NOT done LIMIT 1`)
+    const deadline = Date.now() + 15000
+    while ((await pending()).length) {
+      if (Date.now() >= deadline) throw new Error('Catalog delivery pending')
+      await this.drain()
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
   }
   start() {
     this.#timer ??= setInterval(() => {
@@ -202,6 +177,13 @@ export class CatalogDelivery {
     if (this.#running || this.#stopped) return
     this.#running = true
     try {
+      if (!this.#backfilled) {
+        await this.db.transaction(async tx => {
+          const videos = await rows<{video_id: string}>(tx, sql`DELETE FROM live_catalog_backfill RETURNING video_id`)
+          for (const {video_id} of videos) await syncOnVideoLink(tx, video_id)
+        })
+        this.#backfilled = true
+      }
       for (let i = 0; i < 64 && !this.#stopped; i++) {
         const got = await rows<Delivery>(
           this.db,
@@ -217,11 +199,19 @@ export class CatalogDelivery {
         const requestId = 'catalog-' + String(item.id)
         let problem: string | null = null
         const result = await this.writer.write({
+          applyingCatalog: true,
           sellerId: item.seller_id,
           date: item.scope_date,
           rehearsal: false,
           createScope: false,
           requestId,
+          guard: async tx => {
+            if (!edit.linkId) return null
+            const linked = await rows(tx, sql`SELECT 1 FROM youtube_links l JOIN broadcasts b ON b.id=l.broadcast_id
+              WHERE l.id=${edit.linkId} AND l.seller_id=${item.seller_id} AND l.broadcast_id=${b}
+              AND l.unlinked_at IS NULL AND b.ended_at IS NULL`)
+            return linked.length ? null : {status:409,code:'REQUEST_ERROR',message:'라이브 연결이 끝났어요.',problems:[]}
+          },
           build: ({ state }) => {
             const target = getProduct(state, b, edit.no)
             const drafts: Draft[] = []
@@ -249,7 +239,7 @@ export class CatalogDelivery {
                   ...(name ? { name: edit.name } : {}),
                   ...(price ? { price: edit.price, applyTo: 'NEW_ONLY' } : {}),
                 })
-              if (edit.type === 'product.register' && target.status === 'CLOSED') add({ type: 'product.open', no: edit.no })
+              if ((edit.type === 'product.register' || edit.type === 'product.open') && target.status === 'CLOSED') add({ type: 'product.open', no: edit.no })
             }
             return drafts
           },

@@ -193,6 +193,7 @@ export interface LinkHooks {
 }
 
 export interface YoutubeSystemOptions {
+  readonly syncCatalog?: (seller: string, date: string) => Promise<void>
   readonly db: Db
   readonly masterKey: Buffer
   readonly timer: Timer
@@ -591,6 +592,7 @@ export class YoutubeSystem {
       throw error
     }
     if (refused !== null) return { kind: 'rejected', status: 409, code: refused }
+    await this.#options.syncCatalog?.(sellerId, row.date)
     this.collectors.wake()
     const view = await this.#linkView(sellerId, await activeLink(db, sellerId, b))
     this.#options.publish(sellerId, { kind: 'collector', broadcast: b, date: row.date, collector: view.collector })
@@ -742,6 +744,7 @@ export class YoutubeSystem {
       throw error
     }
     if (refused !== null) return { kind: 'rejected', status: 409, code: refused }
+    await this.#options.syncCatalog?.(sellerId, row.date)
     this.collectors.wake()
     const view = await this.#linkView(sellerId, await activeLink(db, sellerId, b))
     this.#options.publish(sellerId, { kind: 'collector', broadcast: b, date: row.date, collector: view.collector })

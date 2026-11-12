@@ -32,7 +32,6 @@ import { registerChatDoubtRoutes } from './voice/doubts.ts'
 import { registerStreamAudioRoutes } from './voice/stream-routes.ts'
 import type { HeadlessVoice } from './voice/headless.ts'
 import type { StreamAudioService } from './voice/stream-service.ts'
-import type { CatalogDelivery } from './screen/catalog.ts'
 import { registerPrintRoutes } from './print-api.ts'
 import { registerReadRoutes } from './read-routes.ts'
 import type { InstagramModule } from './instagram/index.ts'
@@ -87,7 +86,6 @@ const IMPORT_REGISTER_PATH = /^\/api\/broadcasts\/[^/]+\/import$/
 const HISTORY_LIMIT_MAX = 500
 
 export interface ApiDeps {
-  readonly catalog?: Pick<CatalogDelivery, 'team'>
   readonly screenProducts?: boolean
   readonly voiceAliases?: VoiceAliases
   /** D-V3-127 내 품종 장부. 없으면 /api/voice/varieties 경로가 없다 */
@@ -490,13 +488,6 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   })
 
   // ── 방송 (AC-S04-21) ──────────────────────────────────────────────────
-  api.post('/broadcasts/:id/product-team', async (c) => {
-    if (!deps.catalog) return notFound()
-    const code = own(body(c), 'code')
-    if (code !== undefined && (typeof code !== 'string' || !/^[A-Za-z0-9_-]{16}$/.test(code))) return apiError(400, 'REQUEST_ERROR', '공동 관리 코드를 확인해 주세요.')
-    const team = await deps.catalog.team(sellerOf(c), c.req.param('id'), typeof code === 'string' ? code : null)
-    return team === null ? apiError(409, 'REQUEST_ERROR', '같은 라이브에 연결된 계정의 코드를 확인해 주세요.') : c.json({ code: team })
-  })
   api.get('/broadcasts', async (c) => c.json({ broadcasts: await service.broadcasts(sellerOf(c)) }))
   api.post('/broadcasts', async (c) => {
     const input = body(c)

@@ -14,7 +14,6 @@ import { Notice } from '../../ui/parts.tsx'
 import { LABEL_PRINT_TITLE, LabelPrintRows, type LabelPrintNav } from '../LabelPrintScreen.tsx'
 import { useConsoleApi } from './context.ts'
 import { EndBroadcastRow } from './EndBroadcast.tsx'
-import { CatalogTeam } from './CatalogTeam.tsx'
 import { LinkInfo, hasLinkedLive } from './LinkInfo.tsx'
 import { MenuGroup, PLAIN, PlainRow } from './parts.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
@@ -131,7 +130,6 @@ export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink,
       <View style={{ gap: SPACE.md, backgroundColor: p.background }}>
         {linked || showLink ? (
           <MenuGroup title="방송 정보">
-            {seller && linked && !closed && !rehearsal ? <CatalogTeam id={broadcastId} /> : null}
             {linked && yt !== undefined ? <LinkInfo grouped broadcastId={broadcastId} yt={yt} closed={closed} /> : null}
             {showLink ? <PlainRow title={LINK_TITLE} onPress={onShowLink} /> : null}
           </MenuGroup>
