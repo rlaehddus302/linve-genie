@@ -1,11 +1,4 @@
-// 상품 자세히 아래 창 + 고치기 (D-UX4-106, 사용자 지시 2026-11-10):
-// "수정할 영역을 눌렀을 때 아래팝업을 하프 화면으로 늘려서 좌우 하단 여백 없이 흰색으로 채우고 수정할때 기존값을 플레이스홀더로 두고 입력 시작하면 날라가게 해
-//  마치 상품 추가하는 화면처럼 … 키보드 ui도 상품 추가 화면과 동일한 경험 … 키보드 위에 확인 누르면 키보드만 닫기고 수정할까요? 묻거나 해당 화면을 내리진 마
-//  값들 수정하고 이제 화면 닫으면 팝업으로 '1번 품종a 10,000원에서 ⏎ 2번 품종 b 20,000원으로 바꿀까요?' 아니요 / 바꿀게요 … 바뀐부분에 포인트 컬러"
-// - 번호·품종·가격 칸을 누르면 아래 창이 화면 아래에 붙은 반 화면 판(양옆·아래 여백 없음, 흰색)으로 커진다.
-// - 큰 칸은 비어 있고 옛 값이 회색 자리 글. 번호·가격은 상품 추가와 같은 앱 숫자판, 품종은 휴대폰 키보드. 숫자판·키보드 바로 위 [확인]은 키보드만 닫는다.
-// - 고친 값은 바로 보내지 않는다. 창을 닫을 때(끌어내리기·바깥·뒤로) 바뀐 것이 있으면 팝업으로 묻고 [바꿀게요]면 그때 보낸다. [아니요]면 버리고 닫는다.
-// - 비운 칸은 "안 바꿈". 잘못된 값(없는 번호·100원 미만·이미 있는 번호)은 칸 아래 빨간 글 — 닫으려 해도 창이 남아 고치게 한다.
+// 상품 수정은 입력의 확인 버튼에서 저장한다. 저장하지 않고 닫을 때는 변경 내용을 묻는다.
 import { useEffect, useRef, useState } from 'react'
 import { Animated, Keyboard, TextInput, View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
@@ -139,6 +132,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
   const [again, setAgain] = useState(0)
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
+  const saving = useRef(false)
   const lastKey = useRef(product?.key)
   const reset = () => {
     setHalf(false)
@@ -180,9 +174,9 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     if (which === 'price' && Number(text) < 100) return '가격은 100원 이상으로 적어 주세요.'
     return null
   }
-  const firstWrong = (): { readonly field: EditField; readonly message: string } | null => {
+  const firstWrong = (values = draft): { readonly field: EditField; readonly message: string } | null => {
     for (const which of ['no', 'name', 'price'] as const) {
-      const message = wrong(which, draft[which])
+      const message = wrong(which, values[which])
       if (message !== null) return { field: which, message }
     }
     return null
@@ -196,7 +190,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     setField(which)
   }
   const type = (key: string) => {
-    if (field === null || field === 'name') return
+    if (saving.current || field === null || field === 'name') return
     const which = field
     setError(null)
     // 상품 추가와 같은 숫자판 규칙 — 00으로 넘겨도 친 것을 보여 주고, 이미 넘친 뒤에 더 치면 흔든다 (D-UX4-111)
@@ -208,18 +202,6 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
       }
       return { ...was, [which]: next }
     })
-  }
-  /** [확인]: 키보드(숫자판)만 닫는다 — 묻거나 창을 내리지 않는다 */
-  const done = () => {
-    if (field === null) return
-    const message = wrong(field, draft[field])
-    if (message !== null) {
-      setError(message)
-      setAgain((count) => count + 1)
-      return
-    }
-    Keyboard.dismiss()
-    setField(null)
   }
   /** 창을 닫으려 할 때(끌어내리기·바깥·뒤로): 바뀐 것이 있으면 묻는다 */
   const tryClose = () => {
@@ -245,14 +227,25 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
   const finish = () => {
     setAsking(false)
     setTimeout(() => {
+      saving.current = false
+      setBusy(false)
       reset()
       onClose()
     }, 0)
   }
   const discard = finish
-  const apply = async () => {
-    if (product === undefined) return
-    const plan = editPlan(product, draft)
+  const apply = async (values = draft) => {
+    if (product === undefined || closed || saving.current) return
+    const bad = firstWrong(values)
+    if (bad !== null) {
+      setField(bad.field)
+      setError(bad.message)
+      setAgain(count => count + 1)
+      return
+    }
+    saving.current = true
+    Keyboard.dismiss()
+    const plan = editPlan(product, values)
     setBusy(true)
     try {
       let no = product.no
@@ -265,9 +258,9 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
       // 가격은 원문 칸으로 보낸다(SRV1 약속 2) — "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 품종도 같이 바뀌면 한 번에
       if (plan.price !== null) await api.command({ type: 'product.update', b: api.b, noText: String(no), priceText: `${String(plan.price)}원`, ...(plan.name === null ? {} : { name: plan.name }) })
       else if (plan.name !== null) await api.command({ type: 'product.update', b: api.b, no, name: plan.name })
-      setBusy(false)
       finish()
     } catch (caught) {
+      saving.current = false
       setBusy(false)
       setAsking(false)
       setError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' ? caught.message : '바꾸지 못했어요. 다시 해 주세요.')
@@ -279,7 +272,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
   const lines = product === undefined || plan === null ? null : editLines(product, plan)
   const before = original !== null && original.key === product?.key ? original : product
   const box = (which: EditField, shown: string, flex: number) => (
-    <FieldBox key={which} label={EDIT_LABEL[which]} shown={shown} active={field === which} flex={flex} disabled={closed} onPress={() => openField(which)} />
+    <FieldBox key={which} label={EDIT_LABEL[which]} shown={shown} active={field === which} flex={flex} disabled={closed || busy} onPress={() => openField(which)} />
   )
   const fields = before === undefined ? null : (
     <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
@@ -307,7 +300,8 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
               placeholderTextColor={p.placeholder}
               maxLength={NAME_MAX}
               returnKeyType="done"
-              onSubmitEditing={done}
+              editable={!busy}
+              onSubmitEditing={({ nativeEvent }) => void apply({ ...draft, name: nativeEvent.text })}
               style={{ fontSize: TYPE.amount, minHeight: TYPE.amount * 1.5, paddingVertical: 0, color: p.text, ...font(WEIGHT.bold) }}
             />
           ) : (
@@ -328,7 +322,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
         {error !== null ? <ErrorLine large>{error}</ErrorLine> : null}
       </View>
       <View style={{ paddingHorizontal: SPACE.xl }}>
-        <BigButton label={EDIT_DONE} onPress={done} />
+        <BigButton label={EDIT_DONE} busy={busy} onPress={() => void apply()} />
       </View>
       {field === 'name' ? null : <NumberKeys doubleZero={field === 'price'} onKey={type} />}
     </View>
@@ -355,7 +349,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
             {editor ?? (
               <View style={{ paddingHorizontal: SPACE.xl }}>
                 {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
-                {plan !== null && !planEmpty(plan) ? <BigButton label={`${String(product.no)}번 변경사항 저장`} onPress={tryClose} /> : null}
+                {plan !== null && !planEmpty(plan) ? <BigButton label={`${String(product.no)}번 변경사항 저장`} onPress={() => void apply()} /> : null}
                 <ProductDetail product={product} fields={null} onKey={onKey} onDone={discard} {...(onDecide === undefined ? {} : { onDecide })} />
               </View>
             )}

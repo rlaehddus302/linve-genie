@@ -5,7 +5,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
-import { EDIT_DONE, EDIT_NO, EDIT_YES, editLines, editPlan, editQuestion } from '../src/screens/console/ProductEdit.tsx'
+import { EDIT_DONE, EDIT_NO, editLines, editPlan, editQuestion } from '../src/screens/console/ProductEdit.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { changes, flush, product } from './support.ts'
 
@@ -67,7 +67,7 @@ describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
     expect(editPlan(base, { no: '1', name: '  ', price: '' })).toEqual({ no: null, name: null, price: null })
   })
 
-  it('칸을 누르면 빈 큰 칸(옛 값은 자리 글) + 숫자판 → [확인]은 숫자판만 닫고 보내지 않는다 → 닫으면 "바꿀까요?" → [바꿀게요]면 보낸다', async () => {
+  it('번호·품종·가격을 오가며 입력한 후 확인을 한 번 누르면 바로 저장한다', async () => {
     const world = makeWorld({ products: [product(15, { name: '핑크프릴', price: 12_000 })] })
     const detail = await openDetail(world, 15)
     expect(within(detail).getByRole('button', { name: '가격 고치기' }).textContent).toBe('12,000원')
@@ -78,12 +78,6 @@ describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
     expect(within(edit).getByRole('status', { name: '12,000원' })).toBeTruthy()
     typePad('18000')
     expect(within(edit).getByRole('status', { name: '가격 18,000원' })).toBeTruthy()
-    fireEvent.click(within(sheet).getByRole('button', { name: EDIT_DONE }))
-    // 숫자판만 닫힌다 — 창은 그대로, 묻지 않고 보내지 않는다
-    expect(within(sheet).queryByTestId('product-edit')).toBeNull()
-    expect(screen.queryByRole('group', { name: '숫자판' })).toBeNull()
-    expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(within(sheet).getByRole('button', { name: '가격 고치기' }).textContent).toBe('12,000원')
     // 품종은 휴대폰 키보드 — 빈 칸, 옛 값이 자리 글
     fireEvent.click(within(sheet).getByRole('button', { name: '품종 고치기' }))
     const name = within(sheet).getByLabelText('품종')
@@ -93,26 +87,29 @@ describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
     expect(within(sheet).queryByText('품종')).toBeNull()
     expect((name as HTMLInputElement).value).toBe('삼광색금')
     expect(within(sheet).getByRole('button', { name: '품종 고치기' }).textContent).toBe('핑크프릴')
-    fireEvent.click(within(sheet).getByRole('button', { name: EDIT_DONE }))
+
     fireEvent.click(within(sheet).getByRole('button', { name: '번호 고치기' }))
     typePad('21')
     expect(within(sheet).getByRole('button', { name: '번호 고치기' }).textContent).toBe('15번')
     fireEvent.click(within(sheet).getByRole('button', { name: EDIT_DONE }))
-    await flush()
-    expect(world.events).toHaveLength(0)
-
-    // 창을 닫으려 하면 묻는다
-    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
-    const ask = await screen.findByRole('alertdialog', { name: '15번 핑크프릴 12,000원에서\n21번 삼광색금 18,000원으로 바꿀까요?' })
-    expect(within(ask).getByTestId('edit-before').textContent).toBe('15번 핑크프릴 12,000원에서')
-    expect(within(ask).getByTestId('edit-after').textContent).toBe('21번 삼광색금 18,000원으로 바꿀까요?')
-    expect(within(ask).getAllByTestId('edit-changed').map((token) => token.textContent?.trim())).toEqual(['21번', '삼광색금', '18,000원'])
-    expect(within(ask).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([EDIT_NO, EDIT_YES])
-    fireEvent.click(within(ask).getByRole('button', { name: EDIT_YES }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     await waitFor(() => expect(world.events).toHaveLength(2))
     expect(world.events[0]?.body).toMatchObject({ type: 'product.renumber', b: 'b1', from: 15, to: 21 })
     expect(world.events[1]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', noText: '21', priceText: '18000원', name: '삼광색금' })
     await waitFor(() => expect(screen.queryByTestId('product-sheet')).toBeNull())
+  })
+
+  it('품종 입력에서 키보드 완료를 누르면 입력한 품종이 한 번 저장된다', async () => {
+    const world = makeWorld({ products: [product(377, { name: '녹근' })] })
+    const detail = await openDetail(world, 377)
+    fireEvent.click(within(detail).getByRole('button', { name: '품종 고치기' }))
+    const input = screen.getByLabelText('품종')
+    fireEvent.change(input, { target: { value: '녹금' } })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 13 })
+    await waitFor(() => expect(screen.queryByTestId('product-sheet')).toBeNull())
+    expect(world.events.map(event => event.body)).toEqual([
+      { requestId: expect.any(String), type: 'product.update', b: 'b1', no: 377, name: '녹금' },
+    ])
   })
 
   it('[아니요]면 보내지 않고 닫는다 · 바꾼 것이 없으면 묻지 않고 닫는다', async () => {
@@ -146,7 +143,6 @@ describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
     expect(screen.getByText('가격은 100원 이상으로 적어 주세요.')).toBeTruthy()
     expect(screen.getByRole('group', { name: '숫자판' })).toBeTruthy()
     typePad('0')
-    fireEvent.click(screen.getByRole('button', { name: EDIT_DONE }))
     fireEvent.click(screen.getByRole('button', { name: '번호 고치기' }))
     typePad('16')
     fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))

@@ -397,10 +397,7 @@ describe('ConsoleScreen', () => {
     expect(world.events[2]?.body).toMatchObject({ b: 'b1', no: 123 })
   })
 
-  // 옛 기대(D-UX4-30): 칸을 누르면 그 자리 입력 칸 — 칸을 나가면(blur) 바로 보냈다(가격 → 품종 → 번호 각각 한 번씩).
-  // 새 기대(D-UX4-106, 사용자 지시 2026-11-10): 칸을 누르면 반 화면 판 · 빈 큰 칸(옛 값은 자리 글) · 앱 숫자판, [확인]은 숫자판만 닫고 보내지 않는다.
-  // 창을 닫을 때 "바꿀까요?" → [바꿀게요]면 그때 보낸다 (자세한 시험: product-edit-ux4-106)
-  it('점선 칸을 누르면 반 화면 판에서 고치고, 닫을 때 묻고 보낸다 — 가격은 원문 칸 (D-UX4-30 → D-UX4-106)', async () => {
+  it('가격 입력에서 확인을 누르면 원 단위로 바로 저장한다', async () => {
     const world = makeWorld({ products: [product(15, { name: '핑크프릴', price: 12_000 })] })
     await open(world)
     followWrites(world)
@@ -409,11 +406,7 @@ describe('ConsoleScreen', () => {
     fireEvent.click(within(detail).getByRole('button', { name: '가격 고치기' }))
     typePad('18000')
     fireEvent.click(screen.getByRole('button', { name: '확인' }))
-    await flush()
-    expect(world.events.length).toBe(0)
-    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
-    const ask = await screen.findByRole('alertdialog', { name: '15번 핑크프릴 12,000원에서\n15번 핑크프릴 18,000원으로 바꿀까요?' })
-    fireEvent.click(within(ask).getByRole('button', { name: '바꿀게요' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     await waitFor(() => expect(world.events.length).toBe(1))
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', noText: '15', priceText: '18000원' })
   })
