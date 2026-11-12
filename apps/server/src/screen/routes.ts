@@ -18,6 +18,9 @@ export interface ScreenIntakeDeps {
   readonly token: string | null
   readonly db: Db
   readonly service: Pick<Service, 'writeEvent' | 'writer' | 'endBroadcast'>
+  /** D-SCR-11: 판매 종료한 번호를 일꾼 등록이 다시 열려면 일꾼이 그 말을 본 시각이 종료보다 이만큼 뒤여야 한다(기본 60초).
+   *  받아쓰기가 말보다 20~90초 늦어서, 종료 직후 도착한 것은 대개 종료 전에 한 말이다(394 리마인드를 지운 7초 뒤 로라클론으로 다시 열림) */
+  readonly reopenGraceMs?: number
 }
 
 const VIDEO_RE = /^[A-Za-z0-9_-]{11}$/
@@ -89,7 +92,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
               const [close] = await tx.select({ at: events.receivedAt }).from(events)
                 .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, runtime.scopeId), eq(events.type, 'product.close'), eq(events.changed, true),
                   sql`${events.body}::jsonb->>'b' = ${broadcastId}`, sql`${events.body}::jsonb->>'no' = ${String(no)}`)).orderBy(desc(events.seq)).limit(1)
-              fresh = close !== undefined && observedAt > close.at.getTime()
+              fresh = close !== undefined && observedAt > close.at.getTime() + (deps.reopenGraceMs ?? 60_000)
               return null
             },
             build: ({ state }) => fresh && getProduct(state, broadcastId, no)?.status === 'CLOSED' ? [

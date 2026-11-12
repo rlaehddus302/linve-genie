@@ -124,6 +124,8 @@ export interface ServerOptions {
   readonly transcribeWorkerToken?: string
   /** 화면 일꾼 토큰 (LIVEJJIM_SCREEN_WORKER_TOKEN, 32자 이상 — 없으면 /internal/screen/register는 404, D-SCR-01) */
   readonly screenWorkerToken?: string
+  /** 시험용: 판매 종료한 번호를 일꾼이 다시 열 수 있는 유예(D-SCR-11, 기본 60초) */
+  readonly screenReopenGraceMs?: number
   /**
    * 방송 소리로 듣기 (LV1, D-LV1-08). 없으면 꺼짐. `on: false`는 운영자 끔(LIVEJJIM_STREAM_AUDIO=off).
    * feed를 주지 않으면 ffmpeg를 쓰고, 없으면 시작 기록 한 줄 남기고 꺼진 것처럼. locate를 주지 않으면 유튜브 웹 방송 페이지의 HLS 주소
@@ -922,7 +924,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     inbox: (app) =>
       registerInboxIntake(app, inbox, log, { clock, trustedProxies, address: connectionAddress, ...(options.inbox?.authLimits === undefined ? {} : { authLimits: options.inbox.authLimits }) }),
     appUpdates: (app) => registerAppUpdates(app, { dir: options.appUpdatesDir ?? null, origin: options.appOrigin }),
-    screen: (app) => registerScreenIntake(app, { token: options.screenWorkerToken === undefined ? null : options.screenWorkerToken.trim(), db, service }),
+    screen: (app) => registerScreenIntake(app, { token: options.screenWorkerToken === undefined ? null : options.screenWorkerToken.trim(), db, service, ...(options.screenReopenGraceMs === undefined ? {} : { reopenGraceMs: options.screenReopenGraceMs }) }),
     receiptPage: (app) => {
       registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer, ledger })
       // KP1 공개 방송 일정 페이지 /s/<토큰> (화면 문서보다 먼저)

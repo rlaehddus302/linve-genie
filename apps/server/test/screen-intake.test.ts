@@ -77,7 +77,8 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
   })
 
   it('삭제 전 인식의 지연 전송은 무시하고 삭제 뒤의 새 333번은 가격과 품종을 바꿔 다시 연다', async () => {
-    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    // 유예 0초(D-SCR-11의 60초 유예는 아래 시험) — 다시 열기 자체를 본다
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN, screenReopenGraceMs: 0 } })
     const connected = await connectSeller(world)
     const { b, live } = await linkedBroadcast(world, connected)
     const base = { videoId: live.videoId, no: 333, name: '오색글래머', price: 70000 }
@@ -212,6 +213,17 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     const right = await renumber({ videoId: live.videoId, from: 429, to: 371, requestId: 'screen-v-fix-429-371c', registerRequestId: 'screen-v-429-1' })
     expect(right.body).toMatchObject({ changed: true })
     expect((await products(world, connected.seller.cookie, b.date)).find((p) => p.no === 371)).toMatchObject({ name: '프랭크 3번' })
+  })
+
+  it('D-SCR-11 판매자가 지운 번호는 지운 직후(60초 안) 도착한 일꾼 등록으로 다시 열지 않는다: 394 리마인드 삭제 7초 뒤 로라클론 7만원', async () => {
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const connected = await connectSeller(world)
+    const { b, live } = await linkedBroadcast(world, connected)
+    await post(world, { videoId: live.videoId, no: 394, name: '리마인드', price: 20000, requestId: 'screen-v-394-1' })
+    await expectOk(writeEvent(world, connected.seller, { b: b.id, type: 'product.close', no: 394 }))
+    const late = await post(world, { videoId: live.videoId, no: 394, name: '로라클론', price: 70000, requestId: 'screen-v-394-2', observedAt: world.timer.now() + 7000 })
+    expect(late.body).toMatchObject({ changed: false })
+    expect((await products(world, connected.seller.cookie, b.date)).find((p) => p.no === 394)).toMatchObject({ status: 'CLOSED', name: '리마인드', price: 20000 })
   })
 
   it('D-SCR-02 지금 볼 라이브: 토큰 없으면 404·틀리면 401, 이어진 방송의 영상 번호만, 방송을 끝내면 빠진다', async () => {
