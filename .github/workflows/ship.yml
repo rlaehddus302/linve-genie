@@ -47,7 +47,7 @@ jobs:
       - name: 빠른 시험 (타입·앱 시험)
         run: |
           pnpm typecheck
-          cd apps/mobile && TZ=Pacific/Honolulu npx vitest run
+          cd apps/mobile && TZ=Pacific/Honolulu npx vitest run --maxWorkers=2
 
       - name: 앱 버전 지문
         working-directory: apps/mobile

@@ -36,7 +36,9 @@ describe('상품 추가 (D-UX4-111)', () => {
   it('빈 큰 칸은 맨 앞에 글자 자리 표시(서서히 깜빡임)가 있고, 치기 시작하면 없어진다', async () => {
     const { page } = await openAdd()
     const empty = within(page).getByRole('status', { name: ASK_NO })
-    expect(within(empty).getByTestId('soft-cursor')).toBeTruthy()
+    const caret = getComputedStyle(within(empty).getByTestId('soft-cursor'))
+    expect(caret.position).toBe('absolute')
+    expect(caret.left).toBe('0px')
     // 묻는 말보다 앞에
     expect(empty.firstElementChild?.getAttribute('data-testid')).toBe('soft-cursor')
     typePad(['1'])

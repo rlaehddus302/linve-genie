@@ -82,7 +82,7 @@ function SoftCursor() {
     loop.start()
     return () => loop.stop()
   }, [glow])
-  return <Animated.View aria-hidden testID="soft-cursor" style={{ width: 2.5, height: Math.round(BIG * 1.15), borderRadius: 1.5, borderCurve: 'continuous', marginRight: 4, backgroundColor: p.primary, opacity: glow }} />
+  return <Animated.View aria-hidden testID="soft-cursor" style={{ position: 'absolute', left: 0, zIndex: 1, width: 2, height: BIG, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.primary, opacity: glow }} />
 }
 
 /** 앱 숫자판 키 하나 (웹·시험) — 누르는 동안 꾸욱 들어가며 작아지고 옅은 바탕이 생긴다, 누른 순간 햅틱 (사진 5, D-UX4-43) */

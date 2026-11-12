@@ -362,7 +362,9 @@ describe('LoginScreen', () => {
             return new Response(JSON.stringify(reply ?? {}), { status: reply === undefined ? 404 : 200, headers: { 'Content-Type': 'application/json' } })
           },
         })
-        vi.useFakeTimers({ toFake: ['Date'] })
+        // 인증 화면의 1초 간격 갱신을 직접 진행해 CI 실행 속도와 무관하게 만료 시점을 확인한다.
+        vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+        const tick = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms) }) }
         try {
           render(<LoginScreen expired={false} onLogin={async () => {}} />)
           fireEvent.click(await screen.findByRole('button', { name: '구글로 로그인' }))
@@ -371,6 +373,7 @@ describe('LoginScreen', () => {
           expect(await screen.findByText(CODE_ASK_TITLE.replace('\n', ' '))).toBeTruthy()
           // 30초가 지나면 "지금 바로 다시 받을 수 있어요"와 켜진 [다시 받기]
           vi.setSystemTime(Date.now() + 31_000)
+          await tick(1000)
           fireEvent.click(screen.getByRole('button', { name: '문자가 안 오나요?' }))
           const ask = await screen.findByRole('alertdialog')
           await waitFor(() => expect(ask.textContent).toContain('지금 바로 다시 받을 수 있어요'), { timeout: 2500 })
@@ -379,6 +382,7 @@ describe('LoginScreen', () => {
           await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
           // 3분이 지나면 시간 지남 팝업 — 닫는 동안 [문자가 안 오나요?] 팝업 글로 바뀌지 않는다
           vi.setSystemTime(Date.now() + 180_000)
+          await tick(1000)
           const over = await screen.findByRole('alertdialog', undefined, { timeout: 2500 })
           expect(over.textContent).toContain('입력할 수 있는 시간이 지났어요')
           fireEvent.click(within(over).getByRole('button', { name: '닫기' }))
@@ -393,11 +397,12 @@ describe('LoginScreen', () => {
           expect(await screen.findByText(/남은 시간 0(3:00|2:59)/)).toBeTruthy()
           // 시간 지남 팝업의 [다시 받기]로 받아도 남은 시간이 3분으로, 팝업은 다시 뜨지 않는다
           vi.setSystemTime(Date.now() + 181_000)
+          await tick(1000)
           fireEvent.click(within(await screen.findByRole('alertdialog', undefined, { timeout: 2500 })).getByRole('button', { name: '다시 받기' }))
           await waitFor(() => expect(sends).toHaveLength(3))
           await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
           expect(screen.getByText(/남은 시간 0(3:00|2:59)/)).toBeTruthy()
-          await new Promise((resolve) => setTimeout(resolve, 1200))
+          await tick(1200)
           expect(screen.queryByRole('alertdialog')).toBeNull()
           expect(screen.getByText(/남은 시간 0(3:00|2:59)/)).toBeTruthy()
         } finally {
