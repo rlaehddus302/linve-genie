@@ -13,7 +13,7 @@ export default function LinkRoute() {
   // 위 안전 영역은 FormPage가 직접 띄운다
   return (
     <RouteFrame selfTop>
-        <BroadcastLinkScreen broadcastId={id} closed={closed === '1'} onBack={() => (router.canGoBack() ? router.back() : router.replace({ pathname: '/console/[id]', params: { id } }))} onEnded={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))} />
+        <BroadcastLinkScreen broadcastId={id} closed={closed === '1'} onBack={() => (router.canGoBack() ? router.back() : router.replace({ pathname: '/console/[id]', params: { id } }))} onEnded={() => router.dismissTo({ pathname: '/console/[id]', params: { id, ended: '1' } })} />
       </RouteFrame>
   )
 }

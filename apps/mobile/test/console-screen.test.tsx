@@ -604,7 +604,27 @@ describe('ConsoleScreen', () => {
     expect(await screen.findByText(/뒤 보내요: 5번 충돌 그대로 유지/)).toBeTruthy()
   })
 
-  it('라이브를 끝내면 "끝난 라이브"이 되고 홈으로 돌려보낸다 (D-UX2-07)', async () => {
+  it('현재 매출과 명세는 같은 날 다른 방송·대기 찜을 빼고 수량과 확정 금액을 더한다', async () => {
+    const world = makeWorld()
+    const sold = claim('sold', 15, 'buyer', { qty: 2, amount: 70000, price: 35000 })
+    world.server.on('GET', /^\/api\/days\/2026-10-29$/, () => ({ body: fullView({
+      products: [product(15, { name: '색금', price: 45000 })],
+      claims: [sold, { ...sold, id: 'second', qty: 1, amount: 45000 }, { ...sold, id: 'other', broadcast: 'b2' }, { ...sold, id: 'waiting', status: 'WAITLISTED' }],
+    }) }))
+    await open(world)
+    fireEvent.click(await screen.findByText('현재 매출 115,000원 ›'))
+    expect(await screen.findByText('15번 색금')).toBeTruthy()
+    expect(screen.getByText('판매 수량 3개 · 구매자 1명')).toBeTruthy()
+    expect(screen.getAllByText('115,000원')).toHaveLength(2)
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { claims: [{ ...sold, status: 'CANCELLED' }] }) }))
+    await act(async () => {
+      world.source().emit('change', { date: '2026-10-29', rehearsal: false, seq: 6, type: 'host.cancel' })
+      await flush()
+    })
+    expect(await screen.findAllByText('45,000원')).toHaveLength(2)
+  })
+
+  it('라이브를 끝내면 상품별 판매 명세와 총계가 열리고 라이브 기록도 다시 볼 수 있다', async () => {
     const world = makeWorld({ products: [product(15)] })
     world.server.on('POST', /^\/api\/broadcasts\/b1\/end$/, () => ({ body: { seq: world.seq } }))
     let home = 0
@@ -621,6 +641,11 @@ describe('ConsoleScreen', () => {
     const popup = await screen.findByRole('alertdialog', { name: '라이브 연결을 끊을까요?' })
     fireEvent.click(within(popup).getByRole('button', { name: '끊기' }))
     await waitFor(() => expect(home).toBe(1))
+    expect(await screen.findByText('판매 명세')).toBeTruthy()
+    expect(screen.getByText('판매가 확정된 상품이 없어요.')).toBeTruthy()
+    expect(screen.getByText('총계')).toBeTruthy()
+    expect(screen.getByText('0원')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '라이브 기록' }))
     expect(screen.getByText('끝난 라이브')).toBeTruthy()
     // 끝난 방송에는 (+) 상품 추가가 없다 (옛 기대: "직접 넣기" 메뉴 없음)
     expect(screen.queryByRole('button', { name: '상품 추가' })).toBeNull()

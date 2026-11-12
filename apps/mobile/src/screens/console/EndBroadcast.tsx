@@ -15,7 +15,7 @@ export const END_LINK_QUESTION = '라이브 연결을 끊을까요?'
 export const END_LINK_BODY = '라이브가 끝나요. 끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요.'
 
 /**
- * 방송 연결 화면 맨 아래 "방송 연결 끊기" 줄과 팝업. onEnded: 끊은 뒤(홈으로).
+ * 방송 연결 화면 맨 아래 "방송 연결 끊기" 줄과 팝업. onEnded: 끊은 뒤 판매 명세로.
  * plain: 흰 화면 줄 모양(D-UX4-95 — 이은 라이브 정보 화면, 토스 "비밀번호 · 보안" 줄, 빨간 이름 ›). 아니면 옛 메뉴 묶음(주소 넣는 화면)
  */
 export function EndBroadcastRow({ broadcastId, onEnded, plain = false }: { readonly broadcastId: string; readonly onEnded: () => void; readonly plain?: boolean }) {
@@ -27,9 +27,10 @@ export function EndBroadcastRow({ broadcastId, onEnded, plain = false }: { reado
     setBusy(true)
     setError(null)
     try {
-      const result = await withRetry(() => post<WriteResult>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/end`, { requestId: newRequestId() }))
+      const requestId = newRequestId()
+      const result = await withRetry(() => post<WriteResult>(`/api/broadcasts/${encodeURIComponent(broadcastId)}/end`, { requestId }))
       setAsking(false)
-      await api?.sync?.(result.seq)
+      void api?.sync?.(result.seq)
       onEnded()
     } catch (caught) {
       setAsking(false)

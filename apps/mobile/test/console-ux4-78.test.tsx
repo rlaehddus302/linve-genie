@@ -46,12 +46,12 @@ describe('라이브 관리 묶음 (D-UX4-78)', () => {
     expect(page.textContent).not.toContain('댓글 붙여넣기')
   })
 
-  it('라이브 관리 경로는 라벨 한 단계 화면·출력 상태를 바로 쌓고, 끊으면 홈으로 (D-UX4-130 — 옛: /label-print)', () => {
+  it('라이브 관리 경로는 라벨 한 단계 화면·출력 상태를 바로 쌓고, 끊으면 판매 명세로 (D-UX4-130 — 옛: /label-print)', () => {
     const route = read('app/console/[id]/manage.tsx')
     expect(route).toContain("labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console')")
     expect(route).toContain("openDirect: () => router.push({ pathname: '/console/[id]/print-history', params: { id, mode: 'direct' } })")
     expect(route).toContain("openHistory: () => router.push({ pathname: '/console/[id]/print-history', params: { id } })")
-    expect(route).toContain("onEnded={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))}")
+    expect(route).toContain("onEnded={() => router.dismissTo({ pathname: '/console/[id]', params: { id, ended: '1' } })}")
     expect(route).not.toContain('/label-print')
   })
 })
@@ -84,8 +84,8 @@ describe('라이브 연결 끊기 (D-UX4-79)', () => {
     expect(ended).toEqual(['/api/broadcasts/b1/end'])
   })
 
-  it('라이브 연결 경로가 끊은 뒤 홈으로 돌려보낸다', () => {
-    expect(read('app/link/[id].tsx')).toContain("onEnded={() => (router.canDismiss() ? router.dismissAll() : router.replace('/'))}")
+  it('라이브 연결 경로가 끊은 뒤 그 라이브의 판매 명세로 돌아간다', () => {
+    expect(read('app/link/[id].tsx')).toContain("onEnded={() => router.dismissTo({ pathname: '/console/[id]', params: { id, ended: '1' } })}")
   })
 })
 

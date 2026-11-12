@@ -372,6 +372,13 @@
       "when": 1794960000026,
       "tag": "0052_nickname_display",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794960000027,
+      "tag": "0053_broadcast_sales",
+      "breakpoints": true
     }
   ]
 }

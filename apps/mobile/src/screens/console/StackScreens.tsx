@@ -39,7 +39,7 @@ export function ProductAddScreen({ broadcastId, onBack }: { readonly broadcastId
 
 /**
  * 방송 관리 쌓인 화면. refresh: 바뀌면(방송 연결 화면에서 돌아오면) 유튜브 잇기 상태를 다시 받는다.
- * onEnded: 방송을 끝낸 뒤 — 경로가 홈으로 돌려보낸다.
+ * onEnded: 방송을 끝낸 뒤 — 판매 명세를 보여 준다.
  */
 export function ManageScreen({ broadcastId, onBack, openLink, labels, onEnded, refresh = 0 }: { readonly broadcastId: string; readonly onBack: () => void; readonly openLink: (closed: boolean) => void; readonly labels?: LabelPrintNav; readonly onEnded?: () => void; readonly refresh?: number }) {
   return (

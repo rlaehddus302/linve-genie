@@ -16,11 +16,12 @@ import type { ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderTextButton, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderTextButton, Tap, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
 import { GUTTER, SHADOW, SPACE } from '../ui/kit/tokens.ts'
 import { LOW_PAPER, useLabelPaper } from '../lib/label-paper.ts'
 import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
 import { useCameLate } from '../ui/late.tsx'
+import { BroadcastSalesList, broadcastSales, salesMoney } from './console/BroadcastSales.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
@@ -111,7 +112,7 @@ function AwayLine() {
 }
 
 /**
- * onEnded: 방송을 끝낸 뒤 (D-UX2-07) — 경로가 홈으로 돌려보내고 홈이 방송 목록을 다시 받는다. 없으면 이 화면에 "끝난 방송"으로 남는다.
+ * onEnded: 방송 종료 알림. 화면은 해당 방송의 판매 명세를 보여 준다.
  */
 /**
  * openLink: 방송 연결을 쌓인 화면으로 연다(밀어서 뒤로 가기, D-UX3-09) — 없으면 앱 안 전체 화면 판(시험·웹).
@@ -123,7 +124,7 @@ export const STICKY_TABS = [1]
 /** 탭 바 알약 위 여백 — 맨 위에 있을 때도, 올리다 위에 붙었을 때도 머리 아래 이만큼 (D-UX4-110, 사용자 지시 2026-11-10 "중간에 올릴 때 탭바와 상단영역 사이 여백과 끝까지 올렸을 때 여백이 달라") */
 export const TABS_TOP = SPACE.sm
 
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReviews, openLabels, openLink, openAdd, openManage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; readonly openManage?: () => void; readonly refresh?: number }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, openReviews, openLabels, openLink, openAdd, openManage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; readonly openManage?: () => void; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -188,6 +189,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const [labels, setLabels] = useState<readonly LabelView[]>([])
   // 끝내기 성공 — 방송 목록을 다시 받지 않아도 바로 "끝난 방송"으로 (범위 기록의 방송 정보는 처음 한 번만 받는다)
   const [endedHere, setEndedHere] = useState(false)
+  const [salesPage, setSalesPage] = useState<'auto' | 'sales' | 'record'>('auto')
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
   const paper = useLabelPaper(services.labels.paperDeviceId ?? null)
   const data = snapshot.data
@@ -239,6 +241,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
 
   const buyers = data?.buyers
   const claims = data?.claims
+  const products = data?.products
+  const sales = useMemo(() => claims && products ? broadcastSales(claims, products, broadcastId) : null, [claims, products, broadcastId])
   const hideSuffix = labelsQueue.queue?.hideNicknameSuffix === true
   const names = useMemo(() => (buyers && claims ? new BuyerNames(buyers, claims, hideSuffix) : null), [buyers, claims, hideSuffix])
   const labelWords = useMemo(() => {
@@ -247,7 +251,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     return map
   }, [labels])
 
-  const ended = (broadcast?.ended ?? false) || endedHere
+  const ended = justEnded || endedHere || broadcast?.ended === true || data?.broadcasts.get(broadcastId)?.ended === true
   const sealed = data?.sealed ?? false
   // 방송 연결 전체 화면 (D-UX3-06·07): 아직 잇지 않은 방송이면 주소 칸은 본문에, [확인]는 맨 아래(주소를 넣어야 보인다) — 아니면 유튜브 칸 그대로.
   // 훅이라 이른 return보다 앞에 둔다
@@ -274,7 +278,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
 
   // 방송이 끝나면 음성도 끈다 (APP-02 "방송 끝")
   const voiceView = useSyncExternalStore(services.voice.subscribe, services.voice.getView)
-  const live = seller && broadcast !== null && !(broadcast.ended || endedHere) && !(data?.sealed ?? false)
+  const live = seller && broadcast !== null && !ended && !(data?.sealed ?? false)
   const dock = useDockChoice()
   const docked = live && dock !== 'none'
   // 화면 아래 창과 같은 것을 탭으로 또 보이지 않는다 (D-UX4-91, 사용자 지시 2026-11-10 "화면아래창을 채팅문자로 선택했으면 해당 탭을 숨겨서 중복으로 안 보이게"):
@@ -316,11 +320,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const productCount = data === null ? -1 : boardProducts(data, broadcastId).length
   useEffect(() => {
     if (askedLink.current || yt.phase !== 'ready' || yt.link === null || yt.link.link !== null) return
-    if ((broadcast?.ended ?? true) || (data?.sealed ?? true) || productCount !== 0) return
+    if (ended || broadcast === null || (data?.sealed ?? true) || productCount !== 0) return
     askedLink.current = true
     if (openLink !== undefined) openLink(false)
     else setSheet((now) => (now === 'none' ? 'youtube' : now))
-  }, [yt.phase, yt.link, broadcast?.ended, data?.sealed, productCount])
+  }, [yt.phase, yt.link, ended, broadcast, data?.sealed, productCount])
   useEffect(() => {
     if (ended && voiceView.on && voiceView.broadcastId === broadcastId) void services.voice.turnOff()
   }, [ended, voiceView.on, voiceView.broadcastId, broadcastId, services])
@@ -356,7 +360,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     )
   }
   // 아직 자료가 없으면 바탕만 (D-UX4-83 — 옛: 빙글이 + "불러오는 중…"). 오래 끊긴 때의 연결 줄만 보인다
-  if (data === null || broadcast === null || names === null) {
+  if (data === null || broadcast === null || names === null || sales === null) {
     return frame(<LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />)
   }
 
@@ -367,6 +371,13 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 홈 "지금 라이브 중"과 같은 말로 (D-UX3-89 — 옛 "방송 중")
   const heading = ended ? '끝난 라이브' : '라이브'
   const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
+  if (salesPage === 'sales' || (closed && salesPage === 'auto')) {
+    return <View style={{ flex: 1, backgroundColor: p.background, paddingTop: pageTop }}>
+      <AppHeader title="판매 명세" onBack={closed ? onBack : () => setSalesPage('auto')} right={closed ? <HeaderTextButton label="라이브 기록" onPress={() => setSalesPage('record')} /> : undefined} />
+      <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
+      <BroadcastSalesList title={title} sales={sales} inset={inset} />
+    </View>
+  }
   const close = () => setSheet('none')
   const closePage = () => setPage('none')
   // 다육이 방송이면 상품 추가에서 품종도 묻는다 (D-UX4-31 — 판매 종류는 방송 제목에 들어 있다, NewBroadcastScreen)
@@ -453,7 +464,12 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
             <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
             {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
             {labelsQueue.mine && labelsQueue.queue?.labelsEnabled && paper !== null && paper <= LOW_PAPER ? <Notice tone="warning" alert>{`라벨 용지가 약 ${paper}장 남았어요. 새 롤을 준비해 주세요.`}</Notice> : null}
-            <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACE.sm }}>
+              <View style={{ flexGrow: 1, flexShrink: 1 }}><AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} /></View>
+              <Tap role="button" onPress={() => setSalesPage('sales')} style={{ marginLeft: 'auto', paddingVertical: SPACE.sm }}>
+                <Txt step="body" weight="bold">{`${closed ? '총매출' : '현재 매출'} ${salesMoney(sales.total)} ›`}</Txt>
+              </Tap>
+            </View>
             {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
             <YoutubeWarning yt={yt} closed={closed} />
             <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />

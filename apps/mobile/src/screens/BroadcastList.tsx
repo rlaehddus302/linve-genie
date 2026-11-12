@@ -9,6 +9,7 @@ import { useCachedGet } from '../lib/cached-get.ts'
 import { EmptyFill, AppHeader, Icon, RowGroup, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
+import { formatWon } from '../lib/words.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { Late } from '../ui/late.tsx'
 
@@ -110,9 +111,10 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
   const { p } = useKit()
   const platform = item.platforms?.[0]
   // 방송 길이는 지난 시간과 헷갈려 뺐다 (D-UX3-89)
+  const sales = item.salesTotal == null ? '확인 필요' : formatWon(item.salesTotal)
   const sub = historyAgo(item.endedAt ?? item.createdAt, now) ?? ''
   return (
-    <Tap role="button" aria-label={`${broadcastTitle(item)} — ${sub}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={`${broadcastTitle(item)} — ${sub} · 총매출 ${sales}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {platform === undefined ? (
         <View aria-hidden style={{ width: 34, height: 34, borderRadius: 34 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="play" color={p.textSub} size={18} />
@@ -129,6 +131,10 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
             {sub}
           </Txt>
         )}
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <Txt step="caption" color="textSub">총매출</Txt>
+        <Txt step="body" weight="bold">{sales}</Txt>
       </View>
       <Icon name="chevron" color={p.textSub} size={18} />
     </Tap>
