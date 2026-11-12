@@ -207,7 +207,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     </View>
   )
 
-  // 고치는 칸: 상품 추가처럼 큰 칸(옛 값은 회색 자리 글) → [확인] → 숫자판(번호·가격)
+  // 고치는 칸: 상품 추가처럼 큰 칸(품종은 현재 이름, 숫자는 자리 글) → [확인] → 숫자판(번호·가격)
   const editor = before === undefined || field === null ? null : (
     <View testID="product-edit" style={{ gap: SPACE.md }}>
       <View style={{ paddingHorizontal: SPACE.xl, gap: SPACE.sm }}>
@@ -216,17 +216,17 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
             <TextInput
               aria-label={EDIT_LABEL.name}
               autoFocus
-              value={draft.name ?? ''}
+              value={draft.name ?? before.name}
               onChangeText={(value) => {
                 setError(null)
                 setDraft((was) => ({ ...was, name: value }))
               }}
-              placeholder={before.name.trim() === '' ? '어떤 품종인가요?' : before.name}
+              placeholder="어떤 품종인가요?"
               placeholderTextColor={p.placeholder}
               maxLength={NAME_MAX}
               returnKeyType="done"
               editable={!busy}
-              onSubmitEditing={({ nativeEvent }) => void apply({ ...draft, name: nativeEvent.text })}
+              onSubmitEditing={({ nativeEvent }) => void apply(draft.name === undefined && nativeEvent.text === before.name ? draft : { ...draft, name: nativeEvent.text })}
               style={{ fontSize: TYPE.amount, minHeight: TYPE.amount * 1.5, paddingVertical: 0, color: p.text, ...font(WEIGHT.bold) }}
             />
           ) : (

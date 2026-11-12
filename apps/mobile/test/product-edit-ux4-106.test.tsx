@@ -69,14 +69,15 @@ describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
     expect(within(edit).getByRole('status', { name: '12,000원' })).toBeTruthy()
     typePad('18000')
     expect(within(edit).getByRole('status', { name: '가격 18,000원' })).toBeTruthy()
-    // 품종은 휴대폰 키보드 — 빈 칸, 옛 값이 자리 글
+    // 품종은 현재 이름에서 한 글자만 선택해 바꿀 수 있다
     fireEvent.click(within(sheet).getByRole('button', { name: '품종 고치기' }))
-    const name = within(sheet).getByLabelText('품종')
-    expect((name as HTMLInputElement).value).toBe('')
-    expect(name.getAttribute('placeholder')).toBe('핑크프릴')
-    fireEvent.change(name, { target: { value: '삼광색금' } })
+    const name = within(sheet).getByRole<HTMLInputElement>('textbox', { name: '품종' })
+    expect(name.value).toBe('핑크프릴')
+    name.setSelectionRange(2, 3)
+    const corrected = name.value.slice(0, name.selectionStart!) + '브' + name.value.slice(name.selectionEnd!)
+    fireEvent.change(name, { target: { value: corrected } })
     expect(within(sheet).queryByText('품종')).toBeNull()
-    expect((name as HTMLInputElement).value).toBe('삼광색금')
+    expect(name.value).toBe('핑크브릴')
     expect(within(sheet).getByRole('button', { name: '품종 고치기' }).textContent).toBe('핑크프릴')
 
     fireEvent.click(within(sheet).getByRole('button', { name: '번호 고치기' }))
@@ -86,7 +87,7 @@ describe('상품 고치기 반 화면 판 (D-UX4-106)', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull()
     await waitFor(() => expect(world.events).toHaveLength(2))
     expect(world.events[0]?.body).toMatchObject({ type: 'product.renumber', b: 'b1', from: 15, to: 21 })
-    expect(world.events[1]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', noText: '21', priceText: '18000원', name: '삼광색금' })
+    expect(world.events[1]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', noText: '21', priceText: '18000원', name: '핑크브릴' })
     await waitFor(() => expect(screen.queryByTestId('product-sheet')).toBeNull())
   })
 
