@@ -2,7 +2,7 @@
 // 흰 찾기 칸(돋보기·지우기), 글자만 있는 작은 단추, 이름 첫 글자 동그라미, 작은 꼬리표, 왼쪽 이름·오른쪽 값 줄, 흰 정보 카드, 글자 고르기(정렬).
 // 공통 키트(src/ui/kit)는 다른 탭과 같이 쓰므로 건드리지 않고 이 탭에만 둔다.
 import type { ReactNode } from 'react'
-import { ActivityIndicator, TextInput, View } from 'react-native'
+import { ActivityIndicator, TextInput, View, type TextInputProps } from 'react-native'
 import Svg, { Circle, Path } from 'react-native-svg'
 import { ClearButton, font, Icon, RADIUS, SPACE, TOUCH, TYPE, Txt, useKit, WEIGHT, type Tone, Tap } from '../ui/kit/index.ts'
 import type { TxtColor } from '../ui/kit/theme.tsx'
@@ -20,7 +20,7 @@ function SearchGlyph({ color }: { readonly color: string }) {
 }
 
 /** 흰 둥근 찾기 칸 (토스 찾기처럼): 돋보기 · 회색 안내 글 · 글이 있으면 동그란 지우기 */
-export function SearchField({ label, value, onChangeText, placeholder }: { readonly label: string; readonly value: string; readonly onChangeText: (text: string) => void; readonly placeholder?: string }) {
+export function SearchField({ label, value, onChangeText, placeholder, keyboardType }: { readonly label: string; readonly value: string; readonly onChangeText: (text: string) => void; readonly placeholder?: string; readonly keyboardType?: TextInputProps['keyboardType'] }) {
   const { p, fontScale, forced } = useKit()
   const size = TYPE.bodyLarge * (forced ? fontScale : 1)
   return (
@@ -34,6 +34,7 @@ export function SearchField({ label, value, onChangeText, placeholder }: { reado
         placeholderTextColor={p.placeholder}
         autoCorrect={false}
         autoCapitalize="none"
+        keyboardType={keyboardType}
         returnKeyType="search"
         allowFontScaling={!forced}
         maxFontSizeMultiplier={2}

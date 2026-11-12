@@ -6,8 +6,9 @@
 // 그 아래 찜·대기 손님 이름 알약(위 탭 알약 크기, 넘치면 아랫줄로) — 누르면 "찜을 삭제할까요?" 팝업. 판매 완료·찜 요약·"아직 찜이 없어요"·일시 중지·판매 종료 단추는 없앴고,
 // 토스 메뉴 줄로 [판매 시작](공개 전·멈춘 상품만) · [누가 살지 정하기](겹침·승계만) · [🗑 상품 삭제] — 삭제는 "상품을 삭제할까요?" 팝업 [닫기 | 삭제].
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Animated, LayoutAnimation, Platform, View } from 'react-native'
+import { Animated, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
+import { SearchField } from '../customer-parts.tsx'
 import { isApiError } from '../../api/client.ts'
 import { boardProducts, claimsOfProduct, productSlots } from '../../lib/derive.ts'
 import { TAG_GAP, TAG_PAD_X, buyerTagText, fitTags, type ProductTag } from '../../lib/product-tags.ts'
@@ -183,6 +184,7 @@ function ProductRow({ product, freshAt, onOpen, doubt }: { readonly product: Pro
 /** 상품 전체 리스트 — 가장 최근에 말한(올린) 상품이 맨 위 (D-UX3-87). 처음 받은 상품은 강조하지 않고, 그 뒤에 올라온·고른 상품만 잠깐 초록 */
 export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void }) {
   const api = useConsoleApi()
+  const [query, setQuery] = useState('')
   const products = shownProducts(api.data, api.b)
   const seen = useRef<Map<string, number> | null>(null)
   const lastSelected = useRef<string | null>(api.selected)
@@ -194,12 +196,21 @@ export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void
     if (api.selected !== null && seen.current.has(api.selected)) seen.current.set(api.selected, now)
   }
   useAnimatedChange(products.map((product) => `${product.key}:${String(productSlots(product).winners.length + productSlots(product).waitlist.length)}:${product.conflict ? 1 : 0}`).join('|'))
-  if (products.length === 0) return <EmptyFill title={NO_PRODUCTS_YET} body={NO_PRODUCTS_YET_BODY} />
+  if (products.length === 0 && query === '') return <EmptyFill title={NO_PRODUCTS_YET} body={NO_PRODUCTS_YET_BODY} />
+  const prefix = query.replace(/^0+(?=\d)/, '')
+  const matches = prefix === '' ? products : products
+    .filter((product) => String(product.no).startsWith(prefix))
+    .sort((a, b) => Number(b.no === Number(prefix)) - Number(a.no === Number(prefix)))
   return (
-    <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
-      {products.map((product) => (
-        <ProductRow key={product.key} product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={() => onOpen(product.key)} doubt={api.doubts?.get(product.no)} />
-      ))}
+    <View style={{ flexGrow: 1, gap: SPACE.sm }}>
+      <SearchField label="상품 번호 검색" value={query} keyboardType="number-pad" onChangeText={(text) => setQuery(text.normalize('NFKC').replace(/\D/g, ''))} />
+      {matches.length === 0 ? <EmptyFill title="해당 번호의 상품이 없어요" /> : (
+        <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
+          {matches.map((product) => (
+            <ProductRow key={product.key} product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={() => { Keyboard.dismiss(); onOpen(product.key) }} doubt={api.doubts?.get(product.no)} />
+          ))}
+        </View>
+      )}
     </View>
   )
 }

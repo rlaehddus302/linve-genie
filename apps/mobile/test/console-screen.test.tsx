@@ -50,6 +50,21 @@ describe('ConsoleScreen', () => {
     expect(labels.findIndex((label) => label.includes('16번'))).toBeLessThan(labels.findIndex((label) => label.includes('15번')))
   })
 
+  it('번호 검색은 정확한 번호를 먼저 보여 주고, 지우면 전체 목록으로 돌아간다', async () => {
+    await open(makeWorld({ products: [product(15, { name: '핑크프릴' }), product(151), product(25), product(152, { status: 'CLOSED' })] }))
+    const search = screen.getByLabelText('상품 번호 검색')
+    const rows = () => within(screen.getByRole('list', { name: '상품 목록' })).getAllByRole('button')
+    fireEvent.change(search, { target: { value: '015번' } })
+    expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual(['상품 자세히 — 15번', '상품 자세히 — 151번'])
+    fireEvent.click(rows()[0]!)
+    expect(within(await screen.findByTestId('product-sheet')).getByRole('button', { name: '품종 고치기' }).textContent).toBe('핑크프릴')
+    fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
+    fireEvent.change(search, { target: { value: '999' } })
+    expect(screen.getByText('해당 번호의 상품이 없어요')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '상품 번호 검색 지우기' }))
+    expect(rows()).toHaveLength(3)
+  })
+
   // D-UX3-81로 바뀐 기대 (사용자 지시 2026-11-09 "상품, 찜기록은 위로 정렬, 채팅문자는 아래로 정렬"): 옛 D-UX3-77 "모두 아래"
   it('상품·찜 기록 목록은 위에, 채팅·문자는 화면 아래에 붙는다 (D-UX3-81)', async () => {
     const world = makeWorld({ products: [product(15)] })
