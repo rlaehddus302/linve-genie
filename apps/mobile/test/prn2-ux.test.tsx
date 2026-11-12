@@ -116,7 +116,7 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
     world.server.on('GET', /^\/api\/print\/test-bitmap\?size=[a-z0-9]+$/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
   }
 
-  it('"예" 기다림 멈춤 줄 아래 "테스트 인쇄"(주 단추)가 바로 테스트 인쇄 — "다시 시작"은 보통 단추', async () => {
+  it('연결 후 대기열에 테스트 인쇄를 요구하지 않는다', async () => {
     const world = makeWorld()
     world.ble.profile = MARKLIFE_P12
     const state = { connected: true, labelError: false }
@@ -128,12 +128,8 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
     await world.services.labels.reload()
     const queueCard = screen.getByRole('group', { name: '대기열' })
-    // D-UX3-19: 옛 문장 '실험 중인 프린터라…'
-    // D-UX4-112: 옛 기대 "새로 이은 프린터라" → "새로 연결한 프린터라"
-    await waitFor(() => expect(within(queueCard).getByText(/새로 연결한 프린터라 출력을 잠시 멈췄어요/)).toBeTruthy())
-    fireEvent.click(within(queueCard).getByRole('button', { name: '테스트 인쇄' }))
-    await screen.findByRole('group', { name: '테스트 인쇄 결과' })
-    expect(world.server.callsTo('GET', /test-bitmap/)).toHaveLength(1)
+    expect(within(queueCard).queryByRole('button', { name: '테스트 인쇄' })).toBeNull()
+    expect(world.server.callsTo('GET', /test-bitmap/)).toHaveLength(0)
     world.services.labels.stop()
   })
 
@@ -150,7 +146,7 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
     await pressTestPrint()
     fireEvent.click(within(await screen.findByRole('group', { name: '테스트 인쇄 결과' })).getByRole('button', { name: '예' }))
     await world.services.labels.reload()
-    await waitFor(() => expect(screen.getByText('좋아요. 멈췄던 출력을 이어서 해요.')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('테스트 인쇄가 잘 나온 것을 확인했어요.')).toBeTruthy())
     state.labelError = true
     await world.services.labels.reload()
     await waitFor(() => expect(screen.getByText('테스트 인쇄가 잘 나온 것을 확인했어요.')).toBeTruthy())
@@ -175,11 +171,12 @@ describe('UX-PRN2-008 글자 크기 (본문 15px·꼬리표 13px, D-UX3-74)', ()
   })
 
   // D-UX3-19: 옛 문장 '실험 중인 프린터는 테스트 인쇄를…'
-  it('테스트 기다림 안내는 본문 크기(15px)', async () => {
+  it('테스트 없이 출력 기기를 선택할 수 있다', async () => {
     const world = await connected(BAUATO_PPA2L)
     fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
-    expect(getComputedStyle(screen.getByText('이 프린터는 테스트 인쇄를 하고 "예"를 누른 뒤에 이 기기에서 출력할 수 있어요.')).fontSize).toBe('15px')
+    expect(screen.queryByText(/테스트 인쇄를 하고 "예"를 누른 뒤/)).toBeNull()
+    expect(screen.getByRole('button', { name: '이 기기에서 출력' })).toBeTruthy()
     world.services.labels.stop()
   })
 })

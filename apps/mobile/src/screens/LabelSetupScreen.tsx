@@ -7,8 +7,7 @@
 //    "연결하는 중…" → "연결됐어요"를 보이고, 이어진 뒤에야 아래 [다음] (D-UX4-10).
 // 3) 라벨 디자인 — 상단 미리보기에서 칸을 고르고 항목·문구·용지 탭에서 편집한다.
 //    골라진 칸은 끌어서 옮기고 오른쪽 아래 손잡이로 크기(글자 크기도 같이)를 바꾼다. 앱에는 라벨 그리기 코드가 없어(APP-01 AC3) 서버가 초안을 견본 값으로 그려 준다.
-// 4) 테스트 라벨은 골라서 — [건너뛰기](왼쪽)는 바로 이 기기를 출력 기기로 하고 방송으로, [테스트 인쇄](오른쪽) (D-UX4-11).
-//    뽑으면 "또렷하게 보이나요?" [예]면 출력 기기로 하고 방송으로. [아니요]면 도움말과 다시 인쇄.
+// 4) 출력 기기를 정하고 방송으로 간다. 선택한 테스트 인쇄는 관리 화면에서 연다.
 // 단추 둘은 늘 좌우 — 부정 왼쪽, 긍정 오른쪽 (D-UX4-01). 프린터를 '기본·실험'으로 나눠 보이지 않는다.
 import { printerProfile, labelSizesForProfileId } from '@livejjim/printer'
 import { CAPTION_POSITIONS, CAPTION_SPACE_HINT, CAPTION_TEXT_MAX, CAPTION_WORDS, captionLayout, type LabelCaption } from '@livejjim/label/captions'
@@ -105,7 +104,7 @@ export function sortedSizes(sizes: readonly string[]): string[] {
   })
 }
 
-type Step = 'ask' | 'connect' | 'design' | 'test'
+type Step = 'ask' | 'connect' | 'design' | 'test' | 'device'
 
 interface DraftPreview {
   readonly template: ProductTemplate
@@ -185,8 +184,8 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
     )
   }
   if (step === 'connect') return <ConnectStep onBack={() => (only === undefined ? go('ask') : onBack())} onNext={() => (only === undefined ? go('design') : onDone())} />
-  if (step === 'design') return <DesignStep saveLabel={only === undefined ? '저장하고 다음' : '저장'} queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => (only === undefined ? go('connect') : onBack())} onSaved={() => (only === undefined ? go('test') : onDone())} />
-  return <TestStep busy={busy} run={run} onBack={() => (only === undefined ? go('design') : onBack())} onDone={onDone} error={errorLine} />
+  if (step === 'design') return <DesignStep saveLabel={only === undefined ? '저장하고 다음' : '저장'} queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => (only === undefined ? go('connect') : onBack())} onSaved={() => (only === undefined && !snapshot.mine ? go('device') : onDone())} />
+  return <TestStep selectDevice={step === 'device'} busy={busy} run={run} onBack={() => (only === undefined ? go('design') : onBack())} onDone={onDone} error={errorLine} />
 }
 
 /** 2) 프린터 연결과 확인 — 들어오면 바로 찾고, 찾은 프린터를 이 화면에 줄로 (D-UX4-04). 고른 줄에서 바로 연결 확인, 이어지면 [다음] (D-UX4-10) */
@@ -650,7 +649,7 @@ function Choice({ word, on, onPress }: { readonly word: string; readonly on: boo
 }
 
 /** 4) 테스트 인쇄 → "예"면 이 기기를 출력 기기로 하고 방송으로 */
-function TestStep({ busy, run, onBack, onDone, error }: { readonly busy: boolean; readonly run: (work: () => Promise<void>) => Promise<void>; readonly onBack: () => void; readonly onDone: () => void; readonly error: React.ReactNode }) {
+function TestStep({ selectDevice, busy, run, onBack, onDone, error }: { readonly selectDevice: boolean; readonly busy: boolean; readonly run: (work: () => Promise<void>) => Promise<void>; readonly onBack: () => void; readonly onDone: () => void; readonly error: React.ReactNode }) {
   const { labels } = useServices()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
   const [answeredNo, setAnsweredNo] = useState(false)
@@ -681,6 +680,15 @@ function TestStep({ busy, run, onBack, onDone, error }: { readonly busy: boolean
     void labels.printTest()
   }
 
+  if (selectDevice || taken !== null) {
+    return <FormPage title="출력 기기" name="출력 기기" onBack={onBack} actions={<>
+      <BigButton kind="outline" label={taken ? '그대로 두기' : '나중에 하기'} disabled={busy} onPress={onDone} />
+      <BigButton label={taken ? '이 기기로 바꾸기' : '이 기기에서 출력'} busy={busy} onPress={() => finish(taken !== null)} />
+    </>}>
+      <Txt>{taken !== null ? replaceQuestion(taken) : '이 휴대폰에서 상품 라벨을 출력할까요?'}</Txt>
+      {error}
+    </FormPage>
+  }
   return (
     <FormPage
       title={TEST_TITLE}
@@ -688,12 +696,7 @@ function TestStep({ busy, run, onBack, onDone, error }: { readonly busy: boolean
       onBack={onBack}
       testID="label-setup-test"
       actions={
-        taken !== null ? (
-          <>
-            <BigButton kind="outline" label="그대로 두기" ariaLabel="그대로 두고 라이브 시작" disabled={busy} onPress={onDone} />
-            <BigButton label="이 기기로 바꾸기" busy={busy} onPress={() => finish(true)} />
-          </>
-        ) : snapshot.testPrinted && !answeredNo ? (
+        snapshot.testPrinted && !answeredNo ? (
           <>
             <BigButton kind="outline" label="아니요" disabled={busy} onPress={() => {
               setAnsweredNo(true)
@@ -706,17 +709,14 @@ function TestStep({ busy, run, onBack, onDone, error }: { readonly busy: boolean
             {answeredNo ? (
               <BigButton kind="outline" label="나중에 하기" ariaLabel="라벨은 나중에 하고 라이브 시작" disabled={busy} onPress={onDone} />
             ) : (
-              // 테스트 라벨은 골라서 — 건너뛰어도 이 기기를 출력 기기로 하고 방송으로 (D-UX4-11). 확인이 덜 된 기종은 테스트 "예" 전까지 받지 않는다(D-PRN2-10)
-              <BigButton kind="outline" label="건너뛰기" ariaLabel="테스트 인쇄 없이 라이브 시작" disabled={busy || snapshot.testing} onPress={() => finish(false)} />
+              <BigButton kind="outline" label="닫기" disabled={busy || snapshot.testing} onPress={onDone} />
             )}
-            <BigButton label={answeredNo ? '다시 인쇄' : '테스트 인쇄'} ariaLabel={answeredNo ? '다시 테스트 인쇄' : '테스트 인쇄'} busy={busy || snapshot.testing} disabled={!linked || snapshot.job !== null} onPress={printTest} />
+            <BigButton label={answeredNo ? '다시 인쇄' : '테스트 인쇄'} ariaLabel={answeredNo ? '다시 테스트 인쇄' : '테스트 인쇄'} busy={busy || snapshot.testing} disabled={!linked || snapshot.busy || snapshot.job !== null} onPress={printTest} />
           </>
         )
       }
     >
-      {taken !== null ? (
-        <Txt>{replaceQuestion(taken)}</Txt>
-      ) : snapshot.testPrinted && !answeredNo ? (
+      {snapshot.testPrinted && !answeredNo ? (
         <Txt step="bodyLarge" weight="bold">
           {TEST_QUESTION}
         </Txt>
