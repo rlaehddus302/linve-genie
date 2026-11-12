@@ -189,9 +189,13 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
 })
 
 /** 상품 전체 리스트 — 가장 최근에 말한(올린) 상품이 맨 위 (D-UX3-87). 처음 받은 상품은 강조하지 않고, 그 뒤에 올라온·고른 상품만 잠깐 초록 */
-export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void }) {
+export function ProductList({ onOpen, query, onQuery, numberSearch }: {
+  readonly onOpen: (key: string) => void
+  readonly query: string
+  readonly onQuery: (value: string) => void
+  readonly numberSearch: { open: () => void; submit: () => void }
+}) {
   const api = useConsoleApi()
-  const [query, setQuery] = useState('')
   const products = shownProducts(api.data, api.b)
   const claims = api.data.claims
   const conflictCounts = useMemo(() => {
@@ -218,7 +222,9 @@ export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void
     .sort((a, b) => Number(b.no === Number(prefix)) - Number(a.no === Number(prefix)))
   return (
     <View style={{ flexGrow: 1, gap: SPACE.sm }}>
-      <SearchField label="상품 번호 검색" value={query} keyboardType="number-pad" onChangeText={(text) => setQuery(text.normalize('NFKC').replace(/\D/g, ''))} />
+      <View onTouchStart={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
+        <SearchField label="상품 번호 검색" value={query} numberSearch={numberSearch} onChangeText={text => onQuery(text.normalize('NFKC').replace(/\D/g, ''))} />
+      </View>
       {matches.length === 0 ? <EmptyFill title="해당 번호의 상품이 없어요" /> : (
         <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
           {matches.map((product) => (

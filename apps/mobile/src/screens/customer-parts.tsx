@@ -20,7 +20,7 @@ function SearchGlyph({ color }: { readonly color: string }) {
 }
 
 /** 흰 둥근 찾기 칸 (토스 찾기처럼): 돋보기 · 회색 안내 글 · 글이 있으면 동그란 지우기 */
-export function SearchField({ label, value, onChangeText, placeholder, keyboardType }: { readonly label: string; readonly value: string; readonly onChangeText: (text: string) => void; readonly placeholder?: string; readonly keyboardType?: TextInputProps['keyboardType'] }) {
+export function SearchField({ label, value, onChangeText, placeholder, keyboardType, numberSearch }: { readonly label: string; readonly value: string; readonly onChangeText: (text: string) => void; readonly placeholder?: string; readonly keyboardType?: TextInputProps['keyboardType']; readonly numberSearch?: { open: () => void; submit: () => void } }) {
   const { p, fontScale, forced } = useKit()
   const size = TYPE.bodyLarge * (forced ? fontScale : 1)
   return (
@@ -35,12 +35,16 @@ export function SearchField({ label, value, onChangeText, placeholder, keyboardT
         autoCorrect={false}
         autoCapitalize="none"
         keyboardType={keyboardType}
+        {...(numberSearch ? {
+          inputMode: 'none' as const, showSoftInputOnFocus: false,
+          onFocus: numberSearch.open, onPressIn: numberSearch.open, onSubmitEditing: numberSearch.submit,
+        } : {})}
         returnKeyType="search"
         allowFontScaling={!forced}
         maxFontSizeMultiplier={2}
         style={{ flex: 1, minHeight: TOUCH.min, fontSize: size, ...font(WEIGHT.book), color: p.text, padding: 0 }}
       />
-      {value === '' ? null : <ClearButton label={`${label} 지우기`} onPress={() => onChangeText('')} />}
+      {numberSearch ? <TextButton label="검색" onPress={numberSearch.submit} /> : value === '' ? null : <ClearButton label={`${label} 지우기`} onPress={() => onChangeText('')} />}
     </View>
   )
 }

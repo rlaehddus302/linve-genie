@@ -8,7 +8,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { ScrollView, View, type ScrollViewInstance } from 'react-native'
+import { BackHandler, Keyboard, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { get, withQuery } from '../api/client.ts'
 import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
@@ -27,7 +27,7 @@ import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal }
 import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
 import { ProductList, shownProducts } from './console/ProductBoard.tsx'
 import { ProductSheet } from './console/ProductEdit.tsx'
-import { AddFab, ProductAddPage } from './console/ProductAdd.tsx'
+import { AddFab, NumberKeys, ProductAddPage } from './console/ProductAdd.tsx'
 import { SlidePage } from './console/parts.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
 
@@ -135,6 +135,17 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   // 상품 추가·방송 관리 (D-UX4-57): 기기에서는 진짜 쌓인 화면(openAdd·openManage). 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다
   const [page, setPage] = useState<'none' | 'settings' | 'add'>('none')
   // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07) · 채팅·문자(실시간으로 온 채팅·손님 문자, D-UX4-12)
+  const [searchDigits, setSearchDigits] = useState('')
+  const [searchPad, setSearchPad] = useState(false)
+  const closeSearchPad = useCallback(() => {
+    setSearchPad(false)
+    Keyboard.dismiss()
+  }, [])
+  useEffect(() => {
+    if (!searchPad) return
+    const handler = BackHandler.addEventListener('hardwareBackPress', () => { closeSearchPad(); return true })
+    return () => handler.remove()
+  }, [searchPad, closeSearchPad])
   const [tab, setTab] = useState<'products' | 'feed' | 'talk' | 'heard'>('products')
   // 라이브 채팅처럼 (D-UX3-75): 목록은 최신이 맨 아래. 처음·탭을 바꿀 때는 맨 아래에서 시작하고,
   // 맨 아래를 보고 있는 동안 새 줄이 오면 따라 내려간다. 위로 올려 보고 있으면 그대로 둔다.
@@ -260,6 +271,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const showTalkTab = !(live && dock === 'talk')
   const showHeardTab = seller && !(live && dock === 'voice')
   const shownTab = (tab === 'talk' && !showTalkTab) || (tab === 'heard' && !showHeardTab) ? 'products' : tab
+  useEffect(() => {
+    setSearchPad(false)
+    setSearchDigits('')
+  }, [broadcastId, shownTab])
+
   // 방송 소리 듣기는 앱 뿌리가 붙잡는다 — 이 화면을 나가도 계속 듣는다 (D-UX3-48). 방송이 끝났거나 닫혔으면 놓는다
   const streamTitle = broadcast === null || broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const knownOver = broadcast !== null && !live
@@ -364,7 +380,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
 
   return (
     <ConsoleContext.Provider value={api}>
-      <View style={{ flex: 1, backgroundColor: p.background }} testID="console-screen">
+      <View style={{ flex: 1, backgroundColor: p.background }} testID="console-screen"
+        onTouchStart={searchPad ? closeSearchPad : undefined}
+        onPointerDown={searchPad ? closeSearchPad : undefined}>
         {/* 상태 막대 자리 (D-UX4-51): 겹쳐 뜨는 화면은 이 자리까지 덮는다 */}
         <View style={{ height: pageTop }} />
         <AppHeader
@@ -385,6 +403,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         <View style={{ flex: 1 }}>
         <ScrollView
           ref={scroll}
+          onScrollBeginDrag={searchPad ? closeSearchPad : undefined}
           scrollEventThrottle={100}
           onScroll={(event) => {
             const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
@@ -420,7 +439,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
             <Appear instant={!listLate} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
-              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
+              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} numberSearch={{ open: () => setSearchPad(true), submit: closeSearchPad }} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
             </Appear>
           </View>
           {/* (+) 단추에 마지막 줄이 가리지 않게 */}
@@ -432,6 +451,13 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         {/* 맨 아래 창은 관리 "화면 아래 창"에서 고른 것 (D-UX4-71): 들린 말 · 채팅·문자 · 안 보기 */}
         {live && dock === 'voice' ? <ListenLine session={services.voice} broadcastId={broadcastId} stream={stream} bottom={Math.max(inset, SPACE.sm)} /> : null}
         {live && dock === 'talk' ? <TalkDock bottom={Math.max(inset, SPACE.sm)} /> : null}
+
+        {shownTab === 'products' && searchPad ? (
+          <View onTouchStart={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}
+            style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: p.surface, paddingBottom: Math.max(inset, SPACE.sm) }}>
+            <NumberKeys doubleZero={false} onKey={key => setSearchDigits(value => key === 'back' ? value.slice(0, -1) : value + key)} />
+          </View>
+        ) : null}
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
         {/* 고치기는 반 화면 판 · 확인 시 저장 (D-UX4-106) */}
