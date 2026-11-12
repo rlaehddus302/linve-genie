@@ -171,6 +171,31 @@ class Poster:
 
         threading.Thread(target=go, name="renumber", daemon=True).start()
 
+    def rename(self, vid, no, name, n):
+        """품종 이름 고치기(D-SCR-07): 서버가 일꾼 등록이고 판매자가 이름을 고친 적 없을 때만 바꾼다. n = 이 번호의 몇 번째 고침(요청 번호용)"""
+        base = self.url.rsplit("/", 1)[0]
+        body = {"videoId": vid, "no": int(no), "name": str(name)[:NAME_MAX], "requestId": f"screen-{vid}-name-{int(no)}-{int(n)}"}
+
+        def go():
+            for wait in (0, 5, 15):
+                time.sleep(wait)
+                try:
+                    token = read_token(self.token_file)
+                except (OSError, ValueError) as e:
+                    log(f"이름 고치기 {no}번 → 토큰 파일을 못 읽음({type(e).__name__})")
+                    return
+                status, res = http_json("POST", base + "/rename", token, body)
+                if status == 200 and isinstance(res, dict):
+                    skips = [r.get("skip") for r in res.get("broadcasts", []) if r.get("skip")]
+                    log(f"이름 고치기 {no}번 → {name}: " + ("바꿈" if res.get("changed") else f"그대로({', '.join(skips) or '바뀐 것 없음'})"))
+                    return
+                if status is not None and status < 500:
+                    log(f"이름 고치기 {no}번 → 거절(HTTP {status})")
+                    return
+            log(f"이름 고치기 {no}번 → 서버에 못 보냄")
+
+        threading.Thread(target=go, name="rename", daemon=True).start()
+
     def pending(self):
         with self.cv:
             return len(self.items) + self.busy

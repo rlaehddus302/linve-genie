@@ -34,6 +34,13 @@ CONF = {"high": 0.9, "medium": 0.7, "low": 0.5}
 # 보낸 번호 N이 그 말 5초 앞부터 화면에 한 번도 안 읽혔는데, 그동안 다른 번호표 M이 크게 FIX_FRAMES초 이상 보였고
 # M을 아직 보내지 않았으면 서버에 N → M 번호 바꾸기를 묻는다(서버가 찜·M 상품 유무를 다시 보고 안전할 때만 바꾼다).
 # 말한 뒤 FIX_MIN초까지는 기다리고(번호표를 늦게 드는 판매자), FIX_MAX초가 지나면 그 번호는 더 보지 않는다.
+# 품종 이름 고치기 (D-SCR-07): 보낸 뒤 NAME_WINDOW초 안의 LLM 답 중 "확실(high)"한 이름만 센다. 가장 많이 나온 이름(같으면 나중 것)이
+# 지금 서버에 보낸 이름과 다르면 고쳐 보낸다(번호마다 NAME_MAX_FIX번까지). 확실한 답이 NAME_VOTES번 이상이고 다른 이름보다 많아야 한다
+# (끝난 방송 재현 2026-11-12: 한 번만으로 바꾸면 재고·베개처럼 품종 아닌 말로 바뀌거나 이름이 오락가락했다).
+NAME_WINDOW = float(os.environ.get("LLM_NAME_WINDOW", 180))
+NAME_MAX_FIX = int(os.environ.get("LLM_NAME_MAX_FIX", 1))
+NAME_VOTES = int(os.environ.get("LLM_NAME_VOTES", 2))
+NOT_NAMES = {"재고", "제고", "재구", "베개", "서비스", "특가"}         # 품종이 아닌데 LLM이 이름 칸에 적은 말
 FIX_FRAMES = int(os.environ.get("LLM_FIX_FRAMES", 15))
 FIX_MIN = float(os.environ.get("LLM_FIX_MIN", 20))
 FIX_MAX = float(os.environ.get("LLM_FIX_MAX", 180))
@@ -88,6 +95,7 @@ class LlmRegister:
         self.found = []                                      # LLM 줄 [{t, line, no, price, variety, confidence, why}]
         self.sent = {}                                       # 번호 → 보낸 상품(또는 안 보낸 까닭)
         self.last_evidence = {}
+        self.names = {}                                      # 보낸 번호 → {"t": 처음 말한 방송 초, "now": 지금 서버 이름, "sure": 그 이름이 확실했나, "votes": Counter, "last": {이름: 시각}, "fixes": 횟수}
         self.watch = {}                                      # 보낸 번호 → 말한 줄 시작(방송 초) — 화면으로 맞는지 볼 것 (D-SCR-06)
         self.calls = 0
         self.log = open(os.path.join(out, "llm_live.jsonl"), "a", encoding="utf-8")
@@ -188,6 +196,7 @@ class LlmRegister:
                                "line": r["line"], "start_sec": start, "price": r["price"]})
                     continue
                 self.found.append(r)
+                self._vote_name(r)
                 if r["price"]:
                     no = r["no"]
                     previous = self.last_evidence.get(no)
@@ -198,6 +207,34 @@ class LlmRegister:
                         self._send(r)
 
         self._check_numbers(cand, mains)
+
+    def _vote_name(self, r):
+        """D-SCR-07: 보낸 번호에 대한 확실한 품종 답을 세고, 지금 이름과 다르면 고쳐 보낸다"""
+        g = self.names.get(r["no"])
+        name = (r.get("variety") or "").strip()
+        if g is None or not name or str(r.get("confidence")).lower() != "high" or r["t"] - g["t"] > NAME_WINDOW:
+            return
+        key = "".join(name.split())
+        if key in NOT_NAMES:
+            return
+        g["votes"][key] += 1
+        g["last"][key] = r["t"]
+        g["shown"][key] = name
+        ranked = sorted(g["votes"], key=lambda k: (g["votes"][k], g["last"][k]), reverse=True)
+        best = ranked[0]
+        if best == "".join((g["now"] or "").split()) or g["fixes"] >= NAME_MAX_FIX:
+            return
+        # 처음 이름이 확실(high)했으면 한 표 더 (재현: 청개구리 → 청수처럼 맞던 이름을 바꾸는 일을 줄인다)
+        need = NAME_VOTES + (1 if g["now"] and g["sure"] else 0)
+        if g["votes"][best] < need or (len(ranked) > 1 and g["votes"][ranked[1]] >= g["votes"][best]):
+            return
+        g["fixes"] += 1
+        old, g["now"], g["sure"] = g["now"], g["shown"][best], True
+        rec = {"kind": "LLM이름고치기", "no": r["no"], "from": old, "to": g["now"], "votes": g["votes"][best], "sent": bool(self.poster)}
+        self.emit(rec)
+        print(f"           이름 고치기 {r['no']}번 {old or '(없음)'} → {g['now']}", flush=True)
+        if self.poster:
+            self.poster.rename(self.video_id, r["no"], g["now"], g["fixes"])
 
     def _check_numbers(self, cand, mains):
         """D-SCR-06: 보낸 번호가 화면에 안 보이고 다른 번호표만 오래 보이면 그 번호로 바꿔 달라고 서버에 묻는다"""
@@ -299,6 +336,8 @@ class LlmRegister:
         rec["sent"] = bool(self.poster) and why is None
         if rec["sent"]:
             self.watch[no] = r["t"]
+            sure = bool(name) and str(r.get("confidence")).lower() == "high"
+            self.names[no] = {"t": r["t"], "now": name, "sure": sure, "votes": collections.Counter(), "last": {}, "shown": {}, "fixes": 0}
         if why:
             rec["skip"] = why
         self.sent[no] = rec

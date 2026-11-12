@@ -173,6 +173,66 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     return json({ ok: true, changed: results.some((r) => r.changed), from, to, broadcasts: results }, 200)
   })
   app.all('/internal/screen/renumber', () => json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'POST만 받아요.' } }, 405))
+  // 품종 이름 고치기 `POST /internal/screen/rename` (D-SCR-07, 사용자 2026-11-12 "이름 고치기 만들어"): LLM이 처음엔 비우거나 틀렸다가(정개구리·상광)
+  // 뒤 답에서 확실하게 맞춘 품종으로 바꾼다. 받는 값 { videoId, no, name, requestId }. 방송마다 지금 상태로 다시 보고,
+  // 그 번호의 마지막 등록이 일꾼 것(요청 번호 screen-)이고 판매 종료가 아니며 판매자 계정이 그 번호의 이름을 고친 적이 없을 때만 product.update(name).
+  // 판매자가 고친 이름은 절대 덮어쓰지 않는다. 이미 같은 이름이면 아무 일도 없다.
+  app.post('/internal/screen/rename', async (c) => {
+    if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
+    if (!bearerMatches(c.req.header('authorization'), deps.token)) return json({ error: { code: 'UNAUTHORIZED', message: '일꾼 토큰이 필요해요.' } }, 401)
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return bad('JSON이 아니에요.')
+    }
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
+    const b = body as Record<string, unknown>
+    if (Object.keys(b).some((k) => !['videoId', 'no', 'name', 'requestId'].includes(k))) return bad('받을 수 없는 항목이 있어요.')
+    const { videoId, no, name, requestId } = b
+    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
+    if (typeof no !== 'number' || !Number.isInteger(no) || no < 1 || no > 9999) return bad('no는 1~9999 정수예요.')
+    if (typeof name !== 'string' || name.trim() === '' || [...name].length > NAME_MAX) return bad(`name은 1~${String(NAME_MAX)}자예요.`)
+    if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
+    const open = await openBroadcastsOfVideo(deps.db, videoId)
+    if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    const results: { broadcastId: string; changed: boolean; skip?: string }[] = []
+    for (const { sellerId, broadcastId } of open) {
+      const [broadcast] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, sellerId)))
+      if (broadcast === undefined) continue
+      let byScreen = false
+      let sellerNamed = false
+      let skip: string | undefined
+      const outcome = await deps.service.writer.write({
+        sellerId, date: broadcast.date, rehearsal: false, createScope: false, requestId,
+        guard: async (tx, runtime) => {
+          if (runtime.scopeId === null) return null
+          const ofNo = and(eq(events.sellerId, sellerId), eq(events.scopeId, runtime.scopeId), sql`${events.body}::jsonb->>'b' = ${broadcastId}`, sql`${events.body}::jsonb->>'no' = ${String(no)}`)
+          const [reg] = await tx.select({ requestId: events.requestId }).from(events)
+            .where(and(ofNo, eq(events.type, 'product.register'), eq(events.changed, true))).orderBy(desc(events.seq)).limit(1)
+          byScreen = reg?.requestId?.startsWith('screen-') === true
+          const [edit] = await tx.select({ seq: events.seq }).from(events)
+            .where(and(ofNo, eq(events.type, 'product.update'), eq(events.actor, 'account'), sql`${events.body}::jsonb ? 'name'`)).limit(1)
+          sellerNamed = edit !== undefined
+          return null
+        },
+        build: ({ state }) => {
+          const product = getProduct(state, broadcastId, no)
+          if (product === null || product.status === 'CLOSED') skip = 'NO_PRODUCT'
+          else if (!byScreen) skip = 'NOT_SCREEN'
+          else if (sellerNamed) skip = 'SELLER_NAMED'
+          else if (product.name === name.trim()) skip = 'SAME'
+          return skip === undefined ? [{ fields: { type: 'product.update', b: broadcastId, no, name: name.trim() }, actor: { kind: 'server' }, requestId }] : []
+        },
+      })
+      if (outcome.kind === 'ok') results.push({ broadcastId, changed: outcome.result.changed })
+      else if (outcome.kind === 'empty' || outcome.kind === 'duplicate') results.push({ broadcastId, changed: false, ...(skip === undefined ? {} : { skip }) })
+      else if (outcome.kind === 'rejected') results.push({ broadcastId, changed: false, skip: outcome.rejection.code })
+      else return json({ error: { code: 'SAVE_FAILED', message: '저장하지 못했어요.' } }, 503)
+    }
+    return json({ ok: true, changed: results.some((r) => r.changed), no, broadcasts: results }, 200)
+  })
+  app.all('/internal/screen/rename', () => json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'POST만 받아요.' } }, 405))
   // 지금 볼 라이브 (D-SCR-02): 일꾼이 30초마다 묻고, 목록에 생긴 영상에 붙고 빠진 영상에서 떨어진다 — 끊지 않은 연결 + 끝나지 않은 방송의 유튜브 영상 번호만(판매자 정보 없이)
   app.get('/internal/screen/live', async (c) => {
     if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
