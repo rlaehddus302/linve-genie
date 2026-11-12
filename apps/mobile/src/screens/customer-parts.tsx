@@ -24,7 +24,7 @@ export function SearchField({ label, value, onChangeText, placeholder, keyboardT
   const { p, fontScale, forced } = useKit()
   const size = TYPE.bodyLarge * (forced ? fontScale : 1)
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TOUCH.min + 2, paddingLeft: SPACE.lg, paddingRight: SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surface }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TOUCH.min + 2, paddingLeft: SPACE.lg, paddingRight: numberSearch && value !== '' ? SPACE.lg : SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surface }}>
       <SearchGlyph color={p.placeholder} />
       <TextInput
         aria-label={label}

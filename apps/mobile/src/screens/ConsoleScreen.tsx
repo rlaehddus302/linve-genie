@@ -138,6 +138,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   const [searchDigits, setSearchDigits] = useState('')
   const [searchPad, setSearchPad] = useState(false)
   const draggingSearch = useRef(false)
+  const padOpacity = useRef(new Animated.Value(1)).current
+  const openSearchPad = () => {
+    padOpacity.setValue(1)
+    setSearchPad(true)
+  }
   const closeSearchPad = useCallback(() => {
     setSearchPad(false)
     Keyboard.dismiss()
@@ -414,8 +419,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           removeClippedSubviews={false}
           testID="console-scroll"
           ref={scroll}
-          // 드래그 중 숫자판을 내리면 iOS가 같은 손짓의 스크롤을 취소한다. 손을 뗄 때까지 목록과 숫자판을 유지한다.
-          onScrollBeginDrag={() => { draggingSearch.current = searchPad }}
+          // 숫자판을 즉시 숨기되 손을 뗄 때까지 레이아웃을 유지해야 iOS가 첫 스크롤을 계속 받는다.
+          onScrollBeginDrag={() => {
+            draggingSearch.current = searchPad
+            if (searchPad) padOpacity.setValue(0)
+          }}
           onScrollEndDrag={() => {
             if (draggingSearch.current) closeSearchPad()
             draggingSearch.current = false
@@ -459,14 +467,14 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
             <Appear instant={!listLate} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
-              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} numberSearch={{ open: () => setSearchPad(true), submit: closeSearchPad }} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
+              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
             </Appear>
           </View>
           {/* (+) 단추에 마지막 줄이 가리지 않게 */}
           {shownTab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
           {shownTab === 'products' && searchPad ? (
             // 숫자 키에서 시작한 드래그도 목록의 네이티브 스크롤이 받도록 같은 ScrollView에 둔다.
-            <Animated.View style={{ position: 'absolute', zIndex: 12, left: 0, right: 0, top: Math.max(0, viewportHeight - padHeight), transform: [{ translateY: scrollOffset }] }}>
+            <Animated.View style={{ position: 'absolute', opacity: padOpacity, zIndex: 12, left: 0, right: 0, top: Math.max(0, viewportHeight - padHeight), transform: [{ translateY: scrollOffset }] }}>
               <Appear distance={padHeight} style={{ ...SHADOW.sheet, backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.line }}>
                 <View onTouchEnd={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}
                   style={{ paddingBottom: padInset }}>
