@@ -17,7 +17,7 @@ export interface ScreenIntakeDeps {
   /** 일꾼 토큰 (LIVEJJIM_SCREEN_WORKER_TOKEN, 32자 이상). null이면 입구가 없다(404) */
   readonly token: string | null
   readonly db: Db
-  readonly service: Pick<Service, 'writeEvent' | 'writer'>
+  readonly service: Pick<Service, 'writeEvent' | 'writer' | 'endBroadcast'>
 }
 
 const VIDEO_RE = /^[A-Za-z0-9_-]{11}$/
@@ -233,6 +233,36 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     return json({ ok: true, changed: results.some((r) => r.changed), no, broadcasts: results }, 200)
   })
   app.all('/internal/screen/rename', () => json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'POST만 받아요.' } }, 405))
+  // 끝내지 않은 옛 방송 끝내기 `POST /internal/screen/end-stale` (D-SCR-08, 사용자 2026-11-12 "옛 방송 다 끝내줘"):
+  // 받는 값 { videoId }. 그 영상에 이어진 끝나지 않은 방송 가운데 **방송 날짜가 오늘(한국 시각)보다 앞선 것만** 판매자의 [라이브 연결 끊기]와 같은 길
+  // (service.endBroadcast, 요청 번호 live-end-<방송> — 저절로 끝내기와 같아 두 번 와도 한 번)로 끝낸다. 오늘 방송은 건드리지 않는다.
+  app.post('/internal/screen/end-stale', async (c) => {
+    if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
+    if (!bearerMatches(c.req.header('authorization'), deps.token)) return json({ error: { code: 'UNAUTHORIZED', message: '일꾼 토큰이 필요해요.' } }, 401)
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return bad('JSON이 아니에요.')
+    }
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
+    const { videoId } = body as Record<string, unknown>
+    if (Object.keys(body).some((k) => k !== 'videoId')) return bad('받을 수 없는 항목이 있어요.')
+    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+    const results: { broadcastId: string; date: string; result: string }[] = []
+    for (const { sellerId, broadcastId } of await openBroadcastsOfVideo(deps.db, videoId)) {
+      const [row] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, sellerId)))
+      if (row === undefined) continue
+      if (row.date >= today) {
+        results.push({ broadcastId, date: row.date, result: 'TODAY' })
+        continue
+      }
+      const outcome = await deps.service.endBroadcast(sellerId, { kind: 'server' }, `live-end-${broadcastId}`.slice(0, 64), broadcastId)
+      results.push({ broadcastId, date: row.date, result: outcome.kind === 'ok' ? (outcome.records.some((r) => r.changed) ? 'ENDED' : 'ALREADY_ENDED') : outcome.kind.toUpperCase() })
+    }
+    return json({ ok: true, videoId, broadcasts: results }, 200)
+  })
   // 지금 볼 라이브 (D-SCR-02): 일꾼이 30초마다 묻고, 목록에 생긴 영상에 붙고 빠진 영상에서 떨어진다 — 끊지 않은 연결 + 끝나지 않은 방송의 유튜브 영상 번호만(판매자 정보 없이)
   app.get('/internal/screen/live', async (c) => {
     if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
